@@ -41,6 +41,10 @@ const REST_Y: Record<ItemCategory, number> = {
   book: 0.06,
   /* appended: 2026-09-08 — 임플란트 (small capsule) */
   implant: 0.08,
+  /* appended: 2026-09-11 온실 개편 — 작물은 약초처럼 낮게 눕고, 토양은 한 자루라 재료 상자와 같은 높이다.
+     둘 다 `crate` 실루엣(default 가지)을 타고 색은 def 의 등급색이다 (`CATEGORY_COLOR.crop/soil` 은 목록 · 탭용). */
+  crop: 0.07,
+  soil: 0.14,
 };
 
 /**

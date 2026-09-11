@@ -164,6 +164,12 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (h && typeof h.openGrowMenu === 'function') h.openGrowMenu(uid);
       else ctx.bus.emit('ui:notify', { text: '재배층을 사용할 수 없습니다', kind: 'warning' });
     },
+    // 온실 개편 (2026-09-11): 재배 스테이션 — 옛 재배층 경로는 위에 그대로 두고 새 문을 하나 더 연다
+    onGrowStation: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openGrowStation === 'function') h.openGrowStation(uid);
+      else ctx.bus.emit('ui:notify', { text: '재배 스테이션을 사용할 수 없습니다', kind: 'warning' });
+    },
     onRepairBench: () => sys.wbMenu.open(),
     onBookshelf: (uid) => {
       const h = ctx.housing;

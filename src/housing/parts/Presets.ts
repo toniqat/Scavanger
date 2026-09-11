@@ -22,7 +22,6 @@ import {
 } from '../Rules';
 import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
 import { PresetMenu } from '../ui/PresetMenu';
-import { GrowMenu } from '../ui/GrowMenu';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
 import { formatRemaining } from '../ui/dom';
@@ -84,7 +83,7 @@ export function captureLoadout(sys: HousingSystem): LoadoutPreset | null {
 export function panels(sys: HousingSystem): HousingPanel[] {
   const out: HousingPanel[] = [];
   if (sys.presetMenu) out.push(sys.presetMenu);
-  if (sys.growMenu) out.push(sys.growMenu);
+  if (sys.growStation) out.push(sys.growStation);
   if (sys.bookshelfMenu) out.push(sys.bookshelfMenu);
   return out;
   }

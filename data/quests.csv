@@ -17,3 +17,6 @@ c3,ceres,고대 성유물,2,c2,alien_relic:1,600,1500,1500,bag_epic_tac:1,고대
 ci1,ceres,신경 접합제,1,,herb_bloodroot:6|herb_ashleaf:4|mat_antiseptic:3,200,300,200,imp_perception_3:1,"혈근초 6개, 잿빛잎 4개, 소독약 3개를 납품한다. 보상: 인지력 임플란트 III."
 ci2,ceres,망가진 회로 분석,,ci1,imp_broken_intelligence_1:1|mat_circuit:2|mat_bio_sample:6,260,450,300,imp_intelligence_3:1,"망가진 지능 임플란트 1개, 회로 기판 2개, 생체 조직 6개를 납품한다. 보상: 지능 임플란트 III."
 ci3,ceres,가속 대사 임상,3,ci2,herb_glowcap:6|mat_antiseptic:6|mat_syringe:6|terminid_gland:4|mat_circuit:4,600,1500,800,imp_perk_quick_heal:1,"발광버섯 6개, 소독약 6개, 주사기 6개, 터미니드 분비선 4개, 회로 기판 4개를 납품한다. 보상: 가속 대사 (전설 임플란트)."
+# 온실 납품 (2026-09-11 온실 개편) — 세레스 바이오만 작물 · 신규 약재를 받는다. 코드 변경 없이 `deliver` 만으로 동작한다.
+cg1,ceres,함선 작물 시식,1,ci1,crop_tuber:6|crop_beanpod:6|crop_leafgreen:6,220,350,250,seed_capfungus:2,"회색 덩이줄기 6개, 단백 콩깍지 6개, 온실 잎채소 6개를 납품한다. 보상: 식용 갓버섯 균사 2개."
+cg2,ceres,온실 약재 임상,2,cg1,herb_frostmoss:5|herb_emberpod:5|herb_ironleaf:3,400,800,600,soil_mineral:2,"서리이끼 5개, 불씨꼬투리 5개, 철엽초 3개를 납품한다. 보상: 광물토 2개."

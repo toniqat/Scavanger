@@ -1,7 +1,7 @@
-import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, SkillId, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
+import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, SkillId, SoilDef, SoilTag, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON,
-  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, csvRows, keyTable, numberMap, rarityForGrade,
+  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 
 /*
@@ -151,8 +151,12 @@ export const BAG_ITEM_DEFS: readonly ItemDef[] = csvRows('bags.csv').map((r) => 
 });
 
 /* ── 씨앗 (Phase 8) — data/seeds.csv ──────────────────────────────────────────
- * Planted in a 온실 재배층 (`furn_grow_rack`); `SeedDef.growHours` is **real** wall-clock time and keeps running while
- * the game is closed (housing/ owns the plots). Loot (tier 1–3 containers, 벌레 시체) + 기업 상점 only — never craftable. */
+ * Planted in a 온실 재배 스테이션; `SeedDef.growHours` is **real** wall-clock time and keeps running while
+ * the game is closed (housing/ owns the plots). Loot (tier 1–3 containers, 벌레 시체) + 기업 상점 only — never craftable.
+ *
+ * 2026-09-11 (온실 개편): 한 줄마다 **`soilTag`** 가 붙었다 — 그 칸에 부어 둔 토양의 태그와 같으면
+ * `SOIL_MATCH_SPEEDUP` 만큼 빨리, 다르면 `SOIL_MISMATCH_PENALTY` 만큼 늦게 자란다 (판정은 `housing/`).
+ * 필수 열이라 `r.enum` 의 fallback 을 주지 않는다 — 빠뜨린 줄은 `npm run data:check` 가 잡는다. */
 /** Seeds share the category glyph and a leaf-green tint so a 씨앗 reads as one at a glance in the grid. */
 const SEED_ICON = CATEGORY_ICON.seed;
 const SEED_COLOR = CATEGORY_COLOR.seed;
@@ -162,6 +166,7 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = csvRows('seeds.csv').map((r) =
     growHours: r.num('growHours', { min: 0 }),
     yieldDefId: r.str('yieldDefId'),
     yieldQty: r.int('yieldQty', { min: 1 }),
+    soilTag: r.enum('soilTag', SOIL_TAGS),
   };
   return {
     ...def({
@@ -236,6 +241,12 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
       },
     } : {}),
   } : undefined;
+  /* 2026-09-11 (온실 개편): `category: 'soil'` 줄만 `soilTag` · `soilUses` 를 채운다 — `heal*` · `gadgetId` 와 같은
+   * 선택 열 규약이다 (칸이 비어 있으면 필드 자체가 안 붙는다). `uses` 는 한 번 부은 토양이 견디는 수확 횟수이고
+   * 그 등급 곡선은 `SOIL_USES_BY_RARITY`(data/tables.csv) 다 — csv 의 값이 실제로 쓰이는 숫자다. */
+  const soil: SoilDef | undefined = r.has('soilTag')
+    ? { tag: r.enum('soilTag', SOIL_TAGS) as SoilTag, uses: r.int('soilUses', { min: 1 }) }
+    : undefined;
   return def({
     id: r.str('id'), name: r.str('name'), category: r.str('category') as ItemCategory,
     rarity: r.str('rarity') as Rarity,
@@ -248,6 +259,7 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
     ...(r.has('durabilityMax') ? { durabilityMax: r.num('durabilityMax', { min: 0 }) } : {}),
     ...(r.has('healAmount') ? { healAmount: r.num('healAmount', { min: 0 }) } : {}),
     ...(heal ? { heal } : {}),
+    ...(soil ? { soil } : {}),
   });
 });
 
@@ -301,6 +313,10 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   /* materials · herbs (gathered from world plants) */
   ...itemGroup('material'),
   ...itemGroup('herb'),
+  /* 2026-09-11 온실 개편: 작물(재배층 수확물 — 판매 · 세레스 납품) · 토양(채집 노드 전용, 재배층에 붓는다).
+     약초 바로 뒤에 두어 "밭에서 나온 것" 이 목록에서 한 덩어리로 읽힌다. */
+  ...itemGroup('crop'),
+  ...itemGroup('soil'),
   /* seeds (Phase 8: 온실 재배층에 심는다) · books (Phase 9: 서재 책장에 꽂는다) */
   ...SEED_ITEM_DEFS,
   ...BOOK_ITEM_DEFS,

@@ -1,6 +1,10 @@
-import type { CraftIngredient, FacilityId, FurnitureDef, ItemDef, PlacedBook, PlacedFurniture, RoomPurpose, ShipState, SkillId } from '@/shared';
+import type {
+  CraftIngredient, FacilityId, FurnitureDef, GrowTier, ItemDef, PlacedBook, PlacedFurniture, RoomPurpose, ShipState, SkillId,
+  SoilTag,
+} from '@/shared';
 import {
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
+  GROW_SKILL_SPEEDUP, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
   RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
   SHIP_ROOM_COUNT,
@@ -207,6 +211,80 @@ export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], def
   }
   if (sum <= 0) return 1;
   return Math.min(BOOK_GAIN_MAX, 1 + BOOK_XP_PER_BOOK * sum);
+}
+
+/* ── 온실 재배 스테이션 (2026-09-11) ──────────────────────────────────────────
+ * 순수 판정만 여기 있다 — 층이 열렸는가 · 토양 궁합 · 성장에 걸리는 시간 · 진행도. 상태를 건드리는 것은
+ * `parts/Garden.ts` 이고, 수치는 전부 `@/shared`(= `data/*.csv`) 에서 온다.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 재배 스테이션 레벨이 `tier` 를 여는 최소 레벨 (아래 2 · 위 3). 숫자를 다시 적지 않고 계약
+ * (`growTiersForLevel`) 에서 **유도한다** — 층을 여는 레벨이 바뀌면 이 함수가 저절로 따라간다.
+ */
+export function growTierUnlockLevel(tier: GrowTier): number {
+  const max = GROW_TIER_DRAW_ORDER.length;
+  for (let level = 1; level <= max; level++) if (growTiersForLevel(level).includes(tier)) return level;
+  return max;
+}
+
+/** Is `tier` open at a station of `level`? */
+export function growTierOpen(level: number, tier: GrowTier): boolean {
+  return growTiersForLevel(Math.max(0, Math.floor(level))).includes(tier);
+}
+
+/** 씨앗이 원하는 토양과 부어 둔 토양이 같은가 (둘 중 하나라도 모르면 false = 궁합 패널티). */
+export function soilMatches(soilTag: SoilTag | null | undefined, seedTag: SoilTag | null | undefined): boolean {
+  return !!soilTag && !!seedTag && soilTag === seedTag;
+}
+
+/**
+ * 심는 순간 확정되는 성장 시간(ms): `growHours × 3600e3 × 원예 단축 × 토양 궁합`.
+ * 궁합이 맞으면 `1 − SOIL_MATCH_SPEEDUP`, 아니면 `1 + SOIL_MISMATCH_PENALTY` 다 (토양 없이 심는 경우는 없다).
+ * 1초 미만으로는 내려가지 않는다.
+ */
+export function growDurationMs(growHours: number, matched: boolean, gardening: number): number {
+  const skill = Math.max(0, Math.min(SKILL_LEVEL_MAX, gardening));
+  const speed = 1 - GROW_SKILL_SPEEDUP * (skill / SKILL_LEVEL_MAX);
+  const soil = matched ? 1 - SOIL_MATCH_SPEEDUP : 1 + SOIL_MISMATCH_PENALTY;
+  return Math.max(1000, Math.round(Math.max(0, growHours) * 3600e3 * speed * soil));
+}
+
+/** 0…1 진행도 (심은 적이 없으면 −1). 미래 시각으로 심힌 저장(시계가 틀린 클라이언트)도 클램프된다. */
+export function growProgress(now: number, plantedAt: number | undefined, readyAt: number | undefined): number {
+  if (!plantedAt || !readyAt) return -1;
+  const total = Math.max(1, readyAt - plantedAt);
+  return Math.max(0, Math.min(1, (now - plantedAt) / total));
+}
+
+/** 남은 초 (여물었거나 비었으면 0). */
+export function growRemainingS(now: number, readyAt: number | undefined): number {
+  if (!readyAt) return 0;
+  return Math.max(0, Math.ceil((readyAt - now) / 1000));
+}
+
+/* ── 은퇴 가구 환불 (온실 개편, 2026-09-11) ───────────────────────────────── */
+
+/**
+ * 은퇴한(`FurnitureDef.retired`) 가구 한 점이 돌려주는 재료 — 제작비 + 그 레벨까지의 강화비 전부, 재료별로 합산.
+ * 시설 환불(`facilityRefundCost`)과 같은 철학이다: **지금의 표**를 그대로 되돌려 준다.
+ */
+export function furnitureRefundCost(def: FurnitureDef, level: number): CraftIngredient[] {
+  const total = new Map<string, number>();
+  for (const c of def.craft ?? []) total.set(c.defId, (total.get(c.defId) ?? 0) + c.qty);
+  for (let k = 1; k < Math.max(1, Math.floor(level)); k++) {
+    for (const c of nextFurnitureCost(def, k) ?? []) total.set(c.defId, (total.get(c.defId) ?? 0) + c.qty);
+  }
+  return [...total].map(([defId, qty]) => ({ defId, qty }));
+}
+
+/** 재료 목록 두 개를 재료별로 합친다 (은퇴 가구 여러 점의 환불을 모을 때). */
+export function mergeCost(into: CraftIngredient[], add: readonly CraftIngredient[], times = 1): CraftIngredient[] {
+  for (const c of add) {
+    const hit = into.find((e) => e.defId === c.defId);
+    if (hit) hit.qty += c.qty * times; else into.push({ defId: c.defId, qty: c.qty * times });
+  }
+  return into;
 }
 
 /* ── rooms ────────────────────────────────────────────────────────────────── */

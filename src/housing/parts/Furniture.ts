@@ -24,12 +24,11 @@ import {
 import type { FurniturePlacement } from '../Rules';
 import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
 import { PresetMenu } from '../ui/PresetMenu';
-import { GrowMenu } from '../ui/GrowMenu';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
 import { formatRemaining } from '../ui/dom';
 import type { HousingPanel } from '../ui/Panel';
-import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
+import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 
 export function storageEntry(sys: HousingSystem, defId: string): StoredFurniture | null {
@@ -148,11 +147,16 @@ export function rotateSelection(sys: HousingSystem): void {
   }
 
 /* ── furniture ─────────────────────────────────────────────────────────── */
+/**
+ * Def by id — **은퇴 가구도 돌려준다**. 옛 세이브가 들고 있던 가구의 값(`furnitureRefundCost`)을 알려면 필요하고,
+ * 목록에 실릴지 말지는 `getAllFurnitureDefs` · `getFurnitureFor` 가 따로 정한다 (온실 개편, 2026-09-11).
+ */
 export function getFurnitureDef(sys: HousingSystem, id: string): FurnitureDef | undefined { return FURNITURE_DEF_MAP.get(id); }
 
-export function getAllFurnitureDefs(sys: HousingSystem): readonly FurnitureDef[] { return FURNITURE_DEFS; }
+/** 카탈로그 — `retired` 가구는 빠진다. */
+export function getAllFurnitureDefs(sys: HousingSystem): readonly FurnitureDef[] { return ACTIVE_FURNITURE_DEFS; }
 
-export function getFurnitureFor(sys: HousingSystem, purpose: RoomPurpose): readonly FurnitureDef[] { return FURNITURE_DEFS.filter((d) => furnitureAllowedIn(d, purpose)); }
+export function getFurnitureFor(sys: HousingSystem, purpose: RoomPurpose): readonly FurnitureDef[] { return ACTIVE_FURNITURE_DEFS.filter((d) => furnitureAllowedIn(d, purpose)); }
 
 export function getPlaced(sys: HousingSystem, room?: number): readonly PlacedFurniture[] { return room === undefined ? sys.state.furniture : sys.state.furniture.filter((f) => f.room === room); }
 
@@ -180,7 +184,7 @@ export function place(sys: HousingSystem, room: number, defId: string, x: number
   if (sys.ctx.tutorial?.blockReason('furniture', defId)) return null;   // 2026-09-08: 튜토리얼 순서 강제
   const entry = sys.storageEntry(defId);
   const def = FURNITURE_DEF_MAP.get(defId);
-  if (!def || !entry || !sys.canPlace(room, defId, x, y, yaw)) return null;
+  if (!def || def.retired || !entry || !sys.canPlace(room, defId, x, y, yaw)) return null;   // 은퇴 가구는 다시 놓지 않는다
   sys.takeFromStorage(entry);
   const item: PlacedFurniture = { uid: `f-${++sys.nextUid}`, defId, room, x, y, yaw, level: entry.level };
   const limit = stackLimitOf(def);
@@ -232,7 +236,7 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   if (hadBooks > 0 && !sys.stashBooksOf(uid)) { sys.notify(BOOKS_BLOCK_REASON, 'warning'); return false; }
   sys.state.furniture.splice(i, 1);
   sys.addToStorage(item.defId, item.level);
-  sys.dropPlotsOf(uid);
+  sys.dropGrowsOf(uid);                       // 재배 스테이션을 회수하면 토양 · 작물도 함께 사라진다
   sys.ctx.bus.emit('housing:furnitureRecovered', { uid, defId: item.defId, room: item.room });
   sys.changed('recover');
   if (hadBooks > 0) sys.ctx.bus.emit('housing:booksChanged', { uid, count: 0 });
@@ -241,7 +245,7 @@ export function recover(sys: HousingSystem, uid: string): boolean {
 
 export function canCraftFurniture(sys: HousingSystem, defId: string): { ok: boolean; missing: CraftIngredient[] } {
   const def = FURNITURE_DEF_MAP.get(defId);
-  if (!def || !def.craft) return { ok: false, missing: [] };
+  if (!def || !def.craft || def.retired) return { ok: false, missing: [] };   // 은퇴 가구는 제작 목록에 없다
   // 2026-09-08: 튜토리얼 중에는 그 단계가 허락한 가구만 (사유는 `furnitureBlock` 이 돌려준다)
   if (sys.ctx.tutorial?.blockReason('furniture', defId)) return { ok: false, missing: [] };
   const missing = missingIngredients(def.craft, sys.countDef);

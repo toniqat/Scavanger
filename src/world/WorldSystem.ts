@@ -247,7 +247,9 @@ export class WorldSystem implements GameSystem, WorldRef {
     lap('props');
     this.crates.build(bctx, ctx);
     lap('crates');
-    this.gather.build(bctx, ctx, def?.eco ?? null, this.hazardSys.getGroveSpots());
+    // 2026-09-11 (온실 개편): 토양 더미는 **행성**이 정한다 (`data/planets.csv` 의 `soils` · `soilNodes`) —
+    // `PlanetEcosystem` 에 아직 그 두 칸이 없어서 id 를 그대로 넘기고 `world/soil.ts` 가 표를 읽는다.
+    this.gather.build(bctx, ctx, def?.eco ?? null, this.hazardSys.getGroveSpots(), this.planet);
     lap('gather');
     /* 2026-09-11 — 빛기둥이 사라진 대신 **열린 모습**이 "이미 조사했다" 를 말한다. 이 클라이언트에서 처음 열린
      * 상자 · 컨테이너는 분대 전원의 화면에서도 열리게 알린다 (내용물은 `inventory/` 의 `cont` 가 따로 맞춘다). */

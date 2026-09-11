@@ -21,6 +21,8 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 /* Phase 9 constants (src/shared/constants.ts) — asserted as literals so a silent retune is caught here. */
 const BOOKS_PER_SHELF = 6;
 const BOOK_XP_PER_BOOK = 0.05;
+/* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다 (4 = 온실 개편의 `grows`). */
+const SHIP_STATE_VERSION = 4;
 const BOOK_RARITY_MUL = { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 6 };
 const BOOK_GAIN_MAX = 2.0;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
@@ -332,14 +334,14 @@ try {
   console.log('persistence');
   await H(() => window.__game.ctx.housing.save());
   const saved = await H(() => JSON.parse(localStorage.getItem('scav.s1.ship')));
-  ok(saved.version === 3, `scav.s1.ship is v3 (${saved.version})`);
+  ok(saved.version === SHIP_STATE_VERSION, `scav.s1.ship is v${SHIP_STATE_VERSION} (${saved.version})`);
   ok(Array.isArray(saved.books) && saved.books.length === 2 && saved.books.every((b) => b.uid && typeof b.slot === 'number' && b.defId.startsWith('book_')),
     `books written to the save (${JSON.stringify(saved.books)})`);
   ok(Array.isArray(saved.bookDex) && saved.bookDex.length === 3, `bookDex written to the save (${saved.bookDex?.join(',')})`);
   await page.reload({ waitUntil: 'load' });
   await setup();
   const after = await H((u) => ({ slots: window.__game.ctx.housing.getBooks(u), dex: window.__game.ctx.housing.getBookDex(), v: window.__game.ctx.housing.state.version }), shelfA);
-  ok(after.v === 3 && after.slots.filter((s) => s.defId).length === 2, `shelved books survive a reload (${after.slots.filter((s) => s.defId).map((s) => s.defId).join(',')})`);
+  ok(after.v === SHIP_STATE_VERSION && after.slots.filter((s) => s.defId).length === 2, `shelved books survive a reload (${after.slots.filter((s) => s.defId).map((s) => s.defId).join(',')})`);
   ok(after.slots[0].defId === 'book_gun_AR' && after.slots[2].defId === 'book_medicine', 'each book kept its slot');
   ok(after.dex.length === 3 && after.dex.includes('book_cryptography'), `도감 survives a reload (${after.dex.join(',')})`);
   ok(near(await bonus('medicine'), 1 + BOOK_XP_PER_BOOK * BOOK_RARITY_MUL.rare), 'the bonus is recomputed from the reloaded shelf');

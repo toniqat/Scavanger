@@ -26,6 +26,7 @@ make_ammo_heavy,중량탄 제작,field,gun,1,mat_gunpowder:5|mat_alloy:1,ammo_he
 make_ammo_shell,산탄총 탄약 제작,field,gun,1,mat_gunpowder:5|mat_scrap:2,ammo_shell,8,,3,crafting,0,화약 5 + 폐금속 2 → 산탄 8발.
 make_smoke,연막탄 제작,field,gadget,1,mat_gunpowder:4|mat_bio_sample:2,gad_smoke,1,,3.5,crafting,10,화약 4 + 생체 조직 2 → 연막탄. 제작 10 필요.
 make_incendiary,소이 수류탄 제작,field,gadget,1,mat_gunpowder:8|herb_ashleaf:2,grenade_incendiary,1,,4,crafting,15,화약 8 + 잿빛잎 2 → 소이 수류탄. 제작 15 필요.
+make_incendiary_ember,불씨 소이 수류탄 제작,field,gadget,1,mat_gunpowder:6|herb_emberpod:1,grenade_incendiary,2,,4,crafting,15,"화약 6 + 불씨꼬투리 1 → G-10 소이 수류탄 2. 온실에서 기른 불씨꼬투리가 잿빛잎보다 잘 탄다. 제작 15 필요."
 make_bandage,붕대 제작,field,medical,1,mat_cloth:5,heal_bandage,1,,3,medicine,0,천조각 5 → 붕대.
 make_bandage_herb,약초 붕대 제작,field,medical,1,mat_cloth:5|herb_bloodroot:1,heal_bandage_herb,1,,4,medicine,0,천조각 5 + 혈근초 1 → 약초 붕대.
 refine_alloy,합금 판 정제,ship,refine,1,mat_scrap:3,mat_alloy,1,,5,crafting,0,폐금속 3 → 합금 판 1. 정제 작업대.
@@ -109,10 +110,12 @@ make_dome_shield,돔 실드 제작,ship,gadget,3,mat_ingot:2|mat_capacitor:2|mat
 make_turret,포탑 제작,ship,gadget,3,mat_ingot:3|mat_machine_parts:4|mat_control_module:1,gad_turret,1,,16,crafting,40,"강화합금 잉곳 3 + 기계 부품 4 + 제어 모듈 1 → 포탑 설치. 가젯 작업대 Lv.3, 제작 40 필요."
 make_drone_air,공중 드론 제작,ship,gadget,3,mat_control_module:1|mat_capacitor:2|mat_machine_parts:2|mat_circuit:2,gad_drone_air,1,,16,crafting,40,"제어 모듈 1 + 축전 모듈 2 + 기계 부품 2 + 회로 기판 2 → 공중 드론. 가젯 작업대 Lv.3, 제작 40 필요."
 make_antiseptic,소독약 조제,ship,medical,1,mat_can:1|herb_bloodroot:1,mat_antiseptic,1,,4,medicine,10,캔 1 + 혈근초 1 → 소독약. 의학 작업대.
+make_antiseptic_frost,저온 소독약 조제,ship,medical,1,mat_can:2|herb_frostmoss:1,mat_antiseptic,2,,5,medicine,15,"캔 2 + 서리이끼 1 → 소독약 2. 서리이끼 한 줌이 혈근초 두 뿌리를 대신한다. 의학 작업대, 의학 15 필요."
 make_heal_syringe,회복주사 조제,ship,medical,1,mat_syringe:1|mat_antiseptic:1,heal_syringe,1,,5,medicine,25,"주사기 1 + 소독약 1 → 회복주사. 의학 작업대, 의학 25 필요."
 make_shield_charger,실드 충전기 제작,ship,medical,1,mat_core:1|mat_cable:1,shield_charger,1,,4,crafting,0,구동 코어 1 + 전력 케이블 1 → 실드 충전기 (실드 20). 의학 작업대.
 grow_bloodroot,혈근초 증식,ship,medical,1,herb_ashleaf:4,herb_bloodroot,6,,4,gardening,0,수경 재배기에서 잿빛잎 4로 혈근초 6을 길러낸다. 의학 작업대.
 make_heal_spray,회복 스프레이 제작,ship,medical,2,mat_can:1|mat_antiseptic:1,heal_spray,1,,8,medicine,45,"캔 1 + 소독약 1 → 회복 스프레이. 의학 작업대 Lv.2, 의학 45 필요."
+make_heal_spray_iron,철엽 회복 스프레이 제작,ship,medical,3,mat_can:1|mat_antiseptic:1|herb_ironleaf:1,heal_spray,2,,10,medicine,50,"캔 1 + 소독약 1 + 철엽초 1 → 회복 스프레이 2. 철엽초가 조직 접합을 도와 한 번에 두 통이 나온다. 의학 작업대 Lv.3, 의학 50 필요."
 make_bandage_batch,붕대 대량 제작,ship,medical,2,mat_cloth:12|herb_bloodroot:2,heal_bandage_herb,3,,8,medicine,10,"천조각 12 + 혈근초 2 → 약초 붕대 3. 의학 작업대 Lv.2, 의학 10 필요."
 make_shield_charger_hi,고출력 실드 충전기 제작,ship,medical,2,mat_core:2|mat_cable:2,shield_charger_hi,1,,6,crafting,15,"구동 코어 2 + 전력 케이블 2 → 고출력 실드 충전기 (실드 40). 의학 작업대 Lv.2, 제작 15 필요."
 grow_glowcap,발광버섯 배양,ship,medical,2,herb_bloodroot:6|mat_bio_sample:3,herb_glowcap,2,,6,gardening,20,"혈근초 6 + 생체 조직 3 → 발광버섯 2. 의학 작업대 Lv.2, 원예 20 필요."

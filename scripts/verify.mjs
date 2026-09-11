@@ -60,7 +60,9 @@ const SMOKES = {
   'smoke-inventory-p6': { file: 'scripts/smoke-inventory-p6.mjs', folders: ['inventory', 'housing', 'items'] },
   'smoke-loadout':      { file: 'scripts/smoke-loadout.mjs',      folders: ['inventory'] },
   'smoke-search':       { file: 'scripts/smoke-search.mjs',       folders: ['inventory'] },
-  'smoke-housing':      { file: 'scripts/smoke-housing.mjs',      folders: ['housing', 'hub', 'inventory', 'progression'] },
+  /* 2026-09-11 (온실 개편): `items` 추가 — 재배 스테이션 검사가 토양(`soil_*`) · 씨앗(`seed_*`) · 작물(`crop_*`) def 를
+     직접 쓴다. `ui` 추가 — 토양 `속성` · `수확` 줄과 씨앗 `맞는 토양` 줄(`ui/hud/ItemTip`)을 단언하는 곳이 여기뿐이다. */
+  'smoke-housing':      { file: 'scripts/smoke-housing.mjs',      folders: ['housing', 'hub', 'inventory', 'progression', 'items', 'ui'] },
   'smoke-console':      { file: 'scripts/smoke-console.mjs',      folders: ['console', 'progression', 'inventory', 'player', 'hub'] },
   'smoke-progression':  { file: 'scripts/smoke-progression.mjs',  folders: ['progression'] },
   'smoke-ui-p6':        { file: 'scripts/smoke-ui-p6.mjs',        folders: ['ui'] },

@@ -32,7 +32,11 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
   bench_gun: WORKBENCH_ICON.gun, bench_gear: WORKBENCH_ICON.gear, bench_gadget: WORKBENCH_ICON.gadget,
   bench_medical: WORKBENCH_ICON.medical, bench_refine: WORKBENCH_ICON.refine,
   range_console: '▣', target_lane: '◎', sim_hub: '◈',
-  grow_rack: '❀', repair_bench: '⛏', bookshelf: '▤',
+  /* 온실 개편 (2026-09-11): 옛 재배층 `grow_rack` 은 은퇴했지만 글리프는 남겨 둔다 (`Record` 는 전부를 요구하고,
+     은퇴 가구를 그리는 옛 세이브 경로가 `?? '▨'` 로 떨어지면 카드가 통째로 다르게 보인다). 새 재배 스테이션은
+     한 층이 아니라 층이 쌓인 물건이라 **겹꽃** `✿` 로 구분한다 — 외부 에셋 금지 규약대로 유니코드 한 글자이고,
+     `❀`(옛 재배층) · `❦`(화분) · `❁`(작물 분류)와 모두 다른 글자다. */
+  grow_rack: '❀', grow_station: '✿', repair_bench: '⛏', bookshelf: '▤',
   locker: '▤', table: '▭', shelf: '☰', crate: '▨', lamp: '☀', plant: '❦', chair: '⌂', bunk: '▬',
 };
 

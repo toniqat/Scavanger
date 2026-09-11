@@ -22,7 +22,6 @@ import {
 } from '../Rules';
 import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
 import { PresetMenu } from '../ui/PresetMenu';
-import { GrowMenu } from '../ui/GrowMenu';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
 import { formatRemaining } from '../ui/dom';

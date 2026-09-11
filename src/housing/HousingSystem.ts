@@ -1,25 +1,16 @@
 import type {
-  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
+  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlotInfo,
+  GrowSlot, GrowSlotInfo, GrowTier,
   HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
 } from '@/shared';
-import {
-  BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf,
-} from '@/shared';
-import {
-  bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
-  furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
-  nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
-  stashSizeFor,
-} from './Rules';
-import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
+import { ShipStore, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
+import type { SanitizeOutcome } from './ShipState';
+import { mergeCost } from './Rules';
 import { PresetMenu } from './ui/PresetMenu';
-import { GrowMenu } from './ui/GrowMenu';
+import { GrowStation } from './ui/GrowStation';
 import { BookshelfMenu } from './ui/BookshelfMenu';
 import { createShipView } from './ui/ShipView';
-import { formatRemaining } from './ui/dom';
 import type { HousingPanel } from './ui/Panel';
 import './housing.css';
 
@@ -54,16 +45,25 @@ export class HousingSystem implements GameSystem, HousingRef {
   private editPending = false;
   private unsubs: Array<() => void> = [];
   presetMenu: PresetMenu | null = null;
-  growMenu: GrowMenu | null = null;
+  growStation: GrowStation | null = null;
   bookshelfMenu: BookshelfMenu | null = null;
   lastStash = { cols: 0, rows: 0 };
   /** `books` were checked against `ctx.loot` once (unknown / non-book ids dropped) — see `books()`. */
   booksPruned = false;
+  /** `grows` were checked against `ctx.loot` once (unknown 토양 / 씨앗 dropped) — see `grows()`. */
+  growsPruned = false;
+  /**
+   * 온실 개편 (2026-09-11): materials owed for the 은퇴 가구 `ShipState.sanitize` swept out of the save. housing/ is
+   * registered **before** inventory/, so the 함선 창고 does not exist yet at load time — `update()` pays this into it
+   * on the first frame where `ctx.inventory` is around (`flushRetiredRefund`).
+   */
+  private pendingRefund: CraftIngredient[] = [];
 
   constructor() {
     const loaded = loadState();
     this.state = loaded.state;
     this.fresh = loaded.fresh;
+    this.pendingRefund = loaded.refund;
     this.nextUid = maxUidIndex(this.state.furniture);
   }
 
@@ -74,7 +74,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.store = new ShipStore(() => this.state, () => this.profileRef());
     if (this.fresh) this.store.markDirty();
     this.presetMenu = new PresetMenu(ctx, this);
-    this.growMenu = new GrowMenu(ctx, this);
+    this.growStation = new GrowStation(ctx, this);
     this.bookshelfMenu = new BookshelfMenu(ctx, this);
     const b = ctx.bus;
     this.unsubs.push(
@@ -90,6 +90,7 @@ export class HousingSystem implements GameSystem, HousingRef {
   }
 
   update(_dt: number, ctx: GameContext): void {
+    if (this.pendingRefund.length) this.flushRetiredRefund();
     if (this.housingMode && (ctx.phase !== 'hub' || ctx.hub?.ship !== 'personal')) this.exitHousingMode();
   }
 
@@ -97,9 +98,30 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.presetMenu?.dispose(); this.growMenu?.dispose(); this.bookshelfMenu?.dispose();
-    this.presetMenu = null; this.growMenu = null; this.bookshelfMenu = null;
+    this.presetMenu?.dispose(); this.growStation?.dispose(); this.bookshelfMenu?.dispose();
+    this.presetMenu = null; this.growStation = null; this.bookshelfMenu = null;
     this.store?.dispose(); this.store = null;
+  }
+
+  /**
+   * 온실 개편 (2026-09-11): pay the 은퇴 가구 refund into the **함선 창고**. Runs on the first frame the inventory
+   * exists (housing/ loads its state before inventory/ is even registered). The stash may be full — then only what
+   * fits goes in and the rest is dropped with a 한국어 경고 **and** a console line: 조용히 사라지지 않는다.
+   */
+  private flushRetiredRefund(): void {
+    const cost = this.pendingRefund;
+    if (!cost.length) return;
+    const inv = this.ctx?.inventory, loot = this.ctx?.loot;
+    if (!inv || typeof inv.tryAddToStash !== 'function' || !loot || typeof loot.createItem !== 'function') return;
+    this.pendingRefund = [];
+    const lost = this.refundToStash(cost);
+    if (lost > 0) {
+      console.warn(`[housing] retired furniture refund: ${lost} units dropped (함선 창고가 가득 참)`);
+      this.notify('은퇴한 재배층을 정리했습니다 — 함선 창고가 가득 차 재료 일부를 돌려주지 못했습니다', 'warning');
+    } else {
+      this.notify('은퇴한 재배층을 정리하고 재료를 함선 창고에 돌려주었습니다', 'info');
+    }
+    this.changed('retired');
   }
 
   /* ── server profile (Phase 7) ──────────────────────────────────────────── */
@@ -135,9 +157,12 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.exitHousingMode();
     this.store?.cancel();
     this.editPending = false;
-    this.state = sanitize(doc);
+    const out: SanitizeOutcome = { refund: [] };
+    this.state = sanitize(doc, out);
+    if (out.refund.length) mergeCost(this.pendingRefund, out.refund);   // 서버 사본에도 은퇴 가구가 있을 수 있다
     this.nextUid = maxUidIndex(this.state.furniture);
     this.booksPruned = false;
+    this.growsPruned = false;
     this.fresh = false;
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
     const b = this.ctx.bus;
@@ -320,18 +345,19 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   upgradeFurniture(uid: string): boolean { return Furn.upgradeFurniture(this, uid); }
 
-  /* ── 온실 재배 (Phase 8) ───────────────────────────────────────────────── */
-  plots(): GrowPlot[] { return Garden.plots(this); }
+  /* ── 온실 재배 스테이션 (2026-09-11) ───────────────────────────────────── */
+  /** 재배 스테이션 칸 (`ShipState.grows`); prunes ids `ctx.loot` no longer knows on first access. */
+  grows(): GrowSlot[] { return Garden.grows(this); }
 
-  /** The 재배층 behind `uid`, or null when it is not a rack (or gone). */
-  rackOf(uid: string): PlacedFurniture | null { return Garden.rackOf(this, uid); }
+  /** The 재배 스테이션 behind `uid`, or null when it is not one (or gone). */
+  stationOf(uid: string): PlacedFurniture | null { return Garden.stationOf(this, uid); }
 
-  plotAt(uid: string, slot: number): GrowPlot | null { return Garden.plotAt(this, uid, slot); }
+  growSlotAt(uid: string, tier: GrowTier, slot: number): GrowSlot | null { return Garden.growSlotAt(this, uid, tier, slot); }
 
-  /** Drop every plot of a rack that is being recovered (its crops go with it). */
-  dropPlotsOf(uid: string): void { return Garden.dropPlotsOf(this, uid); }
+  /** Drop every 칸 of a station that is being recovered (its soil and crops go with it). */
+  dropGrowsOf(uid: string): void { return Garden.dropGrowsOf(this, uid); }
 
-  /** Ready plots of a rack (for the `housing:growChanged` payload and the hub's rack visuals). */
+  /** Ripe 칸 of a station (for the `housing:growChanged` payload and the hub's station visuals). */
   readyCount(uid: string): number { return Garden.readyCount(this, uid); }
 
   growChanged(uid: string, reason: string): void { return Garden.growChanged(this, uid, reason); }
@@ -339,22 +365,45 @@ export class HousingSystem implements GameSystem, HousingRef {
   /** Seed def with its `seed` data, or null when `defId` is not a seed. */
   seedDef(defId: string): ItemDef | null { return Garden.seedDef(this, defId); }
 
+  /** Soil def with its `soil` data, or null when `defId` is not a 토양. */
+  soilDef(defId: string): ItemDef | null { return Garden.soilDef(this, defId); }
+
   /** 원예 skill 0..SKILL_LEVEL_MAX. */
   gardening(): number { return Garden.gardening(this); }
-
-  getPlots(uid: string): GrowPlotInfo[] { return Garden.getPlots(this, uid); }
 
   /** Harvest size after the 원예 `gatherYieldMul` (at least one unit). */
   yieldQty(base: number): number { return Garden.yieldQty(this, base); }
 
-  plantSeed(uid: string, slot: number, seedDefId: string): string | null { return Garden.plantSeed(this, uid, slot, seedDefId); }
+  getGrowSlots(uid: string): GrowSlotInfo[] { return Garden.getGrowSlots(this, uid); }
 
-  harvestPlot(uid: string, slot: number): string | null { return Garden.harvestPlot(this, uid, slot); }
+  fillSoil(uid: string, tier: GrowTier, slot: number, soilDefId: string): string | null { return Garden.fillSoil(this, uid, tier, slot, soilDefId); }
 
-  harvestAll(uid: string): number { return Garden.harvestAll(this, uid); }
+  clearSoil(uid: string, tier: GrowTier, slot: number): string | null { return Garden.clearSoil(this, uid, tier, slot); }
+
+  plantSeedAt(uid: string, tier: GrowTier, slot: number, seedDefId: string): string | null { return Garden.plantSeedAt(this, uid, tier, slot, seedDefId); }
+
+  harvestAt(uid: string, tier: GrowTier, slot: number): string | null { return Garden.harvestAt(this, uid, tier, slot); }
+
+  harvestAllStation(uid: string): number { return Garden.harvestAllStation(this, uid); }
+
+  getOwnedSoils(): { defId: string; qty: number }[] { return Garden.getOwnedSoils(this); }
 
   getOwnedSeeds(): { defId: string; qty: number }[] { return Garden.getOwnedSeeds(this); }
 
+  openGrowStation(uid: string): void { return Garden.openGrowStation(this, uid); }
+
+  /* ── 은퇴한 재배층 (Phase 8 API) ────────────────────────────────────────────
+   * 계약은 추가만 하므로 남아 있지만, 그 가구(`furn_grow_rack`)는 은퇴했고 `sanitize` 가 함선에서 걷어낸다.
+   * 전부 「없는 재배층」 응답이다 — 조용히 성공한 척하지 않는다. */
+  /** @deprecated 2026-09-11 (온실 개편) — `getGrowSlots`. 언제나 빈 배열. */
+  getPlots(uid: string): GrowPlotInfo[] { return Garden.getPlots(this, uid); }
+  /** @deprecated 2026-09-11 (온실 개편) — `plantSeedAt`. */
+  plantSeed(uid: string, slot: number, seedDefId: string): string | null { return Garden.plantSeed(this, uid, slot, seedDefId); }
+  /** @deprecated 2026-09-11 (온실 개편) — `harvestAt`. */
+  harvestPlot(uid: string, slot: number): string | null { return Garden.harvestPlot(this, uid, slot); }
+  /** @deprecated 2026-09-11 (온실 개편) — `harvestAllStation`. 언제나 0. */
+  harvestAll(uid: string): number { return Garden.harvestAll(this, uid); }
+  /** @deprecated 2026-09-11 (온실 개편) — `openGrowStation`. 아무 일도 하지 않는다. */
   openGrowMenu(uid: string): void { return Garden.openGrowMenu(this, uid); }
 
   /* ── 승무원 호출명 (Phase 8) ─────────────────────────────────────────── */

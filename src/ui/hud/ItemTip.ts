@@ -1,6 +1,7 @@
 import type { CurrencyDef, GameContext, ItemDef, ItemInstance, StatId } from '@/shared';
 import {
-  CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
+  CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
+  currencyDef, formatCredits, itemCreditValue,
 } from '@/shared';
 import { el, setText } from '../dom';
 
@@ -32,6 +33,11 @@ import { el, setText } from '../dom';
  * 2026-09-09: the bottom bar is **무게 on the left · 가치 on the right** (`.it-value .wt` / `.val`, each `k` label +
  * `v` amount) and the `크기 (w × h)` row is gone from every card — the footprint is what the bag grid already shows.
  * The stats table hides itself when no row is left.
+ *
+ * **온실 개편 (2026-09-11)**: 토양(`def.soil`)은 `속성`(`SOIL_TAG_LABEL_KO`, 값 글자만 `SOIL_TAG_COLOR` 로 물든다) ·
+ * `수확` 두 줄을, 씨앗(`def.seed`)은 `재배 시간` 아래에 **맞는 토양** 한 줄을 같은 색으로 얻는다 — 어떤 흙에 심어야
+ * `SOIL_MATCH_SPEEDUP` 를 받는지가 씨앗 카드에서 끝나야 한다. 색은 인라인 `style.color` 로만 칠한다: `.it-stats .v`
+ * 에 modifier 클래스를 새로 달면 HUD 위젯 클래스와 이름이 겹칠 위험이 있다 (2026-09-10 `.hold` 사고).
  *
  * **재화 (2026-09-09)**: 계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도는 아이템이 아니지만 같은 자리에
  * 같은 크기의 칩(`shared/currency.buildCurrencyChip`)으로 선다. 그 칩은 `data-def-id` 대신
@@ -180,10 +186,20 @@ export class ItemTip {
     setText(this.subEl, `${CATEGORY_LABEL_KO[def.category] ?? def.category} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
     setText(this.descEl, def.description);
 
-    const rows: Array<[string, string]> = [];
+    /** `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (위 주석). */
+    const rows: Array<[string, string, string?]> = [];
     const have = this.owned(defId);
     if (have >= 0) rows.push(['보유', `${have} 개`]);
     if (def.seed) rows.push(['재배 시간', `${def.seed.growHours} 시간`]);
+    // 온실 개편 (2026-09-11): 씨앗은 자기가 원하는 흙을, 토양은 자기 속성과 남은 수확 횟수를 적는다.
+    // `soilTag` 는 계약상 필수지만 옛 세이브 · 옛 csv 로 비어 올 수 있어 표에 있을 때만 그린다.
+    const seedTag = def.seed?.soilTag;
+    if (seedTag && SOIL_TAG_LABEL_KO[seedTag]) rows.push(['맞는 토양', SOIL_TAG_LABEL_KO[seedTag], SOIL_TAG_COLOR[seedTag]]);
+    const soil = def.soil;
+    if (soil) {
+      if (SOIL_TAG_LABEL_KO[soil.tag]) rows.push(['속성', SOIL_TAG_LABEL_KO[soil.tag], SOIL_TAG_COLOR[soil.tag]]);
+      rows.push(['수확', `${soil.uses} 회`]);
+    }
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);
     // 2026-09-11 (C-36 후속): 가방 내구도 — 인스턴스가 있으면 `cur / max`, 칩뿐이면 새 가방의 `최대 max`.
@@ -207,9 +223,10 @@ export class ItemTip {
     // 2026-09-09: no 크기 row (the grid footprint is visible in the bag itself); 무게 moved to the bottom bar.
 
     this.statsEl.replaceChildren();
-    for (const [k, v] of rows) {
+    for (const [k, v, color] of rows) {
       el('span', { cls: 'k', text: k, parent: this.statsEl });
-      el('span', { cls: 'v', text: v, parent: this.statsEl });
+      const vEl = el('span', { cls: 'v', text: v, parent: this.statsEl });
+      if (color) vEl.style.color = color;
     }
     this.statsEl.hidden = rows.length === 0;
     setText(this.weightAmount, def.weight !== undefined ? `${def.weight.toFixed(1)} kg` : '—');

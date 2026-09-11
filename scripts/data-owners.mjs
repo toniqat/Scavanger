@@ -37,7 +37,8 @@ export const CSV_WIDE = new Set(['constants.csv', 'tables.csv']);
 /** csv → 그 값을 소비하는 기능 폴더 (verify 의 폴더 → 스모크 매핑으로 이어진다). */
 export const CSV_FOLDERS = {
   // items/ 로더 (ItemDefs · WeaponStats · LootTables · Recipes · Salvage · ImplantDefs)
-  'items.csv':               ['items', 'inventory'],
+  // 2026-09-11 (온실 개편): `soilTag` · `soilUses` 열이 붙으면서 `ItemDef.soil` 을 housing/ 의 재배 규칙이 소비한다
+  'items.csv':               ['items', 'inventory', 'housing'],
   'weapons.csv':             ['items', 'weapons'],
   'weapons_unique.csv':      ['items', 'weapons'],
   'ammo.csv':                ['items', 'weapons'],

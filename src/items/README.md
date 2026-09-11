@@ -6,7 +6,7 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 |---|---|
 | `WeaponDefs.ts` | 6 weapon **families** (one per class, 2026-09-07) × 5 grades = 30 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
-| `ItemDefs.ts` | 151 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
+| `ItemDefs.ts` | `ItemDef` 전부 (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (**10**, Phase 8 + 2026-09-11 온실 개편 — `SeedDef.soilTag` 포함), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials, **약초 6 · 작물 4 · 토양 4 (2026-09-11, `ItemDef.soil = {tag, uses}` 는 `items.csv` 의 `soilTag` · `soilUses` 선택 열에서 온다)**; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5). **2026-09-10: `repairCost` 는 여기서 사라졌다** — 수리비는 제작 재료 × 내구도 구간 배수이고 구현은 `Salvage.repairCostFor` 다 |
 | `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*) |
 | `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*; **2026-09-10** 부터 총기가 아닌 것들에는 행성 희귀도 배수도 걸린다 — 아래 *행성별 희귀도 배수*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
@@ -326,21 +326,63 @@ Perks are **declared here and implemented in `src/player`** (regen tick, ultrali
 ## Herbs & crafting materials
 
 `herb_bloodroot` 혈근초 (common, stack 8) · `herb_ashleaf` 잿빛잎 (uncommon, stack 8) · `herb_glowcap` 발광버섯 (rare, stack 6) — all 1×1, gathered from `WorldRef.getGatherNodes()` **or** harvested from a 온실 재배층 (see *씨앗* below).
+2026-09-11 온실 개편의 **온실 전용 약재 3종** — `herb_frostmoss` 서리이끼 (uncommon, stack 8, ₩60) ·
+`herb_emberpod` 불씨꼬투리 (uncommon, stack 8, ₩70) · `herb_ironleaf` 철엽초 (rare, stack 6, ₩150). 이 셋은
+**채집 노드에도 루팅에도 없고 재배층에서만 나온다** (*작물 · 토양* 절). 소비처는 각각 소독약 · 소이 수류탄 ·
+회복 스프레이 레시피 하나씩이다 (*Recipes* 의 작업대 표).
 `mat_gunpowder` 화약 (material, 1×1, stack 20, 0.05 kg) is the ammo-conversion currency.
 
-## 씨앗 (Phase 8, 2026-09-06)
+## 씨앗 (Phase 8, 2026-09-06 · 온실 개편 2026-09-11)
 
-`category: 'seed'`, `ItemDef.seed: SeedDef {growHours, yieldDefId, yieldQty}`. Planted in a 온실 **재배층** (`furn_grow_rack`, 4 plots per rack, stack 4 racks); `growHours` is **real** wall-clock time and keeps running while the game is closed — `src/housing` owns the plots, the timers (`GROW_SKILL_SPEEDUP` 원예 discount, `derived.gatherYieldMul` on the harvest) and the panel. Items only carry the data.
+`category: 'seed'`, `ItemDef.seed: SeedDef {growHours, yieldDefId, yieldQty, soilTag}`. Planted in a 온실 **재배 스테이션**; `growHours` is **real** wall-clock time and keeps running while the game is closed — `src/housing` owns the plots, the timers (`GROW_SKILL_SPEEDUP` 원예 discount, `derived.gatherYieldMul` on the harvest) and the panel. Items only carry the data.
 
-All three: 1×1, `stackMax` 5, `weight` 0.05 kg, icon `CATEGORY_ICON.seed` (`⁘`), colour `CATEGORY_COLOR.seed` (`#c8e08a`) — seeds deliberately break the rarity-colour rule so a 씨앗 reads as one at a glance; the rarity ring still separates them. `growHours` comes from the shared `SEED_GROW_HOURS_BY_RARITY` table, never a literal here.
+All of them: 1×1, `stackMax` 5, `weight` 0.05 kg, icon `CATEGORY_ICON.seed` (`⁘`), colour `CATEGORY_COLOR.seed` (`#c8e08a`) — seeds deliberately break the rarity-colour rule so a 씨앗 reads as one at a glance; the rarity ring still separates them. `growHours` comes from the shared `SEED_GROW_HOURS_BY_RARITY` table, never a literal here.
 
-| id | 이름 | rarity | ₩ | growHours | 수확 |
-|---|---|---|---|---|---|
-| `seed_bloodroot` | 혈근초 씨앗 | common | 40 | 1 h | `herb_bloodroot` ×3 |
-| `seed_ashleaf` | 잿빛잎 씨앗 | uncommon | 90 | 2.5 h | `herb_ashleaf` ×3 |
-| `seed_glowcap` | 발광버섯 씨앗 | rare | 220 | 6 h | `herb_glowcap` ×2 |
+**2026-09-11 (온실 개편): `soilTag` 가 필수 열이다.** 씨앗은 이미 토양이 부어진 칸에만 들어가고, 그 토양의 태그와
+같으면 `SOIL_MATCH_SPEEDUP` 만큼 빨리 · 다르면 `SOIL_MISMATCH_PENALTY` 만큼 늦게 자란다 (판정은 `src/housing`).
+items/ 는 `r.enum('soilTag', SOIL_TAGS)` 로 옮기기만 하고 **fallback 을 주지 않는다** — 빠진 줄은 `data:check` 가 잡는다.
 
-**Where they come from** (design decision: 루팅 + 기업 상점, **제작 불가**): container tiers **1–3** carry `seed` as a modest category (`categoryWeights` 4 / 4 / 3 — ≈ 3 % of picks; the tier rarity weights make tier 1 almost always 혈근초 씨앗 and only tier 3 reaches 발광버섯 씨앗 comfortably), rolling 1–`maxStackQty` seeds per pick. Tiers 4 / 5 have no `seed` weight at all. Every **bug** corpse table (`scavenger` / `hunter` / `warrior` / `charger` via `BUG_BASE`, plus `spewer` / `toxic` / `artillery` / `behemoth`) adds `BUG_SEEDS` — 4 % 혈근초 / 2 % 잿빛잎 / 0.6 % 발광버섯, ≈ 6.5 % of bug corpses carrying one; rogue and boss corpses carry none. The corp shop reads `ITEM_DEFS` directly, so seeds show up there without extra wiring. **No `CraftRecipe` exists for a seed** — `Recipes.ts` is untouched by Phase 8.
+| id | 이름 | rarity | ₩ | growHours | soilTag | 수확 |
+|---|---|---|---|---|---|---|
+| `seed_bloodroot` | 혈근초 씨앗 | common | 40 | 1 h | mineral | `herb_bloodroot` ×3 |
+| `seed_tuber` | 회색 덩이줄기 씨눈 | common | 35 | 1 h | mineral | `crop_tuber` ×3 |
+| `seed_beanpod` | 단백 콩깍지 씨앗 | common | 40 | 1 h | humus | `crop_beanpod` ×3 |
+| `seed_leafgreen` | 온실 잎채소 씨앗 | common | 32 | 1 h | humus | `crop_leafgreen` ×3 |
+| `seed_ashleaf` | 잿빛잎 씨앗 | uncommon | 90 | 2.5 h | ash | `herb_ashleaf` ×3 |
+| `seed_frostmoss` | 서리이끼 씨앗 | uncommon | 95 | 2.5 h | frost | `herb_frostmoss` ×3 |
+| `seed_emberpod` | 불씨꼬투리 씨앗 | uncommon | 100 | 2.5 h | ash | `herb_emberpod` ×3 |
+| `seed_capfungus` | 식용 갓버섯 균사 | uncommon | 85 | 2.5 h | frost | `crop_capfungus` ×2 |
+| `seed_glowcap` | 발광버섯 씨앗 | rare | 220 | 6 h | humus | `herb_glowcap` ×2 |
+| `seed_ironleaf` | 철엽초 씨앗 | rare | 240 | 6 h | mineral | `herb_ironleaf` ×2 |
+
+**Where they come from** (design decision: 루팅 + 기업 상점, **제작 불가**): container tiers **1–3** carry `seed` as a modest category (`categoryWeights` **6 / 6 / 5** — 2026-09-11 에 4 / 4 / 3 에서 올렸다: 씨앗 종류가 3 → 10 이라 한 씨앗이 뽑힐 확률이 그만큼 얇아졌다), rolling 1–`maxStackQty` seeds per pick. Tiers 4 / 5 have no `seed` weight at all. **씨앗 픽은 `data/seeds.csv` 의 모든 줄 중에서 등급 가중치로 고른다** (`pickDef` 가 `ITEM_DEFS` 를 카테고리로 거른다) — 하드코딩된 목록이 없으므로 새 씨앗은 줄만 넣으면 저절로 들어오고, 티어 1 의 `rare 2/100` + 행성 rank 1 의 `rareMul 0.5` 가 희귀 씨앗을 초반 행성에서 막는다. Every **bug** corpse table (`scavenger` / `hunter` / `warrior` / `charger`, plus `spewer` / `toxic` / `artillery` / `behemoth`) adds the **original three** — 4 % 혈근초 / 2 % 잿빛잎 / 0.6 % 발광버섯; 2026-09-11 에 새 씨앗을 **여기에는 넣지 않았다** (줄이 늘면 `rollCorpse` 의 rng 소비가 밀려 고정 벡터를 세는 스모크가 흔들린다 — 상자만으로 충분하다). The corp shop reads `ITEM_DEFS` directly, so seeds show up there without extra wiring. **No `CraftRecipe` exists for a seed.**
+
+실측(행성 5 × 티어 1–5 × 6000 상자 + 시체 10종 × 6000): 10종 전부가 등급 순서대로 나온다 —
+혈근초 3090 · 콩깍지 1315 · 잎채소 1302 · 덩이줄기 1211 · 잿빛잎 1963 / 불씨꼬투리 865 · 서리이끼 840 · 갓버섯 877 ·
+발광버섯 698 · 철엽초 504. (혈근초가 높은 것은 벌레 시체 몫이다.)
+
+## 작물 · 토양 (온실 개편, 2026-09-11)
+
+**작물** `category: 'crop'` — 재배층 수확물이고 추가 필드가 없는 평범한 스택 아이템이다 (1×1, stack 8 / 갓버섯만 6).
+`crop_tuber` 회색 덩이줄기 (common ₩30) · `crop_beanpod` 단백 콩깍지 (common ₩35) · `crop_leafgreen` 온실 잎채소
+(common ₩28) · `crop_capfungus` 식용 갓버섯 (uncommon ₩55). **주방(요리) 시설은 이번 범위 밖**이라 지금 쓰임새는
+**판매 + 세레스 바이오 납품**(`cg1`) 둘뿐이다 — 설명문의 "주방 시설이 열리면 요리 재료가 된다" 는 그 약속이다.
+
+**토양** `category: 'soil'`, `ItemDef.soil: SoilDef {tag, uses}` — 재배층 칸에 **붓는** 물건이고, 씨앗보다 먼저 들어간다.
+`uses` 는 한 번 부은 토양이 견디는 수확 횟수이고 등급 곡선은 `SOIL_USES_BY_RARITY`(`data/tables.csv`) 다.
+`soil_humus` 부엽토 (common, humus, 2회) · `soil_ash` 화산재토 (uncommon, ash, 3) · `soil_frost` 동토 이탄
+(uncommon, frost, 3) · `soil_mineral` 광물토 (rare, mineral, 5).
+
+**루팅에는 셋 다 없다** (사용자 결정 — 온실 산출물을 레이드에서 주울 수 있으면 재배할 이유가 없다):
+
+- **작물 · 토양** — `data/loot_category_weights.csv` 에 `crop` · `soil` 줄이 **아예 없다.** 상자 굴림은 그 표의
+  카테고리 중에서만 고르므로 줄이 없는 것이 곧 차단이다 (확정 픽 `loot_guaranteed.csv` 에도 없다).
+  토양은 **바이오별 채집 노드** 전용이다 (`GatherNodeKind 'soil'`, `src/world` 담당).
+- **새 약재 3종** (`herb_frostmoss` · `herb_emberpod` · `herb_ironleaf`) — `herb` 는 티어 1–4 의 카테고리라
+  줄이 없으면 그냥 나온다. 그래서 `data/loot_item_weights.csv` 에 **티어 1–5 × 3종 = 15줄을 `mul 0`** 으로 박았다
+  (`key_basement` 와 같은 방식). 기존 약초 3종은 그대로 채집 · 상자에서 나온다.
+
+검증: 행성 5 × 티어 1–5 × 6000 상자 + 시체 10종 × 6000 = 76만 아이템에서 작물 · 토양 · 새 약재 **0개**.
 
 ## 서적 (Phase 9, 2026-09-06)
 
@@ -367,9 +409,9 @@ All 14: **1×2**, `stackMax` 1 (never stack), `weight` 0.6 kg, icon `CATEGORY_IC
 (they carry `BUG_SEEDS` instead). The 세레스 corp shop stocks `{category:'book', minRepLevel:2}`. No `CraftRecipe`
 outputs a book.
 
-## Recipes (`getAllRecipes`) — 제작 97 + 분해 44 (2026-09-10 제작 대개편, 2026-09-11 가젯 3줄)
+## Recipes (`getAllRecipes`) — 제작 100 + 분해 44 (2026-09-10 제작 대개편, 2026-09-11 가젯 3줄 · 온실 약재 3줄)
 
-원본은 **`data/recipes.csv`**(제작 94줄)와 **`data/salvage.csv`**(손으로 적은 분해 6줄)다. 나머지 분해 38줄은
+원본은 **`data/recipes.csv`**(제작 97줄)와 **`data/salvage.csv`**(손으로 적은 분해 6줄)다. 나머지 분해 38줄은
 `Salvage.ts` 가 **제작 재료에서 생성한다** — 무기 25종 · 방탄복 5벌 · 가방 8종. `ALL_CRAFT_RECIPES` = 제작 + 분해이고
 그것이 `ctx.loot.getAllRecipes()` 다. `CRAFT_RECIPE_MAP` / `getRecipe` 는 이제 `Salvage.ts` 에 있다 (배럴 경유라 호출부 무변경).
 
@@ -400,9 +442,21 @@ gun 총기 / gear 장비 / gadget 가젯 / medical 의학 / **refine 정제**)�
 | **정제** `refine` (7) | 합금 판 · 강화 직조포 · 기계 부품 | 축전 모듈 · 복합 방탄섬유 | 강화합금 잉곳 · 제어 모듈 |
 | **총기** `gun` (45) | AR · SMG · SG 등급 I~II (6) | 전 계열 등급 III (5) + DMR · SR 등급 I~II (4) + 부착물 하위 6 | 전 계열 등급 IV~V (10) + 부착물 상위 8 + 유니크 탄약 6 |
 | **장비** `gear` (13) | 방탄복 I~II · 가방 일반/고급 | 방탄복 III · 가방 희귀(전술 포함) | 방탄복 IV~V · 가방 서사/전설(전술 포함) |
-| **가젯** `gadget` (15) | 고폭 · 연막 · 소이 수류탄 | 유인 · 화염수류탄 · 지뢰 · **원격 지뢰 · 지상 드론** | 바리케이드 · 점프대 · 은폐 장막 · 제세동기 · 돔 실드 · 포탑 · **공중 드론** |
-| **의학** `medical` (9) | 소독약 · 회복주사 · 혈근초 · **실드 충전기** | 스프레이 · 붕대 대량 · 발광버섯 · **고출력 충전기** | **완충 충전기** |
-| **현장** `field` (8) | 탄약 4종 · 연막 · 소이 수류탄 · 붕대 2종 | | |
+| **가젯** `gadget` (16) | 고폭 · 연막 · 소이 수류탄 · **불씨 소이 수류탄** | 유인 · 화염수류탄 · 지뢰 · **원격 지뢰 · 지상 드론** | 바리케이드 · 점프대 · 은폐 장막 · 제세동기 · 돔 실드 · 포탑 · **공중 드론** |
+| **의학** `medical` (11) | 소독약 · **저온 소독약** · 회복주사 · 혈근초 · **실드 충전기** | 스프레이 · 붕대 대량 · 발광버섯 · **고출력 충전기** | **철엽 스프레이** · **완충 충전기** |
+| **현장** `field` (9) | 탄약 4종 · 연막 · 소이 수류탄 2종 · 붕대 2종 | | |
+
+**온실 약재 3종의 소비처** (2026-09-11 — 값만 있고 쓸 데 없는 아이템은 죽은 데이터다). 셋 다 **새 산출물을 만들지
+않고** 기존 아이템의 *대체 경로*이고, 전부 `outputQty ≥ 2` 라 `CRAFT_COST_BY_OUTPUT`(수리 · 분해의 기준)에는
+들어가지 않는다 — 기존 레시피가 여전히 그 아이템의 "값어치" 다:
+
+| id | 작업대 | 재료 → 산출 | 뜻 |
+|---|---|---|---|
+| `make_incendiary_ember` | 가젯 Lv.1 (현장) | 화약 6 + **불씨꼬투리 1** → 소이 수류탄 **2** | 잿빛잎 2 + 화약 8 → 1 보다 낫다 |
+| `make_antiseptic_frost` | 의학 Lv.1 (의학 15) | 캔 2 + **서리이끼 1** → 소독약 **2** | 서리이끼 한 줌 = 혈근초 두 뿌리 |
+| `make_heal_spray_iron` | 의학 Lv.3 (의학 50) | 캔 1 + 소독약 1 + **철엽초 1** → 회복 스프레이 **2** | 철엽초가 산출을 두 배로 |
+
+**작물 4종에는 레시피가 없다** — 주방 시설이 열릴 때까지 판매 · 납품 전용이다 (사용자 결정).
 
 무기 25종은 **손으로 적었다** (`make_wpn_<family>[_g2..g5]`). 등급 곡선(value ×1.6/등급)과 재료 등급 곡선이
 하나의 공식으로 안 맞아 떨어져 — 어떤 공식을 써도 IV 와 V 가 붙거나 등급 I 이 폭발했다 — 그리고 DMR · SR 만
@@ -681,6 +735,21 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (온실 개편 — items/ 몫)** — ① `ItemDefs` 가 `data/seeds.csv` 의 새 **`soilTag`** 열을 `SeedDef.soilTag`
+  (필수)로 읽고, `data/items.csv` 의 **`soilTag` · `soilUses`** 선택 열로 `category: 'soil'` 줄에만
+  `ItemDef.soil = {tag, uses}` 를 붙인다 (`heal*` · `gadgetId` 와 같은 선택 열 규약). `ITEM_DEFS` 조립 순서에
+  약초 바로 뒤로 **`crop` → `soil`** 이 들어갔다. ② **루팅**: 작물 · 토양은 `loot_category_weights.csv` 에 줄이
+  없어 상자 굴림의 후보가 아니고(토양은 채집 노드 전용), 새 약재 3종은 `loot_item_weights.csv` 에 티어 1–5
+  `mul 0` 15줄로 막았다. 씨앗 카테고리 가중치는 티어 1·2 4 → **6**, 3 3 → **5** (씨앗 종류 3 → 10). **씨앗 픽은
+  원래부터 seed def 전부에서 고르므로 새 씨앗 7종은 배선 없이 등급 곡선대로 나온다** — 76만 굴림 실측으로 확인했고,
+  작물 · 토양 · 새 약재는 0개였다. 벌레 시체 표(`loot_corpses.csv`)는 **일부러 안 건드렸다** (줄이 늘면
+  `rollCorpse` 의 rng 소비가 밀린다). ③ **소비처** `recipes.csv` 3줄 — `make_incendiary_ember`(가젯 Lv.1, 불씨꼬투리)
+  · `make_antiseptic_frost`(의학 Lv.1, 서리이끼) · `make_heal_spray_iron`(의학 Lv.3, 철엽초). 셋 다 산출이 기존
+  아이템이고 `outputQty ≥ 2` 라 `CRAFT_COST_BY_OUTPUT` = 수리 · 분해 기준이 **하나도 안 움직인다**
+  (`checkSalvageEconomy()` 통과). ④ `data/quests.csv` 에 세레스 납품 2줄 — `cg1` 작물 3종 · `cg2` 신규 약재 3종
+  (코드 변경 0 — `meta/parts/Contracts` 의 `deliver` 그대로). ⚠ `cg1`·`cg2` 의 크레딧 보상 때문에
+  **`server/economy.gen.json` 을 다시 구웠다** (`npm run data:check -- --write`).
 
 - **2026-09-11 (C 항목 배치: C-5 · C-35 · C-36)** — ① **가방 내구도** — `data/bags.csv` 에 `durabilityMax` 열(전부 100),
   `ItemDefs` 가 읽는다. `Salvage.REPAIRABLE` 에 `bag`, 새 export `needsRepairCost(def)`, `checkSalvageEconomy()` 에

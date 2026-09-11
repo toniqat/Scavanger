@@ -6,6 +6,7 @@ export { Terrain, HALF, EXTENT, CELL, HEIGHT_MIN, HEIGHT_MAX } from './Terrain';
 export { generateLayout, padClearance, nearestPad, type WorldLayout, type Pad, type PadKind, type Crater, type Basin, type StructureSite, type RailPlan } from './layout';
 export { PLATFORM_HEIGHT, PLATFORM_RADIUS } from './Pads';
 export { Gather } from './Gather';
+export { planetSoil, type PlanetSoil } from './soil';
 export { Structures, BASEMENT_KEY_DEF } from './Structures';
 export { Rails } from './Rails';
 export { boxContainsXZ, boxPushOut, boxRadius, rayBox, BOX_HEADROOM } from './obb';

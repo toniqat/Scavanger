@@ -1,5 +1,9 @@
 # 티어별 카테고리 가중치. 줄을 지우면 그 티어에서 그 카테고리는 절대 안 나온다.
 # category 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 2026-09-11 (온실 개편): 씨앗 종류가 3 → 10 으로 늘어 한 씨앗이 뽑힐 확률이 그만큼 얇아졌다.
+#   그래서 seed 가중치를 티어 1·2 는 4 → 6, 티어 3 은 3 → 5 로 올렸다 (한 씨앗당 빈도를 예전 수준 근처로 되돌린다).
+#   crop(작물) · soil(토양) 은 **일부러 줄이 없다** — 작물은 재배층 수확물이고 토양은 채집 노드 전용이라
+#   상자에서 나오면 온실을 돌릴 이유가 없어진다. 줄을 넣지 않는 것이 곧 차단이다.
 tier,category,weight
 # 티어 1 — 보급 상자
 1,ammo,30
@@ -11,7 +15,7 @@ tier,category,weight
 1,gadget,6
 1,herb,8
 1,armor,1
-1,seed,4
+1,seed,6
 
 # 티어 2 — 군수 상자
 2,ammo,20
@@ -24,7 +28,7 @@ tier,category,weight
 2,gadget,9
 2,herb,5
 2,armor,4
-2,seed,4
+2,seed,6
 2,book,3
 2,implant,2
 
@@ -39,7 +43,7 @@ tier,category,weight
 3,gadget,11
 3,herb,3
 3,armor,4
-3,seed,3
+3,seed,5
 3,book,3
 3,implant,3
 

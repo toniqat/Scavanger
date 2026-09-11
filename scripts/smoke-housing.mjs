@@ -125,12 +125,19 @@ try {
     && window.__game.ctx.housing.getBenchLevel('gun') === 0), 'no 작업실 facility and no bench on a fresh ship');
   const stash0 = await H(() => window.__game.ctx.housing.getStashSize());
   ok(stash0.cols === 10 && stash0.rows === 24, `getStashSize() 10×24 at storage 0 (${stash0.cols}×${stash0.rows})`);
-  // Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실); Phase 9 furn_bookshelf (서재)
-  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 19), 'FURNITURE_DEFS exposed (19, incl. furn_sim_hub / repair_bench / grow_rack / bookshelf / bench_refine)');
-  ok(st0.version === 3 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v3 with empty books / bookDex (v${st0.version})`);
+  /* Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실); Phase 9 furn_bookshelf (서재); 2026-09-10
+     furn_bench_refine (정제). **2026-09-11 (온실 개편)**: the count is no longer asserted — `furn_grow_rack` is
+     `retired` and whether `getAllFurnitureDefs` still carries a retired def is housing/'s business (only
+     `getFurnitureFor` is contractually filtered). Presence of the defs that matter is what this line guards now. */
+  const furnDefIds = await H(() => window.__game.ctx.housing.getAllFurnitureDefs().map((d) => d.id));
+  ok(['furn_bench_gun', 'furn_bench_refine', 'furn_sim_hub', 'furn_repair_bench', 'furn_bookshelf', 'furn_grow_station']
+    .every((id) => furnDefIds.includes(id)) && furnDefIds.length >= 19,
+  `FURNITURE_DEFS exposed (${furnDefIds.length}, incl. furn_sim_hub / repair_bench / bookshelf / bench_refine / grow_station)`, furnDefIds.join(','));
+  // SHIP_STATE_VERSION (src/shared/constants.ts): 4 = 온실 개편의 `grows`
+  ok(st0.version === 4 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v4 with empty books / bookDex (v${st0.version})`);
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('range').some((d) => d.id === 'furn_sim_hub' && d.interaction === 'sim_hub' && d.model === 'sim_hub') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_sim_hub')), 'furn_sim_hub in the 사격장 catalogue only (interaction / model sim_hub)');
-  // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배층
+  // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배 스테이션 (2026-09-11: 옛 재배층 자리를 그대로 이어받았다 — 여전히 1 + 8 any)
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 14 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 9), 'getFurnitureFor: workshop 14 (5 benches + 정비 벤치 + 8 any), empty 8, greenhouse 9');
   /* 아래 화면 검사들은 이 수를 **그때그때 물어서** 쓴다 — 작업대가 하나 늘 때마다 세 자리를 손으로 고치던 것이
      2026-09-10 정제 작업대에서 실제로 red 를 냈다. 위 한 줄만 카나리아로 남긴다. */
@@ -352,6 +359,215 @@ try {
 
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'workshop') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(7, 'workshop') ?? '')), 'second 작업실 refused (방 1 already has it)');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'range') === false), 'second 사격장 refused');
+
+  /* ══ 온실 개편 — 재배 스테이션 (2026-09-11, 사용자 결정) ═══════════════════════════════════════════════════
+     옛 재배층(`furn_grow_rack`, 스택 4층 × 4칸 · `getPlots` / `plantSeed`)은 **은퇴**했고, 한 대의 재배 스테이션
+     (`furn_grow_station`, maxLevel 3)의 **레벨이 재배층을 연다**: Lv.1 중앙 · Lv.2 아래 · Lv.3 위, 층당
+     `GROW_SLOTS_PER_TIER`(3)칸. 칸은 **토양을 먼저 붓고**(`fillSoil`) 그 위에 심는다(`plantSeedAt`) — 궁합이 맞으면
+     `SOIL_MATCH_SPEEDUP` 만큼 빨리, 아니면 `SOIL_MISMATCH_PENALTY` 만큼 늦게 여물고, 토양은 수확마다 1회 닳는다.
+     방 4(index 3)가 위에서 온실이 됐으므로 거기에 세운다. */
+  console.log('온실 재배 스테이션 (2026-09-11)');
+  const growCat = await H(() => {
+    const h = window.__game.ctx.housing;
+    const gh = h.getFurnitureFor('greenhouse');
+    const rack = h.getFurnitureDef('furn_grow_rack');
+    const st = h.getFurnitureDef('furn_grow_station');
+    return {
+      rackRetired: rack ? rack.retired === true : null,
+      rackListed: gh.some((d) => d.id === 'furn_grow_rack'),
+      rackAnywhere: ['greenhouse', 'workshop', 'empty', 'lab', 'range', 'library', 'lounge', 'gym', 'kitchen', 'mining']
+        .some((p) => h.getFurnitureFor(p).some((d) => d.id === 'furn_grow_rack')),
+      station: st ? { room: st.room, model: st.model, interaction: st.interaction, maxLevel: st.maxLevel, upgrades: st.upgradeCost.length, stack: st.stackLimit ?? 1 } : null,
+      stationListed: gh.some((d) => d.id === 'furn_grow_station'),
+    };
+  });
+  ok(growCat.rackRetired === true && !growCat.rackAnywhere,
+    '옛 재배층은 retired — 어떤 방 용도의 가구 목록에도 나오지 않는다', JSON.stringify(growCat));
+  ok(growCat.stationListed && growCat.station?.room === 'greenhouse' && growCat.station?.model === 'grow_station'
+    && growCat.station?.interaction === 'grow_station' && growCat.station?.maxLevel === 3 && growCat.station?.upgrades === 2 && growCat.station?.stack === 1,
+  `재배 스테이션: 온실 전용 · model/interaction grow_station · maxLevel 3 (강화 2단계) · 스택 없음 (${JSON.stringify(growCat.station)})`);
+
+  const growApi = await H(() => {
+    const h = window.__game.ctx.housing;
+    return ['getGrowSlots', 'fillSoil', 'clearSoil', 'plantSeedAt', 'harvestAt', 'harvestAllStation', 'getOwnedSoils', 'openGrowStation']
+      .filter((k) => typeof h[k] !== 'function');
+  });
+  ok(growApi.length === 0, 'HousingRef 재배 스테이션 API 8종', `missing: ${growApi.join(', ')}`);
+  if (growApi.length === 0) {
+    // 제작(폐금속 8 · 케이블 2 · 생체 조직 3) + 검사들이 쓰는 토양 · 씨앗. 강화 재료는 강화 직전에 따로 준다.
+    await give('mat_scrap', 16); await give('mat_cable', 6);
+    const bio = await give('mat_bio_sample', 8);
+    const soilM = await give('soil_mineral', 4);           // 광물 · 수확 5회 (rare) — 4번 붓는다
+    const soilH = await give('soil_humus', 2);             // 부엽토 · 수확 2회 (common) — 닳아 없어지는 것을 짧게 본다
+    const seedM = await give('seed_tuber', 2);             // soilTag mineral, 1 h → crop_tuber
+    const seedH = await give('seed_beanpod', 4);           // soilTag humus,   1 h → crop_beanpod
+    ok(bio >= 3 && soilM === 4 && soilH >= 1 && seedM >= 2 && seedH >= 3,
+      `토양 · 씨앗 아이템 준비 (광물 ${soilM} · 부엽토 ${soilH} · 덩이줄기 ${seedM} · 콩깍지 ${seedH})`, JSON.stringify({ bio, soilM, soilH, seedM, seedH }));
+    const owned = await H(() => window.__game.ctx.housing.getOwnedSoils());
+    ok(owned.some((s) => s.defId === 'soil_mineral' && s.qty === 4) && owned.some((s) => s.defId === 'soil_humus' && s.qty >= 1)
+      && !owned.some((s) => s.defId.startsWith('seed_')), `getOwnedSoils: 토양만 (${JSON.stringify(owned)})`);
+
+    const gs = await H(() => {
+      const h = window.__game.ctx.housing;
+      const made = h.craftFurniture('furn_grow_station');
+      const p = made ? h.place(3, 'furn_grow_station', 0, 0, 0) : null;
+      return { made, uid: p?.uid ?? null, level: p?.level ?? 0, room: p?.room ?? -1 };
+    });
+    ok(gs.made && gs.uid && gs.level === 1 && gs.room === 3, `재배 스테이션 제작 → 온실(방 4) 배치 (${gs.uid})`, JSON.stringify(gs));
+    const GS = gs.uid;
+    ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_grow_station', 0, 0, 0) === false), '작업실에는 놓을 수 없다 (온실 전용)');
+
+    /* ── 층 잠금: Lv.1 이면 9칸 중 중앙 3칸만 열려 있다 ── */
+    const slots1 = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid), GS);
+    ok(slots1.length === 9, `getGrowSlots → 3층 × 3칸 = 9칸을 늘 돌려준다 (${slots1.length})`);
+    ok(slots1.filter((s) => !s.locked).length === 3 && slots1.filter((s) => !s.locked).every((s) => s.tier === 0),
+      'Lv.1 = 중앙 재배층(tier 0) 3칸만 열림', JSON.stringify(slots1.map((s) => `${s.tier}/${s.slot}${s.locked ? 'L' : ''}`)));
+    ok(slots1.filter((s) => s.tier === 1).every((s) => s.locked && s.unlockLevel === 2)
+      && slots1.filter((s) => s.tier === 2).every((s) => s.locked && s.unlockLevel === 3),
+    '잠긴 층은 자기를 여는 레벨을 적는다 (아래 2 · 위 3)');
+    ok(slots1.slice(0, 3).every((s) => s.tier === 2) && slots1.slice(3, 6).every((s) => s.tier === 0) && slots1.slice(6, 9).every((s) => s.tier === 1),
+      'GROW_TIER_DRAW_ORDER 순서로 온다 (위 → 중앙 → 아래)');
+    ok(slots1.filter((s) => !s.locked).every((s) => s.soilDefId === null && s.soilTag === null && s.seedDefId === null && s.progress === -1 && !s.ready),
+      '새 칸은 흙도 씨앗도 없다', JSON.stringify(slots1[3]));
+    ok(await H((uid) => window.__game.ctx.housing.getGrowSlots(`${uid}-nope`).length === 0, GS), '재배 스테이션이 아닌 uid → 빈 배열');
+
+    /* ── 토양이 먼저다 ── */
+    ok(typeof await H((uid) => window.__game.ctx.housing.plantSeedAt(uid, 0, 0, 'seed_tuber'), GS) === 'string',
+      '토양 없이 심으면 거부된다 (한국어 사유)');
+    ok(await H(() => window.__game.ctx.inventory.countDefAll('seed_tuber')) === seedM, `거부된 파종은 씨앗을 먹지 않는다 (${seedM}개 그대로)`);
+    ok(typeof await H((uid) => window.__game.ctx.housing.fillSoil(uid, 1, 0, 'soil_mineral'), GS) === 'string',
+      '잠긴 층(아래)에는 흙을 부을 수 없다');
+    ok(typeof await H((uid) => window.__game.ctx.housing.fillSoil(uid, 0, 0, 'seed_tuber'), GS) === 'string', '토양이 아닌 아이템은 부을 수 없다');
+    ok(await H((uid) => window.__game.ctx.housing.fillSoil(uid, 0, 0, 'soil_mineral'), GS) === null, 'fillSoil(중앙 0, 광물토)');
+    ok(await H(() => window.__game.ctx.inventory.countDefAll('soil_mineral')) === soilM - 1, `부은 토양 1개가 소모된다 (${soilM} → ${soilM - 1})`);
+    const filled = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 0), GS);
+    ok(filled.soilDefId === 'soil_mineral' && filled.soilTag === 'mineral' && filled.soilUsesLeft === 5 && filled.seedDefId === null,
+      `흙만 채워진 칸 = 심을 준비 (수확 5회 남음) (${JSON.stringify(filled)})`);
+    ok(typeof await H((uid) => window.__game.ctx.housing.fillSoil(uid, 0, 0, 'soil_humus'), GS) === 'string', '이미 흙이 있는 칸에는 다시 못 붓는다');
+    ok(await H((uid) => window.__game.ctx.housing.clearSoil(uid, 0, 0), GS) === null, 'clearSoil 로 칸을 비운다');
+    ok(await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 0).soilDefId === null, GS), '비운 칸은 흙 없음');
+    ok(await H(() => window.__game.ctx.inventory.countDefAll('soil_mineral')) === soilM - 1, '긁어낸 흙은 돌려주지 않는다 — 남은 횟수가 있어도 버려진다 (사용자 결정)');
+
+    /* ── 궁합: 맞는 토양이 안 맞는 토양보다 빨리 여문다 ── */
+    const soilConst = await H(async () => { const S = await import('/src/shared/index.ts'); return { match: S.SOIL_MATCH_SPEEDUP, miss: S.SOIL_MISMATCH_PENALTY }; });
+    const grew = await H((uid) => {
+      const h = window.__game.ctx.housing;
+      const r = { fill: [], plant: [] };
+      r.fill.push(h.fillSoil(uid, 0, 0, 'soil_mineral'), h.fillSoil(uid, 0, 1, 'soil_mineral'));
+      r.plant.push(h.plantSeedAt(uid, 0, 0, 'seed_tuber'));      // mineral × mineral = 궁합
+      r.plant.push(h.plantSeedAt(uid, 0, 1, 'seed_beanpod'));    // humus  × mineral = 불일치 (둘 다 growHours 1)
+      const raw = (h.state.grows ?? []).filter((g) => g.uid === uid);
+      r.dur = raw.map((g) => ({ tier: g.tier, slot: g.slot, seed: g.seedDefId, ms: g.readyAt - g.plantedAt }));
+      r.info = h.getGrowSlots(uid).filter((s) => !s.locked).map((s) => ({ slot: s.slot, seed: s.seedDefId, seedTag: s.seedTag, matched: s.matched, ready: s.ready, progress: s.progress }));
+      return r;
+    }, GS);
+    ok(grew.fill.every((v) => v === null) && grew.plant.every((v) => v === null), `흙 2칸 + 파종 2칸 (${JSON.stringify(grew.plant)})`);
+    const dMatch = grew.dur.find((d) => d.seed === 'seed_tuber')?.ms ?? 0;
+    const dMiss = grew.dur.find((d) => d.seed === 'seed_beanpod')?.ms ?? 0;
+    ok(dMatch > 0 && dMiss > 0 && dMatch < dMiss, `궁합이 맞는 칸의 readyAt 이 더 빠르다 (${Math.round(dMatch / 1000)}s < ${Math.round(dMiss / 1000)}s)`);
+    ok(Math.abs(dMatch / dMiss - (1 - soilConst.match) / (1 + soilConst.miss)) < 0.01,
+      `비율이 SOIL_MATCH_SPEEDUP / SOIL_MISMATCH_PENALTY 그대로 (${(dMatch / dMiss).toFixed(3)} ≈ ${((1 - soilConst.match) / (1 + soilConst.miss)).toFixed(3)})`);
+    const info0 = grew.info.find((s) => s.slot === 0), info1 = grew.info.find((s) => s.slot === 1);
+    ok(info0?.matched === true && info0?.seedTag === 'mineral' && info1?.matched === false && info1?.seedTag === 'humus',
+      `GrowSlotInfo.matched / seedTag (${JSON.stringify([info0, info1])})`);
+    ok(info0 && info0.progress >= 0 && info0.progress < 1 && !info0.ready, '심은 칸은 progress 0…1 이고 아직 여물지 않았다');
+    ok(typeof await H((uid) => window.__game.ctx.housing.plantSeedAt(uid, 0, 0, 'seed_tuber'), GS) === 'string', '이미 심긴 칸에는 못 심는다');
+    ok(typeof await H((uid) => window.__game.ctx.housing.clearSoil(uid, 0, 0), GS) === 'string', '심긴 칸의 흙은 긁어낼 수 없다');
+    ok(typeof await H((uid) => window.__game.ctx.housing.harvestAt(uid, 0, 0), GS) === 'string', '덜 자란 칸은 수확되지 않는다');
+
+    /* ── 시계를 앞당겨 수확: 토양이 1회 닳는다 ── */
+    const ripen = (uid) => H((u) => { for (const g of (window.__game.ctx.housing.state.grows ?? [])) if (g.uid === u && g.readyAt) g.readyAt = Date.now() - 1000; }, uid);
+    await ripen(GS);
+    const cropBefore = await count('crop_tuber');
+    ok(await H((uid) => window.__game.ctx.housing.harvestAt(uid, 0, 0), GS) === null, 'harvestAt(중앙 0)');
+    const afterHarvest = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 0), GS);
+    ok((await count('crop_tuber')) > cropBefore, `수확물 crop_tuber 가 가방으로 (${cropBefore} → ${await count('crop_tuber')})`);
+    ok(afterHarvest.seedDefId === null && afterHarvest.soilDefId === 'soil_mineral' && afterHarvest.soilUsesLeft === 4,
+      `수확 뒤 씨앗만 빠지고 soilUsesLeft 가 1 줄어든다 (5 → ${afterHarvest.soilUsesLeft})`, JSON.stringify(afterHarvest));
+    ok(await H((uid) => window.__game.ctx.housing.harvestAllStation(uid), GS) === 1, 'harvestAllStation → 여문 나머지 한 칸(불일치)도 거둔다');
+    ok(await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).filter((s) => !s.locked && s.seedDefId !== null).length === 0, GS), '여문 칸이 남지 않았다');
+
+    /* ── 다 닳으면 칸이 빈다: 부엽토(수확 2회)를 두 번 쓴다 ── */
+    const drain = await H(async (uid) => {
+      const h = window.__game.ctx.housing;
+      const seq = [];
+      seq.push(h.fillSoil(uid, 0, 2, 'soil_humus'));
+      for (let i = 0; i < 2; i++) {
+        seq.push(h.plantSeedAt(uid, 0, 2, 'seed_beanpod'));
+        for (const g of (h.state.grows ?? [])) if (g.uid === uid && g.tier === 0 && g.slot === 2 && g.readyAt) g.readyAt = Date.now() - 1000;
+        seq.push(h.harvestAt(uid, 0, 2));
+        seq.push(h.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 2).soilUsesLeft);
+      }
+      const end = h.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 2);
+      return { seq, end, rows: (h.state.grows ?? []).filter((g) => g.uid === uid && g.tier === 0 && g.slot === 2).length };
+    }, GS);
+    ok(drain.seq[0] === null && drain.seq[1] === null && drain.seq[2] === null && drain.seq[3] === 1,
+      `부엽토 수확 1회 → 남은 횟수 2 → 1 (${JSON.stringify(drain.seq.slice(0, 4))})`);
+    ok(drain.end.soilDefId === null && drain.end.soilUsesLeft === 0 && drain.end.seedDefId === null && drain.rows === 0,
+      '마지막 수확에서 흙이 다 닳으면 칸이 통째로 빈다 (state.grows 에서도 사라진다)', JSON.stringify(drain));
+
+    /* ── 강화가 층을 연다 (발전기 게이트는 이 검사의 대상이 아니므로 직접 올린다) ── */
+    await H(() => { window.__game.ctx.housing.state.generatorLevel = 5; });
+    await give('mat_scrap', 12); await give('mat_cable', 8); await give('mat_circuit', 4); await give('mat_alloy', 8); await give('mat_bio_sample', 14);
+    ok(await H((uid) => window.__game.ctx.housing.upgradeFurniture(uid), GS) === true, '재배 스테이션 → Lv.2');
+    const lv2 = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid), GS);
+    ok(lv2.filter((s) => !s.locked).length === 6 && lv2.filter((s) => s.tier === 1).every((s) => !s.locked) && lv2.filter((s) => s.tier === 2).every((s) => s.locked),
+      'Lv.2 → 아래 재배층이 열린다 (6칸, 윗층은 그대로 잠김)');
+    ok(await H((uid) => window.__game.ctx.housing.fillSoil(uid, 1, 0, 'soil_mineral'), GS) === null, '열린 아래층에는 흙을 부을 수 있다');
+    ok(await H((uid) => window.__game.ctx.housing.upgradeFurniture(uid), GS) === true, '재배 스테이션 → Lv.3');
+    const lv3 = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid), GS);
+    ok(lv3.filter((s) => !s.locked).length === 9 && lv3.every((s) => !s.locked), 'Lv.3 → 윗 재배층까지 9칸 전부 열린다');
+    ok(lv3.find((s) => s.tier === 1 && s.slot === 0)?.soilDefId === 'soil_mineral',
+      '강화는 tier 번호를 바꾸지 않는다 — 아래층에 부어 둔 흙이 그 자리에 그대로 있다');
+    ok(await H((uid) => window.__game.ctx.housing.upgradeFurniture(uid), GS) === false, 'Lv.3 이 최대');
+    /* 2026-09-11: 옛 API 는 계약에 남아 있지만 "없는 재배층" 만 답한다 */
+    ok(await H((uid) => window.__game.ctx.housing.getPlots(uid).length === 0 && window.__game.ctx.housing.harvestAll(uid) === 0
+      && typeof window.__game.ctx.housing.plantSeed(uid, 0, 'seed_tuber') === 'string', GS),
+    '@deprecated 재배층 API 는 재배 스테이션에 대해 "없는 재배층" 으로 답한다 (getPlots [] · plantSeed 사유 · harvestAll 0)');
+  } else {
+    console.log('  TODO(lead): housing/ 의 재배 스테이션 구현이 아직 없다 — 재배 검사 전부 건너뜀');
+  }
+
+  /* ── 아이템 툴팁의 토양 · 씨앗 줄 (`src/ui/hud/ItemTip`, 2026-09-11) ──
+     `.item-chip[data-def-id]` 하나를 `ctx.uiRoot` 에 잠깐 붙여 delegated pointerover 를 태운다 — 재배 화면이
+     아니라 툴팁 자체를 보는 검사라 어느 화면에서 열든 같다. 속성 값은 `SOIL_TAG_COLOR` 로 **인라인**으로만 칠한다. */
+  console.log('아이템 툴팁 — 토양 · 씨앗');
+  const tip = await H((ids) => {
+    const ctx = window.__game.ctx;
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:8px;top:8px;';
+    ctx.uiRoot.appendChild(host);
+    const read = (id) => {
+      host.replaceChildren();
+      const chip = document.createElement('span');
+      chip.className = 'item-chip';
+      chip.dataset.defId = id;
+      host.appendChild(chip);
+      chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 20, clientY: 20 }));
+      const card = document.querySelector('.item-tip');
+      const ks = [...card.querySelectorAll('.it-stats .k')].map((e) => e.textContent);
+      const vs = [...card.querySelectorAll('.it-stats .v')].map((e) => ({ t: e.textContent, c: e.style.color }));
+      const row = (k) => vs[ks.indexOf(k)] ?? null;
+      return {
+        hidden: card.hidden, ks,
+        tag: row('속성'), uses: row('수확')?.t ?? null, seedSoil: row('맞는 토양'), grow: row('재배 시간')?.t ?? null,
+        weight: card.querySelector('.it-value .wt .v')?.textContent ?? '', value: card.querySelector('.it-value .val .v')?.textContent ?? '',
+        valueHidden: card.querySelector('.it-value').hidden,
+      };
+    };
+    const out = {};
+    for (const id of ids) out[id] = read(id);
+    host.remove();
+    return out;
+  }, ['soil_mineral', 'seed_tuber', 'mat_scrap']);
+  const soilTip = tip.soil_mineral, seedTip = tip.seed_tuber, matTip = tip.mat_scrap;
+  ok(!soilTip.hidden && soilTip.tag?.t === '광물' && !!soilTip.tag?.c && soilTip.uses === '5 회',
+    `토양 툴팁: 속성 ${soilTip.tag?.t} (색 ${soilTip.tag?.c}) · 수확 ${soilTip.uses}`, JSON.stringify(soilTip));
+  ok(!seedTip.hidden && seedTip.grow === '1 시간' && seedTip.seedSoil?.t === '광물' && seedTip.seedSoil?.c === soilTip.tag?.c,
+    `씨앗 툴팁: 재배 시간 + 맞는 토양 ${seedTip.seedSoil?.t} (토양 아이템과 같은 색)`, JSON.stringify(seedTip));
+  ok(![soilTip, seedTip, matTip].some((t) => t.ks.includes('크기')) && !soilTip.valueHidden && /kg$/.test(soilTip.weight) && /C$/.test(soilTip.value),
+    '툴팁 규약은 그대로 — 크기 줄 없음 · 무게 좌하단 · 가치 우하단', JSON.stringify({ w: soilTip.weight, v: soilTip.value }));
+  ok(!matTip.ks.includes('속성') && !matTip.ks.includes('맞는 토양'), '토양 · 씨앗이 아닌 아이템에는 새 줄이 붙지 않는다', JSON.stringify(matTip.ks));
 
   console.log('housing mode');
   ok(await H(() => window.__game.ctx.housing.enterHousingMode(0) === false && /안에서만/.test(window.__game.ctx.housing.housingModeBlock(0) ?? '')), 'enterHousingMode(0) refused from the cockpit (currentRoom null)');
@@ -692,8 +908,12 @@ try {
     'preset persisted (전술 임플란트 + 임플란트 아이템 목록)', JSON.stringify(after.presets[0]));
   ok(await H(() => window.__game.ctx.housing.getStashSize().rows === 30), 'stash size 30 rows after reload');
   await give('mat_scrap', 20); await give('mat_cable', 4);   // the bag is not persisted — only the stash is
+  /* 2026-09-11: the expected uid is **derived** from the state, not written out — it used to be the literal `f-8`,
+     which every new placement earlier in the run (the 재배 스테이션 was the first) silently shifted. */
+  const topUid = await H(() => window.__game.ctx.housing.state.furniture
+    .reduce((m, f) => Math.max(m, Number(String(f.uid).split('-')[1]) || 0), 0));
   const next = await H(() => { window.__game.ctx.housing.setRoomPurpose(6, 'lounge'); const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); return h.place(6, 'furn_crate', 7, 7, 0); });
-  ok(next && next.uid === 'f-8', `uid counter continues after the highest persisted uid (${next?.uid})`);
+  ok(next && next.uid === `f-${topUid + 1}`, `uid counter continues after the highest persisted uid (${next?.uid}, 최고 f-${topUid})`);
   // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
   await H(() => window.__game.ctx.housing.save());
   await H(() => localStorage.setItem('scav.s1.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus', implantItems: ['imp_strength_1', 7, null] }] })));
@@ -705,13 +925,67 @@ try {
   ok(san.rooms.length === 10 && san.rooms[0].purpose === 'empty' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null && (san.presets[0].implantItems ?? []).join(',') === 'imp_strength_1', `corrupt save sanitised: lab→빈 방 (온실 없음), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
   ok(sanStore === 'furn_bench_gun,furn_repair_bench', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
 
+  /* ── 온실 개편 (2026-09-11): v3 세이브의 옛 재배층은 **사라지고 재료가 함선 창고로 돌아온다** ──
+     `FurnitureDef.retired` 의 계약: 배치돼 있든 가구 창고에 있든 `ShipState.sanitize` 가 그 가구를 걷어내고
+     `craft` 재료를 창고로 환불한다. 함께 남아 있던 v3 `plots` 도 같이 사라진다 (사용자 결정: 옛 것 폐기).
+     세이브를 심기 전에 `save()` 로 디바운스를 비운다 — pagehide flush 가 심어 둔 파일을 덮어쓰면 검사가 무의미해진다. */
+  console.log('세이브 마이그레이션 (v3 옛 재배층 → 은퇴 + 환불)');
+  const rackCraft = await H(() => (window.__game.ctx.housing.getFurnitureDef('furn_grow_rack')?.craft ?? []).map((c) => ({ defId: c.defId, qty: c.qty })));
+  ok(rackCraft.length > 0, `옛 재배층의 제작 재료가 def 에 남아 있다 (환불의 근거) — ${JSON.stringify(rackCraft)}`);
+  const stashOf = (ids) => H((list) => {
+    const inv = window.__game.ctx.inventory;
+    const items = typeof inv.getStashItems === 'function' ? inv.getStashItems() : [];
+    return Object.fromEntries(list.map((id) => [id, items.filter((i) => i.defId === id).reduce((n, i) => n + i.qty, 0)]));
+  }, ids);
+  const refundIds = rackCraft.map((c) => c.defId);
+  const stashBeforeMig = await stashOf(refundIds);
+  await H(() => window.__game.ctx.housing.save());
+  await H(() => {
+    const st = JSON.parse(localStorage.getItem('scav.s1.ship'));
+    st.version = 3;                                   // v3 = 온실 개편 이전
+    st.rooms[6] = { purpose: 'greenhouse', level: 1 };
+    st.furniture = st.furniture.filter((f) => f.room !== 6);
+    st.furniture.push({ uid: 'f-700', defId: 'furn_grow_rack', room: 6, x: 0, y: 0, yaw: 0, level: 1, layer: 0 });
+    st.furnitureStorage = [...(st.furnitureStorage ?? []), { defId: 'furn_grow_rack', level: 1, qty: 1 }];
+    st.plots = [{ uid: 'f-700', slot: 0, seedDefId: 'seed_bloodroot', plantedAt: Date.now() - 1000, readyAt: Date.now() + 3600e3 }];
+    delete st.grows;
+    localStorage.setItem('scav.s1.ship', JSON.stringify(st));
+  });
+  await page.reload({ waitUntil: 'load' });
+  await setup();
+  const mig = await H(() => {
+    const h = window.__game.ctx.housing;
+    return {
+      version: h.state.version,
+      placed: h.getPlaced(6).map((f) => f.defId),
+      anyRack: h.state.furniture.some((f) => f.defId === 'furn_grow_rack') || h.getStored().some((s) => s.defId === 'furn_grow_rack'),
+      plots: Array.isArray(h.state.plots) ? h.state.plots.length : 0,
+      room6: h.getRoom(6).purpose,
+    };
+  });
+  // 환불은 `ctx.inventory` 가 생긴 **첫 프레임**(HousingSystem.update → flushRetiredRefund)에 들어간다 — 한 프레임 기다린다
+  await waitFor(page, (want) => {
+    const inv = window.__game.ctx.inventory;
+    const items = typeof inv?.getStashItems === 'function' ? inv.getStashItems() : [];
+    const n = items.filter((i) => i.defId === want.id).reduce((a, i) => a + i.qty, 0);
+    return n >= want.n;
+  }, '은퇴 가구 환불', 15000, { id: refundIds[0], n: (stashBeforeMig[refundIds[0]] ?? 0) + rackCraft[0].qty * 2 }).catch(() => null);
+  const stashAfterMig = await stashOf(refundIds);
+  ok(mig.version === 4, `로드하면 세이브가 v4 로 올라온다 (v${mig.version})`);
+  ok(!mig.anyRack && !mig.placed.includes('furn_grow_rack') && mig.room6 === 'greenhouse',
+    '배치된 · 창고의 옛 재배층이 모두 사라진다 (온실 방 자체는 남는다)', JSON.stringify(mig));
+  ok(mig.plots === 0, `v3 의 plots 도 함께 사라진다 (${mig.plots})`);
+  ok(rackCraft.every((c) => stashAfterMig[c.defId] === stashBeforeMig[c.defId] + c.qty * 2),
+    `재료가 함선 창고로 환불된다 — 배치 1 + 창고 1 = 제작 재료 ×2 (${JSON.stringify(stashBeforeMig)} → ${JSON.stringify(stashAfterMig)})`);
+
   /* ── 시설 제거 (Phase 9 UI pass): refund every upgrade material into the stash and empty the room ── */
   console.log('시설 제거 (facilityRefund / removeRoomFacility)');
   await give('mat_scrap', 40);
   await give('mat_alloy', 5);
   await give('mat_cable', 8);
   // 2026-09-07: there is no built-in 작업실 any more — an empty room simply has nothing to hand back
-  ok(await H(() => /빈 방/.test(window.__game.ctx.housing.removeRoomFacility(0) ?? '')), 'removeRoomFacility on a 빈 방 refuses with a reason');
+  const emptyRoomSay = await H(() => { const h = window.__game.ctx.housing; const i = h.state.rooms.findIndex((r) => r.purpose === 'empty'); return { i, say: i < 0 ? null : h.removeRoomFacility(i), rooms: h.state.rooms.map((r) => r.purpose).join(',') }; });
+  ok(/빈 방/.test(emptyRoomSay.say ?? ''), `removeRoomFacility on a 빈 방 refuses with a reason (방 ${emptyRoomSay.i}: ${emptyRoomSay.say} — ${emptyRoomSay.rooms})`);
   ok(await H(() => window.__game.ctx.housing.facilityRefund(2).length === 0), 'a room with no facility refunds nothing');
   const rangeSetup = await H(() => {
     const h = window.__game.ctx.housing;

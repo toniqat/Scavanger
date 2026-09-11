@@ -9,6 +9,11 @@
 #   다른 재료의 배수나 loot_tiers.csv 의 희귀도 가중치를 바꾸면 이 비율도 움직인다 — data/README.md 의 역산 절차로 다시 맞춘다.
 # key_basement (지하실 키카드) 는 모든 티어에서 0 이다 — 구조물이 자기 컨테이너에 직접 넣는 물건이라
 # 무작위 루팅에 섞이면 안 된다. 줄을 지우지 않는다.
+# 온실 약재 3종 (herb_frostmoss · herb_emberpod · herb_ironleaf, 2026-09-11 온실 개편) 도 모든 티어에서 0 이다 —
+# 이것들은 **재배층에서만** 나오는 수확물이라 레이드에서 주울 수 있으면 온실을 돌릴 이유가 없어진다.
+# 같은 이유로 작물 4종(crop_*) 과 토양 4종(soil_*) 에는 줄이 아예 없다: 그 두 카테고리는
+# loot_category_weights.csv 에 가중치가 없어 상자 굴림의 후보가 되지 못한다 (토양은 채집 노드 전용이다).
+# 씨앗만 레이드에서 나온다 — 씨앗 픽은 seeds.csv 의 모든 줄 중에서 등급 가중치로 고르므로 새 씨앗도 저절로 들어간다.
 tier,target,mul
 # 티어 1 — 보급 상자
 1,@unique_ammo,0
@@ -34,6 +39,10 @@ tier,target,mul
 1,mat_capacitor,0
 1,mat_ingot,0
 1,mat_control_module,0
+# 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
+1,herb_frostmoss,0
+1,herb_emberpod,0
+1,herb_ironleaf,0
 1,key_basement,0
 
 # 티어 2 — 군수 상자
@@ -68,6 +77,10 @@ tier,target,mul
 2,mat_capacitor,0
 2,mat_ingot,0
 2,mat_control_module,0
+# 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
+2,herb_frostmoss,0
+2,herb_emberpod,0
+2,herb_ironleaf,0
 2,key_basement,0
 
 # 티어 3 — 귀중품 금고
@@ -95,6 +108,10 @@ tier,target,mul
 3,mat_capacitor,0.082
 3,mat_ingot,0.082
 3,mat_control_module,0.082
+# 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
+3,herb_frostmoss,0
+3,herb_emberpod,0
+3,herb_ironleaf,0
 3,key_basement,0
 
 # 티어 4 — 희귀 캐시
@@ -115,6 +132,10 @@ tier,target,mul
 4,mat_capacitor,0.118
 4,mat_ingot,0.118
 4,mat_control_module,0.118
+# 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
+4,herb_frostmoss,0
+4,herb_emberpod,0
+4,herb_ironleaf,0
 4,key_basement,0
 
 # 티어 5 — 보급 투하 상자
@@ -140,5 +161,9 @@ tier,target,mul
 5,mat_capacitor,0.0176
 5,mat_ingot,0.0176
 5,mat_control_module,0.0176
+# 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
+5,herb_frostmoss,0
+5,herb_emberpod,0
+5,herb_ironleaf,0
 5,key_basement,0
 

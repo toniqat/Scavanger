@@ -1,11 +1,14 @@
-import type { GrowPlot, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
+import type {
+  CraftIngredient, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState,
+  StoredFurniture,
+} from '@/shared';
 import {
-  BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
+  BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_SLOTS_PER_TIER, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
   slotKey,
 } from '@/shared';
 import {
-  canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, isRoomPurpose, nextFreeLayer,
-  stackLimitOf, stackMembers,
+  canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, furnitureRefundCost, growTierOpen,
+  isRoomPurpose, mergeCost, nextFreeLayer, stackLimitOf, stackMembers,
 } from './Rules';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -17,11 +20,15 @@ import {
  * left the cockpit is granted once to every profile (fresh state + v1 → v2 migration).
  * Phase 9: state **version 3** — `books` (서재 책장 slots) + `bookDex` (every book ever shelved); absent → empty, no
  * data migration. `SHIP_STATE_VERSION` in the contract is 3 now, so `SHIP_STATE_VERSION_CURRENT` follows it.
+ * 온실 개편 (2026-09-11): state **version 4** — `grows` (재배 스테이션 칸) replaces `plots`, and **every `retired`
+ * furniture def is swept out of the save** (placed or stored) and handed back as materials. `sanitize` cannot reach
+ * the inventory, so it only *computes* that refund into its optional `out` and `HousingSystem` pays it into the
+ * 함선 창고 as soon as `ctx.inventory` exists (see `flushRetiredRefund`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
-/** Current on-disk version (3 since Phase 9; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(3, SHIP_STATE_VERSION);
+/** Current on-disk version (4 since the 온실 개편; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(4, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
@@ -53,10 +60,11 @@ export function freshState(): ShipState {
     furniture: [],                            // 2026-09-07: no free 총기 작업대 / 정비 벤치 — both are crafted
     furnitureStorage: [],
     presets: [],
-    plots: [],
+    plots: [],                                // 은퇴한 재배층의 잔재 — 언제나 빈 배열이다 (온실 개편, 2026-09-11)
     nameLocked: false,
     books: [],
     bookDex: [],
+    grows: [],
   };
 }
 
@@ -65,9 +73,35 @@ function hasRepairBench(furniture: readonly PlacedFurniture[], storage: readonly
   return furniture.some((f) => f.defId === REPAIR_BENCH_DEF_ID) || storage.some((s) => s.defId === REPAIR_BENCH_DEF_ID && s.qty > 0);
 }
 
-/** A 재배층 (or any other stackable rack that grows things). */
+/**
+ * A 재배층 (the retired stackable rack). Kept so an old save / an old caller can still ask; nothing is ever placed
+ * with this def any more (`sanitize` sweeps it out as a `retired` def).
+ * @deprecated 2026-09-11 (온실 개편) — use `isGrowStationDefId`.
+ */
 export function isGrowRackDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'grow_rack';
+}
+
+/** A 재배 스테이션 (온실 개편, 2026-09-11): the furniture whose E opens the 재배 화면. */
+export function isGrowStationDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.interaction === 'grow_station';
+}
+
+/** 은퇴한 가구인가 (`data/furniture.csv` 의 `retired` 칸). 목록 · 제작 · 배치 · 세이브 어디에도 남지 않는다. */
+export function isRetiredDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.retired === true;
+}
+
+/** Shape check of a soil def id in a save (`soil_<tag>`); whether it is a real 토양 is a runtime check via `ctx.loot`. */
+const isSoilDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^soil_[A-Za-z0-9_]{1,40}$/.test(v);
+
+/** What `sanitize` found that the caller has to settle outside the pure function. */
+export interface SanitizeOutcome {
+  /**
+   * Materials owed for every `retired` furniture the save still carried (placed + stored, craft cost + the upgrade
+   * levels it had reached). `HousingSystem` drops them into the 함선 창고 once `ctx.inventory` is around.
+   */
+  refund: CraftIngredient[];
 }
 
 /** A 책장 (Phase 9: any furniture whose E opens the bookshelf panel). */
@@ -104,9 +138,14 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
  * a unique list of such ids. Whether an id still resolves to a 서적 is checked by `HousingSystem` once `ctx.loot`
  * exists. 2026-09-07: the room-1 작업실 invariant is gone — the only room rule left is "at most one facility room of
  * each kind"; furniture whose room no longer accepts it moves into furniture storage instead of being dropped.
+ * **v4 (온실 개편, 2026-09-11)**: every `retired` def (지금은 옛 재배층 `furn_grow_rack`) is swept out — placed and
+ * stored alike — and what it cost is accumulated into `out.refund` for the caller to pay into the 함선 창고. The old
+ * `plots` are dropped wholesale (사용자 결정: 옛 것 폐기) and the new `grows` are validated against the 재배
+ * 스테이션 that owns them (placed uid · tier its current level opens · slot in range · soil id shape).
  */
-export function sanitize(raw: unknown): ShipState {
+export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const fresh = freshState();
+  if (out) out.refund = [];
   if (!raw || typeof raw !== 'object') return fresh;
   const r = raw as Partial<ShipState> & Record<string, unknown>;
   const version = int(r.version, 0);
@@ -144,10 +183,18 @@ export function sanitize(raw: unknown): ShipState {
   const pending: PlacedFurniture[] = [];
   /** Pieces whose room lost the purpose they need (room-1 migration, edited save): recovered, never destroyed. */
   const displaced: StoredFurniture[] = [];
+  /** 은퇴 가구가 돌려줄 재료 (v4): 배치된 것 · 보관된 것을 한 자루에 모아 caller 가 함선 창고로 넣는다. */
+  const refund: CraftIngredient[] = [];
   for (const f of Array.isArray(r.furniture) ? (r.furniture as Partial<PlacedFurniture>[]) : []) {
     if (!f || typeof f.defId !== 'string') continue;
     const def = FURNITURE_DEF_MAP.get(f.defId);
     if (!def) { console.warn(`[housing] unknown furniture '${f.defId}' dropped`); continue; }
+    if (def.retired) {
+      // 온실 개편 (2026-09-11): 은퇴한 가구는 함선에서 걷어내고 값을 재료로 돌려준다 (사용자 결정: 옛 것 폐기)
+      mergeCost(refund, furnitureRefundCost(def, int(f.level, 1, 1, furnitureMaxLevel(def))));
+      console.warn(`[housing] retired furniture '${def.id}' removed from the ship — refunded as materials`);
+      continue;
+    }
     const room = int(f.room, -1, -1);
     const item: PlacedFurniture = {
       uid: typeof f.uid === 'string' ? f.uid : '',
@@ -186,6 +233,7 @@ export function sanitize(raw: unknown): ShipState {
     const level = int(s.level, 1, 1, furnitureMaxLevel(def));
     const qty = int(s.qty, 0, 0);
     if (qty <= 0) continue;
+    if (def.retired) { mergeCost(refund, furnitureRefundCost(def, level), qty); continue; }
     const existing = furnitureStorage.find((e) => e.defId === def.id && e.level === level);
     if (existing) existing.qty += qty; else furnitureStorage.push({ defId: def.id, level, qty });
   }
@@ -211,22 +259,40 @@ export function sanitize(raw: unknown): ShipState {
     });
   }
 
-  // 온실 재배: a plot needs its 재배층 to still exist; one plot per (uid, slot), timestamps must be usable numbers
-  const plots: GrowPlot[] = [];
-  const rackUids = new Set(furniture.filter((f) => isGrowRackDefId(f.defId)).map((f) => f.uid));
-  const takenSlots = new Set<string>();
-  for (const p of Array.isArray(r.plots) ? (r.plots as Partial<GrowPlot>[]) : []) {
-    if (!p || typeof p.uid !== 'string' || typeof p.seedDefId !== 'string' || !p.seedDefId) continue;
-    if (!rackUids.has(p.uid)) continue;
-    const slot = int(p.slot, -1, -1);
-    if (slot < 0 || slot >= GROW_PLOTS_PER_RACK) continue;
-    const key = `${p.uid}#${slot}`;
-    if (takenSlots.has(key)) continue;
-    const plantedAt = int(p.plantedAt, 0, 0);
-    if (plantedAt <= 0) continue;
-    const readyAt = int(p.readyAt, plantedAt, plantedAt);
-    takenSlots.add(key);
-    plots.push({ uid: p.uid, slot, seedDefId: p.seedDefId, plantedAt, readyAt });
+  /* 온실 개편 (2026-09-11): the 재배층 `plots` are gone with the furniture they belonged to — 사용자 결정 「옛 것
+     폐기」. The field stays in the contract (추가만 하는 규약) and is written back empty. */
+
+  // 재배 스테이션 칸: the station must still be placed, its level must open the tier, the slot must be in range,
+  // one entry per (uid, tier, slot), and the soil id must at least *look* like a 토양 (the real def check is a
+  // runtime prune in `parts/Garden.grows()`, exactly like the 서재 does with its books).
+  const grows: GrowSlot[] = [];
+  const stationLevel = new Map<string, number>();
+  for (const f of furniture) if (isGrowStationDefId(f.defId)) stationLevel.set(f.uid, f.level);
+  const takenGrowSlots = new Set<string>();
+  for (const g of Array.isArray(r.grows) ? (r.grows as Partial<GrowSlot>[]) : []) {
+    if (!g || typeof g.uid !== 'string' || !isSoilDefIdShape(g.soilDefId)) continue;
+    const level = stationLevel.get(g.uid);
+    if (level === undefined) continue;
+    const tier = int(g.tier, -1, -1) as GrowTier;
+    if (tier !== 0 && tier !== 1 && tier !== 2) continue;
+    if (!growTierOpen(level, tier)) continue;
+    const slot = int(g.slot, -1, -1);
+    if (slot < 0 || slot >= GROW_SLOTS_PER_TIER) continue;
+    const key = `${g.uid}#${tier}#${slot}`;
+    if (takenGrowSlots.has(key)) continue;
+    takenGrowSlots.add(key);
+    const entry: GrowSlot = {
+      uid: g.uid, tier, slot, soilDefId: g.soilDefId,
+      soilUsesLeft: Math.max(1, int(g.soilUsesLeft, 1, 1)),
+    };
+    // planting fields come and go together: a half-written seed leaves plain soil behind
+    const plantedAt = int(g.plantedAt, 0, 0);
+    if (typeof g.seedDefId === 'string' && g.seedDefId && plantedAt > 0) {
+      entry.seedDefId = g.seedDefId;
+      entry.plantedAt = plantedAt;
+      entry.readyAt = int(g.readyAt, plantedAt, plantedAt);
+    }
+    grows.push(entry);
   }
 
   // Phase 9 서재: a shelved book needs its 책장 to still be placed; one book per (uid, slot); slot < BOOKS_PER_SHELF
@@ -249,25 +315,30 @@ export function sanitize(raw: unknown): ShipState {
     if (isBookDefIdShape(id) && !bookDex.includes(id)) bookDex.push(id);
   }
 
+  if (out) out.refund = refund;
   return {
     version: SHIP_STATE_VERSION_CURRENT,
-    rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots,
+    rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots: [],
     nameLocked: r.nameLocked === true,
-    books, bookDex,
+    books, bookDex, grows,
   };
 }
 
-/** Load from localStorage; `fresh` = nothing valid was stored (first run). */
-export function loadState(): { state: ShipState; fresh: boolean } {
+/**
+ * Load from localStorage; `fresh` = nothing valid was stored (first run). `refund` (v4) is what the sweep of
+ * 은퇴 가구 owes the player — `HousingSystem` pays it into the 함선 창고 once the inventory exists.
+ */
+export function loadState(): { state: ShipState; fresh: boolean; refund: CraftIngredient[] } {
   const s = storage();
-  if (!s) return { state: freshState(), fresh: true };
+  if (!s) return { state: freshState(), fresh: true, refund: [] };
   let raw: unknown = null;
   try {
     const text = s.getItem(slotKey(SHIP_STORAGE_KEY));
     if (text) raw = JSON.parse(text);
   } catch { raw = null; }
-  if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true };
-  return { state: sanitize(raw), fresh: false };
+  if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true, refund: [] };
+  const out: SanitizeOutcome = { refund: [] };
+  return { state: sanitize(raw, out), fresh: false, refund: out.refund };
 }
 
 export function writeState(state: ShipState): boolean {

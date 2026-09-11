@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { FurnitureDef, FurnitureModelKind, GameContext, Interactable, PlacedFurniture, Rarity, WorkbenchKind } from '@/shared';
-import { BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, HOUSING_CELL_SIZE, RARITY_COLORS, benchKindOf, furnitureFootprint } from '@/shared';
+import type { FurnitureDef, FurnitureModelKind, GameContext, GrowTier, Interactable, PlacedFurniture, Rarity, WorkbenchKind } from '@/shared';
+import { BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, HOUSING_CELL_SIZE, RARITY_COLORS, benchKindOf, furnitureFootprint, growTiersForLevel } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
@@ -46,6 +46,14 @@ const TARGET_RING = new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness:
 /** 시뮬레이션 허브 hologram rings (emissive, translucent — no light). */
 const HOLO_RING = new THREE.MeshStandardMaterial({ color: 0x9fe8ff, roughness: 0.3, metalness: 0, emissive: 0x5fd7ff, emissiveIntensity: 2.2, transparent: true, opacity: 0.85, depthWrite: false });
 const HOLO_CORE = new THREE.MeshStandardMaterial({ color: 0xc8f4ff, roughness: 0.2, metalness: 0, emissive: 0x8fe0ff, emissiveIntensity: 1.6, transparent: true, opacity: 0.35, depthWrite: false });
+/**
+ * 재배 스테이션 재배층의 높이 (가구 높이에 대한 비율, 온실 개편 2026-09-11). `GrowTier` 그대로 0 = 중앙 ·
+ * 1 = 아래 · 2 = 위이고 **레벨과 무관하게 고정**이다 — 계약(`growTiersForLevel`)이 "Lv.2 는 아래를, Lv.3 은
+ * 위를 연다" 이므로 강화해도 이미 자라고 있는 중앙 층이 자리를 옮기면 안 된다. 층 간격은 화분 + 재배등이
+ * 들어갈 만큼(가구 높이의 0.28 ≈ 0.62 m) 띄웠다.
+ */
+const GROW_TIER_Y: Readonly<Record<GrowTier, number>> = { 0: 0.44, 1: 0.16, 2: 0.72 };
+
 /** Ghost materials for the housing-mode preview. */
 export const GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x5cff8a, transparent: true, opacity: 0.45, depthWrite: false });
 export const GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xff5a4a, transparent: true, opacity: 0.45, depthWrite: false });
@@ -208,6 +216,43 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     }
     b.box(w - 0.3, 0.04, 0.04, 0, trayY - 0.14, -(d / 2 - 0.04), a);                              // front accent
   },
+  /**
+   * 재배 스테이션 (온실 개편, 2026-09-11): 한 대짜리 수경 재배기. 옛 재배층처럼 쌓는 것이 아니라 **가구 레벨이
+   * 재배층을 연다** — `growTiersForLevel(level)` 이 그대로 그려지는 층이고 높이는 `GROW_TIER_Y` 한 곳에서만
+   * 온다(중앙 층은 강화해도 자리가 바뀌지 않는다). 한 층에 `GROW_SLOTS_PER_TIER` 개의 화분이 서고, 화분은
+   * 위가 뚫린 원통이라 흙을 붓기 전에는 안이 비어 보인다. 재배등은 emissive 재질(`stripGrow`)뿐 — 광원은
+   * 만들지 않는다 (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」).
+   */
+  grow_station: (b, w, d, h, a, lv) => {
+    // ── 프레임: 받침 · 기둥 4개 · 뒷판 · 천장 · 앞면 급액 파이프
+    b.boxB(w - 0.08, 0.12, d - 0.08, 0, 0, 0, M.hullDark);                                         // plinth
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.08, h, 0.08, sx * (w / 2 - 0.05), 0, sz * (d / 2 - 0.05), M.gunmetal);
+    b.box(w - 0.16, h - 0.24, 0.04, 0, h / 2, d / 2 - 0.05, M.hullDark);                           // back panel
+    b.box(w - 0.04, 0.07, d - 0.04, 0, h - 0.035, 0, M.hullLight);                                 // top cap
+    b.box(w - 0.3, 0.04, 0.05, 0, h - 0.09, -(d / 2 - 0.04), a);                                   // top accent
+    const pipeH = h - 0.24;
+    for (const sx of [-1, 1]) b.cyl(0.03, 0.03, pipeH, 8, sx * (w / 2 - 0.05), 0.12 + pipeH / 2, -(d / 2 - 0.005), M.trim);
+    // 제어반 (받침 위 왼쪽): 화면 + 레벨 핍
+    b.box(0.3, 0.22, 0.06, -w * 0.32, 0.42, -(d / 2 - 0.04), M.hullLight);
+    b.box(0.24, 0.15, 0.02, -w * 0.32, 0.44, -(d / 2 + 0.005), M.screen);
+    for (let k = 0; k < lv; k++) b.box(0.05, 0.03, 0.02, -w * 0.32 - 0.1 + k * 0.1, 0.29, -(d / 2 + 0.005), M.stripWhite);
+
+    // ── 재배층: 레벨이 연 층만 선다 (Lv.1 중앙 · Lv.2 아래 · Lv.3 위)
+    for (const tier of growTiersForLevel(lv)) {
+      const y = h * GROW_TIER_Y[tier];
+      b.box(w - 0.14, 0.05, d - 0.12, 0, y, 0, M.hullLight);                                       // shelf board
+      b.box(w - 0.16, 0.03, 0.04, 0, y + 0.035, -(d / 2 - 0.08), M.trim);                          // front edge
+      b.box(w - 0.26, 0.06, 0.14, 0, y + 0.5, 0, M.hullDark);                                      // 재배등 하우징
+      b.box(w - 0.3, 0.04, 0.1, 0, y + 0.455, 0, M.stripGrow);                                     // 재배등 (emissive only)
+      for (const sx of [-1, 1]) b.box(0.07, 0.05, 0.07, sx * (w / 2 - 0.05), y + 0.09, -(d / 2 - 0.005), a);   // 급액 분기
+      for (let k = 0; k < GROW_SLOTS_PER_TIER; k++) {
+        const px = -w / 2 + (k + 0.5) * (w / GROW_SLOTS_PER_TIER);
+        b.cyl(0.17, 0.15, 0.17, 14, px, y + 0.11, 0, M.hullDark, 0, 0, 0, true);                   // 화분 (위가 뚫려 안이 비어 보인다)
+        b.cyl(0.15, 0.15, 0.02, 14, px, y + 0.035, 0, M.crateDark);                                // 화분 바닥
+        b.box(0.09, 0.02, 0.03, px, y + 0.07, -(d / 2 - 0.13), a);                                 // 칸 표식
+      }
+    }
+  },
   range_console: (b, w, d, h, a) => {
     b.boxB(w - 0.1, h - 0.45, d - 0.2, 0, 0, 0.05, M.hullDark);
     b.box(w - 0.06, 0.06, d - 0.16, 0, h - 0.43, 0.05, M.trimDark);
@@ -356,8 +401,13 @@ export interface FurnitureCallbacks {
   onRangeConsole(): void;
   /** 시뮬레이션 허브 (Phase 7): start / join the 시뮬레이션 훈련장. */
   onSimHub(): void;
-  /** 재배층 (Phase 8): open the grow panel of this rack (`ctx.housing.openGrowMenu(uid)`). */
+  /**
+   * 재배층 (Phase 8). @deprecated 2026-09-11 (온실 개편) — `furn_grow_rack` 은 은퇴했고 `ShipState.sanitize` 가
+   * 놓인 것을 걷어내므로 실제로는 불리지 않는다. 계약은 추가만 하므로 경로는 그대로 남긴다.
+   */
   onGrowRack(uid: string): void;
+  /** 재배 스테이션 (온실 개편, 2026-09-11): 그 스테이션의 재배 화면 (`ctx.housing.openGrowStation(uid)`). */
+  onGrowStation(uid: string): void;
   /** 정비 벤치 (Phase 8): open the weapon-repair menu (the cockpit bench moved into the 작업실). */
   onRepairBench(): void;
   /** 책장 (Phase 9): open the bookshelf panel of this piece (`ctx.housing.openBookshelfMenu(uid)`). */
@@ -530,6 +580,7 @@ export class FurnitureLayer {
           if (bench) cb.onBench(bench, level);
           else if (kind === 'sim_hub') cb.onSimHub();
           else if (kind === 'grow_rack') cb.onGrowRack(uid);
+          else if (kind === 'grow_station') cb.onGrowStation(uid);
           else if (kind === 'repair_bench') cb.onRepairBench();
           else if (kind === 'bookshelf') cb.onBookshelf(uid);
           else cb.onRangeConsole();

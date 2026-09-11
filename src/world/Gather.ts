@@ -2,14 +2,15 @@ import * as THREE from 'three';
 import {
   GATHER_HERB_QTY2_CHANCE, GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, GATHER_SALVAGE_CORE_CHANCE,
   GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_QTY2_CHANCE, Layers,
-  SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION,
+  SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION, SOIL_TAG_COLOR,
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
-  type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random,
+  type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
 } from '@/shared';
-import { type BuildCtx, PLAY_LIMIT, composeMatrix, isSpotFree, merge, paint, paintGradient, xform } from './build';
+import { type BuildCtx, PLAY_LIMIT, composeMatrix, displace, isSpotFree, merge, paint, paintGradient, scratch, xform } from './build';
 import {
   GROVE_PICKS_MAX, GROVE_PICKS_MIN, GROVE_PICK_RING_MAX, GROVE_PICK_RING_MIN, GROVE_PICK_VARIANT,
 } from './hazard/model';
+import { planetSoil } from './soil';
 
 /** Seconds the shrink-away animation runs after a node is harvested. */
 const HARVEST_ANIM = 0.42;
@@ -26,7 +27,7 @@ const MIN_SPACING = 7;
  */
 const FALLBACK_HERB_IDS: readonly string[] = ['herb_bloodroot', 'herb_ashleaf', 'herb_glowcap'];
 
-const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347];
+const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347, 0xd8b06a];
 
 /* ── 고철 노드 (2026-09-08) ────────────────────────────────────────────────
  * 폐금속이 상자의 `material` 롤에서만 나오던 병목을 푸는 세 갈래 중 하나. 약초와 **같은 노드 시스템**을 쓴다 —
@@ -45,6 +46,33 @@ const SALVAGE_SPACING = 12;
  * `GATHER_SALVAGE_CORE_*`, 아이템 id 는 계약 주석(`shared/constants.ts`)이 정한 구동 코어다.
  */
 const SALVAGE_CORE_DEF_ID = 'mat_core';
+
+/* ── 토양 더미 (온실 개편, 2026-09-11) ──────────────────────────────────────────
+ * 온실의 재배 스테이션은 흙을 먼저 붓고 그 위에 씨앗을 심는다. 그 흙은 **레이드 채집으로만** 나오고 속성은
+ * 바이오별로 다르다 (`data/planets.csv` 의 `soils` · `soilNodes`, 읽는 자리는 `world/soil.ts`) — "부엽토가
+ * 필요하면 베르단트 III 로 간다" 가 이 파일에서 성립한다.
+ *
+ * 고철 더미가 그랬듯 **약초 노드 시스템을 그대로 쓴다**: 배치 · 상호작용 · 호스트 권한 동기화(`harv`/`harvq`) ·
+ * 수확 애니메이션이 전부 같은 코드이고, 다른 것은 변종 메시(파 놓은 흙더미) · 프롬프트 동사(`채취`) · 집는
+ * 시간 · 행성 가중치로 뽑는 아이템뿐이다. 숙련도는 **원예**다 (`gather:collected` 의 kind 가 'salvage' 가
+ * 아니면 원예 — `progression/` 의 규칙 그대로라 저쪽은 한 줄도 바뀌지 않는다). */
+/** `variants` index of the 토양 더미 mesh (0–2 = 약초, 3 = 고철). */
+const SOIL_VARIANT = 4;
+/** Interaction radius of a 토양 더미 (파 놓은 무더기라 고철과 같다). */
+const SOIL_RADIUS = 2.6;
+/**
+ * 흙 한 포대를 퍼내는 시간. **고철 해체와 같은 값을 의도적으로 공유한다** — 새 수치를 코드에 적지 않기 위해서다
+ * (`data/constants.csv` 는 이 배치의 소유가 아니다). 토양만 다른 시간이 필요해지면 constants.csv 에 한 줄.
+ */
+const SOIL_INTERACT_TIME = SALVAGE_INTERACT_TIME;
+/** Minimum distance from a 토양 더미 to another 토양 더미. */
+const SOIL_SPACING = 14;
+/** Minimum distance from a 토양 더미 to any 약초 · 고철 노드. */
+const SOIL_NODE_CLEARANCE = 5;
+/** 흙더미가 앉을 수 있는 최대 경사 — 흙은 평평한 곳에 쌓인다 (약초 0.3 · 고철 0.32 보다 엄하다). */
+const SOIL_MAX_SLOPE = 0.24;
+/** 토양 태그를 모를 때 인스턴스에 칠하는 색 (items/ 가 아직 그 줄을 모를 때). */
+const SOIL_FALLBACK_COLOR = '#6b5a49';
 
 interface Variant {
   meshes: THREE.InstancedMesh[];
@@ -102,6 +130,12 @@ export class Gather {
   readonly group = new THREE.Group();
   private variants: Variant[] = [];
   private bodyMat: THREE.MeshStandardMaterial | null = null;
+  /**
+   * 토양 더미 전용 본체 재질. `bodyMat` 과 갈라 둔 이유는 **인스턴스 색**(`setColorAt`) 때문이다 —
+   * 흙더미는 속성마다 색이 달라야 하는데 `instanceColor` 가 붙은 메시는 셰이더 프로그램이 달라진다.
+   * 같은 재질을 약초 · 고철과 공유하면 그 둘까지 프로그램이 갈려 선컴파일(`ctx.shaders`)이 헛돈다.
+   */
+  private soilMat: THREE.MeshStandardMaterial | null = null;
   private readonly nodes: Node[] = [];
   private readonly byId = new Map<string, Node>();
   private readonly defs: GatherNodeDef[] = [];
@@ -131,6 +165,7 @@ export class Gather {
   build(
     ctx: BuildCtx, game: GameContext, eco: PlanetEcosystem | null = null,
     groves: ReadonlyArray<{ x: number; z: number }> = [],
+    planetId: string | null = null,
   ): void {
     this.game = game;
     this.ensureNet();
@@ -138,27 +173,37 @@ export class Gather {
     const herbIds = this.resolveHerbIds(game);
     const weights = this.resolveHerbWeights(herbIds, eco);
     const target = this.nodeTarget(eco);
+    /* 2026-09-11 (온실 개편): 토양은 **자기 fork** 로만 굴린다 — 흙더미 지오메트리 · 배치 · 색이 `gather`
+     * 스트림을 한 칸이라도 밀면 같은 시드의 약초 · 고철 레이아웃이 통째로 달라진다 (`gather_core` 와 같은 수법). */
+    const soil = planetSoil(planetId);
+    const soilTarget = soil ? soil.nodes : 0;
+    const soilRng = ctx.rng.fork('gather_soil');
+    const soilWeights = soil ? this.resolveSoilWeights(game, soil.weights) : null;
 
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide });
+    // 흙은 젖은 듯 무광이고 뒷면을 쓰지 않는다 (돔 하나 + 덩어리들이라 전부 닫힌 면이다)
+    this.soilMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 });
 
-    // variants 0–2 are the plant shapes, variant 3 the 고철 더미 — each mesh is sized for its own node budget
+    // variants 0–2 are the plant shapes, 3 the 고철 더미, 4 the 토양 더미 — each mesh is sized for its own node budget
     const salvageTarget = SALVAGE_NODES_PER_MISSION;
     // 2026-09-09: 거대 버섯 군락 둘레의 채집 버섯은 전부 포자균 갓(변종 1)이라 그 변종만 자리를 더 잡는다
     const groveExtra = groves.length * GROVE_PICKS_MAX;
     const capacityOf = (k: number): number => (
-      k === SALVAGE_VARIANT ? salvageTarget : k === GROVE_PICK_VARIANT ? target + groveExtra : target
+      k === SALVAGE_VARIANT ? salvageTarget : k === SOIL_VARIANT ? soilTarget
+        : k === GROVE_PICK_VARIANT ? target + groveExtra : target
     );
-    for (let k = 0; k <= SALVAGE_VARIANT; k++) {
+    for (let k = 0; k <= SOIL_VARIANT; k++) {
       const glowMat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: 0.35, metalness: 0.0,
         emissive: new THREE.Color(GLOW_COLORS[k]), emissiveIntensity: 1.1,
       });
-      const geos = this.makeVariantGeometry(k, ctx, rng);
+      const geos = this.makeVariantGeometry(k, ctx, k === SOIL_VARIANT ? soilRng : rng);
       const meshes: THREE.InstancedMesh[] = [];
-      const bodyIm = new THREE.InstancedMesh(geos[0], this.bodyMat, capacityOf(k));
-      const glowIm = new THREE.InstancedMesh(geos[1], glowMat, capacityOf(k));
+      const mat = k === SOIL_VARIANT ? this.soilMat : this.bodyMat;
+      const bodyIm = new THREE.InstancedMesh(geos[0], mat, Math.max(1, capacityOf(k)));
+      const glowIm = new THREE.InstancedMesh(geos[1], glowMat, Math.max(1, capacityOf(k)));
       for (const im of [bodyIm, glowIm]) {
-        im.name = k === SALVAGE_VARIANT ? 'gather_salvage' : `gather_plant_${k}`;
+        im.name = k === SALVAGE_VARIANT ? 'gather_salvage' : k === SOIL_VARIANT ? 'gather_soil' : `gather_plant_${k}`;
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         im.castShadow = false;
         im.receiveShadow = false;
@@ -258,6 +303,39 @@ export class Gather {
       spots.push(...groveSpots);
     }
 
+    /* ── 토양 더미 (온실 개편, 2026-09-11) ─────────────────────────────────────
+     * 개수 · 종류가 전부 `data/planets.csv` 에서 온다 (`world/soil.ts`). 흙은 물이 고이던 **저지대**에 쌓이므로
+     * 분지(`layout.basins`) 안을 먼저 노리고, 못 잡으면 개활지로 흩는다. 배치 · 추첨은 전부 `soilRng` 이라
+     * 약초 · 고철 · 군락의 `gather` 스트림은 한 칸도 밀리지 않는다 — 같은 시드의 옛 채집물 배치가 그대로다.
+     * 자리 · 종류가 미션 시드의 함수라 **와이어가 없다** (수확 동기화만 기존 `harv`/`harvq` 를 탄다). */
+    if (soilTarget > 0 && soilWeights) {
+      const soilSpots: Spot[] = [];
+      const near2 = SOIL_SPACING * SOIL_SPACING;
+      const clear2 = SOIL_NODE_CLEARANCE * SOIL_NODE_CLEARANCE;
+      const push = (x: number, z: number): boolean => {
+        if (!isSpotFree(ctx, x, z, 1.1, { maxSlope: SOIL_MAX_SLOPE, padExtra: 4 })) return false;
+        for (const p of soilSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < near2) return false;
+        for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < clear2) return false;
+        soilSpots.push({ x, z, variant: SOIL_VARIANT, defId: this.pickHerb(soilWeights, soilRng), kind: 'soil' });
+        return true;
+      };
+      const basins = ctx.layout.basins;
+      for (let n = 0; n < soilTarget; n++) {
+        let placed = false;
+        if (basins.length > 0) {
+          for (let a = 0; a < 24 && !placed; a++) {
+            const b = basins[soilRng.int(0, basins.length - 1)];
+            const ang = soilRng.range(0, Math.PI * 2), d = soilRng.range(0, b.radius * 0.85);
+            placed = push(b.x + Math.cos(ang) * d, b.z + Math.sin(ang) * d);
+          }
+        }
+        for (let a = 0; a < 120 && !placed; a++) {
+          placed = push(soilRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12), soilRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12));
+        }
+      }
+      spots.push(...soilSpots);
+    }
+
     /* 2026-09-11 (C-20): 부가 코어는 **자기 fork** 로 굴린다 — `rng`(gather) 에서 뽑으면 그 뒤의 yaw · scale ·
      * 수량 추첨이 한 칸씩 밀려 같은 시드의 채집물 모습이 달라진다. `Random.fork` 는 부모를 전진시키지 않는다. */
     const coreRng = ctx.rng.fork('gather_core');
@@ -266,19 +344,25 @@ export class Gather {
       const v = this.variants[s.variant];
       if (v.count >= capacityOf(s.variant)) continue;
       const y = ctx.terrain.getHeightAt(s.x, s.z);
-      const yaw = rng.range(0, Math.PI * 2);
       const salvage = s.kind === 'salvage';
-      const scale = salvage ? rng.range(0.9, 1.15) : rng.range(0.85, 1.3);
+      const isSoil = s.kind === 'soil';
+      /* 토양은 배치와 마찬가지로 **자기 fork** 에서 yaw · scale 을 뽑는다 — soil spots 가 맨 뒤라 앞을 밀지는
+         않지만, 흙더미 개수(행성마다 다르다)가 `gather` 스트림의 길이를 바꾸지 않게 하려면 여기도 갈라야 한다. */
+      const r = isSoil ? soilRng : rng;
+      const yaw = r.range(0, Math.PI * 2);
+      const scale = salvage ? r.range(0.9, 1.15) : isSoil ? r.range(0.85, 1.2) : r.range(0.85, 1.3);
       const def: GatherNodeDef = {
         /* 2026-09-09: 군락 버섯은 `grove_` 로 구분한다 — 종류(kind)는 약초 그대로(원예 XP)지만 "생태계 밀도"
            를 세는 쪽(지도 · 스모크)은 이 둘을 갈라야 한다. 군락 자리는 spots 의 **맨 뒤**라 기존 약초 · 고철의
-           id 는 한 글자도 바뀌지 않는다. */
-        id: salvage ? `salvage_${id++}` : s.grove ? `grove_${id++}` : `gather_${id++}`,
+           id 는 한 글자도 바뀌지 않는다. 2026-09-11 의 토양 더미(`soil_`)는 그 뒤에 붙는다. */
+        id: salvage ? `salvage_${id++}` : isSoil ? `soil_${id++}` : s.grove ? `grove_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
         // 고철: 폐금속 1, `GATHER_SALVAGE_QTY2_CHANCE` 로 2. 약초: `GATHER_HERB_QTY2_CHANCE` 로 2.
         // 2026-09-11 (C-20): 옛 하드코딩 0.3 / 0.25 를 csv 로 옮겼다 — 같은 값이라 rng 소비도 결과도 그대로다.
-        qty: salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
+        // 토양: 한 더미에 한 포대 고정 (한 포대가 `ItemDef.soil.uses` 만큼 수확을 버틴다 — 깊이는 그쪽에 있다).
+        qty: isSoil ? 1
+          : salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
         harvested: false,
         kind: s.kind,
       };
@@ -292,6 +376,8 @@ export class Gather {
       };
       node.interactable = this.makeInteractable(node);
       this.writeMatrix(node, 1);
+      // 흙더미의 색은 **속성**이다 (부엽토 · 화산재토 · 동토 이탄 · 광물토) — 같은 메시를 인스턴스 색으로 칠한다
+      if (isSoil) this.paintSoilInstance(game, v, node.slot, s.defId);
       v.count++;
       this.nodes.push(node);
       this.byId.set(def.id, node);
@@ -303,6 +389,7 @@ export class Gather {
       for (const im of v.meshes) {
         im.count = v.count;
         im.instanceMatrix.needsUpdate = true;
+        if (im.instanceColor) im.instanceColor.needsUpdate = true;
         if (v.count > 0) this.group.add(im);
       }
     }
@@ -349,6 +436,8 @@ export class Gather {
     this.variants.length = 0;
     this.bodyMat?.dispose();
     this.bodyMat = null;
+    this.soilMat?.dispose();
+    this.soilMat = null;
     this.group.removeFromParent();
     this.built = false;
   }
@@ -366,17 +455,19 @@ export class Gather {
   private makeInteractable(node: Node): Interactable {
     const game = () => this.game;
     // 2026-09-08: 고철 더미는 더 오래 걸리고 `해체` 라고 뜬다 — 나머지 규칙은 약초와 같다
+    // 2026-09-11: 토양 더미는 `채취` 다 — 셋이 한 단어로 갈라진다 (약초 채집 · 고철 해체 · 토양 채취)
     const salvage = node.kind === 'salvage';
-    const verb = salvage ? '해체' : '채집';
+    const soil = node.kind === 'soil';
+    const verb = salvage ? '해체' : soil ? '채취' : '채집';
     return {
       id: `gather:${node.def.id}`,
       position: node.def.position,
       // base hold; the player applies `derived.interactSpeedMul` to every hold (Phase 5)
-      holdTime: salvage ? SALVAGE_INTERACT_TIME : GATHER_INTERACT_TIME,
-      radius: salvage ? SALVAGE_RADIUS : NODE_RADIUS,
+      holdTime: salvage ? SALVAGE_INTERACT_TIME : soil ? SOIL_INTERACT_TIME : GATHER_INTERACT_TIME,
+      radius: salvage ? SALVAGE_RADIUS : soil ? SOIL_RADIUS : NODE_RADIUS,
       getPrompt: () => {
         if (node.def.harvested) return null;
-        const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? (salvage ? '고철' : '약초');
+        const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? (salvage ? '고철' : soil ? '토양' : '약초');
         return node.pending ? `${name} ${verb} 중…` : `${name} ${verb} (E)`;
       },
       canInteract: () => {
@@ -412,7 +503,8 @@ export class Gather {
     ctx.interactables.unregister(node.interactable.id);
     if (!award) return;
 
-    // 채집 수율(원예)은 약초에만 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다
+    /* 채집 수율(원예)은 **약초 · 토양**에 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다.
+     * 토양이 원예 쪽인 것은 XP 와 같은 이유다: 흙을 퍼는 것도 밭일이다 (숙련 만렙이면 한 더미에서 두 포대). */
     const mul = node.kind === 'salvage' ? 1 : (ctx.progression?.derived.gatherYieldMul ?? 1);
     const qty = Math.max(1, Math.round(node.def.qty * (mul > 0 ? mul : 1)));
     ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId: node.def.defId, qty, kind: node.kind });
@@ -540,6 +632,41 @@ export class Gather {
     return ids.length > 0 && total > 0 ? { ids, cum } : null;
   }
 
+  /**
+   * 2026-09-11 (온실 개편): 행성의 토양 가중치를 **이 빌드가 실제로 아는 토양 아이템**으로 접는다.
+   * `items/` 가 모르는 id 는 조용히 버린다 (약초와 같은 계약) — 표가 통째로 비면 null 이고 토양 더미가 서지 않는다.
+   * 카테고리 필터를 거치는 이유는 오타 한 줄이 "흙인 줄 알았더니 수류탄" 이 되지 않게 하기 위해서다.
+   */
+  private resolveSoilWeights(game: GameContext, weights: Readonly<Record<string, number>>): { ids: string[]; cum: number[] } | null {
+    const loot = game.loot;
+    const ids: string[] = [];
+    const cum: number[] = [];
+    let total = 0;
+    for (const [id, w] of Object.entries(weights)) {
+      if (!(w > 0)) continue;
+      const def = loot?.getItemDef(id);
+      if (def && def.category !== 'soil') continue;   // 이름이 겹친 다른 아이템 — 흙이 아니다
+      if (!def && !id.startsWith('soil_')) continue;  // items/ 가 모르고 이름 규약도 아니면 버린다
+      total += w;
+      ids.push(id);
+      cum.push(total);
+    }
+    return ids.length > 0 && total > 0 ? { ids, cum } : null;
+  }
+
+  /**
+   * 토양 더미 인스턴스 하나를 그 **속성 색**으로 칠한다 (`shared/labels` 의 `SOIL_TAG_COLOR` — 재배 화면의 흙과
+   * 같은 표다). 본체 지오메트리의 정점 색은 명암 램프뿐이라 이 색이 곧 흙색이 된다.
+   */
+  private paintSoilInstance(game: GameContext, v: Variant, slot: number, defId: string): void {
+    const def = game.loot?.getItemDef(defId);
+    // items/ 가 아직 그 줄을 모를 수 있다 — id 규약(`soil_<tag>`)으로 한 번 더 맞춰 본다
+    const tag = def?.soil?.tag ?? (defId.startsWith('soil_') ? defId.slice(5) as SoilTag : undefined);
+    const hex = (tag && SOIL_TAG_COLOR[tag]) ?? SOIL_FALLBACK_COLOR;
+    scratch.c.set(hex);
+    v.meshes[0].setColorAt(slot, scratch.c);
+  }
+
   private pickHerb(w: { ids: string[]; cum: number[] }, rng: Random): string {
     const r = rng.next() * w.cum[w.cum.length - 1];
     for (let i = 0; i < w.cum.length; i++) if (r < w.cum[i]) return w.ids[i];
@@ -562,8 +689,9 @@ export class Gather {
     this.matrixDirty = true;
   }
 
-  /** [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 is the 고철 더미. */
+  /** [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 the 고철 더미, 4 the 토양 더미. */
   private makeVariantGeometry(k: number, ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
+    if (k === SOIL_VARIANT) return this.makeSoilGeometry(ctx, rng);
     if (k === SALVAGE_VARIANT) return this.makeSalvageGeometry(rng);
     const b = ctx.biome;
     const stemLow = b.trunk.clone().lerp(b.grass, 0.5).multiplyScalar(0.8);
@@ -698,6 +826,57 @@ export class Gather {
       paint(stud, glowCol.clone().multiplyScalar(0.85));
       glow.push(stud);
     }
+
+    return [merge(body), merge(glow)];
+  }
+
+  /**
+   * 토양 더미 (온실 개편, 2026-09-11): 누가 퍼내다 만 것처럼 **파 놓은 흙 무더기** — 울퉁불퉁한 돔 하나에 흙덩이
+   * 몇 개가 굴러 있고, 가장자리를 두른 얇은 띠 하나만 은은히 빛나 멀리서도 채집물로 읽힌다.
+   *
+   * 정점 색은 **명암 램프뿐**이다 (아래가 어둡고 위가 밝다). 진짜 흙색은 인스턴스마다의 속성 색
+   * (`paintSoilInstance` → `instanceColor`)이 곱해져 나온다 — 한 행성이 두 속성을 줄 수 있으므로 메시 하나가
+   * 여러 색이어야 한다. 바이옴 색을 쓰지 않는 것은 고철과 같은 이유다: 흙은 어디서나 흙으로 보여야 한다.
+   */
+  private makeSoilGeometry(ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
+    // 명암 램프 (곱해질 것이므로 1.0 을 넘지 않는다)
+    const shadeLow = new THREE.Color(0.45, 0.45, 0.45);
+    const shadeHigh = new THREE.Color(1, 1, 1);
+    const glowCol = new THREE.Color(GLOW_COLORS[SOIL_VARIANT]);
+    const body: THREE.BufferGeometry[] = [];
+    const glow: THREE.BufferGeometry[] = [];
+
+    // 퍼내다 만 무더기 — 눌린 돔 하나를 노이즈로 울퉁불퉁하게
+    const mound = new THREE.SphereGeometry(0.62, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    displace(mound, ctx.noise, 0.09, 2.6, rng.range(0, 40));
+    xform(mound, { x: 0, y: 0.02, z: 0 }, undefined, { x: 1, y: 0.52, z: 1 });
+    paintGradient(mound, shadeLow, shadeHigh);
+    body.push(mound);
+
+    // 옆으로 흘러내린 흙덩이 몇 개
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2 + rng.range(-0.5, 0.5);
+      const r = rng.range(0.45, 0.7);
+      const clod = new THREE.IcosahedronGeometry(rng.range(0.09, 0.17), 0);
+      xform(clod, { x: Math.cos(ang) * r, y: rng.range(0.02, 0.09), z: Math.sin(ang) * r },
+        new THREE.Euler(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3)), { x: 1, y: 0.72, z: 1 });
+      paintGradient(clod, shadeLow, shadeHigh);
+      body.push(clod);
+    }
+
+    // 파 낸 자리를 두른 얇은 띠 — 빛기둥이 아니라 "여기 팠다" 는 표식이다 (빛기둥은 시체에만, 2026-09-11)
+    const rim = new THREE.TorusGeometry(0.66, 0.022, 4, 16);
+    xform(rim, { x: 0, y: 0.03, z: 0 }, new THREE.Euler(Math.PI / 2, 0, 0));
+    paint(rim, glowCol);
+    glow.push(rim);
+    // 꽂아 둔 표식 막대 하나 (실루엣이 바위와 갈린다)
+    const stake = new THREE.CylinderGeometry(0.018, 0.018, 0.44, 5);
+    const sang = rng.range(0, Math.PI * 2);
+    xform(stake, { x: 0, y: 0.22, z: 0 });
+    xform(stake, undefined, new THREE.Euler(0, 0, rng.range(0.12, 0.3)));
+    xform(stake, { x: Math.cos(sang) * 0.4, y: 0.06, z: Math.sin(sang) * 0.4 }, new THREE.Euler(0, sang, 0));
+    paint(stake, glowCol.clone().multiplyScalar(0.8));
+    glow.push(stake);
 
     return [merge(body), merge(glow)];
   }
