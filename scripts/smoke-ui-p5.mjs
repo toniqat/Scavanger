@@ -9,7 +9,7 @@
 // training chat + notification lines, the training objective. Phase 9: ghost bleed bar / 사망 tag on a suspended member's
 // nameplate + squad row from `ref.ghostState / ghostDownHp`. Phase 10: the crosshair reload ring (`weapon:reloadStarted` /
 // `Cancelled` / `Finished`), the 회복약 2 s hold gauge (`heal:holdChanged`), the map's middle-click ping, the software
-// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar. 132 checks. Needs the relay on 8787 too (the hub's
+// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar. C-13 · C-19 (2026-09-11): the 회복 스프레이 ring never goes .ready at a full gauge, and the thin nameplate shield bar (ref.shield / maxShield; hidden when downed or suspended). C-36 후속: the item card's bag 내구도 row. 142 checks. Needs the relay on 8787 too (the hub's
 // `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -200,7 +200,10 @@ try {
   ok(Math.abs(dashT(hg.dash) - 0.5) < 0.02 && hg.lbl === '회복 1.0 s', 'half-held -> ring half full, 1.0 s left of the item use time (dur 2)', JSON.stringify(hg));
   await emit('heal:holdChanged', { holding: true, t: 0.4, dur: 5, spray: true });
   hg = await healRing();
-  ok(hg.lbl === '스프레이 40 %' && !/ready/.test(hg.cls), '회복 스프레이 channel -> the ring shows the remaining gauge', JSON.stringify(hg));
+  ok(hg.lbl === '스프레이 40 %' && !/\bready\b/.test(hg.cls), '회복 스프레이 channel -> the ring shows the remaining gauge', JSON.stringify(hg));
+  await emit('heal:holdChanged', { holding: true, t: 1, dur: 5, spray: true });
+  hg = await healRing();
+  ok(!/\bready\b/.test(hg.cls) && hg.lbl === '스프레이 100 %', '회복 스프레이 at a full gauge -> 스프레이 100 %, never .ready (the ready flash is for timed heals only)', JSON.stringify(hg));
   await emit('heal:holdChanged', { holding: true, t: 1, dur: 2 });
   hg = await healRing();
   ok(/\bready\b/.test(hg.cls) && Math.abs(dashT(hg.dash) - 1) < 0.02, 't = 1 -> .ready, full ring', JSON.stringify(hg));
@@ -305,6 +308,36 @@ try {
   ok(tipBar.label === '가치' && tipBar.amount === `${tipBar.value.toLocaleString('ko-KR')} C`, `bar reads 가치 / ${tipBar.value} C via formatCredits (${tipBar.amount})`, JSON.stringify(tipBar));
   ok(!tipBar.rows.includes('가치') && tipBar.align === 'space-between', '가치 is gone from the stats table and the amount is right-aligned', JSON.stringify(tipBar));
   await P(() => document.querySelector('#ui-root > .item-tip').dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
+  // C-36 후속 (2026-09-11): 가방 내구도 한 줄 — 칩뿐이면 `최대 max`, data-uid 로 인스턴스를 찾으면 `cur / max`
+  const bagTip = await P(() => {
+    const ctx = window.__game.ctx;
+    const max = ctx.loot.getItemDef('bag_common')?.durabilityMax ?? null;
+    const readRow = (uid) => {
+      const chip = document.createElement('span');
+      chip.className = 'item-chip';
+      chip.dataset.defId = 'bag_common';
+      if (uid) chip.dataset.uid = uid;
+      ctx.uiRoot.appendChild(chip);
+      chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 200, clientY: 200 }));
+      const tip = document.querySelector('#ui-root > .item-tip');
+      const ks = [...tip.querySelectorAll('.it-stats .k')];
+      const i = ks.findIndex((e) => e.textContent === '내구도');
+      const v = i >= 0 ? ks[i].nextElementSibling?.textContent : null;
+      chip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
+      chip.remove();
+      return v;
+    };
+    const def = readRow(null);
+    // 인스턴스 조회만 가짜로 — 저장소를 건드리지 않는다
+    const inv = ctx.inventory;
+    const orig = inv.findItemAnywhere;
+    const own = Object.prototype.hasOwnProperty.call(inv, 'findItemAnywhere');
+    inv.findItemAnywhere = (u) => (u === 'smoke-bag' ? { uid: 'smoke-bag', defId: 'bag_common', qty: 1, x: 0, y: 0, rot: 0, durability: 37 } : orig.call(inv, u));
+    let inst = null;
+    try { inst = readRow('smoke-bag'); } finally { if (own) inv.findItemAnywhere = orig; else delete inv.findItemAnywhere; }
+    return { max, def, inst };
+  });
+  ok(bagTip.max > 0 && bagTip.def === `최대 ${bagTip.max}` && bagTip.inst === `37 / ${bagTip.max}`, 'item tip: bag 내구도 row — 최대 max on a def chip, cur / max for a data-uid instance', JSON.stringify(bagTip));
 
   /* ── Phase 9 UI pass: 무게 표시 제거 · 분대 목록은 좌하단 · 우하단은 임플란트 → 빠른 사용 → 무기 슬롯 ── */
   const p9 = await P(() => {
@@ -555,6 +588,20 @@ try {
   ok(!!meRow && meRow.badge === '임무 중' && meRow.name.endsWith('(나)'), 'local row also carries 임무 중', JSON.stringify(meRow));
   let plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent } : null; });
   ok(!!plate && Number(plate.op) > 0 && !/\bsuspended\b/.test(plate.cls) && plate.tagHidden, 'nameplate visible over the avatar, no tag while connected', JSON.stringify(plate));
+  // C-19 (2026-09-11): thin shield bar above the hp bar from ref.shield / maxShield (PlayerSnapshot.sh / shm)
+  const shieldOf = () => P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); const sh = p?.querySelector('.sh'); return p && sh ? { cls: p.className, disp: getComputedStyle(sh).display, tf: sh.querySelector('.fill').style.transform, shc: sh.style.getPropertyValue('--shc'), above: sh.getBoundingClientRect().bottom <= p.querySelector('.hp').getBoundingClientRect().top + 1 } : null; });
+  let shp = await shieldOf();
+  ok(!!shp && !/\bhas-shield\b/.test(shp.cls) && shp.disp === 'none', 'no armour (maxShield undefined) -> no shield bar on the nameplate', JSON.stringify(shp));
+  await P(() => { window.__peer.armorId = 'armor_3'; window.__peer.maxShield = 60; window.__peer.shield = 30; });
+  await waitSim(0.3);
+  shp = await shieldOf();
+  ok(!!shp && /\bhas-shield\b/.test(shp.cls) && shp.disp === 'block' && shp.tf === 'scaleX(0.5)' && shp.above && shp.shc === 'var(--r-rare)', 'shield 30 / 60 -> .has-shield bar above the hp bar at scaleX 0.5, armour rarity colour', JSON.stringify(shp));
+  await P(() => { window.__peer.isDowned = true; });
+  await waitSim(0.3);
+  shp = await shieldOf();
+  ok(!!shp && !/\bhas-shield\b/.test(shp.cls) && shp.disp === 'none', 'downed peer -> shield bar hidden', JSON.stringify(shp));
+  await P(() => { window.__peer.isDowned = false; window.__peer.armorId = null; window.__peer.maxShield = undefined; window.__peer.shield = undefined; });
+  await waitSim(0.3);
   // socket drops: net/ flips ref.suspended (ref stays, stale by definition), LobbyPlayer.connected=false, net:peerSuspended
   await P(() => {
     window.__peer.suspended = true; window.__peer.stale = true;
@@ -567,6 +614,11 @@ try {
   plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent, sc: getComputedStyle(p).getPropertyValue('--sc').trim() } : null; });
   ok(!!plate && Number(plate.op) > 0 && /\bsuspended\b/.test(plate.cls), 'suspended nameplate stays visible (stale ignored) with .suspended', JSON.stringify(plate));
   ok(!!plate && !plate.tagHidden && plate.tag === '연결 끊김' && plate.sc === '#9aa0aa', '연결 끊김 tag shown, slot colour swapped to grey', JSON.stringify(plate));
+  await P(() => { window.__peer.maxShield = 60; window.__peer.shield = 60; });
+  await waitSim(0.3);
+  shp = await shieldOf();
+  ok(!!shp && !/\bhas-shield\b/.test(shp.cls) && shp.disp === 'none', 'suspended member -> no shield bar even with a stale maxShield on the ref', JSON.stringify(shp));
+  await P(() => { window.__peer.maxShield = undefined; window.__peer.shield = undefined; });
   // Phase 9: net fills ghostState / ghostDownHp on the suspended ref (host ghost downed → bleeding, dead → 사망)
   const plateOf = () => P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tag: p.querySelector('.tag').textContent, tagCls: p.querySelector('.tag').className, tagHidden: p.querySelector('.tag').hidden, bleedTf: p.querySelector('.hp .bleed').style.transform, bleedDisp: getComputedStyle(p.querySelector('.hp .bleed')).display } : null; });
   await P(() => { window.__peer.ghostState = 1; window.__peer.ghostDownHp = 40; });

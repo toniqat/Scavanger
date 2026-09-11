@@ -181,7 +181,12 @@ export class NamedScanWarning {
     if (this.aimShown) { this.aimShown = false; toggleClass(this.aimEl, 'show', false); }
   }
 
-  update(dt: number, ctx: GameContext): void {
+  /**
+   * Called from `HudSystem.lateUpdate` (2026-09-11, C-53 · X-9 — `DangerIndicators` 와 같은 자리) so the glint projection
+   * uses the camera of the frame being drawn. It ran in `update` before, i.e. **before** `CameraRig` moved the camera,
+   * so on-screen glints trailed a turning view by a frame. Timers tick here too — one entry point, like `DangerIndicators`.
+   */
+  lateUpdate(dt: number, ctx: GameContext): void {
     for (const g of this.glints) {
       if (!g.active) continue;
       g.left -= dt;

@@ -844,7 +844,8 @@ try {
     stamina: !!document.querySelector('.hud .stamina'),
     staminaFull: document.querySelector('.hud .stamina')?.classList.contains('full'),
     dur: !!document.querySelector('.weapon .dur, .weapon .durability, .weapon [class*="dur"]'),
-    /* 2026-09-10: 상단 슬롯 칸(.wslots)은 없어졌다 — 패널은 썸네일 + 큰 잔탄 + 작은 예비탄이다. */
+    /* 2026-09-10: 상단 슬롯 칸(.wslots)은 없어졌다 — 패널은 썸네일 + 큰 잔탄 + 작은 예비탄이다.
+       2026-09-11 (C-26): 헬퍼만 남았던 `ui/hud/SlotStrip.ts` 도 지웠다. `.wslots` 0 단언은 되살아나지 않는지 보려고 남긴다. */
     thumb: !!document.querySelector('.weapon .wthumb'),
     mag: document.querySelector('.weapon .mag')?.textContent ?? null,
     reserve: document.querySelector('.weapon .reserve')?.textContent ?? null,

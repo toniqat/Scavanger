@@ -1,6 +1,8 @@
 // Smoke test for the 2026-09-06 UI / implant package: title controls diagram + key rebinding, the hub Tab ship
 // screen (stash persistence, implant slot / picker, right-click repair, screen tabs), the terminal without
 // scrollbars, and the reworked implants (crosshair gauge, launcher stowed by a weapon key, hold-to-overcharge).
+// 2026-09-11 (C-9 · X-8): boots with a legacy `scav.keybinds` blob (`SWAP` retired + `RELOAD=V` vs the new `DIVE=V`) and
+// checks the load report, the title's 키 설정 확인 card, the retired line leaving the blob, and the clash in the key menu.
 // Usage: node scripts/smoke-controls-hub.mjs [http://localhost:5273/] [--shots]
 // Requires `npm run dev` (or `npm run dev:all`). `--shots` writes PNGs to scripts/shots/.
 //
@@ -73,7 +75,10 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)));
   // fresh profile / stash / bindings
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.removeItem('scav.keybinds'); });
+  // C-9 · X-8 (2026-09-11): 버전 없는 **옛 키 설정 블롭**을 심는다 — `SWAP`(이전 무기)은 목록에서 빠진 액션이고
+  // `RELOAD=V` 는 새 기본 `DIVE=V`(구르기)와 겹친다. 부팅이 리포트를 모으고 타이틀이 한 번 알린 뒤 은퇴 줄을 지워야 한다.
+  // 겹침은 블롭에 남으므로 섹션 2 가 키 설정 화면에서 그 겹침을 보고 `초기화` 로 걷어낸 뒤 원래 검사를 이어 간다.
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.setItem('scav.keybinds', JSON.stringify({ SWAP: 'KeyX', RELOAD: 'KeyV' })); });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await waitFor(page, () => !!window.__game?.ctx, 'engine boot');
 
@@ -109,6 +114,27 @@ try {
     if (!el) throw new Error(`no element ${sel}`);
     await el.click();
   };
+
+  /* ── 0. 옛 키 설정 리포트 → 타이틀 알림 (C-9 · X-8) ─────────────────── */
+  await waitFor(page, () => !document.querySelector('.menu.title')?.classList.contains('hidden'), 'title shown');
+  const kbn = await page.evaluate(() => {
+    const n = window.__game.getSystem('hud').keybindNotice;
+    const card = document.querySelector('.menu.title .kb-notice');
+    return {
+      report: n.report, lines: n.lines, on: n.on,
+      cardShown: !!card && !card.hidden && getComputedStyle(card).display !== 'none',
+      cardLines: card ? [...card.querySelectorAll('.kbn-line')].map((e) => e.textContent) : [],
+      saved: localStorage.getItem('scav.keybinds'),
+    };
+  });
+  ok(!!kbn.report && kbn.report.retired.includes('SWAP'), 'keybind load report lists the retired SWAP entry', JSON.stringify(kbn.report));
+  ok(!!kbn.report && kbn.report.conflicts.some((c) => c.action === 'RELOAD' && c.with.includes('DIVE')), 'report: saved RELOAD=V clashes with the new default DIVE=V', JSON.stringify(kbn.report));
+  ok(kbn.on && kbn.cardShown, 'title shows the 키 설정 확인 card once at boot', JSON.stringify(kbn));
+  ok(kbn.cardLines.includes('같은 키 V: 재장전 · 구르기') && kbn.cardLines.some((l) => l.includes('이전 무기')), `card names the clash and the retired action (${kbn.cardLines.join(' / ')})`);
+  ok(kbn.saved === '{"RELOAD":"KeyV"}', `after notifying, saveKeybinds dropped the retired SWAP line but kept RELOAD (${kbn.saved})`);
+  await shot('00-keybind-notice');
+  await page.evaluate(() => [...document.querySelectorAll('.menu.title .kb-notice .ui-btn')].find((b) => b.textContent === '확인').click());
+  ok(await page.evaluate(() => document.querySelector('.menu.title .kb-notice').hidden && !window.__game.getSystem('hud').keybindNotice.on), '확인 closes the card');
 
   /* ── 1. 설정 → 키 설정: controls diagram ──────────────────────────────
      2026-09-09: 타이틀은 워드마크 + `게임 시작` / `설정` / `종료` 세 버튼뿐이다. 조작 다이어그램과
@@ -157,6 +183,11 @@ try {
   /* ── 2. key rebinding overlay ─────────────────────────────────────── */
   await page.evaluate(() => [...document.querySelectorAll('.set-body.keys .ui-btn')].find((b) => b.textContent === '키 설정 변경').click());
   ok(await page.evaluate(() => !document.querySelector('.menu.keybind-menu').hidden), 'key-settings overlay opened');
+  // C-9 · X-8: 옛 블롭의 겹침은 알린 뒤에도 남아 있다 — 키 설정 화면이 같은 두 줄을 겹침으로 칠한다. 초기화로 걷어낸다.
+  const legacy = await page.evaluate(() => [...document.querySelectorAll('.kb-row.conflict .kb-label')].map((n) => n.textContent));
+  ok(legacy.length === 2 && legacy.some((l) => l.startsWith('재장전')) && legacy.includes('구르기'), `legacy RELOAD=V still flagged against 구르기 in the key menu (${legacy.join(' / ')})`);
+  await page.evaluate(() => [...document.querySelectorAll('.kb-foot .ui-btn')].find((b) => b.textContent.includes('초기화')).click());
+  ok(await page.evaluate(() => document.querySelectorAll('.kb-row.conflict').length === 0 && !localStorage.getItem('scav.keybinds')), 'reset clears the legacy clash and the blob');
   const rowBtn = (label) => page.evaluateHandle((l) => [...document.querySelectorAll('.kb-row')].find((r) => r.querySelector('.kb-label').textContent === l)?.querySelector('.kb-key'), label);
   // rebind 앉기 → N
   await (await rowBtn('앉기')).asElement().click();

@@ -164,7 +164,8 @@ export class Detection {
       const dx = it.position.x - from.x, dy = it.position.y - from.y, dz = it.position.z - from.z;
       if (dx * dx + dy * dy + dz * dz > r2) continue;
       // 2026-09-11: 빛기둥은 시체에만 (`pillarAllowed`) — 상자 · 컨테이너는 열린 모습으로 조사 여부를 보여 준다.
-      if (!pillarAllowed(it.id)) continue;
+      // C-4: 등록물 자체를 넘긴다 — `Interactable.kind`(corpse · playerCorpse)가 먼저, 없으면 id 접두어.
+      if (!pillarAllowed(it)) continue;
       if (!it.canInteract()) continue;
       // 2026-09-08: an interactable this client has already dealt with (a searched corpse) hides its own pillar.
       if (it.hidePillar) continue;

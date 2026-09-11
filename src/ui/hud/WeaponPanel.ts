@@ -43,7 +43,7 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
  * plus the low / empty / broken states. The reload readout moved to the crosshair in Phase 10 (`hud/ReloadGauge`) —
  * this panel no longer owns an arc or a `재장전` pill.
  *
- * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 패널 **위**의 슬롯 칸(`hud/SlotStrip` 의 `1 · 2 · T`)과 패널 **아래**의
+ * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 패널 **위**의 슬롯 칸(옛 `hud/SlotStrip` 의 `1 · 2 · T` — 파일은 2026-09-11 C-26 에서 지웠다)과 패널 **아래**의
  * 주무기 키 · 무기 이름이 전부 없어졌다. 그 높이는 남은 것들이 가져간다 — 썸네일 34 → 58 px, 잔탄 40 → 64 px
  * (`styles/raidHud.css`). 무기 이름은 썸네일이 대신하므로 `.wthumb` 는 이름 없는 정사각형이 되고, 테두리 · 안쪽
  * 글로우가 **무기 등급색**(`--wrc` = `rarityColor(def.rarity)`)을 쓴다 — 아이템 칩 자체의 `--rc` 와 같은 색이라

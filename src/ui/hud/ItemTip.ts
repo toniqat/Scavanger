@@ -1,4 +1,4 @@
-import type { CurrencyDef, GameContext, ItemDef, StatId } from '@/shared';
+import type { CurrencyDef, GameContext, ItemDef, ItemInstance, StatId } from '@/shared';
 import {
   CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
 } from '@/shared';
@@ -17,6 +17,11 @@ import { el, setText } from '../dom';
  *
  * Only `ItemDef` data is shown (name · 분류 · 등급 · 설명 + the def's own numbers + 보유 from bag + stash): a chip has
  * no `ItemInstance`, so there is no durability / socket / loaded-ammo section like `inventory/ui/Tooltip` has.
+ *
+ * 2026-09-11 (C-36 후속): **가방 내구도 한 줄** — 가방이 `durabilityMax` 를 갖게 되면서 `내구도` 줄이 `가방` 줄 아래에
+ * 붙는다. 호버한 요소가 `data-uid` 도 달고 있고(`inventory/ui/TradeGrids` 의 타일) 그 인스턴스를 찾을 수 있으면
+ * `inventory/ui/Tooltip` 과 같은 `cur / max` (0 이어도 `파손` 이라 적지 않는다 — 가방은 0 이어도 격자가 그대로다),
+ * 인스턴스가 없는 칩(제작 · 수리 재료 칩)이면 새 가방의 값 `최대 max` 다.
  *
  * 2026-09-08: an `implant` def also lists 장착칸 · 퍽 · 능력치 (· 상태 when broken) — the inventory's 임플란트 칸
  * is a row of square thumbnails now, so this card is where an equipped implant's numbers are read.
@@ -44,6 +49,8 @@ export class ItemTip {
   private weightAmount: HTMLElement;
   private ctx: GameContext | null = null;
   private defId: string | null = null;
+  /** `data-uid` of the hovered element (instance-backed rows such as 가방 내구도), null for a plain def chip. */
+  private uid: string | null = null;
   /** 지금 카드가 재화를 그리고 있다면 그 재화 id (아이템일 때 null). */
   private currencyId: string | null = null;
   private visible = false;
@@ -123,7 +130,8 @@ export class ItemTip {
     }
     const id = chip.dataset.defId ?? null;
     if (!id) return false;
-    if (!this.visible || id !== this.defId) this.render(id);
+    const uid = chip.dataset.uid ?? null;
+    if (!this.visible || id !== this.defId || uid !== this.uid) this.render(id, uid);
     return this.visible;
   }
 
@@ -151,10 +159,18 @@ export class ItemTip {
     try { return inv.countDefAll(defId); } catch { return -1; }
   }
 
-  private render(defId: string): void {
+  /** The live instance behind a `data-uid` (bag or stash), only when it really is this def. */
+  private instanceOf(uid: string | null, defId: string): ItemInstance | null {
+    const inv = this.ctx?.inventory;
+    if (!uid || !inv || typeof inv.findItemAnywhere !== 'function') return null;
+    try { const it = inv.findItemAnywhere(uid); return it && it.defId === defId ? it : null; } catch { return null; }
+  }
+
+  private render(defId: string, uid: string | null = null): void {
     const def = this.defOf(defId);
     if (!def) { this.hide(); return; }
     this.defId = defId;
+    this.uid = uid;
     this.currencyId = null;
     this.root.classList.remove('is-currency');
     this.valueEl.hidden = false;
@@ -170,6 +186,12 @@ export class ItemTip {
     if (def.seed) rows.push(['재배 시간', `${def.seed.growHours} 시간`]);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);
+    // 2026-09-11 (C-36 후속): 가방 내구도 — 인스턴스가 있으면 `cur / max`, 칩뿐이면 새 가방의 `최대 max`.
+    if (def.bag && def.durabilityMax !== undefined && def.durabilityMax > 0) {
+      const max = def.durabilityMax;
+      const inst = this.instanceOf(uid, defId);
+      rows.push(['내구도', inst ? `${Math.round(Math.max(0, Math.min(max, inst.durability ?? max)))} / ${max}` : `최대 ${max}`]);
+    }
     // 2026-09-08: 임플란트 — 인벤토리의 임플란트 칸이 세로 목록에서 정사각 썸네일 줄로 바뀌면서 (이름 · 퍽 ·
     //   능력치가 카드에서 빠졌다) 그 정보가 사는 곳이 이 카드가 됐다.
     const imp = def.implant;
@@ -205,6 +227,7 @@ export class ItemTip {
     if (!def) { this.hide(); return; }
     this.currencyId = id;
     this.defId = null;
+    this.uid = null;
     this.root.classList.add('is-currency');
     this.root.style.setProperty('--rc', def.color);
     this.root.style.setProperty('--ic', def.color);
@@ -244,6 +267,7 @@ export class ItemTip {
     if (!this.visible) return;
     this.visible = false;
     this.defId = null;
+    this.uid = null;
     this.currencyId = null;
     this.root.hidden = true;
   }

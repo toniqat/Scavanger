@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext, PeerId, RemotePlayerRef } from '@/shared';
 import { NET_SLOT_COLORS_CSS, PLAYER_DOWN_HP, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { el, rarityColor, setText, toggleClass } from '../dom';
 
 const HEAD_OFFSET = 0.35;   // metres above the avatar head
 const MAX_DIST = 150;       // hidden beyond this
@@ -12,7 +12,14 @@ const SUSPENDED_CSS = '#9aa0aa';
 /** Tag under the name of a suspended member whose host ghost bled out (`ghostState === 2`). */
 export const GHOST_DEAD_LABEL_KO = '사망';
 
-interface Plate { root: HTMLElement; name: HTMLElement; tag: HTMLElement; fill: HTMLElement; bleed: HTMLElement; color: string; lastKey: string; lastName: string; lastTag: string }
+interface Plate {
+  root: HTMLElement; name: HTMLElement; tag: HTMLElement; fill: HTMLElement; bleed: HTMLElement;
+  /** 2026-09-11 (C-19): thin shield bar above the hp bar, and its fill. */
+  sh: HTMLElement; shFill: HTMLElement;
+  color: string; lastKey: string; lastName: string; lastTag: string;
+  /** `ref.armorId` the shield colour was last resolved for (`undefined` = never). */
+  lastArmor: string | null | undefined;
+}
 
 /**
  * Remote-player nameplates: name + tiny hp bar in the slot colour, projected from `avatar.getHeadPosition()`
@@ -25,6 +32,11 @@ interface Plate { root: HTMLElement; name: HTMLElement; tag: HTMLElement; fill: 
  * `setDebugRefs` lets smoke tests feed refs from `remotePlayers.debugSpawn` (rendered in addition to `ctx.net`'s list).
  * Phase 9: while the ghost is downed (`ref.ghostState === 1`) a red bleed bar (`.bleeding`, `ghostDownHp / PLAYER_DOWN_HP`)
  * overlays the greyed hp bar; a bled-out ghost (`ghostState === 2`) reads `사망` (`.tag.dead`, strike-through name).
+ * 2026-09-11 (C-19): a thin **shield bar** (`.sh`, shown by `.has-shield`) sits above the hp bar — `ref.shield / maxShield`
+ * (`PlayerSnapshot.sh / shm`, only sent while the peer wears armour; a missing `shield` next to a known max reads full).
+ * Drawn only when `maxShield > 0` and the peer is neither downed, dead nor suspended (a host ghost carries no shield —
+ * `applyGhost` clears it). A separate bar, not a segment stacked onto the hp bar, so a full shield never hides how hurt
+ * the body under it is. Colour = the armour's rarity (`ctx.loot`), like the local `Vitals` shield cells; `.far` hides it.
  */
 export class Nameplates {
   readonly root: HTMLElement;
@@ -65,11 +77,11 @@ export class Nameplates {
     const live = net?.getRemotePlayers() ?? EMPTY;
     for (let pass = 0; pass < 2; pass++) {
       const refs = pass === 0 ? live : (debug ?? EMPTY);
-      for (const ref of refs) this.place(ref, cam, w, h);
+      for (const ref of refs) this.place(ctx, ref, cam, w, h);
     }
   }
 
-  private place(ref: RemotePlayerRef, cam: THREE.Camera, w: number, h: number): void {
+  private place(ctx: GameContext, ref: RemotePlayerRef, cam: THREE.Camera, w: number, h: number): void {
     const plate = this.plates.get(ref.id) ?? this.create(ref.id, ref.slot);
     if (plate.lastName !== ref.name) { plate.lastName = ref.name; setText(plate.name, ref.name); }
     const suspended = ref.suspended === true;
@@ -98,7 +110,16 @@ export class Nameplates {
     const ghostDead = suspended && ref.ghostState === 2;
     const bleed = ghostDowned ? Math.min(1, Math.max(0, (ref.ghostDownHp ?? PLAYER_DOWN_HP) / PLAYER_DOWN_HP)) : 0;
     const dead = ref.isDead || ghostDead;
-    const key = `${Math.round(sx)}|${Math.round(sy)}|${hp.toFixed(2)}|${alpha.toFixed(2)}|${dead ? 1 : 0}|${far ? 1 : 0}|${suspended ? 1 : 0}|${ghostDowned ? bleed.toFixed(2) : ghostDead ? 'x' : '-'}`;
+    // C-19: shield bar — only for a standing, connected, armoured peer
+    const maxShield = ref.maxShield ?? 0;
+    const shieldOn = maxShield > 0 && !ref.isDowned && (ref.flags & PlayerFlags.DOWNED) === 0 && !dead && !suspended;
+    const shield = shieldOn ? Math.min(1, Math.max(0, (ref.shield ?? maxShield) / maxShield)) : 0;
+    if (shieldOn && plate.lastArmor !== ref.armorId) {
+      plate.lastArmor = ref.armorId;
+      const rarity = ref.armorId ? ctx.loot?.getItemDef(ref.armorId)?.rarity : undefined;
+      plate.sh.style.setProperty('--shc', rarityColor(rarity ?? 'common'));
+    }
+    const key = `${Math.round(sx)}|${Math.round(sy)}|${hp.toFixed(2)}|${alpha.toFixed(2)}|${dead ? 1 : 0}|${far ? 1 : 0}|${suspended ? 1 : 0}|${ghostDowned ? bleed.toFixed(2) : ghostDead ? 'x' : '-'}|${shieldOn ? shield.toFixed(2) : '-'}`;
     if (key === plate.lastKey) return;
     plate.lastKey = key;
     plate.root.style.transform = `translate(${sx.toFixed(0)}px, ${sy.toFixed(0)}px) translate(-50%, -100%)`;
@@ -109,6 +130,8 @@ export class Nameplates {
     toggleClass(plate.root, 'suspended', suspended);
     toggleClass(plate.root, 'bleeding', ghostDowned);
     plate.bleed.style.transform = `scaleX(${bleed.toFixed(3)})`;
+    toggleClass(plate.root, 'has-shield', shieldOn);
+    plate.shFill.style.transform = `scaleX(${shield.toFixed(3)})`;
     // the slot colour is an inline custom property, so the grey has to be written inline too
     plate.root.style.setProperty('--sc', suspended ? SUSPENDED_CSS : plate.color);
     plate.tag.hidden = !suspended;
@@ -123,10 +146,12 @@ export class Nameplates {
     const name = el('div', { cls: 'name', text: '', parent: root });
     const tag = el('div', { cls: 'tag', text: SUSPENDED_LABEL_KO, parent: root });
     tag.hidden = true;
+    const sh = el('div', { cls: 'sh', parent: root });
+    const shFill = el('div', { cls: 'fill', parent: sh });
     const hp = el('div', { cls: 'hp', parent: root });
     const fill = el('div', { cls: 'fill', parent: hp });
     const bleed = el('div', { cls: 'bleed', parent: hp });
-    const plate: Plate = { root, name, tag, fill, bleed, color, lastKey: '', lastName: '', lastTag: SUSPENDED_LABEL_KO };
+    const plate: Plate = { root, name, tag, fill, bleed, sh, shFill, color, lastKey: '', lastName: '', lastTag: SUSPENDED_LABEL_KO, lastArmor: undefined };
     this.plates.set(id, plate);
     return plate;
   }

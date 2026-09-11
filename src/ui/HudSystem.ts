@@ -1,4 +1,4 @@
-import type { GameContext, GameSystem, KeyGuideEntry, LobbyState, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
+import type { GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
@@ -245,8 +245,9 @@ export class HudSystem implements GameSystem {
     this.hazard = new HazardHud(this.hudRoot, this.overlayRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
-    // The strip lives **inside** the weapon panel so it stacks on top of its slot strip and inherits its
-    // right-bottom anchor, its fade and the `.hud.spectating` rule. `prepend` puts it above `.wslots`.
+    // The strip lives **inside** the weapon panel so it stacks on top of the gun box and inherits its
+    // right-bottom anchor, its fade and the `.hud.spectating` rule. `prepend` puts it first in the panel.
+    // (2026-09-11, C-26: the `.wslots` slot strip it once sat above is gone, and so is `hud/SlotStrip.ts`.)
     // (2026-09-10: the 임플란트 칩 that used to sit above it is gone — `ImplantWidget` is the one implant
     //  readout now, at the bottom centre under the stamina bar.)
     this.quickStrip = new QuickStrip(this.weapon.root);
@@ -325,7 +326,7 @@ export class HudSystem implements GameSystem {
     this.settings.bind(ctx);
     // 2026-09-09: 타이틀의 `설정` 은 일시정지 메뉴와 **같은** 설정 오버레이를 연다 — 조작 다이어그램과
     // `키 설정 변경` 이 타이틀을 떠나 그 안(키 설정 구획)으로 들어갔기 때문이다.
-    this.title = new TitleMenu(ctx.uiRoot, () => this.settings.open());
+    this.title = new TitleMenu(ctx.uiRoot, () => this.settings.open(), () => { this.settings.open(); this.settings.select('keys'); });
     this.pause = new PauseMenu(ctx.uiRoot, () => this.settings.open());
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
@@ -396,7 +397,7 @@ export class HudSystem implements GameSystem {
       this.implantWidget.update(dt, ctx);
       this.quickStrip.update();
       this.droneHud.update(dt, ctx);
-      this.scanWarning.update(dt, ctx);
+      // 2026-09-11 (C-53): `scanWarning` 은 화면 투영을 하므로 `lateUpdate` 로 옮겼다.
       this.handHint.update(dt, ctx);
     }
     if (this.socialVisible) {
@@ -437,12 +438,18 @@ export class HudSystem implements GameSystem {
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
+    // 2026-09-11 (C-53 · X-9): `Vector3.project` reads `camera.matrixWorldInverse`, which only `updateMatrixWorld` /
+    // `updateWorldMatrix` refresh. `CameraRig` moves the camera in the player's `lateUpdate` (registered before us) without refreshing it, and the renderer
+    // only does so inside `render()` — after this. Widgets that never call `getWorldDirection` / `getWorldPosition`
+    // first (WorldMarkers · Pings · OffscreenIndicators) were projecting through the previous frame's view.
+    ctx.camera.updateMatrixWorld();
     if (this.hudVisible) {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
       this.offscreen.lateUpdate(ctx);
       this.danger.lateUpdate(dt, ctx);
       this.statusMarkers.lateUpdate(ctx);
+      this.scanWarning.lateUpdate(dt, ctx);
     }
     if (this.socialVisible) { this.nameplates.lateUpdate(ctx); this.typing.lateUpdate(ctx); }
     this.detection.lateUpdate(dt, ctx);
@@ -511,6 +518,11 @@ export class HudSystem implements GameSystem {
   /** 타이틀 흐름 (2026-09-09): 캐릭터 선택 / 생성 화면이 떠 있는가 (debug / smoke). */
   get isCharacterSelectOpen(): boolean { return this.title.isSelectOpen; }
   get isCharacterCreateOpen(): boolean { return this.title.isCreateOpen; }
+  /** 옛 키 설정 알림 (2026-09-11, C-9 · X-8): 부팅 리포트 · 카드 줄 · 카드가 떠 있나 (debug / smoke). */
+  get keybindNotice(): { report: KeybindLoadReport | null; lines: readonly string[]; on: boolean } {
+    const n = this.title.keybindNotice;
+    return { report: n.report, lines: n.lines, on: n.isOn };
+  }
   /** Whether the 함선 관리 screen is showing / which room it edits / how many furniture cards it renders (debug). */
   get isShipManageOn(): boolean { return this.shipManage.isShowing; }
   get shipManageRoom(): number | null { return this.shipManage.activeRoom; }

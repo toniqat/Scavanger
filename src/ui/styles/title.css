@@ -359,4 +359,33 @@
 /* 하위 화면(캐릭터 선택 · 생성)이 떠 있는 동안 타이틀 본체는 눈에서만 사라진다 — blocker 와 커서 소유권은
    계속 `MenuBase` 가 쥐고 있어야 하므로 `hide()` 를 부르지 않고 프레임만 지운다. */
 .menu.title.home.stacked .frame,
-.menu.title.home.stacked .version { opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.menu.title.home.stacked .version,
+.menu.title.home.stacked .kb-notice { opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.menu.title.home.stacked .kb-notice { pointer-events: none; }
+
+/* ── 옛 키 설정 알림 (2026-09-11, C-9 · X-8) ─────────────────────────────
+   `menus/keybindNotice` — 부팅 때 옛 `scav.keybinds` 가 새 기본 키와 겹치거나 없어진 기능의 줄을 들고 있으면 타이틀
+   아래쪽 가운데에 한 번 뜬다. 경고지만 빨강이 아니라 악센트(호박)다 — 고장이 아니라 "확인하세요" 다. */
+.kb-notice {
+  /* 가운데 정렬은 transform 이 아니라 margin auto — `menuIn` 이 transform 을 쓴다. */
+  position: absolute; left: 0; right: 0; margin: 0 auto; bottom: clamp(28px, 7vh, 72px);
+  width: min(460px, calc(100vw - 40px));
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px 12px;
+  background: var(--c-panel-strong);
+  border: 1px solid rgba(255, 179, 71, 0.45); border-left-width: 3px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  text-align: left;
+  animation: menuIn 280ms var(--ease);
+  transition: opacity 400ms var(--ease);
+}
+.kb-notice.fade { opacity: 0; }
+.kb-notice .kbn-head { display: flex; align-items: center; gap: 8px; }
+.kb-notice .kbn-ico { font-style: normal; color: var(--c-accent); font-size: 14px; }
+.kb-notice .kbn-title { font-size: 13px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-accent); }
+.kb-notice .kbn-lines { display: flex; flex-direction: column; gap: 4px; }
+.kb-notice .kbn-line { font-size: 12px; color: var(--c-text); line-height: 1.45; overflow-wrap: anywhere; }
+.kb-notice .kbn-line::before { content: '· '; color: var(--c-text-faint); }
+.kb-notice .kbn-sub { font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-dim); }
+.kb-notice .kbn-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.kb-notice .kbn-foot .ui-btn { height: 30px; padding: 0 14px; font-size: 11px; letter-spacing: 0.12em; }
