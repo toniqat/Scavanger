@@ -124,7 +124,7 @@ Every network branch is gated on `ctx.isMultiplayer && ctx.net`; offline behavio
 - `EnemyHit.armored` (behemoth front plate): with `ARMOR_IMMUNE_AMMO` calibres the shot ricochets (`weapon:hit` with damage 0, high-pitched `hit_metal`), no `takeDamage`; heavy rounds and explosions still damage. `applyHit` takes the firing weapon's `ammoType`.
 
 ## 2026-09-06 — rebindable keys · wielded implant + weapon keys
-- Every key is read live from `Keys` (`Keys.MELEE` replaced `KEY_MELEE`); nothing caches a key code. **2026-09-07 (커서 rework)**: `Keys.SWAP` (V = 이전 무기) is **retired and removed from the key table** — V is 구르기 now and Alt frees the cursor, so a weapon swap is 1 / 2 / 3 only. `quickSwapTarget()` and the `prevActive` bookkeeping went with it.
+- Every key is read live from `Keys` (`Keys.MELEE` replaced the old `KEY_MELEE`, removed 2026-09-11); nothing caches a key code. **2026-09-07 (커서 rework)**: `Keys.SWAP` (V = 이전 무기) is **retired and removed from the key table** — V is 구르기 now and Alt frees the cursor, so a weapon swap is 1 / 2 / 3 only. `quickSwapTarget()` and the `prevActive` bookkeeping went with it.
 - While a **wielded implant** (대전차포) holsters the gun, pressing 1 / 2 / 3 / V now calls `ctx.implants.stow()` and draws that weapon (`requestSwap` unless it is
   already the active slot; an empty slot plays `ui_deny`). Previously the swap keys were ignored until the implant was put away with Q.
 - 갈고리 / 정찰 / 오버차지 no longer holster the gun at all (instant / hold implants).

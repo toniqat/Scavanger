@@ -28,6 +28,9 @@ export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   duplicate: '다른 탭에서 같은 세션으로 접속했습니다. 이 연결은 종료됩니다.',
   /* Phase 11 */
   no_planet: '목표 행성을 먼저 지정해야 합니다.',
+  /* 2026-09-11 (C-29): 서버 콘솔 */
+  kicked: '서버 관리자가 연결을 끊었습니다.',
+  server_full: '서버 접속 인원이 가득 찼습니다.',
 };
 
 export class Lobby {

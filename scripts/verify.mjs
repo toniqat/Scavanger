@@ -11,7 +11,8 @@
  *
  * Options: --jobs N (parallel Chrome instances, default 4; use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
- *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min>
+ *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min> ·
+ *          --log-dir <dir> (default scripts/logs — give each concurrent runner its own, e.g. scripts/logs/agent-3)
  *
  * What it does:
  *   1. typecheck (client + server), net:selftest and data:check (data/*.csv 스키마) in parallel — seconds.
@@ -33,7 +34,10 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const LOG_DIR = resolve(ROOT, 'scripts/logs');
+// `--log-dir <dir>` (2026-09-11): 여러 에이전트가 같은 트리에서 동시에 돌 때 서로의 로그 · last-run.json 을 덮어쓰지 않게.
+const LOG_ARG = process.argv.indexOf('--log-dir');
+const LOG_REL = (LOG_ARG >= 0 && process.argv[LOG_ARG + 1] ? process.argv[LOG_ARG + 1] : 'scripts/logs').replace(/\\/g, '/').replace(/\/$/, '');
+const LOG_DIR = resolve(ROOT, LOG_REL);
 const LAST_RUN = resolve(LOG_DIR, 'last-run.json');
 const isWin = process.platform === 'win32';
 
@@ -171,7 +175,7 @@ function select() {
     if (bad.length) { console.error(`unknown script(s): ${bad.join(', ')}. Known: ${names.join(', ')}`); process.exit(2); }
     picked = opts.only; reason = '--only';
   } else if (opts.rerunFailed) {
-    if (!existsSync(LAST_RUN)) { console.error('no previous run recorded (scripts/logs/last-run.json)'); process.exit(2); }
+    if (!existsSync(LAST_RUN)) { console.error(`no previous run recorded (${LOG_REL}/last-run.json)`); process.exit(2); }
     const last = JSON.parse(readFileSync(LAST_RUN, 'utf8'));
     picked = last.results.filter((r) => !r.ok).map((r) => r.name).filter((n) => SMOKES[n]);
     reason = `--rerun-failed (${last.time})`;
@@ -231,7 +235,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitUp(url, label, ms = 30_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) { if (await isUp(url)) return true; await sleep(500); }
-  throw new Error(`${label} did not come up at ${url} within ${ms / 1000}s (see scripts/logs/)`);
+  throw new Error(`${label} did not come up at ${url} within ${ms / 1000}s (see ${LOG_REL}/)`);
 }
 /** Run a command, capture everything to a log, return {code, out, seconds}. */
 function runCapture(cmd, args, logName, { shell = false, timeoutMs = opts.timeoutMs } = {}) {
@@ -261,7 +265,7 @@ function summarize(name, r) {
   const ok = r.code === 0 && (failed === null || failed === 0);
   const fails = r.out.split('\n').filter((l) => /^\s*FAIL\b/.test(l)).slice(0, 12);
   const score = passed !== null ? `${passed}/${passed + failed}` : (r.code === 0 ? 'ok' : `exit ${r.code}`);
-  return { name, ok, score, passed, failed, consoleErrs: consoleErrs ? Number(consoleErrs) : undefined, seconds: r.seconds, code: r.code, fails, log: `scripts/logs/${name}.log` };
+  return { name, ok, score, passed, failed, consoleErrs: consoleErrs ? Number(consoleErrs) : undefined, seconds: r.seconds, code: r.code, fails, log: `${LOG_REL}/${name}.log` };
 }
 function report(s) {
   const mark = s.ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✘\x1b[0m';
@@ -342,7 +346,7 @@ try {
   }
 } catch (err) {
   console.error(`\nverify aborted: ${err.message}`);
-  results.push({ name: 'runner', ok: false, score: 'aborted', seconds: 0, fails: [], log: 'scripts/logs/' });
+  results.push({ name: 'runner', ok: false, score: 'aborted', seconds: 0, fails: [], log: `${LOG_REL}/` });
 } finally {
   cleanup();
 }

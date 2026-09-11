@@ -155,7 +155,10 @@ export type LobbyErrorCode =
   | 'too_large'     // profile:set / raid:save document over the byte cap
   | 'in_mission'    // lobby:mission {inMission:true} while another mission kind is running
   /* appended (Phase 11) */
-  | 'no_planet';    // lobby:start of a raid while the lobby has no 목표 행성
+  | 'no_planet'     // lobby:start of a raid while the lobby has no 목표 행성
+  /* appended (2026-09-11, C-29): server console */
+  | 'kicked'        // the operator ran `kick <id>` — socket closed right after, no 재접속 유예 (clients stop reconnecting)
+  | 'server_full';  // over the operator's `max <n>` — socket closed; a lobby member reconnecting inside its grace is exempt
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -417,7 +420,17 @@ export type StratagemRequest = { t: 'stratq'; ev: 'sync' };
  * Appended (2026-09-06): `st` = status the host should apply with the hit — bits of `ENEMY_STATUS_BITS`
  * (incinerated / shocked / burning), `dur` = seconds. `dmg` may be 0 for a status-only request.
  */
-export interface HitRequest { t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple; st?: number; dur?: number }
+export interface HitRequest {
+  t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple; st?: number; dur?: number;
+  /**
+   * appended (2026-09-11, C-1 · X-6): knockback the host applies to enemy `id` — horizontal impulse of `kb` m/s along
+   * `d` (already fallen off by the sender, i.e. what `EnemyManagerRef.pushBack` would have added locally). Sent by a
+   * replica's `pushBack` (실드 배쉬) with `dmg: 0`; the host skips a charging behemoth exactly like its own pushBack.
+   * ⚠ Like `dmg` / `st`, the host does not re-check geometry — one more trusted client path (E-4 계열); it clamps the
+   * speed (`MAX_REQUEST_DAMAGE` 류) only.
+   */
+  kb?: number;
+}
 
 /** Enemy status bits on the wire (`EnemyWire.sb`, `HitRequest.st`). */
 export const ENEMY_STATUS_BITS = { BURNING: 1 << 0, SLOWED: 1 << 1, INCINERATED: 1 << 2, SHOCKED: 1 << 3 } as const;
@@ -1079,7 +1092,13 @@ export type EnemyEventAppended2026_09_11 =
   /** Host → all: the hammer landed at `p` (FX · shake). */
   | { t: 'ee'; ev: 'hammer'; id: number; p: Vec3Tuple }
   /** Host → all: the heavy's minigun spray started (1) / stopped (0). Replicas draw tracers themselves; damage stays on the host. */
-  | { t: 'ee'; ev: 'spray'; id: number; on: 0 | 1 };
+  | { t: 'ee'; ev: 'spray'; id: number; on: 0 | 1 }
+  /**
+   * appended (2026-09-11, C-48): enemy `id` spat acid from `from` at the **aim point** `to` (feet position after the
+   * host's lead / body-height correction). For every target `ee acid` cannot name — a drone, another enemy, a
+   * deployable, the smoke counter-spit (`fireAcidAt`). Replicas fly the same projectile; damage stays on the host.
+   */
+  | { t: 'ee'; ev: 'acidAt'; id: number; from: Vec3Tuple; to: Vec3Tuple };
 
 /** Wire form of a gather node. */
 export interface GatherWire { id: string; defId: string; p: Vec3Tuple; harvested: boolean }

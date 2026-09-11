@@ -1,5 +1,5 @@
 import type { ImplantId } from './implants';
-import type { EmbeddedView, WeaponClass } from './types';
+import type { EmbeddedView, ItemInstance, WeaponClass } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Character stats, skills and the persistent profile.
@@ -253,6 +253,27 @@ export interface ProgressionRef {
   getStatWithImplants(id: StatId): number;
   /** Sum of implant bonuses for `id` (0 when none). */
   getImplantBonus(id: StatId): number;
+}
+
+export interface ProgressionRef {
+  /* ── appended (2026-09-11, C-12 사용자 결정): 사망하면 장착 임플란트가 몸에서 빠진다 ── */
+  /**
+   * **Death only** — bypasses the ship gate of `unequipImplant`. Unequips every equipped implant and returns one
+   * **broken twin** instance per implant (`brokenImplantIdOf(defId)`, a fresh uid) for the corpse; the working items
+   * are gone. Emits `progress:implantsChanged`, recomputes `derived` and **saves at once** (a reload right after dying
+   * must not bring them back — same reason as `loadoutStore.saveNow('corpse')`). Called by
+   * `InventoryRef.stripForCorpse`; an implant whose def is unknown is dropped without a twin. Empty when none.
+   */
+  stripImplantsForCorpse?(): ItemInstance[];
+}
+
+/**
+ * `imp_strength_2` → `imp_broken_strength_2` — the item id of an implant's broken twin (also works for `imp_perk_*`).
+ * appended (2026-09-11, C-12): moved here from `items/ImplantDefs` because progression (death strip) and items (the
+ * defs) both need the rule. Items re-exports it.
+ */
+export function brokenImplantIdOf(workingId: string): string {
+  return workingId.replace(/^imp_/, 'imp_broken_');
 }
 
 /* appended (2026-09-09): 캐릭터 생성 · 슬롯 카드 */

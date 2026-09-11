@@ -52,3 +52,5 @@ export * from './fragile';
 /* appended (2026-09-11): 지상 · 공중 드론 (`ctx.drones`) · 네임드 로그 */
 export * from './drones';
 export * from './named';
+/* appended (2026-09-11, C-18): 차량 탑승 좌표 변환 — 플레이어 · 적 · 시체가 같은 식으로 전차에 탄다 */
+export * from './ride';

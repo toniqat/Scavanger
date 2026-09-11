@@ -334,12 +334,8 @@ export const BEHEMOTH_WINDUP = K.num('BEHEMOTH_WINDUP');
 export const ARMOR_IMMUNE_AMMO: readonly string[] = stringList('tables.csv', 'ARMOR_IMMUNE_AMMO');
 
 /* ── appended: tactical kit (implants, gadgets, melee, gear, progression; merged 2026-09-06) ── */
-/** @deprecated default of `Keys.IMPLANT` — read `Keys.IMPLANT` (rebindable) instead. */
-export const KEY_IMPLANT = DEFAULT_KEYS.IMPLANT;
-/** @deprecated default of `Keys.MELEE` — read `Keys.MELEE` instead. */
-export const KEY_MELEE = DEFAULT_KEYS.MELEE;
-/** @deprecated default of `Keys.THROW_MODE` — read `Keys.THROW_MODE` instead. */
-export const KEY_THROW_MODE = DEFAULT_KEYS.THROW_MODE;
+/* 2026-09-11 (C-8): the deprecated `KEY_IMPLANT` / `KEY_MELEE` / `KEY_THROW_MODE` defaults were removed — nothing
+ * read them, and they are neither saved nor on the wire. Read `Keys.IMPLANT` / `Keys.MELEE` / `Keys.THROW_MODE`. */
 
 /* ── melee ── */
 export const MELEE_DAMAGE = K.num('MELEE_DAMAGE');
@@ -1404,3 +1400,14 @@ export const NAMED_LOOT_DURABILITY_MAX = K.num('NAMED_LOOT_DURABILITY_MAX');
 export const NAMED_ROGUE_CHANCE_BY_RANK: readonly number[] = numberList('tables.csv', 'NAMED_ROGUE_CHANCE_BY_RANK');
 /** 헤비의 SMG 호위 인원 — index 0 = 분대 1명 … 3 = 4명. */
 export const NAMED_HEAVY_ESCORTS_BY_SQUAD: readonly number[] = numberList('tables.csv', 'NAMED_HEAVY_ESCORTS_BY_SQUAD');
+
+/* ── 2026-09-11: C 항목 배치 (docs/plans/c-batch.md §3-2 #14) ── */
+/** 재해 구역 안의 적이 받는 조용한 초당 피해 (C-14, owner: enemies — world/Hazard 가 구역을 정한다). */
+export const HAZARD_ENEMY_DPS = K.num('HAZARD_ENEMY_DPS');
+/** 채집 노드 수량 굴림 (C-20, owner: world/Gather) — 고철 2개 · 약초 2개 확률, 고철 부가 코어 확률 · 개수. */
+export const GATHER_SALVAGE_QTY2_CHANCE = K.num('GATHER_SALVAGE_QTY2_CHANCE');
+export const GATHER_HERB_QTY2_CHANCE = K.num('GATHER_HERB_QTY2_CHANCE');
+export const GATHER_SALVAGE_CORE_CHANCE = K.num('GATHER_SALVAGE_CORE_CHANCE');
+export const GATHER_SALVAGE_CORE_QTY = K.num('GATHER_SALVAGE_CORE_QTY');
+/** 장착 가방이 레이드 1회마다 잃는 내구도 (C-36, owner: inventory). */
+export const BAG_DURABILITY_PER_RAID = K.num('BAG_DURABILITY_PER_RAID');

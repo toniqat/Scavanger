@@ -669,7 +669,11 @@ export interface WorldRef {
 export interface GatherNodeDef {
   id: string;
   position: THREE.Vector3;
-  /** Item def id produced (an 'herb' category item, or `mat_scrap` for a `kind: 'salvage'` node). */
+  /**
+   * Item def id produced (an 'herb' category item, or `mat_scrap` for a `kind: 'salvage'` node). 2026-09-11 (C-20):
+   * a 고철 더미 may **also** hand over a bonus 구동 코어 decided at generation (seeded, csv chance) — that bonus is
+   * world-internal and not in this def; the harvest still emits one `gather:collected` (one XP).
+   */
   defId: string;
   /** Units produced before the gardening multiplier. */
   qty: number;
@@ -677,7 +681,8 @@ export interface GatherNodeDef {
   /* appended (2026-09-08): 폐금속 공급 — 고철 노드 */
   /**
    * What the node is. undefined / 'herb' = the 약초 plant (원예 XP, 채집 prompt); 'salvage' = a 고철 더미 at a
-   * wreck, yielding `mat_scrap` with a 해체 prompt and 제작 XP. Both share the placement / net / interact code.
+   * wreck, yielding `mat_scrap` (+ a chance of a bonus core, C-20) with a 해체 prompt and 제작 XP. Both share the
+   * placement / net / interact code.
    */
   kind?: GatherNodeKind;
 }
@@ -845,7 +850,10 @@ export interface PlayerRef {
   /** Backpack hover (tactical bag): slow the fall while held. */
   setHovering(hovering: boolean): void;
   readonly isHovering: boolean;
-  /** true while an overcharge beam is buffing this player (speed / fire rate). */
+  /**
+   * true while an overcharge beam is buffing this player (speed / fire rate). 2026-09-11 (C-3): set explicitly by
+   * `setOvercharged` — no longer inferred from a speed-modifier key.
+   */
   readonly isOvercharged: boolean;
   /** Damage reduction currently granted by armor (0..0.9). Read by the HUD. */
   readonly damageReduction: number;
@@ -971,6 +979,14 @@ export interface EnemyManagerRef {
 /* ────────────────────────────────────────────────────────────────────────────
  * Interaction
  * ──────────────────────────────────────────────────────────────────────────── */
+/**
+ * `Interactable.kind` (appended 2026-09-11, C-4). Add members, never rename. Unset = unknown (readers use the id prefix).
+ * `object` is deliberately **not** on `Interactable` — the mesh outline it would have fed went away with the 빛기둥 rule.
+ */
+export type InteractableKind =
+  | 'corpse' | 'playerCorpse' | 'crate' | 'container' | 'gather' | 'pickup' | 'deployable' | 'drone'
+  | 'extract' | 'revive' | 'console' | 'objective';
+
 export interface Interactable {
   id: string;
   position: THREE.Vector3;
@@ -984,6 +1000,12 @@ export interface Interactable {
   /* appended (Phase 2, revive): the player calls these while the hold is running / when it is released early. */
   onHoldProgress?(t: number): void;
   onHoldCancel?(): void;
+  /**
+   * appended (2026-09-11, C-4): what this is, for code that used to guess from the id prefix (`ui/hud/pillar` · 정찰
+   * `implants/effects/Scan`). Readers use `kind` first and fall back to the prefix when it is undefined. Set at least on
+   * the two corpse kinds — `'corpse'` = 적 시체 `corpse:<id>`, `'playerCorpse'` = 분대원 시체 `pcorpse:<owner>:<n>`.
+   */
+  kind?: InteractableKind;
   /**
    * appended (2026-09-08): true = `ui/hud/Detection` draws **no** 빛기둥 for this interactable, even though it is in
    * range and still interactable. Purely local presentation — a corpse this client has already searched sets it, and
@@ -1641,6 +1663,8 @@ export interface WorldRef {
   /**
    * `(x, z)` 에서 발 높이 `feetY` 로 서 있을 때 밟고 있는 장애물, 없으면 null.
    * 그 위에 선 동안 그 장애물은 `resolveCollision` 이 밀어내지 않는다.
+   * 2026-09-11 (C-38): 윗면이 `PROP_TOP_MARGIN` 창 안에서 겹치면 **`velocity` 가 있는(움직이는) 발판을 높이보다
+   * 먼저** 고른다 — 선로 발판과 전차 바닥이 같은 높이일 때 삽입 순서로 고정 발판이 이기던 동점.
    */
   getStandingObstacle(x: number, z: number, feetY: number): Obstacle | null;
   /**
@@ -1708,8 +1732,9 @@ export interface StratagemsRef {
 export interface InventoryRef {
   /* ── appended (2026-09-09): 시체 루팅 ── */
   /**
-   * **사망 시점의 전부** — 장비 슬롯 · 임플란트 칸 · 가방 · 퀵슬롯의 아이템을 하나의 목록으로 뽑고
-   * 로컬 인벤토리를 **비운다**. 시체 컨테이너를 채우는 유일한 입구이고, 사망 처리에서 한 번만 불린다.
+   * **사망 시점의 전부** — 장비 슬롯 · 가방 · 퀵슬롯의 아이템 + **장착 임플란트의 망가진 짝**
+   * (2026-09-11 C-12, `ProgressionRef.stripImplantsForCorpse`)을 하나의 목록으로 뽑고 로컬 인벤토리를 **비운다**.
+   * 시체 컨테이너를 채우는 유일한 입구이고, 사망 처리에서 한 번만 불린다.
    */
   stripForCorpse(): ItemInstance[];
   /**
@@ -1737,8 +1762,10 @@ export interface Obstacle {
   box?: { halfX: number; halfZ: number; yaw: number };
   /**
    * 이 장애물 **윗면에 서 있는 동안** 함께 실려 가는 속도(m/s, 월드 좌표). 전차 · 움직이는 발판이 채운다.
-   * `WorldRef.getStandingObstacle` 로 밟고 있는 장애물을 찾은 쪽(플레이어 · 적 · 시체)이 자기 위치에 더한다.
-   * 없거나 0 벡터면 고정 발판이다.
+   * **있다는 것 자체가** "움직이는 발판" 표시다 (정지한 전차도 0 벡터로 채운다 — `getStandingObstacle` 이 동점에서
+   * 이것을 먼저 고른다, C-38). 탑승하는 쪽(플레이어 · 적 · 시체, 2026-09-11 C-18)은 이 속도를 **더하지 않는다** —
+   * 진입만 `getStandingObstacle` 로 하고, 유지 · 이동은 `shared/ride.ts`(차량 OBB + 헤드룸, 차량 로컬 좌표를
+   * 매 프레임 차량의 지금 변환으로 다시 푼다)다. 속도는 하차 관성에만 쓴다.
    */
   velocity?: THREE.Vector3;
 }
@@ -2117,4 +2144,49 @@ export interface PlayerRef {
    * 전투불능 · 사망 · `respawnAt` · `spawnStanding` · `game:abort` 가 false 로 되돌린다.
    */
   setDroneControl?(active: boolean): void;
+}
+
+/* ══ appended (2026-09-11): C 항목 배치 계약 (docs/plans/c-batch.md §3-2) ═══════════════════════════════════ */
+
+export interface EnemyManagerRef {
+  /**
+   * appended (2026-09-11, C-1 · X-6 — 2026-09-08 부터 `EnemySystem` 의 캐스트 전용 메서드였다). Shove every alive
+   * combatant within `radius` of `center` horizontally away from it (or along `dir` when given) at `speed` m/s, falling
+   * off linearly to 40 % at the rim; a charging behemoth is not shoved (same rule as an explosion). Returns how many
+   * were pushed.
+   *
+   * **Authority** applies the impulse to its own copies. **A replica** cannot move its enemies (the next snapshot would
+   * overwrite them), so it forwards one `HitRequest { dmg: 0, kb }` per enemy in range to the host — the same way
+   * `applyStatus` forwards `HitRequest.st` — and returns the number of requests sent. Callers never branch on role.
+   */
+  pushBack(center: THREE.Vector3, radius: number, speed: number, dir?: THREE.Vector3): number;
+}
+
+export interface PlayerRef {
+  /* ── appended (2026-09-11, C-3): 오버차지 (owner: player; caller: implants `applyBoost`) ── */
+  /**
+   * Mark this player overcharged for `duration` seconds (`isOvercharged` true until then); 0 clears it. The caller
+   * sets the matching speed modifier with `setSpeedModifier` itself — the two are no longer coupled by a key name.
+   */
+  setOvercharged?(duration: number): void;
+}
+
+/**
+ * appended (2026-09-11, C-22): what a foot is standing on — picks the footstep sound. Add members, never rename.
+ * Terrain bands map to the natural ones (호박빛 사막 `sand` · 동토 `snow` · 이끼 습지 `moss`/`mud` · 화산 `ash` ·
+ * 적색 평원 `organic`, 경사 · 암반 `rock`, 둥지 점액 `organic`), obstacles by what they are (바위 `rock` · 크리스탈
+ * `crystal` · 선로 · 전차 · 상자 · 불시착 함선 `metal` · 구조물 바닥 · 훈련장 `concrete`). `dirt` is the fallback and
+ * sounds like the old single `footstep`. The ship (hub) is not a `WorldRef` — audio treats it as `metal` by phase.
+ */
+export type SurfaceMaterial =
+  | 'dirt' | 'sand' | 'snow' | 'mud' | 'moss' | 'ash' | 'rock' | 'crystal' | 'organic' | 'metal' | 'concrete';
+
+export interface WorldRef {
+  /* ── appended (2026-09-11, C-22): 재질별 발소리 (owner: world; callers: audio · enemies) ── */
+  /**
+   * Material under `(x, z)`. With `feetY` the obstacle a body at that foot height stands on wins
+   * (`getStandingObstacle` rules), otherwise the terrain band there. One hash query — cheap enough per footstep.
+   * Optional so a world that has not generated yet (or a stub) may omit it; callers fall back to `'dirt'`.
+   */
+  getSurfaceMaterial?(x: number, z: number, feetY?: number): SurfaceMaterial;
 }

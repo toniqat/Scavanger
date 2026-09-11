@@ -187,8 +187,31 @@ function applyAliases(): void {
   }
 }
 
+/**
+ * appended (2026-09-11, C-9 · X-8): what `loadKeybinds` found wrong with an **old** `scav.keybinds` blob. The blob has
+ * no version, so a save written before a default moved (예: `RELOAD=V` 를 저장한 뒤 새 기본 `DIVE=V`) silently shares a
+ * key with the new default — and nobody sees it until they open the key menu. ui/ reads this once
+ * (`takeKeybindLoadReport`), tells the player, then calls `saveKeybinds()` so the retired entries leave the blob.
+ */
+export interface KeybindLoadReport {
+  /** Saved entry names that are no longer a listed action (예: `SWAP` = 이전 무기). Raw strings from the blob. */
+  retired: string[];
+  /** Listed actions that came **from the blob** and now clash with another action (`conflictsOf` after the load). */
+  conflicts: { action: KeyAction; with: KeyAction[] }[];
+}
+
+let loadReport: KeybindLoadReport | null = null;
+
+/** The report of the last `loadKeybinds()`, once — later calls return null. Null also when nothing was wrong. */
+export function takeKeybindLoadReport(): KeybindLoadReport | null {
+  const r = loadReport;
+  loadReport = null;
+  return r;
+}
+
 /** Overwrite `Keys` from localStorage (unknown / invalid entries are ignored). Call once at startup. */
 export function loadKeybinds(): void {
+  loadReport = null;
   const s = storage();
   if (!s) return;
   try {
@@ -196,9 +219,10 @@ export function loadKeybinds(): void {
     if (!raw) return;
     const saved = JSON.parse(raw) as Partial<Record<string, unknown>>;
     if (!saved || typeof saved !== 'object') return;
+    const fromBlob: KeyAction[] = [];
     for (const d of KEY_ACTION_DEFS) {
       const v = saved[d.id];
-      if (typeof v === 'string' && canBind(d.id, v)) Keys[d.id] = v;
+      if (typeof v === 'string' && canBind(d.id, v)) { Keys[d.id] = v; fromBlob.push(d.id); }
     }
     /*
      * 2026-09-07 에는 여기서 "구르기가 `CURSOR` 와 같은 키면 기본값으로 되돌린다" 를 했다 (Alt 가 구르기 → 커서로
@@ -206,6 +230,13 @@ export function loadKeybinds(): void {
      * 남겨 두면 구르기를 일부러 Alt 에 묶은 사람이 부팅할 때마다 V 로 돌아간다.
      */
     applyAliases();
+    const retired = Object.keys(saved).filter((k) => !DEF_BY_ID.has(k as KeyAction));
+    const conflicts: KeybindLoadReport['conflicts'] = [];
+    for (const id of fromBlob) {
+      const other = conflictsOf(id);
+      if (other.length > 0) conflicts.push({ action: id, with: other });
+    }
+    if (retired.length > 0 || conflicts.length > 0) loadReport = { retired, conflicts };
   } catch { /* corrupt → defaults */ }
 }
 

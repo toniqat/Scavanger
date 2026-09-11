@@ -1,5 +1,5 @@
 import type { ItemDef, PerkId, Rarity, StatId } from '@/shared';
-import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS, csvRows, keyTable, numberMap } from '@/shared';
+import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS, brokenImplantIdOf, csvRows, keyTable, numberMap } from '@/shared';
 
 /* 수치의 원본: 등급별 장착칸 = `data/tables.csv` 의 IMPLANT_SLOTS_BY_GRADE,
  * 등급별 가격 · 수리 재료 = `data/implants_repair.csv`, 퍽 임플란트 = `data/implants_perks.csv`,
@@ -78,10 +78,8 @@ export function implantItemIdFor(stat: StatId, grade: ImplantGrade): string {
 export function perkImplantItemIdFor(perk: PerkId): string {
   return `imp_perk_${perk}`;
 }
-/** `imp_strength_2` → `imp_broken_strength_2` (the id of the broken twin; also works for `imp_perk_*`). */
-export function brokenImplantIdOf(workingId: string): string {
-  return workingId.replace(/^imp_/, 'imp_broken_');
-}
+/** `imp_strength_2` → `imp_broken_strength_2` — the rule lives in `@/shared` since 2026-09-11 (C-12); re-exported. */
+export { brokenImplantIdOf };
 
 interface WorkingSpec {
   id: string; name: string; rarity: Rarity; slots: number;

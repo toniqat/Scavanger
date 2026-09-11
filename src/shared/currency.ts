@@ -126,7 +126,7 @@ const UNKNOWN: CurrencyDef = {
 
 /** `1234` → `1,234`. 재화 수량은 전부 정수로 보여 준다. */
 function groupDigits(n: number): string {
-  return Math.abs(Math.round(n)).toLocaleString('en-US');
+  return Math.abs(Math.round(n)).toLocaleString('ko-KR'); // 2026-09-11 (C-10): 게임 전체 숫자 포매터와 같은 로캘
 }
 
 /**

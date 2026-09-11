@@ -14,7 +14,8 @@
 - **`Keys.X` 는 항상 사용 시점에 읽는다** — 키나 그 라벨을 모듈 상수로 캐시하지 않는다.
   표시 중인 라벨은 `input:bindingsChanged` 에서 갱신한다.
 - `scav.keybinds` 는 **기본값이 아닌 항목만** 저장한다. 그래서 기존 세이브도 새 기본 레이아웃을 그대로 받는다.
-- `KEY_IMPLANT` / `KEY_MELEE` / `KEY_THROW_MODE` 는 deprecated 된 기본값 상수다.
+- 옛 `KEY_IMPLANT` / `KEY_MELEE` / `KEY_THROW_MODE` 기본값 상수는 2026-09-11 에 지웠다 (C-8) — `Keys.X` 만 읽는다.
+- 옛 세이브의 은퇴한 액션 · 새 기본키와의 충돌은 `loadKeybinds()` 가 모아 두고(`takeKeybindLoadReport()`) ui 가 한 번 알린다 (C-9).
 - `MENU`(Esc)는 고정이고 리바인딩할 수 없다. 게임패드는 미지원.
 
 ## 2. 기본 레이아웃

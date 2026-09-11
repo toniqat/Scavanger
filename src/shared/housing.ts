@@ -391,7 +391,9 @@ export interface HousingRef {
    * Phase 8 UI pass: the standalone 방 메뉴 / 함선 시설 메뉴 are gone (rooms and facilities live in the Tab 함선 tab
    * and in 시설 관리). Both entry points are kept for the contract and now **redirect to 시설 관리** at that room.
    */
+  /** @deprecated 2026-09-11 (C-7) — call `openShipManage(room)`. Kept only because smokes assert the redirect. */
   openRoomMenu(room: number): void;
+  /** @deprecated 2026-09-11 (C-7) — call `openShipManage()`. Kept only because smokes assert the redirect. */
   openFacilityMenu(): void;
   openPresetMenu(): void;
   closeMenus(): void;

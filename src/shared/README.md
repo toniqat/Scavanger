@@ -123,7 +123,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 ## Appended contract (2026-09-06, key rebinding · implant rework · ship stash)
 - `constants.ts`: `Keys` is now a **mutable** `KeyBindings` table (`DEFAULT_KEYS` holds the factory values) with the tactical-kit keys folded in
   (`IMPLANT` Q, `MELEE` F, `THROW_MODE` B) and the three mouse actions (`FIRE` `Mouse0`, `AIM` `Mouse2`, `PING` `Mouse1`). `MouseButtons.FIRE/PING/AIM` are
-  getters derived from those (`mouseButtonOf`). `KEY_IMPLANT` / `KEY_MELEE` / `KEY_THROW_MODE` stay exported as deprecated defaults — **read `Keys.X` at use
+  getters derived from those (`mouseButtonOf`). (The deprecated `KEY_IMPLANT` / `KEY_MELEE` / `KEY_THROW_MODE` defaults were removed 2026-09-11, C-8.) **Read `Keys.X` at use
   time, never cache a key in a module-level constant** (labels included: `keyLabel(Keys.X)`). New: `KEYBINDS_STORAGE_KEY`, `STASH_STORAGE_KEY`, `STASH_COLS` 10 /
   `STASH_ROWS` 24, `IMPLANT_BARRIER_BREAK_LOCKOUT` 10, `IMPLANT_OVERCHARGE_SELF/ALLY_HEAL_PER_SEC`, `IMPLANT_OVERCHARGE_ENERGY` 6 s, `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s,
   `IMPLANT_OVERCHARGE_BUFF_HP_RATIO` 0.9.
@@ -654,7 +654,8 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   `DEFAULT_KEYS.SECONDARY` 는 **그대로 있다** (`src/shared` 는 추가만 한다 — 저장된 프리셋 · 크루 카드 ·
   로드아웃 세이브가 그 이름을 쓴다). 지운 것은 `Keybinds` 의 `SECONDARY` 줄 하나 — 설정 화면의 조작 목록에서
   사라졌다. 칸을 실제로 없앤 곳은 `inventory/model` 의 `LOADOUT_SLOTS` · `WEAPON_SLOT_IDS`,
-  `weapons/WeaponDefaults` 의 `WEAPON_SLOTS`, `ui/hud/SlotStrip` 이다.
+  `weapons/WeaponDefaults` 의 `WEAPON_SLOTS`, `hub/ui/WorkbenchMenu` 의 정비 목록(`collectRows`) 이다
+  (2026-09-11 정정: 여기 적혀 있던 `ui/hud/SlotStrip` 은 소비자가 없는 헬퍼였고 C-26 에서 파일째 지웠다).
   ② 새 수치: `WAVE_SQUAD_SCALE`(`tables.csv`, 분대 인원별 탈출 웨이브 규모 배수) ·
   `TRAM_START_DELAY_S` · `TRAM_ACCEL_S`(`constants.csv`), 그리고 `TRAM_SPEED` 가 14 → 11.2 로 내려갔다.
 
@@ -960,3 +961,42 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
   순위 함수를 올린 것이고 배포 서버의 배너(`server/tool.ts`)가 같은 답을 내야 해서다. `shared/` 는 node 를
   import 하지 않으므로 `networkInterfaces()` 의 **결과를 받는다**.
 - `events.ts` **`net:relayChanged {url, custom}`** — 주소가 바뀌었다는 사실만. 재접속은 부른 쪽의 몫이다.
+
+### 2026-09-11 — C 항목 배치 계약 (docs/TODO.md 묶음 6)
+
+추가만 했다. 지운 것은 C-8 의 `KEY_*` 셋 하나다 (저장 · 와이어에 쓰이지 않는 코드 상수는 삭제 허용 — 사용자 결정).
+
+- `types.ts` **`EnemyManagerRef.pushBack(center, radius, speed, dir?)`** (C-1 · X-6) — 2026-09-08 부터 `EnemySystem`
+  에만 있어 `implants/` 가 캐스트로 부르던 넉백. **권위는 직접 밀고, 리플리카는 적마다 `HitRequest { dmg: 0, kb }`
+  를 호스트에 보낸다** (`applyStatus` 가 `st` 를 보내는 것과 같은 모양) — 부르는 쪽은 역할을 가르지 않는다.
+- `net.ts` **`HitRequest.kb?`** — 위 넉백의 속도(m/s, `d` 방향, 감쇠는 보낸 쪽이 이미 적용). 호스트는 기하를
+  재검증하지 않는다 — `dmg` · `st` 와 같은 신뢰 경로 하나가 더 늘었다 (E-4 계열).
+- `types.ts` **`PlayerRef.setOvercharged?(duration)`** (C-3) — `isOvercharged` 를 속도 수정자 키 이름으로 추론하지 않는다.
+- `types.ts` **`Interactable.kind?`** + **`InteractableKind`** (C-4) — 접두어 추측 대신. 최소 시체 둘
+  (`'corpse'` · `'playerCorpse'`)은 채운다. `object` 는 넣지 않았다 (빛기둥이 시체에만 서면서 아웃라인 목적이 사라졌다).
+  `ScanTarget.kind` 는 그대로다 — 분대원 시체도 정찰에서는 `'crate'` 크기 기둥이다.
+- `constants.ts` **`KEY_IMPLANT` · `KEY_MELEE` · `KEY_THROW_MODE` 삭제** (C-8).
+- `Keybinds.ts` **`takeKeybindLoadReport()`** + **`KeybindLoadReport`** (C-9 · X-8) — 버전 없는 `scav.keybinds` 가
+  은퇴한 액션(`retired`)이나 새 기본키와의 충돌(`conflicts` — 블롭에서 온 액션만)을 들고 있으면 `loadKeybinds()` 가
+  모아 둔다. ui 가 **한 번** 읽어 알리고 `saveKeybinds()` 로 흔적을 지운다.
+- `progression.ts` **`ProgressionRef.stripImplantsForCorpse?()`** + **`brokenImplantIdOf`** (C-12, 사용자 결정 —
+  "임플란트는 몸에 남는다" 를 뒤집었다) — 사망 전용으로 함선 게이트를 우회해 장착 임플란트를 전부 빼고 **망가진 짝**
+  인스턴스를 돌려준다(즉시 저장). `InventoryRef.stripForCorpse` 가 그것을 시체에 합친다. id 규칙은 items 와
+  progression 이 같이 쓰므로 `items/ImplantDefs` 에서 여기로 올렸다 (items 는 재수출).
+- `types.ts` **`SurfaceMaterial`** + **`WorldRef.getSurfaceMaterial?(x, z, feetY?)`** (C-22) — 발소리 재질 11종.
+  허브는 `WorldRef` 가 아니므로 audio 가 페이즈로 `metal` 을 고른다.
+- `ride.ts` (신규) **`recordRideLocal` · `restoreRideLocal` · `rideContains`** (C-18) — `player/PlayerController`
+  의 private 탑승 수학을 순수 함수로 옮겼다(동작 동일). 적 · 시체가 같은 식으로 전차에 탄다.
+  `Obstacle.velocity` · `WorldRef.getStandingObstacle` 주석을 사실대로 고쳤다 (속도는 **더하지 않는다** — 하차
+  관성에만 쓴다 · 동점에서는 움직이는 발판이 이긴다, C-38).
+- `net.ts` **`EnemyEvent` `ee acidAt {id, from, to}`** (C-48) — `ee acid` 가 PeerId 로만 표적을 말해 드론 · 적 ·
+  설치물 · 연막 반격이 다른 클라이언트에 안 보이던 것.
+- `net.ts` **`LobbyErrorCode` `'kicked'` · `'server_full'`** (C-29) — 서버 콘솔 `kick` · `max`.
+  `server/Lobby.ts` 의 `LOBBY_ERROR_MESSAGE_KO` 에 한국어 문구를 같이 넣었다 (`Record` 라 빠지면 서버 typecheck 가 깨진다).
+- `constants.ts` **`HAZARD_ENEMY_DPS`** (C-14) · **`GATHER_SALVAGE_QTY2_CHANCE` · `GATHER_HERB_QTY2_CHANCE` ·
+  `GATHER_SALVAGE_CORE_CHANCE` · `GATHER_SALVAGE_CORE_QTY`** (C-20, 옛 `world/Gather.ts` 하드코딩 0.3 · 0.25 이관) ·
+  **`BAG_DURABILITY_PER_RAID`** (C-36). 읽는 폴더가 하나뿐인 것도 있지만 `data:check` 가 `tuning.csv` 키를
+  `DATA_OWNERS` 모듈에서만 세므로 병렬 작업 동안 `constants.csv` 에 모았다.
+- `currency.ts` `groupDigits` 로캘 `en-US` → **`ko-KR`** (C-10). `housing.ts` `openRoomMenu` · `openFacilityMenu`
+  **`@deprecated`** → `openShipManage(room)` (C-7 — 스모크가 리다이렉트를 단언하므로 지우지 않는다).
+  `GatherNodeDef` · `InventoryRef.stripForCorpse` 주석 정정.

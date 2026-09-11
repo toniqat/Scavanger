@@ -24,7 +24,7 @@ function toTuple(v: THREE.Vector3): Vec3Tuple {
 }
 
 /**
- * Melee attack (F / `KEY_MELEE`). Owned by `WeaponSystem`.
+ * Melee attack (F / `Keys.MELEE`). Owned by `WeaponSystem`.
  *
  * Division of labour: **player** owns the gate (stamina `MELEE_STAMINA_COST`, `MELEE_COOLDOWN`, the swing
  * pose) through `PlayerRef.startMelee()`; **weapons** owns the hit resolution. A swing therefore only ever

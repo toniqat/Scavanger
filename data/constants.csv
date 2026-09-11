@@ -691,3 +691,11 @@ DRONE_AIR_MIN_CLEARANCE,0.25,"공중 드론 몸 밑과 바닥 사이 최소 여�
 NAMED_ROGUE_MIN_SPAWN_DIST,140,"레이드 시작 스폰 지점에서 네임드 로그가 서지 않는 최소 거리(m)."
 NAMED_LOOT_DURABILITY_MIN,0.01,"네임드 확정 드롭 장비(저격소총 · 방탄복 · 미니건)의 내구도 하한 (최대 내구도 비율)."
 NAMED_LOOT_DURABILITY_MAX,0.05,"네임드 확정 드롭 장비의 내구도 상한."
+
+# ── 2026-09-11: C 항목 배치 (docs/plans/c-batch.md) ──
+HAZARD_ENEMY_DPS,2,"환경 재해 구역 안의 적이 HAZARD_TICK_S 마다 받는 초당 피해 (C-14). FX · 방송 · 어그로 · 킬 크레딧이 없는 조용한 피해다. 1차값 — 강제 탈출 압박이 줄지 않게 낮게 둔다 (전사 120 = 60초, 베헤모스는 사실상 무시)."
+GATHER_SALVAGE_QTY2_CHANCE,0.3,"고철 더미가 폐금속을 1 대신 2 주는 확률 (C-20, 옛 world/Gather.ts 의 하드코딩 0.3). 생성 때 미션 시드로 정한다."
+GATHER_HERB_QTY2_CHANCE,0.25,"약초가 1 대신 2 를 주는 확률 (옛 하드코딩 0.25)."
+GATHER_SALVAGE_CORE_CHANCE,0.15,"고철 더미가 폐금속과 함께 구동 코어(mat_core)를 더 주는 확률 (C-20). 생성 때 시드 결정 · 수확 이벤트 · XP 는 1회. 코어는 축전 모듈(정제 관문)의 재료라 보수적으로 시작한다."
+GATHER_SALVAGE_CORE_QTY,1,"고철 더미의 부가 코어 개수."
+BAG_DURABILITY_PER_RAID,10,"장착 가방이 레이드 1회마다 잃는 내구도 (C-36). 탈출 성공 · 사망 모두 한 번. 0 이 되면 효과 없음(격자는 그대로) — 수리비만 크다."

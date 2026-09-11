@@ -75,7 +75,7 @@ ctx.gadgets?.recover(id)                               // 회수 (호스트/싱�
 | `gadget:damaged {id, hp, maxHp}` | 호스트가 피해를 적용했을 때 / 클라가 `gad update` 를 받았을 때 |
 | `gadget:removed {id, kind, reason}` | 파괴·회수·만료·`clear()` — 모든 제거에서 발생 |
 | `gadget:recovered {id, item}` | 회수 아이템이 실제로 가방에 들어갔을 때 |
-| `gadget:throwModeChanged {underhand}` | `B` (`KEY_THROW_MODE`) 토글 |
+| `gadget:throwModeChanged {underhand}` | `B` (`Keys.THROW_MODE`) 토글 |
 
 부수적으로 `ui:notify`, `camera:shake`, `chat:post`(제세동기), `audio:play` 를 emit 한다.
 오디오 id: `gadget_deploy`, `gadget_cloak`, `gadget_defib`, `gadget_recover`, `gadget_break`, `mine_place`,
