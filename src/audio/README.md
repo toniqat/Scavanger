@@ -31,8 +31,10 @@ sliders without importing this folder.
 ## Sound ids (`SOUNDS`)
 Weapons: `shot_rifle` `shot_pistol` `shot_shotgun` `shot_energy` `shot_smg` `shot_sniper` `bolt_cycle` `dry_fire` `reload_start` `reload_end` `hit_flesh` `hit_terrain` `grenade_throw` `grenade_bounce` `explosion`
 World/UI: `crate_open` `interact` `ui_pickup` `ui_drop` `ui_rotate` `ui_error` `ui_deny` `ui_equip` `ui_click` `ui_open` `ui_close` `ping` `map_open` `map_close` `scope_in` `scope_out` `mission_complete`
-Player: `stim` `player_hurt` `player_death` `footstep` `ladder_step` `player_land` `player_jump` `dive` `stamina_depleted` `stance_change` `hellpod_fall` `hellpod_impact` `hellpod_open`
+Player: `stim` `player_hurt` `player_death` `footstep` `ladder_step` `player_land` `player_jump` `dive` `stamina_depleted` `stance_change` `hellpod_fall` `hellpod_impact` `hellpod_open` `shield_charge`
+재질별 발소리 (2026-09-11, C-22 — `SurfaceMaterial` 이름 그대로): `footstep_dirt`(= 옛 `footstep`) `footstep_sand` `footstep_snow` `footstep_mud` `footstep_moss` `footstep_ash` `footstep_rock` `footstep_crystal` `footstep_organic` `footstep_metal` `footstep_concrete`
 World (structures): `glass_break`
+선로 · 전차 (2026-09-11, C-39 · C-18): `tram_call` `tram_deny` `tram_hit` (+ 기존 `tram_start` `tram_dock`)
 Bugs: `bug_screech` `bug_attack` `bug_death` `bug_step` `bug_hit` `acid_splash` `wave_alarm`
 로그 강하: `rogue_drop_alarm` `rogue_pod_fall` `rogue_pod_impact`
 Extraction: `extract_activate` `countdown_beep` `ship_approach` `ship_land` `ship_liftoff` `door_close`
@@ -75,7 +77,18 @@ Tactical-kit ids in detail:
 - `downed` — falling groan + two heartbeats; `revive` — warm four-note rising chord; `grit_save` — heartbeat + defiant rise; `cloak_on` / `cloak_off` — phasing shimmer down / up.
 - `gather` — leafy rustle + snap; `craft_start` — three workbench clicks; `craft_done` — clink + two-note confirm; `repair_done` — two clinks + rising confirm; `durability_break` — metal snap + rattle; `level_up` — five-note fanfare (1.3 s); `skill_up` — quiet two-note chime.
 
-## 발소리 — 로컬 · 원격 (2026-09-10)
+## 발소리 — 로컬 · 원격 (2026-09-10) · 재질 · 적 (2026-09-11)
+
+> **2026-09-11 (C-22 · C-23)** — 소리 id 가 **밟은 재질**로 정해진다: `footstep_<SurfaceMaterial>` 11종. 본인 · 원격 분대원은
+> `footstep()` 이 발 위치에서 `ctx.world.getSurfaceMaterial?.(x, z, feetY)` 를 묻고(월드가 준비 안 됐거나 옵셔널 구현이 없으면
+> `dirt` = 옛 음색), **허브 · 도킹 페이즈는 본인 포함 `metal`** 이다 — 옛 원격 전용 `FOOTSTEP_PITCH_DECK`(1.16) 피치 배수는
+> 없어졌다. 크기에 재질 배수 `FOOTSTEP_MATERIAL_GAIN`(`data/tables.csv`, dirt 1 · moss 0.7 · metal 1.2 …)이 곱해진다.
+> 발소리는 적과 id 를 나눠 쓰므로 `play(..., dedupe false)` 로 **중복 제거를 타지 않고**, 본인 발소리는 같은 id 속도 제한도
+> 건너뛴다 (적 무리가 같은 재질을 밟아도 내 발소리는 먹히지 않는다).
+> **적 발소리**는 `enemies/model.emitEnemyStep` 이 같은 id 를 **위치와 함께** `audio:play` 로 낸다 → `RANGED_SOUNDS` 에 11개
+> id 가 `ENEMY_STEP_RANGE`(45 m · exp 1.5) 한 줄로 들어 있어 `panOnly` + 곡선 한 번 + 재질 배수. 호출부 볼륨은 타입 밑값
+> (전사 0.55 · 베헤모스 1.7 …)이라 **거리 감쇠가 두 번 걸리지 않는다** (X-3: 예전엔 방출부 선형 × 패너 inverse 로 20 m 에서
+> ≈0.06). 적 발소리는 이제 160 m 하드 컷 대상이 아니다(`panOnly`). 비호스트 리플리카도 낸다.
 
 `player:footstep` (본인) 과 `remote:footstep {position, sprinting, peerId}` (원격 분대원, `player/RemotePlayerSystem`
 이 아바타의 보행 위상에서 낸다) 이 **한 경로**(`AudioSystem.footstep`)로 모여 같은 `footstep` 신디를 쓴다.
@@ -90,7 +103,7 @@ Tactical-kit ids in detail:
 - **왜 패너의 감쇠를 끄나**: 기본 경로의 `distanceModel 'inverse'` 를 그대로 두면 우리 곡선과 **두 번** 곱해져
   20 m 짜리 발소리가 사실상 무음이 된다. `panOnly` 는 "감쇠는 호출부가 이미 계산했다" 는 뜻이다.
 - **함선 안에서도 들린다.** 페이즈로 막지 않으므로 개인 · 공유 함선에서 걸어 다니는 분대원의 발소리가 그대로
-  난다. 갑판은 금속이라 톤만 조금 높다 (`FOOTSTEP_PITCH_DECK` 1.16 — 피치는 "소리 그 자체"라 코드에 둔다).
+  난다. 갑판은 금속이라 `footstep_metal` 이다 (2026-09-11 — 옛 `FOOTSTEP_PITCH_DECK` 1.16 피치 배수를 대신한다).
 - 사거리 밖은 아예 보이스를 만들지 않고, `FOOTSTEP_MIN_VOLUME` (0.012) 밑도 버린다. 그 위로는 기존
   `RATE_MAX_SAME` (같은 id 8회/100 ms) 가 상한이다 — 4인 분대가 전부 달려도 초당 ~10회라 걸리지 않는다.
 - 예전 `play()` 의 **160 m 하드 컷**에서 `footstep` 은 빠졌다 (`bug_step` · `hit_terrain` 만 남았다) —
@@ -223,6 +236,15 @@ Appended (tactical kit):
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (C 배치 — C-21 · C-22 · C-23 · C-39, 에이전트 4)** — `Synth.SOUNDS` 에 15종 추가. `shield_charge`(실드 충전기
+  완료 — 올라가는 saw 충전음 400 → 1600 Hz + 사인 2음 + 하이패스 반짝임 + 딸깍, ≈0.6 s, `player/` 가 부른다) ·
+  `tram_call`(승강장 딩-동 차임, 부른 콘솔 자리) · `tram_deny`(낮은 역차임 두 음 — `keycard_deny` 버저와 다르다) ·
+  `tram_hit`(전차 치임: 서브 쿵 + 로우패스 노이즈 + 차체 클렁크 · 울림 + 레일 쇳소리, 옛 `tram_dock` pitch 0.7 대용) —
+  셋 다 `world/` 가 부른다. 재질별 발소리 11종 `footstep_<mat>`(dirt = 옛 `footstep` 별칭 · sand 사각 · snow 뽀드득 여러 겹 ·
+  mud 철벅 · moss 먹힘 · ash 바삭 · rock 단단 + 자갈 · crystal 유리 울림 · organic 끈적 · metal 딸깍 + 판 울림 · concrete 건조).
+  `AudioSystem`: `footstep()` 이 재질 id · `FOOTSTEP_MATERIAL_GAIN` · 허브 금속(갑판 피치 해킹 삭제), `RANGED_SOUNDS` 에 적
+  발소리 곡선, `playRequested` 가 적 발소리에도 재질 배수, `play()` 에 `dedupe` · `rateLimit` 인자. 위 *발소리* 절.
 
 - **2026-09-11 (드론 · 원격 지뢰 · 네임드 로그)** — `Synth.SOUNDS` 에 24종 추가, 기존 `scan_pulse` 를 길게(≈1.5 s,
   에코 둘 + 경고 저음 + 잔향) 다듬었다. 위 *드론 · 원격 지뢰 · 네임드 로그* 절의 표 참고. `Synth` 의 tone/noise 에

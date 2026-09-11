@@ -45,7 +45,12 @@ export function bloodBurst(sys: EnemySystem, point: THREE.Vector3, count: number
   }
 
 export function acidVisual(sys: EnemySystem, from: THREE.Vector3, target: CombatTarget, shooterId: number): void {
-  sys.acid?.fireAt(from, target.position, shooterId);
+  sys.acid?.fireAt(from, target.position, shooterId, sys.byId.get(shooterId)?.faction);
+  }
+
+/** 2026-09-11 (C-48): `ee acidAt` — a glob the host aimed at a drone / enemy / point; the replica flies the same arc (visual). */
+export function acidVisualAt(sys: EnemySystem, from: THREE.Vector3, to: THREE.Vector3, shooterId: number): void {
+  sys.acid?.fireAt(from, to, shooterId, sys.byId.get(shooterId)?.faction);
   }
 
 export function rogueShotVisual(sys: EnemySystem, id: number, from: THREE.Vector3, to: THREE.Vector3, hit: boolean): void {

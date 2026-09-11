@@ -37,7 +37,9 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from '../net/Ho
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
-import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { namedBodyCenterY } from '../models/named';
+import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_KNOCKBACK, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { hurtSound, meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
 /** Radial damage. On a replica this only plays local FX and forwards an `ExplodeRequest` to the host (returns 0). */
@@ -46,7 +48,7 @@ export function applyExplosion(sys: EnemySystem, center: THREE.Vector3, radius: 
     for (let i = 0; i < sys.active.length; i++) {
       const e = sys.active[i];
       if (!e.active || e.state === 'dead') continue;
-      _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
+      _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: 엎드린 로든은 ≈ 0.25 m
       if (_v.distanceToSquared(center) < radius * radius) {
         _v2.subVectors(_v, center);
         if (_v2.lengthSq() < 1e-4) _v2.set(0, 1, 0); else _v2.normalize();
@@ -68,7 +70,7 @@ export function explode(sys: EnemySystem, center: THREE.Vector3, radius: number,
     const e = sys.active[i];
     if (e === exclude || !e.active || e.state === 'dead') continue;
     if (skipFaction !== null && e.faction === skipFaction) continue;
-    _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
+    _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: 엎드린 로든은 ≈ 0.25 m
     const d2 = _v.distanceToSquared(center);
     const reach = radius + e.stats.radius;
     if (d2 > reach * reach) continue;
@@ -96,17 +98,20 @@ export function applyAreaDamage(sys: EnemySystem, center: THREE.Vector3, radius:
   }
 
 /**
- * Phase 12 (실드 배쉬 knockback, requested by implants/): shove enemies away from `center`. Every alive enemy within
- * `radius` gets a horizontal impulse of `speed` m/s (falling off linearly to 40 % at the rim) away from the centre —
- * the same `velocity` nudge an explosion applies, so the existing steering / stumble rules absorb it (a charging
- * behemoth is **not** shoved, exactly like an explosion). Returns how many were pushed.
+ * `EnemyManagerRef.pushBack` (실드 배쉬 knockback — 2026-09-08 캐스트 전용, 2026-09-11 C-1 계약). Shove enemies away from
+ * `center`: every alive combatant within `radius` gets a horizontal impulse of `speed` m/s (falling off linearly to 40 %
+ * at the rim) away from the centre, or along `dir` — the same `velocity` nudge an explosion applies, so the existing
+ * steering / stumble rules absorb it (a charging behemoth / charger is **not** shoved, exactly like an explosion).
  *
- * **Not** on `EnemyManagerRef` — that interface is frozen for Phase 12, so callers reach it as
- * `(ctx.enemies as unknown as { pushBack?: … }).pushBack?.(…)`. Authority only: a replica's velocity is overwritten
- * by the next snapshot, and the host already shoves its own copy, so this returns 0 there.
+ * **Authority** applies it to its own copies and returns how many were pushed. **A replica** cannot move its enemies
+ * (the next snapshot overwrites them), so it sends one `HitRequest { dmg: 0, kb }` per enemy in range — the falloff is
+ * already applied, `d` is the push direction — and returns how many requests went out (X-6: 비호스트 배쉬 넉백이 0
+ * 이던 문제). The host's `onHitRequest` applies it. Callers never branch on role.
  */
 export function pushBack(sys: EnemySystem, center: THREE.Vector3, radius: number, speed: number, dir?: THREE.Vector3): number {
-  if (!sys.authority || !(radius > 0) || !(speed > 0)) return 0;
+  if (!(radius > 0) || !(speed > 0)) return 0;
+  const net = sys.replica ? sys.ctx.net : null;
+  if (sys.replica && !net) return 0;
   let n = 0;
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
@@ -118,7 +123,11 @@ export function pushBack(sys: EnemySystem, center: THREE.Vector3, radius: number
     if (dir) _v.copy(dir).setY(0);
     if (_v.lengthSq() < 1e-4) e.facing(_v).negate();
     _v.normalize();
-    e.velocity.addScaledVector(_v, speed * THREE.MathUtils.clamp(1 - d / reach, 0.4, 1));
+    const k = speed * THREE.MathUtils.clamp(1 - d / reach, 0.4, 1);
+    if (net) {
+      _c.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
+      net.send({ t: 'hit', id: e.id, dmg: 0, p: tuple(_c, 2), d: tuple(_v, 3), kb: round(k, 2) }, 'host');
+    } else e.velocity.addScaledVector(_v, k);
     n++;
   }
   return n;
@@ -135,13 +144,19 @@ export function normalizeAttacker(sys: EnemySystem, by: string): TargetId {
   }
 
 /* ── client → host requests (authority only) ───────────────────────────── */
-/** `hit` from a client: damage (as before) and / or the status bits (`st` + `dur`, 2026-09-06; `dmg` may be 0 for a status-only request). */
+/**
+ * `hit` from a client: damage (as before) and / or the status bits (`st` + `dur`, 2026-09-06; `dmg` may be 0 for a
+ * status-only request) and / or the knockback `kb` (2026-09-11 C-1 · X-6 — a replica's `pushBack`: horizontal impulse
+ * of `kb` m/s along `d`, falloff already applied by the sender). Knockback skips a charging behemoth / charger exactly
+ * like the host's own `pushBack` and is clamped to `MAX_REQUEST_KNOCKBACK`; like `dmg` / `st` the geometry is trusted.
+ */
 export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): void {
   if (!sys.hosting) return;
   const { id, dmg, p, d } = msg;
   const st = msg.st ?? 0;
+  const kb = typeof msg.kb === 'number' && Number.isFinite(msg.kb) && msg.kb > 0 ? Math.min(msg.kb, MAX_REQUEST_KNOCKBACK) : 0;
   if (!(dmg >= 0) || dmg > MAX_REQUEST_DAMAGE) return;
-  if (dmg <= 0 && st === 0) return;
+  if (dmg <= 0 && st === 0 && kb === 0) return;
   const e = sys.byId.get(id);
   if (!e || !e.active || e.state === 'dead') return;
   if (dmg > 0) {
@@ -154,6 +169,10 @@ export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): v
     sys.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
   }
   if (st !== 0 && !e.isDead) sys.applyStatusBits(e, st, msg.dur, from);
+  if (kb > 0 && e.isCombatant && e.chargePhase !== 2 && Number.isFinite(d[0]) && Number.isFinite(d[2])) {
+    _kb.set(d[0], 0, d[2]);
+    if (_kb.lengthSq() > 1e-4) e.velocity.addScaledVector(_kb.normalize(), kb);
+  }
   }
 
 export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: number, dmg: number, from: string): void {
@@ -173,7 +192,9 @@ export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: numb
 export function hitTarget(sys: EnemySystem, e: Enemy, damage: number, shake = 0, target: CombatTarget | null = e.target): void {
   if (!target || target.isDeadOrDowned) return;
   sys.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true, null, 0, true);
-  sys.playAudio('bug_attack', e.position, 1, sys.bitePitch(e.type));
+  // 2026-09-11 (C-51): 타입별 타격음 — 타길라는 null (자기 `hammer_impact` 만 난다)
+  const bite = meleeHitSound(e.type);
+  if (bite) sys.playAudio(bite.id, e.position, 1, bite.pitch);
   }
 
 /* ── behemoth ──────────────────────────────────────────────────────────── */
@@ -181,7 +202,8 @@ export function chargeHit(sys: EnemySystem, e: Enemy, target: CombatTarget, dama
   if (target.isDeadOrDowned) return;
   // local: applyKnockback; remote: `dmg.kb` (Phase 7); suspended: `ghost:damage.kb`
   sys.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true, knockDir, BEHEMOTH_KNOCKBACK, true);
-  sys.playAudio('bug_attack', e.position, 1, 0.4);
+  const bite = meleeHitSound(e.type);
+  if (bite) sys.playAudio(bite.id, e.position, 1, bite.pitch);
   }
 
 /* ── AcidHost ──────────────────────────────────────────────────────────── */
@@ -300,7 +322,8 @@ export function barrierHitRemote(sys: EnemySystem, id: number, p: THREE.Vector3,
   const imp = sys.ctx.implants;
   if (imp && typeof imp.damageBarrier === 'function') imp.damageBarrier('local', p, amount);
   const e = sys.byId.get(id);
-  sys.playAudio('bug_attack', e ? e.position : p, 1, sys.bitePitch(e?.type ?? 'scavenger'));
+  const bite = meleeHitSound(e?.type ?? 'scavenger');   // 2026-09-11 (C-51)
+  if (bite) sys.playAudio(bite.id, e ? e.position : p, 1, bite.pitch);
   }
 
 /* ── Phase 12: 배리어 충돌 (EnemyHost) ─────────────────────────────────── */
@@ -346,7 +369,7 @@ export function requestHit(sys: EnemySystem, e: Enemy, amount: number, part: Hit
     if (hitDir) { _v2.copy(hitDir); sys.fx.burst(_v, count, 'blood', 4.5, _v2, 0.9); }
     else sys.fx.burst(_v, count, 'blood', 4);
   }
-  sys.playAudio(e.isRogue ? 'hit_flesh' : 'bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
+  sys.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
   ctx.net?.send({ t: 'hit', id: e.id, dmg: round(amount, 2), p: tuple(_v, 2), d: tuple(hitDir ?? _zero, 3) }, 'host');
   }
 
@@ -359,7 +382,7 @@ export function onEnemyDamaged(sys: EnemySystem, e: Enemy, amount: number, part:
     if (hitDir) { _v2.copy(hitDir); sys.fx.burst(_v, count, 'blood', 4.5, _v2, 0.9); }
     else sys.fx.burst(_v, count, 'blood', 4);
   }
-  sys.playAudio(e.isRogue ? 'hit_flesh' : 'bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
+  sys.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
   if (sys.hosting) {
     const msg: Extract<EnemyEvent, { ev: 'damaged' }> = { t: 'ee', ev: 'damaged', id: e.id, amount: round(amount, 1), p: tuple(_v, 2) };
     if (hitDir) msg.d = tuple(hitDir, 2);

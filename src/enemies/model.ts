@@ -12,10 +12,11 @@ import {
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
+  type SurfaceMaterial,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
+import { ENEMY_STATS, ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
 import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
 import { SUSPICION_TIME, updateEnemyAI } from './ai/EnemyAI';
@@ -47,6 +48,11 @@ export const CORPSE_SLACK = 30;      // corpses allowed above the alive cap befo
 export const RECYCLE_DISTANCE = 160;
 export const MAX_REQUEST_DAMAGE = 500;
 export const MAX_REQUEST_RADIUS = 20;
+/**
+ * 2026-09-11 (C-1 · X-6): a replica's `HitRequest.kb` (실드 배쉬 넉백) is clamped to this many m/s on the host — a
+ * wire-validation cap like `MAX_REQUEST_DAMAGE`, not a balance number (the bash itself is `IMPLANT_SHIELD_BASH_KNOCKBACK`).
+ */
+export const MAX_REQUEST_KNOCKBACK = 20;
 export const CLASH_THROTTLE = 15;
 export const CLASH_RADIUS = 40;
 /* ── appended: tactical kit ── */
@@ -151,6 +157,93 @@ export const queryBuf: Enemy[] = [];
  * changes **live** through `setAuthority` (Phase 7: `net:hostChanged` mid-mission promotes replicas into simulated
  * enemies or demotes the simulation into replicas) — nothing else caches it.
  */
+
+/* ── appended (2026-09-11, C-51 · C-23 · C-22): 적 타입별 소리 표 ─────────────────────────────────────────────
+ * 타입마다 흩어져 있던 `bug_attack` · `bug_step` · `bug_hit` 이 로그(특히 타길라)에게까지 새던 경로들(근접 타격 ·
+ * 리플리카 `ee attack` · 배리어 흡수 · 돌진 막힘 · 걷기 · 리플리카 `ee damaged`)이 전부 이 세 함수를 본다. 피치 ·
+ * 밑값은 "소리 그 자체" 라 코드에 둔다 (발소리 피치와 같은 규약). 재질별 크기 · 거리 곡선은 audio/ 가 갖는다.
+ */
+
+/** 한 걸음의 목소리 — id 는 밟은 재질이 정한다(`footstep_<SurfaceMaterial>`), 여기는 피치(무게)와 밑값만. */
+export interface EnemyStepVoice { readonly pitch: number; readonly gain: number }
+const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
+  warrior: { pitch: 0.82, gain: 0.55 },
+  artillery: { pitch: 0.78, gain: 0.55 },
+  charger: { pitch: 0.58, gain: 0.95 },
+  behemoth: { pitch: 0.4, gain: 1.7 },
+  // 로그 계열: 사람 발소리를 낮은 피치로 (무겁고 장비를 멨다)
+  rogue_boss: { pitch: 0.86, gain: 0.7 },
+  rogue_hammer: { pitch: 0.74, gain: 0.85 },
+  rogue_heavy: { pitch: 0.8, gain: 0.8 },
+};
+const STEP_VOICE_DEFAULT: EnemyStepVoice = { pitch: 0.9, gain: 0.5 };
+
+/** `type` 의 걸음 소리, 또는 null (`data/enemies.csv` 의 `stepSound` 가 false = 조용히 걷는다). */
+export function stepSound(type: EnemyType): EnemyStepVoice | null {
+  if (!ENEMY_STATS[type]?.stepSound) return null;
+  return STEP_VOICES[type] ?? STEP_VOICE_DEFAULT;
+}
+
+/** 근접 타격음 — 벌레는 `bug_attack` 을 타입별 피치로, 자기 타격음을 따로 내는 타입(타길라 = `hammer_impact`)은 null. */
+export interface EnemySoundVoice { readonly id: string; readonly pitch: number }
+const BITE_DEFAULT: EnemySoundVoice = { id: 'bug_attack', pitch: 1.05 };
+const MELEE_VOICES: Readonly<Partial<Record<EnemyType, EnemySoundVoice | null>>> = {
+  behemoth: { id: 'bug_attack', pitch: 0.4 },
+  charger: { id: 'bug_attack', pitch: 0.6 },
+  warrior: { id: 'bug_attack', pitch: 0.8 },
+  rogue_hammer: null,                               // `ai/named/Hammer` 가 `hammer_impact` 를 낸다 (이중 타격음 방지)
+  rogue: { id: 'melee_hit', pitch: 0.95 },
+  rogue_boss: { id: 'melee_hit', pitch: 0.85 },
+  rogue_sniper: { id: 'melee_hit', pitch: 0.95 },
+  rogue_heavy: { id: 'melee_hit', pitch: 0.85 },
+  rogue_scan_drone: null,
+};
+export function meleeHitSound(type: EnemyType): EnemySoundVoice | null {
+  const v = MELEE_VOICES[type];
+  return v === undefined ? BITE_DEFAULT : v;
+}
+
+/** 피격음 — 벌레 `bug_hit`, 사람(로그) `hit_flesh`, 기계(스캔 드론) `drone_hit`. 호스트 · 리플리카가 같은 답을 낸다. */
+export function hurtSound(type: EnemyType): string {
+  if (type === 'rogue_scan_drone') return 'drone_hit';
+  return ENEMY_STATS[type]?.faction === 'rogue' ? 'hit_flesh' : 'bug_hit';
+}
+
+/**
+ * 적 발소리를 내도 되는 **카메라** 거리(m). audio/ 의 적 발소리 곡선(`ENEMY_STEP_RANGE` 45 m)보다 넉넉한 게이트 —
+ * 드론 조종 중에는 귀(카메라)가 몸에서 70–90 m 떨어지므로 로컬 PC 몸 기준(`distToLocal`)으로 거르면 안 된다.
+ * 소리 연출 게이트라 csv 대상이 아니다.
+ */
+export const ENEMY_STEP_EMIT_RANGE = 60;
+/** 같은 적의 발소리 사이 최소 간격(s) — 스로틀은 **적 id 별**이다 (예전 전역 id 스로틀은 무리 중 한 마리만 들리게 했다). */
+export const ENEMY_STEP_MIN_GAP = 0.12;
+const _stepCam = new THREE.Vector3();
+const STEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
+  dirt: 'footstep_dirt', sand: 'footstep_sand', snow: 'footstep_snow', mud: 'footstep_mud', moss: 'footstep_moss',
+  ash: 'footstep_ash', rock: 'footstep_rock', crystal: 'footstep_crystal', organic: 'footstep_organic',
+  metal: 'footstep_metal', concrete: 'footstep_concrete',
+};
+
+/**
+ * 적 한 걸음 (C-23 · C-22). 권위의 `ai/EnemyAI.integrate` 와 리플리카의 `net/Replica.drive` 가 **같은 식**으로 부른다.
+ * 크기 감쇠는 audio/ 의 거리 곡선이 한 번만 건다(방출부 선형 감쇠 없음 — X-3 이중 감쇠). `gainMul` / `pitchMul` 은
+ * 돌진이 벽에 막힌 쿵 같은 변형용. 소리를 냈으면 true.
+ */
+export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul = 1): boolean {
+  const v = stepSound(e.type);
+  if (!v) return false;
+  const now = ctx.time;
+  if (now - e.stepAt < ENEMY_STEP_MIN_GAP) return false;
+  const p = e.position;
+  ctx.camera.getWorldPosition(_stepCam);
+  if (_stepCam.distanceToSquared(p) > ENEMY_STEP_EMIT_RANGE * ENEMY_STEP_EMIT_RANGE) return false;
+  e.stepAt = now;
+  const w = ctx.world;
+  const m = w && w.ready ? w.getSurfaceMaterial?.(p.x, p.z, p.y) : undefined;
+  const id = (m && STEP_ID[m]) || STEP_ID.dirt;
+  ctx.bus.emit('audio:play', { id, position: p, volume: v.gain * gainMul, pitch: v.pitch * pitchMul * (0.95 + Math.random() * 0.1) });
+  return true;
+}
 
 /* appended (2026-09-10): 적이 수류탄을 하나도 안 던지고 있을 때 `getEnemyGrenades()` 가 돌려주는 빈 목록.
  * 매번 `[]` 를 만들면 HUD 가 프레임마다 부르므로 쓰레기가 된다. */

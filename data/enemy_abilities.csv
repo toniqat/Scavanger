@@ -60,6 +60,10 @@ ARTILLERY_AI,digTime,1.2
 ARTILLERY_AI,maxRange,98
 ARTILLERY_AI,spawnMin,56
 ARTILLERY_AI,spawnMax,84
+# 2026-09-11 (C-24): 궤적이 막혀 발사를 거절당하면 사전 검사로 뚫린 자리를 찾아 옮긴다. 그래도 연속 maxRefusals 번 거절되면
+# 표적을 바꾸고 refusalCooldown 초 동안 쏘지 않는다 (사방이 막힌 분지 같은 곳의 안전장치 — 보통은 거기까지 가지 않는다).
+ARTILLERY_AI,maxRefusals,3
+ARTILLERY_AI,refusalCooldown,8
 
 # TOXIC_AI — 독성 벌레 (자폭 직전 부풀기 s)
 TOXIC_AI,swell,0.6

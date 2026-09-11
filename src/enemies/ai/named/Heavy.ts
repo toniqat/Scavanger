@@ -22,13 +22,14 @@
  *
  * ── 리플리카 ─────────────────────────────────────────────────────────────────────────────────────────
  * `onHeavyEvent(spray on)` 이 그 적의 연사 상태를 켜 두면 `afterHeavyReplica` 가 **스스로** 같은 박자로 트레이서
- * (적 yaw 기준 전방 + 머리 피치 + `spread`) · 섬광 · 소리를 낸다. 피해는 호스트가 이미 `dmg` 로 보냈다.
+ * (몸 방위 콘 안 가장 가까운 후보의 가슴 + `spread`, 후보가 없으면 yaw 전방 + 머리 피치) · 섬광 · 소리를 낸다.
+ * 피해는 호스트가 이미 `dmg` 로 보냈다.
  * `off` 를 놓쳐도 `burstTime + REMOTE_GRACE` 타임아웃, 또는 스냅샷 힌트가 19 에서 벗어난 채 `REMOTE_HINT_MISS`
  * 가 지나면 멈춘다. 총열 회전 · 반동 떨림은 `models/named/HeavyLook` 이 `Enemy.namedHint` 로 양쪽에서 똑같이 그린다.
  *
  * **드론 표적** (2026-09-11): `pickTarget` 이 드론을 줄 수 있고 헤비도 쏜다. 조준점은 `aimAt` 을 넘기지 않으므로 드론을
  * 아는 `CombatTarget.getChest`(몸체 가운데)이고, `lookAtTarget` · `hasFireLine` 도 같은 식이다. 드론에게서는 물러서지 않고
- * (`keepMin` 무시) 살 맞는 소리도 내지 않는다. 리플리카 트레이서의 높이는 가까운 **플레이어** 쪽 머리 피치라 드론을 쏠 때는 어긋날 수 있다.
+ * (`keepMin` 무시) 살 맞는 소리도 내지 않는다. 리플리카 트레이서는 방위로 표적을 추론하므로(`remoteAimPoint`) 드론 · 벌레도 향한다.
  *
  * 호위 SMG 로그는 기존 가드 로직(`Enemy.escortOf` → `ai/RogueAI`)을 탄다 — 헤비는 그들을 기다리지 않고,
  * 헤비가 죽으면 `RogueAI` 가 호위를 평소 로그로 풀어 준다.
@@ -107,18 +108,14 @@ function heavyData(e: Enemy): HeavyData {
   return n;
 }
 
-/**
- * 리플리카 소리 · 레이캐스트의 출구. `afterHeavyReplica` 에는 호스트가 넘어오지 않으므로 `onHeavyEvent` 가 받아 둔다
- * (EnemySystem 은 세션 동안 하나다). ⚠ 그래서 이 클라이언트가 헤비의 `ee spray` 를 한 번도 받기 전의 **첫 회전음**은 나지 않는다.
- */
-let replicaHost: ReplicaHost | null = null;
-
 const _shotOut = { from: new THREE.Vector3(), to: new THREE.Vector3() };
 const _shot: RogueShotOpts = { damage: 0, range: 0, fx: false, event: false, wire: false, out: _shotOut };
 const _from = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _side = new THREE.Vector3();
+const _aimPt = new THREE.Vector3();
+const _chest = new THREE.Vector3();
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════
  * 호스트
@@ -358,15 +355,13 @@ function tickFireAudio(ctx: GameContext, position: THREE.Vector3, d: HeavyData, 
 export function beforeHeavyReplica(_e: Enemy, _hint: number): void { /* 지상 유닛 — 기본 스냅 그대로 */ }
 
 /** 기본 애니메이션 목표를 댐핑한 뒤: 회전 · 연사 자세, 회전음 가장자리, 그리고 `ee spray` 가 켜 둔 연사 연출. */
-export function afterHeavyReplica(e: Enemy, hint: number, dt: number, host?: ReplicaHost): void {
-  if (host) replicaHost = host;   // 2026-09-11 (리드): Replica 가 넘겨 준다 — 첫 `ee spray` 전의 회전음도 난다
+export function afterHeavyReplica(e: Enemy, hint: number, dt: number, host: ReplicaHost): void {
   const d = heavyData(e);
   const a = e.anim;
   const spinning = hint === HINT_SPIN || hint === HINT_FIRE;
   const wasSpinning = d.prevHint === HINT_SPIN || d.prevHint === HINT_FIRE;
   d.prevHint = hint;
-  const rh = replicaHost;
-  if (rh && spinning !== wasSpinning) rh.playAudio(spinning ? 'minigun_spinup' : 'minigun_spindown', e.position, 1, 1);
+  if (spinning !== wasSpinning) host.playAudio(spinning ? 'minigun_spinup' : 'minigun_spindown', e.position, 1, 1);
 
   if (spinning) {
     a.aim += (1 - a.aim) * Math.min(1, dt * 6);
@@ -376,11 +371,62 @@ export function afterHeavyReplica(e: Enemy, hint: number, dt: number, host?: Rep
   if (!d.remoteOn) return;
   d.remoteLeft -= dt;
   d.remoteHintMiss = hint === HINT_FIRE ? 0 : d.remoteHintMiss + dt;
-  if (!rh || d.remoteLeft <= 0 || d.remoteHintMiss > REMOTE_HINT_MISS) { d.remoteOn = false; d.shotAcc = 0; return; }
-  remoteSpray(e, d, rh, dt);
+  if (d.remoteLeft <= 0 || d.remoteHintMiss > REMOTE_HINT_MISS) { d.remoteOn = false; d.shotAcc = 0; return; }
+  remoteSpray(e, d, host, dt);
 }
 
-/** 리플리카 연사 연출 — 호스트와 같은 박자(`rof`, `TRACER_EVERY`), 방향은 적 yaw 전방 + 머리 피치 + `spread`. */
+/**
+ * 리플리카가 헤비의 표적을 **방위로 추론**한다 (C-50) — 와이어에는 `ee spray {on}` 뿐이라 누구를 쏘는지 모른다.
+ * 몸 방향(`e.yaw`, 스냅샷)에서 `FIRE_FACING_TOL` 안(= 호스트가 실제로 방아쇠를 당기는 콘) · `range` 안의 후보 중 가장
+ * 가까운 것 — 플레이어(`targets.alive`) ∪ 적이 노리는 드론(`targets.drones`) ∪ 반대 팩션 적. 찾으면 그 가슴(`getChest`,
+ * 적은 키 × 0.6 = 같은 식)을 `out` 에 적고 true. 예전에는 머리 피치(가까운 **플레이어** 쪽)로 높이를 짐작해 드론 · 벌레를
+ * 쏠 때 트레이서가 허공으로 갔다.
+ */
+function remoteAimPoint(e: Enemy, host: ReplicaHost, out: THREE.Vector3): boolean {
+  aim.px = e.position.x; aim.pz = e.position.z;
+  aim.fx = Math.sin(e.yaw); aim.fz = Math.cos(e.yaw);
+  aim.best = NAMED_HEAVY.range * NAMED_HEAVY.range;
+  aim.found = false;
+  aim.out = out;
+  const targets = host.targets;
+  considerTargets(targets.alive);
+  considerTargets(targets.drones);
+  const active = host.active;
+  for (let i = 0; i < active.length; i++) {
+    const o = active[i];
+    if (o === e || o.faction === e.faction || !o.isCombatant) continue;
+    considerAim(o.position.x, o.position.y + o.stats.height * 0.6, o.position.z);
+  }
+  aim.out = null;
+  return aim.found;
+}
+
+/* `remoteAimPoint` 의 스크래치 — 연사 중 매 프레임 돌므로 클로저 · 배열을 만들지 않는다. */
+const COS_FIRE_TOL = Math.cos(FIRE_FACING_TOL);
+const aim = { px: 0, pz: 0, fx: 0, fz: 1, best: 0, found: false, out: null as THREE.Vector3 | null };
+
+function considerTargets(list: readonly CombatTarget[]): void {
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    if (!t.present || t.isDeadOrDowned) continue;
+    t.getChest(_chest);
+    considerAim(_chest.x, _chest.y, _chest.z);
+  }
+}
+
+function considerAim(x: number, y: number, z: number): void {
+  const dx = x - aim.px, dz = z - aim.pz;
+  const d2 = dx * dx + dz * dz;
+  if (d2 >= aim.best || d2 < 1e-4) return;
+  if (dx * aim.fx + dz * aim.fz < COS_FIRE_TOL * Math.sqrt(d2)) return;   // 콘 밖 (뒤쪽 포함)
+  aim.best = d2; aim.found = true;
+  aim.out!.set(x, y, z);
+}
+
+/**
+ * 리플리카 연사 연출 — 호스트와 같은 박자(`rof`, `TRACER_EVERY`). 방향은 총구 → 추론한 표적 가슴(`remoteAimPoint`) +
+ * `spread`, 후보가 없으면 적 yaw 전방 + 머리 피치로 되돌아간다.
+ */
 function remoteSpray(e: Enemy, d: HeavyData, host: ReplicaHost, dt: number): void {
   const H = NAMED_HEAVY;
   d.shotAcc = Math.min(d.shotAcc + dt * H.rof, MAX_SHOTS_PER_FRAME);
@@ -389,13 +435,15 @@ function remoteSpray(e: Enemy, d: HeavyData, host: ReplicaHost, dt: number): voi
   const fx = FxManager.get();
   const world = host.ctx.world;
   e.muzzle(_from);
+  const aimed = !!fx && !!world && remoteAimPoint(e, host, _aimPt);
   while (d.shotAcc >= 1) {
     d.shotAcc -= 1;
     const tracer = d.shotCount % TRACER_EVERY === 0;
     d.shotCount++;
     if (!tracer || !fx || !world) continue;
-    // 리플리카도 가까운 플레이어를 바라보므로(`lookAtTarget`) 머리 피치가 조준 높이다: pitch = −atan(dy / dist)
-    _dir.set(Math.sin(e.yaw), Math.tan(THREE.MathUtils.clamp(-e.anim.headPitch, -0.6, 0.6)), Math.cos(e.yaw)).normalize();
+    if (aimed && _dir.subVectors(_aimPt, _from).lengthSq() > 1e-4) _dir.normalize();
+    // 후보가 없다: 리플리카도 가까운 플레이어를 바라보므로(`lookAtTarget`) 머리 피치가 조준 높이다: pitch = −atan(dy / dist)
+    else _dir.set(Math.sin(e.yaw), Math.tan(THREE.MathUtils.clamp(-e.anim.headPitch, -0.6, 0.6)), Math.cos(e.yaw)).normalize();
     // `parts/Attacks.fireGun` 과 같은 삼각 분포 퍼짐
     const ey = (Math.random() + Math.random() - 1) * H.spread;
     const ep = (Math.random() + Math.random() - 1) * H.spread * 0.7;
@@ -412,7 +460,6 @@ function remoteSpray(e: Enemy, d: HeavyData, host: ReplicaHost, dt: number): voi
 
 /** `ee spray {id, on}` — 연출 상태만 켜고 끈다 (게임 상태는 바꾸지 않는다). */
 export function onHeavyEvent(host: ReplicaHost, msg: Extract<EnemyEvent, { ev: 'spray' }>): void {
-  replicaHost = host;
   const e = host.find(msg.id);
   if (!e || !e.active || e.state === 'dead' || e.type !== 'rogue_heavy') return;
   const d = heavyData(e);

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import {
-  BEHEMOTH_CHARGE_DAMAGE, BEHEMOTH_CHARGE_SPEED, BEHEMOTH_WINDUP, ENEMY_FIRE_STRAFE_S, PLAYER_RADIUS, TOXIC_TRIGGER_DIST,
+  BEHEMOTH_CHARGE_DAMAGE, BEHEMOTH_CHARGE_SPEED, BEHEMOTH_WINDUP, ENEMY_FIRE_STRAFE_S, PLAYER_RADIUS, SHELL_FLIGHT_TIME, TOXIC_TRIGGER_DIST,
 } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { ARTILLERY_AI, BEHEMOTH_AI, TOXIC_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
+import { shellArcBlocked } from '../parts/Attacks';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Phase 4 bug gimmicks: artillery (stand-off mortar), toxic (suicide runner), behemoth (line charge).
@@ -15,8 +16,15 @@ import { lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 const _knock = new THREE.Vector3();
 const _side = new THREE.Vector3();
 
-/** 궤적이 막힌 포병이 옆으로 옮겨 가는 거리(m). 그림/알고리즘 상수라 csv 대상이 아니다. */
+/** 궤적이 막힌 포병이 옆으로 옮겨 가는 거리(m) — 후보는 이것의 1 · 2 배. 그림/알고리즘 상수라 csv 대상이 아니다. */
 const ARTILLERY_RELOCATE_M = 7;
+/** 2026-09-11 (C-24): 표적 쪽 · 오르막 후보까지의 거리(m). 알고리즘 상수. */
+const ARTILLERY_PROBE_FORWARD_M = 10;
+/** 후보 자리가 이보다 장애물로 덮여 있으면(`obstacleCoverage`) 서지 않는다 — 바위 한가운데를 고르지 않게. */
+const ARTILLERY_PROBE_MAX_COVERAGE = 0.25;
+const _aimT = new THREE.Vector3();
+const _from = new THREE.Vector3();
+const _uphill = new THREE.Vector3();
 
 /* ── artillery ──────────────────────────────────────────────────────────── */
 /**
@@ -54,7 +62,11 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
    */
   if (e.fireBlockTimer > 0) {
     e.fireBlockTimer -= dt;
-    e.hasMoveTarget = true;                 // moveTarget 은 거절 시점에 써 뒀다
+    // 2026-09-11 (C-24): 고른 자리에 닿으면 바로 다시 판다 (걷는 시간은 거리에서 나온다 — `artilleryRelocate`)
+    // `chase()` 가 매 프레임 moveTarget 을 표적으로 덮으므로 거절 시점에 적어 둔 자리(`shellSpot`)를 다시 싣는다
+    e.moveTarget.copy(e.shellSpot);
+    if (Math.hypot(e.shellSpot.x - e.position.x, e.shellSpot.z - e.position.z) < 1) e.fireBlockTimer = 0;
+    e.hasMoveTarget = true;
     e.hasFacePoint = false;
     e.dug = Math.max(0, e.dug - dt * 2);
     a.crouch = e.dug * 0.8;
@@ -69,6 +81,7 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   if (e.shellTimer <= 0) {
     if (e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned) {
       if (host.fireShell(e, t)) {
+        e.shellRefusals = 0;
         a.recoil = 1;
         a.flinch = Math.max(a.flinch, 0.6); a.flinchZ = -0.6; a.flinchX = 0;   // rear squat on fire
         e.shellTimer = ARTILLERY_AI.fireMin + Math.random() * (ARTILLERY_AI.fireMax - ARTILLERY_AI.fireMin);
@@ -78,25 +91,88 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   return 0;
 }
 
+/** Relocation probes relative to the target line: [along n (toward the target), along p (perpendicular)] in m. */
+const ARTILLERY_PROBES: ReadonlyArray<readonly [number, number]> = [
+  [0, ARTILLERY_RELOCATE_M], [0, -ARTILLERY_RELOCATE_M],
+  [ARTILLERY_PROBE_FORWARD_M, 0],
+  [0, ARTILLERY_RELOCATE_M * 2], [0, -ARTILLERY_RELOCATE_M * 2],
+  [ARTILLERY_PROBE_FORWARD_M, ARTILLERY_RELOCATE_M], [ARTILLERY_PROBE_FORWARD_M, -ARTILLERY_RELOCATE_M],
+];
+
 /**
- * 궤적이 막혔다 → 굴착을 풀고 표적 방향의 수직으로 `ARTILLERY_RELOCATE_M` 옮긴 뒤 다시 판다.
- * 방향은 매번 뒤집으므로 한쪽이 막혀 있으면 다음에는 반대쪽을 시도한다. 다시 파는 데 걸리는 시간
- * (`digTime`) 만큼은 어차피 못 쏘므로 다음 발사 시도는 그 뒤로 민다.
+ * 궤적이 막혀 발사가 거절됐다 (2026-09-11 C-24 · X-4 개정). 굴착을 풀고 **뚫린 자리를 사전 검사로 찾아** 옮긴 뒤 다시 판다.
+ *
+ * 예전(2026-09-10)에는 표적 수직으로 7 m 옮기되 방향을 **매번 뒤집어**, 1.5 s 걷는 동안 ≈3.5 m 만 가고 두 자리를 영원히
+ * 왕복했다(X-4 핑퐁). 이제 후보 7곳(좌우 7 · 14 m, 표적 쪽 10 m, 그 둘의 조합) + 오르막 한 곳을 `shellArcBlocked` 로
+ * 미리 검사하고(거절 1회당 레이 ≤ 32 — 발사 주기에만 돈다, 핫 패스 아님) 뚫린 곳 중 **가장 가까운** 곳으로 간다.
+ * 부호 교대는 없다. 뚫린 곳이 없으면 표적 쪽으로 다가간다(후퇴 거리까지). 연속 `ARTILLERY_AI.maxRefusals` 번 거절되면
+ * 다른 표적으로 바꾸고 `refusalCooldown` 동안 쏘지 않는다. 높은 궤적 · 능선 폭발은 넣지 않는다 (2026-09-10 "화면 안" 결정).
  */
 function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
+  const world = host.ctx.world!;
   e.dug = 0;
+  e.shellRefusals++;
   e.fireBlockTimer = ENEMY_FIRE_STRAFE_S;
-  e.shellTimer = ENEMY_FIRE_STRAFE_S + ARTILLERY_AI.digTime;
-  const dx = t.position.x - e.position.x, dz = t.position.z - e.position.z;
+  // the shell timer only runs while dug in (`chaseArtillery`), so it waits for the re-dig, not for the walk
+  e.shellTimer = ARTILLERY_AI.digTime + 0.2;
+  if (e.shellRefusals >= ARTILLERY_AI.maxRefusals) {
+    e.shellRefusals = 0;
+    e.shellTimer = Math.max(e.shellTimer, ARTILLERY_AI.refusalCooldown);
+    const other = otherTargetInRange(e, host, t);
+    if (other) { e.target = other; e.targetTimer = ARTILLERY_AI.refusalCooldown; e.distToTarget = other.dist2D(e.position); }
+  }
+  const tp = (e.target ?? t).position;   // after a retarget the new spot is searched against the new target
+  const dx = tp.x - e.position.x, dz = tp.z - e.position.z;
   const l = Math.hypot(dx, dz);
-  const side = e.fireStrafeSign;
-  e.fireStrafeSign = -side as 1 | -1;
-  if (l < 1e-3) return;
+  if (l < 1e-3) { e.fireBlockTimer = 0; return; }
   const nx = dx / l, nz = dz / l;
-  const mx = e.position.x - nz * side * ARTILLERY_RELOCATE_M;
-  const mz = e.position.z + nx * side * ARTILLERY_RELOCATE_M;
-  if (!host.ctx.world!.isInsideBounds(mx, mz)) { e.moveTarget.copy(t.position); return; }
-  e.moveTarget.set(mx, 0, mz);
+  _aimT.set(tp.x, world.getHeightAt(tp.x, tp.z), tp.z);
+  let bestD = Infinity, bx = 0, bz = 0;
+  const probe = (cx: number, cz: number): void => {
+    if (!world.isInsideBounds(cx, cz)) return;
+    const walk = Math.hypot(cx - e.position.x, cz - e.position.z);
+    if (walk >= bestD) return;
+    const td = Math.hypot(tp.x - cx, tp.z - cz);
+    if (td < ARTILLERY_AI.retreatDist || td > ARTILLERY_AI.maxRange) return;
+    if (world.obstacleCoverage(cx, cz, e.stats.radius) > ARTILLERY_PROBE_MAX_COVERAGE) return;
+    _from.set(cx, world.getHeightAt(cx, cz) + e.stats.height * 0.95, cz);
+    if (shellArcBlocked(world, _from, _aimT, SHELL_FLIGHT_TIME)) return;
+    bestD = walk; bx = cx; bz = cz;
+  };
+  for (let i = 0; i < ARTILLERY_PROBES.length; i++) {
+    const [along, side] = ARTILLERY_PROBES[i];
+    probe(e.position.x + nx * along - nz * side, e.position.z + nz * along + nx * side);
+  }
+  // uphill: the terrain normal's horizontal part points downhill — a higher spot clears a ridge in front
+  world.getNormalAt(e.position.x, e.position.z, _uphill);
+  const hl = Math.hypot(_uphill.x, _uphill.z);
+  if (hl > 0.05) probe(e.position.x - _uphill.x / hl * ARTILLERY_PROBE_FORWARD_M, e.position.z - _uphill.z / hl * ARTILLERY_PROBE_FORWARD_M);
+  if (bestD < Infinity) { e.shellSpot.set(bx, 0, bz); walkFor(e, bestD); return; }
+  // nothing clear nearby: close in on the target (never inside the retreat distance)
+  const step = Math.min(ARTILLERY_PROBE_FORWARD_M * 1.5, l - ARTILLERY_AI.retreatDist - 2);
+  if (step > 2) { e.shellSpot.set(e.position.x + nx * step, 0, e.position.z + nz * step); walkFor(e, step); }
+  else e.fireBlockTimer = 0;   // nowhere to go — dig in again where it stands (the refusal cap handles the rest)
+}
+
+/**
+ * Walk long enough to actually reach a spot `dist` m away (the 2026-09-10 fixed `ENEMY_FIRE_STRAFE_S` covered ≈3.5 m of a
+ * 7 m leg — half of X-4); arriving early ends the walk (`chaseArtillery`), then it digs in again.
+ */
+function walkFor(e: Enemy, dist: number): void {
+  e.fireBlockTimer = Math.min(8, Math.max(ENEMY_FIRE_STRAFE_S, dist / Math.max(0.5, e.stats.speed * 0.9) + 0.4));
+}
+
+/** Nearest alive player other than `cur` within `ARTILLERY_AI.maxRange` (the refusal cap's new target), or null. */
+function otherTargetInRange(e: Enemy, host: EnemyHost, cur: CombatTarget): CombatTarget | null {
+  const list = host.targets.alive;
+  let best: CombatTarget | null = null, bestD = ARTILLERY_AI.maxRange;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (c === cur) continue;
+    const dd = c.dist2D(e.position);
+    if (dd < bestD) { bestD = dd; best = c; }
+  }
+  return best;
 }
 
 /* ── toxic ──────────────────────────────────────────────────────────────── */
@@ -149,7 +225,8 @@ export function chaseBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatTa
   lookAtTarget(e, t, dt);
   e.moveTarget.copy(t.position); e.hasMoveTarget = true;
   if (d < meleeRange && e.attackCd <= 0) { startMelee(e); return 0; }
-  if (d <= BEHEMOTH_AI.engageDist + 4 && d > meleeRange * 0.8 && e.chargeCd <= 0 && e.hasLOS) { startCharge(e, host); return 0; }
+  // 2026-09-11 (C-47): 떠 있는 공중 드론 **밑으로는** 돌진하지 않는다 — 몸이 닿지 않는 표적을 향한 돌진은 헛돌기만 한다
+  if (d <= BEHEMOTH_AI.engageDist + 4 && d > meleeRange * 0.8 && e.chargeCd <= 0 && e.hasLOS && canBodyReach(e, t)) { startCharge(e, host); return 0; }
   if (d > BEHEMOTH_AI.engageDist) return s.speed;
   return s.speed * 0.6;   // lumber while the charge cools down
 }
@@ -160,10 +237,21 @@ function startCharge(e: Enemy, host: EnemyHost): void {
   e.chargePhase = 1; e.chargeTimer = 0;
   e.hasMoveTarget = false;
   e.chargeVictims.length = 0;
+  e.chargeDrones.length = 0;
   host.playAudio('bug_screech', e.position, 1.0, 0.35);
 }
 
 const _tp = new THREE.Vector3();
+
+/**
+ * 2026-09-11 (C-47): can the charging body touch `t` at all? A target whose underside floats above the behemoth's height
+ * (a hovering air drone) is out of reach — same rule as `ai/named/Hammer.canReachVertically`. Players / enemies /
+ * ground drones always pass.
+ */
+function canBodyReach(e: Enemy, t: CombatTarget): boolean {
+  const bottom = t.position.y - e.position.y;
+  return bottom <= e.stats.height && bottom + t.bodyHeight >= -e.stats.height * 0.5;
+}
 
 export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null, r: AttackResult): AttackResult {
   const a = e.anim;
@@ -210,6 +298,18 @@ export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     const side = Math.sign(e.chargeDir.z * (p.position.x - pos.x) - e.chargeDir.x * (p.position.z - pos.z)) || 1;
     _knock.set(e.chargeDir.z * side, 0.35, -e.chargeDir.x * side).addScaledVector(e.chargeDir, 0.45).normalize();
     host.chargeHit(e, p, BEHEMOTH_CHARGE_DAMAGE, _knock);
+  }
+  // 2026-09-11 (C-47): 노려도 되는 드론도 들이받는다 — 몸이 수직으로 겹칠 때만(떠 있는 공중 드론 밑은 지나간다).
+  // 드론 프록시의 id 는 전부 'ai' 라 한 돌진에 한 번은 `droneId` 로 가린다. 피해는 `applyDamage` 의 드론 가지 → `damageDrone`.
+  const drones = host.targets.drones;
+  for (let i = 0; i < drones.length; i++) {
+    const dr = drones[i];
+    if (dr.isDeadOrDowned || dr.droneId === null || e.chargeDrones.indexOf(dr.droneId) >= 0) continue;
+    if (dr.dist2D(pos) >= e.stats.radius + dr.bodyRadius + 0.4) continue;
+    if (dr.position.y > pos.y + e.stats.height || dr.position.y + dr.bodyHeight < pos.y - 0.5) continue;
+    e.chargeDrones.push(dr.droneId);
+    _knock.copy(e.chargeDir);
+    host.chargeHit(e, dr, BEHEMOTH_CHARGE_DAMAGE, _knock);
   }
   // enemies of either faction in the path: heavy damage + shove
   const active = host.active;

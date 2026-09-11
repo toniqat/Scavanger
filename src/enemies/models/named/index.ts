@@ -8,10 +8,12 @@
  * ⚠ 순환 import: `RogueModel` 이 이 파일을 **값으로** 부르므로, 이 폴더의 파일들은 `RogueModel` 에서
  * **`import type` 만** 한다. 공유 지오메트리 · 머티리얼이 필요하면 자기 파일 안에서 만든다.
  */
+import * as THREE from 'three';
 import type { BugAnim } from '../BugModel';
+import { closestOnSegment, raySegmentCapsule } from '../../RayTests';
 import type { RogueRig } from '../RogueModel';
 import type { Enemy } from '../../Enemy';
-import { animateSniperLook, decorateSniperLook, disposeSniperLook } from './SniperLook';
+import { animateSniperLook, decorateSniperLook, disposeSniperLook, sniperBodyCapsule, sniperBodyCenterY } from './SniperLook';
 import { animateHammerLook, decorateHammerLook, disposeHammerLook } from './HammerLook';
 import { animateHeavyLook, decorateHeavyLook, disposeHeavyLook } from './HeavyLook';
 import { animateScanDroneLook, decorateScanDroneLook, disposeScanDroneLook } from './ScanDroneLook';
@@ -36,6 +38,34 @@ export function animateNamedRig(rig: RogueRig, a: BugAnim, e: Enemy, dt: number)
     case 'rogue_scan_drone': animateScanDroneLook(rig, a, e, dt); return;
     default: return;
   }
+}
+
+/* ── 세로가 아닌 몸통 판정 (C-55) ── */
+const _ba = new THREE.Vector3();
+const _bb = new THREE.Vector3();
+/** `namedBodyRay` 의 답: 이 적은 기본 세로 캡슐을 쓴다. */
+export const BODY_RAY_VERTICAL = -2;
+
+/**
+ * 몸통 판정이 **세로 캡슐이 아닌** 자세(지금은 엎드린 로든뿐)면 그 캡슐과 레이의 거리(맞지 않으면 -1), 기본 세로
+ * 캡슐을 써야 하면 `BODY_RAY_VERTICAL`. `EnemySystem.raycastEx` 가 적마다 부르므로 네임드가 아니면 곧바로 돌아간다.
+ */
+export function namedBodyRay(e: Enemy, o: THREE.Vector3, d: THREE.Vector3): number {
+  if (e.type !== 'rogue_sniper') return BODY_RAY_VERTICAL;
+  const r = sniperBodyCapsule(e, _ba, _bb);
+  return r > 0 ? raySegmentCapsule(o, d, _ba, _bb, r) : BODY_RAY_VERTICAL;
+}
+
+/** `namedBodyRay` 로 맞은 점의 바깥 법선 (명중점 − 캡슐 축의 최근접점, 정규화 전) → `out`. */
+export function namedBodyNormal(e: Enemy, point: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  if (e.type !== 'rogue_sniper' || sniperBodyCapsule(e, _ba, _bb) <= 0) return out.set(point.x - e.position.x, 0, point.z - e.position.z);
+  closestOnSegment(point, _ba, _bb, out);
+  return out.set(point.x - out.x, point.y - out.y, point.z - out.z);
+}
+
+/** 폭발이 재는 몸 중심 높이 (발 위, m) — 기본은 키의 절반, 엎드린 로든은 몸통 캡슐 가운데. */
+export function namedBodyCenterY(e: Enemy): number {
+  return e.type === 'rogue_sniper' ? sniperBodyCenterY(e) : e.stats.height * 0.5;
 }
 
 /** `disposeRogueRig` 에서. 종류 파일이 만든 인스턴스 머티리얼 등을 해제한다. */

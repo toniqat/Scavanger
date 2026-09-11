@@ -5,7 +5,9 @@ import {
 import type { Enemy } from '../Enemy';
 import type { CorpseWireOpts } from '../Corpses';
 import type { CombatTarget, TargetList } from '../Targets';
-import { applySlope, integrateDeathFall } from '../ai/EnemyAI';
+import { applySlope, footfall, integrateDeathFall } from '../ai/EnemyAI';
+import { hurtSound, meleeHitSound } from '../model';
+import { replicaRidePredict } from '../ai/Ride';
 import { lookAtTarget } from '../ai/Common';
 /* 2026-09-11: 네임드 로그 · 스캔 드론 */
 import { isNamedAiType } from '../ai/named';
@@ -166,6 +168,8 @@ export interface ReplicaHost {
   playAudio(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void;
   /** Visual-only acid glob from `from` toward the target's current feet position. */
   acidVisual(from: THREE.Vector3, target: CombatTarget, shooterId: number): void;
+  /** 2026-09-11 (C-48): visual-only glob from `from` toward the host's resolved aim point `to` (`ee acidAt`). */
+  acidVisualAt(from: THREE.Vector3, to: THREE.Vector3, shooterId: number): void;
   /* ── Phase 4 (visual mirrors of host events) ── */
   rogueShotVisual(id: number, from: THREE.Vector3, to: THREE.Vector3, hit: boolean): void;
   shellVisual(sid: number, from: THREE.Vector3, target: THREE.Vector3, flight: number): void;
@@ -319,14 +323,17 @@ export class EnemyReplica {
             a.flinchZ = (_d.x * s + _d.z * c);
             host.bloodBurst(_p, 8, _d);
           } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; host.bloodBurst(_p, 8, null); }
-          host.playAudio('bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
+          // 2026-09-11 (C-51): 호스트와 같은 표 — 로그는 `hit_flesh` (예전엔 리플리카만 로그도 `bug_hit` 이었다)
+          host.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
         }
         ctx.bus.emit('enemy:damaged', { id: e.id, type: e.type, amount: msg.amount, position: e.position, hp: Math.max(0, e.hp - msg.amount) });
         return;
       }
       case 'attack': {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
-        host.playAudio('bug_attack', _p, 1, msg.ty === 'behemoth' ? 0.4 : msg.ty === 'charger' ? 0.6 : msg.ty === 'warrior' ? 0.8 : 1.05);
+        // 2026-09-11 (C-51): 타입별 타격음 표 — 타길라는 null (`ee hammer` 가 `hammer_impact` 를 이미 낸다)
+        const bite = meleeHitSound(msg.ty);
+        if (bite) host.playAudio(bite.id, _p, 1, bite.pitch);
         if (msg.target === ctx.net?.localId) {
           // the damage itself arrives as a `dmg` message (applied by net); mirror the HUD/audio event here
           const e = host.find(msg.id);
@@ -340,6 +347,13 @@ export class EnemyReplica {
         if (!target) return;
         _p.set(msg.from[0], msg.from[1], msg.from[2]);
         host.acidVisual(_p, target, msg.id);
+        return;
+      }
+      case 'acidAt': {
+        // 2026-09-11 (C-48): 드론 · 적 · 지점을 노린 산성 — 호스트의 조준점 그대로 날린다 (피해는 호스트)
+        _p.set(msg.from[0], msg.from[1], msg.from[2]);
+        _p2.set(msg.to[0], msg.to[1], msg.to[2]);
+        host.acidVisualAt(_p, _p2, msg.id);
         return;
       }
       case 'wave':
@@ -453,11 +467,11 @@ export class EnemyReplica {
       if (!latest) continue;
       if (latest.st === 'dead') { e.hp = 0; e.kill(false); continue; }
       if (!buf.sampleAt(renderT, _pose)) continue;
-      this.drive(e, latest, dt, world);
+      this.drive(e, latest, dt, world, renderT);
     }
   }
 
-  private drive(e: Enemy, latest: Sample, dt: number, world: NonNullable<GameContext['world']>): void {
+  private drive(e: Enemy, latest: Sample, dt: number, world: NonNullable<GameContext['world']>, renderT: number): void {
     const a = e.anim;
     const s = e.stats;
     const px = e.position.x, pz = e.position.z;
@@ -479,9 +493,16 @@ export class EnemyReplica {
     // 2026-09-11: 네임드 로그 — 호스트 AI 가 쓰는 namedHint 를 리플리카에도 채우고, 자세를 입히기 전 상태를 맞춘다 (스캔 드론 = 공중).
     if (isNamedAiType(e.type)) { e.namedHint = hint; beforeNamedReplica(e, hint); }
     e.position.set(_pose.x, _pose.y, _pose.z);
+    // 2026-09-11 (C-18): 전차에 탄 적은 보간 지연만큼 전차를 따라 앞당긴다 (`ai/Ride.replicaRidePredict`). 보간 자리는
+    // renderT(추정은 최대 MAX_EXTRAPOLATE 까지)의 호스트 자리이고 전차는 **지금** 자리이므로, 그 사이 시간이 lag 다.
+    let rideVel: THREE.Vector3 | null = null;
+    if (!e.airborne) {
+      const lag = Math.max(0, this.host.ctx.time - Math.min(renderT, latest.t + MAX_EXTRAPOLATE));
+      rideVel = replicaRidePredict(e, world, latest, this.host.ctx.time, lag, dt, e.position);
+    } else e.carrier = null;
     // 2026-09-09: `getSurfaceY` with the host's own y as the foot height — a body standing on a rock keeps its
     // rock top instead of being yanked down to the terrain the moment the snapshot lands.
-    if (!e.airborne) e.position.y = world.getSurfaceY(_pose.x, _pose.z, _pose.y);   // hide small height mismatches
+    if (!e.airborne) e.position.y = world.getSurfaceY(e.position.x, e.position.z, _pose.y);   // hide small height mismatches
     e.yaw = _pose.yaw;
     e.hp = latest.hp;
     e.state = latest.st;
@@ -489,15 +510,19 @@ export class EnemyReplica {
     if (latest.st === 'flee') e.fleeTimer += dt;
     this.applyStatusBits(e, latest.sb);
 
-    // gait from displacement
-    const dx = e.position.x - px, dz = e.position.z - pz;
-    const moved = Math.hypot(dx, dz);
+    // gait from displacement — minus what the tram carried (C-18: a rider does not walk at tram speed)
+    let dx = e.position.x - px, dz = e.position.z - pz;
     if (dt > 0) e.velocity.set(dx / dt, 0, dz / dt);
+    if (rideVel) { dx -= rideVel.x * dt; dz -= rideVel.z * dt; }
+    const moved = Math.hypot(dx, dz);
     a.gait += (moved / e.rig.params.strideLength) * TWO_PI;
     if (a.gait > 1e6) a.gait -= 1e6;
     const spd = dt > 0 ? moved / dt : 0;
     const targetAnimSpeed = e.airborne ? 0.2 : Math.min(1, spd / Math.max(1, s.speed * 0.8));
     a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
+    // 2026-09-11 (C-23 · X-3): 비호스트도 적 발소리를 듣는다 — 보간된 이동량으로 권위와 같은 보폭 누적 · 방출.
+    // 한 프레임에 몇 m 씩 튀는 것(첫 스냅샷 · 순간이동)은 걸음이 아니다.
+    if (s.stepSound && !e.airborne && moved < 2) footfall(e, this.host.ctx, this.host.targets, moved);
 
     // animation targets from state + hint (mirrors what the host AI would be setting)
     let shakeT = 0, abdT = 0, crouchT = 0, mandT = e.aware ? 0.25 : 0, pitchT: number | null = null;

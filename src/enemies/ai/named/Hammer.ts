@@ -429,20 +429,16 @@ function impactFx(host: { readonly ctx: GameContext; readonly targets: TargetLis
 export function beforeHammerReplica(_e: Enemy, _hint: number): void { /* 의도적으로 비어 있다 */ }
 
 /**
- * 리플리카의 소리 출구. `afterNamedReplica` 에는 호스트가 오지 않으므로 `ee hammer` 를 처음 받을 때 적어 둔다
- * (`ai/named/Heavy` 와 같은 방식) — 그래서 이 클라이언트가 첫 타격을 보기 **전의** 첫 준비음은 나지 않는다.
+ * 기본 리플리카 자세 위에: 소총 조준 자세를 지우고, 준비 · 돌진 중의 몸 낮춤. 팔 · 망치는 `HammerLook` 이 그린다.
+ * `host` 는 `net/Replica.drive` 가 늘 넘긴다 — 준비음(`hammer_swing`)의 출구.
  */
-let replicaAudio: ReplicaHost | null = null;
-
-/** 기본 리플리카 자세 위에: 소총 조준 자세를 지우고, 준비 · 돌진 중의 몸 낮춤. 팔 · 망치는 `HammerLook` 이 그린다. */
-export function afterHammerReplica(e: Enemy, hint: number, dt: number, host?: ReplicaHost): void {
-  if (host) replicaAudio = host;   // 2026-09-11 (리드): Replica 가 넘겨 준다 — 첫 `ee hammer` 전의 준비음도 난다
+export function afterHammerReplica(e: Enemy, hint: number, dt: number, host: ReplicaHost): void {
   const a = e.anim;
   a.aim = 0;
   // 리플리카는 AI 를 돌리지 않으므로 `namedPhase` 에 직전 힌트를 적어 둔다 — 16 이 새로 켜지면 준비음.
   // (승격되면 AI 가 16/17 을 모르는 phase 로 읽고 추격 · 회복 가지에서 곧 0 으로 되돌린다)
-  if (hint === HAMMER_HINT_WINDUP && e.namedPhase !== HAMMER_HINT_WINDUP && replicaAudio) {
-    replicaAudio.playAudio('hammer_swing', e.position, 1, 0.92 + Math.random() * 0.16);
+  if (hint === HAMMER_HINT_WINDUP && e.namedPhase !== HAMMER_HINT_WINDUP) {
+    host.playAudio('hammer_swing', e.position, 1, 0.92 + Math.random() * 0.16);
   }
   e.namedPhase = hint;
   if (hint === HAMMER_HINT_WINDUP) a.crouch += (0.1 - a.crouch) * Math.min(1, dt * 8);
@@ -454,7 +450,6 @@ export function afterHammerReplica(e: Enemy, hint: number, dt: number, host?: Re
 
 /** `ee hammer`: 내려찍기 자세 · 먼지 · 파편 · 흔들림 · `hammer_impact`. 게임 상태는 바꾸지 않는다. */
 export function onHammerEvent(host: ReplicaHost, msg: Extract<EnemyEvent, { ev: 'hammer' }>): void {
-  replicaAudio = host;
   _p.set(msg.p[0], msg.p[1], msg.p[2]);
   const e = host.find(msg.id);
   if (e && e.active && e.state !== 'dead') e.anim.recoil = 1;

@@ -56,6 +56,16 @@ const PRONE_HEAD_Z = 0.84;
 /** 엎드렸을 때 총 피벗(어깨) 위치 (몸통 좌표). */
 const PRONE_GUN_X = 0.17, PRONE_GUN_Y = 0.52, PRONE_GUN_Z = -0.08;
 
+/* ── 엎드린 몸통 판정 (C-55) ─────────────────────────────────────────────────
+ * 리그 실측(2026-09-11, 엎드림 1 · 경사 성분을 되돌린 루트 좌표): 다리 z −1.05…−0.06 · y 0.03…0.36,
+ * 골반 y −0.02…0.28, 몸통 + 망토 z 0.12…0.74 · y 0.01…0.60 · |x| ≤ 0.31, 머리 z 0.60…1.01 (머리는 따로 헤드샷 구).
+ * → 캡슐 하나: 뒤 끝 구 중심 (z −0.80, y 0.20) · 앞 끝 (z 0.50, y 0.30) · 반경 0.25 — 발끝 −1.05 · 어깨 앞 0.75 ·
+ * 윗면 0.55 까지 덮는다. 벌린 발끝(|x| 0.39)만 조금 밖이다(서 있는 캡슐도 팔꿈치가 밖이다). 서 있는 판정은
+ * `raycastEx` 의 세로 캡슐(반경 = stats.radius, 발 + r … 키 − r)이고 그 사이는 **보이는 비율**로 끝점 · 반경을 섞는다. */
+const BODY_BACK_Z = -0.8, BODY_BACK_Y = 0.2;
+const BODY_FRONT_Z = 0.5, BODY_FRONT_Y = 0.3;
+const BODY_PRONE_R = 0.25;
+
 /* ── 조준경 반짝임 ───────────────────────────────────────────────────────── */
 /** 화면 높이에 대한 스프라이트 크기 (sizeAttenuation 없음 — 뷰 공간 단위 × 깊이). */
 const GLINT_SCALE = 0.05;
@@ -69,6 +79,8 @@ interface SniperLookState {
   standHeadZ: number;
   /** 0 서 있음 … 1 엎드림 */
   prone: number;
+  /** `prone` 에 smoothstep 을 건 값 — 자세가 실제로 쓰는 **보이는** 엎드림 비율. 몸통 판정이 읽는다(`sniperBodyCapsule`). */
+  pose: number;
   /** 0..1 반짝임 켜짐 정도 */
   glint: number;
   /** 반짝임이 켜진 지 몇 s (끝으로 갈수록 크고 밝다). */
@@ -293,7 +305,7 @@ export function decorateSniperLook(rig: RogueRig): void {
     params: { head: { r: base.head.r, y: base.head.y, z: base.head.z }, strideLength: base.strideLength },
     standHeadY: base.head.y,
     standHeadZ: base.head.z,
-    prone: 0, glint: 0, glintAge: 0, glintHold: 0, glintOut: 0, fovK: 1,
+    prone: 0, pose: 0, glint: 0, glintAge: 0, glintHold: 0, glintOut: 0, fovK: 1,
     lastId: -1, age: 0,
     bipodLegs: legs,
     sprite, spriteMat, texture,
@@ -350,6 +362,7 @@ export function animateSniperLook(rig: RogueRig, a: BugAnim, e: Enemy, dt: numbe
   st.prone += (target - st.prone) * Math.min(1, dt * rate);
   if (Math.abs(st.prone - target) < 0.001) st.prone = target;
   const p = smooth(THREE.MathUtils.clamp(st.prone, 0, 1));
+  st.pose = p;
 
   st.params.head.y = lerp(st.standHeadY, PRONE_HEAD_Y, p);
   st.params.head.z = lerp(st.standHeadZ, PRONE_HEAD_Z, p);
@@ -428,6 +441,44 @@ export function animateSniperLook(rig: RogueRig, a: BugAnim, e: Enemy, dt: numbe
     lerp(gun.rotation.y, a.headYaw * 0.5, p),
     lerp(gun.rotation.z, side * fall * 0.7, p),
   );
+}
+
+/** 보이는 엎드림 비율 0..1 (로든 리그가 아니면 0). */
+export function sniperPoseOf(e: Enemy): number {
+  const rig = e.rig;
+  if (rig.kind !== 'rogue') return 0;
+  const st = lookOf(rig);
+  return st ? st.pose : 0;
+}
+
+/**
+ * 엎드린(또는 엎드리는 중인) 로든의 몸통 캡슐 — 끝점을 `a` · `b` 에 월드 좌표로 적고 반경을 돌려준다.
+ * 서 있으면(비율 ≈ 0) -1 → 호출자는 기존 세로 캡슐을 쓴다. 경사(`anim.slopePitch`)는 자세와 같은 규약으로 골반
+ * 피벗(`PRONE_Y`) 둘레로 기울인다 — 내리막을 향해 엎드리면 앞 끝이 내려간다.
+ */
+export function sniperBodyCapsule(e: Enemy, a: THREE.Vector3, b: THREE.Vector3): number {
+  const p = sniperPoseOf(e);
+  if (p <= 0.001) return -1;
+  const r = e.stats.radius, h = e.stats.height;
+  const sp = e.anim.slopePitch * p;
+  const cs = Math.cos(sp), sn = Math.sin(sp);
+  // 서 있는 캡슐 끝(발 + r · 키 − r, z 0) ↔ 엎드린 끝을 보이는 비율로 섞은 뒤 경사로 돌린다
+  bodyEnd(e, lerp(r, BODY_BACK_Y, p), BODY_BACK_Z * p, cs, sn, a);
+  bodyEnd(e, lerp(Math.max(r, h - r), BODY_FRONT_Y, p), BODY_FRONT_Z * p, cs, sn, b);
+  return lerp(r, BODY_PRONE_R, p);
+}
+
+/** 루트 좌표 (y, z) 한 점을 골반 피벗 둘레 경사(cos, sin)로 돌려 월드로. 핫 패스라 클로저를 만들지 않는다. */
+function bodyEnd(e: Enemy, y: number, z: number, cs: number, sn: number, out: THREE.Vector3): void {
+  const yl = y - PRONE_Y;
+  const yy = PRONE_Y + yl * cs - z * sn;
+  const zz = yl * sn + z * cs;
+  out.set(e.position.x + Math.sin(e.yaw) * zz, e.position.y + yy, e.position.z + Math.cos(e.yaw) * zz);
+}
+
+/** 폭발 판정의 몸 중심 높이(발 위, m) — 서 있으면 키의 절반, 엎드리면 캡슐 가운데(≈ 0.25). */
+export function sniperBodyCenterY(e: Enemy): number {
+  return lerp(e.stats.height * 0.5, (BODY_BACK_Y + BODY_FRONT_Y) * 0.5, sniperPoseOf(e));
 }
 
 export function disposeSniperLook(rig: RogueRig): void {

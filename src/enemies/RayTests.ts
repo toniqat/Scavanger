@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Allocation-free analytic ray tests shared by hit detection (EnemySystem.raycast), rogue hitscan shots and shell
- * interception.
+ * interception. `raySegmentCapsule` is the any-orientation capsule (a lying body); `rayCapsule` stays the fast vertical one.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const _n = new THREE.Vector3();
@@ -56,6 +56,57 @@ export function rayCapsule(o: THREE.Vector3, d: THREE.Vector3, cx: number, cz: n
   }
   if (tc >= 0) { res.t = tc; res.kind = 1; res.capY = capY; }
   return res;
+}
+
+/**
+ * Ray vs a capsule of any orientation — segment `a`→`b`, radius `r` (C-55, 2026-09-11: the prone sniper's body).
+ * Distance along `d` (unit) to the first surface point at t ≥ 0, or -1 — same convention as `raySphere` (a ray starting
+ * inside gets the exit). Allocation-free: plain arithmetic on the side cylinder + the two end spheres.
+ * The surface normal at the hit is `point − closestPointOnSegment(point)`.
+ */
+export function raySegmentCapsule(o: THREE.Vector3, d: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3, r: number): number {
+  const bax = b.x - a.x, bay = b.y - a.y, baz = b.z - a.z;
+  const oax = o.x - a.x, oay = o.y - a.y, oaz = o.z - a.z;
+  const baba = bax * bax + bay * bay + baz * baz;
+  let best = -1;
+  if (baba > 1e-10) {
+    const bard = bax * d.x + bay * d.y + baz * d.z;
+    const baoa = bax * oax + bay * oay + baz * oaz;
+    const rdoa = d.x * oax + d.y * oay + d.z * oaz;
+    const oaoa = oax * oax + oay * oay + oaz * oaz;
+    // |(o + t d − a) × ba|² = r² |ba|²  →  A t² + 2 B t + C = 0
+    const A = baba - bard * bard;
+    if (A > 1e-10) {
+      const B = baba * rdoa - baoa * bard;
+      const C = baba * oaoa - baoa * baoa - r * r * baba;
+      const h = B * B - A * C;
+      if (h >= 0) {
+        const s = Math.sqrt(h);
+        for (let k = 0; k < 2; k++) {
+          const t = (-B + (k === 0 ? -s : s)) / A;
+          if (t < 0) continue;
+          const y = baoa + t * bard;                // axial coordinate × |ba|
+          if (y >= 0 && y <= baba) { best = t; break; }
+        }
+      }
+    }
+  }
+  const ta = raySphere(o, d, a, r);
+  if (ta >= 0 && (best < 0 || ta < best)) best = ta;
+  if (baba > 1e-10) {
+    const tb = raySphere(o, d, b, r);
+    if (tb >= 0 && (best < 0 || tb < best)) best = tb;
+  }
+  return best;
+}
+
+/** Closest point on segment `a`→`b` to `p`, written to `out` (the normal of a `raySegmentCapsule` hit is `p − out`). */
+export function closestOnSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  const bax = b.x - a.x, bay = b.y - a.y, baz = b.z - a.z;
+  const baba = bax * bax + bay * bay + baz * baz;
+  let t = baba > 1e-10 ? ((p.x - a.x) * bax + (p.y - a.y) * bay + (p.z - a.z) * baz) / baba : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return out.set(a.x + bax * t, a.y + bay * t, a.z + baz * t);
 }
 
 /** Ray vs a player-style capsule standing at `feet` (radius r, total height h). Distance or -1. */

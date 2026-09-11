@@ -344,6 +344,120 @@ try {
   await waitSim(1.4);
   const rec = await P((id) => { const b = window.__sys.active.find((e) => e.id === id); return b ? { incap: b.isIncapacitated, state: b.state, combatant: b.isCombatant, writhe: b.anim.writhe, dead: b.isDead } : null; }, shk.id);
   ok(rec && !rec.incap && rec.state !== 'stagger' && rec.combatant && rec.writhe < 0.2, `전소 over → back to ${rec?.state}, combatant again (writhe ${rec?.writhe?.toFixed(2)})`, JSON.stringify(rec));
+
+  /* ── 2026-09-11: C 항목 배치 (적) ────────────────────────────────────────────────────────────────────────
+     C-14 재해 구역 안의 적 = 조용한 피해 · C-51 타입별 타격음 · C-47 베헤모스 돌진 → 드론 · C-24 곡사포 거절 뒤 재배치.
+     재해 · 드론은 스텁을 인스턴스에 덮어씌웠다가 되돌린다 (프로토타입 getter / 메서드가 다시 보인다). */
+  console.log('C batch: hazard DoT on enemies (C-14)');
+  const hz0 = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position; const w = ctx.world;
+    const e = sys.debugSpawn('warrior', { x: p.x + 60, z: p.z + 60 }, false);
+    if (!e) return null;
+    e.wanderTimer = 1e9;
+    const ex = e.position.x, ez = e.position.z;
+    Object.defineProperty(w, 'hazard', { configurable: true, get: () => ({ kind: 'spores', active: true, startsAt: 0, announced: true, progress: 0.5, isInside: (x, z) => Math.hypot(x - ex, z - ez) < 4, getZones: () => [], getSources: () => [], serialize: () => '', applySerialized() {} }) });
+    window.__hzDamaged = 0; window.__hzAudio = 0;
+    window.__hzOff = [
+      ctx.bus.on('enemy:damaged', (d) => { if (d.id === e.id) window.__hzDamaged++; }),
+      ctx.bus.on('audio:play', (a) => { if (a.id === 'bug_hit' && a.position && Math.hypot(a.position.x - ex, a.position.z - ez) < 4) window.__hzAudio++; }),
+    ];
+    return { id: e.id, hp: e.hp, aware: e.aware };
+  });
+  await waitSim(2.5);
+  const hz1 = await P((id) => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const e = sys.active.find((x) => x.id === id);
+    delete ctx.world.hazard;
+    for (const off of window.__hzOff) off();
+    return e ? { hp: e.hp, aware: e.aware, state: e.state, damaged: window.__hzDamaged, audio: window.__hzAudio, flash: e.anim.hitFlash, restored: ctx.world.hazard === null || typeof ctx.world.hazard?.isInside === 'function' } : null;
+  }, hz0?.id);
+  const hzDrop = hz0 && hz1 ? hz0.hp - hz1.hp : -1;
+  ok(!!hz1 && hzDrop >= 2 * 1.5 && hzDrop <= 2 * 3.5, `C-14: 재해 구역 안의 적이 HAZARD_ENEMY_DPS(2) × 틱으로 닳는다 (hp ${hz0?.hp} → ${hz1?.hp})`, JSON.stringify(hz1));
+  ok(!!hz1 && !hz1.aware && hz1.damaged === 0 && hz1.audio === 0, 'C-14: 조용한 피해 — 깨우지 않고 enemy:damaged · 피격음이 없다', JSON.stringify(hz1));
+  ok(!!hz1 && hz1.restored, 'world.hazard 스텁을 걷었다');
+  await P((id) => { const e = window.__sys.active.find((x) => x.id === id); if (e) e.kill(false); }, hz0?.id);
+
+  console.log('C batch: per-type melee hit sound (C-51)');
+  const bite = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position;
+    const victim = sys.debugSpawn('scavenger', { x: p.x - 60, z: p.z + 60 }, false);
+    if (!victim) return null;
+    const ids = [];
+    const off = ctx.bus.on('audio:play', (a) => ids.push(a.id));
+    const fake = (type) => ({ id: 77000 + ids.length, type, position: victim.position.clone(), target: null });
+    const run = (type) => { ids.length = 0; sys.lastAudio.clear(); sys.hitTarget(fake(type), 1, 0, victim.asTarget); return ids.slice(); };
+    const r = { hammer: run('rogue_hammer'), warrior: run('warrior'), behemoth: run('behemoth') };
+    off();
+    victim.kill(false);
+    return r;
+  });
+  ok(!!bite && !bite.hammer.includes('bug_attack'), 'C-51: 타길라(rogue_hammer)의 근접 타격은 bug_attack 을 내지 않는다 (자기 hammer_impact 만)', JSON.stringify(bite));
+  ok(!!bite && bite.warrior.includes('bug_attack') && bite.behemoth.includes('bug_attack'), 'C-51: 벌레 타격음은 그대로 bug_attack', JSON.stringify(bite));
+
+  console.log('C batch: behemoth charge hits drones (C-47)');
+  const dr0 = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position; const w = ctx.world;
+    const V = ctx.player.position.constructor;
+    // 맵 안쪽(플레이어와 맵 중심 사이)에서 중심 쪽으로 달리게 한다 — 맵 밖을 향한 돌진은 첫 프레임에 경직된다
+    const bx = p.x * 0.6, bz = p.z * 0.6 + (p.z > 0 ? -30 : 30);
+    const dirX = bx > 0 ? -1 : 1;
+    const b = sys.debugSpawn('behemoth', { x: bx, z: bz }, false);
+    if (!b || !ctx.drones) return null;
+    const mk = (id, kind, x, y, z, h) => ({ id, kind, owner: 'local', position: new V(x, y, z), yaw: 0, hp: 100, maxHp: 100, radius: 0.45, height: h, object: null, controlled: false, sprinting: true, aggroable: true, linkRatio: 0, linkLost: false, mountedDeployableId: null, getMountPoint: (o) => o });
+    const gx = b.position.x + 7 * dirX, gz = b.position.z;
+    const ground = mk('smoke-ground', 'ground', gx, w.getHeightAt(gx, gz), gz, 0.45);
+    const air = mk('smoke-air', 'air', gx + 3 * dirX, w.getHeightAt(gx + 3 * dirX, gz) + 12, gz, 0.3);
+    window.__droneHits = [];
+    ctx.drones.getDrones = () => [ground, air];
+    ctx.drones.damageDrone = (id, amount) => window.__droneHits.push({ id, amount });
+    b.state = 'attack'; b.stateTime = 0; b.attackTimer = 0; b.aware = true;
+    b.chargePhase = 2; b.chargeTimer = 0; b.chargeSeq++; b.chargeDrones.length = 0; b.chargeVictims.length = 0;
+    b.chargeDir.set(dirX, 0, 0); b.yaw = dirX * Math.PI / 2;
+    b.chargeEnd.set(b.position.x + 25 * dirX, b.position.y, b.position.z);
+    window.__beh = b;
+    return { id: b.id, inside: w.isInsideBounds(bx + 30 * dirX, bz) };
+  });
+  await waitSim(1.5);
+  const dr1 = await P(() => {
+    const ctx = window.__game.ctx;
+    delete ctx.drones.getDrones; delete ctx.drones.damageDrone;
+    const b = window.__beh;
+    return { hits: window.__droneHits, restored: typeof ctx.drones.getDrones === 'function', beh: b ? { phase: b.chargePhase, state: b.state, t: +b.chargeTimer.toFixed(2) } : null };
+  });
+  await P((id) => { const e = window.__sys.active.find((x) => x.id === id); if (e) e.kill(false); }, dr0?.id);
+  ok(!!dr0 && dr1.hits.filter((h) => h.id === 'smoke-ground').length === 1, `C-47: 돌진이 길 위 지상 드론을 한 번 친다 (${JSON.stringify(dr1.hits)})`, JSON.stringify({ dr0, beh: dr1.beh }));
+  ok(!!dr0 && dr1.hits.every((h) => h.id !== 'smoke-air'), 'C-47: 머리 위에 떠 있는 공중 드론은 치지 않는다');
+  ok(dr1.restored, 'ctx.drones 스텁을 걷었다');
+
+  console.log('C batch: artillery refusal → clear spot, no ping-pong, refusal cap (C-24)');
+  const ar0 = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position;
+    const a = sys.debugSpawn('artillery', { x: p.x + 70, z: p.z + 20 }, true);
+    if (!a) return null;
+    sys.fireShell = () => false;                 // 궤적이 늘 막힌 척 — 재배치 규칙만 본다
+    a.dug = 1; a.shellTimer = 0; a.shellRefusals = 0;
+    window.__art = { id: a.id, legs: [] };
+    return { id: a.id, p: [a.position.x, a.position.z] };
+  });
+  const legs = [];
+  for (let i = 0; i < 90 && legs.length < 3; i++) {
+    await waitSim(0.25);
+    const s = await P((id) => {
+      const a = window.__sys.active.find((x) => x.id === id);
+      const t = a?.target;
+      return a ? { refusals: a.shellRefusals, block: a.fireBlockTimer, timer: a.shellTimer, p: [a.position.x, a.position.z], mt: [a.shellSpot.x, a.shellSpot.z], t: t ? [t.position.x, t.position.z] : null, state: a.state, d: a.distToTarget } : null;
+    }, ar0?.id);
+    if (!s) break;
+    const key = `${s.mt[0].toFixed(2)},${s.mt[1].toFixed(2)}`;
+    if (s.block > 0 && (legs.length === 0 || legs[legs.length - 1].key !== key)) legs.push({ key, ...s });
+    else if (legs.length >= 2 && s.refusals === 0 && s.timer > 5) { legs.push({ key: 'cap', ...s }); break; }
+  }
+  await P(() => { delete window.__sys.fireShell; const a = window.__sys.active.find((x) => x.id === window.__art.id); if (a) a.kill(false); });
+  // 옆걸음의 방향 = (표적 방향) × (이동 방향) 의 부호. 예전 규칙은 거절마다 부호를 뒤집었다.
+  const side = (l) => { const tx = l.t[0] - l.p[0], tz = l.t[1] - l.p[1]; const mx = l.mt[0] - l.p[0], mz = l.mt[1] - l.p[1]; return Math.sign(tx * mz - tz * mx); };
+  const walked = legs.slice(0, 2).map((l) => Math.hypot(l.mt[0] - l.p[0], l.mt[1] - l.p[1]));
+  ok(legs.length >= 2 && walked.every((d) => d >= 6), `C-24: 거절되면 사전 검사한 자리로 옮긴다 (다리 ${legs.length}, 거리 ${walked.map((d) => d.toFixed(1)).join(' · ')} m)`, JSON.stringify(legs));
+  ok(legs.length >= 2 && side(legs[0]) !== 0 && side(legs[0]) === side(legs[1]), 'C-24: 연속 거절에도 좌우를 번갈아 뒤집지 않는다 (X-4 핑퐁 없음)', JSON.stringify(legs.map((l) => ({ side: side(l), mt: l.mt }))));
+  ok(legs.some((l) => l.key === 'cap' || l.refusals === 0 && l.timer > 5), `C-24: 연속 ARTILLERY_AI.maxRefusals(3) 번이면 거절 카운터를 비우고 refusalCooldown 동안 쉰다`, JSON.stringify(legs.map((l) => ({ r: l.refusals, timer: +l.timer.toFixed(1) }))));
   // player hooks: the rogues have been shooting at the player for minutes — clear the field and get back on our feet first
   /* 2026-09-09: 전투불능은 `revive()` 로 일어나지만 **완전 사망에는 자동 부활이 없다** — 구조선뿐이고 솔로에는
      그마저 없다. 월드에 구조물 · 선로가 들어오면서 적 배치가 바뀌어 이 구간에서 실제로 맞아 죽었고, 죽은 몸으로는

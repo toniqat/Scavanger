@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem, PeerId, Stance } from '@/shared';
+import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem, PeerId, Stance, SurfaceMaterial } from '@/shared';
 import {
+  numberMap,
   AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY,
   DRONE_GADGET_OF, DRONE_NOISE_RADIUS,
   FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP, FOOTSTEP_REMOTE_GAIN,
@@ -49,10 +50,33 @@ const WARP_HUM_HOLD_S = 0.3;
 const FOOTSTEP_PITCH_SPRINT = 1.05;
 const FOOTSTEP_PITCH_CROUCH = 0.96;
 const FOOTSTEP_PITCH_PRONE = 0.9;
-/** 함선 갑판(금속)은 흙보다 톤이 높다 — 실내에서 원격 발소리를 들었을 때의 구분. */
-const FOOTSTEP_PITCH_DECK = 1.16;
 /** 이보다 조용해질 바에는 보이스를 만들지 않는다 (사거리 끝자락의 무음 재생 방지). */
 const FOOTSTEP_MIN_VOLUME = 0.012;
+
+/* ── 재질별 발소리 (2026-09-11, C-22) ─────────────────────────────────────
+ * 밟은 표면(`WorldRef.getSurfaceMaterial`)이 소리 id 를 고른다 — `footstep_<SurfaceMaterial>` 11종(`Synth`). 함선(허브 ·
+ * 도킹 페이즈)은 `WorldRef` 가 아니라 **페이즈로 금속**이다 (본인 발소리 포함 — 옛 `FOOTSTEP_PITCH_DECK` 1.16 피치
+ * 해킹이 원격에만 걸리던 것을 대신한다). 재질마다 체감 크기를 맞추는 배수는 csv (`FOOTSTEP_MATERIAL_GAIN`).
+ * `Record<SurfaceMaterial, …>` 라 계약에 재질이 늘면 여기서 타입 오류가 난다.
+ */
+const FOOTSTEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
+  dirt: 'footstep_dirt', sand: 'footstep_sand', snow: 'footstep_snow', mud: 'footstep_mud', moss: 'footstep_moss',
+  ash: 'footstep_ash', rock: 'footstep_rock', crystal: 'footstep_crystal', organic: 'footstep_organic',
+  metal: 'footstep_metal', concrete: 'footstep_concrete',
+};
+const FOOTSTEP_MATERIAL_GAIN: Readonly<Partial<Record<SurfaceMaterial, number>>> = numberMap<SurfaceMaterial>('tables.csv', 'FOOTSTEP_MATERIAL_GAIN');
+/** id → 재질 배수 (적 발소리는 `audio:play` 의 id 로만 오므로 id 에서 찾는다). */
+const FOOTSTEP_GAIN_BY_ID: Readonly<Record<string, number>> = Object.fromEntries(
+  (Object.keys(FOOTSTEP_ID) as SurfaceMaterial[]).map((m) => [FOOTSTEP_ID[m], FOOTSTEP_MATERIAL_GAIN[m] ?? 1]),
+);
+/**
+ * 적 발소리(2026-09-11 C-23 · X-3)의 거리 곡선. 적은 위치를 주는 `audio:play {footstep_<mat>}` 로 내므로 아래
+ * `RANGED_SOUNDS` 에 11개 id 가 모두 이 한 줄로 들어간다 — 원격 분대원 발소리(`FOOTSTEP_AUDIBLE_RANGE` 26 m)보다
+ * 멀리 들리는 대신 밑값은 호출부(`enemies/model.stepSound` 의 타입별 gain — 베헤모스는 크고 전사는 작다)가 정한다.
+ * 예전에는 방출부의 선형 감쇠 × 패너 inverse 가 **두 번** 곱해져 20 m 에서 0.06 이었다.
+ * (본인 · 원격 분대원 발소리는 `footstep()` 이 직접 `play` 하므로 이 곡선을 타지 않는다.)
+ */
+const ENEMY_STEP_RANGE: RangeProfile = { range: 45, exp: 1.5 };
 
 /* ── 로그 강하 (2026-09-10) ────────────────────────────────────────────
  * 피치는 "소리 그 자체" 라 코드에 둔다 (발소리 피치와 같은 규약). 크기 · 반경 · 감쇠 지수는 csv 다.
@@ -100,6 +124,8 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   minigun_spinup: { range: 90, exp: 1.2 },
   minigun_fire: { range: 220, exp: 1.0, floor: 0.1 },
   minigun_spindown: { range: 90, exp: 1.2 },
+  // 2026-09-11 (C-23): 적 발소리 — 재질별 id 11개가 같은 곡선 (위 `ENEMY_STEP_RANGE`)
+  ...Object.fromEntries(Object.values(FOOTSTEP_ID).map((id) => [id, ENEMY_STEP_RANGE])),
 };
 /** `floor` 가 사거리 끝 이 비율 구간에서 선형으로 0 이 된다. */
 const RANGED_FLOOR_EDGE = 0.15;
@@ -580,7 +606,11 @@ export class AudioSystem implements GameSystem, AudioRef {
    * - **원격**은 `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP` 로 줄고 사거리 밖이면 재생조차
    *   하지 않는다. 패너는 **방향만** 맡는다 (`panOnly`) — 패너의 inverse 감쇠까지 겹치면 두 번 줄어든다.
    * - 자세는 이벤트에 없으므로 `ctx.player` / `ctx.net` 에서 읽는다 (계약은 추가만 하는 규칙 그대로 둔다).
-   * - 함선 안에서도 그대로 들린다. 갑판은 금속이라 톤만 조금 높다 (`FOOTSTEP_PITCH_DECK`).
+   * - 2026-09-11 (C-22): **밟은 재질**이 소리를 고른다(`surfaceAt` → `footstep_<mat>`, 크기 × `FOOTSTEP_MATERIAL_GAIN`).
+   *   함선 안(허브 · 도킹)은 본인 · 원격 모두 금속이다 — 옛 원격 전용 갑판 피치 배수를 대신한다.
+   * - 적 발소리와 id 를 나눠 쓰므로 **중복 제거(DEDUPE)를 타지 않는다** — 적 한 걸음과 내 한 걸음이 100 ms 안에
+   *   겹치면 한쪽이 사라졌을 것이다. 본인 발소리는 같은 id 속도 제한(RATE)도 건너뛴다 (적 무리가 같은 재질을 밟고
+   *   있어도 내 발소리는 먹히지 않는다).
    */
   private footstep(peerId: PeerId | null, position: THREE.Vector3, sprinting: boolean): void {
     const ctx = this.ctx;
@@ -588,17 +618,32 @@ export class AudioSystem implements GameSystem, AudioRef {
       ? ctx?.player?.stance
       : ctx?.net?.getRemotePlayer(peerId)?.stance;
     let vol = this.footstepVolume(stance, sprinting);
-    let pitch = sprinting ? FOOTSTEP_PITCH_SPRINT
+    const pitch = sprinting ? FOOTSTEP_PITCH_SPRINT
       : stance === 'prone' ? FOOTSTEP_PITCH_PRONE
         : stance === 'crouch' ? FOOTSTEP_PITCH_CROUCH : 1;
-    if (peerId === null) { this.play('footstep', undefined, vol, pitch, true); return; }
+    const mat = this.surfaceAt(position);
+    const id = FOOTSTEP_ID[mat];
+    vol *= FOOTSTEP_MATERIAL_GAIN[mat] ?? 1;
+    if (peerId === null) { this.play(id, undefined, vol, pitch, true, false, false, false); return; }
 
     const d = this.camPos.distanceTo(position);
     if (d >= FOOTSTEP_AUDIBLE_RANGE) return;
     vol *= FOOTSTEP_REMOTE_GAIN * Math.pow(1 - d / FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP);
     if (vol < FOOTSTEP_MIN_VOLUME) return;
-    if (this.hubActive || ctx?.phase === 'hub' || ctx?.phase === 'docking') pitch *= FOOTSTEP_PITCH_DECK;
-    this.play('footstep', position, vol, pitch, true, true);
+    this.play(id, position, vol, pitch, true, true, false);
+  }
+
+  /**
+   * 발 위치 `p`(발 높이 = `p.y`)의 재질. 함선(허브 · 도킹)은 페이즈로 `metal`, 월드가 준비되지 않았거나 world 가
+   * `getSurfaceMaterial` 을 아직 안 가지면(옵셔널 계약) `dirt` — 옛 단일 발소리 음색이다.
+   */
+  private surfaceAt(p: THREE.Vector3): SurfaceMaterial {
+    const ctx = this.ctx;
+    if (this.hubActive || ctx?.phase === 'hub' || ctx?.phase === 'docking') return 'metal';
+    const w = ctx?.world;
+    if (!w || !w.ready) return 'dirt';
+    const m = w.getSurfaceMaterial?.(p.x, p.z, p.y);
+    return m && m in FOOTSTEP_ID ? m : 'dirt';
   }
 
   /* ── 로그 강하 (2026-09-10) ──────────────────────────────────────────── */
@@ -675,7 +720,8 @@ export class AudioSystem implements GameSystem, AudioRef {
     const prof = position ? RANGED_SOUNDS[id] : undefined;
     if (!position || !prof) { this.play(id, position, volume, pitch, false); return; }
     if (!this.ac || this.ac.state !== 'running') return;
-    const v = (volume ?? 1) * this.rangeGain(prof, this.camPos.distanceTo(position));
+    // 2026-09-11 (C-22): 적 발소리도 재질 배수를 먹는다 (본인 · 원격은 `footstep()` 이 곱한다)
+    const v = (volume ?? 1) * (FOOTSTEP_GAIN_BY_ID[id] ?? 1) * this.rangeGain(prof, this.camPos.distanceTo(position));
     if (v < RANGED_MIN_VOLUME) return;
     this.play(id, position, v, pitch, false, true);
   }
@@ -685,23 +731,28 @@ export class AudioSystem implements GameSystem, AudioRef {
    * `panOnly` = 거리 감쇠를 **호출부가 이미 계산했다** (발소리). 패너는 방향(equalpower)만 맡고 rolloff 0 이라
    * 게인을 건드리지 않는다 — 그렇지 않으면 inverse 감쇠가 겹쳐 두 번 줄어든다.
    */
-  private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false, panOnly = false): void {
+  private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false, panOnly = false, dedupe = true, rateLimit = true): void {
     if (!this.ac || !this.synth || this.ac.state !== 'running') return;
     const fn = SOUNDS[id];
     if (!fn) { if (!auto) console.warn(`[Audio] unknown sound id "${id}"`); return; }
     const now = this.ac.currentTime;
 
     // Dedupe: same id from a different source within a short window → one plays.
-    const last = this.lastPlay.get(id);
-    if (last && last.auto !== auto && now - last.t < DEDUPE_WINDOW) return;
-    this.lastPlay.set(id, { t: now, auto });
+    // (2026-09-11: 발소리는 `dedupe` false — 같은 재질 id 를 적과 나눠 쓰므로 검사도 기록도 하지 않는다.)
+    if (dedupe) {
+      const last = this.lastPlay.get(id);
+      if (last && last.auto !== auto && now - last.t < DEDUPE_WINDOW) return;
+      this.lastPlay.set(id, { t: now, auto });
+    }
 
     // Rate limit identical ids.
-    let arr = this.recent.get(id);
-    if (!arr) { arr = []; this.recent.set(id, arr); }
-    while (arr.length && now - arr[0] > RATE_WINDOW) arr.shift();
-    if (arr.length >= RATE_MAX_SAME) return;
-    arr.push(now);
+    if (rateLimit) {
+      let arr = this.recent.get(id);
+      if (!arr) { arr = []; this.recent.set(id, arr); }
+      while (arr.length && now - arr[0] > RATE_WINDOW) arr.shift();
+      if (arr.length >= RATE_MAX_SAME) return;
+      arr.push(now);
+    }
 
     // Voice: [synth] → gain → (panner) → sfxBus
     const g = this.ac.createGain();

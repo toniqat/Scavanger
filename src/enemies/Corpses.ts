@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, CORPSE_LOOT_CHANCE, Random,
-  type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type ItemInstance,
+  type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type InteractableKind, type ItemInstance,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -38,6 +38,8 @@ export function rollCorpseLootable(seed: number, enemyId: number, type: EnemyTyp
 
 export class Corpse implements Interactable {
   readonly id: string;
+  /** 2026-09-11 (C-4): `Interactable.kind` — readers (빛기둥 · 정찰 스캔) no longer guess from the `corpse:` prefix. */
+  readonly kind: InteractableKind = 'corpse';
   readonly position = new THREE.Vector3();
   readonly radius = CORPSE_INTERACT_RADIUS;
   readonly holdTime = 0.6;

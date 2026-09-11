@@ -257,15 +257,6 @@ function droneAlive(active: readonly Enemy[], id: number): boolean {
   return !!e && e.type === 'rogue_scan_drone' && e.state !== 'dead' && e.state !== 'flee';
 }
 
-/**
- * `Enemy` keeps its host private (`bindHost`); the replica hooks get no host argument but need `playAudio` for the
- * hum. Read it through the runtime field instead of widening `Enemy` (not this file's to change).
- */
-function hostOf(e: Enemy): Pick<EnemyHost, 'playAudio'> | null {
-  const h = (e as unknown as { host?: Partial<Pick<EnemyHost, 'playAudio'>> | null }).host;
-  return h && typeof h.playAudio === 'function' ? (h as Pick<EnemyHost, 'playAudio'>) : null;
-}
-
 /* ════════════════════════════════════════════════════════════════════════════
  * 호스트
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -330,11 +321,11 @@ export function updateScanDrone(e: Enemy, dt: number, host: EnemyHost, _t: Comba
   if (!world) return;
   const rt = runtimeFor(ctx, host.active);
   rt.tick();
-  const d = scanDroneDataOf(e);
+  let d = scanDroneDataOf(e);
   if (!d) {
-    // spawned without `launchScanDrone` (debug spawn) or promoted from a replica (namedData is host-only): nothing to scan for
-    retire(e, rt);
-    return;
+    // 리플리카 시절의 드론이 호스트 승격으로 넘어왔다(`namedData` 는 호스트 전용) — 또는 디버그 스폰. 공중에서 사라지지
+    // 않고 **입양**한다: 가장 가까운 살아 있는 로든을 주인으로, 스캔은 0 부터 (C-49). 로든이 없으면 이탈 단계가 치운다.
+    d = adoptOrphan(e, host);
   }
 
   // stay out of the ground AI's hands: always airborne, aware, never investigating a shot or a lure
@@ -441,6 +432,48 @@ export function updateScanDrone(e: Enemy, dt: number, host: EnemyHost, _t: Comba
       break;
     }
   }
+}
+
+/**
+ * `namedData` 없이 호스트 틱에 들어온 드론(승격 · 디버그 스폰)에 새 `ScanDroneData` 를 준다. 주인은 살아 있는
+ * `rogue_sniper` 중 가장 가까운 것 — 로든 쪽이 `droneId === null` 이면 `sniperId === 자기 id` 인 미입양 드론을 집어 간다
+ * (`Sniper.ts` `adoptDrone`). 표적은 일부러 무효('ai')로 둔다: 스캔 가지의 대체 로직이 로든 사거리 안 가장 가까운
+ * 플레이어를 고른다. `namedTimer` 는 **반드시 0** — 리플리카 훅이 거기에 직전 프레임 y(수십 m)를 적어 두어, 안 비우면
+ * 힌트 20(음파 연출)이 수십 초 켜진 채 방송된다.
+ */
+function adoptOrphan(e: Enemy, host: EnemyHost): ScanDroneData {
+  let sniperId = -1;
+  let best = Infinity;
+  const list = host.active;
+  for (let i = 0; i < list.length; i++) {
+    const o = list[i];
+    if (o.type !== 'rogue_sniper' || !o.active || o.state === 'dead' || o.state === 'flee') continue;
+    const dx = o.position.x - e.position.x, dz = o.position.z - e.position.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < best) { best = d2; sniperId = o.id; }
+  }
+  e.airborne = true;
+  e.leaping = false;
+  e.namedPhase = PHASE_SCAN;
+  e.namedTimer = 0;
+  e.namedHint = 0;
+  e.namedCooldown = Math.random() * HUM_INTERVAL_S;
+  const data: ScanDroneData = {
+    kind: 'scanDrone',
+    sniperId,
+    targetId: 'ai',
+    pulses: 0,
+    pulseTimer: NAMED_SCAN_DRONE.pulseInterval * 0.5,
+    exposure: new Map(),
+    done: false,
+    loiter: 0,
+    claimed: false,
+    glinting: false,
+    shotGrace: -1,
+    leave: 0,
+  };
+  e.namedData = data;
+  return data;
 }
 
 function beginReturn(e: Enemy, d: ScanDroneData): void {
@@ -567,8 +600,8 @@ export function beforeScanDroneReplica(e: Enemy, _hint: number): void {
   e.leaping = false;
 }
 
-/** After the default animation targets: vertical speed for a mid-air kill (`Enemy.kill` → `deathVy`), no humanoid pose, hum. */
-export function afterScanDroneReplica(e: Enemy, _hint: number, dt: number): void {
+/** After the default animation targets: vertical speed for a mid-air kill (`Enemy.kill` → `deathVy`), no humanoid pose, hum (`host` = `net/Replica`). */
+export function afterScanDroneReplica(e: Enemy, _hint: number, dt: number, host: ReplicaHost): void {
   if (dt > 0) e.vy = THREE.MathUtils.clamp((e.position.y - e.namedTimer) / dt, -CORPSE_FALL_MAX_SPEED, CORPSE_FALL_MAX_SPEED);
   const a = e.anim;
   a.aim = 0; a.crouch = 0; a.shake = 0;
@@ -576,7 +609,7 @@ export function afterScanDroneReplica(e: Enemy, _hint: number, dt: number): void
   e.namedCooldown -= dt;
   if (e.namedCooldown <= 0) {
     e.namedCooldown = HUM_INTERVAL_S;
-    hostOf(e)?.playAudio('scan_drone_hum', e.position, HUM_VOLUME);
+    host.playAudio('scan_drone_hum', e.position, HUM_VOLUME);
   }
 }
 

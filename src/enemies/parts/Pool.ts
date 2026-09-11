@@ -67,6 +67,7 @@ export function reset(sys: EnemySystem): void {
   sys.grenades?.clear();
   sys.lastAudio.clear();
   sys.snapTimer = 0;
+  sys.hazardTick = 0;
   sys.snapCache.reset();
   sys.bossId = 0;
   sys.lastClash = -Infinity;

@@ -37,16 +37,27 @@ import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corps
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHELL_ARC_CHECK_FRAC, SHELL_ARC_SAMPLES, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _arcA, _arcD, _arcP, _arcV, _c, _dir, _eye, _hc, _hd, _hp, _kb, _lead, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
-/** Spit at an explicit point (smoke return fire / deployables) — the glob still hurts whoever it lands on. */
+/**
+ * Spit at an explicit point (smoke return fire / deployables) — the glob still hurts whoever it lands on.
+ * 2026-09-11 (C-48): the host mirrors it as `ee acidAt {id, from, to}` — before, replicas never saw these globs.
+ */
 export function fireAcidAt(sys: EnemySystem, from: THREE.Vector3, aimFeet: THREE.Vector3, shooter: Enemy): void {
-  sys.acid?.fireAt(from, aimFeet, shooter.id);
+  if (sys.acid?.fireAt(from, aimFeet, shooter.id, shooter.faction)) sendAcidAt(sys, shooter.id, from, aimFeet);
+  }
+
+/** 2026-09-11 (C-48): host → others, a glob `ee acid` cannot describe (drone · enemy · point target). Replicas fly it visually. */
+function sendAcidAt(sys: EnemySystem, id: number, from: THREE.Vector3, to: THREE.Vector3): void {
+  if (sys.hosting) sys.ctx.net!.send({ t: 'ee', ev: 'acidAt', id, from: tuple(from, 2), to: tuple(to, 2) }, 'others');
   }
 
 export function emberBurst(sys: EnemySystem, position: THREE.Vector3, count: number): void {
   sys.fx?.burst(position, count, 'ember', 1.6);
   }
+
+const _acidTo = new THREE.Vector3();
 
 /* ── Phase 7: rogue grenades ───────────────────────────────────────────── */
 /** Authority: lob a grenade from the rogue's off hand onto `target` (feet), `ee grenade` to the others. */
@@ -111,16 +122,18 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
 
 export function fireAcid(sys: EnemySystem, from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void {
   if (target.drone) {
-    // 2026-09-11: 드론 표적 — 예측 조준(`fire`)은 그대로, 와이어는 없다(적 표적과 같다). 직격은 `AcidProjectiles` 가 드론 몸체로 판정한다.
-    sys.acid?.fire(from, target, shooter.id);
+    // 2026-09-11: 드론 표적 — 예측 조준(`fire`)은 그대로. 직격은 `AcidProjectiles` 가 드론 몸체로 판정한다.
+    // C-48: `ee acid` 는 플레이어만 이름 붙일 수 있으므로 조준점 그대로 `ee acidAt` 으로 보낸다 (예전엔 와이어가 없었다).
+    if (sys.acid?.fire(from, target, shooter.id, _acidTo, shooter.faction)) sendAcidAt(sys, shooter.id, from, _acidTo);
     return;
   }
   if (target.enemy) {
-    // bug vs rogue: spit straight at the enemy position (no player target on the wire)
-    sys.acid?.fireAt(from, target.position, shooter.id);
+    // bug vs rogue: spit straight at the enemy position (C-48: mirrored as `ee acidAt`; X-5: the glob now hurts the rogue)
+    _acidTo.copy(target.position);
+    if (sys.acid?.fireAt(from, _acidTo, shooter.id, shooter.faction)) sendAcidAt(sys, shooter.id, from, _acidTo);
     return;
   }
-  sys.acid?.fire(from, target, shooter.id);
+  sys.acid?.fire(from, target, shooter.id, undefined, shooter.faction);
   if (sys.hosting) {
     const net = sys.ctx.net!;
     const tid = target.isLocal ? net.localId : target.id;
@@ -128,8 +141,9 @@ export function fireAcid(sys: EnemySystem, from: THREE.Vector3, shooter: Enemy, 
   }
   }
 
+/** 2026-09-11 (C-51): the pitch now lives in `model.meleeHitSound` (one table for host · replica · barrier paths). */
 export function bitePitch(sys: EnemySystem, type: EnemyType): number {
-  return type === 'behemoth' ? 0.4 : type === 'charger' ? 0.6 : type === 'warrior' ? 0.8 : 1.05;
+  return meleeHitSound(type)?.pitch ?? 1.05;
   }
 
 /** Rogue hitscan shot (authority): occlusion, player capsules, enemy hitboxes, damage, FX, audio, events, wire. */

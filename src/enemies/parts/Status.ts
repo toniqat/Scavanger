@@ -9,6 +9,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
+  HAZARD_ENEMY_DPS, HAZARD_TICK_S,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -36,6 +37,7 @@ import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corps
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { hurtSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
 /**
@@ -91,7 +93,7 @@ export function applyStatus(sys: EnemySystem, id: number, status: EnemyStatusKin
       e.slowTimer = Math.max(e.slowTimer, duration);
       if (e.shockTimer <= 0) {
         sys.ctx.bus.emit('enemy:shocked', { id: e.id, position: e.position });
-        sys.playAudio('bug_hit', e.position, 0.35, 1.6);
+        sys.playAudio(hurtSound(e.type), e.position, 0.35, 1.6);   // 2026-09-11 (C-51): 로그는 hit_flesh
         e.sparkTimer = 0;
       }
       e.shockTimer = Math.max(e.shockTimer, Math.min(duration, SHOCK_SPARK_TIME));
@@ -157,6 +159,30 @@ export function applyStatusBits(sys: EnemySystem, e: Enemy, bits: number, dur: n
 export function debugXray(sys: EnemySystem, id: number): { overlays: number; visible: boolean; until: number } | null {
   const e = sys.byId.get(id);
   return e ? sys.xray.debugState(e) : null;
+  }
+
+/**
+ * 2026-09-11 (C-14): 환경 재해가 적에게도 닿는다 — **권위에서만**, `HAZARD_TICK_S` 마다 살아 있는 적 중 재해 피해
+ * 구역(`ctx.world.hazard.isInside`) 안의 몸에 `HAZARD_ENEMY_DPS × HAZARD_TICK_S`. **조용한** 피해다: `Enemy.applyDot(…,
+ * 'ai', quiet)` 라 피 FX · `bug_hit` · `ee damaged` · 경직 · 어그로(`aware` / `alertNear`)가 없고, 킬 크레딧은 아무에게도
+ * 가지 않는다 (`'ai'` → `enemy:killed` 없음). 떨어지는 hp 는 평소 스냅샷이 리플리카에 싣는다. 재해는 `missionTime` 의
+ * 함수라 호스트가 바뀌어도 새 호스트가 같은 구역으로 이어 간다. `Enemy.takeDamage` 를 쓰지 않는 이유가 이것이다 —
+ * 리플리카면 `requestHit` 이 되고 권위에서도 틱마다 FX · 방송 · 경직이 난다.
+ */
+export function updateHazardDot(sys: EnemySystem, dt: number): void {
+  const hz = sys.ctx.world?.hazard ?? null;
+  if (!hz || !hz.active) { sys.hazardTick = 0; return; }
+  sys.hazardTick += dt;
+  if (sys.hazardTick < HAZARD_TICK_S) return;
+  sys.hazardTick = Math.min(sys.hazardTick - HAZARD_TICK_S, HAZARD_TICK_S);   // a long frame never stacks ticks
+  const dmg = HAZARD_ENEMY_DPS * HAZARD_TICK_S;
+  if (!(dmg > 0)) return;
+  for (let i = sys.active.length - 1; i >= 0; i--) {
+    const e = sys.active[i];
+    if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+    if (!hz.isInside(e.position.x, e.position.z)) continue;
+    e.applyDot(dmg, 'ai', true);
+  }
   }
 
 /* ── status effects (burning / slow / 전소 / shocked) ──────────────────── */

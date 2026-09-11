@@ -210,3 +210,18 @@ NAMED_HEAVY_ESCORTS_BY_SQUAD,0,3
 NAMED_HEAVY_ESCORTS_BY_SQUAD,1,4
 NAMED_HEAVY_ESCORTS_BY_SQUAD,2,5
 NAMED_HEAVY_ESCORTS_BY_SQUAD,3,6
+# FOOTSTEP_MATERIAL_GAIN — 발소리 크기에 재질별로 곱하는 배수 (2026-09-11 C-22, owner: audio/AudioSystem).
+# key 는 SurfaceMaterial 이름 그대로다. 본인 · 원격 분대원 · 적 발소리가 모두 이 배수를 먹는다.
+# 자세별 크기(FOOTSTEP_VOL_*) · 원격 거리 감쇠는 그대로이고, 이 표는 "같은 걸음이 재질에 따라 얼마나 크게 들리나" 만 정한다.
+# dirt = 옛 단일 footstep 과 같은 크기(1). 이끼 · 눈 · 모래는 먹히고, 금속 · 크리스탈 · 콘크리트는 울린다.
+FOOTSTEP_MATERIAL_GAIN,dirt,1
+FOOTSTEP_MATERIAL_GAIN,sand,0.85
+FOOTSTEP_MATERIAL_GAIN,snow,0.95
+FOOTSTEP_MATERIAL_GAIN,mud,1
+FOOTSTEP_MATERIAL_GAIN,moss,0.7
+FOOTSTEP_MATERIAL_GAIN,ash,0.9
+FOOTSTEP_MATERIAL_GAIN,rock,1.1
+FOOTSTEP_MATERIAL_GAIN,crystal,1.15
+FOOTSTEP_MATERIAL_GAIN,organic,0.95
+FOOTSTEP_MATERIAL_GAIN,metal,1.2
+FOOTSTEP_MATERIAL_GAIN,concrete,1.1

@@ -1302,6 +1302,146 @@ export const SOUNDS: Record<string, SoundFn> = {
     }
     return dur + 0.02;
   },
+
+  /* ══ appended (2026-09-11): C 항목 배치 — 실드 충전 · 전차 · 재질별 발소리 ═══════════════════════════════════ */
+
+  /**
+   * C-21: 실드 충전기 사용 완료 (`player/` 가 부른다, 위치 없음). 올라가는 saw 충전음(400 → 1600 Hz, 로우패스가 함께
+   * 열린다) + 끝에 맺히는 사인 2음 화음 + 하이패스 노이즈 반짝임 + 마지막 딸깍 (≈0.6 s). `stim`(회복)과 같은 "쓰고
+   * 나면 오르는" 어휘지만 금속 · 전기 쪽이라 헷갈리지 않는다.
+   */
+  shield_charge: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 400 * p, f1: 1600 * p, t0: t, dur: 0.42, gain: 0.08, attack: 0.08, lp: 2400, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 404 * p, f1: 1616 * p, t0: t, dur: 0.42, gain: 0.05, attack: 0.08, lp: 2400, detune: 11, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.05, dur: 0.45, gain: 0.07, attack: 0.2, filter: { type: 'highpass', f0: 5200 * p, q: 0.6 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 1175 * p, t0: t + 0.36, dur: 0.24, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 1760 * p, t0: t + 0.38, dur: 0.22, gain: 0.08 });
+    s.click(d, t + 0.4, 3200 * p, 0.12, 0.02);
+    return 0.62;
+  },
+
+  /** C-39: 전차 호출 수락 — 승강장 안내 차임 (딩-동 두 음 + 은은한 잔향). 부른 사람의 콘솔에서 난다. */
+  tram_call: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 988 * p, t0: t, dur: 0.7, gain: 0.14, attack: 0.006 });
+    s.tone(d, { type: 'triangle', f0: 1976 * p, t0: t, dur: 0.3, gain: 0.03 });
+    s.tone(d, { type: 'sine', f0: 784 * p, t0: t + 0.32, dur: 0.95, gain: 0.14, attack: 0.006 });
+    s.tone(d, { type: 'triangle', f0: 1568 * p, t0: t + 0.32, dur: 0.4, gain: 0.03 });
+    s.noise(d, { t0: t + 0.02, dur: 1.1, gain: 0.02, attack: 0.1, filter: { type: 'bandpass', f0: 1400 * p, q: 0.8 }, decayCurve: 'lin' });
+    return 1.3;
+  },
+
+  /** C-39: 전차 호출 거부 — 승강장 안내의 낮은 역차임 두 음 (`keycard_deny` 버저와 다르다). */
+  tram_deny: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 392 * p, t0: t, dur: 0.22, gain: 0.12, lp: 1600 });
+    s.tone(d, { type: 'triangle', f0: 294 * p, t0: t + 0.2, dur: 0.34, gain: 0.12, lp: 1400 });
+    s.tone(d, { type: 'square', f0: 147 * p, t0: t + 0.2, dur: 0.3, gain: 0.03, lp: 700, decayCurve: 'lin' });
+    return 0.56;
+  },
+
+  /**
+   * C-18 · C-39: 달리는 전차에 치였다 — 금속 차체가 몸을 들이받는 둔탁한 충격(서브 쿵 + 로우패스 노이즈) + 차체의
+   * 금속 클렁크와 짧은 울림 + 레일의 쇳소리 긁힘. 옛 `tram_dock` pitch 0.7 대용을 대신한다.
+   */
+  tram_hit: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 120 * p, f1: 34, t0: t, dur: 0.45, gain: 0.95 });
+    s.noise(d, { t0: t, dur: 0.3, gain: 0.7, filter: { type: 'lowpass', f0: 1800 * p, f1: 120, q: 0.6 } });
+    s.click(d, t + 0.005, 1100 * p, 0.35, 0.05);
+    s.tone(d, { type: 'triangle', f0: 620 * p, f1: 540 * p, t0: t + 0.01, dur: 0.38, gain: 0.08 });
+    s.tone(d, { type: 'sine', f0: 1390 * p, t0: t + 0.01, dur: 0.22, gain: 0.035 });
+    s.noise(d, { t0: t + 0.05, dur: 0.5, gain: 0.08, attack: 0.02, filter: { type: 'bandpass', f0: 3600 * p, f1: 1800 * p, q: 4 }, decayCurve: 'lin' });
+    return 0.6;
+  },
+
+  /*
+   * C-22: 재질별 발소리 11종 (`SurfaceMaterial` 이름 그대로 `footstep_<mat>`). 전부 ≈0.05–0.13 s 의 한 걸음이고 크기의
+   * 밑값은 기존 `footstep` 과 비슷하게 맞췄다 — 재질마다 체감 크기를 다시 맞추는 배수는 `data/tables.csv` 의
+   * `FOOTSTEP_MATERIAL_GAIN` 이다(`AudioSystem`). `footstep_dirt` 는 옛 `footstep` 그 자체다(= 폴백 음색이 바뀌지 않는다).
+   * 피치 `p` 로 무게를 낸다: 적(`enemies/model.stepSound`)은 낮은 피치로 같은 소리를 쓴다.
+   */
+  footstep_dirt: (s, d, t, p) => SOUNDS.footstep(s, d, t, p),
+  /** 모래: 사각거리는 넓은 대역 노이즈 + 아주 작은 몸 무게. */
+  footstep_sand: (s, d, t, p) => {
+    const q = p * r(0.88, 1.12);
+    s.noise(d, { t0: t, dur: 0.11, gain: 0.13, attack: 0.012, filter: { type: 'bandpass', f0: 2600 * q, f1: 1500 * q, q: 0.6 } });
+    s.noise(d, { t0: t, dur: 0.06, gain: 0.12, filter: { type: 'lowpass', f0: 500 * q, f1: 180, q: 0.7 } });
+    s.tone(d, { type: 'sine', f0: 95 * q, f1: 55, t0: t, dur: 0.04, gain: 0.06 });
+    return 0.12;
+  },
+  /** 눈: 뽀드득 — 짧은 하이패스 크런치 여러 겹이 몇 ms 씩 어긋나 겹친다 + 눌리는 낮은 몸. */
+  footstep_snow: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    for (let i = 0; i < 4; i++) {
+      s.noise(d, { t0: t + i * 0.018 + r(0, 0.006), dur: 0.022 + r(0, 0.01), gain: 0.1 * (1 - i * 0.15), filter: { type: 'highpass', f0: r(1800, 3200) * q, q: 0.9 } });
+    }
+    s.noise(d, { t0: t, dur: 0.09, gain: 0.1, attack: 0.01, filter: { type: 'lowpass', f0: 700 * q, f1: 250, q: 0.6 } });
+    s.tone(d, { type: 'sine', f0: 90 * q, f1: 55, t0: t, dur: 0.05, gain: 0.07 });
+    return 0.1;
+  },
+  /** 진흙: 철벅 — 밴드패스가 열렸다 닫히는 젖은 노이즈 + 무거운 저음 + 끝의 작은 빨림. */
+  footstep_mud: (s, d, t, p) => {
+    const q = p * r(0.88, 1.1);
+    s.noise(d, { t0: t, dur: 0.1, gain: 0.2, attack: 0.008, filter: { type: 'bandpass', f0: 320 * q, f1: 900 * q, q: 1.6 } });
+    s.tone(d, { type: 'sine', f0: 85 * q, f1: 48, t0: t, dur: 0.07, gain: 0.14 });
+    s.noise(d, { t0: t + 0.07, dur: 0.05, gain: 0.06, filter: { type: 'bandpass', f0: 1300 * q, f1: 600 * q, q: 3 } });
+    return 0.13;
+  },
+  /** 이끼: 푹신하게 먹히는 걸음 — 어두운 로우패스 노이즈만, 고역이 거의 없다. */
+  footstep_moss: (s, d, t, p) => {
+    const q = p * r(0.88, 1.12);
+    s.noise(d, { t0: t, dur: 0.09, gain: 0.2, attack: 0.012, filter: { type: 'lowpass', f0: 420 * q, f1: 150, q: 0.6 } });
+    s.tone(d, { type: 'sine', f0: 100 * q, f1: 58, t0: t, dur: 0.06, gain: 0.1 });
+    return 0.1;
+  },
+  /** 화산재: 바삭하게 부서지는 마른 걸음 — 중역 노이즈 + 작은 크래클 둘. */
+  footstep_ash: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    s.noise(d, { t0: t, dur: 0.08, gain: 0.14, attack: 0.006, filter: { type: 'bandpass', f0: 1200 * q, f1: 700 * q, q: 0.8 } });
+    s.noise(d, { t0: t + r(0.01, 0.03), dur: 0.012, gain: 0.08, filter: { type: 'highpass', f0: 3800 * q } });
+    s.noise(d, { t0: t + r(0.035, 0.06), dur: 0.01, gain: 0.06, filter: { type: 'highpass', f0: 4400 * q } });
+    s.tone(d, { type: 'sine', f0: 105 * q, f1: 60, t0: t, dur: 0.045, gain: 0.08 });
+    return 0.09;
+  },
+  /** 바위: 단단한 짧은 타격 + 자갈 틱 — 흙보다 밝고 짧다. */
+  footstep_rock: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    s.noise(d, { t0: t, dur: 0.035, gain: 0.2, filter: { type: 'bandpass', f0: 1500 * q, f1: 900 * q, q: 1.2 } });
+    s.tone(d, { type: 'sine', f0: 180 * q, f1: 90, t0: t, dur: 0.04, gain: 0.12 });
+    s.noise(d, { t0: t + r(0.02, 0.05), dur: 0.01, gain: 0.05, filter: { type: 'bandpass', f0: r(3000, 4500) * q, q: 3 } });
+    return 0.07;
+  },
+  /** 크리스탈: 단단한 타격 위에 비조화 유리 울림 둘이 짧게 맺힌다. */
+  footstep_crystal: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.noise(d, { t0: t, dur: 0.03, gain: 0.16, filter: { type: 'bandpass', f0: 2200 * q, q: 1.4 } });
+    s.tone(d, { type: 'sine', f0: 170 * q, f1: 90, t0: t, dur: 0.035, gain: 0.09 });
+    s.tone(d, { type: 'sine', f0: 2460 * q * r(0.97, 1.03), t0: t, dur: 0.13, gain: 0.025 });
+    s.tone(d, { type: 'sine', f0: 3710 * q * r(0.97, 1.03), t0: t + 0.004, dur: 0.09, gain: 0.018 });
+    return 0.13;
+  },
+  /** 유기물 · 점액: 끈적하게 눌리는 걸음 — 좁은 밴드패스가 아래로 쓸리고 짧게 떨린다. */
+  footstep_organic: (s, d, t, p) => {
+    const q = p * r(0.88, 1.12);
+    s.noise(d, { t0: t, dur: 0.1, gain: 0.17, attack: 0.01, filter: { type: 'bandpass', f0: 650 * q, f1: 260 * q, q: 2.2 } });
+    s.tone(d, { type: 'sine', f0: 78 * q, f1: 46, t0: t, dur: 0.07, gain: 0.12, vibratoHz: 30, vibratoDepth: 60 });
+    return 0.11;
+  },
+  /** 금속: 갑판 · 선로 · 전차 · 상자 — 딸깍 금속 트랜지언트 + 판이 짧게 우는 소리 + 낮은 몸 쿵. */
+  footstep_metal: (s, d, t, p) => {
+    const q = p * r(0.92, 1.08);
+    s.click(d, t, 1900 * q, 0.1, 0.022);
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.1, filter: { type: 'bandpass', f0: 900 * q, f1: 600 * q, q: 1.5 } });
+    s.tone(d, { type: 'triangle', f0: 760 * q, f1: 700 * q, t0: t, dur: 0.1, gain: 0.03 });
+    s.tone(d, { type: 'sine', f0: 130 * q, f1: 70, t0: t, dur: 0.05, gain: 0.12 });
+    return 0.11;
+  },
+  /** 콘크리트: 평평하고 건조한 타격 — 중역 노이즈 + 짧은 저음 + 고역 틱 (반향 없음). */
+  footstep_concrete: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    s.noise(d, { t0: t, dur: 0.045, gain: 0.18, filter: { type: 'bandpass', f0: 1100 * q, f1: 700 * q, q: 0.9 } });
+    s.tone(d, { type: 'sine', f0: 145 * q, f1: 72, t0: t, dur: 0.04, gain: 0.12 });
+    s.noise(d, { t0: t, dur: 0.012, gain: 0.08, filter: { type: 'highpass', f0: 3400 * q } });
+    return 0.07;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

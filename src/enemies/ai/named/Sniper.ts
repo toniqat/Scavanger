@@ -54,9 +54,15 @@ const PICK_INTERVAL_S = 0.3;
 const PRONE_SETTLE_S = 0.7;
 /** 몸이 표적을 이 각(rad) 안으로 향해야 반짝임을 시작한다. */
 const FACE_TOL = 0.12;
-/** 엎드린 눈(조준경) 위치: 발 기준 높이 · 표적 쪽 앞 거리 (m) — `models/named/SniperLook` 의 자세와 맞춘 값. */
+/**
+ * 사선 검사 원점: 발 기준 높이 · 표적 쪽 앞 거리 (m). C-56 (2026-09-11): 앞 거리는 **몸 반경(0.4) 이하** —
+ * 예전 0.9 m 는 엎드린 몸 밖이라 바로 앞 둔덕 · 바위 **속**에서 레이가 출발해 막힘을 못 봤다(월드 레이는 원점이
+ * 장애물 안이면 무충돌). 몸 안에서 출발하면 몸과 표적 사이의 모든 것이 잡힌다.
+ */
 const EYE_UP = 0.32;
-const EYE_FWD = 0.9;
+const EYE_FWD = 0.3;
+/** 발사 직전 몸 → 총구 검사: 막힌 점에서 이만큼 몸 쪽으로 물러난 곳에서 섬광이 터진다 (m). */
+const MUZZLE_BURY_BACK = 0.12;
 /** `ai/Perception` 과 같은 연막 기준 — 이 선명도 이하면 사선이 막힌 것으로 본다. */
 const SMOKE_BLIND = 0.4;
 /** 표적 눈높이 위로 머리 중심까지 (m). */
@@ -72,6 +78,8 @@ const RELOCATE_MAX_S = 4.5;
 const CANCEL_COOLDOWN_S = 1.2;
 /** 드론을 띄우지 못했으면 이만큼 뒤 다시 시도 (s). */
 const LAUNCH_RETRY_S = 3;
+/** `ScanDrone.ts` 의 단계 번호 — 이 값 이상(귀환 · 이탈)인 드론은 입양하지 않는다. */
+const DRONE_PHASE_RETURN = 2;
 /** 드론이 응답이 없을 때의 안전장치: `loiterMax` 에 더하는 s. */
 const DRONE_TIMEOUT_PAD_S = 20;
 /** 할 일이 없을 때 조준경으로 훑는 폭 (rad) · 속도 (rad/s). */
@@ -84,6 +92,8 @@ const _head = new THREE.Vector3();
 const _aim = new THREE.Vector3();
 const _from = new THREE.Vector3();
 const _to = new THREE.Vector3();
+const _muzzle = new THREE.Vector3();
+const _body = new THREE.Vector3();
 const _shot = { from: new THREE.Vector3(), to: new THREE.Vector3() };
 const SHOT_OPTS: RogueShotOpts = { aimAt: _aim, fx: false, wire: false, out: _shot };
 
@@ -189,8 +199,28 @@ function resolveDrone(d: SniperData, cooldown: number): void {
   d.droneAge = 0;
 }
 
+/**
+ * 주인 없는 스캔 드론 입양 (C-49): 호스트 승격으로 넘어온 드론은 `ScanDrone.ts` 가 가장 가까운 로든을 `sniperId` 로
+ * 적어 새 데이터를 준다. 그 로든(역시 승격돼 `SniperData` 가 방금 생겼다)은 `droneId === null` 이므로 여기서 집어 온다.
+ * 아직 아무 로든도 붙잡지 않은 드론(`!claimed`)만 — 방금 놓아 준(`resolvedDroneId`) · 귀환 중인 드론은 되잡지 않는다.
+ */
+function adoptDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
+  const list = host.active;
+  for (let i = 0; i < list.length; i++) {
+    const o = list[i];
+    if (o.type !== 'rogue_scan_drone' || !o.active || o.state === 'dead' || o.state === 'flee' || o.id === d.resolvedDroneId) continue;
+    const sd = scanDroneDataOf(o);
+    if (!sd || sd.sniperId !== e.id || sd.claimed || o.namedPhase >= DRONE_PHASE_RETURN) continue;
+    d.droneId = o.id;
+    d.droneAge = 0;
+    d.scanWait = -1;
+    return;
+  }
+}
+
 /** 드론 수명 관리: 스캔 완료 → 사선 대기 창, 완료 전 이탈 · 요격 → `droneRetry`. */
 function trackDrone(e: Enemy, d: SniperData, host: EnemyHost, dt: number): void {
+  if (d.droneId === null) adoptDrone(e, d, host);
   if (d.droneId === null) return;
   if (d.glintLeft > 0 && d.aimScanned) return;          // 스캔 표적에게 반짝이는 중 — 발사가 정리한다
   d.droneAge += dt;
@@ -283,7 +313,12 @@ function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   }
   SHOT_OPTS.damage = NAMED_SNIPER.damage;
   SHOT_OPTS.range = NAMED_SNIPER.range;
-  const struck = host.fireGun(e, t, 0, 1, SHOT_OPTS);
+  // C-56: 반짝임 동안 돌면서 긴 총열(총구 ≈ 몸 2.3 m 앞)이 바위 · 둔덕에 파묻혔을 수 있다. `fireGun` 은 총구에서
+  // 월드 레이를 쏘므로 그대로면 탄이 바위를 뚫는다 — 몸 → 총구 선분이 막히면 **그 점에 박힌다**. 전조를 띄운 한 발은
+  // 그래도 쏜다(소리 · 섬광 · `ee snipe hit:false` · 쿨다운) — 자리를 옮기지는 않는다.
+  const buried = muzzleBuried(e, host, _shot.from, _shot.to);
+  const struck = buried ? false : host.fireGun(e, t, 0, 1, SHOT_OPTS);
+  if (buried) host.ctx.bus.emit('enemy:shot', { id: e.id, type: e.type, from: _shot.from.clone(), to: _shot.to.clone(), hit: false });
   e.anim.recoil = 1;
   sniperShotFx(host, _shot.from, _shot.to, struck);
   if (hosting(host)) {
@@ -295,6 +330,27 @@ function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   d.pickAt = 0;
   if (d.aimScanned && d.droneId !== null) resolveDrone(d, NAMED_SNIPER.droneCooldown);
   d.aimScanned = false;
+}
+
+/**
+ * 몸 중심(발 + `EYE_UP`) → 리그 총구 선분에 월드 장애물이 있으면 true 와 함께 `from` · `to` 를 그 막힌 점(섬광은
+ * `MUZZLE_BURY_BACK` 만큼 몸 쪽)으로 채운다 (C-56). 적은 월드 장애물이 아니므로 자기 몸은 걸리지 않는다.
+ */
+function muzzleBuried(e: Enemy, host: EnemyHost, from: THREE.Vector3, to: THREE.Vector3): boolean {
+  const world = host.ctx.world;
+  if (!world) return false;
+  e.muzzle(_muzzle);
+  _body.set(e.position.x, e.position.y + EYE_UP, e.position.z);
+  _dir.subVectors(_muzzle, _body);
+  const len = _dir.length();
+  if (len < 1e-3) return false;
+  _dir.multiplyScalar(1 / len);
+  const hit = world.raycast(_body, _dir, len);
+  if (!hit) return false;
+  const d = Math.max(0, hit.distance);
+  to.copy(_body).addScaledVector(_dir, d);
+  from.copy(_body).addScaledVector(_dir, Math.max(0, d - MUZZLE_BURY_BACK));
+  return true;
 }
 
 /** 감지 범위 밖 · 드론 사거리 안의 가장 가까운 플레이어에게 스캔 드론. */

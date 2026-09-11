@@ -38,6 +38,8 @@ import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
+import { carryCorpse } from './ai/Ride';
+import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
 
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -110,6 +112,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Phase 9: delta-snapshot state (last sent fields per enemy, monotonic seq, forced keyframe). */
   readonly snapCache = new SnapshotCache();
   resetting = false;
+  /** 2026-09-11 (C-14): seconds accumulated toward the next 환경 재해 tick on enemies (`parts/Status.updateHazardDot`). */
+  hazardTick = 0;
   lastClash = -Infinity;
   /** Current boss (authority) for debugging / HUD. */
   bossId = 0;
@@ -274,6 +278,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
         for (let i = 0; i < this.active.length; i++) updateEnemyAI(this.active[i], dt, this);
+        Status.updateHazardDot(this, dt);   // 2026-09-11 (C-14): 재해 구역 안의 적 — 조용한 피해 (권위만)
         this.acid?.update(dt, this);
         this.shells?.update(dt, this);
         this.grenades?.update(dt);
@@ -300,6 +305,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     const slack = this.authority ? 0 : 1;   // replicas: the host's despawn normally arrives first
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
+      // 2026-09-11 (C-18): 전차 위 시체는 전차와 함께 간다 (권위 · 리플리카 공통) — 수색 자리(`corpse:<id>`)도 몸을 따라간다
+      if (e.state === 'dead' && (carryCorpse(e, world) || e.corpseDropped)) {
+        const c = this.corpses.get(e.id);
+        if (c) c.position.copy(e.position);
+        if (e.deathLanded) e.corpseDropped = false;
+      }
       e.animate(dt);
       // Phase 10: a mid-air kill registers its corpse once the body has come to rest (or after CORPSE_LAND_TIMEOUT)
       if (e.corpsePending && this.authority && !this.resetting && (e.deathLanded || e.deathTimer >= CORPSE_LAND_TIMEOUT)) this.registerCorpse(e);
@@ -338,7 +349,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     let best: Enemy | null = null;
     let bestT = maxDist;
     let bestPart: HitPart = 'body';
-    let bestKind = 0; // 0 cylinder, 1 cap, 2 head, 3 armour plate
+    let bestKind = 0; // 0 cylinder, 1 cap, 2 head, 3 armour plate, 4 lying-body capsule (C-55)
     let bestCapY = 0;
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
@@ -358,13 +369,19 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       const th = raySphere(origin, dir, _hc, e.stats.headRadius);
       if (th >= 0 && th < bestT) { best = e; bestT = th; bestPart = 'head'; bestKind = 2; }
 
-      // body capsule (vertical)
-      const y0 = e.position.y + r;
-      const y1 = Math.max(y0, e.position.y + h - r);
-      const res = rayCapsule(origin, dir, cx, cz, y0, y1, r);
-      if (res.t >= 0 && res.t < bestT) {
-        best = e; bestT = res.t; bestKind = res.kind; bestCapY = res.capY;
-        bestPart = e.classifyHit(undefined, dir);
+      // body capsule — C-55 (2026-09-11): a lying body (the prone sniper) is a capsule along its visible pose
+      // (`models/named.namedBodyRay`, kind 4). Broad phase: its ends stay ≤ ~1.35 m from (feet + h/2), inside R (1.68 prone).
+      const tb = namedBodyRay(e, origin, dir);
+      if (tb !== BODY_RAY_VERTICAL) {
+        if (tb >= 0 && tb < bestT) { best = e; bestT = tb; bestKind = 4; bestPart = e.classifyHit(undefined, dir); }
+      } else {
+        const y0 = e.position.y + r;
+        const y1 = Math.max(y0, e.position.y + h - r);
+        const res = rayCapsule(origin, dir, cx, cz, y0, y1, r);
+        if (res.t >= 0 && res.t < bestT) {
+          best = e; bestT = res.t; bestKind = res.kind; bestCapY = res.capY;
+          bestPart = e.classifyHit(undefined, dir);
+        }
       }
 
       // behemoth front plate (armoured): a thick vertical capsule hanging in front of the head
@@ -381,6 +398,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (bestKind === 2) { best.headCenter(_hc); normal.subVectors(point, _hc).normalize(); }
     else if (bestKind === 3) { best.plateAxis(_hc); normal.set(point.x - _hc.x, 0, point.z - _hc.z).normalize(); }
     else if (bestKind === 1) { normal.set(point.x - best.position.x, point.y - bestCapY, point.z - best.position.z).normalize(); }
+    else if (bestKind === 4) { namedBodyNormal(best, point, normal).normalize(); }
     else { normal.set(point.x - best.position.x, 0, point.z - best.position.z).normalize(); }
     if (normal.lengthSq() < 0.5) normal.copy(dir).negate();
     const hit: EnemyHit = { enemy: best, point, normal, distance: bestT, part: bestPart };
@@ -556,14 +574,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number { return Dmg.applyAreaDamage(this, center, radius, damage, by); }
 
   /**
-   * Phase 12 (실드 배쉬 knockback, requested by implants/): shove enemies away from `center`. Every alive enemy within
-   * `radius` gets a horizontal impulse of `speed` m/s (falling off linearly to 40 % at the rim) away from the centre —
-   * the same `velocity` nudge an explosion applies, so the existing steering / stumble rules absorb it (a charging
-   * behemoth is **not** shoved, exactly like an explosion). Returns how many were pushed.
-   *
-   * **Not** on `EnemyManagerRef` — that interface is frozen for Phase 12, so callers reach it as
-   * `(ctx.enemies as unknown as { pushBack?: … }).pushBack?.(…)`. Authority only: a replica's velocity is overwritten
-   * by the next snapshot, and the host already shoves its own copy, so this returns 0 there.
+   * `EnemyManagerRef.pushBack` (실드 배쉬 knockback; Phase 12 cast-only, contract since 2026-09-11 C-1). Shove enemies
+   * away from `center`: every alive combatant within `radius` gets a horizontal impulse of `speed` m/s (falling off
+   * linearly to 40 % at the rim) away from the centre, or along `dir` — the same `velocity` nudge an explosion applies
+   * (a charging behemoth is **not** shoved). Authority: applies it, returns how many were pushed. Replica: sends one
+   * `HitRequest { dmg: 0, kb }` per enemy in range and returns how many requests went out (X-6).
    */
   pushBack(center: THREE.Vector3, radius: number, speed: number, dir?: THREE.Vector3): number { return Dmg.pushBack(this, center, radius, speed, dir); }
 
@@ -693,6 +708,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   bloodBurst(point: THREE.Vector3, count: number, dir: THREE.Vector3 | null): void { return RFx.bloodBurst(this, point, count, dir); }
 
   acidVisual(from: THREE.Vector3, target: CombatTarget, shooterId: number): void { return RFx.acidVisual(this, from, target, shooterId); }
+
+  acidVisualAt(from: THREE.Vector3, to: THREE.Vector3, shooterId: number): void { return RFx.acidVisualAt(this, from, to, shooterId); }
 
   rogueShotVisual(id: number, from: THREE.Vector3, to: THREE.Vector3, hit: boolean): void { return RFx.rogueShotVisual(this, id, from, to, hit); }
 

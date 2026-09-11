@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  CORPSE_FALL_MAX_SPEED, CORPSE_LIFETIME, DEATH_FALL_TIME, ENEMY_DEATH_DIRS, Random, ROGUE_GRENADE_COOLDOWN, ROGUE_MAG_ROUNDS,
+  CORPSE_FALL_MAX_SPEED, CORPSE_LIFETIME, DEATH_FALL_TIME, ENEMY_DEATH_DIRS, Random, ROGUE_GRENADE_COOLDOWN, ROGUE_MAG_ROUNDS, recordRideLocal,
   type DeployableRef, type EnemyDeathDir, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle,
 } from '@/shared';
 import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
@@ -153,8 +153,22 @@ export class Enemy implements EnemyRef {
   distToTarget = Infinity;
   /** last known LOS result (to `target`) */
   hasLOS = false;
+  /* ── appended: 차량 탑승 (2026-09-11, C-18 — `ai/Ride.ts`) ─────────────────── */
+  /** The moving platform (tram floor, `Obstacle.velocity`) this body rides, or null. Live hash entry — re-read every frame. */
+  carrier: Obstacle | null = null;
+  /** Last frame's resting spot in carrier-local coordinates (`shared/ride.recordRideLocal`) and the world spot it was taken at. */
+  readonly rideLocal = new THREE.Vector3();
+  readonly rideWorld = new THREE.Vector3();
+  /** Replica: 0..1 blend of the ride prediction offset (eases the lag correction in / out). */
+  rideBlend = 0;
+  /** Replica: the carrier last predicted on, kept while `rideBlend` eases out after leaving it. */
+  lastCarrier: Obstacle | null = null;
+  /** A carried corpse slid off its carrier and is falling — the `corpse:<id>` interactable follows it until it lands. */
+  corpseDropped = false;
   distTravelled = 0;
   stepAccum = 0;
+  /** 2026-09-11 (C-23): ctx.time of this enemy's last footstep sound — the throttle is per enemy (`model.emitEnemyStep`). */
+  stepAt = -Infinity;
   spawnTime = 0;
   /** true for wave bugs: never return to idle, always hunt */
   relentless = false;
@@ -189,6 +203,14 @@ export class Enemy implements EnemyRef {
   /** artillery */
   shellTimer = 0;
   dug = 0;
+  /** artillery (2026-09-11 C-24): shots refused in a row because the arc was blocked — `ARTILLERY_AI.maxRefusals` → retarget + cooldown. */
+  shellRefusals = 0;
+  /**
+   * artillery (2026-09-11 C-24): the pre-checked clear spot it walks to after a refusal. Its own field because `chase()`
+   * rewrites `moveTarget` to the target every frame — the 2026-09-10 relocation wrote `moveTarget` and so actually
+   * walked **at the target**, never sideways.
+   */
+  readonly shellSpot = new THREE.Vector3();
   /** toxic: 0 running, 1 swelling, 2 burst */
   toxicPhase = 0;
   swellTimer = 0;
@@ -198,6 +220,8 @@ export class Enemy implements EnemyRef {
   hitByCharge = -1;
   /** behemoth: players already hit during the current charge */
   readonly chargeVictims: TargetId[] = [];
+  /** behemoth (2026-09-11 C-47): drone ids already hit during the current charge (drone proxies all share the id 'ai') */
+  readonly chargeDrones: string[] = [];
   /** seconds the corpse stays (system sets it from CORPSE_LIFETIME; fades over the last 3 s) */
   corpseLife = CORPSE_LIFETIME;
   /* ── appended: tactical kit ────────────────────────────────────────────── */
@@ -375,7 +399,8 @@ export class Enemy implements EnemyRef {
     this.spitPhase = 0;
     this.nearObstacles.length = 0; this.obstacleTimer = Math.random() * 0.25;
     this.target = null; this.targetTimer = 0; this.distToTarget = Infinity; this.hasLOS = false;
-    this.distTravelled = 0; this.stepAccum = 0;
+    this.distTravelled = 0; this.stepAccum = 0; this.stepAt = -Infinity;
+    this.carrier = null; this.lastCarrier = null; this.rideBlend = 0; this.corpseDropped = false;
     this.spawnTime = now;
     this.relentless = false;
     this.lastDamager = 'local'; this.lastLocalHit = -Infinity;
@@ -391,9 +416,9 @@ export class Enemy implements EnemyRef {
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
     this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
-    this.shellTimer = 3 + Math.random() * 3; this.dug = 0;
+    this.shellTimer = 3 + Math.random() * 3; this.dug = 0; this.shellRefusals = 0;
     this.toxicPhase = 0; this.swellTimer = 0;
-    this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0;
+    this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0; this.chargeDrones.length = 0;
     this.corpseLife = CORPSE_LIFETIME;
     // Phase 7: full magazine, grenade cooldown staggered so a squad never volleys at once
     this.magRounds = ROGUE_MAG_ROUNDS; this.reloadTimer = 0;
@@ -577,11 +602,14 @@ export class Enemy implements EnemyRef {
    * Damage-over-time tick (burning). Quieter than `takeDamage`: no gore burst, no `enemy:damaged` broadcast
    * and no stagger — the host's enemy snapshots carry the falling hp to the clients.
    * Authority only; `attacker` gets the kill credit.
+   * 2026-09-11 (C-14): `quiet` = the 환경 재해 tick — no hit flash and it does **not** wake the enemy (a storm is not an
+   * attacker); the caller passes `'ai'` so a hazard kill credits nobody.
    */
-  applyDot(amount: number, attacker: TargetId = 'local'): void {
+  applyDot(amount: number, attacker: TargetId = 'local', quiet = false): void {
     if (!this.active || this.state === 'dead' || amount <= 0) return;
     this.hp -= amount;
     this.lastDamager = attacker;
+    if (quiet) { if (this.hp <= 0) { this.hp = 0; this.kill(true); } return; }
     this.anim.hitFlash = Math.max(this.anim.hitFlash, 0.45);
     if (!this.aware) {
       this.aware = true;
@@ -657,6 +685,11 @@ export class Enemy implements EnemyRef {
     const ground = world && world.ready ? world.getSurfaceY(this.position.x, this.position.z, this.position.y) : this.position.y;
     this.deathLanded = this.position.y <= ground + 0.05;
     if (this.deathLanded) { this.position.y = ground; this.deathVy = 0; }
+    // 2026-09-11 (C-18): a body that dies on a moving tram keeps riding as a corpse (`ai/Ride.carryCorpse`) — re-anchor
+    // the carrier-local spot here so the first carried frame does not replay a stale offset (replica prediction included)
+    if (this.carrier && this.deathLanded) { recordRideLocal(this.carrier, this.position, this.rideLocal); this.rideWorld.copy(this.position); }
+    else this.carrier = null;
+    this.rideBlend = 0; this.lastCarrier = null;
     this.chargePhase = 0;
     this.spitPhase = 0;
     this.roguePhase = 0;

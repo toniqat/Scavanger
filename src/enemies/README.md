@@ -39,7 +39,8 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | File | Responsibility |
 |---|---|
 | `EnemySystem.ts` | The `GameSystem`. Pools `Enemy` instances per type (`acquire(id, …)` for both host spawns and replicas; `byId` map), refreshes `TargetList` + spatial grid + every enemy's `asTarget` proxy each frame, ticks AI only on the authority while `ctx.isGameplayPhase()` (visuals always tick), despawns finished corpses (`Enemy.corpseLife` = `CORPSE_LIFETIME`; replicas +1 s) and fled bugs (2 s). Implements `EnemyManagerRef`: `raycast` (analytic ray vs vertical hit capsule + head sphere + behemoth plate capsule → `part: 'front', armored: true`), `raycastInterceptable` (shell spheres), `applyExplosion` (host: linear falloff, returns kills; replica: FX + `explode` request, returns 0), `setThreatLevel`, `startExtractionWaves` / `stopExtractionWaves`, `killAll`, `reset`. Listens: `world:ready` (mode refresh, reset, initial patrols + **rogue guards** on authority → `enemy:bossSpawned`), `game:newMission`/`game:abort`, `game:paused` (pauses only when `freeze !== false`), `weapon:fired` + `net:remoteFired` (hearing 55 m, authority), `grenade:exploded` (80 m), `extraction:activated`, `extraction:liftoff` (stop waves; authority: bugs within 18 m flee), `enemy:waveStarted` (host → `ee wave`), `crate:looted` (corpse searched). Net messages: host handles `hit` (→ `takeDamage(dmg, p, d, from)` → replies `hitc` with actual damage / killed / part; ignores `dmg > 500`), `explode` (→ `hitc` per kill) and `intq` (validates the shell still flies → pop + `ee intercept`); replica handles `es`, `ee`, `hitc` (kill hitmarker). Emits all `enemy:*` / `corpse:*` events, `audio:play`, `camera:shake`, `player:applySlow`. Damage routing `applyDamage`: local target → `ctx.player.takeDamage` + `enemy:attacked`; remote → `dmg` to that peer (+ `ee attack` to the others for melee/leap/charge); **enemy target** (`CombatTarget.enemy`) → `Enemy.takeDamage(…, 'ai')` + `noteClash`. Kill credit: `ctx.stats.kills++` only when `e.lastDamager === 'local'` (Phase 9 tightened this so a credit belonging to another peer never bumps the local stats even in single-player); `enemy:killed {by}` is emitted for **every player-credited** kill — `by` is `'local'` for our own (our peer id is folded back by `normalizeAttacker`, so the payload reads the same online and offline) and the peer id when someone else gets the credit (e.g. a burn lit by a remote peer, `Enemy.burnAttacker`). An AI (faction) kill would be `by: null` and stays **off** the bus; the replica's `ee kill` still emits only for our own credit (`msg.killer === localId` → `by: 'local'`), because a remote killer counts its own kill on its client. ⚠ Consumers must key on `by` (`by === 'local'` = mine; `undefined` = a legacy / synthetic emit): `src/meta/MetaSystem.ts` currently counts every `enemy:killed` toward the contract goal, so a peer-credited kill on the host is counted locally **and** relayed as `meta contractHit` — that handler needs the same `by` filter its `stratagem:called` handler already uses (meta's owner, not this folder). Also the `EnemyHost` (`pickTarget`, `fireGun`, `fireShell`, `chargeHit`, `onChargeStarted`) / `SpawnHost` (`countAlive`) / `RogueSpawnHost` (`spawnRogue`) / `AcidHost` / `ShellHost` / `ReplicaHost` services. Debug: `debugSpawn(type, {x,z}, chase?)`, `debugShell(sid)`, `shellCount`, `bossId`, `corpses`, `active`. **Phase 7**: `setAuthority` (`promote` / `demote`, from its own `net:hostChanged` handler), `throwGrenade` (`EnemyHost`) + `onGrenadeExploded` (`GrenadeHost`) + `grenadeVisual / grenadeHitRemote` (`ReplicaHost`), `applyDamage(…, kbDir, kbSpeed)` with the `suspended` → `ghost:damage` branch, `explode(…, skipFaction)`, `training` gate, `wavesSeen`, debug `grenadeCount / debugGrenade / grenadesThrown / grenadesExploded / lastGrenadeBlast / debugHint / isAuthority / isTrainingWorld`. **Phase 9**: the delta `snapCache` (reset on `reset()` and on promotion with `replicaMgr.lastSeq + PROMOTE_SEQ_GAP`; `flow rejoined / takeover` sets `forceFull` so the next `es` is a keyframe), `applyStatus(id, status, dps, duration, attacker?)` storing `Enemy.burnAttacker`, `applyStatusBits(…, from)` (a replica's status request is credited to the relay `from`), `normalizeAttacker` (folds our own peer id back to `'local'`, also used by `applyAreaDamage`), barrier checks on rogue hitscan / shell blasts / acid (`barrierBlocks`), and debug `debugSnapshot(force?) / debugApplySnapshot(msg) / debugSnapshotState`. **Phase 10**: `onEnemyKilled` no longer registers the corpse itself — a ground kill goes straight to the new `registerCorpse(e)` (same frame as before), a **mid-air** kill only sets `Enemy.corpsePending` and the update loop calls `registerCorpse` once `deathLanded` or `CORPSE_LAND_TIMEOUT`; `registerCorpse` runs the `CORPSE_LOOT_CHANCE` roll (`rollCorpseLootable`), writes `Enemy.lootable` and sends `ee corpse` with `dd` / `lt`. `enemy:killed` carries `deathDir` and `ee kill` carries `dd` (`deathDirIndex`, 0 = `'left'` omitted); `corpseSpawnedRemote(…, opts)` applies the host's `lt` / `dd` to the local body. |
-| `model.ts` | 폴더 공용 어휘 — 상수 · 타입 · 스크래치 벡터. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다 |
+| `model.ts` | 폴더 공용 어휘 — 상수 · 타입 · 스크래치 벡터. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. **2026-09-11**: 적 타입별 소리 표 `stepSound` · `meleeHitSound` · `hurtSound` 와 발소리 방출 `emitEnemyStep`(C-51 · C-23 · C-22), 리플리카 넉백 요청 상한 `MAX_REQUEST_KNOCKBACK`(C-1) |
+| `ai/Ride.ts` | **2026-09-11 (C-18)**: 적 · 적 시체의 차량 탑승. 플레이어와 같은 `shared/ride.ts` 규약 — 진입만 `getStandingObstacle` 의 `velocity` 발판, 유지는 차량 OBB + 헤드룸(`rideContains`), 이동은 지난 프레임 자리를 차량 로컬로 적어 두었다가(`rideRecord`) 이번 프레임 차량의 **지금** 변환으로 풀어 차이만 더한다(`rideCarry`). `carryCorpse` = 시체(땅에 닿은 몸만, 벗어나면 `deathLanded` 를 풀어 떨어뜨림). `replicaRidePredict` = 리플리카가 보간 지연 × 차량 속도만큼 앞당겨 그린다(`rideBlend` 로 섞음) |
 | `parts/Damage.ts` | **적이 피해를 입는 모든 경로.** 히트스캔 · 폭발 · 광역 · 리플리카의 `hit` 요청이 전부 여기로 모여 `applyDamage` 하나로 수렴하고, 죽으면 시체 등록(`registerCorpse`, `CORPSE_LOOT_CHANCE` 추첨)까지 이어진다. 배리어 판정(`resolveBarrier` / `absorbedByShield`)도 여기 있다 — 방패는 **적을 막는 벽**이자 정면 근접을 대신 받는 면이라 피해 경로의 일부다. |
 | `parts/Attacks.ts` | **적이 하는 공격.** 산성 침 · 로그의 총 · 포병 포탄(요격 가능) · 로그 수류탄 · 독성 자폭. 전부 **호스트에서만** 결정되고 결과가 `ee` 이벤트로 나가며, 각 클라이언트는 `parts/RemoteFx.ts` 에서 연출만 재생한다. **2026-09-10**: `fireShell` 이 `boolean` 을 돌려준다 — 풀이 꽉 찼거나 새 `shellArcBlocked` 가 궤적을 막힌 것으로 읽으면 `false`(발사도 `sid` 소모도 없다). `shellArcBlocked(world, from, target, flight)` 는 궤적의 앞쪽 `SHELL_ARC_CHECK_FRAC`(0.75)를 `SHELL_ARC_SAMPLES`(4)개의 현으로 나눠 `world.raycast` 한다: 현은 포물선 **아래**를 지나므로 검사는 보수적이고(뚫린 것을 막혔다고 볼 수는 있어도 그 반대는 없다), 마지막 하강 구간은 조준점이 땅이라 무조건 걸리므로 일부러 보지 않는다. 발사 시점(포 하나가 6~9초에 한 번)에만 도는 4회 레이캐스트라 핫 패스가 아니다. **2026-09-11**: 로그의 총알이 첫 표면인 **창문 유리**(`Obstacle.fragile`)를 깬다. |
 | `parts/Alerts.ts` | **적이 무엇을 눈치채는가.** 소리(총성 · 유인탄) · 시야 · 팩션 충돌 · 그리고 Phase 12 의 **총알 추적**: 감지 범위 밖에서 날아온 총알의 발사 지점을 향해 돌아서서(`alertShot`) 그 방향 감지를 넓히고, 못 찾으면 전진한다. 표적 선택(`pickTarget`)과 도주(`fleeFrom`)도 같은 인지 계통이다. |
@@ -49,7 +50,7 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `Targets.ts` | `CombatTarget { id: PeerId \| 'local' \| 'ai'; position; velocity; isDead; downed; isDeadOrDowned; present; yaw; eyeHeight; enemy; suspended; getEyePosition/getForward/getChest/dist2D; bodyRadius/bodyHeight }` — a stable object per player, plus one per enemy (`Enemy.asTarget`, `id 'ai'`, `enemy` set, synced by the system). `TargetList.refresh(ctx)` rebuilds `all` / `alive` each frame from `ctx.player` plus `ctx.net.getRemotePlayers()` filtered to `connected && !(stale && !suspended) && !DROPPING` (Phase 7: a **suspended** member — socket down, slot kept — stays a target; its position / hp / downed / dead come from the host's ghost through the same ref, `CombatTarget.suspended` routes damage to `ghost:damage`); `downed` = `player.isDowned` / `r.isDowned \|\| flags & DOWNED`. `alive` = present && !dead && !downed (the only players the AI may target or damage); `all` also holds downed and dead bodies (separation, `minDist`, spawn-distance checks). Enemy proxies are **not** in the list — `EnemySystem.pickTarget` scans `active` instead. Queries: `nearestAlive`, `nearestAliveWithin`, `minDist`, `distToLocal`, `randomAlive`, `randomPresent`, `local`, `anyAlive`. |
 | `Enemy.ts` | Entity implementing `EnemyRef` (`faction` getter, `isRogue`, `isCombatant`). Holds gameplay state (hp, state machine fields, timers, charge/leap/spit phases, cached obstacles), `target: CombatTarget \| null` + `targetTimer` + `distToTarget`, `lastDamager` (kill credit), `lastLocalHit` / `netBuf` (replica), Phase 4 memory (`roguePhase`, `guardPos`/`leash`/`escortOf`, `coverPos`, burst timers, `weaponId`; `shellTimer`/`dug`; `toxicPhase`/`swellTimer`; `chargeSeq`/`chargeEnd`/`chargeVictims`/`hitByCharge`; `corpseLife`) and the rig (`EnemyRig = BugRig \| RogueRig`) + `BugAnim`. `takeDamage(amount, hitPoint?, hitDir?, attacker = 'local')` classifies the hit (`head` / `rear` / `front`; behemoth `isFrontPlate(point)` → `front`), applies per-type multipliers, hit-flash/flinch, stagger (never for a swelling toxic), death; a popped-out rogue that gets hit ducks (`hitCrouchTimer`); on a replica it stops after the visuals and calls `host.requestHit`. `muzzle(out)` = rifle tip (rogues). `animate()` syncs the rig every frame (`fade` over the last 3 s of `corpseLife`; Phase 7 blends `anim.reload` / `anim.throwing` from `reloadTimer` / `throwTimer`). Phase 7 rogue memory: `magRounds`, `reloadTimer`, `grenadeCd` (staggered at reset), `noLosHold`, `throwTimer`, `grenadeTarget`, `popPos` / `hasPop`; `enterStagger` / `kill` drop a wind-up. `EnemyHost` interface lives here (`throwGrenade` appended). **Phase 10**: `kill(countKill, dir?)` carries the live `vy` into `deathVy` **before** clearing `airborne` (clamped to `CORPSE_FALL_MAX_SPEED`), picks `deathDir` from its own seeded stream (`rollDeathDir`, `worldSeed ^ id·0x85ebca6b`) unless the wire supplies one, and decides `deathLanded` on the spot (a normal ground kill lands in the same frame, so its corpse still registers immediately); `lootable` / `corpsePending` are the Phase 10 corpse fields and `animate` drives `BugAnim.deathFall` from `deathTimer / DEATH_FALL_TIME`. **2026-09-10**: `EnemyHost.fireShell` 이 `boolean` 이 되었고(거절 = 궤적이 막혔다), 총구 사선 캐시 5개(`fireLineAt` / `fireLineClear` / `fireLineGap` / `fireBlockTimer` / `fireStrafeSign`)가 붙었다 — `reset` 에서 초기화되고 `fireStrafeSign` 은 무작위라 한 분대가 전부 같은 쪽으로 비켜서지 않는다. |
 | `EnemyTypes.ts` | `ENEMY_STATS` table (with `faction`) plus ability tuning `HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`; `BugType` (rig type), `isRogueType`. |
-| `RayTests.ts` | Allocation-free `raySphere`, `rayCapsule`, `rayStandingCapsule` shared by hit detection, rogue shots and shell interception. |
+| `RayTests.ts` | Allocation-free `raySphere`, `rayCapsule`, `rayStandingCapsule` shared by hit detection, rogue shots and shell interception. 2026-09-11 (C-55): `raySegmentCapsule` (any-orientation capsule — the prone sniper's lying body) + `closestOnSegment` (its hit normal). |
 | `SpatialGrid.ts` | Allocation-free uniform XZ hash grid, rebuilt per frame, used for separation queries. |
 | `Spawner.ts` | `AmbientSpawner` (threat 0..1 → cap `12 + 24·threat`, patrol every 12–25 s from nests 60–140 m around a random alive player — or a random present body via `randomPresent` when everyone is downed — initial population on `world:ready`; from threat 0.5 `maybeArtillery` digs one in 80–120 m out, ≤ `MAX_ARTILLERY` alive), spawn helpers `findSpawnCenter`, `isVisibleToAnyPlayer`, `spawnGroup`, compositions `ambientGroup` (toxics from threat 0.4) / `waveGroup` (toxics from wave 2, a behemoth from wave 3), and the `SpawnHost` interface (`targets`, `countAlive`). Phase 7: `resume()` restarts the trickle mid-mission after a host promotion with a normal-length gap. **Phase 11**: `AmbientSpawner.eco` (the 목표 행성's `PlanetEcosystem`) — `cap` is `ambientCap` (`× eco.pressure`), the artillery ceiling is `maxArtilleryOf` and a planet whose `eco.bugs` has no artillery digs none in; `ambientGroup(threat, eco)` / `waveGroup(index, count, eco)` keep the whole ladder (same rolls, same probabilities, same gates in `AMBIENT_GATE` / `WAVE_GATE`) and only draw each slot's silhouette from `eco.bugs` inside its power tier (`TIER_FILLER` / `MEDIUM` / `HEAVY` / `RUNNER`). `eco === null` → every helper returns the pre-Phase-11 answer verbatim. **2026-09-09**: `needsSpawnClearance(type)` / `spawnBlocked(world, type, x, z)` (exported) + the private `placeMember` — a body of radius ≥ `ENEMY_BIG_RADIUS` re-rolls its offset (up to `ENEMY_SPAWN_RETRIES`, widening the ring each try) while `world.obstacleCoverage(x, z, radius × ENEMY_SPAWN_CLEARANCE_MUL)` exceeds `ENEMY_SPAWN_BLOCK_RATIO`, and is **skipped entirely** if none works (never downgraded to a smaller type). `spawnGroup` is the single funnel for ambient / wave / nest groups; `maybeArtillery` repeats the check because it calls `host.spawn` directly. |
 | `RogueGuards.ts` | `placeRogueGuards(host, seed)` on `world:ready` (authority): squads of 2–4 rogues 6–12 m around every tier-3/4 crate and 30 % of tier-2 crates (> 45 m from the player spawn), ≤ `MAX_GUARDS` (16) in total; one random tier-3/4 crate gets the `rogue_boss` + `ROGUE_BOSS_ESCORTS` escorts (leash to the boss). Seeded by the world seed; rifles from `ROGUE_AI.weapons` (boss `ROGUE_AI.bossWeapon`). `RogueSpawnHost.spawnRogue`. Guards are not waves and are never recycled by `ensureCapacity`. **Phase 11**: `placeRogueGuards(host, seed, eco)` — `guardCap` = `MAX_GUARDS × eco.rogues` (0 = a planet with no raiders, placed without touching the rng), the tier-2 share is `0.3 × eco.rogues`, and on an `eco.boss === false` planet the boss squad only appears when the seed rolls `ECO_BOSS_CHANCE`. Still fully seeded: same seed + same planet = same placement. |
@@ -100,9 +101,15 @@ direction); `ee corpseGone` / `corpse:removed` when the body despawns (after `CO
 the last 3 s (`BugAnim.fade`). Toxic bugs leave a corpse too (their loot table is the items folder's call).
 
 ## Audio ids emitted
-`bug_screech`, `bug_attack`, `bug_death`, `bug_step` (warrior/charger/behemoth/boss only, ≤ 30 m from the local player),
+`bug_screech`, `bug_attack`, `bug_death`, `bug_step` (hunter leap landing only since 2026-09-11),
 `bug_hit`, `acid_splash`, `shot_rifle` (rogue shots, pitch 0.9), `hit_flesh` (rogue hit / shot landing on a player),
 `player_death` (rogue death), `explosion` (shell landing / interception) — throttled per id.
+**2026-09-11 (C-51 · C-23 · C-22)**: 타입마다 흩어져 있던 선택이 `model.ts` 의 표 셋으로 모였다 — `meleeHitSound(type)`
+(벌레 `bug_attack` + 타입 피치, 로그 `melee_hit`, 타길라 · 스캔 드론 null), `hurtSound(type)` (벌레 `bug_hit` · 로그
+`hit_flesh` · 스캔 드론 `drone_hit`, 호스트와 리플리카가 같은 답), `stepSound(type)` (`stepSound` 가 true 인 타입의 피치 ·
+밑값). **적 발소리는 `footstep_<SurfaceMaterial>`** 이다 — 밟은 재질(`WorldRef.getSurfaceMaterial?`, 없으면 `dirt`)의
+id 를 위치와 함께 `audio:play` 로 내고(`model.emitEnemyStep`, **적 id 별** 스로틀 `ENEMY_STEP_MIN_GAP`, **카메라** 거리
+`ENEMY_STEP_EMIT_RANGE` 게이트), 크기 감쇠는 audio/ 의 `RANGED_SOUNDS` 곡선이 한 번만 건다(볼륨 = 타입 밑값 그대로).
 **로그 강하** (2026-09-10): `rogue_pod_impact` 만 여기서 낸다 (포드마다, 착지 지점에서). 경보 `rogue_drop_alarm`
 과 낙하 굉음 `rogue_pod_fall` 은 `audio/AudioSystem` 이 `rogueDrop:incoming` 을 보고 직접 낸다 — 크기가
 `ROGUE_DROP_ALERT_RADIUS` 기준 거리 감쇠의 함수라 패너 설정(`panOnly`)을 아는 audio/ 안에서만 정할 수 있다.
@@ -356,10 +363,9 @@ only walks `byId`), extends on a second call, ignores unknown ids and dead bodie
 **실드 배쉬 knockback** (asked for by implants/ after the contract froze): `EnemySystem.pushBack(center, radius, speed,
 dir?)` shoves every alive enemy in range away from `center` (or along `dir`) with a linear falloff to 40 % at the rim,
 using the same `velocity` nudge an explosion applies — so the existing steering / stumble rules absorb it and a
-charging behemoth is skipped, exactly like an explosion. It is **not** on `EnemyManagerRef` (frozen this phase), so
-implants/ reaches it as `(ctx.enemies as unknown as { pushBack?: (c, r, s, d?) => number }).pushBack?.(...)`; promoting
-it to the interface is a one-line contract change for a later phase. Authority only (a replica's velocity is
-overwritten by the next snapshot, and the host already shoved its own copy).
+charging behemoth is skipped, exactly like an explosion. **2026-09-11 (C-1 · X-6)**: it is `EnemyManagerRef.pushBack`
+now (no cast), and a **replica** no longer returns 0 — it sends one `HitRequest { dmg: 0, kb }` per enemy in range
+(falloff applied, `d` = push direction) and the host's `onHitRequest` applies it (see *C 항목 배치*).
 
 New `Enemy` fields: `investigating` / `shotOrigin` / `shotTimer` / `shotPhase` / `shotHold` / `shotCheckAt` and
 `barrierOwner` / `barrierUntil` / `barrierBumpAt`, all cleared in `reset()`, on promotion and by `flee`.
@@ -664,10 +670,25 @@ updateSniper (호스트 · namedData = SniperData, 첫 틱에 생성 · aware �
   `host.fireGun(e, t, 0, 1, {damage, range, aimAt, fx: false, wire: false, out})` — 가림 · 배리어 · 유리 · 피해는 기존
   경로 그대로다. 그 뒤 `sniperShotFx` + `ee snipe {from, to, hit, target}` + 반동, `fireCooldown = fireInterval`.
   `enemy:shot` 은 `fireGun` 이(리플리카는 `onSniperEvent` 가) 낸다.
+- **소염기 매몰** (C-56): `fireGun` 은 리그 총구(몸 ≈ 2.3 m 앞)에서 월드 레이를 쏘는데 월드 레이는 원점이 장애물 안이면
+  무충돌이라, 반짝임 동안 돌다 총열이 바위 · 둔덕에 파묻히면 탄이 그대로 통과했다. 발사 직전 **몸 중심(발 + `EYE_UP`)
+  → 총구** 선분을 `world.raycast` 하고, 막혔으면 `fireGun` 대신 그 점(섬광은 0.12 m 몸 쪽)까지 `sniperShotFx(hit:false)` +
+  `ee snipe(hit:false)` + `enemy:shot(hit:false)` + 쿨다운 — **전조를 띄운 한 발은 쏜다**(자리 옮기기는 넣지 않았다).
+  같은 이유로 사선 검사 원점 `EYE_FWD` 를 0.9 → **0.3 m**(몸 반경 0.4 안)로 당겼다.
+- **몸통 판정** (C-55): 엎드린 몸은 세로 캡슐이 아니라 **눕힌 캡슐**이다 — `models/named/SniperLook.sniperBodyCapsule`,
+  리그 실측으로 뒤 끝 구 중심 (z −0.80, y 0.20) · 앞 끝 (z 0.50, y 0.30) · 반경 0.25 (발끝 −1.05 · 어깨 앞 0.75 · 윗면
+  0.55 를 덮는다, 벌린 발끝만 조금 밖). 비율은 **보이는 자세**(`SniperLookState.pose` = smoothstep 한 엎드림)이고 그
+  사이는 서 있는 캡슐 끝점 · 반경과 섞으며, 경사(`anim.slopePitch`)는 자세와 같은 규약으로 골반 피벗 둘레로 기울인다.
+  `EnemySystem.raycastEx` 가 `models/named.namedBodyRay` 로 묻고(kind 4, 법선 = 명중점 − 축 최근접점) 모든 히트스캔
+  경로(무기 · 원격 무기 · 로그 `fireGun` · 대전차포 · 핑)가 그대로 받는다. 광역 반경 R(엎드림 1.68 m)은 캡슐 끝(≤ ≈ 1.35 m)을
+  덮는다. 폭발 중심 높이도 `namedBodyCenterY` — 엎드리면 ≈ 0.25 m(`parts/Damage.applyExplosion` 리플리카 가지 · `explode`).
 - **드론 수명** (`trackDrone`): `done` 을 보면 `scanWait` 창을 연다(스캔 표적에게 반짝이는 동안은 멈춘다) — 끝까지
   사선이 없으면 포기 → `droneRetry`. `done` 전에 `dead` · `flee` · 사라짐 · `loiterMax + 20 s` → `droneRetry`. 스캔
   표적에게 쐈으면 `droneCooldown`. 세 경우 모두 `resolvedDroneId = 드론 id` · `droneId = null` — 드론이 노출을 풀고
   복귀하는 신호다(`model.ts` 에 적힌 계약).
+- **드론 입양** (C-49): `droneId === null` 이면 `trackDrone` 앞에서 `sniperId === 자기 id` 인 **아직 아무도 붙잡지 않은**
+  (`!claimed`) 스캔 · 대기 단계 드론을 집어 온다 — 방금 놓아 준 드론(`resolvedDroneId`) · 귀환 중인 드론은 되잡지 않는다.
+  호스트 승격으로 넘어온 드론을 `ScanDrone.ts` 가 가장 가까운 로든에게 붙여 주는 짝이다.
 - **사격 연출** (`named/SniperShot.ts`, 호스트 · 리플리카 공용): 트레이서 세 겹(심지 · 탄연 · 달려가는 섬광) ·
   `FlashPool` 섬광(광원 세기 0) · 소염기 연기 · 엎드린 자리 흙먼지 · 탄착 먼지 · `sniper_shot` · 스친 탄 흔들림.
   소리의 거리 곡선은 `audio/AudioSystem` 의 `RANGED_SOUNDS` 가 갖고 여기서는 실제 위치로만 낸다.
@@ -683,11 +704,10 @@ updateSniper (호스트 · namedData = SniperData, 첫 틱에 생성 · aware �
   **광원 없음**, 스프라이트 `raycast` 는 끈다. 지오메트리 · 텍스처는 리그마다 만들고 `disposeSniperLook` 이 버린다.
 - **머리 판정**: `rig.params` 를 리그별 사본으로 바꿔 끼우고 `head.y / head.z` 를 엎드림 비율로 1.66/0.02 ↔
   0.27/0.84 사이에서 옮긴다 — `Enemy.headCenter`(헤드샷 구) · `lookAtTarget` 이 엎드린 머리를 본다.
-- **알려진 한계**: ① 몸통 판정은 `raycastEx` 의 **세로** 캡슐(1.8 m) 그대로라 엎드린 몸 위 허공이 맞고 다리 쪽은
-  안 맞는다(머리 구만 옮겼다) — `EnemySystem` 소관. ② 사선 검사는 엎드린 눈(표적 쪽 0.9 m 앞 · 0.32 m 높이)에서,
-  실제 탄은 리그 총구에서 나간다 — 소염기가 바위 속이면 탄이 그대로 통과한다. ③ 경직 · 전소 · 자리 옮기기 동안은
-  서 있다. ④ `aware` 고정이라 총알 추적에 끌려가지 않는 대신 `enemy:alerted` 도 내지 않는다. ⑤ 벌레가 붙어도 쏘지
-  않는다(플레이어만) — 맞으면 자리만 옮긴다.
+- **알려진 한계**: ① 경직 · 전소 · 자리 옮기기 동안은 서 있다. ② `aware` 고정이라 총알 추적에 끌려가지 않는 대신
+  `enemy:alerted` 도 내지 않는다. ③ 벌레가 붙어도 쏘지 않는다(플레이어만) — 맞으면 자리만 옮긴다. ④ 근접 판정
+  (`weapons/Melee` 원뿔)은 여전히 서 있는 몸 기준이다. ⑤ 매몰 판정은 발사 순간 한 번뿐이라 막힌 자리에서 반짝임을
+  다시 시작할 수 있다(이동은 넣지 않는다는 결정).
 
 ### 스캔 드론 (`ai/named/ScanDrone.ts` · `models/named/ScanDroneLook.ts` · `fx/ScanPulseFx.ts`)
 로든이 먼 플레이어를 노릴 때 띄우는 쿼드콥터(`rogue_scan_drone`, hp 60 · 반경 0.45 · 높이 0.4). **휴머노이드 리그
@@ -737,13 +757,17 @@ updateScanDrone (namedPhase)
   비행 방향으로 기울고 떠 있는 채로 까딱이며, 힌트 20 에서 렌즈가 번쩍이며 맥동한다. 죽으면 날개가 멎고 굴러 떨어져
   옆으로 누운 잔해가 된다. 공유 지오메트리는 참조 카운트로 마지막 리그가 dispose 될 때 해제된다.
 - **리플리카**: `beforeScanDroneReplica` = 직전 y 기억 + `airborne`(Replica 가 지형 스냅을 건너뛴다),
-  `afterScanDroneReplica` = `vy` 차분 · 휴머노이드 자세 목표 무시 · 비행음, `onScanDroneEvent` = FX · 소리 ·
+  `afterScanDroneReplica(e, hint, dt, host)` = `vy` 차분 · 휴머노이드 자세 목표 무시 · 비행음(`host.playAudio`), `onScanDroneEvent` = FX · 소리 ·
   `named:scanPulse` · 로컬 노출(`tg` 에 내 `localId`).
-- **알려진 한계**: ① 리플리카의 드론이 호스트 승격으로 넘어오면 `namedData` 가 없어(호스트 전용) 첫 틱에 퇴장한다 —
-  로든은 `droneRetry` 뒤 새로 띄운다. ② 드론의 `hostOf` 는 `Enemy` 의 private `host` 필드를 캐스트로 읽는다(리플리카 훅에
-  host 인자가 없다). ③ 격추 시 `parts/Damage.onEnemyKilled` 가 로그 공통으로 `player_death` 소리와 피 튀김을 낸다.
-  ④ 드론 처치도 `enemy:killed` 로 킬 · 계약 카운트에 들어간다. ⑤ `Steering.separate` 는 2D 라 드론 바로 밑의 적이 살짝
-  밀릴 수 있다(스폰은 그래서 저격수 옆으로 비켜 선다).
+- **호스트 승격** (C-49): 리플리카 시절의 드론에는 `namedData` 가 없다(호스트 전용). 예전에는 첫 틱에 `retire` →
+  같은 프레임 despawn 이라 **공중에서 사라졌고**, 로든도 `createData` 의 `LAUNCH_RETRY_S`(3 s) 뒤 새 드론을 스캔 0 부터
+  띄웠다. 이제 `adoptOrphan` 이 새 `ScanDroneData` 를 준다 — `sniperId` = 살아 있는 `rogue_sniper` 중 가장 가까운 것
+  (없으면 -1 → 이탈 단계가 솟구쳐 치운다), 표적 무효(`'ai'` → 스캔 가지의 대체 로직이 로든 사거리 안 가장 가까운
+  플레이어를 고른다), 스캔 0 · 단계 SCAN · **`namedTimer = 0`**(리플리카 훅이 직전 y 를 적어 두어 안 비우면 힌트 20 이
+  수십 초 방송된다). 로든 쪽이 `droneId === null` 이면 그 드론을 입양한다(위 `로든` 소절). 디버그 스폰 드론도 같은 길이다.
+- **알려진 한계**: ① 격추 시 `parts/Damage.onEnemyKilled` 가 로그 공통으로 `player_death` 소리와 피 튀김을 낸다.
+  ② 드론 처치도 `enemy:killed` 로 킬 · 계약 카운트에 들어간다. ③ `Steering.separate` 는 2D 라 드론 바로 밑의 적이 살짝
+  밀릴 수 있다(스폰은 그래서 저격수 옆으로 비켜 선다). ④ 승격 순간 진행 중이던 스캔 · 노출은 잃는다(스캔은 0 부터 — 결정).
 
 ### 헤비 (`ai/named/Heavy.ts` · `models/named/HeavyLook.ts`)
 ```
@@ -764,11 +788,15 @@ chase (엄폐 사이클 없음)
   `Enemy.namedHint` 로 스냅샷에 실린다. 헤비가 연사 중 죽으면 `off` 는 나가지 않지만 리플리카는 시체를 `drive` 하지 않아 멈춘다.
 - **호스트 연출**: 트레이서 2발에 하나(`fx.tracers`) · 섬광 프레임당 하나(`fx.flashes`, 세기 0 — 광원 개수 불변) ·
   `minigun_fire` 0.1 s 틱(버스로 직접 — `host.playAudio` 의 기본 스로틀 0.12 s 가 틱을 절반으로 깎는다) · 명중 시 `hit_flesh`.
-- **리플리카**: `onHeavyEvent(on)` 이 연사 상태만 켜고, `afterHeavyReplica` 가 **스스로** 같은 박자로 트레이서(적 yaw 전방 +
-  머리 피치 + `spread`, `world.raycast` 로 끝점) · 섬광 · 틱을 낸다. `off` 를 놓쳐도 `burstTime + 1.5 s` 또는 힌트가 19 에서
-  0.5 s 벗어나면 멈춘다. 회전음은 힌트 18/19 가장자리에서. ⚠ `afterNamedReplica` 에는 호스트가 오지 않아 소리 출구를
-  `onHeavyEvent` 에서 받아 두므로, 그 클라이언트가 `ee spray` 를 처음 받기 전의 **첫 회전음**은 나지 않는다.
-  드론을 쏠 때 리플리카 트레이서 높이는 가까운 플레이어 쪽 머리 피치라 어긋날 수 있다.
+- **리플리카**: `onHeavyEvent(on)` 이 연사 상태만 켜고, `afterHeavyReplica(e, hint, dt, host)` 가 **스스로** 같은 박자로
+  트레이서 · 섬광 · 틱을 낸다. `off` 를 놓쳐도 `burstTime + 1.5 s` 또는 힌트가 19 에서 0.5 s 벗어나면 멈춘다. 회전음은
+  힌트 18/19 가장자리에서 — `host` 를 `net/Replica.drive` 가 늘 넘기므로 첫 `ee spray` 전의 회전음도 난다(C-54).
+- **리플리카 트레이서 방향** (C-50): 와이어에는 `ee spray {on}` 뿐이라 누구를 쏘는지 모른다. `remoteAimPoint` 가 몸 방향
+  (`e.yaw`, 스냅샷)에서 `FIRE_FACING_TOL`(0.35 rad — 호스트가 실제로 방아쇠를 당기는 콘. 계획의 ±0.25 대신 이 값을 써서
+  호스트가 쏜 발의 표적이 반드시 후보에 든다) · `range` 안의 후보 중 **가장 가까운** 것의 가슴을 고른다 — 플레이어
+  (`targets.alive`) ∪ 적이 노리는 드론(`targets.drones`) ∪ 반대 팩션 적(키 × 0.6). 방향 = 총구 → 그 점 + `spread`
+  (클램프 없음), 후보가 없으면 예전처럼 yaw 전방 + 머리 피치. 끝점은 `world.raycast`. 연사 중 매 프레임 돌므로 클로저 ·
+  배열 없이 모듈 스크래치로 센다.
 - **호위**: SMG 로그는 `escortOf` → 기존 `RogueAI` 가드 로직. 헤비는 기다리지 않고, 죽으면 `RogueAI` 가 호위를 풀어 준다.
 - **겉모습**: 흉부 · 골반 메시만 넓히고(히트박스 파라미터 불변) 흉갑 · 견갑 · 허리/허벅지/정강이 판 · 헬멧 + 노란 바이저
   (`eyeMat`) · 탄통 백팩 + 탄띠. 기본 소총 메시는 **숨기기만** 하고, 두 어깨 사이 피벗에 미니건 + 그것을 쥔 팔을 붙인다(허리 높이
@@ -807,8 +835,7 @@ attack phase 4  0.25 s 회복 → chase
   높이 떠 있으면 준비 · 돌진 · 타격 셋 다 하지 않는다(`canReachVertically` — `pickTarget` 의 고도 필터 뒤의 안전망).
 - **와이어**: 힌트 16/17 은 `Enemy.namedHint` 로 스냅샷에 실리고, 타격마다 `ee hammer {id, p}`. 리플리카는
   `onHammerEvent` 가 `anim.recoil = 1`(내려찍기 자세) + 같은 FX · 흔들림 · `hammer_impact`, `afterHammerReplica` 가
-  조준 자세를 지우고 힌트 16 이 새로 켜질 때 `hammer_swing`. ⚠ 리플리카 훅에 호스트가 없어 소리 출구를 `ee hammer` 에서
-  받아 두므로 그 클라이언트의 **첫 준비음**은 나지 않는다(헤비와 같은 한계).
+  조준 자세를 지우고 힌트 16 이 새로 켜질 때 `hammer_swing`(`host` 인자로 — 첫 `ee hammer` 전의 준비음도 난다, C-54).
 - **겉모습**: 기본 로그 × 1.12(머리 1.86 · 키 ≈ 2.05, csv 히트박스에 맞춤) + 장갑판으로 폭(반경 0.55)을 채운다 — 가슴 ·
   등 · 옆구리 · 견갑 · 탄부 · 허벅지 · 정강이 · 철판 장화, 용접 마스크 + 방독 필터 2 + **붉은 바이저 틈**(`eyeMat`, 리그마다
   `emissive` 를 붉게). 소총 메시(`rig.gun`, 팔과 한 메시)는 **숨기고** 가슴 피벗에 양손 대형 망치 + 팔을 붙인다(`muzzle` 은
@@ -819,8 +846,9 @@ attack phase 4  0.25 s 회복 → chase
 - 수치: `NAMED_HAMMER` 의 `windup` · `chargeDist` · `chargeSpeed` · `chargeCooldown`(`structureRadius` 는 디렉터)에 이번에
   `giveUpDist` 60 · `giveUpTime` 4 · `patrolRadius` 10 을 더했다. `enemies.csv` 의 `attackWindup`(0.3)은 **읽지 않는다** —
   준비 시간은 `NAMED_HAMMER.windup` 하나다.
-- **알려진 한계**: ① 돌진이 막혀 경직되면 `bug_step` 소리가 난다(`integrate` 의 공용 경직 경로). ② `hitTarget` 이 공용
-  `bug_attack` 소리를 함께 낸다. ③ 준비 중 경직(단발 2240 피해)이면 들어 올린 채 멈췄다가 내려온다.
+- **알려진 한계**: ③ 준비 중 경직(단발 2240 피해)이면 들어 올린 채 멈췄다가 내려온다. (① 돌진 막힘의 `bug_step` ·
+  ② `hitTarget` 의 공용 `bug_attack` 은 2026-09-11 C-51 에서 없어졌다 — `model.stepSound` / `meleeHitSound` 표: 막힘 = 그
+  타입의 재질 발소리를 낮은 피치로, 타길라 타격음 = null 이라 `hammer_impact` 하나만 난다.)
 
 ## 적 ↔ 드론 (2026-09-11)
 
@@ -853,15 +881,77 @@ attack phase 4  0.25 s 회복 → chase
 - **폭발**: 권한 분기에서 한 곳씩 `ctx.drones.applyExplosion(center, radius, damage)` — 로그 수류탄(`onGrenadeExploded`) ·
   포탄 착탄(`onShellLanded`) · 독성 자폭(`toxicBurst`) · 스퓨어 사망 폭발(`acidBurst`). 공용 `explode()` 에는 넣지
   않았다 — 플레이어 · 가젯 폭발(리플리카의 `explode` 요청 포함)도 거기를 지나 이중 적용이 된다.
-- **알려진 한계**: ① 베헤모스 돌진 경로 피해(`ai/GimmickAI.attackBehemoth`)는 `targets.alive` 만 훑어 드론을 치지
-  않는다(근접은 친다). ② 버그가 드론에 뱉는 산성은 `ee acid` 가 PeerId 표적만 실을 수 있어 리플리카에 보이지 않는다
-  (버그 ↔ 로그 산성과 같은 성질). ③ 네임드 AI(`ai/named/*`)도 드론을 표적으로 받을 수 있다 — 필요하면 `t.isDrone` 으로 거른다.
+- **알려진 한계**: ③ 네임드 AI(`ai/named/*`)도 드론을 표적으로 받을 수 있다 — 필요하면 `t.isDrone` 으로 거른다.
+  (① 베헤모스 돌진이 드론을 치지 않던 것은 2026-09-11 C-47, ② 드론 · 적 표적 산성이 리플리카에 안 보이던 것은 C-48
+  `ee acidAt` 으로 닫혔다 — 아래 *C 항목 배치* 절.)
 - 디버그: `debugDroneTargets` = `[{ id, altitude }]`.
+
+## C 항목 배치 — 적(일반) (2026-09-11, 에이전트 4)
+
+`docs/plans/c-batch.md` §8 의 일반 적 항목. 계약(`EnemyManagerRef.pushBack` · `HitRequest.kb` · `Interactable.kind` ·
+`SurfaceMaterial` · `shared/ride.ts` · `ee acidAt` · `HAZARD_ENEMY_DPS`)은 리드 커밋이다.
+
+- **C-1 · X-6 배쉬 넉백 (비호스트)** — `parts/Damage.pushBack` 이 역할을 가른다: 권위는 예전처럼 `velocity` 에 더하고,
+  리플리카는 범위 안 적마다 `HitRequest { dmg: 0, p: 몸 가운데, d: 밀 방향, kb: 감쇠 적용된 m/s }` 를 호스트로 보내고 보낸
+  수를 돌려준다(`applyStatus` 의 `st` 요청과 같은 모양). 호스트 `onHitRequest` 는 `dmg 0 · st 0` 이어도 `kb` 가 있으면 받아
+  `d` 의 수평 방향으로 더한다 — 돌진 중(`chargePhase 2`) · 비전투원 제외, `MAX_REQUEST_KNOCKBACK`(20)으로 자름, `dmg 0` 이라
+  `hitc` 없음. 기하는 `dmg` · `st` 처럼 검증하지 않는다(E-4 계열 신뢰 경로 +1).
+- **C-4** — `Corpse.kind = 'corpse'` (빛기둥 · 정찰 스캔이 접두어를 추측하지 않는다).
+- **C-14 재해가 적에게도** — `parts/Status.updateHazardDot`: 권위 · 게임플레이 페이즈에서 `HAZARD_TICK_S` 마다 살아 있는 적 중
+  `ctx.world.hazard.isInside` 인 몸에 `HAZARD_ENEMY_DPS × HAZARD_TICK_S`. `Enemy.applyDot(…, 'ai', quiet)` 라 번쩍임 · 피 FX ·
+  `bug_hit` · `ee damaged` · 경직 · `aware` · `alertNear` 가 없고, 킬 크레딧도 없다(`'ai'` → `enemy:killed` 없음). 떨어지는 hp 는
+  평소 스냅샷이 싣는다. 재해가 `missionTime` 의 함수라 호스트 이관 뒤에도 이어진다. `EnemySystem.hazardTick` 은 `Pool.reset` 이 비운다.
+- **C-18 전차 탑승 · 시체 · 강하 목표** — `ai/Ride.ts` (위 파일 표). ① 권위: `integrate` 의 `_prev` 기록 **앞**에서 `rideCarry`,
+  표면 재접지 **뒤**에서 `rideRecord` — `velocity` · 보행 · 발소리 · 돌진 이탈 검사는 차량 이동을 보지 않는다. 헌터 도약
+  (`airborne`)은 하차. 네임드 AI 도 `integrate` 를 타므로 같이 탄다. ② 리플리카: `net/Replica.drive` 가 가장 새 샘플을 차량
+  속도로 앞당겨 차량 부피 안이면 보간 자리에 `속도 × lag`(= 지금 − min(renderT, 샘플 + 추정 한도))를 더하고, 보행 이동량에서 그
+  몫을 뺀다. ③ 시체: `EnemySystem.update` 가 죽은 몸마다 `carryCorpse` 를 부르고, 움직였으면(또는 차량에서 흘러 떨어지는 중이면)
+  `corpse:<id>` 상호작용 자리를 몸에 맞춘다. `Enemy.kill` 은 탄 채 죽은 몸의 로컬 자리를 다시 적는다(리플리카 예측 오프셋 포함).
+  ④ `RogueDrop.dropTargetFor`: `structure:investigated.zoneId` 가 `tram_*`(전차 컨테이너)면 목표를 **가장 가까운 플랫폼**으로 —
+  달리던 전차 자리(= 선로 한가운데)에 분대가 떨어지지 않는다. 전차 치임(world/)은 탑승 상태를 묻지 않는다(데크 윗면 −
+  `RIDE_FOOT_DROP` 위의 몸은 치지 않는다는 합의). 검사 `scripts/smoke-tram-ride.mjs`.
+- **C-23 · X-3 · X-10 적 발소리** — `ai/EnemyAI.footfall(e, ctx, targets, moved)` 하나를 권위(`integrate`)와 리플리카(`drive`,
+  한 프레임 2 m 미만 이동만)가 같이 부른다: 반 보폭마다 `model.emitEnemyStep` + 베헤모스는 40 m 안 흔들림(예전엔 30 m 블록
+  안이라 30–40 m 에서 안 흔들렸다). 방출부 선형 감쇠 · 로컬 PC **몸** 30 m 게이트 · 전역 id 스로틀이 없어졌다(→ 카메라 60 m ·
+  적 id 별 0.12 s · audio/ 곡선). 돌진 막힘 쿵도 같은 함수(× 1.8 크기 · × 0.85 피치).
+- **C-24 · X-4 곡사포 재배치** — `ai/GimmickAI.artilleryRelocate`: 거절되면 후보 7곳(좌우 7 · 14 m, 표적 쪽 10 m, 조합) +
+  오르막 한 곳을 `parts/Attacks.shellArcBlocked` 로 사전 검사(맵 안 · 후퇴~최대 사거리 · `obstacleCoverage` ≤ 0.25)해
+  **가장 가까운 뚫린 자리**로 걷고(`Enemy.shellSpot` — `chase()` 가 `moveTarget` 을 매 프레임 표적으로 덮기 때문에 예전
+  재배치는 사실 **표적 쪽으로** 걸었다), 걷는 시간은 거리에서(`walkFor`), 도착하면 바로 다시 판다. 부호 교대 없음. 없으면 표적
+  쪽으로 접근. 연속 `ARTILLERY_AI.maxRefusals`(3) 번이면 다른 살아 있는 플레이어로 표적을 바꾸고 `refusalCooldown`(8 s) 쉰다.
+- **C-25** — `ai/RogueCover` 의 `COVER_STANDOFF` 0.7 삭제 → `ENEMY_WALL_STANDOFF`(1) — 엄폐 · 사격 자리가 `FireLine` 이
+  물러서는 거리와 같다.
+- **C-47 베헤모스 돌진 → 드론** — `attackBehemoth` 가 `targets.drones` 도 훑는다(수평 `반경 + 몸체 + 0.4`, 수직 겹침, 한 돌진에
+  `Enemy.chargeDrones` 로 드론 id 당 1회 → `chargeHit` → `damageDrone`). `chaseBehemoth` 는 밑면이 제 키보다 높이 뜬 표적(공중
+  드론)에게 돌진을 시작하지 않는다(`canBodyReach`, 타길라 `canReachVertically` 와 같은 식).
+- **C-48 · X-5 산성** — 드론 · 적 표적(`fireAcid`)과 `fireAcidAt`(연막 반격 · 설치물)이 조준점을 `ee acidAt {id, from, to}` 로
+  방송하고 리플리카가 `acidVisualAt` 으로 날린다. `AcidProjectiles` 가 쏜 쪽 팩션을 들고(`fire` / `fireAt` 의 `faction`) **다른
+  팩션 적**의 몸통 캡슐 직격 · 스플래시도 판정한다 → `damageTargetAcid(e.asTarget)` → `applyDamage` 적 가지(킬 크레딧 없음).
+  **밸런스 변화**: 예전엔 벌레 산성이 로그를 그냥 지나가 버그 ↔ 로그 교전에서 스퓨어가 피해 0 이었다 — 이제 직격 18 · 스플래시 10.
+- **C-51 소리 표** — 위 *Audio ids emitted*. `Damage.hitTarget` · `chargeHit` · `barrierHitRemote` · 리플리카 `ee attack` 이
+  `meleeHitSound`, `requestHit` · `onEnemyDamaged` · 리플리카 `ee damaged` · 감전 비명이 `hurtSound`. `Attacks.bitePitch` 는 표를 읽는다.
 
 ---
 
 ## 변경 이력
 
+- **2026-09-11 (C 배치 — 일반 적 C-1 · C-4 · C-14 · C-18 · C-23 · C-24 · C-25 · C-47 · C-48 · C-51, 에이전트 4)** — 위 *C 항목
+  배치* 절. 새 파일 `ai/Ride.ts`. `Enemy` 필드 추가: `carrier` · `rideLocal` · `rideWorld` · `rideBlend` · `lastCarrier` ·
+  `corpseDropped`(탑승) · `stepAt`(발소리 스로틀) · `shellRefusals` · `shellSpot`(곡사포) · `chargeDrones`(베헤모스),
+  `applyDot(…, quiet)`. `ReplicaHost.acidVisualAt`, `AcidHost.active` · `find`. 새 수치: `data/enemy_abilities.csv` 의
+  `ARTILLERY_AI.maxRefusals` 3 · `refusalCooldown` 8 (코드 상수: `MAX_REQUEST_KNOCKBACK` 20, `ENEMY_STEP_EMIT_RANGE` 60 ·
+  `ENEMY_STEP_MIN_GAP` 0.12, 곡사포 후보 거리). 스모크: 새 `scripts/smoke-tram-ride.mjs`(19 체크), `smoke-phase4` +11
+  (C-14 · C-51 · C-47 · C-24), `smoke-enemy-delta` +13 (C-1 · C-48 · X-5 · C-51 · C-23).
+
+- **2026-09-11 (C 배치 — 네임드 C-49 · C-50 · C-54 · C-55 · C-56, 에이전트 4N)** — ① C-54: `ai/named/remote.afterNamedReplica`
+  의 `host` 를 필수로 하고 네 종류 모두에 넘긴다. 스캔 드론의 `hostOf`(private 필드 캐스트) 삭제, 헤비 `replicaHost` · 타길라
+  `replicaAudio` 모듈 전역 캐시 삭제(인자로). ② C-49: 호스트 승격으로 넘어온(= `namedData` 없는) 스캔 드론을 `retire` 대신
+  입양 — 가장 가까운 로든 · 스캔 0 · `namedTimer` 0, 로든은 `droneId === null` 이면 미입양 드론을 집어 온다. ③ C-50: 리플리카
+  헤비 트레이서가 방위 콘 안 가장 가까운 후보(플레이어 ∪ 드론 ∪ 반대 팩션)의 가슴을 향한다. ④ C-55: `RayTests.raySegmentCapsule`
+  · `closestOnSegment` 신규, 엎드린 로든 몸통 = 눕힌 캡슐(`SniperLook.sniperBodyCapsule`, 리그 실측, 보이는 자세 비율 · 경사) →
+  `models/named.namedBodyRay / namedBodyNormal / namedBodyCenterY` → `EnemySystem.raycastEx` 몸통 가지(kind 4) · `parts/Damage`
+  폭발 중심 두 줄. ⑤ C-56: 로든 사선 원점 `EYE_FWD` 0.9 → 0.3, 발사 직전 몸 → 총구 레이가 막히면 그 점에 박힌다(`hit:false`,
+  쿨다운 · 전조 유지). 새 스모크 `scripts/smoke-named.mjs`(32 체크, verify 미등록). 새 수치 없음. 위 네임드 소절들.
 - **2026-09-11 (네임드 로그 — 로든)** — `ai/named/Sniper.ts` · `models/named/SniperLook.ts` 스텁을 채우고
   `named/SniperShot.ts`(호스트 · 리플리카 공용 사격 연출) 신규. 둥지 엎드림 → 근거리 사선 저격 / 원거리 스캔 드론 →
   스캔 표적 저격, **모든 발사는 조준경 반짝임 뒤**(힌트 15 · `named:sniperGlint` · `ee glint`). 발사는 `fireGun` opts

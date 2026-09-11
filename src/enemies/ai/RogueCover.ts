@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ROGUE_COVER_FLANK_WEIGHT, type WorldRef } from '@/shared';
+import { ENEMY_WALL_STANDOFF, ROGUE_COVER_FLANK_WEIGHT, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { ROGUE_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
@@ -21,8 +21,12 @@ export const COVER_SEARCH_RADIUS = 16;
 const COVER_EYE = 0.9;
 /** Standing eye height for the pop-out spot (must see the target). */
 const STAND_EYE = 1.45;
-/** How far past the obstacle's blocking cylinder the rogue stands. */
-const COVER_STANDOFF = 0.7;
+/*
+ * How far past the obstacle's blocking cylinder the rogue stands (hiding spot · pop-out spot): `ENEMY_WALL_STANDOFF`.
+ * 2026-09-11 (C-25): the private `COVER_STANDOFF` 0.7 is gone — `ai/FireLine` pulls its muzzle test back by
+ * `ENEMY_WALL_STANDOFF` (1 m), so a pop-out spot only 0.7 m off the rock could read as "blocked" from the very spot
+ * cover selection had just validated. One number now decides both.
+ */
 
 /**
  * The radius the rogue must clear when it steps behind or beside a prop.
@@ -127,7 +131,7 @@ function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boo
     if (l < 1e-3) continue;
     _c.multiplyScalar(1 / l);
     const br = blockRadius(o);
-    const px = o.position.x + _c.x * (br + COVER_STANDOFF), pz = o.position.z + _c.z * (br + COVER_STANDOFF);
+    const px = o.position.x + _c.x * (br + ENEMY_WALL_STANDOFF), pz = o.position.z + _c.z * (br + ENEMY_WALL_STANDOFF);
     if (!world.isInsideBounds(px, pz)) continue;
     const toTarget = Math.hypot(tp.x - px, tp.z - pz);
     if (toTarget < 4 || toTarget > ROGUE_AI.range * 0.9) continue;
@@ -166,7 +170,7 @@ function findPopSpot(world: WorldRef, o: { position: THREE.Vector3; radius: numb
   if (l < 1e-3) return false;
   _c.multiplyScalar(1 / l);
   const br = blockRadius(o);
-  const reach = br + COVER_STANDOFF + 0.2;
+  const reach = br + ENEMY_WALL_STANDOFF + 0.2;
   let bestD = Infinity;
   for (let side = -1; side <= 1; side += 2) {
     const px = o.position.x + (-_c.z * side) * reach + _c.x * br * 0.35;

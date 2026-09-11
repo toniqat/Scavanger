@@ -292,7 +292,29 @@ export class RogueDropDirector {
     // 시드 굴림: 누가 호스트든(이관 뒤에도) 같은 구역은 같은 답을 낸다
     const rng = new Random((((ctx.world.seed >>> 0) ^ Random.hash(zoneId)) >>> 0));
     if (!rng.chance(Number.isFinite(ROGUE_DROP_CHANCE) ? ROGUE_DROP_CHANCE : 0)) return;
-    this.call(zoneId, position);
+    this.call(zoneId, this.dropTargetFor(ctx.world, zoneId, position));
+  }
+
+  /**
+   * 2026-09-11 (C-18): 강하 목표. 구조물 · 고정 플랫폼은 조사 지점 그대로다. 그런데 **전차 안 컨테이너**(zoneId
+   * `tram_<lineId>`)는 조사 순간의 전차 자리가 넘어오므로, 달리던 전차였다면 포드가 선로 한가운데에 떨어지고 분대가
+   * 빈 선로를 지키게 된다. 그래서 그 선로의 **가장 가까운 플랫폼**으로 바꾼다 — 전차는 결국 플랫폼에 선다.
+   * 플랫폼이 없는 선로(없어야 정상이다)면 원래 지점.
+   */
+  private dropTargetFor(world: NonNullable<RogueDropHost['ctx']['world']>, zoneId: string, position: THREE.Vector3): THREE.Vector3 {
+    if (!zoneId.startsWith('tram_')) return position;
+    const lines = world.getRailLines();
+    let best: THREE.Vector3 | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < lines.length; i++) {
+      const plats = lines[i].platforms;
+      for (let j = 0; j < plats.length; j++) {
+        const p = plats[j].position;
+        const d = (p.x - position.x) ** 2 + (p.z - position.z) ** 2;
+        if (d < bestD) { bestD = d; best = p; }
+      }
+    }
+    return best ?? position;
   }
 
   /** 이 구역은 이미 굴렸는가 — 자체 기록 + world/ 가 동기화해 주는 `StructureDef.rogueDropUsed`. */

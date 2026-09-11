@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type WorldRef } from '@/shared';
+import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type GameContext, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
-import type { CombatTarget } from '../Targets';
+import type { CombatTarget, TargetList } from '../Targets';
+import { emitEnemyStep } from '../model';
+import { rideCarry, rideRecord } from './Ride';
 import { avoidObstacles, seek, separate, turnToward, yawTo } from './Steering';
 import { acquireTarget, updatePerception } from './Perception';
 import { fireLineStrafe, hasFireLine } from './FireLine';
@@ -523,7 +525,8 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   const charging = e.chargePhase === 2;
 
   if (e.airborne) {
-    // handled in the leap branch; only refresh gait/animation speed
+    // handled in the leap branch; only refresh gait/animation speed. A leap flies in world space — it leaves the tram.
+    e.carrier = null;
     a.speed = THREE.MathUtils.lerp(a.speed, 0.2, dt * 5);
     return;
   }
@@ -552,6 +555,9 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   separate(e, host.grid, host.targets.all, _steer, allowOverlap || charging);
   if (!charging) e.velocity.addScaledVector(_steer, dt * 4);
 
+  // 2026-09-11 (C-18): 전차에 탄 몸은 차량이 이번 프레임에 옮겨 간 만큼 먼저 옮긴다 (`ai/Ride`). `velocity` 는 로컬 속도로 남고
+  // `_prev` 는 그 뒤에 잡으므로 보행 · 발소리 · 돌진 이탈 검사는 차량 이동을 보지 않는다.
+  rideCarry(e, world);
   _prev.copy(pos);
   pos.x += e.velocity.x * dt;
   pos.z += e.velocity.z * dt;
@@ -571,12 +577,16 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
     if (dev > 0.05 || !world.isInsideBounds(pos.x + e.chargeDir.x * 2, pos.z + e.chargeDir.z * 2)) {
       const big = e.type === 'behemoth';
       stumble(e, big ? BEHEMOTH_AI.chargeCooldown : CHARGER_CHARGE.cooldown, big ? BEHEMOTH_AI.stumble : CHARGER_CHARGE.stumble);
-      host.playAudio('bug_step', pos, 1.0, big ? 0.35 : 0.5);
+      // 2026-09-11 (C-51): 막힌 쿵은 그 타입의 걸음 소리를 무겁게 — 벌레 전용 `bug_step` 이 타길라에게 새지 않는다.
+      // 걸음 스로틀을 비워 두고 부른다 (방금 한 걸음을 뗐어도 부딪힌 소리는 난다).
+      e.stepAt = -Infinity;
+      emitEnemyStep(e, host.ctx, 1.8, 0.85);
       if (host.targets.distToLocal(pos) < (big ? 45 : 25)) host.ctx.bus.emit('camera:shake', { intensity: big ? 0.6 : 0.35, duration: 0.35 });
     }
   }
   // `resolveCollision` / `resolveBarrier` may have shoved the body sideways — re-seat it on that spot's surface
   pos.y = world.getSurfaceY(pos.x, pos.z, pos.y);
+  rideRecord(e);   // C-18: the final spot in carrier-local coordinates (re-solved against the carrier next frame)
 
   // gait from distance travelled
   const moved = Math.hypot(pos.x - _prev.x, pos.z - _prev.z);
@@ -587,20 +597,8 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   const targetAnimSpeed = Math.min(1, spd / Math.max(1, s.speed * 0.8));
   a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
 
-  // footsteps (heavies only, near the local listener)
-  if (s.stepSound) {
-    const dl = host.targets.distToLocal(pos);
-    if (dl < 30) {
-      e.stepAccum += moved;
-      if (e.stepAccum >= e.rig.params.strideLength * 0.5) {
-        e.stepAccum = 0;
-        const heavy = e.type === 'charger' || e.type === 'behemoth';
-        const vol = THREE.MathUtils.clamp(1 - dl / 30, 0.1, 1) * (heavy ? 1 : 0.6);
-        host.playAudio('bug_step', pos, vol, e.type === 'behemoth' ? 0.4 : e.type === 'charger' ? 0.6 : 0.9);
-        if (e.type === 'behemoth' && dl < 40) host.ctx.bus.emit('camera:shake', { intensity: 0.12 * (1 - dl / 40), duration: 0.2 });
-      }
-    }
-  }
+  // footsteps (heavies only) — 2026-09-11 (C-23 · C-22 · X-10): `footfall` 이 재질 발소리 + 베헤모스 흔들림을 낸다
+  if (s.stepSound) footfall(e, host.ctx, host.targets, moved);
 
   // yaw
   let targetYaw = e.yaw;
@@ -610,6 +608,25 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
 
   // slope conforming
   applySlope(e, world, dt);
+}
+
+/**
+ * 2026-09-11 (C-23 · X-3 · X-10): one stride of a `stepSound` enemy. Accumulates `moved` and every half stride emits
+ * the surface footstep (`model.emitEnemyStep` — camera-gated, per-enemy throttle, the distance curve is audio/'s) and,
+ * for a behemoth, the local camera shake within 40 m. Shared by the authority (`integrate`) and the replica
+ * (`net/Replica.drive`, from its interpolated displacement) so a joined client hears the same steps.
+ * Before: host only, gated at 30 m from the local **body** with a linear falloff on top of the panner's (≈0.06 at 20 m),
+ * and the 40 m shake sat inside that 30 m block so 30–40 m never shook.
+ */
+export function footfall(e: Enemy, ctx: GameContext, targets: TargetList, moved: number): void {
+  e.stepAccum += moved;
+  if (e.stepAccum < e.rig.params.strideLength * 0.5) return;
+  e.stepAccum = 0;
+  emitEnemyStep(e, ctx);
+  if (e.type === 'behemoth') {
+    const dl = targets.distToLocal(e.position);
+    if (dl < 40) ctx.bus.emit('camera:shake', { intensity: 0.12 * (1 - dl / 40), duration: 0.2 });
+  }
 }
 
 /**

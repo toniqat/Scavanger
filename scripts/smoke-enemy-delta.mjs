@@ -284,6 +284,69 @@ try {
   ok(rep3.corpseKept, 'gone leaves a dead body to the corpse timer');
   ok(rep3.liveBefore >= 1 && rep3.liveAfter === 0 && rep3.corpseStill, `a keyframe sweeps unlisted live replicas (${rep3.liveBefore} → ${rep3.liveAfter}), corpses stay`);
 
+  /* ── 2026-09-11: C 항목 배치 (리플리카 쪽) ─────────────────────────────────────────────────────────────
+     C-1 · X-6 리플리카 pushBack = 적마다 HitRequest {dmg 0, kb} · C-48 `ee acidAt` 수신 = 산성 글롭 · C-51 리플리카
+     `ee damaged` 로그 = hit_flesh, `ee attack` 타길라 = 타격음 없음 · C-23 · X-3 리플리카도 적 발소리 (거리 곡선은 audio/ —
+     방출부 볼륨은 거리와 상관없이 타입 밑값). `net.send` 는 인스턴스에 덮어씌워 가로챘다가 되돌린다. */
+  console.log('C batch (replica): pushBack request · acidAt · hurt / bite sound · footsteps');
+  const cRep = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V;
+    const pp = ctx.player.position;
+    const y = ctx.world.getHeightAt(pp.x + 30, pp.z + 30);
+    sys.debugApplySnapshot({ t: 'es', seq: 5100, full: true, e: [
+      { id: 9101, ty: 'warrior', p: [pp.x + 30, y, pp.z + 30], yaw: 0, hp: 640, st: 'idle' },
+      { id: 9102, ty: 'rogue', p: [pp.x + 32.5, y, pp.z + 30], yaw: 0, hp: 280, st: 'idle' },
+    ] });
+    const net = ctx.net; const origSend = net.send; const sent = [];
+    net.send = (m, to) => { sent.push({ m: JSON.parse(JSON.stringify(m)), to }); };
+    const audio = []; const off = ctx.bus.on('audio:play', (a) => audio.push(a.id));
+    const r = { replica: sys.replica };
+    const n = sys.pushBack(new V(pp.x + 31.2, y, pp.z + 30), 2.5, 6, new V(0, 0, 1));
+    r.push = { n, msgs: sent.filter((s) => s.m.t === 'hit').map((s) => ({ id: s.m.id, dmg: s.m.dmg, kb: s.m.kb, d: s.m.d, to: s.to })) };
+    const globs = () => sys.acid.globs.filter((g) => g.active).length;
+    const g0 = globs();
+    sys.replicaMgr.onEvent({ t: 'ee', ev: 'acidAt', id: 9101, from: [pp.x + 30, y + 1.5, pp.z + 30], to: [pp.x + 36, y, pp.z + 34] });
+    r.acid = { g0, g1: globs() };
+    audio.length = 0; sys.lastAudio.clear();
+    sys.replicaMgr.onEvent({ t: 'ee', ev: 'damaged', id: 9102, amount: 10, p: [pp.x + 32.5, y + 1, pp.z + 30] });
+    r.hurtRogue = audio.slice();
+    audio.length = 0; sys.lastAudio.clear();
+    sys.replicaMgr.onEvent({ t: 'ee', ev: 'damaged', id: 9101, amount: 10, p: [pp.x + 30, y + 1, pp.z + 30] });
+    r.hurtBug = audio.slice();
+    audio.length = 0; sys.lastAudio.clear();
+    sys.replicaMgr.onEvent({ t: 'ee', ev: 'attack', id: 9102, ty: 'rogue_hammer', target: 'peer-q', damage: 5, p: [pp.x + 32.5, y, pp.z + 30] });
+    r.biteHammer = audio.slice();
+    audio.length = 0; sys.lastAudio.clear();
+    sys.replicaMgr.onEvent({ t: 'ee', ev: 'attack', id: 9101, ty: 'warrior', target: 'peer-q', damage: 5, p: [pp.x + 30, y, pp.z + 30] });
+    r.biteWarrior = audio.slice();
+    net.send = origSend; off();
+    window.__stepSeq = 5101;
+    window.__steps = [];
+    window.__stepOff = ctx.bus.on('audio:play', (a) => { if (a.id.startsWith('footstep_') && a.position) window.__steps.push({ id: a.id, v: a.volume, x: a.position.x }); });
+    return r;
+  });
+  ok(cRep.replica && cRep.push.n === 2 && cRep.push.msgs.length === 2 && cRep.push.msgs.every((m) => m.dmg === 0 && m.kb > 0 && m.kb <= 6 && m.to === 'host' && Math.abs(m.d[2] - 1) < 1e-3),
+    `C-1 · X-6: 리플리카 pushBack = 범위 안 적마다 HitRequest {dmg 0, kb} 를 호스트로 (${cRep.push.n}건)`, JSON.stringify(cRep.push));
+  ok(cRep.acid.g1 === cRep.acid.g0 + 1, `C-48: 리플리카가 ee acidAt 을 받아 산성 글롭을 날린다 (${cRep.acid.g0} → ${cRep.acid.g1})`);
+  ok(cRep.hurtRogue.includes('hit_flesh') && !cRep.hurtRogue.includes('bug_hit') && cRep.hurtBug.includes('bug_hit'),
+    `C-51: 리플리카 ee damaged — 로그 hit_flesh · 벌레 bug_hit (${cRep.hurtRogue} / ${cRep.hurtBug})`);
+  ok(!cRep.biteHammer.includes('bug_attack') && cRep.biteWarrior.includes('bug_attack'),
+    `C-51: 리플리카 ee attack — 타길라는 bug_attack 을 내지 않는다 (${cRep.biteHammer} / ${cRep.biteWarrior})`);
+  // 리플리카 전사를 4 m/s 로 걷게 한다 — 호스트처럼 0.1 s 마다 keyframe
+  for (let i = 1; i <= 20; i++) {
+    await P((k) => {
+      const ctx = window.__game.ctx; const pp = ctx.player.position;
+      const x = pp.x + 30 + k * 0.4, y = ctx.world.getHeightAt(x, pp.z + 30);
+      window.__sys.debugApplySnapshot({ t: 'es', seq: ++window.__stepSeq, full: true, e: [{ id: 9101, ty: 'warrior', p: [x, y, pp.z + 30], yaw: Math.PI / 2, hp: 640, st: 'wander' }] });
+    }, i);
+    await waitSim(0.1);
+  }
+  const steps = await P(() => { window.__stepOff(); return window.__steps; });
+  ok(steps.length >= 2 && steps.every((s) => /^footstep_[a-z]+$/.test(s.id)),
+    `C-23 · X-3 · C-22: 걷는 리플리카 전사가 재질 발소리를 낸다 (${steps.length}걸음, ${[...new Set(steps.map((s) => s.id))].join(',')})`, JSON.stringify(steps.slice(0, 4)));
+  ok(steps.length >= 1 && steps.every((s) => Math.abs(s.v - 0.55) < 1e-6),
+    `C-23: 방출부 볼륨 = 타입 밑값(전사 0.55) — 거리 선형 감쇠를 곱하지 않는다 (${[...new Set(steps.map((s) => s.v))].join(',')})`);
+
   /* ── promotion: the new host's first snapshot is a keyframe past the replica seq ── */
   console.log('promotion → keyframe');
   await P(() => window.__sys.setAuthority(true));
@@ -295,6 +358,79 @@ try {
   });
   ok(prom.auth && prom.forceFull, 'promotion resets the cache with forceFull');
   ok(prom.full && prom.seq > 5009 + 1000 - 1 && !prom.next, `first snapshot after promotion is a keyframe with seq past the replica's (${prom.seq}), the next a delta`);
+
+  /* ── 2026-09-11: C 항목 배치 (호스트 쪽) ─────────────────────────────────────────────────────────────────
+     C-1 · X-6 `onHitRequest` 가 kb 를 받는다 (상한 · 돌진 중 제외 · dmg 0 은 hitc 없음) · C-48 적 · 지점 표적 산성 = `ee acidAt`
+     방송 · X-5 벌레 산성이 로그를 다치게 한다. `hosting` 은 `authority && multiplayer && net` 이라 잠깐 multiplayer 를 켠다. */
+  console.log('C batch (host): knockback request · acidAt broadcast · acid hurts rogues');
+  const cHost = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V;
+    const pp = ctx.player.position;
+    const w = sys.debugSpawn('warrior', { x: pp.x + 60, z: pp.z - 60 }, false);
+    const b = sys.debugSpawn('behemoth', { x: pp.x + 75, z: pp.z - 75 }, false);
+    const rogue = sys.debugSpawn('rogue', { x: pp.x + 64, z: pp.z - 60 }, false);
+    if (!w || !b || !rogue) return null;
+    const net = ctx.net; const origSend = net.send; const sent = [];
+    net.send = (m, to) => { sent.push({ m: JSON.parse(JSON.stringify(m)), to }); };
+    const wasMp = sys.multiplayer; sys.multiplayer = true;
+    const r = { hosting: sys.hosting };
+    w.velocity.set(0, 0, 0);
+    sys.onHitRequest({ t: 'hit', id: w.id, dmg: 0, p: [0, 0, 0], d: [1, 0, 0], kb: 6 }, 'peer-kb');
+    r.kb = [+w.velocity.x.toFixed(3), +w.velocity.z.toFixed(3)];
+    w.velocity.set(0, 0, 0);
+    sys.onHitRequest({ t: 'hit', id: w.id, dmg: 0, p: [0, 0, 0], d: [0, 0, -1], kb: 999 }, 'peer-kb');
+    r.clamped = +w.velocity.length().toFixed(3);
+    w.velocity.set(0, 0, 0);
+    sys.onHitRequest({ t: 'hit', id: w.id, dmg: 0, p: [0, 0, 0], d: [0, 0, -1] }, 'peer-kb');
+    r.noKb = w.velocity.length();
+    b.chargePhase = 2; b.velocity.set(0, 0, 0);
+    sys.onHitRequest({ t: 'hit', id: b.id, dmg: 0, p: [0, 0, 0], d: [1, 0, 0], kb: 6 }, 'peer-kb');
+    r.charging = b.velocity.length(); b.chargePhase = 0;
+    r.hitc = sent.filter((s) => s.m.t === 'hitc').length;
+    sent.length = 0;
+    w.yaw = Math.PI / 2;
+    const mouth = new V(w.position.x, w.position.y + 1.4, w.position.z);
+    sys.fireAcid(mouth, w, rogue.asTarget);
+    sys.fireAcidAt(mouth.clone(), new V(w.position.x - 3, w.position.y, w.position.z - 3), w);
+    r.acidAt = sent.filter((s) => s.m.t === 'ee' && s.m.ev === 'acidAt').map((s) => ({ id: s.m.id, to: s.to, from: s.m.from, dest: s.m.to }));
+    r.acidPlayer = sent.filter((s) => s.m.t === 'ee' && s.m.ev === 'acid').length;
+    sys.multiplayer = wasMp; net.send = origSend;
+    rogue.wanderTimer = 1e9;
+    window.__cAcid = { rogue: rogue.id, hp: rogue.hp, w: w.id, b: b.id };
+    return r;
+  });
+  ok(!!cHost && cHost.hosting, 'multiplayer 를 켜 호스트 경로를 탔다', JSON.stringify(cHost));
+  ok(!!cHost && Math.abs(cHost.kb[0] - 6) < 1e-3 && Math.abs(cHost.kb[1]) < 1e-3 && cHost.noKb === 0,
+    `C-1 · X-6: 호스트 onHitRequest 가 kb 를 d 방향 수평 속도로 준다 (${JSON.stringify(cHost?.kb)}), kb 없는 dmg 0 요청은 무시`);
+  ok(!!cHost && cHost.clamped <= 20 + 1e-3 && cHost.clamped > 6, `C-1: 요청 넉백은 MAX_REQUEST_KNOCKBACK(20)으로 자른다 (${cHost?.clamped})`);
+  ok(!!cHost && cHost.charging === 0 && cHost.hitc === 0, `C-1: 돌진 중 베헤모스는 밀리지 않고, dmg 0 넉백 요청에는 hitc 가 없다 (${cHost?.charging}, hitc ${cHost?.hitc})`);
+  ok(!!cHost && cHost.acidAt.length === 2 && cHost.acidAt.every((a) => a.to === 'others' && a.from?.length === 3 && a.dest?.length === 3) && cHost.acidPlayer === 0,
+    `C-48: 적 표적 · 지점 표적 산성이 ee acidAt 으로 방송된다 (${cHost?.acidAt.length}건)`, JSON.stringify(cHost?.acidAt));
+  await waitSim(2);
+  const cAcid = await P(() => {
+    const sys = window.__sys; const a = window.__cAcid;
+    const rogue = sys.active.find((x) => x.id === a.rogue);
+    const r = { hp0: a.hp, hp1: rogue ? rogue.hp : -1, dead: rogue ? rogue.isDead : null };
+    for (const id of [a.rogue, a.w, a.b]) { const e = sys.active.find((x) => x.id === id); if (e && !e.isDead) e.kill(false); }
+    return r;
+  });
+  ok(cAcid.hp1 >= 0 && cAcid.hp1 < cAcid.hp0, `X-5: 벌레 산성이 로그를 다치게 한다 (hp ${cAcid.hp0} → ${cAcid.hp1})`, JSON.stringify(cAcid));
+
+  console.log('C batch (host): enemy footsteps near the camera (C-23)');
+  const stepHost = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
+    const e = sys.debugSpawn('warrior', { x: pp.x + 18, z: pp.z + 18 }, false);
+    if (!e) return null;
+    e.state = 'wander'; e.stateTime = 0; e.hasMoveTarget = true;
+    e.moveTarget.set(pp.x + 18, 0, pp.z + 40);
+    window.__hostSteps = [];
+    window.__hostStepOff = ctx.bus.on('audio:play', (a) => { if (a.id.startsWith('footstep_') && a.position) window.__hostSteps.push({ id: a.id, v: a.volume }); });
+    return { id: e.id };
+  });
+  await waitSim(2.5);
+  const hostSteps = await P((id) => { window.__hostStepOff(); const e = window.__sys.active.find((x) => x.id === id); if (e && !e.isDead) e.kill(false); return window.__hostSteps; }, stepHost?.id);
+  ok(hostSteps.length >= 1 && hostSteps.every((s) => Math.abs(s.v - 0.55) < 1e-6),
+    `C-23: 권위 적 발소리 = footstep_<재질> · 볼륨은 타입 밑값 (${hostSteps.length}걸음, ${[...new Set(hostSteps.map((s) => `${s.id}@${s.v}`))].join(',')})`);
 
   /* ── burn credit ──────────────────────────────────────────────────────── */
   console.log('burn credit (applyStatus attacker → enemy:killed.by)');
