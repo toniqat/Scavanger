@@ -7,15 +7,19 @@
 #   damageReduction 은 **더 이상 피해 계산에 쓰이지 않는다** — 위 환산의 근거로만 남겨 둔 열이다.
 # rarity 는 2026-09-10 에 tier 와 1:1 로 맞췄다 (I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설).
 # perk: none | regen | ultralight | optical. perkValue 는 그 퍽의 수치 (재생 = 초당 회복량 등).
+# 2026-09-12 (사용자 결정) — description 에 **실드량을 적지 않는다**. 실드는 툴팁이 이미 자기 줄로 보여 주므로
+#   설명이 같은 숫자를 두 번 말하고, 숫자를 고칠 때 표와 글이 어긋난다. 유니크 3벌은 설명이 곧 **그 퍽의 효과 문장**이고
+#   (툴팁의 `특성` 행이 이 글을 그대로 쓴다), 퍽이 없는 번호 방탄복은 플레이버만 남긴다.
+#   같은 결정에서 유니크 이름을 `방탄복 <등급> <특성>` 으로 통일했다 — 목록에서 번호 방탄복 옆에 나란히 읽힌다.
 # durabilityMax 는 판이 버티는 흡수량(실드가 먹은 피해 × ARMOR_DURABILITY_PER_DAMAGE 만큼 닳는다),
 #   0 이 되면 파손 = 실드 최대치 0 이고 함선 작업대에서 수리한다. weight 는 kg,
 #   가격은 tuning.csv 의 ARMOR_VALUE_* (BASE + shield × SHIELD_MUL + durabilityMax × DUR_MUL) 로 계산된다.
 id,name,tier,rarity,damageReduction,shield,weight,durabilityMax,perk,perkValue,color,icon,description
-armor_1,방탄복 I,1,common,=ARMOR_DR_BY_TIER.1,=ARMOR_SHIELD_BY_TIER.1,3,200,none,,#8e9299,⛊,경량 케블라 조끼. 얇은 반응 장갑이 실드 20 을 세운다.
-armor_2,방탄복 II,2,uncommon,=ARMOR_DR_BY_TIER.2,=ARMOR_SHIELD_BY_TIER.2,3.8,280,none,,#93a08c,⛊,표준 지급 방탄복. 세라믹 플레이트 한 장이 실드 40 을 세운다.
-armor_3,방탄복 III,3,rare,=ARMOR_DR_BY_TIER.3,=ARMOR_SHIELD_BY_TIER.3,4.2,380,none,,#6f9d72,🛡,전면·측면 플레이트 캐리어. 실드 60. 기동성과 방호의 절충안.
-armor_4,방탄복 IV,4,epic,=ARMOR_DR_BY_TIER.4,=ARMOR_SHIELD_BY_TIER.4,4.5,480,none,,#5b8fd6,🛡,중장갑 캐리어. 실드 80. 목·사타구니 보호대 포함.
-armor_5,방탄복 V,5,legendary,=ARMOR_DR_BY_TIER.5,=ARMOR_SHIELD_BY_TIER.5,5.8,600,none,,#a877e8,🛡,외골격 보조 중장갑. 실드 100. 무겁지만 어지간한 일격은 몸에 닿지도 않는다.
-armor_regen,재생 방탄복,0,legendary,0.27,90,6.2,520,regen,1,#ff9f6b,✚,나노 섬유가 상처를 봉합한다. 실드 90. 스태미나가 가득할 때 초당 체력 1 회복.
-armor_ultralight,초경량 방탄복,0,legendary,0.1,33,1.9,300,ultralight,0.18,#ffe08a,❖,에어로젤 직물. 실드는 33 뿐이지만 스태미나 회복과 이동속도가 크게 오른다.
-armor_optical,광학미채 방탄복,0,legendary,0.08,27,2.4,260,optical,,#8fe8ff,◊,적응형 광학 위장막. 상시 은폐 상태를 유지하지만 실드는 27 밖에 안 된다.
+armor_1,방탄복 I,1,common,=ARMOR_DR_BY_TIER.1,=ARMOR_SHIELD_BY_TIER.1,3,200,none,,#8e9299,⛊,경량 케블라 조끼. 얇은 반응 장갑을 덧댔다.
+armor_2,방탄복 II,2,uncommon,=ARMOR_DR_BY_TIER.2,=ARMOR_SHIELD_BY_TIER.2,3.8,280,none,,#93a08c,⛊,표준 지급 방탄복. 세라믹 플레이트 한 장이 가슴을 덮는다.
+armor_3,방탄복 III,3,rare,=ARMOR_DR_BY_TIER.3,=ARMOR_SHIELD_BY_TIER.3,4.2,380,none,,#6f9d72,🛡,전면·측면 플레이트 캐리어. 기동성과 방호의 절충안.
+armor_4,방탄복 IV,4,epic,=ARMOR_DR_BY_TIER.4,=ARMOR_SHIELD_BY_TIER.4,4.5,480,none,,#5b8fd6,🛡,중장갑 캐리어. 목·사타구니 보호대 포함.
+armor_5,방탄복 V,5,legendary,=ARMOR_DR_BY_TIER.5,=ARMOR_SHIELD_BY_TIER.5,5.8,600,none,,#a877e8,🛡,외골격 보조 중장갑. 무겁지만 어지간한 일격은 몸에 닿지도 않는다.
+armor_regen,방탄복 V 재생,0,legendary,0.27,90,6.2,520,regen,1,#ff9f6b,✚,스태미나가 가득할 때 초당 체력 1 회복.
+armor_ultralight,방탄복 V 초경량,0,legendary,0.1,33,1.9,300,ultralight,0.18,#ffe08a,❖,이동 속도와 스태미나 회복 속도 18 % 증가.
+armor_optical,방탄복 V 광학미채,0,legendary,0.08,27,2.4,260,optical,,#8fe8ff,◊,입고 있는 동안 상시 은폐.

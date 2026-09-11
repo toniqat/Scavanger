@@ -1618,8 +1618,13 @@ export type LaunchWarningId =
    * 이번 레이드에 실려 있지 않다. **경고일 뿐 막지 않는다** — 소프트 게이트가 사용자 결정이다. */
   | 'noEnvPrep'
   /* appended (2026-09-11, A-3c): 식사를 차리지 않았다 (`ProgressionRef.getMeal()` 이 null).
-   * `noEnvPrep` 과 같은 결의 경고일 뿐이다 — 요리는 처음부터 있어도 되고 없어도 되는 이득이다. */
-  | 'noMeal';
+   * `noEnvPrep` 과 같은 결의 경고일 뿐이다 — 요리는 처음부터 있어도 되고 없어도 되는 이득이다.
+   * 2026-09-12 (사용자 결정): **주방이 있는 함선에서만** 올라온다 — 조리대도 식탁도 없는 사람에게
+   * "식사를 차리지 않았습니다" 는 고칠 길이 없는 잔소리다 (`ctx.housing.getBenchLevel('cook')`). */
+  | 'noMeal'
+  /* appended (2026-09-12, 사용자 결정): 수락한 기업 계약 없이 나가려 한다 (`ctx.meta.activeContract` 가 null).
+   * 역시 **경고일 뿐 막지 않는다** — 계약 없이 도는 레이드도 정상이지만, 한 판을 통째로 날리기 전에 한 번은 묻는다. */
+  | 'noContract';
 
 /** One reason the launch check raised. Both strings are 한국어 and ready to render. */
 export interface LaunchWarning {

@@ -121,7 +121,8 @@ export const FACILITY_COLOR: Readonly<Record<FacilityId, string>> = {
 export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine' | 'extract' | 'mixer' | 'cook' | 'print';
 export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer', 'cook', 'print'];
 export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
-  gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대', refine: '정제 작업대',
+  /* 2026-09-12 (사용자 결정): `refine` 의 이름만 '정제 작업대' → '가공 작업대'. kind 는 계약이라 그대로다. */
+  gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대', refine: '가공 작업대',
   extract: '추출기', mixer: '조합대',
   /* appended (A-3c · A-15, 2026-09-11): 조리대는 주방, 프린터는 연구실 */
   cook: '조리대', print: '3D 프린터',

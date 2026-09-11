@@ -36,6 +36,10 @@ ARMOR_VALUE_DUR_MUL,1.4,
 # items — 가방 무게 (bagWeightBase + 칸수 × bagWeightPerCell)
 BAG_WEIGHT_BASE,1.2,
 BAG_WEIGHT_PER_CELL,0.02,
+# 가방을 메면 소지 한계가 늘어난다 (2026-09-12: `inventory/InventorySystem` 에 `* 0.5` 로 박혀 있던 것을 여기로 뺐다 —
+#   「수치는 코드에 적지 않는다」). 늘어나는 양 = (가방 칸수 − BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS) × 이 값 kg.
+#   맨몸 격자가 5 × 3 = 15 칸이므로 일반 가방(5×6) 이 +7.5 kg, 전설 가방(5×12) 이 +22.5 kg 다. 가방 툴팁이 이 줄을 보여 준다.
+BAG_CAPACITY_PER_CELL,0.5,
 
 # progression — 행동당 숙련도 경험치 (지능 · 능력치 보정 전)
 GRIT_SAVE_XP,1.2,치명상을 버텨낼 때

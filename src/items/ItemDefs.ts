@@ -55,6 +55,13 @@ export function ammoItemIdFor(ammoType: AmmoType): string {
 /** kg for an ItemDef that does not declare `weight` (matches the shared contract comment). */
 export const DEFAULT_ITEM_WEIGHT = T.num('DEFAULT_ITEM_WEIGHT');
 
+/**
+ * 가방 한 칸이 늘려 주는 소지 한계 (kg). 2026-09-12: `inventory/InventorySystem.getWeight` 안에 `* 0.5` 로
+ * 박혀 있던 값 — 가방 툴팁의 「소지 한계 +N kg」 줄과 실제 한계가 **같은 수치를 읽어야** 하므로 표로 뺐다.
+ * 식은 `inventory/Gear.bagCapacityBonus` 하나가 갖는다.
+ */
+export const BAG_CAPACITY_PER_CELL = T.num('BAG_CAPACITY_PER_CELL');
+
 /** Weight in kg of `qty` units of `def`. */
 export function itemWeight(def: ItemDef, qty = 1): number {
   return (def.weight ?? DEFAULT_ITEM_WEIGHT) * Math.max(0, qty);

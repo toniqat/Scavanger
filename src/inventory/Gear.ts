@@ -1,14 +1,27 @@
 import type { ArmorDef, DerivedStats, DurabilityInfo, ItemDef, ItemInstance, WeightInfo, WeightState } from '@/shared';
 import {
-  SEARCH_TIME_BY_RARITY, STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_HEAVY_MOVE_MUL, WEIGHT_HEAVY_RATIO, WEIGHT_HEAVY_STAMINA_MUL,
-  WEIGHT_LIGHT_RATIO, WEIGHT_LIGHT_STAMINA_MUL, WEIGHT_OVER_RATIO, WEIGHT_PER_STRENGTH,
+  BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, SEARCH_TIME_BY_RARITY, STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_HEAVY_MOVE_MUL,
+  WEIGHT_HEAVY_RATIO, WEIGHT_HEAVY_STAMINA_MUL, WEIGHT_LIGHT_RATIO, WEIGHT_LIGHT_STAMINA_MUL, WEIGHT_OVER_RATIO,
+  WEIGHT_PER_STRENGTH,
 } from '@/shared';
-import { itemWeight, rarityRank } from '@/items';
+import { BAG_CAPACITY_PER_CELL, itemWeight, rarityRank } from '@/items';
 
 /* ── weight ───────────────────────────────────────────────────────────────── */
 
 /** Carry capacity when `ctx.progression` is not published yet (a level-1 character). */
 export const DEFAULT_CARRY_CAPACITY = WEIGHT_BASE_CAPACITY + WEIGHT_PER_STRENGTH * STAT_BASE;
+
+/**
+ * 가방이 늘려 주는 소지 한계 (kg). 맨 어깨 격자(`BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS`) 를 넘는 칸마다
+ * `BAG_CAPACITY_PER_CELL` 씩이고, 그보다 작은 가방은 0 이다 (깎지는 않는다).
+ *
+ * 2026-09-12: `InventorySystem.getWeight` 안에 `* 0.5` 로 박혀 있던 식을 여기로 뽑았다 — 가방 툴팁이 「소지 한계 +N kg」
+ * 줄을 그리려면 **같은 식**을 읽어야 하고, 두 곳에 베껴 적으면 수치를 고칠 때 표와 글이 어긋난다.
+ */
+export function bagCapacityBonus(size: { cols: number; rows: number }): number {
+  const extra = size.cols * size.rows - BAG_DEFAULT_COLS * BAG_DEFAULT_ROWS;
+  return Math.max(0, extra) * BAG_CAPACITY_PER_CELL;
+}
 
 export function weightStateFor(ratio: number): WeightState {
   if (ratio >= WEIGHT_OVER_RATIO) return 'over';

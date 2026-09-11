@@ -59,11 +59,11 @@ QUICK_WHEEL_DRAG_PX,30,Pointer-locked mouse travel (px) needed before a wheel di
 GRENADE_FUSE,3,Fuse after the pin is pulled; a grenade cooked this long explodes in the hand.
 GRENADE_COOK_MAX,3,
 GRENADE_UNDERHAND_SPEED_MUL,0.45,Underhand toss speed multiplier.
-GRENADE_THROW_SPEED,17,Overhand release speed (m/s) before the 근력 multiplier (2026-09-09: moved here from weapons/model.ts).
+GRENADE_THROW_SPEED,34,"Overhand release speed (m/s) before the 근력 multiplier (2026-09-09: moved here from weapons/model.ts). 2026-09-12 (사용자 결정): 17 → 34 로 기본 투척 거리를 2배(9.1 → 18.1 m). 거리 ∝ 속도 이므로 여기만 2배면 된다."
 GRENADE_THROW_LIFT,3.5,Extra upward velocity (m/s) added to an overhand throw.
 GRENADE_UNDERHAND_LIFT,1.2,Upward velocity (m/s) of an underhand toss.
 THROW_RANGE_MUL_MIN,1.0,"투척 거리 배율 at STAT_MIN 근력 (2026-09-09): 근력 1 → 1.0 (= 예전 근력 5 값). 사이는 선형, STAT_MAX 에서 THROW_RANGE_MUL_MAX."
-THROW_RANGE_MUL_MAX,1.74,투척 거리 배율 at STAT_MAX 근력 (= 예전 최대 1.45 × 1.2).
+THROW_RANGE_MUL_MAX,2.25,"투척 거리 배율 at STAT_MAX 근력. 2026-09-12 (사용자 결정): 1.74 → 2.25. 거리는 √배율 이므로 √2.25 = 1.5 배 — 기본 18.1 m 에서 최대 27.2 m 다 (근력 · 임플란트를 아무리 올려도 기본의 1.5 배가 천장)."
 
 # ── appended: Phase 3 — ship calls / stratagems ──
 STRATAGEM_WHEEL_HOLD,0.22,G held longer than this opens the wheel; a tap re-arms the last call.
@@ -306,8 +306,8 @@ STAT_MIN,1,Stats never drop below this (cheat / debuff floor).
 
 # ── ship housing (owner: housing/ rules, hub/ geometry) ──
 SHIP_ROOM_COUNT,10,
-ROOM_GRID_COLS,8,Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room.
-ROOM_GRID_ROWS,8,
+ROOM_GRID_COLS,16,"Room floor grid (cells) and cell size (m): 16 × 16 × 0.5 = an 8 × 8 m room. 2026-09-12 (사용자 결정): 8 → 16 — 작업대 가구(4×2) 네 개가 들어가지 않을 만큼 좁았다. 좌상단이 원점이라 기존 세이브의 가구 좌표는 전부 그대로 유효하다. hub/interiors/RoomLayout 의 SEGMENT · CORRIDOR 도 함께 늘어나야 방끼리 겹치지 않는다."
+ROOM_GRID_ROWS,16,
 HOUSING_CELL_SIZE,0.5,
 GENERATOR_MAX_LEVEL,5,
 STORAGE_MAX_LEVEL,5,

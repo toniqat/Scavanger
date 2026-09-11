@@ -6,7 +6,7 @@ import type {
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
+import { bagCapacityBonus, durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
 import { Container, ContainerStore } from './Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from './Sockets';
@@ -464,9 +464,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
       const d = ITEM_DEF_MAP.get(it.defId);
       if (d) w += itemWeight(d, it.qty);
     }
-    // bigger bags carry more: +0.5 kg of capacity per grid cell above the default bag
-    const size = this.bagSizeOf(this.loadout.bag);
-    const capacity = mult.carryCapacity + Math.max(0, size.cols * size.rows - BAG_DEFAULT_COLS * BAG_DEFAULT_ROWS) * 0.5;
+    // bigger bags carry more — `BAG_CAPACITY_PER_CELL` kg per grid cell above the bare-shoulders grid
+    // (2026-09-12: the 0.5 used to be written here; 「수치는 코드에 적지 않는다」 moved it to data/tuning.csv,
+    //  and the 가방 툴팁 now shows the same number as 「소지 한계 +N kg」 via `bagCapacityBonus`).
+    const capacity = mult.carryCapacity + bagCapacityBonus(this.bagSizeOf(this.loadout.bag));
     return makeWeightInfo(Math.round(w * 100) / 100, capacity, mult.carryRelief);
   }
 
