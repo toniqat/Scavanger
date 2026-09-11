@@ -18,8 +18,20 @@ import {
   SOCIAL_ERROR_MESSAGE_KO, SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_RECENT_TTL_MS, SOCIAL_REQUEST_TTL_MS,
   SOCIAL_WHISPER_MAX, isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
+/* 2026-09-11 (B-3 · B-4 · B-5 · B-6) — part 8c */
+import { SOCIAL_BLOCK_MAX, SOCIAL_PUSH_COALESCE_MS, SOCIAL_WHISPER_INBOX_MAX, SOCIAL_WHISPER_INBOX_TTL_MS, SQUAD_INVITE_MAX } from '../src/shared/social.ts';
+import { Lobby, LobbyManager } from './Lobby.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
 import { ProfileStore, PROFILE_BACKUP_SUFFIX, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
+/* 2026-09-11 (E-4 ⑦) — part 12: 서버 크레딧 검증 */
+import type { CreditLedger, CreditReason } from '../src/shared/credits.ts';
+import {
+  CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_REFUND_WINDOW_MS, CREDIT_TX_INVALID_KO, economyTableDigest, formatCreditReason,
+  parseCreditReason, tableMinBuyPrice, tableSellPrice,
+} from '../src/shared/credits.ts';
+import {
+  CREDIT_CONTRACT_WINDOW_MS, CREDIT_LEDGER_DEBITS_MAX, CreditEconomy, ECONOMY_TABLE, devEconomyFromEnv, emptyLedger, sanitizeLedger,
+} from './Economy.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -581,8 +593,9 @@ async function main(): Promise<void> {
     /* ══════════════════════════ part 5: Phase 7 — profile store / credits / raid session / training / membership ══════════════════════════ */
     const TU = makeToken('u'), TV = makeToken('v'), TW = makeToken('w');
     let { c: u, welcome: uw } = await connect('U', url, { token: TU, name: 'Uni' });
-    assert(uw.profile !== undefined && uw.profile.credits === null && Object.keys(uw.profile.docs).length === 0 && uw.raid === undefined,
-      'token connect → welcome.profile {credits:null, docs:{}} (fresh record)', uw.profile);
+    assert(uw.profile !== undefined && uw.profile.credits === null && Object.keys(uw.profile.docs).length === 0 && uw.raid === undefined
+      && JSON.stringify(uw.profile.docsRev) === '{}',
+      'token connect → welcome.profile {credits:null, docs:{}, docsRev:{}} (fresh record; E-6 docsRev always present)', uw.profile);
     const { c: anon, welcome: anonW } = await connect('ANON', url);
     assert(anonW.profile === undefined, 'anonymous connect → no profile in welcome');
     anon.send({ t: 'profile:set', key: 'meta', doc: { x: 1 } });
@@ -666,7 +679,10 @@ async function main(): Promise<void> {
     assert(err.code === 'invalid', 'ordinary frames keep the 64 KB cap (oversized relay → invalid)');
 
     /* credits transactions */
-    u.send({ t: 'credits:tx', txId: 1, delta: -100, reason: 'buy:test' });
+    /* E-4 (⑦, 2026-09-11): reasons are validated now — real item ids from the generated table (buy ≥ best-discount price, sell ≤ table price). */
+    const cheapBuy = Object.entries(ECONOMY_TABLE.items).find(([, it]) => tableMinBuyPrice(ECONOMY_TABLE, it.value) <= 100)![0];
+    const sellOne = Object.entries(ECONOMY_TABLE.items).find(([, it]) => tableSellPrice(ECONOMY_TABLE, it.value, 1) >= 46)![0];
+    u.send({ t: 'credits:tx', txId: 1, delta: -100, reason: `buy:${cheapBuy}` });
     let cr = await u.wait('credits:result', (m) => m.txId === 1);
     assert(cr.ok === false && cr.credits === 0 && cr.reason === '크레딧 부족', 'credits:tx below zero on a null balance → refused with 크레딧 부족', cr);
     u.send({ t: 'credits:tx', txId: 2, delta: 500, reason: 'migrate' });
@@ -674,14 +690,14 @@ async function main(): Promise<void> {
     assert(cr.ok === true && cr.credits === 500 && cr.reason === undefined, "first 'migrate' tx seeds the balance with delta", cr);
     u.send({ t: 'credits:tx', txId: 3, delta: 9999, reason: 'migrate' });
     cr = await u.wait('credits:result', (m) => m.txId === 3);
-    assert(cr.ok === true && cr.credits === 500, "second 'migrate' is a no-op (balance kept)", cr);
-    u.send({ t: 'credits:tx', txId: 4, delta: -120, reason: 'buy:wpn_ar23' });
+    assert(cr.ok === false && cr.credits === 500 && cr.reason === CREDIT_TX_INVALID_KO, "second 'migrate' is refused (balance kept) — E-4: migrate only while the balance is null", cr);
+    u.send({ t: 'credits:tx', txId: 4, delta: -120, reason: `buy:${cheapBuy}` });
     cr = await u.wait('credits:result', (m) => m.txId === 4);
     assert(cr.ok === true && cr.credits === 380, 'debit applied atomically → 380', cr);
-    u.send({ t: 'credits:tx', txId: 5, delta: -381, reason: 'buy:too_much' });
+    u.send({ t: 'credits:tx', txId: 5, delta: -381, reason: `buy:${cheapBuy}` });
     cr = await u.wait('credits:result', (m) => m.txId === 5);
     assert(cr.ok === false && cr.credits === 380 && cr.reason === '크레딧 부족', 'overdraft refused, balance unchanged', cr);
-    u.send({ t: 'credits:tx', txId: 6, delta: 45.9, reason: 'sell' });
+    u.send({ t: 'credits:tx', txId: 6, delta: 45.9, reason: `sell:${sellOne}:1` });
     cr = await u.wait('credits:result', (m) => m.txId === 6);
     assert(cr.ok === true && cr.credits === 425, 'credit truncated to integers (+45.9 → +45)', cr);
     u.sendRaw(JSON.stringify({ t: 'credits:tx', txId: 7, delta: 'lots', reason: 'x' }));
@@ -974,6 +990,8 @@ async function main(): Promise<void> {
       assert(s2.size === 1 && s2.get('p1').credits === 0 && JSON.stringify(s2.get('p1').docs.meta) === '{"a":1}' && !s2.has('untouched'),
         'a new store reloads the file: credits + docs kept, placeholder records not persisted', s2.get('p1'));
       assert(s2.get('p1').docsAt?.stash === 1_000 && s2.get('p1').docsAt?.meta === undefined, 'docsAt round-trips through the file (stamped keys only)', s2.get('p1').docsAt);
+      // E-6: every accepted Phase 9 write bumped the rev (meta fresh 1, stash stamped 1; the stale ones did not)
+      assert(s2.revOf('p1', 'meta') === 1 && s2.revOf('p1', 'stash') === 1, 'E-6: accepted Phase 9 writes carry docsRev through the file, refused ones did not bump it', s2.get('p1').docsRev);
       s2.close();
       /* corrupt / hostile docsAt is clamped on load: a far-future stamp, a stamp without a document */
       writeFileSync(join(dir, 'profiles.json'), JSON.stringify({ v: 1, profiles: { p9: { credits: 1, docs: { meta: { z: 1 } }, updatedAt: 1, docsAt: { meta: 9e15, stash: 5, bogus: 3 } } } }), 'utf8');
@@ -1283,10 +1301,16 @@ async function main(): Promise<void> {
     se = await p8b.wait('social:error');
     assert(se.code === 'offline', '같이 하기 with a profile that is not connected → offline');
     /* ② from a ship of my own: alone in it, so it is left behind and I dock into theirs */
+    /* 2026-09-11 (B-6): the leave is now a server move — `lobby:left {reason:'moved', to}` → new `lobby:state` → `social:play joined`. */
+    const order8: string[] = [];
+    const leftOwnP = p8b.wait('lobby:left').then((mm) => { order8.push('left'); return mm; });
+    const stateP = p8b.wait('lobby:state', (mm) => mm.lobby.code === code8A).then((mm) => { order8.push('state'); return mm; });
+    const joinedP = p8b.wait('social:play').then((mm) => { order8.push('play'); return mm; });
     p8b.send({ t: 'social:play', code: code1 });
-    const [leftOwn, joined2] = await Promise.all([p8b.wait('lobby:left'), p8b.wait('social:play')]);
-    assert(leftOwn.t === 'lobby:left' && joined2.outcome === 'joined' && p8b.lobby?.code === code8A,
-      '같이 하기 from a ship where I am alone → my own ship is left behind and I dock into theirs', p8b.lobby?.code);
+    const [leftOwn, , joined2] = await Promise.all([leftOwnP, stateP, joinedP]);
+    assert(leftOwn.reason === 'moved' && leftOwn.to === code8A && joined2.outcome === 'joined' && p8b.lobby?.code === code8A,
+      '같이 하기 from a ship where I am alone → lobby:left {reason:moved, to} and I dock into theirs', { leftOwn, lobby: p8b.lobby?.code });
+    assert(order8.join(',') === 'left,state,play', 'the move reads lobby:left moved → lobby:state (new ship) → social:play joined', order8);
     p8b.send({ t: 'lobby:leave' });
     await p8b.wait('lobby:left');
 
@@ -1322,10 +1346,14 @@ async function main(): Promise<void> {
     p8b.send({ t: 'social:remove', code: code1 });
     se = await p8b.wait('social:error');
     assert(se.code === 'invalid', 'removing someone who is not a friend → invalid');
-    p8b.flush();
     p8a.send({ t: 'lobby:leave' });
     await p8a.wait('lobby:left');
-    assert(await p8b.expectNone('social:state', 250), 'after 친구 삭제 no presence push reaches the ex-friend (watcher index cleaned)');
+    await sleep(400);   // B-5: let the coalesced pushes of the leave land (P2 still watches P3 through its recent list)
+    p8b.flush();
+    /* a change that concerns P1 alone (its level) is pushed only to whoever still has P1 in a list */
+    p8a.send({ t: 'social:me', level: 13 });
+    await p8a.wait('social:state', (mm) => mm.social.me.level === 13);
+    assert(await p8b.expectNone('social:state', 450), 'after 친구 삭제 no presence push reaches the ex-friend (watcher index cleaned)');
 
     /* ── store level: caps, index, sanitisation ── */
     const s8 = new ProfileStore({ dataDir: null, quiet: true });
@@ -1519,6 +1547,469 @@ async function main(): Promise<void> {
         await ga.closed();
       } finally {
         await gs.close();
+      }
+    }
+
+    /* ── part 8c (2026-09-11, B-6 · B-3 · B-5 · B-4): 원자적 이동 · 초대 표 · 푸시 합치기 · 차단 · 귓속말 확인/보관 ── */
+    {
+      /* B-6 (unit): one join rule, and a refused move changes nothing */
+      const lm = new LobbyManager();
+      const home = lm.create('mv-a', 'A') as Lobby;
+      const dest = lm.create('mv-host', 'H') as Lobby;
+      assert(dest.canAdd() === null && home.canAdd() === null, 'B-6: canAdd() is null for an open lobby');
+      for (const id of ['mv-2', 'mv-3', 'mv-4']) lm.join(id, dest.code, id);
+      assert(dest.canAdd() === 'full' && dest.add('mv-x', 'X') === 'full', 'B-6: canAdd() and add() agree on a full lobby');
+      let mv = lm.move('mv-a', dest.code, 'A');
+      assert(!mv.ok && mv.code === 'full' && lm.lobbyOf('mv-a') === home && lm.byCode(home.code) === home && home.size === 1,
+        'B-6: move into a full lobby → full, and my own lobby is untouched', mv);
+      lm.leave('mv-4');
+      dest.start(1, 'raid', 'mv-host');
+      assert(dest.canAdd() === 'started' && dest.add('mv-x', 'X') === 'started', 'B-6: canAdd() and add() agree on a started raid');
+      mv = lm.move('mv-a', dest.code, 'A');
+      assert(!mv.ok && mv.code === 'started' && lm.lobbyOf('mv-a') === home && home.has('mv-a'), 'B-6: move into a started raid → started, my lobby untouched', mv);
+      dest.reset();
+      dest.start(2, 'training', 'mv-host');
+      assert(dest.canAdd() === null, 'B-6: a training keeps canAdd() open, exactly like add()');
+      mv = lm.move('mv-a', 'ZZZZZZ', 'A');
+      assert(!mv.ok && mv.code === 'not_found' && lm.lobbyOf('mv-a') === home, 'B-6: move into a lobby that is gone → not_found, my lobby untouched', mv);
+      mv = lm.move('mv-a', home.code, 'A');
+      assert(!mv.ok && mv.code === 'in_lobby', 'B-6: move into the lobby I am already in → in_lobby', mv);
+      mv = lm.move('mv-a', dest.code, 'A');
+      assert(mv.ok && mv.from === home && mv.fromDeleted && lm.byCode(home.code) === undefined && lm.lobbyOf('mv-a') === dest && dest.has('mv-a'),
+        'B-6: a successful move leaves (my empty lobby deleted) and joins in one step', mv.ok ? { from: mv.from?.code, deleted: mv.fromDeleted } : mv);
+
+      /* B-4 (unit): block cap · inbox cap / TTL / delivered once · file round trip · GC */
+      const sb = new ProfileStore({ dataDir: null, quiet: true });
+      sb.ensureSocial('bk-me', 'Me');
+      for (let n = 0; n < SOCIAL_BLOCK_MAX; n++) { sb.ensureSocial(`bk-${n}`, `B${n}`); sb.setBlocked('bk-me', `bk-${n}`, true); }
+      sb.ensureSocial('bk-over', 'Over');
+      assert(sb.setBlocked('bk-me', 'bk-over', true) === 'limit' && sb.social('bk-me')?.blocked?.length === SOCIAL_BLOCK_MAX,
+        `B-4: blocking past SOCIAL_BLOCK_MAX (${SOCIAL_BLOCK_MAX}) → limit`);
+      assert(sb.setBlocked('bk-me', 'bk-0', true) === 'ok' && sb.social('bk-me')?.blocked?.[0] === sb.social('bk-0')?.code
+        && sb.social('bk-me')?.blocked?.length === SOCIAL_BLOCK_MAX, 'B-4: re-blocking someone already blocked moves them to the front (not limit)');
+      assert(sb.setBlocked('bk-me', 'bk-me', true) === 'self' && sb.setBlocked('bk-me', 'bk-over', false) === 'ok',
+        'B-4: blocking myself → self; unblocking someone not blocked is a no-op ok');
+      const nowIb = Date.now();
+      const fromIb = sb.social('bk-1')!.code;
+      for (let n = 0; n < SOCIAL_WHISPER_INBOX_MAX + 5; n++) sb.pushWhisperInbox('bk-over', { from: fromIb, name: 'B1', text: `m${n}`, at: nowIb - 1000 + n }, nowIb);
+      const ib = sb.social('bk-over')?.inbox ?? [];
+      assert(ib.length === SOCIAL_WHISPER_INBOX_MAX && ib[0].text === 'm5' && ib[ib.length - 1].text === `m${SOCIAL_WHISPER_INBOX_MAX + 4}`,
+        `B-4: an inbox keeps the newest SOCIAL_WHISPER_INBOX_MAX (${SOCIAL_WHISPER_INBOX_MAX}) lines, oldest first`, ib.length);
+      assert(sb.takeWhisperInbox('bk-over', nowIb + SOCIAL_WHISPER_INBOX_TTL_MS + 5_000).length === 0 && sb.social('bk-over')?.inbox === undefined,
+        'B-4: lines older than SOCIAL_WHISPER_INBOX_TTL_MS are not delivered, and taking empties the inbox');
+      sb.pushWhisperInbox('bk-over', { from: fromIb, name: 'B1', text: 'one', at: nowIb }, nowIb);
+      sb.pushWhisperInbox('bk-over', { from: fromIb, name: 'B1', text: 'two', at: nowIb + 1 }, nowIb);
+      const took = sb.takeWhisperInbox('bk-over', nowIb + 2);
+      assert(took.length === 2 && took[0].text === 'one' && sb.takeWhisperInbox('bk-over', nowIb + 3).length === 0, 'B-4: the inbox is delivered once, oldest first');
+      sb.close();
+
+      const dirB = mkdtempSync(join(tmpdir(), 'scav-block-'));
+      try {
+        const f1 = new ProfileStore({ dataDir: dirB, saveDebounceMs: 5, quiet: true });
+        for (const id of ['fb-me', 'fb-them', 'fb-pal']) { f1.ensureSocial(id, id); f1.touchSeen(id); }
+        f1.setBlocked('fb-me', 'fb-them', true);
+        f1.pushWhisperInbox('fb-me', { from: f1.social('fb-pal')!.code, name: 'fb-pal', text: 'kept', at: Date.now() });
+        const themCode = f1.social('fb-them')!.code;
+        f1.close();
+        const f2 = new ProfileStore({ dataDir: dirB, quiet: true });
+        assert(f2.social('fb-me')?.blocked?.[0] === themCode && f2.social('fb-me')?.inbox?.[0]?.text === 'kept' && f2.isBlocked('fb-me', themCode),
+          'B-4: blocked + inbox round-trip through profiles.json', f2.social('fb-me'));
+        const DAYB = 24 * 60 * 60_000;
+        f2.touchSeen('fb-them', Date.now() - PROFILE_GC_INACTIVE_MS - DAYB);
+        const gcB = f2.collectGarbage((id) => id !== 'fb-them');
+        assert(gcB.removed.includes('fb-them') && f2.social('fb-me')?.blocked === undefined && gcB.changed.includes('fb-me'),
+          'B-4: the GC drops a blocked 아이디 whose profile it deleted (and reports the owner)', gcB);
+        f2.close();
+        writeFileSync(join(dirB, PROFILE_FILE), JSON.stringify({ v: 1, profiles: {
+          'tb-me': { credits: 0, docs: {}, updatedAt: 5, social: {
+            code: 'MEMEMEME', salt: 0, name: 'Me', level: 1, friends: ['BLKCKEDA', 'FRNDFRND'], incoming: [], outgoing: [], recent: [], updatedAt: 5,
+            blocked: ['BLKCKEDA', 'bad!', 'BLKCKEDA', 'MEMEMEME'],
+            inbox: [{ from: 'FRNDFRND', name: 'F', text: 'ok', at: Date.now() - 1000 }, { from: 'FRNDFRND', text: 7, at: 1 },
+              { from: 'BLKCKEDA', name: 'B', text: 'from blocked', at: Date.now() }, { from: 'FRNDFRND', name: 'F', text: 'stale', at: Date.now() - SOCIAL_WHISPER_INBOX_TTL_MS - 60_000 }],
+          } },
+        } }), 'utf8');
+        const f3 = new ProfileStore({ dataDir: dirB, quiet: true });
+        const tb = f3.social('tb-me');
+        assert(tb?.blocked?.length === 1 && tb.blocked[0] === 'BLKCKEDA' && tb.friends.length === 1 && tb.friends[0] === 'FRNDFRND',
+          'B-4 sanitize: the block list drops junk / duplicates / my own code, and a blocked code cannot stay a friend', tb);
+        assert(tb?.inbox?.length === 1 && tb.inbox[0].text === 'ok', 'B-4 sanitize: malformed, blocked-sender and expired inbox lines are dropped', tb?.inbox);
+        f3.close();
+      } finally {
+        rmSync(dirB, { recursive: true, force: true });
+      }
+
+      /* relay level */
+      const TTL8C = 2000;
+      const ss = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: null, profileGcIntervalMs: null, inviteTtlMs: TTL8C });
+      const surl = `ws://127.0.0.1:${ss.port}${NET_WS_PATH}`;
+      type P = { c: TestClient; code: PlayerCode };
+      const conn = async (label: string, ch: string, name: string): Promise<P> => {
+        const r = await connect(label, surl, { token: makeToken(ch), name });
+        return { c: r.c, code: r.welcome.social?.me.code ?? '' };
+      };
+      const befriend = async (a: P, b: P): Promise<void> => {
+        a.c.send({ t: 'social:request', code: b.code });
+        await b.c.wait('social:state', (mm) => mm.social.incoming.some((r) => r.code === a.code));
+        b.c.send({ t: 'social:respond', code: a.code, accept: true });
+        await Promise.all([
+          a.c.wait('social:state', (mm) => mm.social.friends.some((r) => r.code === b.code)),
+          b.c.wait('social:state', (mm) => mm.social.friends.some((r) => r.code === a.code)),
+        ]);
+      };
+      /** After `settleMs`, how many `t` frames are queued (consumed). */
+      const countQueued = async (cl: TestClient, t: ServerToClient['t'], settleMs: number): Promise<number> => {
+        await sleep(settleMs);
+        let n = 0;
+        for (;;) { try { await cl.wait(t, undefined, 0); n++; } catch { return n; } }
+      };
+      const openedLobby = async (p: P): Promise<string> => {
+        p.c.send({ t: 'lobby:create', name: 'x' });
+        return (await p.c.wait('lobby:state', (mm) => mm.lobby.players.length === 1)).lobby.code;
+      };
+      try {
+        const A = await conn('8cA', 'P', 'Alfa');
+        let B = await conn('8cB', 'Q', 'Bravo');
+        const C = await conn('8cC', 'R', 'Charlie');
+        const D = await conn('8cD', 'S', 'Delta');
+        const E = await conn('8cE', 'T', 'Echo');
+        const F = await conn('8cF', 'U', 'Fox');
+
+        /* ── B-3: accept → server move, badge, no echo to the invitee ── */
+        await befriend(A, B);
+        A.c.send({ t: 'social:play', code: B.code });
+        const [pl1, iv1] = await Promise.all([A.c.wait('social:play'), B.c.wait('social:invited')]);
+        assert(pl1.outcome === 'invited' && typeof iv1.invite.id === 'string' && iv1.invite.id.length > 0 && iv1.invite.from === A.code,
+          'B-3: social:invited carries the server invite id', iv1.invite);
+        const badge = await A.c.wait('social:state', (mm) => mm.social.friends.some((r) => r.code === B.code && r.inviteAt === iv1.invite.at));
+        assert(badge.social.friends.length === 1, 'B-3 배지: the inviter row carries inviteAt = the invite time');
+        const aShip = A.c.lobby?.code ?? '';
+        B.c.send({ t: 'social:inviteReply', id: iv1.invite.id ?? '', accept: true });
+        const [acc1, stB1] = await Promise.all([
+          A.c.wait('social:inviteResult', (mm) => mm.id === iv1.invite.id),
+          B.c.wait('lobby:state', (mm) => mm.lobby.code === aShip),
+        ]);
+        assert(acc1.outcome === 'accepted' && acc1.code === B.code && acc1.name === 'Bravo' && stB1.lobby.players.length === 2,
+          'B-3: accept → the server moves the invitee into the ship and the inviter gets inviteResult accepted', { acc1, n: stB1.lobby.players.length });
+        assert(await B.c.expectNone('social:inviteClosed', 150) && await B.c.expectNone('lobby:left', 1),
+          'B-3: no inviteClosed echo for my own reply (and no lobby:left — I had no ship to leave)');
+        await A.c.wait('social:state', (mm) => mm.social.friends.some((r) => r.code === B.code && r.inviteAt === undefined && r.squad === 2));
+        pass('B-3 배지: the inviteAt badge is gone once the invite closes');
+        B.c.send({ t: 'social:inviteReply', id: iv1.invite.id ?? '', accept: true });
+        const exp1 = await B.c.wait('social:error');
+        assert(exp1.code === 'expired' && exp1.message === SOCIAL_ERROR_MESSAGE_KO.expired, 'B-3: answering an invite that is already closed → social:error expired', exp1);
+        B.c.send({ t: 'lobby:leave' });
+        await B.c.wait('lobby:left');
+
+        /* ── declined ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        let iv = await B.c.wait('social:invited');
+        B.c.send({ t: 'social:inviteReply', id: iv.invite.id ?? '', accept: false });
+        let ir = await A.c.wait('social:inviteResult', (mm) => mm.id === iv.invite.id);
+        assert(ir.outcome === 'declined' && await B.c.expectNone('social:inviteClosed', 150), 'B-3: decline → the inviter hears declined (not expired), no echo to the invitee', ir);
+
+        /* ── expired (server TTL) ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        iv = await B.c.wait('social:invited');
+        const tIv = Date.now();
+        const [exA, exB] = await Promise.all([
+          A.c.wait('social:inviteResult', (mm) => mm.id === iv.invite.id, TTL8C + 2000),
+          B.c.wait('social:inviteClosed', (mm) => mm.id === iv.invite.id, TTL8C + 2000),
+        ]);
+        assert(exA.outcome === 'expired' && exB.outcome === 'expired' && Date.now() - tIv >= TTL8C - 200,
+          'B-3: the server TTL expires an unanswered invite on both sides', { exA, exB, ms: Date.now() - tIv });
+
+        /* ── superseded ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        const ivOld = await B.c.wait('social:invited');
+        A.c.send({ t: 'social:play', code: B.code });
+        const [supA, supB, ivNew] = await Promise.all([
+          A.c.wait('social:inviteResult', (mm) => mm.id === ivOld.invite.id),
+          B.c.wait('social:inviteClosed', (mm) => mm.id === ivOld.invite.id),
+          B.c.wait('social:invited', (mm) => mm.invite.id !== ivOld.invite.id),
+        ]);
+        assert(supA.outcome === 'superseded' && supB.outcome === 'superseded' && ivNew.invite.from === A.code,
+          'B-3: re-inviting the same player supersedes the old invite on both sides, then the new card arrives', { supA, supB });
+
+        /* ── a page reload is shown the still-open invite again ── */
+        const Breload = await conn('8cB-reload', 'Q', 'Bravo');
+        const again = await Breload.c.wait('social:invited');
+        await B.c.closed();
+        assert(again.invite.id === ivNew.invite.id && await A.c.expectNone('social:inviteResult', 200, (mm) => (mm as { id?: string }).id === ivNew.invite.id),
+          'B-3: a replaced socket (page reload) gets the open invite again with the same id, and it stays open', again.invite);
+        B = Breload;
+
+        /* ── failed: the inviter leaves → the ship dissolves ── */
+        A.c.send({ t: 'lobby:leave' });
+        await A.c.wait('lobby:left');
+        const [flA, flB] = await Promise.all([
+          A.c.wait('social:inviteResult', (mm) => mm.id === ivNew.invite.id),
+          B.c.wait('social:inviteClosed', (mm) => mm.id === ivNew.invite.id),
+        ]);
+        assert(flA.outcome === 'failed' && flA.reason === 'not_found' && flB.outcome === 'failed' && flB.reason === 'not_found',
+          'B-3: the inviter ship dissolving fails the invite on both sides (not_found)', { flA, flB });
+        B.c.send({ t: 'social:inviteReply', id: ivNew.invite.id ?? '', accept: true });
+        assert((await B.c.wait('social:error')).code === 'expired', 'B-3: accepting a failed invite → expired');
+
+        /* ── offline: the invitee disconnects ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        iv = await B.c.wait('social:invited');
+        B.c.close();
+        await B.c.closed();
+        ir = await A.c.wait('social:inviteResult', (mm) => mm.id === iv.invite.id);
+        assert(ir.outcome === 'offline' && ir.code === B.code, 'B-3: the invitee disconnecting closes the invite as offline for the inviter', ir);
+        B = await conn('8cB2', 'Q', 'Bravo');
+
+        /* ── an older client ignores the id and joins with lobby:join ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        iv = await B.c.wait('social:invited');
+        B.c.send({ t: 'lobby:join', code: iv.invite.lobby, name: 'Bravo' });
+        const [oldSt, oldRes] = await Promise.all([
+          B.c.wait('lobby:state', (mm) => mm.lobby.code === iv.invite.lobby),
+          A.c.wait('social:inviteResult', (mm) => mm.id === iv.invite.id),
+        ]);
+        assert(oldSt.lobby.players.length === 2 && oldRes.outcome === 'accepted',
+          'B-3: an older client (id ignored) still gets in with lobby:join — and that answers the invite', { n: oldSt.lobby.players.length, oldRes });
+        B.c.send({ t: 'lobby:leave' });
+        await B.c.wait('lobby:left');
+
+        /* ── busy while in someone else's squad; then accept from a ship where I am alone → lobby:left moved ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        iv = await B.c.wait('social:invited');
+        const cShip = await openedLobby(C);
+        B.c.send({ t: 'lobby:join', code: cShip, name: 'Bravo' });
+        await Promise.all([B.c, C.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.code === cShip && mm.lobby.players.length === 2)));
+        B.c.send({ t: 'social:inviteReply', id: iv.invite.id ?? '', accept: true });
+        const busy1 = await B.c.wait('social:error');
+        assert(busy1.code === 'busy' && B.c.lobby?.code === cShip && await A.c.expectNone('social:inviteResult', 150, (mm) => (mm as { id?: string }).id === iv.invite.id),
+          'B-3: accepting while in a squad with others → busy, I stay, and the invite stays open', busy1);
+        C.c.send({ t: 'lobby:leave' });
+        await C.c.wait('lobby:left');
+        await B.c.wait('peer:left');
+        const aShipCur = A.c.lobby?.code ?? '';
+        const movedP = B.c.wait('lobby:left');
+        const movedStateP = B.c.wait('lobby:state', (mm) => mm.lobby.code === aShipCur);
+        B.c.send({ t: 'social:inviteReply', id: iv.invite.id ?? '', accept: true });
+        const [mvLeft, mvState, mvRes] = await Promise.all([movedP, movedStateP, A.c.wait('social:inviteResult', (mm) => mm.id === iv.invite.id)]);
+        assert(mvLeft.reason === 'moved' && mvLeft.to === mvState.lobby.code && mvRes.outcome === 'accepted' && ss.lobbies.byCode(cShip) === undefined,
+          'B-3 + B-6: accepting from a ship where I am alone → lobby:left {moved, to} → the inviter ship; my old ship is deleted', { mvLeft, mvRes });
+
+        /* ── failed: the inviter ship fills up · B-6: 같이 하기 into a full ship leaves my own ship alone ── */
+        /* A's ship holds A + B. Two invites open (C · E), D joins (3), then C accepts from a ship of its own → 4 = full:
+         * C's invite must read accepted (the move filled the ship — not "failed full"), E's fails full. */
+        const aShipNow = A.c.lobby?.code ?? '';
+        A.c.send({ t: 'social:play', code: C.code });
+        const ivC = await C.c.wait('social:invited');
+        A.c.send({ t: 'social:play', code: E.code });
+        const ivE = await E.c.wait('social:invited');
+        D.c.send({ t: 'lobby:join', code: aShipNow, name: 'x' });
+        await D.c.wait('lobby:state', (mm) => mm.lobby.code === aShipNow && mm.lobby.players.length === 3);
+        await openedLobby(C);
+        C.c.send({ t: 'social:inviteReply', id: ivC.invite.id ?? '', accept: true });
+        const [fillLeft, fillRes, fullA, fullE] = await Promise.all([
+          C.c.wait('lobby:left'),
+          A.c.wait('social:inviteResult', (mm) => mm.id === ivC.invite.id),
+          A.c.wait('social:inviteResult', (mm) => mm.id === ivE.invite.id),
+          E.c.wait('social:inviteClosed', (mm) => mm.id === ivE.invite.id),
+        ]);
+        assert(fillLeft.reason === 'moved' && fillRes.outcome === 'accepted' && ss.lobbies.byCode(aShipNow)?.size === 4,
+          'B-3: accepting from my own ship into the last free slot reads accepted (the move filling the ship does not fail it)', { fillRes, size: ss.lobbies.byCode(aShipNow)?.size });
+        assert(fullA.outcome === 'failed' && fullA.reason === 'full' && fullE.outcome === 'failed' && fullE.reason === 'full',
+          'B-3: the inviter ship filling up fails its other open invites on both sides (full)', { fullA, fullE });
+        const eShip = await openedLobby(E);
+        E.c.flush();
+        E.c.send({ t: 'social:play', code: A.code });
+        const fullErr = await E.c.wait('social:error');
+        assert(fullErr.code === 'full' && ss.lobbies.lobbyOf(E.c.id)?.code === eShip && await E.c.expectNone('lobby:left', 100),
+          'B-6: 같이 하기 into a full ship → full, and my own ship is kept (no lobby:left)', fullErr);
+        E.c.send({ t: 'lobby:leave' });
+        await E.c.wait('lobby:left');
+
+        /* ── cap: SQUAD_INVITE_MAX open invites per invitee, the oldest goes ── */
+        for (const p of [B, C, D]) { p.c.send({ t: 'lobby:leave' }); await p.c.wait('lobby:left'); }
+        const capIds: string[] = [];
+        for (const p of [A, B, D, E]) {
+          p.c.send({ t: 'social:play', code: F.code });
+          capIds.push((await F.c.wait('social:invited', (mm) => mm.invite.from === p.code)).invite.id ?? '');
+        }
+        const [capA, capF] = await Promise.all([
+          A.c.wait('social:inviteResult', (mm) => mm.id === capIds[0]),
+          F.c.wait('social:inviteClosed', (mm) => mm.id === capIds[0]),
+        ]);
+        assert(capA.outcome === 'failed' && capA.reason === 'limit' && capF.reason === 'limit' && SQUAD_INVITE_MAX === 3,
+          `B-3: a ${SQUAD_INVITE_MAX + 1}th open invite to the same player closes the oldest (failed / limit)`, { capA, capF });
+        for (const id of capIds.slice(1)) F.c.send({ t: 'social:inviteReply', id, accept: false });
+        await Promise.all([B, D, E].map((p, i) => p.c.wait('social:inviteResult', (mm) => mm.id === capIds[i + 1] && mm.outcome === 'declined')));
+
+        /* ── B-6: 같이 하기 while inside a 훈련장 → busy, the training goes on ── */
+        const dShip = D.c.lobby?.code ?? '';
+        D.c.send({ t: 'lobby:start', seed: 77, mode: 'training' });
+        await D.c.wait('game:start');
+        D.c.send({ t: 'social:play', code: A.code });
+        const busyT = await D.c.wait('social:error');
+        assert(busyT.code === 'busy' && ss.lobbies.lobbyOf(D.c.id)?.code === dShip && ss.lobbies.lobbyOf(D.c.id)?.get(D.c.id)?.inMission === true,
+          'B-6: 같이 하기 from inside my own training → busy, and I stay in it', busyT);
+        D.c.send({ t: 'lobby:mission', inMission: false });
+        await D.c.wait('lobby:state', (mm) => !mm.lobby.started);
+
+        /* ── B-5: 최근 만난 플레이어 · request targets are watched; my own answer is immediate ── */
+        const G = await conn('8cG', 'V', 'Golf');
+        let H = await conn('8cH', 'W', 'Hotel');
+        const hShip = await openedLobby(H);
+        G.c.send({ t: 'lobby:join', code: hShip, name: 'Golf' });
+        await G.c.wait('lobby:state', (mm) => mm.lobby.code === hShip);
+        G.c.send({ t: 'lobby:leave' });
+        await G.c.wait('lobby:left');
+        H.c.send({ t: 'lobby:leave' });
+        await H.c.wait('lobby:left');
+        await sleep(SOCIAL_PUSH_COALESCE_MS + 150);
+        G.c.flush();
+        H.c.close();
+        await H.c.closed();
+        await G.c.wait('social:state', (mm) => mm.social.recent.some((r) => r.code === H.code && r.presence === 'offline'));
+        pass('B-5: a 최근 만난 플레이어 row is pushed when that player goes offline (not only friends are watched)');
+        H = await conn('8cH2', 'W', 'Hotel');
+        await G.c.wait('social:state', (mm) => mm.social.recent.some((r) => r.code === H.code && r.presence === 'ship'));
+        pass('B-5: … and when they come back');
+        const I = await conn('8cI', 'Y', 'India');
+        G.c.send({ t: 'social:request', code: I.code });
+        await I.c.wait('social:state', (mm) => mm.social.incoming.some((r) => r.code === G.code));
+        await openedLobby(I);
+        await G.c.wait('social:state', (mm) => mm.social.outgoing.some((r) => r.code === I.code && r.squad === 1));
+        pass('B-5: the target of my pending request is watched — their new ship reaches my outgoing row');
+        I.c.send({ t: 'lobby:leave' });
+        await I.c.wait('lobby:left');
+        await sleep(SOCIAL_PUSH_COALESCE_MS + 150);
+        I.c.flush(); H.c.flush();
+        const tReq = Date.now();
+        I.c.send({ t: 'social:request', code: H.code });
+        await I.c.wait('social:state', (mm) => mm.social.outgoing.some((r) => r.code === H.code));
+        const dtOwn = Date.now() - tReq;
+        await H.c.wait('social:state', (mm) => mm.social.incoming.some((r) => r.code === I.code));
+        const dtOther = Date.now() - tReq;
+        assert(dtOwn < 200 && dtOther - dtOwn >= 150, 'B-5: my own answer (social:request) is immediate; the other side comes with the coalescing window', { dtOwn, dtOther });
+        assert(await countQueued(I.c, 'social:state', SOCIAL_PUSH_COALESCE_MS + 150) === 0, 'B-5: … and no duplicate snapshot follows for the requester');
+
+        /* ── B-5: a 4-member squad starting → a friend of all four gets ONE snapshot; 10 toggles → 1–2 ── */
+        const M = [await conn('8cM1', 'Z', 'M1'), await conn('8cM2', '5', 'M2'), await conn('8cM3', '6', 'M3'), await conn('8cM4', '0', 'M4')];
+        for (const m of M) await befriend(G, m);
+        const mShip = await openedLobby(M[0]);
+        for (const m of M.slice(1)) m.c.send({ t: 'lobby:join', code: mShip, name: 'm' });
+        await Promise.all(M.map((m) => m.c.wait('lobby:state', (mm) => mm.lobby.code === mShip && mm.lobby.players.length === 4)));
+        await pickPlanet(M[0].c, 'mossy', M.slice(1).map((m) => m.c));
+        for (const m of M) m.c.send({ t: 'lobby:ready', ready: true });
+        await Promise.all(M.map((m) => m.c.wait('lobby:state', (mm) => mm.lobby.players.length === 4 && mm.lobby.players.every((p) => p.ready))));
+        await sleep(SOCIAL_PUSH_COALESCE_MS + 200);
+        G.c.flush();
+        M[0].c.send({ t: 'lobby:start', seed: 88 });
+        await Promise.all(M.map((m) => m.c.wait('game:start')));
+        const n4 = await countQueued(G.c, 'social:state', SOCIAL_PUSH_COALESCE_MS + 350);
+        assert(n4 === 1, 'B-5: a 4-member squad starting a raid reaches a friend of all four as ONE snapshot (was 4)', n4);
+        for (let i = 0; i < 10; i++) M[1].c.send({ t: 'lobby:mission', inMission: i % 2 === 1 });
+        const n10 = await countQueued(G.c, 'social:state', SOCIAL_PUSH_COALESCE_MS + 450);
+        assert(n10 >= 1 && n10 <= 2, 'B-5: ten quick lobby:mission toggles reach that friend as 1–2 snapshots (was 10)', n10);
+
+        /* ── B-4: block → both sides cleaned, open invites closed ── */
+        const N1 = await conn('8cN1', 'a', 'Nov');
+        const N2 = await conn('8cN2', 'b', 'Oscar');
+        const N3 = await conn('8cN3', 'c', 'Papa');
+        await befriend(N1, N2);
+        const n3Ship = await openedLobby(N3);
+        N1.c.send({ t: 'lobby:join', code: n3Ship, name: 'Nov' });
+        await N1.c.wait('lobby:state', (mm) => mm.lobby.code === n3Ship);
+        N1.c.send({ t: 'lobby:leave' });
+        await N1.c.wait('lobby:left');
+        N3.c.send({ t: 'social:request', code: N1.code });
+        await N1.c.wait('social:state', (mm) => mm.social.incoming.some((r) => r.code === N3.code) && mm.social.recent.some((r) => r.code === N3.code));
+        N3.c.send({ t: 'social:play', code: N1.code });            // N3 (ship) → N1 (no ship): invite
+        const iv31 = await N1.c.wait('social:invited', (mm) => mm.invite.from === N3.code);
+        N1.c.send({ t: 'social:play', code: N2.code });            // N1 (no ship) → N2: my ship is made, invite
+        const iv12 = await N2.c.wait('social:invited', (mm) => mm.invite.from === N1.code);
+        N1.c.send({ t: 'social:block', code: N2.code, blocked: true });
+        const [bl1, bl2, cl12, rs12] = await Promise.all([
+          N1.c.wait('social:state', (mm) => (mm.social.blocked ?? []).some((r) => r.code === N2.code)),
+          N2.c.wait('social:state', (mm) => !mm.social.friends.some((r) => r.code === N1.code)),
+          N2.c.wait('social:inviteClosed', (mm) => mm.id === iv12.invite.id),
+          N1.c.wait('social:inviteResult', (mm) => mm.id === iv12.invite.id),
+        ]);
+        assert(bl1.social.friends.length === 0 && bl1.social.blocked?.[0]?.name === 'Oscar' && bl2.social.friends.length === 0,
+          'B-4: block → the friendship goes on both sides and the code is in my blocked list (a card)', { mine: bl1.social, theirs: bl2.social.friends });
+        assert(cl12.outcome === 'failed' && rs12.outcome === 'failed', 'B-4: my open invite to the player I block is closed on both sides', { cl12, rs12 });
+        N3.c.flush();
+        N1.c.send({ t: 'social:block', code: N3.code, blocked: true });
+        const [bl3, n3s, cl31] = await Promise.all([
+          N1.c.wait('social:state', (mm) => (mm.social.blocked ?? []).length === 2),
+          N3.c.wait('social:state', (mm) => !mm.social.outgoing.some((r) => r.code === N1.code)),
+          N1.c.wait('social:inviteClosed', (mm) => mm.id === iv31.invite.id),
+        ]);
+        assert(bl3.social.incoming.length === 0 && bl3.social.recent.length === 0 && n3s.social.recent.every((r) => r.code !== N1.code)
+          && bl3.social.blocked?.[0]?.code === N3.code, 'B-4: block → requests and 최근 만난 플레이어 are removed on both sides, newest block first', { mine: bl3.social, theirs: n3s.social });
+        assert(await N3.c.expectNone('social:inviteResult', 200), 'B-4: their open invite to me closes for me only — the blocked inviter hears nothing yet', cl31);
+
+        /* ── B-4: what a blocked player sends me is swallowed, silently ── */
+        N1.c.flush(); N2.c.flush();
+        N2.c.send({ t: 'social:whisper', code: N1.code, text: 'hello?', nonce: 7 });
+        const ackSw = await N2.c.wait('social:whisperAck');
+        assert(ackSw.nonce === 7 && ackSw.ok && (ackSw.at ?? 0) > 0 && !ackSw.stored && await N1.c.expectNone('social:whisper', 200),
+          'B-4: a whisper from a player I blocked is dropped, and their ack still says ok', ackSw);
+        N2.c.send({ t: 'social:request', code: N1.code });
+        await N2.c.wait('social:state', (mm) => mm.social.outgoing.some((r) => r.code === N1.code));
+        assert(await N1.c.expectNone('social:state', SOCIAL_PUSH_COALESCE_MS + 200), 'B-4: a friend request from a blocked player sits in their outgoing only — nothing reaches me');
+        N1.c.send({ t: 'social:get' });
+        assert((await N1.c.wait('social:state')).social.incoming.length === 0, 'B-4: … and my incoming stays empty');
+        const n1Ship = N1.c.lobby?.code ?? '';
+        N2.c.send({ t: 'social:play', code: N1.code });
+        const plSw = await N2.c.wait('social:play');
+        assert(plSw.outcome === 'invited' && ss.lobbies.byCode(n1Ship)?.size === 1 && ss.lobbies.lobbyOf(N2.c.id)?.code !== n1Ship
+          && await N1.c.expectNone('social:invited', 200),
+          'B-4: 같이 하기 toward a blocker with a ship does not move them in — it reads "invited" and no card reaches me', plSw);
+        const swRes = await N2.c.wait('social:inviteResult', (mm) => mm.code === N1.code, TTL8C + 2500);
+        const n3Res = await N3.c.wait('social:inviteResult', (mm) => mm.id === iv31.invite.id, TTL8C + 2500);
+        assert(swRes.outcome === 'expired' && n3Res.outcome === 'expired' && await N1.c.expectNone('social:inviteClosed', 50),
+          'B-4: a swallowed invite (and one hidden by the block) ends as expired for the blocked inviter', { swRes, n3Res });
+        N1.c.send({ t: 'social:whisper', code: N2.code, text: 'nope', nonce: 8 });
+        const ackMine = await N1.c.wait('social:whisperAck');
+        assert(ackMine.nonce === 8 && !ackMine.ok && ackMine.code === 'invalid', 'B-4: whispering someone I blocked → ack ok:false invalid (unblock first)', ackMine);
+
+        /* ── B-4: unblock ── */
+        N1.c.send({ t: 'social:block', code: N2.code, blocked: false });
+        const [ub1, ub2] = await Promise.all([
+          N1.c.wait('social:state', (mm) => (mm.social.blocked ?? []).length === 1),
+          N2.c.wait('social:state', (mm) => !mm.social.outgoing.some((r) => r.code === N1.code)),
+        ]);
+        assert(ub1.social.blocked?.[0]?.code === N3.code && ub2.social.outgoing.length === 0,
+          'B-4: unblock → off my list, and the request half they sent while blocked is dropped', { mine: ub1.social.blocked, theirs: ub2.social.outgoing });
+        N2.c.send({ t: 'social:whisper', code: N1.code, text: 'hi again', nonce: 9 });
+        const [wAgain, ackAgain] = await Promise.all([N1.c.wait('social:whisper'), N2.c.wait('social:whisperAck', (mm) => mm.nonce === 9)]);
+        assert(wAgain.text === 'hi again' && ackAgain.ok && wAgain.at === ackAgain.at, 'B-4: after unblocking, whispers are delivered again (ack at = line at)', { wAgain, ackAgain });
+
+        /* ── B-4: ack · offline friend inbox → backlog once · non-friend offline · old client ── */
+        let N4 = await conn('8cN4', 'd', 'Quebec');
+        const N5 = await conn('8cN5', 'e', 'Romeo');
+        await befriend(N1, N4);
+        N4.c.close(); N5.c.close();
+        await Promise.all([N4.c.closed(), N5.c.closed()]);
+        await sleep(60);
+        N1.c.send({ t: 'social:whisper', code: N4.code, text: '나중에 봐', nonce: 11 });
+        const ackSt = await N1.c.wait('social:whisperAck', (mm) => mm.nonce === 11);
+        assert(ackSt.ok && ackSt.stored === true && (ackSt.at ?? 0) > 0, 'B-4: a whisper to an offline friend is kept → ack ok + stored', ackSt);
+        N1.c.send({ t: 'social:whisper', code: N5.code, text: 'hey', nonce: 12 });
+        const ackOff = await N1.c.wait('social:whisperAck', (mm) => mm.nonce === 12);
+        assert(!ackOff.ok && ackOff.code === 'offline' && !ackOff.stored, 'B-4: to an offline non-friend → ack ok:false offline (nothing kept)', ackOff);
+        N1.c.send({ t: 'social:whisper', code: N4.code, text: 'old client' });
+        const oldErr = await N1.c.wait('social:error');
+        assert(oldErr.code === 'offline' && await N1.c.expectNone('social:whisperAck', 100), 'B-4: a frame without nonce keeps the old rule (social:error offline, no ack, not kept)', oldErr);
+        N4 = await conn('8cN4b', 'd', 'Quebec');
+        const bl = await N4.c.wait('social:whisperBacklog');
+        assert(bl.lines.length === 1 && bl.lines[0].code === N1.code && bl.lines[0].name === 'Nov' && bl.lines[0].text === '나중에 봐' && bl.lines[0].at === ackSt.at,
+          'B-4: reconnecting → social:whisperBacklog with the kept line (sender 아이디 / name / time), old-client line not included', bl.lines);
+        N4.c.close();
+        await N4.c.closed();
+        N4 = await conn('8cN4c', 'd', 'Quebec');
+        assert(await N4.c.expectNone('social:whisperBacklog', 250), 'B-4: the backlog is delivered once (the inbox was emptied)');
+
+        for (const p of [A, B, C, D, E, F, G, H, I, ...M, N1, N2, N3, N4]) p.c.close();
+      } finally {
+        await ss.close();
       }
     }
 
@@ -1716,6 +2207,12 @@ async function main(): Promise<void> {
     k1c.close(); k3b.close(); k4.close();
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 10 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
+
+    /* ══════════════════════ part 11 (2026-09-11, E-6): 문서 리비전 · ack · 트랜잭션 ══════════════════════ */
+    await part11ProfileRevisions(url);
+
+    /* ══════════════════════ part 12 (2026-09-11, E-4 ⑦): 서버 크레딧 검증 ══════════════════════ */
+    await part12CreditEconomy();
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {
@@ -1726,6 +2223,357 @@ async function main(): Promise<void> {
   const total = results.length;
   console.log(`\nselftest: ${total - failures}/${total} passed${failures ? `, ${failures} FAILED` : ''}`);
   process.exit(failures ? 1 : 0);
+}
+
+/**
+ * part 11 (2026-09-11, E-6): `profile:set {baseRev, writeId}` → ack / conflict, writeId resend = ack again, `profile:setMany`
+ * all or nothing (a stale rev or one oversized document stores nothing), Phase 9 `at` frames still work (and bump the rev),
+ * `docsRev` in welcome / docs and through the file. Its own function so the parts other agents append never collide with it.
+ */
+async function part11ProfileRevisions(url: string): Promise<void> {
+  const T = makeToken('R');
+  let { c: r, welcome: rw } = await connect('R11', url, { token: T, name: '리비전' });
+  assert(rw.profile !== undefined && JSON.stringify(rw.profile.docsRev) === '{}', 'E-6: welcome.profile carries docsRev ({} for a fresh record)', rw.profile?.docsRev);
+
+  /* single document: base 0 → ack rev 1; base 0 again → conflict with the server copy */
+  r.send({ t: 'profile:set', key: 'meta', doc: { v: 'A' }, baseRev: 0, writeId: 'w1' });
+  const a1 = await r.wait('profile:ack', (mm) => mm.writeId === 'w1');
+  assert(a1.revs.meta === 1 && a1.txId === undefined, 'E-6: profile:set baseRev 0 on an absent key → profile:ack {writeId, revs.meta 1}', a1);
+  r.send({ t: 'profile:set', key: 'meta', doc: { v: 'LOST' }, baseRev: 0, writeId: 'w2' });
+  const c2 = await r.wait('profile:conflict', (mm) => mm.writeId === 'w2');
+  assert(c2.docs.meta?.rev === 1 && JSON.stringify(c2.docs.meta.doc) === '{"v":"A"}', 'E-6: a stale baseRev → profile:conflict with the server copy + rev, nothing stored', c2);
+  /* resend of an accepted writeId (a reconnect) → the same ack, even with another body */
+  r.send({ t: 'profile:set', key: 'meta', doc: { v: 'RESENT' }, baseRev: 0, writeId: 'w1' });
+  const a1b = await r.wait('profile:ack', (mm) => mm.writeId === 'w1');
+  r.send({ t: 'profile:get' });
+  let d = await r.wait('profile:docs');
+  assert(a1b.revs.meta === 1 && JSON.stringify(d.profile.docs.meta) === '{"v":"A"}' && d.profile.docsRev?.meta === 1,
+    'E-6: resending an accepted writeId is acked again (idempotent) and changes nothing', { ack: a1b, docs: d.profile.docs.meta, rev: d.profile.docsRev });
+  r.send({ t: 'profile:set', key: 'meta', doc: { v: 'B' }, baseRev: 1, writeId: 'w3' });
+  const a3 = await r.wait('profile:ack', (mm) => mm.writeId === 'w3');
+  assert(a3.revs.meta === 2, 'E-6: baseRev = current rev → accepted, rev + 1', a3);
+  assert(await r.expectNone('lobby:error', 100), 'E-6: revision writes never answer with lobby:error');
+
+  /* transactions */
+  r.send({ t: 'profile:setMany', txId: 'tx1', docs: { stash: { doc: { s: 1 }, baseRev: 0 }, loadout: { doc: { l: 1 }, baseRev: 0 } } });
+  const t1 = await r.wait('profile:ack', (mm) => mm.txId === 'tx1');
+  assert(t1.revs.stash === 1 && t1.revs.loadout === 1 && t1.writeId === undefined, 'E-6: profile:setMany → one profile:ack {txId, revs of every key}', t1);
+  r.send({ t: 'profile:setMany', txId: 'tx2', docs: { stash: { doc: { s: 2 }, baseRev: 1 }, loadout: { doc: { l: 2 }, baseRev: 0 } } });
+  const t2 = await r.wait('profile:conflict', (mm) => mm.txId === 'tx2');
+  r.send({ t: 'profile:get' });
+  d = await r.wait('profile:docs');
+  assert(Object.keys(t2.docs).join() === 'loadout' && t2.docs.loadout?.rev === 1 && JSON.stringify(d.profile.docs.stash) === '{"s":1}' && d.profile.docsRev?.stash === 1,
+    'E-6: setMany with one stale key → conflict lists that key, the fresh key is NOT stored either (all or nothing)', { conflict: t2, stash: d.profile.docs.stash, revs: d.profile.docsRev });
+  r.send({ t: 'profile:setMany', txId: 'tx3', docs: { stash: { doc: { s: 3 }, baseRev: 1 }, ship: { doc: { pad: 'x'.repeat(PROFILE_DOC_MAX_BYTES + 10) }, baseRev: 0 } } });
+  const t3 = await r.wait('profile:refused', (mm) => mm.txId === 'tx3');
+  r.send({ t: 'profile:get' });
+  d = await r.wait('profile:docs');
+  assert(t3.code === 'too_large' && JSON.stringify(d.profile.docs.stash) === '{"s":1}' && d.profile.docs.ship === undefined && d.profile.docsRev?.stash === 1,
+    'E-6: setMany with one oversized document → profile:refused too_large, nothing stored', { t3, stash: d.profile.docs.stash });
+  r.sendRaw(JSON.stringify({ t: 'profile:setMany', txId: 'tx4', docs: { stash: { doc: { s: 4 }, baseRev: 1 }, bogus: { doc: 1, baseRev: 0 } } }));
+  const t4 = await r.wait('profile:refused', (mm) => mm.txId === 'tx4');
+  r.sendRaw(JSON.stringify({ t: 'profile:setMany', txId: 'tx5', docs: {} }));
+  const t5 = await r.wait('profile:refused', (mm) => mm.txId === 'tx5');
+  r.sendRaw(JSON.stringify({ t: 'profile:set', key: 'stash', doc: { s: 6 }, baseRev: 'one', writeId: 'w6' }));
+  const t6 = await r.wait('profile:refused', (mm) => mm.writeId === 'w6');
+  assert(t4.code === 'invalid' && t5.code === 'invalid' && t6.code === 'invalid', 'E-6: unknown key / empty transaction / malformed baseRev → profile:refused invalid (tagged with its id)', { t4, t5, t6 });
+  r.send({ t: 'profile:setMany', txId: 'tx1', docs: { stash: { doc: { s: 'again' }, baseRev: 0 }, loadout: { doc: {}, baseRev: 0 } } });
+  const t1b = await r.wait('profile:ack', (mm) => mm.txId === 'tx1');
+  assert(t1b.revs.stash === 1 && t1b.revs.loadout === 1, 'E-6: resending an accepted txId is acked again', t1b);
+  /* a transaction bigger than one document frame (MAX_DOC_FRAME_BYTES) but inside PROFILE_SETMANY_MAX_BYTES */
+  const big = (ch: string): { pad: string } => ({ pad: ch.repeat(PROFILE_DOC_MAX_BYTES - 1024) });
+  r.send({ t: 'profile:setMany', txId: 'tx7', docs: { stash: { doc: big('s'), baseRev: 1 }, loadout: { doc: big('l'), baseRev: 1 } } });
+  const t7 = await r.wait('profile:ack', (mm) => mm.txId === 'tx7', 5000);
+  assert(t7.revs.stash === 2 && t7.revs.loadout === 2, 'E-6: a two-document transaction over the single-document frame cap is accepted', t7);
+
+  /* Phase 9 frames keep their rules, and bump the rev so a revision client based on the old rev conflicts */
+  r.send({ t: 'profile:set', key: 'meta', doc: { v: 'OLDCLIENT' }, at: Date.now() });
+  assert(await r.expectNone('profile:ack', 150), 'E-6: a Phase 9 `at` frame gets no ack (old clients unchanged)');
+  r.send({ t: 'profile:set', key: 'meta', doc: { v: 'C' }, baseRev: 2, writeId: 'w8' });
+  const c8 = await r.wait('profile:conflict', (mm) => mm.writeId === 'w8');
+  assert(c8.docs.meta?.rev === 3 && JSON.stringify(c8.docs.meta.doc) === '{"v":"OLDCLIENT"}', 'E-6: the old-client write bumped the rev → a revision write on the previous rev conflicts', c8);
+  r.send({ t: 'profile:set', key: 'progression', doc: { v: 'F' }, fresh: true });
+  r.send({ t: 'profile:set', key: 'progression', doc: { v: 'F2' }, fresh: true });
+  r.send({ t: 'profile:get' });
+  d = await r.wait('profile:docs');
+  assert(JSON.stringify(d.profile.docs.progression) === '{"v":"F"}' && d.profile.docsRev?.progression === 1, 'E-6: a Phase 9 fresh write still fills only an absent key (rev 1), the second is silently stale', { doc: d.profile.docs.progression, rev: d.profile.docsRev });
+
+  /* anonymous socket */
+  const { c: an } = await connect('R11anon', url);
+  an.send({ t: 'profile:set', key: 'meta', doc: {}, baseRev: 0, writeId: 'anon1' });
+  const ar = await an.wait('profile:refused', (mm) => mm.writeId === 'anon1');
+  an.send({ t: 'profile:setMany', txId: 'anon2', docs: { meta: { doc: {}, baseRev: 0 } } });
+  const ar2 = await an.wait('profile:refused', (mm) => mm.txId === 'anon2');
+  assert(ar.code === 'invalid' && ar2.code === 'invalid', 'E-6: a revision write / transaction from an anonymous socket → profile:refused invalid', { ar, ar2 });
+  an.close();
+
+  /* reconnect: welcome carries every rev */
+  r.close(); await r.closed();
+  ({ c: r, welcome: rw } = await connect('R11b', url, { token: T, name: '리비전' }));
+  const rv = rw.profile?.docsRev;
+  assert(rv?.meta === 3 && rv.stash === 2 && rv.loadout === 2 && rv.progression === 1 && rv.ship === undefined, 'E-6: welcome after a reconnect carries docsRev of every stored document', rv);
+  r.close();
+
+  /* file round-trip: revs persist, a legacy document is seeded 1, hostile revs are cleaned */
+  const dir = mkdtempSync(join(tmpdir(), 'scav-store-rev-'));
+  try {
+    const s1 = new ProfileStore({ dataDir: dir, saveDebounceMs: 20, quiet: true });
+    s1.writeDocs('q', 'x1', { meta: { doc: { m: 1 }, baseRev: 0 } });
+    s1.writeDocs('q', 'x2', { meta: { doc: { m: 2 }, baseRev: 1 }, stash: { doc: { s: 1 }, baseRev: 0 } });
+    const again = s1.writeDocs('q', 'x2', { meta: { doc: { m: 99 }, baseRev: 0 } });
+    assert(again.kind === 'ack' && again.replay && again.revs.meta === 2, 'E-6 store: writeDocs replays an accepted id', again);
+    const bad = s1.writeDocs('q2', 'x3', { meta: { doc: { m: 1 }, baseRev: 5 } });
+    assert(bad.kind === 'conflict' && !s1.has('q2'), 'E-6 store: a conflicting write mints no placeholder profile', bad);
+    s1.close();
+    const s2 = new ProfileStore({ dataDir: dir, quiet: true });
+    assert(s2.revOf('q', 'meta') === 2 && s2.revOf('q', 'stash') === 1 && JSON.stringify(s2.snapshot('q').docsRev) === '{"meta":2,"stash":1}',
+      'E-6 store: docsRev round-trips through profiles.json', s2.snapshot('q').docsRev);
+    const replayAfterRestart = s2.writeDocs('q', 'x2', { meta: { doc: { m: 2 }, baseRev: 1 } });
+    assert(replayAfterRestart.kind === 'conflict', 'E-6 store: write ids are memory only — after a restart a resend is judged on its baseRev', replayAfterRestart);
+    s2.close();
+    writeFileSync(join(dir, PROFILE_FILE), JSON.stringify({ v: 1, profiles: {
+      legacy: { credits: 1, docs: { meta: { z: 1 }, stash: { z: 2 } }, updatedAt: 1 },
+      hostile: { credits: 1, docs: { meta: { z: 1 }, ship: { z: 3 } }, updatedAt: 1, docsRev: { meta: -5, ship: 'x', stash: 9, bogus: 4 } },
+      kept: { credits: 1, docs: { loadout: { z: 1 } }, updatedAt: 1, docsRev: { loadout: 7.9 } },
+    } }), 'utf8');
+    const s3 = new ProfileStore({ dataDir: dir, quiet: true });
+    assert(JSON.stringify(s3.snapshot('legacy').docsRev) === '{"meta":1,"stash":1}', 'E-6 store: a document written before revisions is seeded rev 1 on load', s3.snapshot('legacy').docsRev);
+    assert(JSON.stringify(s3.snapshot('hostile').docsRev) === '{"meta":1,"ship":1}' && s3.revOf('kept', 'loadout') === 7,
+      'E-6 store: invalid revs → 1, a rev without a document / an unknown key is dropped, a fractional rev is floored', { hostile: s3.snapshot('hostile').docsRev, kept: s3.revOf('kept', 'loadout') });
+    const legacyWrite = s3.writeDocs('legacy', 'x4', { meta: { doc: { z: 'new' }, baseRev: 0 } });
+    assert(legacyWrite.kind === 'conflict' && legacyWrite.docs.meta?.rev === 1, 'E-6 store: a client that never saw a rev (base 0) conflicts on a seeded legacy document', legacyWrite);
+    s3.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * part 12 (2026-09-11, E-4 ⑦): 서버 크레딧 검증 — `server/Economy.ts` + `Store.applyCreditsTx` + `credits:tx`.
+ * The reason grammar round trip, every rule of `shared/credits.ts` accepting the exact legit amount and refusing a wrong
+ * sign / too much / too little / an unknown id, refunds pairing with their debit (window, double refund), the quest once
+ * rule, the contract hourly cap, migrate once + `CREDITS_MAX` clamp, dev reasons gated by `devEconomy`, the ledger through
+ * `sanitizeLedger` and the file, and the same rules over the wire on a dev-off and a dev-on relay. Ids and amounts come
+ * from the committed table, so a csv change never breaks this part. Its own function (like part 11).
+ */
+async function part12CreditEconomy(): Promise<void> {
+  const T = ECONOMY_TABLE;
+  const NOW = 1_800_000_000_000;
+  const entries = Object.entries(T.items);
+  const [BUY, buyIt] = entries.find(([, it]) => tableMinBuyPrice(T, it.value) >= 10)!;
+  const MIN = tableMinBuyPrice(T, buyIt.value);
+  const [STACK, stackIt] = entries.find(([, it]) => it.stack > 1 && tableSellPrice(T, it.value, it.stack) >= 2)!;
+  const [SOLO] = entries.find(([, it]) => it.stack === 1)!;
+  const [REPAIR, FEE] = Object.entries(T.repairFees)[0];
+  const [CONTRACT, CREWARD] = Object.entries(T.contracts).find(([, n]) => n > 0)!;
+  const [QUEST, QREWARD] = Object.entries(T.quests)[0];
+  type TxResult = Extract<ServerToClient, { t: 'credits:result' }>;
+
+  /* the table itself */
+  assert(T.v === 1 && T.hash === economyTableDigest(T) && entries.length > 0 && typeof T.repLevelMax === 'number'
+    && Object.keys(T.repairFees).length > 0 && Object.keys(T.quests).length > 0,
+    'E-4: economy.gen.json loads (JSON import), its hash is the digest of its body', { hash: T.hash, digest: economyTableDigest(T) });
+  assert(MIN === Math.max(1, Math.round(buyIt.value * Math.max(T.shopPriceMinMul, T.shopPriceBaseMul - T.shopPriceDiscountPerRep * (T.repLevelMax ?? 0)))),
+    'E-4: tableMinBuyPrice = the price at the highest reputation level', { MIN, value: buyIt.value });
+
+  /* grammar */
+  const samples: CreditReason[] = [
+    { kind: 'buy', id: BUY }, { kind: 'sell', id: STACK, qty: stackIt.stack }, { kind: 'refund', id: BUY }, { kind: 'repair', id: REPAIR },
+    { kind: 'refund-repair', id: REPAIR }, { kind: 'contract', id: CONTRACT }, { kind: 'quest', id: QUEST }, { kind: 'migrate', id: '' },
+    { kind: 'dev', id: '', tag: 'smoke:meta' }, { kind: 'dev', id: '', tag: 'e2e:probe' }, { kind: 'dev', id: '', tag: 'console' }, { kind: 'dev', id: '', tag: 'shot' },
+  ];
+  const trips = samples.map((r) => {
+    const raw = formatCreditReason(r);
+    const b = parseCreditReason(raw);
+    return { raw, ok: !!b && b.kind === r.kind && b.id === r.id && (r.qty === undefined || b.qty === r.qty) && (r.tag === undefined || b.tag === r.tag) };
+  });
+  assert(trips.every((x) => x.ok), 'E-4: formatCreditReason → parseCreditReason round-trips every kind (sell carries its qty)', trips.filter((x) => !x.ok));
+  const junk = ['', 'sell', `sell:${STACK}`, `sell:${STACK}:0`, `sell:${STACK}:1.5`, `buy:${BUY}:2`, 'buy:', 'refund:repair:', 'refund:repair:a:b',
+    'migrate:x', 'earn:x', 'buy:bad-id', `buy:${'x'.repeat(61)}`, 'smoke', 'e2e', 'revert:buy:x'];
+  assert(junk.every((s) => parseCreditReason(s) === null), 'E-4: malformed / unknown reasons parse to null (bare `smoke`, 65 chars, a dash, qty 0, a stray segment)', junk.filter((s) => parseCreditReason(s) !== null));
+
+  /* rules (pure) */
+  const eco = new CreditEconomy(T, { dev: false });
+  const ecoDev = new CreditEconomy(T, { dev: true });
+  const chk = (delta: number, reason: string, ledger?: CreditLedger, balance: number | null = 100_000, at = NOW, e = eco): boolean => e.check(balance, ledger, delta, reason, at).ok;
+  assert(chk(-MIN, `buy:${BUY}`) && chk(-(MIN + 500), `buy:${BUY}`), 'E-4: buy accepts the best-discount price and anything above it');
+  assert(!chk(-(MIN - 1), `buy:${BUY}`) && !chk(MIN, `buy:${BUY}`) && !chk(0, `buy:${BUY}`) && !chk(-MIN, 'buy:no_such_item_zz'),
+    'E-4: buy refuses a price under the best discount, a positive / zero delta and an unknown item');
+  const stackMax = tableSellPrice(T, stackIt.value, stackIt.stack);
+  assert(chk(stackMax, `sell:${STACK}:${stackIt.stack}`) && chk(1, `sell:${STACK}:1`), 'E-4: sell accepts up to the table price of a full stack');
+  assert(!chk(stackMax + 1, `sell:${STACK}:${stackIt.stack}`) && !chk(tableSellPrice(T, stackIt.value, 1), `sell:${STACK}:${stackIt.stack + 1}`)
+    && !chk(0, `sell:${STACK}:1`) && !chk(-5, `sell:${STACK}:1`) && !chk(1, `sell:${SOLO}:2`) && !chk(1, 'sell:no_such_item_zz:1'),
+    'E-4: sell refuses one credit over the price, qty over the stack (also 2 of an unstackable), zero / negative and an unknown item', { stackMax });
+  assert(chk(-FEE, `repair:${REPAIR}`) && !chk(-FEE + 1, `repair:${REPAIR}`) && !chk(-FEE - 1, `repair:${REPAIR}`) && !chk(FEE, `repair:${REPAIR}`) && !chk(-150, 'repair:no_such_implant'),
+    'E-4: repair accepts exactly −fee (nothing else, no unknown implant)', { REPAIR, FEE });
+  assert(chk(CREWARD, `contract:${CONTRACT}`) && !chk(CREWARD + 1, `contract:${CONTRACT}`) && !chk(-CREWARD, `contract:${CONTRACT}`) && !chk(100, 'contract:no_such_contract'),
+    'E-4: contract accepts exactly its reward');
+  assert(chk(QREWARD, `quest:${QUEST}`) && !chk(QREWARD - 1, `quest:${QUEST}`) && !chk(100, 'quest:no_such_quest'), 'E-4: quest accepts exactly its reward');
+  assert(!chk(1, 'earn') && !chk(1, 'sell') && !chk(45, 'buy:test'), 'E-4: an unknown reason is refused');
+
+  /* refunds pair with a debit */
+  const L = emptyLedger();
+  const buy = eco.check(100_000, L, -MIN, `buy:${BUY}`, NOW);
+  if (buy.ok) eco.commit(L, buy, NOW);
+  assert(!chk(MIN + 1, `refund:${BUY}`, L, 100_000, NOW + 1_000) && chk(MIN, `refund:${BUY}`, L, 100_000, NOW + 1_000), 'E-4: refund pairs with the buy (≤ its amount, not more)');
+  assert(!chk(MIN, `refund:${BUY}`, L, 100_000, NOW + CREDIT_REFUND_WINDOW_MS + 1), 'E-4: refund outside CREDIT_REFUND_WINDOW_MS is refused');
+  assert(!chk(1, `refund:${STACK}`, L, 100_000, NOW + 1_000) && !chk(1, `refund:${BUY}`, emptyLedger(), 100_000, NOW + 1_000), 'E-4: refund of another item / with no debit is refused');
+  const r1 = eco.check(100_000, L, MIN - 1, `refund:${BUY}`, NOW + 1_000);
+  if (r1.ok) eco.commit(L, r1, NOW + 1_000);
+  const r2 = eco.check(100_000, L, 1, `refund:${BUY}`, NOW + 2_000);
+  if (r2.ok) eco.commit(L, r2, NOW + 2_000);
+  assert(r1.ok && r2.ok && !chk(1, `refund:${BUY}`, L, 100_000, NOW + 3_000), 'E-4: partial refunds add up to the debit, then a further refund is refused', L);
+  const rep = eco.check(100_000, L, -FEE, `repair:${REPAIR}`, NOW);
+  if (rep.ok) eco.commit(L, rep, NOW);
+  const viaBuy = chk(FEE, `refund:${REPAIR}`, L, 100_000, NOW + 500);
+  const rr = eco.check(100_000, L, FEE, `refund:repair:${REPAIR}`, NOW + 500);
+  if (rr.ok) eco.commit(L, rr, NOW + 500);
+  assert(rr.ok && !viaBuy && !chk(FEE, `refund:repair:${REPAIR}`, L, 100_000, NOW + 600) && !chk(FEE, `refund:repair:${REPAIR}`, emptyLedger(), 100_000, NOW + 600),
+    'E-4: refund:repair pairs with its repair once (not through refund:<id>, not twice, not without a repair)');
+
+  /* quest once, contract hourly cap */
+  const LQ = emptyLedger();
+  const q1 = eco.check(0, LQ, QREWARD, `quest:${QUEST}`, NOW);
+  if (q1.ok) eco.commit(LQ, q1, NOW);
+  assert(q1.ok && !chk(QREWARD, `quest:${QUEST}`, LQ, 0, NOW + 10 * CREDIT_CONTRACT_WINDOW_MS), 'E-4: the second payout of the same quest is refused (ledger, forever)', LQ);
+  const LC = emptyLedger();
+  let paid = 0;
+  for (let i = 0; i < CREDIT_CONTRACT_MAX_PER_HOUR + 1; i++) {
+    const cc = eco.check(0, LC, CREWARD, `contract:${CONTRACT}`, NOW + i);
+    if (cc.ok) { eco.commit(LC, cc, NOW + i); paid++; }
+  }
+  assert(paid === CREDIT_CONTRACT_MAX_PER_HOUR && chk(CREWARD, `contract:${CONTRACT}`, LC, 0, NOW + CREDIT_CONTRACT_WINDOW_MS + CREDIT_CONTRACT_MAX_PER_HOUR),
+    `E-4: contract payouts stop at ${CREDIT_CONTRACT_MAX_PER_HOUR} per rolling hour and open again after it`, { paid });
+
+  /* migrate, dev */
+  const m1 = eco.check(null, undefined, T.creditsMax + 12_345, 'migrate', NOW);
+  const m0 = eco.check(null, undefined, -50, 'migrate', NOW);
+  assert(m1.ok && m1.delta === T.creditsMax && m1.seed && m0.ok && m0.delta === 0 && !chk(10, 'migrate', undefined, 0) && !chk(10, 'migrate', undefined, 500),
+    'E-4: migrate only on a null balance, clamped to [0, CREDITS_MAX]', { m1, m0 });
+  const devTags = ['console', 'smoke:meta', 'e2e:probe', 'shot'];
+  assert(devTags.every((tag) => !chk(5, tag)) && devTags.every((tag) => chk(-5, tag, undefined, 100, NOW, ecoDev)) && !chk(-MIN + 1, `buy:${BUY}`, undefined, 100, NOW, ecoDev),
+    'E-4: dev reasons are refused without devEconomy and accepted with it (the other rules stay on)');
+  assert(devEconomyFromEnv({ SCAV_DEV_ECONOMY: '1' }, []) && devEconomyFromEnv({}, ['--dev-economy']) && !devEconomyFromEnv({}, []) && !devEconomyFromEnv({ SCAV_DEV_ECONOMY: '0' }, []),
+    'E-4: devEconomyFromEnv reads SCAV_DEV_ECONOMY=1 / --dev-economy, off otherwise');
+
+  /* ledger sanitize */
+  const hostile = sanitizeLedger({
+    quests: [QUEST, QUEST, 3, 'bad-id', 'x'.repeat(70)],
+    contractsAt: [NOW - 10, NOW + 1e9, 'x', NOW - CREDIT_CONTRACT_WINDOW_MS - 5],
+    debits: [
+      { reason: 'buy:a', amount: 50, at: NOW - 1_000, refunded: 80 },
+      { reason: 'buy:b', amount: Number.NaN, at: NOW, refunded: 0 },
+      { reason: 'buy:c', amount: 10, at: NOW - CREDIT_REFUND_WINDOW_MS - 1, refunded: 0 },
+      { reason: 'buy:d', amount: 10.7, at: NOW + 1e9, refunded: -3 },
+    ],
+  }, NOW);
+  assert(!!hostile && JSON.stringify(hostile.quests) === JSON.stringify([QUEST]) && JSON.stringify(hostile.contractsAt) === JSON.stringify([NOW - 10, NOW])
+    && hostile.debits.length === 1 && hostile.debits[0].reason === 'buy:d' && hostile.debits[0].amount === 10 && hostile.debits[0].at === NOW && hostile.debits[0].refunded === 0,
+    'E-4: sanitizeLedger drops junk / duplicates, clamps future stamps and refunded, prunes expired + fully refunded debits', hostile);
+  const many = sanitizeLedger({ debits: Array.from({ length: CREDIT_LEDGER_DEBITS_MAX + 40 }, () => ({ reason: 'buy:x', amount: 5, at: NOW, refunded: 0 })) }, NOW);
+  assert(many?.debits.length === CREDIT_LEDGER_DEBITS_MAX && sanitizeLedger(42, NOW) === null && sanitizeLedger({}, NOW) === null,
+    `E-4: the debit list is capped at ${CREDIT_LEDGER_DEBITS_MAX}; an empty / non-object ledger is dropped`);
+
+  /* store: ledger through the file */
+  const dir = mkdtempSync(join(tmpdir(), 'scav-econ-'));
+  try {
+    const s1 = new ProfileStore({ dataDir: dir, saveDebounceMs: 60_000, quiet: true });
+    const seeded = s1.applyCreditsTx('e1', 3_000, 'migrate', eco);
+    const bought = s1.applyCreditsTx('e1', -MIN, `buy:${BUY}`, eco);
+    const quest = s1.applyCreditsTx('e1', QREWARD, `quest:${QUEST}`, eco);
+    const over = s1.applyCreditsTx('e1', -1_000_000_000, `buy:${BUY}`, eco);
+    assert(seeded.ok && bought.ok && quest.ok && !over.ok && over.reason === '크레딧 부족' && s1.ledgerOf('e1')?.debits.length === 1,
+      'E-4: Store.applyCreditsTx — an overdraft refused by the balance writes nothing to the ledger', s1.ledgerOf('e1'));
+    s1.close();
+    const onDisk = (JSON.parse(readFileSync(join(dir, PROFILE_FILE), 'utf8')) as { profiles: Record<string, { ledger?: CreditLedger }> }).profiles.e1?.ledger;
+    const s2 = new ProfileStore({ dataDir: dir, saveDebounceMs: 60_000, quiet: true });
+    const l2 = s2.ledgerOf('e1');
+    assert(!!onDisk && !!l2 && l2.quests.includes(QUEST) && l2.debits.length === 1 && l2.debits[0].reason === `buy:${BUY}` && l2.debits[0].amount === MIN,
+      'E-4: the ledger survives profiles.json (quests + debits)', { onDisk, l2 });
+    assert(!s2.applyCreditsTx('e1', QREWARD, `quest:${QUEST}`, eco).ok && s2.applyCreditsTx('e1', MIN, `refund:${BUY}`, eco).ok,
+      'E-4: after a restart the quest stays paid and a refund still pairs with the debit written before it');
+    assert(!('ledger' in s2.snapshot('e1')), 'E-4: ProfileStore.snapshot (welcome.profile / profile:docs) never carries the ledger');
+    s2.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  /* wire: a relay without devEconomy (the shipped default) */
+  const srv = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: null });
+  const url = `ws://127.0.0.1:${srv.port}${NET_WS_PATH}`;
+  let txId = 0;
+  const txOf = (cl: TestClient) => async (delta: number, reason: string): Promise<TxResult> => {
+    const id = ++txId;
+    cl.send({ t: 'credits:tx', txId: id, delta, reason });
+    return cl.wait('credits:result', (mm) => mm.txId === id);
+  };
+  try {
+    const { c: a } = await connect('E12a', url, { token: makeToken('e'), name: '상한' });
+    const txa = txOf(a);
+    const ma = await txa(T.creditsMax + 5_000, 'migrate');
+    const ma2 = await txa(10, 'migrate');
+    const capSell = await txa(tableSellPrice(T, stackIt.value, 1), `sell:${STACK}:1`);
+    assert(ma.ok && ma.credits === T.creditsMax && !ma2.ok && ma2.reason === CREDIT_TX_INVALID_KO && ma2.credits === T.creditsMax && capSell.ok && capSell.credits === T.creditsMax,
+      'E-4 wire: migrate clamps to CREDITS_MAX, a second migrate is refused, a credit never lifts the balance past CREDITS_MAX', { ma, ma2, capSell });
+    a.close();
+
+    const TB = makeToken('f');
+    let { c: b } = await connect('E12b', url, { token: TB, name: '거래' });
+    let txb = txOf(b);
+    const seq: [string, TxResult][] = [];
+    const step = async (label: string, delta: number, reason: string): Promise<TxResult> => {
+      const r = await txb(delta, reason);
+      seq.push([label, r]);
+      return r;
+    };
+    await step('migrate', 5_000, 'migrate');
+    const sb = await step('buy', -MIN, `buy:${BUY}`);
+    const sr = await step('refund', MIN, `refund:${BUY}`);
+    const sr2 = await step('refund again', MIN, `refund:${BUY}`);
+    const ss = await step('sell', stackMax, `sell:${STACK}:${stackIt.stack}`);
+    const sq = await step('quest', QREWARD, `quest:${QUEST}`);
+    const sq2 = await step('quest again', QREWARD, `quest:${QUEST}`);
+    const sp = await step('repair', -FEE, `repair:${REPAIR}`);
+    const spr = await step('refund:repair', FEE, `refund:repair:${REPAIR}`);
+    const sc = await step('contract', CREWARD, `contract:${CONTRACT}`);
+    const sd = await step('smoke', 1, 'smoke:x');
+    const sco = await step('console', 1, 'console');
+    const su = await step('unknown', -100, 'buy:test');
+    const expect = 5_000 + stackMax + QREWARD + CREWARD;
+    assert(sb.ok && sb.credits === 5_000 - MIN && sr.ok && sr.credits === 5_000 && ss.ok && sq.ok && sp.ok && spr.ok && sc.ok,
+      'E-4 wire: buy → refund → sell (full stack) → quest → repair → refund:repair → contract are accepted with the legit amounts', seq);
+    assert([sr2, sq2, sd, sco, su].every((r) => !r.ok && r.reason === CREDIT_TX_INVALID_KO) && su.credits === expect,
+      'E-4 wire: double refund / quest twice / smoke:* / console / buy:test → credits:result {ok:false, reason: CREDIT_TX_INVALID_KO}, balance kept', { sr2, sq2, sd, sco, su, expect });
+    b.send({ t: 'profile:get' });
+    const docsB = await b.wait('profile:docs');
+    assert(docsB.profile.credits === expect && !('ledger' in docsB.profile) && (srv.store.ledgerOf(b.id)?.quests ?? []).includes(QUEST),
+      'E-4 wire: profile:docs carries the balance but never the ledger (the relay keeps it)', { credits: docsB.profile.credits, keys: Object.keys(docsB.profile) });
+    b.close();
+    await b.closed();
+    ({ c: b } = await connect('E12b2', url, { token: TB, name: '거래' }));
+    txb = txOf(b);
+    const sq3 = await txb(QREWARD, `quest:${QUEST}`);
+    assert(!sq3.ok && sq3.credits === expect, 'E-4 wire: the quest stays paid across a reconnect', sq3);
+    b.close();
+  } finally {
+    await srv.close();
+  }
+
+  /* wire: a relay with devEconomy (verify runner / e2e / dev:all) */
+  const dev = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: null, devEconomy: true });
+  try {
+    const { c: d } = await connect('E12d', `ws://127.0.0.1:${dev.port}${NET_WS_PATH}`, { token: makeToken('g'), name: '개발' });
+    const txd = txOf(d);
+    const d1 = await txd(77, 'smoke:seed');
+    const d2 = await txd(0, 'e2e:probe');
+    const d3 = await txd(-9_999_999, 'e2e:overdraft');
+    const d4 = await txd(-1, 'buy:no_such_item_zz');
+    assert(d1.ok && d1.credits === 77 && d2.ok && !d3.ok && d3.reason === '크레딧 부족' && !d4.ok && d4.reason === CREDIT_TX_INVALID_KO,
+      'E-4 wire (devEconomy): smoke:* / e2e:* accepted, an overdraft still 크레딧 부족, a bad buy still refused', { d1, d2, d3, d4 });
+    d.close();
+  } finally {
+    await dev.close();
+  }
 }
 
 main().catch((e) => { console.error('selftest crashed', e); process.exit(1); });

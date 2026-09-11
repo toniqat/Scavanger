@@ -105,6 +105,16 @@ Vite 를 헤드리스로 띄워 **게임이 실제로 쓰는 로더 그대로** 
 - 쉼표가 든 값을 따옴표로 안 감싼 줄
 - `=이름` 이 가리키는 상수가 없을 때
 - 아무도 읽지 않는 csv 파일, `constants.csv` / `tuning.csv` 에서 아무도 읽지 않는 키
+- (2026-09-11) **릴레이의 크레딧 검증 표 `server/economy.gen.json` 이 지금 csv 와 다를 때.** 아이템 가치 · 스택 · 임플란트 수리비 ·
+  계약 / 퀘스트 크레딧 보상 · 상점 / 판매 배수 · `CREDITS_MAX` 를 바꾸면 릴레이가 옛 가격으로 `credits:tx` 를 검사하므로 실패한다.
+  고치는 법은 한 줄이다:
+
+  ```
+  npm run data:check -- --write     # 표를 다시 만들고 → server/economy.gen.json 을 csv 와 함께 커밋한다
+  ```
+
+  표는 게임과 같은 모듈에서 만들어지고, 검사 때마다 표의 가격 식이 게임의 구매가 · 판매가 · 수리비와 모든 아이템 × 신뢰도 레벨 ×
+  수량에서 같은지도 검산한다 (`scripts/economy-table.mjs`). 적 체력처럼 경제와 무관한 수치는 표를 바꾸지 않는다.
 
 `npm run verify` 가 typecheck · net:selftest 와 함께 자동으로 돌린다.
 

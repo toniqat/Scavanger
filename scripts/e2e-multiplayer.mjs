@@ -5,8 +5,10 @@
 // the returning host resumes demoted; the new host then aborts the mission for everyone).
 // Usage: node scripts/e2e-multiplayer.mjs [http://localhost:5273]
 // Requires `npm run server` and `npm run dev` to be running (or `npm run dev:all`).
+// 2026-09-11 (E-4): the credits check uses real game reasons (`buy:` + `refund:` priced from server/economy.gen.json), so it
+// needs no SCAV_DEV_ECONOMY relay; the relay only has to run the same economy table as the working tree.
 import puppeteer from 'puppeteer-core';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -120,9 +122,27 @@ try {
   await waitFor(A, () => window.__game.ctx.net.profile.available, 'A profile available', 5000);
   const prof = await A.evaluate(() => ({ available: window.__game.ctx.net.profile.available, loaded: !!window.__profileLoaded, migrated: window.__profileLoaded?.migrated, credits: window.__game.ctx.net.profile.credits }));
   ok(prof.available && prof.loaded, `A profile loaded from welcome ${JSON.stringify(prof)}`);
-  const tx = await A.evaluate(async () => { try { return await window.__game.ctx.net.profile.addCredits(0, 'e2e:probe'); } catch (e) { return { err: String(e) }; } });
-  ok(tx && tx.ok === true && typeof tx.credits === 'number', `A credits transaction round trip ${JSON.stringify(tx)}`);
-  const over = await A.evaluate(async () => { try { return await window.__game.ctx.net.profile.addCredits(-9999999, 'e2e:overdraft'); } catch (e) { return { err: String(e) }; } });
+  /* 2026-09-11 (E-4): the relay validates reasons, so this uses **real game reasons** priced from `server/economy.gen.json`
+     (a `buy:` at the best-discount price, then its `refund:` — net zero) instead of the dev reasons `e2e:probe` / `e2e:overdraft`,
+     which only a SCAV_DEV_ECONOMY relay accepts. It now works against any relay: dev:all, npm run server or the verify runner's. */
+  await waitFor(A, () => typeof window.__game.ctx.net.profile.credits === 'number', 'A server balance (migrate answered)', 5000).catch(() => null);
+  const econ = JSON.parse(readFileSync(new URL('../server/economy.gen.json', import.meta.url), 'utf8'));
+  const bestMul = Math.max(econ.shopPriceMinMul, econ.shopPriceBaseMul - econ.shopPriceDiscountPerRep * (econ.repLevelMax ?? 0));
+  const bal0 = await A.evaluate(() => window.__game.ctx.net.profile.credits ?? 0);
+  const probe = Object.entries(econ.items).map(([id, it]) => ({ id, price: Math.max(1, Math.round(it.value * bestMul)) }))
+    .filter((p) => p.price <= bal0).sort((a, b) => a.price - b.price)[0] ?? null;
+  const tx = await A.evaluate(async (p) => {
+    const prof = window.__game.ctx.net.profile;
+    try {
+      if (!p) return await prof.addCredits(1, 'sell:ammo_light:1');   // empty balance: a legit one-unit sale instead
+      const b = await prof.addCredits(-p.price, `buy:${p.id}`);
+      if (!b.ok) return { buyRefused: b };
+      return await prof.addCredits(p.price, `refund:${p.id}`);
+    } catch (e) { return { err: String(e) }; }
+  }, probe);
+  ok(tx && tx.ok === true && typeof tx.credits === 'number', `A credits transaction round trip (buy + refund of ${probe?.id ?? 'a sale'}) ${JSON.stringify(tx)}`);
+  if (tx && tx.ok !== true && /확인하지 못했습니다/.test(JSON.stringify(tx))) console.log('  note: the relay refused a game credit reason — is server/economy.gen.json newer than the running relay? restart it');
+  const over = await A.evaluate(async (id) => { try { return await window.__game.ctx.net.profile.addCredits(-9999999, `buy:${id}`); } catch (e) { return { err: String(e) }; } }, probe?.id ?? 'ammo_light');
   ok(over && over.ok === false && over.reason === '크레딧 부족' && over.credits === tx.credits, `overdraft refused by the server ${JSON.stringify(over)}`);
   ok(await A.evaluate((c) => window.__game.ctx.net.profile.credits === c, tx.credits), 'profile.credits mirrors the server balance');
 

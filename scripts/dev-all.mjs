@@ -84,5 +84,7 @@ process.on('SIGTERM', () => shutdown(0));
 process.on('SIGHUP', () => shutdown(0));
 
 writeLine('dev', 'starting relay server (npm run server) and vite (npm run dev)', process.stdout);
+// E-4 (2026-09-11, 사용자 결정): this relay does NOT accept the dev credit reasons (`/credits` · smoke:* · e2e:* · shot) —
+// `start-server.bat` runs this script for real LAN play. Only relays the smoke runners start themselves turn SCAV_DEV_ECONOMY on.
 run('server', 'server');
 run('dev', 'dev');

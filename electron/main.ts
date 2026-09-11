@@ -28,13 +28,20 @@
  *   --relay=<ws url>   SCAV_RELAY      start no relay; proxy /ws to an existing one (ws://192.168.0.5:8787/ws)
  *   --local            SCAV_LOCAL=1    ignore every configured relay and run the embedded one (offline / solo)
  *   --devtools         SCAV_DEVTOOLS=1 enable DevTools (F12 / Ctrl+Shift+I); off in a normal build
+ *
+ * Test isolation (E-3, 2026-09-11 — `scripts/smoke-desktop.mjs`; a player never needs these):
+ *   --user-data=<dir>  SCAV_USER_DATA  userData 를 옮긴다 — localStorage(세이브) · 단일 인스턴스 락 · 임베디드 릴레이
+ *                                      프로필 · 창 상태가 전부 그 폴더로 간다. 켜 둔 게임도 사용자의 세이브도 건드리지 않는다
+ *   --hidden           SCAV_HIDDEN=1   창을 보이지 않는다 (페이지는 계속 돈다 — 단 한 번도 보인 적 없는 창이라 rAF 가 초당 3–5 번)
+ *   --lazy-relay       SCAV_LAZY_RELAY=1  `--port` 를 줘도 임베디드 릴레이를 첫 `/ws` 까지 미룬다 — 고정 포트로 C-28
+ *                                      지연 시작을 재려는 테스트용 (`--port` 만 주면 "이 PC 가 서버다" 라 곧바로 켠다)
  */
 import { createServer, type Server as HttpServer } from 'node:http';
-import { dirname, join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve as resolvePath } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron';
 import { startRelayServer, type RelayServer } from '../server/RelayServer.ts';
-import { NET_DEFAULT_PORT, NET_WS_PATH, relayUrlFrom } from '../src/shared/net.ts';
+import { NET_DEFAULT_PORT, NET_SHELL_RELAY_ROUTE, NET_WS_PATH, relayUrlFrom } from '../src/shared/net.ts';
 import { attachStatic } from './static.ts';
 import { attachWsProxy, type LazyProxyTarget } from './wsProxy.ts';
 import { loadWindowState, trackWindowState } from './windowState.ts';
@@ -56,6 +63,19 @@ const devtools = flag('devtools', 'SCAV_DEVTOOLS');
 const local = flag('local', 'SCAV_LOCAL');
 /** Diagnostics: leave Escape to Chromium (no forward, no re-lock) — the behaviour before Phase 12. */
 const rawEscape = flag('raw-escape', 'SCAV_RAW_ESCAPE');
+/** E-3: 창을 띄우지 않는다 (스모크가 작업 중인 화면을 가리지 않게). */
+const hidden = flag('hidden', 'SCAV_HIDDEN');
+/** E-3: `--port` 가 있어도 임베디드 릴레이를 지연 시작한다 (아래 `eagerEmbedded`). */
+const lazyRelay = flag('lazy-relay', 'SCAV_LAZY_RELAY');
+
+/* E-3 (2026-09-11) — userData 격리. **`requestSingleInstanceLock` 과 `app.ready` 보다 먼저** 여야 한다: 락 ·
+ * 세션 저장소(localStorage) 경로가 그때 정해진다. `setPath` 는 없는 폴더를 거절하므로 먼저 만든다. */
+const userDataArg = value('user-data', 'SCAV_USER_DATA');
+if (userDataArg) {
+  const dir = resolvePath(userDataArg);
+  mkdirSync(dir, { recursive: true });
+  app.setPath('userData', dir);
+}
 
 /* ── which relay do we talk to? ───────────────────────────────────────── */
 
@@ -69,8 +89,17 @@ declare const __SCAV_DEFAULT_RELAY__: string;
  */
 const RELAY_FILES = ['server.txt', 'relay.txt'];
 
-/** Local route the renderer's 설정 화면 asks for the *default* address (see the header comment). */
-const RELAY_ROUTE = '/__scav/relay';
+/**
+ * Local route the renderer's 설정 화면 asks for the *default* address (see the header comment).
+ * 2026-09-11: 원본은 `shared/net` 의 `NET_SHELL_RELAY_ROUTE` — `net/parts/Socket` 도 같은 라우트로 임베디드 목표를 판별한다.
+ */
+const RELAY_ROUTE = NET_SHELL_RELAY_ROUTE;
+
+/**
+ * `RELAY_ROUTE` 의 응답. `embedded` (2026-09-11) = 같은 오리진 `/ws` 가 **이 프로세스의 임베디드 릴레이**로 가는가 —
+ * 렌더러(`net/parts/Socket`)가 source 라벨 문자열 대신 이것을 보고 프로브를 끈다 (첫 `/ws` 가 릴레이를 켜므로, C-28).
+ */
+interface RelayRouteInfo { target: string; source: string; embedded: boolean }
 
 type RelaySource = 'flag' | 'env' | 'file' | 'build';
 const RELAY_SOURCE_LABEL: Record<RelaySource, string> = {
@@ -204,7 +233,7 @@ async function listenStable(ports: readonly number[], start: (port: number) => P
  * 명시적인 뜻이므로 부팅 때 곧바로 켠다. 동시에 들어온 업그레이드는 같은 Promise 를 기다린다.
  */
 let embeddedStart: Promise<URL> | null = null;
-const eagerEmbedded = lan || value('port', 'SCAV_PORT') !== undefined;
+const eagerEmbedded = !lazyRelay && (lan || value('port', 'SCAV_PORT') !== undefined);
 
 function ensureEmbedded(): Promise<URL> {
   if (!embeddedStart) {
@@ -245,7 +274,7 @@ async function startEmbedded(): Promise<URL> {
  */
 async function startWindowServer(
   relayWs: URL | LazyProxyTarget,
-  def: () => { target: string; source: string },
+  def: () => RelayRouteInfo,
 ): Promise<number> {
   const ports = Array.from({ length: APP_PORT_TRIES }, (_, i) => APP_PORT + i);
   return listenStable(ports, (p) => new Promise<number>((resolve, reject) => {
@@ -324,6 +353,7 @@ function createWindow(port: number): void {
   trackWindowState(win);
 
   win.once('ready-to-show', () => {
+    if (hidden) return;   // E-3: 전체화면 · 최대화도 창을 보이게 하므로 같이 건너뛴다
     if (state.fullscreen) win?.setFullScreen(true);
     else if (state.maximized) win?.maximize();
     win?.show();
@@ -362,7 +392,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (!win) return;
+    console.log('[desktop] second instance refused (single-instance lock) -> focusing the existing window');
+    if (!win || hidden) return;   // E-3: 숨긴 창을 focus/restore 하면 보이게 된다
     if (win.isMinimized()) win.restore();
     win.focus();
   });
@@ -391,7 +422,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       let relayWs: URL | LazyProxyTarget;
       /** 설정 화면의 "기본값: …" 줄에 그대로 실리는 값 (`RELAY_ROUTE`). */
-      let def: () => { target: string; source: string };
+      let def: () => RelayRouteInfo;
       let routeLabel: string;
       const configured = resolveRelay();
       if (configured) {
@@ -399,7 +430,7 @@ if (!app.requestSingleInstanceLock()) {
         relayWs = url;
         const from = configured.from ? `: ${configured.from}` : '';
         console.log(`[desktop] relay proxy -> ${url.href}  (${RELAY_SOURCE_LABEL[configured.source]}${from})`);
-        const fixed = { target: url.href, source: RELAY_SOURCE_LABEL[configured.source] };
+        const fixed: RelayRouteInfo = { target: url.href, source: RELAY_SOURCE_LABEL[configured.source], embedded: false };
         def = () => fixed;
         routeLabel = url.href;
       } else {
@@ -407,8 +438,8 @@ if (!app.requestSingleInstanceLock()) {
         if (eagerEmbedded) await ensureEmbedded();
         relayWs = { path: NET_WS_PATH, resolve: ensureEmbedded };
         def = () => relay
-          ? { target: `ws://127.0.0.1:${relay.port}${NET_WS_PATH}`, source: '이 PC 의 내장 서버' }
-          : { target: `ws://127.0.0.1:${wantPort}${NET_WS_PATH}`, source: '이 PC 의 내장 서버 (필요할 때 켜짐)' };
+          ? { target: `ws://127.0.0.1:${relay.port}${NET_WS_PATH}`, source: '이 PC 의 내장 서버', embedded: true }
+          : { target: `ws://127.0.0.1:${wantPort}${NET_WS_PATH}`, source: '이 PC 의 내장 서버 (필요할 때 켜짐)', embedded: true };
         routeLabel = relay ? `ws://127.0.0.1:${relay.port}${NET_WS_PATH}` : 'embedded relay (starts on the first connection)';
       }
       // 창의 오리진은 릴레이와 무관한 고정 포트다 (localStorage = 세이브가 오리진에 묶여 있다).

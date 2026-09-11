@@ -12,6 +12,8 @@
  *  - `=상수` 식이 가리키는 이름이 없을 때
  *  - 아무도 읽지 않는 csv 파일 (고아 파일)
  *  - constants.csv / tuning.csv 에서 아무도 읽지 않는 키 (오타이거나 죽은 수치)
+ *  - (2026-09-11) 커밋된 `server/economy.gen.json`(릴레이의 크레딧 검증 표)이 지금 csv 와 다를 때 —
+ *    `npm run data:check -- --write` 로 다시 만든다 (`scripts/economy-table.mjs`)
  *
  * 브라우저에서는 같은 문제가 있어도 게임이 뜬다 (기본값으로 굴러간다). 그래서 이 스크립트가 있다.
  */
@@ -54,6 +56,18 @@ try {
   console.error(`\n[data:check] 분해 경제 검산을 못 돌렸다:\n  ${String(e?.message ?? e).split('\n')[0]}`);
 }
 
+/* 서버 크레딧 검증 표 (2026-09-11, E-4): 릴레이가 `credits:tx` 금액을 검사하는 `server/economy.gen.json` 이 지금 csv 로
+ * 만든 것과 같은지 + 표의 가격 식이 게임과 모든 아이템 · 레벨 · 수량에서 같은지. `--write` 면 다시 쓴다. */
+const WRITE = process.argv.includes('--write');
+let econTable = { problems: [], stale: false, wrote: false, missing: false };
+try {
+  const { runEconomyTable } = await import('./economy-table.mjs');
+  econTable = await runEconomyTable(server, { write: WRITE });
+} catch (e) {
+  loadFailed = true;
+  console.error(`\n[data:check] 서버 경제 표를 못 만들었다:\n  ${String(e?.message ?? e).split('\n')[0]}`);
+}
+
 await server.close();
 
 const issues = tables.dataIssues();
@@ -62,7 +76,7 @@ const touched = new Set(tables.touchedFiles());
 const orphans = files.filter((f) => !touched.has(f));
 const unread = tables.allKeyTables().flatMap((t) => t.unreadKeys().map((k) => `${t.file}: ${k}`));
 
-const rows = issues.length + orphans.length + unread.length + economy.length;
+const rows = issues.length + orphans.length + unread.length + economy.length + econTable.problems.length + (econTable.stale ? 1 : 0);
 
 if (issues.length) {
   console.error(`\n잘못된 칸 ${issues.length}건`);
@@ -84,6 +98,16 @@ if (economy.length) {
   console.error(`\n제작 → 분해 무한 이득 ${economy.length}건 (수리 재료 + 분해 산출 ≤ 제작 재료 여야 한다)`);
   for (const v of economy) console.error(`  ${v.defId}${v.bucket >= 0 ? ` [내구도 구간 ${v.bucket}]` : ''} — ${v.message}`);
 }
+
+if (econTable.problems.length) {
+  console.error(`\n서버 경제 표가 게임 가격과 어긋남 ${econTable.problems.length}건 (server/Economy.ts 가 정상 거래를 거절하게 된다)`);
+  for (const p of econTable.problems) console.error(`  ${p}`);
+}
+if (econTable.stale) {
+  console.error(`\nserver/economy.gen.json 이 ${econTable.missing ? '없다' : '지금 csv 로 만든 표와 다르다'} — 릴레이가 옛 가격으로 크레딧을 검사한다.`);
+  console.error('  고치기: npm run data:check -- --write   (그리고 server/economy.gen.json 을 커밋한다)');
+}
+if (econTable.wrote) console.log(`server/economy.gen.json 을 다시 썼다 (hash ${econTable.table.hash}) — 커밋한다`);
 
 /* 2026-09-11: verify 가 csv 변경에서 스모크를 고르는 표에 없는 파일 — 실패는 아니고 알림이다 (`data-owners.mjs`). */
 const unmapped = files.filter((f) => !CSV_WIDE.has(f) && !CSV_FOLDERS[f]);

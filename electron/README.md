@@ -21,6 +21,9 @@ Electron main process
 기다린다, 실패하면 다음 업그레이드가 다시 시도), 기다리는 동안 업그레이드 뒤에 붙어 온 `head` 바이트와 소켓
 버퍼는 그대로 보존된다. `--lan` · `--port` 는 "이 PC 가 서버다" 라는 뜻이라 부팅 때 곧바로 켠다.
 설정 화면의 기본값 줄(`/__scav/relay`)은 켜지기 전이면 `이 PC 의 내장 서버 (필요할 때 켜짐)` 이다.
+그 응답은 `{target, source, embedded}` 이고 **`embedded`** (2026-09-11) 가 "같은 오리진 `/ws` 가 이 프로세스의 임베디드
+릴레이로 간다" 는 뜻이다(프록시 모드는 false). 렌더러의 연결 UI(`net/parts/Socket`)는 라벨 문자열 대신 이 필드를 보고
+임베디드 목표에는 프로브를 돌리지 않는다. 라우트 경로의 원본은 `src/shared/net.ts` 의 `NET_SHELL_RELAY_ROUTE` 다.
 
 릴레이 주소가 **설정되어 있으면** 자체 릴레이를 띄우는 대신 그 주소로 `/ws` 를 프록시한다(아래 "릴레이 주소").
 배포본은 보통 이쪽이다 — 한 사람이 `SCAVANGER-Server.exe` 로 서버를 켜고 나머지는 게임만 실행한다.
@@ -116,6 +119,7 @@ npm run app:dist     # app:build + electron-builder → release/SCAVANGER-<versi
 npm run typecheck:app
 ```
 `npm run dev` / `npm run dev:all` 브라우저 흐름은 그대로다 — 스모크 · e2e 는 전부 vite 를 본다.
+**셸 자체는 `node scripts/smoke-desktop.mjs`** 가 진짜 Electron 으로 검사한다 (2026-09-11, 아래 "자동 검증").
 
 ### `electronDist` 는 지우지 않는다
 
@@ -169,6 +173,9 @@ npm run typecheck:app
 | `--relay=<ws url>` | `SCAV_RELAY` | 자체 릴레이를 띄우지 않고 `/ws` 를 원격 릴레이로 프록시 (`--relay=ws://192.168.0.5:8787/ws`) |
 | `--local` | `SCAV_LOCAL=1` | 설정된 주소를 **전부 무시**하고 자체 릴레이로 실행 (혼자 플레이 · 서버가 꺼져 있을 때) |
 | `--devtools` | `SCAV_DEVTOOLS=1` | DevTools 활성화 (기본 비활성) |
+| `--user-data=<dir>` | `SCAV_USER_DATA` | **테스트용** (2026-09-11). `app.ready` · 단일 인스턴스 락 **전에** `app.setPath('userData')` — localStorage(세이브) · 락 · 임베디드 릴레이 프로필 · 창 상태가 전부 그 폴더로 간다. 켜 둔 게임도 `%APPDATA%/SCAVANGER` 도 건드리지 않는다 |
+| `--hidden` | `SCAV_HIDDEN=1` | **테스트용**. 창을 한 번도 보이지 않는다(전체화면 · 최대화 복원 · `second-instance` 포커스도 건너뛴다). 렌더링은 계속되지만 합성기가 프레임을 요구하지 않아 rAF 가 초당 3–5 번이다 |
+| `--lazy-relay` | `SCAV_LAZY_RELAY=1` | **테스트용**. `--port` 를 줘도 임베디드 릴레이를 첫 `/ws` 까지 미룬다 — `--port` 만 주면 "이 PC 가 서버다" 라 곧바로 켜므로(C-28), 고정 포트로 지연 시작을 재려면 이것이 필요하다 |
 
 같이 하려면 — 서버를 켜는 사람이 저장소 루트의 `start-server.bat` (릴레이만 원하면 `start-server.bat relay`),
 나머지는 그냥 `SCAVANGER.exe`. (게임을 여는 `start-game.bat` 은 **2026-09-08 에 삭제**했다: 배포본은 exe 로,
@@ -191,6 +198,28 @@ npm run typecheck:app
   다시 붙으려면 터미널의 `신호 찾기`(`ensureConnected` 재시도)를 누르거나 앱을 다시 켜야 한다.
 - 프로필 · 크레딧 · 소셜 아이디는 **접속한 릴레이**에 저장된다. 남의 서버에서 놀다가 `--local` 로 혼자 켜면
   그 PC 의 임베디드 릴레이가 가진 별개의 프로필을 보게 된다(스태시 · 로드아웃은 localStorage 에도 있어 대개 이어진다).
+
+## 자동 검증 (2026-09-11, E-3) — `scripts/smoke-desktop.mjs`
+
+위 수동 절차들(CDP 로 붙어 손으로 확인)을 스크립트로 옮겼다. `npm run verify` 가 `electron/` · `scripts/pack-release.mjs` ·
+그 스모크 자신을 건드렸을 때 고르고 `verify:all` 에도 들어간다 (`standalone` + `exclusive`). 약 25 초 (`dist/` 가 오래됐으면
+빌드 몇 초~1 분 추가).
+
+- `node_modules/electron/dist/electron.exe <repo> --hidden --user-data=<임시> --app-port=8820 --remote-debugging-port=9340`
+  (+ 경우에 따라 `--local` · `--lazy-relay --port=8821` · `--relay=` · `server.txt` cwd) → puppeteer-core `connect`.
+- 보는 것: 오리진 = 창 포트 · `window.__game.ctx` · UA `Electron/` · `__scavDesktop` 흉내 없이 함선에서 `desktop-nocursor` ·
+  `__scavShellRelock` 설치 · 지연 릴레이(C-28 두 가지) · `/__scav/relay` · `--relay` / `server.txt` 프록시가 외부 릴레이의
+  `clients 1` · 세이브 = 창 포트(같은 포트 재부팅 표식 유지, 다른 포트 없음) · 단일 인스턴스 exit 0 · 끝나면 프로세스 0 · 포트 해제.
+- `--release` 는 `release/SCAVANGER/` 넷 + stub 이 인자를 넘겨 같은 부팅 단언이 통과하는지 (배포본이 오래됐으면 `npm run app:dist`).
+
+**측정으로 알게 된 것 (2026-09-11)**
+- **CDP 로 넣은 키는 `before-input-event` 를 타지 않는다** — 페이지는 Escape 를 받는데 `handleEscape` 는 0 번. 2026-09-08
+  기록의 "CDP Escape 로 훅" 은 페이지 카운터만 본 것이다. 메인 프로세스 `webContents.sendInputEvent` 는 탄다: 스모크는
+  `--inspect=9341` 인스펙터에서 `require('electron')`(`includeCommandLineAPI` — 번들이 ESM 이라 `import()` 는 막혀 있다)으로
+  Escape 를 넣고, 훅 1 번 · 페이지 keydown/keyup 각 1 번을 본다. 숨긴 창은 포인터 락을 못 잡으므로 락 쿨다운은 여전히 수동 영역.
+- 숨긴 창의 rAF 는 초당 3–5 번이다 (`--hidden` 줄). 셸 검사에는 충분하다.
+- localStorage 표식을 `scav.` 로 시작하게 쓰면 다음 부팅에 "사라진다" — `shared/saveSlot` 이 옛 단일 키를 `scav.s1.*` 로
+  옮기기 때문이다(셸 버그 아님). 정상 종료(CDP `Browser.close`) 뒤 세이브는 유지된다.
 
 ## 검증 (2026-09-07, 릴레이 주소 설정 추가)
 - `typecheck` / `typecheck:server` / `typecheck:app` 0 errors, `app:build` 가 `ws://…/ws` 를 번들에 구운 것을 확인.
@@ -262,6 +291,12 @@ Tab → Escape / Tab → Tab)로 비교했다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
 
+- **2026-09-11 (E-3)** — 테스트 격리 플래그 `--user-data=<dir>`(`SCAV_USER_DATA`, 락 · 저장소보다 먼저 `setPath`) ·
+  `--hidden`(`SCAV_HIDDEN`, 창 표시 · 전체화면/최대화 복원 · `second-instance` 포커스 생략) · `--lazy-relay`(`SCAV_LAZY_RELAY`,
+  `--port` 를 줘도 지연 시작 — 설계안 §9 의 "`--port=8821` + 지연 확인" 이 C-28 의 즉시 시작 규칙과 부딪혀 더했다).
+  `second-instance` 가 로그 한 줄을 남긴다. 사용자 경로의 동작은 그대로다. 새 `scripts/smoke-desktop.mjs` (위 "자동 검증").
+  후속(B-1 연결 UI 요청): `/__scav/relay` 응답에 **`embedded: boolean`** 추가(임베디드 true · `--relay`/`server.txt`/구운 주소
+  false), `RELAY_ROUTE` 는 `shared/net` 의 `NET_SHELL_RELAY_ROUTE` 를 쓴다(응답 타입 `RelayRouteInfo`). 스모크 54 checks.
 - **2026-09-11 (C-28 · C-30)** — 임베디드 릴레이 **지연 시작**: `attachWsProxy` 가 `LazyProxyTarget` 을 받고
   `main.ts` 의 `ensureEmbedded()` 가 첫 `/ws` 업그레이드에서 릴레이를 켠다(`--lan` · `--port` 는 즉시).
   `/__scav/relay` 는 요청마다 지금 값을 돌려준다. `src/` 무변경. 배포 서버 exe 는 postject 주입 **전에** node.exe

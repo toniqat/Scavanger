@@ -5,11 +5,15 @@
  * runner points the relay it starts itself at a temp folder so smoke runs stop piling test profiles into the dev store.
  */
 import { startRelayServer } from './RelayServer.ts';
+import { devEconomyFromEnv } from './Economy.ts';
 
 const dataArg = process.argv.slice(2).find((a) => a.startsWith('--data='))?.slice('--data='.length);
 const dataDir = dataArg || process.env.SCAV_DATA_DIR || undefined;
+/* 2026-09-11 (E-4 ⑦): `SCAV_DEV_ECONOMY=1` / `--dev-economy` accepts the dev credit reasons (console · smoke:* · e2e:* · shot).
+   Only the relay scripts/verify.mjs starts itself sets it; `npm run dev:all` · start-server.bat · `npm run server` leave it off. */
+const devEconomy = devEconomyFromEnv();
 
-const server = await startRelayServer(dataDir ? { dataDir } : {});
+const server = await startRelayServer({ ...(dataDir ? { dataDir } : {}), devEconomy });
 
 const shutdown = (signal: string): void => {
   console.log(`[relay] ${signal} → shutting down`);

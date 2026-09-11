@@ -30,16 +30,31 @@ import type { PlayerCode, PresenceState, SocialErrorCode, SocialPlayer, SocialSn
 import {
   SOCIAL_ERROR_MESSAGE_KO, SOCIAL_WHISPER_MAX, normalizePlayerCode, playBlockReason,
 } from '../src/shared/social.ts';
+/* 2026-09-11 (B-3 · B-4 · B-5 · B-6): 초대 표 · 차단 · 푸시 합치기 · 원자적 이동 */
+import type { InviteOutcome, SocialCard } from '../src/shared/social.ts';
+import { SQUAD_INVITE_MAX } from '../src/shared/social.ts';
+import { InviteTable, PushCoalescer, type OpenInvite } from './Invites.ts';
 import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
 import {
   PROFILE_GC_INTERVAL_MS, ProfileStore, SOCIAL_LEVEL_MAX, docBytes, isProfileDocKey,
   type ProfileGcReport, type ProfileStoreOptions,
 } from './Store.ts';
+/* 2026-09-11 (E-6): 문서 리비전 · 트랜잭션 */
+import { PROFILE_WRITE_ID_MAX, type RevWriteResult } from './Store.ts';
+import { PROFILE_SETMANY_MAX_BYTES } from '../src/shared/profile.ts';
+/* 2026-09-11 (E-4 ⑦): 서버 크레딧 검증 */
+import type { EconomyTable } from '../src/shared/credits.ts';
+import { CreditEconomy, ECONOMY_TABLE, economyTableIntact } from './Economy.ts';
 
 /** Cap for ordinary frames (lobby ops, relayed game messages). */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
-/** Cap for `profile:set` / `raid:save` frames: the document cap plus envelope headroom (the socket's maxPayload). */
+/** Cap for `profile:set` / `raid:save` frames: the document cap plus envelope headroom. */
 export const MAX_DOC_FRAME_BYTES = Math.max(PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES) + 16 * 1024;
+/**
+ * 2026-09-11 (E-6): cap for a `profile:setMany` frame — every document of a transaction (`PROFILE_SETMANY_MAX_BYTES`)
+ * plus envelope headroom. This is the socket's `maxPayload`; every other frame type keeps its own smaller cap.
+ */
+export const MAX_TX_FRAME_BYTES = PROFILE_SETMANY_MAX_BYTES + 16 * 1024;
 const MAX_REASON_INPUT = 64;
 const MISSION_MODES: ReadonlySet<string> = new Set<MissionMode>(['raid', 'training']);
 export const HEARTBEAT_MS = 15_000;
@@ -56,6 +71,8 @@ const MAX_NAME_INPUT = 64;
 const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
 /* Phase 11: what a `social:whisper` frame may carry before the handler trims it to `SOCIAL_WHISPER_MAX`. */
 const MAX_WHISPER_INPUT = 4 * SOCIAL_WHISPER_MAX;
+/* 2026-09-11 (B-3): an invite id is 8 base64url chars (`InviteTable`); anything longer is not ours. */
+const MAX_INVITE_ID_INPUT = 64;
 
 interface Client {
   id: PeerId;
@@ -112,6 +129,18 @@ export interface RelayServerOptions {
    * at startup; `null` / ≤ 0 turns the periodic run off (a manual `collectGarbage()` still works).
    */
   profileGcIntervalMs?: number | null;
+  /** 2026-09-11 (B-3): squad invite lifetime on the server clock (default `SQUAD_INVITE_TTL_S`; the selftest shortens it). */
+  inviteTtlMs?: number;
+  /** 2026-09-11 (B-5): presence push coalescing window (default `SOCIAL_PUSH_COALESCE_MS`). */
+  socialPushCoalesceMs?: number;
+  /**
+   * 2026-09-11 (E-4 ⑦): accept the dev credit reasons `console` · `smoke:*` · `e2e:*` · `shot` (`CREDIT_DEV_ENV`). Default
+   * **off**: `server/index.ts` turns it on from `SCAV_DEV_ECONOMY=1` (only the relay `scripts/verify.mjs` starts itself — `npm run dev:all` keeps it off); `tool.ts`
+   * (shipped exe) and the desktop shell's embedded relay never do.
+   */
+  devEconomy?: boolean;
+  /** 2026-09-11 (E-4 ⑦): the economy table (default: the committed `economy.gen.json`). Selftest only. */
+  economyTable?: EconomyTable;
 }
 
 export interface RelayServer {
@@ -169,13 +198,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | null {
   if (isBinary) return null;
   const text = typeof raw === 'string' ? raw : Array.isArray(raw) ? Buffer.concat(raw).toString('utf8') : raw.toString('utf8');
-  if (text.length > MAX_DOC_FRAME_BYTES) return null;
+  if (text.length > MAX_TX_FRAME_BYTES) return null;
   let parsed: unknown;
   try { parsed = JSON.parse(text); } catch { return null; }
   if (!isRecord(parsed) || typeof parsed.t !== 'string') return null;
   const m = parsed;
   // Only the two document uploads may exceed the ordinary cap (their payload is checked against the doc caps later).
-  if (text.length > MAX_MESSAGE_BYTES && m.t !== 'profile:set' && m.t !== 'raid:save') return null;
+  if (text.length > MAX_MESSAGE_BYTES && m.t !== 'profile:set' && m.t !== 'raid:save' && m.t !== 'profile:setMany') return null;
+  // E-6: only a transaction may use the larger `MAX_TX_FRAME_BYTES` (the socket's maxPayload).
+  if (text.length > MAX_DOC_FRAME_BYTES && m.t !== 'profile:setMany') return null;
   const validName = typeof m.name === 'string' && m.name.length <= MAX_NAME_INPUT;
   switch (m.t) {
     case 'lobby:create':
@@ -226,8 +257,16 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       const out: ClientToServer = { t: 'profile:set', key: m.key as never, doc: m.doc };
       if (typeof m.at === 'number') out.at = m.at;
       if (m.fresh === true) out.fresh = true;
+      /* E-6: a revision write. A malformed `baseRev` still reaches the handler (as -1) so it is refused *with* its writeId. */
+      if (m.writeId !== undefined && (typeof m.writeId !== 'string' || m.writeId.length === 0 || m.writeId.length > PROFILE_WRITE_ID_MAX)) return null;
+      if (typeof m.writeId === 'string') out.writeId = m.writeId;
+      if (m.baseRev !== undefined) out.baseRev = typeof m.baseRev === 'number' && Number.isInteger(m.baseRev) && m.baseRev >= 0 ? m.baseRev : -1;
       return out;
     }
+    /* E-6: a transaction. Only the envelope is checked here; every entry is judged (all or nothing) by the store. */
+    case 'profile:setMany':
+      return typeof m.txId === 'string' && m.txId.length > 0 && m.txId.length <= PROFILE_WRITE_ID_MAX && isRecord(m.docs)
+        ? { t: 'profile:setMany', txId: m.txId, docs: m.docs as never } : null;
     case 'credits:tx':
       return typeof m.txId === 'number' && Number.isFinite(m.txId) && typeof m.delta === 'number' && Number.isFinite(m.delta)
         && typeof m.reason === 'string' && m.reason.length <= MAX_REASON_INPUT
@@ -254,9 +293,21 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       return validSocialCode(m.code) ? { t: 'social:remove', code: m.code as string } : null;
     case 'social:play':
       return validSocialCode(m.code) ? { t: 'social:play', code: m.code as string } : null;
-    case 'social:whisper':
-      return validSocialCode(m.code) && typeof m.text === 'string' && m.text.length <= MAX_WHISPER_INPUT
-        ? { t: 'social:whisper', code: m.code as string, text: m.text } : null;
+    case 'social:whisper': {
+      if (!validSocialCode(m.code) || typeof m.text !== 'string' || m.text.length > MAX_WHISPER_INPUT) return null;
+      /* B-4: `nonce` (optional) asks for a `social:whisperAck`; a present but non-numeric one is a malformed frame. */
+      if (m.nonce !== undefined && (typeof m.nonce !== 'number' || !Number.isFinite(m.nonce))) return null;
+      const out: ClientToServer = { t: 'social:whisper', code: m.code as string, text: m.text };
+      if (typeof m.nonce === 'number') out.nonce = m.nonce;
+      return out;
+    }
+    /* appended: 2026-09-11 — B-3 초대 응답 · B-4 차단. Shapes only. */
+    case 'social:inviteReply':
+      return typeof m.id === 'string' && m.id.length > 0 && m.id.length <= MAX_INVITE_ID_INPUT && typeof m.accept === 'boolean'
+        ? { t: 'social:inviteReply', id: m.id, accept: m.accept } : null;
+    case 'social:block':
+      return validSocialCode(m.code) && typeof m.blocked === 'boolean'
+        ? { t: 'social:block', code: m.code as string, blocked: m.blocked } : null;
     /* appended: 2026-09-09 — 분대장 지명 이관. 규칙은 전부 핸들러가 본다; 여기서는 모양만. */
     case 'lobby:transferHost': {
       if (typeof m.targetId !== 'string' || m.targetId.length === 0 || m.targetId.length > MAX_CODE_INPUT) return null;
@@ -321,6 +372,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   if (opts.dataDir !== undefined) storeOpts.dataDir = opts.dataDir;
   if (opts.profileSaveDebounceMs !== undefined) storeOpts.saveDebounceMs = opts.profileSaveDebounceMs;
   const store = new ProfileStore(storeOpts);
+  /* E-4 (⑦): credits:tx rules. `devEconomy` only from `server/index.ts` (env) — the shipped exe / desktop shell never pass it. */
+  const economy = new CreditEconomy(opts.economyTable ?? ECONOMY_TABLE, { dev: opts.devEconomy === true });
+  log(`economy table ${economy.table.hash}${economyTableIntact(economy.table) ? '' : ' (digest mismatch — regenerate with npm run data:check -- --write)'} · ${Object.keys(economy.table.items).length} items · dev reasons ${economy.dev ? 'ON' : 'off'}`);
   const lobbies = new LobbyManager();
   const clients = new Map<PeerId, Client>();
   /** C-29: `null` = unlimited. */
@@ -334,14 +388,14 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const url = req.url ?? '/';
     if (req.method === 'GET' && (url === '/health' || url.startsWith('/health?'))) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*' });
-      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()), maxClients }));
+      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()), maxClients, devEconomy: economy.dev, economy: economy.table.hash }));
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('SCAVANGER relay: websocket at ' + NET_WS_PATH);
   });
 
-  const wss = new WebSocketServer({ server: http, path: NET_WS_PATH, maxPayload: MAX_DOC_FRAME_BYTES, perMessageDeflate: false });
+  const wss = new WebSocketServer({ server: http, path: NET_WS_PATH, maxPayload: MAX_TX_FRAME_BYTES, perMessageDeflate: false });
 
   /* ── outbound helpers ─────────────────────────────────────────────────── */
   const sendTo = (c: Client, msg: ServerToClient): void => {
@@ -351,7 +405,15 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   const sendError = (c: Client, code: LobbyErrorCode, message?: string): void => {
     sendTo(c, { t: 'lobby:error', code, message: message ?? LOBBY_ERROR_MESSAGE_KO[code] });
   };
-  const broadcast = (lobby: Lobby, msg: ServerToClient, except?: PeerId): void => {
+  /** 2026-09-11 (E-6): the one answer to a revision write — `profile:ack` / `profile:conflict` / `profile:refused`, tagged with its id. */
+  const replyProfileWrite = (c: Client, tag: { writeId?: string; txId?: string }, res: RevWriteResult): void => {
+    const id = tag.writeId !== undefined ? { writeId: tag.writeId } : tag.txId !== undefined ? { txId: tag.txId } : {};
+    if (res.kind === 'ack') sendTo(c, { t: 'profile:ack', ...id, revs: res.revs });
+    else if (res.kind === 'conflict') sendTo(c, { t: 'profile:conflict', ...id, docs: res.docs });
+    else sendTo(c, { t: 'profile:refused', ...id, code: res.code });
+    if (res.kind !== 'ack' || !res.replay) log(`profile ${c.id}: ${tag.txId !== undefined ? `tx ${tag.txId}` : `write ${tag.writeId ?? '-'}`} → ${res.kind}${res.kind === 'ack' ? ` ${JSON.stringify(res.revs)}` : res.kind === 'conflict' ? ` ${Object.keys(res.docs).join(',')}` : ` ${res.code}`}`);
+  };
+  const broadcast =(lobby: Lobby, msg: ServerToClient, except?: PeerId): void => {
     const text = JSON.stringify(msg);
     for (const id of lobby.players.keys()) {
       if (id === except) continue;
@@ -406,6 +468,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       joinable: playBlockReason({ presence, squad }, mySquad, NET_MAX_PLAYERS, id === viewer) === null,
     };
     if (at !== undefined) row.at = at;
+    /* B-3 배지: my invite to them is still open (a hidden one too — for me it is an ordinary unanswered invite). */
+    const inv = invites.pair(viewer, id);
+    if (inv) row.inviteAt = inv.at;
     return row;
   };
 
@@ -424,16 +489,25 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     };
     const recent: SocialPlayer[] = [];
     for (const e of soc.recent) { const r = resolveRow(id, mySquad, e.code, e.at); if (r) recent.push(r); }
+    /* B-4: the block list is cards only — no presence for someone I blocked. */
+    const blocked: SocialCard[] = [];
+    for (const code of soc.blocked ?? []) {
+      const other = store.peerByCode(code);
+      const card = other === undefined ? null : store.card(other);
+      if (card) blocked.push(card);
+    }
     return {
       me: { code: soc.code, name: soc.name, level: soc.level },
-      friends: rows(soc.friends), incoming: rows(soc.incoming), outgoing: rows(soc.outgoing), recent,
+      friends: rows(soc.friends), incoming: rows(soc.incoming), outgoing: rows(soc.outgoing), recent, blocked,
     };
   };
 
   /**
    * `broadcast()` only reaches a lobby, so a friend sitting in their own personal ship would never hear about a
    * presence change. These two indexes are the missing channel: `watchers` = subject → connected clients that have
-   * the subject as a friend, `watching` = its reverse so a disconnect costs O(friends). Nothing polls.
+   * the subject in **any** of their four lists (2026-09-11, B-5 — friends · incoming · outgoing · recent; it used to be
+   * friends only, so a request or a 최근 만난 플레이어 row showed a stale presence), `watching` = its reverse so a disconnect
+   * costs O(rows). Nothing polls.
    */
   const watchers = new Map<PeerId, Set<PeerId>>();
   const watching = new Map<PeerId, Set<PeerId>>();
@@ -450,31 +524,45 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     watching.delete(id);
   };
 
-  /** (Re)build one connected client's watch entries from its friends list (connect, and after any friend change). */
+  /**
+   * (Re)build one connected client's watch entries from all four of its lists (connect, and after anything that
+   * changes a list: request · respond · remove · block · 최근 만난 플레이어 · GC).
+   */
   const rewatch = (id: PeerId): void => {
     unwatchAll(id);
     if (!clients.has(id)) return;
     const soc = store.social(id);
     if (!soc) return;
     const subs = new Set<PeerId>();
-    for (const code of soc.friends) {
+    const add = (code: PlayerCode): void => {
       const other = store.peerByCode(code);
-      if (other === undefined) continue;
+      if (other === undefined || other === id || subs.has(other)) return;
       subs.add(other);
       let set = watchers.get(other);
       if (set === undefined) { set = new Set<PeerId>(); watchers.set(other, set); }
       set.add(id);
-    }
+    };
+    for (const code of soc.friends) add(code);
+    for (const code of soc.incoming) add(code);
+    for (const code of soc.outgoing) add(code);
+    for (const e of soc.recent) add(e.code);
     if (subs.size > 0) watching.set(id, subs);
   };
 
-  const pushSocial = (id: PeerId): void => {
+  /** Send `id` its snapshot right now (no-op for a socket without a profile). Only the coalescer calls this. */
+  const sendSocial = (id: PeerId): void => {
     const c = clients.get(id);
     if (!c || !c.hasProfile) return;
     const snap = buildSnapshot(id);
     if (snap) sendTo(c, { t: 'social:state', social: snap });
   };
-  /** Everyone who has `id` as a friend learns about it (the subject itself excluded). */
+  /* B-5: every push goes through one coalescer — a viewer gets at most one snapshot per window. */
+  const pushes = new PushCoalescer({ send: sendSocial, windowMs: opts.socialPushCoalesceMs });
+  /** `id`'s snapshot is stale: it goes out with the next coalescing window. */
+  const pushSocial = (id: PeerId): void => { if (clients.get(id)?.hasProfile) pushes.mark(id); };
+  /** A direct answer to `id`'s own request: sent now (and not again when the window closes). */
+  const pushSocialNow = (id: PeerId): void => { pushes.now(id); };
+  /** Everyone who has `id` in one of their lists learns about it (the subject itself excluded). */
   const notifyWatchers = (id: PeerId): void => {
     const set = watchers.get(id);
     if (set === undefined) return;
@@ -504,8 +592,68 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
    */
   const recordMet = (lobby: Lobby, joiner: PeerId): void => {
     if (!store.social(joiner)) return;
-    for (const id of lobby.players.keys()) if (id !== joiner && store.social(id)) store.recordMet(joiner, id);
+    let any = false;
+    for (const id of lobby.players.keys()) {
+      if (id === joiner || !store.social(id)) continue;
+      if (store.recordMet(joiner, id)) { rewatch(id); any = true; }   // B-5: the new recent row is watched at once
+    }
+    if (any) rewatch(joiner);
   };
+
+  /* ── 2026-09-11 (B-3): 초대 표 — every invite closes exactly once, through `closeInvite`, which tells both sides ── */
+  const inviteCode = (id: PeerId): PlayerCode => store.card(id)?.code ?? '';
+  const inviteName = (id: PeerId): string => store.card(id)?.name ?? '';
+
+  /**
+   * Close `inv` with `outcome` and tell both sides: the inviter `social:inviteResult`, the invitee `social:inviteClosed`
+   * — except when the invitee is the one answering (`toldInvitee`: its own reply needs no echo) and for a hidden invite
+   * (the invitee never saw it). The inviter's rows lose their `inviteAt` badge on the next push. false = already closed.
+   */
+  const closeInvite = (inv: OpenInvite, outcome: InviteOutcome, reason?: SocialErrorCode, toldInvitee = false): boolean => {
+    if (!invites.remove(inv)) return false;
+    const from = clients.get(inv.from);
+    if (from) {
+      const res: ServerToClient = { t: 'social:inviteResult', id: inv.id, code: inviteCode(inv.to), name: inviteName(inv.to), outcome };
+      if (reason !== undefined) res.reason = reason;
+      sendTo(from, res);
+      pushSocial(inv.from);
+    }
+    const to = clients.get(inv.to);
+    if (to && !toldInvitee && !inv.hidden) {
+      const closed: ServerToClient = { t: 'social:inviteClosed', id: inv.id, outcome };
+      if (reason !== undefined) closed.reason = reason;
+      sendTo(to, closed);
+    }
+    log(`social: invite ${inv.id} ${inviteCode(inv.from)} → ${inviteCode(inv.to)} ${outcome}${reason ? ` (${reason})` : ''}${inv.hidden ? ' [hidden]' : ''}`);
+    return true;
+  };
+
+  const invites = new InviteTable({ ttlMs: opts.inviteTtlMs, onExpire: (inv) => { closeInvite(inv, 'expired'); } });
+
+  /**
+   * Every open invite whose ship can no longer take the invitee is closed `failed`: the lobby is gone or the inviter is
+   * no longer in it (`not_found`), it filled up (`full`), a raid started (`in_mission`). Called after every lobby event
+   * that can cause one of those (leave · grace expiry · kick · join · quick match · move · start). A training keeps its
+   * lobby joinable, so its invites stay open.
+   */
+  const sweepInvites = (): void => {
+    for (const inv of invites.all()) {
+      const lobby = lobbies.byCode(inv.lobby);
+      if (!lobby || !lobby.has(inv.from)) { closeInvite(inv, 'failed', 'not_found'); continue; }
+      const refused = lobby.canAdd();
+      if (refused === 'full') closeInvite(inv, 'failed', 'full');
+      else if (refused === 'started') closeInvite(inv, 'failed', 'in_mission');
+    }
+  };
+
+  /** `joiner` is in `lobby` now (any path — an old client's `lobby:join` too): invites into it are answered. */
+  const settleInvitesInto = (joiner: PeerId, lobby: Lobby, toldInvitee: boolean): void => {
+    for (const inv of invites.toPeer(joiner, true)) if (inv.lobby === lobby.code) closeInvite(inv, 'accepted', undefined, toldInvitee);
+  };
+
+  /** `LobbyManager.move` refusal → the `social:error` the contract names for it. */
+  const moveErrorCode = (code: LobbyErrorCode): SocialErrorCode =>
+    code === 'full' ? 'full' : code === 'started' ? 'in_mission' : code === 'not_found' ? 'not_found' : code === 'in_lobby' ? 'in_squad' : 'invalid';
 
   /* ── lobby ops ────────────────────────────────────────────────────────── */
   const clearGrace = (id: PeerId): boolean => {
@@ -551,22 +699,89 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     return true;
   };
 
-  /** Final removal (explicit leave or grace expiry): `peer:left` to the rest, empty lobby deleted. */
-  const removeFromLobby = (id: PeerId, name: string, reason: 'leave' | 'timeout' | 'kick'): void => {
-    clearGrace(id);
-    const wasStarted = lobbies.lobbyOf(id)?.started ?? false;
-    const res = lobbies.leave(id);
-    if (!res) return;
+  /**
+   * What the rest of a lobby hears after `id` was taken out of it (`LobbyManager.leave` / `move` already ran):
+   * `peer:left`, an auto-reset of a mission nobody is inside any more, the presence pushes, and (B-3) every invite that
+   * pointed at the lobby or was sent by the leaver is re-checked.
+   */
+  const announceLeave = (
+    id: PeerId, name: string, reason: 'leave' | 'timeout' | 'kick' | 'moved',
+    res: { lobby: Lobby; hostMigrated: boolean; deleted: boolean }, wasStarted: boolean,
+  ): void => {
     const { lobby, hostMigrated, deleted } = res;
     const ended = wasStarted && !lobby.started;
     log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${ended ? ' → mission over (nobody inside) → reset' : ''}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
-    if (deleted) { clearMigrate(lobby.code); pushPresence(id); return; }
+    if (deleted) { clearMigrate(lobby.code); pushPresence(id); sweepInvites(); return; }
     if (hostMigrated || ended) clearMigrate(lobby.code);
     broadcast(lobby, { t: 'peer:left', id, lobby: lobbyState(lobby) });
     if (autoResetMission(lobby) || ended) broadcastState(lobby);
     /* Phase 11: the leaver's squad shrank to nothing and the rest of the squad got smaller. */
     pushPresence(id);
     pushLobbyPresence(lobby);
+    sweepInvites();
+  };
+
+  /** Final removal (explicit leave or grace expiry): `peer:left` to the rest, empty lobby deleted. */
+  const removeFromLobby = (id: PeerId, name: string, reason: 'leave' | 'timeout' | 'kick'): void => {
+    clearGrace(id);
+    const wasStarted = lobbies.lobbyOf(id)?.started ?? false;
+    const res = lobbies.leave(id);
+    if (!res) return;
+    announceLeave(id, name, reason, res, wasStarted);
+  };
+
+  /**
+   * 2026-09-11 (B-6): move a connected client into lobby `toCode` **atomically** (`LobbyManager.move` — the target is
+   * checked before the old lobby is touched, a refusal changes nothing). On success the old lobby hears an ordinary
+   * leave, the mover gets `lobby:left {reason:'moved', to}` (only when it had a lobby to leave) and then, with the new
+   * squad, the new `lobby:state`. Rules about the mover itself (squad in tow, inside a mission) are the caller's.
+   */
+  const moveToLobby = (
+    c: Client, toCode: string, why: string, answering?: OpenInvite,
+  ): { ok: true; lobby: Lobby } | { ok: false; code: SocialErrorCode } => {
+    clearGrace(c.id);
+    const wasStarted = lobbies.lobbyOf(c.id)?.started ?? false;
+    const res = lobbies.move(c.id, toCode, c.name);
+    if (!res.ok) return { ok: false, code: moveErrorCode(res.code) };
+    /*
+     * B-3: answered invites first — every sweep from here on (the old lobby's leave included) would otherwise read
+     * "the ship I just filled is full" as a failure of the very invite being accepted.
+     */
+    if (answering) closeInvite(answering, 'accepted', undefined, true);
+    settleInvitesInto(c.id, res.to, false);
+    if (res.from) {
+      announceLeave(c.id, c.name, 'moved', { lobby: res.from, hostMigrated: res.hostMigrated, deleted: res.fromDeleted }, wasStarted);
+      sendTo(c, { t: 'lobby:left', reason: 'moved', to: res.to.code });
+    }
+    log(`lobby ${res.to.code}: ${c.name}(${c.id}) moved in (${why}, ${res.to.size} players)`);
+    recordMet(res.to, c.id);
+    broadcastState(res.to);
+    pushLobbyPresence(res.to);
+    sweepInvites();
+    return { ok: true, lobby: res.to };
+  };
+
+  /**
+   * B-3: `c` invites `targetId` into `lobby`. The pair's previous invite is `superseded`, the oldest visible invite past
+   * the invitee's `SQUAD_INVITE_MAX` is closed (`failed` / `limit`), and — unless `hidden` (B-4: they blocked me) — the
+   * invitee gets `social:invited` with the invite id. My rows get the `inviteAt` badge at once (my own action).
+   */
+  const openInvite = (c: Client, from: SocialCard, targetId: PeerId, lobby: Lobby, hidden: boolean): OpenInvite => {
+    const prev = invites.pair(c.id, targetId);
+    if (prev) closeInvite(prev, 'superseded');
+    if (!hidden) {
+      const visible = invites.toPeer(targetId);
+      while (visible.length >= SQUAD_INVITE_MAX) {
+        const oldest = visible.shift();
+        if (oldest) closeInvite(oldest, 'failed', 'limit');
+      }
+    }
+    const inv = invites.add(c.id, targetId, lobby.code, Date.now(), hidden);
+    const tc = clients.get(targetId);
+    if (tc && !hidden) sendTo(tc, { t: 'social:invited', invite: { id: inv.id, from: from.code, name: from.name, lobby: lobby.code, at: inv.at } });
+    log(`social: ${from.code} invited ${inviteCode(targetId)} to ${lobby.code} (invite ${inv.id})${hidden ? ' [hidden: blocked]' : ''}`);
+    pushSocialNow(c.id);
+    return inv;
   };
 
   /**
@@ -583,6 +798,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const hostDropped = lobby.started && lobby.hostId === c.id;
     log(`lobby ${lobby.code}: ${c.name}(${c.id}) disconnected, slot kept ${graceMs} ms${migrated ? ` → host now ${lobby.hostId}` : hostDropped ? ` (host kept ${migrateMs} ms: mission running)` : ''}`);
     broadcastState(lobby);
+    /* B-5: the dropped member reads offline and the squad's rows change for everyone watching them (coalesced). */
+    pushLobbyPresence(lobby);
     if (hostDropped) {
       clearMigrate(lobby.code);
       const timer = setTimeout(() => {
@@ -664,6 +881,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (!res.created) recordMet(res.lobby, c.id);
         broadcastState(res.lobby);
         pushLobbyPresence(res.lobby);
+        if (!res.created) { settleInvitesInto(c.id, res.lobby, false); sweepInvites(); }   // B-3: it may be full now
         return;
       }
 
@@ -677,6 +895,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         recordMet(res, c.id);
         broadcastState(res);
         pushLobbyPresence(res);
+        /* B-3: an older client accepts an invite with a plain `lobby:join` — that answers it too; the ship may be full now. */
+        settleInvitesInto(c.id, res, false);
+        sweepInvites();
         return;
       }
 
@@ -723,6 +944,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         log(`lobby ${lobby.code}: started seed=${m.seed} planet=${planet} players=${lobby.size} (${lobby.connectedCount()} connected)`);
         broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'raid', planet });
         pushLobbyPresence(lobby);
+        sweepInvites();   // B-3: a raid closes the ship → its open invites fail (in_mission)
         return;
       }
 
@@ -815,19 +1037,34 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       }
 
       case 'profile:set': {
+        /* E-6: a frame with `baseRev` is a revision write — always answered (ack / conflict / refused), never `stale`. */
+        if (m.baseRev !== undefined) {
+          if (!c.hasProfile) { replyProfileWrite(c, { writeId: m.writeId }, { kind: 'refused', code: 'invalid' }); return; }
+          const entries: Record<string, unknown> = { [String(m.key)]: { doc: m.doc, baseRev: m.baseRev } };
+          replyProfileWrite(c, { writeId: m.writeId }, store.writeDocs(c.id, m.writeId, entries));
+          return;
+        }
         if (!c.hasProfile) { sendError(c, 'invalid', '프로필이 없는 연결입니다 (세션 토큰 필요).'); return; }
         if (!isProfileDocKey(m.key)) { sendError(c, 'invalid', '알 수 없는 프로필 문서 키입니다.'); return; }
         const res = store.setDoc(c.id, m.key, m.doc, m.at, m.fresh);
         if (res === 'too_large') { sendError(c, 'too_large'); return; }
         if (res === 'invalid') { sendError(c, 'invalid'); return; }
         // 'stale' (older stamp / fresh over an existing doc) is ignored silently: the client keeps the server copy.
+        // E-6: this silent rule is for Phase 9 frames only (no `baseRev`).
+        return;
+      }
+
+      case 'profile:setMany': {
+        if (!c.hasProfile) { replyProfileWrite(c, { txId: m.txId }, { kind: 'refused', code: 'invalid' }); return; }
+        replyProfileWrite(c, { txId: m.txId }, store.writeDocs(c.id, m.txId, m.docs as Record<string, unknown>));
         return;
       }
 
       case 'credits:tx': {
         if (!c.hasProfile) { sendTo(c, { t: 'credits:result', txId: m.txId, ok: false, credits: 0, reason: '프로필이 없는 연결입니다.' }); return; }
-        const res = store.applyCredits(c.id, m.delta, m.reason);
-        log(`credits ${c.id}: ${m.delta >= 0 ? '+' : ''}${m.delta} (${m.reason}) → ${res.ok ? res.credits : `refused (${res.reason})`}`);
+        /* E-4 (⑦): `reason` is parsed and the amount checked against the generated economy table + the profile's ledger. */
+        const res = store.applyCreditsTx(c.id, m.delta, m.reason, economy);
+        log(`credits ${c.id}: ${m.delta >= 0 ? '+' : ''}${m.delta} (${m.reason}) → ${res.ok ? res.credits : `refused (${res.why ?? res.reason})`}`);
         sendTo(c, res.reason !== undefined
           ? { t: 'credits:result', txId: m.txId, ok: res.ok, credits: res.credits, reason: res.reason }
           : { t: 'credits:result', txId: m.txId, ok: res.ok, credits: res.credits });
@@ -875,16 +1112,20 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       }
 
       /* ── appended: Phase 11 — 소셜. Every branch needs a profile; an anonymous socket gets `unavailable`. ── */
+      /*
+       * 2026-09-11 (B-5): a direct answer to the sender's own request (`get` · `me` · `request` · `respond` · `remove` ·
+       * `block`) goes out at once (`pushSocialNow`); everyone else it concerns is marked and gets one coalesced snapshot.
+       */
       case 'social:get': {
         if (!socialOf(c)) { socialError(c, 'unavailable'); return; }
-        pushSocial(c.id);
+        pushSocialNow(c.id);
         return;
       }
 
       case 'social:me': {
         if (!socialOf(c)) { socialError(c, 'unavailable'); return; }
         if (store.setSocialLevel(c.id, m.level)) notifyWatchers(c.id);
-        pushSocial(c.id);
+        pushSocialNow(c.id);
         return;
       }
 
@@ -896,9 +1137,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (target.id === c.id || target.code === soc.code) { socialError(c, 'self'); return; }
         const res = store.addFriendRequest(c.id, target.id);
         if (res !== 'ok') { socialError(c, res); return; }
-        log(`social: ${soc.code} → ${target.code} 친구 요청`);
-        pushSocial(c.id);
-        pushSocial(target.id);
+        /* B-4: when they blocked me the request only landed in my outgoing — they are not told (not even a snapshot). */
+        const swallowed = store.isBlocked(target.id, soc.code);
+        log(`social: ${soc.code} → ${target.code} 친구 요청${swallowed ? ' [swallowed: blocked]' : ''}`);
+        rewatch(c.id);   // B-5: an outgoing row is watched too
+        pushSocialNow(c.id);
+        if (!swallowed) { rewatch(target.id); pushSocial(target.id); }
         return;
       }
 
@@ -910,10 +1154,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const res = store.respondFriendRequest(c.id, target.id, m.accept);
         if (res !== 'ok') { socialError(c, res); return; }
         log(`social: ${soc.code} ${m.accept ? '수락' : '거절'} ${target.code}`);
-        // A new friendship changes both watch sets (the push channel outside a lobby).
+        // A request row became a friend row (or vanished): both watch sets change.
         rewatch(c.id);
         rewatch(target.id);
-        pushSocial(c.id);
+        pushSocialNow(c.id);
         pushSocial(target.id);
         return;
       }
@@ -928,7 +1172,31 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         log(`social: ${soc.code} 친구 삭제 ${target.code}`);
         rewatch(c.id);
         rewatch(target.id);
-        pushSocial(c.id);
+        pushSocialNow(c.id);
+        pushSocial(target.id);
+        return;
+      }
+
+      /* appended: 2026-09-11 (B-4) — 차단 */
+      case 'social:block': {
+        const soc = socialOf(c);
+        if (!soc) { socialError(c, 'unavailable'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { socialError(c, 'not_found'); return; }
+        if (target.id === c.id || target.code === soc.code) { socialError(c, 'self'); return; }
+        const res = store.setBlocked(c.id, target.id, m.blocked);
+        if (res !== 'ok') { socialError(c, res); return; }
+        if (m.blocked) {
+          for (const inv of invites.between(c.id, target.id)) {
+            if (inv.from === c.id) { closeInvite(inv, 'failed'); continue; }   // mine to them: withdrawn like a leave
+            /* theirs to me: gone for me, still "waiting" for them — it ends as `expired`, exactly like a new one would. */
+            if (!inv.hidden) { inv.hidden = true; sendTo(c, { t: 'social:inviteClosed', id: inv.id, outcome: 'declined' }); }
+          }
+        }
+        log(`social: ${soc.code} ${m.blocked ? '차단' : '차단 해제'} ${target.code}`);
+        rewatch(c.id);
+        rewatch(target.id);
+        pushSocialNow(c.id);
         pushSocial(target.id);
         return;
       }
@@ -939,6 +1207,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const target = peerOfCode(m.code);
         if (!target) { socialError(c, 'not_found'); return; }
         if (target.id === c.id) { socialError(c, 'self'); return; }
+        /* B-4: nothing is offered toward someone I blocked (unblock first). */
+        if (store.isBlocked(c.id, target.code)) { socialError(c, 'invalid'); return; }
         const mine = lobbies.lobbyOf(c.id);
         const theirs = lobbies.lobbyOf(target.id);
         const where = presenceOf(target.id);
@@ -949,20 +1219,22 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (block === 'my_squad_full') { socialError(c, 'my_squad_full'); return; }
         if (block !== null) { socialError(c, 'full'); return; }   // squad_full
         const name = store.card(target.id)?.name ?? '';
-        if (theirs) {
+        if (theirs && theirs === mine) { socialError(c, 'in_squad'); return; }
+        /*
+         * B-4: they blocked me. Moving into their ship is exactly what a block must prevent, and refusing would reveal
+         * it — so it becomes an invite into my ship that they never see and that ends `expired` (branch ③, hidden).
+         */
+        const blockedByThem = store.isBlocked(target.id, soc.code);
+        if (theirs && !blockedByThem) {
           /* ② they already have a ship: I move over — but only if I am not dragging a squad along. */
-          if (theirs === mine) { socialError(c, 'in_squad'); return; }
           if (mine && mine.size > 1) { socialError(c, 'busy'); return; }
+          /* B-6: nor out of a mission I am inside (a 훈련장 too — moving would end it under me). */
+          if (mine?.get(c.id)?.inMission) { socialError(c, 'busy'); return; }
           if (!theirs.isJoinable()) { socialError(c, 'in_mission'); return; }
-          const code = theirs.code;
-          if (mine) { removeFromLobby(c.id, c.name, 'leave'); sendTo(c, { t: 'lobby:left' }); }
-          const res = lobbies.join(c.id, code, c.name);
-          if (typeof res === 'string') { socialError(c, res === 'full' ? 'full' : res === 'started' ? 'in_mission' : 'invalid'); return; }
-          log(`social: ${soc.code} joined ${target.code}'s ship ${res.code} (같이 하기)`);
-          recordMet(res, c.id);
-          broadcastState(res);
+          const moved = moveToLobby(c, theirs.code, '같이 하기');
+          if (!moved.ok) { socialError(c, moved.code); return; }
+          log(`social: ${soc.code} joined ${target.code}'s ship ${moved.lobby.code} (같이 하기)`);
           sendTo(c, { t: 'social:play', code: target.code, name, outcome: 'joined' });
-          pushLobbyPresence(res);
           return;
         }
         /* ③ they have no ship: make sure I have one, then invite them into it. */
@@ -975,24 +1247,63 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           broadcastState(lobby);
           pushPresence(c.id);
         } else if (!lobby.isJoinable()) { socialError(c, 'busy'); return; }
-        const tc = clients.get(target.id);
-        if (!tc) { socialError(c, 'offline'); return; }
-        log(`social: ${soc.code} invited ${target.code} to ${lobby.code}`);
-        sendTo(tc, { t: 'social:invited', invite: { from: soc.code, name: soc.name, lobby: lobby.code, at: Date.now() } });
+        else if (lobby.canAdd() === 'full') { socialError(c, 'my_squad_full'); return; }
+        if (!clients.has(target.id)) { socialError(c, 'offline'); return; }
+        openInvite(c, soc, target.id, lobby, blockedByThem);
         sendTo(c, { t: 'social:play', code: target.code, name, outcome: 'invited' });
         return;
       }
 
+      /* appended: 2026-09-11 (B-3) — 초대 응답. Accepting is a server-side move (B-6), so every refusal is one `social:error`. */
+      case 'social:inviteReply': {
+        if (!socialOf(c)) { socialError(c, 'unavailable'); return; }
+        const inv = invites.get(m.id);
+        if (!inv || inv.to !== c.id || inv.hidden) { socialError(c, 'expired'); return; }
+        if (!m.accept) { closeInvite(inv, 'declined', undefined, true); return; }
+        const target = lobbies.byCode(inv.lobby);
+        if (!target || !target.has(inv.from)) { closeInvite(inv, 'failed', 'not_found', true); socialError(c, 'not_found'); return; }
+        const mine = lobbies.lobbyOf(c.id);
+        if (mine === target) {
+          closeInvite(inv, 'accepted', undefined, true);
+          sendTo(c, { t: 'lobby:state', lobby: lobbyState(target) });
+          return;
+        }
+        /* Someone else's squad in tow, or inside a mission: refused, and the invite stays open (leave, then accept). */
+        if (mine && (mine.size > 1 || (mine.get(c.id)?.inMission ?? false))) { socialError(c, 'busy'); return; }
+        const moved = moveToLobby(c, target.code, `invite ${inv.id}`, inv);
+        if (!moved.ok) { closeInvite(inv, 'failed', moved.code, true); socialError(c, moved.code); return; }
+        return;
+      }
+
       case 'social:whisper': {
+        /* B-4: a sender that passed `nonce` hears every outcome as `social:whisperAck`; an older one keeps `social:error`. */
+        const nonce = m.nonce;
+        const refuse = (code: SocialErrorCode): void => {
+          if (nonce === undefined) socialError(c, code);
+          else sendTo(c, { t: 'social:whisperAck', nonce, ok: false, code });
+        };
         const soc = socialOf(c);
-        if (!soc) { socialError(c, 'unavailable'); return; }
+        if (!soc) { refuse('unavailable'); return; }
         const text = sanitizeWhisper(m.text);
-        if (text.length === 0) { socialError(c, 'invalid'); return; }
+        if (text.length === 0) { refuse('invalid'); return; }
         const target = peerOfCode(m.code);
-        if (!target) { socialError(c, 'not_found'); return; }
+        if (!target) { refuse('not_found'); return; }
+        if (store.isBlocked(c.id, target.code)) { refuse('invalid'); return; }   // I blocked them: unblock first
+        const at = Date.now();
         const tc = clients.get(target.id);
-        if (!tc) { socialError(c, 'offline'); return; }
-        sendTo(tc, { t: 'social:whisper', code: soc.code, name: soc.name, text, at: Date.now() });
+        if (tc) {
+          /* They blocked me: dropped, and my ack says delivered (they are never revealed). */
+          if (!store.isBlocked(target.id, soc.code)) sendTo(tc, { t: 'social:whisper', code: soc.code, name: soc.name, text, at });
+          if (nonce !== undefined) sendTo(c, { t: 'social:whisperAck', nonce, ok: true, at });
+          return;
+        }
+        /* Offline: a friend's inbox keeps it (only for a client that can be told so — the old rule stays `offline`). */
+        if (nonce !== undefined && soc.friends.includes(target.code)
+          && store.pushWhisperInbox(target.id, { from: soc.code, name: soc.name, text, at }, at)) {
+          sendTo(c, { t: 'social:whisperAck', nonce, ok: true, at, stored: true });
+          return;
+        }
+        refuse('offline');
         return;
       }
 
@@ -1101,8 +1412,22 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       if (social) welcome.social = social;
       sendTo(c, welcome);
     }
-    /* Phase 11: subscribe this socket to its friends' presence and tell everyone watching that it is online. */
-    if (c.hasProfile) { rewatch(id); notifyWatchers(id); }
+    if (c.hasProfile) {
+      /* B-4: whispers friends left while I was away — once, right after the welcome, then the inbox is empty. */
+      const backlog = store.takeWhisperInbox(id);
+      if (backlog.length > 0) {
+        sendTo(c, { t: 'social:whisperBacklog', lines: backlog.map((l) => ({ code: l.from, name: l.name, text: l.text, at: l.at })) });
+        log(`social: ${store.card(id)?.code ?? id} got ${backlog.length} kept whisper(s)`);
+      }
+      /* B-3: a page reload lost the invite cards — invites still open for me are shown again (same ids). */
+      for (const inv of invites.toPeer(id)) {
+        const from = store.card(inv.from);
+        if (from) sendTo(c, { t: 'social:invited', invite: { id: inv.id, from: from.code, name: from.name, lobby: inv.lobby, at: inv.at } });
+      }
+      /* Phase 11: subscribe this socket to the presence of everyone in its lists and tell everyone watching that it is online. */
+      rewatch(id);
+      notifyWatchers(id);
+    }
 
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', (raw: RawData, isBinary: boolean) => {
@@ -1125,7 +1450,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       if (c.hasProfile) store.touchSeen(c.id);   // B-2: the GC counts inactivity from the last time the owner was here
       try { suspendInLobby(c); } catch (e) { log(`cleanup error ${c.id}: ${(e as Error).message}`); }
       /* Phase 11: the socket is gone → presence `offline` for everyone watching, and its own watches are dropped. */
-      try { notifyWatchers(c.id); unwatchAll(c.id); } catch (e) { log(`social cleanup error ${c.id}: ${(e as Error).message}`); }
+      try {
+        notifyWatchers(c.id);
+        unwatchAll(c.id);
+        /* B-3: invites waiting on me cannot be answered any more (a hidden one keeps its own clock → `expired`). */
+        for (const inv of invites.toPeer(c.id)) closeInvite(inv, 'offline');
+      } catch (e) { log(`social cleanup error ${c.id}: ${(e as Error).message}`); }
       log(`disconnect ${c.id} (${clients.size} clients)`);
     });
   });
@@ -1244,6 +1574,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           /* Phase 11: the presence push channel is per-process state — drop it with the sockets. */
           watchers.clear();
           watching.clear();
+          pushes.close();    // B-5: the pending coalescing timer
+          invites.clear();   // B-3: every invite TTL timer
           store.close();
           for (const c of clients.values()) { try { c.ws.terminate(); } catch { /* ignore */ } }
           wss.close(() => { http.close(() => done()); });

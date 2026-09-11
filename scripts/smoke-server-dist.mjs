@@ -23,6 +23,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const bundle = join(root, 'dist-server', 'server.cjs');
 // 8787(릴레이) · 8790-8799(데스크톱 창 서버)를 피한 대역. 병렬 레인이 겹쳐도 안전하다.
+// 예약표 (2026-09-11 E-3): 8820–8829 · 9340–9341 = smoke-desktop (창 8820 · 임베디드 릴레이 8821 · 두 번째 창 8822 ·
+// 프록시 모드 외부 릴레이 8823 · 렌더러 원격 디버깅 9340 · 메인 프로세스 인스펙터 9341) · 8830–8869 = 이 스크립트.
 const PORT = 8830 + Math.floor(Math.random() * 40);
 
 let pass = 0, fail = 0;
@@ -84,6 +86,38 @@ const wire = await new Promise((resolve) => {
 ok(wire.some((m) => m.t === 'welcome' && typeof m.id === 'string'), 'welcome 이 온다');
 const state = wire.find((m) => m.t === 'lobby:state');
 ok(!!state?.lobby?.code && state.lobby.code.length === 6, '로비가 만들어지고 6자 코드가 온다');
+
+/* ── ③b 서버 크레딧 검증 (2026-09-11, E-4) — 경제 표가 번들 안에 있고, 배포 exe 는 dev 사유를 거절한다 ──── */
+console.log('server-dist: credits (E-4)');
+const econ = JSON.parse(readFileSync(join(root, 'server', 'economy.gen.json'), 'utf8'));
+const credits = await import('../src/shared/credits.ts');
+ok(typeof econ.hash === 'string' && econ.hash.length > 0 && code.includes(econ.hash), `경제 표(economy.gen.json, hash ${econ.hash})가 번들에 인라인됐다`);
+const [cheapId, cheapIt] = Object.entries(econ.items).find(([, it]) => credits.tableMinBuyPrice(econ, it.value) <= 500);
+const cheapPrice = credits.tableMinBuyPrice(econ, cheapIt.value);
+const txs = await new Promise((resolve) => {
+  const got = {};
+  let ws;
+  try { ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws?t=${'k'.repeat(24)}&n=dist`); } catch { resolve(got); return; }
+  const done = setTimeout(() => { try { ws.close(); } catch { /* gone */ } resolve(got); }, 4000);
+  const plan = [
+    { txId: 1, delta: 1_000, reason: 'migrate' },
+    { txId: 2, delta: 5, reason: 'smoke:dist' },
+    { txId: 3, delta: -cheapPrice, reason: `buy:${cheapId}` },
+    { txId: 4, delta: 1, reason: 'console' },
+  ];
+  ws.onmessage = (ev) => {
+    let m = null; try { m = JSON.parse(String(ev.data)); } catch { /* not json */ }
+    if (m?.t === 'welcome') for (const p of plan) ws.send(JSON.stringify({ t: 'credits:tx', ...p }));
+    if (m?.t === 'credits:result') got[m.txId] = m;
+    if (Object.keys(got).length === plan.length) { clearTimeout(done); ws.close(); resolve(got); }
+  };
+  ws.onerror = () => { clearTimeout(done); resolve(got); };
+});
+ok(txs[1]?.ok === true && txs[1].credits === 1_000 && txs[3]?.ok === true && txs[3].credits === 1_000 - cheapPrice,
+  `정상 사유(migrate · buy:${cheapId} −${cheapPrice})는 받는다`, JSON.stringify(txs));
+ok(txs[2]?.ok === false && txs[2].reason === credits.CREDIT_TX_INVALID_KO && txs[4]?.ok === false && txs[4].reason === credits.CREDIT_TX_INVALID_KO,
+  '배포 exe 는 dev 사유(smoke:* · console)를 거절한다 (SCAV_DEV_ECONOMY 를 읽지 않는다)', JSON.stringify(txs));
+await sleep(200);   // the socket above must be gone before ⑤ counts connections against `max 1`
 
 /* ── ⑤ 서버 콘솔 (2026-09-11, C-29) — 번들 그대로, stdin 으로 명령을 친다 ─────────────── */
 console.log('server-dist: console');

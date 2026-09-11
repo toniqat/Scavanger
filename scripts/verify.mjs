@@ -117,6 +117,17 @@ const SMOKES = {
      트레이서 · 리플리카 훅 host) 과 전차 위 적 · 적 시체 탑승 (+ 리플리카 예측 · 강하 목표 플랫폼). 둘 다 릴레이 없이 돈다. */
   'smoke-named':        { file: 'scripts/smoke-named.mjs',        folders: ['enemies', 'weapons'] },
   'smoke-tram-ride':    { file: 'scripts/smoke-tram-ride.mjs',    folders: ['enemies', 'world'] },
+  /* 2026-09-11 (E-4 + C-57 · X-6): 신뢰 경로 — 두 클라이언트 · **코드로 만든 비공개 로비**(빠른 매칭 아님)로 레이드에 들어가
+     위조 strat call / stratq call · 버프 상한 · 벽 뒤 스프레이 · 계약 킬 파생 · meta sync rid · crate opened 거리 · 넉백 기하 ·
+     hit 요청 DPS 상한을 잰다. 공용 릴레이를 쓰지만 자기 로비라 exclusive 가 아니다. */
+  'smoke-trust':        { file: 'scripts/smoke-trust.mjs',        folders: ['stratagems', 'weapons', 'implants', 'gadgets', 'meta', 'enemies'] },
+  /* 2026-09-11 (B-1): 링크 상태 · 익명 배경 프로브 · 연결 배지 · 거절 뒤 프로브 없음 · 셸 임베디드 목표. 공용 릴레이(8787)는
+     쓰지 않고 8885(스스로 띄우고 죽이는 릴레이) · 8886(대답 없는 TCP)을 쓴다 — 그래서 exclusive 가 아니다. */
+  'smoke-netlink':      { file: 'scripts/smoke-netlink.mjs',      folders: ['net', 'ui', 'hub'] },
+  /* 2026-09-11 (E-3): 데스크톱 셸을 **진짜 Electron** 으로 (`--hidden --user-data=<임시>`, 창 8820 · 릴레이 8821 · 8822 ·
+     8823 · 디버깅 9340 · 메인 인스펙터 9341). vite 도 공용 릴레이도 안 쓰지만 GPU · 포트를 잡고 `dist/` 가 오래됐으면
+     vite build 를 돌리므로 혼자 돈다. `folders` 로는 안 잡힌다 — `EXTRA_PATHS` 가 `electron/` · `pack-release` · 자기 자신에서 고른다. */
+  'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, exclusive: true },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };
 // Anything under these paths touches the contract / bootstrap → run everything.
@@ -125,6 +136,10 @@ const GLOBAL_PATHS = [/^src\/shared\//, /^src\/core\//, /^src\/main\.ts$/, /^ind
 // `src/` 밖에 사는 것들 — 폴더 이름으로는 안 잡히므로 경로에서 스모크를 직접 고른다.
 const EXTRA_PATHS = [
   { label: 'docs/pitch/', re: /^docs\/pitch\//, smokes: ['smoke-pitch'] },
+  // 2026-09-11 (E-3): 데스크톱 셸 · 배포 폴더 · 그 스모크 자신.
+  { label: 'electron/', re: /^electron\//, smokes: ['smoke-desktop'] },
+  { label: 'scripts/pack-release.mjs', re: /^scripts\/pack-release\.mjs$/, smokes: ['smoke-desktop'] },
+  { label: 'scripts/smoke-desktop.mjs', re: /^scripts\/smoke-desktop\.mjs$/, smokes: ['smoke-desktop'] },
 ];
 
 // ─── CLI ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -371,11 +386,18 @@ try {
         // C-41 (2026-09-11): 러너가 직접 띄우는 릴레이는 임시 프로필 저장소를 쓴다 — 스모크가 만든 수천 개의
         // 테스트 프로필이 개발용 server/data/profiles.json 에 쌓이지 않게. 이미 떠 있던 릴레이는 건드리지 않는다.
         started.relayData = mkdtempSync(resolve(os.tmpdir(), 'scav-verify-relay-'));
-        started.relay = npmRun('server', 'relay', { SCAV_DATA_DIR: started.relayData });
+        // E-4 (2026-09-11): 스모크 · e2e 가 쓰는 dev 크레딧 사유(smoke:* · e2e:* · console · shot)를 받는 릴레이로 띄운다.
+        started.relay = npmRun('server', 'relay', { SCAV_DATA_DIR: started.relayData, SCAV_DEV_ECONOMY: '1' });
         await waitUp(relayUrl, 'relay');
         console.log(`  relay started (8787, profiles in ${started.relayData})`);
       }
-      else console.log('  relay already up (8787)');
+      else {
+        console.log('  relay already up (8787)');
+        // E-4 (2026-09-11): a relay someone started by hand (dev:all · npm run server) refuses the dev credit reasons
+        // (`smoke:*` top-ups revert). `/health.devEconomy` is absent on a relay older than the credit validation.
+        const h = await fetch(relayUrl, { signal: AbortSignal.timeout(1500) }).then((r) => r.json()).catch(() => null);
+        if (h && h.devEconomy === false) console.log('  note: that relay runs WITHOUT SCAV_DEV_ECONOMY — smokes that top up credits with smoke:* reasons see them reverted (restart it with SCAV_DEV_ECONOMY=1, or drop --keep-relay)');
+      }
       if (!(await isUp(opts.url))) { started.vite = npmRun('dev', 'vite'); await waitUp(opts.url, 'vite'); console.log(`  vite started (${opts.url})`); }
       else console.log(`  vite already up (${opts.url})`);
     }

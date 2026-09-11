@@ -103,10 +103,21 @@ export class Lobby {
     return !this.started || this.mode === 'training';
   }
 
-  add(id: PeerId, name: string): LobbyPlayer | LobbyErrorCode {
+  /**
+   * 2026-09-11 (B-6): why a newcomer cannot be added right now, or null. **The only copy of the join rule** — `add`
+   * calls it, and `LobbyManager.move` asks it *before* taking the mover out of their own lobby, so the two can never
+   * disagree (a check written twice is how 같이 하기 would one day leave someone with no ship).
+   */
+  canAdd(): LobbyErrorCode | null {
     if (!this.isJoinable()) return 'started';
+    if (this.freeSlot() < 0 || this.players.size >= NET_MAX_PLAYERS) return 'full';
+    return null;
+  }
+
+  add(id: PeerId, name: string): LobbyPlayer | LobbyErrorCode {
+    const refused = this.canAdd();
+    if (refused !== null) return refused;
     const slot = this.freeSlot();
-    if (slot < 0 || this.players.size >= NET_MAX_PLAYERS) return 'full';
     const player: LobbyPlayer = { id, name, slot, ready: false, isHost: id === this.hostId, connected: true, inMission: false };
     this.players.set(id, player);
     return player;
@@ -337,6 +348,37 @@ export class LobbyManager {
     const lobby = this.create(id, name, true);
     if (typeof lobby === 'string') return lobby;
     return { lobby, created: true };
+  }
+
+  /**
+   * 2026-09-11 (B-6): move `id` from whatever lobby it is in (possibly none) straight into lobby `toCode`, **atomically**:
+   * the target is checked first (`not_found` · `in_lobby` for the same lobby · `Lobby.canAdd`) and a refusal changes
+   * nothing. Only then is `id` taken out of its old lobby (`leave` — deleted when it empties) and added to the new one.
+   * There is no rollback path: `add` asks the same `canAdd`, so a refusal after the leave is a contract violation and
+   * throws (the selftest would see it) rather than being papered over.
+   * Rules about the *mover* (a squad in tow → busy, inside a mission → busy) are the relay's — this is the data move.
+   */
+  move(id: PeerId, toCode: string, name: string):
+    | { ok: true; from: Lobby | null; to: Lobby; fromDeleted: boolean; hostMigrated: boolean }
+    | { ok: false; code: LobbyErrorCode } {
+    const to = this.lobbies.get(toCode);
+    if (!to) return { ok: false, code: 'not_found' };
+    const from = this.byPeer.get(id) ?? null;
+    if (from === to) return { ok: false, code: 'in_lobby' };
+    const refused = to.canAdd();
+    if (refused !== null) return { ok: false, code: refused };
+    let fromDeleted = false;
+    let hostMigrated = false;
+    if (from) {
+      const left = this.leave(id);
+      fromDeleted = left?.deleted ?? false;
+      hostMigrated = left?.hostMigrated ?? false;
+    }
+    const added = to.add(id, name);
+    if (typeof added === 'string') throw new Error(`LobbyManager.move: canAdd() passed but add() refused (${added})`);
+    this.byPeer.set(id, to);
+    this.adoptHostIfAbsent(to);
+    return { ok: true, from, to, fromDeleted, hostMigrated };
   }
 
   /** Remove `id` from its lobby. Returns the lobby (possibly now empty and deleted) plus whether the host migrated. */

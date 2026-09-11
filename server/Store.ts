@@ -22,6 +22,11 @@
  * 친구 · 요청 · 최근 목록에서 그 아이디를 뺀다. 최근 만난 플레이어(`SOCIAL_RECENT_TTL_MS`)와 답 없는 친구 요청
  * (`SOCIAL_REQUEST_TTL_MS`, `SocialRecord.requestsAt`)은 30일에 따로 만료된다. 무엇을 지우지 않을지(접속 중 · 로비
  * 멤버)는 릴레이가 `collectGarbage(keep)` 로 알려 준다.
+ *
+ * **2026-09-11 (E-6) — 문서 리비전.** 문서마다 `docsRev[key]` 가 있고 받아들인 쓰기마다 +1 이다(옛 `at` 쓰기도).
+ * 새 쓰기(`writeDocs`)는 시계가 아니라 "내가 본 판 위에 쓰는가" 를 묻는다 — `baseRev` 가 지금 rev 와 같으면 저장,
+ * 아니면 `conflict` 로 서버 사본을 돌려준다. 여러 문서는 전부 검사한 뒤 **전부 또는 전무**. 같은 쓰기 id 의 재전송은
+ * 다시 ack 한다(메모리에 최근 16개). 옛 파일의 문서는 로드 때 rev 1 로 시드된다. `stale` 무음 규칙은 옛 프레임에만 남는다.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm } from 'node:fs/promises';
@@ -29,6 +34,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CreditsTxResult, ProfileDocKey, ProfileRecord } from '../src/shared/profile.ts';
 import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES, PROFILE_GC_INACTIVE_MS } from '../src/shared/profile.ts';
+/* 2026-09-11 (E-6): 문서 리비전 · 트랜잭션 */
+import { PROFILE_SETMANY_MAX_BYTES } from '../src/shared/profile.ts';
 import type { PeerId } from '../src/shared/net.ts';
 import { sanitizePlayerName } from '../src/shared/net.ts';
 /* Phase 11 */
@@ -37,6 +44,15 @@ import {
   SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_RECENT_TTL_MS, SOCIAL_REQUEST_MAX, SOCIAL_REQUEST_TTL_MS,
   isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
+/* 2026-09-11 (B-4): 차단 · 오프라인 귓속말 보관 */
+import { SOCIAL_BLOCK_MAX, SOCIAL_WHISPER_INBOX_MAX, SOCIAL_WHISPER_INBOX_TTL_MS, SOCIAL_WHISPER_MAX } from '../src/shared/social.ts';
+/* 2026-09-11 (E-4 ⑦): 서버 크레딧 검증 */
+import type { CreditLedger } from '../src/shared/credits.ts';
+import { CREDIT_TX_INVALID_KO } from '../src/shared/credits.ts';
+import { type CreditEconomy, emptyLedger, sanitizeLedger } from './Economy.ts';
+
+/** B-4: one kept offline whisper (`SocialRecord.inbox` entry). */
+export type WhisperInboxLine = NonNullable<SocialRecord['inbox']>[number];
 
 export const PROFILE_FILE = 'profiles.json';
 /** 2026-09-11 (X-2): the previous generation, rotated in by every flush just before the new file is renamed into place. */
@@ -125,8 +141,11 @@ function sanitizeSocial(raw: unknown, now: number = Date.now()): SocialRecord | 
   const level = typeof raw.level === 'number' && Number.isFinite(raw.level)
     ? Math.min(SOCIAL_LEVEL_MAX, Math.max(0, Math.floor(raw.level))) : 0;
   const self = new Set<PlayerCode>(code ? [code] : []);
-  const friends = codeList(raw.friends, SOCIAL_FRIEND_MAX, self);
-  const notSelfOrFriend = new Set<PlayerCode>([...self, ...friends]);
+  /* B-4: the block list first — a code I blocked cannot also be my friend / request / recent entry. */
+  const blocked = codeList(raw.blocked, SOCIAL_BLOCK_MAX, self);
+  const selfOrBlocked = new Set<PlayerCode>([...self, ...blocked]);
+  const friends = codeList(raw.friends, SOCIAL_FRIEND_MAX, selfOrBlocked);
+  const notSelfOrFriend = new Set<PlayerCode>([...selfOrBlocked, ...friends]);
   const incoming = codeList(raw.incoming, SOCIAL_REQUEST_MAX, notSelfOrFriend);
   const outgoing = codeList(raw.outgoing, SOCIAL_REQUEST_MAX, notSelfOrFriend);
   const recent: { code: PlayerCode; at: number }[] = [];
@@ -153,7 +172,29 @@ function sanitizeSocial(raw: unknown, now: number = Date.now()): SocialRecord | 
     }
     out.requestsAt = requestsAt;
   }
+  if (blocked.length > 0) out.blocked = blocked;
+  const inbox = sanitizeInbox(raw.inbox, selfOrBlocked, now);
+  if (inbox.length > 0) out.inbox = inbox;
   return out;
+}
+
+/**
+ * B-4: offline whispers as stored — well-formed lines only, none from a code I blocked, none older than
+ * `SOCIAL_WHISPER_INBOX_TTL_MS`, oldest first, the newest `SOCIAL_WHISPER_INBOX_MAX` kept.
+ */
+function sanitizeInbox(raw: unknown, drop: ReadonlySet<PlayerCode>, now: number): WhisperInboxLine[] {
+  if (!Array.isArray(raw)) return [];
+  const out: WhisperInboxLine[] = [];
+  for (const v of raw) {
+    if (!isRecord(v) || typeof v.from !== 'string' || !isValidPlayerCode(v.from) || drop.has(v.from)) continue;
+    if (typeof v.text !== 'string' || typeof v.at !== 'number' || !Number.isFinite(v.at)) continue;
+    const text = v.text.slice(0, SOCIAL_WHISPER_MAX);
+    const at = Math.min(Math.max(0, Math.floor(v.at)), now);
+    if (text.trim().length === 0 || now - at > SOCIAL_WHISPER_INBOX_TTL_MS) continue;
+    out.push({ from: v.from, name: sanitizePlayerName(typeof v.name === 'string' ? v.name : ''), text, at });
+  }
+  out.sort((a, b) => a.at - b.at);
+  return out.length > SOCIAL_WHISPER_INBOX_MAX ? out.slice(out.length - SOCIAL_WHISPER_INBOX_MAX) : out;
 }
 
 function sanitizeRecord(raw: unknown, now: number = Date.now()): ProfileRecord | null {
@@ -178,19 +219,62 @@ function sanitizeRecord(raw: unknown, now: number = Date.now()): ProfileRecord |
     }
     if (any) rec.docsAt = docsAt;
   }
+  /*
+   * E-6: per-document revisions. Every present document gets one: its stored rev (a positive integer), or **1** for a
+   * document written before 2026-09-11 (seed) — a client that never saw a rev bases its writes on 0, so its first write
+   * on top of an existing document conflicts instead of silently replacing it. A rev without a document is dropped.
+   */
+  const docsRev: Partial<Record<ProfileDocKey, number>> = {};
+  const rawRev = isRecord(raw.docsRev) ? raw.docsRev : {};
+  for (const k of PROFILE_DOC_KEYS) {
+    if (docs[k] === undefined) continue;
+    const v = rawRev[k];
+    docsRev[k] = typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
+  }
+  if (Object.keys(docsRev).length > 0) rec.docsRev = docsRev;
   /* Phase 11: the social half is server-owned, so unlike `docs` it is validated field by field. */
   const social = sanitizeSocial(raw.social, now);
   if (social) rec.social = social;
   /* B-2: written by this server's own clock — clamped to it (a clock that ran ahead must not keep a profile forever). */
   if (typeof raw.seenAt === 'number' && Number.isFinite(raw.seenAt)) rec.seenAt = Math.min(Math.max(0, Math.floor(raw.seenAt)), now);
+  /* E-4 (⑦): the credits ledger is server-internal and server-readable → validated, pruned and capped like `social`. */
+  const ledger = sanitizeLedger(raw.ledger, now);
+  if (ledger) rec.ledger = ledger;
   return rec;
 }
 
 /** Outcome of `ProfileStore.setDoc`. `'stale'` = an older stamp (or a `fresh` write over an existing document): ignored, not an error. */
 export type SetDocResult = ProfileRecord | 'invalid' | 'too_large' | 'stale';
 
+/* ── 2026-09-11 (E-6): 문서 리비전 ───────────────────────────────────────── */
+
+/** One document of a revision write: the JSON and the `docsRev[key]` it was made on top of (0 = no document yet). */
+export interface RevWriteDoc { doc: unknown; baseRev: number }
+/**
+ * Outcome of `ProfileStore.writeDocs` (a `profile:set {baseRev}` is a one-document call):
+ *   - `ack`      — every document stored (or `replay`: this write id was already stored — nothing changed, same revs);
+ *   - `conflict` — at least one `baseRev` was not the current rev, **nothing** stored; `docs` = the server copy + rev of
+ *                  every conflicting key (`doc` null when the server has none);
+ *   - `refused`  — the write can never succeed as sent (bad key / shape → `invalid`, a document or the frame too big →
+ *                  `too_large`), nothing stored.
+ */
+export type RevWriteResult =
+  | { kind: 'ack'; revs: Partial<Record<ProfileDocKey, number>>; replay: boolean }
+  | { kind: 'conflict'; docs: Partial<Record<ProfileDocKey, { rev: number; doc: unknown }>> }
+  | { kind: 'refused'; code: 'invalid' | 'too_large' };
+/** E-6: how many accepted write ids the store remembers per profile (a resend after a reconnect is acked again). */
+export const PROFILE_WRITE_ID_MEMORY = 16;
+/** E-6: longest `writeId` / `txId` the relay accepts. */
+export const PROFILE_WRITE_ID_MAX = 64;
+
 export class ProfileStore {
   private readonly profiles = new Map<PeerId, ProfileRecord>();
+  /**
+   * E-6: the last `PROFILE_WRITE_ID_MEMORY` accepted write ids (`writeId` / `txId`) per profile with the revs they
+   * produced, newest last. **Memory only** — after a relay restart a resend is judged on its `baseRev` again, and the
+   * client recognises its own write in the welcome copy (rev = base + 1, same document).
+   */
+  private readonly writeIds = new Map<PeerId, { id: string; revs: Partial<Record<ProfileDocKey, number>> }[]>();
   /** Phase 11: `PlayerCode` → owning PeerId. Rebuilt from the file in `load`, extended by `ensureSocial`. */
   private readonly byCode = new Map<PlayerCode, PeerId>();
   /** Not readonly since 2026-09-11 (X-2): a store whose file could not be read safely drops it and stays in memory. */
@@ -331,7 +415,80 @@ export class ProfileStore {
     const rec = this.get(id);
     const out: ProfileRecord = { credits: rec.credits, docs: { ...rec.docs }, updatedAt: rec.updatedAt };
     if (rec.docsAt) out.docsAt = { ...rec.docsAt };
+    /* E-6: always present (even `{}`) — a client reads its presence as "this relay speaks revisions". */
+    out.docsRev = { ...(rec.docsRev ?? {}) };
     return out;
+  }
+
+  /** E-6: current rev of `key` (0 = never written). */
+  revOf(id: PeerId, key: ProfileDocKey): number {
+    return this.profiles.get(id)?.docsRev?.[key] ?? 0;
+  }
+
+  /** E-6: one accepted write — the document, rev + 1, and (for Phase 9 writers) the server time as its stamp. */
+  private bumpRev(rec: ProfileRecord, key: ProfileDocKey): number {
+    if (!rec.docsRev) rec.docsRev = {};
+    const next = (rec.docsRev[key] ?? 0) + 1;
+    rec.docsRev[key] = next;
+    return next;
+  }
+
+  /**
+   * E-6: store one or more documents **all or nothing** on optimistic concurrency. Checked in this order:
+   *   ① `writeId` already accepted (a resend after a reconnect) → `ack` with the revs it produced, nothing changes;
+   *   ② shape: at least one entry, every key a `ProfileDocKey`, every `doc` defined, every `baseRev` a non-negative
+   *      integer → otherwise `refused invalid`; any document over `PROFILE_DOC_MAX_BYTES` or all of them together over
+   *      `PROFILE_SETMANY_MAX_BYTES` → `refused too_large`;
+   *   ③ every `baseRev` equals the current rev (absent = 0) → otherwise `conflict` listing **every** mismatching key;
+   *   ④ store all: rev + 1 each, `docsAt[key]` = server now (so a Phase 9 client's older stamp stays stale).
+   * Placeholders are never created by a refused / conflicting write.
+   */
+  writeDocs(id: PeerId, writeId: string | undefined, entries: Record<string, unknown>): RevWriteResult {
+    const seen = writeId !== undefined ? this.writeIds.get(id)?.find((w) => w.id === writeId) : undefined;
+    if (seen) return { kind: 'ack', revs: { ...seen.revs }, replay: true };
+    const keys = Object.keys(entries);
+    if (keys.length === 0) return { kind: 'refused', code: 'invalid' };
+    const valid: [ProfileDocKey, RevWriteDoc][] = [];
+    let total = 0;
+    for (const k of keys) {
+      const e = entries[k];
+      if (!isProfileDocKey(k) || !isRecord(e) || e.doc === undefined) return { kind: 'refused', code: 'invalid' };
+      const base = e.baseRev;
+      if (typeof base !== 'number' || !Number.isInteger(base) || base < 0) return { kind: 'refused', code: 'invalid' };
+      const bytes = docBytes(e.doc);
+      if (bytes > PROFILE_DOC_MAX_BYTES) return { kind: 'refused', code: 'too_large' };
+      total += bytes;
+      valid.push([k, { doc: e.doc, baseRev: base }]);
+    }
+    if (total > PROFILE_SETMANY_MAX_BYTES) return { kind: 'refused', code: 'too_large' };
+    const rec = this.profiles.get(id);
+    const conflicts: Partial<Record<ProfileDocKey, { rev: number; doc: unknown }>> = {};
+    let conflicted = false;
+    for (const [k, e] of valid) {
+      const cur = rec?.docsRev?.[k] ?? 0;
+      if (cur === e.baseRev) continue;
+      conflicts[k] = { rev: cur, doc: rec?.docs[k] ?? null };
+      conflicted = true;
+    }
+    if (conflicted) return { kind: 'conflict', docs: conflicts };
+    const target = this.get(id);
+    const now = Date.now();
+    const revs: Partial<Record<ProfileDocKey, number>> = {};
+    for (const [k, e] of valid) {
+      target.docs[k] = e.doc;
+      revs[k] = this.bumpRev(target, k);
+      if (!target.docsAt) target.docsAt = {};
+      target.docsAt[k] = now;
+    }
+    target.updatedAt = now;
+    if (writeId !== undefined) {
+      let list = this.writeIds.get(id);
+      if (!list) { list = []; this.writeIds.set(id, list); }
+      list.push({ id: writeId, revs: { ...revs } });
+      if (list.length > PROFILE_WRITE_ID_MEMORY) list.splice(0, list.length - PROFILE_WRITE_ID_MEMORY);
+    }
+    this.markDirty();
+    return { kind: 'ack', revs, replay: false };
   }
 
   /**
@@ -358,6 +515,8 @@ export class ProfileStore {
       if (!rec.docsAt) rec.docsAt = {};
       rec.docsAt[key] = t;
     }
+    // E-6: a Phase 9 write is a write too — a revision client based on the previous rev must now conflict.
+    this.bumpRev(rec, key);
     rec.updatedAt = Date.now();
     this.markDirty();
     return rec;
@@ -368,12 +527,14 @@ export class ProfileStore {
    * balance with `delta` (the client's local credits) exactly once; later migrations are no-ops returning the balance.
    * A result below 0 is refused with `크레딧 부족`.
    */
-  applyCredits(id: PeerId, delta: number, reason: string): CreditsTxResult {
+  applyCredits(id: PeerId, delta: number, reason: string, max?: number): CreditsTxResult {
     const rec = this.get(id);
     const d = Number.isFinite(delta) ? Math.trunc(delta) : 0;
+    /* E-4 (⑦): `max` = `CREDITS_MAX` — a credit never lifts the balance above it (the client clamps its copy the same way). */
+    const cap = (n: number): number => (max !== undefined && Number.isFinite(max) && d > 0 ? Math.min(Math.max(max, 0), n) : n);
     if (reason === CREDITS_MIGRATE_REASON) {
       if (rec.credits !== null) return { ok: true, credits: rec.credits };
-      rec.credits = Math.max(0, d);
+      rec.credits = cap(Math.max(0, d));
       rec.updatedAt = Date.now();
       this.markDirty();
       return { ok: true, credits: rec.credits };
@@ -381,11 +542,33 @@ export class ProfileStore {
     const cur = rec.credits ?? 0;
     const next = cur + d;
     if (next < 0) return { ok: false, credits: cur, reason: CREDITS_REFUSED_KO };
-    rec.credits = next;
+    rec.credits = d > 0 ? Math.max(cur, cap(next)) : next;   // a capped credit never lowers a balance already above the cap
     rec.updatedAt = Date.now();
     this.markDirty();
-    return { ok: true, credits: next };
+    return { ok: true, credits: rec.credits };
   }
+
+  /**
+   * E-4 (⑦): **validated** credits transaction — what `credits:tx` runs. `economy.check` judges `reason` / `delta` against the
+   * generated table and this profile's ledger; a refusal leaves everything untouched and answers `CREDIT_TX_INVALID_KO`
+   * (`why` is for the relay log only). Otherwise `applyCredits` moves the balance (capped at `creditsMax`) and, only when
+   * that succeeded, the ledger records the debit / refund / payout. One synchronous call, so nothing interleaves.
+   */
+  applyCreditsTx(id: PeerId, delta: number, reason: string, economy: CreditEconomy, now: number = Date.now()): CreditsTxResult & { why?: string } {
+    const rec = this.get(id);
+    const check = economy.check(rec.credits, rec.ledger, delta, reason, now);
+    if (!check.ok) return { ok: false, credits: rec.credits ?? 0, reason: CREDIT_TX_INVALID_KO, why: check.why };
+    const res = this.applyCredits(id, check.delta, check.seed ? CREDITS_MIGRATE_REASON : reason, economy.table.creditsMax);
+    if (res.ok) {
+      economy.commit(rec.ledger ??= emptyLedger(), check, now);
+      if (rec.ledger.quests.length === 0 && rec.ledger.contractsAt.length === 0 && rec.ledger.debits.length === 0) delete rec.ledger;
+      this.markDirty();
+    }
+    return res;
+  }
+
+  /** E-4 (⑦): the ledger of `id` (never creates a record). Diagnostics / selftest — the wire never carries it. */
+  ledgerOf(id: PeerId): CreditLedger | undefined { return this.profiles.get(id)?.ledger; }
 
   /* ── Phase 11: social store ─────────────────────────────────────────────── */
 
@@ -467,6 +650,23 @@ export class ProfileStore {
     if (fromId === toId) return 'self';
     const mine = this.ensureSocial(fromId);
     const theirs = this.ensureSocial(toId);
+    /* B-4: someone I blocked cannot be sent a request (the UI offers none) — unblock first. */
+    if (this.hasBlocked(mine, theirs.code)) return 'invalid';
+    /* B-4: a half left behind by a block that has since been lifted is not a pending request any more. */
+    this.dropOrphanRequest(theirs, mine);
+    this.dropOrphanRequest(mine, theirs);
+    if (this.hasBlocked(theirs, mine.code)) {
+      /*
+       * B-4: they blocked me — swallowed. My `outgoing` gets the entry exactly as if it had gone out (so I cannot tell),
+       * theirs gets nothing; the B-2 GC withdraws the half after `SOCIAL_REQUEST_TTL_MS`, an unblock drops it at once.
+       */
+      if (mine.friends.includes(theirs.code) || mine.outgoing.includes(theirs.code) || mine.incoming.includes(theirs.code)) return 'already';
+      if (mine.outgoing.length >= SOCIAL_REQUEST_MAX) return 'limit';
+      mine.outgoing.unshift(theirs.code);
+      (mine.requestsAt ??= {})[theirs.code] = Date.now();
+      this.touchSocial(mine);
+      return 'ok';
+    }
     if (mine.friends.includes(theirs.code) || theirs.friends.includes(mine.code)) return 'already';
     if (mine.outgoing.includes(theirs.code) || theirs.incoming.includes(mine.code)) return 'already';
     if (mine.incoming.includes(theirs.code) || theirs.outgoing.includes(mine.code)) return 'already';
@@ -527,6 +727,8 @@ export class ProfileStore {
     const a = this.social(aId);
     const b = this.social(bId);
     if (!a || !b || !a.code || !b.code) return false;
+    /* B-4: sharing a ship (by lobby code) with someone blocked either way puts neither in the other's recent list. */
+    if (this.hasBlocked(a, b.code) || this.hasBlocked(b, a.code)) return false;
     let changed = false;
     const push = (rec: SocialRecord, code: PlayerCode): void => {
       if (rec.friends.includes(code)) return;
@@ -539,6 +741,100 @@ export class ProfileStore {
     push(a, b.code);
     push(b, a.code);
     return changed;
+  }
+
+  /* ── 2026-09-11 (B-4): 차단 · 오프라인 귓속말 보관 ─────────────────────── */
+
+  private hasBlocked(owner: SocialRecord, code: PlayerCode): boolean {
+    return owner.blocked !== undefined && owner.blocked.includes(code);
+  }
+
+  /** B-4: true when the profile `ownerId` has blocked the 아이디 `code`. */
+  isBlocked(ownerId: PeerId, code: PlayerCode): boolean {
+    const soc = this.social(ownerId);
+    return soc !== undefined && this.hasBlocked(soc, code);
+  }
+
+  /**
+   * B-4: `sender.outgoing` holds `receiver` but `receiver.incoming` does not — the swallowed half of a request made
+   * while `receiver` had `sender` blocked. Once that block is gone the half means nothing: drop it (and its stamp).
+   */
+  private dropOrphanRequest(sender: SocialRecord, receiver: SocialRecord): void {
+    if (!sender.outgoing.includes(receiver.code) || receiver.incoming.includes(sender.code)) return;
+    if (this.hasBlocked(receiver, sender.code)) return;   // still blocked: the half stays (that is the disguise)
+    sender.outgoing = sender.outgoing.filter((c) => c !== receiver.code);
+    if (sender.requestsAt) {
+      delete sender.requestsAt[receiver.code];
+      if (sender.incoming.length + sender.outgoing.length === 0) delete sender.requestsAt;
+    }
+    this.touchSocial(sender);
+  }
+
+  /**
+   * B-4 `social:block {code, blocked}`. Blocking puts the code at the front of my `blocked` (already there → moved to
+   * the front, not an error; `limit` past `SOCIAL_BLOCK_MAX`) and removes the two of us from each other's friends /
+   * incoming / outgoing / recent **on both records**. Unblocking only takes it off my list (not blocked → no-op `ok`)
+   * and drops a request half they sent me while blocked. The relay closes our open invites and rebuilds both watches.
+   */
+  setBlocked(meId: PeerId, otherId: PeerId, blocked: boolean): 'ok' | SocialErrorCode {
+    if (meId === otherId) return 'self';
+    const mine = this.ensureSocial(meId);
+    const theirs = this.ensureSocial(otherId);
+    if (mine.code === theirs.code) return 'self';
+    if (!blocked) {
+      if (!this.hasBlocked(mine, theirs.code)) return 'ok';
+      mine.blocked = (mine.blocked ?? []).filter((c) => c !== theirs.code);
+      if (mine.blocked.length === 0) delete mine.blocked;
+      this.touchSocial(mine);
+      this.dropOrphanRequest(theirs, mine);
+      return 'ok';
+    }
+    const list = (mine.blocked ?? []).filter((c) => c !== theirs.code);
+    if (list.length >= SOCIAL_BLOCK_MAX) return 'limit';
+    list.unshift(theirs.code);
+    mine.blocked = list;
+    const unlink = (rec: SocialRecord, code: PlayerCode): void => {
+      rec.friends = rec.friends.filter((c) => c !== code);
+      rec.incoming = rec.incoming.filter((c) => c !== code);
+      rec.outgoing = rec.outgoing.filter((c) => c !== code);
+      rec.recent = rec.recent.filter((r) => r.code !== code);
+      if (rec.requestsAt) {
+        delete rec.requestsAt[code];
+        if (rec.incoming.length + rec.outgoing.length === 0) delete rec.requestsAt;
+      }
+      if (rec.inbox) {
+        rec.inbox = rec.inbox.filter((l) => l.from !== code);
+        if (rec.inbox.length === 0) delete rec.inbox;
+      }
+      this.touchSocial(rec);
+    };
+    unlink(mine, theirs.code);
+    unlink(theirs, mine.code);
+    return 'ok';
+  }
+
+  /**
+   * B-4: keep a whisper for an offline receiver (the relay has checked that sender and receiver are friends). Expired
+   * lines go first, then the oldest past `SOCIAL_WHISPER_INBOX_MAX`. false when the receiver has no social record.
+   */
+  pushWhisperInbox(toId: PeerId, line: WhisperInboxLine, now: number = Date.now()): boolean {
+    const soc = this.social(toId);
+    if (!soc) return false;
+    const kept = (soc.inbox ?? []).filter((l) => now - l.at <= SOCIAL_WHISPER_INBOX_TTL_MS);
+    kept.push({ from: line.from, name: line.name, text: line.text.slice(0, SOCIAL_WHISPER_MAX), at: line.at });
+    soc.inbox = kept.length > SOCIAL_WHISPER_INBOX_MAX ? kept.slice(kept.length - SOCIAL_WHISPER_INBOX_MAX) : kept;
+    this.touchSocial(soc);
+    return true;
+  }
+
+  /** B-4: the kept whispers still inside the TTL, oldest first — and the inbox is emptied (delivered once). */
+  takeWhisperInbox(id: PeerId, now: number = Date.now()): WhisperInboxLine[] {
+    const soc = this.social(id);
+    if (!soc || !soc.inbox) return [];
+    const lines = soc.inbox.filter((l) => now - l.at <= SOCIAL_WHISPER_INBOX_TTL_MS && !this.hasBlocked(soc, l.from));
+    delete soc.inbox;
+    this.touchSocial(soc);
+    return lines;
   }
 
   /* ── 2026-09-11 (B-2): garbage collection ─────────────────────────────── */
@@ -605,9 +901,24 @@ export class ProfileStore {
         if (now - r.at > SOCIAL_RECENT_TTL_MS) { report.expiredRecent++; return false; }
         return true;
       });
+      /* B-4: an offline whisper nobody collected in time goes (not part of the snapshot, so not `changed`). */
+      if (soc.inbox) {
+        const inbox = soc.inbox.filter((l) => now - l.at <= SOCIAL_WHISPER_INBOX_TTL_MS);
+        if (inbox.length !== soc.inbox.length) {
+          if (inbox.length === 0) delete soc.inbox; else soc.inbox = inbox;
+          dirty = true;
+        }
+      }
+      /* B-4: a blocked 아이디 whose profile is gone cannot be drawn (or unblocked) — dropped like any dangling entry. */
+      const blocked = soc.blocked?.filter(resolves);
+      const blockedChanged = blocked !== undefined && blocked.length !== (soc.blocked?.length ?? 0);
+      if (blockedChanged) { if (blocked.length === 0) delete soc.blocked; else soc.blocked = blocked; }
       const changed = friends.length !== soc.friends.length || incoming.length !== soc.incoming.length
         || outgoing.length !== soc.outgoing.length || recent.length !== soc.recent.length;
-      if (!changed) continue;
+      if (!changed) {
+        if (blockedChanged) { report.changed.push(id); dirty = true; }
+        continue;
+      }
       soc.friends = friends;
       soc.incoming = incoming;
       soc.outgoing = outgoing;
