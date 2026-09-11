@@ -53,19 +53,16 @@ Phase 5 때부터 "별도 세션"(월드 대공사)으로 미뤄 둔 것.
 Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 신뢰 경로.
 소유 폴더: `server` · `net` · `ui` (신뢰 경로는 `weapons` · `implants` · `meta` · `stratagems` 도).
 
-**2026-09-11 에 아래 B · E 행 전부의 설계안을 [plans/net-social-trust.md](plans/net-social-trust.md) 에 적었다** (코드 대조 + 권장안 +
-`결정 필요` — 아직 사용자 결정 전). 행 끝의 `§` 가 그 문서의 절이다. 같은 날 B-2(소셜 레코드 GC)는 구현이 끝났다.
+**2026-09-11 에 B-2 · B-3 · B-4 · B-5 · B-6 · E-4 · E-5 · E-6 (+ B-1 · E-3 · C-57 · C-59) 가 끝났다** — 설계안 `plans/net-social-trust.md` 는
+전부 구현돼 지웠고 결과는 [HISTORY.md](HISTORY.md) 16차. 남은 것은 보이스 채팅과 그 배치가 남긴 틈(E-8 · E-9 · B-11 · B-12)이다.
 
 | ID | 항목 | 근거 |
 |---|---|---|
 | A-6 | **보이스 채팅**. 분대원 행의 볼륨 슬라이더 · 음소거는 아무 것도 하지 않는다 | `src/ui/menus/social/SocialColumn.ts:39–40` "UI only … never read by anyone", `src/shared/constants.ts:875` `SQUAD_VOICE_DEFAULT` |
-| B-3 | **초대는 fire-and-forget**. 보낸 쪽은 결과를 모르고 `SQUAD_INVITE_TTL_S` 뒤 조용히 사라진다 → 설계 §2 | HISTORY Phase 11 |
-| B-4 | **귓속말은 기록도 차단도 없다**. 오프라인이면 실패 라인만 남는다. 2026-09-11 대조: 보낸 줄을 서버 답 전에 그려서 `offline` 이면 **그려진 줄 + 오류 토스트**가 겹치고, 입력 한도(120)가 서버 한도(200)와 다르다 → 설계 §4 | HISTORY Phase 11 |
-| B-5 | **프리즌스 팬아웃이 친구만 커버**. 최근 만난 플레이어의 접속 상태는 스냅샷을 다시 받을 때만 갱신되고, 팬아웃은 합쳐 보내지 않는다 → 설계 §3 | HISTORY Phase 11 |
-| B-6 | **`social:play` 의 "상대 로비로 합류" 가 비원자적**. 내 로비를 떠난 뒤 상대 로비 참가가 실패할 수 있다. 2026-09-11 대조: 앞선 검사가 `Lobby.add` 와 **지금은** 같아 실제로는 실패하지 않지만 두 곳에 따로 적혀 있고, 떠나면서 내 목표 행성 · 훈련이 사라진다 → 설계 §1 | HISTORY Phase 11 |
-| E-4 | **호스트 검증이 없는 신뢰 경로**: 회복 스프레이의 아군 힐(거리만 보고 벽도 통과), 오버차지 빔, 분대 계약 진척(`meta contract`, 목표치 클램프만), 궤도 레이저/항공 폭탄의 원격 플레이어 피해 → 설계 §5 | HISTORY 2026-09-07(총기 · 회복), Phase 9 pass II, Phase 3 |
-| E-5 | **솔로 레이드 저장의 5분 유예가 클라이언트 시계** — 시스템 시간을 앞으로 돌리면 걸어 넘길 수 있다. 2026-09-11 대조: 저장 키를 **지우기만** 해도 레이드 실패 처리를 피한다(코드 읽기, 실측 전) → 설계 §6 | HISTORY 2026-09-07(안정화 pass) |
-| E-6 | **프로필 문서 병합이 writer 의 시계 기준**(`PROFILE_CLOCK_SKEW_MS` 로 clamp) — 오프라인 중 앞서간 시계가 그 병합을 이긴다. 한 편집이 `stash` + `loadout` 을 걸치면 소켓이 중간에 죽을 때 반반으로 남을 수 있다. 2026-09-11 대조: 앞선 도장이 **그 뒤 5 분간 정상 쓰기를 조용히 막고**, 업로드는 ack 없이 대기열에서 지워지며, 오프라인 세션의 진행은 다음 접속 때 서버 사본에 덮인다(코드 읽기, 실측 전) → 설계 §7 | HISTORY Phase 9 |
+| E-8 | **신뢰 경로의 남은 틈 (E-4 뒤)** — `explode` 요청(요청당 피해 500 · 반경 20 상한만)과 `HitRequest.st`(상태이상)는 여전히 검증 없이 믿는다. 호스트가 거절한 분대원 함선 호출은 어디에도 서지 않지만 호출자 쿨타임은 이미 돌았다 | `src/enemies/parts/Damage.ts`, `src/stratagems/parts/Targeting.ts` |
+| E-9 | **서버 크레딧 검증은 아이템 소유를 보지 않는다** (사용자 수용) — 창고 · 가방 문서가 클라이언트 쓰기라 조작한 창고에서 파는 것은 막지 못한다. 막으려면 서버가 인벤토리 · 루팅 권한을 가져야 한다(페이즈 규모). 가치 1 탄약은 반올림 때문에 1발씩 팔면 묶음 판매의 2배(1 대 0.5)를 받는다 — 거래 하나하나는 정당해 서버가 막지 않는다 | `server/Economy.ts`, `src/shared/meta.ts` `sellPriceOf` |
+| B-11 | **차단의 남은 틈** — 차단한 분대원의 입력 중 `…` 말풍선(`TypingBubbles`)은 보인다. 차단당한 사람이 로비 코드로 직접 `lobby:join` 하는 것은 막지 않는다 | `src/ui/hud/TypingBubbles.ts`, `server/RelayServer.ts` |
+| B-12 | **합류 알림이 두 줄** — 함선에서 분대원이 들어오면 `ui/hud/Notifications` 의 `<이름> 합류` 와 `hub` 의 `<이름> 함선 합류` 가 같이 뜬다 (2026-09-11 이전부터. 초대 수락 토스트는 그래서 뺐다) | `src/ui/hud/Notifications.ts`, `src/hub/HubSystem.ts` |
 
 ## 묶음 4 — 배포 · 안정화
 
@@ -75,9 +72,9 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | ID | 항목 | 근거 |
 |---|---|---|
 | E-1 | **패키징된 데스크톱 앱에서도 개발자 콘솔과 치트가 열린다**. 렌더러가 `127.0.0.1` 에서 로드되므로 `isDevHost()` 가 true | `src/shared/console.ts:50` `DEV_HOSTS = ['localhost','127.0.0.1','[::1]','::1']` — 끄려면 이 판정을 셸 여부로 바꿔야 한다 |
-| B-1 | **릴레이 연결 실패를 알리는 UI 가 없다**. 앱은 조용히 오프라인으로 뜨고, `ensureConnected` 재시도는 시작 시 1회 + 터미널 `신호 찾기` 뿐이라 서버를 나중에 켜면 그 버튼을 눌러야 한다. 2026-09-11 대조: 로비 없는 재접속도 6회 뒤 **이벤트 없이** 포기하고, `NetClient.connect` 에 타임아웃이 없어 죽은 IP 는 OS TCP 타임아웃까지 매달린다 (C-59 와 같은 뿌리) → 설계 [plans/net-social-trust.md](plans/net-social-trust.md) §8 | HISTORY 2026-09-07(배포용 릴레이 주소) |
 | E-2 | **배포본에 구운 릴레이 주소가 IP 문자열**이라 DHCP 로 주소가 바뀌면 전부 헛다리 — 받는 쪽이 `relay.txt` 를 고쳐야 한다. 검증은 `new URL` 이 전부라 오타는 조용한 접속 실패로만 드러난다 | HISTORY 2026-09-07(배포용 릴레이 주소) |
-| E-3 | **데스크톱 셸 자체를 검증하는 자동화가 없다** — 스모크 · e2e 는 전부 vite 를 본다. `scripts/verify.mjs` 는 `electron/` 변경을 어떤 스모크에도 매핑하지 않는다 → 설계 [plans/net-social-trust.md](plans/net-social-trust.md) §9 | HISTORY Electron |
+| E-10 | **데스크톱 스모크의 `--release` 를 실제 배포 폴더로 돌린 적이 없다** — 2026-09-11 E-3 는 임시로 뽑은 배포 폴더(`--release-dir`)로만 61/61. `npm run app:dist && node scripts/smoke-desktop.mjs --release` 한 번. 포인터 락 쿨다운 타이밍은 숨긴 창이 락을 못 잡아 여전히 수동 | `scripts/smoke-desktop.mjs` |
+| E-11 | **솔로 레이드 방어의 남은 틈 (E-5 뒤, 사용자 수용 범위)** — 창을 닫고 시계를 되돌려 부팅 없이 5분 안에 켜기 · 오프라인에서 로드아웃 파일의 `raidSeed` 를 지우기 · 온라인에서 로드아웃 파일을 통째로 지우면 서버의 레이드 전 킷이 돌아온다(표식이 로컬 전용). 막으려면 서버 문서 쪽 표식(= 온라인 솔로의 서버 시계 판정)이 필요하다 | `src/game/SoloRaid.ts`, `src/inventory/parts/Lifecycle.ts` |
 | E-7 | **인터넷 너머 플레이 미지원** — 포트포워딩 · VPN 메시 · VPS 가 필요하고, 개발 PC 는 관리형 네트워크라 포트포워딩이 막혀 있을 가능성이 높다 | HISTORY 2026-09-07(배포용 릴레이 주소) |
 | A-9 | **세이브 마이그레이션 표**. 무기 id 개편(2026-09-07) · 임플란트 id 변경 때 기존 세이브의 아이템이 로드에서 **조용히 사라진다** | `src/inventory/Serialize.ts:80` `reviveItem` 이 모르는 def 를 `null` 로 버린다 (창고 · 로드아웃 · 서버 프로필 공통) |
 
@@ -99,15 +96,16 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | ID | 항목 | 근거 |
 |---|---|---|
 | C-52 | **키프레임으로만 네임드를 만든 늦은 합류자는 `enemy:namedSpawned` 를 못 받는다** (`ee spawn` 을 놓친 경우). 2026-09-11 대조: 그 이벤트의 **구독자가 0** 이라 지금은 아무 영향이 없다 — 구독하는 코드가 생기면 키프레임 경로(`Replica`)에서도 한 번 발행해야 한다 | `src/enemies/named/Director.ts`, `src/enemies/net/Replica.ts` |
-| C-57 | **상자 · 컨테이너 `crate opened` 에 호스트 검증이 없다** — 누구나 확정 없이 보내고 받는 쪽은 id 만 보고 열린 모습으로 바꾼다 (거리 · 존재 검사 없음, 호스트 `sync` 도 받은 그대로 되돌려 준다). 내용물이 아니라 **모습**뿐이라 피해는 작다 (E-4 계열) | `src/world/WorldSystem.ts` `applyOpened` · `ensureOpenNet` |
 | C-58 | **perf guard 가 블룸을 꺼도 설정 화면에는 `켬` 으로 남는다** — core → ui 로 "guard 가 바꿨다" 를 알리는 계약이 없다 (2026-09-11 C-44 에서 guard 를 되살린 뒤 드러났다) | `src/core/Engine.ts` `perfGuard`, `src/ui/menus/SettingsMenu.ts` |
-| C-59 | **서버 콘솔 `kick` · `max` 거절 문구가 `net:error` 로만 간다** — 함선 터미널 밖에서는 토스트가 없고, `game/parts/Wire` 의 kicked 문구는 여전히 "분대에서 분리되었습니다" 다 | `src/net/parts/Messages.ts`, `src/game/parts/Wire.ts` |
 | C-60 | **행이 늘어난 시체 창에 스크롤이 없다** — 사망 목록이 기본 격자를 넘으면 `fitCorpseGrid` 가 행을 늘리는데 컨테이너 패널이 스크롤되지 않아 작은 화면에서 넘친다 (드묾) | `src/inventory/parts/CorpseLoot.ts`, 컨테이너 패널 |
 | C-61 | **가방 레이드 소모의 1회 표시(`bagWornThisRaid`)가 메모리에만 있다** — 사망으로 깎인 뒤 새로고침 → 레이드 복귀 → 자기 가방을 되찾아 탈출하면 한 번 더 깎일 수 있다 | `src/inventory/parts/Durability.ts` |
 | C-62 | **로든 판정의 남은 틈** — 근접(`weapons/Melee` 원뿔)은 여전히 서 있는 몸 기준이고, 소염기 매몰은 **발사 순간에만** 판정하므로 막힌 자리에서 반짝임을 다시 시작할 수 있다 (자리 이동은 넣지 않았다) | `src/weapons/Melee.ts`, `src/enemies/ai/named/Sniper.ts` |
 | C-63 | **전차 탑승의 남은 틈** — 적은 하차 관성이 없고, 리플리카 탑승 예측은 `차량 속도 × 보간 지연` 선형이라 가속 · 제동 순간에 조금 어긋난다. 원격 클라이언트는 사망 와이어 좌표로 시체의 탑승을 찾으므로 **전차 후미 끝**에서 죽은 시체는 약 1 m 지연 때문에 전차를 놓칠 수 있다. 적이 데크보다 0.35 m 낮은 **선로 발판** 위에 서 있으면 탑승 창 안이라 치이지 않는다 | `src/enemies/ai/Ride.ts`, `src/game/Corpses.ts`, `src/world/rails/parts/Tram.ts` |
 | C-64 | **`Store.close()` 의 동기 쓰기와 진행 중인 비동기 rename 사이에 1 syscall 창이 남는다** — 세대 번호로 물러나게 했지만 이론상 종료 순간에만 해당 | `server/Store.ts` |
 | C-65 | **vite HMR 소켓을 막지 않는 스모크는 다른 편집의 저장으로 페이지가 새로고침돼 아무 시점에나 깨진다** (`Execution context was destroyed` · `timeout waiting for boot`). 병렬 에이전트 작업에서 반복 관찰 — smoke-tactical · smoke-lights 처럼 `vite-hmr` 를 막는 하네스를 공용으로 | `scripts/smoke-*.mjs` |
+| C-67 | **`/__scav/relay` 문자열이 `ui/menus/SettingsMenu` 의 `SHELL_RELAY_ROUTE` 에 따로 적혀 있다** — 원본은 `shared/net.NET_SHELL_RELAY_ROUTE`(2026-09-11), `electron/main.ts` · `net/parts/Socket` 은 이미 그것을 쓴다 | `src/ui/menus/SettingsMenu.ts` |
+| C-68 | **`net:selftest` 의 `debounced write happened once`(part 7) 가 부하 중에 가끔 빨갛다** — 80 ms sleep 안에 fsync 가 끝나지 않는 타이밍 단언. 2026-09-11 병렬 에이전트 7개 동안 여러 번 관찰, 단독 재실행은 green | `server/selftest.ts` part 7 |
+| C-69 | **프로필 리비전 전환 직후 1회 경고** — 리비전을 한 번도 본 적 없는 클라이언트(base 0)가 새 릴레이에 처음 붙으면, 그 전에 쌓인 대기 편집이 rev 1 로 시드된 문서와 충돌해 서버 사본이 이기고 경고가 뜬다. 같은 슬롯 두 탭은 쓰기 큐 키를 같이 쓴다(서버 중복 접속 차단과 겹치는 드문 경우) | `src/net/ProfileSync.ts`, `server/Store.ts` |
 | C-66 | **월드 생성은 여전히 동기 약 230 ms 이고 대부분이 `noise2`(생성당 약 100 ms)** 다 (2026-09-11 C-40 에서 319 → 230 ms, 같은 시드 결과 바이트 동일). 더 줄이려면 잡음 수학이나 비동기 생성 계약을 바꿔야 한다 | `src/world/noise.ts`, `src/world/Terrain.ts` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝

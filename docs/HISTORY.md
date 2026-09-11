@@ -46,6 +46,53 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치 — B-3 · B-4 · B-5 · B-6 · E-4(+서버 크레딧 검증) · E-5 · E-6 · B-1 · E-3 + C-57 · C-59):
+
+  15차 설계안(`docs/plans/net-social-trust.md` — 전부 구현돼 지웠다)의 `결정 필요` 17건을 사용자가 하나씩 골랐다. 권장안과 다르게 고른 것:
+  **B-3** 보낸 사람 쪽 `초대 중` 표시를 토스트만이 아니라 **커뮤니티 행 배지**로도, **E-4** 범위를 "남에게 영향 주는 위조" 에서
+  **서버 크레딧 검증까지**(후속 질문: 사유별 규칙 + 표 상한, 아이템 소유 대조는 의미가 없어 안 함 · migrate 는 `CREDITS_MAX` 까지 1회 ·
+  dev 사유는 `dev:all` 에서도 끔). 순서: ① B-2 커밋(`87f0900`) → ② 리드 계약 커밋(`9bd72ce`) + 기준선 `verify:all` 전부 green(8분 14초) →
+  ③ **에이전트 7개 병렬**(① 소셜 서버 ② 소셜 클라이언트 ③ 저장 E-6+E-5 ④ 연결 B-1+C-59 ⑤ 신뢰 E-4+C-57+X-6 ⑥ 데스크톱 E-3 ⑦ 크레딧 검증)
+  → ④ 리드 통합 · 문서. 같은 트리에서 **다른 세션이 C-58 · C-62 · C-63 · C-66 에이전트를 동시에** 돌렸다(그 세션의 계약 `ef6b825`) —
+  커밋은 경로 지정으로 갈랐다.
+
+  - **B-6 · B-3 · B-5 · B-4 서버** — `Lobby.canAdd` 하나를 `add` 와 이동이 같이 쓰고 `LobbyManager.move` 가 검사 먼저 → 실패면 무변경.
+    같이 하기 호출자가 임무 중이면 `busy`. 초대는 메모리 표(`server/Invites.ts`)로 id · TTL · `(from,to)` 쌍당 하나를 들고 **닫는 길은 한 함수**
+    (accepted · declined · expired · failed · offline · superseded)를 지나 양쪽에 알린다. watch 가 친구 · 요청 · 최근 네 목록 전부를 보고
+    viewer 당 250 ms 에 스냅샷 한 번(본인 응답은 즉시). 차단은 목록을 양쪽에서 정리하고 차단당한 사람의 귓속말 · 요청 · 초대를 **조용히 삼킨다**.
+    귓속말 `nonce` → `whisperAck`, 오프라인 **친구**에게만 20줄 · 7일 보관 → 접속 시 backlog 1회. selftest part 8c 64건.
+  - **소셜 클라이언트** — 초대 id 로 수락/거절(옛 서버는 `lobby:join` 폴백) · 거절 ≠ 만료 토스트 · `초대 중 · n초` 배지 · 차단 메뉴 / 차단 목록 /
+    대화 기록 페이지(`menus/social/SocialPages`, 슬롯 localStorage 상대당 50줄 · 20명) · 차단한 분대원 채팅 숨김 · 귓속말 줄이 pending →
+    sent/stored/failed 로 **제자리에서** 바뀐다(이중 토스트 제거) · `/r` · 입력 한도 200. **B-6 경쟁을 실측으로 재현**했다 — 분리 컷씬 도중
+    새 `lobby:state` 가 오면 개인 함선에 멈췄다 → `moved` 는 도킹 한 번, 분리 도중 새 로비는 도킹으로 전환. 원래 있던 버그: 마지막 초대가
+    닫혀도 카드가 남던 다시 그리기 키 충돌.
+  - **E-6 저장** — `ProfileRecord.docsRev` · `profile:set {baseRev, writeId}` → ack / conflict(**서버 우선 + 경고**) / refused · `profile:setMany`
+    전부 또는 전무 · 쓰기 큐 영속(`slotKey(PROFILE_QUEUE_STORAGE_KEY)`) · 창고와 로드아웃 디바운스 하나로 합침 · 시체 벗기기 · 퀘스트 완료가
+    트랜잭션. 착수 전 실측 표시였던 손실(메모리 큐 → 새로고침 뒤 오프라인 편집이 서버 사본에 덮임)을 대조 단언으로 확인했다.
+    **E-5** — `clockHigh` 역행 감지 · 미래 저장 허용 폭 2분 · 로드아웃 `raidSeed` 표식(솔로 저장 키만 지워서는 장비를 못 지킨다),
+    `world:ready` 에 첫 스냅샷(표식 때문에 크래시가 장비 소실이 되지 않게). 온라인 구멍은 사용자가 고른 범위 밖 → TODO E-11.
+  - **B-1 연결** — `ctx.net.link`(idle · connecting · connected · unreachable · refused · reconnecting) · 접속 타임아웃 6 s · 익명 배경 프로브
+    백오프(로비 없는 재접속의 조용한 포기 제거) · 함선 · 타이틀에서만 자동 접속(레이드 중엔 `found`) · 셸 임베디드 목표는 프로브 안 함 ·
+    `hud/NetBadge`(레이드 숨김, 타이틀엔 다시 시도 · 서버 설정) · 재접속 토스트 겹침 정리. **C-59** 닫힌 터미널의 거절 사유 토스트 +
+    레이드 중 추방 문구. 통합 때 리드가 막은 것: 함선에 들어설 때마다 `tryResume` 이 명시적 접속으로 `refused` 를 지워 **추방된 사람이
+    자동으로 다시 붙던** 경로.
+  - **E-4 신뢰 경로** — 함선 호출 호스트 경유(`stratq call` → 종류 · 호출자별 쿨타임 · 사거리 150 m · eta 재작성 → `strat call {by}`),
+    `rescue req` 도 같은 검사 · 버프는 보내는 쪽 가슴 → 가슴 레이 + 받는 쪽 `BuffGuard`(로비 멤버 · 거리 · 치유 토큰 버킷 · boost 1–1.28 ·
+    지속 clamp) · 분대 킬은 `enemy:squadKill`(호스트 킬 파생)로 세고 `contractHit` 은 킬이 아닌 목표만 + 토큰 버킷 · `meta sync` 는 요청 id 짝 ·
+    **C-57** crate opened 존재 · 거리 검사 · **X-6** 넉백 보낸 사람 거리 · `hit` 요청 보낸 사람별 5000/s 상한. 에이전트가 범위를 넘겨 넣은 둘
+    (리드 수용): `ee` 는 로비 호스트가 보낸 것만 받는다(위조 `ee kill` → squadKill 부풀리기 차단), 셈하지 않는 죽음(독성 자폭 · killAll)은
+    `killer: null`. 남은 틈(explode · 상태이상 요청) → TODO E-8.
+  - **서버 크레딧 검증** — `shared/credits.ts` 사유 문법 · `server/Economy.ts` · `server/economy.gen.json`(`scripts/economy-table.mjs` 가 클라이언트와
+    **같은 코드**로 csv 에서 생성, `data:check` 가 stale 을 잡고 `-- --write` 로 굽는다) · 원장(`ProfileRecord.ledger` — 퀘스트 id 당 1회 ·
+    계약 시간당 12회 · 환불 60 s 짝). 판매 사유에 수량, 거절된 판매는 같은 uid 로 아이템 복구. 새 서버로 구매 · 판매 · 일괄 거래 · 수리 ·
+    계약 · 퀘스트 15건 무거절. `e2e-mp` 는 dev 사유 대신 실제 `buy:` + `refund:` 를 쓴다. 범위 밖 발견: 가치 1 탄약 낱개 판매 반올림 → TODO E-9.
+  - **E-3 데스크톱 스모크** — `electron/main.ts` 에 `--user-data` · `--hidden` · `--lazy-relay`(`--port` 즉시 시작과 "지연 시작 확인" 이 부딪혀 추가) ·
+    `/__scav/relay` 의 `embedded`, `scripts/smoke-desktop.mjs` 54건(부팅 · 지연 릴레이 · 프록시 · server.txt · 세이브 = 창 포트 · 단일 인스턴스).
+    측정으로 알게 된 것: **CDP 로 넣은 키는 `before-input-event` 를 타지 않는다**(2026-09-08 기록의 "CDP Escape 로 훅" 은 페이지 카운터만 봤다) —
+    메인 프로세스 `--inspect` 로 `sendInputEvent` 를 넣어 훅 1회를 확인. 실제 `release/` 로 `--release` 는 미실행 → TODO E-10.
+  - **검증** — 통합 `verify:all` 45/46 (새 서버 코드 · 새 스모크 3종 포함, `e2e-mp` 158/158), 유일한 red `smoke-ship-rooms` 69/72 는 부하 중
+    R 키 탭 하나가 씹혀 작업대가 다른 회전으로 놓인 입력 타이밍(재실행 72/72, 같은 트리의 다른 세션 에이전트까지 돌던 중). 자세히는 VERIFICATION 16차.
+
 - 2026-09-11 (15차: TODO 정리 — B-2 프로필 GC 구현 + 소셜 · 신뢰 경로 · 연결 설계안):
 
   - **B-2 해결 — 프로필 GC** (사용자 결정: 비활성 프로필 삭제 + 참조 청소, 프로필 90일 · 최근/요청 30일). 조사해 보니 "소셜만 있는 빈
