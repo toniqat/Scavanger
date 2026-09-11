@@ -16,6 +16,9 @@
 //   8. 호출 콘솔 (2026-09-10): 플랫폼마다 데크 위에 서고, 전차가 선 승강장에서는 잠기고(홀드 0), 반대편에서
 //      부르면 **선로 위 거리**가 줄며 다가오고, 운행 중에는 중복 호출 · 운전실 콘솔이 둘 다 거부된다
 //   9. (2026-09-11) 천장 · 2층 · 사다리 · 옥상 스캐너 · 경사 계단 · 창문 · 열린 모습 동기화 · 조명 풀 · 스캔 파동
+//   0. (2026-09-11, C-38) 발판 동점: 같은 윗면이면 `velocity` 를 든(움직이는) 발판을 삽입 순서와 상관없이 고른다
+//  10. (2026-09-11, C-22) 발밑 재질: 구조물 바닥 · 계단 concrete, 불시착 함선 metal, 선로 · 전차 metal, 전차 데크 metal
+//  11. (2026-09-11, C-39) 호출 콘솔 소리: 수락 = `tram_call`(콘솔 자리), 거부 = `tram_deny`
 //
 // Usage: node scripts/smoke-structures.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -96,6 +99,42 @@ try {
     await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
     await waitFor(page, () => window.__game.ctx.world.ready, 'world ready', 30000);
     await sleep(400);
+
+    /* ── 0. 2026-09-11 (C-38): 발판 동점 — 같은 윗면이면 **움직이는 발판(velocity 보유)** 이 이긴다 ──────
+     * 반경 0 질의는 칸 하나를 삽입 순서로 훑는다. 선로 발판이 전차보다 먼저 들어가므로 예전에는 고정 발판이
+     * 늘 이겼다. 두 삽입 순서 모두에서, 정지한(0 벡터) 발판도, 창(`PROP_TOP_MARGIN`) 안에서 조금 낮아도
+     * 움직이는 쪽이어야 한다. 창 밖(발 높이에서 먼) 발판은 여전히 후보가 아니다. 허공(지형 +200 m)에 세운다. */
+    if (seed === SEEDS[0]) {
+      const tie = await page.evaluate(() => {
+        const ctx = window.__game.ctx, w = ctx.world;
+        const hash = window.__game.getSystem('world').hash;
+        const V3 = ctx.camera.position.constructor;
+        const sp = w.getPlayerSpawn();
+        const x = sp.x, z = sp.z, base = w.getHeightAt(x, z) + 200;
+        const run = (movingFirst, movingDrop, fixedLift) => {
+          const mk = (kind, lift) => hash.addBox(new V3(x, base + lift, z), 2, 2, 0.3, 1, kind);
+          let fixed, moving;
+          if (movingFirst) { moving = mk('smoke_moving', -movingDrop); fixed = mk('smoke_fixed', fixedLift); }
+          else { fixed = mk('smoke_fixed', fixedLift); moving = mk('smoke_moving', -movingDrop); }
+          moving.velocity = new V3(0, 0, 0);
+          const got = w.getStandingObstacle(x, z, base + 1);
+          hash.remove(fixed); hash.remove(moving);
+          return got ? got.kind : null;
+        };
+        return {
+          fixedFirst: run(false, 0, 0),
+          movingFirst: run(true, 0, 0),
+          movingLower: run(false, 0.1, 0),          // 창(0.15) 안에서 0.1 m 낮아도 움직이는 쪽
+          fixedAbove: run(false, 0, 0.1),           // 고정 발판이 0.1 m 높아도 움직이는 쪽
+          outOfWindow: run(false, 0.5, 0),          // 움직이는 발판이 창 밖이면 후보가 아니다
+        };
+      });
+      ok(tie.fixedFirst === 'smoke_moving' && tie.movingFirst === 'smoke_moving',
+        'C-38: 같은 윗면의 고정 · 움직이는 발판 → 삽입 순서와 상관없이 움직이는 쪽', JSON.stringify(tie));
+      ok(tie.movingLower === 'smoke_moving' && tie.fixedAbove === 'smoke_moving',
+        'C-38: PROP_TOP_MARGIN 창 안에서는 높이보다 velocity 가 먼저', JSON.stringify(tie));
+      ok(tie.outOfWindow === 'smoke_fixed', 'C-38: 창 밖의 움직이는 발판은 고르지 않는다', JSON.stringify(tie));
+    }
 
     /* ── 1 · 2. 구조물이 서고, 상자 콜라이더가 그려진 것 안에 있다 ─────────── */
     const r = await page.evaluate((slack) => {
@@ -224,6 +263,44 @@ try {
       }
     }
 
+
+    /* ── 10. 2026-09-11 (C-22): 발밑 재질 — 구조물 바닥 concrete · 불시착 함선 metal · 선로 metal ────────── */
+    const surf = await page.evaluate(() => {
+      const w = window.__game.ctx.world;
+      const out = { floors: {}, wreck: {}, rail: {}, stair: {} };
+      const bump = (t, m) => { t[m] = (t[m] ?? 0) + 1; };
+      for (const s of w.getStructures()) {
+        const R = Math.max(2, s.radius - 6);
+        for (let gx = -R; gx <= R; gx += 1.5) for (let gz = -R; gz <= R; gz += 1.5) {
+          const x = s.position.x + gx, z = s.position.z + gz;
+          const sy = w.getSurfaceY(x, z, s.position.y + 0.3);
+          if (Math.abs(sy - s.position.y) > 0.05) continue;
+          const st = w.getStandingObstacle(x, z, sy);
+          if (!st || (st.kind !== 'slab' && st.kind !== 'building')) continue;   // 컨테이너 · 문 윗면 등은 뺀다
+          bump(s.kind === 'wreck' ? out.wreck : out.floors, w.getSurfaceMaterial(x, z, sy));
+        }
+      }
+      for (const o of w.getObstacles()) {
+        if (!o.ramp || o.kind !== 'slab') continue;
+        const top = w.getSurfaceY(o.position.x, o.position.z, o.position.y + o.height);
+        bump(out.stair, w.getSurfaceMaterial(o.position.x, o.position.z, top));
+      }
+      const line = w.getRailLines()[0];
+      if (line) {
+        for (let i = 0; i < line.points.length; i += Math.max(1, Math.floor(line.points.length / 12))) {
+          const p = line.points[i];
+          const top = w.getSurfaceY(p.x, p.z);
+          const st = w.getStandingObstacle(p.x, p.z, top);
+          if (st && (st.kind === 'rail' || st.kind === 'tram')) bump(out.rail, w.getSurfaceMaterial(p.x, p.z, top));
+        }
+      }
+      return out;
+    });
+    const only = (t, m) => Object.keys(t).length === 0 || (Object.keys(t).length === 1 && t[m] > 0);
+    ok(Object.keys(surf.floors).length > 0 && only(surf.floors, 'concrete'), `C-22: 전진기지 · 연구실 바닥 → concrete`, JSON.stringify(surf.floors));
+    ok(only(surf.stair, 'concrete'), `C-22: 구조물 계단(경사면) → concrete`, JSON.stringify(surf.stair));
+    ok(only(surf.wreck, 'metal'), `C-22: 불시착 함선 데크 → metal (${JSON.stringify(surf.wreck)})`);
+    ok(only(surf.rail, 'metal'), `C-22: 선로 발판 · 전차 → metal (${JSON.stringify(surf.rail)})`);
 
     /* ── 9. 2026-09-11: 천장 · 2층 · 사다리 · 옥상 스캐너 · 경사 계단 · 창문 · 동기화 · 조명 · 파동 ─────────── */
     const b = await page.evaluate(() => {
@@ -471,9 +548,19 @@ try {
         `정차 중에는 운전실 콘솔이 눌린다 (${callIdle.cab?.prompt})`, JSON.stringify(callIdle.cab));
 
       // 부른다 → 기존 출발 절차 그대로 (알림 → 1초 대기 → 3초 가속) 이므로 5.5초 뒤에 재본다.
-      await page.evaluate((id) => {
-        window.__game.ctx.interactables.all().find((i) => i.id === `rail:${id}:call`)?.interact();
+      // 2026-09-11 (C-39): 수락되면 부른 콘솔 자리에서 `tram_call` 이 이 클라이언트에 울린다.
+      const callSnd = await page.evaluate((id) => {
+        const ctx = window.__game.ctx;
+        const snd = [];
+        const off = ctx.bus.on('audio:play', (p) => { if (/^tram_|keycard_deny/.test(p.id)) snd.push({ id: p.id, p: p.position ? [p.position.x, p.position.z] : null }); });
+        const con = ctx.interactables.all().find((i) => i.id === `rail:${id}:call`);
+        con?.interact();
+        off();
+        return { snd, at: con ? [con.position.x, con.position.z] : null };
       }, far.id);
+      const chime = callSnd.snd.find((s) => s.id === 'tram_call');
+      ok(!!chime && !!chime.p && !!callSnd.at && Math.hypot(chime.p[0] - callSnd.at[0], chime.p[1] - callSnd.at[1]) < 0.5,
+        'C-39: 호출이 수락되면 부른 콘솔 자리에서 tram_call 차임', JSON.stringify(callSnd));
       await waitSim(page, 5.5);
       const called = await page.evaluate((farId) => {
         const railS = (line, x, z) => {
@@ -514,6 +601,17 @@ try {
       ok(called.cons.every((c) => c.hold === 0 && /운행/.test(c.prompt ?? '')),
         '운행 중에는 중복 호출이 거부된다 (홀드 0 + 이유가 적힌 프롬프트)', JSON.stringify(called.cons));
       ok(!called.cabCan, '운행 중에는 운전실 콘솔도 잠긴다');
+      // 2026-09-11 (C-39): 운행 중 호출 = 거부 전용음 `tram_deny` (예전에는 지하실 카드 리더기의 `keycard_deny`)
+      const denySnd = await page.evaluate((id) => {
+        const ctx = window.__game.ctx;
+        const snd = [];
+        const off = ctx.bus.on('audio:play', (p) => { if (/^tram_|keycard_deny/.test(p.id)) snd.push(p.id); });
+        ctx.interactables.all().find((i) => i.id === `rail:${id}:call`)?.interact();
+        off();
+        return snd;
+      }, far.id);
+      ok(denySnd.includes('tram_deny') && !denySnd.includes('keycard_deny') && !denySnd.includes('tram_call'),
+        'C-39: 부를 수 없을 때는 tram_deny 만 울린다', JSON.stringify(denySnd));
 
       // 달리는 동안 데크가 발판 속도를 들고 있는지 — 콘솔은 **전차 안**에 있다 (2026-09-10).
       // 전차는 위의 **호출**로 이미 달리고 있으므로 이 누름은 (설계대로) 아무 일도 하지 않는다.
@@ -532,8 +630,53 @@ try {
           hasDeck: !!st,
           speed: st && st.velocity ? Math.hypot(st.velocity.x, st.velocity.z) : 0,
           deckTop: w.getSurfaceY(t.position.x, t.position.z, t.position.y + 0.5) - t.position.y,
+          material: w.getSurfaceMaterial(t.position.x, t.position.z, t.position.y),
         };
       });
+      ok(riding.material === 'metal', `C-22: 달리는 전차 데크 → metal (${riding.material})`);
+
+      /* 2026-09-11 (C-18): 달리는 전차는 **적 · 끊긴 분대원도 친다** (권위 = 이 싱글 페이지). 적 둘을 차체 한가운데에
+         세운다 — 하나는 발이 데크 윗면 − 1.0 m(선로 옆 땅 = 치인다), 하나는 데크 위(탑승자 = 안 치인다). AI 가 한
+         프레임 움직이기 전에 `rails.update` 를 직접 한 번 돌려 판정만 본다. 고스트는 `net.getRemotePlayers()` 에
+         가짜 분대원을 끼워 넣는다. 같은 적을 곧바로 다시 돌리면 **대상별 쿨다운**으로 안 치여야 한다. */
+      const hit = await page.evaluate(() => {
+        const ctx = window.__game.ctx, w = ctx.world;
+        const ws = window.__game.getSystem('world');
+        const es = window.__game.getSystem('enemies');
+        const rp = window.__game.getSystem('remotePlayers');
+        const t = w.getTrams()[0];
+        const V3 = ctx.camera.position.constructor;
+        const ground = es.debugSpawn('warrior', { x: t.position.x, z: t.position.z }, false);
+        const rider = es.debugSpawn('warrior', { x: t.position.x + Math.cos(t.yaw) * 2, z: t.position.z + Math.sin(t.yaw) * 2 }, false);
+        if (!ground || !rider) return { spawned: false };
+        ground.position.set(t.position.x, t.position.y - 1.0, t.position.z);
+        rider.position.set(t.position.x + Math.cos(t.yaw) * 2, t.position.y, t.position.z + Math.sin(t.yaw) * 2);
+        const ref = rp.debugSpawn({ id: 'tram-ghost', slot: 3, position: new V3(t.position.x - Math.cos(t.yaw) * 2, t.position.y - 1.0, t.position.z - Math.sin(t.yaw) * 2) });
+        ref.hp = 100; ref.position.set(t.position.x - Math.cos(t.yaw) * 2, t.position.y - 1.0, t.position.z - Math.sin(t.yaw) * 2);
+        rp.debugSuspend('tram-ghost', true);
+        const net = ctx.net; const orig = net.getRemotePlayers.bind(net);
+        net.getRemotePlayers = () => [...orig(), ref];
+        const snd = [], gd = [];
+        const offA = ctx.bus.on('audio:play', (p) => { if (p.id === 'tram_hit') snd.push(p.id); });
+        const offG = ctx.bus.on('ghost:damage', (e) => gd.push({ id: e.id, amount: e.amount, kb: !!e.kb }));
+        const g0 = ground.hp, r0 = rider.hp, gv0 = Math.hypot(ground.velocity.x, ground.velocity.z);
+        // 적 공간 격자는 이번 프레임의 적 update 에서 만들어졌다 — 방금 옮긴 적이 안 잡히므로 선형 검색으로 돌린다.
+        // (실제 프레임에서는 world 가 enemies 보다 먼저 돌아 늘 선형 검색이다.)
+        es.gridTime = -1;
+        ws.rails.update(1 / 120, ctx.time);
+        const g1 = ground.hp, r1 = rider.hp, gv1 = Math.hypot(ground.velocity.x, ground.velocity.z);
+        ground.position.set(t.position.x, t.position.y - 1.0, t.position.z);
+        es.gridTime = -1;
+        ws.rails.update(1 / 120, ctx.time);
+        const g2 = ground.hp;
+        offA(); offG(); delete net.getRemotePlayers; rp.debugClear();
+        return { spawned: true, state: t.state, g0, g1, g2, r0, r1, gv0, gv1, snd: snd.length, gd, keys: [...ws.rails.tram.hitUntil.keys()] };
+      });
+      ok(hit.spawned && hit.g1 < hit.g0 && hit.gv1 > hit.gv0 + 1, `C-18: 달리는 전차가 선로 옆 적을 치고 민다 (hp ${hit.g0} → ${hit.g1}, 속도 ${hit.gv0?.toFixed?.(1)} → ${hit.gv1?.toFixed?.(1)})`, JSON.stringify(hit));
+      ok(hit.spawned && hit.r1 === hit.r0, `C-18: 데크 위에 탄 적은 치지 않는다 (hp ${hit.r0} → ${hit.r1})`, JSON.stringify(hit));
+      ok(hit.spawned && hit.g2 === hit.g1, 'C-18: 쿨다운은 대상별 — 방금 친 적은 곧바로 다시 치이지 않는다', JSON.stringify(hit));
+      ok(hit.spawned && hit.gd.length === 1 && hit.gd[0].id === 'tram-ghost' && hit.gd[0].kb && hit.snd >= 2,
+        'C-18: 끊긴 분대원(고스트)은 ghost:damage {kb} 로 치이고 치임음은 tram_hit', JSON.stringify(hit));
       ok(riding.state === 'moving' && riding.s !== rail.tram.s, `호출로 출발한 전차가 계속 달린다 (s ${rail.tram.s.toFixed(0)} → ${riding.s.toFixed(0)})`);
       ok(Math.abs(riding.deckTop) < 0.2, `the tram deck is standable at the tram floor (Δ ${riding.deckTop.toFixed(2)} m)`);
       ok(riding.hasDeck && riding.speed > 5, `standing on the deck reports a ride velocity (${riding.speed.toFixed(1)} m/s)`, JSON.stringify(riding));

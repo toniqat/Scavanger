@@ -55,6 +55,8 @@ export class Props {
   private crystalMat: THREE.MeshStandardMaterial | null = null;
   private canopyMat: THREE.MeshStandardMaterial | null = null;
   private readonly timeUniform = { value: 0 };
+  /** 2026-09-11 (C-40): 마지막 `build` 의 종류별 소요(ms) — 산포 콜백 · 윤곽 실측 포함. */
+  readonly timings: Record<string, number> = {};
 
   constructor() { this.group.name = 'Props'; }
 
@@ -63,6 +65,8 @@ export class Props {
   build(ctx: BuildCtx): void {
     const rng = ctx.rng.fork('props');
     const b = ctx.biome;
+    let tp = performance.now();
+    const lap = (k: string): void => { const n = performance.now(); this.timings[k] = n - tp; tp = n; };
 
     const rockMat = this.mat(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0.02, flatShading: true }));
     const debrisMat = this.mat(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.65 }));
@@ -108,6 +112,8 @@ export class Props {
       }
     });
 
+    lap('boulders');
+
     /* Rock spires — tall jagged pillars */
     const spires = [0, 1, 2].map((k) => {
       const g = new THREE.ConeGeometry(1, 4.2, 7 + k, 4);
@@ -136,6 +142,8 @@ export class Props {
       const pc = propHullOf(ctx, spires[vi], m);
       if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'rock');
     });
+
+    lap('spires');
 
     /* Trees */
     if (b.treeStyle !== 'none') {
@@ -206,6 +214,8 @@ export class Props {
       });
     }
 
+    lap('trees');
+
     /* Crystal clusters */
     const crystalVars: Variant[] = [];
     const crystalGeos: THREE.BufferGeometry[] = [];
@@ -241,6 +251,8 @@ export class Props {
       if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'crystal');
     });
 
+    lap('crystals');
+
     /* Grass tufts (decoration only) */
     const grassGeos = [0, 1].map((k) => this.makeTuft(rng, 5 + k * 3, b.grass, b.grassTip));
     const grassVars = grassGeos.map((g) => this.variant([{ geo: g, mat: grassMat, castShadow: false, receiveShadow: false }], 9000, 'grass'));
@@ -249,13 +261,18 @@ export class Props {
       const h = ctx.terrain.getHeightAt(x, z);
       if (h < b.lowLevel - 1 || h > b.highLevel) return;
       if (ctx.hash.overlaps(x, z, 0.3)) return;
-      // keep the pads mostly clean
-      const nearPad = ctx.layout.pads.some((p) => (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < (p.radius - 2) * (p.radius - 2));
-      if (nearPad) return;
+      // keep the pads mostly clean (2026-09-11 C-40: `some` 콜백 대신 루프 — 판정은 같다)
+      const pads = ctx.layout.pads;
+      for (let k = 0; k < pads.length; k++) {
+        const p = pads[k];
+        if ((x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < (p.radius - 2) * (p.radius - 2)) return;
+      }
       const s = rng.range(0.7, 1.5);
       const v = grassVars[rng.int(0, grassVars.length - 1)];
       this.place(v, composeMatrix(x, h - 0.05, z, rng.range(0, Math.PI * 2), 0, 0, s, s * rng.range(0.8, 1.3), s), rng.range(0.8, 1.15));
     });
+
+    lap('grass');
 
     /* Debris */
     const crateGeo = paint(new THREE.BoxGeometry(1, 1, 1), new THREE.Color(0x4a5048), 0.15, rng);
@@ -292,6 +309,8 @@ export class Props {
       }
     });
 
+    lap('debris');
+
     /* Pebbles — small ground rocks, decoration only */
     const pebbles = [0, 1].map((k) => {
       const g = new THREE.IcosahedronGeometry(1, 1);
@@ -311,6 +330,7 @@ export class Props {
       this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.3, 0.3), rng.range(-0.3, 0.3), s, s, s), rng.range(0.8, 1.1));
     });
 
+    lap('pebbles');
     this.finalize();
     ctx.root.add(this.group);
   }

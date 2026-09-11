@@ -40,6 +40,8 @@ const COL = {
   rail: '#9fb4c7',
   tram: '#ffd27f',
   grove: '#b98cff',
+  /* appended (2026-09-11, C-11): 폐허 전초 (POI) — 구조물(모래색)보다 낮은 채도의 콘크리트 색 */
+  outpost: '#a9a59a',
 };
 /**
  * 재해 구역 채움 · 경계선. 안개 위에 얹는 붉은 층이라 지형이 비쳐야 하지만, 2026-09-09 의 값
@@ -53,6 +55,8 @@ const HAZARD_LINE_UNDER = 'rgba(20, 6, 4, 0.75)';
 /** 빗금 무늬의 타일 한 변(px)과 선 색. */
 const HATCH_TILE = 9;
 const HATCH_LINE = 'rgba(255, 90, 60, 0.34)';
+/** 이 반경(m) 이하의 재해 원은 **닫힌 것**으로 그린다 (C-15) — `world/hazard/parts/Visuals` 가 벽을 숨기는 문턱과 같다. */
+const CLOSED_RADIUS_M = 0.5;
 
 /**
  * 안개 경계선 (2026-09-10) — 밝혀진 칸과 아직 아닌 칸이 맞닿는 변. 컬러 레이어의 가장자리는 업스케일
@@ -126,6 +130,12 @@ export class MapScreen {
   private activePadId: string | null = null;
   private shipPos: THREE.Vector3 | null = null;
   private pings = new Map<number, MapPing>();
+  /**
+   * 2026-09-11 (C-11): 발견한 **폐허 전초** (id → 위치). `WorldRef` 에 목록이 없으므로(구조물 목록과 섞지 않는다)
+   * `fog:discovered {kind:'outpost'}` 를 쌓는다. 늦게 합류한 사람은 `fog sync` 뒤 다음 발견 판정에서 다시 받는다.
+   * `world:ready` · `game:abort` 에서 비운다.
+   */
+  private outposts = new Map<string, THREE.Vector3>();
   /** When set (HudSystem → Pings.getPings) pings are drawn from here (carries owner name/colour); else from events. */
   private pingSource: (() => readonly PingView[]) | null = null;
   /** Phase 10: middle-click on the map → this placer (HudSystem → `Pings.placeAtWorld`). */
@@ -199,6 +209,7 @@ export class MapScreen {
       ['mine', COL.danger, '지뢰 (피아 구분 없음)'],
       /* appended (2026-09-09): 레이드 플레이 개선 */
       ['structure', COL.structure, '버려진 구조물'],
+      ['outpost', COL.outpost, '폐허 전초'],
       ['rail', COL.rail, '선로 · 플랫폼'],
       ['tram', COL.tram, '전차'],
       ['grove', COL.grove, '거대 버섯 군락'],
@@ -208,6 +219,9 @@ export class MapScreen {
       const row = el('div', { cls: 'map-legend-row', parent: legend });
       const sw = el('i', { cls: `sw ${cls}`, parent: row });
       sw.style.setProperty('--sw', color);
+      // 2026-09-11 (C-11): 폐허 전초 견본 — 스타일시트(`ui/styles/base.css`)는 이 파일의 소관이 아니라 인라인으로 준다
+      // (지도의 ㄷ자와 같은 모양: 오른쪽 한 변이 뚫린 사각).
+      if (cls === 'outpost') Object.assign(sw.style, { width: '9px', height: '9px', border: '1.6px solid var(--sw)', borderRightColor: 'transparent' });
       el('span', { text: label, parent: row });
     }
 
@@ -265,7 +279,7 @@ export class MapScreen {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('world:ready', ({ seed }) => {
-        this.activePadId = null; this.shipPos = null; this.pings.clear();
+        this.activePadId = null; this.shipPos = null; this.pings.clear(); this.outposts.clear();
         this.staticCanvas = null; this.outlineCanvas = null; this.staticSeed = seed;
         this.fogLayer = null; this.fogDirty = true; this.fogRevision = -1; this.fogEdges = null; this.fogEdgeRevision = -1;
         setText(this.seedEl, `SEED ${seed}`);
@@ -276,6 +290,9 @@ export class MapScreen {
       b.on('fog:revealed', ({ explored }) => {
         this.fogDirty = true;
         setText(this.exploredEl, `${Math.round(explored * 100)}%`);
+      }),
+      b.on('fog:discovered', ({ kind, id, position }) => {
+        if (kind === 'outpost') this.outposts.set(id, position.clone());
       }),
       b.on('extraction:activated', ({ pointId }) => { this.activePadId = pointId; }),
       b.on('extraction:shipLanded', ({ position }) => { this.shipPos = position.clone(); }),
@@ -288,7 +305,7 @@ export class MapScreen {
         this.close(false);
         this.staticCanvas = null; this.outlineCanvas = null; this.fogLayer = null; this.fogEdges = null; this.fogEdgeRevision = -1;
         this.fogDirty = true; this.fogRevision = -1;
-        this.pings.clear(); this.shipPos = null; this.activePadId = null;
+        this.pings.clear(); this.shipPos = null; this.activePadId = null; this.outposts.clear();
       }),
       b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
     );
@@ -676,6 +693,22 @@ export class MapScreen {
         c.textAlign = 'center'; c.textBaseline = 'top';
         c.fillText('구조물', x, y + rr + 2);
       }
+      /* 폐허 전초 (2026-09-11, C-11) — 발견 이벤트로 쌓인 것만. 무너진 벽을 닮은 **ㄷ자** (한 변이 뚫린 사각)이고
+       * 구조물의 채운 사각형과 겹치지 않게 테두리만 긋는다. */
+      for (const [, pos] of this.outposts) {
+        const x = this.toX(pos.x), y = this.toY(pos.z);
+        if (!this.inView(x, y, 16)) continue;
+        c.strokeStyle = COL.outpost; c.lineWidth = 1.6;
+        c.beginPath();
+        c.moveTo(x + 4.5, y - 4.5); c.lineTo(x - 4.5, y - 4.5); c.lineTo(x - 4.5, y + 4.5); c.lineTo(x + 1.5, y + 4.5);
+        c.stroke();
+        c.fillStyle = COL.outpost;
+        c.fillRect(x + 3, y - 1, 1.6, 1.6);                 // 안테나 비콘 점
+        c.fillStyle = COL.dim;
+        c.font = FONT_LABEL;
+        c.textAlign = 'center'; c.textBaseline = 'top';
+        c.fillText('폐허', x, y + 7);
+      }
       // 거대 버섯 군락 (독성 포자 발생지) — 발견한 것만
       for (const src of ctx.world?.hazard?.getSources() ?? []) {
         if (!src.discovered) continue;
@@ -952,6 +985,14 @@ export class MapScreen {
         continue;
       }
       const cx = this.toX(z.center.x), cy = this.toY(z.center.z);
+      /* 2026-09-11 (C-15): 폭풍의 눈이 반경 0 까지 닫힌다. `Math.max(1, …)` 만 두면 다 닫힌 뒤에도 **1 px 짜리
+       * 안전 구멍과 테두리**가 남아 "아직 안전지대가 있다" 로 읽혔다. 월드의 벽 비주얼(`hazard/parts/Visuals`)과
+       * 같은 문턱 `CLOSED_RADIUS_M` 아래는 닫힌 원이다: 안이 안전한 원이면 캔버스 전체가 위험, 안이 위험한 원이면
+       * 아무것도 없다. */
+      if (z.radius <= CLOSED_RADIUS_M) {
+        if (z.safeInside) { c.beginPath(); c.rect(0, 0, C, C); paint(); }
+        continue;
+      }
       const rr = Math.max(1, z.radius * s);
       c.beginPath();
       if (z.safeInside) {

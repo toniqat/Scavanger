@@ -122,6 +122,10 @@ try {
         // 고철만 센다 — `all.length - nodes.length` 로 빼면 군락 버섯까지 고철로 잡힌다 (2026-09-09)
         salvage: all.filter((n) => n.kind === 'salvage').length,
         nodeSig: nodes.map((n) => `${n.id}:${n.defId}:${n.position.x.toFixed(3)},${n.position.z.toFixed(3)}`).join('|'),
+        // 2026-09-11 (C-20): 고철 더미의 부가 코어 (생성 때 시드로 정해진다) + 약초에는 절대 붙지 않는다
+        salvageSig: all.filter((n) => n.kind === 'salvage').map((n) => `${n.id}:${n.qty}:${(window.__worldSys.gather.debugBonusOf(n.id) || { qty: 0 }).qty}`).join('|'),
+        coreNodes: all.filter((n) => n.kind === 'salvage' && window.__worldSys.gather.debugBonusOf(n.id)).map((n) => n.id),
+        herbBonus: all.filter((n) => n.kind !== 'salvage' && window.__worldSys.gather.debugBonusOf(n.id)).length,
         eco: window.__sys.debugEcology,
         guards: window.__sys.debugGuardCount(),
         ready: window.__ready[window.__ready.length - 1] ?? null,
@@ -263,6 +267,44 @@ try {
   ok(d1.guards.rogues === d2.guards.rogues && d1.guards.boss === d2.guards.boss, `same seed + planet → identical guard placement (${d1.guards.rogues} rogues, boss ${d1.guards.boss})`);
   const other = await gen(404, 'mossy');
   ok(other.nodeSig !== d1.nodeSig, 'a different planet on the same seed gives a different herb mix');
+
+  /* ── 2026-09-11 (C-20): 고철 더미 부가 코어 ─────────────────────────────
+   * 생성 때 미션 시드로 정해지고(같은 시드 = 같은 노드에 같은 코어), 약초에는 붙지 않으며, 수확하면 폐금속과
+   * 코어가 **둘 다** 들어오되 `gather:collected` 는 한 번뿐이다 (제작 XP 1회). */
+  console.log('고철 더미 부가 코어 (C-20)');
+  ok(d1.salvageSig === d2.salvageSig && d1.salvageSig.length > 0, 'same seed + planet → identical salvage qty + bonus core per node', `${d1.salvageSig} vs ${d2.salvageSig}`);
+  let coreTotal = d1.coreNodes.length, salvTotal = d1.salvage, herbBonus = d1.herbBonus + other.herbBonus;
+  let coreSeed = d1.coreNodes.length > 0 ? { seed: 404, planet: 'ashen', id: d1.coreNodes[0] } : null;
+  for (const seed of [5, 9, 13, 17, 25, 33, 41, 57, 61, 88]) {
+    const s = await gen(seed, 'ashen');
+    coreTotal += s.coreNodes.length; salvTotal += s.salvage; herbBonus += s.herbBonus;
+    if (!coreSeed && s.coreNodes.length > 0) coreSeed = { seed, planet: 'ashen', id: s.coreNodes[0] };
+  }
+  ok(herbBonus === 0, `약초 · 군락 버섯에는 부가 결과가 없다 (${herbBonus})`);
+  // 0.15 × 77 ≈ 11.6 — 1 ~ 30 이면 확률이 살아 있고 전부/전무가 아니다
+  ok(coreTotal >= 1 && coreTotal <= 30, `부가 코어가 확률로 붙는다 (고철 ${salvTotal}개 중 ${coreTotal}개, GATHER_SALVAGE_CORE_CHANCE 0.15)`);
+  if (coreSeed) {
+    await gen(coreSeed.seed, coreSeed.planet);
+    const harvest = await P((id) => {
+      const ctx = window.__game.ctx;
+      const count = (defId) => ctx.inventory.countWhere((d) => d.id === defId);
+      const before = { scrap: count('mat_scrap'), core: count('mat_core') };
+      const node = ctx.world.getGatherNodes().find((n) => n.id === id);
+      const bonus = window.__worldSys.gather.debugBonusOf(id);
+      const evs = [];
+      const off = ctx.bus.on('gather:collected', (p) => evs.push(p));
+      const it = ctx.interactables.all().find((i) => i.id === `gather:${id}`);
+      if (it) it.interact();
+      off();
+      return { found: !!it, qty: node.qty, bonus, events: evs.length, harvested: node.harvested,
+        scrap: count('mat_scrap') - before.scrap, core: count('mat_core') - before.core };
+    }, coreSeed.id);
+    ok(harvest.found && harvest.harvested && harvest.events === 1, `부가 코어가 있어도 gather:collected 는 한 번 (${harvest.events})`, JSON.stringify(harvest));
+    ok(harvest.scrap === harvest.qty && harvest.core === (harvest.bonus && harvest.bonus.qty),
+      `수확하면 폐금속 ${harvest.qty} + 구동 코어 ${harvest.bonus && harvest.bonus.qty} 가 둘 다 들어온다 (+${harvest.scrap} / +${harvest.core})`, JSON.stringify(harvest));
+  } else {
+    fail++; console.log('  FAIL 11개 시드에서 부가 코어 노드를 하나도 못 찾았다');
+  }
 
   /* ── unknown id + training ────────────────────────────────────────────── */
   console.log('unknown id / training');

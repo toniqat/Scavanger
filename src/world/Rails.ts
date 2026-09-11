@@ -454,9 +454,10 @@ export class Rails {
     const inst = this.tram;
     if (!ctx || !inst) return;
     const state = this.callState(index);
+    const at = this.callPos[index] ?? inst.def.position;
     if (state !== 'ready') {
-      const at = this.callPos[index] ?? inst.def.position;
-      ctx.bus.emit('audio:play', { id: 'keycard_deny', position: at });
+      // 2026-09-11 (C-39): 호출 전용 거부음 — 예전에는 지하실 카드 리더기의 `keycard_deny` 를 빌려 썼다.
+      ctx.bus.emit('audio:play', { id: 'tram_deny', position: at });
       ctx.bus.emit('ui:notify', {
         text: state === 'here' ? '전차가 이미 이 승강장에 있다' : '전차가 운행 중이다 — 정차한 뒤에 다시 부른다',
         kind: 'warning', duration: 2.2,
@@ -467,6 +468,10 @@ export class Rails {
      * 곧이어 시작될 출발(`beginRun`)이 「곧 출발합니다」를 겹치지 않게 잠깐 입을 막는다 (`nearDeparture`). */
     this.callNoticeUntil = ctx.time + CALL_NOTICE_MUTE_S;
     ctx.bus.emit('ui:notify', { text: '전차를 호출했다', kind: 'info', duration: 2 });
+    /* 2026-09-11 (C-39): 호출 접수 차임 — **부른 사람의 콘솔 자리에서, 이 클라이언트에만** 울린다. 출발음
+     * `tram_start` 는 전차 위치에서 나므로 반대편 승강장에서 부른 사람에게는 거리 감쇠로 들리지 않았다.
+     * 클라이언트는 호스트의 답을 기다리지 않고 낙관적으로 울린다 (토스트와 같다 — 거절되면 출발음이 없을 뿐). */
+    ctx.bus.emit('audio:play', { id: 'tram_call', position: at });
     const net = ctx.net;
     if (ctx.isMultiplayer && net && !net.isHost) {
       /* 와이어에는 목적지 칸이 없다 (`TramRequest` 는 계약이고 이 배치는 `src/shared` 를 건드리지 않는다).

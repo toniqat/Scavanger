@@ -30,8 +30,12 @@ type DiscoverKind = 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'st
 const TOAST: Partial<Record<DiscoverKind, string>> = {
   extraction: '탈출 신호소 발견',
   nest: '벌레 둥지 발견',
-  outpost: '전초기지 발견',
+  // 2026-09-11 (C-11): '전초기지' 는 들어가는 구조물(`StructureKind 'outpost'` = 버려진 전진기지)과 헷갈린다
+  outpost: '폐허 전초 발견',
 };
+
+/** 2026-09-11 (C-11): 발견 판정에 필요한 폐허 전초의 최소 모양 (`Outposts.OutpostSite`). */
+interface OutpostSpot { readonly id: string; readonly position: THREE.Vector3 }
 
 /** base64 인코딩 (비트 팩된 마스크 — 6400칸이 800바이트 → base64 약 1.1 KB). */
 function toBase64(bytes: Uint8Array): string {
@@ -66,6 +70,11 @@ export class Fog implements FogRef {
   private readonly toasted = new Set<DiscoverKind>();
   private readonly unsubs: Array<() => void> = [];
   private netHooked = false;
+  /**
+   * 2026-09-11 (C-11): 폐허 전초. `WorldRef` 에 목록이 없어(구조물 목록에 섞지 않는다) `WorldSystem` 이 직접 넘긴다.
+   * 발견되면 `fog:discovered {kind:'outpost'}` + 토스트 — 지도가 그 이벤트를 쌓아 아이콘을 그린다.
+   */
+  private outposts: readonly OutpostSpot[] = [];
 
   constructor() {
     this.cells = Math.max(1, Math.ceil(MAP_SIZE / FOG_CELL_M));
@@ -95,8 +104,12 @@ export class Fog implements FogRef {
     this.revealed = 0;
     this.revision = 0;
     this.seen.clear();
+    this.outposts = [];
     this.ctx = null;
   }
+
+  /** 2026-09-11 (C-11): 이번 맵의 폐허 전초 목록 (`WorldSystem.generate`). */
+  setOutposts(sites: readonly OutpostSpot[]): void { this.outposts = sites; }
 
   /* ── 질의 ──────────────────────────────────────────────────────────── */
 
@@ -190,6 +203,8 @@ export class Fog implements FogRef {
     if (nodes) for (const g of nodes) this.discover('gather', g.id, g.position);
     // 2026-09-09: 버려진 구조물과 선로 · 플랫폼. 토스트는 ui/ 가 띄운다 (위 `TOAST` 주석 참고).
     for (const st of world.getStructures()) this.discover('structure', st.id, st.position);
+    // 2026-09-11 (C-11): 폐허 전초 — 계약에 `'outpost'` 가 있었지만 아무도 발행하지 않았다
+    for (const o of this.outposts) this.discover('outpost', o.id, o.position);
     for (const line of world.getRailLines()) {
       for (const p of line.platforms) this.discover('rail', p.id, p.position);
     }

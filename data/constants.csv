@@ -570,7 +570,7 @@ HAZARD_FULL_S,420,재해가 시작해서 맵을 완전히 덮기까지의 시간
 HAZARD_FOG_MUL,7,피해 구역 안에서 포그 농도에 곱하는 배수 (시야 제한).
 HAZARD_EDGE_M,12,구역 경계의 페더 폭(m) — 화면 효과가 서서히 올라온다.
 STORM_EYE_RADIUS_START,300,폭풍의 눈: 처음 안전 원의 반경(m).
-STORM_EYE_RADIUS_END,60,폭풍의 눈: 끝까지 좁아졌을 때의 반경(m).
+STORM_EYE_RADIUS_END,0,"폭풍의 눈: 끝까지 좁아졌을 때의 반경(m). 2026-09-11 (C-15): 60 → 0 — 다른 재해처럼 끝까지 가면 안전지대가 없다 (옛 60 m 는 맵의 2.8 %)."
 SPORE_START_S,360,독성 포자만은 시작 시각이 고정이다(초).
 SPORE_SOURCES_MIN,3,거대 버섯 군락(= 포자 발생지)의 최소 개수.
 SPORE_SOURCES_MAX,6,거대 버섯 군락의 최대 개수.

@@ -21,7 +21,8 @@ const START_MIN = 360, START_MAX = 480, START_STEP = 30;
 const WARN_S = 30, DPS = 1, TICK_S = 1, FULL_S = 420, EDGE_M = 12;
 // 2026-09-10: 시야 제한의 세기는 재해마다 다르다 (data/hazards.csv 의 fogMul) — 폭풍의 눈만 훨씬 짙다
 const FOG_MUL = { sandstorm: 7, blizzard: 7, storm_eye: 24, spores: 7 };
-const EYE_START = 300, EYE_END = 60;
+// 2026-09-11 (C-15): 폭풍의 눈도 끝까지 가면 닫힌다 — STORM_EYE_RADIUS_END 60 → 0
+const EYE_START = 300, EYE_END = 0;
 const SPORE_START = 360, SPORE_INTERVAL = 50, SPORE_MIN = 3, SPORE_MAX = 6;
 const MAP = 640;
 // 행성별 후보 (data/planets.csv 의 hazards 열)
@@ -206,14 +207,14 @@ try {
   const hzFull = await P(() => window.__hz());
   ok(Math.abs(hzFull.progress - 1) < 1e-6, `progress 가 1 에서 멈춘다 (${hzFull.progress})`);
   const safe = await P(() => window.__safeCount(16, 320));
+  /* 2026-09-11 (C-15): 폭풍의 눈도 예외가 아니다 — `STORM_EYE_RADIUS_END` 가 0 이라 눈이 완전히 닫힌다
+     (예전 60 m 는 맵의 2.8 % 안전지대가 남는 유일한 예외였다). */
+  ok(safe === 0, `맵 전체가 위험 구역이다 — 안전지대 0 (${h0.kind}, 안전 표본 ${safe}/${17 * 17})`);
   if (h0.kind === 'storm_eye') {
-    // 눈은 계약 상수대로 `STORM_EYE_RADIUS_END` 만큼 남는다 — 640 m 맵의 2.8 % 다 (사실상 강제 탈출)
-    const share = safe / (17 * 17);
-    ok(share < 0.05, `폭풍의 눈만 ${EYE_END} m 짜리 눈이 남는다 (안전 표본 ${safe}/${17 * 17} = ${(share * 100).toFixed(1)}%)`);
     const rz = (await P(() => window.__zones()))[0];
-    ok(Math.abs(rz.r - EYE_END) < 0.01, `마지막 반경 = STORM_EYE_RADIUS_END (${rz.r.toFixed(2)})`);
-  } else {
-    ok(safe === 0, `맵 전체가 위험 구역이다 — 안전지대 0 (안전 표본 ${safe}/${17 * 17})`);
+    ok(Math.abs(rz.r - EYE_END) < 0.01, `마지막 반경 = STORM_EYE_RADIUS_END ${EYE_END} (${rz.r.toFixed(2)})`);
+    const eyeIn = await P((z) => window.__game.ctx.world.hazard.isInside(z.cx + 0.3, z.cz), rz);
+    ok(eyeIn === true, `닫힌 눈의 한가운데 곁도 위험하다 (중심 +0.3 m: ${eyeIn})`);
   }
 
   /* ── 6. 피해 · 시야 ────────────────────────────────────────────────────── */
@@ -274,6 +275,37 @@ try {
   const lost = dmg.hp0 - dmg.hp;
   ok(lost >= DPS * 2 && lost <= DPS * 6, `HAZARD_TICK_S(${TICK_S}s) 마다 ${DPS} 씩 깎인다 (4초에 ${lost.toFixed(1)})`);
 
+  /* 2026-09-11 (C-14 · X-7): **끊긴 분대원의 몸(고스트)도 재해를 맞는다.** 권위(싱글 = 이 페이지)가 `HAZARD_TICK_S`
+     마다 구역 안의 `suspended` 분대원에게 `ghost:damage` 를 낸다. 가짜 분대원(`remotePlayers.debugSpawn`)은
+     `net.getRemotePlayers()` 에 없으므로 이 검사 동안만 그 목록에 끼워 넣는다. */
+  console.log('끊긴 분대원(고스트)도 재해를 맞는다');
+  const ghost0 = await P(() => {
+    const ctx = window.__game.ctx;
+    const rp = window.__game.getSystem('remotePlayers');
+    const p = ctx.player;
+    const ref = rp.debugSpawn({ id: 'hz-ghost', slot: 2, position: p.position.clone() });
+    ref.hp = 100;
+    const g = rp.debugSuspend('hz-ghost', true);
+    window.__gref = ref;
+    window.__gevents = [];
+    window.__goff = ctx.bus.on('ghost:damage', (e) => window.__gevents.push({ id: e.id, amount: e.amount }));
+    const net = ctx.net;
+    const orig = net.getRemotePlayers.bind(net);
+    net.getRemotePlayers = () => [...orig(), window.__gref];
+    window.__gunpatch = () => { delete net.getRemotePlayers; };
+    return { created: !!g, hp: g ? g.hp : null, inside: ctx.world.hazard.isInside(ref.position.x, ref.position.z) };
+  });
+  await waitSim(3.3);
+  const ghost1 = await P(() => {
+    const g = window.__game.getSystem('remotePlayers').getGhost('hz-ghost');
+    return { hp: g ? g.hp : null, shield: g ? g.shield : null, events: window.__gevents.slice() };
+  });
+  const gLost = (ghost0.hp ?? 0) - (ghost1.hp ?? 0) + 0;
+  ok(ghost0.created && ghost0.inside, '구역 안에 끊긴 분대원 몸(고스트)을 세웠다', JSON.stringify(ghost0));
+  ok(ghost1.events.length >= 2 && ghost1.events.every((e) => e.id === 'hz-ghost' && e.amount > 0),
+    `HAZARD_TICK_S 마다 ghost:damage 가 나간다 (3.3초에 ${ghost1.events.length}회)`, JSON.stringify(ghost1.events));
+  ok(gLost >= DPS * 2 && gLost <= DPS * 5, `고스트 체력이 초당 ${DPS} 씩 깎인다 (${ghost0.hp} → ${ghost1.hp})`, JSON.stringify(ghost1));
+
   console.log('구역 밖으로');
   await P(() => {
     const ctx = window.__game.ctx;
@@ -287,16 +319,37 @@ try {
   const atmoOut = (await P(() => window.__ev['atmo:override'])).pop();
   ok(!!atmoOut && atmoOut.blend === 0 && atmoOut.fogMul === 1 && atmoOut.color === null,
     `나오면 대기 오버라이드가 원래대로 (${JSON.stringify(atmoOut)})`);
+  // C-14: 재해가 없으면 고스트도 안 맞는다 — 그리고 가짜 분대원을 치운다
+  const ghost2 = await P(() => { window.__gevents.length = 0; return window.__game.getSystem('remotePlayers').getGhost('hz-ghost')?.hp ?? null; });
+  await waitSim(1.6);
+  const ghost3 = await P(() => {
+    const rp = window.__game.getSystem('remotePlayers');
+    const out = { hp: rp.getGhost('hz-ghost')?.hp ?? null, events: window.__gevents.length };
+    window.__goff(); window.__gunpatch(); rp.debugClear();
+    return out;
+  });
+  ok(ghost3.events === 0 && ghost3.hp === ghost2, `재해가 없으면 고스트에게 ghost:damage 가 나가지 않는다 (${ghost3.events}회, hp ${ghost2} → ${ghost3.hp})`);
 
   /* ── 7. 독성 포자 · 거대 버섯 군락 (베르단트 III) ──────────────────────── */
   console.log('독성 포자 · 거대 버섯 군락 (베르단트 III)');
   let sporeSeed = -1;
+  let eyeChecked = h0.kind === 'storm_eye';
   for (const seed of [3, 7, 11, 19, 23, 29, 31, 37]) {
     await newMission(seed, 'mossy');
     const k = await P(() => window.__hz());
     ok(k && MOSSY.includes(k.kind), `seed ${seed}: 후보 안에서 뽑혔다 (${k && k.kind})`);
+    /* 2026-09-11 (C-15): 1절이 모래 폭풍을 뽑았으면 폭풍의 눈이 끝까지 닫히는지는 여기서 본다. */
+    if (k && k.kind === 'storm_eye' && !eyeChecked) {
+      eyeChecked = true;
+      await P((a) => window.__seek(a.at + a.full + 5), { at: k.startsAt, full: FULL_S });
+      await waitSim(0.4);
+      const eye = await P(() => { const z = window.__zones()[0]; return { r: z ? z.r : null, safe: window.__safeCount(16, 320), nearCentre: z ? window.__game.ctx.world.hazard.isInside(z.cx + 0.3, z.cz) : null }; });
+      ok(eye.r !== null && Math.abs(eye.r - EYE_END) < 0.01 && eye.safe === 0 && eye.nearCentre === true,
+        `seed ${seed}: 폭풍의 눈이 반경 ${EYE_END} 까지 닫혀 안전지대가 없다 (r ${eye.r}, 안전 표본 ${eye.safe})`, JSON.stringify(eye));
+    }
     if (k && k.kind === 'spores') { sporeSeed = seed; break; }
   }
+  if (!eyeChecked) console.log('  --   이 시드들에서 폭풍의 눈이 한 번도 안 나왔다 (C-15 끝 반경 검사 생략)');
   if (sporeSeed < 0) {
     fail++;
     console.log('  FAIL 8개 시드 안에 독성 포자가 한 번도 안 나왔다 (후보 추첨이 한쪽으로 쏠렸다)');

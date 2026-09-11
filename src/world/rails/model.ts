@@ -189,8 +189,11 @@ export interface TramInst {
   lastDock: string | null;
   /** 클라이언트가 맞춰 갈 호스트의 `s` (호스트에서는 쓰지 않는다). */
   targetS: number;
-  /** 로컬 플레이어를 다시 칠 수 있게 되기까지 남은 시간(초). */
-  hitCooldown: number;
+  /**
+   * 2026-09-11 (C-18): **대상별** 치임 쿨다운 — 키(`local` · `e:<적 id>` · `g:<PeerId>`) → 다시 칠 수 있게 되는
+   * `ctx.time`. 예전의 전차당 숫자 하나는 한 명을 치면 `TRAM_HIT_COOLDOWN_S` 동안 옆의 다른 몸을 전부 통과시켰다.
+   */
+  hitUntil: Map<string, number>;
 }
 
 /* ── 색 · 빌드 싱크 (2026-09-10, `parts/` 분할) ──────────────────────────────────────────────────────

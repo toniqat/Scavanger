@@ -13,9 +13,9 @@
  */
 import * as THREE from 'three';
 import {
-  Layers, PLAYER_RADIUS, TRAM_CONSOLE_RANGE, TRAM_HIT_COOLDOWN_S, TRAM_HIT_DAMAGE, TRAM_HIT_FLOOR_CLEAR,
-  TRAM_HIT_KNOCKBACK, TRAM_HIT_REACH, TRAM_HIT_SPEED_MIN, TRAM_SPEED, TRAM_START_HOLD_S,
-  type GameContext, type Random, type TramDef,
+  Layers, PLAYER_HEIGHT, PLAYER_RADIUS, RIDE_FOOT_DROP, TRAM_CONSOLE_RANGE, TRAM_HIT_COOLDOWN_S, TRAM_HIT_DAMAGE,
+  TRAM_HIT_FLOOR_CLEAR, TRAM_HIT_KNOCKBACK, TRAM_HIT_REACH, TRAM_HIT_SPEED_MIN, TRAM_SPEED, TRAM_START_HOLD_S,
+  type GameContext, type PeerId, type Random, type TramDef,
 } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
 import type { ContainerSpec } from '../../structures/parts/Containers';
@@ -31,6 +31,7 @@ import {
 const _pos = new THREE.Vector3();
 const _tan = new THREE.Vector3();
 const _kb = new THREE.Vector3();
+const _from = new THREE.Vector3();
 
 /** 차체 · 콜라이더 · 객실 컨테이너 · 운전실 콘솔 자리를 만든다. 등록(`Interactable`)은 `Rails` 가 한다. */
 export function buildTram(
@@ -134,7 +135,7 @@ export function buildTram(
   const inst: TramInst = {
     def, root, parts: [], vel, containers: [], consolePos: new THREE.Vector3(),
     halfLen, halfWid, wallH,
-    dockTimer: 0, runT: 0, lastDock: startDock, targetS: startS, hitCooldown: 0,
+    dockTimer: 0, runT: 0, lastDock: startDock, targetS: startS, hitUntil: new Map(),
   };
 
   /* 콜라이더: 바닥(= 발판) 하나 + 옆판 넷 + 앞 격벽 + 후미 난간 + 콘솔 데스크. 전부 `Obstacle.box` 이고
@@ -231,34 +232,107 @@ export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: S
  * 각 클라이언트가 **자기 플레이어만** 본다 (재해 `Hazard` 와 같은 철학 — 새 와이어를 만들지 않는다).
  * 그래서 남의 화면에서 내가 치이는 일도, 내 화면에서만 안 치이는 일도 없다.
  *
- * 적 · 시체에는 적용하지 않는다 — `enemies/` · `game/corpses` 가 이 폴더의 소관이 아니고,
- * `EnemyRef` 에는 "이 지점의 적을 밀어내며 때린다" 는 입구가 없다 (`docs/TODO.md` C-18 과 같은 줄).
+ * ## 2026-09-11 (C-18) — 적 · 끊긴 분대원도 치인다
+ * - **권위(싱글 · 호스트)** 만 `ctx.enemies.queryNear` 로 차체 둘레의 적을 훑어 같은 OBB · 높이대 판정을 한다 →
+ *   `EnemyRef.takeDamage(…, 'ai')`(킬 크레딧 없음) + `EnemyManagerRef.pushBack`(그 적 하나에 `dir` 로). 전차는
+ *   시드 결정적이고 `s` 가 동기화돼 있으므로 호스트가 판정하면 리플리카에는 적 스냅샷 · `ee damaged` 로 간다.
+ * - **끊긴 분대원(고스트, `suspended`)** 은 권위가 몸을 시뮬레이션하므로 같은 판정 → `ghost:damage {kb}`.
+ *   고스트는 플레이어 몸이라 발 높이 규칙이 플레이어와 같다.
+ * - **타고 있는 적은 치지 않는다** (에이전트 합의): 차체 OBB 안에서 발이 데크 윗면 − `RIDE_FOOT_DROP` 이상이면
+ *   탑승자다 — `shared/ride.rideContains` 의 발 높이 창과 같은 값이라 탑승 판정이 한두 프레임 흔들려도 치이지 않는다.
+ *   적의 탑승 상태를 `EnemyRef` 로 묻지 않는다. ⚠ 그래서 **선로 발판 위(바닥 −`TRAM_FLOOR_UP`)의 적은 치이지
+ *   않는다** — 그 높이는 플레이어에게는 치이는 자리지만, 적에게는 탑승 창 안이다.
+ * - 쿨다운은 **대상별**(`TramInst.hitUntil`)이다. 소리는 전용 `tram_hit`(정의는 `audio/`).
  */
 export function updateTramHit(game: GameContext | null, inst: TramInst, speed: number, dt: number): void {
-  if (inst.hitCooldown > 0) inst.hitCooldown = Math.max(0, inst.hitCooldown - dt);
-  if (!game || inst.hitCooldown > 0 || speed < TRAM_HIT_SPEED_MIN) return;
-  const player = game.player;
-  if (!player || player.isDead || player.isInShip || player.isDropping) return;
-  if (!game.isGameplayActive()) return;
-
-  const p = player.position;
-  const floorY = inst.def.position.y;
-  if (p.y > floorY - TRAM_HIT_FLOOR_CLEAR) return;   // 탑승자 · 플랫폼 위
-  if (p.y < floorY - TRAM_HIT_REACH) return;         // 전차 밑
-
-  const c = Math.cos(inst.def.yaw), s = Math.sin(inst.def.yaw);
-  const dx = p.x - inst.def.position.x, dz = p.z - inst.def.position.z;
-  const lx = dx * c + dz * s, lz = -dx * s + dz * c;
-  if (Math.abs(lx) > inst.halfLen + PLAYER_RADIUS || Math.abs(lz) > inst.halfWid + PLAYER_RADIUS) return;
+  void dt;
+  if (!game || speed < TRAM_HIT_SPEED_MIN) return;
+  const now = game.time;
+  const hitUntil = inst.hitUntil;
+  if (hitUntil.size > 24) for (const [k, until] of hitUntil) if (until <= now) hitUntil.delete(k);
 
   const t = Math.min(1, speed / Math.max(0.001, TRAM_SPEED));
-  inst.hitCooldown = TRAM_HIT_COOLDOWN_S;
-  // 앞으로 밀면서 **선로 밖으로** 던진다 — 그대로 앞으로만 밀면 계속 치인다.
-  const away = lz >= 0 ? 1 : -1;
-  _kb.set(c * 0.7 - s * away, 0, s * 0.7 + c * away);
-  game.bus.emit('audio:play', { id: 'tram_dock', position: inst.def.position, volume: 0.9, pitch: 0.7 });
-  player.applyKnockback(_kb, TRAM_HIT_KNOCKBACK * t);
-  player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position);
+  const floorY = inst.def.position.y;
+  const c = Math.cos(inst.def.yaw), s = Math.sin(inst.def.yaw);
+
+  // ── 로컬 플레이어 — 각 클라이언트가 자기 몸만 (2026-09-10 그대로) ─────────────────
+  const player = game.player;
+  if (player && !player.isDead && !player.isInShip && !player.isDropping && game.isGameplayActive()
+    && (hitUntil.get('local') ?? -Infinity) <= now) {
+    const p = player.position;
+    const side = hitSide(inst, c, s, p.x, p.y, p.z, PLAYER_RADIUS, floorY - TRAM_HIT_FLOOR_CLEAR, floorY - TRAM_HIT_REACH);
+    if (side !== 0) {
+      hitUntil.set('local', now + TRAM_HIT_COOLDOWN_S);
+      knockDir(c, s, side);
+      game.bus.emit('audio:play', { id: 'tram_hit', position: p, volume: 0.9 });
+      player.applyKnockback(_kb, TRAM_HIT_KNOCKBACK * t);
+      player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position);
+    }
+  }
+
+  // ── 권위: 적 · 끊긴 분대원 ─────────────────────────────────────────────────
+  const net = game.net;
+  if (game.isMultiplayer && net && !net.isHost) return;
+  if (!game.isGameplayPhase()) return;
+
+  const enemies = game.enemies;
+  if (enemies) {
+    const near = enemies.queryNear(inst.def.position, Math.hypot(inst.halfLen, inst.halfWid) + TRAM_HIT_REACH + 3);
+    for (let i = 0; i < near.length; i++) {
+      const e = near[i];
+      if (e.isDead) continue;
+      const key = `e:${e.id}`;
+      if ((hitUntil.get(key) ?? -Infinity) > now) continue;
+      /* 발 높이 창: 위 = 데크 윗면 − `RIDE_FOOT_DROP`(그 위는 탑승자), 아래 = 몸 **꼭대기**가 플레이어 규칙의 머리
+       * 자리(바닥 − (TRAM_HIT_REACH − PLAYER_HEIGHT))에 닿는가 — 벌레는 작고 베헤모스는 크다. */
+      const lowFoot = floorY - (TRAM_HIT_REACH - PLAYER_HEIGHT) - e.height;
+      const side = hitSide(inst, c, s, e.position.x, e.position.y, e.position.z, e.radius, floorY - RIDE_FOOT_DROP, lowFoot);
+      if (side === 0) continue;
+      hitUntil.set(key, now + TRAM_HIT_COOLDOWN_S);
+      knockDir(c, s, side);
+      game.bus.emit('audio:play', { id: 'tram_hit', position: e.position, volume: 0.9 });
+      // 그 적 하나만 민다 — 반경을 몸 안으로 좁히고 방향을 준다 (pushBack 은 반경 + 몸 반지름까지 본다)
+      enemies.pushBack(_from.copy(e.position), 0.05, TRAM_HIT_KNOCKBACK * t, _kb);
+      e.takeDamage(TRAM_HIT_DAMAGE * t, undefined, _kb, 'ai');
+    }
+  }
+
+  if (!net) return;
+  const refs = net.getRemotePlayers();   // 싱글에서는 빈 목록이다
+  for (let i = 0; i < refs.length; i++) {
+    const r = refs[i];
+    if (!r.suspended || !r.inMission || r.isDead || r.ghostState === 2) continue;
+    const key = `g:${r.id}`;
+    if ((hitUntil.get(key) ?? -Infinity) > now) continue;
+    const side = hitSide(inst, c, s, r.position.x, r.position.y, r.position.z, PLAYER_RADIUS, floorY - TRAM_HIT_FLOOR_CLEAR, floorY - TRAM_HIT_REACH);
+    if (side === 0) continue;
+    hitUntil.set(key, now + TRAM_HIT_COOLDOWN_S);
+    knockDir(c, s, side);
+    game.bus.emit('audio:play', { id: 'tram_hit', position: r.position, volume: 0.9 });
+    game.bus.emit('ghost:damage', {
+      id: r.id as PeerId, amount: TRAM_HIT_DAMAGE * t, from: inst.def.position.clone(),
+      kb: { direction: _kb.clone(), speed: TRAM_HIT_KNOCKBACK * t },
+    });
+  }
+}
+
+/**
+ * 차체 OBB(+`radius`) 안이고 발 높이가 `[footMin, footMax]` 안이면 **선로의 어느 쪽인지**(+1 / −1), 아니면 0.
+ * `footMax` 위는 탑승자 · 플랫폼 위, `footMin` 밑은 전차 밑이다.
+ */
+function hitSide(
+  inst: TramInst, c: number, s: number, x: number, y: number, z: number, radius: number, footMax: number, footMin: number,
+): number {
+  if (y > footMax || y < footMin) return 0;
+  const dx = x - inst.def.position.x, dz = z - inst.def.position.z;
+  const lx = dx * c + dz * s, lz = -dx * s + dz * c;
+  if (Math.abs(lx) > inst.halfLen + radius || Math.abs(lz) > inst.halfWid + radius) return 0;
+  return lz >= 0 ? 1 : -1;
+}
+
+/** 앞으로 밀면서 **선로 밖으로** 던지는 방향을 `_kb` 에 쓴다 — 그대로 앞으로만 밀면 계속 치인다. */
+function knockDir(c: number, s: number, side: number): void {
+  _kb.set(c * 0.7 - s * side, 0, s * 0.7 + c * side).normalize();
 }
 
 /** 운전실 콘솔의 상호작용 반경 · 홀드 시간은 계약(csv)에서 온다 — `Rails` 가 등록할 때 쓴다. */

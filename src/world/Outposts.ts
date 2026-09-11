@@ -2,14 +2,39 @@ import * as THREE from 'three';
 import { Layers } from '@/shared';
 import { type BuildCtx, displace, merge, paint, paintGradient, xform } from './build';
 
+/**
+ * 폐허 전초 한 곳 (2026-09-11, C-11). **`WorldRef.getStructures()` 의 `StructureKind 'outpost'`(들어가는 전진기지)와
+ * 다른 것**이다 — 벽 몇 장과 안테나만 남은 POI 패드이고, 목록은 world 내부에서 `Fog` 의 발견 판정에만 쓴다
+ * (구조물 목록에 섞으면 로그 강하 구역 · 네임드 배치 · 구조물 라벨이 오작동한다).
+ */
+export interface OutpostSite {
+  /** `outpost_<i>` — `fog:discovered {kind:'outpost'}` 의 id. */
+  id: string;
+  /** 패드 중심 (y = 패드 높이). */
+  position: THREE.Vector3;
+  yaw: number;
+  /** 패드 반경(m). */
+  radius: number;
+  /**
+   * 콘크리트 바닥판의 반폭 · 반깊이(m, 로컬 X/Z — 메시는 Euler −yaw). 콜라이더가 없는 판이라 그 위는 지형을 밟는다;
+   * 발소리 재질(C-22)이 이 사각형 안을 `concrete` 로 읽는다.
+   */
+  slabHalfX: number;
+  slabHalfZ: number;
+}
+
 /** Points of interest: small ruined outposts (walls, pillars, antenna, rubble) on each POI pad. */
 export class Outposts {
   readonly group = new THREE.Group();
   private meshes: THREE.Mesh[] = [];
   private materials: THREE.Material[] = [];
   private beaconMat: THREE.MeshStandardMaterial | null = null;
+  private readonly sites: OutpostSite[] = [];
 
   constructor() { this.group.name = 'Outposts'; }
+
+  /** 2026-09-11 (C-11): 이번 맵의 폐허 전초 (패드 순서 = id 순서, 시드 결정적). */
+  getSites(): readonly OutpostSite[] { return this.sites; }
 
   build(ctx: BuildCtx): void {
     const rng = ctx.rng.fork('outposts');
@@ -32,6 +57,11 @@ export class Outposts {
 
       // floor slab
       const slabW = rng.range(11, 15), slabD = rng.range(10, 14);
+      // 2026-09-11 (C-11 · C-22): 목록은 **이미 뽑은 값만** 적는다 — rng 를 더 쓰지 않으므로 배치가 그대로다
+      this.sites.push({
+        id: `outpost_${this.sites.length}`, position: new THREE.Vector3(cx, y0, cz), yaw, radius: pad.radius,
+        slabHalfX: slabW / 2, slabHalfZ: slabD / 2,
+      });
       const slab = new THREE.BoxGeometry(slabW, 0.25, slabD);
       xform(slab, { x: cx, y: y0 + 0.08, z: cz }, new THREE.Euler(0, -yaw, 0));
       paint(slab, concreteDark, 0.08, rng);
@@ -171,6 +201,7 @@ export class Outposts {
     for (const m of this.materials) m.dispose();
     this.materials.length = 0;
     this.beaconMat = null;
+    this.sites.length = 0;
     this.group.removeFromParent();
   }
 }

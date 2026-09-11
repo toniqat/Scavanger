@@ -20,8 +20,46 @@ export const HULL_MAX_VERTS = 14;
 
 /* ── 만들기 ─────────────────────────────────────────────────────────────────────────────────────────── */
 
-const _idx: number[] = [];
+let _idx = new Int32Array(256);
 const _stack: number[] = [];
+
+/**
+ * 2026-09-11 (C-40): 인덱스를 (x, z) 사전순으로 정렬한다 — 예전의 `Array.prototype.sort(비교 함수)` 가 월드 생성의
+ * 한 덩어리였다(소품마다 윤곽 최대 5번). 결과가 같은 이유: monotone chain 의 출력은 **좌표**만 쓰고, 좌표가 같은
+ * 점끼리의 순서는 외적 0 으로 곧바로 빠지므로 어느 정렬이든 (x, z) 순서만 맞으면 껍질이 한 비트도 다르지 않다.
+ * 작은 구간은 삽입 정렬, 큰 구간은 가운데 값 기준 퀵정렬 (재귀 대신 명시적 스택).
+ */
+const _qs = new Int32Array(128);
+function sortIdx(pts: Float32Array, idx: Int32Array, n: number): void {
+  const less = (a: number, b: number): boolean => {
+    const ax = pts[a * 2], bx = pts[b * 2];
+    return ax < bx || (ax === bx && pts[a * 2 + 1] < pts[b * 2 + 1]);
+  };
+  let sp = 0;
+  _qs[sp++] = 0; _qs[sp++] = n - 1;
+  while (sp > 0) {
+    const hi = _qs[--sp], lo = _qs[--sp];
+    if (hi - lo < 16) {
+      for (let i = lo + 1; i <= hi; i++) {
+        const v = idx[i];
+        let j = i - 1;
+        while (j >= lo && less(v, idx[j])) { idx[j + 1] = idx[j]; j--; }
+        idx[j + 1] = v;
+      }
+      continue;
+    }
+    const pivot = idx[(lo + hi) >> 1];
+    let i = lo, j = hi;
+    while (i <= j) {
+      while (less(idx[i], pivot)) i++;
+      while (less(pivot, idx[j])) j--;
+      if (i <= j) { const t = idx[i]; idx[i] = idx[j]; idx[j] = t; i++; j--; }
+    }
+    // 큰 쪽을 먼저 쌓아 스택 깊이를 log n 으로 묶는다
+    if (j - lo > hi - i) { if (lo < j) { _qs[sp++] = lo; _qs[sp++] = j; } if (i < hi) { _qs[sp++] = i; _qs[sp++] = hi; } }
+    else { if (i < hi) { _qs[sp++] = i; _qs[sp++] = hi; } if (lo < j) { _qs[sp++] = lo; _qs[sp++] = j; } }
+  }
+}
 
 /**
  * `pts[0 .. n*2)` 의 xz 쌍으로 2D 볼록 껍질을 만든다 (monotone chain). 반시계 `Float32Array`, 점이 3개 미만이거나
@@ -30,19 +68,19 @@ const _stack: number[] = [];
  */
 export function convexHull2D(pts: Float32Array, n: number, maxVerts = HULL_MAX_VERTS): Float32Array | null {
   if (n < 3) return null;
-  _idx.length = 0;
-  for (let i = 0; i < n; i++) _idx.push(i);
-  _idx.sort((a, b) => (pts[a * 2] - pts[b * 2]) || (pts[a * 2 + 1] - pts[b * 2 + 1]));
+  if (_idx.length < n) _idx = new Int32Array(Math.max(n, _idx.length * 2));
+  for (let i = 0; i < n; i++) _idx[i] = i;
+  sortIdx(pts, _idx, n);
   const cross = (o: number, a: number, b: number): number =>
     (pts[a * 2] - pts[o * 2]) * (pts[b * 2 + 1] - pts[o * 2 + 1]) - (pts[a * 2 + 1] - pts[o * 2 + 1]) * (pts[b * 2] - pts[o * 2]);
   _stack.length = 0;
-  for (let k = 0; k < _idx.length; k++) {
+  for (let k = 0; k < n; k++) {
     const i = _idx[k];
     while (_stack.length >= 2 && cross(_stack[_stack.length - 2], _stack[_stack.length - 1], i) <= 1e-9) _stack.pop();
     _stack.push(i);
   }
   const lowerLen = _stack.length + 1;
-  for (let k = _idx.length - 2; k >= 0; k--) {
+  for (let k = n - 2; k >= 0; k--) {
     const i = _idx[k];
     while (_stack.length >= lowerLen && cross(_stack[_stack.length - 2], _stack[_stack.length - 1], i) <= 1e-9) _stack.pop();
     _stack.push(i);

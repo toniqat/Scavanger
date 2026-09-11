@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
-  GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, Layers,
+  GATHER_HERB_QTY2_CHANCE, GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, GATHER_SALVAGE_CORE_CHANCE,
+  GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_QTY2_CHANCE, Layers,
   SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION,
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random,
@@ -39,6 +40,11 @@ const SALVAGE_DEF_ID = 'mat_scrap';
 const SALVAGE_RADIUS = 2.6;
 /** Minimum distance from a 고철 더미 to any other node. */
 const SALVAGE_SPACING = 12;
+/**
+ * 2026-09-11 (C-20): 고철 더미가 확률로 더 주는 **부가 코어**. 확률 · 개수는 `data/constants.csv` 의
+ * `GATHER_SALVAGE_CORE_*`, 아이템 id 는 계약 주석(`shared/constants.ts`)이 정한 구동 코어다.
+ */
+const SALVAGE_CORE_DEF_ID = 'mat_core';
 
 interface Variant {
   meshes: THREE.InstancedMesh[];
@@ -72,6 +78,11 @@ interface Node {
   pending: boolean;
   pendingAt: number;
   interactable: Interactable;
+  /**
+   * 2026-09-11 (C-20): 고철 더미의 **부가 코어** — 생성 때 미션 시드로 정해진다(와이어 없음, 모두가 같은 답).
+   * world 내부 값이라 `GatherNodeDef` 에는 없다. null = 부가 결과 없음 (약초는 늘 null).
+   */
+  bonus: { defId: string; qty: number } | null;
 }
 
 /**
@@ -247,6 +258,9 @@ export class Gather {
       spots.push(...groveSpots);
     }
 
+    /* 2026-09-11 (C-20): 부가 코어는 **자기 fork** 로 굴린다 — `rng`(gather) 에서 뽑으면 그 뒤의 yaw · scale ·
+     * 수량 추첨이 한 칸씩 밀려 같은 시드의 채집물 모습이 달라진다. `Random.fork` 는 부모를 전진시키지 않는다. */
+    const coreRng = ctx.rng.fork('gather_core');
     let id = 0;
     for (const s of spots) {
       const v = this.variants[s.variant];
@@ -262,15 +276,19 @@ export class Gather {
         id: salvage ? `salvage_${id++}` : s.grove ? `grove_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
-        // 고철: 폐금속 1, 3할은 2 (레이드당 기대 ~10). 약초: 종전 그대로.
-        qty: salvage ? (rng.chance(0.3) ? 2 : 1) : (rng.chance(0.25) ? 2 : 1),
+        // 고철: 폐금속 1, `GATHER_SALVAGE_QTY2_CHANCE` 로 2. 약초: `GATHER_HERB_QTY2_CHANCE` 로 2.
+        // 2026-09-11 (C-20): 옛 하드코딩 0.3 / 0.25 를 csv 로 옮겼다 — 같은 값이라 rng 소비도 결과도 그대로다.
+        qty: salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
         harvested: false,
         kind: s.kind,
       };
+      const coreQty = Math.max(0, Math.round(GATHER_SALVAGE_CORE_QTY));
       const node: Node = {
         def, variant: s.variant, kind: s.kind, slot: v.count,
         x: s.x, y, z: s.z, yaw, scale, anim: -1, pending: false, pendingAt: -Infinity,
         interactable: null as unknown as Interactable,
+        bonus: salvage && coreRng.chance(GATHER_SALVAGE_CORE_CHANCE) && coreQty > 0
+          ? { defId: SALVAGE_CORE_DEF_ID, qty: coreQty } : null,
       };
       node.interactable = this.makeInteractable(node);
       this.writeMatrix(node, 1);
@@ -401,6 +419,17 @@ export class Gather {
     ctx.bus.emit('audio:play', { id: 'gather', position: node.def.position, volume: 0.7 });
     const item = this.makeItem(node.def.defId, qty);
     if (item) ctx.inventory?.tryAddItem(item);
+    /* 2026-09-11 (C-20): 부가 코어는 **아이템만 하나 더** 넣는다 — `gather:collected` · 소리 · 제작 XP 는 위의 1회뿐.
+     * 채집 수율(원예)을 곱하지 않는 것은 폐금속과 같다. */
+    if (node.bonus) {
+      const extra = this.makeItem(node.bonus.defId, node.bonus.qty);
+      if (extra) ctx.inventory?.tryAddItem(extra);
+    }
+  }
+
+  /** 2026-09-11 (C-20) 스모크: 노드 id → 부가 결과 (없으면 null). */
+  debugBonusOf(id: string): { defId: string; qty: number } | null {
+    return this.byId.get(id)?.bonus ?? null;
   }
 
   private makeItem(defId: string, qty: number): ItemInstance | null {

@@ -9,7 +9,10 @@ import {
   type StructureDef, type RailLineDef, type TramDef, type HazardRef,
   /* appended (2026-09-11) */
   type LadderDef, type PeerId,
+  /* appended (2026-09-11, C-22) */
+  type SurfaceMaterial,
 } from '@/shared';
+import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
 import { Ambience } from './Ambience';
 import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rampTopAt, rayBox, rayRamp } from './obb';
 import { hullAreaCentroid, hullContainsXZ, hullHitNormal, hullPushOut, rayHull } from './hull';
@@ -92,6 +95,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly hash = new SpatialHash(16);
   private layout: WorldLayout | null = null;
   private biome: Biome | null = null;
+  /** 2026-09-11 (C-22): 지형 색 패스와 같은 잡음 — 발밑 재질이 눈에 보이는 얼룩과 같은 자리에서 바뀌게. */
+  private noise: Noise | null = null;
   private extractionPoints: ExtractionPointDef[] = [];
   private spawnPos = new THREE.Vector3();
   private spawnRng = new Random(1);
@@ -103,6 +108,12 @@ export class WorldSystem implements GameSystem, WorldRef {
    * `isDiscovered` 로 게이트되므로 null 이면 예전처럼 전부 보인다.
    */
   private fogMask: Fog | null = null;
+
+  /**
+   * 2026-09-11 (C-40): 마지막 행성 생성의 단계별 소요(ms) — `layout` · `terrain`(+ `terrain.*` 세부) · `structures` ·
+   * `rails` · `hazard` · `props`(+ `props.*`) · `crates` · `gather` · `total`. 디버그 · 계측용이고 계약이 아니다.
+   */
+  readonly genTimings: Record<string, number> = {};
 
   // scratch
   private readonly queryOut: ObstacleEntry[] = [];
@@ -186,6 +197,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (this.generated) this.clear();
     if (mode === 'training') { this.generateTraining(seed); return; }
     const t0 = performance.now();
+    /* 2026-09-11 (C-40): 단계별 ms — 콘솔 한 줄 끝과 `genTimings` (스모크 · 계측 스크립트가 읽는다). */
+    const T = this.genTimings;
+    for (const k of Object.keys(T)) delete T[k];
+    let tl = t0;
+    const lap = (name: string): void => { const n = performance.now(); T[name] = n - tl; tl = n; };
 
     this.mode = 'raid';
     this.seed = seed >>> 0;
@@ -194,13 +210,16 @@ export class WorldSystem implements GameSystem, WorldRef {
     const def: PlanetDef | undefined = getPlanet(this.planet);
     const rng = new Random(this.seed);
     const noise = new Noise(rng.fork('terrain'));
+    this.noise = noise;
     // 행성이 있으면 팔레트는 데이터로 정해진다; 없으면 시드 추첨 (core 의 하늘 추첨과 짝이 맞는 기존 동작)
     this.biome = biomeById(def?.biome) ?? pickBiome(this.seed);
     this.layout = generateLayout(rng.fork('layout'));
     this.spawnRng = rng.fork('spawns');
+    lap('layout');
 
     this.terrain.build(this.layout, this.biome, noise, rng.fork('terrainMesh'));
     this.root.add(this.terrain.group);
+    lap('terrain');
 
     const bctx: BuildCtx = {
       rng, noise, biome: this.biome, layout: this.layout, terrain: this.terrain, hash: this.hash, root: this.root,
@@ -208,18 +227,25 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.nests.build(bctx);
     this.pads.build(bctx);
     this.outposts.build(bctx);
+    lap('nests+pads+outposts');
     /* 2026-09-09 — 구조물 · 선로는 **소품 · 상자 앞**에 세운다: 벽 · 데크 · 컨테이너가 먼저 hash 에 들어가야
      * `isSpotFree` 가 그 자리를 피해 바위와 상자를 놓는다 (방 안에 바위가 서지 않는다). 부지 자체는 이미
      * `layout` 이 잡아 뒀고 `Terrain` 이 평탄화 · 지하실 굴착까지 끝냈다. */
     this.structures.build(bctx, ctx);
+    lap('structures');
     this.rails.build(bctx, ctx);
+    lap('rails');
     /* 2026-09-09 — 환경 재해도 **소품 · 상자 앞**이다: 거대 버섯 군락의 줄기가 먼저 hash 에 들어가야
      * `isSpotFree` 가 군락 한가운데를 피한다. 재해 종류 · 시작 시각은 미션 시드에서만 나오므로
      * 여기서 만들어도 클라이언트끼리 어긋나지 않는다. */
     this.hazardSys.build(bctx, ctx, def?.hazards ?? []);
+    lap('hazard');
     this.props.build(bctx);
+    lap('props');
     this.crates.build(bctx, ctx);
+    lap('crates');
     this.gather.build(bctx, ctx, def?.eco ?? null, this.hazardSys.getGroveSpots());
+    lap('gather');
     /* 2026-09-11 — 빛기둥이 사라진 대신 **열린 모습**이 "이미 조사했다" 를 말한다. 이 클라이언트에서 처음 열린
      * 상자 · 컨테이너는 분대 전원의 화면에서도 열리게 알린다 (내용물은 `inventory/` 의 `cont` 가 따로 맞춘다). */
     this.crates.setOpenListener(this.onLocalOpened);
@@ -238,11 +264,17 @@ export class WorldSystem implements GameSystem, WorldRef {
     // 전장의 안개는 레이드에서만 — 스폰 주변은 미리 밝혀 둔다 (강하 지점은 분대가 이미 아는 자리다)
     this.fogMask = new Fog();
     this.fogMask.attach(ctx);
+    this.fogMask.setOutposts(this.outposts.getSites());   // 2026-09-11 (C-11): 폐허 전초 발견 → 지도 아이콘
     this.fogMask.reveal(sp.x, sp.z, FOG_REVEAL_RADIUS);
+
+    lap('ambience+fog');
+    for (const [k, v] of Object.entries(this.terrain.timings)) T[`terrain.${k}`] = v;
+    for (const [k, v] of Object.entries(this.props.timings)) T[`props.${k}`] = v;
 
     this.generated = true;
     this.ready = true;
     const ms = performance.now() - t0;
+    T.total = ms;
     console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${this.structures.getDefs().length} structures · ${this.rails.getLines().length ? this.rails.getLines()[0].kind : 'no'} rail · hazard ${this.hazardSys.kind ?? '—'}${this.hazardSys.kind ? ` @ ${this.hazardSys.startsAt}s` : ''} · ${ms.toFixed(0)} ms`);
     this.ensureOpenNet();
     this.requestOpenSync();
@@ -317,6 +349,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.extractionPoints = [];
     this.layout = null;
     this.biome = null;
+    this.noise = null;
     this.generated = false;
   }
 
@@ -452,13 +485,50 @@ export class WorldSystem implements GameSystem, WorldRef {
       if (o.hull && !hullContainsXZ(o.hull.points, x, z)) continue;
       const top = o.ramp ? rampTopAt(o, x, z) : o.position.y + o.height;
       if (feetY < top - PROP_TOP_MARGIN || feetY > top + PROP_TOP_MARGIN) continue;
-      if (top <= bestTop) continue;
+      /*
+       * 2026-09-11 (C-38): 창 안에서는 **움직이는 발판(`velocity` 보유 — 정지한 전차도)이 높이보다 먼저**다. 반경 0
+       * 질의는 칸 하나를 삽입 순서로 훑고 선로 발판이 전차보다 먼저 들어가므로, 윗면이 같은 높이면 고정 발판이
+       * 거의 늘 이겨 탑승이 시작조차 안 됐다 (예전엔 발판 윗면 오차 < `TRAM_FLOOR_UP` 부등식 하나에 기댔다).
+       */
+      if (best) {
+        const moving = !!o.velocity, bestMoving = !!best.velocity;
+        if (moving !== bestMoving) { if (!moving) continue; }
+        else if (top <= bestTop) continue;
+      }
       bestTop = top;
       best = o;
     }
     out.length = 0;
     return best;
   }
+
+  /**
+   * 2026-09-11 (C-22) — **발밑 재질** (발소리). `feetY` 를 주면 그 발 높이로 밟고 있는 장애물(`getStandingObstacle`
+   * 규칙 그대로 — 해시 질의는 이 한 번뿐)이 이기고, 없으면 탈출 패드 · 폐허 전초 바닥판(콜라이더 없는 콘크리트) →
+   * 지형 띠 순서다. 훈련장은 전부 콘크리트. 표와 지형 규칙은 `surface.ts`.
+   */
+  getSurfaceMaterial(x: number, z: number, feetY?: number): SurfaceMaterial {
+    if (this.mode === 'training') return 'concrete';
+    if (!this.ready) return 'dirt';
+    if (feetY !== undefined) {
+      const o = this.getStandingObstacle(x, z, feetY);
+      if (o) return obstacleMaterial(o, x, z, this.wreckAt);
+    }
+    const layout = this.layout;
+    if (layout) {
+      // 탈출 착륙장: 콘크리트 원판 (`getHeightAt` 이 윗면을 이미 지형처럼 준다 — 콜라이더가 없다)
+      const R = PLATFORM_RADIUS + 0.9;
+      for (let i = 0; i < layout.extraction.length; i++) {
+        const p = layout.extraction[i];
+        const dx = x - p.x, dz = z - p.z;
+        if (dx * dx + dz * dz <= R * R) return 'concrete';
+      }
+      if (onOutpostSlab(this.outposts.getSites(), x, z)) return 'concrete';
+    }
+    return terrainMaterial(this.biome, this.terrain, this.noise, layout, HALF, x, z);
+  }
+
+  private readonly wreckAt = (x: number, z: number): boolean => this.structures.structureAt(x, z)?.kind === 'wreck';
 
   /**
    * 반경 `radius` 원 안을 장애물 단면이 차지하는 면적 비율. 원-원 교차 면적의 합이고 겹침은 보정하지

@@ -56,6 +56,8 @@ export class Hazard implements HazardRef {
   private startedFlag = false;
   private insideFlag = false;
   private damageTimer = 0;
+  /** 2026-09-11 (C-14): 끊긴 분대원(고스트) 피해 틱 — 로컬 틱과 따로 돈다. */
+  private ghostTimer = 0;
   private progressTimer = 0;
   private lastProgress = -1;
   private discoverTimer = 0;
@@ -126,6 +128,7 @@ export class Hazard implements HazardRef {
     this.lastProgress = -1;
     this.progressTimer = 0;
     this.damageTimer = 0;
+    this.ghostTimer = 0;
     this.discoverTimer = 0;
     this.plan = null;
     this.row = null;
@@ -235,6 +238,8 @@ export class Hazard implements HazardRef {
       this.damageTimer = 0;
     }
 
+    this.tickGhosts(dt, ctx, active, zones);
+
     // 경계에서 `HAZARD_EDGE_M` 에 걸쳐 0 → 1. `insideChanged` 와 **같은 조건**으로 잠근다 — 죽었거나
     // 함선 안인데 화면만 뿌예지면 HUD 의 "위험 구역" 표시와 어긋난다.
     const raw = active && playable && depth > -Infinity ? depth / (HAZARD_EDGE_M > 0 ? HAZARD_EDGE_M : 1) : 0;
@@ -253,6 +258,34 @@ export class Hazard implements HazardRef {
     }
 
     this.visuals.update(dt, ctx.time, ctx.camera, zones, this.lastBlend, active);
+  }
+
+  /**
+   * 2026-09-11 (C-14 · X-7) — **끊긴 분대원의 몸(고스트)도 재해를 맞는다.** 예전에는 위의 로컬 판정뿐이라, 소켓이
+   * 끊긴 사람의 몸은 폭풍 한가운데서 레이드가 끝날 때까지 멀쩡했다.
+   *
+   * 고스트는 **권위(싱글 · 호스트)가 시뮬레이션**하고 피해 입구는 적 공격과 같은 `ghost:damage` 하나다
+   * (`player/RemotePlayerSystem.damageGhost` — 실드 → 체력 → 전투불능 → 사망 순서가 거기 있다). 그래서 여기서는
+   * `HAZARD_TICK_S` 마다 `suspended` 이면서 구역 안인 분대원에게 그 이벤트를 낼 뿐이다. 새 와이어는 없다 —
+   * 결과는 호스트의 `ghost state` 가 이미 방송한다. 로컬 틱과 **다른 타이머**다: 호스트 자신이 죽었거나 함선에
+   * 있어도 끊긴 사람의 몸은 계속 맞는다. 적의 조용한 DoT 는 `enemies/` 소관이다.
+   */
+  private tickGhosts(dt: number, ctx: GameContext, active: boolean, zones: readonly HazardZone[]): void {
+    const net = ctx.net;
+    if (!active || !net || !ctx.isAuthority || !ctx.isGameplayPhase() || ctx.isTraining()) { this.ghostTimer = 0; return; }
+    this.ghostTimer += dt;
+    if (this.ghostTimer < HAZARD_TICK_S) return;
+    // 프레임이 길게 튀어도 틱 수만큼 정확히 — 로컬 피해의 `while` 과 같은 합계를 한 이벤트에 싣는다
+    const ticks = Math.floor(this.ghostTimer / HAZARD_TICK_S);
+    this.ghostTimer -= ticks * HAZARD_TICK_S;
+    const amount = HAZARD_DPS * HAZARD_TICK_S * ticks;
+    const refs = net.getRemotePlayers();
+    for (let i = 0; i < refs.length; i++) {
+      const r = refs[i];
+      if (!r.suspended || !r.inMission || r.isDead || r.ghostState === 2) continue;
+      if (maxDepth(zones, r.position.x, r.position.z) <= 0) continue;
+      ctx.bus.emit('ghost:damage', { id: r.id, amount });
+    }
   }
 
   /* ── 발생지 (거대 버섯 군락) ───────────────────────────────────────── */

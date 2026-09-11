@@ -59,9 +59,13 @@ export function propHullOf(ctx: BuildCtx, geo: THREE.BufferGeometry, m: THREE.Ma
   const tris = index ? index.count / 3 : n / 3;
   ensure(n, tris);
   const e = m.elements;
+  /* 2026-09-11 (C-40): `getX/getY/getZ` · `index.getX` 대신 배열을 곧장 읽는다 — 소품 지오메트리는 전부 정규화 안 된
+   * `BufferAttribute`(stride 3, offset 0)라 값이 한 비트도 다르지 않다. 생성 시간의 대부분이 이 함수였다. */
+  const pa = pos.array as ArrayLike<number>;
+  const ia = index ? (index.array as ArrayLike<number>) : null;
   let top = -Infinity, lifted = 0;
   for (let i = 0; i < n; i++) {
-    const lx = pos.getX(i), ly = pos.getY(i), lz = pos.getZ(i);
+    const lx = pa[i * 3], ly = pa[i * 3 + 1], lz = pa[i * 3 + 2];
     const wx = e[0] * lx + e[4] * ly + e[8] * lz + e[12];
     const wy = e[1] * lx + e[5] * ly + e[9] * lz + e[13];
     const wz = e[2] * lx + e[6] * ly + e[10] * lz + e[14];
@@ -72,7 +76,7 @@ export function propHullOf(ctx: BuildCtx, geo: THREE.BufferGeometry, m: THREE.Ma
   if (lifted === 0) return null;
 
   const lift = (i: number): number => _w[i * 3 + 1] - _terr[i] - FOOT_EPS;
-  const vi = (f: number, k: number): number => (index ? index.getX(f * 3 + k) : f * 3 + k);
+  const vi = (f: number, k: number): number => (ia ? ia[f * 3 + k] : f * 3 + k);
 
   // ① 지형 교차점 (변이 땅을 뚫고 나오는 자리) — 이동 윤곽과 모든 층이 같이 쓴다
   let nc = 0;
@@ -141,7 +145,9 @@ export function propHullOf(ctx: BuildCtx, geo: THREE.BufferGeometry, m: THREE.Ma
         for (let kk = 0; kk < 3; kk++) {
           const a = vi(f, kk), b = vi(f, (kk + 1) % 3);
           const ya = _w[a * 3 + 1], yb = _w[b * 3 + 1];
-          for (const plane of [lo, hi]) {
+          // 2026-09-11 (C-40): `for (const plane of [lo, hi])` 가 변마다 배열을 만들었다 — 같은 두 번을 풀어 쓴다
+          for (let pl = 0; pl < 2; pl++) {
+            const plane = pl === 0 ? lo : hi;
             const da = ya - plane, db = yb - plane;
             if ((da > 0) === (db > 0)) continue;
             const t = da / (da - db);

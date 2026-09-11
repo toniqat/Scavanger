@@ -27,6 +27,8 @@ export class Terrain {
   private material: THREE.MeshStandardMaterial | null = null;
   private textures: THREE.Texture[] = [];
   private nestPositions: { x: number; z: number }[] = [];
+  /** 2026-09-11 (C-40): 마지막 `build` 의 세부 소요(ms) — `height` · `normals` · `colors` · `textures` · `chunks`. */
+  readonly timings: Record<string, number> = {};
 
   private readonly heightFn = (x: number, z: number) => this.getHeightAt(x, z);
 
@@ -55,14 +57,34 @@ export class Terrain {
         x: s.pad.x, z: s.pad.z, c: Math.cos(s.pad.yaw), s: Math.sin(s.pad.yaw),
         hx: s.pit!.halfX, hz: s.pit!.halfZ, floor: s.pad.height - s.pit!.depth,
       }));
+    /* 2026-09-11 (C-40): 줄마다 **그 줄에 닿을 수 있는 패드 · 구덩이만** 추려 둔다 — 예전에는 17만 정점마다 패드
+     * 20여 개를 전부 훑었고 그것이 높이장 시간의 한 덩어리였다. 추린 목록도 원래 순서(k 오름차순)를 지키고, 거른
+     * 패드는 원래 루프에서도 `continue` 로 빠지던 것이라(줄과의 z 거리만으로 이미 반경 밖) 높이가 한 비트도 다르지 않다. */
+    const rowPads: number[] = [];
+    const rowPits: number[] = [];
     for (let j = 0; j < VERTS; j++) {
       const z = -EXTENT + j * CELL;
+      rowPads.length = 0;
+      for (let k = 0; k < pads.length; k++) {
+        const p = pads[k];
+        const r2 = (p.radius + p.blend);
+        const dz = z - p.z;
+        if (dz * dz <= r2 * r2) rowPads.push(k);
+      }
+      rowPits.length = 0;
+      for (let k = 0; k < pits.length; k++) {
+        const p = pits[k];
+        // 페더만큼 넓힌 사각형의 외접원 — 이 줄이 그 원에 닿지 않으면 그 줄의 모든 정점에서 `outside >= PIT_BLEND` 다
+        // (두 축 모두 `< PIT_BLEND` 인 점은 반드시 `hypot(hx + B, hz + B)` 안에 있다)
+        const reach = Math.hypot(p.hx + PIT_BLEND, p.hz + PIT_BLEND) + CELL;
+        if (Math.abs(z - p.z) <= reach) rowPits.push(k);
+      }
       for (let i = 0; i < VERTS; i++) {
         const x = -EXTENT + i * CELL;
         let h = raw(x, z);
         // pad flattening
-        for (let k = 0; k < pads.length; k++) {
-          const p = pads[k];
+        for (let q = 0; q < rowPads.length; q++) {
+          const p = pads[rowPads[q]];
           const dx = x - p.x, dz = z - p.z;
           const r2 = (p.radius + p.blend);
           if (dx * dx + dz * dz > r2 * r2) continue;
@@ -71,8 +93,8 @@ export class Terrain {
           h = lerp(p.height, h, t);
         }
         // basement pits (rotated rectangles), carved into the already flattened pad
-        for (let k = 0; k < pits.length; k++) {
-          const p = pits[k];
+        for (let q = 0; q < rowPits.length; q++) {
+          const p = pits[rowPits[q]];
           const dx = x - p.x, dz = z - p.z;
           const lx = Math.abs(dx * p.c + dz * p.s) - p.hx;
           const lz = Math.abs(-dx * p.s + dz * p.c) - p.hz;
@@ -85,6 +107,7 @@ export class Terrain {
       }
     }
     const t1 = performance.now();
+    this.timings.height = t1 - t0;
     this.buildMeshes(biome, noise, layout, rng);
     const t2 = performance.now();
     if (import.meta.env?.DEV) console.debug(`[Terrain] heightfield ${(t1 - t0).toFixed(0)} ms, mesh ${(t2 - t1).toFixed(0)} ms`);
@@ -100,15 +123,20 @@ export class Terrain {
       const hills = noise.fbm(x * 0.013 + 31, z * 0.013 - 17, 3) * 2.4;
       const detail = noise.noise2(x * 0.06, z * 0.06) * 0.35;
       const ridgeMask = smoothstep(0.12, 0.62, noise.fbm(x * 0.0026 + 11.3, z * 0.0026 + 5.7, 2) + 0.15);
-      const ridge = noise.ridged(wx * 0.0075, wz * 0.0075, 4);
+      /* 2026-09-11 (C-40): 가림막이 0 인 곳(맵의 절반 가까이)에서는 능선 잡음(noise2 4번)을 굴리지 않는다 — `0 × ridge`
+       * 는 0 이고 `x + 0` 은 x 라 높이가 한 비트도 다르지 않다. 난수도 쓰지 않는 순수 함수라 순서 문제도 없다. */
+      const ridge = ridgeMask > 0 ? noise.ridged(wx * 0.0075, wz * 0.0075, 4) : 0;
       let h = 7 + base + hills + detail + ridgeMask * ridge * 27;
 
       // craters: bowl + raised rim
       for (let k = 0; k < craters.length; k++) {
         const c = craters[k];
         const dx = x - c.x, dz = z - c.z;
-        const d = Math.sqrt(dx * dx + dz * dz);
         const outer = c.radius * 1.5;
+        // (C-40) 제곱으로 먼저 거른다 — 경계에서는 bowl · rim 이 둘 다 정확히 0 이라 판정이 한 ulp 갈려도 결과가 같다
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= outer * outer) continue;
+        const d = Math.sqrt(d2);
         if (d >= outer) continue;
         const inner = 1 - smoothstep(0, c.radius * 0.9, d);
         const bowl = -c.depth * inner * inner;
@@ -120,7 +148,10 @@ export class Terrain {
       for (let k = 0; k < basins.length; k++) {
         const b = basins[k];
         const dx = x - b.x, dz = z - b.z;
-        const d = Math.sqrt(dx * dx + dz * dz);
+        // (C-40) 제곱으로 먼저 거른다 — 경계에서는 `1 − smoothstep(0, r, d)` 가 정확히 0 이라 결과가 같다
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= b.radius * b.radius) continue;
+        const d = Math.sqrt(d2);
         if (d >= b.radius) continue;
         h -= b.depth * (1 - smoothstep(0, b.radius, d));
       }
@@ -147,6 +178,8 @@ export class Terrain {
 
   private buildMeshes(biome: Biome, noise: Noise, layout: WorldLayout, rng: Random): void {
     const H = this.heights;
+    let tm = performance.now();
+    const lap = (k: string): void => { const n = performance.now(); this.timings[k] = n - tm; tm = n; };
     // normals (central differences)
     const normals = new Float32Array(VERTS * VERTS * 3);
     const inv2 = 1 / (2 * CELL);
@@ -162,13 +195,16 @@ export class Terrain {
       }
     }
 
+    lap('normals');
     // colors
     const colors = new Float32Array(VERTS * VERTS * 3);
     this.computeColors(biome, noise, layout, normals, colors);
+    lap('colors');
 
     // material with procedural detail textures
     const detail = makeDetailTexture(rng.fork('detail'));
     const detailNormal = makeDetailNormalTexture(rng.fork('detailN'));
+    lap('textures');
     this.textures.push(detail, detailNormal);
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -237,6 +273,7 @@ export class Terrain {
         this.group.add(mesh);
       }
     }
+    lap('chunks');
   }
 
   private computeColors(biome: Biome, noise: Noise, layout: WorldLayout, normals: Float32Array, out: Float32Array): void {
@@ -409,11 +446,11 @@ function makeDetailTexture(rng: Random): THREE.Texture {
   const img = ctx.createImageData(size, size);
   const noise = new Noise(rng);
   const d = img.data;
+  const trig = torusTrig(size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       // tileable via 4-corner blend on a torus
-      const u = x / size, v = y / size;
-      const n = tileableNoise(noise, u, v, 6) * 0.5 + tileableNoise(noise, u, v, 18) * 0.35 + tileableNoise(noise, u, v, 48) * 0.15;
+      const n = tileableNoiseAt(noise, trig, x, y, 6) * 0.5 + tileableNoiseAt(noise, trig, x, y, 18) * 0.35 + tileableNoiseAt(noise, trig, x, y, 48) * 0.15;
       const val = clamp(0.93 + n * 0.12, 0.7, 1);
       const o = (y * size + x) * 4;
       d[o] = d[o + 1] = d[o + 2] = Math.round(val * 255);
@@ -437,9 +474,9 @@ function makeDetailNormalTexture(rng: Random): THREE.Texture {
   const img = ctx.createImageData(size, size);
   const noise = new Noise(rng);
   const hmap = new Float32Array(size * size);
+  const trig = torusTrig(size);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const u = x / size, v = y / size;
-    hmap[y * size + x] = tileableNoise(noise, u, v, 8) * 0.6 + tileableNoise(noise, u, v, 24) * 0.3 + tileableNoise(noise, u, v, 64) * 0.1;
+    hmap[y * size + x] = tileableNoiseAt(noise, trig, x, y, 8) * 0.6 + tileableNoiseAt(noise, trig, x, y, 24) * 0.3 + tileableNoiseAt(noise, trig, x, y, 64) * 0.1;
   }
   const d = img.data;
   const strength = 2.2;
@@ -466,11 +503,23 @@ function makeDetailNormalTexture(rng: Random): THREE.Texture {
   return tex;
 }
 
-/** Sample 2D noise on a torus so the result tiles seamlessly. */
-function tileableNoise(noise: Noise, u: number, v: number, freq: number): number {
-  const a = u * Math.PI * 2, b = v * Math.PI * 2;
+/**
+ * 2026-09-11 (C-40): 토러스 좌표의 cos / sin 표. 예전 `tileableNoise(u, v)` 는 픽셀마다 · 주파수마다 삼각함수를 네 번
+ * 새로 불렀다(텍스처 두 장 × 65536 픽셀 × 3 주파수). 인자(`(i / size) · 2π`)가 같은 식이라 값이 한 비트도 다르지 않다.
+ */
+function torusTrig(size: number): { cos: Float64Array; sin: Float64Array } {
+  const cos = new Float64Array(size), sin = new Float64Array(size);
+  for (let i = 0; i < size; i++) {
+    const a = (i / size) * Math.PI * 2;
+    cos[i] = Math.cos(a); sin[i] = Math.sin(a);
+  }
+  return { cos, sin };
+}
+
+/** Sample 2D noise on a torus so the result tiles seamlessly (`x`, `y` = pixel; same math as the old `tileableNoise`). */
+function tileableNoiseAt(noise: Noise, trig: { cos: Float64Array; sin: Float64Array }, x: number, y: number, freq: number): number {
   const r = freq / (Math.PI * 2);
   // 4D torus embedding approximated with two 2D samples
-  const nx = Math.cos(a) * r, ny = Math.sin(a) * r, nz = Math.cos(b) * r, nw = Math.sin(b) * r;
+  const nx = trig.cos[x] * r, ny = trig.sin[x] * r, nz = trig.cos[y] * r, nw = trig.sin[y] * r;
   return (noise.noise2(nx + nz * 0.7, ny + nw * 0.7) + noise.noise2(nz - nx * 0.7 + 31, nw - ny * 0.7 - 17)) * 0.5;
 }

@@ -17,6 +17,8 @@
 //      경사지에서 몇 m 옮겨진 바위는 2번의 XZ 이동 성분 매칭에서 빠지고, 그 바위들은 4번이 본다.
 //   5. (2026-09-11) 바위 · 첨탑 · 크리스탈 · 잔해는 **볼록 윤곽**(`Obstacle.hull`)이다 — 4번은 방위마다 윤곽까지의
 //      거리로 재고, 윤곽이 보이는 가장자리보다 안쪽으로 **파고들지도** 않는지(p10) 함께 본다.
+//   6. (2026-09-11, C-22) 발밑 재질 — 바위 · 크리스탈 윗면은 그 재질, 행성 5곳의 지형 재질 분포(설원 = snow 등),
+//      탈출 착륙장 = concrete, 둥지 점액 = organic.
 //
 // Usage: node scripts/smoke-props-collision.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -297,6 +299,67 @@ try {
     ok(fp.innerP90 <= 0.35, `rock hulls do not sit inside the visible rock either (p90 of the mean undershoot ${fp.innerP90.toFixed(2)} m ≤ 0.35)`);
     ok(fp.p90 <= 0.35, `rock colliders reach no further than the rock you can see (p90 of the mean overshoot ${fp.p90.toFixed(2)} m ≤ 0.35)`, JSON.stringify(fp.worst));
     ok(fp.over1 === 0, `no rock blocks more than 1 m in front of its visible edge on average (${fp.over1})`, JSON.stringify(fp.worst));
+
+    /* 2026-09-11 (C-22) — **발밑 재질**: 바위 · 크리스탈 윗면에 선 발은 그 소품의 재질을 읽는다.
+       윤곽의 무게중심에서 `getStandingObstacle` 이 바로 그 소품을 고르는 경우만 센다 (위에 다른 것이 겹친 자리 제외). */
+    const mat = await page.evaluate(() => {
+      const w = window.__game.ctx.world;
+      const all = window.__game.getSystem('world').hash.getAll();
+      const probe = (kind) => {
+        let n = 0, good = 0; const bad = {};
+        for (const o of all) {
+          if (o.kind !== kind || !o.hull) continue;
+          const p = o.hull.points; let cx = 0, cz = 0;
+          for (let i = 0; i < p.length; i += 2) { cx += p[i]; cz += p[i + 1]; }
+          cx /= p.length / 2; cz /= p.length / 2;
+          const top = w.getSurfaceY(cx, cz);
+          if (w.getStandingObstacle(cx, cz, top) !== o) continue;
+          n++;
+          const m = w.getSurfaceMaterial(cx, cz, top);
+          if (m === kind) good++; else bad[m] = (bad[m] ?? 0) + 1;
+        }
+        return { n, good, bad };
+      };
+      return { rock: probe('rock'), crystal: probe('crystal') };
+    });
+    ok(mat.rock.n > 20 && mat.rock.good === mat.rock.n, `C-22: 바위 윗면에 선 발 → rock (${mat.rock.good}/${mat.rock.n})`, JSON.stringify(mat.rock.bad));
+    ok(mat.crystal.good === mat.crystal.n, `C-22: 크리스탈 윗면에 선 발 → crystal (${mat.crystal.good}/${mat.crystal.n})`, JSON.stringify(mat.crystal.bad));
+  }
+
+  /* ── 2026-09-11 (C-22): 행성마다 지형 재질 ─────────────────────────────────
+     발소리는 지형 색 규칙(`Terrain.computeColors`)과 같은 자리에서 바뀐다. 맵을 격자로 훑어 행성 바이옴의
+     재질이 가장 흔하고 다른 바이옴의 재질은 **하나도** 안 나오는지 본다 (바위 · 둥지 점액 · 콘크리트 · 금속 등 공용 제외). */
+  const BIOME_MATS = {
+    amber: { want: ['sand'], forbid: ['snow', 'moss', 'mud'] },
+    tundra: { want: ['snow'], forbid: ['sand', 'moss', 'mud'] },
+    mossy: { want: ['moss', 'mud'], forbid: ['sand', 'snow'] },
+    ashen: { want: ['ash'], forbid: ['sand', 'snow', 'moss', 'mud'] },
+    crimson: { want: ['organic'], forbid: ['sand', 'snow', 'moss', 'mud'] },
+  };
+  for (const [planet, rule] of Object.entries(BIOME_MATS)) {
+    await page.evaluate((a) => { const ctx = window.__game.ctx; ctx.missionPlanet = a.planet; ctx.bus.emit('game:newMission', { seed: a.seed, planet: a.planet }); }, { seed: 21, planet });
+    await waitFor(page, () => window.__game.ctx.world.ready && window.__game.ctx.world.planet !== null, 'planet world ready', 30000);
+    const tally = await page.evaluate(() => {
+      const w = window.__game.ctx.world;
+      const out = {};
+      for (let i = 0; i < 48; i++) for (let j = 0; j < 48; j++) {
+        const x = -300 + (i + 0.5) * 12.5, z = -300 + (j + 0.5) * 12.5;
+        const m = w.getSurfaceMaterial(x, z);
+        out[m] = (out[m] ?? 0) + 1;
+      }
+      // 탈출 착륙장 한가운데 · 둥지 한가운데
+      const ex = w.getExtractionPoints()[0];
+      const nest = w.getNestPositions()[0];
+      return { out, pad: ex ? w.getSurfaceMaterial(ex.position.x, ex.position.z, ex.position.y) : null, nest: nest ? w.getSurfaceMaterial(nest.x + 2, nest.z) : null };
+    });
+    const top = Object.entries(tally.out).filter(([m]) => m !== 'rock').sort((a, b) => b[1] - a[1])[0];
+    const forbidden = rule.forbid.filter((m) => (tally.out[m] ?? 0) > 0);
+    ok(!!top && rule.want.includes(top[0]), `C-22 ${planet}: 가장 흔한 지면 재질이 ${rule.want.join('/')} (${top && top[0]})`, JSON.stringify(tally.out));
+    ok(forbidden.length === 0, `C-22 ${planet}: 다른 바이옴의 재질이 섞이지 않는다`, JSON.stringify(tally.out));
+    if (planet === 'amber') {
+      ok(tally.pad === 'concrete', `C-22: 탈출 착륙장 → concrete (${tally.pad})`);
+      ok(tally.nest === 'organic', `C-22: 둥지 점액 → organic (${tally.nest})`);
+    }
   }
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '));
