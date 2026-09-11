@@ -3,6 +3,7 @@
 // Usage: node scripts/shots-uiux.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync, mkdirSync } from 'node:fs';
+import { quietViteHmr } from './quiet-hmr.mjs';
 
 const BASE = process.argv.slice(2).find((a) => a.startsWith('http')) ?? 'http://localhost:5273/';
 const CHROME = [
@@ -23,6 +24,7 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1920, height: 1080 });
+  await quietViteHmr(page);   // 2026-09-11 (C-71): 촬영 도중 남의 저장으로 페이지가 새로고침되지 않게
   await page.evaluateOnNewDocument(() => {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다

@@ -96,10 +96,8 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | ID | 항목 | 근거 |
 |---|---|---|
 | C-67 | **`/__scav/relay` 문자열이 `ui/menus/SettingsMenu` 의 `SHELL_RELAY_ROUTE` 에 따로 적혀 있다** — 원본은 `shared/net.NET_SHELL_RELAY_ROUTE`(2026-09-11), `electron/main.ts` · `net/parts/Socket` 은 이미 그것을 쓴다 | `src/ui/menus/SettingsMenu.ts` |
-| C-68 | **`net:selftest` 의 `debounced write happened once`(part 7) 가 부하 중에 가끔 빨갛다** — 80 ms sleep 안에 fsync 가 끝나지 않는 타이밍 단언. 2026-09-11 병렬 에이전트 7개 동안 여러 번 관찰, 단독 재실행은 green | `server/selftest.ts` part 7 |
 | C-69 | **프로필 리비전 전환 직후 1회 경고** — 리비전을 한 번도 본 적 없는 클라이언트(base 0)가 새 릴레이에 처음 붙으면, 그 전에 쌓인 대기 편집이 rev 1 로 시드된 문서와 충돌해 서버 사본이 이기고 경고가 뜬다. 같은 슬롯 두 탭은 쓰기 큐 키를 같이 쓴다(서버 중복 접속 차단과 겹치는 드문 경우) | `src/net/ProfileSync.ts`, `server/Store.ts` |
 | C-70 | **사망 직후 레이드 세션 저장이 강제되지 않는다** — `saveRaid` 는 `RAID_SAVE_INTERVAL_S`(5초) · 루팅에서만 올라가므로 죽고 5초 안에 새로고침하면 **사망 전** blob 으로 복귀한다(가방이 인벤토리에 있고 C-61 표시도 false). 시체에 같은 장비가 서 있으므로 복제 경로다 — `spawnLocalCorpse` 직후 `saveRaid()` 한 줄 | `src/game/parts/Death.ts`, `src/game/parts/Session.ts` |
-| C-71 | **`e2e-multiplayer` · `shots-*` 는 vite 페이지를 열면서 HMR 을 막지 않는다** — 스모크 45종은 2026-09-11 (C-65) 에 `scripts/quiet-hmr.mjs` 로 옮겼지만 이 셋은 남았다. e2e 는 두 페이지에 `quietViteHmr(page)` 두 줄이면 된다 | `scripts/e2e-multiplayer.mjs`, `scripts/shots-uiux.mjs`, `scripts/shots-pitch.mjs` |
 | C-72 | **`EnemySystem.raycastEx` 가 서 있는 캡슐 높이 규칙을 자기 안에 또 적는다** — 2026-09-11 (C-62) 에 `enemies/RayTests.standingTopY` 가 원본이 됐고 근접 · 레이가 그것을 쓴다. 동작은 같다 | `src/enemies/EnemySystem.ts` `raycastEx`, `src/enemies/RayTests.ts` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝

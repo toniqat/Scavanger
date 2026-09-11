@@ -46,6 +46,16 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-11 (18차: C-68 · C-71 — 검증 안정화 두 줄):
+
+  - **C-68** `server/selftest.ts` part 7 의 `debounced write happened once` 가 고정 80 ms sleep 으로 **비동기 디스크 쓰기**를 기다리고 있었다 —
+    부하가 크면(같은 트리에서 에이전트 7개가 검증하던 16차) 그 안에 fsync 가 끝나지 않아 빨갛다. 새 헬퍼 `waitFor(cond, timeoutMs)` 로
+    쓰기가 **실제로 올라올 때까지** 기다린 뒤 80 ms 를 더 줘서 "한 번뿐" 을 확인한다. 단언의 뜻은 그대로.
+  - **C-71** `scripts/e2e-multiplayer.mjs`(클라이언트 2개) · `shots-uiux.mjs` · `shots-pitch.mjs` 가 vite 페이지를 HMR 가드 없이 열고 있었다 —
+    17차에서 스모크 45종이 `scripts/quiet-hmr.mjs` 로 옮겨갈 때 남은 셋이다. `quietViteHmr(page)` 를 페이지마다 건다(릴레이 소켓은 그대로).
+  - 검증: `node scripts/verify.mjs --only e2e-mp` → typecheck · typecheck-server ok, **net-selftest 473/473**, data-check ok, **e2e-mp 158/158**, 1분 38초.
+    `shots-*` 는 수동 도구라 구문 검사(`node --check`)만 했다.
+
 - 2026-09-11 (17차: 잔여 C 항목 — C-52 · C-58 · C-60 · C-61 · C-62 · C-63 · C-65 · C-66, C-64 는 참고 절로):
 
   `docs/TODO.md` 묶음 6 에 남아 있던 C 항목을 사용자가 `AskUserQuestion` 으로 하나씩 골랐다. 권장안과 **다르게** 고른 것은 하나 —

@@ -9,6 +9,7 @@
 // needs no SCAV_DEV_ECONOMY relay; the relay only has to run the same economy table as the working tree.
 import puppeteer from 'puppeteer-core';
 import { existsSync, readFileSync } from 'node:fs';
+import { quietViteHmr } from './quiet-hmr.mjs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -52,6 +53,9 @@ async function open(tag) {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   pages[tag] = page;
   await page.setViewport({ width: 960, height: 540 });
+  // 2026-09-11 (C-71): park vite's HMR socket per page — a save in the same tree would full-reload this client
+  // mid-run (`Execution context was destroyed`). The relay socket must stay live, so no `parkRelay` here.
+  await quietViteHmr(page);
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {

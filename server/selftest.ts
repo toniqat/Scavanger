@@ -43,6 +43,16 @@ function fail(name: string, detail?: unknown): void {
 }
 function assert(cond: boolean, name: string, detail?: unknown): void { cond ? pass(name) : fail(name, detail); }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/**
+ * Poll `cond` until it holds (or `timeoutMs` runs out). 2026-09-11 (C-68): a fixed sleep around an **async disk write**
+ * is a load-sensitive assertion — part 7's `debounced write happened once` went red whenever the machine was busy
+ * (seven agents verifying in the same tree). Wait for the write to land, then give it a moment to prove it was the only one.
+ */
+async function waitFor(cond: () => boolean, timeoutMs = 3000, stepMs = 10): Promise<boolean> {
+  const until = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < until) await sleep(stepMs);
+  return cond();
+}
 
 class TestClient {
   readonly ws: WebSocket;
@@ -983,6 +993,8 @@ async function main(): Promise<void> {
       assert(tx.ok && tx.credits === 300, 'store migrate seeds credits');
       assert(s1.applyCredits('p1', -301, 'buy').ok === false && s1.applyCredits('p1', -300, 'buy').credits === 0, 'store refuses overdraft, allows exact spend');
       s1.get('untouched');
+      /* C-68: wait for the debounced write instead of sleeping past it, then 80 ms to catch a second one. */
+      await waitFor(() => s1.writeCount >= 1);
       await sleep(80);
       assert(s1.writeCount === 1, 'debounced write happened once', s1.writeCount);
       s1.close();
