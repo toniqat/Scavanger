@@ -625,6 +625,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Bench the craft panel is showing (null = plain 제작 panel). */
   getBench(): ActiveBench | null { return Craft.getBench(this); }
 
+  /**
+   * 2026-09-12: 열려 있는 제작 열 안에서 작업대만 갈아 끼운다 (왼쪽 세로 작업대 리스트). 창을 열지도 닫지도
+   * 않는다 — `null` = 빠른제작. 부르는 곳은 `ui/CraftPanel` 하나다.
+   */
+  switchBench(bench: WorkbenchKind | null, level = 0): void { return Craft.switchBench(this, bench, level); }
+
   /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
   closeBench(): void { return Craft.closeBench(this); }
 
@@ -632,8 +638,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getBenchRecipes(): BenchRecipeRow[] { return Craft.getBenchRecipes(this); }
 
   /**
-   * Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without
-   * durability are skipped. `wornOnly` (2026-09-08, the 수리 팝업 default) drops the rows already at full durability.
+   * 수리할 수 있는 장비 (장비칸 + 가방). 2026-09-12: 작업대 종류를 보지 않는다 — 함선이면 무기 · 방탄복 · 가방
+   * 전부이고 레이드 중에는 빈 배열이다. `wornOnly` (2026-09-08, 수리 팝업의 기본값) 는 만피인 줄을 뺀다.
    */
   benchRepairRows(wornOnly = false): BenchRepairRow[] { return Craft.benchRepairRows(this, wornOnly); }
 

@@ -13,7 +13,7 @@ import { RepairPanel } from './RepairPanel';
 import { ImplantPanel } from './ImplantPanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
-import { GridView, buildSlotCardContent, buildTileContent, type HighlightState } from './GridView';
+import { GridView, buildSlotCardContent, buildTileContent, setNeededAmmoFrom, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
@@ -234,7 +234,8 @@ export class InventoryUI {
     sScroll.appendChild(this.stashView.el);
     // 2026-09-08: 창고 하단의 '가방 ↔ 창고: 드래그 또는 우클릭…' 안내 줄은 없앴다 — 드래그와 우클릭은
     //   가방 격자에서 이미 하는 동작이라 화면에 한 줄 더 적어 둘 이유가 없다 (사용자 결정: 당연한 설명은 지운다).
-    sPanel.append(sHead, sChips.el, sScroll);
+    // 2026-09-12 (사용자 결정): 필터 줄이 **패널의 맨 위** — 머리(제목 · 정렬)보다 위다
+    sPanel.append(sChips.el, sHead, sScroll);
     this.stashPanel = sPanel;
 
     /* bag panel */
@@ -308,7 +309,8 @@ export class InventoryUI {
     this.weightFill = document.createElement('i');
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
-    bPanel.append(bHead, bChips.el, bBody, this.weightEl, bFoot);
+    // 2026-09-12 (사용자 결정): 필터 줄이 **패널의 맨 위** — 가방 머리(용량 · 정렬 · 제작)보다 위다
+    bPanel.append(bChips.el, bHead, bBody, this.weightEl, bFoot);
     this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor));
 
     /* equipment column */
@@ -318,9 +320,14 @@ export class InventoryUI {
     eqGrid.className = 'inv-equip-grid';
     for (const slot of LOADOUT_SLOTS) eqGrid.appendChild(this.buildSlot(slot, SLOT_LABEL[slot]).el);
     eq.appendChild(eqGrid);
-    // 2026-09-08: 임플란트는 캐릭터 스탯이 아니라 들고 나가는 장비 — 장착 장비 칸 바로 아래가 제자리다
+    /*
+     * 2026-09-08: 임플란트는 캐릭터 스탯이 아니라 들고 나가는 장비 — 장착 장비 칸 바로 아래가 제자리다.
+     * 2026-09-12 (사용자 결정 A안): 이제 장비칸 **그리드 안**의 한 칸이다 (`grid-area: implant`) — 주무기 II
+     * 바로 아래, 주머니 왼쪽. 좁은 폭에서는 그리드가 한 줄 세로로 풀리므로 DOM 에서도 `pouch` 앞에 끼운다.
+     */
     this.implantPanel = new ImplantPanel(this.sys, this.ctx);
-    eq.appendChild(this.implantPanel.root);
+    const pouchSlotEl = this.slots.get('pouch')?.el ?? null;
+    eqGrid.insertBefore(this.implantPanel.root, pouchSlotEl);
 
     /* 무한 상자 (Phase 6): leftmost panel, shown only while the catalog is open */
     this.catalogView = new CatalogView(this.sys, getDef, {
@@ -392,9 +399,7 @@ export class InventoryUI {
       getBaseStats: (defId) => this.sys.getLoot().getEffectiveStats(defId),
       allWeaponItemDefs: () => this.sys.getLoot().getAllItemDefs().filter((d) => d.weaponId !== undefined),
       findAmmoDef: (type) => this.sys.getLoot().getAllItemDefs().find((d) => d.category === 'ammo' && d.ammoType === type),
-      // 2026-09-11 (C-37): 내구도 구간 한 줄 — 배수는 `data/tables.csv` 값을 loot 가 준다
-      getDurabilityBucket: (item) => this.sys.getLoot().durabilityBucketInfo(item),
-      canSalvage: (item) => this.sys.getLoot().getSalvageFor(item) !== null,
+      // 2026-09-12: `getDurabilityBucket` · `canSalvage` 는 빠졌다 — 카드의 `구간` 줄이 내구도 게이지로 대체됐다
     });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
@@ -630,6 +635,16 @@ export class InventoryUI {
 
   refresh(): void {
     if (!this.root || this.root.hidden) return;
+    /*
+     * 2026-09-12 (사용자 결정): 내게 **필요한 탄약**에만 우상단 사선 띠. 표는 `ui/GridView` 가 들고 있고 여기서
+     * 갈아 끼운다 — 바뀌었을 때만 true 이므로 무기를 바꾼 프레임에만 타일을 통째로 다시 그린다.
+     */
+    if (setNeededAmmoFrom(this.sys.getLoadout(), (item) => this.sys.getStats(item))) {
+      this.bagView.refresh(true);
+      this.stashView.refresh(true);
+      this.pouchView.refresh(true);
+      this.containerView.refresh(true);
+    }
     const bag = this.sys.getGrid('bag');
     if (bag) {
       if (this.bagView.current !== bag) this.bagView.setGrid(bag);

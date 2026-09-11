@@ -1,7 +1,8 @@
-import type { EffectiveWeaponStats, ItemDef, ItemInstance } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemDef, ItemInstance, Loadout } from '@/shared';
 import { CONTAINER_TAKE_ANIM_S, CONTAINER_TAKE_END_SCALE, CONTAINER_TAKE_RISE_PX, SOCKET_SLOTS } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
+import { WEAPON_SLOT_IDS } from '../model';
 import { CELL, DURABILITY_LOW, GAP, STEP, TEXT, tileSize, tileSizeAt } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
@@ -20,6 +21,40 @@ export interface TileHandlers {
 
 /** Phase 7: an item rolled into a container that has not been searched yet shows only its footprint. */
 export const isHiddenItem = (item: ItemInstance): boolean => item.searched === false;
+
+/* ── 2026-09-12 (사용자 결정): 내게 필요한 탄약에만 사선 띠 ──────────────────────────────────────────────────
+ * "내가 장착하고 있는 무기에 맞는 탄약에만 탄약 아이템 타일 우측 상단에 표시용 사선 띠를 추가한다."
+ *
+ * 타일을 그리는 `buildTileContent` 는 격자 · 장비칸 · 고스트 · 카탈로그 · 거래 화면이 함께 쓰는 **순수 함수**라
+ * 로드아웃을 모른다. 그래서 "지금 필요한 탄종"만 모듈 하나에 들고, 타일을 그리는 쪽(Tab 창 `InventoryUI` ·
+ * 끼워 넣는 격자 `TradeGrids`)이 갱신한다 — 표시 전용 상태이고 인벤토리 데이터는 한 글자도 건드리지 않는다.
+ */
+let neededAmmo: ReadonlySet<string> = new Set<string>();
+
+/** `def` 가 지금 장착한 주무기가 쓰는 탄약인가 (탄약이 아니면 언제나 false). */
+export const isNeededAmmo = (def: ItemDef): boolean =>
+  def.category === 'ammo' && def.ammoType !== undefined && neededAmmo.has(def.ammoType);
+
+/**
+ * 장착한 주무기 I · II 의 탄종으로 표를 갈아 끼운다. **바뀌었을 때만 true** 를 돌려주므로 부른 쪽이 그때만
+ * 타일을 다시 그리면 된다 (`GridView.refresh(true)`). 무기를 바꾸면 띠도 따라 움직인다.
+ */
+export function setNeededAmmoFrom(loadout: Loadout, getStats: StatsLookup): boolean {
+  const next = new Set<AmmoType>();
+  for (const slot of WEAPON_SLOT_IDS) {
+    const w = loadout[slot];
+    if (!w) continue;
+    const stats = getStats(w);
+    if (stats) next.add(stats.ammoType);
+  }
+  if (next.size === neededAmmo.size) {
+    let same = true;
+    for (const t of next) if (!neededAmmo.has(t)) { same = false; break; }
+    if (same) return false;
+  }
+  neededAmmo = next;
+  return true;
+}
 
 /**
  * Footprint-only content for an unsearched container item (Phase 7 search): neutral colour, `?` icon, `???` name —
@@ -124,6 +159,8 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   el.className = `inv-tile rarity-${def.rarity}`;
   if (def.attachment) el.classList.add('is-attachment');
   if (def.bag) el.classList.add('is-bag');
+  // 2026-09-12: 우상단 사선 띠 — 지금 장착한 무기가 쓰는 탄약만 (무기 타일의 소켓 핍과 자리가 겹칠 일은 없다)
+  if (isNeededAmmo(def)) el.classList.add('is-ammo-needed');
   el.style.setProperty('--rc', def.color);
   const { width, height } = tileSizeAt(w, h, cell);
   el.style.width = `${width}px`;
@@ -192,11 +229,13 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
 /**
  * 2026-09-12: everything a grid tile draws, as one string — `GridView.refresh` rebuilds a tile's DOM only when this
  * changed. Weapon stats (sockets / grade / durability bar) derive from the fields listed here, so they are covered.
+ * `needAmmo` (2026-09-12) is in here because the 사선 띠 depends on the **equipped weapon**, not on the item itself —
+ * swapping guns has to redraw the ammo tiles.
  */
-function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined): string {
+function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean): string {
   let sockets = '';
   if (item.sockets) for (const s of SOCKET_SLOTS) sockets += `${item.sockets[s]?.defId ?? ''},`;
-  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}`;
+  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}`;
 }
 
 /** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */
@@ -355,7 +394,7 @@ export class GridView {
         // 2026-09-12: no `.is-new` pop — an item that moved grids is simply there (사용자 결정: 즉시 옮겨진다)
       }
       const badge = this.quickBadges.get(p.item.uid);
-      const sig = tileSignature(p.item, fp.w, fp.h, badge);
+      const sig = tileSignature(p.item, fp.w, fp.h, badge, isNeededAmmo(def));
       if (this.sigs.get(p.item.uid) !== sig) {
         this.sigs.set(p.item.uid, sig);
         const wasDragging = el.classList.contains('is-dragging');

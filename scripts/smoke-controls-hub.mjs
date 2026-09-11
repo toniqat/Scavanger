@@ -356,7 +356,9 @@ try {
   // Phase 8: 함선 joined the strip (시설 업그레이드 inside the Tab screen)
   ok(hubScreen.tabs === '인벤토리* 캐릭터 기업 함선', `screen tabs: ${hubScreen.tabs}` + ' (함선 added in Phase 8)');
   // Phase 9 UI pass: the 전술 임플란트 slot left the 장착 장비 column — it is a section of the 캐릭터 tab now
-  ok(!hubScreen.implantSlot, '전술 임플란트 슬롯이 장비 칸에서 빠졌다 (캐릭터 탭으로 이동)');
+  // 전술 임플란트는 `LOADOUT_SLOTS` 의 장비칸이 아니다 — 2026-09-12 부터 장비 격자 안에 살지만 여전히 `.inv-implants`
+  // 블록이고 `.inv-slot-implant` 은 없다 (아래 `impTab` 이 그 자리를 본다)
+  ok(!hubScreen.implantSlot, '전술 임플란트는 장비칸(`.inv-slot-*`)이 아니다');
   ok(hubScreen.equipMid, 'layout: stash | equipment | bag');
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
   ok(hubScreen.hints, 'inventory hint bar hidden in the ship');
@@ -438,17 +440,22 @@ try {
   ok(await toTab('인벤토리'), '인벤토리 탭으로 복귀');
   await sleep(200);
 
-  /* 전술 임플란트 (2026-09-08): 인벤토리 장착 장비 칸 아래 — 슬롯 하나를 누르면 카드 목록 팝업이 뜬다 */
+  /* 전술 임플란트 (2026-09-08 · 2026-09-12 장비 격자 안으로): 슬롯 하나를 누르면 카드 목록 팝업이 뜬다 */
   const impTab = await page.evaluate(() => ({
     cards: document.querySelectorAll('.inv-imp-pop .inv-imp-card').length,
     inEquip: !!document.querySelector('.inv-equip .inv-implants .inv-imp-slot'),
-    afterGrid: document.querySelector('.inv-equip > .inv-equip-grid')?.nextElementSibling?.classList.contains('inv-implants') ?? false,
+    /* 2026-09-12 (사용자 결정 A안): 임플란트 칸은 장비 격자 **아래**가 아니라 격자 **안**의 `implant` 칸이다
+       (주무기 II 아래 · 주머니 왼쪽). 좁은 폭에서 격자가 한 줄로 풀려도 순서가 유지되도록 DOM 에서도
+       `pouch` 칸 바로 앞에 끼워 넣는다 (`ui/InventoryUI` 의 `eqGrid.insertBefore`). */
+    inGrid: !!document.querySelector('.inv-equip > .inv-equip-grid > .inv-implants'),
+    beforePouch: document.querySelector('.inv-equip-grid > .inv-implants')?.nextElementSibling?.classList.contains('inv-slot-pouch') ?? false,
     items: !!document.querySelector('.inv-equip .inv-implants .inv-impitems .inv-impi-add'),
     popHidden: document.querySelector('.inv-imp-pop')?.hidden,
   }));
   ok(impTab.cards === 6 && impTab.inEquip && impTab.popHidden === true,
-    `인벤토리 장착 장비 아래에 임플란트 칸 + 닫힌 카드 팝업 6종 (${impTab.cards})`);
-  ok(impTab.afterGrid && impTab.items, '장비 격자 다음이 임플란트 칸이고 임플란트 아이템 블록도 함께 있다');
+    `인벤토리 장착 장비 열에 임플란트 칸 + 닫힌 카드 팝업 6종 (${impTab.cards})`);
+  ok(impTab.inGrid && impTab.beforePouch && impTab.items,
+    '임플란트 칸이 장비 격자 **안**(주머니 칸 바로 앞)이고 임플란트 아이템 블록도 함께 있다', JSON.stringify(impTab));
   // 장착 칸을 누르면 팝업이 열리고, 카드를 고르면 장착 후 닫힌다
   await page.evaluate(() => document.querySelector('.inv-equip .inv-implants .inv-imp-slot').click());
   await sleep(120);

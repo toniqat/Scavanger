@@ -13,16 +13,22 @@ import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
 import { implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
-import { AIRLOCK, CEIL, COCKPIT, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
+import { AIRLOCK, CEIL, COCKPIT, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOM_DEPTH, ROOM_GAP, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
 import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
 /**
- * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → ten 4 × 4 m housing rooms
- * (five per side, doors on the corridor) → airlock. Every coordinate lives in `RoomLayout.ts`.
+ * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → ten `ROOM_SIZE × ROOM_DEPTH`
+ * housing rooms (five per side, doors on the corridor) → airlock. Every coordinate lives in `RoomLayout.ts`.
+ *
+ * **2026-09-12 — 방이 8 × 8 m 다** (`ROOM_GRID_COLS/ROWS` 8 → 16). 이 파일에서는 숫자를 하나도 새로 적지
+ * 않았다: 방 · 복도 · 에어락 좌표는 전부 `RoomLayout` 에서 오고, 예전에 박혀 있던 에어락 z(26.0 · 26.4 · 26.3)만
+ * `AIRLOCK` 기준 오프셋으로 바꿨다. 복도가 25 → 45 m 로 길어졌으므로 **복도 광원 자리를 구간당 하나 → 둘로,
+ * 방 광원 자리를 하나 → 둘로 늘렸다** — 자리만 늘었고 진짜 점광원은 여전히 `HUB_POINT_LIGHTS` 개다
+ * (「씬의 광원 개수를 플레이 중에 바꾸지 않는다」, `LightPool`).
  * Static geometry is merged per material (`GeoBatch`); the point-light count is constant: **`HUB_POINT_LIGHTS`**
  * pool lights (2026-09-10, was 13 lights of its own) serve the light fixtures nearest the player — cockpit 4,
- * corridor 5, airlock 1 and the nearest `ROOM_LIGHT_POOL` lit rooms (`LightPool`: re-anchored and ramped, never
- * toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
+ * corridor 10, airlock 1 and the two fixtures of each of the nearest `ROOM_LIGHT_POOL` lit rooms (`LightPool`:
+ * re-anchored and ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
  *
  * Phase 8 (2026-09-06): the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable
  * furniture now), every doorway carries a sliding `ShipDoors` door and each room owns its emissive strip materials
@@ -43,7 +49,8 @@ export class PersonalShip implements ShipInterior {
   readonly collider = new BoxInteriorCollider();
   readonly spawn = new THREE.Vector3(0, 0, -1.8);
   readonly spawnYaw = 0;                       // facing −Z (the cockpit)
-  readonly airlock = new THREE.Vector3(0, 0, 26.0);
+  /** 1 m inside the airlock, on its centre line (was the literal 26.0 — the airlock moved with the longer corridor). */
+  readonly airlock = new THREE.Vector3(0, 0, AIRLOCK.minZ + 1.0);
   readonly airlockYaw = 0;
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
@@ -69,10 +76,16 @@ export class PersonalShip implements ShipInterior {
    * the player first, so the scene-wide count stays inside `SCENE_POINT_LIGHT_BUDGET` (see `LightPool`).
    */
   private lightPool!: LightPool;
-  /** The ten fixed fixtures (cockpit 4, corridor 5, airlock 1). */
+  /** The fixed fixtures (cockpit 4, corridor 2 × `ROOMS_PER_SIDE`, airlock 1 — 15 since 2026-09-12, was 10). */
   private readonly staticFixtures: LightFixture[] = [];
-  /** One ceiling fixture per room; only lit rooms are candidates, and only the nearest `ROOM_LIGHT_POOL` of them. */
-  private readonly roomFixtures: LightFixture[] = [];
+  /**
+   * Ceiling fixtures per room (2026-09-12: **two**, one per half of the 8 × 8 m room); only lit rooms are
+   * candidates, and only the nearest `ROOM_LIGHT_POOL` of them. Adding *places* costs nothing — the pool still
+   * hangs exactly `HUB_POINT_LIGHTS` real lights, so the scene's point-light count never moves.
+   */
+  private readonly roomFixtures: LightFixture[][] = [];
+  /** Reverse index for `roomLightRooms` (debug / smoke): which room a fixture object belongs to. */
+  private readonly fixtureRoom = new Map<LightFixture, number>();
   /** Rooms whose fixture is in the pool's candidate list right now (sorted by index). */
   private roomPick: number[] = [];
   private readonly roomPickNext: number[] = [];
@@ -191,15 +204,20 @@ export class PersonalShip implements ShipInterior {
     P.deck(CORRIDOR, false);
     for (let k = 1; k < ROOMS_PER_SIDE; k++) {
       const z = CORRIDOR.minZ + k * SEGMENT;
-      // wall fill between neighbouring rooms + rib + beam
+      // Wall fill between neighbouring rooms + rib + beam. The fill spans the **whole** `ROOM_GAP` (2026-09-12):
+      // the room walls cover z ∈ [minZ, maxZ] and the gap is `SEGMENT − ROOM_DEPTH`, so a fixed 0.4 m fill left a
+      // 0.3 m slit of open space on each side of it — invisible at 4 m rooms only because nobody looked.
       for (const side of [-1, 1]) {
         const x = side < 0 ? CORRIDOR.minX - WALL / 2 : CORRIDOR.maxX + WALL / 2;
-        b.box(WALL, CEIL, 0.4, x, CEIL / 2, z, M.hull);
-        col.addBlocker(x - WALL / 2, 0, z - 0.2, x + WALL / 2, CEIL, z + 0.2);
+        b.box(WALL, CEIL, ROOM_GAP, x, CEIL / 2, z, M.hull);
+        col.addBlocker(x - WALL / 2, 0, z - ROOM_GAP / 2, x + WALL / 2, CEIL, z + ROOM_GAP / 2);
         P.rib(side < 0 ? CORRIDOR.minX + 0.16 : CORRIDOR.maxX - 0.16, z);
       }
       P.beam(CORRIDOR.maxX - CORRIDOR.minX, 0, z, 0);
     }
+    // 2026-09-12: one more ceiling beam halfway through every segment — a 9 m pitch in a 3 m corridor read as an
+    // empty tube. Decoration only (no rib, no blocker), and it stands over the middle of each room's door.
+    for (let k = 0; k < ROOMS_PER_SIDE; k++) P.beam(CORRIDOR.maxX - CORRIDOR.minX, 0, CORRIDOR.minZ + (k + 0.5) * SEGMENT, 0);
     // Wainscot trim along both corridor walls (the rooms' door walls carry none). 2026-09-07: it used to be one
     // full-length bar per side, so the 1.05 m amber line ran straight across every room doorway and read as a rope
     // barring the door. Split it into the segments **between** the doorways instead.
@@ -225,8 +243,9 @@ export class PersonalShip implements ShipInterior {
     b.plane(A.maxX - A.minX, A.maxZ - A.minZ, 0, CEIL, (A.minZ + A.maxZ) / 2, M.hullDark, Math.PI / 2);
     b.box(1.8, 0.04, 0.18, 0, CEIL - 0.03, (A.minZ + A.maxZ) / 2, M.stripRed);
     P.walls(A, WALL, { n: { lo: A.minX, hi: A.maxX, y0: 0, y1: CEIL } });
-    P.lockers(A.minX + 0.27, 26.4, 3, yawFromForward(1, 0));
-    P.crates(A.maxX - 0.36, 26.4, 3, Math.PI / 2);      // supply crates (moved out of the cockpit for the computer desk)
+    const aPropZ = AIRLOCK.minZ + 1.4;                  // was the literal 26.4 (AIRLOCK.minZ was 25)
+    P.lockers(A.minX + 0.27, aPropZ, 3, yawFromForward(1, 0));
+    P.crates(A.maxX - 0.36, aPropZ, 3, Math.PI / 2);    // supply crates (moved out of the cockpit for the computer desk)
     b.box(1.6, 2.6, 0.08, 0, 1.3, A.maxZ - 0.05, M.hullDark);
     b.box(0.04, 2.4, 0.1, 0, 1.3, A.maxZ - 0.08, M.trim);
     b.box(1.7, 0.1, 0.12, 0, 2.65, A.maxZ - 0.06, M.stripRed);
@@ -254,10 +273,19 @@ export class PersonalShip implements ShipInterior {
       fx(0, 2.3, C.minZ + 0.9, 0x5fd7ff, 10, 7),
       fx(px - 1.2, 2.4, pz, 0xffb347, 12, 6),
     );
-    for (let k = 0; k < ROOMS_PER_SIDE; k++) this.staticFixtures.push(fx(0, CEIL - 0.25, CORRIDOR.minZ + k * SEGMENT + SEGMENT / 2, 0xeef2ff, 14, 8));
-    this.staticFixtures.push(fx(0, 2.7, 26.3, 0xff6a4a, 8, 5));
+    // Corridor: **two** places per segment since 2026-09-12 (a 9 m pitch left the halfway point dark at `distance` 8).
+    for (let k = 0; k < ROOMS_PER_SIDE; k++) {
+      for (const t of [0.25, 0.75]) this.staticFixtures.push(fx(0, CEIL - 0.25, CORRIDOR.minZ + (k + t) * SEGMENT, 0xeef2ff, 14, 8));
+    }
+    this.staticFixtures.push(fx(0, 2.7, AIRLOCK.minZ + 1.3, 0xff6a4a, 8, 5));   // was the literal 26.3
+    // Rooms: **two** places per room since 2026-09-12 — one ceiling lamp with `ROOM_LIGHT_DISTANCE` (7 m from
+    // y 2.6) only reaches 6.5 m across the floor, and an 8 × 8 m room's corner is 5.7 m from its centre with the
+    // walls in the way. The two sit at z ± ROOM_DEPTH/4 so each half of the room has one overhead.
     for (const rb of ROOM_BOXES) {
-      this.roomFixtures[rb.index] = fx((rb.minX + rb.maxX) / 2, CEIL - 0.6, (rb.minZ + rb.maxZ) / 2, 0xfff0d8, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_DISTANCE);
+      const cxr = (rb.minX + rb.maxX) / 2, czr = (rb.minZ + rb.maxZ) / 2;
+      this.roomFixtures[rb.index] = [-1, 1].map((s) =>
+        fx(cxr, CEIL - 0.6, czr + s * ROOM_DEPTH / 4, 0xfff0d8, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_DISTANCE));
+      for (const f of this.roomFixtures[rb.index]) this.fixtureRoom.set(f, rb.index);
     }
     this.lightPool = new LightPool(r, HUB_POINT_LIGHTS, this.staticFixtures.slice());
 
@@ -316,7 +344,7 @@ export class PersonalShip implements ShipInterior {
     this.stripMats[rb.index] = [white, cyan, amber];
     for (const zz of [rb.minZ + 0.03, rb.maxZ - 0.03]) b.box(ROOM_GRID_COLS * HOUSING_CELL_SIZE * 0.7, 0.08, 0.04, cx, CEIL - 0.35, zz, white);
     const outerX = side < 0 ? rb.minX + 0.03 : rb.maxX - 0.03;
-    b.box(0.04, 0.08, 3.0, outerX, 2.4, cz, cyan);
+    b.box(0.04, 0.08, ROOM_DEPTH * 0.7, outerX, 2.4, cz, cyan);   // was the literal 3.0 (= 0.75 × the old 4 m wall)
     b.box(0.06, 0.02, DOOR_WIDTH - 0.2, face + (side < 0 ? -0.45 : 0.45), 0.012, rb.doorZ, amber);
     // 자동문 in the doorway (inside the wall slab between the room and the corridor face)
     this.doors.add(face + (side < 0 ? -WALL / 2 : WALL / 2), rb.doorZ, DOOR_WIDTH, DOOR_HEIGHT - 0.05, 0.1, 'z');
@@ -358,7 +386,7 @@ export class PersonalShip implements ShipInterior {
   /** Room each pool light currently serves, −1 for a corridor / cockpit / airlock fixture or a parked light (debug / smoke). */
   get roomLightRooms(): readonly number[] {
     const list = this.lightPool.fixtureList;
-    return this.lightPool.assignment.map((i) => (i >= 0 ? this.roomFixtures.indexOf(list[i]) : -1));
+    return this.lightPool.assignment.map((i) => (i >= 0 ? this.fixtureRoom.get(list[i]) ?? -1 : -1));
   }
   /** The ship's light pool (debug / smoke). */
   get lights(): LightPool { return this.lightPool; }
@@ -380,8 +408,10 @@ export class PersonalShip implements ShipInterior {
     next.length = 0;
     for (const rb of ROOM_BOXES) {
       if (!this.roomLit[rb.index]) continue;
-      const f = this.roomFixtures[rb.index];
-      this.roomDist[rb.index] = (f.x - px) * (f.x - px) + (f.z - pz) * (f.z - pz);
+      // nearest of the room's fixtures ranks the room (2026-09-12: a room owns two of them)
+      let d = Infinity;
+      for (const f of this.roomFixtures[rb.index]) d = Math.min(d, (f.x - px) * (f.x - px) + (f.z - pz) * (f.z - pz));
+      this.roomDist[rb.index] = d;
       next.push(rb.index);
     }
     next.sort((a, b) => this.roomDist[a] - this.roomDist[b]);
@@ -391,7 +421,7 @@ export class PersonalShip implements ShipInterior {
     if (cur.length === next.length && cur.every((v, i) => v === next[i])) return;
     this.roomPick = next.slice();
     const list: LightFixture[] = this.staticFixtures.slice();
-    for (const i of this.roomPick) list.push(this.roomFixtures[i]);
+    for (const i of this.roomPick) list.push(...this.roomFixtures[i]);
     this.lightPool.setFixtures(list);
   }
 

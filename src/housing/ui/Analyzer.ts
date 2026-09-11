@@ -34,13 +34,15 @@ interface SlotCard {
 /**
  * **분석 화면** (연구실 A-12, 2026-09-11 · 화면 개편 2026-09-12 — `openAnalyzer(uid)` ← E on a 분석기).
  *
- * 틀은 `StationShell` 공통이다 (제목 + `Lv. n` · 우상단 업그레이드 모달 · 좌 패널 / 우 가방 · 함선 창고). 좌 패널은
- * 다시 **왼쪽 세로 탭**(「해석」 · 「해석 도감」)과 그 페이지로 갈린다 — 도감이 오른쪽 격자 밑에서 자기 탭으로 옮겨 갔다.
+ * 틀은 `StationShell` 공통이다 (제목 + `Lv. n` · 우상단 업그레이드 모달 · 좌 패널 / 우 가방 · 함선 창고).
+ * **세로 탭**(「해석」 · 「해석 도감」)은 2026-09-12 에 좌 패널 안에서 **화면 맨 왼쪽 레일**(`StationShell.rail`)로
+ * 나갔다 — 재배 스테이션 목록과 같은 자리 · 같은 결이다. 좌 패널에는 그 페이지만 남는다.
  *
- * 해석 칸 한 줄 = 칸(표본 글리프, 드롭 대상) + **위 = 표본 이름, 아래 = 작은 `HH:MM:SS`**(끝나면 「해석 완료」) +
- * 얇은 진행바, 그리고 **오른쪽 아래** 「회수」 · 「중단」. 잠긴 칸은 썸네일도 글자도 없는 **빈 칸**이다. 「처음 해석」
- * 같은 부연 · 「모두 회수」는 걷어냈다. 끝난 칸은 재배 스테이션처럼 **더블클릭 = 함선 창고 먼저**, 끌어서 격자에 놓으면
- * 그 격자로 회수된다 (`ProductDrag`).
+ * 해석 칸 한 줄 = **칸(표본 글리프, 드롭 대상) | 본문(이름 · `HH:MM:SS` · 진행바) | 버튼(「회수」 · 「중단」)** 의
+ * 세 열이다. 버튼은 2026-09-12 에 `position: absolute` 를 버리고 자기 열로 들어왔다 — 좌 패널이 좁아져도 남은
+ * 시간 게이지와 겹치지 않는다. 잠긴 칸은 썸네일도 글자도 없는 **빈 칸**이다. 「처음 해석」 같은 부연 · 「모두 회수」는
+ * 걷어냈다. 끝난 칸은 재배 스테이션처럼 **더블클릭 = 함선 창고 먼저**, 끌어서 격자에 놓으면 그 격자로 회수된다
+ * (`ProductDrag`).
  */
 export class Analyzer extends HousingPanel {
   private uid = '';
@@ -69,10 +71,12 @@ export class Analyzer extends HousingPanel {
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
 
-    const split = el('div', { cls: 'az-split', parent: this.shell.left });
-    const tabs = el('div', { cls: 'hs-tabs', parent: split });
+    // 2026-09-12: 탭은 분석기 패널 **바깥**의 독립 열이다 (`StationShell.rail`) — 재배 스테이션 목록과 같은 자리 ·
+    // 같은 결이라 두 화면의 좌측이 일관된다. 좌 패널에는 페이지만 남는다.
+    const tabs = this.shell.rail;
+    tabs.hidden = false;
     this.tabBtns = { slots: this.tabButton(tabs, '해석', 'slots'), dex: this.tabButton(tabs, '해석 도감', 'dex') };
-    const pages = el('div', { cls: 'az-pages', parent: split });
+    const pages = el('div', { cls: 'az-pages', parent: this.shell.left });
     this.slotsEl = el('div', { cls: 'az-slots', parent: pages });
     this.dexHost = el('div', { cls: 'az-dexhost', parent: pages });
     this.setTab('slots');

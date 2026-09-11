@@ -37,12 +37,18 @@ export function getArmorDef(armorId: string): ArmorDef | undefined {
   return ARMOR_DEF_MAP.get(armorId);
 }
 
-/** Grid footprint of the carried (unequipped) plate. Heavy plates are bulky, the ultralight vest folds up. */
-export function armorItemSize(def: ArmorDef): { width: number; height: number } {
-  if (def.perk === 'ultralight') return { width: 2, height: 2 };
-  if (def.perk === 'optical') return { width: 2, height: 2 };
-  if (def.tier > 0 && def.tier <= 2) return { width: 2, height: 2 };
-  return { width: 2, height: 3 };
+/**
+ * Grid footprint of the carried (unequipped) plate.
+ *
+ * **2026-09-12 — 방탄복은 전부 2×2 다** (사용자 결정). 예전에는 초경량 · 광학미채 · I–II 만 2×2 이고 III–V 와 재생은
+ * 2×3 이라, 후반 방탄복을 한 벌 챙기는 것만으로 가방 한 줄이 통째로 날아갔다. 등급이 올라갈수록 무거워지는 부담은
+ * `weight`(`data/armor.csv`) 가 이미 지고 있으므로 자리까지 이중으로 물릴 이유가 없다.
+ *
+ * 값이 상수가 된 뒤에도 **함수를 지우지 않는다** — `ItemDefs.armorItem()` 이 이것으로 `width`/`height` 를 채우는
+ * 유일한 자리이고, 등급 · 퍽별로 다시 갈라야 할 때 고칠 곳이 여기 하나로 남는다.
+ */
+export function armorItemSize(_def: ArmorDef): { width: number; height: number } {
+  return { width: 2, height: 2 };
 }
 
 /** Icon glyph per armor id (procedural text glyph, no asset files) — `data/armor.csv` 의 `icon` 칸. */

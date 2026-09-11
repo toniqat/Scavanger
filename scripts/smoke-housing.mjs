@@ -8,9 +8,18 @@
 // Usage: node scripts/smoke-housing.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
+/* 2026-09-12: the room floor grid went 8 × 8 → 16 × 16 cells (4 × 4 → 8 × 8 m rooms). The grid-boundary checks below
+   read the size from `data/constants.csv` instead of writing 8 down, so the next resize does not need this file. */
+const CONSTANTS_CSV = readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8');
+const konst = (name) => {
+  const m = CONSTANTS_CSV.match(new RegExp(`^${name},([^,\\r\\n]+)`, 'm'));
+  if (!m) throw new Error(`constant ${name} missing from data/constants.csv`);
+  return Number(m[1]);
+};
+const GRID_COLS = konst('ROOM_GRID_COLS'), GRID_ROWS = konst('ROOM_GRID_ROWS');
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
@@ -130,10 +139,13 @@ try {
      furn_bench_refine (정제). **2026-09-11 (온실 개편)**: the count is no longer asserted — `furn_grow_rack` is
      `retired` and whether `getAllFurnitureDefs` still carries a retired def is housing/'s business (only
      `getFurnitureFor` is contractually filtered). Presence of the defs that matter is what this line guards now. */
+  /* 2026-09-12 (사용자 결정): `furn_repair_bench` 도 은퇴했다 (함선에서는 인벤토리만으로 수리한다). `getAllFurnitureDefs`
+     는 `ACTIVE_FURNITURE_DEFS` 라 은퇴 def 를 걸러 내므로, 여기서는 **없다는 것**을 검사해 되살아나는 것을 막는다. */
   const furnDefIds = await H(() => window.__game.ctx.housing.getAllFurnitureDefs().map((d) => d.id));
-  ok(['furn_bench_gun', 'furn_bench_refine', 'furn_sim_hub', 'furn_repair_bench', 'furn_bookshelf', 'furn_grow_station']
-    .every((id) => furnDefIds.includes(id)) && furnDefIds.length >= 19,
-  `FURNITURE_DEFS exposed (${furnDefIds.length}, incl. furn_sim_hub / repair_bench / bookshelf / bench_refine / grow_station)`, furnDefIds.join(','));
+  ok(['furn_bench_gun', 'furn_bench_refine', 'furn_sim_hub', 'furn_bookshelf', 'furn_grow_station']
+    .every((id) => furnDefIds.includes(id)) && !furnDefIds.includes('furn_repair_bench')
+    && !furnDefIds.includes('furn_grow_rack') && furnDefIds.length >= 18,
+  `FURNITURE_DEFS exposed (${furnDefIds.length}, incl. furn_sim_hub / bookshelf / bench_refine / grow_station, 은퇴한 repair_bench · grow_rack 제외)`, furnDefIds.join(','));
   // SHIP_STATE_VERSION (src/shared/constants.ts): 4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses`/`sampleDex`, 6 = 배양조의 `cultures`,
   // 7 = 방 시설 레벨 제거 (2026-09-12 — 모양은 같고 옛 방 레벨을 한 번만 옮기려고 올렸다)
   ok(st0.version === 7 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v7 with empty books / bookDex (v${st0.version})`);
@@ -141,7 +153,8 @@ try {
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('range').some((d) => d.id === 'furn_sim_hub' && d.interaction === 'sim_hub' && d.model === 'sim_hub') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_sim_hub')), 'furn_sim_hub in the 사격장 catalogue only (interaction / model sim_hub)');
   // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배 스테이션 (2026-09-11: 옛 재배층 자리를 그대로 이어받았다)
   // 2026-09-11 (A-14 · A-3c): 온실에 배양조가 늘어 9 → 10, 새로 열린 주방은 조리대 + 식탁 + 8 any = 10
-  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 14 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 10 && window.__game.ctx.housing.getFurnitureFor('kitchen').length === 10), 'getFurnitureFor: workshop 14 (5 benches + 정비 벤치 + 8 any), empty 8, greenhouse 10 (+배양조), kitchen 10 (조리대 + 식탁 + 8 any)');
+  // 2026-09-12 (사용자 결정): 정비 벤치가 은퇴해 작업실이 14 → 13 (작업대 5 + 8 any). 나머지 방은 그대로.
+  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 13 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 10 && window.__game.ctx.housing.getFurnitureFor('kitchen').length === 10), 'getFurnitureFor: workshop 13 (5 benches + 8 any — 정비 벤치 은퇴), empty 8, greenhouse 10 (+배양조), kitchen 10 (조리대 + 식탁 + 8 any)');
   /* 아래 화면 검사들은 이 수를 **그때그때 물어서** 쓴다 — 작업대가 하나 늘 때마다 세 자리를 손으로 고치던 것이
      2026-09-10 정제 작업대에서 실제로 red 를 냈다. 위 한 줄만 카나리아로 남긴다. */
   const workshopFurniture = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length);
@@ -165,9 +178,10 @@ try {
   await H(() => {
     const h = window.__game.ctx.housing;
     h.state.rooms[0] = { purpose: 'workshop', level: 1 };
-    h.state.furnitureStorage.push({ defId: 'furn_bench_gun', level: 1, qty: 1 }, { defId: 'furn_repair_bench', level: 1, qty: 1 });
+    // 2026-09-12: 두 번째 벤치가 `furn_repair_bench` 였는데 그것은 은퇴했다 — 살아 있는 작업대로 바꿨다 (뜻은 같다: 한 방에 둘)
+    h.state.furnitureStorage.push({ defId: 'furn_bench_gun', level: 1, qty: 1 }, { defId: 'furn_bench_gear', level: 1, qty: 1 });
     h.place(0, 'furn_bench_gun', 0, 0, 0);
-    h.place(0, 'furn_repair_bench', 0, 3, 0);
+    h.place(0, 'furn_bench_gear', 0, 3, 0);
   });
   ok(await H(() => window.__game.ctx.housing.getPlaced(0).length === 2 && window.__game.ctx.housing.getStored().length === 0), 'seeded 방 1 = 작업실 with both benches placed');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'workshop') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(3, 'workshop') ?? '')), 'a second 작업실 is refused (one facility room per ship)');
@@ -189,9 +203,12 @@ try {
   await H(() => { const h = window.__game.ctx.housing; for (const f of [...h.getPlaced(0)]) h.recover(f.uid); });
   ok(await H(() => window.__game.ctx.housing.getPlaced(0).length === 0 && window.__game.ctx.housing.getStored().length === 2), 'benches recovered into furniture storage');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 0, 0, 0) === true), 'canPlace 4×2 bench at (0,0) yaw 0');
-  ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 5, 0, 0) === false), 'canPlace refuses x=5 (4 wide in an 8-col grid)');
-  ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 5, 0, 1) === true), 'canPlace yaw 1 (2×4) at x=5 fits');
-  ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 6, 5, 1) === false), 'canPlace yaw 1 at y=5 overflows rows');
+  /* Grid boundaries, derived from ROOM_GRID_COLS/ROWS: the 총기 작업대 is 4 × 2 cells, so at yaw 0 the last column
+     that fits is COLS−4 and COLS−3 overflows by one; rotated (2 × 4) the same column has room to spare, and the last
+     row that fits is ROWS−4. */
+  ok(await H((c) => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', c - 3, 0, 0) === false, GRID_COLS), `canPlace refuses x=${GRID_COLS - 3} (4 wide in a ${GRID_COLS}-col grid)`);
+  ok(await H((c) => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', c - 3, 0, 1) === true, GRID_COLS), `canPlace yaw 1 (2×4) at x=${GRID_COLS - 3} fits`);
+  ok(await H((g) => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', g.c - 2, g.r - 3, 1) === false, { c: GRID_COLS, r: GRID_ROWS }), `canPlace yaw 1 at y=${GRID_ROWS - 3} overflows rows`);
   ok(await H(() => window.__game.ctx.housing.canPlace(1, 'furn_bench_gun', 0, 0, 0) === false), 'canPlace refuses a bench in an empty room (purpose)');
   ok(await H(() => window.__game.ctx.housing.canPlace(1, 'furn_locker', 0, 0, 0) === true), "canPlace allows 'any' furniture in an empty room");
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_range_console', 0, 0, 0) === false), 'canPlace refuses range furniture in the workshop');
@@ -205,7 +222,8 @@ try {
   ok(await H(() => window.__game.ctx.housing.move('f-3', 2, 3, 1) === true), 'move f-3 → (2,3) yaw 1');
   const moved = await lastEv('housing:furnitureMoved');
   ok(moved && moved.item.x === 2 && moved.item.y === 3 && moved.item.yaw === 1, 'housing:furnitureMoved carries the new cell + yaw');
-  ok(await H(() => window.__game.ctx.housing.move('f-3', 7, 3, 1) === false), 'move refuses out of grid');
+  // the rotated bench is 2 cells wide, so the last column (COLS−1) leaves it hanging one cell outside the room
+  ok(await H((c) => window.__game.ctx.housing.move('f-3', c - 1, 3, 1) === false, GRID_COLS), 'move refuses out of grid');
   ok(await H(() => window.__game.ctx.housing.move('f-3', 2, 3, 1) === true), 'move onto its own cells (ignoreUid) ok');
   ok(await H(() => window.__game.ctx.housing.getBenchLevel('gun') === 1 && window.__game.ctx.housing.getBenchLevel('gear') === 0), 'getBenchLevel gun 1 / gear 0');
   ok(await H(() => window.__game.ctx.housing.recover('f-3') === true), 'recover f-3');
@@ -616,8 +634,16 @@ try {
   await H(() => window.__game.ctx.housing.rotateSelection());
   const sel = await lastEv('housing:selectionChanged');
   ok(sel && sel.defId === 'furn_locker' && sel.yaw === 1, 'rotateSelection → yaw 1');
-  await H(() => window.__game.ctx.housing.selectFurniture('furn_bench_gear'));
-  ok(await H(() => window.__game.ctx.housing.selectedFurniture === 'furn_locker'), 'selecting a def not in storage is ignored');
+  /* 2026-09-12: this used to name `furn_bench_gear`, but the 작업실 seed above now stores that very bench (the second
+     one used to be the retired 정비 벤치), so it *was* in storage and the selection stuck. Ask for a def that is
+     genuinely absent instead of naming one — the seed may move again. */
+  const absentDef = await H(() => {
+    const h = window.__game.ctx.housing;
+    const stored = new Set(h.getStored().filter((s) => s.qty > 0).map((s) => s.defId));
+    return h.getAllFurnitureDefs().map((d) => d.id).find((id) => !stored.has(id)) ?? null;
+  });
+  await H((id) => window.__game.ctx.housing.selectFurniture(id), absentDef);
+  ok(!!absentDef && await H(() => window.__game.ctx.housing.selectedFurniture === 'furn_locker'), `selecting a def not in storage is ignored (${absentDef})`);
   await H(() => window.__game.ctx.housing.exitHousingMode());
   ok((await lastEv('housing:modeChanged'))?.active === false && await H(() => !window.__game.ctx.housing.housingMode), 'exitHousingMode');
   ok(await H(() => window.__game.ctx.housing.selectedYaw === 0), 'yaw reset on exit');
@@ -962,7 +988,10 @@ try {
   const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
   // 2026-09-07: no room-1 invariant any more — the corrupt save's room 1 = 연구실 falls back to 빈 방 (no 온실)
   ok(san.rooms.length === 10 && san.rooms[0].purpose === 'empty' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null && (san.presets[0].implantItems ?? []).join(',') === 'imp_strength_1', `corrupt save sanitised: lab→빈 방 (온실 없음), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
-  ok(sanStore === 'furn_bench_gun,furn_repair_bench', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
+  /* 2026-09-12: 예전에는 여기 `furn_repair_bench` 가 같이 나왔다 — v1→v2 마이그레이션이 옛 프로필에 정비 벤치를
+     한 개 지급했기 때문이다. 정비 벤치가 은퇴하면서 그 지급도 걷어냈으므로(지급 줄이 은퇴 가구를 걸러 내는
+     두 자리보다 **아래**에 있어, 남겨 두면 배치도 안 되는 가구가 가구 창고에 쌓였다) 이제 작업대 하나뿐이다. */
+  ok(sanStore === 'furn_bench_gun', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
 
   /* ── 온실 개편 (2026-09-11): v3 세이브의 옛 재배층은 **사라지고 재료가 함선 창고로 돌아온다** ──
      `FurnitureDef.retired` 의 계약: 배치돼 있든 가구 창고에 있든 `ShipState.sanitize` 가 그 가구를 걷어내고

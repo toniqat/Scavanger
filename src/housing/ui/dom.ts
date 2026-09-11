@@ -94,8 +94,9 @@ export function clockText(seconds: number): string {
 }
 
 /**
- * Countdown into `host` as `<span.hs-clock-hm>HH:MM</span><span.hs-clock-ss>:SS</span>` — the CSS draws `:SS` at
- * **half** the `HH:MM` size. The two spans are reused, so the 1-second tick only rewrites text nodes.
+ * Countdown into `host` as `<span.hs-clock-hm>HH:MM</span><span.hs-clock-ss>:SS</span>`. 2026-09-12 (사용자 지적 —
+ * 분석기에서 초가 너무 작았다): `:SS` 도 **`HH:MM` 과 같은 크기**다 (`.hs-clock-ss { font-size: inherit }`); 두 span 은
+ * 스테이션 네 화면이 한 크기를 쓰게 하는 자리일 뿐이다. 두 span 을 재사용하므로 1초 틱은 텍스트 노드만 고쳐 쓴다.
  */
 export function renderClock(host: HTMLElement, seconds: number): void {
   let hm = host.firstElementChild as HTMLElement | null;

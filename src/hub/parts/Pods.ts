@@ -20,11 +20,9 @@ import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
 import { LaunchWarnPanel } from '../ui/LaunchWarnPanel';
 import { Terminal } from '../Terminal';
-import { Workbench } from '../Workbench';
 import { Computer } from '../Computer';
 import { DockingCutscene, type DockDirection } from '../DockingCutscene';
 import { HubMenu } from '../ui/HubMenu';
-import { WorkbenchMenu } from '../ui/WorkbenchMenu';
 import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
@@ -50,7 +48,7 @@ export function podPrompt(sys: HubSystem, slot: number): string | null {
  */
 export function podCanInteract(sys: HubSystem, slot: number): boolean {
   const ctx = sys.ctx;
-  if (ctx.phase !== 'hub' || sys.cutscene || sys.travelling || sys.boardedSlot >= 0 || sys.menu.isOpen || sys.wbMenu.isOpen
+  if (ctx.phase !== 'hub' || sys.cutscene || sys.travelling || sys.boardedSlot >= 0 || sys.menu.isOpen
     || sys.launchWarn.isOpen || sys.housingMode.active || sys.corpMenuOpen()) return false;
   // 2026-09-09: the E that just un-boarded is still held — see `REBOARD_GRACE`. Without this the player steps out
   // and the very same press walks them back in 0.4 s later, which reads as "the pod ignores me".

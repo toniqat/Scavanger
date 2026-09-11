@@ -16,6 +16,8 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
+/* 2026-09-12: 소켓을 만질 수 있는 자리의 규칙은 `DropResolver` 하나가 갖는다 (가방 · 장비칸 · 함선 창고) */
+import { canSocketAt } from './DropResolver';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
@@ -191,17 +193,23 @@ export function attachToWeapon(sys: InventorySystem, weaponUid: string, attachme
   return sys.attachFrom(attachmentUid, a.from, weaponUid, w.from) === 'ok';
   }
 
-/** Every attachment of weapon `uid` back into the bag (overflow drops to the ground). False when none / not found. */
+/**
+ * Every attachment of weapon `uid` back into the bag (overflow: 함선이면 창고, 그래도 없으면 바닥).
+ * False when none / not found.
+ *
+ * 2026-09-12 (사용자 결정): 대상은 `canSocketAt` — 가방 · 장비칸 · **함선 창고**이고 상자 · 시체는 아니다
+ * (그 규칙의 근거는 `parts/DropResolver.canSocketAt` 의 주석에 있다).
+ */
 export function detachAllSockets(sys: InventorySystem, uid: string): boolean {
   const w = sys.locate(uid);
-  if (!w || sys.locKind(w.from) !== 'player' || !isWeaponItemDef(ITEM_DEF_MAP.get(w.item.defId))) return false;
+  if (!w || !canSocketAt(sys, w.from) || !isWeaponItemDef(ITEM_DEF_MAP.get(w.item.defId))) return false;
   const weapon = w.item;
   let n = 0;
   for (const socket of SOCKET_SLOTS) {
     const att = clearSocket(weapon, socket);
     if (!att) continue;
     n++;
-    if (!sys.bag.autoPlace(att)) sys.throwToWorld(att, true);
+    if (!sys.bag.autoPlace(att) && !(sys.hubMode && sys.tryAddToStash(att))) sys.throwToWorld(att, true);
     sys.ctx.bus.emit('inventory:socketChanged', { weapon, socket, attachment: null });
   }
   if (n === 0) return false;

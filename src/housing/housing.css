@@ -92,13 +92,19 @@
 
 /* ── 가구 화면 공통 틀 (2026-09-12) ──────────────────────────────────────────
  * 재배 스테이션 · 분석기 · 배양조 · 식탁이 같은 틀을 쓴다 (`ui/StationShell.ts`): 머리줄 = 제목 + `Lv. n` (좌) ·
- * 업그레이드 (우, `ui/UpgradeModal.ts`), 몸통 = 좌 패널(가구 내용) + 우 패널(가방 · 함선 창고, `createTradeGrids`).
- * 방 번호 · 설명 줄 · 「가방 · 함선 창고」 라벨 · 안내문은 없다 (사용자 결정).
+ * 업그레이드 (우, `ui/UpgradeModal.ts`), 몸통 = **맨 왼쪽 레일(`.hs-rail`, 선택) + 좌 패널(가구 내용) + 우 패널**
+ * (가방 · 함선 창고, `createTradeGrids`). 방 번호 · 설명 줄 · 「가방 · 함선 창고」 라벨 · 안내문은 없다 (사용자 결정).
  * 모든 이름은 이 폴더 전용 접두사다 — 옛 `.ct-*`(배양조)가 기업 화면의 `.ct-*` 와 겹쳐 거래 칸을 배양관 모양으로
  * 만들었으므로 배양조는 `.cult-*` 로 옮겼다 (2026-09-10 `.hold` 사고와 같은 뿌리).
  * ────────────────────────────────────────────────────────────────────────── */
+.menu.housing-menu.hs-station {
+  /* 우 패널 폭 = 가방 5칸 + 함선 창고 10칸이 **가로로 나란히** 서는 너비 (`inventory/ui/TradeGrids` 2026-09-12 가로 2열).
+     칸 한 변 54 + 격자 간격 2 = 56 이 한 칸의 피치다 — 값의 원본은 inventory 쪽이고 여기서는 자리만 잡는다. */
+  --hs-inv-w: calc(15 * 56px + 96px);
+}
+/* 레일 176 + 좌 패널 300 + 우 패널 936 + gap 32 + `.menu .frame` 좌우 여백 80 = 1524 — 그것을 담는 폭이다 */
 .menu.housing-menu.hs-station .frame {
-  min-width: 0; max-width: none; width: min(1180px, calc(100vw - 48px));
+  min-width: 0; max-width: none; width: min(1540px, calc(100vw - 48px));
   height: min(780px, calc(100vh - 48px));
   display: flex; flex-direction: column;
 }
@@ -108,45 +114,78 @@
 .hs-lv[hidden] { display: none; }
 .hs-up-open { flex: none; min-width: 132px; height: 36px; padding: 0 18px; }
 .hs-up-open.is-max { opacity: 0.55; }
-.hs-station-body { display: grid; grid-template-columns: minmax(360px, 1fr) auto; gap: 16px; flex: 1; min-height: 0; }
+/* 레일(선택) · 좌 패널 · 우 패널. 레일은 쓰지 않는 화면에서 `hidden` 이고, flex 라 그때 gap 까지 함께 사라진다. */
+.hs-station-body { display: flex; gap: 16px; flex: 1; min-height: 0; }
 .hs-pane {
   display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
   padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
   user-select: none;
 }
-.hs-pane-left { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.hs-pane-left { flex: 1 1 340px; min-width: 300px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+/* 우 패널은 `auto` 가 아니라 **격자가 필요한 만큼**이고 (예전 `auto` 는 창 폭에 아랑곳없이 늘어났다), 자리가
+   모자라면 줄어든다 — 가로 2열 격자의 폭은 위 `--hs-inv-w` 하나가 정한다. */
+.hs-pane-right { flex: 0 1 auto; min-width: 0; max-width: var(--hs-inv-w); }
 .hs-pane .ui-label { display: flex; align-items: center; gap: 10px; }
-/* the embedded grids live outside `.inv-root`, so they need the `--inv-*` palette declared here (same list as
-   `.crew-loadout` in inventory/inventory.css — 값은 그쪽이 원본이다) */
-.hs-inv {
-  --inv-cell: 54px;
-  --inv-gap: 2px;
-  --inv-bg: rgba(9, 11, 15, 0.78);
-  --inv-bg-2: rgba(16, 19, 25, 0.82);
-  --inv-line: rgba(255, 255, 255, 0.12);
-  --inv-line-strong: rgba(255, 255, 255, 0.26);
-  --inv-text: #e9ecef;
-  --inv-muted: rgba(233, 236, 239, 0.55);
-  --inv-accent: #f0c46a;
-  --inv-ok: #4fd17e;
-  --inv-bad: #ff5c5c;
-  --inv-swap: #4aa3ff;
-  --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  display: flex; flex: 1; min-height: 0; color: var(--inv-text);
-}
-.hs-inv .trade-grids { flex: 1; min-height: 0; }
+/* 2026-09-12: `--inv-*` 팔레트를 여기서 **다시 선언하지 않는다** — `.trade-grids`(inventory/inventory.css) 가 자기
+   뿌리에 그 목록을 이미 갖고 있고, 여기 있던 사본에만 `--inv-bg` · `--inv-bg-2` · `--inv-swap` 이 더 있어서
+   같은 격자가 기업 화면과 스테이션 화면에서 다르게 보였다. 값의 원본은 inventory 쪽 하나다. */
+.hs-inv { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.hs-inv .trade-grids { flex: 1; min-width: 0; min-height: 0; }
 /* 다 된 산물을 끌어 격자 위에 올렸을 때 (`ui/ProductDrag` 가 `[data-tg-grid]` 블록에 붙인다) */
 [data-tg-grid].hs-drop-over { outline: 2px solid var(--c-accent); outline-offset: -2px; }
 
-@media (max-width: 1100px) {
-  .menu.housing-menu.hs-station .frame { height: calc(100vh - 48px); }
-  .hs-station-body { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
-  .hs-pane-right { min-height: 300px; }
+/* 2026-09-12 (회귀 수정 — 두 격자 중 **하나가 늘 화면 밖으로 나갔다**):
+ * ① 두 격자가 가로로 나란히 서려면 우 패널에 910 px 이 필요하고(창고 10칸 558 + 가방 5칸 278 + 스크롤바 자리
+ *    10 씩 + 사이 간격 14 + `.tg-scroll` 안팎 여백 · 테두리 16 + `.hs-pane` 안여백 24), 그 앞에 레일 176 +
+ *    gap 16 + 좌 패널 최소 300 + gap 16 이 선다. `.menu .frame` 좌우 여백 80 과 `.menu` 여백 48 을 더하면
+ *    **뷰포트 1550 px 남짓**부터 들어간다 — 여유를 두고 1600 을 경계로 삼는다 (실측: 1596 세로 · 1600 가로).
+ * ② 그런데 예전처럼 **한 스크롤에 세로로 이어 붙이면** 어느 쪽을 위에 올려도 다른 쪽이 화면 밖이었다: 창고
+ *    격자는 24행 = 1381 px, 가방 틀은 12행 = 709 px 인데 스크롤 창은 600 px 남짓이다. 창고가 위면 가방이
+ *    y≈1574, 가방이 위면 창고가 y≈900 에서 시작해 화면(900) 밖으로 밀렸다. **끌고 있는 동안에는 스크롤할 수
+ *    없으므로** 그때마다 「창고 → 흙구멍」이나 「수확물 → 가방」 중 한 쪽 길이 통째로 막혔다.
+ * 그래서 스테이션 화면에서는 **블록마다 자기 스크롤**이다 — 두 블록이 스크롤 창의 높이를 나눠 갖고, 넘치는
+ * 행은 각자 자기 상자 안에서 스크롤한다. 그러면 폭이 어떻든 **드래그를 시작하기 전에 둘 다 화면 안에 있다**
+ * (실측 1200 · 1280 · 1366 · 1440 · 1536 · 1600 · 1920 · 2560 전부).
+ * (`.tg-scroll` 은 그대로 남지만 이제 넘칠 일이 없다. 값 · 기본 배치의 원본은 여전히 `.trade-grids` 이고,
+ *  이 규칙은 `.hs-inv` 안에서만 산다 — 같은 뷰를 쓰는 기업 거래 화면(`meta`)은 한 줄도 바뀌지 않는다.)
+ * 세로로 쌓을 때의 순서는 **창고 위 · 가방 아래**다 — 「창고 왼쪽 · 가방 오른쪽」(2026-09-12 사용자 결정)을
+ * 읽는 순서 그대로 내린 것이고, 이제는 둘 다 보이므로 순서가 닿고 못 닿고를 정하지 않는다.
+ * ⚠ 아래 `@media (max-width: 1180px)` 의 세로 몸통(레일 · 좌 · 우가 위아래로)은 이 배치 **밖**이다 — 거기서는
+ *   우 패널이 좌 패널 아래로 내려가므로 한 화면에 둘이 같이 있지 않다 (이 배치 이전부터 그랬다). */
+/* `flex-wrap: nowrap` 이 요점이다 — **여러 줄** flex 상자에서 `stretch` 는 상자가 아니라 *그 줄*의 높이(= 제일 큰
+   블록 1381 px)까지만 늘리므로 블록이 스크롤 창을 넘어선다. 한 줄로 못박아야 블록이 창 높이에 맞는다. */
+.hs-inv .tg-scroll { flex-wrap: nowrap; align-items: stretch; }
+.hs-inv .tg-block { min-height: 0; }
+/* 스크롤은 격자 자신이 아니라 **감싸는 상자**(`.tg-gridwrap`)가 맡는다 — 격자는 폭이 px 로 못박혀 있어 스크롤바가
+   마지막 열을 갉아먹지만, 이 상자는 폭이 내용에서 나오므로 브라우저가 스크롤바 자리를 폭에 더해 준다.
+   `flex: 0 1 auto` = 늘지 않고 줄기만 한다 (남는 자리를 빈 격자로 채우지 않는다).
+   `scrollbar-gutter: stable` 은 그 자리를 **늘** 잡아 둔다 — 행이 늘어 스크롤바가 생기는 순간 격자가 흔들리지
+   않고, 헤드리스(오버레이 스크롤바 · 자리 0)와 실제 창(클래식 스크롤바)의 폭 계산이 갈라지지 않는다.
+   모양은 `ui/styles/base.css` 가 `#ui-root` 아래 모든 스크롤러에 이미 입힌다 (`--sb-thumb` · `scrollbar-width: thin`). */
+.hs-inv .tg-gridwrap { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+@media (max-width: 1599px) {
+  /* 세로 스택 — `align-items: flex-start` 라 블록 폭은 격자 폭 그대로이고, 높이만 `flex: 1 1 0` 으로 반씩 나눈다.
+     반씩인 이유: 비례로 나누면 큰 창고가 대부분을 가져가 가방이 3행밖에 안 보인다 (6행짜리 기본 가방이 잘린다). */
+  .hs-inv .tg-scroll { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; }
+  .hs-inv .tg-block { flex: 1 1 0; }
 }
 
-/* 남은 시간 `HH:MM:SS` — `:SS` 는 `HH:MM` 글자 크기의 절반 (`dom.renderClock`) */
+@media (max-width: 1180px) {
+  .menu.housing-menu.hs-station .frame { height: calc(100vh - 48px); }
+  .hs-station-body { flex-direction: column; overflow-y: auto; }
+  .hs-rail { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; }
+  .hs-rail-item { flex: 1 1 160px; }
+  .hs-pane-left { flex: none; min-width: 0; }
+  .hs-pane-right { flex: none; max-width: none; min-height: 300px; }
+}
+
+/* 남은 시간 `HH:MM:SS` (`dom.renderClock`).
+ * 2026-09-12 (사용자 지적 — 분석기에서 초가 너무 작았다): `:SS` 는 `HH:MM` 과 **같은 크기**다. 스테이션 네 화면
+ * (재배 · 분석기 · 배양조 · 식탁) 공용으로 한 번에 같게 둔다 — 화면마다 다른 크기를 쓰면 같은 시계가 화면마다
+ * 달라 보이고, 재배 칸의 「상태가 바뀌어도 높이가 한 픽셀도 변하지 않는다」도 글자 크기가 하나여야 지켜진다.
+ * `tabular-nums` 라 숫자가 바뀌어도 폭이 흔들리지 않는다. */
 .hs-clock { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0.04em; }
-.hs-clock-ss { font-size: 0.5em; }
+.hs-clock-ss { font-size: inherit; }
 
 /* 업그레이드 모달 (`ui/UpgradeModal.ts`) — 1초 홀드 확정 */
 .hs-modal { position: fixed; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center; background: rgba(4, 6, 9, 0.62); }
@@ -195,14 +234,40 @@
 /* 끌고 가는 산물 (`ui/ProductDrag.ts`) — transform 만 움직인다 */
 .hs-ghost { position: fixed; left: 0; top: 0; z-index: 220; pointer-events: none; will-change: transform; opacity: 0.92; }
 
-/* 좌측 세로 탭 (분석기 「해석」 · 「해석 도감」) */
-.hs-tabs { display: flex; flex-direction: column; gap: 4px; }
+/* ── 맨 왼쪽 세로 레일 (`ui/StationShell.ts` 의 `rail`, 2026-09-12) ──────────
+ * 두 화면이 같은 자리 · 같은 결로 쓴다 — 재배 스테이션 **목록**(이름 + 3×3 현황 점 + 레드닷)과 분석기의
+ * **탭**(해석 · 해석 도감). 쓰지 않는 화면에서는 `hidden` 이라 flex gap 까지 사라진다.
+ * ────────────────────────────────────────────────────────────────────────── */
+.hs-rail {
+  flex: none; width: 176px; display: flex; flex-direction: column; gap: 6px;
+  min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
+}
+.hs-rail[hidden] { display: none; }
 .hs-tab {
   text-align: left; padding: 10px 12px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
   color: var(--c-text-dim); background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border); cursor: pointer;
 }
 .hs-tab:hover { color: var(--c-text); border-color: rgba(255, 255, 255, 0.35); }
 .hs-tab.is-active { color: var(--c-accent); border-color: color-mix(in srgb, var(--c-accent) 60%, transparent); background: rgba(255, 179, 71, 0.08); }
+
+/* 스테이션 목록 한 줄 — `.hs-tab` 과 같은 결이되 오른쪽에 현황 점이 붙는다 */
+.hs-rail-item {
+  position: relative; display: flex; align-items: center; gap: 10px; flex: none;
+  text-align: left; padding: 10px 12px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--c-text-dim); background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border); cursor: pointer;
+}
+.hs-rail-item:hover { color: var(--c-text); border-color: rgba(255, 255, 255, 0.35); }
+.hs-rail-item.is-active { color: var(--c-accent); border-color: color-mix(in srgb, var(--c-accent) 60%, transparent); background: rgba(255, 179, 71, 0.08); }
+/* 레드닷 — 수확 가능한 칸이 하나라도 있으면. 레일은 세로 스크롤 컨테이너라 모서리 배지는 잘린다(overflow-x 가
+   visible 로 계산되지 않는다). 그래서 이름 왼쪽의 **자리를 늘 차지하는** 점이고, 없을 때는 `visibility` 로만 숨는다. */
+.hs-rail-red { flex: none; width: 7px; height: 7px; border-radius: 50%; visibility: hidden; background: var(--c-danger); }
+.hs-rail-red.on { visibility: visible; box-shadow: 0 0 8px rgba(255, 90, 74, 0.9); }
+.hs-rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 3×3 원형 점 = 그 스테이션의 9칸 (`getGrowSlots` 순서 그대로). 까망 = 자랄 게 없음(잠긴 칸 포함) */
+.hs-rail-dots { flex: none; display: grid; grid-template-columns: repeat(3, 5px); grid-auto-rows: 5px; gap: 3px; }
+.hs-rail-dots i { width: 5px; height: 5px; border-radius: 50%; background: #05070a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
+.hs-rail-dots i.growing { background: #8a939e; box-shadow: none; }
+.hs-rail-dots i.ready { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
 
 /* ── 온실 재배 스테이션 (온실 개편 2026-09-11 · 화면 개편 2026-09-12) ────────────
  * 한 층 = 하얀 바 + 그 바에 박힌 흙구멍 3개(위가 잘린 작은 원). 바의 윗변 = 흙구멍의 윗변. 작물은 구멍 위
@@ -226,7 +291,10 @@
 }
 .gs-slot { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .gs-slot.is-ready { cursor: grab; }
-.gs-plant { position: relative; width: 100%; height: var(--gs-plant-h); pointer-events: none; z-index: 2; }
+/* 2026-09-12: 식물이 **자라날 공간 전체**가 호버 대상이다 (작물 툴팁) — `pointer-events` 를 되돌려 받았다.
+   드롭 대상은 여전히 아래 `.gs-pot[data-tier]` 하나이고 둘은 세로로 겹치지 않으므로 드래그 드롭은 그대로다. */
+.gs-plant { position: relative; width: 100%; height: var(--gs-plant-h); z-index: 2; }
+.gs-plant .gs-stem, .gs-plant .gs-leaf { pointer-events: none; }
 .gs-stem {
   position: absolute; left: 50%; bottom: -3px; width: 3px; margin-left: -1.5px; height: calc(var(--gs-plant-h) - 22px);
   background: linear-gradient(180deg, #a8ec9b, #4a8f45); border-radius: 2px;
@@ -255,19 +323,25 @@
 /* 흙: 구멍 안이 토양 색으로 80 % 높이까지 찬다 */
 .gs-soil { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #5c4433; box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.45); }
 .gs-slot.has-soil .gs-soil { height: 80%; }
-.gs-time { margin-top: 7px; min-height: 18px; font-size: 14px; line-height: 18px; color: var(--c-text); text-align: center; }
-.gs-slot.is-ready .gs-time { font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-success); }
+/* 구멍 아래 한 줄 — **어느 상태에서도 높이가 한 픽셀도 변하지 않는다** (2026-09-12, 사용자 결정).
+ * 그래서 `height`(min-height 가 아니다) · `line-height` · `font-size` 를 못 박고, 상태별로는 **색과 굵기만** 바꾼다.
+ * `:SS` 도 `HH:MM` 과 같은 크기라(`.hs-clock-ss`) 시계 ↔ 글자 전환에도 인라인 박스 높이가 같다.
+ *   흙 없음 → 「토양 필요」(빨강) · 흙만 → `00:00`(딤드) · 자라는 중 → `HH:MM:SS` · 다 자람 → 「수확 가능」(초록) */
+.gs-time { margin-top: 7px; height: 20px; line-height: 20px; font-size: 13px; color: var(--c-text); text-align: center; }
+.gs-slot:not(.has-soil) .gs-time { font-family: inherit; font-weight: 600; letter-spacing: 0.06em; color: var(--c-danger); }
+.gs-slot.has-soil:not(.is-planted) .gs-time { color: var(--c-text-faint); }
+.gs-slot.is-ready .gs-time { font-family: inherit; font-weight: 700; letter-spacing: 0.06em; color: var(--c-success); }
 
 /* ── 연구실 분석기 (A-12 2026-09-11 · 화면 개편 2026-09-12) ─────────────────
- * 좌 패널 = 세로 탭(해석 · 해석 도감) + 페이지. 한 칸 = 글리프 칸 + 위 이름 · 아래 작은 시간 + 우하단 버튼.
+ * 탭(해석 · 해석 도감)은 화면 맨 왼쪽 레일(`.hs-rail`)로 나갔고 좌 패널에는 페이지만 남는다.
+ * 한 칸 = **글리프 칸 | 본문(이름 · 시간 · 진행바) | 버튼** 세 열 — 버튼이 흐름 안의 자기 열이라 겹치지 않는다.
  * ────────────────────────────────────────────────────────────────────────── */
-.az-split { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; flex: 1; min-height: 0; }
-.az-pages { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
+.az-pages { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
 .az-slots { display: flex; flex-direction: column; gap: 10px; }
 .az-slots[hidden], .az-dexhost[hidden] { display: none; }
 .az-slot {
-  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start;
-  min-height: 90px; padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  min-height: 92px; padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
 }
 .az-slot.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.14); }
 .az-slot.is-ready { cursor: grab; }
@@ -283,14 +357,16 @@
 .az-glyph { font-size: 26px; line-height: 1; color: #d8c8f5; text-shadow: 0 0 10px rgba(199, 159, 255, 0.45); pointer-events: none; }
 .az-slot:not(.is-running) .az-glyph { color: var(--c-text-faint); text-shadow: none; }
 .az-slot.is-ready .az-glyph { color: var(--c-success); }
-.az-slot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px; }
+.az-slot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .az-name { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .az-time { font-size: 12px; color: var(--c-text-dim); min-height: 15px; }
 .az-slot.is-ready .az-time { font-family: inherit; font-weight: 700; letter-spacing: 0.08em; color: var(--c-success); }
-.az-prog { width: 100%; max-width: 220px; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.az-prog { width: 100%; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .az-prog[hidden] { display: none; }
 .az-prog i { display: block; height: 100%; width: 0%; background: #c79fff; }
-.az-acts { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; }
+/* 2026-09-12: 절대 배치(`right/bottom`)를 걷어내고 **자기 열**로 들여왔다 — 예전에는 흐름에서 빠져 본문 위에
+   얹혔고, 좌 패널이 좁아지면 남은 시간 · 진행바와 겹쳤다. 세로로 쌓아 열 폭을 버튼 하나만큼만 쓴다. */
+.az-acts { display: flex; flex-direction: column; gap: 6px; flex: none; align-self: center; }
 .az-acts .ui-btn { min-width: 72px; }
 /* `.ui-btn` sets its own display, so the hidden attribute needs to win explicitly */
 .az-acts .ui-btn[hidden] { display: none; }

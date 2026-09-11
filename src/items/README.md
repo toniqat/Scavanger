@@ -214,7 +214,7 @@ Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue c
 
 | File | Role |
 |---|---|
-| `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint, `ARMOR_ICON`. 2026-09-10: `ArmorDef.shield` (실드 최대치) 가 실제로 쓰이는 값이고 `damageReduction` 은 환산 근거로만 남았다 |
+| `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint (**2026-09-12: 전부 2×2 고정**), `ARMOR_ICON`. 2026-09-10: `ArmorDef.shield` (실드 최대치) 가 실제로 쓰이는 값이고 `damageReduction` 은 환산 근거로만 남았다 |
 | `Recipes.ts` | **제작만** — `data/recipes.csv` 94줄을 `CRAFT_RECIPES` 로 옮기고, 아이템 하나를 만드는 데 드는 재료를 `CRAFT_COST_BY_OUTPUT` / `craftCostOf(defId)` 로 색인한다 (`outputQty === 1` 인 레시피만 — 수리비 · 분해 산출의 기준이 이 색인이다) |
 | `Salvage.ts` | **분해 · 수리 (2026-09-10 신규)** — 내구도 20 % 5구간(`durabilityBucketOf` · `durabilityBucketInfo` · `bucketOfRatio` · `DURABILITY_BUCKET_LABELS`), `repairCostFor(inst)`, `salvageFor(inst)`, `data/salvage.csv` 손 분해 6줄 + 제작 재료에서 생성한 분해 38줄(`SALVAGE_RECIPES`), `ALL_CRAFT_RECIPES` · `CRAFT_RECIPE_MAP` · `getRecipe`, 그리고 무한 이득 검산 `checkSalvageEconomy()` (`npm run data:check` 가 돌린다). Table in *Recipes* below |
 
@@ -874,6 +874,14 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 ---
 
 ## 변경 이력
+
+- **2026-09-12 (방탄복 전부 2×2, 사용자 결정)** — `ArmorDefs.armorItemSize()` 가 등급 · 퍽을 보지 않고 늘
+  `{ width: 2, height: 2 }` 를 돌려준다. 예전에는 초경량 · 광학미채 · I–II 만 2×2 이고 III–V 와 재생은 2×3 이라,
+  후반 방탄복 한 벌이 가방 한 줄을 통째로 먹었다 — 등급이 올라갈수록 무거워지는 부담은 `weight`(`data/armor.csv`)
+  가 이미 지고 있으므로 자리까지 이중으로 물리지 않는다. **함수는 지우지 않았다**: `ItemDefs.armorItem()` 이
+  `width`/`height` 를 채우는 유일한 자리이고, 다시 갈라야 할 때 고칠 곳이 여기 하나로 남는다. 세이브는 격자가
+  **작아지는 방향**이라 안전하다 — `parts/Lifecycle` · `Stash` 의 로드는 저장된 칸에 새 크기로 `place` 하므로
+  2×3 이 서던 자리에 2×2 는 반드시 서고(회전 저장분도 3×2 → 2×2), 겹침이 새로 생길 수 없다.
 
 - **2026-09-11 (주방 · 배양조 · 프린터 A-3c · A-14 · A-15 — items/ 몫)** — 새 아이템 **34종 + 로더 4개**, 위
   *요리 · 주머니 · 배양 재료 · 열쇠* 절이 표다. ① **요리**: `data/meals.csv` **전용 파일** 로더

@@ -634,8 +634,13 @@ export interface FurnitureCallbacks {
   onGrowRack(uid: string): void;
   /** 재배 스테이션 (온실 개편, 2026-09-11): 그 스테이션의 재배 화면 (`ctx.housing.openGrowStation(uid)`). */
   onGrowStation(uid: string): void;
-  /** 정비 벤치 (Phase 8): open the weapon-repair menu (the cockpit bench moved into the 작업실). */
-  onRepairBench(): void;
+  /*
+   * 정비 벤치 (Phase 8) — **2026-09-12 은퇴** (사용자 결정). `onRepairBench(): void` 가 여기 있었고
+   * `hub/ui/WorkbenchMenu` 를 열었다. 함선에서의 무기 수리는 이제 인벤토리에서 재료로 하므로 그 창도,
+   * `furn_repair_bench` 가구도 없다(`data/furniture.csv` 의 `retired=1` → `ShipState.sanitize` 가 환불한다).
+   * `FurnitureInteraction` 의 `'repair_bench'` 는 계약이라 남아 있고, 아래 dispatch 가 **아무것도 하지 않는**
+   * 분기로 그 값을 잡는다 — 없애면 `else cb.onRangeConsole()` 로 흘러 엉뚱한 창이 열린다.
+   */
   /** 책장 (Phase 9): open the bookshelf panel of this piece (`ctx.housing.openBookshelfMenu(uid)`). */
   onBookshelf(uid: string): void;
   /** 분석기 (연구실 A-12, 2026-09-11): open the 해석 panel of this piece (`ctx.housing.openAnalyzer(uid)`). */
@@ -822,7 +827,7 @@ export class FurnitureLayer {
           else if (kind === 'sim_hub') cb.onSimHub();
           else if (kind === 'grow_rack') cb.onGrowRack(uid);
           else if (kind === 'grow_station') cb.onGrowStation(uid);
-          else if (kind === 'repair_bench') cb.onRepairBench();
+          else if (kind === 'repair_bench') { /* 2026-09-12 은퇴 — 도달 불가(`retired`), 그러나 fallback 으로 새지 않게 잡는다 */ }
           else if (kind === 'bookshelf') cb.onBookshelf(uid);
           else if (kind === 'analyzer') cb.onAnalyzer(uid);
           else if (kind === 'culture_tank') cb.onCultureTank(uid);

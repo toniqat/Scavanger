@@ -98,6 +98,13 @@ try {
     p.spawnStanding(v, yaw);
   }, [x, z, yaw]);
   const playerPos = () => page.evaluate(() => { const p = window.__game.ctx.player.position; return [p.x, p.y, p.z]; });
+  /* 2026-09-12: the ship's dimensions are **derived** from `ROOM_GRID_COLS/ROWS` (rooms 4 × 4 → 8 × 8 m, corridor
+     25 → 45 m), so no coordinate is written down here any more — ask the built interior for its room rectangles
+     (`interiors/RoomLayout.ROOM_BOXES` → `ShipInterior.rooms`) and derive every teleport / wall / camera value from
+     them. The door is 1.6 m wide and centred on the room's corridor wall, i.e. at the room's own mid-z (`doorZ`). */
+  const roomBoxes = () => page.evaluate(() => (window.__game.getSystem('hub').interior?.rooms ?? [])
+    .map((r) => ({ index: r.index, side: r.side, minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ })));
+  const cxOf = (r) => (r.minX + r.maxX) / 2, czOf = (r) => (r.minZ + r.maxZ) / 2;
 
   /* ── 1. personal ship: layout, interactables, lights ────────────────── */
   console.log('personal ship');
@@ -237,35 +244,42 @@ try {
 
   /* ── 3. corridor → room 0: walking through the door, room tracking ──── */
   console.log('rooms');
-  await teleport(0, 2.5, Math.PI / 2);          // corridor segment 0, facing −X (room 0's door)
+  const RB = await roomBoxes();
+  const rb0 = RB[0], rb5 = RB[5], rb7 = RB[7];
+  // the doorway is the only gap in room 0's corridor wall, so stand on its centre line before walking −X
+  await teleport(0, czOf(rb0), Math.PI / 2);    // corridor segment 0, facing −X (room 0's door)
   await waitSim(0.2);
   ok((await page.evaluate(() => window.__game.ctx.hub.currentRoom)) === null, 'corridor: currentRoom null');
   await keyDown('KeyW');
   await waitSim(2.0);
   await keyUp('KeyW');
   const walked = await playerPos();
-  ok(walked[0] < -1.8, `walked through the door into room 0 (x ${walked[0].toFixed(2)})`);
+  // past the door wall = past the room's corridor-side edge (`rb.maxX` for a port room)
+  ok(walked[0] < rb0.maxX, `walked through the door into room 0 (x ${walked[0].toFixed(2)} < ${rb0.maxX})`);
   await waitSim(0.2);
   const entered = await page.evaluate(() => ({ room: window.__game.ctx.hub.currentRoom, ev: window.__ev['hub:roomEntered'] }));
   ok(entered.room === 0, `currentRoom 0 (${entered.room})`);
-  ok(entered.ev.length >= 1 && entered.ev[entered.ev.length - 1].room === 0, `hub:roomEntered {room:0, purpose:${entered.ev[entered.ev.length - 1]?.purpose}}`);
-  // outer wall stops the player
+  ok(entered.ev.length >= 1 && entered.ev[entered.ev.length - 1]?.room === 0, `hub:roomEntered {room:0, purpose:${entered.ev[entered.ev.length - 1]?.purpose}}`);
+  // outer wall stops the player: the body rests one PLAYER_RADIUS (0.45) inside the room's outer edge
   await keyDown('KeyW');
   await waitSim(3.0);
   await keyUp('KeyW');
   const wall = await playerPos();
-  ok(wall[0] > -5.8 && wall[0] < -5.2, `outer wall clamps the player (x ${wall[0].toFixed(2)} ≥ −5.8)`);
-  // back to the corridor → null again; a +X room → 5
-  await teleport(0, 12.5, 0);
+  ok(wall[0] > rb0.minX && wall[0] < rb0.minX + 1.0, `outer wall clamps the player (x ${wall[0].toFixed(2)} ≥ ${rb0.minX})`);
+  // back to the corridor → null again; a +X room → 7
+  await teleport(0, czOf(rb7), 0);
   await waitSim(0.2);
   ok((await lastEv('hub:roomEntered')).room === null, 'leaving the room emits hub:roomEntered {room:null}');
-  await teleport(3.8, 12.5, 0);
+  await teleport(cxOf(rb7), czOf(rb7), 0);
   await waitSim(0.2);
   ok((await page.evaluate(() => window.__game.ctx.hub.currentRoom)) === 7, 'starboard room in segment 2 is room 7 (5..9 = +X front→back)');
 
   /* ── 4. housing mode in room 0 ──────────────────────────────────────── */
   console.log('housing mode');
-  await teleport(-3.8, 2.5, 0);
+  // stand in the middle of room 0 — the cursor starts on the player, so a known centre keeps the mouse probes below
+  // clear of the room edges the locked cursor is clamped to
+  const stand0 = [cxOf(rb0), czOf(rb0)];
+  await teleport(stand0[0], stand0[1], 0);
   await waitSim(0.3);
   const real = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
@@ -290,7 +304,8 @@ try {
   ok(mode0.cursorEv >= 1, `initial housing:cursorChanged emitted (${mode0.cursorEv}) at (${mode0.cell.x},${mode0.cell.y})`);
   await waitSim(1.2);
   const cam = await page.evaluate(() => { const c = window.__game.ctx.camera.position; return [c.x, c.y, c.z]; });
-  ok(cam[1] > 4.5 && Math.abs(cam[2] - 2.5) < 1.0, `camera overridden above the room (y ${cam[1].toFixed(2)}, z ${cam[2].toFixed(2)})`);
+  // the eye sits over the room's middle (HousingMode `camGoal`: cz, height = ROOM_DEPTH × 1.65 — well above CEIL 3.2)
+  ok(cam[1] > 4.5 && Math.abs(cam[2] - czOf(rb0)) < 1.0, `camera overridden above the room (y ${cam[1].toFixed(2)}, z ${cam[2].toFixed(2)})`);
   // controls off: W does not move the player
   const before = await playerPos();
   await keyDown('KeyW'); await waitSim(0.6); await keyUp('KeyW');
@@ -351,7 +366,8 @@ try {
   });
   ok(rendered.children >= 1 && rendered.meshes >= 2 && rendered.count === 1, `furniture mesh under the room-0 group (${rendered.children} objects, ${rendered.meshes} meshes)`);
   ok(rendered.furn.length === 1 && rendered.furn[0] === `hub_furn_${placedItem.uid}`, `bench interactable ${rendered.furn[0]}`);
-  const expX = -5.8 + (placedItem.x + 2) * 0.5, expZ = 0.5 + (placedItem.y + 1) * 0.5;
+  // roomCellToWorld: centre = room min corner + (cell + footprint/2) × HOUSING_CELL_SIZE; the bench is 4 × 2 at yaw 0
+  const expX = rb0.minX + (placedItem.x + 2) * 0.5, expZ = rb0.minZ + (placedItem.y + 1) * 0.5;
   ok(rendered.center && Math.abs(rendered.center[0] - expX) < 0.01 && Math.abs(rendered.center[1] - expZ) < 0.01, `cell → world centre (${rendered.center?.map((n) => n.toFixed(2))}) matches roomCellToWorld`);
   // collider: the bench pushes a 0.45 m circle out
   const pushed = await page.evaluate(([x, z]) => {
@@ -383,14 +399,16 @@ try {
 
   /* ── 7. recover with X (real rules only) ────────────────────────────── */
   if (real.impl) {
-    await teleport(-3.8, 2.5, 0);
+    await teleport(stand0[0], stand0[1], 0);
     await waitSim(0.2);
     await page.evaluate(() => window.__game.ctx.housing.enterHousingMode(0));
     await waitSim(0.2);
-    // cursor starts on the player; put it on the bench centre with the mouse (−X room: dy → +X, dx → −Z)
+    // cursor starts on the player; put it on the bench centre with the mouse (−X room: dy → +X, dx → −Z).
+    // HousingMode's CURSOR_M_PER_PX is `ROOM_DEPTH × 0.003`, so it doubled with the rooms — derive it, never 0.012.
+    const mPerPx = (rb0.maxZ - rb0.minZ) * 0.003;
     const cellNow = await page.evaluate(() => ({ ...window.__game.getSystem('hub').housing.cell }));
-    const dz = expZ - 2.5, dx = expX - (-3.8);
-    await mouseMove(Math.round(-dz / 0.012), Math.round(-dx / 0.012));
+    const dz = expZ - stand0[1], dx = expX - stand0[0];
+    await mouseMove(Math.round(-dz / mPerPx), Math.round(-dx / mPerPx));
     await waitSim(0.15);
     const over = await page.evaluate(() => ({ ...window.__game.getSystem('hub').housing.cell }));
     ok(over.valid, `cursor over the bench is a valid pick-up target (${over.x},${over.y}; was ${cellNow.x},${cellNow.y})`);
@@ -460,7 +478,7 @@ try {
      eye on the room's +X side looking −X, screen-right = world −Z. The port checks above only look at camera y / z
      and only drive the cursor in room 0, so they pass either way — this block is the starboard half. */
   console.log('starboard housing camera (rooms 6-10)');
-  await teleport(3.8, 2.5, 0);
+  await teleport(cxOf(rb5), czOf(rb5), 0);
   await waitSim(0.3);
   await page.evaluate(() => window.__game.ctx.bus.emit('housing:modeChanged', { active: true, room: 5 }));
   await waitSim(1.6);
@@ -469,8 +487,8 @@ try {
     return { active: h.active, room: h.room, x: c.x, y: c.y, z: c.z, cell: { ...h.cell } };
   });
   ok(sb.active && sb.room === 5, `housing controller active for starboard room 5 (room ${sb.room})`);
-  // room 5 spans x 1.8..5.8 (centre 3.8), z 0.5..4.5 (centre 2.5) → eye (6.0, 6.6, 2.5), the outer-hull side
-  ok(sb.x > 4.8 && sb.y > 4.5 && Math.abs(sb.z - 2.5) < 1.0,
+  // the eye is `centreX + ROOM_DEPTH × 0.55` — outboard of the room centre, i.e. the outer-hull side, over its mid-z
+  ok(sb.x > cxOf(rb5) && sb.y > 4.5 && Math.abs(sb.z - czOf(rb5)) < 1.0,
     `starboard camera looks from the outer hull toward the corridor (x ${sb.x.toFixed(2)}, y ${sb.y.toFixed(2)}, z ${sb.z.toFixed(2)})`);
   await mouseMove(-160, 0);
   await waitSim(0.2);

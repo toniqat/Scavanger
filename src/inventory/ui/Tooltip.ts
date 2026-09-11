@@ -1,6 +1,7 @@
-import type { AmmoType, ArmorDef, DurabilityBucketInfo, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
+import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, shieldChargeOf } from '@/items';
+import { bagCapacityBonus } from '../Gear';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
   socketAbbr, socketTip,
@@ -28,13 +29,6 @@ export interface TooltipLookups {
   allWeaponItemDefs?(): ItemDef[];
   /** appended (2026-09-09): the ammo item (`category 'ammo'`) of a calibre — the thumbnail in the card's corner. */
   findAmmoDef?(type: AmmoType): ItemDef | undefined;
-  /**
-   * appended (2026-09-11, C-37): 남은 내구도 구간과 그 구간의 수리 · 분해 배수 (`LootRef.durabilityBucketInfo`).
-   * 내구도가 **없는** 아이템에도 구간 4 를 돌려주므로 카드는 내구도 줄을 그린 아이템에만 묻는다.
-   */
-  getDurabilityBucket?(item: ItemInstance): DurabilityBucketInfo | null;
-  /** appended (2026-09-11, C-37): 이 인스턴스를 분해할 수 있는가 (`LootRef.getSalvageFor` 가 null 이 아닌가 — 유니크는 false). */
-  canSalvage?(item: ItemInstance): boolean;
 }
 
 /** Catalog maxima the weapon gauges are normalised against (computed lazily, once per Tooltip). */
@@ -65,6 +59,13 @@ const gaugeValues = (weapon: WeaponDef, s: EffectiveWeaponStats): GaugeValues =>
  * calibre is an item-chip-like **thumbnail** in the head's right corner, the five sockets are a **row of small
  * squares** (attachment glyph, rarity border; empty = dashed + socket abbreviation), and the bottom bar reads
  * 무게 on the left and 가치 on the right for every item. 종류 / 등급 / 탄창 / 정조준 시간 / 재장전 / 크기 rows are gone.
+ *
+ * **2026-09-12 (사용자 결정)** — 세 가지:
+ *  - **내구도는 게이지 한 줄**(`buildDurabilityBar`, `.inv-tt-durbar`)이다. 무기 · 가방 · 방탄복 · 회복 스프레이가
+ *    같은 함수를 부르므로 같은 값이 어디서나 같은 모양이고, 그 아래 있던 `구간` 줄(C-37)은 **사라졌다** —
+ *    수리 · 분해 구간은 그 팝업들이 자기 자리에서 말한다.
+ *  - **가방**은 「소지 한계 +N kg」 한 줄을 더 갖는다 (`Gear.bagCapacityBonus` — 무게 계산과 **같은 식**).
+ *  - **방탄복**의 `특성` 행은 설명 문단과 글자가 같으면 서지 않는다 (유니크 description 이 곧 퍽 문장이다).
  */
 export class Tooltip {
   readonly el: HTMLElement;
@@ -78,15 +79,31 @@ export class Tooltip {
   }
 
   /**
-   * 2026-09-11 (C-37): 내구도 줄 바로 아래 `81~100 % · 분해 40 % · 수리 10 %`. 수리 · 분해 재료가 **제작 재료 × 이
-   * 구간의 배수**라서 (`items/Salvage`) 닳은 장비를 뜯을지 고칠지를 카드에서 바로 읽게 한다. 내구도 줄을 그린
-   * 아이템(무기 · 방탄복 · 가방)에서만 부른다 — 회복 스프레이 게이지는 제작 재료 규칙이 아니다.
+   * **2026-09-12 (사용자 결정) — 내구도는 숫자 줄이 아니라 게이지다.** 무기 2×2 게이지(`buildGauge`)와 같은
+   * `.track` / `.fill` 마크업을 쓰되 **한 줄 전체 폭**이고, 채움 색만 남은 비율이 정한다 (`is-low` 30 % 미만 ·
+   * `is-broken` 0). 무기 · 가방 · 방탄복 · 회복 스프레이 게이지가 전부 이 하나를 부르므로 같은 값이 화면 어디서나
+   * 같은 모양이다. 같은 배치에서 그 아래 `구간` 줄(2026-09-11 C-37)은 사라졌다 — 수리 · 분해의 구간 안내는
+   * 수리 팝업(`ui/RepairPanel`)과 분해 팝업(`ui/DisassemblePanel`)이 이미 자기 자리에서 말한다.
    */
-  private pushBucketRow(rows: Array<[string, string, string?]>, item: ItemInstance): void {
-    const info = this.lookups.getDurabilityBucket?.(item);
-    if (!info || !info.label) return;
-    const salvage = this.lookups.canSalvage ? (this.lookups.canSalvage(item) ? info.salvageMul : null) : info.salvageMul;
-    rows.push([TEXT.durability.tooltipKey, TEXT.durability.tooltip(info.label, salvage, info.repairMul), 'is-bucket']);
+  private buildDurabilityBar(label: string, cur: number, max: number, brokenLabel?: string): HTMLElement {
+    const safeMax = Math.max(1, max);
+    const value = Math.max(0, Math.min(safeMax, cur));
+    const ratio = value / safeMax;
+    const cell = document.createElement('div');
+    cell.className = 'inv-tt-gauge inv-tt-durbar';
+    if (value <= 0) cell.classList.add('is-broken');
+    else if (ratio < DURABILITY_LOW) cell.classList.add('is-low');
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = label;
+    const n = document.createElement('span'); n.className = 'n';
+    n.textContent = value <= 0 && brokenLabel ? `${brokenLabel} · 0 / ${safeMax}` : `${Math.round(value)} / ${safeMax}`;
+    const track = document.createElement('div');
+    track.className = 'track';
+    const fill = document.createElement('i');
+    fill.className = 'fill';
+    fill.style.width = `${Math.round(ratio * 100)}%`;
+    track.appendChild(fill);
+    cell.append(k, track, n);
+    return cell;
   }
 
   show(item: ItemInstance, def: ItemDef, x: number, y: number): void {
@@ -119,16 +136,15 @@ export class Tooltip {
     if (weapon && stats) this.el.appendChild(this.buildGauges(def, weapon, stats));
 
     const rows: Array<[string, string, string?]> = [];
+    /** 2026-09-12: 이 아이템의 내구도(또는 게이지) 한 줄 게이지. 종류마다 최대치의 출처만 다르고 그림은 하나다. */
+    let durBar: HTMLElement | null = null;
     if (weapon && stats) {
       const s = TEXT.weaponStats;
       rows.push([s.loaded, `${Math.max(0, item.ammoInMag ?? 0)} / ${stats.magSize}`]);
       rows.push([s.mode, weapon.automatic ? TEXT.auto : TEXT.semi]);
       if (stats.adsZoom > 1 || stats.scope) rows.push([s.zoom, `${stats.adsZoom}×${stats.scope ? ' · 스코프' : ''}`]);
       const max = Math.max(1, stats.maxDurability);
-      const cur = Math.max(0, Math.min(max, item.durability ?? max));
-      const durClass = cur <= 0 ? 'is-broken' : cur / max < DURABILITY_LOW ? 'is-low' : undefined;
-      rows.push([s.durability, cur <= 0 ? `${TEXT.broken} · 0 / ${max}` : `${cur} / ${max}`, durClass]);
-      this.pushBucketRow(rows, item);
+      durBar = this.buildDurabilityBar(s.durability, item.durability ?? max, max, TEXT.broken);
     }
     if (def.attachment) {
       const a = def.attachment;
@@ -153,13 +169,16 @@ export class Tooltip {
       const b = TEXT.bagStats;
       rows.push([b.grid, `${def.bag.cols} × ${def.bag.rows}${def.bag.tactical ? ` · ${b.tactical}` : ''}`]);
       rows.push([b.quickSlots, `${def.bag.quickSlots}`]);
+      /*
+       * 2026-09-12 — **소지 한계 +N kg.** 가방이 늘려 주는 무게는 `Gear.bagCapacityBonus` 하나가 정하고
+       * (`data/tuning.csv` 의 `BAG_CAPACITY_PER_CELL` × 기본 격자를 넘는 칸 수) 이 줄은 그 함수를 그대로 부른다 —
+       * 숫자를 여기 베껴 적으면 표를 고칠 때 글이 어긋난다. 기본 격자보다 작은 가방은 0 이라 줄 자체가 없다.
+       */
+      const capBonus = bagCapacityBonus(def.bag);
+      if (capBonus > 0) rows.push([b.capacity, `+${fmtKg(capBonus)}`]);
       // 2026-09-11 (C-36): 가방 내구도 — 레이드마다 닳지만 0 이어도 격자는 그대로라 `파손` 이라 적지 않는다
       const max = def.durabilityMax;
-      if (max !== undefined && max > 0) {
-        const cur = Math.round(Math.max(0, Math.min(max, item.durability ?? max)));
-        rows.push([b.durability, `${cur} / ${max}`, cur / max < DURABILITY_LOW ? 'is-low' : undefined]);
-        this.pushBucketRow(rows, item);
-      }
+      if (max !== undefined && max > 0) durBar = this.buildDurabilityBar(b.durability, item.durability ?? max, max);
     }
     if (def.armorId) {
       const a = this.lookups.getArmorDef(def.armorId);
@@ -167,18 +186,20 @@ export class Tooltip {
       if (a) {
         // 2026-09-10: 방탄복은 피해를 깎지 않는다 — 실드(추가 체력)를 준다
         rows.push([t.shield, `+${Math.round(a.shield)}`]);
+        /*
+         * 2026-09-12 — **퍽 문장은 한 번만.** `ItemDef.description` 은 `ArmorDef.description` 을 그대로 받아온
+         * 값이고(`items/ItemDefs`), 유니크 방탄복의 그 문장이 곧 퍽 효과 설명이 됐다 — `특성` 행에 다시 적으면
+         * 위의 설명 문단과 **글자 그대로 같은 줄**이 두 번 나온다. 그래서 둘이 다를 때만 행을 세운다.
+         */
+        if (a.perk !== 'none' && a.description !== def.description) rows.push([t.perk, a.description]);
         const max = def.durabilityMax ?? a.durabilityMax;
-        rows.push([t.durability, `${Math.round(Math.max(0, Math.min(max, item.durability ?? max)))} / ${max}`]);
-        this.pushBucketRow(rows, item);
-        if (a.perk !== 'none') rows.push([t.perk, a.description]);
+        durBar = this.buildDurabilityBar(t.durability, item.durability ?? max, max, TEXT.broken);
       }
     }
     // Phase 12: a channelled consumable's 게이지 (회복 스프레이) — `0 / 200` is a valid, repairable state
     if (def.heal?.spray && def.durabilityMax !== undefined && def.durabilityMax > 0) {
       const max = def.durabilityMax;
-      const cur = Math.round(Math.max(0, Math.min(max, item.durability ?? max)));
-      const cls = cur <= 0 ? 'is-broken' : cur / max < DURABILITY_LOW ? 'is-low' : undefined;
-      rows.push([TEXT.gauge, `${cur} / ${max}`, cls]);
+      durBar = this.buildDurabilityBar(TEXT.gauge, item.durability ?? max, max);
     }
     // 2026-09-10: 실드 충전기 — 얼마나 채우는가 · 몇 초 눌러야 하는가
     const charge = shieldChargeOf(def.id);
@@ -218,6 +239,8 @@ export class Tooltip {
       }
       this.el.appendChild(table);
     }
+    // 2026-09-12: 내구도 게이지는 수치 표 **바로 아래** 한 줄 — 표의 두 칸 격자에 들어가지 않는 전체 폭 막대다
+    if (durBar) this.el.appendChild(durBar);
 
     if (imp) {
       const t = TEXT.implantStats;

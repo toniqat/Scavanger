@@ -515,6 +515,10 @@ try {
   await waitSpot('주무기', 'spotlight (주무기 I · II + 가방)');
   const union = await P(() => {
     const s = window.__spotOn(['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-bag'], true);
+    /* 세 대상이 정말 구멍 안에 들어왔나. 구멍은 **화면 밖으로는 못 나가므로**(`Spotlight.place` 의 clamp) 이
+       검사는 "인벤토리 창이 화면 안에 선다" 도 함께 본다 — 2026-09-12 에 `.inv-root` 가 세로 가운데 정렬에서
+       `flex-start + padding-top` 으로 바뀌면서 1280×760 함선 창의 가방 패널이 811 px(화면 760)까지 내려가
+       여기서 `bag:false` 로 잡혔다 (`inventory.css` 의 `.inv-bag-scroll` 함선 예산). */
     const inside = (sel) => {
       const e = document.querySelector(sel);
       if (!e || !s.hole) return null;

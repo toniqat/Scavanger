@@ -169,6 +169,9 @@ export class Parts {
    * `ry` = facing direction (front toward the room, same convention as the other parts). ~1.9 × 0.75 m footprint,
    * one collider box. Returns the interaction anchor (0.95 m in front, deck level), the yaw a player looking at the
    * bench should have, and the transform for a wall sign above the tool board (`TextPlane` added by the caller).
+   *
+   * 2026-09-12: 돌려주는 `position` / `yaw` 를 쓰는 곳이 없어졌다 (정비 벤치 제거 — `hub_workbench` 상호작용이
+   * 사라지고 벤치는 소품이 됐다). 계산이 한 줄이라 그대로 두고, 표지 변환만 `SharedShip` 이 계속 쓴다.
    */
   workbench(x: number, z: number, ry: number): { position: THREE.Vector3; yaw: number; signPos: THREE.Vector3; signRot: THREE.Euler } {
     const fx = -Math.sin(ry), fz = -Math.cos(ry);   // front (toward the room)

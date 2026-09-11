@@ -15,13 +15,12 @@ export interface PodSlotDef {
   doorBlocker: number;
 }
 
-/** Ship workbench (weapon repair): interaction anchor in front of the bench. */
-export interface WorkbenchDef {
-  /** Interaction anchor (deck level, in front of the bench). */
-  position: THREE.Vector3;
-  /** Player yaw looking at the bench. */
-  yaw: number;
-}
+/*
+ * 2026-09-12 (사용자 결정 — 정비 벤치 제거): `WorkbenchDef` 가 여기 있었다. 함선의 **붙박이 정비 벤치**
+ * (`hub_workbench`, 공유 함선 병기고)는 상호작용을 잃었다 — 수리는 이제 인벤토리에서 재료로 한다.
+ * 벤치 소품과 `정비` 표지는 병기고 장식으로 남아 있고 `SharedShip` 은 그 좌표를 더 이상 내보내지 않는다.
+ * 되돌리려면 이 인터페이스와 `ShipInterior.workbench?` 를 되살리고 `hub/Workbench.ts` 를 다시 만든다.
+ */
 
 export interface TerminalDef {
   /** Interaction anchor (deck level, in front of the console). */
@@ -59,11 +58,6 @@ export interface ShipInterior {
   readonly airlockYaw: number;
   readonly pods: PodSlotDef[];
   readonly terminal: TerminalDef;
-  /**
-   * Built-in weapon-repair bench (`hub_workbench`). **Shared ship only since Phase 8** — the personal ship's
-   * repair menu opens from a placed `furn_repair_bench` in the 작업실 instead, so this is optional.
-   */
-  readonly workbench?: WorkbenchDef;
   /** 함선 컴퓨터 (Phase 5): interaction anchor in front of the desk (`hub_computer` → 기업 네트워크). */
   readonly computer: StationDef;
   /** 함선 시설 (tactical kit): 정비대 (shared ship) / 임플란트 시술대 anchors. */

@@ -18,11 +18,9 @@ import { roomAtWorld } from '../interiors/RoomLayout';
 import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
 import { Terminal } from '../Terminal';
-import { Workbench } from '../Workbench';
 import { Computer } from '../Computer';
 import { DockingCutscene, type DockDirection } from '../DockingCutscene';
 import { HubMenu } from '../ui/HubMenu';
-import { WorkbenchMenu } from '../ui/WorkbenchMenu';
 import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
@@ -93,7 +91,6 @@ export function startTransition(sys: HubSystem, direction: DockTransition): void
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a docking transition always leaves a visit
   sys.menu.close(false);
-  sys.wbMenu.close(false);
   sys.ready.hide();
   sys.disposeInterior();          // the player keeps the old collider reference until the new ship is built
   ctx.setPhase('docking');
@@ -148,7 +145,6 @@ export function swapDirect(sys: HubSystem, target: HubShipKind): void {
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a direct swap always leaves a visit
   sys.menu.close(false);
-  sys.wbMenu.close(false);
   sys.ready.hide();
   sys.disposeInterior();
   const spawn = sys.build(target, target === 'shared');
@@ -178,7 +174,6 @@ export function boardShip(sys: HubSystem, peerId: PeerId | null, slot: number): 
   sys.pendingBay = null;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.menu.close(false);
-  sys.wbMenu.close(false);
   sys.ready.hide();
   sys.disposeInterior();
   sys.visit = { peerId, slot, readOnly: peerId !== null };
@@ -199,7 +194,6 @@ export function leaveShip(sys: HubSystem): void {
   if (!visit) return;
   sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
   sys.menu.close(false);
-  sys.wbMenu.close(false);
   sys.ready.hide();
   sys.disposeInterior();
   const slot = visit.slot;

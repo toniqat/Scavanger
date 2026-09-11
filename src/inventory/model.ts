@@ -33,10 +33,22 @@ export type GridId = 'bag' | 'container' | 'stash' | 'pouch';
  */
 export type SlotId = LoadoutSlot;
 /**
- * 2026-09-11 (A-15): `'pouch'` 가 **맨 뒤에** 붙었다 (고정 1칸, `POUCH_SLOTS`). 순서가 곧 장비칸 DOM 순서이고
- * `emptyEquipTargetFor` 가 훑는 순서이므로 기존 네 칸 앞에 끼워 넣지 않는다.
+ * 2026-09-11 (A-15): `'pouch'` 가 붙었다 (고정 1칸, `POUCH_SLOTS`).
+ *
+ * **2026-09-12 (사용자 결정 A안) — 순서가 곧 화면 배치다.** 장비칸 그리드는 두 열이고 이 배열이 그 **읽는 순서**다:
+ * ```
+ *   주무기 I   |  방탄복
+ *   주무기 II  |  가방
+ *   전술 임플란트 |  주머니
+ * ```
+ * 즉 `primary · armor · primary2 · bag · pouch` 이고, 전술 임플란트(`ui/ImplantPanel`)는 장비칸이 아니라
+ * 별도 블록이라 `InventoryUI.mount` 가 `pouch` **앞에** 끼워 넣는다 (좁은 폭의 한 줄 세로 배치에서도 같은 순서).
+ * 열/행 자리는 `inventory.css` 의 `grid-template-areas` 가 정하고 이 배열은 좁은 폭의 DOM 순서를 정한다.
+ *
+ * ⚠ 이 순서는 `emptyEquipTargetFor`(빈 장비칸 찾기)가 훑는 순서이기도 하다. 주무기 둘의 상대 순서
+ * (`primary` → `primary2`)만 지키면 나머지는 카테고리가 겹치지 않으므로 영향이 없다.
  */
-export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'bag', 'armor', 'pouch'];
+export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'armor', 'primary2', 'bag', 'pouch'];
 export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2'];
 /**
  * Where an item lives. `quick` (2026-09-09): a stack sitting **in** wheel slot `index` — the wheel is its own container

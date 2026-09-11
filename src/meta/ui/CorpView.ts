@@ -1,6 +1,6 @@
 import type {
   ContractInfo, CorpId, CurrencyReward, EmbeddedView, GameContext, ItemDef, ItemInstance, QuestInfo, QuestState,
-  ShopItem,
+  ShopItem, TradeGridsViewOptions,
 } from '@/shared';
 import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
@@ -17,12 +17,14 @@ import { TileGrid, type TileSpec } from './TileGrid';
  * 기업 tab. The ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one 기업 네트워크
  * screen in the game and the window owns the blocker, the cursor and Escape.
  *
- * Screen shape (**2026-09-12**) — **기업 목록은 트리다**:
+ * Screen shape (**2026-09-12**) — **기업 목록은 트리이고, 메인 패널과 분리된 카드다**:
  *
- *   좌 `.corp-rail`  기업 목록. 선택한 기업 버튼 **바로 아래**에 가지(`.corp-branch`)가 열린다 —
- *                    신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 퀘스트 / 임플란트 탭. 가지는 한 번에 하나.
- *                    크레딧은 없다 (창 우측 상단 CREDITS 가 이미 찍는다).
- *   우 `.corp-page`  그 페이지의 열들: 목록 → 거래칸 / 납품 (가운데) → **가방 + 함선 창고**(또는 진행 중인 계약)
+ *   좌 `.corp-rail`  기업 목록. `.corp-shell` **밖**의 독립 패널이고(호스트의 직접 자식) 자기 배경 · 테두리를 가지며
+ *                    화면 **세로 중앙 · 메인 패널 왼쪽**에 고정된다 (2026-09-12 2차, `.menu.pause` 와 같은 결).
+ *                    선택한 기업 버튼 **바로 아래**에 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지,
+ *                    그 아래 거래 / 계약 / 퀘스트 / 임플란트 탭. 가지는 한 번에 하나. 제목 줄도 크레딧도 없다.
+ *   우 `.corp-shell` → `.corp-page`  그 페이지의 열들: 목록 → 거래칸 / 납품 (가운데) → **가방 + 함선 창고**
+ *                    (또는 진행 중인 계약). 세 페이지 모두 우측 가방 / 창고 블록의 폭은 `--cv-inv-w` 하나다.
  *
  * **거래칸의 모든 칸은 인벤토리 타일이다 (2026-09-12).** 기업 판매 물품 · 구매 / 판매 트레이 · 임플란트 데스크가
  * `InventoryRef.buildItemTile` 로 만든 `.inv-tile` 을 `TileGrid` 가 `.inv-cells` 위에 발자국대로 채운다 — 가방 /
@@ -40,9 +42,11 @@ import { TileGrid, type TileSpec } from './TileGrid';
  *     onto it) and the basket settles at once;
  *   • **계약**: the corp's contract list and **진행 중인 계약** in the right-hand column, drawn in **that contract's
  *     corp colour** (2026-09-12) — not the selected corp's;
- *   • **퀘스트**: the quest list (이름 + 상태 배지) with the selected quest's 보상 pinned under it, the 납품 table and the
- *     inventory grids;
- *   • **임플란트** (세레스 바이오 only): broken implants as tiles, the selected one's repair card.
+ *   • **퀘스트**: the quest list (이름 + 상태 배지, **완료는 딤드 + 맨 아래**, 우측 상단 `완료된 항목 보기` 체크박스로
+ *     숨길 수 있다 — 기본 켜짐, 화면이 열려 있는 동안만 기억한다), the 납품 table with the selected quest's **보상이
+ *     그 아래 붙어** 있고 (2026-09-12 2차 — 예전에는 목록 열 아래였다), the inventory grids;
+ *   • **임플란트** (세레스 바이오 only): 좌에 망가진 임플란트 타일 + 수리 카드가 한 열로 쌓이고, 우는 거래 · 퀘스트와
+ *     같은 **가방 + 함선 창고** 격자다 (2026-09-12 2차, 사용자 결정).
  *
  * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use looks locked (`.is-locked`) but stays clickable so
  * the click can say why, and the view opens on **퀘스트** instead (`resolvePage`).
@@ -124,16 +128,19 @@ export class CorpView {
 
   private questsEl: HTMLElement | null = null;
   private questListEl!: HTMLElement;
-  /** 선택한 퀘스트의 보상 — 퀘스트 목록 **아래에 고정된** 한 줄 (재화 칩 + 아이템 칩). */
+  /** 선택한 퀘스트의 보상 — **납품 패널 하단**의 한 줄 (재화 칩 + 아이템 칩), 2026-09-12 2차. */
   private questRewardEl!: HTMLElement;
   private questDetailEl!: HTMLElement;
   private questGrids: EmbeddedView | null = null;
   private selectedQuest: string | null = null;
+  /** 퀘스트 목록에 완료 항목을 그릴까 (기본 켜짐). 화면이 열려 있는 동안만 산다 — 영속화하지 않는다. */
+  private showDoneQuests = true;
 
   /* Phase 12: 임플란트 수리 desk */
   private implantsEl: HTMLElement | null = null;
   private implantGrid!: TileGrid;
   private implantDetailEl!: HTMLElement;
+  private implantGrids: EmbeddedView | null = null;
   private selectedImplant: string | null = null;
 
   /* ── staged basket ── */
@@ -161,11 +168,13 @@ export class CorpView {
       return e;
     };
 
-    const shell = add(el('div', { cls: 'corp-shell', parent: host }));
-
-    /* 2026-09-12: 좌 열은 **트리**다 — 기업 버튼들 사이에, 선택한 기업 바로 아래로 가지 하나가 옮겨 다닌다. */
-    const rail = el('div', { cls: 'corp-rail', parent: shell });
-    el('div', { cls: 'cv-title', text: '기업', parent: rail });
+    /*
+     * 2026-09-12 (2차): 기업 목록은 **메인 패널과 분리된 독립 카드**다 — 호스트의 직접 자식이고 `.corp-shell` 밖이다.
+     * 자리는 CSS 가 못 박는다: 화면 세로 중앙 · 메인 패널 왼쪽 (`.menu.pause` 와 같은 결 — 매번 다른 자리보다 늘 같은 자리).
+     * 좌 열은 그대로 **트리**다 — 기업 버튼들 사이에, 선택한 기업 바로 아래로 가지 하나가 옮겨 다닌다.
+     * `기업` 제목 줄은 없다 (2026-09-12, 사용자 결정 — 기업 이름 넷이 곧 그 설명이다).
+     */
+    const rail = add(el('div', { cls: 'corp-rail', parent: host }));
     const tabs = el('div', { cls: 'corp-tabs', parent: rail, attrs: { role: 'tree' } });
     for (const id of CORP_IDS) {
       const def = CORP_DEFS[id];
@@ -195,6 +204,7 @@ export class CorpView {
       this.subTabs.set(p.id, b);
     }
 
+    const shell = add(el('div', { cls: 'corp-shell', parent: host }));
     this.page = el('div', { cls: 'corp-page', parent: shell });
     // the message keeps a reserved slot so showing / hiding it never moves the frame
     const msgSlot = add(el('div', { cls: 'corp-msg-slot', parent: host }));
@@ -489,19 +499,25 @@ export class CorpView {
     }
   }
 
-  /** Embedded 가방 + 함선 창고 grids; a tile dropped on `dropSelector` (or double-clicked) is staged for sale. */
-  private makeGrids(host: HTMLElement, dropSelector: string): EmbeddedView | null {
+  /**
+   * Embedded 가방 + 함선 창고 grids — the **same block in the same place** on 거래 · 퀘스트 · 임플란트 (the column is
+   * `--cv-inv-w` wide everywhere). With a `dropSelector` a tile dropped on it (or double-clicked) is staged for sale;
+   * **without one the grids are read-only** — the 임플란트 desk has nothing to drop onto, and handing it `onTake`
+   * would make a double-click stage a sale on a page that has no 거래칸 (2026-09-12 2차).
+   */
+  private makeGrids(host: HTMLElement, dropSelector?: string): EmbeddedView | null {
     const inv = this.ctx.inventory;
     if (!inv || typeof inv.createTradeGrids !== 'function') {
       this.empty(host, '인벤토리를 사용할 수 없습니다');
       return null;
     }
-    return inv.createTradeGrids(host, {
-      dropSelector,
-      cell: CV_CELL,
-      isStaged: (uid) => this.sellLines.some((s) => s.uid === uid),
-      onTake: (item) => this.stageSell(item),
-    });
+    const opts: TradeGridsViewOptions = { cell: CV_CELL };
+    if (dropSelector) {
+      opts.dropSelector = dropSelector;
+      opts.isStaged = (uid) => this.sellLines.some((s) => s.uid === uid);
+      opts.onTake = (item) => this.stageSell(item);
+    }
+    return inv.createTradeGrids(host, opts);
   }
 
   private renderTrade(): void {
@@ -861,15 +877,28 @@ export class CorpView {
     if (this.questsEl) return this.questsEl;
     const root = el('div', { cls: 'cq' });
     const list = el('div', { cls: 'cq-col list', parent: root });
-    el('div', { cls: 'cv-title', text: '퀘스트 목록', parent: list });
+    /* 목록 머리: 제목 왼쪽, **완료된 항목 보기** 체크박스 오른쪽 (2026-09-12 2차, 기본 켜짐). */
+    const head = el('div', { cls: 'cq-head', parent: list });
+    el('div', { cls: 'cv-title', text: '퀘스트 목록', parent: head });
+    const toggle = el('label', { cls: 'cv-check', parent: head });
+    const box = el('input', { parent: toggle });
+    box.type = 'checkbox';
+    box.checked = this.showDoneQuests;
+    el('span', { text: '완료된 항목 보기', parent: toggle });
+    box.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.showDoneQuests = box.checked;
+      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+      this.refresh();
+    });
     this.questListEl = el('div', { cls: 'cq-list', parent: list });
-    /* 선택한 퀘스트의 보상은 목록 **아래에 고정**된다 (2026-09-09) — 상세 패널은 납품 표와 버튼만 갖는다. */
-    const rewards = el('div', { cls: 'cq-rewards', parent: list });
-    el('div', { cls: 'cv-title', text: '보상', parent: rewards });
-    this.questRewardEl = el('div', { cls: 'cq-reward-line item-chips', parent: rewards });
     const detail = el('div', { cls: 'cq-col detail', parent: root });
     el('div', { cls: 'cv-title', text: '납품', parent: detail });
     this.questDetailEl = el('div', { cls: 'cq-deliver', parent: detail });
+    /* 선택한 퀘스트의 보상은 **그 퀘스트의 납품 내용 바로 아래**에 붙는다 (2026-09-12 2차 — 예전에는 목록 열 아래였다). */
+    const rewards = el('div', { cls: 'cq-rewards', parent: detail });
+    el('div', { cls: 'cv-title', text: '보상', parent: rewards });
+    this.questRewardEl = el('div', { cls: 'cq-reward-line item-chips', parent: rewards });
     const inv = el('div', { cls: 'cq-col inv', parent: root });
     this.questGrids = this.makeGrids(inv, '.cq-deliver');
     this.questsEl = root;
@@ -878,10 +907,17 @@ export class CorpView {
   }
 
   private renderQuests(): void {
-    const list = this.meta.getQuests(this.corp);
+    const all = this.meta.getQuests(this.corp);
+    /*
+     * 2026-09-12 (2차): **완료는 맨 아래**, 그 밖의 순서는 csv 그대로(안정 분할). 정렬을 여기서만 하는 이유는
+     * `parts/Contracts.getQuests()` 의 반환 순서를 콘솔 · 스모크 등 다른 소비자도 보기 때문이다.
+     * 체크박스를 끄면 완료 항목이 목록에서 빠지고, **기본 선택도 보이는 행 중에서만** 고른다.
+     */
+    const ordered = [...all.filter((q) => q.state !== 'complete'), ...all.filter((q) => q.state === 'complete')];
+    const list = this.showDoneQuests ? ordered : ordered.filter((q) => q.state !== 'complete');
     this.questListEl.replaceChildren();
-    if (list.length === 0) this.empty(this.questListEl, '이 기업의 퀘스트가 없습니다');
-    // default selection: the accepted quest, else the first available, else the first row
+    if (list.length === 0) this.empty(this.questListEl, all.length === 0 ? '이 기업의 퀘스트가 없습니다' : '표시할 퀘스트가 없습니다');
+    // default selection: the accepted quest, else the first available, else the first visible row
     if (!list.some((q) => q.def.id === this.selectedQuest)) {
       this.selectedQuest = (list.find((q) => q.state === 'accepted') ?? list.find((q) => q.state === 'available') ?? list[0])?.def.id ?? null;
     }
@@ -913,7 +949,7 @@ export class CorpView {
   }
 
   /**
-   * 선택한 퀘스트의 보상 한 줄 — 퀘스트 목록 아래에 고정된다 (2026-09-09). 재화(신뢰도 · XP · 크레딧)는
+   * 선택한 퀘스트의 보상 한 줄 — **납품 패널 하단**에 붙는다 (2026-09-12 2차). 재화(신뢰도 · XP · 크레딧)는
    * `appendCurrencyRewards` 의 칩, 아이템은 `buildItemChip` 이고 **한 줄에 이어 붙는다**.
    */
   private renderQuestRewards(q: QuestInfo | null): void {
@@ -950,7 +986,7 @@ export class CorpView {
     }
     if (q.deliver.length === 0) el('div', { cls: 'cq-none', text: '납품할 물품이 없습니다', parent: table });
 
-    // 보상 칩은 여기가 아니라 퀘스트 목록 아래의 고정 줄이다 (`renderQuestRewards`). 완료 토스트만 말로 적는다.
+    // 보상 칩은 여기가 아니라 이 패널 **바로 아래**의 고정 줄이다 (`renderQuestRewards`). 완료 토스트만 말로 적는다.
     const rw = d.rewards;
     const parts = [`신뢰도 +${rw.rep}`, `XP +${rw.xp}`];
     if (rw.credits) parts.push(`크레딧 +${formatCredits(rw.credits)}`);
@@ -984,13 +1020,20 @@ export class CorpView {
 
   private buildImplants(): HTMLElement {
     if (this.implantsEl) return this.implantsEl;
+    /*
+     * 2026-09-12 (2차, 사용자 결정): 왼쪽 한 열에 **망가진 임플란트 목록 + 수리 카드**가 쌓이고(퀘스트 탭의 목록 열과
+     * 같은 자리), 오른쪽은 거래 · 퀘스트와 **똑같은 가방 + 함선 창고** 격자다. 예전에는 좌 목록 / 우 수리 카드 2열이라
+     * 이 화면에만 가방 · 창고가 없었다. 수리 대상 수집은 `parts/ImplantDesk.getRepairableImplants()` 그대로 —
+     * 그 함수가 이미 가방과 창고 양쪽을 본다.
+     */
     const root = el('div', { cls: 'ci' });
-    const list = el('div', { cls: 'ci-col list', parent: root });
-    el('div', { cls: 'cv-title', text: '망가진 임플란트 (가방 + 함선 창고)', parent: list });
-    this.implantGrid = new TileGrid(list, { cell: CV_CELL, gap: CV_GAP, minCols: TRAY_COLS, className: 'ci-list' });
-    const detail = el('div', { cls: 'ci-col detail', parent: root });
-    el('div', { cls: 'cv-title', text: '수리', parent: detail });
-    this.implantDetailEl = el('div', { cls: 'ci-repair', parent: detail });
+    const desk = el('div', { cls: 'ci-col desk', parent: root });
+    el('div', { cls: 'cv-title', text: '망가진 임플란트 (가방 + 함선 창고)', parent: desk });
+    this.implantGrid = new TileGrid(desk, { cell: CV_CELL, gap: CV_GAP, minCols: TRAY_COLS, className: 'ci-list' });
+    el('div', { cls: 'cv-title', text: '수리', parent: desk });
+    this.implantDetailEl = el('div', { cls: 'ci-repair', parent: desk });
+    const inv = el('div', { cls: 'ci-col inv', parent: root });
+    this.implantGrids = this.makeGrids(inv);      // read-only: this page has no 거래칸 to drop onto
     this.implantsEl = root;
     this.nodes.push(root);
     return root;
@@ -1008,6 +1051,7 @@ export class CorpView {
     const sel = list.find((r) => r.inst.uid === this.selectedImplant) ?? null;
     if (!sel) this.empty(this.implantDetailEl, list.length === 0 ? '수리할 임플란트를 가져오세요' : '임플란트를 선택하세요');
     else this.implantDetail(sel);
+    this.implantGrids?.refresh();
   }
 
   /** One broken implant as a tile of the desk's grid (click selects it). */
@@ -1090,6 +1134,7 @@ export class CorpView {
     this.unsubs = [];
     this.tradeGrids?.dispose(); this.tradeGrids = null;
     this.questGrids?.dispose(); this.questGrids = null;
+    this.implantGrids?.dispose(); this.implantGrids = null;
     if (this.tradeEl) { this.shopGrid.dispose(); this.buyGrid.dispose(); this.sellGrid.dispose(); }
     if (this.implantsEl) this.implantGrid.dispose();
     for (const n of this.nodes) n.remove();

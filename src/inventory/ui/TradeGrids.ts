@@ -1,7 +1,7 @@
 import type { EmbeddedView, GameContext, ItemInstance } from '@/shared';
 import type { InventorySystem, GridId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
-import { GridView, buildTileContent } from './GridView';
+import { GridView, buildTileContent, setNeededAmmoFrom } from './GridView';
 import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
 import { CELL, GAP, tileSizeAt } from './labels';
 
@@ -9,7 +9,7 @@ import { CELL, GAP, tileSizeAt } from './labels';
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
 
 export interface TradeGridsOptions {
-  /** Grids to render, in order. Default: 가방 then 함선 창고. */
+  /** Grids to render, in order. Default (2026-09-12, 사용자 결정): **함선 창고가 왼쪽, 내 가방이 오른쪽**. */
   grids?: readonly TradeGridId[];
   /**
    * A tile was handed **out** of the grids: dropped on an element matching `dropSelector` (`target`), or
@@ -56,8 +56,16 @@ interface DragInfo {
  * `InventoryRef` API in the caller.
  *
  * **2026-09-12 (사용자 결정)** —
- *   - 가방과 창고가 **한 스크롤** 안에 위아래로 붙어 같이 내려간다 (`.tg-scroll` 하나). 가방은 가로 5칸 · 틀 높이는 가장 긴
- *     가방(`BAG_FRAME_ROWS`), 창고는 가로 10칸 — Tab 인벤토리와 똑같다.
+ *   - **창고가 왼쪽, 가방이 오른쪽**으로 나란히 선다 (`.tg-scroll` 이 가로 2열). 한 스크롤 안에 위아래로 쌓던 앞
+ *     배치는 긴 가방 틀 때문에 창고를 아래로 밀어냈다. 폭이 모자라면 `flex-wrap` 이 가방을 스스로 아랫줄로
+ *     내린다 — 이 뷰가 끼어드는 화면(기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁)의 열 폭은 제각각이라
+ *     뷰포트 미디어 쿼리로 추측하지 않는다. 스크롤은 예전처럼 `.tg-scroll` 하나가 맡는다. 가방은 가로 5칸 ·
+ *     틀 높이는 가장 긴 가방(`BAG_FRAME_ROWS`), 창고는 가로 10칸 — Tab 인벤토리와 똑같다.
+ *     ⚠ 세로가 되면 두 격자가 **한 스크롤에 이어 붙는다**: 창고 24행 = 1381 px · 가방 틀 12행 = 709 px 인데
+ *     스크롤 창은 600 px 남짓이라 **어느 쪽을 위에 올려도 다른 쪽이 화면 밖**이고, 끄는 중에는 스크롤할 수 없어
+ *     그 방향의 드래그가 통째로 막힌다. 그래서 **두 열이 못 들어가는 화면이 스스로 해결한다**: 가구 화면은
+ *     `housing.css` 의 `.hs-inv` 에서 **블록마다 자기 스크롤**을 주고(`.inv-grid` 가 `overflow-y: auto`) 좁을 때
+ *     세로로 반씩 쌓는다. 기업 거래 화면은 이 기본값(한 스크롤 · 줄바꿈) 그대로다.
  *   - 머리에 **정렬** 버튼(`InventorySystem.sortGrid` — 이 뷰가 인벤토리를 바꾸는 유일한 동작이다. 호출자가 트레이에 올린
  *     uid 는 `isStaged` 로 넘겨 합치기에서 뺀다)과 **필터 칩**(걸러진 타일은 어두워질 뿐 자리를 지킨다).
  *   - 드래그는 pointermove 를 **rAF 한 번으로 합치고** 고스트를 `transform` 으로 옮긴다 (예전: 이벤트마다 `offsetWidth` 읽기 +
@@ -111,7 +119,8 @@ export class TradeGrids implements EmbeddedView {
     this.scroll.className = 'tg-scroll';
     this.root.append(tools, this.scroll);
 
-    const ids = opts.grids ?? (['bag', 'stash'] as const);
+    // 2026-09-12 (사용자 결정): 창고 왼쪽 · 가방 오른쪽. 호출자가 `grids` 를 직접 주면 그 순서가 이긴다.
+    const ids = opts.grids ?? (['stash', 'bag'] as const);
     for (const id of ids) {
       const block = document.createElement('div');
       block.className = `tg-block tg-${id}`;
@@ -133,7 +142,14 @@ export class TradeGrids implements EmbeddedView {
         onDblClick: (uid, gridId) => this.take(uid, gridId as TradeGridId, null),
       }, cell);
       if (id === 'bag') view.setFrameRows(BAG_FRAME_ROWS);
-      block.append(head, view.el);
+      // 2026-09-12: 격자는 **자기 폭을 px 로 못박은** 상자다(`GridView.syncDims`). 그래서 세로 스크롤을 격자 자신에게
+      // 걸면 스크롤바가 그 폭 안에서 자리를 빼앗아 마지막 열이 잘린다 — 폭이 내용에서 나오는 이 상자가 대신 맡는다
+      // (`Tab` 인벤토리의 `.inv-bag-scroll` 과 같은 방식). 기본값에서는 아무것도 하지 않고, 거는 곳은 가구 화면이다.
+      const wrap = document.createElement('div');
+      wrap.className = 'tg-gridwrap';
+      wrap.appendChild(view.el);
+      view.setClip(wrap);
+      block.append(head, wrap);
       this.scroll.appendChild(block);
       this.blocks.push({ id, view, countEl });
     }
@@ -156,10 +172,12 @@ export class TradeGrids implements EmbeddedView {
   refresh(): void {
     if (this.disposed) return;
     const staged = this.opts.isStaged;
+    // 2026-09-12: 내게 필요한 탄약의 사선 띠 — Tab 창과 **같은 표**를 쓰므로 여기서도 갈아 끼운다 (바뀔 때만 true)
+    const ammoChanged = setNeededAmmoFrom(this.inv.getLoadout(), (item) => this.inv.getStats(item));
     for (const bl of this.blocks) {
       const grid = this.inv.getGrid(bl.id);
       if (bl.view.current !== grid) bl.view.setGrid(grid);
-      else bl.view.refresh();   // version-gated; only changed tiles are rebuilt
+      else bl.view.refresh(ammoChanged);   // version-gated; only changed tiles are rebuilt
       bl.countEl.textContent = grid ? `${grid.count}점` : '';
       // staging can change without the grid changing (the caller calls `refresh()` after staging) — flags only
       bl.view.forEachTile((uid, tile) => {

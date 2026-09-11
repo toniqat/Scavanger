@@ -1,23 +1,19 @@
 import type { CraftRecipe, ItemDef, WorkbenchKind } from '@/shared';
-import { WORKBENCH_KINDS, WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
+import { WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
 import { buildTileContent } from './GridView';
 import { CELL, TEXT } from './labels';
 
 /**
- * 작업대 탭의 한 칸 (2026-09-10). `'all'` = 전부, `'field'` = `bench` 가 없는 현장 빠른제작,
- * 나머지는 `WorkbenchKind` 그대로. 탭은 **작업대 모드가 아닐 때만** 뜬다 — 작업대를 열고 들어온 화면은
- * 이미 그 작업대 하나다.
+ * 왼쪽 작업대 리스트의 한 칸 (2026-09-12). `null` = **빠른제작**(작업대 없이 되는 것), 나머지는 이 함선에
+ * 실제로 설치된 `WorkbenchKind` 다.
  */
-type CraftTab = 'all' | 'field' | WorkbenchKind;
+type BenchPick = WorkbenchKind | null;
 
-/** 레시피가 속한 탭. */
-/* 현장 레시피는 자기 작업대 태그가 있어도 `빠른제작` 탭이다 — 그 탭의 뜻이 "작업대 없이도 되는 것" 이다.
+/** 이 레시피가 「빠른제작」인가 — `station: 'field'` 면 작업대가 없어도 만들 수 있다. */
+/* 현장 레시피는 자기 작업대 태그가 있어도 빠른제작이다 — 그 목록의 뜻이 "작업대 없이도 되는 것" 이다.
  * (2026-09-10 부터 탄약 · 붕대 · 연막에도 `bench` 가 붙었다. 그것은 작업대 창에 뜨라는 표시일 뿐이다.) */
-const tabOf = (r: CraftRecipe): CraftTab => (r.station === 'field' ? 'field' : (r.bench ?? 'field'));
-
-/** 탭 순서 — `전체` · 작업대 다섯(계약 순서 그대로) · `빠른제작`. */
-const TAB_ORDER: readonly CraftTab[] = ['all', ...WORKBENCH_KINDS, 'field'];
+const isFieldRecipe = (r: CraftRecipe): boolean => r.station === 'field';
 
 interface RowView {
   recipe: CraftRecipe;
@@ -80,15 +76,20 @@ interface RowView {
  *  - The 키 가이드 line for the panel is empty now (`parts/Screens.setCraftOpen`): the button already reads
  *    `길게 눌러 제작`, so `1초 홀드 — 제작` was the same sentence twice.
  *
- * **2026-09-10 (제작 대개편 2단계)** — 두 가지가 붙었다.
- *  - **작업대 탭** (`.inv-craft-tabs`): 레시피가 48 → 94 줄로 늘고 다섯 번째 작업대(**정제 작업대**)가 생기면서
- *    함선의 `제작` 패널 한 목록이 읽히지 않게 됐다. `전체` · 작업대 다섯(`WORKBENCH_KINDS` 순서, 이름은
- *    `WORKBENCH_LABEL_KO`) · `빠른제작`(bench 없는 현장 레시피) 로 가른다. **작업대를 열고 들어온 화면에는
- *    탭이 없다** — 이미 그 작업대 하나다. 고를 것이 하나뿐이면(`전체` + 한 종류) 줄 자체가 숨는다.
- *  - **홀드 중에는 게이지만 다시 그린다** (`frozen` → `paintProgress`). `updateCraft` 가 매 프레임 이 패널을
- *    새로 그리는데, 94 줄 × `craftHasRoom`(가방 · 창고 격자를 통째로 복사한다) 은 홀드 1 초 동안 60 번 돌
- *    이유가 없는 계산이다. 화면에서 바뀌는 것은 채워지는 막대뿐이고, **홀드 중에 줄을 옮기지 않는다**는
- *    규약(`applySort`)과 같은 뿌리다.
+ * **2026-09-10 (제작 대개편 2단계)** — **홀드 중에는 게이지만 다시 그린다** (`frozen` → `paintProgress`).
+ *  `updateCraft` 가 매 프레임 이 패널을 새로 그리는데, 94 줄 × `craftHasRoom`(가방 · 창고 격자를 통째로
+ *  복사한다) 은 홀드 1 초 동안 60 번 돌 이유가 없는 계산이다. 화면에서 바뀌는 것은 채워지는 막대뿐이고,
+ *  **홀드 중에 줄을 옮기지 않는다**는 규약(`applySort`)과 같은 뿌리다.
+ *
+ * **2026-09-12 (사용자 결정) — 4열 배치의 왼쪽 두 열이 이 패널이다.**
+ *  제작 열은 이제 `[함선 작업대 목록] [제작품 목록]` 두 열이고 (`.inv-craft-benches` + `.inv-craft-main`),
+ *  그 오른쪽에 `[함선 창고] [내 가방]` 이 선다 (`inventory.css` 의 `.inv-layout.is-craft`).
+ *  - 2026-09-10 의 **가로 탭**(`.inv-craft-tabs`)은 **세로 작업대 리스트**로 바뀌었다. 항목은 `빠른제작`
+ *    (작업대 없이 되는 것) + **이 함선에 실제로 설치된** 작업대뿐이다 (`ctx.housing.getBenchLevel > 0`) —
+ *    `전체` 는 없앴다: 94 줄을 한 목록에 쏟는 것이 애초에 읽히지 않아 탭이 생긴 이유였다.
+ *  - 항목을 누르면 **그 자리에서** 작업대가 바뀐다 (`InventoryRef.switchBench`; 창을 닫지 않는다). 작업대를
+ *    열어 들어온 경우 그 항목이 선택된 채로 시작한다.
+ *  - 제작품 목록은 **고정 높이 + 세로 스크롤**이라 창이 짧아도 목록만 움직인다.
  *
  * **2026-09-08 (튜토리얼)**: a recipe `ctx.tutorial.hides('craft', id)` refuses is **left out of the list** rather
  * than drawn with a "튜토리얼에서는 ~" reason — during the guided steps the bench shows exactly the one recipe the
@@ -112,11 +113,13 @@ export class CraftPanel {
   private sortSig = '';
   private holding: string | null = null;
   private onWindowUp = (): void => { this.release(); };
-  /* ── 2026-09-10: 작업대 탭 ── */
-  /** 탭 버튼이 사는 줄 (작업대 모드 · 탭이 하나뿐이면 숨는다). */
-  private tabsEl: HTMLElement;
-  /** 지금 고른 탭. 그 탭에 줄이 하나도 남지 않으면 `all` 로 되돌아간다. */
-  private tab: CraftTab = 'all';
+  /* ── 2026-09-12: 왼쪽 세로 작업대 리스트 (2026-09-10 의 가로 탭을 대신한다) ── */
+  /** 리스트가 사는 열 (고를 것이 하나뿐이면 숨는다 — 레이드의 야전 제작). */
+  private benchesEl: HTMLElement;
+  /** 머리 · 목록이 사는 오른쪽 열 (`.inv-panel-craft` 는 이 둘의 가로 배치다). */
+  private mainEl: HTMLElement;
+  /** 마지막으로 그린 리스트 구성 — 같으면 DOM 을 다시 만들지 않는다. */
+  private benchSig = '';
   /**
    * 홀드가 도는 동안 목록을 얼려 두기 위한 표시 (2026-09-10) — 값이 있으면 `refresh()` 가 게이지만 다시 그린다.
    * 홀드 중에는 어차피 줄을 옮기지 않기로 되어 있고(`applySort`), 94 줄 × (canCraft · maxCraftCount ·
@@ -168,10 +171,10 @@ export class CraftPanel {
     actions.append(this.discountEl, this.repairBtn, this.closeBtn);
     head.append(titles, actions);
 
-    // 2026-09-10: 작업대 탭 (작업대 모드가 아닐 때만 채워진다)
-    this.tabsEl = document.createElement('div');
-    this.tabsEl.className = 'inv-craft-tabs';
-    this.tabsEl.hidden = true;
+    // 2026-09-12: 맨 왼쪽 세로 작업대 리스트 (빠른제작 + 이 함선에 설치된 작업대)
+    this.benchesEl = document.createElement('div');
+    this.benchesEl.className = 'inv-craft-benches';
+    this.benchesEl.hidden = true;
 
     this.listEl = document.createElement('div');
     this.listEl.className = 'inv-craft-list';
@@ -179,7 +182,11 @@ export class CraftPanel {
     this.emptyEl.className = 'inv-craft-empty';
     this.emptyEl.textContent = TEXT.craftNone;
 
-    this.el.append(head, this.tabsEl, this.listEl, this.emptyEl);
+    this.mainEl = document.createElement('div');
+    this.mainEl.className = 'inv-craft-main';
+    this.mainEl.append(head, this.listEl, this.emptyEl);
+
+    this.el.append(this.benchesEl, this.mainEl);
     this.el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
@@ -220,13 +227,11 @@ export class CraftPanel {
 
     const tut = this.sys.ctx.tutorial;
     const all = this.sys.getBenchRecipes().filter((r) => !(tut?.hides('craft', r.recipe.id) ?? false));
-    // 2026-09-10: 작업대 탭. 작업대를 열고 들어온 화면은 이미 한 작업대이므로 그때는 탭이 없다.
-    const tabs = bench ? [] : TAB_ORDER.filter((t) => t === 'all' || all.some((r) => tabOf(r.recipe) === t));
-    if (tabs.length <= 2) { this.tab = 'all'; tabs.length = 0; }   // `전체` + 한 종류뿐이면 고를 것이 없다
-    else if (!tabs.includes(this.tab)) this.tab = 'all';
-    this.buildTabs(tabs);
-    const recipes = this.tab === 'all' ? all : all.filter((r) => tabOf(r.recipe) === this.tab);
-    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}|${this.tab}`
+    // 2026-09-12: 왼쪽 작업대 리스트. 작업대를 고르면 `getBenchRecipes()` 가 이미 그 작업대 것만 주므로,
+    //   따로 거르는 것은 `빠른제작`(bench 없음) 하나뿐이다.
+    this.buildBenches(bench?.kind ?? null);
+    const recipes = bench ? all : all.filter((r) => isFieldRecipe(r.recipe));
+    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}`
       + `|${recipes.map((r) => `${r.recipe.id}${r.locked ? '!' : ''}`).join('|')}`;
     if (sig !== this.sig) {
       this.sig = sig;
@@ -235,46 +240,79 @@ export class CraftPanel {
     }
     this.emptyEl.hidden = recipes.length > 0;
     this.paint();
-    // `모두 수리` 버튼은 수리를 하는 작업대에서만 (가젯 · 의료 작업대는 고칠 게 없다)
-    this.repairBtn.hidden = !bench || (bench.kind !== 'gun' && bench.kind !== 'gear');
+    /*
+     * 2026-09-12 (정비 벤치 은퇴): `모두 수리` 는 **함선이면 언제나** 뜬다 — 예전에는 총기 · 장비 작업대를 열고
+     * 들어왔을 때만이었다. "함선에서는 인벤토리에서 재료만 갖다 바치면 수리 가능"이 규칙이 됐고, 무엇을 고칠 수
+     * 있는지는 `benchRepairRows` 가 정한다 (레이드 중에는 빈 목록 → 여기서도 숨긴다).
+     */
+    this.repairBtn.hidden = this.sys.ctx.isRaidActive();
   }
 
   /**
-   * **작업대 탭 줄** (2026-09-10). 이름은 `WORKBENCH_LABEL_KO`(`@/shared`) 가 원본이라 다섯 작업대가 함선
-   * 관리 화면 · 작업대 제목 · 여기에서 **같은 이름**으로 불린다 (정제 작업대가 그 어휘로 붙는 것이 전부다).
-   * 아이콘은 `TEXT.craftTabs.icon` 의 글리프. 빈 배열이면 줄 자체가 숨는다.
+   * **왼쪽 세로 작업대 리스트** (2026-09-12, 사용자 결정). 맨 위가 `빠른제작`(작업대 없이 되는 것), 그 아래로
+   * **이 함선에 실제로 설치된** 작업대(`ctx.housing.getBenchLevel(kind) > 0`)와 **지금 열고 들어온** 작업대가
+   * `WORKBENCH_KINDS` 순서로 선다.
+   * 누르면 그 자리에서 목록이 갈린다 (`InventoryRef.switchBench` — 창을 닫지도 열지도 않는다).
    *
-   * 목록과 달리 탭은 **재료 상태를 보지 않으므로** 매 프레임 다시 만들 이유가 없다 — 탭 구성이 그대로면
-   * `is-on` 만 옮긴다.
+   * 이름 · 글리프는 `WORKBENCH_LABEL_KO` · `WORKBENCH_ICON`(`@/shared`) 하나가 원본이라 함선 관리 화면 ·
+   * 작업대 제목 · 여기가 같은 이름으로 부른다. 고를 것이 하나뿐이면(레이드의 야전 제작) 열 자체가 숨는다.
+   *
+   * 재료 상태를 보지 않으므로 구성이 그대로면 `is-on` 만 옮긴다.
    */
-  private buildTabs(tabs: readonly CraftTab[]): void {
-    this.tabsEl.hidden = tabs.length === 0;
-    if (tabs.length === 0) { this.tabsEl.replaceChildren(); return; }
-    const wanted = tabs.join('|');
-    if (this.tabsEl.dataset.tabs !== wanted) {
-      this.tabsEl.dataset.tabs = wanted;
-      this.tabsEl.replaceChildren(...tabs.map((t) => {
+  private buildBenches(active: BenchPick): void {
+    const housing = this.sys.ctx.housing;
+    const bench = this.sys.getBench();
+    /*
+     * 지금 **열고 들어온** 작업대는 `ctx.housing` 이 뭐라 하든 목록에 있고 그 레벨로 선다 — 제목이
+     * `가공 작업대 Lv.3` 인데 왼쪽 리스트에는 그 줄이 없어 아무것도 선택돼 있지 않은 화면이 나올 수 있다
+     * (남의 함선 · 공유 함선처럼 가구가 `ctx.housing`(= 내 함선) 밖에 있는 경우). 제목과 리스트의 원본을
+     * 하나로 묶는다.
+     */
+    const levelOf = (kind: WorkbenchKind): number => {
+      let lv = 0;
+      try { lv = Math.max(0, housing?.getBenchLevel(kind) ?? 0); } catch { lv = 0; }
+      return bench && bench.kind === kind ? Math.max(lv, bench.level) : lv;
+    };
+    const placed = this.sys.ctx.isHubPhase() ? WORKBENCH_KINDS.filter((k) => k === active || levelOf(k) > 0) : [];
+    const picks: BenchPick[] = [null, ...placed];
+    this.benchesEl.hidden = picks.length <= 1;
+    const sig = picks.map((p) => (p === null ? '-' : `${p}:${levelOf(p)}`)).join('|');
+    if (sig !== this.benchSig) {
+      this.benchSig = sig;
+      this.benchesEl.replaceChildren(...picks.map((pick) => {
+        const level = pick ? levelOf(pick) : 0;
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'inv-craft-tab';
-        b.dataset.tab = t;
+        b.className = 'inv-craft-bench';
+        b.dataset.bench = pick ?? 'field';
         const ico = document.createElement('i');
-        ico.className = 'inv-craft-tab-ico';
-        ico.textContent = TEXT.craftTabs.icon[t] ?? '';
-        const label = document.createElement('span');
-        label.textContent = t === 'all' ? TEXT.craftTabs.all : t === 'field' ? TEXT.craftTabs.field : WORKBENCH_LABEL_KO[t];
-        b.append(ico, label);
-        b.title = label.textContent;
+        ico.className = 'inv-craft-bench-ico';
+        ico.textContent = pick ? WORKBENCH_ICON[pick] : TEXT.craftTabs.icon.field ?? '✥';
+        const name = document.createElement('span');
+        name.className = 'inv-craft-bench-nm';
+        name.textContent = pick ? WORKBENCH_LABEL_KO[pick] : TEXT.craftTabs.field;
+        b.append(ico, name);
+        if (pick) {
+          const lv = document.createElement('span');
+          lv.className = 'inv-craft-bench-lv';
+          lv.textContent = TEXT.bench.level(level);
+          b.appendChild(lv);
+        }
+        b.title = name.textContent;
         b.addEventListener('click', () => {
-          if (this.tab === t) return;
-          this.tab = t;
+          if ((this.sys.getBench()?.kind ?? null) === pick) return;
+          this.sys.switchBench(pick, level);
           this.sys.sfx('ui_pickup');
+          this.sig = '';                 // 목록이 통째로 바뀐다
+          this.frozen = null;
           this.refresh();
         });
         return b;
       }));
     }
-    for (const b of this.tabsEl.children) b.classList.toggle('is-on', (b as HTMLElement).dataset.tab === this.tab);
+    for (const b of this.benchesEl.children) {
+      b.classList.toggle('is-on', ((b as HTMLElement).dataset.bench ?? 'field') === (active ?? 'field'));
+    }
   }
 
   /**

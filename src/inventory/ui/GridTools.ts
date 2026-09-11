@@ -12,10 +12,16 @@ export interface FilterChips {
   set(id: FilterGroupId): void;
 }
 
-/** One row of compact icon chips; `title` carries the Korean name. */
+/**
+ * One row of icon chips; `title` carries the Korean name.
+ *
+ * **2026-09-12 (사용자 결정)**: 칩은 **한 줄에 균등 분할된 가로로 긴 사각형 버튼**이다. 칸 수는 CSS 에 적지 않고
+ * `--inv-filter-n` 으로 건넨다 — 칸 수의 원본은 `model.FILTER_GROUPS` 하나여야 한다.
+ */
 export function buildFilterChips(onPick: (id: FilterGroupId) => void): FilterChips {
   const el = document.createElement('div');
   el.className = 'inv-filters';
+  el.style.setProperty('--inv-filter-n', String(FILTER_GROUPS.length));
   const chips = new Map<FilterGroupId, HTMLButtonElement>();
   for (const g of FILTER_GROUPS) {
     const b = document.createElement('button');

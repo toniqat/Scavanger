@@ -19,11 +19,9 @@ import { roomAtWorld } from '../interiors/RoomLayout';
 import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
 import { Terminal } from '../Terminal';
-import { Workbench } from '../Workbench';
 import { Computer } from '../Computer';
 import { DockingCutscene, type DockDirection } from '../DockingCutscene';
 import { HubMenu } from '../ui/HubMenu';
-import { WorkbenchMenu } from '../ui/WorkbenchMenu';
 import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
@@ -66,8 +64,11 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
    */
   const ro = sys.visitReadOnly;
   sys.terminal = ro ? null : new Terminal(ctx, interior.terminal, () => sys.menu.open(), canUseTerminal);
-  // the personal ship has no built-in bench since Phase 8 (a placed `furn_repair_bench` opens the same menu)
-  sys.workbench = interior.workbench && !ro ? new Workbench(ctx, interior.workbench, () => sys.wbMenu.open(), canUseConsole) : null;
+  /*
+   * 2026-09-12 (사용자 결정 — 정비 벤치 제거): 여기서 `hub_workbench` 를 등록했다. 공유 함선 후벽의 벤치도,
+   * 개인 함선의 `furn_repair_bench` 가구도 모두 무기 수리 창을 열었는데, 이제 수리는 **인벤토리에서** 한다
+   * (재료만 있으면 함선 어디서든). 벤치 소품 자체는 병기고 실루엣으로 남아 있고 누를 것만 없다.
+   */
   sys.computer = ro ? null : new Computer(ctx, interior.computer, () => sys.openCorpMenu(), canUseConsole);
   sys.buildStations(interior);
   sys.buildHousing(interior);
@@ -186,7 +187,11 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (h && typeof h.openGrowStation === 'function') h.openGrowStation(uid);
       else ctx.bus.emit('ui:notify', { text: '재배 스테이션을 사용할 수 없습니다', kind: 'warning' });
     },
-    onRepairBench: () => sys.wbMenu.open(),
+    /*
+     * 정비 벤치 (Phase 8 → 2026-09-12 은퇴): `furn_repair_bench` 는 `data/furniture.csv` 에서 `retired=1` 이라
+     * `ShipState.sanitize` 가 놓인 것을 걷어내고 재료로 환불한다 — 이 칸에 도달할 길이 없다. `FurnitureInteraction`
+     * 은 계약이라 값은 남아 있으므로 분기도 남긴다(`interiors/Furniture` 에서 **아무것도 하지 않는** 분기).
+     */
     onBookshelf: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openBookshelfMenu === 'function') h.openBookshelfMenu(uid);
@@ -285,7 +290,7 @@ export function trackRoom(sys: HubSystem): void {
 export function stationUsable(sys: HubSystem): boolean {
   // 방문 중(남의 함선)에는 아무것도 쓸 수 없다 — 터미널 · 정비대 · 기업 네트워크 · 임플란트 시술대 전부 (2026-09-08)
   if (sys.visitReadOnly) return false;
-  return sys.ctx.phase === 'hub' && !sys.menu.isOpen && !sys.wbMenu.isOpen && !(sys.ctx.inventory?.isOpen ?? false)
+  return sys.ctx.phase === 'hub' && !sys.menu.isOpen && !(sys.ctx.inventory?.isOpen ?? false)
     && !(sys.ctx.housing?.isMenuOpen ?? false) && !sys.corpMenuOpen() && sys.boardedSlot < 0 && !sys.cutscene && !sys.travelling
     && !sys.housingMode.active;
   }
@@ -302,7 +307,6 @@ export function disposeInterior(sys: HubSystem): void {
   for (const id of sys.stationIds) sys.ctx.interactables.unregister(id);
   sys.stationIds.length = 0;
   sys.terminal?.dispose(); sys.terminal = null;
-  sys.workbench?.dispose(); sys.workbench = null;
   sys.computer?.dispose(); sys.computer = null;
   sys.interior?.dispose(); sys.interior = null;
   sys.collider = null;
@@ -319,7 +323,6 @@ export function teardown(sys: HubSystem, reason: 'mission' | 'menu'): void {
   const ctx = sys.ctx;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.menu.close(false);
-  sys.wbMenu.close(false);
   sys.status.hide();
   sys.ready.hide();
   sys.cutscene?.dispose(); sys.cutscene = null;

@@ -4,11 +4,15 @@ import {
   FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel,
 } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
-import { ROOM_BOXES, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
+import { ROOM_BOXES, ROOM_DEPTH, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
 
-/** Cursor speed: metres of room floor per pixel of pointer-locked mouse movement. */
-const CURSOR_M_PER_PX = 0.012;
+/**
+ * Cursor speed: metres of room floor per pixel of pointer-locked mouse movement (the 방 콘솔 path only — 시설 관리
+ * ray-casts the free cursor and needs no rate). 2026-09-12: a fraction of `ROOM_DEPTH` rather than the literal
+ * 0.012, so crossing the room still takes the same mouse travel now that it is twice as wide.
+ */
+const CURSOR_M_PER_PX = ROOM_DEPTH * 0.003;   // was 0.012 at ROOM_DEPTH 4
 /**
  * 배치 취소 key (Phase 8). Fixed to `KeyC` by the design brief — the movement keys are off in housing mode, so it
  * never collides with `Keys.CROUCH`; it is deliberately not a rebindable action.
@@ -34,9 +38,14 @@ const MANAGE_BLOCKER = 'shipmanage';
  * **top** of the screen. The starboard eye (`cx + 2.2` = 6.0 for rooms 5–9) is inside the outer hull slab in XZ, but
  * `CAM_HEIGHT` is well above `CEIL` (3.2) and the ceiling plane is back-face culled from above, so nothing occludes
  * the floor.
+ *
+ * **2026-09-12**: both were literals (2.2 · 6.6) tuned for a 4 × 4 m room. The room is 8 × 8 m now, and the near
+ * edge of the floor (screen bottom = world +X) sat at 34.2° off the view axis — a hair inside the 35° half-FOV,
+ * i.e. the ghost and the footprint frame were falling off the bottom of the screen. They are **fractions of
+ * `ROOM_DEPTH`** instead, so the framing is pixel-for-pixel the old one at any grid size.
  */
-const CAM_TOWARD_DOOR = 2.2;
-const CAM_HEIGHT = 6.6;
+const CAM_TOWARD_DOOR = ROOM_DEPTH * 0.55;   // was 2.2 at ROOM_DEPTH 4
+const CAM_HEIGHT = ROOM_DEPTH * 1.65;        // was 6.6 at ROOM_DEPTH 4
 /** Exponential rate the camera glides to another room's goal while 시설 관리 is already open. Higher = snappier. */
 const CAM_GLIDE = 5.0;
 
@@ -54,7 +63,7 @@ const _ray = new THREE.Raycaster();
  * 3D side of housing mode (`housing:modeChanged {active:true, room}` → this; the rules live in `ctx.housing`).
  * Controls off, oblique top-down camera **on the room's +X side looking −X** (`setCameraOverride`, blended; one
  * convention for every room since Phase 10 — see `CAM_TOWARD_DOOR`), the pointer **stays locked** and its deltas move
- * a floor cursor over the 8 × 8 grid. A ghost of `ctx.housing.selectedFurniture` (or of a picked-up piece) follows the
+ * a floor cursor over the `ROOM_GRID_COLS × ROWS` grid. A ghost of `ctx.housing.selectedFurniture` (or of a picked-up piece) follows the
  * cursor, green / red by `canPlace`.
  *   LMB (`Keys.FIRE`)         place the selection · pick up the piece under the cursor · put a picked-up piece down (`move`)
  *   R   (`Keys.ROTATE_ITEM`)  rotate the selection / the carried piece

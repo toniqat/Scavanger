@@ -404,8 +404,9 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
 
 /**
  * Double-click. **가방 · 장비 칸에서**: weapons / bags equip (`equipTargetFor`), anything else quick-moves.
- * **컨테이너(상자 · 시체 · 함선 창고)에서** (2026-09-10): 언제나 가방이 먼저이고, 가방이 꽉 찼을 때만
- * `activateFallback` 이 `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 을 본다.
+ * **상자 · 시체에서** (2026-09-10): 언제나 가방이 먼저이고, 가방이 꽉 찼을 때만 `activateFallback` 이
+ * `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 을 본다.
+ * **함선 창고에서** (2026-09-12): 자리가 비어 있으면 **곧장 그 자리로** — 아래 `activateImpl` 주석.
  */
 export function activate(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.activateImpl(uid, from));
@@ -419,10 +420,20 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
   /*
    * 2026-09-10 (사용자 결정) — **상자에서 찾은 것은 무조건 가방이 먼저다.** 예전에는 장착 아이템(무기 · 방탄복 ·
    * 가방)을 상자에서 더블클릭하면 `equipTargetFor` 를 타고 곧장 장비 칸으로 들어갔다. 주우면서 지금 든 총이
-   * 조용히 바뀌는 것이라 레이드 중에는 사고였다. 이제 컨테이너(상자 · 시체 · 함선 창고) 더블클릭은 언제나
-   * `가방 → 장비 → 퀵슬롯` 순서이고, **가방에 자리가 없을 때만** 뒤의 둘로 넘어간다 (`activateFallback`).
-   * 가방 · 휠 · 장비 칸에서 누른 더블클릭은 예전 그대로다 — 거기서는 "장착" 이 하려는 일 그 자체다.
+   * 조용히 바뀌는 것이라 레이드 중에는 사고였다.
+   *
+   * **2026-09-12 (사용자 결정) — 함선 창고는 예외다.** 그 결정이 지키려던 것은 *레이드 중에 손에 든 것이 조용히
+   * 바뀌지 않는다* 였고, 출격 전 창고 앞에서 장비를 고르는 동안에는 그 위험이 없다. 그래서 **창고 더블클릭은
+   * 그 종류의 자리가 비어 있으면 곧장 그리로** 간다 (장비칸 · 임플란트 칸 · 빈 퀵슬롯, `tryAutoPlace`).
+   * 이미 차 있으면 예전 그대로 가방으로 회수하고, 가방마저 꽉 찼으면 `activateFallback` 이 마지막으로 훑는다.
+   * 상자 · 시체는 2026-09-10 그대로 — 언제나 가방이 먼저다.
    */
+  if (from.kind === 'grid' && from.grid === 'stash') {
+    const placed = tryAutoPlace(sys, item, def, from, SENT_TO);
+    if (placed) return placed;
+    if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
+    return activateFallback(sys, item, def, from);
+  }
   if (from.kind === 'grid' && from.grid !== 'bag') {
     if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
     return activateFallback(sys, item, def, from);
@@ -437,22 +448,29 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
 
 /** 2026-09-10 — `장착 → 퀵슬롯` 순으로 자리를 찾을 때 쓰는 안내 (어디로 갔는지 사용자가 알아야 한다). */
 const WENT_TO = (name: string, where: string): string => `가방이 가득 찼습니다 — ${name} → ${where}`;
+/** 2026-09-12 — 창고 더블클릭이 **일부러** 장비칸으로 보낸 경우. 사고가 아니므로 「가방이 가득」 이 아니다. */
+const SENT_TO = (name: string, where: string): string => `${name} → ${where}`;
 
 /**
- * 2026-09-10 — 컨테이너 더블클릭이 **가방에 못 들어갔을 때만** 도는 폴백.
+ * **비어 있는 제자리**를 순서대로 훑어 거기로 보낸다. 아무 데도 못 갔으면 null (아이템은 한 칸도 안 움직인다).
  *
- *   ① **빈** 장비 칸 (주무기 I · II · 가방 · 방탄복). 이미 장착한 것을 조용히 밀어내지 않는다 — 빈 칸일 때만.
- *   ② 임플란트 아이템이면 빈 임플란트 장착칸 (`ctx.progression.equipImplant`; 함선에서만, 그리고 그 함수가
+ *   ① **빈** 장비 칸 (주무기 I · II · 가방 · 방탄복 · 주머니). 이미 장착한 것을 조용히 밀어내지 않는다 — 빈 칸일 때만.
+ *   ② 임플란트 아이템이면 빈 임플란트 장착칸 (`ctx.progression.equipImplant`; 함선에서만이고 그 함수가
  *      가방 · 창고만 보므로 사실상 **함선 창고**에서 누른 경우다. 레이드 상자에서는 조용히 실패한다).
  *   ③ 퀵슬롯에 올릴 수 있는 소모품이면 **빈** 휠 칸.
- *   ④ 셋 다 아니면 `inventory:full` — 예전과 똑같은 거부음 + 토스트.
  *
- * ①②③ 으로 들어갔을 때는 `ui:notify` 로 **어디로 갔는지** 말한다. 가방에 들어가는 평범한 경우에는
- * 아무 말도 하지 않는다 (그게 기대되는 자리다).
+ * 성공하면 `ui:notify` 로 **어디로 갔는지** 말한다 — 문구는 부르는 쪽이 정한다 (창고 더블클릭은 의도한
+ * 이동이고, 가방이 꽉 차서 밀려난 것은 사고다).
+ *
+ * 2026-09-12: `activateFallback`(2026-09-10) 의 ①②③ 을 그대로 떼어낸 것이다. 창고 더블클릭(`activateImpl`)이
+ * **같은 순서를 먼저** 쓰기 위해서이고, 규칙은 한 벌뿐이다.
  */
-function activateFallback(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation): OpResult {
+function tryAutoPlace(
+  sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation,
+  message: (name: string, where: string) => string,
+): OpResult | null {
   const notify = (where: string): void => {
-    sys.ctx.bus.emit('ui:notify', { text: WENT_TO(def.name, where), kind: 'info', duration: 2.2 });
+    sys.ctx.bus.emit('ui:notify', { text: message(def.name, where), kind: 'info', duration: 2.2 });
   };
 
   const slot = emptyEquipTargetFor(sys, def);
@@ -477,6 +495,16 @@ function activateFallback(sys: InventorySystem, item: ItemInstance, def: ItemDef
     }
   }
 
+  return null;
+  }
+
+/**
+ * 2026-09-10 — 컨테이너 더블클릭이 **가방에 못 들어갔을 때만** 도는 폴백: `빈 장비 칸 → 임플란트 칸 →
+ * 빈 퀵슬롯`(`tryAutoPlace`), 셋 다 아니면 `inventory:full` (예전과 똑같은 거부음 + 토스트).
+ */
+function activateFallback(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation): OpResult {
+  const placed = tryAutoPlace(sys, item, def, from, WENT_TO);
+  if (placed) return placed;
   sys.ctx.bus.emit('inventory:full', { item, name: def.name });
   return 'fail';
   }
@@ -542,6 +570,39 @@ export function takeOne(sys: InventorySystem, uid: string): OpResult {
   return 'ok';
   }
 
+/**
+ * **2026-09-12 (사용자 결정) — 창고 안 총기에도 부착물을 끼울 수 있다.**
+ *
+ * 부착 경로의 게이트는 `locKind(loc) === 'player'` 였는데 **함선 창고는 `'container'`** 다 (`locKind` 의 뜻은
+ * "옮기면 전달인가"이고, 창고에 넣는 것은 전달이 맞다). 그래서 창고에 둔 총에는 조준경 하나 못 끼우고
+ * 가방으로 꺼냈다가 다시 넣어야 했다. `locKind` 의 의미를 바꾸는 대신 **부착 경로에서만** 창고를 명시적으로
+ * 허용한다 — 상자 · 시체(`'container'` 격자)는 남의 물건이라 계속 거부한다.
+ */
+export function canSocketAt(sys: InventorySystem, loc: ItemLocation): boolean {
+  if (sys.locKind(loc) === 'player') return true;
+  return loc.kind === 'grid' && loc.grid === 'stash';
+  }
+
+/**
+ * 소켓이 바뀐 무기가 든 격자의 `version` 을 올린다 — 그래야 그 타일이 다시 그려진다 (`GridView` 는 버전 게이트).
+ * 2026-09-12: 예전에는 가방만 봤으므로 창고 총의 소켓 핍이 갱신되지 않았다.
+ */
+function bumpWeaponGrid(sys: InventorySystem, weapon: ItemInstance): void {
+  if (sys.bag.has(weapon.uid)) { sys.bag.version++; return; }
+  const stash = sys.getGrid('stash');
+  if (stash?.has(weapon.uid)) stash.version++;
+  }
+
+/**
+ * 소켓에서 빠진 부착물이 갈 자리: 가방 → (함선이면) 창고 → 바닥. 2026-09-12 에 창고가 끼었다 — 창고 총의
+ * 부착물을 바꿨는데 가방이 꽉 찼다고 함선 안에서 바닥에 던질 수는 없다.
+ */
+function stowDetached(sys: InventorySystem, att: ItemInstance): void {
+  if (sys.bag.autoPlace(att)) return;
+  if (sys.hubMode && sys.tryAddToStash(att)) return;
+  sys.throwToWorld(att, true);
+  }
+
 /** Can attachment `uid` (at `from`) be socketed into weapon `weaponUid` (at `loc`)? */
 export function previewAttach(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): DropPreview {
   if (sys.isItemLocked(uid, from)) return 'bad';
@@ -549,7 +610,7 @@ export function previewAttach(sys: InventorySystem, uid: string, from: ItemLocat
   const attDef = att && ITEM_DEF_MAP.get(att.defId);
   const weapon = sys.findItem(weaponUid, loc);
   if (!att || !attDef?.attachment || !weapon || from.kind !== 'grid') return 'bad';
-  if (sys.locKind(loc) !== 'player' || !isWeaponItemDef(ITEM_DEF_MAP.get(weapon.defId))) return 'bad';
+  if (!canSocketAt(sys, loc) || !isWeaponItemDef(ITEM_DEF_MAP.get(weapon.defId))) return 'bad';
   if (!sys.loot.canAttach(weapon, att)) return 'bad';
   return weapon.sockets?.[attDef.attachment.socket] ? 'swap' : 'ok';
   }
@@ -575,8 +636,8 @@ export function attachFromImpl(sys: InventorySystem, uid: string, from: ItemLoca
   if (from.grid === 'container') att.searched = true;
   const prev = setSocket(weapon, socket, att);
   if (from.grid === 'container') sys.ctx.bus.emit('inventory:itemAdded', { item: att, name: attDef.name, rarity: attDef.rarity });
-  if (prev && !sys.bag.autoPlace(prev)) sys.throwToWorld(prev, true);
-  if (sys.bag.has(weapon.uid)) sys.bag.version++;
+  if (prev) stowDetached(sys, prev);
+  bumpWeaponGrid(sys, weapon);
   sys.ctx.bus.emit('inventory:socketChanged', { weapon, socket, attachment: att });
   sys.afterSocketChange(weapon);
   sys.afterChange();

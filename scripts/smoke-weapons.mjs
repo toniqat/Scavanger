@@ -87,39 +87,31 @@ try {
   const ev = (n) => page.evaluate((k) => window.__ev[k], n);
   const lastEv = async (n) => { const a = await ev(n); return a[a.length - 1]; };
 
-  console.log('hub / workbench');
+  console.log('hub / 수리 진입점');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
-  // Phase 8: the cockpit no longer has a built-in bench — place a 정비 벤치 in a 작업실 and use that.
-  // 2026-09-07: a ship starts with neither, and 시설 증축 / 가구 제작 cost materials, so seed both directly.
-  // The server profile lands a moment after the hub does and replaces the ship state with its own `ship` document,
-  // so seed *after* that (a fresh ship used to carry the benches, which is why this never mattered before).
-  await sleep(1500);
-  const benchUid = await page.evaluate(() => {
+  /* 2026-09-12 (사용자 결정): **정비 벤치 가구가 은퇴했다** (`data/furniture.csv` 의 `retired=1`) — 함선에서는
+     가구 없이 인벤토리에서 재료만 갖다 바치면 수리된다. 여기 있던 블록(작업실에 벤치를 심고 E 로 여닫아
+     `hub:workbenchToggled` 를 확인)은 통째로 무효다: 은퇴한 def 는 `getFurnitureFor` 에도 `place` 에도 오지 않고
+     `hub/ui/WorkbenchMenu` · `hub/Workbench` 는 파일째 없어졌다.
+     그래서 **은퇴했다는 사실 자체**를 검사해 되살아나는 것을 막고, 수리 동작은 아래 `unload / repair / broken`
+     절의 `inventory.repairWeapon` 이 그대로 지킨다 (거기가 처음부터 진짜 수리 검사였다). */
+  await sleep(1500);                      // 서버 프로필의 `ship` 문서가 허브보다 한 박자 늦게 도착해 상태를 덮는다
+  const retired = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
     if (!h) return null;
-    let room = h.state.rooms.findIndex((r) => r.purpose === 'workshop');
-    if (room < 0) { room = 0; h.state.rooms[0] = { purpose: 'workshop', level: 1 }; }
-    const placed = h.getPlaced(room).find((f) => f.defId === 'furn_repair_bench');
-    if (placed) return placed.uid;
-    if (!h.getStored().some((e) => e.defId === 'furn_repair_bench' && e.qty > 0)) {
-      h.state.furnitureStorage.push({ defId: 'furn_repair_bench', level: 1, qty: 1 });
-    }
-    return h.place(room, 'furn_repair_bench', 0, 0, 0)?.uid ?? null;
+    const room = h.state.rooms.findIndex((r) => r.purpose === 'workshop');
+    return {
+      inCatalogue: h.getFurnitureFor('workshop').some((d) => d.id === 'furn_repair_bench'),
+      // 창고에 억지로 넣어도 배치되지 않는다 — sanitize 가 은퇴 가구를 걷어내고 재료로 환불한다
+      placed: room >= 0 ? h.place(room, 'furn_repair_bench', 0, 0, 0) : null,
+    };
   });
-  await sleep(300);                       // the placement rebuilds the room's furniture layer on the next frames
-  ok(!!benchUid, 'personal ship: 정비 벤치 placed in the 작업실', String(benchUid));
+  ok(retired && !retired.inCatalogue && !retired.placed,
+    '정비 벤치는 은퇴했다 — 작업실 가구 목록에도 없고 place 도 거부된다', JSON.stringify(retired));
   const ids = await page.evaluate(() => window.__game.ctx.interactables.all().map((i) => i.id));
-  ok(ids.includes(`hub_furn_${benchUid}`), 'placed 정비 벤치 registers its interactable', ids.join(','));
   ok(ids.includes('hub_terminal'), 'terminal still registered');
-  await page.evaluate((uid) => window.__game.ctx.interactables.all().find((i) => i.id === `hub_furn_${uid}`).interact(), benchUid);
-  await sleep(200);
-  const wb = await lastEv('hub:workbenchToggled');
-  ok(wb && wb.open === true, 'workbench menu opens (hub:workbenchToggled)');
-  ok(await page.evaluate(() => window.__game.ctx.uiBlockers.has('hub')), 'workbench takes the hub blocker');
-  await key('KeyE');   // 2026-09-08: the 정비 벤치 menu closes on E (Escape is the 일시정지 메뉴)
-  await sleep(200);
-  ok((await lastEv('hub:workbenchToggled')).open === false, 'E closes the workbench');
+  ok(!ids.some((id) => id === 'hub_workbench'), '공유 함선의 붙박이 정비 벤치도 없다', ids.join(','));
   // Phase 9: the 배리어 implant is chosen on the ship (setEquipped is hub-only) and deployed in the mission below
   const eqBar = await page.evaluate(() => { const imp = window.__game.ctx.implants; return imp ? { ok: imp.setEquipped('barrier'), eq: imp.equipped } : null; });
   ok(eqBar && eqBar.ok && eqBar.eq === 'barrier', 'hub: 배리어 implant equipped (setEquipped)', JSON.stringify(eqBar));

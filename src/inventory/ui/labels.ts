@@ -170,8 +170,11 @@ export const TEXT = {
     socket: '소켓', fits: '호환', all: '모든 무기', recoilV: '수직 반동', recoilH: '수평 반동', spread: '탄 퍼짐',
     hipSpread: '지향 사격 퍼짐', adsTime: '정조준 시간', magSize: '장탄수', zoom: '배율', scope: '스코프', laser: '레이저',
   },
-  /** 2026-09-11 (C-36): `durability` — 가방도 레이드마다 닳는다 (0 이어도 격자는 그대로). */
-  bagStats: { grid: '칸', quickSlots: '퀵슬롯', tactical: '전술형', durability: '내구도' },
+  /**
+   * 2026-09-11 (C-36): `durability` — 가방도 레이드마다 닳는다 (0 이어도 격자는 그대로).
+   * 2026-09-12: `capacity` — 가방이 늘려 주는 소지 한계 (`Gear.bagCapacityBonus`, 0 이면 줄이 없다).
+   */
+  bagStats: { grid: '칸', quickSlots: '퀵슬롯', tactical: '전술형', durability: '내구도', capacity: '소지 한계' },
   /* Phase 9: 서적 (`ItemDef.book`) */
   bookStats: { skill: '스킬', use: '용도', shelf: '서재 책장에 꽂으면 해당 스킬 XP 증가' },
   /* appended: tactical kit */
@@ -272,24 +275,19 @@ export const TEXT = {
     /** 구간이 바뀌면 숫자가 바뀐다는 것을 말해 주는 한 줄. */
     repairNote: '내구도가 낮을수록 수리 재료가 많이 듭니다',
     salvageNote: '내구도가 낮을수록 나오는 재료가 적습니다',
-    /**
-     * 2026-09-11 (C-37): 호버 카드의 내구도 줄 바로 아래 한 줄 — `81~100 % · 분해 40 % · 수리 10 %`.
-     * 분해가 금지된 유니크는 `salvageMul` 이 null 이라 수리만 적는다.
+    /*
+     * 2026-09-12: 호버 카드의 `구간` 줄(2026-09-11 C-37 의 `tooltip` · `tooltipKey`)은 **없앴다** — 아이템 카드는
+     * 내구도 게이지 하나로 말하고, 구간과 배수는 그것으로 값이 정해지는 두 화면(수리 팝업 `ui/RepairPanel` ·
+     * 분해 팝업 `ui/DisassemblePanel`)이 `repair` · `salvage` 로 계속 적는다.
      */
-    tooltip: (label: string, salvageMul: number | null, repairMul: number): string =>
-      salvageMul === null
-        ? `${label} · 수리 ${Math.round(repairMul * 100)} %`
-        : `${label} · 분해 ${Math.round(salvageMul * 100)} % · 수리 ${Math.round(repairMul * 100)} %`,
-    /** 그 줄의 왼쪽 칸. */
-    tooltipKey: '구간',
   },
   /** Shared close affordance of the modeless popups (임플란트 / 제작 / 분해). */
   modelessClose: '닫기',
   /**
-   * **작업대 탭** (2026-09-10). 함선의 `제작` 패널은 작업대를 가리지 않고 전부 한 목록에 쏟아 놓는다 —
-   * 레시피가 48 → 94 줄로 늘고 정제 작업대가 다섯 번째로 붙으면서 그대로는 읽히지 않는다. 탭 이름은
-   * `WORKBENCH_LABEL_KO`(`@/shared`) 하나가 원본이고, 여기 있는 것은 **글리프뿐**이다.
+   * **작업대 고르기** (2026-09-10 가로 탭 → 2026-09-12 왼쪽 세로 리스트, 사용자 결정). 작업대 **이름**의 원본은
+   * `WORKBENCH_LABEL_KO`(`@/shared`) 하나이고 여기 있는 것은 `빠른제작` 라벨과 **글리프뿐**이다.
    * (같은 글리프를 `ui/hud/ShipManage` 의 시설 관리 화면도 쓴다 — 작업대를 알아보는 눈이 같아야 한다.)
+   * `all` (`전체`) 은 리스트에서 빠졌다 — 94 줄을 한 목록에 쏟는 것이 애초에 읽히지 않아 가르기 시작한 이유다.
    */
   craftTabs: {
     all: '전체',

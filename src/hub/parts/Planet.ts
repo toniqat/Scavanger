@@ -28,11 +28,9 @@ import { roomAtWorld } from '../interiors/RoomLayout';
 import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
 import { Terminal } from '../Terminal';
-import { Workbench } from '../Workbench';
 import { Computer } from '../Computer';
 import { DockingCutscene, type DockDirection } from '../DockingCutscene';
 import { HubMenu } from '../ui/HubMenu';
-import { WorkbenchMenu } from '../ui/WorkbenchMenu';
 import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
@@ -106,7 +104,6 @@ export function startTravel(sys: HubSystem, planet: PlanetId, by: 'local' | 'squ
   if (!def) return;
   if (sys.boardedSlot >= 0) sys.leavePod(true, true);
   sys.menu.close(false);
-  sys.wbMenu.close(false);
   sys.ready.hide();
   sys.countdown = -1; sys.lastCountdownSecond = -1; sys.launched = false;
   // a docking cutscene cannot be running here (`travelBlockReason` / `onLobbyUpdated` refuse), but never leave one behind

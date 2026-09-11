@@ -10,7 +10,7 @@ import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
 import { diningTable, implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
-import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination, WorkbenchDef } from './types';
+import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
 const ROOM = { minX: -13, maxX: 13, minZ: -7, maxZ: 7 };
 const CEIL = 4.2;
@@ -44,7 +44,6 @@ export class SharedShip implements ShipInterior {
   readonly airlockYaw = yawFromForward(-1, 0);             // walking in toward −X
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
-  readonly workbench: WorkbenchDef;
   readonly computer: StationDef;
   readonly stations: ShipStations;
   /** 격납고 (2026-09-08): the aft deck and its four 개인 함선 bays. */
@@ -170,9 +169,13 @@ export class SharedShip implements ShipInterior {
       col.addBox(x, 0, ROOM.maxZ - 0.4, 2.4, 2.2, 0.6);
     }
     P.lockers(4.2, ROOM.maxZ - 0.27, 5, 0);
-    // workbench (weapon repair), facing −Z into the deck
+    /*
+     * 정비 벤치 — **2026-09-12 부터 순수한 소품이다** (사용자 결정: 정비 벤치 제거). 여기서 `this.workbench`
+     * 에 상호작용 앵커를 실어 `parts/Interior` 가 `hub_workbench` 를 등록했는데, 함선에서의 무기 수리는 이제
+     * 인벤토리에서 재료로 한다. 테이블 · 바이스 · 공구판 · `정비` 표지는 병기고 실루엣이라 그대로 두고
+     * 앵커만 버린다 (`P.workbench` 는 앵커 · 표지 변환을 함께 돌려주므로 표지 자리는 계속 쓴다).
+     */
     const wb = P.workbench(-3.7, ROOM.maxZ - 0.62, 0);
-    this.workbench = { position: wb.position, yaw: wb.yaw };
     const wbSign = new TextPlane(0.9, 0.3, 256);
     wbSign.mesh.position.copy(wb.signPos);
     wbSign.mesh.rotation.copy(wb.signRot);

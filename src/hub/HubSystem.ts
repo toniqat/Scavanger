@@ -12,11 +12,9 @@ import { roomAtWorld } from './interiors/RoomLayout';
 import { HousingMode } from './HousingMode';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
-import { Workbench } from './Workbench';
 import { Computer } from './Computer';
 import { DockingCutscene, type DockDirection } from './DockingCutscene';
 import { HubMenu } from './ui/HubMenu';
-import { WorkbenchMenu } from './ui/WorkbenchMenu';
 import { LaunchWarnPanel } from './ui/LaunchWarnPanel';
 import { HubStatus } from './ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
@@ -118,12 +116,10 @@ export class HubSystem implements GameSystem, HubRef {
 
   /** The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt). */
   applyPlanetLook(): void { return Planet.applyPlanetLook(this); }
-  /** Personal-ship room the player stands in (XZ inside the room's 4 × 4 m floor), else null. */
+  /** Personal-ship room the player stands in (XZ inside the room's `ROOM_SIZE × ROOM_DEPTH` floor), else null. */
   get currentRoom(): number | null { return this._currentRoom; }
   _currentRoom: number | null = null;
   getLaunchSlots(): readonly HubLaunchSlot[] { return Pods.getLaunchSlots(this); }
-  /** Debug: true while the workbench (repair) menu is open. */
-  get isWorkbenchOpen(): boolean { return !!this.wbMenu?.isOpen; }
   /** Debug: housing-mode controller (camera / cursor / ghost). */
   get housing(): HousingMode { return this.housingMode; }
   /** Debug: furniture renderer of the current personal ship. */
@@ -154,7 +150,14 @@ export class HubSystem implements GameSystem, HubRef {
   pendingInterior: { kind: HubShipKind; interior: ShipInterior; ready: Promise<boolean> } | null = null;
   pods: LaunchPod[] = [];
   terminal: Terminal | null = null;
-  workbench: Workbench | null = null;
+  /*
+   * 2026-09-12 (사용자 결정 — 정비 벤치 제거): `workbench: Workbench | null` 과 `wbMenu: WorkbenchMenu` 가 여기
+   * 있었다. 함선의 무기 수리는 이제 **인벤토리에서** 한다(재료만 있으면 어디서든), 그래서 `hub/Workbench.ts`
+   * (`hub_workbench` 상호작용)와 `hub/ui/WorkbenchMenu.ts`(정비 창)는 파일째 없어졌고 공유 함선 후벽의 벤치는
+   * 순수한 소품으로 남았다. 되돌리려면 그 두 파일을 되살리고 여기에 필드 둘을, `parts/Interior` 에
+   * `new Workbench(...)` 와 `FurnitureCallbacks.onRepairBench` 를 다시 잇는다.
+   * 버스 이벤트 `hub:workbenchToggled` 는 계약이라 `shared/events` 에 그대로 남아 있다 — 아무도 안 낼 뿐이다.
+   */
   /** 함선 컴퓨터 (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. */
   computer: Computer | null = null;
   stationIds: string[] = [];
@@ -164,7 +167,6 @@ export class HubSystem implements GameSystem, HubRef {
   slots: HubLaunchSlot[] = [];
   cutscene: DockingCutscene | null = null;
   menu!: HubMenu;
-  wbMenu!: WorkbenchMenu;
   /** 출격 준비 경고 (2026-09-08): raised by `boardPod` when the launch check has something to say. */
   launchWarn!: LaunchWarnPanel;
   /** Warning signature the player already waved through — the same set never asks twice. Cleared on a real change. */
@@ -274,7 +276,6 @@ export class HubSystem implements GameSystem, HubRef {
       travelBlock: (planet) => this.travelBlockReason(planet),
       travelTo: (p) => { this.setPlanet(p); },
     });
-    this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
     this.launchWarn = new LaunchWarnPanel(ctx, { onClosed: () => this.relock() });
     // ReadyPanel **before** HubStatus: `hub.css` lifts the status line off the panel with a sibling selector.
     this.ready = new ReadyPanel(ctx);
@@ -327,7 +328,6 @@ export class HubSystem implements GameSystem, HubRef {
     this.shipUnsub?.(); this.shipUnsub = null;
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     this.menu.dispose();
-    this.wbMenu.dispose();
     this.launchWarn.dispose();
     this.status.dispose();
     this.ready.dispose();
@@ -537,7 +537,6 @@ export class HubSystem implements GameSystem, HubRef {
   /* ── frame ─────────────────────────────────────────────────────────────── */
   update(dt: number, ctx: GameContext): void {
     this.menu.update(dt);
-    this.wbMenu.update();
     this.ready.update(dt, ctx.time);
     // a card change inside the debounce window goes out as soon as it expires
     if (this.cardDirty) this.sendCrewCard(false);
@@ -577,7 +576,7 @@ export class HubSystem implements GameSystem, HubRef {
      * popup on another right-click or its 닫기 button — and Escape falls straight through to game/.
      *
      * 2026-09-09 (ESC 닫기): 그 Escape 가 이제 **화면을 닫는다**. 여기서 키를 읽는 대신 각 화면이 열릴 때
-     * `ctx.escape` 에 자기 닫기를 올리고(`ui/HubMenu` · `ui/WorkbenchMenu` · `ui/LaunchWarnPanel` ·
+     * `ctx.escape` 에 자기 닫기를 올리고(`ui/HubMenu` · `ui/LaunchWarnPanel` ·
      * `ui/CrewLoadoutPanel` — `'hub'` 토큰을 나눠 쓰므로 key 는 각자), `game/escapeKey` 가 맨 위 하나만 닫는다.
      *
      * `HubSystem` updates **before** `PlayerSystem`, so the E that opens one of these panels is polled here while the
@@ -587,7 +586,6 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.input.wasPressed(Keys.INTERACT) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
       // 출격 준비 경고 (2026-09-08): opened by the pod itself, not by a key — E is its keyboard 취소.
       if (this.launchWarn.isOpen) { this.launchWarn.close(); ctx.input.consume(Keys.INTERACT); }
-      else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.INTERACT); }
       else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.INTERACT); }
       // 분대원 장비 popup before the pod: it is modeless over the pod view and holds no blocker of its own, so
       // without this step the same E would un-board out from under it (Phase 10 ordering, on the new key).

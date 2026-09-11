@@ -86,7 +86,15 @@ try {
   /** A quick-usable stim that is **not** the starter 붕대 — since `tryAddItem` merges into matching wheel stacks
    *  first, only a different def is guaranteed to land in the bag grid. */
   const HERB = 'heal_bandage_herb';
-  const centre = async (sel) => page.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; }, sel);
+  // 2026-09-12: 가방 격자는 `.inv-bag-scroll` 안에서 스크롤하므로(고정 12줄 틀) 타일이 보이는 자리에 있다고
+  //   가정하지 않는다 — `smoke-inventory-p6` 의 `centre` 와 같이 먼저 보이게 한 뒤 잰다 (보이면 아무 일도 안 한다).
+  const centre = async (sel) => page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) return null;
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, sel);
   const dragMouse = async (from, to, onMid) => {
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
@@ -421,10 +429,27 @@ try {
     return [...inv.getAllItems(), ...inv.getQuickSlots()].filter((i) => i && i.defId === herb).reduce((a, i) => a + i.qty, 0);
   }, HERB);
   const dragState = () => page.evaluate(() => { const d = window.__game.getSystem('inventory').ui?.drag; return d ? { held: !!d.held, qty: d.qty, uid: d.uid, from: d.from.kind, ghost: !!document.querySelector('.inv-ghost') } : null; });
+  /*
+   * 2026-09-12 — **가방 격자는 스크롤 영역이다.** 격자는 늘 가장 긴 가방(`BAG_FRAME_ROWS` 12줄 = 670 px)의 틀로
+   * 그려지고 창이 짧으면 `.inv-bag-scroll` 안에서 스크롤한다 (1280×760 함선 창의 보이는 높이는 264 px = 4.7줄,
+   * 기본 가방은 6줄 336 px). 그래서 좌표를 격자 원점에서 **계산**하면 바닥 줄이 스크롤 밖 — 퀵슬롯 로제트 위를
+   * 찍게 된다. 고른 칸(`.inv-cell`, `.inv-cells` 는 row-major CSS 격자다)을 **먼저 보이게 스크롤한 뒤 실제로
+   * 재서**, 사람이 하는 것과 같게 만들고 바닥 줄에 정말 놓을 수 있는지까지 함께 본다.
+   */
   const freeBagCell = () => page.evaluate(() => {
     const g = window.__game.getSystem('inventory').getGrid('bag');
-    const r = document.querySelector('.inv-grid-bag').getBoundingClientRect();
-    for (let y = g.rows - 1; y >= 0; y--) for (let x = g.cols - 1; x >= 0; x--) if (!g.cellUid(x, y)) return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27, cx: x, cy: y };
+    const cells = document.querySelectorAll('.inv-grid-bag .inv-cell');
+    for (let y = g.rows - 1; y >= 0; y--) for (let x = g.cols - 1; x >= 0; x--) {
+      if (g.cellUid(x, y)) continue;
+      const el = cells[y * g.cols + x];
+      if (!el) {
+        const r = document.querySelector('.inv-grid-bag').getBoundingClientRect();
+        return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27, cx: x, cy: y, scrolled: false };
+      }
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const b = el.getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2, cx: x, cy: y, scrolled: true };
+    }
     return null;
   });
   const probe = await setupMerge(1, 1);
@@ -635,8 +660,9 @@ try {
     return { inside: v.hitTest(x, sc.bottom - 4, 0), hidden: v.hitTest(x, sc.bottom + 12, 0), hiddenPad: v.cellForGhost(x - 27, sc.bottom - 15, 1, 1, x, sc.bottom + 12) };
   }, sc0);
   ok(clip.inside === true && clip.hidden === false && clip.hiddenPad === null, 'C-60: rows scrolled out of view are not a drop target (hitTest clips to the viewport, no edge tolerance there)', JSON.stringify(clip));
-  const aPos = await page.evaluate((uid) => { const e = document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${uid}"]`); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, c60.a);
-  if (!aPos || aPos[0] > 1275 || aPos[1] > 755) {
+  // 2026-09-12: 가방 격자가 스크롤 영역이 됐으므로 먼저 보이게 하고, 건너뛰기 판정도 **위쪽**으로 벗어난 경우를 함께 본다
+  const aPos = await page.evaluate((uid) => { const e = document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${uid}"]`); if (!e) return null; e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, c60.a);
+  if (!aPos || aPos[0] > 1275 || aPos[1] > 755 || aPos[0] < 5 || aPos[1] < 5) {
     console.log(`  skip C-60 drag checks — the bag tile is off screen (${JSON.stringify(aPos)})`);
   } else {
     const x = sc0.left + 300;

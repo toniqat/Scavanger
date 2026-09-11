@@ -10,7 +10,9 @@ import type { InventorySystem } from '../InventorySystem';
  * 들어가야 하므로 장착 장비 칸(`.inv-equip`) 바로 아래가 제자리다. 캐릭터 탭에는 아무것도 남지 않는다.
  *
  *   • **전술 임플란트** — Q 로 쓰는 6종 중 하나. 슬롯 카드 하나를 누르면 모달리스 피커(`.inv-imp-pop`)가 뜨고
- *     카드를 고르면 `ctx.implants.setEquipped` 로 장착된다. 레이드 중에는 잠긴다.
+ *     카드를 고르면 `ctx.implants.setEquipped` 로 장착된다. 레이드 중에는 잠긴다. **2026-09-12 (사용자 결정)**:
+ *     그 슬롯은 가로 바가 아니라 다른 장비칸과 같은 높이의 **정사각 썸네일**이고, 이 블록(`.inv-implants`) 자체가
+ *     장비칸 그리드의 `implant` 칸(주무기 II 아래 · 주머니 왼쪽)에 들어간다.
  *   • **임플란트 아이템** — `ItemDef.implant` 를 가진 아이템. `임플란트 n / m칸` + 핍 줄, 그 아래에 장착한 것들이
  *     **정사각 썸네일 가로 나열**(`.inv-impi-cell`, 클릭 = 해제)이고 줄 끝의 `＋` 셀이 두 번째
  *     피커(`.inv-impi-pop`)를 띄운다. 가방 + 함선 창고를 훑어 후보를 만든다.
@@ -236,15 +238,17 @@ export class ImplantPanel {
 
   /* ══ 전술 임플란트 ══════════════════════════════════════════════════════ */
 
+  /**
+   * **2026-09-12 (사용자 결정) — 정사각 썸네일.** 예전에는 아이콘 + 이름 + 태그가 가로로 늘어선 바(`display: flex`)
+   * 였는데, 이 블록이 장비칸 그리드의 한 칸(`grid-area: implant`)으로 들어가면서 옆 칸들과 모양이 달랐다.
+   * 이제 다른 장비칸과 같은 높이의 **정사각 칸**이고 아이콘이 크게 가운데, 이름은 **하단 캡션**, 구동 방식은
+   * 우상단 작은 태그다. 설명은 여전히 여기 없다 (2026-09-08) — 교체 피커의 카드가 말한다.
+   */
   private buildTacSlot(parent: HTMLElement): HTMLButtonElement {
     const slot = el('button', { cls: 'inv-imp-slot', parent, attrs: { type: 'button' } });
     el('span', { cls: 'ico', parent: slot }).setAttribute('aria-hidden', 'true');
-    const body = el('span', { cls: 'body', parent: slot });
-    const line = el('span', { cls: 'line', parent: body });
-    el('span', { cls: 'nm', parent: line });
-    el('span', { cls: 'tag', parent: line });
-    // 2026-09-08: 설명은 여기 없다 — 교체 피커(`.inv-imp-card`)의 카드에만 적는다. 장착칸은 "무엇이 끼워져
-    //   있나"만 말하면 되고, 화면에 늘 떠 있는 문단 하나가 인벤토리에서 제일 시끄러운 줄이었다.
+    el('span', { cls: 'tag', parent: slot });
+    el('span', { cls: 'nm', parent: slot });
     slot.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.tacPickerOpen) { this.closeTacPicker(); return; }
@@ -309,13 +313,18 @@ export class ImplantPanel {
     if (inRaid) this.closeTacPicker();
   }
 
-  /** The equipped-implant slot card (empty state included). */
+  /**
+   * The equipped-implant slot card (empty state included). 2026-09-12: 정사각 썸네일이라 이름은 하단 캡션이고
+   * **설명 · 구동 방식은 `title`** 이 함께 말한다 — 좁은 칸에 글이 들어갈 자리가 없기 때문이다.
+   */
   private paintTacSlot(def: ImplantDef | null, inRaid: boolean): void {
     const slot = this.tacSlot;
     slot.classList.toggle('is-filled', !!def);
     slot.disabled = this.tacCards.size === 0;
     slot.style.setProperty('--ic', def?.color ?? 'rgba(255,255,255,0.35)');
-    slot.title = inRaid ? TAC_TEXT.raidLocked : TAC_TEXT.pick;
+    slot.title = inRaid ? TAC_TEXT.raidLocked
+      : def ? `${def.name} · ${TAC_TEXT.mode[def.mode]}\n${def.description}`
+      : TAC_TEXT.pick;
     setText(slot.querySelector<HTMLElement>('.ico')!, def?.icon ?? '＋');
     setText(slot.querySelector<HTMLElement>('.nm')!, def?.name ?? TAC_TEXT.slotEmpty);
     const tag = slot.querySelector<HTMLElement>('.tag')!;

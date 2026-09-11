@@ -1,9 +1,11 @@
 // Single-player smoke test for the **가구 화면 개편** (2026-09-12, src/housing/ui): the shared station frame (제목 + `Lv. n` ·
 // 우상단 업그레이드 · 좌 패널 / 우 가방 · 함선 창고 · 라벨 없음), the 업그레이드 모달 (클릭은 확정하지 않고 1초 홀드만,
-// Tab 은 모달만 닫는다), `HH:MM:SS` 시계 (`:SS` 절반 크기), 재배 스테이션 (잠긴 층 = 테두리만, 흙구멍 50 % · 하얀 바가
-// 구멍 윗변까지, 호버 카드, 우클릭 흙 비우기, 더블클릭 = 함선 창고 먼저, 끌어서 가방에 놓기 = 가방), the coalesced
+// Tab 은 모달만 닫는다), `HH:MM:SS` 시계 (2026-09-12: `:SS` 도 `HH:MM` 과 **같은 크기**), 재배 스테이션 (잠긴 층 =
+// 테두리만, 흙구멍 50 % · 하얀 바가 구멍 윗변까지, **영역별** 호버 카드(흙구멍 = 토양 · 식물 공간 = 작물), 우클릭 흙
+// 비우기, 더블클릭 = 함선 창고 먼저, 끌어서 가방에 놓기 = 가방 — **창고 · 가방 블록이 드래그 전에 둘 다 스크롤
+// 없이 닿는지**까지 본다(`gridProbe`), the coalesced
 // refresh (드롭 한 번 = refresh 한 번 · 재배층 재구축 0회), 분석기 (잠긴 칸 = 빈 칸, 이름 위 · 시간 아래, 우하단 버튼,
-// 해석 도감 탭, 더블클릭 회수), 배양조 (`.cult-*`, 우클릭 · 더블클릭 수확) and 식탁 (업그레이드 없음).
+// 좌측 레일의 해석 도감 탭, 더블클릭 회수), 배양조 (`.cult-*`, 우클릭 · 더블클릭 수확) and 식탁 (업그레이드 없음).
 // Usage: node scripts/smoke-stations.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -73,6 +75,18 @@ try {
   });
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
+  /**
+   * 2026-09-12: **화면 전환(타이틀 페이드)이 끝나기를 기다린다.** `.menu.hidden` 은 `opacity` · `visibility` 를 함께
+   * 전이시키는데, `visibility` 는 전이가 **끝날 때** 비로소 `hidden` 이 된다 — 그 300 ms 남짓 동안 투명해진 타이틀
+   * 화면이 화면 전체를 덮은 채 `pointer-events: auto` 로 남아 **모든 `elementFromPoint` 를 가져간다**(실측: 280 ms
+   * 에 `.hidden`, 600 ms 에 `visibility: hidden`). 사람은 그 사이에 함선에 들어가 가구를 놓고 스테이션을 열 수
+   * 없지만 스모크는 그보다 빠르다(같은 구간을 350 ms 에 끝낸다) — 그래서 격자 위 hit-test 가 타이틀 버튼을 집어
+   * `hit: null` 이 됐다. 게임 쪽 배치 문제가 아니므로 여기서 전환이 끝나기를 기다린다.
+   */
+  await waitFor(page, () => [...document.querySelectorAll('.menu.hidden')].every((m) => {
+    const cs = getComputedStyle(m);
+    return cs.visibility === 'hidden' || cs.display === 'none' || cs.pointerEvents === 'none';
+  }), '숨은 메뉴의 페이드가 끝난다 (투명한 타이틀 화면이 hit-test 를 먹지 않는다)', 5000);
 
   /** Units of `defId` into the stash in def-sized stacks. */
   const giveStash = (defId, qty) => H(({ defId, qty }) => {
@@ -89,6 +103,28 @@ try {
   }, { defId, qty });
   const stashQty = (defId) => H((d) => window.__game.ctx.inventory.getStashItems().filter((i) => i.defId === d).reduce((a, i) => a + i.qty, 0), defId);
   const bagQty = (defId) => H((d) => window.__game.ctx.inventory.getAllItems().filter((i) => i.defId === d).reduce((a, i) => a + i.qty, 0), defId);
+
+  /**
+   * 2026-09-12 (회귀 가드): 한 격자 블록(`[data-tg-grid]`)이 **스크롤 없이** 닿는가 — 끌고 있는 동안에는
+   * 스크롤할 수 없으므로, 창고 → 흙구멍도 수확물 → 가방도 드래그를 시작하기 전에 대상이 화면 안에 있어야 한다.
+   * 한 스크롤에 두 격자를 세로로 이어 붙이면(창고 24행 1381 px · 가방 틀 12행 709 px) 어느 쪽을 위에 올려도
+   * 다른 쪽이 화면 밖으로 나갔다 — 지금은 블록마다 자기 스크롤이다 (housing.css 의 `.hs-inv .tg-gridwrap`).
+   * 겨눌 좌표(`tx`/`ty`)도 여기서 돌려주므로 드래그 목적지 계산이 한 곳뿐이다.
+   */
+  const gridProbe = (menu, id) => H(({ menu, id }) => {
+    const blk = document.querySelector(`.menu.${menu} [data-tg-grid="${id}"]`);
+    if (!blk) return null;
+    const box = blk.closest('.tg-scroll');
+    const b = blk.getBoundingClientRect(), v = box ? box.getBoundingClientRect() : b;
+    const top = Math.max(b.top, v.top), bottom = Math.min(b.bottom, v.bottom);
+    const tx = b.left + Math.min(60, b.width / 2), ty = (top + bottom) / 2;
+    const el = document.elementFromPoint(tx, ty);
+    return { id, tx, ty, visibleH: bottom - top, onScreen: tx > 0 && tx < innerWidth && ty > 0 && ty < innerHeight,
+      hit: el?.closest('[data-tg-grid]')?.dataset.tgGrid ?? null,
+      top: el ? `${el.tagName.toLowerCase()}.${el.className}` : null,   // `hit` 이 null 일 때 **무엇이 덮었는지**를 말해 준다
+      block: { x: b.left, y: b.top, h: b.height }, view: { y: v.top, h: v.height } };
+  }, { menu, id });
+  const reachable = (p) => !!p && p.visibleH > 40 && p.onScreen && p.hit === p.id;
 
   /* ── ship set-up: rooms straight in the state (the purpose rules are smoke-housing's business) ── */
   for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 24], ['mat_bio_sample', 30], ['mat_circuit', 16], ['mat_cloth', 10],
@@ -161,6 +197,12 @@ try {
 
   /* ── 드롭: 창고 타일을 흙구멍으로 끌어 놓는다 (진짜 포인터) + 합쳐진 refresh ── */
   await giveStash('soil_mineral', 3); await giveStash('seed_tuber', 4); await giveStash('seed_beanpod', 1);
+  // 2026-09-12 (회귀 가드 — 이 화면의 드래그 두 방향이 전부 여기 달려 있다): 창고에서 흙구멍으로 끌든 수확물을
+  // 가방에 놓든, **시작 전에 두 격자가 다 보여야** 한다. 한 스크롤에 세로로 이어 붙였을 때는 늘 한 쪽이 밖이었다.
+  const probes = { stash: await gridProbe('grow-station', 'stash'), bag: await gridProbe('grow-station', 'bag') };
+  ok(reachable(probes.stash) && reachable(probes.bag),
+    `창고 · 가방 격자가 드래그 전에 둘 다 보인다 (창고 ${Math.round(probes.stash?.visibleH ?? -1)} px · 가방 ${Math.round(probes.bag?.visibleH ?? -1)} px)`,
+    JSON.stringify(probes));
   await H(() => { const gs = window.__game.ctx.housing.growStation; window.__perf0 = { builds: gs.debug.builds, runs: gs.refreshStats.runs, requests: gs.refreshStats.requests }; });
   // the embedded grids repaint on the next animation frame — wait for the new soil tile to exist (found by uid)
   const soilUid = await H(() => window.__game.ctx.inventory.getStashItems().find((i) => i.defId === 'soil_mineral')?.uid ?? null);
@@ -169,10 +211,13 @@ try {
   const dragFrom = await H((sel) => {
     const tile = document.querySelector(sel);
     if (!tile) return null;
+    // 블록마다 자기 스크롤이므로 이것이 스크롤하는 것은 그 블록의 `.inv-grid` 다 (바깥 `.tg-scroll` 은 넘치지 않는다)
     tile.scrollIntoView({ block: 'center' });
     const a = tile.getBoundingClientRect();
     const b = document.querySelector('.menu.grow-station .gs-pot[data-tier="0"][data-slot="0"]').getBoundingClientRect();
-    return { x: a.left + 20, y: a.top + 20, tx: b.left + b.width / 2, ty: b.top + b.height * 0.7 };
+    const x = a.left + 20, y = a.top + 20;
+    return { x, y, tx: b.left + b.width / 2, ty: b.top + b.height * 0.7,
+      srcHit: document.elementFromPoint(x, y)?.closest('[data-tg-grid]')?.dataset.tgGrid ?? null };
   }, tileSel);
   const diag = { soilUid, dragFrom, tiles: await H(() => document.querySelectorAll('.menu.grow-station [data-tg-grid="stash"] .inv-tile').length) };
   if (dragFrom) {
@@ -216,19 +261,29 @@ try {
     }));
   }, GS);
   ok(clock.r.every((v) => v === null) && CLOCK.test(clock.text ?? '') && /^:\d{2}$/.test(clock.ss ?? ''), `남은 시간 HH:MM:SS (${clock.text})`);
-  ok(clock.ssPx > 0 && Math.abs(clock.ssPx - clock.hmPx / 2) < 0.6, `:SS 는 HH:MM 글자의 절반 (${clock.hmPx} → ${clock.ssPx} px)`);
+  // 2026-09-12 (사용자 지적 — 분석기에서 초가 너무 작았다): `:SS` 의 절반 크기를 **없앴다**. `.hs-clock-ss` 가
+  // `font-size: inherit` 라 스테이션 네 화면이 한 크기를 쓰고, 재배 칸의 「상태가 바뀌어도 높이가 한 픽셀도
+  // 변하지 않는다」도 글자 크기가 하나여야 지켜진다. 그래서 이 검사는 「절반」이 아니라 「같다」를 본다.
+  ok(clock.ssPx > 0 && Math.abs(clock.ssPx - clock.hmPx) < 0.6, `:SS 는 HH:MM 과 같은 크기 (${clock.hmPx} → ${clock.ssPx} px)`);
   ok(!(await H(() => document.querySelector('.gs-slot[data-key="0:0"]').textContent)).includes('궁합'), '칸 아래 궁합 줄 없음');
 
-  /* ── 호버 카드 ── */
-  const tip = await H(() => {
+  /* ── 호버 카드 — 2026-09-12 (사용자 결정) 부터 **영역별**이다 ──
+     흙구멍(`.gs-pot`) 위면 토양 카드(종류 · 속성 · 남은 수확 · 우클릭 안내), 그 위의 식물 공간(`.gs-plant`) 위면
+     작물 카드(씨앗 · 남은 시간 · 궁합 % · 수확물). 예전에는 칸 어디를 짚어도 한 카드가 둘을 다 실었으므로
+     이 검사도 한 번의 호버만 봤다 — 이제 두 영역을 따로 짚는다. */
+  const hoverTip = (sel) => H((s) => {
     const slot = document.querySelector('.gs-slot[data-key="0:0"]');
     const r = slot.getBoundingClientRect();
-    slot.querySelector('.gs-pot').dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 10, clientY: r.top + 10 }));
+    slot.querySelector(s).dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 10, clientY: r.top + 10 }));
     const t = document.querySelector('.menu.grow-station .hs-tip');
     return { shown: !!t && !t.hidden, text: t?.textContent ?? '' };
-  });
-  ok(tip.shown && /씨앗/.test(tip.text) && /토양/.test(tip.text) && /남은 시간/.test(tip.text) && /궁합/.test(tip.text) && /%/.test(tip.text) && /우클릭: 흙 비우기/.test(tip.text),
-    `흙구멍 호버 = 씨앗 · 토양 · 남은 시간 · 궁합(%) 카드 (${tip.text.slice(0, 90)})`);
+  }, sel);
+  const soilTip = await hoverTip('.gs-pot');
+  ok(soilTip.shown && /토양/.test(soilTip.text) && /속성/.test(soilTip.text) && /남은 수확/.test(soilTip.text) && /우클릭: 흙 비우기/.test(soilTip.text)
+    && !/궁합/.test(soilTip.text), `흙구멍 호버 = 토양 카드 (속성 · 남은 수확 · 우클릭 안내) (${soilTip.text.slice(0, 90)})`);
+  const plantTip = await hoverTip('.gs-plant');
+  ok(plantTip.shown && /씨앗/.test(plantTip.text) && /남은 시간/.test(plantTip.text) && /궁합/.test(plantTip.text) && /%/.test(plantTip.text) && /수확물/.test(plantTip.text),
+    `식물 공간 호버 = 작물 카드 (씨앗 · 남은 시간 · 궁합(%) · 수확물) (${plantTip.text.slice(0, 90)})`);
   await H(() => document.querySelector('.menu.grow-station .gs-tiers').dispatchEvent(new PointerEvent('pointerleave')));
   ok(await H(() => document.querySelector('.menu.grow-station .hs-tip').hidden), '벗어나면 카드가 사라진다');
 
@@ -253,29 +308,26 @@ try {
   /* ── 끌어서 가방 격자에 놓기 = 가방 ── */
   await H((u) => window.__game.ctx.housing.plantSeedAt(u, 0, 0, 'seed_tuber'), GS);
   await ripen(GS, 0, 0);
-  const route = await H(() => {
-    const pot = document.querySelector('.gs-slot[data-key="0:0"] .gs-pot').getBoundingClientRect();
-    const bag = document.querySelector('.menu.grow-station [data-tg-grid="bag"]');
-    // 가방 · 창고가 한 스크롤 안에 있다 — 맨 위로 올리고, 가방 블록 중 스크롤 창에 실제로 보이는 부분을 겨눈다
-    const scroller = bag.closest('.tg-scroll');
-    if (scroller) scroller.scrollTop = 0;
-    const b = bag.getBoundingClientRect();
-    const v = scroller ? scroller.getBoundingClientRect() : b;
-    const top = Math.max(b.top, v.top), bottom = Math.min(b.bottom, v.bottom);
-    return { x: pot.left + pot.width / 2, y: pot.top + pot.height * 0.7, tx: b.left + Math.min(60, b.width / 2), ty: (top + bottom) / 2 };
+  // 겨눌 자리는 위의 `gridProbe` 하나가 정한다 (계산이 한 곳뿐이다). 여기서 다시 재는 이유는 그 사이에 한 번
+  // 수확해서 격자 내용이 바뀌었기 때문이고, **드래그 직전의 실제 화면**을 봐야 하기 때문이다.
+  const bagAt = await gridProbe('grow-station', 'bag');
+  const from = await H(() => {
+    const b = document.querySelector('.gs-slot[data-key="0:0"] .gs-pot').getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height * 0.7 };
   });
+  ok(reachable(bagAt), `가방 격자가 스크롤 없이 닿는다 (보이는 높이 ${Math.round(bagAt?.visibleH ?? -1)} px)`, JSON.stringify(bagAt));
   const bag1 = await bagQty('crop_tuber'), stash1 = await stashQty('crop_tuber');
-  await page.mouse.move(route.x, route.y);
+  await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.mouse.move(route.x + 20, route.y, { steps: 3 });
+  await page.mouse.move(from.x + 20, from.y, { steps: 3 });
   const ghost = await H(() => !!document.querySelector('.hs-ghost'));
-  await page.mouse.move(route.tx, route.ty, { steps: 12 });
+  await page.mouse.move(bagAt.tx, bagAt.ty, { steps: 12 });
   await sleep(60);
   const bagDiag = await H((t) => {
     const u = document.elementFromPoint(t.tx, t.ty);
     return { under: u ? `${u.tagName}.${u.className}` : null, grid: u?.closest('[data-tg-grid]')?.dataset.tgGrid ?? null,
       over: !!document.querySelector('[data-tg-grid].hs-drop-over') };
-  }, route);
+  }, bagAt);
   await page.mouse.up();
   await sleep(50);
   const bag2 = await bagQty('crop_tuber'), stash2 = await stashQty('crop_tuber');
@@ -350,7 +402,8 @@ try {
     const r = document.querySelector('.menu.analyzer-panel');
     return {
       title: r.querySelector('.hs-station-head .title').textContent, lv: r.querySelector('.hs-lv').textContent,
-      tabs: [...r.querySelectorAll('.hs-tabs .hs-tab')].map((b) => b.textContent),
+      // 2026-09-12: 탭은 좌 패널 안의 `.hs-tabs` 가 아니라 **화면 맨 왼쪽 공통 레일**(`StationShell.rail` = `.hs-rail`)에 산다
+      tabs: [...r.querySelectorAll('.hs-rail .hs-tab')].map((b) => b.textContent),
       dexHidden: r.querySelector('.az-dexhost').hidden,
       slots: [...r.querySelectorAll('.az-slot')].map((s) => ({ locked: s.classList.contains('is-locked'), kids: s.children.length })),
       allBtn: [...r.querySelectorAll('button')].some((b) => /모두 회수/.test(b.textContent)),

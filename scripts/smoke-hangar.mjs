@@ -254,6 +254,9 @@ try {
       pieces: window.__game.getSystem('hub').furnitureLayer?.count ?? -1,
       manage: window.__game.ctx.hub.hubSite !== null && window.__game.getSystem('hub').openShipManage(),
       z: ctx.player.position.z,
+      // 2026-09-12: the corridor grew with the rooms (25 → 45 m), so the airlock plate is wherever `RoomLayout`
+      // now puts it — ask the built interior instead of writing the z down.
+      airlockZ: window.__game.getSystem('hub').interior?.airlock?.z ?? NaN,
     };
   }, aId);
   ok(inside.ship === 'personal' && inside.lobby && inside.phase === 'hub', 'B is in a personal ship and still in the lobby (no undocking)');
@@ -264,7 +267,10 @@ try {
   ok(inside.pods === 0, `no launch pod in a visited ship (${inside.pods})`);
   ok(inside.exit, 'hub_hangar_exit registered at the airlock');
   ok(inside.manage === false, '시설 관리 (M) is refused while visiting');
-  ok(inside.z > 20 && inside.z < 26, `B walked in at the airlock end of the ship (z ${inside.z.toFixed(1)})`);
+  // `hub/parts/Interior` spawns a bay visitor on the airlock plate and steps them 3 m forward (−Z) so the
+  // 격납고로 나가기 prompt (radius 2.2) is not already on screen — i.e. just inboard of the airlock, aft of every room.
+  ok(inside.z < inside.airlockZ && inside.z > inside.airlockZ - 5,
+    `B walked in at the airlock end of the ship (z ${inside.z.toFixed(1)}, airlock ${inside.airlockZ.toFixed(1)})`);
   const roDeny = await B.evaluate(() => window.__notify.slice(-3).join(' | '));
   ok(/관리할 수 없습니다/.test(roDeny), `…with a Korean reason ("${roDeny}")`);
   const visitEv = await B.evaluate(() => window.__visits.slice(-1)[0]);

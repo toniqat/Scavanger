@@ -11,6 +11,10 @@ import type { BoxInteriorCollider } from './InteriorCollider';
  * (`furn_grow_rack` furniture → `ctx.housing.openGrowMenu`). The personal ship also lost its built-in repair
  * bench (`furn_repair_bench` furniture in the 작업실); only the shared ship still models one.
  *
+ * 2026-09-12 (사용자 결정 — 정비 벤치 제거): `repairBench()` 가 만드는 것은 이제 **소품뿐**이다. `furn_repair_bench`
+ * 가구는 은퇴했고 공유 함선의 `hub_workbench` 상호작용도 걷어냈다 — 무기 수리는 인벤토리에서 재료로 한다.
+ * 지오메트리를 남겨 둔 이유는 병기고 후벽의 실루엣이고, 되돌릴 때 좌표를 다시 찾을 필요가 없어서다.
+ *
  * Local frame (matching `parts.ts`): local +X → (cos ry, −sin ry), local +Z → (sin ry, cos ry),
  * so the *front* (toward the player) is local −Z = (−sin ry, −cos ry).
  * ──────────────────────────────────────────────────────────────────────────── */

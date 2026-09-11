@@ -71,6 +71,20 @@ export function openBenchCraft(sys: InventorySystem, bench: WorkbenchKind, level
 /** Bench the craft panel is showing (null = plain 제작 panel). */
 export function getBench(sys: InventorySystem): ActiveBench | null { return sys.bench; }
 
+/**
+ * **2026-09-12 (사용자 결정) — 제작 창 안에서 작업대를 갈아 끼운다.** 제작 열 맨 왼쪽의 세로 작업대 리스트
+ * (`ui/CraftPanel`)가 부르는 유일한 지점이다.
+ *
+ * `openBenchCraft` 와 다르게 창을 **열지 않고**, `closeBench` 와 다르게 창을 **닫지 않는다** — 이미 열려 있는
+ * 제작 열에서 목록만 갈아 끼우는 것이기 때문이다. `null` = 빠른제작(작업대 없는 목록). 진행 중인 홀드는
+ * 취소한다: 목록이 통째로 바뀌므로 누르고 있던 줄이 사라질 수 있다.
+ */
+export function switchBench(sys: InventorySystem, bench: WorkbenchKind | null, level = 0): void {
+  if (bench && !sys.ctx.isHubPhase()) return;   // 작업대는 함선에서만 (openBenchCraft 와 같은 규칙)
+  sys.cancelCraft();
+  sys.bench = bench ? { kind: bench, level: Math.max(0, Math.floor(level)) } : null;
+  }
+
 /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
 export function closeBench(sys: InventorySystem): void {
   if (!sys.bench) return;
@@ -92,14 +106,17 @@ export function getBenchRecipes(sys: InventorySystem): BenchRecipeRow[] {
   }
 
 /**
- * Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without
- * durability are skipped. `wornOnly` (2026-09-08) also drops what is already at full durability — the 수리 팝업
- * lists **what there is to repair**, not the whole kit.
+ * 수리할 수 있는 장비 목록 (장비칸 + 가방 격자). 내구도가 없는 것은 건너뛰고, `wornOnly` (2026-09-08) 는 이미
+ * 만피인 것까지 뺀다 — 수리 팝업은 **고칠 것**을 보여 주는 목록이지 장비 전체 목록이 아니다.
+ *
+ * **2026-09-12 (사용자 결정) — 함선에서는 재료만 갖다 바치면 수리된다.** 정비 벤치(`furn_repair_bench`)가
+ * 은퇴하면서 "어느 작업대냐"가 수리의 조건이 아니게 됐다: 예전에는 `sys.bench` 가 총기 · 장비 작업대일 때만
+ * 목록이 나왔고(그 외에는 빈 배열) 그래서 **작업대를 열지 않으면 `모두 수리` 자체가 없었다**. 이제 함선이면
+ * 무기 · 방탄복 · 가방을 전부 본다. **레이드 중에는 그대로 불가** — `repair()` 와 같은 게이트다.
  */
 export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRepairRow[] {
-  const b = sys.bench;
-  if (!b || (b.kind !== 'gun' && b.kind !== 'gear')) return [];
-  const wants = (def: ItemDef): boolean => b.kind === 'gun' ? isWeaponItemDef(def) : (def.category === 'armor' || def.category === 'bag');
+  if (sys.ctx.isRaidActive()) return [];
+  const wants = (def: ItemDef): boolean => isWeaponItemDef(def) || def.category === 'armor' || def.category === 'bag';
   const rows: BenchRepairRow[] = [];
   const push = (item: ItemInstance, where: LoadoutSlot | null): void => {
     const def = ITEM_DEF_MAP.get(item.defId);

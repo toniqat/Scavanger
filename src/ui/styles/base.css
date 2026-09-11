@@ -158,7 +158,10 @@ input { font: inherit; color: inherit; }
   border-right: 3px solid var(--c-accent); border-bottom: 3px solid var(--c-accent);
   transform: translate(-50%, 0) rotate(45deg);
   filter: drop-shadow(0 0 3px rgba(255, 179, 71, 0.85)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
-  animation: holdChevron 900ms var(--ease) infinite alternate;
+  /* 2026-09-12 — 900ms → 1800ms (사용자: "너무 빠르게 흔들린다"). `alternate` 라 왕복 한 바퀴는 duration 의 2배이고,
+     900ms 는 왕복 1.8 s = 화면에 늘 떠 있는 키캡치고 눈에 밟히는 속도였다. 3.6 s 왕복이면 "살아 있다" 는 신호는 남고
+     시선을 끌지는 않는다. 움직임 폭(-2px → 1px)은 그대로 둔다 — 느려진 만큼 폭까지 줄이면 아예 안 보인다. */
+  animation: holdChevron 1800ms var(--ease) infinite alternate;
   pointer-events: none;
 }
 @keyframes holdChevron { from { transform: translate(-50%, -2px) rotate(45deg); } to { transform: translate(-50%, 1px) rotate(45deg); } }
@@ -475,7 +478,12 @@ input { font: inherit; color: inherit; }
   background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 14, 0.55), rgba(3, 4, 6, 0.9));
   transition: opacity var(--t-med) var(--ease), visibility var(--t-med) var(--ease);
 }
-.menu.hidden { opacity: 0; visibility: hidden; }
+/* 2026-09-12: `pointer-events: none` 이 없으면 **닫히는 중인 메뉴가 클릭을 계속 먹는다.** `visibility` 는 전이가
+   *끝나는* 순간에야 `hidden` 이 되므로, `.hidden` 이 붙은 뒤에도 `--t-med` 동안 이 화면은 `inset: 0` 에 투명한 채로
+   살아 있고 `elementFromPoint` 도 이것을 집는다. 타이틀에서 함선으로 들어가며 클릭을 연타하면 보이지 않는
+   `게임 시작` 버튼이 눌릴 수 있었고, smoke-stations 가 350 ms 시점에 격자 대신 타이틀 프레임을 집어 red 를 냈다
+   (실측: 280 ms 에도 visibility=visible · pointer-events=auto, 601 ms 에야 hidden). 전이는 그대로 두고 입력만 끊는다. */
+.menu.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 .menu .scan {
   position: absolute; inset: 0; pointer-events: none;
   background: repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px);
@@ -939,10 +947,12 @@ input { font: inherit; color: inherit; }
 .tbubble i {
   display: block; width: 5px; height: 5px; border-radius: 50%;
   background: var(--c-text);
-  animation: tbubbleDot 0.9s ease-in-out infinite;
+  /* 2026-09-12 — 0.9s → 1.8s (사용자: "너무 빠르게 흔들린다"). 스태거도 duration 과 **같은 비율(1/6 · 2/6)로** 늘린다:
+     주기만 늘리면 0.15s 가 한 바퀴의 8 %밖에 안 돼 세 점이 거의 동시에 뛴다 — 물결이 사라지고 그냥 깜빡임이 된다. */
+  animation: tbubbleDot 1.8s ease-in-out infinite;
 }
-.tbubble i:nth-child(2) { animation-delay: 0.15s; }
-.tbubble i:nth-child(3) { animation-delay: 0.3s; }
+.tbubble i:nth-child(2) { animation-delay: 0.3s; }
+.tbubble i:nth-child(3) { animation-delay: 0.6s; }
 @keyframes tbubbleDot {
   0%, 100% { transform: scale(0.6); opacity: 0.55; }
   50% { transform: scale(1.2); opacity: 1; }

@@ -6,28 +6,52 @@
  * **2026-09-12 — 이 폴더의 클래스 접두사는 `.cv-` 다.** 예전 `.ct-*` 는 housing.css 의 배양조(`.ct-cell` · `.ct-slots`)와
  * 이름이 겹쳐 기업 판매 물품 칸이 배양조 관(54×76, 아래가 둥글다) 모양이 됐다.
  *
- * Layout:
+ * Layout (**2026-09-12 2차 — 기업 목록은 메인 패널과 분리된 카드다**):
  *   상단  the window's own screen tabs (owned by inventory/)
- *   좌    `.corp-rail`  — **트리**: 기업 버튼들, 선택한 기업 바로 아래에 `.corp-branch`(신뢰도 게이지 + 페이지 탭)
- *   우    `.corp-page`  — 그 페이지의 열들, 남은 폭과 세로 전부
+ *   좌    `.corp-rail`  — **트리**: 기업 버튼들, 선택한 기업 바로 아래에 `.corp-branch`(신뢰도 게이지 + 페이지 탭).
+ *                        `.corp-shell` 밖의 **독립 패널**이다: 자기 배경 · 테두리를 갖고, 호스트 격자의 첫 칸에서
+ *                        **세로 중앙**(`align-self: center`)에 뜨며 메인 패널과는 `--corp-rail-gap` 만큼 떨어져 있다.
+ *                        자리를 CSS 로 못 박는 결정은 `.menu.pause`(세로 중앙 · 가로 왼쪽)와 같다 — 늘 같은 자리.
+ *   우    `.corp-shell` → `.corp-page`  — 그 페이지의 열들, 남은 폭과 세로 전부. 메인 패널도 자기 배경 · 테두리.
  *
  * `.inv-screen.corp-view` takes a **definite** height (bottom of this file), so `.corp-page` is a grid cell and the
  * columns inside stretch to the window. `--corp-page-min` is only a floor for a very short viewport.
  *
  * `--cv-cell` / `--cv-gap` / `--cv-step` mirror `CV_CELL` / `CV_GAP` in CorpView.ts — the Tab 인벤토리's own cell (54),
- * so the stock, the trays and the embedded 가방 / 함선 창고 are the same grid at the same size. */
-.corp-view { --corp-page-min: 420px; --corp-rail-w: 216px; --cv-cell: 54px; --cv-gap: 2px; --cv-step: 56px; }
-.corp-view.is-embedded { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-
-/* 좌 기업 열 | 우 페이지 */
-.corp-shell {
+ * so the stock, the trays and the embedded 가방 / 함선 창고 are the same grid at the same size.
+ * `--cv-inv-w` is the **one** width of the 가방 + 함선 창고 column, so 거래 · 퀘스트 · 임플란트 put that block in the
+ * same place at the same size (창고 10칸 + 스크롤바). */
+.corp-view {
+  --corp-page-min: 420px; --corp-rail-w: 216px; --corp-rail-gap: 18px;
+  --cv-cell: 54px; --cv-gap: 2px; --cv-step: 56px;
+  --cv-inv-w: calc(10 * var(--cv-step) - var(--cv-gap) + 22px);
+}
+/* 호스트 격자: 좌 기업 카드 | 우 메인 패널, 그 아래 전 폭 메시지 슬롯 */
+.corp-view, .corp-view.is-embedded {
   display: grid;
   grid-template-columns: var(--corp-rail-w) minmax(0, 1fr);
-  grid-template-rows: minmax(var(--corp-page-min), 1fr);
-  gap: 16px; align-items: stretch; min-height: 0; flex: 1;
+  grid-template-rows: minmax(var(--corp-page-min), 1fr) auto;
+  column-gap: var(--corp-rail-gap); row-gap: 10px;
+  align-items: stretch; min-width: 0;
 }
-.corp-rail { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.corp-rail {
+  grid-column: 1; grid-row: 1;
+  align-self: center; max-height: 100%;     /* 세로 중앙에 떠 있는 카드 — 길어지면 스스로 스크롤한다 */
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0;
+  overflow-y: auto; scrollbar-width: thin;
+  padding: 12px 10px;
+  border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
 .corp-rail .ui-btn { width: 100%; justify-content: center; }
+
+/* 메인 패널 — 이제 `.corp-page` 하나만 담는다 */
+.corp-shell {
+  grid-column: 2; grid-row: 1;
+  display: flex; min-width: 0; min-height: 0;
+  padding: 12px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.18);
+}
+.corp-shell > .corp-page { flex: 1; min-width: 0; }
 
 /* ── 기업 트리 (2026-09-12) ── 기업 버튼 사이로 가지 하나(`.corp-branch`)가 선택한 기업 아래로 옮겨 다닌다 */
 .corp-tabs { display: flex; flex-direction: column; gap: 6px; }
@@ -86,8 +110,8 @@
 }
 .corp-page > * { flex: 1; min-height: 0; }
 .cv-title { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); flex: none; }
-/* the message line keeps its slot whether or not a message is showing */
-.corp-msg-slot { min-height: 34px; display: flex; align-items: stretch; flex: none; }
+/* the message line keeps its slot whether or not a message is showing — full width under both panels */
+.corp-msg-slot { grid-column: 1 / -1; grid-row: 2; min-height: 34px; display: flex; align-items: stretch; flex: none; }
 .corp-msg-slot .form-msg { width: 100%; margin: 0; }
 .corp-msg-slot .form-msg[hidden] { display: none; }
 .corp-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; padding: 28px 0; text-align: center; border: 1px dashed var(--c-border); }
@@ -119,7 +143,10 @@
 .corp-row .badge { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; text-align: center; padding: 3px 0; border: 1px solid var(--c-border); color: var(--c-text-dim); }
 .corp-row.st-available .badge { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.5); }
 .corp-row.st-accepted .badge { color: var(--cc); border-color: color-mix(in srgb, var(--cc) 55%, transparent); }
-.corp-row.st-complete .badge { color: var(--c-success); border-color: rgba(79, 209, 126, 0.45); }
+/* 2026-09-12 (2차, 사용자 결정): 완료는 **초록이 아니라 딤드**다 — 끝난 일이지 성과 표시가 아니다. 목록에서도 맨 아래로 간다 */
+.corp-row.st-complete .badge { color: var(--c-text-faint); border-color: var(--c-border); }
+.corp-row.st-complete { opacity: 0.45; }
+.corp-row.st-complete.is-sel { opacity: 0.8; }
 .corp-row.st-locked { opacity: 0.55; }
 .corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 
@@ -128,8 +155,14 @@
 @media (max-height: 720px) { .corp-view { --corp-page-min: 240px; } }
 
 @media (max-width: 900px) {
-  /* 기업 열이 들어갈 폭이 없다: 위아래로 접고 페이지 탭은 가로줄이 된다 */
-  .corp-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(var(--corp-page-min), 1fr); }
+  /* 기업 카드가 들어갈 폭이 없다: 위아래로 접고(카드는 그대로) 페이지 탭은 가로줄이 된다 */
+  .corp-view, .corp-view.is-embedded {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(var(--corp-page-min), 1fr) auto;
+  }
+  .corp-rail { grid-column: 1; grid-row: 1; align-self: stretch; max-height: none; }
+  .corp-shell { grid-column: 1; grid-row: 2; }
+  .corp-msg-slot { grid-row: 3; }
   .corp-rail .corp-subtabs { flex-direction: row; flex-wrap: wrap; }
   .corp-row, .corp-row.contract, .corp-row.quest { grid-template-columns: minmax(0, 1fr) auto; }
   .corp-row .thumb, .corp-row .badge { display: none; }
@@ -185,10 +218,10 @@
 
 /* ══ 거래 — 기업 판매 물품 | 거래칸 | 내 가방 + 함선 창고 ══════════════════════════════════════════════════════ */
 
-/* 2026-09-12: 우측 열은 함선 창고 10칸이 들어가는 폭이다 (가방 5칸 · 창고 10칸 — Tab 인벤토리와 같다) */
+/* 2026-09-12: 우측 열은 함선 창고 10칸이 들어가는 폭이다 (가방 5칸 · 창고 10칸 — Tab 인벤토리와 같다).
+   폭 자체(`--cv-inv-w`)는 `.corp-view` 가 갖는다 — 거래 · 퀘스트 · 임플란트가 같은 값을 쓴다. */
 .cv {
   --cv-tray-w: calc(5 * var(--cv-step) - var(--cv-gap) + 26px);
-  --cv-inv-w: calc(10 * var(--cv-step) - var(--cv-gap) + 22px);
   display: grid;
   grid-template-columns: minmax(calc(5 * var(--cv-step) + 8px), 1fr) var(--cv-tray-w) var(--cv-inv-w);
   grid-template-areas: 'shop deal inv';
@@ -216,16 +249,15 @@
 .cv-slots { overflow-x: auto; }
 .cv-stage { flex: none; width: 100%; min-width: 0; height: 30px; justify-content: center; font-size: 11px; }
 
-/* 셰브런 — 물건이 흐르는 쪽. 셋이 앞에서 뒤로 차례로 밝아진다 */
+/* 셰브런 — 물건이 흐르는 쪽을 가리키는 **정적** 표식.
+   2026-09-12 (2차, 사용자 결정): 흐름 애니메이션(`cv-chev-flow`)과 스태거를 걷어냈다 — 거래칸에서 쉬지 않고
+   점멸하는 화살표는 읽는 것을 방해한다. 방향 미러(`dir-*`)와 셰브런 자체는 그대로다. */
 .cv-chev { display: inline-flex; flex: none; line-height: 0; color: var(--cc); }
 .cv-chev svg { overflow: visible; }
 .cv-chev polyline { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .cv-chev.dir-left svg { transform: scaleX(-1); }
 .cv-chev.dir-up svg { transform: scaleY(-1); }
-.cv-chev.flow polyline { opacity: 0.3; animation: cv-chev-flow 1.5s var(--ease) infinite; }
-.cv-chev.flow .c1 { animation-delay: 0.18s; }
-.cv-chev.flow .c2 { animation-delay: 0.36s; }
-@keyframes cv-chev-flow { 0%, 100% { opacity: 0.25; } 35% { opacity: 1; } }
+.cv-chev.flow polyline { opacity: 0.65; }
 .cv-tray.buy .cv-chev.flow { margin-left: 4px; }
 
 /* 거래 후 크레딧 변화 — 라벨 없이 가운데. + 는 초록 ▲ 오른쪽, − 는 빨강 ▼ 왼쪽, 0 은 화살표 없음 */
@@ -268,10 +300,10 @@
 .corp-row.contract.is-detail { grid-template-columns: minmax(0, 1fr); }
 .corp-row.contract.is-detail .reward { justify-content: flex-start; }
 
-/* ── 퀘스트: 목록 | 납품 테이블 | 내 가방 + 함선 창고 ── */
+/* ── 퀘스트: 목록 | 납품 테이블 + 보상 | 내 가방 + 함선 창고 ── */
 .cq {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 1fr) calc(10 * var(--cv-step) - var(--cv-gap) + 22px);
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 1fr) var(--cv-inv-w);
   gap: 14px; min-height: 0;
 }
 .cq-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
@@ -279,7 +311,16 @@
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 6px; padding-right: 4px;
 }
-.cq-rewards { flex: none; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+/* 목록 머리: 제목 왼쪽 · 완료된 항목 보기 체크박스 오른쪽 (2026-09-12 2차) */
+.cq-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; min-width: 0; }
+.cv-check { display: inline-flex; align-items: center; gap: 6px; flex: none; cursor: pointer; font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; user-select: none; }
+.cv-check input { accent-color: var(--cc); width: 13px; height: 13px; margin: 0; cursor: pointer; }
+.cv-check:hover { color: var(--c-text); }
+/* 보상은 납품 패널 **바로 아래**에 이어 붙는다 — 테두리를 위로 없애 한 패널처럼 읽힌다 (2026-09-12 2차) */
+.cq-col.detail .cq-rewards {
+  flex: none; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px 10px; border: 1px solid var(--c-border); border-top: 0; background: rgba(0, 0, 0, 0.24);
+}
 .cq-rewards .cq-reward-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; padding-bottom: 4px; }
 .cq-rewards .cq-reward-none { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; align-self: center; }
 .cq-list .corp-row.quest { grid-template-columns: 44px minmax(0, 1fr); cursor: pointer; }
@@ -298,9 +339,15 @@
 .cq-acts .ui-btn { min-width: 120px; justify-content: center; }
 .cq-col.inv .trade-grids { flex: 1; min-height: 0; }
 
-/* ── 임플란트 수리 (Phase 12, 세레스 바이오): 망가진 임플란트 격자 | 수리 카드 ── */
-.ci { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr); gap: 14px; min-height: 0; }
+/* ── 임플란트 수리 (Phase 12, 세레스 바이오) ──
+   2026-09-12 (2차, 사용자 결정): 좌 한 열에 **망가진 임플란트 격자 + 수리 카드**, 우는 거래 · 퀘스트와 같은
+   **가방 + 함선 창고**(`--cv-inv-w`). 좌 열은 flex 가 아니라 격자다 — `.cv-scroll` 과 `.ci-repair` 가 둘 다
+   `flex: 1` 이라 서로 밀어내면 TileGrid 의 채움 줄 수가 흔들린다. 행 높이를 여기서 못 박는다. */
+.ci { display: grid; grid-template-columns: minmax(0, 1fr) var(--cv-inv-w); gap: 14px; min-height: 0; }
 .ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.ci-col.desk { display: grid; grid-template-rows: auto minmax(120px, 0.85fr) auto minmax(0, 1.15fr); }
+.ci-col.inv { min-height: 0; height: 100%; }
+.ci-col.inv .trade-grids { flex: 1; min-height: 0; height: 100%; }
 .ci-repair {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24);
@@ -327,8 +374,9 @@
    the left column ~610 px. Narrower than that the tray grids scroll sideways instead of clipping a column. */
 @media (max-width: 1500px) {
   .inv-screen.corp-view { width: calc(100vw - 16px); padding-left: 16px; padding-right: 16px; }
-  .corp-view { --corp-rail-w: 172px; }
-  .corp-shell { gap: 12px; }
+  .corp-view { --corp-rail-w: 172px; --corp-rail-gap: 12px; }
+  .corp-rail { padding: 10px 8px; }
+  .corp-shell { padding: 10px; }
   .cv {
     grid-template-columns: minmax(0, 1fr) var(--cv-inv-w);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
@@ -345,6 +393,8 @@
   .cv-col.inv { display: none; }
   .cq { grid-template-columns: minmax(0, 1fr) minmax(240px, 1fr); }
   .cq-col.inv { display: none; }
+  .ci { grid-template-columns: minmax(0, 1fr); }
+  .ci-col.inv { display: none; }
 }
 
 /* The 기업 tab is wider than the Tab window's default frame and **as tall as the window allows**: pinning the same

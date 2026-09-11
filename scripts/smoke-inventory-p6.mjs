@@ -522,29 +522,40 @@ try {
     return { t1, rows, t2, gearBtn, gadgetBtn: !document.querySelector('.inv-repair-open').hidden };
   });
   ok(gear.t1 === '장비 작업대 Lv.1' && gear.gearBtn && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repairs no weapons (${gear.rows.join(', ') || 'empty'})`);
-  ok(gear.t2 === '가젯 작업대 Lv.1' && !gear.gadgetBtn, 'gadget bench has no 수리 button');
+  /* 2026-09-12 (정비 벤치 은퇴): 여기는 예전에 `gadget bench has no 수리 button` 이었다. 정비 벤치 가구가
+     사라지면서 "어느 작업대냐" 가 수리의 조건이 아니게 됐고(`parts/Crafting.benchRepairRows` — 함선이면
+     무기 · 방탄복 · 가방 전부, 레이드 중에는 빈 목록), `모두 수리` 를 여는 자리는 제작 패널 헤더 **하나뿐**이라
+     가젯 작업대에서만 숨기면 그 창을 연 사람에게는 수리 입구가 통째로 사라진다. 그래서 함선에서는 어느
+     작업대 창에서도 뜨는 것이 맞다 — 검사를 뒤집는다. */
+  ok(gear.t2 === '가젯 작업대 Lv.1' && gear.gadgetBtn, '가젯 작업대에도 `모두 수리` 가 있다 (함선이면 어느 작업대에서든 수리)');
 
-  /* ── 2026-09-10 (제작 대개편 2단계): 정제 작업대 · 작업대 탭 ─────────── */
+  /* ── 2026-09-10 (제작 대개편 2단계): 가공 작업대 · 작업대 목록 ───────────
+     2026-09-12 (사용자 결정): 가로 탭 줄(`.inv-craft-tabs` + `전체` 탭)이 **맨 왼쪽 세로 작업대 리스트**
+     (`.inv-craft-benches` > `.inv-craft-bench[data-bench]`) 로 바뀌었다. 항목은 `빠른제작`(field) + 함선에
+     **실제로 설치된** 작업대(`getBenchLevel > 0`) 뿐이고 `전체` 탭은 없다 — 94 줄짜리 한 목록을 읽을 수 없다는
+     것이 애초에 탭을 만든 이유였으니, 그 자리를 리스트가 그대로 잇는다. 같은 배치에서 `refine` 의 이름만
+     '정제 작업대' → '가공 작업대' 로 바뀌었다 (kind 는 계약이라 그대로). */
   const refine = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     i.openBenchCraft('refine', 3);
     sys['ui'].refreshCraft();
     const title = document.querySelector('.inv-panel-craft .inv-title').textContent;
-    const benchTabs = !!document.querySelector('.inv-craft-tabs') && !document.querySelector('.inv-craft-tabs').hidden;
+    // 작업대를 열고 들어와도 리스트는 뜨고 **그 작업대 항목이 선택된 채**다 (예전엔 탭 줄 자체가 숨었다)
+    const benchOnEntry = document.querySelector('.inv-craft-bench[data-bench="refine"]')?.classList.contains('is-on') ?? false;
     const refineRecipes = ctx.loot.getAllRecipes().filter((r) => r.bench === 'refine').map((r) => r.outputDefId);
     i.closeBench();
-    // 함선에 작업대가 다 깔린 상태를 흉내내면 `제작` 패널 한 목록이 94 줄이 된다 → 탭이 뜬다
+    // 함선에 작업대가 다 깔린 상태를 흉내낸다 → 리스트에 빠른제작 + 작업대 9종
     const origBench = ctx.housing.getBenchLevel, origSkill = ctx.progression.getSkill;
     ctx.housing.getBenchLevel = () => 3;
     ctx.progression.getSkill = () => 99;
     sys['ui'].setCraftOpen(true);
     sys['ui'].craftPanel.refresh();
-    const tabs = [...document.querySelectorAll('.inv-craft-tab')].map((b) => ({ id: b.dataset.tab, text: b.textContent, on: b.classList.contains('is-on') }));
+    const tabs = [...document.querySelectorAll('.inv-craft-bench')].map((b) => ({ id: b.dataset.bench, text: b.textContent, on: b.classList.contains('is-on') }));
     const rowsAll = document.querySelectorAll('.inv-craft-row').length;
-    document.querySelector('.inv-craft-tab[data-tab="refine"]')?.click();
+    document.querySelector('.inv-craft-bench[data-bench="refine"]')?.click();
     const rowsRefine = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe);
-    // 정렬 규약: 만들 수 있는 줄이 위로 (2026-09-10), 94 줄이 되어도 그대로
-    document.querySelector('.inv-craft-tab[data-tab="all"]')?.click();
+    // 정렬 규약: 만들 수 있는 줄이 위로 (2026-09-10). `전체` 가 없어졌으므로 가장 긴 목록인 빠른제작에서 본다
+    document.querySelector('.inv-craft-bench[data-bench="field"]')?.click();
     const ready = [...document.querySelectorAll('.inv-craft-row')].map((r) => (r.classList.contains('is-locked') ? 0 : 1));
     // 홀드 중에는 줄을 옮기지 않는다 (누르는 버튼의 DOM 이 움직이면 pointerleave 로 제작이 취소된다)
     const first = [...document.querySelectorAll('.inv-craft-row:not(.is-locked)')][0]?.dataset.recipe ?? null;
@@ -559,20 +570,20 @@ try {
     ctx.housing.getBenchLevel = origBench;
     ctx.progression.getSkill = origSkill;
     sys['ui'].setCraftOpen(false);
-    return { title, benchTabs, refineRecipes, tabs, rowsAll, rowsRefine, ready, orderKept, holdRecipe: first };
+    return { title, benchOnEntry, refineRecipes, tabs, rowsAll, rowsRefine, ready, orderKept, holdRecipe: first };
   });
-  ok(refine.title === '정제 작업대 Lv.3', `정제 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
-  ok(refine.refineRecipes.length === 7, `정제 레시피 7종 (${refine.refineRecipes.join(', ')})`);
-  ok(!refine.benchTabs, '작업대를 열고 들어온 화면에는 탭이 없다 (이미 그 작업대 하나다)');
-  /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 탭이 7 → 9 개.
-     2026-09-11 (주방 · 프린터): 조리대 · 3D 프린터가 더해져 **11 개**다 (전체 · 작업대 9종 · 빠른제작). */
-  ok(refine.tabs.length === 11 && refine.tabs[0].id === 'all' && refine.tabs.some((t) => t.id === 'refine' && /정제 작업대/.test(t.text))
-    && refine.tabs.some((t) => t.id === 'extract') && refine.tabs.some((t) => t.id === 'mixer'),
-    `제작 패널 탭 ${refine.tabs.length}개 — 정제 작업대 포함 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
-  ok(refine.rowsAll > 80 && refine.rowsRefine.length === 7 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
-    `탭이 목록을 가른다 — 전체 ${refine.rowsAll}줄 → 정제 ${refine.rowsRefine.length}줄`, JSON.stringify(refine.rowsRefine));
+  ok(refine.title === '가공 작업대 Lv.3', `가공 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
+  ok(refine.refineRecipes.length === 7, `가공 레시피 7종 (${refine.refineRecipes.join(', ')})`);
+  ok(refine.benchOnEntry, '작업대를 열고 들어오면 리스트에서 그 작업대가 선택된 채다');
+  /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 7 → 9 종.
+     2026-09-12 (사용자 결정): `전체` 탭이 없어져 **10 개**다 (빠른제작 + 작업대 9종), 그리고 맨 위가 빠른제작이다. */
+  ok(refine.tabs.length === 10 && refine.tabs[0].id === 'field' && refine.tabs.some((t) => t.id === 'refine' && /가공 작업대/.test(t.text))
+    && refine.tabs.some((t) => t.id === 'extract') && refine.tabs.some((t) => t.id === 'mixer') && !refine.tabs.some((t) => t.id === 'all'),
+    `제작 패널 작업대 목록 ${refine.tabs.length}개 — 맨 위 빠른제작, 가공 작업대 포함, 전체 없음 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
+  ok(refine.rowsRefine.length === 7 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
+    `작업대를 고르면 그 작업대 레시피만 — 가공 ${refine.rowsRefine.length}줄`, JSON.stringify(refine.rowsRefine));
   ok(refine.ready.length > 1 && /^1*0*$/.test(refine.ready.join('')),
-    `만들 수 있는 줄이 위로 — 94줄에서도 성립 (준비 ${refine.ready.filter(Boolean).length} / ${refine.ready.length})`);
+    `만들 수 있는 줄이 위로 (준비 ${refine.ready.filter(Boolean).length} / ${refine.ready.length})`);
   ok(refine.orderKept, `홀드 중에는 줄이 움직이지 않는다 (${refine.holdRecipe})`);
   // 닫기 leaves bench mode, window stays; Tab (또는 Esc — 2026-09-09) closes the window
   await page.evaluate(() => document.querySelector('.inv-craft-close').click());
@@ -856,12 +867,20 @@ try {
     const tt = sys['ui']['tooltip'];
     tt.show(still, def, 10, 10);
     const rows = [...tt.el.querySelectorAll('.inv-tt-stats .k')].map((k) => `${k.textContent} ${k.nextElementSibling.textContent}`);
+    /* 2026-09-12 (사용자 결정): 내구도 · 게이지는 수치 표의 한 줄이 아니라 **가로 게이지**(`.inv-tt-durbar`) 다 —
+       무기 2×2 게이지와 같은 `.track`/`.fill` 마크업이고 숫자는 `.n` 에 그대로 남아 있다 (`0 / 200`). */
+    const dur = tt.el.querySelector('.inv-tt-durbar');
+    const gauge = dur ? {
+      k: dur.querySelector('.k')?.textContent, n: dur.querySelector('.n')?.textContent,
+      fill: dur.querySelector('.fill')?.style.width, broken: dur.classList.contains('is-broken'),
+      inStats: !!dur.closest('.inv-tt-stats'),
+    } : null;
     tt.hide();
     const tile = document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${empty.uid}"]`);
     return {
       max, info0: info0?.cost.map((c) => `${c.defId}×${c.qty}`), short0: info0?.short, noMats, durAfterFail, info1: info1?.cost.map((c) => `${c.defId}×${c.qty}/${c.have}`), short1: info1?.short,
       repaired, durAfter, cans, anti, full, stillDur: still?.durability, stillQty: still?.qty, infoEmpty: infoEmpty?.cost.map((c) => `${c.defId}×${c.qty}`),
-      rows, tileBroken: !!tile?.classList.contains('is-broken'), tileBar: !!tile?.querySelector('.inv-tile-dur.is-broken'),
+      rows, gauge, tileBroken: !!tile?.classList.contains('is-broken'), tileBar: !!tile?.querySelector('.inv-tile-dur.is-broken'),
     };
   });
   ok(spray.max === 200, `HEAL_SPRAY_GAUGE is 200 (durabilityMax ${spray.max})`);
@@ -870,7 +889,9 @@ try {
   ok(spray.short1 === false && spray.repaired === true && spray.durAfter === 200, `repair with materials → 200 (${spray.durAfter})`);
   ok(spray.cans === 2 && spray.anti === 2 && spray.full === null, `materials consumed (캔 3 → ${spray.cans}, 소독약 3 → ${spray.anti}); a full can is not repairable`);
   ok(spray.stillDur === 0 && spray.stillQty === 1 && JSON.stringify(spray.infoEmpty) === JSON.stringify(['mat_can×1', 'mat_antiseptic×1']), 'a spray at gauge 0 stays in the bag and is repairable (캔 1 + 소독약 1)', JSON.stringify(spray));
-  ok(spray.rows.includes('게이지 0 / 200'), `tooltip shows 게이지 0 / 200 (${spray.rows.join(' · ')})`);
+  // 2026-09-12: 숫자가 사라지면 안 된다 — 게이지 막대와 `0 / 200` 이 같은 줄에 함께 있고, 빈 통은 채움 0 % 다
+  ok(spray.gauge && spray.gauge.k === '게이지' && spray.gauge.n === '0 / 200' && spray.gauge.fill === '0%' && spray.gauge.broken && !spray.gauge.inStats,
+    `tooltip shows the 게이지 bar with 0 / 200 (${JSON.stringify(spray.gauge)})`, JSON.stringify(spray.rows));
   ok(spray.tileBroken && spray.tileBar, 'tile carries the broken gauge bar');
   await sleep(700); // debounced loadout save
   const sprayFile = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('scav.s1.loadout') ?? 'null'); const e = (f?.bag ?? []).filter((x) => x.defId === 'heal_spray'); return { n: e.length, durs: e.map((x) => x.durability) }; });

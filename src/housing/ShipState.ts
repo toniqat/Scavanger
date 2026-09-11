@@ -18,7 +18,8 @@ import {
  * are `f-<n>`; `nextUid` continues after the highest one found in the save. Phase 7: every flush also mirrors the state
  * into the server profile document `ship` (`ctx.net.profile.set`) when a profile is available.
  * Phase 8: state **version 2** — `plots` (온실 재배), `nameLocked`, `PlacedFurniture.layer`, and the 정비 벤치 that
- * left the cockpit is granted once to every profile (fresh state + v1 → v2 migration).
+ * left the cockpit was granted once to every profile (v1 → v2). **그 지급은 2026-09-12 에 걷어냈다** — 정비 벤치가
+ * 은퇴해서(사용자 결정) 지급해 봐야 곧바로 환불 대상이고, 지급 자리가 은퇴 가구 청소보다 아래라 걸러지지도 않았다.
  * Phase 9: state **version 3** — `books` (서재 책장 slots) + `bookDex` (every book ever shelved); absent → empty, no
  * data migration. `SHIP_STATE_VERSION` in the contract is 3 now, so `SHIP_STATE_VERSION_CURRENT` follows it.
  * 온실 개편 (2026-09-11): state **version 4** — `grows` (재배 스테이션 칸) replaces `plots`, and **every `retired`
@@ -37,7 +38,12 @@ import {
 const SAVE_DELAY_MS = 350;
 /** Current on-disk version (7 since the room levels went away; never below the contract's `SHIP_STATE_VERSION`). */
 export const SHIP_STATE_VERSION_CURRENT = Math.max(7, SHIP_STATE_VERSION);
-/** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
+/**
+ * The 정비 벤치 moved out of the cockpit in Phase 8 and every profile was handed one, once (v1 → v2).
+ * **2026-09-12 (사용자 결정): 그 가구는 은퇴했다** — `data/furniture.csv` 의 `retired=1` 이라 `sanitize` 가
+ * 놓인 것 · 보관된 것을 걷어내 재료로 환불하고, 함선에서의 무기 수리는 인벤토리에서 재료로 한다.
+ * 이 id 는 **이름만 남긴다** (이 프로젝트는 `airstrike` · `secondary` 처럼 추가만 하고 지우지 않는다).
+ */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
 export function storage(): Storage | null {
@@ -77,11 +83,6 @@ export function freshState(): ShipState {
     sampleDex: [],
     cultures: [],                             // 온실 배양조 (v6, A-14, 2026-09-11)
   };
-}
-
-/** Does the ship already own a 정비 벤치 (placed or stored)? Keeps the v1 → v2 grant idempotent. */
-function hasRepairBench(furniture: readonly PlacedFurniture[], storage: readonly StoredFurniture[]): boolean {
-  return furniture.some((f) => f.defId === REPAIR_BENCH_DEF_ID) || storage.some((s) => s.defId === REPAIR_BENCH_DEF_ID && s.qty > 0);
 }
 
 /**
@@ -174,8 +175,8 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
 /**
  * Turn whatever was in localStorage into a valid ShipState: unknown furniture defs / purposes / out-of-range numbers
  * are dropped or clamped, duplicated uids re-minted, stack layers re-assigned, plots without a rack dropped.
- * Migrations: **v1 → v2** grants the 정비 벤치 that moved out of the cockpit (once — a save that already owns one is
- * left alone, and a v2 save never runs the grant again). **v3** adds `books` / `bookDex` (Phase 9): a book needs a
+ * Migrations: **v1 → v2** granted the 정비 벤치 that moved out of the cockpit; **2026-09-12 부터 아무것도 주지 않는다**
+ * (그 가구는 은퇴했다 — 아래 그 자리의 주석). **v3** adds `books` / `bookDex` (Phase 9): a book needs a
  * placed 책장 uid, a slot below `BOOKS_PER_SHELF`, one book per (uid, slot) and a `book_*`-shaped def id; the 도감 is
  * a unique list of such ids. Whether an id still resolves to a 서적 is checked by `HousingSystem` once `ctx.loot`
  * exists. 2026-09-07: the room-1 작업실 invariant is gone — the only room rule left is "at most one facility room of
@@ -260,6 +261,17 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
       displaced.push({ defId: def.id, level: item.level, qty: 1 });
       continue;
     }
+    /*
+     * ⚠ 이 검사는 **클램프가 아니라 드롭**이다 — 안 맞는 가구는 창고로도 안 가고 사라진다. 그래서 격자 치수를
+     * 건드릴 때는 「옛 좌표가 전부 여전히 유효한가」를 먼저 본다.
+     *
+     * 2026-09-12 (`ROOM_GRID_COLS/ROWS` 8 → 16, 방 4 × 4 → 8 × 8 m): **버전을 올리지 않았다.** `PlacedFurniture.x/y`
+     * 는 좌상단(방의 min-x / min-z 모서리)이 원점인 정수라 격자가 **커지기만** 하면 옛 좌표의 뜻이 한 자도 안
+     * 바뀐다. `canPlaceAt` 이 거는 조건 셋 중 용도 · 겹침은 격자 크기와 무관하고, 남은 하나 `insideGrid`
+     * (`x + cols ≤ COLS`, `y + rows ≤ ROWS`)는 **느슨해지기만** 한다 — 8 칸에서 통과한 배치는 16 칸에서 전부
+     * 통과한다. 가구는 기존 자리(화면 좌측 상단 구석)에 그대로 서고 방의 나머지가 빈 공간으로 열린다.
+     * 격자를 **줄이는** 변경을 한다면 그때는 v 마이그레이션이 필요하다 (여기서 조용히 증발한다).
+     */
     if (room < 0 || room >= SHIP_ROOM_COUNT || !canPlaceAt(partial, room, def, item.x, item.y, item.yaw)) {
       console.warn(`[housing] '${def.id}' at room ${room} (${item.x}, ${item.y}) does not fit — dropped`);
       continue;
@@ -291,10 +303,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const existing = furnitureStorage.find((e) => e.defId === def.id && e.level === level);
     if (existing) existing.qty += qty; else furnitureStorage.push({ defId: def.id, level, qty });
   }
-  // v1 → v2: the 정비 벤치 left the cockpit, so every existing profile is handed one (never twice)
-  if (version < 2 && !hasRepairBench(furniture, furnitureStorage) && FURNITURE_DEF_MAP.has(REPAIR_BENCH_DEF_ID)) {
-    furnitureStorage.push({ defId: REPAIR_BENCH_DEF_ID, level: 1, qty: 1 });
-  }
+  /*
+   * v1 → v2 은 여기서 **정비 벤치 한 개를 지급**했다 (`furn_repair_bench`, 콕핏에서 나온 몫). 2026-09-12
+   * (사용자 결정)에 그 가구가 은퇴하면서 그 지급은 **낭비를 넘어 버그**가 됐다: 은퇴 가구를 걷어내는 두 자리
+   * (배치 · 보관)는 둘 다 이 줄보다 **위**라, 여기서 밀어 넣으면 걸러지지 않고 가구 창고에 은퇴 가구가
+   * 남는다(`getStored()` 에 뜨고 배치하려 하면 def 가 목록에 없다). 그래서 지급을 걷어냈다 —
+   * v1 세이브도 이제 아무것도 못 받고, 대신 이미 벤치를 갖고 있던 세이브는 `sanitize` 의 환불을 받는다.
+   * `REPAIR_BENCH_DEF_ID` 는 이름만 남는다 (위 주석).
+   */
 
   /* v6 → v7 (2026-09-12, 사용자 결정 — 방 시설 레벨 제거): 손해 없이 옮긴다.
      · 사격장 Lv.n (n ≥ 2) → 그 레벨을 **관물대 · 시뮬레이션 허브**에 준다 (배치된 것은 레벨을 max 로, 창고에만 있으면

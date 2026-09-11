@@ -584,8 +584,11 @@ try {
       isOpen: ctx.meta.isMenuOpen, tab: ctx.inventory.screenTab, invOpen: ctx.inventory.isOpen,
       cursor: ctx.input.isCursorMode,
       // 2026-09-12: 왼쪽 열은 트리 — 기업 버튼들, 선택한 기업 바로 아래에 가지(신뢰도 게이지 + 페이지 탭). 크레딧은 없다.
-      railTabs: root.querySelectorAll('.corp-shell > .corp-rail .corp-tabs .corp-tab').length,
-      railOrder: [...root.querySelectorAll('.corp-shell > .corp-rail > *')].map((e) => e.className.split(' ')[0]),
+      // 2026-09-12 2차 (사용자 결정): 그 열은 **메인 패널과 분리된 독립 패널**이다 — `.corp-rail` 이 `.corp-shell` 의
+      // 자식이 아니라 화면 호스트(`.corp-view`)의 직계 자식으로 나와 화면 중앙 왼쪽에 따로 선다. 좌상단 '기업' 라벨도 없앴다.
+      railTabs: root.querySelectorAll('.corp-view > .corp-rail .corp-tabs .corp-tab').length,
+      railDetached: !root.querySelector('.corp-shell .corp-rail'),
+      railOrder: [...root.querySelectorAll('.corp-view > .corp-rail > *')].map((e) => e.className.split(' ')[0]),
       tree: [...root.querySelectorAll('.corp-rail .corp-tabs > *')].map((e) => e.classList.contains('corp-branch') ? 'branch' : e.dataset.corp),
       branchParts: [...root.querySelectorAll('.corp-branch > *')].map((e) => e.className.split(' ')[0]),
       expanded: root.querySelector('.corp-tab[aria-expanded="true"]')?.dataset.corp ?? null,
@@ -607,10 +610,10 @@ try {
     '기업 열에 기업 목록 4개, 크레딧 표시 없음, 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
   // 2026-09-12: 기업 목록은 트리다 — 신뢰도 게이지와 페이지 탭이 **선택한 기업 버튼 바로 아래** 가지로 열린다
   const ceresAt = dom ? dom.tree.indexOf('ceres') : -1;
-  ok(dom && dom.railOrder.join(',') === 'cv-title,corp-tabs' && dom.tree.filter((t) => t === 'branch').length === 1
+  ok(dom && dom.railDetached && dom.railOrder.join(',') === 'corp-tabs' && dom.tree.filter((t) => t === 'branch').length === 1
     && dom.tree[ceresAt + 1] === 'branch' && dom.branchParts.join(',') === 'corp-rep,corp-subtabs' && dom.expanded === 'ceres' && !dom.oldPanel && !dom.oldTop,
-    '기업 트리: 선택한 세레스 바로 아래에 가지 하나(신뢰도 게이지 → 페이지 탭), aria-expanded',
-    JSON.stringify(dom && { railOrder: dom.railOrder, tree: dom.tree, branchParts: dom.branchParts, expanded: dom.expanded }));
+    '기업 트리: 패널과 분리된 독립 열(라벨 없음), 선택한 세레스 바로 아래에 가지 하나(신뢰도 게이지 → 페이지 탭), aria-expanded',
+    JSON.stringify(dom && { railDetached: dom.railDetached, railOrder: dom.railOrder, tree: dom.tree, branchParts: dom.branchParts, expanded: dom.expanded }));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && /^Lv\.\d+$/.test(dom.repLv ?? '') && !dom.motto,
     '4 corp tabs, ceres selected, 게이지가 그 기업의 Lv 를 읽는다 (no motto banner)', JSON.stringify(dom && { tabs: dom.tabs, repLv: dom.repLv }));
   ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants', 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres', JSON.stringify(dom && dom.subs));
@@ -690,8 +693,17 @@ try {
     // the middle column shows the selected quest's delivery table; the right column is the embedded grids
     deliver: document.querySelectorAll('.cq-deliver .cq-line').length,
     grids: document.querySelectorAll('.cq-col.inv .trade-grids .tg-block').length,
+    // 2026-09-12: 보상은 목록 열 아래가 아니라 **납품 패널 바로 아래** 같은 열에 붙는다
+    rewardsInDetail: !!document.querySelector('.cq-col.detail .cq-rewards'),
+    doneToggle: document.querySelector('.cq-head .cv-check input[type="checkbox"]')?.checked ?? null,
   }));
-  ok(questsDom.rows.length === 4 && questsDom.rows[0].id === 'h1' && questsDom.rows[0].badge === '완료' && questsDom.rows[1].badge === '가능', 'helix 퀘스트 tab: h1 완료, h2 가능', JSON.stringify(questsDom.rows));
+  /* 2026-09-12 (사용자 결정): 완료 퀘스트는 초록이 아니라 **딤드**이고 목록 **맨 아래**로 내려간다.
+     완료가 아닌 것들끼리는 csv 순서 그대로다 (안정 분할) — 그래서 h2 가능 · h3/h4 잠김 · h1 완료 순이다.
+     「완료된 항목 보기」 체크박스는 기본 켜짐이라 네 줄이 다 보인다. */
+  ok(questsDom.rows.length === 4 && questsDom.rows[0].id === 'h2' && questsDom.rows[0].badge === '가능'
+    && questsDom.rows[3].id === 'h1' && questsDom.rows[3].badge === '완료' && questsDom.doneToggle === true,
+    'helix 퀘스트 tab: 완료한 h1 이 맨 아래, h2 가능이 맨 위, 완료 보기 기본 켜짐', JSON.stringify(questsDom.rows));
+  ok(questsDom.rewardsInDetail, '보상은 납품 패널 아래 같은 열에 붙는다 (목록 열이 아니다)');
   ok(questsDom.deliver >= 1 && questsDom.grids >= 1,`퀘스트 tab: 납품 table in the middle, 가방 + 함선 창고 grids on the right (${questsDom.deliver} lines, ${questsDom.grids} grids)`);
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click());
   // helix is Lv.2 by now (310 rep): the shelf grew past the Lv.1 list, so compare with the live shop
