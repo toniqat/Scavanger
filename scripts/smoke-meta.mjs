@@ -8,6 +8,7 @@
 // no rare+, no broken ones), a broken implant sells for a quarter, the 임플란트 desk tab (ceres only): grid of broken implants,
 // result + material chips + fee, 수리 swaps broken → working (materials + credits consumed, stash first), reasons 재료 부족 /
 // 크레딧 부족 gate the button, the ci1 → ci3 implant quest chain with its reward chip.
+// 2026-09-11 (C-16 · X-1): the same crate id opened twice in a raid → `open_crates` +1 and 감정 XP once; a new mission counts it again.
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -374,6 +375,48 @@ try {
   ok(await P(() => window.__game.ctx.meta.activeContract) === null, 'contract cleared after success');
   cs = await lastEv('meta:contractSettled');
   ok(cs && cs.success === true && cs.credits === 120, 'meta:contractSettled {success:true}', JSON.stringify(cs));
+
+  /* 2026-09-11 (C-16 · X-1): 이미 연 상자에 E 를 다시 누를 때마다 `crate:open` 이 나온다 → 계약 `open_crates` 와 감정 XP 가
+     그때마다 올라 연타로 파밍할 수 있었다. 이제 레이드 동안 상자 id 별로 한 번이고, 새 미션에서는 다시 센다.
+     계약 수락은 함선에서만 되므로 여기서는 저장소에 직접 세운다 (수락 규칙은 위에서 이미 검사했다). */
+  console.log('open_crates: one count per crate id per raid (X-1)');
+  const X1_READ = () => P(() => {
+    const m = window.__game.ctx.meta;
+    return { progress: m.store.data.activeContract?.progress ?? null, appraisal: window.__x1Appraisal ?? 0 };
+  });
+  const X1_OPEN = (id) => P((cid) => {
+    const ctx = window.__game.ctx;
+    ctx.bus.emit('crate:open', { crateId: cid, tier: 1, position: ctx.player.position.clone() });
+    ctx.inventory.closeAll();
+  }, id);
+  await P(() => {
+    const ctx = window.__game.ctx, m = ctx.meta, prog = ctx.progression;
+    m.store.data.activeContract = { id: 'nomad_crates', progress: 0 };
+    m.progressAtStart = 0;
+    window.__x1Appraisal = 0;
+    // 감정 XP 는 progression 이 `this.addSkillXp('appraisal', …)` 로 준다 — 인스턴스에 얹은 스파이가 가로챈다
+    if (prog && !window.__x1Spy) {
+      const orig = prog.addSkillXp.bind(prog);
+      prog.addSkillXp = (id, amt) => { if (id === 'appraisal') window.__x1Appraisal++; return orig(id, amt); };
+      window.__x1Spy = true;
+    }
+  });
+  await X1_OPEN('crate:x1-a');
+  await X1_OPEN('crate:x1-a');
+  const x1a = await X1_READ();
+  ok(x1a.progress === 1, `open_crates: the same crate opened twice → +1 (${x1a.progress})`, JSON.stringify(x1a));
+  ok(x1a.appraisal === 1, `감정 XP: the same crate opened twice → paid once (${x1a.appraisal})`, JSON.stringify(x1a));
+  await X1_OPEN('crate:x1-b');
+  const x1b = await X1_READ();
+  ok(x1b.progress === 2 && x1b.appraisal === 2, `a different crate id still counts (+1 → ${x1b.progress}, 감정 ${x1b.appraisal})`, JSON.stringify(x1b));
+  await P(() => window.__game.ctx.bus.emit('game:newMission', { seed: 22 }));
+  await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing (x1 mission)', 25000);
+  await waitSim(0.2);
+  await P(() => { window.__x1Appraisal = 0; });
+  await X1_OPEN('crate:x1-a');
+  const x1c = await X1_READ();
+  ok(x1c.progress === 3 && x1c.appraisal === 1, `after game:newMission the same id counts again (open_crates ${x1c.progress}, 감정 ${x1c.appraisal})`, JSON.stringify(x1c));
+  await P(() => { const m = window.__game.ctx.meta; m.store.data.activeContract = null; m.progressAtStart = 0; m.store.markDirty(); });
 
   console.log('squad share');
   await enterHub();

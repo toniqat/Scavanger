@@ -4,6 +4,9 @@
 #   @unique_weapons   유니크 무기 6종 · @unique_ammo 유니크 탄종 6종 · @graded_families 등급 무기 6계열
 #   @working_implants 정상 임플란트 전부 (상자에서는 안 나오게 0 으로 둔다)
 #   @broken_implants.<등급>  그 등급의 망가진 임플란트
+# 상위 재료 5종의 배수 (2026-09-11, C-35) 는 "상자 재료 픽 중 상위 재료 비율" 로 역산했다 — 티어 1–2 0 · 3 ≈5 % · 4 ≈10 % · 5 ≈15 %.
+#   비율 = Σ(희귀도 가중치 × 배수, 상위 5종) ÷ Σ(같은 식, 재료 전부). 행성 희귀도 배수(planet_loot.csv)를 걸기 전 기준이다.
+#   다른 재료의 배수나 loot_tiers.csv 의 희귀도 가중치를 바꾸면 이 비율도 움직인다 — data/README.md 의 역산 절차로 다시 맞춘다.
 # key_basement (지하실 키카드) 는 모든 티어에서 0 이다 — 구조물이 자기 컨테이너에 직접 넣는 물건이라
 # 무작위 루팅에 섞이면 안 된다. 줄을 지우지 않는다.
 tier,target,mul
@@ -25,6 +28,12 @@ tier,target,mul
 1,shield_charger,0.5
 1,shield_charger_hi,0
 1,shield_charger_full,0
+# 상위 재료 5종 (정제 작업대 전용 — 강화 직조포 · 복합 방탄섬유 · 축전 모듈 · 강화합금 잉곳 · 제어 모듈): 티어 1–2 상자에서는 안 나온다
+1,mat_weave,0
+1,mat_ballistic_fiber,0
+1,mat_capacitor,0
+1,mat_ingot,0
+1,mat_control_module,0
 1,key_basement,0
 
 # 티어 2 — 군수 상자
@@ -53,6 +62,12 @@ tier,target,mul
 2,mat_core,1.2
 2,shield_charger,0.8
 2,shield_charger_full,0
+# 상위 재료 5종: 안 나온다 (C-35)
+2,mat_weave,0
+2,mat_ballistic_fiber,0
+2,mat_capacitor,0
+2,mat_ingot,0
+2,mat_control_module,0
 2,key_basement,0
 
 # 티어 3 — 귀중품 금고
@@ -74,6 +89,12 @@ tier,target,mul
 3,mat_syringe,1
 3,mat_antiseptic,0
 3,mat_core,1
+# 상위 재료 5종: 재료 픽 중 ≈5 % (C-35 — 5종에 같은 배수를 걸어 희귀도 사이 비율은 그대로 둔다)
+3,mat_weave,0.082
+3,mat_ballistic_fiber,0.082
+3,mat_capacitor,0.082
+3,mat_ingot,0.082
+3,mat_control_module,0.082
 3,key_basement,0
 
 # 티어 4 — 희귀 캐시
@@ -88,6 +109,12 @@ tier,target,mul
 4,wpn_sr,1.5
 4,wpn_smg,0.7
 4,gad_drone_air,0.8
+# 상위 재료 5종: 재료 픽 중 ≈10 % (C-35)
+4,mat_weave,0.118
+4,mat_ballistic_fiber,0.118
+4,mat_capacitor,0.118
+4,mat_ingot,0.118
+4,mat_control_module,0.118
 4,key_basement,0
 
 # 티어 5 — 보급 투하 상자
@@ -107,5 +134,11 @@ tier,target,mul
 5,mat_can,0
 5,mat_syringe,0
 5,mat_antiseptic,0
+# 상위 재료 5종: 재료 픽 중 ≈15 % (C-35 — 다른 재료가 거의 0 인 티어라 배수가 작다)
+5,mat_weave,0.0176
+5,mat_ballistic_fiber,0.0176
+5,mat_capacitor,0.0176
+5,mat_ingot,0.0176
+5,mat_control_module,0.0176
 5,key_basement,0
 

@@ -402,6 +402,105 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.closeAll());
   await sleep(250);
   ok(!(await page.evaluate(() => window.__game.ctx.inventory.isOpen)), 'bag closed');
+
+  /* ── 2026-09-11 C 배치 (inventory · items) ─────────────────────────────────────────────────────────── */
+  console.log('C-5 · C-36 · C-16 · C-12');
+  // C-5: 전설 전술 가방은 퀵슬롯 8 (휠은 8방향 — 9 는 로더가 `max: QUICK_SLOTS` 로 거절한다)
+  ok(await page.evaluate(() => window.__game.ctx.loot.getItemDef('bag_legendary_tac')?.bag?.quickSlots === 8), 'bag_legendary_tac defines 8 quick slots (C-5)');
+  // C-36: 가방 내구도 — 새 가방은 가득, 레이드당 한 번만 닳고, 0 이어도 격자 · 퀵슬롯은 그대로, 수리비는 재료
+  const wear = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory, loot = ctx.loot;
+    const def = loot.getItemDef('bag_rare');
+    const b = loot.createItem('bag_rare');
+    inv.tryAddItem(b); inv.equip(b.uid, 'bag');
+    const fresh = b.durability;
+    const changed = [];
+    const off = ctx.bus.on('durability:changed', (e) => changed.push(e.durability));
+    let broken = 0;
+    const offB = ctx.bus.on('durability:broken', () => broken++);
+    inv.bagWornThisRaid = false;
+    const first = inv.wearBagForRaid();
+    const afterFirst = b.durability;
+    const second = inv.wearBagForRaid();
+    // 레이드 중 교체해도 한 번 — 다른 가방으로 바꿔 한 번 더 불러도 깎이지 않는다
+    const b2 = loot.createItem('bag_common');
+    inv.tryAddItem(b2); inv.equip(b2.uid, 'bag');
+    const swapped = inv.wearBagForRaid();
+    const b2dur = b2.durability;
+    // 0 까지 깎아도 격자 크기 · 퀵슬롯 수는 def 그대로 (효과 없음), 수리비는 재료
+    inv.equip(b.uid, 'bag');
+    b.durability = 0;
+    const size = inv.getBagSize();
+    const repair = loot.getRepairCost(b);
+    const info = inv.repairInfo(b.uid);
+    b.durability = afterFirst;
+    off(); offB();
+    return { max: def.durabilityMax, fresh, first, afterFirst, second, swapped, b2dur, b2max: loot.getItemDef('bag_common').durabilityMax,
+      size, defCols: def.bag.cols, defRows: def.bag.rows, defQuick: def.bag.quickSlots, repair, info: info ? info.cost.length : null, changed, broken };
+  });
+  ok(wear.max > 0 && wear.fresh === wear.max, `new bag starts at full durability ${wear.fresh} / ${wear.max} (C-36)`, JSON.stringify(wear));
+  ok(wear.first === true && wear.afterFirst < wear.fresh && wear.second === false && wear.swapped === false && wear.b2dur === wear.b2max,
+    `bag wears once per raid (${wear.fresh} → ${wear.afterFirst}); a second call or a swapped bag is not charged again`, JSON.stringify(wear));
+  ok(wear.changed.length === 1 && wear.broken === 0, 'wear emits durability:changed once and never durability:broken (0 = no effect)', JSON.stringify(wear));
+  ok(wear.size.cols === wear.defCols && wear.size.rows === wear.defRows && wear.size.quickSlots === wear.defQuick,
+    'a bag at 0 durability keeps its grid and quick slots', JSON.stringify(wear.size));
+  ok(wear.repair.length > 0 && wear.info > 0, `a worn bag's repair costs materials, never free (${JSON.stringify(wear.repair)})`, JSON.stringify(wear));
+
+  // C-16: 이미 떠 있는 같은 컨테이너를 다시 열면 아무 일도 없다 (재표시 · 이벤트 없음)
+  const reopen = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    const pos = ctx.player.position.clone();
+    const opened = [], shown = [];
+    const offA = ctx.bus.on('inventory:containerOpened', (e) => opened.push(e));
+    const offB = ctx.bus.on('inventory:opened', (e) => shown.push(e.containerId));
+    inv.openContainerItems('crate:c16', [ctx.loot.createItem('mat_scrap', 2)], pos, '컨테이너');
+    ctx.bus.emit('crate:open', { crateId: 'crate:c16', tier: 1, position: pos });   // structure containers do exactly this
+    inv.openContainerItems('crate:c16', [], pos);
+    const whileOpen = { opened: opened.length, shown: shown.length };
+    inv.closeAll();
+    ctx.bus.emit('crate:open', { crateId: 'crate:c16', tier: 1, position: pos });
+    const reopened = { opened: opened.length, first: opened[opened.length - 1]?.first ?? null, shown: shown.length };
+    inv.closeAll();
+    offA(); offB();
+    return { whileOpen, reopened };
+  });
+  ok(reopen.whileOpen.opened === 1 && reopen.whileOpen.shown === 1, 'C-16: re-opening the container already on screen is ignored (1 containerOpened, 1 inventory:opened)', JSON.stringify(reopen));
+  ok(reopen.reopened.opened === 2 && reopen.reopened.first === false && reopen.reopened.shown === 2, 'C-16: after closing, the same id opens again with first: false', JSON.stringify(reopen));
+
+  // C-12: 시체 격자는 모자라면 행을 늘려 전부 담는다 (예전에는 넘치는 것이 사라졌다)
+  const overflow = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    const items = Array.from({ length: 96 }, () => ctx.loot.createItem('imp_broken_strength_1'));
+    inv.openContainerItemsSized('pcorpse:c12:overflow', items, ctx.player.position.clone(), 10, 8, '유해');
+    const g = inv.getActiveContainer()?.grid;
+    const r = { placed: g?.count ?? -1, cols: g?.cols ?? -1, rows: g?.rows ?? -1 };
+    inv.closeAll();
+    return r;
+  });
+  ok(overflow.placed === 96 && overflow.cols === 10 && overflow.rows >= 10, `C-12: an overfull corpse grows rows instead of dropping items (${overflow.placed} in ${overflow.cols}×${overflow.rows})`, JSON.stringify(overflow));
+
+  // C-12 + C-36: 사망 — 장착 가방이 먼저 닳고, 임플란트의 망가진 짝이 시체 목록에 합쳐진다. progression 쪽 구현이
+  // 아직 없어도 동작해야 하므로 여기서는 `stripImplantsForCorpse` 를 잠시 대신 세운다 (구현 자체는 progression 스모크 몫).
+  const strip = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;
+    const bag = inv.getLoadout().bag;
+    const before = bag?.durability ?? null;
+    inv.bagWornThisRaid = false;
+    const hadOwn = !!prog && Object.prototype.hasOwnProperty.call(prog, 'stripImplantsForCorpse');
+    const orig = prog?.stripImplantsForCorpse;
+    let calls = 0;
+    if (prog) prog.stripImplantsForCorpse = () => { calls++; return [ctx.loot.createItem('imp_broken_strength_1')]; };
+    let out = [];
+    try { out = inv.stripForCorpse(); } finally {
+      if (prog) { if (hadOwn) prog.stripImplantsForCorpse = orig; else delete prog.stripImplantsForCorpse; }
+    }
+    const bagOut = out.find((i) => bag && i.uid === bag.uid);
+    return { before, after: bagOut?.durability ?? null, calls, twins: out.filter((i) => i.defId === 'imp_broken_strength_1').length,
+      total: out.length, emptied: !inv.getLoadout().bag && inv.getAllItems().length === 0 && inv.getQuickSlots().every((x) => x === null),
+      worn: inv.bagWornThisRaid };
+  });
+  ok(strip.calls === 1 && strip.twins === 1 && strip.emptied, `C-12: stripForCorpse merges progression's broken implant twins (${strip.total} items) and empties the kit`, JSON.stringify(strip));
+  ok(strip.before !== null && strip.after !== null && strip.after < strip.before && strip.worn === true, `C-36: death wears the equipped bag before it goes on the corpse (${strip.before} → ${strip.after})`, JSON.stringify(strip));
 } catch (e) {
   fail++;
   console.log('  FAIL exception', e && e.stack || e);

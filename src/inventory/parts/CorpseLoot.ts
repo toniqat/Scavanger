@@ -5,14 +5,19 @@
  * 그 내용물이 어떻게 시체 컨테이너가 되는가.*
  *
  * - `stripForCorpse()` — 장비 슬롯 · 가방 격자 · 퀵슬롯을 통째로 뽑아 **빈손**으로 만든다 (사망 처리에서 한 번).
- *   무기의 내구도 · 장전 탄약 · 소켓은 `ItemInstance` 그대로 넘어가므로 보존된다.
- * - `openContainerItemsSized()` — 시체는 상자(6×4)보다 큰 격자를 쓴다 (`PLAYER_CORPSE_COLS × ROWS`).
+ *   무기의 내구도 · 장전 탄약 · 소켓은 `ItemInstance` 그대로 넘어가므로 보존된다. 2026-09-11 (C-12): 장착 임플란트의
+ *   **망가진 짝**(`ctx.progression.stripImplantsForCorpse`)도 같이 시체로 간다. (C-36): 뽑기 전에 장착 가방이 레이드
+ *   1회분 닳는다.
+ * - `openContainerItemsSized()` — 시체는 상자(6×4)보다 큰 격자를 쓴다 (`PLAYER_CORPSE_COLS × ROWS`). 그래도 모자라면
+ *   (전설 가방 가득 + 무기 둘 + 퀵슬롯 + 임플란트) **행을 늘려서라도** 전부 담는다 — `fitCorpseGrid`.
  * - `primeCorpseContainers()` — 멀티에서 **호스트가 열어 보지도 않은 시체**의 `contq take` 를 심판할 수 있도록
  *   `pcorpse` 와이어를 받는 즉시 컨테이너를 만들어 둔다. 가져가기 자체는 기존 `cont` / `contq` 경로 그대로다.
  */
 import * as THREE from 'three';
 import type { CorpseItemWire, GameContext, ItemInstance, PlayerCorpseWire } from '@/shared';
 import { PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS } from '@/shared';
+import { ITEM_DEF_MAP } from '@/items';
+import { Grid } from '../Grid';
 import { LOADOUT_SLOTS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -21,14 +26,46 @@ export function corpseGridSize(): { cols: number; rows: number } {
   return { cols: PLAYER_CORPSE_COLS, rows: PLAYER_CORPSE_ROWS };
 }
 
+/** `fitCorpseGrid` 가 행을 늘리는 상한 (기본 행 수에 더하는 값) — 그 너머는 격자가 아니라 버그다. */
+const CORPSE_GRID_GROW_LIMIT = 64;
+
 /**
- * 사망 시점의 전부 — 장비 슬롯(무기 3 · 방어구 · 가방) · 가방 격자 · 퀵슬롯 — 을 하나의 목록으로 뽑고
- * 로컬 인벤토리를 비운다. **완전 빈손 부활**(사용자 결정): 구조선으로 돌아와도 아무것도 돌려받지 않는다.
+ * 2026-09-11 (C-12) — `items` 가 **그 순서 그대로** (`Container.fill` 과 같은 `autoPlace`) 전부 들어가는 격자.
+ * 기본 `cols × rows` 로 모자라면 열은 두고 행만 늘린다. 시뮬레이션은 얕은 복사본으로 하므로(`autoPlace` 가
+ * 스택을 합치며 `qty` 를 바꾼다) 넘어온 인스턴스는 건드리지 않는다.
  *
- * 임플란트 아이템은 `ctx.progression` 이 들고 있고 `unequipImplant` 는 함선 전용이라 여기서 뺄 수 없다
- * (폴더 README 의 `알려진 한계` 참고).
+ * 같은 목록이면 같은 크기가 나오므로 사망한 본인 · 호스트(`primeCorpseContainer`) · 늦게 연 사람이 모두 같은 격자를
+ * 만든다 (가져가기는 격자 위치가 아니라 `idx` 로 오가므로 크기가 달라도 틀리지는 않지만, 같은 편이 낫다).
+ * 임플란트의 망가진 짝이 시체에 들어오면서 전설 가방 가득 + 무기 둘 + 퀵슬롯 + 임플란트가 10×8 을 넘을 수 있게 됐다 —
+ * 예전에는 넘치는 것이 경고 한 줄과 함께 **사라졌다** (`Container.fill`).
+ */
+export function fitCorpseGrid(items: readonly ItemInstance[], cols: number, rows: number): { cols: number; rows: number } {
+  const getDef = (id: string) => ITEM_DEF_MAP.get(id);
+  let c = Math.max(1, Math.floor(cols));
+  const r0 = Math.max(1, Math.floor(rows));
+  for (const it of items) {
+    const d = getDef(it.defId);
+    if (d) c = Math.max(c, Math.min(d.width, d.height));   // rotation is allowed, so the short side must fit
+  }
+  for (let r = r0; r <= r0 + CORPSE_GRID_GROW_LIMIT; r++) {
+    const g = new Grid(c, r, getDef);
+    if (items.every((it) => g.autoPlace({ ...it }))) return { cols: c, rows: r };
+  }
+  return { cols: c, rows: r0 + CORPSE_GRID_GROW_LIMIT };
+}
+
+/**
+ * 사망 시점의 전부 — 장비 슬롯(주무기 I · II · 방탄복 · 가방. `secondary` 칸은 계약에만 남아 늘 비어 있다) ·
+ * 가방 격자 · 퀵슬롯 · **장착 임플란트의 망가진 짝** — 을 하나의 목록으로 뽑고 로컬 인벤토리를 비운다.
+ * **완전 빈손 부활**(사용자 결정): 구조선으로 돌아와도 아무것도 돌려받지 않는다.
+ *
+ * 2026-09-11 (C-12, 사용자 결정): 임플란트는 더 이상 몸에 남지 않는다. `ctx.progression.stripImplantsForCorpse()` 가
+ * 함선 게이트를 건너뛰어 장착을 풀고 **망가진 짝** 인스턴스를 돌려주며 스스로 저장한다 — 여기서는 받아서 목록 끝에
+ * 붙이기만 한다. 그 메서드가 없는(옵셔널 계약) 빌드에서는 빈 배열이고 예전과 똑같이 동작한다.
+ * (C-36): 뽑기 **전에** 장착 가방이 레이드 1회분 닳는다 (`wearBagForRaid`, 탈출과 합쳐 레이드당 한 번).
  */
 export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
+  sys.wearBagForRaid();
   const out: ItemInstance[] = [];
   for (const s of LOADOUT_SLOTS) {
     const it = sys.loadout[s];
@@ -37,6 +74,9 @@ export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
   for (const p of sys.bag.items()) out.push(p.item);
   // 2026-09-09: the wheel is its own container — its stacks are carried too, so they go on the corpse as well
   for (const it of sys.quickSlots) if (it) out.push(it);
+  // 2026-09-11 (C-12): the equipped implants' broken twins (progression unequips + saves itself; optional contract)
+  const implants = sys.ctx.progression?.stripImplantsForCorpse?.() ?? [];
+  for (const it of implants) if (it) out.push(it);
 
   sys.closeAll();
   sys.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
@@ -61,9 +101,11 @@ export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
  */
 export function openContainerItemsSized(sys: InventorySystem, containerId: string, items: ItemInstance[],
   position: THREE.Vector3, cols: number, rows: number, title?: string): void {
+  if (sys.isShowingContainer(containerId)) return;   // 2026-09-11 (C-16): already on screen — no re-show, no event
   const first = !sys.openedIds.has(containerId);
   sys.openedIds.add(containerId);
-  const c = sys.containers.getOrCreateWithItems(containerId, items, position, title, { cols, rows });
+  const size = sys.containers.get(containerId) ? { cols, rows } : fitCorpseGrid(items, cols, rows);
+  const c = sys.containers.getOrCreateWithItems(containerId, items, position, title, size);
   sys.showContainer(c);
   sys.ctx.bus.emit('inventory:containerOpened', { containerId, first });
 }
@@ -88,8 +130,10 @@ export function primeCorpseContainer(sys: InventorySystem, wire: PlayerCorpseWir
   if (!wire || typeof wire.id !== 'string' || sys.containers.get(wire.id)) return;
   const p = wire.p;
   const pos = new THREE.Vector3(p?.[0] ?? 0, p?.[1] ?? 0, p?.[2] ?? 0);
-  sys.containers.getOrCreateWithItems(wire.id, corpseItemsFromWire(sys, wire.items ?? []), pos,
-    `${wire.name ?? '분대원'}의 유해`, corpseGridSize());
+  const items = corpseItemsFromWire(sys, wire.items ?? []);
+  const base = corpseGridSize();
+  sys.containers.getOrCreateWithItems(wire.id, items, pos,
+    `${wire.name ?? '분대원'}의 유해`, fitCorpseGrid(items, base.cols, base.rows));
 }
 
 /** `pcorpse` 구독 — 와이어가 도착하는 즉시 컨테이너를 만든다 (`init` 에서 한 번). */

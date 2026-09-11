@@ -325,6 +325,9 @@ export class InventoryUI {
       getBaseStats: (defId) => this.sys.getLoot().getEffectiveStats(defId),
       allWeaponItemDefs: () => this.sys.getLoot().getAllItemDefs().filter((d) => d.weaponId !== undefined),
       findAmmoDef: (type) => this.sys.getLoot().getAllItemDefs().find((d) => d.category === 'ammo' && d.ammoType === type),
+      // 2026-09-11 (C-37): 내구도 구간 한 줄 — 배수는 `data/tables.csv` 값을 loot 가 준다
+      getDurabilityBucket: (item) => this.sys.getLoot().durabilityBucketInfo(item),
+      canSalvage: (item) => this.sys.getLoot().getSalvageFor(item) !== null,
     });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';

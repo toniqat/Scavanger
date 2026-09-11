@@ -1,4 +1,4 @@
-import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
+import type { AmmoType, ArmorDef, DurabilityBucketInfo, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, shieldChargeOf } from '@/items';
 import {
@@ -28,6 +28,13 @@ export interface TooltipLookups {
   allWeaponItemDefs?(): ItemDef[];
   /** appended (2026-09-09): the ammo item (`category 'ammo'`) of a calibre — the thumbnail in the card's corner. */
   findAmmoDef?(type: AmmoType): ItemDef | undefined;
+  /**
+   * appended (2026-09-11, C-37): 남은 내구도 구간과 그 구간의 수리 · 분해 배수 (`LootRef.durabilityBucketInfo`).
+   * 내구도가 **없는** 아이템에도 구간 4 를 돌려주므로 카드는 내구도 줄을 그린 아이템에만 묻는다.
+   */
+  getDurabilityBucket?(item: ItemInstance): DurabilityBucketInfo | null;
+  /** appended (2026-09-11, C-37): 이 인스턴스를 분해할 수 있는가 (`LootRef.getSalvageFor` 가 null 이 아닌가 — 유니크는 false). */
+  canSalvage?(item: ItemInstance): boolean;
 }
 
 /** Catalog maxima the weapon gauges are normalised against (computed lazily, once per Tooltip). */
@@ -70,6 +77,18 @@ export class Tooltip {
     this.el.hidden = true;
   }
 
+  /**
+   * 2026-09-11 (C-37): 내구도 줄 바로 아래 `81~100 % · 분해 40 % · 수리 10 %`. 수리 · 분해 재료가 **제작 재료 × 이
+   * 구간의 배수**라서 (`items/Salvage`) 닳은 장비를 뜯을지 고칠지를 카드에서 바로 읽게 한다. 내구도 줄을 그린
+   * 아이템(무기 · 방탄복 · 가방)에서만 부른다 — 회복 스프레이 게이지는 제작 재료 규칙이 아니다.
+   */
+  private pushBucketRow(rows: Array<[string, string, string?]>, item: ItemInstance): void {
+    const info = this.lookups.getDurabilityBucket?.(item);
+    if (!info || !info.label) return;
+    const salvage = this.lookups.canSalvage ? (this.lookups.canSalvage(item) ? info.salvageMul : null) : info.salvageMul;
+    rows.push([TEXT.durability.tooltipKey, TEXT.durability.tooltip(info.label, salvage, info.repairMul), 'is-bucket']);
+  }
+
   show(item: ItemInstance, def: ItemDef, x: number, y: number): void {
     this.el.innerHTML = '';
     this.el.style.setProperty('--rc', rarityColor(def));
@@ -109,6 +128,7 @@ export class Tooltip {
       const cur = Math.max(0, Math.min(max, item.durability ?? max));
       const durClass = cur <= 0 ? 'is-broken' : cur / max < DURABILITY_LOW ? 'is-low' : undefined;
       rows.push([s.durability, cur <= 0 ? `${TEXT.broken} · 0 / ${max}` : `${cur} / ${max}`, durClass]);
+      this.pushBucketRow(rows, item);
     }
     if (def.attachment) {
       const a = def.attachment;
@@ -133,6 +153,13 @@ export class Tooltip {
       const b = TEXT.bagStats;
       rows.push([b.grid, `${def.bag.cols} × ${def.bag.rows}${def.bag.tactical ? ` · ${b.tactical}` : ''}`]);
       rows.push([b.quickSlots, `${def.bag.quickSlots}`]);
+      // 2026-09-11 (C-36): 가방 내구도 — 레이드마다 닳지만 0 이어도 격자는 그대로라 `파손` 이라 적지 않는다
+      const max = def.durabilityMax;
+      if (max !== undefined && max > 0) {
+        const cur = Math.round(Math.max(0, Math.min(max, item.durability ?? max)));
+        rows.push([b.durability, `${cur} / ${max}`, cur / max < DURABILITY_LOW ? 'is-low' : undefined]);
+        this.pushBucketRow(rows, item);
+      }
     }
     if (def.armorId) {
       const a = this.lookups.getArmorDef(def.armorId);
@@ -142,6 +169,7 @@ export class Tooltip {
         rows.push([t.shield, `+${Math.round(a.shield)}`]);
         const max = def.durabilityMax ?? a.durabilityMax;
         rows.push([t.durability, `${Math.round(Math.max(0, Math.min(max, item.durability ?? max)))} / ${max}`]);
+        this.pushBucketRow(rows, item);
         if (a.perk !== 'none') rows.push([t.perk, a.description]);
       }
     }

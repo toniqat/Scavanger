@@ -138,6 +138,19 @@ try {
   ok(ship.room === null, 'currentRoom is null in the cockpit');
   // 2026-09-07: a ship starts with ten empty rooms and no furniture — the room-1 작업실 is gone. The housing-mode
   // walk-through below needs a 작업실 with a bench in storage, so seed room 1 the way a player would build it.
+  // 2026-09-11: the relay's welcome (`net:profileLoaded`) replaces the ship with the profile copy — on a loaded machine it
+  // landed **after** the seed below and reverted it (storage empty → 6 FAILs). A player's ship is loaded before they
+  // build, so wait for it first (already loaded → at once; no relay → give up after 2.5 s and seed the offline ship).
+  const profileWait = await page.evaluate(() => new Promise((res) => {
+    const ctx = window.__game.ctx;
+    if (ctx.net?.profile?.available) { res('already'); return; }
+    let off = null;
+    const t0 = performance.now();
+    const done = (why) => { if (off) off(); off = null; res(`${why} ${Math.round(performance.now() - t0)} ms`); };
+    off = ctx.bus.on('net:profileLoaded', () => setTimeout(() => done('loaded'), 150));
+    setTimeout(() => { if (off) done('timeout'); }, 2500);
+  }));
+  console.log(`  (server profile before seeding: ${profileWait})`);
   const room0 = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
     const before = { purpose: h.getRoom(0).purpose, placed: h.getPlaced(0).length };

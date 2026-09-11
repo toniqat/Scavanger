@@ -40,6 +40,7 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   sys.missionSeed = seed;
   sys.outcome = 'none';
   sys.strippedForCorpse = false;
+  sys.bagWornThisRaid = false;
   sys.closeAll();
   sys.clearContainers();
   if (sys.isDestitute()) { sys.applyStarter(); return; }

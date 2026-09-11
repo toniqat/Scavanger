@@ -102,14 +102,9 @@ interface BuyLine { defId: string; qty: number }
 interface SellLine { uid: string; qty: number }
 
 export interface CorpViewOptions {
-  /** Embedded (inventory tab) instead of the standalone overlay: no 닫기 button, no subtitle line. */
+  /** Embedded (inventory tab) instead of the standalone overlay: no subtitle line. (2026-09-11: the overlay's
+   *  `accentTarget` / `onClose` / `isVisible` are gone — the embedded tab is the only view and passed none of them.) */
   embedded?: boolean;
-  /** Extra element that also receives the `--cc` accent (the overlay's `.frame`, for its corner brackets). */
-  accentTarget?: HTMLElement | null;
-  /** Footer 닫기 handler. Omitted → no 닫기 button (embedded). */
-  onClose?: (() => void) | null;
-  /** Bus-driven refreshes only run while this returns true. Default: the host is still in the document. */
-  isVisible?: () => boolean;
 }
 
 export class CorpView {
@@ -217,7 +212,6 @@ export class CorpView {
       b.addEventListener('click', (e) => { e.stopPropagation(); this.setPage(p.id); });
       this.subTabs.set(p.id, b);
     }
-    if (opts.onClose) this.button(rail, '닫기', () => opts.onClose?.());
 
     const cr = el('div', { cls: 'corp-credits', parent: rail });
     el('span', { cls: 'k', text: '크레딧', parent: cr });
@@ -262,8 +256,7 @@ export class CorpView {
   /** Staged basket (debug / smoke). */
   get staged(): { buy: readonly BuyLine[]; sell: readonly SellLine[] } { return { buy: this.buyLines, sell: this.sellLines }; }
   private get visible(): boolean {
-    if (this.disposed) return false;
-    return this.opts.isVisible ? this.opts.isVisible() : this.host.isConnected;
+    return !this.disposed && this.host.isConnected;
   }
 
   setCorp(corp: CorpId): void {
@@ -348,7 +341,6 @@ export class CorpView {
     const def = CORP_DEFS[this.corp];
     const rep = meta.getRep(this.corp);
     this.host.style.setProperty('--cc', def.color);
-    this.opts.accentTarget?.style.setProperty('--cc', def.color);
     setText(this.rep.lv, `Lv.${rep.level}`);
     const prev = REP_TABLE[rep.level] ?? 0;            // cumulative rep where the current level started
     const span = rep.next === null ? 1 : Math.max(1, rep.next - prev);

@@ -19,7 +19,7 @@ export function toggleClass(e: HTMLElement, cls: string, on: boolean): void {
   if (e.classList.contains(cls) !== on) e.classList.toggle(cls, on);
 }
 
-/** `12345` → `12,345`. */
+/** `12345` → `12,345`. ko-KR like every other number in the game (`shared/currency.groupDigits`, `ui/dom`). */
 export function fmtNum(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
+  return Math.round(n).toLocaleString('ko-KR');
 }

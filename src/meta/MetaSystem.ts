@@ -54,6 +54,11 @@ export class MetaSystem implements GameSystem, MetaRef {
   /** Corpse containers counted this mission (dedupes the `crate:looted` fallback against `inventory:containerOpened`). */
   private readonly corpsesCounted = new Set<string>();
   private containerOpenedSeen = false;
+  /**
+   * 2026-09-11 (X-1): crates / structure containers already counted toward `open_crates` this mission. `crate:open`
+   * fires on **every** E press on an already-opened crate, so re-opening one used to farm the contract.
+   */
+  private readonly cratesCounted = new Set<string>();
   /** Last `completeQuest` failure reason per quest id (shown as `QuestInfo.blocked`). */
   readonly questBlocked = new Map<string, string>();
   /* Phase 9: late-join catch-up */
@@ -94,7 +99,11 @@ export class MetaSystem implements GameSystem, MetaRef {
         if (by !== undefined && by !== 'local' && by !== (ctx.net?.localId ?? null)) return;
         this.localHit(killGoalOf(type), 1);
       }),
-      b.on('crate:open', () => { if (counting()) this.localHit('open_crates', 1); }),
+      b.on('crate:open', ({ crateId }) => {
+        if (!counting() || this.cratesCounted.has(crateId)) return;
+        this.cratesCounted.add(crateId);
+        this.localHit('open_crates', 1);
+      }),
       b.on('inventory:containerOpened', ({ containerId, first }) => {
         this.containerOpenedSeen = true;
         if (!counting() || !first || !containerId.startsWith('corpse:')) return;
@@ -219,6 +228,7 @@ export class MetaSystem implements GameSystem, MetaRef {
   private onNewMission(): void {
     this.progressAtStart = this.store.data.activeContract?.progress ?? 0;
     this.corpsesCounted.clear();
+    this.cratesCounted.clear();
     this.questBlocked.clear();
     this.sentHits.clear();
     this.syncAnswered.clear();

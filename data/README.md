@@ -23,7 +23,7 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **무기** 6계열 (등급 I 기준, II–V 는 자동) | [`weapons.csv`](weapons.csv) |
 | **전설 유니크 무기** 6종 | [`weapons_unique.csv`](weapons_unique.csv) |
 | 무기 부착물 | [`attachments.csv`](attachments.csv) |
-| 탄약 · 가방 · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
+| 탄약 · 가방(격자 · 퀵슬롯 · **내구도**) · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
 | 일반 아이템 — 수류탄 · 회복 소모품 · 귀중품 · 재료 · 약초 · 가젯 | [`items.csv`](items.csv) |
 | 씨앗 · 서적 | [`seeds.csv`](seeds.csv) · [`books.csv`](books.csv) |
 | 임플란트 아이템 — 등급별 가격 · 수리 재료 · 전설 퍽 | [`implants_repair.csv`](implants_repair.csv) · [`implants_perks.csv`](implants_perks.csv) |
@@ -138,6 +138,45 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-11 — C 항목 배치: 새 수치 · 표 (리드 기록)
+
+- **`constants.csv`** 신규 6줄 (계약 커밋, `@/shared`): `HAZARD_ENEMY_DPS` 2 (재해 구역 안 적이 `HAZARD_TICK_S` 마다 받는
+  조용한 초당 피해 — owner enemies), `GATHER_SALVAGE_QTY2_CHANCE` 0.3 · `GATHER_HERB_QTY2_CHANCE` 0.25 (옛 `world/Gather.ts`
+  하드코딩 이관 — 값 동일), `GATHER_SALVAGE_CORE_CHANCE` 0.15 · `GATHER_SALVAGE_CORE_QTY` 1 (고철 더미 부가 구동 코어, 생성 때
+  `rng.fork('gather_core')` 로 시드 결정 — 기존 난수 흐름을 밀지 않는다), `BAG_DURABILITY_PER_RAID` 10 (아래 절).
+  읽는 폴더가 하나뿐인 값도 있지만 `tuning.csv` 키는 `DATA_OWNERS` 모듈에서만 "읽힘" 으로 세어져 병렬 작업 동안 `constants.csv`
+  에 모았다.
+- **`constants.csv`**: `STORM_EYE_RADIUS_END` 60 → **0** (C-15 — 끝까지 가도 60 m 안전지대가 남아 재해가 강제 탈출이 아니었다).
+- **`tables.csv`**: `FOOTSTEP_MATERIAL_GAIN` 신규 (C-22, owner `audio/AudioSystem`) — 발소리 크기에 재질(`SurfaceMaterial` 11종)별로
+  곱하는 배수. 음색 · 피치는 코드(`audio/Synth` 의 `footstep_<mat>`)다. `data:check` 가 이 표를 읽도록 `scripts/data-owners.mjs`
+  의 `DATA_OWNERS` 에 `/src/audio/AudioSystem.ts` 를 넣었다.
+- **`enemy_abilities.csv`**: `ARTILLERY_AI` 에 `maxRefusals` 3 · `refusalCooldown` 8 (C-24 — 궤적이 막혀 연속으로 거절되면 표적을
+  바꾸고 쉰다).
+
+### 2026-09-11 — C 항목 배치: 가방 내구도 · 전설 전술 가방 퀵슬롯 · 상위 재료 상자 배수
+
+- **`bags.csv`**: `durabilityMax` 열 신규 (8종 전부 **100** — 등급별로 달리할 근거가 없어 같게 뒀다. 수리비가 이미
+  제작 재료를 따라 등급별로 벌어진다). 장착 가방은 **레이드 1회마다** `constants.csv` 의 `BAG_DURABILITY_PER_RAID`(10)
+  만큼 닳는다 — 탈출 성공 · 사망 중 먼저 온 쪽에서 한 번 (동작은 `src/inventory`). **0 이어도 격자 · 퀵슬롯은
+  그대로**이고 수리비만 크다. 수리 · 분해는 방탄복과 같은 규칙(제작 재료 × 남은 내구도 구간 배수)이다 —
+  `src/items/Salvage.ts` 의 `REPAIRABLE` 에 `bag` 이 들어갔고, `checkSalvageEconomy()` 가 가방도 구간 0–4 전부를
+  검산하며, **"내구도 + 제작 레시피가 있는데 수리비가 비었다"** 를 새 위반으로 잡는다 (그 구멍이 곧 재료 없는 만피
+  수리였다). 옛 세이브의 가방은 `durability` 가 없어 만피로 읽힌다.
+  ⚠ 상자에서 나온 가방은 이제 내구도 55–100 % 를 굴린다 (`Loot.rollCrate` 의 `rng.next()` 한 번) — **같은 시드의
+  상자에서 가방 뒤에 오는 아이템의 굴림이 밀린다.** 수용한 변화다.
+- **`bags.csv`**: `bag_legendary_tac` 의 `quickSlots` 9 → **8** (휠은 8방향 — 9 번째 칸은 원래 없었고 인벤토리가 조용히
+  8 로 잘랐다). 로더가 이제 `max: QUICK_SLOTS` 로 9 이상을 거절한다. 설명문 두 곳(`bags.csv` · `recipes.csv`) 도 8.
+- **`loot_item_weights.csv`**: 상위 재료 5종(`mat_weave` · `mat_ballistic_fiber` · `mat_capacitor` · `mat_ingot` ·
+  `mat_control_module`) × 티어 5 = 25줄 신규. 줄이 없던 때는 배수 1 이라 **상자 재료 픽 중 상위 재료가 티어 1 3.3 % ·
+  2 14.3 % · 3 39.1 % · 4 48.5 % · 5 90.9 %** 였다 (티어 5 는 다른 재료가 거의 0 이라 사실상 강화 직조포). 목표는
+  **티어 1–2 0 · 3 ≈5 % · 4 ≈10 % · 5 ≈15 %** 이고 결과는 **0 · 0 · 4.99 · 10.01 · 14.97 %** 다.
+  **역산 절차** — 한 티어에서 `L` = 상위 재료가 아닌 재료의 `희귀도 가중치(loot_tiers.csv) × 배수` 합,
+  `U` = 상위 재료 5종의 희귀도 가중치 합(배수 없이), 목표 비율 `s` 면 5종에 같은 배수 `k = s·L / ((1−s)·U)` 를 건다
+  (같은 배수라 5종 사이의 비율은 희귀도 그대로다). 티어 3 `L 256 · U 164 → k 0.082`, 티어 4 `L 175 · U 165 → k 0.118`,
+  티어 5 `L 5 · U 50 → k 0.0176`. 행성 희귀도 배수(`planet_loot.csv`)를 걸기 **전** 기준이다.
+  **분해로 상위 재료가 나오는 것은 의도다** — 등급 IV–V 장비와 네임드 확정 드롭을 뜯으면 그 제작 재료의 상위 재료가
+  돌아온다 (`salvage.csv` 가 아니라 `recipes.csv` 에서 자동 생성). 상자 배수는 "줍기" 경로만 조인다.
 
 ### 2026-09-11 — 새 가젯 3종 · 네임드 로그 확정 드롭 (`loot_named.csv` 신규)
 

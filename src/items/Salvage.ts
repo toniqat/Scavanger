@@ -42,8 +42,13 @@ const TOP_SALVAGE_MUL = SALVAGE_YIELD_BY_DURABILITY[DURABILITY_BUCKETS - 1] ?? 0
 export const DURABILITY_BUCKET_LABELS: readonly string[] =
   REPAIR_COST_BY_DURABILITY.map((_, i) => (i === 0 ? '0~20 %' : `${i * 20 + 1}~${(i + 1) * 20} %`));
 
-/** 수리가 되는 카테고리. 회복 스프레이는 예전대로 `inventory` 의 `sprayRepairCost` 가 맡는다. */
-const REPAIRABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor'];
+/**
+ * 수리가 되는 카테고리. 회복 스프레이는 예전대로 `inventory` 의 `sprayRepairCost` 가 맡는다.
+ * 2026-09-11 (C-36): `bag` 이 들어왔다 — 가방에 `durabilityMax` 가 생겼는데 여기 없으면 수리비가 `[]` 라
+ * **재료 없이 만피 수리**가 되고, 분해 구간은 0–4 로 갈라져 "고쳐서 뜯기" 가 이득이 된다. 그래서 csv 열 ·
+ * 이 목록 · `checkSalvageEconomy` 의 "제작 레시피가 있는데 수리비가 비었다" 검사가 한 묶음이다.
+ */
+const REPAIRABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'bag'];
 /** 제작 레시피에서 분해 레시피를 자동 생성하는 카테고리. */
 const SALVAGEABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'bag'];
 
@@ -140,6 +145,16 @@ export function repairCostFor(inst: ItemInstance): { defId: string; qty: number 
   if (own.length) return own.map((i) => ({ defId: i.defId, qty: Math.max(1, Math.ceil(i.qty * mul - 1e-9)) }));
   const uniqueMul = mul * UNIQUE_REPAIR_MUL;
   return fallbackCraftCost(def).map((i) => ({ defId: i.defId, qty: Math.max(1, Math.ceil(i.qty * uniqueMul - 1e-9)) }));
+}
+
+/**
+ * 2026-09-11 (C-36) — 이 아이템이 닳았을 때 **재료를 받아야** 하는가: 내구도가 있고 제작 레시피가 있으며
+ * 회복 스프레이(게이지 충전은 따로)가 아니다. `repairCostFor` 가 이런 아이템에 `[]` 를 돌려주면 그것은
+ * 무료 수리가 아니라 **표의 구멍**이므로 수리 쪽이 거절해야 한다.
+ */
+export function needsRepairCost(def: ItemDef | undefined): boolean {
+  if (!def || def.heal?.spray) return false;
+  return maxDurabilityOf(def) > 0 && craftCostOf(def.id).length > 0;
 }
 
 /* ── 분해 ─────────────────────────────────────────────────────────────────── */
@@ -311,7 +326,8 @@ export function checkSalvageEconomy(): EconomyViolation[] {
     const def = ITEM_DEF_MAP.get(defId);
     const repairable = !!def && REPAIRABLE.includes(def.category) && maxDurabilityOf(def) > 0;
     const top = asMap(scaleSalvage(src.craft, TOP_SALVAGE_MUL));
-    /* 내구도가 없는 장비(가방)는 **언제나 구간 4** 다 — 있지도 않은 구간을 검사하면 거짓 위반이 나온다. */
+    /* 내구도가 없는 장비는 **언제나 구간 4** 다 — 있지도 않은 구간을 검사하면 거짓 위반이 나온다.
+       (2026-09-11: 가방도 이제 내구도가 있어 구간 0–4 를 전부 본다.) */
     const first = repairable ? 0 : DURABILITY_BUCKETS - 1;
     for (let b = first; b < DURABILITY_BUCKETS; b++) {
       const salvage = asMap(scaleSalvage(src.craft, SALVAGE_YIELD_BY_DURABILITY[b] ?? 0));
@@ -329,6 +345,22 @@ export function checkSalvageEconomy(): EconomyViolation[] {
       }
       for (const [m, s] of salvage) if (!craft.has(m)) bad.push({ defId, bucket: b, message: `제작에 안 쓰는 ${m} 이 ${s} 나온다` });
       if (!strictlyLess) bad.push({ defId, bucket: b, message: '수리 + 분해가 제작과 완전히 같다 (한 종류라도 더 싸야 한다)' });
+    }
+  }
+
+  /* 2026-09-11 (C-36) 안전장치: 내구도가 있고 제작 레시피가 있는 아이템은 **닳았을 때 수리비가 비면 안 된다.**
+     비면 `inventory` 의 수리가 재료 없이 만피로 돌린다 (방탄복이 2026-09-10 까지 그랬고, 가방이 C-36 에서 그럴 뻔했다).
+     회복 스프레이는 게이지 충전(`sprayRepairCost`)이 따로 받는다. 런타임에도 같은 규칙으로 거절한다
+     (`needsRepairCost` → `inventory/parts/Durability.repair`). */
+  for (const def of ITEM_DEF_MAP.values()) {
+    if (!needsRepairCost(def)) continue;
+    const max = maxDurabilityOf(def);
+    for (let b = 0; b < DURABILITY_BUCKETS; b++) {
+      const cur = Math.max(0, Math.min(max - 1, Math.floor(max * b / DURABILITY_BUCKETS)));
+      const worn: ItemInstance = { uid: 'economy-check', defId: def.id, qty: 1, rotated: false, durability: cur };
+      if (!repairCostFor(worn).length) {
+        bad.push({ defId: def.id, bucket: b, message: '제작 레시피가 있는데 수리비가 비어 있다 (REPAIRABLE 에 카테고리가 빠졌다)' });
+      }
     }
   }
 

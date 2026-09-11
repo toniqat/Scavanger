@@ -92,7 +92,7 @@ make_bag_rare_tac,희귀 전술 가방 제작,ship,gear,2,mat_weave:5|mat_cloth:
 make_bag_epic,서사 가방 제작,ship,gear,3,mat_weave:6|mat_ballistic_fiber:3|mat_scrap:6,bag_epic,1,,14,crafting,35,"강화 직조포 6 + 복합 방탄섬유 3 + 폐금속 6 → 서사 가방 (9×6). 장비 작업대 Lv.3, 제작 35 필요."
 make_bag_epic_tac,서사 전술 가방 제작,ship,gear,3,mat_weave:7|mat_ballistic_fiber:3|mat_scrap:6,bag_epic_tac,1,,14,crafting,35,"강화 직조포 7 + 복합 방탄섬유 3 + 폐금속 6 → 서사 전술 가방 (8×6, 퀵슬롯 8). 장비 작업대 Lv.3, 제작 35 필요."
 make_bag_legendary,전설 가방 제작,ship,gear,3,mat_weave:8|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary,1,,16,crafting,40,"강화 직조포 8 + 복합 방탄섬유 6 + 폐금속 8 → 전설 가방 (10×6). 장비 작업대 Lv.3, 제작 40 필요."
-make_bag_legendary_tac,전설 전술 가방 제작,ship,gear,3,mat_weave:9|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary_tac,1,,16,crafting,40,"강화 직조포 9 + 복합 방탄섬유 6 + 폐금속 8 → 전설 전술 가방 (9×6, 퀵슬롯 9). 장비 작업대 Lv.3, 제작 40 필요."
+make_bag_legendary_tac,전설 전술 가방 제작,ship,gear,3,mat_weave:9|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary_tac,1,,16,crafting,40,"강화 직조포 9 + 복합 방탄섬유 6 + 폐금속 8 → 전설 전술 가방 (9×6, 퀵슬롯 8). 장비 작업대 Lv.3, 제작 40 필요."
 make_frag_batch,고폭 수류탄 제작,ship,gadget,1,mat_gunpowder:8|mat_scrap:3,grenade_frag,2,,6,crafting,10,"화약 8 + 폐금속 3 → G-12 고폭 수류탄 2. 가젯 작업대, 제작 10 필요."
 make_smoke_batch,연막탄 대량 제작,ship,gadget,1,mat_gunpowder:10|mat_bio_sample:5,gad_smoke,3,,7,crafting,10,"화약 10 + 생체 조직 5 → 연막탄 3. 가젯 작업대, 제작 10 필요."
 make_incendiary_batch,소이 수류탄 대량 제작,ship,gadget,1,mat_gunpowder:14|herb_ashleaf:4,grenade_incendiary,2,,7,crafting,15,"화약 14 + 잿빛잎 4 → G-10 소이 수류탄 2. 가젯 작업대, 제작 15 필요."

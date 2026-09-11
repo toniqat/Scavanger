@@ -140,7 +140,7 @@ export function buildShop(
  * Everything below is pure; `MetaSystem.repairImplant` feeds it the live numbers and the desk prints `canRepairImplant`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** Credit fee per implant grade (× grade). Local to meta/ — shared/ is frozen for this batch. */
+/** Credit fee per implant grade (× grade). A feature-folder scalar (`data/tuning.csv`) — only meta/ reads it. */
 export const IMPLANT_REPAIR_FEE = keyTable('tuning.csv').num('IMPLANT_REPAIR_FEE');
 
 /** 1 common … 5 legendary (an implant's grade *is* its rarity — `imp_<stat>_3` is rare). */

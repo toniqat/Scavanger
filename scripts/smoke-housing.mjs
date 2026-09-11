@@ -471,6 +471,45 @@ try {
   } else {
     ok(true, 'no placeable store row in 방 1 right now — 배치 click-through skipped', JSON.stringify(smPlace));
   }
+  /* 2026-09-11 (C-27): 자동 배치 2차 패스 — 문 앞 여유 구역을 피해서는 자리가 없을 때만 구역 안을 쓰되, 문 폭 4칸 중
+     인접 2칸은 깊이 전부 비워 둔다. 규칙은 순수 함수라 실제 함선을 건드리지 않고 합성 상태로 검사한다 (우현 방 5 = 문이 x 0 쪽). */
+  const autoPlace2 = await H(async () => {
+    const R = await import('/src/housing/Rules.ts');
+    const S = await import('/src/shared/index.ts');
+    const COLS = S.ROOM_GRID_COLS, ROWS = S.ROOM_GRID_ROWS;
+    const room = 5;
+    const door = R.doorClearanceCell(room);
+    const inZone = (x, y) => x >= door.x && x < door.x + R.DOOR_CLEAR_DEPTH && y >= door.y && y < door.y + R.DOOR_CLEAR_SPAN;
+    const crate = S.FURNITURE_DEF_MAP.get('furn_crate');
+    const mk = (furniture) => ({ rooms: Array.from({ length: S.SHIP_ROOM_COUNT }, () => ({ purpose: 'lounge', level: 1 })), furniture, storage: [] });
+    let n = 0;
+    const piece = (x, y) => ({ uid: `ap${n++}`, defId: 'furn_crate', room, x, y, yaw: 0, level: 1 });
+    // ① 빈 방: 1차 패스 그대로 — 구역 밖
+    const empty = R.autoPlaceSpot(mk([]), room, crate);
+    // ② 구역 밖을 전부 채운다 → 2차 패스가 구역 안을 하나씩 내주다가 통로 두 줄이 남으면 멈춘다
+    const full = [];
+    for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) if (!inZone(x, y)) full.push(piece(x, y));
+    const st = mk(full);
+    const taken = [];
+    for (let i = 0; i < 16; i++) {
+      const spot = R.autoPlaceSpot(st, room, crate);
+      if (!spot) break;
+      taken.push([spot.x, spot.y]);
+      st.furniture.push(piece(spot.x, spot.y));
+    }
+    const allInZone = taken.every(([x, y]) => inZone(x, y));
+    const passageLeft = R.doorPassageOpen(st, room);
+    // ③ 손으로 이미 통로를 막아 둔 방(인접 두 줄이 없다): 2차 패스는 아무것도 주지 않지만 `canPlaceAt` 은 그대로 허용한다
+    const blocked = mk([...full, piece(door.x, door.y), piece(door.x, door.y + 2)]);
+    const blockedSpot = R.autoPlaceSpot(blocked, room, crate);
+    const manualStillOk = R.canPlaceAt(blocked, room, crate, door.x, door.y + 1, 0);
+    return { empty, emptyOutside: !!empty && !inZone(empty.x, empty.y), taken, allInZone, passageLeft, blockedSpot, manualStillOk, span: R.DOOR_CLEAR_SPAN, depth: R.DOOR_CLEAR_DEPTH };
+  });
+  ok(autoPlace2.emptyOutside, `자동 배치 1차 패스: 빈 방에서는 문 앞 여유 구역 밖 (${JSON.stringify(autoPlace2.empty)})`);
+  ok(autoPlace2.taken.length === (autoPlace2.span - 2) * autoPlace2.depth && autoPlace2.allInZone && autoPlace2.passageLeft,
+    `자동 배치 2차 패스: 구역 밖이 꽉 차면 구역 안에 ${autoPlace2.taken.length}개를 놓고 문 폭 인접 2칸은 남긴다`, JSON.stringify(autoPlace2));
+  ok(autoPlace2.blockedSpot === null && autoPlace2.manualStillOk,
+    '자동 배치 2차 패스: 통로가 이미 막힌 방에서는 자리 없음 — canPlaceAt(손 배치)은 그대로', JSON.stringify(autoPlace2));
   await H(() => [...document.querySelectorAll('.ship-manage .sm-tabs .sm-tab')].find((b) => b.textContent === '가구 제작').click());
   await sleep(120);
   await H(() => window.__game.ctx.housing.setManageRoom(9));
@@ -576,7 +615,8 @@ try {
     && !window.__game.ctx.input.isCursorMode), 'closing the panel releases the blocker and the in-game cursor');
   await H(() => window.__game.ctx.housing.openPresetMenu());   // re-open it: the next check is that 시설 관리 closes it
   await sleep(80);
-  await H(() => window.__game.ctx.housing.openRoomMenu(5));
+  // 2026-09-11 (C-7): `openRoomMenu` 은 @deprecated — 리다이렉트는 위 두 단언이 확인하고, 나머지는 새 이름으로 연다
+  await H(() => window.__game.ctx.housing.openShipManage(5));
   await sleep(120);
   ok(await H(() => document.querySelector('.preset-menu').hidden && window.__game.ctx.housing.shipManageMode && !window.__game.ctx.uiBlockers.has('housing')), '시설 관리 closes the preset panel (single owner of the screen)');
   const rangeDom = await H(() => {
@@ -623,8 +663,25 @@ try {
   ok(srv.local === 'kitchen' && srv.sets === 1, 'localStorage cache updated, server copy not echoed back', JSON.stringify({ local: srv.local, sets: srv.sets }));
   const nextUid = await H(() => { const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); const p = h.place(8, 'furn_crate', 5, 5, 0); const uid = p?.uid; if (p) h.recover(p.uid); return uid; });
   ok(nextUid === 'f-91', `uid counter continues after the server copy's highest uid (${nextUid})`);
-  // put the local state back through the same path, then restore the offline profile
-  await H((snap) => { window.__fakeProfile.docs = { ship: snap }; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false }); }, shipSnap);
+  /* 2026-09-11: an edit still inside the 350 ms save debounce is newer than any profile copy — a welcome landing in
+     that window used to replace the state with the (older) document and cancel the write, silently undoing the edit
+     (smoke-training's sim hub vanished under load). Now the edit is written (profile.set) and the state is kept. */
+  const race = await H((snap) => {
+    const h = window.__game.ctx.housing;
+    h.save();                                                    // settle the place / recover above
+    window.__fakeProfile.sets.length = 0;
+    const setOk = h.setRoomPurpose(7, 'lounge');                  // dirty, not yet written
+    const stale = JSON.parse(JSON.stringify(snap));              // the profile's copy predates the edit
+    window.__fakeProfile.docs = { ship: stale };
+    window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false });
+    const r = { setOk, room7: h.getRoom(7).purpose, room8: h.getRoom(8).purpose, sets: window.__fakeProfile.sets.filter((k) => k === 'ship').length, uploaded: window.__fakeProfile.docs.ship?.rooms?.[7]?.purpose ?? null };
+    h.setRoomPurpose(7, 'empty'); h.save();
+    return r;
+  }, shipSnap);
+  ok(race.setOk && race.room7 === 'lounge' && race.room8 === 'kitchen' && race.sets === 1 && race.uploaded === 'lounge',
+    'net:profileLoaded inside the save debounce keeps the unsaved edit and uploads it instead of reverting', JSON.stringify(race));
+  // put the local state back through the same path (no edit pending), then restore the offline profile
+  await H((snap) => { window.__game.ctx.housing.save(); window.__fakeProfile.docs = { ship: snap }; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false }); }, shipSnap);
   ok(await H(() => window.__game.ctx.housing.getRoom(8).purpose === 'lounge' && window.__game.ctx.housing.getPlaced(8).length === 0 && window.__game.ctx.housing.getStashSize().rows === 30), 'local state restored through net:profileLoaded');
   await H(() => { const net = window.__game.ctx.net; if (window.__realProfileDesc) Object.defineProperty(net, 'profile', window.__realProfileDesc); else delete net.profile; });
   ok(await H(() => window.__game.ctx.net.profile !== window.__fakeProfile && window.__game.ctx.net.profile.available === false), 'real (offline) profile restored');
@@ -720,7 +777,7 @@ try {
     gen: window.__game.ctx.housing.getFacility('generator').level, rooms: window.__game.ctx.housing.state.rooms.every((r) => r.purpose === 'empty') }));
   ok(grant.scrap === 24 && grant.cable === 4 && grant.alloy === 3, `기본 지급품 in the 함선 창고: 폐금속 ${grant.scrap} · 케이블 ${grant.cable} · 합금 ${grant.alloy}`);
   ok(grant.gen === 0 && grant.rooms, 'fresh ship: 발전기 Lv.0, ten empty rooms');
-  await H(() => window.__game.ctx.housing.openRoomMenu(3));
+  await H(() => window.__game.ctx.housing.openShipManage(3));
   await sleep(150);
   const hud = () => H(() => { const h = window.__game.getSystem('hud'); return { confirm: h.isShipManageConfirmOn, purpose: h.shipManageConfirmPurpose, manage: window.__game.ctx.housing.shipManageMode, pause: !document.querySelector('.menu.pause')?.classList.contains('hidden') }; });
   const pick0 = await H(() => {

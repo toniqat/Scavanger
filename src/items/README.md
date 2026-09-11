@@ -95,7 +95,10 @@ Category `attachment`, 1×1, stack 1, `ItemDef.attachment: { socket, classes?, a
 
 ## Bags
 
-Category `bag`, 2×2, stack 1, `ItemDef.bag: { cols, rows, quickSlots, tactical? }`.
+Category `bag`, 2×2, stack 1, `ItemDef.bag: { cols, rows, quickSlots, tactical? }`, `ItemDef.durabilityMax` (2026-09-11 — 8종 전부 100).
+`quickSlots` 는 로더가 `max: QUICK_SLOTS`(8)로 막는다 — 휠은 8방향이다.
+**내구도**(C-36): 장착 가방이 레이드 1회마다 `BAG_DURABILITY_PER_RAID`(10) 닳는다 (`inventory/` 가 깎는다). 0 이어도
+격자 · 퀵슬롯은 그대로이고 수리비만 크다. 수리 · 분해는 방탄복과 같은 `Salvage.ts` 규칙이다.
 
 | id | name | rarity | grid | quick slots |
 |---|---|---|---|---|
@@ -106,7 +109,7 @@ Category `bag`, 2×2, stack 1, `ItemDef.bag: { cols, rows, quickSlots, tactical?
 | `bag_legendary` | 전설 가방 | legendary | 10×6 | 6 |
 | `bag_rare_tac` | 희귀 전술 가방 | rare | 7×6 | 7 (tactical) |
 | `bag_epic_tac` | 서사 전술 가방 | epic | 8×6 | 8 (tactical) |
-| `bag_legendary_tac` | 전설 전술 가방 | legendary | 9×6 | 9 (tactical) |
+| `bag_legendary_tac` | 전설 전술 가방 | legendary | 9×6 | 8 (tactical — 2026-09-11 까지 9 였지만 휠에 9번째 칸이 없었다) |
 
 ## Other items
 
@@ -414,7 +417,8 @@ sr 15·21·26·30·35. 등급 III 부터 합금 판 + 기계 부품, IV 부터 �
 
 기준은 **그 아이템의 제작 재료**다. 남은 내구도를 20 % 단위 다섯 구간으로 나누고
 (`durabilityBucketOf` → 0 = 0~20 % … 4 = 81~100 %, 내구도가 없는 아이템은 4) 구간별 배수를 곱한다
-(`data/tables.csv` 의 `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY`):
+(`data/tables.csv` 의 `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY`). 수리가 되는 카테고리
+(`REPAIRABLE`)는 **주무기 · (옛) 보조무기 · 방탄복 · 가방**이다 (2026-09-11 가방 추가):
 
 | 남은 내구도 | 수리 (올림) | 분해 (내림) | 합 |
 |---|---|---|---|
@@ -432,7 +436,12 @@ sr 15·21·26·30·35. 등급 III 부터 합금 판 + 기계 부품, IV 부터 �
   기준을 같은 총기 종류의 **등급 V**(유니크 방탄복은 방탄복 V)에서 빌려 `UNIQUE_REPAIR_MUL`(1.5)을 곱한다.
   옛 공식(빠진 내구도 ÷ `REPAIR_SCRAP_PER`)은 사라졌다 — 유니크 내구도가 320~3000 이라 같은 전설끼리
   수리비가 10배 갈렸고 등급 무기와 다른 축으로 움직여 읽히지 않았다.
-- **가방은 내구도가 없어 언제나 구간 4** — 분해는 제작 재료 ×0.40 고정이고 수리는 없다(`[]`).
+- **가방도 이제 내구도가 있다** (2026-09-11, C-36) — 방탄복과 똑같이 구간을 타고 수리비가 든다. 그 전에는 내구도가
+  없어 언제나 구간 4(분해 ×0.40 고정, 수리 없음)였다.
+- **안전장치 `needsRepairCost(def)`** (2026-09-11): 내구도가 있고 제작 레시피가 있는(회복 스프레이 제외) 아이템은
+  닳았을 때 수리비가 **비면 안 된다**. 비면 그것은 무료 수리가 아니라 `REPAIRABLE` 의 구멍이므로
+  `inventory/parts/Durability` 의 `repair` · `repairInfo` · 작업대 수리 목록이 거절하고, `checkSalvageEconomy()` 가
+  표 전체에 대해 위반으로 잡는다 (방탄복이 2026-09-10 까지, 가방이 C-36 에서 그 구멍으로 새려 했다).
 - 예: 돌격소총 IV(제작 폐금속 16 + 합금 판 4 + 기계 부품 3 + 잉곳 2) — 81~100 % 이면 수리 2/1/1/1,
   분해 폐금속 6 + 합금 판 1 + 기계 부품 1; 0~20 % 이면 수리 8/2/2/1, 분해 폐금속 1.
 
@@ -463,7 +472,8 @@ sr 15·21·26·30·35. 등급 III 부터 합금 판 + 기계 부품, IV 부터 �
 `npm run data:check` 가 돌린다 (`scripts/data-check.mjs`). 모든 생성 분해 × 모든 내구도 구간에서 네 가지를 본다:
 ① 분해 산출 ≤ 제작 재료 ② 수리 + 분해 ≤ 제작 재료이고 한 종류는 **엄격히 작다** ③ 분해(구간 4) − 수리(구간 b)
 ≤ 분해(구간 b) — "고쳐서 뜯는" 편이 "지금 뜯는" 것보다 이득이면 안 된다 ④ 제작에 안 쓰는 재료가 분해에서 안 나온다.
-손으로 적은 고정 분해도 (제작 레시피가 있으면) 같은 검사를 받는다. 현재 위반 0건, 최악의 `(수리+분해)/제작`
+손으로 적은 고정 분해도 (제작 레시피가 있으면) 같은 검사를 받는다. 2026-09-11 에 ⑤ **내구도 + 제작 레시피가 있는데
+닳은 상태의 수리비가 비었다**(`needsRepairCost`)가 더해졌다 — 가방 8종도 구간 0–4 전부를 본다. 현재 위반 0건, 최악의 `(수리+분해)/제작`
 비율은 **0.667** (`wpn_ar_g3` 구간 0 의 합금 판 2/3).
 
 **Valuables**: `gem_quartz`, `gem_amber`, `gem_sapphire`, `gem_void`, `cred_chip` (stack 5), `super_earth_medal` (1×1) · `salvage_electronics`, `data_core`, `data_core_encrypted` (2×1) · `sample_canister`, `sample_canister_pure` (3×1) · `terminid_gland` (1×1) · `alien_artifact`, `alien_relic` (2×2).
@@ -482,6 +492,15 @@ sr 15·21·26·30·35. 등급 III 부터 합금 판 + 기계 부품, IV 부터 �
 
 (`mat_alloy` 는 정제 Lv.1 에서 폐금속 3 으로도 나오고, `mat_machine_parts` 는 Lv.1 에서 폐금속 6 + 케이블 2 다 —
 분해로 되찾는 폐금속 3 + 케이블 1 이 제작 재료의 딱 절반이라 무한 루프가 없다.)
+
+**상위 재료가 들어오는 길은 셋이다** (2026-09-11, C-35):
+1. **정제 작업대** — 본래의 길.
+2. **상자** — `data/loot_item_weights.csv` 의 5종 × 티어 25줄이 조인다: 상자 재료 픽 중 상위 재료가 **티어 1–2 0 % ·
+   3 ≈5 % · 4 ≈10 % · 5 ≈15 %** (실측 0 · 0 · 4.99 · 10.01 · 14.97 %, 행성 희귀도 배수 전). 줄이 없던 때는 배수 1 이라
+   3.3 · 14.3 · 39.1 · 48.5 · **90.9 %** 로 정제 작업대를 우회했다. 역산 절차는 `data/README.md` 의 같은 날 절.
+3. **분해 — 의도한 길이다.** 등급 IV–V 장비 · 네임드 확정 드롭(로든 저격소총 III–V · 타길라 방탄복 III–V)을 뜯으면
+   그 제작 재료의 상위 재료가 구간 배수만큼 돌아온다 (`SALVAGE_SOURCES` 는 `recipes.csv` 에서 생성). 상자 배수는
+   "줍기" 만 조이고 이 길은 막지 않는다 — 고급 장비를 재활용하는 보상이다.
 
 
 ## 임플란트 아이템 (Phase 12, 2026-09-08 — `ImplantDefs.ts`)
@@ -662,6 +681,14 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (C 항목 배치: C-5 · C-35 · C-36)** — ① **가방 내구도** — `data/bags.csv` 에 `durabilityMax` 열(전부 100),
+  `ItemDefs` 가 읽는다. `Salvage.REPAIRABLE` 에 `bag`, 새 export `needsRepairCost(def)`, `checkSalvageEconomy()` 에
+  "제작 레시피가 있는데 수리비가 비었다" 검사. 한 묶음인 이유: 열만 넣으면 수리비 `[]` = **재료 없는 만피 수리** +
+  분해 구간이 0–4 로 갈라져 "고쳐서 뜯기" 가 이득이 되는데 옛 검산은 `repairable=false` 라 구간 4 만 봤다.
+  ⚠ `Loot.rollCrate` 가 상자 가방에 내구도 55–100 % 를 `rng.next()` 로 굴리므로 **같은 시드 상자에서 가방 뒤 아이템이
+  달라진다** (수용). ② **전설 전술 가방 퀵슬롯 9 → 8** (`bags.csv` · `recipes.csv` 설명), 로더 `max: QUICK_SLOTS`.
+  ③ **상위 재료 상자 배수** — `loot_item_weights.csv` 25줄, 재료 픽 중 0 · 0 · ≈5 · ≈10 · ≈15 %. 분해 경로는 의도로 남겼다.
 
 - **2026-09-11 (새 가젯 3종 · 네임드 확정 드롭)** — ① `data/items.csv` 에 **`gad_remote_mine` 원격 지뢰** (rare, 1×1,
   스택 4) · **`gad_drone_ground` 지상 드론** (rare, 2×2, 스택 1) · **`gad_drone_air` 공중 드론** (epic, 2×2, 스택 1).

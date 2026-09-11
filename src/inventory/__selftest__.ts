@@ -399,9 +399,11 @@ export function runInventorySelfTest(): boolean {
     check(bucketAt('armor_1', 0.21) === 1, '내구도 구간: 21 % → 1');
     check(bucketAt('armor_1', 0.20) === 0, '내구도 구간: 20 % → 0');
     check(bucketAt('armor_1', 0) === 0, '내구도 구간: 0 % → 0');
-    // 내구도가 없는 것(재료 · 탄약 · 가방)은 언제나 구간 4 — UI 가 구간 줄을 그리지 않는 조건이기도 하다
+    // 내구도가 없는 것(재료 · 탄약)은 언제나 구간 4 — UI 가 구간 줄을 그리지 않는 조건이기도 하다
     check(loot.durabilityBucketOf(loot.createItem('mat_scrap', 3)) === 4, '내구도 구간: 내구도가 없으면 언제나 4');
-    check(loot.durabilityBucketOf(loot.createItem('bag_common')) === 4, '내구도 구간: 가방도 4');
+    // 2026-09-11 (C-36): 가방은 이제 내구도가 있다 — 새 가방은 가득(구간 4), 닳으면 구간이 내려간다
+    check(loot.durabilityBucketOf(loot.createItem('bag_common')) === 4, '내구도 구간: 새 가방은 4');
+    check(maxDurOf('bag_common') > 0 && bucketAt('bag_common', 0.1) === 0, '내구도 구간: 가방도 닳으면 0');
 
     const total = (list: readonly { defId: string; qty: number }[]): number => list.reduce((s, c) => s + c.qty, 0);
     const outsOf = (defId: string, frac: number): { defId: string; qty: number }[] => {
@@ -417,6 +419,11 @@ export function runInventorySelfTest(): boolean {
     }
     // **방탄복 수리는 공짜가 아니다** (2026-09-10) — 예전에는 이 자리가 빈 배열이라 재료 없이 만피가 됐다
     check(repairAt('armor_1', 0.5) > 0, '방탄복 수리에도 재료가 든다');
+    // 2026-09-11 (C-36): 가방 수리도 공짜가 아니다 — 내구도가 0 이어도(효과 없음) 수리비는 든다
+    for (const id of ['bag_common', 'bag_legendary_tac']) {
+      check(repairAt(id, 0.9) > 0 && repairAt(id, 0) > repairAt(id, 0.9), `가방 수리에도 재료가 들고, 닳을수록 비싸다 (${id})`);
+      check(repairAt(id, 1) === 0, `가득 찬 가방은 수리비가 없다 (${id})`);
+    }
 
     // 「제작 → (수리) → 분해 → 제작」 이 이득이 되지 않는다: 어느 구간에서도 수리 + 분해 ≤ 제작
     for (const id of ['armor_1', 'armor_5', 'wpn_ar', 'wpn_smg_g4', 'bag_rare']) {

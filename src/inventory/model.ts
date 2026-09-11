@@ -19,7 +19,9 @@ export type GridId = 'bag' | 'container' | 'stash';
  * `LoadoutSlot` · `Loadout.secondary` · `WeaponSlot` 의 `'secondary'` 자체는 **지우지 않았다** — `src/shared` 는
  * 추가만 하는 계약이고, 저장된 프로필 · 프리셋 · 크루 카드가 그 이름으로 적혀 있기 때문이다 (`airstrike` 와 같은 처리).
  * 지운 것은 **목록 · 아이템 · 데이터**다: 아래 두 배열, `slotAccepts`, `weapons/WEAPON_SLOTS`,
- * `ui/hud/SlotStrip`, 카탈로그 · 상점 · 정비/프리셋 메뉴, 그리고 `data/weapons.csv` 의 권총 줄.
+ * `hub/ui/WorkbenchMenu` 의 무기 행 목록, 카탈로그 · 상점 · 정비/프리셋 메뉴, 그리고 `data/weapons.csv` 의 권총 줄.
+ * (2026-09-11, C-26: 예전에 여기 적혀 있던 `ui/hud/SlotStrip` 은 아무도 import 하지 않는 죽은 파일이었다 — 칸을 정하지
+ * 않았고, 그 배치에서 삭제됐다.)
  */
 export type SlotId = LoadoutSlot;
 export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'bag', 'armor'];

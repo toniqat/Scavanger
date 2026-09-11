@@ -197,8 +197,6 @@ pointer drag, so recreating them on every `inventory:changed` would drop a drag 
 ### Known follow-ups (Phase 10)
 - The header pill reads `크레딧  1,200 C`, so the unit is spelled twice in two forms. That is what the plan asks for
   (`§3-9` puts `:231` in the `C` group); switch it to `formatCreditAmount` if the eyebrow ever becomes `CREDITS`.
-- `formatCredits` groups with `ko-KR` while `fmtNum` groups with `en-US`. Both render `1,200` today, so a page mixing
-  the two is consistent by accident, not by contract.
 - `CorpMenu.close(relock)` and `CorpView`'s two `elementFromPoint` calls are the only places that still mention the
   old lock etiquette; nothing reads `relock` any more.
 
@@ -221,7 +219,6 @@ pointer drag, so recreating them on every `inventory:changed` would drop a drag 
   가운데에 `신뢰도 Lv.1 부터 거래 가능` 을 띄운다.
 
 ### Known follow-ups (2026-09-07)
-- `CorpViewOptions.accentTarget / onClose / isVisible` 는 남아 있지만 지금은 아무도 넘기지 않는다 (임베드 뷰 하나뿐).
 - 재고 / 트레이 칸은 이름을 그리지 않는다 — 호버 카드가 없는 입력(터치 등)에서는 아이콘과 가격만 보인다.
 - 데스크는 여전히 넓다: 1240 px 아래에서는 우측 가방 / 창고 열이 숨는다(기존 미디어 쿼리 그대로).
 - 기업 탭에서 Esc 는 창 전체를 닫는다(`hub/` 가 Escape 를 삼키지 않고 `inventory/` 가 처리한다).
@@ -245,7 +242,6 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
   (150 / 300 / 450 / 600, legendary 750), materials from `repairCost`, the repaired implant goes to the 함선 창고 first.
 
 ### Known follow-ups (Phase 12)
-- `IMPLANT_REPAIR_FEE` lives in `Rules.ts` (shared/ was frozen) — move it to `shared/meta.ts` next time the contract opens.
 - The server path debits the fee optimistically and swaps the item only on `ok`; between the click and the answer the row
   reads `수리 진행 중` and a broken implant moved elsewhere in that window fails the swap with a refund (nothing is lost).
 - `priceOf` rebuilds the shop for the one def (+ the implants, so `implantRepairMaterials` can resolve) — fine per click,
@@ -274,6 +270,15 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (C 항목 배치 — C-2 · C-6 · C-10 · X-1)** — ① **`open_crates` 계약 진척이 상자 id 별 한 번**(X-1):
+  `crate:open` 은 이미 연 상자에 E 를 누를 때마다 다시 나오므로 연타로 계약을 채울 수 있었다. `cratesCounted`
+  (`corpsesCounted` 와 같은 방식, `game:newMission` 에서 비움)가 막는다. 감정 XP 쪽은 `progression/` 이 따로 막는다.
+  ② `ui/CorpView.ts` 의 죽은 옵션 `accentTarget` · `onClose` · `isVisible` 삭제 (임베드 뷰 하나뿐이고 아무도 넘기지
+  않았다). `visible` = `!disposed && host.isConnected`. ③ `ui/dom.ts` `fmtNum` 로캘 `en-US` → **`ko-KR`**
+  (`shared/currency.groupDigits` 와 같은 쪽 — 지금 표기는 둘 다 `1,200` 이라 화면은 그대로다).
+  ④ `Rules.ts` `IMPLANT_REPAIR_FEE` 주석의 "shared/ is frozen" 을 사실대로(기능 폴더 스칼라 `tuning.csv`),
+  이 README 의 해당 follow-up 두 줄(수수료를 shared 로 옮기자 · 로캘이 다르다) 삭제 — 위치는 data 규약에 맞다 (C-2 닫기).
 
 - **2026-09-10 (보조무기 제거)** — 상점 카테고리 순서(`Rules`)에서 `secondary` 가 빠졌고 헬릭스의
   `secondary,PISTOL` 판매 규칙 줄(`data/corp_stock.csv`)도 사라졌다. `ruleMatches` 의 `primary || secondary`

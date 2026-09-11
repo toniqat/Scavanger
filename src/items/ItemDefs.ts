@@ -1,7 +1,7 @@
 import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, SkillId, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON,
-  QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, csvRows, keyTable, numberMap, rarityForGrade,
+  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 
 /*
@@ -132,15 +132,20 @@ export const ATTACHMENT_ITEM_DEFS: readonly ItemDef[] = csvRows('attachments.csv
 });
 
 /* ── bags — data/bags.csv ─────────────────────────────────────────────────── */
+/* 2026-09-11 (C-5): `quickSlots` is capped at `QUICK_SLOTS` (the wheel has 8 directions) — a 9 used to load fine and
+ * be clamped silently by `InventorySystem.getQuickSlotCount`, so the tooltip promised a slot that did not exist.
+ * 2026-09-11 (C-36): `durabilityMax` — bags wear by `BAG_DURABILITY_PER_RAID` per raid (inventory/) and are repaired
+ * like armor (`Salvage.REPAIRABLE`). At 0 a bag still works; only the repair gets expensive. */
 export const BAG_ITEM_DEFS: readonly ItemDef[] = csvRows('bags.csv').map((r) => {
   const bag: BagDef = {
-    cols: r.int('cols', { min: 1 }), rows: r.int('rows', { min: 1 }), quickSlots: r.int('quickSlots', { min: 0 }),
+    cols: r.int('cols', { min: 1 }), rows: r.int('rows', { min: 1 }), quickSlots: r.int('quickSlots', { min: 0, max: QUICK_SLOTS }),
     ...(r.has('tactical') && r.bool('tactical') ? { tactical: true } : {}),
   };
   return def({
     id: r.str('id'), name: r.str('name'), category: 'bag', rarity: r.str('rarity') as Rarity,
     width: 2, height: 2, value: r.int('value', { min: 0 }), icon: bag.tactical ? '⛶' : '▣',
     description: r.str('description'), bag,
+    durabilityMax: r.int('durabilityMax', { min: 1 }),
     weight: T.num('BAG_WEIGHT_BASE') + bag.cols * bag.rows * T.num('BAG_WEIGHT_PER_CELL'),
   });
 });

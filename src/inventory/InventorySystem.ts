@@ -92,6 +92,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * `player:respawn` 의 스타터 지급 분기를 한 번만 건너뛰고 스스로 꺼진다.
    */
   strippedForCorpse = false;
+  /** 2026-09-11 (C-36): 이번 레이드에서 장착 가방이 이미 닳았다 (`Dur.wearBagForRaid`). `world:ready` 에서 내린다. */
+  bagWornThisRaid = false;
   pendingTakes: PendingTake[] = [];
   private lastSearchEmit = -1;
   /** Seconds left of the `SEARCH_START_DELAY` grace after the container window opened (0 = 감정 ticking). */
@@ -166,7 +168,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('world:ready', ({ seed }) => this.onWorldReady(seed)),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
       bus.on('player:died', () => this.closeAll()),
-      bus.on('game:complete', () => { this.outcome = 'complete'; this.loadoutStore.saveNow('complete'); }),
+      bus.on('game:complete', ({ stats }) => {
+        this.outcome = 'complete';
+        // 2026-09-11 (C-36): 탈출에 성공했으면 장착 가방이 레이드 1회분 닳는다 — 저장 **전에**
+        if (stats.extracted) this.wearBagForRaid();
+        this.loadoutStore.saveNow('complete');
+      }),
       bus.on('game:over', () => this.onGameOver()),
       bus.on('player:respawn', () => this.onRespawn()),
       bus.on('game:abort', () => this.onAbort()),
@@ -406,6 +413,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Wear on non-weapon gear (armor per absorbed hit). Weapons keep `updateItem` (weapons/ owns that path). */
   damageDurability(uid: string, amount: number): void { return Dur.damageDurability(this, uid, amount); }
+
+  /** 2026-09-11 (C-36): 장착 가방이 레이드 1회분(`BAG_DURABILITY_PER_RAID`)만큼 닳는다 — 레이드당 한 번. */
+  wearBagForRaid(): boolean { return Dur.wearBagForRaid(this); }
 
   /**
    * Phase 12: refill cost of a 회복 스프레이 (`ItemDef.heal.spray`, gauge = `durability` / `durabilityMax`) — one 캔 +
@@ -998,7 +1008,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return true;
   }
 
+  /**
+   * 2026-09-11 (C-16) — the window already shows this very container: nothing to do. Structure containers call
+   * `openContainerItems` and then emit `crate:open` for the same id, which used to show the window twice (two
+   * `inventory:opened`, `ui_open` played twice) and add a `first: false` `inventory:containerOpened`.
+   */
+  isShowingContainer(containerId: string): boolean {
+    return this._open && this.activeContainer?.id === containerId;
+  }
+
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
+    if (this.isShowingContainer(containerId)) return;
     const first = !this.openedIds.has(containerId);
     this.openedIds.add(containerId);
     const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed, this.ctx.missionPlanet);
@@ -1012,6 +1032,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * overflow dropped with a warning); a known id shows what is left. Title defaults to `컨테이너`.
    */
   openContainerItems(containerId: string, items: ItemInstance[], position: THREE.Vector3, title?: string): void {
+    if (this.isShowingContainer(containerId)) return;
     const first = !this.openedIds.has(containerId);
     this.openedIds.add(containerId);
     const c = this.containers.getOrCreateWithItems(containerId, items, position, title);

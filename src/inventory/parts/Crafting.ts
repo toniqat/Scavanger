@@ -18,7 +18,7 @@ import type {
   ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight, needsRepairCost } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
 /* 2026-09-10: 수리 재료를 정하는 곳은 하나다 (`getRepairCost` → 없으면 회복 스프레이). */
 import { repairMaterials } from './Durability';
@@ -107,7 +107,11 @@ export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRe
     const dur = sys.getDurability(item.uid);
     if (!dur || dur.max <= 0) return;
     if (wornOnly && dur.durability >= dur.max) return;
-    const cost = repairMaterials(sys, item, def).map((c) => ({
+    const mats = repairMaterials(sys, item, def);
+    // 2026-09-11 (C-36): a **worn** crafted item with no repair cost is a hole in the table — `repair` refuses it, so do
+    // not list it. A full one has no cost by definition and stays in the (non-`wornOnly`) list as before.
+    if (dur.durability < dur.max && !mats.length && needsRepairCost(def)) return;
+    const cost = mats.map((c) => ({
       ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: sys.countDef(c.defId),
     }));
     rows.push({ uid: item.uid, item, def, where, dur, bucket: sys.loot.durabilityBucketInfo(item), cost, short: cost.some((c) => c.have < c.qty) });

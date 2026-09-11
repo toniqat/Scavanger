@@ -400,6 +400,31 @@ export function doorClearanceCell(room: number): { x: number; y: number } {
   };
 }
 
+/**
+ * 2026-09-11 (C-27) — 문 앞 여유 구역 안에 **나란히 비어 있는 두 줄**이 남는가. 문 폭 방향(`DOOR_CLEAR_SPAN` 칸)
+ * 중 인접한 2칸이 문 쪽 벽에서 `DOOR_CLEAR_DEPTH` 칸 깊이까지 전부 비어 있으면 통로가 열려 있다 — 2칸 = 1.0 m ≥
+ * 플레이어 지름 0.9 m (`PLAYER_RADIUS` × 2). `extra` = 이제 놓으려는 가구의 발자국 (그것까지 포함해서 본다).
+ */
+export function doorPassageOpen(
+  state: ShipState, room: number, extra?: { x: number; y: number; cols: number; rows: number } | null,
+): boolean {
+  const door = doorClearanceCell(room);
+  const rects: Array<{ x: number; y: number; cols: number; rows: number }> = [];
+  for (const f of state.furniture) {
+    if (f.room !== room) continue;
+    const d = FURNITURE_DEF_MAP.get(f.defId);
+    if (!d) continue;
+    const fp = furnitureFootprint(d, f.yaw);
+    rects.push({ x: f.x, y: f.y, cols: fp.cols, rows: fp.rows });
+  }
+  if (extra) rects.push(extra);
+  /** 문 폭 방향 k 번째 줄(격자 y = door.y + k)이 깊이 전부 비었는가. */
+  const laneFree = (k: number): boolean =>
+    !rects.some((r) => overlaps(door.x, door.y + k, DOOR_CLEAR_DEPTH, 1, r.x, r.y, r.cols, r.rows));
+  for (let k = 0; k + 1 < DOOR_CLEAR_SPAN; k++) if (laneFree(k) && laneFree(k + 1)) return true;
+  return false;
+}
+
 /** A free cell + yaw the 배치 버튼 drops a stored piece on. */
 export interface FurniturePlacement { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
 
@@ -407,15 +432,24 @@ export interface FurniturePlacement { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
  * First spot `def` fits in `room` under the rule above — 화면 좌측 상단부터 가로줄 먼저, 아래를 향한 채,
  * 출입구 앞은 비워 두고. `null` when nothing fits (the caller keeps its existing 자리 없음 handling); every
  * candidate still goes through `canPlaceAt`, so 용도 · 격자 경계 · 겹침 · 쌓기 한도 규칙은 하나도 우회하지 않는다.
+ *
+ * 2026-09-11 (C-27) **2차 패스**: 여유 구역을 통째로 피해서는 자리가 없으면(방이 거의 찼다) 같은 순서로 다시 훑되
+ * 여유 구역에 걸치는 자리도 받는다 — 단 놓은 뒤에도 `doorPassageOpen` (문 폭 4칸 중 인접 2칸이 깊이 전부 비었다)
+ * 이어야 한다. 1차에서 이미 본 자리(구역 밖)는 2차에서 다시 볼 필요가 없다. `canPlaceAt` 은 그대로다.
  */
 export function autoPlaceSpot(state: ShipState, room: number, def: FurnitureDef): FurniturePlacement | null {
   const door = doorClearanceCell(room);
-  for (const yaw of AUTO_PLACE_YAWS) {
-    const fp = furnitureFootprint(def, yaw);
-    for (let x = 0; x + fp.cols <= ROOM_GRID_COLS; x++) {          // 화면 세로: 위 → 아래
-      for (let y = ROOM_GRID_ROWS - fp.rows; y >= 0; y--) {        // 화면 가로: 왼쪽 → 오른쪽
-        if (overlaps(x, y, fp.cols, fp.rows, door.x, door.y, DOOR_CLEAR_DEPTH, DOOR_CLEAR_SPAN)) continue;
-        if (canPlaceAt(state, room, def, x, y, yaw)) return { x, y, yaw };
+  for (const pass of [1, 2] as const) {
+    for (const yaw of AUTO_PLACE_YAWS) {
+      const fp = furnitureFootprint(def, yaw);
+      for (let x = 0; x + fp.cols <= ROOM_GRID_COLS; x++) {          // 화면 세로: 위 → 아래
+        for (let y = ROOM_GRID_ROWS - fp.rows; y >= 0; y--) {        // 화면 가로: 왼쪽 → 오른쪽
+          const inDoorZone = overlaps(x, y, fp.cols, fp.rows, door.x, door.y, DOOR_CLEAR_DEPTH, DOOR_CLEAR_SPAN);
+          if (inDoorZone !== (pass === 2)) continue;
+          if (!canPlaceAt(state, room, def, x, y, yaw)) continue;
+          if (pass === 2 && !doorPassageOpen(state, room, { x, y, cols: fp.cols, rows: fp.rows })) continue;
+          return { x, y, yaw };
+        }
       }
     }
   }

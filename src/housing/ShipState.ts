@@ -312,6 +312,9 @@ export class ShipStore {
     try { p.set('ship', JSON.parse(JSON.stringify(this.getState()))); } catch { /* net not ready */ }
   }
 
+  /** A change is waiting for the debounced write (`markDirty` called, `flush` not yet run). */
+  get isDirty(): boolean { return this.dirty; }
+
   /** Drop a pending write (the state was just replaced by the server copy, which is already written locally). */
   cancel(): void {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }

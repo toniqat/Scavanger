@@ -46,6 +46,12 @@ export class HousingSystem implements GameSystem, HousingRef {
   private store: ShipStore | null = null;
   nextUid = 0;
   private fresh = false;
+  /**
+   * 2026-09-11: a real edit (`changed()`) happened — as opposed to the boot-time "fresh state" save. Together with
+   * `ShipStore.isDirty` it tells `onProfileLoaded` that the local state holds an edit **newer than anything the profile
+   * has seen**, which must not be thrown away (see there).
+   */
+  private editPending = false;
   private unsubs: Array<() => void> = [];
   presetMenu: PresetMenu | null = null;
   growMenu: GrowMenu | null = null;
@@ -111,12 +117,24 @@ export class HousingSystem implements GameSystem, HousingRef {
   private onProfileLoaded(): void {
     const p = this.profileRef();
     if (!p || !p.available) return;
+    /* 2026-09-11 — **an edit still inside the 350 ms save debounce wins.** The welcome can land right after a
+       placement (slow relay, loaded machine): `p.get('ship')` then returns the profile's copy — the server's, or our
+       own *older* offline-queued save (e.g. the boot-time fresh state) — and replacing the state with it while
+       `store.cancel()` dropped the pending write **silently undid the edit** (furniture placed, then gone: 0 meshes,
+       no interactable; `smoke-training` went red under load). The edit is the newest document by definition
+       (ProfileSync is newest-wins), so write it now — it is stamped and uploaded — and keep the local state. */
+    if (this.editPending && this.store?.isDirty) {
+      this.editPending = false;
+      this.store.flush();
+      return;
+    }
     let doc: unknown;
     try { doc = p.get('ship'); } catch { doc = undefined; }
     if (!doc || typeof doc !== 'object') { this.store?.upload(); return; }
     this.closeMenus();
     this.exitHousingMode();
     this.store?.cancel();
+    this.editPending = false;
     this.state = sanitize(doc);
     this.nextUid = maxUidIndex(this.state.furniture);
     this.booksPruned = false;
@@ -130,6 +148,7 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   /* ── helpers ───────────────────────────────────────────────────────────── */
   changed(reason: string): void {
+    this.editPending = true;
     this.store?.markDirty();
     this.ctx.bus.emit('housing:changed', { reason });
   }
