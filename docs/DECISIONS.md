@@ -198,8 +198,8 @@ typecheck 를 통과시키기 위한 자리였고 전부 구현으로 교체됐�
 - AI 총알 추적: **방향 주시(3 s, 감지 2배) 후 발사 지점으로 전진**; 버그는 바로 이동.
 
 **구현 결과** — 16개 작업 항목 전부 완료. 계약을 먼저 커밋한 뒤 8개 병렬 폴더 에이전트가 작업. `verify:all` 전부 통과.
-**이월**: `IMPLANT_REPAIR_FEE` 가 `src/meta/Rules.ts` 에 남았고, `pushBack` 은 아직 `EnemyManagerRef` 밖이라
-implants 가 옵셔널 캐스트로 부른다 → [TODO.md](TODO.md) C-1 · C-2.
+**이월 (2026-09-11 해소)**: `pushBack` 은 C 배치에서 `EnemyManagerRef` 계약이 됐다(C-1 — 비호스트는 `HitRequest.kb`).
+`IMPLANT_REPAIR_FEE` 는 `data/tuning.csv` 스칼라로 meta 에 두는 것이 data 규약에 맞아 **옮기지 않기로** 닫았다(C-2).
 
 ---
 

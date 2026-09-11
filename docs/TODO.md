@@ -99,58 +99,17 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 
 | ID | 항목 | 근거 |
 |---|---|---|
-| C-1 | **`pushBack` 을 `EnemyManagerRef` 로 승격**. 지금은 implants 가 옵셔널 캐스트로 부른다 | `src/implants/parts/Barrier.ts:186–189` |
-| C-2 | **`IMPLANT_REPAIR_FEE` 를 `shared/meta.ts` 로 이동**. Phase 12 때 계약이 얼어 있어 meta 안에 남았다 | `src/meta/Rules.ts:142`, `src/meta/README.md:243` |
-| C-3 | **`PlayerRef.isOvercharged` 에 명시 setter**. 지금은 `'overcharge'` 속도 수정자 키에서 추론한다 | `src/shared/types.ts:807`, HISTORY Tactical kit |
-| C-4 | **`Interactable` 에 `object?` / `kind?`**. 없어서 감지 하이라이트가 실제 메시 아웃라인이 못 되고 오브젝트 위치의 빛기둥으로 남는다 | HISTORY Tactical kit |
-| C-5 | **`bag_legendary_tac` 이 퀵슬롯 9 를 선언**하는데 휠은 8 칸이라 클램프된다 | `src/items/ItemDefs.ts:184` |
-| C-6 | **`CorpViewOptions.accentTarget / onClose / isVisible` 이 죽은 옵션** — 넘기는 곳이 없다 | HISTORY UI/UX pass III |
-| C-7 | **`HousingRef.openRoomMenu / openFacilityMenu` 는 시설 관리로 가는 리다이렉트만** — 게임에서 아무도 부르지 않는다 | HISTORY Phase 8 UI pass |
-| C-8 | **옛 `KEY_*` 상수가 deprecated 기본값으로 남아 있다** — 모든 읽는 쪽 이관을 확인하고 제거 | HISTORY Controls |
-| C-9 | **`Keys.SWAP` 제거의 후폭풍** — `이전 무기` 를 리바인딩했던 플레이어는 통보 없이 그 바인딩을 잃는다 | HISTORY 2026-09-07(마우스 커서 rework) |
-| C-10 | **`meta/ui/dom.ts` 의 `fmtNum` 은 `en-US`, `formatCredits` 는 `ko-KR`** — 오늘 값이 같은 건 우연이다 | `src/meta/ui/dom.ts:24` vs `src/shared/meta.ts:410` |
-| C-11 | **`WorldRef` 에 전초기지 접근자가 없다**. `fog:discovered.kind` 는 `'outpost'` 를 받는데 위치를 물을 길이 없어 지도가 전초기지를 아예 그리지 못한다 (안개 이전에도 안 그렸다) | `src/shared/events.ts` `fog:discovered`, `src/world/Outposts.ts` |
-| C-14 | **재해가 적 · 시체에는 피해를 주지 않는다**. `world/Hazard` 는 로컬 플레이어만 `takeDamage` 한다 — 적도 태우려면 호스트 권위가 필요하다 | `src/world/Hazard.ts` (피해 틱), HISTORY 2026-09-09 |
-| C-15 | **폭풍의 눈만 끝까지 가도 60 m 안전지대가 남는다** (맵의 2.8 %). `STORM_EYE_RADIUS_END` 가 계약 상수라 무시하지 않았다 — "맵 전체를 덮는다" 를 글자대로 지키려면 그 상수를 0 으로 두거나 마지막 구간만 따로 처리해야 한다 | `data/constants.csv` `STORM_EYE_RADIUS_END`, HISTORY 2026-09-09 |
-| C-16 | **키카드 컨테이너가 첫 개봉에 `inventory:containerOpened` 를 두 번 낸다** (두 번째는 `first:false`) — 키카드를 넣느라 컨테이너를 먼저 열기 때문이다 | `src/world/structures/parts/Containers.ts` |
-| C-17 | **구조물 컨테이너의 문 애니메이션은 동기화하지 않는다** (내용물은 inventory/ 가 이미 동기화한다) | `src/world/structures/parts/Containers.ts` |
-| C-18 | **적 · 시체가 움직이는 발판에 실려 가지 않고, 전차에 치이지도 않는다**. 차량 탑승은 `PlayerController` 하나만 안다 (2026-09-10 부터 `Obstacle.velocity` 가 아니라 차량 OBB 로 판정한다). ⚠ **2026-09-09 에 "도달 불가라 넣지 않았다" 던 근거는 이제 틀렸다** — 그때는 전차 데크(2.05 m)가 `PROP_STEP_UP_MAX`(0.9 m)로 오를 수 없었지만, 2026-09-10 에 플랫폼 계단이 실제로 걸어 오를 수 있게 고쳐져 적이 데크에 올라설 수 있다. 치이는 쪽은 `rails/parts/Tram.updateTramHit` 의 판정을 그대로 쓰면 되지만 `EnemyRef` 에 "이 지점의 적을 밀며 때린다" 입구가 없다 | `src/enemies/ai/EnemyAI.ts` `integrate`, `src/world/rails/parts/Tram.ts` |
-| C-13 | **`scripts/smoke-ui-p5.mjs` 의 정규식이 백스페이스 문자다** — 소스에 `\bready\b` 대신 **제어문자 0x08 두 개**가 박혀 있어 (`!/<BS>ready<BS>/.test(hg.cls)`) 그 단언이 **늘 통과한다**. 커밋된 지 오래된 별개 버그이고, 고치면 단언이 실제로 검사를 시작하므로 그때 red 가 날 수 있다 | `scripts/smoke-ui-p5.mjs:203` |
-| C-12 | **`ProgressionRef` 에 레이드 중 임플란트 회수 수단이 없다**. `unequipImplant` 가 함선 전용 게이트라 `stripForCorpse` 가 임플란트를 시체로 옮기지 못한다. 지금은 **유지가 의도된 설계**지만(2026-09-09 사용자 결정), 뒤집으려면 `stripImplants()` 가 먼저 필요하다 | `src/progression/ProgressionSystem.ts:117`, `src/shared/types.ts` `stripForCorpse` |
-| C-19 | **원격 분대원 체력 바에 실드가 안 보인다**. 와이어는 이미 흐른다 (`PlayerSnapshot.sh` / `.shm` → `RemotePlayerRef.shield` / `maxShield`) — 읽어 그리기만 하면 된다 | `src/ui/hud/Nameplates.ts`, `src/net/RemotePlayer.ts:111` |
-| C-35 | **상위 재료 5종이 루팅 · 상점에 없다** — `mat_ingot` · `mat_capacitor` · `mat_control_module` · `mat_weave` · `mat_ballistic_fiber` 는 정제 작업대로만 얻는다 (2026-09-10 설계 의도). 유통을 열려면 `data/loot_item_weights.csv` 와 `data/corp_stock.csv` 에 줄이 필요하고, 그러면 정제가 관문이라는 진행 축이 약해진다 — **결정이 먼저다** | `data/loot_item_weights.csv`, `data/corp_stock.csv` |
-| C-36 | **가방은 수리할 수 없다** (분해는 된다). `data/bags.csv` 에 `durabilityMax` 가 없고 `items/Salvage.REPAIRABLE` 도 `primary`/`secondary`/`armor` 뿐이다. 가방에 내구도를 주려면 csv 열 + 소모 시점(무엇이 가방을 닳게 하나)부터 정해야 한다 | `data/bags.csv`, `src/items/Salvage.ts` |
-| C-37 | **아이템 호버 툴팁에는 내구도 구간이 안 뜬다** — 수리 · 분해 · 우클릭 팝업 셋에만 넣었다 (2026-09-10). 호버에서도 "지금 뜯으면 얼마" 를 보려면 `ctx.loot.durabilityBucketInfo` 를 읽어 그리면 된다 | `src/ui/hud/ItemTip.ts` |
-| C-38 | **`getStandingObstacle` 이 윗면 동점을 임의로 고른다** (`top <= bestTop` 이면 continue). 2026-09-10 에 `RAIL_DECK_STEP` 을 줄여 전차에서는 동점 자체를 없앴지만, 근본 해결은 **`velocity` 를 가진 발판을 동점에서 우선**하는 것이다 | `src/world/WorldSystem.ts` `getStandingObstacle` |
-| C-39 | **전차 호출에 전용 사운드가 없다** — 거부는 `keycard_deny`, 출발은 `tram_start` 를 재활용한다. 부른 사람이 멀면 `tram_start` 가 거리 감쇠로 안 들려 토스트에만 의존한다. 승강장 차임(`tram_call`)이 있으면 `updateTramHit` 옆 한 줄만 바꾸면 된다 | `src/audio/Synth.ts`, `src/world/Rails.ts` |
-| C-20 | **고철 더미에서 `mat_core`(구동 코어)가 나오지 않는다**. 실드 충전기의 현장 제작 재료인데 산출물이 `SALVAGE_DEF_ID = 'mat_scrap'` 하나로 못 박혀 있다. 지금 코어는 로그 시체와 상자에서만 나온다 | `src/world/Gather.ts` `SALVAGE_DEF_ID` |
-| C-21 | **실드 충전기 전용 SFX 가 없다** — 기존 `stim` 사운드를 pitch 1.25 로 재사용한다 | `src/weapons/parts/Healing.ts` |
-| C-22 | **지면 재질별 발소리가 없다**. 흙 소리 하나뿐이고 허브 갑판만 피치로 흉내 낸다. `WorldRef` 에 표면 재질 질의가 없어 `src/shared` 계약 추가가 먼저다 | `src/audio/Synth.ts` `footstep`, `src/shared/types.ts` `WorldRef` |
-| C-23 | **적(`bug_step`)의 발소리는 옛 경로 그대로다** — 160 m 하드 컷 + inverse 패너라, 플레이어 발소리에 새로 붙은 거리 곡선을 따르지 않는다 | `src/audio/AudioSystem.ts` |
-| C-24 | **언덕에서 곡사포가 반복 재배치될 수 있다**. 궤적 사전 검사가 지형을 포함하는데 낮아진 궤적은 발사면 위 6–9 m 뿐이라, 능선 너머로 쏘려는 포는 계속 거절당한다 (거절 1회당 약 2.7 s) | `src/enemies/parts/Attacks.ts` `shellArcBlocked` |
-| C-25 | **로그 엄폐 선정의 `COVER_STANDOFF`(0.7)가 `ENEMY_WALL_STANDOFF`(1)과 따로 논다**. 사선 검사가 나쁜 자리를 걸러 주지만 두 수치를 합치는 게 맞다 — 바꾸면 Phase 7 엄폐 스모크가 재기준화된다 | `src/enemies/ai/RogueCover.ts` |
-| C-26 | **`hud/SlotStrip.ts` 의 헬퍼 4종에 소비자가 없다** (`WEAPON_SLOTS` · `weaponSlotKey` · `WEAPON_SLOT_LABEL_KO` · `weaponShortName`). 위젯은 없어졌고 헬퍼만 남았다 | `src/ui/hud/SlotStrip.ts` |
-| C-28 | **데스크톱 셸이 쓰지 않을 릴레이/프록시를 그래도 띄운다**. 게임 안 `설정 › 서버 설정` 이 이기면 렌더러는 같은 오리진 `/ws` 를 쓰지 않으므로 임베디드 릴레이(또는 프록시)가 놀고 있다 — 포트 하나와 저장소 하나를 쓴다. 셸이 렌더러의 선택을 모르기 때문이고(localStorage 는 렌더러 것이다), 알려면 preload/IPC 가 필요하다 | `electron/main.ts` `resolveRelay` · `startEmbedded`, `src/net/parts/Socket.ts` `defaultUrl` |
-| C-29 | **서버 exe 에 관리 수단이 없다** — 강퇴 · 밴 · 최대 인원 · 접속 목록이 없고 콘솔은 읽기 전용이다. 접속 제한을 두지 않기로 한 2026-09-10 결정의 결과이고, 필요해지면 `RelayServer` 쪽 계약이 먼저다 | `server/tool.ts` (콘솔 배너 + 하트비트뿐) |
-| C-30 | **`SCAVANGER-Server.exe` 는 서명되지 않았다** — 받는 사람이 Windows SmartScreen 경고를 지난다. postject 가 node.exe 의 서명을 깨므로(`warning: The signature seems corrupted!`) 정식으로는 우리 인증서로 다시 서명해야 한다 | `scripts/build-server.mjs` (postject 주입) |
-| C-27 | **자동 배치의 문 앞 여유 때문에 빽빽한 방이 `자리 없음` 이 될 수 있다** (손으로는 아직 놓을 수 있다). 문 앞에 손으로 가구를 세워 스스로 갇히는 것도 예전 그대로 가능하다 — 근본 대응(문 앞 칸 예약)은 문 지오메트리를 가진 `hub/` 소유다 | `src/housing/Rules.ts` `doorClearanceCell` |
-| C-40 | **월드 생성이 한 태스크에 440–460 ms 를 쓴다** (2026-09-10 계측, 헤드리스 D3D11 데스크톱). 셰이더 hold 안이라 게임 시간은 멈춰 있지만 그동안 DOM 까지 얼어 있다. 지형 높이장(417² 샘플 × fbm 여러 번) · 소품 산포(잔디 16 000 시도) · 64 청크 지오메트리가 `game:newMission` 핸들러 하나에서 돈다 — 순수 함수라 워커로 옮기거나 프레임을 나눌 수 있지만 `world:ready` 가 동기로 나온다는 계약(docs/ARCHITECTURE 의 주의)을 먼저 풀어야 한다 | `src/world/WorldSystem.ts` `generate`, `src/world/Terrain.ts`, `src/world/Props.ts` |
-| C-41 | **릴레이 프로필 저장이 DB 전체를 동기로 쓴다**. 접속 · `profile:set` 1초 뒤 `JSON.stringify(전체)` + `writeFileSync` 가 이벤트 루프를 막아 그동안 모든 중계(20 Hz 스냅샷 포함)가 멈춘다. 지금은 4 MB · 949 프로필에 약 23 ms 로 작지만(대부분 스모크가 쌓은 프로필이다) 프로필 수에 비례해 는다 — 비동기 쓰기 · 프로필별 파일 · 더티 레코드만 | `server/Store.ts` `flush` |
-| C-42 | **발사 준비 패널 초상화가 슬롯 색이 바뀔 때마다 `SoldierModel` 을 새로 짓는다** — 두 번째 WebGL 컨텍스트라 그때마다 그 컨텍스트에서 셰이더를 다시 컴파일한다(처음 열 때 약 0.13 초). `SoldierPool`(2026-09-10) 은 메인 렌더러의 원격 아바타만 풀링한다. 덧붙여 **병사 지오메트리가 모듈 공유가 된 뒤로**, 초상화 · 캐릭터 미리보기처럼 따로 만든 `WebGLRenderer` 가 공유 지오메트리마다 `dispose` 리스너를 하나씩 남기고 죽는다 — 그 렌더러를 만들 때마다 죽은 렌더러의 클로저가 조금씩 쌓인다(세션당 몇 번이라 작다). 렌더러를 버릴 때 리스너를 떼거나, 두 번째 컨텍스트는 자기 지오메트리를 쓰게 하면 된다 | `src/player/Portraits.ts` `setMember` |
-| C-43 | **원격 임플란트 장치가 아바타가 바뀐 뒤 다시 붙지 않는다** (2026-09-10 에 발견, 그 전부터 있던 버그). `RemoteImplants` 의 `deviceAttached` 가 true 로 남아, 아바타가 다시 만들어지거나(이제는 풀에서 재사용) 소켓이 바뀌면 장치가 없는 손으로 남는다 | `src/implants/RemoteImplants.ts` `deviceAttached` |
-| C-44 | **렌더 경로가 바뀌면 lit 셰이더가 한 번 전부 다시 컴파일된다** — ① `Engine.perfGuard` 가 첫 90 초에 블룸을 끄면 렌더 타깃이 컴포저 → 캔버스로 바뀌어 프로그램 키의 색공간 · 톤매핑이 달라진다, ② `설정 › 그림자` 가 해의 `castShadow` 를 끄면 `shadowMapEnabled` 키가 바뀐다 (core README 는 "recompiles nothing" 이라고 적고 있었다). 둘 다 사용자 조작 · 1회라 hold 로 가리면 된다(`ctx.shaders.holdForScene()`) | `src/core/Engine.ts` `perfGuard` · `setShadows` |
-| C-45 | **`smoke-pitch` 가 이 PC 에서 뜨지 않는다** — `ROOT = 'F:/Project/Scavanger/docs/pitch'` 가 하드코딩돼 있어 저장소가 `D:` 인 곳에서는 `ENOENT` 로 죽는다 (2026-09-10 `verify:all` 에서 발견). `import.meta.url` 기준으로 바꾸면 된다 | `scripts/smoke-pitch.mjs:21` |
-| C-46 | **`smoke-server-dist` 의 `address rules` 절이 Node 22.17 에서 죽는다** — `src/shared/net.ts` 를 직접 import 하는데 러너가 `--experimental-strip-types` 없이 스모크를 띄운다 (`ERR_UNKNOWN_FILE_EXTENSION`). 러너가 그 스크립트에만 플래그를 주거나, 스모크가 번들된 결과를 읽게 한다 | `scripts/smoke-server-dist.mjs`, `scripts/verify.mjs` `runSmoke` |
-| C-47 | **베헤모스 돌진이 드론을 치지 않는다** (2026-09-11). 근접은 드론 표적을 때리지만 돌진 경로는 플레이어만 훑는다 — `host.targets.drones` 도 보고 `chargeHit` 의 드론 분기로 보내면 된다 | `src/enemies/ai/GimmickAI.ts` `chaseBehemoth` / `attackBehemoth` |
-| C-48 | **벌레가 드론에 뱉은 산성은 다른 클라이언트에 안 보인다** — `ee acid.target` 이 PeerId 뿐이라 드론 · 적을 가리킬 수 없다(벌레 ↔ 로그 산성도 원래 그렇다). 계약에 `targetDrone?: string` 을 더하면 된다 | `src/shared/net.ts` `EnemyEvent 'acid'`, `src/enemies/parts/Attacks.ts` `fireAcid` |
-| C-49 | **호스트가 바뀌면 떠 있던 로든의 스캔 드론이 첫 틱에 떠난다** — `namedData` 가 호스트 전용이라 승격된 호스트에는 없다. 로든이 `droneRetry` 뒤 새로 띄우므로 치명적이지 않다. 리플리카의 노출 칸은 어느 저격수 것인지(`sniperId`) 모른다 | `src/enemies/ai/named/ScanDrone.ts` |
-| C-50 | **리플리카의 헤비 트레이서 높이가 드론 표적에서 틀린다** — 머리 피치를 가장 가까운 플레이어 쪽으로 잡기 때문이다 (피해는 호스트가 맞게 준다) | `src/enemies/ai/named/Heavy.ts` `afterHeavyReplica` |
-| C-51 | **타길라의 타격에 벌레 소리가 섞인다** — 공용 `hitTarget` 이 `bug_attack` 을, 막힌 돌진의 `integrate` 가 `bug_step` 을 낸다. `hitTarget` 에 소리 옵션이 없다 | `src/enemies/EnemySystem.ts` `hitTarget`, `src/enemies/ai/named/Hammer.ts` |
-| C-52 | **키프레임으로만 네임드를 만든 늦은 합류자는 `enemy:namedSpawned` 를 못 받는다** (`ee spawn` 을 놓친 경우) — 기존 리플리카 경로의 성질이다 | `src/enemies/named/Director.ts`, `src/enemies/net/Replica.ts` |
-| C-53 | **로든 조준경 반짝임 마커가 카메라보다 한 프레임 늦을 수 있다** — `NamedScanWarning` 이 `update` 에서 화면 좌표를 잡는다(`HudSystem` 에 `lateUpdate` 경로가 없다) | `src/ui/HudSystem.ts`, `src/ui/hud/NamedScanWarning.ts` |
-| C-54 | **스캔 드론의 리플리카 비행음이 `Enemy` 의 private `host` 를 캐스트로 읽는다** — 2026-09-11 에 `afterNamedReplica` 가 `ReplicaHost` 를 넘기게 됐으니 그 인자로 바꾸면 된다 | `src/enemies/ai/named/ScanDrone.ts` `afterScanDroneReplica` |
-| C-55 | **엎드린 로든의 몸통 히트박스가 서 있는 캡슐이다** — `raycastEx` 가 세로 1.8 m 캡슐이라 엎드린 몸 위 허공이 맞고 다리 쪽은 안 맞는다(머리 구만 `SniperLook` 이 자세를 따라 옮긴다). 힌트 14/15 에서 눕힌 캡슐이 필요하다 | `src/enemies/EnemySystem.ts` `raycastEx`, `src/enemies/models/named/SniperLook.ts` |
-| C-56 | **로든의 소염기가 바위 속에 박히면 탄이 바위를 통과한다** — 사선 검사는 엎드린 눈에서, 탄은 리그 총구에서 나간다. 드문 경우라 뒀다 | `src/enemies/ai/named/Sniper.ts` `lineOpen` |
+| C-52 | **키프레임으로만 네임드를 만든 늦은 합류자는 `enemy:namedSpawned` 를 못 받는다** (`ee spawn` 을 놓친 경우). 2026-09-11 대조: 그 이벤트의 **구독자가 0** 이라 지금은 아무 영향이 없다 — 구독하는 코드가 생기면 키프레임 경로(`Replica`)에서도 한 번 발행해야 한다 | `src/enemies/named/Director.ts`, `src/enemies/net/Replica.ts` |
+| C-57 | **상자 · 컨테이너 `crate opened` 에 호스트 검증이 없다** — 누구나 확정 없이 보내고 받는 쪽은 id 만 보고 열린 모습으로 바꾼다 (거리 · 존재 검사 없음, 호스트 `sync` 도 받은 그대로 되돌려 준다). 내용물이 아니라 **모습**뿐이라 피해는 작다 (E-4 계열) | `src/world/WorldSystem.ts` `applyOpened` · `ensureOpenNet` |
+| C-58 | **perf guard 가 블룸을 꺼도 설정 화면에는 `켬` 으로 남는다** — core → ui 로 "guard 가 바꿨다" 를 알리는 계약이 없다 (2026-09-11 C-44 에서 guard 를 되살린 뒤 드러났다) | `src/core/Engine.ts` `perfGuard`, `src/ui/menus/SettingsMenu.ts` |
+| C-59 | **서버 콘솔 `kick` · `max` 거절 문구가 `net:error` 로만 간다** — 함선 터미널 밖에서는 토스트가 없고, `game/parts/Wire` 의 kicked 문구는 여전히 "분대에서 분리되었습니다" 다 | `src/net/parts/Messages.ts`, `src/game/parts/Wire.ts` |
+| C-60 | **행이 늘어난 시체 창에 스크롤이 없다** — 사망 목록이 기본 격자를 넘으면 `fitCorpseGrid` 가 행을 늘리는데 컨테이너 패널이 스크롤되지 않아 작은 화면에서 넘친다 (드묾) | `src/inventory/parts/CorpseLoot.ts`, 컨테이너 패널 |
+| C-61 | **가방 레이드 소모의 1회 표시(`bagWornThisRaid`)가 메모리에만 있다** — 사망으로 깎인 뒤 새로고침 → 레이드 복귀 → 자기 가방을 되찾아 탈출하면 한 번 더 깎일 수 있다 | `src/inventory/parts/Durability.ts` |
+| C-62 | **로든 판정의 남은 틈** — 근접(`weapons/Melee` 원뿔)은 여전히 서 있는 몸 기준이고, 소염기 매몰은 **발사 순간에만** 판정하므로 막힌 자리에서 반짝임을 다시 시작할 수 있다 (자리 이동은 넣지 않았다) | `src/weapons/Melee.ts`, `src/enemies/ai/named/Sniper.ts` |
+| C-63 | **전차 탑승의 남은 틈** — 적은 하차 관성이 없고, 리플리카 탑승 예측은 `차량 속도 × 보간 지연` 선형이라 가속 · 제동 순간에 조금 어긋난다. 원격 클라이언트는 사망 와이어 좌표로 시체의 탑승을 찾으므로 **전차 후미 끝**에서 죽은 시체는 약 1 m 지연 때문에 전차를 놓칠 수 있다. 적이 데크보다 0.35 m 낮은 **선로 발판** 위에 서 있으면 탑승 창 안이라 치이지 않는다 | `src/enemies/ai/Ride.ts`, `src/game/Corpses.ts`, `src/world/rails/parts/Tram.ts` |
+| C-64 | **`Store.close()` 의 동기 쓰기와 진행 중인 비동기 rename 사이에 1 syscall 창이 남는다** — 세대 번호로 물러나게 했지만 이론상 종료 순간에만 해당 | `server/Store.ts` |
+| C-65 | **vite HMR 소켓을 막지 않는 스모크는 다른 편집의 저장으로 페이지가 새로고침돼 아무 시점에나 깨진다** (`Execution context was destroyed` · `timeout waiting for boot`). 병렬 에이전트 작업에서 반복 관찰 — smoke-tactical · smoke-lights 처럼 `vite-hmr` 를 막는 하네스를 공용으로 | `scripts/smoke-*.mjs` |
+| C-66 | **월드 생성은 여전히 동기 약 230 ms 이고 대부분이 `noise2`(생성당 약 100 ms)** 다 (2026-09-11 C-40 에서 319 → 230 ms, 같은 시드 결과 바이트 동일). 더 줄이려면 잡음 수학이나 비동기 생성 계약을 바꿔야 한다 | `src/world/noise.ts`, `src/world/Terrain.ts` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 
@@ -168,6 +127,7 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | D-8 | **드랍쉽 선체가 가까이서 각지다** — 그리블 · 패널 라인 추가 검토 | HISTORY |
 | D-9 | **드론 · 원격 지뢰 · 네임드 수치 전부 1차값** (2026-09-11) — 드론 사거리 70/90 m · 체력 30/10 · 질주 소음 35 m, 원격 지뢰 260 / 6 m · 중첩 50 %, 네임드 확률 4–35 % · 로든 150 · 헤비 6 × 12발/s · 타길라 초당 50 · 스캔 음파 5회 / 38 m | `data/constants.csv` · `data/enemy_abilities.csv` · `data/tables.csv` |
 | D-10 | **네임드 확정 드롭이 행성 등급 곡선을 무시한다** — 난이도 1–2 행성에서도 III+ 저격소총 · 방탄복 · 유니크 미니건이 나온다(사용자 명세 "최소 희귀부터" 를 글자대로). 초반 행성 경제가 흔들리면 `data/loot_named.csv` 에 행성 등급 상한 열을 더한다 | `data/loot_named.csv`, `src/items/Loot.ts` `rollNamedDrop` |
+| D-11 | **C 배치(2026-09-11) 수치 전부 1차값** — 재해가 적에게 주는 조용한 피해 `HAZARD_ENEMY_DPS` 2(강제 탈출 압박이 줄지 않게 낮게), 고철 부가 코어 `GATHER_SALVAGE_CORE_CHANCE` 15 %(코어 공급이 늘어 정제 관문이 약해진다), 가방 `durabilityMax` 100 · `BAG_DURABILITY_PER_RAID` 10, 상위재 상자 비율 T3–5 = 5 · 10 · 15 %, 곡사포 `ARTILLERY_AI.maxRefusals` 3 · `refusalCooldown` 8(막힌 자리 대기가 줄어 실발사 빈도가 오를 수 있다), 벌레 산성이 로그에게 직격 18 · 스플래시 10(예전 0 — 버그 ↔ 로그 교전 균형이 바뀐다), 발소리 재질 배수 `FOOTSTEP_MATERIAL_GAIN` | `data/constants.csv`, `data/bags.csv`, `data/loot_item_weights.csv`, `data/enemy_abilities.csv`, `data/tables.csv` |
 
 ---
 
