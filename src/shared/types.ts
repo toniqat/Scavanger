@@ -78,7 +78,10 @@ export type ItemCategory =
   | 'implant'     // 임플란트 (능력치 장착 아이템, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs, broken ones are raid loot
   /* appended: 온실 개편 (2026-09-11) */
   | 'soil'        // 토양 (see `ItemDef.soil`): poured into a 재배 스테이션 재배층 before a seed goes in; 바이오별 채집 전용, never craftable
-  | 'crop';       // 작물: harvested from a 재배층. 요리 시설(주방)은 다음 업데이트라 지금은 판매 · 납품 전용이다
+  | 'crop'        // 작물: harvested from a 재배층. 요리 시설(주방)은 다음 업데이트라 지금은 판매 · 납품 전용이다
+  /* appended: 연구실 (A-12 · A-13, 2026-09-11) */
+  | 'sample'      // 미확인 표본 (see `ItemDef.sample`): 분석기에 넣어 현실 시간만큼 기다리면 해석된다. 레이드 전용 — 제작도 상점도 없다
+  | 'prep';       // 준비물 (see `ItemDef.prep`): 함선에서 쓰면 **다음 레이드 1회분**으로 실린다 (행성 환경 상쇄)
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -290,8 +293,11 @@ export interface ItemDef {
  * `data/seeds.csv` names the tag each seed wants. Matching soil grows `SOIL_MATCH_SPEEDUP` faster, a mismatch
  * `SOIL_MISMATCH_PENALTY` slower; there is no "no soil" case because a 재배층 칸 must be filled before it takes a seed.
  */
-export type SoilTag = 'ash' | 'frost' | 'humus' | 'mineral';
-export const SOIL_TAGS: readonly SoilTag[] = ['ash', 'frost', 'humus', 'mineral'];
+/* appended (품종 확장 A-11, 2026-09-11): `saline` 염류 · `spore` 포자 — 새 품종이 원하는 두 속성. 태그를 늘리는 데
+ * 드는 것은 이 줄 · `SOIL_TAG_LABEL_KO` · `SOIL_TAG_COLOR` · `data/items.csv` 의 `soil_*` 줄 · `data/planets.csv`
+ * 의 `soils` 가중치가 전부다 (온실 개편이 그렇게 설계해 뒀다). */
+export type SoilTag = 'ash' | 'frost' | 'humus' | 'mineral' | 'saline' | 'spore';
+export const SOIL_TAGS: readonly SoilTag[] = ['ash', 'frost', 'humus', 'mineral', 'saline', 'spore'];
 
 /**
  * 토양 data (2026-09-11). `uses` is how many harvests one poured unit survives (`SOIL_USES_BY_RARITY`: 일반 2 ·
@@ -724,7 +730,10 @@ export interface GatherNodeDef {
  * planet (`data/planets.csv` 의 `soils` 열), so which 토양 속성 you can farm is a reason to pick a planet.
  * Shares the placement / net / interact code with the other two; yields a `category: 'soil'` item and 원예 XP.
  */
-export type GatherNodeKind = 'herb' | 'salvage' | 'soil';
+/* appended (A-11 · A-12, 2026-09-11): `'seed'` 야생 씨앗 군락 — 행성마다 다른 품종이 난다 (`data/planets.csv` 의
+ * `seeds` · `seedNodes`); `'sample'` 미확인 표본 — 분석기가 해석할 것 (`samples` · `sampleNodes`). 둘 다 토양 더미와
+ * **같은** 배치 · 네트워크 · 상호작용 코드를 타고, 각자 전용 rng fork 를 써서 서로의 배치를 흔들지 않는다. */
+export type GatherNodeKind = 'herb' | 'salvage' | 'soil' | 'seed' | 'sample';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Weapons ref (Phase 3, owner: weapons/WeaponSystem publishes `ctx.weapons`)
@@ -2247,4 +2256,71 @@ export interface WorldRef {
    * Optional so a world that has not generated yet (or a stub) may omit it; callers fall back to `'dirt'`.
    */
   getSurfaceMaterial?(x: number, z: number, feetY?: number): SurfaceMaterial;
+}
+
+/* ══ appended (2026-09-11): 연구실 — 분석기 · 추출기 · 조합대 (A-11 · A-12 · A-13) ══════════════════════════
+ *
+ * 세 줄기가 한 방(`lab`)에서 만난다:
+ *   ① **미확인 표본**(`ItemDef.sample`)을 레이드에서 주워 온다 — 버그 시체 · 새 채집 노드 · 구조물 컨테이너.
+ *      (로그는 표본에 관심이 없다 — 로그 시체에서는 나오지 않는다. 사용자 결정 2026-09-11.)
+ *   ② **분석기**가 그것을 현실 시간만큼 해석해 **해석 도감**(`ShipState.sampleDex`)을 채우고, 도감이 찰수록
+ *      다음 해석이 빨라진다. 해석 보상이 새 품종 씨앗의 두 공급원 중 하나다 (다른 하나는 행성별 야생 채집).
+ *   ③ **추출기 · 조합대**는 평범한 작업대다 (`WorkbenchKind` += `'extract'` · `'mixer'`) — 작물 · 표본 산물에서
+ *      성분을 뽑고(추출기), 그 성분으로 **준비물**(`ItemDef.prep`)을 만든다(조합대).
+ *
+ * 준비물은 **함선에서 쓰면 다음 레이드 1회분**으로 실린다 (사용자 결정): `PlayerProfile.prep` 에 쌓였다가 출격
+ * 순간 `prepActive` 로 옮겨져 그 레이드 내내 유지되고 (사망해도 그 레이드는 유지), 레이드가 끝나면 비워진다.
+ * 프로필에 사는 덕분에 재접속으로 돌아온 사람이 조용히 잃지 않는다 (2026-09-10 규약).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 행성 상시 환경 (A-13, 사용자 결정 2026-09-11 — threat 3 두 곳만). `data/planets.csv` 의 `env` 열이고 빈 칸이면
+ * 없다. 맞는 준비물 없이 그 행성에 있으면 `PLANET_ENV_DPS` 로 **체력만** 깎인다 (방탄복 실드는 대기를 막지 못한다).
+ * 소프트 게이트다 — 들어가는 것 자체는 막지 않는다.
+ */
+export type EnvKind = 'heat' | 'toxin';
+export const ENV_KINDS: readonly EnvKind[] = ['heat', 'toxin'];
+
+/**
+ * 미확인 표본 data (A-12, owner: items — `data/samples.csv`). 해석은 **현실 시간**이라 함선을 떠나 있어도 흐른다
+ * (온실과 같은 규약: `startedAt` / `readyAt` 는 `ctx.net.serverNow() ?? Date.now()` 의 epoch ms 이고, 시작한 뒤에는
+ * 도감이 더 차도 **돌아가던 타이머는 움직이지 않는다**).
+ */
+export interface SampleDef {
+  /** 도감이 텅 빈 상태에서 한 번 해석하는 데 걸리는 실제 시간(시간). 도감 진척 · 기지식이 여기서 깎는다. */
+  analyzeHours: number;
+  /** 해석이 끝나면 손에 들어오는 것 (가방 → 함선 창고). */
+  rewardDefId: string;
+  rewardQty: number;
+  /** **처음** 해석했을 때(= 도감에 없던 표본)만 얹어 주는 것. 없으면 보너스 없음. */
+  firstDefId?: string;
+  firstQty?: number;
+}
+
+/**
+ * 준비물 data (A-13, owner: items — `data/items.csv` 의 `prepEnv` · `prepShort` 칸). 함선에서 써서 다음 레이드에
+ * 싣는 1회분이고, 같은 `env` 를 두 번 싣지는 못한다 (두 번째는 한국어 사유로 거절 — 조용히 삼키지 않는다).
+ */
+export interface PrepDef {
+  /** 이 준비물이 상쇄하는 행성 환경. 실려 있으면 그 환경의 피해가 **0** 이 된다 (사용자 결정: 완전 상쇄). */
+  env: EnvKind;
+  /** HUD 배지에 찍는 짧은 이름 (「방독」 · 「내열」). */
+  short: string;
+}
+
+export interface ItemDef {
+  /* ── appended (2026-09-11, owner: items) ── */
+  /** category 'sample': 분석기가 해석하는 데 드는 시간과 그 산출물. */
+  sample?: SampleDef;
+  /** category 'prep': 어떤 행성 환경을 막아 주는 다음 레이드 1회분인가. */
+  prep?: PrepDef;
+}
+
+export interface WorldRef {
+  /* ── appended (2026-09-11, A-13): 행성 상시 환경 (owner: world; callers: player · ui · hub) ── */
+  /**
+   * 이번 레이드 행성의 상시 환경, 없으면 null (훈련장도 null). `getPlanet(id)?.env` 를 그대로 돌려주는 얇은 질의다 —
+   * 행성 id 를 들고 다니지 않아도 되도록 world 가 대신 답한다.
+   */
+  readonly env?: EnvKind | null;
 }

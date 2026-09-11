@@ -5,8 +5,8 @@
  * (`isPlanetId` 하나 때문에). 이 파일은 csv 를 읽으므로 Vite 번들 안에서만 살 수 있고, 서버는 여기를
  * 건드리지 않는다. 두 파일 모두 `@/shared` 배럴로 나가므로 게임 코드에서는 차이가 보이지 않는다.
  */
-import type { EnemyType, HazardKind } from './types';
-import { HAZARD_KINDS } from './types';
+import type { EnemyType, EnvKind, HazardKind } from './types';
+import { ENV_KINDS, HAZARD_KINDS } from './types';
 import type { PlanetId } from './planets';
 import { PLANET_IDS, PLANET_NONE_LABEL } from './planets';
 import { csvRows } from './data/tables';
@@ -56,6 +56,13 @@ export interface PlanetDef {
    * 모르는 이름은 조용히 버린다 — 한 줄의 오타가 레이드를 깨지 않게.
    */
   hazards: readonly HazardKind[];
+  /**
+   * appended (연구실 A-13, 2026-09-11, 사용자 결정): 이 행성의 **상시 환경**. `data/planets.csv` 의 `env` 열이고
+   * 빈 칸(= 대부분의 행성)이면 null 이다. 맞는 준비물(`ItemDef.prep`) 없이 레이드에 있으면 `PLANET_ENV_DPS` 로
+   * 체력이 계속 깎인다 — 들어가는 것 자체는 막지 않는 **소프트 게이트**이고, 준비물이 있으면 100 % 상쇄된다.
+   * 지금은 threat 3 두 곳뿐이다 (피로스 VII 고온 · 카민 I 유독).
+   */
+  env: EnvKind | null;
 }
 
 /**
@@ -76,6 +83,7 @@ export const PLANET_DEFS: readonly PlanetDef[] = csvRows('planets.csv').map((r) 
   hologram: r.num('hologram'),
   hologramAtmo: r.num('hologramAtmo'),
   hazards: r.list('hazards').filter((h): h is HazardKind => (HAZARD_KINDS as readonly string[]).includes(h)),
+  env: r.optEnum('env', ENV_KINDS) ?? null,
   eco: {
     bugs: Object.fromEntries(r.costList('bugs').map((c) => [c.defId, c.qty])) as Partial<Record<EnemyType, number>>,
     pressure: r.num('pressure', { min: 0 }),

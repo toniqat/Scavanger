@@ -12,3 +12,9 @@ seed_tuber,회색 덩이줄기 씨눈,common,35,1,crop_tuber,3,mineral,척박한
 seed_beanpod,단백 콩깍지 씨앗,common,40,1,crop_beanpod,3,humus,단백질이 많은 콩. 부엽토에서 꼬투리가 잘 여문다.
 seed_leafgreen,온실 잎채소 씨앗,common,32,1,crop_leafgreen,3,humus,잎만 먹는 속성 채소. 부엽토에서 가장 빨리 자란다.
 seed_capfungus,식용 갓버섯 균사,uncommon,85,2.5,crop_capfungus,2,frost,서늘한 곳에서 갓을 펴는 식용 균류. 동토 토양이 맞다.
+seed_ashgrain,잿빛 곡물 씨앗,common,36,1,crop_ashgrain,3,ash,재가 쌓인 땅에서도 이삭을 맺는 곡물. 아켈론 II · 피로스 VII 의 야생 군락에서 거둔다.
+seed_saltmelon,염수박 씨앗,uncommon,95,2.5,crop_saltmelon,3,saline,소금기를 빨아들여 단맛으로 바꾸는 박. 염류 토양이 아니면 속이 무르다.
+seed_sporecap,포자 갓 균사,uncommon,92,2.5,crop_sporecap,3,spore,포자가 삭은 흙에서만 갓을 펴는 균사 덩어리. 베르단트 III 습지의 것이다.
+seed_frostberry,서리열매 씨앗,uncommon,98,2.5,crop_frostberry,3,frost,얼었다 녹아야 단맛이 오르는 열매. 동토 토양이 맞다.
+seed_deeproot,심근초 씨앗,rare,260,6,herb_ironleaf,3,mineral,"땅속 금속을 끌어올려 잎에 벼려 넣는 개량종. 야생에는 없고 결정 표본을 해석해야 손에 들어온다."
+seed_lumenpod,광휘 꼬투리 씨앗,epic,520,10,herb_glowcap,4,spore,"발광버섯의 빛을 통째로 품은 개량 꼬투리. 봉인된 유전자 시료를 해석해야 나온다. 오래 걸리는 만큼 한 번에 넉넉히 거둔다."

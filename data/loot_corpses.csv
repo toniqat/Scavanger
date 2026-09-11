@@ -1,4 +1,6 @@
 # 적 시체에서 나오는 아이템. chance 1 = 항상, 수량은 qtyMin..qtyMax 에서 뽑는다.
+# 2026-09-11 (A-12): 미확인 표본(spec_*)은 **벌레 시체에서만** 나온다 — 로그 · 로그 보스 · 네임드 줄에는
+#   일부러 없다 (사용자 결정: 로그는 표본에 관심이 없다). 다른 두 경로는 행성의 표본 채집지와 구조물 컨테이너다.
 # type 은 data/enemies.csv 의 적 종류와 같아야 한다. 줄을 지우면 그 드랍이 사라진다.
 type,defId,qtyMin,qtyMax,chance
 # scavenger
@@ -7,6 +9,7 @@ scavenger,terminid_gland,1,1,0.25
 scavenger,seed_bloodroot,1,1,0.04
 scavenger,seed_ashleaf,1,1,0.02
 scavenger,seed_glowcap,1,1,0.006
+scavenger,spec_tissue,1,1,0.08
 
 # hunter
 hunter,mat_bio_sample,1,3,1
@@ -14,6 +17,7 @@ hunter,terminid_gland,1,1,0.25
 hunter,seed_bloodroot,1,1,0.04
 hunter,seed_ashleaf,1,1,0.02
 hunter,seed_glowcap,1,1,0.006
+hunter,spec_tissue,1,1,0.08
 
 # warrior
 warrior,mat_bio_sample,1,3,1
@@ -21,6 +25,7 @@ warrior,terminid_gland,1,1,0.25
 warrior,seed_bloodroot,1,1,0.04
 warrior,seed_ashleaf,1,1,0.02
 warrior,seed_glowcap,1,1,0.006
+warrior,spec_tissue,1,1,0.08
 
 # spewer
 spewer,mat_bio_sample,1,3,1
@@ -28,6 +33,8 @@ spewer,terminid_gland,1,1,0.6
 spewer,seed_bloodroot,1,1,0.04
 spewer,seed_ashleaf,1,1,0.02
 spewer,seed_glowcap,1,1,0.006
+spewer,spec_spore,1,1,0.10
+spewer,spec_tissue,1,1,0.06
 
 # charger
 charger,mat_bio_sample,1,3,1
@@ -36,6 +43,7 @@ charger,seed_bloodroot,1,1,0.04
 charger,seed_ashleaf,1,1,0.02
 charger,seed_glowcap,1,1,0.006
 charger,mat_alloy,1,2,0.4
+charger,spec_chitin,1,1,0.10
 
 # toxic
 toxic,mat_bio_sample,1,2,1
@@ -43,6 +51,8 @@ toxic,terminid_gland,1,1,0.35
 toxic,seed_bloodroot,1,1,0.04
 toxic,seed_ashleaf,1,1,0.02
 toxic,seed_glowcap,1,1,0.006
+toxic,spec_spore,1,1,0.08
+toxic,spec_tissue,1,1,0.06
 
 # artillery
 artillery,mat_bio_sample,2,3,1
@@ -50,6 +60,7 @@ artillery,mat_power_cell,1,1,0.5
 artillery,seed_bloodroot,1,1,0.04
 artillery,seed_ashleaf,1,1,0.02
 artillery,seed_glowcap,1,1,0.006
+artillery,spec_chitin,1,1,0.12
 
 # behemoth
 behemoth,mat_alloy,2,4,1
@@ -58,6 +69,8 @@ behemoth,alien_artifact,1,1,0.3
 behemoth,seed_bloodroot,1,1,0.04
 behemoth,seed_ashleaf,1,1,0.02
 behemoth,seed_glowcap,1,1,0.006
+behemoth,spec_chitin,1,2,0.5
+behemoth,spec_crystal,1,1,0.12
 
 # rogue — 실드 충전기는 로그가 붕대와 함께 들고 다니는 완제품이고, 구동 코어는 그 장비에서 뜯어낸 잡템이다 (2026-09-10)
 rogue,heal_bandage,1,1,0.3

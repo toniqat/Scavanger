@@ -46,6 +46,7 @@ export const CSV_FOLDERS = {
   'armor.csv':               ['items', 'player'],
   'bags.csv':                ['items', 'inventory'],
   'seeds.csv':               ['items', 'housing'],
+  'samples.csv':             ['items', 'housing'],
   'books.csv':               ['items', 'housing'],
   'implants_perks.csv':      ['items', 'implants'],
   'implants_repair.csv':     ['items', 'meta'],

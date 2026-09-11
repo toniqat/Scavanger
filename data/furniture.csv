@@ -17,6 +17,9 @@ furn_sim_hub,시뮬레이션 허브,range,2,2,1.5,sim_hub,sim_hub,mat_scrap:8|ma
 furn_repair_bench,정비 벤치,workshop,4,2,1,repair_bench,repair_bench,mat_scrap:6|mat_alloy:1,1,,,#d7c39a,무기 내구도를 재료로 수리합니다. 조종석에서 작업실로 옮겨졌습니다.
 furn_grow_rack,재배층,greenhouse,4,2,0.8,grow_rack,grow_rack,mat_scrap:5|mat_cable:1|mat_bio_sample:2,1,4,1,#7ee08a,씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.
 furn_grow_station,재배 스테이션,greenhouse,4,2,2.2,grow_station,grow_station,mat_scrap:8|mat_cable:2|mat_bio_sample:3,3,,,#7ee08a,재배층에 토양을 채우고 씨앗을 심습니다. 강화하면 재배층이 1 → 2 → 3 층으로 늘어나며 층마다 3칸입니다.
+furn_analyzer,분석기,lab,4,2,1.8,analyzer,analyzer,mat_scrap:10|mat_circuit:2|mat_cable:3|mat_bio_sample:4,3,,,#c79fff,미확인 표본을 현실 시간에 맞춰 해석합니다. 강화하면 해석 칸이 1 → 2 → 3 개로 늘어나고 해석 도감이 찰수록 빨라집니다.
+furn_bench_extract,추출기,lab,4,2,1.2,bench_extract,workbench_extract,mat_scrap:10|mat_alloy:2|mat_cable:2,3,,,#9fe0c8,작물 · 약재 · 광물에서 성분을 뽑아냅니다. 연구실에 설치하세요.
+furn_bench_mixer,조합대,lab,4,2,1,bench_mixer,workbench_mixer,mat_scrap:8|mat_alloy:2|mat_circuit:1,3,,,#ffd08a,성분을 조합해 행성 환경을 막는 준비물을 만듭니다. 연구실에 설치하세요.
 furn_bookshelf,책장,library,2,1,2,bookshelf,bookshelf,mat_scrap:6|mat_alloy:1,1,,,#c9a77a,레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다 (6권).
 furn_locker,사물함,any,1,2,2,locker,none,mat_scrap:4,1,,,#b0b8c4,강철 사물함.
 furn_table,작업 테이블,any,3,2,0.85,table,none,mat_scrap:5,1,,,#b0a58c,넓은 강철 테이블.

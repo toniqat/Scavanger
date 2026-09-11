@@ -1,7 +1,7 @@
 # 손으로 적는 **제작** 레시피. id 는 코드가 찾는 값이므로 바꾸지 않는다.
 # 분해(break_*)는 여기 없다 — 2026-09-10 부터 data/salvage.csv 가 그 표다.
 # station: field = 현장·함선 둘 다 · ship = 함선에서만.
-# bench = 이 레시피가 **속한 작업대** (gun|gear|gadget|medical|refine).
+# bench = 이 레시피가 **속한 작업대** (gun|gear|gadget|medical|refine|extract|mixer).
 #   station ship 이면 그 작업대가 benchLevel 이상이어야 만들 수 있다는 뜻이고,
 #   station field 이면 **어디서든 만들 수 있되 그 작업대 창에 뜬다**는 뜻이다 (2026-09-10 사용자 결정:
 #   작업대를 열면 그 작업대의 레시피만 보인다 — 그래서 현장 레시피도 자기 작업대를 밝혀야 한다).
@@ -19,6 +19,10 @@
 #   중위    합금 판 · 기계 부품 · 강화 직조포 · 회로 기판 · 파워 셀
 #   상위    총기 = 강화합금 잉곳 + 기계 부품 · 실드(방탄복) = 축전 모듈 + 제어 모듈 · 가방 = 강화 직조포 + 복합 방탄섬유
 #   상위 재료는 전부 **정제 작업대**(bench refine)에서만 나온다 — 정제를 거치지 않으면 최고급 장비를 못 만든다.
+#
+# 연구실 (2026-09-11 A-13): 추출기(bench extract)가 작물 · 약재 · 광물에서 **성분**(mat_extract_*)을 뽑고,
+#   조합대(bench mixer)가 그 성분으로 **준비물**(prep_*)을 만든다. 둘 다 연구실 방(lab)의 작업대이고
+#   현장 빠른제작이 없다 — 행성 환경을 막을 준비는 함선에서만 한다.
 id,name,station,bench,benchLevel,inputs,outputDefId,outputQty,extraOutputs,duration,skill,skillRequired,description
 make_ammo_light,경량탄 제작,field,gun,1,mat_gunpowder:4|mat_scrap:1,ammo_light,30,,3,crafting,0,화약 4 + 폐금속 1 → 경량탄 30발.
 make_ammo_medium,준중량탄 제작,field,gun,1,mat_gunpowder:6|mat_scrap:2,ammo_medium,30,,3,crafting,0,화약 6 + 폐금속 2 → 준중량탄 30발.
@@ -120,3 +124,9 @@ make_bandage_batch,붕대 대량 제작,ship,medical,2,mat_cloth:12|herb_bloodro
 make_shield_charger_hi,고출력 실드 충전기 제작,ship,medical,2,mat_core:2|mat_cable:2,shield_charger_hi,1,,6,crafting,15,"구동 코어 2 + 전력 케이블 2 → 고출력 실드 충전기 (실드 40). 의학 작업대 Lv.2, 제작 15 필요."
 grow_glowcap,발광버섯 배양,ship,medical,2,herb_bloodroot:6|mat_bio_sample:3,herb_glowcap,2,,6,gardening,20,"혈근초 6 + 생체 조직 3 → 발광버섯 2. 의학 작업대 Lv.2, 원예 20 필요."
 make_shield_charger_full,완충 실드 충전기 제작,ship,medical,3,mat_capacitor:1|mat_cable:3|mat_circuit:1,shield_charger_full,1,,8,crafting,35,"축전 모듈 1 + 전력 케이블 3 + 회로 기판 1 → 완충 실드 충전기 (실드 완전 회복). 의학 작업대 Lv.3, 제작 35 필요."
+extract_bio,생체 추출,ship,extract,1,crop_leafgreen:3|crop_beanpod:2,mat_extract_bio,1,,6,crafting,10,"온실 잎채소 3 + 단백 콩깍지 2 → 생체 추출물 1. 추출기, 제작 10 필요."
+extract_bio_herb,약재 추출,ship,extract,2,herb_bloodroot:4|herb_glowcap:1,mat_extract_bio,2,,8,crafting,25,"혈근초 4 + 발광버섯 1 → 생체 추출물 2. 추출기 Lv.2, 제작 25 필요."
+extract_min,광물 추출,ship,extract,1,soil_mineral:1|mat_scrap:6,mat_extract_min,1,,6,crafting,10,"광물토 1 + 폐금속 6 → 광물 추출물 1. 추출기, 제작 10 필요."
+extract_min_core,코어 추출,ship,extract,2,mat_core:3|mat_alloy:2,mat_extract_min,2,,8,crafting,25,"구동 코어 3 + 합금 판 2 → 광물 추출물 2. 추출기 Lv.2, 제작 25 필요."
+mix_prep_respirator,여과 호흡기 조합,ship,mixer,1,mat_extract_bio:2|mat_cloth:4|mat_circuit:1,prep_respirator,1,,7,crafting,20,"생체 추출물 2 + 천조각 4 + 회로 기판 1 → 여과 호흡기. 유독 행성 1회분. 조합대, 제작 20 필요."
+mix_prep_coolant,내열 냉각재 조합,ship,mixer,1,mat_extract_min:2|mat_alloy:3|mat_cable:2,prep_coolant,1,,7,crafting,20,"광물 추출물 2 + 합금 판 3 + 전력 케이블 2 → 내열 냉각재. 고온 행성 1회분. 조합대, 제작 20 필요."

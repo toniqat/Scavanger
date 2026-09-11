@@ -1,5 +1,5 @@
 import type { ImplantId } from './implants';
-import type { EmbeddedView, ItemInstance, WeaponClass } from './types';
+import type { EmbeddedView, EnvKind, ItemInstance, WeaponClass } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Character stats, skills and the persistent profile.
@@ -287,4 +287,41 @@ export interface PlayerProfile {
   createdAt?: number;
   /** 마지막으로 이 캐릭터로 플레이한 시각 (epoch ms). */
   playedAt?: number;
+}
+
+/* ══ appended (2026-09-11, A-13): 준비물 — 다음 레이드 1회분 (사용자 결정) ═══════════════════════════════════
+ *
+ * 조합대에서 만든 준비물(`ItemDef.prep`)을 **함선에서 쓰면** 그 자리에서 소모돼 `PlayerProfile.prep` 에 대기하고,
+ * 출격하는 순간 `prepActive` 로 옮겨져 **그 레이드 내내** 유지된다 (사망해도 그 레이드는 유지 — 장비와 달리
+ * 「이미 마신 약」이다). 레이드가 끝나면(탈출 · 전멸 · 포기) 비워진다.
+ *
+ * 프로필에 사는 것이 요점이다 — 재접속으로 돌아온 사람이 조용히 잃으면 안 된다는 2026-09-10 규약 그대로다.
+ * 같은 `env` 는 하나만 실린다 (두 번째 사용은 한국어 사유로 거절하고 아이템을 돌려준다).
+ * 주방(A-3c)의 요리 버프가 열리면 같은 두 필드에 얹는다 — 여기가 그 자리다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface PlayerProfile {
+  /** 다음 레이드에 실릴 준비물 item def id (환경당 최대 1개). 옛 세이브에는 없다 = 빈 것. */
+  prep?: string[];
+  /** 이번 레이드에 실려 있는 준비물. 레이드 밖에서는 비어 있다. */
+  prepActive?: string[];
+}
+
+export interface ProgressionRef {
+  /** 다음 레이드에 실릴 준비물 def id. */
+  getPreps(): readonly string[];
+  /** 이번 레이드에 실려 있는 준비물 def id (함선에서는 빈 배열). */
+  getActivePreps(): readonly string[];
+  /**
+   * 함선 전용. 준비물 하나를 소비해 다음 레이드분에 싣는다 (아이템은 부르는 쪽이 이미 뺐거나, 구현이
+   * `ctx.inventory.consumeDefAll` 로 뺀다 — 구현 폴더가 정한다). 같은 환경을 이미 준비했거나 레이드 중이면
+   * 한국어 사유를 돌려주고 **아무것도 바꾸지 않는다**. null = 실렸다.
+   */
+  usePrep(defId: string): string | null;
+  /** 이번 레이드에 `env` 를 막아 주는 준비물이 실려 있나. player 가 환경 피해를 줄지 정할 때 묻는다. */
+  hasEnvPrep(env: EnvKind): boolean;
+  /** 출격: 대기분을 이번 레이드분으로 옮긴다 (game/ 이 레이드 시작 때 한 번). */
+  armPreps(): void;
+  /** 레이드 종료: 이번 레이드분을 비운다 (game/ 이 한 번). */
+  clearActivePreps(): void;
 }

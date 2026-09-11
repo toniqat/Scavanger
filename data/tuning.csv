@@ -60,3 +60,6 @@ IMPLANT_REPAIR_FEE,150,세레스 바이오 임플란트 수리 기본 수수료 
 
 # housing — 방 용도 증축
 ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,1,증축에 필요한 발전기 레벨
+
+# housing — 연구실 분석기 (2026-09-11)
+ANALYZER_SLOTS_PER_LEVEL,1,"분석기 레벨 한 단계가 여는 해석 칸 수. Lv.1 = 1칸 … Lv.3 = 3칸 (재배 스테이션이 층을 여는 것과 같은 모양)."

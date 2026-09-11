@@ -20,3 +20,5 @@ ci3,ceres,가속 대사 임상,3,ci2,herb_glowcap:6|mat_antiseptic:6|mat_syringe
 # 온실 납품 (2026-09-11 온실 개편) — 세레스 바이오만 작물 · 신규 약재를 받는다. 코드 변경 없이 `deliver` 만으로 동작한다.
 cg1,ceres,함선 작물 시식,1,ci1,crop_tuber:6|crop_beanpod:6|crop_leafgreen:6,220,350,250,seed_capfungus:2,"회색 덩이줄기 6개, 단백 콩깍지 6개, 온실 잎채소 6개를 납품한다. 보상: 식용 갓버섯 균사 2개."
 cg2,ceres,온실 약재 임상,2,cg1,herb_frostmoss:5|herb_emberpod:5|herb_ironleaf:3,400,800,600,soil_mineral:2,"서리이끼 5개, 불씨꼬투리 5개, 철엽초 3개를 납품한다. 보상: 광물토 2개."
+cl1,ceres,미확인 표본 제출,,,spec_tissue:4,200,300,220,,"아직 해석하지 않은 생체 조직 표본 4개를 납품한다. 세레스 바이오는 남이 해석하기 전의 것을 원한다."
+cl2,ceres,심층 생체 분석,2,cl1,mat_extract_bio:4,380,700,500,spec_genome:1,"생체 추출물 4개를 납품한다. 대가로 봉인된 유전자 시료 하나를 받는다."

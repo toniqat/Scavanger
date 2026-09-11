@@ -612,8 +612,9 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
  * Phase 9: 3 = `books` / `bookDex` (absent → empty; no data migration).
  * 온실 개편 (2026-09-11): **4** = `grows` (재배 스테이션 칸). A v3 save loses its 재배층 — every `furn_grow_rack`,
  * placed or stored, is refunded as materials into the 함선 창고 and its `plots` are dropped (사용자 결정: 옛 것 폐기).
+ * 연구실 (2026-09-11): **5** = `analyses` / `sampleDex` (분석기). 없으면 빈 것으로 migrate — 버릴 데이터가 없다.
  */
-export const SHIP_STATE_VERSION = 4;
+export const SHIP_STATE_VERSION = 5;
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
@@ -1467,3 +1468,16 @@ export const SOLO_CLOCK_HIGH_KEY = 'scav.clockHigh';
 export const WHISPER_HISTORY_PER_PEER = K.num('WHISPER_HISTORY_PER_PEER');
 export const WHISPER_HISTORY_PEERS = K.num('WHISPER_HISTORY_PEERS');
 export const WHISPER_STORAGE_KEY = 'scav.whispers';
+
+/* ── 2026-09-11: 연구실 — 분석기 · 행성 환경 (A-12 · A-13) ── */
+/** A-12 (owner: housing): 해석 도감이 가득 찼을 때 해석 시간이 줄어드는 비율 (0.5 = 절반). */
+export const ANALYZE_DEX_SPEEDUP = K.num('ANALYZE_DEX_SPEEDUP');
+/** A-12 (owner: housing): 이미 도감에 있는 표본을 다시 해석할 때 추가로 줄어드는 비율. 위 항과 곱해진다. */
+export const ANALYZE_KNOWN_SPEEDUP = K.num('ANALYZE_KNOWN_SPEEDUP');
+/**
+ * A-13 (owner: player): 맞는 준비물 없이 상시 환경 행성(`PlanetDef.env`)에 있을 때 초당 깎이는 **체력**.
+ * 방탄복 실드는 대기를 막지 못하므로 실드를 건너뛴다 (사용자 결정: 준비물이 있으면 100 % 상쇄).
+ */
+export const PLANET_ENV_DPS = K.num('PLANET_ENV_DPS');
+/** A-13 (owner: player): 환경 피해를 적용하는 주기(초). 1 tick 당 `PLANET_ENV_DPS × 이 값`. */
+export const PLANET_ENV_TICK_S = K.num('PLANET_ENV_TICK_S');

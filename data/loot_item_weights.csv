@@ -14,6 +14,10 @@
 # 같은 이유로 작물 4종(crop_*) 과 토양 4종(soil_*) 에는 줄이 아예 없다: 그 두 카테고리는
 # loot_category_weights.csv 에 가중치가 없어 상자 굴림의 후보가 되지 못한다 (토양은 채집 노드 전용이다).
 # 씨앗만 레이드에서 나온다 — 씨앗 픽은 seeds.csv 의 모든 줄 중에서 등급 가중치로 고르므로 새 씨앗도 저절로 들어간다.
+# 2026-09-11 (A-11): 다만 **개량 품종** 2종(seed_deeproot · seed_lumenpod)은 모든 티어에서 0 이다 —
+#   야생에 없고 분석기 해석으로만 나오는 것이 그 둘의 존재 이유다. 야생 씨앗 4종은 그대로 상자에서도 나온다.
+# 2026-09-11 (A-12): 표본은 티어 3 에서 봉인된 유전자 시료(spec_genome)가, 티어 3 에서 결정 표본(spec_crystal)이
+#   나오지 않게 0 으로 막았다 — 상위 표본은 티어 4·5 컨테이너와 베헤모스 시체의 몫이다.
 tier,target,mul
 # 티어 1 — 보급 상자
 1,@unique_ammo,0
@@ -41,6 +45,8 @@ tier,target,mul
 1,mat_control_module,0
 # 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
 1,herb_frostmoss,0
+1,seed_deeproot,0
+1,seed_lumenpod,0
 1,herb_emberpod,0
 1,herb_ironleaf,0
 1,key_basement,0
@@ -79,6 +85,8 @@ tier,target,mul
 2,mat_control_module,0
 # 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
 2,herb_frostmoss,0
+2,seed_deeproot,0
+2,seed_lumenpod,0
 2,herb_emberpod,0
 2,herb_ironleaf,0
 2,key_basement,0
@@ -110,6 +118,10 @@ tier,target,mul
 3,mat_control_module,0.082
 # 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
 3,herb_frostmoss,0
+3,seed_deeproot,0
+3,seed_lumenpod,0
+3,spec_genome,0
+3,spec_crystal,0
 3,herb_emberpod,0
 3,herb_ironleaf,0
 3,key_basement,0
@@ -134,6 +146,8 @@ tier,target,mul
 4,mat_control_module,0.118
 # 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
 4,herb_frostmoss,0
+4,seed_deeproot,0
+4,seed_lumenpod,0
 4,herb_emberpod,0
 4,herb_ironleaf,0
 4,key_basement,0
@@ -163,6 +177,8 @@ tier,target,mul
 5,mat_control_module,0.0176
 # 온실 약재 3종 (2026-09-11): 재배층 수확물이라 상자에서 나오면 안 된다
 5,herb_frostmoss,0
+5,seed_deeproot,0
+5,seed_lumenpod,0
 5,herb_emberpod,0
 5,herb_ironleaf,0
 5,key_basement,0

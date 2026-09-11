@@ -1057,3 +1057,30 @@ export interface GameEvents {
    */
   'enemy:squadKill': { id: number; type: EnemyType; position: THREE.Vector3; by: PeerId };
 }
+
+/* ══ appended: 2026-09-11 — 연구실 · 가구 강화 (A-11 · A-12 · A-13 · B-13) ══ */
+import type { EnvKind } from './types';
+export interface GameEvents {
+  /**
+   * A-12 (owner: housing): 한 분석기의 해석 상태가 바뀌었다 (넣기 · 회수 · 취소 · 강화 · 도감 추가).
+   * `ready` = 지금 회수할 수 있는 칸 수 — `housing:growChanged` 와 같은 모양이라 hub 의 발광 · ui 의 배지가 같은 길로 간다.
+   */
+  'housing:analysisChanged': { uid: string; ready: number };
+  /**
+   * A-12 (owner: housing): 해석 도감에 표본이 처음 들어갔다. ui/ 가 토스트 하나를 띄운다.
+   */
+  'housing:sampleDexAdded': { defId: string };
+  /**
+   * B-13 (owner: hub — 시설 관리 카메라의 레이캐스트): 배치된 가구를 클릭했다. `uid: null` = 빈 곳을 클릭해 선택이 풀렸다.
+   * ui/hud/ShipManage 가 이것으로 **클릭 인스펙터**(이름 · 레벨 · 다음 강화 비용 · 강화)를 띄우고 닫는다.
+   * 배치 모드에서 조각을 집어 옮기는 기존 경로와는 별개다 — 인스펙터는 아무것도 옮기지 않는다.
+   */
+  'housing:furnitureSelected': { uid: string | null };
+  /**
+   * A-13 (owner: player): 행성 상시 환경의 노출 상태가 바뀌었다. `env: null` = 환경이 없는 행성이거나 함선.
+   * `protected` = 맞는 준비물이 실려 있어 피해가 0 이다. ui/ 의 환경 배지가 유일한 소비자다.
+   */
+  'player:envChanged': { env: EnvKind | null; protected: boolean };
+  /** A-13 (owner: progression): 준비물 대기분 / 이번 레이드분이 바뀌었다. ui/ 의 출격 준비 화면과 HUD 배지가 다시 그린다. */
+  'progress:prepChanged': { prep: readonly string[]; active: readonly string[] };
+}

@@ -1,4 +1,4 @@
-import type { ItemCategory, Rarity, SoilTag, WeaponGrade } from './types';
+import type { EnvKind, ItemCategory, Rarity, SoilTag, WeaponGrade } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Item rarity / category labels and palette (Phase 7, 2026-09-06).
@@ -35,6 +35,8 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   implant: '임플란트',
   soil: '토양',
   crop: '작물',
+  sample: '표본',
+  prep: '준비물',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -48,6 +50,8 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   implant: '#e39cff',
   soil: '#a98868',
   crop: '#9fd86a',
+  sample: '#a9d8ff',
+  prep: '#ffd08a',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -61,6 +65,8 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   implant: '⬡',
   soil: '▩',
   crop: '❁',
+  sample: '◍',
+  prep: '⌾',
 };
 
 /**
@@ -69,8 +75,24 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
  */
 export const SOIL_TAG_LABEL_KO: Readonly<Record<SoilTag, string>> = {
   ash: '화산재', frost: '동토', humus: '부엽토', mineral: '광물',
+  /* appended (품종 확장 A-11, 2026-09-11) */
+  saline: '염류', spore: '포자',
 };
 /** 흙이 채워진 모습을 그리는 색 (재배 화면의 원 안, 80 % 높이까지 찬다). */
 export const SOIL_TAG_COLOR: Readonly<Record<SoilTag, string>> = {
   ash: '#6b625c', frost: '#7d8fa0', humus: '#5c4433', mineral: '#8a6a58',
+  saline: '#b9b0a0', spore: '#6e7a52',
 };
+
+/**
+ * appended (연구실 A-13, 2026-09-11): 행성 상시 환경의 이름 · 색 · 글리프. 행성 터미널의 브리핑 줄, 출격 경고,
+ * 레이드 HUD 의 환경 배지, 준비물 아이템 툴팁이 **이 표 하나**를 읽는다.
+ */
+export const ENV_LABEL_KO: Readonly<Record<EnvKind, string>> = { heat: '고온', toxin: '유독' };
+/** 한 줄 설명 — 「무엇이 몸을 깎는가」. 브리핑과 준비물 툴팁이 같은 문장을 쓴다. */
+export const ENV_DESC_KO: Readonly<Record<EnvKind, string>> = {
+  heat: '지열과 재가 체온을 올린다. 내열 준비물 없이는 체력이 계속 깎인다.',
+  toxin: '대기 자체가 독하다. 방독 준비물 없이는 체력이 계속 깎인다.',
+};
+export const ENV_COLOR: Readonly<Record<EnvKind, string>> = { heat: '#ff8f5c', toxin: '#9fe07a' };
+export const ENV_ICON: Readonly<Record<EnvKind, string>> = { heat: '♨', toxin: '☣' };

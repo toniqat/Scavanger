@@ -47,7 +47,7 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   gym: '운동 기구로 근력 · 지구력을 단련합니다. (다음 업데이트)',
   library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
-  lab: '배양기와 생체 프린터로 토양 · 씨앗 · 배양고기를 연구합니다. 온실이 먼저 필요합니다. (다음 업데이트)',
+  lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '요리로 다음 레이드 버프를 만듭니다. (다음 업데이트)',
   mining: '그래픽카드로 암호화폐를 채굴합니다. (다음 업데이트)',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (다음 업데이트)',
@@ -80,7 +80,7 @@ export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { de
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library'];   // Phase 9 appended `library`
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library', 'lab'];   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13)
 
 /**
  * @deprecated 2026-09-07 — **no longer enforced**. The Phase 8 UI pass gave every ship a built-in 작업실 locked to
@@ -112,10 +112,11 @@ export const FACILITY_COLOR: Readonly<Record<FacilityId, string>> = {
  * 여기서만 만든다 — 현장 빠른제작이 없는 유일한 계열이고, 고등급 장비 레시피가 그 재료를 요구하므로
  * 정제 작업대가 후반 제작의 관문이다. 나머지 넷의 동작은 한 줄도 바뀌지 않는다.
  */
-export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine';
-export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine'];
+export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine' | 'extract' | 'mixer';
+export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer'];
 export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
   gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대', refine: '정제 작업대',
+  extract: '추출기', mixer: '조합대',
 };
 /**
  * appended (2026-09-10): 작업대 글리프. 같은 글자가 `inventory/ui/labels`(제작 탭)와
@@ -125,6 +126,8 @@ export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
  */
 export const WORKBENCH_ICON: Readonly<Record<WorkbenchKind, string>> = {
   gun: '⚒', gear: '⛭', gadget: '⚙', medical: '✚', refine: '⌘',
+  /* appended (연구실 A-13, 2026-09-11): 추출기 · 조합대는 연구실 방(`lab`)에 놓이는 작업대다 */
+  extract: '⧗', mixer: '⚛',
 };
 
 /** Procedural furniture models hub/ knows how to build (no asset files). */
@@ -137,6 +140,8 @@ export type FurnitureModelKind =
   | 'grow_rack' | 'repair_bench'
   | 'bookshelf'   // appended (Phase 9): 서재 책장 — the builder reads the shelved count and fills the shelves
   | 'grow_station' // appended (온실 개편, 2026-09-11): 재배 스테이션 — the builder reads `level` and shows 1 / 2 / 3 재배층
+  /* appended (연구실, 2026-09-11): 분석기는 `level` 만큼 해석 칸의 불이 켜진다; 추출기 · 조합대는 평범한 작업대 몸체 */
+  | 'analyzer' | 'bench_extract' | 'bench_mixer'
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
 
 /** What E does on a placed piece. */
@@ -152,7 +157,10 @@ export type FurnitureInteraction =
   /* appended (Phase 9) */
   | 'bookshelf'                                                                   // → ctx.housing.openBookshelfMenu(uid): 책 꽂기 / 빼기 / 도감
   /* appended (온실 개편, 2026-09-11) */
-  | 'grow_station';                                                               // → ctx.housing.openGrowStation(uid): 토양 채우기 / 씨앗 심기 / 수확
+  | 'grow_station'                                                                // → ctx.housing.openGrowStation(uid): 토양 채우기 / 씨앗 심기 / 수확
+  /* appended (연구실, 2026-09-11) */
+  | 'workbench_extract' | 'workbench_mixer'                                       // → 같은 길, kind 'extract' / 'mixer' (benchKindOf 가 접두사로 푼다)
+  | 'analyzer';                                                                   // → ctx.housing.openAnalyzer(uid): 표본 넣기 / 해석 회수 / 해석 도감
 
 export interface FurnitureDef {
   id: string;
@@ -676,4 +684,143 @@ export function benchKindOf(interaction: FurnitureInteraction): WorkbenchKind | 
 /** Footprint after rotation: odd yaw swaps cols / rows. */
 export function furnitureFootprint(def: FurnitureDef, yaw: 0 | 1 | 2 | 3): { cols: number; rows: number } {
   return yaw % 2 === 1 ? { cols: def.rows, rows: def.cols } : { cols: def.cols, rows: def.rows };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 연구실 — 분석기 (A-12, 2026-09-11, 사용자 결정: 현실 시간 대기)
+ *
+ * 분석기(`furn_analyzer`)는 재배 스테이션과 **같은 모양의 스테이션**이다: 레벨이 자리를 연다.
+ * 레벨 n 이면 `ANALYZER_SLOTS_PER_LEVEL × n` 칸이 열리고, 화면은 언제나 `ANALYZER_MAX_SLOTS` 칸을 그린다
+ * (잠긴 칸은 `locked: true` + `unlockLevel`). 칸 번호는 강화해도 밀리지 않는다 — 돌아가던 해석이 옮겨 가면 안 된다.
+ *
+ * 해석 시간은 **시작하는 순간** `readyAt` 에 확정된다 (온실의 `plantedAt`/`readyAt` 와 같은 규약):
+ *
+ *     analyzeHours × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (도감에 이미 있으면 1 − ANALYZE_KNOWN_SPEEDUP)
+ *
+ * 「도감을 채울수록 해석이 빨라진다」가 첫 항, 「아는 것을 다시 보는 건 빠르다」가 둘째 항이다.
+ * 도감(`ShipState.sampleDex`)은 `bookDex` 와 같은 append-only 기록이고, 해석을 **회수**할 때 채워진다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 분석기 레벨 한 단계가 여는 해석 칸 수 (`data/tuning.csv`). */
+export const ANALYZER_SLOTS_PER_LEVEL = T.num('ANALYZER_SLOTS_PER_LEVEL');
+/** 최대 레벨(3)에서의 칸 수 — 패널은 잠긴 칸을 포함해 언제나 이만큼 그린다. */
+export const ANALYZER_MAX_SLOTS = 3 * ANALYZER_SLOTS_PER_LEVEL;
+
+/** `level` 의 분석기가 연 칸 수. 레벨은 부르는 쪽이 def 의 `maxLevel` 로 이미 잘라 둔다. */
+export function analyzerSlotsForLevel(level: number): number {
+  return Math.max(0, Math.min(3, Math.floor(level))) * ANALYZER_SLOTS_PER_LEVEL;
+}
+
+/** `slot` 을 여는 분석기 레벨 (1 … 3). `analyzerSlotsForLevel` 에서 유도한다 — 2 · 3 을 코드에 적지 않는다. */
+export function analyzerSlotUnlockLevel(slot: number): number {
+  for (let lv = 1; lv <= 3; lv++) if (slot < analyzerSlotsForLevel(lv)) return lv;
+  return 3;
+}
+
+/** 해석 중인 칸 하나. 비어 있는 칸은 `ShipState.analyses` 에 아예 없다 (온실의 `grows` 와 같은 규약). */
+export interface AnalysisSlot {
+  /** 분석기 `PlacedFurniture.uid`. */
+  uid: string;
+  /** 0 … ANALYZER_MAX_SLOTS − 1. */
+  slot: number;
+  /** 표본 item def id (`ItemDef.sample` 이 있어야 한다). */
+  sampleDefId: string;
+  /** 넣은 시각 (epoch ms). */
+  startedAt: number;
+  /** 회수할 수 있게 되는 시각 (epoch ms) — 시작할 때 확정된다. */
+  readyAt: number;
+}
+
+/** 분석 화면이 보는 칸 하나. 분석기는 언제나 `ANALYZER_MAX_SLOTS` 개를 보고하며 잠긴 칸도 들어 있다. */
+export interface AnalysisSlotInfo {
+  slot: number;
+  /** 지금 레벨이 열지 않은 칸 (딤드 + 필요 레벨 표시). */
+  locked: boolean;
+  /** 이 칸을 여는 분석기 레벨. */
+  unlockLevel: number;
+  /** null = 빈 칸. */
+  sampleDefId: string | null;
+  /** 0 … 1; 비어 있으면 −1. */
+  progress: number;
+  /** 남은 초. 다 됐거나 비었으면 0. */
+  remainingS: number;
+  ready: boolean;
+  /** 회수했을 때 받을 것 (패널의 산출물 칩). */
+  rewardDefId: string | null;
+  rewardQty: number;
+  /** 아직 도감에 없는 표본 — 회수하면 도감이 한 칸 차고 `SampleDef.firstDefId` 보너스가 붙는다. */
+  firstTime: boolean;
+}
+
+/**
+ * 실용 가구인가 — E 로 뭔가를 하는 가구(작업대 · 스테이션 · 책장 · 관물대 · 시뮬 허브). B-13 의 기준이다:
+ * 같은 실용 가구를 **이미 가지고 있으면 제작이 잠기고**(`HousingRef.furnitureCraftBlock`) 제작 목록의 맨 아래로
+ * 내려간다 (사용자 결정 2026-09-11 — 벤치 레벨은 가장 높은 하나만 세므로 두 번째를 만들 이유가 없다).
+ * 장식 가구(`interaction: 'none'`)는 얼마든지 만든다.
+ */
+export function isUtilityFurniture(def: FurnitureDef): boolean {
+  return def.interaction !== 'none';
+}
+
+export interface ShipState {
+  /* ── appended (연구실, 2026-09-11, version 5) ── */
+  /**
+   * 분석기 해석 칸. `uid` 가 배치된 분석기가 아니거나 칸이 그 분석기의 레벨 밖이면 `sanitize` 가 버린다
+   * (표본은 돌아오지 않는다 — 온실의 흙과 같은 취급).
+   */
+  analyses?: AnalysisSlot[];
+  /** 해석 도감: 한 번이라도 **회수**한 표본 def id 전부 (지워지지 않는다). `bookDex` 와 같은 모양이다. */
+  sampleDex?: string[];
+}
+
+export interface HousingRef {
+  /* ══ appended: 연구실 — 분석기 (A-12, 2026-09-11) ═══════════════════════════ */
+
+  /**
+   * 분석기 한 대의 칸 전부, **언제나 `ANALYZER_MAX_SLOTS` 개**를 칸 번호 순으로. 잠긴 칸도 `locked: true` +
+   * `unlockLevel` 로 들어 있어 패널이 「강화하면 열린다」를 그릴 수 있다. `uid` 가 배치된 분석기가 아니면 빈 배열.
+   */
+  getAnalyses(uid: string): AnalysisSlotInfo[];
+  /**
+   * 표본 하나를 (가방 → 함선 창고 순으로) 넣고 해석을 시작한다. `readyAt` 이 여기서 확정되므로 이후 도감이
+   * 더 차도 **돌아가던 해석은 빨라지지 않는다**. 한국어 사유 / 성공하면 null.
+   */
+  startAnalysis(uid: string, slot: number, sampleDefId: string): string | null;
+  /**
+   * 해석을 중단한다. **표본은 돌아오지 않는다** (부은 흙과 같다). 한국어 사유 / null.
+   */
+  cancelAnalysis(uid: string, slot: number): string | null;
+  /**
+   * 끝난 해석을 회수한다 — 산출물을 가방(없으면 함선 창고)에 넣고, 처음 보는 표본이면 도감에 적고
+   * `SampleDef.firstDefId` 보너스를 얹는다. 한국어 사유 / null.
+   */
+  collectAnalysis(uid: string, slot: number): string | null;
+  /** 끝난 해석을 전부 회수하고 몇 개를 받았는지 돌려준다. */
+  collectAllAnalyses(uid: string): number;
+  /** 지금 갖고 있는 표본 (가방 + 함선 창고) — 분석 화면의 목록. */
+  getOwnedSamples(): { defId: string; qty: number }[];
+  /** 해석 도감: 한 번이라도 회수한 표본 def id. */
+  getSampleDex(): readonly string[];
+  /**
+   * 도감 진척 0 … 1 (아는 표본 수 ÷ 전체 표본 종류 수). 해석 시간이 `ANALYZE_DEX_SPEEDUP × 이 값`만큼 줄어든다 —
+   * 패널이 「해석 속도 +n %」 한 줄로 보여 준다.
+   */
+  getSampleDexRatio(): number;
+  /** 분석 화면을 연다 (`analyzer` interaction): 좌 해석 칸 · 우 가방 + 함선 창고 + 도감. */
+  openAnalyzer(uid: string): void;
+
+  /* ══ appended: B-13 — 배치된 가구 강화 (2026-09-11) ══════════════════════════
+   * `upgradeFurniture` 는 Phase 8 부터 있었지만 **부르는 곳이 없었다** — 작업대 Lv.2–3 이 플레이로 도달 불가였다.
+   * 시설 관리의 클릭 인스펙터(사용자 결정)가 이 셋을 읽어 레벨 · 다음 비용 · 거절 사유를 그린다. */
+
+  /** 지금 `upgradeFurniture(uid)` 가 거절할 한국어 사유, null = 강화할 수 있다. (시스템에만 있던 것을 계약으로) */
+  furnitureUpgradeBlock(uid: string): string | null;
+  /** 이 조각의 **다음 레벨** 비용. 최대 레벨이거나 배치된 조각이 아니면 null. */
+  furnitureUpgradeCost(uid: string): CraftIngredient[] | null;
+  /**
+   * 지금 이 가구를 **제작**할 수 없는 한국어 사유, null = 만들 수 있다. 재료 부족과 별개로, 이미 가지고 있는
+   * 실용 가구(`isUtilityFurniture`, 배치 + 가구 창고 합산)는 여기서 잠긴다 — 시설 관리가 그 카드를 딤드로
+   * 그리고 목록 맨 아래로 내린다 (사용자 결정 2026-09-11).
+   */
+  furnitureCraftBlock(defId: string): string | null;
 }

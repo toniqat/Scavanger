@@ -28,8 +28,9 @@ const recipeOf = (r: (typeof RECIPE_ROWS)[number]): CraftRecipe => ({
   skill: r.enum('skill', ['crafting', 'medicine', 'gardening'] as const),
   skillRequired: r.int('skillRequired', { min: 0 }),
   description: r.str('description'),
-  /* 2026-09-10: 'refine' (정제 작업대) 추가 — `WorkbenchKind` 는 이미 그 값을 받는다. */
-  ...(r.has('bench') ? { bench: r.enum('bench', ['gun', 'gear', 'gadget', 'medical', 'refine'] as const) } : {}),
+  /* 2026-09-10: 'refine' (정제 작업대) 추가 — `WorkbenchKind` 는 이미 그 값을 받는다.
+     2026-09-11: 'extract' (추출기) · 'mixer' (조합대) — 연구실 작업대 둘. */
+  ...(r.has('bench') ? { bench: r.enum('bench', ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer'] as const) } : {}),
   ...(r.has('benchLevel') ? { benchLevel: r.int('benchLevel', { min: 1 }) } : {}),
   ...(r.has('extraOutputs') ? { extraOutputs: r.costList('extraOutputs') } : {}),
 });

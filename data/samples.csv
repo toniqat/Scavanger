@@ -1,0 +1,15 @@
+# 미확인 표본 — 연구실 분석기가 해석한다 (2026-09-11 A-12). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# analyzeHours 는 **해석 도감이 텅 빈 상태**에서의 실제 시간(시간)이다. 함선을 떠나 있어도 흐른다.
+#   실제 시간 = analyzeHours × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (도감에 이미 있으면 1 − ANALYZE_KNOWN_SPEEDUP)
+#   두 배수는 data/constants.csv 에 있고, 값은 **넣는 순간** 확정된다 (돌아가던 해석은 빨라지지 않는다).
+# rewardDefId / rewardQty = 해석할 때마다 받는 것. firstDefId / firstQty = 그 표본을 **처음** 해석했을 때만 얹어 주는 것.
+#   고급 품종 씨앗(seed_deeproot · seed_lumenpod)은 일부러 reward 쪽에 있다 — 한 번만 주면 두 번 다시 못 기른다.
+# 표본은 제작도 상점도 없다: 벌레 시체(data/loot_corpses.csv) · 표본 채집지(data/planets.csv 의 samples) ·
+#   구조물 컨테이너(data/loot_category_weights.csv 의 sample) 셋뿐이다. 로그는 표본에 관심이 없다.
+id,name,rarity,value,analyzeHours,rewardDefId,rewardQty,firstDefId,firstQty,description
+spec_tissue,미확인 생체 조직,common,60,1,mat_bio_sample,4,seed_ashgrain,2,아직 계통을 모르는 살점. 분석기에 넣으면 쓸 만한 생체 조직으로 정리된다.
+spec_spore,미확인 포자낭,uncommon,110,2,mat_extract_bio,1,seed_sporecap,2,터지지 않은 채 굳은 포자낭. 안에 무엇이 들었는지는 해석해 봐야 안다.
+spec_chitin,미확인 키틴 조각,uncommon,110,2,mat_bio_sample,6,seed_saltmelon,2,두꺼운 외골격 파편. 조직이 촘촘해 해석하면 꽤 많은 생체 조직이 나온다.
+spec_resin,미확인 수지 덩어리,rare,240,4,mat_extract_bio,2,seed_frostberry,2,나무도 벌레도 아닌 것이 흘린 수지. 유기 추출의 좋은 원료다.
+spec_crystal,미확인 결정 표본,rare,240,4,seed_deeproot,1,mat_extract_min,2,금속이 결정으로 자란 조각. 해석하면 그 성질을 물려받은 개량종 씨앗이 나온다.
+spec_genome,봉인된 유전자 시료,epic,480,8,seed_lumenpod,1,mat_control_module,1,"누군가 봉인해 둔 유전자 시료. 해석은 오래 걸리지만 야생에 없는 품종이 나온다."
