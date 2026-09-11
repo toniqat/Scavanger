@@ -1,7 +1,9 @@
 import type { EmbeddedView, GameContext, ItemInstance } from '@/shared';
 import type { InventorySystem, GridId } from '../InventorySystem';
+import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
 import { GridView, buildTileContent } from './GridView';
-import { CELL, GAP } from './labels';
+import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
+import { CELL, GAP, tileSizeAt } from './labels';
 
 /** Which of the player's grids a trade screen may show, top to bottom. */
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
@@ -34,32 +36,56 @@ interface Block {
   countEl: HTMLElement;
 }
 
+interface DragInfo {
+  uid: string;
+  gridId: TradeGridId;
+  ghost: HTMLElement;
+  el: HTMLElement;
+  /** Half the ghost's size, known at pick-up (never measured while moving — that forced a layout per event). */
+  halfW: number;
+  halfH: number;
+}
+
 /**
  * **Embedded 가방 / 함선 창고 grids** (Phase 9 UI pass) — real inventory grids, rendered by the same `GridView` the
- * Tab window uses, for another folder's screen. The 기업 거래 screen puts them down its right-hand column so the
- * player sees (and drags from) their actual stash instead of a flat list.
+ * Tab window uses, for another folder's screen (기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁).
  *
- * Scope on purpose: this is a **read + drag-out** view, not the full inventory window. There is no rearranging, no
- * rotation, no socketing and no drop-to-world — a tile can only be dragged onto one of the caller's `dropSelector`
- * targets (or double-clicked), which calls `onTake`. Everything the trade then does to the item goes through the
- * public `InventoryRef` API in the caller.
+ * Scope on purpose: a **read + drag-out** view, not the full inventory window. There is no rearranging, no rotation,
+ * no socketing and no drop-to-world — a tile can only be dragged onto one of the caller's `dropSelector` targets (or
+ * double-clicked), which calls `onTake`. Everything the trade then does to the item goes through the public
+ * `InventoryRef` API in the caller.
  *
- * Tiles are stamped `data-item-tip` + `data-def-id`, which is the hook `ui/hud/ItemTip` delegates on — so hovering
- * one raises the same item card the cost chips do, without this view owning a tooltip.
+ * **2026-09-12 (사용자 결정)** —
+ *   - 가방과 창고가 **한 스크롤** 안에 위아래로 붙어 같이 내려간다 (`.tg-scroll` 하나). 가방은 가로 5칸 · 틀 높이는 가장 긴
+ *     가방(`BAG_FRAME_ROWS`), 창고는 가로 10칸 — Tab 인벤토리와 똑같다.
+ *   - 머리에 **정렬** 버튼(`InventorySystem.sortGrid` — 이 뷰가 인벤토리를 바꾸는 유일한 동작이다. 호출자가 트레이에 올린
+ *     uid 는 `isStaged` 로 넘겨 합치기에서 뺀다)과 **필터 칩**(걸러진 타일은 어두워질 뿐 자리를 지킨다).
+ *   - 드래그는 pointermove 를 **rAF 한 번으로 합치고** 고스트를 `transform` 으로 옮긴다 (예전: 이벤트마다 `offsetWidth` 읽기 +
+ *     `left/top` 쓰기 + `elementFromPoint` → 재배 스테이션에서 프레임이 무너졌다). 버스 이벤트 여러 개가 한 프레임에 오면
+ *     갱신도 한 번이고, `GridView` 가 바뀐 타일만 다시 그린다.
  *
- * It touches nothing outside `host`: no blocker, no pointer-lock call, no window key listener (the corp overlay /
- * the Tab window owns all three). `dispose()` removes exactly what it added.
+ * Tiles are stamped `data-item-tip` + `data-def-id`, the hook `ui/hud/ItemTip` delegates on. Each grid block carries
+ * `data-tg-grid="bag" | "stash"` so a caller can tell which grid a drop of its own landed on.
+ *
+ * It touches nothing outside `host` (apart from the drag ghost on `document.body` while a drag lasts): no blocker, no
+ * pointer-lock call, no window key listener. `dispose()` removes exactly what it added.
  */
 export class TradeGrids implements EmbeddedView {
   private readonly root: HTMLElement;
+  private readonly scroll: HTMLElement;
   private readonly blocks: Block[] = [];
   /** Grid cell edge / pitch in px (`TradeGridsOptions.cell`; the 기업 거래 desk shrinks them). */
   private readonly cell: number = CELL;
-  private readonly step: number = CELL + GAP;
   private readonly unsubs: Array<() => void> = [];
-  private drag: { uid: string; gridId: TradeGridId; ghost: HTMLElement; el: HTMLElement } | null = null;
+  private readonly chips: FilterChips;
+  private filter: FilterGroupId = 'all';
+  private drag: DragInfo | null = null;
   /** Drop target currently under the cursor, marked `.is-over` so the tray lights up. */
   private over: HTMLElement | null = null;
+  private moveX = 0;
+  private moveY = 0;
+  private moveRaf = 0;
+  private refreshRaf = 0;
   private disposed = false;
 
   constructor(
@@ -74,12 +100,22 @@ export class TradeGrids implements EmbeddedView {
 
     const cell = Math.max(16, Math.round(opts.cell ?? CELL));
     this.cell = cell;
-    this.step = cell + GAP;
     if (cell !== CELL) this.root.style.setProperty('--inv-cell', `${cell}px`);
+    this.root.style.setProperty('--tg-step', `${cell + GAP}px`);
+
+    const tools = document.createElement('div');
+    tools.className = 'tg-tools';
+    this.chips = buildFilterChips((id) => this.setFilter(id));
+    tools.appendChild(this.chips.el);
+    this.scroll = document.createElement('div');
+    this.scroll.className = 'tg-scroll';
+    this.root.append(tools, this.scroll);
+
     const ids = opts.grids ?? (['bag', 'stash'] as const);
     for (const id of ids) {
       const block = document.createElement('div');
       block.className = `tg-block tg-${id}`;
+      block.dataset.tgGrid = id;   // 2026-09-12: 다른 화면이 드롭 위치를 가방 / 창고로 가른다 (`closest('[data-tg-grid]')`)
       const head = document.createElement('div');
       head.className = 'tg-head';
       const label = document.createElement('span');
@@ -87,25 +123,23 @@ export class TradeGrids implements EmbeddedView {
       label.textContent = id === 'bag' ? '내 가방' : '함선 창고';
       const countEl = document.createElement('span');
       countEl.className = 'tg-count';
-      head.append(label, countEl);
-      const scroll = document.createElement('div');
-      scroll.className = 'tg-scroll';
+      head.append(label, countEl, buildSortButton(() => this.sort(id)));
       const view = new GridView(id, (defId) => this.inv.getDef(defId), (item) => this.inv.getStats(item), {
         onPointerDown: (uid, gridId, e) => this.startDrag(uid, gridId as TradeGridId, e),
-        onEnter: () => { /* the trade screen has no tooltip of its own */ },
+        onEnter: () => { /* the hover card is `ui/hud/ItemTip` (data-item-tip) */ },
         onMove: () => { /* no-op */ },
         onLeave: () => { /* no-op */ },
         onContext: () => { /* no context menu in a trade */ },
         onDblClick: (uid, gridId) => this.take(uid, gridId as TradeGridId, null),
       }, cell);
-      scroll.appendChild(view.el);
-      block.append(head, scroll);
-      this.root.appendChild(block);
+      if (id === 'bag') view.setFrameRows(BAG_FRAME_ROWS);
+      block.append(head, view.el);
+      this.scroll.appendChild(block);
       this.blocks.push({ id, view, countEl });
     }
 
     const b = this.ctx.bus;
-    const repaint = (): void => this.refresh();
+    const repaint = (): void => this.scheduleRefresh();
     this.unsubs.push(
       b.on('inventory:changed', repaint), b.on('inventory:stashChanged', repaint),
       b.on('inventory:bagChanged', repaint), b.on('loadout:changed', repaint),
@@ -113,24 +147,52 @@ export class TradeGrids implements EmbeddedView {
     this.refresh();
   }
 
+  /** Several bus events in one frame (a drop fires three or four) repaint once. */
+  private scheduleRefresh(): void {
+    if (this.disposed || this.refreshRaf) return;
+    this.refreshRaf = requestAnimationFrame(() => { this.refreshRaf = 0; this.refresh(); });
+  }
+
   refresh(): void {
     if (this.disposed) return;
+    const staged = this.opts.isStaged;
     for (const bl of this.blocks) {
       const grid = this.inv.getGrid(bl.id);
       if (bl.view.current !== grid) bl.view.setGrid(grid);
-      else bl.view.refresh(true);
+      else bl.view.refresh();   // version-gated; only changed tiles are rebuilt
       bl.countEl.textContent = grid ? `${grid.count}점` : '';
-      const staged = this.opts.isStaged;
-      for (const tile of Array.from(bl.view.el.querySelectorAll<HTMLElement>('.inv-tile[data-uid]'))) {
-        const uid = tile.dataset.uid ?? '';
+      // staging can change without the grid changing (the caller calls `refresh()` after staging) — flags only
+      bl.view.forEachTile((uid, tile) => {
         if (staged) tile.classList.toggle('is-staged', staged(uid));
-        // opt the tile into the shared hover card (`ui/hud/ItemTip` reads `[data-item-tip][data-def-id]`) — this
-        // view has no tooltip of its own, and a trade screen badly needs one
-        const item = grid?.get(uid)?.item;
-        if (item) { tile.dataset.itemTip = ''; tile.dataset.defId = item.defId; }
-      }
+        if (tile.dataset.itemTip === undefined) tile.dataset.itemTip = '';
+        const defId = grid?.get(uid)?.item.defId;
+        if (defId && tile.dataset.defId !== defId) tile.dataset.defId = defId;
+      });
     }
   }
+
+  /* ── 2026-09-12: 정렬 · 필터 ───────────────────────────────────────────── */
+
+  private sort(id: TradeGridId): void {
+    this.endDrag();
+    const r = this.inv.sortGrid(id, this.opts.isStaged);
+    if (r === 'ok') this.inv.sfx('ui_drop');
+    else if (r === 'fail') {
+      this.inv.sfx('ui_error');
+      this.ctx.bus.emit('ui:notify', { text: '정렬할 자리가 부족합니다 — 격자를 조금 비워 주세요', kind: 'warning', duration: 2.2 });
+    }
+    this.refresh();
+  }
+
+  private setFilter(id: FilterGroupId): void {
+    this.filter = id;
+    this.chips.set(id);
+    const pred = filterPredicate(id);
+    for (const bl of this.blocks) bl.view.setFilter(pred);
+  }
+
+  /** The chip currently lit (smoke tests). */
+  get filterGroup(): FilterGroupId { return this.filter; }
 
   /* ── drag out ─────────────────────────────────────────────────────────── */
   private startDrag(uid: string, gridId: TradeGridId, e: PointerEvent): void {
@@ -143,27 +205,36 @@ export class TradeGrids implements EmbeddedView {
     e.stopPropagation();
     const el = (e.currentTarget as HTMLElement | null) ?? (e.target as HTMLElement).closest<HTMLElement>('.inv-tile');
     if (!el) return;
+    this.endDrag();
     const fp = grid.footprintOf(p.item);
+    const size = tileSizeAt(fp.w, fp.h, this.cell);
     const ghost = document.createElement('div');
-    ghost.className = 'tg-ghost';
     buildTileContent(ghost, p.item, def, fp.w, fp.h, this.inv.getStats(p.item), this.cell);
     ghost.classList.add('tg-ghost');
-    ghost.style.left = `${e.clientX - (fp.w * this.step) / 2}px`;
-    ghost.style.top = `${e.clientY - (fp.h * this.step) / 2}px`;
+    const halfW = size.width / 2, halfH = size.height / 2;
+    ghost.style.transform = `translate3d(${e.clientX - halfW}px, ${e.clientY - halfH}px, 0)`;
     document.body.appendChild(ghost);
     el.classList.add('is-dragging');
-    this.drag = { uid, gridId, ghost, el };
+    this.drag = { uid, gridId, ghost, el, halfW, halfH };
     window.addEventListener('pointermove', this.onMove, true);
     window.addEventListener('pointerup', this.onUp, true);
+    window.addEventListener('pointercancel', this.onCancel, true);
   }
 
   private onMove = (e: PointerEvent): void => {
+    if (!this.drag) return;
+    this.moveX = e.clientX;
+    this.moveY = e.clientY;
+    if (!this.moveRaf) this.moveRaf = requestAnimationFrame(this.moveFrame);
+  };
+
+  /** One ghost write + one hit test per frame, however many pointermove events arrived. */
+  private moveFrame = (): void => {
+    this.moveRaf = 0;
     const d = this.drag;
     if (!d) return;
-    const w = d.ghost.offsetWidth, h = d.ghost.offsetHeight;
-    d.ghost.style.left = `${e.clientX - w / 2}px`;
-    d.ghost.style.top = `${e.clientY - h / 2}px`;
-    const target = this.dropTargetAt(e.clientX, e.clientY);
+    d.ghost.style.transform = `translate3d(${this.moveX - d.halfW}px, ${this.moveY - d.halfH}px, 0)`;
+    const target = this.dropTargetAt(this.moveX, this.moveY);
     d.ghost.classList.toggle('is-ok', !!target);
     this.setOver(target);
   };
@@ -175,6 +246,8 @@ export class TradeGrids implements EmbeddedView {
     const target = this.dropTargetAt(e.clientX, e.clientY);
     if (target) this.take(d.uid, d.gridId, target);
   };
+
+  private onCancel = (): void => { this.endDrag(); };
 
   private dropTargetAt(x: number, y: number): HTMLElement | null {
     const sel = this.opts.dropSelector;
@@ -193,9 +266,11 @@ export class TradeGrids implements EmbeddedView {
   private endDrag(): void {
     const d = this.drag;
     this.drag = null;
+    if (this.moveRaf) { cancelAnimationFrame(this.moveRaf); this.moveRaf = 0; }
     this.setOver(null);
     window.removeEventListener('pointermove', this.onMove, true);
     window.removeEventListener('pointerup', this.onUp, true);
+    window.removeEventListener('pointercancel', this.onCancel, true);
     if (!d) return;
     d.ghost.remove();
     d.el.classList.remove('is-dragging');
@@ -211,6 +286,7 @@ export class TradeGrids implements EmbeddedView {
     if (this.disposed) return;
     this.disposed = true;
     this.endDrag();
+    if (this.refreshRaf) { cancelAnimationFrame(this.refreshRaf); this.refreshRaf = 0; }
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.root.remove();

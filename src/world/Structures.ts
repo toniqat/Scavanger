@@ -27,7 +27,9 @@ import {
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
-import { PALETTE, type BuildingPlan, type DoorSpot, type Spot, buildBuilding, buildWreck, mergeOrNull } from './structures/parts/Build';
+import {
+  PALETTE, type BuildingPlan, type DoorSpot, type Spot, type StructureNav, buildBuilding, buildWreck, mergeOrNull,
+} from './structures/parts/Build';
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
 import { GlassSet, type WindowSpec } from './structures/parts/Glass';
 import { ScanWave } from './structures/parts/ScanWave';
@@ -61,6 +63,8 @@ export class Structures {
   private readonly byId = new Map<string, Inst>();
   private readonly defs: StructureDef[] = [];
   private readonly ladders: LadderDef[] = [];
+  /** 2026-09-12: 건물 안내 (도달성 스모크 · 디버그 전용 — 판정에 쓰지 않는다). */
+  private readonly navs: { id: string; kind: StructureKind; nav: StructureNav; basementDoor: { x: number; y: number; z: number } | null }[] = [];
   /**
    * 로그 강하를 이미 굴린 구역 (`structure:investigated` 의 `zoneId`). 구조물 id 뿐 아니라 **선로 플랫폼 ·
    * 전차**의 zoneId 도 들어간다 — 그쪽은 `StructureDef` 가 아니라 여기 문자열로만 남는다.
@@ -115,6 +119,13 @@ export class Structures {
   get lights(): LightPool | null { return this.lightPool; }
   /** 컨테이너가 열린 모습인가 (디버그 · 스모크). */
   isContainerOpened(id: string): boolean { return this.containers.isOpened(id); }
+  /**
+   * 2026-09-12: 건물마다의 안내 — 정문 안팎 · 방 사각형 · 계단 층계참/도착 자리 · 지하실 문 상호작용 자리
+   * (`scripts/smoke-structure-reach.mjs` 가 이것으로 flood fill 을 시작하고 목표를 잡는다). 디버그 · 스모크 전용.
+   */
+  debugNav(): readonly { id: string; kind: StructureKind; nav: StructureNav; basementDoor: { x: number; y: number; z: number } | null }[] {
+    return this.navs;
+  }
 
   /** `(x, z)` 를 품는 구조물 (자기 `radius` 안), 없으면 null. */
   structureAt(x: number, z: number): StructureDef | null {
@@ -231,6 +242,7 @@ export class Structures {
       });
       out.windows.forEach((w, i) => glassSpecs.push({ structureId: id, index: i, spec: w }));
       fixtures.push(...out.fixtures);
+      this.navs.push({ id, kind: site.kind, nav: out.nav, basementDoor: out.door ? { ...out.door.interact } : null });
 
       this.insts.push(inst);
       this.byId.set(id, inst);
@@ -274,6 +286,7 @@ export class Structures {
       game?.interactables.unregister(`ladder:${l.id}:top`);
     }
     this.ladders.length = 0;
+    this.navs.length = 0;
     this.insts.length = 0;
     this.byId.clear();
     this.defs.length = 0;
@@ -336,7 +349,9 @@ export class Structures {
     screen.rotation.set(-0.32, -spot.yaw, 0);
     this.group.add(screen);
 
-    ctx.hash.add(new THREE.Vector3(spot.x, spot.y, spot.z), 0.55, 1.1, 'console');
+    /* 2026-09-12: 받침대 상자 그대로 (예전 반지름 0.55 원기둥은 앞뒤로 24 cm 씩 보이지 않는 벽이었다) + 접시 기둥 */
+    ctx.hash.addBox(new THREE.Vector3(spot.x, spot.y, spot.z), 0.475, 0.31, spot.yaw, 1.1, 'console');
+    ctx.hash.addBox(new THREE.Vector3(px, spot.y, pz), 0.05, 0.05, spot.yaw, 2.2, 'console');
 
     const pos = new THREE.Vector3(spot.x, spot.y, spot.z);
     inst.scanPos = pos;

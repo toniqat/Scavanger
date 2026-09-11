@@ -6,8 +6,9 @@
  * (그러지 않으면 `InventorySystem` ↔ `parts/*` 순환 import 가 된다).
  * `InventorySystem.ts` 가 `export * from './model'` 로 그대로 재수출하므로 기존 import 경로는 전부 그대로 동작한다.
  */
-import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, DurabilityInfo, ItemDef, ItemInstance, LoadoutSlot, PouchDef, WeaponSlot, WorkbenchKind } from '@/shared';
-import { isWeaponItemDef } from '@/items';
+import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, DurabilityInfo, ItemCategory, ItemDef, ItemInstance, LoadoutSlot, PouchDef, WeaponSlot, WorkbenchKind } from '@/shared';
+import { BAG_DEFAULT_ROWS, CATEGORY_ICON } from '@/shared';
+import { ITEM_DEF_MAP, isWeaponItemDef } from '@/items';
 import type { LoadoutSave } from './Loadout';
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 /**
@@ -198,4 +199,58 @@ export interface CraftJob {
  */
 export function sameProfileDoc(a: unknown, b: unknown): boolean {
   try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
+}
+
+/* ── 2026-09-12: 가방 틀 · 자동 정렬 · 필터 (사용자 결정) ─────────────────────────────────────────────── */
+
+/**
+ * Rows the 가방 **box** is always drawn at: the longest bag in `data/bags.csv` (or the no-bag default). The bag panel
+ * keeps this size whatever is equipped and a bigger bag fills more of it with cells — read from the data, so adding
+ * a longer bag grows the frame with it.
+ */
+export const BAG_FRAME_ROWS: number = (() => {
+  let rows = BAG_DEFAULT_ROWS;
+  for (const def of ITEM_DEF_MAP.values()) if (def.bag && def.bag.rows > rows) rows = def.bag.rows;
+  return rows;
+})();
+
+/**
+ * 자동 정렬의 카테고리 순서 (`parts/Sort.ts`). 몸에 걸치는 것 → 쏘는 것 → 쓰는 것 → 파는 것 → 만드는 것 → 기르는 것.
+ * 목록에 없는 카테고리는 맨 뒤다.
+ */
+export const SORT_CATEGORY_ORDER: readonly ItemCategory[] = [
+  'primary', 'secondary', 'attachment', 'armor', 'bag', 'pouch', 'ammo',
+  'stim', 'meal', 'prep', 'grenade', 'gadget', 'implant', 'key', 'valuable',
+  'material', 'herb', 'seed', 'soil', 'crop', 'sample', 'book', 'furniture',
+];
+
+export type FilterGroupId = 'all' | 'weapon' | 'gear' | 'ammo' | 'consumable' | 'gadget' | 'material' | 'valuable' | 'bio' | 'other';
+
+/**
+ * 가방 · 창고 필터 칩. `categories` null = 전체(`all`) 또는 나머지 전부(`other` — 다른 칩 어디에도 없는 카테고리).
+ * 걸러진 타일은 **자리를 지킨 채 어두워질 뿐**이다 (`GridView.setFilter`).
+ */
+export const FILTER_GROUPS: readonly { id: FilterGroupId; label: string; icon: string; categories: readonly ItemCategory[] | null }[] = [
+  { id: 'all', label: '전체', icon: '✱', categories: null },
+  { id: 'weapon', label: '무기 · 부착물', icon: CATEGORY_ICON.primary, categories: ['primary', 'secondary', 'attachment'] },
+  { id: 'gear', label: '방어구 · 가방', icon: CATEGORY_ICON.armor, categories: ['armor', 'bag', 'pouch'] },
+  { id: 'ammo', label: '탄약', icon: CATEGORY_ICON.ammo, categories: ['ammo'] },
+  { id: 'consumable', label: '소모품', icon: CATEGORY_ICON.stim, categories: ['stim', 'meal', 'prep'] },
+  { id: 'gadget', label: '가젯 · 수류탄', icon: CATEGORY_ICON.gadget, categories: ['grenade', 'gadget'] },
+  { id: 'material', label: '재료', icon: CATEGORY_ICON.material, categories: ['material'] },
+  { id: 'valuable', label: '귀중품 · 열쇠', icon: CATEGORY_ICON.valuable, categories: ['valuable', 'key'] },
+  { id: 'bio', label: '재배 · 연구', icon: CATEGORY_ICON.herb, categories: ['herb', 'seed', 'soil', 'crop', 'sample'] },
+  { id: 'other', label: '기타', icon: '…', categories: null },
+];
+
+/** Predicate for a filter chip; null for `all` (nothing is dimmed). */
+export function filterPredicate(id: FilterGroupId): ((item: ItemInstance, def: ItemDef) => boolean) | null {
+  if (id === 'all') return null;
+  if (id === 'other') {
+    const named = new Set<ItemCategory>();
+    for (const g of FILTER_GROUPS) for (const c of g.categories ?? []) named.add(c);
+    return (_item, def) => !named.has(def.category);
+  }
+  const cats = new Set(FILTER_GROUPS.find((g) => g.id === id)?.categories ?? []);
+  return (_item, def) => cats.has(def.category);
 }

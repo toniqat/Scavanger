@@ -1189,6 +1189,15 @@ export interface InventoryRef {
    * exactly like `createCorpView` / `createShipView`. `dispose()` removes only what it added.
    */
   createTradeGrids(host: HTMLElement, opts?: TradeGridsViewOptions): EmbeddedView;
+
+  /* ══ appended 2026-09-12: 인벤토리 타일과 똑같은 독립 타일 ══════════════════════════════════════════════ */
+  /**
+   * A standalone tile that looks exactly like an inventory grid tile — `w × h` footprint at `cell` px (default 54),
+   * rarity background, qty badge, durability bar — stamped `data-item-tip` + `data-def-id` so `ui/hud/ItemTip`
+   * raises the hover card. No drag, no listeners; the caller positions it. The 기업 거래 desk draws its stock and
+   * 구매 / 판매 trays with it so they read the same as the 가방 / 창고 beside them.
+   */
+  buildItemTile(defId: string, qty: number, opts?: { cell?: number; durability?: number }): HTMLElement;
 }
 
 /** Options for `InventoryRef.createTradeGrids` (Phase 9 UI pass). */

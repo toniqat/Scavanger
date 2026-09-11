@@ -76,6 +76,44 @@ export function levelText(level: number, max: number): string {
   return `Lv.${level} / ${max}`;
 }
 
+/**
+ * 2026-09-12: the station screens' countdown is `HH:MM:SS` (hours are not capped at 24 and keep at least two digits).
+ * Rounded **up** so `00:00:00` only ever shows once the timer is really done.
+ */
+export function clockParts(seconds: number): { hm: string; ss: string } {
+  const s = Math.max(0, Math.ceil(Number.isFinite(seconds) ? seconds : 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return { hm: `${p(h)}:${p(m)}`, ss: `:${p(sec)}` };
+}
+
+/** `HH:MM:SS` as one string (tooltips). */
+export function clockText(seconds: number): string {
+  const { hm, ss } = clockParts(seconds);
+  return `${hm}${ss}`;
+}
+
+/**
+ * Countdown into `host` as `<span.hs-clock-hm>HH:MM</span><span.hs-clock-ss>:SS</span>` — the CSS draws `:SS` at
+ * **half** the `HH:MM` size. The two spans are reused, so the 1-second tick only rewrites text nodes.
+ */
+export function renderClock(host: HTMLElement, seconds: number): void {
+  let hm = host.firstElementChild as HTMLElement | null;
+  if (host.childNodes.length !== 2 || !hm || !hm.classList.contains('hs-clock-hm')) {
+    clear(host);
+    hm = el('span', { cls: 'hs-clock-hm', parent: host });
+    el('span', { cls: 'hs-clock-ss', parent: host });
+  }
+  const parts = clockParts(seconds);
+  setText(hm, parts.hm);
+  setText(host.lastElementChild as HTMLElement, parts.ss);
+}
+
+/** Plain text in a clock slot instead (`수확 가능` · `해석 완료` · empty). */
+export function renderClockText(host: HTMLElement, text: string): void {
+  if (host.firstElementChild || host.textContent !== text) host.textContent = text;
+}
+
 /** Compact 한국어 countdown for a growing plot: `2시간 5분`, `12분 30초`, `45초`. */
 export function formatRemaining(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ConsoleCommand, ConsoleLineKind, ConsoleRef, GameContext, GameSystem } from '@/shared';
 import { CONSOLE_HISTORY_KEY, CONSOLE_HISTORY_MAX, CONSOLE_MAX_LINES, CONSOLE_SUGGESTIONS_MAX, Keys, MOVE_CHEAT_SPEED, isDevHost } from '@/shared';
+import { ColliderOverlay } from './ColliderOverlay';
 import { builtinCommands } from './commands';
 import './console.css';
 
@@ -52,6 +53,8 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
 
   private readonly fwd = new THREE.Vector3();
   private readonly next = new THREE.Vector3();
+  /** 2026-09-12: `colliders` 명령의 와이어프레임 (dev 클라이언트에서만 만든다). */
+  private overlay: ColliderOverlay | null = null;
 
   get isOpen(): boolean { return this._open; }
   get moveCheat(): boolean { return this._moveCheat; }
@@ -63,10 +66,14 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
     ctx.console = this;
     if (!this.enabled) return;
     const sys = this;
+    this.overlay = new ColliderOverlay(ctx);
     for (const c of builtinCommands({
       clearLog: () => sys.clearLog(),
       setMoveCheat: (on) => sys.setMoveCheat(on),
       get moveCheat() { return sys._moveCheat; },
+      setColliders: (on) => sys.overlay?.setEnabled(on),
+      get colliders() { return sys.overlay?.enabled ?? false; },
+      get colliderCount() { return sys.overlay?.count ?? 0; },
     })) this.register(c);
     this.history = this.loadHistory();
     this.historyIndex = this.history.length;
@@ -80,7 +87,9 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
   }
 
   update(dt: number, ctx: GameContext): void {
-    if (!this.enabled || !this._moveCheat || this._open) return;
+    if (!this.enabled) return;
+    this.overlay?.update(dt);
+    if (!this._moveCheat || this._open) return;
     if (!ctx.isControlActive() || !ctx.input.isDown(Keys.MOVE_CHEAT)) return;
     const player = ctx.player;
     if (!player || player.isDead || typeof player.teleport !== 'function') return;
@@ -99,6 +108,8 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
   dispose(): void {
     if (!this.enabled) return;
     window.removeEventListener('keydown', this.keyHandler, true);
+    this.overlay?.dispose();
+    this.overlay = null;
     if (this._open) {
       this._open = false;
       this.ctx?.uiBlockers.delete(BLOCKER);

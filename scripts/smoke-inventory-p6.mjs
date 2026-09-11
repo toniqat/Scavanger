@@ -267,6 +267,56 @@ try {
   });
   ok(grid.cells === 300, `stash grid re-rendered at 10×30 (${grid.cells} cells)`);
   ok(grid.scrolls && /\/ 300/.test(grid.count), `stash panel scrolls and shows / 300 (${grid.count})`);
+
+  /* ── 2026-09-12: 가방 틀 · 자동 정렬 · 필터 ───────────────────────────── */
+  console.log('bag frame · auto sort · filter');
+  const frame = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory'), g = sys.getGrid('bag');
+    const bagDefs = window.__game.ctx.loot.getAllItemDefs().filter((d) => d.bag);
+    const el = document.querySelector('.inv-grid-bag');
+    const maxRows = Math.max(...bagDefs.map((d) => d.bag.rows));
+    return { allFive: bagDefs.every((d) => d.bag.cols === 5), cols: g.cols, rows: g.rows, cells: el.querySelectorAll('.inv-cell').length,
+      // offsetHeight, not the bounding rect: the window's open transition (`.inv-layout` scale 0.985) shrank 670 → 660 mid-tween
+      h: el.offsetHeight, want: maxRows * 56 - 2, maxRows };
+  });
+  ok(frame.allFive, 'every bag def is 5 columns wide (data/bags.csv)', JSON.stringify(frame));
+  ok(frame.cells === frame.cols * frame.rows && frame.h === frame.want,
+    `the bag box is always ${frame.maxRows} rows tall; only the ${frame.cols}×${frame.rows} real cells are drawn`, JSON.stringify(frame));
+  const sortRun = await page.evaluate(() => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory'), g = sys.getStash();
+    const units = () => { const m = {}; for (const p of g.items()) m[p.item.defId] = (m[p.item.defId] ?? 0) + p.item.qty; return m; };
+    // two partial 폐금속 stacks far apart + a rifle at the bottom: the sort must merge the stacks and pull the rifle up
+    const put = (id, qty, x, y) => { const it = ctx.loot.createItem(id, qty); if (!g.place(it, x, y, false)) { const s = g.findFreeSlot(it); if (s) g.place(it, s.x, s.y, s.rotated); } return it; };
+    put('mat_scrap', 1, 9, 20); put('mat_scrap', 2, 7, 26); const gun = put('wpn_smg', 1, 0, 27);
+    sys.afterChange();
+    const before = units(), stacksBefore = g.count;
+    const scrapMax = ctx.loot.getItemDef('mat_scrap').stackMax;
+    document.querySelector('.inv-panel-stash .inv-sort-btn').click();
+    const after = units();
+    const partialScrap = g.items().filter((p) => p.item.defId === 'mat_scrap' && p.item.qty < scrapMax).length;
+    const origin = g.at(0, 0);
+    const gunAt = g.get(gun.uid);
+    return { same: JSON.stringify(before) === JSON.stringify(Object.fromEntries(Object.keys(before).map((k) => [k, after[k]]))) && Object.keys(after).length === Object.keys(before).length,
+      stacksBefore, stacksAfter: g.count, partialScrap, originCat: origin ? ctx.loot.getItemDef(origin.item.defId).category : null, gunY: gunAt?.y ?? null };
+  });
+  ok(sortRun.same, 'stash 정렬 keeps every unit of every item', JSON.stringify(sortRun));
+  ok(sortRun.partialScrap <= 1 && sortRun.stacksAfter < sortRun.stacksBefore, 'same-item stacks were merged (at most one partial 폐금속 stack left)', JSON.stringify(sortRun));
+  ok(sortRun.originCat === 'primary' && sortRun.gunY !== null && sortRun.gunY < 27, 'weapons sort to the top-left (category order)', JSON.stringify(sortRun));
+  const filt = await page.evaluate(() => {
+    document.querySelector('.inv-panel-bag .inv-filter-chip[data-filter="ammo"]').click();
+    const sys = window.__game.getSystem('inventory'), loot = window.__game.ctx.loot;
+    const read = (sel, grid) => [...document.querySelectorAll(`${sel} .inv-tile[data-uid]`)].map((t) => {
+      const p = sys.getGrid(grid).get(t.dataset.uid); return { cat: p ? loot.getItemDef(p.item.defId).category : null, dim: t.classList.contains('is-filtered-out') };
+    });
+    const bag = read('.inv-grid-bag', 'bag'), stash = read('.inv-grid-stash', 'stash');
+    const right = [...bag, ...stash].every((t) => t.dim === (t.cat !== 'ammo'));
+    const stashChipOn = document.querySelector('.inv-panel-stash .inv-filter-chip[data-filter="ammo"]').classList.contains('is-on');
+    document.querySelector('.inv-panel-stash .inv-filter-chip[data-filter="all"]').click();
+    const cleared = document.querySelectorAll('.inv-tile.is-filtered-out').length === 0;
+    return { right, stashChipOn, cleared, n: bag.length + stash.length, ammo: [...bag, ...stash].filter((t) => t.cat === 'ammo').length };
+  });
+  ok(filt.right && filt.n > 0, `탄약 chip dims every non-ammo tile in the bag and the stash (${filt.ammo}/${filt.n} lit)`, JSON.stringify(filt));
+  ok(filt.stashChipOn && filt.cleared, 'the chip state is shared by both grids and 전체 clears the dimming', JSON.stringify(filt));
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed');
   await sleep(600); // debounced save

@@ -90,22 +90,35 @@
 .hs-preset .actions { display: flex; gap: 6px; }
 .hs-preset .actions .ui-btn { flex: 1; padding: 0 8px; }
 
-/* ── 온실 재배 스테이션 (온실 개편, 2026-09-11) ─────────────────────────────
- * 좌 = 재배층(하얀 바 + 위가 잘린 흙 원), 우 = 진짜 가방 · 함선 창고 격자(`InventoryRef.createTradeGrids`).
- * 창은 제작 창과 같은 칸 크기(54 px)를 쓰므로 프레임이 그만큼 넓어야 한다 (10칸 창고 = 약 570 px).
- * 옛 `.hs-plots` / `.hs-plot` / `.hs-seed` (재배층 패널)은 그 가구와 함께 은퇴해 삭제했다.
+/* ── 가구 화면 공통 틀 (2026-09-12) ──────────────────────────────────────────
+ * 재배 스테이션 · 분석기 · 배양조 · 식탁이 같은 틀을 쓴다 (`ui/StationShell.ts`): 머리줄 = 제목 + `Lv. n` (좌) ·
+ * 업그레이드 (우, `ui/UpgradeModal.ts`), 몸통 = 좌 패널(가구 내용) + 우 패널(가방 · 함선 창고, `createTradeGrids`).
+ * 방 번호 · 설명 줄 · 「가방 · 함선 창고」 라벨 · 안내문은 없다 (사용자 결정).
+ * 모든 이름은 이 폴더 전용 접두사다 — 옛 `.ct-*`(배양조)가 기업 화면의 `.ct-*` 와 겹쳐 거래 칸을 배양관 모양으로
+ * 만들었으므로 배양조는 `.cult-*` 로 옮겼다 (2026-09-10 `.hold` 사고와 같은 뿌리).
  * ────────────────────────────────────────────────────────────────────────── */
-.menu.housing-menu.grow-station .frame {
+.menu.housing-menu.hs-station .frame {
   min-width: 0; max-width: none; width: min(1180px, calc(100vw - 48px));
+  height: min(780px, calc(100vh - 48px));
+  display: flex; flex-direction: column;
 }
-.gs-body { display: grid; grid-template-columns: minmax(340px, 1fr) auto; gap: 22px; flex: 1; min-height: 0; }
-.gs-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
-.gs-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.gs-right .ui-label { display: flex; align-items: center; gap: 10px; }
-.gs-right .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.hs-station-head { align-items: center; }
+.hs-station-head .hl { flex-direction: row; align-items: baseline; gap: 14px; }
+.hs-lv { font-family: var(--ui-mono); font-size: 15px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-accent); white-space: nowrap; }
+.hs-lv[hidden] { display: none; }
+.hs-up-open { flex: none; min-width: 132px; height: 36px; padding: 0 18px; }
+.hs-up-open.is-max { opacity: 0.55; }
+.hs-station-body { display: grid; grid-template-columns: minmax(360px, 1fr) auto; gap: 16px; flex: 1; min-height: 0; }
+.hs-pane {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
+  padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  user-select: none;
+}
+.hs-pane-left { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.hs-pane .ui-label { display: flex; align-items: center; gap: 10px; }
 /* the embedded grids live outside `.inv-root`, so they need the `--inv-*` palette declared here (same list as
    `.crew-loadout` in inventory/inventory.css — 값은 그쪽이 원본이다) */
-.gs-inv {
+.hs-inv {
   --inv-cell: 54px;
   --inv-gap: 2px;
   --inv-bg: rgba(9, 11, 15, 0.78);
@@ -121,162 +134,167 @@
   --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   display: flex; flex: 1; min-height: 0; color: var(--inv-text);
 }
-.gs-inv .trade-grids { flex: 1; min-height: 0; }
+.hs-inv .trade-grids { flex: 1; min-height: 0; }
+/* 다 된 산물을 끌어 격자 위에 올렸을 때 (`ui/ProductDrag` 가 `[data-tg-grid]` 블록에 붙인다) */
+[data-tg-grid].hs-drop-over { outline: 2px solid var(--c-accent); outline-offset: -2px; }
 
-/* 강화 줄 (2026-09-11) — 재배층을 여는 유일한 입구. `.gs-up*` 은 이 패널 전용 이름이라 HUD 위젯 클래스와
-   겹치지 않는다 (2026-09-10 `.hold` 사고: HUD 위젯과 같은 이름을 modifier 로 쓰면 그쪽 레이아웃을 먹는다). */
-.gs-up {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.045);
+@media (max-width: 1100px) {
+  .menu.housing-menu.hs-station .frame { height: calc(100vh - 48px); }
+  .hs-station-body { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  .hs-pane-right { min-height: 300px; }
 }
-.gs-up.is-max { opacity: 0.72; }
-.gs-up-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.gs-up-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.gs-up-head .lv { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; font-family: var(--ui-mono); color: var(--c-text); }
-.gs-up-head .next { font-size: 11px; letter-spacing: 0.05em; color: var(--c-accent); }
-.gs-up-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 0; }
-.gs-up-note { font-size: 11px; letter-spacing: 0.04em; color: var(--c-warning, #e2b24a); }
-.gs-up-note.ok { color: var(--c-text-faint); }
-.gs-up-btn { flex: none; min-width: 96px; }
 
-/* 한 층 = 라벨 + 하얀 바 위의 흙 원들 */
-.gs-tiers { display: flex; flex-direction: column; gap: 16px; }
-.gs-tier { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); }
-.gs-tier.is-locked { opacity: 0.45; border-style: dashed; }
-.gs-tier-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.gs-tier-head .name { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-text); }
-.gs-tier-head .state { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); font-family: var(--ui-mono); }
-.gs-tier-body { position: relative; display: grid; gap: 10px; padding-top: 4px; }
-/* 가로로 긴 하얀 두꺼운 바 — 원의 아래쪽이 이 바에 살짝 잠긴다 */
+/* 남은 시간 `HH:MM:SS` — `:SS` 는 `HH:MM` 글자 크기의 절반 (`dom.renderClock`) */
+.hs-clock { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0.04em; }
+.hs-clock-ss { font-size: 0.5em; }
+
+/* 업그레이드 모달 (`ui/UpgradeModal.ts`) — 1초 홀드 확정 */
+.hs-modal { position: fixed; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center; background: rgba(4, 6, 9, 0.62); }
+.hs-modal[hidden] { display: none; }
+.hs-modal-card {
+  width: min(460px, 90vw); display: flex; flex-direction: column; gap: 12px; padding: 22px 24px;
+  background: rgba(14, 17, 21, 0.98); border: 1px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+}
+.hs-modal-title { font-size: 15px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-accent); }
+.hs-modal-lv { font-family: var(--ui-mono); font-size: 13px; letter-spacing: 0.08em; color: var(--c-text); white-space: pre; }
+.hs-modal-gain { font-size: 12px; letter-spacing: 0.04em; color: var(--c-text-dim); }
+.hs-modal-gain[hidden] { display: none; }
+.hs-modal-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; }
+.hs-modal-note { font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+.hs-modal-note.bad { color: var(--c-danger); }
+.hs-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.hs-modal-foot .ui-btn { min-width: 112px; padding: 0 18px; }
+.hs-modal-foot .ui-btn:disabled { opacity: 0.45; cursor: default; }
+.hs-hold { position: relative; overflow: hidden; }
+.hs-hold-label { position: relative; z-index: 1; }
+.hs-hold-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: color-mix(in srgb, var(--c-accent) 45%, transparent); pointer-events: none; }
+
+/* 호버 카드 (`ui/StationTip.ts`) — `.item-tip` 겉모습을 빌린다 (base.css) */
+.item-tip.hs-tip[hidden] { display: none; }
+.hs-tip-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: 11px; }
+.hs-tip-rows[hidden] { display: none; }
+.hs-tip-rows .k { color: var(--c-text-faint); letter-spacing: 0.06em; white-space: nowrap; }
+.hs-tip-rows .v { color: var(--c-text); text-align: right; font-variant-numeric: tabular-nums; }
+.hs-tip-rows .v.good { color: var(--c-success); }
+.hs-tip-rows .v.bad { color: var(--c-danger); }
+.hs-tip-foot { font-size: 10px; line-height: 1.6; letter-spacing: 0.05em; color: var(--c-text-faint); white-space: pre-line; border-top: 1px solid var(--c-border); padding-top: 6px; }
+.hs-tip-foot[hidden] { display: none; }
+
+/* 우클릭 메뉴 (`ui/StationMenu.ts`) */
+.hs-ctx {
+  position: fixed; left: 0; top: 0; z-index: 210; min-width: 180px;
+  display: flex; flex-direction: column; padding: 4px;
+  background: rgba(14, 17, 21, 0.98); border: 1px solid var(--c-border); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+}
+.hs-ctx[hidden] { display: none; }
+.hs-ctx-item { text-align: left; padding: 8px 12px; font: inherit; font-size: 12px; letter-spacing: 0.04em; color: var(--c-text); background: none; border: 0; cursor: pointer; }
+.hs-ctx-item:hover { background: rgba(255, 255, 255, 0.08); }
+.hs-ctx-item.danger { color: var(--c-danger); }
+
+/* 끌고 가는 산물 (`ui/ProductDrag.ts`) — transform 만 움직인다 */
+.hs-ghost { position: fixed; left: 0; top: 0; z-index: 220; pointer-events: none; will-change: transform; opacity: 0.92; }
+
+/* 좌측 세로 탭 (분석기 「해석」 · 「해석 도감」) */
+.hs-tabs { display: flex; flex-direction: column; gap: 4px; }
+.hs-tab {
+  text-align: left; padding: 10px 12px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+  color: var(--c-text-dim); background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border); cursor: pointer;
+}
+.hs-tab:hover { color: var(--c-text); border-color: rgba(255, 255, 255, 0.35); }
+.hs-tab.is-active { color: var(--c-accent); border-color: color-mix(in srgb, var(--c-accent) 60%, transparent); background: rgba(255, 179, 71, 0.08); }
+
+/* ── 온실 재배 스테이션 (온실 개편 2026-09-11 · 화면 개편 2026-09-12) ────────────
+ * 한 층 = 하얀 바 + 그 바에 박힌 흙구멍 3개(위가 잘린 작은 원). 바의 윗변 = 흙구멍의 윗변. 작물은 구멍 위
+ * `--gs-plant-h` 영역에서 자라고(`--g` 0…1), 그 높이가 곧 층 사이 간격이라 다 자라도 윗층을 덮지 않는다.
+ * 드래그 렉 규약: 전환 · 애니메이션 없는 배경색 강조, 성장은 transform 만.
+ * ────────────────────────────────────────────────────────────────────────── */
+.grow-station { --gs-pot: 39px; --gs-clip: 0.13; --gs-plant-h: 64px; }
+.gs-tiers { display: flex; flex-direction: column; gap: 8px; }
+.gs-tier {
+  padding: 0 12px 6px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.025);
+  min-height: calc(var(--gs-plant-h) + var(--gs-pot) + 30px);
+}
+.gs-tier.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.14); }
+.gs-tier-body { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .gs-bar {
-  position: absolute; left: 0; right: 0; top: 66px; height: 14px; z-index: 0;
+  position: absolute; left: -12px; right: -12px; z-index: 0;
+  top: calc(var(--gs-plant-h) + var(--gs-pot) * var(--gs-clip));
+  height: calc(var(--gs-pot) * (1 - var(--gs-clip)) + 3px);
   background: linear-gradient(180deg, #f2f5f8, #c3ccd4);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
 }
-.gs-slot { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
-
-/* 토양을 담는 곳: 원인데 **위가 살짝 잘려** 있다 (clip-path) */
+.gs-slot { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.gs-slot.is-ready { cursor: grab; }
+.gs-plant { position: relative; width: 100%; height: var(--gs-plant-h); pointer-events: none; z-index: 2; }
+.gs-stem {
+  position: absolute; left: 50%; bottom: -3px; width: 3px; margin-left: -1.5px; height: calc(var(--gs-plant-h) - 22px);
+  background: linear-gradient(180deg, #a8ec9b, #4a8f45); border-radius: 2px;
+  transform-origin: 50% 100%; transform: scaleY(calc(0.1 + 0.9 * var(--g, 0)));
+  opacity: 0;
+}
+.gs-leaf {
+  position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 22px; line-height: 1;
+  color: #d8f5c8; text-shadow: 0 0 10px rgba(126, 224, 138, 0.5);
+  transform-origin: 50% 100%;
+  transform: translateY(calc((var(--gs-plant-h) - 26px) * var(--g, 0) * -1)) scale(calc(0.5 + 0.5 * var(--g, 0)));
+  opacity: 0;
+}
+.gs-slot.is-planted .gs-stem, .gs-slot.is-planted .gs-leaf { opacity: 1; }
+.gs-slot.is-ready .gs-leaf { color: var(--c-success); text-shadow: 0 0 14px rgba(126, 224, 138, 0.95); }
+/* 흙구멍: 원인데 **위가 살짝 잘려** 있다 (clip-path) — 하얀 바에 박힌 모양 */
 .gs-pot {
-  position: relative; width: 78px; height: 78px; flex: none;
+  position: relative; width: var(--gs-pot); height: var(--gs-pot); flex: none; z-index: 1;
   border-radius: 50%; overflow: hidden;
-  clip-path: inset(13% 0 0 0);
-  background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.55));
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  clip-path: inset(calc(var(--gs-clip) * 100%) 0 0 0);
+  background: radial-gradient(circle at 50% 25%, rgba(40, 36, 32, 0.7), rgba(0, 0, 0, 0.9));
+  border: 1px solid rgba(0, 0, 0, 0.45);
 }
-.gs-pot.is-locked { border-style: dashed; border-color: rgba(255, 255, 255, 0.16); }
-.gs-pot.is-over { border-color: var(--c-accent); box-shadow: 0 0 16px rgba(255, 179, 71, 0.55); }
-.gs-pot.is-ready { border-color: rgba(126, 224, 138, 0.75); box-shadow: 0 0 16px rgba(126, 224, 138, 0.45); }
-/* 흙: 원 안쪽이 토양 색으로 80 % 높이까지 찬다 */
-.gs-soil {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
-  background: #5c4433;
-  box-shadow: inset 0 6px 12px rgba(0, 0, 0, 0.45);
-  transition: height var(--t-med) var(--ease);
-}
-.gs-crop {
-  position: absolute; left: 0; right: 0; top: 46%; transform: translateY(-50%);
-  text-align: center; font-size: 24px; line-height: 1; color: #d8f5c8;
-  text-shadow: 0 0 10px rgba(126, 224, 138, 0.5);
-  pointer-events: none;
-}
-.gs-pot.is-ready .gs-crop { color: var(--c-success); animation: gsReady 1.6s var(--ease) infinite; }
-@keyframes gsReady { 0%, 100% { transform: translateY(-50%) scale(1); } 50% { transform: translateY(-50%) scale(1.14); } }
+.gs-pot.is-over { background: radial-gradient(circle at 50% 25%, rgba(255, 179, 71, 0.75), rgba(110, 60, 10, 0.95)); }
+.gs-slot.is-ready .gs-pot { border-color: rgba(126, 224, 138, 0.95); }
+/* 흙: 구멍 안이 토양 색으로 80 % 높이까지 찬다 */
+.gs-soil { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #5c4433; box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.45); }
+.gs-slot.has-soil .gs-soil { height: 80%; }
+.gs-time { margin-top: 7px; min-height: 18px; font-size: 14px; line-height: 18px; color: var(--c-text); text-align: center; }
+.gs-slot.is-ready .gs-time { font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-success); }
 
-.gs-prog { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.gs-prog[hidden] { display: none; }
-.gs-prog i { display: block; height: 100%; width: 0%; background: var(--c-accent); transition: width var(--t-fast) linear; }
-.gs-slot .gs-line { font-size: 11px; font-family: var(--ui-mono); color: var(--c-text); letter-spacing: 0.03em; text-align: center; }
-.gs-slot .gs-sub { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.03em; text-align: center; min-height: 13px; }
-.gs-acts { display: flex; gap: 6px; width: 100%; }
-.gs-acts .ui-btn { flex: 1; min-width: 0; }
-/* `.ui-btn` sets its own display, so the hidden attribute needs to win explicitly */
-.gs-acts .ui-btn[hidden] { display: none; }
-
-@media (max-width: 1100px) {
-  .gs-body { grid-template-columns: minmax(0, 1fr); }
-  .gs-right { min-height: 260px; }
-}
-
-/* ── 연구실 분석기 (A-12, 2026-09-11) ───────────────────────────────────────
- * 재배 스테이션과 같은 구조다 — 좌 = 강화 줄 + 해석 칸, 우 = 가방 · 함선 창고 격자 + 해석 도감.
- * `.az-*` 는 이 패널 전용 이름이라 HUD 위젯 클래스와 겹치지 않는다 (2026-09-10 `.hold` 사고).
+/* ── 연구실 분석기 (A-12 2026-09-11 · 화면 개편 2026-09-12) ─────────────────
+ * 좌 패널 = 세로 탭(해석 · 해석 도감) + 페이지. 한 칸 = 글리프 칸 + 위 이름 · 아래 작은 시간 + 우하단 버튼.
  * ────────────────────────────────────────────────────────────────────────── */
-.menu.housing-menu.analyzer-panel .frame {
-  min-width: 0; max-width: none; width: min(1180px, calc(100vw - 48px));
-}
-.az-body { display: grid; grid-template-columns: minmax(340px, 1fr) auto; gap: 22px; flex: 1; min-height: 0; }
-.az-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
-.az-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.az-right .ui-label { display: flex; align-items: center; gap: 10px; }
-.az-right .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
-/* the embedded grids live outside `.inv-root`, so they need the `--inv-*` palette declared here (same list as
-   `.gs-inv` above — 값의 원본은 inventory/inventory.css 다) */
-.az-inv {
-  --inv-cell: 54px;
-  --inv-gap: 2px;
-  --inv-bg: rgba(9, 11, 15, 0.78);
-  --inv-bg-2: rgba(16, 19, 25, 0.82);
-  --inv-line: rgba(255, 255, 255, 0.12);
-  --inv-line-strong: rgba(255, 255, 255, 0.26);
-  --inv-text: #e9ecef;
-  --inv-muted: rgba(233, 236, 239, 0.55);
-  --inv-accent: #f0c46a;
-  --inv-ok: #4fd17e;
-  --inv-bad: #ff5c5c;
-  --inv-swap: #4aa3ff;
-  --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  display: flex; flex: 1; min-height: 0; color: var(--inv-text);
-}
-.az-inv .trade-grids { flex: 1; min-height: 0; }
-.az-dexhost { max-height: 210px; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
-
-/* 강화 줄 — 해석 칸을 여는 유일한 입구 (재배 스테이션의 `.gs-up` 과 같은 결) */
-.az-up {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.045);
-}
-.az-up.is-max { opacity: 0.72; }
-.az-up-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.az-up-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.az-up-head .lv { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; font-family: var(--ui-mono); color: var(--c-text); }
-.az-up-head .next { font-size: 11px; letter-spacing: 0.05em; color: var(--c-accent); }
-.az-up-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 0; }
-.az-up-note { font-size: 11px; letter-spacing: 0.04em; color: var(--c-warning, #e2b24a); }
-.az-up-note.ok { color: var(--c-text-faint); }
-.az-up-btn { flex: none; min-width: 96px; }
-
-/* 해석 칸 — 세로로 쌓이는 넓은 행 하나가 칸 하나다 (온실처럼 층이 없다) */
+.az-split { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; flex: 1; min-height: 0; }
+.az-pages { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
 .az-slots { display: flex; flex-direction: column; gap: 10px; }
+.az-slots[hidden], .az-dexhost[hidden] { display: none; }
 .az-slot {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center;
-  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start;
+  min-height: 90px; padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
 }
+.az-slot.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.14); }
+.az-slot.is-ready { cursor: grab; }
 .az-cell {
   position: relative; width: 64px; height: 64px; flex: none;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid rgba(199, 159, 255, 0.35);
   background: radial-gradient(circle at 50% 35%, rgba(199, 159, 255, 0.14), rgba(0, 0, 0, 0.55));
-  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-.az-cell.is-locked { border-style: dashed; border-color: rgba(255, 255, 255, 0.16); opacity: 0.5; }
-.az-cell.is-over { border-color: var(--c-accent); box-shadow: 0 0 16px rgba(255, 179, 71, 0.55); }
-.az-cell.is-running { border-color: rgba(199, 159, 255, 0.7); }
-.az-cell.is-ready { border-color: rgba(126, 224, 138, 0.75); box-shadow: 0 0 16px rgba(126, 224, 138, 0.45); }
+.az-cell.is-over { border-color: var(--c-accent); background: radial-gradient(circle at 50% 35%, rgba(255, 179, 71, 0.4), rgba(0, 0, 0, 0.55)); }
+.az-slot.is-running .az-cell { border-color: rgba(199, 159, 255, 0.7); }
+.az-slot.is-ready .az-cell { border-color: rgba(126, 224, 138, 0.85); }
 .az-glyph { font-size: 26px; line-height: 1; color: #d8c8f5; text-shadow: 0 0 10px rgba(199, 159, 255, 0.45); pointer-events: none; }
-.az-cell.is-ready .az-glyph { color: var(--c-success); animation: azReady 1.6s var(--ease) infinite; }
-@keyframes azReady { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
-
-.az-slot-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.az-line { font-size: 12px; font-family: var(--ui-mono); color: var(--c-text); letter-spacing: 0.03em; }
-.az-sub { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.03em; min-height: 13px; }
-.az-prog { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.az-slot:not(.is-running) .az-glyph { color: var(--c-text-faint); text-shadow: none; }
+.az-slot.is-ready .az-glyph { color: var(--c-success); }
+.az-slot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px; }
+.az-name { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.az-time { font-size: 12px; color: var(--c-text-dim); min-height: 15px; }
+.az-slot.is-ready .az-time { font-family: inherit; font-weight: 700; letter-spacing: 0.08em; color: var(--c-success); }
+.az-prog { width: 100%; max-width: 220px; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .az-prog[hidden] { display: none; }
-.az-prog i { display: block; height: 100%; width: 0%; background: #c79fff; transition: width var(--t-fast) linear; }
-.az-acts { display: flex; gap: 6px; }
-.az-acts .ui-btn { min-width: 84px; }
+.az-prog i { display: block; height: 100%; width: 0%; background: #c79fff; }
+.az-acts { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; }
+.az-acts .ui-btn { min-width: 72px; }
 /* `.ui-btn` sets its own display, so the hidden attribute needs to win explicitly */
 .az-acts .ui-btn[hidden] { display: none; }
+.az-dexhost { flex: 1; min-height: 0; }
 
 /* 해석 도감 — `.hs-dex*` 의 뼈대를 그대로 쓰고 두 줄짜리 본문만 얹는다 */
 .az-dex-row { align-items: center; }
@@ -284,140 +302,50 @@
 .az-dex-row .body .title { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .az-dex-row .body .sub { font-size: 10px; color: var(--c-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-@media (max-width: 1100px) {
-  .az-body { grid-template-columns: minmax(0, 1fr); }
-  .az-right { min-height: 260px; }
-}
-
-/* ── 온실 배양조 (A-14, 2026-09-11) ─────────────────────────────────────────
- * 분석기와 같은 구조다 — 좌 = 강화 줄 + 배양 칸, 우 = 가방 · 함선 창고 격자. 다른 것은 칸의 몸짓 하나뿐:
- * 배양관은 온실의 화분처럼 **안이 배지 색으로 차오른다**. `.ct-*` 는 이 패널 전용 이름이라 HUD 위젯 클래스와
- * 겹치지 않는다 (2026-09-10 `.hold` 사고).
+/* ── 온실 배양조 (A-14 2026-09-11 · 화면 개편 2026-09-12) ───────────────────
+ * 분석기와 같은 한 줄 — 배양관(배지 색으로 차오른다) + 위 이름 · 아래 시간. 버튼은 없다 (우클릭 · 더블클릭 · 끌기).
  * ────────────────────────────────────────────────────────────────────────── */
-.menu.housing-menu.culture-tank .frame {
-  min-width: 0; max-width: none; width: min(1180px, calc(100vw - 48px));
+.cult-slots { display: flex; flex-direction: column; gap: 10px; }
+.cult-slot {
+  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center;
+  min-height: 98px; padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
 }
-.ct-body { display: grid; grid-template-columns: minmax(340px, 1fr) auto; gap: 22px; flex: 1; min-height: 0; }
-.ct-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
-.ct-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.ct-right .ui-label { display: flex; align-items: center; gap: 10px; }
-.ct-right .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
-/* the embedded grids live outside `.inv-root`, so they need the `--inv-*` palette declared here (same list as
-   `.gs-inv` / `.az-inv` above — 값의 원본은 inventory/inventory.css 다) */
-.ct-inv {
-  --inv-cell: 54px;
-  --inv-gap: 2px;
-  --inv-bg: rgba(9, 11, 15, 0.78);
-  --inv-bg-2: rgba(16, 19, 25, 0.82);
-  --inv-line: rgba(255, 255, 255, 0.12);
-  --inv-line-strong: rgba(255, 255, 255, 0.26);
-  --inv-text: #e9ecef;
-  --inv-muted: rgba(233, 236, 239, 0.55);
-  --inv-accent: #f0c46a;
-  --inv-ok: #4fd17e;
-  --inv-bad: #ff5c5c;
-  --inv-swap: #4aa3ff;
-  --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  display: flex; flex: 1; min-height: 0; color: var(--inv-text);
-}
-.ct-inv .trade-grids { flex: 1; min-height: 0; }
-
-/* 강화 줄 — 배양 칸을 여는 유일한 입구 (분석기의 `.az-up` 과 같은 결) */
-.ct-up {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.045);
-}
-.ct-up.is-max { opacity: 0.72; }
-.ct-up-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.ct-up-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.ct-up-head .lv { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; font-family: var(--ui-mono); color: var(--c-text); }
-.ct-up-head .next { font-size: 11px; letter-spacing: 0.05em; color: var(--c-accent); }
-.ct-up-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 0; }
-.ct-up-note { font-size: 11px; letter-spacing: 0.04em; color: var(--c-warning, #e2b24a); }
-.ct-up-note.ok { color: var(--c-text-faint); }
-.ct-up-btn { flex: none; min-width: 96px; }
-
-/* 배양 칸 — 분석기처럼 세로로 쌓이는 넓은 행 하나가 칸 하나다 */
-.ct-slots { display: flex; flex-direction: column; gap: 10px; }
-.ct-slot {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center;
-  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
-}
-/* 배양관: 아래가 둥근 세로 관 하나. 배지는 `.ct-fluid` 가 안에서 차오른다 */
-.ct-cell {
+.cult-slot.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.14); }
+.cult-slot.is-ready { cursor: grab; }
+/* 배양관: 아래가 둥근 세로 관 하나. 배지는 `.cult-fluid` 가 안에서 차오른다 */
+.cult-cell {
   position: relative; width: 54px; height: 76px; flex: none; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid rgba(143, 232, 255, 0.35); border-radius: 10px 10px 22px 22px;
   background: linear-gradient(180deg, rgba(143, 232, 255, 0.10), rgba(0, 0, 0, 0.55));
-  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-.ct-cell.is-locked { border-style: dashed; border-color: rgba(255, 255, 255, 0.16); opacity: 0.5; }
-.ct-cell.is-over { border-color: var(--c-accent); box-shadow: 0 0 16px rgba(255, 179, 71, 0.55); }
-.ct-cell.is-running { border-color: rgba(143, 232, 255, 0.75); }
-.ct-cell.is-ready { border-color: rgba(126, 224, 138, 0.75); box-shadow: 0 0 16px rgba(126, 224, 138, 0.45); }
-.ct-fluid {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
-  background: rgba(143, 232, 255, 0.5); opacity: 0.55;
-  transition: height var(--t-med, 220ms) var(--ease);
-}
-.ct-glyph { position: relative; font-size: 24px; line-height: 1; color: #cdf3ff; text-shadow: 0 0 10px rgba(143, 232, 255, 0.5); pointer-events: none; }
-.ct-cell.is-ready .ct-glyph { color: var(--c-success); animation: ctReady 1.6s var(--ease) infinite; }
-@keyframes ctReady { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+.cult-cell.is-over { border-color: var(--c-accent); background: linear-gradient(180deg, rgba(255, 179, 71, 0.4), rgba(0, 0, 0, 0.55)); }
+.cult-slot.is-running .cult-cell { border-color: rgba(143, 232, 255, 0.75); }
+.cult-slot.is-ready .cult-cell { border-color: rgba(126, 224, 138, 0.85); }
+.cult-fluid { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(143, 232, 255, 0.5); opacity: 0.55; }
+.cult-slot.has-medium .cult-fluid { height: 78%; }
+.cult-glyph { position: relative; font-size: 24px; line-height: 1; color: #cdf3ff; text-shadow: 0 0 10px rgba(143, 232, 255, 0.5); pointer-events: none; }
+.cult-slot.is-ready .cult-glyph { color: var(--c-success); }
+.cult-slot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cult-name { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cult-time { font-size: 12px; color: var(--c-text-dim); min-height: 15px; }
+.cult-slot.is-ready .cult-time { font-family: inherit; font-weight: 700; letter-spacing: 0.08em; color: var(--c-success); }
+.cult-prog { width: 100%; max-width: 220px; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.cult-prog[hidden] { display: none; }
+.cult-prog i { display: block; height: 100%; width: 0%; background: #8fe8ff; }
 
-.ct-slot-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.ct-line { font-size: 12px; font-family: var(--ui-mono); color: var(--c-text); letter-spacing: 0.03em; }
-.ct-sub { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.03em; min-height: 13px; }
-.ct-prog { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.ct-prog[hidden] { display: none; }
-.ct-prog i { display: block; height: 100%; width: 0%; background: #8fe8ff; transition: width var(--t-fast) linear; }
-.ct-acts { display: flex; gap: 6px; }
-.ct-acts .ui-btn { min-width: 84px; }
-/* `.ui-btn` sets its own display, so the hidden attribute needs to win explicitly */
-.ct-acts .ui-btn[hidden] { display: none; }
-
-@media (max-width: 1100px) {
-  .ct-body { grid-template-columns: minmax(0, 1fr); }
-  .ct-right { min-height: 260px; }
-}
-
-/* ── 주방 식탁 (A-3c, 2026-09-11) ───────────────────────────────────────────
- * 좌 = 접시(지금 실린 식사 + 버프 한 줄, 드롭 대상), 우 = 가진 요리 목록 + 가방 · 함선 창고 격자.
+/* ── 주방 식탁 (A-3c 2026-09-11 · 화면 개편 2026-09-12) ──────────────────────
+ * 좌 패널 = 접시(지금 실린 식사 + 버프 한 줄, 드롭 대상) + 가진 요리 목록, 우 패널 = 가방 · 함선 창고 격자.
  * ────────────────────────────────────────────────────────────────────────── */
-.menu.housing-menu.dining-table .frame {
-  min-width: 0; max-width: none; width: min(1060px, calc(100vw - 48px));
-}
-.dt-body { display: grid; grid-template-columns: minmax(280px, 1fr) auto; gap: 22px; flex: 1; min-height: 0; }
-.dt-left { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.dt-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.dt-right .ui-label { display: flex; align-items: center; gap: 10px; }
-.dt-right .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
-.dt-left .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; min-height: 13px; }
-.dt-inv {
-  --inv-cell: 54px;
-  --inv-gap: 2px;
-  --inv-bg: rgba(9, 11, 15, 0.78);
-  --inv-bg-2: rgba(16, 19, 25, 0.82);
-  --inv-line: rgba(255, 255, 255, 0.12);
-  --inv-line-strong: rgba(255, 255, 255, 0.26);
-  --inv-text: #e9ecef;
-  --inv-muted: rgba(233, 236, 239, 0.55);
-  --inv-accent: #f0c46a;
-  --inv-ok: #4fd17e;
-  --inv-bad: #ff5c5c;
-  --inv-swap: #4aa3ff;
-  --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  display: flex; flex: 1; min-height: 0; color: var(--inv-text);
-}
-.dt-inv .trade-grids { flex: 1; min-height: 0; }
-
+.dt-active { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.dt-active[hidden] { display: none; }
 /* 접시 = 드롭 대상 (`dropSelector: '.dt-plate'`) */
 .dt-plate {
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center;
   padding: 14px; border: 1px solid rgba(255, 176, 160, 0.4); background: rgba(255, 176, 160, 0.07);
-  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 .dt-plate.is-empty { border-style: dashed; border-color: rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.03); }
-.dt-plate.is-over { border-color: var(--c-accent); box-shadow: 0 0 16px rgba(255, 179, 71, 0.55); }
+.dt-plate.is-over { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .dt-plate-chip { display: flex; align-items: center; justify-content: center; }
 .dt-plate-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .dt-plate-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); }
@@ -426,7 +354,7 @@
 .dt-plate-note { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.03em; }
 
 /* 가진 요리 목록 — 한 줄에 칩 + 이름 · 버프 + 버튼 */
-.dt-list { display: flex; flex-direction: column; gap: 6px; max-height: 230px; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.dt-list { display: flex; flex-direction: column; gap: 6px; }
 .dt-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center;
   padding: 8px 10px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
@@ -435,11 +363,6 @@
 .dt-row .body .title { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dt-row .body .sub { font-size: 10px; color: var(--c-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dt-acts { display: flex; gap: 6px; }
-
-@media (max-width: 1100px) {
-  .dt-body { grid-template-columns: minmax(0, 1fr); }
-  .dt-right { min-height: 260px; }
-}
 
 /* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
 .hs-shelf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

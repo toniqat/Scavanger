@@ -9,12 +9,13 @@
  * 순수 판정(해석 시간 · 진행도 · 남은 초)은 전부 `../Rules.ts` 에 있고, 여기서는 상태를 바꾼다.
  * `parts/Garden.ts` 가 그대로 본보기다 — 같은 계층 분리, 같은 이름 규칙, 같은 한국어 사유 규약이다.
  */
-import type { AnalysisSlot, AnalysisSlotInfo, ItemDef, PlacedFurniture } from '@/shared';
+import type { AnalysisSlot, AnalysisSlotInfo, HarvestDestination, ItemDef, PlacedFurniture } from '@/shared';
 import { ANALYZER_MAX_SLOTS, analyzerSlotUnlockLevel, analyzerSlotsForLevel } from '@/shared';
 import { analyzeDurationMs, growProgress, growRemainingS } from '../Rules';
 import { isAnalyzerDefId } from '../ShipState';
 import { formatRemaining } from '../ui/dom';
 import type { HousingSystem } from '../HousingSystem';
+import { deliverItem, noRoomReason } from './Deliver';
 
 /* ── state access ──────────────────────────────────────────────────────── */
 /**
@@ -193,7 +194,7 @@ export function cancelAnalysis(sys: HousingSystem, uid: string, slot: number): s
  * 보너스가 함께 붙고 해석 도감이 한 칸 찬다. All-or-nothing — when the bonus has nowhere to go the reward is taken
  * back out and the 칸 stays as it was (`stashBooksOf` 와 같은 롤백 규약).
  */
-export function collectAnalysis(sys: HousingSystem, uid: string, slot: number): string | null {
+export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const a = sys.analysisAt(uid, slot);
@@ -213,12 +214,9 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number): 
   const added: string[] = [];
   for (const p of payout) {
     const item = loot.createItem(p.defId, p.qty);
-    const where = inv && typeof inv.tryAddItemAnywhere === 'function'
-      ? inv.tryAddItemAnywhere(item)
-      : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
-    if (!where) {
+    if (!deliverItem(sys, item, dest)) {
       if (inv && typeof inv.takeItem === 'function') for (const u of added) inv.takeItem(u);
-      return '가방과 창고에 자리가 없습니다';
+      return noRoomReason(dest);
     }
     added.push(item.uid);
   }

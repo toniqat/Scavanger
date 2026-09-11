@@ -10,6 +10,7 @@ import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, re
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
+import { BAG_FRAME_ROWS } from '../../model';
 import { CraftPanel } from '../CraftPanel';
 import { CatalogView } from '../CatalogView';
 import { DisassemblePanel } from '../DisassemblePanel';
@@ -163,6 +164,8 @@ export function setCraftOpen(sys: InventoryUI, open: boolean): void {
   else sys.repair.close();          // 수리 팝업은 작업대에 붙어 있다 — 작업대를 떠나면 같이 닫힌다
   sys.layout?.classList.toggle('is-craft', open);
   sys.root?.classList.toggle('is-craft', open);
+  // 2026-09-12: the stacked 가방-over-창고 column has no room for the fixed 12-row bag frame — the stash fell off-screen
+  sys.bagView?.setFrameRows(open ? null : BAG_FRAME_ROWS);
   if (open) sys.craftPanel.refresh();
   // 2026-09-09 키 가이드: the 제작 열 is its own owner over the window's line. Mouse only — the hold button says what it
   //   is, so the line carries no keys of its own (the guide appends `Tab 닫기` itself).

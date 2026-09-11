@@ -80,6 +80,9 @@ const SMOKES = {
   'smoke-ladder':       { file: 'scripts/smoke-ladder.mjs',       folders: ['player', 'net'] },
   'smoke-raidflow':     { file: 'scripts/smoke-raidflow.mjs',     folders: ['game', 'extraction', 'player', 'inventory', 'world'] },
   'smoke-library':      { file: 'scripts/smoke-library.mjs',      folders: ['housing', 'items', 'hub', 'inventory'] },
+  /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
+     HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */
+  'smoke-stations':     { file: 'scripts/smoke-stations.mjs',     folders: ['housing', 'inventory', 'items'] },
   'smoke-enemy-delta':  { file: 'scripts/smoke-enemy-delta.mjs',  folders: ['enemies', 'net'] },
   /* Phase 11 */
   'smoke-planets':      { file: 'scripts/smoke-planets.mjs',      folders: ['hub', 'world', 'game'] },
@@ -91,6 +94,9 @@ const SMOKES = {
   /* 2026-09-09: 버려진 구조물 · 선로 · 전차. 같은 취지로 **사각(OBB) 콜라이더**가 그려진 실루엣 안에 있는지
      재고, 실내 이동 · 지하실 해치 · 플랫폼 데크 · 전차 발판 속도까지 본다. */
   'smoke-structures':   { file: 'scripts/smoke-structures.mjs',   folders: ['world', 'items', 'inventory'] },
+  /* 2026-09-12: 구조물 **도달성** — 콜라이더가 그린 것 안에 있어도 사람이 못 지나가는 자리(계단 입구 0.8 m 틈 · 난간이
+     막은 문 · 바깥으로만 열린 계단)를 몸 반지름 flood fill(진짜 `getSurfaceY` + `resolveCollision`)로 여러 시드에서 잰다. */
+  'smoke-structure-reach': { file: 'scripts/smoke-structure-reach.mjs', folders: ['world'] },
   /* 2026-09-09: 환경 재해 — 종류 · 시작 시각이 시드의 함수라 와이어가 없다. 시드 결정성 · 도형 규약 ·
      끝까지 갔을 때의 맵 봉쇄 · 초당 피해 · atmo:override · 거대 버섯 군락을 브라우저 안에서 잰다. */
   'smoke-hazard':       { file: 'scripts/smoke-hazard.mjs',       folders: ['world'] },

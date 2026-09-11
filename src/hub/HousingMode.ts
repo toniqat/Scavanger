@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { GameContext, KeyGuideEntry } from '@/shared';
-import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint, keyLabel } from '@/shared';
+import {
+  FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel,
+} from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_BOXES, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
@@ -75,6 +77,16 @@ const _ray = new THREE.Raycaster();
  * `ctx.housing.setManageRoom` moves the edit room. Phase 9 UI pass: that retarget **glides** — the override pose
  * handed to the rig eases toward the new room every frame (`glideCamera`), instead of jumping there in one frame
  * (the rig only blends the override *weight*, which is long since 1 by then).
+ *
+ * **2026-09-12 (사용자 결정 — 선택과 위치 이동을 가른다, 시설 관리에서만):** 놓인 가구를 **LMB 로 한 번 누르면
+ * 선택만** 된다 (`housing:furnitureSelected` → `ui/hud/ShipManage` 인스펙터). 곧바로 집어 드는 경로는 없어졌다.
+ * 옮기려면 **위치 이동 상태**에 들어간다 — 인스펙터의 `위치 이동` 버튼(`housing:moveRequested`) 또는 선택한 채 **E**.
+ * 가구 창고에서 카드를 골라 새로 놓는 것(`housing.selectedFurniture`)도 같은 상태다. 그 안에서만 LMB 설치 · R 회전 ·
+ * X 회수가 듣고(키 가이드도 그 셋만 보인다), 밖에서는 선택이 있을 때 `E 위치 이동` 하나가 보인다. 놓을 수 없는 곳을
+ * 누르면 거부음 + `housing:placeRefused {reason}` (인스펙터 위 토스트), 놓을 수 있는 곳을 누르면 놓이고 상태가 끝난다.
+ * C / Esc 는 들고 있던 것을 제자리로 되돌린다 (놓인 조각은 옮기는 동안에도 상태에서 빠지지 않는다). 커서를 가구
+ * 중앙으로 옮기는 기능은 없다 — 브라우저가 OS 커서를 옮기지 못해 요청에서 뺐다. 방 콘솔 모드(`manage` false)는
+ * 예전 그대로 클릭 = 집기 · 놓기, X = 커서 밑 회수, 휠 = 창고 순환이다.
  */
 export class HousingMode {
   active = false;
@@ -106,6 +118,9 @@ export class HousingMode {
    * real change. **Read-only** — nothing in this controller acts on it; `ui/hud/ShipManage` owns the panel.
    */
   private selectedUid: string | null = null;
+  /** 2026-09-12: last key guide / move state emitted (both are re-sent only on a real change). */
+  private guideKey = '';
+  private moveKey = '0';
   private ghost: FurnitureModel | null = null;
   private ghostKey = '';
   private ghostValid: boolean | null = null;
@@ -152,7 +167,9 @@ export class HousingMode {
         else this.deactivate();
       }),
       // 키 가이드 labels follow the live bindings
-      ctx.bus.on('input:bindingsChanged', () => { if (this.active) this.emitGuide(); }),
+      ctx.bus.on('input:bindingsChanged', () => { if (this.active) this.emitGuide(true); }),
+      // 2026-09-12: ui/ 인스펙터의 `위치 이동` 버튼 — E 와 같은 길
+      ctx.bus.on('housing:moveRequested', ({ uid }) => this.beginMove(uid)),
     );
     // Both events, because the two callers differ: a real browser fires `pointerdown` then `mousedown` (the Set
     // below dedupes them inside the frame), while the headless smokes dispatch only `mousedown`.
@@ -226,12 +243,26 @@ export class HousingMode {
     this.cursorInRoom = true;
     this.frame.visible = true;
     this.refresh(true);
-    if (!retarget) this.emitGuide();
+    this.syncState(!retarget);
   }
 
   /* ── 키 가이드 (2026-09-09) ───────────────────────────────────────────── */
-  /** The mode's real actions, most important first; `C` is the fixed cancel key (see `CANCEL_KEY`), never rebound. */
+  /**
+   * The mode's real actions, most important first; `C` is the fixed cancel key (see `CANCEL_KEY`), never rebound.
+   * 2026-09-12 — 시설 관리는 상태에 따라 다르다: 위치 이동 상태면 `설치 · 회전 · 회수` 셋만, 아니면 선택한 가구가 있을
+   * 때 `E 위치 이동` 하나 (없으면 빈 목록 — 가이드가 `닫기` 만 붙인다). 방 콘솔 모드는 예전 목록 그대로다.
+   */
   private guideKeys(): KeyGuideEntry[] {
+    if (this.manage) {
+      if (this.moving) {
+        return [
+          { key: keyLabel(Keys.FIRE), label: '설치' },
+          { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
+          { key: keyLabel(Keys.DROP_ITEM), label: '회수' },
+        ];
+      }
+      return this.selectedUid ? [{ key: keyLabel(Keys.INTERACT), label: '위치 이동' }] : [];
+    }
     return [
       { key: keyLabel(Keys.FIRE), label: '설치' },
       { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
@@ -241,8 +272,38 @@ export class HousingMode {
     ];
   }
 
-  private emitGuide(): void {
-    this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: this.guideKeys() });
+  /** Emit the guide when its content changed (`force` = re-send anyway, e.g. after a rebind). */
+  private emitGuide(force = false): void {
+    const keys = this.guideKeys();
+    const key = keys.map((k) => `${k.key}:${k.label}`).join('|');
+    if (!force && key === this.guideKey) return;
+    this.guideKey = key;
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys });
+  }
+
+  /** 2026-09-12: 시설 관리의 **위치 이동 상태** — 배치된 조각을 들고 있거나, 가구 창고의 가구를 새로 놓는 중. */
+  get moving(): boolean {
+    return !!this.carry || (this.manage && !!this.ctx.housing?.selectedFurniture);
+  }
+
+  /** The uid being moved (debug / smoke); null while idle or while placing a new piece from storage. */
+  get movingUid(): string | null { return this.carry?.uid ?? null; }
+
+  /**
+   * Re-derive the move state and the key guide after anything that may have changed them. `housing:moveStateChanged`
+   * goes out only on a real change; picking a **new** piece from storage closes the 인스펙터 (it describes a placed one).
+   */
+  private syncState(forceGuide = false): void {
+    const selDef = this.ctx.housing?.selectedFurniture ?? null;
+    const active = this.active && this.manage && (!!this.carry || !!selDef);
+    const defId = active ? (this.carry?.defId ?? selDef) : null;
+    const key = active ? `1|${this.carry?.uid ?? ''}|${defId}` : '0';
+    if (key !== this.moveKey) {
+      this.moveKey = key;
+      if (active && !this.carry) this.select(null);
+      this.ctx.bus.emit('housing:moveStateChanged', { active, uid: active ? this.carry?.uid ?? null : null, defId });
+    }
+    if (this.active) this.emitGuide(forceGuide);
   }
 
   /** Ease the override pose toward the current room's goal; no-op once it has arrived. */
@@ -270,8 +331,10 @@ export class HousingMode {
       this.active = false;
       this.room = -1;
       this.carry = null;
+      this.syncState();                        // 2026-09-12: a move in progress ends with the mode
       this.disposeGhost();
       this.frame.visible = false;
+      this.guideKey = '';
       this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: null });
       const p = this.ctx.player;
       if (p && this.ctx.phase === 'hub') {
@@ -359,7 +422,13 @@ export class HousingMode {
      */
     // C: cancel what the cursor holds; with an empty cursor it leaves the mode, exactly like Esc
     if (input.wasPressed(CANCEL_KEY) && !this.cancelSelection()) { this.exit(); return; }
-    if (input.wasPressed(Keys.ROTATE_ITEM)) {
+    // 2026-09-12 (시설 관리): E 가 선택한 가구를 위치 이동 상태로 든다. 모드가 E 를 먹는다 — 다른 무엇도 같은 누름을 보지 않는다
+    if (this.manage && input.wasPressed(Keys.INTERACT)) {
+      input.consume(Keys.INTERACT);
+      if (!this.moving && this.selectedUid) this.beginMove(this.selectedUid);
+    }
+    // R: 시설 관리에서는 위치 이동 상태에서만 돈다 (방 콘솔 모드는 언제나)
+    if (input.wasPressed(Keys.ROTATE_ITEM) && (!this.manage || this.moving)) {
       if (this.carry) { this.carry.yaw = ((this.carry.yaw + 1) % 4) as Yaw; this.announceSelection(); }
       else housing?.rotateSelection();
     }
@@ -373,21 +442,28 @@ export class HousingMode {
       if (wheel > 0 || input.wasPressed('BracketRight')) dir = 1;
       else if (wheel < 0 || input.wasPressed('BracketLeft')) dir = -1;
     }
-    if (dir !== 0 && !this.carry) this.cycleSelection(dir);
+    // 2026-09-12: 시설 관리는 휠로 가구 창고를 돌지 않는다 — 새 가구는 카드 → 위치 이동 상태로만 든다
+    if (dir !== 0 && !this.carry && !this.manage) this.cycleSelection(dir);
 
     this.refresh(false);
 
-    if (input.wasPressed(Keys.DROP_ITEM) && this.cursorInRoom) this.recoverUnderCursor();
+    // X: 시설 관리에서는 위치 이동 상태에서만 (들고 있는 것을 회수), 방 콘솔 모드는 커서 밑의 조각
+    if (input.wasPressed(Keys.DROP_ITEM) && (this.manage ? this.moving : this.cursorInRoom)) this.recoverUnderCursor();
     // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel,
     // and a click aimed outside the edit room (no cell highlight) must not place at the clamped edge cell
     const fire = input.wasMousePressed(MouseButtons.FIRE) || this.softPressed.has(MouseButtons.FIRE);
     if (fire && !overUI) {
-      // B-13 (2026-09-11): every click in the room re-reads what is under the cursor **after** the existing
-      // place / pick-up / put-down path ran, and tells ui/ which piece the 클릭 인스펙터 should show. A click on the
-      // deck outside the edit room closes it. Nothing here moves a piece — the 배치 · 이동 경로 is untouched.
-      if (this.cursorInRoom) { this.primary(); this.selectUnderCursor(); }
-      else this.select(null);
+      if (!this.manage) {
+        if (this.cursorInRoom) this.primary();
+      } else if (this.moving) {
+        this.placeMoving();
+      } else {
+        // B-13 → 2026-09-12: 위치 이동 상태가 아니면 클릭은 **선택만** 한다 (빈 곳 · 방 밖 = 선택 해제)
+        if (this.cursorInRoom) this.selectUnderCursor();
+        else this.select(null);
+      }
     }
+    this.syncState();
     this.clearSoftInput();
   }
 
@@ -502,26 +578,36 @@ export class HousingMode {
   }
 
   /* ── actions ──────────────────────────────────────────────────────────── */
-  private primary(): void {
+  /**
+   * LMB on the room floor: put a carried piece down (`move`), place the storage selection (`place`), or — **room
+   * console mode only** — pick up the piece under the cursor. Returns the uid that ended up on the floor (moved or
+   * newly placed), null when nothing was put down.
+   */
+  private primary(): string | null {
     const housing = this.ctx.housing;
-    if (!housing) return;
+    if (!housing) return null;
     const { x, y } = this.cell;
     if (this.carry) {
-      if (typeof housing.move === 'function' && housing.move(this.carry.uid, x, y, this.carry.yaw)) {
+      const uid = this.carry.uid;
+      if (typeof housing.move === 'function' && housing.move(uid, x, y, this.carry.yaw)) {
         this.carry = null;
         this.announceSelection();
         this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
-      } else this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+        this.refresh(true);
+        return uid;
+      }
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
       this.refresh(true);
-      return;
+      return null;
     }
     const defId = housing.selectedFurniture;
     if (defId) {
       const placed = typeof housing.place === 'function' ? housing.place(this.room, defId, x, y, housing.selectedYaw) : null;
       this.ctx.bus.emit('audio:play', { id: placed ? 'ui_equip' : 'ui_deny' });
       this.refresh(true);
-      return;
+      return placed?.uid ?? null;
     }
+    if (this.manage) return null;              // 2026-09-12: 시설 관리에서 클릭은 선택이다 — 집기는 위치 이동 상태로만
     const under = this.layer?.pieceAt(this.room, x, y) ?? null;
     if (under) {
       this.carry = { uid: under.uid, defId: under.defId, yaw: under.yaw, level: under.level };
@@ -533,6 +619,57 @@ export class HousingMode {
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.refresh(true);
     }
+    return null;
+  }
+
+  /* ── 위치 이동 상태 (2026-09-12, 시설 관리) ─────────────────────────────── */
+  /**
+   * Enter the move state for placed piece `uid` (the 인스펙터's `위치 이동` button or E). Only a piece in the edit room;
+   * a storage selection in progress is dropped first. The piece stays in the housing state while it is carried, so
+   * C / Esc simply forget the carry and it is back where it was.
+   */
+  private beginMove(uid: string): void {
+    if (!this.active || !this.manage || this.carry?.uid === uid) return;
+    const housing = this.ctx.housing;
+    const piece = housing?.getPlacedByUid(uid) ?? null;
+    if (!housing || !piece || piece.room !== this.room) return;
+    if (housing.selectedFurniture) housing.selectFurniture(null);
+    this.carry = { uid: piece.uid, defId: piece.defId, yaw: piece.yaw, level: piece.level };
+    this.select(uid);
+    this.announceSelection();
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.refresh(true);
+    this.syncState();
+  }
+
+  /**
+   * LMB in the move state. A valid cell puts the piece down and **ends** the state (a storage selection is cleared
+   * even when more copies are stored — 「배치하면 위치 이동 상태 종료」); the 인스펙터 then shows what was put down.
+   * Anything else is refused with a 한국어 reason for the toast above the 인스펙터.
+   */
+  private placeMoving(): void {
+    const housing = this.ctx.housing;
+    if (!housing) return;
+    if (!this.cursorInRoom || !this.cell.valid) { this.refuse(this.refuseReason(), true); return; }
+    const uid = this.primary();
+    if (!uid) { this.refuse(this.refuseReason(), false); return; }
+    if (housing.selectedFurniture) housing.selectFurniture(null);
+    this.select(uid);
+  }
+
+  /** Why the current footprint cannot be placed — the room's purpose when that is the reason, else a plain line. */
+  private refuseReason(): string {
+    if (!this.cursorInRoom) return '방 밖에는 설치할 수 없습니다';
+    const defId = this.selection().defId;
+    const def = defId ? FURNITURE_DEF_MAP.get(defId) : undefined;
+    const purpose = this.ctx.housing?.getRoom(this.room)?.purpose;
+    if (def && purpose && def.room !== 'any' && def.room !== purpose) return `${ROOM_PURPOSE_LABEL_KO[def.room]} 전용 가구입니다`;
+    return '설치할 수 없는 곳입니다';
+  }
+
+  private refuse(reason: string, sound: boolean): void {
+    if (sound) this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+    this.ctx.bus.emit('housing:placeRefused', { reason });
   }
 
   /* ── B-13 클릭 인스펙터 (입력 절반, 2026-09-11) ─────────────────────────── */
@@ -574,6 +711,7 @@ export class HousingMode {
       this.announceSelection();
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.refresh(true);
+      this.syncState();                // Esc arrives through `ctx.escape`, outside `update`
       return true;
     }
     const housing = this.ctx.housing;
@@ -581,19 +719,25 @@ export class HousingMode {
     housing.selectFurniture(null);
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh(true);
+    this.syncState();
     return true;
   }
 
   private recoverUnderCursor(): void {
     const housing = this.ctx.housing;
     if (!housing || typeof housing.recover !== 'function') return;
+    // 2026-09-12: 시설 관리에서 아직 놓이지 않은 새 가구(창고 선택)는 X 가 그냥 창고로 되돌린다
+    if (this.manage && !this.carry) { this.cancelSelection(); return; }
     const uid = this.carry?.uid ?? this.layer?.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null;
     if (!uid) return;
     const ok = housing.recover(uid);
     if (ok && this.carry) { this.carry = null; this.announceSelection(); }
     this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
     this.refresh(true);
-    this.selectUnderCursor();       // B-13: the recovered piece is gone — close the 인스펙터 on it
+    if (!this.manage) return;
+    // B-13: the recovered piece is gone — close the 인스펙터 on it; a refusal (e.g. books that do not fit) says why
+    if (ok) this.select(null);
+    else this.ctx.bus.emit('housing:placeRefused', { reason: '지금은 회수할 수 없습니다' });
   }
 
   private cycleSelection(dir: number): void {

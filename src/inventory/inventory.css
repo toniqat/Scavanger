@@ -195,11 +195,13 @@
     rgba(12, 14, 19, 0.9);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   cursor: grab;
-  transition: transform 150ms var(--inv-ease), box-shadow 140ms var(--inv-ease), border-color 140ms var(--inv-ease), filter 140ms var(--inv-ease), opacity 140ms var(--inv-ease);
-  will-change: transform;
+  /* 2026-09-12 (사용자 결정): 아이템은 **즉시** 옮겨진다 — `transform`(칸 위치) · `opacity` 에는 전환이 없고, 새 격자에 들어온
+     타일의 `.is-new` 팝도 없앴다. 남은 전환은 호버 강조뿐이다. */
+  transition: box-shadow 140ms var(--inv-ease), border-color 140ms var(--inv-ease), filter 140ms var(--inv-ease);
 }
-.inv-tile.is-new { animation: inv-pop 180ms var(--inv-ease) both; }
-@keyframes inv-pop { from { opacity: 0; scale: 0.92; } to { opacity: 1; scale: 1; } }
+/* 2026-09-12: 필터 칩이 거른 타일 — 자리는 그대로, 끌기도 된다 */
+.inv-tile.is-filtered-out { opacity: 0.22; filter: grayscale(0.85); }
+.inv-tile.is-filtered-out.is-hover, .inv-tile.is-filtered-out:hover { opacity: 0.7; }
 
 /* Phase 10: another member took this item — the tile floats up and fades instead of blinking out.
    Only the `translate:` / `scale:` / `opacity` channels: `transform` carries the tile's cell position. */
@@ -355,7 +357,7 @@
   border-radius: 3px;
   pointer-events: none;
   z-index: 3;
-  transition: transform 70ms linear, width 70ms linear, height 70ms linear;
+  /* 2026-09-12: no slide — the preview box jumps to the cell like the tile will */
 }
 .inv-hl.is-ok, .inv-hl.is-merge { background: color-mix(in srgb, var(--inv-ok) 22%, transparent); border: 1px solid var(--inv-ok); box-shadow: 0 0 14px color-mix(in srgb, var(--inv-ok) 40%, transparent), inset 0 0 0 1px rgba(255,255,255,0.08); }
 .inv-hl.is-merge { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--inv-ok) 26%, transparent) 0 6px, color-mix(in srgb, var(--inv-ok) 14%, transparent) 6px 12px); }
@@ -1216,6 +1218,9 @@ kbd {
 .inv-layout.is-craft .inv-panel-catalog { order: -2; }
 /* the stash keeps its own scroller inside the stacked column, just shorter */
 .inv-layout.is-craft .inv-stash-scroll { max-height: min(290px, calc(100vh - 620px)); }
+/* 2026-09-12: 제작 중에는 가방 틀의 빈 여백 줄을 쓰지 않는다(`parts/Screens.setCraftOpen` → `setFrameRows(null)`) — 가방 위 ·
+   창고 아래로 쌓이는 열이라 12줄 틀이면 창고가 화면 밖으로 밀려났다. 긴 가방은 이 높이 안에서 스크롤한다. */
+.inv-layout.is-craft .inv-bag-scroll { max-height: max(224px, calc(100vh - 560px)); }
 
 /* 2026-09-08 — **제작 중에는 제작에 쓰는 것만.** 장착 장비 + 임플란트 열 · 퀵슬롯 로즈 · 가방 헤더의 `제작`/용량 ·
    하단 가치 · 상단 화면 탭은 레시피와 아무 상관이 없다. 장비 칸이 사라지므로 만든 무기를 장착하려면 제작 창을
@@ -1244,6 +1249,39 @@ kbd {
 .inv-stash-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-stash-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
 
+/* ── 2026-09-12: 가방 틀 · 정렬 · 필터 ─────────────────────────────────────────────────────────────────────────
+   가방 격자는 늘 가장 긴 가방(`BAG_FRAME_ROWS`) 높이로 그려지고 모자라는 줄은 빈 여백이다(`GridView.setFrameRows`).
+   창이 짧으면 그 틀이 `.inv-bag-scroll` 안에서 세로로 스크롤된다. */
+.inv-bag-scroll {
+  flex: none;
+  /* stacked layout (퀵슬롯 로제트가 가방 **아래** — 함선 1600 px 미만 · 레이드 1280 px 미만): 로제트 · 주머니 · 하단 가치 몫을
+     비워야 1280×760 에서도 패널이 화면 안에 선다. 넓은 배치는 아래 미디어 쿼리가 되돌린다. */
+  max-height: max(168px, calc(100vh - 430px));
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
+}
+.inv-bag-scroll::-webkit-scrollbar { width: 6px; }
+.inv-bag-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
+.inv-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.inv-filter-chip {
+  min-width: 24px; height: 22px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; letter-spacing: -0.04em;
+  color: var(--inv-muted, rgba(233, 236, 239, 0.55));
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--inv-line, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+  cursor: pointer;
+}
+.inv-filter-chip:hover { color: var(--inv-text, #e9ecef); border-color: var(--inv-line-strong, rgba(255, 255, 255, 0.26)); }
+.inv-filter-chip.is-on {
+  color: var(--inv-accent, #f0c46a);
+  border-color: color-mix(in srgb, var(--inv-accent, #f0c46a) 70%, transparent);
+  background: color-mix(in srgb, var(--inv-accent, #f0c46a) 14%, transparent);
+}
+.inv-sort-btn { padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
+
 /* bag body + equipment column: the wide arrangement (rose right of the grid, two-column gear) needs room. The ship
    also carries the 창고 panel, so it asks for 1600 px; a mission has one panel fewer and gets it from 1280 px. */
 .inv-bag-body { display: flex; flex-direction: column; gap: 14px; }
@@ -1271,6 +1309,7 @@ kbd {
   .inv-root:not(.is-hub) .inv-slot-bag { grid-area: bag; }
   .inv-root:not(.is-hub) .inv-slot-pouch { grid-area: pouch; }
   .inv-root:not(.is-hub) .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  .inv-root:not(.is-hub) .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
   .inv-root:not(.is-hub) .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
@@ -1296,6 +1335,7 @@ kbd {
   .inv-root.is-hub .inv-slot-bag { grid-area: bag; }
   .inv-root.is-hub .inv-slot-pouch { grid-area: pouch; }
   .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  .inv-root.is-hub .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
   .inv-root.is-hub .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
@@ -1580,29 +1620,46 @@ kbd {
 .inv-menu-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
 /* ══ Phase 9 UI pass: embedded 가방 / 함선 창고 grids (ui/TradeGrids, used by the 기업 거래 screen) ════════════ */
-.trade-grids { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
-/* the 가방 keeps its natural height (it is small and fixed); the 창고 takes the rest of the column */
-.tg-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; flex: none; }
-.tg-block.tg-stash { flex: 1 1 auto; }
-.tg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.tg-label { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted, #8b94a0); }
-.tg-count { font-family: var(--ui-mono); font-size: 10px; color: var(--inv-muted, #8b94a0); }
+/* 2026-09-12 (사용자 결정): 가방과 창고가 **한 스크롤**(`.tg-scroll`) 안에서 위아래로 붙어 같이 내려간다.
+   가방 5칸 · 창고 10칸 너비는 격자 자신이 정한다 — 호스트는 열 높이만 준다. 칩 줄은 스크롤 밖 맨 위에 선다. */
+.trade-grids {
+  --inv-cell: 54px; --inv-gap: 2px;
+  --inv-line: rgba(255, 255, 255, 0.12); --inv-line-strong: rgba(255, 255, 255, 0.26);
+  --inv-text: #e9ecef; --inv-muted: rgba(233, 236, 239, 0.55);
+  --inv-accent: #f0c46a; --inv-ok: #4fd17e; --inv-bad: #ff5c5c; --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0;
+}
+.tg-tools { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tg-scroll {
-  overflow: auto; min-height: 0;
-  padding: 6px; scrollbar-width: thin;
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 6px 8px 6px 6px; scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
   border: 1px solid var(--inv-line, rgba(255, 255, 255, 0.12));
   background: rgba(0, 0, 0, 0.28);
 }
 .tg-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
 .tg-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
+.tg-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
+.tg-head { display: flex; align-items: center; gap: 10px; }
+.tg-label { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted, #8b94a0); }
+.tg-count { flex: 1; font-family: var(--ui-mono); font-size: 10px; color: var(--inv-muted, #8b94a0); }
 .trade-grids .inv-tile { cursor: grab; }
 .trade-grids .inv-tile.is-staged { opacity: 0.3; filter: grayscale(0.7); cursor: default; }
-/* drag ghost: same tile content, following the cursor above everything */
+/* drag ghost: same tile content, following the cursor above everything. Moved by `transform` only, one write per
+   frame — no `filter` (a drop-shadow filter re-rasterised the ghost on every move) and no legendary glow loop. */
 .tg-ghost {
-  position: fixed; z-index: 999; pointer-events: none;
-  opacity: 0.9; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.6));
+  position: fixed; left: 0; top: 0; z-index: 999; pointer-events: none;
+  opacity: 0.92; will-change: transform; transition: none; animation: none;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
 }
 .tg-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }
+/* 2026-09-12: `buildItemTile` — a grid-look tile placed by another folder (no absolute cell position) */
+.inv-tile.is-standalone {
+  --inv-ok: #4fd17e; --inv-accent: #f0c46a; --inv-bad: #ff5c5c; --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  position: relative; left: auto; top: auto; cursor: default; flex: none;
+}
 
 /* ── Phase 10: 분대원 장비 열람 (`ui/CrewLoadoutView.ts`) ─────────────────────
    The view is embedded in a `hub/`-owned popup, i.e. OUTSIDE `.inv-root`, so it re-declares the palette tokens the

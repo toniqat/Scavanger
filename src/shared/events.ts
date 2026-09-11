@@ -1106,3 +1106,22 @@ export interface GameEvents {
   /** A-15 (owner: inventory): 주머니 장착 · 내용물이 바뀌었다. ui/ 가 퀵슬롯 아래 격자를 다시 그린다. */
   'inventory:pouchChanged': Record<string, never>;
 }
+
+/* ══ appended: 2026-09-12 — 시설 관리 가구 위치 이동 ══ */
+export interface GameEvents {
+  /**
+   * (owner: ui — `hud/ShipManage` 인스펙터의 `위치 이동` 버튼): 배치된 조각 `uid` 를 **위치 이동 상태**로 들어 달라.
+   * hub/ 의 `HousingMode` 가 유일한 소비자다 — E 키로 들어가는 것과 같은 길을 탄다.
+   */
+  'housing:moveRequested': { uid: string };
+  /**
+   * (owner: hub — `HousingMode`): 시설 관리의 **위치 이동 상태**가 바뀌었다. `active` = 커서에 가구가 들려 있다
+   * (배치된 조각을 옮기는 중이면 `uid`, 가구 창고에서 새로 놓는 중이면 `uid: null` + `defId`).
+   */
+  'housing:moveStateChanged': { active: boolean; uid: string | null; defId: string | null };
+  /**
+   * (owner: hub — `HousingMode`): 위치 이동 상태에서 놓을 수 없는 곳을 클릭했다. ui/hud/ShipManage 가 인스펙터
+   * **위쪽**에 짧은 토스트로 띄운다 (전역 `ui:notify` 가 아닌 이유 — 사용자가 본 자리 바로 위에 떠야 한다).
+   */
+  'housing:placeRefused': { reason: string };
+}

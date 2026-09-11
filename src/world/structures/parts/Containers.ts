@@ -147,8 +147,11 @@ export class ContainerSet {
       this.group.add(root);
       game.interactables.register(inst.interactable);
       if (!spec.dynamic) {
-        ctx.hash.add(new THREE.Vector3(spec.position.x, spec.position.y, spec.position.z),
-          STYLE_R[spec.style], STYLE_H[spec.style], 'container');
+        /* 2026-09-12: 콜라이더는 그린 몸통(뚜껑 폭 `1.9r × 1.35r`) 상자다. 예전 반지름 `r` 원기둥은 문 쪽 · 등 쪽으로
+         * 20 cm 넘게 보이지 않는 벽이었다 (실내 "보이지 않는 벽" 보고). 낮은 궤짝(0.85 m)은 상자 규칙대로 올라선다. */
+        const r = STYLE_R[spec.style];
+        ctx.hash.addBox(new THREE.Vector3(spec.position.x, spec.position.y, spec.position.z),
+          r * 0.95, r * 0.675, spec.yaw, STYLE_H[spec.style], 'container');
       }
     }
     ctx.root.add(this.group);

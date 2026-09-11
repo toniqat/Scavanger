@@ -10,12 +10,13 @@
  *
  * 순수 판정(배양 시간 · 진행도 · 남은 초)은 전부 `../Rules.ts` 에 있고, 여기서는 상태를 바꾼다.
  */
-import type { CultureSlot, CultureSlotInfo, ItemDef, PlacedFurniture } from '@/shared';
+import type { CultureSlot, CultureSlotInfo, HarvestDestination, ItemDef, PlacedFurniture } from '@/shared';
 import { CULTURE_MAX_SLOTS, cultureSlotUnlockLevel, cultureSlotsForLevel } from '@/shared';
 import { cultureDurationMs, growProgress, growRemainingS } from '../Rules';
 import { isCultureTankDefId } from '../ShipState';
 import { formatRemaining } from '../ui/dom';
 import type { HousingSystem } from '../HousingSystem';
+import { deliverItem, noRoomReason } from './Deliver';
 
 /* ── state access ──────────────────────────────────────────────────────── */
 /**
@@ -179,12 +180,13 @@ export function fillMedium(sys: HousingSystem, uid: string, slot: number, medium
  * Scrape a 칸 back to 배지 없음. **The 배지 is not returned** — 남은 횟수가 있어도 버려진다 (부은 흙과 같다).
  * Refused while something is culturing in it.
  */
-export function clearMedium(sys: HousingSystem, uid: string, slot: number): string | null {
+export function clearMedium(sys: HousingSystem, uid: string, slot: number, discardStrain = false): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c) return '배지가 없습니다';
-  if (c.strainDefId) return '배양 중인 세포주를 먼저 수확하세요';
+  // 2026-09-12: 우클릭 「세포주 버리고 배지 비우기」 — 버리겠다고 한 경우만 통과한다
+  if (c.strainDefId && !discardStrain) return '배양 중인 세포주를 먼저 수확하세요';
   const list = sys.cultures();
   list.splice(list.indexOf(c), 1);
   sys.cultureChanged(uid, 'mediumClear');
@@ -218,7 +220,7 @@ export function insertStrain(sys: HousingSystem, uid: string, slot: number, stra
  * Harvest one finished 칸 into the bag (stash fallback). Spends one `mediumUsesLeft`: the 칸 empties completely at 0,
  * otherwise it goes back to 넣을 준비가 된 배지.
  */
-export function harvestCulture(sys: HousingSystem, uid: string, slot: number): string | null {
+export function harvestCulture(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
@@ -231,11 +233,7 @@ export function harvestCulture(sys: HousingSystem, uid: string, slot: number): s
   // 배양조는 채집이 아니다 — 원예 `gatherYieldMul` 을 곱하지 않는다 (산출량은 세포주가 정한 그대로다)
   const qty = Math.max(1, Math.floor(strain.outputQty));
   const item = loot.createItem(strain.outputDefId, qty);
-  const inv = sys.ctx.inventory;
-  const where = inv && typeof inv.tryAddItemAnywhere === 'function'
-    ? inv.tryAddItemAnywhere(item)
-    : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
-  if (!where) return '가방과 창고에 자리가 없습니다';
+  if (!deliverItem(sys, item, dest)) return noRoomReason(dest);
   // the 배지 is spent per harvest: at 0 the 칸 goes back to 배지 없음, otherwise it can take a new 세포주
   delete c.strainDefId; delete c.startedAt; delete c.readyAt;
   c.mediumUsesLeft -= 1;

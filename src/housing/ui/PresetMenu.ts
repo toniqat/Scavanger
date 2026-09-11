@@ -1,4 +1,5 @@
 import type { GameContext, ImplantId, LoadoutPreset } from '@/shared';
+import { FURNITURE_DEF_MAP } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { HousingPanel } from './Panel';
 import { clear, el, isolateInput, setText } from './dom';
@@ -16,8 +17,9 @@ const SLOT_LABEL: ReadonlyArray<[keyof LoadoutPreset, string]> = [
  * 프리셋 메뉴 (`openPresetMenu()`): one card per preset slot (`getPresetCount()`): name field, 현재 장비 저장, 적용,
  * 삭제 and the slot contents; the last apply result (장착 n · 없음 list) is shown under the list.
  *
- * Phase 8 UI pass: the only way in is the **관물대** (`furn_range_console`) placed in a 사격장 room — the 시설 메뉴 and
- * its 프리셋 button are gone, so the header no longer links back to one.
+ * Phase 8 UI pass: the only way in is the **관물대** (`furn_range_console`) placed in a 시뮬레이션실 — the 시설 메뉴 and
+ * its 프리셋 button are gone, so the header no longer links back to one. 2026-09-12: the slot count is the 관물대's
+ * own level now (the 사격장 room level is gone), so the subtitle reads it from the placed piece.
  */
 export class PresetMenu extends HousingPanel {
   private subtitle: HTMLElement;
@@ -81,8 +83,11 @@ export class PresetMenu extends HousingPanel {
   refresh(): void {
     const h = this.housing;
     const presets = h.getPresets();
-    const range = h.getFacility('range');
-    setText(this.subtitle, range.level > 0 ? `사격장 Lv.${range.level} · 슬롯 ${presets.length}개` : '사격장 방이 없습니다 — 방 용도를 사격장으로 정하면 프리셋 슬롯이 열립니다.');
+    let consoleLv = 0;
+    for (const f of h.getPlaced()) if (FURNITURE_DEF_MAP.get(f.defId)?.interaction === 'range_console') consoleLv = Math.max(consoleLv, f.level);
+    setText(this.subtitle, consoleLv > 0
+      ? `관물대 Lv.${consoleLv} · 슬롯 ${presets.length}개`
+      : '관물대가 없습니다 — 시뮬레이션실에 관물대를 놓으면 프리셋 슬롯이 열립니다.');
     clear(this.list);
     if (!presets.length) el('div', { cls: 'hs-empty', text: '프리셋 슬롯이 없습니다', parent: this.list });
     presets.forEach((preset, i) => {

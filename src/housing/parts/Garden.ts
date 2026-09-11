@@ -9,7 +9,7 @@
  *
  * 순수 판정(층 개방 · 궁합 · 성장 시간 · 진행도)은 전부 `../Rules.ts` 에 있다.
  */
-import type { GrowPlotInfo, GrowSlot, GrowSlotInfo, GrowTier, ItemDef, PlacedFurniture, SoilTag } from '@/shared';
+import type { GrowPlotInfo, GrowSlot, GrowSlotInfo, GrowTier, HarvestDestination, ItemDef, PlacedFurniture, SoilTag } from '@/shared';
 import { GROW_SLOTS_PER_TIER, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, growTiersForLevel } from '@/shared';
 import {
   growDurationMs, growProgress, growRemainingS, growTierOpen, growTierUnlockLevel, soilMatches,
@@ -17,6 +17,7 @@ import {
 import { isGrowStationDefId } from '../ShipState';
 import { formatRemaining } from '../ui/dom';
 import { RETIRED_RACK_REASON } from '../model';
+import { deliverItem, noRoomReason } from './Deliver';
 import type { HousingSystem } from '../HousingSystem';
 
 /* ── state access ──────────────────────────────────────────────────────── */
@@ -198,12 +199,13 @@ export function fillSoil(sys: HousingSystem, uid: string, tier: GrowTier, slot: 
  * Scrape a 칸 back to 흙 없음. **The soil is not returned** — 남은 횟수가 있어도 버려진다 (한 번 부은 흙은 다시
  * 담지 않는다, 사용자 결정). Refused while something is planted in it.
  */
-export function clearSoil(sys: HousingSystem, uid: string, tier: GrowTier, slot: number): string | null {
+export function clearSoil(sys: HousingSystem, uid: string, tier: GrowTier, slot: number, discardCrop = false): string | null {
   const block = slotBlock(sys, uid, tier, slot);
   if (block) return block;
   const g = sys.growSlotAt(uid, tier, slot);
   if (!g) return '흙이 없습니다';
-  if (g.seedDefId) return '심어진 씨앗을 먼저 수확하세요';
+  // 2026-09-12: 흙구멍 우클릭 「작물 버리고 흙 비우기」 — 작물까지 버리겠다고 한 경우만 통과한다
+  if (g.seedDefId && !discardCrop) return '심어진 씨앗을 먼저 수확하세요';
   const list = sys.grows();
   list.splice(list.indexOf(g), 1);
   sys.growChanged(uid, 'soilClear');
@@ -238,7 +240,7 @@ export function plantSeedAt(sys: HousingSystem, uid: string, tier: GrowTier, slo
  * Harvest one ripe 칸 into the bag (stash fallback). Spends one `soilUsesLeft`: the 칸 empties completely at 0,
  * otherwise it goes back to 심을 준비가 된 흙.
  */
-export function harvestAt(sys: HousingSystem, uid: string, tier: GrowTier, slot: number): string | null {
+export function harvestAt(sys: HousingSystem, uid: string, tier: GrowTier, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, tier, slot);
   if (block) return block;
   const g = sys.growSlotAt(uid, tier, slot);
@@ -250,11 +252,7 @@ export function harvestAt(sys: HousingSystem, uid: string, tier: GrowTier, slot:
   if (!seed || !loot || typeof loot.createItem !== 'function') return '수확물을 만들 수 없습니다';
   const qty = sys.yieldQty(seed.yieldQty);
   const item = loot.createItem(seed.yieldDefId, qty);
-  const inv = sys.ctx.inventory;
-  const where = inv && typeof inv.tryAddItemAnywhere === 'function'
-    ? inv.tryAddItemAnywhere(item)
-    : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
-  if (!where) return '가방과 창고에 자리가 없습니다';
+  if (!deliverItem(sys, item, dest)) return noRoomReason(dest);
   // the soil is spent per harvest: at 0 the 칸 goes back to 흙 없음, otherwise it is ready to take a new seed
   delete g.seedDefId; delete g.plantedAt; delete g.readyAt;
   g.soilUsesLeft -= 1;

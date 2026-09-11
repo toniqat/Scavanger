@@ -1,5 +1,5 @@
 // Smoke test for the 시뮬레이션 훈련장 (Phase 7 §9, world + hub folders, 2026-09-06):
-// personal ship → 사격장 room (room 6, built here — a new ship has no facility rooms) with a real `furn_sim_hub` (placed through `ctx.housing`, holo pedestal + spinning rings)
+// personal ship → 시뮬레이션실 (옛 사격장) room (room 6, built here — a new ship has no facility rooms) with a real `furn_sim_hub` (placed through `ctx.housing`, holo pedestal + spinning rings)
 // → E on the hub → `game:newMission {mode:'training'}` → arena world (flat floor, walls, 12 pop-up targets, exit console,
 // no crates / nests / gather / extraction, space-mode "indoor" look, `ui:objective` counter) → arena queries (height /
 // bounds / collision clamp / raycast floor + wall + target cylinder) → the real gun knocks target 0 down through the

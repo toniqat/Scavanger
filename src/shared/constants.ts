@@ -614,8 +614,10 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
  * placed or stored, is refunded as materials into the 함선 창고 and its `plots` are dropped (사용자 결정: 옛 것 폐기).
  * 연구실 (2026-09-11): **5** = `analyses` / `sampleDex` (분석기). 없으면 빈 것으로 migrate — 버릴 데이터가 없다.
  * 배양조 (2026-09-11, A-14): **6** = `cultures`. v5 → v6 도 없던 필드가 생기는 것뿐이라 환불 경로가 없다.
+ * 방 시설 레벨 제거 (2026-09-12): **7** — 모양은 같다. `RoomState.level` 이 늘 1 이 되고, v6 이하 세이브의 작업실 ·
+ * 사격장 레벨은 관물대 · 시뮬레이션 허브 레벨로 옮겨지거나 재료로 환불된다 (`housing/ShipState.sanitize`, 한 번만).
  */
-export const SHIP_STATE_VERSION = 6;
+export const SHIP_STATE_VERSION = 7;
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');

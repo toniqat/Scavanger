@@ -1,8 +1,9 @@
 /**
  * src/housing/parts/Rooms.ts — **방 용도와 시설 레벨**.
  *
- * 빈 방에 용도를 주는 것이 **시설 증축**(재료 소모, 발전기 Lv.1 게이트, 함선당 하나)이고,
- * 그 뒤로는 레벨을 올린다. 제거하면 가구는 가구 창고로, 업그레이드 재료는 함선 창고로 전액 돌아온다.
+ * 빈 방에 용도를 주는 것이 **시설 증축**(재료 소모, 발전기 Lv.1 게이트, 함선당 하나)이다. 2026-09-12 부터 방 시설
+ * (작업실 · 시뮬레이션실)에는 레벨이 없고 발전기 · 창고만 레벨을 올린다 — 방의 강화는 그 안의 가구가 한다
+ * (`placedLevelOf`). 제거하면 가구는 가구 창고로, 증축 재료는 함선 창고로 전액 돌아온다.
  * 규칙 자체는 `Rules.ts` 가 갖고, 여기서는 그 규칙에 따라 재료를 소모하고 상태를 쓴다.
  */
 import type {
@@ -127,6 +128,7 @@ export function getFacility(sys: HousingSystem, id: FacilityId): FacilityInfo {
 
 export function upgrade(sys: HousingSystem, id: FacilityId): boolean {
   if (!FACILITY_IDS.includes(id)) return false;
+  if (id === 'workshop' || id === 'range') return false;   // 2026-09-12: 방 시설(작업실 · 시뮬레이션실)에는 레벨이 없다
   const info = sys.getFacility(id);
   if (info.blocked || !info.nextCost) return false;
   if (!sys.consume(info.nextCost)) return false;
@@ -225,9 +227,22 @@ export function getBenchLevel(sys: HousingSystem, kind: WorkbenchKind): number {
   return best;
   }
 
-export function getCraftCostMul(sys: HousingSystem): number { return craftCostMulFor(facilityLevel(sys.state, 'workshop')); }
+/** Always 1 since 2026-09-12 — the 작업실 discount left with the room levels (`Rules.craftCostMulFor`). */
+export function getCraftCostMul(sys: HousingSystem): number { return craftCostMulFor(0); }
 
-/** 사격장 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
-export function getSkillGainMul(sys: HousingSystem, skill: SkillId): number { return skillGainMulFor(skill, facilityLevel(sys.state, 'range')) * sys.getBookBonus(skill); }
+/**
+ * Highest level of a **placed** piece whose E does `interaction` (0 = none on the ship). 2026-09-12: the room
+ * facility levels are gone; 관물대 (`range_console`) and 시뮬레이션 허브 (`sim_hub`) carry them now.
+ */
+export function placedLevelOf(sys: HousingSystem, interaction: string): number {
+  let best = 0;
+  for (const f of sys.state.furniture) {
+    if (FURNITURE_DEF_MAP.get(f.defId)?.interaction === interaction) best = Math.max(best, f.level);
+  }
+  return best;
+}
+
+/** 시뮬레이션 허브 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
+export function getSkillGainMul(sys: HousingSystem, skill: SkillId): number { return skillGainMulFor(skill, placedLevelOf(sys, 'sim_hub')) * sys.getBookBonus(skill); }
 
 export function getStashSize(sys: HousingSystem): { cols: number; rows: number } { return stashSizeFor(sys.state.storageLevel); }

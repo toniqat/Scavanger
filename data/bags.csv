@@ -2,12 +2,15 @@
 # tactical = 전술 조끼 일체형 (아이콘이 달라진다).
 # 무게는 1.2 + 칸수 × 0.02 로 자동 계산된다 (bagWeightBase / bagWeightPerCell, tuning.csv).
 # durabilityMax = 최대 내구도. 레이드 1회마다 장착 가방이 BAG_DURABILITY_PER_RAID(constants.csv)만큼 닳는다 — 0 이어도 격자는 그대로이고 수리비만 크다.
+# 2026-09-12 (사용자 결정): 가방은 전부 **가로 5칸 · 세로로 길다**. 옛 칸 수(cols×6)를 5의 배수로 반올림했다
+#   (고급 36→35 · 희귀 48→50 · 서사 54→55 · 희귀 전술 42→40 · 서사 전술 48→50 · 전설 전술 54→55). 가장 긴 가방(전설 5×12)이
+#   인벤토리 화면의 가방 틀 높이를 정한다 — 이 표에서 rows 를 늘리면 틀도 같이 커진다. 가로 5 는 가장 넓은 아이템(저격소총 5×1)이 정한다.
 id,name,rarity,value,cols,rows,quickSlots,tactical,durabilityMax,description
 bag_common,일반 가방,common,120,5,6,2,,100,"표준 지급 배낭. 5×6 칸, 퀵슬롯 2."
-bag_uncommon,고급 가방,uncommon,260,6,6,3,,100,"보강된 배낭. 6×6 칸, 퀵슬롯 3."
-bag_rare,희귀 가방,rare,520,8,6,4,,100,"군용 대형 배낭. 8×6 칸, 퀵슬롯 4."
-bag_epic,서사 가방,epic,980,9,6,5,,100,"특수부대용 배낭. 9×6 칸, 퀵슬롯 5."
-bag_legendary,전설 가방,legendary,1800,10,6,6,,100,"헬다이버 원정용 배낭. 10×6 칸, 퀵슬롯 6."
-bag_rare_tac,희귀 전술 가방,rare,560,7,6,7,true,100,"전술 조끼 일체형. 7×6 칸, 퀵슬롯 7."
-bag_epic_tac,서사 전술 가방,epic,1050,8,6,8,true,100,"전술 조끼 일체형. 8×6 칸, 퀵슬롯 8."
-bag_legendary_tac,전설 전술 가방,legendary,1950,9,6,8,true,100,"전술 조끼 일체형. 9×6 칸, 퀵슬롯 8."
+bag_uncommon,고급 가방,uncommon,260,5,7,3,,100,"보강된 배낭. 5×7 칸, 퀵슬롯 3."
+bag_rare,희귀 가방,rare,520,5,10,4,,100,"군용 대형 배낭. 5×10 칸, 퀵슬롯 4."
+bag_epic,서사 가방,epic,980,5,11,5,,100,"특수부대용 배낭. 5×11 칸, 퀵슬롯 5."
+bag_legendary,전설 가방,legendary,1800,5,12,6,,100,"헬다이버 원정용 배낭. 5×12 칸, 퀵슬롯 6."
+bag_rare_tac,희귀 전술 가방,rare,560,5,8,7,true,100,"전술 조끼 일체형. 5×8 칸, 퀵슬롯 7."
+bag_epic_tac,서사 전술 가방,epic,1050,5,10,8,true,100,"전술 조끼 일체형. 5×10 칸, 퀵슬롯 8."
+bag_legendary_tac,전설 전술 가방,legendary,1950,5,11,8,true,100,"전술 조끼 일체형. 5×11 칸, 퀵슬롯 8."

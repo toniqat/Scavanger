@@ -266,7 +266,7 @@ try {
     tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
     lifted: document.querySelector('.tut-panel')?.classList.contains('is-lifted') ?? false,
   }));
-  ok(genUi.gen, '용도 목록 맨 위에 발전기 행이 있다');
+  ok(genUi.gen, '발전기 행이 있다 (2026-09-12: 용도 목록이 아니라 방 목록 아래)');
   ok(genUi.purposes.length === 1 && genUi.purposes[0] === 'workshop',
     '작업실 외의 용도는 사유가 아니라 아예 목록에서 빠진다', JSON.stringify(genUi.purposes));
   ok(/발전기/.test(genUi.tip), `말풍선이 발전기를 가리킨다 ("${genUi.tip}")`);

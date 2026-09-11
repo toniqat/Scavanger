@@ -71,7 +71,7 @@ try {
   await sleep(300);
   await shot('04-corp-trade');
   await page.evaluate(() => {
-    for (const c of [...document.querySelectorAll('.ct-shop-list .ct-cell.shop.is-draggable')].slice(0, 3)) c.click();
+    for (const c of [...document.querySelectorAll('.cv-shop .cv-tile.shop.is-draggable')].slice(0, 3)) c.click();
     const inv = window.__game.ctx.inventory;
     const first = inv.getAllItems()[0];
     return first?.uid;

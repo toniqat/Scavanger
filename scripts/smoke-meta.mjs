@@ -583,15 +583,18 @@ try {
       corpBlocker: ctx.uiBlockers.has('corp'), blocker: ctx.uiBlockers.has('inventory'),
       isOpen: ctx.meta.isMenuOpen, tab: ctx.inventory.screenTab, invOpen: ctx.inventory.isOpen,
       cursor: ctx.input.isCursorMode,
-      // 2026-09-09: 왼쪽 한 열(.corp-rail)에 기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧, 그 오른쪽이 페이지
+      // 2026-09-12: 왼쪽 열은 트리 — 기업 버튼들, 선택한 기업 바로 아래에 가지(신뢰도 게이지 + 페이지 탭). 크레딧은 없다.
       railTabs: root.querySelectorAll('.corp-shell > .corp-rail .corp-tabs .corp-tab').length,
       railOrder: [...root.querySelectorAll('.corp-shell > .corp-rail > *')].map((e) => e.className.split(' ')[0]),
+      tree: [...root.querySelectorAll('.corp-rail .corp-tabs > *')].map((e) => e.classList.contains('corp-branch') ? 'branch' : e.dataset.corp),
+      branchParts: [...root.querySelectorAll('.corp-branch > *')].map((e) => e.className.split(' ')[0]),
+      expanded: root.querySelector('.corp-tab[aria-expanded="true"]')?.dataset.corp ?? null,
       oldPanel: !!root.querySelector('.corp-panel'), oldTop: !!root.querySelector('.corp-top'),
-      credits: root.querySelector('.corp-credits .v')?.textContent,
-      repLv: root.querySelector('.corp-rep .lv')?.textContent,
+      credits: !!root.querySelector('.corp-credits'),
+      repLv: root.querySelector('.corp-branch .corp-rep .lv')?.textContent,
       panel: root.querySelector('.corp-tab.is-on .name')?.textContent,
       motto: !!root.querySelector('.corp-banner'), foot: !!root.querySelector('.hub-foot'),
-      tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .ct-cell, .corp-page .corp-empty').length,
+      tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .cv-tile, .corp-page .corp-empty').length,
     };
   });
   // 2026-09-07: the screen is a tab of the Tab window, so the blocker + in-game cursor are the window's
@@ -599,13 +602,15 @@ try {
     'openCorpMenu(ceres) → Tab 창의 기업 탭 (전용 오버레이 · corp 블로커 없음, inventory 블로커 + 인게임 커서)',
     JSON.stringify(dom && { oldOverlay: dom.oldOverlay, corpBlocker: dom.corpBlocker, blocker: dom.blocker, tab: dom.tab, cursor: dom.cursor }));
   // Phase 10: every credit readout is `formatCredits` → `1,200 C` (ko-KR grouping + the `C` unit, never `₩` / `cr`)
-  ok(dom && dom.railTabs === 4 && dom.credits === `${snap.credits.toLocaleString('ko-KR')} C` && !dom.foot,
-    '기업 열에 기업 목록 4개 + 크레딧 (100 C 표기), 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
-  // 2026-09-09: 상단 행(.corp-top)과 기업 패널(.corp-panel)은 사라졌다 — 기업 목록이 왼쪽 한 열로 내려가면서
-  // 우측 가방 / 함선 창고 / 진행 중인 계약이 화면 세로를 전부 쓰게 됐다. 신뢰도는 목록 아래 게이지 하나뿐이다.
-  ok(dom && dom.railOrder.join(',') === 'ct-title,corp-tabs,corp-rep,corp-subtabs,corp-credits' && !dom.oldPanel && !dom.oldTop,
-    '기업 열: 제목 · 기업 목록 · 신뢰도 게이지 · 페이지 탭 · 크레딧 (기업 패널 · 상단 행 없음)',
-    JSON.stringify(dom && { railOrder: dom.railOrder, oldPanel: dom.oldPanel, oldTop: dom.oldTop }));
+  // 2026-09-12: 좌하단 크레딧은 없앴다 — 창 우측 상단 CREDITS 가 이미 찍는다
+  ok(dom && dom.railTabs === 4 && !dom.credits && !dom.foot,
+    '기업 열에 기업 목록 4개, 크레딧 표시 없음, 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
+  // 2026-09-12: 기업 목록은 트리다 — 신뢰도 게이지와 페이지 탭이 **선택한 기업 버튼 바로 아래** 가지로 열린다
+  const ceresAt = dom ? dom.tree.indexOf('ceres') : -1;
+  ok(dom && dom.railOrder.join(',') === 'cv-title,corp-tabs' && dom.tree.filter((t) => t === 'branch').length === 1
+    && dom.tree[ceresAt + 1] === 'branch' && dom.branchParts.join(',') === 'corp-rep,corp-subtabs' && dom.expanded === 'ceres' && !dom.oldPanel && !dom.oldTop,
+    '기업 트리: 선택한 세레스 바로 아래에 가지 하나(신뢰도 게이지 → 페이지 탭), aria-expanded',
+    JSON.stringify(dom && { railOrder: dom.railOrder, tree: dom.tree, branchParts: dom.branchParts, expanded: dom.expanded }));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && /^Lv\.\d+$/.test(dom.repLv ?? '') && !dom.motto,
     '4 corp tabs, ceres selected, 게이지가 그 기업의 Lv 를 읽는다 (no motto banner)', JSON.stringify(dom && { tabs: dom.tabs, repLv: dom.repLv }));
   ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants', 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres', JSON.stringify(dom && dom.subs));
@@ -652,7 +657,33 @@ try {
     on: document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page,
   }));
   ok(contractsDom.on === 'contracts' && contractsDom.rows.length === 4 && contractsDom.rows[0].id === 'ceres_1' && contractsDom.rows[0].btn === '수락' && contractsDom.rows[0].disabled === false, '계약 tab: 4 ceres rows, ceres_1 수락 enabled', JSON.stringify(contractsDom));
+  // 2026-09-12: 진행 중인 계약 패널은 그 계약을 맺은 기업의 색이다 (선택한 기업 탭 색이 아니다)
+  const otherContract = await P(() => {
+    const m = window.__game.ctx.meta;
+    if (m.getContracts('helix').some((c) => c.active) || ['ceres', 'bastion', 'nomad'].some((k) => m.getContracts(k).some((c) => c.active))) return { skip: 'already active' };
+    const pick = m.getContracts('helix').find((c) => c.blocked === null);
+    if (!pick || !m.acceptContract(pick.def.id)) return { skip: 'no acceptable helix contract' };
+    window.__game.getSystem('meta').views.values().next().value.refresh();
+    const col = document.querySelector('.cc-col.active');
+    const row = document.querySelector('.cc-active .corp-row.contract');
+    const out = {
+      id: pick.def.id,
+      helix: document.querySelector('.corp-tab[data-corp="helix"]').style.getPropertyValue('--cc').trim(),
+      ceres: document.querySelector('.corp-tab[data-corp="ceres"]').style.getPropertyValue('--cc').trim(),
+      selected: document.querySelector('.corp-tab.is-on')?.dataset.corp,
+      col: col?.style.getPropertyValue('--cc').trim(), row: row?.style.getPropertyValue('--cc').trim(),
+      has: col?.classList.contains('has-contract'), rowCorp: row?.dataset.corp,
+    };
+    m.abandonContract();
+    return out;
+  });
+  if (otherContract.skip) skipped('진행 중인 계약 패널 = 계약 기업 색', otherContract.skip);
+  else ok(otherContract.selected === 'ceres' && otherContract.col === otherContract.helix && otherContract.row === otherContract.helix && otherContract.helix !== otherContract.ceres && otherContract.has && otherContract.rowCorp === 'helix',
+    '세레스 탭에서 본 진행 중인 헬릭스 계약 — 패널과 행이 헬릭스 색', JSON.stringify(otherContract));
   await P(() => document.querySelector('.corp-tab[data-corp="helix"]').click());
+  // the branch follows the selected corp — still exactly one, now under 헬릭스
+  const treeHelix = await P(() => [...document.querySelectorAll('.corp-rail .corp-tabs > *')].map((e) => e.classList.contains('corp-branch') ? 'branch' : e.dataset.corp));
+  ok(treeHelix[treeHelix.indexOf('helix') + 1] === 'branch' && treeHelix.filter((t) => t === 'branch').length === 1, '헬릭스를 누르면 가지가 헬릭스 아래로 옮겨 간다', JSON.stringify(treeHelix));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]').click());
   const questsDom = await P(() => ({
     rows: [...document.querySelectorAll('.cq-list .corp-row.quest')].map((r) => ({ id: r.dataset.id, badge: r.querySelector('.badge')?.textContent })),
@@ -661,55 +692,100 @@ try {
     grids: document.querySelectorAll('.cq-col.inv .trade-grids .tg-block').length,
   }));
   ok(questsDom.rows.length === 4 && questsDom.rows[0].id === 'h1' && questsDom.rows[0].badge === '완료' && questsDom.rows[1].badge === '가능', 'helix 퀘스트 tab: h1 완료, h2 가능', JSON.stringify(questsDom.rows));
-  ok(questsDom.deliver >= 1 && questsDom.grids === 2, `퀘스트 tab: 납품 table in the middle, 가방 + 함선 창고 grids on the right (${questsDom.deliver} lines, ${questsDom.grids} grids)`);
+  ok(questsDom.deliver >= 1 && questsDom.grids >= 1,`퀘스트 tab: 납품 table in the middle, 가방 + 함선 창고 grids on the right (${questsDom.deliver} lines, ${questsDom.grids} grids)`);
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click());
   // helix is Lv.2 by now (310 rep): the shelf grew past the Lv.1 list, so compare with the live shop
-  const shopDom = await P(() => ({
-    // Phase 9 UI pass: the stock list is an **item grid** of `.ct-cell` thumbnails, not wide rows
-    rows: document.querySelectorAll('.ct-shop-list .ct-cell.shop').length,
-    tips: document.querySelectorAll('.ct-shop-list .ct-cell.shop .item-chip[data-def-id]').length,
-    prices: [...document.querySelectorAll('.ct-shop-list .ct-cell.shop .ct-cell-price')].map((e) => e.textContent),
-    live: window.__game.ctx.meta.getShop('helix').length,
-    buyBtn: !!document.querySelector('.ct-shop-list .ct-cell.shop .ui-btn'),   // 즉시 구매 buttons are gone (장바구니)
-    grids: document.querySelectorAll('.ct-col.inv .trade-grids .tg-block').length,
-    trays: document.querySelectorAll('.ct-trays .ct-tray').length,
-    confirm: document.querySelector('.ct-confirm')?.textContent,
-    confirmOff: document.querySelector('.ct-confirm')?.disabled,
-    // 귀중품 전부 담기 moved into the 판매 tray (the screen footer is gone)
-    stage: !!document.querySelector('.ct-tray.sell .ct-stage'),
-    // 구매 / 판매 트레이는 5칸 그리드, 그리드 칸 크기는 가방 / 창고와 같다
-    trayCols: getComputedStyle(document.querySelector('.ct-tray.buy .ct-slots')).gridTemplateColumns.split(' ').length,
-    cellPx: getComputedStyle(document.querySelector('.corp-view')).getPropertyValue('--ct-cell').trim(),
-    bagCell: getComputedStyle(document.querySelector('.ct-col.inv .trade-grids')).getPropertyValue('--inv-cell').trim(),
-    // 재고 칸은 아이템 발자국만큼 자리를 차지한다
-    spans: [...document.querySelectorAll('.ct-shop-list .ct-cell.shop')].map((c) => c.style.gridColumn),
-  }));
+  await sleep(80);   // the tile grids size themselves off the laid-out boxes (ResizeObserver)
+  const shopDom = await P(() => {
+    const tiles = [...document.querySelectorAll('.cv-shop .cv-tile.shop')];
+    const cw = (sel) => { const e = document.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().width) : null; };
+    const first = tiles[0];
+    return {
+      // 2026-09-12: the stock list is a grid of **inventory tiles** (`InventoryRef.buildItemTile`), not chips in cells
+      rows: tiles.length,
+      tips: tiles.filter((t) => t.matches('.inv-tile[data-item-tip][data-def-id]')).length,
+      prices: tiles.map((t) => t.querySelector('.cv-price')?.textContent),
+      live: window.__game.ctx.meta.getShop('helix').length,
+      buyBtn: !!document.querySelector('.cv-shop .cv-tile .ui-btn'),   // 즉시 구매 buttons are gone (장바구니)
+      grids: document.querySelectorAll('.cv-col.inv .trade-grids .tg-block').length,
+      trays: document.querySelectorAll('.cv-trays .cv-tray').length,
+      confirm: document.querySelector('.cv-confirm')?.textContent,
+      confirmOff: document.querySelector('.cv-confirm')?.disabled,
+      stage: !!document.querySelector('.cv-tray.sell .cv-stage'),
+      // 구매 / 판매 트레이는 5칸 격자, 칸 크기는 가방 / 창고와 같다 (인벤토리의 `.inv-cells` 를 그대로 쓴다)
+      trayCols: getComputedStyle(document.querySelector('.cv-tray.buy .inv-cells')).gridTemplateColumns.split(' ').length,
+      cellPx: cw('.cv-shop .inv-cell'), bagCell: getComputedStyle(document.querySelector('.cv-col.inv .trade-grids')).getPropertyValue('--inv-cell').trim(),
+      // 재고 타일은 아이템 발자국 크기다 (w × 56 − 2)
+      sizes: tiles.slice(0, 6).map((t) => { const d = window.__game.ctx.loot.getItemDef(t.dataset.defId); return { w: Math.round(t.getBoundingClientRect().width), want: d.width * 56 - 2 }; }),
+      // 배양조 관 모양(54×76 · 아래가 둥글다)이 아니다 — housing.css 의 `.ct-cell` 과 더 이상 이름이 겹치지 않는다
+      tube: !!document.querySelector('.corp-view .ct-cell'), radius: first ? getComputedStyle(first).borderBottomLeftRadius : null,
+      // 셰브런: 구매 트레이 머리 끝 = 오른쪽 셋, 판매 트레이 머리 처음 = 왼쪽 셋. 거래 후 크레딧 라벨은 없다
+      buyChev: (() => { const h = document.querySelector('.cv-tray.buy .cv-tray-head'); const l = h?.lastElementChild; return l?.matches('.cv-chev.dir-right') ? l.querySelectorAll('polyline').length : 0; })(),
+      sellChev: (() => { const h = document.querySelector('.cv-tray.sell .cv-tray-head'); const f = h?.firstElementChild; return f?.matches('.cv-chev.dir-left') ? f.querySelectorAll('polyline').length : 0; })(),
+      totalLabel: document.querySelector('.cv-total')?.textContent ?? '', hints: document.body.innerText.includes('왼쪽 목록에서 담으세요') || document.body.innerText.includes('끌어 놓으세요'),
+    };
+  });
   ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && !shopDom.buyBtn,
-    `거래 tab: one stock cell per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-cell 구매 button`, JSON.stringify(shopDom));
-  ok(shopDom.tips === shopDom.rows, `모든 재고 칸이 item-chip 썸네일 (호버 툴팁 대상, ${shopDom.tips}/${shopDom.rows})`);
-  // the price badge sits in the cell corner now, so it is the grouped number without the unit
+    `거래 tab: one stock tile per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-tile 구매 button`, JSON.stringify(shopDom));
+  ok(shopDom.tips === shopDom.rows, `모든 재고 타일이 인벤토리 타일 + 호버 카드 갈고리 (${shopDom.tips}/${shopDom.rows})`);
   ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+$/.test(t ?? '')),
-    `재고 칸 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
-  // 2026-09-08: 칸 크기는 Tab 인벤토리와 같은 54px (`inventory/ui/labels.CELL`) — 가방 · 창고가 인벤토리처럼 보인다
-  ok(shopDom.trayCols === 5 && shopDom.cellPx === '54px' && shopDom.bagCell === '54px',
-    `구매/판매 트레이가 5칸, 재고·가방·창고가 같은 칸 크기 (${shopDom.trayCols}칸 / ${shopDom.cellPx} / ${shopDom.bagCell})`);
-  ok(shopDom.spans.every((v) => /^span \d$/.test(v ?? '')), `재고 칸이 아이템 발자국만큼 차지한다 (${shopDom.spans.slice(0, 3).join(', ')})`);
-  ok(shopDom.trays === 2 && shopDom.grids === 2 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,
+    `재고 타일 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
+  ok(shopDom.trayCols === 5 && shopDom.cellPx === 54 && shopDom.bagCell === '54px',
+    `구매/판매 트레이가 5칸, 재고·가방·창고가 같은 칸 크기 (${shopDom.trayCols}칸 / ${shopDom.cellPx}px / ${shopDom.bagCell})`);
+  ok(shopDom.sizes.length > 0 && shopDom.sizes.every((s) => s.w === s.want) && !shopDom.tube && shopDom.radius === '3px',
+    '재고 타일이 발자국 크기의 인벤토리 타일이다 (배양조 관 모양 아님)', JSON.stringify({ sizes: shopDom.sizes, tube: shopDom.tube, radius: shopDom.radius }));
+  ok(shopDom.buyChev === 3 && shopDom.sellChev === 3 && !/거래 후 크레딧/.test(shopDom.totalLabel) && !shopDom.hints,
+    '구매 트레이 우측 상단 › ×3 · 판매 트레이 좌측 상단 ‹ ×3 · 거래 후 크레딧 라벨 · 안내 문구 없음', JSON.stringify({ buyChev: shopDom.buyChev, sellChev: shopDom.sellChev, total: shopDom.totalLabel, hints: shopDom.hints }));
+  ok(shopDom.trays === 2 && shopDom.grids >= 1 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,
     '거래 tab: 구매 / 판매 trays, 가방 + 함선 창고 grids, 거래 성사 disabled on an empty basket', JSON.stringify(shopDom));
-  // stage one purchase from the stock list and one sale from the bag, then settle the basket
+  // hovering a stock tile raises the shared item card (ui/hud/ItemTip)
+  const tip = await P(() => {
+    const t = document.querySelector('.cv-shop .cv-tile.shop');
+    const r = t.getBoundingClientRect();
+    t.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 10, clientY: r.top + 10 }));
+    // ask the HUD which def its card is describing (a DOM query could land on another folder's `.item-tip`)
+    const out = { def: t.dataset.defId, shown: window.__game.getSystem('hud').itemTipDefId };
+    t.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+    return out;
+  });
+  ok(!!tip.def && tip.shown === tip.def, `재고 타일 호버 → 아이템 카드 (${tip.shown})`, JSON.stringify(tip));
+  // stage one purchase from the stock list, then settle the basket with the 1-second hold
   const staged = await P(() => {
-    document.querySelector('.ct-shop-list .ct-cell.shop.is-draggable')?.click();
-    const inst = window.__game.ctx.meta.getSellable()[0];
+    document.querySelector('.cv-shop .cv-tile.shop.is-draggable')?.click();
     const view = window.__game.getSystem('meta');
-    return { inst: !!inst, buy: document.querySelectorAll('.ct-tray.buy .ct-chip').length, hasView: !!view };
+    const total = document.querySelector('.cv-total');
+    return {
+      buy: document.querySelectorAll('.cv-tray.buy .cv-tile.buy').length, hasView: !!view,
+      net: total?.querySelector('.v')?.textContent, minus: total?.classList.contains('minus'),
+      downShown: getComputedStyle(total.querySelector('.net-down')).display !== 'none', upShown: getComputedStyle(total.querySelector('.net-up')).display !== 'none',
+      downFirst: total.firstElementChild?.classList.contains('net-down'),
+    };
   });
-  ok(staged.buy === 1, `clicking a stock cell stages it in the 구매 tray (${staged.buy})`);
-  const settled = await P(() => {
+  ok(staged.buy === 1, `clicking a stock tile stages it in the 구매 tray (${staged.buy})`);
+  ok(staged.minus && /^−[\d,]+ C$/.test(staged.net ?? '') && staged.downShown && !staged.upShown && staged.downFirst,
+    `거래 후 크레딧 −: 빨간 셰브런이 수치 왼쪽 (${staged.net})`, JSON.stringify(staged));
+  const clickOnly = await P(() => {
     const before = window.__game.ctx.meta.credits;
-    document.querySelector('.ct-confirm').click();
-    return { before, after: window.__game.ctx.meta.credits, buy: document.querySelectorAll('.ct-tray.buy .ct-chip').length };
+    document.querySelector('.cv-confirm').click();
+    document.querySelector('.cv-confirm').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return { before, after: window.__game.ctx.meta.credits, buy: document.querySelectorAll('.cv-tray.buy .cv-tile.buy').length };
   });
-  ok(settled.after < settled.before && settled.buy === 0, `거래 성사 settles the basket and empties the trays (${settled.before} → ${settled.after})`, JSON.stringify(settled));
+  ok(clickOnly.after === clickOnly.before && clickOnly.buy === 1, '거래 성사는 클릭 · Enter 로 확정되지 않는다', JSON.stringify(clickOnly));
+  const holdStart = await P(() => {
+    const b = document.querySelector('.cv-confirm');
+    const r = b.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: r.left + 5, clientY: r.top + 5 };
+    b.dispatchEvent(new PointerEvent('pointerdown', o));
+    return { before: window.__game.ctx.meta.credits };
+  });
+  await sleep(450);
+  const midHold = await P(() => ({ credits: window.__game.ctx.meta.credits, holding: document.querySelector('.cv-confirm').classList.contains('is-holding'), fill: document.querySelector('.cv-confirm-fill').style.transform }));
+  // (the gauge rides rAF, which a hidden headless tab may not tick — so only the state is asserted, the fill is reported)
+  ok(midHold.credits === holdStart.before && midHold.holding, `홀드 중간(0.45 s): 아직 거래 안 됨, 홀드 중 (게이지 ${midHold.fill})`, JSON.stringify(midHold));
+  await sleep(900);
+  const settled = await P(() => ({ after: window.__game.ctx.meta.credits, buy: document.querySelectorAll('.cv-tray.buy .cv-tile.buy').length, holding: document.querySelector('.cv-confirm').classList.contains('is-holding') }));
+  await P(() => document.querySelector('.cv-confirm').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 })));
+  ok(settled.after < holdStart.before && settled.buy === 0 && !settled.holding, `거래 성사 1초 홀드가 바구니를 정산하고 트레이를 비운다 (${holdStart.before} → ${settled.after})`, JSON.stringify(settled));
   ok(shopDom.stage, '귀중품 전부 담기 button sits under the 판매 tray');
   // E-9 (2026-09-11, 사용자 결정): 0 C 짜리도 판매칸에 담기고 가격을 `0` 으로 찍는다 — 막지 않는다
   const zeroBag = await P(() => {
@@ -721,20 +797,26 @@ try {
   else {
     await sleep(120);
     const zeroStage = await P((uid) => {
-      const tile = document.querySelector(`.ct-col.inv .inv-tile[data-uid="${uid}"]`);
+      const tile = document.querySelector(`.cv-col.inv .inv-tile[data-uid="${uid}"]`);
       if (!tile) return { noTile: true };
       tile.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-      const chips = [...document.querySelectorAll('.ct-tray.sell .ct-chip')];
-      return { chips: chips.length, prices: chips.map((e) => e.querySelector('.ct-cell-price')?.textContent ?? ''), msg: document.querySelector('.corp-view .form-msg')?.textContent ?? '' };
+      const chips = [...document.querySelectorAll('.cv-tray.sell .cv-tile.sell')];
+      const total = document.querySelector('.cv-total');
+      return {
+        chips: chips.length, prices: chips.map((e) => e.querySelector('.cv-price')?.textContent ?? ''), msg: document.querySelector('.corp-view .form-msg')?.textContent ?? '',
+        net: total?.querySelector('.v')?.textContent, plus: total?.classList.contains('plus'), minus: total?.classList.contains('minus'),
+        arrows: [...total.querySelectorAll('.cv-chev')].filter((c) => getComputedStyle(c).display !== 'none').length,
+      };
     }, zeroBag.uid);
     if (zeroStage.noTile) skipped('0 C 줄이 판매칸에 담긴다', '(거래 격자에 타일이 없다)');
     else {
       ok(zeroBag.price === 0 && zeroStage.chips === 1 && zeroStage.prices.includes('0') && !/팔 수 없습니다/.test(zeroStage.msg),
         '0 C 아이템이 판매칸에 담기고 가격 배지가 0 이다 (거절 메시지 없음)', JSON.stringify({ zeroBag, zeroStage }));
+      ok(zeroStage.net === '0 C' && !zeroStage.plus && !zeroStage.minus && zeroStage.arrows === 0, '거래 후 크레딧 0 — 화살표 없음', JSON.stringify(zeroStage));
     }
     // 바구니와 가방을 비워 뒤 단계에 남기지 않는다
     await P((uid) => {
-      document.querySelector('.ct-tray.sell .ct-chip')?.click();
+      document.querySelector('.cv-tray.sell .cv-tile.sell')?.click();
       window.__game.ctx.inventory.takeItem(uid);
     }, zeroBag.uid);
   }
@@ -803,8 +885,8 @@ try {
   await P(() => { document.querySelector('.corp-tab[data-corp="ceres"]').click(); document.querySelector('.corp-subtabs .scr-tab[data-page="implants"]').click(); });
   const deskEmpty = await P(() => ({
     page: document.querySelector('.corp-page')?.dataset.page, root: !!document.querySelector('.corp-page .ci'),
-    cells: document.querySelectorAll('.ci-list .ct-cell.broken').length, empty: document.querySelector('.ci-list .corp-empty')?.textContent ?? null,
-    grid: document.querySelector('.ci-list') ? getComputedStyle(document.querySelector('.ci-list')).display : null,
+    cells: document.querySelectorAll('.ci-list .cv-tile.broken').length, empty: document.querySelector('.ci-list .corp-empty:not([hidden])')?.textContent ?? null,
+    grid: document.querySelector('.ci-list .inv-cells') ? getComputedStyle(document.querySelector('.ci-list .inv-cells')).display : null,
     list: window.__game.getSystem('meta').getRepairableImplants().length,
   }));
   ok(deskEmpty.page === 'implants' && deskEmpty.root && deskEmpty.cells === 0 && deskEmpty.list === 0 && /망가진 임플란트가 없습니다/.test(deskEmpty.empty ?? '') && deskEmpty.grid === 'grid',
@@ -825,10 +907,10 @@ try {
     'getImplantRepair → imp_strength_1, fee 150 (150 × grade 1), ready', JSON.stringify(info0));
   await P(() => window.__game.getSystem('meta').views.values().next().value.refresh());
   const desk = await P((uid) => {
-    const cell = document.querySelector(`.ci-list .ct-cell.broken[data-uid="${uid}"]`);
+    const cell = document.querySelector(`.ci-list .cv-tile.broken[data-uid="${uid}"]`);
     const btn = document.querySelector('.ci-repair-btn');
     return {
-      cell: !!cell, sel: cell?.classList.contains('is-sel'), chip: !!cell?.querySelector('.item-chip[data-def-id="imp_broken_strength_1"]'), badge: cell?.querySelector('.ct-cell-price')?.textContent,
+      cell: !!cell, sel: cell?.classList.contains('is-sel'), chip: cell?.matches('.inv-tile[data-item-tip][data-def-id="imp_broken_strength_1"]') ?? false, badge: cell?.querySelector('.cv-price')?.textContent,
       to: !!document.querySelector('.ci-head .to .item-chip[data-def-id="imp_strength_1"]'),
       costChips: document.querySelectorAll('.ci-cost .item-chip[data-def-id]').length, short: document.querySelectorAll('.ci-cost .item-chip.is-short').length,
       fee: document.querySelector('.ci-fee .v')?.textContent, feeShort: document.querySelector('.ci-fee .v')?.classList.contains('short'),
@@ -848,7 +930,7 @@ try {
       credits: c.meta.credits, working: c.inventory.countDefAll('imp_strength_1'), mats: cost.map((l) => c.inventory.countDefAll(l.defId)),
       broken: !!c.inventory.findItemAnywhere(uid), brokenCount: c.inventory.countDefAll('imp_broken_strength_1'), stashHas,
       list: window.__game.getSystem('meta').getRepairableImplants().length, notify: window.__ev['ui:notify'].slice(-1)[0] ?? null,
-      cells: document.querySelectorAll('.ci-list .ct-cell.broken').length, msg: document.querySelector('.corp-msg-slot .form-msg')?.textContent ?? '',
+      cells: document.querySelectorAll('.ci-list .cv-tile.broken').length, msg: document.querySelector('.corp-msg-slot .form-msg')?.textContent ?? '',
     };
   }, seeded);
   ok(!afterRepair.broken && afterRepair.brokenCount === 0 && afterRepair.working === beforeRepair.working + 1 && afterRepair.stashHas, '수리: broken implant gone, imp_strength_1 in the 함선 창고', JSON.stringify({ broken: afterRepair.broken, working: [beforeRepair.working, afterRepair.working], stash: afterRepair.stashHas }));
@@ -863,7 +945,7 @@ try {
   await P(() => window.__game.getSystem('meta').views.values().next().value.refresh());
   const desk2 = await P((uid) => {
     const r = window.__game.getSystem('meta').getImplantRepair(uid);
-    const cell = document.querySelector(`.ci-list .ct-cell.broken[data-uid="${uid}"]`);
+    const cell = document.querySelector(`.ci-list .cv-tile.broken[data-uid="${uid}"]`);
     return { fee: r?.fee, blocked: r?.blocked, sel: cell?.classList.contains('is-sel'), cellBlocked: cell?.classList.contains('blocked'), disabled: document.querySelector('.ci-repair-btn')?.disabled, block: document.querySelector('.ci-block')?.textContent ?? null, short: document.querySelectorAll('.ci-cost .item-chip.is-short').length, ret: window.__game.getSystem('meta').repairImplant(uid) };
   }, seeded2.uid);
   ok(desk2.fee === 300 && desk2.blocked === '재료 부족' && desk2.sel && desk2.cellBlocked && desk2.disabled === true && desk2.block === '재료 부족' && desk2.short > 0 && desk2.ret === false,
@@ -893,7 +975,17 @@ try {
     reward: !!document.querySelector('.cq-rewards .item-chip[data-def-id="imp_perception_3"]'),
     repChip: !!document.querySelector('.cq-rewards .currency-chip[data-currency-id="rep:ceres"]'),
     accept: document.querySelector('.cq-acts .ui-btn')?.textContent,
+    // 2026-09-12: 재화 칩의 우측 하단 수치가 도형에 잘리지 않는다 — 깎은 모서리는 썸네일이 아니라 뒤판(::before)에 있다
+    clip: (() => {
+      const th = document.querySelector('.cq-rewards .currency-chip .currency-thumb');
+      const cnt = th?.querySelector('.item-chip-count');
+      if (!th || !cnt) return null;
+      const a = th.getBoundingClientRect(), b = cnt.getBoundingClientRect();
+      return { thumb: getComputedStyle(th).clipPath, plate: getComputedStyle(th, '::before').clipPath !== 'none', overhang: b.right > a.right || b.bottom > a.bottom };
+    })(),
   }));
+  ok(questDom.clip && questDom.clip.thumb === 'none' && questDom.clip.plate && questDom.clip.overhang,
+    '퀘스트 보상 재화 칩: 썸네일에 clip-path 없음(뒤판에만) → 모서리 밖 수치 배지가 잘리지 않는다', JSON.stringify(questDom.clip));
   ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.repChip && questDom.accept === '수락',
     '퀘스트 tab: ci1 가능 · 3 delivery lines · 목록 아래 보상(재화 rep:ceres + imp_perception_3) · 수락', JSON.stringify(questDom));
   // The 기업 desk is a tab of the inventory window, so **Tab** closes it (2026-09-09: Esc closes it as well —

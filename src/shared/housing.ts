@@ -15,20 +15,20 @@ import type { EmbeddedView, SoilTag } from './types';
  * renders placed furniture and runs the housing-mode camera / cursor; housing/ owns every rule and number.
  *
  * Framework scope (this session): room purposes, generator / storage facilities, housing mode (grid placement, 90°
- * yaw, recover → furniture storage), the 작업실 (4 upgradeable benches + repair) and the 사격장 (loadout presets,
+ * yaw, recover → furniture storage), the 작업실 (4 upgradeable benches + repair) and the 시뮬레이션실 (옛 사격장 — loadout presets,
  * gun-skill gain bonus). The other 7 purposes can be assigned and decorated but have no mechanics yet.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type RoomPurpose =
   | 'empty'       // 빈 방
   | 'workshop'    // 작업실
-  | 'range'       // 사격장
+  | 'range'       // 시뮬레이션실 (2026-09-12: 사격장에서 이름만 바뀌었다 — id 는 그대로)
   | 'gym'         // 헬스장
   | 'library'     // 서재
   | 'greenhouse'  // 온실
   | 'lab'         // 연구실 (requires greenhouse)
   | 'kitchen'     // 주방
-  | 'mining'      // 채굴 시설
+  | 'mining'      // 암호화폐 채굴 시설 (2026-09-12: 채굴 시설에서 이름만 바뀌었다)
   | 'lounge';     // 휴식 공간
 
 export const ROOM_PURPOSES: readonly RoomPurpose[] = [
@@ -36,14 +36,14 @@ export const ROOM_PURPOSES: readonly RoomPurpose[] = [
 ];
 
 export const ROOM_PURPOSE_LABEL_KO: Readonly<Record<RoomPurpose, string>> = {
-  empty: '빈 방', workshop: '작업실', range: '사격장', gym: '헬스장', library: '서재', greenhouse: '온실',
-  lab: '연구실', kitchen: '주방', mining: '채굴 시설', lounge: '휴식 공간',
+  empty: '빈 방', workshop: '작업실', range: '시뮬레이션실', gym: '헬스장', library: '서재', greenhouse: '온실',
+  lab: '연구실', kitchen: '주방', mining: '암호화폐 채굴 시설', lounge: '휴식 공간',
 };
 
 export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   empty: '아직 용도가 정해지지 않은 방입니다.',
   workshop: '총기 · 장비 · 가젯 · 의학 작업대를 설치해 제작과 수리를 합니다.',
-  range: '로드아웃 프리셋을 관리하고 레이드 사격 숙련 상승량을 높입니다.',
+  range: '관물대로 로드아웃 프리셋을 관리하고, 시뮬레이션 허브로 훈련장에 들어가 사격 숙련 상승량을 높입니다.',
   gym: '운동 기구로 근력 · 지구력을 단련합니다. (다음 업데이트)',
   library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
@@ -85,16 +85,22 @@ export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop'
 /**
  * @deprecated 2026-09-07 — **no longer enforced**. The Phase 8 UI pass gave every ship a built-in 작업실 locked to
  * room 1; a new ship now starts with ten empty rooms and no furniture, and the 작업실 is an ordinary purpose that
- * may be built in any room (one per ship, like the 사격장) for `ROOM_PURPOSE_BUILD_COST`. Kept only so the contract
+ * may be built in any room (one per ship, like every purpose since 2026-09-12) for `ROOM_PURPOSE_BUILD_COST`. Kept only so the contract
  * stays append-only; nothing reads it any more.
  */
 export const WORKSHOP_ROOM_INDEX = 0;
 
-/** Upgradeable facilities that are not furniture. `workshop` / `range` levels belong to the room of that purpose. */
+/**
+ * Upgradeable facilities that are not furniture.
+ * **2026-09-12 (사용자 결정 — 방 시설 레벨 제거):** only `generator` / `storage` still have levels. `workshop` /
+ * `range` stay in the union (contract is append-only; `getFacility('range')` still answers "is there such a room")
+ * but their `maxLevel` is 1 and `upgrade()` refuses them — upgrades live on the furniture inside the room now
+ * (작업대 · 관물대 = 프리셋 슬롯 · 시뮬레이션 허브 = 사격 숙련 상승).
+ */
 export type FacilityId = 'generator' | 'storage' | 'workshop' | 'range';
 
 export const FACILITY_LABEL_KO: Readonly<Record<FacilityId, string>> = {
-  generator: '발전기', storage: '창고', workshop: '작업실', range: '사격장',
+  generator: '발전기', storage: '창고', workshop: '작업실', range: '시뮬레이션실',
 };
 
 /** appended (Phase 9 UI pass): icon + accent per facility, the ship-wide counterpart of `ROOM_PURPOSE_GLYPH`. */
@@ -139,7 +145,7 @@ export type FurnitureModelKind =
   | 'bench_gun' | 'bench_gear' | 'bench_gadget' | 'bench_medical'
   | 'bench_refine'   // appended (2026-09-10): 정제 작업대 — 상위 재료 전용
   | 'range_console' | 'target_lane'
-  | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 사격장
+  | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 시뮬레이션실
   /* appended (Phase 8): 온실 재배층 (stackable grow rack) and the 정비 벤치 moved out of the cockpit */
   | 'grow_rack' | 'repair_bench'
   | 'bookshelf'   // appended (Phase 9): 서재 책장 — the builder reads the shelved count and fills the shelves
@@ -345,6 +351,13 @@ export interface GrowSlotInfo {
   yieldQty: number;
 }
 
+/**
+ * 2026-09-12 (appended): where a 수확물 · 해석 산출물 · 배양 산물 goes. `'bag-first'` is the old behaviour and the
+ * default of every harvest method (가방 → 함선 창고). The station screens pass `'stash-first'` on a double-click and
+ * `'bag'` / `'stash'` when the product was dragged onto that grid — a named grid never falls back to the other one.
+ */
+export type HarvestDestination = 'bag-first' | 'stash-first' | 'bag' | 'stash';
+
 /** Furniture storage entry (no grid, no cap): recovered / crafted pieces waiting to be placed. */
 export interface StoredFurniture {
   defId: string;
@@ -358,7 +371,7 @@ export interface RoomState {
   level: number;
 }
 
-/** Loadout preset (사격장): def ids; null = leave the slot as it is. */
+/** Loadout preset (시뮬레이션실의 관물대): def ids; null = leave the slot as it is. */
 export interface LoadoutPreset {
   name: string;
   primary: string | null;
@@ -506,7 +519,7 @@ export interface HousingRef {
   /** Upgrade a placed piece (benches). False when at max / materials missing / generator too low. */
   upgradeFurniture(uid: string): boolean;
 
-  /* ── loadout presets (사격장) ── */
+  /* ── loadout presets (관물대 — slot count = the placed 관물대's level since 2026-09-12) ── */
   getPresetCount(): number;
   getPresets(): readonly (LoadoutPreset | null)[];
   savePreset(index: number, preset: LoadoutPreset): boolean;
@@ -639,8 +652,9 @@ export interface HousingRef {
   /**
    * Scrape a 칸 back to 흙 없음. **The soil is not returned** — 남은 횟수가 있어도 버려진다 (한 번 부은 흙은 다시
    * 담지 않는다). Refused with a 한국어 사유 while something is planted in it; null on success.
+   * 2026-09-12 (appended optional): `discardCrop` true throws the planted crop away too (흙구멍 우클릭 「작물 버리고 흙 비우기」).
    */
-  clearSoil(uid: string, tier: GrowTier, slot: number): string | null;
+  clearSoil(uid: string, tier: GrowTier, slot: number, discardCrop?: boolean): string | null;
   /**
    * Plant one seed (bag → stash, consumes 1) into a 칸 that already has soil. `readyAt` is fixed here from
    * `growHours × 궁합(SOIL_MATCH_SPEEDUP | SOIL_MISMATCH_PENALTY) × 원예(GROW_SKILL_SPEEDUP)`, so a later skill or
@@ -650,8 +664,9 @@ export interface HousingRef {
   /**
    * Harvest one ripe 칸 into the bag (stash fallback). Spends one `soilUsesLeft`; the 칸 empties completely when
    * that hits 0, otherwise it goes back to 심을 준비가 된 흙. 한국어 reason on failure, null on success.
+   * 2026-09-12 (appended optional): `dest` picks the grid (`HarvestDestination`, default `'bag-first'`).
    */
-  harvestAt(uid: string, tier: GrowTier, slot: number): string | null;
+  harvestAt(uid: string, tier: GrowTier, slot: number, dest?: HarvestDestination): string | null;
   /** Harvest every ripe 칸 of the station; returns how many were taken. */
   harvestAllStation(uid: string): number;
   /** Soil item defs the player owns right now (bag + stash), for the 재배 화면 picker. */
@@ -808,8 +823,9 @@ export interface HousingRef {
   /**
    * 끝난 해석을 회수한다 — 산출물을 가방(없으면 함선 창고)에 넣고, 처음 보는 표본이면 도감에 적고
    * `SampleDef.firstDefId` 보너스를 얹는다. 한국어 사유 / null.
+   * 2026-09-12 (추가 인자): `dest` 로 넣을 격자를 고른다 (`HarvestDestination`, 기본 `'bag-first'`).
    */
-  collectAnalysis(uid: string, slot: number): string | null;
+  collectAnalysis(uid: string, slot: number, dest?: HarvestDestination): string | null;
   /** 끝난 해석을 전부 회수하고 몇 개를 받았는지 돌려준다. */
   collectAllAnalyses(uid: string): number;
   /** 지금 갖고 있는 표본 (가방 + 함선 창고) — 분석 화면의 목록. */
@@ -927,15 +943,19 @@ export interface HousingRef {
   getCultureSlots(uid: string): CultureSlotInfo[];
   /** 영양 배지 하나를 (가방 → 함선 창고) 빈 칸에 붓는다. 한국어 사유 / null. */
   fillMedium(uid: string, slot: number, mediumDefId: string): string | null;
-  /** 칸을 배지 없음으로 되돌린다. **배지는 돌아오지 않는다** (부은 흙과 같다). 배양 중이면 거절. */
-  clearMedium(uid: string, slot: number): string | null;
+  /**
+   * 칸을 배지 없음으로 되돌린다. **배지는 돌아오지 않는다** (부은 흙과 같다). 배양 중이면 거절.
+   * 2026-09-12 (추가 인자): `discardStrain` true 면 배양 중인 세포주도 함께 버린다 (우클릭 메뉴).
+   */
+  clearMedium(uid: string, slot: number, discardStrain?: boolean): string | null;
   /** 세포주 하나를 배지가 있는 칸에 넣는다. `readyAt` 이 여기서 확정된다. 한국어 사유 / null. */
   insertStrain(uid: string, slot: number, strainDefId: string): string | null;
   /**
    * 다 된 칸 하나를 수확한다 (가방, 없으면 함선 창고). 배지를 1회 쓰고, 0 이 되면 칸이 완전히 빈다.
    * 아니면 「넣을 준비가 된 배지」로 돌아간다. 한국어 사유 / null.
+   * 2026-09-12 (추가 인자): `dest` 로 넣을 격자를 고른다 (`HarvestDestination`, 기본 `'bag-first'`).
    */
-  harvestCulture(uid: string, slot: number): string | null;
+  harvestCulture(uid: string, slot: number, dest?: HarvestDestination): string | null;
   /** 다 된 칸 전부를 수확하고 몇 개를 받았는지 돌려준다. */
   harvestAllCultures(uid: string): number;
   /** 지금 갖고 있는 영양 배지 (가방 + 함선 창고) — 배양 화면의 목록. */

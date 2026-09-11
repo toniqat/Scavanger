@@ -2,7 +2,7 @@ import type {
   AnalysisSlot, AnalysisSlotInfo,
   BookSlotInfo, CraftIngredient, CultureSlot, CultureSlotInfo, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext,
   GameSystem, GrowPlotInfo,
-  GrowSlot, GrowSlotInfo, GrowTier,
+  GrowSlot, GrowSlotInfo, GrowTier, HarvestDestination,
   HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
 } from '@/shared';
@@ -45,6 +45,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   private store: ShipStore | null = null;
   nextUid = 0;
   private fresh = false;
+  /** 2026-09-12 (v7): the local save carried 작업실 / 사격장 room levels that `sanitize` moved or refunded — write it back. */
+  private migrated = false;
   /**
    * 2026-09-11: a real edit (`changed()`) happened — as opposed to the boot-time "fresh state" save. Together with
    * `ShipStore.isDirty` it tells `onProfileLoaded` that the local state holds an edit **newer than anything the profile
@@ -82,6 +84,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.state = loaded.state;
     this.fresh = loaded.fresh;
     this.pendingRefund = loaded.refund;
+    this.migrated = loaded.migrated;
     this.nextUid = maxUidIndex(this.state.furniture);
   }
 
@@ -90,7 +93,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.ctx = ctx;
     ctx.housing = this;
     this.store = new ShipStore(() => this.state, () => this.profileRef());
-    if (this.fresh) this.store.markDirty();
+    if (this.fresh || this.migrated) this.store.markDirty();
+    // v7: the moved levels are a local edit the server copy has never seen — a welcome inside the debounce must not undo it
+    if (this.migrated) this.editPending = true;
     this.presetMenu = new PresetMenu(ctx, this);
     this.growStation = new GrowStation(ctx, this);
     this.analyzerPanel = new Analyzer(ctx, this);
@@ -139,10 +144,11 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.pendingRefund = [];
     const lost = this.refundToStash(cost);
     if (lost > 0) {
-      console.warn(`[housing] retired furniture refund: ${lost} units dropped (함선 창고가 가득 참)`);
-      this.notify('은퇴한 재배층을 정리했습니다 — 함선 창고가 가득 차 재료 일부를 돌려주지 못했습니다', 'warning');
+      console.warn(`[housing] retired furniture / room level refund: ${lost} units dropped (함선 창고가 가득 참)`);
+      this.notify('없어진 시설 · 가구를 정리했습니다 — 함선 창고가 가득 차 재료 일부를 돌려주지 못했습니다', 'warning');
     } else {
-      this.notify('은퇴한 재배층을 정리하고 재료를 함선 창고에 돌려주었습니다', 'info');
+      // 2026-09-12: 은퇴 재배층뿐 아니라 사라진 방 시설 레벨(작업실 · 사격장)의 환불도 같은 자루로 온다
+      this.notify('없어진 시설 · 가구를 정리하고 재료를 함선 창고에 돌려주었습니다', 'info');
     }
     this.changed('retired');
   }
@@ -190,6 +196,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.culturesPruned = false;
     this.fresh = false;
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
+    // …unless the server copy itself was a pre-v7 document whose room levels `sanitize` just moved: upload it once
+    if (out.migratedRoomLevels) this.store?.markDirty();
     const b = this.ctx.bus;
     b.emit('housing:loaded', { state: this.state });
     b.emit('housing:changed', { reason: 'profile' });
@@ -328,7 +336,7 @@ export class HousingSystem implements GameSystem, HousingRef {
   getBenchLevel(kind: WorkbenchKind): number { return Rooms.getBenchLevel(this, kind); }
 
   getCraftCostMul(): number { return Rooms.getCraftCostMul(this); }
-  /** 사격장 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
+  /** 시뮬레이션 허브 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
   getSkillGainMul(skill: SkillId): number { return Rooms.getSkillGainMul(this, skill); }
   getStashSize(): { cols: number; rows: number } { return Rooms.getStashSize(this); }
 
@@ -408,7 +416,7 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   cancelAnalysis(uid: string, slot: number): string | null { return Lab.cancelAnalysis(this, uid, slot); }
 
-  collectAnalysis(uid: string, slot: number): string | null { return Lab.collectAnalysis(this, uid, slot); }
+  collectAnalysis(uid: string, slot: number, dest?: HarvestDestination): string | null { return Lab.collectAnalysis(this, uid, slot, dest); }
 
   collectAllAnalyses(uid: string): number { return Lab.collectAllAnalyses(this, uid); }
 
@@ -447,11 +455,11 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   fillMedium(uid: string, slot: number, mediumDefId: string): string | null { return Culture.fillMedium(this, uid, slot, mediumDefId); }
 
-  clearMedium(uid: string, slot: number): string | null { return Culture.clearMedium(this, uid, slot); }
+  clearMedium(uid: string, slot: number, discardStrain?: boolean): string | null { return Culture.clearMedium(this, uid, slot, discardStrain); }
 
   insertStrain(uid: string, slot: number, strainDefId: string): string | null { return Culture.insertStrain(this, uid, slot, strainDefId); }
 
-  harvestCulture(uid: string, slot: number): string | null { return Culture.harvestCulture(this, uid, slot); }
+  harvestCulture(uid: string, slot: number, dest?: HarvestDestination): string | null { return Culture.harvestCulture(this, uid, slot, dest); }
 
   harvestAllCultures(uid: string): number { return Culture.harvestAllCultures(this, uid); }
 
@@ -515,11 +523,11 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   fillSoil(uid: string, tier: GrowTier, slot: number, soilDefId: string): string | null { return Garden.fillSoil(this, uid, tier, slot, soilDefId); }
 
-  clearSoil(uid: string, tier: GrowTier, slot: number): string | null { return Garden.clearSoil(this, uid, tier, slot); }
+  clearSoil(uid: string, tier: GrowTier, slot: number, discardCrop?: boolean): string | null { return Garden.clearSoil(this, uid, tier, slot, discardCrop); }
 
   plantSeedAt(uid: string, tier: GrowTier, slot: number, seedDefId: string): string | null { return Garden.plantSeedAt(this, uid, tier, slot, seedDefId); }
 
-  harvestAt(uid: string, tier: GrowTier, slot: number): string | null { return Garden.harvestAt(this, uid, tier, slot); }
+  harvestAt(uid: string, tier: GrowTier, slot: number, dest?: HarvestDestination): string | null { return Garden.harvestAt(this, uid, tier, slot, dest); }
 
   harvestAllStation(uid: string): number { return Garden.harvestAllStation(this, uid); }
 
@@ -604,7 +612,7 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   openBookshelfMenu(uid: string): void { return Lib.openBookshelfMenu(this, uid); }
 
-  /* ── loadout presets (사격장) ──────────────────────────────────────────── */
+  /* ── loadout presets (관물대) ──────────────────────────────────────────── */
   getPresetCount(): number { return Preset.getPresetCount(this); }
 
   getPresets(): readonly (LoadoutPreset | null)[] { return Preset.getPresets(this); }

@@ -822,7 +822,8 @@ try {
     const pickups = ctx.pickups.getPickups().length;
     return { eqBig, sizeBig, added, eqSmall, sizeSmall, pickups, items: inv.getAllItems().length };
   });
-  ok(bag.eqBig && bag.sizeBig.cols === 10 && bag.sizeBig.rows === 6, 'legendary bag → 10×6', JSON.stringify(bag.sizeBig));
+  // 2026-09-12: every bag is 5 wide and tall (`data/bags.csv`) — the legendary bag is 5×12 (60 cells, as before)
+  ok(bag.eqBig && bag.sizeBig.cols === 5 && bag.sizeBig.rows === 12, 'legendary bag → 5×12', JSON.stringify(bag.sizeBig));
   ok(bag.added >= 30, 'filled the legendary bag', `${bag.added}`);
   ok(bag.eqSmall && bag.sizeSmall.cols === 5 && bag.sizeSmall.rows === 6, 'common bag → 5×6', JSON.stringify(bag.sizeSmall));
   const bc = await lastEv('inventory:bagChanged');

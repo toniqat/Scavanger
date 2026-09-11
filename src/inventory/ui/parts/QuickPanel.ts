@@ -62,6 +62,7 @@ export function buildQuickPanel(sys: InventoryUI): HTMLElement {
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (sys.drag || performance.now() < sys.suppressClicksUntil) return;   // 2026-09-12: held-remainder clicks
       sys.onQuickContextMenu(index, e);
     });
     rose.appendChild(el);
@@ -121,7 +122,7 @@ export function bindQuickTile(sys: InventoryUI, el: HTMLElement, cell: QuickCell
   el.addEventListener('pointerleave', () => sys.hoverLeave());
   el.addEventListener('dblclick', (e) => {
     e.preventDefault();
-    if (sys.drag?.started) return;
+    if (sys.drag?.started || performance.now() < sys.suppressClicksUntil) return;
     // 가방으로 되돌리기 — 가방이 꽉 차 있으면 거절되고 스택은 칸에 그대로 남는다
     sys.result(sys.sys.setQuickSlot(cell.index, null) ? 'ok' : 'fail', 'ui_drop', loc(), cell.uid ?? '');
   });

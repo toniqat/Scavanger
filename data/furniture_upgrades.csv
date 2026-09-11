@@ -25,3 +25,13 @@ furn_culture_tank,1,mat_alloy:6|mat_circuit:2|mat_bio_sample:8
 furn_culture_tank,2,mat_alloy:10|mat_circuit:4|mat_capacitor:1
 furn_bench_print,1,mat_alloy:8|mat_circuit:3|mat_power_cell:2
 furn_bench_print,2,mat_ingot:4|mat_control_module:1|mat_capacitor:1
+# 2026-09-12 (방 시설 레벨 제거): 옛 사격장 Lv.1 → 5 강화비가 시설 안의 두 가구로 옮겨 왔다 — 관물대 레벨 = 프리셋
+# 슬롯(tables.csv 의 PRESETS_BY_RANGE_LEVEL), 시뮬레이션 허브 레벨 = 사격 숙련 상승(constants.csv 의 RANGE_SKILL_GAIN_PER_LEVEL).
+furn_range_console,1,mat_scrap:8
+furn_range_console,2,mat_scrap:12|mat_cable:2
+furn_range_console,3,mat_alloy:6|mat_circuit:2
+furn_range_console,4,mat_alloy:12|mat_circuit:4|mat_power_cell:2
+furn_sim_hub,1,mat_scrap:8|mat_cable:1
+furn_sim_hub,2,mat_scrap:12|mat_cable:2|mat_circuit:1
+furn_sim_hub,3,mat_alloy:6|mat_circuit:3
+furn_sim_hub,4,mat_alloy:12|mat_circuit:4|mat_power_cell:2

@@ -401,6 +401,95 @@ try {
     'a bag stim only ever offers 등록 — a registered stack has no bag tile', JSON.stringify(items));
   await page.keyboard.press('Escape');
   await sleep(100);
+
+  /* ── 2026-09-12: 같은 아이템 퀵슬롯 합치기 · 넘친 수량은 커서에 남는다 (real mouse) ─────────────────────────── */
+  console.log('quick merge + held remainder');
+  /** Park `bagQty` 약초 붕대 in one bag stack and `wheelQty` on wheel cell S (index 4) — placed directly, so no auto-merge. */
+  const setupMerge = (bagQty, wheelQty) => page.evaluate(([herb, bq, wq]) => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory'), g = sys.getGrid('bag');
+    for (const p of g.items()) if (p.item.defId === herb) g.remove(p.item.uid);
+    sys.quickSlots[4] = null;
+    const it = ctx.loot.createItem(herb, bq);
+    const slot = g.findFreeSlot(it, false);
+    g.place(it, slot.x, slot.y, slot.rotated);
+    sys.quickSlots[4] = ctx.loot.createItem(herb, wq);
+    sys.afterChange();
+    return { uid: it.uid, wheelUid: sys.quickSlots[4].uid, max: ctx.loot.getItemDef(herb).stackMax };
+  }, [HERB, bagQty, wheelQty]);
+  const herbUnits = () => page.evaluate((herb) => {
+    const inv = window.__game.ctx.inventory;
+    return [...inv.getAllItems(), ...inv.getQuickSlots()].filter((i) => i && i.defId === herb).reduce((a, i) => a + i.qty, 0);
+  }, HERB);
+  const dragState = () => page.evaluate(() => { const d = window.__game.getSystem('inventory').ui?.drag; return d ? { held: !!d.held, qty: d.qty, uid: d.uid, from: d.from.kind, ghost: !!document.querySelector('.inv-ghost') } : null; });
+  const freeBagCell = () => page.evaluate(() => {
+    const g = window.__game.getSystem('inventory').getGrid('bag');
+    const r = document.querySelector('.inv-grid-bag').getBoundingClientRect();
+    for (let y = g.rows - 1; y >= 0; y--) for (let x = g.cols - 1; x >= 0; x--) if (!g.cellUid(x, y)) return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27, cx: x, cy: y };
+    return null;
+  });
+  const probe = await setupMerge(1, 1);
+  if (probe.max < 3) {
+    ok(true, `skip merge checks: ${HERB} stackMax ${probe.max} < 3`);
+  } else {
+    const M = probe.max;
+    // ① bag 2 + wheel M−1 → wheel M, one unit stays on the cursor (the bag stack is simply smaller)
+    const m1 = await setupMerge(2, M - 1);
+    await sleep(150);
+    const units1 = await herbUnits();
+    await dragMouse(await centre(`.inv-grid-bag .inv-tile[data-uid="${m1.uid}"]`), await centre('.inv-quick-cell[data-index="4"]'));
+    s = await slots();
+    let held = await dragState();
+    const srcQty = (await bagDef(HERB)).find((x) => x.uid === m1.uid)?.qty;
+    ok(s[4]?.uid === m1.wheelUid && s[4]?.qty === M && srcQty === 1,
+      `bag 2 onto a wheel stack of ${M - 1} merges to ${M} (not a swap) and 1 is left in the source stack`, JSON.stringify({ s4: s[4], srcQty }));
+    ok(held && held.held && held.uid === m1.uid && held.ghost, 'the remainder stays on the cursor (held drag + ghost) after the release', JSON.stringify(held));
+    // the next click on a free bag cell drops it there
+    const cellA = await freeBagCell();
+    await page.mouse.move(cellA.x, cellA.y, { steps: 4 });
+    await sleep(60);
+    await page.mouse.down(); await sleep(40); await page.mouse.up();
+    await sleep(150);
+    held = await dragState();
+    const at = await page.evaluate((c) => { const p = window.__game.getSystem('inventory').getGrid('bag').at(c.cx, c.cy); return p ? { uid: p.item.uid, qty: p.item.qty } : null; }, cellA);
+    ok(held === null && at?.uid === m1.uid && at.qty === 1 && (await herbUnits()) === units1,
+      'the next click drops the held unit on the cell under the cursor — no unit created or lost', JSON.stringify({ held, at, units: await herbUnits(), units1 }));
+
+    // ② the same merge, then Escape: the remainder just stays where it was and the window stays open
+    const m2 = await setupMerge(2, M - 1);
+    await sleep(150);
+    await dragMouse(await centre(`.inv-grid-bag .inv-tile[data-uid="${m2.uid}"]`), await centre('.inv-quick-cell[data-index="4"]'));
+    ok((await dragState())?.held === true, 'held again for the Escape check');
+    await page.keyboard.press('Escape');
+    await sleep(150);
+    const esc = { held: await dragState(), open: await page.evaluate(() => window.__game.ctx.inventory.isOpen), src: (await bagDef(HERB)).find((x) => x.uid === m2.uid)?.qty, ghost: await page.evaluate(() => !!document.querySelector('.inv-ghost')) };
+    ok(esc.held === null && esc.open && esc.src === 1 && !esc.ghost, 'Escape lets go of the held remainder (it stays in its stack) without closing the window', JSON.stringify(esc));
+
+    // ③ reverse: wheel 3 onto a bag stack of M−1 → bag M, the wheel keeps 2 and they ride the cursor; a click on the
+    //    backdrop lets go (the wheel slot is **not** cleared, unlike a plain wheel drag onto nothing)
+    const m3 = await page.evaluate(([herb, M]) => {
+      const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory'), g = sys.getGrid('bag');
+      for (const p of g.items()) if (p.item.defId === herb) g.remove(p.item.uid);
+      const it = ctx.loot.createItem(herb, M - 1);
+      const slot = g.findFreeSlot(it, false);
+      g.place(it, slot.x, slot.y, slot.rotated);
+      sys.quickSlots[4] = ctx.loot.createItem(herb, 3);
+      sys.afterChange();
+      return { uid: it.uid, wheelUid: sys.quickSlots[4].uid };
+    }, [HERB, M]);
+    await sleep(150);
+    await dragMouse(await centre('.inv-quick-cell[data-index="4"] .inv-tile'), await centre(`.inv-grid-bag .inv-tile[data-uid="${m3.uid}"]`));
+    s = await slots();
+    held = await dragState();
+    const bagStack = (await bagDef(HERB)).find((x) => x.uid === m3.uid)?.qty;
+    ok(bagStack === M && s[4]?.uid === m3.wheelUid && s[4]?.qty === 2 && held?.held && held.from === 'quick',
+      `wheel 3 onto a bag stack of ${M - 1} merges to ${M}; the wheel keeps 2 on the cursor`, JSON.stringify({ bagStack, s4: s[4], held }));
+    await page.mouse.move(40, 40, { steps: 4 });
+    await page.mouse.down(); await sleep(40); await page.mouse.up();
+    await sleep(150);
+    s = await slots();
+    ok((await dragState()) === null && s[4]?.qty === 2, 'a click on nothing lets go — the 2 stay on the wheel', JSON.stringify(s[4]));
+  }
+
   await page.evaluate(() => window.__game.ctx.inventory.closeAll());
   await sleep(250);
   ok(!(await page.evaluate(() => window.__game.ctx.inventory.isOpen)), 'bag closed');

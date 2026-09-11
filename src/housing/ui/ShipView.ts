@@ -1,23 +1,23 @@
-import type { EmbeddedView, FacilityId, GameContext } from '@/shared';
+import type { EmbeddedView, GameContext } from '@/shared';
 import {
   Keys, MENU_BLOCKER, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO,
   keyLabel,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
-import { facilityPurposeOf } from '../Rules';
 import { FacilityRows } from './FacilityRows';
-import { CHIP_SIZE_SMALL, clear, el, facilityThumb, levelText, renderCost, section, setText, toggleClass } from './dom';
+import { CHIP_SIZE_SMALL, clear, el, facilityThumb, renderCost, section, setText, toggleClass } from './dom';
 
 /**
  * 함선 tab of the inventory Tab screen. Rewritten in the Phase 9 UI pass:
  *
  *   - **left column** — 기본 시설: the two ship-wide facilities (발전기 · 창고) plus the 효과 summary.
- *   - **right column** — 방 목록: one row per room, **thumbnail + 용도 이름 + 레벨** only. The room number, the
- *     furniture count and the purpose description are gone. A room with a facility gets its upgrade cost chips, a
- *     wide **업그레이드** button on the far right and a red **🗑 제거** icon; 제거 asks for confirmation (it empties
- *     the room into furniture storage and refunds the 시설 증축 price plus every upgrade material into the
- *     함선 창고 — `HousingRef.facilityRefund` / `removeRoomFacility`). An **empty** room gets a **시설 증축** button
- *     instead, which opens a centred popup listing every purpose with the materials it costs (`purposeCost`); a
+ *   - **right column** — 방 목록: one row per room, **thumbnail + 용도 이름** only. The room number, the furniture
+ *     count and the purpose description are gone. A room with a facility gets a red **🗑 제거** icon; 제거 asks for
+ *     confirmation (it empties the room into furniture storage and refunds the 시설 증축 price into the 함선 창고 —
+ *     `HousingRef.facilityRefund` / `removeRoomFacility`). **2026-09-12: no room level, cost chips or 업그레이드
+ *     button any more** — room facilities have no levels; their furniture is upgraded from 시설 관리 instead.
+ *     An **empty** room gets a **시설 증축** button, which opens a centred popup listing every purpose **the ship does
+ *     not have yet** (2026-09-12: every purpose is one per ship) with the materials it costs (`purposeCost`); a
  *     purpose the rules or the materials refuse is disabled with its 한국어 reason, and 닫기 dismisses the popup.
  *     The 방 목록 is the only thing that scrolls — the panel itself never does (Phase 9 UI pass).
  *   - **도감**: removed. Books are read on a 책장 in the 서재 (`openBookshelfMenu`), not from this screen.
@@ -54,7 +54,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
   const colLeft = el('div', { cls: 'hs-ship-col left', parent: cols });
   const colRight = el('div', { cls: 'hs-ship-col right', parent: cols });
 
-  // 기본 시설: the ship-wide pair only (작업실 / 사격장 live in the 방 목록 on the right)
+  // 기본 시설: the ship-wide pair only (작업실 / 시뮬레이션실 have no levels since 2026-09-12)
   const facilities = new FacilityRows(colLeft, ctx, housing, showMsg, ['generator', 'storage'], '기본 시설');
 
   const secRooms = section(colRight, '방 목록');
@@ -65,24 +65,11 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     thumb: HTMLElement;
     glyph: HTMLElement;
     name: HTMLElement;
-    tag: HTMLElement;
-    fac: HTMLElement;
-    facCost: HTMLElement;
-    facBlocked: HTMLElement;
     acts: HTMLElement;
-    facBtn: HTMLButtonElement;
     buildBtn: HTMLButtonElement;
     delBtn: HTMLButtonElement;
   }
   const rows: RoomRow[] = [];
-
-  const upgradeFacility = (id: FacilityId): void => {
-    const info = housing.getFacility(id);
-    if (info.blocked) { showMsg(info.blocked, 'warning'); return; }
-    if (housing.upgrade(id)) showMsg(`${info.name} Lv.${info.level + 1}`, 'success');
-    else showMsg('업그레이드에 실패했습니다', 'danger');
-    refresh();
-  };
 
   /* ── 시설 제거 confirmation (a modal card over the screen, never a browser dialog) ── */
   const confirmEl = el('div', { cls: 'hs-confirm', parent: root });
@@ -147,6 +134,8 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     clear(buildList);
     for (const p of ROOM_PURPOSES) {
       if (p === 'empty') continue;
+      // 2026-09-12: every purpose is one per ship — one the ship already has is not offered at all (시설 관리와 같다)
+      if (housing.state.rooms.some((r, i) => i !== buildRoom && r.purpose === p)) continue;
       const blocked = housing.purposeBlock(buildRoom, p);
       const row = el('div', { cls: `hs-build-row${blocked ? ' is-blocked' : ''}`, parent: buildList });
       const thumb = facilityThumb(row, ROOM_PURPOSE_GLYPH[p], ROOM_PURPOSE_COLOR[p]);
@@ -193,8 +182,8 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     const count = housing.getPlaced(room).length;
     setText(confirmTitle, `${label} 제거`);
     setText(confirmBody, count > 0
-      ? `설치된 가구 ${count}개는 가구 창고로, 업그레이드 재료는 함선 창고로 돌아갑니다. 방은 빈 방이 됩니다.`
-      : '업그레이드 재료는 함선 창고로 돌아가고 방은 빈 방이 됩니다.');
+      ? `설치된 가구 ${count}개는 가구 창고로, 증축 재료는 함선 창고로 돌아갑니다. 방은 빈 방이 됩니다.`
+      : '증축 재료는 함선 창고로 돌아가고 방은 빈 방이 됩니다.');
     const refund = housing.facilityRefund(room);
     clear(confirmCost);
     if (refund.length) renderCost(confirmCost, refund, housing, CHIP_SIZE_SMALL);
@@ -211,27 +200,14 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     const mid = el('div', { cls: 'mid', parent: row });
     const nl = el('div', { cls: 'name-line', parent: mid });
     const name = el('span', { cls: 'name', text: ROOM_PURPOSE_LABEL_KO.empty, parent: nl });
-    const tag = el('span', { cls: 'tag dim', text: '', parent: nl });
-    // facility block: only rendered for a 작업실 / 사격장 room
-    const fac = el('div', { cls: 'hs-room-fac', parent: mid });
-    const facCost = el('div', { cls: 'cost', parent: fac });
-    const facBlocked = el('div', { cls: 'blocked', text: '', parent: fac });
 
     const acts = el('div', { cls: 'hs-row-acts', parent: row });
     const buildBtn = el('button', { cls: 'ui-btn small wide primary', text: '시설 증축', parent: acts });
     buildBtn.addEventListener('click', (e) => { e.stopPropagation(); askBuild(i); });
-    const facBtn = el('button', { cls: 'ui-btn small wide', text: '업그레이드', parent: acts });
-    facBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const fid = facilityPurposeOf(housing.getRoom(i).purpose);
-      if (!fid) return;
-      ctx.bus.emit('audio:play', { id: 'ui_click' });
-      upgradeFacility(fid);
-    });
     const delBtn = el('button', { cls: 'hs-del', text: '🗑', parent: acts, attrs: { 'aria-label': '시설 제거', title: '시설 제거' } });
     delBtn.addEventListener('click', (e) => { e.stopPropagation(); askRemove(i); });
 
-    rows.push({ root: row, thumb, glyph, name, tag, fac, facCost, facBlocked, acts, facBtn, buildBtn, delBtn });
+    rows.push({ root: row, thumb, glyph, name, acts, buildBtn, delBtn });
   }
 
   /* 시설 관리 (M): its own bottom bar under the two columns, button on the right */
@@ -262,7 +238,6 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     }
     rows.forEach((row, i) => {
       const state = housing.getRoom(i);
-      const fid = facilityPurposeOf(state.purpose);
       const empty = state.purpose === 'empty';
       row.thumb.style.setProperty('--pc', ROOM_PURPOSE_COLOR[state.purpose]);
       setText(row.glyph, ROOM_PURPOSE_GLYPH[state.purpose]);
@@ -271,22 +246,6 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
       // 제거 is offered on any assigned room the rules let go back to 빈 방; an empty room offers 시설 증축 instead
       row.delBtn.hidden = empty || !!housing.purposeBlock(i, 'empty');
       row.buildBtn.hidden = !empty;
-      row.fac.hidden = !fid;
-      row.facBtn.hidden = !fid;
-      if (!fid) {
-        setText(row.tag, '');
-        row.tag.hidden = true;
-        return;
-      }
-      const info = housing.getFacility(fid);
-      setText(row.tag, levelText(info.level, info.maxLevel));
-      row.tag.hidden = false;
-      if (info.nextCost) renderCost(row.facCost, info.nextCost, housing, CHIP_SIZE_SMALL);
-      else { clear(row.facCost); el('span', { cls: 'item-chip-free', text: info.level >= info.maxLevel ? '최대 레벨' : '—', parent: row.facCost }); }
-      setText(row.facBlocked, info.blocked ?? '업그레이드 가능');
-      toggleClass(row.facBlocked, 'ok', !info.blocked);
-      row.facBtn.disabled = !!info.blocked;
-      row.facBtn.title = info.blocked ?? '';
     });
   }
 

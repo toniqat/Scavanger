@@ -16,11 +16,16 @@ storage,3,mat_alloy:6|mat_cable:2
 storage,4,mat_alloy:10|mat_circuit:2
 storage,5,mat_alloy:16|mat_circuit:4|mat_power_cell:2
 
-# workshop — 레벨 n 으로 올리는 데 드는 재료
+# ── 은퇴 (2026-09-12, 사용자 결정: 방 시설 레벨 제거 → 시설 안의 가구 강화로 대체) ──
+# 아래 두 묶음은 **게임이 더 이상 팔지 않는다.** 작업실 · 시뮬레이션실(옛 사격장)에는 레벨이 없고, 강화는 그 방의
+# 가구(작업대 · 관물대 · 시뮬레이션 허브)가 한다. 줄을 남겨 둔 이유는 하나다 — 옛 세이브에 레벨 2 이상인 방이 있으면
+# `housing/ShipState.sanitize` 가 **그만큼 쓴 재료**를 여기서 계산해 돌려준다 (은퇴 가구 `furn_grow_rack` 과 같은 처리).
+# 값을 고치면 옛 세이브의 환불액이 바뀐다.
+# workshop — 레벨 n → n+1 로 올리던 재료 (첫 줄 = Lv.1 → 2)
 workshop,1,mat_scrap:10|mat_cable:2
 workshop,2,mat_alloy:8|mat_circuit:3
 
-# range — 레벨 n 으로 올리는 데 드는 재료
+# range — 레벨 n → n+1 로 올리던 재료 (첫 줄 = Lv.1 → 2)
 range,1,mat_scrap:8
 range,2,mat_scrap:12|mat_cable:2
 range,3,mat_alloy:6|mat_circuit:2

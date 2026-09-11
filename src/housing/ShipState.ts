@@ -9,7 +9,7 @@ import {
 import {
   NEEDS_GREENHOUSE,
   canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, furnitureRefundCost, growTierOpen,
-  isRoomPurpose, mergeCost, nextFreeLayer, stackLimitOf, stackMembers,
+  isRoomPurpose, legacyRoomLevelCost, mergeCost, nextFreeLayer, stackLimitOf, stackMembers,
 } from './Rules';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -29,11 +29,14 @@ import {
  * 생기는 것뿐이라 **버릴 데이터도 환불 경로도 없다** — v4 세이브는 빈 값으로 열린다.
  * 배양조 (A-14, 2026-09-11): state **version 6** — `cultures` (배양 칸). v5 → v6 도 없던 필드가 생기는 것뿐이라
  * 마이그레이션 · 환불 경로가 없다.
+ * 방 시설 레벨 제거 (2026-09-12): state **version 7** — 모양은 그대로이고 `RoomState.level` 이 언제나 1(빈 방 0)이 된다.
+ * v6 이하의 사격장 Lv.n 은 관물대 · 시뮬레이션 허브 레벨로 옮겨지고, 둘 다 없으면 쓴 재료가, 작업실 Lv.n 은 늘 쓴
+ * 재료가 함선 창고로 환불된다 (`sanitize` 의 v7 절). 버전을 올린 이유는 **한 번만** 옮기기 위해서다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
-/** Current on-disk version (6 since the 배양조; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(6, SHIP_STATE_VERSION);
+/** Current on-disk version (7 since the room levels went away; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(7, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
@@ -136,6 +139,11 @@ export interface SanitizeOutcome {
    * levels it had reached). `HousingSystem` drops them into the 함선 창고 once `ctx.inventory` is around.
    */
   refund: CraftIngredient[];
+  /**
+   * 2026-09-12 (v7): the save carried a 작업실 / 사격장 above level 1 and `sanitize` moved or refunded it. The caller
+   * writes the migrated state back soon, so a stale copy elsewhere never re-runs it.
+   */
+  migratedRoomLevels?: boolean;
 }
 
 /** A 책장 (Phase 9: any furniture whose E opens the bookshelf panel). */
@@ -192,10 +200,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   if (version > SHIP_STATE_VERSION_CURRENT) console.warn(`[housing] ship state v${version} is newer than v${SHIP_STATE_VERSION_CURRENT} — loading best-effort`);
 
   const rooms: RoomState[] = [];
+  /** v7: what each room's level said **before** the room levels went away (read by the migration below). */
+  const rawRoomLevels: number[] = [];
   const srcRooms = Array.isArray(r.rooms) ? r.rooms : [];
   for (let i = 0; i < SHIP_ROOM_COUNT; i++) {
     const s = srcRooms[i] as Partial<RoomState> | undefined;
     const purpose = isRoomPurpose(s?.purpose) ? s!.purpose! : 'empty';
+    rawRoomLevels.push(purpose === 'empty' ? 0 : int(s?.level, 1, 1, 99));
+    // 2026-09-12: 방 시설에는 레벨이 없다 — 용도가 있으면 1, 빈 방이면 0 (`Rules.facilityMaxLevel` 이 1 이다)
     const maxLv = purpose === 'workshop' ? facilityMaxLevel('workshop') : purpose === 'range' ? facilityMaxLevel('range') : 1;
     const level = purpose === 'empty' ? 0 : int(s?.level, 1, 1, maxLv);
     rooms.push({ purpose, level });
@@ -282,6 +294,50 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   // v1 → v2: the 정비 벤치 left the cockpit, so every existing profile is handed one (never twice)
   if (version < 2 && !hasRepairBench(furniture, furnitureStorage) && FURNITURE_DEF_MAP.has(REPAIR_BENCH_DEF_ID)) {
     furnitureStorage.push({ defId: REPAIR_BENCH_DEF_ID, level: 1, qty: 1 });
+  }
+
+  /* v6 → v7 (2026-09-12, 사용자 결정 — 방 시설 레벨 제거): 손해 없이 옮긴다.
+     · 사격장 Lv.n (n ≥ 2) → 그 레벨을 **관물대 · 시뮬레이션 허브**에 준다 (배치된 것은 레벨을 max 로, 창고에만 있으면
+       가장 높은 한 점을 그 레벨로). 둘 다 함선에 없으면 옛 강화에 쓴 재료를 환불한다.
+     · 작업실 Lv.n (n ≥ 2) → 제작 할인이 폐지됐으므로 옮길 곳이 없다 — 옛 강화에 쓴 재료를 환불한다.
+     환불은 은퇴 가구와 같은 `refund` 자루로 가서 `HousingSystem` 이 함선 창고에 넣는다. 레벨은 위에서 이미 1 로
+     내려갔으므로 v7 로 저장된 뒤에는 다시 돌지 않는다. */
+  let migratedRoomLevels = false;
+  if (version < 7) {
+    const legacyLevel = (p: 'workshop' | 'range'): number => {
+      const i = rooms.findIndex((x) => x.purpose === p);
+      return i < 0 ? 0 : rawRoomLevels[i] ?? 0;
+    };
+    const rangeLv = legacyLevel('range');
+    if (rangeLv > 1) {
+      migratedRoomLevels = true;
+      let carried = false;
+      for (const interaction of ['range_console', 'sim_hub'] as const) {
+        const isIt = (defId: string): boolean => FURNITURE_DEF_MAP.get(defId)?.interaction === interaction;
+        const placed = furniture.filter((f) => isIt(f.defId));
+        if (placed.length) {
+          for (const f of placed) f.level = Math.max(f.level, Math.min(rangeLv, furnitureMaxLevel(FURNITURE_DEF_MAP.get(f.defId)!)));
+          carried = true;
+          continue;
+        }
+        const entry = furnitureStorage.filter((s) => isIt(s.defId)).sort((a, b) => b.level - a.level)[0];
+        if (!entry) continue;
+        carried = true;
+        const target = Math.min(rangeLv, furnitureMaxLevel(FURNITURE_DEF_MAP.get(entry.defId)!));
+        if (entry.level >= target) continue;
+        entry.qty -= 1;
+        if (entry.qty <= 0) furnitureStorage.splice(furnitureStorage.indexOf(entry), 1);
+        const same = furnitureStorage.find((e) => e.defId === entry.defId && e.level === target);
+        if (same) same.qty += 1; else furnitureStorage.push({ defId: entry.defId, level: target, qty: 1 });
+      }
+      if (!carried) mergeCost(refund, legacyRoomLevelCost('range', rangeLv));
+    }
+    const workshopLv = legacyLevel('workshop');
+    if (workshopLv > 1) {
+      migratedRoomLevels = true;
+      mergeCost(refund, legacyRoomLevelCost('workshop', workshopLv));
+    }
+    if (migratedRoomLevels) console.warn(`[housing] v${version} room levels (작업실 ${workshopLv} · 사격장 ${rangeLv}) moved to furniture / refunded`);
   }
 
   const presets: (LoadoutPreset | null)[] = [];
@@ -414,7 +470,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     cultures.push(entry);
   }
 
-  if (out) out.refund = refund;
+  if (out) { out.refund = refund; out.migratedRoomLevels = migratedRoomLevels; }
   return {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots: [],
@@ -427,17 +483,17 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
  * Load from localStorage; `fresh` = nothing valid was stored (first run). `refund` (v4) is what the sweep of
  * 은퇴 가구 owes the player — `HousingSystem` pays it into the 함선 창고 once the inventory exists.
  */
-export function loadState(): { state: ShipState; fresh: boolean; refund: CraftIngredient[] } {
+export function loadState(): { state: ShipState; fresh: boolean; refund: CraftIngredient[]; migrated: boolean } {
   const s = storage();
-  if (!s) return { state: freshState(), fresh: true, refund: [] };
+  if (!s) return { state: freshState(), fresh: true, refund: [], migrated: false };
   let raw: unknown = null;
   try {
     const text = s.getItem(slotKey(SHIP_STORAGE_KEY));
     if (text) raw = JSON.parse(text);
   } catch { raw = null; }
-  if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true, refund: [] };
+  if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true, refund: [], migrated: false };
   const out: SanitizeOutcome = { refund: [] };
-  return { state: sanitize(raw, out), fresh: false, refund: out.refund };
+  return { state: sanitize(raw, out), fresh: false, refund: out.refund, migrated: out.migratedRoomLevels === true };
 }
 
 export function writeState(state: ShipState): boolean {

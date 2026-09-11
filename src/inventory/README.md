@@ -24,6 +24,7 @@
 | `parts/ProfileDocs.ts` | **서버 프로필 문서 · 레이드 세션 상태.** 창고(`stash`)와 로드아웃(`loadout`)을 릴레이의 프로필 저장소에 올리고 내려받는 경로, 그리고 레이드 도중 끊긴 플레이어가 복귀할 때 쓰는 `captureRaidState` / `applyRaidState` 가 여기 있다. 오프라인 편집이 서버의 빈 문서에 지워지지 않게 하는 규칙(`fresh` 저장)도 이 파일의 책임이다. |
 | `parts/CorpseLoot.ts` | **죽으면 들고 있던 것이 전부 시체로 간다** (2026-09-09). `stripForCorpse()` 가 장비 슬롯 · 가방 격자 · 퀵슬롯을 하나의 목록으로 뽑고 로컬 인벤토리를 **빈손**으로 만든다 (무기의 내구도 · 장전 탄약 · 소켓은 `ItemInstance` 채로 넘어가므로 보존된다). `openContainerItemsSized()` 는 `openContainerItems` 와 같지만 격자 크기를 지정한다 (`PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). **2026-09-11**: 장착 임플란트의 **망가진 짝**(`ctx.progression.stripImplantsForCorpse?.()`, 옵셔널 — 없으면 빈 배열)을 목록 끝에 합치고(C-12), 뽑기 전에 장착 가방을 레이드 1회분 닳게 한다(C-36, `wearBagForRaid`). 시체 격자는 `fitCorpseGrid(items, cols, rows)` 가 **그 순서 그대로 전부 들어가도록 행을 늘린다** — 예전에는 넘치는 것이 `Container.fill` 의 경고 한 줄과 함께 사라졌다. `hookCorpseWire()` 는 `pcorpse` 를 구독해 시체 컨테이너를 **열지 않고 미리 만들어 둔다** — 호스트는 자기가 한 번도 열어 본 적 없는 시체의 `contq take` 도 심판해야 하기 때문이다. 가져가기 자체는 상자와 똑같이 기존 `cont` / `contq` 경로다. |
 | `parts/Pouch.ts` | **주머니는 가방 격자가 아니다** (2026-09-11, A-15). 장비칸 `pouch` **한 칸**(`POUCH_SLOTS` = 1)에 끼운 주머니가 여는 별도 격자의 전부 — `getEquippedPouch` · `getPouchSize`(주머니가 없으면 `{0,0}`) · `pouchAccepts`(`PouchDef.accepts`) · `pouchItems` / `pouchTotalValue` · `pouchSignature` + `emitPouchChanged`(`inventory:pouchChanged`, `quickSlotsSignature` 와 같은 게이트) · `resetPouchGrid` / `drainPouch`(킷 리셋 · 시체) · **`changePouch(next, from, oldTo, hint?, dest?)`**. `changeBag` 이 본보기이지만 거절 규칙이 하나 더 있다: 새 주머니가 못 받는(또는 자리가 없는) 내용물은 가방으로 가고, **하나라도 못 들어가면 전부 되돌리고 이동 자체를 거절한다** (`setQuickSlot` 이 세운 "휠 아이템을 조용히 버리지 않는다" 그대로 — 주머니 안의 물건도 바닥에 흘리지 않는다). 격자가 없을 때의 내부 `Grid` 는 1×1 이고 `getPouchSize()` 가 `{0,0}` 으로 "그리지 마라" 를 말한다 |
+| `parts/Sort.ts` | **가방 · 창고 자동 정렬** (2026-09-12). `sortGrid(sys, 'bag' \| 'stash', keep?)` — 카테고리(`SORT_CATEGORY_ORDER`) → 등급(높은 것 먼저) → 크기(큰 것 먼저) → 이름 → 수량. 같은 아이템 스택을 `stackMax` 까지 합치고(`keep` uid 는 합치지 않는다 — 기업 거래 트레이가 uid 로 들고 있다) 위에서부터 줄 단위로 채운다. 카테고리 순서로 다 안 들어가면 크기 순으로 한 번 더, 그래도 안 되면 `snapshot()` 으로 **정렬 전 그대로** 되돌리고 `'fail'` (합친 수량까지 복원) — 아이템을 절대 잃지 않는다. 창고는 함선에서만. `compareForSort` 는 순서 자체 |
 | `parts/Catalog.ts` | **무한 상자 (개발자 카탈로그, Phase 6).** `/items` 콘솔 명령이 여는 치트 창이다. 다른 그리드와 달리 원본이 줄지 않고 드래그마다 **새 인스턴스**를 만든다 (`dropFromCatalog` / `takeFromCatalog`). 훈련장의 무기 거치대도 카테고리를 지정해 이 창을 연다. |
 | `ui/model.ts` | 인벤토리 창의 공용 어휘 (타입 · 상수). `ui/InventoryUI.ts` 가 재수출한다 |
 | `ui/parts/Drag.ts` | **아이템 끌어 놓기.** 누름 판정 → 고스트 생성 → 커서 추적 → 대상 격자/칸 판정 → 놓기 까지의 포인터 상태 기계 전부. 어떤 칸에 놓을 수 있는지는 여기서 정하지 않는다 — `inventory/parts/DropResolver.ts` 에 물어보고 그 답(`ok` / `swap` / `merge` / `bad`)을 하이라이트 색으로 그릴 뿐이다. 고스트는 커서 **중앙**에 붙고, 확대는 CSS `scale:` 이 아니라 `positionGhost` 의 transform 안에 있다 (개별 변환은 translate → scale 순이라 JS 가 쓴 translate 가 곱해져 커서에서 벌어졌다). |
@@ -32,6 +33,8 @@
 | `ui/parts/SlotPanel.ts` | **장비 칸 (주무기 I / II · 보조무기 · 가방 · 방탄복).** 칸 다섯 개의 DOM 을 만들고 아이템 타일을 그린다. 무엇이 어느 칸에 들어갈 수 있는지는 `model.ts` 의 `slotAccepts` 가 정하고, 여기서는 그림과 포인터 바인딩만 맡는다. |
 | `ui/parts/QuickPanel.ts` | **빠른 사용 나침반 로제트.** 가방이 정한 개수만큼 8방향 칸을 열어 주고(잠긴 칸은 회색), 각 칸에 가방 아이템의 uid 를 물린다. 드래그로 채우고 우클릭으로 비운다. |
 | `ui/InventoryUI.ts` | DOM layout under `ctx.uiRoot` (**Phase 7**: `.inv-search-status` readout in the container header, `setSearchProgress(uid, p, active)` / `refreshSearchStatus()` / `shakeItem(uid, loc)`; an unsearched tile (`sys.isItemLocked`) gets no tooltip, press / drag, context menu, double-click or middle-click request; `result()` treats `'pending'` as silent): container panel (left), bag (center, width follows the grid columns; **quick-slot rose** under the grid), equipment column (right: 4 slots), hint bar, world-drop zone. Drag & drop with live ghost + valid/invalid/swap/merge highlight, **attachment → weapon tile drag** (socket target lit green/red via `previewAttach`), **stim/grenade → wheel cell drag**, cell → cell / cell → out drags, Shift/Ctrl partial drags, R to rotate, right-click quick action / context menu, middle-click request, X drop, double-click equip/move/register, "모두 가져가기", tooltip, shake on refusal, `audio:play` sfx. **Phase 6**: hosts the `CatalogView` (leftmost panel) and drives **catalog drags** (`DragState.catalog`: a fresh instance per press, targets = equipment slots + active grids only, `previewCatalog` / `dropFromCatalog`, no world drop, no wheel; double press within 400 ms = `takeFromCatalog`), `setCatalog(open)`, `setCraftOpen(open)` for bench mode. **Phase 8**: screen tabs 인벤토리 / 캐릭터 / 기업 / 함선 (`setTab` / `screenTab`, `.scr-tabs` hidden outside hub mode) swap `.inv-layout` for the `.inv-screen` host and build `ctx.progression.createSheetView` / `ctx.meta.createCorpView` / `ctx.housing.createShipView` into it (`refresh()` on show, `dispose()` on leave); the `.inv-modeless-layer` holds the modeless popups, `closeCraft()`, `openDisassemble(uid)`, `canDisassemble`, `disassemblePanel`; the 수리 context entry renders `renderItemCost` chips. **2026-09-07**: 제작 left the modeless layer and is a column of `.inv-layout` again (`.is-craft`, `.inv-col-right`), and `showScreenTab(tab)` backs `InventorySystem.openScreen`. **2026-09-07 (안정화)**: the hint bar and the world-drop zone share one fixed-height `.inv-footer` (the swap at drag start used to re-centre the whole window), and `resolveGridTarget()` resolves a drag's grid **strictly first** — a grid that actually contains the pointer beats one that only sits inside its half-cell tolerance, so 가방 and 함선 창고 (stacked with a gap) stop stealing each other's edge rows. An **equipment slot → grid** drop whose exact cell is blocked now retargets to `sys.nearestFreeSpot` (highlight included) instead of snapping the weapon back into its slot with a shake; grid → grid keeps the strict Diablo rule. **2026-09-07 (2)**: `positionGhost` writes the ghost's 1.04 size lift into its own `transform` — as the standalone `scale:` property it was applied *before* the `transform` (CSS order: translate → rotate → scale → transform), which multiplied the translate and drew the item 42 px right of the cursor at x = 1080, further out the wider the window; the picture and the in-game cursor visibly came apart mid-drag |
+| `ui/GridTools.ts` | **2026-09-12** — 가방 · 창고 머리의 `정렬` 버튼(`buildSortButton`)과 필터 칩 줄(`buildFilterChips` → `{ el, set(id) }`, 칩 = `FILTER_GROUPS` 의 글리프 + `title`). Tab 인벤토리와 `TradeGrids` 가 같은 DOM · 같은 클래스(`.inv-filters` · `.inv-filter-chip` · `.inv-sort-btn`)를 쓴다. 상태 없음 |
+| `ui/TradeGrids.ts` | 다른 폴더 화면(기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁)에 끼우는 **진짜 가방 / 함선 창고 격자** — 읽기 + 끌어내기 전용(`onTake`). **2026-09-12**: 가방과 창고가 **한 스크롤**(`.tg-scroll`) 안에 위아래로 붙는다(가방 5칸 · 틀 `BAG_FRAME_ROWS` / 창고 10칸), 칩 줄(`.tg-tools`)은 스크롤 밖 맨 위, 블록 머리마다 `정렬`(`sortGrid(id, isStaged)` — 이 뷰가 인벤토리를 바꾸는 유일한 동작), 블록에 `data-tg-grid="bag" \| "stash"`. 드래그는 pointermove 를 **rAF 한 번**으로 합쳐 고스트를 `transform` 으로 옮기고(크기는 집을 때 계산 — 이동 중 `offsetWidth` 를 읽지 않는다) `elementFromPoint` 도 프레임당 한 번, 고스트에 `filter` 없음. 버스 이벤트는 rAF 하나로 합쳐 갱신하고 `refresh()` 는 버전 게이트(바뀐 타일만 다시 그린다) + 타일 플래그(`is-staged` · `data-item-tip`)만 훑는다 |
 | `ui/ContextMenu.ts` | Cursor-anchored right-click menu (`MenuEntry[]`), closes on selection / outside pointerdown / Escape / hide |
 | `ui/SplitDialog.ts` | "수량 지정" modal: number input + slider over 1..qty-1, 확인/취소, Enter/Escape. **2026-09-09**: `onToggle(open)` constructor callback — the window turns it into the `'inventory.split'` 키 가이드 owner (`Enter 확인`); Tab closes it first (`closePopups`) |
 | `ui/GridView.ts` | Renders one `Grid`: cell layer (rebuilt by `syncDims` whenever the grid's cols/rows change — bag swap, stash resize), uid-diffed absolutely positioned tiles, highlight rect, `markSplitSource()` for partial drags, `setSocketTarget()`, `setQuickBadges(uid → glyph)` (forces a re-render when the set changes); `buildTileContent(el, item, def, w, h, stats?)` shared with slots, wheel cells, catalog tiles and the ghost — weapons get five socket pips + a durability bar; `addQuickBadge(el, glyph)` adds the wheel-direction badge. **Phase 7**: `isHiddenItem(item)` (`searched === false`) → `buildTileContent` renders the **footprint mask** (`.inv-tile.rarity-hidden.is-hidden-item`, `?` icon, `???` name, no rarity class / colour / qty / pips / bar / badge); `setScan(uid | null, progress)` keeps the `.inv-tile-scan` gauge (`--p` 0..100 %) on the item being searched across re-renders; `setPending(uids)` pulses tiles whose take awaits the host. **Phase 10**: `vanish(uid)` — the next `refresh()` that no longer finds the item animates the tile out (`.is-vanishing`, `translate:` / `scale:` / `opacity` only) instead of removing it on the spot, and a removed tile's `scan` state is cleared right away. **2026-09-07**: `hitTest(px, py, pad)` + `hitPad`, and `cellForGhost(..., pad)` takes the tolerance as an argument so `InventoryUI` can run a strict pass before the padded one. **2026-09-09**: `setHideItem(pred | null)` — items the predicate accepts are **not drawn at all** (no tile → no hover, no drag, no menu) while staying in the grid data; the 함선 창고 view passes `ctx.tutorial.hides('stashItem', defId)`, and because a grid's `version` does not move when the 단계 does, `InventoryUI` forces `stashView.refresh(true)` on `tutorial:changed`. **2026-09-11 (C-60)**: `setClip(el)` — the scroll viewport the grid sits in; while that viewport really overflows, `hitTest` is trimmed to the visible rows (and a clipped edge loses its tolerance), so rows scrolled out of sight are not a drop target. Cell math still reads the grid's own `getBoundingClientRect` (it already carries the scroll offset — nothing is cached) |
@@ -77,6 +80,13 @@ null 이다 — 저장된 프리셋 · 크루 카드 · 로드아웃 세이브�
 ## Bag grid
 
 `getBagSize()` = equipped bag's `def.bag` (`cols × rows`, `quickSlots`), else `BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS` (5×3, 1 quick slot). Starter `bag_common` → 5×6.
+
+**2026-09-12 — 가방은 전부 가로 5칸 · 세로로 길다** (사용자 결정). `data/bags.csv` 의 칸 수를 5의 배수로 반올림했다:
+일반 5×6 · 고급 5×7 · 희귀 5×10 · 서사 5×11 · 전설 5×12 · 희귀 전술 5×8 · 서사 전술 5×10 · 전설 전술 5×11.
+화면의 가방 **틀**은 가장 긴 가방(`model.BAG_FRAME_ROWS` — 표에서 읽는다)으로 고정이고, 작은 가방은 아래가 격자 없는 빈
+여백이다 (`GridView.setFrameRows` — 여백은 드롭 대상이 아니다). 옛 세이브의 `x ≥ 5` 칸은 새 격자에 없으므로
+`parts/Lifecycle.applyLoadoutSave` 가 **하나라도 못 서면 가방 전체를 큰 것부터 다시 채우고**(합치지 않는다), 그래도 남는 것은
+**함선 창고**로 보낸다 — 창고마저 가득일 때만 예전처럼 경고와 함께 버린다.
 
 Equipping / unequipping / dropping the bag runs `changeBag()`:
 1. the new bag leaves its grid, the bag grid is `resize`d to the new size;
@@ -760,6 +770,30 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ---
 
+## 정렬 · 필터 · 합치기 · 즉시 이동 (2026-09-12, 사용자 결정)
+
+- **자동 정렬** — 가방 · 창고 머리의 `정렬` (`parts/Sort.ts`). Tab 인벤토리와 `TradeGrids` 양쪽.
+  실패(다시 채울 자리가 없다)하면 아무것도 안 바뀌고 `정렬할 자리가 부족합니다` 토스트.
+- **필터** — 칩 10개(`model.FILTER_GROUPS`: 전체 · 무기/부착물 · 방어구/가방 · 탄약 · 소모품 · 가젯/수류탄 · 재료 ·
+  귀중품/열쇠 · 재배/연구 · 기타). 걸러진 타일은 `.is-filtered-out` 로 **어두워질 뿐 자리를 지키고 끌 수도 있다** —
+  격자 인벤토리에서 숨기면 어느 칸이 비었는지 거짓말이 된다. Tab 창에서는 가방 · 창고 · 주머니가 한 선택을 나눠 쓴다.
+- **퀵슬롯 합치기** — 같은 아이템이 든 휠 칸에 놓으면 교체가 아니라 합친다 (`previewDrop` 의 `'merge'` →
+  `InventorySystem.mergeIntoQuickSlot`; 가방 · 창고 · 상자 · 주머니 · 다른 휠 칸 어디서 와도). 반대 방향(휠 → 같은 아이템의
+  격자 스택)은 원래 `dropImpl` 의 합치기다. Shift / Ctrl 로 나눈 스택도 휠 칸에 놓을 수 있다 (`previewQuickPartial` /
+  `dropQuickPartial` — 빈 칸이면 새 스택, 같은 아이템이면 합치기).
+- **넘친 수량은 커서에 남는다** — 합치기(격자끼리 · 휠 포함)에서 다 못 옮긴 몫은 **출발지를 떠나지 않은 채** 드래그가 이어진다
+  (`ui/parts/Drag.holdRemainder`, `DragState.held`). 다음 좌클릭의 **떼는 순간**이 놓기이고(누름은 캡처 단계에서 삼킨다 —
+  밑의 타일 · 버튼 · 탭이 반응하지 않는다), 아무 목표도 없는 곳 · 우클릭 · Escape(`escHandler`) · 창 닫기는 그냥 놓아 준다
+  (스택은 이미 제자리다). 휠에서 시작한 held 드래그도 빈 곳에 놓았다고 **칸을 비우지 않는다**. 이어진 놓기가 또 넘치면 또
+  남는다. 세이브 · 시체 벗기기는 그 사이에 끼어들어도 아이템을 제자리에서 본다. held 놓기 뒤 `CLICK_SUPPRESS_MS` 동안은
+  같은 클릭에서 나온 `dblclick` / `contextmenu` 가 타일에 먹히지 않는다.
+- **즉시 이동** — `.inv-tile` 의 `transform` · `opacity` 전환, 새 격자에 들어온 타일의 `.is-new` 팝, 드롭 하이라이트의 미끄럼을
+  없앴다. 호버 강조의 짧은 전환만 남았다. 다른 대원이 상자에서 가져간 타일의 `.is-vanishing` 은 **내 이동이 아니므로** 그대로다.
+- **타일 diff** — `GridView.refresh` 는 버전이 바뀌면 모든 타일의 DOM 을 다시 만들었다(창고 200 스택 × `innerHTML`).
+  이제 타일마다 그리는 내용의 서명(`tileSignature`)을 두고 바뀐 타일만 다시 만든다. 위치는 매번 쓴다.
+- **`InventoryRef.buildItemTile(defId, qty, {cell, durability})`** — 격자 타일과 똑같은 독립 타일(`.inv-tile.is-standalone`,
+  `data-item-tip` + `data-def-id`). 기업 거래 화면의 재고 · 트레이가 가방 · 창고와 같은 모양을 쓰게 하려고 붙였다.
+
 ## 준비물 사용 (A-13, 2026-09-11)
 
 준비물(`ItemDef.prep`)은 **함선에서 우클릭 → `사용 (다음 레이드 1회분)`** 으로 쓴다
@@ -776,6 +810,20 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-12 (가방 5칸 · 정렬 · 필터 · 합치기 · 즉시 이동, 에이전트 inventory)** — 계약 추가 하나:
+  `InventoryRef.buildItemTile`. ① `data/bags.csv` 가방 8종 전부 가로 5칸(칸 수 5의 배수로 반올림), `recipes.csv` 설명 동기화,
+  옛 세이브는 로드 때 큰 것부터 재배치 + 넘치면 함선 창고. ② 가방 틀 고정(`BAG_FRAME_ROWS`, `GridView.setFrameRows`,
+  `.inv-bag-scroll`). ③ 자동 정렬 `parts/Sort.ts` + 필터 칩 `ui/GridTools.ts` + `model.FILTER_GROUPS` / `filterPredicate` /
+  `SORT_CATEGORY_ORDER` — Tab 창과 `TradeGrids` 양쪽. ④ 같은 아이템 퀵슬롯 합치기(`mergeIntoQuickSlot`, 나눈 스택 포함) +
+  넘친 수량은 커서에(`Drag.holdRemainder` / `handleHeldDown`, `DragState.held` / `armed`, Escape 는 `escHandler`). ⑤ 이동 애니메이션
+  제거(CSS) + `GridView` 타일 서명 diff. ⑥ `TradeGrids` 재작성 — 한 스크롤 · 정렬 · 필터 · rAF 드래그 · 갱신 합치기 ·
+  `data-tg-grid`. 스모크: `smoke-quickslots`(합치기 · held 놓기 · Escape · 휠 → 격자 역방향), `smoke-inventory-p6`(가방 틀 ·
+  창고 정렬 · 필터 칩), `smoke-weapons`(전설 가방 5×12).
+  **리드 통합**: 고정 틀 때문에 1280×760 Tab 창의 가방 패널이 867 px 로 화면 밖에 나가(`smoke-tutorial` equipGun 스포트라이트 실패)
+  제작 창에서는 1920×1080 에서도 함선 창고가 1320 px 까지 밀려났다. 로제트가 가방 아래로 쌓이는 배치(함선 1600 px 미만 ·
+  레이드 1280 px 미만)는 `.inv-bag-scroll` 을 `max(168px, 100vh − 430px)`, 넓은 배치는 예전 `100vh − 300px`, 제작 중에는
+  `parts/Screens.setCraftOpen` 이 `setFrameRows(null)` 로 틀을 끄고 `max(224px, 100vh − 560px)`. 재측정: 1280×760 가방 패널 737 px ·
+  제작 창 창고 끝 724 px, 1920×1080 제작 창 창고 끝 992 px.
 - **2026-09-11 (A-15 주머니 · A-3c 요리 먹기, 에이전트 inventory)** — 계약은 읽기만 했다
   (`ItemCategory` += `pouch`/`key`/`meal`, `ItemDef.pouch`/`meal`, `LoadoutSlot` += `pouch`, `POUCH_SLOTS`,
   `inventory:pouchChanged`, `InventoryRef.getEquippedPouch`/`getPouchSize`, `ProgressionRef.useMeal`/`getMeal`,

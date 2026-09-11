@@ -19,7 +19,8 @@ interface Row {
  * given: **no blocker, no pointer lock, no window listener** — the caller (the inventory window) owns those.
  *
  * Phase 8 UI pass: the caller picks **which** facilities to list. The 함선 tab passes the two ship-wide ones
- * (발전기 · 창고); 작업실 / 사격장 are room facilities now and are upgraded from their row in the 방 목록.
+ * (발전기 · 창고). 2026-09-12: 작업실 / 시뮬레이션실 have no levels at all — their furniture is upgraded instead, so
+ * the 효과 summary no longer shows a craft discount and reads the 관물대 / 시뮬레이션 허브 numbers.
  *
  * Phase 9 UI pass: each row leads with the shared facility thumbnail (`FACILITY_GLYPH` / `FACILITY_COLOR`) and the
  * per-facility explainer lines are gone — the level pips, the cost chips and the block reason already say it.
@@ -90,9 +91,8 @@ export class FacilityRows {
       el('span', { cls: 'v', text: v, parent: row });
     };
     line('창고 크기', `${stash.cols} × ${stash.rows} 칸`);
-    line('제작 비용 배율', `×${h.getCraftCostMul().toFixed(2)}`);
-    line('로드아웃 프리셋', `${h.getPresetCount()} 슬롯`);
-    line('사격 숙련 상승', `×${h.getSkillGainMul('gun_AR').toFixed(1)}`);
+    line('로드아웃 프리셋 (관물대)', `${h.getPresetCount()} 슬롯`);
+    line('사격 숙련 상승 (시뮬레이션 허브)', `×${h.getSkillGainMul('gun_AR').toFixed(1)}`);
     line('작업대', (['gun', 'gear', 'gadget', 'medical'] as const)
       .map((k) => `${k === 'gun' ? '총기' : k === 'gear' ? '장비' : k === 'gadget' ? '가젯' : '의학'} Lv.${h.getBenchLevel(k)}`).join(' · '));
   }

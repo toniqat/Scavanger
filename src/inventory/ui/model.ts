@@ -77,7 +77,18 @@ export interface DragState {
   target: DropTarget | null;
   lastX: number;
   lastY: number;
+  /**
+   * 2026-09-12 (사용자 결정): the remainder of a stack merge **stays on the cursor**. The units never left their source
+   * (the source stack is only smaller), so a save / corpse strip in the meantime sees them where they were; the next
+   * left click drops them like a normal release, a right click / Escape / a miss / closing the window just lets go.
+   */
+  held?: boolean;
+  /** Held drag: the next press has landed (`handleHeldDown`), so its release is the drop. */
+  armed?: boolean;
 }
+
+/** 2026-09-12: after a held drop / cancel, a `dblclick` / `contextmenu` from the same clicks must not act on the tile below. */
+export const CLICK_SUPPRESS_MS = 450;
 
 export interface SlotView {
   slot: SlotId;

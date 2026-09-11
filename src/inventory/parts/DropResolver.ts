@@ -53,6 +53,8 @@ export function partialQtyFor(sys: InventorySystem, item: ItemInstance, mode: 'h
 
 /** Non-mutating classification of a partial-stack drag (`qty` units of `uid`) onto `target`. */
 export function previewPartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): DropPreview {
+  // 2026-09-12: 나눈 스택을 휠 칸에 — 빈 칸이면 새 스택, 같은 아이템이면 합치기 (`previewQuickPartial`)
+  if (target.kind === 'quick') return sys.previewQuickPartial(target.index, uid, from, qty);
   const v = sys.validatePartial(uid, from, qty, target);
   if (!v) return 'bad';
   const { item, def, grid, blockers } = v;
@@ -74,6 +76,7 @@ export function dropPartial(sys: InventorySystem, uid: string, from: ItemLocatio
   }
 
 export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
+  if (target.kind === 'quick') return sys.dropQuickPartial(target.index, uid, from, qty);
   const v = sys.validatePartial(uid, from, qty, target);
   if (!v || target.kind !== 'grid' || from.kind !== 'grid') return 'fail';
   const { item, def, grid, blockers } = v;
@@ -140,6 +143,8 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
     if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, sys.getQuickSlotCount())) return 'bad';
     const occupant = sys.quickSlots[target.index];
     if (occupant?.uid === uid) return 'noop';
+    // 2026-09-12 (사용자 결정): 같은 아이템이 든 칸이면 교체가 아니라 **합치기** (넘친 만큼은 커서에 남는다)
+    if (occupant && occupant.defId === item.defId && def.stackMax > 1 && occupant.qty < def.stackMax && item.searched !== false) return 'merge';
     /*
      * 2026-09-10 — **1:1 교체는 가방 여유를 요구하지 않는다.** 예전에는 여기서 `sys.bag.canAbsorb(occupant)` 만
      * 봤는데, 그 검사는 들어오는 스택이 **아직 격자에 있는 상태**에서 돌아 그것이 곧 비울 칸을 세지 않았다.
@@ -253,6 +258,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
     const pv = sys.previewDrop(uid, from, target);
     if (pv === 'bad') return 'fail';
     if (pv === 'noop') return 'noop';
+    if (pv === 'merge') return sys.mergeIntoQuickSlot(target.index, uid, from) ? 'ok' : 'fail';
     return sys.setQuickSlot(target.index, uid) ? 'ok' : 'fail';
   }
   if (target.kind === 'slot') return sys.dropOnSlot(item, def, from, target.slot);

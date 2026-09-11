@@ -6,11 +6,11 @@ import {
   ANALYZE_DEX_SPEEDUP, ANALYZE_KNOWN_SPEEDUP,
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   GROW_SKILL_SPEEDUP, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
-  RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
+  RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
   SHIP_ROOM_COUNT,
-  STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST, WORKSHOP_COST_DISCOUNT_PER_LEVEL,
-  WORKSHOP_MAX_LEVEL, WORKSHOP_UPGRADE_COST, furnitureFootprint,
+  STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST,
+  WORKSHOP_UPGRADE_COST, benchKindOf, furnitureFootprint,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -29,12 +29,17 @@ export const CRAFT_COST_MUL_MIN = 0.5;
 
 /* ── facilities ───────────────────────────────────────────────────────────── */
 
+/**
+ * 2026-09-12 (사용자 결정 — **방 시설 레벨 제거**): 작업실 · 시뮬레이션실은 레벨이 없다 (방이 있으면 1, 없으면 0).
+ * 강화는 그 방 안의 가구가 한다 — 작업대(레시피), 관물대(프리셋 슬롯), 시뮬레이션 허브(사격 숙련 상승). 발전기 ·
+ * 창고는 함선 전체 시설이라 그대로 레벨을 갖는다.
+ */
 export function facilityMaxLevel(id: FacilityId): number {
   switch (id) {
     case 'generator': return GENERATOR_MAX_LEVEL;
     case 'storage': return STORAGE_MAX_LEVEL;
-    case 'workshop': return WORKSHOP_MAX_LEVEL;
-    case 'range': return RANGE_MAX_LEVEL;
+    case 'workshop': return 1;
+    case 'range': return 1;
   }
 }
 
@@ -58,17 +63,31 @@ export function facilityLevel(state: ShipState, id: FacilityId): number {
 }
 
 /**
- * Cost to raise `id` from `level` to `level + 1`, null at max (or for a room facility that has no room yet).
- * Ship-wide tables start at level 1 (`cost[level]`), room tables at level 2 (level 1 comes with the purpose).
+ * Cost to raise `id` from `level` to `level + 1`, null at max. Ship-wide tables start at level 1 (`cost[level]`).
+ * Room facilities (작업실 · 시뮬레이션실) have no levels since 2026-09-12 → always null.
  */
 export function nextFacilityCost(id: FacilityId, level: number): CraftIngredient[] | null {
   if (level >= facilityMaxLevel(id)) return null;
   switch (id) {
     case 'generator': return GENERATOR_UPGRADE_COST[level] ?? null;
     case 'storage': return STORAGE_UPGRADE_COST[level] ?? null;
-    case 'workshop': return level < 1 ? null : WORKSHOP_UPGRADE_COST[level - 1] ?? null;
-    case 'range': return level < 1 ? null : RANGE_UPGRADE_COST[level - 1] ?? null;
+    case 'workshop': return null;
+    case 'range': return null;
   }
+}
+
+/**
+ * 옛 세이브의 방 시설 레벨이 **쓴 재료** (Lv.1 → `level`, 재료별 합산). 2026-09-12 에 방 시설 레벨을 없애면서
+ * `ShipState.sanitize` 가 레벨 2 이상인 작업실 · 사격장을 만나면 이 값을 함선 창고로 돌려준다 — 은퇴 가구
+ * (`furnitureRefundCost`)와 같은 철학이다. 표는 `data/facility_upgrades.csv` 의 은퇴 묶음(`workshop` · `range`)이다.
+ */
+export function legacyRoomLevelCost(id: 'workshop' | 'range', level: number): CraftIngredient[] {
+  const table = id === 'workshop' ? WORKSHOP_UPGRADE_COST : RANGE_UPGRADE_COST;
+  const total = new Map<string, number>();
+  for (let k = 1; k < Math.floor(level); k++) {
+    for (const c of table[k - 1] ?? []) total.set(c.defId, (total.get(c.defId) ?? 0) + c.qty);
+  }
+  return [...total].map(([defId, qty]) => ({ defId, qty }));
 }
 
 /** Ingredients still missing for `cost` (qty = shortfall); empty when affordable. */
@@ -93,9 +112,10 @@ export function generatorGateReason(state: ShipState, targetLevel: number): stri
 /** Why `id` cannot be upgraded right now; null = go ahead. Order: max → room → generator → materials. */
 export function facilityBlockReason(state: ShipState, id: FacilityId, count: CountFn, nameOf: NameFn): string | null {
   const level = facilityLevel(state, id);
-  if (level >= facilityMaxLevel(id)) return '최대 레벨입니다';
   const purpose = facilityPurpose(id);
-  if (purpose && level < 1) return `${ROOM_PURPOSE_LABEL_KO[purpose]} 용도의 방이 필요합니다`;
+  // 2026-09-12: 방 시설에는 레벨이 없다 — 방이 없으면 그 사유, 있으면 「가구를 강화하세요」
+  if (purpose) return level < 1 ? `${ROOM_PURPOSE_LABEL_KO[purpose]} 용도의 방이 필요합니다` : '시설 레벨은 없습니다 — 시설 안의 가구를 강화하세요';
+  if (level >= facilityMaxLevel(id)) return '최대 레벨입니다';
   const target = level + 1;
   if (id !== 'generator') {
     const gate = generatorGateReason(state, target);
@@ -174,20 +194,26 @@ export function stashSizeFor(storageLevel: number): { cols: number; rows: number
   return { cols: STASH_COLS, rows: STASH_ROWS_BY_STORAGE_LEVEL[i] };
 }
 
-export function presetCountFor(rangeLevel: number): number {
-  const i = Math.max(0, Math.min(PRESETS_BY_RANGE_LEVEL.length - 1, Math.floor(rangeLevel)));
+/** Preset slots for the highest placed **관물대** level (0 = none placed). 2026-09-12: was the 사격장 room level. */
+export function presetCountFor(consoleLevel: number): number {
+  const i = Math.max(0, Math.min(PRESETS_BY_RANGE_LEVEL.length - 1, Math.floor(consoleLevel)));
   return PRESETS_BY_RANGE_LEVEL[i];
 }
 
-/** `1 − WORKSHOP_COST_DISCOUNT_PER_LEVEL × (level − 1)`, 1 at level ≤ 1, never below CRAFT_COST_MUL_MIN. */
-export function craftCostMulFor(workshopLevel: number): number {
-  if (workshopLevel <= 1) return 1;
-  return Math.max(CRAFT_COST_MUL_MIN, 1 - WORKSHOP_COST_DISCOUNT_PER_LEVEL * (workshopLevel - 1));
+/**
+ * Craft material multiplier. **Always 1 since 2026-09-12** — the 작업실 discount went away with the room levels
+ * (사용자 결정). Kept so `HousingRef.getCraftCostMul` (contract) has one place to answer from.
+ */
+export function craftCostMulFor(_workshopLevel: number): number {
+  return 1;
 }
 
-/** Gun skills gain `1 + RANGE_SKILL_GAIN_PER_LEVEL × rangeLevel`; everything else 1. */
-export function skillGainMulFor(skill: SkillId, rangeLevel: number): number {
-  return skill.startsWith('gun_') && rangeLevel > 0 ? 1 + RANGE_SKILL_GAIN_PER_LEVEL * rangeLevel : 1;
+/**
+ * Gun skills gain `1 + RANGE_SKILL_GAIN_PER_LEVEL × level` of the highest placed **시뮬레이션 허브** (0 = none);
+ * everything else 1. 2026-09-12: was the 사격장 room level.
+ */
+export function skillGainMulFor(skill: SkillId, simHubLevel: number): number {
+  return skill.startsWith('gun_') && simHubLevel > 0 ? 1 + RANGE_SKILL_GAIN_PER_LEVEL * simHubLevel : 1;
 }
 
 /* ── 서재 책장 (Phase 9) ──────────────────────────────────────────────────── */
@@ -202,7 +228,7 @@ export function bookWeightOf(def: ItemDef | undefined): number {
 /**
  * 서재 multiplier for `skill`: `min(BOOK_GAIN_MAX, 1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL[rarity])` over every shelved
  * book of that skill on the ship (any shelf, any room); exactly 1 when none. `defOf` resolves a book's def (unknown or
- * non-book ids weigh 0). Multiplied into `HousingRef.getSkillGainMul` next to the 사격장 factor.
+ * non-book ids weigh 0). Multiplied into `HousingRef.getSkillGainMul` next to the 시뮬레이션 허브 factor.
  */
 export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], defOf: (defId: string) => ItemDef | undefined): number {
   let sum = 0;
@@ -361,8 +387,9 @@ export function purposeChangeReason(state: ShipState, index: number, purpose: Ro
   if (NEEDS_GREENHOUSE.includes(purpose) && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
     return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 온실이 먼저 필요합니다`;
   }
-  // facility rooms (작업실 / 사격장) carry the facility level, so the ship holds at most one of each
-  if (facilityPurposeOf(purpose)) {
+  // 2026-09-12 (사용자 결정): **모든 용도가 함선당 하나다** — 시설 관리의 용도 목록은 이미 지은 용도를 아예
+  // 보여 주지 않는다. 예전(작업실 · 사격장만 하나)에 두 개를 지어 둔 세이브는 그대로 둔다 (`sanitize` 는 건드리지 않는다).
+  {
     const other = state.rooms.findIndex((r, i) => i !== index && r.purpose === purpose);
     if (other >= 0) return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 함선에 하나만 둘 수 있습니다 (방 ${other + 1})`;
   }
@@ -597,8 +624,12 @@ export function recoverBlockReason(state: ShipState, item: PlacedFurniture): str
 
 /* ── furniture upgrades ───────────────────────────────────────────────────── */
 
+/**
+ * `BENCH_MAX_LEVEL` caps **작업대** only (2026-09-12): 관물대 · 시뮬레이션 허브 took over the old 사격장 Lv.1–5 and
+ * read their `maxLevel` straight from `data/furniture.csv`.
+ */
 export function furnitureMaxLevel(def: FurnitureDef): number {
-  return Math.min(def.maxLevel, BENCH_MAX_LEVEL);
+  return benchKindOf(def.interaction) ? Math.min(def.maxLevel, BENCH_MAX_LEVEL) : def.maxLevel;
 }
 
 /** Cost from `level` to `level + 1` for a placed piece, null at max. */

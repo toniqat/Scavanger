@@ -4,6 +4,8 @@ import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, re
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
+import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
+import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
 import { CraftPanel } from './CraftPanel';
 import { CatalogView } from './CatalogView';
 import { DisassemblePanel } from './DisassemblePanel';
@@ -99,6 +101,15 @@ export class InventoryUI {
 
   onWindowMove = (e: PointerEvent): void => this.handlePointerMove(e);
   onWindowUp = (e: PointerEvent): void => this.handlePointerUp(e);
+  /** 2026-09-12: capture-phase press while a merge remainder is held on the cursor (`Drag.handleHeldDown`). */
+  onWindowDown = (e: PointerEvent): void => Drag.handleHeldDown(this, e);
+  /** 2026-09-12: `performance.now()` until which tile dblclick / contextmenu are ignored (held-remainder clicks). */
+  suppressClicksUntil = 0;
+  /** 2026-09-12: 가방 · 창고 필터 — one choice for both grids (and the 주머니) of this window. */
+  filterGroup: FilterGroupId = 'all';
+  private filterChips: FilterChips[] = [];
+  /** 2026-09-12: the 가방 grid's scroll viewport (the fixed 12-row frame can be taller than a short window). */
+  bagScroll!: HTMLElement;
 
   constructor(public readonly sys: InventorySystem, public readonly ctx: GameContext) {}
 
@@ -209,7 +220,12 @@ export class InventoryUI {
     sTitleWrap.append(sEyebrow, sTitle);
     this.stashCount = document.createElement('div');
     this.stashCount.className = 'inv-capacity';
-    sHead.append(sTitleWrap, this.stashCount);
+    const sActions = document.createElement('div');
+    sActions.className = 'inv-head-actions';
+    sActions.append(this.stashCount, buildSortButton(() => this.sortGrid('stash')));
+    sHead.append(sTitleWrap, sActions);
+    const sChips = buildFilterChips((id) => this.setFilterGroup(id));
+    this.filterChips.push(sChips);
     this.stashView = new GridView('stash', getDef, getStats, this.tileHandlers());
     // 2026-09-09: 튜토리얼 중에는 창고에서 그 단계의 재료 · 산출물만 보인다 (`stashItem` 게이트, 꺼져 있으면 항상 false)
     this.stashView.setHideItem((item) => this.ctx.tutorial?.hides('stashItem', item.defId) ?? false);
@@ -218,7 +234,7 @@ export class InventoryUI {
     sScroll.appendChild(this.stashView.el);
     // 2026-09-08: 창고 하단의 '가방 ↔ 창고: 드래그 또는 우클릭…' 안내 줄은 없앴다 — 드래그와 우클릭은
     //   가방 격자에서 이미 하는 동작이라 화면에 한 줄 더 적어 둘 이유가 없다 (사용자 결정: 당연한 설명은 지운다).
-    sPanel.append(sHead, sScroll);
+    sPanel.append(sHead, sChips.el, sScroll);
     this.stashPanel = sPanel;
 
     /* bag panel */
@@ -237,9 +253,19 @@ export class InventoryUI {
     craftBtn.className = 'inv-btn inv-bag-craft';
     craftBtn.textContent = TEXT.craft;
     craftBtn.addEventListener('click', () => this.toggleCraft());
-    bActions.append(this.bagCapacity, craftBtn);
+    bActions.append(this.bagCapacity, buildSortButton(() => this.sortGrid('bag')), craftBtn);
     bHead.append(bActions);
+    const bChips = buildFilterChips((id) => this.setFilterGroup(id));
+    this.filterChips.push(bChips);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
+    // 2026-09-12 (사용자 결정): the box is always as tall as the longest bag; a smaller bag leaves blank rows below
+    this.bagView.setFrameRows(BAG_FRAME_ROWS);
+    const bScroll = document.createElement('div');
+    bScroll.className = 'inv-bag-scroll';
+    bScroll.appendChild(this.bagView.el);
+    this.bagView.setClip(bScroll);
+    bScroll.addEventListener('scroll', () => { const d = this.drag; if (d?.started) this.updateDragTarget(d.lastX, d.lastY); }, { passive: true });
+    this.bagScroll = bScroll;
     const bBody = document.createElement('div');
     bBody.className = 'inv-bag-body';
     /*
@@ -255,7 +281,7 @@ export class InventoryUI {
     this.pouchView = new GridView('pouch', getDef, getStats, this.tileHandlers());
     pPanel.append(this.pouchTitle, this.pouchView.el);
     this.pouchPanel = pPanel;
-    bBody.append(this.bagView.el, this.buildQuickPanel(), pPanel);
+    bBody.append(bScroll, this.buildQuickPanel(), pPanel);
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
     const vLabel = document.createElement('span');
@@ -282,7 +308,7 @@ export class InventoryUI {
     this.weightFill = document.createElement('i');
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
-    bPanel.append(bHead, bBody, this.weightEl, bFoot);
+    bPanel.append(bHead, bChips.el, bBody, this.weightEl, bFoot);
     this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor));
 
     /* equipment column */
@@ -806,6 +832,30 @@ export class InventoryUI {
 
   bindSlotTile(el: HTMLElement, sv: SlotView): void { return SlotUI.bindSlotTile(this, el, sv); }
 
+  /* ── 2026-09-12: 자동 정렬 · 필터 ─────────────────────────────────────── */
+
+  /** `정렬` in the 가방 / 창고 header. A drag in progress is dropped first (its source may move). */
+  sortGrid(id: 'bag' | 'stash'): void {
+    this.cancelDrag();
+    this.menu?.close();
+    const r = this.sys.sortGrid(id);
+    if (r === 'ok') this.sys.sfx('ui_drop');
+    else if (r === 'fail') {
+      this.sys.sfx('ui_error');
+      this.ctx.bus.emit('ui:notify', { text: '정렬할 자리가 부족합니다 — 격자를 조금 비워 주세요', kind: 'warning', duration: 2.2 });
+    }
+  }
+
+  /** Pick a filter chip: every grid of the window dims what the group does not contain. */
+  setFilterGroup(id: FilterGroupId): void {
+    this.filterGroup = id;
+    const pred = filterPredicate(id);
+    this.bagView.setFilter(pred);
+    this.stashView.setFilter(pred);
+    this.pouchView.setFilter(pred);
+    for (const c of this.filterChips) c.set(id);
+  }
+
   /* ── grid routing ──────────────────────────────────────────────────────── */
 
   viewOf(grid: GridId): GridView {
@@ -841,11 +891,11 @@ export class InventoryUI {
       onMove: (_uid: string, _gridId: GridId, e: PointerEvent) => this.tooltip.move(e.clientX, e.clientY),
       onLeave: () => this.hoverLeave(),
       onContext: (uid: string, gridId: GridId, e: MouseEvent) => {
-        if (this.drag) return;
+        if (this.drag || performance.now() < this.suppressClicksUntil) return;
         this.onContextMenu(uid, { kind: 'grid', grid: gridId }, e);
       },
       onDblClick: (uid: string, gridId: GridId) => {
-        if (this.drag?.started) return;
+        if (this.drag?.started || performance.now() < this.suppressClicksUntil) return;
         const from: ItemLocation = { kind: 'grid', grid: gridId };
         if (this.locked(uid, from)) return;
         const item = this.sys.findItem(uid, from);

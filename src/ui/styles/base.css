@@ -2006,20 +2006,34 @@ button.item-chip[data-def-id] { cursor: pointer; }
    계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도. 아이템 칩과 **같은 상자 · 같은 간격**을 쓰므로 한
    줄에 섞여도 줄이 맞고, 썸네일 틀만 다르다: 네모 대신 모서리를 깎은 육각이고 안쪽에 링이 하나 더 있다.
    `--cy` = 재화 색 (신뢰도는 기업 색). 카드는 `.item-tip.is-currency`. */
+/* 2026-09-12: 깎은 모서리(`clip-path`)는 **썸네일 자신이 아니라 뒤판(::before)** 에 건다. 예전에는 썸네일에 걸려
+   있어서 그 안에 앉은 개수 배지(`.item-chip-count`, 우측 하단 모서리 밖으로 삐져나온다)가 같이 잘렸다 — 퀘스트
+   보상 칩의 우측 하단 수치가 도형에 먹히던 것. 썸네일은 이제 테두리 · 배경이 없는 투명 상자(`isolation` 으로
+   쌓임 맥락만 만든다)이고, 뒤판과 안쪽 링이 z-index −1 로 글리프 · 배지 밑에 깔린다. */
 .currency-chip .currency-thumb {
-  border-color: color-mix(in srgb, var(--cy) 70%, transparent);
+  isolation: isolate;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+.currency-chip .currency-thumb::before,
+.currency-chip .currency-thumb::after {
+  content: ''; position: absolute; z-index: -1; pointer-events: none;
+  clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%);
+}
+/* the plate — frame colour, glow and wash */
+.currency-chip .currency-thumb::before {
+  inset: -1px;
+  border: 1px solid color-mix(in srgb, var(--cy) 70%, transparent);
   background:
     radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--cy) 26%, transparent), transparent 68%),
     linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.5));
   box-shadow: inset 0 0 10px -2px var(--cy);
-  clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%);
 }
 /* the inner ring — what separates "재화" from "물건" at a glance */
-.currency-chip .currency-thumb::before {
-  content: ''; position: absolute; inset: 3px;
+.currency-chip .currency-thumb::after {
+  inset: 3px;
   border: 1px solid color-mix(in srgb, var(--cy) 34%, transparent);
-  clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%);
-  pointer-events: none;
 }
 .currency-chip .item-chip-icon { color: var(--cy); text-shadow: 0 0 8px color-mix(in srgb, var(--cy) 45%, transparent); }
 .currency-chip .item-chip-count {
@@ -2189,6 +2203,17 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-tab:hover { color: var(--c-text); border-color: var(--c-border-strong); }
 .sm-tab.is-on { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+/* 2026-09-12: 가구 제작 안의 하위 탭 (시설 가구 / 꾸밈용 가구) — 위 탭보다 한 단계 가볍다 (밑줄형) */
+.sm-subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--c-border); }
+.sm-subtabs[hidden] { display: none; }
+.sm-subtab {
+  flex: 1; padding: 3px 6px 4px; margin-bottom: -1px;
+  border: none; border-bottom: 2px solid transparent; background: none;
+  font: inherit; font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.sm-subtab:hover { color: var(--c-text); }
+.sm-subtab.is-on { color: var(--c-text); border-bottom-color: var(--c-accent); }
 .sm-cards, .sm-purposes, .sm-store {
   display: flex; flex-direction: column; gap: 6px;
   flex: 1; min-height: 0;
@@ -2359,6 +2384,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .fcard-craft:hover:not(:disabled), .fcard-place:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .fcard-craft:disabled, .fcard-place:disabled { color: var(--c-text-faint); border-style: dashed; cursor: not-allowed; }
+/* 2026-09-12: 이미 가진 시설 가구 — 버튼 글자가 `이미 보유 중` 이고 사유 줄은 없다 */
+.fcard-craft { white-space: nowrap; }
+.fcard.is-owned .fcard-craft:disabled { color: var(--c-success); border-color: color-mix(in srgb, var(--c-success) 45%, transparent); border-style: solid; }
 .fcard-note { font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-faint); }
 .fcard-note.is-full { color: var(--c-accent); }
 .fcard.store.is-blocked { cursor: not-allowed; border-style: dashed; opacity: 0.55; }
@@ -2674,16 +2702,19 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .notif.channel { border-left-color: var(--c-success); }
 .notif.channel .t .pct { font-family: var(--ui-mono); color: var(--c-success); }
 
-/* 시설 관리 — 발전기 row at the head of the 용도 지정 picker */
+/* 시설 관리 — 발전기 row. 2026-09-12: it left the 용도 지정 picker and sits **under the 방 목록** (216 px column), so it
+   stacks: head line (thumb · name + level · button) → cost chips → note. */
+.sm-gen-host { flex: none; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .sm-gen {
-  display: flex; flex-direction: row; align-items: center; gap: 10px; flex: none;
-  padding: 8px 10px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: none;
+  padding: 8px 8px;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.05);
 }
-.sm-gen .sm-thumb { width: 34px; height: 34px; }
-.sm-gen .sm-thumb .g { font-size: 18px; }
+.sm-gen .hd { display: flex; align-items: center; gap: 8px; }
+.sm-gen .sm-thumb { width: 30px; height: 30px; }
+.sm-gen .sm-thumb .g { font-size: 16px; }
 .sm-gen .bd { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.sm-gen .ln { display: flex; align-items: center; gap: 8px; }
+.sm-gen .ln { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; flex: 1; min-width: 0; }
 .sm-gen .nm { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; }
 .sm-gen .lv { font-size: 10px; color: var(--c-text-dim); }
 .sm-gen.is-hint { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
@@ -2731,8 +2762,24 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
    blocker 도 잡지 않으므로, 카드를 띄운 채 다음 가구를 계속 클릭할 수 있다. 자리는 방 목록(좌 216px) · 가구
    목록(우 300px) 사이의 하단 중앙이라 어느 쪽도 가리지 않는다. z 는 `.sm-confirm`(79) 아래 — 확인 팝업이 뜨면
    그것이 위다. */
-.sm-inspect {
+/* 2026-09-12: the card and the placement-refusal toast above it share one bottom-centre column (`.sm-dock`) — the
+   toast always lands right above the card, or on the same spot when no card is up. */
+.sm-dock {
   position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 77;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+.sm-toast {
+  max-width: min(430px, calc(100vw - 620px)); padding: 6px 14px;
+  background: rgba(40, 12, 12, 0.94); border: 1px solid rgba(255, 77, 77, 0.6);
+  font-size: 12px; letter-spacing: 0.04em; color: #ffc2c2; text-align: center;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+}
+.sm-toast[hidden] { display: none; }
+.sm-toast.flash { animation: smToast 0.28s var(--ease); }
+@keyframes smToast { 0% { transform: translateY(6px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.sm-inspect {
+  position: relative; pointer-events: auto;
   width: min(430px, calc(100vw - 620px)); min-width: 300px;
   display: flex; flex-direction: column; gap: 9px; padding: 14px 16px 12px;
   background: rgba(14, 17, 21, 0.97); border: 1px solid color-mix(in srgb, var(--c-accent) 50%, transparent);
@@ -2754,8 +2801,18 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-ins-desc { font-size: 11px; line-height: 1.5; letter-spacing: 0.02em; color: var(--c-text-dim); }
 .sm-ins-note { font-size: 10px; line-height: 1.45; letter-spacing: 0.03em; color: var(--c-danger); }
 .sm-ins-note.is-ok { color: var(--c-text-dim); }
-.sm-ins-acts { display: flex; justify-content: flex-end; }
+.sm-ins-acts { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .sm-ins-up { padding: 6px 16px; }
+/* 2026-09-12: 좌측 하단 `위치 이동` — 강화(accent)와 구분되는 중립 버튼, 옮기는 동안 `이동 중` 으로 잠긴다 */
+.sm-ins-move {
+  padding: 6px 14px;
+  border: 1px solid var(--c-border-strong); background: rgba(255, 255, 255, 0.05);
+  font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.sm-ins-move:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); }
+.sm-ins-move:disabled { cursor: default; }
+.sm-ins-move.is-on { color: #5cff8a; border-color: rgba(92, 255, 138, 0.55); background: rgba(92, 255, 138, 0.08); }
 
 /* 제작 카드 잠금 (B-13): 이미 가진 실용 가구 · 재료 부족은 딤드로 목록 맨 아래에 선다 */
 .fcard.is-locked { opacity: 0.55; border-style: dashed; }

@@ -19,6 +19,8 @@ import { applyQuickSwap, type QuickSwapCell, type QuickSwapPlan } from './QuickS
 import { InventoryUI, type ScreenTab } from './ui/InventoryUI';
 export type { ScreenTab } from './ui/InventoryUI';
 import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
+import { buildTileContent } from './ui/GridView';
+import { CELL } from './ui/labels';
 import { Stash, setStarterGrantState, starterGrantState } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
@@ -51,6 +53,7 @@ import * as Launch from './parts/LaunchCheck';
 import * as Corpse from './parts/CorpseLoot';
 /* appended (2026-09-11, A-15): 주머니 — 퀵슬롯과 같은 선을 긋는 또 하나의 컨테이너 */
 import * as Pouch from './parts/Pouch';
+import * as SortOps from './parts/Sort';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
@@ -147,6 +150,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   private escHandler = (e: KeyboardEvent): void => {
     if (e.code !== Keys.MENU || !this._open) return;
+    // 2026-09-12: a stack held on the cursor after a merge goes back where it came from first (it never left)
+    if (this.ui?.drag?.held) { this.ui.cancelDrag(); this.sfx('ui_drop'); e.preventDefault(); e.stopPropagation(); return; }
     if (!this.ui?.closePopups()) return;
     e.preventDefault();
     e.stopPropagation();
@@ -852,6 +857,80 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return { occupant, bag: this.bag, source, cell, incomingUid, allowSource };
   }
 
+  /**
+   * 2026-09-12 (사용자 결정) — **같은 아이템이면 휠 칸에서 합친다.** 가방 붕대 2 를 붕대 3 이 든 칸에 놓으면 칸이 5 가
+   * 된다. 넘치는 만큼은 **출발한 자리에 남고**(수량만 줄어든다) UI 가 그 나머지를 커서에 붙여 둔다 (`Drag.holdRemainder`).
+   * 출발지는 가방 · 창고 · 상자 · 주머니 격자 또는 **다른 휠 칸**이다. 합칠 것이 없으면(다른 아이템 · 칸이 꽉 참) false.
+   */
+  mergeIntoQuickSlot(index: number, uid: string, from: ItemLocation): boolean {
+    const occupant = isQuickIndex(index) ? this.quickSlots[index] : null;
+    const item = this.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!occupant || !item || !def || occupant.uid === uid || occupant.defId !== item.defId || def.stackMax <= 1) return false;
+    if (item.searched === false) return false;
+    const moved = Math.min(def.stackMax - occupant.qty, item.qty);
+    if (moved <= 0) return false;
+    occupant.qty += moved;
+    item.qty -= moved;
+    const to: ItemLocation = { kind: 'quick', index };
+    if (this.locKind(from) !== 'player') this.emitTransfer({ ...item, qty: moved }, def, from, to);
+    if (item.qty <= 0) {
+      this.detach(item, from);
+    } else if (from.kind === 'grid') {
+      const g = this.getGrid(from.grid);
+      if (g) g.version++;
+    }
+    this.afterQuickChange();
+    return true;
+  }
+
+  /** 2026-09-12: a Shift / Ctrl split (`qty` units of grid stack `uid`) released over wheel cell `index`. */
+  previewQuickPartial(index: number, uid: string, from: ItemLocation, qty: number): DropPreview {
+    if (from.kind !== 'grid' || this.isItemLocked(uid, from)) return 'bad';
+    if (!isQuickIndex(index) || !isQuickSlotActive(index, this.getQuickSlotCount())) return 'bad';
+    const item = this.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    const n = Math.floor(qty);
+    if (!item || !def || !isQuickUsable(def) || !Number.isFinite(n) || n < 1 || n >= item.qty) return 'bad';
+    const occupant = this.quickSlots[index];
+    if (!occupant) return 'ok';
+    return occupant.defId === item.defId && occupant.qty < def.stackMax ? 'merge' : 'bad';
+  }
+
+  /** 2026-09-12: execute `previewQuickPartial` — a new wheel stack in an empty cell, or a merge into the same item. */
+  dropQuickPartial(index: number, uid: string, from: ItemLocation, qty: number): OpResult {
+    const pv = this.previewQuickPartial(index, uid, from, qty);
+    if (pv === 'bad' || from.kind !== 'grid') return 'fail';
+    const item = this.findItem(uid, from)!;
+    const def = ITEM_DEF_MAP.get(item.defId)!;
+    const src = this.getGrid(from.grid);
+    if (!src) return 'fail';
+    const n = Math.floor(qty);
+    const to: ItemLocation = { kind: 'quick', index };
+    if (pv === 'ok') {
+      const created = this.loot.createItem(item.defId, n);
+      item.qty -= n;
+      src.version++;
+      this.quickSlots[index] = created;
+      if (this.locKind(from) !== 'player') this.emitTransfer(created, def, from, to);
+      this.ctx.bus.emit('inventory:itemSplit', { source: item, created });
+      this.afterQuickChange();
+      return 'ok';
+    }
+    const occupant = this.quickSlots[index]!;
+    const moved = Math.min(def.stackMax - occupant.qty, n);
+    if (moved <= 0) return 'fail';
+    occupant.qty += moved;
+    item.qty -= moved;
+    src.version++;
+    if (this.locKind(from) !== 'player') this.emitTransfer({ ...item, qty: moved }, def, from, to);
+    this.afterQuickChange();
+    return 'ok';
+  }
+
+  /** 2026-09-12: 자동 정렬 (가방 · 함선 창고) — `parts/Sort.ts`. `keep` uids are moved but never merged away. */
+  sortGrid(gridId: 'bag' | 'stash', keep?: (uid: string) => boolean): OpResult { return SortOps.sortGrid(this, gridId, keep); }
+
   /** Wheel to bag (merging into stacks first). False when the bag has no room; the caller then refuses the move. */
   private returnQuickToBag(item: ItemInstance): boolean {
     if (this.bag.autoPlace(item)) return true;
@@ -1223,6 +1302,21 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   createTradeGrids(host: HTMLElement, opts: TradeGridsViewOptions = {}): EmbeddedView {
     return new TradeGrids(this, this.ctx, host, opts as TradeGridsOptions);
+  }
+
+  /** 2026-09-12: a standalone grid-look tile for another folder's screen — see `InventoryRef.buildItemTile`. */
+  buildItemTile(defId: string, qty: number, opts: { cell?: number; durability?: number } = {}): HTMLElement {
+    const el = document.createElement('div');
+    const def = this.getDef(defId);
+    if (!def) { el.className = 'inv-tile'; return el; }
+    const item = this.loot.createItem(defId, Math.max(1, Math.floor(qty)));
+    item.qty = Math.max(1, Math.floor(qty));
+    if (opts.durability !== undefined) item.durability = opts.durability;
+    buildTileContent(el, item, def, def.width, def.height, this.getStats(item), Math.max(16, Math.round(opts.cell ?? CELL)));
+    el.classList.add('is-standalone');
+    el.dataset.itemTip = '';
+    el.dataset.defId = defId;
+    return el;
   }
 
   /* ── Phase 5: corp shop / stash access (InventoryRef) ─────────────────── */

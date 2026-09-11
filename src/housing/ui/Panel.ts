@@ -15,6 +15,12 @@ type WirePage = 'room' | 'facility' | 'presets' | null;
 const WIRE_PAGES: readonly HousingPage[] = ['room', 'facility', 'presets'];
 const wirePage = (p: HousingPage): WirePage => (WIRE_PAGES.includes(p) ? (p as WirePage) : null);
 
+/** A popup living inside a panel (업그레이드 모달 · 우클릭 메뉴): E / Tab close the top one instead of the panel. */
+export interface PanelOverlay {
+  readonly isOpen: boolean;
+  close(): void;
+}
+
 /**
  * Shared shell of the housing panels (`.menu.housing-menu`): adds the `'housing'` blocker and then turns on the
  * **in-game cursor** (`input.setCursorMode(true, 'housing')` — Phase 10: the pointer lock is *kept* and a virtual
@@ -26,6 +32,18 @@ export abstract class HousingPanel {
   protected readonly frame: HTMLElement;
   protected readonly msg: HTMLElement;
   protected unsubs: Array<() => void> = [];
+  /**
+   * 2026-09-12: the station panels (재배 · 분석 · 배양 · 식탁) set this. One drop fires `housing:changed` +
+   * `inventory:changed` + `inventory:stashChanged` in the same call stack, and each used to rebuild the whole panel —
+   * with this on they collapse into **one** refresh on the next microtask. The Phase 6–9 menus keep the synchronous
+   * refresh their smokes rely on.
+   */
+  protected coalesceRefresh = false;
+  private refreshQueued = false;
+  /** Popups inside this panel, bottom → top (`PanelOverlay`). */
+  protected readonly overlays: PanelOverlay[] = [];
+  /** Smoke / perf counters: refresh requests from the bus vs refreshes actually run. */
+  readonly refreshStats = { requests: 0, runs: 0 };
   private _open = false;
   private msgTimer = 0;
   /**
@@ -35,6 +53,7 @@ export abstract class HousingPanel {
    * 2026-09-09: **Tab closes them too** (Tab closes every screen). Stopping the event here in the capture phase is
    * what keeps `Input` from ever recording the press, so the inventory cannot open on it. Unlike E, Tab is taken
    * even from a focused 프리셋 이름 field — nothing is typed with Tab, and `close()` blurs the field anyway.
+   * 2026-09-12: an open overlay (업그레이드 모달 · 우클릭 메뉴) is closed first — the panel stays.
    */
   private onKeyCapture = (e: KeyboardEvent): void => {
     if (!this._open) return;
@@ -47,6 +66,9 @@ export abstract class HousingPanel {
     if (!tab && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) return;
     e.stopImmediatePropagation();
     e.preventDefault();
+    for (let i = this.overlays.length - 1; i >= 0; i--) {
+      if (this.overlays[i].isOpen) { this.overlays[i].close(); return; }
+    }
     this.close();
   };
 
@@ -72,7 +94,24 @@ export abstract class HousingPanel {
   /** Rebuild the panel from the current state (called on open and on every housing / inventory change). */
   abstract refresh(): void;
 
-  protected refreshIfOpen(): void { if (this._open) this.refresh(); }
+  protected refreshIfOpen(): void {
+    if (!this._open) return;
+    if (this.coalesceRefresh) this.requestRefresh();
+    else { this.refreshStats.runs++; this.refresh(); }
+  }
+
+  /** Queue one refresh for the end of the current task (many bus events in one call stack → one refresh). */
+  protected requestRefresh(): void {
+    this.refreshStats.requests++;
+    if (this.refreshQueued) return;
+    this.refreshQueued = true;
+    queueMicrotask(() => {
+      this.refreshQueued = false;
+      if (!this._open) return;
+      this.refreshStats.runs++;
+      this.refresh();
+    });
+  }
 
   protected openPanel(): void {
     if (this._open) { this.refresh(); return; }
@@ -96,6 +135,7 @@ export abstract class HousingPanel {
   close(_relock = true): void {
     if (!this._open) return;
     this._open = false;
+    for (const o of this.overlays) if (o.isOpen) o.close();
     window.removeEventListener('keydown', this.onKeyCapture, true);
     this.root.hidden = true;
     this.msg.hidden = true;
@@ -125,6 +165,13 @@ export abstract class HousingPanel {
     this.msg.hidden = false;
     clearTimeout(this.msgTimer);
     this.msgTimer = window.setTimeout(() => { this.msg.hidden = true; }, 4500);
+  }
+
+  /** 2026-09-12: a refused 수확 · 회수 (자리가 없다 …) — deny sound + a toast, not just the message line. */
+  protected deny(reason: string): void {
+    this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+    this.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
+    this.showMsg(reason, 'warning');
   }
 
   dispose(): void {

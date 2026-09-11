@@ -22,8 +22,8 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 const BOOKS_PER_SHELF = 6;
 const BOOK_XP_PER_BOOK = 0.05;
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다
-   (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`). */
-const SHIP_STATE_VERSION = 6;
+   (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`, 6 = 배양조의 `cultures`, 7 = 방 시설 레벨 제거). */
+const SHIP_STATE_VERSION = 7;
 const BOOK_RARITY_MUL = { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 6 };
 const BOOK_GAIN_MAX = 2.0;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
@@ -257,11 +257,13 @@ try {
   ok((await bonus('carry')) === 1, 'an unrelated skill stays ×1');
   ok(await H((u) => window.__game.ctx.housing.placeBook(u, 1, 'book_gun_AR') === null, shelfA), 'second 돌격소총 book shelved');
   ok(near(await bonus('gun_AR'), 1 + BOOK_XP_PER_BOOK * 2 * BOOK_RARITY_MUL.common), `two common books stack additively (${await bonus('gun_AR')})`);
-  // 사격장 × 서재
-  await give('mat_scrap', 20); await give('mat_cable', 6);
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'range') === true), '방 6 → 사격장 (skill gain ×1.1 for gun_*)');
+  // 시뮬레이션 허브 × 서재 — 2026-09-12: 방 레벨이 사라져 사격 숙련 배율은 시뮬레이션실의 **시뮬레이션 허브** 레벨에서 온다
+  await give('mat_scrap', 20); await give('mat_cable', 6); await give('mat_circuit', 2);
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'range') === true), '방 6 → 시뮬레이션실');
+  ok(near(await H(() => window.__game.ctx.housing.getSkillGainMul('gun_AR')), 1 + BOOK_XP_PER_BOOK * 2), 'the room alone adds nothing (no room level any more)');
+  ok(await H(() => { const h = window.__game.ctx.housing; return h.craftFurniture('furn_sim_hub') && h.place(5, 'furn_sim_hub', 4, 4, 0) !== null; }), '시뮬레이션 허브 Lv.1 placed (skill gain ×1.1 for gun_*)');
   const gm = await H(() => ({ ar: window.__game.ctx.housing.getSkillGainMul('gun_AR'), med: window.__game.ctx.housing.getSkillGainMul('medicine'), carry: window.__game.ctx.housing.getSkillGainMul('carry') }));
-  ok(near(gm.ar, 1.1 * (1 + BOOK_XP_PER_BOOK * 2)), `getSkillGainMul(gun_AR) = 사격장 1.1 × 서재 1.10 (${gm.ar})`);
+  ok(near(gm.ar, 1.1 * (1 + BOOK_XP_PER_BOOK * 2)), `getSkillGainMul(gun_AR) = 시뮬레이션 허브 1.1 × 서재 1.10 (${gm.ar})`);
   ok(near(gm.med, 1 + BOOK_XP_PER_BOOK * BOOK_RARITY_MUL.rare), `getSkillGainMul(medicine) is the book bonus alone (${gm.med})`);
   ok(gm.carry === 1, 'getSkillGainMul(carry) = 1 (no range bonus, no book)');
   // cap: 6 epic books (Σ 24 → 1 + 1.2 = 2.2) is clamped to BOOK_GAIN_MAX

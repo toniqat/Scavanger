@@ -22,7 +22,7 @@ import { Tooltip } from '../Tooltip';
 import { ContextMenu, type MenuEntry } from '../ContextMenu';
 import { SplitDialog } from '../SplitDialog';
 import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
-import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import { BAG_LOC, CATALOG_DBL_MS, CLICK_SUPPRESS_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
 import { AUTO_SCROLL_EDGE_IN, AUTO_SCROLL_EDGE_OUT, AUTO_SCROLL_MAX_SPEED } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
@@ -122,10 +122,69 @@ export function beginPress(sys: InventoryUI, uid: string, from: ItemLocation, e:
     ghost: null, target: null,
     lastX: e.clientX, lastY: e.clientY,
   };
+  addDragListeners(sys, false);
+  }
+
+function addDragListeners(sys: InventoryUI, held: boolean): void {
   window.addEventListener('pointermove', sys.onWindowMove);
   window.addEventListener('pointerup', sys.onWindowUp);
   window.addEventListener('pointercancel', sys.onWindowUp);
+  if (held) window.addEventListener('pointerdown', sys.onWindowDown, true);
+}
+
+function removeDragListeners(sys: InventoryUI): void {
+  window.removeEventListener('pointermove', sys.onWindowMove);
+  window.removeEventListener('pointerup', sys.onWindowUp);
+  window.removeEventListener('pointercancel', sys.onWindowUp);
+  window.removeEventListener('pointerdown', sys.onWindowDown, true);
+}
+
+/**
+ * 2026-09-12 (사용자 결정) — **합치고 남은 수량은 커서에 붙는다.** 붕대 2 를 붕대 4 가 든 퀵슬롯(최대 5)에 놓으면
+ * 칸은 5 가 되고 1 이 커서에 남는다. 격자끼리 합칠 때도 같다.
+ *
+ * 남은 수량은 **출발지를 떠나지 않는다** — 출발 스택의 수량이 줄었을 뿐이고, 여기서는 그 스택을 다시 끄는 드래그를
+ * `held` 로 열어 둔다. 그래서 세이브 · 시체 벗기기 · 창 닫기 어느 쪽이 끼어들어도 아이템은 제자리에 있다.
+ * `qty` null = 남은 스택 전부, 숫자 = 나눈 드래그(Shift / Ctrl)의 남은 몫.
+ */
+export function holdRemainder(sys: InventoryUI, prev: DragState, qty: number | null, x: number, y: number): void {
+  const item = sys.sys.findItem(prev.uid, prev.from);
+  if (!item) return;
+  const d: DragState = {
+    uid: prev.uid, item, def: prev.def, from: prev.from,
+    quickFrom: prev.from.kind === 'quick' ? prev.from.index : null,
+    qty, catalog: false, rotated: prev.rotated, started: false,
+    startX: x, startY: y, grabX: 0, grabY: 0, ghost: null, target: null, lastX: x, lastY: y,
+    held: true, armed: false,
+  };
+  sys.drag = d;
+  addDragListeners(sys, true);
+  startDrag(sys, d);
+  sys.updateDragTarget(x, y);
+  sys.suppressClicksUntil = performance.now() + CLICK_SUPPRESS_MS;
+}
+
+/**
+ * Press while a remainder is held: swallow it (no tile press, no button, no tab under the cursor) and arm the release.
+ * The right button lets go instead — the stack is already home.
+ */
+export function handleHeldDown(sys: InventoryUI, e: PointerEvent): void {
+  const d = sys.drag;
+  if (!d?.held) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.button === 2) {
+    sys.cancelDrag();
+    sys.sys.sfx('ui_drop');
+    sys.suppressClicksUntil = performance.now() + CLICK_SUPPRESS_MS;
+    return;
   }
+  if (e.button !== 0) return;
+  d.lastX = e.clientX; d.lastY = e.clientY;
+  sys.positionGhost(d, e.clientX, e.clientY);
+  sys.updateDragTarget(e.clientX, e.clientY);
+  d.armed = true;
+}
 
 /**
  * 2026-09-11 (C-60) — scroll speed (px/s, negative = up) for a pointer at (px, py) against a vertical scroll viewport.
@@ -201,7 +260,8 @@ export function startDrag(sys: InventoryUI, d: DragState): void {
     return;
   }
   // a stim / grenade from any grid — 가방 · 상자 · 창고 (2026-09-10) — or a wheel cell: light the usable cells
-  if (isQuickUsable(d.def) && d.from.kind === 'grid' && d.qty === null) sys.root?.classList.add('is-quick-drag');
+  // 2026-09-12: a Shift / Ctrl split may go onto the wheel too (new stack or merge), so it lights the cells as well
+  if (isQuickUsable(d.def) && d.from.kind === 'grid') sys.root?.classList.add('is-quick-drag');
   if (d.quickFrom !== null) {
     sys.quickCells[d.quickFrom]?.tile?.classList.add('is-dragging');
     sys.root?.classList.add('is-quick-source');
@@ -395,14 +455,23 @@ export function isOverPanel(sys: InventoryUI, x: number, y: number): boolean {
 export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
   const d = sys.drag;
   if (!d) return;
-  if (e.button !== 0 && e.type === 'pointerup') return;
-  window.removeEventListener('pointermove', sys.onWindowMove);
-  window.removeEventListener('pointerup', sys.onWindowUp);
-  window.removeEventListener('pointercancel', sys.onWindowUp);
+  if (d.held) {
+    // 2026-09-12: a held remainder drops on the release of the *next* press (armed in `handleHeldDown`)
+    if (e.type === 'pointercancel') { sys.cancelDrag(); return; }
+    if (!d.armed || e.button !== 0) return;
+    d.armed = false;
+    d.lastX = e.clientX; d.lastY = e.clientY;
+    sys.updateDragTarget(e.clientX, e.clientY);
+    sys.suppressClicksUntil = performance.now() + CLICK_SUPPRESS_MS;
+  } else if (e.button !== 0 && e.type === 'pointerup') return;
+  removeDragListeners(sys);
   sys.drag = null;
 
   if (!d.started) return; // plain click
   sys.endDragVisuals(d);
+
+  // held remainder released over nothing: it is already in its source stack — just let go
+  if (d.held && !d.target && !d.catalog) { sys.sys.sfx('ui_drop'); return; }
 
   // catalog instance: only a grid cell / slot takes it; anywhere else simply discards the fresh instance
   if (d.catalog) {
@@ -432,9 +501,19 @@ export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
     sys.dropToWorld(d.uid, d.from, d.qty ?? undefined);
     return;
   }
-  const r = d.qty !== null ? sys.sys.dropPartial(d.uid, d.from, d.qty, d.target) : sys.sys.drop(d.uid, d.from, d.target);
-  if (r === 'ok') sys.sys.sfx(d.target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
+  const target = d.target;
+  // 2026-09-12: read the merge verdict and the source size **before** the drop — the remainder is what did not move
+  const pv = sys.preview(d, target);
+  const before = sys.sys.findItem(d.uid, d.from)?.qty ?? 0;
+  const r = d.qty !== null ? sys.sys.dropPartial(d.uid, d.from, d.qty, target) : sys.sys.drop(d.uid, d.from, target);
+  if (r === 'ok') sys.sys.sfx(target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
   else if (r === 'fail') { sys.sys.sfx('ui_error'); sys.shake(d.from, d.uid); }
+  if (r !== 'ok' || pv !== 'merge') return;
+  const src = sys.sys.findItem(d.uid, d.from);
+  if (!src || src.qty <= 0) return;
+  const moved = before - src.qty;
+  const left = d.qty !== null ? d.qty - moved : src.qty;
+  if (left > 0) holdRemainder(sys, d, left >= src.qty ? null : left, e.clientX, e.clientY);
   }
 
 export function endDragVisuals(sys: InventoryUI, d: DragState): void {
@@ -467,9 +546,7 @@ export function cancelDrag(sys: InventoryUI): void {
   stopAutoScroll(sys);
   const d = sys.drag;
   if (!d) return;
-  window.removeEventListener('pointermove', sys.onWindowMove);
-  window.removeEventListener('pointerup', sys.onWindowUp);
-  window.removeEventListener('pointercancel', sys.onWindowUp);
+  removeDragListeners(sys);
   sys.drag = null;
   if (d.started) sys.endDragVisuals(d);
   }

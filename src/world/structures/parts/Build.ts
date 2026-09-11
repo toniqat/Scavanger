@@ -13,7 +13,7 @@
  * ## 2026-09-11 — 천장이 있는 건물 (사용자 요청 5건)
  * 2026-09-09 의 "무너진 지붕" 을 걷어냈다. 전진기지 · 연구실은 이제
  *  - **층마다 천장**이 있다 (천장 높이 = `wallH` = PC 두 명). 층 사이 바닥판 = 아래층 천장이고 맨 위는 **옥상**이다.
- *  - 무작위로 **2층**이다 (`upperChance`). 1층 → 2층은 벽으로 둘러싼 **실내 계단**, 맨 위층 → 옥상은
+ *  - 무작위로 **2층**이다 (`upperChance`). 1층 → 2층은 **실내 계단**, 맨 위층 → 옥상은
  *    격벽에 붙은 **사다리**와 옥상 바닥의 해치 구멍이다 (1층 건물도 옥상이 있다).
  *  - **맵 스캐너는 언제나 옥상**에 선다.
  *  - 층마다 바깥벽의 무작위 자리에 **창문**이 있다 (`parts/Glass` — 총알 · 투척물에 깨진다).
@@ -22,14 +22,28 @@
  *    양옆이 벽인 **계단 복도** → 층계참 → **서 있는 문**(키카드). 예전의 바닥 해치는 없다.
  *  - 계단은 전부 **경사 콜라이더**(`parts/Stairs`) — 한 단씩 튀지 않는다.
  *
+ * ## 2026-09-12 — 드나드는 자리를 먼저 비운다 (사용자 보고 4건)
+ *  ① 1층 → 2층 계단 입구가 0.8 m 틈(몸 지름 0.9 m)이라 **1층에서 들어갈 수 없었다** → 층계참 `STAIR_LANDING` 1.6 m,
+ *     그리고 1층의 방 쪽 벽을 걷었다 (계단 덩어리 자체가 밑까지 막혀 있어 벽이 필요 없다 — 방에서 계단이 보인다).
+ *  ② 무너진 틈이 계단이 붙은 바깥벽에 뚫리면 계단이 **밖으로만** 열렸다 → 틈은 계단 덩어리 · 층계참을 피한다.
+ *     창문도 모든 층에서 계단 구간을 피한다.
+ *  ③ 지하 계단 구멍의 난간이 정문 · 격벽 통로 **바로 앞**을 막았다 → 출입구마다 앞마당(`OPENING_APPROACH`)을 두고
+ *     구멍 + 난간이 그것과 겹치는 자리는 고르지 않는다. 격벽 통로는 구멍 자리를 고른 **뒤에** 그 앞을 피해 고른다.
+ *  ④ 보이지 않는 벽: 실내 작업대 · 팔레트는 0.7 m 원기둥이었다(길이 2.6 m 회전 상자 밑) → 그린 상자 그대로.
+ *     불시착 함선의 기수 · 날개 · 램프 · 엔진은 콜라이더가 없거나 달랐다 → 그린 메시에서 잰다 (`fitBox` · `propHullOf`).
+ * rng 쓰는 순서가 바뀌었으므로 같은 시드의 건물 **안쪽** 배치는 2026-09-11 과 다르다 (부지 · 크기 · 층수 · 지하실
+ * 유무는 `layout.ts` 라 그대로다). 도달성은 `scripts/smoke-structure-reach.mjs` 가 여러 시드로 잰다.
+ *
  * 3인칭 카메라가 천장에 갇히는 문제는 `player/CameraRig` 가 이미 `world.raycast` 로 당겨 오므로 특례가 없다.
  */
 import * as THREE from 'three';
 import type { LightFixture, Random } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
+import { propHullOf } from '../../propHull';
 import {
   BASEMENT_FLOOR_T, BASEMENT_HALL_HALF, BASEMENT_LANDING, DOOR_H, DOOR_W, FLOOR_LIP, FLOOR_OVERHANG, HATCH_D, HATCH_W,
-  LADDER_STANDOFF, PARAPET_H, RAIL_H, RAIL_T, SLAB_T, STAIR_SLOPE, STAIR_W, WALL_T, WINDOW_SILL, WINDOW_TOP, WINDOW_W,
+  LADDER_STANDOFF, OPENING_APPROACH, PARAPET_H, RAIL_H, RAIL_T, SLAB_T, STAIR_ARRIVAL, STAIR_LANDING, STAIR_SLOPE, STAIR_W,
+  WALL_T, WINDOW_SILL, WINDOW_TOP, WINDOW_W,
 } from '../model';
 import type { WindowSpec } from './Glass';
 import { buildStairFlight } from './Stairs';
@@ -78,6 +92,26 @@ export interface DoorSpot {
   interact: { x: number; y: number; z: number };
 }
 
+/**
+ * 2026-09-12 — 건물 **안내**: 도달성 스모크 · 디버그만 읽는다 (월드의 판정은 이것을 보지 않는다).
+ * `[lx, lz]` 는 건물 로컬 좌표이고 월드로는 `(cx + lx·cos − lz·sin, cz + lx·sin + lz·cos)` 다.
+ */
+export interface StructureNav {
+  cx: number; cz: number; yaw: number; halfW: number; halfD: number;
+  /** 지상 층 바닥 높이 (`levels[k]`, k = 0 · 1). */
+  levels: number[];
+  /** 정문(불시착 함선은 후미 램프) 바깥 한 걸음 · 안쪽 한 걸음. */
+  doorOut: [number, number];
+  doorIn: [number, number];
+  /** 방 사각형 (층 `k`) — 걸을 수 있는 칸이 얼마나 이어져 있는지 재는 단위. 불시착 함선은 비어 있다. */
+  rooms: { k: number; x0: number; x1: number; z0: number; z1: number }[];
+  /** 1층 계단 층계참 · 2층 도착 자리 (2층 건물만). */
+  stairBottom: [number, number] | null;
+  stairTop: [number, number] | null;
+  /** 무너진 틈 (없으면 null) — side 0 북 · 1 서 · 2 동, `c` = 벽을 따라간 가운데. */
+  breach: { side: number; c: number } | null;
+}
+
 export interface BuildingOut {
   parts: THREE.BufferGeometry[];
   glow: THREE.BufferGeometry[];
@@ -96,6 +130,7 @@ export interface BuildingOut {
   floors: number;
   /** 옥상 바닥 높이 (없으면 NaN). */
   roofY: number;
+  nav: StructureNav;
 }
 
 const CONCRETE = new THREE.Color(0x7a7770);
@@ -111,6 +146,10 @@ const LIGHT_COOL = 0xd2ecff;
 const LIGHT_INTENSITY = 16;
 const LIGHT_DISTANCE = 12;
 
+/** 1층 바깥벽의 무너진 틈 폭 · 높이(m). */
+const BREACH_W = 3.2;
+const BREACH_H = 2.9;
+
 /** 로컬 사각형 (건물 좌표). */
 interface Rect { x0: number; x1: number; z0: number; z1: number }
 const rect = (xa: number, xb: number, za: number, zb: number): Rect =>
@@ -121,6 +160,25 @@ const overlaps = (a: Rect, b: Rect): boolean => a.x0 < b.x1 && a.x1 > b.x0 && a.
 
 /** 벽 구멍 (문 · 창 · 무너진 틈). `y0`/`y1` 은 층 바닥 기준. */
 interface Opening { c: number; w: number; y0: number; y1: number }
+
+/**
+ * 2026-09-12 — **이미 월드로 옮긴** 지오메트리를 `frameYaw`(수학 규약, 로컬 +X = `(cos, sin)`) 축에 맞춘 상자로 잰다.
+ * 기울거나 구른 메시(불시착 함선의 옆판 · 엔진)에 콜라이더를 손으로 맞추지 않고 그린 정점에서 곧장 뽑는다.
+ */
+function fitBox(g: THREE.BufferGeometry, frameYaw: number): { x: number; z: number; halfX: number; halfZ: number; yMin: number; yMax: number } {
+  const pos = g.getAttribute('position');
+  const c = Math.cos(frameYaw), s = Math.sin(frameYaw);
+  let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const a = x * c + z * s, b = -x * s + z * c;
+    if (a < aMin) aMin = a; if (a > aMax) aMax = a;
+    if (b < bMin) bMin = b; if (b > bMax) bMax = b;
+    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+  }
+  const am = (aMin + aMax) / 2, bm = (bMin + bMax) / 2;
+  return { x: am * c - bm * s, z: am * s + bm * c, halfX: (aMax - aMin) / 2, halfZ: (bMax - bMin) / 2, yMin, yMax };
+}
 
 /**
  * 지상 건물(전진기지 · 연구실) 한 채.
@@ -200,12 +258,13 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     seg(s, to, yBase, h);
   };
 
-  /* ── 배치 결정: 격벽 · 실내 계단 · 지하 계단 복도 ─────────────────────────
-   * 서로 부딪히는 제약이 셋이다 — 계단이 들어갈 만큼 긴 방, 1층 바닥의 지하 계단 구멍이 격벽 밑을 지나가지 않을 것,
-   * 그 복도가 구덩이 안에 들어갈 것. 격벽 자리를 여러 번 굴려 셋을 한꺼번에 만족하는 것을 고른다. */
+  /* ── 배치 결정: 정문 → 격벽 · 실내 계단 · 지하 계단 구멍 · 격벽 통로 → 무너진 틈 ─────────────────────
+   * 서로 부딪히는 제약: 계단이 들어갈 만큼 긴 방, 지하 계단 구멍이 격벽 밑을 지나가지 않을 것, 그 복도가 구덩이
+   * 안에 들어갈 것, 그리고 (2026-09-12) **어느 출입구 앞마당도 막는 것과 겹치지 않을 것**. 격벽 자리를 여러 번 굴려
+   * 전부를 한꺼번에 만족하는 것을 고른다. */
   const stairRise = H + SLAB_T;
   const stairRun = stairRise / STAIR_SLOPE;
-  const needStairRoom = stairRun + 0.8 + 1.3;           // 계단 + 아래 입구 여유 + 위 도착 여유
+  const needStairRoom = STAIR_LANDING + stairRun + STAIR_ARRIVAL;
   const bRise = pit ? pit.depth - BASEMENT_FLOOR_T : 0;
   const yB = y0 - bRise;
   const bRun = bRise / STAIR_SLOPE;
@@ -213,13 +272,46 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   const pitInX = pit ? pit.halfX - 0.15 : 0, pitInZ = pit ? pit.halfZ - 0.15 : 0;
 
   let floors = plan.floors >= 2 ? 2 : 1;
+  const stairSide = rng.chance(0.5) ? 1 : -1;
+  const sOuter = stairSide * iw, sInner = stairSide * (iw - STAIR_W);
+  const sXc = (sOuter + sInner) / 2;
+
+  /* 정문은 격벽과 상관없이 남쪽 벽에 난다 — 먼저 정해 두고 나머지가 그 앞을 비운다. */
+  const doorX = rng.range(-halfW * 0.45, halfW * 0.45);
+  const frontZone = rect(doorX - DOOR_W / 2, doorX + DOOR_W / 2, -id, -id + OPENING_APPROACH);
+
+  /** 1 → 2층 계단이 격벽 `pz` 의 `room` 쪽 방에 섰을 때: 덩어리(1층에서 막는 자리) · 층계참 + 방 쪽 들머리(비울 자리). */
+  const stairAt = (pz: number, room: number): { face: number; bottom: number; top: number; body: Rect; landing: Rect } => {
+    const face = pz + room * WALL_T / 2;
+    const bottom = face + room * STAIR_LANDING;
+    const top = bottom + room * stairRun;
+    return {
+      face, bottom, top,
+      body: rect(sOuter, sInner, bottom, top),
+      landing: rect(sOuter, sInner - stairSide * OPENING_APPROACH, face, bottom),
+    };
+  };
+  /** 지하 계단 구멍 (`side` 쪽 구덩이 벽을 따라, 높은 끝 `zA` 에서 `dz` 로): 난간까지 막는 자리 · 입구 앞마당. */
+  const holeAt = (side: number, dz: number, zA: number): { block: Rect; entry: Rect } => {
+    const outer = side * pitInX, inner = side * (pitInX - 2 * BASEMENT_HALL_HALF);
+    return {
+      block: grow(rect(outer, inner, zA, zA + dz * bRun), RAIL_T + 0.05),
+      entry: rect(outer, inner, zA - dz * OPENING_APPROACH, zA),
+    };
+  };
+  /** 격벽 통로의 앞마당 (양쪽 방). */
+  const passZoneAt = (pz: number, x: number): Rect =>
+    rect(x - DOOR_W / 2, x + DOOR_W / 2, pz - WALL_T / 2 - OPENING_APPROACH, pz + WALL_T / 2 + OPENING_APPROACH);
+
   let partZ = 0;
   let hasPartition = true;
-  const stairSide = rng.chance(0.5) ? 1 : -1;
   let stairRoom = 1;                                      // +1 = 격벽 뒤(+Z) 방, −1 = 앞 방
+  let stair = stairAt(0, 1);
   let bSide = -stairSide;
   let bDz = 1;
   let bZA = 0;
+  let passX = 0;
+  let relaxFront = false;
   const partMargin = WALL_T / 2 + 0.25;
 
   const tryLayout = (pz: number, fl: number, withPartition: boolean): boolean => {
@@ -229,9 +321,22 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       const opts: number[] = [];
       if (back >= needStairRoom) opts.push(1);
       if (front >= needStairRoom) opts.push(-1);
-      if (opts.length === 0) return false;
-      stairRoom = opts[rng.int(0, opts.length - 1)];
+      const fit = opts.filter((r) => !overlaps(stairAt(pz, r).body, frontZone));
+      if (fit.length === 0) return false;
+      stairRoom = fit[rng.int(0, fit.length - 1)];
+      stair = stairAt(pz, stairRoom);
     }
+    /** 격벽 통로 후보 (계단 기둥에서 떨어지고, 지하 구멍이 그 앞을 막지 않는 자리). */
+    const passOptions = (block: Rect | null): number[] => {
+      const out: number[] = [];
+      const lo = -iw + DOOR_W / 2 + 0.6, hi = iw - DOOR_W / 2 - 0.6;
+      for (let x = lo; x <= hi + 1e-6; x += 0.25) {
+        if (fl === 2 && Math.abs(x - sXc) < STAIR_W / 2 + DOOR_W / 2 + 0.4) continue;
+        if (block && overlaps(passZoneAt(pz, x), block)) continue;
+        out.push(x);
+      }
+      return out;
+    };
     if (pit) {
       bSide = fl === 2 ? -stairSide : (rng.chance(0.5) ? 1 : -1);
       const cands: [number, number][] = [];
@@ -241,18 +346,35 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
           const zLow = zA + dz * bRun, zEnd = zA + dz * bLen;
           const beyond = dz > 0 ? pitInZ - zEnd : zEnd + pitInZ;
           if (beyond < 2.4) break;
+          const h = holeAt(bSide, dz, zA);
+          if (h.entry.z0 < -id + 0.05 || h.entry.z1 > id - 0.05) continue;       // 입구 앞마당이 건물 안
           if (withPartition) {
             const h0 = Math.min(zA, zLow), h1 = Math.max(zA, zLow);
-            if (pz + partMargin > h0 && pz - partMargin < h1) continue;
-            const entry = zA - dz * 1.1;
-            if ((entry - pz) * (zA - pz) < 0) continue;
+            if (pz + partMargin > h0 && pz - partMargin < h1) continue;           // 구멍이 격벽 밑으로
+            if (h.entry.z0 < pz + WALL_T / 2 && h.entry.z1 > pz - WALL_T / 2) continue;   // 앞마당을 격벽이 가른다
           }
-          if (Math.abs(zA - dz * 1.1) > id - 0.2) continue;
+          if (!relaxFront && overlaps(h.block, frontZone)) continue;             // 난간이 정문 앞을 막는다
+          if (fl === 2 && (overlaps(h.block, stair.body) || overlaps(h.block, stair.landing) || overlaps(h.entry, stair.body))) continue;
           cands.push([dz, zA]);
         }
       }
-      if (cands.length === 0) return false;
-      [bDz, bZA] = cands[rng.int(0, cands.length - 1)];
+      while (cands.length > 0) {
+        const i = rng.int(0, cands.length - 1);
+        const [dz, zA] = cands[i];
+        if (withPartition) {
+          const xs = passOptions(holeAt(bSide, dz, zA).block);
+          if (xs.length === 0) { cands.splice(i, 1); continue; }
+          passX = xs[rng.int(0, xs.length - 1)];
+        }
+        bDz = dz; bZA = zA;
+        return true;
+      }
+      return false;
+    }
+    if (withPartition) {
+      const xs = passOptions(null);
+      if (xs.length === 0) return false;
+      passX = xs[rng.int(0, xs.length - 1)];
     }
     return true;
   };
@@ -262,18 +384,20 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     floors = 1;
     for (let a = 0; a < 60 && !ok; a++) { partZ = rng.range(-halfD * 0.35, halfD * 0.3); ok = tryLayout(partZ, 1, true); }
   }
-  if (!ok) { hasPartition = false; partZ = 0; tryLayout(0, 1, false); }
+  if (!ok) {
+    hasPartition = false; partZ = 0;
+    if (!tryLayout(0, 1, false)) { relaxFront = true; tryLayout(0, 1, false); }
+  }
 
   const levelY = (k: number): number => y0 + k * (H + SLAB_T);
   const topK = floors - 1;
   const roofY = levelY(floors);
 
-  /* 실내 계단 (2층일 때) — 한쪽 바깥벽에 붙어 오르고, 방 쪽은 벽으로 막혀 있다 (입구는 아래 끝 하나). */
-  const sOuter = stairSide * iw, sInner = stairSide * (iw - STAIR_W);
-  const sXc = (sOuter + sInner) / 2;
-  const sBottomZ = stairRoom > 0 ? partZ + WALL_T / 2 + 0.8 : partZ - WALL_T / 2 - 0.8;
-  const sTopZ = sBottomZ + stairRoom * stairRun;
-  const stairRect = rect(sOuter, sInner, sBottomZ, sTopZ);
+  /* 실내 계단 (2층일 때) — 한쪽 바깥벽에 붙어 층계참에서 바깥벽(북 · 남) 쪽으로 오른다. */
+  const stairFace = stair.face;
+  const sBottomZ = stair.bottom;
+  const sTopZ = stair.top;
+  const stairRect = stair.body;
   /* 바닥판에 뚫는 구멍은 계단 높은 끝에서 한 뼘 짧다 — 경사면 끝과 바닥판이 겹쳐야 이음매에서 발이 빠지지 않는다
    * (정확히 같은 선이면 부동소수 오차로 두 콜라이더 모두 그 점을 놓친다). */
   const stairHole = rect(sOuter, sInner, sBottomZ, sTopZ - stairRoom * 0.08);
@@ -285,17 +409,22 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   const bDoorZ = bLowZ + bDz * (BASEMENT_LANDING + WALL_T / 2);
   const bHole = rect(bOuter, bInner, bZA, bLowZ);
   const bHoleSlab = rect(bOuter, bInner, bZA + bDz * 0.08, bLowZ);
+  const bBlock = pit ? holeAt(bSide, bDz, bZA).block : null;
 
-  /* 격벽의 통로 · 정문 · 무너진 틈 */
-  let passX = 0;
-  for (let a = 0; a < 40; a++) {
-    passX = rng.range(-iw + DOOR_W / 2 + 0.6, iw - DOOR_W / 2 - 0.6);
-    if (floors === 2 && Math.abs(passX - sXc) < STAIR_W / 2 + DOOR_W / 2 + 0.4) continue;
-    break;
+  /* 무너진 틈 (1층 북 · 서 · 동 중 하나): 계단 덩어리 · 층계참 · 지하 구멍 앞을 피한다. 맞는 자리가 없으면 틈이 없다. */
+  const breachZoneAt = (side: number, c: number): Rect =>
+    side === 0 ? rect(c - BREACH_W / 2, c + BREACH_W / 2, id - OPENING_APPROACH, id)
+      : side === 1 ? rect(-iw, -iw + OPENING_APPROACH, c - BREACH_W / 2, c + BREACH_W / 2)
+        : rect(iw - OPENING_APPROACH, iw, c - BREACH_W / 2, c + BREACH_W / 2);
+  let breach: { side: number; c: number } | null = null;
+  for (let a = 0; a < 24 && !breach; a++) {
+    const side = rng.int(0, 2);                 // 0 = 북, 1 = 서, 2 = 동 (1층만)
+    const c = rng.range(-0.45, 0.45) * (side === 0 ? halfW : halfD) * 2;
+    const zone = breachZoneAt(side, c);
+    if (floors === 2 && (overlaps(zone, grow(stairRect, 0.3)) || overlaps(zone, stair.landing))) continue;
+    if (bBlock && overlaps(zone, bBlock)) continue;
+    breach = { side, c };
   }
-  const doorX = rng.range(-halfW * 0.45, halfW * 0.45);
-  const breachSide = rng.int(0, 2);          // 0 = 북, 1 = 서, 2 = 동 (1층만)
-  const breachAt = rng.range(-0.45, 0.45);
 
   /* 사다리 (맨 위층 → 옥상): 격벽 면에 붙고, 매달린 사람은 격벽을 본다. 옥상에 올라서면 격벽 너머로 넘어간다. */
   const mountZ = hasPartition ? partZ : 0;
@@ -363,16 +492,16 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     if (hasPartition) { fW.push({ c: partZ, w: WALL_T + 0.6 }); fE.push({ c: partZ, w: WALL_T + 0.6 }); }
     if (k === 0) {
       south.push({ c: doorX, w: DOOR_W, y0: 0, y1: DOOR_H }); fS.push({ c: doorX, w: DOOR_W });
-      const breach = { c: breachAt * (breachSide === 0 ? halfW : halfD) * 2, w: 3.2 };
-      const bOp: Opening = { ...breach, y0: 0, y1: 2.9 };
-      if (breachSide === 0) { north.push(bOp); fN.push(breach); }
-      if (breachSide === 1) { west.push(bOp); fW.push(breach); }
-      if (breachSide === 2) { east.push(bOp); fE.push(breach); }
-      if (floors === 2) {
-        const sc = { c: (sBottomZ + sTopZ) / 2, w: stairRun + 1.2 };
-        (stairSide > 0 ? fE : fW).push(sc);
+      if (breach) {
+        const f = { c: breach.c, w: BREACH_W };
+        const bOp: Opening = { ...f, y0: 0, y1: BREACH_H };
+        if (breach.side === 0) { north.push(bOp); fN.push(f); }
+        if (breach.side === 1) { west.push(bOp); fW.push(f); }
+        if (breach.side === 2) { east.push(bOp); fE.push(f); }
       }
     }
+    // 2026-09-12: 계단이 붙은 바깥벽에는 **어느 층이든** 계단 구간(층계참 포함)에 창을 내지 않는다
+    if (floors === 2) (stairSide > 0 ? fE : fW).push({ c: (stairFace + sTopZ) / 2, w: Math.abs(sTopZ - stairFace) + 1.2 });
     south.push(...windowOps(iw, fS));
     north.push(...windowOps(iw, fN));
     west.push(...windowOps(id, fW));
@@ -392,7 +521,7 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     solid(ladderX, mountZ, 1.6, WALL_T / 2, levelY(topK), H, false, 'building');
   }
 
-  /* 정문 상인방 장식 + 등 (그림만) */
+  /* 정문 상인방 장식 + 등 (그림만 — 문 높이 위라 머리에 닿지 않는다) */
   {
     solid(doorX, -halfD, DOOR_W / 2 + 0.45, WALL_T / 2 + 0.1, y0 + DOOR_H - 0.05, 0.4, false, null, METAL, METAL);
     const [lx, lz] = rot(doorX, -halfD - WALL_T / 2 - 0.1);
@@ -416,7 +545,7 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     }
   }
 
-  /* ── 사다리 (그림) ─────────────────────────────────────────────────────── */
+  /* ── 사다리 (그림 — 매달리기는 `player/` 가 하므로 콜라이더를 두지 않는다) ─────────── */
   const ladders: LadderSpot[] = [];
   {
     const yLow = levelY(topK), yHigh = roofY + 1.15;
@@ -441,8 +570,8 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       hx, hz, ux, uz, width: STAIR_W - 0.04, run: stairRun, topY: levelY(1), bottomY: y0, solidY: y0,
       dark: CONCRETE_DARK, light: CONCRETE, kind: 'slab',
     });
-    // 방 쪽 벽 (1층 천장까지) — 계단은 아래 끝으로만 들어간다
-    solid(sInner - stairSide * 0.1, (sBottomZ + sTopZ) / 2, stairRun / 2, 0.1, y0, H, true, 'building');
+    /* 2026-09-12: 1층의 방 쪽 벽(천장까지)을 걷었다. 계단 덩어리는 단마다 바닥에서 올라오는 통짜라 밑으로 들어갈 틈이
+     * 없고, 낮은 쪽은 옆에서 올라서도 된다 — 벽은 입구를 0.8 m 틈 하나로 좁히고 방에서 계단을 가리기만 했다. */
     // 2층 계단 구멍 난간: 방 쪽 긴 변 + 아래 끝 짧은 변 (위 끝 = 도착하는 쪽은 비운다)
     const y1 = levelY(1);
     solid(sInner - stairSide * RAIL_T / 2, (sBottomZ + sTopZ) / 2, stairRun / 2, RAIL_T / 2, y1, RAIL_H, true, 'building', METAL_DARK, METAL);
@@ -485,9 +614,10 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
 
     /* 문 벽: 문 위 상인방 + 문틀 기둥 (문짝은 `Structures` 가 단다) */
     solid(bXc, bDoorZ, BASEMENT_HALL_HALF, WALL_T / 2, yB + DOOR_H, (y0 - SLAB_T) - (yB + DOOR_H), false, 'building');
-    // 문틀: 구덩이 벽 쪽 기둥 + 위 가로대 (방 쪽 기둥은 두지 않는다 — 문짝이 그쪽으로 밀려 나간다)
-    solid(bXc + bSide * (BASEMENT_HALL_HALF - 0.06), bDoorZ, 0.08, WALL_T / 2 + 0.05, yB, DOOR_H, false, null, METAL_DARK, METAL);
-    solid(bXc, bDoorZ, BASEMENT_HALL_HALF, WALL_T / 2 + 0.05, yB + DOOR_H - 0.1, 0.12, false, null, METAL_DARK, METAL);
+    // 문틀: 구덩이 벽 쪽 기둥 + 위 가로대 (방 쪽 기둥은 두지 않는다 — 문짝이 그쪽으로 밀려 나간다).
+    // 2026-09-12: 그린 기둥 · 가로대에 콜라이더를 건다 (예전엔 그림뿐이라 기둥 모서리를 몸이 뚫었다).
+    solid(bXc + bSide * (BASEMENT_HALL_HALF - 0.06), bDoorZ, 0.08, WALL_T / 2 + 0.05, yB, DOOR_H, false, 'building', METAL_DARK, METAL);
+    solid(bXc, bDoorZ, BASEMENT_HALL_HALF, WALL_T / 2 + 0.05, yB + DOOR_H - 0.1, 0.12, false, 'building', METAL_DARK, METAL);
     {
       const [dx, dz] = rot(bXc, bDoorZ);
       const slide = 2 * BASEMENT_HALL_HALF + 0.15;
@@ -551,10 +681,8 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     if (hasPartition) ex.push(rect(passX - DOOR_W * 0.8, passX + DOOR_W * 0.8, partZ - 1.5, partZ + 1.5));
     if (k === 0) {
       ex.push(rect(doorX - DOOR_W, doorX + DOOR_W, -id, -id + 1.6));
-      if (breachSide === 0) ex.push(rect(breachAt * halfW * 2 - 2.2, breachAt * halfW * 2 + 2.2, id - 1.6, id));
-      if (breachSide === 1) ex.push(rect(-iw, -iw + 1.6, breachAt * halfD * 2 - 2.2, breachAt * halfD * 2 + 2.2));
-      if (breachSide === 2) ex.push(rect(iw - 1.6, iw, breachAt * halfD * 2 - 2.2, breachAt * halfD * 2 + 2.2));
-      if (floors === 2) ex.push(grow(rect(sOuter, sInner - stairSide * 0.3, sBottomZ - stairRoom * 1.6, sTopZ), 0.2));
+      if (breach) ex.push(grow(breachZoneAt(breach.side, breach.c), 0.6));
+      if (floors === 2) ex.push(grow(stairRect, 0.2), grow(stair.landing, 0.2));
       if (pit) ex.push(grow(rect(bOuter, bInner, bZA - bDz * 1.6, bLowZ), 0.9));
     }
     if (k === 1) ex.push(grow(rect(sOuter, sInner, sBottomZ, sTopZ + stairRoom * 1.6), 0.5));
@@ -562,22 +690,27 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     return ex;
   };
 
-  /* ── 실내 소품 (연구실은 작업대, 전진기지는 탄약 팔레트) ──────────────────── */
+  /* ── 실내 소품 (연구실은 작업대, 전진기지는 탄약 팔레트) ────────────────────
+   * 2026-09-12: 콜라이더는 **그린 상자 그대로**다. 예전엔 0.7 m 원기둥이라 긴 작업대의 양 끝은 뚫리고 앞면 30 cm 는
+   * 보이지 않는 벽이었다. 높이가 `PROP_STEP_UP_MAX` 안이라 상자 규칙대로 올라설 수 있다. */
   for (let k = 0; k < floors; k++) {
     const ex = exclusions(k);
     const n = rng.int(1, 3);
     for (let i = 0; i < n; i++) {
       const lx = rng.range(-iw + 1.6, iw - 1.6), lz = rng.range(-id + 1.6, id - 1.6);
-      if (ex.some((r) => inRect(grow(r, 0.8), lx, lz))) continue;
-      if (hasPartition && Math.abs(lz - partZ) < 1.3) continue;
+      const w = lab ? rng.range(1.6, 2.6) : rng.range(1.0, 1.6);
+      const h = lab ? 0.9 : rng.range(0.5, 0.9);
+      const d = lab ? 0.8 : rng.range(0.9, 1.4);
+      const pyaw = yaw + rng.range(-0.4, 0.4);
+      const reach = Math.hypot(w, d) / 2;
+      if (ex.some((r) => inRect(grow(r, reach + 0.3), lx, lz))) continue;
+      if (hasPartition && Math.abs(lz - partZ) < WALL_T / 2 + reach + 0.6) continue;
       const [px, pz] = rot(lx, lz);
-      const g = lab
-        ? new THREE.BoxGeometry(rng.range(1.6, 2.6), 0.9, 0.8)
-        : new THREE.BoxGeometry(rng.range(1.0, 1.6), rng.range(0.5, 0.9), rng.range(0.9, 1.4));
-      xform(g, { x: px, y: levelY(k) + 0.45, z: pz }, new THREE.Euler(0, -(yaw + rng.range(-0.4, 0.4)), 0));
+      const g = new THREE.BoxGeometry(w, h, d);
+      xform(g, { x: px, y: levelY(k) + h / 2, z: pz }, new THREE.Euler(0, -pyaw, 0));
       paint(g, lab ? METAL : RUST, 0.1, rng);
       parts.push(g);
-      ctx.hash.add(new THREE.Vector3(px, levelY(k), pz), 0.7, 0.9, 'building');
+      ctx.hash.addBox(new THREE.Vector3(px, levelY(k), pz), w / 2, d / 2, pyaw, h, 'building');
     }
   }
 
@@ -650,9 +783,9 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       const [wx, wz] = rot(-ladderX * 0.5, -mountZ * 0.5 - ladderSide * 3);
       consoleSpot = { x: wx, y: roofY, z: wz, yaw };
     }
-    // 안테나 마스트 (그림만, 콜라이더 없음 — 옥상 가장자리)
+    // 안테나 마스트 (옥상 가장자리). 2026-09-12: 마스트에 가는 콜라이더 — 예전엔 그림뿐이라 몸이 뚫고 지나갔다.
     const ax = stairSide * (iw - 0.8), az = -id + 0.8;
-    solid(ax, az, 0.08, 0.08, roofY, 3.2, false, null, METAL_DARK, METAL);
+    solid(ax, az, 0.08, 0.08, roofY, 3.2, false, 'building', METAL_DARK, METAL);
     solid(ax, az, 0.5, 0.04, roofY + 2.6, 0.06, false, null, METAL, METAL);
     const [mx, mz] = rot(ax, az);
     const tip = new THREE.BoxGeometry(0.12, 0.12, 0.12);
@@ -660,18 +793,44 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     glow.push(tip);
   }
 
+  /* ── 안내 (스모크 · 디버그) ───────────────────────────────────────────────── */
+  const rooms: StructureNav['rooms'] = [];
+  for (let k = 0; k < floors; k++) {
+    if (hasPartition) {
+      rooms.push({ k, x0: -iw, x1: iw, z0: -id, z1: partZ - WALL_T / 2 });
+      rooms.push({ k, x0: -iw, x1: iw, z0: partZ + WALL_T / 2, z1: id });
+    } else {
+      rooms.push({ k, x0: -iw, x1: iw, z0: -id, z1: id });
+    }
+  }
+  const nav: StructureNav = {
+    cx, cz, yaw, halfW, halfD,
+    levels: Array.from({ length: floors }, (_, k) => levelY(k)),
+    doorOut: [doorX, -halfD - FLOOR_OVERHANG - 1.4],
+    doorIn: [doorX, -id + 0.8],
+    rooms,
+    stairBottom: floors === 2 ? [sXc, (stairFace + sBottomZ) / 2] : null,
+    stairTop: floors === 2 ? [sXc, sTopZ + stairRoom * STAIR_ARRIVAL / 2] : null,
+    breach,
+  };
+
   return {
     parts, glow,
     containers: chosen.map((c) => c.spot),
     basementContainers: basementSpots,
     console: consoleSpot, door, basementY: pit ? yB : y0,
-    ladders, windows, fixtures, floors, roofY,
+    ladders, windows, fixtures, floors, roofY, nav,
   };
 }
 
 /**
  * 불시착한 함선. 지하실은 없고, **위가 찢겨 열린** 동체가 곧 방이다 — 천장이 없으니 옥상도 스캐너도 없다
  * (2026-09-11 사용자 결정: 맵 스캐너는 전진기지 · 연구실 옥상에만). 컨테이너가 있으므로 비상등 광원 자리 하나.
+ *
+ * 2026-09-12 — 콜라이더를 **그린 메시에서** 잰다. 예전에는 ① 기울어진 옆판에 곧은 상자 ② 기수 · 날개 · 후미 램프에
+ * 콜라이더 없음(기수를 뚫고 앞으로 걸어 나갔다) ③ 누운 엔진 나셀에 선 원기둥이었다. 그리고 기수 · 엔진은 Euler 순서가
+ * `XYZ` 라 **월드 X 축**으로 눕혀져, 함선이 돌아가 있으면 동체와 다른 방향을 가리켰다 → `YXZ`(yaw 가 마지막).
+ * 앞쪽 옆판이 안으로 좁아지는데 컨테이너 자리는 뒤쪽 폭을 써서 앞 컨테이너가 옆판 **바깥**에 서던 것도 고쳤다.
  */
 export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): BuildingOut {
   const { cx, cz, yaw, y0, halfW, halfD, wallH } = plan;
@@ -679,6 +838,13 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
   const glow: THREE.BufferGeometry[] = [];
   const cos = Math.cos(yaw), sin = Math.sin(yaw);
   const rot = (lx: number, lz: number): [number, number] => [cx + lx * cos - lz * sin, cz + lx * sin + lz * cos];
+  /** 동체 축(로컬 +Z) 의 수학 규약 yaw. */
+  const axisYaw = yaw + Math.PI / 2;
+  /** 옆판 토막 `i`(0 = 후미 · 2 = 앞) 가 앞으로 갈수록 좁아지는 비율. */
+  const plateShrink = (i: number): number => {
+    const mid = -halfD + ((i + 0.5) / 3) * halfD * 2;
+    return 1 - Math.max(0, mid / halfD) * 0.35;
+  };
 
   /* 바닥 (동체 데크) — 그린 판이 곧 서는 판 */
   {
@@ -691,26 +857,28 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
     ctx.hash.addBox(new THREE.Vector3(wx, y0 - SLAB_T, wz), fx, fz, yaw, SLAB_T, 'slab');
   }
 
-  // 옆판 (앞으로 갈수록 좁아진다) — 세 토막씩
+  // 옆판 (앞으로 갈수록 좁아진다) — 세 토막씩. 콜라이더는 기울어진 판의 정점에서 잰 상자다.
   for (const s of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
       const t0 = -halfD + (i / 3) * halfD * 2, t1 = -halfD + ((i + 1) / 3) * halfD * 2;
       if (s < 0 && i === 1 && rng.chance(0.55)) continue;      // 찢겨 나간 옆구리 = 입구
       const mid = (t0 + t1) / 2;
-      const shrink = 1 - Math.max(0, mid / halfD) * 0.35;
+      const shrink = plateShrink(i);
       const lx = s * halfW * shrink;
       const h = wallH * (0.75 + 0.25 * shrink);
       const [wx, wz] = rot(lx, mid);
-      const byaw = yaw + Math.PI / 2;
       const g = new THREE.BoxGeometry((t1 - t0), h, 0.4);
-      xform(g, { x: wx, y: y0 + h / 2, z: wz }, new THREE.Euler(0, -byaw, s * 0.12));
+      xform(g, { x: wx, y: y0 + h / 2, z: wz }, new THREE.Euler(0, -axisYaw, s * 0.12));
       paintGradient(g, METAL_DARK, METAL, y0, y0 + h);
       parts.push(g);
-      ctx.hash.addBox(new THREE.Vector3(wx, y0, wz), (t1 - t0) / 2, 0.24, byaw, h, 'building');
+      const f = fitBox(g, axisYaw);
+      const base = Math.max(f.yMin, y0 - SLAB_T);
+      ctx.hash.addBox(new THREE.Vector3(f.x, base, f.z), f.halfX, f.halfZ, axisYaw, f.yMax - base, 'building');
     }
   }
 
   // 후미 격벽 (열린 램프)
+  let rampOut = -(halfD + FLOOR_OVERHANG + 3.4);
   {
     for (const s of [-1, 1]) {
       const seg = halfW - DOOR_W / 2;
@@ -722,32 +890,75 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
       parts.push(g);
       ctx.hash.addBox(new THREE.Vector3(px, y0, pz), seg / 2, 0.2, yaw, wallH, 'building');
     }
-    const [rx, rz] = rot(0, -(halfD + FLOOR_OVERHANG + 1.2));
-    const ramp = new THREE.BoxGeometry(DOOR_W, 0.16, 2.6);
-    xform(ramp, { x: rx, y: y0 - 0.16, z: rz }, new THREE.Euler(0.16, -yaw, 0));
+    /* 램프: 데크 끝(높은 끝 = 데크 윗면)에서 땅으로 내려가는 판. 동체 축을 따라 기울고(`rotateX` 가 먼저, yaw 가 나중),
+     * 밟는 것은 같은 기울기의 경사 콜라이더다. */
+    const len = 2.6, rise = 0.3, thick = 0.16;
+    const highZ = -(halfD + FLOOR_OVERHANG - 0.1);
+    const midZ = highZ - len / 2;
+    const tilt = Math.atan2(rise, len);
+    const topMid = y0 + FLOOR_LIP - rise / 2;
+    const [rx, rz] = rot(0, midZ);
+    const ramp = new THREE.BoxGeometry(DOOR_W, thick, len);
+    ramp.rotateX(-tilt);
+    xform(ramp, { x: rx, y: topMid - thick / 2, z: rz }, new THREE.Euler(0, -yaw, 0));
     paint(ramp, METAL, 0.06, rng);
     parts.push(ramp);
+    const base = y0 - 0.8;
+    ctx.hash.addRamp(new THREE.Vector3(rx, base, rz), len / 2, DOOR_W / 2, axisYaw, (y0 + FLOOR_LIP) - base, rise, 'building');
+    rampOut = highZ - len - 1.4;
   }
 
-  // 기수 (구겨진 원뿔) · 엔진 나셀 · 부러진 날개 — 전부 실루엣
+  // 기수 (구겨진 원뿔) · 엔진 나셀 · 부러진 날개
   {
     const nose = new THREE.CylinderGeometry(halfW * 0.42, halfW * 0.9, halfD * 0.8, 7);
     const [nx, nz] = rot(0, halfD + halfD * 0.32);
-    xform(nose, { x: nx, y: y0 + wallH * 0.45, z: nz }, new THREE.Euler(Math.PI / 2 + 0.18, -yaw, 0));
+    xform(nose, { x: nx, y: y0 + wallH * 0.45, z: nz }, new THREE.Euler(Math.PI / 2 + 0.18, -yaw, 0, 'YXZ'));
     paintGradient(nose, METAL, METAL_DARK);
     parts.push(nose);
+    // 기수 콜라이더 = 땅 위로 보이는 원뿔의 볼록 윤곽 (바위 · 첨탑과 같은 측정)
+    {
+      const pc = propHullOf(ctx, nose, new THREE.Matrix4());
+      if (pc) {
+        const base = ctx.terrain.getHeightAt(pc.x, pc.z) - 0.3;
+        ctx.hash.addHull(new THREE.Vector3(pc.x, base, pc.z), pc.hull, Math.max(0.1, pc.top - base), 'building');
+      }
+    }
     for (const s of [-1, 1]) {
-      const wing = new THREE.BoxGeometry(halfW * 1.5, 0.3, halfD * 0.6);
-      const [px, pz] = rot(s * halfW * 1.5, -halfD * 0.25);
-      xform(wing, { x: px, y: y0 + 0.5, z: pz }, new THREE.Euler(0, -yaw, s * rng.range(0.2, 0.5)));
+      /* 날개: 동체 축을 도는 roll 로 바깥 끝이 들린 판. 밑으로 걸어 지나갈 수 있는 바깥쪽을 막지 않게, 길이를 토막 내어
+       * 토막마다 **판 밑면부터** 윗면까지의 경사 콜라이더를 둔다 (한 덩어리 쐐기면 들린 날개 밑 허공이 벽이 된다). */
+      const wingLen = halfW * 1.5, wingT = 0.3, wingD = halfD * 0.6;
+      const wing = new THREE.BoxGeometry(wingLen, wingT, wingD);
+      const wcx = s * halfW * 1.5, wcz = -halfD * 0.25, wcy = y0 + 0.5;
+      const [px, pz] = rot(wcx, wcz);
+      const roll = rng.range(0.2, 0.5);
+      xform(wing, { x: px, y: wcy, z: pz }, new THREE.Euler(0, -yaw, s * roll));
       paint(wing, s < 0 ? RUST : METAL, 0.09, rng);
       parts.push(wing);
+      {
+        const segs = Math.max(2, Math.ceil(wingLen / 1.5));
+        const sr = Math.sin(roll), cr = Math.cos(roll);
+        const halfT = (wingT / 2) * cr;
+        const ground = y0;
+        for (let j = 0; j < segs; j++) {
+          // v = 날개 가운데에서 바깥쪽으로 잰 길이 (바깥 끝이 높다)
+          const v0 = -wingLen / 2 + (j / segs) * wingLen, v1 = -wingLen / 2 + ((j + 1) / segs) * wingLen;
+          const topHi = wcy + v1 * sr + halfT;
+          if (topHi <= ground - 0.05) continue;                  // 통째로 데크 · 땅 밑
+          const under = wcy + v0 * sr - halfT;
+          const base = Math.max(ground - 0.5, under);
+          const [sx, sz] = rot(wcx + s * ((v0 + v1) / 2) * cr, wcz);
+          ctx.hash.addRamp(new THREE.Vector3(sx, base, sz), ((v1 - v0) / 2) * cr, wingD / 2, s > 0 ? yaw : yaw + Math.PI,
+            topHi - base, (v1 - v0) * sr, 'building');
+        }
+      }
       const nacelle = new THREE.CylinderGeometry(0.7, 0.85, 2.4, 8);
       const [ex, ez] = rot(s * halfW * 1.7, -halfD * 0.7);
-      xform(nacelle, { x: ex, y: y0 + 0.7, z: ez }, new THREE.Euler(Math.PI / 2, -yaw, 0));
+      xform(nacelle, { x: ex, y: y0 + 0.7, z: ez }, new THREE.Euler(Math.PI / 2, -yaw, 0, 'YXZ'));
       paint(nacelle, METAL_DARK, 0.06, rng);
       parts.push(nacelle);
-      ctx.hash.add(new THREE.Vector3(ex, y0, ez), 0.8, 1.5, 'building');
+      const f = fitBox(nacelle, yaw);
+      const base = Math.max(f.yMin, y0 - 0.5);
+      ctx.hash.addBox(new THREE.Vector3(f.x, base, f.z), f.halfX, f.halfZ, yaw, f.yMax - base, 'building');
     }
     for (const s of [-1, 1]) {
       const g = new THREE.BoxGeometry(0.18, 0.12, 0.5);
@@ -757,11 +968,13 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
     }
   }
 
-  // 컨테이너 자리 — 데크를 따라
+  // 컨테이너 자리 — 데크를 따라, 그 자리 옆판의 안쪽 면에서 한 뼘
   const spots: Spot[] = [];
   for (let lz = -halfD + 1.6; lz <= halfD - 1.6; lz += 2.0) {
+    const i = Math.max(0, Math.min(2, Math.floor(((lz + halfD) / (halfD * 2)) * 3)));
+    const inner = halfW * plateShrink(i) - 1.1;
     for (const s of [-1, 1]) {
-      const [wx, wz] = rot(s * (halfW - 1.1), lz);
+      const [wx, wz] = rot(s * inner, lz);
       spots.push({ x: wx, y: y0, z: wz, yaw: yaw + (s < 0 ? 0 : Math.PI) });
     }
   }
@@ -770,9 +983,15 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
   const [fxw, fzw] = rot(0, halfD * 0.3);
   const fixtures: LightFixture[] = [{ x: fxw, y: y0 + wallH * 0.75, z: fzw, color: 0xff9a78, intensity: LIGHT_INTENSITY * 0.7, distance: LIGHT_DISTANCE }];
 
+  const nav: StructureNav = {
+    cx, cz, yaw, halfW, halfD, levels: [y0],
+    doorOut: [0, rampOut], doorIn: [0, -halfD + 1.2],
+    rooms: [], stairBottom: null, stairTop: null, breach: null,
+  };
+
   return {
     parts, glow, containers: spots.slice(0, Math.max(0, plan.containers)), basementContainers: [], console: null, door: null,
-    basementY: y0, ladders: [], windows: [], fixtures, floors: 1, roofY: Number.NaN,
+    basementY: y0, ladders: [], windows: [], fixtures, floors: 1, roofY: Number.NaN, nav,
   };
 }
 

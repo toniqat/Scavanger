@@ -3,66 +3,49 @@ import type {
   ShopItem,
 } from '@/shared';
 import {
-  CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL,
+  CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
   appendCurrencyRewards, buildItemChip, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
-import { el, fmtNum, setText, toggleClass } from './dom';
+import { chevrons, el, fmtNum, setText, toggleClass } from './dom';
+import { TileGrid, type TileSpec } from './TileGrid';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * CorpView — the **body** of the 기업 네트워크 screen.
  *
  * **2026-09-07**: there is only one shell left — `MetaSystem.createCorpView(host)`, the inventory Tab screen's
- * 기업 tab. The standalone `.menu.corp-menu` overlay (and its `'corp'` blocker, pointer-lock etiquette and Escape
- * listener) is gone; the ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one
- * 기업 네트워크 screen in the game and the window owns the blocker, the cursor and Escape.
+ * 기업 tab. The ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one 기업 네트워크
+ * screen in the game and the window owns the blocker, the cursor and Escape.
  *
- * Screen shape (**2026-09-09**) — **한 열이 기업의 전부, 나머지는 전부 페이지**:
+ * Screen shape (**2026-09-12**) — **기업 목록은 트리다**:
  *
- *   좌 `.corp-rail`  기업 목록 → 신뢰도 게이지 → 페이지 탭(거래 / 계약 / 퀘스트 / 임플란트) → 크레딧
+ *   좌 `.corp-rail`  기업 목록. 선택한 기업 버튼 **바로 아래**에 가지(`.corp-branch`)가 열린다 —
+ *                    신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 퀘스트 / 임플란트 탭. 가지는 한 번에 하나.
+ *                    크레딧은 없다 (창 우측 상단 CREDITS 가 이미 찍는다).
  *   우 `.corp-page`  그 페이지의 열들: 목록 → 거래칸 / 납품 (가운데) → **가방 + 함선 창고**(또는 진행 중인 계약)
  *
- * Why it moved again. 2026-09-08 had a `.corp-top` row (기업 목록 + a 기업 패널) **stacked over** the page, and that
- * row cost the whole screen its vertical space: the 가방 / 함선 창고 down the right had ~120 px less than the window
- * could give them, on a screen whose whole point is looking at two grids at once. So the corp column swallowed the
- * panel — the 기업 목록 already names the corp and prints its `Lv.n`, and the **신뢰도 게이지** now sits directly
- * under that list (bar + `Lv.n` + `420 / 700`, **no `신뢰도` label**: what a gauge under the corp list measures needs
- * no caption) — and the page took the full height of the tab. `.corp-panel` is gone, markup and CSS both.
+ * **거래칸의 모든 칸은 인벤토리 타일이다 (2026-09-12).** 기업 판매 물품 · 구매 / 판매 트레이 · 임플란트 데스크가
+ * `InventoryRef.buildItemTile` 로 만든 `.inv-tile` 을 `TileGrid` 가 `.inv-cells` 위에 발자국대로 채운다 — 가방 /
+ * 창고와 **같은 모양**이고 `data-item-tip` 으로 공용 호버 카드가 뜬다. 예전 `.ct-*` 클래스는 housing.css 의 배양조
+ * `.ct-cell`(54×76, 아래가 둥근 관)과 이름이 겹쳐 판매 물품이 관 모양이 됐고, 칩의 `pointer-events: none` 때문에
+ * 호버 카드도 뜨지 않았다 — 이 폴더의 접두사는 이제 `.cv-` 다.
  *
- * The page is no longer a `--corp-page-h` band either: `.inv-screen.corp-view` takes a **definite** height in
- * `meta.css`, so `.corp-page` is just `flex: 1` and every grid inside it stretches to the window (`--corp-page-min`
- * is only a floor for very short viewports). The two inventory grids still run at the Tab window's own cell edge
- * (`CT_CELL`) with their real column counts, so the stash here looks like the stash in the inventory.
+ * **거래 성사는 1초 홀드다 (2026-09-12)** (`UI_HOLD_CONFIRM_S`, 제작 · 분해와 같은 게이지). 클릭 · Enter 로는
+ * 확정되지 않는다. 구매 트레이 우측 상단의 오른쪽 셰브런 셋은 "이 물건이 내 쪽으로 온다", 판매 트레이 좌측 상단의
+ * 왼쪽 셰브런 셋은 "기업 쪽으로 간다" 이고, 가운데 한 줄이 거래 후 크레딧 변화(+ 초록 ▲ 오른쪽 / − 빨강 ▼ 왼쪽)다.
  *
- * Pages (Phase 9 UI pass, a Tarkov-style trading desk):
- *   • **거래** (상점 + 판매 merged): the corp's stock on the left, a two-tray **거래칸** in the middle (구매 / 판매)
- *     with the net credit delta and one big **거래 성사** button under it, and the player's **real 가방 + 함선 창고
- *     grids** down the right (`InventoryRef.createTradeGrids`). All three areas are **item grids** of `buildItemChip`
- *     cells, so hovering any of them raises the shared `ui/hud/ItemTip` card. Nothing buys or sells on click: items
- *     are staged into a tray (click, or drag a stock cell / an inventory tile onto it) and the basket settles at once;
- *   • **계약**: the corp's contract list in the middle and **진행 중인 계약 in the right-hand column** — the same
- *     column the 가방 / 함선 창고 occupy on the other pages, at full height (2026-09-09; it used to be a narrow
- *     right rail on a short page, so an accepted contract with a goal bar was cramped);
- *   • **퀘스트**: the quest list on the left — **이름 + 상태 배지만** (the description belongs to the detail panel,
- *     not to twenty list rows) — with the selected quest's **보상이 그 목록 바로 아래에 고정**되고, the 납품 table in
- *     the middle and the same inventory grids on the right;
- *   • **임플란트** (Phase 12, 2026-09-08 — 세레스 바이오 only, the tab is hidden for every other corp): every broken
- *     implant in the bag + stash as an item grid on the left, the selected one's repair on the right — result chip,
- *     `renderItemCost` material chips (dimmed red when short), the credit fee and one **수리** button, gated by
- *     `Rules.canRepairImplant` through `MetaSystem.getImplantRepair`.
+ * Pages:
+ *   • **거래**: stock on the left, the two trays in the middle, the player's **real 가방 + 함선 창고 grids** on the right
+ *     (`InventoryRef.createTradeGrids`). Items are staged into a tray (click, or drag a stock tile / an inventory tile
+ *     onto it) and the basket settles at once;
+ *   • **계약**: the corp's contract list and **진행 중인 계약** in the right-hand column, drawn in **that contract's
+ *     corp colour** (2026-09-12) — not the selected corp's;
+ *   • **퀘스트**: the quest list (이름 + 상태 배지) with the selected quest's 보상 pinned under it, the 납품 table and the
+ *     inventory grids;
+ *   • **임플란트** (세레스 바이오 only): broken implants as tiles, the selected one's repair card.
  *
- * **보상은 재화 칩이다 (2026-09-09)**. 계약과 퀘스트의 보상은 `신뢰도 +12 · XP +40 · 크레딧 +1,200` 한 줄 텍스트였다.
- * 같은 자리의 아이템 보상은 썸네일인데 재화만 글자라 줄이 맞지 않았으므로, 이제 `@/shared/currency` 의
- * `buildCurrencyChip` / `appendCurrencyRewards` 로 아이템 칩과 **같은 상자 · 같은 눈금**의 육각 칩을 그린다.
- * 신뢰도는 **기업마다 다른 재화**(`repCurrencyId(def.corp)`)라 썸네일 색이 기업 색이고, 진행 중인 계약이 다른
- * 기업 것이면 그 기업의 신뢰도 칩이 나온다. 호버 카드는 `ui/hud/ItemTip` 이 `data-currency-id` 로 알아서 띄우므로
- * 여기서는 아무 리스너도 달지 않는다 — 칩을 `ctx.uiRoot` 안에 놓기만 하면 된다.
- *
- * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use is not merely empty any more — its sub-tab looks
- * locked (`.is-locked`, `pageLock`) but stays clickable so the click can say why, and the view opens on **퀘스트**
- * instead (`resolvePage`), the one page that is never rep-gated. 거래 needs `SHOP_UNLOCK_REP_LEVEL`; 계약 needs the
- * lowest `minRepLevel` among that corp's contracts (so a corp with a Lv.0 contract never locks). 퀘스트 · 임플란트
- * 수리 never lock.
+ * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use looks locked (`.is-locked`) but stays clickable so
+ * the click can say why, and the view opens on **퀘스트** instead (`resolvePage`).
  *
  * Page bodies are built **once** and swapped, not rebuilt per refresh — the embedded grids own bus subscriptions and
  * a pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
@@ -81,43 +64,37 @@ const pagesFor = (corp: CorpId): CorpPage[] => PAGES.filter((p) => !p.corp || p.
 const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', available: '가능', accepted: '진행', complete: '완료' };
 
 /**
- * Columns of every trade grid on this screen (2026-09-07). An item is at most 5 cells wide, so five columns is the
- * narrowest grid that can show any item — the 구매 / 판매 trays are sized to exactly that and `--ct-cell` in
- * `meta.css` is what makes the 기업 재고 / 가방 / 함선 창고 grids match them.
+ * Cell edge / gap of every item grid on this screen, in px — the Tab 인벤토리's own (`inventory/ui/labels.CELL / GAP`)
+ * so the desk's tiles and the 가방 / 창고 beside them are the same size. Mirrors `--cv-cell` / `--cv-gap` in `meta.css`.
  */
-const CT_GRID_COLS = 5;
-/**
- * Cell edge of every grid on this screen, in px. Mirrors `--ct-cell` in `meta.css` — keep the two in step.
- * 2026-09-08: raised 40 → 54, the Tab 인벤토리's own cell (`inventory/ui/labels.CELL`), so the 가방 / 함선 창고
- * down the right read exactly like the inventory window's grids. The 기업 목록 / 기업 패널 moving to the top row
- * is what freed the width for it.
- */
-const CT_CELL = 54;
-/** Chip edge that fits inside a footprint cell (short edge of the footprint, minus the cell padding). */
-const cellChip = (def: ItemDef | undefined): number =>
-  Math.min(2, Math.max(1, Math.min(def?.width ?? 1, def?.height ?? 1))) * CT_CELL - 14;
+const CV_CELL = 54;
+const CV_GAP = 2;
+/** Columns of a 구매 / 판매 tray — an item is at most five cells wide. */
+const TRAY_COLS = 5;
+/** Below this fraction of the hold a release reads as a click — say how the button works instead of failing silently. */
+const HOLD_TAP_HINT = 0.35;
 
 /** One staged purchase (a shop line, `qty` copies) / one staged sale (a whole stack by uid). */
 interface BuyLine { defId: string; qty: number }
 interface SellLine { uid: string; qty: number }
 
 export interface CorpViewOptions {
-  /** Embedded (inventory tab) instead of the standalone overlay: no subtitle line. (2026-09-11: the overlay's
-   *  `accentTarget` / `onClose` / `isVisible` are gone — the embedded tab is the only view and passed none of them.) */
+  /** Embedded (inventory tab) instead of the standalone overlay: no subtitle line. */
   embedded?: boolean;
 }
 
 export class CorpView {
   private readonly nodes: HTMLElement[] = [];
-  private readonly creditsEl: HTMLElement;
   private readonly corpTabs = new Map<CorpId, HTMLButtonElement>();
   private readonly corpLv = new Map<CorpId, HTMLElement>();
-  /** 신뢰도 게이지 (기업 목록 바로 아래). 예전 `기업 패널` 의 남은 절반 — 이름 · Lv 는 목록이 이미 찍는다. */
+  /** The selected corp's branch — moved under its tab (`refresh`). Holds the 신뢰도 gauge and the page tabs. */
+  private readonly branch: HTMLElement;
+  private branchCorp: CorpId | null = null;
   private readonly rep: { lv: HTMLElement; bar: HTMLElement; text: HTMLElement };
   private readonly subTabs = new Map<CorpPage, HTMLButtonElement>();
   private readonly page: HTMLElement;
   private readonly msg: HTMLElement;
-  /** 귀중품 전부 담기 — under the 판매 tray since 2026-09-07, so it is built with the 거래 page. */
+  /** 귀중품 전부 담기 — under the 판매 tray, so it is built with the 거래 page. */
   private btnStageValuables: HTMLButtonElement | null = null;
   private unsubs: Array<() => void> = [];
   private corp: CorpId = 'helix';
@@ -127,17 +104,22 @@ export class CorpView {
 
   /* ── page bodies (built once) ── */
   private tradeEl: HTMLElement | null = null;
-  private shopListEl!: HTMLElement;
-  private buySlotsEl!: HTMLElement;
-  private sellSlotsEl!: HTMLElement;
+  private shopGrid!: TileGrid;
+  private buyGrid!: TileGrid;
+  private sellGrid!: TileGrid;
   private buyTotalEl!: HTMLElement;
   private sellTotalEl!: HTMLElement;
   private netEl!: HTMLElement;
+  private netValEl!: HTMLElement;
   private confirmBtn!: HTMLButtonElement;
+  private confirmFill!: HTMLElement;
   private tradeGrids: EmbeddedView | null = null;
+  /** 거래 성사 hold in progress (`UI_HOLD_CONFIRM_S`). */
+  private hold: { t0: number; raf: number; timer: number } | null = null;
 
   private contractsEl: HTMLElement | null = null;
   private contractListEl!: HTMLElement;
+  private contractActiveCol!: HTMLElement;
   private contractActiveEl!: HTMLElement;
 
   private questsEl: HTMLElement | null = null;
@@ -150,7 +132,7 @@ export class CorpView {
 
   /* Phase 12: 임플란트 수리 desk */
   private implantsEl: HTMLElement | null = null;
-  private implantListEl!: HTMLElement;
+  private implantGrid!: TileGrid;
   private implantDetailEl!: HTMLElement;
   private selectedImplant: string | null = null;
 
@@ -179,26 +161,26 @@ export class CorpView {
       return e;
     };
 
-    /* 2026-09-09: 좌 `.corp-rail` 한 열이 기업의 전부 (목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧),
-       우 `.corp-page` 가 남은 폭과 **세로 전부**. 예전의 `.corp-top` 가로 줄과 `기업 패널` 은 없어졌다. */
     const shell = add(el('div', { cls: 'corp-shell', parent: host }));
 
+    /* 2026-09-12: 좌 열은 **트리**다 — 기업 버튼들 사이에, 선택한 기업 바로 아래로 가지 하나가 옮겨 다닌다. */
     const rail = el('div', { cls: 'corp-rail', parent: shell });
-    el('div', { cls: 'ct-title', text: '기업', parent: rail });
-    const tabs = el('div', { cls: 'corp-tabs', parent: rail });
+    el('div', { cls: 'cv-title', text: '기업', parent: rail });
+    const tabs = el('div', { cls: 'corp-tabs', parent: rail, attrs: { role: 'tree' } });
     for (const id of CORP_IDS) {
       const def = CORP_DEFS[id];
-      const b = el('button', { cls: 'corp-tab', parent: tabs, attrs: { 'data-corp': id } });
+      const b = el('button', { cls: 'corp-tab', parent: tabs, attrs: { 'data-corp': id, role: 'treeitem', 'aria-expanded': 'false' } });
       b.style.setProperty('--cc', def.color);
+      el('span', { cls: 'caret', parent: b });
       el('span', { cls: 'name', text: def.name, parent: b });
       this.corpLv.set(id, el('span', { cls: 'lv', text: 'Lv.0', parent: b }));
       b.addEventListener('click', (e) => { e.stopPropagation(); this.setCorp(id); });
       this.corpTabs.set(id, b);
     }
 
-    /* 신뢰도 게이지 — 기업 목록 바로 아래. `신뢰도` 라벨은 붙이지 않는다: 기업 목록 밑의 눈금이
-       무엇을 재는지는 설명할 것이 없다. 색은 선택한 기업의 `--cc`. */
-    const repEl = el('div', { cls: 'corp-rep', parent: rail });
+    this.branch = el('div', { cls: 'corp-branch', parent: tabs, attrs: { role: 'group' } });
+    /* 신뢰도 게이지 — `신뢰도` 라벨은 붙이지 않는다: 기업 바로 아래의 눈금이 무엇을 재는지는 설명할 것이 없다. */
+    const repEl = el('div', { cls: 'corp-rep', parent: this.branch });
     const repRow = el('div', { cls: 'row', parent: repEl });
     const lv = el('span', { cls: 'lv', text: 'Lv.0', parent: repRow });
     const text = el('span', { cls: 'rep-text', parent: repRow });
@@ -206,16 +188,12 @@ export class CorpView {
     const fill = el('i', { parent: bar });
     this.rep = { lv, bar: fill, text };
 
-    const sub = el('div', { cls: 'corp-subtabs', parent: rail });
+    const sub = el('div', { cls: 'corp-subtabs', parent: this.branch });
     for (const p of PAGES) {
       const b = el('button', { cls: 'scr-tab', text: p.label, parent: sub, attrs: { 'data-page': p.id } });
       b.addEventListener('click', (e) => { e.stopPropagation(); this.setPage(p.id); });
       this.subTabs.set(p.id, b);
     }
-
-    const cr = el('div', { cls: 'corp-credits', parent: rail });
-    el('span', { cls: 'k', text: '크레딧', parent: cr });
-    this.creditsEl = el('span', { cls: 'v', text: '0', parent: cr });
 
     this.page = el('div', { cls: 'corp-page', parent: shell });
     // the message keeps a reserved slot so showing / hiding it never moves the frame
@@ -304,10 +282,8 @@ export class CorpView {
   }
 
   /**
-   * 2026-09-08: a rep-locked sub-tab used to be `disabled`, so the click never landed and the dim was the whole
-   * explanation. The button stays enabled and only *looks* locked (`.is-locked`) — clicking it says why, as a
-   * **토스트** (`ui:notify`, the Tab screen's `'inventory'` blocker leaves the social HUD up) and, for the standalone
-   * 기업 overlay where the HUD is gone, in the panel's own reserved message slot.
+   * 2026-09-08: a rep-locked sub-tab stays enabled and only *looks* locked (`.is-locked`) — clicking it says why, as a
+   * **토스트** (`ui:notify`) and in the panel's own reserved message slot.
    */
   setPage(page: CorpPage): void {
     if (!pagesFor(this.corp).includes(page)) return;
@@ -332,15 +308,26 @@ export class CorpView {
   refresh(): void {
     if (this.disposed) return;
     const meta = this.meta;
-    setText(this.creditsEl, formatCredits(meta.credits));
     for (const id of CORP_IDS) {
       const r = meta.getRep(id);
+      const tab = this.corpTabs.get(id)!;
       setText(this.corpLv.get(id)!, `Lv.${r.level}`);
-      toggleClass(this.corpTabs.get(id)!, 'is-on', id === this.corp);
+      toggleClass(tab, 'is-on', id === this.corp);
+      tab.setAttribute('aria-expanded', id === this.corp ? 'true' : 'false');
     }
     const def = CORP_DEFS[this.corp];
     const rep = meta.getRep(this.corp);
     this.host.style.setProperty('--cc', def.color);
+    // the branch hangs under the selected corp's button — one open at a time, re-played when it moves
+    const tab = this.corpTabs.get(this.corp)!;
+    if (tab.nextElementSibling !== this.branch) tab.after(this.branch);
+    if (this.branchCorp !== this.corp) {
+      this.branchCorp = this.corp;
+      this.branch.classList.remove('is-opening');
+      void this.branch.offsetWidth;          // restart the open animation
+      this.branch.classList.add('is-opening');
+    }
+    this.branch.style.setProperty('--cc', def.color);
     setText(this.rep.lv, `Lv.${rep.level}`);
     const prev = REP_TABLE[rep.level] ?? 0;            // cumulative rep where the current level started
     const span = rep.next === null ? 1 : Math.max(1, rep.next - prev);
@@ -368,6 +355,7 @@ export class CorpView {
         : this.current === 'quests' ? this.buildQuests()
           : this.buildImplants();
     if (this.page.firstElementChild !== body) this.page.replaceChildren(body);
+    if (this.current !== 'trade') this.cancelHold();
     if (this.current === 'trade') this.renderTrade();
     else if (this.current === 'contracts') this.renderContracts();
     else if (this.current === 'quests') this.renderQuests();
@@ -380,43 +368,68 @@ export class CorpView {
     el('div', { cls: 'corp-empty', text, parent });
   }
 
+  /**
+   * One inventory-look tile (`InventoryRef.buildItemTile`) with its footprint, for a `TileGrid`. `cls` are this
+   * screen's markers (`shop` / `buy` / `sell` / `broken`); the tile itself already carries the hover-card hook.
+   */
+  private makeTile(defId: string, qty: number, cls: string, durability?: number): TileSpec {
+    const def = this.itemDef(defId);
+    const inv = this.ctx.inventory;
+    let tile: HTMLElement;
+    if (inv && typeof inv.buildItemTile === 'function') {
+      tile = inv.buildItemTile(defId, qty, durability === undefined ? { cell: CV_CELL } : { cell: CV_CELL, durability });
+    } else {
+      tile = document.createElement('div');
+      tile.className = 'inv-tile';
+      tile.appendChild(buildItemChip(def, { size: 34 }));
+    }
+    tile.classList.add('cv-tile', ...cls.split(' ').filter(Boolean));
+    return { tile, w: def?.width ?? 1, h: def?.height ?? 1 };
+  }
+
   /* ══ 거래 (상점 + 판매) ═══════════════════════════════════════════════════ */
 
   private buildTrade(): HTMLElement {
     if (this.tradeEl) return this.tradeEl;
-    const root = el('div', { cls: 'ct' });
+    const root = el('div', { cls: 'cv' });
+    const grid = { cell: CV_CELL, gap: CV_GAP };
 
-    const shop = el('div', { cls: 'ct-col shop', parent: root });
-    el('div', { cls: 'ct-title', text: '기업 판매 물품', parent: shop });
-    this.shopListEl = el('div', { cls: 'ct-shop-list ct-grid', parent: shop });
+    const shop = el('div', { cls: 'cv-col shop', parent: root });
+    el('div', { cls: 'cv-title', text: '기업 판매 물품', parent: shop });
+    this.shopGrid = new TileGrid(shop, { ...grid, minCols: TRAY_COLS, className: 'cv-shop' });
 
-    // 2026-09-07: the two trays are **stacked** (구매 over 판매) so each one is a real 5-cell-wide item grid —
-    // an item is at most 5 cells across, so five columns is the width every grid on this screen is sized from.
-    const deal = el('div', { cls: 'ct-col deal', parent: root });
-    const trays = el('div', { cls: 'ct-trays', parent: deal });
-    const mkTray = (kind: 'buy' | 'sell', label: string): { tray: HTMLElement; slots: HTMLElement; total: HTMLElement } => {
-      const tray = el('div', { cls: `ct-tray ${kind}`, parent: trays });
-      const head = el('div', { cls: 'ct-tray-head', parent: tray });
+    // the two trays are **stacked** (구매 over 판매) so each is a real five-column item grid
+    const deal = el('div', { cls: 'cv-col deal', parent: root });
+    const trays = el('div', { cls: 'cv-trays', parent: deal });
+    const mkTray = (kind: 'buy' | 'sell', label: string): { tray: HTMLElement; grid: TileGrid; total: HTMLElement } => {
+      const tray = el('div', { cls: `cv-tray ${kind}`, parent: trays });
+      const head = el('div', { cls: 'cv-tray-head', parent: tray });
+      /* 셰브런 셋 = 물건이 흐르는 쪽. 구매는 우측 상단에서 오른쪽(내 가방 · 창고 쪽), 판매는 좌측 상단에서 왼쪽(기업 쪽). */
+      if (kind === 'sell') head.appendChild(chevrons('left', 3, 'flow'));
       el('span', { cls: 'k', text: label, parent: head });
       const total = el('span', { cls: 'v', text: '0', parent: head });
-      const slots = el('div', { cls: 'ct-slots ct-grid', parent: tray });
-      return { tray, slots, total };
+      if (kind === 'buy') head.appendChild(chevrons('right', 3, 'flow'));
+      return { tray, grid: new TileGrid(tray, { ...grid, cols: TRAY_COLS, className: 'cv-slots' }), total };
     };
     const buy = mkTray('buy', '구매');
     const sell = mkTray('sell', '판매');
-    this.buySlotsEl = buy.slots; this.buyTotalEl = buy.total;
-    this.sellSlotsEl = sell.slots; this.sellTotalEl = sell.total;
-    // 귀중품 전부 담기 moved out of the (now deleted) screen footer into the 판매 tray it fills
-    this.btnStageValuables = this.button(sell.tray, '귀중품 전부 담기', () => this.stageValuables(), 'ct-stage');
+    this.buyGrid = buy.grid; this.buyTotalEl = buy.total;
+    this.sellGrid = sell.grid; this.sellTotalEl = sell.total;
+    this.btnStageValuables = this.button(sell.tray, '귀중품 전부 담기', () => this.stageValuables(), 'cv-stage');
 
-    const totals = el('div', { cls: 'ct-total', parent: deal });
-    el('span', { cls: 'k', text: '거래 후 크레딧', parent: totals });
-    this.netEl = el('span', { cls: 'v', text: '0', parent: totals });
-    this.confirmBtn = el('button', { cls: 'ui-btn primary ct-confirm', text: '거래 성사', parent: deal }) as HTMLButtonElement;
-    this.confirmBtn.addEventListener('click', (e) => { e.stopPropagation(); this.confirmTrade(); });
+    /* 거래 후 크레딧 변화 — 라벨 없이 가운데 한 줄. + 는 오른쪽 초록 ▲, − 는 왼쪽 빨강 ▼. */
+    this.netEl = el('div', { cls: 'cv-total', parent: deal });
+    this.netEl.appendChild(chevrons('down', 1, 'net-down'));
+    this.netValEl = el('span', { cls: 'v', text: '0', parent: this.netEl });
+    this.netEl.appendChild(chevrons('up', 1, 'net-up'));
 
-    const inv = el('div', { cls: 'ct-col inv', parent: root });
-    this.tradeGrids = this.makeGrids(inv, '.ct-tray.sell');
+    this.confirmBtn = el('button', { cls: 'ui-btn primary cv-confirm', parent: deal }) as HTMLButtonElement;
+    this.confirmFill = el('i', { cls: 'cv-confirm-fill', parent: this.confirmBtn });
+    el('span', { cls: 'cv-confirm-label', text: '거래 성사', parent: this.confirmBtn });
+    this.bindHold(this.confirmBtn);
+
+    const inv = el('div', { cls: 'cv-col inv', parent: root });
+    this.tradeGrids = this.makeGrids(inv, '.cv-tray.sell');
 
     this.tradeEl = root;
     this.nodes.push(root);
@@ -424,18 +437,56 @@ export class CorpView {
   }
 
   /**
-   * One cell of a trade grid. The cell **spans the item's footprint** (`grid-column / row: span n`) on a 5-column
-   * grid of `--ct-cell` squares, so 기업 재고 · 구매 · 판매 read like the 가방 / 함선 창고 next to them; the chip
-   * inside is sized to the short edge and carries `data-def-id`, which is what raises the shared `ui/hud/ItemTip`.
+   * 거래 성사 = **1초 홀드** (2026-09-12, `UI_HOLD_CONFIRM_S`). Click and keyboard activation do nothing; a short press
+   * that lets go early says how the button works. The gauge is `.cv-confirm-fill` (scaleX 0 → 1).
    */
-  private gridCell(parent: HTMLElement, def: ItemDef | undefined, cls: string): HTMLElement {
-    const w = Math.max(1, Math.min(CT_GRID_COLS, def?.width ?? 1));
-    const h = Math.max(1, Math.min(CT_GRID_COLS, def?.height ?? 1));
-    const cell = el('div', { cls: `ct-cell ${cls} rarity-${def?.rarity ?? 'common'}` , parent });
-    cell.style.gridColumn = `span ${w}`;
-    cell.style.gridRow = `span ${h}`;
-    if (def) cell.style.setProperty('--rc', def.color);
-    return cell;
+  private bindHold(btn: HTMLButtonElement): void {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); }
+    });
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || btn.disabled || this.hold) return;
+      e.stopPropagation(); e.preventDefault();
+      try { btn.setPointerCapture(e.pointerId); } catch { /* synthetic events have no capture */ }
+      const holdMs = Math.max(1, UI_HOLD_CONFIRM_S * 1000);
+      const t0 = performance.now();
+      const tick = (): void => {
+        if (!this.hold) return;
+        const f = Math.min(1, (performance.now() - t0) / holdMs);
+        this.confirmFill.style.transform = `scaleX(${f.toFixed(3)})`;
+        if (f < 1) this.hold.raf = requestAnimationFrame(tick);
+      };
+      // the gauge rides rAF; the settle rides a timer, so a frame that never comes (hidden tab) cannot stall the trade
+      const done = window.setTimeout(() => {
+        if (!this.hold || this.hold.t0 !== t0) return;
+        this.cancelHold();
+        this.confirmTrade();
+      }, holdMs);
+      this.hold = { t0, raf: requestAnimationFrame(tick), timer: done };
+      btn.classList.add('is-holding');
+    });
+    const release = (): void => {
+      const h = this.hold;
+      if (!h) return;
+      const f = (performance.now() - h.t0) / Math.max(1, UI_HOLD_CONFIRM_S * 1000);
+      this.cancelHold();
+      if (f < HOLD_TAP_HINT) this.showMsg('거래 성사 버튼을 1초간 꾹 누르세요', 'info');
+    };
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerleave', release);
+    btn.addEventListener('lostpointercapture', release);
+  }
+
+  private cancelHold(): void {
+    const h = this.hold;
+    this.hold = null;
+    if (h) { cancelAnimationFrame(h.raf); clearTimeout(h.timer); }
+    if (this.tradeEl) {
+      this.confirmFill.style.transform = 'scaleX(0)';
+      this.confirmBtn.classList.remove('is-holding');
+    }
   }
 
   /** Embedded 가방 + 함선 창고 grids; a tile dropped on `dropSelector` (or double-clicked) is staged for sale. */
@@ -447,53 +498,57 @@ export class CorpView {
     }
     return inv.createTradeGrids(host, {
       dropSelector,
-      cell: CT_CELL,          // match the 5-column 구매 / 판매 tray next to them (2026-09-07)
+      cell: CV_CELL,
       isStaged: (uid) => this.sellLines.some((s) => s.uid === uid),
       onTake: (item) => this.stageSell(item),
     });
   }
 
   private renderTrade(): void {
-    /* 좌: 기업 판매 물품 — the grid keeps its shape even when it is locked / empty, with the reason centred in it */
-    this.shopListEl.replaceChildren();
+    /* 좌: 기업 판매 물품 — the grid keeps its shape even when it is locked / empty, with the reason centred over it */
     const rep = this.meta.getRep(this.corp);
-    if (rep.level < SHOP_UNLOCK_REP_LEVEL) this.empty(this.shopListEl, `신뢰도 Lv.${SHOP_UNLOCK_REP_LEVEL} 부터 거래 가능`);
+    const shopSpecs: TileSpec[] = [];
+    let shopEmpty: string | null = null;
+    if (rep.level < SHOP_UNLOCK_REP_LEVEL) shopEmpty = `신뢰도 Lv.${SHOP_UNLOCK_REP_LEVEL} 부터 거래 가능`;
     else {
       const lines = this.meta.getShop(this.corp);
-      if (lines.length === 0) this.empty(this.shopListEl, '판매 중인 품목이 없습니다');
-      else for (const line of lines) this.shopCell(line);
+      if (lines.length === 0) shopEmpty = '판매 중인 품목이 없습니다';
+      else for (const line of lines) shopSpecs.push(this.shopTile(line));
     }
+    this.shopGrid.render(shopSpecs, shopEmpty);
 
     /* 중앙: 거래칸 */
     const cost = this.buyCost(), revenue = this.sellRevenue();
-    this.buySlotsEl.replaceChildren();
-    if (this.buyLines.length === 0) el('div', { cls: 'ct-slot-hint', text: '왼쪽 목록에서 담으세요', parent: this.buySlotsEl });
+    const buySpecs: TileSpec[] = [];
     for (const line of this.buyLines) {
-      const def = this.itemDef(line.defId);
-      const cell = this.gridCell(this.buySlotsEl, def, 'ct-chip');
-      cell.appendChild(buildItemChip(def, { size: cellChip(def) }));
-      el('div', { cls: 'ct-cell-qty', text: `×${line.qty}`, parent: cell });
-      cell.addEventListener('click', (e) => { e.stopPropagation(); this.unstageBuy(line.defId); });
+      const spec = this.makeTile(line.defId, 1, 'buy');
+      spec.tile.dataset.def = line.defId;
+      el('div', { cls: 'cv-count', text: `×${line.qty}`, parent: spec.tile });
+      spec.tile.addEventListener('click', (e) => { e.stopPropagation(); this.unstageBuy(line.defId); });
+      buySpecs.push(spec);
     }
-    this.sellSlotsEl.replaceChildren();
-    if (this.sellLines.length === 0) el('div', { cls: 'ct-slot-hint', text: '오른쪽 가방 / 창고에서 끌어 놓으세요', parent: this.sellSlotsEl });
+    this.buyGrid.render(buySpecs);
+    const sellSpecs: TileSpec[] = [];
     for (const line of this.sellLines) {
       const inst = this.ctx.inventory?.findItemAnywhere?.(line.uid) ?? null;
-      const def = inst ? this.itemDef(inst.defId) : undefined;
-      const cell = this.gridCell(this.sellSlotsEl, def, 'ct-chip');
-      cell.appendChild(buildItemChip(def, { size: cellChip(def) }));
-      el('div', { cls: 'ct-cell-price', text: formatCreditAmount(this.meta.sellPriceOf(line.uid, line.qty) ?? 0), parent: cell });
-      cell.addEventListener('click', (e) => { e.stopPropagation(); this.unstageSell(line.uid); });
+      if (!inst) continue;
+      const spec = this.makeTile(inst.defId, line.qty, 'sell', inst.durability);
+      spec.tile.dataset.uid = line.uid;
+      el('div', { cls: 'cv-price', text: formatCreditAmount(this.meta.sellPriceOf(line.uid, line.qty) ?? 0), parent: spec.tile });
+      spec.tile.addEventListener('click', (e) => { e.stopPropagation(); this.unstageSell(line.uid); });
+      sellSpecs.push(spec);
     }
+    this.sellGrid.render(sellSpecs);
     setText(this.buyTotalEl, `−${formatCredits(cost)}`);
     setText(this.sellTotalEl, `+${formatCredits(revenue)}`);
     const net = revenue - cost;
-    setText(this.netEl, `${net > 0 ? '+' : net < 0 ? '−' : ''}${formatCredits(Math.abs(net))}`);
+    setText(this.netValEl, `${net > 0 ? '+' : net < 0 ? '−' : ''}${formatCredits(Math.abs(net))}`);
     toggleClass(this.netEl, 'plus', net > 0);
     toggleClass(this.netEl, 'minus', net < 0);
     const blocked = this.tradeBlock(cost, revenue);
     this.confirmBtn.disabled = !!blocked;
     this.confirmBtn.title = blocked ?? '';
+    if (blocked) this.cancelHold();
     if (this.btnStageValuables) this.btnStageValuables.disabled = this.meta.getSellable().length === 0;
 
     this.tradeGrids?.refresh();
@@ -520,59 +575,80 @@ export class CorpView {
   }
 
   /**
-   * One stock **cell** in the 기업 판매 물품 grid (Phase 9 UI pass — it used to be a wide row). The cell leads with a
-   * `buildItemChip` thumbnail, so the shared `ui/hud/ItemTip` hover card describes it, and carries the name, the
-   * price and a `×n` badge while the line is staged. Click or drag onto the 구매 tray to stage it.
+   * One stock **tile** in the 기업 판매 물품 grid: price badge bottom-left, a `×n` badge while the line is staged.
+   * Click or drag onto the 구매 tray to stage it; a blocked line is dimmed and its click says why.
    */
-  private shopCell(line: ShopItem): void {
+  private shopTile(line: ShopItem): TileSpec {
     const d = line.def;
-    const cell = this.gridCell(this.shopListEl, d, 'shop');
-    cell.dataset.def = d.id;
-    cell.appendChild(buildItemChip(d, { size: cellChip(d) }));
-    el('div', { cls: 'ct-cell-price', text: formatCreditAmount(line.price), parent: cell });
+    const spec = this.makeTile(d.id, 1, 'shop');
+    const tile = spec.tile;
+    tile.dataset.def = d.id;
+    el('div', { cls: 'cv-price', text: formatCreditAmount(line.price), parent: tile });
     const staged = this.buyLines.find((b) => b.defId === d.id);
-    if (staged) el('div', { cls: 'ct-staged', text: `×${staged.qty}`, parent: cell });
-    toggleClass(cell, 'blocked', line.blocked !== null);
+    if (staged) el('div', { cls: 'cv-staged', text: `×${staged.qty}`, parent: tile });
+    toggleClass(tile, 'blocked', line.blocked !== null);
     // no `title` attribute: it would race the hover card, which already carries 등급 · 분류 · 설명
+    tile.addEventListener('click', (e) => { e.stopPropagation(); this.stageBuy(d.id); });
     if (line.blocked === null) {
-      cell.classList.add('is-draggable');
-      cell.addEventListener('click', (e) => { e.stopPropagation(); this.stageBuy(d.id); });
-      this.makeDraggable(cell, d, '.ct-tray.buy', () => this.stageBuy(d.id));
-    } else {
-      el('div', { cls: 'ct-cell-block', text: line.blocked, parent: cell });
+      tile.classList.add('is-draggable');
+      this.makeDraggable(tile, d, '.cv-tray.buy', () => this.stageBuy(d.id));
     }
+    return spec;
   }
 
   /**
-   * Pointer-drag for a corp stock row: a floating copy of the item chip follows the cursor and dropping it on
-   * `dropSelector` stages the line. Click does the same — the drag only exists so the desk feels like the grids.
+   * Pointer-drag for a corp stock tile: a floating copy follows the cursor and dropping it on `dropSelector` stages
+   * the line. Moves are coalesced to one per frame and the ghost moves by `transform` (no layout per event).
    */
-  private makeDraggable(row: HTMLElement, def: ItemDef, dropSelector: string, onDrop: () => void): void {
-    row.addEventListener('pointerdown', (e) => {
+  private makeDraggable(tileEl: HTMLElement, def: ItemDef, dropSelector: string, onDrop: () => void): void {
+    tileEl.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       let ghost: HTMLElement | null = null;
       let moved = false;
+      let raf = 0;
+      let last: PointerEvent | null = null;
+      let over: HTMLElement | null = null;
+      const gw = (def.width ?? 1) * (CV_CELL + CV_GAP) - CV_GAP;
+      const gh = (def.height ?? 1) * (CV_CELL + CV_GAP) - CV_GAP;
+      const setOver = (t: HTMLElement | null): void => {
+        if (over === t) return;
+        over?.classList.remove('is-over');
+        over = t;
+        over?.classList.add('is-over');
+      };
+      const frame = (): void => {
+        raf = 0;
+        const ev = last;
+        if (!ev || !ghost) return;
+        ghost.style.transform = `translate(${ev.clientX - gw / 2}px, ${ev.clientY - gh / 2}px)`;
+        const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>(dropSelector) ?? null;
+        ghost.classList.toggle('is-ok', !!hit);
+        setOver(hit);
+      };
       const move = (ev: PointerEvent): void => {
         if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 5) return;
         moved = true;
         if (!ghost) {
-          ghost = document.createElement('div');
-          ghost.className = 'ct-drag-ghost';
-          ghost.appendChild(buildItemChip(def, { size: 40 }));
+          ghost = this.makeTile(def.id, 1, 'cv-ghost').tile;
           document.body.appendChild(ghost);
         }
-        ghost.style.left = `${ev.clientX - 22}px`;
-        ghost.style.top = `${ev.clientY - 22}px`;
-        const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest(dropSelector);
-        ghost.classList.toggle('is-ok', !!hit);
+        last = ev;
+        if (!raf) raf = requestAnimationFrame(frame);
       };
       const up = (ev: PointerEvent): void => {
         window.removeEventListener('pointermove', move, true);
         window.removeEventListener('pointerup', up, true);
+        if (raf) cancelAnimationFrame(raf);
         ghost?.remove();
-        if (!moved) return;                        // a plain click is handled by the row's own listener
+        setOver(null);
+        if (!moved) return;                        // a plain click is handled by the tile's own listener
         const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest(dropSelector);
         if (hit) onDrop();
+        // a drag that ends over the tile it started on is followed by a click — swallow only that one, so it does not
+        // stage the line a second time (the listener is gone by the next task, so a later real click still counts)
+        const swallow = (c: Event): void => { c.stopImmediatePropagation(); };
+        tileEl.addEventListener('click', swallow, { capture: true, once: true });
+        setTimeout(() => tileEl.removeEventListener('click', swallow, { capture: true }), 0);
       };
       window.addEventListener('pointermove', move, true);
       window.addEventListener('pointerup', up, true);
@@ -600,10 +676,9 @@ export class CorpView {
   private stageSell(item: ItemInstance): void {
     if (this.sellLines.some((s) => s.uid === item.uid)) return;
     /*
-     * 2026-09-11 (E-9, 사용자 결정): **0 C 도 담긴다.** `sellPriceOf` 가 `floor` 로 바뀌면서 가치 1 아이템(경량탄 ·
-     * 연료통 · 탄띠) 한 개는 `floor(0.5) = 0` 이다 — 그것을 여기서 막으면 무게를 비울 길이 없어지고, 묶어 팔면
-     * 제값(`floor(0.5 × 80) = 40`)이 나오므로 분할이 손해라는 것을 플레이어가 스스로 배운다. 거절하는 것은
-     * `null`(값이 없는 물건 · 장착 중 · 가방에도 창고에도 없음)뿐이다. 가격 칸은 그대로 `0` 을 찍는다.
+     * 2026-09-11 (E-9, 사용자 결정): **0 C 도 담긴다.** 가치 1 아이템 한 개는 `floor(0.5) = 0` 이다 — 그것을 여기서
+     * 막으면 무게를 비울 길이 없어지고, 묶어 팔면 제값이 나오므로 분할이 손해라는 것을 플레이어가 스스로 배운다.
+     * 거절하는 것은 `null`(값이 없는 물건 · 장착 중 · 가방에도 창고에도 없음)뿐이다. 가격 칸은 그대로 `0` 을 찍는다.
      */
     const price = this.meta.sellPriceOf(item.uid);
     if (price === null) {
@@ -631,8 +706,7 @@ export class CorpView {
       const d = this.itemDef(inst.defId);
       if (!d || d.category !== 'valuable') continue;
       if (this.sellLines.some((s) => s.uid === inst.uid)) continue;
-      // 일괄 담기만 0 C 를 건너뛴다 (손으로 담는 `stageSell` 은 E-9 이후 허용한다). 귀중품의 최저 value 는 90 이라
-      // 실제로는 걸리지 않는 방어선이다 — 값이 0 인 key_basement 는 `getSellable` 이 이미 뺀다.
+      // 일괄 담기만 0 C 를 건너뛴다 (손으로 담는 `stageSell` 은 E-9 이후 허용한다).
       if ((this.meta.sellPriceOf(inst.uid) ?? 0) <= 0) continue;
       this.sellLines.push({ uid: inst.uid, qty: inst.qty });
       added++;
@@ -702,11 +776,11 @@ export class CorpView {
     if (this.contractsEl) return this.contractsEl;
     const root = el('div', { cls: 'cc' });
     const list = el('div', { cls: 'cc-col list', parent: root });
-    el('div', { cls: 'ct-title', text: '계약 목록', parent: list });
+    el('div', { cls: 'cv-title', text: '계약 목록', parent: list });
     this.contractListEl = el('div', { cls: 'cc-list', parent: list });
-    const active = el('div', { cls: 'cc-col active', parent: root });
-    el('div', { cls: 'ct-title', text: '진행 중인 계약', parent: active });
-    this.contractActiveEl = el('div', { cls: 'cc-active', parent: active });
+    this.contractActiveCol = el('div', { cls: 'cc-col active', parent: root });
+    el('div', { cls: 'cv-title', text: '진행 중인 계약', parent: this.contractActiveCol });
+    this.contractActiveEl = el('div', { cls: 'cc-active', parent: this.contractActiveCol });
     this.contractsEl = root;
     this.nodes.push(root);
     return root;
@@ -725,19 +799,28 @@ export class CorpView {
       const found = this.meta.getContracts(id).find((c) => c.active);
       if (found) { active = found; break; }
     }
+    // 2026-09-12: 진행 중인 계약 패널은 **그 계약을 맺은 기업**의 색이다 — 지금 고른 기업 탭의 색이 아니다
+    const activeColor = active ? CORP_DEFS[active.def.corp]?.color : undefined;
+    if (activeColor) this.contractActiveCol.style.setProperty('--cc', activeColor);
+    else this.contractActiveCol.style.removeProperty('--cc');
+    toggleClass(this.contractActiveCol, 'has-contract', !!active);
     if (!active) this.empty(this.contractActiveEl, '수락한 계약이 없습니다');
     else this.contractRow(this.contractActiveEl, active, true);
   }
 
   private contractRow(parent: HTMLElement, c: ContractInfo, detail = false): void {
     const d = c.def;
-    const r = el('div', { cls: `corp-row contract${detail ? ' is-detail' : ''}`, parent, attrs: { 'data-id': d.id } });
+    const r = el('div', { cls: `corp-row contract${detail ? ' is-detail' : ''}`, parent, attrs: { 'data-id': d.id, 'data-corp': d.corp } });
+    // every row wears its own corp's colour (2026-09-12) — the 진행 중인 계약 may belong to another corp
+    const color = CORP_DEFS[d.corp]?.color;
+    if (color) r.style.setProperty('--cc', color);
     toggleClass(r, 'active', c.active);
     toggleClass(r, 'blocked', !c.active && c.blocked !== null);
     const mid = el('div', { cls: 'mid', parent: r });
     const nl = el('div', { cls: 'name-line', parent: mid });
     el('div', { cls: 'name', text: d.name, parent: nl });
     if (c.active) el('div', { cls: 'tag', text: '진행 중', parent: nl });
+    if (detail) el('div', { cls: 'tag corp', text: CORP_DEFS[d.corp]?.name ?? d.corp, parent: nl });
     el('div', { cls: 'tag dim', text: `신뢰도 Lv.${d.minRepLevel}`, parent: nl });
     el('div', { cls: 'sub', text: d.desc, parent: mid });
     const frac = Math.max(0, Math.min(1, d.target > 0 ? c.progress / d.target : 0));
@@ -746,8 +829,7 @@ export class CorpView {
     fill.style.transform = `scaleX(${frac.toFixed(3)})`;
     toggleClass(bar, 'done', c.active && c.progress >= d.target);
     el('div', { cls: 'goal-text', text: `${CONTRACT_GOAL_LABEL_KO[d.goal]} ${fmtNum(Math.floor(c.progress))} / ${fmtNum(d.target)}`, parent: mid });
-    // 보상은 재화 칩이다 (2026-09-09). 신뢰도는 **그 계약의 기업** 것이므로 진행 중인 계약이 다른 기업 것이면
-    // 썸네일도 그 기업 색으로 바뀐다. 호버 카드는 `ui/hud/ItemTip` 이 `data-currency-id` 로 알아서 띄운다.
+    // 보상은 재화 칩이다 (2026-09-09). 신뢰도는 **그 계약의 기업** 것이다.
     const reward = el('div', { cls: 'reward', parent: r });
     appendCurrencyRewards(reward, [
       { id: repCurrencyId(d.corp), amount: d.repReward },
@@ -779,15 +861,14 @@ export class CorpView {
     if (this.questsEl) return this.questsEl;
     const root = el('div', { cls: 'cq' });
     const list = el('div', { cls: 'cq-col list', parent: root });
-    el('div', { cls: 'ct-title', text: '퀘스트 목록', parent: list });
+    el('div', { cls: 'cv-title', text: '퀘스트 목록', parent: list });
     this.questListEl = el('div', { cls: 'cq-list', parent: list });
-    /* 선택한 퀘스트의 보상은 목록 **아래에 고정**된다 (2026-09-09) — 상세 패널은 납품 표와 버튼만 갖는다.
-       재화 칩과 아이템 칩이 한 줄에 서서 "이 퀘스트를 끝내면 무엇이 오는가" 가 목록 옆에서 바로 읽힌다. */
+    /* 선택한 퀘스트의 보상은 목록 **아래에 고정**된다 (2026-09-09) — 상세 패널은 납품 표와 버튼만 갖는다. */
     const rewards = el('div', { cls: 'cq-rewards', parent: list });
-    el('div', { cls: 'ct-title', text: '보상', parent: rewards });
+    el('div', { cls: 'cv-title', text: '보상', parent: rewards });
     this.questRewardEl = el('div', { cls: 'cq-reward-line item-chips', parent: rewards });
     const detail = el('div', { cls: 'cq-col detail', parent: root });
-    el('div', { cls: 'ct-title', text: '납품', parent: detail });
+    el('div', { cls: 'cv-title', text: '납품', parent: detail });
     this.questDetailEl = el('div', { cls: 'cq-deliver', parent: detail });
     const inv = el('div', { cls: 'cq-col inv', parent: root });
     this.questGrids = this.makeGrids(inv, '.cq-deliver');
@@ -814,11 +895,7 @@ export class CorpView {
     this.questGrids?.refresh();
   }
 
-  /**
-   * One quest row: **이름 + 상태 배지뿐이다** (2026-09-09). 설명 줄(`.sub`)은 없앴다 — 목록은 고르는 자리이고
-   * 설명은 고른 다음의 자리라, 스무 줄에 같은 크기로 깔린 설명은 이름을 읽는 것만 방해했다. 설명은 상세 패널에
-   * 그대로 있다.
-   */
+  /** One quest row: **이름 + 상태 배지뿐이다** (2026-09-09). 설명은 상세 패널에 있다. */
   private questRow(q: QuestInfo): void {
     const d = q.def;
     const r = el('div', { cls: `corp-row quest st-${q.state}`, parent: this.questListEl, attrs: { 'data-id': d.id } });
@@ -837,8 +914,7 @@ export class CorpView {
 
   /**
    * 선택한 퀘스트의 보상 한 줄 — 퀘스트 목록 아래에 고정된다 (2026-09-09). 재화(신뢰도 · XP · 크레딧)는
-   * `appendCurrencyRewards` 의 육각 칩, 아이템은 `buildItemChip` 이고 **한 줄에 이어 붙는다**: 보상은 재화와
-   * 물건을 나눠 읽을 것이 아니라 "이만큼 받는다" 한 덩어리다. 신뢰도는 그 퀘스트를 낸 기업의 재화다.
+   * `appendCurrencyRewards` 의 칩, 아이템은 `buildItemChip` 이고 **한 줄에 이어 붙는다**.
    */
   private renderQuestRewards(q: QuestInfo | null): void {
     const host = this.questRewardEl;
@@ -910,10 +986,10 @@ export class CorpView {
     if (this.implantsEl) return this.implantsEl;
     const root = el('div', { cls: 'ci' });
     const list = el('div', { cls: 'ci-col list', parent: root });
-    el('div', { cls: 'ct-title', text: '망가진 임플란트 (가방 + 함선 창고)', parent: list });
-    this.implantListEl = el('div', { cls: 'ci-list ct-grid', parent: list });
+    el('div', { cls: 'cv-title', text: '망가진 임플란트 (가방 + 함선 창고)', parent: list });
+    this.implantGrid = new TileGrid(list, { cell: CV_CELL, gap: CV_GAP, minCols: TRAY_COLS, className: 'ci-list' });
     const detail = el('div', { cls: 'ci-col detail', parent: root });
-    el('div', { cls: 'ct-title', text: '수리', parent: detail });
+    el('div', { cls: 'cv-title', text: '수리', parent: detail });
     this.implantDetailEl = el('div', { cls: 'ci-repair', parent: detail });
     this.implantsEl = root;
     this.nodes.push(root);
@@ -922,12 +998,11 @@ export class CorpView {
 
   private renderImplants(): void {
     const list = this.meta.getRepairableImplants();
-    this.implantListEl.replaceChildren();
-    if (list.length === 0) this.empty(this.implantListEl, '망가진 임플란트가 없습니다 — 레이드에서 회수해 오세요');
     if (!list.some((r) => r.inst.uid === this.selectedImplant)) {
       this.selectedImplant = (list.find((r) => r.blocked === null) ?? list[0])?.inst.uid ?? null;
     }
-    for (const r of list) this.implantCell(r);
+    this.implantGrid.render(list.map((r) => this.implantTile(r)),
+      list.length === 0 ? '망가진 임플란트가 없습니다 — 레이드에서 회수해 오세요' : null);
 
     this.implantDetailEl.replaceChildren();
     const sel = list.find((r) => r.inst.uid === this.selectedImplant) ?? null;
@@ -935,23 +1010,23 @@ export class CorpView {
     else this.implantDetail(sel);
   }
 
-  /** One broken implant as a footprint cell of the desk's grid (click selects it). */
-  private implantCell(r: ImplantRepairInfo): void {
-    const cell = this.gridCell(this.implantListEl, r.broken, 'broken');
-    cell.dataset.uid = r.inst.uid;
-    cell.dataset.def = r.broken.id;
-    cell.appendChild(buildItemChip(r.broken, { size: cellChip(r.broken) }));
-    el('div', { cls: 'ct-cell-price', text: formatCreditAmount(r.fee), parent: cell });
-    toggleClass(cell, 'is-sel', r.inst.uid === this.selectedImplant);
-    toggleClass(cell, 'blocked', r.blocked !== null);
-    cell.classList.add('ct-chip');
-    cell.addEventListener('click', (e) => {
+  /** One broken implant as a tile of the desk's grid (click selects it). */
+  private implantTile(r: ImplantRepairInfo): TileSpec {
+    const spec = this.makeTile(r.broken.id, 1, 'broken');
+    const tile = spec.tile;
+    tile.dataset.uid = r.inst.uid;
+    tile.dataset.def = r.broken.id;
+    el('div', { cls: 'cv-price', text: formatCreditAmount(r.fee), parent: tile });
+    toggleClass(tile, 'is-sel', r.inst.uid === this.selectedImplant);
+    toggleClass(tile, 'blocked', r.blocked !== null);
+    tile.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.selectedImplant === r.inst.uid) return;
       this.selectedImplant = r.inst.uid;
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.refresh();
     });
+    return spec;
   }
 
   /** The selected broken implant's repair: result chip · material chips · fee · 수리. */
@@ -1010,10 +1085,13 @@ export class CorpView {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.cancelHold();
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.tradeGrids?.dispose(); this.tradeGrids = null;
     this.questGrids?.dispose(); this.questGrids = null;
+    if (this.tradeEl) { this.shopGrid.dispose(); this.buyGrid.dispose(); this.sellGrid.dispose(); }
+    if (this.implantsEl) this.implantGrid.dispose();
     for (const n of this.nodes) n.remove();
     this.nodes.length = 0;
     this.host.classList.remove('corp-view', 'is-embedded');

@@ -121,8 +121,27 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
     if (cell && sys.bag.place(item, cell.x, cell.y, !!sv.rotated)) continue;
     pending.push(item);
   }
-  for (const item of pending) {
-    if (!sys.bag.autoPlace(item)) { console.warn(`[Loadout] no room for '${item.defId}' on load — discarded`); revived[revived.indexOf(item)] = null; }
+  /*
+   * 2026-09-12 — 가방 모양이 바뀌었다 (전부 가로 5칸, `data/bags.csv`). 옛 세이브의 `x ≥ 5` 칸은 새 격자에 없으므로
+   * 저장된 칸에 못 선 것이 생긴다. 예전처럼 그것만 빈자리에 끼우면 조각이 나 **들어갈 수 있는데도 버려진다** —
+   * 그래서 하나라도 못 섰으면 가방 전체를 **큰 것부터** 다시 채운다 (합치지는 않는다: 레이드 blob 의 항목별 표시가
+   * 인스턴스에 붙어 있다). 그래도 안 들어가는 것은 함선 창고로 보내고, 창고마저 가득일 때만 예전처럼 버린다.
+   */
+  if (pending.length > 0) {
+    const all = [...sys.bag.items().map((p) => p.item), ...pending].sort((a, b) => sys.area(b) - sys.area(a));
+    sys.bag.clear();
+    for (const item of all) {
+      const slot = sys.bag.findFreeSlot(item, false);
+      if (slot && sys.bag.place(item, slot.x, slot.y, slot.rotated)) continue;
+      if (sys.stash.grid.autoPlace(item)) {
+        sys.stash.markDirty();
+        console.info(`[Loadout] '${item.defId}' did not fit the reshaped bag — moved to the 함선 창고`);
+        continue;
+      }
+      console.warn(`[Loadout] no room for '${item.defId}' on load — discarded`);
+      const at = revived.indexOf(item);
+      if (at >= 0) revived[at] = null;
+    }
   }
   // 2026-09-09: the wheel holds its own stacks — revive them straight into the slots, never into the bag grid.
   // (A v1 file arrives here already migrated: `sanitizeLoadoutSave` lifted those stacks out of `bag` into `quick`.)

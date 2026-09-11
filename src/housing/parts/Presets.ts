@@ -1,8 +1,8 @@
 /**
- * src/housing/parts/Presets.ts — **로드아웃 프리셋** (사격장의 관물대).
+ * src/housing/parts/Presets.ts — **로드아웃 프리셋** (시뮬레이션실의 관물대).
  *
  * 저장은 `inventory.captureLoadout`, 적용은 `applyLoadout` 을 그대로 부른다 —
- * 여기서 하는 일은 사격장 레벨이 정한 개수만큼 슬롯을 관리하는 것뿐이다.
+ * 여기서 하는 일은 **관물대 레벨**이 정한 개수만큼 슬롯을 관리하는 것뿐이다 (2026-09-12: 예전에는 사격장 방 레벨).
  */
 import type {
   BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
@@ -29,8 +29,13 @@ import type { HousingPanel } from '../ui/Panel';
 import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 
-/* ── loadout presets (사격장) ──────────────────────────────────────────── */
-export function getPresetCount(sys: HousingSystem): number { return presetCountFor(facilityLevel(sys.state, 'range')); }
+/* ── loadout presets (관물대) ──────────────────────────────────────────── */
+/** Slots from the highest **placed 관물대** level (`PRESETS_BY_RANGE_LEVEL`); 0 when no 관물대 is placed. */
+export function getPresetCount(sys: HousingSystem): number {
+  let level = 0;
+  for (const f of sys.state.furniture) if (FURNITURE_DEF_MAP.get(f.defId)?.interaction === 'range_console') level = Math.max(level, f.level);
+  return presetCountFor(level);
+}
 
 export function getPresets(sys: HousingSystem): readonly (LoadoutPreset | null)[] {
   const n = sys.getPresetCount();
@@ -108,7 +113,7 @@ export function openPresetMenu(sys: HousingSystem): void {
   if (!sys.presetMenu) return;
   sys.exitHousingMode();
   sys.closeMenus(false);
-  if (sys.getPresetCount() === 0) sys.notify('사격장 방이 있어야 프리셋을 쓸 수 있습니다', 'warning');
+  if (sys.getPresetCount() === 0) sys.notify('시뮬레이션실에 관물대를 놓아야 프리셋을 쓸 수 있습니다', 'warning');
   sys.presetMenu.open();
   }
 

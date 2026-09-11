@@ -82,7 +82,8 @@ STASH_ROWS_BY_STORAGE_LEVEL,3,42
 STASH_ROWS_BY_STORAGE_LEVEL,4,48
 STASH_ROWS_BY_STORAGE_LEVEL,5,60
 
-# PRESETS_BY_RANGE_LEVEL — 사격장 레벨별 로드아웃 프리셋 수 (key = 레벨)
+# PRESETS_BY_RANGE_LEVEL — 관물대(furn_range_console) 레벨별 로드아웃 프리셋 수 (key = 레벨, 0 = 관물대 없음)
+# 2026-09-12: 옛 사격장 방 레벨이 사라지면서 같은 표를 관물대 가구 레벨이 읽는다 (키 이름은 코드가 찾는 값이라 그대로다)
 PRESETS_BY_RANGE_LEVEL,0,0
 PRESETS_BY_RANGE_LEVEL,1,3
 PRESETS_BY_RANGE_LEVEL,2,4

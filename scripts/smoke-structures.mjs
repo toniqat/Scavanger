@@ -164,9 +164,11 @@ try {
       for (const o of world.getObstacles()) {
         if (!o.box) continue;
         boxes++;
+        // 2026-09-12: 컨테이너도 상자 콜라이더가 됐다 — 구조물 둘레면 그 구조물, 아니면 선로 플랫폼 것이다
+        const near = structs.find((s) => Math.hypot(s.x - o.position.x, s.z - o.position.z) < s.radius + 12)?.id;
         const owner = ['building', 'slab', 'hatch', 'console', 'door', 'glass'].includes(o.kind)
-          ? structs.find((s) => Math.hypot(s.x - o.position.x, s.z - o.position.z) < s.radius + 12)?.id
-          : 'rail';
+          ? near
+          : o.kind === 'container' ? (near ?? 'rail') : 'rail';
         const b = owner ? drawn.get(owner) : null;
         if (!b) continue;
         const c = Math.cos(o.box.yaw), sn = Math.sin(o.box.yaw);
@@ -320,7 +322,8 @@ try {
       // 경사 계단: 낮은 끝 → 높은 끝을 0.1 m 씩 훑은 표면 높이의 가장 큰 한 걸음
       let ramps = 0, worstStep = 0, worstEnd = 0;
       for (const o of world.getObstacles()) {
-        if (!o.ramp || !o.box) continue;
+        // 2026-09-12: 계단(구조물 'slab' · 플랫폼 'platform')만 — 불시착 함선의 날개 · 램프 경사('building')는 위층이 없다
+        if (!o.ramp || !o.box || (o.kind !== 'slab' && o.kind !== 'platform')) continue;
         ramps++;
         const c = Math.cos(o.box.yaw), sn = Math.sin(o.box.yaw);
         let prev = null;

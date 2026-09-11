@@ -189,6 +189,16 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
   el.appendChild(bar);
 }
 
+/**
+ * 2026-09-12: everything a grid tile draws, as one string — `GridView.refresh` rebuilds a tile's DOM only when this
+ * changed. Weapon stats (sockets / grade / durability bar) derive from the fields listed here, so they are covered.
+ */
+function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined): string {
+  let sockets = '';
+  if (item.sockets) for (const s of SOCKET_SLOTS) sockets += `${item.sockets[s]?.defId ?? ''},`;
+  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}`;
+}
+
 /** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */
 export function addQuickBadge(el: HTMLElement, glyph: string): void {
   el.classList.add('is-quick');
@@ -231,6 +241,23 @@ export class GridView {
   /** Cell edge / cell pitch of this grid in px. Only the 기업 거래 desk passes anything but the default. */
   private readonly cell: number;
   private readonly step: number;
+  /**
+   * 2026-09-12 (가방 틀 고정, 사용자 결정): the box is drawn at least this many rows tall. Rows past the grid's real
+   * `rows` are blank space — no cell layer, no drop target — so the 가방 panel keeps the size of the longest bag and a
+   * bigger bag simply fills more of that space with cells. null = the box is exactly the grid.
+   */
+  private frameRows: number | null = null;
+  /**
+   * 2026-09-12 (필터): tiles the predicate rejects get `.is-filtered-out` (dimmed). Positions never change and the
+   * tile stays draggable — a Diablo grid that hid items would lie about which cells are free.
+   */
+  private filter: ((item: ItemInstance, def: ItemDef) => boolean) | null = null;
+  /**
+   * 2026-09-12: per-tile content signature. `refresh` used to rebuild **every** tile's DOM whenever the grid version
+   * moved (a 200-stack 창고 → 200 × `innerHTML` for one drop), which is what made dragging in the embedded grids
+   * stutter. A tile is now rebuilt only when what it draws changed; otherwise only its position is written.
+   */
+  private sigs = new Map<string, string>();
 
   constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly getStats: StatsLookup, private readonly handlers: TileHandlers, cell: number = CELL) {
     this.cell = cell;
@@ -260,9 +287,31 @@ export class GridView {
   setGrid(grid: Grid | null): void {
     this.grid = grid;
     this.lastVersion = -1;
+    this.sigs.clear();
     if (!grid) { this.clearTiles(); return; }
     this.syncDims(grid);
     this.refresh(true);
+  }
+
+  /** 2026-09-12: minimum box height in rows (see `frameRows`); null = exactly the grid. */
+  setFrameRows(rows: number | null): void {
+    const next = rows !== null && rows > 0 ? Math.floor(rows) : null;
+    if (next === this.frameRows) return;
+    this.frameRows = next;
+    this.dims = '';
+    if (this.grid) this.syncDims(this.grid);
+    this.el.classList.toggle('has-frame', next !== null);
+  }
+
+  /** 2026-09-12: dim every tile the predicate rejects (null = show all at full strength). Cheap: classes only. */
+  setFilter(fn: ((item: ItemInstance, def: ItemDef) => boolean) | null): void {
+    this.filter = fn;
+    const grid = this.grid;
+    for (const [uid, el] of this.tiles) {
+      const item = grid?.get(uid)?.item;
+      const def = item && this.getDef(item.defId);
+      el.classList.toggle('is-filtered-out', !!fn && !!item && !!def && !fn(item, def));
+    }
   }
 
   /** Rebuild the cell layer when the grid dimensions changed (bag swap, stash resize). */
@@ -273,7 +322,7 @@ export class GridView {
     this.el.style.setProperty('--cols', String(grid.cols));
     this.el.style.setProperty('--rows', String(grid.rows));
     this.el.style.width = `${grid.cols * this.step - GAP}px`;
-    this.el.style.height = `${grid.rows * this.step - GAP}px`;
+    this.el.style.height = `${Math.max(grid.rows, this.frameRows ?? 0) * this.step - GAP}px`;
     this.cellsEl.innerHTML = '';
     for (let i = 0; i < grid.cols * grid.rows; i++) {
       const c = document.createElement('div');
@@ -303,23 +352,28 @@ export class GridView {
         this.bindTile(el, p.item.uid);
         this.tiles.set(p.item.uid, el);
         this.tilesEl.appendChild(el);
-        el.classList.add('is-new');
-        requestAnimationFrame(() => el?.classList.remove('is-new'));
+        // 2026-09-12: no `.is-new` pop — an item that moved grids is simply there (사용자 결정: 즉시 옮겨진다)
       }
-      const wasDragging = el.classList.contains('is-dragging');
-      const wasHover = el.classList.contains('is-hover');
-      buildTileContent(el, p.item, def, fp.w, fp.h, this.getStats(p.item), this.cell);
       const badge = this.quickBadges.get(p.item.uid);
-      if (badge && !isHiddenItem(p.item)) addQuickBadge(el, badge);
-      if (this.scan?.uid === p.item.uid) this.applyScan(el, this.scan.progress);
+      const sig = tileSignature(p.item, fp.w, fp.h, badge);
+      if (this.sigs.get(p.item.uid) !== sig) {
+        this.sigs.set(p.item.uid, sig);
+        const wasDragging = el.classList.contains('is-dragging');
+        const wasHover = el.classList.contains('is-hover');
+        buildTileContent(el, p.item, def, fp.w, fp.h, this.getStats(p.item), this.cell);
+        if (badge && !isHiddenItem(p.item)) addQuickBadge(el, badge);
+        if (this.scan?.uid === p.item.uid) this.applyScan(el, this.scan.progress);
+        if (wasDragging) el.classList.add('is-dragging');
+        if (wasHover) el.classList.add('is-hover');
+      }
       el.classList.toggle('is-pending', this.pendingUids.has(p.item.uid));
-      if (wasDragging) el.classList.add('is-dragging');
-      if (wasHover) el.classList.add('is-hover');
+      el.classList.toggle('is-filtered-out', !!this.filter && !this.filter(p.item, def));
       el.style.transform = `translate(${p.x * this.step}px, ${p.y * this.step}px)`;
     }
     for (const [uid, el] of this.tiles) {
       if (seen.has(uid)) continue;
       this.tiles.delete(uid);
+      this.sigs.delete(uid);
       // the item being searched left the grid (a remote take): drop the gauge state, it would otherwise linger
       // on the container until the next `updateSearch` frame
       if (this.scan?.uid === uid) this.scan = null;
@@ -436,6 +490,7 @@ export class GridView {
     this.stopVanishing();
     for (const el of this.tiles.values()) el.remove();
     this.tiles.clear();
+    this.sigs.clear();
     this.scan = null;
   }
 
@@ -452,7 +507,9 @@ export class GridView {
     if (!this.grid) return false;
     const r = this.rect();
     if (r.width <= 0 || r.height <= 0) return false;
-    let top = r.top - pad, bottom = r.bottom + pad;
+    // 2026-09-12: the blank rows of a fixed 가방 frame (`frameRows`) are not a target — only the real cells are
+    const cellsBottom = Math.min(r.bottom, r.top + this.grid.rows * this.step - GAP);
+    let top = r.top - pad, bottom = cellsBottom + pad;
     const clip = this.clipEl;
     if (clip && clip.scrollHeight > clip.clientHeight + 1) {
       // 2026-09-11 (C-60): rows scrolled out of the viewport are not a target, and a clipped edge has no tolerance —
@@ -535,6 +592,11 @@ export class GridView {
   }
 
   tileEl(uid: string): HTMLElement | undefined { return this.tiles.get(uid); }
+
+  /** 2026-09-12: visit every drawn tile (per-tile flags an embedding view layers on top — `TradeGrids` staging / tips). */
+  forEachTile(fn: (uid: string, el: HTMLElement) => void): void {
+    for (const [uid, el] of this.tiles) fn(uid, el);
+  }
 
   dispose(): void {
     this.clearTiles();

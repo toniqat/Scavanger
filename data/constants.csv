@@ -311,11 +311,11 @@ ROOM_GRID_ROWS,8,
 HOUSING_CELL_SIZE,0.5,
 GENERATOR_MAX_LEVEL,5,
 STORAGE_MAX_LEVEL,5,
-WORKSHOP_MAX_LEVEL,3,
-RANGE_MAX_LEVEL,5,
-BENCH_MAX_LEVEL,3,
-RANGE_SKILL_GAIN_PER_LEVEL,0.1,Gun-skill XP multiplier bonus per range level (level 3 → ×1.3).
-WORKSHOP_COST_DISCOUNT_PER_LEVEL,0.1,Craft material discount per workshop level above 1 (level 3 → ×0.8).
+WORKSHOP_MAX_LEVEL,3,"은퇴 (2026-09-12 — 방 시설 레벨 제거). 읽는 곳이 없다; 계약 상수라 줄만 남는다."
+RANGE_MAX_LEVEL,5,"은퇴 (2026-09-12 — 방 시설 레벨 제거). 읽는 곳이 없다; 계약 상수라 줄만 남는다."
+BENCH_MAX_LEVEL,3,"작업대(workbench_*) 강화 상한. 작업대가 아닌 가구(관물대 · 시뮬레이션 허브 …)는 furniture.csv 의 maxLevel 을 그대로 쓴다."
+RANGE_SKILL_GAIN_PER_LEVEL,0.1,"사격 숙련(gun_*) XP 배율 = 1 + 이 값 × 시뮬레이션 허브 레벨 (Lv.3 → ×1.3). 2026-09-12 까지는 사격장 방 레벨이었다."
+WORKSHOP_COST_DISCOUNT_PER_LEVEL,0.1,"은퇴 (2026-09-12 — 작업실 레벨과 함께 제작 재료 할인이 폐지됐다). 읽는 곳이 없다."
 
 # ── appended: Phase 7 — known follow-ups (2026-09-06) ──
 RAID_FAILED_AUTO_RETURN_S,12,Result screen after a raid failure returns everyone to the ship by itself after this many seconds.
@@ -324,7 +324,7 @@ TRAINING_ARENA_SIZE,64,"Arena side (m), flat, walled; the player spawns at the s
 TRAINING_TARGET_COUNT,12,"Pop-up targets: count, hp, seconds to pop back up after a knock-down."
 TRAINING_TARGET_HP,60,
 TRAINING_TARGET_RESPAWN_S,3,
-TRAINING_SKILL_GAIN_MUL,1,"Skill XP in a training: only `gun_*` skills rise, scaled by this on top of the 사격장 bonus."
+TRAINING_SKILL_GAIN_MUL,1,"Skill XP in a training: only `gun_*` skills rise, scaled by this on top of the 시뮬레이션 허브 bonus."
 ROGUE_MAG_ROUNDS,12,"Rounds per magazine (3 bursts of ROGUE_BURST) and the reload pause (no shots, anim hint 12)."
 ROGUE_RELOAD_TIME,2.0,
 ROGUE_COVER_FLANK_WEIGHT,10,Cover must actually block the line of sight; candidates are scored by `distance + ROGUE_COVER_FLANK_WEIGHT × (1 − |sin(angle to the target's facing)|)`.

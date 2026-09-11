@@ -11,7 +11,8 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `console.css` | Bottom bar styling (z-index 90, mono font, line colours by `ConsoleLineKind`) |
 | `commands/index.ts` | `builtinCommands(host)` — the list below, in `help` order; `BuiltinHost` = what commands need beyond `ConsoleRef` (`clearLog`, `setMoveCheat`, `moveCheat`) |
 | `commands/types.ts` | `BuiltinHost`, `CommandFactory`, helpers `err`, `parseNumber`, `fmt` |
-| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `pos.ts` | One built-in each (see table) |
+| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
+| `ColliderOverlay.ts` | (2026-09-12) `colliders` 명령의 와이어프레임 — `ctx.world.getObstacles()` 중 플레이어(없으면 카메라) 둘레 30 m 를 `LineSegments` 하나에 0.25 초마다 다시 채운다 (원기둥 노랑 · 상자 하늘 · 경사 초록 · 볼록 윤곽 주황 + 총알 층 어두운 주황). 깊이 검사 끔 · 광원 없음 · 게임플레이 페이즈에서만 보인다 · 끄면 dispose |
 | `index.ts` | exports `ConsoleSystem` |
 
 ## Commands (input accepts `/move …` and `move …`, case-insensitive; unknown → red line; all output 한국어)
@@ -26,6 +27,7 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `stat <id\|이름> <±xp>` | anywhere | `ctx.progression.addStatXp(id, n)`; id = `str/end/per/int/dex`, full id, or 한국어 (근력 …). Prints `근력 7 (312/1852)` from `getStat` / `getStatProgress` / `statXpToNext`. `complete` = aliases + ids + names |
 | `skill <id\|이름> <±xp>` | anywhere | `ctx.progression.addSkillXpRaw(id, n)`; 14 ids (`gun_AR` …, case-insensitive) or 한국어 names (the name may contain spaces — the last token is the xp). Prints `사격 · 돌격소총 Lv.3 (40 %)`. `complete` = ids + names |
 | `pos` | anywhere | Phase (+ 멀티플레이 / ship / room), feet position, yaw, world seed |
+| `colliders [0\|1]` | anywhere (draws in gameplay phases) | (2026-09-12) Toggle (no arg = flip) the collider wireframe around the player (`ColliderOverlay`). Prints `콜라이더 표시 켜짐 (n개)`. For hunting "보이지 않는 벽" — the colliders buried inside walls show because depth test is off. `complete` = `0` / `1` |
 
 Other folders add commands with `ctx.console.register({ name, usage, description, run, complete? })` (returns the unregister
 function; same name replaces). `run` may return a string (green line), `{ error }` (red line), nothing, or a promise of those;
@@ -81,5 +83,8 @@ events at its virtual position, so the suggestion list's mouse wiring and the in
 polls neither `input.mouseX / mouseY` nor `document.elementFromPoint`, so nothing else needed migrating. The console
 is still dev-client only (`isDevHost()`), so this path never runs for a player.
 
+- **2026-09-12** — 명령 `colliders [0|1]` + `ColliderOverlay.ts` (구조물 도달성 작업, `src/world/README.md` 의 `## 2026-09-12`).
+  `BuiltinHost` 에 `setColliders` · `colliders` · `colliderCount` 가 붙었고 `update()` 가 이동 치트보다 먼저 오버레이를 돌린다
+  (dev 클라이언트에서만 만든다 · `dispose()` 가 정리한다).
 - **2026-09-08** — 명령 `tutorial [start|skip|step <id>|status]` 가 붙었다. 등록은 `tutorial/TutorialSystem.init`
   이 `ctx.console.register` 로 하고(콘솔이 없는 호스트에서는 조용히 건너뛴다), 이 폴더는 아무것도 모른다

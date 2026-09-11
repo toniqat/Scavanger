@@ -27,7 +27,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
   generator: {
     id: 'generator', title: '발전기를 가동하세요',
-    hint: '시설 증축에는 발전기 Lv.1 이 필요합니다. 용도 지정 목록 맨 위의 발전기를 가동하세요.',
+    hint: '시설 증축에는 발전기 Lv.1 이 필요합니다. 방 목록 아래의 발전기를 가동하세요.',
     // 작업실도 함께 열어 둔다 — 발전기가 켜지는 순간 바로 다음 단계로 넘어가므로 목록이 흔들리지 않는다.
     allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
     spot: ['.sm-gen .sm-gen-btn', '.sm-gen', '.sm-side'],
