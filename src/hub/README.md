@@ -65,7 +65,7 @@ Everything is procedural Three.js geometry — no asset files. Import via `@/hub
 | `net:lobbyUpdated` | Personal ship + lobby appeared → docking cutscene (`lobby.started` → direct swap, resume case). Shared ship → `syncPods()`: pod occupant = `players[slot].ready && connected` (door closed, ring lit, tag `탑승 완료` / `임무 중` / `대기 중` / `연결 끊김`), `hub:slotChanged` on change; if the server dropped our own `ready` (lobby reset) > 1.5 s after we sent it → step out with `발사 슬롯이 초기화되었습니다`. Terminal screen refreshed. |
 | `net:lobbyLeft` | Shared ship (or docking) → undock cutscene → personal ship. |
 | `net:resumed {inProgress}` | Hub active → swap to the shared ship without a cutscene. **2026-09-07**: a **running raid** is then re-entered automatically (`진행 중인 임무로 복귀합니다` + `net.rejoinMission()` one microtask later, so the interior `swapDirect` just built is torn down cleanly) — the relay keeps a dropped raider's slot for the whole mission and the host parks their body, so walking to a pod first was busywork. A 훈련장 (individual entry) still only toasts `함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)`; no mission → `함선에 재접속했습니다`. Outside the hub GameFlow handles it. |
-| `net:peerJoined / peerLeft` | `ui:notify` `{name} 함선 합류 / 이탈` while the hub is active. |
+| ~~`net:peerJoined / peerLeft`~~ | **2026-09-11 (B-12): 없다.** 이 폴더는 합류 · 이탈에 아무것도 띄우지 않는다 — `ui/hud/Notifications` 가 같은 이벤트에 `<이름> 합류` · `<이름> 이탈`(`'분대'` 라벨)을 띄우고 `ui:notify` 가 **그것과 같은 토스트 스택**이라, 함선에서만 두 줄이 나란히 떴다. 잃은 것은 `함선` 이라는 낱말 하나이고(지금 함선에 있다는 상황과 `'분대'` 라벨이 문맥을 준다) 토스트의 주인은 `ui/` 하나가 됐다. `HubSystem.bind` 의 그 자리에 이유가 주석으로 남아 있다. |
 | Docking | `startTransition(dir)`: un-board, close menu, dispose the interior (the player keeps the old collider reference), `setPhase('docking')`, `hub:docking {stage:'start', direction}`, `ui:notify`, cutscene (`HUB_DOCKING_DURATION`, undock ×0.5, `setControlsEnabled(false)`). End: build target (`shared` spawns at the airlock), `setPhase('hub')`, `hub:docking {stage:'end'}`, `hub:entered`, re-lock. A lobby that vanished mid-dock lands back in the personal ship. |
 | Launch countdown | Every frame while boarded: `allReady` = solo → boarded; lobby → `!started` and every **connected** member `ready`. Starts `HUB_LAUNCH_COUNTDOWN`; the authority (solo / host) emits `hub:launchCountdown {seconds, ready, total}` on each second and at 0 calls `ctx.net.startGame(seed)` (host, once) or emits `game:newMission {seed}` (solo). Clients mirror the countdown locally for display only. Anyone un-readying cancels (`발사 취소 — 승무원 대기`). Seed = `lobby.seed ?? hub.missionSeed ?? random`. |
 | Terminal `◀ ▶` / `행성 이동` (Phase 11) | Stepping is a **preview**: the hologram swaps (`PLANET_SWAP_TIME`) and the labels change, `ctx.hub.planet` does not. `행성 이동` → `HubRef.setPlanet(id)`, refused (false, and the button carries the reason) for a non-host in a lobby (`호스트만 지정할 수 있습니다`), during a cutscene / travel (`이동 중`), during a launch countdown (`발사 카운트다운 중`), outside the `hub` phase, for an unknown id and for the planet we are already at. Solo it writes `PLANET_STORAGE_KEY`; in a lobby the **host** calls `ctx.net.setLobbyPlanet` (which mirrors `lobby.planet` optimistically) and every member's own `lobby:state` starts the same cutscene. |
@@ -384,6 +384,15 @@ over the 닫기 (Esc) / 타이틀로 footer.
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (B-12 — 합류 알림 두 줄을 한 줄로, 에이전트 ⑤)** — 설계안 `docs/plans/net-trust-gaps.md` §6.
+  `HubSystem.bind` 의 `net:peerJoined` → `ui:notify '<이름> 함선 합류'` 와 `net:peerLeft` → `'<이름> 함선 이탈'` **두 줄을 지웠다**
+  (TODO 에는 합류만 적혀 있었지만 이탈도 대칭으로 같은 겹침이었다). 같은 이벤트에 `ui/hud/Notifications` 가 `<이름> 합류` ·
+  `<이름> 이탈`(`'분대'` 라벨, 3 초)을 띄우는데 `ui:notify` 가 **그 토스트 스택으로 되돌아오므로** 함선 · 도킹 중에만 두 줄이
+  나란히 떴다. 잃는 것은 `함선` 이라는 낱말 하나다. **방향이 중요하다** — `Notifications` 쪽을 지우면 초대 수락 알림이 통째로
+  사라진다(`Notifications` 의 `social:inviteResult {accepted}` 가 "합류 줄이 이미 뜬다" 를 근거로 자기 토스트를 뺐다).
+  지운 자리에는 그 이유가 주석으로 남아 있다. 이 폴더의 다른 `ui:notify`(도킹 · 워프 · 발사 슬롯 거절 …)는 그대로다.
+  검사: `scripts/smoke-social.mjs` 의 `B-12` 절 — 함선에서 `net:peerJoined` · `net:peerLeft` 토스트가 각각 한 줄뿐이다.
 
 - **2026-09-11 (B-1 통합 — 거절당한 연결은 함선 진입으로 다시 붙지 않는다, 리드)** — `parts/Transitions.tryResume` 이 `net.link.state === 'refused'`
   (서버 추방 · 인원 초과 · 다른 창 접속)면 `ensureConnected()` 를 부르지 않는다. `ensureConnected` 는 명시적 접속이라 `refused` 를 지우므로,

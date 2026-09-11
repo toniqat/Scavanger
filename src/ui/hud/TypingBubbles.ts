@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, PeerId, RemotePlayerRef } from '@/shared';
 import { PlayerFlags } from '@/shared';
 import { el } from '../dom';
+import { isPeerBlocked } from '../menus/social/socialSource';
 
 /** Metres above the avatar head — Nameplates sits at 0.35, the bubble rides 0.35 m higher so the two never overlap. */
 const HEAD_OFFSET = 0.35 + 0.35;
@@ -21,6 +22,14 @@ interface Bubble { root: HTMLElement; lastKey: string }
  *
  * One pooled element per peer; removed on `net:remotePlayerRemoved`, cleared on `net:lobbyLeft` / `game:abort` /
  * `game:newMission`. Styles: `.typing-bubbles`, `.tbubble`, `.tbubble i` in `styles/base.css`.
+ *
+ * **차단 (2026-09-11, B-11).** A squad-mate whose 아이디 is on my 차단 목록 never gets a bubble — the same gate that drops
+ * their typed chat line (`socialSource.isPeerBlocked`, shared with `hud/ChatLog`). It is read **before** an element is
+ * created, so a blocked peer costs no DOM at all. 이름표 · 핑 · 월드 마커 are untouched: where a squad-mate stands is
+ * gameplay information (the same line as the `ping` / `request` chat lines `ChatLog` keeps drawing).
+ *
+ * `setDebugRefs(refs)` = smoke hook, the `Nameplates` one: extra refs (`remotePlayers.debugSpawn`) drawn next to
+ * `ctx.net`'s list.
  */
 export class TypingBubbles {
   readonly root: HTMLElement;
@@ -28,6 +37,7 @@ export class TypingBubbles {
   private v = new THREE.Vector3();
   private camPos = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
+  private debugRefs: readonly RemotePlayerRef[] | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'typing-bubbles', parent });
@@ -42,21 +52,32 @@ export class TypingBubbles {
     );
   }
 
+  /** Smoke-test hook: extra refs (e.g. `remotePlayers.debugSpawn`) drawn like real peers; `null` clears. */
+  setDebugRefs(refs: readonly RemotePlayerRef[] | null): void {
+    this.debugRefs = refs && refs.length ? refs : null;
+    if (!this.debugRefs) this.clear();
+  }
+
   lateUpdate(ctx: GameContext): void {
     const net = ctx.net;
     const hub = ctx.phase === 'hub' || ctx.phase === 'docking';
-    if (!net || !(ctx.isMultiplayer || hub)) { if (this.bubbles.size) this.clear(); return; }
+    const debug = this.debugRefs;
+    if (!debug && (!net || !(ctx.isMultiplayer || hub))) { if (this.bubbles.size) this.clear(); return; }
     const cam = ctx.camera;
     cam.getWorldPosition(this.camPos);
     const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
-    for (const ref of net.getRemotePlayers() ?? EMPTY) this.place(ref, cam, w, h);
+    for (let pass = 0; pass < 2; pass++) {
+      const refs = pass === 0 ? (net?.getRemotePlayers() ?? EMPTY) : (debug ?? EMPTY);
+      for (const ref of refs) this.place(ctx, ref, cam, w, h);
+    }
   }
 
-  private place(ref: RemotePlayerRef, cam: THREE.Camera, w: number, h: number): void {
+  private place(ctx: GameContext, ref: RemotePlayerRef, cam: THREE.Camera, w: number, h: number): void {
     const typing = (ref.flags & PlayerFlags.TYPING) !== 0;
     const existing = this.bubbles.get(ref.id);
-    // no element until the peer actually types — most peers never need one
-    if (!typing) { if (existing) this.hide(existing); return; }
+    // no element until the peer actually types — most peers never need one, and a blocked peer never gets one at all
+    // (2026-09-11 B-11: the same 차단 gate `hud/ChatLog` uses on their typed lines; only asked for someone who IS typing)
+    if (!typing || isPeerBlocked(ctx, ref.id)) { if (existing) this.hide(existing); return; }
     const b = existing ?? this.create(ref.id);
     const gone = !ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD)) !== 0;
     if (gone) { this.hide(b); return; }
@@ -106,6 +127,12 @@ export class TypingBubbles {
 
   /** Bubbles currently showing (debug / smoke). */
   get visibleCount(): number { let n = 0; for (const b of this.bubbles.values()) if (b.lastKey !== 'hidden') n++; return n; }
+  /** Peer ids whose bubble is showing (debug / smoke — B-11 checks *whose* bubble was hidden, not just how many). */
+  get visibleIds(): PeerId[] {
+    const out: PeerId[] = [];
+    for (const [id, b] of this.bubbles) if (b.lastKey !== 'hidden') out.push(id);
+    return out;
+  }
 
   dispose(): void { for (const u of this.unsubs) u(); this.clear(); this.root.remove(); }
 }

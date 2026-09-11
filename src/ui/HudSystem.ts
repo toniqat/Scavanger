@@ -1,4 +1,4 @@
-import type { GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
+import type { GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, PeerId, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
@@ -585,11 +585,12 @@ export class HudSystem implements GameSystem {
   get isRaidFailed(): boolean { return this.death.isRaidFailed; }
   /**
    * Smoke-test hook (Phase 7): feed synthetic remote refs (e.g. `remotePlayers.debugSpawn`, with `suspended` /
-   * `inMission` flipped by the test) and a synthetic `LobbyState` to the nameplates and the squad panel without a
-   * relay session. `debugRemotes(null)` clears both.
+   * `inMission` flipped by the test) and a synthetic `LobbyState` to the nameplates, the 입력 중 말풍선 and the
+   * squad panel without a relay session. `debugRemotes(null)` clears all three.
    */
   debugRemotes(refs: readonly RemotePlayerRef[] | null, lobby: LobbyState | null = null): void {
     this.nameplates.setDebugRefs(refs);
+    this.typing.setDebugRefs(refs);   // 2026-09-11 (B-11): the `…` bubble is fed the same way the plates are
     this.squad.setDebug(lobby, refs ?? []);
   }
 
@@ -633,6 +634,8 @@ export class HudSystem implements GameSystem {
   get communityHoldProgress(): number { return this.community.holdProgress; }
   /** 귓속말 target of the chat input, null when it is ordinary squad chat (debug, Phase 11). */
   get chatWhisperTarget(): string | null { return this.chat.whisperTarget; }
+  /** 입력 중 말풍선 — who has one showing right now (debug / smoke, 2026-09-11 B-11). */
+  get typingBubbleIds(): readonly PeerId[] { return this.typing.visibleIds; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;

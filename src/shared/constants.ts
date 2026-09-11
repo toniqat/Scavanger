@@ -1433,6 +1433,14 @@ export const HIT_REQUEST_BURST_S = K.num('HIT_REQUEST_BURST_S');
 export const HIT_KNOCKBACK_RANGE_SLACK = K.num('HIT_KNOCKBACK_RANGE_SLACK');
 /** C-57 (owner: world): `crate opened` 거리 검사의 여유(m). */
 export const CRATE_OPEN_RANGE_SLACK = K.num('CRATE_OPEN_RANGE_SLACK');
+/* appended (2026-09-11, E-8 — docs/plans/net-trust-gaps.md §1 · §2 — 추가만) */
+/** E-8 (owner: enemies): explode 요청의 거리 검사 여유(m). 기준은 `STRAT_MAX_CALL_RANGE` 다. */
+export const EXPLODE_REQUEST_RANGE_SLACK = K.num('EXPLODE_REQUEST_RANGE_SLACK');
+/** E-8 (owner: enemies): 상태이상 요청의 거리 검사 여유(m). 기준은 `max(FLAME_RANGE, SHOCK_RANGE)` 다. */
+export const STATUS_REQUEST_RANGE_SLACK = K.num('STATUS_REQUEST_RANGE_SLACK');
+/** E-8 (owner: enemies): 상태이상 요청의 보낸 사람별 초당 건수 상한 · 버킷 크기(초). */
+export const STATUS_REQUEST_RATE_MAX = K.num('STATUS_REQUEST_RATE_MAX');
+export const STATUS_REQUEST_BURST_S = K.num('STATUS_REQUEST_BURST_S');
 /** E-5 (owner: game/SoloRaid): 시계 역행 허용 폭(ms). */
 export const SOLO_CLOCK_BACK_TOLERANCE_MS = K.num('SOLO_CLOCK_BACK_TOLERANCE_MS');
 /** E-5: 지금까지 본 가장 늦은 `Date.now()` 를 적어 두는 키 (`slotKey` 를 통과시킨다). */

@@ -1,5 +1,6 @@
 import type { AmmoType, EmbeddedView, ItemCategory, ItemDef, ItemInstance, MissionStats, Rarity, WeaponClass } from './types';
 import { csvGroups, csvRows, keyTable, numberList, stringList } from './data/tables';
+import { buyPriceFrom, sellPriceFrom } from './credits';
 
 /*
  * 메타 수치의 원본은 `data/` 의 csv 다 — 기업(`corps.csv` · `corp_stock.csv`), 계약(`contracts.csv`),
@@ -99,12 +100,16 @@ export const SHOP_PRICE_DISCOUNT_PER_REP = T.num('SHOP_PRICE_DISCOUNT_PER_REP');
 export const SHOP_PRICE_MIN_MUL = T.num('SHOP_PRICE_MIN_MUL');
 /** Sell price = value × SELL_PRICE_MUL (any corp, any item with a value). */
 export const SELL_PRICE_MUL = T.num('SELL_PRICE_MUL');
+/*
+ * Both prices are the pure formulas of `shared/credits` (2026-09-11, E-9) — that file is the single original because
+ * the relay imports it and cannot run the csv loader. Only the multipliers come from here. `sellPriceFrom` **floors**:
+ * see its comment for why rounding let a split stack out-earn the bundle.
+ */
 export function buyPriceOf(value: number, repLevel: number): number {
-  const mul = Math.max(SHOP_PRICE_MIN_MUL, SHOP_PRICE_BASE_MUL - SHOP_PRICE_DISCOUNT_PER_REP * Math.max(0, repLevel));
-  return Math.max(1, Math.round(value * mul));
+  return buyPriceFrom(value, SHOP_PRICE_BASE_MUL, SHOP_PRICE_DISCOUNT_PER_REP, SHOP_PRICE_MIN_MUL, repLevel);
 }
 export function sellPriceOf(value: number, qty = 1): number {
-  return Math.max(0, Math.round(value * SELL_PRICE_MUL * Math.max(0, qty)));
+  return sellPriceFrom(value, SELL_PRICE_MUL, qty);
 }
 
 /* ── contracts ── */

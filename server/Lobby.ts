@@ -31,6 +31,8 @@ export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   /* 2026-09-11 (C-29): 서버 콘솔 */
   kicked: '서버 관리자가 연결을 끊었습니다.',
   server_full: '서버 접속 인원이 가득 찼습니다.',
+  /* 2026-09-11 (B-11): 내가 차단한 상대가 있는 분대. 반대 방향(나를 차단한 사람)은 not_found 로 위장한다. */
+  blocked: '차단한 상대가 있는 분대입니다.',
 };
 
 export class Lobby {
@@ -316,12 +318,17 @@ export class LobbyManager {
    * Best public, not-started lobby with a free slot: lobbies with >= 1 connected member first, then the oldest.
    * A lobby whose members are all in reconnect grace is used only when nothing better exists (the joiner becomes
    * host at once via `adoptHostIfAbsent`, so nobody waits on a ghost).
+   *
+   * 2026-09-11 (B-11): `accept` lets the caller drop candidates for a reason this model knows nothing about — the
+   * relay skips every lobby holding a 차단 either way. Skipping (rather than refusing) is the point: public lobbies
+   * come in numbers, and when they are all filtered out the ordinary "nothing open" path creates a new one.
    */
-  findQuickMatch(): Lobby | undefined {
+  findQuickMatch(accept?: (lobby: Lobby) => boolean): Lobby | undefined {
     let best: Lobby | undefined;
     let bestLive = false;
     for (const l of this.lobbies.values()) {
       if (!l.isQuickMatchable()) continue;
+      if (accept !== undefined && !accept(l)) continue;
       const live = l.connectedCount() > 0;
       if (!best || (live && !bestLive) || (live === bestLive && l.createdAt < best.createdAt)) { best = l; bestLive = live; }
     }
@@ -334,10 +341,13 @@ export class LobbyManager {
     return lobby.migrateHost();
   }
 
-  /** Join the oldest open public lobby or create a new public one. `created` tells which happened. */
-  quickMatch(id: PeerId, name: string): { lobby: Lobby; created: boolean } | LobbyErrorCode {
+  /**
+   * Join the oldest open public lobby or create a new public one. `created` tells which happened.
+   * `accept` (2026-09-11, B-11) narrows the candidates — see `findQuickMatch`.
+   */
+  quickMatch(id: PeerId, name: string, accept?: (lobby: Lobby) => boolean): { lobby: Lobby; created: boolean } | LobbyErrorCode {
     if (this.byPeer.has(id)) return 'in_lobby';
-    const open = this.findQuickMatch();
+    const open = this.findQuickMatch(accept);
     if (open) {
       const res = open.add(id, name);
       if (typeof res === 'string') return res;

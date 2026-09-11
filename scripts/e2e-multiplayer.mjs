@@ -135,16 +135,21 @@ try {
   const bal0 = await A.evaluate(() => window.__game.ctx.net.profile.credits ?? 0);
   const probe = Object.entries(econ.items).map(([id, it]) => ({ id, price: Math.max(1, Math.round(it.value * bestMul)) }))
     .filter((p) => p.price <= bal0).sort((a, b) => a.price - b.price)[0] ?? null;
-  const tx = await A.evaluate(async (p) => {
+  /* 2026-09-11 (E-9): the sale fallback is priced from the table, not hard-coded. `sellPriceOf` **floors**, so
+     `sell:ammo_light:1` is worth `floor(1 × 0.5) = 0` and the relay refuses it (`0 < delta`). Take the cheapest item
+     whose single unit is still worth at least 1 C — `floor` is also ≤ the cap under any looser rounding. */
+  const sale = Object.entries(econ.items).map(([id, it]) => ({ id, price: Math.floor(it.value * econ.sellPriceMul) }))
+    .filter((p) => p.price >= 1).sort((a, b) => a.price - b.price)[0] ?? null;
+  const tx = await A.evaluate(async (p, s) => {
     const prof = window.__game.ctx.net.profile;
     try {
-      if (!p) return await prof.addCredits(1, 'sell:ammo_light:1');   // empty balance: a legit one-unit sale instead
+      if (!p) return await prof.addCredits(s.price, `sell:${s.id}:1`);   // empty balance: a legit one-unit sale instead
       const b = await prof.addCredits(-p.price, `buy:${p.id}`);
       if (!b.ok) return { buyRefused: b };
       return await prof.addCredits(p.price, `refund:${p.id}`);
     } catch (e) { return { err: String(e) }; }
-  }, probe);
-  ok(tx && tx.ok === true && typeof tx.credits === 'number', `A credits transaction round trip (buy + refund of ${probe?.id ?? 'a sale'}) ${JSON.stringify(tx)}`);
+  }, probe, sale);
+  ok(tx && tx.ok === true && typeof tx.credits === 'number', `A credits transaction round trip (buy + refund of ${probe?.id ?? `a sale of ${sale?.id}`}) ${JSON.stringify(tx)}`);
   if (tx && tx.ok !== true && /확인하지 못했습니다/.test(JSON.stringify(tx))) console.log('  note: the relay refused a game credit reason — is server/economy.gen.json newer than the running relay? restart it');
   const over = await A.evaluate(async (id) => { try { return await window.__game.ctx.net.profile.addCredits(-9999999, `buy:${id}`); } catch (e) { return { err: String(e) }; } }, probe?.id ?? 'ammo_light');
   ok(over && over.ok === false && over.reason === '크레딧 부족' && over.credits === tx.credits, `overdraft refused by the server ${JSON.stringify(over)}`);

@@ -43,10 +43,15 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
   answer creates + places the item (placement failure → local refund + `addCredits(+price, 'refund:<def>')` on the server) → `meta:purchase`;
   a refusal reverts the balance and reports through `lastPurchaseFailure` / `onPurchaseFailed` (folder-internal, the corp screen listens).
   The corp screen refreshes on `meta:purchase`, never on the return value of `buy()`.
-- **Sale** (`getSellable / sellPriceOf / sell`): bag + stash items with a value, equipped gear excluded; `sellPriceOf(value, qty)` = value × 0.5;
+- **Sale** (`getSellable / sellPriceOf / sell`): bag + stash items with a value, equipped gear excluded; `sellPriceOf(value, qty)` =
+  **`floor`**(value × `SELL_PRICE_MUL` 0.5 × qty);
   `sell` = ship only → `inventory.takeItem(uid, qty)` (stub → false) → credits for the units actually removed → `meta:sale`.
   2026-09-11 (E-4): the server transaction is `sell:<def>:<qty>` (one per `stackMax` chunk); a relay refusal reverts the credits **and puts the
   units back** (same uid when the whole stack left, stash first when it came from there) with a `ui:notify` warning.
+  2026-09-11 (E-9): the formula itself lives in `shared/credits.sellPriceFrom` (the relay imports that file and cannot run the csv loader);
+  `shared/meta.sellPriceOf` only passes `SELL_PRICE_MUL` in. It **floors** so a split stack can never out-earn the bundle, which means a
+  value-1 single is worth **0 C** — the desk shows `0` and sells it anyway (사용자 결정). A 0 C chunk skips its `credits:tx` entirely
+  (`server/Economy.ts` demands `0 < delta`, so sending it would come back refused and `restoreSold` would undo a sale the player made).
 - **Credit reasons (2026-09-11, E-4)**: every `credits:tx` reason comes from `formatCreditReason` (`src/shared/credits.ts`) — the relay parses it
   and checks the amount against `server/economy.gen.json`; a malformed / wrong-amount transaction answers `CREDIT_TX_INVALID_KO` and is reverted.
 - **Contracts**: one active (`CONTRACT_MAX_ACTIVE`), accepted in the ship at `minRepLevel` → `meta:contractAccepted`; `abandonContract` drops it
@@ -114,7 +119,9 @@ filter / prices → buy + refusal → **`canFit` 공간 없음 pre-check** → *
 `meta:purchase` after the answer, refusal revert, `addCredits` tx, `profile.set('meta')`, `net:profileLoaded` replace + migrate) → sell →
 contract gating → real kill progress in a mission → death settlement (`outcome 'failed'`) → **training null + `'incomplete'` + goal counters off
 while `isTraining()`** → success (`'success'`) → squad share → quest h1 → reload persistence → corrupt-save sanitising → corp-screen DOM /
-blocker / tabs / Esc. **120 / 120** on 2026-09-06 (Phase 7, private vite 5307), 0 console errors. The script parks the relay socket so a relay
+blocker / tabs / Esc. **2026-09-11 (E-9)**: 판매 반올림 — 묶음 판매가 = `floor(value × 0.5 × qty)` (경량탄 40 · 중량탄 37 · 준중량탄 50),
+낱개 × qty ≤ 묶음이고 **어떤 2분할도** 묶음을 넘지 못한다, 가치 1 한 개 = 0 C, 그 0 C 판매가 성사되고(크레딧 그대로 · 판 1발만 빠짐 ·
+`meta:sale {credits 0}`) 서버 크레딧에서도 `credits:tx` 를 보내지 않는다, 거래대 판매칸에 0 C 줄이 담기고 가격 배지가 `0`. **120 / 120** on 2026-09-06 (Phase 7, private vite 5307), 0 console errors. The script parks the relay socket so a relay
 on 8787 cannot hand the page a real profile mid-run. `npm run typecheck` clean for this folder.
 
 ## Known gaps
@@ -274,6 +281,26 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (E-9 판매 반올림 `round` → `floor` — 에이전트 ③)** — 수식 자체는 리드가 `shared/credits.sellPriceFrom` 하나로 합쳤고
+  (`shared/meta.sellPriceOf` 는 `SELL_PRICE_MUL` 만 넘긴다), 이 폴더는 **파급**을 받았다. 반올림이 `qty` 를 곱한 뒤에 일어나서
+  홀수 value 아이템을 낱개로 쪼개 팔면 묶음보다 많이 받았다 — 경량탄(value 1 · 80발) 묶음 `round(40)=40 C` 대 낱개
+  `round(0.5)=1 C × 80 = 80 C`. 서버는 막을 수 없었다(낱개 거래 하나하나가 자기 상한과 정확히 같아 정당했다).
+  `floor` 면 분할이 **항상** 손해다. 바뀐 것:
+  - `ui/CorpView.stageSell` 이 **0 C 를 거절하지 않는다** (사용자 결정). 거절하는 것은 `sellPriceOf === null`(값 없음 · 장착 중 ·
+    가방에도 창고에도 없음)뿐이고, 가격 배지는 `formatCreditAmount(0)` → `0` 을 그대로 찍는다. 무게를 비우는 수단이고, 묶어 팔면
+    제값이 나오므로 분할이 손해라는 것을 플레이어가 스스로 배운다. `귀중품 전부 담기`(`stageValuables`)만 0 C 를 건너뛰는데,
+    귀중품의 최저 value 는 90 이라 실제로는 닿지 않는 방어선이다.
+  - `parts/Trade.sell` 의 `price <= 0 → continue` 가 **동작을 떠받치는 줄**이 됐다 (예전에는 방어선이었다):
+    `server/Economy.ts` 의 sell 분기가 `0 < delta` 를 요구하므로 0 C tx 는 거절되고, 그러면 `restoreSold` 가 아이템을 되돌려
+    "팔았는데 안 팔림 + 실패 토스트" 가 된다. 0 C 는 서버에 알릴 것이 없다 — 잔액이 안 움직인다. 주석으로 못 박았다.
+  - `server/economy.gen.json` 은 **다시 굽지 않았다.** `scripts/economy-table.mjs` 가 표에 싣는 것은 수치뿐이고(`sellPriceMul`
+    0.5 · 아이템 value · stack), `hash` 도 그 본문의 digest 다 — 수식은 코드에 있다. `checkEconomyTable` 이 모든 아이템 ×
+    모든 수량에서 `sellPriceOf` 와 `tableSellPrice` 를 비교하는데 둘 다 같은 `sellPriceFrom` 을 부르므로 값이 함께 움직인다
+    (`npm run data:check` 통과 = 증명).
+  - `scripts/smoke-meta.mjs` 에 단언 추가(위 `Verification` 절), `scripts/e2e-multiplayer.mjs` 의 잔액 0 대체 경로가
+    `sell:ammo_light:1`(이제 0 C 라 릴레이가 거절한다) 대신 **표에서 고른 1 C 이상짜리 낱개 판매**를 쓴다.
+  - 소유 검증(창고 조작)은 여전히 하지 않는다 — `docs/TODO.md` 의 `참고 — 의도된 한계`.
 
 - **2026-09-11 (E-6 퀘스트 완료 트랜잭션 — 에이전트 ③)** — `parts/Contracts.completeQuest` 끝의 저장이 `commitQuestTx` 를 거친다:
   `ctx.inventory.flushSaves?.()`(창고 · 로드아웃 디바운스를 지금) → `save()`(meta) → `ProfileRef.setMany({meta, stash, loadout})`

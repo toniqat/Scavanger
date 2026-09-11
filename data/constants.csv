@@ -707,10 +707,16 @@ META_HIT_RATE,2,"E-4 분대원이 보낸 meta contractHit(킬이 아닌 목표)�
 STRAT_MAX_CALL_RANGE,150,"E-4 호스트가 받는 함선 호출: 호출자 스냅샷 위치에서 목표 지점까지 이 거리(m) 안이어야 한다. 실제 조준 사거리 = 상단 시점 TOPVIEW_RANGE 120 · 지면 GROUND_TARGET_RANGE 60 — 그 위에 스냅샷 지연 · 이동 여유 30."
 STRAT_COOLDOWN_SLACK_S,3,"E-4 호스트가 호출자별로 들고 있는 공유 쿨타임의 여유(초). 호출자의 쿨타임은 확정 순간 자기 시계로 돌고 호스트는 요청이 도착한 순간부터 재므로, 두 요청의 네트워크 지연 차이만큼 일찍 도착해도 거절하지 않는다."
 BUFF_HEAL_BURST_S,2,"E-4 받는 쪽 치유 토큰 버킷의 크기 = 초당 한도 × 이 초. 스프레이는 0.5 s · 오버차지는 0.2 s 마다 몰아 보내고 네트워크가 몇 통을 한꺼번에 줄 수 있다."
-HIT_REQUEST_DPS_MAX,5000,"E-4 호스트가 받는 hit 요청(리플리카의 사격 · 근접 · 화염 틱)의 보낸 사람별 초당 피해 합계 상한 (토큰 버킷). 이론 최대 ≈ 2 300 — 돌격소총 V 60×1.48×10 × 오버차지 연사 1.3 ≈ 1 150 · 화염방사기 95 × 대상 12 = 1 140 · 표창 베기 12 대상 동시 — 에 부착물 · 능력치 여유 ×2. explode 요청(수류탄 · 바주카 · 함선 호출 낙하)은 세지 않는다."
+HIT_REQUEST_DPS_MAX,5000,"E-4 호스트가 받는 hit 요청(리플리카의 사격 · 근접 · 화염 틱)의 보낸 사람별 초당 피해 합계 상한 (토큰 버킷). 이론 최대 ≈ 2 300 — 돌격소총 V 60×1.48×10 × 오버차지 연사 1.3 ≈ 1 150 · 화염방사기 95 × 대상 12 = 1 140 · 표창 베기 12 대상 동시 — 에 부착물 · 능력치 여유 ×2. E-8 부터 explode 요청(수류탄 · 바주카 · 함선 호출 낙하)도 같은 버킷에서 dmg 를 한 번 뺀다 — 버킷을 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다."
 HIT_REQUEST_BURST_S,2,"E-4 hit 요청 버킷의 크기 = HIT_REQUEST_DPS_MAX × 이 초 (저격 한 발 · 산탄 한 발 · 프레임 끊김으로 몰린 요청)."
 HIT_KNOCKBACK_RANGE_SLACK,5,"X-6 호스트가 받는 넉백 요청(HitRequest.kb — 실드 배쉬): 보낸 사람 스냅샷 위치와 적의 수평 거리가 배쉬 도달 거리(IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE × 1.5 + IMPLANT_BARRIER_CARRY_WIDTH / 2 + 적 반지름) + 이 값(m) 안이어야 한다. 플레이어 · 적 스냅샷 지연 몫."
 CRATE_OPEN_RANGE_SLACK,5,"C-57 받는 쪽이 `crate opened` 를 믿는 거리: 보낸 사람 스냅샷 위치와 상자 · 컨테이너가 max(PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE) + 이 값(m) 안. 전차 안 컨테이너가 달리는 동안의 지연 몫까지."
 SOLO_CLOCK_BACK_TOLERANCE_MS,120000,"E-5 솔로 레이드 복귀: 저장 시각이 지금보다 이만큼(ms) 넘게 미래이거나, 기록된 최고 시각보다 이만큼 넘게 과거로 부팅하면 시계 조작으로 보고 stale 처리한다. NTP 보정(초 단위)은 통과한다."
 WHISPER_HISTORY_PER_PEER,50,"B-4 캐릭터 슬롯마다 대화 상대 한 명당 localStorage 에 남기는 귓속말 줄 수."
 WHISPER_HISTORY_PEERS,20,"B-4 대화 기록을 남기는 상대 수 (오래된 상대부터 지운다)."
+
+# ── 2026-09-11: 신뢰 경로의 남은 틈 (docs/plans/net-trust-gaps.md — E-8) ──
+EXPLODE_REQUEST_RANGE_SLACK,40,"E-8 호스트가 받는 explode 요청(수류탄 · 바주카 · AT · 가젯 · 함선 호출 낙하): 보낸 사람 스냅샷 위치와 폭심의 수평 거리가 STRAT_MAX_CALL_RANGE + 이 값(m) 안이어야 한다. 기준을 함선 호출 사거리로 잡는 이유는 폭발원 중 가장 먼 것이 호출 낙하물이기 때문이다 — 호출은 150 m 안에서만 승인되지만 낙하까지 eta 만큼 흐르는 동안 호출자가 더 멀어질 수 있고, 그 몫이 이 값이다 (궤도 폭격 eta 4.5 s × 질주 7 m/s ≈ 32). 수류탄 · 바주카 · AT 는 전부 이보다 훨씬 짧아 같은 상한에 덮인다."
+STATUS_REQUEST_RANGE_SLACK,8,"E-8 호스트가 받는 상태이상 요청(HitRequest.st): 보낸 사람 스냅샷 위치와 적의 수평 거리가 max(FLAME_RANGE, SHOCK_RANGE) + 이 값(m) 안이어야 한다. 상태이상을 거는 원본은 화염방사기 · 쇼크건 둘뿐이고 둘 다 짧은 사거리다 — 이 값은 플레이어 · 적 스냅샷 지연(질주 7 m/s × 약 0.3 s 양쪽)과 원뿔 가장자리 몫."
+STATUS_REQUEST_RATE_MAX,60,"E-8 호스트가 받는 상태이상 요청의 보낸 사람별 초당 건수 상한 (토큰 버킷). 화염방사기 · 쇼크건은 적마다 STATUS_REQUEST_INTERVAL(0.25 s) 스로틀이 걸려 있으므로 12 대상을 한꺼번에 훑어도 48/s 다."
+STATUS_REQUEST_BURST_S,2,"E-8 상태이상 요청 버킷의 크기 = STATUS_REQUEST_RATE_MAX × 이 초 (프레임 끊김으로 몰린 요청)."

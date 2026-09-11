@@ -304,8 +304,12 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('net:lobbyUpdated', ({ lobby }) => this.onLobbyUpdated(lobby)),
       b.on('net:lobbyLeft', ({ reason, to }) => this.onLobbyLeft(reason, to)),
       b.on('net:resumed', ({ inProgress }) => this.onResumed(inProgress)),
-      b.on('net:peerJoined', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 합류`, kind: 'info' }); }),
-      b.on('net:peerLeft', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 이탈`, kind: 'warning' }); }),
+      /*
+       * 2026-09-11 (B-12): `net:peerJoined` / `net:peerLeft` 의 `<이름> 함선 합류 · 이탈` 토스트를 걷어냈다 — 같은
+       * 이벤트에 `ui/hud/Notifications` 가 `<이름> 합류` · `<이름> 이탈`(`'분대'` 라벨)을 이미 띄우고, 그것이
+       * `ui:notify` 와 **같은 토스트 스택**이라 함선에서는 두 줄이 나란히 떴다. 잃는 것은 `함선` 이라는 낱말 하나이고
+       * (지금 함선에 있다는 상황과 `'분대'` 라벨이 그 문맥을 준다) 토스트의 주인은 `Notifications` 하나가 됐다.
+       */
       b.on('net:statusChanged', () => { this.resendReady(); this.updateTerminalScreen(); }),
       b.on('meta:creditsChanged', () => this.updateTerminalScreen()),
       b.on('meta:loaded', () => this.updateTerminalScreen()),

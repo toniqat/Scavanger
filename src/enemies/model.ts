@@ -10,6 +10,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
+  FLAME_RANGE, SHOCK_RANGE, STRAT_MAX_CALL_RANGE, EXPLODE_REQUEST_RANGE_SLACK, STATUS_REQUEST_RANGE_SLACK,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   type SurfaceMaterial,
@@ -78,6 +79,28 @@ export const SHOCK_SPARK_TIME = 0.6;
 export const STATUS_REQUEST_INTERVAL = 0.25;
 /** Host clamps a client's requested status duration. */
 export const MAX_STATUS_DURATION = 10;
+/* ── appended 2026-09-11 (E-8 — docs/plans/net-trust-gaps.md §1 · §2): 호스트가 요청을 믿기 전의 상한 ──
+ * 네 csv 수치의 이름은 다른 가드 상수들과 같이 `shared/constants.ts` 가 선언한다 (`HIT_KNOCKBACK_RANGE_SLACK` ·
+ * `CRATE_OPEN_RANGE_SLACK` 바로 아래). 여기서는 실제로 비교에 쓰는 두 개의 reach 로 합치기만 한다 —
+ * `parts/Damage.ts` 가 소비자 전부다.
+ */
+export { STATUS_REQUEST_BURST_S, STATUS_REQUEST_RATE_MAX } from '@/shared';
+
+/**
+ * 2026-09-11 (E-8): every **known** bit of `ENEMY_STATUS_BITS` OR-ed together. The host masks `HitRequest.st` with it
+ * before doing anything else, so a bit nobody defined can never reach `applyStatusBits` (harmless today, but the mask
+ * is what keeps it harmless when the contract grows a fifth bit). Derived from the contract — no literal here.
+ */
+export const ENEMY_STATUS_BITS_ALL = Object.values(ENEMY_STATUS_BITS).reduce((a, b) => a | b, 0);
+/**
+ * 2026-09-11 (E-8): how far a client's status request may legitimately reach, **derived from data** the way
+ * `shared/buffRules.limits()` is — the only two things that put a status on an enemy are the 화염방사기
+ * (`FLAME_RANGE`) and the 쇼크건 (`SHOCK_RANGE`); 소이 구역(`gadgets`)은 권한에서만 도므로 와이어를 타지
+ * 않는다 (`parts/Damage.statusInReach` 주석의 실측). `STATUS_REQUEST_RANGE_SLACK` 이 양쪽 스냅샷 지연 몫이다.
+ */
+export const STATUS_SOURCE_REACH = Math.max(FLAME_RANGE, SHOCK_RANGE) + STATUS_REQUEST_RANGE_SLACK;
+/** `explode` 요청의 상한 거리 — 폭발원 중 가장 먼 것이 함선 호출 낙하물이라 그 사거리에 slack 을 더한다. */
+export const EXPLODE_SOURCE_REACH = STRAT_MAX_CALL_RANGE + EXPLODE_REQUEST_RANGE_SLACK;
 /* ── appended: Phase 7 (rogue AI v2 · live authority) ── */
 /** Grenade flight time is distance / this (clamped 0.8 … 1.8 s) — a lazy lob, not a bullet. */
 export const GRENADE_LOB_SPEED = 11;

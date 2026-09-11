@@ -174,6 +174,12 @@ export function sell(sys: MetaSystem, uid: string, qty?: number): boolean {
    * E-4 (⑦): one `sell:<id>:<qty>` transaction per stack — the relay accepts `qty ≤ stackMax` and at most
    * `sellPriceOf(value, qty)`. A normal stack never exceeds `stackMax`, so this is a single transaction with exactly the
    * old price; an oversized legacy stack is split so it is not refused.
+   *
+   * 2026-09-11 (E-9): `sellPriceOf` **floors**, so a chunk can legitimately be worth **0 C** (가치 1 아이템 한 개).
+   * That sale still happens locally — 0 C is the price, not a refusal (사용자 결정) — but the `price <= 0` skip below is
+   * now load-bearing: `server/Economy.ts` requires `0 < delta` on a `sell:` transaction, so sending it would come back
+   * refused and `restoreSold` would put the item back with a 판매 취소 toast ("팔았는데 안 팔림"). A 0 C transaction has
+   * nothing to tell the server anyway — the balance does not move.
    */
   const stack = Math.max(1, Math.floor(def.stackMax || 1));
   const chunks: number[] = [];

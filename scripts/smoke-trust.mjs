@@ -7,6 +7,15 @@
 //       `enemy:squadKill`, non-kill hits are rate-limited, a `meta sync` nobody asked for is ignored.
 //   C-57 `crate opened` — unknown id / far sender refused, a near sender accepted, the host only re-hands verified ids.
 //   X-6 넉백 — a `HitRequest.kb` from a sender far from the enemy is refused; the per-sender DPS budget trims a flood.
+// Appended 2026-09-11 (E-8, docs/plans/net-trust-gaps.md §1 · §2 · §3 · §9):
+//   (a) `explode` — junk `p` / out-of-range `dmg` · `r` dropped on shape, a blast 220 m from the sender refused, a
+//       legitimate one next to the sender still damages the enemy (the guard must not eat real play), a flood shares
+//       the `hit` DPS bucket. Observed through the host's `EnemySystem.hitGuardStats` **deltas** (it never resets).
+//   (b) `HitRequest.st` — unknown bits only are masked away (and the same request's damage still lands), a status on
+//       an enemy 90 m from the sender is refused, the same one from 10 m lands, a burst runs the status bucket dry.
+//   (c) 거절된 함선 호출 — the host answers a refused `stratq call` with `strat deny` and the caller's optimistically
+//       started cooldown comes all the way back; a forged `callId` gets no answer at all, and a `deny` that is not
+//       from the lobby host (or not addressed to my own `callId`) refunds nothing.
 // A **private** lobby joined by code (never quick match): a public lobby left by another run would join the squad.
 // Usage: node scripts/smoke-trust.mjs [http://localhost:5273]   (needs `npm run dev` + `npm run server`, or the verify runner)
 import puppeteer from 'puppeteer-core';
@@ -392,6 +401,205 @@ try {
     const flood = await A.evaluate((id) => ({ lost: 1e6 - (window.__game.getSystem('enemies').byId.get(id)?.hp ?? 0), stats: { ...window.__game.getSystem('enemies').hitGuardStats } }), tank);
     ok(flood.stats.dropped + flood.stats.trimmed > 0 && flood.lost < 20000 * 0.8, `a 40 × 500 hit flood is capped by the per-sender DPS budget ${JSON.stringify(flood)}`);
   }
+
+  /* ── E-8 (a) explode 요청 가드 ────────────────────────────────────────── */
+  console.log('E-8 (a) explode guard');
+  /** First in-bounds point `dist` m from (bx, bz) — the same 16-direction scan the (d) range test above uses. */
+  const pointAt = (bx, bz, dist) => A.evaluate(([bx, bz, dist]) => {
+    const w = window.__game.ctx.world;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+      const x = bx + Math.cos(a) * dist, z = bz + Math.sin(a) * dist;
+      if (w.isInsideBounds(x, z)) return [x, w.getHeightAt(x, z), z];
+    }
+    return null;
+  }, [bx, bz, dist]);
+  /** A punching bag on the host: hp so large that nothing under test can kill it (the `tank` above is the model). */
+  const spawnBag = (at, type = 'warrior') => A.evaluate(([at, type]) => {
+    const e = window.__game.getSystem('enemies').debugSpawn(type, { x: at[0], z: at[2] });
+    if (!e) return null;
+    e.maxHp = 1e6; e.hp = 1e6;
+    return e.id;
+  }, [at, type]);
+  const enemyAt = (id) => A.evaluate((id) => {
+    const e = window.__game.getSystem('enemies').byId.get(id);
+    return e ? { p: [e.position.x, e.position.y + 0.8, e.position.z], hp: e.hp, incap: e.incapTimer > 0, burn: e.burnTimer > 0, slow: e.slowTimer > 0 } : null;
+  }, id);
+  // the counters never reset, so every assertion below reads a **delta** around the request it sends
+  const guard = () => A.evaluate(() => ({ ...window.__game.getSystem('enemies').hitGuardStats }));
+  const dGuard = (a, b) => { const o = {}; for (const k of Object.keys(b)) o[k] = b[k] - a[k]; return o; };
+  const noneMoved = (d) => Object.values(d).every((v) => v === 0);
+  const sendExplode = (p, r, dmg, n = 1) => B.evaluate(([p, r, dmg, n]) => {
+    const net = window.__game.ctx.net;
+    for (let i = 0; i < n; i++) net.send({ t: 'explode', p, r, dmg }, 'host');
+  }, [p, r, dmg, n]);
+  const pbNow = await posOf(B);
+  const boomAt = await pointAt(pbNow[0], pbNow[2], 40);
+  const boomId = boomAt ? await spawnBag(boomAt) : null;
+  ok(boomId !== null, `a punching bag stands 40 m from the sender (${boomId})`);
+  if (boomId !== null) {
+    // ① 모양 — a junk `p` used to sail through: `NaN` fails every `>` comparison, so the falloff check would **not**
+    //    skip the enemy and it would take `NaN` damage. (`NaN` becomes `null` on the JSON wire; both are refused.)
+    let g0 = await guard();
+    const e0 = await enemyAt(boomId);
+    await B.evaluate(([y, z]) => {
+      const net = window.__game.ctx.net;
+      net.send({ t: 'explode', p: [NaN, y, z], r: 5, dmg: 100 }, 'host');
+      net.send({ t: 'explode', p: ['x', y, z], r: 5, dmg: 100 }, 'host');
+    }, [e0.p[1], e0.p[2]]);
+    await waitSim(A, 0.4);
+    let g1 = await guard();
+    const e1 = await enemyAt(boomId);
+    ok(dGuard(g0, g1).explodeShape === 2, `an \`explode\` with a junk \`p\` (NaN · string) is dropped on shape ${JSON.stringify(dGuard(g0, g1))}`);
+    ok(e1.hp === e0.hp, `…and the enemy standing under that blast is untouched (${e0.hp} → ${e1.hp})`);
+
+    g0 = g1;
+    await sendExplode(e1.p, 5, 9999);
+    await sendExplode(e1.p, 999, 100);
+    await waitSim(A, 0.4);
+    g1 = await guard();
+    const e2 = await enemyAt(boomId);
+    ok(dGuard(g0, g1).explodeShape === 2, `\`dmg\` 9999 and \`r\` 999 are both dropped on shape ${JSON.stringify(dGuard(g0, g1))}`);
+    ok(e2.hp === e1.hp, `…and neither of them touched the enemy (${e1.hp} → ${e2.hp})`);
+
+    // ③ 거리 — the blast centre must be within `EXPLODE_SOURCE_REACH` (150 + 40 = 190 m) of the sender's snapshot
+    const farBoom = await pointAt(pbNow[0], pbNow[2], 220);
+    const farId = farBoom ? await spawnBag(farBoom) : null;
+    const f0 = farId !== null ? await enemyAt(farId) : null;
+    if (f0) {
+      g0 = await guard();
+      await sendExplode(f0.p, 8, 400);
+      await waitSim(A, 0.4);
+      g1 = await guard();
+      const f1 = await enemyAt(farId);
+      ok(dGuard(g0, g1).explodeRange === 1, `a blast 220 m from the sender is refused ${JSON.stringify(dGuard(g0, g1))}`);
+      ok(!!f1 && f1.hp === f0.hp, `…and the enemy standing in it takes nothing (${f0.hp} → ${f1?.hp})`);
+    } else console.log('  skip far explode test (no in-bounds point 220 m from B)');
+
+    // ④ 정당한 폭발은 통과한다 — the point of the guard is that real play is untouched. The X-6 flood above drained
+    //    the shared per-sender DPS bucket (5000 hp/s × 2 s), so give it wall-clock time to refill first.
+    await sleep(2500);
+    g0 = await guard();
+    const b0 = await enemyAt(boomId);
+    await sendExplode(b0.p, 5, 200);
+    await waitSim(A, 0.5);
+    g1 = await guard();
+    const b1 = await enemyAt(boomId);
+    ok(b0.hp - b1.hp > 25, `a legitimate blast next to the sender damages the enemy (${b0.hp} → ${b1.hp})`);
+    ok(noneMoved(dGuard(g0, g1)), `…and not one guard counter moved for it ${JSON.stringify(dGuard(g0, g1))}`);
+
+    // ⑤ 요율 — `explode` spends the **same** bucket as `hit` (separate ones would double the total)
+    g0 = await guard();
+    const r0 = await enemyAt(boomId);
+    await sendExplode(r0.p, 5, 500, 40);
+    await waitSim(A, 0.8);
+    g1 = await guard();
+    const r1 = await enemyAt(boomId);
+    const dRate = dGuard(g0, g1);
+    ok(dRate.trimmed + dRate.dropped > 0 && r0.hp - r1.hp < 40 * 500 * 0.8, `40 × 500 explode requests are capped by the shared DPS budget (lost ${Math.round(r0.hp - r1.hp)}) ${JSON.stringify(dRate)}`);
+  }
+
+  /* ── E-8 (b) `HitRequest.st` 가드 ─────────────────────────────────────── */
+  console.log('E-8 (b) status guard');
+  // bits of `ENEMY_STATUS_BITS` (shared/net.ts): BURNING 1 · SLOWED 2 · INCINERATED 4 · SHOCKED 8
+  const ST_SLOWED = 1 << 1, ST_INCINERATED = 1 << 2, ST_UNKNOWN = 1 << 7;
+  const sendHit = (id, p, o, n = 1) => B.evaluate(([id, p, o, n]) => {
+    const net = window.__game.ctx.net;
+    for (let i = 0; i < n; i++) net.send({ t: 'hit', id, dmg: o.dmg, p, d: [1, 0, 0], st: o.st, dur: o.dur }, 'host');
+  }, [id, p, o, n]);
+  await sleep(2500);   // the explode flood above drained the DPS bucket; ① needs the damage half to land
+  const pbSt = await posOf(B);
+  const nearAt = await pointAt(pbSt[0], pbSt[2], 10);     // inside STATUS_SOURCE_REACH (max(12, 14) + 8 = 22 m + r)
+  const farAt = await pointAt(pbSt[0], pbSt[2], 90);      // well outside it
+  const stNear = nearAt ? await spawnBag(nearAt) : null;
+  const stFar = farAt ? await spawnBag(farAt) : null;
+  ok(stNear !== null && stFar !== null, `status targets stand 10 m / 90 m from the sender (${stNear} / ${stFar})`);
+  if (stNear !== null && stFar !== null) {
+    // ① 비트 — only unknown bits: the status half is skipped, the damage half is **not**
+    let s0 = await guard();
+    const n0 = await enemyAt(stNear);
+    await sendHit(stNear, n0.p, { dmg: 25, st: ST_UNKNOWN, dur: 6 });
+    await waitSim(A, 0.4);
+    let s1 = await guard();
+    const n1 = await enemyAt(stNear);
+    ok(dGuard(s0, s1).statusBits === 1 && !n1.incap && !n1.burn && !n1.slow, `an \`st\` of unknown bits only (1<<7) puts no status on the enemy ${JSON.stringify({ d: dGuard(s0, s1), n1 })}`);
+    ok(n0.hp - n1.hp > 5, `…while the same request's damage still lands (${n0.hp} → ${n1.hp})`);
+
+    // ② 거리 — 전소 from 90 m away
+    s0 = await guard();
+    const f0 = await enemyAt(stFar);
+    await sendHit(stFar, f0.p, { dmg: 0, st: ST_INCINERATED, dur: 6 });
+    await waitSim(A, 0.4);
+    s1 = await guard();
+    const f1 = await enemyAt(stFar);
+    ok(dGuard(s0, s1).statusRange === 1, `an INCINERATED request on an enemy 90 m from the sender is refused ${JSON.stringify(dGuard(s0, s1))}`);
+    ok(!f1.incap, `…and that enemy never burns out (incapacitated ${f1.incap})`);
+
+    // ③ 정당한 상태이상은 통과한다 (positive control)
+    s0 = await guard();
+    const n2 = await enemyAt(stNear);
+    await sendHit(stNear, n2.p, { dmg: 0, st: ST_INCINERATED, dur: 6 });
+    await waitSim(A, 0.4);
+    s1 = await guard();
+    const n3 = await enemyAt(stNear);
+    const dNear = dGuard(s0, s1);
+    ok(n3.incap && dNear.statusBits === 0 && dNear.statusRange === 0 && dNear.statusRate === 0, `the same 전소 from 10 m lands ${JSON.stringify({ incap: n3.incap, d: dNear })}`);
+
+    // ④ 요율 — the status bucket is a **count** bucket (60/s, 2 s burst), separate from the DPS one
+    s0 = await guard();
+    const n4 = await enemyAt(stNear);
+    await sendHit(stNear, n4.p, { dmg: 0, st: ST_SLOWED, dur: 2 }, 200);
+    await waitSim(A, 0.8);
+    s1 = await guard();
+    ok(dGuard(s0, s1).statusRate > 0, `200 status requests in a burst run the per-sender status bucket dry ${JSON.stringify(dGuard(s0, s1))}`);
+  }
+
+  /* ── E-8 (c) 거절된 함선 호출 → 쿨타임 환불 ──────────────────────────── */
+  console.log('E-8 (c) refused ship call → refund');
+  const pbCall = await posOf(B);
+  const outOfRange = await pointAt(pbCall[0], pbCall[2], 175);   // > STRAT_MAX_CALL_RANGE (150), still in bounds
+  if (outOfRange) {
+    await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.lastCallRefusal = null; s.lastDenySent = null; });
+    await B.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.lastCallDeny = null; });
+    // the real path: `confirm` starts the shared cooldown **before** the request goes out (that is what gets refunded)
+    const started = await B.evaluate(([p]) => {
+      const s = window.__game.getSystem('stratagems');
+      s.debugCooldownReset();
+      s.cursor.set(p[0], p[1], p[2]);
+      s.confirm({ id: 'supply_drop', name: '보급품 투하', cooldown: 90, delay: 3, targeting: 'ground', radius: 2.5, hint: '' });
+      return { cd: s.cooldown, total: s.cooldownTotal };
+    }, [outOfRange]);
+    ok(started.cd > 80 && started.total > 80, `the caller's shared cooldown runs optimistically before the host answers ${JSON.stringify(started)}`);
+    await waitSim(A, 0.6);
+    const hostSide = await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); return { why: s.lastCallRefusal, sent: s.lastDenySent }; });
+    ok(hostSide.why === 'range' && hostSide.sent === 'range', `the host refuses the 175 m call and answers with \`strat deny\` ${JSON.stringify(hostSide)}`);
+    const back = await waitFor(B, () => {
+      const s = window.__game.getSystem('stratagems');
+      return s.lastCallDeny ? { why: s.lastCallDeny, cd: s.cooldown, total: s.cooldownTotal } : null;
+    }, 'B takes the deny', 8000).catch(() => null);
+    ok(!!back && back.why === 'range', `…the caller accepts it with the host's own reason ${JSON.stringify(back)}`);
+    ok(!!back && back.cd === 0 && back.total === 0, `…and the optimistic cooldown is refunded in full ${JSON.stringify(back)}`);
+
+    // 위조 `callId` 에는 답하지 않는다 — the sentinel proves `refuse` actively cleared `lastDenySent`
+    await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.lastCallRefusal = null; s.lastDenySent = 'range'; });
+    const denyBefore = await B.evaluate(() => window.__game.getSystem('stratagems').lastCallDeny);
+    await B.evaluate(([callId, p]) => window.__game.ctx.net.send({ t: 'stratq', ev: 'call', callId, kind: 'supply_drop', p, seed: 7 }, 'host'), [`${ids.A}-forged`, outOfRange]);
+    await waitSim(A, 0.6);
+    const forgedDeny = await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); return { why: s.lastCallRefusal, sent: s.lastDenySent }; });
+    ok(forgedDeny.why === 'callId' && forgedDeny.sent === null, `a \`stratq call\` carrying somebody else's callId is refused **without** an answer ${JSON.stringify(forgedDeny)}`);
+    ok((await B.evaluate(() => window.__game.getSystem('stratagems').lastCallDeny)) === denyBefore, `…so nothing comes back to the forger (${denyBefore})`);
+  } else console.log('  skip deny / refund test (no in-bounds point 175 m from B)');
+
+  // 남의 쿨타임은 되돌릴 수 없다 — ① the sender is not the lobby host, ② the callId is not the receiver's own
+  await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.lastCallDeny = null; s.startCooldown(90); });
+  await B.evaluate((id) => window.__game.ctx.net.send({ t: 'strat', ev: 'deny', callId: `${id}-forged`, reason: 'bounds' }, id), ids.A);
+  await waitSim(A, 0.6);
+  const hostCd = await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); return { deny: s.lastCallDeny, cd: s.cooldown, total: s.cooldownTotal }; });
+  ok(hostCd.deny === null && hostCd.cd > 80 && hostCd.total > 80, `a \`strat deny\` from a peer that is not the lobby host is ignored ${JSON.stringify(hostCd)}`);
+  const bBefore = await B.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.startCooldown(90); return { deny: s.lastCallDeny, cd: s.cooldown }; });
+  await A.evaluate(([id, to]) => window.__game.ctx.net.send({ t: 'strat', ev: 'deny', callId: `${id}-notyours`, reason: 'bounds' }, to), [ids.A, idB]);
+  await waitSim(B, 0.6);
+  const bAfter = await B.evaluate(() => { const s = window.__game.getSystem('stratagems'); return { deny: s.lastCallDeny, cd: s.cooldown, total: s.cooldownTotal }; });
+  ok(bAfter.deny === bBefore.deny && bAfter.cd > 80, `a deny the host addressed to somebody else's callId refunds nothing ${JSON.stringify({ bBefore, bAfter })}`);
 
   ok(errors.A.length === 0, 'A: no console errors', errors.A.slice(0, 4).join(' | '));
   ok(errors.B.length === 0, 'B: no console errors', errors.B.slice(0, 4).join(' | '));

@@ -146,7 +146,15 @@ export function requestStatus(sys: EnemySystem, e: Enemy, bits: number, duration
   sys.ctx.net?.send(msg, 'host');
   }
 
-/** Host: apply the status bits a client attached to its hit (`HitRequest.st` / `dur`); the wire carries no dps, so the defaults are the constants. */
+/**
+ * Host: apply the status bits a client attached to its hit (`HitRequest.st` / `dur`); the wire carries no dps, so the
+ * defaults are the constants.
+ *
+ * 2026-09-11 (E-8): by the time this runs the caller (`parts/Damage.onHitRequest`) has already masked `bits` to
+ * `ENEMY_STATUS_BITS_ALL`, checked that the sender's snapshot stands within `STATUS_SOURCE_REACH` of `e`, and spent one
+ * token of that sender's status budget. What is left here is the duration clamp, unchanged — so **anything else that
+ * ever calls this must do those three first**; it is not self-guarding.
+ */
 export function applyStatusBits(sys: EnemySystem, e: Enemy, bits: number, dur: number | undefined, from?: string): void {
   const d = dur !== undefined && dur > 0 ? Math.min(MAX_STATUS_DURATION, dur) : 0;
   if (bits & ENEMY_STATUS_BITS.INCINERATED) sys.applyStatus(e.id, 'incinerated', 0, d || BURNOUT_DURATION, from);

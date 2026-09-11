@@ -39,9 +39,9 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | File | Responsibility |
 |---|---|
 | `EnemySystem.ts` | The `GameSystem`. Pools `Enemy` instances per type (`acquire(id, …)` for both host spawns and replicas; `byId` map), refreshes `TargetList` + spatial grid + every enemy's `asTarget` proxy each frame, ticks AI only on the authority while `ctx.isGameplayPhase()` (visuals always tick), despawns finished corpses (`Enemy.corpseLife` = `CORPSE_LIFETIME`; replicas +1 s) and fled bugs (2 s). Implements `EnemyManagerRef`: `raycast` (analytic ray vs vertical hit capsule + head sphere + behemoth plate capsule → `part: 'front', armored: true`), `raycastInterceptable` (shell spheres), `applyExplosion` (host: linear falloff, returns kills; replica: FX + `explode` request, returns 0), `setThreatLevel`, `startExtractionWaves` / `stopExtractionWaves`, `killAll`, `reset`. Listens: `world:ready` (mode refresh, reset, initial patrols + **rogue guards** on authority → `enemy:bossSpawned`), `game:newMission`/`game:abort`, `game:paused` (pauses only when `freeze !== false`), `weapon:fired` + `net:remoteFired` (hearing 55 m, authority), `grenade:exploded` (80 m), `extraction:activated`, `extraction:liftoff` (stop waves; authority: bugs within 18 m flee), `enemy:waveStarted` (host → `ee wave`), `crate:looted` (corpse searched). Net messages: host handles `hit` (→ `takeDamage(dmg, p, d, from)` → replies `hitc` with actual damage / killed / part; ignores `dmg > 500`), `explode` (→ `hitc` per kill) and `intq` (validates the shell still flies → pop + `ee intercept`); replica handles `es`, `ee`, `hitc` (kill hitmarker). Emits all `enemy:*` / `corpse:*` events, `audio:play`, `camera:shake`, `player:applySlow`. Damage routing `applyDamage`: local target → `ctx.player.takeDamage` + `enemy:attacked`; remote → `dmg` to that peer (+ `ee attack` to the others for melee/leap/charge); **enemy target** (`CombatTarget.enemy`) → `Enemy.takeDamage(…, 'ai')` + `noteClash`. Kill credit: `ctx.stats.kills++` only when `e.lastDamager === 'local'` (Phase 9 tightened this so a credit belonging to another peer never bumps the local stats even in single-player); `enemy:killed {by}` is emitted for **every player-credited** kill — `by` is `'local'` for our own (our peer id is folded back by `normalizeAttacker`, so the payload reads the same online and offline) and the peer id when someone else gets the credit (e.g. a burn lit by a remote peer, `Enemy.burnAttacker`). An AI (faction) kill would be `by: null` and stays **off** the bus; the replica's `ee kill` still emits only for our own credit (`msg.killer === localId` → `by: 'local'`), because a remote killer counts its own kill on its client. ⚠ Consumers must key on `by` (`by === 'local'` = mine; `undefined` = a legacy / synthetic emit): `src/meta/MetaSystem.ts` currently counts every `enemy:killed` toward the contract goal, so a peer-credited kill on the host is counted locally **and** relayed as `meta contractHit` — that handler needs the same `by` filter its `stratagem:called` handler already uses (meta's owner, not this folder). Also the `EnemyHost` (`pickTarget`, `fireGun`, `fireShell`, `chargeHit`, `onChargeStarted`) / `SpawnHost` (`countAlive`) / `RogueSpawnHost` (`spawnRogue`) / `AcidHost` / `ShellHost` / `ReplicaHost` services. Debug: `debugSpawn(type, {x,z}, chase?)`, `debugShell(sid)`, `shellCount`, `bossId`, `corpses`, `active`. **Phase 7**: `setAuthority` (`promote` / `demote`, from its own `net:hostChanged` handler), `throwGrenade` (`EnemyHost`) + `onGrenadeExploded` (`GrenadeHost`) + `grenadeVisual / grenadeHitRemote` (`ReplicaHost`), `applyDamage(…, kbDir, kbSpeed)` with the `suspended` → `ghost:damage` branch, `explode(…, skipFaction)`, `training` gate, `wavesSeen`, debug `grenadeCount / debugGrenade / grenadesThrown / grenadesExploded / lastGrenadeBlast / debugHint / isAuthority / isTrainingWorld`. **Phase 9**: the delta `snapCache` (reset on `reset()` and on promotion with `replicaMgr.lastSeq + PROMOTE_SEQ_GAP`; `flow rejoined / takeover` sets `forceFull` so the next `es` is a keyframe), `applyStatus(id, status, dps, duration, attacker?)` storing `Enemy.burnAttacker`, `applyStatusBits(…, from)` (a replica's status request is credited to the relay `from`), `normalizeAttacker` (folds our own peer id back to `'local'`, also used by `applyAreaDamage`), barrier checks on rogue hitscan / shell blasts / acid (`barrierBlocks`), and debug `debugSnapshot(force?) / debugApplySnapshot(msg) / debugSnapshotState`. **Phase 10**: `onEnemyKilled` no longer registers the corpse itself — a ground kill goes straight to the new `registerCorpse(e)` (same frame as before), a **mid-air** kill only sets `Enemy.corpsePending` and the update loop calls `registerCorpse` once `deathLanded` or `CORPSE_LAND_TIMEOUT`; `registerCorpse` runs the `CORPSE_LOOT_CHANCE` roll (`rollCorpseLootable`), writes `Enemy.lootable` and sends `ee corpse` with `dd` / `lt`. `enemy:killed` carries `deathDir` and `ee kill` carries `dd` (`deathDirIndex`, 0 = `'left'` omitted); `corpseSpawnedRemote(…, opts)` applies the host's `lt` / `dd` to the local body. |
-| `model.ts` | 폴더 공용 어휘 — 상수 · 타입 · 스크래치 벡터. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. **2026-09-11**: 적 타입별 소리 표 `stepSound` · `meleeHitSound` · `hurtSound` 와 발소리 방출 `emitEnemyStep`(C-51 · C-23 · C-22), 리플리카 넉백 요청 상한 `MAX_REQUEST_KNOCKBACK`(C-1) |
+| `model.ts` | 폴더 공용 어휘 — 상수 · 타입 · 스크래치 벡터. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. **2026-09-11**: 적 타입별 소리 표 `stepSound` · `meleeHitSound` · `hurtSound` 와 발소리 방출 `emitEnemyStep`(C-51 · C-23 · C-22), 리플리카 넉백 요청 상한 `MAX_REQUEST_KNOCKBACK`(C-1), **요청 가드 상한 `ENEMY_STATUS_BITS_ALL` · `STATUS_SOURCE_REACH` · `EXPLODE_SOURCE_REACH`**(E-8, csv 수치는 `@/shared` 에서 온다) |
 | `ai/Ride.ts` | **2026-09-11 (C-18)**: 적 · 적 시체의 차량 탑승. 플레이어와 같은 `shared/ride.ts` 규약 — 진입만 `getStandingObstacle` 의 `velocity` 발판, 유지는 차량 OBB + 헤드룸(`rideContains`), 이동은 지난 프레임 자리를 차량 로컬로 적어 두었다가(`rideRecord`) 이번 프레임 차량의 **지금** 변환으로 풀어 차이만 더한다(`rideCarry`). `carryCorpse` = 시체(땅에 닿은 몸만, 벗어나면 `deathLanded` 를 풀어 떨어뜨림). `replicaRidePredict` = 리플리카가 보간 지연만큼 앞당겨 그린다(`rideBlend` 로 섞음). **2026-09-11 (C-63)**: `rideCarry(e, world, dt)` 가 하차 관성(`rideRelease(e, true)` → `Enemy.rideInertia` · `rideInertiaT`, 플레이어와 같은 `RIDE_INERTIA_*`)을 흘리고, 예측의 앞당김이 `속도 × lag` 가 아니라 **차량 이동 이력**(발판마다 링 버퍼 · `WeakMap`)의 `P(now) − P(now − lag)` 다 — 가속 · 즉시 정차가 맞는다 |
-| `parts/Damage.ts` | **적이 피해를 입는 모든 경로.** 히트스캔 · 폭발 · 광역 · 리플리카의 `hit` 요청이 전부 여기로 모여 `applyDamage` 하나로 수렴하고, 죽으면 시체 등록(`registerCorpse`, `CORPSE_LOOT_CHANCE` 추첨)까지 이어진다. 배리어 판정(`resolveBarrier` / `absorbedByShield`)도 여기 있다 — 방패는 **적을 막는 벽**이자 정면 근접을 대신 받는 면이라 피해 경로의 일부다. |
+| `parts/Damage.ts` | **적이 피해를 입는 모든 경로.** 히트스캔 · 폭발 · 광역 · 리플리카의 `hit` 요청이 전부 여기로 모여 `applyDamage` 하나로 수렴하고, 죽으면 시체 등록(`registerCorpse`, `CORPSE_LOOT_CHANCE` 추첨)까지 이어진다. 배리어 판정(`resolveBarrier` / `absorbedByShield`)도 여기 있다 — 방패는 **적을 막는 벽**이자 정면 근접을 대신 받는 면이라 피해 경로의 일부다. **호스트가 클라 요청을 믿기 전의 가드도 전부 여기다** (E-4 · X-6 · E-8): `spendHitBudget`(`hit` · `explode` 공용 DPS 버킷) · `knockbackInReach` · `statusInReach` · `spendStatusBudget` · `explodeInReach`. |
 | `parts/Attacks.ts` | **적이 하는 공격.** 산성 침 · 로그의 총 · 포병 포탄(요격 가능) · 로그 수류탄 · 독성 자폭. 전부 **호스트에서만** 결정되고 결과가 `ee` 이벤트로 나가며, 각 클라이언트는 `parts/RemoteFx.ts` 에서 연출만 재생한다. **2026-09-10**: `fireShell` 이 `boolean` 을 돌려준다 — 풀이 꽉 찼거나 새 `shellArcBlocked` 가 궤적을 막힌 것으로 읽으면 `false`(발사도 `sid` 소모도 없다). `shellArcBlocked(world, from, target, flight)` 는 궤적의 앞쪽 `SHELL_ARC_CHECK_FRAC`(0.75)를 `SHELL_ARC_SAMPLES`(4)개의 현으로 나눠 `world.raycast` 한다: 현은 포물선 **아래**를 지나므로 검사는 보수적이고(뚫린 것을 막혔다고 볼 수는 있어도 그 반대는 없다), 마지막 하강 구간은 조준점이 땅이라 무조건 걸리므로 일부러 보지 않는다. 발사 시점(포 하나가 6~9초에 한 번)에만 도는 4회 레이캐스트라 핫 패스가 아니다. **2026-09-11**: 로그의 총알이 첫 표면인 **창문 유리**(`Obstacle.fragile`)를 깬다. |
 | `parts/Alerts.ts` | **적이 무엇을 눈치채는가.** 소리(총성 · 유인탄) · 시야 · 팩션 충돌 · 그리고 Phase 12 의 **총알 추적**: 감지 범위 밖에서 날아온 총알의 발사 지점을 향해 돌아서서(`alertShot`) 그 방향 감지를 넓히고, 못 찾으면 전진한다. 표적 선택(`pickTarget`)과 도주(`fleeFrom`)도 같은 인지 계통이다. |
 | `parts/Status.ts` | **상태이상: 화상 · 전소 · 감전 · 둔화, 그리고 정찰 스캔의 x-ray 실루엣.** 호스트가 상태를 소유하고 `EnemyWire.sb` 비트로 리플리카에 미러링한다. 리플리카는 직접 걸 수 없으므로 `hit {dmg:0, st, dur}` 로 **요청**한다(`requestStatus`). DoT 처치의 킬 크레딧은 불을 놓은 사람에게 간다. |
@@ -152,6 +152,11 @@ Every one of these is optional-chained with a neutral default (factor 1, no lure
 - `ballistics.ts`: `shellPositionAt` / `shellLaunchVelocity` (`fx/ShellProjectile` 이 부르고 재수출, `parts/Attacks.shellArcBlocked` 가 발사 전 검사에 쓴다 — 수식을 베껴 두지 않는다: `ui/hud/ShellMarkers` 가 같은 함수를 쓴다).
 - `constants.ts`: `SHELL_ARC_GRAVITY` (2.6 → **2** 로 확정), 새로 붙인 `ENEMY_WALL_STANDOFF` · `ENEMY_FIRE_LOS_S` · `ENEMY_FIRE_STRAFE_S` (`data/constants.csv` 에 줄이 먼저 있고 `K.num` 한 줄씩만 추가했다 — 이름 변경 · 삭제 없음).
 - 폴더 안 코드 상수(csv 대상 아님, `model.ts`): `SHELL_ARC_SAMPLES` · `SHELL_ARC_CHECK_FRAC`; `ai/FireLine` 의 `FIRE_STRAFE_STEP`, `ai/GimmickAI` 의 `ARTILLERY_RELOCATE_M` (그림/알고리즘 수치라 `TRAIL_SAMPLES` 와 같은 부류이고, `model.ts` 에 두면 `ai/*` → `model` → `ai/EnemyAI` 순환이 생겨 각 파일에 둔다).
+
+## Shared contract consumed (2026-09-11 — E-8 요청 가드)
+- `constants.ts`: `FLAME_RANGE` · `SHOCK_RANGE`(→ `STATUS_SOURCE_REACH`), `STRAT_MAX_CALL_RANGE`(→ `EXPLODE_SOURCE_REACH`) — 이름을 새로 더하지 않았다.
+- `net.ts`: `ENEMY_STATUS_BITS`(→ `ENEMY_STATUS_BITS_ALL` 마스크). `ExplodeRequest` · `HitRequest.st` 의 주석이 이 가드의 명세다.
+- `constants.ts` 에 새로 더해진 넷: `EXPLODE_REQUEST_RANGE_SLACK` · `STATUS_REQUEST_RANGE_SLACK` · `STATUS_REQUEST_RATE_MAX` · `STATUS_REQUEST_BURST_S` (`HIT_KNOCKBACK_RANGE_SLACK` · `CRATE_OPEN_RANGE_SLACK` 바로 아래 — 다른 가드 상수와 같은 자리다). `model.ts` 가 `@/shared` 에서 읽어 두 개의 reach 로 합친다.
 
 ## Status effects: 전소 / 감전 (Phase 6, 2026-09-06)
 `EnemyManagerRef.applyStatus(id, status, dps, duration)` now covers all four `EnemyStatusKind`s (`burning` / `slowed` are the
@@ -943,7 +948,36 @@ attack phase 4  0.25 s 회복 → chase
 
 ## 변경 이력
 
-- **2026-09-11 (C-63 — 적 하차 관성 · 리플리카 탑승 예측의 가속도 항, 에이전트 c63)** — `ai/Ride.ts` 둘.
+- **2026-09-11 (E-8 (a)(b) — `explode` · `st` 요청 가드, 에이전트 ①)** — `docs/plans/net-trust-gaps.md` §1 · §2.
+  **와이어 계약은 한 칸도 안 바뀐다** (주석만 — 리드가 `shared/net.ts` 에 먼저 적었다).
+  ① **`onExplodeRequest`** 가 `hosting` + 상한 둘만 보던 것을 네 겹으로 — **모양**(`isVec3Tuple(p)` · `r`/`dmg` 유한 +
+  기존 `MAX_REQUEST_DAMAGE` 500 · `MAX_REQUEST_RADIUS` 20) → **보낸 사람**(`getRemotePlayer(from)` 이 있고 `isDead` 가
+  아니다) → **거리**(보낸 사람 스냅샷과 폭심의 **수평** 거리 ≤ `EXPLODE_SOURCE_REACH` = `STRAT_MAX_CALL_RANGE` +
+  `EXPLODE_REQUEST_RANGE_SLACK`; 기준이 함선 호출인 이유는 폭발원 중 가장 먼 것이 호출 낙하물이라서다) → **요율**
+  (`spendHitBudget` — `hit` 과 **같은** 버킷이다: 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다. 깎이면 깎인
+  값으로 터뜨리고 0 이면 버린다). ⚠ `isDead` 거절은 계약대로이므로 **공중에 있는 동안 주인이 죽은 폭발**(수류탄 퓨즈 ·
+  호출 `eta`)은 적 피해가 0 이다 — 코드 주석에 근거를 남겼다.
+  ② **`HitRequest.st`** 도 같은 순서로 — **비트 마스크**(`ENEMY_STATUS_BITS_ALL` = 알려진 비트 전부의 합, 남은 게 0 이면
+  상태이상 부분만 건너뛴다) → **거리**(`STATUS_SOURCE_REACH` = `max(FLAME_RANGE, SHOCK_RANGE)` +
+  `STATUS_REQUEST_RANGE_SLACK` **+ 적 반지름** — 두 원뿔 다 몸 표면까지 재기 때문이다: `coneTargets` 의
+  `dist > range + e.radius`) → **요율**(보낸 사람별 **건수** 토큰 버킷 `STATUS_REQUEST_RATE_MAX`/s ×
+  `STATUS_REQUEST_BURST_S`, DPS 버킷과 **별도**다 — 단위가 다르다) → 기존 `dur ≤ MAX_STATUS_DURATION`. 셋 다
+  **상태이상 부분만** 버린다(같은 프레임의 피해 · 넉백은 그대로). **DoT 예상 총량을 DPS 버킷에서 미리 차감하지 않는다**
+  (사용자 결정 — 사거리 검사가 이미 원격 남발을 막고, 선차감하면 정당한 다중 대상 화염 플레이가 깎인다).
+  **실측**(착수 전): `gadgets/parts/Simulate.updateFireZone` 의 `applyStatus('burning', …, d.owner)` 는 `GadgetSystem.update`
+  의 `if (authority)` 안에서만 돌므로 리플리카에서는 아예 실행되지 않는다 → 와이어를 타지 않는다 → 소이 구역 소유자가
+  구역에서 멀어도 ② 에 걸리지 않는다. 그래서 reach 에 `GADGET_INCENDIARY_RADIUS` 를 더하지 않았다.
+  ③ **지뢰 킬 크레딧**: `applyAreaDamage` 의 리플리카 강등이 `by` 를 버리는 것은 **맞는 동작**임을 확인하고 주석으로
+  근거를 남겼다(고친 코드 없음) — 이 가지에 닿는 호출자는 AT 런처(`by = localId`)뿐이고 가젯 쪽(지뢰 · 원격 지뢰 ·
+  포탑 · 화염지대)은 전부 권한에서만 돌아 리플리카에서는 실행되지 않는다. 호스트가 크레딧으로 쓰는 릴레이 `from` 이
+  곧 그 소유자다.
+  **수치**: `data/constants.csv` 의 새 키 넷은 **`shared/constants.ts`** 가 다른 가드 상수들과 같은 자리에서 내보내고
+  `model.ts` 가 `@/shared` 로 읽는다 (에이전트는 `src/shared` 를 못 건드려 `EnemyTypes.ts` 에 임시로 뒀고 리드가 옮겼다).
+  코드에 적은 숫자는 0 개.
+  **디버그 훅**: `EnemySystem.hitGuardStats` 에 `explodeShape` · `explodeSender` · `explodeRange` · `statusBits` ·
+  `statusRange` · `statusRate` 6개 추가(기존 `trimmed` · `dropped` · `kbRefused` 는 그대로이고, 깎인 explode 도 그 둘에
+  센다). 거절은 아무 일도 일으키지 않으므로 스모크가 거절을 볼 수 있는 **유일한** 수단이다.
+
   ① **하차 관성**: `rideCarry(e, world, dt)` 가 차량 부피를 벗어난 몸을 `rideRelease(e, true)` 로 내리면서 그 순간의 차량
   속도(XZ)를 `Enemy.rideInertia` · `rideInertiaT` 에 넘기고, 타고 있지 않은 프레임마다 위치에만 더하며 지수 감쇠시킨다 —
   **플레이어와 같은 `RIDE_INERTIA_S` · `RIDE_INERTIA_DAMP`, 같은 식**(`PlayerController.applyRideInertia`)이고 `velocity` 는
@@ -983,9 +1017,10 @@ attack phase 4  0.25 s 회복 → chase
   분대 킬을 센다 (meta/ 가 계약 분대 몫을 여기서 센다). `enemy:killed`(= 내 킬)의 뜻은 그대로. ② **셈하지 않는 죽음은 킬러도 없다**:
   `kill(false)`(독성 벌레 자폭 · `killAll`)는 `ee kill.killer = null` — `lastDamager` 기본값이 `'local'` 이라 지금까지 "호스트가 죽였다" 로
   나갔다. ③ `EnemySystem` 의 `ee` 는 **로비 호스트에게서만** 받는다(로비 없음 = 하네스, 통과). ④ `onHitRequest`: `p`/`d` 튜플 검사 +
-  **보낸 사람별 DPS 버킷**(`HIT_REQUEST_DPS_MAX` 5000/s × `HIT_REQUEST_BURST_S` 2, 벽시계 — 넘치면 깎고 0.5 미만이면 버린다; explode 요청은
-  세지 않는다) + **X-6 넉백 기하**: 보낸 사람 스냅샷과 적의 수평 거리 ≤ 배리어 오프셋 + 배쉬 사거리 × 1.5 + 방패 폭/2 + 적 반지름 +
-  `HIT_KNOCKBACK_RANGE_SLACK`. 디버그 카운터 `EnemySystem.hitGuardStats {trimmed, dropped, kbRefused}`. 검사: `scripts/smoke-trust.mjs` + `smoke-enemy-delta` 의 C-1 · X-6 절(가짜 보낸 사람에게 적 곁 몸을 주고, 몸 없는 보낸 사람은 거절되는지 1건 추가).
+  **보낸 사람별 DPS 버킷**(`HIT_REQUEST_DPS_MAX` 5000/s × `HIT_REQUEST_BURST_S` 2, 벽시계 — 넘치면 깎고 0.5 미만이면 버린다;
+  ~~explode 요청은 세지 않는다~~ → **2026-09-11 E-8 에서 explode 요청도 같은 버킷을 탄다**) + **X-6 넉백 기하**: 보낸 사람
+  스냅샷과 적의 수평 거리 ≤ 배리어 오프셋 + 배쉬 사거리 × 1.5 + 방패 폭/2 + 적 반지름 +
+  `HIT_KNOCKBACK_RANGE_SLACK`. 디버그 카운터 `EnemySystem.hitGuardStats {trimmed, dropped, kbRefused}`(E-8 에서 6개 추가). 검사: `scripts/smoke-trust.mjs` + `smoke-enemy-delta` 의 C-1 · X-6 절(가짜 보낸 사람에게 적 곁 몸을 주고, 몸 없는 보낸 사람은 거절되는지 1건 추가).
 
 - **2026-09-11 (C 배치 — 일반 적 C-1 · C-4 · C-14 · C-18 · C-23 · C-24 · C-25 · C-47 · C-48 · C-51, 에이전트 4)** — 위 *C 항목
   배치* 절. 새 파일 `ai/Ride.ts`. `Enemy` 필드 추가: `carrier` · `rideLocal` · `rideWorld` · `rideBlend` · `lastCarrier` ·

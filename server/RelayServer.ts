@@ -600,6 +600,37 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     if (any) rewatch(joiner);
   };
 
+  /* ── 2026-09-11 (B-11): 차단한 사이는 같은 분대에 서지 않는다 ─────────────────── */
+  /**
+   * true when the profile `owner` has blocked `other`. 차단 is kept **by 아이디**, so a profile without a social
+   * record (anonymous, or one that never connected with a token) can neither block nor be blocked.
+   */
+  const blocks = (owner: PeerId, other: PeerId): boolean => {
+    const code = store.card(other)?.code;
+    return code !== undefined && store.isBlocked(owner, code);
+  };
+
+  /**
+   * Why `joiner` must not be put into `lobby` because of a 차단, or null. **Direction decides the answer** (사용자 결정):
+   *
+   * - a member `joiner` has blocked → `'blocked'`: it is my own choice, so it is told plainly.
+   * - a member who has blocked `joiner` → `'not_found'`: a 차단 must never show through, and being indistinguishable
+   *   from a mistyped code is exactly the point (the invite path hides it the same way, `Invites.ts` `hidden`).
+   *
+   * My own direction wins when both are present — it is the one the player can act on. Callers ask this **before**
+   * the join really happens, so a refusal leaves no trace in the lobby.
+   */
+  const blockRefusal = (lobby: Lobby, joiner: PeerId): 'blocked' | 'not_found' | null => {
+    if (store.card(joiner) === null) return null;
+    let hidden = false;
+    for (const other of lobby.players.keys()) {
+      if (other === joiner) continue;
+      if (blocks(joiner, other)) return 'blocked';
+      if (blocks(other, joiner)) hidden = true;
+    }
+    return hidden ? 'not_found' : null;
+  };
+
   /* ── 2026-09-11 (B-3): 초대 표 — every invite closes exactly once, through `closeInvite`, which tells both sides ── */
   const inviteCode = (id: PeerId): PlayerCode => store.card(id)?.code ?? '';
   const inviteName = (id: PeerId): string => store.card(id)?.name ?? '';
@@ -875,7 +906,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
       case 'lobby:quickmatch': {
         c.name = sanitizePlayerName(m.name);
-        const res = lobbies.quickMatch(c.id, c.name);
+        /* B-11: a lobby holding a 차단 (either direction) is not a candidate — all filtered out → a new lobby. */
+        const res = lobbies.quickMatch(c.id, c.name, (l) => blockRefusal(l, c.id) === null);
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${res.lobby.code}: quickmatch ${res.created ? 'created (public)' : `joined (${res.lobby.size} players)`} by ${c.name}(${c.id})`);
         if (!res.created) recordMet(res.lobby, c.id);
@@ -889,6 +921,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const code = normalizeLobbyCode(m.code);
         if (!isValidLobbyCode(code)) { sendError(c, 'invalid', '잘못된 로비 코드입니다.'); return; }
         c.name = sanitizePlayerName(m.name);
+        /* B-11: 차단 is checked **before** `lobbies.join`, so a refusal never touches the lobby. */
+        const target = lobbies.byCode(code);
+        if (target && !lobbies.lobbyOf(c.id)) {
+          const refused = blockRefusal(target, c.id);
+          if (refused !== null) { sendError(c, refused); return; }
+        }
         const res = lobbies.join(c.id, code, c.name);
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${code}: ${c.name}(${c.id}) joined (${res.size} players)`);
@@ -1208,7 +1246,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (!target) { socialError(c, 'not_found'); return; }
         if (target.id === c.id) { socialError(c, 'self'); return; }
         /* B-4: nothing is offered toward someone I blocked (unblock first). */
-        if (store.isBlocked(c.id, target.code)) { socialError(c, 'invalid'); return; }
+        if (blocks(c.id, target.id)) { socialError(c, 'invalid'); return; }
         const mine = lobbies.lobbyOf(c.id);
         const theirs = lobbies.lobbyOf(target.id);
         const where = presenceOf(target.id);
@@ -1224,7 +1262,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
          * B-4: they blocked me. Moving into their ship is exactly what a block must prevent, and refusing would reveal
          * it — so it becomes an invite into my ship that they never see and that ends `expired` (branch ③, hidden).
          */
-        const blockedByThem = store.isBlocked(target.id, soc.code);
+        const blockedByThem = blocks(target.id, c.id);
         if (theirs && !blockedByThem) {
           /* ② they already have a ship: I move over — but only if I am not dragging a squad along. */
           if (mine && mine.size > 1) { socialError(c, 'busy'); return; }

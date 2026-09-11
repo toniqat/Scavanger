@@ -19,6 +19,7 @@ import {
 } from '@/shared';
 import {
   STRAT_COOLDOWN_SLACK_S, STRAT_MAX_CALL_RANGE, STRATAGEM_HOST_ONLY, type NetRef, type StratagemRequest,
+  type StratagemDenyReason,
 } from '@/shared';
 import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
@@ -55,6 +56,9 @@ export function ensureNetHooks(sys: StratagemSystem): void {
       } else if (msg.ev === 'sync') {
         if (!fromHost(net, from)) return;
         if (Array.isArray(msg.calls)) sys.applySync(msg.calls);
+      } else if (msg.ev === 'deny') {
+        // 2026-09-11 (E-8 c): 호스트가 내 호출을 거절했다 — 낙관적으로 돌던 공유 쿨타임을 되돌린다
+        onCallDenied(sys, msg.callId, msg.reason, from);
       }
     }),
     // Phase 9: the host is the late-join sync authority (calls stay client-simulated)
@@ -99,7 +103,7 @@ export function wallSeconds(): number { return performance.now() / 1000; }
  * member other than me, alive by its snapshot, aiming inside the map within `STRAT_MAX_CALL_RANGE` of that snapshot,
  * whose shared cooldown (`callerReadyAt`, minus `STRAT_COOLDOWN_SLACK_S`) has run out. Returns the refusal reason or null.
  */
-export function callRefusal(sys: StratagemSystem, from: PeerId, p: unknown): string | null {
+export function callRefusal(sys: StratagemSystem, from: PeerId, p: unknown): StratagemDenyReason | null {
   const ctx = sys.ctx;
   const net = ctx.net;
   if (!net || !net.isHost || !ctx.isMultiplayer) return 'not_host';
@@ -127,13 +131,29 @@ export function callRefusal(sys: StratagemSystem, from: PeerId, p: unknown): str
 export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemRequest, { ev: 'call' }>, from: PeerId): void {
   const net = sys.ctx.net;
   if (!net || !net.isHost) return;
-  const refuse = (why: string): void => { sys.lastCallRefusal = why; };
-  if (typeof msg.callId !== 'string' || msg.callId.length > 64 || !msg.callId.startsWith(`${from}-`) || sys.byId.has(msg.callId)) { refuse('callId'); return; }
+  /*
+   * 2026-09-11 (E-8 c): 거절은 더 이상 조용하지 않다 — 호출자는 요청을 보내기 **전에** 공유 쿨타임을 이미 돌렸으므로
+   * (`Targeting.confirm`) 되돌리라는 말을 들어야 한다. `sendDeny` 가 `strat deny` 를 그 사람에게만 보낸다.
+   */
+  const refuse = (why: StratagemDenyReason, callId?: string): void => {
+    sys.lastCallRefusal = why;
+    sys.lastDenySent = null;
+    if (callId !== undefined) sendCallDeny(sys, from, callId, why);
+  };
+  /*
+   * `callId` 의 모양 · 소유 검사만은 **답장하지 않는다** (판단 근거): `deny` 는 `callId` 로 주소를 삼고 받는 쪽은
+   * 자기 id 로 시작하는 것만 받아들이므로(`onCallDenied`), `from` 의 것이 아닌 id 를 돌려줘도 어차피 아무도
+   * 받아들일 수 없다 — 위조한 쪽에 그 문자열을 그대로 되울려 주는 것 말고는 얻는 것이 없다. 같은 이유로
+   * 문자열이 아니거나 64자를 넘는 id 도 답장 대상이 아니다. **중복 id 는 다르다** — 그 id 는 확실히 `from` 의
+   * 것이고 재전송 · id 충돌은 정상 클라이언트에서도 날 수 있으므로 답장한다.
+   */
+  if (typeof msg.callId !== 'string' || msg.callId.length > 64 || !msg.callId.startsWith(`${from}-`)) { refuse('callId'); return; }
+  if (sys.byId.has(msg.callId)) { refuse('callId', msg.callId); return; }
   const kind = msg.kind;
-  if (!isCallKind(kind) || !STRATAGEM_ORDER.includes(kind)) { refuse('kind'); return; }
-  if (STRATAGEM_HOST_ONLY.includes(kind)) { refuse('host_only'); return; }
+  if (!isCallKind(kind) || !STRATAGEM_ORDER.includes(kind)) { refuse('kind', msg.callId); return; }
+  if (STRATAGEM_HOST_ONLY.includes(kind)) { refuse('host_only', msg.callId); return; }
   const why = callRefusal(sys, from, msg.p);
-  if (why) { refuse(why); return; }
+  if (why) { refuse(why, msg.callId); return; }
   const def = defOf(kind);
   sys.callerReadyAt.set(from, wallSeconds() + def.cooldown);
   const w = sys.world()!;
@@ -141,8 +161,63 @@ export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemReques
   pos.y = w.getHeightAt(pos.x, pos.z);
   const seed = Number(msg.seed) >>> 0;
   sys.lastCallRefusal = null;
+  sys.lastDenySent = null;
   sys.createCall(kind, pos, def.delay, seed, false, msg.callId, from);
   net.send({ t: 'strat', ev: 'call', callId: msg.callId, kind, p: toTuple(pos), eta: def.delay, seed, by: from }, 'others');
+}
+
+/* ─────────────────────────── E-8 (c): 거절 통보 · 쿨타임 환불 (2026-09-11) ─────────────────────────── */
+
+/**
+ * 사유별 한국어 문구. **계약이 아니다** — `Rescue.DENY_KO` 와 같이 이 폴더가 갖는다(`shared` 에는 코드만 있다).
+ * 플레이어가 손쓸 수 있는 사유만 구체적으로 적고, 나머지(위조 · 프로토콜 문제 — `callId` · `kind` · `not_host` ·
+ * `self` · `point`)는 공통 문구로 접는다. 정상 클라이언트에서는 그 다섯이 나올 일이 없다.
+ */
+const CALL_DENY_KO: Readonly<Partial<Record<StratagemDenyReason, string>>> = {
+  host_only: '분대장만 쓸 수 있습니다',
+  cooldown: '함선 호출 재충전 중입니다',
+  range: '호출 지점이 너무 멉니다',
+  bounds: '지도 밖에는 호출할 수 없습니다',
+  phase: '지금은 함선을 호출할 수 없습니다',
+  member: '분대원을 찾을 수 없습니다',
+  caller: '호출할 수 없는 상태입니다',
+};
+const CALL_DENY_FALLBACK = '분대장이 호출을 거절했습니다';
+
+/**
+ * 구조선 요청(`rescue req`)에는 `callId` 가 없다 — 거절을 주소로 삼을 id 를 요청자 것으로 만든다.
+ * `<요청자>-` 접두어라 받는 쪽의 소유 검사(`onCallDenied`)를 그대로 통과한다.
+ */
+export function rescueDenyId(to: PeerId): string { return `${to}-rescue`; }
+
+/** 호스트 → 거절당한 한 사람. 보낸 사유를 `lastDenySent` 에 남긴다 (디버그 · 스모크). */
+export function sendCallDeny(sys: StratagemSystem, to: PeerId, callId: string, reason: StratagemDenyReason): void {
+  const net = sys.ctx.net;
+  if (!net || !sys.ctx.isMultiplayer) return;
+  sys.lastDenySent = reason;
+  net.send({ t: 'strat', ev: 'deny', callId, reason }, to);
+}
+
+/**
+ * `strat deny` 수신. 받아들이는 조건은 **둘 다** 여야 한다 — ① 로비 호스트가 보냈다(`fromHost`),
+ * ② `callId` 가 내가 보낸 것이다(`<나>-…`, 호스트의 `onCallRequest` 가 쓰는 바로 그 소유 규약).
+ * 그래서 남이 내 쿨타임을 되돌릴 수 없다. 통과하면 **전액 환불** + 거부음 + 사유 토스트.
+ */
+export function onCallDenied(sys: StratagemSystem, callId: unknown, reason: unknown, from: PeerId): void {
+  const net = sys.ctx.net;
+  if (!net || !fromHost(net, from)) return;
+  const me = net.localId;
+  if (!me || typeof callId !== 'string' || !callId.startsWith(`${me}-`)) return;
+  const why = (typeof reason === 'string' ? reason : 'kind') as StratagemDenyReason;
+  sys.lastCallDeny = why;
+  sys.refundCooldown();
+  showCallDeny(sys, why);
+}
+
+/** 거부음 + 사유 토스트 하나 (`Rescue.showDeny` 와 같은 꼴). */
+export function showCallDeny(sys: StratagemSystem, reason: StratagemDenyReason): void {
+  sys.audio('ui_deny', undefined, 0.6);
+  sys.ctx.bus.emit('ui:notify', { text: CALL_DENY_KO[reason] ?? CALL_DENY_FALLBACK, kind: 'warning', duration: 2 });
 }
 
 /** Every live call as `StratagemCallWire` (`eta` relative to now, `st` = damaged structures only). */

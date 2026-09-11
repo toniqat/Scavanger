@@ -131,8 +131,22 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /**
    * 2026-09-11 (E-4 · X-6) debug counters of the host's request guards (`parts/Damage.onHitRequest`): hits trimmed /
    * dropped by the per-sender DPS budget, knockback requests refused for a sender too far from the enemy.
+   *
+   * appended 2026-09-11 (E-8, `parts/Damage.onExplodeRequest` · the `st` guard) — **the only way a smoke can see a
+   * refusal**, since a refused request simply does nothing:
+   *   `explodeShape`  `explode` dropped on shape (`p` not a finite tuple, `r` / `dmg` non-finite or out of bounds)
+   *   `explodeSender` `explode` dropped because `from` has no live snapshot on this host
+   *   `explodeRange`  `explode` dropped because the sender stood farther than `EXPLODE_SOURCE_REACH` from the blast
+   *   `statusBits`    `HitRequest.st` carried **only** bits outside `ENEMY_STATUS_BITS` (the status half was skipped)
+   *   `statusRange`   `st` skipped: the sender has no snapshot / stood farther than `STATUS_SOURCE_REACH` from the enemy
+   *   `statusRate`    `st` skipped: the sender's per-second status budget ran out
+   * An over-budget `explode` shares `trimmed` / `dropped` with `hit` — it spends the **same** bucket on purpose.
    */
-  readonly hitGuardStats = { trimmed: 0, dropped: 0, kbRefused: 0 };
+  readonly hitGuardStats = {
+    trimmed: 0, dropped: 0, kbRefused: 0,
+    explodeShape: 0, explodeSender: 0, explodeRange: 0,
+    statusBits: 0, statusRange: 0, statusRate: 0,
+  };
   /** Debug: where the last rogue grenade went off. */
   readonly lastGrenadeBlast = new THREE.Vector3();
   private readonly unsub: Array<() => void> = [];

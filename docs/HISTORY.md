@@ -46,6 +46,60 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-11 (20차: E-8 · E-9 · B-11 · B-12 — 16차 배치가 남긴 네 틈, 묶음 3 을 닫는다):
+
+  설계안 [plans/net-trust-gaps.md](plans/net-trust-gaps.md). 사용자가 `AskUserQuestion` 으로 7건을 골랐고 **전부 권장안**이었다 —
+  explode 는 `kind` 없이 좌표 · 보낸 사람 · 요율까지, `st` 는 DoT 선차감 없이 전용 버킷만, 거절은 환불 + 토스트,
+  판매는 `round` → `floor`(0 C 도 그대로 판다), join 차단은 방향별로, 산출물은 설계안 + 바로 구현. 순서: ① 조사 에이전트 3개로
+  코드와 대조 → ② 설계안 → ③ **리드 계약**(`shared/net.ts` · `shared/events.ts` · `shared/constants.ts` · `shared/credits.ts` ·
+  `shared/meta.ts` · `data/constants.csv`) → ④ **에이전트 5개 병렬**(enemies · stratagems · server · ui+hub · meta) → ⑤ 리드 통합.
+  같은 트리에서 **19차가 동시에 돌고 있었다**(C-67 · C-69 · C-70 · C-72) — `src/enemies/EnemySystem.ts` 는 두 배치의 헝크가
+  한 파일에 들어갔다.
+
+  - **E-8 (a) `explode`** — TODO 문구보다 나빴다: 좌표 검증이 없어(`hit` 은 `isVec3Tuple` 을 한다) `NaN` 이 그대로 들어갔고,
+    보낸 사람 검증도 요율 제한도 없어 **500 피해 × 반경 20 을 프레임마다 무제한** 보낼 수 있었으며 킬 크레딧은 전부 요청자에게
+    갔다. `parts/Damage.onExplodeRequest` 가 `buffRules` 와 같은 순서로 네 겹을 지난다 — 모양 → 보낸 사람 → 거리
+    (`STRAT_MAX_CALL_RANGE + EXPLODE_REQUEST_RANGE_SLACK` = 190 m, 폭발원 중 가장 먼 것이 함선 호출 낙하물이라) → `spendHitBudget`
+    (**`hit` 과 같은 버킷** — 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다). **리드가 뒤집은 것 하나**: 에이전트가 계약대로
+    `isDead` 를 거절에 넣었는데, 수류탄 신관(1.5–3 s) · 호출 `eta` 안에 던진 사람이 죽는 것은 흔하고 정상이라 **정당한 킬이
+    조용히 사라진다**. 죽은 보낸 사람은 받아들이고 계약 주석도 고쳤다 — 시체가 낼 수 없는 요청(`kb` = 실드 배쉬)만 `isDead` 로 거른다.
+  - **E-8 (b) `st`** — `const st = msg.st ?? 0` 이 전부였다. 거리 무관하게 아무 적이나 `INCINERATED` 10초(이동 · 공격 불가)를
+    걸 수 있었고 스로틀은 **보내는 쪽에만** 있었다. 이제 `ENEMY_STATUS_BITS_ALL` 마스크 → 사거리(`max(FLAME_RANGE, SHOCK_RANGE)`
+    + slack + **적 반지름** — 두 원뿔이 `dist > range + e.radius` 로 몸 표면을 재므로 없으면 베헤모스에 정당한 화염이 거절된다)
+    → 전용 건수 버킷. **DoT 선차감은 하지 않는다**(사용자 결정 — 사거리가 이미 원격 남발을 막고, 선차감하면 여러 마리를 태우는
+    정당한 화염방사기 플레이가 깎인다). 착수 전 실측으로 확인한 것: 소이 구역(`gadgets`)은 `GadgetSystem.update` 의
+    `if (authority)` 안에서만 도므로 와이어를 타지 않는다 — 그래서 reach 를 넓힐 필요가 없었다.
+  - **E-8 (c) 거절된 함선 호출** — `Targeting.confirm` 이 요청을 보내기 **전** 쿨타임을 돌리고 호스트의 거절은
+    `lastCallRefusal` 에 기록만 됐다(읽는 곳은 스모크 하나). 구조선 `deny` 선례 그대로 `strat ev:'deny'` 를 더하고
+    `StratagemSystem.refundCooldown()` 으로 **전액** 환불한다. 받아들이는 조건은 둘 다 — 호스트가 보냈고 `callId` 가 내 것.
+    위조 `callId` 에는 **답장하지 않는다**(그 id 를 받아들일 수 있는 사람이 없어 공격자 문자열을 되울리기만 한다).
+    구조선도 `cooldown` 만 알리던 반쪽을 전부로 통일했다. 리드가 더한 계약 한 칸: `stratagem:cooldown.refunded` —
+    없으면 「거절」 옆에 「함선 호출 준비 완료」가 같이 뜬다.
+  - **E-9 판매 반올림** — 원인은 "가치 1" 이 아니라 **`value × 0.5` 가 정수가 아닌 모든 홀수 value** 였다. 반올림이 `qty` 를
+    곱한 **뒤** 일어나 경량탄(value 1 · 80발)은 묶음 `round(40)=40 C` 대 낱개 `round(0.5)=1 × 80 = 80 C` 로 **2배**였고,
+    서버는 막을 수 없었다(낱개 거래 하나하나가 자기 상한과 정확히 같아 정당했다). `floor` 로 통일하니 분할이 **항상** 손해다.
+    같은 수식이 `shared/meta` 와 `shared/credits` **두 파일에 복사**돼 있던 것도 같이 합쳤다 — 원본은 `credits.ts` 다(릴레이가
+    그것을 import 하고 csv 로더를 못 쓴다). 값이 바뀌는 것은 191개 중 홀수 value 23개의 낱개 판매가뿐이고 0 C 가 되는 것은
+    탄약 3종. **0 C 도 그대로 판다**(사용자 결정) — 막고 있던 곳은 서버가 아니라 `CorpView.stageSell` 의 `price <= 0` 이었다.
+    `Trade.sell` 의 `price <= 0 → continue` 는 방어선이었다가 **동작을 떠받치는 줄**이 됐다(보냈으면 `0 < delta` 에 걸려
+    거절 → `restoreSold` 가 "팔았는데 안 팔림" 을 만든다). 파급 조사에서 깨진 곳 2개를 찾아 고쳤다 —
+    `e2e-multiplayer.mjs` 의 하드코딩 `sell:ammo_light:1`(상한이 0 이 되어 단언이 빨개진다)과 위 UI. `economy.gen.json` 은
+    다시 굽지 않는다(표에는 수치만, 수식은 코드 — `data:check` 통과가 곧 증명). **아이템 소유 검증은 하지 않는다** —
+    창고 · 가방이 불투명 blob 이라 서버에 판별 정보가 없고 고치려면 서버 권위 인벤토리(페이즈 규모)라 `참고` 절로 내렸다.
+  - **B-11 차단의 남은 틈** — ① `TypingBubbles` 가 `PlayerFlags.TYPING` 만 보고 차단을 몰랐다. `ChatLog` 의 3줄을
+    `menus/social/socialSource.isPeerBlocked` 로 뽑아 둘이 같이 쓴다(`src/ui` 안 — 소비자가 둘 다 이 폴더다). 이름표 · 핑 ·
+    월드 마커는 그대로다(분대원의 위치는 게임플레이 정보이고, `ChatLog` 가 `ping`/`request` 줄을 남긴 것과 같은 선).
+    ② `lobby:join` 에 차단 검사가 **한 줄도 없었다**(`quickmatch` 도). `blockRefusal(lobby, joiner)` 한 헬퍼가 **방향별로**
+    가른다 — 내가 차단한 사람이 있으면 `blocked`(내 선택이니 정직하게), 나를 차단한 사람이 있으면 `not_found`(위장 —
+    코드 오타와 구별되지 않는 것이 노림수). 검사는 `lobbies.join` **앞**이라 실패가 로비 상태를 건드리지 않고, quickmatch 는
+    거절 대신 **후보에서 건너뛴다**. `social:play` 의 기존 두 검사도 같은 헬퍼로 정리(동작 불변). selftest **+7 → 480/480**.
+  - **B-12 합류 알림 두 줄** — 두 줄이 **같은 `net:peerJoined`** 에 반응하고 hub 쪽은 `ui:notify` 로 **같은 토스트 스택에
+    다시** 들어가고 있었다. `HubSystem` 의 두 줄(합류 · **이탈** — TODO 에는 합류만 적혀 있었지만 대칭 버그였다)을 지웠다.
+    반대로 지우면 안 된다 — `Notifications:158` 이 "합류 줄이 이미 뜬다" 를 근거로 초대 수락 토스트를 지웠으므로 `:83` 이
+    초대 수락의 **유일한** 알림이다. 그 주석도 "세 번째 줄" → "두 번째 줄" 로 정정했다.
+  - **리드가 고친 에이전트 산출물 둘** — 위 `isDead`, 그리고 csv 상수 넷의 집: 에이전트는 `src/shared` 를 못 건드려
+    `enemies/EnemyTypes.ts` 에 csv 로더를 하나 더 두었는데, 다른 가드 상수들과 같이 `shared/constants.ts` 로 옮겼다.
+
 - 2026-09-11 (18차: C-68 · C-71 — 검증 안정화 두 줄):
 
   - **C-68** `server/selftest.ts` part 7 의 `debounced write happened once` 가 고정 80 ms sleep 으로 **비동기 디스크 쓰기**를 기다리고 있었다 —

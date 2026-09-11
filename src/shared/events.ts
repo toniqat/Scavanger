@@ -292,8 +292,14 @@ export interface GameEvents {
   'stratagem:landed': { callId: string; kind: StratagemId; position: THREE.Vector3 };
   /** Effect finished (beam off / crate looted or expired / structures all destroyed is NOT this — see structure:destroyed). */
   'stratagem:ended': { callId: string; kind: StratagemId };
-  /** Shared cooldown (seconds left, total). Emitted on start, every ~0.5 s and at 0. */
-  'stratagem:cooldown': { remaining: number; total: number };
+  /**
+   * Shared cooldown (seconds left, total). Emitted on start, every ~0.5 s and at 0.
+   *
+   * `refunded` (appended 2026-09-11, E-8): this 0 is `StratagemSystem.refundCooldown` giving the cooldown back
+   * because the host **refused** the call (`strat deny`) — not a cooldown that actually ran out. The HUD gauge
+   * reads it the same either way; the toast must not, or a refusal shows 「거절」 and 「준비 완료」 side by side.
+   */
+  'stratagem:cooldown': { remaining: number; total: number; refunded?: boolean };
   /** A dropped cover structure took damage / was destroyed. */
   'structure:damaged': { id: string; hp: number; maxHp: number; position: THREE.Vector3 };
   'structure:destroyed': { id: string; position: THREE.Vector3 };

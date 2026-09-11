@@ -160,7 +160,14 @@ export type LobbyErrorCode =
   | 'no_planet'     // lobby:start of a raid while the lobby has no 목표 행성
   /* appended (2026-09-11, C-29): server console */
   | 'kicked'        // the operator ran `kick <id>` — socket closed right after, no 재접속 유예 (clients stop reconnecting)
-  | 'server_full';  // over the operator's `max <n>` — socket closed; a lobby member reconnecting inside its grace is exempt
+  | 'server_full'   // over the operator's `max <n>` — socket closed; a lobby member reconnecting inside its grace is exempt
+  /**
+   * appended (2026-09-11, B-11): `lobby:join` / `social:play` into a lobby holding someone **I** blocked.
+   * The mirror direction — a member who blocked *me* — is answered `not_found` on purpose, so a block never
+   * shows through (the invite path hides it the same way, `server/Invites.ts` `hidden`). Only this direction,
+   * my own choice, is told plainly.
+   */
+  | 'blocked';
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -431,7 +438,27 @@ export type StratagemMessage =
   | { t: 'strat'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; eta: number; seed: number; by?: PeerId }
   | { t: 'strat'; ev: 'structHp'; callId: string; index: number; hp: number }
   /* appended (Phase 9): late-join sync — the host answers `stratq sync` / `flow rejoined` with every live call it knows. */
-  | { t: 'strat'; ev: 'sync'; calls: StratagemCallWire[] };
+  | { t: 'strat'; ev: 'sync'; calls: StratagemCallWire[] }
+  /**
+   * appended (2026-09-11, E-8): host → the one caller whose `stratq call` it refused. Until now a refusal was
+   * silent and the caller's shared cooldown — started optimistically in `Targeting.confirm` before the request
+   * goes out — simply burned. The caller now refunds it (`StratagemSystem.refundCooldown`) and shows why.
+   * Accepted only when it comes `from === lobby.hostId` **and** `callId` is one this client sent (`callId`
+   * starts with the local peer id, the same ownership rule the host checks in `Wire.onCallRequest`), so nobody
+   * can rewind someone else's cooldown. The Korean wording is **not** contract — `stratagems/` owns it, the way
+   * `Rescue.DENY_KO` owns the rescue wording.
+   */
+  | { t: 'strat'; ev: 'deny'; callId: string; reason: StratagemDenyReason };
+
+/**
+ * Why the host refused a `stratq call` (2026-09-11, E-8). The first three are the request's own shape, the rest
+ * are `callRefusal`'s: `self` = the caller is the host, `phase` = no raid running, `member` = not in this lobby,
+ * `point` = the target is not a finite ground point, `bounds` = outside the map, `caller` = no snapshot for the
+ * caller, `range` = farther than `STRAT_MAX_CALL_RANGE`, `cooldown` = the caller's shared cooldown has not run out.
+ */
+export type StratagemDenyReason =
+  | 'callId' | 'kind' | 'host_only'
+  | 'not_host' | 'self' | 'phase' | 'member' | 'point' | 'bounds' | 'caller' | 'range' | 'cooldown';
 /**
  * One live ship call for a late joiner. `eta` = seconds until it lands (≤ 0 = already landed: the receiver back-dates
  * `landsAt` and lets its own update fast-forward the landing, registering structures / the supply crate at once);
@@ -461,14 +488,34 @@ export interface HitRequest {
    * replica's `pushBack` (실드 배쉬) with `dmg: 0`; the host skips a charging behemoth exactly like its own pushBack.
    * The host clamps the speed (`MAX_REQUEST_KNOCKBACK`) and, since 2026-09-11 (E-4 ⑤), refuses it unless the sender's
    * snapshot stands within the bash's reach of the enemy (+ `HIT_KNOCKBACK_RANGE_SLACK`); `dmg` passes a per-sender DPS
-   * budget (`HIT_REQUEST_DPS_MAX`). `st` is still trusted (duration-capped only).
+   * budget (`HIT_REQUEST_DPS_MAX`).
+   *
+   * `st` was trusted (duration-capped only) until 2026-09-11 (E-8): the host now masks it to the known
+   * `ENEMY_STATUS_BITS`, refuses it unless the sender's snapshot stands within the longest status-capable reach
+   * (`max(FLAME_RANGE, SHOCK_RANGE)` + `STATUS_REQUEST_RANGE_SLACK`) of the enemy, and rate-limits it per sender
+   * (`STATUS_REQUEST_RATE_MAX` / `STATUS_REQUEST_BURST_S`). The burn DoT the host then ticks is deliberately **not**
+   * pre-charged against the DPS budget — the reach check already bounds it, and charging it would trim legitimate
+   * flamethrower play across many targets.
    */
   kb?: number;
 }
 
 /** Enemy status bits on the wire (`EnemyWire.sb`, `HitRequest.st`). */
 export const ENEMY_STATUS_BITS = { BURNING: 1 << 0, SLOWED: 1 << 1, INCINERATED: 1 << 2, SHOCKED: 1 << 3 } as const;
-/** Client → host: explosion at `p` radius `r` damage `dmg` (grenade). Owner: enemies (replica applyExplosion). */
+/**
+ * Client → host: explosion at `p` radius `r` damage `dmg` (grenade). Owner: enemies (replica applyExplosion).
+ *
+ * The host's checks (2026-09-11, E-8 — before this it took any `p` at all, from anyone, at any rate): `p` must be a
+ * finite `Vec3Tuple`, `0 < dmg ≤ MAX_REQUEST_DAMAGE`, `0 < r ≤ MAX_REQUEST_RADIUS`, the sender must be a lobby member
+ * whose snapshot stands within `STRAT_MAX_CALL_RANGE + EXPLODE_REQUEST_RANGE_SLACK` of `p` (the widest legitimate
+ * source is a ship call's impact, which lands that far from where its caller stood), and `dmg` is spent
+ * from the **same** per-sender budget as `HitRequest.dmg` (`HIT_REQUEST_DPS_MAX`) — separate buckets would let the
+ * two paths alternate for twice the total. There is no `kind` on the wire: the caps stay blanket ones.
+ *
+ * A **dead** sender is accepted on purpose — a thrown explosive outlives its thrower (a grenade fuse, a call's `eta`),
+ * so refusing a corpse's request would delete legitimate kills. `HitRequest.kb` does refuse one, because a shield bash
+ * from a corpse is not a thing that can happen.
+ */
 export interface ExplodeRequest { t: 'explode'; p: Vec3Tuple; r: number; dmg: number }
 /** Host → shooter: confirmation of a HitRequest (hitmarker / kill credit). */
 export interface HitConfirm { t: 'hitc'; id: number; dmg: number; killed: boolean; part: 'head' | 'body' | 'rear' | 'front' }

@@ -39,6 +39,8 @@ import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { namedBodyCenterY } from '../models/named';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_KNOCKBACK, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+// 2026-09-11 (E-8): 요청 가드의 상한 — 전부 `data/constants.csv` 에서 온다 (`../model` 이 읽는 자리)
+import { ENEMY_STATUS_BITS_ALL, EXPLODE_SOURCE_REACH, STATUS_REQUEST_BURST_S, STATUS_REQUEST_RATE_MAX, STATUS_SOURCE_REACH } from '../model';
 import { hurtSound, meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 import {
@@ -96,6 +98,15 @@ export function explode(sys: EnemySystem, center: THREE.Vector3, radius: number,
   return kills;
   }
 
+/**
+ * 2026-09-11 (E-8): the replica branch drops `by` because `ExplodeRequest` has no owner field — and it may, because the
+ * host credits the relay `from`, which **is** the owner on every path that reaches this branch. Measured: the two
+ * `applyAreaDamage` callers that can run outside the authority are the AT 런처 (`implants/parts/Devices.ts` — passes
+ * `ctx.net?.localId`, i.e. this client) and `gadgets.damageEnemies`; the gadget callers (지뢰 `explodeMine`, 원격 지뢰
+ * `detonateWhere`, 포탑, 화염지대) are all reached only from `GadgetSystem.update`'s `if (authority)` branch, so on a
+ * replica they never fire at all. `by` and the wire's `from` therefore name the same peer wherever it matters; when a
+ * caller one day passes **someone else's** id from a replica, this comment is the reason it would be mis-credited.
+ */
 export function applyAreaDamage(sys: EnemySystem, center: THREE.Vector3, radius: number, damage: number, by?: string): number {
   if (sys.replica) return sys.applyExplosion(center, radius, damage);
   return sys.explode(center, radius, damage, by === undefined ? 'local' : sys.normalizeAttacker(by), null, null);
@@ -154,13 +165,19 @@ export function normalizeAttacker(sys: EnemySystem, by: string): TargetId {
  * of `kb` m/s along `d`, falloff already applied by the sender). Knockback skips a charging behemoth / charger exactly
  * like the host's own `pushBack` and is clamped to `MAX_REQUEST_KNOCKBACK`.
  * 2026-09-11 (E-4 · X-6): `dmg` passes the sender's DPS budget (`spendHitBudget`) and `kb` is only applied when the sender's
- * snapshot stands within the bash's reach of the enemy (`knockbackInReach`). `st` is still trusted (duration-capped only).
+ * snapshot stands within the bash's reach of the enemy (`knockbackInReach`).
+ * 2026-09-11 (E-8): `st` is no longer trusted either — it is masked to `ENEMY_STATUS_BITS_ALL`, refused unless the
+ * sender's snapshot stands within `STATUS_SOURCE_REACH` of the enemy, and rate-limited per sender
+ * (`spendStatusBudget`). Each check only skips the **status** half; the damage half is unaffected.
  */
 export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): void {
   if (!sys.hosting) return;
   const { id, p, d } = msg;
   let dmg = msg.dmg;
-  const st = msg.st ?? 0;
+  // ① 비트 마스크 — 모르는 비트는 여기서 사라진다 (전부 모르는 비트였으면 상태이상 부분은 통째로 건너뛴다)
+  const rawSt = msg.st ?? 0;
+  const st = Number.isFinite(rawSt) ? rawSt & ENEMY_STATUS_BITS_ALL : 0;
+  if (rawSt !== 0 && st === 0) sys.hitGuardStats.statusBits++;
   const kb = typeof msg.kb === 'number' && Number.isFinite(msg.kb) && msg.kb > 0 ? Math.min(msg.kb, MAX_REQUEST_KNOCKBACK) : 0;
   if (!(dmg >= 0) || dmg > MAX_REQUEST_DAMAGE) return;
   if (dmg <= 0 && st === 0 && kb === 0) return;
@@ -178,7 +195,8 @@ export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): v
     e.takeDamage(dmg, _hp, dir, from);
     sys.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
   }
-  if (st !== 0 && !e.isDead) sys.applyStatusBits(e, st, msg.dur, from);
+  // ②③ 거리 · 요율 — 둘 다 상태이상 부분만 버린다 (위의 피해 · 아래의 넉백은 그대로다)
+  if (st !== 0 && !e.isDead && statusInReach(sys, e, from) && spendStatusBudget(sys, from)) sys.applyStatusBits(e, st, msg.dur, from);
   if (kb > 0 && e.isCombatant && e.chargePhase !== 2 && Number.isFinite(d[0]) && Number.isFinite(d[2]) && knockbackInReach(sys, e, from)) {
     _kb.set(d[0], 0, d[2]);
     if (_kb.lengthSq() > 1e-4) e.velocity.addScaledVector(_kb.normalize(), kb);
@@ -223,12 +241,96 @@ function knockbackInReach(sys: EnemySystem, e: Enemy, from: string): boolean {
   return false;
 }
 
+/* ── 2026-09-11 (E-8): 상태이상 요청 (`HitRequest.st`) ────────────────────── */
+/**
+ * ② The sender's last snapshot must stand within `STATUS_SOURCE_REACH` (horizontal) of the enemy, **plus the enemy's
+ * radius** — both cones measure to the body surface, not the centre (`weapons/unique/UniqueHandler.coneTargets`:
+ * `dist > range + e.radius`), so without it a legitimate flame on a behemoth would be refused.
+ *
+ * The only things that put a status on an enemy are the 화염방사기 (`FLAME_RANGE`) and the 쇼크건 (`SHOCK_RANGE`), both
+ * short-ranged. 소이 구역(`gadgets`) also calls `applyStatus`, but it is simulated by the **authority alone**
+ * (`GadgetSystem.update` → `if (authority) simulate(…)` → `updateFireZone`), so on a replica it never runs and never
+ * becomes a wire request — measured before this check went in, because an owner standing far from his own fire zone
+ * would otherwise have been refused.
+ */
+function statusInReach(sys: EnemySystem, e: Enemy, from: string): boolean {
+  const ref = sys.ctx.net?.getRemotePlayer(from as PeerId);
+  if (!ref || ref.isDead) { sys.hitGuardStats.statusRange++; return false; }
+  const reach = STATUS_SOURCE_REACH + e.stats.radius;
+  const dx = e.position.x - ref.position.x, dz = e.position.z - ref.position.z;
+  if (dx * dx + dz * dz <= reach * reach) return true;
+  sys.hitGuardStats.statusRange++;
+  return false;
+}
+
+/** Per-host, per-sender **count** buckets for status requests — a separate bucket from `HIT_BUDGET` (different unit). */
+const STATUS_BUDGET = new WeakMap<EnemySystem, Map<string, { tokens: number; at: number }>>();
+
+/**
+ * ③ One token per status request, refilled at `STATUS_REQUEST_RATE_MAX`/s with a `STATUS_REQUEST_BURST_S` bucket (wall
+ * clock, like `spendHitBudget`). The legitimate senders are already throttled per enemy (`STATUS_REQUEST_INTERVAL`
+ * 0.25 s), so a flamethrower sweeping 12 targets costs 48/s. Over budget = the status is dropped (the hit's damage is
+ * not — that has its own budget). Deliberately **not** charging the burn DoT's damage to the DPS bucket: the reach
+ * check already bounds it and pre-charging would trim legitimate multi-target flame play (사용자 결정, 설계안 §2).
+ */
+function spendStatusBudget(sys: EnemySystem, from: string): boolean {
+  let map = STATUS_BUDGET.get(sys);
+  if (!map) { map = new Map(); STATUS_BUDGET.set(sys, map); }
+  const now = performance.now() / 1000;
+  const cap = STATUS_REQUEST_RATE_MAX * STATUS_REQUEST_BURST_S;
+  let b = map.get(from);
+  if (!b) { b = { tokens: cap, at: now }; map.set(from, b); }
+  b.tokens = Math.min(cap, b.tokens + Math.max(0, now - b.at) * STATUS_REQUEST_RATE_MAX);
+  b.at = now;
+  if (b.tokens < 1) { sys.hitGuardStats.statusRate++; return false; }
+  b.tokens -= 1;
+  return true;
+}
+
+/* ── 2026-09-11 (E-8): 폭발 요청 (`ExplodeRequest`) ──────────────────────── */
+/**
+ * ②③ The sender must be a live peer whose last snapshot stands within `EXPLODE_SOURCE_REACH` (horizontal) of the
+ * blast centre — `STRAT_MAX_CALL_RANGE` because the farthest legitimate explosion is a ship call's impact, plus
+ * `EXPLODE_REQUEST_RANGE_SLACK` for how far the caller can run while it falls. Grenades, the bazooka and the AT
+ * launcher are all far shorter, so the one cap covers them (`knockbackInReach` is the same adapter for `kb`).
+ *
+ * ⚠ A **dead** sender is accepted here, unlike `knockbackInReach` (리드 통합, 2026-09-11): explosions travel, so the
+ * thrower routinely dies inside a grenade's 1.5–3 s fuse or a ship call's `eta`, and refusing those would quietly
+ * delete a common, entirely legitimate kill. A shield bash from a corpse is nonsense; a grenade from one is not.
+ * The corpse's frozen snapshot is still a sound anchor — you die near where you threw — and the distance check plus
+ * the shared DPS budget below already bound what a forged request can do.
+ */
+function explodeInReach(sys: EnemySystem, x: number, z: number, from: string): boolean {
+  const ref = sys.ctx.net?.getRemotePlayer(from as PeerId);
+  if (!ref) { sys.hitGuardStats.explodeSender++; return false; }
+  const dx = x - ref.position.x, dz = z - ref.position.z;
+  if (dx * dx + dz * dz <= EXPLODE_SOURCE_REACH * EXPLODE_SOURCE_REACH) return true;
+  sys.hitGuardStats.explodeRange++;
+  return false;
+}
+
+/**
+ * Host: a replica's `applyExplosion` (수류탄 · 바주카 · AT 런처 · 가젯 · 함선 호출 낙하). Until 2026-09-11 (E-8) this
+ * took **any** `p` from **anyone** at **any** rate; now, in order (`shared/buffRules.createBuffGuard` 와 같은 순서):
+ *
+ *   ① 모양      `isVec3Tuple(p)` · `r` · `dmg` 유한 · `0 < dmg ≤ MAX_REQUEST_DAMAGE` · `0 < r ≤ MAX_REQUEST_RADIUS`
+ *   ② 보낸 사람  `getRemotePlayer(from)` 스냅샷이 있다 (죽어 있어도 받는다 — 위 `explodeInReach` 주석)
+ *   ③ 거리      보낸 사람 스냅샷과 폭심의 수평 거리 ≤ `EXPLODE_SOURCE_REACH`
+ *   ④ 요율      `spendHitBudget` — `hit` 과 **같은** 버킷이다 (따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다).
+ *                깎이면 깎인 값으로 터뜨리고, 0 이면 버린다.
+ *
+ * 반경 · `kind` 는 여전히 뭉뚱그린 상한뿐이다 — 와이어에 종류 칸이 없다(계약 그대로).
+ */
 export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: number, dmg: number, from: string): void {
   if (!sys.hosting) return;
-  if (!(dmg > 0) || dmg > MAX_REQUEST_DAMAGE || !(r > 0) || r > MAX_REQUEST_RADIUS) return;
+  if (!isVec3Tuple(p) || !Number.isFinite(r) || !Number.isFinite(dmg)) { sys.hitGuardStats.explodeShape++; return; }
+  if (!(dmg > 0) || dmg > MAX_REQUEST_DAMAGE || !(r > 0) || r > MAX_REQUEST_RADIUS) { sys.hitGuardStats.explodeShape++; return; }
+  if (!explodeInReach(sys, p[0], p[2], from)) return;
+  const use = spendHitBudget(sys, from, dmg);
+  if (!(use > 0)) return;
   _c.set(p[0], p[1], p[2]);
   killedBuf.length = 0;
-  sys.explode(_c, r, dmg, from, killedBuf, null);
+  sys.explode(_c, r, use, from, killedBuf, null);
   const net = sys.ctx.net!;
   for (let i = 0; i < killedBuf.length; i++) {
     const e = killedBuf[i];

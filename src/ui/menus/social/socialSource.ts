@@ -1,5 +1,5 @@
 import type {
-  GameContext, PlayBlock, PlayerCode, SocialCard, SocialPlayer, SocialRef, SocialSnapshot, SquadInvite, WhisperLine,
+  GameContext, PeerId, PlayBlock, PlayerCode, SocialCard, SocialPlayer, SocialRef, SocialSnapshot, SquadInvite, WhisperLine,
 } from '@/shared';
 import { NET_MAX_PLAYERS, playBlockReason } from '@/shared';
 
@@ -36,6 +36,20 @@ export function socialReady(ctx: GameContext): boolean {
 }
 
 export const SOCIAL_UNAVAILABLE_KO = '소셜 기능을 사용할 수 없습니다';
+
+/**
+ * Whether squad-mate `id`'s 아이디 is on my 차단 목록 (B-4 chat, B-11 말풍선 — 2026-09-11).
+ *
+ * The 아이디 lives on the **lobby** row, not on `RemotePlayerRef`, so the two steps always go together: `getLobbyPlayer`
+ * for the `PlayerCode`, then `SocialRef.isBlocked`. `hud/ChatLog` (typed squad lines) and `hud/TypingBubbles`
+ * (the `…` bubble) both ask this — the same three lines lived in both files, so they live here instead, next to the
+ * single read point of the mirror. Blocking hides what a peer **says**, never where they are: 이름표 · 핑 · 월드 마커 ·
+ * 분대 패널 are gameplay information and stay (same line as the `ping` / `request` chat lines `ChatLog` keeps).
+ */
+export function isPeerBlocked(ctx: GameContext, id: PeerId): boolean {
+  const code = ctx.net?.getLobbyPlayer(id)?.code;
+  return !!code && !!socialOf(ctx)?.isBlocked(code);
+}
 
 /** Smoke hook (2026-09-11): install an arbitrary `SocialRef` (null hands the ui back to `ctx.net.social`). */
 export function setDebugSocialRef(ref: SocialRef | null): void {

@@ -94,14 +94,37 @@ export interface EconomyTable {
   quests: Record<string, number>;
 }
 
+/*
+ * The two price formulas live **here**, not in `shared/meta`, because the relay imports this file and `meta` reads the
+ * csv through the Vite loader (2026-09-11, E-9 — before this the same two lines were copied into both files, and the
+ * copies could drift apart silently: CLAUDE.md 「같은 수식을 두 폴더가 쓰면 shared 로 뽑는다」). `meta` passes its csv
+ * multipliers in; the relay passes the generated table's.
+ */
+
+/** Buy price from the raw multipliers. Rounds (halves up) — lowering it would quietly make the shop cheaper. */
+export function buyPriceFrom(value: number, baseMul: number, discountPerRep: number, minMul: number, repLevel: number): number {
+  const mul = Math.max(minMul, baseMul - discountPerRep * Math.max(0, repLevel));
+  return Math.max(1, Math.round(value * mul));
+}
+
+/**
+ * Sell price from the raw multiplier. **Floors** (2026-09-11, E-9 · 사용자 결정) — it used to round, and because the
+ * rounding happens after `qty` is multiplied in, every odd `value` paid more when the stack was split: value 1 sold
+ * one at a time gave `round(0.5) = 1` each, i.e. **twice** the `round(0.5 × 80) = 40` of the whole stack, and the
+ * server could not refuse it (each single sale matched its own cap exactly). Flooring makes the split strictly worse
+ * than the bundle, at the cost of a value-1 single being worth 0 C — which the trade desk shows and still allows.
+ */
+export function sellPriceFrom(value: number, mul: number, qty: number): number {
+  return Math.max(0, Math.floor(value * mul * Math.max(0, qty)));
+}
+
 /** Same formula as `shared/meta.buyPriceOf`, fed from the table (generator + `data:check` prove they agree). */
 export function tableBuyPrice(t: EconomyTable, value: number, repLevel: number): number {
-  const mul = Math.max(t.shopPriceMinMul, t.shopPriceBaseMul - t.shopPriceDiscountPerRep * Math.max(0, repLevel));
-  return Math.max(1, Math.round(value * mul));
+  return buyPriceFrom(value, t.shopPriceBaseMul, t.shopPriceDiscountPerRep, t.shopPriceMinMul, repLevel);
 }
 /** Same formula as `shared/meta.sellPriceOf`. */
 export function tableSellPrice(t: EconomyTable, value: number, qty: number): number {
-  return Math.max(0, Math.round(value * t.sellPriceMul * Math.max(0, qty)));
+  return sellPriceFrom(value, t.sellPriceMul, qty);
 }
 
 /** Server-internal ledger on `ProfileRecord.ledger` (never sent to a client). */

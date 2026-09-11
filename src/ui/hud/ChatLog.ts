@@ -1,7 +1,7 @@
 import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
 import { Keys, CHAT_MAX_LINES, SOCIAL_WHISPER_MAX, formatPlayerCode, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
-import { socialOf } from '../menus/social/socialSource';
+import { isPeerBlocked, socialOf } from '../menus/social/socialSource';
 import { whisperStateClass, whisperStateText } from '../menus/social/whisperText';
 import '../styles/social.css';
 
@@ -296,11 +296,8 @@ export class ChatLog {
     this.stick();
   }
 
-  /** B-4: whether squad-mate `id`'s 아이디 is on my 차단 목록. */
-  private isBlockedPeer(id: PeerId): boolean {
-    const code = this.ctx.net?.getLobbyPlayer(id)?.code;
-    return !!code && !!socialOf(this.ctx)?.isBlocked(code);
-  }
+  /** B-4: whether squad-mate `id`'s 아이디 is on my 차단 목록 (shared with `hud/TypingBubbles` — `socialSource`). */
+  private isBlockedPeer(id: PeerId): boolean { return isPeerBlocked(this.ctx, id); }
 
   /** Aim the input at one 아이디 (null = back to squad chat). Also raises the bottom-left column. */
   private setTarget(t: { code: PlayerCode; name: string } | null): void {

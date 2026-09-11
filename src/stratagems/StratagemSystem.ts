@@ -11,6 +11,8 @@ import {
   type StratagemCallWire,
   /* 2026-09-09: 구조선 투하 */
   RESCUE_DROPS_PER_RAID, type RescueCandidate,
+  /* 2026-09-11 (E-8 c): 거절 통보 */
+  type StratagemDenyReason,
 } from '@/shared';
 import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
@@ -49,6 +51,12 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   readonly callerReadyAt = new Map<PeerId, number>();
   /** Last reason a `stratq call` / `rescue req` was refused on this host (debug · smoke-trust). */
   lastCallRefusal: string | null = null;
+  /**
+   * 2026-09-11 (E-8 c) debug · smoke-trust. **호스트 쪽**: 마지막 거절에 대해 실제로 `strat deny` 를 보냈는가
+   * (보냈으면 사유, 답장하지 않기로 한 위조 `callId` 면 null). **호출자 쪽**: 마지막으로 받아들인 `strat deny` 의 사유.
+   */
+  lastDenySent: StratagemDenyReason | null = null;
+  lastCallDeny: StratagemDenyReason | null = null;
 
   /* ── StratagemsRef state ── */
   _armed: StratagemId | null = null;
@@ -220,6 +228,22 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     this._cooldown = this._cooldownTotal = seconds;
     this.cooldownEmitAcc = 0;
     this.ctx.bus.emit('stratagem:cooldown', { remaining: seconds, total: seconds });
+  }
+
+  /**
+   * 2026-09-11 (E-8 c): 호스트가 내 호출(`stratq call` · `rescue req`)을 거절했다 — `Targeting.confirm` 이 요청을
+   * 보내기 **전에** 낙관적으로 돌린 공유 쿨타임을 **전액** 되돌린다. 거절은 "호출이 아예 서지 않았다" 는 뜻이라
+   * 부분 환불에는 근거가 없다 (사용자 결정). `debugCooldownReset` 과 같은 모양이되 `_cooldownTotal` 까지 내린다 —
+   * 남겨 두면 HUD 썸네일(`ui/hud/StratagemPanel`)이 다 찬 테두리를 그대로 들고 있는다.
+   * 남이 내 쿨타임을 되돌리지 못하게 하는 관문은 `parts/Wire.onCallDenied` 하나다 (호스트 + 내 `callId`).
+   */
+  refundCooldown(): void {
+    this._cooldown = 0;
+    this._cooldownTotal = 0;
+    this.cooldownEmitAcc = 0;
+    // `refunded` (E-8): tells the toast this 0 is a refusal being given back, not a cooldown that ran out —
+    // without it 「호출이 거절되었습니다」 and 「함선 호출 준비 완료」 pop side by side (`ui/hud/Notifications`).
+    this.ctx.bus.emit('stratagem:cooldown', { remaining: 0, total: 0, refunded: true });
   }
 
   /* ─────────────────────────── input ─────────────────────────── */

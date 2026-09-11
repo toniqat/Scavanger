@@ -9,6 +9,9 @@
 // result + material chips + fee, 수리 swaps broken → working (materials + credits consumed, stash first), reasons 재료 부족 /
 // 크레딧 부족 gate the button, the ci1 → ci3 implant quest chain with its reward chip.
 // 2026-09-11 (C-16 · X-1): the same crate id opened twice in a raid → `open_crates` +1 and 감정 XP once; a new mission counts it again.
+// 2026-09-11 (E-9): 판매가가 `floor` 다 — 묶음 = floor(value × 0.5 × qty), 어떤 분할도 묶음보다 많이 받지 못한다,
+// 가치 1 아이템 한 개는 0 C 이고 **그 판매는 허용된다** (크레딧 그대로 · 판 수량만 빠짐 · `credits:tx` 를 보내지 않음 ·
+// 거래대 판매칸에 담기고 가격 배지가 `0`).
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -288,6 +291,107 @@ try {
     ok(sale && sale.defId === 'gem_amber' && sale.qty === 1 && sale.credits === 130, 'meta:sale {gem_amber, 1, 130}', JSON.stringify(sale));
     ok(await P((uid) => !window.__game.ctx.inventory.findItem(uid), gem) === true, 'sold item removed from the bag');
   }
+
+  // ── E-9 (2026-09-11): 판매가는 `floor` 다 (`shared/credits.sellPriceFrom`) ──────────────────────────────
+  // 반올림이 qty 를 곱한 **뒤** 일어나면 홀수 value 아이템을 낱개로 쪼개 팔 때 묶음보다 많이 받는다
+  // (경량탄 value 1 · 80발: 묶음 round(40)=40 C 대 낱개 round(0.5)=1 C × 80 = 80 C). floor 면 분할이 늘 손해다.
+  // 대가로 가치 1 아이템 한 개는 0 C 가 되고, **그 판매는 그대로 허용된다** (사용자 결정).
+  console.log('sell: floor 반올림 + 0 C 판매 (E-9)');
+  const AMMO = ['ammo_light', 'ammo_heavy', 'ammo_medium'];
+  const round = await P((ids) => {
+    const c = window.__game.ctx;
+    const out = {};
+    for (const id of ids) {
+      const def = c.loot.getItemDef(id);
+      if (!def) { out[id] = null; continue; }
+      const want = Math.max(2, Math.min(Math.floor(def.stackMax || 1), 80));
+      const it = c.loot.createItem(id, want);
+      if (!c.inventory.tryAddItem(it)) { out[id] = { noRoom: true }; continue; }
+      // `tryAddItem` 은 가방에 이미 있는 같은 아이템 스택을 **먼저 채우므로** `it` 에는 나머지만 남는다
+      // (경량탄은 기본 로드아웃에 있다). `sellPriceOf(uid, q)` 는 `min(inst.qty, q)` 로 자르니, 기대값도
+      // 넣으려던 수량이 아니라 **실제로 이 인스턴스에 남은 수량**으로 세야 like-for-like 비교가 된다.
+      const stack = Math.max(1, Math.floor(it.qty));
+      if (stack < 2) { out[id] = { tooSmall: stack }; continue; }
+      const bundle = c.meta.sellPriceOf(it.uid);
+      // 2분할 전부: 어떤 식으로 쪼개도 묶음보다 많이 받으면 안 된다
+      let worstSplit = 0;
+      for (let q = 1; q < stack; q++) {
+        worstSplit = Math.max(worstSplit, (c.meta.sellPriceOf(it.uid, q) ?? 0) + (c.meta.sellPriceOf(it.uid, stack - q) ?? 0));
+      }
+      out[id] = {
+        uid: it.uid, value: def.value, stack, bundle, single: c.meta.sellPriceOf(it.uid, 1),
+        expect: Math.floor(def.value * 0.5 * stack), worstSplit,
+      };
+    }
+    return out;
+  }, AMMO);
+  const rounded = AMMO.map((id) => round[id]).filter((r) => r && !r.noRoom && !r.tooSmall);
+  if (rounded.length === 0) skipped('판매 반올림 단언', '(가방에 탄약 스택을 넣을 자리가 없다)');
+  else {
+    // ① 묶음 판매가 = floor(value × SELL_PRICE_MUL × qty)
+    ok(rounded.every((r) => r.bundle === r.expect),
+      `묶음 판매가 = floor(value × 0.5 × qty) (${rounded.map((r) => `v${r.value}×${r.stack}=${r.bundle}`).join(' · ')})`,
+      JSON.stringify(round));
+    // ② 낱개로 쪼개 판 총액이 묶음보다 크지 않다 — 착취가 막혔다는 증거
+    ok(rounded.every((r) => r.single * r.stack <= r.bundle),
+      `낱개 × qty ≤ 묶음 (${rounded.map((r) => `${r.single}×${r.stack}=${r.single * r.stack} ≤ ${r.bundle}`).join(' · ')})`,
+      JSON.stringify(round));
+    ok(rounded.every((r) => r.worstSplit <= r.bundle),
+      '어떤 2분할도 묶음보다 많이 받지 못한다', JSON.stringify(rounded.map((r) => ({ v: r.value, split: r.worstSplit, bundle: r.bundle }))));
+    // 문서화된 사례: 가치 1 한 개 = 0 C (예전에는 1 C 라 묶음의 2배가 나왔다)
+    if (round.ammo_light && !round.ammo_light.noRoom && !round.ammo_light.tooSmall) {
+      ok(round.ammo_light.single === 0, '가치 1 아이템 1개의 판매가 = 0 C', `${round.ammo_light.single}`);
+    }
+  }
+
+  // ③ 0 C 판매는 거절되지 않는다 — 크레딧은 그대로, 판 수량만 빠진다 (나머지 스택은 남는다)
+  const zeroUid = round.ammo_light && !round.ammo_light.noRoom ? round.ammo_light.uid : null;
+  if (!zeroUid) skipped('0 C 판매', '(경량탄 스택이 가방에 없다)');
+  else {
+    const z0 = await P((uid) => ({ credits: window.__game.ctx.meta.credits, qty: window.__game.ctx.inventory.findItemAnywhere(uid)?.qty ?? 0 }), zeroUid);
+    const zSold = await P((uid) => window.__game.ctx.meta.sell(uid, 1), zeroUid);
+    const z1 = await P((uid) => ({ credits: window.__game.ctx.meta.credits, qty: window.__game.ctx.inventory.findItemAnywhere(uid)?.qty ?? 0 }), zeroUid);
+    const zSale = await lastEv('meta:sale');
+    ok(zSold === true, 'sell() of a 0 C unit → true (막지 않는다)');
+    ok(z1.credits === z0.credits, '0 C 판매로 크레딧이 줄지 않는다', `${z0.credits} → ${z1.credits}`);
+    ok(z1.qty === z0.qty - 1, '판 1발만 빠지고 나머지 스택은 그대로 남는다', `${z0.qty} → ${z1.qty}`);
+    ok(zSale && zSale.defId === 'ammo_light' && zSale.qty === 1 && zSale.credits === 0, 'meta:sale {ammo_light, 1, 0}', JSON.stringify(zSale));
+
+    // 서버 크레딧일 때도: 0 C 는 `credits:tx` 를 아예 보내지 않는다 (`server/Economy.ts` 의 sell 은 `0 < delta` 를
+    // 요구하므로 보내면 거절 → `restoreSold` 가 아이템을 되돌리고 "판매가 취소되었습니다" 토스트가 뜬다)
+    const refake = await P(() => {
+      const net = window.__game.ctx.net;
+      const fake = window.__fakeProfile;
+      if (!fake) return false;
+      fake.available = true; fake.refuseNext = false; fake.credits = window.__game.ctx.meta.credits;
+      fake.log.length = 0;
+      Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+      return window.__game.ctx.meta.serverCredits === true;
+    });
+    if (!refake) skipped('서버 크레딧에서의 0 C 판매', '(fake profile unavailable)');
+    else {
+      const zs0 = await P((uid) => ({ credits: window.__game.ctx.meta.credits, qty: window.__game.ctx.inventory.findItemAnywhere(uid)?.qty ?? 0 }), zeroUid);
+      const zsSold = await P((uid) => window.__game.ctx.meta.sell(uid, 1), zeroUid);
+      await waitFor(page, () => !window.__game.ctx.meta.hasPendingTx, '0 C sale settled', 10000).catch(() => null);
+      await sleep(120);
+      const zs1 = await P((uid) => ({
+        credits: window.__game.ctx.meta.credits, qty: window.__game.ctx.inventory.findItemAnywhere(uid)?.qty ?? 0,
+        sellTx: window.__fakeProfile.log.filter((l) => String(l.reason).startsWith('sell:')),
+      }), zeroUid);
+      ok(zsSold === true && zs1.sellTx.length === 0, '서버 크레딧이어도 0 C 판매는 credits:tx 를 보내지 않는다', JSON.stringify(zs1.sellTx));
+      ok(zs1.credits === zs0.credits && zs1.qty === zs0.qty - 1, '0 C 서버 판매: 크레딧 그대로, 되돌려지지 않는다', JSON.stringify({ zs0, zs1 }));
+      await P(() => {
+        const net = window.__game.ctx.net;
+        if (window.__realProfileDesc) Object.defineProperty(net, 'profile', window.__realProfileDesc); else delete net.profile;
+      });
+      ok(await P(() => window.__game.ctx.net.profile.available === false), 'offline profile restored after the 0 C sale');
+    }
+  }
+  // 남은 탄약 스택은 치운다 (뒤의 계약 · 퀘스트 단계가 쓰는 가방 자리를 비운다)
+  await P((ids) => {
+    const c = window.__game.ctx;
+    for (const id of ids) for (const it of [...c.inventory.getAllItems()]) if (it.defId === id) c.inventory.takeItem(it.uid);
+  }, AMMO);
 
   console.log('contracts: accept gating');
   const cl = await P(() => window.__game.ctx.meta.getContracts('helix').map((c) => ({ id: c.def.id, blocked: c.blocked, active: c.active })));
@@ -607,6 +711,33 @@ try {
   });
   ok(settled.after < settled.before && settled.buy === 0, `거래 성사 settles the basket and empties the trays (${settled.before} → ${settled.after})`, JSON.stringify(settled));
   ok(shopDom.stage, '귀중품 전부 담기 button sits under the 판매 tray');
+  // E-9 (2026-09-11, 사용자 결정): 0 C 짜리도 판매칸에 담기고 가격을 `0` 으로 찍는다 — 막지 않는다
+  const zeroBag = await P(() => {
+    const c = window.__game.ctx;
+    const it = c.loot.createItem('ammo_light', 1);
+    return c.inventory.tryAddItem(it) ? { uid: it.uid, price: c.meta.sellPriceOf(it.uid) } : null;
+  });
+  if (!zeroBag) skipped('0 C 줄이 판매칸에 담긴다', '(가방에 자리가 없다)');
+  else {
+    await sleep(120);
+    const zeroStage = await P((uid) => {
+      const tile = document.querySelector(`.ct-col.inv .inv-tile[data-uid="${uid}"]`);
+      if (!tile) return { noTile: true };
+      tile.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      const chips = [...document.querySelectorAll('.ct-tray.sell .ct-chip')];
+      return { chips: chips.length, prices: chips.map((e) => e.querySelector('.ct-cell-price')?.textContent ?? ''), msg: document.querySelector('.corp-view .form-msg')?.textContent ?? '' };
+    }, zeroBag.uid);
+    if (zeroStage.noTile) skipped('0 C 줄이 판매칸에 담긴다', '(거래 격자에 타일이 없다)');
+    else {
+      ok(zeroBag.price === 0 && zeroStage.chips === 1 && zeroStage.prices.includes('0') && !/팔 수 없습니다/.test(zeroStage.msg),
+        '0 C 아이템이 판매칸에 담기고 가격 배지가 0 이다 (거절 메시지 없음)', JSON.stringify({ zeroBag, zeroStage }));
+    }
+    // 바구니와 가방을 비워 뒤 단계에 남기지 않는다
+    await P((uid) => {
+      document.querySelector('.ct-tray.sell .ct-chip')?.click();
+      window.__game.ctx.inventory.takeItem(uid);
+    }, zeroBag.uid);
+  }
   await tap('Tab');
   await sleep(60);
   const closed = await P(() => ({

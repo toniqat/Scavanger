@@ -20,7 +20,7 @@ import {
 import { dustBurst } from '../Visuals';
 import { Call, defOf, toTuple } from '../model';
 import type { StratagemSystem } from '../StratagemSystem';
-import { callRefusal, fromHost, wallSeconds } from './Wire';
+import { callRefusal, fromHost, rescueDenyId, sendCallDeny, wallSeconds } from './Wire';
 
 /** Single-player id used everywhere a `PeerId` is expected but no relay exists. */
 export const SOLO_ID = 'sp';
@@ -182,7 +182,13 @@ const DENY_KO: Readonly<Record<'empty' | 'alive' | 'busy', string>> = {
   busy: '구조선을 준비 중입니다',
 };
 
+/**
+ * 요청자에게 보이는 구조선 거절 (`empty` · `alive` — 이 둘은 `strat deny` 의 사유 목록에 없는 구조선만의 사정이라
+ * 옛 `rescue deny` 와이어에 그대로 남아 있다). 2026-09-11 (E-8 c): 거절이면 **여기서도 쿨타임을 전액 환불한다** —
+ * 확정 때 이미 돌아 버린 값이고, 호출이 아예 서지 않았다는 뜻은 `strat deny` 와 똑같다.
+ */
 export function showDeny(sys: StratagemSystem, reason: 'empty' | 'alive' | 'busy'): void {
+  sys.refundCooldown();
   sys.audio('ui_deny', undefined, 0.6);
   sys.ctx.bus.emit('ui:notify', { text: DENY_KO[reason], kind: 'warning', duration: 2 });
 }
@@ -248,13 +254,24 @@ export function onRescueMessage(sys: StratagemSystem, msg: RescueMessage, from: 
      * `STRAT_MAX_CALL_RANGE` · the caller's shared cooldown). A cooldown refusal answers `deny busy`; anything else is a
      * forged request and is dropped silently. The target must be a lobby member.
      */
+    /*
+     * 2026-09-11 (E-8 c): 예전에는 `cooldown` 하나만 `rescue deny busy` 로 알리고 나머지 사유는 조용히 버렸다 —
+     * 요청자는 확정 때 이미 공유 쿨타임을 돌렸으므로(`Targeting.confirm`) 사유와 **환불**이 필요하다. 이제 전부
+     * `strat deny` 한 경로로 답한다(구조선 요청에는 `callId` 가 없어 `rescueDenyId` 가 요청자 소유의 id 를 만든다).
+     * 기존 `rescue deny` 와이어는 그대로 남아 `grant` 의 `empty` · `alive` 가 쓴다 — 계약은 추가만 한다.
+     */
     const why = callRefusal(sys, from, msg.p);
     if (why) {
       sys.lastCallRefusal = `rescue:${why}`;
-      if (why === 'cooldown') deny(sys, from, 'busy');
+      sendCallDeny(sys, from, rescueDenyId(from), why);
       return;
     }
-    if (typeof msg.target !== 'string' || !net.lobby?.players.some((m) => m.id === msg.target)) { sys.lastCallRefusal = 'rescue:target'; return; }
+    if (typeof msg.target !== 'string' || !net.lobby?.players.some((m) => m.id === msg.target)) {
+      // 대상이 그 사이 로비를 떠났을 수 있다 — 요청자는 이미 쿨타임을 돌렸으므로 `member` 로 환불시킨다.
+      sys.lastCallRefusal = 'rescue:target';
+      sendCallDeny(sys, from, rescueDenyId(from), 'member');
+      return;
+    }
     grant(sys, msg.target, new THREE.Vector3(msg.p[0], msg.p[1], msg.p[2]), from);
   } else if (net && !fromHost(net, from)) {
     // 2026-09-11 (E-4): grant · deny · count 는 호스트만 보낸다

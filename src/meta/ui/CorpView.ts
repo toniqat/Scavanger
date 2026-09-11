@@ -599,8 +599,14 @@ export class CorpView {
 
   private stageSell(item: ItemInstance): void {
     if (this.sellLines.some((s) => s.uid === item.uid)) return;
+    /*
+     * 2026-09-11 (E-9, 사용자 결정): **0 C 도 담긴다.** `sellPriceOf` 가 `floor` 로 바뀌면서 가치 1 아이템(경량탄 ·
+     * 연료통 · 탄띠) 한 개는 `floor(0.5) = 0` 이다 — 그것을 여기서 막으면 무게를 비울 길이 없어지고, 묶어 팔면
+     * 제값(`floor(0.5 × 80) = 40`)이 나오므로 분할이 손해라는 것을 플레이어가 스스로 배운다. 거절하는 것은
+     * `null`(값이 없는 물건 · 장착 중 · 가방에도 창고에도 없음)뿐이다. 가격 칸은 그대로 `0` 을 찍는다.
+     */
     const price = this.meta.sellPriceOf(item.uid);
-    if (price === null || price <= 0) {
+    if (price === null) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
       this.showMsg(`${this.defName(item.defId)} 은(는) 팔 수 없습니다`, 'warning');
       return;
@@ -625,6 +631,8 @@ export class CorpView {
       const d = this.itemDef(inst.defId);
       if (!d || d.category !== 'valuable') continue;
       if (this.sellLines.some((s) => s.uid === inst.uid)) continue;
+      // 일괄 담기만 0 C 를 건너뛴다 (손으로 담는 `stageSell` 은 E-9 이후 허용한다). 귀중품의 최저 value 는 90 이라
+      // 실제로는 걸리지 않는 방어선이다 — 값이 0 인 key_basement 는 `getSellable` 이 이미 뺀다.
       if ((this.meta.sellPriceOf(inst.uid) ?? 0) <= 0) continue;
       this.sellLines.push({ uid: inst.uid, qty: inst.qty });
       added++;

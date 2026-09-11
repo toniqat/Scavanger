@@ -80,6 +80,8 @@ export class Notifications {
       b.on('net:remoteRevived', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 부활`, 'success', '분대', 3)),
       // multiplayer feed
       b.on('net:remoteDied', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전사`, 'danger', '분대', 4)),
+      // 2026-09-11 (B-12): 합류 · 이탈 토스트의 **유일한** 주인 (`hub/HubSystem` 의 `함선 합류 · 이탈` 두 줄을 지웠다).
+      // 게이트가 없는 것은 일부러다 — 레이드 · 훈련 중에도 분대원이 들어오고 나가는 것은 알아야 한다.
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
       b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
       b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
@@ -119,10 +121,13 @@ export class Notifications {
         this.lastStructureToast = now;
         this.push('엄폐물 파괴', 'warning', '구조물', 2.5);
       }),
-      b.on('stratagem:cooldown', ({ remaining }) => {
+      b.on('stratagem:cooldown', ({ remaining, refunded }) => {
         if (remaining > 0) { this.cooldownWasRunning = true; return; }
         if (!this.cooldownWasRunning) return;
         this.cooldownWasRunning = false;
+        // 2026-09-11 (E-8): 이 0 이 호스트의 거절을 되돌려 준 것이면(`refundCooldown`) 준비 완료를 띄우지 않는다 —
+        // `stratagems` 가 이미 거절 사유 토스트를 띄웠고, 두 줄이 나란히 뜨면 무엇이 일어났는지 오히려 흐려진다.
+        if (refunded) return;
         this.push('함선 호출 준비 완료', 'success', '호출', 3);
       }),
       b.on('game:abort', () => { this.clear(); this.cooldownWasRunning = false; }),
@@ -155,7 +160,9 @@ export class Notifications {
        * never toasted here: its own chat line turns `전송 실패` (B-4).
        */
       b.on('social:inviteResult', ({ name, outcome, reason }) => {
-        // `accepted` (리드 통합): 받은 사람이 들어오는 순간 `net:peerJoined` 의 `<이름> 합류` 가 이미 뜬다 — 세 번째 줄은 뺀다.
+        // `accepted`: 받은 사람이 들어오는 순간 바로 아래 `net:peerJoined` 의 `<이름> 합류` 가 이미 뜬다 — 두 번째 줄은 뺀다.
+        // ⚠ 그래서 `:83` 의 합류 줄이 초대 수락의 **유일한** 알림이다 — 지우려면 여기부터 되살려야 한다
+        //   (2026-09-11 B-12 는 반대편, 즉 `hub/HubSystem` 의 `<이름> 함선 합류` 를 지웠다).
         if (outcome === 'superseded' || outcome === 'accepted') return;
         const why = outcome === 'failed' ? inviteFailWhy(reason) : '';
         const kind = outcome === 'declined' || outcome === 'failed' ? 'warning' : 'info';

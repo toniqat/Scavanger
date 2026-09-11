@@ -856,6 +856,98 @@ try {
   ok(chatHide.ping, 'their ping line still is (pings / comms wheel stay)', JSON.stringify(chatHide));
   ok(chatHide.other, 'an unblocked squad-mate\'s line is drawn', JSON.stringify(chatHide));
 
+  /* ── 2026-09-11 (B-11 (1)): the `…` 말풍선 obeys the same 차단 gate the chat line does ──
+     Two fake peers (`remotePlayers.debugSpawn`) are handed to the HUD the way the nameplates get them
+     (`hud.debugRemotes`), parked in front of the camera and flagged TYPING. The blocked one must draw nothing;
+     the other must still draw. The fake lobby (which is where the 아이디 lives) is installed and removed inside the
+     SAME task as the synchronous `hud.lateUpdate`, exactly like the chat check above — no frame ever sees it. */
+  console.log('차단한 분대원의 … 말풍선');
+  const TYPING = await P(() => import('/src/shared/index.ts').then((m) => m.PlayerFlags.TYPING).catch(() => 1 << 28));
+  ok(TYPING === (1 << 28), 'PlayerFlags.TYPING bit', String(TYPING));
+  await P(() => {
+    const rp = window.__game.getSystem('remotePlayers');
+    rp.debugClear();
+    window.__bubA = rp.debugSpawn({ id: 'peer-b', name: '친구둘', slot: 1 });    // GHJK6789 — 차단한 상대
+    window.__bubB = rp.debugSpawn({ id: 'peer-c', name: '친구하나', slot: 2 });  // CDEF2345 — 차단하지 않은 상대
+    window.__game.getSystem('hud').debugRemotes([window.__bubA, window.__bubB]);
+  });
+  await waitSim(0.4);   // one drive() per ref is all it takes — `ensure()` fills `ref.avatar`
+  const bub = await P((typing) => {
+    const game = window.__game, ctx = game.ctx, net = game.getSystem('net'), hud = game.getSystem('hud');
+    const V = ctx.player.position.constructor;
+    ctx.camera.updateMatrixWorld();
+    const eye = ctx.camera.getWorldPosition(new V());
+    const dir = ctx.camera.getWorldDirection(new V());
+    // 6 m straight ahead, feet low enough that the head (≈1.6 m) + HEAD_OFFSET (0.7 m) lands near the middle
+    const place = (ref, side) => {
+      ref.position.set(eye.x + dir.x * 6 + dir.z * side, eye.y - 1.6, eye.z + dir.z * 6 - dir.x * side);
+      ref.flags |= typing;
+      ref.connected = true; ref.stale = false;
+    };
+    place(window.__bubA, -0.6);
+    place(window.__bubB, 0.6);
+    const prev = net._lobby;
+    net._lobby = { code: 'CHAT01', hostId: 'peer-b', isPublic: false, started: false, seed: null, players: [
+      { id: 'peer-b', name: '친구둘', slot: 1, ready: false, isHost: true, connected: true, code: 'GHJK6789' },
+      { id: 'peer-c', name: '친구하나', slot: 2, ready: false, isHost: false, connected: true, code: 'CDEF2345' },
+    ] };
+    hud.lateUpdate(1 / 60, ctx);
+    const ids = [...hud.typingBubbleIds];
+    const blockedNow = window.__ss.isBlocked('GHJK6789');
+    net._lobby = prev;   // same task — no frame ever saw the fake lobby
+    return { ids, blockedNow, avatars: [!!window.__bubA.avatar, !!window.__bubB.avatar] };
+  }, TYPING);
+  ok(bub.avatars[0] && bub.avatars[1], 'both fake peers have an avatar (the bubble projects off its head)', JSON.stringify(bub));
+  ok(bub.blockedNow, 'GHJK6789 is still on my 차단 목록 (the 해제 above was never answered by the relay)', JSON.stringify(bub));
+  ok(!bub.ids.includes('peer-b'), 'a blocked squad-mate typing draws NO … 말풍선', JSON.stringify(bub.ids));
+  ok(bub.ids.includes('peer-c'), 'an unblocked squad-mate typing still draws one', JSON.stringify(bub.ids));
+  // and the gate is the 차단, not the flag: unblocking brings the same peer's bubble back
+  const bub2 = await P(() => {
+    const game = window.__game, ctx = game.ctx, net = game.getSystem('net'), hud = game.getSystem('hud');
+    const prev = net._lobby;
+    net._lobby = { code: 'CHAT01', hostId: 'peer-b', isPublic: false, started: false, seed: null, players: [
+      { id: 'peer-b', name: '친구둘', slot: 1, ready: false, isHost: true, connected: true, code: 'GHJK6789' },
+      { id: 'peer-c', name: '친구하나', slot: 2, ready: false, isHost: false, connected: true, code: 'CDEF2345' },
+    ] };
+    const snap = window.__snap();
+    snap.friends = snap.friends.filter((f) => f.code !== 'GHJK6789');
+    snap.blocked = [];
+    window.__ss.onState(snap);          // the relay's answer to the 차단 해제
+    hud.lateUpdate(1 / 60, ctx);
+    const ids = [...hud.typingBubbleIds];
+    const blockedNow = window.__ss.isBlocked('GHJK6789');
+    // put the mirror back exactly as the run found it (blocked, off my friends) — later sections read that state
+    const back = window.__snap();
+    back.friends = back.friends.filter((f) => f.code !== 'GHJK6789');
+    back.blocked = [{ code: 'GHJK6789', name: '친구둘', level: 20 }];
+    window.__ss.onState(back);
+    net._lobby = prev;
+    return { ids, blockedNow, restored: window.__ss.isBlocked('GHJK6789') };
+  });
+  ok(!bub2.blockedNow && bub2.ids.includes('peer-b') && bub2.ids.includes('peer-c'),
+    '차단 해제 뒤에는 두 사람 모두 말풍선이 뜬다 (게이트는 차단 하나뿐)', JSON.stringify(bub2));
+  ok(bub2.restored, 'and the 차단 목록 is put back for the sections that follow', JSON.stringify(bub2));
+  await P(() => {
+    window.__game.getSystem('hud').debugRemotes(null);
+    window.__game.getSystem('remotePlayers').debugClear();
+  });
+  await waitSim(0.2);
+  ok(await P(() => window.__game.getSystem('hud').typingBubbleIds.length) === 0, 'clearing the debug refs clears the bubbles');
+
+  /* ── 2026-09-11 (B-12): 합류 · 이탈 토스트는 한 줄이다 ──
+     `hub/HubSystem` 의 `<이름> 함선 합류` · `함선 이탈` 두 줄을 지웠으므로 `ui/hud/Notifications` 만 남는다.
+     (반대로 `Notifications` 쪽을 지우면 초대 수락 알림이 통째로 사라진다 — `Notifications.ts` 의 `accepted` 주석.) */
+  console.log('B-12: 합류 · 이탈 토스트 한 줄');
+  ok(await P(() => window.__game.ctx.phase === 'hub'), '아직 함선 안이다 (hub 토스트가 살아 있던 조건)');
+  await emit('net:peerJoined', { id: 'peer-j', name: '신입대원', slot: 3 });
+  await waitSim(0.15);
+  const j12 = await P(() => window.__notifs().filter((t) => t.includes('신입대원')));
+  ok(j12.length === 1 && j12[0] === '신입대원 합류', '함선에서도 합류 토스트는 한 줄 (`함선 합류` 가 겹치지 않는다)', JSON.stringify(j12));
+  await emit('net:peerLeft', { id: 'peer-j', name: '떠난대원' });
+  await waitSim(0.15);
+  const l12 = await P(() => window.__notifs().filter((t) => t.includes('떠난대원')));
+  ok(l12.length === 1 && l12[0] === '떠난대원 이탈', '이탈도 한 줄 (같이 지운 대칭 줄)', JSON.stringify(l12));
+
   console.log('귓속말 전송 확인');
   await click('.cp-close');
   await waitSim(0.15);

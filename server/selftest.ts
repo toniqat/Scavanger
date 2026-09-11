@@ -20,7 +20,7 @@ import {
 } from '../src/shared/social.ts';
 /* 2026-09-11 (B-3 · B-4 · B-5 · B-6) — part 8c */
 import { SOCIAL_BLOCK_MAX, SOCIAL_PUSH_COALESCE_MS, SOCIAL_WHISPER_INBOX_MAX, SOCIAL_WHISPER_INBOX_TTL_MS, SQUAD_INVITE_MAX } from '../src/shared/social.ts';
-import { Lobby, LobbyManager } from './Lobby.ts';
+import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
 import { ProfileStore, PROFILE_BACKUP_SUFFIX, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
 /* 2026-09-11 (E-4 ⑦) — part 12: 서버 크레딧 검증 */
@@ -2019,7 +2019,59 @@ async function main(): Promise<void> {
         N4 = await conn('8cN4c', 'd', 'Quebec');
         assert(await N4.c.expectNone('social:whisperBacklog', 250), 'B-4: the backlog is delivered once (the inbox was emptied)');
 
-        for (const p of [A, B, C, D, E, F, G, H, I, ...M, N1, N2, N3, N4]) p.c.close();
+        /* ── B-11 (2026-09-11): 차단한 사이는 같은 분대에 서지 않는다 — `lobby:join` 은 방향별로, quickmatch 는 건너뛴다 ── */
+        const block = async (me: P, them: P): Promise<void> => {
+          me.c.send({ t: 'social:block', code: them.code, blocked: true });
+          await me.c.wait('social:state', (mm) => (mm.social.blocked ?? []).some((r) => r.code === them.code));
+        };
+        const K1 = await conn('8cK1', 'f', 'Kilo');
+        const K2 = await conn('8cK2', 'g', 'Lima');
+        const K3 = await conn('8cK3', 'h', 'Mike');
+        const K4 = await conn('8cK4', 'i', 'Nato');
+        const kShip = await openedLobby(K1);
+        /* ① 참가자가 차단한 사람이 그 배에 있다 → 명시 (내 선택이므로 정직하게) */
+        await block(K2, K1);
+        K2.c.send({ t: 'lobby:join', code: kShip, name: 'Lima' });
+        const eK2 = await K2.c.wait('lobby:error');
+        assert(eK2.code === 'blocked' && eK2.message === LOBBY_ERROR_MESSAGE_KO.blocked
+          && ss.lobbies.lobbyOf(K2.c.id) === undefined && ss.lobbies.byCode(kShip)?.size === 1,
+          'B-11: joining by code a ship holding someone I blocked → blocked (명시), and the lobby is untouched', eK2);
+        /* ② 나를 차단한 사람이 그 배에 있다 → not_found 위장 (코드 오타와 구별되지 않는다) */
+        await block(K1, K3);
+        K3.c.send({ t: 'lobby:join', code: kShip, name: 'Mike' });
+        const eK3 = await K3.c.wait('lobby:error');
+        assert(eK3.code === 'not_found' && ss.lobbies.lobbyOf(K3.c.id) === undefined && ss.lobbies.byCode(kShip)?.size === 1,
+          'B-11: joining a ship whose member blocked me → not_found (위장), and the lobby is untouched', eK3);
+        assert(await K1.c.expectNone('lobby:state', 200), 'B-11: a refused join never reaches the lobby (its members see no lobby:state)');
+        K4.c.send({ t: 'lobby:join', code: kShip, name: 'Nato' });
+        const okK4 = await K4.c.wait('lobby:state', (mm) => mm.lobby.players.length === 2);
+        assert(okK4.lobby.code === kShip && ss.lobbies.lobbyOf(K4.c.id)?.code === kShip,
+          'B-11: a join with no 차단 in either direction still goes through', okK4.lobby.code);
+
+        /* quickmatch: 거절이 아니라 후보에서 건너뛴다 (공개 로비는 여러 개다) */
+        const K5 = await conn('8cK5', 'j', 'Osca');
+        const K6 = await conn('8cK6', 'k', 'Pete');
+        const K7 = await conn('8cK7', 'l', 'Quin');
+        const K8 = await conn('8cK8', 'm', 'Sier');
+        K5.c.send({ t: 'lobby:quickmatch', name: 'Osca' });
+        const ql1 = (await K5.c.wait('lobby:state', (mm) => mm.lobby.players.length === 1)).lobby.code;
+        await block(K6, K5);
+        K6.c.send({ t: 'lobby:quickmatch', name: 'Pete' });
+        const ql2 = (await K6.c.wait('lobby:state', (mm) => mm.lobby.players.length === 1)).lobby.code;
+        assert(ql2 !== ql1 && ss.lobbies.byCode(ql1)?.size === 1,
+          'B-11: quickmatch skips the open public lobby holding someone I blocked and opens its own', { ql1, ql2 });
+        await block(K5, K7);
+        K7.c.send({ t: 'lobby:quickmatch', name: 'Quin' });
+        const ql3 = (await K7.c.wait('lobby:state', (mm) => mm.lobby.players.length === 2)).lobby.code;
+        assert(ql3 === ql2 && ss.lobbies.byCode(ql1)?.size === 1,
+          'B-11: the hidden direction is skipped too — the older lobby whose member blocked me is passed over for the other one', { ql1, ql2, ql3 });
+        await block(K8, K5);
+        await block(K8, K6);
+        K8.c.send({ t: 'lobby:quickmatch', name: 'Sier' });
+        const ql4 = (await K8.c.wait('lobby:state', (mm) => mm.lobby.players.length === 1)).lobby.code;
+        assert(ql4 !== ql1 && ql4 !== ql2, 'B-11: every candidate filtered out → the ordinary "nothing open" path creates a new public lobby', { ql1, ql2, ql4 });
+
+        for (const p of [A, B, C, D, E, F, G, H, I, ...M, N1, N2, N3, N4, K1, K2, K3, K4, K5, K6, K7, K8]) p.c.close();
       } finally {
         await ss.close();
       }

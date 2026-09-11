@@ -10,7 +10,7 @@ Registered in `src/main.ts` after `PickupSystem`, before `ExtractionSystem`.
 | `parts/Targeting.ts` | **G 휠과 조준**. G 를 탭하면 바로, 홀드하면 4방향 휠에서 고른다. 고른 뒤에는 지면 링으로 조준하거나 좌클릭 3초 충전으로 **상단 시점**에 들어가 지면 커서를 놓는다. 우클릭 / Esc 로 취소. |
 | `parts/Calls.ts` | **호출된 함선 지원이 실제로 하는 일**. 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물(트라이포드). 구조선은 `parts/Rescue`. 시각 효과는 전부 절차 생성이고 조명은 쓰지 않는다. |
 | `parts/Rescue.ts` | **구조선 투하** (2026-09-09). 분대원 4칸 후보 목록 · 무장 게이트(호스트 전용 · 잔여 횟수 · 대상 유무) · `rescue req/grant/deny/count` 와이어 · 착륙 프레임. **헬포드는 그리지 않는다** — 원격 포드는 `player/` 의 `pod drop` 이 유일한 원본이라, 여기서는 마커 · 착륙 먼지와 `rescue:called` / `rescue:landed` 까지다. |
-| `parts/Wire.ts` | **`strat` / `stratq` 네트워크 경로**. 늦게 합류한 클라이언트는 진행 중인 호출 목록을 받아 재구성한다(`applySync`). 이미 떨어졌어야 할 호출은 조용히 **빨리감기**해서(`fastForward`) 장애물과 보급 상자가 바로 존재하게 한다. 쿨다운은 공유하지 않는다 — 개인 값이다. |
+| `parts/Wire.ts` | **`strat` / `stratq` 네트워크 경로**. 늦게 합류한 클라이언트는 진행 중인 호출 목록을 받아 재구성한다(`applySync`). 이미 떨어졌어야 할 호출은 조용히 **빨리감기**해서(`fastForward`) 장애물과 보급 상자가 바로 존재하게 한다. 쿨다운은 공유하지 않는다 — 개인 값이다. **거절 통보(2026-09-11)**: 호스트의 `refuse` 가 `strat deny` 를 거절당한 사람에게만 보내고(`sendCallDeny`), 받는 쪽(`onCallDenied`)이 호스트 + 내 `callId` 를 확인한 뒤 `refundCooldown()` + 사유 토스트(`CALL_DENY_KO`, 계약 아님). |
 | `Visuals.ts` | Procedural visuals, **no lights, no assets**: `SharedGeo` (one geometry set per system), `TargetRing`, `CallMarker` (beacon + flashing ring), `Burst` (`THREE.Points` dust / sparks), `LaserBeam`, `Fireball`, `SupplyCrateMesh`, `BarricadeMesh`, `makeRubble` |
 | `index.ts` | exports `StratagemSystem` |
 
@@ -90,8 +90,18 @@ grant 수신 ──▶ Call(rescue_drop) + `rescue:called` ──▶ landsAt ─
   여유) of the caller's snapshot · the caller's shared cooldown `callerReadyAt[from] − STRAT_COOLDOWN_SLACK_S` has passed (wall clock).
   Accepted → `callerReadyAt[from] = now + def.cooldown`, the host creates the call (`local = false`, `caller = from`, `eta = csv delay`)
   and broadcasts `{t:'strat', ev:'call', …, eta: delay, by: from}` to others — **the caller included**, whose echo (`by === me`) creates
-  its own call with `local = true` (enemy damage stays on the caller's client). A refusal is silent (`lastCallRefusal` for debug); the
-  caller's local cooldown already ran. The host's own confirm creates locally and broadcasts with `by = host`.
+  its own call with `local = true` (enemy damage stays on the caller's client). The host's own confirm creates locally and broadcasts with `by = host`.
+- **거절 통보 + 쿨타임 환불 (2026-09-11, E-8 c)**: the host answers a refused `stratq call` / `rescue req` with
+  `{t:'strat', ev:'deny', callId, reason}` **to that caller alone**. The caller accepts it only when both hold — it came from the
+  lobby host (`fromHost`) **and** `callId` starts with `<나>-` (the same ownership rule `onCallRequest` checks) — then
+  `StratagemSystem.refundCooldown()` puts the optimistically started shared cooldown **all the way back** (`_cooldown` ·
+  `_cooldownTotal` · `cooldownEmitAcc` → 0 + `stratagem:cooldown {0, 0}`), plays `ui_deny` and shows the Korean reason.
+  So nobody can rewind someone else's cooldown. A forged `callId` (not a string · > 64 chars · not `<from>-…`) is the **one**
+  refusal that stays silent — a deny carrying an id that is not the sender's could never pass the receiver's own ownership
+  check, so echoing it back buys nothing; a **duplicate** id does answer (it is provably the caller's own).
+  구조선 요청에는 `callId` 가 없어 `rescueDenyId(from)` = `<요청자>-rescue` 를 주소로 쓴다. `empty` · `alive` 는
+  `StratagemDenyReason` 에 없는 구조선만의 사정이라 옛 `rescue deny` 와이어로 그대로 가고, 그 `showDeny` 도 환불한다.
+  디버그: 호스트 `lastCallRefusal` · `lastDenySent`, 호출자 `lastCallDeny`.
 - `strat call` / `strat sync` are accepted **only from the lobby host** (`fromHost` — no lobby = test harness, passes); `strat call`
   also needs a known non-구조선 kind (`isCallKind`), a finite `p`, `eta` clamped to `[0, def.delay]`; the caller is `by` (else `from`).
   `rescue grant / deny / count` are host-only too; a `rescue req` goes through the same `callRefusal` (cooldown → `deny busy`, anything
@@ -122,8 +132,11 @@ drop heights 120 / 60 m, structure stagger 0.15 s / min gap 2.4 m, grenade-vs-st
 
 ## Debug
 `window.__game.getSystem('stratagems')`: `armed`, `targeting`, `cooldown`, `cooldownTotal`, `getCalls()`, `structureCount`,
-`debugCall(kind, position)` (no input / cooldown), `debugCooldownReset()`. Smoke: `node scripts/smoke-stratagems.mjs` (needs `npm run dev`;
-registers the system at runtime if `main.ts` has not).
+`debugCall(kind, position)` (no input / cooldown), `debugCooldownReset()`, `refundCooldown()`. Smoke: `node scripts/smoke-stratagems.mjs`
+(needs `npm run dev`; registers the system at runtime if `main.ts` has not).
+E-8 (c) 거절 통보를 관찰하는 세 필드 — **호스트**: `lastCallRefusal`(마지막 거절 사유, 구조선은 `rescue:` 접두어) ·
+`lastDenySent`(그 거절에 실제로 `strat deny` 를 보냈으면 사유, 답장하지 않기로 한 위조 `callId` 면 `null`);
+**호출자**: `lastCallDeny`(마지막으로 받아들인 `strat deny` 의 사유, 받아들이지 않은 것은 남지 않는다) + `cooldown` 이 0 인지.
 
 ## Limitations
 - Structure hp is per-client except for the `structHp` sync (no host authority; simultaneous hits can disagree briefly). The Phase 9
@@ -167,6 +180,20 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 ---
 
 ## 변경 이력
+
+- **2026-09-11 — E-8 (c) 거절된 분대원 호출: 통보 + 쿨타임 환불 (docs/plans/net-trust-gaps.md §3).** `Targeting.confirm` 의
+  `startCooldown` 은 요청을 보내기 **전에** 도는 낙관적 값인데 호스트의 거절은 `lastCallRefusal` 기록뿐이라, 분대원은
+  쿨타임만 날리고 이유를 몰랐다. ① 호스트 `Wire.onCallRequest` 의 `refuse` 가 `strat deny {callId, reason}` 을 그 사람에게만
+  보낸다(`sendCallDeny`). ② 구조선도 같은 경로로 통일 — `Rescue.onRescueMessage` 의 `req` 가 `cooldown` 만 알리던 반쪽을
+  버리고 `callRefusal` 의 모든 사유 + 대상이 로비를 떠난 경우(`member`)까지 답한다(주소는 `rescueDenyId(from)`).
+  옛 `rescue deny`(`empty`/`alive`/`busy`) 와이어는 그대로 두었고 `grant` 가 쓴다 — 그 `showDeny` 에도 환불을 넣었다.
+  ③ `StratagemSystem.refundCooldown()` 신설 — `_cooldown` · `_cooldownTotal` · `cooldownEmitAcc` 를 함께 0 으로 내리고
+  `stratagem:cooldown {0, 0}` 을 방출한다(`debugCooldownReset` 이 본보기, **전액 환불**). ④ 수신 `Wire.onCallDenied` 는
+  호스트가 보낸 것 + `callId` 가 `<나>-` 로 시작할 때만 받아들여 환불 · `ui_deny` · 사유 토스트를 낸다 — 남이 내 쿨타임을
+  되돌릴 수 없다. ⑤ 한국어 문구는 `Wire.CALL_DENY_KO`(+ 공통 `CALL_DENY_FALLBACK`)이고 **계약이 아니다**.
+  **위조 `callId` 에는 답하지 않는다**: `deny` 는 `callId` 로 주소를 삼고 받는 쪽이 자기 id 로 시작하는 것만 받으므로,
+  `from` 의 것이 아닌 id 를 돌려줘도 아무도 받아들일 수 없다 — 중복 id 는 확실히 그 사람 것이라 답한다.
+  디버그: `lastDenySent`(호스트) · `lastCallDeny`(호출자). `src/shared` · `data/` 는 한 줄도 고치지 않았다(계약은 리드가 커밋).
 
 - **2026-09-11 — E-4 함선 호출 호스트 경유 (docs/plans/net-social-trust.md §5 (d)).** 분대원의 확정은 `stratq call` 을 호스트로
   보내고(`parts/Targeting.confirm`) 호스트가 `parts/Wire.onCallRequest` 에서 callId 소유 · 종류 · 호스트 전용 · 페이즈 · 로비 멤버 ·
