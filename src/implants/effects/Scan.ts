@@ -1,19 +1,41 @@
 import * as THREE from 'three';
-import type { EnemyRef, GameContext, ScanTarget } from '@/shared';
+import type { EnemyRef, GameContext, Interactable, InteractableKind, ScanTarget } from '@/shared';
 
 /** Hard cap so a huge pulse never floods the reveal list / the HUD outline pool. */
 const MAX_TARGETS = 120;
 
 /**
- * Interactable id prefix → `ScanTarget.kind` (Phase 12). Every world thing a player can walk up to is registered in
- * `ctx.interactables` under a prefixed id (crates `crate_`, gather nodes `gather:` / `gather_`, dropped items
- * `pickup:`, corpses `corpse:`, deployables `gadget:`, extraction consoles `extract_`, downed squadmates `revive:`),
- * so the registry is the single source for "things to reveal". Anything unlisted (arena consoles, ship stations) is
- * an `'objective'`.
+ * `Interactable.kind` → `ScanTarget.kind` + label (2026-09-11, C-4). `ScanTarget.kind` itself did not change, so both
+ * corpse kinds reveal as a `'crate'` (a lootable container) — the squadmate's with its own label.
+ */
+const KIND_MAP: Readonly<Record<InteractableKind, readonly [ScanTarget['kind'], string]>> = {
+  corpse: ['crate', '시체'],
+  playerCorpse: ['crate', '아군 시체'],
+  crate: ['crate', '보급 상자'],
+  container: ['crate', '컨테이너'],
+  gather: ['gather', '채집물'],
+  pickup: ['pickup', '아이템'],
+  deployable: ['deployable', '설치물'],
+  drone: ['deployable', '드론'],
+  extract: ['objective', '탈출 지점'],
+  revive: ['objective', '아군'],
+  console: ['objective', '목표'],
+  objective: ['objective', '목표'],
+};
+
+/**
+ * Interactable id prefix → `ScanTarget.kind` (Phase 12) — the **fallback** for registrations without `kind`. Every
+ * world thing a player can walk up to is registered in `ctx.interactables` under a prefixed id (crates `crate_`, gather
+ * nodes `gather:` / `gather_`, dropped items `pickup:`, corpses `corpse:`, squadmate corpses `pcorpse:`, deployables
+ * `gadget:`, extraction consoles `extract_`, downed squadmates `revive:`), so the registry is the single source for
+ * "things to reveal". Anything unlisted (arena consoles, ship stations) is an `'objective'`.
+ * 2026-09-11 (C-4): `pcorpse` was missing — `'corpse'` does not prefix-match `pcorpse:`, so a squadmate's corpse
+ * revealed as an `objective` (the tall 1.4 pillar).
  */
 const PREFIX_KINDS: ReadonlyArray<readonly [string, ScanTarget['kind'], string]> = [
   ['crate', 'crate', '보급 상자'],
   ['corpse', 'crate', '시체'],
+  ['pcorpse', 'crate', '아군 시체'],
   ['gather', 'gather', '채집물'],
   ['pickup', 'pickup', '아이템'],
   ['gadget', 'deployable', '설치물'],
@@ -21,9 +43,11 @@ const PREFIX_KINDS: ReadonlyArray<readonly [string, ScanTarget['kind'], string]>
   ['revive', 'objective', '아군'],
 ];
 
-function kindOf(id: string): readonly [ScanTarget['kind'], string] {
+/** `kind` first, the id prefix only when the registration has none. */
+export function kindOf(it: Pick<Interactable, 'id' | 'kind'>): readonly [ScanTarget['kind'], string] {
+  if (it.kind !== undefined) { const k = KIND_MAP[it.kind]; if (k) return k; }
   for (const [prefix, kind, label] of PREFIX_KINDS) {
-    if (id.startsWith(prefix)) return [kind, label];
+    if (it.id.startsWith(prefix)) return [kind, label];
   }
   return ['objective', '목표'];
 }
@@ -44,13 +68,7 @@ export function collectScanTargets(ctx: GameContext, center: THREE.Vector3, radi
   // ── enemies
   const enemies = ctx.enemies;
   if (enemies) {
-    let list: readonly EnemyRef[] = [];
-    const q = (enemies as { queryNear?: unknown }).queryNear;
-    if (typeof q === 'function') {
-      try { list = enemies.queryNear(center, radius); } catch { list = enemies.getEnemies(); }
-    } else {
-      list = enemies.getEnemies();
-    }
+    const list: readonly EnemyRef[] = enemies.queryNear(center, radius);
     for (const e of list) {
       if (e.isDead || !near(e.position)) continue;
       out.push({ kind: 'enemy', id: String(e.id), position: e.position, object: e.object, label: '적' });
@@ -64,7 +82,7 @@ export function collectScanTargets(ctx: GameContext, center: THREE.Vector3, radi
     let usable = true;
     try { usable = it.canInteract(); } catch { usable = false; }
     if (!usable) continue;
-    const [kind, label] = kindOf(it.id);
+    const [kind, label] = kindOf(it);
     out.push({ kind, id: it.id, position: it.position, label });
     if (out.length >= MAX_TARGETS) return out;
   }
@@ -96,9 +114,9 @@ export function revealScan(ctx: GameContext, center: THREE.Vector3, radius: numb
   ctx.bus.emit('detect:reveal', { targets, duration });
   ctx.bus.emit('scan:cast', { position: center.clone(), radius, duration, targets, byLocal });
   const enemies = ctx.enemies;
-  if (enemies && typeof (enemies as { setXray?: unknown }).setXray === 'function') {
+  if (enemies) {
     enemyIdsOf(targets, _ids);
-    if (_ids.length) { try { enemies.setXray(_ids, duration); } catch { /* enemies without xray */ } }
+    if (_ids.length) enemies.setXray(_ids, duration);
   }
   return targets;
 }

@@ -3,6 +3,7 @@
 // restored and no XP / settlement / threat, rejoin restore (`net:raidLoaded` blob + `net:ghostRestore` alive / dead) and the
 // `NET_GHOST_RESTORE_TIMEOUT_S` hellpod fallback, extraction consoles absent when the world has no pads.
 // 2026-09-09: 자동 부활 폐지 — 죽은 몸으로 복귀해도 카운트다운이 없고 `game:respawn` 은 무력하다 (구조선만이 되살린다).
+// 2026-09-11: 사망 시 임플란트의 망가진 짝이 시체로 (`stripImplantsForCorpse` + `spawnLocalCorpse`) · 전차 위 시체가 전차에 실려 간다.
 // Usage: node scripts/smoke-raidflow.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -404,6 +405,134 @@ try {
   ok((await P(() => window.__lights())) === lights0, '이륙 뒤에도 조명 개수가 그대로다', `${lights0}`);
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (extraction)', 20000);
+
+  /* 2026-09-11 (C-12 사용자 결정): 사망하면 장착 임플란트가 몸에서 빠지고 **망가진 짝**이 시체로 간다.
+     (C-18): 달리는 전차 위에서 죽은 시체는 전차에 실려 간다. 사망 → 시체 흐름은 멀티에서만 돌므로
+     (`game/parts/Death.onLocalDied`) 그 흐름이 부르는 함수 `CorpseNet.spawnLocalCorpse` 를 직접 부른다. */
+  console.log('2026-09-11: 사망 → 임플란트 망가진 짝 · 전차 위 시체');
+  await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (implants)');
+  const equipTwo = () => P(() => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    const uids = ['imp_strength_2', 'imp_perk_quick_heal'].map((id) => { const it = ctx.loot.createItem(id, 1); return ctx.inventory.tryAddToStash(it) ? it.uid : null; });
+    return { ok: uids.every((u) => u && p.equipImplant(u)), eq: p.getEquippedImplants().map((e) => e.defId), eff: p.getStatWithImplants('strength'), base: p.getStat('strength') };
+  });
+  const storedImplants = () => P(async () => {
+    const { slotKey, PROFILE_STORAGE_KEY } = await import('/src/shared/index.ts');
+    try { return JSON.parse(localStorage.getItem(slotKey(PROFILE_STORAGE_KEY)) ?? 'null')?.implants?.length ?? null; } catch { return null; }
+  });
+  let eqd = await equipTwo();
+  ok(eqd.ok && eqd.eq.length === 2 && eqd.eff === eqd.base + 2, 'two implants equipped in the ship (strength +2 · 가속 대사)', JSON.stringify(eqd));
+  const strip = await P(() => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    let changed = null;
+    const off = ctx.bus.on('progress:implantsChanged', (e) => { changed = e.equipped.length; });
+    const items = typeof p.stripImplantsForCorpse === 'function' ? p.stripImplantsForCorpse() : null;
+    off();
+    return {
+      items: items && items.map((i) => i.defId).sort(), uids: items && items.map((i) => i.uid),
+      broken: items && items.every((i) => ctx.loot.getItemDef(i.defId)?.implant?.broken === true),
+      eq: p.getEquippedImplants().length, eff: p.getStatWithImplants('strength'), base: p.getStat('strength'), changed,
+      again: p.stripImplantsForCorpse().length,
+    };
+  });
+  ok(strip.items && strip.items.join() === 'imp_broken_perk_quick_heal,imp_broken_strength_2' && strip.broken,
+    'ProgressionRef.stripImplantsForCorpse → one broken twin per equipped implant', JSON.stringify(strip));
+  ok(strip.eq === 0 && strip.eff === strip.base && strip.changed === 0 && strip.again === 0,
+    'the equipped list is empty, derived dropped the bonus, progress:implantsChanged went out (a second strip is empty)', JSON.stringify(strip));
+  ok((await storedImplants()) === 0, 'the stripped profile was written to storage at once');
+
+  eqd = await equipTwo();
+  ok(eqd.ok && eqd.eq.length === 2, 're-equipped two implants for the corpse flow', JSON.stringify(eqd));
+  // a map with a tram: the rail is a seeded chance (RAIL_CHANCE), so walk a few seeds
+  let railSeed = null;
+  for (const seed of [21, 7, 1234, 3, 5, 9]) {
+    await P((s) => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; ctx.bus.emit('game:newMission', { seed: s }); }, seed);
+    await waitFor(page, () => window.__game.ctx.world?.ready === true, `world (seed ${seed})`, 30000);
+    if (await P(() => window.__game.ctx.world.getTrams().length > 0)) { railSeed = seed; break; }
+  }
+  if (railSeed === null) {
+    console.log('  --   no seed with a tram — corpse ride check skipped');
+  } else {
+    await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (tram)', 60000);
+    await waitSim(0.3);
+    await P(() => {
+      const ctx = window.__game.ctx, t = ctx.world.getTrams()[0];
+      const p = t.position.clone(); p.y += 0.02;
+      ctx.player.teleport(p, undefined, false);
+    });
+    await waitSim(0.4);
+    const local = () => P(() => {
+      const ctx = window.__game.ctx, t = ctx.world.getTrams()[0], c = ctx.corpses.latestOf('sp');
+      if (!c) return null;
+      const dx = c.position.x - t.position.x, dz = c.position.z - t.position.z, cs = Math.cos(t.yaw), sn = Math.sin(t.yaw);
+      const it = ctx.interactables.all().find((i) => i.id === c.id);
+      const pp = ctx.player.position, pdx = pp.x - t.position.x, pdz = pp.z - t.position.z;
+      return { plx: pdx * cs + pdz * sn, plz: -pdx * sn + pdz * cs, pdy: pp.y - t.position.y,
+        lx: dx * cs + dz * sn, lz: -dx * sn + dz * cs, dy: c.position.y - t.position.y, x: c.position.x, z: c.position.z, tx: t.position.x, tz: t.position.z,
+        state: t.state, riding: c.riding, kind: it?.kind, sameVec: it ? it.position === c.position : false };
+    });
+    const died = await P(async () => {
+      const m = await import('/src/game/parts/CorpseNet.ts');
+      m.spawnLocalCorpse(window.__game.getSystem('gameflow'));
+      const ctx = window.__game.ctx, c = ctx.corpses.latestOf('sp');
+      return { corpse: !!c, items: c ? c.items.map((i) => i.defId) : [], eq: ctx.progression.getEquippedImplants().length };
+    });
+    const twins = died.items.filter((d) => d.startsWith('imp_broken_')).sort();
+    ok(died.corpse && died.eq === 0, 'death strip: the corpse stands and the body has no implants left', JSON.stringify(died));
+    ok(twins.join() === 'imp_broken_perk_quick_heal,imp_broken_strength_2',
+      'the corpse holds the broken twins of the equipped implants (InventoryRef.stripForCorpse merges them)', JSON.stringify(died.items));
+    ok((await storedImplants()) === 0, 'the death strip was saved at once (a reload does not bring the implants back)');
+    const l0 = await local();
+    ok(l0 && l0.riding && l0.kind === 'playerCorpse' && l0.sameVec && Math.abs(l0.dy) < 0.2,
+      'a corpse on the tram deck boards the tram (Interactable.kind playerCorpse, position = the corpse vector)', JSON.stringify(l0));
+    // C-4: kind first — the squadmate corpse `pcorpse:` used to fall through the scan prefix table into an 'objective'
+    const scanKind = await P(async () => {
+      const ctx = window.__game.ctx, c = ctx.corpses.latestOf('sp');
+      const { collectScanTargets } = await import('/src/implants/effects/Scan.ts');
+      const { pillarAllowed } = await import('/src/ui/hud/pillar.ts');
+      const t = collectScanTargets(ctx, c.position, 5).find((x) => x.id === c.id);
+      const it = ctx.interactables.all().find((i) => i.id === c.id);
+      return { kind: t?.kind ?? null, label: t?.label ?? null, pillar: pillarAllowed(it), pillarById: pillarAllowed(c.id), crateByKind: pillarAllowed({ id: c.id, kind: 'crate' }) };
+    });
+    ok(scanKind.kind === 'crate' && scanKind.label === '아군 시체' && scanKind.pillar && scanKind.pillarById && !scanKind.crateByKind,
+      'C-4: 정찰 reveals the squadmate corpse as a crate (아군 시체), pillarAllowed reads kind first (prefix fallback kept)', JSON.stringify(scanKind));
+    await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'rail:tram_rail_0:console')?.interact());
+    await waitSim(6.0);
+    const l1 = await local();
+    const moved = l1 && l0 ? Math.hypot(l1.x - l0.x, l1.z - l0.z) : 0;
+    const tramMoved = l1 && l0 ? Math.hypot(l1.tx - l0.tx, l1.tz - l0.tz) : 0;
+    const drift = l1 && l0 ? Math.hypot(l1.lx - l0.lx, l1.lz - l0.lz) : Infinity;
+    ok(l1 && l1.state === 'moving' && tramMoved > 5 && moved > 5 && drift < 0.15 && Math.abs(l1.dy) < 0.2,
+      `the corpse rides along (tram ${tramMoved.toFixed(1)} m, corpse ${moved.toFixed(1)} m, drift in the tram frame ${drift.toFixed(3)} m)`, JSON.stringify({ l0, l1 }));
+    // the player standing next to it rides too — `PlayerController` now uses the same `@/shared` ride math (C-18 refactor)
+    const pDrift = l1 && l0 ? Math.hypot(l1.plx - l0.plx, l1.plz - l0.plz) : Infinity;
+    ok(l1 && pDrift < 0.3 && Math.abs(l1.pdy) < 0.3, `the idle player on the deck rides the tram with it (drift ${pDrift.toFixed(3)} m, Δy ${l1?.pdy?.toFixed(2)})`, JSON.stringify({ l0, l1 }));
+  }
+  await P(() => window.__game.ctx.bus.emit('game:abort', {}));
+  await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (implants)', 20000);
+
+  /* 2026-09-11 (C-12 후속, 사용자 결정): **솔로 사망**은 시체가 없으므로 장착 임플란트를 짝 없이 완전히 잃는다. */
+  console.log('2026-09-11: 솔로 사망 → 임플란트 완전 손실');
+  await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (solo death)');
+  eqd = await equipTwo();
+  ok(eqd.ok && eqd.eq.length === 2, 're-equipped two implants for the solo death', JSON.stringify(eqd));
+  await P(() => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; ctx.bus.emit('game:newMission', { seed: 21 }); });
+  await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (solo death)', 60000);
+  const soloDeath = await P(() => {
+    const ctx = window.__game.ctx;
+    const corpses0 = ctx.corpses?.getCorpses().length ?? null;
+    const brokenInStash = () => ctx.inventory.getStashItems().filter((i) => i.defId.startsWith('imp_broken_')).length;
+    const stash0 = brokenInStash();
+    ctx.bus.emit('player:died', {});
+    return { mp: ctx.isMultiplayer, eq: ctx.progression.getEquippedImplants().length, corpses0, corpses1: ctx.corpses?.getCorpses().length ?? null, stash0, stash1: brokenInStash() };
+  });
+  ok(!soloDeath.mp && soloDeath.eq === 0 && soloDeath.corpses1 === soloDeath.corpses0 && soloDeath.stash1 === soloDeath.stash0,
+    'solo death: the equipped implants are gone — no corpse, no broken twin anywhere', JSON.stringify(soloDeath));
+  ok((await storedImplants()) === 0, 'solo death: the loss was saved at once');
+  await P(() => window.__game.ctx.bus.emit('game:abort', {}));
+  await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (solo death)', 20000);
 
   // cleanly back to the hub
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

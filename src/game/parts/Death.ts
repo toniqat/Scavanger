@@ -43,6 +43,12 @@ export function onLocalDied(sys: GameFlowSystem): void {
   if (!ctx.isMultiplayer) {
     // Solo: the raid is lost the moment the player dies (Phase 7) — the death screen (레이드 실패) follows the usual delay.
     if (sys.deathTimer >= 0) return;
+    /*
+     * 2026-09-11 (C-12 후속, 사용자 결정 "솔로도 완전히 잃는다"): 분대 사망은 장착 임플란트의 망가진 짝을 시체에 넣지만
+     * 솔로에는 되찾으러 갈 시체가 없다 — 장비 · 가방과 똑같이 **짝도 없이** 잃는다. 같은 함수가 장착을 풀고 즉시
+     * 저장하므로(사망 직후 새로고침으로 되돌릴 수 없다) 돌려준 짝은 버린다.
+     */
+    ctx.progression?.stripImplantsForCorpse?.();
     sys.respawnTimer = -1; sys.respawnLastSec = -1;
     sys.deathTimer = DEATH_TO_SCREEN;
     sys.setPaused(false);

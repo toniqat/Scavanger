@@ -452,6 +452,25 @@ try {
     ok(!!dbgOff && dbgOff.on === false, `RemoteImplants.debugBeam(A) off after keyup ${JSON.stringify(dbgOff)}`);
   }
 
+  /* 2026-09-11 (C-43): B draws A's wielded 대전차포 in A's avatar hand and re-attaches it when that avatar is rebuilt —
+     an avatar hands out a fresh `weaponSocket` each time, and the old "attached once" boolean left the device in the
+     dead socket. Equipping is ship-only, so A's implant id is swapped in place for the probe and put back afterwards. */
+  console.log('remote implant device follows a rebuilt avatar (2026-09-11 C-43)');
+  await A.evaluate(() => { const im = window.__game.getSystem('implants'); window.__impPrev = im.equippedId; im.equippedId = 'atlauncher'; im.activate(); });
+  const dev0 = await waitFor(B, (aid) => { const av = window.__game.getSystem('remotePlayers').getAvatar(aid); const s = av?.weaponSocket; return s && s.children.some((c) => c.name === 'Implant:atlauncher') ? { ok: true } : null; }, 'B sees A holding the 대전차포', 6000, aIdBeam).catch(() => null);
+  ok(!!dev0, 'B: Implant:atlauncher hangs under A\'s avatar weaponSocket');
+  await B.evaluate((aid) => { const sys = window.__game.getSystem('remotePlayers'); window.__oldSock = sys.getAvatar(aid)?.weaponSocket ?? null; sys.remove(aid); }, aIdBeam);
+  const dev1 = await waitFor(B, (aid) => {
+    const av = window.__game.getSystem('remotePlayers').getAvatar(aid);
+    const s = av?.weaponSocket;
+    if (!s || s === window.__oldSock) return null;
+    const onNew = s.children.some((c) => c.name === 'Implant:atlauncher');
+    const onOld = !!window.__oldSock && window.__oldSock.children.some((c) => c.name === 'Implant:atlauncher');
+    return onNew ? { onNew, onOld } : null;
+  }, 'device re-attached to the rebuilt avatar', 6000, aIdBeam).catch(() => null);
+  ok(!!dev1 && dev1.onNew && !dev1.onOld, `B: after the avatar is rebuilt the device moved to the new weaponSocket ${JSON.stringify(dev1)}`);
+  await A.evaluate(() => { const im = window.__game.getSystem('implants'); im.stow(); im.equippedId = window.__impPrev ?? 'overcharge'; });
+
   console.log('container authority (Phase 9 e2e: contq take → cont taken / denied)');
   await B.evaluate(() => {
     window.__searchDone = []; window.__game.ctx.bus.on('container:searchDone', (e) => window.__searchDone.push(e.containerId));

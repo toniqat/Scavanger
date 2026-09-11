@@ -3,7 +3,7 @@ import {
   BOX_HEADROOM,
   GRAVITY, IMPLANT_GRAPPLE_SPEED, PLAYER_HEIGHT, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED,
   PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED, ROLL_DISTANCE, ROLL_DURATION,
-  RIDE_EDGE_MARGIN, RIDE_FOOT_DROP, RIDE_HEADROOM, RIDE_INERTIA_DAMP, RIDE_INERTIA_S,
+  RIDE_INERTIA_DAMP, RIDE_INERTIA_S, recordRideLocal, restoreRideLocal, rideContains,
   LADDER_CLIMB_SPEED, LADDER_DROP_PUSH, LADDER_JUMP_PUSH, LADDER_JUMP_SPEED, LADDER_MOUNT_S, LADDER_SPRINT_SPEED,
   type LadderDef, type Obstacle, type WorldRef, type Stance, type InteriorCollider,
 } from '@/shared';
@@ -98,41 +98,11 @@ const CEIL_PROBE_START = 0.6;
 /** 2026-09-11: `world/obb.BOX_HEADROOM` 과 같은 값 — 이제 `data/constants.csv` 한 곳에서 온다. */
 const WORLD_CEIL_HEADROOM = BOX_HEADROOM;
 
-/* ── 차량 탑승 좌표 변환 (2026-09-10) ────────────────────────────────────────────────────────────────
- * `Obstacle.box`(계약, 2026-09-09)는 `{halfX, halfZ, yaw}` 이고 `yaw` 는 수학 규약(로컬 +X → 월드
- * `(cos, sin)`)이다. 여기서는 그 **계약 필드만** 읽어 세 줄짜리 회전을 직접 푼다 — `world/obb.ts` 를
- * import 하면 폴더 내부를 건드리는 것이고, 이만한 식을 `shared` 로 올릴 만큼 쓰는 곳이 많지도 않다.
- * 상자가 없는(원기둥) 발판은 yaw 0 으로 취급하므로 같은 코드가 그대로 돈다.
+/* ── 차량 탑승 좌표 변환 ─────────────────────────────────────────────────────────────────────────────
+ * 2026-09-10 에 여기 private 함수 셋으로 태어났고, 2026-09-11 (C-18) 적 · 시체도 같은 식으로 전차에 타게 되면서
+ * `@/shared` 의 `ride.ts`(`recordRideLocal` · `restoreRideLocal` · `rideContains`)로 옮겨 갔다. 식은 한 줄도 바뀌지
+ * 않았고 `rideContains` 의 기본 인자가 옛 상수(`RIDE_HEADROOM` · `RIDE_FOOT_DROP` · `RIDE_EDGE_MARGIN`) 그대로다.
  */
-/** 월드 좌표 → 차량 로컬 (`out.y` 는 **발판 윗면 기준** 높이). */
-function recordRideLocal(c: Obstacle, pos: THREE.Vector3, out: THREE.Vector3): void {
-  const yaw = c.box ? c.box.yaw : 0;
-  const dx = pos.x - c.position.x, dz = pos.z - c.position.z;
-  const cs = Math.cos(yaw), sn = Math.sin(yaw);
-  out.set(dx * cs + dz * sn, pos.y - (c.position.y + c.height), -dx * sn + dz * cs);
-}
-
-/** 차량 로컬 → 월드 (차량의 **지금** 변환으로 푼다). */
-function restoreRideLocal(c: Obstacle, local: THREE.Vector3, pos: THREE.Vector3): void {
-  const yaw = c.box ? c.box.yaw : 0;
-  const cs = Math.cos(yaw), sn = Math.sin(yaw);
-  pos.set(
-    c.position.x + local.x * cs - local.z * sn,
-    c.position.y + c.height + local.y,
-    c.position.z + local.x * sn + local.z * cs,
-  );
-}
-
-/** 아직 이 차량에 타고 있는가 — 차량 단면(+`RIDE_EDGE_MARGIN`) 안이고 높이 범위 안일 때만. */
-function rideContains(c: Obstacle, pos: THREE.Vector3): boolean {
-  const top = c.position.y + c.height;
-  if (pos.y > top + RIDE_HEADROOM || pos.y < top - RIDE_FOOT_DROP) return false;
-  const dx = pos.x - c.position.x, dz = pos.z - c.position.z;
-  if (!c.box) return dx * dx + dz * dz <= (c.radius + RIDE_EDGE_MARGIN) ** 2;
-  const cs = Math.cos(c.box.yaw), sn = Math.sin(c.box.yaw);
-  const lx = dx * cs + dz * sn, lz = -dx * sn + dz * cs;
-  return Math.abs(lx) <= c.box.halfX + RIDE_EDGE_MARGIN && Math.abs(lz) <= c.box.halfZ + RIDE_EDGE_MARGIN;
-}
 
 /**
  * Kinematic character controller: camera-relative acceleration, gravity, single jump, stances

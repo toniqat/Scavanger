@@ -120,7 +120,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   cloakNearEnemy = false;
   _cloaked = false;
   readonly speedMods = new Map<string, SpeedMod>();
-  _overcharged = false;
+  /** `ctx.time` until which `isOvercharged` is true (2026-09-11 C-3: set by `setOvercharged`, 0 = off). */
+  _overchargedUntil = 0;
   readonly grappleVec = new THREE.Vector3();
   _grappling = false;
   _hovering = false;
@@ -285,7 +286,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   restoreState(state: PlayerRestoreState): void { return Spawn.restoreState(this, state); }
   get isCloaked(): boolean { return this._cloaked; }
   get isHovering(): boolean { return this._hovering; }
-  get isOvercharged(): boolean { return this._overcharged; }
+  /** 2026-09-11 (C-3): an explicit timer set by `setOvercharged` — no longer inferred from an `overcharge*` speed-modifier key. */
+  get isOvercharged(): boolean { return this._overchargedUntil > 0 && !!this.ctx && this.ctx.time < this._overchargedUntil; }
+  /** Mark overcharged for `duration` s (0 = clear). implants' `applyBoost` calls it next to `setSpeedModifier`. */
+  setOvercharged(duration: number): void { this._overchargedUntil = duration > 0 && this.ctx ? this.ctx.time + duration : 0; }
   /**
    * **항상 0 이다 (2026-09-10).** 방탄복은 피해를 깎지 않고 실드(추가 체력)를 준다 — 아래 `shield` 를 본다.
    * `PlayerRef.damageReduction` 은 `airstrike` · `secondary` 와 같은 처리로 **계약이라 남겨 뒀을 뿐**이고
@@ -329,7 +333,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const delta = this._shield - before;
     if (delta <= 0) return false;
     this.emitShield(delta);
-    this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.7, pitch: 1.25 });
+    // 2026-09-11 (C-21): 전용 완료음 (예전엔 `stim` 을 pitch 1.25 로 빌려 썼다 — 정의는 audio/Synth)
+    this.ctx.bus.emit('audio:play', { id: 'shield_charge', volume: 0.7 });
     return true;
   }
 
@@ -750,7 +755,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.applyGearModifiers();
     // Phase 7: the worn 방탄복 shows on the body (same look remotes get from `ar`); overcharge = rim glow
     this.model.setArmor(this.gear.armor);
-    this.model.setGlow(this._overcharged && !this.isDead);
+    this.model.setGlow(this.isOvercharged && !this.isDead);
     c.jumpSpeedMul = Math.sqrt(Math.max(0.1, ctx.progression?.derived.jumpHeightMul ?? 1));
 
     // ── timers
@@ -1102,7 +1107,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Camera-relative horizontal direction of the current movement input (zero vector when idle). */
   wishDirection(out: THREE.Vector3): THREE.Vector3 { return Loco.wishDirection(this, out); }
 
-  /** Product of the live speed-modifier stack; also refreshes `isOvercharged`. */
+  /** Product of the live speed-modifier stack (drops expired entries). */
   private speedModifierProduct(): number { return Loco.speedModifierProduct(this); }
 
   /** Weight state and the ultralight-armor perk feed the same stack as external buffs. */

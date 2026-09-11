@@ -380,6 +380,8 @@ export class GameFlowSystem implements GameSystem {
     }
     // 2026-09-09: 바닥의 분대장 기기가 맥동한다 (없으면 no-op).
     Leader.updateLeader(this, dt);
+    // 2026-09-11 (C-18): 달리는 전차 위에서 죽은 시체는 전차를 따라간다 (탄 시체가 없으면 빈 순회).
+    this.corpses?.update();
     if (this.allDeadCheckTimer >= 0) {
       this.allDeadCheckTimer -= dt;
       if (this.allDeadCheckTimer < 0) {

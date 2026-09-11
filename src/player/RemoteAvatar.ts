@@ -149,8 +149,9 @@ export class RemoteAvatar implements RemoteAvatarRef {
     this.root.name = `RemoteSoldier:${ref.id}`;
     /*
      * 2026-09-10: a **fresh socket object per avatar**, parented at identity inside the model's hand socket. The body
-     * itself may be a pooled one another avatar used a moment ago; `weapons/RemoteWeapons` (and `implants/`) key their
-     * attachments on socket identity (`e.socket !== socket` → rebuild), so handing out the model's own socket again
+     * itself may be a pooled one another avatar used a moment ago; `weapons/RemoteWeapons` keys its attachments on socket
+     * identity (`e.socket !== socket` → rebuild) — and `implants/RemoteImplants` does too since 2026-09-11 (C-43, it used
+     * to keep an "attached once" boolean that never noticed a new socket) — so handing out the model's own socket again
      * would let them believe a weapon they parented into a now-parked body is still in the hand. `dispose` detaches
      * this object, and whatever other folders hung on it leaves with it — exactly what disposing the model did before.
      */

@@ -259,7 +259,7 @@ export function resetTactical(sys: PlayerSystem): void {
   sys.cloakSource = null;
   if (sys._cloaked) { sys._cloaked = false; sys.ctx?.bus.emit('player:cloakChanged', { cloaked: false, source: null }); }
   sys.speedMods.clear();
-  sys._overcharged = false;
+  sys._overchargedUntil = 0;
   sys._hovering = false; sys.hoverBlend = 0; sys.autoHoverUsed = false;
   if (sys._burning) { sys._burning = false; sys.ctx?.bus.emit('player:burning', { active: false, dps: 0 }); }
   sys.burnDps = 0; sys.burnTimer = 0; sys.burnTick = 0;

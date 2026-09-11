@@ -1,8 +1,9 @@
-import type { EquippedImplant, ImplantItemDef,
+import type { EquippedImplant, ImplantItemDef, ItemInstance,
   DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
 import {
+  brokenImplantIdOf,
   IMPLANT_SLOTS_BASE, IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_PER_LEVELS,
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
   STAT_XP_BASE, STAT_XP_EXPONENT, TRAINING_SKILL_GAIN_MUL,
@@ -126,6 +127,33 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     return true;
   }
 
+  /**
+   * **Death only** (2026-09-11 C-12, 사용자 결정): every equipped implant leaves the body — the ship gate of
+   * `unequipImplant` does not apply. Each one becomes a **broken twin** item (`brokenImplantIdOf`, fresh uid from
+   * `createItem`, no durability) handed to `InventoryRef.stripForCorpse` for the corpse; the working instance is gone.
+   * An entry whose twin def is unknown is dropped without an item. `derived` is recomputed, `progress:implantsChanged`
+   * goes out and the profile is **written at once** — a reload right after dying must not bring the implants back
+   * (same reason as `loadoutStore.saveNow('corpse')`). Empty (and nothing written) when none are equipped.
+   */
+  stripImplantsForCorpse(): ItemInstance[] {
+    const list = this.equippedList();
+    if (list.length === 0) return [];
+    const out: ItemInstance[] = [];
+    const loot = this.ctx?.loot;
+    for (const e of list) {
+      if (!loot) break;
+      try {
+        // an already-broken entry cannot be equipped, but an old save might hold one — it is its own twin
+        const twinId = loot.getItemDef(e.defId)?.implant?.broken ? e.defId : brokenImplantIdOf(e.defId);
+        if (!loot.getItemDef(twinId)?.implant) continue;
+        out.push(loot.createItem(twinId, 1));
+      } catch { /* unknown def — dropped without a twin */ }
+    }
+    list.length = 0;
+    this.afterImplantsChanged();                          // recompute + markDirty(true) = flush now + event + sheets
+    return out;
+  }
+
   /* ── implant internals ── */
   private equippedList(): EquippedImplant[] {
     const p = this._profile;
@@ -230,6 +258,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private lastX = 0;
   private lastZ = 0;
   private hasLastPos = false;
+  /** Container ids whose `crate:open` already paid 감정 XP this raid (C-16 · X-1; cleared on `game:newMission` / `world:ready`). */
+  private readonly cratesAppraised = new Set<string>();
   /** Last emitted fractional progress per skill, so the bus is not spammed every frame. */
   private lastEmitted: Partial<Record<SkillId, number>> = {};
 
@@ -300,7 +330,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       /* ── 암호학 ── */
       b.on('extraction:activated', () => this.addSkillXp('cryptography', CRYPTO_XP)),
       /* ── 감정: opening a container + every item revealed by the Tarkov-style search (Phase 7; was `inventory:itemAdded`) ── */
-      b.on('crate:open', () => this.addSkillXp('appraisal', CRATE_OPEN_XP)),
+      /* 2026-09-11 (C-16 · X-1): once per container id per raid — every re-open used to pay again (E 연타 무한 파밍) */
+      b.on('crate:open', ({ crateId }) => {
+        if (this.cratesAppraised.has(crateId)) return;
+        this.cratesAppraised.add(crateId);
+        this.addSkillXp('appraisal', CRATE_OPEN_XP);
+      }),
       b.on('container:itemRevealed', ({ rarity }) => {
         this.addSkillXp('appraisal', APPRAISE_XP_BY_RARITY[rarity] ?? APPRAISE_XP_BY_RARITY.common);
       }),
@@ -320,7 +355,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('loadout:changed', () => this.recompute()),
       /* ── stat points may not be spent mid-raid; refresh the sheet on every phase change ── */
       b.on('game:phaseChanged', () => this.refreshSheets()),
-      b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; }),
+      b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; this.cratesAppraised.clear(); }),
+      b.on('world:ready', () => this.cratesAppraised.clear()),
       b.on('game:abort', () => { this.hasLastPos = false; this.flush(); }),
       /* ── character sheet ── */
       b.on('ui:statsToggled', ({ open }) => {

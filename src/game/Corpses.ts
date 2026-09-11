@@ -14,8 +14,9 @@
 import * as THREE from 'three';
 import {
   NET_SLOT_COLORS, PLAYER_CORPSE_COLS, PLAYER_CORPSE_LOOT_RANGE, PLAYER_CORPSE_ROWS,
-  type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance,
-  type PlayerCorpse, type PlayerCorpseWire,
+  recordRideLocal, restoreRideLocal,
+  type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
+  type PlayerCorpse, type PlayerCorpseWire, type WorldRef,
 } from '@/shared';
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from '@/player';
 
@@ -35,10 +36,23 @@ const SETTLE_DT = 0.5;
  */
 export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   readonly radius = PLAYER_CORPSE_LOOT_RANGE;
+  /** 2026-09-11 (C-4): 빛기둥 · 정찰 분류가 id 접두어 대신 이것을 먼저 본다. */
+  readonly kind = 'playerCorpse' as const;
   readonly position = new THREE.Vector3();
   readonly group = new THREE.Group();
   emptied = false;
   private readonly model: SoldierModel;
+  /* ── 2026-09-11 (C-18): 달리는 전차 위의 시체는 전차에 실려 간다 ─────────────────────────────────────
+   * 플레이어 · 적과 같은 식(`@/shared` 의 `ride.ts`)이다. 생성 직후 발밑의 **움직이는 발판**(`Obstacle.velocity`)을
+   * 한 번 찾아(`boardCarrier`) 차량 로컬 좌표로 적어 두고, 매 프레임 차량의 **지금** 변환으로 다시 푼다
+   * (`followCarrier`). `carrier` 는 `SpatialHash` 안의 살아 있는 `Obstacle` 이라 전차가 움직이면 같이 바뀐다.
+   * 시체는 스스로 움직이지 않으므로 유지 판정(`rideContains`)도 하차 관성도 없다 — 레이드가 끝날 때까지 탄다. */
+  private carrier: Obstacle | null = null;
+  private readonly rideLocal = new THREE.Vector3();
+  /** 탄 순간의 차량 `box.yaw`(수학 규약)와 시체 yaw(three.js 규약) — 곡선 구간에서 몸도 같이 돈다. */
+  private rideCarrierYaw0 = 0;
+  private rideYaw0 = 0;
+  private yawNow: number;
 
   constructor(
     private readonly ctx: GameContext,
@@ -46,12 +60,13 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     readonly ownerId: string,
     readonly ownerName: string,
     position: THREE.Vector3,
-    readonly yaw: number,
+    yaw: number,
     readonly diedAt: number,
     /** 사망 시점의 전부. 컨테이너를 처음 만들 때만 쓰인다. */
     readonly items: ItemInstance[],
     slot: number,
   ) {
+    this.yawNow = yaw;
     this.position.copy(position);
     this.group.name = `PlayerCorpse:${id}`;
     this.group.position.copy(position);
@@ -61,6 +76,37 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     this.model.setGreyed(true);
     for (let i = 0; i < SETTLE_STEPS; i++) this.model.update(SETTLE_DT, 0, DEAD_POSE);
     this.group.add(this.model.root);
+  }
+
+  /** 지금 몸이 향한 방향 (three.js `rotation.y` 규약). 전차에 실린 시체는 곡선에서 바뀐다. */
+  get yaw(): number { return this.yawNow; }
+
+  /** true = 움직이는 발판에 실려 가는 중 (스모크 · 디버그용). */
+  get riding(): boolean { return this.carrier !== null; }
+
+  /**
+   * 발밑에 움직이는 발판(`velocity` 가 있는 장애물 — 전차 데크)이 있으면 탄다. 생성 직후 한 번만 부른다.
+   * 발판 동점은 `getStandingObstacle` 이 움직이는 쪽을 먼저 고른다(C-38).
+   */
+  boardCarrier(world: WorldRef | null): void {
+    if (this.carrier || !world?.ready) return;
+    const o = world.getStandingObstacle(this.position.x, this.position.z, this.position.y);
+    if (!o || !o.velocity) return;
+    this.carrier = o;
+    recordRideLocal(o, this.position, this.rideLocal);
+    this.rideCarrierYaw0 = o.box ? o.box.yaw : 0;
+    this.rideYaw0 = this.yawNow;
+  }
+
+  /** 매 프레임: 탄 차량의 **지금** 변환으로 자리(= 상호작용 위치)와 방향을 다시 푼다. 안 탔으면 아무것도 안 한다. */
+  followCarrier(): void {
+    const c = this.carrier;
+    if (!c) return;
+    restoreRideLocal(c, this.rideLocal, this.position);
+    this.group.position.copy(this.position);
+    // box.yaw 는 로컬 +X → 월드 (cos, sin) 규약이고 메시 rotation.y 는 그 부호가 반대다 (`world/rails` 의 `rotation.y = −yaw`)
+    this.yawNow = this.rideYaw0 - ((c.box ? c.box.yaw : 0) - this.rideCarrierYaw0);
+    this.group.rotation.y = this.yawNow;
   }
 
   getPrompt(): string | null {
@@ -150,6 +196,7 @@ export class PlayerCorpseManager implements CorpsesRef {
     const n = Number(id.slice(id.lastIndexOf(':') + 1));
     if (Number.isFinite(n)) this.seq.set(ownerId, Math.max(this.seq.get(ownerId) ?? 0, n));
     const c = new PlayerCorpseObject(this.ctx, id, ownerId, ownerName, position, yaw, diedAt, items, slot);
+    c.boardCarrier(this.ctx.world);                // 2026-09-11 (C-18): 전차 위에서 죽었으면 전차에 실린다
     this.corpses.set(id, c);
     this.ctx.scene.add(c.group);
     this.ctx.interactables.register(c);
@@ -166,6 +213,11 @@ export class PlayerCorpseManager implements CorpsesRef {
     c.emptied = true;
     this.ctx.bus.emit('corpse:playerEmptied', { id, ownerId: c.ownerId });
     return true;
+  }
+
+  /** 매 프레임 (`GameFlowSystem.update`): 전차에 실린 시체를 차량의 지금 자리로. 타지 않은 시체는 비용이 없다. */
+  update(): void {
+    for (const c of this.corpses.values()) c.followCarrier();
   }
 
   /** `pcorpse sync` 로 내보낼 전체 목록 (호스트만 보낸다). */

@@ -522,9 +522,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   onBuff(m: BuffMessage, _from: PeerId): void { return Wire.onBuff(this, m, _from); }
 
   /**
-   * Overcharge buff on a player. The `'overcharge'` modifier key is the contract with player/: while it is
-   * live the player runs faster and reports `isOvercharged` (weapons reads that for the fire-rate bonus).
-   * `setSpeedModifier` is part of the tactical-kit contract, so it is probed defensively.
+   * Overcharge buff on a player: `setSpeedModifier('overcharge', mul, duration)` + `setOvercharged(duration)`
+   * (2026-09-11 C-3 — the flag is explicit, no longer inferred from the modifier key by player/).
    */
   applyBoost(p: PlayerRef, mul: number, duration: number): void { return Wire.applyBoost(this, p, mul, duration); }
   /* ══ Phase 10 — 배리어 = 들고 다니는 방패 ══ */

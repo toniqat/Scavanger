@@ -22,7 +22,6 @@ const SCAN_PULSE_FX_S = 1.6;
 interface PeerVis {
   device: ImplantDevice | null;
   deviceId: ImplantId | null;
-  deviceAttached: boolean;
   wire: GrappleWire | null;
   wireActive: boolean;
   readonly wireFrom: THREE.Vector3;
@@ -210,10 +209,15 @@ export class RemoteImplants {
         if (!wielded && up !== true && !v) continue;
         const vv = v ?? this.get(r.id);
         if (vv.deviceId !== wielded) this.setDevice(vv, wielded);
-        // (re)attach once the avatar exists
-        if (vv.device && !vv.deviceAttached) {
-          const socket = r.avatar?.weaponSocket;
-          if (socket) { socket.add(vv.device.root); vv.deviceAttached = true; }
+        // (re)attach by **socket identity** (2026-09-11 C-43): an avatar hands out a fresh `weaponSocket` every time it is
+        // rebuilt (reconnect inside the linger, ref re-creation, `game:abort` / `hub:entered` wholesale clears) and its
+        // dispose detaches the old one with the device on it. A boolean "attached once" flag never learned that, so the
+        // device stayed in a dead socket until the implant changed. Compare the parent every frame instead (no alloc).
+        if (vv.device) {
+          const socket = r.avatar?.weaponSocket ?? null;
+          const root = vv.device.root;
+          if (socket && root.parent !== socket) socket.add(root);
+          else if (!socket && root.parent) root.removeFromParent();
         }
         vv.device?.update(dt, 1);
         // Phase 10: the snapshot is authoritative for the shield (a late joiner needs no `imp shield`)
@@ -267,7 +271,7 @@ export class RemoteImplants {
     let v = this.peers.get(id);
     if (!v) {
       v = {
-        device: null, deviceId: null, deviceAttached: false,
+        device: null, deviceId: null,
         wire: null, wireActive: false, wireFrom: new THREE.Vector3(), wireTo: new THREE.Vector3(),
         wireDroneId: null, wireDroneOffset: new THREE.Vector3(),
         barrier: null, shieldUp: false, shieldHp: 0,
@@ -387,7 +391,6 @@ export class RemoteImplants {
   private setDevice(v: PeerVis, id: ImplantId | null): void {
     if (v.device) { v.device.dispose(); v.device = null; }
     v.deviceId = id;
-    v.deviceAttached = false;
     if (id) v.device = new ImplantDevice(id);
   }
 
@@ -398,7 +401,7 @@ export class RemoteImplants {
     v.beam?.dispose();
     if (v.glow) { v.glow.removeFromParent(); v.glowMat?.dispose(); }
     v.device = null; v.wire = null; v.barrier = null; v.beam = null; v.glow = null; v.glowMat = null;
-    v.deviceId = null; v.deviceAttached = false; v.wireActive = false; v.wireDroneId = null;
+    v.deviceId = null; v.wireActive = false; v.wireDroneId = null;
     v.shieldUp = false; v.shieldHp = 0;
     v.beamOn = false; v.beamTarget = null; v.beamSelf = false;
   }

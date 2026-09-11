@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   INTERACT_PILLAR_FADE, INTERACT_PILLAR_HEIGHT,
   INTERACT_PILLAR_RADIUS_BOTTOM, INTERACT_PILLAR_RADIUS_TOP,
+  type Interactable,
 } from '@/shared';
 
 /**
@@ -46,9 +47,14 @@ export function makePillarGeometry(
  * 만 true — 상자 · 컨테이너 · 채집물 · 떨어진 아이템 · 설치물 · 보급품은 더 이상 기둥을 세우지 않는다.
  * 상자 · 컨테이너는 대신 **열린 모습**(뚜껑 · 문)으로 조사 여부를 보여 준다 (`world/Crates` · `ContainerSet`).
  * `hud/Detection`(범위 안) 과 `hud/ScanReveal`(정찰 결과) 이 같은 규칙을 쓴다.
+ *
+ * 2026-09-11 (C-4): `Interactable.kind` 가 있으면 **그것이 먼저**다 (`'corpse'` · `'playerCorpse'`). kind 가 없는
+ * 등록물(또는 id 문자열만 가진 호출자)만 옛 접두어 규칙으로 판정한다.
  */
-export function pillarAllowed(interactableId: string): boolean {
-  return interactableId.startsWith('corpse:') || interactableId.startsWith('pcorpse:');
+export function pillarAllowed(it: string | Pick<Interactable, 'id' | 'kind'>): boolean {
+  if (typeof it !== 'string' && it.kind !== undefined) return it.kind === 'corpse' || it.kind === 'playerCorpse';
+  const id = typeof it === 'string' ? it : it.id;
+  return id.startsWith('corpse:') || id.startsWith('pcorpse:');
 }
 
 /** The one material shape a pillar needs: additive + vertex colours, no depth writes, no lights, both faces. */

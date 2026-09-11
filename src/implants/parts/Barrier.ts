@@ -163,13 +163,8 @@ export function tryBash(sys: ImplantSystem): void {
   let hits = 0;
   const enemies = ctx.enemies;
   if (enemies) {
-    let list: readonly EnemyRef[] = [];
     _p.copy(_from); _p.y += 0.9;
-    if (typeof (enemies as { queryNear?: unknown }).queryNear === 'function') {
-      try { list = enemies.queryNear(_p, reach + halfW + 3); } catch { list = enemies.getEnemies(); }
-    } else {
-      list = enemies.getEnemies();
-    }
+    const list: readonly EnemyRef[] = enemies.queryNear(_p, reach + halfW + 3);
     for (const e of list) {
       if (e.isDead) continue;
       const dx = e.position.x - _from.x, dz = e.position.z - _from.z;
@@ -183,13 +178,11 @@ export function tryBash(sys: ImplantSystem): void {
     }
   }
 
-  // knockback: `pushBack` is an EnemySystem method, not part of the frozen `EnemyManagerRef` (2026-09-08).
+  // knockback (2026-09-11 C-1 · X-6): `EnemyManagerRef.pushBack` is contract now. We never branch on role — the
+  // authority shoves its own copies, a replica forwards one `HitRequest {dmg: 0, kb}` per enemy to the host itself.
   if (hits > 0 && enemies) {
     _t.copy(_from).addScaledVector(_n, IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE * 0.5); _t.y += 0.9;
-    const push = (enemies as unknown as { pushBack?: (c: THREE.Vector3, r: number, s: number, d?: THREE.Vector3) => number }).pushBack;
-    if (typeof push === 'function') {
-      try { push.call(enemies, _t, IMPLANT_SHIELD_BASH_RANGE + IMPLANT_BARRIER_CARRY_WIDTH / 2, IMPLANT_SHIELD_BASH_KNOCKBACK, _n); } catch { /* host-only helper */ }
-    }
+    enemies.pushBack(_t, IMPLANT_SHIELD_BASH_RANGE + IMPLANT_BARRIER_CARRY_WIDTH / 2, IMPLANT_SHIELD_BASH_KNOCKBACK, _n);
   }
   // swing FX: a horizontal streak sweeping the panel's front edge, chest high
   _t.copy(_from).addScaledVector(_n, IMPLANT_BARRIER_CARRY_OFFSET + 0.25); _t.y += BASH_FX_Y;

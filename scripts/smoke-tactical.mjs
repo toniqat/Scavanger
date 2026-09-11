@@ -1,7 +1,8 @@
 // Single-client smoke test for the tactical kit: boots the game, walks it into a mission and exercises
-// implants, gadgets, gear/weight, melee, roll, gathering, field crafting and progression (85 checks; Phase 12 added the
+// implants, gadgets, gear/weight, melee, roll, gathering, field crafting and progression (91 checks; Phase 12 added the
 // 3.2 m shield width, `resolveBarrierCollision` / `absorbFrontalAttack`, the 실드 배쉬 via a synthetic LMB and the
-// one-shot 정찰 in a third mission).
+// one-shot 정찰 in a third mission; 2026-09-11 the explicit 오버차지 flag (C-3) and the bash knockback through the
+// contract `EnemyManagerRef.pushBack` (C-1)).
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
 //
@@ -71,6 +72,20 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // 2026-09-11: park vite's HMR socket — with several agents saving into the same tree a full reload mid-run reset the
+    // page to the title and the script timed out on 'gameplay phase' (same trick as smoke-raidflow / smoke-meta).
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -343,6 +358,31 @@ try {
   });
   ok(enemyApi, 'EnemyManagerRef tactical-kit methods present');
 
+  /* ── 2026-09-11 (C-3): 오버차지는 명시 플래그 — applyBoost 가 setOvercharged 를 같이 건다, 키 이름 추론은 없다 ── */
+  const oc = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.player, im = ctx.implants;
+    const before = p.isOvercharged;
+    // a bare `overcharge*` speed modifier no longer turns the flag on (the old key-name inference is gone)
+    p.setSpeedModifier('overcharge_probe', 1.1, 5);
+    const fromKey = p.isOvercharged;
+    p.setSpeedModifier('overcharge_probe', 1);
+    im.applyBoost(p, 1.2, 0.4);
+    const boosted = p.isOvercharged;
+    return { hasSetter: typeof p.setOvercharged === 'function', before, fromKey, boosted };
+  });
+  ok(oc.hasSetter && oc.before === false && oc.fromKey === false, `PlayerRef.setOvercharged exists; a bare overcharge* speed modifier does not set isOvercharged (${oc.fromKey})`);
+  ok(oc.boosted === true, 'implants.applyBoost(p, mul, 0.4) → isOvercharged true at once');
+  await gameSleep(page, 0.6);
+  const ocEnd = await page.evaluate(() => {
+    const p = window.__game.ctx.player;
+    const expired = p.isOvercharged;
+    p.setOvercharged(5);
+    const set = p.isOvercharged;
+    p.setOvercharged(0);
+    return { expired, set, cleared: p.isOvercharged };
+  });
+  ok(ocEnd.expired === false && ocEnd.set === true && ocEnd.cleared === false, `isOvercharged expires with the boost duration, setOvercharged(5) sets it, setOvercharged(0) clears it (${JSON.stringify(ocEnd)})`);
+
   /* ── barrier (Phase 10): a shield carried in hand; raycastBarrier stays a pure query, damageBarrier applies the hit ── */
   // equipping is ship-only: back to the ship, swap dash → barrier, drop into a fresh mission
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
@@ -463,6 +503,19 @@ try {
     const en = window.__game.getSystem('enemies').debugSpawn('scavenger', { x: at.x, z: at.z }, false);
     if (!en) return null;
     window.__bashTarget = en.id;
+    // 2026-09-11 (C-1 · X-6): the bash knocks back through the contract `EnemyManagerRef.pushBack` — wrap it on the
+    // instance to record the call and the target's velocity change along the push direction
+    const em = ctx.enemies, orig = em.pushBack.bind(em);
+    window.__push = [];
+    em.pushBack = (c, r, s, d) => {
+      const t = em.getEnemies().find((e) => e.id === window.__bashTarget);
+      const along = (v) => (v && d ? v.x * d.x + v.z * d.z : null);
+      const v0 = along(t?.velocity);
+      const n = orig(c, r, s, d);
+      const v1 = along(t?.velocity);
+      window.__push.push({ n, speed: s, dv: v0 !== null && v1 !== null ? v1 - v0 : null, replica: !!window.__game.getSystem('enemies').replica });
+      return n;
+    };
     return { hp: en.hp, stamina: ctx.player.stamina, locked: ctx.input.isPointerLocked, active: ctx.isGameplayActive(), bashing: ctx.implants.bashing };
   });
   ok(bashArm && bashArm.locked && bashArm.active && bashArm.bashing === false, `bash probe armed: bug 1 m in front (hp ${bashArm?.hp}), stamina ${bashArm?.stamina?.toFixed(0)}, lock faked`);
@@ -473,8 +526,15 @@ try {
     const ctx = window.__game.ctx, im = ctx.implants;
     window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
     const en = ctx.enemies.getEnemies().find((e) => e.id === window.__bashTarget);
-    return { bashing: im.bashing, stamina: ctx.player.stamina, hp: en?.hp ?? null, dead: en?.isDead ?? null, events: window.__bashed.slice(), up: im.barrierActive && im.barrierCarried, meleeing: ctx.player.isMeleeing };
+    delete ctx.enemies.pushBack;                    // back to the class method
+    return { bashing: im.bashing, stamina: ctx.player.stamina, hp: en?.hp ?? null, dead: en?.isDead ?? null, events: window.__bashed.slice(), up: im.barrierActive && im.barrierCarried, meleeing: ctx.player.isMeleeing, push: window.__push.slice() };
   });
+  {
+    const p = bash.push[0];
+    // falloff is linear to 40 % at the rim of `radius + enemy radius`, so the struck bug gains 0.4 … 1 × speed
+    ok(bash.push.length === 1 && p.n >= 1 && p.speed > 0 && !p.replica && p.dv !== null && p.dv >= p.speed * 0.4 - 1e-3 && p.dv <= p.speed + 1e-3,
+      `bash knockback: enemies.pushBack called once (${p?.n} pushed), the bug gained ${p?.dv?.toFixed(2)} m/s along the push (speed ${p?.speed})`);
+  }
   ok(bash.bashing === true && bash.events.length === 1, `LMB with the shield raised → bashing (implant:bashed hits=${bash.events[0]})`);
   ok(bash.stamina < bashArm.stamina - 10, `bash spent stamina (${bashArm.stamina?.toFixed(0)} → ${bash.stamina?.toFixed(0)})`);
   ok(bash.events[0] >= 1 && (bash.dead === true || (bash.hp !== null && bash.hp < bashArm.hp)), `the bug in front took bash damage (hp ${bashArm.hp} → ${bash.hp}${bash.dead ? ', dead' : ''})`);

@@ -87,10 +87,11 @@ export function onBuff(sys: ImplantSystem, m: BuffMessage, _from: PeerId): void 
   }
 
 /**
- * Overcharge buff on a player. The `'overcharge'` modifier key is the contract with player/: while it is
- * live the player runs faster and reports `isOvercharged` (weapons reads that for the fire-rate bonus).
- * `setSpeedModifier` is part of the tactical-kit contract, so it is probed defensively.
+ * Overcharge buff on a player: the `'overcharge'` speed modifier **and** `setOvercharged` for the same `duration`
+ * (2026-09-11 C-3 — player/ used to infer `isOvercharged` from the modifier key; weapons reads it for the fire-rate
+ * bonus, the snapshot for `PlayerFlags.OVERCHARGED`). `setOvercharged` is an optional contract member, so it is probed.
  */
 export function applyBoost(sys: ImplantSystem, p: PlayerRef, mul: number, duration: number): void {
-  if (typeof p.setSpeedModifier === 'function') p.setSpeedModifier('overcharge', mul, duration);
+  p.setSpeedModifier('overcharge', mul, duration);
+  p.setOvercharged?.(duration);
   }

@@ -77,7 +77,7 @@ gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor
 | 스킬 | 상승 트리거 (버스 이벤트) | 파생 |
 |---|---|---|
 | `carry` 운반 | 무게 상태가 `light` 이상일 때 이동한 거리 (`inventory:weightChanged` + 매 프레임 거리 누적) | `carryReliefFactor` |
-| `appraisal` 감정 | `crate:open`, **`container:itemRevealed`** (등급별 가중 `APPRAISE_XP_BY_RARITY`; Phase 7 — 상자 검색이 아이템을 드러낼 때. `inventory:itemAdded` 는 더 이상 훈련하지 않는다) | `searchSpeedMul` |
+| `appraisal` 감정 | `crate:open` (**컨테이너 id 당 레이드 1회** — 2026-09-11 C-16 · X-1), **`container:itemRevealed`** (등급별 가중 `APPRAISE_XP_BY_RARITY`; Phase 7 — 상자 검색이 아이템을 드러낼 때. `inventory:itemAdded` 는 더 이상 훈련하지 않는다) | `searchSpeedMul` |
 | `grit` 인내 | `player:gritSaved` | `gritChance` (최대 35 %) |
 | `gardening` 원예 | `gather:collected` | `gatherYieldMul` |
 | `crafting` 제작 | `craft:completed` (레시피 `skill === 'crafting'`) | `craftSpeedMul` |
@@ -218,6 +218,14 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
   nothing moves otherwise. **`unequipImplant(uid)`** — same gate: `loot.createItem(defId, 1, {durability})` with the
   **same uid** restored → `inventory.tryAddToStash` then `tryAddItemAnywhere`; refuses (stays equipped) when neither has
   room. `resetProfile` hands the equipped items back the same way (best effort) before wiping the character.
+- **`stripImplantsForCorpse()`** (2026-09-11, C-12 사용자 결정 — 사망하면 임플란트가 몸에서 빠진다) — **death only, no ship
+  gate**. Called by `InventoryRef.stripForCorpse` (inventory/`CorpseLoot`) inside the corpse flow. Every equipped entry becomes
+  one **broken twin** item (`brokenImplantIdOf(defId)` from `@/shared`, `loot.createItem(twin, 1)` → a fresh uid, no
+  durability; an entry that is somehow already broken is its own twin; an unknown twin def is dropped without an item);
+  the working instances are gone. The list is emptied, then `afterImplantsChanged` = `recompute` (the stat bonuses and perks
+  drop at once — a 구조선 revive comes back weaker, intended) + **immediate save** (localStorage + the `progression` server
+  document — a reload right after dying must not bring the implants back) + `progress:implantsChanged` + sheet refresh.
+  Returns `[]` and writes nothing when none are equipped.
 - **Derived**: `derive.ts` takes an `ImplantContribution {bonus, perks}` (`computeDerived(profile, specialBackpack,
   implants?)`); every stat formula reads `base + bonus` (`getStatWithImplants(id)` / `getImplantBonus(id)`), while
   `getStat(id)` stays the **base** — stat XP, `spendStatPoint` and `statFactor` are unaffected by implants.
@@ -245,6 +253,16 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (C 항목 배치 — 사망 임플란트 · 감정 XP 중복)** — 계약은 읽기만 했다 (`ProgressionRef.stripImplantsForCorpse?`,
+  `brokenImplantIdOf`).
+  - **C-12** `stripImplantsForCorpse()` 구현 (위 *임플란트 아이템* 절). 함선 게이트를 우회해 전부 해제하고 망가진 짝을 돌려주며,
+    `derived` 재계산 + 즉시 저장 + `progress:implantsChanged`. 레이드 blob · 서버 프로필의 `implants` 가 **레이드 도중에 비는** 첫 경로다
+    (재접속 병합 E-6 주의).
+  - **C-16 · X-1** `crate:open` 감정 XP 가 같은 컨테이너를 다시 열 때마다 들어오던 것(E 연타 무한 파밍)을 `cratesAppraised: Set`
+    으로 **id 당 레이드 1회**로 막았다. `game:newMission` · `world:ready` 에서 비운다. `container:itemRevealed` 는 그대로다(아이템마다 한 번뿐이다).
+  - 검증: `smoke-raidflow` (장착 2개 → `stripImplantsForCorpse` → 망가진 짝 2개 · 목록 빔 · 보너스 사라짐 · 이벤트 · 저장소에 즉시
+    `implants: []` · 두 번째 호출 빈 배열, 그리고 시체 흐름에서 시체 안에 짝 2개), `smoke-progression` 123/123 무변경.
 
 - **2026-09-09 (투척 거리 = m 표기, 기울기 개정)** — `derive.throwRangeMulOf` 가 `STAT_BASE` 기준 포인트당 +3 % 대신
   **`STAT_MIN`(1) → `THROW_RANGE_MUL_MIN`(1.0), `STAT_MAX`(20) → `THROW_RANGE_MUL_MAX`(1.74) 선형**이다 — 새 캐릭터(근력 1)가

@@ -32,7 +32,7 @@
 | `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`, 정면 각도 게이트). Phase 10 부터 **추종형**: `raise()` / `lower()` + 매 프레임 `follow(feet, yaw)`. **Phase 12**: `pushOut(pos, radius, height?)` (두께 `BARRIER_COLLIDE_THICKNESS` 0.5 m 슬랩 밖 정면으로 밀어냄), `facing(fromPos, maxDist)` (정면 `_ARC` 판정), `contactPoint(fromPos, out)` |
 | `effects/Grapple.ts` | `GrappleWire` — 와이어 빔 + 작살 헤드 |
 | `effects/Overcharge.ts` | `OverchargeBeam` (2겹 빔 + 임팩트 디스크), `findAlly` / `allyPoint` (조준 원뿔 안의 아군 탐색) |
-| `effects/Scan.ts` | `collectScanTargets` — 반경 안의 **적(`queryNear`) + `ctx.interactables.all()` 전부**를 `ScanTarget[]` 으로 (kind 는 id 접두어: `crate` / `corpse` → crate, `gather`, `pickup`, `gadget` → deployable, `extract` · `revive` · 그 외 → objective; `canInteract()` 가 false 면 제외, 상한 120). `revealScan(ctx, center, radius, dur, byLocal)` — 수집 + `detect:reveal` + `scan:cast` + `enemies.setXray` 를 한 번에 (로컬 시전과 `imp scanCast` 수신이 공유) |
+| `effects/Scan.ts` | `collectScanTargets` — 반경 안의 **적(`queryNear`) + `ctx.interactables.all()` 전부**를 `ScanTarget[]` 으로 (`canInteract()` 가 false 면 제외, 상한 120). kind 는 **`Interactable.kind` 가 먼저**(`kindOf` — `corpse` · `playerCorpse`(`아군 시체`) · `crate` · `container` → crate, `gather`, `pickup`, `deployable` · `drone` → deployable, `extract` · `revive` · `console` · `objective` → objective, 2026-09-11 C-4)이고 kind 가 없는 등록물만 id 접두어로 판정한다 (`crate` / `corpse` / `pcorpse` → crate, `gather`, `pickup`, `gadget` → deployable, `extract` · `revive` · 그 외 → objective). `revealScan(ctx, center, radius, dur, byLocal)` — 수집 + `detect:reveal` + `scan:cast` + `enemies.setXray` 를 한 번에 (로컬 시전과 `imp scanCast` 수신이 공유) |
 | `effects/AtLauncher.ts` | `RocketPool` — 풀링된 로켓, 스텝마다 스윕 레이캐스트(월드/인테리어 + 적) |
 | `fx/ImplantFx.ts` | 풀링 FX: `BeamMesh`, 확장 셸(스캔), 폭발, 스트릭(대시/로켓 궤적), 스파크. **라이트 없음** |
 
@@ -63,7 +63,7 @@
 - `ctx.player`: `position`(직접 갱신), `getForward` / `getEyePosition`, `getAimRay`·`getWeaponSocket`·`addRecoil`
   (`PlayerWeaponHost`, 런타임 `typeof` 체크), `setGrappleTarget`, `setSpeedModifier`, `heal`, `revive`, `interior`
 - `ctx.world` / `player.interior`: `raycast`, `getHeightAt` / `getFloorAt`, `resolveCollision`, `isInsideBounds`, `getCrates`, `getExtractionPoints`, `getGatherNodes`(있으면)
-- `ctx.enemies`: `raycast`, `queryNear`(있으면), `applyAreaDamage`(없으면 `applyExplosion`)
+- `ctx.enemies`: `raycast`, `queryNear` · `setXray` · **`pushBack`**(2026-09-11 계약 — 존재 검사 없이 부른다), `applyAreaDamage`(없으면 `applyExplosion`)
 - `ctx.pickups`, `ctx.gadgets.getDeployables()`, `ctx.loot.getItemDef` — 스캔 결과용
 - `ctx.progression.derived.implantCooldownMul`, `ctx.progression.profile.implant`
 - `ctx.net`: `send` / `onMessage` / `getRemotePlayers` / `localId` / `playerName`
@@ -92,8 +92,9 @@
 **`buff` 수신은 종류마다 담당이 하나씩이다.** 오버차지의 `heal` / `boost` 는 여기서 로컬 플레이어에 적용하고,
 제세동기 `revive` 와 `cloak` 은 gadgets 가 처리한다 (Phase 9 에서 여기 있던 중복 `revive` 분기를 제거했다).
 
-**오버차지 버프 규약**: 대상 플레이어에 `setSpeedModifier('overcharge', mul, duration)` 을 건다 (채널 중 매 프레임 0.6 s 로 갱신). player 는 이 키가
-살아있는 동안 `isOvercharged === true` 로 만든다 (weapons 가 `isOvercharged` 로 연사속도 처리). 스태미나 소모 감소는 2026-09-06 개편에서 제거됐다.
+**오버차지 버프 규약**: 대상 플레이어에 `setSpeedModifier('overcharge', mul, duration)` **과** `setOvercharged(duration)` 을 같은 길이로 건다
+(`applyBoost`, 채널 중 매 프레임 0.6 s 로 갱신). `isOvercharged` 는 **그 타이머**다 — 2026-09-11 (C-3) 까지는 player 가 속도 수정자 키가
+`overcharge` 로 시작하는지로 추론했다. weapons 가 `isOvercharged` 로 연사속도를, net 이 `PlayerFlags.OVERCHARGED` 를 처리한다. 스태미나 소모 감소는 2026-09-06 개편에서 제거됐다.
 
 ## 규칙 / 주의
 
@@ -219,6 +220,8 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
   `imp bash` 송신, 정면 가로 스트릭 FX, `melee_swing` / `barrier_hit` SFX. 방패는 내려가지 않는다. 근접키는 처리 뒤
   `input.consume(Keys.MELEE)` — weapons 는 `blocksWeapons` 동안 홀스터라 원래 스윙하지 않지만 이중 안전장치다.
   **적 넉백은 없다**: `EnemyRef` 에 임펄스 API 가 없다 (`IMPLANT_SHIELD_BASH_KNOCKBACK` 미사용, follow-up).
+  → 같은 배치 뒤 `EnemySystem.pushBack` 캐스트로 붙었고, **2026-09-11 (C-1 · X-6)** 부터 `EnemyManagerRef.pushBack` 계약 한 줄이다
+  (리플리카는 enemies/ 가 `HitRequest {dmg: 0, kb}` 로 호스트에 넘긴다 — 비호스트 배쉬 넉백이 0 이던 문제).
 - **정찰 rework.** `mode: 'instant'`, 쿨타임 `IMPLANT_SCAN_COOLDOWN_V2` 30 s. Q → `castScan`: `useCharge()` → 발 + 1.1 m 중심으로
   `revealScan(ctx, center, 70, 15, true)` (= `collectScanTargets` + `detect:reveal` + `scan:cast` + `enemies.setXray(ids, 15)`) →
   파동 FX(`SCAN_PULSE_FX_S` 1.6 s 에 70 m) → `implant:scanned {pulse:1}`(오디오) → `implant:activated`(임플란트 숙련 XP, 시전당 1회)
@@ -256,6 +259,24 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (C 항목 배치 — 배쉬 넉백 계약 · 오버차지 플래그 · 정찰 kind · 원격 장치 재부착)** — 계약은 읽기만 했다
+  (`EnemyManagerRef.pushBack`, `PlayerRef.setOvercharged?`, `Interactable.kind`).
+  - **C-1 · X-6 배쉬 넉백.** `parts/Barrier.tryBash` 가 `(enemies as unknown as {pushBack?}).pushBack` 캐스트 + typeof + try/catch 대신
+    `enemies.pushBack(center, radius, IMPLANT_SHIELD_BASH_KNOCKBACK, forward)` **한 줄**을 부른다. 역할을 가르지 않는다 — 리플리카에서는
+    enemies/ 가 적마다 `HitRequest {dmg: 0, kb}` 를 호스트에 보낸다(implants 는 와이어를 보내지 않는다). 같은 모양의 불필요한 존재 검사도
+    걷어냈다: `tryBash` · `collectScanTargets` 의 `queryNear` 검사(없으면 `getEnemies()`), `revealScan` 의 `setXray` 검사 — 셋 다 계약 멤버다.
+  - **C-3 오버차지.** `parts/Wire.applyBoost` 가 `setSpeedModifier('overcharge', …)` 옆에서 `setOvercharged?.(duration)` 을 같이 부른다
+    (자기 버프 `Devices.updateOvercharge` 와 아군 `buff boost` 수신이 모두 이 함수다). player 쪽 키 이름 추론은 사라졌다.
+  - **C-4 정찰 분류.** `effects/Scan.kindOf(it)` 가 `Interactable.kind` 를 먼저 보고 접두어는 폴백이다. 접두어 표에 **`pcorpse`** 가 없어
+    `pcorpse:<owner>:<n>` 분대원 시체가 `objective`(1.4 배 높이 기둥)로 드러나던 버그를 같이 고쳤다 (`crate` · `아군 시체`).
+  - **C-43 원격 장치.** `RemoteImplants` 의 `deviceAttached` 불리언을 지우고 매 프레임 `device.root.parent !== r.avatar.weaponSocket`
+    이면 다시 붙인다(아바타가 없으면 떼어 낸다). 아바타는 다시 만들어질 때마다 새 `weaponSocket` 을 주는데(링거 안 재접속 · ref 재생성 ·
+    `game:abort` / `hub:entered` 일괄 정리) 옛 불리언은 그것을 몰라, 임플란트가 바뀔 때까지 장치가 버려진 소켓에 남아 손에서 사라졌다.
+  - 검증: `smoke-tactical` **91** (+4 — `applyBoost` 뒤 `isOvercharged` · 수정자 키만으로는 안 켜짐 · 만료 / `setOvercharged(0)`,
+    배쉬가 `pushBack` 을 한 번 불러 맞은 벌레가 0.4–1 × 속도를 얻음), `smoke-raidflow` 의 C-4 정찰 kind 단언, `e2e-multiplayer` 에
+    원격 대전차포 장치 재부착 단언(아바타 강제 재생성 → 새 `weaponSocket` 아래 `Implant:atlauncher`). 스모크 하네스가 vite HMR 소켓을
+    막아 두게 했다 (여러 에이전트가 같은 트리에 저장하면 중간에 새로고침돼 `gameplay phase` 에서 멈췄다).
 
 - **2026-09-11 (갈고리 ↔ 공중 드론 · 드론 조종 중 Q 차단)** — 계약은 읽기만 했다 (`shared/drones` 의
   `DronesRef.raycast` · `getDrone`, `PlayerRef.droneControl`, `drone:controlChanged` · `drone:removed`).

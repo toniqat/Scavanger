@@ -218,17 +218,17 @@ export function wishDirection(sys: PlayerSystem, out: THREE.Vector3): THREE.Vect
   return out;
   }
 
-/** Product of the live speed-modifier stack; also refreshes `isOvercharged`. */
+/**
+ * Product of the live speed-modifier stack (drops expired entries). 2026-09-11 (C-3): `isOvercharged` is no longer
+ * inferred here from an `overcharge*` key — implants sets it explicitly with `setOvercharged`.
+ */
 export function speedModifierProduct(sys: PlayerSystem): number {
   const now = sys.ctx.time;
   let mul = 1;
-  let over = false;
   for (const [key, mod] of sys.speedMods) {
     if (mod.until <= now) { sys.speedMods.delete(key); continue; }
     mul *= mod.mul;
-    if (key.startsWith('overcharge')) over = true;
   }
-  sys._overcharged = over;
   return mul;
   }
 

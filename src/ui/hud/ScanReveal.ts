@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameContext, ScanTarget } from '@/shared';
+import type { GameContext, InteractableKind, ScanTarget } from '@/shared';
 import {
   DETECT_HIGHLIGHT_COLOR, DETECT_ENEMY_COLOR, IMPLANT_SCAN_REVEAL_TIME,
   INTERACT_PILLAR_OPACITY, SCAN_PILLAR_HEIGHT,
@@ -48,6 +48,11 @@ export class ScanReveal {
   private matEnemy: THREE.MeshBasicMaterial | null = null;
   private meshes: THREE.Mesh[] = [];
   private unsubs: Array<() => void> = [];
+  /**
+   * 2026-09-11 (C-4): `ScanTarget` does not carry `Interactable.kind`, so `add` refills this id → kind table from the
+   * registry once per reveal event (not per frame) and `pillarAllowed` reads the kind first, the id prefix second.
+   */
+  private readonly kindById = new Map<string, InteractableKind | undefined>();
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -89,9 +94,11 @@ export class ScanReveal {
     if (!targets || targets.length === 0) return;
     const dur = duration > 0 ? duration : IMPLANT_SCAN_REVEAL_TIME;
     const expires = this.ctx.time + dur;
+    this.kindById.clear();
+    for (const it of this.ctx.interactables.all()) this.kindById.set(it.id, it.kind);
     for (const t of targets) {
       // 2026-09-11: 빛기둥은 시체에만 — 적은 붉은 투시 실루엣(`enemies.setXray`)과 화살표가, 나머지는 나침반이 알린다.
-      if (!pillarAllowed(t.id)) continue;
+      if (t.kind === 'enemy' || !pillarAllowed({ id: t.id, kind: this.kindById.get(t.id) })) continue;
       const key = `${t.kind}:${t.id}`;
       const existing = this.reveals.find((r) => r.key === key);
       if (existing) {
@@ -103,6 +110,7 @@ export class ScanReveal {
       if (this.reveals.length >= MAX_REVEALS) this.reveals.shift();
       this.reveals.push({ key, kind: t.kind, position: t.position.clone(), object: t.object ?? null, expires });
     }
+    this.kindById.clear();
     if (this.reveals.length > 0) this.ensureScene();
   }
 

@@ -62,7 +62,8 @@ export function applyCorpseWire(sys: GameFlowSystem, w: PlayerCorpseWire): void 
   if (mgr.get(w.id)) return;
   const pos = new THREE.Vector3(w.p?.[0] ?? 0, w.p?.[1] ?? 0, w.p?.[2] ?? 0);
   const world = sys.ctx.world;
-  if (world?.ready) pos.y = world.getHeightAt(pos.x, pos.z);
+  // 2026-09-11 (C-18): 지형이 아니라 **밟을 수 있는 표면** — 전차 데크 · 2층 바닥에서 죽은 시체가 땅으로 떨어지지 않게
+  if (world?.ready) pos.y = world.getSurfaceY(pos.x, pos.z, pos.y);
   const items = itemsFromWire(sys, w.items ?? []);
   mgr.add(w.id, w.owner, w.name || '분대원', pos, Number.isFinite(w.yaw) ? w.yaw : 0,
     Number.isFinite(w.at) ? w.at : sys.ctx.missionTime, items, slotOf(sys, w.owner));
@@ -93,7 +94,8 @@ export function spawnLocalCorpse(sys: GameFlowSystem): void {
     ? ctx.inventory.stripForCorpse() : [];
   const owner = localPeerId(sys);
   const pos = player.position.clone();
-  if (ctx.world?.ready) pos.y = ctx.world.getHeightAt(pos.x, pos.z);
+  // 2026-09-11 (C-18): 발 높이에서 올라설 수 있는 표면 (전차 데크 · 2층 바닥) — 지형만 보면 그 밑으로 떨어진다
+  if (ctx.world?.ready) pos.y = ctx.world.getSurfaceY(pos.x, pos.z, pos.y);
   const id = mgr.nextId(owner);
   const corpse = mgr.add(id, owner, localName(sys), pos, player.yaw, ctx.missionTime, items, slotOf(sys, owner));
   if (ctx.isMultiplayer) ctx.net?.send({ t: 'pcorpse', ev: 'spawn', corpse: corpse.toWire() }, 'all');

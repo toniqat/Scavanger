@@ -10,8 +10,8 @@ Import via `@/game` → `GameFlowSystem`.
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
 | `model.ts` | 폴더 공용 어휘 — `GameFlowSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `GameFlowSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Death.ts` | **사망 · 구조 · 분대 전멸**. **2026-09-09: 자동 부활은 없다** — 완전히 죽으면 시체가 서고(`Corpses.ts`) 되살아나는 길은 분대원의 구조선(`rescue:landed`)뿐이다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
-| `Corpses.ts` | **사망한 플레이어의 시체** (`ctx.corpses` = `PlayerCorpseManager`). `PlayerCorpseObject` 는 `Interactable` 이자 `PlayerCorpse` 다 — id `pcorpse:<owner>:<n>`, 프롬프트 `<이름>의 유해 뒤지기`(비면 `비어 있음`), 상호작용 → `inventory.openContainerItemsSized(...)`. 메시는 `SoldierModel` 을 죽은 자세로 **한 번** 굳혀 둔 것이고 (`setGreyed`), **레이드가 끝날 때까지 사라지지 않는다** — 수명도 거리 컬링도 없다 (사용자 결정). |
-| `parts/CorpseNet.ts` | **시체의 생성과 동기화** (`pcorpse` / `pcorpseq`). `spawn` 은 죽은 본인이 `'all'` 로 (자기 인벤토리만이 진실), 호스트는 남의 시체도 `items` 채로 들고 있다가 `pcorpseq sync` / `flow rejoined` 에 `pcorpse sync` 로 답한다. 시체 **안의 아이템을 가져가는** 것은 상자와 똑같이 기존 `cont` / `contq` 경로다. `crate:looted` → `pcorpse emptied`. |
+| `Corpses.ts` | **사망한 플레이어의 시체** (`ctx.corpses` = `PlayerCorpseManager`). `PlayerCorpseObject` 는 `Interactable` 이자 `PlayerCorpse` 다 — id `pcorpse:<owner>:<n>`, 프롬프트 `<이름>의 유해 뒤지기`(비면 `비어 있음`), 상호작용 → `inventory.openContainerItemsSized(...)`. 메시는 `SoldierModel` 을 죽은 자세로 **한 번** 굳혀 둔 것이고 (`setGreyed`), **레이드가 끝날 때까지 사라지지 않는다** — 수명도 거리 컬링도 없다 (사용자 결정). **2026-09-11**: `kind: 'playerCorpse'`(C-4 — 빛기둥 · 정찰 분류가 id 접두어 대신 이것을 먼저 본다), 그리고 **전차에 실린다**(C-18) — 생성 직후 `boardCarrier(world)` 가 발밑의 움직이는 발판(`getStandingObstacle(...).velocity`)을 찾아 `@/shared` 의 `recordRideLocal` 로 적어 두고, `PlayerCorpseManager.update()`(`GameFlowSystem.update` 가 매 프레임 부른다)가 `restoreRideLocal` 로 자리(= 상호작용 위치, 같은 벡터) · 메시 · 방향(곡선 구간의 `box.yaw` 변화)을 다시 푼다. 시체는 스스로 움직이지 않으므로 유지 판정 · 하차 관성은 없다. 호스트 · 리플리카 · 늦은 합류자 모두 **자기 월드의 전차**로 푼다. |
+| `parts/CorpseNet.ts` | **시체의 생성과 동기화** (`pcorpse` / `pcorpseq`). `spawn` 은 죽은 본인이 `'all'` 로 (자기 인벤토리만이 진실), 호스트는 남의 시체도 `items` 채로 들고 있다가 `pcorpseq sync` / `flow rejoined` 에 `pcorpse sync` 로 답한다. 시체 **안의 아이템을 가져가는** 것은 상자와 똑같이 기존 `cont` / `contq` 경로다. `crate:looted` → `pcorpse emptied`. **2026-09-11**: 시체 높이는 지형(`getHeightAt`)이 아니라 **`getSurfaceY(x, z, 발 높이)`** — 전차 데크 · 2층 바닥에서 죽은 시체가 그 밑 땅으로 떨어지지 않게 (로컬 사망 · 받은 와이어 둘 다). `stripForCorpse()` 결과에는 이제 **장착 임플란트의 망가진 짝**이 들어 있다 (C-12 — 합치기는 inventory/, 해제는 progression/). |
 | `parts/Leader.ts` | **분대장 기기**. 멀티에서 호스트가 완전히 사망하면 시체 옆에 절차 생성 오브젝트(아이템 아님)가 떨어지고 죽은 호스트가 `ctx.net.reportHostDown(true)` 를 남긴다. `Interactable` `leader_device` (`LEADER_DEVICE_RANGE`, **`LEADER_DEVICE_HOLD_S` 홀드**, `분대장 기기 회수`) → `transferHost(me, true)` + `lead taken`. **`net:hostChanged` 토스트의 유일한 주인**이다 — 기기 회수든 커뮤니티 우클릭 이관이든 전부 여기로 모인다. **기기의 점광원은 기기 안에 없다** (2026-09-10): 모듈 하나가 `installLeaderLight` 로 `init` 때 씬에 심고(`LeaderDeviceLight`, intensity 0) 기기는 자리와 밝기만 준다 — 광원을 든 오브젝트를 씬에 넣고 빼면 씬의 모든 머티리얼이 셰이더를 다시 컴파일한다. |
 | `parts/Session.ts` | **레이드 세션 저장과 복귀**. 솔로 레이드는 localStorage 에 5분짜리 스냅샷을 남기고(`SoloRaid.ts`), 멀티는 릴레이의 레이드 저장소를 쓴다. 복귀는 `world:ready` 뒤에 인벤토리 · 스탯 · 시계를 되돌리고, 호스트가 보관하던 몸이 있으면 그 자리에서 일어난다(없으면 헬포드로 떨어진다). |
 | `parts/Phases.ts` | **페이즈 전환과 일시정지**. menu → hub → deploying → playing → extracting → complete / dead → hub. 일시정지는 **월드를 멈추지 않고**(2026-09-07) 창 포커스를 잃었을 때만 뜬다. 일시정지 메뉴는 항상 단 하나의 화면이라 다른 창이 열려 있으면 즉시 양보한다(Phase 12 — 겹쳐서 둘 다 못 끄던 상태의 수정). |
@@ -284,6 +284,21 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-11 (C-12 후속 — 솔로 사망도 임플란트를 잃는다, 사용자 결정 · 리드)** — `parts/Death.onLocalDied` 의 솔로 가지가
+  `ctx.progression.stripImplantsForCorpse()` 를 부르고 돌려받은 망가진 짝을 **버린다**. 분대 사망은 짝이 시체로 가지만 솔로에는
+  되찾으러 갈 시체가 없으므로 장비 · 가방과 똑같이 완전히 잃는다(즉시 저장 — 사망 직후 새로고침으로 되돌릴 수 없다). 훈련장은
+  그 앞 가지에서 끝나므로 해당 없다. 검증: `smoke-raidflow` 가 솔로 레이드에서 `player:died` → 장착 0 · 시체 없음 · 창고에 짝 없음 ·
+  저장된 프로필 `implants: []` (74 checks).
+
+- **2026-09-11 (C 항목 배치 — 시체 kind · 전차 위 시체 · 사망 임플란트 흐름)** — 계약은 읽기만 했다
+  (`Interactable.kind`, `@/shared` 의 `ride.ts`, `WorldRef.getSurfaceY` · `getStandingObstacle`).
+  - **C-4** `PlayerCorpseObject.kind = 'playerCorpse'`.
+  - **C-18** 달리는 전차 위에서 죽은 시체가 허공에 남던 것 → 전차에 실려 간다 (`Corpses.ts` 행). 시체 높이는 발 높이에서 올라설 수
+    있는 표면(`getSurfaceY`)이다 — 지형만 보면 데크 · 2층 바닥 밑으로 떨어졌다.
+  - **C-12 흐름 확인** `spawnLocalCorpse` → `inventory.stripForCorpse()` 한 번이 장비 · 가방 · 퀵슬롯 + 임플란트 망가진 짝을 모두 준다.
+    game/ 은 바뀐 것이 없다. 솔로 레이드 사망은 여전히 시체가 없다(즉시 레이드 실패) — 그 경로에서는 임플란트가 몸에 남는다.
+  - 검증: `smoke-raidflow` **71** (+12 — 사망 임플란트 7 · C-4 정찰 kind 1 · 전차 위 시체 · 플레이어 탑승 회귀 등).
+
 - **2026-09-10 (Alt 커서 제거, 사용자 결정)** — `Keys.CURSOR`(Alt) 폴링 · `toggleFreeCursor` · `onFreeCursorClick`
   (캔버스 좌클릭 복귀) · ESC 스택 항목 · `escapePause` 의 강제 해제 · 사망/페이즈 전환 시 해제를 전부 걷어냈다.
   커서는 화면이 열릴 때만 나온다. `Keys.CURSOR` · `FREE_CURSOR_BLOCKER` · `ui:freeCursorToggled` 는 `src/shared`
@@ -300,9 +315,8 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ### 알려진 한계 (2026-09-09)
 - `Corpses.ts` 가 `@/player` 의 `SoldierModel` 을 import 한다 — **폴더 간 import 금지 규약의 의도적 예외**다
   (병사 모델을 두 번 만들지 않기 위해서). 역방향 의존은 없으므로 순환은 생기지 않는다.
-- **임플란트 아이템은 시체로 가지 않는다.** 그 인스턴스는 `ctx.progression` 이 들고 있고
-  `ProgressionRef.unequipImplant` 는 함선 전용이라 레이드 중에 뺄 방법이 계약에 없다
-  (`ProgressionRef.stripImplants()` 같은 추가가 필요하다).
+- ~~**임플란트 아이템은 시체로 가지 않는다.**~~ → **2026-09-11 (C-12) 해소**: `ProgressionRef.stripImplantsForCorpse()` 가
+  함선 게이트 없이 전부 해제하고, `InventoryRef.stripForCorpse` 가 그 **망가진 짝**을 시체 목록에 합친다 (작동하는 인스턴스는 사라진다).
 
 - **2026-09-08 (훈련장은 강하하지 않는다)** — `onWorldReady` 가 훈련이면 `'deploying'` 을 건너뛰고 바로
   `'playing'` 이다. 훈련장은 함선 안의 방이지 행성이 아니라 `player/` 도 헬포드를 띄우지 않으므로,
