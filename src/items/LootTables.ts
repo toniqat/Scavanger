@@ -7,8 +7,10 @@ import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
  * 이 파일에는 표가 없고 그 줄들을 타입 있는 표로 옮기는 코드만 있다.
  */
 import { WEAPON_FAMILIES, WEAPON_GRADES } from './WeaponDefs';
-import { UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
+import { ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
+/* appended (2026-09-11): 네임드 확정 드롭의 방탄복 등급 → armor_n */
+import { ARMOR_DEFS } from './ArmorDefs';
 
 /* ── 묶음 토큰 ─────────────────────────────────────────────────────────────
  * `loot_item_weights.csv` 의 `target` 은 아이템 id 하나이거나 `@` 로 시작하는 묶음이다.
@@ -371,3 +373,68 @@ export const CORPSE_TABLE_MAP: ReadonlyMap<EnemyType, CorpseTable> = new Map(COR
 
 /** Weapon a rogue carries when the caller passes no `rogueWeaponId`. */
 export const DEFAULT_ROGUE_WEAPON_ID = 'ar';
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 2026-09-11: 네임드 로그의 **확정 드롭** (`data/loot_named.csv`)
+ *
+ * 로든 = 저격소총 III~V · 타길라 = 방탄복 III~V · 헤비 = 유니크 미니건. 셋 다 내구도 1–5 %
+ * (`NAMED_LOOT_DURABILITY_MIN/MAX`, constants). 일반 시체 표와 별개로 `rollCorpse` 의 **맨 마지막**에 굴리므로
+ * 네임드가 아닌 적의 rng 벡터는 한 톨도 안 움직인다. 행성 곡선은 걸지 않는다 (사용자 명세 "최소 희귀부터").
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type NamedDropKind = 'weapon' | 'armor' | 'item';
+
+export interface NamedDrop {
+  type: EnemyType;
+  kind: NamedDropKind;
+  /** weapon = 등급 무기 계열 id (`sr`) · item = 아이템 id (`wpn_u_minigun`) · armor = '' */
+  target: string;
+  chance: number;
+  /** 가중치가 양수인 등급 (weapon · armor). item 이면 빈 배열. */
+  grades: readonly WeaponGrade[];
+  weightOf: Readonly<Partial<Record<WeaponGrade, number>>>;
+  /** 장전 탄약 = 탄창 × [min, max]. 없으면 0..탄창 균등. */
+  magFraction?: readonly [number, number];
+  /** 그 무기 탄종 한 스택 × [min, max]. 없으면 탄약 없음. */
+  ammoFraction?: readonly [number, number];
+}
+
+export const NAMED_DROPS: readonly NamedDrop[] = csvRows('loot_named.csv').map((r) => {
+  const kind = r.enum('kind', ['weapon', 'armor', 'item'] as const);
+  const target = r.has('target') ? r.str('target') : '';
+  const weightOf: Partial<Record<WeaponGrade, number>> = {};
+  for (const c of r.costList('grades')) {
+    const g = Number(c.defId);
+    if (!(WEAPON_GRADES as readonly number[]).includes(g)) { r.report('grades', `'${c.defId}' 는 등급(1..5)이 아니다`); continue; }
+    if (c.qty > 0) weightOf[g as WeaponGrade] = c.qty;
+  }
+  const grades = WEAPON_GRADES.filter((g) => (weightOf[g] ?? 0) > 0);
+
+  if (kind === 'weapon') {
+    if (!(WEAPON_FAMILIES as readonly string[]).includes(target)) r.report('target', `'${target}' 는 등급 무기 계열이 아니다`);
+    if (!grades.length) r.report('grades', 'weapon 드롭에 등급 가중치가 없다');
+  } else if (kind === 'armor') {
+    if (!grades.length) r.report('grades', 'armor 드롭에 등급 가중치가 없다');
+    for (const g of grades) if (!ARMOR_DEFS.some((a) => a.tier === g)) r.report('grades', `방탄복 등급 ${g} 이 armor.csv 에 없다`);
+  } else if (!ITEM_DEF_MAP.has(target)) {
+    r.report('target', `'${target}' 아이템이 없다`);
+  }
+
+  return {
+    type: r.str('type') as EnemyType,
+    kind,
+    target,
+    chance: r.num('chance', { min: 0, max: 1 }),
+    grades,
+    weightOf,
+    ...(r.has('magFracMin') ? { magFraction: [r.num('magFracMin', { min: 0, max: 1 }), r.num('magFracMax', { min: 0, max: 1 })] as const } : {}),
+    ...(r.has('ammoFracMin') ? { ammoFraction: [r.num('ammoFracMin', { min: 0, max: 1 }), r.num('ammoFracMax', { min: 0, max: 1 })] as const } : {}),
+  };
+});
+
+export const NAMED_DROP_MAP: ReadonlyMap<EnemyType, NamedDrop> = new Map(NAMED_DROPS.map((d) => [d.type, d]));
+
+/** 등급 n 의 번호 방탄복 아이템 id (`armor_n`, 유니크 tier 0 은 제외). 없으면 null. */
+export function numberedArmorIdForTier(tier: number): string | null {
+  return tier > 0 ? (ARMOR_DEFS.find((a) => a.tier === tier)?.id ?? null) : null;
+}

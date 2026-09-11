@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Layers, ROGUE_BOSS_SCALE } from '@/shared';
 import { statusEmissive, type BugAnim } from './BugModel';
+import { decorateNamedRig, disposeNamedRig } from './named';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Procedural humanoid rig for the rogue gunners (Phase 4). Root at the feet, +Z = facing, 1.8 m tall at scale 1.
@@ -10,7 +11,9 @@ import { statusEmissive, type BugAnim } from './BugModel';
  * hit flash, one `eyeMat` for the visor glow.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export type RogueType = 'rogue' | 'rogue_boss';
+export type RogueType = 'rogue' | 'rogue_boss'
+  /* appended (2026-09-11): 네임드 3종 + 스캔 드론(임시 — 자기 리그가 생기면 빠진다) */
+  | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone';
 
 export interface RogueRigParams {
   head: { r: number; y: number; z: number };
@@ -36,6 +39,8 @@ export interface RogueRig {
   legs: { hip: THREE.Group; knee: THREE.Group; side: number }[];
   chitin: THREE.MeshStandardMaterial;
   eyeMat: THREE.MeshStandardMaterial;
+  /** 2026-09-11: 네임드 로그 · 스캔 드론의 부품과 그 상태 (`models/named/*` 가 종류별 객체를 건다). 일반 로그는 undefined. */
+  named?: unknown;
 }
 
 const HIP_Y = 0.95;
@@ -45,12 +50,21 @@ const SHIN = 0.5;
 export const ROGUE_RIG_PARAMS: Record<RogueType, RogueRigParams> = {
   rogue: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.5 },
   rogue_boss: { head: { r: 0.16 * ROGUE_BOSS_SCALE, y: 1.66 * ROGUE_BOSS_SCALE, z: 0.02 * ROGUE_BOSS_SCALE }, strideLength: 1.5 * ROGUE_BOSS_SCALE },
+  /* 2026-09-11 계약 단계의 자리표시자 — 각 네임드 담당이 자기 실루엣(망치 · 미니건 · 저격총 · 드론)으로 바꾼다. */
+  rogue_sniper: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.5 },
+  rogue_hammer: { head: { r: 0.18, y: 1.86, z: 0.02 }, strideLength: 1.7 },
+  rogue_heavy: { head: { r: 0.18, y: 1.78, z: 0.02 }, strideLength: 1.6 },
+  rogue_scan_drone: { head: { r: 0.2, y: 0.2, z: 0 }, strideLength: 1 },
 };
 
 interface Palette { armor: number; cloth: number; accent: number; metal: number; visor: number; skin: number }
 const PALETTES: Record<RogueType, Palette> = {
   rogue: { armor: 0x3b3f36, cloth: 0x26262a, accent: 0xc8641e, metal: 0x55575a, visor: 0x40d0ff, skin: 0x8a6a52 },
   rogue_boss: { armor: 0x2e2a30, cloth: 0x1e1c22, accent: 0xb02020, metal: 0x4a4650, visor: 0xff3030, skin: 0x7a5a48 },
+  rogue_sniper: { armor: 0x4a4636, cloth: 0x2e2c22, accent: 0x9a8a50, metal: 0x3e3e3a, visor: 0xffb040, skin: 0x7a5e48 },
+  rogue_hammer: { armor: 0x2a2626, cloth: 0x1a1818, accent: 0x7a1a14, metal: 0x5a5250, visor: 0xff5a20, skin: 0x6e5040 },
+  rogue_heavy: { armor: 0x33372e, cloth: 0x202420, accent: 0xd0a020, metal: 0x4e524c, visor: 0xffe040, skin: 0x8a6a52 },
+  rogue_scan_drone: { armor: 0x3a3e44, cloth: 0x22262a, accent: 0xff3030, metal: 0x5a5e64, visor: 0xff3030, skin: 0x3a3e44 },
 };
 
 interface Assets {
@@ -235,10 +249,13 @@ export function createRogueRig(type: RogueType): RogueRig {
 
   const baseScale = type === 'rogue_boss' ? ROGUE_BOSS_SCALE : 1;
   root.scale.setScalar(baseScale);
-  return { kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, grenade, legs, chitin, eyeMat };
+  const rig: RogueRig = { kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, grenade, legs, chitin, eyeMat };
+  decorateNamedRig(rig);   // 2026-09-11: 네임드 로그 · 스캔 드론 부품 (일반 로그 · 보스는 아무것도 붙지 않는다)
+  return rig;
 }
 
 export function disposeRogueRig(rig: RogueRig): void {
+  disposeNamedRig(rig);
   rig.chitin.dispose();
   rig.eyeMat.dispose();
   rig.root.removeFromParent();

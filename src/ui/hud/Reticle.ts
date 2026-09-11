@@ -131,6 +131,9 @@ export class Reticle {
       b.on('inventory:itemUpdated', touch),
       b.on('inventory:quickSlotsChanged', touch),
       b.on('durability:changed', touch),
+      // 2026-09-11: 기폭기 손의 `기폭 n` 은 월드의 원격 지뢰 수라 설치 · 제거마다 다시 쓴다
+      b.on('gadget:deployed', touch),
+      b.on('gadget:removed', touch),
       // ── grapple crosshair state ──
       b.on('implant:equipped', ({ id }) => { this.implant = id; this.syncHook(); }),
       b.on('implant:wieldChanged', ({ id, wielded }) => { this.implant = id; this.wielded = wielded; this.syncHook(); }),
@@ -208,7 +211,9 @@ export class Reticle {
     const live = inv?.findItem(this.quickItem.uid) ?? this.quickItem;
     const def = inv?.getDef(live.defId) ?? ctx?.loot?.getItemDef(live.defId);
     const parts: string[] = [];
-    parts.push(`×${Math.max(0, live.qty)}`);
+    // 2026-09-11: 기폭기 손 (슬롯 없음, uid `detonator:`) — 가방 수량 대신 월드에 남은 내 원격 지뢰 수
+    if (this.quickItem.uid.startsWith('detonator:')) parts.push(`기폭 ${ctx?.gadgets?.liveRemoteMineCount?.() ?? 0}`);
+    else parts.push(`×${Math.max(0, live.qty)}`);
     const max = def?.durabilityMax ?? 0;
     if (max > 0 && typeof live.durability === 'number') {
       parts.push(`${Math.round(Math.max(0, Math.min(1, live.durability / max)) * 100)}%`);

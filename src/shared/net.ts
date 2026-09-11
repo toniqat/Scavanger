@@ -1,6 +1,8 @@
 import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
 import type { DeployableKind, GadgetId } from './gadgets';
+/* appended (2026-09-11): 드론 (owner: gadgets/drones) */
+import type { DroneMessage, DroneRequest } from './drones';
 /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 */
 import type { CommsId } from './comms';
 import type { ImplantId } from './implants';
@@ -450,6 +452,8 @@ export interface EnemyWire {
    * Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
    * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery aiming, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
    * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
+   * 2026-09-11 (네임드 로그 — `ai/named/*` sets `Enemy.namedHint`): 14 sniper prone idle, 15 sniper glint / aiming,
+   * 16 hammer windup, 17 hammer charge, 18 heavy spin-up, 19 heavy firing, 20 scan drone pulsing.
    */
   a?: number;
   /** Phase 4: rogue's weapon def id (model + corpse loot). */
@@ -491,7 +495,9 @@ export type EnemyEvent =
   /** The rogue grenade exploded (FX on replicas). */
   | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple }
   /* appended (2026-09-08): 배리어 정면 흡수 — see the last section */
-  | EnemyEventAppended2026_09_08;
+  | EnemyEventAppended2026_09_08
+  /* appended (2026-09-11): 네임드 로그 · 스캔 드론 — see EnemyEventAppended2026_09_11 */
+  | EnemyEventAppended2026_09_11;
 /** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
 export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
 
@@ -669,7 +675,10 @@ export type GameMessage =
   | FogMessage
   | FogRequest
   /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 (파일 끝 절 참고) */
-  | RaidContentMessage;
+  | RaidContentMessage
+  /* appended (2026-09-11): 드론 (owner: gadgets/drones — shared/drones.ts) */
+  | DroneMessage
+  | DroneRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /* ══ 2026-09-09 wire: 시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 ════════════════════════════════════════
@@ -1037,6 +1046,8 @@ export interface DeployableWire {
   armed: boolean;
   /** Seconds of life left (0 = no expiry). */
   ttl: number;
+  /** appended (2026-09-11): 드론 위에 올라탄 설치물이면 그 드론 id (`DroneWire.id`). 생략 = 바닥. */
+  mount?: string;
 }
 
 /** Host → all: authoritative deployable state. Owner: gadgets. */
@@ -1049,10 +1060,26 @@ export type GadgetMessage =
 
 /** Client → host: deployable requests. Owner: gadgets. */
 export type GadgetRequest =
-  | { t: 'gadq'; ev: 'place'; gadget: GadgetId; p: Vec3Tuple; yaw: number; v?: Vec3Tuple }
+  /** `mount` appended (2026-09-11): 드론 윗면에 올리는 설치 요청이면 그 드론 id. */
+  | { t: 'gadq'; ev: 'place'; gadget: GadgetId; p: Vec3Tuple; yaw: number; v?: Vec3Tuple; mount?: string }
   | { t: 'gadq'; ev: 'damage'; id: string; dmg: number }
   | { t: 'gadq'; ev: 'recover'; id: string }
-  | { t: 'gadq'; ev: 'sync' };
+  | { t: 'gadq'; ev: 'sync' }
+  /** appended (2026-09-11): 보낸 사람(relay `from`) 소유의 무장된 원격 지뢰를 호스트가 전부 기폭한다. */
+  | { t: 'gadq'; ev: 'detonate' };
+
+/* ══ appended (2026-09-11): 네임드 로그 · 스캔 드론 (owner: enemies — shared/named.ts) ══════════════════════════ */
+export type EnemyEventAppended2026_09_11 =
+  /** Host → all: scan drone `id` pulsed (`n` of `of`). `tg` = peers inside radius `r` with line of sight (host includes its own id). */
+  | { t: 'ee'; ev: 'scanPulse'; id: number; p: Vec3Tuple; r: number; n: number; of: number; tg: PeerId[] }
+  /** Host → all: sniper `id`'s scope glints at `target` for `dur` s — the shot follows. */
+  | { t: 'ee'; ev: 'glint'; id: number; dur: number; target: PeerId | null }
+  /** Host → all: the sniper's shot (tracer · crack · impact). Damage is already resolved by the host (`dmg`). */
+  | { t: 'ee'; ev: 'snipe'; id: number; from: Vec3Tuple; to: Vec3Tuple; hit: boolean; target: PeerId | null }
+  /** Host → all: the hammer landed at `p` (FX · shake). */
+  | { t: 'ee'; ev: 'hammer'; id: number; p: Vec3Tuple }
+  /** Host → all: the heavy's minigun spray started (1) / stopped (0). Replicas draw tracers themselves; damage stays on the host. */
+  | { t: 'ee'; ev: 'spray'; id: number; on: 0 | 1 };
 
 /** Wire form of a gather node. */
 export interface GatherWire { id: string; defId: string; p: Vec3Tuple; harvested: boolean }

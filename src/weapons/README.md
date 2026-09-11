@@ -312,6 +312,31 @@ still runs at the item's own rate).
 
 ## 변경 이력
 
+- **2026-09-11 (손에 든 C4 · 기폭기 · 드론 조종기 · 조종 중 정지)** — 계약: `GadgetsRef.detonateRemoteMines` ·
+  `liveRemoteMineCount`, `GadgetUseKind 'drone'`, `PlayerRef.droneControl`. 전부 `parts/QuickUse.ts` + `WeaponSystem`
+  의 필드 · 게이트 몇 줄이다.
+  - **C4 우클릭 = 기폭.** `remoteMine` 을 든 손에서 RMB 는 오버/언더 토글 대신 `detonateHeld` → `ctx.gadgets.detonateRemoteMines()`
+    (0 개면 `ui_deny`, 성공하면 `QUICK_USE_COOLDOWN` · 아주 작은 반동 · `ui_click`).
+  - **기폭기 손 (가상 상태).** 마지막 C4 를 설치해 슬롯 스택이 0 이 되면 `returnToGun` 대신 `equipDetonator` —
+    `QuickHand.detonator = true`, `index −1`, `item` = **`qty: 0` 합성 인스턴스** (`uid = 'detonator:' + defId`,
+    인벤토리 uid 와 겹치지 않는다). 알림은 **`quick:equipped {index: null, item}`** 이다: 기존 의미(`index` = 퀵슬롯
+    번호, `item: null` = 총으로 복귀)를 깨지 않고 "슬롯에 묶이지 않은 손" 을 뜻한다 — net 의 `holdingItem` 은
+    `item !== null` 이라 켜진 채이고 `remoteState.heldItemId` 는 C4 def id 로 남는다. 새 필드 `remoteState.detonator`
+    (타입 밖의 덕 타이핑 필드)가 기폭기 손이면 true — **설치 미리보기는 이 값이 true 면 띄우지 않아야 한다.**
+    LMB = `ui_deny` + `원격 지뢰 없음`(`BROKEN_NOTIFY_INTERVAL` 스로틀), RMB = 기폭, 무기 키 · T 탭 · 휠은 평소대로
+    떠난다. `inventory:quickSlotsChanged` 는 기폭기를 튕겨내지 않는다. `liveRemoteMineCount()` 가 0 이 되면 총으로
+    돌아가되, 설치 직후 `DETONATOR_CONFIRM_GRACE_S`(2 s — 밸런스가 아니라 비호스트 `gadq` 확정 여유, 한 번이라도
+    1 이상이 세어지면 즉시 끝난다) 동안과 드론 조종 중에는 기다린다.
+  - **T 탭.** 쓸 수 있는 슬롯이 없고 월드에 내 C4 가 있으면 기폭기를 다시 잡는다. 슬롯에 C4 가 남아 있으면 그 슬롯이
+    우선이다. 추가로 **마지막으로 쓴 것이 C4 · 기폭기였고 그 슬롯이 비었으면** (`lastQuickDetonator`) 다른 소모품보다
+    기폭기를 먼저 잡는다 — "탭 = 마지막으로 쓴 것" 규칙의 연장이다. 기폭기를 든 채 탭하고 고를 슬롯이 없으면 총으로.
+  - **드론 조종기 손.** `droneGround` / `droneAir` 의 LMB 는 `gadgets.use` 가 true 를 돌려주고 스택을 그대로 두므로
+    `adoptSlot` 이 성공해 손에 남는다. RMB 는 무시, **R 은 무기 쪽 어디서도 읽지 않고 `consume` 도 하지 않는다**
+    (드론 코어의 R 홀드). 들쳐메기 게이트도 드론 조종기 손에서는 R 을 행동으로 세지 않는다.
+  - **조종 중 정지.** `droneLatch` = `ctx.player.droneControl` 인 동안 + 끝난 뒤 LMB · RMB · R 을 모두 뗄 때까지.
+    `armedAndFree` 에 `!droneLatch` 를 넣어 `canUseWeapons()` 에 기대지 않고도 사격 · 재장전 · 무기 교체 · 근접 ·
+    T(열린 휠은 닫힌다) · 유니크 입력 · 투척 궤적이 전부 멈춘다. 쥔 수류탄은 기존 `!usable` 규칙(핀을 뽑았으면 발밑에
+    떨어뜨림)을 탄다. 손에 든 것은 건드리지 않으므로 조종이 끝나면 그대로다.
 - **2026-09-11 (투척 궤적 50 % · 창문 · 바닥)** — `fx/ThrowArc` 가 실제 비행의 앞쪽 `THROW_ARC_PREVIEW_FRACTION` 만 그리고
   착지 고리를 감춘다. `Grenade` 는 창문 유리를 깨고(`shared/fragile`) 건물 바닥판에 떨어진다 (`getSurfaceY`).
 - **2026-09-10 (실드 충전기)** — 방탄복이 실드를 주게 되면서 그 실드를 채우는 소모품 3종이 붙었다

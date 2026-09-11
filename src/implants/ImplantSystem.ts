@@ -64,6 +64,15 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   grappleTimer = 0;
   grappleTargetValid = false;
   grappleTargetDist = 0;
+  /**
+   * 2026-09-11: the air drone the anchor sits on (null = a static wall / floor anchor). While idle it is the
+   * crosshair candidate; while flying / attached the anchor is re-seated every frame at drone position + offset.
+   */
+  grappleDroneId: string | null = null;
+  /** Anchor point relative to the drone's body centre (world axes), captured from the ray hit. */
+  readonly grappleDroneOffset = new THREE.Vector3();
+  /** Seconds since the last `imp grapple` refresh of a drone anchor. */
+  grappleSendAcc = 0;
 
   /** 실드 배쉬 (Phase 12): seconds left of the swing pose / FX, and of the re-bash cooldown. */
   bashTimer = 0;
@@ -150,6 +159,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     if (!def || !ctx) return;
     const p = ctx.player;
     if (!p || p.isDead || p.isDowned) return;
+    if (this.piloting) return;
     if (!ctx.isGameplayActive()) return;
     if (this.dropCarriedFirst(p)) return;
     switch (def.id) {
@@ -170,6 +180,16 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
 
   /** Force the wielded implant away and end any channel (weapon swap, death, phase change). */
   stow(): void { return Wield.stow(this); }
+
+  /**
+   * 2026-09-11: the local player is looking through a drone — the PC sits still, so Q (and the wielded implants'
+   * mouse / melee input) is ignored. `ctx.drones.controlled` is a fallback while player/ has no `droneControl` yet.
+   */
+  get piloting(): boolean {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    return ctx.player?.droneControl === true || (ctx.drones?.controlled ?? null) !== null;
+  }
 
   /**
    * Hostile-projectile blocking for the local barrier and every replicated peer barrier.
@@ -220,6 +240,12 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       b.on('net:remotePlayerRemoved', ({ id }) => this.remote.remove(id)),
       // Phase 12: enemies/ resolved a bug against a raised shield — spark the panel (throttled; it fires per bug per tick)
       b.on('implant:barrierBumped', ({ point }) => this.onBarrierBumped(point)),
+      // 2026-09-11: taking a drone's controls puts the wielded implant away and cuts the wire / channel
+      b.on('drone:controlChanged', ({ id }) => { if (id !== null) this.stow(); }),
+      // 2026-09-11: the drone our hook sits on left the world — cut the wire at once
+      b.on('drone:removed', ({ id }) => {
+        if (this.grappleState !== 'idle' && this.grappleDroneId === id) this.releaseGrapple(false);
+      }),
       b.on('game:phaseChanged', ({ phase }) => {
         if (phase !== 'playing' && phase !== 'extracting' && phase !== 'shipLanded' && phase !== 'liftoff') this.stow();
       }),
@@ -242,9 +268,12 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     const def = this.def();
     const p = ctx.player;
     const alive = !!p && !p.isDead && !p.isDowned;
-    const active = ctx.isGameplayActive() && ctx.input.isPointerLocked && alive;
+    // 2026-09-11: while piloting a drone nothing here reads input (Q, LMB, melee) and the crosshair grapple goes invalid
+    const piloting = this.piloting;
+    const active = ctx.isGameplayActive() && ctx.input.isPointerLocked && alive && !piloting;
 
     if (!ctx.isGameplayPhase() || !alive) this.stow();
+    else if (piloting && (this.wieldedFlag || this.ocActive || this.grappleState !== 'idle')) this.stow();
 
     this.tickCooldown(dt);
     this.tickBarrierRegen(dt, def);

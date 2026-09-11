@@ -230,6 +230,12 @@ export function barrierBlocks(sys: EnemySystem, from: THREE.Vector3, target: Com
 export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean, kbDir: THREE.Vector3 | null = null, kbSpeed = 0, melee = false): void {
   if (target.isDeadOrDowned) return; // downed players are never AI victims (Phase 2)
   const ctx = sys.ctx;
+  // 2026-09-11 (적 ↔ 드론): 드론은 소유자 권한 — `damageDrone` 이 소유자가 아니면 `droneq damage` 로 넘긴다.
+  // 플레이어 피해 이벤트(`enemy:attacked`) · `dmg` · `ee attack` · 배리어 흡수 · 넉백 · 둔화는 전부 없다.
+  if (target.drone) {
+    if (target.droneId !== null) ctx.drones?.damageDrone(target.droneId, amount, from);
+    return;
+  }
   if (target.enemy) {
     const victim = target.enemy;
     if (!victim.isCombatant) return;
@@ -371,9 +377,16 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
   // a `hitc`), an AI kill is credited to nobody and never reaches the bus.
   if (countKill && localKill) ctx.stats.kills++;
   if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by, deathDir: e.deathDir });
-  if (e.isRogue) sys.playAudio('player_death', e.position, 0.8, e.type === 'rogue_boss' ? 0.7 : 1);
+  // 2026-09-11: 로든의 스캔 드론은 기계다 — 비명 · 피 대신 파괴음 · 불꽃
+  if (e.type === 'rogue_scan_drone') {
+    sys.playAudio('drone_destroyed', e.position, 1, 1);
+    if (sys.fx) {
+      _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
+      sys.fx.burst(_v, 26, 'spark', 4);
+    }
+  } else if (e.isRogue) sys.playAudio('player_death', e.position, 0.8, e.type === 'rogue_boss' ? 0.7 : 1);
   else sys.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
-  if (sys.fx) {
+  if (sys.fx && e.type !== 'rogue_scan_drone') {
     _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
     sys.fx.burst(_v, 18 + Math.round(Math.min(2, e.stats.radius) * 22), 'blood', 3 + Math.min(2, e.stats.radius) * 2);
     sys.fx.splat(e.position, Math.min(3.5, e.stats.radius * 1.6), 'blood', ctx.world);

@@ -1,0 +1,292 @@
+/*
+ * src/ui/styles/drone.css — 드론 조종 HUD (`hud/DroneHud`, 2026-09-11). `hud/DroneHud` 만 import 한다.
+ *
+ *   `.hud.gameplay.drone-view`   조종 중 게임플레이 레이어 — 쓸 수 없는 위젯을 숨기고 체력만 작게 남긴다
+ *   `.dr-static`                 화면 외곽 지지직 (게임플레이 레이어 **맨 아래**에 prepend — HUD 글자를 덮지 않는다)
+ *                                  `--si` 0…1 = 강도, `.on` = 그린다, `.burst` = 외곽 마스크를 걷고 화면 전체
+ *   `.drone-hud`                 위젯 루트 (`inset:0`, 레이아웃 없음)
+ *     `.dr-view(.show .is-air .is-ground .hit)`  조종 중에만 보이는 층
+ *       `.dr-frame > i ×4`         가운데 뷰파인더 브래킷 (모서리 HUD — 임무 시간 · 계약 패널 — 와 겹치지 않게 안쪽)
+ *       `.dr-tag`                  `● DRONE  공중 드론`
+ *       `.dr-hp(.low .hit)`        드론 체력 작은 바
+ *       `.dr-aim`                  드론용 작은 조준점 (총 크로스헤어는 숨는다)
+ *       `.dr-alt(.at-max)`         크로스헤어 **좌측** 고도 (공중 드론만)
+ *       `.dr-keys > .dr-key`       크로스헤어 **우측** 조작 안내 (+ `.dr-noise(.on .linger)` 소음 배지, `R` 꾹 복귀)
+ *       `.dr-link(.warn .lost)`    하단 사거리 게이지 — 스태미나 바와 같은 자리 · 같은 문법
+ *     `.dr-ring(.show)`           조종 전환 `R` 홀드 링 (조종 전에도 뜬다 — 이것만 `.dr-view` 밖)
+ *     `.dr-alert(.show)`          연결 해제 알림 (1.5 초)
+ *
+ * 수치(사거리 · 경고 비율 · 최대 고도)는 전부 `ctx.drones` / `data/constants.csv` 에서 온다.
+ * 여기 있는 것은 레이아웃(px · 색 · 시간)뿐이고 색 · 트랜지션 변수는 `base.css` 의 `:root` 것을 쓴다.
+ */
+
+.drone-hud { position: absolute; inset: 0; pointer-events: none; }
+
+/* ── 조종 중: 쓸 수 없는 것은 숨긴다 ─────────────────────────────────────────
+   PC 는 앉아서 멈춰 있고 무기 · 임플란트 · 함선 호출을 못 쓴다. 스태미나 자리는 사거리 게이지가 차지한다.
+   `!important` 는 `.hud.spectating` 규칙과 같은 이유다 — 위젯들이 인라인 `opacity` 를 매 프레임 쓴다(`Reticle`). */
+.hud.drone-view .weapon,
+.hud.drone-view .imp-hud,
+.hud.drone-view .scall,
+.hud.drone-view .stamina,
+.hud.drone-view .reticle,
+.hud.drone-view .reload,
+.hud.drone-view .cook,
+.hud.drone-view .heal,
+.hud.drone-view .charge,
+.hud.drone-view .wcharge,
+.hud.drone-view .qwheel,
+.hud.drone-view .swheel { opacity: 0 !important; visibility: hidden; }
+/* PC 가 맞으면 조종이 끊기므로 체력은 작게 남긴다. 나침반은 PC 의 방위라 흐리게. */
+.hud.drone-view .vitals { opacity: 0.55; transform: scale(0.8); transform-origin: left bottom; }
+.hud.drone-view .compass { opacity: 0.35; }
+
+/* ── 화면 외곽 지지직 ─────────────────────────────────────────────────────── */
+.dr-static {
+  --si: 0;
+  position: absolute; inset: 0;
+  pointer-events: none;
+  opacity: var(--si);
+  visibility: hidden;
+  overflow: hidden;
+  -webkit-mask-image: radial-gradient(ellipse 74% 70% at center, transparent 52%, rgba(0, 0, 0, 0.55) 76%, #000 100%);
+  mask-image: radial-gradient(ellipse 74% 70% at center, transparent 52%, rgba(0, 0, 0, 0.55) 76%, #000 100%);
+}
+.dr-static.on { visibility: visible; }
+.dr-static.burst { -webkit-mask-image: none; mask-image: none; }
+.dr-static canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  image-rendering: pixelated;
+  opacity: 0.6;
+}
+.dr-static .dr-scan {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.38) 0 1px, transparent 1px 3px);
+}
+/* 색수차: 좌 붉은 / 우 청록 번짐이 몇 px 씩 떨린다 */
+.dr-static .dr-fringe {
+  position: absolute; inset: 0;
+  box-shadow: inset 10px 0 26px rgba(255, 40, 70, 0.42), inset -10px 0 26px rgba(40, 220, 255, 0.36);
+}
+/* 가로로 찢어지는 밝은 띠 하나 */
+.dr-static .dr-tear {
+  position: absolute; left: -4%; right: -4%; top: 30%; height: 6%;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.10) 40%, rgba(255, 255, 255, 0.22) 50%, rgba(255, 255, 255, 0.10) 60%, transparent);
+}
+/* 애니메이션은 켜져 있을 때만 돈다 — 평상시에는 스타일 재계산 비용도 없다. */
+.dr-static.on .dr-scan { animation: drScan 480ms steps(6) infinite; }
+.dr-static.on .dr-fringe { animation: drFringe 170ms steps(3) infinite; }
+.dr-static.on .dr-tear { animation: drTear 1.1s steps(9) infinite; }
+@keyframes drScan { from { background-position: 0 0; } to { background-position: 0 18px; } }
+@keyframes drFringe {
+  0% { transform: translateX(0); }
+  33% { transform: translateX(-3px); }
+  66% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+@keyframes drTear {
+  0% { top: 8%; transform: translateX(0); }
+  25% { top: 64%; transform: translateX(-2%); }
+  50% { top: 22%; transform: translateX(1.5%); }
+  75% { top: 83%; transform: translateX(-1%); }
+  100% { top: 41%; transform: translateX(0); }
+}
+
+/* ── 조종 중 층 ───────────────────────────────────────────────────────────── */
+.dr-view {
+  position: absolute; inset: 0;
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--t-fast) var(--ease), visibility var(--t-fast) var(--ease);
+}
+.dr-view.show { opacity: 1; visibility: visible; }
+
+/* 뷰파인더 브래킷 (화면 가운데 56vw × 56vh) */
+.dr-frame { position: absolute; left: 22vw; right: 22vw; top: 20vh; bottom: 24vh; }
+.dr-frame i {
+  position: absolute; width: 36px; height: 36px;
+  border: 2px solid rgba(255, 255, 255, 0.62);
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85));
+  transition: border-color 200ms var(--ease);
+}
+.dr-frame i:nth-child(1) { left: 0; top: 0; border-right: none; border-bottom: none; }
+.dr-frame i:nth-child(2) { right: 0; top: 0; border-left: none; border-bottom: none; }
+.dr-frame i:nth-child(3) { left: 0; bottom: 0; border-right: none; border-top: none; }
+.dr-frame i:nth-child(4) { right: 0; bottom: 0; border-left: none; border-top: none; }
+.dr-view.hit .dr-frame i { border-color: var(--c-danger); transition: none; }
+
+.dr-tag {
+  position: absolute; left: 22vw; top: calc(20vh - 26px);
+  display: flex; align-items: center; gap: 8px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+.dr-tag .rec { width: 7px; height: 7px; border-radius: 50%; background: var(--c-danger); box-shadow: 0 0 6px rgba(255, 77, 77, 0.8); animation: drRec 1s steps(2) infinite; }
+.dr-tag .lbl { font-family: var(--ui-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.24em; color: var(--c-text); }
+.dr-tag .kind { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--c-text-dim); }
+@keyframes drRec { 0% { opacity: 1; } 100% { opacity: 0.2; } }
+
+.dr-hp {
+  position: absolute; right: 22vw; top: calc(20vh - 24px);
+  display: flex; align-items: center; gap: 8px;
+  white-space: nowrap;
+}
+.dr-hp .ui-label { font-size: 9px; letter-spacing: 0.22em; color: var(--c-text); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.dr-hp .bar {
+  position: relative; width: 96px; height: 5px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.dr-hp .fill {
+  position: absolute; inset: 0; background: #fff;
+  transform-origin: left; will-change: transform;
+  transition: transform 120ms var(--ease), background var(--t-fast) var(--ease);
+}
+.dr-hp.low .fill { background: var(--c-danger); }
+.dr-hp.low .ui-label { color: var(--c-danger); }
+.dr-hp.hit .bar { animation: drHit 260ms ease-out; }
+@keyframes drHit {
+  0% { border-color: var(--c-danger); box-shadow: 0 0 10px rgba(255, 77, 77, 0.9); transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  100% { border-color: rgba(255, 255, 255, 0.35); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); transform: none; }
+}
+
+/* 드론 조준점: 가는 원 + 점 + 좌우 짧은 눈금 */
+.dr-aim { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.dr-aim::before {
+  content: ''; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px;
+  border: 1.5px solid rgba(255, 255, 255, 0.72); border-radius: 50%;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8), inset 0 0 2px rgba(0, 0, 0, 0.6);
+}
+.dr-aim::after {
+  content: ''; position: absolute; left: -1px; top: -1px; width: 2px; height: 2px;
+  border-radius: 50%; background: rgba(255, 255, 255, 0.9);
+}
+.dr-aim i { position: absolute; top: -0.75px; width: 7px; height: 1.5px; background: rgba(255, 255, 255, 0.72); box-shadow: 0 0 2px rgba(0, 0, 0, 0.8); }
+.dr-aim i:nth-child(1) { left: -20px; }
+.dr-aim i:nth-child(2) { left: 13px; }
+
+/* 크로스헤어 좌측: 고도 (공중 드론만). 홀드 링(반지름 60)보다 바깥에서 시작한다. */
+.dr-alt {
+  position: absolute; right: calc(50% + 84px); top: 50%;
+  transform: translateY(-50%);
+  display: none; align-items: center; gap: 8px;
+  white-space: nowrap;
+}
+.dr-view.is-air .dr-alt { display: flex; }
+.dr-alt .txt { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.dr-alt .ui-label { font-size: 9px; letter-spacing: 0.22em; color: var(--c-text); }
+.dr-alt .val { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; line-height: 1; color: var(--c-text); }
+.dr-alt .unit { font-size: 11px; color: var(--c-text-dim); margin-left: 3px; }
+.dr-alt .ladder {
+  position: relative; width: 4px; height: 48px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.dr-alt .ladder i {
+  position: absolute; inset: 0; background: #fff;
+  transform-origin: bottom; will-change: transform;
+  transition: transform 90ms linear;
+}
+.dr-alt.at-max .ladder i { background: var(--c-accent); }
+.dr-alt.at-max .ui-label { color: var(--c-accent); }
+
+/* 크로스헤어 우측: 조작 안내 */
+.dr-keys {
+  position: absolute; left: calc(50% + 84px); top: 50%;
+  transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+}
+.dr-key {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--c-text);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+.dr-key .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 10px; background: rgba(0, 0, 0, 0.45); }
+.dr-view.is-air .dr-key.ground, .dr-view.is-ground .dr-key.air { display: none; }
+/* `R` 꾹 복귀: 한 줄 띄우고, 키캡 위 chevron(`.kc-hold::before`, 약 10 px)이 윗줄에 닿지 않게 여백 */
+.dr-key.back { margin-top: 6px; padding-top: 12px; color: var(--c-text-dim); }
+.dr-noise {
+  display: none;
+  padding: 1px 6px;
+  border: 1px solid var(--c-danger);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-danger);
+}
+.dr-noise.on { display: inline-block; background: rgba(255, 77, 77, 0.16); animation: drBlink 0.5s steps(2) infinite; }
+.dr-noise.linger { display: inline-block; opacity: 0.5; }
+@keyframes drBlink { 0% { opacity: 1; } 100% { opacity: 0.35; } }
+
+/* 하단 사거리 게이지 — `.stamina` 와 같은 자리(bottom 9%) · 같은 막대 문법 */
+.dr-link {
+  position: absolute; left: 50%; bottom: 9%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.dr-link .state {
+  height: 14px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-danger);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+.dr-link .bar {
+  position: relative; width: 240px; height: 5px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.dr-link .fill {
+  position: absolute; inset: 0; background: #fff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
+  transform-origin: left; will-change: transform;
+  transition: background var(--t-fast) var(--ease);
+}
+/* 경고 비율 자리 눈금 (left 는 TS 가 `DRONE_LINK_WARN_RATIO` 로 한 번 적는다) */
+.dr-link .mark { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255, 77, 77, 0.85); }
+.dr-link .row { display: flex; align-items: baseline; justify-content: space-between; width: 240px; }
+.dr-link .ui-label { font-size: 9px; letter-spacing: 0.22em; color: var(--c-text); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.dr-link .dist { font-size: 10px; color: var(--c-text-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.dr-link.warn .fill { background: var(--c-danger); box-shadow: 0 0 8px rgba(255, 77, 77, 0.8); animation: drBlink 0.45s ease-in-out infinite alternate; }
+.dr-link.warn .bar { border-color: rgba(255, 77, 77, 0.7); }
+.dr-link.warn .dist, .dr-link.warn .ui-label { color: var(--c-danger); }
+.dr-link.lost .fill { animation: none; }
+.dr-link.lost .state { animation: drBlink 0.3s steps(2) infinite; }
+
+/* ── 조종 전환 홀드 링 — `hud/HoldGauge` 와 같은 모양, 반지름만 바깥(60 vs 48)이라 겹치지 않는다 ── */
+.dr-ring {
+  --dc: var(--c-info);
+  position: absolute; left: 50%; top: 50%;
+  width: 144px; height: 144px; margin: -72px 0 0 -72px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.dr-ring.show { opacity: 1; }
+.dr-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.dr-ring circle { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.dr-ring .track { stroke: rgba(255, 255, 255, 0.12); }
+.dr-ring .fill { stroke: var(--dc); }
+.dr-ring .lbl {
+  position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--dc); white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+/* ── 연결 해제 알림 (1.5 초, TS 의 `ALERT_S` 와 같은 길이) ── */
+.dr-alert {
+  position: absolute; left: 50%; top: 62%;
+  transform: translateX(-50%);
+  padding: 5px 14px;
+  background: var(--c-panel); border: 1px solid var(--c-danger);
+  box-shadow: 0 0 18px rgba(255, 77, 77, 0.28);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-danger);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  opacity: 0; visibility: hidden;
+}
+.dr-alert.show { visibility: visible; animation: drAlert 1.5s var(--ease) forwards; }
+@keyframes drAlert {
+  0% { opacity: 0; transform: translate(-50%, 4px); }
+  8% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 관전 중에는 개인 조종 HUD 가 의미 없다 (`base.css` 의 `.hud.spectating` 규칙과 같은 취급) */
+.hud.spectating .drone-hud, .hud.spectating .dr-static { opacity: 0 !important; visibility: hidden; }

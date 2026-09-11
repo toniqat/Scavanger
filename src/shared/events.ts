@@ -13,6 +13,9 @@ import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 import type { EquipSlot, WeightState } from './gear';
 import type { ImplantId, ScanTarget } from './implants';
 import type { DeployableKind, GadgetId } from './gadgets';
+/* appended (2026-09-11): 드론 · 네임드 로그 */
+import type { DroneKind, DroneReleaseReason } from './drones';
+import type { NamedRogueType } from './named';
 import type { PlayerProfile, SkillId, StatId } from './progression';
 import type { EquippedImplant } from './progression';
 /* appended (2026-09-06): ship housing payloads */
@@ -956,6 +959,40 @@ export interface GameEvents {
    * world 가 콜라이더를 빼고 유리를 감춘 **뒤에** 낸다.
    */
   'structure:glassBroken': { structureId: string; index: number; position: THREE.Vector3; byLocal: boolean };
+
+  /* ══ appended (2026-09-11): 드론 · 원격 지뢰 · 설치 미리보기 · 네임드 로그 ═════════════════════════════════ */
+  /** Fact: a drone appeared (local deploy or a replica spawn). Owner: gadgets/drones. `position` is the live vector. */
+  'drone:deployed': { id: string; kind: DroneKind; owner: PeerId | 'local'; position: THREE.Vector3 };
+  /** Fact: a drone left the world (destroyed · recovered by E hold · mission reset). Owner: gadgets/drones. */
+  'drone:removed': { id: string; kind: DroneKind; reason: 'destroyed' | 'recovered' | 'expired' };
+  /** Fact (local): the local player started looking through drone `id` / went back to the PC camera (`id` null). */
+  'drone:controlChanged': { id: string | null; kind: DroneKind | null; reason: DroneReleaseReason | null };
+  /** Fact: a drone's hp changed. `own` = the local player owns it. */
+  'drone:damaged': { id: string; hp: number; maxHp: number; own: boolean };
+  /**
+   * Fact: a noise enemies can hear, other than gunfire (지상 드론 질주). Emitted **on the authority only** (the host
+   * sees remote drones through their replicas' `DroneFlags.NOISY`), at most `DRONE_NOISE_EMIT_HZ` per source.
+   * enemies/ turns it into alert / aggro toward `position`.
+   */
+  'world:noise': { position: THREE.Vector3; radius: number; source: 'drone'; sourceId: string };
+  /** Fact: remote mines were detonated by `owner` (count = how many went off). Owner: gadgets. */
+  'gadget:detonated': { count: number; owner: PeerId | 'local' };
+  /**
+   * Fact (local): the hand placement preview changed — gadget in hand, validity, reason, drone mount. Emitted only when one
+   * of those changes (never per frame). `gadget` null = no `place` gadget in hand. Owner: gadgets. Read by ui/hud.
+   */
+  'gadget:placementChanged': { gadget: GadgetId | null; valid: boolean; reason: string | null; mount: string | null };
+  /** Fact: a named rogue was placed this raid (authority emits on spawn, replicas on first sight of the type). Owner: enemies. */
+  'enemy:namedSpawned': { id: number; type: NamedRogueType; position: THREE.Vector3 };
+  /**
+   * Fact (every client): a scan drone pulse went out. `exposedLocal` = the local player was inside it with line of sight.
+   * Owner: enemies (host decides exposure, replicas read `ee scanPulse.tg`).
+   */
+  'named:scanPulse': { enemyId: number; position: THREE.Vector3; radius: number; index: number; total: number; exposedLocal: boolean };
+  /** Fact (local): the local player's scan exposure changed. `count` 0 = cleared (drone downed · shot fired · timed out). */
+  'named:scanExposure': { count: number; total: number; sniperId: number | null };
+  /** Fact (every client): 로든's scope glints — a shot follows after `duration` s. `targetLocal` = aimed at the local player. */
+  'named:sniperGlint': { enemyId: number; position: THREE.Vector3; targetLocal: boolean; duration: number };
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */

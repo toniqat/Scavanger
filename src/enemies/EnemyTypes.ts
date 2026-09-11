@@ -48,7 +48,7 @@ export interface EnemyStats {
 }
 
 /** 적 종류를 csv `type` 칸이 받는 순서 — `ALL_ENEMY_TYPES` 와 같은 목록이다. */
-const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth'];
+const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone'];
 const ENEMY_FACTIONS: readonly EnemyFaction[] = ['bug', 'rogue'];
 
 export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
@@ -113,7 +113,17 @@ export const ARTILLERY_AI = ability<'retreatDist' | 'approachDist' | 'fireMin' |
 export const TOXIC_AI = ability<'swell'>('TOXIC_AI');
 export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot' | 'maxDuration' | 'enemyDamage' | 'enemyShove' | 'stumble'>('BEHEMOTH_AI');
 
-export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth'];
-/** Types rendered with the six-legged bug rig (everything but the humanoid rogues). */
-export type BugType = Exclude<EnemyType, 'rogue' | 'rogue_boss'>;
-export const isRogueType = (t: EnemyType): boolean => t === 'rogue' || t === 'rogue_boss';
+export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone'];
+/** Types rendered with the six-legged bug rig (everything but the humanoid rogues). 2026-09-11: 네임드 3종 + 스캔 드론도 버그 리그가 아니다. */
+export type BugType = Exclude<EnemyType, 'rogue' | 'rogue_boss' | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone'>;
+/**
+ * Humanoid rogue rig (`models/RogueModel`). 2026-09-11: 네임드 3종 포함. 스캔 드론은 계약 단계에서 임시로 여기 들어 있다 —
+ * 스캔 드론 담당이 자기 리그를 만들면 이 줄에서 뺀다.
+ */
+export const isRogueType = (t: EnemyType): boolean => t === 'rogue' || t === 'rogue_boss' || t === 'rogue_sniper' || t === 'rogue_hammer' || t === 'rogue_heavy' || t === 'rogue_scan_drone';
+
+/* ── 2026-09-11: 네임드 로그 (shared/named.ts) — ai/named/* 가 읽는다. 키를 더할 때는 그 블록의 유니온 한 줄과 csv 블록에 같이 넣는다. ── */
+export const NAMED_SNIPER = ability<'droneRange' | 'detectRange' | 'droneCooldown' | 'droneRetry' | 'scanPulses' | 'exposeNeeded' | 'scannedAccuracy' | 'nearAccuracyMax' | 'nearAccuracyMin' | 'damage' | 'fireInterval' | 'glintTime' | 'range' | 'relocateCooldown' | 'nestLeash' | 'closeThreat' | 'scanWait' | 'proneTurnRate'>('NAMED_SNIPER');
+export const NAMED_SCAN_DRONE = ability<'altitude' | 'speed' | 'pulseInterval' | 'pulseRadius' | 'loiterMax'>('NAMED_SCAN_DRONE');
+export const NAMED_HAMMER = ability<'windup' | 'chargeDist' | 'chargeSpeed' | 'chargeCooldown' | 'structureRadius' | 'giveUpDist' | 'giveUpTime' | 'patrolRadius'>('NAMED_HAMMER');
+export const NAMED_HEAVY = ability<'spinUp' | 'rof' | 'damage' | 'burstTime' | 'burstCooldown' | 'spread' | 'range' | 'escortRadius' | 'keepMin' | 'keepMax' | 'creepMul' | 'spinMoveMul' | 'linger'>('NAMED_HEAVY');

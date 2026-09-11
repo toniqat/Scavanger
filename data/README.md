@@ -31,6 +31,7 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | 적 특수 능력 — 도약 · 산성 침 · 돌진 · 로그 AI · 포병 · 베헤모스 | [`enemy_abilities.csv`](enemy_abilities.csv) |
 | **상자 루팅** — 티어 규칙 · 카테고리 가중치 · 확정 픽 · 아이템별 배수 | [`loot_tiers.csv`](loot_tiers.csv) · [`loot_category_weights.csv`](loot_category_weights.csv) · [`loot_guaranteed.csv`](loot_guaranteed.csv) · [`loot_item_weights.csv`](loot_item_weights.csv) |
 | **시체 루팅** | [`loot_corpses.csv`](loot_corpses.csv) · [`loot_corpse_rolls.csv`](loot_corpse_rolls.csv) |
+| **네임드 로그 확정 드롭** — 로든 저격소총 · 타길라 방탄복 · 헤비 미니건의 확률 · 등급 분포 | [`loot_named.csv`](loot_named.csv) |
 | 제작 레시피 | [`recipes.csv`](recipes.csv) |
 | **분해** — 무엇을 뜯으면 무엇이 나오나 (장비는 여기 없다 — 제작 재료에서 자동으로 만든다) | [`salvage.csv`](salvage.csv) |
 | 능력치 · 숙련도 | [`stats.csv`](stats.csv) · [`skills.csv`](skills.csv) |
@@ -137,6 +138,28 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-11 — 새 가젯 3종 · 네임드 로그 확정 드롭 (`loot_named.csv` 신규)
+
+- **`items.csv`**: 가젯 3줄 신규 (기존 줄 무변경) — `gad_remote_mine` 원격 지뢰 (rare, 1×1, 스택 4, ₩340, 1.2 kg) ·
+  `gad_drone_ground` 지상 드론 (rare, 2×2, **스택 1**, ₩1 150, 4.8 kg) · `gad_drone_air` 공중 드론 (epic, 2×2,
+  **스택 1**, ₩2 200, 3.6 kg). 드론은 꺼내도 소모되지 않고 파괴될 때 하나가 준다 (동작은 `src/gadgets`).
+- **`recipes.csv`**: 가젯 작업대 3줄 (94 → 97) — `make_remote_mine` Lv.2 (화약 10 + 회로 기판 1 + 케이블 2, 제작 25) ·
+  `make_drone_ground` Lv.2 (기계 부품 3 + 회로 기판 2 + 파워 셀 2 + 폐금속 6, 제작 30) · `make_drone_air` **Lv.3**
+  (제어 모듈 1 + 축전 모듈 2 + 기계 부품 2 + 회로 기판 2, 제작 40 — 상위 재료라 정제 작업대를 거친다).
+  가젯은 분해 · 수리 대상이 아니라 경제 검산에는 안 걸린다.
+- **`loot_item_weights.csv`**: 셋 다 티어 1 에서 0. 원격 지뢰 티어 2 ×0.6, 지상 드론 티어 2 ×0.4 · 3 ×0.7,
+  공중 드론 티어 2 ×0 · 3 ×0.4 · 4 ×0.8. 세레스 상점은 `gadget` 카테고리 전체를 팔아 따로 줄을 안 넣었다.
+- **`loot_named.csv` (신규)**: `type,kind,target,chance,grades,magFracMin,magFracMax,ammoFracMin,ammoFracMax`.
+  로든 = 저격소총(`kind weapon`, `target sr`) 85 % · 타길라 = 번호 방탄복(`kind armor`) 85 % — 둘 다
+  `grades 3:60|4:33|5:7` (희귀 · 서사 · 전설) · 헤비 = `wpn_u_minigun` (`kind item`) 80 %. **내구도는 이 표에 없다** —
+  `constants.csv` 의 `NAMED_LOOT_DURABILITY_MIN/MAX`(1–5 %). ⚠ **행성 곡선(`planet_loot.csv`)은 이 표에 걸리지
+  않는다** (등급 상한 · `uniqueMul` · 희귀도 배수 전부) — "최소 희귀 등급부터" 가 사용자 명세다.
+  읽는 코드는 `src/items/LootTables.ts` (이미 `DATA_OWNERS` 에 있다).
+- **`loot_corpses.csv`**: `rogue_sniper` · `rogue_hammer` · `rogue_heavy` 블록 신규 (보스 수준 회복 · 충전기 · 재료 +
+  공중 드론 20 % / 원격 지뢰 35 % / 지상 드론 15 % · 원격 지뢰 20 %), `rogue_scan_drone` 은 확률 0 한 줄 = 빈 결과.
+  **`rogue` · `rogue_boss` 줄은 안 건드렸다** (줄이 늘면 rng 소비가 밀려 `inventory/__selftest__` 의 고정 굴림이 바뀐다).
+- **`loot_corpse_rolls.csv`**: 네임드 3줄 — 서적 20 % · 망가진 임플란트 45 % (보스와 같은 가중치)만, 총 · 유니크 칸은 비움.
 
 ### 2026-09-10 — 점광원 예산 · 셰이더 선컴파일 (`constants.csv` 3줄 신규)
 

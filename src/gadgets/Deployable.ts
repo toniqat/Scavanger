@@ -48,6 +48,13 @@ export class Deployable implements DeployableRef {
   netCooldown = 0;
   /** true once removal was already dispatched (guards double removal). */
   removing = false;
+  /** 2026-09-11 (parts/Mount): 드론 위에 올라탄 설치물이면 그 드론 id — 위치가 매 프레임 드론 윗면을 따라간다. */
+  mount: string | null = null;
+  /* 2026-09-11: 원격 지뢰 (parts/Remote) — 모든 클라이언트가 로컬로 돌린다 */
+  /** 원격 지뢰: 첫 프레임 처리(설치음 · 삑 위상 · 호스트의 소유자당 상한)를 마쳤다. */
+  remoteInit = false;
+  /** 원격 지뢰: 다음 `c4_beep` 까지 남은 초 (무장된 동안만 줄어든다). */
+  beepTimer = 0;
 
   constructor(
     readonly id: string,

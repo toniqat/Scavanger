@@ -135,7 +135,10 @@ export class CommsWheel {
   update(dt: number, ctx: GameContext): void {
     const input = ctx.input;
     // 전투불능이어도 말은 할 수 있어야 한다 — 그래서 `isDowned` 는 배치만 바꾸고 게이트가 아니다.
-    const usable = ctx.isGameplayActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false);
+    // 2026-09-11: 드론 조종 중에는 열리지 않는다 (열려 있으면 아래 `!usable` 이 아무것도 보내지 않고 접는다) —
+    // 마우스가 드론 시점이다. 핑(`hud/Pings`)은 막지 않는다.
+    const usable = ctx.isGameplayActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false)
+      && !(ctx.player?.droneControl ?? false);
 
     if (!this.held) {
       if (usable && input.wasPressed(Keys.COMMS)) { this.held = true; this.holdT = 0; }

@@ -45,6 +45,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
     _v.copy(sys.resolveSpawn(sys.ctx.world.getPlayerSpawn()));
   }
   if (sys.ctx.world?.ready) _v.y = Math.max(_v.y, sys.ctx.world.getHeightAt(_v.x, _v.z));
+  sys.releaseDroneControl();   // 2026-09-11
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -131,6 +132,7 @@ export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
  * active camera override (the hub owns that via `setCameraOverride(null)`).
  */
 export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: number): void {
+  sys.releaseDroneControl();   // 2026-09-11
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -203,6 +205,7 @@ export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: numbe
 
 export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: number): void {
   const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
+  sys.releaseDroneControl();   // 2026-09-11
   sys.clearClimbState();
   sys.attachTo(null);
   sys.setInterior(null);
@@ -356,6 +359,7 @@ export function updateDrop(sys: PlayerSystem, dt: number): void {
   }
 
 export function resetAll(sys: PlayerSystem): void {
+  sys.releaseDroneControl();   // 2026-09-11: game:abort · 재접속 대기
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);

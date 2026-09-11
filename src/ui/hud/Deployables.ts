@@ -12,10 +12,12 @@ const OTHER_MARKER_RANGE = 55;
 export const DEPLOYABLE_LABEL_KO: Record<DeployableKind, string> = {
   domeShield: '돔 실드', barricade: '바리케이드', mine: '지뢰', turret: '포탑',
   jumpPad: '점프대', smoke: '연막', fire: '화염 지대', lure: '유인 장치',
+  remoteMine: '원격 지뢰',
 };
 const DEPLOYABLE_ICON: Record<DeployableKind, string> = {
   domeShield: '◐', barricade: '▤', mine: '✸', turret: '⌖',
   jumpPad: '⌃', smoke: '☁', fire: '▲', lure: '♪',
+  remoteMine: '▣',
 };
 
 interface Entry {
@@ -70,7 +72,7 @@ export class Deployables {
         this.fallback.set(id, {
           id, kind, position: position.clone(),
           radius: kind === 'mine' ? GADGET_MINE_RADIUS : 2,
-          armed: kind !== 'mine',
+          armed: kind !== 'mine' && kind !== 'remoteMine',   // 2026-09-11: 원격 지뢰도 설치 직후엔 무장 대기
         });
       }),
       b.on('gadget:removed', ({ id }) => { this.fallback.delete(id); }),

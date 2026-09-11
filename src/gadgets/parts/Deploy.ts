@@ -18,6 +18,9 @@ import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
+import { droneKindOfGadget } from '@/shared';
+import * as Preview from './Preview';
+import * as Mount from './Mount';
 
 export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boolean {
   const ctx = sys.ctx;
@@ -29,9 +32,25 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
   if (!player || player.isDead || player.isDowned) return sys.deny(null);
   if (sys.useCooldown > 0) return false;
 
+  // 2026-09-11: 드론은 아이템을 소모하지 않는다 — 퀵슬롯의 그 아이템이 조종기로 남는다 (shared/drones). 파괴될 때 drones 가 하나 뺀다.
+  if (def.use === 'drone') {
+    const kind = droneKindOfGadget(def.id);
+    if (!kind || !ctx.drones) return sys.deny('드론을 사용할 수 없다');
+    if (!ctx.drones.deploy(kind)) return false;
+    sys.useCooldown = USE_COOLDOWN / Math.max(0.25, sys.derived('useSpeedMul', 1));
+    ctx.bus.emit('gadget:used', { id, position: player.position.clone() });
+    return true;
+  }
+
   // validate before consuming the item
   let target: { id: PeerId; position: THREE.Vector3; name: string } | null = null;
-  if (def.use === 'place' && !sys.placementSpot(def, _a)) return sys.deny('설치할 공간이 없다');
+  // 2026-09-11: 설치형은 미리보기와 **같은 판정**을 그 순간 다시 돌린다 (parts/Preview) — 빨강이면 같은 사유로 거부
+  if (def.use === 'place') {
+    // 기폭기 손(마지막 C4 를 놓은 뒤)에서는 설치하지 않는다 — 우클릭 기폭만 (weapons 의 `remoteState.detonator`)
+    if (Preview.isDetonatorHand(ctx)) return sys.deny(null);
+    const spot = Preview.computePlacement(sys, def, sys.placeUse);
+    if (!spot.valid) return sys.deny(spot.reason ?? '설치할 공간이 없다');
+  }
   if (def.use === 'target') {
     target = sys.findDownedAlly(def.radius);
     if (!target) return sys.deny('근처에 쓰러진 아군이 없다');
@@ -44,7 +63,7 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
     case 'self': sys.useCloakVeil(def); break;
     case 'target': if (target) sys.useDefib(def, target); break;
     case 'throw': sys.throwGadget(def, over); break;
-    case 'place': sys.requestPlace(def, _a, player.yaw); break;
+    case 'place': sys.requestPlace(def, sys.placeUse.position, sys.placeUse.yaw, sys.placeUse.mount); break;
   }
   ctx.bus.emit('gadget:used', { id, position: player.position.clone() });
   return true;
@@ -153,14 +172,15 @@ export function onThrownImpact(sys: GadgetSystem, gid: GadgetId, pos: THREE.Vect
   }
 
 /** Authority spawns straight away; clients ask the host and wait for `gad spawn`. */
-export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.Vector3, yaw: number): void {
+export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null): void {
   const ctx = sys.ctx;
   if (!def.deployable) return;
   if (!ctx.isAuthority && ctx.isMultiplayer && ctx.net) {
-    ctx.net.send({ t: 'gadq', ev: 'place', gadget: def.id, p: toTuple(position), yaw }, 'host');
+    // 2026-09-11: 드론 위에 올리는 요청이면 `mount` (호스트가 `Preview.resolveRemotePlace` 로 다시 본다)
+    ctx.net.send({ t: 'gadq', ev: 'place', gadget: def.id, p: toTuple(position), yaw, ...(mount ? { mount } : {}) }, 'host');
     return;
   }
-  sys.spawnDeployable(sys.nextId(), def, ctx.net?.localId ?? 'local', position, yaw, null);
+  sys.spawnDeployable(sys.nextId(), def, ctx.net?.localId ?? 'local', position, yaw, null, mount);
   }
 
 /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
@@ -172,7 +192,7 @@ export function nextId(sys: GadgetSystem): string {
  * @param wire non-null when this is a replica built from a `gad spawn` / `gad sync` broadcast
  *   (hp / armed / ttl come from the host instead of the definition).
  */
-export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null): Deployable | null {
+export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null, mount?: string | null): Deployable | null {
   const kind = def.deployable;
   if (!kind || sys.byId.has(id)) return null;
   const ctx = sys.ctx;
@@ -180,17 +200,22 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
 
   const hp = wire ? wire.hp : def.hp;
   const maxHp = wire ? wire.maxHp : def.hp;
-  const armed = wire ? wire.armed : !(kind === 'mine' || kind === 'domeShield');
+  const armed = wire ? wire.armed : !(kind === 'mine' || kind === 'domeShield' || kind === 'remoteMine');
   const ttl = wire ? wire.ttl : def.duration;
   const expires = ttl > 0 ? ctx.time + ttl : 0;
 
   const visual = sys.visuals.acquire(kind, def.color, def.radius);
   const d = new Deployable(id, kind, owner, def.id, def.radius, hp, maxHp, armed, expires, visual);
   d.position.copy(position);
-  d.position.y = sys.groundY(position);
+  // 2026-09-11: 설치형(place)은 미리보기 판정이 준 높이(표면 · 건물 바닥 · 드론 윗면)를, 복제본은 호스트가 정한 높이를
+  // 그대로 쓴다. 지형으로 내리는 것은 투척형(돔 · 연막 · 화염 · 유인)을 권위자가 처음 스폰할 때뿐이다.
+  if (!wire && def.use !== 'place') d.position.y = sys.groundY(position);
   d.yaw = yaw;
   d.headYaw = yaw;
   d.onDamage = (dep, amount, from) => sys.onDeployableDamage(dep, amount, from);
+  // 2026-09-11 (parts/Mount): 드론 위 — 복제본은 와이어의 `mount`, 권위자는 요청의 `mount`
+  const mountId = wire ? (wire.mount ?? null) : (mount ?? null);
+  if (mountId) Mount.attach(sys, d, mountId);
   visual.root.position.copy(d.position);
   visual.root.rotation.y = yaw;
 
@@ -202,7 +227,8 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
     ctx.interactables.register(it);
   }
   ctx.bus.emit('gadget:deployed', { id, kind, position: d.position, owner: String(owner) });
-  ctx.bus.emit('audio:play', { id: kind === 'mine' ? 'mine_place' : 'gadget_deploy', position: d.position, volume: 0.8 });
+  // 2026-09-11: 원격 지뢰는 `parts/Remote` 가 첫 프레임에 `c4_place` 를 낸다 — 여기서는 조용히
+  if (kind !== 'remoteMine') ctx.bus.emit('audio:play', { id: kind === 'mine' ? 'mine_place' : 'gadget_deploy', position: d.position, volume: 0.8 });
   sys.visuals.pulse(d.position, def.color, 0.3, Math.min(def.radius, 4), 0.45);
   if (ctx.isAuthority) sys.broadcast({ t: 'gad', ev: 'spawn', d: sys.wireOf(d) }, 'others');
   return d;
@@ -218,6 +244,7 @@ export function remove(sys: GadgetSystem, d: Deployable, reason: 'destroyed' | '
 export function removeLocal(sys: GadgetSystem, d: Deployable, reason: 'destroyed' | 'recovered' | 'expired'): void {
   if (d.removing) return;
   d.removing = true;
+  if (d.mount) Mount.unmount(sys, d);   // 2026-09-11: 드론 쪽 탑재 표시를 지운다
   const i = sys.deployables.indexOf(d);
   if (i >= 0) sys.deployables.splice(i, 1);
   sys.byId.delete(d.id);
@@ -257,27 +284,14 @@ export function grantRecovered(sys: GadgetSystem, d: Deployable): ItemInstance |
   return item;
   }
 
-/** Spot in front of the player for a 'place' gadget. false when it is blocked / off the map. */
+/**
+ * Spot for a 'place' gadget. false when it is blocked / off the map.
+ * 2026-09-11: 정면 2.8 m 고정 자리는 걷어냈다 — 조준점 판정(`Preview.computePlacement`)의 얇은 포장이다.
+ */
 export function placementSpot(sys: GadgetSystem, def: GadgetDef, out: THREE.Vector3): boolean {
-  const ctx = sys.ctx;
-  const p = ctx.player;
-  const world = ctx.world;
-  if (!p || !world || !world.ready) return false;
-  p.getForward(_fwd);
-  out.copy(p.position).addScaledVector(_fwd, PLACE_DISTANCE);
-  if (!world.isInsideBounds(out.x, out.z)) return false;
-  out.y = world.getHeightAt(out.x, out.z);
-  // do not stack deployables on top of each other
-  for (const d of sys.deployables) {
-    if (d.removing) continue;
-    const clearance = d.kind === 'barricade' ? PLACE_CLEARANCE * 2 : PLACE_CLEARANCE;
-    if (d.position.distanceTo(out) < clearance) return false;
-  }
-  // too steep? (slope guard so barricades / turrets do not float)
-  world.getNormalAt(out.x, out.z, _b);
-  if (_b.y < 0.72) return false;
-  void def;
-  return true;
+  const spot = Preview.computePlacement(sys, def, sys.placeUse);
+  out.copy(spot.position);
+  return spot.valid;
   }
 
 /** Item def id whose `gadgetId` matches (items/ owns the actual definitions). */

@@ -85,7 +85,22 @@ export interface QuickHand {
   item: ItemInstance;
   def: ItemDef;
   kind: QuickKind;
+  /**
+   * 2026-09-11 — **기폭기 손** (가상 상태). 원격 지뢰(C4)를 다 설치해 슬롯이 비었는데 월드에 내 C4 가 남아 있을 때
+   * 손에 남는 것. 퀵슬롯에 묶이지 않으므로 `index` 는 −1, `item` 은 `qty: 0` 인 합성 인스턴스
+   * (`DETONATOR_UID_PREFIX + defId`)이고 `quick:equipped {index: null, item}` 으로 알린다.
+   */
+  detonator?: boolean;
 }
+
+/**
+ * 2026-09-11 — 마지막 C4 를 설치한 직후 `liveRemoteMineCount()` 가 0 이어도 기폭기 손을 유지하는 시간(초).
+ * 비호스트의 설치는 `gadq` 요청이라 호스트가 확정해 복제될 때까지 내 C4 가 세어지지 않는다 — **밸런스 수치가 아니라
+ * 네트워크 확정 여유**다. 한 번이라도 1 개 이상 세어지면 여유는 즉시 끝나고, 그 뒤 0 이 되면 총으로 돌아간다.
+ */
+export const DETONATOR_CONFIRM_GRACE_S = 2;
+/** 기폭기 손의 합성 `ItemInstance.uid` 접두사 — 인벤토리의 어떤 uid 와도 겹치지 않는다. */
+export const DETONATOR_UID_PREFIX = 'detonator:';
 
 /** Seconds a 회복 소모품 / 실드 충전기 / 제세동기 must be held before it fires (0 = instant, e.g. every other gadget). */
 export function useTimeOf(def: ItemDef): number {

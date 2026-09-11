@@ -14,6 +14,7 @@ Also owns `RemotePlayerSystem` (`name: 'remotePlayers'`, registered right after 
 | `parts/Shoulder.ts` | **부상자 들쳐메기 (Phase 10).** 전투불능 아군 근처에서 F 를 짧게 누르면 어깨에 메고(비무장 · 걷기/달리기만), 다른 행동을 하면 먼저 내려놓는다. 메인 쪽이 권한이고 업힌 쪽은 캐리어의 어깨 소켓을 따라간다 — 캐리어가 사라지면 몸은 마지막 위치에 그대로 내려진다. |
 | `parts/Interact.ts` | **E 상호작용.** 화면 안의 `Interactable` 중 가장 알맞은 것을 고르고, 탭 / 홀드를 구분해 `onHoldProgress` · `onHoldCancel` 을 흘린다(홀드 시간은 능력치의 영향을 여기서 한 번만 받는다). |
 | `parts/Climb.ts` | **몸이 수직으로 어떻게 옮겨 가는가: 사다리 · 단차 보간** (2026-09-11). `ladder:grab` → `grabLadder`(규칙 검사 · 서기 · 조준 해제 · 잡는 순간의 XZ 스냅을 `bodyOffset` 으로 미끄러뜨림), `readClimbInput`(W/S · Shift = 스태미나 있을 때 빠르게 · Space = 스태미나 · 무게 규칙 · E = 놓기), `releaseLadder` / `clearClimbState`(리셋 경로), `syncClimb`(`player:climbChanged` 는 여기서만, 값이 바뀔 때 한 번), `updateStepSmoothing`(접지 → 접지 사이 **단차로 보이는** 높이 변화만 `bodyOffset.y` 에 쌓고 `STEP_SMOOTH_RATE` 로 감쇠). 아래 *사다리 · 단차 보간* 절. |
+| `parts/DroneControl.ts` | **드론 시점으로 조종하는 동안 몸은 무엇을 하는가** (2026-09-11). `PlayerRef.setDroneControl` / `droneControl` 의 구현 — 켜기 규칙(`canEnterDroneControl`) · 유지 규칙(`canHoldDroneControl`, `update` 맨 위 백스톱) · 자세 강제와 복원 · `CameraRig.setDroneView`. 아래 *드론 조종* 절. |
 | `RemotePlayerSystem.ts` | `GameSystem 'remotePlayers'`. Each frame — in every phase, so shared-ship hub avatars render while `ctx.net.inHubSession` — iterates `ctx.net?.getRemotePlayers()` (NetSystem has already interpolated them — it updates first), creates a `RemoteAvatar` on first sight (or on `net:remotePlayerAdded`), sets `ref.avatar`, drives it, and ends it on `net:remotePlayerRemoved`, `!ref.connected` (unless `ref.suspended`), a ref vanishing from the list (frame-stamp sweep), and wholesale on `game:abort` / `game:newMission` / `hub:entered` (surviving refs get a fresh avatar next frame from a fresh snapshot, so mission positions never linger in the ship). **2026-09-10**: an ended avatar's body is parked in `soldierPool` (`SoldierPool`) and the next avatar of that slot colour reuses it, so those wholesale clears no longer rebuild meshes / materials; `clearAll` only **hides** the remote pods (`RemotePods.clear`) and `dispose()` is the one place that disposes the pods and the pool. **원격 발소리** (2026-09-10): `emitFootstep` 은 아바타를 돌린 직후 `ref.stridePhase` 의 π 경계마다 `remote:footstep {position, sprinting, peerId}` 를 낸다 — 접지(`!AIRBORNE`) · 구르지 않음(`!DIVE`) · 수평 속도 > `STRIDE_MIN_SPEED` · `av.isShown` · 살아 있음 · `!stale && !suspended` 일 때만이고, peer 당 `FOOTSTEP_MIN_INTERVAL_S` 로 쓰로틀한다. 거리 감쇠는 `audio/` 의 몫이다. **Revive interactable** (Phase 2): every ref with `isDowned && !isDead && (suspended || (connected && !stale))` gets an `Interactable` `revive:<peerId>` (`position` = the ref's own Vector3 instance, radius `PLAYER_REVIVE_RANGE` 3 m, `holdTime` `PLAYER_REVIVE_HOLD` 10 s, prompt `부활: <name>`, `canInteract` = local player alive, not downed, `ctx.isGameplayActive()`); `onHoldProgress` relays `{t:'revive', ev:'progress', target, p}` to that peer at ≤ 4 Hz, `onHoldCancel` → `ev:'cancel'`, completed hold → `ev:'done'` + `ui:notify "<name> 부활"` + `stim` SFX, then the interactable is withheld 1.5 s until the peer's `DOWNED` flag clears. On a **suspended** peer nothing is relayed (socket down) and the completed hold sends `ghostq revive` to `'host'` (or revives the ghost directly when this client is the host). Unregistered when the ref stops being downed / dies / leaves and by every `clearAll` (abort / new mission / hub). `getReviveTargets()` lists the peers currently offering one. Queries: `getAvatar(id)`, `getAvatars()`, `getGhosts()` / `getGhost(id)` / `getLastGhostStates()`. **Ghosts** (Phase 7, host only) — see *Ghosts* below. **Debug**: `debugSpawn({ slot?, id?, name?, stance?, flags?, weaponId?, isDowned?, implantId?, armorId?, heldItemId?, position? })` returns a fully writable `DebugRemoteRef` (fake peer, no NetSystem needed) placed 2 + slot m beside the local player — mutate `flags` / `stance` / `position` / `velocity` / `isDead` / `isDowned` / `stale` / `suspended` / `heldItemId` / `armorId` from the console; `debugClear(id?)` removes them; `debugSuspend(id, on)` flips `suspended` + `stale` and emits `net:peerSuspended` (a ghost is created offline too — `ctx.net.send` is a no-op); `debugRejoin(id)` plays the member's `flow rejoined` (returns the `ghost restore` wire). `window.__game.getSystem('remotePlayers')`. |
 | `RemoteAvatar.ts` | Implements `RemoteAvatarRef` (`root`, `weaponSocket` = the model's right-hand socket, **`shoulderSocket`** = its right shoulder, `getHeadPosition(out)` = feet + blended head height stand **1.6** / crouch **1.34** / prone **0.55** — re-anchored on the Phase 10 body — sinks toward the prone value when dead; while the body is carried the anchor comes from the avatar root's **world** position, because `ref.position` is then a stale snapshot). Wraps `new SoldierModel(NET_SLOT_COLORS[slot])`. Per frame from the `RemotePlayerRef`: `root.position = ref.position`; body yaw damped with PlayerSystem's rules (roll → velocity dir, aiming/firing/reloading/throwing/cooking/prone/suspended → `ref.yaw`, else velocity dir when horizontal speed > 0.4); `SoldierPose` from `moveBlend` / `stridePhase` / `pitch` / `velocity.y` and damped blends of `stance` + `PlayerFlags` (SPRINT, AIM, DIVE = rolling, AIRBORNE, HAS_WEAPON, TWO_HANDED, RELOADING; **DOWNED** → prone + crawl cycle with sprint/aim/crouch/roll/airborne forced off — weapons hides the gun model itself; **HOLDING_ITEM** → `SoldierPose.holdItem`); recoil pulses every 0.11 s while FIRING; `dead` ramps 0→1 over 0.9 s after `isDead` (pose reset on respawn); flinch 0. **Phase 7 flags**: `THROWING` → `SoldierPose.throw` wind-up, `COOKING` → `SoldierPose.cooking` (pin-pull, over the item pose), `CHARGING` / `SPRAYING` / `HEAVY` (with `HAS_WEAPON`, never downed) → `charging` / `spraying` / `heavyCarry`, `MELEE` + `MELEE_HEAVY` on the rising edge → the 용검 sweep replayed for `SLASH_DURATION` (`meleeHeavy` 1) instead of the 0.45 s chop, `OVERCHARGED` → `model.setGlow` rim glow. **Held item**: the ref's `heldItemId` (duck-typed — `heldItem` also accepted; net mirrors `PlayerSnapshot.h`) while `HOLDING_ITEM` → `GearLook.buildHeldItem(ctx.loot.getItemDef(id).category)` parented into `weaponSocket` (stim cylinder / grenade sphere / gadget box), rebuilt only on change, `net:remoteHeldItem {id, defId}` on every change (→ null included). **Armor**: `ref.armorId` (`ar`; an `ArmorDef.id` or an item def id with `armorId`, resolved through `ctx.loot` by `resolveArmorDef`) → `model.setArmor` — the same plate look as the local soldier. **Suspended** (`ref.suspended`): stays visible even while `stale` / `!connected`, `model.setGreyed(true)` (flat grey, dim visor), silhouette off, glow off, every animated flag masked (only HAS_WEAPON / TWO_HANDED / DOWNED / DEAD / IN_POD / IN_HUB survive), `moveBlend` 0, pitch 0, body yaw held on `ref.yaw`; the downed / dead pose follows the ghost-driven `isDowned` / `isDead`. Hidden while `flags & DROPPING` (inside their hellpod) — the first visible frame afterwards plays a `ParticleBurst.dust` landing puff; also hidden while `flags & IN_POD` (boarded in a hub launch pod), or `ref.stale` / `!connected` when not suspended. Shows the slot-tinted occlusion silhouette (`model.setSilhouette(!isDead)`) while visible and not suspended / cloaked; no weapon in the hub because the sender clears `HAS_WEAPON`. Sprinting remotes puff dust on every stride-phase π boundary. No collision with the local player. Test queries: `heldItemId`, `armorId`, `isGreyed`, `isShown`, `heavySlashProgress`, `poseView`. `dispose()` clears `ref.avatar`, frees the held-item look and the downed beacon, detaches the avatar's weapon socket and hands the body back to the pool (`SoldierPool.release`; without a pool it calls `SoldierModel.dispose()`). **2026-09-10 (몸 재사용)**: the constructor takes an optional `SoldierPool` and gets its body from `pool.acquire(NET_SLOT_COLORS[slot])`. **`weaponSocket` is a fresh `Object3D` per avatar**, parented at identity inside `model.weaponSocket` — a pooled body may have served another avatar a moment ago, and `weapons/RemoteWeapons` keys its model on socket identity (`e.socket !== socket` → rebuild), so the model's own socket must never be handed out twice; `dispose()` detaches that object and whatever `weapons/` · `implants/` hung on it leaves with it (the same subtree disposing the model used to detach). `shoulderSocket` is still the model's (carried bodies are evacuated before any dispose). A `disposed` guard makes `update` / a second `dispose` no-ops, since the body may already drive someone else. |
 | `GearLook.ts` | **Shared procedural gear looks** (Phase 7): `buildArmorPlate(def: ArmorDef)` — chest / back plates + shoulder caps tinted with `ArmorDef.color`, one accent rib per tier I..V on the chest, emissive rim strips for uniques (tier 0); `buildHeldItem(category)` — stim cylinder with a glowing fluid core / grenade sphere with cap + spoon / boxy gadget with a status light (anything else = gadget), oriented -Z along the arm like a weapon. Each returns a `GearLook {group, materials, dispose()}` that owns its geometries / materials (`Layers.NO_RAYCAST`, no lights). `SoldierModel.setArmor` uses the first for both the local soldier (`PlayerGear.armor`) and remote avatars (`ar`), `RemoteAvatar` the second. |
@@ -414,6 +415,46 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 (자유 1.14), 밀어내기 0회 · 매달린 채 사망 → null 한 번. 첫 실행에서 천장 클램프가 `PLAYER_HEIGHT` 로 재고 있어 2.5 m 판 밑에서
 몸이 3.3 m 밀려났다 → `WORLD_CEIL_HEADROOM`(= `BOX_HEADROOM`) 으로 고쳤다. 회귀: `smoke-phase2` 57/57, `smoke-ghost` 86/86.
 
+## 드론 조종 (2026-09-11 — `PlayerRef.setDroneControl`, 호출자 `gadgets/drones/DroneSystem`)
+
+계약은 `shared/types.ts` 끝의 `PlayerRef.droneControl` / `setDroneControl` 과 `shared/drones.ts`. 구현은 `parts/DroneControl.ts`.
+**조종 중 입력(WASD · Shift · Space · C · Z · V · 마우스)은 드론 것**이고 몸은 제자리에 웅크리고 멈춘다.
+
+| 무엇 | 조종 중 |
+|---|---|
+| 이동 · 점프 · 달리기 · 구르기 · 자세 키 · 가방 부양 | `update` 의 `_droneControl` 가지가 입력을 0 으로 둔다 (컨트롤러는 계속 돈다 → 중력 · 접지 · 전차 탑승 그대로). 켜는 순간 수평 속도 0 · 구르기 · 갈고리 · 부양 취소 |
+| 자세 | **서기 → 앉기**로 내리고(`player:stanceChanged` → 원격도 스냅샷으로 앉는다), 드론 쪽 해제(`setDroneControl(false)`)에서 **아직 앉기 그대로면** 서기로 돌린다. **엎드리기 · 앉기는 그대로 둔다** — 엎드리기가 더 낮아(적 `Targets` 눈높이) 은신 목적을 이미 채우고, 억지로 앉히면 몸이 솟았다가 끌 때 `STAND_UP_TIME` 전환을 두 번 탄다 |
+| 조준 · 무기 · 근접 · 들쳐메기 | `setAiming(false)`, `canUseWeapons()` false, `canAct()` false (구르기 · 근접 · 들쳐메기), F 들쳐메기 입력 무시. 켤 때 멘 분대원이 있으면 `dropCarried('action')` 로 먼저 내려놓는다 |
+| E 상호작용 · 사다리 | `updateInteraction(active=false)` — 진행 중 홀드는 `cancelHold` 로 취소, 프롬프트는 null. `grabLadder` 는 거부 |
+| 마우스 시점 | `rig.applyLook` 을 건너뛴다 — **`lookLocked` 과 별개 플래그**라 퀵휠 · 함선 호출 휠의 look lock 을 서로 풀지 않는다. PC 의 yaw/pitch 는 켜기 직전 값 그대로 남아 복귀하면 원래 시점이다 |
+| 발소리 · 스태미나 | 멈춰 있으므로 평소 정지 상태 그대로(발소리 없음 · `STAMINA_REGEN_IDLE`) |
+| 몸 페이드 · 실루엣 | 근접 페이드는 **끈다**(드론 카메라 → 어깨 거리가 가까워도 몸이 보여야 한다), 실루엣 · 은폐 반투명은 평소대로 |
+| 핑 | 막지 않는다 (`ui/hud/Pings` 가 카메라 위치 · 방향에서 쏘므로 드론 시점 핑이 된다) |
+
+**켜기 거부** (조용히, `droneControl` 은 false 로 남는다): 스폰 전 · 사망 · 전투불능 · `controlsEnabled` false(강하 · 상단 시점 ·
+탈출선) · 포드 · 헬포드 강하 · 업힘 · 사다리 · 부모에 붙음(탈출선) · 탈출선 박스 · 함선 실내(`interior`) · 허브 페이즈 ·
+들쳐메기 애니메이션 중(`carryLock`). 이미 켜져 있으면 무시.
+
+**자동 해제** (자세 복원 없음, **카메라 오버라이드를 즉시 끊는다** — 드론 쪽이 해제를 놓쳐도 시점이 갇히지 않게):
+`Vitals.enterDowned` · `die`, `Spawn.respawnAt` · `spawnStanding` · `restoreState` · `resetAll`(= `game:abort` · 재접속 대기),
+`setInPod(true)` · `attachTo(parent)` · `setInterior(collider)` · `setShipInterior(bounds)` · `hub:entered`, 그리고 `update`
+맨 위의 백스톱(`canHoldDroneControl` 이 거짓이 되면). 몸 쪽은 이벤트를 내지 않는다 — `drone:controlChanged` 는 드론 쪽 것이다.
+그래서 **드론 쪽은 매 프레임 `ctx.player.droneControl` 이 false 가 됐는지 보고 스스로 `releaseControl('reset')` 해야 한다.**
+
+### 카메라 — 드론 쪽이 맞출 것
+- **오버라이드는 이 시스템의 `lateUpdate`(`rig.update`) 가 소비한다.** Engine 은 모든 `update` → 모든 `lateUpdate` 순서이고 드론 시스템은
+  player 보다 뒤에 등록돼 있으므로, **`update` 에서** 드론을 움직인 뒤 `setCameraOverride(pos, look, true)` 를 부르면 같은 프레임에
+  그려진다. `lateUpdate` 에서 부르면 한 프레임 늦는다.
+- `snap: true` 를 매 프레임 주면 가중치가 1 에 고정돼 카메라 = `pos` 정확히다 (감쇠 없음 — 부드러움은 드론 쪽 카메라가 책임진다).
+  조종 중에는 헬포드(거부) · 도킹(허브 거부) · 상단 시점(G 잠금) 오버라이드와 겹칠 수 없다.
+- **해제**: `setCameraOverride(null)` = 종전대로 감쇠 4 로 몸 쪽 리그로 **날아서** 돌아온다. **`setCameraOverride(null, undefined, true)`
+  = 즉시 컷** (2026-09-11 추가 의미, 기존 호출부는 null 에 snap 을 넘기지 않으므로 동작 불변). 드론이 멀리 있으면 컷을 권한다 —
+  블렌드는 드론에서 몸까지 지형을 뚫고 지나간다. 리그는 조종 중에도 몸 뒤에서 충돌을 계속 풀므로 컷 직후 자리가 유효하다.
+- `CameraRig.setDroneView(on)` (켜기 / 끄기에서 몸 쪽이 부른다): 흔들림(trauma) · 반동 오프셋을 비우고 켜진 동안 `addShake` 를 무시,
+  FOV 는 켜는 순간 기본값(70°)으로 스냅하고 스프린트 가산 · ADS · 시야 확장을 섞지 않는다. **드론 시점의 흔들림이 필요하면 드론 쪽이
+  카메라 위치에 직접 넣는다.**
+- `getAimRay` 는 조종 중 원점이 드론 카메라, 방향이 몸의 (얼어 있는) 시선이다 — 쓰는 곳(무기 · 지면 조준)은 전부 막혀 있다.
+
 ---
 
 ## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
@@ -440,6 +481,13 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (드론 조종)** — 위 *드론 조종* 절. 새 `parts/DroneControl.ts` 가 `PlayerRef.setDroneControl` / `droneControl`
+  (계약은 리드가 추가, 이 폴더는 구현만)을 맡는다: 켜기 거부 · 유지 백스톱 · 서기→앉기 강제(엎드리기는 유지) · 드론 쪽 해제에서
+  서기 복원 · 자동 해제(전투불능 · 사망 · 부활 · 함선 · 포드 · 탈출선 · `game:abort` · `hub:entered`)에서 카메라 즉시 컷.
+  `PlayerSystem.update` 에 입력 0 가지 · 마우스 시점(`lookLocked` 과 별개) · 조준 · 들쳐메기 · E 게이트, `canUseWeapons` ·
+  `canAct` · `grabLadder` 거부, `lateUpdate` 근접 페이드 제외. `CameraRig` 에 `setDroneView`(흔들림 무시 · FOV 기본값 고정) 과
+  **`setOverride(null, _, snap=true)` = 즉시 컷** 의미 추가(기존 호출부 동작 불변). 수치 · 광원 · 계약 변경 없음.
 
 - **2026-09-11 (사다리 · 단차 보간 · 월드 천장)** — 위 *사다리 · 단차 보간 · 월드 천장* 절. ① **사다리**:
   `PlayerController` 에 `climbLadder` 상태(`startClimb` / `updateClimb` / `releaseClimb`, `MoveResult.rung` ·

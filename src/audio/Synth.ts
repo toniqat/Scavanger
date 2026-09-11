@@ -2,6 +2,7 @@
  * Procedural SFX library. Every sound is synthesized from oscillators, noise buffers,
  * envelopes and filters — no audio files. Sounds are keyed by id (see SOUNDS).
  */
+import { MINIGUN_SPINDOWN_TIME, MINIGUN_SPINUP_TIME } from '@/shared';
 
 type OscType = OscillatorType;
 
@@ -18,6 +19,11 @@ interface ToneOpts {
   vibratoHz?: number;
   vibratoDepth?: number; // cents
   lp?: number;           // optional lowpass cutoff
+  /**
+   * 2026-09-11: flat sustain instead of the decay — attack → hold at `gain` → linear fade over the last `release` s.
+   * For spin-ups / hums and the ★ periodic one-shots, so overlapping hits read as one continuous sound.
+   */
+  release?: number;
 }
 
 interface NoiseOpts {
@@ -27,6 +33,8 @@ interface NoiseOpts {
   attack?: number;
   filter?: { type: BiquadFilterType; f0: number; f1?: number; q?: number };
   decayCurve?: 'exp' | 'lin';
+  /** 2026-09-11: see `ToneOpts.release`. */
+  release?: number;
 }
 
 export type SoundFn = (s: Synth, dest: AudioNode, t: number, pitch: number) => number; // returns duration
@@ -63,7 +71,7 @@ export class Synth {
       node.connect(f); node = f;
     }
     const g = c.createGain();
-    this.env(g.gain, o.t0, o.dur, o.gain, o.attack ?? 0.004, o.decayCurve ?? 'exp');
+    this.env(g.gain, o.t0, o.dur, o.gain, o.attack ?? 0.004, o.decayCurve ?? 'exp', o.release);
     node.connect(g).connect(dest);
     osc.start(o.t0); osc.stop(o.t0 + o.dur + 0.05);
   }
@@ -82,7 +90,7 @@ export class Synth {
       node.connect(f); node = f;
     }
     const g = c.createGain();
-    this.env(g.gain, o.t0, o.dur, o.gain, o.attack ?? 0.003, o.decayCurve ?? 'exp');
+    this.env(g.gain, o.t0, o.dur, o.gain, o.attack ?? 0.003, o.decayCurve ?? 'exp', o.release);
     node.connect(g).connect(dest);
     src.start(o.t0, src.loopStart); src.stop(o.t0 + o.dur + 0.05);
   }
@@ -103,9 +111,16 @@ export class Synth {
     }
   }
 
-  private env(p: AudioParam, t0: number, dur: number, peak: number, attack: number, curve: 'exp' | 'lin'): void {
+  private env(p: AudioParam, t0: number, dur: number, peak: number, attack: number, curve: 'exp' | 'lin', release?: number): void {
+    const a = Math.min(attack, dur * 0.5);
     p.setValueAtTime(0.0001, t0);
-    p.linearRampToValueAtTime(peak, t0 + Math.min(attack, dur * 0.5));
+    p.linearRampToValueAtTime(peak, t0 + a);
+    if (release !== undefined) {
+      // hold the peak, then a linear fade over the last `release` seconds (never before the attack has finished)
+      p.setValueAtTime(peak, t0 + Math.max(a, dur - Math.max(0.005, release)));
+      p.linearRampToValueAtTime(0.0001, t0 + dur);
+      return;
+    }
     if (curve === 'exp') p.exponentialRampToValueAtTime(0.0001, t0 + dur);
     else p.linearRampToValueAtTime(0.0001, t0 + dur);
   }
@@ -739,12 +754,23 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.1, dur: 0.7, gain: 0.03, attack: 0.2, decayCurve: 'lin' });
     return 1.0;
   },
-  /** Recon sonar: sharp ping with a long ringing decay + expanding noise wash. */
+  /**
+   * Recon sonar: sharp ping with a long ringing decay + expanding noise wash.
+   * 2026-09-11: longer and roomier (≈1.5 s) because 로든's scan drone uses the same id as a **warning** — two fading
+   * echoes of the ping, a low descending undertone under it and a faint reverberant tail. The implant / rooftop scan
+   * keep the same head, so they still read as the same sonar.
+   */
   scan_pulse: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 1400 * p, f1: 900 * p, t0: t, dur: 0.7, gain: 0.16 });
     s.tone(d, { type: 'sine', f0: 2100 * p, t0: t, dur: 0.25, gain: 0.05 });
     s.noise(d, { t0: t + 0.02, dur: 0.6, gain: 0.06, attack: 0.05, filter: { type: 'bandpass', f0: 900 * p, f1: 3600 * p, q: 2.5 }, decayCurve: 'lin' });
-    return 0.75;
+    // warning undertone
+    s.tone(d, { type: 'triangle', f0: 330 * p, f1: 220 * p, t0: t, dur: 0.95, gain: 0.06, attack: 0.02, lp: 1400 });
+    // echoes (the room answers)
+    s.tone(d, { type: 'sine', f0: 1400 * p, f1: 900 * p, t0: t + 0.34, dur: 0.6, gain: 0.06 });
+    s.tone(d, { type: 'sine', f0: 1400 * p, f1: 900 * p, t0: t + 0.68, dur: 0.6, gain: 0.025 });
+    s.tail(d, t + 0.05, 1.35, 0.035, 3000 * p, 400);
+    return 1.45;
   },
   /** Anti-tank launch: heavy back-blast whoosh. */
   rocket_fire: (s, d, t, p) => {
@@ -1018,6 +1044,263 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.12, dur: 1.2, gain: 0.14, filter: { type: 'bandpass', f0: 2200, f1: 600, q: 1 }, decayCurve: 'lin' });
     s.tone(d, { type: 'square', f0: 170 * p, f1: 96 * p, t0: t + 0.06, dur: 0.3, gain: 0.07, lp: 900 });
     return 1.3;
+  },
+
+  /* ══ appended (2026-09-11): 드론 · 원격 지뢰 · 네임드 로그 ═══════════════════════════════════════════
+   * ★ = periodic: the owner re-sends it every 0.1–0.6 s. Those are short hits with a soft attack and a held body
+   * + linear release (`release`) and a little pitch jitter, so overlapping hits blur into one continuous sound
+   * instead of pulsing or phasing. How far each one carries is `AudioSystem`'s `RANGED_SOUNDS`, not the synth.
+   */
+
+  /* ── drones ─────────────────────────────────────────────────────────────── */
+  /** Drone set down / launched: mechanical landing thud + servo whir + two-note power-on beep. */
+  drone_deploy: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 140 * p, f1: 55, t0: t, dur: 0.18, gain: 0.45 });
+    s.noise(d, { t0: t, dur: 0.1, gain: 0.3, filter: { type: 'lowpass', f0: 1200 * p, f1: 250, q: 0.8 } });
+    s.click(d, t + 0.03, 1900 * p, 0.18, 0.025);
+    s.noise(d, { t0: t + 0.12, dur: 0.22, gain: 0.1, attack: 0.04, filter: { type: 'bandpass', f0: 900 * p, f1: 2600 * p, q: 3 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.36, dur: 0.07, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 1760 * p, t0: t + 0.44, dur: 0.12, gain: 0.1 });
+    return 0.58;
+  },
+  /** Local: took control — a burst of static resolving into rising digital chips and a held lock tone. */
+  drone_link_on: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.08, gain: 0.06, filter: { type: 'bandpass', f0: 2800 * p, q: 1.2 }, decayCurve: 'lin' });
+    const notes = [660, 880, 1175, 1568];
+    notes.forEach((f, i) => s.tone(d, { type: 'square', f0: f * p, t0: t + 0.05 + i * 0.055, dur: 0.045, gain: 0.045, lp: 4200, decayCurve: 'lin' }));
+    s.tone(d, { type: 'sine', f0: 2093 * p, t0: t + 0.28, dur: 0.14, gain: 0.08 });
+    return 0.44;
+  },
+  /** Local: link dropped — falling chips and a low closing blip, static dies away. */
+  drone_link_off: (s, d, t, p) => {
+    const notes = [1568, 1175, 880, 660];
+    notes.forEach((f, i) => s.tone(d, { type: 'square', f0: f * p, t0: t + i * 0.05, dur: 0.045, gain: 0.045, lp: 4200, decayCurve: 'lin' }));
+    s.tone(d, { type: 'sine', f0: 330 * p, f1: 220 * p, t0: t + 0.21, dur: 0.12, gain: 0.09 });
+    s.noise(d, { t0: t + 0.18, dur: 0.18, gain: 0.05, filter: { type: 'bandpass', f0: 2400 * p, f1: 900 * p, q: 1 }, decayCurve: 'lin' });
+    return 0.38;
+  },
+  /** ★ Local: link at >90 % range — a short broken-radio static burst (hiss + crackles + mains buzz). */
+  drone_static: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    s.noise(d, { t0: t, dur: 0.24, gain: 0.1, attack: 0.02, release: 0.12, filter: { type: 'bandpass', f0: 2400 * q, q: 0.6 } });
+    for (let i = 0; i < 4; i++) {
+      s.noise(d, { t0: t + r(0, 0.2), dur: r(0.008, 0.025), gain: r(0.06, 0.14), filter: { type: 'highpass', f0: r(2500, 5500) } });
+    }
+    s.tone(d, { type: 'sawtooth', f0: 100 * q, t0: t, dur: 0.24, gain: 0.02, attack: 0.02, release: 0.1, lp: 900 });
+    return 0.26;
+  },
+  /** ★ Ground drone walking: a tiny, soft motor tick (deliberately near-silent). */
+  drone_move: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.tone(d, { type: 'square', f0: 180 * q, f1: 160 * q, t0: t, dur: 0.12, gain: 0.035, attack: 0.015, release: 0.07, lp: 700 });
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.03, filter: { type: 'bandpass', f0: 1800 * q, q: 4 } });
+    return 0.13;
+  },
+  /** ★ Ground drone sprinting: sharp motor whine (two detuned saws) + wheel/gravel noise. Carries. */
+  drone_sprint: (s, d, t, p) => {
+    const q = p * r(0.98, 1.02);
+    s.tone(d, { type: 'sawtooth', f0: 720 * q, f1: 780 * q, t0: t, dur: 0.32, gain: 0.06, attack: 0.04, release: 0.16, lp: 3200 });
+    s.tone(d, { type: 'sawtooth', f0: 724 * q, f1: 786 * q, t0: t, dur: 0.32, gain: 0.04, attack: 0.04, release: 0.16, lp: 3200, detune: 9 });
+    s.noise(d, { t0: t, dur: 0.32, gain: 0.13, attack: 0.03, release: 0.16, filter: { type: 'bandpass', f0: 1100 * q, q: 0.9 } });
+    s.noise(d, { t0: t, dur: 0.3, gain: 0.08, attack: 0.03, release: 0.15, filter: { type: 'lowpass', f0: 600 * q, q: 0.7 } });
+    return 0.33;
+  },
+  /** Ground drone jump: spring-servo thump + short air push. */
+  drone_jump: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 160 * p, f1: 70, t0: t, dur: 0.12, gain: 0.4 });
+    s.click(d, t, 1400 * p, 0.14, 0.025);
+    s.noise(d, { t0: t + 0.02, dur: 0.16, gain: 0.12, attack: 0.03, filter: { type: 'bandpass', f0: 600 * p, f1: 1600 * p, q: 1.2 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 260 * p, f1: 480 * p, t0: t + 0.02, dur: 0.1, gain: 0.03, lp: 1500 });
+    return 0.22;
+  },
+  /** Ground drone landing: dull body thud + a light chassis rattle. */
+  drone_land: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 110 * p, f1: 45, t0: t, dur: 0.16, gain: 0.5 });
+    s.noise(d, { t0: t, dur: 0.1, gain: 0.3, filter: { type: 'lowpass', f0: 800 * p, f1: 150, q: 0.8 } });
+    s.click(d, t + 0.04, 2200 * p, 0.08, 0.02);
+    s.click(d, t + 0.09, 1700 * p, 0.05, 0.02);
+    return 0.2;
+  },
+  /** ★ Air drone rotors: quadcopter buzz — beating saws with a blade-chop vibrato + air wash. `pitch` = rotor speed. */
+  drone_rotor: (s, d, t, p) => {
+    const q = p * r(0.985, 1.015);
+    s.tone(d, { type: 'sawtooth', f0: 190 * q, t0: t, dur: 0.34, gain: 0.05, attack: 0.07, release: 0.16, lp: 1600, vibratoHz: 26, vibratoDepth: 22 });
+    s.tone(d, { type: 'sawtooth', f0: 197 * q, t0: t, dur: 0.34, gain: 0.04, attack: 0.07, release: 0.16, lp: 1600, vibratoHz: 31, vibratoDepth: 18 });
+    s.tone(d, { type: 'square', f0: 380 * q, t0: t, dur: 0.34, gain: 0.015, attack: 0.07, release: 0.16, lp: 1200 });
+    s.noise(d, { t0: t, dur: 0.34, gain: 0.07, attack: 0.07, release: 0.16, filter: { type: 'bandpass', f0: 900 * q, q: 1.2 } });
+    return 0.35;
+  },
+  /** Drone hit: bright metal ping + spark crackle + a small electric zap. */
+  drone_hit: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.click(d, t, 2600 * q, 0.22, 0.03);
+    s.tone(d, { type: 'triangle', f0: 2100 * q, f1: 1900 * q, t0: t, dur: 0.22, gain: 0.08 });
+    s.tone(d, { type: 'sine', f0: 3300 * q, t0: t, dur: 0.12, gain: 0.04 });
+    s.tone(d, { type: 'sawtooth', f0: 1200 * q, f1: 400 * q, t0: t + 0.02, dur: 0.06, gain: 0.04, lp: 3500 });
+    for (let i = 0; i < 4; i++) {
+      s.noise(d, { t0: t + r(0.03, 0.2), dur: r(0.008, 0.02), gain: r(0.05, 0.1), filter: { type: 'highpass', f0: r(3000, 6000) } });
+    }
+    return 0.3;
+  },
+  /** Drone destroyed: small blast + a crackling electrical discharge + debris. */
+  drone_destroyed: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.06, gain: 0.5, filter: { type: 'highpass', f0: 1800 } });
+    s.noise(d, { t0: t, dur: 0.55, gain: 0.75, filter: { type: 'lowpass', f0: 2000 * p, f1: 80, q: 0.6 } });
+    s.tone(d, { type: 'sine', f0: 110 * p, f1: 30, t0: t, dur: 0.4, gain: 0.8 });
+    s.tone(d, { type: 'sawtooth', f0: 1800 * p, f1: 120 * p, t0: t + 0.03, dur: 0.35, gain: 0.07, lp: 4000, vibratoHz: 30, vibratoDepth: 150 });
+    for (let i = 0; i < 6; i++) {
+      s.noise(d, { t0: t + 0.1 + i * 0.1 + r(-0.03, 0.03), dur: r(0.01, 0.03), gain: 0.1 * (1 - i / 8), filter: { type: 'bandpass', f0: r(2500, 6000), q: 3 } });
+    }
+    for (let i = 0; i < 3; i++) s.click(d, t + 0.18 + i * 0.09 + r(0, 0.04), r(900, 2200) * p, 0.08, 0.02);
+    return 0.85;
+  },
+  /** Drone recovered: folding servo + latch clicks + two-note confirm. */
+  drone_recover: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.3, gain: 0.12, attack: 0.03, filter: { type: 'bandpass', f0: 2400 * p, f1: 800 * p, q: 3 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 300 * p, f1: 180 * p, t0: t, dur: 0.28, gain: 0.05, attack: 0.03, lp: 1000, decayCurve: 'lin' });
+    s.click(d, t + 0.1, 1800 * p, 0.12, 0.02);
+    s.click(d, t + 0.3, 2400 * p, 0.16, 0.025);
+    s.tone(d, { type: 'sine', f0: 988 * p, t0: t + 0.36, dur: 0.08, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 1318 * p, t0: t + 0.45, dur: 0.14, gain: 0.1 });
+    return 0.6;
+  },
+
+  /* ── remote mine (C4) ───────────────────────────────────────────────────── */
+  /** C4 stuck down: a squelchy putty press + small thud, then the casing click. */
+  c4_place: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.14, gain: 0.2, attack: 0.02, filter: { type: 'bandpass', f0: 500 * p, f1: 1400 * p, q: 3 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 180 * p, f1: 90, t0: t, dur: 0.08, gain: 0.25 });
+    s.noise(d, { t0: t + 0.1, dur: 0.06, gain: 0.06, filter: { type: 'bandpass', f0: 900 * p, f1: 500 * p, q: 4 } });
+    s.click(d, t + 0.2, 2800 * p, 0.2, 0.025);
+    return 0.3;
+  },
+  /** C4 armed: two short, identical high beeps (not the rising `mine_arm` figure). */
+  c4_arm: (s, d, t, p) => {
+    for (let i = 0; i < 2; i++) {
+      s.tone(d, { type: 'square', f0: 1760 * p, t0: t + i * 0.12, dur: 0.05, gain: 0.07, lp: 4000, decayCurve: 'lin' });
+      s.tone(d, { type: 'sine', f0: 3520 * p, t0: t + i * 0.12, dur: 0.035, gain: 0.02 });
+    }
+    return 0.2;
+  },
+  /** ★ Armed C4 idling: one small, clean beep (near only). */
+  c4_beep: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 2093 * p, t0: t, dur: 0.06, gain: 0.06 });
+    s.tone(d, { type: 'triangle', f0: 4186 * p, t0: t, dur: 0.03, gain: 0.015 });
+    return 0.07;
+  },
+  /** Local: detonator pressed — button click-click + a short radio squelch. */
+  c4_detonator_click: (s, d, t, p) => {
+    s.click(d, t, 3000 * p, 0.28, 0.02);
+    s.click(d, t + 0.05, 1800 * p, 0.14, 0.02);
+    s.tone(d, { type: 'square', f0: 1200 * p, f1: 900 * p, t0: t + 0.07, dur: 0.04, gain: 0.04, lp: 3000 });
+    s.noise(d, { t0: t + 0.07, dur: 0.18, gain: 0.12, filter: { type: 'bandpass', f0: 2200 * p, q: 1.2 }, decayCurve: 'lin' });
+    return 0.3;
+  },
+
+  /* ── named rogues ───────────────────────────────────────────────────────── */
+  /** ★ 로든's scan drone in flight: low, ominous beating hum + a faint uneasy high whine. Carries far. */
+  scan_drone_hum: (s, d, t, p) => {
+    const q = p * r(0.99, 1.01);
+    s.tone(d, { type: 'sawtooth', f0: 62 * q, t0: t, dur: 0.66, gain: 0.1, attack: 0.14, release: 0.3, lp: 420 });
+    s.tone(d, { type: 'sawtooth', f0: 63.4 * q, t0: t, dur: 0.66, gain: 0.08, attack: 0.14, release: 0.3, lp: 420 });
+    s.tone(d, { type: 'sine', f0: 124 * q, t0: t, dur: 0.66, gain: 0.07, attack: 0.14, release: 0.3, vibratoHz: 5, vibratoDepth: 40 });
+    s.noise(d, { t0: t, dur: 0.66, gain: 0.05, attack: 0.14, release: 0.3, filter: { type: 'bandpass', f0: 300 * q, q: 2 } });
+    s.tone(d, { type: 'sine', f0: 1480 * q, t0: t, dur: 0.66, gain: 0.012, attack: 0.2, release: 0.3, vibratoHz: 3, vibratoDepth: 35 });
+    return 0.68;
+  },
+  /**
+   * 로든's scope glint (the shot follows): a thin, high tension tone rising slightly under a glassy sparkle, with an
+   * E6 body under it so it stays audible at distance (`RANGED_SOUNDS` gives it a volume floor).
+   */
+  sniper_glint: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 2637 * p, t0: t, dur: 0.18, gain: 0.06 });
+    s.tone(d, { type: 'sine', f0: 3950 * p, f1: 4200 * p, t0: t, dur: 0.85, gain: 0.07, attack: 0.15, decayCurve: 'lin', vibratoHz: 9, vibratoDepth: 15 });
+    s.tone(d, { type: 'sine', f0: 1318 * p, f1: 1397 * p, t0: t, dur: 0.85, gain: 0.05, attack: 0.2, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 6270 * p, t0: t + 0.02, dur: 0.25, gain: 0.035 });
+    s.tone(d, { type: 'sine', f0: 5274 * p, t0: t + 0.08, dur: 0.3, gain: 0.03 });
+    s.noise(d, { t0: t, dur: 0.5, gain: 0.03, attack: 0.1, filter: { type: 'highpass', f0: 7000 }, decayCurve: 'lin' });
+    return 0.9;
+  },
+  /** 로든's anti-materiel shot: huge crack + sub boom, a long darkening tail and two slap-back echoes rolling off. */
+  sniper_shot: (s, d, t, p) => {
+    // crack
+    s.noise(d, { t0: t, dur: 0.04, gain: 1.1, filter: { type: 'highpass', f0: 2600 * p } });
+    s.noise(d, { t0: t, dur: 0.18, gain: 1.0, filter: { type: 'bandpass', f0: 1300 * p, f1: 250 * p, q: 0.6 } });
+    s.tone(d, { type: 'triangle', f0: 900 * p, f1: 150 * p, t0: t, dur: 0.07, gain: 0.4 });
+    // boom
+    s.tone(d, { type: 'sine', f0: 95 * p, f1: 26 * p, t0: t, dur: 0.6, gain: 1.3 });
+    s.tone(d, { type: 'sawtooth', f0: 70 * p, f1: 32 * p, t0: t + 0.01, dur: 0.35, gain: 0.2, lp: 380 });
+    // tail + echoes
+    s.tail(d, t + 0.05, 1.2, 0.3, 1800 * p, 150);
+    s.noise(d, { t0: t + 0.45, dur: 0.5, gain: 0.22, filter: { type: 'lowpass', f0: 900 * p, f1: 120, q: 0.6 } });
+    s.tone(d, { type: 'sine', f0: 70 * p, f1: 30, t0: t + 0.45, dur: 0.4, gain: 0.25 });
+    s.noise(d, { t0: t + 1.0, dur: 0.8, gain: 0.1, filter: { type: 'lowpass', f0: 600 * p, f1: 100, q: 0.6 } });
+    s.noise(d, { t0: t + 0.2, dur: 1.8, gain: 0.12, attack: 0.3, filter: { type: 'lowpass', f0: 300 * p, q: 0.6 }, decayCurve: 'lin' });
+    return 2.1;
+  },
+  /** 타길라's hammer swing: slow, heavy air cut (lower and longer than `melee_swing`). */
+  hammer_swing: (s, d, t, p) => {
+    const q = p * r(0.95, 1.05);
+    s.noise(d, { t0: t, dur: 0.42, gain: 0.4, attack: 0.14, filter: { type: 'bandpass', f0: 220 * q, f1: 900 * q, q: 1.1 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.05, dur: 0.32, gain: 0.15, attack: 0.1, filter: { type: 'lowpass', f0: 500 * q, q: 0.7 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 70 * q, f1: 110 * q, t0: t, dur: 0.35, gain: 0.18, attack: 0.12 });
+    return 0.45;
+  },
+  /** 타길라's hammer impact: crushing sub thump + metal head clank + ground debris. */
+  hammer_impact: (s, d, t, p) => {
+    const q = p * r(0.95, 1.05);
+    s.tone(d, { type: 'sine', f0: 85 * q, f1: 24, t0: t, dur: 0.6, gain: 1.2 });
+    s.noise(d, { t0: t, dur: 0.45, gain: 0.9, filter: { type: 'lowpass', f0: 1400 * q, f1: 70, q: 0.6 } });
+    s.click(d, t, 1200 * q, 0.35, 0.05);
+    s.tone(d, { type: 'triangle', f0: 300 * q, f1: 90, t0: t, dur: 0.2, gain: 0.3 });
+    s.noise(d, { t0: t + 0.08, dur: 0.5, gain: 0.12, filter: { type: 'bandpass', f0: 1800, f1: 500, q: 1 }, decayCurve: 'lin' });
+    for (let i = 0; i < 3; i++) s.click(d, t + 0.12 + i * 0.08 + r(0, 0.04), r(700, 1800) * q, 0.08, 0.02);
+    return 0.75;
+  },
+  /** Heavy's minigun spinning up over `MINIGUN_SPINUP_TIME`: rising motor whine + barrel whirr + quickening clatter. */
+  minigun_spinup: (s, d, t, p) => {
+    const dur = Math.max(0.4, Math.min(2.5, MINIGUN_SPINUP_TIME));
+    s.tone(d, { type: 'sawtooth', f0: 90 * p, f1: 620 * p, t0: t, dur, gain: 0.08, attack: dur * 0.7, release: 0.08, lp: 2600 });
+    s.tone(d, { type: 'sawtooth', f0: 92 * p, f1: 628 * p, t0: t, dur, gain: 0.05, attack: dur * 0.7, release: 0.08, lp: 2600 });
+    s.tone(d, { type: 'square', f0: 45 * p, f1: 310 * p, t0: t, dur, gain: 0.05, attack: dur * 0.5, release: 0.08, lp: 900 });
+    s.noise(d, { t0: t, dur, gain: 0.09, attack: dur * 0.7, release: 0.08, filter: { type: 'bandpass', f0: 400 * p, f1: 2400 * p, q: 2.5 } });
+    // clatter: gaps shrink as the barrels speed up
+    let at = 0.02, gap = dur * 0.2;
+    while (at < dur - 0.03) {
+      s.click(d, t + at, 1500 * p, 0.05 + 0.07 * (at / dur), 0.015);
+      at += gap; gap = Math.max(0.03, gap * 0.72);
+    }
+    return dur + 0.02;
+  },
+  /**
+   * ★ Heavy's minigun firing (one ≈0.1 s chunk): three micro-reports inside it so the stream reads as a brrrt,
+   * over a held motor whine + barrel body. Carries far.
+   */
+  minigun_fire: (s, d, t, p) => {
+    const q = p * r(0.97, 1.03);
+    for (let i = 0; i < 3; i++) {
+      const at = t + i * 0.033 + r(0, 0.006);
+      s.noise(d, { t0: at, dur: 0.035, gain: 0.38, filter: { type: 'bandpass', f0: 2000 * q, f1: 600 * q, q: 0.9 } });
+      s.tone(d, { type: 'sine', f0: 160 * q, f1: 60 * q, t0: at, dur: 0.05, gain: 0.3 });
+    }
+    s.noise(d, { t0: t, dur: 0.02, gain: 0.25, filter: { type: 'highpass', f0: 4200 } });
+    s.noise(d, { t0: t, dur: 0.14, gain: 0.16, attack: 0.01, release: 0.05, filter: { type: 'lowpass', f0: 900 * q, q: 0.7 } });
+    s.tone(d, { type: 'sawtooth', f0: 620 * q, t0: t, dur: 0.14, gain: 0.03, attack: 0.01, release: 0.05, lp: 2600 });
+    return 0.15;
+  },
+  /** Heavy's minigun winding down over `MINIGUN_SPINDOWN_TIME`: falling whine + slowing clatter. */
+  minigun_spindown: (s, d, t, p) => {
+    const dur = Math.max(0.4, Math.min(3, MINIGUN_SPINDOWN_TIME));
+    s.tone(d, { type: 'sawtooth', f0: 620 * p, f1: 70 * p, t0: t, dur, gain: 0.08, attack: 0.01, lp: 2600, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 628 * p, f1: 72 * p, t0: t, dur, gain: 0.05, attack: 0.01, lp: 2600, decayCurve: 'lin' });
+    s.tone(d, { type: 'square', f0: 310 * p, f1: 45 * p, t0: t, dur: dur * 0.8, gain: 0.04, attack: 0.01, lp: 900, decayCurve: 'lin' });
+    s.noise(d, { t0: t, dur, gain: 0.09, attack: 0.01, filter: { type: 'bandpass', f0: 2400 * p, f1: 300 * p, q: 2.5 }, decayCurve: 'lin' });
+    let at = 0.03, gap = 0.03;
+    while (at < dur - 0.03) {
+      s.click(d, t + at, 1500 * p, 0.12 * (1 - at / dur) + 0.02, 0.015);
+      at += gap; gap = gap * 1.35;
+    }
+    return dur + 0.02;
   },
 };
 

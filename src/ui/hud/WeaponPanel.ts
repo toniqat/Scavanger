@@ -141,6 +141,9 @@ export class WeaponPanel {
       b.on('quick:used', ({ item, remaining }) => {
         if (this.consumable && item.uid === this.consUid) this.setConsCount(remaining);
       }),
+      // 2026-09-11: 기폭기 손의 개수 = 월드에 남은 내 원격 지뢰 — 설치 · 제거(기폭 포함)마다 다시 센다
+      b.on('gadget:deployed', () => { if (this.isDetonator) this.setConsCount(ctx.gadgets?.liveRemoteMineCount?.() ?? 0); }),
+      b.on('gadget:removed', () => { if (this.isDetonator) this.setConsCount(ctx.gadgets?.liveRemoteMineCount?.() ?? 0); }),
       b.on('inventory:itemUpdated', () => {
         if (!this.consumable || !this.consUid) return;
         const inst = ctx.inventory?.findItem(this.consUid);
@@ -216,11 +219,17 @@ export class WeaponPanel {
     const def = ctx.inventory?.getDef(item.defId) ?? ctx.loot?.getItemDef(item.defId);
     this.consUid = item.uid;
     this.consumable = true;
-    setText(this.consName, def?.name ?? item.defId);
-    setText(this.consHint, consumableHint(def));
-    this.setConsCount(item.qty);
+    // 2026-09-11: 기폭기 손 (weapons — 마지막 원격 지뢰를 놓은 뒤 슬롯 없이 남는 손, uid `detonator:<defId>`).
+    // 개수 칸은 가방이 아니라 **월드에 남은 내 원격 지뢰** 수다.
+    const det = this.isDetonator;
+    setText(this.consName, det ? '기폭기' : (def?.name ?? item.defId));
+    setText(this.consHint, det ? '우클릭 기폭' : consumableHint(def));
+    this.setConsCount(det ? (ctx.gadgets?.liveRemoteMineCount?.() ?? 0) : item.qty);
     toggleClass(this.root, 'consumable', true);
   }
+
+  /** 2026-09-11: 손에 든 것이 슬롯 없는 기폭기인가 (`quick:equipped.item.uid` 가 `detonator:` 로 시작). */
+  private get isDetonator(): boolean { return this.consumable && this.consUid.startsWith('detonator:'); }
 
   private exitConsumable(): void {
     if (!this.consumable) return;

@@ -1,0 +1,16 @@
+# 네임드 로그(shared/named.ts)의 **확정 드롭** (2026-09-11). src/items/LootTables.ts 가 읽고 Loot.rollCorpseOn 이 쓴다.
+# 일반 전리품(loot_corpses.csv · loot_corpse_rolls.csv)을 다 굴린 **뒤에** 한 번 더 굴린다 — 그래서 다른 적의 굴림은 안 움직인다.
+# type 은 적 종류 · kind 는 코드가 찾는 값이므로 바꾸지 않는다.
+#   kind weapon = 등급 무기 계열 (target = 계열 id — sr · dmr · ar …)
+#   kind armor  = 번호 방탄복 (target 비움 — 등급 n 이 armor_n 이다. 유니크 방탄복은 안 나온다)
+#   kind item   = 아이템 하나 (target = 아이템 id — wpn_u_minigun …)
+# chance = 드롭 확률 (1 = 확정).
+# grades = "등급:가중치" 를 | 로 이어 쓴다 (weapon · armor 만). 적지 않은 등급은 안 나온다 — 3:60|4:33|5:7 = 희귀 60 % · 서사 33 % · 전설 7 %.
+# magFracMin/Max = 무기의 장전 탄약 (탄창 × 비율). ammoFracMin/Max = 그 무기 탄종 한 스택 × 비율. 비우면 없음 (armor 는 비운다).
+# 내구도는 여기 없다 — constants.csv 의 NAMED_LOOT_DURABILITY_MIN..MAX (최대 내구도 비율, 1–5 %) 하나를 셋이 같이 쓴다.
+# ⚠ 행성 곡선(planet_loot.csv 의 등급 상한 · uniqueMul · 희귀도 배수)은 이 표에 **걸리지 않는다** —
+#   "최소 희귀 등급부터" 가 사용자 명세라 앞쪽 행성에서도 III 이상이, 헤비는 유니크 미니건이 그대로 나온다.
+type,kind,target,chance,grades,magFracMin,magFracMax,ammoFracMin,ammoFracMax
+rogue_sniper,weapon,sr,0.85,3:60|4:33|5:7,0.2,1,0.3,0.6
+rogue_hammer,armor,,0.85,3:60|4:33|5:7,,,,
+rogue_heavy,item,wpn_u_minigun,0.8,,0.3,0.7,0.3,0.6

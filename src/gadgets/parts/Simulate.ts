@@ -18,14 +18,20 @@ import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
+/* 2026-09-11: 원격 지뢰 · 드론 위 지뢰 */
+import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from '@/shared';
+import * as Remote from './Remote';
 
 /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */
 export function updateArming(sys: GadgetSystem, d: Deployable): void {
-  if (d.armed) return;
-  const need = d.kind === 'mine' ? GADGET_MINE_ARM_TIME : DOME_UNFOLD_TIME;
+  // 2026-09-11: 원격 지뢰의 첫 프레임 — 설치음 · 소유자당 상한 (Remote.initRemoteMine)
+  if (d.kind === 'remoteMine' && !d.remoteInit) Remote.initRemoteMine(sys, d);
+  if (d.armed || d.removing) return;
+  const need = d.kind === 'mine' ? GADGET_MINE_ARM_TIME : d.kind === 'remoteMine' ? GADGET_REMOTE_MINE_ARM_TIME : DOME_UNFOLD_TIME;
   if (d.age < need) return;
   d.armed = true;
   if (d.kind === 'mine') sys.ctx.bus.emit('audio:play', { id: 'mine_arm', position: d.position, volume: 0.7 });
+  else if (d.kind === 'remoteMine') sys.ctx.bus.emit('audio:play', { id: 'c4_arm', position: d.position, volume: 0.6 });
   if (sys.ctx.isAuthority) sys.broadcast({ t: 'gad', ev: 'update', id: d.id, hp: d.hp, armed: true }, 'others');
   }
 
@@ -40,6 +46,19 @@ export function simulate(sys: GadgetSystem, d: Deployable, dt: number, ctx: Game
   }
 
 export function updateMine(sys: GadgetSystem, d: Deployable, ctx: GameContext): void {
+  // 2026-09-11: a mine riding a drone reacts to **enemies only** (3D, around the drone's mount point) — squadmates,
+  // players and the carrying drone itself never set it off. The ground mine rule below is unchanged.
+  const mount = (d as DeployableRef).mount;
+  if (mount) {
+    const drone = ctx.drones?.getDrone(mount);
+    const at = drone ? drone.getMountPoint(_d) : d.position;
+    for (const e of sys.enemiesNear(at, GADGET_MOUNTED_MINE_TRIGGER_RADIUS)) {
+      if (e.isDead) continue;
+      sys.explodeMine(d, ctx);
+      return;
+    }
+    return;
+  }
   // friend or foe: anything that walks close enough sets it off
   for (const e of sys.enemiesNear(d.position, MINE_TRIGGER_RADIUS)) {
     if (e.isDead) continue;
@@ -57,8 +76,11 @@ export function updateMine(sys: GadgetSystem, d: Deployable, ctx: GameContext): 
 export function explodeMine(sys: GadgetSystem, d: Deployable, ctx: GameContext): void {
   const radius = d.radius;
   const dmg = GADGET_MINE_DAMAGE;
-  const ownerName = ctx.net?.getLobbyPlayer(String(d.owner))?.name ?? undefined;
-  sys.damageEnemies(d.position, radius, dmg, ownerName);
+  // 2026-09-11: credit the placer by id like the fire zone does (`applyAreaDamage.by` is a PeerId | 'local' — it used
+  // to get the lobby display name, which `normalizeAttacker` cannot resolve)
+  sys.damageEnemies(d.position, radius, dmg, String(d.owner));
+  // 2026-09-11: drones in the blast (a mine riding a drone sits at the centre, so its carrier is destroyed)
+  ctx.drones?.applyExplosion(d.position, radius, dmg);
   // players (no friend-or-foe check, the owner included)
   const p = ctx.player;
   if (p && !p.isDead) {
@@ -181,6 +203,7 @@ export function animate(sys: GadgetSystem, d: Deployable, t: number, dt: number)
   const def = gadgetForKind(d.kind);
   const life = d.expires > 0 && def && def.duration > 0 ? THREE.MathUtils.clamp((d.expires - t) / def.duration, 0, 1) : 1;
   sys.visuals.animate(v, t, dt, d.armed, d.hpRatio, life);
+  if (d.kind === 'remoteMine') Remote.updateBeep(sys, d, dt);
   }
 
 /* ═══════════════════════════ damage ═══════════════════════════ */
@@ -197,6 +220,9 @@ export function onDeployableDamage(sys: GadgetSystem, d: Deployable, amount: num
   }
   if (d.hp <= 0) {
     if (d.kind === 'mine') { sys.explodeMine(d, ctx); return; }
+    // 2026-09-11: a broken remote mine never detonates. Replicas tell a fizzle from a detonation by hp, so hp 0 goes out
+    // (unthrottled) right before the removal — see Wire `gad remove`.
+    if (d.kind === 'remoteMine') sys.broadcast({ t: 'gad', ev: 'update', id: d.id, hp: 0, armed: d.armed }, 'others');
     sys.blastFx(d.position, Math.min(d.radius, 3), 0.4);
     ctx.bus.emit('audio:play', { id: 'gadget_break', position: d.position, volume: 0.8 });
     sys.remove(d, 'destroyed');

@@ -788,7 +788,11 @@ export interface PlayerRef {
    */
   setInterior(collider: InteriorCollider | null): void;
   readonly interior: InteriorCollider | null;
-  /** Cutscene camera (docking, launch): blends to `pos` looking at `lookAt`; null releases back to the rig. */
+  /**
+   * Cutscene camera (docking, launch): blends to `pos` looking at `lookAt`; null releases back to the rig.
+   * 2026-09-11: `setCameraOverride(null, undefined, true)` = **hard cut** back to the rig (드론 시점 복귀 — a slow blend
+   * would sweep the camera through terrain from a distant drone). Plain `null` still blends out as before.
+   */
   setCameraOverride(pos: THREE.Vector3 | null, lookAt?: THREE.Vector3, snap?: boolean): void;
   /**
    * Place the player standing (no hellpod) at `position` facing `yaw`, alive, full hp, controls enabled.
@@ -874,7 +878,9 @@ export interface PlayerRef {
  * `artillery` (bug that lobs slow interceptable shells from afar), `toxic` (green sac, runs in and bursts — friendly-fire),
  * `behemoth` (4× bug, armoured front shell, line charge with knockback).
  */
-export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger' | 'rogue' | 'rogue_boss' | 'artillery' | 'toxic' | 'behemoth';
+export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger' | 'rogue' | 'rogue_boss' | 'artillery' | 'toxic' | 'behemoth'
+  /* appended (2026-09-11): 네임드 로그 3종 (`shared/named`) + 로든의 스캔 드론. 전부 팩션 rogue. */
+  | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone';
 /** Factions fight each other on sight (Phase 4). */
 export type EnemyFaction = 'bug' | 'rogue';
 
@@ -888,7 +894,11 @@ export interface EnemyRef {
   readonly maxHp: number;
   readonly isDead: boolean;
   readonly object: THREE.Object3D;
-  takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3): void;
+  /**
+   * `attacker` appended (2026-09-11, 원격 지뢰 킬 크레딧): 피해를 준 쪽 — `'local'` · PeerId · `'ai'`.
+   * 생략하면 예전처럼 `'local'`. 가젯처럼 소유자가 따로 있는 피해원이 크레딧을 넘길 때 쓴다.
+   */
+  takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3, attacker?: string): void;
   /* appended (Phase 4) */
   readonly faction: EnemyFaction;
   /* appended (unique weapons, 2026-09-06) */
@@ -1167,6 +1177,11 @@ export interface WeaponRemoteState {
   heavy: boolean;
   /** Attachment def ids socketed on the active weapon (empty when none). Same array instance while unchanged. */
   attachments: readonly string[];
+  /**
+   * appended (2026-09-11): the hand is the slotless **기폭기** left after the last 원격 지뢰 was placed (`heldItemId` stays
+   * the C4 def id). gadgets turns the placement preview off while true; ui shows `우클릭 기폭 (n)`.
+   */
+  detonator?: boolean;
 }
 export interface WeaponsRef {
   /* ── appended: Phase 7 (owner: weapons) ── */
@@ -1298,6 +1313,8 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   scavenger: 0.1, toxic: 0.1, hunter: 0.1,
   spewer: 0.35, warrior: 0.35, artillery: 0.35, charger: 0.35,
   behemoth: 1, rogue: 1, rogue_boss: 1,
+  /* appended (2026-09-11): 네임드는 늘 수색된다, 스캔 드론은 잔해뿐이다 */
+  rogue_sniper: 1, rogue_hammer: 1, rogue_heavy: 1, rogue_scan_drone: 0,
 };
 
 export interface EnemyRef {
@@ -2086,4 +2103,18 @@ export interface PlayerRef {
   /* ── appended (2026-09-11): 사다리 (owner: player) ── */
   /** 지금 매달려 있는 사다리 id. 매달려 있지 않으면 null (없으면 null 과 같다). */
   readonly climbingLadder?: string | null;
+}
+
+export interface PlayerRef {
+  /* ── appended (2026-09-11): 드론 조종 (owner: player; caller: gadgets/drones — shared/drones.ts) ── */
+  /** true while the local player looks through a drone (`setDroneControl(true)`). */
+  readonly droneControl?: boolean;
+  /**
+   * 드론 조종 모드. true 인 동안: 이동 · 점프 · 자세 · 구르기 입력을 무시하고 몸을 세운다(속도 0), **앉기 자세를 강제**하고
+   * (false 가 되면 켜기 직전 자세로 돌린다), 조준 해제 · `canUseWeapons()` false · E 상호작용 없음, 마우스 시점은 카메라
+   * 리그에 적용하지 않는다 — 카메라는 drones 가 매 프레임 `setCameraOverride(pos, look, true)` 로 준다.
+   * 피해는 그대로 받는다 (조종을 끊는 것은 drones 가 `player:damaged` 를 보고 한다).
+   * 전투불능 · 사망 · `respawnAt` · `spawnStanding` · `game:abort` 가 false 로 되돌린다.
+   */
+  setDroneControl?(active: boolean): void;
 }

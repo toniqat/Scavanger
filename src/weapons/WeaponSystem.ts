@@ -105,6 +105,19 @@ export class WeaponSystem implements GameSystem {
   wheelHover: number | null = null;
   /** Remaining draw-down of the gun model after taking a consumable (0 = hidden). */
   quickHolsterT = 0;
+  /**
+   * 2026-09-11 기폭기 손: T 탭이 "마지막으로 쓴 것" 을 고를 때 그것이 원격 지뢰(C4 · 기폭기)였는가, 설치 확정 여유
+   * (`DETONATOR_CONFIRM_GRACE_S`), `원격 지뢰 없음` 토스트 스로틀, 합성 인스턴스 캐시.
+   */
+  lastQuickDetonator = false;
+  detonatorGraceT = 0;
+  detonatorNotifyAt = -Infinity;
+  detonatorItem: ItemInstance | null = null;
+  /**
+   * 2026-09-11 드론 조종: `ctx.player.droneControl` 인 동안 true, 끝난 뒤에도 LMB · RMB · R 을 모두 뗄 때까지 true —
+   * 드론에서 누르던 버튼이 PC 로 돌아온 순간 사격 · 조준으로 새지 않게 한다. true 면 `armedAndFree` 가 false.
+   */
+  droneLatch = false;
   quickCooldown = 0;
   /** True while we are inside our own `consumeItem` (defer the echoed `inventory:quickSlotsChanged`). */
   quickBusy = false;
@@ -138,7 +151,11 @@ export class WeaponSystem implements GameSystem {
    * Phase 7: what the snapshot builder (net/) reads every tick — one object updated in place at the end of `update`.
    * `attachments` is replaced only when the socket set of the weapon in hand changes (`attachDirty` / uid change).
    */
-  private readonly remoteState: WeaponRemoteState & { attachments: readonly string[] } = { heldItemId: null, throwing: false, cooking: false, charging: false, spraying: false, heavy: false, attachments: [] };
+  /**
+   * `detonator` (2026-09-11, duck-typed — not in `WeaponRemoteState`): the hand is the virtual 기폭기 (no C4 left to place;
+   * `heldItemId` still names the C4 def so remote avatars keep holding something). gadgets/ skips the placement preview then.
+   */
+  private readonly remoteState: WeaponRemoteState & { attachments: readonly string[]; detonator: boolean } = { heldItemId: null, throwing: false, cooking: false, charging: false, spraying: false, heavy: false, attachments: [], detonator: false };
   private attachUid: string | null = null;
   attachDirty = false;
   private readonly attachScratch: string[] = [];
@@ -189,6 +206,7 @@ export class WeaponSystem implements GameSystem {
       this.fallbackReserve.clear();
       for (const s of WEAPON_SLOTS) this.setSlot(s, null);
       this.lastQuickIndex = null;
+      this.lastQuickDetonator = false; this.droneLatch = false;
       this.fallbackGrenades = 4;
       this.loadoutWait = LOADOUT_FALLBACK_DELAY;
     });
@@ -198,6 +216,7 @@ export class WeaponSystem implements GameSystem {
       this.resetTransient();
       for (const s of WEAPON_SLOTS) this.setSlot(s, null);
       this.lastQuickIndex = null;
+      this.lastQuickDetonator = false; this.droneLatch = false;
       this.loadoutWait = -1;
     });
     // Ship hub: nothing in flight, weapon holstered (visibility is handled per frame from ctx.phase).
@@ -276,7 +295,13 @@ export class WeaponSystem implements GameSystem {
     const input = ctx.input;
     // Phase 3: an armed / targeting ship call owns the mouse — guns neither fire nor swap until it is put away
     const callActive = !!ctx.stratagems && (ctx.stratagems.armed !== null || ctx.stratagems.targeting);
-    const armedAndFree = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive;
+    // 2026-09-11 드론 조종: the PC does nothing with its weapons while looking through a drone — and not until every
+    // button the drone was using (LMB · RMB · R) is released afterwards. Checked here on its own, not only through
+    // `canUseWeapons()`, so fire / reload / swap / melee / T / wheel / unique input / throw arc all stop together.
+    // The hand itself is left alone: when the control ends the player holds exactly what they held before.
+    if (ctx.player?.droneControl === true) this.droneLatch = true;
+    else if (this.droneLatch && !input.isMouseDown(MouseButtons.FIRE) && !input.isMouseDown(MouseButtons.AIM) && !input.isDown(Keys.RELOAD)) this.droneLatch = false;
+    const armedAndFree = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive && !this.droneLatch;
     // a wielded implant (Q) holsters the weapon: no firing, no reload, no swap, no quick use
     const usable = armedAndFree && !this.holstered;
     // the gun in hand (null while a consumable is held)
@@ -400,7 +425,7 @@ export class WeaponSystem implements GameSystem {
     const q = this.quick;
     const ctx = this.ctx;
     const gadgetThrow = !!q && q.kind === 'gadget' && this.isThrowGadget(q.def);
-    const show = !!q && !this.holstered && !this.healHeld && ctx.isGameplayActive()
+    const show = !!q && !this.holstered && !this.healHeld && !this.droneLatch && ctx.isGameplayActive()
       && host.canUseWeapons() && (q.kind === 'grenade' || gadgetThrow);
     if (!show) { this.throwArc.hide(); return; }
     const mul = ctx.progression?.derived.throwRangeMul ?? 1;
@@ -442,6 +467,7 @@ export class WeaponSystem implements GameSystem {
   private updateRemoteState(weapon: WeaponInstance | null): void {
     const rs = this.remoteState, ws = this.weaponState;
     rs.heldItemId = ws.holdingItem && this.quick ? this.quick.defId : null;
+    rs.detonator = ws.holdingItem && !!this.quick?.detonator;
     rs.throwing = ws.throwing;
     rs.cooking = ws.throwing && this.cooking;
     rs.charging = ws.charging;
@@ -597,6 +623,15 @@ export class WeaponSystem implements GameSystem {
 
   /** LMB with a gadget in hand: `ctx.gadgets.use` consumes the item itself; RMB toggles over / under-hand. */
   useGadget(host: Host, q: QuickHand): void { return Quick.useGadget(this, host, q); }
+
+  /** 2026-09-11: RMB with a C4 / the 기폭기 in hand — detonate every remote mine of mine (deny when there is none). */
+  detonateHeld(host: Host): void { return Quick.detonateHeld(this, host); }
+
+  /** 2026-09-11: take the virtual 기폭기 into the hand (`quick:equipped {index: null, item}`); false when no C4 def exists. */
+  equipDetonator(defId: string | null, fromPlacement: boolean): boolean { return Quick.equipDetonator(this, defId, fromPlacement); }
+
+  /** 2026-09-11: the 기폭기 in hand, every frame — auto-return when my mines are gone, LMB deny, RMB detonate. */
+  updateDetonator(dt: number, host: Host, inputFree: boolean): void { return Quick.updateDetonator(this, dt, host, inputFree); }
 
   /** Returns true if the hit killed an enemy. */
   applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean, ammoType?: string): boolean { return Fire.applyHit(this, h, damage, dir, light, ammoType); }

@@ -10,6 +10,7 @@ import { EnemySystem } from '@/enemies/EnemySystem';
 import { InventorySystem } from '@/inventory/InventorySystem';
 import { ImplantSystem } from '@/implants/ImplantSystem';
 import { GadgetSystem } from '@/gadgets/GadgetSystem';
+import { DroneSystem } from '@/gadgets/drones/DroneSystem';
 import { PickupSystem } from '@/pickups/PickupSystem';
 import { StratagemSystem } from '@/stratagems/StratagemSystem';
 import { ExtractionSystem } from '@/extraction/ExtractionSystem';
@@ -98,6 +99,8 @@ engine.addSystem(new InventorySystem());
 // Phase 5: corporations / credits / contracts / quests — after inventory so buy / sell / deliveries can use the bag + stash.
 engine.addSystem(new MetaSystem());
 engine.addSystem(new GadgetSystem());     // deployables; after inventory so `use` can consume items
+// 2026-09-11: 지상 · 공중 드론 — gadgets.use 가 deploy 를 넘기므로 가젯 바로 뒤 (조종 입력 · 드론 카메라 · 소유자 권한 동기화).
+engine.addSystem(new DroneSystem());
 engine.addSystem(new PickupSystem());     // world pickups (dropped items), after inventory
 engine.addSystem(new StratagemSystem());  // ship calls (Phase 3): after weapons/enemies/inventory, before extraction
 engine.addSystem(new ExtractionSystem());

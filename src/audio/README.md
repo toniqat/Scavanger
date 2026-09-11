@@ -46,6 +46,9 @@ Tactical kit — implants: `grapple_fire` `grapple_attach` `grapple_release` `da
 Tactical kit — gadgets: `gadget_place` `dome_deploy` `smoke_hiss` `lure_beep` `mine_arm` `mine_explode` `fire_ignite` `turret_shot` `gadget_break` `defib`
 Tactical kit — survival: `downed` `revive` `grit_save` `cloak_on` `cloak_off`
 Tactical kit — upkeep/progression: `gather` `craft_start` `craft_done` `repair_done` `durability_break` `level_up` `skill_up`
+드론 (2026-09-11): `drone_deploy` `drone_link_on` `drone_link_off` `drone_static` `drone_move` `drone_sprint` `drone_jump` `drone_land` `drone_rotor` `drone_hit` `drone_destroyed` `drone_recover`
+원격 지뢰 (2026-09-11): `c4_place` `c4_arm` `c4_beep` `c4_detonator_click`
+네임드 로그 (2026-09-11): `scan_drone_hum` `scan_pulse`(기존 id, 길어짐) `sniper_glint` `sniper_shot` `hammer_swing` `hammer_impact` `minigun_spinup` `minigun_fire` `minigun_spindown`
 
 Notes on the newer ids:
 - `shot_smg` — snappy, lighter than `shot_rifle`, ~0.09 s tail (built for ~14 rounds/s).
@@ -118,6 +121,55 @@ Tactical-kit ids in detail:
   떨어질 때가 조용하다. 그래서 추적 목록(`drops`)을 들고 착지 직전에 한 번만 굉음을 낸다
   (`game:newMission` / `game:abort` 에서 비운다).
 
+## 드론 · 원격 지뢰 · 네임드 로그 — 거리 곡선을 가진 효과음 (2026-09-11)
+
+전부 **다른 폴더가 `audio:play` 로 부른다** (자동 구독 없음 — 같은 id 를 두 번 내지 않는다). ★ = 소유자가
+0.1–0.6 초마다 다시 부르는 **짧은 한 방**이다. 부드러운 어택 + 유지 + 선형 릴리스(`Synth` 의 `release` 옵션)와
+약간의 피치 흔들림으로 겹치는 hit 들이 맥동 · 위상 간섭 없이 **이어진 소리**로 들린다. 한 방의 크기는 0.2–0.3 초
+주기에 맞췄으므로 더 촘촘히 부르면 그만큼 겹쳐 커진다. 같은 id 스로틀(`RATE_MAX_SAME` 8회/100 ms)은 이 주기를
+끊지 않는다.
+
+**거리**: `audio:play` 에 위치가 오면 `AudioSystem.RANGED_SOUNDS` 의 id 는 기본 패너(inverse, ref 4 m) 대신
+원격 발소리 · 로그 강하와 **같은 곡선** `(1 − d/range)^exp` 을 호출부 볼륨에 곱하고 패너는 방향만 맡는다(`panOnly`).
+`range` 밖은 보이스를 만들지 않는다. `floor` 는 사거리 안에서 보장하는 최소 비율로, **전조가 들려야 공정한** 소리만
+갖는다(마지막 15 % 구간에서 0 으로 줄어 끝이 뚝 끊기지 않는다). 위치가 없으면(× = 로컬 UI) 패너를 타지 않고 늘 같은 크기다.
+
+| id | 무엇 | 위치 | 음색 | range m / exp / floor |
+|---|---|---|---|---|
+| `drone_deploy` | 드론 내려놓기 · 띄우기 | ○ | 착지 쿵 + 서보 + 전원 삑 2음 | 30 / 1.5 |
+| `drone_link_on` | 조종 시작 | × | 짧은 잡음 → 상승 square 칩 4개 → 고음 | — |
+| `drone_link_off` | 조종 끝 | × | 하강 칩 4개 + 낮은 블립 + 잡음 꺼짐 | — |
+| `drone_static` ★ | 사거리 90 % 이상 | × | 밴드패스 잡음 + 무작위 크랙 + 100 Hz 험 | — |
+| `drone_move` ★ | 지상 드론 걷기 | ○ | 아주 작은 모터 틱 | 12 / 1.8 |
+| `drone_sprint` ★ | 지상 드론 질주 | ○ | 디튠 saw 모터 윙 + 바퀴 · 자갈 잡음 | `DRONE_NOISE_RADIUS`×1.5 / 1.3 |
+| `drone_jump` / `drone_land` | 점프 / 착지 | ○ | 스프링 서보 퉁 / 둔탁한 쿵 + 섀시 달그락 | 30 / 1.5 |
+| `drone_rotor` ★ | 공중 드론 로터 | ○ | 맥놀이 saw 둘 + 블레이드 비브라토 + 바람 (`pitch` = 로터 속도) | 45 / 1.4 |
+| `drone_hit` | 피격 | ○ | 금속 핑 + 스파크 크랙 + 전기 지직 | 40 / 1.4 |
+| `drone_destroyed` | 파괴 | ○ | 작은 폭발 + 전기 방전 + 파편 | 90 / 1.2 |
+| `drone_recover` | 회수 | ○ | 접히는 서보 + 걸쇠 + 확인 2음 | 30 / 1.5 |
+| `c4_place` | C4 설치 | ○ | 끈적한 누름 + 작은 쿵 + 케이스 클릭 | 20 / 1.5 |
+| `c4_arm` | 무장 | ○ | 같은 높이 삑 두 번 (`mine_arm` 의 상승 음형과 다르다) | 18 / 1.6 |
+| `c4_beep` ★ | 무장 대기 | ○ | 작은 사인 삑 | 8 / 1.8 |
+| `c4_detonator_click` | 기폭기 | × | 딸깍딸깍 + 짧은 무전 스퀠치 | — |
+| `scan_drone_hum` ★ | 스캔 드론 비행 | ○ | 62 Hz 맥놀이 saw + 흔들리는 124 Hz + 희미한 고음 | 120 / 1.2 |
+| `scan_pulse` | 스캔 음파 (기존 id) | ○ | 소나 핑 + 에코 둘 + 낮은 경고 저음 + 잔향 (≈1.5 s) | 180 / 1.0 / 0.25 |
+| `sniper_glint` | 조준경 반짝임 | ○ | 가늘게 오르는 고음 + 유리 반짝 + E6 몸통 | 260 / 0.9 / 0.4 |
+| `sniper_shot` | 대물 저격 | ○ | 큰 크랙 + 서브 붐 + 긴 꼬리 + 슬랩백 에코 둘 (≈2.1 s) | 900 / 0.8 / 0.3 |
+| `hammer_swing` | 망치 휘두름 | ○ | 느리고 무거운 바람 가르기 | 30 / 1.5 |
+| `hammer_impact` | 망치 타격 | ○ | 서브 쿵 + 금속 머리 클렁크 + 파편 | 70 / 1.2 |
+| `minigun_spinup` | 회전 시작 | ○ | 오르는 모터 휘잉 + 빨라지는 달그락, 길이 = `MINIGUN_SPINUP_TIME` | 90 / 1.2 |
+| `minigun_fire` ★ | 연사 한 덩어리(≈0.1 s) | ○ | 한 덩어리에 짧은 발사음 3개 + 유지되는 모터음 | 220 / 1.0 / 0.1 |
+| `minigun_spindown` | 회전 정지 | ○ | 내려가는 휘잉 + 느려지는 달그락, 길이 = `MINIGUN_SPINDOWN_TIME` | 90 / 1.2 |
+
+- `scan_pulse` 는 **이미 있던 id** 다 (임플란트 정찰 스캔 · 옥상 행성 스캔). 앞머리는 그대로 두고 에코 · 경고 저음 ·
+  잔향을 덧대 네임드 경고로도 읽히게 했다. 위치를 주는 호출(원격 임플란트 · 구조물 스캔)도 이제 이 곡선을 탄다.
+- 반경들은 **플레이어 귀의 연출**이고 판정에 쓰이지 않는다. 판정 반경이 있는 것은 계약 상수에 묶었다
+  (질주 드론 = 적이 듣는 `DRONE_NOISE_RADIUS` 보다 조금 멀리 — "적이 들었는데 나는 못 들었다" 가 없게).
+- **자동 구독 제외**: 드론 아이템 · 원격 지뢰의 `gadget:used` 는 투척음(`grenade_throw`)을 내지 않는다.
+  `gadget:deployed {kind:'remoteMine'}` 는 `gadget_place` 를 내지 않는다(`c4_place` 를 gadgets/ 가 낸다).
+  `gadget:removed {kind:'remoteMine', reason:'destroyed'}` 는 `gadget_break` 를 내지 않는다. 기폭은 gadgets/ 가 이미
+  `explosion` 을 냈고, 이 이벤트만으로는 불발과 기폭을 가를 수 없다.
+
 ## Ship hub (phases `hub` / `docking`)
 The hub is **not gameplay**: while `hubActive` (set on `hub:entered`, cleared on `hub:left` / `game:newMission`) or the phase is
 `hub`/`docking`, the planet wind target is 0, the extraction engine hum is muted, the tension pulse is 0, and `enemy:waveStarted` is ignored
@@ -171,6 +223,14 @@ Appended (tactical kit):
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (드론 · 원격 지뢰 · 네임드 로그)** — `Synth.SOUNDS` 에 24종 추가, 기존 `scan_pulse` 를 길게(≈1.5 s,
+  에코 둘 + 경고 저음 + 잔향) 다듬었다. 위 *드론 · 원격 지뢰 · 네임드 로그* 절의 표 참고. `Synth` 의 tone/noise 에
+  `release` 옵션(어택 → 유지 → 선형 페이드)이 붙었다. 스핀업 · 험과 ★ 주기 호출형 소리가 쓴다.
+  `AudioSystem` 은 `audio:play` 입구(`playRequested`)에서 `RANGED_SOUNDS` 의 id 에 원격 발소리와 같은 거리 곡선을
+  걸고(`panOnly`) 사거리 밖은 재생하지 않는다. 저격 · 반짝임 · 스캔 음파는 `floor` 로 사거리 안 최소 크기를 보장한다.
+  원격 지뢰 담당 요청으로 `gadget:deployed/removed {kind:'remoteMine'}` 의 자동 설치음 · 파괴음을, 드론 · 원격 지뢰의
+  `gadget:used` 투척음을 뺐다.
 
 - **2026-09-10 (로그 강하 경보)** — 강하가 조용히 일어나던 문제. `rogue_pod_fall`(대기를 찢는 굉음 — 밴드패스
   노이즈가 2.6 kHz → 260 Hz 로 쓸려 내려오고 **디튠된 saw 둘**이 190 → 46 Hz, 서브 사인 34 → 22 Hz, 마지막

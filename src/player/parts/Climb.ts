@@ -24,6 +24,7 @@ export function grabLadder(sys: PlayerSystem, ladder: LadderDef, from: 'bottom' 
   const c = sys.controller;
   if (!ladder || c.climbing) return false;
   if (!sys.spawned || sys.isDead || sys._downed || !sys.controlsEnabled) return false;
+  if (sys._droneControl) return false;   // 2026-09-11: 드론 조종 중에는 `ladder:grab` 을 무시한다
   if (sys._carrying || sys.carriedSocket || sys.carryLock > 0 || sys._inPod) return false;
   if (sys._interior || sys.shipBounds || sys.attachedParent) return false;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return false;

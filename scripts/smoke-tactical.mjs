@@ -112,7 +112,8 @@ try {
   ok(cat.packCount >= 8, `bag defs: ${cat.packCount}`);
   ok(JSON.stringify(cat.packPerks) === '["none","tactical"]', `bag perks ${JSON.stringify(cat.packPerks)}`);
   ok(cat.quickSlotMax >= 8, `tactical bag grants 8+ quick slots (${cat.quickSlotMax})`);
-  ok((cat.byCat.gadget ?? 0) === 10, `10 gadget items (${cat.byCat.gadget})`);
+  // 2026-09-11: +3 (원격 지뢰 · 지상 드론 · 공중 드론)
+  ok((cat.byCat.gadget ?? 0) === 13, `13 gadget items (${cat.byCat.gadget})`);
   ok((cat.byCat.herb ?? 0) >= 3, `herb items (${cat.byCat.herb})`);
   ok(cat.recipes >= 10, `craft recipes: ${cat.recipes}`);
   ok(cat.weighted, 'every item def carries a weight');

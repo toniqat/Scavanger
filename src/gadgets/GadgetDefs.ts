@@ -6,6 +6,12 @@ import {
   GADGET_BARRICADE_RADIUS, GADGET_DEFIB_RANGE, GADGET_JUMPPAD_HP, GADGET_JUMPPAD_RADIUS, GADGET_LURE_HP, GADGET_MINE_HP,
   type DeployableKind, type GadgetDef, type GadgetId,
 } from '@/shared';
+/* 2026-09-11: 원격 지뢰 · 드론 */
+import {
+  DRONE_AIR_HP, DRONE_AIR_RANGE, DRONE_GROUND_HP, DRONE_GROUND_RANGE, DRONE_RECOVER_HOLD_S,
+  GADGET_REMOTE_MINE_ARM_TIME, GADGET_REMOTE_MINE_HP, GADGET_REMOTE_MINE_RADIUS,
+  GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_DAMAGE, GADGET_REMOTE_MINE_MAX_LIVE, GADGET_REMOTE_MINE_STACK_MUL,
+} from '@/shared';
 
 /**
  * The ten special gadgets. Owned by `src/gadgets/` — `items/` only references them through
@@ -83,7 +89,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'mine',
     name: '지뢰',
-    description: `설치 3초 뒤 활성화되고, 밟으면 반경 ${GADGET_MINE_RADIUS} m 를 폭파한다. 피아를 구분하지 않는다. ${GADGET_DEFUSE_TIME}초 상호작용으로 해체.`,
+    description: `설치 3초 뒤 활성화되고, 밟으면 반경 ${GADGET_MINE_RADIUS} m 를 폭파한다. 피아를 구분하지 않는다. 드론 위에 올리면 반경 ${GADGET_MOUNTED_MINE_TRIGGER_RADIUS} m 안의 적에게만 반응한다. ${GADGET_DEFUSE_TIME}초 상호작용으로 해체.`,
     use: 'place',
     deployable: 'mine',
     duration: 0,
@@ -145,6 +151,46 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     icon: '⇧',
     color: '#5fd7ff',
   },
+  /* ── 2026-09-11 ── */
+  {
+    id: 'remoteMine',
+    name: '원격 지뢰',
+    description: `설치 ${GADGET_REMOTE_MINE_ARM_TIME}초 뒤 무장된다. 손에 들고 우클릭하면 내가 설치한 원격 지뢰가 한꺼번에 터진다 (반경 ${GADGET_REMOTE_MINE_RADIUS} m, 중심 피해 ${GADGET_REMOTE_MINE_DAMAGE}). 여러 발에 함께 맞으면 가장 센 한 발만 온전히, 나머지는 각각 ${Math.round(GADGET_REMOTE_MINE_STACK_MUL * 100)} % 로 들어간다. 밟아도 터지지 않고, 부서지면 불발로 사라진다. 한 사람당 ${GADGET_REMOTE_MINE_MAX_LIVE}개까지, ${GADGET_DEFUSE_TIME}초 상호작용으로 회수. 드론 위에도 올릴 수 있다.`,
+    use: 'place',
+    deployable: 'remoteMine',
+    duration: 0,
+    hp: GADGET_REMOTE_MINE_HP,
+    radius: GADGET_REMOTE_MINE_RADIUS,
+    recoverTime: GADGET_DEFUSE_TIME,
+    icon: '▣',
+    color: '#ff9f40',
+  },
+  {
+    id: 'droneGround',
+    name: '지상 드론',
+    description: `바닥에 내려놓는 정찰 드론. 손에 들고 R 을 꾹 누르면 드론 시점으로 조종한다 (사거리 ${DRONE_GROUND_RANGE} m, 내구도 ${DRONE_GROUND_HP}). 달리면 빠르지만 소리가 나 적이 알아챈다. 위에 지뢰를 올릴 수 있다.`,
+    use: 'drone',
+    deployable: null,
+    duration: 0,
+    hp: DRONE_GROUND_HP,
+    radius: DRONE_GROUND_RANGE,
+    recoverTime: DRONE_RECOVER_HOLD_S,
+    icon: '⛭',
+    color: '#8fd18a',
+  },
+  {
+    id: 'droneAir',
+    name: '공중 드론',
+    description: `공중에 띄우는 정찰 드론. 손에 들고 R 을 꾹 누르면 조종한다 — Space 상승 · C 하강 (사거리 ${DRONE_AIR_RANGE} m, 내구도 ${DRONE_AIR_HP}). 연결이 끊겨도 제자리에 떠 있고, 갈고리를 걸 수 있다.`,
+    use: 'drone',
+    deployable: null,
+    duration: 0,
+    hp: DRONE_AIR_HP,
+    radius: DRONE_AIR_RANGE,
+    recoverTime: DRONE_RECOVER_HOLD_S,
+    icon: '✈',
+    color: '#7fc8ff',
+  },
 ];
 
 const BY_ID = new Map<GadgetId, GadgetDef>(GADGET_DEFS.map((d) => [d.id, d]));
@@ -156,7 +202,9 @@ export function gadgetDef(id: GadgetId): GadgetDef | undefined { return BY_ID.ge
 export function gadgetForKind(kind: DeployableKind): GadgetDef | undefined { return BY_KIND.get(kind); }
 
 /** Deployables that hand an item back when someone finishes the recover interaction. */
-export const RECOVERABLE_KINDS: readonly DeployableKind[] = ['barricade', 'turret', 'jumpPad'];
+export const RECOVERABLE_KINDS: readonly DeployableKind[] = ['barricade', 'turret', 'jumpPad',
+  /* 2026-09-11: 원격 지뢰는 밟아도 안 터지는 소유자 도구라 회수하면 아이템이 돌아온다 (바닥 지뢰는 해체 = 반환 없음 그대로) */
+  'remoteMine'];
 export function isRecoverable(kind: DeployableKind): boolean { return RECOVERABLE_KINDS.includes(kind); }
 
 /** Deployables enemies should attack when they block or annoy them. */

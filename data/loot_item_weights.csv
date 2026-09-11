@@ -11,6 +11,9 @@ tier,target,mul
 1,@unique_ammo,0
 1,gad_turret,0
 1,gad_dome_shield,0
+1,gad_remote_mine,0
+1,gad_drone_ground,0
+1,gad_drone_air,0
 1,mat_cable,0
 1,mat_circuit,0
 1,mat_machine_parts,0
@@ -37,6 +40,9 @@ tier,target,mul
 2,armor_regen,0
 2,armor_ultralight,0
 2,armor_optical,0
+2,gad_remote_mine,0.6
+2,gad_drone_ground,0.4
+2,gad_drone_air,0
 2,mat_cable,1.2
 2,mat_circuit,0.3
 2,mat_machine_parts,0.6
@@ -59,6 +65,8 @@ tier,target,mul
 3,@broken_implants.epic,0.4
 3,@broken_implants.legendary,0
 3,wpn_sr,1.2
+3,gad_drone_ground,0.7
+3,gad_drone_air,0.4
 3,mat_circuit,0.6
 3,mat_machine_parts,0.8
 3,mat_cloth,1.2
@@ -79,6 +87,7 @@ tier,target,mul
 4,@broken_implants.legendary,0.5
 4,wpn_sr,1.5
 4,wpn_smg,0.7
+4,gad_drone_air,0.8
 4,key_basement,0
 
 # 티어 5 — 보급 투하 상자

@@ -36,6 +36,8 @@ Arming while `cooldown > 0` is refused (`ui_deny`, `ui:notify "함선 호출 재
 한 곳이 그 소리 · 문구를 갖는다. **2026-09-10 부터 쿨타임 중에는 `G` 홀드로 휠도 열리지 않는다**: 고를 수 있는
 칸이 하나도 없으므로 여는 대신 같은 거부를 내고, 그 자리에서 `gHeld = false` 로 홀드를 끊어 손을 뗄 때
 `arm` 이 같은 토스트를 한 번 더 띄우지 않게 한다 (`parts/Targeting.updateInput`).
+**드론 조종 중 (2026-09-11)**: `ctx.player.droneControl` 이면 `updateInput` 이 G 를 읽기 **전에** 돌아간다 — 휠 · 충전 · 상단 시점은
+`cancelTargeting` 으로 닫고 지면 링을 끄며 `gHeld` 를 버린다. 무장해 둔 호출은 그대로 남아 조종이 끝나면 다시 링이 뜬다.
 The weapons system does not fire / aim while
 `ctx.stratagems.armed` or `targeting` is set (wired by weapons). Targeting is cancelled (camera / controls restored, call kept) when
 gameplay stops being active (blockers, pointer lock lost); the call is put away on `player:died`, `player:downed` and any non-gameplay phase.
@@ -151,6 +153,11 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 ---
 
 ## 변경 이력
+
+- **2026-09-11 — 드론 조종 중 G 잠금.** `parts/Targeting.updateInput` 의 `baseActive` 검사 바로 뒤에 `ctx.player?.droneControl`
+  가지 하나: G 입력 무시, 열려 있던 휠 · 충전 · 상단 시점 닫기(`cancelTargeting`), 지면 링 끄기. 무장 상태는 건드리지 않는다.
+  `canUseWeapons()` 가 조종 중 false 라 조준 · 확정은 원래 막히지만 휠 열기와 탭 무장은 그 전에 G 를 읽기 때문에 따로 막았다.
+  (조종 구현은 `src/player/README.md` 의 *드론 조종* 절.)
 
 - **2026-09-10 (2차) — 공유 쿨타임 값 재조정 + 쿨타임 중 휠 잠금 (사용자 결정).**
   ① `data/stratagems.csv` 의 `cooldown` 만 바꿨다: 구조선 45 → **30**, 보급품 60 → **90**, 트라이포드 60 → **90**,

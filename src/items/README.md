@@ -8,7 +8,7 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
 | `ItemDefs.ts` | 151 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5). **2026-09-10: `repairCost` 는 여기서 사라졌다** — 수리비는 제작 재료 × 내구도 구간 배수이고 구현은 `Salvage.repairCostFor` 다 |
-| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %) |
+| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*) |
 | `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*; **2026-09-10** 부터 총기가 아닌 것들에는 행성 희귀도 배수도 걸린다 — 아래 *행성별 희귀도 배수*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
@@ -196,6 +196,10 @@ Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul
 | `behemoth` | `mat_alloy` ×2–4, `terminid_gland` ×1–2 | 30 % `alien_artifact` |
 | `rogue` | calibre rounds + **its weapon** (see below) | 30 % `stim`, 20 % `grenade_frag` |
 | `rogue_boss` | calibre rounds + **graded weapon** + one `att_*` (rarity ≤ epic, fitting the weapon when any does), `stim` ×1–2 | 20 % one **unique** (`wpn_u_*`, durability 50–80 %, random `ammoInMag`) + a 30–60 % stack of its calibre (Phase 6, rolled last) |
+| `rogue_sniper` 로든 (2026-09-11) | 붕대 1–2 | 보스 수준 충전기 · 재료 · 서적 20 % · 임플란트 45 %, 공중 드론 20 % — **+ 확정 드롭**(아래 *네임드 로그 확정 드롭*) |
+| `rogue_hammer` 타길라 (2026-09-11) | 붕대 1–2 | 보스 수준 + 회복주사 35 % · 고폭 수류탄 50 % · 합금 판 50 % · 원격 지뢰 35 % — **+ 확정 드롭** |
+| `rogue_heavy` 헤비 (2026-09-11) | 붕대 1–2 | 보스 수준 + 화약 60 % (6–14) · 원격 지뢰 20 % · 지상 드론 15 % — **+ 확정 드롭** |
+| `rogue_scan_drone` (2026-09-11) | — | 확률 0 한 줄 = 빈 결과 (`CORPSE_LOOT_CHANCE` 0 이라 애초에 수색 불가) |
 
 Phase 10: **whether a corpse can be searched at all** is no longer this folder's call — `CORPSE_LOOT_CHANCE` (shared, per `EnemyType`: 잡버그 0.1 / 상위 버그 0.35 / behemoth · rogue · rogue_boss 1) is rolled by `src/enemies/Corpses.ts` on its own seeded stream, and `rollCorpse` is only ever called **after** that roll succeeded (`CORPSE_TABLES` and `rollCorpse` itself are unchanged, so `src/inventory/__selftest__.ts`'s exact-output assertions still hold).
 Phase 8: every **bug** row above also rolls `BUG_SEEDS` (4 % `seed_bloodroot`, 2 % `seed_ashleaf`, 0.6 % `seed_glowcap`, one each) — see *씨앗*. `rogue` / `rogue_boss` do not.
@@ -284,6 +288,26 @@ Perks are **declared here and implemented in `src/player`** (regen tick, ultrali
 | `gad_incendiary` 화염수류탄 | `incendiary` | 1×1 | 3 | 0.6 |
 | `gad_defib` 제세동기 | `defib` | 2×1 | 1 | 2.4 |
 | `gad_jumppad` 점프대 | `jumpPad` | 2×2 | 1 | 6.4 |
+| `gad_remote_mine` 원격 지뢰 (2026-09-11) | `remoteMine` | 1×1 | 4 | 1.2 |
+| `gad_drone_ground` 지상 드론 (2026-09-11) | `droneGround` | 2×2 | 1 | 4.8 |
+| `gad_drone_air` 공중 드론 (2026-09-11) | `droneAir` | 2×2 | 1 | 3.6 |
+
+**2026-09-11 새 가젯 3종** — 동작은 `src/gadgets` (원격 지뢰) · `gadgets/drones` (드론) 이고 items/ 는 정의 · 제작 · 루팅만 갖는다.
+
+| id | rarity | ₩ | 제작 (가젯 작업대) | 상자 배수 (티어 1 / 2 / 3 / 4) | 시체 |
+|---|---|---|---|---|---|
+| `gad_remote_mine` 원격 지뢰 | rare | 340 | Lv.2 · 제작 25 — 화약 10 + 회로 기판 1 + 전력 케이블 2 | 0 / 0.6 / 1 / 1 | 타길라 35 % (1–3) · 헤비 20 % (1–2) |
+| `gad_drone_ground` 지상 드론 | rare | 1 150 | Lv.2 · 제작 30 — 기계 부품 3 + 회로 기판 2 + 파워 셀 2 + 폐금속 6 | 0 / 0.4 / 0.7 / 1 | 헤비 15 % |
+| `gad_drone_air` 공중 드론 | epic | 2 200 | **Lv.3** · 제작 40 — **제어 모듈 1 + 축전 모듈 2** + 기계 부품 2 + 회로 기판 2 | 0 / 0 / 0.4 / 0.8 | 로든 20 % |
+
+- **드론은 스택 1** 이다 — 꺼내도 아이템이 소모되지 않고 조종기로 남으며, 드론이 파괴될 때 하나가 줄어든다
+  (그 규칙은 `gadgets/drones` 가 `ctx.inventory` 로 처리한다). 공중 드론은 상위 재료 두 종류를 요구하므로
+  **정제 작업대 Lv.2~3 을 거쳐야** 만든다.
+- 가젯은 분해 · 수리 대상 카테고리가 아니어서 `checkSalvageEconomy()` 의 검산에 들어가지 않는다.
+- 상자: 티어 5 보급 투하에는 `gadget` 카테고리가 없어 안 나온다. 기업 상점은 세레스(`ceres,gadget`)가 카테고리 전체를
+  팔므로 따로 줄을 안 넣어도 신뢰도 등급 상한 안에서 뜬다.
+- `rogue` · `rogue_boss` 시체 표에는 **넣지 않았다** — 줄 하나만 늘어도 그 표의 rng 소비가 밀려
+  `inventory/__selftest__` 가 고정한 굴림이 바뀐다. 대신 네임드 로그 셋이 들고 다닌다.
 
 ## Weight (kg per unit)
 
@@ -340,7 +364,7 @@ All 14: **1×2**, `stackMax` 1 (never stack), `weight` 0.6 kg, icon `CATEGORY_IC
 (they carry `BUG_SEEDS` instead). The 세레스 corp shop stocks `{category:'book', minRepLevel:2}`. No `CraftRecipe`
 outputs a book.
 
-## Recipes (`getAllRecipes`) — 제작 94 + 분해 44 (2026-09-10 제작 대개편)
+## Recipes (`getAllRecipes`) — 제작 97 + 분해 44 (2026-09-10 제작 대개편, 2026-09-11 가젯 3줄)
 
 원본은 **`data/recipes.csv`**(제작 94줄)와 **`data/salvage.csv`**(손으로 적은 분해 6줄)다. 나머지 분해 38줄은
 `Salvage.ts` 가 **제작 재료에서 생성한다** — 무기 25종 · 방탄복 5벌 · 가방 8종. `ALL_CRAFT_RECIPES` = 제작 + 분해이고
@@ -373,7 +397,7 @@ gun 총기 / gear 장비 / gadget 가젯 / medical 의학 / **refine 정제**)�
 | **정제** `refine` (7) | 합금 판 · 강화 직조포 · 기계 부품 | 축전 모듈 · 복합 방탄섬유 | 강화합금 잉곳 · 제어 모듈 |
 | **총기** `gun` (45) | AR · SMG · SG 등급 I~II (6) | 전 계열 등급 III (5) + DMR · SR 등급 I~II (4) + 부착물 하위 6 | 전 계열 등급 IV~V (10) + 부착물 상위 8 + 유니크 탄약 6 |
 | **장비** `gear` (13) | 방탄복 I~II · 가방 일반/고급 | 방탄복 III · 가방 희귀(전술 포함) | 방탄복 IV~V · 가방 서사/전설(전술 포함) |
-| **가젯** `gadget` (12) | 고폭 · 연막 · 소이 수류탄 | 유인 · 화염수류탄 · 지뢰 | 바리케이드 · 점프대 · 은폐 장막 · 제세동기 · 돔 실드 · 포탑 |
+| **가젯** `gadget` (15) | 고폭 · 연막 · 소이 수류탄 | 유인 · 화염수류탄 · 지뢰 · **원격 지뢰 · 지상 드론** | 바리케이드 · 점프대 · 은폐 장막 · 제세동기 · 돔 실드 · 포탑 · **공중 드론** |
 | **의학** `medical` (9) | 소독약 · 회복주사 · 혈근초 · **실드 충전기** | 스프레이 · 붕대 대량 · 발광버섯 · **고출력 충전기** | **완충 충전기** |
 | **현장** `field` (8) | 탄약 4종 · 연막 · 소이 수류탄 · 붕대 2종 | | |
 
@@ -604,6 +628,28 @@ P(V) < 5 % · 4번 5~6 % · 5번 < 20 %)와 대조한다. **수치를 고칠 때
 `node scripts/check-planet-loot.mjs` 가 이 표도 같이 뽑고, rank 1 이 rank 2 의 0.45~0.8 배인지와
 rank 2~5 의 배수가 전부 1 인지를 대조한다.
 
+## 네임드 로그 확정 드롭 (2026-09-11 — `data/loot_named.csv`)
+
+네임드 로그 셋(`shared/named.ts`)은 일반 전리품 위에 **확정 드롭** 하나를 따로 굴린다. 표는
+`LootTables.NAMED_DROPS` / `NAMED_DROP_MAP` 이 읽고 `Loot.rollNamedDrop` 이 `rollCorpse` 의 **맨 마지막**에 굴린다.
+**적 종류(`type`)로만 찾고 `rogueWeaponId` 를 보지 않는다** — 네임드 디렉터가 넘기는 값은 로든 `sr` · 타길라 `''`
+· 헤비 `u_minigun` 이지만, 네임드 셋의 `loot_corpse_rolls.csv` 줄에는 "들고 있던 총" 굴림이 없으므로 쓰이지 않는다
+(굴렸다면 로든이 저격소총을 두 자루 떨구고 타길라가 기본값 돌격소총을 떨군다).
+
+| 적 | 드롭 | 확률 | 등급 분포 | 내구도 | 딸려 오는 것 |
+|---|---|---|---|---|---|
+| `rogue_sniper` 로든 | 저격소총 (`wpn_sr_g3` / `_g4` / `_g5`) | **85 %** | 희귀 III 60 · 서사 IV 33 · 전설 V **7** | 최대치 × **1–5 %** | 장전 20–100 % · 중량탄 스택 30–60 % |
+| `rogue_hammer` 타길라 | 방탄복 (`armor_3` / `_4` / `_5`) | **85 %** | 희귀 III 60 · 서사 IV 33 · 전설 V **7** | 최대치 × **1–5 %** | — |
+| `rogue_heavy` 헤비 | 「사이클론」 미니건 **`wpn_u_minigun`** (무기 def `u_minigun`) | **80 %** | 유니크 (등급 없음) | 최대치 × **1–5 %** (3000 → 30–150) | 장전 30–70 % · 탄띠 스택 30–60 % |
+
+- 내구도 범위는 `constants.csv` 의 `NAMED_LOOT_DURABILITY_MIN` · `MAX` (0.01 / 0.05) 하나를 셋이 같이 쓴다. 최소 1.
+- 등급은 **III 부터만** 나온다 (`grades` 에 적지 않은 등급은 봉인). 유니크 방탄복(tier 0)은 후보가 아니다.
+- ⚠ **행성 곡선을 걸지 않는다.** `planet_loot.csv` 의 등급 상한(`maxGrade`) · `uniqueMul` · 희귀도 배수 전부 —
+  "최소 희귀 등급부터" 가 사용자 명세라 난이도 1 행성에서도 III 이상 저격소총 · 방탄복이, 헤비는 유니크가 봉인된
+  행성(순번 1 · 2)에서도 미니건이 그대로 나온다. 일반 전리품(서적 · 임플란트)은 기존대로 곡선을 탄다.
+- 네임드가 아닌 적은 이 분기에 들어오지도 않으므로 `warrior` / `rogue` / `rogue_boss` 의 rng 벡터는 그대로다.
+- 헤비의 호위는 평범한 `rogue` (SMG) 라 기존 `rogue` 표를 그대로 굴린다.
+
 ## 지하실 키카드 (2026-09-09)
 
 `key_basement` **버려진 구조물의 지하실 키카드** — 카테고리 `valuable`, uncommon, 1×1, 스택 1, ₩0, 0.05 kg,
@@ -616,6 +662,15 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (새 가젯 3종 · 네임드 확정 드롭)** — ① `data/items.csv` 에 **`gad_remote_mine` 원격 지뢰** (rare, 1×1,
+  스택 4) · **`gad_drone_ground` 지상 드론** (rare, 2×2, 스택 1) · **`gad_drone_air` 공중 드론** (epic, 2×2, 스택 1).
+  ② `data/recipes.csv` 가젯 작업대 3줄 — `make_remote_mine` (Lv.2) · `make_drone_ground` (Lv.2) · `make_drone_air`
+  (Lv.3, 제어 모듈 + 축전 모듈 = 정제 작업대 관문). 94 → 97줄. ③ 상자 배수 (`loot_item_weights.csv`, 티어 1 전부 0)
+  와 네임드 시체 표. ④ **새 csv `data/loot_named.csv`** + `LootTables.NAMED_DROPS` / `NAMED_DROP_MAP` /
+  `numberedArmorIdForTier` + `Loot.rollNamedDrop` — 로든 저격소총 III~V 85 % · 타길라 방탄복 III~V 85 % · 헤비 미니건
+  80 %, 셋 다 내구도 1–5 %, 행성 곡선 미적용. `loot_corpses.csv` · `loot_corpse_rolls.csv` 에 네임드 3종(보스 수준
+  일반 전리품 · 서적 · 임플란트) + 스캔 드론 빈 표. `rogue` · `rogue_boss` · 벌레 줄은 한 글자도 안 바뀌었다.
 
 - **2026-09-10 (제작 대개편)** — 제작 · 분해 · 수리를 하나의 축에 묶었다. ① **상위 재료 5종**
   (`mat_weave` · `mat_ballistic_fiber` · `mat_capacitor` · `mat_ingot` · `mat_control_module`) 과 **정제 작업대**

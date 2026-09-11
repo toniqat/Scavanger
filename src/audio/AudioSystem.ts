@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem, PeerId, Stance } from '@/shared';
 import {
   AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY,
+  DRONE_GADGET_OF, DRONE_NOISE_RADIUS,
   FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP, FOOTSTEP_REMOTE_GAIN,
   FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
   ROGUE_DROP_ALARM_VOLUME, ROGUE_DROP_ALERT_FALLOFF_EXP, ROGUE_DROP_ALERT_RADIUS,
@@ -62,6 +63,50 @@ const ROGUE_DROP_ALARM_PITCH = 1.06;
 const ROGUE_DROP_FALL_PITCH = 0.88;
 /** 착지 뒤 이만큼 지나면 추적을 버린다 (착지 방송을 못 받은 강하 대비). */
 const ROGUE_DROP_FORGET_S = 3;
+
+/* ── 거리 곡선을 가진 효과음 (2026-09-11) ─────────────────────────────────
+ * 드론 · 원격 지뢰 · 네임드 로그의 소리는 기본 패너(inverse, ref 4 m)로는 성격을 못 낸다 — 지상 드론 걷기는
+ * 소유자 곁에서만, 저격 한 발은 맵 거의 끝까지 들려야 한다. 그래서 `audio:play` 에 위치가 오면 이 표의 id 는
+ * 원격 발소리 · 로그 강하와 **같은 곡선** `(1 − d/range)^exp` 을 호출부 볼륨에 곱하고, 패너는 방향만 맡는다
+ * (`panOnly`). `range` 밖은 보이스를 만들지 않는다.
+ *
+ * `floor` = 사거리 안에서 보장하는 최소 비율. **전조가 들려야 공정한** 소리(저격 반짝임 · 저격 · 스캔 음파)만
+ * 갖는다. 사거리 끝에서 뚝 끊기지 않게 마지막 `RANGED_FLOOR_EDGE` 구간에서 0 으로 줄어든다.
+ *
+ * 이 반경들은 **플레이어 귀의 연출**이고 게임 판정에 쓰이지 않는다 — 판정 반경이 있는 소리는 그 계약 상수에
+ * 묶는다: 질주하는 지상 드론은 적이 듣는 `DRONE_NOISE_RADIUS` 보다 조금 멀리까지 들린다 ("적이 들었는데 나는
+ * 못 들었다" 가 없게).
+ */
+interface RangeProfile { range: number; exp: number; floor?: number }
+const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
+  drone_deploy: { range: 30, exp: 1.5 },
+  drone_move: { range: 12, exp: 1.8 },
+  drone_sprint: { range: DRONE_NOISE_RADIUS * 1.5, exp: 1.3 },
+  drone_jump: { range: 30, exp: 1.5 },
+  drone_land: { range: 30, exp: 1.5 },
+  drone_rotor: { range: 45, exp: 1.4 },
+  drone_hit: { range: 40, exp: 1.4 },
+  drone_destroyed: { range: 90, exp: 1.2 },
+  drone_recover: { range: 30, exp: 1.5 },
+  c4_place: { range: 20, exp: 1.5 },
+  c4_arm: { range: 18, exp: 1.6 },
+  c4_beep: { range: 8, exp: 1.8 },
+  scan_drone_hum: { range: 120, exp: 1.2 },
+  scan_pulse: { range: 180, exp: 1.0, floor: 0.25 },
+  sniper_glint: { range: 260, exp: 0.9, floor: 0.4 },
+  sniper_shot: { range: 900, exp: 0.8, floor: 0.3 },
+  hammer_swing: { range: 30, exp: 1.5 },
+  hammer_impact: { range: 70, exp: 1.2 },
+  minigun_spinup: { range: 90, exp: 1.2 },
+  minigun_fire: { range: 220, exp: 1.0, floor: 0.1 },
+  minigun_spindown: { range: 90, exp: 1.2 },
+};
+/** `floor` 가 사거리 끝 이 비율 구간에서 선형으로 0 이 된다. */
+const RANGED_FLOOR_EDGE = 0.15;
+/** 이보다 조용해질 바에는 보이스를 만들지 않는다. */
+const RANGED_MIN_VOLUME = 0.01;
+/** 드론 아이템의 `gadget:used` 는 `drone_deploy` 가 대신한다 (투척 휙 소리를 겹치지 않는다). */
+const DRONE_GADGET_IDS: readonly string[] = Object.values(DRONE_GADGET_OF);
 
 /** 예고를 받아 놓고 착지 직전에 굉음을 낼 강하 하나. */
 interface DropSound { id: string; pos: THREE.Vector3; landsAt: number; roared: boolean }
@@ -145,7 +190,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     const b = ctx.bus;
     const auto = (id: string, position?: THREE.Vector3, volume?: number, pitch?: number) => this.play(id, position, volume, pitch, true);
     this.unsubs.push(
-      b.on('audio:play', ({ id, position, volume, pitch }) => this.play(id, position, volume, pitch, false)),
+      b.on('audio:play', ({ id, position, volume, pitch }) => this.playRequested(id, position, volume, pitch)),
 
       // player
       b.on('player:damaged', () => auto('player_hurt', undefined, 0.9, 0.9 + Math.random() * 0.2)),
@@ -303,6 +348,8 @@ export class AudioSystem implements GameSystem, AudioRef {
       b.on('implant:equipped', () => auto('ui_equip', undefined, 0.7)),
       // gadgets
       b.on('gadget:used', ({ id, position }) => {
+        // 2026-09-11: drones (`drone_deploy`) and the remote mine (`c4_place`) are voiced by gadgets/ itself.
+        if (DRONE_GADGET_IDS.includes(id) || id === 'remoteMine') return;
         if (id === 'defib') auto('defib', position, 0.9);
         else if (id === 'cloakVeil') auto('cloak_on', position, 0.8);
         else auto('grenade_throw', position, 0.65);
@@ -314,10 +361,14 @@ export class AudioSystem implements GameSystem, AudioRef {
           case 'smoke': auto('smoke_hiss', position, 0.7); break;
           case 'fire': auto('fire_ignite', position, 0.85); break;
           case 'lure': auto('lure_beep', position, 0.7); break;
+          case 'remoteMine': break; // 2026-09-11: gadgets/ plays `c4_place` itself
           default: auto('gadget_place', position, 0.85); break;
         }
       }),
       b.on('gadget:removed', ({ kind, reason }) => {
+        // 2026-09-11: a destroyed remote mine is silent here — a detonation already played `explosion` in gadgets/
+        // and this event cannot tell a dud from a detonation.
+        if (reason === 'destroyed' && kind === 'remoteMine') return;
         if (reason === 'destroyed') auto(kind === 'mine' ? 'mine_explode' : 'gadget_break', undefined, 0.85);
         else if (reason === 'recovered') auto('ui_equip', undefined, 0.6);
       }),
@@ -603,6 +654,30 @@ export class AudioSystem implements GameSystem, AudioRef {
       }
       if (now > d.landsAt + ROGUE_DROP_FORGET_S) this.drops.splice(i, 1);
     }
+  }
+
+  /* ── 거리 곡선 (2026-09-11) ──────────────────────────────────────────── */
+  /** `RANGED_SOUNDS` 한 줄의 거리별 배수. 0 = 사거리 밖. */
+  private rangeGain(prof: RangeProfile, d: number): number {
+    if (d >= prof.range) return 0;
+    const k = 1 - d / prof.range;
+    const curve = Math.pow(k, prof.exp);
+    const floor = prof.floor ?? 0;
+    if (floor <= 0) return curve;
+    return curve * (1 - floor) + floor * Math.min(1, k / RANGED_FLOOR_EDGE);
+  }
+
+  /**
+   * `audio:play` 의 입구. `RANGED_SOUNDS` 에 있는 id 가 위치와 함께 오면 그 곡선을 곱해 **방향 전용** 패너로
+   * 낸다 (감쇠가 두 번 걸리지 않게). 나머지는 예전 그대로 기본 패너를 탄다.
+   */
+  private playRequested(id: string, position: THREE.Vector3 | undefined, volume: number | undefined, pitch: number | undefined): void {
+    const prof = position ? RANGED_SOUNDS[id] : undefined;
+    if (!position || !prof) { this.play(id, position, volume, pitch, false); return; }
+    if (!this.ac || this.ac.state !== 'running') return;
+    const v = (volume ?? 1) * this.rangeGain(prof, this.camPos.distanceTo(position));
+    if (v < RANGED_MIN_VOLUME) return;
+    this.play(id, position, v, pitch, false, true);
   }
 
   /* ── playback ────────────────────────────────────────────────────────── */

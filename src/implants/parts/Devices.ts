@@ -20,7 +20,7 @@ import {
   Keys, MouseButtons, PLAYER_RADIUS,
   type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
   type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
-  type Vec3Tuple,
+  type Vec3Tuple, type DroneRef,
 } from '@/shared';
 import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from '../ImplantDefs';
 import { ImplantDevice } from '../devices/ImplantDevice';
@@ -31,7 +31,7 @@ import { OverchargeBeam, allyPoint, findAlly } from '../effects/Overcharge';
 import { revealScan } from '../effects/Scan';
 import { ImplantFx } from '../fx/ImplantFx';
 import { RemoteImplants } from '../RemoteImplants';
-import { ABSORB_RANGE, BARRIER_SEND_EVERY_HITS, BASH_FX_Y, BEAM_SEND_INTERVAL, BOOST_LINGER, BOOST_SEND_INTERVAL, BUMP_FX_INTERVAL, GRAPPLE_ARRIVE_DIST, GRAPPLE_FLY_SPEED, GRAPPLE_MAX_TIME, HEAL_SEND_INTERVAL, HUD_EMIT_INTERVAL, type Host, OVERCHARGE_MIN_START, SCAN_PULSE_FX_S, SHIELD_SPEED_KEY, _bp, _d, _from, _hitPt, _hp, _muzzle, _n, _o, _p, _r, _t, _tmp, tuple } from '../model';
+import { ABSORB_RANGE, BARRIER_SEND_EVERY_HITS, BASH_FX_Y, BEAM_SEND_INTERVAL, BOOST_LINGER, BOOST_SEND_INTERVAL, BUMP_FX_INTERVAL, GRAPPLE_ARRIVE_DIST, GRAPPLE_FLY_SPEED, GRAPPLE_MAX_TIME, GRAPPLE_SEND_INTERVAL, HEAL_SEND_INTERVAL, HUD_EMIT_INTERVAL, type Host, OVERCHARGE_MIN_START, SCAN_PULSE_FX_S, SHIELD_SPEED_KEY, _bp, _d, _from, _hitPt, _hp, _muzzle, _n, _o, _p, _r, _t, _tmp, tuple } from '../model';
 import type { ImplantSystem } from '../ImplantSystem';
 
 /* ═══════════════════════════ 대시 ═══════════════════════════ */
@@ -94,6 +94,7 @@ export function updateGrapple(sys: ImplantSystem, dt: number, active: boolean): 
   if (sys.grappleState === 'idle') {
     // crosshair validity (HUD reticle) — evaluated whenever the grapple is equipped, the gun stays in hand
     let valid = false, distance = 0;
+    sys.grappleDroneId = null;
     if (active && sys.ready) {
       sys.aimRay(_o, _d);
       const interior = p.interior;
@@ -101,6 +102,14 @@ export function updateGrapple(sys: ImplantSystem, dt: number, active: boolean): 
       const hit = interior ? interior.raycast(_o, _d, IMPLANT_GRAPPLE_RANGE)
         : world ? world.raycast(_o, _d, IMPLANT_GRAPPLE_RANGE) : null;
       if (hit) { valid = true; distance = hit.distance; sys.grapplePoint.copy(hit.point); }
+      // 2026-09-11: air drones take the hook too — the nearer of wall / drone is the anchor (a wall hides a drone behind it)
+      const dh = !interior && ctx.drones ? ctx.drones.raycast(_o, _d, IMPLANT_GRAPPLE_RANGE, 'air') : null;
+      if (dh && dh.drone.kind === 'air' && dh.drone.hp > 0 && (!hit || dh.distance < hit.distance)) {
+        valid = true; distance = dh.distance;
+        sys.grapplePoint.copy(dh.point);
+        sys.grappleDroneId = dh.drone.id;
+        sys.grappleDroneOffset.subVectors(dh.point, dh.drone.position);
+      }
     }
     if (valid !== sys.grappleTargetValid || Math.abs(distance - sys.grappleTargetDist) > 0.75) {
       sys.grappleTargetValid = valid;
@@ -108,6 +117,15 @@ export function updateGrapple(sys: ImplantSystem, dt: number, active: boolean): 
       ctx.bus.emit('implant:grappleTargetChanged', { valid, distance });
     }
     return;
+  }
+
+  // 2026-09-11: a drone anchor moves with the drone (e.g. a squadmate flying it) — re-seat it on the body every
+  // frame; the drone gone or destroyed cuts the wire. The pull ends at the drone: nobody is carried by it.
+  let drone: DroneRef | null = null;
+  if (sys.grappleDroneId !== null) {
+    drone = ctx.drones?.getDrone(sys.grappleDroneId) ?? null;
+    if (!drone || drone.hp <= 0) { sys.releaseGrapple(false); return; }
+    sys.grapplePoint.copy(drone.position).add(sys.grappleDroneOffset);
   }
 
   sys.grappleTimer += dt;
@@ -123,15 +141,27 @@ export function updateGrapple(sys: ImplantSystem, dt: number, active: boolean): 
       ctx.bus.emit('implant:grappleAttached', { point: sys.grapplePoint.clone() });
       ctx.bus.emit('audio:play', { id: 'grapple_attach', position: sys.grapplePoint, volume: 0.8 });
       sys.fx.spark(sys.grapplePoint, implantHex('grapple'), 0.4);
+      sys.grappleSendAcc = 0;
       sys.send({ t: 'imp', ev: 'grapple', o: tuple(_muzzle), p: tuple(sys.grapplePoint) });
     } else {
       sys.grappleTip.copy(sys.grapplePoint).sub(_muzzle).normalize().multiplyScalar(sys.grappleFlown).add(_muzzle);
+    }
+  } else if (drone) {
+    // attached to a drone: tip and pull follow it. player/ copies the pull point, so it is handed over again each frame.
+    sys.grappleTip.copy(sys.grapplePoint);
+    sys.setGrapplePull(sys.grapplePoint);
+    sys.grappleSendAcc += dt;
+    if (sys.grappleSendAcc >= GRAPPLE_SEND_INTERVAL) {
+      sys.grappleSendAcc = 0;
+      sys.send({ t: 'imp', ev: 'grapple', o: tuple(_muzzle), p: tuple(sys.grapplePoint) });
     }
   }
   sys.wire.set(_muzzle, sys.grappleTip, sys.grappleState === 'attached');
 
   if (sys.grappleState === 'attached') {
-    const arrived = p.position.distanceTo(sys.grapplePoint) < GRAPPLE_ARRIVE_DIST;
+    // a drone anchor arrives its radius early so the reel never drags the player into the drone's body
+    const arriveDist = GRAPPLE_ARRIVE_DIST + (drone ? drone.radius : 0);
+    const arrived = p.position.distanceTo(sys.grapplePoint) < arriveDist;
     if (arrived || sys.grappleTimer > GRAPPLE_MAX_TIME || !active) sys.releaseGrapple(false);
   }
   }
@@ -144,6 +174,7 @@ export function fireGrapple(sys: ImplantSystem): void {
   sys.grappleState = 'flying';
   sys.grappleFlown = 0;
   sys.grappleTimer = 0;
+  sys.grappleSendAcc = 0;
   sys.grappleTip.copy(_muzzle);
   ctx.bus.emit('implant:grappleFired', { origin: _muzzle.clone(), direction: _d.clone() });
   ctx.bus.emit('audio:play', { id: 'grapple_fire', volume: 0.8 });
@@ -158,6 +189,8 @@ export function releaseGrapple(sys: ImplantSystem, silent: boolean): void {
   sys.grappleState = 'idle';
   sys.grappleFlown = 0;
   sys.grappleTimer = 0;
+  sys.grappleDroneId = null;
+  sys.grappleSendAcc = 0;
   sys.wire.hide();
   sys.setGrapplePull(null);
   sys.ctx.bus.emit('implant:grappleReleased', {});

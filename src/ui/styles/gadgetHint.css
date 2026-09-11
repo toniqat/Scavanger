@@ -1,0 +1,40 @@
+/*
+ * src/ui/styles/gadgetHint.css — 손에 든 가젯 안내 (`hud/GadgetHandHint`, 2026-09-11).
+ *
+ *   `.gadget-hand-hint`  크로스헤어 아래 세로 줄 묶음. 홀드 링(`.hold`, 반지름 60px + 라벨)을 비켜 92px 아래에 선다.
+ *     `.ghh-row`           키캡 + 문구 한 줄. 색 = 왼쪽 띠 `--gh`:
+ *                          `.ok` 설치 가능 · 조종 / `.bad` 설치 불가 사유 · 신호 범위 밖 / `.det` 기폭 / `.info` 드론 배치
+ *
+ * 꾹 누르는 키(`R 꾹 조종`)는 공용 `.keycap.kc-hold` chevron 을 쓰고, 그 줄은 chevron 자리만큼 위를 띄운다.
+ */
+
+.gadget-hand-hint {
+  position: absolute; left: 50%; top: calc(50% + 92px); transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  pointer-events: none;
+}
+.ghh-row {
+  --gh: var(--c-text-dim);
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 10px 3px 6px;
+  background: rgba(8, 10, 12, 0.55);
+  border-left: 2px solid var(--gh);
+  white-space: nowrap;
+}
+.ghh-row[hidden] { display: none !important; }
+.ghh-row .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 10px; }
+.ghh-row .keycap[hidden], .ghh-row .pre[hidden] { display: none !important; }
+/* 기폭기 손 앞머리 (`기폭기 ·`) */
+.ghh-row .pre { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-accent); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
+.ghh-row .txt {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--c-text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.ghh-row.ok { --gh: var(--c-success); }
+.ghh-row.det { --gh: var(--c-accent); }
+.ghh-row.bad { --gh: var(--c-danger); }
+.ghh-row.bad .txt { color: var(--c-danger); }
+.ghh-row:has(.keycap.kc-hold) { padding-top: 13px; }
+
+/* 관전 중에는 손이 없다 */
+.hud.spectating .gadget-hand-hint { opacity: 0 !important; visibility: hidden; }

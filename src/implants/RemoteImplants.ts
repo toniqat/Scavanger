@@ -27,6 +27,13 @@ interface PeerVis {
   wireActive: boolean;
   readonly wireFrom: THREE.Vector3;
   readonly wireTo: THREE.Vector3;
+  /**
+   * 2026-09-11: the replicated air drone the peer's hook sits on, bound from a **refresh** `imp grapple` (only a drone
+   * anchor re-sends while attached, so a one-shot wall anchor is never bound by accident). The wire end then follows
+   * the drone replica every frame at position + offset instead of jumping at the 4 Hz refresh.
+   */
+  wireDroneId: string | null;
+  readonly wireDroneOffset: THREE.Vector3;
   /** Phase 10: the peer's carried shield (follows their snapshot transform while `shieldUp`). */
   barrier: BarrierField | null;
   shieldUp: boolean;
@@ -87,15 +94,22 @@ export class RemoteImplants {
       case 'grapple': {
         if (!msg.p) {
           if (v.wireActive) { v.wireActive = false; v.wire?.hide(); }
+          v.wireDroneId = null;
           break;
         }
         v.wireFrom.set(msg.o[0], msg.o[1], msg.o[2]);
         v.wireTo.set(msg.p[0], msg.p[1], msg.p[2]);
         if (!v.wire) v.wire = new GrappleWire(this.ctx.scene, this.fx, implantHex('grapple'));
+        // 2026-09-11: a drone anchor is re-sent ≤ 4 Hz while attached — a refresh moves the end, it is not a new hook
+        const refresh = v.wireActive;
         v.wireActive = true;
+        if (refresh) this.bindWireDrone(v);
+        else v.wireDroneId = null;
         v.wire.set(v.wireFrom, v.wireTo, true);
-        this.fx.spark(v.wireTo, implantHex('grapple'), 0.3);
-        this.ctx.bus.emit('audio:play', { id: 'grapple_attach', position: v.wireTo, volume: 0.5 });
+        if (!refresh) {
+          this.fx.spark(v.wireTo, implantHex('grapple'), 0.3);
+          this.ctx.bus.emit('audio:play', { id: 'grapple_attach', position: v.wireTo, volume: 0.5 });
+        }
         break;
       }
       case 'dash': {
@@ -217,6 +231,12 @@ export class RemoteImplants {
       if (v.wire) {
         v.wire.update(dt);
         if (v.wireActive) {
+          // 2026-09-11: hooked on a drone replica — the end rides the drone between refreshes (gone = keep the last point)
+          if (v.wireDroneId !== null) {
+            const d = this.ctx.drones?.getDrone(v.wireDroneId) ?? null;
+            if (d) v.wireTo.copy(d.position).add(v.wireDroneOffset);
+            else v.wireDroneId = null;
+          }
           const ref = net?.getRemotePlayer(id);
           const socket = ref?.avatar?.weaponSocket;
           if (socket) { socket.updateWorldMatrix(true, false); _a.setFromMatrixPosition(socket.matrixWorld); }
@@ -249,6 +269,7 @@ export class RemoteImplants {
       v = {
         device: null, deviceId: null, deviceAttached: false,
         wire: null, wireActive: false, wireFrom: new THREE.Vector3(), wireTo: new THREE.Vector3(),
+        wireDroneId: null, wireDroneOffset: new THREE.Vector3(),
         barrier: null, shieldUp: false, shieldHp: 0,
         beam: null, beamOn: false, beamTarget: null, beamSelf: false, beamUntil: 0, glow: null, glowMat: null,
       };
@@ -281,6 +302,25 @@ export class RemoteImplants {
       else if (v.shieldHp > v.barrier.hp + 1) v.barrier.hp = Math.min(v.barrier.maxHp, v.shieldHp);
     }
     v.barrier.follow(position, yaw);
+  }
+
+  /**
+   * 2026-09-11: bind the peer's wire end to the nearest alive air drone replica whose body the anchor point lies on
+   * (within `radius + height` of its centre — the hook lands on the body surface). No match = the point stays put.
+   */
+  private bindWireDrone(v: PeerVis): void {
+    v.wireDroneId = null;
+    const drones = this.ctx.drones;
+    if (!drones) return;
+    let best = Infinity;
+    for (const d of drones.getDrones()) {
+      if (d.kind !== 'air' || d.hp <= 0) continue;
+      const dist = d.position.distanceTo(v.wireTo);
+      if (dist > d.radius + d.height || dist >= best) continue;
+      best = dist;
+      v.wireDroneId = d.id;
+      v.wireDroneOffset.subVectors(v.wireTo, d.position);
+    }
   }
 
   /* ── Phase 7: overcharge beam / self glow of a remote caster ── */
@@ -358,7 +398,7 @@ export class RemoteImplants {
     v.beam?.dispose();
     if (v.glow) { v.glow.removeFromParent(); v.glowMat?.dispose(); }
     v.device = null; v.wire = null; v.barrier = null; v.beam = null; v.glow = null; v.glowMat = null;
-    v.deviceId = null; v.deviceAttached = false; v.wireActive = false;
+    v.deviceId = null; v.deviceAttached = false; v.wireActive = false; v.wireDroneId = null;
     v.shieldUp = false; v.shieldHp = 0;
     v.beamOn = false; v.beamTarget = null; v.beamSelf = false;
   }

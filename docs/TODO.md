@@ -141,6 +141,16 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | C-44 | **렌더 경로가 바뀌면 lit 셰이더가 한 번 전부 다시 컴파일된다** — ① `Engine.perfGuard` 가 첫 90 초에 블룸을 끄면 렌더 타깃이 컴포저 → 캔버스로 바뀌어 프로그램 키의 색공간 · 톤매핑이 달라진다, ② `설정 › 그림자` 가 해의 `castShadow` 를 끄면 `shadowMapEnabled` 키가 바뀐다 (core README 는 "recompiles nothing" 이라고 적고 있었다). 둘 다 사용자 조작 · 1회라 hold 로 가리면 된다(`ctx.shaders.holdForScene()`) | `src/core/Engine.ts` `perfGuard` · `setShadows` |
 | C-45 | **`smoke-pitch` 가 이 PC 에서 뜨지 않는다** — `ROOT = 'F:/Project/Scavanger/docs/pitch'` 가 하드코딩돼 있어 저장소가 `D:` 인 곳에서는 `ENOENT` 로 죽는다 (2026-09-10 `verify:all` 에서 발견). `import.meta.url` 기준으로 바꾸면 된다 | `scripts/smoke-pitch.mjs:21` |
 | C-46 | **`smoke-server-dist` 의 `address rules` 절이 Node 22.17 에서 죽는다** — `src/shared/net.ts` 를 직접 import 하는데 러너가 `--experimental-strip-types` 없이 스모크를 띄운다 (`ERR_UNKNOWN_FILE_EXTENSION`). 러너가 그 스크립트에만 플래그를 주거나, 스모크가 번들된 결과를 읽게 한다 | `scripts/smoke-server-dist.mjs`, `scripts/verify.mjs` `runSmoke` |
+| C-47 | **베헤모스 돌진이 드론을 치지 않는다** (2026-09-11). 근접은 드론 표적을 때리지만 돌진 경로는 플레이어만 훑는다 — `host.targets.drones` 도 보고 `chargeHit` 의 드론 분기로 보내면 된다 | `src/enemies/ai/GimmickAI.ts` `chaseBehemoth` / `attackBehemoth` |
+| C-48 | **벌레가 드론에 뱉은 산성은 다른 클라이언트에 안 보인다** — `ee acid.target` 이 PeerId 뿐이라 드론 · 적을 가리킬 수 없다(벌레 ↔ 로그 산성도 원래 그렇다). 계약에 `targetDrone?: string` 을 더하면 된다 | `src/shared/net.ts` `EnemyEvent 'acid'`, `src/enemies/parts/Attacks.ts` `fireAcid` |
+| C-49 | **호스트가 바뀌면 떠 있던 로든의 스캔 드론이 첫 틱에 떠난다** — `namedData` 가 호스트 전용이라 승격된 호스트에는 없다. 로든이 `droneRetry` 뒤 새로 띄우므로 치명적이지 않다. 리플리카의 노출 칸은 어느 저격수 것인지(`sniperId`) 모른다 | `src/enemies/ai/named/ScanDrone.ts` |
+| C-50 | **리플리카의 헤비 트레이서 높이가 드론 표적에서 틀린다** — 머리 피치를 가장 가까운 플레이어 쪽으로 잡기 때문이다 (피해는 호스트가 맞게 준다) | `src/enemies/ai/named/Heavy.ts` `afterHeavyReplica` |
+| C-51 | **타길라의 타격에 벌레 소리가 섞인다** — 공용 `hitTarget` 이 `bug_attack` 을, 막힌 돌진의 `integrate` 가 `bug_step` 을 낸다. `hitTarget` 에 소리 옵션이 없다 | `src/enemies/EnemySystem.ts` `hitTarget`, `src/enemies/ai/named/Hammer.ts` |
+| C-52 | **키프레임으로만 네임드를 만든 늦은 합류자는 `enemy:namedSpawned` 를 못 받는다** (`ee spawn` 을 놓친 경우) — 기존 리플리카 경로의 성질이다 | `src/enemies/named/Director.ts`, `src/enemies/net/Replica.ts` |
+| C-53 | **로든 조준경 반짝임 마커가 카메라보다 한 프레임 늦을 수 있다** — `NamedScanWarning` 이 `update` 에서 화면 좌표를 잡는다(`HudSystem` 에 `lateUpdate` 경로가 없다) | `src/ui/HudSystem.ts`, `src/ui/hud/NamedScanWarning.ts` |
+| C-54 | **스캔 드론의 리플리카 비행음이 `Enemy` 의 private `host` 를 캐스트로 읽는다** — 2026-09-11 에 `afterNamedReplica` 가 `ReplicaHost` 를 넘기게 됐으니 그 인자로 바꾸면 된다 | `src/enemies/ai/named/ScanDrone.ts` `afterScanDroneReplica` |
+| C-55 | **엎드린 로든의 몸통 히트박스가 서 있는 캡슐이다** — `raycastEx` 가 세로 1.8 m 캡슐이라 엎드린 몸 위 허공이 맞고 다리 쪽은 안 맞는다(머리 구만 `SniperLook` 이 자세를 따라 옮긴다). 힌트 14/15 에서 눕힌 캡슐이 필요하다 | `src/enemies/EnemySystem.ts` `raycastEx`, `src/enemies/models/named/SniperLook.ts` |
+| C-56 | **로든의 소염기가 바위 속에 박히면 탄이 바위를 통과한다** — 사선 검사는 엎드린 눈에서, 탄은 리그 총구에서 나간다. 드문 경우라 뒀다 | `src/enemies/ai/named/Sniper.ts` `lineOpen` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 
@@ -156,6 +166,8 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | D-6 | **ADS 프레이밍** (`ADS_SHOULDER` 0.68 / `ADS_PIVOT_LIFT` 0.22) 재확인 | HISTORY Weapon package |
 | D-7 | **병사 장갑이 이끼/독성 녹색 팔레트에서 어둡게 읽힌다** — env map 또는 림 라이트 검토 | HISTORY |
 | D-8 | **드랍쉽 선체가 가까이서 각지다** — 그리블 · 패널 라인 추가 검토 | HISTORY |
+| D-9 | **드론 · 원격 지뢰 · 네임드 수치 전부 1차값** (2026-09-11) — 드론 사거리 70/90 m · 체력 30/10 · 질주 소음 35 m, 원격 지뢰 260 / 6 m · 중첩 50 %, 네임드 확률 4–35 % · 로든 150 · 헤비 6 × 12발/s · 타길라 초당 50 · 스캔 음파 5회 / 38 m | `data/constants.csv` · `data/enemy_abilities.csv` · `data/tables.csv` |
+| D-10 | **네임드 확정 드롭이 행성 등급 곡선을 무시한다** — 난이도 1–2 행성에서도 III+ 저격소총 · 방탄복 · 유니크 미니건이 나온다(사용자 명세 "최소 희귀부터" 를 글자대로). 초반 행성 경제가 흔들리면 `data/loot_named.csv` 에 행성 등급 상한 열을 더한다 | `data/loot_named.csv`, `src/items/Loot.ts` `rollNamedDrop` |
 
 ---
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { RogueShotOpts } from './Enemy';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
@@ -9,6 +10,8 @@ import {
   type RogueDropView,
   /* appended (2026-09-10): HUD 위험 인디케이터가 읽는 적 수류탄 */
   type GrenadeView,
+  /* appended (2026-09-11): 네임드 로그 디버그 훅 */
+  type NamedRogueType,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -33,6 +36,7 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/Hos
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
+import { NamedRogueDirector, type NamedRollResult } from './named/Director';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
@@ -72,6 +76,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   getEnemyGrenades(): readonly GrenadeView[] { return this.grenades?.getViews() ?? EMPTY_GRENADES; }
   /** 로그 강하 — 굴림 기록 · 포드 연출 · 착지 스폰 (호스트 권한, 훈련장에서는 아무 것도 하지 않는다). */
   readonly rogueDrops = new RogueDropDirector();
+  /** 2026-09-11: 네임드 로그 — 레이드당 1회 굴림 · 자리 · 스폰 · `enemy:namedSpawned` (`named/Director.ts`). */
+  readonly named = new NamedRogueDirector();
   /** Phase 12: through-wall silhouettes (`setXray`). */
   readonly xray = new EnemyXray();
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
@@ -141,6 +147,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.grenades.bind(this);
     this.corpses.bind(ctx);
     this.rogueDrops.bind(this);
+    this.named.bind(this);
 
     const bus = ctx.bus;
     this.unsub.push(
@@ -165,6 +172,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
             this.bossId = guards.boss.id;
             ctx.bus.emit('enemy:bossSpawned', { id: guards.boss.id, type: guards.boss.type, position: guards.boss.position });
           }
+          // 2026-09-11: 네임드 로그 — 가드 배치 뒤 레이드당 한 번 (world:ready 에서만 굴리므로 승격된 호스트는 다시 굴리지 않는다)
+          this.named.roll(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
         }
       }),
       // WorldSystem (registered earlier) generates synchronously inside ITS game:newMission handler and emits
@@ -190,6 +199,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
       }),
       bus.on('crate:looted', ({ crateId }) => this.corpses.markLooted(crateId)),
+      // 2026-09-11 (적 ↔ 드론): 질주하는 지상 드론의 소음 — 권한 클라이언트에서만 나온다 (`parts/Alerts.onWorldNoise`)
+      bus.on('world:noise', ({ position, radius }) => this.onWorldNoise(position, radius)),
+      // 2026-09-11: 리플리카는 `ee spawn` 으로 네임드를 처음 볼 때 `enemy:namedSpawned` 를 낸다 (권한은 스폰 경로가 직접)
+      bus.on('enemy:spawned', ({ id, type }) => this.named.onSpawned(id, type)),
       // 2026-09-09: 로그 강하 — world/ 가 구조물 · 플랫폼 컨테이너를 처음 조사할 때 낸다. 호스트만 굴린다 (구역당 1회).
       bus.on('structure:investigated', ({ zoneId, position }) => this.rogueDrops.onInvestigated(zoneId, position)),
       // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
@@ -633,6 +646,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
   /** 2026-09-09 (debug / smoke): `structure:investigated` 없이 굴림 경로를 그대로 태운다 (구역당 1회 규칙 포함). */
   debugInvestigate(zoneId: string, position: THREE.Vector3): void { this.rogueDrops.onInvestigated(zoneId, position); }
+  /**
+   * 2026-09-11 (debug / smoke): 판정 없이 네임드 `type` 을 세운다 (헤비면 SMG 호위 포함). `at` 이 없으면 플레이어 앞 40 m.
+   * 권한만. `enemy:namedSpawned` 는 나가지만 이번 레이드의 굴림 기록은 건드리지 않는다.
+   */
+  debugSpawnNamed(type: NamedRogueType, at?: { x: number; z: number }): Enemy | null { return this.named.debugSpawn(type, at); }
+  /** 2026-09-11 (debug / smoke): 이번 레이드의 네임드 굴림 — 확률 · 굴린 값 · 뽑힌 종류 · 자리 · 호위 수. */
+  debugNamedRoll(): NamedRollResult { return this.named.debugRoll(); }
   /** Phase 11 (debug / smoke): rogues placed as crate guards right now (boss included). */
   debugGuardCount(): { rogues: number; boss: boolean } {
     let rogues = 0; let boss = false;
@@ -733,6 +753,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   alertHearing(position: THREE.Vector3, radius: number): void { return Alert.alertHearing(this, position, radius); }
 
   /**
+   * 2026-09-11 (적 ↔ 드론): `world:noise` (지상 드론 질주). 들을 수 있는 거리 안의 아직 아무도 인지하지 못한 적이 그
+   * 소리 쪽을 조사한다(`ai/Investigate`). 표적은 주지 않는다 — 드론이 보이면 `pickTarget` 이 고른다. 권한 전용.
+   */
+  onWorldNoise(position: THREE.Vector3, radius: number): void { return Alert.onWorldNoise(this, position, radius); }
+
+  /** 2026-09-11 (debug / smoke): 적이 지금 노릴 수 있는 드론 프록시 — id · 밑면 고도(m). */
+  get debugDroneTargets(): Array<{ id: string; altitude: number }> {
+    return this.targets.drones.map((t) => ({ id: t.droneId ?? '', altitude: t.droneAltitude }));
+  }
+
+  /**
    * Phase 4 target selection. Bugs: nearest of (alive players, rogues within sight radius) — equal priority.
    * Rogues: the nearest alive player within ROGUE_RANGE; otherwise a bug within ROGUE_AI.bugRange, else the nearest player.
    */
@@ -745,7 +776,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   bitePitch(type: EnemyType): number { return Atk.bitePitch(this, type); }
 
   /** Rogue hitscan shot (authority): occlusion, player capsules, enemy hitboxes, damage, FX, audio, events, wire. */
-  fireGun(e: Enemy, target: CombatTarget, aimError: number, damageMul: number): void { return Atk.fireGun(this, e, target, aimError, damageMul); }
+  fireGun(e: Enemy, target: CombatTarget, aimError: number, damageMul: number, opts?: RogueShotOpts): boolean { return Atk.fireGun(this, e, target, aimError, damageMul, opts); }
 
   /** Tracer + muzzle flash sprite (no lights) + rifle report at the muzzle. */
   shotFx(from: THREE.Vector3, to: THREE.Vector3, hit: number): void { return Atk.shotFx(this, from, to, hit); }

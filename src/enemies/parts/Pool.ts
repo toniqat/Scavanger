@@ -60,6 +60,7 @@ export function reset(sys: EnemySystem): void {
   sys.targets.clear();
   sys.corpses.clear();
   sys.rogueDrops.reset();     // 2026-09-09: 굴림 기록(구역당 1회)도 레이드마다 새로 시작한다
+  sys.named.reset();          // 2026-09-11: 네임드 굴림 결과 · 알림 기록도 레이드마다 (네임드 · 호위는 로그라 `ensureCapacity` 재활용 대상이 아니다)
   sys.fx?.clear();
   sys.acid?.clear();
   sys.shells?.clear();

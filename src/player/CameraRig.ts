@@ -86,6 +86,12 @@ export class CameraRig {
   private fovMul = 1;
   /** true → while aiming the camera tucks into the shoulder so the soldier leaves the frame. */
   scoped = false;
+  /**
+   * 2026-09-11 드론 시점 (`setDroneView`): the camera belongs to a drone override, so the body's own shake, recoil and
+   * FOV changes (sprint kick, ADS, view widen) must not leak into it. Collision keeps running on the rig position
+   * behind the player so releasing the override returns to a valid spot.
+   */
+  private droneView = false;
   private pitchMin = PITCH_MIN;
   private readonly distSpring: SpringState = { value: HIP_DIST, velocity: 0 };
   private readonly pivot = new THREE.Vector3();
@@ -130,6 +136,7 @@ export class CameraRig {
   }
 
   addShake(intensity: number, duration: number): void {
+    if (this.droneView) return;   // 2026-09-11: shakes are centred on the body, not on the drone we look through
     this.trauma = Math.min(1, this.trauma + intensity);
     this.shakeTimer = Math.max(this.shakeTimer, duration);
   }
@@ -148,7 +155,11 @@ export class CameraRig {
     this.scoped = scope;
   }
 
-  /** Cutscene camera. `weight` target 1 = fully overridden; call with null to release. */
+  /**
+   * Cutscene camera. `weight` target 1 = fully overridden; call with null to release.
+   * `snap` jumps the weight: to 1 with a pose, and (2026-09-11) **to 0 on release** — a hard cut back to the rig instead
+   * of the damp-4 blend (the drone view uses it so the camera never sweeps from the drone through the terrain).
+   */
   setOverride(pos: THREE.Vector3 | null, lookAt?: THREE.Vector3, snap = false): void {
     if (pos) {
       this.overridePos.copy(pos);
@@ -157,7 +168,20 @@ export class CameraRig {
       if (snap) this.overrideWeight = 1;
     } else {
       this.overrideTarget = 0;
+      if (snap) this.overrideWeight = 0;
     }
+  }
+
+  /**
+   * 2026-09-11 드론 시점 on / off. Clears the pending shake and recoil offsets both ways, ignores `addShake` while on and
+   * snaps the FOV to the base value on entry (an ADS / sprint FOV would otherwise damp out inside the drone view).
+   */
+  setDroneView(on: boolean): void {
+    if (on === this.droneView) return;
+    this.droneView = on;
+    this.trauma = 0; this.shakeTimer = 0;
+    this.recoilPitch = 0; this.recoilYaw = 0;
+    if (on) { this.fov = this.baseFov; this.fovMul = 1; }
   }
 
   snapTo(pivot: THREE.Vector3, yaw: number): void {
@@ -350,9 +374,10 @@ export class CameraRig {
     // ── FOV: gentle sprint kick; ADS either the default −20° or the weapon's zoom divisor
     const hipFov = this.baseFov + SPRINT_FOV_KICK * inp.sprint * inp.moveBlend;
     const aimFov = this.aimZoom > 1 ? this.baseFov / this.aimZoom : this.baseFov - ADS_FOV_DROP;
-    const targetFov = THREE.MathUtils.lerp(hipFov, aimFov, inp.aim);
+    const targetFov = this.droneView ? this.baseFov : THREE.MathUtils.lerp(hipFov, aimFov, inp.aim);
     // view widen (big slash): multiplies whatever the sprint / ADS logic wants, snappy in, softer out
-    this.fovMul = damp(this.fovMul, this.viewWiden ? SLASH_FOV_MUL : 1, this.viewWiden ? 14 : 7, dt);
+    const widen = this.viewWiden && !this.droneView;
+    this.fovMul = damp(this.fovMul, widen ? SLASH_FOV_MUL : 1, widen ? 14 : 7, dt);
     this.fov = damp(this.fov, Math.min(150, targetFov * this.fovMul), 6, dt);
 
     // ── cutscene override blend

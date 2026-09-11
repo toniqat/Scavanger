@@ -30,6 +30,7 @@ interface Glob {
 const _d = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _aim = new THREE.Vector3();
+const _q = new THREE.Vector3();
 
 /**
  * Pooled arcing acid globs fired by spewers. Tests against terrain/obstacles (world raycast) and every alive
@@ -54,6 +55,8 @@ export class AcidProjectiles {
   /** Launch a glob from `from` toward the target's predicted position with a ballistic arc. */
   fire(from: THREE.Vector3, target: CombatTarget, shooterId: number): boolean {
     _aim.copy(target.position).addScaledVector(target.velocity, THREE.MathUtils.clamp(from.distanceTo(target.position) / 15, 0.7, 1.5) * 0.6);
+    // 2026-09-11: `fireAt` 은 발 + PLAYER_HEIGHT/2 를 노린다 — 몸 높이가 다른 표적(드론)은 그 차이만큼 내린다. 플레이어는 0.
+    _aim.y += (target.bodyHeight - PLAYER_HEIGHT) * 0.5;
     return this.fireAt(from, _aim, shooterId);
   }
 
@@ -103,6 +106,18 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
+      // 2026-09-11: 노려도 되는 드론의 몸체 (프록시 `position` = 밑면, 납작한 몸체는 중심의 구). 피해는 권한에서만.
+      const drones = host.targets.drones;
+      for (let i = 0; i < drones.length && !splashed; i++) {
+        const t = drones[i];
+        const r = t.bodyRadius, h = t.bodyHeight, cy = t.position.y + h * 0.5;
+        _p.copy(t.position);
+        _p.y = THREE.MathUtils.clamp(g.mesh.position.y, Math.min(cy, t.position.y + r), Math.max(cy, t.position.y + h - r));
+        if (_p.distanceToSquared(g.mesh.position) <= (r + GLOB_RADIUS) ** 2) {
+          host.damageTargetAcid(t, SPEWER_SPIT.damage, g.prev, g.shooterId, { duration: SPEWER_SPIT.slowDuration, factor: 0.55 });
+          splashed = true;
+        }
+      }
       if (!splashed && world) {
         _d.subVectors(g.mesh.position, g.prev);
         const len = _d.length();
@@ -134,6 +149,13 @@ export class AcidProjectiles {
       const t = players[i];
       const d = t.position.distanceTo(p);
       if (d < 2.4 && d > 0.6) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
+    }
+    // 2026-09-11: 드론 — 몸체 중심에서 잰다. 직격(몸체 반지름 + 글롭 안)은 위 `update` 가 이미 줬으므로 뺀다.
+    const drones = host.targets.drones;
+    for (let i = 0; i < drones.length; i++) {
+      const t = drones[i];
+      const d = t.getChest(_q).distanceTo(p);
+      if (d < 2.4 && d > Math.max(0.6, t.bodyRadius + GLOB_RADIUS)) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }
   }
 

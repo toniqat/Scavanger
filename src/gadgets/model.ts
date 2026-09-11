@@ -40,6 +40,11 @@ export const ZONE_TICK = 0.5;
 export const MAX_DEPLOYABLES = 40;
 /** Half-height of the player capsule used for turret friendly-fire tests. */
 export const PLAYER_HALF_H = 0.9;
+/**
+ * 2026-09-11 (설치 미리보기, `parts/Preview`): 설치 자리가 발 높이에서 위아래로 이만큼(m) 넘게 벗어나면 `너무 멀다`.
+ * 값은 `data/constants.csv` 의 `GADGET_PLACE_VERTICAL_REACH` — 옛 이름은 호출부를 위해 재수출만 한다.
+ */
+export { GADGET_PLACE_VERTICAL_REACH as PLACE_VERTICAL_REACH } from '@/shared';
 
 export const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 export const _d = new THREE.Vector3(), _e = new THREE.Vector3(), _fwd = new THREE.Vector3();

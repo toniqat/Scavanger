@@ -202,6 +202,7 @@ export function canAct(sys: PlayerSystem): boolean {
   return sys.spawned && sys.controlsEnabled && !sys.isDead && !sys._downed && !sys._inPod
     && sys.carriedSocket === null
     && !sys.controller.climbing   // 2026-09-11: 사다리에 매달린 손으로는 구르기 · 근접 · 들쳐메기가 없다
+    && !sys._droneControl         // 2026-09-11: 드론 조종 중에도 없다 (`parts/DroneControl`)
     && sys.ctx.isControlActive()
     && !(sys.hellpod.isActive && sys.hellpod.state !== 'exiting');
   }

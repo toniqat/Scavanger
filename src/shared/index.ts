@@ -49,3 +49,6 @@ export * from './render';
 export * from './lightPool';
 /* appended (2026-09-11): 투척물이 창문 유리를 깨고 지나가는 한 줄 — weapons · gadgets · enemies 공용 */
 export * from './fragile';
+/* appended (2026-09-11): 지상 · 공중 드론 (`ctx.drones`) · 네임드 로그 */
+export * from './drones';
+export * from './named';

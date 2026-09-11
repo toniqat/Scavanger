@@ -23,6 +23,8 @@ import type { TutorialRef } from './tutorial';
 import type { CorpsesRef } from './types';
 /* appended (2026-09-10): 셰이더 선컴파일 · 광원 예산 */
 import type { ShaderWarmupRef } from './render';
+/* appended (2026-09-11): 드론 */
+import type { DronesRef } from './drones';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -113,6 +115,9 @@ export class GameContext {
    * any system `init` runs. 새 장면(함선 · 행성)을 보여 주기 전에 `warm` / `holdForScene` 으로 컴파일을 끝내 둔다.
    */
   shaders: ShaderWarmupRef | null = null;
+  /* appended (2026-09-11) */
+  /** 지상 · 공중 드론 (`shared/drones`). Published by gadgets/drones/DroneSystem. */
+  drones: DronesRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

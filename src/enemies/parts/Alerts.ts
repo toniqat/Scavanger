@@ -145,7 +145,7 @@ export function alertHearing(sys: EnemySystem, position: THREE.Vector3, radius: 
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.aware) continue;
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
-    const reach = Math.min(radius, e.stats.hearRadius + (radius - 55));
+    const reach = hearingReach(e, radius);
     if (dx * dx + dz * dz <= Math.min(r2, reach * reach)) {
       becomeAlert(e, sys, loudBudget > 0);
       loudBudget--;
@@ -153,9 +153,73 @@ export function alertHearing(sys: EnemySystem, position: THREE.Vector3, radius: 
   }
   }
 
+/** 반경 `radius` 의 소리를 `e` 가 들을 수 있는 거리 — 총성에서 쓰던 식 그대로이고 소음원(총성 · 수류탄 · 드론)과 무관하다. */
+function hearingReach(e: Enemy, radius: number): number {
+  return Math.min(radius, e.stats.hearRadius + (radius - 55));
+}
+
+/**
+ * 드론을 노리려면 플레이어보다 이만큼 **확실히** 가까워야 한다 — `ai/Perception.acquireTarget` 의 표적 교체
+ * 히스테리시스(LOS 있을 때 0.6)와 같은 값이다. 알고리즘 상수라 csv 대상이 아니다.
+ */
+const DRONE_PREFER_MUL = 0.6;
+
+/** 근접으로만 싸우는 적 — 공중 드론이 공격 사거리 위에 떠 있으면 노리지 않는다 (밑에서 영원히 맴돈다). */
+function isMeleeOnly(e: Enemy): boolean {
+  if (e.type === 'spewer' || e.type === 'artillery') return false;
+  return !e.isRogue || e.type === 'rogue_hammer';
+}
+
+/**
+ * 2026-09-11 (적 ↔ 드론): `e` 가 지금 노릴 수 있는 가장 가까운 드론. 후보는 `TargetList.drones`(= `aggroable` —
+ * 걷는 지상 드론은 애초에 없다) 중에서 ① `maxDist` 보다 가깝고 ② 근접형이면 드론 밑면이 `키 + 공격 사거리` 안에
+ * 떠 있고 ③ 기존 인지 규칙(`canPerceive`: 시야 반경 × 은폐 · 연막, 5 m 근접 또는 사선, 총알 추적 콘 포함)을
+ * 통과하는 것. 레이캐스트는 앞의 두 값싼 검사를 통과한 드론에만 쏜다. 스캔 드론(`rogue_scan_drone`)은 드론을 노리지 않는다.
+ */
+export function pickDroneTarget(sys: EnemySystem, e: Enemy, maxDist: number): CombatTarget | null {
+  const list = sys.targets.drones;
+  if (list.length === 0 || e.type === 'rogue_scan_drone') return null;
+  const meleeOnly = isMeleeOnly(e);
+  const reachUp = e.stats.height + e.stats.attackRange;
+  let best: CombatTarget | null = null;
+  let bestD = Math.min(maxDist, e.stats.sightRadius);
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    if (t.isDeadOrDowned) continue;
+    const d = t.dist2D(e.position);
+    if (d >= bestD) continue;
+    if (meleeOnly && t.droneAltitude > reachUp) continue;
+    if (!canPerceive(e, sys, t, true)) continue;
+    best = t; bestD = d;
+  }
+  return best;
+}
+
+/**
+ * 2026-09-11 (적 ↔ 드론): `world:noise` — 질주하는 지상 드론. **권한 클라이언트에서만** 나오고 여기서도 권한만 반응한다.
+ * 들을 수 있는 거리(`hearingReach`, 총성과 같은 식) 안에서 **아직 아무것도 인지하지 못한** 적이 그 소리 쪽을 조사하러
+ * 간다(`ai/Investigate` 재사용: 주시 → 전진). 소리만으로 표적을 주지는 않는다 — 조사하는 동안 인지 콘이 소리 쪽으로
+ * 넓어지고, 드론이 **보이면** `pickTarget` 이 그것을 고른다. 이미 싸우는 적 · 웨이브 벌레 · 경직 · 스캔 드론은
+ * 건드리지 않고, 이미 조사 중이면 원점만 옮긴다(`beginInvestigation` 이 그렇게 동작한다).
+ */
+export function onWorldNoise(sys: EnemySystem, position: THREE.Vector3, radius: number): void {
+  if (sys.training || !sys.authority || !sys.ctx.isGameplayPhase() || !(radius > 0)) return;
+  for (let i = 0; i < sys.active.length; i++) {
+    const e = sys.active[i];
+    if (!e.isCombatant || e.aware || e.relentless || e.state === 'stagger' || e.type === 'rogue_scan_drone') continue;
+    const dx = e.position.x - position.x, dz = e.position.z - position.z;
+    const reach = hearingReach(e, radius);
+    if (dx * dx + dz * dz > reach * reach) continue;
+    beginInvestigation(e, position);
+  }
+}
+
 /**
  * Phase 4 target selection. Bugs: nearest of (alive players, rogues within sight radius) — equal priority.
  * Rogues: the nearest alive player within ROGUE_RANGE; otherwise a bug within ROGUE_AI.bugRange, else the nearest player.
+ * 2026-09-11 (적 ↔ 드론): an **aggroable** drone (`pickDroneTarget`) is picked when it is clearly closer than the player
+ * (< `DRONE_PREFER_MUL` ×) or there is no player, and at least as close as the hostile enemy. Bugs never take 로든's
+ * scan drone (`rogue_scan_drone`) as a hostile — it flies, so a melee bug would circle underneath it forever.
  */
 export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   // Phase 12: an enemy that bumped a raised 배리어 hunts the carrier for BARRIER_RETARGET_S
@@ -171,9 +235,12 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   for (let i = 0; i < sys.active.length; i++) {
     const o = sys.active[i];
     if (o === e || !o.isCombatant || o.faction === e.faction) continue;
+    if (o.type === 'rogue_scan_drone') continue;   // 버그만 여기까지 온다 (로그에게는 같은 팩션)
     const d = Math.hypot(o.position.x - e.position.x, o.position.z - e.position.z);
     if (d < fd) { fd = d; foe = o; }
   }
+  const drone = pickDroneTarget(sys, e, player ? pd * DRONE_PREFER_MUL : Infinity);
+  if (drone && (!foe || drone.dist2D(e.position) <= fd)) return drone;
   if (e.isRogue) {
     if (player && pd < ROGUE_RANGE && (!foe || fd > pd * 0.5)) return player;
     return foe ? foe.asTarget : player;

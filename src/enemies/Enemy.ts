@@ -6,6 +6,7 @@ import {
 import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
+import { animateNamedRig } from './models/named';
 import type { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, type TargetId, type TargetList } from './Targets';
 import type { ReplicaBuffer } from './net/Replica';
@@ -14,6 +15,27 @@ export type EnemyState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'sta
 export type HitPart = 'head' | 'body' | 'rear' | 'front';
 /** Bug rig (six legs) or humanoid rogue rig — both expose `params.head` / `params.strideLength` / `root` / `baseScale`. */
 export type EnemyRig = BugRig | RogueRig;
+
+/**
+ * 2026-09-11 (네임드 로그): `EnemyHost.fireGun` 의 선택 인자. **생략하면 예전 로그 사격과 한 치도 다르지 않다.**
+ * 로든(한 발 · 먼 사거리 · 머리 조준 · 자기 연출)과 헤비(미니건 — 발마다 `ee shoot` 을 보내지 않는다)가 쓴다.
+ */
+export interface RogueShotOpts {
+  /** 절대 피해 (주면 `ROGUE_DAMAGE × damageMul` 대신 이 값). */
+  damage?: number;
+  /** 히트스캔 사거리 (m, 기본 `ROGUE_AI.range`). */
+  range?: number;
+  /** 조준점 (기본 = 표적 가슴). 표적 속도 보정은 이 점에도 똑같이 더해진다. */
+  aimAt?: THREE.Vector3;
+  /** false = 로컬 트레이서 · 총성(`shotFx`)을 내지 않는다 — 호출자가 자기 연출을 그린다. */
+  fx?: boolean;
+  /** false = `enemy:shot` 버스 이벤트를 내지 않는다. */
+  event?: boolean;
+  /** false = `ee shoot` 을 보내지 않는다 (헤비는 `ee spray`, 로든은 `ee snipe` 로 대신한다). */
+  wire?: boolean;
+  /** 주면 실제 총구 · 탄착점을 여기 써 준다 (자기 연출 · 와이어용). */
+  out?: { from: THREE.Vector3; to: THREE.Vector3 };
+}
 
 /** Services the entity/AI needs from the owning system (avoids a circular import on EnemySystem). */
 export interface EnemyHost {
@@ -39,7 +61,7 @@ export interface EnemyHost {
   /** Best hostile for `e`: nearest alive player, or an enemy of the other faction (see EnemySystem.pickTarget). */
   pickTarget(e: Enemy): CombatTarget | null;
   /** Rogue hitscan shot at `target` (host resolves occlusion / capsule hits / damage, FX, audio, `enemy:shot`, `ee shoot`). */
-  fireGun(e: Enemy, target: CombatTarget, aimError: number, damageMul: number): void;
+  fireGun(e: Enemy, target: CombatTarget, aimError: number, damageMul: number, opts?: RogueShotOpts): boolean;
   /**
    * Artillery: lob a shell at the target's predicted position (`enemy:shellFired`, `ee shell`).
    * 2026-09-10: returns false when nothing was fired — the pool is full, or the **low** arc
@@ -299,6 +321,19 @@ export class Enemy implements EnemyRef {
   /** Which way that step goes; flipped whenever a new leg starts so a rogue works both flanks of a wall. */
   fireStrafeSign: 1 | -1 = 1;
 
+  /* ── appended: 네임드 로그 · 스캔 드론 (2026-09-11) ─────────────────── */
+  /**
+   * Wire animation hint a named AI sets directly (14..20 — see `EnemyWire.a`). `net/HostSync.animHint` sends it as-is
+   * when > 0; a replica writes the received `a` here too so `ai/named/*` visuals can read one field on both sides.
+   */
+  namedHint = 0;
+  /** Per-type phase / timers for `ai/named/*` — the meaning is private to that type's file. */
+  namedPhase = 0;
+  namedTimer = 0;
+  namedCooldown = 0;
+  /** Per-type scratch object owned by that type's AI file (null after `reset`). */
+  namedData: unknown = null;
+
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
     this.type = type;
@@ -372,6 +407,8 @@ export class Enemy implements EnemyRef {
     // 2026-09-10 (총구 사선)
     this.fireLineAt = -Infinity; this.fireLineClear = true; this.fireLineGap = Infinity;
     this.fireBlockTimer = 0; this.fireStrafeSign = Math.random() < 0.5 ? -1 : 1;
+    // 2026-09-11 (네임드 로그)
+    this.namedHint = 0; this.namedPhase = 0; this.namedTimer = 0; this.namedCooldown = 0; this.namedData = null;
     this.syncTarget();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
@@ -678,10 +715,15 @@ export class Enemy implements EnemyRef {
     }
     this.rig.root.position.copy(this.position);
     this.rig.root.rotation.y = this.yaw;
-    this.animateRig();
+    this.animateRig(dt);
   }
 
-  private animateRig(): void {
-    if (this.rig.kind === 'bug') animateBug(this.rig, this.anim); else animateRogue(this.rig, this.anim);
+  private animateRig(dt = 0): void {
+    if (this.rig.kind === 'bug') animateBug(this.rig, this.anim);
+    else {
+      animateRogue(this.rig, this.anim);
+      // 2026-09-11: 네임드 로그 · 스캔 드론 — 기본 휴머노이드 자세 위에 종류별 부품 · 자세를 더한다 (models/named/*)
+      if (this.rig.named !== undefined) animateNamedRig(this.rig, this.anim, this, dt);
+    }
   }
 }

@@ -73,3 +73,67 @@ BEHEMOTH_AI,enemyDamage,160
 BEHEMOTH_AI,enemyShove,9
 BEHEMOTH_AI,stumble,1.6
 
+# ── 2026-09-11 네임드 로그 (shared/named.ts · enemies/ai/named/*) ──
+# NAMED_SNIPER — 로든. droneRange = 드론을 보내는 최대 거리 m · detectRange = 드론 없이 쏘는 감지 거리 m
+# droneCooldown / droneRetry = 드론 재출격 s (완료 뒤 / 요격당한 뒤) · scanPulses = 음파 횟수 · exposeNeeded = 이만큼 노출된 플레이어만 노린다
+# scannedAccuracy = 스캔 표적 명중률 · nearAccuracyMax/Min = 감지 거리 안에서 가까울 때/감지 끝에서의 명중률
+# damage = 한 발 피해 (실드 → 체력) · fireInterval = 드론 없이 쏠 때 사격 간격 s · glintTime = 조준경 반짝임 → 발사 s · range = 최대 사거리 m
+NAMED_SNIPER,droneRange,260
+NAMED_SNIPER,detectRange,90
+NAMED_SNIPER,droneCooldown,25
+NAMED_SNIPER,droneRetry,15
+NAMED_SNIPER,scanPulses,5
+NAMED_SNIPER,exposeNeeded,4
+NAMED_SNIPER,scannedAccuracy,0.9
+NAMED_SNIPER,nearAccuracyMax,0.8
+NAMED_SNIPER,nearAccuracyMin,0.2
+NAMED_SNIPER,damage,150
+NAMED_SNIPER,fireInterval,4.5
+NAMED_SNIPER,glintTime,1.4
+NAMED_SNIPER,range,320
+# relocateCooldown = 자리 옮기기 사이 최소 s (피격 · 근접) · nestLeash = 둥지에서 벗어나는 최대 m · closeThreat = 이 거리 안에 오면 자리를 옮긴다 m
+# scanWait = 스캔을 마친 뒤 사선이 열리길 기다리는 s · proneTurnRate = 엎드린 채 도는 속도 rad/s
+NAMED_SNIPER,relocateCooldown,10
+NAMED_SNIPER,nestLeash,14
+NAMED_SNIPER,closeThreat,14
+NAMED_SNIPER,scanWait,6
+NAMED_SNIPER,proneTurnRate,1.6
+
+# NAMED_SCAN_DRONE — 로든의 스캔 드론. altitude = 표적 위 고도 m · speed = m/s · pulseInterval = 음파 간격 s
+# pulseRadius = 음파 반경 m · loiterMax = 표적 위에서 버티는 최대 s (넘으면 복귀)
+NAMED_SCAN_DRONE,altitude,22
+NAMED_SCAN_DRONE,speed,12
+NAMED_SCAN_DRONE,pulseInterval,2.2
+NAMED_SCAN_DRONE,pulseRadius,38
+NAMED_SCAN_DRONE,loiterMax,25
+
+# NAMED_HAMMER — 타길라. windup = 휘두르기 전 멈칫 s · chargeDist = 돌진을 거는 거리 m · chargeSpeed = m/s
+# chargeCooldown = s · structureRadius = 구조물에서 이 반경 안에 선다 m
+# giveUpDist / giveUpTime = 표적이 이 거리(m) 밖에서 이 시간(s) 동안 안 보이면 구조물로 돌아간다 · patrolRadius = 구조물 둘레 순찰 반경 m
+NAMED_HAMMER,windup,0.35
+NAMED_HAMMER,chargeDist,14
+NAMED_HAMMER,chargeSpeed,8
+NAMED_HAMMER,chargeCooldown,6
+NAMED_HAMMER,structureRadius,40
+NAMED_HAMMER,giveUpDist,60
+NAMED_HAMMER,giveUpTime,4
+NAMED_HAMMER,patrolRadius,10
+
+# NAMED_HEAVY — 헤비. spinUp = 총열 회전 s · rof = 발/s · damage = 발당 · burstTime = 연사 지속 s
+# burstCooldown = 연사 사이 s · spread = 탄 퍼짐 rad · range = m · escortRadius = 호위가 붙어 서는 반경 m
+# keepMin/keepMax = 표적과 유지하는 거리 띠 m (밖이면 다가가고 안쪽이면 물러선다) · creepMul = 띠 안에서 밀고 들어오는/물러서는 이동 배수
+# spinMoveMul = 총열이 도는 동안(회전 · 연사 · 헛돌기) 이동 배수 · linger = 연사 중 사선이 끊긴 뒤 헛도는 시간 s (그 안에 돌아오면 남은 연사를 잇는다)
+NAMED_HEAVY,spinUp,1.1
+NAMED_HEAVY,rof,12
+NAMED_HEAVY,damage,6
+NAMED_HEAVY,burstTime,3.5
+NAMED_HEAVY,burstCooldown,2.2
+NAMED_HEAVY,spread,0.07
+NAMED_HEAVY,range,75
+NAMED_HEAVY,escortRadius,8
+NAMED_HEAVY,keepMin,15
+NAMED_HEAVY,keepMax,45
+NAMED_HEAVY,creepMul,0.5
+NAMED_HEAVY,spinMoveMul,0.45
+NAMED_HEAVY,linger,1
+

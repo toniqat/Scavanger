@@ -14,7 +14,7 @@ import {
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
-import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
+import { Enemy, type EnemyHost, type HitPart, type RogueShotOpts } from '../Enemy';
 import { ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
@@ -100,6 +100,7 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
       sys.applyDamage(t, ROGUE_GRENADE_DAMAGE * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
     }
     sys.explode(p, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_DAMAGE, 'ai', null, null, 'rogue');
+    ctx.drones?.applyExplosion(p, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_DAMAGE);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
     sys.alertHearing(p, GRENADE_NOISE);
     if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'grenadeHit', p: tuple(p, 2) }, 'others');
   }
@@ -109,6 +110,11 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
   }
 
 export function fireAcid(sys: EnemySystem, from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void {
+  if (target.drone) {
+    // 2026-09-11: 드론 표적 — 예측 조준(`fire`)은 그대로, 와이어는 없다(적 표적과 같다). 직격은 `AcidProjectiles` 가 드론 몸체로 판정한다.
+    sys.acid?.fire(from, target, shooter.id);
+    return;
+  }
   if (target.enemy) {
     // bug vs rogue: spit straight at the enemy position (no player target on the wire)
     sys.acid?.fireAt(from, target.position, shooter.id);
@@ -127,12 +133,13 @@ export function bitePitch(sys: EnemySystem, type: EnemyType): number {
   }
 
 /** Rogue hitscan shot (authority): occlusion, player capsules, enemy hitboxes, damage, FX, audio, events, wire. */
-export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimError: number, damageMul: number): void {
+/** Returns true when a player / squad target was hit. `opts` (2026-09-11) — see `RogueShotOpts`; omitted = the classic rogue shot. */
+export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimError: number, damageMul: number, opts?: RogueShotOpts): boolean {
   const ctx = sys.ctx;
   const world = ctx.world;
-  if (!world) return;
+  if (!world) return false;
   e.muzzle(_m);
-  target.getChest(_aim);
+  if (opts?.aimAt) _aim.copy(opts.aimAt); else target.getChest(_aim);
   _aim.addScaledVector(target.velocity, 0.06);
   _dir.subVectors(_aim, _m);
   if (_dir.lengthSq() < 1e-4) e.facing(_dir); else _dir.normalize();
@@ -144,7 +151,7 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
   _dir.y += ep;
   _dir.normalize();
 
-  let hitT = ROGUE_AI.range;
+  let hitT = opts?.range ?? ROGUE_AI.range;
   const wh = world.raycast(_m, _dir, hitT);
   if (wh) hitT = wh.distance;
   let victim: CombatTarget | null = null;
@@ -154,9 +161,20 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const tt = rayStandingCapsule(_m, _dir, t.position, PLAYER_RADIUS, PLAYER_HEIGHT);
     if (tt >= 0 && tt < hitT) { hitT = tt; victim = t; }
   }
+  // 2026-09-11 (적 ↔ 드론): 노려도 되는(aggroable) 드론의 몸체도 막는다. 프록시 `position` 은 몸체 **밑면**이라 공중
+  // 드론도 같은 식이고, 납작한 몸체(높이 < 지름)는 몸체 중심의 구가 된다. 걷는 지상 드론은 목록에 없어 총알이 지나간다.
+  let droneHit: CombatTarget | null = null;
+  const drones = sys.targets.drones;
+  for (let i = 0; i < drones.length; i++) {
+    const t = drones[i];
+    if (t.isDeadOrDowned) continue;
+    const r = t.bodyRadius, h = t.bodyHeight, cy = t.position.y + h * 0.5;
+    const tt = rayCapsule(_m, _dir, t.position.x, t.position.z, Math.min(cy, t.position.y + r), Math.max(cy, t.position.y + h - r), r).t;
+    if (tt >= 0 && tt < hitT) { hitT = tt; victim = null; droneHit = t; }
+  }
   let foe: Enemy | null = null;
   const eh = sys.raycastEx(_m, _dir, hitT, e);
-  if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; foe = eh.enemy as Enemy; }
+  if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; droneHit = null; foe = eh.enemy as Enemy; }
   // Phase 9: a 배리어 in the line stops the round (one pure raycast per shot; the barrier takes the block damage)
   let barrier = false;
   const imp = ctx.implants;
@@ -164,26 +182,33 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const bh = imp.raycastBarrier(_m, _dir, hitT, true);
     if (bh) {
       const bd = bh.point.distanceTo(_m);
-      if (bd < hitT) { hitT = bd; victim = null; foe = null; barrier = true; imp.damageBarrier(bh.owner, bh.point); }
+      if (bd < hitT) { hitT = bd; victim = null; droneHit = null; foe = null; barrier = true; imp.damageBarrier(bh.owner, bh.point); }
     }
   }
   _to.copy(_m).addScaledVector(_dir, hitT);
 
-  const dmg = ROGUE_DAMAGE * damageMul;
+  const dmg = opts?.damage ?? ROGUE_DAMAGE * damageMul;
   if (victim) sys.applyDamage(victim, dmg, e.position, e.id, e.type, null, 0.2, false);
+  else if (droneHit) {
+    sys.applyDamage(droneHit, dmg, e.position, e.id, e.type, null, 0, false);   // → ctx.drones.damageDrone
+    const fx = FxManager.get();
+    if (fx) { _v2.copy(_dir).negate(); ParticleBurst.sparks(fx.additive, _to, _v2, 6, 5); }
+  }
   else if (foe && foe.faction !== e.faction) {
     foe.takeDamage(dmg, _to, _dir, 'ai');
     sys.noteClash(_to);
   }
   // 2026-09-11: 로그의 총알도 창문 유리를 깬다 (몸 · 배리어에 막히지 않고 유리가 첫 표면일 때)
-  if (wh && !victim && !foe && !barrier && wh.obstacle?.fragile) wh.obstacle.destructible?.onDamage(dmg, wh.point);
-  if (wh && !victim && !foe && !barrier) {
+  if (wh && !victim && !droneHit && !foe && !barrier && wh.obstacle?.fragile) wh.obstacle.destructible?.onDamage(dmg, wh.point);
+  if (wh && !victim && !droneHit && !foe && !barrier) {
     const fx = FxManager.get();
     if (fx) ParticleBurst.dust(fx.alpha, wh.point, wh.normal, 4, 0.5);
   }
-  sys.shotFx(_m, _to, victim ? 1 : 0);
-  ctx.bus.emit('enemy:shot', { id: e.id, type: e.type, from: _m.clone(), to: _to.clone(), hit: !!victim });
-  if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'shoot', id: e.id, from: tuple(_m, 2), to: tuple(_to, 2), hit: !!victim }, 'others');
+  if (opts?.fx !== false) sys.shotFx(_m, _to, victim ? 1 : 0);
+  if (opts?.event !== false) ctx.bus.emit('enemy:shot', { id: e.id, type: e.type, from: _m.clone(), to: _to.clone(), hit: !!victim });
+  if (opts?.wire !== false && sys.hosting) ctx.net!.send({ t: 'ee', ev: 'shoot', id: e.id, from: tuple(_m, 2), to: tuple(_to, 2), hit: !!victim }, 'others');
+  if (opts?.out) { opts.out.from.copy(_m); opts.out.to.copy(_to); }
+  return !!victim;
   }
 
 /** Tracer + muzzle flash sprite (no lights) + rifle report at the muzzle. */
@@ -270,6 +295,7 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
       }
     }
     sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 'ai', null, null);   // friendly fire on bugs and rogues alike
+    ctx.drones?.applyExplosion(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE);      // 2026-09-11: 드론도 (권한에서 한 번)
   }
   sys.playAudio('explosion', p, 1, 0.85);
   const dl = sys.targets.distToLocal(p);
@@ -302,6 +328,7 @@ export function acidBurst(sys: EnemySystem, e: Enemy): void {
         sys.applyDamage(t, dmg, e.position, e.id, e.type, { duration: 1.2, factor: 0.7 }, 0, false);
       }
     }
+    ctx.drones?.applyExplosion(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage);   // 2026-09-11
   }
   const local = sys.targets.local();
   if (local && !local.isDead) {
@@ -325,6 +352,7 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
     }
   }
   sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 'ai', null, e);
+  ctx.drones?.applyExplosion(_c, TOXIC_RADIUS, TOXIC_DAMAGE);   // 2026-09-11: 자폭은 권한에서만 불린다
   ctx.bus.emit('enemy:toxicBurst', { id: e.id, position: _c.clone(), radius: TOXIC_RADIUS });
   if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'toxic', id: e.id, p: tuple(_c, 2) }, 'others');
   }

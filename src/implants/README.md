@@ -257,6 +257,27 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-11 (갈고리 ↔ 공중 드론 · 드론 조종 중 Q 차단)** — 계약은 읽기만 했다 (`shared/drones` 의
+  `DronesRef.raycast` · `getDrone`, `PlayerRef.droneControl`, `drone:controlChanged` · `drone:removed`).
+  - **조준.** `updateGrapple` 의 idle 판정이 월드(또는 실내) 레이캐스트와 함께 `ctx.drones.raycast(o, d,
+    IMPLANT_GRAPPLE_RANGE, 'air')` 를 보고 **더 가까운 쪽**을 앵커로 삼는다 — 벽 뒤 드론은 벽이 가린다. 실내에서는
+    드론을 보지 않는다. 드론이면 `grappleDroneId` + 몸체 중심 기준 오프셋(`grappleDroneOffset`)을 기억하고
+    `implant:grappleTargetChanged` 는 추가 필드 없이 `valid: true` 로 나간다. 지상 드론은 대상이 아니다.
+  - **움직이는 앵커.** `flying` · `attached` 동안 매 프레임 `grapplePoint = drone.position + offset` 으로 다시 앉히고,
+    붙은 뒤에는 `grappleTip` 과 `setGrapplePull` 을 매 프레임 다시 준다 — `player.setGrappleTarget` 이 점을
+    **복사**하기 때문이다. `getDrone` 이 null · hp ≤ 0 이거나 `drone:removed` 가 그 id 로 오면 즉시
+    `releaseGrapple(false)`.
+  - **도착하면 끝.** 매달리기 없음 — 기존 `GRAPPLE_ARRIVE_DIST` · `GRAPPLE_MAX_TIME` 규칙 그대로이고, 드론 앵커만
+    도착 거리에 `drone.radius` 를 더해 몸체에 끼기 전에 풀린다.
+  - **원격.** 드론에 붙어 있는 동안 `GRAPPLE_SEND_INTERVAL`(= `BEAM_SEND_INTERVAL`, ≤ 4 Hz)마다 `imp grapple {o, p}` 를
+    다시 보낸다. `RemoteImplants` 는 와이어가 이미 켜져 있을 때 온 것을 **갱신**으로 읽어 스파크 · 부착음을 다시
+    내지 않고, 그 점이 몸 위(`radius + height` 안)에 있는 공중 드론 복제본에 끝을 묶어 **갱신 사이에도 드론을 따라가게**
+    한다. 묶는 것은 갱신 메시지에서만 한다 — 벽 앵커는 한 번만 보내므로 옆에 뜬 드론에 잘못 묶이지 않는다.
+  - **드론 조종 중.** `ImplantSystem.piloting`(= `player.droneControl`, 없으면 `drones.controlled`) 이면 `active` 가
+    false 라 Q · 좌클릭 · 근접키를 읽지 않고 오버차지 채널이 끊기며, `activate()` 도 거부한다. `drone:controlChanged
+    {id ≠ null}` 에서 `stow()`(장착형 대전차포 · 방패 집어넣기 + 갈고리 해제 + 채널 종료), 이벤트를 놓쳐도
+    `update` 가 조종 중에 들고 있는 것을 발견하면 같은 `stow()` 를 부른다.
+
 - **2026-09-10 (임플란트 HUD 이전 · 크로스헤어 갈고리 표시)** — **이 폴더의 코드는 한 줄도 바뀌지 않았다.**
   HUD 가 크로스헤어 좌측 세로 게이지에서 **화면 중앙 하단의 가로 썸네일**(`ui/hud/ImplantWidget`, `.imp-hud`)로
   옮겨 가고 갈고리 표시가 크로스헤어 좌측에 생겼는데(`ui/hud/Reticle` 의 `.rgrap`), 둘 다 **기존 `ImplantsRef`

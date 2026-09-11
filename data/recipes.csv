@@ -99,12 +99,15 @@ make_incendiary_batch,소이 수류탄 대량 제작,ship,gadget,1,mat_gunpowder
 make_lure,유인 수류탄 제작,ship,gadget,2,mat_gunpowder:4|mat_scrap:2|mat_cable:1,gad_lure,1,,6,crafting,20,"화약 4 + 폐금속 2 + 전력 케이블 1 → 유인 수류탄. 가젯 작업대 Lv.2, 제작 20 필요."
 make_fire_gadget,화염수류탄 제작,ship,gadget,2,mat_gunpowder:8|herb_ashleaf:3,gad_incendiary,1,,6,crafting,25,"화약 8 + 잿빛잎 3 → 화염수류탄 (화염지대). 가젯 작업대 Lv.2, 제작 25 필요."
 make_mine,지뢰 제작,ship,gadget,2,mat_gunpowder:10|mat_alloy:2,gad_mine,1,,5,crafting,25,"화약 10 + 합금 판 2 → 지뢰. 가젯 작업대 Lv.2, 제작 25 필요."
+make_remote_mine,원격 지뢰 제작,ship,gadget,2,mat_gunpowder:10|mat_circuit:1|mat_cable:2,gad_remote_mine,1,,6,crafting,25,"화약 10 + 회로 기판 1 + 전력 케이블 2 → 원격 지뢰. 가젯 작업대 Lv.2, 제작 25 필요."
+make_drone_ground,지상 드론 제작,ship,gadget,2,mat_machine_parts:3|mat_circuit:2|mat_power_cell:2|mat_scrap:6,gad_drone_ground,1,,12,crafting,30,"기계 부품 3 + 회로 기판 2 + 파워 셀 2 + 폐금속 6 → 지상 드론. 가젯 작업대 Lv.2, 제작 30 필요."
 make_barricade,바리케이드 제작,ship,gadget,3,mat_scrap:14|mat_alloy:4|mat_cable:2,gad_barricade,1,,10,crafting,30,"폐금속 14 + 합금 판 4 + 전력 케이블 2 → 바리케이드. 가젯 작업대 Lv.3, 제작 30 필요."
 make_jumppad,점프대 제작,ship,gadget,3,mat_scrap:12|mat_alloy:3|mat_power_cell:2,gad_jumppad,1,,10,crafting,30,"폐금속 12 + 합금 판 3 + 파워 셀 2 → 점프대. 가젯 작업대 Lv.3, 제작 30 필요."
 make_cloak_veil,은폐 장막 제작,ship,gadget,3,mat_alloy:3|mat_circuit:2|mat_capacitor:1,gad_cloak_veil,1,,12,crafting,35,"합금 판 3 + 회로 기판 2 + 축전 모듈 1 → 은폐 장막. 가젯 작업대 Lv.3, 제작 35 필요."
 make_defib_charge,제세동기 정비,ship,gadget,3,mat_power_cell:2|herb_glowcap:1|mat_capacitor:1,gad_defib,1,,6,medicine,40,"파워 셀 2 + 발광버섯 1 + 축전 모듈 1 → 제세동기. 가젯 작업대 Lv.3, 의학 40 필요."
 make_dome_shield,돔 실드 제작,ship,gadget,3,mat_ingot:2|mat_capacitor:2|mat_control_module:1,gad_dome_shield,1,,14,crafting,40,"강화합금 잉곳 2 + 축전 모듈 2 + 제어 모듈 1 → 돔 실드. 가젯 작업대 Lv.3, 제작 40 필요."
 make_turret,포탑 제작,ship,gadget,3,mat_ingot:3|mat_machine_parts:4|mat_control_module:1,gad_turret,1,,16,crafting,40,"강화합금 잉곳 3 + 기계 부품 4 + 제어 모듈 1 → 포탑 설치. 가젯 작업대 Lv.3, 제작 40 필요."
+make_drone_air,공중 드론 제작,ship,gadget,3,mat_control_module:1|mat_capacitor:2|mat_machine_parts:2|mat_circuit:2,gad_drone_air,1,,16,crafting,40,"제어 모듈 1 + 축전 모듈 2 + 기계 부품 2 + 회로 기판 2 → 공중 드론. 가젯 작업대 Lv.3, 제작 40 필요."
 make_antiseptic,소독약 조제,ship,medical,1,mat_can:1|herb_bloodroot:1,mat_antiseptic,1,,4,medicine,10,캔 1 + 혈근초 1 → 소독약. 의학 작업대.
 make_heal_syringe,회복주사 조제,ship,medical,1,mat_syringe:1|mat_antiseptic:1,heal_syringe,1,,5,medicine,25,"주사기 1 + 소독약 1 → 회복주사. 의학 작업대, 의학 25 필요."
 make_shield_charger,실드 충전기 제작,ship,medical,1,mat_core:1|mat_cable:1,shield_charger,1,,4,crafting,0,구동 코어 1 + 전력 케이블 1 → 실드 충전기 (실드 20). 의학 작업대.

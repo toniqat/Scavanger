@@ -75,3 +75,41 @@ rogue_boss,shield_charger_full,1,1,0.08
 rogue_boss,mat_machine_parts,1,2,0.6
 rogue_boss,mat_core,1,3,0.8
 
+# 2026-09-11 네임드 로그 (shared/named.ts) — rogue_boss 수준의 일반 전리품. 확정 드롭(저격소총 · 방탄복 · 미니건)은
+# 여기가 아니라 loot_named.csv 이고, 이 표를 다 굴린 **뒤에** 따로 굴린다. rogue · rogue_boss 줄은 건드리지 않았다.
+# rogue_sniper — 로든. 스캔 드론을 부리던 저격수라 공중 드론 조종기를 가끔 들고 있다.
+rogue_sniper,heal_bandage,1,2,1
+rogue_sniper,shield_charger,1,2,0.7
+rogue_sniper,shield_charger_hi,1,1,0.3
+rogue_sniper,shield_charger_full,1,1,0.08
+rogue_sniper,mat_machine_parts,1,2,0.6
+rogue_sniper,mat_core,1,3,0.8
+rogue_sniper,gad_drone_air,1,1,0.2
+
+# rogue_hammer — 타길라. 총이 없는 근접 거한이라 탄 대신 회복 · 수류탄 · 원격 지뢰를 챙긴다.
+rogue_hammer,heal_bandage,1,2,1
+rogue_hammer,heal_syringe,1,1,0.35
+rogue_hammer,shield_charger,1,2,0.7
+rogue_hammer,shield_charger_hi,1,1,0.4
+rogue_hammer,shield_charger_full,1,1,0.1
+rogue_hammer,grenade_frag,1,2,0.5
+rogue_hammer,mat_alloy,1,3,0.5
+rogue_hammer,mat_machine_parts,1,2,0.6
+rogue_hammer,mat_core,1,3,0.8
+rogue_hammer,gad_remote_mine,1,3,0.35
+
+# rogue_heavy — 헤비. 탄띠를 손으로 이어 붙이던 화약 · 기계 부품이 남는다.
+rogue_heavy,heal_bandage,1,2,1
+rogue_heavy,shield_charger,1,2,0.7
+rogue_heavy,shield_charger_hi,1,1,0.3
+rogue_heavy,shield_charger_full,1,1,0.08
+rogue_heavy,mat_gunpowder,6,14,0.6
+rogue_heavy,mat_machine_parts,2,3,0.7
+rogue_heavy,mat_core,1,3,0.8
+rogue_heavy,gad_remote_mine,1,2,0.2
+rogue_heavy,gad_drone_ground,1,1,0.15
+
+# rogue_scan_drone — 로든의 스캔 드론. CORPSE_LOOT_CHANCE 가 0 이라 애초에 수색되지 않는다.
+# 표가 없으면 "모르는 적 = 생체 조직 1" 로 떨어지므로 확률 0 한 줄로 **빈 결과**를 못박아 둔다.
+rogue_scan_drone,mat_circuit,1,1,0
+

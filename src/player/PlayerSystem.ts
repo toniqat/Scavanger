@@ -32,6 +32,7 @@ import * as Stat from './parts/Statuses';
 import * as Shoulder from './parts/Shoulder';
 import * as Act from './parts/Interact';
 import * as Climb from './parts/Climb';
+import * as Drone from './parts/DroneControl';
 
 /**
  * 로컬 캐릭터의 악센트 색 (`PlayerProfile.accent`, 캐릭터 생성창에서 고른 값) 을 숫자 hex 로.
@@ -187,6 +188,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * edges, the ground snap) and the ladder grab snap are written here and decay by `STEP_SMOOTH_RATE`.
    */
   readonly bodyOffset = new THREE.Vector3();
+  /* ── 드론 조종 (2026-09-11, `parts/DroneControl`) ── */
+  /** true while the local player looks through a drone — inputs belong to the drone, the body crouches still. */
+  _droneControl = false;
+  /** Stance before `setDroneControl(true)` (restored on a manual release when it was `stand`). */
+  droneStancePrev: Stance | null = null;
 
   // interaction
   interactTarget: Interactable | null = null;
@@ -256,6 +262,19 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Reset paths: release the ladder and drop the visual step / grab offset. */
   clearClimbState(): void { return Climb.clearClimbState(this); }
   syncClimb(): void { return Climb.syncClimb(this); }
+
+  /* ── 드론 조종 (2026-09-11, appended contract `PlayerRef.droneControl` / `setDroneControl`) ── */
+  get droneControl(): boolean { return this._droneControl; }
+  /**
+   * true = look through a drone: movement / jump / stance / roll / sprint / aim / E / carry / ladder / weapons off, horizontal
+   * velocity 0, `stand` → `crouch` (prone stays prone), mouse look not applied to the rig. Refused silently (stays false)
+   * when the body is not free (dead · downed · pod · hellpod · carried · ladder · ship box · attached · interior · hub ·
+   * controls off). false = back to the body; restores `stand` if it was forced to crouch. Never touches the camera
+   * override — the drone releases it with `setCameraOverride(null)`.
+   */
+  setDroneControl(active: boolean): void { return Drone.setDroneControl(this, active); }
+  /** Internal auto-release (death · downed · resets · pod · ship · hub): no stance restore, camera override cut at once. */
+  releaseDroneControl(restoreStance = false, cutCamera = true): void { return Drone.releaseDroneControl(this, restoreStance, cutCamera); }
 
   /**
    * Rejoin: resume the body exactly as the host's ghost left it — standing at `position` facing `yaw`, no hellpod,
@@ -456,7 +475,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * `ctx.world` may be null. Takes precedence over `setShipInterior`. Cleared by `respawnAt` (and `hub:left`).
    */
   setInterior(collider: InteriorCollider | null): void {
-    if (collider) this.releaseLadder();
+    if (collider) { this.releaseDroneControl(); this.releaseLadder(); }
     this._interior = collider;
     this.controller.interior = collider;
     this.rigInput.interior = collider;
@@ -468,7 +487,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     }
   }
 
-  /** Cutscene camera (docking, launch). Blends to `pos` looking at `lookAt`; null releases back to the rig. */
+  /**
+   * Cutscene camera (docking, launch, drone view). Blends to `pos` looking at `lookAt`; null releases back to the rig.
+   * `snap` = full weight at once; with null (2026-09-11) = hard cut back to the rig instead of the blend-out.
+   * Consumed in this system's `lateUpdate`, so a caller registered after the player sets it from its **`update`**.
+   */
   setCameraOverride(pos: THREE.Vector3 | null, lookAt?: THREE.Vector3, snap = false): void {
     if (this.rig) this.rig.setOverride(pos, lookAt, snap);
   }
@@ -485,7 +508,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setInPod(inPod: boolean): void {
     if (inPod === this._inPod) return;
     this._inPod = inPod;
-    if (inPod) { this.releaseLadder(); this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
+    if (inPod) { this.releaseDroneControl(); this.releaseLadder(); this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
     if (this.spawned && !this.scopeHidden) this.model.setVisible(!inPod);
   }
 
@@ -542,7 +565,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   respawnAt(position: THREE.Vector3, yaw?: number): void { return Spawn.respawnAt(this, position, yaw); }
 
   setShipInterior(bounds: ShipBounds): void {
-    if (bounds) this.releaseLadder();
+    if (bounds) { this.releaseDroneControl(); this.releaseLadder(); }
     this.shipBounds = bounds;
     this.controller.shipBounds = bounds;
   }
@@ -553,7 +576,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   attachTo(parent: THREE.Object3D | null): void {
-    if (parent) this.releaseLadder();
+    if (parent) { this.releaseDroneControl(); this.releaseLadder(); }
     const target = parent ?? this.ctx.scene;
     if (this.model.root.parent === target) { this.attachedParent = parent; return; }
     this.model.root.updateWorldMatrix(true, false);
@@ -576,6 +599,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   canUseWeapons(): boolean {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
       && !this.controller.climbing   // 2026-09-11: both hands are on the ladder
+      && !this._droneControl         // 2026-09-11: the inputs belong to the drone
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
@@ -660,7 +684,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     ctx.bus.on('hub:left', () => this.setInterior(null));
     // 2026-09-11: 사다리 — world 의 사다리 Interactable 이 E 로 낸다. 함선에 들어가면 무조건 놓는다.
     ctx.bus.on('ladder:grab', ({ ladder, from }) => { this.grabLadder(ladder, from); });
-    ctx.bus.on('hub:entered', () => this.clearClimbState());
+    ctx.bus.on('hub:entered', () => { this.releaseDroneControl(); this.clearClimbState(); });
     ctx.bus.on('camera:shake', ({ intensity, duration }) => this.rig.addShake(intensity, duration));
     ctx.bus.on('player:applySlow', ({ duration, factor }) => {
       // strongest slow wins; refresh the timer
@@ -703,6 +727,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (c.climbing && (!this.spawned || this.isDead || this._downed || this._inPod || this.carriedSocket !== null
       || this.attachedParent !== null || this._interior !== null || this.shipBounds !== null
       || (this.hellpod.isActive && this.hellpod.state !== 'exiting'))) this.releaseLadder();
+    // 2026-09-11: same backstop for the drone view — the drone (registered after us) sees `droneControl` false this frame
+    if (this._droneControl && !Drone.canHoldDroneControl(this)) this.releaseDroneControl();
 
     // movement / stances / interaction / camera run in gameplay AND hub phases (no UI blocker)
     const control = ctx.isControlActive();
@@ -750,16 +776,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.poseRecoil = damp(this.poseRecoil, 0, 14, dt);
 
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
-    if (active && locked && !this.lookLocked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    // 2026-09-11: the drone view owns the mouse too — its own flag, so it never releases the quick wheel's `lookLocked`
+    if (active && locked && !this.lookLocked && !this._droneControl) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
     // 2026-09-08: the aim origin for this frame's shots is where the camera *will* be after `lateUpdate` for the look
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
     // with the real position once the rig has moved.
     this.rig.predictPosition(this.aimOrigin);
-    this.setAiming(active && locked && !downed && !this._carrying && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
 
     // ── carry input (F tap): pick up / put down. Runs before the movement branches so the key is consumed
     //    before WeaponSystem (which updates later) can read it as a melee swing.
-    this.updateCarryInput(active && !dropping && !this._inPod);
+    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl);
 
     // ── movement input
     const mi = this.moveInput;
@@ -769,6 +796,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       // 조준은 없다; UI 가 열려 있거나 조작이 꺼져 있으면 그 자리에 매달려 있다.
       mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
       Climb.readClimbInput(this, active && !moveFrozen);
+    } else if (this._droneControl) {
+      // 드론 조종 (2026-09-11, `parts/DroneControl`): WASD · Shift · Space · C · Z · V 는 드론 것이다 — 몸은 켤 때 정한
+      // 자세(앉기 / 엎드리기)로 제자리에 멈춘다. 컨트롤러는 입력 0 으로 계속 돌아 중력 · 접지 · 탑승은 평소대로다.
+      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
+      if (this._hovering) this.setHovering(false);
     } else if (active && !moveFrozen && downed) {
       // downed: crawl only — no stance changes, no jump / sprint / dive; Space held = give up
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
@@ -877,7 +909,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── interaction (a downed player cannot interact; neither can one with a body on the shoulder)
     //    2026-09-11: nor one hanging on a ladder — E belongs to the ladder (let go) while climbing
-    this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing);
+    //    2026-09-11: nor one looking through a drone (a running hold is cancelled, the prompt clears)
+    this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
@@ -997,7 +1030,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.aimOrigin.copy(this.rig.position);
 
     // ── near-clip fade: the camera pulled into the body (obstacle behind the back, scoped tuck) -> fade the soldier
-    let alpha = this.spawned && !this.scopeHidden ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
+    // 2026-09-11: in the drone view `pivotDistance` is drone camera → shoulder — a drone parked beside the body must not
+    // fade it out (the pilot has to see his own crouched body). The silhouette stays as usual.
+    let alpha = this.spawned && !this.scopeHidden && !this._droneControl ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
     // cloaked: the local player sees himself shimmer too (remotes get the same treatment in RemoteAvatar)
     if (this._cloaked && !this.isDead) alpha = Math.min(alpha, CLOAK_FADE);
     this.model.setFade(alpha);

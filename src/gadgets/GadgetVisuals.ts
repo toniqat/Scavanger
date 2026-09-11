@@ -52,6 +52,14 @@ function parseCss(css: string, out: THREE.Color): THREE.Color {
 
 const PULSE_COUNT = 12;
 
+/* 2026-09-11: 설치 미리보기 고스트 (시각 전용) */
+const GHOST_OK = 0x4dff88;
+const GHOST_BAD = 0xff5a4d;
+/** 바닥과 z-fighting 하지 않게 살짝 띄운다(m). */
+const GHOST_LIFT = 0.02;
+/** 맥동 각속도(rad/s). */
+const GHOST_PULSE_RATE = 4;
+
 export class GadgetVisualPool {
   readonly group = new THREE.Group();
   private readonly free = new Map<DeployableKind, GadgetVisual[]>();
@@ -85,6 +93,12 @@ export class GadgetVisualPool {
   private readonly lureHornGeo = new THREE.ConeGeometry(0.24, 0.34, 10, 1, true);
   private readonly lureRingGeo = new THREE.TorusGeometry(0.42, 0.025, 6, 22);
   private readonly pulseGeo = new THREE.RingGeometry(0.86, 1, 36);
+  /* 2026-09-11: 원격 지뢰 (C4) — 납작한 벽돌 + 테이프 두 줄 + 수신기 + 안테나 + LED */
+  private readonly c4BrickGeo = new THREE.BoxGeometry(0.36, 0.1, 0.24);
+  private readonly c4TapeGeo = new THREE.BoxGeometry(0.05, 0.106, 0.246);
+  private readonly c4RecvGeo = new THREE.BoxGeometry(0.12, 0.05, 0.09);
+  private readonly c4AntennaGeo = new THREE.CylinderGeometry(0.006, 0.009, 0.24, 5);
+  private readonly c4Mat = new THREE.MeshStandardMaterial({ color: 0x8a7b58, metalness: 0.05, roughness: 0.85 });
 
   /* shared opaque materials (never pulse) */
   private readonly steelMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, metalness: 0.75, roughness: 0.45 });
@@ -102,6 +116,7 @@ export class GadgetVisualPool {
       this.turretBaseGeo, this.turretLegGeo, this.turretMastGeo, this.turretHeadGeo, this.turretBarrelGeo, this.turretEyeGeo,
       this.padGeo, this.padInnerGeo, this.chevronGeo, this.puffGeo, this.flameGeo,
       this.lurePoleGeo, this.lureHornGeo, this.lureRingGeo, this.pulseGeo,
+      this.c4BrickGeo, this.c4TapeGeo, this.c4RecvGeo, this.c4AntennaGeo,
     );
     for (let i = 0; i < PULSE_COUNT; i++) {
       const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
@@ -137,7 +152,7 @@ export class GadgetVisualPool {
 
   /** Pre-build one visual of every kind so the first deployment allocates nothing. */
   warm(): void {
-    const kinds: DeployableKind[] = ['domeShield', 'barricade', 'mine', 'turret', 'jumpPad', 'smoke', 'fire', 'lure'];
+    const kinds: DeployableKind[] = ['domeShield', 'barricade', 'mine', 'turret', 'jumpPad', 'smoke', 'fire', 'lure', 'remoteMine'];
     for (const k of kinds) {
       if ((this.free.get(k)?.length ?? 0) > 0) continue;
       this.release(this.create(k));
@@ -173,6 +188,21 @@ export class GadgetVisualPool {
         const blink = Math.sin(t * rate * Math.PI * 2 + v.phase) > 0.3 ? 1 : 0.05;
         for (const g of v.glowMats) g.opacity = blink;
         v.ringMat.opacity = armed ? 0.16 + 0.12 * s : 0.06;
+        break;
+      }
+      case 'remoteMine': {
+        // 2026-09-11: arming = steady amber breathe; armed = short red blink (colour set here, `tint` only seeds it)
+        const led = v.glowMats[0];
+        if (led) {
+          if (armed) {
+            led.color.setHex(0xff2a2a);
+            led.opacity = Math.sin(t * 1.4 * Math.PI * 2 + v.phase) > 0.6 ? 1 : 0.06;
+          } else {
+            led.color.setHex(0xff9f40);
+            led.opacity = 0.45 + 0.45 * s;
+          }
+        }
+        v.ringMat.opacity = armed ? 0.06 + 0.05 * s : 0.025;
         break;
       }
       case 'turret': {
@@ -264,6 +294,66 @@ export class GadgetVisualPool {
     v.muzzle.visible = true;
   }
 
+  /* ───────────────────────── placement ghost (2026-09-11, parts/Preview) ─────────────────────────
+   * 손에 든 설치형 가젯의 반투명 고스트 — 종류당 하나를 `create` 로 만들어(기존 지오메트리 재사용) 모든 메시를
+   * 공용 고스트 머티리얼 둘로 바꿔 끼운다. 한 번에 하나만 보이고 `visible` 만 토글한다 (광원 없음 → 토글해도 된다).
+   * 로컬 화면에만 있다 — 와이어를 타지 않는다.
+   */
+  private readonly ghosts = new Map<DeployableKind, GadgetVisual>();
+  private ghostShown: GadgetVisual | null = null;
+  private readonly ghostMat = new THREE.MeshBasicMaterial({ color: GHOST_OK, transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false });
+  private readonly ghostRingMat = new THREE.MeshBasicMaterial({ color: GHOST_OK, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+
+  /** 설치형 종류의 고스트를 미리 만든다 (첫 미리보기에서 할당하지 않게). */
+  warmGhosts(kinds: readonly DeployableKind[]): void {
+    for (const k of kinds) if (!this.ghosts.has(k)) this.buildGhost(k);
+  }
+
+  /**
+   * @param valid  초록(설치 가능) / 빨강(불가)
+   * @param t      `ctx.time` — 은은한 맥동
+   * @param ringX  발자국 링 반경(로컬 X, 0 = 링 없음) · `ringZ` 로컬 Z
+   */
+  showGhost(kind: DeployableKind, position: THREE.Vector3, yaw: number, valid: boolean, t: number, ringX: number, ringZ: number): void {
+    const v = this.ghosts.get(kind) ?? this.buildGhost(kind);
+    if (this.ghostShown && this.ghostShown !== v) this.ghostShown.root.visible = false;
+    this.ghostShown = v;
+    v.root.visible = true;
+    v.root.position.copy(position);
+    v.root.position.y += GHOST_LIFT;
+    v.root.rotation.y = yaw;
+    const s = 0.5 + 0.5 * Math.sin(t * GHOST_PULSE_RATE);
+    const hex = valid ? GHOST_OK : GHOST_BAD;
+    this.ghostMat.color.setHex(hex);
+    this.ghostRingMat.color.setHex(hex);
+    this.ghostMat.opacity = 0.22 + 0.12 * s;
+    this.ghostRingMat.opacity = 0.4 + 0.25 * s;
+    if (ringX > 0 && ringZ > 0) { v.ring.visible = true; v.ring.scale.set(ringX, 1, ringZ); }
+    else v.ring.visible = false;
+  }
+
+  hideGhost(): void {
+    if (this.ghostShown) this.ghostShown.root.visible = false;
+    this.ghostShown = null;
+  }
+
+  private buildGhost(kind: DeployableKind): GadgetVisual {
+    // `create` 가 `all` 에 넣으므로 그 visual 고유 머티리얼은 `dispose` 가 치운다 — 메시는 고스트 머티리얼만 가리킨다
+    const v = this.create(kind);
+    v.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || m === v.muzzle) return;
+      m.material = m === v.ring ? this.ghostRingMat : this.ghostMat;
+      m.castShadow = false;
+      m.receiveShadow = false;
+      m.renderOrder = 26;
+    });
+    if (v.muzzle) v.muzzle.visible = false;
+    v.root.visible = false;
+    this.ghosts.set(kind, v);
+    return v;
+  }
+
   dispose(): void {
     for (const v of this.all) {
       v.ringMat.dispose();
@@ -273,7 +363,9 @@ export class GadgetVisualPool {
     }
     for (const p of this.pulses) p.mat.dispose();
     for (const g of this.geos) g.dispose();
-    this.steelMat.dispose(); this.darkMat.dispose();
+    this.ghostMat.dispose(); this.ghostRingMat.dispose();
+    this.ghosts.clear(); this.ghostShown = null;
+    this.steelMat.dispose(); this.darkMat.dispose(); this.c4Mat.dispose();
     this.all.length = 0; this.free.clear(); this.pulses.length = 0;
     this.group.removeFromParent();
   }
@@ -313,6 +405,7 @@ export class GadgetVisualPool {
         }
         break;
       case 'mine':
+      case 'remoteMine':
       case 'turret':
       case 'lure':
         v.ring.scale.setScalar(Math.min(radius, 8));
@@ -383,6 +476,19 @@ export class GadgetVisualPool {
         const ledMat = this.glow(0xff5a3c, 1);
         glowMats.push(ledMat);
         add(this.ledGeo, ledMat, 0, 0.29, 0);
+        break;
+      }
+      case 'remoteMine': {
+        // 2026-09-11: C4 — flat clay brick, two tape bands, receiver box, whip antenna, one LED (glowMats[0])
+        add(this.c4BrickGeo, this.c4Mat, 0, 0.05, 0).castShadow = true;
+        add(this.c4TapeGeo, this.darkMat, -0.1, 0.05, 0);
+        add(this.c4TapeGeo, this.darkMat, 0.1, 0.05, 0);
+        add(this.c4RecvGeo, this.steelMat, 0.02, 0.125, -0.03);
+        const ant = add(this.c4AntennaGeo, this.darkMat, 0.07, 0.26, -0.06);
+        ant.rotation.z = -0.18;
+        const ledMat = this.glow(0xff9f40, 0.8);
+        glowMats.push(ledMat);
+        add(this.ledGeo, ledMat, -0.03, 0.155, -0.03).scale.setScalar(0.7);
         break;
       }
       case 'turret': {

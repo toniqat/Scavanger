@@ -1327,3 +1327,80 @@ export const THROW_ARC_PREVIEW_FRACTION = K.num('THROW_ARC_PREVIEW_FRACTION');
  * `player/PlayerController` 의 점프 천장 클램프가 같은 값을 쓴다 (2026-09-11 — 그 전에는 두 폴더가 2.1 을 따로 적었다).
  */
 export const BOX_HEADROOM = K.num('BOX_HEADROOM');
+
+/* ── 2026-09-11: 설치 미리보기 · 원격 지뢰 (owner: gadgets) ── */
+/** 손에 든 설치형 가젯을 조준점에 놓을 수 있는 최대 거리(m, 발에서 수평). */
+export const GADGET_PLACE_RANGE = K.num('GADGET_PLACE_RANGE');
+/** 대형 설치물(바리케이드 · 점프대 · 포탑)이 서는 바닥의 최소 법선 y (1 = 완전 평지). */
+export const GADGET_PLACE_LARGE_MIN_NORMAL_Y = K.num('GADGET_PLACE_LARGE_MIN_NORMAL_Y');
+/** 소형 설치물(지뢰 · 원격 지뢰)이 서는 바닥의 최소 법선 y. */
+export const GADGET_PLACE_SMALL_MIN_NORMAL_Y = K.num('GADGET_PLACE_SMALL_MIN_NORMAL_Y');
+/** 대형 설치물 발자국 안의 바닥 높이 차가 이보다 크면 설치 불가(m). */
+export const GADGET_PLACE_LARGE_MAX_STEP = K.num('GADGET_PLACE_LARGE_MAX_STEP');
+export const GADGET_REMOTE_MINE_DAMAGE = K.num('GADGET_REMOTE_MINE_DAMAGE');
+export const GADGET_REMOTE_MINE_RADIUS = K.num('GADGET_REMOTE_MINE_RADIUS');
+export const GADGET_REMOTE_MINE_ARM_TIME = K.num('GADGET_REMOTE_MINE_ARM_TIME');
+export const GADGET_REMOTE_MINE_HP = K.num('GADGET_REMOTE_MINE_HP');
+/** 같은 기폭에서 한 대상이 두 번째 이후로 맞는 원격 지뢰의 피해 배수 (첫 발 = 가장 센 한 발만 온전히). */
+export const GADGET_REMOTE_MINE_STACK_MUL = K.num('GADGET_REMOTE_MINE_STACK_MUL');
+/** 한 플레이어가 동시에 월드에 둘 수 있는 원격 지뢰 수 (넘으면 가장 오래된 것부터 사라진다). */
+export const GADGET_REMOTE_MINE_MAX_LIVE = K.num('GADGET_REMOTE_MINE_MAX_LIVE');
+/** 드론 위에 올린 지뢰가 적을 감지하는 반경(m) — 움직이는 드론이라 바닥 지뢰(1.5 m)보다 넓다. 적만 감지한다. */
+export const GADGET_MOUNTED_MINE_TRIGGER_RADIUS = K.num('GADGET_MOUNTED_MINE_TRIGGER_RADIUS');
+/** 설치 자리가 발 높이에서 위아래로 이만큼(m) 넘게 벗어나면 `너무 멀다` (gadgets/parts/Preview). */
+export const GADGET_PLACE_VERTICAL_REACH = K.num('GADGET_PLACE_VERTICAL_REACH');
+
+/* ── 2026-09-11: 드론 (owner: gadgets/drones — shared/drones.ts) ── */
+/** 드론 아이템을 손에 들고 조종을 잡기까지 R 을 누르는 시간(초). 조종 중 같은 홀드로 PC 로 돌아온다. */
+export const DRONE_CONTROL_HOLD_S = K.num('DRONE_CONTROL_HOLD_S');
+/** 사거리 비율이 이 값을 넘으면 화면 외곽이 지지직거린다. */
+export const DRONE_LINK_WARN_RATIO = K.num('DRONE_LINK_WARN_RATIO');
+export const DRONE_GROUND_HP = K.num('DRONE_GROUND_HP');
+export const DRONE_AIR_HP = K.num('DRONE_AIR_HP');
+/** 소유자 PC 로부터 조종이 유지되는 거리(m, 3D). */
+export const DRONE_GROUND_RANGE = K.num('DRONE_GROUND_RANGE');
+export const DRONE_AIR_RANGE = K.num('DRONE_AIR_RANGE');
+/** 지상 드론 걷기 속도 = `PLAYER_WALK_SPEED` × 이 값 (조용함, 어그로 없음). */
+export const DRONE_GROUND_WALK_MUL = K.num('DRONE_GROUND_WALK_MUL');
+/** 지상 드론 질주 속도 = `PLAYER_SPRINT_SPEED` × 이 값 (스태미나 없음, 소리 · 어그로). */
+export const DRONE_GROUND_SPRINT_MUL = K.num('DRONE_GROUND_SPRINT_MUL');
+/** 지상 드론 점프의 최고 높이(m) — PC 눈높이. */
+export const DRONE_GROUND_JUMP_HEIGHT = K.num('DRONE_GROUND_JUMP_HEIGHT');
+/** 질주하는 지상 드론의 소음이 적에게 들리는 반경(m). */
+export const DRONE_NOISE_RADIUS = K.num('DRONE_NOISE_RADIUS');
+/** 질주를 멈춘 뒤에도 적이 드론을 노릴 수 있는 시간(초) = `DroneRef.aggroable`. */
+export const DRONE_NOISE_MEMORY_S = K.num('DRONE_NOISE_MEMORY_S');
+/** `world:noise` 를 드론 하나당 초당 최대 몇 번 내는가. */
+export const DRONE_NOISE_EMIT_HZ = K.num('DRONE_NOISE_EMIT_HZ');
+export const DRONE_AIR_SPEED = K.num('DRONE_AIR_SPEED');
+export const DRONE_AIR_CLIMB_SPEED = K.num('DRONE_AIR_CLIMB_SPEED');
+/** 공중 드론이 지형(또는 발밑 표면) 위로 오를 수 있는 최대 고도(m). */
+export const DRONE_AIR_MAX_ALTITUDE = K.num('DRONE_AIR_MAX_ALTITUDE');
+/** 드론 옆에서 E 를 누르고 있어야 회수되는 시간(초). */
+export const DRONE_RECOVER_HOLD_S = K.num('DRONE_RECOVER_HOLD_S');
+/** `drone state` 방송 빈도(Hz). */
+export const DRONE_NET_HZ = K.num('DRONE_NET_HZ');
+/** 지상 드론을 PC 정면 몇 m 에 내려놓는가 · 공중 드론을 PC 눈 앞 몇 m / 위 몇 m 에 띄우는가. */
+export const DRONE_DEPLOY_DIST_GROUND = K.num('DRONE_DEPLOY_DIST_GROUND');
+export const DRONE_DEPLOY_DIST_AIR = K.num('DRONE_DEPLOY_DIST_AIR');
+export const DRONE_DEPLOY_LIFT_AIR = K.num('DRONE_DEPLOY_LIFT_AIR');
+/** 지상 드론 가속 · 제동 · 점프 중 조향 가속 (m/s²). */
+export const DRONE_GROUND_ACCEL = K.num('DRONE_GROUND_ACCEL');
+export const DRONE_GROUND_BRAKE = K.num('DRONE_GROUND_BRAKE');
+export const DRONE_GROUND_AIR_ACCEL = K.num('DRONE_GROUND_AIR_ACCEL');
+/** 공중 드론 회수 반경 가산(m). */
+export const DRONE_RECOVER_AIR_BONUS = K.num('DRONE_RECOVER_AIR_BONUS');
+/** 공중 드론 수평 가속 응답(1/s) · 몸 밑 최소 여유(m). */
+export const DRONE_AIR_ACCEL = K.num('DRONE_AIR_ACCEL');
+export const DRONE_AIR_MIN_CLEARANCE = K.num('DRONE_AIR_MIN_CLEARANCE');
+
+/* ── 2026-09-11: 네임드 로그 (owner: enemies — shared/named.ts) ── */
+/** 레이드 시작 스폰 지점에서 네임드가 서지 않는 최소 거리(m). */
+export const NAMED_ROGUE_MIN_SPAWN_DIST = K.num('NAMED_ROGUE_MIN_SPAWN_DIST');
+/** 네임드 확정 드롭 장비의 내구도 범위 (최대 내구도 비율). */
+export const NAMED_LOOT_DURABILITY_MIN = K.num('NAMED_LOOT_DURABILITY_MIN');
+export const NAMED_LOOT_DURABILITY_MAX = K.num('NAMED_LOOT_DURABILITY_MAX');
+/** 레이드에 네임드가 (셋 중 하나) 등장할 확률 — index 0 = 행성 난이도 1 … 4 = 5 (`planetTier − 1`). */
+export const NAMED_ROGUE_CHANCE_BY_RANK: readonly number[] = numberList('tables.csv', 'NAMED_ROGUE_CHANCE_BY_RANK');
+/** 헤비의 SMG 호위 인원 — index 0 = 분대 1명 … 3 = 4명. */
+export const NAMED_HEAVY_ESCORTS_BY_SQUAD: readonly number[] = numberList('tables.csv', 'NAMED_HEAVY_ESCORTS_BY_SQUAD');

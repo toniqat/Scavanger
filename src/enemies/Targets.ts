@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, type GameContext, type PeerId, type PlayerRef } from '@/shared';
+import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, type DroneRef, type GameContext, type PeerId, type PlayerRef } from '@/shared';
 import type { Enemy } from './Enemy';
 
 /** `'local'` is the player on this machine; `'ai'` is another enemy (faction warfare, Phase 4); anything else is a remote peer id. */
@@ -40,17 +40,37 @@ export class CombatTarget {
    * refreshed by the system each frame so bug ↔ rogue combat reuses the player-hunting code paths unchanged.
    */
   enemy: Enemy | null = null;
+  /* ── appended (2026-09-11): 드론 표적 ─────────────────────────────────────── */
+  /**
+   * 이 표적이 드론의 프록시면 그 드론 (`TargetList.drones`), 아니면 null. 드론 프록시의 `id` 는 `'ai'` 다 —
+   * 플레이어 id 체계(`'local'` / PeerId)를 건드리지 않으려는 것이고, 피해는 `droneId` 로 `ctx.drones.damageDrone` 에 간다.
+   * 드론이 사라져도 이 참조는 지우지 않는다(`present` / `isDead` 만 내린다) — 그 순간 표적으로 들고 있던 적이
+   * 이 프록시를 플레이어로 착각해 `dmg` 를 `'ai'` 에게 보내는 일이 없게.
+   */
+  drone: DroneRef | null = null;
+  droneId: string | null = null;
+  droneRadius = 0;
+  droneHeight = 0;
+  /** 드론 몸체 **밑면**이 그 아래 표면보다 몇 m 떠 있는가 — 근접 벌레가 닿을 수 있는지(`pickTarget`). */
+  droneAltitude = 0;
+  /** `TargetList` 가 이번 갱신에서 이 드론을 봤는가 (프레임 번호). */
+  droneStamp = 0;
+  /** 속도 추정용 — `DroneRef` 에는 속도가 없어서 위치 차분으로 만든다. */
+  readonly dronePrev = new THREE.Vector3();
+  dronePrevAt = -Infinity;
 
   constructor(readonly id: TargetId) {}
 
   get isLocal(): boolean { return this.id === 'local'; }
   get isEnemy(): boolean { return this.enemy !== null; }
+  get isDrone(): boolean { return this.drone !== null; }
 
   /** True when bugs must neither hunt nor hurt this player (dead, or downed and waiting for a revive). */
   get isDeadOrDowned(): boolean { return this.isDead || this.downed; }
 
   getEyePosition(out: THREE.Vector3): THREE.Vector3 {
     if (this.player) return this.player.getEyePosition(out);
+    if (this.drone) return this.getChest(out);
     if (this.enemy) return out.set(this.position.x, this.position.y + this.enemy.height * 0.8, this.position.z);
     return out.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
   }
@@ -63,13 +83,14 @@ export class CombatTarget {
 
   /** Point bugs aim at / trace LOS to (chest height). */
   getChest(out: THREE.Vector3): THREE.Vector3 {
-    const h = this.enemy ? this.enemy.height * 0.6 : PLAYER_HEIGHT * 0.65;
+    // 드론 프록시의 `position` 은 몸체 밑면이라 가운데는 높이의 절반 위다 (공중 드론 = 원래의 몸체 중심)
+    const h = this.drone ? this.droneHeight * 0.5 : this.enemy ? this.enemy.height * 0.6 : PLAYER_HEIGHT * 0.65;
     return out.set(this.position.x, this.position.y + h, this.position.z);
   }
 
-  /** Body radius for hit tests (players PLAYER_RADIUS-like via the caller; enemies their own). */
-  get bodyRadius(): number { return this.enemy ? this.enemy.radius : 0.45; }
-  get bodyHeight(): number { return this.enemy ? this.enemy.height : PLAYER_HEIGHT; }
+  /** Body radius for hit tests (players PLAYER_RADIUS-like via the caller; enemies their own; drones their body). */
+  get bodyRadius(): number { return this.drone ? this.droneRadius : this.enemy ? this.enemy.radius : 0.45; }
+  get bodyHeight(): number { return this.drone ? this.droneHeight : this.enemy ? this.enemy.height : PLAYER_HEIGHT; }
 
   dist2D(p: THREE.Vector3): number {
     return Math.hypot(this.position.x - p.x, this.position.z - p.z);
@@ -100,8 +121,21 @@ export class TargetList {
   readonly alive: CombatTarget[] = [];
   private readonly byId = new Map<TargetId, CombatTarget>();
   private readonly gone: TargetId[] = [];
+  /* ── appended (2026-09-11): 드론 표적 ── */
+  /**
+   * 지금 적이 노려도 되는(`DroneRef.aggroable`, 살아 있는) 드론의 프록시. **`all` / `alive` 에는 넣지 않는다** —
+   * 스포너 · 웨이브 · 산성 스플래시 · 포탄 · 분리(separation)가 드론을 플레이어로 착각하지 않게. 드론을 알아야 하는
+   * 경로(`pickTarget` · 로그 사격 · 산성 직격 · 몸통 접촉 `nearestAliveWithin`)만 이 목록을 따로 본다.
+   * 프록시는 드론 id 당 하나이고 그 드론이 월드에 있는 동안 유지된다(조용해지면 `present` 만 내린다) — 할당은 꺼낼 때 한 번.
+   */
+  readonly drones: CombatTarget[] = [];
+  private readonly droneById = new Map<string, CombatTarget>();
+  /** 모든 드론 프록시 (조용한 것 포함) — 사라진 드론을 찾는 순회용. Map 엔트리 순회는 프레임마다 튜플을 만든다. */
+  private readonly droneAll: CombatTarget[] = [];
+  private droneFrame = 0;
 
   refresh(ctx: GameContext): void {
+    this.refreshDrones(ctx);
     for (const t of this.byId.values()) t.present = false;
 
     const player = ctx.player;
@@ -158,10 +192,74 @@ export class TargetList {
     return t;
   }
 
+  /**
+   * 2026-09-11: `ctx.drones.getDrones()` → `drones`. 걷는 지상 드론은 `aggroable` 이 false 라 목록에 오르지 않는다
+   * (적이 봐도 무시). 프록시 `position` 은 **몸체 밑면**이다 — 지상 드론은 `DroneRef.position`(바닥점) 그대로, 공중
+   * 드론은 몸체 중심에서 높이의 절반 아래. 그래서 발 기준으로 짜인 기존 식(`getChest` · `rayStandingCapsule` ·
+   * `lookAtTarget` · 산성 조준)이 공중 드론에도 그대로 맞는다. yaw 는 플레이어 규약(forward = −sin, −cos)으로 뒤집어 둔다.
+   */
+  private refreshDrones(ctx: GameContext): void {
+    const frame = ++this.droneFrame;
+    this.drones.length = 0;
+    const list = ctx.drones?.getDrones();
+    if (list && list.length > 0) {
+      const world = ctx.world && ctx.world.ready ? ctx.world : null;
+      const now = ctx.time;
+      for (let i = 0; i < list.length; i++) {
+        const d = list[i];
+        let t = this.droneById.get(d.id);
+        if (!t) {
+          t = new CombatTarget('ai');
+          t.droneId = d.id;
+          this.droneById.set(d.id, t);
+          this.droneAll.push(t);
+        }
+        t.drone = d;
+        t.droneStamp = frame;
+        const p = d.position;
+        const bottom = d.kind === 'air' ? p.y - d.height * 0.5 : p.y;
+        // 속도 = 위치 차분. 같은 프레임에 두 번 갱신되면(world:ready 등) 이전 값을 그대로 둔다.
+        const dt = now - t.dronePrevAt;
+        if (dt > 1e-3) {
+          if (dt < 0.5) t.velocity.set((p.x - t.dronePrev.x) / dt, (p.y - t.dronePrev.y) / dt, (p.z - t.dronePrev.z) / dt);
+          else t.velocity.set(0, 0, 0);
+          t.dronePrev.copy(p);
+          t.dronePrevAt = now;
+        }
+        t.position.set(p.x, bottom, p.z);
+        t.yaw = d.yaw + Math.PI;
+        t.droneRadius = d.radius;
+        t.droneHeight = d.height;
+        t.player = null;
+        t.suspended = false;
+        t.stealth = 1;
+        t.downed = false;
+        t.isDead = !(d.hp > 0);
+        t.present = d.aggroable && !t.isDead;
+        if (!t.present) continue;
+        t.droneAltitude = world ? Math.max(0, bottom - world.getSurfaceY(p.x, p.z, bottom)) : 0;
+        this.drones.push(t);
+      }
+    }
+    // 월드에서 사라진 드론: 프록시를 버린다. 그 프록시를 표적으로 들고 있던 적은 `present` false 를 보고 다시 고른다.
+    for (let i = this.droneAll.length - 1; i >= 0; i--) {
+      const t = this.droneAll[i];
+      if (t.droneStamp === frame) continue;
+      t.present = false;
+      t.isDead = true;
+      if (t.droneId !== null) this.droneById.delete(t.droneId);
+      this.droneAll.splice(i, 1);
+    }
+  }
+
   clear(): void {
     this.byId.clear();
     this.all.length = 0;
     this.alive.length = 0;
+    for (let i = 0; i < this.droneAll.length; i++) { const t = this.droneAll[i]; t.present = false; t.isDead = true; }
+    this.droneAll.length = 0;
+    this.droneById.clear();
+    this.drones.length = 0;
   }
 
   get(id: TargetId): CombatTarget | undefined { return this.byId.get(id); }
@@ -180,10 +278,25 @@ export class TargetList {
     return best;
   }
 
-  /** Nearest alive target within `radius` (2D), or null. */
+  /**
+   * Nearest alive target within `radius` (2D), or null — the **body contact** query (charger rush, hunter leap landing,
+   * toxic swell trigger). 2026-09-11: aggroable drones count too, but only when their body is within `radius`
+   * **vertically** of `p` (the enemy's feet) as well — a bug does not bump into an air drone hovering overhead.
+   * `nearestAlive` (target choice, wave facing, spawner anchors) still sees players only.
+   */
   nearestAliveWithin(p: THREE.Vector3, radius: number): CombatTarget | null {
     const t = this.nearestAlive(p);
-    return t && t.dist2D(p) < radius ? t : null;
+    let best = t && t.dist2D(p) < radius ? t : null;
+    let bestD = best ? best.dist2D(p) : radius;
+    for (let i = 0; i < this.drones.length; i++) {
+      const d = this.drones[i];
+      if (d.isDeadOrDowned) continue;
+      const dd = d.dist2D(p);
+      if (dd >= bestD) continue;
+      if (d.position.y - p.y > radius || d.position.y + d.droneHeight < p.y - radius) continue;
+      best = d; bestD = dd;
+    }
+    return best;
   }
 
   /** Smallest 2D distance from `p` to any present target (alive or dead); Infinity when none. */

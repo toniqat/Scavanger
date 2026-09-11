@@ -8,6 +8,7 @@ import { acquireTarget, updatePerception } from './Perception';
 import { fireLineStrafe, hasFireLine } from './FireLine';
 import { attackResult, lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { updateRogue } from './RogueAI';
+import { isNamedAiType, updateNamed } from './named';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
 import { endInvestigation, updateInvestigate } from './Investigate';
 
@@ -89,6 +90,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     e.moveTarget.copy(e.lurePos);
   }
 
+  // 2026-09-11: 네임드 로그 (로든 · 타길라 · 헤비) 와 스캔 드론은 각자 파일의 상태 기계를 탄다 (`ai/named/*`).
+  if (isNamedAiType(e.type)) { updateNamed(e, dt, host, t, targetAlive); return; }
   // Phase 4: humanoid gunners run their own state machine (cover cycle) on top of the shared movement integration.
   if (e.isRogue) { updateRogue(e, dt, host, t, targetAlive); return; }
 

@@ -92,6 +92,8 @@ export function resetRuntime(sys: ImplantSystem): void {
   sys.grappleFlown = 0;
   sys.grappleTimer = 0;
   sys.grappleTargetValid = false;
+  sys.grappleDroneId = null;
+  sys.grappleSendAcc = 0;
   sys.bashTimer = 0;
   sys.bashCd = 0;
   sys.wire?.hide();

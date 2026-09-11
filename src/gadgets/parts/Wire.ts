@@ -17,6 +17,9 @@ import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
+import * as Remote from './Remote';
+import * as Preview from './Preview';
+import * as Mount from './Mount';
 
 /* ═══════════════════════════ networking ═══════════════════════════ */
 export function ensureNetHooks(sys: GadgetSystem): void {
@@ -38,7 +41,7 @@ export function broadcast(sys: GadgetSystem, msg: GadgetMessage, to: 'all' | 'ot
   }
 
 export function wireOf(sys: GadgetSystem, d: Deployable): DeployableWire {
-  return {
+  const w: DeployableWire = {
     id: d.id,
     kind: d.kind,
     owner: String(d.owner),
@@ -49,6 +52,9 @@ export function wireOf(sys: GadgetSystem, d: Deployable): DeployableWire {
     armed: d.armed,
     ttl: d.expires > 0 ? Math.max(0, Math.round((d.expires - sys.ctx.time) * 100) / 100) : 0,
   };
+  // 2026-09-11 (parts/Mount): 드론 위면 그 드론 id — 생략 = 바닥
+  if (d.mount) w.mount = d.mount;
+  return w;
   }
 
 export function spawnFromWire(sys: GadgetSystem, w: DeployableWire): void {
@@ -66,9 +72,13 @@ export function onGadgetMessage(sys: GadgetSystem, m: GadgetMessage, from: PeerI
   const hostId = net.lobby?.hostId;
   if (hostId && from !== hostId) return;
   switch (m.ev) {
-    case 'spawn':
-      sys.spawnFromWire(m.d);
+    case 'spawn': {
+      // 2026-09-11 (parts/Mount): 이미 있는 id 의 spawn = 호스트가 드론에서 떨어진 탑재물을 재방송한 것 → 상태만 덮어쓴다
+      const existing = sys.byId.get(m.d.id);
+      if (existing && !existing.removing) Mount.applyWire(sys, existing, m.d);
+      else sys.spawnFromWire(m.d);
       break;
+    }
     case 'update': {
       const d = sys.byId.get(m.id);
       if (!d) return;
@@ -81,7 +91,9 @@ export function onGadgetMessage(sys: GadgetSystem, m: GadgetMessage, from: PeerI
       const d = sys.byId.get(m.id);
       if (!d) { sys.pendingRecover.delete(m.id); return; }
       if (m.reason === 'destroyed') {
-        if (d.kind === 'mine') sys.blastFx(d.position, d.radius);
+        // 2026-09-11: a remote mine that was shot to pieces arrives with hp 0 (the host sends `update hp 0` first) and
+        // fizzles; one with hp left was detonated and gets the full blast
+        if (d.kind === 'mine' || (d.kind === 'remoteMine' && d.hp > 0)) sys.blastFx(d.position, d.radius);
         else sys.blastFx(d.position, Math.min(d.radius, 3), 0.4);
       }
       // our own recover request came through → take the item now
@@ -116,7 +128,14 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
       const def = gadgetDef(m.gadget);
       if (!def || !def.deployable) return;
       _a.set(m.p[0], m.p[1], m.p[2]);
-      sys.spawnDeployable(`${from}-g${++sys.seq}`, def, from, _a, m.yaw, null);
+      // 2026-09-11 (parts/Preview): 설치형은 표면 / 드론 기준으로 가볍게 다시 본다 (아이템은 이미 클라에서 소모됐다)
+      let mount: string | null = null;
+      if (def.use === 'place') {
+        const r = Preview.resolveRemotePlace(sys, def, _a, m.mount ?? null);
+        if (r === false) return;
+        mount = r;
+      }
+      sys.spawnDeployable(`${from}-g${++sys.seq}`, def, from, _a, m.yaw, null, mount);
       break;
     }
     case 'damage': {
@@ -135,6 +154,10 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
     }
     case 'sync':
       sys.broadcast({ t: 'gad', ev: 'sync', items: sys.deployables.map((d) => sys.wireOf(d)) }, from);
+      break;
+    // 2026-09-11: 보낸 사람 소유의 무장된 원격 지뢰만 터진다 (parts/Remote)
+    case 'detonate':
+      Remote.onDetonateRequest(sys, from);
       break;
   }
   }

@@ -7,6 +7,9 @@ import type { CorpseWireOpts } from '../Corpses';
 import type { CombatTarget, TargetList } from '../Targets';
 import { applySlope, integrateDeathFall } from '../ai/EnemyAI';
 import { lookAtTarget } from '../ai/Common';
+/* 2026-09-11: 네임드 로그 · 스캔 드론 */
+import { isNamedAiType } from '../ai/named';
+import { afterNamedReplica, beforeNamedReplica, onNamedEvent } from '../ai/named/remote';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Client-side enemy replicas (joined multiplayer clients, `!ctx.isAuthority`).
@@ -404,6 +407,14 @@ export class EnemyReplica {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         host.barrierHitRemote(msg.id, _p, msg.amount);
         return;
+      /* ── 2026-09-11: 네임드 로그 · 스캔 드론 (ai/named/*) ── */
+      case 'scanPulse':
+      case 'glint':
+      case 'snipe':
+      case 'hammer':
+      case 'spray':
+        onNamedEvent(host, msg);
+        return;
     }
   }
 
@@ -465,6 +476,8 @@ export class EnemyReplica {
       e.reloadTimer = hint === 12 ? STATUS_HOLD : 0;
       e.throwTimer = hint === 13 ? STATUS_HOLD : 0;
     }
+    // 2026-09-11: 네임드 로그 — 호스트 AI 가 쓰는 namedHint 를 리플리카에도 채우고, 자세를 입히기 전 상태를 맞춘다 (스캔 드론 = 공중).
+    if (isNamedAiType(e.type)) { e.namedHint = hint; beforeNamedReplica(e, hint); }
     e.position.set(_pose.x, _pose.y, _pose.z);
     // 2026-09-09: `getSurfaceY` with the host's own y as the foot height — a body standing on a rock keeps its
     // rock top instead of being yanked down to the terrain the moment the snapshot lands.
@@ -516,6 +529,7 @@ export class EnemyReplica {
     a.crouch += (crouchT - a.crouch) * Math.min(1, dt * 8);
     a.mandible += (mandT - a.mandible) * Math.min(1, dt * 10);
     a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
+    if (isNamedAiType(e.type)) afterNamedReplica(e, hint, dt, this.host);
 
     // head: track the nearest player while aware, idle sway otherwise
     const look = e.aware && hint !== 2 && hint !== 11 ? this.host.targets.nearestAlive(e.position) : null;

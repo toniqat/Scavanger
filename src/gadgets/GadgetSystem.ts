@@ -18,6 +18,10 @@ import * as Deploy from './parts/Deploy';
 import * as Sim from './parts/Simulate';
 import * as Q from './parts/Queries';
 import * as Wire from './parts/Wire';
+import * as Remote from './parts/Remote';
+import * as Preview from './parts/Preview';
+import * as Mount from './parts/Mount';
+import { LARGE_DEPLOYABLE_KINDS, MOUNTABLE_DEPLOYABLE_KINDS, type PlacementPreview } from '@/shared';
 
 export class GadgetSystem implements GameSystem, GadgetsRef {
   readonly name = 'gadgets';
@@ -36,6 +40,16 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   useCooldown = 0;
   /** Over / under-hand throw toggle (B), shared with grenades. */
   underhand = false;
+  /** 2026-09-11 (parts/Preview): 손에 든 설치형 가젯의 미리보기. `previewActive` 일 때만 `placement` 로 나간다. */
+  readonly preview: PlacementPreview = Preview.createPreview();
+  previewActive = false;
+  /** 마지막으로 보낸 `gadget:placementChanged` 값 (바뀔 때만 보낸다). */
+  readonly previewSent = Preview.createPreviewKey();
+  /** `use()` 가 설치 순간 다시 돌리는 판정 — 노출용 `preview` 를 건드리지 않는다. */
+  readonly placeUse: PlacementPreview = Preview.createPreview();
+
+  /** 손에 든 `place` 가젯의 현재 설치 미리보기, 들고 있지 않으면 null. */
+  get placement(): PlacementPreview | null { return this.previewActive ? this.preview : null; }
 
   /* ═══════════════════════════ GameSystem ═══════════════════════════ */
   init(ctx: GameContext): void {
@@ -45,14 +59,19 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     this.thrown = new ThrownGadgetManager(ctx, (gid, pos) => this.onThrownImpact(gid, pos));
     ctx.scene.add(this.visuals.group);
     this.visuals.warm();
+    // 2026-09-11: 설치 미리보기 고스트 (대형 + 소형 place 종류)
+    this.visuals.warmGhosts([...LARGE_DEPLOYABLE_KINDS, ...MOUNTABLE_DEPLOYABLE_KINDS]);
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('game:newMission', () => this.clear()),
-      b.on('game:abort', () => this.clear()),
-      b.on('hub:entered', () => this.clear()),
+      b.on('game:newMission', () => { this.clear(); this.resetPlacement(); }),
+      b.on('game:abort', () => { this.clear(); this.resetPlacement(); }),
+      b.on('hub:entered', () => { this.clear(); this.resetPlacement(); }),
       b.on('player:died', () => { /* deployables outlive their owner on purpose */ }),
+      // 2026-09-11 (parts/Mount): 드론이 사라지면 그 위 탑재물은 아래 바닥으로 떨어져 남는다
+      b.on('drone:removed', ({ id }) => Mount.onDroneRemoved(this, id)),
       b.on('world:ready', () => {
         this.clear();
+        this.resetPlacement();
         const net = ctx.net;
         if (ctx.isMultiplayer && net && !net.isHost) net.send({ t: 'gadq', ev: 'sync' }, 'host');
       }),
@@ -71,6 +90,9 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     this.handleInput(ctx);
     this.thrown.update(dt);
     this.visuals.updatePulses(dt);
+    // 2026-09-11: 드론 위 탑재물을 먼저 옮기고(미리보기의 "이미 드론에 설치물이 있다" 가 그것을 본다), 그다음 미리보기
+    this.updateMounts(ctx);
+    this.updatePlacement(ctx);
 
     const t = ctx.time;
     const authority = ctx.isAuthority;
@@ -123,6 +145,12 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
 
   recover(id: string): ItemInstance | null { return Deploy.recover(this, id); }
 
+  /** 2026-09-11: 로컬 플레이어의 무장된 원격 지뢰 전부 기폭 (클라는 `gadq detonate`). 반환 = 개수. */
+  detonateRemoteMines(): number { return Remote.detonateRemoteMines(this); }
+
+  /** 2026-09-11: 로컬 플레이어 소유로 월드에 있는 원격 지뢰 수 (무장 여부 무관). */
+  liveRemoteMineCount(): number { return Remote.liveRemoteMineCount(this); }
+
   clear(): void { return Deploy.clear(this); }
 
   /* ═══════════════════════════ input ═══════════════════════════ */
@@ -138,7 +166,17 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   private onThrownImpact(gid: GadgetId, pos: THREE.Vector3): void { return Deploy.onThrownImpact(this, gid, pos); }
 
   /** Authority spawns straight away; clients ask the host and wait for `gad spawn`. */
-  requestPlace(def: GadgetDef, position: THREE.Vector3, yaw: number): void { return Deploy.requestPlace(this, def, position, yaw); }
+  requestPlace(def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null): void { return Deploy.requestPlace(this, def, position, yaw, mount); }
+
+  /* ═══════════════════════════ 설치 미리보기 · 드론 탑재 (2026-09-11) ═══════════════════════════ */
+  /** 매 프레임: 손에 든 설치형 가젯의 판정 → 고스트 → `gadget:placementChanged` (parts/Preview). */
+  updatePlacement(ctx: GameContext): void { return Preview.updatePreview(this, ctx); }
+
+  /** 고스트를 숨기고 `placement` 를 null 로. */
+  resetPlacement(): void { return Preview.resetPreview(this); }
+
+  /** 드론 위 탑재물이 드론을 따라간다 / 드론이 없으면 떨어진다 (parts/Mount). */
+  updateMounts(ctx: GameContext): void { return Mount.updateMounts(this, ctx); }
 
   /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
   nextId(): string { return Deploy.nextId(this); }
@@ -147,7 +185,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
    * @param wire non-null when this is a replica built from a `gad spawn` / `gad sync` broadcast
    *   (hp / armed / ttl come from the host instead of the definition).
    */
-  spawnDeployable(id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null): Deployable | null { return Deploy.spawnDeployable(this, id, def, owner, position, yaw, wire); }
+  spawnDeployable(id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null, mount?: string | null): Deployable | null { return Deploy.spawnDeployable(this, id, def, owner, position, yaw, wire, mount); }
 
   /** Removes locally and, on the authority, tells everyone. */
   remove(d: Deployable, reason: 'destroyed' | 'recovered' | 'expired'): void { return Deploy.remove(this, d, reason); }

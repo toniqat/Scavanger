@@ -191,6 +191,7 @@ export function heal(sys: PlayerSystem, amount: number): void {
 /** hp reached 0: 전투불능 instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
 export function enterDowned(sys: PlayerSystem): void {
   if (sys._downed || sys.isDead) return;
+  sys.releaseDroneControl();  // 2026-09-11: 쓰러지면 드론 시점도 끊긴다 (자세는 아래에서 엎드리기로)
   sys.clearCarry('action');   // a downed carrier cannot hold anybody up
   sys.releaseLadder();        // 2026-09-11: nor hang on a ladder — the body falls
   sys._downed = true;
@@ -279,6 +280,7 @@ export function die(sys: PlayerSystem): void {
   sys.deadTimer = 0;
   sys.healPool = 0;
   sys.clearShield();
+  sys.releaseDroneControl();   // 2026-09-11
   sys.clearCarry('died');
   sys.releaseLadder();   // 2026-09-11
   sys.clearDowned();

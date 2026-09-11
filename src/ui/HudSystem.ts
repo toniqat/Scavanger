@@ -56,6 +56,10 @@ import { RoomLabel } from './hud/RoomLabel';
 import { ContractPanel } from './hud/ContractPanel';
 import { TrainingPanel } from './hud/TrainingPanel';
 import { MetaToasts } from './hud/MetaToasts';
+/* 2026-09-11: 드론 조종 HUD · 로든 스캔 경고 · 손에 든 가젯 안내(설치 · 기폭 · 드론 조종) */
+import { DroneHud } from './hud/DroneHud';
+import { NamedScanWarning } from './hud/NamedScanWarning';
+import { GadgetHandHint } from './hud/GadgetHandHint';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -161,6 +165,10 @@ export class HudSystem implements GameSystem {
   private map!: MapScreen;
   /* tactical kit — 2026-09-10: the implant readout is one bottom-centre thumbnail (the 임플란트 칩 is gone with it) */
   private implantWidget!: ImplantWidget;
+  /* 2026-09-11: 드론 조종 HUD · 로든 스캔 경고 · 손에 든 가젯 안내 */
+  private droneHud!: DroneHud;
+  private scanWarning!: NamedScanWarning;
+  private handHint!: GadgetHandHint;
   /* Phase 9 UI pass: right-hand column above the weapon panel — 빠른 사용 썸네일 strip */
   private quickStrip!: QuickStrip;
   private detection!: Detection;
@@ -251,6 +259,10 @@ export class HudSystem implements GameSystem {
     this.detection = new Detection(this.hudRoot, this.scanTracker);
     this.deployables = new Deployables(this.hudRoot);
     this.implantWidget = new ImplantWidget(this.hudRoot);
+    // 2026-09-11: 드론 조종 HUD · 로든 스캔 경고 · 손에 든 가젯 안내 — 각자 자기 조건으로 뜬다.
+    this.droneHud = new DroneHud(this.hudRoot);
+    this.scanWarning = new NamedScanWarning(this.hudRoot);
+    this.handHint = new GadgetHandHint(this.hudRoot);
     // 2026-09-10 (2차, 사용자 결정): 함선 호출은 더 이상 우측 하단 무기 열의 텍스트 패널이 아니라
     // **임플란트 바로 왼쪽의 정사각 썸네일**이다 — 그래서 무기 열을 떠나 여기, 같은 하단 중앙 줄에 선다
     // (자리는 `styles/shipCall.css` 가 `implant.css` 의 `:root` 기하 변수로 잡는다).
@@ -326,6 +338,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
+    for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.bind(ctx);
     this.community.bind(ctx);
     this.rescuePick.bind(ctx);
     // 2026-09-09 (레이드 플레이 개선): 의사소통 휠 · 재해 HUD · 레이드 알림
@@ -382,6 +395,9 @@ export class HudSystem implements GameSystem {
       this.spectate.update(dt, ctx);
       this.implantWidget.update(dt, ctx);
       this.quickStrip.update();
+      this.droneHud.update(dt, ctx);
+      this.scanWarning.update(dt, ctx);
+      this.handHint.update(dt, ctx);
     }
     if (this.socialVisible) {
       this.squad.update(dt, ctx);
@@ -626,6 +642,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.dispose();
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
+    for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.dispose();
     this.community.dispose();
     this.rescuePick.dispose();
     for (const c of [this.comms, this.hazard, this.raidAlerts]) c.dispose();

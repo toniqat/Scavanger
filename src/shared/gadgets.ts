@@ -19,11 +19,17 @@ export type GadgetId =
   | 'turret'         // 포탑 — auto turret, friendly fire, recoverable
   | 'incendiary'     // 화염수류탄 — 10 s fire zone, friendly fire
   | 'defib'          // 제세동기 — instantly revives a downed squadmate at full hp
-  | 'jumpPad';       // 점프대 — launches whoever steps on it, recoverable
+  | 'jumpPad'        // 점프대 — launches whoever steps on it, recoverable
+  /* appended (2026-09-11) */
+  | 'remoteMine'     // 원격 지뢰 — C4. 설치 후 손에 들고 우클릭으로 내 것 전부 기폭
+  | 'droneGround'    // 지상 드론 — `ctx.drones` (shared/drones.ts). 아이템은 조종기로 남는다
+  | 'droneAir';      // 공중 드론 — 같은 규칙, 제자리 비행
 
 export const GADGET_IDS: readonly GadgetId[] = [
   'cloakVeil', 'domeShield', 'barricade', 'lureGrenade', 'smokeGrenade',
   'mine', 'turret', 'incendiary', 'defib', 'jumpPad',
+  /* appended (2026-09-11) */
+  'remoteMine', 'droneGround', 'droneAir',
 ];
 
 /** How the gadget leaves the hand. */
@@ -31,14 +37,48 @@ export type GadgetUseKind =
   | 'throw'      // arc throw like a grenade (over/under toggle)
   | 'place'      // placed on the ground in front of the player
   | 'self'       // instant, affects the user / nearby allies
-  | 'target';    // aimed at another player (defibrillator)
+  | 'target'     // aimed at another player (defibrillator)
+  /* appended (2026-09-11) */
+  | 'drone';     // `ctx.drones.deploy(kind)` — the item is NOT consumed (it stays as the controller)
 
 /** Things that persist in the world after use. */
 export type DeployableKind =
   | 'domeShield' | 'barricade' | 'mine' | 'turret' | 'jumpPad'
   | 'smoke'      // smoke cloud (vision blocker)
   | 'fire'       // burning ground (damage over time)
-  | 'lure';      // noise beacon
+  | 'lure'       // noise beacon
+  /* appended (2026-09-11) */
+  | 'remoteMine'; // 원격 지뢰 (C4) — detonated by its owner
+
+/**
+ * 2026-09-11 (설치 미리보기): **대형 설치물**은 적당히 평평하고 공간이 있는 바닥에만 선다 — 드론 위에 못 올린다.
+ * 나머지 `place` 설치물(지뢰 · 원격 지뢰)은 **소형**이라 경사가 좀 있어도 되고 드론 윗면에 올릴 수 있다.
+ */
+export const LARGE_DEPLOYABLE_KINDS: readonly DeployableKind[] = ['barricade', 'jumpPad', 'turret'];
+/** 드론 윗면(`DroneRef.getMountPoint`)에 올릴 수 있는 설치물. 드론 하나에 하나. */
+export const MOUNTABLE_DEPLOYABLE_KINDS: readonly DeployableKind[] = ['mine', 'remoteMine'];
+export function isLargeDeployable(kind: DeployableKind | null | undefined): boolean {
+  return kind != null && LARGE_DEPLOYABLE_KINDS.includes(kind);
+}
+export function isMountableDeployable(kind: DeployableKind | null | undefined): boolean {
+  return kind != null && MOUNTABLE_DEPLOYABLE_KINDS.includes(kind);
+}
+
+/**
+ * 2026-09-11: 손에 든 `place` 가젯의 설치 미리보기 (owner: gadgets). 좌클릭이 실제로 놓는 자리와 **같은** 판정이다 —
+ * 미리보기가 초록이면 설치되고, 빨강이면 `reason` 으로 거부된다.
+ */
+export interface PlacementPreview {
+  gadget: GadgetId;
+  kind: DeployableKind;
+  valid: boolean;
+  /** 거부 사유 (한국어 한 줄), valid 면 null. */
+  reason: string | null;
+  position: THREE.Vector3;
+  yaw: number;
+  /** 드론 위에 올리는 중이면 그 드론 id. */
+  mount: string | null;
+}
 
 export interface GadgetDef {
   id: GadgetId;
@@ -109,4 +149,23 @@ export interface GadgetsRef {
   recover(id: string): ItemInstance | null;
 
   clear(): void;
+}
+
+/* ── appended (2026-09-11): 설치 미리보기 · 원격 지뢰 · 드론 탑재 (owner: gadgets) ── */
+export interface DeployableRef {
+  /** 드론 위에 올라탄 설치물이면 그 드론 id (`DroneRef.id`) — 위치가 매 프레임 드론을 따라간다. */
+  readonly mount?: string | null;
+}
+
+export interface GadgetsRef {
+  /** 손에 든 `place` 가젯의 현재 설치 미리보기, 들고 있지 않으면 null. */
+  readonly placement?: PlacementPreview | null;
+  /**
+   * 로컬 플레이어가 설치한 원격 지뢰를 **전부** 기폭한다 (무장된 것만). 비호스트는 `gadq detonate` 요청을 보낸다.
+   * 같은 기폭에서 한 대상이 여러 발에 맞으면 가장 센 한 발만 온전히, 나머지는 `GADGET_REMOTE_MINE_STACK_MUL` 배.
+   * 반환 = 기폭(요청)한 개수.
+   */
+  detonateRemoteMines?(): number;
+  /** 로컬 플레이어 소유로 월드에 남아 있는 원격 지뢰 수 (기폭기 손 상태 · HUD). */
+  liveRemoteMineCount?(): number;
 }

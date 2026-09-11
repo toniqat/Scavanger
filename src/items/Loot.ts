@@ -12,6 +12,9 @@ import { craftCostOf } from './Recipes';
 import { ALL_CRAFT_RECIPES, durabilityBucketInfo, durabilityBucketOf, repairCostFor, salvageFor } from './Salvage';
 import { IMPLANT_BROKEN_DEFS } from './ImplantDefs';
 import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getPlanetGradeCurve, getTierTable, planetRarityWeights, type PlanetGradeCurve, type TierTable } from './LootTables';
+/* appended (2026-09-11): 네임드 로그 확정 드롭 (`data/loot_named.csv`) */
+import { NAMED_LOOT_DURABILITY_MAX, NAMED_LOOT_DURABILITY_MIN } from '@/shared';
+import { NAMED_DROP_MAP, numberedArmorIdForTier, type NamedDrop } from './LootTables';
 
 /**
  * 유니크 전용 탄종의 아이템 id (`ammo_fuel` … `ammo_belt`) 와 등급 무기가 쓰는 평범한 탄종의 id.
@@ -272,8 +275,55 @@ export class LootService implements LootRef {
       if (pool.length > 0) out.push(this.createItem(rng.weighted(pool, (d) => w[d.rarity] ?? 0).id, 1));
     }
 
+    /* 2026-09-11: 네임드 로그의 확정 드롭 — **맨 마지막**이라 앞의 추첨이 안 움직이고, 네임드가 아닌 적은
+       이 분기에 들어오지도 않는다 (`warrior` / `rogue` / `rogue_boss` 의 고정 벡터 그대로).
+       행성 곡선(`curve`)은 일부러 넘기지 않는다 — "최소 희귀 등급부터" 가 사용자 명세다. */
+    const named = NAMED_DROP_MAP.get(type);
+    if (named) this.rollNamedDrop(named, rng, out);
+
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;
+  }
+
+  /**
+   * 네임드 확정 드롭 하나. `chance` → 등급(가중) → 아이템 → 내구도 `NAMED_LOOT_DURABILITY_MIN..MAX` × 최대치.
+   * 무기면 장전 탄약(`magFraction`, 없으면 0..탄창)과 그 탄종 한 스택(`ammoFraction`)이 따라온다.
+   */
+  private rollNamedDrop(drop: NamedDrop, rng: Random, out: ItemInstance[]): void {
+    if (!rng.chance(drop.chance)) return;
+    const grade = drop.grades.length > 0 ? rng.weighted(drop.grades, (g) => drop.weightOf[g] ?? 0) : null;
+    let defId: string | null = null;
+    if (drop.kind === 'item') defId = drop.target;
+    else if (grade !== null && drop.kind === 'weapon') defId = itemIdForWeapon(weaponIdForGrade(drop.target, grade));
+    else if (grade !== null && drop.kind === 'armor') defId = numberedArmorIdForTier(grade);
+    const def = defId ? ITEM_DEF_MAP.get(defId) : undefined;
+    if (!def) { console.warn(`[Loot] named drop '${drop.type}': unknown item '${defId}'`); return; }
+
+    const durFrac = rng.range(NAMED_LOOT_DURABILITY_MIN, NAMED_LOOT_DURABILITY_MAX);
+    /* 반올림이 범위 밖으로 새지 않게 [ceil(max × MIN), floor(max × MAX)] 로 자른다 — 저격소총 V(240)에서
+       round(240 × 0.01) = 2 = 0.83 % 가 나오던 것. 최소 1. */
+    const namedDurability = (max: number): number => {
+      const lo = Math.max(1, Math.ceil(max * NAMED_LOOT_DURABILITY_MIN - 1e-9));
+      const hi = Math.max(lo, Math.floor(max * NAMED_LOOT_DURABILITY_MAX + 1e-9));
+      return Math.min(hi, Math.max(lo, Math.round(max * durFrac)));
+    };
+    const weapon = def.weaponId ? WEAPON_DEF_MAP.get(def.weaponId) : undefined;
+    if (!weapon) {
+      const max = def.durabilityMax;
+      out.push(this.createItem(def.id, 1, max !== undefined ? { durability: namedDurability(max) } : undefined));
+      return;
+    }
+    const stats = computeWeaponStats(weapon);
+    const durability = namedDurability(stats.maxDurability);
+    const ammoInMag = drop.magFraction
+      ? Math.max(0, Math.min(stats.magSize, Math.round(stats.magSize * rng.range(drop.magFraction[0], drop.magFraction[1]))))
+      : rng.int(0, stats.magSize);
+    out.push(this.createItem(def.id, 1, { durability, ammoInMag }));
+    const ammoDef = drop.ammoFraction ? ITEM_DEF_MAP.get(ammoItemIdFor(weapon.ammoType)) : undefined;
+    if (ammoDef && drop.ammoFraction) {
+      const [lo, hi] = drop.ammoFraction;
+      out.push(this.createItem(ammoDef.id, Math.max(1, Math.min(ammoDef.stackMax, Math.round(ammoDef.stackMax * rng.range(lo, hi))))));
+    }
   }
 
   /* ── appended (2026-09-09): 행성별 무기 등급 곡선 (`data/planet_loot.csv`) ───────────────────────── */

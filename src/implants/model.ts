@@ -52,6 +52,8 @@ export const BOOST_LINGER = 0.6;
 export const OVERCHARGE_MIN_START = 0.75;
 /** Phase 7: `imp beam` refresh period while the overcharge beam is on (on / target change / off go out at once). */
 export const BEAM_SEND_INTERVAL = 0.25;
+/** 2026-09-11: a grapple hooked on a (moving) air drone re-sends `imp grapple {o, p}` this often while attached (≤ 4 Hz). */
+export const GRAPPLE_SEND_INTERVAL = BEAM_SEND_INTERVAL;
 /** Blocked hits between two replicated shield-durability updates. */
 export const BARRIER_SEND_EVERY_HITS = 4;
 /** Phase 12: a melee attack from farther than this (m, from the carrier) is never "frontal" for `absorbFrontalAttack`. */
