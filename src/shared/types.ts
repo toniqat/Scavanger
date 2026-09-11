@@ -719,8 +719,12 @@ export interface GatherNodeDef {
   kind?: GatherNodeKind;
 }
 
-/** `GatherNodeDef.kind` (2026-09-08). */
-export type GatherNodeKind = 'herb' | 'salvage';
+/**
+ * `GatherNodeDef.kind` (2026-09-08). appended (온실 개편, 2026-09-11): `'soil'` — 토양 더미. One soil tag per
+ * planet (`data/planets.csv` 의 `soils` 열), so which 토양 속성 you can farm is a reason to pick a planet.
+ * Shares the placement / net / interact code with the other two; yields a `category: 'soil'` item and 원예 XP.
+ */
+export type GatherNodeKind = 'herb' | 'salvage' | 'soil';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Weapons ref (Phase 3, owner: weapons/WeaponSystem publishes `ctx.weapons`)
