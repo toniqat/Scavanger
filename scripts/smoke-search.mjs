@@ -402,6 +402,31 @@ try {
     const h = make(); h.onWelcome(rec({ stash: { tag: 'same' }, meta: { tag: 'm' } }, { stash: 1, meta: 1 }));
     h.setMany({ stash: { tag: 'same' }, meta: { tag: 'm-new' } }); h.flush();
     out.skipSame = h.sent.filter((s) => s.t !== 'profile:get').map((s) => s.t + ':' + (s.key ?? Object.keys(s.docs).join('+')));
+
+    /* ⑦ C-69 — the one-time transition. A relay loading a profile written before revisions seeds `docsRev[key] = 1`
+         while still keeping `docsAt`; a client that only ever met an old relay holds its offline edits on `baseRev: 0`,
+         so the plain E-6 rule (server rev 1 > base 0) would discard every one of them. Such a write — virgin key, base 0,
+         stamped — is judged by the Phase 9 stamp instead, and a loss is silent (it lost under Phase 9 too). */
+    localStorage.removeItem(KEY);
+    const seeded = (docs, docsRev, docsAt) => ({ credits: 0, docs, updatedAt: 0, docsRev, docsAt });
+    const p = make(); p.serverNow = () => 100;           // played offline against an old relay: revs stay empty
+    p.set('stash', { v: 2, tag: 'pre-rev-edit' });
+    events.length = 0;
+    p.onWelcome(seeded({ stash: { v: 2, tag: 'seeded-r1' } }, { stash: 1 }, { stash: 50 }));
+    const pSet = p.sent.find((s) => s.t === 'profile:set');
+    out.seedStampWins = {
+      record: p.record.docs.stash?.tag, base: pSet?.baseRev, tag: pSet?.doc?.tag, pending: p.pendingKeys.join(),
+      conflicts: events.filter((e) => e[0] === 'net:profileConflict').length, loaded: events.find((e) => e[0] === 'net:profileLoaded')?.[1].profile.docs.stash?.tag,
+    };
+    localStorage.removeItem(KEY);
+    const q = make(); q.serverNow = () => 100;
+    q.set('stash', { v: 2, tag: 'pre-rev-edit' });
+    events.length = 0;
+    q.onWelcome(seeded({ stash: { v: 2, tag: 'seeded-r1' } }, { stash: 1 }, { stash: 200 }));
+    out.seedStampLoses = {
+      record: q.record.docs.stash?.tag, sent: q.sent.filter((s) => s.t !== 'profile:get').length, pending: q.pendingKeys.length, rev: q.revOf('stash'),
+      conflicts: events.filter((e) => e[0] === 'net:profileConflict').length, loaded: events.find((e) => e[0] === 'net:profileLoaded')?.[1].profile.docs.stash?.tag,
+    };
     localStorage.removeItem(KEY);
     return out;
   });
@@ -430,6 +455,12 @@ try {
   ok(rev.oldRelay.frame?.at === 1000 && rev.oldRelay.frame.baseRev === undefined && rev.oldRelay.frame.writeId === undefined && rev.oldRelay.pending === 0 && rev.oldRelay.record === 'offline' && !rev.oldRelay.hasRevs,
     'E-6: an old relay (no docsRev in welcome) gets Phase 9 frames ({at}, no baseRev) and the queue empties once sent', JSON.stringify(rev.oldRelay));
   ok(rev.skipSame.join() === 'profile:set:meta', 'E-6: setMany skips a document identical to the server copy (one changed key → an ordinary set)', JSON.stringify(rev.skipSame));
+  ok(rev.seedStampWins.record === 'pre-rev-edit' && rev.seedStampWins.base === 1 && rev.seedStampWins.tag === 'pre-rev-edit' && rev.seedStampWins.pending === 'stash'
+    && rev.seedStampWins.conflicts === 0 && rev.seedStampWins.loaded === 'pre-rev-edit',
+    'C-69: a relay seeding docsRev=1 for a pre-revision document does not beat an offline edit whose rev this client never saw — the Phase 9 stamp decides, the local copy wins and is rebased onto rev 1 (no net:profileConflict)', JSON.stringify(rev.seedStampWins));
+  ok(rev.seedStampLoses.record === 'seeded-r1' && rev.seedStampLoses.sent === 0 && rev.seedStampLoses.pending === 0 && rev.seedStampLoses.rev === 1
+    && rev.seedStampLoses.conflicts === 0 && rev.seedStampLoses.loaded === 'seeded-r1',
+    'C-69: the same write against a newer server stamp loses to the server copy — silently (it lost under Phase 9 too): dropped from the queue, no net:profileConflict', JSON.stringify(rev.seedStampLoses));
   await page.evaluate(() => { delete window.__game.ctx.net.profile; window.__game.getSystem('inventory').reset(); }); // starter kit again for the mission tests
 
   /* ── 3. container search on a mission ───────────────────────────────── */

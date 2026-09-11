@@ -37,7 +37,7 @@ import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpse
 import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
-import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
+import { raySphere, rayCapsule, rayStandingCapsule, standingTopY } from './RayTests';
 import { carryCorpse } from './ai/Ride';
 import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
 
@@ -401,8 +401,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (tb !== BODY_RAY_VERTICAL) {
         if (tb >= 0 && tb < bestT) { best = e; bestT = tb; bestKind = 4; bestPart = e.classifyHit(undefined, dir); }
       } else {
+        // 2026-09-11 (C-72): 서 있는 캡슐의 축 높이 규칙은 `RayTests.standingTopY` 하나다 — 여기 같은 식을 또 적지 않는다.
         const y0 = e.position.y + r;
-        const y1 = Math.max(y0, e.position.y + h - r);
+        const y1 = standingTopY(e.position.y, r, h);
         const res = rayCapsule(origin, dir, cx, cz, y0, y1, r);
         if (res.t >= 0 && res.t < bestT) {
           best = e; bestT = res.t; bestKind = res.kind; bestCapY = res.capY;

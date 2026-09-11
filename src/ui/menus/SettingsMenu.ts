@@ -1,5 +1,5 @@
 import type { AudioChannel, GameContext, RelayProbe } from '@/shared';
-import { NET_DEFAULT_PORT, NET_WS_PATH, relayUrlFrom } from '@/shared';
+import { NET_DEFAULT_PORT, NET_SHELL_RELAY_ROUTE, NET_WS_PATH, relayUrlFrom } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { AskPopup } from './askPopup';
 import type { KeybindMenu } from './KeybindMenu';
@@ -21,12 +21,6 @@ const SECTIONS: readonly { id: SectionId; label: string }[] = [
   { id: 'keys', label: '키 설정' },
   { id: 'network', label: '서버 설정' },
 ];
-
-/**
- * 데스크톱 셸이 고른 기본 주소를 알려 주는 로컬 라우트 (`electron/main.ts`). 브라우저 · vite 에는 없으므로
- * 404 / 실패는 "같은 주소의 서버" 로 읽는다 — 그게 사실이다 (vite 프록시가 `/ws` 를 릴레이로 넘긴다).
- */
-const SHELL_RELAY_ROUTE = '/__scav/relay';
 
 const CHANNEL_LABEL: Readonly<Record<AudioChannel, string>> = { master: '전체', sfx: '효과음' };
 const CHANNEL_DESC: Readonly<Record<AudioChannel, string>> = {
@@ -91,7 +85,7 @@ export class SettingsMenu {
   /** 연결 테스트가 도는 동안 버튼을 잠근다. */
   private netBusy = false;
   private netProbe: RelayProbe | null = null;
-  /** 셸이 고른 기본 주소 (`SHELL_RELAY_ROUTE`); 브라우저에서는 null 로 남는다. */
+  /** 셸이 고른 기본 주소 (`NET_SHELL_RELAY_ROUTE`); 브라우저에서는 null 로 남는다. */
   private shellDefault: string | null = null;
   private _open = false;
   private ctx!: GameContext;
@@ -509,11 +503,16 @@ export class SettingsMenu {
     void this.loadShellDefault();
   }
 
-  /** 셸이 고른 기본 주소를 한 번만 물어본다 (브라우저 · vite 에는 라우트가 없으므로 그냥 실패한다). */
+  /**
+   * 셸이 고른 기본 주소를 한 번만 물어본다. 라우트의 원본은 `shared/net` 의 `NET_SHELL_RELAY_ROUTE` 하나이고
+   * (2026-09-11 C-67 — 여기 따로 적혀 있던 문자열을 지웠다) `electron/main.ts` · `net/parts/Socket` 이 같은 것을 쓴다.
+   * 브라우저 · vite 에는 그 라우트가 없으므로 404 / 실패는 "같은 주소의 서버" 로 읽는다 — 그게 사실이다
+   * (vite 프록시가 `/ws` 를 릴레이로 넘긴다).
+   */
   private async loadShellDefault(): Promise<void> {
     if (this.shellDefault !== null) return;
     try {
-      const res = await fetch(SHELL_RELAY_ROUTE, { cache: 'no-store' });
+      const res = await fetch(NET_SHELL_RELAY_ROUTE, { cache: 'no-store' });
       if (!res.ok) return;
       const j = await res.json() as { target?: unknown; source?: unknown };
       if (typeof j.target !== 'string' || !j.target) return;

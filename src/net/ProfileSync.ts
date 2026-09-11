@@ -84,6 +84,13 @@ function readWrite(raw: unknown): QueuedWrite | null {
  *     same document — the ack was lost) is simply settled. A server rev *below* the base (restored backup) → local wins,
  *     rebased. A `fresh` default loses silently to any server document.
  *   - A `profile:conflict` while connected: server wins the same way, then `profile:get` re-announces the record.
+ *   - **The one-time transition (C-69).** A relay loading a profile written before revisions existed seeds
+ *     `docsRev[key] = 1`, which is *not* "another session wrote meanwhile" — a client that never saw a rev holds its
+ *     offline edits on `baseRev: 0` and would lose every one of them the first time it meets such a relay. So an
+ *     **unsent** write whose keys are all *virgin* (this client knows no rev for them, the write's `baseRev` is 0 and
+ *     it carries a stamp) is judged by the **Phase 9 stamp** instead: `at >= docsAt[key]` on every key → local wins and
+ *     is rebased onto the server rev; otherwise the server wins **silently** (no warning, no `net:profileConflict` —
+ *     that write lost under Phase 9 too). A `setMany` transaction takes the fallback all or nothing.
  * A relay without revisions (its `welcome.profile` has no `docsRev`) keeps the **Phase 9** rules exactly: stamped
  * `profile:set {at}` / `{fresh}` frames, newest stamp wins at welcome, a write leaves the queue once it is sent.
  */
@@ -484,7 +491,9 @@ export class ProfileSync implements ProfileRef {
 
     const S = profile.docsRev as Partial<Record<ProfileDocKey, number>>;
     const sRev = (k: ProfileDocKey): number => revNum(S[k]);
-    /* ① sent writes: still valid (resend, same id) · already stored (settle) · server behind (requeue) · conflict */
+    /* ① sent writes: still valid (resend, same id) · already stored (settle) · server behind (requeue) · conflict.
+       No C-69 stamp fallback here: a sent write was given to a relay that speaks revisions, so `rev = base + 1` with the
+       same document already covers "only the ack was lost" and whatever is left is a real cross-session conflict. */
     const validInflight = new Set<ProfileDocKey>();
     const deadKeys = new Set<ProfileDocKey>();
     const keep: QueuedWrite[] = [];
@@ -506,6 +515,19 @@ export class ProfileSync implements ProfileRef {
       const ks = keysOf(w);
       const eff = (k: ProfileDocKey): number => sRev(k) + (validInflight.has(k) ? 1 : 0);
       if (ks.length === 1 && w.docs[ks[0]]!.at === null && serverDocs[ks[0]] !== undefined && !validInflight.has(ks[0])) continue;   // fresh default loses silently
+      /* C-69, 전환 1회: 이 쓰기의 모든 키에 대해 이 클라이언트가 rev 를 한 번도 본 적이 없다면(`this.revs` 는 아래
+         ③ 에서야 새로 채워지므로 여기서 읽는 값은 "직전까지 알던 것"이다) 서버의 rev 는 옛 문서를 로드하며 1 로
+         시드한 것이지 남이 쓴 흔적이 아니다 — 그런 쓰기만 Phase 9 스탬프로 판정한다. 지면 조용히 버린다(Phase 9
+         에서도 진 쓰기다). 트랜잭션은 전부 또는 전무: 한 키라도 벗어나면 아래 기존 경로(E-6 서버 우선 + 경고)로 간다. */
+      const virgin = !ks.some((k) => deadKeys.has(k))
+        && ks.every((k) => (this.revs[k] ?? 0) === 0 && w.docs[k]!.baseRev === 0 && w.docs[k]!.at !== null);
+      if (virgin) {
+        if (ks.every((k) => w.docs[k]!.at! >= (this.docsAt[k] ?? 0))) {
+          for (const k of ks) w.docs[k]!.baseRev = eff(k);
+          this.pending.push(w);
+        }
+        continue;
+      }
       if (ks.some((k) => deadKeys.has(k) || eff(k) > w.docs[k]!.baseRev)) { ks.forEach((k) => { deadKeys.add(k); conflicts.add(k); }); continue; }
       for (const k of ks) w.docs[k]!.baseRev = eff(k);
       this.pending.push(w);

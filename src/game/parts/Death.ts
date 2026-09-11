@@ -23,6 +23,8 @@ import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTO
 /* appended (2026-09-09): 시체 · 분대장 기기 */
 import * as Corpse from './CorpseNet';
 import * as Leader from './Leader';
+/* appended (2026-09-11, C-70): 사망 직후 레이드 세션 강제 저장 — `GameFlowSystem.saveRaid` 는 private 이라 같은 parts 를 직접 부른다 */
+import * as Session from './Session';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 export function onLocalDied(sys: GameFlowSystem): void {
@@ -50,6 +52,14 @@ export function onLocalDied(sys: GameFlowSystem): void {
      */
     ctx.progression?.stripImplantsForCorpse?.();
     sys.respawnTimer = -1; sys.respawnLastSec = -1;
+    /*
+     * 2026-09-11 (C-70): **죽는 순간 레이드는 끝났다.** 예전에는 주기 저장이 계속 돌고 세이브를 지우는 것은
+     * `DEATH_TO_SCREEN`(2.5초) 뒤 `gameOver()` 였다 — 그 사이에 새로고침하면 사망 전 스냅샷으로 **완전히
+     * 되살아났다**(솔로는 시체가 없어 손실이 0이다). 그래서 주기 저장을 먼저 끄고 세이브를 **즉시** 지운다.
+     * `gameOver()` 의 `clearSoloRaid()` 는 멱등이라 그대로 둔다.
+     */
+    sys.raidSaveTimer = -1;
+    clearSoloRaid();
     sys.deathTimer = DEATH_TO_SCREEN;
     sys.setPaused(false);
     return;
@@ -63,6 +73,14 @@ export function onLocalDied(sys: GameFlowSystem): void {
   sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.setPaused(false);
   Corpse.spawnLocalCorpse(sys);
+  /*
+   * 2026-09-11 (C-70): 레이드 세션을 **여기서 한 번 강제로** 저장한다. 주기 저장(`RAID_SAVE_INTERVAL_S`)과
+   * 루팅에서만 올라가던 blob 은 사망 순간을 담지 못해, 죽고 나서 새로고침하면 **사망 전 가방**으로 복귀했다 —
+   * 장비가 시체에도 서 있고 내 가방에도 그대로 있는 **복제 경로**다. 반드시 `spawnLocalCorpse`(=
+   * `InventoryRef.stripForCorpse`) **뒤**여야 한다: 그래야 `captureRaidState()` 가 이미 빈 가방을 찍는다.
+   * 페이즈는 사망해도 그대로라 `saveRaid` 의 `isGameplayPhase()` 게이트를 통과하고, `rejoinPending` 가드는 존중한다.
+   */
+  Session.saveRaid(sys);
   Leader.onHostDied(sys);
   const left = ctx.stratagems?.rescueLeft ?? 0;
   ctx.bus.emit('ui:notify', {

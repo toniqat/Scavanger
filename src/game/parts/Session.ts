@@ -68,7 +68,17 @@ export function isSoloRaid(sys: GameFlowSystem): boolean {
 export function saveRaid(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   if (!ctx.isGameplayPhase() || ctx.rejoinPending) return;
-  if (sys.isSoloRaid()) { sys.saveSolo(); return; }
+  if (sys.isSoloRaid()) {
+    /*
+     * 2026-09-11 (C-70): **솔로는 죽은 뒤 저장하지 않는다.** `parts/Death.onLocalDied` 가 사망 즉시 세이브를 지우는데
+     * (죽는 순간 레이드는 끝났다), `DEATH_TO_SCREEN` 2.5초 창 안에 `inventory:itemAdded` · `crate:looted` 가 한 번이라도
+     * 오면 방금 지운 파일이 되살아나 새로고침으로 부활할 수 있었다. 전투불능(`isDowned`)은 아직 살아 있으므로 제외한다.
+     * **멀티에는 걸지 않는다** — 거기서는 빈 가방을 담은 사망 직후 저장이 바로 복제를 막는 장치다.
+     */
+    const p = ctx.player;
+    if (p?.isDead && !(p.isDowned ?? false)) return;
+    sys.saveSolo(); return;
+  }
   if (!sys.isRaidSession()) return;
   const net = ctx.net!;
   if (typeof net.saveRaid !== 'function') return;

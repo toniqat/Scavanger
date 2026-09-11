@@ -721,6 +721,11 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
     차단한 분대원은 말풍선이 안 뜨고 차단 안 한 분대원은 뜬다(차단 해제하면 둘 다 뜬다 · 가짜 로비는 `hud.lateUpdate` 와
     **같은 task** 안에서만 살아 있다 — 채팅 단언과 같은 수법), 그리고 함선에서 `net:peerJoined` · `peerLeft` 토스트가 한 줄뿐이다.
 
+- **2026-09-11 (C-67 — 셸 릴레이 라우트 문자열 일원화, 리드)** — `menus/SettingsMenu` 가 자기 안에 적어 두던
+  `const SHELL_RELAY_ROUTE = '/__scav/relay'` 를 지우고 `@/shared` 의 **`NET_SHELL_RELAY_ROUTE`** 를 쓴다
+  (`electron/main.ts` · `net/parts/Socket` 은 이미 그것을 쓰고 있었다 — 주소 문자열을 해석 · 보관하는 자리는 `shared/net` 하나다).
+  404 / 실패를 "같은 주소의 서버" 로 읽는 이유는 `loadShellDefault` 의 주석으로 옮겼다. 동작 · 화면 변화 없음.
+
 - **2026-09-11 (C-58 perf guard 가 끈 블룸 표시, 에이전트 c58)** — `core/Engine` 의 perf guard 가 블룸을 끄면 내는
   `render:autoAdjusted {bloom:false, reason:'perf'}`(부팅당 1회)를 `menus/SettingsMenu.bind` 에서 받는다 (부팅부터 산다 — 패널을 열 때가 아니다).
   - **저장하지 않는다**: `display.bloom` 은 저장값(켬) 그대로이고 `bloomAutoOff` 만 선다. `화면 효과` 행은 `꺼짐 (성능 자동)`

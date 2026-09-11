@@ -95,8 +95,12 @@ export class GameFlowSystem implements GameSystem {
   private resumeGate: ResumeGate | null = null;
   private onWindowBlur = (): void => this.onFocusLost();
   private onVisibilityChange = (): void => { if (document.visibilityState === 'hidden') this.onFocusLost(); };
-  /** Tab closing mid-solo-raid: flush the session so the last seconds of the run are not lost (2026-09-07). */
-  private onPageHide = (): void => { if (this.isSoloRaid() && this.ctx.isGameplayPhase()) this.saveSolo(); };
+  /**
+   * Tab closing mid-solo-raid: flush the session so the last seconds of the run are not lost (2026-09-07).
+   * 2026-09-11 (C-70): 죽은 뒤에는 flush 하지 않는다 — `parts/Death.onLocalDied` 가 방금 지운 세이브를 되살려
+   * 새로고침 부활을 열어 준다 (`parts/Session.saveRaid` 의 솔로 가드와 같은 이유이고, 이 경로는 그 함수를 지나지 않는다).
+   */
+  private onPageHide = (): void => { if (this.isSoloRaid() && this.ctx.isGameplayPhase() && !this.isLocalOut()) this.saveSolo(); };
 
   init(ctx: GameContext): void {
     this.ctx = ctx;

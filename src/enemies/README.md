@@ -978,6 +978,13 @@ attack phase 4  0.25 s 회복 → chase
   `statusRange` · `statusRate` 6개 추가(기존 `trimmed` · `dropped` · `kbRefused` 는 그대로이고, 깎인 explode 도 그 둘에
   센다). 거절은 아무 일도 일으키지 않으므로 스모크가 거절을 볼 수 있는 **유일한** 수단이다.
 
+- **2026-09-11 (C-72 — 서 있는 캡슐 축 높이의 원본 하나, 리드)** — `RayTests.standingTopY` 를 **export** 하고
+  `EnemySystem.raycastEx` 가 인라인으로 또 적던 `Math.max(y0, position.y + h − r)` 를 그 호출로 바꿨다. C-62 에서
+  `rayStandingCapsule` · `nearestOnStandingCapsule` 이 이미 그 함수를 쓰고 있었지만 `raycastEx` 는 `rayCapsule` 의
+  원시 결과(`kind` · `capY` — 법선 계산에 쓴다)가 필요해 `rayStandingCapsule` 을 못 쓰고 식을 베껴 두고 있었다.
+  **동작은 한 줄도 바뀌지 않는다**(같은 식). 새 수치 없음.
+
+- **2026-09-11 (C-63 — 적 하차 관성 · 리플리카 탑승 예측의 가속도 항, 에이전트 c63)** — `ai/Ride.ts` 둘.
   ① **하차 관성**: `rideCarry(e, world, dt)` 가 차량 부피를 벗어난 몸을 `rideRelease(e, true)` 로 내리면서 그 순간의 차량
   속도(XZ)를 `Enemy.rideInertia` · `rideInertiaT` 에 넘기고, 타고 있지 않은 프레임마다 위치에만 더하며 지수 감쇠시킨다 —
   **플레이어와 같은 `RIDE_INERTIA_S` · `RIDE_INERTIA_DAMP`, 같은 식**(`PlayerController.applyRideInertia`)이고 `velocity` 는
@@ -1004,8 +1011,8 @@ attack phase 4  0.25 s 회복 → chase
   `sniperBodyCapsule`), 그 밖에는 `RayTests.nearestOnStandingCapsule`(세로 캡슐, 대부분의 벌레는 구). 수학은 `RayTests.nearestOnCapsule`
   (`closestOnSegment` + 반경) 하나이고 `rayStandingCapsule` 과 축 높이 규칙(`standingTopY`)을 나눠 쓴다. **머리 구 · 베헤모스 장갑판은 넣지
   않았다** — 정면으로 튀어나와 근접 사거리가 charger +0.6 · behemoth +2.3 m 늘어난다. `weapons/Melee` 가 이 점으로 사거리 · 원뿔 · 타격
-  지점을 잡는다(리플리카도 같은 기하). ⚠ `EnemySystem.raycastEx` 의 세로 캡슐은 여전히 같은 규칙을 인라인으로 적고 있다(그 파일은
-  이번에 건드리지 않았다). ② **반짝임 전 매몰 검사**: `Sniper.ts` 가 `startGlint` 직전에 `muzzleBuried` 를 돌려 막혔으면 전조를 띄우지
+  지점을 잡는다(리플리카도 같은 기하). ~~⚠ `EnemySystem.raycastEx` 의 세로 캡슐은 여전히 같은 규칙을 인라인으로 적고 있다~~
+  (2026-09-11 C-72 에서 정리했다 — 아래 항목). ② **반짝임 전 매몰 검사**: `Sniper.ts` 가 `startGlint` 직전에 `muzzleBuried` 를 돌려 막혔으면 전조를 띄우지
   않고 `buriedBeforeGlint` — `fireCooldown ≥ 1.2 s` 로 재검사를 늦추고, `relocateCd` 가 끝났으면 `startRelocate` 를 탄다. 이때만
   후보 6개(옆 두 쪽 × 무작위 · 10 · 6 m)를 차례로 보고 **표적 쪽 총구 선분이 트인 첫 자리**(`muzzleClearAt`)를 고른다(없으면 예전의 첫
   후보). 쿨다운 중이면 제자리에서 기다리므로 같은 자리의 매몰 → 대기 → 매몰은 `relocateCooldown`(10 s)을 넘지 않고, 이동은 10 s 에

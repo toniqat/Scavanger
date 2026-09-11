@@ -91,12 +91,8 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 
 한 줄짜리지만 `src/shared` 를 열어야 한다. **계약을 여는 페이즈가 있을 때 같이 처리한다.**
 
-| ID | 항목 | 근거 |
-|---|---|---|
-| C-67 | **`/__scav/relay` 문자열이 `ui/menus/SettingsMenu` 의 `SHELL_RELAY_ROUTE` 에 따로 적혀 있다** — 원본은 `shared/net.NET_SHELL_RELAY_ROUTE`(2026-09-11), `electron/main.ts` · `net/parts/Socket` 은 이미 그것을 쓴다 | `src/ui/menus/SettingsMenu.ts` |
-| C-69 | **프로필 리비전 전환 직후 1회 경고** — 리비전을 한 번도 본 적 없는 클라이언트(base 0)가 새 릴레이에 처음 붙으면, 그 전에 쌓인 대기 편집이 rev 1 로 시드된 문서와 충돌해 서버 사본이 이기고 경고가 뜬다. 같은 슬롯 두 탭은 쓰기 큐 키를 같이 쓴다(서버 중복 접속 차단과 겹치는 드문 경우) | `src/net/ProfileSync.ts`, `server/Store.ts` |
-| C-70 | **사망 직후 레이드 세션 저장이 강제되지 않는다** — `saveRaid` 는 `RAID_SAVE_INTERVAL_S`(5초) · 루팅에서만 올라가므로 죽고 5초 안에 새로고침하면 **사망 전** blob 으로 복귀한다(가방이 인벤토리에 있고 C-61 표시도 false). 시체에 같은 장비가 서 있으므로 복제 경로다 — `spawnLocalCorpse` 직후 `saveRaid()` 한 줄 | `src/game/parts/Death.ts`, `src/game/parts/Session.ts` |
-| C-72 | **`EnemySystem.raycastEx` 가 서 있는 캡슐 높이 규칙을 자기 안에 또 적는다** — 2026-09-11 (C-62) 에 `enemies/RayTests.standingTopY` 가 원본이 됐고 근접 · 레이가 그것을 쓴다. 동작은 같다 | `src/enemies/EnemySystem.ts` `raycastEx`, `src/enemies/RayTests.ts` |
+**2026-09-11 에 C-67 · C-69 · C-70 · C-72 가 끝나 지금은 비어 있다** (→ [HISTORY.md](HISTORY.md) 의 2026-09-11 17차).
+새로 생긴 한 줄짜리 계약 · 구조 부채는 여기 붙인다.
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 

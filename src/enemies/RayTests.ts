@@ -123,8 +123,12 @@ export function nearestOnCapsule(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Ve
   return out.set(out.x + dx * k, out.y + dy * k, out.z + dz * k);
 }
 
-/** Top axis height of a capsule standing at `feetY` (bottom axis = `feetY + r`) — the one rule the standing-capsule tests share. */
-function standingTopY(feetY: number, r: number, h: number): number {
+/**
+ * Top axis height of a capsule standing at `feetY` (bottom axis = `feetY + r`) — the one rule the standing-capsule tests
+ * share. 2026-09-11 (C-72): exported, because `EnemySystem.raycastEx` needs the raw `rayCapsule` result (kind / capY) and
+ * so cannot go through `rayStandingCapsule`; it used to write the same `max(feetY + r, feetY + h − r)` a second time.
+ */
+export function standingTopY(feetY: number, r: number, h: number): number {
   return Math.max(feetY + r, feetY + h - r);
 }
 

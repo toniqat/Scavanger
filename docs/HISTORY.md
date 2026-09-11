@@ -100,6 +100,43 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
   - **리드가 고친 에이전트 산출물 둘** — 위 `isDead`, 그리고 csv 상수 넷의 집: 에이전트는 `src/shared` 를 못 건드려
     `enemies/EnemyTypes.ts` 에 csv 로더를 하나 더 두었는데, 다른 가드 상수들과 같이 `shared/constants.ts` 로 옮겼다.
 
+- 2026-09-11 (19차: C-67 · C-69 · C-70 · C-72 — 묶음 6 의 마지막 네 줄):
+
+  `docs/TODO.md` 묶음 6(계약 · 구조 부채)에 남아 있던 전부다. 사용자가 `AskUserQuestion` 으로 두 가지를 정했다 —
+  **C-69 는 전환 1회 스탬프 폴백**(「현행 유지 + 문서화」가 아니라), **C-70 은 멀티 + 솔로 둘 다**. 한 줄짜리인
+  C-67 · C-72 는 리드가 직접, `net` · `game` 은 폴더별 에이전트 2개가 동시에 맡았다(각자 typecheck 만, 검증은 리드가 한 번).
+
+  - **C-67 셸 릴레이 라우트 문자열** — `ui/menus/SettingsMenu` 의 `const SHELL_RELAY_ROUTE = '/__scav/relay'` 를 지우고
+    `@/shared` 의 **`NET_SHELL_RELAY_ROUTE`** 를 쓴다. `electron/main.ts` · `net/parts/Socket` 은 이미 그것을 쓰고 있었고,
+    이제 주소 문자열을 적어 두는 자리는 `shared/net` 하나다. 404 를 "같은 주소의 서버" 로 읽는 근거는 `loadShellDefault`
+    주석으로 옮겼다. 동작 · 화면 변화 없음.
+  - **C-69 프로필 리비전 전환 1회** — `server/Store.ts` 는 리비전 이전에 쓰인 문서를 로드하며 `docsRev[key] = 1` 로 시드하는데,
+    그 1 은 **"남이 썼다" 가 아니다**. 리비전을 본 적 없는 클라이언트는 대기 편집을 `baseRev: 0` 으로 들고 있어 새 릴레이에
+    처음 붙는 순간 오프라인 편집을 **전부** 잃었다(`net:profileConflict` 를 그리는 UI 가 없어 경고도 안 보였다 — TODO 의
+    "경고가 뜬다" 는 사실이 아니었다). `ProfileSync.applyRecord` 의 ② 에서, **보내지 않은** 쓰기의 모든 키가
+    *virgin*(이 클라이언트가 그 키의 rev 를 본 적 없음 + `baseRev === 0` + 스탬프 있음)일 때만 **Phase 9 규칙**으로 판정한다:
+    모든 키에서 `at >= docsAt[key]` 면 로컬이 이기고 서버 rev 로 rebase, 하나라도 서버가 새로우면 **조용히** 진다
+    (Phase 9 에서도 졌을 쓰기라 경고 · 이벤트 없음). `setMany` 는 전부 또는 전무. ① (보낸 쓰기)은 그대로 — 이미 리비전을
+    말하는 릴레이에 보낸 것이라 `rev = base + 1 && 같은 문서` 가지가 "ack 만 잃은 경우" 를 이미 잡는다. 그 밖에는 E-6
+    「서버 우선 + 경고」 그대로. `smoke-search` 에 케이스 2개 추가(스텁 릴레이 단언 12 → 14).
+  - **C-70 사망 직후 레이드 세션 저장** — 저장이 `RAID_SAVE_INTERVAL_S`(5초) · 루팅에서만 올라가 사망 순간을 못 담았다.
+    ① **멀티**: `parts/Death.onLocalDied` 가 `spawnLocalCorpse`(= `stripForCorpse`) **직후** `Session.saveRaid(sys)` 를
+    한 번 부른다 — 순서가 요점이다(그래야 blob 이 이미 빈 가방을 찍는다). 그 전에는 죽고 5초 안에 새로고침하면 장비가
+    **시체에도 서 있고 가방에도 있는** 복제 경로였다. ② **솔로**: 죽는 즉시 `raidSaveTimer = -1` + `clearSoloRaid()` —
+    예전에는 `DEATH_TO_SCREEN`(2.5초) 뒤 `gameOver` 에서야 지워서 그 사이 새로고침이 **완전한 부활**이었다(시체가 없어
+    손실 0). ③ 그 창을 되살릴 두 경로도 막았다: `Session.saveRaid` 의 솔로 가지는 죽은 뒤(전투불능 제외) 쓰지 않고,
+    `GameFlowSystem.onPageHide`(솔로 flush, `saveRaid` 를 지나지 않는 유일한 경로)도 `!isLocalOut()` 을 본다.
+    솔로에서 세이브만 사라지고 로드아웃의 `raidSeed` 표식이 남으므로 부팅은 `soloRaidBootStatus` = `stale` → `game:abort`
+    + 레이드 실패다 — 죽었으니 그게 맞는 결과다.
+  - **C-72 서 있는 캡슐 축 높이** — `enemies/RayTests.standingTopY` 를 export 하고 `EnemySystem.raycastEx` 가 인라인으로
+    또 적던 `max(y0, position.y + h − r)` 를 그 호출로 바꿨다. `raycastEx` 는 법선에 `rayCapsule` 의 `kind` · `capY` 가
+    필요해 `rayStandingCapsule` 을 못 쓴다 — 그래서 식만 원본으로 돌렸다. **동작은 한 줄도 안 바뀐다.**
+  - 검증: `npm run verify`(enemies · game · net · ui) → typecheck · typecheck-server ok, net-selftest 473/473,
+    data-check ok, 스모크 30종 + e2e-mp 158/158 전부 통과. 첫 회 `smoke-phase3` 18/20 은 **플레이키**였다(재실행 33/33) —
+    트라이포드 표적 12 m 안에 절차 생성 소품의 파괴 가능 오브젝트가 하나 더 들어와 `destructible === 5` 가 6 이 됐고
+    그 뒤 단언이 연쇄로 죽었다. 표적을 플레이어 앞 30 m 로 잡는 한 지형에 따라 다시 날 수 있다.
+    `smoke-search` 77/77(C-69 2건 포함)은 `--only` 로 따로 돌렸다 — 인벤토리 폴더 매핑이라 `--changed` 가 안 고른다.
+
 - 2026-09-11 (18차: C-68 · C-71 — 검증 안정화 두 줄):
 
   - **C-68** `server/selftest.ts` part 7 의 `debounced write happened once` 가 고정 80 ms sleep 으로 **비동기 디스크 쓰기**를 기다리고 있었다 —
