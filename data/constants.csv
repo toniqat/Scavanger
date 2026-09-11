@@ -342,6 +342,8 @@ GROW_PLOTS_PER_RACK,4,Plots in one 재배층.
 GROW_RACK_STACK_LIMIT,4,How many 재배층 may share one floor footprint (each on its own `PlacedFurniture.layer`).
 GROW_RACK_LAYER_HEIGHT,0.8,Vertical spacing (m) between stacked 재배층 layers.
 GROW_SKILL_SPEEDUP,0.35,Applied once when the seed goes in; `GrowPlot.readyAt` is then fixed so a later skill change never moves the timer.
+SOIL_MATCH_SPEEDUP,0.3,"씨앗의 soilTag 와 부어 둔 토양의 태그가 같을 때 줄어드는 성장 시간 비율. 심는 순간 readyAt 에 확정된다."
+SOIL_MISMATCH_PENALTY,0.2,"궁합이 맞지 않는 토양에 심었을 때 늘어나는 성장 시간 비율. 토양 없이 심는 경우는 없으므로 이 둘이 기준선이다."
 
 # ── audio settings (owner: audio) ──
 AUDIO_DEFAULT_MASTER,0.8,

@@ -40,6 +40,13 @@ SEED_GROW_HOURS_BY_RARITY,rare,6
 SEED_GROW_HOURS_BY_RARITY,epic,6
 SEED_GROW_HOURS_BY_RARITY,legendary,6
 
+# SOIL_USES_BY_RARITY — 토양 등급별 견디는 수확 횟수 (data/items.csv 의 soilUses 가 실제 값)
+SOIL_USES_BY_RARITY,common,2
+SOIL_USES_BY_RARITY,uncommon,3
+SOIL_USES_BY_RARITY,rare,5
+SOIL_USES_BY_RARITY,epic,5
+SOIL_USES_BY_RARITY,legendary,5
+
 # BOOK_RARITY_MUL — 서재 책 등급 가중치
 BOOK_RARITY_MUL,common,1
 BOOK_RARITY_MUL,uncommon,1.5

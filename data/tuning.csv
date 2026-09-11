@@ -10,6 +10,7 @@ SECONDARY_ADS_TIME_MUL,0.5,보조무기 조준 시간 배수 (주무기의 절�
 
 # items — 씨앗 · 서적 · 임플란트 아이템
 SEED_STACK_MAX,5,씨앗 한 칸에 겹치는 최대 수
+GROW_SLOTS_PER_TIER,3,"재배 스테이션 재배층 한 층의 칸 수 (층은 레벨이 연다 — Lv.1 중앙 · Lv.2 아래 · Lv.3 위)"
 SEED_WEIGHT,0.05,씨앗 1개 무게(kg)
 BOOK_WEIGHT,0.6,서적 1권 무게(kg)
 IMPLANT_WEIGHT,0.2,임플란트 1개 무게(kg)

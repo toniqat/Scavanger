@@ -3,24 +3,26 @@
 # cols × rows 는 바닥 격자 칸수 (0.5 m 격자), height 는 표시 높이(m).
 # craft 는 "아이템id:수량" 을 | 로 이어 쓴다. 비우면 제작 불가.
 # maxLevel 2 이상이면 강화 비용은 data/furniture_upgrades.csv 에 적는다.
-# stackLimit 은 같은 자리에 겹쳐 쌓을 수 있는 층수다 (재배층 전용).
-id,name,room,cols,rows,height,model,interaction,craft,maxLevel,stackLimit,color,description
-furn_bench_gun,총기 작업대,workshop,4,2,1,bench_gun,workbench_gun,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,#ffd27a,총기 · 부착물 · 탄약을 제작하고 총기를 수리합니다.
-furn_bench_gear,장비 작업대,workshop,4,2,1,bench_gear,workbench_gear,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,#9fb4ff,방탄복과 가방을 제작하고 수리합니다.
-furn_bench_gadget,가젯 작업대,workshop,4,2,1,bench_gadget,workbench_gadget,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,#8fe8ff,수류탄과 가젯을 제작합니다.
-furn_bench_medical,의학 작업대,workshop,4,2,1,bench_medical,workbench_medical,mat_scrap:6|mat_alloy:2|mat_bio_sample:3,3,,#6ee7a8,스팀과 회복 아이템을 조제합니다.
-furn_bench_refine,정제 작업대,workshop,4,2,1,bench_refine,workbench_refine,mat_scrap:10|mat_alloy:2|mat_cable:2,3,,#e0a0ff,폐금속·천조각·구동 코어를 상위 재료로 정제합니다. 고등급 장비의 관문입니다.
-furn_range_console,관물대,range,2,1,2,locker,range_console,mat_scrap:6|mat_cable:2|mat_circuit:1,1,,#7fd2ff,로드아웃 프리셋을 저장하고 즉시 무장합니다. 사격장에 설치하세요.
-furn_target_lane,표적 레인,range,2,6,1.8,target_lane,none,mat_scrap:6|mat_alloy:1,1,,#c8ccd2,시뮬레이터 표적 레인 (장식).
-furn_sim_hub,시뮬레이션 허브,range,2,2,1.5,sim_hub,sim_hub,mat_scrap:8|mat_cable:2|mat_circuit:2,1,,#9fe8ff,시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다.
-furn_repair_bench,정비 벤치,workshop,4,2,1,repair_bench,repair_bench,mat_scrap:6|mat_alloy:1,1,,#d7c39a,무기 내구도를 재료로 수리합니다. 조종석에서 작업실로 옮겨졌습니다.
-furn_grow_rack,재배층,greenhouse,4,2,0.8,grow_rack,grow_rack,mat_scrap:5|mat_cable:1|mat_bio_sample:2,1,4,#7ee08a,씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.
-furn_bookshelf,책장,library,2,1,2,bookshelf,bookshelf,mat_scrap:6|mat_alloy:1,1,,#c9a77a,레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다 (6권).
-furn_locker,사물함,any,1,2,2,locker,none,mat_scrap:4,1,,#b0b8c4,강철 사물함.
-furn_table,작업 테이블,any,3,2,0.85,table,none,mat_scrap:5,1,,#b0a58c,넓은 강철 테이블.
-furn_shelf,선반,any,2,1,1.6,shelf,none,mat_scrap:3,1,,#b0a58c,벽 선반.
-furn_crate,보급 상자,any,1,1,0.7,crate,none,mat_scrap:2,1,,#d9b98a,장식용 보급 상자.
-furn_lamp,스탠드 조명,any,1,1,1.7,lamp,none,mat_scrap:2|mat_cable:1,1,,#ffe3a0,"따뜻한 빛의 스탠드 (발광 재질, 조명 아님)."
-furn_plant,화분,any,1,1,1.1,plant,none,mat_scrap:1|herb_bloodroot:1,1,,#7ee08a,작은 관엽 식물.
-furn_chair,의자,any,1,1,0.9,chair,none,mat_scrap:2,1,,#b0b8c4,강철 의자.
-furn_bunk,침상,any,2,3,1.6,bunk,none,mat_scrap:6|mat_alloy:1,1,,#9fb4ff,2단 침상.
+# stackLimit 은 같은 자리에 겹쳐 쌓을 수 있는 층수다 (은퇴한 옛 재배층 전용).
+# retired 1 = 은퇴한 가구. 목록 · 제작 · 배치 어디에도 안 나오고, 이미 함선에 있던 것은 로드할 때 재료로 함선 창고에 환불된다.
+id,name,room,cols,rows,height,model,interaction,craft,maxLevel,stackLimit,retired,color,description
+furn_bench_gun,총기 작업대,workshop,4,2,1,bench_gun,workbench_gun,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,,#ffd27a,총기 · 부착물 · 탄약을 제작하고 총기를 수리합니다.
+furn_bench_gear,장비 작업대,workshop,4,2,1,bench_gear,workbench_gear,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,,#9fb4ff,방탄복과 가방을 제작하고 수리합니다.
+furn_bench_gadget,가젯 작업대,workshop,4,2,1,bench_gadget,workbench_gadget,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,,#8fe8ff,수류탄과 가젯을 제작합니다.
+furn_bench_medical,의학 작업대,workshop,4,2,1,bench_medical,workbench_medical,mat_scrap:6|mat_alloy:2|mat_bio_sample:3,3,,,#6ee7a8,스팀과 회복 아이템을 조제합니다.
+furn_bench_refine,정제 작업대,workshop,4,2,1,bench_refine,workbench_refine,mat_scrap:10|mat_alloy:2|mat_cable:2,3,,,#e0a0ff,폐금속·천조각·구동 코어를 상위 재료로 정제합니다. 고등급 장비의 관문입니다.
+furn_range_console,관물대,range,2,1,2,locker,range_console,mat_scrap:6|mat_cable:2|mat_circuit:1,1,,,#7fd2ff,로드아웃 프리셋을 저장하고 즉시 무장합니다. 사격장에 설치하세요.
+furn_target_lane,표적 레인,range,2,6,1.8,target_lane,none,mat_scrap:6|mat_alloy:1,1,,,#c8ccd2,시뮬레이터 표적 레인 (장식).
+furn_sim_hub,시뮬레이션 허브,range,2,2,1.5,sim_hub,sim_hub,mat_scrap:8|mat_cable:2|mat_circuit:2,1,,,#9fe8ff,시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다.
+furn_repair_bench,정비 벤치,workshop,4,2,1,repair_bench,repair_bench,mat_scrap:6|mat_alloy:1,1,,,#d7c39a,무기 내구도를 재료로 수리합니다. 조종석에서 작업실로 옮겨졌습니다.
+furn_grow_rack,재배층,greenhouse,4,2,0.8,grow_rack,grow_rack,mat_scrap:5|mat_cable:1|mat_bio_sample:2,1,4,1,#7ee08a,씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.
+furn_grow_station,재배 스테이션,greenhouse,4,2,2.2,grow_station,grow_station,mat_scrap:8|mat_cable:2|mat_bio_sample:3,3,,,#7ee08a,재배층에 토양을 채우고 씨앗을 심습니다. 강화하면 재배층이 1 → 2 → 3 층으로 늘어나며 층마다 3칸입니다.
+furn_bookshelf,책장,library,2,1,2,bookshelf,bookshelf,mat_scrap:6|mat_alloy:1,1,,,#c9a77a,레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다 (6권).
+furn_locker,사물함,any,1,2,2,locker,none,mat_scrap:4,1,,,#b0b8c4,강철 사물함.
+furn_table,작업 테이블,any,3,2,0.85,table,none,mat_scrap:5,1,,,#b0a58c,넓은 강철 테이블.
+furn_shelf,선반,any,2,1,1.6,shelf,none,mat_scrap:3,1,,,#b0a58c,벽 선반.
+furn_crate,보급 상자,any,1,1,0.7,crate,none,mat_scrap:2,1,,,#d9b98a,장식용 보급 상자.
+furn_lamp,스탠드 조명,any,1,1,1.7,lamp,none,mat_scrap:2|mat_cable:1,1,,,#ffe3a0,"따뜻한 빛의 스탠드 (발광 재질, 조명 아님)."
+furn_plant,화분,any,1,1,1.1,plant,none,mat_scrap:1|herb_bloodroot:1,1,,,#7ee08a,작은 관엽 식물.
+furn_chair,의자,any,1,1,0.9,chair,none,mat_scrap:2,1,,,#b0b8c4,강철 의자.
+furn_bunk,침상,any,2,3,1.6,bunk,none,mat_scrap:6|mat_alloy:1,1,,,#9fb4ff,2단 침상.

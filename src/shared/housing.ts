@@ -6,7 +6,7 @@ import { costLevels, csvRows, keyTable } from './data/tables';
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 import type { ImplantId } from './implants';
 import type { SkillId } from './progression';
-import type { EmbeddedView } from './types';
+import type { EmbeddedView, SoilTag } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Ship housing (함선 꾸미기, 2026-09-06). Owner: housing/HousingSystem publishes `ctx.housing` and persists the
@@ -136,6 +136,7 @@ export type FurnitureModelKind =
   /* appended (Phase 8): 온실 재배층 (stackable grow rack) and the 정비 벤치 moved out of the cockpit */
   | 'grow_rack' | 'repair_bench'
   | 'bookshelf'   // appended (Phase 9): 서재 책장 — the builder reads the shelved count and fills the shelves
+  | 'grow_station' // appended (온실 개편, 2026-09-11): 재배 스테이션 — the builder reads `level` and shows 1 / 2 / 3 재배층
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
 
 /** What E does on a placed piece. */
@@ -149,7 +150,9 @@ export type FurnitureInteraction =
   | 'grow_rack'                                                                   // → ctx.housing.openGrowMenu(uid): 씨앗 심기 / 수확
   | 'repair_bench'                                                                // → the 정비 벤치 repair menu (hub/WorkbenchMenu), no longer built into the cockpit
   /* appended (Phase 9) */
-  | 'bookshelf';                                                                  // → ctx.housing.openBookshelfMenu(uid): 책 꽂기 / 빼기 / 도감
+  | 'bookshelf'                                                                   // → ctx.housing.openBookshelfMenu(uid): 책 꽂기 / 빼기 / 도감
+  /* appended (온실 개편, 2026-09-11) */
+  | 'grow_station';                                                               // → ctx.housing.openGrowStation(uid): 토양 채우기 / 씨앗 심기 / 수확
 
 export interface FurnitureDef {
   id: string;
@@ -179,6 +182,14 @@ export interface FurnitureDef {
    * A stack is homogeneous: only the same `defId` at the same `x`/`y`/`yaw` may share the footprint.
    */
   stackLimit?: number;
+  /* ── appended: 온실 개편 (2026-09-11) ── */
+  /**
+   * 은퇴한 가구. The def stays in `data/furniture.csv` (so an old save still knows what it cost) but it is gone from
+   * every list: `getFurnitureFor` never returns it, 시설 관리 never offers it, and `ShipState.sanitize` hands any
+   * placed / stored copy back as **materials in the 함선 창고**. Same treatment as `airstrike` / `secondary` — the
+   * contract only ever grows. `furn_grow_rack` (옛 재배층) is the first one, retired by 재배 스테이션.
+   */
+  retired?: boolean;
 }
 
 /** A piece placed in a room. `x`/`y` = top-left cell, `yaw` = quarter turns clockwise seen from above. */
@@ -220,6 +231,93 @@ export interface GrowPlotInfo {
   slot: number;
   seedDefId: string | null;
   /** 0 … 1; −1 when empty. */
+  progress: number;
+  /** Seconds left, 0 when ready or empty. */
+  remainingS: number;
+  ready: boolean;
+  /** What harvesting yields, for the panel. */
+  yieldDefId: string | null;
+  yieldQty: number;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 온실 개편 — 재배 스테이션 (2026-09-11, 사용자 결정). The stackable 재배층 (`furn_grow_rack`, 4층 × 4칸) is retired;
+ * one **재배 스테이션** (`furn_grow_station`) is an ordinary upgradeable piece whose level opens 재배층:
+ *
+ *   Lv.1 → 중앙 한 층      Lv.2 → 아래층이 열린다      Lv.3 → 윗층이 열린다
+ *
+ * A 층 has `GROW_SLOTS_PER_TIER` (3) 칸. **Tier ids are stable across upgrades** — 0 = 중앙, 1 = 아래, 2 = 위 — so
+ * an upgrade never renumbers a growing crop. `GROW_TIER_DRAW_ORDER` is the order the panel draws them (위 → 중앙 → 아래).
+ *
+ * A 칸 has two steps, and the first is new: **토양을 먼저 채우고** (`fillSoil`) 그 위에 씨앗을 심는다 (`plantSeedAt`).
+ * The soil carries a 속성 (`SoilTag`); matching the seed's `soilTag` shortens the grow time by `SOIL_MATCH_SPEEDUP`,
+ * any other tag lengthens it by `SOIL_MISMATCH_PENALTY`. Soil is spent per harvest (`soilUsesLeft`, from
+ * `ItemDef.soil.uses`); at 0 the 칸 empties back to 흙 없음.
+ *
+ * Growth is still wall-clock (`plantedAt` / `readyAt` epoch ms from `ctx.net.serverNow() ?? Date.now()`), so a crop
+ * keeps growing offline, in a raid, or on another device — and a running timer never moves.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 재배층 id. Stable across upgrades: 0 = 중앙 (Lv.1), 1 = 아래 (Lv.2), 2 = 위 (Lv.3). */
+export type GrowTier = 0 | 1 | 2;
+
+/** 칸 수 per 재배층. */
+export const GROW_SLOTS_PER_TIER = T.num('GROW_SLOTS_PER_TIER');
+
+/** Tiers a 재배 스테이션 of `level` has opened. Level is clamped to the def's `maxLevel` by the caller. */
+export function growTiersForLevel(level: number): readonly GrowTier[] {
+  if (level >= 3) return [0, 1, 2];
+  if (level === 2) return [0, 1];
+  return [0];
+}
+
+/** The order the 재배 화면 draws tiers, top row first: 위 · 중앙 · 아래. */
+export const GROW_TIER_DRAW_ORDER: readonly GrowTier[] = [2, 0, 1];
+
+export const GROW_TIER_LABEL_KO: Readonly<Record<GrowTier, string>> = { 0: '중앙 재배층', 1: '아래 재배층', 2: '윗 재배층' };
+
+/**
+ * One 재배층 칸 that has soil in it. A 칸 with no soil is simply absent from `ShipState.grows`, exactly like an
+ * empty plot used to be. Planting fields (`seedDefId` / `plantedAt` / `readyAt`) come and go together — soil without
+ * a seed is the normal "심을 준비가 된" state.
+ */
+export interface GrowSlot {
+  /** `PlacedFurniture.uid` of the 재배 스테이션. */
+  uid: string;
+  tier: GrowTier;
+  /** 0 … GROW_SLOTS_PER_TIER − 1. */
+  slot: number;
+  /** Soil item def id (`ItemDef.soil` must be set). */
+  soilDefId: string;
+  /** Harvests this soil still survives; the 칸 empties when it reaches 0. */
+  soilUsesLeft: number;
+  /** Seed item def id (`ItemDef.seed` must be set); absent = 흙만 채워져 있다. */
+  seedDefId?: string;
+  /** Epoch ms when it was planted. */
+  plantedAt?: number;
+  /** Epoch ms it may be harvested — fixed at planting time (soil 궁합 · 원예 숙련 포함). */
+  readyAt?: number;
+}
+
+/** A 칸 as the 재배 화면 sees it. Every tier of the station reports `GROW_SLOTS_PER_TIER` of these, locked ones included. */
+export interface GrowSlotInfo {
+  tier: GrowTier;
+  slot: number;
+  /** true when this tier is not open at the station's current level (drawn dimmed with the required level). */
+  locked: boolean;
+  /** Station level that opens this tier (2 for 아래, 3 for 위). */
+  unlockLevel: number;
+  /** null = 흙이 없다 (drop soil here first). */
+  soilDefId: string | null;
+  soilTag: SoilTag | null;
+  soilUsesLeft: number;
+  /** null = 심을 준비가 된 흙 (or no soil at all). */
+  seedDefId: string | null;
+  /** Seed's wanted tag, for the "맞는 토양" line; null when nothing is planted. */
+  seedTag: SoilTag | null;
+  /** true when a seed is planted **and** its tag equals the soil's. false with a seed = 궁합 패널티 중. */
+  matched: boolean;
+  /** 0 … 1; −1 when nothing is planted. */
   progress: number;
   /** Seconds left, 0 when ready or empty. */
   remainingS: number;
@@ -280,6 +378,13 @@ export interface ShipState {
   books?: PlacedBook[];
   /** 도감: every book def id ever shelved (never removed). */
   bookDex?: string[];
+  /* ── appended (온실 개편, 2026-09-11, version 4) ── */
+  /**
+   * 재배 스테이션 칸. Replaces `plots` — a v3 save's `plots` are dropped on load together with the 재배층 furniture
+   * they belonged to (사용자 결정: 옛 것 폐기, 재료는 함선 창고로 환불). Entries whose `uid` is not a placed
+   * 재배 스테이션, or whose tier is above the station's level, are dropped by `sanitize`.
+   */
+  grows?: GrowSlot[];
 }
 
 /** One shelved book (Phase 9). Empty slots are simply absent. Rarity / skill come from `ctx.loot.getItemDef(defId)`. */
@@ -418,7 +523,11 @@ export interface HousingRef {
   /** Leave 함선 관리 (also leaves housing mode). */
   closeShipManage(): void;
 
-  /* ── 온실 재배 ── */
+  /* ── 온실 재배 ──
+   * @deprecated 2026-09-11 (온실 개편) — the 재배층 furniture these belong to is retired. They stay in the contract
+   * (추가만 하는 규약) and now always report "없는 재배층": `getPlots` → `[]`, the mutators → a 한국어 사유,
+   * `harvestAll` → 0, `openGrowMenu` → nothing. New code calls the 재배 스테이션 API further down.
+   */
   /** Plot states of one 재배층, always `GROW_PLOTS_PER_RACK` long. Empty array when `uid` is not a 재배층. */
   getPlots(uid: string): GrowPlotInfo[];
   /** Plant one seed from the bag or the stash (consumes 1). Returns a 한국어 reason on failure, null on success. */
@@ -490,6 +599,42 @@ export interface HousingRef {
    * has no space or the rules refuse the room (the built-in 작업실, a 책장 whose books do not fit). null = removed.
    */
   removeRoomFacility(index: number): string | null;
+
+  /* ══ appended: 온실 개편 — 재배 스테이션 (2026-09-11) ═══════════════════════ */
+
+  /**
+   * Every 칸 of one 재배 스테이션, **always `3 × GROW_SLOTS_PER_TIER` entries** in `GROW_TIER_DRAW_ORDER`, locked
+   * tiers included (`locked: true` + `unlockLevel`) so the panel can draw the greyed-out rows the upgrade will open.
+   * Empty array when `uid` is not a placed 재배 스테이션.
+   */
+  getGrowSlots(uid: string): GrowSlotInfo[];
+  /**
+   * Pour one soil item (bag → stash, `consumeDefAll`) into an empty 칸. `soilUsesLeft` starts at `ItemDef.soil.uses`.
+   * 한국어 reason on failure (잠긴 층 · 이미 흙이 있다 · 토양이 아니다 · 갖고 있지 않다), null on success.
+   */
+  fillSoil(uid: string, tier: GrowTier, slot: number, soilDefId: string): string | null;
+  /**
+   * Scrape a 칸 back to 흙 없음. **The soil is not returned** — 남은 횟수가 있어도 버려진다 (한 번 부은 흙은 다시
+   * 담지 않는다). Refused with a 한국어 사유 while something is planted in it; null on success.
+   */
+  clearSoil(uid: string, tier: GrowTier, slot: number): string | null;
+  /**
+   * Plant one seed (bag → stash, consumes 1) into a 칸 that already has soil. `readyAt` is fixed here from
+   * `growHours × 궁합(SOIL_MATCH_SPEEDUP | SOIL_MISMATCH_PENALTY) × 원예(GROW_SKILL_SPEEDUP)`, so a later skill or
+   * soil change never moves a running timer. 한국어 reason on failure, null on success.
+   */
+  plantSeedAt(uid: string, tier: GrowTier, slot: number, seedDefId: string): string | null;
+  /**
+   * Harvest one ripe 칸 into the bag (stash fallback). Spends one `soilUsesLeft`; the 칸 empties completely when
+   * that hits 0, otherwise it goes back to 심을 준비가 된 흙. 한국어 reason on failure, null on success.
+   */
+  harvestAt(uid: string, tier: GrowTier, slot: number): string | null;
+  /** Harvest every ripe 칸 of the station; returns how many were taken. */
+  harvestAllStation(uid: string): number;
+  /** Soil item defs the player owns right now (bag + stash), for the 재배 화면 picker. */
+  getOwnedSoils(): { defId: string; qty: number }[];
+  /** Open the 재배 화면 (`furn_grow_station` interaction): 좌 재배층 · 우 가방 + 함선 창고. */
+  openGrowStation(uid: string): void;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -517,6 +662,7 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').
     upgradeCost: maxLevel > 1 ? costLevels('furniture_upgrades.csv', 'id', r.str('id')) : [],
     color: r.str('color'),
     ...(r.has('stackLimit') ? { stackLimit: r.int('stackLimit', { min: 1 }) } : {}),
+    ...(r.bool('retired') ? { retired: true } : {}),
   };
 });
 

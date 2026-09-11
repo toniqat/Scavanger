@@ -608,7 +608,12 @@ export const STAT_MIN = K.num('STAT_MIN');
 /* ── ship housing (owner: housing/ rules, hub/ geometry) ── */
 export const SHIP_STORAGE_KEY = 'scav.ship';
 /** Bumped to 2 in Phase 8: `ShipState.plots` / `nameLocked` and the one-off `furn_repair_bench` grant. */
-export const SHIP_STATE_VERSION = 3;   // Phase 9: 3 = `books` / `bookDex` (absent → empty; no data migration)
+/**
+ * Phase 9: 3 = `books` / `bookDex` (absent → empty; no data migration).
+ * 온실 개편 (2026-09-11): **4** = `grows` (재배 스테이션 칸). A v3 save loses its 재배층 — every `furn_grow_rack`,
+ * placed or stored, is refunded as materials into the 함선 창고 and its `plots` are dropped (사용자 결정: 옛 것 폐기).
+ */
+export const SHIP_STATE_VERSION = 4;
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
@@ -698,6 +703,19 @@ export const GROW_SKILL_SPEEDUP = K.num('GROW_SKILL_SPEEDUP');
 /** Real hours a seed needs by its rarity, before `GROW_SKILL_SPEEDUP` (items' `ItemDef.seed.growHours` overrides it). */
 export const SEED_GROW_HOURS_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> =
   numberMap<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>('tables.csv', 'SEED_GROW_HOURS_BY_RARITY');
+
+/* ── 온실 개편 — 토양 궁합 (2026-09-11, owner: housing rules, items soil data) ── */
+/**
+ * 씨앗의 `soilTag` 와 부어 둔 토양의 태그가 **같을 때** 성장 시간이 이 비율만큼 줄어든다.
+ * 다르면 대신 `SOIL_MISMATCH_PENALTY` 만큼 늘어난다 — 토양 없이 심는 경우는 없으므로(칸을 먼저 채워야 한다)
+ * 이 둘이 곧 기준선이다. 심는 순간 `GrowSlot.readyAt` 에 확정되고 뒤에 바뀌지 않는다.
+ */
+export const SOIL_MATCH_SPEEDUP = K.num('SOIL_MATCH_SPEEDUP');
+/** 궁합이 맞지 않는 토양에 심었을 때 성장 시간이 늘어나는 비율. */
+export const SOIL_MISMATCH_PENALTY = K.num('SOIL_MISMATCH_PENALTY');
+/** 한 번 부은 토양이 견디는 수확 횟수 — 등급 곡선 (`ItemDef.soil.uses` 가 실제 값이다). */
+export const SOIL_USES_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> =
+  numberMap<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>('tables.csv', 'SOIL_USES_BY_RARITY');
 
 /* ── audio settings (owner: audio) ── */
 /** localStorage key of the volume settings (`AudioSettings`). */

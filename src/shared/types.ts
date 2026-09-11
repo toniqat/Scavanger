@@ -75,7 +75,10 @@ export type ItemCategory =
   /* appended: Phase 9 (2026-09-06) */
   | 'book'        // 서적 shelved on a 서재 책장 (see `ItemDef.book`): raises one skill's XP gain; loot + corp shop, never craftable
   /* appended: 2026-09-08 */
-  | 'implant';    // 임플란트 (능력치 장착 아이템, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs, broken ones are raid loot
+  | 'implant'     // 임플란트 (능력치 장착 아이템, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs, broken ones are raid loot
+  /* appended: 온실 개편 (2026-09-11) */
+  | 'soil'        // 토양 (see `ItemDef.soil`): poured into a 재배 스테이션 재배층 before a seed goes in; 바이오별 채집 전용, never craftable
+  | 'crop';       // 작물: harvested from a 재배층. 요리 시설(주방)은 다음 업데이트라 지금은 판매 · 납품 전용이다
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -277,6 +280,28 @@ export interface ItemDef {
   /* ── appended: 회복 아이템 개편 (2026-09-07, owner: items) ── */
   /** category 'stim': how long it takes to use, how much it heals, and (스프레이) how it channels. */
   heal?: HealDef;
+  /* ── appended: 온실 개편 (2026-09-11, owner: items) ── */
+  /** category 'soil': which 속성 it carries and how many harvests it survives. */
+  soil?: SoilDef;
+}
+
+/**
+ * 토양 속성 (2026-09-11). Four tags, one per gathering biome — `world/` drops the tag's soil on that planet,
+ * `data/seeds.csv` names the tag each seed wants. Matching soil grows `SOIL_MATCH_SPEEDUP` faster, a mismatch
+ * `SOIL_MISMATCH_PENALTY` slower; there is no "no soil" case because a 재배층 칸 must be filled before it takes a seed.
+ */
+export type SoilTag = 'ash' | 'frost' | 'humus' | 'mineral';
+export const SOIL_TAGS: readonly SoilTag[] = ['ash', 'frost', 'humus', 'mineral'];
+
+/**
+ * 토양 data (2026-09-11). `uses` is how many harvests one poured unit survives (`SOIL_USES_BY_RARITY`: 일반 2 ·
+ * 고급 3 · 희귀 5) — the count lives on the plot (`GrowSlot.soilUsesLeft`), not on the item, so a poured soil is
+ * spent even if the item stack it came from is gone.
+ */
+export interface SoilDef {
+  tag: SoilTag;
+  /** Harvests one poured unit survives before the 칸 goes back to 비어 있음. */
+  uses: number;
 }
 
 /**
@@ -320,6 +345,13 @@ export interface SeedDef {
   yieldDefId: string;
   /** Units per plot, before `derived.gatherYieldMul`. */
   yieldQty: number;
+  /* ── appended: 온실 개편 (2026-09-11) ── */
+  /**
+   * 토양 속성 this seed wants. The 재배층 칸 it goes into is already filled with some soil: the same tag grows it
+   * `SOIL_MATCH_SPEEDUP` faster, any other tag `SOIL_MISMATCH_PENALTY` slower. Required — every row of
+   * `data/seeds.csv` names one.
+   */
+  soilTag: SoilTag;
 }
 
 export interface ItemInstance {

@@ -1,7 +1,14 @@
 # 온실 재배층에 심는 씨앗. growHours 는 실제 시간(시간) — 함선을 떠나 있어도 흐른다.
 # `=SEED_GROW_HOURS_BY_RARITY` 같은 표는 data/tables.csv 에 있고, 여기서는 그 값을 그대로 적는다.
 # yieldDefId / yieldQty 가 수확물이다.
-id,name,rarity,value,growHours,yieldDefId,yieldQty,description
-seed_bloodroot,혈근초 씨앗,common,40,1,herb_bloodroot,3,혈근초의 붉은 씨앗. 온실 재배층에 심으면 약 1시간 뒤 혈근초 3개를 거둘 수 있다. 함선을 떠나 있어도 현실 시간에 맞춰 자란다.
-seed_ashleaf,잿빛잎 씨앗,uncommon,90,2.5,herb_ashleaf,3,화산재에 굳어 있던 잿빛잎 포자낭. 온실 재배층에서 약 2.5시간이면 잿빛잎 3개가 된다. 원예 숙련도가 높을수록 빨리 자란다.
-seed_glowcap,발광버섯 씨앗,rare,220,6,herb_glowcap,2,희미하게 빛나는 발광버섯 균사 덩어리. 온실 재배층에서 약 6시간을 들여야 발광버섯 2개를 거둔다. 구하기 어려운 만큼 값도 비싸다.
+id,name,rarity,value,growHours,yieldDefId,yieldQty,soilTag,description
+seed_bloodroot,혈근초 씨앗,common,40,1,herb_bloodroot,3,mineral,혈근초의 붉은 씨앗. 온실 재배층에 심으면 약 1시간 뒤 혈근초 3개를 거둘 수 있다. 함선을 떠나 있어도 현실 시간에 맞춰 자란다.
+seed_ashleaf,잿빛잎 씨앗,uncommon,90,2.5,herb_ashleaf,3,ash,화산재에 굳어 있던 잿빛잎 포자낭. 온실 재배층에서 약 2.5시간이면 잿빛잎 3개가 된다. 원예 숙련도가 높을수록 빨리 자란다.
+seed_glowcap,발광버섯 씨앗,rare,220,6,herb_glowcap,2,humus,희미하게 빛나는 발광버섯 균사 덩어리. 온실 재배층에서 약 6시간을 들여야 발광버섯 2개를 거둔다. 구하기 어려운 만큼 값도 비싸다.
+seed_frostmoss,서리이끼 씨앗,uncommon,95,2.5,herb_frostmoss,3,frost,얼어붙은 이탄 속에서 겨울을 난 포자. 동토 토양에서 가장 잘 자란다.
+seed_emberpod,불씨꼬투리 씨앗,uncommon,100,2.5,herb_emberpod,3,ash,열을 머금어야 터지는 꼬투리. 화산재 토양이 아니면 좀처럼 깨어나지 않는다.
+seed_ironleaf,철엽초 씨앗,rare,240,6,herb_ironleaf,2,mineral,금속을 빨아들여 잎을 벼리는 풀. 광물 토양이 아니면 잎이 무르다.
+seed_tuber,회색 덩이줄기 씨눈,common,35,1,crop_tuber,3,mineral,척박한 땅에서도 굵어지는 덩이줄기. 광물 토양에서 특히 굵다.
+seed_beanpod,단백 콩깍지 씨앗,common,40,1,crop_beanpod,3,humus,단백질이 많은 콩. 부엽토에서 꼬투리가 잘 여문다.
+seed_leafgreen,온실 잎채소 씨앗,common,32,1,crop_leafgreen,3,humus,잎만 먹는 속성 채소. 부엽토에서 가장 빨리 자란다.
+seed_capfungus,식용 갓버섯 균사,uncommon,85,2.5,crop_capfungus,2,frost,서늘한 곳에서 갓을 펴는 식용 균류. 동토 토양이 맞다.

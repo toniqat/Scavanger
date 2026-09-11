@@ -1,4 +1,4 @@
-import type { ItemCategory, Rarity, WeaponGrade } from './types';
+import type { ItemCategory, Rarity, SoilTag, WeaponGrade } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Item rarity / category labels and palette (Phase 7, 2026-09-06).
@@ -33,6 +33,8 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   seed: '씨앗',
   book: '서적',
   implant: '임플란트',
+  soil: '토양',
+  crop: '작물',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -44,6 +46,8 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   seed: '#c8e08a',
   book: '#c9a77a',
   implant: '#e39cff',
+  soil: '#a98868',
+  crop: '#9fd86a',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -55,4 +59,18 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   seed: '⁘',
   book: '▤',
   implant: '⬡',
+  soil: '▩',
+  crop: '❁',
+};
+
+/**
+ * appended (온실 개편, 2026-09-11): 토양 속성의 이름과 색. 재배 화면의 흙 원, 토양 아이템 툴팁, 씨앗 툴팁의
+ * 「맞는 토양」 줄이 모두 이 표 하나를 읽는다 — CLAUDE.md 의 「같은 것을 두 폴더가 쓰면 shared 로 뽑는다」 그대로다.
+ */
+export const SOIL_TAG_LABEL_KO: Readonly<Record<SoilTag, string>> = {
+  ash: '화산재', frost: '동토', humus: '부엽토', mineral: '광물',
+};
+/** 흙이 채워진 모습을 그리는 색 (재배 화면의 원 안, 80 % 높이까지 찬다). */
+export const SOIL_TAG_COLOR: Readonly<Record<SoilTag, string>> = {
+  ash: '#6b625c', frost: '#7d8fa0', humus: '#5c4433', mineral: '#8a6a58',
 };
