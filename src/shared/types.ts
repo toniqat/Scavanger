@@ -912,6 +912,12 @@ export interface EnemyRef {
   /* appended (unique weapons, 2026-09-06) */
   /** 전소 (incinerated): writhing on the spot, no movement / attacks, still damageable. Set via `applyStatus('incinerated')`. */
   readonly isIncapacitated: boolean;
+  /**
+   * appended (2026-09-11, C-62): the point on this body's **hitboxes** nearest to `from`, written into `out` and
+   * returned. Melee aims its cone at it, so a body that is not standing upright (엎드린 로든 — the lying capsule the
+   * raycast already uses) is struck where it actually lies. Optional: callers fall back to `position` + `height`.
+   */
+  nearestBodyPoint?(from: THREE.Vector3, out: THREE.Vector3): THREE.Vector3;
 }
 
 /** Status effects an enemy can carry (appended 2026-09-06; `burning` / `slowed` are the tactical-kit originals). */

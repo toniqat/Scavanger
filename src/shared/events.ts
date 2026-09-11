@@ -774,6 +774,12 @@ export interface GameEvents {
    * already applied by the panel itself (only a user gesture may request it) and is reported here for completeness.
    */
   'ui:displayChanged': { fullscreen: boolean; bloom: boolean; shadows: boolean; scale: number };
+  /**
+   * appended (2026-09-11, C-58): `core/Engine`'s perf guard turned a display option off **by itself** (sustained slow
+   * frames in the first 90 s). Fact only — nothing is persisted; the 설정 row shows it as `꺼짐 (성능 자동)` until the
+   * player's next real change (`ui:displayChanged`) wins. Emitted at most once per boot.
+   */
+  'render:autoAdjusted': { bloom: false; reason: 'perf' };
 
   /* ── 공용 함선 격납고 (2026-09-08) ── */
   /**

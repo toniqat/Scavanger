@@ -752,6 +752,12 @@ export interface PlayerCorpseWire {
   /** 사망 시각 (보낸 쪽 `ctx.missionTime`). */
   at: number;
   items: CorpseItemWire[];
+  /**
+   * appended (2026-09-11, C-63): 보낸 쪽에서 시체가 **전차에 실려 있으면** 그 전차(`TramDef.id`)와 차량 로컬 좌표 ·
+   * 차량 기준 yaw. 받는 쪽은 `p` 로 발판을 찾지 않고 자기 전차의 **현재** 변환으로 이 로컬 좌표를 푼다 — 보간 지연
+   * 때문에 전차 후미 끝의 시체가 전차를 놓치던 틈. 생략 = 탑승 없음(옛 클라이언트 · 땅 위 시체), 모르는 id = 무시하고 `p`.
+   */
+  ride?: { tram: string; local: Vec3Tuple; yaw: number };
 }
 /**
  * 사망한 플레이어의 시체. `spawn` 은 **죽은 본인**이 all 로 보낸다 (자기 인벤토리만이 진실이므로).
