@@ -65,3 +65,6 @@ ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,1,증축에 필요한 발전기 레벨
 
 # housing — 연구실 분석기 (2026-09-11)
 ANALYZER_SLOTS_PER_LEVEL,1,"분석기 레벨 한 단계가 여는 해석 칸 수. Lv.1 = 1칸 … Lv.3 = 3칸 (재배 스테이션이 층을 여는 것과 같은 모양)."
+
+# housing — 온실 배양조 (2026-09-11, A-14)
+CULTURE_SLOTS_PER_LEVEL,1,"배양조 레벨 한 단계가 여는 배양 칸 수. Lv.1 = 1칸 … Lv.3 = 3칸 (분석기 · 재배 스테이션과 같은 모양)."

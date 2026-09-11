@@ -1084,3 +1084,25 @@ export interface GameEvents {
   /** A-13 (owner: progression): 준비물 대기분 / 이번 레이드분이 바뀌었다. ui/ 의 출격 준비 화면과 HUD 배지가 다시 그린다. */
   'progress:prepChanged': { prep: readonly string[]; active: readonly string[] };
 }
+
+/* ══ appended: 2026-09-11 — 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15) ══ */
+export interface GameEvents {
+  /**
+   * A-3c (owner: progression): 식사 대기분 / 이번 레이드분이 바뀌었다 (먹기 · 차려 받기 · 출격 · 레이드 종료).
+   * `null` = 안 먹었다. ui/ 의 식사 배지와 식탁 화면이 다시 그린다.
+   */
+  'progress:mealChanged': { meal: string | null; active: string | null };
+  /**
+   * A-14 (owner: housing): 한 배양조의 상태가 바뀌었다 (배지 · 세포주 · 수확 · 강화).
+   * `ready` = 지금 수확할 수 있는 칸 수 — `housing:growChanged` · `housing:analysisChanged` 와 같은 모양이다.
+   */
+  'housing:cultureChanged': { uid: string; ready: number };
+  /**
+   * A-3c (owner: housing — 공유 함선 식탁의 `분대에 차리기`): 분대에 식사를 차렸다. net/ 이 이것을 보고
+   * `meal serve` 를 띄우고, **로비 호스트가 재방송한 것만** 받는 쪽의 `progression.serveMeal` 로 간다
+   * (「남에게 영향 주는 메시지는 권위에서만 받는다」 E-4). `by` = 차린 사람의 표시 이름 (토스트용).
+   */
+  'housing:mealServed': { defId: string; by: string };
+  /** A-15 (owner: inventory): 주머니 장착 · 내용물이 바뀌었다. ui/ 가 퀵슬롯 아래 격자를 다시 그린다. */
+  'inventory:pouchChanged': Record<string, never>;
+}

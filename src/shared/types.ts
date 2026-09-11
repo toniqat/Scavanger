@@ -78,10 +78,14 @@ export type ItemCategory =
   | 'implant'     // 임플란트 (능력치 장착 아이템, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs, broken ones are raid loot
   /* appended: 온실 개편 (2026-09-11) */
   | 'soil'        // 토양 (see `ItemDef.soil`): poured into a 재배 스테이션 재배층 before a seed goes in; 바이오별 채집 전용, never craftable
-  | 'crop'        // 작물: harvested from a 재배층. 요리 시설(주방)은 다음 업데이트라 지금은 판매 · 납품 전용이다
+  | 'crop'        // 작물: harvested from a 재배층. 2026-09-11 A-3c 부터 조리대의 요리 재료다 (판매 · 납품 · 추출기와 함께 네 번째 소비처)
   /* appended: 연구실 (A-12 · A-13, 2026-09-11) */
   | 'sample'      // 미확인 표본 (see `ItemDef.sample`): 분석기에 넣어 현실 시간만큼 기다리면 해석된다. 레이드 전용 — 제작도 상점도 없다
-  | 'prep';       // 준비물 (see `ItemDef.prep`): 함선에서 쓰면 **다음 레이드 1회분**으로 실린다 (행성 환경 상쇄)
+  | 'prep'        // 준비물 (see `ItemDef.prep`): 함선에서 쓰면 **다음 레이드 1회분**으로 실린다 (행성 환경 상쇄)
+  /* appended: 주방 · 프린터 (A-3c · A-15, 2026-09-11) */
+  | 'meal'        // 요리 (see `ItemDef.meal`): 함선 식탁에서 먹으면 **다음 레이드 1회분**으로 실린다 (파생 수치 하나를 올린다)
+  | 'pouch'       // 주머니 (see `ItemDef.pouch`): 장비칸 `pouch` 한 칸에 끼우면 퀵슬롯 아래에 별도 격자가 열린다
+  | 'key';        // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -110,9 +114,15 @@ export type WeaponClass = 'AR' | 'SMG' | 'SR' | 'DMR' | 'SG' | 'PISTOL';
 export type WeaponGrade = 1 | 2 | 3 | 4 | 5;
 /** Weapon socket slots. Every weapon has all five (for now). */
 export type SocketSlot = 'muzzle' | 'grip' | 'mag' | 'stock' | 'sight';
-/** Equipment slots. `primary` = 주무기 I (key 1), `primary2` = 주무기 II (key 2), `secondary` = 보조무기 (key 3), `bag` = 가방. */
-export type LoadoutSlot = 'primary' | 'primary2' | 'secondary' | 'bag' | 'armor';
-export type WeaponSlot = Exclude<LoadoutSlot, 'bag' | 'armor'>;
+/**
+ * Equipment slots. `primary` = 주무기 I (key 1), `primary2` = 주무기 II (key 2), `secondary` = 보조무기 (key 3),
+ * `bag` = 가방, `armor` = 방탄복.
+ *
+ * appended (2026-09-11, A-15): `pouch` = 주머니 **한 칸** (사용자 결정: 고정 1칸). 끼우면 퀵슬롯 아래에 그
+ * 주머니의 격자가 열린다 — 가방과는 다른 컨테이너다 (`ItemDef.pouch`).
+ */
+export type LoadoutSlot = 'primary' | 'primary2' | 'secondary' | 'bag' | 'armor' | 'pouch';
+export type WeaponSlot = Exclude<LoadoutSlot, 'bag' | 'armor' | 'pouch'>;
 
 /** Attachment stat effects. Multipliers default to 1 (0.8 = −20 %); overrides default to "unchanged". Owner: items. */
 export interface AttachmentEffects {
@@ -387,6 +397,11 @@ export interface Loadout {
   bag: ItemInstance | null;
   /* appended (tactical kit): optional so existing emitters keep compiling. */
   armor?: ItemInstance | null;
+  /**
+   * appended (2026-09-11, A-15): 장착한 주머니 (`ItemDef.pouch`). optional 인 이유는 `armor` 와 같다 —
+   * 저장된 로드아웃 · 크루 카드 · 프리셋이 이 칸 없이 적혀 있다. 끼우면 퀵슬롯 아래에 그 격자가 열린다.
+   */
+  pouch?: ItemInstance | null;
 }
 
 export interface InventoryRef {
@@ -2326,4 +2341,111 @@ export interface WorldRef {
    * 행성 id 를 들고 다니지 않아도 되도록 world 가 대신 답한다.
    */
   readonly env?: EnvKind | null;
+}
+
+/* ══ appended (2026-09-11, A-3c · A-14 · A-15): 주방 · 배양조 · 3D 프린터 ═══════════════════════════════════
+ *
+ * 사용자 6단계 명세의 **5 · 6단계**(배양조 · 프린터)와 **주방**을 한 사이클에 넣는다. 셋은 하나의 사슬이다:
+ *
+ *   레이드 표본 `spec_*` ──분석기──▶ 세포주 `strain_*` ─┐
+ *   온실 작물 `crop_*` ──추출기──▶ 배지 `mat_medium_*` ─┴─배양조──▶ 배양 산물 `cult_*`
+ *        ├─ 조리대(`cook`) ──▶ 특선 요리 ──▶ 식탁 ──▶ **식사 1칸** (다음 레이드 1회분)
+ *        └─ 추출기 ──▶ 필라멘트 3등급 ──▶ 프린터(`print`) ──▶ 희귀 · 서사 · 전설 가방 · 주머니 4종
+ *
+ * 이 사슬이 작물 8종의 네 번째 소비처(조리대)를 만들고, 「높은 등급 가방일수록 구하기 어려운 표본에서
+ * 나온다」(사용자 결정)를 데이터 하나로 성립시킨다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 요리가 올려 주는 파생 수치 한 가지. 값은 전부 `DerivedStats` 에 **이미 있는 필드 이름**이다 — 그것이 요점이다:
+ * 버프를 새 개념으로 만들면 player · weapons · world · inventory 가 전부 그 개념을 읽어야 하지만, 파생 수치에
+ * 접어 넣으면 **소비자가 한 줄도 안 바뀐다** (이미 `ctx.progression.derived` 를 읽고 있다).
+ *
+ * ⚠ 크레딧 · 판매가 배수는 **일부러 없다**. 서버가 크레딧을 사유별로 검증하므로(E-4) 클라이언트가 배수를
+ * 얹으면 그대로 `credits:tx` 거절이 된다. 보상계 버프는 숙련 XP · 채집량 · 감정 속도로 낸다.
+ */
+export type MealBuff =
+  | 'carryCapacity' | 'maxStamina' | 'staminaRegenMul' | 'healPowerMul' | 'gritChance'
+  | 'skillGainMul' | 'gatherYieldMul' | 'searchSpeedMul'
+  | 'detectRadius' | 'useSpeedMul' | 'interactSpeedMul' | 'durabilityLossMul';
+
+export const MEAL_BUFFS: readonly MealBuff[] = [
+  'carryCapacity', 'maxStamina', 'staminaRegenMul', 'healPowerMul', 'gritChance',
+  'skillGainMul', 'gatherYieldMul', 'searchSpeedMul',
+  'detectRadius', 'useSpeedMul', 'interactSpeedMul', 'durabilityLossMul',
+];
+
+/** 이름이 `*Mul` 로 끝나는 버프는 **배수에 가산**된다 (0.15 = +15 %); 나머지는 그 수치의 단위 그대로 더해진다. */
+export const isMealBuffMultiplier = (b: MealBuff): boolean => b.endsWith('Mul') || b === 'gritChance';
+
+/**
+ * 요리 data (A-3c, owner: items — `data/meals.csv`). 한 요리는 **버프 하나**만 올린다 (사용자 결정: 요리마다
+ * 한 가지씩, 생존계 · 보상계를 섞어서). 함선의 식탁에서 먹으면 다음 레이드 1회분으로 실리고, 수명 규칙은
+ * 준비물과 완전히 같다 (`PlayerProfile.meal` → `mealActive`, 사망해도 그 레이드는 유지).
+ */
+export interface MealDef {
+  buff: MealBuff;
+  /** 가산값. `isMealBuffMultiplier` 인 버프는 배수에 더해지고, 나머지는 단위 그대로. `durabilityLossMul` 만 음수다. */
+  amount: number;
+  /** 1 = 일반 요리(작물만), 2 = 특선 요리(배양조 산물 필요). 툴팁 · 정렬용. */
+  tier: 1 | 2;
+}
+
+/**
+ * 주머니 data (A-15, owner: items — `data/items.csv` 의 `pouchCols` · `pouchRows` · `pouchAccepts`).
+ *
+ * 주머니는 **가방이 아니다** — 장비칸의 `pouch` 한 칸에 끼우는 별도 컨테이너이고, 장착하면 퀵슬롯 아래에
+ * 자기 격자가 생긴다 (사용자 결정). 2026-09-09 의 「퀵슬롯은 가방 격자가 아니다」가 만든 패턴 그대로다:
+ * 무게 · `countWhere` · `consumeWhere` · `stripForCorpse` · 레이드 blob 은 주머니를 보고,
+ * `getAllItems()`(거래 · 수리 목록)는 **여전히 가방 격자만**이다.
+ */
+export interface PouchDef {
+  cols: number;
+  rows: number;
+  /** 이 주머니가 받아 주는 아이템 카테고리. 그 밖의 것은 격자가 거절한다. */
+  accepts: readonly ItemCategory[];
+}
+
+/**
+ * 세포주 · 균주 data (A-14, owner: items). 분석기 해석의 산출물이고, 배양조 칸에 **배지를 부은 뒤** 넣는다.
+ * 배양 시간은 넣는 순간 `readyAt` 에 확정된다 (온실 · 분석기와 같은 규약).
+ */
+export interface StrainDef {
+  outputDefId: string;
+  outputQty: number;
+  /** 기본 배지 기준 배양 시간(시간). 배지 등급(`MediumDef.speedMul`)과 원예 숙련이 여기서 깎는다. */
+  cultureHours: number;
+}
+
+/**
+ * 영양 배지 data (A-14, owner: items). 추출기에서 만든다 — 온실 산물의 새 소비처다.
+ * 토양과 같은 소모 규약: **수확마다 1회** 닳고 0 이면 칸이 완전히 빈다.
+ *
+ * 토양의 태그 매칭과 달리 배지는 **등급 하나**다 (축을 하나 더 만들 이유가 없다는 판단).
+ */
+export interface MediumDef {
+  /** 이 배지가 버티는 수확 횟수. */
+  uses: number;
+  /** 배양 시간 배수 (1 = 기본, 0.75 = 25 % 빠름). */
+  speedMul: number;
+}
+
+export interface ItemDef {
+  /* ── appended (2026-09-11, A-3c · A-14 · A-15; owner: items) ── */
+  /** category 'meal': 어떤 파생 수치를 얼마나 올려 주는 다음 레이드 1회분인가. */
+  meal?: MealDef;
+  /** category 'pouch': 장비칸 `pouch` 에 끼우면 열리는 별도 격자. */
+  pouch?: PouchDef;
+  /** 세포주 · 균주 (category 'material'): 배양조가 무엇을 얼마나 오래 만드는가. */
+  strain?: StrainDef;
+  /** 영양 배지 (category 'material'): 배양조 칸에 붓는 것. */
+  medium?: MediumDef;
+}
+
+export interface InventoryRef {
+  /* ── appended (2026-09-11, A-15): 주머니 (owner: inventory; callers: ui · housing) ── */
+  /** 지금 장착한 주머니 아이템, 없으면 null. */
+  getEquippedPouch?(): ItemInstance | null;
+  /** 장착한 주머니의 격자 크기. 주머니가 없으면 `{ cols: 0, rows: 0 }` — 그 자리를 통째로 안 그린다는 뜻이다. */
+  getPouchSize?(): { cols: number; rows: number };
 }

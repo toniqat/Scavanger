@@ -19,3 +19,9 @@ furn_bench_extract,1,mat_alloy:6|mat_cable:4|mat_circuit:1
 furn_bench_extract,2,mat_alloy:10|mat_circuit:3|mat_power_cell:2
 furn_bench_mixer,1,mat_alloy:6|mat_circuit:1|mat_bio_sample:6
 furn_bench_mixer,2,mat_alloy:10|mat_circuit:3|mat_capacitor:1
+furn_bench_cook,1,mat_alloy:6|mat_cable:3|mat_circuit:1
+furn_bench_cook,2,mat_alloy:10|mat_circuit:3|mat_power_cell:1
+furn_culture_tank,1,mat_alloy:6|mat_circuit:2|mat_bio_sample:8
+furn_culture_tank,2,mat_alloy:10|mat_circuit:4|mat_capacitor:1
+furn_bench_print,1,mat_alloy:8|mat_circuit:3|mat_power_cell:2
+furn_bench_print,2,mat_ingot:4|mat_control_module:1|mat_capacitor:1

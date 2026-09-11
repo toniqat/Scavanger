@@ -1,0 +1,20 @@
+# 요리 — 주방의 조리대(bench cook)가 만들고 식탁에서 먹는다 (2026-09-11 A-3c). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 한 요리는 **버프 하나**만 올린다 (사용자 결정: 요리마다 한 가지씩, 생존계 · 보상계를 섞어서).
+# buff 는 src/shared/types.ts 의 MealBuff — 전부 DerivedStats 에 이미 있는 필드 이름이다. 그래서 소비자가
+#   한 줄도 안 바뀐다 (player · weapons · world · inventory 는 이미 ctx.progression.derived 를 읽는다).
+# amount 는 이름이 *Mul 로 끝나는 버프(와 gritChance)면 **배수에 가산**되고(0.2 = +20 %), 나머지는 단위 그대로다:
+#   carryCapacity kg · maxStamina 포인트 · detectRadius m. durabilityLossMul 만 음수다(손상이 줄어든다).
+# tier 1 = 일반 요리(작물만, 조리대 Lv.1) · tier 2 = 특선 요리(배양조 산물이 필요, Lv.2–3).
+# ⚠ 크레딧 · 판매가를 올리는 버프는 **일부러 없다** — 서버가 크레딧을 사유별로 검증하므로(E-4) 클라이언트 배수는
+#   그대로 credits:tx 거절이 된다. 보상계는 숙련 XP · 채집량 · 감정 속도로 낸다.
+id,name,rarity,buff,amount,tier,stackMax,value,weight,icon,description
+meal_tuber_stew,덩이줄기 스튜,common,maxStamina,15,1,3,90,0.35,♨,걸쭉하게 끓인 덩이줄기 스튜. 배가 든든하면 더 오래 달린다.
+meal_bean_porridge,콩죽,common,carryCapacity,6,1,3,95,0.35,♨,콩을 갈아 쑨 죽. 어깨에 힘이 붙어 조금 더 들고 나갈 수 있다.
+meal_green_salad,잎채소 샐러드,common,staminaRegenMul,0.2,1,3,90,0.3,♨,물기 많은 잎채소를 버무린 샐러드. 숨이 빨리 돌아온다.
+meal_mushroom_soup,갓버섯 수프,uncommon,healPowerMul,0.2,1,3,150,0.35,♨,갓버섯을 우려낸 수프. 약이 몸에 잘 듣는다.
+meal_ash_bread,잿빛 빵,common,searchSpeedMul,0.25,1,3,95,0.3,♨,잿빛 곡물로 구운 단단한 빵. 손이 급하지 않으니 상자를 빨리 뒤진다.
+meal_berry_compote,서리열매 조림,uncommon,gatherYieldMul,0.25,1,3,160,0.3,♨,서리열매를 졸여 만든 조림. 단맛이 도는 만큼 눈도 밝아진다.
+meal_cultured_steak,배양육 스테이크,rare,gritChance,0.1,2,3,380,0.4,♨,배양육을 두껍게 구운 스테이크. 한 방 맞아도 버티게 해 준다.
+meal_protein_omelet,유단백 오믈렛,rare,skillGainMul,0.15,2,3,360,0.35,♨,난백과 유단백으로 부친 오믈렛. 머리가 맑아 배우는 것이 빠르다.
+meal_algae_broth,미세조류 육수,epic,detectRadius,6,2,3,620,0.3,♨,미세조류를 오래 우린 맑은 육수. 감각이 예민해진다.
+meal_field_ration,특제 전투식량,epic,durabilityLossMul,-0.2,2,3,640,0.4,♨,함선 주방에서 직접 눌러 만든 전투식량. 잘 먹고 다니면 장비도 덜 상한다.

@@ -12,7 +12,13 @@
 #   prepEnv = 상쇄하는 행성 환경 (heat | toxin), prepShort = HUD 배지에 찍는 짧은 이름.
 #   함선에서 쓰면 **다음 레이드 1회분**으로 실린다. 같은 환경을 두 번 싣지는 못한다.
 # 미확인 표본(category sample)은 여기가 아니라 data/samples.csv 에 있다 (씨앗 · 서적처럼 자기 표를 가진다).
-id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp,soilTag,soilUses,prepEnv,prepShort
+# pouch* 칸은 주머니(category pouch)만 쓴다 (2026-09-11 A-15, prepShort 뒤에 붙였다):
+#   pouchCols × pouchRows = 장착하면 퀵슬롯 아래에 열리는 격자, pouchAccepts = 받아 주는 카테고리(| 로 잇는다).
+#   장비칸의 주머니 칸은 **하나뿐**이다 (POUCH_SLOTS, 사용자 결정) — 넷 중 하나만 끼운다.
+# strain* 칸은 세포주 · 균주(category material)만 쓴다 (A-14): 배양조가 무엇을 얼마나 오래 만드는가.
+# medium* 칸은 영양 배지(category material)만 쓴다 (A-14): 버티는 수확 횟수와 배양 시간 배수.
+# 요리(category meal)는 여기가 아니라 data/meals.csv 에 있다.
+id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp,soilTag,soilUses,prepEnv,prepShort,pouchCols,pouchRows,pouchAccepts,strainOut,strainQty,strainHours,mediumUses,mediumSpeed
 grenade_frag,G-12 고폭 수류탄,grenade,common,1,1,3,40,0.45,●,true,,,,,,,,,,,파편 수류탄. 반경 6 m 광역 피해.
 grenade_incendiary,G-10 소이 수류탄,grenade,uncommon,1,1,3,70,0.5,◉,true,,,,,,,,,,,소이 수류탄. 넓은 반경에 화염 피해.
 heal_bandage,붕대,stim,common,1,1,5,45,0.15,▭,true,,,20,5,20,5,,,,,"천을 감아 지혈한다. 사용 5초, 5초에 걸쳐 체력 20 회복. 사용 중 이동 속도 50 %."
@@ -36,7 +42,7 @@ terminid_gland,터미니드 분비선,valuable,uncommon,1,1,1,300,0.9,❂,,,,,,,
 alien_artifact,외계 유물,valuable,epic,2,2,1,3200,6.5,⬡,,,,,,,,,,,,알 수 없는 문자가 새겨진 금속 조각. 미약하게 진동한다.
 alien_relic,고대 성유물,valuable,legendary,2,2,1,7500,9,✧,,,,,,,,,,,,선행 문명의 유물. 측정 불가한 에너지를 방출한다. 들고 뛰기엔 너무 무겁다.
 super_earth_medal,슈퍼 지구 훈장,valuable,legendary,1,1,1,4800,0.15,★,,,,,,,,,,,,전사한 헬다이버의 훈장. 깃털처럼 가볍고 값은 어마어마하다.
-key_basement,버려진 구조물의 지하실 키카드,valuable,uncommon,1,1,1,0,0.05,▨,,,,,,,,,,,,"버려진 구조물의 지하실 문을 여는 자기 카드. 그 구조물 안에서만 나오고, 무작위 루팅에는 절대 나오지 않는다."
+key_basement,버려진 구조물의 지하실 키카드,key,uncommon,1,1,1,0,0.05,▨,,,,,,,,,,,,"버려진 구조물의 지하실 문을 여는 자기 카드. 그 구조물 안에서만 나오고, 무작위 루팅에는 절대 나오지 않는다."
 mat_scrap,폐금속,material,common,1,1,10,15,0.5,▫,,,,,,,,,,,,재활용 가능한 금속 조각. 무기 수리에 사용.
 mat_bio_sample,생체 조직,material,common,1,1,10,20,0.2,⁂,,,,,,,,,,,,터미니드 사체에서 채취한 조직.
 mat_alloy,합금 판,material,uncommon,1,1,10,40,0.8,▪,,,,,,,,,,,,경량 고강도 합금. 고등급 무기 수리에 사용.
@@ -63,14 +69,14 @@ herb_glowcap,발광버섯,herb,rare,1,1,6,140,0.12,✿,,,,,,,,,,,,스스로 빛�
 herb_frostmoss,서리이끼,herb,uncommon,1,1,8,60,0.07,❆,,,,,,,,,,,,동토에서 캐낸 이끼. 열을 붙잡아 두는 성질이 있어 진정제 조제에 쓰인다.
 herb_emberpod,불씨꼬투리,herb,uncommon,1,1,8,70,0.07,✸,,,,,,,,,,,,터지면 불씨가 튀는 꼬투리. 소이 계열 조제의 핵심 재료.
 herb_ironleaf,철엽초,herb,rare,1,1,6,150,0.14,✦,,,,,,,,,,,,잎맥에 금속이 맺힌 풀. 조직 접합을 돕는 고급 약재.
-crop_tuber,회색 덩이줄기,crop,common,1,1,8,30,0.22,◓,,,,,,,,,,,,온실에서 거둔 전분질 덩이줄기. 주방 시설이 열리면 요리 재료가 된다.
-crop_beanpod,단백 콩깍지,crop,common,1,1,8,35,0.12,❖,,,,,,,,,,,,단백질이 많은 콩. 주방 시설이 열리면 요리 재료가 된다.
-crop_leafgreen,온실 잎채소,crop,common,1,1,8,28,0.09,❁,,,,,,,,,,,,물기 많은 잎채소. 주방 시설이 열리면 요리 재료가 된다.
-crop_capfungus,식용 갓버섯,crop,uncommon,1,1,6,55,0.11,☂,,,,,,,,,,,,갓이 두툼한 식용 버섯. 주방 시설이 열리면 요리 재료가 된다.
-crop_ashgrain,잿빛 곡물,crop,common,1,1,8,32,0.10,⁙,,,,,,,,,,,,온실에서 거둔 잿빛 낟알. 주방 시설이 열리면 요리 재료가 된다.
-crop_saltmelon,염수박,crop,uncommon,1,1,6,60,0.26,◒,,,,,,,,,,,,소금기를 머금어 단맛이 도는 박. 주방 시설이 열리면 요리 재료가 된다.
-crop_sporecap,포자 갓,crop,uncommon,1,1,6,58,0.10,☁,,,,,,,,,,,,포자를 품은 채 갓을 편 식용 균류. 주방 시설이 열리면 요리 재료가 된다.
-crop_frostberry,서리열매,crop,uncommon,1,1,6,62,0.08,❅,,,,,,,,,,,,서리를 맞아야 단맛이 오르는 열매. 주방 시설이 열리면 요리 재료가 된다.
+crop_tuber,회색 덩이줄기,crop,common,1,1,8,30,0.22,◓,,,,,,,,,,,,온실에서 거둔 전분질 덩이줄기. 주방의 조리대에서 요리 재료로 쓴다.
+crop_beanpod,단백 콩깍지,crop,common,1,1,8,35,0.12,❖,,,,,,,,,,,,단백질이 많은 콩. 주방의 조리대에서 요리 재료로 쓴다.
+crop_leafgreen,온실 잎채소,crop,common,1,1,8,28,0.09,❁,,,,,,,,,,,,물기 많은 잎채소. 주방의 조리대에서 요리 재료로 쓴다.
+crop_capfungus,식용 갓버섯,crop,uncommon,1,1,6,55,0.11,☂,,,,,,,,,,,,갓이 두툼한 식용 버섯. 주방의 조리대에서 요리 재료로 쓴다.
+crop_ashgrain,잿빛 곡물,crop,common,1,1,8,32,0.10,⁙,,,,,,,,,,,,온실에서 거둔 잿빛 낟알. 주방의 조리대에서 요리 재료로 쓴다.
+crop_saltmelon,염수박,crop,uncommon,1,1,6,60,0.26,◒,,,,,,,,,,,,소금기를 머금어 단맛이 도는 박. 주방의 조리대에서 요리 재료로 쓴다.
+crop_sporecap,포자 갓,crop,uncommon,1,1,6,58,0.10,☁,,,,,,,,,,,,포자를 품은 채 갓을 편 식용 균류. 주방의 조리대에서 요리 재료로 쓴다.
+crop_frostberry,서리열매,crop,uncommon,1,1,6,62,0.08,❅,,,,,,,,,,,,서리를 맞아야 단맛이 오르는 열매. 주방의 조리대에서 요리 재료로 쓴다.
 soil_humus,부엽토,soil,common,1,1,5,35,0.30,▩,,,,,,,,,,,,"습지 바닥에서 퍼 올린 검은 흙. 부엽토 속성 씨앗을 빨리 키운다 (수확 2회).",,,humus,2
 soil_ash,화산재토,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"화산재가 굳어 삭은 흙. 화산재 속성 씨앗을 빨리 키운다 (수확 3회).",,,ash,3
 soil_frost,동토 이탄,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"얼었다 녹기를 반복한 이탄. 동토 속성 씨앗을 빨리 키운다 (수확 3회).",,,frost,3
@@ -93,3 +99,26 @@ gad_drone_air,공중 드론,gadget,epic,2,2,1,2200,3.6,✈,true,droneAir,,,,,,,,
 
 prep_respirator,여과 호흡기,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"유독 대기를 걸러 내는 반면형 호흡기. 함선에서 쓰면 다음 레이드 한 번 동안 유독 환경 피해를 완전히 막는다.",,,,,toxin,방독
 prep_coolant,내열 냉각재,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"몸에 두르는 상변화 냉각재. 함선에서 쓰면 다음 레이드 한 번 동안 고온 환경 피해를 완전히 막는다.",,,,,heat,내열
+
+# ── 2026-09-11 (A-14 배양조): 영양 배지 · 세포주 · 배양 산물 ──
+mat_medium_basic,기본 영양 배지,material,uncommon,1,1,10,90,0.2,▫,,,,,,,,,,,,추출기에서 굳힌 기본 배지. 배양조 칸에 부으면 두 번 수확할 때까지 버틴다.,,,,,,,,,,,,2,1
+mat_medium_rich,강화 영양 배지,material,rare,1,1,10,210,0.22,▫,,,,,,,,,,,,광물 농축액까지 섞어 기른 배지. 네 번을 버티고 배양도 30 % 빠르다.,,,,,,,,,,,,4,0.7
+strain_algae,조류 배양체,material,uncommon,1,1,5,130,0.1,▫,,,,,,,,,,,,분석기가 갈라 낸 조류 배양체. 배양조에 넣으면 미세조류가 된다.,,,,,,,,,cult_algae,3,4
+strain_myocyte,근세포주,material,rare,1,1,5,300,0.1,▫,,,,,,,,,,,,해석이 끝난 근세포주. 배양조에서 오래 기르면 배양육이 된다.,,,,,,,,,cult_meat,2,8
+strain_adipocyte,지방세포주,material,rare,1,1,5,280,0.1,▫,,,,,,,,,,,,해석이 끝난 지방세포주. 배양조에서 배양 지방이 된다.,,,,,,,,,cult_fat,2,6
+strain_casein,유선세포주,material,rare,1,1,5,290,0.1,▫,,,,,,,,,,,,해석이 끝난 유선세포주. 배양조에서 유단백이 된다.,,,,,,,,,cult_casein,2,7
+strain_ovum,난세포주,material,rare,1,1,5,290,0.1,▫,,,,,,,,,,,,해석이 끝난 난세포주. 배양조에서 난백이 된다.,,,,,,,,,cult_albumen,2,7
+cult_algae,미세조류,material,uncommon,1,1,10,70,0.12,▫,,,,,,,,,,,,배양조에서 걷어 낸 진한 조류 덩어리. 요리 재료이자 필라멘트의 바탕이다.
+cult_meat,배양육,material,rare,1,1,8,180,0.3,▫,,,,,,,,,,,,배양조에서 결을 살려 기른 고기. 특선 요리의 주재료다.
+cult_fat,배양 지방,material,rare,1,1,8,150,0.28,▫,,,,,,,,,,,,배양조에서 뽑은 정제 지방. 요리에도 필라멘트에도 들어간다.
+cult_casein,유단백,material,rare,1,1,8,170,0.18,▫,,,,,,,,,,,,배양조가 응고시킨 유단백. 질긴 섬유의 원료이기도 하다.
+cult_albumen,난백,material,rare,1,1,8,165,0.2,▫,,,,,,,,,,,,배양조에서 받아 낸 맑은 난백. 요리와 복합 필라멘트에 쓴다.
+
+# ── 2026-09-11 (A-15 프린터): 필라멘트 3등급 · 주머니 4종 ──
+mat_filament_1,기본 필라멘트,material,rare,1,1,10,320,0.25,▫,,,,,,,,,,,,미세조류와 지방으로 방사한 기본 필라멘트. 3D 프린터의 바탕 재료다.
+mat_filament_2,고강도 필라멘트,material,epic,1,1,10,700,0.28,▫,,,,,,,,,,,,유단백을 꼬아 넣어 강도를 올린 필라멘트. 서사 가방을 찍을 수 있다.
+mat_filament_3,복합 필라멘트,material,legendary,1,1,10,1500,0.3,▫,,,,,,,,,,,,여러 배양 산물을 겹쳐 뽑은 복합 필라멘트. 전설 가방은 이것으로만 나온다.
+pouch_gather,채집 주머니,pouch,rare,2,1,1,420,0.45,◫,,,,,,,,,,,,약초 · 씨앗 · 토양 · 작물 · 표본만 들어가는 주머니. 장착하면 퀵슬롯 아래에 2×2 격자가 열린다.,,,,,,2,2,herb|seed|soil|crop|sample
+pouch_key,열쇠 주머니,pouch,rare,2,1,1,380,0.35,◫,,,,,,,,,,,,열쇠만 들어가는 납작한 주머니. 장착하면 퀵슬롯 아래에 3×1 격자가 열린다.,,,,,,3,1,key
+pouch_medical,구급 주머니,pouch,epic,2,1,1,760,0.5,◫,,,,,,,,,,,,회복 물품만 들어가는 구급 주머니. 장착하면 퀵슬롯 아래에 4×1 격자가 열린다.,,,,,,4,1,stim
+pouch_valuable,귀중품 주머니,pouch,epic,2,1,1,800,0.45,◫,,,,,,,,,,,,귀중품만 들어가는 안감 주머니. 장착하면 퀵슬롯 아래에 2×2 격자가 열린다.,,,,,,2,2,valuable

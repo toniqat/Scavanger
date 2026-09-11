@@ -1,4 +1,4 @@
-import type { EnvKind, ItemCategory, Rarity, SoilTag, WeaponGrade } from './types';
+import type { EnvKind, ItemCategory, MealBuff, Rarity, SoilTag, WeaponGrade } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Item rarity / category labels and palette (Phase 7, 2026-09-06).
@@ -37,6 +37,9 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   crop: '작물',
   sample: '표본',
   prep: '준비물',
+  meal: '요리',
+  pouch: '주머니',
+  key: '열쇠',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -52,6 +55,9 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   crop: '#9fd86a',
   sample: '#a9d8ff',
   prep: '#ffd08a',
+  meal: '#ffb0a0',
+  pouch: '#c9a98a',
+  key: '#c8ccd2',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -67,6 +73,9 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   crop: '❁',
   sample: '◍',
   prep: '⌾',
+  meal: '♨',
+  pouch: '◫',
+  key: '⚿',
 };
 
 /**
@@ -96,3 +105,21 @@ export const ENV_DESC_KO: Readonly<Record<EnvKind, string>> = {
 };
 export const ENV_COLOR: Readonly<Record<EnvKind, string>> = { heat: '#ff8f5c', toxin: '#9fe07a' };
 export const ENV_ICON: Readonly<Record<EnvKind, string>> = { heat: '♨', toxin: '☣' };
+
+/**
+ * appended (주방 A-3c, 2026-09-11): 요리가 올려 주는 파생 수치의 이름과 단위. 요리 아이템 툴팁 · 식탁 화면 ·
+ * 레이드 HUD 의 식사 배지가 **이 표 하나**를 읽는다 — 「+15 %」인지 「+6 kg」인지 「+6 m」인지를 여기가 정한다.
+ * 단위가 `'%'` 인 줄은 `amount` 를 100 배해서 찍는다 (배수 가산이기 때문이다).
+ */
+export const MEAL_BUFF_LABEL_KO: Readonly<Record<MealBuff, string>> = {
+  carryCapacity: '운반 무게', maxStamina: '최대 스태미나', staminaRegenMul: '스태미나 회복',
+  healPowerMul: '회복 효율', gritChance: '치명상 버티기', skillGainMul: '숙련 상승',
+  gatherYieldMul: '채집량', searchSpeedMul: '감정 속도', detectRadius: '인지 반경',
+  useSpeedMul: '소모품 사용 속도', interactSpeedMul: '상호작용 속도', durabilityLossMul: '장비 손상',
+};
+export const MEAL_BUFF_UNIT: Readonly<Record<MealBuff, '%' | 'kg' | 'm' | ''>> = {
+  carryCapacity: 'kg', maxStamina: '', staminaRegenMul: '%',
+  healPowerMul: '%', gritChance: '%', skillGainMul: '%',
+  gatherYieldMul: '%', searchSpeedMul: '%', detectRadius: 'm',
+  useSpeedMul: '%', interactSpeedMul: '%', durabilityLossMul: '%',
+};

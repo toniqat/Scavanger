@@ -92,12 +92,12 @@ make_armor_4,방탄복 IV 제작,ship,gear,3,mat_scrap:16|mat_ballistic_fiber:3|
 make_armor_5,방탄복 V 제작,ship,gear,3,mat_scrap:18|mat_ballistic_fiber:5|mat_capacitor:3|mat_control_module:2,armor_5,1,,16,crafting,40,"폐금속 18 + 복합 방탄섬유 5 + 축전 모듈 3 + 제어 모듈 2 → 방탄복 V (실드 100). 장비 작업대 Lv.3, 제작 40 필요."
 make_bag_common,일반 가방 제작,ship,gear,1,mat_cloth:8|mat_bio_sample:4|mat_scrap:2,bag_common,1,,8,crafting,0,천조각 8 + 생체 조직 4 + 폐금속 2 → 일반 가방 (5×6). 장비 작업대.
 make_bag_uncommon,고급 가방 제작,ship,gear,1,mat_cloth:12|mat_bio_sample:6|mat_scrap:4,bag_uncommon,1,,10,crafting,15,"천조각 12 + 생체 조직 6 + 폐금속 4 → 고급 가방 (6×6). 장비 작업대, 제작 15 필요."
-make_bag_rare,희귀 가방 제작,ship,gear,2,mat_weave:4|mat_cloth:8|mat_bio_sample:6|mat_scrap:4,bag_rare,1,,12,crafting,25,"강화 직조포 4 + 천조각 8 + 생체 조직 6 + 폐금속 4 → 희귀 가방 (8×6). 장비 작업대 Lv.2, 제작 25 필요."
-make_bag_rare_tac,희귀 전술 가방 제작,ship,gear,2,mat_weave:5|mat_cloth:8|mat_bio_sample:6|mat_scrap:4,bag_rare_tac,1,,12,crafting,25,"강화 직조포 5 + 천조각 8 + 생체 조직 6 + 폐금속 4 → 희귀 전술 가방 (7×6, 퀵슬롯 7). 장비 작업대 Lv.2, 제작 25 필요."
-make_bag_epic,서사 가방 제작,ship,gear,3,mat_weave:6|mat_ballistic_fiber:3|mat_scrap:6,bag_epic,1,,14,crafting,35,"강화 직조포 6 + 복합 방탄섬유 3 + 폐금속 6 → 서사 가방 (9×6). 장비 작업대 Lv.3, 제작 35 필요."
-make_bag_epic_tac,서사 전술 가방 제작,ship,gear,3,mat_weave:7|mat_ballistic_fiber:3|mat_scrap:6,bag_epic_tac,1,,14,crafting,35,"강화 직조포 7 + 복합 방탄섬유 3 + 폐금속 6 → 서사 전술 가방 (8×6, 퀵슬롯 8). 장비 작업대 Lv.3, 제작 35 필요."
-make_bag_legendary,전설 가방 제작,ship,gear,3,mat_weave:8|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary,1,,16,crafting,40,"강화 직조포 8 + 복합 방탄섬유 6 + 폐금속 8 → 전설 가방 (10×6). 장비 작업대 Lv.3, 제작 40 필요."
-make_bag_legendary_tac,전설 전술 가방 제작,ship,gear,3,mat_weave:9|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary_tac,1,,16,crafting,40,"강화 직조포 9 + 복합 방탄섬유 6 + 폐금속 8 → 전설 전술 가방 (9×6, 퀵슬롯 8). 장비 작업대 Lv.3, 제작 40 필요."
+make_bag_rare,희귀 가방 제작,ship,print,1,mat_weave:4|mat_filament_1:2|mat_cloth:6|mat_scrap:4,bag_rare,1,,12,crafting,25,"강화 직조포 4 + 기본 필라멘트 2 + 천조각 6 + 폐금속 4 → 희귀 가방 (8×6). 3D 프린터, 제작 25 필요."
+make_bag_rare_tac,희귀 전술 가방 제작,ship,print,1,mat_weave:5|mat_filament_1:2|mat_cloth:6|mat_scrap:4,bag_rare_tac,1,,12,crafting,25,"강화 직조포 5 + 기본 필라멘트 2 + 천조각 6 + 폐금속 4 → 희귀 전술 가방 (7×6, 퀵슬롯 7). 3D 프린터, 제작 25 필요."
+make_bag_epic,서사 가방 제작,ship,print,2,mat_weave:6|mat_ballistic_fiber:3|mat_filament_2:2|mat_scrap:6,bag_epic,1,,14,crafting,35,"강화 직조포 6 + 복합 방탄섬유 3 + 고강도 필라멘트 2 + 폐금속 6 → 서사 가방 (9×6). 3D 프린터 Lv.2, 제작 35 필요."
+make_bag_epic_tac,서사 전술 가방 제작,ship,print,2,mat_weave:7|mat_ballistic_fiber:3|mat_filament_2:2|mat_scrap:6,bag_epic_tac,1,,14,crafting,35,"강화 직조포 7 + 복합 방탄섬유 3 + 고강도 필라멘트 2 + 폐금속 6 → 서사 전술 가방 (8×6, 퀵슬롯 8). 3D 프린터 Lv.2, 제작 35 필요."
+make_bag_legendary,전설 가방 제작,ship,print,3,mat_weave:8|mat_ballistic_fiber:6|mat_filament_3:2|mat_scrap:8,bag_legendary,1,,16,crafting,40,"강화 직조포 8 + 복합 방탄섬유 6 + 복합 필라멘트 2 + 폐금속 8 → 전설 가방 (10×6). 3D 프린터 Lv.3, 제작 40 필요."
+make_bag_legendary_tac,전설 전술 가방 제작,ship,print,3,mat_weave:9|mat_ballistic_fiber:6|mat_filament_3:2|mat_scrap:8,bag_legendary_tac,1,,16,crafting,40,"강화 직조포 9 + 복합 방탄섬유 6 + 복합 필라멘트 2 + 폐금속 8 → 전설 전술 가방 (9×6, 퀵슬롯 8). 3D 프린터 Lv.3, 제작 40 필요."
 make_frag_batch,고폭 수류탄 제작,ship,gadget,1,mat_gunpowder:8|mat_scrap:3,grenade_frag,2,,6,crafting,10,"화약 8 + 폐금속 3 → G-12 고폭 수류탄 2. 가젯 작업대, 제작 10 필요."
 make_smoke_batch,연막탄 대량 제작,ship,gadget,1,mat_gunpowder:10|mat_bio_sample:5,gad_smoke,3,,7,crafting,10,"화약 10 + 생체 조직 5 → 연막탄 3. 가젯 작업대, 제작 10 필요."
 make_incendiary_batch,소이 수류탄 대량 제작,ship,gadget,1,mat_gunpowder:14|herb_ashleaf:4,grenade_incendiary,2,,7,crafting,15,"화약 14 + 잿빛잎 4 → G-10 소이 수류탄 2. 가젯 작업대, 제작 15 필요."
@@ -130,3 +130,28 @@ extract_min,광물 추출,ship,extract,1,soil_mineral:1|mat_scrap:6,mat_extract_
 extract_min_core,코어 추출,ship,extract,2,mat_core:3|mat_alloy:2,mat_extract_min,2,,8,crafting,25,"구동 코어 3 + 합금 판 2 → 광물 추출물 2. 추출기 Lv.2, 제작 25 필요."
 mix_prep_respirator,여과 호흡기 조합,ship,mixer,1,mat_extract_bio:2|mat_cloth:4|mat_circuit:1,prep_respirator,1,,7,crafting,20,"생체 추출물 2 + 천조각 4 + 회로 기판 1 → 여과 호흡기. 유독 행성 1회분. 조합대, 제작 20 필요."
 mix_prep_coolant,내열 냉각재 조합,ship,mixer,1,mat_extract_min:2|mat_alloy:3|mat_cable:2,prep_coolant,1,,7,crafting,20,"광물 추출물 2 + 합금 판 3 + 전력 케이블 2 → 내열 냉각재. 고온 행성 1회분. 조합대, 제작 20 필요."
+
+# ── 2026-09-11 (A-3c 주방): 조리대 — 일반 요리 6 (작물만) · 특선 요리 4 (배양조 산물) ──
+cook_tuber_stew,덩이줄기 스튜 조리,ship,cook,1,crop_tuber:3|crop_leafgreen:2,meal_tuber_stew,1,,6,crafting,0,회색 덩이줄기 3 + 온실 잎채소 2 → 덩이줄기 스튜. 조리대.
+cook_bean_porridge,콩죽 조리,ship,cook,1,crop_beanpod:3|crop_tuber:2,meal_bean_porridge,1,,6,crafting,0,단백 콩깍지 3 + 회색 덩이줄기 2 → 콩죽. 조리대.
+cook_green_salad,잎채소 샐러드 조리,ship,cook,1,crop_leafgreen:4|crop_frostberry:1,meal_green_salad,1,,6,crafting,0,온실 잎채소 4 + 서리열매 1 → 잎채소 샐러드. 조리대.
+cook_mushroom_soup,갓버섯 수프 조리,ship,cook,1,crop_capfungus:3|crop_sporecap:1,meal_mushroom_soup,1,,7,crafting,10,"식용 갓버섯 3 + 포자 갓 1 → 갓버섯 수프. 조리대, 제작 10 필요."
+cook_ash_bread,잿빛 빵 굽기,ship,cook,1,crop_ashgrain:4|crop_saltmelon:1,meal_ash_bread,1,,7,crafting,10,"잿빛 곡물 4 + 염수박 1 → 잿빛 빵. 조리대, 제작 10 필요."
+cook_berry_compote,서리열매 조림 조리,ship,cook,1,crop_frostberry:3|crop_ashgrain:2,meal_berry_compote,1,,7,crafting,10,"서리열매 3 + 잿빛 곡물 2 → 서리열매 조림. 조리대, 제작 10 필요."
+cook_cultured_steak,배양육 스테이크 조리,ship,cook,2,cult_meat:2|cult_fat:1|crop_tuber:2,meal_cultured_steak,1,,9,crafting,25,"배양육 2 + 배양 지방 1 + 회색 덩이줄기 2 → 배양육 스테이크. 조리대 Lv.2, 제작 25 필요."
+cook_protein_omelet,유단백 오믈렛 조리,ship,cook,2,cult_albumen:2|cult_casein:1|crop_leafgreen:2,meal_protein_omelet,1,,9,crafting,25,"난백 2 + 유단백 1 + 온실 잎채소 2 → 유단백 오믈렛. 조리대 Lv.2, 제작 25 필요."
+cook_algae_broth,미세조류 육수 조리,ship,cook,3,cult_algae:3|crop_sporecap:2,meal_algae_broth,1,,11,crafting,40,"미세조류 3 + 포자 갓 2 → 미세조류 육수. 조리대 Lv.3, 제작 40 필요."
+cook_field_ration,특제 전투식량 조리,ship,cook,3,cult_fat:2|cult_algae:2|crop_ashgrain:3,meal_field_ration,1,,11,crafting,40,"배양 지방 2 + 미세조류 2 + 잿빛 곡물 3 → 특제 전투식량. 조리대 Lv.3, 제작 40 필요."
+
+# ── 2026-09-11 (A-14 · A-15): 추출기 — 영양 배지 2 · 필라멘트 3등급 ──
+extract_medium_basic,기본 배지 배양,ship,extract,1,mat_extract_bio:1|crop_leafgreen:3,mat_medium_basic,2,,6,crafting,15,"생체 추출물 1 + 온실 잎채소 3 → 기본 영양 배지 2. 추출기, 제작 15 필요."
+extract_medium_rich,강화 배지 배양,ship,extract,2,mat_extract_bio:2|mat_extract_min:1|herb_bloodroot:3,mat_medium_rich,2,,8,crafting,30,"생체 추출물 2 + 광물 추출물 1 + 혈근초 3 → 강화 영양 배지 2. 추출기 Lv.2, 제작 30 필요."
+extract_filament_1,기본 필라멘트 방사,ship,extract,1,cult_algae:4|cult_fat:2,mat_filament_1,2,,8,crafting,25,"미세조류 4 + 배양 지방 2 → 기본 필라멘트 2. 추출기, 제작 25 필요."
+extract_filament_2,고강도 필라멘트 방사,ship,extract,2,mat_filament_1:3|cult_casein:2|mat_weave:1,mat_filament_2,2,,10,crafting,35,"기본 필라멘트 3 + 유단백 2 + 강화 직조포 1 → 고강도 필라멘트 2. 추출기 Lv.2, 제작 35 필요."
+extract_filament_3,복합 필라멘트 방사,ship,extract,3,mat_filament_2:3|cult_meat:2|cult_albumen:2,mat_filament_3,1,,12,crafting,45,"고강도 필라멘트 3 + 배양육 2 + 난백 2 → 복합 필라멘트 1. 추출기 Lv.3, 제작 45 필요."
+
+# ── 2026-09-11 (A-15 프린터): 주머니 4종 (가방 6종은 위 make_bag_* 가 bench print 로 옮겨 갔다) ──
+print_pouch_gather,채집 주머니 출력,ship,print,1,mat_filament_1:2|mat_cloth:4,pouch_gather,1,,10,crafting,25,"기본 필라멘트 2 + 천조각 4 → 채집 주머니 (2×2). 3D 프린터, 제작 25 필요."
+print_pouch_key,열쇠 주머니 출력,ship,print,1,mat_filament_1:2|mat_cloth:3,pouch_key,1,,10,crafting,25,"기본 필라멘트 2 + 천조각 3 → 열쇠 주머니 (3×1). 3D 프린터, 제작 25 필요."
+print_pouch_medical,구급 주머니 출력,ship,print,2,mat_filament_2:2|mat_cloth:5,pouch_medical,1,,12,crafting,35,"고강도 필라멘트 2 + 천조각 5 → 구급 주머니 (4×1). 3D 프린터 Lv.2, 제작 35 필요."
+print_pouch_valuable,귀중품 주머니 출력,ship,print,2,mat_filament_2:2|mat_weave:2,pouch_valuable,1,,12,crafting,35,"고강도 필라멘트 2 + 강화 직조포 2 → 귀중품 주머니 (2×2). 3D 프린터 Lv.2, 제작 35 필요."

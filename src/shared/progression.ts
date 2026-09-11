@@ -320,8 +320,53 @@ export interface ProgressionRef {
   usePrep(defId: string): string | null;
   /** 이번 레이드에 `env` 를 막아 주는 준비물이 실려 있나. player 가 환경 피해를 줄지 정할 때 묻는다. */
   hasEnvPrep(env: EnvKind): boolean;
-  /** 출격: 대기분을 이번 레이드분으로 옮긴다 (game/ 이 레이드 시작 때 한 번). */
+  /**
+   * 출격: 대기분을 이번 레이드분으로 옮긴다 (game/ 이 레이드 시작 때 한 번).
+   * 2026-09-11 (A-3c): **식사 칸도 함께 옮긴다** (`meal` → `mealActive`) — 그래서 `game/` 은 한 줄도 안 바뀐다.
+   */
   armPreps(): void;
-  /** 레이드 종료: 이번 레이드분을 비운다 (game/ 이 한 번). */
+  /**
+   * 레이드 종료: 이번 레이드분을 비운다 (game/ 이 한 번).
+   * 2026-09-11 (A-3c): **식사 칸도 함께 비운다** (`mealActive` → null).
+   */
   clearActivePreps(): void;
+}
+
+/* ══ appended (2026-09-11, A-3c): 식사 — 다음 레이드 1회분 (사용자 결정: 별도 「식사」 칸 1개) ═══════════════
+ *
+ * 주방의 조리대에서 만든 요리(`ItemDef.meal`)를 **함선의 식탁에서 먹으면** 그 자리에서 소모돼
+ * `PlayerProfile.meal` 에 대기하고, 출격하는 순간 `mealActive` 로 옮겨져 그 레이드 내내 유지된다.
+ * 수명 규칙은 준비물과 **완전히 같다** (사망해도 그 레이드는 유지 — 「이미 먹은 밥」).
+ *
+ * 준비물(`prep`)과 **자리를 다투지 않는다** (사용자 결정): 환경 준비물은 환경당 1개, 식사는 따로 1칸이다.
+ * 그래서 배열이 아니라 문자열 하나이고, 두 번째 요리를 먹으면 **교체된다** (거절이 아니다 — 준비물과 다른 점).
+ *
+ * 버프는 `MealDef.buff` 가 가리키는 **파생 수치**에 접힌다 (`DerivedStats` 의 필드 이름 그대로) — 그래서
+ * player · weapons · world · inventory 는 한 줄도 안 바뀐다. `mealActive` 가 바뀌면 `derived` 를 다시 계산한다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface PlayerProfile {
+  /** 다음 레이드에 실릴 요리 item def id. 고정 1칸이라 배열이 아니다. 없거나 null = 안 먹었다. */
+  meal?: string | null;
+  /** 이번 레이드에 실려 있는 요리. 레이드 밖에서는 null. */
+  mealActive?: string | null;
+}
+
+export interface ProgressionRef {
+  /** 다음 레이드에 실릴 요리 def id, 없으면 null. */
+  getMeal(): string | null;
+  /** 이번 레이드에 실려 있는 요리 def id (함선에서는 null). */
+  getActiveMeal(): string | null;
+  /**
+   * 함선 전용. 요리 하나를 다음 레이드분에 싣는다 (아이템을 빼는 것은 부르는 쪽 — `usePrep` 과 같은 규약이라
+   * **먼저 묻고 성공할 때만** 뺀다). 이미 차려 둔 요리가 있으면 **조용히 교체**한다: 식사는 칸이 하나뿐이고
+   * 「바꿔 먹는다」가 자연스럽다. 레이드 중이거나 요리가 아니면 한국어 사유, 성공하면 null.
+   */
+  useMeal(defId: string): string | null;
+  /**
+   * 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다 (사용자 결정: 한 명이 차리면 분대 전원).
+   * 이미 먹은 사람은 교체된다. 받는 쪽 가드는 net 이 한다 — **로비 호스트가 보낸 것만** 여기까지 온다
+   * (「남에게 영향 주는 메시지는 권위에서만 받는다」 E-4).
+   */
+  serveMeal(defId: string): void;
 }

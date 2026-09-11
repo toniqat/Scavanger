@@ -48,7 +48,7 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
-  kitchen: '요리로 다음 레이드 버프를 만듭니다. (다음 업데이트)',
+  kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
   mining: '그래픽카드로 암호화폐를 채굴합니다. (다음 업데이트)',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (다음 업데이트)',
 };
@@ -80,7 +80,7 @@ export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { de
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library', 'lab'];   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13)
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library', 'lab', 'kitchen'];   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c)
 
 /**
  * @deprecated 2026-09-07 — **no longer enforced**. The Phase 8 UI pass gave every ship a built-in 작업실 locked to
@@ -112,11 +112,13 @@ export const FACILITY_COLOR: Readonly<Record<FacilityId, string>> = {
  * 여기서만 만든다 — 현장 빠른제작이 없는 유일한 계열이고, 고등급 장비 레시피가 그 재료를 요구하므로
  * 정제 작업대가 후반 제작의 관문이다. 나머지 넷의 동작은 한 줄도 바뀌지 않는다.
  */
-export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine' | 'extract' | 'mixer';
-export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer'];
+export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine' | 'extract' | 'mixer' | 'cook' | 'print';
+export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer', 'cook', 'print'];
 export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
   gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대', refine: '정제 작업대',
   extract: '추출기', mixer: '조합대',
+  /* appended (A-3c · A-15, 2026-09-11): 조리대는 주방, 프린터는 연구실 */
+  cook: '조리대', print: '3D 프린터',
 };
 /**
  * appended (2026-09-10): 작업대 글리프. 같은 글자가 `inventory/ui/labels`(제작 탭)와
@@ -128,6 +130,8 @@ export const WORKBENCH_ICON: Readonly<Record<WorkbenchKind, string>> = {
   gun: '⚒', gear: '⛭', gadget: '⚙', medical: '✚', refine: '⌘',
   /* appended (연구실 A-13, 2026-09-11): 추출기 · 조합대는 연구실 방(`lab`)에 놓이는 작업대다 */
   extract: '⧗', mixer: '⚛',
+  /* appended (A-3c · A-15, 2026-09-11): 조리대는 주방(`kitchen`), 프린터는 연구실(`lab`) */
+  cook: '♨', print: '⎔',
 };
 
 /** Procedural furniture models hub/ knows how to build (no asset files). */
@@ -142,6 +146,8 @@ export type FurnitureModelKind =
   | 'grow_station' // appended (온실 개편, 2026-09-11): 재배 스테이션 — the builder reads `level` and shows 1 / 2 / 3 재배층
   /* appended (연구실, 2026-09-11): 분석기는 `level` 만큼 해석 칸의 불이 켜진다; 추출기 · 조합대는 평범한 작업대 몸체 */
   | 'analyzer' | 'bench_extract' | 'bench_mixer'
+  /* appended (주방 · 배양조 · 프린터, 2026-09-11): 배양조는 `level` 만큼 배양관이 켜진다 (분석기와 같은 방식) */
+  | 'bench_cook' | 'dining_table' | 'culture_tank' | 'bench_print'
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
 
 /** What E does on a placed piece. */
@@ -160,7 +166,11 @@ export type FurnitureInteraction =
   | 'grow_station'                                                                // → ctx.housing.openGrowStation(uid): 토양 채우기 / 씨앗 심기 / 수확
   /* appended (연구실, 2026-09-11) */
   | 'workbench_extract' | 'workbench_mixer'                                       // → 같은 길, kind 'extract' / 'mixer' (benchKindOf 가 접두사로 푼다)
-  | 'analyzer';                                                                   // → ctx.housing.openAnalyzer(uid): 표본 넣기 / 해석 회수 / 해석 도감
+  | 'analyzer'                                                                    // → ctx.housing.openAnalyzer(uid): 표본 넣기 / 해석 회수 / 해석 도감
+  /* appended (주방 · 배양조 · 프린터, 2026-09-11) */
+  | 'workbench_cook' | 'workbench_print'                                          // → 같은 길, kind 'cook' / 'print'
+  | 'dining_table'                                                                // → ctx.housing.openDiningTable(uid): 먹기 / (공유 함선이면) 분대에 차리기
+  | 'culture_tank';                                                               // → ctx.housing.openCultureTank(uid): 배지 붓기 / 세포주 넣기 / 수확
 
 export interface FurnitureDef {
   id: string;
@@ -356,6 +366,11 @@ export interface LoadoutPreset {
   secondary: string | null;
   bag: string | null;
   armor: string | null;
+  /**
+   * appended (2026-09-11, A-15): 주머니 def id. optional 인 이유는 `implantItems` 와 같다 — 저장된 v3 프리셋에는
+   * 이 칸이 없고, `undefined` 는 「주머니는 건드리지 않는다」, `null` 은 「비운다」 이다.
+   */
+  pouch?: string | null;
   implant: ImplantId | null;
   /**
    * appended (2026-09-08): 임플란트 **아이템** def ids, in the order they should be equipped. Optional so a v3 save
@@ -823,4 +838,121 @@ export interface HousingRef {
    * 그리고 목록 맨 아래로 내린다 (사용자 결정 2026-09-11).
    */
   furnitureCraftBlock(defId: string): string | null;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 온실 — 배양조 (A-14, 2026-09-11, 사용자 결정: 온실 배치 · 현실 시간 대기)
+ *
+ * 배양조(`furn_culture_tank`)는 재배 스테이션 · 분석기와 **같은 모양의 스테이션**이다: 레벨이 칸을 연다.
+ * 레벨 n 이면 `CULTURE_SLOTS_PER_LEVEL × n` 칸이 열리고 화면은 언제나 `CULTURE_MAX_SLOTS` 칸을 그린다
+ * (잠긴 칸은 `locked: true` + `unlockLevel`). 칸 번호는 강화해도 밀리지 않는다.
+ *
+ * 칸은 **두 단계**다 — 온실의 「흙 먼저, 씨앗 나중」 그대로:
+ *   ① `fillMedium` 으로 영양 배지(`ItemDef.medium`, 추출기 산물)를 붓는다.
+ *   ② `insertStrain` 으로 세포주 · 균주(`ItemDef.strain`, 분석기 해석 산물)를 넣는다.
+ * 배지는 **수확마다 1회** 닳고(`mediumUsesLeft`) 0 이면 칸이 완전히 빈다. 토양의 태그 매칭과 달리 배지는
+ * **등급 하나**이고(`MediumDef.speedMul`), 배양 시간은 넣는 순간 `readyAt` 에 확정된다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 배양조 레벨 한 단계가 여는 배양 칸 수 (`data/tuning.csv`). */
+export const CULTURE_SLOTS_PER_LEVEL = T.num('CULTURE_SLOTS_PER_LEVEL');
+/** 최대 레벨(3)에서의 칸 수 — 패널은 잠긴 칸을 포함해 언제나 이만큼 그린다. */
+export const CULTURE_MAX_SLOTS = 3 * CULTURE_SLOTS_PER_LEVEL;
+
+/** `level` 의 배양조가 연 칸 수. 레벨은 부르는 쪽이 def 의 `maxLevel` 로 이미 잘라 둔다. */
+export function cultureSlotsForLevel(level: number): number {
+  return Math.max(0, Math.min(3, Math.floor(level))) * CULTURE_SLOTS_PER_LEVEL;
+}
+
+/** `slot` 을 여는 배양조 레벨 (1 … 3). `cultureSlotsForLevel` 에서 유도한다 — 2 · 3 을 코드에 적지 않는다. */
+export function cultureSlotUnlockLevel(slot: number): number {
+  for (let lv = 1; lv <= 3; lv++) if (slot < cultureSlotsForLevel(lv)) return lv;
+  return 3;
+}
+
+/** 배지가 들어 있는 배양 칸 하나. 배지가 없는 칸은 `ShipState.cultures` 에 아예 없다 (온실의 `grows` 와 같은 규약). */
+export interface CultureSlot {
+  /** 배양조 `PlacedFurniture.uid`. */
+  uid: string;
+  /** 0 … CULTURE_MAX_SLOTS − 1. */
+  slot: number;
+  /** 영양 배지 item def id (`ItemDef.medium` 이 있어야 한다). */
+  mediumDefId: string;
+  /** 이 배지가 아직 버티는 수확 횟수; 0 이 되면 칸이 빈다. */
+  mediumUsesLeft: number;
+  /** 세포주 item def id (`ItemDef.strain` 이 있어야 한다); 없으면 = 배지만 채워져 있다. */
+  strainDefId?: string;
+  startedAt?: number;
+  /** 수확할 수 있게 되는 시각 (epoch ms) — 넣을 때 확정된다. */
+  readyAt?: number;
+}
+
+/** 배양 화면이 보는 칸 하나. 배양조는 언제나 `CULTURE_MAX_SLOTS` 개를 보고하며 잠긴 칸도 들어 있다. */
+export interface CultureSlotInfo {
+  slot: number;
+  locked: boolean;
+  unlockLevel: number;
+  /** null = 배지가 없다 (여기 배지를 먼저 부어야 한다). */
+  mediumDefId: string | null;
+  mediumUsesLeft: number;
+  /** 배지 등급이 깎아 주는 비율을 패널이 「배양 속도 +n %」로 보여 준다. */
+  mediumSpeedMul: number;
+  /** null = 넣을 준비가 된 배지 (또는 배지 자체가 없다). */
+  strainDefId: string | null;
+  /** 0 … 1; 비어 있으면 −1. */
+  progress: number;
+  remainingS: number;
+  ready: boolean;
+  yieldDefId: string | null;
+  yieldQty: number;
+}
+
+export interface ShipState {
+  /* ── appended (배양조 A-14, 2026-09-11, version 6) ── */
+  /**
+   * 배양조 칸. `uid` 가 배치된 배양조가 아니거나 칸이 그 배양조의 레벨 밖이면 `sanitize` 가 버린다
+   * (배지 · 세포주는 돌아오지 않는다 — 온실의 흙과 같은 취급). v5 → v6 은 없던 필드가 생기는 것뿐이라
+   * 마이그레이션 · 환불 경로가 없다.
+   */
+  cultures?: CultureSlot[];
+}
+
+export interface HousingRef {
+  /* ══ appended: 온실 — 배양조 (A-14, 2026-09-11) ═════════════════════════════ */
+
+  /**
+   * 배양조 한 대의 칸 전부, **언제나 `CULTURE_MAX_SLOTS` 개**를 칸 번호 순으로. 잠긴 칸도 들어 있다.
+   * `uid` 가 배치된 배양조가 아니면 빈 배열.
+   */
+  getCultureSlots(uid: string): CultureSlotInfo[];
+  /** 영양 배지 하나를 (가방 → 함선 창고) 빈 칸에 붓는다. 한국어 사유 / null. */
+  fillMedium(uid: string, slot: number, mediumDefId: string): string | null;
+  /** 칸을 배지 없음으로 되돌린다. **배지는 돌아오지 않는다** (부은 흙과 같다). 배양 중이면 거절. */
+  clearMedium(uid: string, slot: number): string | null;
+  /** 세포주 하나를 배지가 있는 칸에 넣는다. `readyAt` 이 여기서 확정된다. 한국어 사유 / null. */
+  insertStrain(uid: string, slot: number, strainDefId: string): string | null;
+  /**
+   * 다 된 칸 하나를 수확한다 (가방, 없으면 함선 창고). 배지를 1회 쓰고, 0 이 되면 칸이 완전히 빈다.
+   * 아니면 「넣을 준비가 된 배지」로 돌아간다. 한국어 사유 / null.
+   */
+  harvestCulture(uid: string, slot: number): string | null;
+  /** 다 된 칸 전부를 수확하고 몇 개를 받았는지 돌려준다. */
+  harvestAllCultures(uid: string): number;
+  /** 지금 갖고 있는 영양 배지 (가방 + 함선 창고) — 배양 화면의 목록. */
+  getOwnedMediums(): { defId: string; qty: number }[];
+  /** 지금 갖고 있는 세포주 · 균주 (가방 + 함선 창고). */
+  getOwnedStrains(): { defId: string; qty: number }[];
+  /** 배양 화면을 연다 (`culture_tank` interaction): 좌 배양 칸 · 우 가방 + 함선 창고. */
+  openCultureTank(uid: string): void;
+
+  /* ══ appended: 주방 — 식탁 (A-3c, 2026-09-11) ═══════════════════════════════ */
+
+  /**
+   * 식사 화면을 연다 — 좌 = 지금 실린 식사 + 그 버프 한 줄, 우 = 가진 요리 + 가방/창고.
+   *
+   * `uid` 가 배치된 식탁 가구면 개인 함선의 식탁이고, **`null` 이면 공유 함선의 고정 식탁**이다 (가구가 아니라
+   * hub 가 심어 둔 상호작용 지점이라 uid 가 없다). 공유 함선에서만 `분대에 차리기` 버튼이 보인다 —
+   * 요리 **1개**를 소모하고 분대 전원이 같은 식사를 받는다 (사용자 결정).
+   */
+  openDiningTable(uid: string | null): void;
 }

@@ -613,8 +613,9 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
  * 온실 개편 (2026-09-11): **4** = `grows` (재배 스테이션 칸). A v3 save loses its 재배층 — every `furn_grow_rack`,
  * placed or stored, is refunded as materials into the 함선 창고 and its `plots` are dropped (사용자 결정: 옛 것 폐기).
  * 연구실 (2026-09-11): **5** = `analyses` / `sampleDex` (분석기). 없으면 빈 것으로 migrate — 버릴 데이터가 없다.
+ * 배양조 (2026-09-11, A-14): **6** = `cultures`. v5 → v6 도 없던 필드가 생기는 것뿐이라 환불 경로가 없다.
  */
-export const SHIP_STATE_VERSION = 5;
+export const SHIP_STATE_VERSION = 6;
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
@@ -1490,3 +1491,15 @@ export const SEED_INTERACT_TIME = K.num('SEED_INTERACT_TIME');
 export const SEED_NODE_RADIUS = K.num('SEED_NODE_RADIUS');
 export const SAMPLE_INTERACT_TIME = K.num('SAMPLE_INTERACT_TIME');
 export const SAMPLE_NODE_RADIUS = K.num('SAMPLE_NODE_RADIUS');
+
+/* ── 2026-09-11: 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15) ── */
+/**
+ * A-15 (owner: inventory): 장비칸의 **주머니 칸 수**. 사용자 결정으로 고정 1칸이다 — 넷 중 하나만 끼운다.
+ * 가방이 정하지 않는다 (`BagDef` 는 손대지 않았다).
+ */
+export const POUCH_SLOTS = K.num('POUCH_SLOTS');
+/**
+ * A-3c (owner: housing — 공유 함선 식탁): `분대에 차리기` 가 먹이는 반경(m). 이 안에 있는 분대원만 받는다
+ * — 호스트가 스냅샷 거리로 검사한다 (`shared/buffRules` 의 거리 가드와 같은 결).
+ */
+export const MEAL_SERVE_RANGE = K.num('MEAL_SERVE_RANGE');

@@ -50,6 +50,8 @@ export const CSV_FOLDERS = {
   'bags.csv':                ['items', 'inventory'],
   'seeds.csv':               ['items', 'housing'],
   'samples.csv':             ['items', 'housing'],
+  // 2026-09-11 (A-3c): 요리는 items/ 가 정의하고 housing/(식탁) · progression/(식사 버프) 이 소비한다
+  'meals.csv':               ['items', 'housing', 'progression'],
   'books.csv':               ['items', 'housing'],
   'implants_perks.csv':      ['items', 'implants'],
   'implants_repair.csv':     ['items', 'meta'],

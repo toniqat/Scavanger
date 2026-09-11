@@ -29,3 +29,7 @@ furn_lamp,스탠드 조명,any,1,1,1.7,lamp,none,mat_scrap:2|mat_cable:1,1,,,#ff
 furn_plant,화분,any,1,1,1.1,plant,none,mat_scrap:1|herb_bloodroot:1,1,,,#7ee08a,작은 관엽 식물.
 furn_chair,의자,any,1,1,0.9,chair,none,mat_scrap:2,1,,,#b0b8c4,강철 의자.
 furn_bunk,침상,any,2,3,1.6,bunk,none,mat_scrap:6|mat_alloy:1,1,,,#9fb4ff,2단 침상.
+furn_bench_cook,조리대,kitchen,4,2,1.1,bench_cook,workbench_cook,mat_scrap:8|mat_alloy:2|mat_cable:2,3,,,#ffb0a0,작물과 배양 산물을 요리합니다. 강화하면 특선 요리가 열립니다.
+furn_dining_table,식탁,kitchen,4,3,0.9,dining_table,dining_table,mat_scrap:6|mat_cloth:6|mat_cable:1,1,,,#ffc8a0,만든 요리를 먹어 다음 레이드 1회분 버프를 싣습니다. 공유 함선의 식탁에서는 분대 전원에게 차릴 수 있습니다.
+furn_culture_tank,배양조,greenhouse,4,2,2.0,culture_tank,culture_tank,mat_scrap:10|mat_circuit:3|mat_cable:3|mat_bio_sample:6,3,,,#8fe8ff,영양 배지를 채우고 세포주를 넣어 현실 시간에 맞춰 배양합니다. 강화하면 배양 칸이 1 → 2 → 3 개로 늘어납니다.
+furn_bench_print,3D 프린터,lab,4,2,1.6,bench_print,workbench_print,mat_scrap:12|mat_circuit:4|mat_alloy:4|mat_control_module:1,3,,,#d0c4ff,필라멘트로 상급 가방과 주머니를 찍어 냅니다. 연구실에 설치하세요.

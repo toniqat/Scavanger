@@ -10,6 +10,7 @@ scavenger,seed_bloodroot,1,1,0.04
 scavenger,seed_ashleaf,1,1,0.02
 scavenger,seed_glowcap,1,1,0.006
 scavenger,spec_tissue,1,1,0.08
+scavenger,spec_biofilm,1,1,0.06
 
 # hunter
 hunter,mat_bio_sample,1,3,1
@@ -18,6 +19,7 @@ hunter,seed_bloodroot,1,1,0.04
 hunter,seed_ashleaf,1,1,0.02
 hunter,seed_glowcap,1,1,0.006
 hunter,spec_tissue,1,1,0.08
+hunter,spec_muscle,1,1,0.05
 
 # warrior
 warrior,mat_bio_sample,1,3,1
@@ -26,6 +28,7 @@ warrior,seed_bloodroot,1,1,0.04
 warrior,seed_ashleaf,1,1,0.02
 warrior,seed_glowcap,1,1,0.006
 warrior,spec_tissue,1,1,0.08
+warrior,spec_muscle,1,1,0.06
 
 # spewer
 spewer,mat_bio_sample,1,3,1
@@ -35,6 +38,7 @@ spewer,seed_ashleaf,1,1,0.02
 spewer,seed_glowcap,1,1,0.006
 spewer,spec_spore,1,1,0.10
 spewer,spec_tissue,1,1,0.06
+spewer,spec_gland,1,1,0.07
 
 # charger
 charger,mat_bio_sample,1,3,1
@@ -44,6 +48,7 @@ charger,seed_ashleaf,1,1,0.02
 charger,seed_glowcap,1,1,0.006
 charger,mat_alloy,1,2,0.4
 charger,spec_chitin,1,1,0.10
+charger,spec_adipose,1,1,0.06
 
 # toxic
 toxic,mat_bio_sample,1,2,1
@@ -53,6 +58,7 @@ toxic,seed_ashleaf,1,1,0.02
 toxic,seed_glowcap,1,1,0.006
 toxic,spec_spore,1,1,0.08
 toxic,spec_tissue,1,1,0.06
+toxic,spec_gland,1,1,0.07
 
 # artillery
 artillery,mat_bio_sample,2,3,1
@@ -61,6 +67,7 @@ artillery,seed_bloodroot,1,1,0.04
 artillery,seed_ashleaf,1,1,0.02
 artillery,seed_glowcap,1,1,0.006
 artillery,spec_chitin,1,1,0.12
+artillery,spec_ovule,1,1,0.06
 
 # behemoth
 behemoth,mat_alloy,2,4,1
@@ -71,6 +78,8 @@ behemoth,seed_ashleaf,1,1,0.02
 behemoth,seed_glowcap,1,1,0.006
 behemoth,spec_chitin,1,2,0.5
 behemoth,spec_crystal,1,1,0.12
+behemoth,spec_muscle,1,1,0.15
+behemoth,spec_ovule,1,1,0.10
 
 # rogue — 실드 충전기는 로그가 붕대와 함께 들고 다니는 완제품이고, 구동 코어는 그 장비에서 뜯어낸 잡템이다 (2026-09-10)
 rogue,heal_bandage,1,1,0.3

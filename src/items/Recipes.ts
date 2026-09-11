@@ -1,5 +1,5 @@
 import type { CraftIngredient, CraftRecipe } from '@/shared';
-import { CRAFT_DEFAULT_TIME, csvRows } from '@/shared';
+import { CRAFT_DEFAULT_TIME, WORKBENCH_KINDS, csvRows } from '@/shared';
 
 /**
  * **제작** 레시피 (`data/recipes.csv`). 분해는 여기 없다 — `Salvage.ts` 가 `data/salvage.csv` 와
@@ -29,8 +29,10 @@ const recipeOf = (r: (typeof RECIPE_ROWS)[number]): CraftRecipe => ({
   skillRequired: r.int('skillRequired', { min: 0 }),
   description: r.str('description'),
   /* 2026-09-10: 'refine' (정제 작업대) 추가 — `WorkbenchKind` 는 이미 그 값을 받는다.
-     2026-09-11: 'extract' (추출기) · 'mixer' (조합대) — 연구실 작업대 둘. */
-  ...(r.has('bench') ? { bench: r.enum('bench', ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer'] as const) } : {}),
+     2026-09-11: 'extract' (추출기) · 'mixer' (조합대) — 연구실 작업대 둘.
+     2026-09-11 (A-3c · A-15): 'cook' (조리대) · 'print' (3D 프린터). 이 자리가 `WorkbenchKind` 를 **베껴 적고**
+     있어서 작업대를 더할 때마다 여기도 고쳐야 했다 — 이제 `WORKBENCH_KINDS` 를 그대로 쓴다 (계약이 원본이다). */
+  ...(r.has('bench') ? { bench: r.enum('bench', WORKBENCH_KINDS) } : {}),
   ...(r.has('benchLevel') ? { benchLevel: r.int('benchLevel', { min: 1 }) } : {}),
   ...(r.has('extraOutputs') ? { extraOutputs: r.costList('extraOutputs') } : {}),
 });

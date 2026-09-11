@@ -13,3 +13,8 @@ spec_chitin,미확인 키틴 조각,uncommon,110,2,mat_bio_sample,6,seed_saltmel
 spec_resin,미확인 수지 덩어리,rare,240,4,mat_extract_bio,2,seed_frostberry,2,나무도 벌레도 아닌 것이 흘린 수지. 유기 추출의 좋은 원료다.
 spec_crystal,미확인 결정 표본,rare,240,4,seed_deeproot,1,mat_extract_min,2,금속이 결정으로 자란 조각. 해석하면 그 성질을 물려받은 개량종 씨앗이 나온다.
 spec_genome,봉인된 유전자 시료,epic,480,8,seed_lumenpod,1,mat_control_module,1,"누군가 봉인해 둔 유전자 시료. 해석은 오래 걸리지만 야생에 없는 품종이 나온다."
+spec_biofilm,미확인 생체막,uncommon,120,2,strain_algae,1,mat_extract_bio,1,미끈한 막을 이룬 군체. 해석하면 배양조에 넣을 수 있는 조류 배양체가 된다.
+spec_adipose,미확인 지방조직,rare,250,4,strain_adipocyte,1,mat_bio_sample,6,기름이 배어 나오는 조직 덩어리. 해석하면 지방세포주로 갈린다.
+spec_gland,미확인 분비선,rare,255,4.5,strain_casein,1,mat_extract_bio,2,무엇을 내뿜던 기관인지 모를 분비선. 해석하면 유선세포주가 나온다.
+spec_ovule,미확인 난포,rare,255,4.5,strain_ovum,1,mat_extract_bio,2,터지지 않은 채 남은 난포. 해석하면 난세포주가 나온다.
+spec_muscle,미확인 근조직,rare,260,5,strain_myocyte,1,mat_bio_sample,6,결이 살아 있는 근조직. 해석은 오래 걸리지만 근세포주가 나온다.
