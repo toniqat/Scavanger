@@ -312,6 +312,13 @@ still runs at the item's own rate).
 
 ## 변경 이력
 
+- **2026-09-11 (C-62 — 근접은 적의 몸통 히트박스를 본다)** — `Melee.inConeEnemy`: 적이 `EnemyRef.nearestBodyPoint` 를 가지면
+  그 점(히트스캔과 같은 몸통 캡슐 — 엎드린 로든은 눕힌 캡슐)을 타격 지점으로 삼고 **그 표면에서 `MELEE_RANGE`** 안 · 그 점 방향이
+  원뿔 안이면 맞는다. 없으면 예전 `inCone`(발 + 키 절반 중심, `MELEE_RANGE + radius`). 구 모양 몸에서는 두 식이 같다 — 서서 휘두를
+  때 몸 축에서의 최대 수평 사거리(옛 → 새, m): scavenger 2.63 → 2.63 · warrior 3.11 → 3.11 · charger 3.68 → 3.69 · rogue 2.72 → 2.80 ·
+  behemoth 4.80 → 4.72 (엎드린 플레이어는 4.71 → 4.39 — 몸 구 중심이 옛 1.4 m 상한 대신 2.4 m). 엎드린 로든은 사방 2.72 에서 발 쪽
+  3.08 · 머리 쪽 2.84 · 옆 2.31 로 보이는 몸을 따른다. 설치물 판정은 그대로. 검사: `scripts/smoke-named.mjs` C-62 절.
+
 - **2026-09-11 (E-4 — 스프레이는 벽 너머로 치유하지 않는다)** — `parts/Healing.sprayAllies` 가 반경 안 분대원마다 내 가슴 →
   그 가슴(발 + 1.15 m)을 `shared/buffLineClear`(`world.raycast`)로 보고, 막혀 있으면 그 사람 몫을 적지 않는다. 받는 쪽 상한
   (보낸 사람 · 사거리 · 초당 치유 버킷)은 `implants/parts/Wire.onBuff` 의 `BuffGuard` 가 맡는다. 검사: `scripts/smoke-trust.mjs`.

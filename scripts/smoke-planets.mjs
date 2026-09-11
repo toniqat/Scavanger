@@ -10,6 +10,7 @@
 //
 // Usage: node scripts/smoke-planets.mjs [http://localhost:5299/]   (needs a vite instance, no relay required)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://localhost:5273/';
@@ -60,20 +61,9 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Park vite's HMR socket AND the relay socket: this script is the solo path, a real relay must not hand us a lobby.
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // Park vite's HMR socket AND the relay socket: this script is the solo path, a real relay must not hand us a lobby.
+  await quietViteHmr(page, { parkRelay: true });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 

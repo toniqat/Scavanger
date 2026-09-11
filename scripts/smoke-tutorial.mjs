@@ -23,6 +23,7 @@
 //     얼마든 가방에 있기만 하면 `terminal` 로 넘어간다.
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -59,20 +60,9 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // single-player: park vite HMR + the relay socket so no server profile lands mid-run
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // single-player: park vite HMR + the relay socket so no server profile lands mid-run
+  await quietViteHmr(page, { parkRelay: true });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error' && !/WebSocket connection to .*\/ws/.test(m.text())) errors.push(m.text()); });
 

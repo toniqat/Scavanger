@@ -6,6 +6,7 @@
 // Usage: node scripts/smoke-hangar.mjs [http://localhost:5273]
 // Requires `npm run server` and `npm run dev` to be running (or `npm run dev:all`).
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -52,6 +53,8 @@ async function open(tag) {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
+  // both clients: another editor's save must not full-reload either page mid-run (scripts/quiet-hmr.mjs, C-65)
+  await quietViteHmr(page);
   page.on('pageerror', (e) => errors[tag].push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors[tag].push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

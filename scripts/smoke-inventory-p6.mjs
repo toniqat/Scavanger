@@ -14,6 +14,7 @@
 // Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine, so every wait is on simulation time
 // (`waitSim`), never wall-clock. Key taps dispatch keydown+keyup in the same frame on document.body.
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://localhost:5273/';
@@ -58,6 +59,7 @@ try {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
+  await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs, C-65)
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   // fresh stash so the size checks start from the default grid

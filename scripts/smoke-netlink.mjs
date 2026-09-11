@@ -16,6 +16,7 @@
 // 릴레이 포트는 **8885**(죽은 포트 → 스모크가 띄우는 릴레이), 8886(대답 없는 TCP) — 공용 릴레이(8787)는 건드리지 않는다.
 // Usage: node scripts/smoke-netlink.mjs [http://localhost:5273]   (needs a running vite; the relay it needs it starts itself)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -116,22 +117,9 @@ try {
       // 설정 › 서버 설정 오버라이드 = 아직 아무도 듣지 않는 포트 (슬롯 공용 키).
       localStorage.setItem('scav.relay', relayUrl);
     } catch { /* storage off */ }
-    // Park vite's HMR socket (another agent's save would full-reload the page mid-run) and record every game socket.
-    window.__ws = [];
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        window.__ws.push({ url: String(args[0]), at: performance.now() });
-        return new target(...args);
-      },
-    });
   }, RELAY_URL);
+  // Park vite's HMR socket (another agent's save would full-reload the page mid-run) and record every game socket in `window.__ws`.
+  await quietViteHmr(page, { logSockets: '__ws' });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

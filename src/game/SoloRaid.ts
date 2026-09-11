@@ -54,7 +54,11 @@ export interface SoloRaidSave {
   planet: PlanetId | null;
   missionTime: number;
   stats: MissionStats;
-  /** `InventoryRef.captureRaidState()` output (opaque here, exactly like `RaidSessionBlob.inventory`). */
+  /**
+   * `InventoryRef.captureRaidState()` output (opaque here, exactly like `RaidSessionBlob.inventory`). 2026-09-11 (C-61):
+   * it carries the once-per-raid bag wear mark (`bagWorn`) too, so a resumed solo raid never wears the bag twice —
+   * this file stores the blob untouched (`loadSoloRaid` keeps `f.inventory` as is) and needs no field of its own.
+   */
   inventory: unknown;
   pose: SoloRaidPose;
 }

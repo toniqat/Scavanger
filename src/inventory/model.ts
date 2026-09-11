@@ -98,7 +98,15 @@ export interface PendingTake {
   sentAt: number;
 }
 /** `captureRaidState()` shape: the loadout save plus `searched: false` flags on bag entries (never persisted to disk). */
-export interface RaidInventoryState extends LoadoutSave { raid: 1 }
+export interface RaidInventoryState extends LoadoutSave {
+  raid: 1;
+  /**
+   * 2026-09-11 (C-61): 이번 레이드에서 장착 가방이 이미 레이드 1회분 닳았다 — 그 레이드의 **미션 시드**
+   * (`InventorySystem.bagWornThisRaid` 가 서 있을 때만 실린다). 생략 = 모른다 = 안 닳았다 (옛 blob 호환).
+   * 시드를 싣는 것은 다른 레이드의 blob(훈련장 스냅샷 포함)이 표시를 옮겨 오지 못하게 하려는 것이다.
+   */
+  bagWorn?: number;
+}
 export const BLOCKER_TOKEN = 'inventory';
 /** World-drop throw: eye position lowered / pushed forward, forward speed + upward pop. */
 export const DROP_EYE_LOWER = 0.3;

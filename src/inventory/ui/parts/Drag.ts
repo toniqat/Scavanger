@@ -23,6 +23,7 @@ import { ContextMenu, type MenuEntry } from '../ContextMenu';
 import { SplitDialog } from '../SplitDialog';
 import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
 import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import { AUTO_SCROLL_EDGE_IN, AUTO_SCROLL_EDGE_OUT, AUTO_SCROLL_MAX_SPEED } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
 /**
@@ -126,10 +127,72 @@ export function beginPress(sys: InventoryUI, uid: string, from: ItemLocation, e:
   window.addEventListener('pointercancel', sys.onWindowUp);
   }
 
+/**
+ * 2026-09-11 (C-60) — scroll speed (px/s, negative = up) for a pointer at (px, py) against a vertical scroll viewport.
+ * 0 when the viewport does not overflow, the pointer is outside its column, or it is away from the top / bottom edge:
+ * inside the view the speed ramps up over `AUTO_SCROLL_EDGE_IN` px towards the edge, and just past it (the panel header
+ * above, the padding below — up to `AUTO_SCROLL_EDGE_OUT` px) it is the full `AUTO_SCROLL_MAX_SPEED`.
+ */
+export function autoScrollSpeed(scroller: HTMLElement | null, px: number, py: number): number {
+  if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 1) return 0;
+  const r = scroller.getBoundingClientRect();
+  if (r.height <= 0 || px < r.left || px > r.right) return 0;
+  if (py < r.top - AUTO_SCROLL_EDGE_OUT || py > r.bottom + AUTO_SCROLL_EDGE_OUT) return 0;
+  const ramp = (inside: number): number => {
+    const t = inside <= 0 ? 1 : Math.max(0, 1 - inside / AUTO_SCROLL_EDGE_IN);
+    return t * t;
+  };
+  const fromTop = py - r.top, fromBottom = r.bottom - py;
+  if (fromTop < AUTO_SCROLL_EDGE_IN && scroller.scrollTop > 0) return -AUTO_SCROLL_MAX_SPEED * ramp(fromTop);
+  if (fromBottom < AUTO_SCROLL_EDGE_IN && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1) {
+    return AUTO_SCROLL_MAX_SPEED * ramp(fromBottom);
+  }
+  return 0;
+}
+
+/** C-60: one frame of the drag auto-scroll over the container viewport; reschedules itself until the drag ends. */
+export function autoScrollTick(sys: InventoryUI, now: number): void {
+  sys.autoScrollRaf = null;
+  const d = sys.drag;
+  if (!d || !d.started) { stopAutoScroll(sys); return; }
+  const dt = sys.autoScrollLast > 0 ? Math.min(0.05, Math.max(0, (now - sys.autoScrollLast) / 1000)) : 0;
+  sys.autoScrollLast = now;
+  const scroller = sys.containerScroll;
+  const v = autoScrollSpeed(scroller, d.lastX, d.lastY);
+  if (v !== 0 && dt > 0) {
+    // scrollTop snaps to whole px — bank the fraction so a slow ramp still moves
+    sys.autoScrollAcc += v * dt;
+    const step = Math.trunc(sys.autoScrollAcc);
+    if (step !== 0) {
+      sys.autoScrollAcc -= step;
+      scroller.scrollTop += step;
+      sys.updateDragTarget(d.lastX, d.lastY);   // the viewport's `scroll` event does it too, a frame later
+    }
+  } else {
+    sys.autoScrollAcc = 0;
+  }
+  sys.autoScrollRaf = requestAnimationFrame((t) => autoScrollTick(sys, t));
+}
+
+export function startAutoScroll(sys: InventoryUI): void {
+  if (sys.autoScrollRaf !== null || typeof requestAnimationFrame !== 'function') return;
+  sys.autoScrollLast = 0;
+  sys.autoScrollAcc = 0;
+  sys.autoScrollRaf = requestAnimationFrame((t) => autoScrollTick(sys, t));
+}
+
+export function stopAutoScroll(sys: InventoryUI): void {
+  if (sys.autoScrollRaf !== null) cancelAnimationFrame(sys.autoScrollRaf);
+  sys.autoScrollRaf = null;
+  sys.autoScrollLast = 0;
+  sys.autoScrollAcc = 0;
+}
+
 export function startDrag(sys: InventoryUI, d: DragState): void {
   d.started = true;
   sys.tooltip.hide();
   sys.root?.classList.add('is-dragging');
+  startAutoScroll(sys);   // 2026-09-11 (C-60): idles unless the container viewport overflows and the pointer nears an edge
   if (d.catalog) {
     // catalog: the source tile stays as it is (infinite stock); no world drop, no wheel targets
     sys.root?.classList.add('is-catalog-drag');
@@ -372,6 +435,7 @@ export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
   }
 
 export function endDragVisuals(sys: InventoryUI, d: DragState): void {
+  stopAutoScroll(sys);
   d.ghost?.remove();
   d.ghost = null;
   sys.root?.classList.remove('is-dragging', 'is-quick-drag', 'is-quick-source', 'is-catalog-drag');
@@ -395,6 +459,7 @@ export function endDragVisuals(sys: InventoryUI, d: DragState): void {
   }
 
 export function cancelDrag(sys: InventoryUI): void {
+  stopAutoScroll(sys);
   const d = sys.drag;
   if (!d) return;
   window.removeEventListener('pointermove', sys.onWindowMove);

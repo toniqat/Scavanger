@@ -700,6 +700,18 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-11 (C-58 perf guard 가 끈 블룸 표시, 에이전트 c58)** — `core/Engine` 의 perf guard 가 블룸을 끄면 내는
+  `render:autoAdjusted {bloom:false, reason:'perf'}`(부팅당 1회)를 `menus/SettingsMenu.bind` 에서 받는다 (부팅부터 산다 — 패널을 열 때가 아니다).
+  - **저장하지 않는다**: `display.bloom` 은 저장값(켬) 그대로이고 `bloomAutoOff` 만 선다. `화면 효과` 행은 `꺼짐 (성능 자동)`
+    (`.set-toggle.is-auto` — 꺼진 모양 + 호박 점선 테두리, `title` 툴팁) 을 보인다.
+  - **발행은 실효값**: `emitDisplay` 가 `bloom && !bloomAutoOff` 를 싣는다. 그래서 전체화면 · 그림자 · 해상도 변경이 같은 값(false)
+    이라 Engine 에서 no-op — guard 가 끈 블룸을 되켜지 않는다 (Engine 은 그 순간 `requestedPost` 를 false 로 내렸다).
+    행을 누르면 **한 번에 켜기**(`bloomAutoOff` 해제 → `true` 발행 = 바뀐 요청). 다른 발행자가 `bloom:true` 를 내도 표시를 푼다.
+  - **토스트 1회** (`ui:notify` warning 6 s): 토스트 레이어(`.hud.social`)는 `'menu'` 블로커(타이틀 · 일시정지) 아래와 함선 · 레이드
+    밖에서 숨고 벽시계로 사라지므로, 그 레이어가 뜰 때까지 0.5 초 폴링으로 미룬다. 그 전에 플레이어가 다시 켰으면 버린다.
+  - 디버그: `settings.isBloomAutoOff` · `settings.bloomAutoOffToast` (`'shown' | 'waiting' | 'none'`). 검사: `scripts/smoke-lights.mjs`
+    C-58 구간 (`__game.debugForcePerfGuard()` 로 guard 경로를 강제).
+
 - **2026-09-11 (B-3 통합, 리드)** — `hud/Notifications` 의 `social:inviteResult` 가 `accepted` 에는 토스트를 띄우지 않는다. 받은 사람이 들어오는 순간
   `net:peerJoined` 의 `<이름> 합류` 가 이미 뜨고 hub 의 `<이름> 함선 합류` 까지 세 줄이 겹쳤다 (남은 두 줄 겹침은 TODO B-12). `smoke-social` 단언 1건 갱신.
 

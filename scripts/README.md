@@ -18,6 +18,7 @@ Node scripts for running and verifying the game. None of them are part of the bu
 | `pack-release.mjs` | **Deploy helper** (2026-09-10, not a smoke): `npm run app:dist` 의 마지막 단계 — `release/win-unpacked/` 를 `release/SCAVANGER/app/` 으로 옮기고, `csc.exe`(.NET Framework 4, Windows 내장)로 `electron/launcher.cs` 를 stub `SCAVANGER.exe` 로 굽고, `electron/default-relay.txt` 의 주소로 `server.txt` 를 쓰고, `build-server.mjs` 를 불러 서버 exe 를 같은 폴더에 넣는다. 결과 폴더에는 **`app/` · `SCAVANGER.exe` · `server.txt` · `SCAVANGER-Server.exe` 넷만** 있다. `--no-server` 는 서버 exe 를 건너뛴다. |
 | `pe-signature.mjs` | **Deploy helper module** (2026-09-11, C-30, not a smoke): `securityDirectory(path)` / `stripSignature(path)` — PE Optional Header 의 DataDirectory[4](Certificate Table, 파일 오프셋)를 읽고 · 0 으로 쓰고 · 파일 끝의 테이블을 잘라낸다(CheckSum 0). Windows SDK(`signtool`) 없이 JS 만. `build-server.mjs` 가 **복사 → 서명 제거 → postject → rcedit** 순서로 부르고 끝에 테이블이 없는지 다시 보며, `pack-release.mjs` 가 배포 폴더의 서버 exe 에 "보안 디렉터리 크기 0" 을 확인한다. 이유: node.exe 의 서명이 주입 뒤에도 남아 **깨진 서명 exe**(postject `The signature seems corrupted!`)가 배포됐다. |
 | `economy-table.mjs` | **서버 크레딧 검증 표** (2026-09-11, E-4): `data-check.mjs` 가 띄운 Vite 서버로 **클라이언트와 같은 모듈**(`src/items/ItemDefs` · `src/meta/Rules` · `src/shared/meta`)을 읽어 `EconomyTable` 을 만들고(`buildEconomyTable`), 표의 가격 식이 게임과 같은지 검산하고(`checkEconomyTable` — 모든 아이템 × 신뢰도 레벨 0…max × 판매 수량 1…stack, 상점이 파는 줄 전부가 표에 있는지, 수리비, 사유 64자 왕복, `hash` = 본문 digest), 한 줄에 항목 하나로 쓴다(`formatEconomyTable`). `runEconomyTable(server, {write})` → `{problems, stale, wrote}`. 결과물 `server/economy.gen.json` 은 커밋한다. |
+| `quiet-hmr.mjs` | **스모크 공용 헬퍼** (2026-09-11, C-65, not a smoke): `quietViteHmr(page, { parkRelay?, logSockets? })` — `page.goto` **전에** 부르면 페이지가 여는 모든 문서에서 `window.WebSocket` 을 Proxy 로 감싸 서브프로토콜이 `vite-hmr` 인 소켓만 CONNECTING(0)에 머무는 가짜 소켓으로 돌려준다. 그래야 다른 창의 저장이 페이지를 full-reload 해 스모크를 죽이지 못한다(`Execution context was destroyed` · `timeout waiting for boot`). **게임의 릴레이 소켓(`/ws`)은 그대로 통과**하고, 릴레이까지 막는 것은 `parkRelay: true` 를 준 싱글 플레이 스모크뿐이다(서버 프로필이 도중에 들어오면 안 되는 것들). `logSockets: '__ws'` 는 통과시킨 소켓을 `window.__ws` 에 `{url, at}` 로 적는다(`smoke-netlink`). 예전에는 이 12줄이 35개 스모크에 각자 복사돼 있었고 10개에는 없었다. |
 | `data-owners.mjs` | **공용 지식 모듈** (2026-09-11): `DATA_OWNERS`(csv 를 로드하는 모듈 — `data-check.mjs` 가 읽는다), `CSV_FOLDERS`(csv → 그 값을 소비하는 기능 폴더 — `verify.mjs` 의 `foldersOf` 가 `data/<file>.csv` 변경에서 스모크를 고른다), `CSV_WIDE`(`constants.csv` · `tables.csv` — 스모크를 고르지 않고 `note:` 만). 새 csv 는 여기 한 줄. `verify.mjs --list` 가 표와 빠진 파일을, `data-check` 가 빠진 파일을 알린다. |
 | `lan-address.mjs` | Prints the LAN IPv4 other machines should use to reach this one — `start-server.bat` puts it in the banner, and it is the value that goes into `electron/default-relay.txt`. `--all` lists every candidate with its adapter, `--url` prints the whole `ws://host:8787/ws` line. A dev box has several IPv4 addresses (Hyper-V / WSL / VPN switches) and `ipconfig` order ranks nothing, so virtual adapters are demoted by name and 192.168 > 172.16-31 > 10 wins. **2026-09-10: 그 순위 함수는 `src/shared/net.lanAddresses` 로 옮겼다** — 배포 서버의 배너(`server/tool.ts`)가 같은 답을 내야 하고, 두 곳에 베껴 두면 배너와 배트가 다른 주소를 부른다. 이 스크립트는 그것을 부르는 얇은 껍데기다. |
 | `e2e-multiplayer.mjs` | `npm run e2e:mp` (**156 checks**, 124 before Phase 11 — the new ones are the 소셜 group (아이디, friend request → accept → mutual presence, whisper both ways, mutual removal) and the 목표 행성 group (host `setLobbyPlanet` → guest mirror, guest refused, unknown id dropped, `net:gameStarting.planet` / `game:newMission.planet` / `ctx.missionPlanet` at the start, none for a training); both groups skip themselves with a logged note on a relay without the social store / `lobby:planet`): two headless Chrome instances through a running relay + vite (hub → quick match → docking → pods → mission → pickups → reconnect → abort). Phase 7: server profile (`ctx.net.profile.available`, credits tx round trip + overdraft refusal), `inMission` after the raid start, `net:peerSuspended` around a squadmate drop, host held offline > `NET_HOST_MIGRATE_DELAY_MS` → client takes over (`net:hostChanged`, `tookOver`), returning host demoted + `flow rejoined`, the new host aborts. **Phase 9** adds four groups: the **overcharge beam** (A channels Q with a faked pointer lock at B 6 m ahead → B receives `imp beam {target:B}`, plays `overcharge_beam` and `RemoteImplants.debugBeam(A)` reports `on` with that target; keyup turns both off), **container authority** (B searches a crate, `quickMove` → `'pending'` + `pendingTakeUids`, the host confirms with `cont taken`, B's bag grows and the queue empties; a second request for an index the host already gave out comes back `cont denied`), **delta snapshots** (the host / client enemy counts are compared again after a 3 s idle and once more after the host migration), and a **training join** (the non-host starts one, the host joins, each exits individually and the server resets the lobby). Needs a freshly started relay — use the runner. Against a private relay: `PORT=8797 npm run server` + `VITE_WS_URL=ws://127.0.0.1:8797/ws npx vite --port 5311`, then pass `http://localhost:5311/`. |
@@ -77,14 +78,29 @@ stubs `requestPointerLock` (a real lock would trap the OS cursor in the hidden w
 `document.body`. `waitFor` defaults to 60 s so four scripts can share the machine. Checks build on each other, so the unit of
 re-run is the whole script.
 
-**여러 에이전트가 동시에 편집 중일 때는** vite 의 full-reload 가 스모크를 죽인다 — 전용 인스턴스
-(`npx vite --port 5299`, HMR 없음)를 띄우고 그 URL 을 인자로 넘기거나, 편집이 멈춘 창에서 돌린다.
+**vite 를 여는 스모크는 `quietViteHmr(page)` 를 건다** (2026-09-11, C-65 — `quiet-hmr.mjs`). 여러 에이전트가 같은 트리를
+편집하면 남의 저장 한 번이 vite full-reload 를 불러 스모크를 아무 시점에나 죽인다. 새 스크립트는 `page.goto` **전에**
+한 줄(`import { quietViteHmr } from './quiet-hmr.mjs';` + `await quietViteHmr(page);`)을 넣고, **페이지를 여러 개 여는
+스크립트는 페이지마다** 부른다. 싱글 플레이 스모크가 릴레이까지 막고 싶으면 `{ parkRelay: true }` 다 — 기본값은
+릴레이를 건드리지 않는다. vite 를 안 여는 스모크(`smoke-server-dist` · `smoke-desktop` · `smoke-pitch`)는 필요 없다.
+그래도 남는 흔들림(HMR 이 아닌 이유의 재빌드 등)이 있으면 전용 인스턴스(`npx vite --port 5299`, HMR 없음)를 띄우고
+그 URL 을 인자로 넘긴다.
 
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (C-65 HMR 차단 공용화, 에이전트 c65)** — 새 `quiet-hmr.mjs` (위 표). 스모크 35개에 복사돼 있던 12줄
+  `WebSocket` Proxy 블록을 전부 `await quietViteHmr(page[, opts])` 한 줄로 바꾸고, 차단이 없던 7개
+  (`smoke-controls-hub` · `smoke-hangar`(두 클라이언트 모두) · `smoke-inventory-p6` · `smoke-phase3` · `smoke-phase4` ·
+  `smoke-quickslots` · `smoke-ui-p6`)에 새로 걸었다. 복사본마다 달랐던 릴레이 조건(`/\/ws\?/` · `/\/ws(\?|$)/` ·
+  `includes('/ws')`)은 가장 넓은 하나(`/\/ws(?:[?#/]|$)/`)로 합쳤고 `parkRelay` 옵션으로만 켜진다 — 기본은 릴레이를
+  절대 막지 않는다. `smoke-netlink` 의 소켓 기록은 `logSockets: '__ws'` 옵션이 됐다. vite 를 열지 않는
+  `smoke-server-dist`(브라우저 없음) · `smoke-desktop`(진짜 Electron + `dist/`, HMR 클라이언트 없음) ·
+  `smoke-pitch`(정적 `docs/pitch`)는 제외. `verify.mjs` 는 `SMOKES` 표에 적힌 파일만 돌리므로 헬퍼가 스모크로
+  오인되지 않는다(변경 없음).
 
 - **2026-09-11 (E-4 서버 크레딧 검증, 에이전트 ⑦)** — 새 `economy-table.mjs` (위 표). `data-check.mjs` 가 그것을 부른다: 커밋된
   `server/economy.gen.json` 이 지금 csv 로 만든 표와 다르면 실패 + `npm run data:check -- --write` 안내, `--write` 면 다시 쓴다(검산이

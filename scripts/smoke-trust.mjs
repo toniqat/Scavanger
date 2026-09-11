@@ -10,6 +10,7 @@
 // A **private** lobby joined by code (never quick match): a public lobby left by another run would join the squad.
 // Usage: node scripts/smoke-trust.mjs [http://localhost:5273]   (needs `npm run dev` + `npm run server`, or the verify runner)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -53,20 +54,9 @@ async function open(tag) {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (C-65).
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // Park vite's HMR socket on both clients: another agent's save would otherwise full-reload the page mid-run (C-65).
+  await quietViteHmr(page);
   page.on('pageerror', (e) => errors[tag].push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors[tag].push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

@@ -5,6 +5,7 @@
 // `ctx.implants.resolveBarrierCollision / absorbFrontalAttack` are monkeypatched: the implants folder owns the real ones.
 // Usage: node scripts/smoke-enemy-alert.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -48,19 +49,8 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs)
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

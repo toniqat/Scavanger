@@ -74,6 +74,21 @@
 }
 .inv-panel-container { animation: inv-slide-in 200ms var(--inv-ease) both; }
 .inv-panel-container.is-empty .inv-grid { opacity: 0.55; }
+/* 2026-09-11 (C-60): 행이 늘어난 시체 격자는 패널 안에서 세로로 스크롤한다. 높이 상한은 화면 기준 — 임무 창의 하단
+   안내/버리기 띠(66) + 간격 + 패널 머리 · 여백을 뺀 값이다 (컨테이너 창은 함선에서도 `is-hub` 가 아닌 배치로 뜬다). 상자처럼
+   상한에 못 미치는 격자는 이 상자가 격자와 똑같은 크기라 모양이 그대로다; 넘칠 때만 JS 가 `.is-scroll` 로 스크롤바 자리를 낸다. */
+.inv-cont-scroll {
+  max-height: max(166px, calc(100vh - 240px));
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
+}
+.inv-cont-scroll.is-scroll { padding-right: 8px; }
+.inv-cont-scroll::-webkit-scrollbar { width: 6px; }
+.inv-cont-scroll::-webkit-scrollbar-track { background: var(--sb-track, rgba(4, 6, 9, 0.55)); }
+.inv-cont-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
+.inv-cont-scroll::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover, rgba(78, 86, 96, 1)); }
 
 @keyframes inv-slide-in {
   from { opacity: 0; transform: translateX(-14px); }

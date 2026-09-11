@@ -40,7 +40,14 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   sys.missionSeed = seed;
   sys.outcome = 'none';
   sys.strippedForCorpse = false;
-  sys.bagWornThisRaid = false;
+  /*
+   * 2026-09-11 (C-61): a new raid starts unworn — but a **rejoin** of this very raid whose blob was already applied
+   * (`applyRaidState` stamped `bagWornRestoreSeed`) keeps the restored mark. Today game/ applies the blob *after* this
+   * handler (inventory registers first), so this only guards against that order changing; `applyRaidState` then sets
+   * the flag itself.
+   */
+  sys.bagWornThisRaid = !!sys.ctx.rejoinPending && sys.bagWornRestoreSeed === seed;
+  sys.bagWornRestoreSeed = null;
   sys.closeAll();
   sys.clearContainers();
   // 2026-09-11 (E-5): a **solo raid** marks the saved kit as "out on raid `seed`" (multiplayer · training never do) —

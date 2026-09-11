@@ -36,6 +36,11 @@ const CHANNEL_DESC: Readonly<Record<AudioChannel, string>> = {
 /** Channels the 오디오 section exposes. A BGM row would simply be appended here once music exists. */
 const CHANNELS: readonly AudioChannel[] = ['master', 'sfx'];
 
+/** C-58: the 화면 효과 pill while the perf guard holds bloom off (the stored choice is still 켬). */
+const BLOOM_AUTO_OFF_LABEL = '꺼짐 (성능 자동)';
+const BLOOM_AUTO_OFF_TIP = '프레임이 낮아 자동으로 껐습니다. 누르면 다시 켭니다.';
+const BLOOM_AUTO_OFF_TOAST = '프레임이 낮아 화면 효과(블룸)를 자동으로 껐습니다 — 설정 › 화면 설정에서 다시 켤 수 있습니다';
+
 /**
  * 설정 panel (`.menu.settings-menu.side`), opened from the pause menu's `설정` button — in a mission and in the ship
  * alike. **2026-09-08**: a two-column screen — a **nav rail on the left** (화면 설정 / 오디오 설정 / 키 설정 /
@@ -90,6 +95,16 @@ export class SettingsMenu {
   private shellDefault: string | null = null;
   private _open = false;
   private ctx!: GameContext;
+  /**
+   * C-58 (2026-09-11): the Engine's perf guard turned bloom off by itself this boot (`render:autoAdjusted`). Not saved —
+   * `display.bloom` keeps the stored choice (켬) for the next boot; the row shows `BLOOM_AUTO_OFF_LABEL` meanwhile and
+   * every publish carries the *effective* bloom (`false`), so an unrelated change here never turns it back on.
+   */
+  private bloomAutoOff = false;
+  /** C-58: the explanatory toast went out (debug / smoke) · the interval waiting for the HUD layer (0 = none). */
+  private autoOffToasted = false;
+  private toastPoll = 0;
+  private unsubs: Array<() => void> = [];
 
   /** Escape closes the settings — unless the key-settings overlay above us is open (it owns Escape then). */
   private onKey = (e: KeyboardEvent): void => {
@@ -169,7 +184,12 @@ export class SettingsMenu {
       () => { void this.toggleFullscreen(); });
     this.bloomRow = this.toggleRow(host, '화면 효과',
       '발광 · 블룸 후처리입니다. 끄면 프레임이 올라갑니다.',
-      () => { this.display.bloom = !this.display.bloom; this.applyDisplay(); });
+      () => {
+        // C-58: while auto-off the pill reads 꺼짐, so a press means 켜기 — the stored value is already true
+        if (this.bloomAutoOff) { this.bloomAutoOff = false; this.display.bloom = true; }
+        else this.display.bloom = !this.display.bloom;
+        this.applyDisplay();
+      });
     this.shadowRow = this.toggleRow(host, '그림자',
       '햇빛 그림자입니다. 끄면 프레임이 올라갑니다.',
       () => { this.display.shadows = !this.display.shadows; this.applyDisplay(); });
@@ -371,15 +391,60 @@ export class SettingsMenu {
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
+    // C-58: subscribed here (boot), not on open — the guard fires in the first 90 s, usually with the panel closed.
+    this.unsubs.push(ctx.bus.on('render:autoAdjusted', ({ bloom, reason }) => {
+      if (bloom !== false || reason !== 'perf') return;
+      // the guard only runs while bloom is drawn, i.e. the stored choice is 켬; anything else has nothing to show
+      if (!this.display.bloom) return;
+      this.bloomAutoOff = true;
+      this.syncDisplayRows();
+      this.queueAutoOffToast();
+    }));
+    // Someone else turned bloom back on (a console / smoke publish): the Engine is drawing it again, so drop the label.
+    // Our own publishes carry `false` while auto-off, and a 켜기 press clears the flag before it publishes.
+    this.unsubs.push(ctx.bus.on('ui:displayChanged', ({ bloom }) => {
+      if (bloom && this.bloomAutoOff) { this.bloomAutoOff = false; this.syncDisplayRows(); }
+    }));
     // Publish the stored settings once so the Engine matches the panel before it is ever opened.
     this.emitDisplay();
+  }
+
+  /**
+   * C-58: one toast explaining the auto-off. Toasts live in the social HUD layer, which is hidden under a `'menu'`
+   * blocker (타이틀 · 일시정지) and outside the ship / raid — and they expire on wall-clock time — so a guard that fires on
+   * the title screen would toast into nothing. Wait (cheap 0.5 s poll) until that layer is up; drop it if the player
+   * has already turned bloom back on by then.
+   */
+  private queueAutoOffToast(): void {
+    if (this.toastPoll) return;
+    const tryShow = (): boolean => {
+      if (!this.bloomAutoOff) return true;
+      const c = this.ctx;
+      const layerUp = !c.uiBlockers.has('menu')
+        && (c.isGameplayPhase() || c.phase === 'deploying' || c.phase === 'hub' || c.phase === 'docking');
+      if (!layerUp) return false;
+      c.bus.emit('ui:notify', { text: BLOOM_AUTO_OFF_TOAST, kind: 'warning', duration: 6 });
+      this.autoOffToasted = true;
+      return true;
+    };
+    if (tryShow()) return;
+    this.toastPoll = window.setInterval(() => { if (tryShow()) this.stopToastPoll(); }, 500);
+  }
+
+  private stopToastPoll(): void {
+    if (this.toastPoll) window.clearInterval(this.toastPoll);
+    this.toastPoll = 0;
   }
 
   get isOpen(): boolean { return this._open; }
   /** Which section the right pane is showing (debug). */
   get activeSection(): string { return this.section; }
-  /** The live 화면 설정 (debug). */
+  /** The live 화면 설정 (debug). `bloom` is the stored choice — see `bloomAutoOff` for what is drawn. */
   get displaySettings(): Readonly<DisplaySettings> { return this.display; }
+  /** C-58 (debug / smoke): the perf guard is holding bloom off and the row says so. */
+  get isBloomAutoOff(): boolean { return this.bloomAutoOff; }
+  /** C-58 (debug / smoke): the auto-off toast has been shown · is still waiting for the HUD layer. */
+  get bloomAutoOffToast(): 'shown' | 'waiting' | 'none' { return this.autoOffToasted ? 'shown' : this.toastPoll ? 'waiting' : 'none'; }
   /** 서버 설정 상태 (debug / 스모크): 입력값 · 마지막 테스트 결과 · 버튼 잠금 · 기본값 줄. */
   get networkState(): { typed: string; probe: RelayProbe | null; canApply: boolean; canTest: boolean; note: string } {
     return {
@@ -469,15 +534,25 @@ export class SettingsMenu {
     this.emitDisplay();
   }
 
+  /**
+   * Publish what the Engine should draw. C-58: `bloom` is the **effective** value — false while the perf guard holds it
+   * off — so a 전체화면 · 그림자 · 해상도 change is the same bloom request again (a no-op in `Engine.setPostProcessing`)
+   * and cannot undo the guard. `saveDisplaySettings` still writes `display.bloom`, the stored choice.
+   */
   private emitDisplay(): void {
     const d = this.display;
-    this.ctx.bus.emit('ui:displayChanged', { fullscreen: d.fullscreen, bloom: d.bloom, shadows: d.shadows, scale: d.scale });
+    const bloom = d.bloom && !this.bloomAutoOff;
+    this.ctx.bus.emit('ui:displayChanged', { fullscreen: d.fullscreen, bloom, shadows: d.shadows, scale: d.scale });
   }
 
   private syncDisplayRows(): void {
     const pill = (b: HTMLButtonElement, on: boolean): void => { toggleClass(b, 'is-on', on); setText(b, on ? '켬' : '끔'); };
     pill(this.fsRow, this.display.fullscreen);
-    pill(this.bloomRow, this.display.bloom);
+    const auto = this.bloomAutoOff && this.display.bloom;
+    pill(this.bloomRow, this.display.bloom && !auto);
+    if (auto) setText(this.bloomRow, BLOOM_AUTO_OFF_LABEL);
+    toggleClass(this.bloomRow, 'is-auto', auto);
+    this.bloomRow.title = auto ? BLOOM_AUTO_OFF_TIP : '';
     pill(this.shadowRow, this.display.shadows);
     for (const s of this.scaleBtns) toggleClass(s.btn, 'is-on', Math.abs(s.scale - this.display.scale) < 1e-3);
   }
@@ -490,6 +565,9 @@ export class SettingsMenu {
 
   dispose(): void {
     this.close();
+    for (const off of this.unsubs) off();
+    this.unsubs = [];
+    this.stopToastPoll();
     this.ask.dispose();
     // Same order as `TitleMenu`: the diagram unsubscribes from `onKeybindsChanged` before its host goes away.
     this.controls.dispose();

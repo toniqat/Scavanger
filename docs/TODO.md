@@ -95,18 +95,12 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 
 | ID | 항목 | 근거 |
 |---|---|---|
-| C-52 | **키프레임으로만 네임드를 만든 늦은 합류자는 `enemy:namedSpawned` 를 못 받는다** (`ee spawn` 을 놓친 경우). 2026-09-11 대조: 그 이벤트의 **구독자가 0** 이라 지금은 아무 영향이 없다 — 구독하는 코드가 생기면 키프레임 경로(`Replica`)에서도 한 번 발행해야 한다 | `src/enemies/named/Director.ts`, `src/enemies/net/Replica.ts` |
-| C-58 | **perf guard 가 블룸을 꺼도 설정 화면에는 `켬` 으로 남는다** — core → ui 로 "guard 가 바꿨다" 를 알리는 계약이 없다 (2026-09-11 C-44 에서 guard 를 되살린 뒤 드러났다) | `src/core/Engine.ts` `perfGuard`, `src/ui/menus/SettingsMenu.ts` |
-| C-60 | **행이 늘어난 시체 창에 스크롤이 없다** — 사망 목록이 기본 격자를 넘으면 `fitCorpseGrid` 가 행을 늘리는데 컨테이너 패널이 스크롤되지 않아 작은 화면에서 넘친다 (드묾) | `src/inventory/parts/CorpseLoot.ts`, 컨테이너 패널 |
-| C-61 | **가방 레이드 소모의 1회 표시(`bagWornThisRaid`)가 메모리에만 있다** — 사망으로 깎인 뒤 새로고침 → 레이드 복귀 → 자기 가방을 되찾아 탈출하면 한 번 더 깎일 수 있다 | `src/inventory/parts/Durability.ts` |
-| C-62 | **로든 판정의 남은 틈** — 근접(`weapons/Melee` 원뿔)은 여전히 서 있는 몸 기준이고, 소염기 매몰은 **발사 순간에만** 판정하므로 막힌 자리에서 반짝임을 다시 시작할 수 있다 (자리 이동은 넣지 않았다) | `src/weapons/Melee.ts`, `src/enemies/ai/named/Sniper.ts` |
-| C-63 | **전차 탑승의 남은 틈** — 적은 하차 관성이 없고, 리플리카 탑승 예측은 `차량 속도 × 보간 지연` 선형이라 가속 · 제동 순간에 조금 어긋난다. 원격 클라이언트는 사망 와이어 좌표로 시체의 탑승을 찾으므로 **전차 후미 끝**에서 죽은 시체는 약 1 m 지연 때문에 전차를 놓칠 수 있다. 적이 데크보다 0.35 m 낮은 **선로 발판** 위에 서 있으면 탑승 창 안이라 치이지 않는다 | `src/enemies/ai/Ride.ts`, `src/game/Corpses.ts`, `src/world/rails/parts/Tram.ts` |
-| C-64 | **`Store.close()` 의 동기 쓰기와 진행 중인 비동기 rename 사이에 1 syscall 창이 남는다** — 세대 번호로 물러나게 했지만 이론상 종료 순간에만 해당 | `server/Store.ts` |
-| C-65 | **vite HMR 소켓을 막지 않는 스모크는 다른 편집의 저장으로 페이지가 새로고침돼 아무 시점에나 깨진다** (`Execution context was destroyed` · `timeout waiting for boot`). 병렬 에이전트 작업에서 반복 관찰 — smoke-tactical · smoke-lights 처럼 `vite-hmr` 를 막는 하네스를 공용으로 | `scripts/smoke-*.mjs` |
 | C-67 | **`/__scav/relay` 문자열이 `ui/menus/SettingsMenu` 의 `SHELL_RELAY_ROUTE` 에 따로 적혀 있다** — 원본은 `shared/net.NET_SHELL_RELAY_ROUTE`(2026-09-11), `electron/main.ts` · `net/parts/Socket` 은 이미 그것을 쓴다 | `src/ui/menus/SettingsMenu.ts` |
 | C-68 | **`net:selftest` 의 `debounced write happened once`(part 7) 가 부하 중에 가끔 빨갛다** — 80 ms sleep 안에 fsync 가 끝나지 않는 타이밍 단언. 2026-09-11 병렬 에이전트 7개 동안 여러 번 관찰, 단독 재실행은 green | `server/selftest.ts` part 7 |
 | C-69 | **프로필 리비전 전환 직후 1회 경고** — 리비전을 한 번도 본 적 없는 클라이언트(base 0)가 새 릴레이에 처음 붙으면, 그 전에 쌓인 대기 편집이 rev 1 로 시드된 문서와 충돌해 서버 사본이 이기고 경고가 뜬다. 같은 슬롯 두 탭은 쓰기 큐 키를 같이 쓴다(서버 중복 접속 차단과 겹치는 드문 경우) | `src/net/ProfileSync.ts`, `server/Store.ts` |
-| C-66 | **월드 생성은 여전히 동기 약 230 ms 이고 대부분이 `noise2`(생성당 약 100 ms)** 다 (2026-09-11 C-40 에서 319 → 230 ms, 같은 시드 결과 바이트 동일). 더 줄이려면 잡음 수학이나 비동기 생성 계약을 바꿔야 한다 | `src/world/noise.ts`, `src/world/Terrain.ts` |
+| C-70 | **사망 직후 레이드 세션 저장이 강제되지 않는다** — `saveRaid` 는 `RAID_SAVE_INTERVAL_S`(5초) · 루팅에서만 올라가므로 죽고 5초 안에 새로고침하면 **사망 전** blob 으로 복귀한다(가방이 인벤토리에 있고 C-61 표시도 false). 시체에 같은 장비가 서 있으므로 복제 경로다 — `spawnLocalCorpse` 직후 `saveRaid()` 한 줄 | `src/game/parts/Death.ts`, `src/game/parts/Session.ts` |
+| C-71 | **`e2e-multiplayer` · `shots-*` 는 vite 페이지를 열면서 HMR 을 막지 않는다** — 스모크 45종은 2026-09-11 (C-65) 에 `scripts/quiet-hmr.mjs` 로 옮겼지만 이 셋은 남았다. e2e 는 두 페이지에 `quietViteHmr(page)` 두 줄이면 된다 | `scripts/e2e-multiplayer.mjs`, `scripts/shots-uiux.mjs`, `scripts/shots-pitch.mjs` |
+| C-72 | **`EnemySystem.raycastEx` 가 서 있는 캡슐 높이 규칙을 자기 안에 또 적는다** — 2026-09-11 (C-62) 에 `enemies/RayTests.standingTopY` 가 원본이 됐고 근접 · 레이가 그것을 쓴다. 동작은 같다 | `src/enemies/EnemySystem.ts` `raycastEx`, `src/enemies/RayTests.ts` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 
@@ -148,6 +142,9 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 - **시설 제거 환불이 현재 가격표 기준 100 %** — 리밸런싱하면 이미 지은 시설이 돌려주는 양이 바뀌고, 시설 이동이 사실상 공짜다(의도 — 다른 이동 수단이 없다).
 - **UI 폭** — 기업 데스크는 1240 px 아래에서 우측 격자를 숨기고, 함선 Tab 은 1600 px 이상을 원한다.
 - **계정** — 토큰별 프로필이 전부다. 로그인 · 여러 기기 공유는 범위 밖(HISTORY Phase 5).
+- **`Store.close()` 의 1 syscall 창**(옛 C-64) — 동기 쓰기와 진행 중인 비동기 rename 사이. 세대 번호(`gen`)로 물러나게 했고 `.bak` 복구가 있으므로 **종료 순간에만** 이론상 남는다 (2026-09-11 사용자 결정: 고치지 않는다).
+- **월드 생성은 동기 약 197 ms** (옛 C-66, 2026-09-11 에 230 → 197 · 높이맵 97 → 78). 커널은 호출당 약 14 ns 로 스칼라 JS 바닥에 가깝고 남은 비용은 **호출 횟수**다 — 더 줄이려면 성긴 샘플링 · 비동기/워커 생성 · SIMD/WASM 중 하나가 필요하고 그것은 **결정이 먼저**다. 같은 시드 결과는 바이트 동일이어야 한다(`noise.ts` 머리 주석의 동일성 검사 절차).
+- **시체 격자는 세로로만 스크롤한다** (2026-09-11 C-60 사용자 결정). 10칸 넓은 시체 창은 1280 px 에서 가로로 가방 패널을 밀어내고, 함선 창고 패널에는 클립 · 자동 스크롤이 없다(화면 밖으로 스크롤된 창고 행도 드롭 대상).
 
 ---
 

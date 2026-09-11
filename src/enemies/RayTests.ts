@@ -3,6 +3,7 @@ import * as THREE from 'three';
 /* ────────────────────────────────────────────────────────────────────────────
  * Allocation-free analytic ray tests shared by hit detection (EnemySystem.raycast), rogue hitscan shots and shell
  * interception. `raySegmentCapsule` is the any-orientation capsule (a lying body); `rayCapsule` stays the fast vertical one.
+ * C-62 (2026-09-11): `nearestOnCapsule` / `nearestOnStandingCapsule` — the same capsules as nearest-point queries (melee).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const _n = new THREE.Vector3();
@@ -109,9 +110,37 @@ export function closestOnSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Ve
   return out.set(a.x + bax * t, a.y + bay * t, a.z + baz * t);
 }
 
+/**
+ * Point of the capsule `a`→`b` (radius `r`) nearest to `p`, written to `out` — on the surface, or `p` itself when `p` is
+ * already inside (C-62, 2026-09-11: melee aims at it). The axis point is `closestOnSegment`, the same one the hit normal uses.
+ */
+export function nearestOnCapsule(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3, r: number, out: THREE.Vector3): THREE.Vector3 {
+  closestOnSegment(p, a, b, out);
+  const dx = p.x - out.x, dy = p.y - out.y, dz = p.z - out.z;
+  const l2 = dx * dx + dy * dy + dz * dz;
+  if (l2 <= r * r) return out.copy(p);
+  const k = r / Math.sqrt(l2);
+  return out.set(out.x + dx * k, out.y + dy * k, out.z + dz * k);
+}
+
+/** Top axis height of a capsule standing at `feetY` (bottom axis = `feetY + r`) — the one rule the standing-capsule tests share. */
+function standingTopY(feetY: number, r: number, h: number): number {
+  return Math.max(feetY + r, feetY + h - r);
+}
+
 /** Ray vs a player-style capsule standing at `feet` (radius r, total height h). Distance or -1. */
 export function rayStandingCapsule(o: THREE.Vector3, d: THREE.Vector3, feet: THREE.Vector3, r: number, h: number): number {
-  const y0 = feet.y + r;
-  const y1 = Math.max(y0, feet.y + h - r);
-  return rayCapsule(o, d, feet.x, feet.z, y0, y1, r).t;
+  return rayCapsule(o, d, feet.x, feet.z, feet.y + r, standingTopY(feet.y, r, h), r).t;
+}
+
+const _ca = new THREE.Vector3();
+const _cb = new THREE.Vector3();
+/**
+ * `nearestOnCapsule` for the capsule standing at `feet` (radius r, total height h) — the vertical body capsule
+ * `EnemySystem.raycastEx` tests (axis `feet + r` … `max(that, feet + h − r)`; a short body degenerates to a sphere).
+ */
+export function nearestOnStandingCapsule(p: THREE.Vector3, feet: THREE.Vector3, r: number, h: number, out: THREE.Vector3): THREE.Vector3 {
+  _ca.set(feet.x, feet.y + r, feet.z);
+  _cb.set(feet.x, standingTopY(feet.y, r, h), feet.z);
+  return nearestOnCapsule(p, _ca, _cb, r, out);
 }

@@ -10,7 +10,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
 | `model.ts` | 폴더 공용 어휘 — `GameFlowSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `GameFlowSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Death.ts` | **사망 · 구조 · 분대 전멸**. **2026-09-09: 자동 부활은 없다** — 완전히 죽으면 시체가 서고(`Corpses.ts`) 되살아나는 길은 분대원의 구조선(`rescue:landed`)뿐이다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
-| `Corpses.ts` | **사망한 플레이어의 시체** (`ctx.corpses` = `PlayerCorpseManager`). `PlayerCorpseObject` 는 `Interactable` 이자 `PlayerCorpse` 다 — id `pcorpse:<owner>:<n>`, 프롬프트 `<이름>의 유해 뒤지기`(비면 `비어 있음`), 상호작용 → `inventory.openContainerItemsSized(...)`. 메시는 `SoldierModel` 을 죽은 자세로 **한 번** 굳혀 둔 것이고 (`setGreyed`), **레이드가 끝날 때까지 사라지지 않는다** — 수명도 거리 컬링도 없다 (사용자 결정). **2026-09-11**: `kind: 'playerCorpse'`(C-4 — 빛기둥 · 정찰 분류가 id 접두어 대신 이것을 먼저 본다), 그리고 **전차에 실린다**(C-18) — 생성 직후 `boardCarrier(world)` 가 발밑의 움직이는 발판(`getStandingObstacle(...).velocity`)을 찾아 `@/shared` 의 `recordRideLocal` 로 적어 두고, `PlayerCorpseManager.update()`(`GameFlowSystem.update` 가 매 프레임 부른다)가 `restoreRideLocal` 로 자리(= 상호작용 위치, 같은 벡터) · 메시 · 방향(곡선 구간의 `box.yaw` 변화)을 다시 푼다. 시체는 스스로 움직이지 않으므로 유지 판정 · 하차 관성은 없다. 호스트 · 리플리카 · 늦은 합류자 모두 **자기 월드의 전차**로 푼다. |
+| `Corpses.ts` | **사망한 플레이어의 시체** (`ctx.corpses` = `PlayerCorpseManager`). `PlayerCorpseObject` 는 `Interactable` 이자 `PlayerCorpse` 다 — id `pcorpse:<owner>:<n>`, 프롬프트 `<이름>의 유해 뒤지기`(비면 `비어 있음`), 상호작용 → `inventory.openContainerItemsSized(...)`. 메시는 `SoldierModel` 을 죽은 자세로 **한 번** 굳혀 둔 것이고 (`setGreyed`), **레이드가 끝날 때까지 사라지지 않는다** — 수명도 거리 컬링도 없다 (사용자 결정). **2026-09-11**: `kind: 'playerCorpse'`(C-4 — 빛기둥 · 정찰 분류가 id 접두어 대신 이것을 먼저 본다), 그리고 **전차에 실린다**(C-18) — 생성 직후 `boardCarrier(world)` 가 발밑의 움직이는 발판(`getStandingObstacle(...).velocity`)을 찾아 `@/shared` 의 `recordRideLocal` 로 적어 두고, `PlayerCorpseManager.update()`(`GameFlowSystem.update` 가 매 프레임 부른다)가 `restoreRideLocal` 로 자리(= 상호작용 위치, 같은 벡터) · 메시 · 방향(곡선 구간의 `box.yaw` 변화)을 다시 푼다. 시체는 스스로 움직이지 않으므로 유지 판정 · 하차 관성은 없다. 호스트 · 리플리카 · 늦은 합류자 모두 **자기 월드의 전차**로 푼다. **2026-09-11 (C-63)**: 와이어가 탑승을 나른다 — `rideWire()`/`toWire()` 가 `PlayerCorpseWire.ride {tram, local, yaw}` 를 싣고(지금 탄 전차 · 차량 로컬 좌표), 받는 쪽 `boardFromWire()` 가 지연된 `p` 대신 **내 전차의 지금 변환**으로 그 로컬 좌표를 풀어 자리를 잡는다(모르는 id → 예전 `boardCarrier`). `ride` 는 매니저가 `pcorpse` 를 따로 구독해(`hookNet` · `noteWireRide` · `pendingRide`) `add` 앞뒤 어느 순서에도 붙는다. |
 | `parts/CorpseNet.ts` | **시체의 생성과 동기화** (`pcorpse` / `pcorpseq`). `spawn` 은 죽은 본인이 `'all'` 로 (자기 인벤토리만이 진실), 호스트는 남의 시체도 `items` 채로 들고 있다가 `pcorpseq sync` / `flow rejoined` 에 `pcorpse sync` 로 답한다. 시체 **안의 아이템을 가져가는** 것은 상자와 똑같이 기존 `cont` / `contq` 경로다. `crate:looted` → `pcorpse emptied`. **2026-09-11**: 시체 높이는 지형(`getHeightAt`)이 아니라 **`getSurfaceY(x, z, 발 높이)`** — 전차 데크 · 2층 바닥에서 죽은 시체가 그 밑 땅으로 떨어지지 않게 (로컬 사망 · 받은 와이어 둘 다). `stripForCorpse()` 결과에는 이제 **장착 임플란트의 망가진 짝**이 들어 있다 (C-12 — 합치기는 inventory/, 해제는 progression/). |
 | `parts/Leader.ts` | **분대장 기기**. 멀티에서 호스트가 완전히 사망하면 시체 옆에 절차 생성 오브젝트(아이템 아님)가 떨어지고 죽은 호스트가 `ctx.net.reportHostDown(true)` 를 남긴다. `Interactable` `leader_device` (`LEADER_DEVICE_RANGE`, **`LEADER_DEVICE_HOLD_S` 홀드**, `분대장 기기 회수`) → `transferHost(me, true)` + `lead taken`. **`net:hostChanged` 토스트의 유일한 주인**이다 — 기기 회수든 커뮤니티 우클릭 이관이든 전부 여기로 모인다. **기기의 점광원은 기기 안에 없다** (2026-09-10): 모듈 하나가 `installLeaderLight` 로 `init` 때 씬에 심고(`LeaderDeviceLight`, intensity 0) 기기는 자리와 밝기만 준다 — 광원을 든 오브젝트를 씬에 넣고 빼면 씬의 모든 머티리얼이 셰이더를 다시 컴파일한다. |
 | `parts/Session.ts` | **레이드 세션 저장과 복귀**. 솔로 레이드는 localStorage 에 5분짜리 스냅샷을 남기고(`SoloRaid.ts`), 멀티는 릴레이의 레이드 저장소를 쓴다. 복귀는 `world:ready` 뒤에 인벤토리 · 스탯 · 시계를 되돌리고, 호스트가 보관하던 몸이 있으면 그 자리에서 일어난다(없으면 헬포드로 떨어진다). |
@@ -297,11 +297,33 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-11 (C-63 — 원격 시체가 전차 후미에서 전차를 놓치던 틈, 에이전트 c63)** — 계약 `PlayerCorpseWire.ride?`
+  (리드 커밋 `ef6b825`)를 `Corpses.ts` 가 채운다. **보내는 쪽**: `PlayerCorpseObject.rideWire()` 가 지금 탄 발판이 어느
+  전차인지 찾아(`tramOfCarrier` — 부품의 `box.yaw` 가 `TramDef.yaw` 와 같은 값이다) `{tram, local, yaw}` 를 만들고
+  `toWire()` 가 붙인다 — 죽은 본인의 `spawn` 과 호스트의 `sync` 둘 다 **그 순간의 탑승 상태**다(타지 않았으면 생략).
+  **받는 쪽**: `boardFromWire()` 가 `p` 대신 **내 전차의 지금 변환**으로 로컬 좌표를 풀어 자리 · yaw 를 잡고 그대로 탑승
+  상태로 시작한다(모르는 전차 id · 그 자리에 발판이 없으면 false → 예전 `boardCarrier` 경로). 보간 지연(≈1 m)만큼 뒤진
+  `p` 로는 후미 끝의 시체가 전차 밖으로 판정되던 것이 그것이다. `PlayerCorpseManager` 는 같은 `pcorpse` 메시지를 **따로
+  구독해**(`hookNet`, `inventory/parts/CorpseLoot` 와 같은 모양) `ride` 만 받아 둔다 — `add` 를 부르는 `parts/CorpseNet`
+  은 위치 · yaw 만 넘기기 때문이고, 핸들러 순서와 무관하게 맞는다(먼저 들으면 `pendingRide` 에 적어 `add` 가 쓰고,
+  시체가 먼저 섰으면 그 자리에서 다시 태운다 — 같은 전차 · 같은 로컬 좌표면 결과가 `followCarrier` 와 같아 재적용이
+  안전하다). `clear()` 가 `pendingRide` 도 비운다. 검사: `scripts/smoke-tram-ride.mjs` 6번(와이어에 ride 가 실린다 ·
+  두 순서 모두 후미 로컬 −5.60 에 탄다 · 달리는 전차를 따라간다) 26/26, `smoke-raidflow` 81/81.
+  ↳ 더 단순한 대안은 `parts/CorpseNet.applyCorpseWire` 가 `w.ride` 를 `add` 에 넘기는 두 줄이다 — 이번에는 그 파일이
+  다른 세션의 작업 구역이라 건드리지 않았다.
+
 - **2026-09-11 (E-5 솔로 레이드 시계, 에이전트 ③)** — 위 `2026-09-07: 레이드 접속 끊김 처리` 절의 E-5 항목. `SoloRaid.ts`:
   `soloRaidStatus(save, now, clockHigh)` (미래 · 역행 → stale) · 새 `soloRaidBootStatus` (로드아웃 `raidSeed` 표식) · `readClockHigh` ·
   `bumpClockHigh(now, reset)` · `saveSoloRaid` 가 시계를 올린다. `GameFlowSystem.init` 이 새 판정 + 부팅 기록, `player:landed` 에서
   솔로 스냅샷 즉시 저장, `hub:entered` · 함선 `inventory:loadoutSaved` 시계 기록. `parts/Phases`: 새 솔로 레이드면 시계 리셋 +
   `world:ready` 에 스폰 자세로 첫 스냅샷. `parts/Session`: `saveSoloAt`, 복귀 소비 때 저장 되쓰기. 검증 `smoke-raidflow` E-5 7 단언 (81/81).
+
+- **2026-09-11 (C-61 — 가방 레이드 소모 표시의 영속화, 에이전트 c6061)** — 코드 변경은 `inventory/` 에 있고 여기는 **주석 한 곳**
+  (`SoloRaid.ts` 의 `SoloRaidSave.inventory`)뿐이다. `InventoryRef.captureRaidState()` 가 돌려주는 blob 에 그 레이드에서 가방이
+  이미 닳았다는 표시(`bagWorn` = 미션 시드)가 실리므로, 멀티 복귀(`RaidSessionBlob.inventory`)와 솔로 복귀(`scav.soloraid` 의
+  `inventory` — 이 파일은 blob 을 그대로 통과시킨다)가 **둘 다** 그것을 되살린다. 사망으로 깎인 뒤 새로고침 → 복귀 → 자기 가방을
+  되찾아 탈출해도 한 번이다. 복원 순서는 `world:ready`(인벤토리가 표시를 내린다) → `parts/Phases.onWorldReady` 의
+  `applyRaidState`(표시를 되살린다)이고, 등록 순서(inventory → game)가 그것을 보장한다. 검증 `smoke-raidflow` 84/84 (C-61 3).
 
 - **2026-09-11 (C-59 — 레이드 중 추방 문구, 에이전트 ④)** — `parts/Wire.onLobbyLeft` 의 `kicked` 가 "분대에서 분리되었습니다" 하나였다.
   C-29 뒤로 `kicked` 는 서버 콘솔 추방과 같은 캐릭터의 다른 창(`duplicate`) 두 갈래라, net 이 `net:lobbyLeft` **전에** 세우는

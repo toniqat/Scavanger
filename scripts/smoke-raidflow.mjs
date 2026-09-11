@@ -7,6 +7,7 @@
 // 2026-09-11 (E-5): 솔로 레이드 복귀 — 정상 새로고침 · 1 초 역행은 복귀, 미래 savedAt · clockHigh 역행 · 저장 키 삭제(+ 로드아웃 raidSeed)는 레이드 실패.
 // Usage: node scripts/smoke-raidflow.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -48,20 +49,9 @@ try {
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); the script fakes `pointerLockElement`.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (same trick as smoke-meta).
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (also on every `rebootWith` reload).
+  await quietViteHmr(page);
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
@@ -204,7 +194,10 @@ try {
   await P(() => {
     const ctx = window.__game.ctx;
     const stats = { seed: 21, kills: 7, cratesOpened: 2, damageTaken: 33, timeSeconds: 123, lootValue: 0, extracted: false, mode: 'raid' };
-    ctx.bus.emit('net:raidLoaded', { blob: { seed: 21, missionTime: 123, stats, inventory: null, savedAt: Date.now() } });
+    // 2026-09-11 (C-61): the blob carries the kit as it is plus "the bag already wore this raid" (stamped with seed 21)
+    const inventory = ctx.inventory.captureRaidState();
+    if (inventory) inventory.bagWorn = 21;
+    ctx.bus.emit('net:raidLoaded', { blob: { seed: 21, missionTime: 123, stats, inventory, savedAt: Date.now() } });
     ctx.missionMode = 'raid';
     ctx.bus.emit('net:gameStarting', { seed: 21, lobby: { code: 'TEST', hostId: 'h', players: [], started: true, seed: 21, isPublic: false }, rejoin: true, mode: 'raid' });
     window.__pendingAtStart = ctx.rejoinPending;
@@ -214,6 +207,7 @@ try {
   st = await P(() => { const ctx = window.__game.ctx; return { pendingAtStart: window.__pendingAtStart, pending: ctx.rejoinPending, kills: ctx.stats.kills, crates: ctx.stats.cratesOpened, t: ctx.missionTime, phase: ctx.phase }; });
   ok(st.pendingAtStart === true && st.pending === true, 'net:gameStarting {rejoin} → ctx.rejoinPending true before the world', JSON.stringify(st));
   ok(st.kills === 7 && st.crates === 2 && st.t >= 123 && st.t < 130, 'raid blob applied after world:ready (stats + missionTime)', JSON.stringify(st));
+  ok((await P(() => window.__game.ctx.inventory.bagWornThisRaid)) === true, 'C-61: rejoin — the blob\'s bag wear mark survives world:ready (inventory resets first, game/ applies the blob after)');
   await P(() => {
     const ctx = window.__game.ctx; const THREE_V = ctx.world.getPlayerSpawn().clone(); THREE_V.x += 3;
     ctx.bus.emit('net:ghostRestore', { state: { position: THREE_V, yaw: 1.2, hp: 55, downHp: 100, state: 0 } });
@@ -240,6 +234,7 @@ try {
   });
   await waitFor(page, () => window.__game.ctx.phase === 'deploying', 'deploying (rejoin 2)', 20000);
   ok((await P(() => window.__game.ctx.stats.kills)) === 0, 'no blob for this seed → fresh stats');
+  ok((await P(() => window.__game.ctx.inventory.bagWornThisRaid)) === false, 'C-61: a raid without a blob starts with the bag unworn');
   await P(() => { const ctx = window.__game.ctx; ctx.bus.emit('net:ghostRestore', { state: { position: ctx.world.getPlayerSpawn().clone(), yaw: 0, hp: 0, downHp: 0, state: 2 } }); });
   await waitSim(0.5);
   st = await P(() => { const ctx = window.__game.ctx; return { phase: ctx.phase, pending: ctx.rejoinPending, restored: window.__spy.restoreState.length, state: window.__spy.restoreState[0]?.state, ra: window.__ev['game:respawnAvailable'].at(-1)?.seconds, failed: window.__ev['game:raidFailed'].length }; });
@@ -561,7 +556,7 @@ try {
     const lo = read('scav.s1.loadout');
     const solo = read('scav.s1.soloraid');
     const has = (save) => !!save && [...(save.bag ?? []), ...Object.values(save.slots ?? {}), ...(save.quick ?? [])].some((e) => e && e.defId === mark);
-    return { raidSeed: lo?.raidSeed ?? null, kitHasMark: has(lo), solo: solo ? { seed: solo.seed, savedAt: solo.savedAt } : null, clockHigh: Number(localStorage.getItem('scav.s1.clockHigh')) || 0 };
+    return { raidSeed: lo?.raidSeed ?? null, kitHasMark: has(lo), solo: solo ? { seed: solo.seed, savedAt: solo.savedAt, bagWorn: solo.inventory?.bagWorn ?? null } : null, clockHigh: Number(localStorage.getItem('scav.s1.clockHigh')) || 0 };
   }, MARK);
   /** Hub → a marked item in the bag → a solo raid on `seed`, landed, with its first snapshot on disk. */
   const soloRaidWithMark = async (seed) => {
@@ -592,9 +587,13 @@ try {
     'E-5: a solo raid marks the saved kit (loadout raidSeed = seed) and has a snapshot + a clock record on disk right after landing', JSON.stringify(e5));
 
   // ① a normal reload inside the grace resumes
+  // 2026-09-11 (C-61): the bag already wore this raid — the page-hide snapshot carries the mark into the resumed raid
+  await P(() => { window.__game.ctx.inventory.bagWornThisRaid = true; });
   await rebootWith(null);
   let out = await outcomeAfter(41);
   ok(out.kind === 'resumed' && out.raidSeed === 41 && out.solo?.seed === 41, 'E-5: a normal reload within 5 min → the solo raid resumes (marker kept, snapshot re-written)', JSON.stringify(out));
+  const c61solo = await P(() => window.__game.ctx.inventory.bagWornThisRaid);
+  ok(out.solo?.bagWorn === 41 && c61solo === true, 'C-61: solo reload → the snapshot\'s bagWorn (= seed) comes back as bagWornThisRaid', JSON.stringify({ stored: out.solo?.bagWorn, flag: c61solo }));
   // ② the clock moved back 1 s (NTP): the save is 1 s "in the future" → still resumes
   await rebootWith(() => {
     const k = 'scav.s1.soloraid'; const s = JSON.parse(localStorage.getItem(k));

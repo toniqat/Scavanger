@@ -4,6 +4,7 @@
 // the ship Tab screen's 크레딧 readout + active 기업 tab.
 // Usage: node scripts/smoke-loadout.mjs [http://localhost:5273/]   (needs a vite dev server)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -46,20 +47,9 @@ try {
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor traps the OS cursor in the hidden window).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Keep vite's HMR socket from ever connecting: another agent's save would otherwise full-reload the page mid-run.
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // Keep vite's HMR socket from ever connecting: another agent's save would otherwise full-reload the page mid-run.
+  await quietViteHmr(page);
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 

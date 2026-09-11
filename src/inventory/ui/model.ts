@@ -26,6 +26,14 @@ export const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 /** The dragged ghost's size lift. Lives here, not in CSS — see `positionGhost`. */
 export const GHOST_SCALE = 1.04;
 export const MIDDLE_BUTTON = 1;
+/**
+ * 2026-09-11 (C-60): 드래그 중 스크롤되는 컨테이너 격자의 위/아래 가장자리 자동 스크롤. 보이는 영역 안쪽
+ * `AUTO_SCROLL_EDGE_IN` px 띠에서 속도가 0 → 최고로 오르고, 바깥(패널 머리 · 아래 여백) `AUTO_SCROLL_EDGE_OUT` px 까지는 최고 속도.
+ */
+export const AUTO_SCROLL_EDGE_IN = 36;
+export const AUTO_SCROLL_EDGE_OUT = 64;
+/** px/s at the very edge. */
+export const AUTO_SCROLL_MAX_SPEED = 900;
 /** Two presses on the same catalog tile within this window = 가방에 넣기. */
 export const CATALOG_DBL_MS = 400;
 export const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };

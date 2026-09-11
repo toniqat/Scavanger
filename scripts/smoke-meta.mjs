@@ -11,6 +11,7 @@
 // 2026-09-11 (C-16 · X-1): the same crate id opened twice in a raid → `open_crates` +1 and 감정 XP once; a new mission counts it again.
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -54,22 +55,11 @@ try {
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); scripts fake `pointerLockElement`.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Park vite's HMR socket (another agent's save would otherwise full-reload the page mid-run, same trick as smoke-console)
-    // AND the relay socket (`/ws?t=`): a relay that happens to run on 8787 would hand the page a real server profile and make
-    // credits server-owned mid-run — this script drives that path itself with a fake `ctx.net.profile`.
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // Park vite's HMR socket (another agent's save would otherwise full-reload the page mid-run)
+  // AND the relay socket (`/ws?t=`): a relay that happens to run on 8787 would hand the page a real server profile and make
+  // credits server-owned mid-run — this script drives that path itself with a fake `ctx.net.profile`.
+  await quietViteHmr(page, { parkRelay: true });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 

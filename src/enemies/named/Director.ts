@@ -24,7 +24,9 @@
  * ## 스폰 · 알림
  * 스폰은 기존 `spawnRogue` 경로라 `enemy:spawned` · `ee spawn` 이 그대로 나간다. 네임드 · 호위는 로그 팩션이라
  * `ensureCapacity` 의 재활용 대상이 아니다 (`e.isRogue`). 알림 `enemy:namedSpawned` 는 권한이면 스폰 직후,
- * 리플리카면 `enemy:spawned` 에서 네임드 종류를 처음 볼 때 id 당 한 번 낸다. 기록은 `reset()` 이 레이드마다 비운다.
+ * 리플리카면 `enemy:spawned`(`ee spawn`) 또는 스냅샷이 조용히 만든 리플리카(`onReplicaCreated`, C-52 — 늦은 합류자)
+ * 에서 네임드 종류를 처음 볼 때 id 당 한 번 낸다 (두 경로가 같은 기록을 본다). 기록은 `reset()` 이 레이드마다 비우고
+ * 호스트 이관(승격 · 강등)은 건드리지 않는다 — id 는 이관 뒤에도 그대로라 이미 알린 네임드를 다시 알리지 않는다.
  *
  * 배치 탐색의 후보 수 · 표본 반경 같은 값은 **탐색 알고리즘의 파라미터**이지 밸런스 수치가 아니라 이 파일에 둔다
  * (`RogueGuards` 의 시도 횟수 · 링 반경과 같은 성격). 등장 확률 · 거리 · 호위 수는 전부 csv 에서 온다.
@@ -201,6 +203,18 @@ export class NamedRogueDirector {
     if (!host || host.authority || !isNamedRogueType(type)) return;
     const e = host.find(id);
     if (!e) return;
+    this.announce(e);
+  }
+
+  /**
+   * 2026-09-11 (C-52): 스냅샷(키프레임 · `ty` 가 붙은 델타)이 **조용히** 만든 리플리카 (`net/Replica.onSnapshot` 의
+   * get-or-create — `ee spawn` 을 놓친 늦은 합류자). `enemy:spawned` 는 내지 않고(소리 · HUD 같은 다른 구독자의 동작이
+   * 바뀐다) 네임드 알림만 낸다. 기록은 `onSpawned` 와 같은 `announced` 라 `ee spawn` 이 앞뒤로 와도 id 당 한 번이다.
+   * 권한에서는 아무 것도 하지 않는다 (스폰 경로가 직접 낸다).
+   */
+  onReplicaCreated(e: Enemy): void {
+    const host = this.host;
+    if (!host || host.authority) return;
     this.announce(e);
   }
 

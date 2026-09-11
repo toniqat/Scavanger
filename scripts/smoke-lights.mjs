@@ -10,6 +10,7 @@
 //
 // Usage: node scripts/smoke-lights.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -47,19 +48,8 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs)
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
@@ -181,6 +171,52 @@ try {
   ok(back.holding === true && back.bloom === disp0.bloom && back.shadows === disp0.shadows, '원래 값으로 되돌려도 hold', JSON.stringify(back));
   await settle('되돌리기');
   ok(await P(() => window.__game.perfChecked === true), '플레이어가 블룸을 직접 바꾸면 perf guard 는 물러난다 (perfChecked)');
+
+  /* ── perf guard 가 끈 블룸을 설정 화면이 안다 (2026-09-11, C-58) ─────────────────────────────────────────────────
+     guard 는 첫 90 초 · 느린 프레임 240 이 조건이라 스모크에서 자연히 켜지지 않는다 → `debugForcePerfGuard()` 로 같은 경로를
+     돌린다. 설정 행은 저장값(켬)을 그대로 두고 `꺼짐 (성능 자동)` 을 보이고, 토스트 1회, 설정의 다른 재발행(전체화면 ·
+     그림자 · 해상도 = `emitDisplay`)은 블룸을 되켜지 않으며, 플레이어가 행을 한 번 누르면 켜진다. 부팅당 1회. */
+  if (disp0.bloom) {
+    await mark('perf guard 자동 블룸 끄기 (C-58)');
+    const g = await P(() => {
+      const e = window.__game, s = e.getSystem('hud').settings;
+      window.__c58 = { auto: [], notify: [], disp: [] };
+      e.ctx.bus.on('render:autoAdjusted', (p) => window.__c58.auto.push(p));
+      e.ctx.bus.on('ui:notify', (p) => window.__c58.notify.push(p.text));
+      e.ctx.bus.on('ui:displayChanged', (p) => window.__c58.disp.push(p.bloom));
+      const fired = e.debugForcePerfGuard();
+      return {
+        fired, bloom: e.isPostProcessing, holding: e.shaders.holding, auto: window.__c58.auto.slice(),
+        autoOff: s.isBloomAutoOff, pill: s.bloomRow.textContent, stored: s.displaySettings.bloom,
+        toast: s.bloomAutoOffToast, notify: window.__c58.notify.slice(),
+      };
+    });
+    ok(g.fired && !g.bloom && g.holding, 'guard 가 블룸을 끈다 → 그 순간부터 hold', JSON.stringify(g));
+    ok(g.auto.length === 1 && g.auto[0].bloom === false && g.auto[0].reason === 'perf', 'render:autoAdjusted {bloom:false, reason:perf} 1회', JSON.stringify(g.auto));
+    ok(g.autoOff && /성능 자동/.test(g.pill) && g.stored === true, `설정 행 = "${g.pill}", 저장값은 켬 그대로`, JSON.stringify(g));
+    ok(g.toast === 'shown' && g.notify.filter((t) => /블룸/.test(t)).length === 1, '토스트 1회 (레이드 HUD 가 떠 있으니 곧바로)', JSON.stringify(g.notify));
+    await settle('자동 블룸 끄기');
+    const re = await P(() => {
+      const e = window.__game, s = e.getSystem('hud').settings;
+      s.emitDisplay();   // 전체화면 · 그림자 · 해상도 변경과 부팅 복원이 내는 바로 그 발행
+      return { bloom: e.isPostProcessing, holding: e.shaders.holding, sent: window.__c58.disp.slice(), autoOff: s.isBloomAutoOff };
+    });
+    ok(!re.bloom && !re.holding && re.autoOff && re.sent.at(-1) === false, '설정의 다른 재발행은 guard 가 끈 블룸을 되켜지 않는다 (발행 bloom=false)', JSON.stringify(re));
+    const on = await P(() => {
+      const e = window.__game, s = e.getSystem('hud').settings;
+      s.bloomRow.click();   // 플레이어가 행을 누른다 (꺼짐 → 켜기)
+      return { bloom: e.isPostProcessing, holding: e.shaders.holding, autoOff: s.isBloomAutoOff, pill: s.bloomRow.textContent, stored: s.displaySettings.bloom };
+    });
+    ok(on.bloom && on.holding && !on.autoOff && on.pill === '켬' && on.stored === true, '행을 한 번 누르면 블룸이 켜지고 표시는 평소대로', JSON.stringify(on));
+    await settle('블룸 되켜기');
+    const again = await P(() => {
+      const e = window.__game;
+      return { fired: e.debugForcePerfGuard(), bloom: e.isPostProcessing, auto: window.__c58.auto.length, notify: window.__c58.notify.filter((t) => /블룸/.test(t)).length };
+    });
+    ok(!again.fired && again.bloom && again.auto === 1 && again.notify === 1, '부팅당 1회 — 다시 불러도 끄지 않는다', JSON.stringify(again));
+  } else {
+    console.log('  skip C-58 (이 브라우저의 블룸이 처음부터 꺼져 있다)');
+  }
   await P(() => { window.__game.ctx.timeScale = 1; });
 
   // 분대장 기기의 광원은 기기 안이 아니라 씬에 미리 심겨 있어야 한다 (`game/parts/Leader`)

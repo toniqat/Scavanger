@@ -2,6 +2,7 @@
 // history, /seed /move /movecheat /items /stat /skill /help /clear, Home move cheat, Esc capture.
 // Usage: node scripts/smoke-console.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -47,22 +48,8 @@ try {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     try { localStorage.removeItem('scav.console.history'); } catch { /* ignore */ }
-    // Keep vite's HMR socket from ever connecting: a save in another editor would otherwise full-reload the page
-    // mid-run (every TS module change is a full reload here) and wipe the test state. A socket stuck in CONNECTING is
-    // silent — the vite client only logs on error / close. The game's own relay socket (no 'vite-hmr' protocol) is untouched.
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs)
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

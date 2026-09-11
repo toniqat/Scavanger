@@ -16,8 +16,30 @@ import {
   NET_SLOT_COLORS, PLAYER_CORPSE_COLS, PLAYER_CORPSE_LOOT_RANGE, PLAYER_CORPSE_ROWS,
   recordRideLocal, restoreRideLocal,
   type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
-  type PlayerCorpse, type PlayerCorpseWire, type WorldRef,
+  type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
+
+/** `PlayerCorpseWire.ride` (C-63) — 전차에 실린 시체의 차량 로컬 좌표. */
+type CorpseRideWire = NonNullable<PlayerCorpseWire['ride']>;
+
+const _rideScratch = new THREE.Vector3();
+
+/**
+ * C-63: 탑승 중인 발판(`Obstacle`)이 어느 전차의 부품인가. 전차 부품은 전부 `TramDef.yaw` 와 **같은 값**을
+ * `box.yaw` 로 받는다(`world/rails/parts/Tram.placeTram` 이 한 프레임에 같은 변수로 쓴다) — 그 가운데 가장 가까운 전차.
+ */
+function tramOfCarrier(world: WorldRef, c: Obstacle): TramDef | null {
+  if (!c.box) return null;
+  const trams = world.getTrams();
+  let best: TramDef | null = null, bestD = Infinity;
+  for (let i = 0; i < trams.length; i++) {
+    const t = trams[i];
+    if (Math.abs(t.yaw - c.box.yaw) > 1e-6) continue;
+    const d = (t.position.x - c.position.x) ** 2 + (t.position.z - c.position.z) ** 2;
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  return best;
+}
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from '@/player';
 
 /** 굳어 있는 죽은 자세 (한 번 damp 를 몰아 돌린 뒤 다시는 건드리지 않는다). */
@@ -98,6 +120,57 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     this.rideYaw0 = this.yawNow;
   }
 
+  /**
+   * C-63: 와이어의 `ride`(보낸 쪽에서 탄 전차 · 차량 로컬 좌표 · 차량 기준 yaw)로 탄다. `p` 대신 **내 전차의 지금
+   * 변환**으로 로컬 좌표를 풀어 자리를 잡는다 — 보간 지연 때문에 후미 끝의 시체가 `p` 로는 전차 밖에 떨어지던 틈.
+   * 모르는 전차 id · 풀린 자리에 그 전차의 발판이 없으면 아무것도 안 하고 false (호출부가 예전 `boardCarrier` 로).
+   * 이미 서 있는 시체에 다시 불러도 된다: 같은 전차의 같은 로컬 좌표면 결과가 `followCarrier` 와 같다.
+   */
+  boardFromWire(world: WorldRef | null, ride: CorpseRideWire | undefined): boolean {
+    if (!world?.ready || !ride || typeof ride.tram !== 'string' || !Array.isArray(ride.local)) return false;
+    const [lx, ly, lz] = ride.local;
+    if (!Number.isFinite(lx) || !Number.isFinite(ly) || !Number.isFinite(lz)) return false;
+    let tram: TramDef | null = null;
+    for (const t of world.getTrams()) if (t.id === ride.tram) { tram = t; break; }
+    if (!tram) return false;
+    // TramDef 틀: position = 차체 중심(y = 데크 윗면), yaw = 로컬 +X → 월드 (cos, sin) — `shared/ride` 와 같은 규약
+    const cs = Math.cos(tram.yaw), sn = Math.sin(tram.yaw);
+    const p = _rideScratch.set(
+      tram.position.x + lx * cs - lz * sn,
+      tram.position.y + ly,
+      tram.position.z + lx * sn + lz * cs,
+    );
+    const o = world.getStandingObstacle(p.x, p.z, p.y);
+    if (!o || !o.velocity) return false;
+    this.position.copy(p);
+    this.carrier = o;
+    recordRideLocal(o, this.position, this.rideLocal);
+    this.rideCarrierYaw0 = o.box ? o.box.yaw : 0;
+    this.yawNow = Number.isFinite(ride.yaw) ? ride.yaw - tram.yaw : this.yawNow;
+    this.rideYaw0 = this.yawNow;
+    this.group.position.copy(this.position);
+    this.group.rotation.y = this.yawNow;
+    return true;
+  }
+
+  /**
+   * C-63: 지금 탄 전차가 있으면 `PlayerCorpseWire.ride` 로 (사망 본인의 `spawn` · 호스트의 `sync` — 둘 다 **지금**
+   * 탑승 상태에서 계산한다). 차량 기준 yaw = 시체 yaw(three.js) + 전차 yaw(수학 규약) — 탑승 중에는 불변이다.
+   */
+  rideWire(): CorpseRideWire | undefined {
+    const c = this.carrier, world = this.ctx.world;
+    if (!c || !world?.ready) return undefined;
+    const tram = tramOfCarrier(world, c);
+    if (!tram) return undefined;
+    const cs = Math.cos(tram.yaw), sn = Math.sin(tram.yaw);
+    const dx = this.position.x - tram.position.x, dz = this.position.z - tram.position.z;
+    return {
+      tram: tram.id,
+      local: [dx * cs + dz * sn, this.position.y - tram.position.y, -dx * sn + dz * cs],
+      yaw: this.yawNow + tram.yaw,
+    };
+  }
+
   /** 매 프레임: 탄 차량의 **지금** 변환으로 자리(= 상호작용 위치)와 방향을 다시 푼다. 안 탔으면 아무것도 안 한다. */
   followCarrier(): void {
     const c = this.carrier;
@@ -130,11 +203,14 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
 
   /** `PlayerCorpseWire` 로 (호스트의 `pcorpse sync` · 사망 본인의 `spawn`). */
   toWire(): PlayerCorpseWire {
-    return {
+    const wire: PlayerCorpseWire = {
       id: this.id, owner: this.ownerId, name: this.ownerName,
       p: [this.position.x, this.position.y, this.position.z], yaw: this.yaw, at: this.diedAt,
       items: itemsToWire(this.items),
     };
+    const ride = this.rideWire();   // C-63: 생략 = 탑승 없음
+    if (ride) wire.ride = ride;
+    return wire;
   }
 
   dispose(): void {
@@ -164,8 +240,37 @@ export class PlayerCorpseManager implements CorpsesRef {
   private readonly corpses = new Map<string, PlayerCorpseObject>();
   /** 주인별 시체 번호 (`pcorpse:<owner>:<n>`) — 같은 사람이 여러 번 죽으면 시체도 여러 구다. */
   private readonly seq = new Map<string, number>();
+  /**
+   * C-63: 와이어로 들어온 `ride` 를 시체 id 별로 잠깐 들고 있다가 `add` 가 소비한다. 시체를 세우는 호출부
+   * (`parts/CorpseNet.applyCorpseWire`)는 위치 · yaw 만 넘기므로, 이 관리자가 같은 `pcorpse` 메시지를 **따로 구독해**
+   * `ride` 만 받아 둔다 (인벤토리의 `CorpseLoot` 도 같은 메시지를 따로 듣는다). 핸들러 순서와 무관하게 맞는다:
+   * 먼저 들으면 여기 적어 두고 `add` 가 쓰며, `add` 가 먼저 돌았으면 이미 선 시체를 그 자리에서 다시 태운다.
+   */
+  private readonly pendingRide = new Map<string, CorpseRideWire>();
+  private netUnsub: (() => void) | null = null;
 
-  constructor(private readonly ctx: GameContext) {}
+  constructor(private readonly ctx: GameContext) {
+    this.hookNet();
+  }
+
+  /** `pcorpse` 의 `ride` 만 따로 듣는다 (한 번). `ctx.net` 이 늦게 생기면 `update` 가 다시 부른다. */
+  private hookNet(): void {
+    const net = this.ctx.net;
+    if (this.netUnsub || !net || typeof net.onMessage !== 'function') return;
+    this.netUnsub = net.onMessage('pcorpse', (msg) => {
+      if (msg.ev === 'spawn') this.noteWireRide(msg.corpse);
+      else if (msg.ev === 'sync') for (const w of msg.corpses ?? []) this.noteWireRide(w);
+    });
+  }
+
+  /** C-63: 와이어 한 구의 `ride` — 이미 선 시체면 곧바로 다시 태우고, 아니면 `add` 가 쓰게 적어 둔다. */
+  noteWireRide(w: PlayerCorpseWire): void {
+    if (!w || typeof w.id !== 'string' || !w.ride) return;
+    const known = this.corpses.get(w.id);
+    if (known) { known.boardFromWire(this.ctx.world, w.ride); return; }
+    if (this.pendingRide.size > 64) this.pendingRide.clear();   // 세워지지 않은 와이어가 쌓이지 않게
+    this.pendingRide.set(w.id, w.ride);
+  }
 
   getCorpses(): readonly PlayerCorpse[] { return [...this.corpses.values()]; }
 
@@ -196,7 +301,11 @@ export class PlayerCorpseManager implements CorpsesRef {
     const n = Number(id.slice(id.lastIndexOf(':') + 1));
     if (Number.isFinite(n)) this.seq.set(ownerId, Math.max(this.seq.get(ownerId) ?? 0, n));
     const c = new PlayerCorpseObject(this.ctx, id, ownerId, ownerName, position, yaw, diedAt, items, slot);
-    c.boardCarrier(this.ctx.world);                // 2026-09-11 (C-18): 전차 위에서 죽었으면 전차에 실린다
+    // 2026-09-11 (C-63): 와이어가 탄 전차를 알려 줬으면 그 전차의 지금 변환으로 태우고, 아니면(모르는 id 포함) 예전처럼
+    // 발밑 발판을 찾는다 (C-18: 전차 위에서 죽었으면 전차에 실린다)
+    const ride = this.pendingRide.get(id);
+    if (ride) this.pendingRide.delete(id);
+    if (!c.boardFromWire(this.ctx.world, ride)) c.boardCarrier(this.ctx.world);
     this.corpses.set(id, c);
     this.ctx.scene.add(c.group);
     this.ctx.interactables.register(c);
@@ -217,6 +326,7 @@ export class PlayerCorpseManager implements CorpsesRef {
 
   /** 매 프레임 (`GameFlowSystem.update`): 전차에 실린 시체를 차량의 지금 자리로. 타지 않은 시체는 비용이 없다. */
   update(): void {
+    if (!this.netUnsub) this.hookNet();
     for (const c of this.corpses.values()) c.followCarrier();
   }
 
@@ -231,5 +341,6 @@ export class PlayerCorpseManager implements CorpsesRef {
     }
     this.corpses.clear();
     this.seq.clear();
+    this.pendingRide.clear();
   }
 }

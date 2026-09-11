@@ -2545,6 +2545,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   color: #1a1408; background: var(--c-accent); border-color: var(--c-accent);
   box-shadow: 0 0 8px rgba(255, 179, 71, 0.35);
 }
+/* C-58 (2026-09-11): perf guard 가 끈 블룸 — 저장값은 켬이라 `꺼짐 (성능 자동)` 을 꺼진 모양 + 호박 점선 테두리로 */
+.set-toggle.is-auto { white-space: nowrap; letter-spacing: 0.04em; color: var(--c-accent); border-style: dashed; border-color: rgba(255, 179, 71, 0.6); }
 @media (max-width: 1040px) {
   .menu.settings-menu.side .frame { min-width: 0; width: calc(100vw - 48px); }
   .set-cols { grid-template-columns: 132px minmax(0, 1fr); gap: 14px; }

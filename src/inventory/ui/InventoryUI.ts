@@ -57,6 +57,13 @@ export class InventoryUI {
   private bagCapacity!: HTMLElement;
   private valueEl!: HTMLElement;
   containerView!: GridView;
+  /** 2026-09-11 (C-60): the container grid's vertical scroll viewport (`.inv-cont-scroll`). */
+  containerScroll!: HTMLElement;
+  /** C-60: drag auto-scroll loop (`Drag.autoScrollTick`) — rAF id, last frame time (ms), sub-pixel remainder. */
+  autoScrollRaf: number | null = null;
+  autoScrollLast = 0;
+  autoScrollAcc = 0;
+  private scrollObserver: ResizeObserver | null = null;
   stashView!: GridView;
   bagView!: GridView;
   slots = new Map<SlotId, SlotView>();
@@ -161,7 +168,24 @@ export class InventoryUI {
     cActions.append(this.searchStatus, takeAll);
     cHead.append(cTitleWrap, cActions);
     this.containerView = new GridView('container', getDef, getStats, this.tileHandlers());
-    cPanel.append(cHead, this.containerView.el);
+    /*
+     * 2026-09-11 (C-60): the grid scrolls vertically inside the panel. A corpse that `fitCorpseGrid` grew past the default
+     * rows used to push the panel off a small screen. Crates never reach the `max-height`, so they look exactly as before
+     * (`.is-scroll` — the scrollbar gutter — is only set while the viewport really overflows).
+     */
+    const cScroll = document.createElement('div');
+    cScroll.className = 'inv-cont-scroll';
+    cScroll.appendChild(this.containerView.el);
+    this.containerView.setClip(cScroll);
+    // a wheel scroll (or the drag auto-scroll) moves the cells under a still pointer: re-resolve the drop target
+    cScroll.addEventListener('scroll', () => { const d = this.drag; if (d?.started) this.updateDragTarget(d.lastX, d.lastY); }, { passive: true });
+    if (typeof ResizeObserver === 'function') {
+      this.scrollObserver = new ResizeObserver(() => this.syncContainerScroll());
+      this.scrollObserver.observe(cScroll);
+      this.scrollObserver.observe(this.containerView.el);
+    }
+    this.containerScroll = cScroll;
+    cPanel.append(cHead, cScroll);
     this.containerPanel = cPanel;
 
     /* stash panel (hub) */
@@ -459,6 +483,7 @@ export class InventoryUI {
     } else {
       this.containerView.setGrid(null);
     }
+    this.containerScroll.scrollTop = 0;   // C-60: every opened container starts at its first row
     this.stashView.setGrid(hub ? this.sys.getStash() : null);
     this.bagView.setGrid(this.sys.getGrid('bag'));
     this.catalogView.setOpen(this.sys.isCatalogOpen);
@@ -485,8 +510,21 @@ export class InventoryUI {
     this.closeTimer = window.setTimeout(() => { root.hidden = true; this.closeTimer = null; }, 180);
   }
 
+  /**
+   * 2026-09-11 (C-60): `.is-scroll` on the container viewport while its grid is taller than the `max-height` — it only
+   * reserves the scrollbar gutter, so a crate that fits keeps its exact old box. Driven by a `ResizeObserver` on the
+   * viewport and the grid (grid rows grow, the window height changes).
+   */
+  syncContainerScroll(): void {
+    const s = this.containerScroll;
+    if (!s) return;
+    s.classList.toggle('is-scroll', s.scrollHeight > s.clientHeight + 1);
+  }
+
   dispose(): void {
     this.cancelDrag();
+    this.scrollObserver?.disconnect();
+    this.scrollObserver = null;
     this.menu?.dispose();
     this.dialog?.dispose();
     this.containerView.dispose();
@@ -551,6 +589,7 @@ export class InventoryUI {
       this.container = c;
       this.containerPanel.hidden = !c;
       this.containerView.setGrid(c ? c.grid : null);
+      this.containerScroll.scrollTop = 0;
     } else if (c) {
       this.containerView.refresh();
       this.containerPanel.classList.toggle('is-empty', c.grid.isEmpty);

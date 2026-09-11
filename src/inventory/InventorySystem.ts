@@ -92,8 +92,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * `player:respawn` 의 스타터 지급 분기를 한 번만 건너뛰고 스스로 꺼진다.
    */
   strippedForCorpse = false;
-  /** 2026-09-11 (C-36): 이번 레이드에서 장착 가방이 이미 닳았다 (`Dur.wearBagForRaid`). `world:ready` 에서 내린다. */
+  /**
+   * 2026-09-11 (C-36): 이번 레이드에서 장착 가방이 이미 닳았다 (`Dur.wearBagForRaid`). `world:ready` 에서 내린다.
+   * (C-61): 레이드 세션 상태(`captureRaidState` → `RaidInventoryState.bagWorn`)에 실려 새로고침 복귀에서도 산다.
+   */
   bagWornThisRaid = false;
+  /**
+   * 2026-09-11 (C-61): 마지막 `applyRaidState` 가 되살린 `bagWorn` 시드 (없으면 null). 복귀 blob 이 `world:ready` 보다
+   * **먼저** 적용되는 순서에서도 그 레이드의 표시를 지우지 않게 `Life.onWorldReady` 가 한 번 본다.
+   */
+  bagWornRestoreSeed: number | null = null;
   pendingTakes: PendingTake[] = [];
   private lastSearchEmit = -1;
   /** Seconds left of the `SEARCH_START_DELAY` grace after the container window opened (0 = 감정 ticking). */

@@ -18,7 +18,8 @@
  *    (드론이 노출 표시를 풀고 복귀하는 신호).
  *  - **자리 옮기기**(힌트 0 = 서서 달린다) — 피격되었거나 플레이어가 `closeThreat` 안으로 들어오면
  *    `relocateCooldown` 에 한 번, 위협 반대쪽 옆으로 6–10 m 옮긴다(둥지에서 `nestLeash` 이상 벗어나지 않는다).
- *    반짝임 중에는 옮기지 않는다 — 전조를 띄운 한 발은 끝까지 쏜다.
+ *    반짝임 중에는 옮기지 않는다 — 전조를 띄운 한 발은 끝까지 쏜다. C-62: 반짝임을 시작하려는 순간 소염기가 파묻혀
+ *    있으면(`muzzleBuried`) 전조 없이 같은 자리 옮기기를 탄다 — 후보 중 표적 쪽 총구가 트인 자리를 고른다(`buriedBeforeGlint`).
  *  - 경직 · 전소 — 힌트 0 으로 일반 로그 자세(웅크림 · 몸부림)를 쓰고 반짝임은 취소된다.
  *
  * **플레이어만 쏜다** (리드 결정): `t`(= `pickTarget` 의 답, 벌레 · 드론일 수 있다)는 쓰지 않고
@@ -28,7 +29,7 @@
  * 엎드림 자세는 `models/named/SniperLook` 이 `e.namedHint` 에서 그린다.
  */
 import * as THREE from 'three';
-import type { EnemyEvent, PeerId } from '@/shared';
+import type { EnemyEvent, PeerId, WorldRef } from '@/shared';
 import type { Enemy, EnemyHost, RogueShotOpts } from '../../Enemy';
 import { NAMED_SCAN_DRONE, NAMED_SNIPER } from '../../EnemyTypes';
 import type { CombatTarget } from '../../Targets';
@@ -74,6 +75,8 @@ const MISS_MAX_M = 2;
 const RELOCATE_MIN_M = 6;
 const RELOCATE_MAX_M = 10;
 const RELOCATE_MAX_S = 4.5;
+/** C-62: 매몰로 옮길 때 보는 후보 수 — 옆 두 쪽 × (무작위 · 최대 · 최소 거리). */
+const RELOCATE_TRIES = 6;
 /** 반짝임이 취소되면(표적이 쓰러짐 · 사라짐) 다음 반짝임까지 최소 s. */
 const CANCEL_COOLDOWN_S = 1.2;
 /** 드론을 띄우지 못했으면 이만큼 뒤 다시 시도 (s). */
@@ -94,6 +97,7 @@ const _from = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _muzzle = new THREE.Vector3();
 const _body = new THREE.Vector3();
+const _cand = new THREE.Vector3();
 const _shot = { from: new THREE.Vector3(), to: new THREE.Vector3() };
 const SHOT_OPTS: RogueShotOpts = { aimAt: _aim, fx: false, wire: false, out: _shot };
 
@@ -315,7 +319,8 @@ function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   SHOT_OPTS.range = NAMED_SNIPER.range;
   // C-56: 반짝임 동안 돌면서 긴 총열(총구 ≈ 몸 2.3 m 앞)이 바위 · 둔덕에 파묻혔을 수 있다. `fireGun` 은 총구에서
   // 월드 레이를 쏘므로 그대로면 탄이 바위를 뚫는다 — 몸 → 총구 선분이 막히면 **그 점에 박힌다**. 전조를 띄운 한 발은
-  // 그래도 쏜다(소리 · 섬광 · `ee snipe hit:false` · 쿨다운) — 자리를 옮기지는 않는다.
+  // 그래도 쏜다(소리 · 섬광 · `ee snipe hit:false` · 쿨다운) — 자리를 옮기지는 않는다. C-62 부터 반짝임 **시작 전**에도
+  // 같은 검사를 하므로(`buriedBeforeGlint`) 여기 걸리는 것은 반짝임 동안 돌다가 파묻힌 경우뿐이다.
   const buried = muzzleBuried(e, host, _shot.from, _shot.to);
   const struck = buried ? false : host.fireGun(e, t, 0, 1, SHOT_OPTS);
   if (buried) host.ctx.bus.emit('enemy:shot', { id: e.id, type: e.type, from: _shot.from.clone(), to: _shot.to.clone(), hit: false });
@@ -376,27 +381,64 @@ function maybeLaunchDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
   } else d.droneCooldown = LAUNCH_RETRY_S;
 }
 
-/** 위협 반대쪽 옆으로 짧게 옮긴다 (둥지 리시 안). 목표는 `Enemy.coverPos` (로든은 엄폐 순환을 쓰지 않는다). */
-function startRelocate(e: Enemy, d: SniperData, host: EnemyHost, from: THREE.Vector3 | null): void {
+/**
+ * 반짝임 직전 매몰 (C-62): 전조를 띄우지 않는다. `CANCEL_COOLDOWN_S` 동안 다시 재지 않고, 자리 옮기기 쿨다운이 끝났으면
+ * **표적 쪽 총구가 트이는 자리**로 옮긴다(`startRelocate` 의 후보 검사). 쿨다운 중이면 그 자리에서 기다린다 — 표적이
+ * 움직여 총구가 트이거나 쿨다운이 끝나면 다시 판단하므로 같은 자리의 매몰 → 대기 → 매몰은 `relocateCooldown` 을 넘지 않는다.
+ * `muzzleBuried` 가 방금 채운 `_body` · `_muzzle` 에서 엎드린 총구의 수평 거리 · 높이를 읽는다.
+ */
+function buriedBeforeGlint(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
+  d.fireCooldown = Math.max(d.fireCooldown, CANCEL_COOLDOWN_S);
+  if (d.relocate > 0 || d.relocateCd > 0) return;
+  const reach = Math.hypot(_muzzle.x - _body.x, _muzzle.z - _body.z);
+  startRelocate(e, d, host, t.position, reach, _muzzle.y - _body.y);
+}
+
+/** `(px, pz)` 에 엎드렸을 때 몸 중심 → (`aim` 쪽 수평 `reach` · 높이 `rise` 의) 총구 선분이 월드에 막히지 않으면 true (C-62). */
+function muzzleClearAt(world: WorldRef, px: number, pz: number, aim: THREE.Vector3, reach: number, rise: number): boolean {
+  const dx = aim.x - px, dz = aim.z - pz;
+  const l = Math.hypot(dx, dz);
+  if (l < 1e-3) return true;
+  _cand.set(px, world.getSurfaceY(px, pz, world.getHeightAt(px, pz)) + EYE_UP, pz);
+  _dir.set((dx / l) * reach, rise, (dz / l) * reach);
+  const len = _dir.length();
+  if (len < 1e-3) return true;
+  _dir.multiplyScalar(1 / len);
+  return world.raycast(_cand, _dir, len) === null;
+}
+
+/**
+ * 위협 반대쪽 옆으로 짧게 옮긴다 (둥지 리시 안). 목표는 `Enemy.coverPos` (로든은 엄폐 순환을 쓰지 않는다).
+ * C-62: `muzzleReach > 0` 이면 옆 방향 두 쪽 × 거리 세 가지(`RELOCATE_TRIES`)를 차례로 보고 `from` 쪽 총구가 트인
+ * 첫 자리를 고른다(`muzzleClearAt`) — 막힌 자리를 다시 고르지 않는다. 트인 자리가 없으면 예전과 같은 첫 후보.
+ * `muzzleReach` 를 주지 않으면(피격 · 근접) 예전과 한 치도 다르지 않다 (난수 호출 순서까지).
+ */
+function startRelocate(e: Enemy, d: SniperData, host: EnemyHost, from: THREE.Vector3 | null, muzzleReach = 0, muzzleRise = 0): void {
   const world = host.ctx.world!;
   let ax: number, az: number;
   const fl = from ? Math.hypot(e.position.x - from.x, e.position.z - from.z) : 0;
   if (from && fl > 1e-3) { ax = (e.position.x - from.x) / fl; az = (e.position.z - from.z) / fl; }
   else { const ang = Math.random() * Math.PI * 2; ax = Math.cos(ang); az = Math.sin(ang); }
-  const side = Math.random() < 0.5 ? -1 : 1;
-  let dx = ax * 0.55 - az * side * 0.85;
-  let dz = az * 0.55 + ax * side * 0.85;
-  const dl = Math.hypot(dx, dz) || 1;
-  dx /= dl; dz /= dl;
-  const step = RELOCATE_MIN_M + Math.random() * (RELOCATE_MAX_M - RELOCATE_MIN_M);
-  let px = e.position.x + dx * step;
-  let pz = e.position.z + dz * step;
-  const gx = px - e.guardPos.x, gz = pz - e.guardPos.z;
-  const gl = Math.hypot(gx, gz);
+  const side0 = Math.random() < 0.5 ? -1 : 1;
+  const step0 = RELOCATE_MIN_M + Math.random() * (RELOCATE_MAX_M - RELOCATE_MIN_M);
+  const tries = from && muzzleReach > 0 ? RELOCATE_TRIES : 1;
   const leash = NAMED_SNIPER.nestLeash;
-  if (gl > leash) { px = e.guardPos.x + (gx / gl) * leash; pz = e.guardPos.z + (gz / gl) * leash; }
-  if (!world.isInsideBounds(px, pz)) { px = e.guardPos.x; pz = e.guardPos.z; }
-  e.coverPos.set(px, 0, pz);
+  for (let k = 0; k < tries; k++) {
+    const side = k % 2 === 0 ? side0 : -side0;
+    const step = k < 2 ? step0 : k < 4 ? RELOCATE_MAX_M : RELOCATE_MIN_M;
+    let dx = ax * 0.55 - az * side * 0.85;
+    let dz = az * 0.55 + ax * side * 0.85;
+    const dl = Math.hypot(dx, dz) || 1;
+    dx /= dl; dz /= dl;
+    let px = e.position.x + dx * step;
+    let pz = e.position.z + dz * step;
+    const gx = px - e.guardPos.x, gz = pz - e.guardPos.z;
+    const gl = Math.hypot(gx, gz);
+    if (gl > leash) { px = e.guardPos.x + (gx / gl) * leash; pz = e.guardPos.z + (gz / gl) * leash; }
+    if (!world.isInsideBounds(px, pz)) { px = e.guardPos.x; pz = e.guardPos.z; }
+    if (k === 0) e.coverPos.set(px, 0, pz);               // 트인 자리가 없을 때의 답 = 예전의 한 후보
+    if (tries > 1 && muzzleClearAt(world, px, pz, from!, muzzleReach, muzzleRise)) { e.coverPos.set(px, 0, pz); break; }
+  }
   e.hasCover = true;
   d.relocate = RELOCATE_MAX_S;
   d.relocateCd = NAMED_SNIPER.relocateCooldown;
@@ -485,8 +527,12 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
           lookAtTarget(e, tgt, dt);
           aimT = 0.9;
           if (d.fireCooldown <= 0 && d.proneTime >= PRONE_SETTLE_S && Math.abs(angleDiff(e.yaw, wantYaw)) < FACE_TOL) {
-            startGlint(e, d, host, tgt, d.pickScanned);
-            hint = HINT_GLINT; aimT = 1;
+            // C-62: 전조를 띄우기 **전에** 소염기 매몰을 본다 — 막힌 자리에서는 반짝임을 시작하지 않고 자리를 옮긴다
+            if (muzzleBuried(e, host, _shot.from, _shot.to)) buriedBeforeGlint(e, d, host, tgt);
+            else {
+              startGlint(e, d, host, tgt, d.pickScanned);
+              hint = HINT_GLINT; aimT = 1;
+            }
           }
         } else {
           // 쏠 표적이 없다: 가장 가까운 플레이어 쪽(드론 사거리 안)을 중심으로 조준경을 천천히 훑는다

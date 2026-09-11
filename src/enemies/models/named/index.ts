@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import type { BugAnim } from '../BugModel';
-import { closestOnSegment, raySegmentCapsule } from '../../RayTests';
+import { closestOnSegment, nearestOnCapsule, raySegmentCapsule } from '../../RayTests';
 import type { RogueRig } from '../RogueModel';
 import type { Enemy } from '../../Enemy';
 import { animateSniperLook, decorateSniperLook, disposeSniperLook, sniperBodyCapsule, sniperBodyCenterY } from './SniperLook';
@@ -61,6 +61,18 @@ export function namedBodyNormal(e: Enemy, point: THREE.Vector3, out: THREE.Vecto
   if (e.type !== 'rogue_sniper' || sniperBodyCapsule(e, _ba, _bb) <= 0) return out.set(point.x - e.position.x, 0, point.z - e.position.z);
   closestOnSegment(point, _ba, _bb, out);
   return out.set(point.x - out.x, point.y - out.y, point.z - out.z);
+}
+
+/**
+ * 몸통 판정이 세로 캡슐이 아닌 자세(엎드린 로든)면 **`namedBodyRay` 와 같은 캡슐**에서 `from` 에 가장 가까운 점을 `out` 에
+ * 적고 true, 기본 세로 캡슐을 써야 하면 false (C-62 — `Enemy.nearestBodyPoint` → `weapons/Melee` 원뿔).
+ */
+export function namedBodyNearest(e: Enemy, from: THREE.Vector3, out: THREE.Vector3): boolean {
+  if (e.type !== 'rogue_sniper') return false;
+  const r = sniperBodyCapsule(e, _ba, _bb);
+  if (r <= 0) return false;
+  nearestOnCapsule(from, _ba, _bb, r, out);
+  return true;
 }
 
 /** 폭발이 재는 몸 중심 높이 (발 위, m) — 기본은 키의 절반, 엎드린 로든은 몸통 캡슐 가운데. */

@@ -1,6 +1,7 @@
 // Single-player smoke test for the quick-use wheel slots (inventory side of Phase 2).
 // Usage: node scripts/smoke-quickslots.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -45,6 +46,7 @@ try {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
+  await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs, C-65)
   page.on('pageerror', (e) => errors.push(String(e)));
   // the relay is not part of this smoke: ignore the ws handshake failure
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('WebSocket connection')) errors.push(m.text()); });
@@ -501,6 +503,136 @@ try {
   });
   ok(strip.calls === 1 && strip.twins === 1 && strip.emptied, `C-12: stripForCorpse merges progression's broken implant twins (${strip.total} items) and empties the kit`, JSON.stringify(strip));
   ok(strip.before !== null && strip.after !== null && strip.after < strip.before && strip.worn === true, `C-36: death wears the equipped bag before it goes on the corpse (${strip.before} → ${strip.after})`, JSON.stringify(strip));
+
+  /* ── 2026-09-11 C-60 · C-61 (inventory) ────────────────────────────────────────────────────────────── */
+  console.log('C-60 · C-61');
+  // C-60: 행이 늘어난 시체 창은 패널 안에서 세로로 스크롤한다. 보통 상자는 모양이 그대로다.
+  const c60plain = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    inv.openContainerItems('crate:c60:plain', [ctx.loot.createItem('mat_scrap', 2)], ctx.player.position.clone(), '상자');
+    return true;
+  });
+  await sleep(300);
+  const plain = await page.evaluate(() => {
+    const s = document.querySelector('.inv-cont-scroll'), g = document.querySelector('.inv-grid-container');
+    const sr = s.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    const r = { overflow: s.scrollHeight > s.clientHeight + 1, gutter: s.classList.contains('is-scroll'), sw: sr.width, sh: sr.height, gw: gr.width, gh: gr.height };
+    window.__game.ctx.inventory.closeAll();
+    return r;
+  });
+  ok(c60plain && !plain.overflow && !plain.gutter && Math.abs(plain.sw - plain.gw) < 0.5 && Math.abs(plain.sh - plain.gh) < 0.5,
+    'C-60: a plain crate does not scroll — its viewport is exactly the grid box', JSON.stringify(plain));
+  const c60 = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    for (const it of [...inv.getAllItems()]) inv.takeItem(it.uid, it.qty);
+    const a = ctx.loot.createItem('mat_alloy', 1); inv.tryAddItem(a);
+    const items = Array.from({ length: 96 }, () => ctx.loot.createItem('imp_broken_strength_1'));
+    inv.openContainerItemsSized('pcorpse:c60:tall', items, ctx.player.position.clone(), 10, 8, '유해');
+    const g = inv.getActiveContainer()?.grid;
+    return { a: a.uid, cols: g?.cols ?? 0, rows: g?.rows ?? 0 };
+  });
+  await sleep(400);
+  const scroller = () => page.evaluate(() => {
+    const s = document.querySelector('.inv-cont-scroll'), g = document.querySelector('.inv-grid-container');
+    const r = s.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, st: s.scrollTop, max: s.scrollHeight - s.clientHeight,
+      gutter: s.classList.contains('is-scroll'), gridRight: gr.right, visRight: r.left + s.clientLeft + s.clientWidth, vh: window.innerHeight };
+  });
+  const sc0 = await scroller();
+  ok(c60.rows >= 10 && sc0.max > 0 && sc0.gutter && sc0.bottom <= sc0.vh && sc0.gridRight <= sc0.visRight + 0.5,
+    `C-60: a ${c60.cols}×${c60.rows} corpse scrolls inside the panel (max scroll ${sc0.max}px), stays on screen and no column is clipped`, JSON.stringify(sc0));
+  const clip = await page.evaluate((sc) => {
+    const v = window.__game.getSystem('inventory').ui.containerView, x = sc.left + 100;
+    return { inside: v.hitTest(x, sc.bottom - 4, 0), hidden: v.hitTest(x, sc.bottom + 12, 0), hiddenPad: v.cellForGhost(x - 27, sc.bottom - 15, 1, 1, x, sc.bottom + 12) };
+  }, sc0);
+  ok(clip.inside === true && clip.hidden === false && clip.hiddenPad === null, 'C-60: rows scrolled out of view are not a drop target (hitTest clips to the viewport, no edge tolerance there)', JSON.stringify(clip));
+  const aPos = await page.evaluate((uid) => { const e = document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${uid}"]`); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, c60.a);
+  if (!aPos || aPos[0] > 1275 || aPos[1] > 755) {
+    console.log(`  skip C-60 drag checks — the bag tile is off screen (${JSON.stringify(aPos)})`);
+  } else {
+    const x = sc0.left + 300;
+    await page.mouse.move(aPos[0], aPos[1]);
+    await page.mouse.down();
+    await page.mouse.move(aPos[0] - 20, aPos[1] + 6, { steps: 4 });
+    await page.mouse.move(x, sc0.bottom - 3, { steps: 10 });
+    await sleep(700);
+    const down = await scroller();
+    await page.mouse.move(x, sc0.top - 20, { steps: 4 });
+    await sleep(1000);
+    const up = await scroller();
+    ok(down.st > 0 && up.st === 0, `C-60: dragging to the bottom edge auto-scrolls down (${down.st}px), above the top edge back up (${up.st}px)`, JSON.stringify({ down: down.st, up: up.st, max: down.max }));
+    await page.mouse.move(x, sc0.bottom + 10, { steps: 4 });
+    await sleep(1000);
+    const bottom = await scroller();
+    const cell = await page.evaluate(() => { const g = document.querySelector('.inv-grid-container').getBoundingClientRect(); return [g.left + 8 * 56 + 27, g.top + 9 * 56 + 27]; });
+    await page.mouse.move(cell[0], cell[1], { steps: 8 });
+    await sleep(120);
+    await page.mouse.up();
+    await sleep(250);
+    const landed = await page.evaluate((uid) => { const p = window.__game.ctx.inventory.getActiveContainer()?.grid.items().find((q) => q.item.uid === uid); return p ? [p.x, p.y] : null; }, c60.a);
+    ok(bottom.st === bottom.max && landed && landed[0] === 8 && landed[1] === 9,
+      `C-60: after scrolling to the bottom, bag → corpse lands on the cell under the pointer (${JSON.stringify(landed)})`, JSON.stringify({ st: bottom.st, max: bottom.max, landed }));
+    await page.mouse.move(cell[0] - 200, cell[1] - 150, { steps: 3 });
+    await sleep(100);
+    await page.mouse.move(cell[0], cell[1], { steps: 3 });
+    await sleep(300);
+    const tip = await page.evaluate(([px, py]) => { const t = document.querySelector('.inv-tooltip'); const r = t.getBoundingClientRect(); return { shown: !t.hidden && r.width > 0, near: Math.abs(r.left - px) < 400 && Math.abs(r.top - py) < 400 && r.bottom <= window.innerHeight + 1 }; }, cell);
+    ok(tip.shown && tip.near, 'C-60: the tooltip of a scrolled container tile opens at the pointer', JSON.stringify(tip));
+  }
+  await page.evaluate(() => window.__game.ctx.inventory.closeAll());
+
+  // C-61: 가방 레이드 1회 소모 표시가 레이드 세션 상태에 실린다 (시드 도장). 순서: world:ready → applyRaidState 가 실제 순서이고,
+  // 반대 순서(blob 이 먼저)도 같은 레이드의 복귀(`rejoinPending`)면 표시가 산다. 옛 blob · 다른 시드 blob 은 false.
+  const c61 = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    const saved = { seed: inv.missionSeed, pending: ctx.rejoinPending };
+    const S = 770061;
+    const b = ctx.loot.createItem('bag_rare'); inv.tryAddItem(b); inv.equip(b.uid, 'bag');
+    const bag = () => inv.getLoadout().bag;
+    const r = {};
+    try {
+      inv.missionSeed = S; inv.bagWornThisRaid = false; inv.bagWornRestoreSeed = null;
+      r.unwornKey = 'bagWorn' in inv.captureRaidState();
+      inv.wearBagForRaid();
+      const d1 = bag().durability;
+      const state = inv.captureRaidState();
+      r.stamp = state.bagWorn;
+      r.sameTab = inv.wearBagForRaid();
+      // reload → rejoin, the real order: world:ready (flag down) → game/ applies the blob
+      inv.bagWornThisRaid = false; inv.bagWornRestoreSeed = null; ctx.rejoinPending = true;
+      inv.onWorldReady(S);
+      r.afterReady = inv.bagWornThisRaid;
+      r.applied = inv.applyRaidState(state);
+      r.restored = inv.bagWornThisRaid;
+      r.rewear = inv.wearBagForRaid();
+      r.durKept = bag()?.durability === d1;
+      // the reverse order: blob first (missionSeed still the old raid's), then world:ready of this raid
+      inv.bagWornThisRaid = false; inv.bagWornRestoreSeed = null; inv.missionSeed = S - 1;
+      inv.applyRaidState(state);
+      r.earlyApply = inv.bagWornThisRaid;
+      inv.onWorldReady(S);
+      r.reverse = inv.bagWornThisRaid;
+      // a new raid on the same seed (no rejoin) starts unworn
+      ctx.rejoinPending = false;
+      inv.onWorldReady(S);
+      r.newRaid = inv.bagWornThisRaid;
+      // an old blob (no field) and another raid's stamp → false
+      const old = { ...state }; delete old.bagWorn;
+      inv.bagWornThisRaid = true; inv.applyRaidState(old); r.oldBlob = inv.bagWornThisRaid;
+      inv.applyRaidState({ ...state, bagWorn: S + 5 }); r.otherSeed = inv.bagWornThisRaid;
+    } finally {
+      inv.missionSeed = saved.seed; ctx.rejoinPending = saved.pending;
+      inv.bagWornThisRaid = false; inv.bagWornRestoreSeed = null;
+      inv.loadoutStore?.clearRaid?.();
+      inv.closeAll();
+    }
+    return r;
+  });
+  ok(c61.unwornKey === false && c61.stamp === 770061 && c61.sameTab === false, 'C-61: captureRaidState stamps bagWorn = this raid\'s seed only once worn; a second wear in the same tab is refused', JSON.stringify(c61));
+  ok(c61.afterReady === false && c61.applied === true && c61.restored === true && c61.rewear === false && c61.durKept === true,
+    'C-61: reload → rejoin (world:ready, then the blob) restores the mark — extracting with the recovered bag does not wear it again', JSON.stringify(c61));
+  ok(c61.earlyApply === false && c61.reverse === true && c61.newRaid === false, 'C-61: blob before world:ready keeps the mark for the rejoin; a fresh raid on the same seed starts unworn', JSON.stringify(c61));
+  ok(c61.oldBlob === false && c61.otherSeed === false, 'C-61: an old blob (no bagWorn) or another raid\'s stamp restores false', JSON.stringify(c61));
 } catch (e) {
   fail++;
   console.log('  FAIL exception', e && e.stack || e);

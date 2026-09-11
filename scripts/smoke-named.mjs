@@ -3,6 +3,8 @@
 //         a tiny blast at 0.25 m catches it) — a standing rogue still has the vertical capsule
 //   C-56  a buried muzzle (rock between body and muzzle) stops the shot at the rock: `enemy:shot hit:false` near the body,
 //         no damage, cooldown still starts
+//   C-62  melee aims at `nearestBodyPoint` (3 m behind the lying sniper reaches its legs; scavenger / rogue reach unchanged);
+//         a muzzle buried **before** the glint starts no telegraph and relocates to a clear spot, then waits out the cooldown
 //   C-49  a scan drone that arrives through a host promotion (no `namedData`) is adopted, not retired: alive, pulses 0,
 //         `namedTimer` cleared, the sniper claims it
 //   C-50  a replica heavy's tracer points at the inferred target (bearing cone) instead of straight along its yaw
@@ -10,6 +12,7 @@
 // Drives `EnemySystem.debugSpawnNamed / debugSnapshot / debugApplySnapshot / setAuthority / replicaMgr.onEvent` — no relay.
 // Usage: node scripts/smoke-named.mjs [http://localhost:5273/]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -51,20 +54,9 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (window.__game gone).
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (window.__game gone).
+  await quietViteHmr(page);
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
@@ -192,6 +184,90 @@ try {
   ok(bur2.hit === false && bur2.toD < 1.2 && bur2.fromD < 1.2, `a buried muzzle stops the shot at the rock (hit ${bur2.hit}, from ${bur2.fromD.toFixed(2)} m · to ${bur2.toD.toFixed(2)} m from the body — a clear muzzle is ≈2.3 m)`);
   ok(bur2.hp === bur.hp && bur2.shield === bur.shield, `no damage reaches the player (hp ${bur.hp} → ${bur2.hp}, shield ${bur.shield} → ${bur2.shield})`);
   ok(bur2.cd > 3 && bur2.glint <= 0, `the telegraphed shot still spends the glint and starts the cooldown (${bur2.cd.toFixed(2)} s)`);
+
+  /* ── C-62: melee vs body hitbox · buried muzzle before the glint ─────── */
+  console.log('C-62 melee body point · buried before glint');
+  await freeze();
+  const mel = await P(() => {
+    const sys = window.__sys; const V = window.__V; const e = window.__sn; const g = window.__guard;
+    const melee = window.__game.getSystem('weapons').melee;
+    const pt = new V(), o = new V(), dir = new V();
+    const swing = (en, ox, oy, oz, useOld) => {
+      o.set(ox, oy, oz);
+      dir.set(en.position.x - ox, 0, en.position.z - oz).normalize();
+      return useOld ? melee.inCone(en.position, en.radius, en.height, o, dir, pt) : melee.inConeEnemy(en, o, dir, pt);
+    };
+    const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
+    const r = {};
+    // 3 m behind the prone sniper's pelvis at 0.9 m: the old standing body (reach 2.8 m from the centre) misses, the lying legs are in reach
+    const bx = e.position.x - fx * 3, bz = e.position.z - fz * 3, by = e.position.y + 0.9;
+    r.behindNew = swing(e, bx, by, bz, false); r.behindOld = swing(e, bx, by, bz, true);
+    e.nearestBodyPoint(o.set(bx, by, bz), pt);
+    const d = pt.distanceTo(o);
+    const hit = sys.raycast(o, dir.subVectors(pt, o).normalize(), 6);
+    r.pointY = pt.y - e.position.y; r.rayAgree = !!hit && hit.enemy === e && Math.abs(hit.distance - d) < 0.03;
+    // sweep a standing rogue and a scavenger: old vs new reach at a standing eye (1.55 m) — samples 5 cm apart
+    const s = sys.debugSpawn('scavenger', { x: g.position.x + 12, z: g.position.z }, false);
+    const sweep = (en) => {
+      let diff = 0, lastOld = 0, lastNew = 0;
+      for (let k = 0; k <= 50; k++) {
+        const dist = 1.5 + k * 0.05, x = en.position.x + dist, y = en.position.y + 1.55, z = en.position.z;
+        const a = swing(en, x, y, z, true), b = swing(en, x, y, z, false);
+        if (a !== b) diff++;
+        if (a) lastOld = dist; if (b) lastNew = dist;
+      }
+      return { diff, lastOld, lastNew };
+    };
+    r.rogue = sweep(g);
+    r.scav = s ? sweep(s) : null;
+    if (s) s.kill(false);
+    return r;
+  });
+  ok(mel.behindNew && !mel.behindOld, `melee 3 m behind the prone sniper reaches its legs (new ${mel.behindNew}, old standing-body test ${mel.behindOld})`);
+  ok(mel.pointY < 0.6 && mel.rayAgree, `nearestBodyPoint lies on the lying capsule the raycast hits (y ${mel.pointY.toFixed(2)} above the feet, ray agrees ${mel.rayAgree})`);
+  ok(mel.scav && mel.scav.diff <= 1, `scavenger melee reach unchanged (old ${mel.scav?.lastOld.toFixed(2)} m · new ${mel.scav?.lastNew.toFixed(2)} m)`, JSON.stringify(mel.scav));
+  ok(mel.rogue.diff <= 3 && Math.abs(mel.rogue.lastNew - mel.rogue.lastOld) <= 0.15, `standing rogue melee reach within 0.15 m (old ${mel.rogue.lastOld.toFixed(2)} m · new ${mel.rogue.lastNew.toFixed(2)} m)`, JSON.stringify(mel.rogue));
+
+  // a rock at every muzzle within 8.5 m of the nest: no glint, relocate to a spot whose muzzle is clear (the 10 m candidates)
+  const pre = await P(() => {
+    const ctx = window.__game.ctx; const e = window.__sn; const world = ctx.world; const V = window.__V;
+    window.__glints = 0;
+    if (!window.__glintSpy) { ctx.bus.on('named:sniperGlint', (p) => { if (p.enemyId === window.__sn.id) window.__glints++; }); window.__glintSpy = true; }
+    const real = window.__realRaycast;
+    const cx = e.position.x, cz = e.position.z;
+    window.__muzzleRays = 0;
+    world.raycast = function (o, d, max) {
+      const up = o.y - world.getSurfaceY(o.x, o.z, world.getHeightAt(o.x, o.z));   // body-centre rays sit EYE_UP (0.32) over the ground
+      if (max < 3 && Math.hypot(o.x - cx, o.z - cz) < 8.5 && up > 0.2 && up < 0.5) {
+        window.__muzzleRays++;
+        return { point: new V(o.x + d.x * 0.8, o.y + d.y * 0.8, o.z + d.z * 0.8), normal: new V(-d.x, -d.y, -d.z), distance: 0.8 };
+      }
+      return real.call(this, o, d, max);
+    };
+    const d = e.namedData;
+    d.fireCooldown = 0; d.relocateCd = 0; d.relocate = 0; d.proneTime = 5; d.pickId = 'local'; d.pickScanned = false; d.pickAt = 1e9;
+    return { x: cx, z: cz };
+  });
+  await waitFor(page, () => { const d = window.__sn.namedData; return d.relocate > 0 || window.__glints > 0; }, 'buried sniper relocates', 20000);
+  const pre2 = await P((c) => {
+    const e = window.__sn; const d = e.namedData;
+    const r = { glints: window.__glints, relocate: d.relocate, cd: d.relocateCd, rays: window.__muzzleRays, cover: Math.hypot(e.coverPos.x - c.x, e.coverPos.z - c.z) };
+    // "arrived" back on a blocked spot while the relocate cooldown runs: it must wait, not glint and not hop again
+    e.position.x = c.x; e.position.z = c.z;
+    d.relocate = 0; d.proneTime = 5; d.fireCooldown = 0; d.pickId = 'local'; d.pickAt = 1e9;
+    return r;
+  }, pre);
+  ok(pre2.glints === 0 && pre2.relocate > 0, `a buried muzzle before the glint starts no telegraph and relocates (glints ${pre2.glints}, relocate ${pre2.relocate.toFixed(2)} s, ${pre2.rays} muzzle rays)`);
+  ok(pre2.cover > 8.5 && pre2.cd > 5, `the new spot is one with a clear muzzle (${pre2.cover.toFixed(2)} m away, past the blocked 8.5 m) and the relocate cooldown runs (${pre2.cd.toFixed(1)} s)`);
+  await waitSim(2.5);
+  const pre3 = await P(() => {
+    const ctx = window.__game.ctx; const d = window.__sn.namedData;
+    const r = { glints: window.__glints, relocate: d.relocate, fireCd: d.fireCooldown, relocateCd: d.relocateCd };
+    ctx.world.raycast = window.__realRaycast;
+    d.fireCooldown = 1e9; d.relocateCd = 1e9; d.relocate = 0; d.pickAt = 0;
+    return r;
+  });
+  ok(pre3.glints === 0 && pre3.relocate <= 0 && pre3.fireCd > 0, `still blocked during the cooldown: no glint, no second hop, re-check paced (glints ${pre3.glints}, relocate ${pre3.relocate}, fireCooldown ${pre3.fireCd.toFixed(2)} s)`);
 
   /* ── C-49: scan drone adopted through a host promotion ───────────────── */
   console.log('C-49 scan drone adoption on promotion');

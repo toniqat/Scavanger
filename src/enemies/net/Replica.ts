@@ -12,6 +12,7 @@ import { lookAtTarget } from '../ai/Common';
 /* 2026-09-11: 네임드 로그 · 스캔 드론 */
 import { isNamedAiType } from '../ai/named';
 import { afterNamedReplica, beforeNamedReplica, onNamedEvent } from '../ai/named/remote';
+import type { NamedRogueDirector } from '../named/Director';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Client-side enemy replicas (joined multiplayer clients, `!ctx.isAuthority`).
@@ -162,6 +163,11 @@ export interface ReplicaHost {
   find(id: number): Enemy | undefined;
   /** Get-or-create a pooled Enemy carrying the host's id. Silent: no `enemy:spawned`. */
   acquire(id: number, type: EnemyType, position: THREE.Vector3, yaw: number): Enemy | null;
+  /**
+   * 2026-09-11 (C-52): the 네임드 director (`EnemySystem.named`). A snapshot that creates a replica silently (a late
+   * joiner missed `ee spawn`) still owes `enemy:namedSpawned` — once per id, shared with the `enemy:spawned` path.
+   */
+  readonly named: Pick<NamedRogueDirector, 'onReplicaCreated'>;
   /** Deactivate back to the pool (no network side effects). */
   release(e: Enemy): void;
   bloodBurst(point: THREE.Vector3, count: number, dir: THREE.Vector3 | null): void;
@@ -229,16 +235,21 @@ export class EnemyReplica {
       const w = list[i];
       let e = host.find(w.id);
       if (e && w.ty !== undefined && e.type !== w.ty) { host.release(e); e = undefined; }
+      let created = false;
       if (!e) {
         if (w.ty === undefined || !w.p) { this.ignoredUnknown++; continue; }
         _p.set(w.p[0], w.p[1], w.p[2]);
         e = host.acquire(w.id, w.ty, _p, w.yaw ?? 0) ?? undefined;
         if (!e) continue;
+        created = true;
       }
       if (w.w) e.weaponId = w.w;
       const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
       buf.applyWire(now, w, full);
       buf.seenSeq = seq;
+      // 2026-09-11 (C-52): still silent (no `enemy:spawned`), but a 네임드 made here is announced — once per id, the
+      // director's record also covers a later / earlier `ee spawn` for the same id
+      if (created) host.named.onReplicaCreated(e);
     }
     const active = host.active;
     if (full) {

@@ -4,7 +4,7 @@ import type { Enemy, EnemyHost } from '../Enemy';
 import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
 import type { CombatTarget, TargetList } from '../Targets';
 import { emitEnemyStep } from '../model';
-import { rideCarry, rideRecord } from './Ride';
+import { rideCarry, rideRecord, rideRelease } from './Ride';
 import { avoidObstacles, seek, separate, turnToward, yawTo } from './Steering';
 import { acquireTarget, updatePerception } from './Perception';
 import { fireLineStrafe, hasFireLine } from './FireLine';
@@ -525,8 +525,9 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   const charging = e.chargePhase === 2;
 
   if (e.airborne) {
-    // handled in the leap branch; only refresh gait/animation speed. A leap flies in world space — it leaves the tram.
-    e.carrier = null;
+    // handled in the leap branch; only refresh gait/animation speed. A leap flies in world space — it leaves the tram
+    // (C-63: without dismount inertia — the leap velocity is already solved toward a world-space target).
+    rideRelease(e);
     a.speed = THREE.MathUtils.lerp(a.speed, 0.2, dt * 5);
     return;
   }
@@ -557,7 +558,8 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
 
   // 2026-09-11 (C-18): 전차에 탄 몸은 차량이 이번 프레임에 옮겨 간 만큼 먼저 옮긴다 (`ai/Ride`). `velocity` 는 로컬 속도로 남고
   // `_prev` 는 그 뒤에 잡으므로 보행 · 발소리 · 돌진 이탈 검사는 차량 이동을 보지 않는다.
-  rideCarry(e, world);
+  // C-63: 차량을 벗어난 몸은 여기서 하차 관성을 흘린다 (역시 `_prev` 앞 — 위치에만, 보행은 보지 않는다).
+  rideCarry(e, world, dt);
   _prev.copy(pos);
   pos.x += e.velocity.x * dt;
   pos.z += e.velocity.z * dt;

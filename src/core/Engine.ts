@@ -33,7 +33,7 @@ export class Engine {
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
   private postEnabled = true;
-  /** C-44: the last bloom value the 화면 설정 asked for (the perf guard may have turned `postEnabled` off since). */
+  /** C-44: the last bloom value the 화면 설정 asked for — or, since C-58, `false` once the perf guard has turned it off. */
   private requestedPost = true;
   private started = false;
   private paused = false;
@@ -42,6 +42,8 @@ export class Engine {
   // perf guard
   private slowFrames = 0;
   private perfChecked = false;
+  /** C-58: the guard has turned bloom off this boot (`render:autoAdjusted` went out — at most once). */
+  private perfAutoOff = false;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', stencil: false });
@@ -132,6 +134,7 @@ export class Engine {
    * a 전체화면 toggle and a resolution change included — so only a **changed request** counts:
    *  - `requestedPost` is the last value the 설정 asked for. The same value again is a no-op: it neither re-enables a
    *    bloom the perf guard turned off (a later 전체화면 toggle used to undo the guard) nor marks the guard as settled.
+   *    (C-58: the guard itself sets it to false and the 설정 then publishes its effective bloom — see `perfDisableBloom`.)
    *  - `perfChecked` is set only by a real change, i.e. the player's own choice. Before, the boot publish set it and the
    *    guard below never ran once (it was dead code since 2026-09-08).
    *  - Switching the chain swaps the render target the scene is drawn into (composer buffer ↔ canvas), and the program
@@ -252,18 +255,41 @@ export class Engine {
    * Auto-disable bloom once if the frame time stays poor during the first 90 s — unless the player already chose.
    * 2026-09-11 (C-44): alive again (the boot settings publish used to disarm it), frames spent in a shader hold do not
    * count as slow (dt is real time, and a hold is the compile we asked for), and turning bloom off goes through
-   * `applyPost` so it holds for its own recompile too. The 설정 row is not rewritten: `requestedPost` stays true, and
-   * the player's next real bloom change wins.
+   * `applyPost` so it holds for its own recompile too. The player's next real bloom change wins.
    */
   private perfGuard(dt: number): void {
     if (this.perfChecked || !this.postEnabled || !this.composer) return;
     if (this.shaders.holding) return;
     if (dt >= MAX_DT - 1e-4) this.slowFrames++; else this.slowFrames = Math.max(0, this.slowFrames - 1);
-    if (this.slowFrames > 240) {
-      this.perfChecked = true;
-      this.applyPost(false);
-      console.info('[Engine] sustained slow frames — bloom disabled');
-    }
+    if (this.slowFrames > 240) this.perfDisableBloom();
     if (this.ctx.time > 90) this.perfChecked = true;
   }
+
+  /**
+   * **2026-09-11 (C-58).** The guard's one action: bloom off, and say so on `render:autoAdjusted` (at most once per boot)
+   * so the 설정 row can show `꺼짐 (성능 자동)` and a toast can explain it. Nothing is persisted.
+   *
+   * `requestedPost` becomes **false** here, i.e. the guard's value is now the current request. That is what makes both
+   * halves of the decision work with the one `ui:displayChanged` payload: while the row shows auto-off the 설정 publishes
+   * its *effective* bloom (`false`) on every other change (전체화면 · 그림자 · 해상도) → the same value, a no-op, the guard
+   * holds; and the player's explicit 켜기 publishes `true` → a changed request → bloom comes back (with its hold).
+   * Before C-58 it stayed true, so that explicit `true` would have been swallowed as "same value again".
+   */
+  private perfDisableBloom(): boolean {
+    if (this.perfAutoOff || !this.isPostProcessing) return false;
+    this.perfAutoOff = true;
+    this.perfChecked = true;
+    this.requestedPost = false;
+    this.applyPost(false);
+    console.info('[Engine] sustained slow frames — bloom disabled');
+    this.ctx.bus.emit('render:autoAdjusted', { bloom: false, reason: 'perf' });
+    return true;
+  }
+
+  /**
+   * Dev / smoke hook (C-58): run the perf guard's bloom-off path **now**, ignoring the 90 s window, the slow-frame count
+   * and an earlier player choice (`perfChecked`). Still once per boot and only while bloom is actually drawn; returns
+   * whether it fired. Reach it as `__game.debugForcePerfGuard()` — nothing in the game calls it.
+   */
+  debugForcePerfGuard(): boolean { return this.perfDisableBloom(); }
 }

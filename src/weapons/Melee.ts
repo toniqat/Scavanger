@@ -128,7 +128,7 @@ export class MeleeController {
       for (let i = 0; i < list.length && hits < MELEE_MAX_TARGETS; i++) {
         const e = list[i];
         if (!e || e.isDead) continue;
-        if (!this.inCone(e.position, e.radius, e.height, _origin, _dir, _point)) continue;
+        if (!this.inConeEnemy(e, _origin, _dir, _point)) continue;
         const wasDead = e.isDead;
         try { e.takeDamage(dmg, _point, _dir); } catch { continue; }
         const killed = !wasDead && e.isDead;
@@ -182,6 +182,22 @@ export class MeleeController {
       if (e.position.distanceToSquared(origin) <= r2) out.push(e);
     }
     return out;
+  }
+
+  /**
+   * C-62 (2026-09-11): cone test against the enemy's own body hitbox — `EnemyRef.nearestBodyPoint` (the lying capsule of a
+   * prone sniper, the standing capsule / sphere the raycast uses otherwise) gives the contact point; reach is `MELEE_RANGE`
+   * from that surface and the cone looks at it. For a sphere-shaped body this is exactly the old `MELEE_RANGE + radius` from
+   * the centre. Works on replicas too (a pure geometry query on the interpolated body). Without the method: the old test.
+   */
+  private inConeEnemy(e: EnemyRef, origin: THREE.Vector3, dir: THREE.Vector3, point: THREE.Vector3): boolean {
+    if (typeof e.nearestBodyPoint !== 'function') return this.inCone(e.position, e.radius, e.height, origin, dir, point);
+    try { e.nearestBodyPoint(origin, point); } catch { return this.inCone(e.position, e.radius, e.height, origin, dir, point); }
+    _to.subVectors(point, origin);
+    const dist = _to.length();
+    if (dist > MELEE_RANGE) return false;
+    if (dist < 1e-4) return true;   // swinging from inside the body
+    return _to.dot(dir) >= MELEE_COS * dist;
   }
 
   /**

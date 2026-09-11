@@ -49,8 +49,18 @@ Notes
   블룸을 뒤이은 전체화면 토글이 **다시 켜지 않는다**.
 - **perf guard**: `perfChecked` 는 이제 **플레이어가 블룸을 실제로 바꿨을 때만** 선다. 부팅 발행은 같은 값이라 세우지
   않으므로 guard 가 되살아났다(첫 90 초, dt ≥ 0.05 프레임이 240 넘게 쌓이면 끈다). hold 중인 프레임은 세지 않고,
-  끌 때도 `applyPost` 를 거쳐 hold 한다. 끈 사실을 설정 화면에 되돌려 쓰지는 않는다 — `ui:displayChanged` 는 ui → core
-  한 방향뿐이라 설정 행은 `켬` 으로 남고, 플레이어가 블룸을 한 번 바꾸면 그 선택이 이긴다.
+  끌 때도 `applyPost` 를 거쳐 hold 한다. ~~끈 사실을 설정 화면에 되돌려 쓰지는 않는다 — 설정 행은 `켬` 으로 남는다~~ →
+  2026-09-11 C-58 에서 `render:autoAdjusted` 로 알린다 (아래 C-58 절).
+
+## 2026-09-11 — perf guard 가 블룸을 끈 사실을 알린다 (C-58)
+
+- `perfDisableBloom()` 이 guard 의 유일한 동작이다: `applyPost(false)` 직후 **부팅당 최대 1회** `render:autoAdjusted
+  {bloom:false, reason:'perf'}` (`perfAutoOff`). 저장하지 않는다 — 다음 부팅은 저장값(켬)으로 시작하고, 느리면 또 끈다.
+- 그 순간 `requestedPost` 를 **false** 로 내린다. 설정(`ui/menus/SettingsMenu`)은 자동으로 꺼진 동안 **실효값**
+  (`bloom:false`)을 발행하므로 전체화면 · 그림자 · 해상도 변경은 같은 값 = no-op 이고, 플레이어가 행을 눌러 켜면 `true` 가
+  바뀐 요청이 되어 블룸이 돌아온다(hold 포함). C-44 때처럼 `true` 로 남겨 두면 그 켜기가 "같은 값" 으로 삼켜진다.
+- `debugForcePerfGuard()` — dev / 스모크 훅. 90 초 창 · 느린 프레임 수 · `perfChecked` 를 무시하고 같은 경로를 지금 돌린다
+  (여전히 부팅당 1회, 블룸이 실제로 그려질 때만). 게임 코드는 부르지 않는다. 검사: `scripts/smoke-lights.mjs` C-58 구간.
 - 검사: `scripts/smoke-lights.mjs` — 부팅 뒤 `perfChecked false`, 레이드에서 같은 값 재발행 → hold 없음, 그림자 · 블룸 ·
   되돌리기 각각 → 그 순간 `shaders.holding` true → 풀린 뒤 몇 프레임 `renderer.info.programs.length` 불변, 그리고
   `perfChecked true`.
@@ -89,3 +99,7 @@ Notes
 - **2026-09-11 (C-44)** — `setPostProcessing` · `setShadows` 가 값이 실제로 바뀔 때만 동작하고 `holdForScene()` 으로
   hold, `requestedPost` 로 같은 값 재발행 무시, perf guard 되살림(사용자 조작만 `perfChecked`, hold 프레임 제외, 끌 때도
   hold). 위 C-44 절 · `smoke-lights` 단언 7개.
+
+- **2026-09-11 (C-58)** — perf guard 가 블룸을 끄면 `render:autoAdjusted {bloom:false, reason:'perf'}` 를 부팅당 1회 낸다
+  (`perfDisableBloom`), 그때 `requestedPost` = false(설정이 실효값을 발행하므로 플레이어의 켜기만 바뀐 요청이 된다),
+  dev 훅 `debugForcePerfGuard()`. 위 C-58 절 · `smoke-lights` 단언 +9.

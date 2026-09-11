@@ -37,10 +37,18 @@ export function captureRaidState(sys: InventorySystem): unknown {
     return flag === undefined ? sv : { ...sv, searched: flag };
   });
   const state: RaidInventoryState = { ...save, bag, raid: 1 };
+  // 2026-09-11 (C-61): the once-per-raid bag wear travels with the session (stamped with this raid's seed)
+  if (sys.bagWornThisRaid) state.bagWorn = sys.missionSeed;
   return state;
   }
 
-/** Replace the bag / slots / quick slots with a `captureRaidState()` result and re-announce everything. */
+/**
+ * Replace the bag / slots / quick slots with a `captureRaidState()` result and re-announce everything.
+ *
+ * 2026-09-11 (C-61): also restores `bagWornThisRaid` — true only when the state's `bagWorn` is **this** raid's seed
+ * (`missionSeed`, set at `world:ready`, which runs before game/ applies a rejoin blob). Omitted / another seed = false:
+ * an old blob, and the 훈련장 snapshot restored on exit, can never carry a wear mark across raids.
+ */
 export function applyRaidState(sys: InventorySystem, state: unknown): boolean {
   const save = sanitizeLoadoutSave(state);
   if (!save) return false;
@@ -51,6 +59,10 @@ export function applyRaidState(sys: InventorySystem, state: unknown): boolean {
     const flag = (sv as { searched?: boolean }).searched;
     if (item && typeof flag === 'boolean') item.searched = flag;
   });
+  const worn = (state as { bagWorn?: unknown }).bagWorn;
+  const wornSeed = typeof worn === 'number' && Number.isFinite(worn) ? worn : null;
+  sys.bagWornRestoreSeed = wornSeed;
+  sys.bagWornThisRaid = wornSeed !== null && wornSeed === sys.missionSeed;
   sys.announcePending = false;
   sys.announceLoaded();
   return true;

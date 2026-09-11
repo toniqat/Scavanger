@@ -452,8 +452,25 @@ export class GridView {
     if (!this.grid) return false;
     const r = this.rect();
     if (r.width <= 0 || r.height <= 0) return false;
-    return pointerX >= r.left - pad && pointerX <= r.right + pad && pointerY >= r.top - pad && pointerY <= r.bottom + pad;
+    let top = r.top - pad, bottom = r.bottom + pad;
+    const clip = this.clipEl;
+    if (clip && clip.scrollHeight > clip.clientHeight + 1) {
+      // 2026-09-11 (C-60): rows scrolled out of the viewport are not a target, and a clipped edge has no tolerance —
+      // otherwise a release over the panel header would land on a row hidden above it
+      const c = clip.getBoundingClientRect();
+      if (r.top < c.top) top = c.top;
+      if (r.bottom > c.bottom) bottom = c.bottom;
+    }
+    return pointerX >= r.left - pad && pointerX <= r.right + pad && pointerY >= top && pointerY <= bottom;
   }
+
+  /**
+   * 2026-09-11 (C-60): the scroll viewport this grid sits in (the container panel's `.inv-cont-scroll`). Cell math keeps
+   * reading the grid's own `getBoundingClientRect` (it already includes the scroll offset — nothing is cached); the clip
+   * only trims `hitTest` to the visible rows while the viewport actually overflows. null = no clipping (bag · 창고).
+   */
+  setClip(el: HTMLElement | null): void { this.clipEl = el; }
+  private clipEl: HTMLElement | null = null;
 
   /** Tolerance (px) used for the padded second pass. */
   get hitPad(): number { return this.step * 0.5; }

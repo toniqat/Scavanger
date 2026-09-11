@@ -19,6 +19,7 @@
 //
 // Usage: node scripts/smoke-ladder.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -78,20 +79,9 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        // vite HMR (a reload would kill the run) and the relay (a real profile must not arrive mid-run)
-        if (protos.includes('vite-hmr') || String(args[0]).includes('/ws')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  // vite HMR (a reload would kill the run) and the relay (a real profile must not arrive mid-run)
+  await quietViteHmr(page, { parkRelay: true });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

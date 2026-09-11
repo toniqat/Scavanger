@@ -10,9 +10,13 @@
 //   4. 로그 강하 목표: 전차 컨테이너 구역(`tram_*`)은 가장 가까운 플랫폼으로 바뀌고, 다른 구역은 그대로다
 //   5. 리플리카 탑승 예측: 권한을 내리고(`setAuthority(false)`) 호스트처럼 스냅샷을 먹이면, 보간 지연(0.12 s × 전차 속도)
 //      만큼 뒤처지지 않고 데크의 같은 자리에 그려진다
+//   6. (C-63, 3 과 4 사이) 달리는 전차에서 차량 부피를 벗어난 적이 하차 관성으로 진행 방향으로 밀려 간다 ·
+//      선로 발판 위(데크보다 0.35 m 낮다)에 선 적도 치인다 · 전차 위 분대원 시체의 `pcorpse` 와이어에 `ride` 가 실리고,
+//      받는 쪽은 보간 지연만큼 뒤진 `p`(전차 밖) 대신 그 `ride` 로 후미에 타서 따라간다 (리스너 · add 순서 둘 다)
 //
 // Usage: node scripts/smoke-tram-ride.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
+import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
@@ -56,19 +60,8 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    const RealWS = window.WebSocket;
-    class QuietSocket extends EventTarget {
-      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
-      send() {} close() {}
-    }
-    window.WebSocket = new Proxy(RealWS, {
-      construct(target, args) {
-        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
-        return new target(...args);
-      },
-    });
   });
+  await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs)
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
@@ -178,6 +171,139 @@ try {
       ok(after.victim.dead && dLocal < 0.3 && dWorld > moved * 0.8, `C-18: 시체가 전차와 함께 간다 (로컬 Δ ${dLocal.toFixed(2)} m · 월드 ${dWorld.toFixed(1)} m)`, JSON.stringify(after.victim));
       ok(dCorpse < 0.2, `C-18: 수색 상호작용 자리가 시체를 따라간다 (Δ ${dCorpse.toFixed(2)} m)`, JSON.stringify({ corpse: after.corpse, body: after.victim.p }));
     } else ok(false, 'C-18: 시체와 수색 자리가 남아 있다', JSON.stringify(after));
+
+    /* ── C-63 (2026-09-11): 적 하차 관성 · 선로 발판 위 적 치임 · 분대원 시체 와이어 탑승 ─────────────────
+       전차가 최고 속도로 달리는 동안만 의미가 있다 (아니면 건너뛴다). 뒤의 4 · 5 가 쓸 주행 시간을 아끼려고 1.3 s 안에 끝낸다. */
+    if (after.speed > 8 && after.state === 'moving') {
+      const c63a = await page.evaluate(() => {
+        const ctx = window.__game.ctx, w = ctx.world, mgr = ctx.corpses;
+        const es = window.__game.getSystem('enemies');
+        const t = w.getTrams()[0];
+        const R = window.__smokeRide;
+        let floor = null;
+        for (const o of w.getObstacles()) {
+          if (o.kind !== 'tram' || !o.box || !o.velocity) continue;
+          if (!floor || o.box.halfX * o.box.halfZ > floor.box.halfX * floor.box.halfZ) floor = o;
+        }
+        if (!floor) return null;
+        R.halfLen = floor.box.halfX; R.halfWid = floor.box.halfZ;
+        const V3 = ctx.camera.position.constructor;
+        const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
+        const at = (lx, lz, y) => new V3(t.position.x + lx * c - lz * s, y, t.position.z + lx * s + lz * c);
+        const local = (p) => { const dx = p.x - t.position.x, dz = p.z - t.position.z; return [dx * c + dz * s, -dx * s + dz * c]; };
+        // 하차 관성용 적: 데크 뒤쪽 가운데 줄 (캐비닛은 옆벽에 붙어 있다)
+        const jp = at(-3, 0, t.position.y);
+        const jumper = es.debugSpawn('warrior', jp, false);
+        if (jumper) { jumper.position.copy(jp); jumper.wanderTimer = 1e9; jumper.aware = false; jumper.state = 'idle'; R.jumper = jumper.id; }
+        // 시체 와이어: 보낸 쪽(A)은 후미 끝에서 죽었다. 받는 쪽은 보간 지연만큼 뒤(전차 밖)의 p 를 받는다
+        const lx = -R.halfLen + 0.4;
+        const a = mgr.add('pcorpse:smokeA:1', 'smokeA', 'A', at(lx, 0, t.position.y), 0.3, ctx.missionTime, [], 0);
+        const wire = a.toWire();
+        const lag = at(lx - 1.5, 0, t.position.y);
+        const p = [lag.x, lag.y, lag.z];
+        // B: 리스너가 먼저 (ride 를 적어 두고 add 가 쓴다)
+        const wB = { ...wire, id: 'pcorpse:smokeB:1', owner: 'smokeB', p };
+        mgr.noteWireRide(wB);
+        const b = mgr.add(wB.id, 'smokeB', 'B', lag.clone(), wire.yaw, ctx.missionTime, [], 0);
+        // C: 시체가 먼저 서고(p 로는 못 탄다) 리스너가 뒤에 다시 태운다
+        const wC = { ...wire, id: 'pcorpse:smokeC:1', owner: 'smokeC', p };
+        const cc = mgr.add(wC.id, 'smokeC', 'C', lag.clone(), wire.yaw, ctx.missionTime, [], 0);
+        const cBefore = cc.riding;
+        mgr.noteWireRide(wC);
+        // D: ride 없는 옛 와이어 — 같은 p 로는 전차를 놓친다 (C-63 이전의 틈, 참고용)
+        const d = mgr.add('pcorpse:smokeD:1', 'smokeD', 'D', lag.clone(), wire.yaw, ctx.missionTime, [], 0);
+        R.corpseLx = lx;
+        return {
+          jumper: !!jumper, aRiding: a.riding, ride: wire.ride ?? null, bRiding: b.riding, bLocal: local(b.position),
+          yawErr: Math.abs(b.yaw - a.yaw), cBefore, cRiding: cc.riding, cLocal: local(cc.position), dRiding: d.riding,
+        };
+      });
+      if (c63a) {
+        const lx = -await page.evaluate(() => window.__smokeRide.halfLen) + 0.4;
+        ok(c63a.aRiding && !!c63a.ride && c63a.ride.tram === 'tram_rail_0' && Math.abs(c63a.ride.local[0] - lx) < 0.05 && Math.abs(c63a.ride.local[2]) < 0.05,
+          'C-63: 전차 위 시체의 와이어에 ride(전차 id · 차량 로컬 좌표)가 실린다', JSON.stringify(c63a.ride));
+        ok(c63a.bRiding && Math.abs(c63a.bLocal[0] - lx) < 0.1 && Math.abs(c63a.bLocal[1]) < 0.1 && c63a.yawErr < 1e-3,
+          `C-63: 받는 쪽(리스너 먼저)은 지연된 p 대신 ride 로 전차 후미에 탄다 (로컬 ${c63a.bLocal.map((v) => v.toFixed(2)).join(', ')})`);
+        ok(!c63a.cBefore && c63a.cRiding && Math.abs(c63a.cLocal[0] - lx) < 0.1,
+          `C-63: 받는 쪽(시체 먼저)도 ride 가 도착하면 전차 후미로 옮겨 탄다 (로컬 ${c63a.cLocal.map((v) => v.toFixed(2)).join(', ')})`);
+        console.log(`  --   참고: ride 없는 옛 와이어의 같은 p 는 ${c63a.dRiding ? '탔다' : '전차를 놓친다'}`);
+      } else ok(false, 'C-63: 준비', 'no tram floor');
+
+      await waitSim(page, 0.3);
+      const kick = await page.evaluate(() => {
+        const ctx = window.__game.ctx, w = ctx.world;
+        const es = window.__game.getSystem('enemies');
+        const t = w.getTrams()[0];
+        const R = window.__smokeRide;
+        const j = es.byId.get(R.jumper);
+        const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
+        const at = (lx, lz) => ({ x: t.position.x + lx * c - lz * s, z: t.position.z + lx * s + lz * c });
+        let floor = null;
+        for (const o of w.getObstacles()) {
+          if (o.kind !== 'tram' || !o.box || !o.velocity) continue;
+          if (!floor || o.box.halfX * o.box.halfZ > floor.box.halfX * floor.box.halfZ) floor = o;
+        }
+        const sp = floor ? Math.hypot(floor.velocity.x, floor.velocity.z) : 0;
+        const out = { boarded: !!j && !!j.carrier, speed: sp };
+        if (j && sp > 1) {
+          // 옆으로 차량 부피(단면 + RIDE_EDGE_MARGIN) 밖 — 걸어서 내린 것과 같다
+          const off = at(-3, R.halfWid + 2.5);
+          j.position.set(off.x, w.getSurfaceY(off.x, off.z, t.position.y), off.z);
+          R.kickFrom = [j.position.x, j.position.z];
+          R.kickDir = [floor.velocity.x / sp, floor.velocity.z / sp];
+        }
+        // 선로 발판 위, 전차 바로 앞 (발이 데크보다 TRAM_HIT_FLOOR_CLEAR … RIDE_FOOT_DROP 아래 띠)
+        const ah = at(R.halfLen + 5, 0);
+        const y = w.getSurfaceY(ah.x, ah.z, t.position.y - 0.2);
+        out.band = t.position.y - y;
+        const rail = es.debugSpawn('warrior', ah, false);
+        if (rail) {
+          rail.position.set(ah.x, y, ah.z);
+          rail.wanderTimer = 1e9; rail.aware = false; rail.state = 'idle';
+          R.railer = rail.id; R.railHp0 = rail.hp;
+        }
+        return out;
+      });
+      ok(kick.boarded, 'C-63: 관성 검사용 적이 데크에서 탑승을 잡았다', JSON.stringify(kick));
+
+      await waitSim(page, 0.4);
+      const inertia = await page.evaluate(() => {
+        const ctx = window.__game.ctx, w = ctx.world, mgr = ctx.corpses;
+        const es = window.__game.getSystem('enemies');
+        const t = w.getTrams()[0];
+        const R = window.__smokeRide;
+        const j = es.byId.get(R.jumper);
+        const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
+        const local = (p) => { const dx = p.x - t.position.x, dz = p.z - t.position.z; return [dx * c + dz * s, -dx * s + dz * c]; };
+        const b = mgr.get('pcorpse:smokeB:1'), cc = mgr.get('pcorpse:smokeC:1');
+        return {
+          along: j && R.kickFrom ? (j.position.x - R.kickFrom[0]) * R.kickDir[0] + (j.position.z - R.kickFrom[1]) * R.kickDir[1] : null,
+          carrier: j ? !!j.carrier : null, inertiaT: j ? j.rideInertiaT : null,
+          bLocal: b ? local(b.position) : null, cLocal: cc ? local(cc.position) : null,
+        };
+      });
+      if (kick.speed > 8 && inertia.along !== null) {
+        ok(!inertia.carrier && inertia.along > 1.2,
+          `C-63: 차량 부피를 벗어난 적이 하차 관성으로 진행 방향으로 밀려 간다 (0.4 s 에 ${inertia.along.toFixed(2)} m, 전차 ${kick.speed.toFixed(1)} m/s)`, JSON.stringify(inertia));
+      } else console.log(`  --   하차 관성 검사 건너뜀 (전차 ${kick.speed.toFixed(1)} m/s)`);
+      if (c63a) {
+        const lx = -await page.evaluate(() => window.__smokeRide.halfLen) + 0.4;
+        ok(!!inertia.bLocal && !!inertia.cLocal && Math.abs(inertia.bLocal[0] - lx) < 0.2 && Math.abs(inertia.cLocal[0] - lx) < 0.2,
+          'C-63: ride 로 탄 시체가 달리는 전차 후미를 그대로 따라간다', JSON.stringify(inertia));
+      }
+
+      await waitSim(page, 0.6);
+      const railHit = await page.evaluate(() => {
+        const es = window.__game.getSystem('enemies');
+        const R = window.__smokeRide;
+        const r = es.byId.get(R.railer);
+        return { hp0: R.railHp0, hp: r ? r.hp : null, dead: r ? r.state === 'dead' : null };
+      });
+      if (kick.speed > 8 && kick.band > 0.2 && kick.band < 0.68) {
+        ok(railHit.hp !== null && (railHit.hp < railHit.hp0 || railHit.dead),
+          `C-63: 선로 발판 위(데크 −${kick.band.toFixed(2)} m)에 선 적도 달리는 전차에 치인다 (hp ${railHit.hp0} → ${railHit.hp})`, JSON.stringify(railHit));
+      } else console.log(`  --   선로 발판 치임 검사 건너뜀 (띠 ${kick.band.toFixed(2)} m · 전차 ${kick.speed.toFixed(1)} m/s)`);
+    } else console.log(`  --   C-63 검사 건너뜀 (전차 ${after.state}, ${after.speed.toFixed(1)} m/s)`);
 
     /* ── 4. 로그 강하 목표 ─────────────────────────────────────────── */
     const drop = await page.evaluate(() => {

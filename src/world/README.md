@@ -9,7 +9,7 @@ textures are procedural.
 | File | Responsibility |
 |---|---|
 | `WorldSystem.ts` | `GameSystem` + `WorldRef` implementation. Orchestrates generation order (terrain → nests → pads → outposts → **structures → rails → hazard** → props → crates → **gather** → ambience), owns the `SpatialHash`, and answers queries: `getHeightAt` (heightfield + extraction platform top), `getNormalAt`, `resolveCollision` (circle push-out + soft wall at ±(MAP_SIZE/2−4)), `raycast` (heightfield ray-march + analytic ray/cylinder vs obstacles — **2026-09-08** it shoots at `Obstacle.shotRadius / shotHeight` when a prop declares them, and the slab clip is complete: the old code tested only the entry point of the infinite cylinder plus the top cap, so a ray entering the footprint below the base and crossing the body further along reported a miss), `getEnemySpawnPoints`, `getExtractionPoints`, `getCrates`, `getNestPositions`, `getPlayerSpawn`, `getGatherNodes` (appended). Extra: `getBiome()`. **2026-09-09 (사각 콜라이더)**: `resolveCollision` · `raycast` · `getSurfaceY` · `getStandingObstacle` 가 `Obstacle.box` 를 만나면 `obb.ts` 로 갈라진다 — 원기둥 소품의 코드 경로는 한 줄도 바뀌지 않았다. `getStructures / structureAt / getRailLines / getTrams` 는 `Structures` / `Rails` 로 위임한다 (훈련장은 빈 배열). **2026-09-09 (환경 재해)**: `get hazard()` 가 `Hazard.ref` 를 돌려준다 — 후보 없는 행성 · 자리를 못 잡은 시드 · 훈련장이면 null. **2026-09-10 (올라설 수 있는 단은 벽이 아니다)**: `resolveCollision` 의 `o.box` 가지가 **윗면이 발 높이에서 `PROP_STEP_UP_MAX` 안인 상자를 밀어내지 않는다** — `getSurfaceY(x, z, feetY)` 의 천장과 같은 식이다. 움직이는 쪽의 규약이 "표면 먼저, 밀어내기 나중" 이라 그런 상자는 어차피 발밑으로 들어오는데, 밀어내면 **올라설 자리에 닿기 전에 밀려나** 영영 못 올라간다 (지하실 계단 · 플랫폼 계단이 그래서 막혔다). 원기둥 소품의 경로는 그대로다. **Phase 11**: `generate(seed, mode, planet)` — the 목표 행성 (from `game:newMission.planet`, else `ctx.missionPlanet`) is stored on `WorldRef.planet`, picks the biome by id and is echoed in `world:ready.planet`; an unknown id is reported as null. **2026-09-11**: `getSurfaceY` · `getStandingObstacle` · `resolveCollision` · `raycast` 에 `o.hull`(볼록 윤곽 · 층) · `o.ramp`(경사면 높이) 가지. `resolveCollision` 은 **작은 몸(`SMALL_BODY_R` 미만)** 에게 머리 위 여유를 제 크기(`2r`)만 주고 "올라설 수 있는 단" 예외를 주지 않는다 — 실내 수류탄이 천장판에 밀려 건물 밖으로 나가거나 난간을 뚫지 않게. `obstacleCoverage` 는 볼록 윤곽을 같은 넓이의 원으로 센다. `getLadders()`, 구조물 조명 풀에 플레이어 눈(없으면 카메라)을 넘기고, **상자 · 컨테이너 열린 모습 동기화**(`crate opened` 누구나 → 전원, 호스트가 `crate sync {ids}` 로 늦게 합류한 사람에게, `crate syncq` 요청)를 한다. **2026-09-11 (C 배치)**: ① `getStandingObstacle` 은 `PROP_TOP_MARGIN` 창 안에서 **`velocity` 를 든 발판이 높이보다 먼저**다(C-38 — 선로 발판과 전차 바닥이 같은 높이일 때 삽입 순서로 고정 발판이 이기던 동점, 코드는 리드). ② `getSurfaceMaterial(x, z, feetY?)`(C-22) — `feetY` 가 있으면 밟은 장애물(해시 질의 1회) → 탈출 착륙장 · 폐허 바닥판 concrete → 지형 띠, 훈련장 concrete, 표는 `surface.ts`. ③ `genTimings`(C-40) — 단계별 생성 ms. ④ `Fog.setOutposts`(C-11). |
-| `noise.ts` | Seeded 2D simplex (`noise2`), 3D gradient noise (`noise3`), `fbm`, `ridged`, `billow`; `lerp/clamp/smoothstep` helpers. **2026-09-09 — `noise3` 의 `lerp` 인자 순서가 뒤집혀 있었다.** `lerp` 는 `(a, b, t)` 인데 `(t, a, b)` 로 넣어 세 겹의 보간이 `w + (a − w)·b` 로 쌓였고, 값이 `[-1, 1]` 이 아니라 **측정 `[-31.2, +52.6]`** 이었다. 쓰는 곳이 `build.displace` 하나뿐이라 지형(`noise2` 계열)은 멀쩡했지만 소품 정점 몇 개가 원점에서 10 units 씩 튕겨 나갔고, `Props.hullOf` 가 바운딩 박스로 콜라이더를 만들면서 그 정점 하나가 소품 전체를 감싸는 거대 원기둥이 됐다 (아래 `Props.ts`). 고친 뒤 범위 `[-0.91, +0.99]`. |
+| `noise.ts` | Seeded 2D simplex (`noise2`), 3D gradient noise (`noise3`), `fbm`, `ridged`, `billow`; `lerp/clamp/smoothstep` helpers. **2026-09-09 — `noise3` 의 `lerp` 인자 순서가 뒤집혀 있었다.** `lerp` 는 `(a, b, t)` 인데 `(t, a, b)` 로 넣어 세 겹의 보간이 `w + (a − w)·b` 로 쌓였고, 값이 `[-1, 1]` 이 아니라 **측정 `[-31.2, +52.6]`** 이었다. 쓰는 곳이 `build.displace` 하나뿐이라 지형(`noise2` 계열)은 멀쩡했지만 소품 정점 몇 개가 원점에서 10 units 씩 튕겨 나갔고, `Props.hullOf` 가 바운딩 박스로 콜라이더를 만들면서 그 정점 하나가 소품 전체를 감싸는 거대 원기둥이 됐다 (아래 `Props.ts`). 고친 뒤 범위 `[-0.91, +0.99]`. **2026-09-11 (C-66)** — `noise2` 를 V8 이 인라인할 수 있는 크기로 줄이고(`corner()` 분리) `fbm` · `ridged` 는 그 커널을 루프 안에 펴서 들고 있다, 기울기는 생성자에서 `gx` · `gy` 로 펴 뒀다. **값은 비트 단위로 그대로** — 연산 순서 · 피연산자를 바꾸지 않았다 (아래 `변경 이력` 의 C-66: 커널 사본 셋은 함께 고치고, 고친 뒤 옛 구현과 비트 비교를 돌린다). |
 | `biomes.ts` | Five biome palettes (amber desert, frozen tundra, mossy swamp, ashen volcanic, crimson alien): terrain bands, prop colors, scatter density multipliers. `pickBiome(seed)` reproduces core's `new Random(seed).fork('atmosphere').pick(SKY_PALETTES)` draw so `BIOMES[i]` is always shown under `SKY_PALETTES[i]` (amber-dusk, cold-blue, toxic-green, rust-storm, pale-noon) and each palette is tuned to contrast with its fog color (`pairedSky`, `fogHint`). If core changes the palette count or fork label, the pairing silently degrades to "random but valid". **Phase 11**: `biomeById(id)` looks a palette up by `PlanetDef.biome`, so with a 목표 행성 the pairing is data instead of two matching draws; `pickBiome` stays the no-planet fallback. |
 | `layout.ts` | Macro layout from the seed: spawn pad near an edge, 3 extraction pads (≥180 m apart, ≥150 m from spawn), 4–6 nest pads, 5–8 POI pads, craters, basins. `padClearance`, `nearestPad`. **2026-09-10 — 선로를 제일 먼저 잡고 나머지가 전부 피한다** (`railDistance` · `railClearance` · 내부 `railFree`): 선로의 자유도가 `line` = 방향 하나, `loop` = 반지름 하나뿐이라 패드를 다 뽑아 놓고 그 사이를 지나는 값을 찾는 것은 불가능하다. 그래서 2026-09-09 의 "크레이터 다음에 굴린다" 를 뒤집었다 — 그 대가로 **같은 시드의 매크로 레이아웃이 예전과 다르다** (멀티 결정성은 그대로). **2026-09-09**: `structures: StructureSite[]` (버려진 구조물 부지 + 지하실 구덩이 치수) 와 `rail: RailPlan | null` (`RAIL_CHANCE`, `loop`/`line`, 위상, 플랫폼 패드)이 붙었다 — 둘 다 **지형이 평탄화해야** 하는 자리라 매크로 단계에서 먼저 잡는다. 크레이터 · 분지를 다 뽑은 **뒤에** 굴리므로 그 앞의 추첨은 밀리지 않지만, 새 패드가 `pads` 에 들어가 `padClearance` 를 바꾸므로 **소품 · 상자 · 적 스폰의 자리는 달라진다** (건물 안에 바위가 서지 않게 하려면 그게 맞다). **2026-09-11**: `StructureSite.floors`(1 · 2, `upperChance`) — 루프 **맨 끝**에서 굴려 앞의 추첨을 밀지 않는다. |
 | `Terrain.ts` | **2026-09-09**: pad 평탄화 **다음에** `layout.structures` 의 지하실 **구덩이**를 판다 — 회전한 사각형을 `PIT_BLEND`(1.6 m, `structures/model`) 폭에 걸쳐 `pad.height − depth` 까지 내린다. 그 폭만큼 흙이 비스듬해지므로 천장 슬래브는 구덩이보다 `PIT_BLEND` 넓게 덮어야 한다 (안 그러면 구덩이 둘레에 도랑이 남는다). Heightfield (417×417 verts, 2 m spacing, covers ±416 m incl. border mountains) from warped fBm + ridged noise + craters/basins + flattened pads + edge cliffs. 8×8 chunk meshes with vertex colors (biome bands by height/slope, AO, crater scorch, nest goo), procedural tiled detail albedo + normal `CanvasTexture`s. Fast bilinear `getHeightAt`, `getNormalAt`, `getSlopeAt`, adaptive ray-march `raycast`. **2026-09-11 (C-40, 결과 비트 동일)**: 높이장 루프가 줄마다 닿는 패드 · 구덩이만 훑고(`rowPads` · `rowPits`), 능선 가림막이 0 인 곳은 `ridged` 를 굴리지 않으며(0 × x = 0), 크레이터 · 분지는 제곱 거리로 먼저 거른다. 디테일 텍스처 두 장은 토러스 cos/sin 표(`torusTrig`)를 쓴다. `timings`(height · normals · colors · textures · chunks) 를 남긴다. |
@@ -39,7 +39,7 @@ textures are procedural.
 | `rails/model.ts` | 선로 · 전차가 공유하는 **어휘**. `RailPath` (`makePath` · `wrapS` · `sampleAt` · `nearestS` · `deltaS`) + `RAIL_DECK_Y`(0.75) · `TIE_STEP`(1.8) · `PIER_STEP`(9) · `GAUGE_HALF` · `RAIL_DECK_STEP`(**2026-09-10: 5 → 3**) · `RAIL_DECK_T` · `RAIL_DECK_HALF_W` · `RAIL_MAX_GRADE` · `DOCK_WINDOW` · `TRAM_NET_INTERVAL` · `TRAM_SNAP_M` · `PLATFORM_OFFSET`, **차체 치수(`TRAM_FLOOR_UP` · `TRAM_DOOR_HALF` · `TRAM_WALL_*` · `TRAM_NOSE_T` · `TRAM_CAB_LEN` · `TRAM_DESK_*`) · 색(**2026-09-10: 호출 콘솔 발광 `CONSOLE_GLOW` · `CONSOLE_GLOW_BASE`**) · `RailBuild`(**`glow` 채널 = 발광 조각을 모아 한 메시로 합친다**) · `MovingPart` · `TramInst`**(2026-09-11: `hitCooldown` 숫자 → 대상별 `hitUntil` 맵). **축 규약이 여기 적혀 있다: 로컬 +X = 진행 방향(길이), 로컬 +Z = 좌우(폭).** |
 | `rails/parts/Track.ts` | 침목 · 레일 토막 · 교각 지오메트리 + 교각 콜라이더 + **걸어 다니는 선로 발판 상자**(`RAIL_DECK_STEP` 마다). |
 | `rails/parts/Platform.ts` | 플랫폼 데크(땅에서 올라오는 OBB) · **계단**(2026-09-10 개편 — 단수를 `RAIL_STAIR_MAX_RISE` 에서 뽑는다) · 난간 · 컨테이너 · **「전차 호출」 콘솔**(2026-09-10 — 예전 안내판 자리, 받침 · 몸통 · 기울어진 화면 · 버튼 · 발광 띠. 발광 조각은 `RailBuild.glow` 로 넘기고 **콘솔 자리를 돌려준다** — `Interactable` 등록은 `Rails`). **2026-09-11**: 계단 콜라이더는 단마다 상자가 아니라 `Stairs.buildStairFlight` 의 경사면 하나(데크 안으로 0.08 m 겹친다)다. |
-| `rails/parts/Tram.ts` | 전차 차체(**진행 방향으로 길쭉**) · 앞 격벽 + 걸어 들어가는 **운전실** · **운전 콘솔 데스크** · 콜라이더(`Obstacle.box` + 공유 `velocity`) · 객실 컨테이너 · `placeTram`(매 프레임 배치) · **`updateTramHit`(고속 충돌 피해 + 넉백)**. **2026-09-11 (C-18)**: 로컬 플레이어(각자) + **권위에서 적 · 끊긴 분대원**. 적은 `ctx.enemies.queryNear` → 같은 OBB · 높이 창 → `EnemyManagerRef.pushBack`(그 적 하나에 방향) + `takeDamage(…, 'ai')`, 고스트는 `ghost:damage {kb}`. **데크 윗면 − `RIDE_FOOT_DROP` 위의 적은 탑승자라 치지 않는다**(에이전트 합의 — 적 탑승 상태를 묻지 않는다). 쿨다운은 대상별(`hitUntil`), 소리는 `tram_hit`. |
+| `rails/parts/Tram.ts` | 전차 차체(**진행 방향으로 길쭉**) · 앞 격벽 + 걸어 들어가는 **운전실** · **운전 콘솔 데스크** · 콜라이더(`Obstacle.box` + 공유 `velocity`) · 객실 컨테이너 · `placeTram`(매 프레임 배치) · **`updateTramHit`(고속 충돌 피해 + 넉백)**. **2026-09-11 (C-18)**: 로컬 플레이어(각자) + **권위에서 적 · 끊긴 분대원**. 적은 `ctx.enemies.queryNear` → 같은 OBB · 높이 창 → `EnemyManagerRef.pushBack`(그 적 하나에 방향) + `takeDamage(…, 'ai')`, 고스트는 `ghost:damage {kb}`. ~~데크 윗면 − `RIDE_FOOT_DROP` 위의 적은 탑승자라 치지 않는다~~ → **2026-09-11 (C-63)**: 셋 다 위 경계가 `바닥 − TRAM_HIT_FLOOR_CLEAR` 로 같고, 그 밑 `RIDE_FOOT_DROP` 띠는 새 `riderExempt`(차체 단면 + `RIDE_EDGE_MARGIN` 안 + 발밑 발판이 이 전차이거나 비어 있음)만 빼 준다 — **선로 발판 위의 적이 치인다**. 적 탑승 상태를 묻지 않는 것은 그대로(발밑은 월드가 본다). 쿨다운은 대상별(`hitUntil`), 소리는 `tram_hit`. |
 | `hull.ts` | **볼록 다각형 기둥 수학** (2026-09-11, `Obstacle.hull`). `convexHull2D`(monotone chain, 반시계, `HULL_MAX_VERTS` 14 로 넓이를 가장 적게 잃는 꼭짓점부터 뺀다 — 밖으로 부풀리지 않는다) · `hullRadiusFrom`(외접원) · `hullAreaCentroid` · `hullContainsXZ` · `hullPushOut`(가장 얕은 변으로 · 바깥이면 정확한 최근접점) · `rayHull`(Cyrus–Beck + Y 슬래브, 원점이 안이면 −1) · `hullHitNormal`. **`o.hull` 이 있을 때만** 불린다. **2026-09-11 (C-40)**: 정렬이 `Array.prototype.sort(비교 함수)` 에서 재사용 `Int32Array` 위의 퀵 · 삽입 정렬(`sortIdx`)로 — (x, z) 사전순만 같으면 껍질 좌표가 같다(같은 좌표끼리의 순서는 외적 0 으로 빠진다). |
 | `propHull.ts` | 소품 인스턴스 하나의 **볼록 콜라이더**를 그려진 메시에서 잰다 (2026-09-11). 땅 위 정점 + 삼각형 변의 지형 교차점으로 ① **이동 윤곽**(지면 ~`PLAYER_HEIGHT + 0.4` 까지 — 머리 위로 기운 크리스탈 조각이 바닥에 벽을 세우지 않는다) ② **총알 층**(보이는 높이를 1.4 m 안팎으로 최대 4 층, 층마다 윤곽 — 위로 좁아지는 첨탑 옆 허공에서 총알이 멈추지 않는다, 낮은 소품은 층 없음)을 만든다. 전부 묻혔으면 null. **2026-09-11 (C-40)**: `getX` · `index.getX` 대신 배열 직접 읽기, 층 루프의 변마다 만들던 `[lo, hi]` 배열 제거 (값 동일). |
 | `surface.ts` | **발밑 재질** (2026-09-11, C-22 — `WorldRef.getSurfaceMaterial` 의 표와 지형 규칙). `KIND_MATERIALS`(장애물 kind → 재질: 바위 rock · 크리스탈 crystal · 선로/전차/상자/컨테이너/문/잔해 metal · 구조물 바닥/벽/계단 · 폐허 벽 concrete · 둥지/나무/군락 organic, 구조물 바닥이라도 불시착 함선이면 metal) · `BAND_MATERIALS`(바이옴 지형 띠 → 재질: amber sand/dirt · tundra snow/dirt · mossy moss/mud · ashen ash · crimson organic) · `terrainMaterial`(`Terrain.computeColors` 를 뒤에서부터: 둥지 점액 15 m → 크레이터 그을림 ash → 경계 절벽 · 경사 > 0.3 rock → 고지 → 저지 → 얼룩 `ground2` → 바닥, 같은 잡음 `n1`) · `onOutpostSlab`. 할당 없음, THREE 는 타입만. |
@@ -77,7 +77,12 @@ Typical generation time: ~400–900 ms on a desktop (heightfield ~150 ms, mesh+c
 **2026-09-11 (C-40) 재계측** — 행성 8개 × 3회(첫 회 제외 평균, 다른 에이전트 스모크와 CPU 공유): **319 → 230 ms**.
 단계별 전 → 후: 높이장 134 → 97 · 소품 59 → 34(바위 41 → 23) · 텍스처 32 → 23 · 색 27 → 23 · 둥지+패드+폐허 30 → 21.
 월드 서명(장애물 · 지형 버텍스 · 소품 인스턴스 · 상자 · 채집물)이 8개 전부 **바이트 동일**, 난수 소비 순서 불변, `world:ready` 는 그대로 동기.
-남은 대부분은 `noise2`(생성당 ~100 ms, 정점마다 20번 안팎)라 수학을 바꾸지 않는 한 더 줄지 않는다. 단계별 값은 `WorldSystem.genTimings`.
+남은 대부분은 `noise2`(생성당 ~100 ms, 정점마다 20번 안팎)다. 단계별 값은 `WorldSystem.genTimings`.
+
+**2026-09-11 (C-66) `noise2` 재계측** — 같은 페이지에서 옛 구현과 번갈아 돌린 A/B(행성 6곳 × 8라운드 = 40회, 다른
+에이전트 스모크와 CPU 공유라 최저값 · p25 가 신뢰할 만하다): 생성 전체 **min 203 → 180 · p25 217 → 194 · 중앙값 222 → 197 ms**,
+높이장 **min 95 → 72 · 중앙값 97 → 78**, 색 21 → 19, 텍스처 22 → 21 (소품은 그대로). 잡음만 따로 재면(Chrome, 같은 코드)
+지형 잡음 한 판 96 → 79 ms, `noise2` 400만 번 66 → 42 ms. **수학은 한 줄도 바뀌지 않았다** — 아래 `변경 이력` 의 C-66 항목.
 
 Layers: terrain meshes have `Layers.TERRAIN` enabled (in addition to 0), props `Layers.PROP`, crate bodies and gather plants `Layers.INTERACTABLE`.
 
@@ -345,6 +350,10 @@ structures → rails → props → crates → gather`). 벽 · 데크 · 컨테�
 - **탑승자를 빼는 한 줄**: 발이 전차 바닥보다 `TRAM_HIT_FLOOR_CLEAR`(0.18 m) 넘게 아래일 때만 판정한다.
   데크 위(바닥 높이)와 플랫폼 위(**같은 높이**)가 그 한 줄로 빠지고, 선로 발판 위(바닥 −`TRAM_FLOOR_UP` 0.35)와
   맨땅(−1.1)만 남는다. 아래로는 `TRAM_HIT_REACH`(2.4 m)까지가 범위다.
+  **2026-09-11 (C-63)**: 이 한 줄을 플레이어 · 적 · 끊긴 분대원이 **똑같이** 쓴다 (예전에는 적만 `RIDE_FOOT_DROP` 0.7 까지
+  면제라 **선로 발판 위의 적이 안 치였다**). 그 밑 0.18–0.7 띠는 `riderExempt` 가 본다 — 차체 단면 + `RIDE_EDGE_MARGIN`
+  안이고 **발밑 발판(`getStandingObstacle`)이 이 전차의 부품이거나 비어 있을 때만** 탑승자로 빼고, 선로 발판을 밟은
+  몸은 치인다. 적의 탑승 상태를 `EnemyRef` 로 묻지 않는 규약은 그대로다 (월드가 발밑을 스스로 본다).
 - 넉백은 **진행 방향 + 선로 밖**의 합이라 그대로 앞으로만 밀려 계속 치이지 않는다. `applyKnockback` 이
   `KNOCKBACK_MIN_LIFT` 로 살짝 띄우므로 별도 수직 상수는 없다.
 - **호스트/리플리카**: 전차 상태(`s` · `dir` · state)는 호스트 권위이고 이미 동기화돼 있으므로 판정은
@@ -695,6 +704,32 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (C-66 — `noise2` 최적화, 값은 비트 단위로 그대로, 에이전트 c66)** — `noise.ts` 만 고쳤다. 뿌리는 **V8 의
+  인라인 한도**였다: 옛 `noise2` 는 바이트코드 약 540 바이트라 460 한도를 넘어 (`--trace-turbo-inlining`: "reason 5 = too big")
+  `fbm` · `ridged` 의 **옥타브마다 진짜 함수 호출**을 했다. ① 모서리 하나의 기여를 `corner()` 로 떼어 `noise2` 를 358
+  바이트로 줄이고(이제 호출부에 인라인된다), ② `fbm` · `ridged` 는 `noise2` 를 부르지 않고 **같은 커널을 루프 안에 펴서**
+  들고 있으며(그 둘을 품은 큰 함수 — `Terrain` 의 높이 함수 — 에서 인라인 예산이 바닥나 옥타브마다 호출로 되돌아가는 것을
+  막는다), ③ 기울기는 생성자에서 `gx` · `gy`(Float64Array)로 펴 뒀다(`GRAD2[permMod12[k] * 2]` 두 번 건너뛰기 제거,
+  Float32 값을 double 로 옮겨 적은 것이라 읽히는 값이 같다), `2 * G2` 는 모듈 상수. **부동소수 연산의 순서 · 피연산자는
+  한 줄도 바꾸지 않았다** (`Math.floor` 도 그대로 — `xs | 0` 정수 트릭이 4 ms 더 빨랐지만 |입력| ≥ 2³¹ 에서 값이 달라져
+  버렸고, 범위 가드를 붙이면 그 이득이 사라진다). `noise3` 은 손대지 않았다.
+  **동일성 검사**(전부 옛 구현과 나란히 돌려 비교): ① 시드 7개 × (`noise2` 40만 + `noise3` 10만 + `fbm`/`ridged`/`billow`
+  60만) 표본의 SHA-256 이 전부 같고 총합 해시도 같다, ② 특수값(NaN · ±∞ · ±0 · 5e-324 · 1e300 · 2³¹ 경계) 조합 + 난수
+  270만 건이 `Object.is` 로 전부 일치, ③ 지형 높이 식을 그대로 옮긴 417² 격자 미러의 해시 일치, ④ **실제 월드 생성**
+  (행성 5곳 + 시드 추첨 3개 = 8세계)의 서명 134 조각 — 지형 높이장 · 지형 색/법선 · 장애물 전부(상자 · hull · ramp 포함) ·
+  `root` 자식별 지오메트리와 인스턴스 행렬 · 상자 · 채집물 — 이 **전부 바이트 동일**. (검산 근거: `x0 - 1 + G2` 를
+  `x0 + G2 - 1` 로 바꾼 사본은 같은 검사에서 600만 표본 중 1.6만 개가 1 ulp 어긋난다 — 검사가 실제로 잡는다.)
+  전 → 후는 위 `Typical generation time` 절. 검증: `smoke-props-collision` 53/53 · `smoke-planets` 86/86 ·
+  `smoke-ecology` 95/95 · `smoke-structures` 144/144.
+
+- **2026-09-11 (C-63 — 선로 발판 위의 적도 치인다, 에이전트 c63)** — `rails/parts/Tram.updateTramHit` 의 발 높이 창을
+  플레이어 · 적 · 끊긴 분대원이 하나로 쓴다: 위 경계가 전부 `바닥 − TRAM_HIT_FLOOR_CLEAR` 이고(적만 `RIDE_FOOT_DROP`
+  까지 면제받던 것을 없앴다 — 선로 발판(바닥 −`TRAM_FLOOR_UP` 0.35)에 선 적이 "탑승 창 안" 으로 읽혀 치이지 않던 틈),
+  그 밑 0.18–0.7 띠는 새 `riderExempt` 하나가 본다 — 차체 단면 + `RIDE_EDGE_MARGIN` 안 + 발밑 발판이 이 전차의
+  부품(`velocity === inst.vel`)이거나 비어 있을 때만 탑승자. 발밑 질의는 `game.world.getStandingObstacle` 이라
+  `updateTramHit` 의 시그니처 · `Rails.ts` 는 그대로다. 새 수치 없음(기존 `RIDE_*` · `TRAM_HIT_*` 재사용).
+  검사: `scripts/smoke-tram-ride.mjs` 6번 (선로 발판 위 적 hp 640 → 580, 탄 적 · 탄 플레이어는 그대로 면제) 26/26.
 
 - **2026-09-11 (C-57 — `crate opened` 받는 쪽 검증, 에이전트 ⑤)** — `WorldSystem.ensureOpenNet`: 분대원의 `crate opened` 는 ① id 가 이
   월드에 있고(`openablePositionOf` = `Crates.positionOf` → `Structures.containerPositionOf` → `Rails.containerPositionOf`) ② 보낸 사람 스냅샷이

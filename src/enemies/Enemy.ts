@@ -6,7 +6,8 @@ import {
 import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
-import { animateNamedRig } from './models/named';
+import { animateNamedRig, namedBodyNearest } from './models/named';
+import { nearestOnStandingCapsule } from './RayTests';
 import type { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, type TargetId, type TargetList } from './Targets';
 import type { ReplicaBuffer } from './net/Replica';
@@ -163,6 +164,9 @@ export class Enemy implements EnemyRef {
   rideBlend = 0;
   /** Replica: the carrier last predicted on, kept while `rideBlend` eases out after leaving it. */
   lastCarrier: Obstacle | null = null;
+  /** 2026-09-11 (C-63): 하차 관성 (m/s, 월드 XZ) · 남은 시간 — 권위만 (`ai/Ride.rideRelease` · 플레이어와 같은 `RIDE_INERTIA_*`). */
+  readonly rideInertia = new THREE.Vector3();
+  rideInertiaT = 0;
   /** A carried corpse slid off its carrier and is falling — the `corpse:<id>` interactable follows it until it lands. */
   corpseDropped = false;
   distTravelled = 0;
@@ -401,6 +405,7 @@ export class Enemy implements EnemyRef {
     this.target = null; this.targetTimer = 0; this.distToTarget = Infinity; this.hasLOS = false;
     this.distTravelled = 0; this.stepAccum = 0; this.stepAt = -Infinity;
     this.carrier = null; this.lastCarrier = null; this.rideBlend = 0; this.corpseDropped = false;
+    this.rideInertia.set(0, 0, 0); this.rideInertiaT = 0;
     this.spawnTime = now;
     this.relentless = false;
     this.lastDamager = 'local'; this.lastLocalHit = -Infinity;
@@ -480,6 +485,19 @@ export class Enemy implements EnemyRef {
     const h = this.rig.params.head;
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     return out.set(this.position.x + s * h.z, this.position.y + h.y, this.position.z + c * h.z);
+  }
+
+  /**
+   * `EnemyRef.nearestBodyPoint` (C-62, 2026-09-11): the point of the **body** hitbox nearest to `from` — the capsule
+   * `EnemySystem.raycastEx` tests for the body: the lying capsule of a prone sniper (`models/named.namedBodyNearest`, same
+   * `sniperBodyCapsule` as `namedBodyRay`), else the vertical capsule (`RayTests.nearestOnStandingCapsule`, a sphere for most
+   * bugs). `from` itself when it is inside. The head sphere and the behemoth plate are **not** included: melee reach is
+   * measured from the body, and the heads / plate stick out ahead (charger +0.6 m, behemoth plate +2.3 m) — adding them
+   * would lengthen frontal melee on exactly the enemies whose feel must not change.
+   */
+  nearestBodyPoint(from: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    if (this.rig.kind === 'rogue' && namedBodyNearest(this, from, out)) return out;
+    return nearestOnStandingCapsule(from, this.position, this.stats.radius, this.stats.height, out);
   }
 
   /** Rifle muzzle (rogues; falls back to chest height ahead of the body). */
@@ -690,6 +708,7 @@ export class Enemy implements EnemyRef {
     if (this.carrier && this.deathLanded) { recordRideLocal(this.carrier, this.position, this.rideLocal); this.rideWorld.copy(this.position); }
     else this.carrier = null;
     this.rideBlend = 0; this.lastCarrier = null;
+    this.rideInertia.set(0, 0, 0); this.rideInertiaT = 0;   // C-63: a body stops sliding when it dies
     this.chargePhase = 0;
     this.spitPhase = 0;
     this.roguePhase = 0;
