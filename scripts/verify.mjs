@@ -8,6 +8,7 @@
  *   node scripts/verify.mjs --only smoke-weapons,e2e-mp
  *   node scripts/verify.mjs --rerun-failed       # only what failed in the previous run (scripts/logs/last-run.json)
  *   node scripts/verify.mjs --list               # folder → smoke map (+ src/ 밖의 경로 매핑)
+ *   node scripts/verify.mjs --help               # this text (an unknown option prints it too and runs nothing)
  *
  * Options: --jobs N (parallel Chrome instances, default 4; use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
@@ -28,7 +29,8 @@
  *   Servers started here are stopped on exit; servers found running are left alone.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, createWriteStream } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, existsSync, createWriteStream } from 'node:fs';
+import { CSV_FOLDERS, CSV_WIDE } from './data-owners.mjs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -99,7 +101,10 @@ const SMOKES = {
   /* 2026-09-10: 배포용 서버 빌드 (`npm run server:dist`) — 브라우저도 vite 도 릴레이도 쓰지 않는다.
      번들이 CJS 인지 · ws 가 안에 들어갔는지 · `--port` / `--data` 가 먹는지 · 릴레이가 말을 하는지, 그리고
      주소 정규화(`relayUrlFrom`) · LAN 주소 순위(`lanAddresses`)를 검사한다. exe 는 굽지 않는다 (86 MB). */
-  'smoke-server-dist': { file: 'scripts/smoke-server-dist.mjs', folders: ['server', 'net'], standalone: true },
+  /* 2026-09-11 (C-46): 이 스모크는 `src/shared/net.ts` 를 Node 에서 직접 import 한다 — Node 22.6–22.17 은 플래그 없이는
+     `.ts` 를 못 읽는다(23.6+ 는 기본). `nodeArgs` 는 스크립트 경로 **앞에** 펼쳐진다 (net:selftest 와 같은 플래그). */
+  'smoke-server-dist': { file: 'scripts/smoke-server-dist.mjs', folders: ['server', 'net'], standalone: true,
+    nodeArgs: ['--experimental-strip-types', '--disable-warning=ExperimentalWarning'] },
   /* 2026-09-10: 피칭 위키(`docs/pitch/`) — 빌드가 없어서 깨져도 조용한 문서다. vite 도 게임도 쓰지 않고
      `docs/pitch` 를 정적으로 서빙해 페이지를 전부 열어 본다 (링크 · 사이드바 · nextnav · 카드 넘기기).
      `folders` 로는 안 잡히므로(`src/` 밖이다) 위의 `EXTRA_PATHS` 가 `docs/pitch/` 변경에서 직접 고른다. */
@@ -108,6 +113,10 @@ const SMOKES = {
      한 프레임이 멎는다 — 지금까지 탈출 함선 · 신호탄 · 헬포드 · 분대장 기기가 이 그물에 걸렸다. 광원을
      들고 있는 폴더 전부에 매핑한다. */
   'smoke-lights':       { file: 'scripts/smoke-lights.mjs',       folders: ['extraction', 'player', 'game', 'hub', 'world', 'core'] },
+  /* 2026-09-11 (C 배치): 네임드 로그 판정 (엎드린 로든 눕힌 캡슐 · 소염기 매몰 · 승격 시 스캔 드론 입양 · 리플리카 헤비
+     트레이서 · 리플리카 훅 host) 과 전차 위 적 · 적 시체 탑승 (+ 리플리카 예측 · 강하 목표 플랫폼). 둘 다 릴레이 없이 돈다. */
+  'smoke-named':        { file: 'scripts/smoke-named.mjs',        folders: ['enemies', 'weapons'] },
+  'smoke-tram-ride':    { file: 'scripts/smoke-tram-ride.mjs',    folders: ['enemies', 'world'] },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };
 // Anything under these paths touches the contract / bootstrap → run everything.
@@ -120,6 +129,20 @@ const EXTRA_PATHS = [
 
 // ─── CLI ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
+/* 2026-09-11: 모르는 플래그 · --help 는 **아무것도 돌리지 않고** 머리 주석을 찍고 끝낸다. 예전에는 조용히 무시돼서
+   `verify.mjs --help` 가 인자 없는 --changed 전체 검증(릴레이 재시작 + e2e 포함)을 시작했다. */
+const KNOWN_FLAGS = new Set(['--all', '--list', '--rerun-failed', '--serial', '--build', '--no-typecheck', '--no-e2e', '--keep-relay']);
+const VALUE_FLAGS = new Set(['--folders', '--only', '--base', '--jobs', '--url', '--timeout', '--log-dir']);
+{
+  const unknown = argv.filter((a, i) => a.startsWith('-') && !KNOWN_FLAGS.has(a) && !VALUE_FLAGS.has(a) && !VALUE_FLAGS.has(argv[i - 1]));
+  if (unknown.length) {
+    const head = readFileSync(fileURLToPath(import.meta.url), 'utf8').match(/\/\*\*([\s\S]*?)\*\//)?.[1] ?? '';
+    const isHelp = unknown.every((a) => a === '--help' || a === '-h');
+    if (!isHelp) console.error(`unknown option(s): ${unknown.join(' ')}\n`);
+    console.log(head.split('\n').map((l) => l.replace(/^\s?\*\s?/, '')).join('\n').trim());
+    process.exit(isHelp ? 0 : 2);
+  }
+}
 const has = (f) => argv.includes(f);
 const val = (f, d) => { const i = argv.indexOf(f); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const opts = {
@@ -144,6 +167,14 @@ if (opts.list) {
   console.log(`  ${'(global)'.padEnd(12)} src/shared, src/core, main.ts, package.json → all`);
   // `src/` 밖의 경로로 붙는 것들은 폴더 표에 안 나오므로 따로 찍는다.
   for (const e of EXTRA_PATHS) console.log(`  ${'(path)'.padEnd(12)} ${e.label} → ${e.smokes.join(', ')}`);
+  // 2026-09-11: data/*.csv → 소비 폴더 (`scripts/data-owners.mjs`). 스모크는 위 폴더 표를 따라간다.
+  console.log('\ndata csv → folders (scripts/data-owners.mjs)');
+  for (const [csv, fs] of Object.entries(CSV_FOLDERS).sort()) console.log(`  ${csv.padEnd(26)} ${fs.join(', ')}`);
+  console.log(`  ${[...CSV_WIDE].join(', ').padEnd(26)} (wide — no smokes picked, a note is printed)`);
+  let csvOnDisk = [];
+  try { csvOnDisk = readdirSync(resolve(ROOT, 'data')).filter((f) => f.endsWith('.csv')); } catch { /* no data dir */ }
+  const unmapped = csvOnDisk.filter((f) => !CSV_WIDE.has(f) && !CSV_FOLDERS[f]);
+  if (unmapped.length) console.log(`  ⚠ not mapped (a change to these picks no smokes): ${unmapped.join(', ')}`);
   process.exit(0);
 }
 
@@ -157,15 +188,22 @@ function changedFiles() {
   return git(['diff', '--name-only', 'HEAD~1', 'HEAD']).split('\n').filter(Boolean);
 }
 function foldersOf(files) {
-  const folders = new Set(); const extra = new Set(); let global = false;
+  const folders = new Set(); const extra = new Set(); const notes = []; let global = false;
   for (const f of files) {
     const p = f.replace(/\\/g, '/');
     if (GLOBAL_PATHS.some((re) => re.test(p))) { global = true; continue; }
     const m = p.match(/^src\/([^/]+)\//); if (m) folders.add(m[1]);
     if (/^server\//.test(p)) folders.add('server');
     for (const e of EXTRA_PATHS) if (e.re.test(p)) e.smokes.forEach((n) => extra.add(n));
+    // 2026-09-11: data/<file>.csv → 그 수치를 소비하는 폴더 (`scripts/data-owners.mjs`). 전역 표는 고르지 않고 알린다.
+    const csv = p.match(/^data\/([^/]+\.csv)$/)?.[1];
+    if (csv) {
+      if (CSV_WIDE.has(csv)) notes.push(`data/${csv} 는 거의 모든 폴더가 읽는다 — 스모크를 고르지 않았다 (--folders 로 직접 주거나 verify:all)`);
+      else if (CSV_FOLDERS[csv]) CSV_FOLDERS[csv].forEach((x) => folders.add(x));
+      else notes.push(`data/${csv} 가 scripts/data-owners.mjs 의 CSV_FOLDERS 에 없다 — 스모크를 고르지 못했다`);
+    }
   }
-  return { folders: [...folders], extra: [...extra], global };
+  return { folders: [...folders], extra: [...extra], global, notes };
 }
 function select() {
   const names = Object.keys(SMOKES);
@@ -186,7 +224,8 @@ function select() {
     reason = `--folders ${opts.folders.join(',')}`;
   } else {
     const files = changedFiles();
-    const { folders, extra, global } = foldersOf(files);
+    const { folders, extra, global, notes } = foldersOf(files);
+    for (const n of notes) console.log(`  note: ${n}`);
     if (global) { picked = names; reason = `changed: shared/core/bootstrap → all (${files.length} files)`; }
     else {
       // `extra` = `src/` 밖의 경로가 직접 고른 것 (docs/pitch → smoke-pitch). 폴더 매핑과 합집합이다.
@@ -200,11 +239,12 @@ function select() {
 
 // ─── Process helpers ───────────────────────────────────────────────────────────────────────────────────────────
 const children = new Set();
-function npmRun(script, logName) {
+function npmRun(script, logName, extraEnv = {}) {
   const log = createWriteStream(resolve(LOG_DIR, `${logName}.log`));
+  const env = { ...process.env, FORCE_COLOR: '0', ...extraEnv };
   const child = isWin
-    ? spawn(`npm.cmd run ${script}`, { shell: true, cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '0' } })
-    : spawn('npm', ['run', script], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '0' } });
+    ? spawn(`npm.cmd run ${script}`, { shell: true, cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env })
+    : spawn('npm', ['run', script], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
   child.stdout.pipe(log); child.stderr.pipe(log);
   children.add(child);
   child.on('exit', () => children.delete(child));
@@ -279,7 +319,7 @@ function tail(logRel, n = 6) {
 
 // ─── Main ──────────────────────────────────────────────────────────────────────────────────────────────────────
 mkdirSync(LOG_DIR, { recursive: true });
-const started = { vite: null, relay: null };
+const started = { vite: null, relay: null, relayData: null };
 const results = [];
 const tStart = Date.now();
 let exiting = false;
@@ -287,6 +327,7 @@ function cleanup() {
   if (exiting) return; exiting = true;
   for (const c of children) killTree(c);
   killTree(started.vite); killTree(started.relay);
+  if (started.relayData) { try { rmSync(started.relayData, { recursive: true, force: true }); } catch { /* still locked → stays in %TEMP% */ } }
 }
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
 process.on('SIGTERM', () => { cleanup(); process.exit(143); });
@@ -326,7 +367,14 @@ try {
       const relayUrl = 'http://localhost:8787/health';
       const needFreshRelay = picked.some((n) => SMOKES[n].freshRelay) && !opts.keepRelay;
       if (needFreshRelay && pidsOnPort(8787).length) { console.log('  restarting relay (stale lobbies would hijack quick match)'); killPort(8787); await sleep(500); }
-      if (!(await isUp(relayUrl))) { started.relay = npmRun('server', 'relay'); await waitUp(relayUrl, 'relay'); console.log('  relay started (8787)'); }
+      if (!(await isUp(relayUrl))) {
+        // C-41 (2026-09-11): 러너가 직접 띄우는 릴레이는 임시 프로필 저장소를 쓴다 — 스모크가 만든 수천 개의
+        // 테스트 프로필이 개발용 server/data/profiles.json 에 쌓이지 않게. 이미 떠 있던 릴레이는 건드리지 않는다.
+        started.relayData = mkdtempSync(resolve(os.tmpdir(), 'scav-verify-relay-'));
+        started.relay = npmRun('server', 'relay', { SCAV_DATA_DIR: started.relayData });
+        await waitUp(relayUrl, 'relay');
+        console.log(`  relay started (8787, profiles in ${started.relayData})`);
+      }
       else console.log('  relay already up (8787)');
       if (!(await isUp(opts.url))) { started.vite = npmRun('dev', 'vite'); await waitUp(opts.url, 'vite'); console.log(`  vite started (${opts.url})`); }
       else console.log(`  vite already up (${opts.url})`);
@@ -336,7 +384,7 @@ try {
     const pool = picked.filter((n) => !SMOKES[n].exclusive);
     const solo = picked.filter((n) => SMOKES[n].exclusive);
     const runSmoke = async (name) => {
-      const s = summarize(name, await runCapture(process.execPath, [SMOKES[name].file, opts.url], name));
+      const s = summarize(name, await runCapture(process.execPath, [...(SMOKES[name].nodeArgs ?? []), SMOKES[name].file, opts.url], name));
       results.push(s); report(s);
     };
     let next = 0;

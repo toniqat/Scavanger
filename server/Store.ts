@@ -6,8 +6,19 @@
  * has to read and cross-reference to resolve a `SocialSnapshot`. Persistence is a single JSON file
  * (`<dataDir>/profiles.json`) written with a 1 s debounce and flushed on close; `dataDir: null` keeps everything in
  * memory (selftest). Erasable-TypeScript only (Node native type stripping).
+ *
+ * **2026-09-11 (C-41 · X-2) — 쓰기와 손상 복구.**
+ *  - 디바운스 쓰기는 **비동기**다: `tmp` 에 쓰고 `fsync` → 이전 `profiles.json` 을 `profiles.json.bak` 으로 →
+ *    `tmp` 를 `profiles.json` 으로 rename. 13 MB 짜리 파일을 동기로 쓰면 그동안 릴레이 전체(스냅샷 중계)가 멎었다.
+ *    쓰는 도중에 또 바뀌면 끝난 뒤 **한 번 더** 쓴다. `close()` 는 예전처럼 **동기**다 — 종료 직전의 마지막 쓰기를
+ *    잃지 않고, 진행 중이던 비동기 쓰기는 세대 번호(`gen`)가 바뀐 것을 보고 rename 하지 않고 물러난다.
+ *  - 예전에는 `profiles.json` 파싱이 실패하면 "starting empty" 로 빈 DB 를 띄웠고 **첫 flush 가 원본을 덮어써**
+ *    모든 계정이 영구히 사라졌다(백업도 없었다). 이제 원본을 `profiles.corrupt-<시각>.json` 으로 옮겨 **보존**하고
+ *    `.bak`(직전 세대)에서 복구한다. `.bak` 도 없으면 빈 DB 로 시작하되 원본은 그대로 남는다.
+ *  - 파일 포맷(`{v:1, profiles}`)은 바뀌지 않았다.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CreditsTxResult, ProfileDocKey, ProfileRecord } from '../src/shared/profile.ts';
@@ -21,6 +32,12 @@ import {
 } from '../src/shared/social.ts';
 
 export const PROFILE_FILE = 'profiles.json';
+/** 2026-09-11 (X-2): the previous generation, rotated in by every flush just before the new file is renamed into place. */
+export const PROFILE_BACKUP_SUFFIX = '.bak';
+/** 2026-09-11 (X-2): an unreadable `profiles.json` is moved aside as `profiles.corrupt-<timestamp>.json` (never overwritten). */
+export function corruptProfileFileName(now: Date = new Date()): string {
+  return `profiles.corrupt-${now.toISOString().replace(/[:.]/g, '-')}.json`;
+}
 export const PROFILE_SAVE_DEBOUNCE_MS = 1000;
 /** `credits:tx` reason that seeds a still-null balance with `delta` (local → server migration). */
 export const CREDITS_MIGRATE_REASON = 'migrate';
@@ -139,12 +156,23 @@ export class ProfileStore {
   private readonly profiles = new Map<PeerId, ProfileRecord>();
   /** Phase 11: `PlayerCode` → owning PeerId. Rebuilt from the file in `load`, extended by `ensureSocial`. */
   private readonly byCode = new Map<PlayerCode, PeerId>();
-  private readonly file: string | null;
+  /** Not readonly since 2026-09-11 (X-2): a store whose file could not be read safely drops it and stays in memory. */
+  private file: string | null;
   private readonly debounceMs: number;
   private readonly quiet: boolean;
   private dirty = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private writes = 0;
+  /** C-41: the asynchronous write in flight (null = idle). */
+  private writing: Promise<void> | null = null;
+  /** C-41: bumped by every synchronous write — an async write that sees a newer generation never renames over it. */
+  private gen = 0;
+  /** C-41: `close()` ran — no more async writes are scheduled. */
+  private closed = false;
+  /** X-2: what `load` had to do (`'corrupt-recovered'` / `'corrupt-empty'` / `'bak-recovered'` …) — diagnostics / selftest. */
+  private loadNote: 'fresh' | 'loaded' | 'bak-recovered' | 'corrupt-recovered' | 'corrupt-empty' = 'fresh';
+  /** X-2: where an unreadable file was moved to (null when nothing was). */
+  private corruptPath: string | null = null;
 
   constructor(opts: ProfileStoreOptions = {}) {
     const dir = opts.dataDir === undefined ? DEFAULT_DATA_DIR : opts.dataDir;
@@ -159,20 +187,69 @@ export class ProfileStore {
   /** Number of file writes performed (diagnostics / selftest). */
   get writeCount(): number { return this.writes; }
   get path(): string | null { return this.file; }
+  /** X-2: how the last `load` went (diagnostics / selftest). */
+  get loadResult(): { note: string; corruptPath: string | null } { return { note: this.loadNote, corruptPath: this.corruptPath }; }
+  /** C-41: resolves when no asynchronous write is in flight (selftest; the relay never needs to wait). */
+  async idle(): Promise<void> { while (this.writing) await this.writing; }
 
   private log(line: string): void { if (!this.quiet) console.log(`[store ${new Date().toISOString()}] ${line}`); }
 
+  /** Parse one store file. `null` = unreadable (bad JSON or not our layout); a missing file throws ENOENT. */
+  private static readProfileFile(path: string): Record<string, unknown> | null {
+    const text = readFileSync(path, 'utf8');
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { return null; }
+    return isRecord(parsed) && isRecord(parsed.profiles) ? parsed.profiles : null;
+  }
+
   private load(dir: string): void {
     const file = this.file!;
+    const bak = `${file}${PROFILE_BACKUP_SUFFIX}`;
+    let profiles: Record<string, unknown> | null = null;
     try {
-      if (!existsSync(file)) { this.log(`no ${file} yet (fresh store)`); return; }
-      const parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown;
-      if (!isRecord(parsed) || !isRecord(parsed.profiles)) { this.log(`${file}: unrecognized layout, starting empty`); return; }
+      if (!existsSync(file)) {
+        // A crash between the two renames of a flush leaves only the `.bak` — that IS the latest complete file.
+        if (existsSync(bak)) {
+          profiles = ProfileStore.readProfileFile(bak);
+          if (profiles) { this.loadNote = 'bak-recovered'; this.log(`${file} missing — recovered from ${bak}`); }
+        }
+        if (!profiles) { this.log(`no ${file} yet (fresh store)`); this.loadNote = 'fresh'; return; }
+      } else {
+        profiles = ProfileStore.readProfileFile(file);
+        if (profiles) this.loadNote = 'loaded';
+        else {
+          /*
+           * X-2: never start empty *over* the only copy. Move the unreadable file aside (kept forever), then try the
+           * previous generation. The loud line goes to stderr even for a quiet store — this is the one message an
+           * operator must not miss.
+           */
+          const corrupt = join(dir, corruptProfileFileName());
+          try { renameSync(file, corrupt); this.corruptPath = corrupt; } catch (e) {
+            // Could not move it (locked?) — refuse to ever write over it: this store stays in memory.
+            this.warn(`${file} is unreadable and could not be moved aside (${(e as Error).message}) — NOT writing this store`);
+            this.file = null;
+            return;
+          }
+          let fromBak: Record<string, unknown> | null = null;
+          try { fromBak = existsSync(bak) ? ProfileStore.readProfileFile(bak) : null; } catch { fromBak = null; }
+          if (fromBak) {
+            profiles = fromBak;
+            this.loadNote = 'corrupt-recovered';
+            this.warn(`${file} was unreadable → kept as ${corrupt}, recovered the previous generation from ${bak}`);
+          } else {
+            this.loadNote = 'corrupt-empty';
+            this.warn(`${file} was unreadable → kept as ${corrupt}; no usable ${bak}, starting empty (the original is preserved)`);
+            return;
+          }
+        }
+      }
       let n = 0;
-      for (const [id, raw] of Object.entries(parsed.profiles)) {
+      for (const [id, raw] of Object.entries(profiles)) {
         const rec = sanitizeRecord(raw);
         if (rec && typeof id === 'string' && id.length > 0) { this.profiles.set(id, rec); n++; }
       }
+      // Recovered from a backup → put a proper main file back as soon as possible.
+      if (this.loadNote !== 'loaded') this.markDirty();
       /* Phase 11: rebuild the code → PeerId index; a duplicate / cleared code is re-derived below. */
       for (const [id, rec] of this.profiles) {
         const soc = rec.social;
@@ -185,10 +262,16 @@ export class ProfileStore {
       }
       this.log(`loaded ${n} profiles from ${file} (${this.byCode.size} 아이디)`);
     } catch (e) {
-      this.log(`failed to read ${file}: ${(e as Error).message} (starting empty)`);
+      // X-2: an I/O error (locked, no permission) is not "no profiles" — a write would replace a file we never read.
+      this.profiles.clear();
+      this.byCode.clear();
+      this.file = null;
+      this.warn(`failed to read ${file}: ${(e as Error).message} — this store keeps running in memory and will NOT write`);
     }
-    void dir;
   }
+
+  /** Something an operator must see (a store that recovered or stopped writing). Silenced only for a quiet store. */
+  private warn(line: string): void { if (!this.quiet) console.error(`[store ${new Date().toISOString()}] ${line}`); }
 
   /** Record for `id`; a missing profile yields a fresh `{credits: null, docs: {}}` (not persisted until written). */
   get(id: PeerId): ProfileRecord {
@@ -417,33 +500,91 @@ export class ProfileStore {
 
   private markDirty(): void {
     this.dirty = true;
-    if (this.file === null || this.saveTimer !== null) return;
-    this.saveTimer = setTimeout(() => { this.saveTimer = null; this.flush(); }, this.debounceMs);
+    if (this.file === null || this.closed || this.saveTimer !== null) return;
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; this.flushAsync(); }, this.debounceMs);
     this.saveTimer.unref();
   }
 
-  /** Write now when dirty (also called on server close). Synchronous so a shutdown cannot lose the last write. */
-  flush(): void {
-    if (this.saveTimer !== null) { clearTimeout(this.saveTimer); this.saveTimer = null; }
-    if (!this.dirty || this.file === null) { this.dirty = false; return; }
-    this.dirty = false;
+  /** The file body: every record except untouched placeholders. The format is unchanged since Phase 7. */
+  private serialize(): string {
     const out: ProfileFile = { v: 1, profiles: {} };
     for (const [id, rec] of this.profiles) {
       // Never persist untouched placeholder records (a social record counts as content: it holds the 아이디).
       if (rec.credits === null && rec.updatedAt === 0 && Object.keys(rec.docs).length === 0 && !rec.social) continue;
       out.profiles[id] = rec;
     }
+    return JSON.stringify(out);
+  }
+
+  /**
+   * C-41: the debounced write. `tmp` + `fsync` → current file → `.bak` → `tmp` → current file. Only one runs at a time;
+   * a change that lands while it is writing leaves `dirty` set, and the write runs once more when this one finishes.
+   * A synchronous `flush()` / `close()` in between bumps `gen`, and this write then gives up before either rename so it
+   * can never put an older snapshot over a newer one.
+   */
+  private flushAsync(): void {
+    if (this.saveTimer !== null) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    const file = this.file;
+    if (file === null) { this.dirty = false; return; }
+    if (this.writing || !this.dirty || this.closed) return;   // in flight → the `finally` below runs us again
+    this.dirty = false;
+    const gen = this.gen;
+    const text = this.serialize();
+    const tmp = `${file}.tmp`;
+    const bak = `${file}${PROFILE_BACKUP_SUFFIX}`;
+    const run = async (): Promise<void> => {
+      await mkdir(dirname(file), { recursive: true });
+      const fh = await open(tmp, 'w');
+      try {
+        await fh.writeFile(text, 'utf8');
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      if (gen !== this.gen) { await rm(tmp, { force: true }); return; }
+      if (existsSync(file)) await rename(file, bak);
+      if (gen !== this.gen) { await rm(tmp, { force: true }); return; }
+      await rename(tmp, file);
+      this.writes++;
+    };
+    this.writing = run()
+      .catch((e: unknown) => {
+        if (gen === this.gen) this.dirty = true;   // retry with the next change / flush
+        this.warn(`failed to write ${file}: ${(e as Error).message}`);
+      })
+      .finally(() => {
+        this.writing = null;
+        if (this.dirty && !this.closed) this.flushAsync();
+      });
+  }
+
+  /**
+   * Write now, **synchronously**, when dirty — or when an async write is still in flight (the process may exit right
+   * after this returns, before that write lands). Server close and the selftest use it; a shutdown cannot lose the
+   * last write. Same file dance as `flushAsync` (`.bak` rotation), with its own tmp name.
+   */
+  flush(): void {
+    if (this.saveTimer !== null) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    const file = this.file;
+    if (file === null) { this.dirty = false; return; }
+    if (!this.dirty && !this.writing) return;
+    this.gen++;               // an async write in flight must not rename after this
+    this.dirty = false;
     try {
-      mkdirSync(dirname(this.file), { recursive: true });
-      const tmp = `${this.file}.tmp`;
-      writeFileSync(tmp, JSON.stringify(out), 'utf8');
-      renameSync(tmp, this.file);
+      mkdirSync(dirname(file), { recursive: true });
+      const tmp = `${file}.tmp-sync`;
+      writeFileSync(tmp, this.serialize(), { encoding: 'utf8', flush: true });
+      if (existsSync(file)) renameSync(file, `${file}${PROFILE_BACKUP_SUFFIX}`);
+      renameSync(tmp, file);
       this.writes++;
     } catch (e) {
       this.dirty = true; // retry on the next write / flush
-      this.log(`failed to write ${this.file}: ${(e as Error).message}`);
+      this.warn(`failed to write ${file}: ${(e as Error).message}`);
     }
   }
 
-  close(): void { this.flush(); }
+  close(): void {
+    this.closed = true;
+    this.flush();
+  }
 }

@@ -33,6 +33,8 @@ export class Engine {
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
   private postEnabled = true;
+  /** C-44: the last bloom value the 화면 설정 asked for (the perf guard may have turned `postEnabled` off since). */
+  private requestedPost = true;
   private started = false;
   private paused = false;
   private lastTime = 0;
@@ -123,25 +125,51 @@ export class Engine {
     for (const s of this.systems) s.dispose?.();
   }
 
-  /** Bloom / output post chain. Off → plain renderer.render (tone mapping still applied). */
+  /**
+   * Bloom / output post chain. Off → plain renderer.render (tone mapping still applied).
+   *
+   * **2026-09-11 (C-44).** `main.ts` calls this on *every* `ui:displayChanged` — the boot publish of the stored settings,
+   * a 전체화면 toggle and a resolution change included — so only a **changed request** counts:
+   *  - `requestedPost` is the last value the 설정 asked for. The same value again is a no-op: it neither re-enables a
+   *    bloom the perf guard turned off (a later 전체화면 toggle used to undo the guard) nor marks the guard as settled.
+   *  - `perfChecked` is set only by a real change, i.e. the player's own choice. Before, the boot publish set it and the
+   *    guard below never ran once (it was dead code since 2026-09-08).
+   *  - Switching the chain swaps the render target the scene is drawn into (composer buffer ↔ canvas), and the program
+   *    key's colour space / tone mapping follow that target → every material compiles again. So a real switch
+   *    **holds the frame** (`shaders.holdForScene()`) instead of stalling inside the next draw.
+   */
   setPostProcessing(enabled: boolean): void {
-    this.postEnabled = enabled;
-    if (enabled) this.perfChecked = true;   // an explicit 화면 설정 choice outranks the auto-disable guard below
+    if (enabled === this.requestedPost) return;
+    this.requestedPost = enabled;
+    this.perfChecked = true;   // an explicit 화면 설정 choice outranks the auto-disable guard below
+    this.applyPost(enabled);
   }
   get isPostProcessing(): boolean { return this.postEnabled && this.composer !== null; }
 
+  /** Flip the chain; hold for the recompile only when the drawn path really changes. */
+  private applyPost(enabled: boolean): void {
+    const before = this.isPostProcessing;
+    this.postEnabled = enabled;
+    if (this.isPostProcessing !== before) void this.shaders.holdForScene();
+  }
+
   /* ── 화면 설정 (2026-09-08, driven by `ui:displayChanged` from main.ts) ────────────────────────────────────
    *
-   * Two knobs beyond the bloom above. Both are deliberately shallow: nothing here recompiles a material or rebuilds
-   * the render graph, so a player can flick them while standing in a raid.
+   * Two knobs beyond the bloom above. **2026-09-11 정정 (C-44)**: the old note here said "nothing recompiles a
+   * material" — wrong for both. Bloom swaps the render target (above), and shadows change the program key (below).
+   * Each is therefore applied **only when its value changes** and holds the frame for the one recompile; the same
+   * value published again (boot, 전체화면, 해상도) costs nothing.
    */
   /**
-   * 그림자. `renderer.shadowMap.enabled` is the tempting switch and the wrong one — flipping it invalidates every
-   * material's shader and would need a `needsUpdate` sweep of the whole scene. The sun is the only shadow caster, so
-   * turning *it* off costs one boolean, skips the shadow-map pass entirely, and leaves every shader untouched.
+   * 그림자. The sun is the only shadow caster, so this toggles `sun.castShadow`, never `renderer.shadowMap.enabled`
+   * (that one would also need a `needsUpdate` sweep of the whole scene). It is still **not** free: three.js builds
+   * `shadowMapEnabled` into every lit material's program key from "is any light casting", so the lit materials compile
+   * once more (`WebGLPrograms` `shadowMapEnabled`). A real change holds the frame for that.
    */
   setShadows(enabled: boolean): void {
+    if (this.atmosphere.sun.castShadow === enabled) return;
     this.atmosphere.sun.castShadow = enabled;
+    void this.shaders.holdForScene();
   }
   get hasShadows(): boolean { return this.atmosphere.sun.castShadow; }
 
@@ -220,13 +248,20 @@ export class Engine {
     ctx.input.endFrame();
   }
 
-  /** Auto-disable bloom once if the frame time stays poor during the first minute. */
+  /**
+   * Auto-disable bloom once if the frame time stays poor during the first 90 s — unless the player already chose.
+   * 2026-09-11 (C-44): alive again (the boot settings publish used to disarm it), frames spent in a shader hold do not
+   * count as slow (dt is real time, and a hold is the compile we asked for), and turning bloom off goes through
+   * `applyPost` so it holds for its own recompile too. The 설정 row is not rewritten: `requestedPost` stays true, and
+   * the player's next real bloom change wins.
+   */
   private perfGuard(dt: number): void {
     if (this.perfChecked || !this.postEnabled || !this.composer) return;
+    if (this.shaders.holding) return;
     if (dt >= MAX_DT - 1e-4) this.slowFrames++; else this.slowFrames = Math.max(0, this.slowFrames - 1);
     if (this.slowFrames > 240) {
       this.perfChecked = true;
-      this.postEnabled = false;
+      this.applyPost(false);
       console.info('[Engine] sustained slow frames — bloom disabled');
     }
     if (this.ctx.time > 90) this.perfChecked = true;

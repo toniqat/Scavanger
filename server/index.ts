@@ -1,10 +1,15 @@
 /**
  * Entry point: `node server/index.ts` (or `npm run server`).
  * PORT env (default NET_DEFAULT_PORT = 8787), HOST env (default 0.0.0.0).
+ * 2026-09-11 (C-41): `--data=<dir>` / `SCAV_DATA_DIR` moves the profile store (default `server/data/`). The verify
+ * runner points the relay it starts itself at a temp folder so smoke runs stop piling test profiles into the dev store.
  */
 import { startRelayServer } from './RelayServer.ts';
 
-const server = await startRelayServer();
+const dataArg = process.argv.slice(2).find((a) => a.startsWith('--data='))?.slice('--data='.length);
+const dataDir = dataArg || process.env.SCAV_DATA_DIR || undefined;
+
+const server = await startRelayServer(dataDir ? { dataDir } : {});
 
 const shutdown = (signal: string): void => {
   console.log(`[relay] ${signal} → shutting down`);

@@ -5,13 +5,22 @@ Electron 은 이미 있는 두 조각을 한 프로세스에 담는 껍데기다
 
 ```
 Electron main process
-├─ startRelayServer()          server/RelayServer.ts (임베디드 릴레이, 127.0.0.1:8787)
 ├─ createServer()              창 전용 http 서버 — 127.0.0.1:8790 (APP_PORT, 고정)
 │   ├─ attachStatic()          dist/ (vite 빌드)
-│   └─ attachWsProxy()         /ws → 임베디드 릴레이
+│   └─ attachWsProxy()         /ws → 임베디드 릴레이 (LazyProxyTarget — 첫 업그레이드 때 켠다)
+│        └─ ensureEmbedded() → startRelayServer()   server/RelayServer.ts (127.0.0.1:8787)
 └─ BrowserWindow → http://127.0.0.1:8790/
                      └─ 렌더러는 same-origin `/ws` 로 릴레이에 붙는다 (NetSystem.defaultUrl() 그대로)
 ```
+
+**임베디드 릴레이는 필요할 때 켠다 (2026-09-11, C-28).** 예전에는 설정된 주소가 없으면 부팅 때 무조건 켰다 —
+쓰지 않아도 포트 8787 · 프로필 저장소 로드 · heartbeat 를 쥐고 있었고, 게임을 먼저 켠 PC 에서
+`SCAVANGER-Server.exe` 를 나중에 켜면 그쪽이 `EADDRINUSE` 로 못 떴다. 게임 안 `설정 › 서버 설정` 으로 다른 서버에
+붙는 사람은 같은 오리진 `/ws` 를 아예 부르지 않으므로 이제 릴레이가 끝까지 안 켜진다.
+창 서버의 `/ws` 업그레이드가 **처음** 들어올 때 `ensureEmbedded()` 가 켜고(동시에 온 업그레이드는 같은 Promise 를
+기다린다, 실패하면 다음 업그레이드가 다시 시도), 기다리는 동안 업그레이드 뒤에 붙어 온 `head` 바이트와 소켓
+버퍼는 그대로 보존된다. `--lan` · `--port` 는 "이 PC 가 서버다" 라는 뜻이라 부팅 때 곧바로 켠다.
+설정 화면의 기본값 줄(`/__scav/relay`)은 켜지기 전이면 `이 PC 의 내장 서버 (필요할 때 켜짐)` 이다.
 
 릴레이 주소가 **설정되어 있으면** 자체 릴레이를 띄우는 대신 그 주소로 `/ws` 를 프록시한다(아래 "릴레이 주소").
 배포본은 보통 이쪽이다 — 한 사람이 `SCAVANGER-Server.exe` 로 서버를 켜고 나머지는 게임만 실행한다.
@@ -89,7 +98,7 @@ vite 프록시와 완전히 같은 그림이 되고, `src/` 는 손대지 않아
 | `launcher.cs` | **stub 런처의 소스** (2026-09-10). `app\SCAVANGER.exe` 를 띄우는 것 하나만 한다 — 인자를 그대로 넘기고, 작업 폴더를 배포 폴더로 잡고, 파일이 없으면 한국어 MessageBox 를 띄운다. `scripts/pack-release.mjs` 가 `csc.exe` 로 굽는다. |
 | `main.ts` | 앱 수명주기. 옵션 파싱 → 릴레이(또는 원격 릴레이 주소 확정) → **창 전용 http 서버(`APP_PORT` 고정 · `listenStable`)** → `BrowserWindow`. localStorage 를 30초마다 · 종료할 때 디스크로 내린다(`flushStorageData`). 단일 인스턴스 락, 메뉴 제거, **F11 전체화면**, **Escape 가로채기 + 재잠금**(아래 "Escape"), 창 상태 추적, `pointerLock` / `fullscreen` 만 허용하는 권한 핸들러, 외부 링크는 기본 브라우저로, `dist/` 가 없으면 안내 다이얼로그. |
 | `static.ts` | `attachStatic(server, root)` — 기존 http 서버의 `request` 리스너를 가로채 정적 파일을 먼저 서빙하고, 못 찾으면 원래 핸들러(릴레이의 `/health` + 404)로 넘긴다. 경로 이탈(`..`) 차단, `cache-control: no-cache`. |
-| `wsProxy.ts` | `--relay=<url>` 전용. `/ws` 업그레이드를 원격 릴레이로 **raw 소켓 파이프**. 세션 쿼리(`?t=&n=`)까지 그대로 통과. |
+| `wsProxy.ts` | 창 서버의 `/ws` 업그레이드를 릴레이로 **raw 소켓 파이프**. 세션 쿼리(`?t=&n=`)까지 그대로 통과. 목적지는 `URL`(원격 릴레이) 또는 **`LazyProxyTarget {path, resolve}`**(임베디드 릴레이 — 첫 업그레이드 때 켜지는 동안 소켓 · `head` 를 들고 기다린다, 2026-09-11). |
 | `windowState.ts` | `<userData>/window-state.json` 에 크기 · 위치 · 최대화 · 전체화면 저장/복원. 저장된 모니터가 사라졌으면 위치를 버린다. |
 | `build.mjs` | `main.ts` + 임베디드 릴레이를 `dist-electron/main.js` 로 번들. **rolldown**(vite 의존성이라 새 패키지가 필요 없다)을 쓰고 `electron` / `ws` 는 external. `default-relay.txt` 의 주소를 `transform.define` 으로 `__SCAV_DEFAULT_RELAY__` 에 굽는다(`define` 은 최상위가 아니라 `transform` 아래다 — 최상위에 두면 경고만 내고 조용히 무시된다). |
 | `default-relay.txt` | 배포본이 기본으로 접속할 릴레이 주소 **한 줄**. 빌드 타임에 `__SCAV_DEFAULT_RELAY__` 로 구워지고, `scripts/pack-release.mjs` 가 그 주소를 배포 폴더의 **`server.txt`** 로도 써 준다(주석 포함) — 그래서 받은 사람이 재빌드 없이 주소를 고칠 수 있다. 2026-09-10 이전 이름은 `relay.txt` 였고 `main.ts` 는 그 이름도 계속 읽는다. |
@@ -141,7 +150,7 @@ npm run typecheck:app
 | 2 | `SCAV_RELAY` 환경변수 | 스크립트 · 바로가기 |
 | 3 | exe 옆의 `relay.txt` 첫 줄 | **받은 사람이 재빌드 없이** 주소를 고칠 때 |
 | 4 | 빌드에 구워진 값 (`electron/default-relay.txt`) | 배포본의 기본값 |
-| 5 | 아무것도 없음 | 자체 릴레이를 띄운다 (오프라인 · 단독 실행) |
+| 5 | 아무것도 없음 | 자체 릴레이를 띄운다 (오프라인 · 단독 실행) — 첫 `/ws` 접속 때 (2026-09-11) |
 
 `relay.txt` 는 주석(`#`)과 빈 줄을 뺀 첫 줄을 읽고, `ws://주소:포트/ws` · `주소:포트` · `주소` 를 모두 받는다
 (포트와 `/ws` 는 채워 준다). BOM 은 벗겨 낸다 — 메모장이 UTF-8 로 저장하면 첫 줄이 주석으로 안 보이기 때문이다.
@@ -253,6 +262,10 @@ Tab → Escape / Tab → Tab)로 비교했다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
 
+- **2026-09-11 (C-28 · C-30)** — 임베디드 릴레이 **지연 시작**: `attachWsProxy` 가 `LazyProxyTarget` 을 받고
+  `main.ts` 의 `ensureEmbedded()` 가 첫 `/ws` 업그레이드에서 릴레이를 켠다(`--lan` · `--port` 는 즉시).
+  `/__scav/relay` 는 요청마다 지금 값을 돌려준다. `src/` 무변경. 배포 서버 exe 는 postject 주입 **전에** node.exe
+  사본의 깨진 Authenticode 서명을 걷어낸다(`scripts/build-server.mjs` — `scripts/README.md`).
 - **2026-09-08** — `package.json` 에 `build.electronDist = "node_modules/electron/dist"` 추가.
   electron-builder 의 다운로드 → 압축 해제 → `win-unpacked.tmp` rename 경로가 EDR 파일 잠금과 경합해
   `npm run app:dist` 가 매번 `EPERM … rename` 으로 죽던 것을 복사 경로로 우회한다 (위 `electronDist` 절).

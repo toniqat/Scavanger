@@ -64,6 +64,10 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
+  // C-44 (2026-09-11): 부팅 때 저장된 화면 설정을 한 번 발행하는 것(`SettingsMenu.bind` → `ui:displayChanged`)은 사용자
+  // 조작이 아니다 — 예전에는 그것이 `perfChecked` 를 세워 자동 블룸 끄기(perf guard)가 한 번도 돌지 않았다.
+  const boot = await page.evaluate(() => ({ perfChecked: window.__game.perfChecked, bloom: window.__game.isPostProcessing, t: window.__game.ctx.time }));
+  ok(boot.perfChecked === false || !boot.bloom, `부팅 설정 발행이 perf guard 를 끄지 않는다 (perfChecked ${boot.perfChecked}, t ${boot.t.toFixed(1)} s)`);
   await page.evaluate(() => {
     let lastRaf = performance.now();
     (function tick() { lastRaf = performance.now(); requestAnimationFrame(tick); })();
@@ -144,6 +148,40 @@ try {
   await mark('playing');
   await waitSim(3.0);
   await budgetOk('레이드');
+
+  /* ── 화면 설정 토글 (2026-09-11, C-44) ──────────────────────────────────────────────────────────────────────
+     블룸은 렌더 타깃(컴포저 ↔ 캔버스)을, 그림자는 프로그램 키의 `shadowMapEnabled` 를 바꾸므로 둘 다 lit 머티리얼을
+     한 번 전부 다시 컴파일한다. 값이 **실제로 바뀔 때만** `holdForScene()` 으로 hold 하고, 같은 값이 다시 오면
+     (부팅 · 전체화면 · 해상도) 아무것도 안 한다. hold 가 풀린 뒤 몇 프레임 동안 프로그램이 새로 생기지 않아야
+     "재컴파일이 hold 안에서 끝났다" 이다. 스폰이 끼어들지 않게 그동안 timeScale 을 0 으로 둔다. */
+  await mark('화면 설정 토글');
+  const disp0 = await P(() => ({ bloom: window.__game.isPostProcessing, shadows: window.__game.hasShadows, holding: window.__game.shaders.holding }));
+  await P(() => { window.__game.ctx.timeScale = 0; });
+  const emitDisplay = (d) => P((d) => {
+    const e = window.__game;
+    e.ctx.bus.emit('ui:displayChanged', { fullscreen: false, bloom: d.bloom, shadows: d.shadows, scale: 1 });
+    return { holding: e.shaders.holding, bloom: e.isPostProcessing, shadows: e.hasShadows };
+  }, d);
+  const settle = async (label) => {
+    await waitFor(page, () => window.__game.shaders.holding === false, `${label} hold released`, 30000);
+    const n0 = await P(() => window.__game.renderer.info.programs.length);
+    await waitSim(0.25);
+    const n1 = await P(() => window.__game.renderer.info.programs.length);
+    ok(n0 === n1, `${label}: 재컴파일이 hold 안에서 끝났다 (hold 뒤 프로그램 ${n0} → ${n1})`);
+  };
+  const same = await emitDisplay(disp0);
+  ok(disp0.holding === false && same.holding === false, '같은 화면 설정이 다시 와도(부팅 · 전체화면 · 해상도) hold 하지 않는다', JSON.stringify({ disp0, same }));
+  const sh = await emitDisplay({ bloom: disp0.bloom, shadows: !disp0.shadows });
+  ok(sh.holding === true && sh.shadows === !disp0.shadows, `그림자 ${disp0.shadows ? '끄기' : '켜기'} → 그 순간부터 hold`, JSON.stringify(sh));
+  await settle('그림자 토글');
+  const bl = await emitDisplay({ bloom: !disp0.bloom, shadows: !disp0.shadows });
+  ok(bl.holding === true && bl.bloom === !disp0.bloom, `블룸 ${disp0.bloom ? '끄기' : '켜기'} → 그 순간부터 hold`, JSON.stringify(bl));
+  await settle('블룸 토글');
+  const back = await emitDisplay(disp0);
+  ok(back.holding === true && back.bloom === disp0.bloom && back.shadows === disp0.shadows, '원래 값으로 되돌려도 hold', JSON.stringify(back));
+  await settle('되돌리기');
+  ok(await P(() => window.__game.perfChecked === true), '플레이어가 블룸을 직접 바꾸면 perf guard 는 물러난다 (perfChecked)');
+  await P(() => { window.__game.ctx.timeScale = 1; });
 
   // 분대장 기기의 광원은 기기 안이 아니라 씬에 미리 심겨 있어야 한다 (`game/parts/Leader`)
   const led = await P(() => {

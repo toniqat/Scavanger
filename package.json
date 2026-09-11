@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist-electron/main.js",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite --host --port 5273",
     "build": "tsc --noEmit && vite build",

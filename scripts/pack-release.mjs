@@ -22,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { securityDirectory } from './pe-signature.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -124,6 +125,10 @@ if (skipServer) {
     console.error('[pack] 서버 exe 빌드 실패');
     process.exit(1);
   }
+  // C-30 (2026-09-11): 깨진 node.exe 서명이 배포 exe 에 남지 않았는지 — 보안 디렉터리 크기가 0 이어야 한다.
+  const sec = securityDirectory(join(outDir, 'SCAVANGER-Server.exe'));
+  if (sec.size !== 0) { console.error(`[pack] SCAVANGER-Server.exe 에 서명 테이블이 남아 있습니다 (${sec.size} B) — build-server 의 서명 제거가 빠졌다`); process.exit(1); }
+  console.log('[pack] SCAVANGER-Server.exe  보안 디렉터리 크기 0 (깨진 서명 없음)');
 }
 
 console.log(`\n[pack] 배포 폴더 준비 완료: ${outDir}`);

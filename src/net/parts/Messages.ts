@@ -82,6 +82,8 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
 
     case 'lobby:error':
       if (msg.code === 'duplicate') sys.duplicateKicked = true;
+      // C-29: the operator kicked us / the server is at its cap — the close follows; `onSocketDown` stops reconnecting.
+      if (msg.code === 'kicked' || msg.code === 'server_full') sys.serverRefused = msg.code;
       sys.profileSync.onError(msg.code);
       sys.pendingQuickMatch = false;
       bus.emit('net:error', { code: msg.code, message: msg.message });

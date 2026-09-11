@@ -18,23 +18,10 @@
 import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+// 2026-09-11: 로더 목록은 verify 의 csv → 폴더 매핑과 같은 파일(`data-owners.mjs`)에 산다 — 한쪽만 고치지 않게.
+import { CSV_FOLDERS, CSV_WIDE, DATA_OWNERS } from './data-owners.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-/** csv 를 읽는 모듈 전부. 하나라도 빠지면 그 파일이 "고아" 로 잘못 잡히므로 같이 늘린다. */
-const DATA_OWNERS = [
-  '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs
-  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · books · armor · implants
-  '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
-  '/src/items/LootTables.ts',    // loot_*
-  '/src/items/Recipes.ts',       // recipes
-  '/src/items/Salvage.ts',       // salvage (분해 표) + 내구도 구간 배수
-  '/src/enemies/EnemyTypes.ts',  // enemies · enemy_abilities
-  '/src/progression/defs.ts',    // stats · skills
-  '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
-  '/src/world/structures/model.ts', // structures (버려진 구조물 · 선로 플랫폼 · 전차)
-  '/src/world/hazard/model.ts',  // hazards (환경 재해의 색 · 입자 · 벽)
-];
 
 const server = await createServer({
   root: ROOT,
@@ -97,6 +84,10 @@ if (economy.length) {
   console.error(`\n제작 → 분해 무한 이득 ${economy.length}건 (수리 재료 + 분해 산출 ≤ 제작 재료 여야 한다)`);
   for (const v of economy) console.error(`  ${v.defId}${v.bucket >= 0 ? ` [내구도 구간 ${v.bucket}]` : ''} — ${v.message}`);
 }
+
+/* 2026-09-11: verify 가 csv 변경에서 스모크를 고르는 표에 없는 파일 — 실패는 아니고 알림이다 (`data-owners.mjs`). */
+const unmapped = files.filter((f) => !CSV_WIDE.has(f) && !CSV_FOLDERS[f]);
+if (unmapped.length) console.warn(`\n참고: scripts/data-owners.mjs 의 CSV_FOLDERS 에 없는 csv ${unmapped.length}건 (verify 가 이 파일 변경에 스모크를 못 고른다): ${unmapped.join(', ')}`);
 
 if (loadFailed || rows) {
   console.error(`\ndata:check 실패 — ${rows}건`);

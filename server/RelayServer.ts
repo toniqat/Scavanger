@@ -44,6 +44,10 @@ export const HEARTBEAT_MS = 15_000;
 export const PEER_ID_LENGTH = 12;
 /** WebSocket close code used when a newer socket with the same session token replaces this one. */
 export const CLOSE_DUPLICATE = 4001;
+/** 2026-09-11 (C-29): the operator ran `kick` (`lobby:error kicked` is sent first). */
+export const CLOSE_KICKED = 4002;
+/** 2026-09-11 (C-29): over the operator's `max` (`lobby:error server_full` is sent first, no welcome). */
+export const CLOSE_SERVER_FULL = 4003;
 const MAX_CODE_INPUT = 32;
 const MAX_NAME_INPUT = 64;
 const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
@@ -58,7 +62,30 @@ interface Client {
   remote: string;
   /** Connected with a valid session token → a stable id with a profile record (anonymous ids get none). */
   hasProfile: boolean;
+  /** 2026-09-11 (C-29): `Date.now()` at connect — `listClients()` shows how long the socket has been up. */
+  connectedAt: number;
+  /** 2026-09-11 (C-29): kicked by the operator — frames arriving before the close event are ignored. */
+  kicked: boolean;
 }
+
+/** 2026-09-11 (C-29): one row of the operator console's `list` (`RelayServer.listClients`). */
+export interface RelayClientInfo {
+  id: PeerId;
+  name: string;
+  remote: string;
+  /** The 아이디 (`PlayerCode`) — null for an anonymous socket (or before the store assigned one). */
+  code: string | null;
+  /** Lobby code, or null outside any ship. */
+  lobby: string | null;
+  host: boolean;
+  inMission: boolean;
+  connectedAt: number;
+}
+
+/** 2026-09-11 (C-29): `RelayServer.kick` result. `connected` = a live socket was closed (false = only a slot in grace). */
+export type RelayKickResult =
+  | { ok: true; id: PeerId; name: string; connected: boolean; lobby: string | null }
+  | { ok: false; reason: 'not_found' };
 
 export interface RelayServerOptions {
   port?: number;
@@ -75,6 +102,8 @@ export interface RelayServerOptions {
   dataDir?: string | null;
   /** Debounce for profile file writes (ms). */
   profileSaveDebounceMs?: number;
+  /** 2026-09-11 (C-29): connection cap (`null` / ≤ 0 = unlimited, the default). Changeable later with `setMaxClients`. */
+  maxClients?: number | null;
 }
 
 export interface RelayServer {
@@ -86,6 +115,22 @@ export interface RelayServer {
   readonly store: ProfileStore;
   clientCount(): number;
   close(): Promise<void>;
+  /* 2026-09-11 (C-29) — 서버 콘솔 관리 (`server/tool.ts`). 밴은 없다: 쫓겨난 사람이 다시 붙는 것은 막지 않는다. */
+  /** Every connected socket, oldest first. */
+  listClients(): RelayClientInfo[];
+  /**
+   * Disconnect `idOrCode` (a PeerId, or an 아이디 typed with or without the dash) **without a reconnect grace**: the
+   * lobby slot is removed at once (`peer:left`, host migrated like an ordinary leave), then `lobby:error kicked` and a
+   * close with `CLOSE_KICKED`. A member that is only sitting in its grace (no socket) just loses the slot.
+   */
+  kick(idOrCode: string, reason?: string): RelayKickResult;
+  /**
+   * Connection cap for **new** sockets (`null` / ≤ 0 = unlimited). Over the cap a connection gets
+   * `lobby:error server_full` and is closed before its welcome — except a socket whose id is still a lobby member
+   * (a reconnect inside the grace, or a page reload replacing its own socket). Lowering it kicks nobody.
+   */
+  setMaxClients(n: number | null): void;
+  readonly maxClients: number | null;
 }
 
 function randomPeerId(): PeerId {
@@ -244,6 +289,11 @@ function parseConnectQuery(req: IncomingMessage): { token: string | null; name: 
   return { token, name };
 }
 
+/** C-29: a usable connection cap, or null (= unlimited) for anything that is not a positive number. */
+function normalizeMax(n: number | null | undefined): number | null {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+}
+
 export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelayServer> {
   const port = opts.port ?? Number(process.env.PORT ?? NET_DEFAULT_PORT);
   const host = opts.host ?? process.env.HOST ?? '0.0.0.0';
@@ -259,6 +309,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   const store = new ProfileStore(storeOpts);
   const lobbies = new LobbyManager();
   const clients = new Map<PeerId, Client>();
+  /** C-29: `null` = unlimited. */
+  let maxClients: number | null = normalizeMax(opts.maxClients);
   /** Lobby members whose socket is down: id → grace timer that removes them. */
   const graceTimers = new Map<PeerId, ReturnType<typeof setTimeout>>();
   /** Started lobbies whose host dropped: lobby code → timer that migrates the host role (Phase 7). */
@@ -268,7 +320,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const url = req.url ?? '/';
     if (req.method === 'GET' && (url === '/health' || url.startsWith('/health?'))) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*' });
-      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()) }));
+      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()), maxClients }));
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
@@ -486,7 +538,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
 
   /** Final removal (explicit leave or grace expiry): `peer:left` to the rest, empty lobby deleted. */
-  const removeFromLobby = (id: PeerId, name: string, reason: 'leave' | 'timeout'): void => {
+  const removeFromLobby = (id: PeerId, name: string, reason: 'leave' | 'timeout' | 'kick'): void => {
     clearGrace(id);
     const wasStarted = lobbies.lobbyOf(id)?.started ?? false;
     const res = lobbies.leave(id);
@@ -953,10 +1005,30 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const { token, name } = parseConnectQuery(req);
     const id = token ? peerIdFromToken(token) : randomPeerId();
-    const c: Client = { id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?', hasProfile: token !== null };
+    const c: Client = {
+      id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?', hasProfile: token !== null,
+      connectedAt: Date.now(), kicked: false,
+    };
 
     // Same session already attached (second tab / zombie socket): the newest connection wins.
     const old = clients.get(id);
+
+    /*
+     * C-29: operator cap. Refused before anything else happens (no welcome, no social record, no presence push).
+     * Exempt: a socket replacing its own (`old`), and an id that is still a lobby member — a squadmate coming back
+     * inside its reconnect grace must never be locked out of the raid it was in.
+     */
+    if (maxClients !== null && !old && clients.size >= maxClients && !lobbies.lobbyOf(id)) {
+      log(`refused ${id} from ${c.remote}: server full (${clients.size}/${maxClients})`);
+      const refusal: ServerToClient = { t: 'lobby:error', code: 'server_full', message: LOBBY_ERROR_MESSAGE_KO.server_full };
+      try {
+        ws.send(JSON.stringify(refusal));
+        ws.close(CLOSE_SERVER_FULL, 'server full');
+      } catch { /* already gone */ }
+      setTimeout(() => { try { ws.terminate(); } catch { /* ignore */ } }, 2000).unref();
+      ws.on('error', () => { /* refused socket: nothing to clean up */ });
+      return;
+    }
     if (old) {
       log(`duplicate session ${id}: closing previous socket from ${old.remote}`);
       sendError(old, 'duplicate');
@@ -1021,6 +1093,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', (raw: RawData, isBinary: boolean) => {
       if (clients.get(c.id) !== c) return; // replaced by a newer socket; ignore stragglers
+      if (c.kicked) return;               // C-29: the close is on its way — a late `lobby:quickmatch` must not rejoin
       c.alive = true;
       let msg: ClientToServer | null = null;
       try { msg = parseClientMessage(raw, isBinary); } catch { msg = null; }
@@ -1052,6 +1125,62 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   }, heartbeatMs);
   heartbeat.unref();
 
+  /* ── C-29: operator console (server/tool.ts) ─────────────────────────── */
+  const listClients = (): RelayClientInfo[] => {
+    const out: RelayClientInfo[] = [];
+    for (const c of clients.values()) {
+      const lobby = lobbies.lobbyOf(c.id);
+      out.push({
+        id: c.id,
+        name: c.name,
+        remote: c.remote,
+        code: store.card(c.id)?.code ?? null,
+        lobby: lobby?.code ?? null,
+        host: lobby?.hostId === c.id,
+        inMission: (lobby?.started ?? false) && (lobby?.get(c.id)?.inMission ?? false),
+        connectedAt: c.connectedAt,
+      });
+    }
+    return out.sort((a, b) => a.connectedAt - b.connectedAt);
+  };
+
+  /** A typed target → PeerId: an exact connected / lobby-member id first, then an 아이디 (dash and case ignored). */
+  const resolveKickTarget = (raw: string): PeerId | null => {
+    const text = raw.trim();
+    if (!text) return null;
+    if (clients.has(text) || lobbies.lobbyOf(text)) return text;
+    const code = normalizePlayerCode(text);
+    if (!code) return null;
+    return store.peerByCode(code) ?? null;
+  };
+
+  const kick = (idOrCode: string, reason?: string): RelayKickResult => {
+    const id = resolveKickTarget(idOrCode);
+    const c = id !== null ? clients.get(id) : undefined;
+    const lobby = id !== null ? lobbies.lobbyOf(id) : undefined;
+    if (id === null || (!c && !lobby)) return { ok: false, reason: 'not_found' };
+    const name = c?.name || lobby?.get(id)?.name || '';
+    const lobbyCode = lobby?.code ?? null;
+    // No grace: the slot goes first (peer:left + host migration, exactly like a leave), then the socket.
+    if (lobby) removeFromLobby(id, name, 'kick');
+    if (c) {
+      c.kicked = true;
+      const why = typeof reason === 'string' ? reason.trim().slice(0, MAX_REASON_INPUT) : '';
+      sendError(c, 'kicked', why ? `${LOBBY_ERROR_MESSAGE_KO.kicked} (${why})` : undefined);
+      try { c.ws.close(CLOSE_KICKED, 'kicked'); } catch { /* ignore */ }
+      const sock = c.ws;
+      setTimeout(() => { try { sock.terminate(); } catch { /* ignore */ } }, 2000).unref();
+      // The close handler below does the rest (clients map, presence → offline for friends).
+    }
+    log(`kick ${name}(${id})${lobbyCode ? ` from lobby ${lobbyCode}` : ''}${c ? '' : ' (slot only — socket was already down)'}`);
+    return { ok: true, id, name, connected: !!c, lobby: lobbyCode };
+  };
+
+  const setMaxClients = (n: number | null): void => {
+    maxClients = normalizeMax(n);
+    log(`max clients → ${maxClients ?? 'unlimited'} (${clients.size} connected)`);
+  };
+
   return new Promise<RelayServer>((resolve, reject) => {
     http.once('error', reject);
     http.listen(port, host, () => {
@@ -1065,6 +1194,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         lobbies,
         store,
         clientCount: () => clients.size,
+        listClients,
+        kick,
+        setMaxClients,
+        get maxClients() { return maxClients; },
         close: () => new Promise<void>((done) => {
           clearInterval(heartbeat);
           for (const t of graceTimers.values()) clearTimeout(t);

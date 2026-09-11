@@ -11,14 +11,25 @@
  *   4. 카드 넘기기 라이트박스(2026-09-10): `.shotrow` 한 벌이 ◀ ▶ 로 넘어가고 양끝에서 되돌며 ESC 로 닫힌다.
  *      `.shotrow` 밖의 단독 이미지에는 넘기기 UI 가 붙지 않는다.
  *
+ * 2026-09-11 (C-45): 저장소 경로를 `import.meta.url` 에서 찾고(예전에는 `F:/Project/Scavanger` 절대경로라 다른 PC ·
+ * 다른 드라이브에서는 돌지 않았다), Chrome 후보를 다른 스모크와 같은 셋으로 고르고, 포트는 OS 에게 받는다(8123
+ * 고정은 병렬 레인과 부딪힌다). 출력은 `verify.mjs` 의 `summarize` 형식 — `FAIL …` 줄 + 마지막 `N passed, M failed`.
+ *
  * Usage: node scripts/smoke-pitch.mjs
  */
 import puppeteer from 'puppeteer-core';
 import { createServer } from 'node:http';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = 'F:/Project/Scavanger/docs/pitch';
+const ROOT = fileURLToPath(new URL('../docs/pitch/', import.meta.url));
+const CHROME = [
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+].find((p) => existsSync(p));
+if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.webp': 'image/webp' };
 const server = createServer((req, res) => {
   const p = join(ROOT, decodeURIComponent(req.url.split('?')[0]));
@@ -26,20 +37,22 @@ const server = createServer((req, res) => {
   res.writeHead(200, { 'content-type': MIME[extname(p)] ?? 'application/octet-stream' });
   res.end(readFileSync(p));
 });
-await new Promise((r) => server.listen(8123, r));
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const ORIGIN = `http://127.0.0.1:${server.address().port}`;
 
 const b = await puppeteer.launch({
-  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath: CHROME,
   headless: true, args: ['--no-sandbox', '--window-size=1600,1000'],
 });
 const page = await b.newPage();
 await page.setViewport({ width: 1600, height: 1000 });
 
-let fails = 0, warns = 0;
-const ok = (cond, msg, extra) => { if (!cond) { fails++; console.log('  ✘', msg, extra ?? ''); } };
+let fails = 0, passes = 0, warns = 0;
+const ok = (cond, msg, extra) => { if (cond) passes++; else { fails++; console.log(`  FAIL ${msg} ${extra ?? ''}`); } };
 
 const files = readdirSync(join(ROOT, 'pages')).filter((f) => f.endsWith('.html')).sort();
 console.log(`페이지 ${files.length}개\n`);
+ok(files.length > 0, 'docs/pitch/pages 에 페이지가 하나도 없다', ROOT);
 
 for (const f of files) {
   const errors = [];
@@ -51,7 +64,7 @@ for (const f of files) {
   page.on('console', (m) => { if (m.type() === 'warning' && m.text().includes('[pitch]')) errors.push(m.text()); });
   page.on('requestfailed', (r) => { const u = r.url(); if (/\.(png|webp)$/.test(u)) missing.push(u.split('/').pop()); });
 
-  await page.goto(`http://localhost:8123/pages/${f}`, { waitUntil: 'networkidle0' });
+  await page.goto(`${ORIGIN}/pages/${f}`, { waitUntil: 'networkidle0' });
   const st = await page.evaluate(() => ({
     tree: document.querySelectorAll('#tree a').length,
     toc: document.querySelectorAll('#toc a').length,
@@ -73,7 +86,7 @@ for (const f of files) {
 
 /* ── 카드 넘기기 ─────────────────────────────────────────────────────── */
 console.log('\n카드 넘기기(라이트박스)');
-await page.goto('http://localhost:8123/pages/11-planets.html', { waitUntil: 'networkidle0' });
+await page.goto(`${ORIGIN}/pages/11-planets.html`, { waitUntil: 'networkidle0' });
 const r = await page.evaluate(async () => {
   const wait = () => new Promise((res) => setTimeout(res, 260));
   const imgs = [...document.querySelectorAll('.shotrow figure.shot img')];
@@ -95,7 +108,7 @@ const r = await page.evaluate(async () => {
   const closed = !box.classList.contains('on');
   return { n: imgs.length, multi, count, count2, changed: first !== second, wrapped, closed };
 });
-if (r.err) { fails++; console.log('  ✘', r.err); }
+if (r.err) ok(false, r.err);
 else {
   ok(r.multi, '.multi 가 안 붙었다 (화살표가 안 보인다)');
   ok(r.count === '1 / ' + r.n, '장수 표시', r.count);
@@ -107,7 +120,7 @@ else {
 }
 
 /* 단독 이미지는 넘기기 UI 가 없어야 한다 */
-await page.goto('http://localhost:8123/pages/00-intro.html', { waitUntil: 'networkidle0' });
+await page.goto(`${ORIGIN}/pages/00-intro.html`, { waitUntil: 'networkidle0' });
 const solo = await page.evaluate(async () => {
   const wait = () => new Promise((res) => setTimeout(res, 260));
   const img = document.querySelector('article > figure.shot img');   /* .shotrow 밖 */
@@ -124,5 +137,5 @@ if (!solo.skip) {
 
 await b.close();
 server.close();
-console.log(fails ? `\n실패 ${fails}건` : '\n전부 통과');
+console.log(`\n${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

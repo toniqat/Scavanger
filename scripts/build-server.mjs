@@ -20,6 +20,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, wr
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { securityDirectory, stripSignature } from './pe-signature.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -77,6 +78,13 @@ if (existsSync(exeOut)) {
   }
 }
 copyFileSync(process.execPath, exeOut);
+/* 2026-09-11 (C-30): 주입 **전에** node.exe 사본의 Authenticode 서명을 걷어낸다. 남겨 두면 postject · rcedit 이
+   고친 뒤에도 테이블만 붙어 있어 "깨진 서명" exe 가 된다(백신 · SmartScreen 이 변조로 본다). 순서: 복사 → 서명 제거
+   → postject → rcedit. `scripts/pe-signature.mjs` 주석 참고. */
+const sig = stripSignature(exeOut);
+console.log(sig.removed
+  ? `[server:dist] node.exe 사본의 서명 제거 (${sig.bytes} B${sig.truncated ? ', 파일 끝에서 잘라냄' : ', 테이블은 파일 중간 — 디렉터리만 비움'})`
+  : '[server:dist] node.exe 사본에 서명이 없습니다 (그대로 진행)');
 
 const require = createRequire(import.meta.url);
 const { inject } = require('postject');
@@ -100,3 +108,11 @@ if (existsSync(icon) && existsSync(rcedit)) {
 } else {
   console.log('[server:dist] 아이콘을 건너뜁니다 (icon.ico 또는 rcedit 없음)');
 }
+
+/* C-30: 결과물에 서명 테이블이 다시 생기지 않았는지 (postject · rcedit 는 서명을 만들지 않는다 — 생겼다면 순서가 틀렸다). */
+const after = securityDirectory(exeOut);
+if (after.size !== 0) {
+  console.error(`[server:dist] ${exeOut} 에 서명 테이블이 남아 있습니다 (offset ${after.offset}, ${after.size} B)`);
+  process.exit(1);
+}
+console.log('[server:dist] 서명 테이블 없음 (무서명 exe)');

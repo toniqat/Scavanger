@@ -58,6 +58,11 @@ export class NetClient {
       }
       this.ws = ws;
       let welcomed = false;
+      /**
+       * 2026-09-11 (C-29): the server's own Korean reason when it is about to close us on purpose (`kicked` by the
+       * operator, `server_full` before any welcome). Used as the close reason instead of the generic transport text.
+       */
+      let refusal: string | null = null;
 
       const finishFail = (reason: string): void => {
         if (this.ws !== ws) return;
@@ -71,7 +76,7 @@ export class NetClient {
       ws.onerror = () => { if (!welcomed) finishFail('서버에 연결할 수 없습니다.'); };
       ws.onclose = (ev) => {
         if (this.ws !== ws) return;
-        const reason = welcomed ? (ev.wasClean ? '연결이 종료되었습니다.' : '서버와의 연결이 끊어졌습니다.') : '서버에 연결할 수 없습니다.';
+        const reason = refusal ?? (welcomed ? (ev.wasClean ? '연결이 종료되었습니다.' : '서버와의 연결이 끊어졌습니다.') : '서버에 연결할 수 없습니다.');
         this.connectPromise = null;
         this.teardown();
         this.setStatus(welcomed && ev.wasClean ? 'offline' : 'error', reason);
@@ -99,7 +104,11 @@ export class NetClient {
           this.serverTimeOffset = msg.serverTime - performance.now();
           this.hasServerTime = true;
         }
-        if (!welcomed) return; // ignore anything before the handshake
+        // C-29: a refusal (`kicked` / `server_full`) is the one frame that matters even before the handshake — the
+        // server closes right after it, and NetSystem must learn *why* so it stops the reconnect loop.
+        const refused = msg.t === 'lobby:error' && (msg.code === 'kicked' || msg.code === 'server_full');
+        if (refused) refusal = msg.message;
+        if (!welcomed) { if (refused) this.onMessage?.(msg); return; } // ignore anything else before the handshake
         this.onMessage?.(msg);
       };
     });

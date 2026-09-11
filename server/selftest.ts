@@ -4,7 +4,7 @@
  * WebSocket) through the lobby / relay / disconnect / reconnect / quick-match flows and exits 0 on success,
  * 1 on the first failed assertion.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ClientToServer, ServerToClient, LobbyState } from '../src/shared/net.ts';
@@ -18,7 +18,7 @@ import {
   SOCIAL_ERROR_MESSAGE_KO, SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_WHISPER_MAX, isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
-import { ProfileStore, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
+import { ProfileStore, PROFILE_BACKUP_SUFFIX, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -985,6 +985,74 @@ async function main(): Promise<void> {
       rmSync(dir, { recursive: true, force: true });
     }
 
+    /* ── part 7b (2026-09-11, C-41 · X-2): 비동기 쓰기 · .bak 세대 · 손상 파일 보존 + 복구 ── */
+    const d7 = mkdtempSync(join(tmpdir(), 'scav-store-b-'));
+    const d7e = mkdtempSync(join(tmpdir(), 'scav-store-c-'));
+    try {
+      const main7 = join(d7, PROFILE_FILE);
+      const bak7 = `${main7}${PROFILE_BACKUP_SUFFIX}`;
+      const creditsIn = (path: string): unknown => (JSON.parse(readFileSync(path, 'utf8')) as { profiles: Record<string, { credits: unknown }> }).profiles.q1?.credits;
+      /** The debounced async write has started (it sets `writing` synchronously, before its first await). */
+      const writeStarted = async (s: ProfileStore): Promise<boolean> => {
+        for (const t0 = Date.now(); Date.now() - t0 < 2000;) {
+          if ((s as unknown as { writing: unknown }).writing) return true;
+          await new Promise<void>((r) => setImmediate(r));
+        }
+        return false;
+      };
+
+      const a7 = new ProfileStore({ dataDir: d7, saveDebounceMs: 5, quiet: true });
+      a7.applyCredits('q1', 100, 'migrate');
+      assert(await writeStarted(a7), 'C-41: the debounced write runs asynchronously (in flight after the timer)');
+      a7.applyCredits('q1', 1, 'earn');                       // lands while the first write is in flight
+      await a7.idle();
+      assert(a7.writeCount === 2 && creditsIn(main7) === 101, 'C-41: a change during a write is written once more when it finishes', { writes: a7.writeCount, credits: creditsIn(main7) });
+      assert(existsSync(bak7) && creditsIn(bak7) === 100, 'C-41: every write rotates the previous file into profiles.json.bak (one generation back)', existsSync(bak7) ? creditsIn(bak7) : 'no .bak');
+      assert((JSON.parse(readFileSync(main7, 'utf8')) as { v?: unknown }).v === 1, 'C-41: the file format is unchanged ({v:1, profiles})');
+
+      a7.applyCredits('q1', 1, 'earn');                       // 102 → async write starts
+      assert(await writeStarted(a7), 'C-41: second async write in flight');
+      a7.applyCredits('q1', 1, 'earn');                       // 103
+      a7.close();                                              // synchronous — must win over the write in flight
+      assert(creditsIn(main7) === 103, 'C-41: close() writes synchronously right away', creditsIn(main7));
+      await a7.idle();
+      assert(creditsIn(main7) === 103 && creditsIn(bak7) === 101, 'C-41: the aborted in-flight write never renames an older snapshot over close()', { main: creditsIn(main7), bak: creditsIn(bak7) });
+      assert(readdirSync(d7).every((f) => f === PROFILE_FILE || f === `${PROFILE_FILE}${PROFILE_BACKUP_SUFFIX}`), 'C-41: no tmp file is left behind', readdirSync(d7));
+
+      /* X-2 ① 망가진 profiles.json + 쓸 만한 .bak → 원본은 corrupt-<시각> 으로 보존, .bak 에서 복구, 곧 새 main */
+      const garbage = '{"v":1,"profiles":{ half-written';
+      writeFileSync(main7, garbage, 'utf8');
+      const b7 = new ProfileStore({ dataDir: d7, saveDebounceMs: 5, quiet: true });
+      const kept = readdirSync(d7).filter((f) => /^profiles\.corrupt-.+\.json$/.test(f));
+      assert(b7.loadResult.note === 'corrupt-recovered' && b7.get('q1').credits === 101, 'X-2: an unreadable profiles.json is recovered from .bak (not started empty)', { load: b7.loadResult, credits: b7.get('q1').credits });
+      assert(kept.length === 1 && readFileSync(join(d7, kept[0] ?? ''), 'utf8') === garbage && b7.loadResult.corruptPath?.endsWith(kept[0] ?? '?') === true,
+        'X-2: the unreadable original is preserved byte for byte as profiles.corrupt-<ts>.json', kept);
+      await sleep(40);
+      await b7.idle();
+      assert(existsSync(main7) && creditsIn(main7) === 101, 'X-2: a recovered store writes a healthy profiles.json back on its own', existsSync(main7));
+      b7.close();
+
+      /* X-2 ② flush 의 두 rename 사이에서 죽었다(= main 없음, .bak 만) → .bak 이 최신이다 */
+      renameSync(main7, bak7);
+      const c7 = new ProfileStore({ dataDir: d7, quiet: true });
+      assert(c7.loadResult.note === 'bak-recovered' && c7.get('q1').credits === 101, 'X-2: a missing profiles.json with a .bak loads the .bak', c7.loadResult);
+      c7.close();
+
+      /* X-2 ③ 망가진 파일 + .bak 없음 → 빈 DB 로 시작하되 원본은 남고, 첫 쓰기가 그것을 덮지 않는다 */
+      const mainE = join(d7e, PROFILE_FILE);
+      writeFileSync(mainE, 'not json at all', 'utf8');
+      const e7 = new ProfileStore({ dataDir: d7e, quiet: true });
+      const keptE = readdirSync(d7e).filter((f) => /^profiles\.corrupt-.+\.json$/.test(f));
+      assert(e7.loadResult.note === 'corrupt-empty' && e7.size === 0 && keptE.length === 1, 'X-2: unreadable with no .bak → starts empty but moves the original aside', { load: e7.loadResult, files: readdirSync(d7e) });
+      e7.applyCredits('z', 5, 'migrate');
+      e7.close();
+      assert(readFileSync(join(d7e, keptE[0] ?? ''), 'utf8') === 'not json at all' && existsSync(mainE),
+        'X-2: the first write of the empty store leaves the preserved original untouched', readdirSync(d7e));
+    } finally {
+      rmSync(d7, { recursive: true, force: true });
+      rmSync(d7e, { recursive: true, force: true });
+    }
+
     /* ══════════════════════════ part 8: Phase 11 — 행성 + 소셜 ══════════════════════════ */
     const T81 = makeToken('1'), T82 = makeToken('2'), T83 = makeToken('3'), T84 = makeToken('4');
     let { c: p8a, welcome: w8a } = await connect('P1', url, { token: T81, name: 'Uno' });
@@ -1428,6 +1496,102 @@ async function main(): Promise<void> {
     p9a.close(); p9b.close(); p9c.close();
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 9 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
+
+    /* ══════════════════════ part 10 (2026-09-11, C-29): 서버 콘솔 — list · kick · max ══════════════════════
+     *
+     * `server/tool.ts` 의 콘솔 명령이 부르는 세 API. kick 은 유예 없이 슬롯부터 비우고(peer:left + 호스트 이관)
+     * `lobby:error kicked` 뒤 CLOSE_KICKED 로 닫는다 — 밴은 없다. max 는 **새** 소켓만 막고, 같은 소켓의 교체와
+     * 유예 중인 로비 멤버의 재접속은 예외다.
+     */
+    const { c: k1, welcome: wk1 } = await connect('K1', url, { token: makeToken('K'), name: '호스트K' });
+    const { c: k2, welcome: wk2 } = await connect('K2', url, { token: makeToken('L'), name: '대원L' });
+    k1.send({ t: 'lobby:create', name: '호스트K' });
+    const lk = await k1.wait('lobby:state');
+    k2.send({ t: 'lobby:join', code: lk.lobby.code, name: '대원L' });
+    await Promise.all([k1, k2].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.length === 2)));
+    const rows10 = server.listClients();
+    assert(rows10.length === 2 && rows10.every((r) => r.lobby === lk.lobby.code)
+      && rows10.find((r) => r.id === k1.id)?.host === true && rows10.find((r) => r.id === k2.id)?.host === false
+      && rows10[0].id === k1.id,
+      'listClients: every socket with its lobby code + host flag, oldest first', rows10);
+    const code10 = wk1.social?.me.code ?? '';
+    assert(!!code10 && rows10.find((r) => r.id === k1.id)?.code === code10 && rows10.find((r) => r.id === k2.id)?.code === wk2.social?.me.code,
+      'listClients carries each 아이디', rows10);
+
+    /* ① 아이디(대시 · 소문자로 쳐도)로 호스트를 쫓아내면: kicked → CLOSE_KICKED, 분대는 곧바로 peer:left + 호스트 이관 */
+    const kr = server.kick(`${code10.slice(0, 4)}-${code10.slice(4)}`.toLowerCase(), '테스트 사유');
+    assert(kr.ok && kr.id === k1.id && kr.connected && kr.lobby === lk.lobby.code, 'kick resolves a dashed lower-case 아이디 to the connected peer', kr);
+    const ek = await k1.wait('lobby:error', (mm) => mm.code === 'kicked');
+    assert(ek.message.includes('테스트 사유'), 'the kicked socket gets lobby:error kicked carrying the reason', ek);
+    await k1.closed();
+    assert(k1.closeCode === 4002, 'then it is closed with CLOSE_KICKED (4002)', k1.closeCode);
+    const pl10 = await k2.wait('peer:left', (mm) => mm.id === k1.id);
+    assert(pl10.lobby.hostId === k2.id && pl10.lobby.players.length === 1, 'the squad gets peer:left at once (no grace) and the host role moves', pl10.lobby);
+    await sleep(50);
+    assert(server.clientCount() === 1 && server.lobbies.lobbyOf(k1.id) === undefined, 'the kicked id is gone from clients and from the lobby', { clients: server.clientCount() });
+    const nf = server.kick('ZZZZ-ZZZZ');
+    assert(!nf.ok && nf.reason === 'not_found' && !server.kick('').ok, 'kick of an unknown / empty 아이디 → not_found');
+
+    /* ② 밴은 없다 — 같은 토큰은 다시 붙고, 로비 밖에서 시작한다 */
+    const { c: k1b, welcome: wk1b } = await connect('K1b', url, { token: makeToken('K'), name: '호스트K' });
+    assert(wk1b.id === k1.id && !wk1b.lobby, 'no ban: the kicked token connects again, outside any lobby', wk1b);
+
+    /* ③ 유예 중인(소켓이 없는) 멤버를 PeerId 로 kick → 슬롯만 비운다 */
+    k2.close();
+    await k2.closed();
+    await sleep(50);
+    assert(server.lobbies.lobbyOf(k2.id)?.get(k2.id)?.connected === false, 'precondition: K2 sits in its reconnect grace');
+    const kg = server.kick(k2.id);
+    assert(kg.ok && !kg.connected && server.lobbies.lobbyOf(k2.id) === undefined && server.lobbies.count === 0,
+      'kick by PeerId of a member in grace removes the slot (and the empty lobby) before the grace expires', kg);
+
+    /* ④ max: 새 소켓은 welcome 없이 server_full → CLOSE_SERVER_FULL, /health 에 제한이 보인다 */
+    server.setMaxClients(1);
+    assert(server.maxClients === 1, 'setMaxClients(1) → maxClients 1');
+    const full10 = new TestClient('FULL', url);
+    await full10.open();
+    const ef = await full10.wait('lobby:error');
+    assert(ef.code === 'server_full' && ef.message.length > 0, 'over the cap a new socket gets lobby:error server_full', ef);
+    await full10.closed();
+    assert(full10.closeCode === 4003 && await full10.expectNone('welcome', 50), 'and is closed with CLOSE_SERVER_FULL (4003) before any welcome', full10.closeCode);
+    assert(server.clientCount() === 1, 'a refused socket is never counted', server.clientCount());
+    const h10 = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { maxClients?: unknown };
+    assert(h10.maxClients === 1, '/health reports maxClients', h10);
+
+    /* ⑤ 같은 토큰의 소켓 교체(새로고침)는 제한에 걸리지 않는다 */
+    const { c: k1c, welcome: wk1c } = await connect('K1c', url, { token: makeToken('K'), name: '호스트K' });
+    assert(wk1c.id === k1.id, 'at the cap, a page reload replacing its own socket is not refused');
+    await k1b.closed();
+
+    /* ⑥ 유예 중인 로비 멤버의 재접속은 제한에 걸리지 않는다 — 새 토큰은 걸린다 */
+    server.setMaxClients(null);
+    k1c.send({ t: 'lobby:create', name: '호스트K' });
+    const lk2 = await k1c.wait('lobby:state');
+    const { c: k3 } = await connect('K3', url, { token: makeToken('M'), name: '대원M' });
+    k3.send({ t: 'lobby:join', code: lk2.lobby.code, name: '대원M' });
+    await Promise.all([k1c, k3].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.length === 2)));
+    server.setMaxClients(1);
+    k3.close();
+    await k3.closed();
+    await k1c.wait('lobby:state', (mm) => mm.lobby.players.some((p) => p.id === k3.id && !p.connected));
+    const { c: k3b, welcome: wk3b } = await connect('K3b', url, { token: makeToken('M'), name: '대원M' });
+    assert(wk3b.resumed === true && wk3b.lobby?.code === lk2.lobby.code && server.clientCount() === 2,
+      'at the cap, a lobby member reconnecting inside its grace is still let in', { resumed: wk3b.resumed, clients: server.clientCount() });
+    const tokenN = makeToken('N');
+    const full11 = new TestClient('FULL2', url, { token: tokenN, name: '늦은손님' });
+    await full11.open();
+    const ef2 = await full11.wait('lobby:error');
+    await full11.closed();
+    assert(ef2.code === 'server_full' && !server.store.has(peerIdFromToken(tokenN)),
+      'a fresh token over the cap is refused and leaves no profile / social record behind', ef2);
+    server.setMaxClients(0);
+    assert(server.maxClients === null, 'setMaxClients(0) → unlimited');
+    const { c: k4, welcome: wk4 } = await connect('K4', url, { token: tokenN, name: '늦은손님' });
+    assert(wk4.id === peerIdFromToken(tokenN), 'after lifting the cap the same token connects');
+
+    k1c.close(); k3b.close(); k4.close();
+    await sleep(GRACE_MS + 400);
+    assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 10 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {

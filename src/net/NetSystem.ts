@@ -57,6 +57,11 @@ export class NetSystem implements GameSystem, NetRef {
   intentionalClose = false;
   /** The server closed us with `duplicate` (same token from another tab): never auto-reconnect after that. */
   duplicateKicked = false;
+  /**
+   * 2026-09-11 (C-29): the relay closed us on purpose — `kicked` (operator console) or `server_full` (operator cap).
+   * Like `duplicateKicked` it stops auto-reconnect; an explicit `connect()` (터미널 `신호 찾기`) clears it — there is no ban.
+   */
+  serverRefused: 'kicked' | 'server_full' | null = null;
   _reconnecting = false;
   reconnectAttempt = 0;
   reconnectStartedAt = 0;

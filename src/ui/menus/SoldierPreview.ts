@@ -14,6 +14,11 @@ import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from '@/player
  *
  * 악센트 색은 `SoldierModel` 생성자에서 **구워지므로**(재질이 그때 만들어진다), 색을 바꾸면 `Portraits` 가
  * 슬롯 색이 바뀔 때 하는 것과 똑같이 모델을 새로 짓는다.
+ *
+ * **2026-09-11 (C-42) — 옛 모델은 다음 render 뒤에 놓는다.** 새로 짓기 전에 옛 모델의 머티리얼을 먼저 dispose
+ * 하면 같은 셰이더 프로그램을 쥔 머티리얼이 사라진 순간 three.js 가 프로그램을 지우고, 새 모델이 **같은 셰이더를
+ * 다시 컴파일**했다 — 색 칸을 누를 때마다 미리보기가 한 번씩 멎었다. 옛 모델은 씬에서 떼기만 하고
+ * `pendingDispose` 에 두었다가 `renderer.render` 뒤에 dispose 한다 (`player/Portraits` 와 같은 패턴).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 1.8 m 몸을 가슴 높이에서 살짝 위로 잡는 프레이밍 (`player/Portraits` 와 같은 계열의 값). */
@@ -32,6 +37,8 @@ class Preview {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private model: SoldierModel | null = null;
+  /** C-42: replaced models, already out of the scene — disposed after the next `renderer.render`. */
+  private readonly pendingDispose: SoldierModel[] = [];
   private accent = SOLDIER_DEFAULT_ACCENT;
   /** 모델의 정면은 −Z 이고 카메라는 +Z 에 있다 — 반 바퀴 돌려야 얼굴이 이쪽을 본다 (3/4 각도로 살짝 비튼다). */
   private yaw = Math.PI - 0.35;
@@ -77,7 +84,12 @@ class Preview {
   /** 악센트 색으로 병사를 (다시) 짓는다 — 재질은 생성자에서 구워지므로 색은 재건축이다. */
   private build(): void {
     if (this.disposed) return;
-    if (this.model) { this.model.dispose(); this.model = null; }
+    if (this.model) {
+      // C-42: detach now, dispose after the new body has been drawn once (its shader programs stay compiled).
+      this.model.root.removeFromParent();
+      this.pendingDispose.push(this.model);
+      this.model = null;
+    }
     const model = new SoldierModel(this.accent);
     model.setSilhouette(false);            // 가려질 월드가 없다
     model.resetPose();
@@ -116,11 +128,19 @@ class Preview {
     this.model.root.rotation.set(0, this.yaw, 0);
     this.model.update(dt, this.time, this.pose);   // 숨쉬기 / 미세한 흔들림
     this.renderer.render(this.scene, this.camera);
+    this.flushPendingDispose();
+  }
+
+  /** C-42: the new body is drawn (programs held) — the replaced ones can be freed now. */
+  private flushPendingDispose(): void {
+    for (const m of this.pendingDispose) m.dispose();
+    this.pendingDispose.length = 0;
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.flushPendingDispose();
     if (this.model) { this.model.dispose(); this.model = null; }
     this.scene.clear();
     this.renderer.dispose();

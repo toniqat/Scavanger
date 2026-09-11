@@ -1,9 +1,10 @@
 /**
  * SCAVANGER desktop (Electron) main process.
  *
- * One process runs the whole game: it starts the **embedded relay** (`server/RelayServer.ts`) on loopback, serves the
- * vite build from a small http server of its own and points a single BrowserWindow at `http://127.0.0.1:<APP_PORT>/`,
- * forwarding that origin's `/ws` to whichever relay is in play. Loading over http instead of `file://` is what keeps
+ * One process runs the whole game: it serves the vite build from a small http server of its own, points a single
+ * BrowserWindow at `http://127.0.0.1:<APP_PORT>/` and forwards that origin's `/ws` to whichever relay is in play —
+ * the **embedded relay** (`server/RelayServer.ts`, loopback) is started on the first `/ws` upgrade (C-28,
+ * 2026-09-11; `--lan` / `--port` start it at boot). Loading over http instead of `file://` is what keeps
  * `src/` untouched — the renderer's same-origin `/ws` lands on the relay exactly like it does behind the vite proxy,
  * so profiles, raid sessions and the social store all work offline.
  *
@@ -35,7 +36,7 @@ import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron';
 import { startRelayServer, type RelayServer } from '../server/RelayServer.ts';
 import { NET_DEFAULT_PORT, NET_WS_PATH, relayUrlFrom } from '../src/shared/net.ts';
 import { attachStatic } from './static.ts';
-import { attachWsProxy } from './wsProxy.ts';
+import { attachWsProxy, type LazyProxyTarget } from './wsProxy.ts';
 import { loadWindowState, trackWindowState } from './windowState.ts';
 
 app.setName('SCAVANGER');
@@ -194,6 +195,32 @@ async function listenStable(ports: readonly number[], start: (port: number) => P
   throw last ?? new Error('no free app port');
 }
 
+/**
+ * 2026-09-11 (C-28) — 임베디드 릴레이는 **필요할 때 켠다**. 예전에는 설정된 주소가 없으면 부팅 때 무조건 켰는데,
+ * 그러면 쓰지도 않을 릴레이가 포트 8787 · 프로필 저장소 동기 로드 · heartbeat 를 쥐고 있었고 — 게임 안
+ * `설정 › 서버 설정` 으로 다른 서버에 붙는 사람도 마찬가지였다 — 게임을 먼저 켜고 같은 PC 에서
+ * `SCAVANGER-Server.exe` 를 나중에 켜면 그쪽이 `EADDRINUSE` 로 못 떴다. 이제 창 서버의 `/ws` 업그레이드가
+ * **처음 들어올 때** 켠다 (`attachWsProxy` 의 `LazyProxyTarget`). `--lan` / `--port` 는 "이 PC 가 서버다" 라는
+ * 명시적인 뜻이므로 부팅 때 곧바로 켠다. 동시에 들어온 업그레이드는 같은 Promise 를 기다린다.
+ */
+let embeddedStart: Promise<URL> | null = null;
+const eagerEmbedded = lan || value('port', 'SCAV_PORT') !== undefined;
+
+function ensureEmbedded(): Promise<URL> {
+  if (!embeddedStart) {
+    embeddedStart = startEmbedded().then((url) => {
+      console.log(`[desktop] embedded relay on ${url.host}${lan ? ' (bound 0.0.0.0 — LAN)' : ''}`);
+      return url;
+    });
+    // 실패하면 다음 업그레이드가 다시 시도하게 비운다 (포트가 잠깐 막혀 있었을 수 있다).
+    embeddedStart.catch((e: unknown) => {
+      console.warn(`[desktop] embedded relay failed: ${(e as Error).message}`);
+      embeddedStart = null;
+    });
+  }
+  return embeddedStart;
+}
+
 /** Embedded relay (its own http server; the window does not live on it). Returns the relay's ws URL. */
 async function startEmbedded(): Promise<URL> {
   await listenWithFallback(wantPort, async (p) => {
@@ -216,7 +243,10 @@ async function startEmbedded(): Promise<URL> {
  * 릴레이 포트를 절대 뺏지 않는다 — 자기 PC 의 릴레이를 가리키는 사람이 `/ws` 를 이 프로세스로 되돌려
  * 보내게 되기 때문이다. 포트는 `APP_PORT` 부터 순서대로(위 주석) — 오리진이 곧 세이브다.
  */
-async function startWindowServer(relayWs: URL, def: { target: string; source: string } | null): Promise<number> {
+async function startWindowServer(
+  relayWs: URL | LazyProxyTarget,
+  def: () => { target: string; source: string },
+): Promise<number> {
   const ports = Array.from({ length: APP_PORT_TRIES }, (_, i) => APP_PORT + i);
   return listenStable(ports, (p) => new Promise<number>((resolve, reject) => {
     const server = createServer();
@@ -225,9 +255,10 @@ async function startWindowServer(relayWs: URL, def: { target: string; source: st
     server.on('request', (req, res) => {
       if (res.headersSent) return;
       // 설정 › 서버 설정 이 "기본값: …" 줄에 쓸 값. 이 창의 렌더러만 볼 수 있는 loopback 라우트다.
+      // 임베디드 릴레이는 늦게 켜지므로(C-28) 요청마다 지금 값을 읽는다.
       if ((req.url ?? '').split('?')[0] === RELAY_ROUTE) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(JSON.stringify(def ?? { target: '', source: 'embedded' }));
+        res.end(JSON.stringify(def()));
         return;
       }
       res.writeHead(404).end('SCAVANGER desktop');
@@ -358,23 +389,31 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     try {
-      let relayWs: URL;
+      let relayWs: URL | LazyProxyTarget;
       /** 설정 화면의 "기본값: …" 줄에 그대로 실리는 값 (`RELAY_ROUTE`). */
-      let def: { url: string; source: string } | null = null;
+      let def: () => { target: string; source: string };
+      let routeLabel: string;
       const configured = resolveRelay();
       if (configured) {
-        relayWs = toRelayUrl(configured.url);
+        const url = toRelayUrl(configured.url);
+        relayWs = url;
         const from = configured.from ? `: ${configured.from}` : '';
-        console.log(`[desktop] relay proxy -> ${relayWs.href}  (${RELAY_SOURCE_LABEL[configured.source]}${from})`);
-        def = { url: relayWs.href, source: RELAY_SOURCE_LABEL[configured.source] };
+        console.log(`[desktop] relay proxy -> ${url.href}  (${RELAY_SOURCE_LABEL[configured.source]}${from})`);
+        const fixed = { target: url.href, source: RELAY_SOURCE_LABEL[configured.source] };
+        def = () => fixed;
+        routeLabel = url.href;
       } else {
-        relayWs = await startEmbedded();
-        console.log(`[desktop] embedded relay on ${relayWs.host}${lan ? ' (bound 0.0.0.0 — LAN)' : ''}`);
-        def = { url: relayWs.href, source: '이 PC 의 내장 서버' };
+        // C-28: `--lan` / `--port` 면 지금 켜고, 아니면 첫 `/ws` 업그레이드가 켠다.
+        if (eagerEmbedded) await ensureEmbedded();
+        relayWs = { path: NET_WS_PATH, resolve: ensureEmbedded };
+        def = () => relay
+          ? { target: `ws://127.0.0.1:${relay.port}${NET_WS_PATH}`, source: '이 PC 의 내장 서버' }
+          : { target: `ws://127.0.0.1:${wantPort}${NET_WS_PATH}`, source: '이 PC 의 내장 서버 (필요할 때 켜짐)' };
+        routeLabel = relay ? `ws://127.0.0.1:${relay.port}${NET_WS_PATH}` : 'embedded relay (starts on the first connection)';
       }
       // 창의 오리진은 릴레이와 무관한 고정 포트다 (localStorage = 세이브가 오리진에 묶여 있다).
-      const port = await startWindowServer(relayWs, def && { target: def.url, source: def.source });
-      console.log(`[desktop] http://127.0.0.1:${port}/  (relay ws ${NET_WS_PATH} -> ${relayWs.href})`);
+      const port = await startWindowServer(relayWs, def);
+      console.log(`[desktop] http://127.0.0.1:${port}/  (relay ws ${NET_WS_PATH} -> ${routeLabel})`);
       createWindow(port);
     } catch (e) {
       dialog.showErrorBox('SCAVANGER', `로컬 서버를 시작하지 못했습니다.\n${(e as Error).message}`);
@@ -390,5 +429,10 @@ if (!app.requestSingleInstanceLock()) {
     appServer = null;
     void relay?.close();
     relay = null;
+    // 켜지는 중이던 임베디드 릴레이도 뜨는 대로 닫는다 (C-28).
+    if (embeddedStart) {
+      void embeddedStart.then(() => relay?.close(), () => { /* never started */ });
+      embeddedStart = null;
+    }
   });
 }

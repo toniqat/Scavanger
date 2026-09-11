@@ -4,7 +4,7 @@ Owner: `Engine`. Publishes `ctx.scene / ctx.camera / ctx.renderer` (via `GameCon
 
 | File | Purpose |
 |---|---|
-| `Engine.ts` | `Engine(canvas, uiRoot)`: WebGLRenderer (sRGB, ACES, PCFSoft shadows, pixelRatio ≤ 1.5), Scene, PerspectiveCamera(70), `GameContext`, input binding. `addSystem()`, `start()` (calls `init` on all systems, then rAF loop). Frame: dt clamp ≤ 0.05 → `ctx.time`, `ctx.missionTime` (gameplay phase & not paused) → `update` → `lateUpdate` → FX pools → atmosphere → `shaders.update()` → `shaders.beforeRender()` (light budget + a queued whole-scene warm-up) → render (**skipped while `shaders.holding`**, and sim dt is 0 exactly like a freeze pause) → `input.endFrame()`. While `game:paused` systems still run but with **dt = 0** — unless the event carries `freeze: false` (multiplayer pause menu), in which case dt keeps flowing. Post chain: RenderPass → UnrealBloomPass(0.35 / 0.45 / 0.85, half-res) → OutputPass; `setPostProcessing(false)` falls back to plain render, and a perf guard disables bloom automatically after sustained slow frames in the first 90 s. Listens `world:ready` → picks a palette from the seed + `shaders.holdForScene()` (2026-09-10), `game:abort` → clears FX. |
+| `Engine.ts` | `Engine(canvas, uiRoot)`: WebGLRenderer (sRGB, ACES, PCFSoft shadows, pixelRatio ≤ 1.5), Scene, PerspectiveCamera(70), `GameContext`, input binding. `addSystem()`, `start()` (calls `init` on all systems, then rAF loop). Frame: dt clamp ≤ 0.05 → `ctx.time`, `ctx.missionTime` (gameplay phase & not paused) → `update` → `lateUpdate` → FX pools → atmosphere → `shaders.update()` → `shaders.beforeRender()` (light budget + a queued whole-scene warm-up) → render (**skipped while `shaders.holding`**, and sim dt is 0 exactly like a freeze pause) → `input.endFrame()`. While `game:paused` systems still run but with **dt = 0** — unless the event carries `freeze: false` (multiplayer pause menu), in which case dt keeps flowing. Post chain: RenderPass → UnrealBloomPass(0.35 / 0.45 / 0.85, half-res) → OutputPass; `setPostProcessing(false)` falls back to plain render, and a perf guard disables bloom automatically after sustained slow frames in the first 90 s (**2026-09-11**: alive again — see below; `setPostProcessing` / `setShadows` act only on a changed value and hold the frame for the recompile). Listens `world:ready` → picks a palette from the seed + `shaders.holdForScene()` (2026-09-10), `game:abort` → clears FX. |
 | `LightBudget.ts` | **점광원 개수 고정** (2026-09-10). `SCENE_POINT_LIGHT_BUDGET` 개의 intensity 0 · 검정 · 도달거리 1 mm 여분 광원(`LightBudget` 그룹)을 들고, 매 프레임 그리기 직전에 진짜 점광원을 세서(`traverseVisible` − 켜진 여분) 모자란 만큼만 여분의 `visible` 을 켠다 — 셰이더 프로그램 키의 `numPointLights` 가 세션 내내 같다. 진짜 광원이 예산을 넘으면 그 값마다 한 번 경고. `contentCount()` · `padsShown` · `countVisiblePointLights(root)`. 디버그: `__game.lights`. **2026-09-11**: 예산 23 → **25** (레이드 = 상주 15 + 패드 3 + 콘솔 3 + 구조물 풀 4). |
 | `ShaderWarmup.ts` | **`ctx.shaders`** (계약 `shared/render`, 2026-09-10). `warm(root, replaces?)` = 컴포저의 렌더 타깃을 잠깐 바인딩하고, `root` 가 들어오고 `replaces` 가 빠진 뒤의 점광원 개수로 여분을 맞춘 채 `renderer.compile` (씬 밖 오브젝트는 `compile(root, cam, scene)`, 씬 안이면 씬 전체) → 모은 머티리얼의 `currentProgram.isReady()` 를 **Engine 프레임마다** 확인해 resolve (폐기된 머티리얼 = 준비됨 — `compileAsync` 의 `setTimeout` 폴링이 거기서 던졌다, `SHADER_WARMUP_TIMEOUT_S` 넘으면 false). `holdForScene()` = 호출한 순간부터 `holding`, 이번 프레임 끝(`beforeRender`)에 씬 전체를 컴파일하고 끝날 때까지 hold. `hold(promise)`. 디버그: `__game.shaders` (`pendingJobs`). |
 | `Atmosphere.ts` | Directional sun with 2048 shadow map, ±60 m ortho frustum that follows `ctx.player.position` (snapped to a 2 m grid to avoid shimmer), hemisphere fill (intensity 1.35 so shadowed ground/characters stay readable), `FogExp2` (~250 m visibility), sky dome. `applySeed(seed)` picks one of `SKY_PALETTES`. `setSpaceMode(on)` (ship hub): hides the sky dome, black background, fog 0, cool dim key/hemi; `applySeed` restores. Exposed as `scene.userData.atmosphere` so `hub/` can call it without importing `core/`. |
@@ -28,12 +28,32 @@ Notes
 `ui:displayChanged`; ui/ must not import core/):
 
 - **`setShadows(enabled)`** toggles `atmosphere.sun.castShadow`, **not** `renderer.shadowMap.enabled`. Flipping the
-  renderer flag invalidates every material's shader and would need a `needsUpdate` sweep of the whole scene; the sun
-  is the only shadow caster, so turning *it* off costs one boolean, skips the shadow-map pass, and recompiles nothing.
-  `hasShadows` getter.
+  renderer flag would also need a `needsUpdate` sweep of the whole scene; the sun is the only shadow caster, so turning
+  *it* off skips the shadow-map pass. (2026-09-11 정정: 이것도 **재컴파일한다** — 아래 C-44 절.) `hasShadows` getter.
 - **`setResolutionScale(scale)`** multiplies the constructor's `min(devicePixelRatio, 1.5)` cap by 0.5…2 and resizes.
-- `setPostProcessing(true)` now also sets `perfChecked`, so an explicit 화면 효과 choice is not undone by the
-  sustained-slow-frames guard that disables bloom on its own.
+- ~~`setPostProcessing(true)` now also sets `perfChecked`~~ — 2026-09-11 에 바뀌었다 (아래). 부팅 때의 설정 발행까지
+  `perfChecked` 를 세워 guard 가 한 번도 돌지 않았다.
+
+## 2026-09-11 — 화면 설정 토글은 값이 바뀔 때만 · hold 한다 · perf guard 되살림 (C-44)
+
+`main.ts` 는 **모든** `ui:displayChanged` 마다 `setPostProcessing` · `setShadows` · `setResolutionScale` 을 부른다 —
+부팅 때 저장된 설정 발행(`SettingsMenu.bind`), 전체화면 토글, 해상도 변경도 전부다. 그래서 둘 다 **실제로 바뀐 값만**
+처리한다.
+
+- **그림자**: `sun.castShadow` 를 바꾸면 three.js 가 lit 머티리얼의 프로그램 키 `shadowMapEnabled`
+  (`WebGLPrograms` — "그림자를 드리우는 광원이 하나라도 있나") 를 바꿔 **전부 다시 컴파일**한다. 예전 주석의
+  "recompiles nothing" 은 틀렸다. 바뀔 때 `shaders.holdForScene()` — 컴파일은 그 프레임 끝에 몰아서, 그리는 것은 끝난 뒤.
+- **블룸**: 켜고 끄면 씬이 그려지는 타깃이 컴포저 버퍼 ↔ 캔버스로 바뀌고 프로그램 키의 색공간 · 톤매핑이 그
+  타깃을 따르므로 역시 전부 다시 컴파일한다. 실제 그리기 경로(`isPostProcessing`)가 바뀔 때만 hold 한다.
+  `requestedPost` = 설정이 마지막으로 요청한 값 — 같은 값이 다시 오면 아무것도 안 한다. 그래서 perf guard 가 끈
+  블룸을 뒤이은 전체화면 토글이 **다시 켜지 않는다**.
+- **perf guard**: `perfChecked` 는 이제 **플레이어가 블룸을 실제로 바꿨을 때만** 선다. 부팅 발행은 같은 값이라 세우지
+  않으므로 guard 가 되살아났다(첫 90 초, dt ≥ 0.05 프레임이 240 넘게 쌓이면 끈다). hold 중인 프레임은 세지 않고,
+  끌 때도 `applyPost` 를 거쳐 hold 한다. 끈 사실을 설정 화면에 되돌려 쓰지는 않는다 — `ui:displayChanged` 는 ui → core
+  한 방향뿐이라 설정 행은 `켬` 으로 남고, 플레이어가 블룸을 한 번 바꾸면 그 선택이 이긴다.
+- 검사: `scripts/smoke-lights.mjs` — 부팅 뒤 `perfChecked false`, 레이드에서 같은 값 재발행 → hold 없음, 그림자 · 블룸 ·
+  되돌리기 각각 → 그 순간 `shaders.holding` true → 풀린 뒤 몇 프레임 `renderer.info.programs.length` 불변, 그리고
+  `perfChecked true`.
 
 ---
 
@@ -64,4 +84,8 @@ Notes
   프로그램을 못 쓴 탓이었다. 이제 개수는 세션 내내 23 이고 새 장면은 컴파일이 끝난 뒤에 그린다.
   ⚠ 위 `setShadows` 절의 "recompiles nothing" 은 **틀렸다** — 프로그램 키의 `shadowMapEnabled` 가 그림자를
   드리우는 광원 수를 보므로 해의 `castShadow` 를 끄면 lit 머티리얼이 한 번 전부 다시 컴파일된다. 자동 블룸 끄기
-  (`perfGuard`)도 렌더 타깃이 캔버스로 바뀌어 같은 일이 난다 (TODO C-44).
+  (`perfGuard`)도 렌더 타깃이 캔버스로 바뀌어 같은 일이 난다 (TODO C-44 → 2026-09-11 에 처리).
+
+- **2026-09-11 (C-44)** — `setPostProcessing` · `setShadows` 가 값이 실제로 바뀔 때만 동작하고 `holdForScene()` 으로
+  hold, `requestedPost` 로 같은 값 재발행 무시, perf guard 되살림(사용자 조작만 `perfChecked`, hold 프레임 제외, 끌 때도
+  hold). 위 C-44 절 · `smoke-lights` 단언 7개.

@@ -47,6 +47,7 @@ export function connect(sys: NetSystem, url?: string): Promise<void> {
   if (sys.client.connected) return Promise.resolve();
   sys.intentionalClose = false;
   sys.duplicateKicked = false;
+  sys.serverRefused = null;   // C-29: no ban — an explicit connect may try again
   // An explicit connect while the backoff timer is pending: attempt right now instead.
   if (sys.reconnectTimer !== null) { clearTimeout(sys.reconnectTimer); sys.reconnectTimer = null; }
   const p = sys.client.connect(sys.withSession(url ?? sys.defaultUrl()));
@@ -126,10 +127,21 @@ export function probeRelay(sys: NetSystem, raw?: string): Promise<RelayProbe> {
     const timer = setTimeout(() => finish({ ok: false, url, ms: 0, error: '응답이 없습니다 (방화벽 · 포트 확인)' }),
       RELAY_PROBE_TIMEOUT_MS);
     ws.onmessage = (ev) => {
-      // 첫 프레임이 곧 `welcome` 이다. 내용은 보지 않는다 — 릴레이가 말을 한다는 것만 확인한다.
+      // 첫 프레임이 곧 `welcome` 이다 — 릴레이가 말을 한다는 것만 확인한다.
       const ms = Math.max(1, Math.round(performance.now() - t0));
-      finish({ ok: typeof ev.data === 'string' && ev.data.includes('welcome'), url, ms,
-        error: typeof ev.data === 'string' && ev.data.includes('welcome') ? undefined : '릴레이가 아닙니다' });
+      let frame: { t?: unknown; message?: unknown } | null = null;
+      try { frame = typeof ev.data === 'string' ? JSON.parse(ev.data) as { t?: unknown; message?: unknown } : null; } catch { frame = null; }
+      if (frame?.t === 'welcome') { finish({ ok: true, url, ms }); return; }
+      /*
+       * 2026-09-11 (C-29): welcome 대신 `lobby:error` 가 먼저 오고 곧바로 끊기는 것은 **릴레이가 맞다** — 운영자가
+       * 인원 제한(`server_full`)을 걸어 둔 서버다. "릴레이가 아닙니다" 로 읽으면 맞는 주소를 틀렸다고 말하게 된다.
+       */
+      if (frame?.t === 'lobby:error') {
+        const why = typeof frame.message === 'string' && frame.message ? frame.message : '서버가 접속을 거절했습니다';
+        finish({ ok: false, url, ms, error: `서버는 찾았지만 들어갈 수 없습니다: ${why}` });
+        return;
+      }
+      finish({ ok: false, url, ms, error: '릴레이가 아닙니다' });
     };
     ws.onerror = () => finish({ ok: false, url, ms: 0, error: '연결할 수 없습니다' });
     ws.onclose = () => finish({ ok: false, url, ms: 0, error: '연결이 거부되었습니다' });
@@ -159,7 +171,14 @@ export function onSocketDown(sys: NetSystem, wasConnected: boolean): void {
     if (sys._lobby || sys._inSession) sys.dropLobby('kicked');
     return;
   }
-  if (sys._reconnecting) return;           // a retry failed; attemptReconnect() schedules the next one
+  if (sys.serverRefused) {
+    // C-29: the relay closed us on purpose (`kicked` by its operator / `server_full`). Retrying would only hammer it
+    // (a kick) or be refused again (a full server) — stay offline; `net:error` already carried the Korean reason.
+    sys.stopReconnect();
+    if (sys._lobby || sys._inSession) sys.dropLobby(sys.serverRefused === 'kicked' ? 'kicked' : 'disconnected');
+    return;
+  }
+  if (sys._reconnecting) return;          // a retry failed; attemptReconnect() schedules the next one
   if (!wasConnected) return;                // an initial connect() failed → the caller decides (offline hub)
   sys.beginReconnect();
   }

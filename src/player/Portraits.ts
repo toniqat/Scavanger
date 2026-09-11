@@ -25,10 +25,21 @@ interface Cell {
  *
  * It owns its **own** `THREE.WebGLRenderer` + `Scene` + `PerspectiveCamera` + lights because `core/Engine`
  * renders the world through an `EffectComposer` at the end of the frame and offers no post-render hook, so a
- * portrait can never share the main canvas. Nothing here is shared with the main renderer's avatars — a second
- * GL context would re-upload every geometry and the two `dispose()` paths would fight over them — so each cell
- * builds its **own** `SoldierModel` (rebuilt when the cell's slot colour changes, since the accent is baked at
- * construction).
+ * portrait can never share the main canvas. Each cell builds its **own** `SoldierModel` (rebuilt when the cell's
+ * slot colour changes, since the accent is baked into its per-instance materials at construction).
+ *
+ * **2026-09-11 (C-42) — 정정.** 예전 주석은 "여기 있는 것은 메인 렌더러의 아바타와 아무것도 공유하지 않는다" 였지만
+ * 2026-09-10 부터 `SoldierModel` 의 **지오메트리 43개와 실루엣 머티리얼은 모듈 전체가 공유한다** (`SHARED_GEOS` —
+ * three.js 가 GPU 버퍼를 렌더러별로 따로 잡으므로 두 번째 GL 컨텍스트에서도 같은 객체를 쓴다; 아무도
+ * `geometry.dispose()` 를 부르지 않는 것이 규약이다). 공유하지 않는 것은 인스턴스마다의 **몸 머티리얼**뿐이다.
+ * 그 공유 지오메트리마다 이 렌더러의 `WebGLGeometries` 가 `dispose` 리스너를 하나씩 붙이는데, 지오메트리가 영영
+ * dispose 되지 않으므로 리스너는 렌더러를 만든 횟수만큼 남는다 — 발사 준비 패널은 페이지당 한 번만 만들므로 최대
+ * 43개 한 벌이고, 그래서 고치지 않고 적어만 둔다.
+ *
+ * **이전 모델은 다음 render 뒤에 dispose 한다 (C-42).** 슬롯 색이 바뀌어 모델을 새로 지을 때 옛 모델의 머티리얼을
+ * **먼저** dispose 하면, 같은 셰이더 프로그램(cacheKey)을 쥔 머티리얼이 하나도 남지 않은 순간 `WebGLPrograms` 가
+ * 프로그램을 지우고 새 모델이 그것을 **다시 컴파일**했다(색만 바뀌었는데 한 프레임이 멎는다). 이제 옛 모델은
+ * 씬에서 떼기만 하고 `pendingDispose` 에 두었다가, 새 모델이 한 번 그려진(= 같은 프로그램을 잡은) 뒤에 놓는다.
  *
  * The occlusion silhouette stays off (there is no world to be occluded by) and `render` returns immediately
  * while `visible` is false.
@@ -40,6 +51,8 @@ class Portraits implements PortraitRef {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly cells: Cell[] = [];
+  /** C-42: replaced models, already out of the scene — disposed after the next `render` (see the class comment). */
+  private readonly pendingDispose: SoldierModel[] = [];
   private readonly ctx: GameContext;
   private visible = true;
   private lastW = 0;
@@ -93,7 +106,12 @@ class Portraits implements PortraitRef {
     }
     cell.filled = true;
     if (!cell.model || cell.slot !== member.slot) {
-      if (cell.model) { cell.model.dispose(); cell.model = null; }
+      if (cell.model) {
+        // C-42: detach now, free after the new body has been drawn once (keeps its shader programs alive).
+        cell.model.root.removeFromParent();
+        this.pendingDispose.push(cell.model);
+        cell.model = null;
+      }
       const accent = NET_SLOT_COLORS[member.slot] ?? SOLDIER_DEFAULT_ACCENT;
       const model = new SoldierModel(accent);
       model.setSilhouette(false);
@@ -152,6 +170,13 @@ class Portraits implements PortraitRef {
       cell.model.setVisible(false);
     }
     this.renderer.setScissorTest(false);
+    this.flushPendingDispose();
+  }
+
+  /** C-42: the replacement bodies have been rendered (their programs are held) — the old ones can go now. */
+  private flushPendingDispose(): void {
+    for (const m of this.pendingDispose) m.dispose();
+    this.pendingDispose.length = 0;
   }
 
   setVisible(visible: boolean): void {
@@ -162,6 +187,7 @@ class Portraits implements PortraitRef {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.flushPendingDispose();
     for (const cell of this.cells) {
       if (cell.model) { cell.model.dispose(); cell.model = null; }
     }

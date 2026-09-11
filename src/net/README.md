@@ -30,6 +30,12 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
   (hub lobbies migrate immediately), so a dropped host keeps simulating and resumes as the authority.
 - Two tabs with one token: the server kicks the **older** socket with `lobby:error duplicate` → that tab emits
   `net:error {duplicate}`, `net:lobbyLeft {reason:'kicked'}` and never auto-reconnects; the new tab resumes the lobby.
+- **2026-09-11 — 서버 운영자가 끊었다 / 서버가 가득 찼다.** `lobby:error kicked` (콘솔 `kick`, welcome 뒤) 와
+  `lobby:error server_full` (콘솔 `max`, **welcome 전**) 은 곧바로 close 가 따라온다. `NetClient` 는 이 두 프레임만은
+  handshake 전에도 넘기고 서버의 한국어 문구를 close 사유(`net:statusChanged.reason`)로 쓴다. `Messages` 가
+  `serverRefused` 를 세우면 `onSocketDown` 이 재접속을 멈추고, 로비가 있었으면 `net:lobbyLeft {reason}` —
+  `kicked` 는 `'kicked'`, `server_full` 은 `'disconnected'`. 한국어 문구는 평소처럼 `net:error {code, message}` 로 간다.
+  **밴이 아니므로** 명시적인 `connect()`(터미널 `신호 찾기`)가 플래그를 지우고 다시 시도한다.
 
 ## Connection / reconnect state machine
 ```
@@ -356,6 +362,13 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
   `NetClient` 도 쓰지 않는다 — 이 소켓은 상태 기계에 들어가지 않는다), `reconnectRelay()` (끊고 다시 붙는다;
   로비에 있었으면 떠난다). 주소 정규화는 `shared/net.relayUrlFrom` 하나가 하고 UI · 데스크톱 셸 · 서버 배너가
   같은 함수를 쓴다. 와이어 · 스냅샷 · 프로필 규약은 **하나도 바뀌지 않았다** — 어디로 붙는지만 바뀐다.
+
+- **2026-09-11 (C-29 서버 콘솔 · 클라이언트 쪽)** — `LobbyErrorCode` 의 `'kicked'` · `'server_full'` 을 받으면 재접속
+  중단(`NetSystem.serverRefused`, `connect()` 가 지운다) + `net:lobbyLeft` (`kicked` → `'kicked'`, `server_full` →
+  `'disconnected'`). `NetClient` 가 이 두 `lobby:error` 는 welcome 전에도 넘기고 그 문구를 close 사유로 쓴다.
+  `probeRelay` 는 첫 프레임을 JSON 으로 읽어 `welcome` 이면 성공, **`lobby:error` 면 "서버는 찾았지만 들어갈 수
+  없습니다: <서버 문구>"** — 예전에는 welcome 이 아닌 첫 프레임을 전부 "릴레이가 아닙니다" 로 읽어, 인원 제한이 걸린
+  멀쩡한 서버 주소를 틀린 주소라고 말했다. 와이어 · 스냅샷 규약은 그대로.
 
 - **2026-09-09 (채팅 입력 중 말풍선)** — `PlayerFlags.TYPING` (append-only). `NetSystem` 이 `ui:chatToggled {open}` 을
   듣고 `Snapshotter.typing` 을 켜고 끄며, 스냅샷 플래그에 실린다 — 함선 안에서도 유효하다. 그리는 쪽은

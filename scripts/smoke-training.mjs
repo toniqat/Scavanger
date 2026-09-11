@@ -552,6 +552,25 @@ try {
   ok(/^Lv\. \d+$/.test(boarded.lv), `cell 0 carries the level chip (${boarded.lv})`);
   ok(boarded.blocker && boarded.cursor === true, `boarded panel holds the 'ready' blocker + the software cursor (cursor ${boarded.cursor})`);
   ok(boarded.toggled?.open === true, 'hub:readyPanelToggled {open:true}');
+  /* C-42 (2026-09-11): 초상화 색(슬롯) 변경은 모델을 새로 짓는다. 옛 모델을 먼저 dispose 하면 같은 셰이더 프로그램이
+     지워졌다가 **다시 컴파일**된다 — 보조 렌더러의 프로그램 id 집합이 그대로여야 한다 (개수가 아니라 id: 지웠다 다시
+     만들면 개수는 같아도 id 가 바뀐다). 두 번째 WebGL 컨텍스트가 없는 환경이면 건너뛴다. */
+  const portraitPrograms = () => P(() => {
+    const p = window.__game.getSystem('hub')?.ready?.portraits;
+    if (!p?.renderer?.info?.programs || !p.cells?.[0]?.model) return null;
+    return { ids: p.renderer.info.programs.map((pr) => pr.id).sort((a, b) => a - b).join(','), slot: p.cells[0].slot, armorId: p.cells[0].armorId, model: p.cells[0].model.root.uuid };
+  });
+  const pp0 = await portraitPrograms();
+  if (!pp0) console.log('  note no portrait renderer (second WebGL context unavailable) — recompile check skipped');
+  else {
+    await P((s) => { window.__game.getSystem('hub').ready.portraits.setMember(0, { slot: (s.slot + 1) % 4, armorId: s.armorId }); }, pp0);
+    await waitSim(0.15);
+    const pp1 = await portraitPrograms();
+    ok(!!pp1 && pp1.model !== pp0.model && pp1.slot !== pp0.slot, `portrait slot colour change rebuilt the body (slot ${pp0.slot} → ${pp1?.slot})`);
+    ok(!!pp1 && pp1.ids === pp0.ids, 'portrait colour change reuses the compiled shader programs (old model disposed only after the next render)', `${pp0.ids} → ${pp1?.ids}`);
+    await P((s) => { window.__game.getSystem('hub').ready.portraits.setMember(0, { slot: s.slot, armorId: s.armorId }); }, pp0);
+    await waitSim(0.1);
+  }
   const popup = await P(() => {
     const c0 = document.querySelector('.hr-cell[data-slot="0"]');
     c0?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
