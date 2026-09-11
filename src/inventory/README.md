@@ -101,6 +101,8 @@ Since Phase 5 (2026-09-06) the bag, the five slots and the quick slots are **per
 | `reset()` (public) | `loseKit()` — same rule as a failed raid |
 | every `applyStarter()` / `loseKit()` | **`saveNow('starter')`** right after, so a reload can never resurrect a bag that was lost to death / abort |
 | `pagehide` / `beforeunload` / `dispose` | `flush()` the pending debounced write |
+| **2026-09-11 (E-6)** every debounced write | the 창고 and the loadout share **one** 350 ms timer (`Stash.schedule` / `LoadoutStore.schedule` → `parts/ProfileDocs.scheduleSaves`); `flushSaves` writes both and uploads them as **one** `ProfileRef.setMany({stash, loadout})` when both changed (a `fresh` save keeps its own `set`). Page hide (registered before the stores' own listeners) / `dispose` / `InventoryRef.flushSaves` go through the same path |
+| **2026-09-11 (E-5)** `world:ready` of a **solo raid** | `LoadoutStore.markRaid(seed)`: the **local** file gets `raidSeed` (never uploaded, never part of `LoadoutSave`); `game:complete` / `game:over` / `game:abort` → `clearRaid()`. `InventoryRef.soloRaidSeed` exposes it — game/ fails a run whose marker has no matching solo raid save at boot. Multiplayer raids and trainings never mark |
 | `game:newMission` | close windows, forget rolled containers |
 
 Every write emits `inventory:loadoutSaved {reason}` (`starter` / `hub` / `complete`). The stash (`scav.stash`) is independent and never reset.
@@ -333,6 +335,10 @@ Contents are still rolled per client (deterministic `seed ^ hash(id)`), only the
 
 ### Server profile documents
 - After every stash write (`Stash.onSaved`) and every loadout write (`LoadoutStore.onSaved(reason, file)`, except reason `profile`) the file goes to `ctx.net.profile.set('stash' | 'loadout', file)` (net debounces the upload).
+  **2026-09-11 (E-6)**: inside the merged flush both documents go up together as `setMany`; the corpse strip joins the empty
+  loadout and the progression document the implant strip just saved (`joinProfileTx`). `net:profileLoaded` now carries **our
+  queued document** for a key whose local edit won (net/ProfileSync revision merge), so the "identical to the local state"
+  skip below also covers an offline session that was reloaded before it could upload — the server copy no longer replaces it.
 - `net:profileLoaded {profile}`: the **stash** document replaces the local stash (`Stash.loadFrom` → grid rebuilt, local file rewritten without echo, `inventory:stashChanged`); the **loadout** document replaces slots / bag / quick slots (`applyLoadoutSave` + announce, local file rewritten with reason `profile`) — only outside a raid (`!ctx.isRaidActive()`, mid-mission the raid blob is the truth); an empty loadout doc in the hub applies the starter **only when the player has nothing anywhere** (2026-09-07 — it used to wipe a kit the player was standing in). A key the server has never seen gets the current local state uploaded.
 - **Offline edits (Phase 9 — the local queue is gone)**: `offlineDocs` / `offlineArmed` / `suppressOfflineQueue` were removed. `uploadProfileDoc` now hands **every** save to `profile.set`, online or not: `ProfileSync` stamps it with `serverNow()`, keeps the newest document per key while offline and pushes it on the next connection, where the server decides newest-wins by stamp. What used to be "not an edit" is now a **`fresh` document**: `withFreshSave(fn)` sets a flag so every save `fn` triggers goes up as `profile.set(key, doc, {fresh:true})` — the server keeps such a document only while it has none for that key. Two callers use it: the fresh-browser starter kit on the first `hub:entered` and the startup stash resize to the 창고 facility size. So a brand-new browser can never overwrite a real server profile, and a genuine offline edit always survives.
 - `onProfileLoaded` is correspondingly simpler: the record it receives is **already merged** (ProfileSync weighed its pending edits against the server's `docsAt`), so a present document just replaces the local state and a missing one gets the current local state uploaded — except an empty local loadout, which is not worth a document (the starter kit follows as a `fresh` one).
@@ -694,6 +700,15 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-11 (저장 무결성 — E-5 · E-6, 에이전트 ③)** —
+  ① **창고 + 로드아웃 한 트랜잭션**(E-6): `Stash` · `LoadoutStore` 에 `schedule` 훅, `InventorySystem` 의 `uploadBatch` ·
+  `saveTimer` · 페이지 숨김 핸들러(스토어들보다 먼저 등록), `parts/ProfileDocs` 의 `scheduleSaves` · `flushSaves` ·
+  `joinProfileTx`. 둘 다 바뀐 저장은 `setMany({stash, loadout})` 하나. `InventoryRef.flushSaves` (meta 퀘스트 완료가 부른다).
+  `parts/CorpseLoot.stripForCorpse` 가 끝에 `joinProfileTx(['loadout', 'progression'])`.
+  ② **솔로 레이드 표식**(E-5): `LoadoutStore.raidSeed` · `markRaid` · `clearRaid` (로컬 파일만, `sanitizeLoadoutSave` 가 버린다),
+  `parts/Lifecycle.onWorldReady` 가 솔로 레이드에서만 표시하고 `onGameOver` · `onAbort` · `game:complete` 가 지운다,
+  `InventoryRef.soloRaidSeed`. 계약 추가(`src/shared/types.ts` `InventoryRef` 두 줄)는 보고했다.
+  검증: `smoke-search` 75/75 (합친 디바운스 · 페이지 숨김 · E-6 병합 스텁 12), `smoke-raidflow` 81/81 (E-5 7).
 - **2026-09-11 (C 항목 배치 — C-5 · C-12 · C-16 · C-26 · C-36 · C-37)** —
   ① **사망 시 임플란트**(C-12, `parts/CorpseLoot`): `stripForCorpse` 가 `ctx.progression.stripImplantsForCorpse?.()` 의
   망가진 짝을 시체 목록 끝에 합친다 (progression 구현이 없으면 빈 배열 — 예전과 똑같다). 새 `fitCorpseGrid` 가 시체

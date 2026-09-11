@@ -73,6 +73,10 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
     this.buildDom(ctx.uiRoot);
     window.addEventListener('keydown', this.keyHandler, true);
     this.print('개발자 콘솔 — help 로 커맨드 목록', 'info');
+    // 2026-09-11 (E-4): `/credits` is a dev credit reason — a relay without SCAV_DEV_ECONOMY refuses it and meta reverts it
+    ctx.bus.on('meta:creditsChanged', (e) => {
+      if (e.reason === 'revert:console') this.print('서버가 /credits 를 거절했습니다 — 개발용 크레딧은 SCAV_DEV_ECONOMY=1 로 띄운 릴레이에서만 됩니다 (npm run dev:all · npm run server 는 끔)', 'error');
+    });
   }
 
   update(dt: number, ctx: GameContext): void {

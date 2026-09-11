@@ -205,12 +205,12 @@ try {
   if (hasMeta) {
     const c0 = await page.evaluate(() => window.__game.ctx.meta.credits);
     ok((await screenText()).includes(`크레딧 ${c0.toLocaleString('ko-KR')}`), `terminal screen shows 크레딧 ${c0}`);
-    const c1 = await page.evaluate(() => { const m = window.__game.ctx.meta; m.addCredits(100, 'smoke'); return m.credits; });
+    const c1 = await page.evaluate(() => { const m = window.__game.ctx.meta; m.addCredits(100, 'smoke:rooms'); return m.credits; });
     if (c1 !== c0) {
       await page.evaluate((c) => window.__game.ctx.bus.emit('meta:creditsChanged', { credits: c, delta: 100, reason: 'smoke' }), c1);
       await waitSim(0.1);
       ok((await screenText()).includes(`크레딧 ${c1.toLocaleString('ko-KR')}`), `meta:creditsChanged refreshes the screen (크레딧 ${c1})`);
-      await page.evaluate(() => window.__game.ctx.meta.addCredits(-100, 'smoke'));
+      await page.evaluate(() => window.__game.ctx.meta.addCredits(-100, 'smoke:rooms'));
     } else console.log('  (meta.addCredits is a stub — refresh check skipped)');
   } else console.log('  (ctx.meta missing — 크레딧 line skipped)');
   // stand at the anchor facing the desk (+X) and press E

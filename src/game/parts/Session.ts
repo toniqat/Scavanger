@@ -83,9 +83,18 @@ export function saveRaid(sys: GameFlowSystem): void {
 
 /** Mirror the live solo raid (seed / planet / clock / stats / inventory / body) into localStorage. */
 export function saveSolo(sys: GameFlowSystem): void {
+  saveSoloAt(sys, null);
+  }
+
+/**
+ * `saveSolo` with the body placed at `at` instead of where it is (2026-09-11, E-5: the first snapshot of a new solo raid
+ * is written at `world:ready`, while the player is still up in the hellpod — standing at the spawn is the resume pose).
+ */
+export function saveSoloAt(sys: GameFlowSystem, at: THREE.Vector3 | null): void {
   const ctx = sys.ctx;
   const p = ctx.player;
   if (!p) return;
+  const pos = at ?? p.position;
   try {
     saveSoloRaid({
       v: 1,
@@ -96,7 +105,7 @@ export function saveSolo(sys: GameFlowSystem): void {
       stats: { ...ctx.stats },
       inventory: ctx.inventory?.captureRaidState() ?? null,
       pose: {
-        x: p.position.x, y: p.position.y, z: p.position.z, yaw: p.yaw,
+        x: pos.x, y: pos.y, z: pos.z, yaw: p.yaw,
         hp: p.hp, downHp: p.downHp,
         shield: p.shield,
         state: p.isDead ? 2 : p.isDowned ? 1 : 0,
@@ -127,6 +136,9 @@ export function consumeStoredSoloRaid(sys: GameFlowSystem): void {
     return;
   }
   if (!save) return;
+  // 2026-09-11 (E-5): boot deleted the file; put it straight back (original `savedAt`, so the grace does not restart) —
+  // otherwise a reload before the resumed raid's first periodic save would read the loadout marker without a save.
+  saveSoloRaid(save);
   sys.resumeSoloRaid(save);
   }
 

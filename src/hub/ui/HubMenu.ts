@@ -203,14 +203,18 @@ export class HubMenu {
       b.on('net:lobbyUpdated', () => this.refresh()),
       b.on('net:lobbyLeft', ({ reason }) => {
         this.refresh();
-        if (reason === 'hostLeft') this.showMsg('호스트가 함선을 떠났습니다', 'warning');
-        else if (reason === 'disconnected') this.showMsg('서버와의 연결이 끊어졌습니다', 'danger');
-        else if (reason === 'kicked') this.showMsg('함선에서 분리되었습니다', 'warning');
+        // `toast:false` — with the terminal closed these already have a line elsewhere: hostLeft (ui/Notifications),
+        // kicked (the `net:error` below carries the real reason), disconnected (ui/hud/NetBadge's 끊김 toast / badge).
+        if (reason === 'hostLeft') this.showMsg('호스트가 함선을 떠났습니다', 'warning', false);
+        else if (reason === 'disconnected') this.showMsg('서버와의 연결이 끊어졌습니다', 'danger', false);
+        else if (reason === 'kicked') this.showMsg('함선에서 분리되었습니다', 'warning', false);
       }),
+      // C-59 (2026-09-11): a refusal (`kicked` · `server_full` · `duplicate`) usually arrives while the terminal is closed —
+      // `showMsg` hands it to a toast then, so the server's Korean reason is never lost.
       b.on('net:error', ({ code, message }) => this.showMsg(this.errorText(code, message), 'danger')),
-      b.on('net:matched', ({ created }) => this.showMsg(created ? '열린 신호가 없어 새 공개 함선을 열었습니다' : '신호 포착 — 도킹 절차 시작', 'success')),
-      b.on('net:peerJoined', ({ name }) => this.showMsg(`${name} 합류`, 'info')),
-      b.on('net:peerLeft', ({ name }) => this.showMsg(`${name} 이탈`, 'warning')),
+      b.on('net:matched', ({ created }) => this.showMsg(created ? '열린 신호가 없어 새 공개 함선을 열었습니다' : '신호 포착 — 도킹 절차 시작', 'success', false)),
+      b.on('net:peerJoined', ({ name }) => this.showMsg(`${name} 합류`, 'info', false)),
+      b.on('net:peerLeft', ({ name }) => this.showMsg(`${name} 이탈`, 'warning', false)),
       // 목표 행성: a squad-mate's pick (or our own, once the warp arrived) re-syncs the preview
       b.on('hub:planetChanged', ({ planet: p }) => { this.cursor = planetIndex(p); this.syncPlanet(0); this.refresh(); }),
       b.on('hub:travel', () => this.refresh()),
@@ -418,7 +422,7 @@ export class HubMenu {
   private copyInvite(): void {
     const url = this.ctx.net?.getInviteUrl();
     if (!url) return;
-    const done = (): void => { this.showMsg('초대 링크 복사됨', 'success'); this.ctx.bus.emit('ui:notify', { text: '초대 링크가 복사되었습니다', kind: 'success' }); };
+    const done = (): void => { this.showMsg('초대 링크 복사됨', 'success', false); this.ctx.bus.emit('ui:notify', { text: '초대 링크가 복사되었습니다', kind: 'success' }); };
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => this.showMsg(url, 'info'));
     else this.showMsg(url, 'info');
   }
@@ -436,6 +440,9 @@ export class HubMenu {
       case 'duplicate': return '다른 탭에서 같은 세션이 연결되었습니다';
       case 'no_planet': return '목표 행성을 먼저 지정하세요';
       case 'invalid': return '잘못된 요청입니다';
+      /* C-29 / C-59 (2026-09-11): 서버 콘솔 — 서버 문구(`kick <id> [사유]` 의 사유 포함)가 있으면 그대로 쓴다. */
+      case 'kicked': return message || '서버 관리자가 연결을 끊었습니다';
+      case 'server_full': return message || '서버 접속 인원이 가득 찼습니다';
       default: return message || '서버 오류';
     }
   }
@@ -453,8 +460,16 @@ export class HubMenu {
     return b;
   }
 
-  showMsg(text: string, kind: 'info' | 'success' | 'warning' | 'danger' = 'info'): void {
-    if (!this._open) return;
+  /**
+   * The terminal's inline message line. **C-59 (2026-09-11)**: with the terminal closed the text used to vanish — it now
+   * goes to a toast (`ui:notify`) while in the ship, unless `toast` is false because another folder already toasts the
+   * same moment. Outside the ship (raid / title) a closed terminal stays silent: game/ owns the in-mission lines.
+   */
+  showMsg(text: string, kind: 'info' | 'success' | 'warning' | 'danger' = 'info', toast = true): void {
+    if (!this._open) {
+      if (toast && this.ctx.phase === 'hub') this.ctx.bus.emit('ui:notify', { text, kind, duration: 4 });
+      return;
+    }
     this.msg.className = `form-msg ${kind}`;
     setText(this.msg, text);
     this.msg.hidden = false;

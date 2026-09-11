@@ -78,7 +78,8 @@ try {
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
     window.__ev = {};
     const bus = window.__game.ctx.bus;
-    for (const n of ['ui:communityToggled', 'chat:whisperTo', 'game:newMission', 'ui:settingsToggled']) {
+    for (const n of ['ui:communityToggled', 'chat:whisperTo', 'game:newMission', 'ui:settingsToggled',
+      'social:inviteClosed', 'social:inviteResult', 'social:whisperUpdated', 'social:error', 'social:invited']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p ?? {}))); });
     }
@@ -296,8 +297,9 @@ try {
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   let menu = await P(() => window.__menu());
   ok(menu.open, 'right-click opens the profile context menu');
-  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|remove',
-    'a friend gets 같이 하기 / 귓속말하기 / 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
+  // 2026-09-11 (B-4): 대화 기록 and 차단 joined the menu.
+  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|history|remove|block',
+    'a friend gets 같이 하기 / 귓속말하기 / 대화 기록 / 친구 삭제 / 차단', JSON.stringify(menu.items.map((i) => i.label)));
   ok(!menu.items[0].off && menu.items[0].why === '', '같이 하기 enabled for a friend in the ship with no squad', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 1));
   menu = await P(() => window.__menu());
@@ -310,8 +312,8 @@ try {
   ok(menu.items[0].off && menu.items[0].why === '상대 분대가 가득 참', '같이 하기 disabled with 상대 분대가 가득 참', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.recent .sc-card', 0));
   menu = await P(() => window.__menu());
-  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|add', 'a non-friend gets 친구 추가 instead of 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
-  ok(menu.items[2].label === '친구 추가', 'the fourth entry reads 친구 추가', menu.items[2].label);
+  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|history|add|block', 'a non-friend gets 친구 추가 instead of 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
+  ok(menu.items[3].label === '친구 추가', 'the fourth entry reads 친구 추가', menu.items[3].label);
 
   // 친구 추가 → requestFriend
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="add"]');
@@ -594,7 +596,8 @@ try {
     log: window.__log(), n: window.__game.getSystem('hud').communityInviteCount,
     order: [...document.querySelectorAll('.cm-invite')].map((c) => c.dataset.from),
   }));
-  ok(dis.log.at(-1) === 'dismissInvite:EFGH3456', 'the × dismisses an invite locally', JSON.stringify(dis.log.slice(-2)));
+  // 2026-09-11 (B-3): × is a real 거절 (the inviter is told) — `declineInvite`, not the old local dismiss.
+  ok(dis.log.at(-1) === 'declineInvite:EFGH3456', 'the × declines the invite', JSON.stringify(dis.log.slice(-2)));
   ok(dis.n === 2 && !dis.order.includes('EFGH3456'), 'the dismissed invite left the stack', JSON.stringify(dis.order));
 
   console.log('귓속말');
@@ -663,6 +666,349 @@ try {
   }));
   ok(offCol.off && offCol.body, 'losing the mirror collapses the column back to the one line', JSON.stringify(offCol));
   await emit('game:paused', { paused: false });
+
+  /* ══ 2026-09-11 (B-3 · B-4): a detached **real** SocialSync, fed server frames by hand, drives the real ui ══
+     (`HudSystem.debugSocialRef`). The shared relay runs older code, so nothing here goes over a socket: `send` records
+     every frame into `__sent`, and the relay's answers (`social:inviteClosed` · `inviteResult` · `whisperAck` ·
+     `whisperBacklog` · `social:state`) are the method calls NetSystem would make. */
+  console.log('B-3 · B-4: real SocialSync, hand-fed frames');
+  for (let i = 0; i < 3 && await hud('isChatOpen'); i++) { await P(() => window.__tap('Escape')); await waitSim(0.05); }
+  await P(() => {
+    localStorage.removeItem('scav.s1.whispers');
+    localStorage.removeItem('scav.whispers');
+    const S = window.__game.getSystem('net').socialSync.constructor;
+    window.__sent = [];
+    window.__mkSync = () => {
+      const s = new S();
+      s.bus = window.__game.ctx.bus;
+      s.send = (m) => { window.__sent.push(JSON.parse(JSON.stringify(m))); return true; };
+      s.joinLobby = (code) => { window.__sent.push({ t: 'JOIN', code }); };
+      return s;
+    };
+    window.__ss = window.__mkSync();
+    window.__ss.onWelcome(window.__snap());
+    window.__game.getSystem('hud').debugSocialRef(window.__ss);
+    window.__notifs = () => [...document.querySelectorAll('.notifs .notif .t')].map((e) => e.textContent);
+  });
+  await waitSim(0.2);
+  const lastSent = () => P(() => window.__sent.at(-1) ?? null);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const holdP = async () => { await P(() => window.__key('KeyP', 'keydown')); await waitSim(3.4); await P(() => window.__key('KeyP', 'keyup')); await waitSim(0.2); };
+
+  console.log('초대 id 경로');
+  await P(() => window.__ss.onInvited({ from: 'CDEF2345', name: '친구하나', lobby: 'AAA222', at: Date.now(), id: 'inv-1' }));
+  await waitSim(0.3);
+  ok(await hud('communityInviteCount') === 1, 'an invite carrying a server id shows its card');
+  await holdP();
+  let ir = await P(() => ({ sent: window.__sent.slice(), closed: window.__ev['social:inviteClosed'].at(-1), n: window.__game.getSystem('hud').communityInviteCount }));
+  ok(same(ir.sent.at(-1), { t: 'social:inviteReply', id: 'inv-1', accept: true }), 'P hold on an id invite → social:inviteReply {id, accept:true}', JSON.stringify(ir.sent));
+  ok(!ir.sent.some((m) => m.t === 'JOIN'), 'and no lobby:join — the relay moves me itself', JSON.stringify(ir.sent));
+  ok(ir.closed?.reason === 'accepted' && ir.closed?.id === 'inv-1' && ir.n === 0, 'the card closes as accepted (with its id)', JSON.stringify(ir));
+  await P(() => window.__ss.onInvited({ from: 'YZ234567', name: '최근하나', lobby: 'BBB222', at: Date.now(), id: 'inv-2' }));
+  await waitSim(0.3);
+  await click('.cm-invite .ci-x');
+  await waitSim(0.1);
+  ir = await P(() => ({ last: window.__sent.at(-1), closed: window.__ev['social:inviteClosed'].at(-1), n: window.__game.getSystem('hud').communityInviteCount }));
+  ok(same(ir.last, { t: 'social:inviteReply', id: 'inv-2', accept: false }), 'the card × → social:inviteReply {accept:false}', JSON.stringify(ir.last));
+  ok(ir.closed?.reason === 'declined' && ir.n === 0, 'and closes as declined', JSON.stringify(ir.closed));
+
+  console.log('옛 서버 초대 (id 없음) 폴백');
+  await P(() => window.__ss.onInvited({ from: 'JKLM4567', name: '최근넷', lobby: 'DDD444', at: Date.now() }));
+  await waitSim(0.3);
+  await holdP();
+  ok(same(await lastSent(), { t: 'JOIN', code: 'DDD444' }), 'an invite without an id is accepted with the Phase 11 lobby:join', JSON.stringify(await lastSent()));
+  await P(() => window.__ss.onInvited({ from: 'NPQR5678', name: '최근다섯', lobby: 'EEE555', at: Date.now() }));
+  await waitSim(0.3);
+  const sentBeforeX = await P(() => window.__sent.length);
+  await click('.cm-invite .ci-x');
+  await waitSim(0.1);
+  ir = await P(() => ({ n: window.__sent.length, closed: window.__ev['social:inviteClosed'].at(-1) }));
+  ok(ir.n === sentBeforeX && ir.closed?.reason === 'dismissed', 'its × sends nothing (the old relay has no reply) and just dismisses', JSON.stringify(ir));
+
+  console.log('서버가 닫은 초대');
+  await P(() => window.__ss.onInvited({ from: 'QRST6789', name: '친구넷', lobby: 'FFF666', at: Date.now(), id: 'inv-3' }));
+  await waitSim(0.3);
+  await P(() => window.__ss.onInviteClosed({ id: 'inv-3', outcome: 'failed', reason: 'full' }));
+  await waitSim(0.2);
+  ir = await P(() => ({ n: window.__game.getSystem('hud').communityInviteCount, closed: window.__ev['social:inviteClosed'].at(-1), toasts: window.__notifs() }));
+  ok(ir.n === 0 && ir.closed?.reason === 'failed' && ir.closed?.detail === 'full' && ir.closed?.from === 'QRST6789',
+    'social:inviteClosed from the relay closes the card → bus {from, reason, id, detail}', JSON.stringify(ir.closed));
+  ok(ir.toasts.some((t) => t.startsWith('분대 초대가 취소되었습니다')), 'and says the invite was cancelled', JSON.stringify(ir.toasts));
+  await P(() => window.__ss.onInviteClosed({ id: 'inv-3', outcome: 'expired' }));   // already gone → nothing
+
+  console.log('재접속 때 같은 id 로 다시 온 초대 · limit 정리');
+  await P(() => window.__ss.onInvited({ from: 'GHJK6789', name: '친구둘', lobby: 'GGG777', at: Date.now(), id: 'inv-4' }));
+  await P(() => { window.__ss.onDisconnected(); window.__ss.onWelcome(window.__snap()); });
+  await P(() => window.__ss.onInvited({ from: 'GHJK6789', name: '친구둘', lobby: 'GGG777', at: Date.now(), id: 'inv-4' }));
+  await waitSim(0.3);
+  ir = await P(() => ({ n: window.__game.getSystem('hud').communityInviteCount, announced: window.__ev['social:invited'].filter((e) => e.invite?.id === 'inv-4').length }));
+  ok(ir.n === 1 && ir.announced === 1, 'the relay re-sending an open invite (same id) after a reconnect brings the card back without a second announcement', JSON.stringify(ir));
+  const cancelToasts = () => P(() => window.__notifs().filter((t) => t.startsWith('분대 초대가 취소되었습니다')).length);
+  const c0 = await cancelToasts();
+  await P(() => window.__ss.onInviteClosed({ id: 'inv-4', outcome: 'failed', reason: 'limit' }));
+  await waitSim(0.2);
+  ok(await hud('communityInviteCount') === 0 && await cancelToasts() === c0, 'a `failed · limit` close (the relay trimming my stack) removes the card quietly');
+
+  console.log('초대 결과 토스트 (거절 ≠ 만료)');
+  await P(() => window.__ss.onInviteResult({ id: 'r1', code: 'GHJK6789', name: '친구둘', outcome: 'declined' }));
+  await P(() => window.__ss.onInviteResult({ id: 'r2', code: 'LMNP2345', name: '친구셋', outcome: 'expired' }));
+  await P(() => window.__ss.onInviteResult({ id: 'r3', code: 'QRST6789', name: '친구넷', outcome: 'superseded' }));
+  await waitSim(0.2);
+  let toasts = await P(() => window.__notifs());
+  const tDecl = toasts.find((t) => t.startsWith('친구둘 님'));
+  const tExp = toasts.find((t) => t.startsWith('친구셋 님'));
+  ok(tDecl === '친구둘 님이 초대를 거절했습니다', '거절 → "OO 님이 초대를 거절했습니다"', JSON.stringify(toasts));
+  ok(tExp === '친구셋 님이 초대에 응답하지 않았습니다' && tExp !== tDecl, '만료 reads differently from 거절', JSON.stringify(toasts));
+  ok(!toasts.some((t) => t.startsWith('친구넷 님')), 'superseded toasts nothing', JSON.stringify(toasts));
+  ok(await P(() => window.__ev['social:inviteResult'].map((e) => e.outcome).join(',')) === 'declined,expired,superseded', 'social:inviteResult reaches the bus for each');
+
+  console.log('초대 중 배지');
+  await P(() => {
+    const s = window.__snap();
+    const now = window.__game.ctx.net.serverNow();
+    s.friends[0].inviteAt = now - 10000;    // CDEF2345: 80 s left
+    s.friends[1].inviteAt = now - 89300;    // GHJK6789: under a second left
+    window.__ss.onState(s);
+  });
+  await click('.cm-btn');
+  await waitSim(0.3);
+  const badge = () => P(() => {
+    const q = (c) => document.querySelector(`.community-panel .sc-section.friends .sc-card[data-code="${c}"] .sc-inv`);
+    const a = q('CDEF2345'), b = q('GHJK6789'), c = q('LMNP2345');
+    return { a: a ? (a.hidden ? 'hidden' : a.textContent) : null, b: b ? (b.hidden ? 'hidden' : b.textContent) : null, c: !!c };
+  });
+  let bd = await badge();
+  const secs0 = Number(/초대 중 · (\d+)초/.exec(bd.a ?? '')?.[1]);
+  ok(secs0 >= 78 && secs0 <= 80, `a row with an open invite carries 초대 중 · n초 (${bd.a})`, JSON.stringify(bd));
+  ok(!bd.c, 'a row with no invite has no badge', JSON.stringify(bd));
+  await sleep(1600);
+  await waitSim(0.1);
+  bd = await badge();
+  const secs1 = Number(/초대 중 · (\d+)초/.exec(bd.a ?? '')?.[1]);
+  ok(secs1 < secs0, `the badge counts down on the relay clock (${secs0} → ${secs1})`, JSON.stringify(bd));
+  ok(bd.b === 'hidden', 'a badge whose invite ran out hides itself', JSON.stringify(bd));
+  await P(() => window.__ss.onInviteResult({ id: 'r4', code: 'CDEF2345', name: '친구하나', outcome: 'accepted' }));
+  await waitSim(0.2);
+  bd = await badge();
+  ok(bd.a === null, 'social:inviteResult drops the badge at once (no waiting for the next snapshot)', JSON.stringify(bd));
+  toasts = await P(() => window.__notifs());
+  // 리드 통합: 수락 토스트는 `net:peerJoined` 의 `<이름> 합류` 와 겹쳐 뺐다.
+  ok(!toasts.some((t) => t.includes('님이 분대에 합류했습니다')), '수락 → 따로 토스트 없음 (합류 토스트가 대신한다)', JSON.stringify(toasts));
+
+  console.log('차단');
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 1));   // GHJK6789 친구둘
+  await click('.sc-menu:not([hidden]) .sc-mi[data-act="block"]');
+  let bl = await P(() => ({ open: !!window.__confirmEl(), body: window.__confirmEl()?.querySelector('.sc-confirm-body').textContent ?? '', sent: window.__sent.filter((m) => m.t === 'social:block').length }));
+  ok(bl.open && bl.body.includes('친구둘') && bl.sent === 0, '차단 asks first (a plain confirm — it can be undone)', JSON.stringify(bl));
+  await click('.sc-confirm:not([hidden]) .sc-confirm-foot .ui-btn.danger');
+  ok(same(await lastSent(), { t: 'social:block', code: 'GHJK6789', blocked: true }), '확인 → social:block {code, blocked:true}', JSON.stringify(await lastSent()));
+  await P(() => {   // the relay's answer: off my friends, onto my blocked list
+    const s = window.__snap();
+    s.friends = s.friends.filter((f) => f.code !== 'GHJK6789');
+    s.blocked = [{ code: 'GHJK6789', name: '친구둘', level: 20 }];
+    window.__ss.onState(s);
+  });
+  await waitSim(0.3);
+  bl = await P(() => ({
+    isBlocked: window.__ss.isBlocked('GHJK6789'),
+    friends: document.querySelectorAll('.community-panel .sc-section.friends .sc-card').length,
+    btn: document.querySelector('.cp-blocked')?.textContent, btnHidden: document.querySelector('.cp-blocked')?.hidden,
+  }));
+  ok(bl.isBlocked && bl.friends === 3 && bl.btn === '차단 목록 1' && !bl.btnHidden, 'the snapshot moves them to 차단 목록 (head button counts it)', JSON.stringify(bl));
+  await click('.cp-blocked');
+  await waitSim(0.1);
+  bl = await P(() => {
+    const pg = document.querySelector('.community-panel .sc-page');
+    return { open: !pg.hidden, title: pg.querySelector('.sc-page-title').textContent, cards: [...pg.querySelectorAll('.sc-card')].map((c) => c.dataset.code), esc: window.__game.ctx.escape.has('community:page') };
+  });
+  ok(bl.open && bl.title === '차단 목록' && same(bl.cards, ['GHJK6789']) && bl.esc, '차단 목록 page lists the blocked 아이디 (on the Escape stack)', JSON.stringify(bl));
+  await P(() => window.__ctxMenu('.community-panel .sc-page .sc-card', 0));
+  menu = await P(() => window.__menu());
+  ok(menu.items.map((i) => i.act).join('|') === 'history|unblock', 'a blocked row\'s menu: 대화 기록 / 차단 해제 only', JSON.stringify(menu.items));
+  await P(() => window.__tap('Escape'));
+  await click('.community-panel .sc-page .sc-unblock');
+  ok(same(await lastSent(), { t: 'social:block', code: 'GHJK6789', blocked: false }), '차단 해제 → social:block {blocked:false}', JSON.stringify(await lastSent()));
+  await P(() => window.__tap('Escape'));
+  await waitSim(0.15);
+  bl = await P(() => ({ page: !document.querySelector('.community-panel .sc-page').hidden, panel: window.__game.getSystem('hud').isCommunityOpen, pause: !document.querySelector('.menu.pause').classList.contains('hidden') }));
+  ok(!bl.page && bl.panel && !bl.pause, 'Escape closes the page first — the panel stays', JSON.stringify(bl));
+  // still blocked (the relay has not answered the 해제): the relay would answer these with a bare `invalid` — say why instead
+  const nB = await P(() => window.__sent.length);
+  bl = await P(() => {
+    window.__ss.playWith('GHJK6789');
+    window.__ss.requestFriend('GHJK6789');
+    const drew = window.__ss.whisper('GHJK6789', '차단한 상대에게');
+    return { drew, sent: window.__sent.length, errs: window.__ev['social:error'].slice(-3).map((e) => e.message) };
+  });
+  ok(bl.sent === nB && bl.errs.length === 3 && bl.errs.every((m) => m.startsWith('차단한 상대입니다')),
+    '같이 하기 / 친구 추가 / 귓속말 to a blocked player send nothing and say 차단한 상대입니다', JSON.stringify({ nB, bl }));
+
+  console.log('차단한 분대원의 분대 채팅');
+  const chatHide = await P(() => {
+    const net = window.__game.getSystem('net');
+    const prev = net._lobby;
+    net._lobby = { code: 'CHAT01', hostId: 'peer-b', isPublic: false, started: false, seed: null, players: [
+      { id: 'peer-b', name: '친구둘', slot: 1, ready: false, isHost: true, connected: true, code: 'GHJK6789' },
+      { id: 'peer-c', name: '친구하나', slot: 2, ready: false, isHost: false, connected: true, code: 'CDEF2345' },
+    ] };
+    const bus = window.__game.ctx.bus;
+    const has = (t) => [...document.querySelectorAll('.chat-line .txt')].some((e) => e.textContent === t);
+    const msgs = [];
+    const off = bus.on('chat:message', (m) => msgs.push(m.text));
+    bus.emit('net:chat', { id: 'peer-b', name: '친구둘', text: '차단된 사람의 말', kind: 'text' });
+    bus.emit('net:chat', { id: 'peer-b', name: '친구둘', text: '적 발견 (차단된 사람의 핑)', kind: 'ping' });
+    bus.emit('net:chat', { id: 'peer-c', name: '친구하나', text: '막히지 않은 말', kind: 'text' });
+    off();
+    net._lobby = prev;   // same task — no frame ever saw the fake lobby
+    return { msgs, blockedText: has('차단된 사람의 말'), ping: has('적 발견 (차단된 사람의 핑)'), other: has('막히지 않은 말') };
+  });
+  ok(!chatHide.blockedText && !chatHide.msgs.includes('차단된 사람의 말'), 'a blocked squad-mate\'s typed line is not drawn', JSON.stringify(chatHide));
+  ok(chatHide.ping, 'their ping line still is (pings / comms wheel stay)', JSON.stringify(chatHide));
+  ok(chatHide.other, 'an unblocked squad-mate\'s line is drawn', JSON.stringify(chatHide));
+
+  console.log('귓속말 전송 확인');
+  await click('.cp-close');
+  await waitSim(0.15);
+  const sendChat = (t) => P((x) => { document.querySelector('.chat-input').value = x; window.__key('Enter', 'keydown'); }, t);
+  const lastWhisper = () => P(() => {
+    const r = [...document.querySelectorAll('.chat-line.whisper')].at(-1);
+    const w = r?.querySelector('.wst');
+    return r ? { cls: r.className, txt: r.querySelector('.txt').textContent, who: r.querySelector('.who').textContent, wst: w && !w.hidden ? w.textContent : '' } : null;
+  });
+  const errCount = () => P(() => window.__ev['social:error'].length);
+  await emit('chat:whisperTo', { code: 'CDEF2345', name: '친구하나' });
+  await waitSim(0.15);
+  await sendChat('옛 서버 실패');
+  await waitSim(0.1);
+  let sentW = await lastSent();
+  let wl = await lastWhisper();
+  ok(sentW?.t === 'social:whisper' && sentW.code === 'CDEF2345' && sentW.text === '옛 서버 실패' && typeof sentW.nonce === 'number', 'a whisper goes out with a nonce', JSON.stringify(sentW));
+  ok(wl?.txt === '옛 서버 실패' && / pending/.test(wl.cls) && wl.wst === '전송 중…', 'and is drawn dimmed as pending', JSON.stringify(wl));
+  const e0 = await errCount();
+  await P(() => window.__ss.onError({ t: 'social:error', code: 'offline', message: '상대가 접속 중이 아닙니다' }));
+  await waitSim(0.1);
+  wl = await lastWhisper();
+  ok(/ failed/.test(wl.cls) && !/pending/.test(wl.cls) && wl.wst === '전송 실패 — 오프라인', 'old relay (no ack): its social:error turns THAT line failed', JSON.stringify(wl));
+  ok(await errCount() === e0 && !(await P(() => window.__notifs())).some((t) => t.includes('상대가 접속 중이 아닙니다')), 'and raises no separate error toast', String(await errCount()));
+  await sendChat('확인되는 줄');
+  sentW = await lastSent();
+  await P((n) => window.__ss.onWhisperAck({ nonce: n, ok: true, at: Date.now() }), sentW.nonce);
+  await waitSim(0.1);
+  wl = await lastWhisper();
+  ok(wl.txt === '확인되는 줄' && !/pending|failed|stored/.test(wl.cls) && wl.wst === '', 'social:whisperAck ok → the pending line settles as sent', JSON.stringify(wl));
+  ok(await P(() => window.__ev['social:whisperUpdated'].at(-1)?.line?.state) === 'sent', 'social:whisperUpdated {state:sent}');
+  await sendChat('실패하는 줄');
+  sentW = await lastSent();
+  await P((n) => window.__ss.onWhisperAck({ nonce: n, ok: false, code: 'offline' }), sentW.nonce);
+  await waitSim(0.1);
+  wl = await lastWhisper();
+  const rowsNow = await P(() => [...document.querySelectorAll('.chat-line.whisper .txt')].filter((e) => e.textContent === '실패하는 줄').length);
+  ok(/ failed/.test(wl.cls) && wl.txt === '실패하는 줄' && wl.wst === '전송 실패 — 오프라인' && rowsNow === 1, 'ack !ok → the same row turns failed (no second line)', JSON.stringify({ wl, rowsNow }));
+  ok(await errCount() === e0, 'still no social:error / toast for a failed whisper', String(await errCount()));
+  await emit('chat:whisperTo', { code: 'LMNP2345', name: '친구셋' });   // an offline FRIEND: the relay may keep it
+  await waitSim(0.1);
+  await sendChat('나중에 봐');
+  sentW = await lastSent();
+  ok(sentW?.code === 'LMNP2345' && sentW.text === '나중에 봐', 'a whisper to an offline friend still goes out', JSON.stringify(sentW));
+  await P((n) => window.__ss.onWhisperAck({ nonce: n, ok: true, stored: true }), sentW.nonce);
+  await waitSim(0.1);
+  wl = await lastWhisper();
+  ok(/ stored/.test(wl.cls) && wl.wst === '오프라인 보관 — 접속하면 전달', 'ack stored → 오프라인 보관', JSON.stringify(wl));
+  await emit('chat:whisperTo', { code: 'ABCD2345', name: '최근둘' });   // offline and NOT a friend: nowhere to keep it
+  await waitSim(0.1);
+  const nSent = await P(() => window.__sent.length);
+  await sendChat('안 가는 줄');
+  await waitSim(0.1);
+  wl = await lastWhisper();
+  ok(await P(() => window.__sent.length) === nSent && wl.txt === '안 가는 줄' && / failed/.test(wl.cls) && wl.wst === '전송 실패 — 오프라인',
+    'an offline non-friend fails on the spot — as a drawn failed line, nothing sent', JSON.stringify(wl));
+
+  console.log('대화 기록 저장 (슬롯 키) · backlog · /r');
+  let hist = await P(() => {
+    const raw = localStorage.getItem('scav.s1.whispers');
+    const doc = raw ? JSON.parse(raw) : null;
+    const fresh = new (window.__game.getSystem('net').socialSync.constructor)();
+    const fmt = (l) => `${l.out ? '>' : '<'}${l.text}:${l.state ?? ''}`;
+    return {
+      unslotted: localStorage.getItem('scav.whispers'), v: doc?.v, peers: (doc?.peers ?? []).map((p) => p.code),
+      mem: window.__ss.whisperHistory('CDEF2345').map(fmt), reload: fresh.whisperHistory('CDEF2345').map(fmt),
+      last: window.__ss.lastWhisperPeer, peerList: window.__ss.whisperPeers().map((p) => p.code),
+    };
+  });
+  ok(hist.unslotted === null && hist.v === 1, 'the 대화 기록 lives under the slot key scav.s1.whispers', JSON.stringify(hist));
+  ok(same(hist.mem, ['>옛 서버 실패:failed', '>확인되는 줄:sent', '>실패하는 줄:failed']), 'per-partner lines with their final states', JSON.stringify(hist.mem));
+  ok(same(hist.reload, hist.mem), 'a fresh SocialSync reads the same conversation back from storage', JSON.stringify(hist.reload));
+  ok(hist.last === 'ABCD2345' && same(hist.peerList, ['ABCD2345', 'LMNP2345', 'CDEF2345']), 'partners most recent first; lastWhisperPeer = the latest', JSON.stringify(hist));
+  await P(() => window.__ss.onWhisperBacklog({ lines: [{ code: 'QRST6789', name: '친구넷', text: '없는 동안 보낸 말', at: Date.now() - 60000 }] }));
+  await waitSim(0.1);
+  wl = await lastWhisper();
+  ok(wl.who === '귓속말 친구넷:' && / backlog/.test(wl.cls) && wl.wst === '접속 전에 받음', 'a backlog line is drawn and tagged 접속 전에 받음', JSON.stringify(wl));
+  hist = await P(() => ({ last: window.__ss.lastWhisperPeer, line: window.__ss.whisperHistory('QRST6789').at(-1) }));
+  ok(hist.last === 'QRST6789' && hist.line?.backlog === true && hist.line?.out === false, 'and recorded (backlog:true) — its sender is the /r target now', JSON.stringify(hist));
+  await click('.chat-target .x');
+  await waitSim(0.05);
+  await sendChat('/r 답장이다');
+  await waitSim(0.1);
+  sentW = await lastSent();
+  ok(sentW?.t === 'social:whisper' && sentW.code === 'QRST6789' && sentW.text === '답장이다', '/r <텍스트> whispers the last partner from squad chat', JSON.stringify(sentW));
+  await sendChat('/r');
+  await waitSim(0.1);
+  ok(await hud('chatWhisperTarget') === 'QRST6789', '/r alone aims the input at the last partner', String(await hud('chatWhisperTarget')));
+  for (let i = 0; i < 3 && await hud('isChatOpen'); i++) { await P(() => window.__tap('Escape')); await waitSim(0.05); }
+
+  console.log('대화 기록 화면');
+  await click('.cm-btn');
+  await waitSim(0.2);
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));   // CDEF2345
+  await click('.sc-menu:not([hidden]) .sc-mi[data-act="history"]');
+  await waitSim(0.1);
+  const pageState = () => P(() => {
+    const pg = document.querySelector('.community-panel .sc-page');
+    return {
+      open: !pg.hidden, title: pg.querySelector('.sc-page-title').textContent, sub: pg.querySelector('.sc-page-sub').textContent,
+      lines: [...pg.querySelectorAll('.sc-logline')].map((l) => ({ cls: l.className, txt: l.querySelector('.txt').textContent, st: l.querySelector('.st')?.textContent ?? '' })),
+      focus: document.activeElement === pg.querySelector('.sc-log-input'),
+      panel: window.__game.getSystem('hud').isCommunityOpen,
+    };
+  });
+  let hp = await pageState();
+  ok(hp.open && hp.title === '대화 기록' && hp.sub.includes('CDEF-2345') && hp.focus, '대화 기록 opens over the column with its field focused', JSON.stringify(hp));
+  ok(hp.lines.length === 3 && /failed/.test(hp.lines[0].cls) && hp.lines[0].st === '전송 실패 — 오프라인' && hp.lines[1].st === '',
+    'the page lists the saved lines with their states', JSON.stringify(hp.lines));
+  await P(() => { const i = document.querySelector('.community-panel .sc-log-input'); i.value = '기록에서 보냄'; i.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true })); });
+  await waitSim(0.1);
+  sentW = await lastSent();
+  hp = await pageState();
+  ok(sentW?.code === 'CDEF2345' && sentW.text === '기록에서 보냄', 'Enter in the page field whispers that partner', JSON.stringify(sentW));
+  ok(hp.lines.length === 4 && /pending/.test(hp.lines[3].cls), 'the new line appears on the page, pending', JSON.stringify(hp.lines.at(-1)));
+  await P((n) => window.__ss.onWhisperAck({ nonce: n, ok: true }), sentW.nonce);
+  await waitSim(0.1);
+  hp = await pageState();
+  ok(!/pending/.test(hp.lines[3].cls), 'and settles there on its ack', JSON.stringify(hp.lines.at(-1)));
+  await P(() => document.querySelector('.community-panel .sc-log-input').dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })));
+  await waitSim(0.1);
+  hp = await pageState();
+  ok(!hp.open && hp.panel && !(await P(() => window.__game.ctx.escape.has('community:page'))), 'Escape in the field closes the page, the panel stays', JSON.stringify(hp));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
+  await click('.sc-menu:not([hidden]) .sc-mi[data-act="history"]');
+  await waitSim(0.1);
+  await P(() => document.querySelector('.community-panel .sc-log-input').dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true })));
+  await waitSim(0.15);
+  hp = await pageState();
+  ok(!hp.open && !hp.panel && !(await P(() => window.__game.ctx.uiBlockers.has('community'))), 'Tab in the field closes the whole panel (Tab = 공용 닫기)', JSON.stringify(hp));
+
+  console.log('옛 서버: ack 가 없으면 잠시 뒤 sent');
+  const grace = await P(async () => {
+    const s2 = window.__mkSync();
+    s2.bus = null;
+    s2.onWelcome(window.__snap());
+    s2.whisper('CDEF2345', '옛 서버 무응답');
+    const before = s2.whisperHistory('CDEF2345').at(-1)?.state;
+    await new Promise((r) => setTimeout(r, 5400));
+    return [before, s2.whisperHistory('CDEF2345').at(-1)?.state];
+  });
+  ok(grace[0] === 'pending' && grace[1] === 'sent', 'a line an older relay never acks counts as sent after the grace', JSON.stringify(grace));
+  await P(() => { window.__game.getSystem('hud').debugSocialRef(null); localStorage.removeItem('scav.s1.whispers'); });
 
   console.log('raid ESC + 결과 화면 행성');
   await P(() => { window.__game.ctx.missionPlanet = 'mossy'; window.__game.ctx.bus.emit('game:newMission', { seed: 4242, planet: 'mossy' }); });

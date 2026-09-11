@@ -14,6 +14,7 @@ import { readSaveFile, reviveItem, savedCell, serializePlacement, writeSaveFile,
  * Phase 7 (server profile): every write also hands the file to `onSaved` (→ `ctx.net.profile.set('stash', file)`), and
  * `loadFrom(doc)` replaces the contents with a server document (same shape as the file; the local file is rewritten
  * without echoing the document back).
+ * 2026-09-11 (E-6): the debounce can be handed to the owner (`schedule`) — `InventorySystem` saves 창고 + 로드아웃 together.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_VERSION = 2;
@@ -55,6 +56,11 @@ export class Stash {
   private onPageHide = (): void => this.flush();
   /** Called after every successful write with the file just written (Phase 7 profile upload). */
   onSaved: ((file: StashSaveFile) => void) | null = null;
+  /**
+   * 2026-09-11 (E-6): when set, `markDirty` hands the debounce to the owner instead of its own timer — `InventorySystem`
+   * runs **one** timer for the 창고 and the loadout so a move between them is saved (and uploaded) as one transaction.
+   */
+  schedule: (() => void) | null = null;
 
   /**
    * True when no `scav.stash` file existed at startup — a profile that has never had a stash. `InventorySystem`
@@ -98,7 +104,8 @@ export class Stash {
   /** Call after any mutation that may have touched the stash grid (cheap: compares `grid.version`). */
   markDirty(): void {
     if (this.grid.version === this.savedVersion) return;
-    if (this.timer !== null) clearTimeout(this.timer);
+    if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
+    if (this.schedule) { this.schedule(); return; }
     this.timer = window.setTimeout(() => { this.timer = null; this.flush(); }, SAVE_DELAY_MS);
   }
 

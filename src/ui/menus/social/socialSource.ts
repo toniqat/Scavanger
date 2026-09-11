@@ -1,4 +1,6 @@
-import type { GameContext, PlayBlock, PlayerCode, SocialPlayer, SocialRef, SocialSnapshot, SquadInvite } from '@/shared';
+import type {
+  GameContext, PlayBlock, PlayerCode, SocialCard, SocialPlayer, SocialRef, SocialSnapshot, SquadInvite, WhisperLine,
+} from '@/shared';
 import { NET_MAX_PLAYERS, playBlockReason } from '@/shared';
 
 /**
@@ -12,6 +14,9 @@ import { NET_MAX_PLAYERS, playBlockReason } from '@/shared';
  *
  * With no relay (offline / solo) the real ref reports `available === false` — the callers then draw the single
  * `소셜 기능을 사용할 수 없습니다` line and nothing else.
+ *
+ * 2026-09-11 (B-3 · B-4): `setDebugSocialRef(ref)` installs **any** `SocialRef` — the smoke hands it a detached
+ * `SocialSync` it feeds server frames into, so the real invite / ack / 대화 기록 logic drives the real ui.
  */
 
 let debugRef: SocialRef | null = null;
@@ -32,15 +37,23 @@ export function socialReady(ctx: GameContext): boolean {
 
 export const SOCIAL_UNAVAILABLE_KO = '소셜 기능을 사용할 수 없습니다';
 
+/** Smoke hook (2026-09-11): install an arbitrary `SocialRef` (null hands the ui back to `ctx.net.social`). */
+export function setDebugSocialRef(ref: SocialRef | null): void {
+  debugSocialCalls.length = 0;
+  debugRef = ref;
+}
+
 /**
  * Smoke hook: install a synthetic `SocialRef` built from `snapshot` (null clears it and hands the ui back to
  * `ctx.net.social`; the string `'offline'` installs an **unavailable** one, which is how the
  * `소셜 기능을 사용할 수 없습니다` path is tested even when a relay happens to be running). The mutators are real enough
- * for a UI test — `acceptInvite` / `dismissInvite` drop the invite, `respondFriend(code, true)` moves the row into
- * `friends` — and every call is appended to `debugSocialCalls`.
+ * for a UI test — `acceptInvite` / `dismissInvite` / `declineInvite` drop the invite, `respondFriend(code, true)` moves
+ * the row into `friends`, `block(code, true)` moves it into `blocked` (and `false` drops it again) — and every call is
+ * appended to `debugSocialCalls`. `history` (2026-09-11) seeds the 대화 기록 by 아이디, most recent partner first.
  */
 export function setDebugSocial(
   snapshot: SocialSnapshot | 'offline' | null, invites: readonly SquadInvite[] = [], mySquad = 1,
+  history: Readonly<Record<string, readonly WhisperLine[]>> = {},
 ): void {
   debugSocialCalls.length = 0;
   if (!snapshot) { debugRef = null; return; }
@@ -54,7 +67,6 @@ export function setDebugSocial(
       dismissInvite: nop('dismissInvite'), setLevel: nop('setLevel'),
       whisper(code, text) { debugSocialCalls.push({ m: 'whisper', args: [code, text] }); return false; },
       find() { return undefined; }, playBlock() { return 'offline' as PlayBlock; },
-      /* 2026-09-11 계약 자리 (B-3 · B-4): ② 가 채운다 */
       blocked: [], isBlocked() { return false; }, block: nop('block'), declineInvite: nop('declineInvite'),
       whisperHistory() { return []; }, whisperPeers() { return []; }, lastWhisperPeer: null,
     };
@@ -67,6 +79,7 @@ export function setDebugSocial(
     outgoing: [...(snapshot.outgoing ?? [])],
     recent: [...(snapshot.recent ?? [])],
   };
+  const blocked: SocialCard[] = [...(snapshot.blocked ?? [])];
   const live: SquadInvite[] = [...invites];
   const log = (m: string, ...args: unknown[]): void => { debugSocialCalls.push({ m, args }); };
   const all = (): SocialPlayer[] => [...snap.friends, ...snap.incoming, ...snap.outgoing, ...snap.recent];
@@ -74,6 +87,7 @@ export function setDebugSocial(
     const i = live.findIndex((v) => v.from === from);
     if (i >= 0) live.splice(i, 1);
   };
+  const lines = new Map<string, WhisperLine[]>(Object.entries(history).map(([k, v]) => [k, [...v]]));
   debugRef = {
     available: true,
     get me() { return snap.me; },
@@ -109,13 +123,26 @@ export function setDebugSocial(
       if (!row) return 'offline' as PlayBlock;
       return playBlockReason(row, mySquad, NET_MAX_PLAYERS, code === snap.me.code);
     },
-    /* 2026-09-11 계약 자리 (B-3 · B-4): ② 가 채운다 */
-    blocked: [],
-    isBlocked() { return false; },
-    block(code, blocked) { log('block', code, blocked); },
+    get blocked() { return blocked; },
+    isBlocked(code) { return blocked.some((b) => b.code === code); },
+    block(code, on) {
+      log('block', code, on);
+      const i = blocked.findIndex((b) => b.code === code);
+      if (!on) { if (i >= 0) blocked.splice(i, 1); return; }
+      if (i >= 0) return;
+      const row = all().find((v) => v.code === code);
+      // like the relay: blocking also takes them off my lists
+      for (const list of [snap.friends, snap.incoming, snap.outgoing, snap.recent]) {
+        const k = list.findIndex((v) => v.code === code);
+        if (k >= 0) list.splice(k, 1);
+      }
+      blocked.unshift({ code, name: row?.name ?? '', level: row?.level ?? 0 });
+    },
     declineInvite(from) { log('declineInvite', from); drop(from); },
-    whisperHistory() { return []; },
-    whisperPeers() { return []; },
-    lastWhisperPeer: null,
+    whisperHistory(code) { return lines.get(code) ?? []; },
+    whisperPeers() {
+      return [...lines.entries()].map(([code, l]) => ({ code, name: l.at(-1)?.name ?? '', at: l.at(-1)?.at ?? 0 }));
+    },
+    get lastWhisperPeer() { return lines.keys().next().value ?? null; },
   };
 }

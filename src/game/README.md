@@ -18,7 +18,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `parts/Wire.ts` | **`flow` 메시지**와 호스트 이관 · 로비 이탈의 흐름 처리. |
 | `ResumeGate.ts` | **Phase 12**: the browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), the desktop-shell cursor rule (`syncDesktopCursor`) and the shell's Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). Owns `resume-gate.css`. |
 | `resume-gate.css` | The gate's own styles + `body.desktop-nocursor` (the Electron cursor-hiding class). Imported from `ResumeGate.ts`. |
-| `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. **2026-09-10**: `SoloRaidPose.shield` (선택) — v1 세이브에는 없고, 없으면 `restoreState` 가 방탄복 최대치로 복구한다. |
+| `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. **2026-09-11 (E-5)**: `soloRaidBootStatus` (loadout `raidSeed` marker) · `readClockHigh` / `bumpClockHigh` (`SOLO_CLOCK_HIGH_KEY`), `soloRaidStatus` refuses a far-future save and a clock set back. **2026-09-10**: `SoloRaidPose.shield` (선택) — v1 세이브에는 없고, 없으면 `restoreState` 가 방탄복 최대치로 복구한다. |
 | `index.ts` | Barrel. |
 
 ## Transitions
@@ -144,6 +144,19 @@ It also bumps `ctx.progression.profile.raids` (always) and `.extractions` (on `s
   `NET_GHOST_RESTORE_TIMEOUT_S` wait. Past the window → `game:abort` (which resets the kit to the starter, the same
   loss any failed raid takes) + a `복귀가 너무 늦었습니다 — 레이드 실패` toast. The file is cleared on `complete()`,
   `gameOver()`, `onAbort()` and on being read, so no reload can resurrect a finished run.
+- **2026-09-11 (E-5 — 오프라인 방어 1–3, 사용자 결정)**: the grace no longer trusts the local clock blindly and the save key
+  is no longer the only record of a running solo raid. At `init()` the file is judged by `soloRaidBootStatus(save,
+  ctx.inventory.soloRaidSeed, now, readClockHigh())`:
+  ① **clock record** `slotKey(SOLO_CLOCK_HIGH_KEY)` = the latest `Date.now()` seen (every solo save · every boot · `hub:entered`
+  · every in-ship `inventory:loadoutSaved`); booting more than `SOLO_CLOCK_BACK_TOLERANCE_MS` (2 min, csv) before it → `stale`.
+  A **new** solo raid (`onNewMission`, not a resume) resets it to now, so a clock that once ran far ahead cannot fail later runs.
+  ② a save more than the tolerance **in the future** → `stale` (a few seconds of NTP step-back still resume).
+  ③ the loadout's **`raidSeed` marker** (inventory writes it at a solo raid's `world:ready`, clears it at complete / over / abort):
+  a marker without a save — the key was deleted — or with another seed → `stale`, i.e. 레이드 실패 and the carried kit is lost.
+  To keep ③ from punishing a crash, the first snapshot is written at `world:ready` standing at the spawn (`Session.saveSoloAt`),
+  `player:landed` overwrites it with the real pose, and a consumed resume writes the save straight back (original `savedAt`).
+  Accepted hole (design §6-4): close → set the clock back → reopen inside 5 min without booting in between. Also still open
+  offline: editing the loadout document itself (removing `raidSeed`) — measured in `smoke-raidflow`.
 - **Multiplayer** is unchanged here but reaches further: the relay keeps a dropped raider's lobby slot for the whole
   mission (`server/RelayServer.armGrace`) and the host parks their body for `NET_GHOST_PARK_S` (now an hour), and
   `hub/HubSystem.onResumed` **auto-calls `rejoinMission()`** instead of parking the player next to a pod, so a
@@ -283,6 +296,18 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (E-5 솔로 레이드 시계, 에이전트 ③)** — 위 `2026-09-07: 레이드 접속 끊김 처리` 절의 E-5 항목. `SoloRaid.ts`:
+  `soloRaidStatus(save, now, clockHigh)` (미래 · 역행 → stale) · 새 `soloRaidBootStatus` (로드아웃 `raidSeed` 표식) · `readClockHigh` ·
+  `bumpClockHigh(now, reset)` · `saveSoloRaid` 가 시계를 올린다. `GameFlowSystem.init` 이 새 판정 + 부팅 기록, `player:landed` 에서
+  솔로 스냅샷 즉시 저장, `hub:entered` · 함선 `inventory:loadoutSaved` 시계 기록. `parts/Phases`: 새 솔로 레이드면 시계 리셋 +
+  `world:ready` 에 스폰 자세로 첫 스냅샷. `parts/Session`: `saveSoloAt`, 복귀 소비 때 저장 되쓰기. 검증 `smoke-raidflow` E-5 7 단언 (81/81).
+
+- **2026-09-11 (C-59 — 레이드 중 추방 문구, 에이전트 ④)** — `parts/Wire.onLobbyLeft` 의 `kicked` 가 "분대에서 분리되었습니다" 하나였다.
+  C-29 뒤로 `kicked` 는 서버 콘솔 추방과 같은 캐릭터의 다른 창(`duplicate`) 두 갈래라, net 이 `net:lobbyLeft` **전에** 세우는
+  `ctx.net.link.refused`(B-1)로 가른다: `서버에서 추방되었습니다 — 함선으로 복귀` / `다른 창에서 같은 캐릭터로 접속했습니다 — 함선으로 복귀`.
+  `server_full` 로 끊긴 재접속(`'disconnected'`)은 `서버 접속 인원이 가득 찼습니다 — 함선으로 복귀`. 흐름(토스트 → `DISCONNECT_ABORT_DELAY`
+  뒤 abort)은 그대로.
 
 - **2026-09-11 (C-12 후속 — 솔로 사망도 임플란트를 잃는다, 사용자 결정 · 리드)** — `parts/Death.onLocalDied` 의 솔로 가지가
   `ctx.progression.stripImplantsForCorpse()` 를 부르고 돌려받은 망가진 짝을 **버린다**. 분대 사망은 짝이 시체로 가지만 솔로에는

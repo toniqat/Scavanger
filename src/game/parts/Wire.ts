@@ -71,7 +71,15 @@ export function onLobbyLeft(sys: GameFlowSystem, reason: 'left' | 'disconnected'
   if (reason === 'left' || reason === 'moved') return;
   if (!sys.inLiveMission()) return;
   if (sys.disconnectAbortTimer >= 0) return;
-  const text = reason === 'hostLeft' ? '호스트가 나갔습니다 — 함선으로 복귀' : reason === 'kicked' ? '분대에서 분리되었습니다' : '연결이 끊어졌습니다 — 함선으로 복귀';
+  /*
+   * C-59 (2026-09-11): `kicked` 는 두 갈래다 — 서버 콘솔 `kick` (운영자 추방) 과 같은 캐릭터의 다른 창(`duplicate`). net 이
+   * `net:lobbyLeft` **전에** `ctx.net.link.refused` 를 세우므로 그것으로 가른다. `server_full` 은 `'disconnected'` 로 온다.
+   */
+  const refused = ctx.net?.link.state === 'refused' ? ctx.net.link.refused : undefined;
+  const text = reason === 'hostLeft' ? '호스트가 나갔습니다 — 함선으로 복귀'
+    : reason === 'kicked'
+      ? (refused === 'duplicate' ? '다른 창에서 같은 캐릭터로 접속했습니다 — 함선으로 복귀' : '서버에서 추방되었습니다 — 함선으로 복귀')
+      : refused === 'server_full' ? '서버 접속 인원이 가득 찼습니다 — 함선으로 복귀' : '연결이 끊어졌습니다 — 함선으로 복귀';
   ctx.bus.emit('ui:notify', { text, kind: 'danger', duration: DISCONNECT_ABORT_DELAY });
   sys.disconnectAbortTimer = DISCONNECT_ABORT_DELAY;
   }

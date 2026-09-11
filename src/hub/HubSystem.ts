@@ -78,6 +78,11 @@ export class HubSystem implements GameSystem, HubRef {
   localPlanet: PlanetId | null = null;
   /** `lobby.planet` as of the last `net:lobbyUpdated` we reacted to — a change starts the squad's cutscene. */
   knownLobbyPlanet: PlanetId | null = null;
+  /**
+   * 2026-09-11 (B-6): a `net:lobbyLeft {reason:'moved', to}` is waiting for the new lobby's `net:lobbyUpdated`, which
+   * then plays **one** docking cutscene (no undock first). `to` null = any lobby; the timer falls back to a plain leave.
+   */
+  pendingMove: { to: string | null; timer: ReturnType<typeof setTimeout> } | null = null;
 
   /**
    * Pick the 목표 행성 and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
@@ -297,7 +302,7 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('game:newMission', () => this.teardown('mission')),
       b.on('game:abort', () => { if (this.interior || this.cutscene) this.teardown('menu'); }),
       b.on('net:lobbyUpdated', ({ lobby }) => this.onLobbyUpdated(lobby)),
-      b.on('net:lobbyLeft', () => this.onLobbyLeft()),
+      b.on('net:lobbyLeft', ({ reason, to }) => this.onLobbyLeft(reason, to)),
       b.on('net:resumed', ({ inProgress }) => this.onResumed(inProgress)),
       b.on('net:peerJoined', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 합류`, kind: 'info' }); }),
       b.on('net:peerLeft', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 이탈`, kind: 'warning' }); }),
@@ -444,7 +449,7 @@ export class HubSystem implements GameSystem, HubRef {
   /* ── net events ────────────────────────────────────────────────────────── */
   private onLobbyUpdated(lobby: LobbyState): void { return Trans.onLobbyUpdated(this, lobby); }
 
-  private onLobbyLeft(): void { return Trans.onLobbyLeft(this); }
+  private onLobbyLeft(reason?: string, to?: string): void { return Trans.onLobbyLeft(this, reason, to); }
 
   /**
    * `net:resumed`. A **훈련장** is not the squad's mission (individual entry, the lobby stays open), so a reconnect

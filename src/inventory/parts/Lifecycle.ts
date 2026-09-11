@@ -43,6 +43,9 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   sys.bagWornThisRaid = false;
   sys.closeAll();
   sys.clearContainers();
+  // 2026-09-11 (E-5): a **solo raid** marks the saved kit as "out on raid `seed`" (multiplayer · training never do) —
+  // game/ fails the run at boot when that marker has no matching solo raid save. The starter below saves with it too.
+  if (!sys.ctx.isMultiplayer && sys.ctx.missionMode === 'raid') sys.loadoutStore.markRaid(seed);
   if (sys.isDestitute()) { sys.applyStarter(); return; }
   sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = '';
   if (sys.announcePending) { sys.announcePending = false; sys.lastEquipUids = {}; sys.lastWeight = null; }
@@ -137,6 +140,7 @@ export function announceLoaded(sys: InventorySystem): void {
 /** Legacy mission failure (Phase 2 death flow no longer emits it): everything carried is lost (2026-09-07). */
 export function onGameOver(sys: InventorySystem): void {
   sys.outcome = 'over';
+  sys.loadoutStore.clearRaid();   // 2026-09-11 (E-5): 레이드 실패 ends the solo raid marker
   sys.closeAll();
   sys.clearContainers();
   sys.loseKit();
@@ -167,6 +171,7 @@ export function onAbort(sys: InventorySystem): void {
   sys.closeAll();
   sys.clearContainers();
   sys.strippedForCorpse = false;
+  sys.loadoutStore.clearRaid();   // 2026-09-11 (E-5): quit / lost lobby / a stale solo raid at boot — the marker goes too
   const outcome = sys.outcome;
   sys.outcome = 'none';
   if (outcome === 'complete' || outcome === 'over') return;

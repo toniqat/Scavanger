@@ -1,12 +1,17 @@
 import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
-import { Keys, CHAT_MAX_LINES, formatPlayerCode, keyLabel } from '@/shared';
+import { Keys, CHAT_MAX_LINES, SOCIAL_WHISPER_MAX, formatPlayerCode, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { socialOf } from '../menus/social/socialSource';
+import { whisperStateClass, whisperStateText } from '../menus/social/whisperText';
+import '../styles/social.css';
 
 const BLOCKER = 'chat';
 const LINE_FADE_AFTER = 12;   // seconds a line stays fully visible while the input is closed
 const FADE_CHECK = 0.25;      // seconds between fade sweeps
-const MAX_TEXT = 120;
+/** 2026-09-11 (B-4): the relay's own whisper cap (was 120, so a long whisper was cut short on the sender's side). */
+const MAX_TEXT = SOCIAL_WHISPER_MAX;
+/** `/r <텍스트>` — reply to the last 귓속말 partner. `/ㄱ` is the same keys on a Korean layout. */
+const REPLY_RE = /^\/[rRㄱ](?:\s+([\s\S]*))?$/;
 /** Closed-state log height in line pitches: three full lines + the fourth cut in half at the top (2026-09-09). */
 const CLOSED_LINES = 3.5;
 
@@ -58,6 +63,15 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * what draws a `kind:'whisper'` line; a `whisper()` that returns false (offline / unavailable / empty) leaves a system
  * failure line instead. Clearing the target (the chip's ×, or Escape on an empty input) drops back to squad chat.
  * While a target is set the bottom-left column is raised to mid-screen (`.hud-bl.whispering`).
+ *
+ * **전송 확인 · 차단 · /r (2026-09-11, B-4).**
+ *   • An outgoing line arrives `state:'pending'` and is drawn dimmed (`.pending`); `social:whisperUpdated` finds the row
+ *     by `line.nonce` and turns it `sent` / `stored` (`오프라인 보관 — 접속하면 전달`) / `failed` (`전송 실패 — 오프라인`)
+ *     **in place** — there is no separate error toast any more. The `.wst` tag carries that text (`menus/social/whisperText`).
+ *     A backlog line (`line.backlog`) is tagged `접속 전에 받음`. The input cap is `SOCIAL_WHISPER_MAX` (the relay's).
+ *   • Squad chat **text** from a member whose 아이디 I blocked (`net.getLobbyPlayer(id).code` → `SocialRef.isBlocked`) is
+ *     not drawn; their pings and comms-wheel lines (`ping` / `request`) still are.
+ *   • `/r <텍스트>` (also `/ㄱ`) whispers the last partner (`SocialRef.lastWhisperPeer`); `/r` alone aims the input at them.
  */
 export class ChatLog {
   readonly root: HTMLElement;
@@ -74,6 +88,8 @@ export class ChatLog {
   private lastCountdown = -1;
   /** Active 귓속말 target, or null for ordinary squad chat (Phase 11). */
   private target: { code: PlayerCode; name: string } | null = null;
+  /** 2026-09-11 (B-4): my whisper rows still able to change state, by `line.nonce`. */
+  private whisperRows = new Map<number, HTMLElement>();
   private unsubs: Array<() => void> = [];
   /** Last measured line height (px) the closed `max-height` was derived from; 0 = not measured yet. */
   private lineH = 0;
@@ -138,7 +154,8 @@ export class ChatLog {
     clearTarget.addEventListener('click', (e) => { e.stopPropagation(); this.setTarget(null); this.input.focus(); });
     el('span', { cls: 'chat-prompt', text: '›', parent: this.inputRow });
     this.input = el('input', {
-      cls: 'chat-input', attrs: { type: 'text', maxlength: String(MAX_TEXT), placeholder: '메시지 입력… (Enter 전송)', spellcheck: 'false', autocomplete: 'off' },
+      // + 3 so `/r ` plus a full-length whisper still fits (the text itself is cut to MAX_TEXT on send)
+      cls: 'chat-input', attrs: { type: 'text', maxlength: String(MAX_TEXT + 3), placeholder: '메시지 입력… (Enter 전송)', spellcheck: 'false', autocomplete: 'off' },
       parent: this.inputRow,
     });
     // Flush-right close hint — its own flex item after the input (`flex:none`), so typed text can never run under it.
@@ -177,7 +194,12 @@ export class ChatLog {
     this.unsubs.push(
       b.on('input:bindingsChanged', () => setText(this.closeKey, keyLabel(Keys.INVENTORY))),
       b.on('chat:post', ({ text, kind }) => this.post(text, kind)),
-      b.on('net:chat', ({ id, name, text, kind }) => this.add(id, name, text, kind ?? 'text', false)),
+      b.on('net:chat', ({ id, name, text, kind }) => {
+        const k = kind ?? 'text';
+        // B-4 (2026-09-11): typed lines from a squad-mate I blocked are not drawn — pings / comms-wheel lines still are.
+        if (k === 'text' && this.isBlockedPeer(id)) return;
+        this.add(id, name, text, k, false);
+      }),
       b.on('net:peerJoined', ({ name }) => this.system(`${name} 합류`)),
       b.on('net:peerLeft', ({ name }) => this.system(`${name} 이탈`)),
       b.on('pickup:taken', ({ item, byLocal, byName }) => {
@@ -205,6 +227,7 @@ export class ChatLog {
       /* ── Phase 11: 귓속말 ── */
       b.on('chat:whisperTo', ({ code, name }) => { this.setTarget({ code, name }); this.open(); this.input.focus(); }),
       b.on('social:whisper', ({ line }) => this.addWhisper(line)),
+      b.on('social:whisperUpdated', ({ line }) => this.updateWhisper(line)),
       b.on('game:newMission', ({ mode }) => {
         this.lastCountdown = -1;
         if (this._open) this.close(false);
@@ -242,10 +265,41 @@ export class ChatLog {
 
   private system(text: string): void { this.add(null, '시스템', text, 'system', false); }
 
-  /** One whisper, either direction (`line.out` = I sent it). Drawn as a `kind:'whisper'` line. */
+  /**
+   * One whisper, either direction (`line.out` = I sent it). Drawn as a `kind:'whisper'` line; B-4 adds the delivery
+   * state as a modifier class + a `.wst` tag, and keeps a still-changing row by nonce for `updateWhisper`.
+   */
   private addWhisper(line: WhisperLine): void {
     const who = line.out ? `귓속말 → ${line.name || formatPlayerCode(line.code)}` : `귓속말 ${line.name || formatPlayerCode(line.code)}`;
-    this.add(null, who, line.text, 'whisper', line.out);
+    const row = this.add(null, who, line.text, 'whisper', line.out, whisperStateClass(line));
+    const st = whisperStateText(line);
+    const tag = el('span', { cls: 'wst', text: st, parent: row });
+    tag.hidden = !st;
+    if (line.nonce !== undefined && line.state === 'pending') {
+      row.dataset.nonce = String(line.nonce);
+      this.whisperRows.set(line.nonce, row);
+    }
+  }
+
+  /** B-4: `social:whisperUpdated` — the pending row settles in place (sent · stored · failed). */
+  private updateWhisper(line: WhisperLine): void {
+    if (line.nonce === undefined) return;
+    const row = this.whisperRows.get(line.nonce);
+    if (!row) return;
+    row.classList.remove('pending', 'stored', 'failed');
+    const mod = whisperStateClass(line);
+    if (mod) row.classList.add(mod);
+    const tag = row.querySelector<HTMLElement>('.wst');
+    const st = whisperStateText(line);
+    if (tag) { setText(tag, st); tag.hidden = !st; }
+    if (line.state !== 'pending') { this.whisperRows.delete(line.nonce); delete row.dataset.nonce; }
+    this.stick();
+  }
+
+  /** B-4: whether squad-mate `id`'s 아이디 is on my 차단 목록. */
+  private isBlockedPeer(id: PeerId): boolean {
+    const code = this.ctx.net?.getLobbyPlayer(id)?.code;
+    return !!code && !!socialOf(this.ctx)?.isBlocked(code);
   }
 
   /** Aim the input at one 아이디 (null = back to squad chat). Also raises the bottom-left column. */
@@ -270,19 +324,24 @@ export class ChatLog {
     return net?.getLobbyPlayer(id)?.name ?? net?.getRemotePlayer(id)?.name ?? '분대원';
   }
 
-  private add(id: PeerId | null, name: string, text: string, kind: ChatKind, local: boolean): void {
+  private add(id: PeerId | null, name: string, text: string, kind: ChatKind, local: boolean, mod = ''): HTMLElement {
     const d = new Date();
     const hh = d.getHours().toString().padStart(2, '0'), mm = d.getMinutes().toString().padStart(2, '0');
-    const line = el('div', { cls: `chat-line ${kind}${local ? ' me' : ''}` });
+    const line = el('div', { cls: `chat-line ${kind}${local ? ' me' : ''}${mod ? ` ${mod}` : ''}` });
     el('span', { cls: 'ts ui-mono', text: `[${hh}:${mm}]`, parent: line });
     if (kind !== 'system') el('span', { cls: 'who', text: `${name}:`, parent: line });
     el('span', { cls: 'txt', text, parent: line }); // textContent → no markup injection
     this.list.appendChild(line);
     this.lines.push({ el: line, time: performance.now() / 1000, faded: false });
-    while (this.lines.length > CHAT_MAX_LINES) { const old = this.lines.shift()!; old.el.remove(); }
+    while (this.lines.length > CHAT_MAX_LINES) {
+      const old = this.lines.shift()!;
+      if (old.el.dataset.nonce) this.whisperRows.delete(Number(old.el.dataset.nonce));
+      old.el.remove();
+    }
     this.measure(line);
     this.stick();
     this.ctx.bus.emit('chat:message', { id, name, text, kind, local });
+    return line;
   }
 
   /**
@@ -359,8 +418,17 @@ export class ChatLog {
    * hidden so its entrance animation does not replay. An empty Enter does nothing. The whisper target is kept.
    */
   private send(): void {
-    const text = this.input.value.trim().slice(0, MAX_TEXT);
-    if (!text) return;
+    const raw = this.input.value.trim();
+    if (!raw) return;
+    // B-4: `/r <텍스트>` → the last 귓속말 partner; `/r` alone aims the input at them (either mode).
+    const reply = REPLY_RE.exec(raw);
+    if (reply) {
+      this.reply((reply[1] ?? '').trim().slice(0, MAX_TEXT));
+      this.input.value = '';
+      this.input.focus();
+      return;
+    }
+    const text = raw.slice(0, MAX_TEXT);
     const t = this.target;
     if (t) {
       // The mirror echoes a successful whisper back as `social:whisper {line.out}` — never double-write it here.
@@ -371,6 +439,16 @@ export class ChatLog {
     }
     this.input.value = '';
     this.input.focus();
+  }
+
+  /** `/r` — whisper `text` to `SocialRef.lastWhisperPeer`, or aim the input at them when `text` is empty. */
+  private reply(text: string): void {
+    const social = socialOf(this.ctx);
+    const last = social?.lastWhisperPeer ?? null;
+    if (!social || !last) { this.system('답장할 귓속말 상대가 없습니다'); return; }
+    const name = social.whisperPeers().find((p) => p.code === last)?.name || social.find(last)?.name || formatPlayerCode(last);
+    if (!text) { this.setTarget({ code: last, name }); return; }
+    if (!social.whisper(last, text)) this.system(`귓속말 전송 실패 — ${name}`);
   }
 
   dispose(): void {

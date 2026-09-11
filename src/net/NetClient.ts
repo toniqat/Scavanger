@@ -1,4 +1,5 @@
 import type { ClientToServer, NetStatus, PeerId, ServerToClient } from '@/shared';
+import { NET_CONNECT_TIMEOUT_MS } from '@/shared';
 
 /** Server → client message types we accept; anything else is dropped with a warning. */
 const SERVER_TYPES: ReadonlySet<string> = new Set([
@@ -7,6 +8,10 @@ const SERVER_TYPES: ReadonlySet<string> = new Set([
   'profile:docs', 'credits:result',
   /* Phase 11: 소셜 (the snapshots are small — MAX_INBOUND_BYTES is unchanged) */
   'social:state', 'social:invited', 'social:whisper', 'social:play', 'social:error',
+  /* 2026-09-11 (B-3 · B-4): 초대 결과 · 전송 확인 · 오프라인 보관 */
+  'social:inviteResult', 'social:inviteClosed', 'social:whisperAck', 'social:whisperBacklog',
+  /* 2026-09-11 (E-6): the answer to a revision write / transaction (a conflict carries ≤ 5 documents — under the cap) */
+  'profile:ack', 'profile:conflict', 'profile:refused',
 ]);
 const PING_INTERVAL_MS = 2000;
 /** `welcome` may carry every profile document (5 × PROFILE_DOC_MAX_BYTES) plus a raid blob. */
@@ -30,10 +35,17 @@ export class NetClient {
 
   onMessage: ((msg: ServerToClient) => void) | null = null;
   onStatus: ((status: NetStatus, reason?: string) => void) | null = null;
+  /**
+   * 2026-09-11 (B-1): an attempt that has not reached `welcome` within this long is closed and fails like any other
+   * refused connect (`'error'` + reject). Without it a dead IP hangs until the OS TCP timeout (tens of seconds) and the
+   * link never leaves `connecting`. A field (not a module constant) so a test can shorten it.
+   */
+  connectTimeoutMs = NET_CONNECT_TIMEOUT_MS;
 
   private ws: WebSocket | null = null;
   private connectPromise: Promise<void> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private url = '';
 
   get connected(): boolean { return this.status === 'connected' && this.ws?.readyState === WebSocket.OPEN; }
@@ -72,6 +84,12 @@ export class NetClient {
         if (!welcomed) reject(new Error(reason));
       };
 
+      // B-1: bounded handshake. `teardown` (a new connect / close / failure) clears the timer first.
+      this.connectTimer = setTimeout(() => {
+        this.connectTimer = null;
+        if (!welcomed) finishFail('서버 응답이 없습니다 (시간 초과).');
+      }, this.connectTimeoutMs);
+
       ws.onopen = () => { /* wait for welcome */ };
       ws.onerror = () => { if (!welcomed) finishFail('서버에 연결할 수 없습니다.'); };
       ws.onclose = (ev) => {
@@ -88,6 +106,7 @@ export class NetClient {
         if (msg.t === 'welcome') {
           if (welcomed) return;
           welcomed = true;
+          if (this.connectTimer !== null) { clearTimeout(this.connectTimer); this.connectTimer = null; }
           this.localId = msg.id;
           // Server clock available from the handshake on, so `serverNow()` is right before the first pong.
           this.serverTimeOffset = msg.serverTime - performance.now();
@@ -139,6 +158,7 @@ export class NetClient {
 
   private teardown(): void {
     if (this.pingTimer !== null) { clearInterval(this.pingTimer); this.pingTimer = null; }
+    if (this.connectTimer !== null) { clearTimeout(this.connectTimer); this.connectTimer = null; }
     const ws = this.ws;
     if (ws) {
       ws.onopen = null; ws.onclose = null; ws.onerror = null; ws.onmessage = null;

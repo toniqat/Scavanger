@@ -105,6 +105,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * kit and the startup stash resize must never beat a real server profile.
    */
   freshSave = false;
+  /**
+   * 2026-09-11 (E-6): while `flushSaves` writes the 창고 + 로드아웃, `uploadProfileDoc` collects the documents here and they
+   * go up afterwards as one `ProfileRef.setMany`. null outside that call.
+   */
+  uploadBatch: Partial<Record<'stash' | 'loadout', { doc: unknown; fresh: boolean }>> | null = null;
+  /** 2026-09-11 (E-6): the one debounce timer of both stores (`Docs.scheduleSaves`). */
+  saveTimer: number | null = null;
+  /** E-6: page hide writes both stores through the merged path (registered before the stores' own listeners). */
+  private onSavesPageHide = (): void => {
+    this.flushSaves();
+    try { this.ctx?.net?.profile?.flush(); } catch { /* net not ready */ }
+  };
   /** 2026-09-07: `STARTER_STASH` was granted this session (a brand-new profile) → equip the minimum kit once. */
   firstRunGrant = false;
   ui: InventoryUI | null = null;
@@ -129,6 +141,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     ctx.inventory = this;
     ctx.loot = this.loot;
     this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
+    // 2026-09-11 (E-6): before the stores' own page-hide listeners, so a closing tab writes both as one transaction
+    window.addEventListener('pagehide', this.onSavesPageHide);
+    window.addEventListener('beforeunload', this.onSavesPageHide);
     this.stash = new Stash((id) => ITEM_DEF_MAP.get(id), this.loot);
     this.stash.onSaved = (file) => this.uploadProfileDoc('stash', file); // Phase 7: mirror to the server profile
     // ship housing: the 창고 facility decides the stash size. At startup only *grow* to it — a persisted larger grid
@@ -153,6 +168,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
       ctx.bus.emit('inventory:loadoutSaved', { reason });
       if (reason !== 'profile') this.uploadProfileDoc('loadout', file); // Phase 7: mirror to the server profile
     });
+    // E-6: one debounce for both stores (a 창고 ↔ 가방 move is one save, one transaction)
+    this.stash.schedule = () => Docs.scheduleSaves(this);
+    this.loadoutStore.schedule = () => Docs.scheduleSaves(this);
     this.restoreLoadoutSave();
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
@@ -170,6 +188,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('player:died', () => this.closeAll()),
       bus.on('game:complete', ({ stats }) => {
         this.outcome = 'complete';
+        this.loadoutStore.clearRaid();   // 2026-09-11 (E-5): the solo raid is over — its marker goes before the save
         // 2026-09-11 (C-36): 탈출에 성공했으면 장착 가방이 레이드 1회분 닳는다 — 저장 **전에**
         if (stats.extracted) this.wearBagForRaid();
         this.loadoutStore.saveNow('complete');
@@ -254,6 +273,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     for (const off of this.offs) off();
     this.offs = [];
     window.removeEventListener('keydown', this.escHandler, true);
+    window.removeEventListener('pagehide', this.onSavesPageHide);
+    window.removeEventListener('beforeunload', this.onSavesPageHide);
+    this.flushSaves();   // E-6: both stores through the merged path before they dispose (and flush) on their own
     this.closeAll();
     this.loadoutStore?.dispose();
     this.stash?.dispose();
@@ -1341,6 +1363,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Run `fn` with every save it triggers uploaded as a `fresh` (default) document. */
   withFreshSave(fn: () => void): void { return Docs.withFreshSave(this, fn); }
+
+  /** 2026-09-11 (E-6, `InventoryRef.flushSaves`): write the debounced 창고 / 로드아웃 saves now — both changed → one transaction. */
+  flushSaves(): void { return Docs.flushSaves(this); }
+
+  /** 2026-09-11 (E-5, `InventoryRef.soloRaidSeed`): the solo raid the saved kit is out on (local loadout marker), null = none. */
+  get soloRaidSeed(): number | null { return this.loadoutStore?.raidSeed ?? null; }
 
   /** JSON equality of two save documents (`ProfileSync` hands our own pending document back inside the merged record). */
 

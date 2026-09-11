@@ -614,6 +614,45 @@ try {
     await waitSim(0.4);
     cw = await corner();
     ok(cw.ship === 'shared' && !cw.hint && !cw.hintDom && cw.community, `shared ship: no 시설 관리 hint, 커뮤니티 shown (${JSON.stringify({ hint: cw.hint, community: cw.community, blockers: cw.blockers })})`);
+
+    /* ── 3c. B-6 (2026-09-11): 서버가 옮겨 준 분대 이동 — 공유 함선 A → B 는 도킹 컷씬 한 번 ──
+       The relay's `lobby:left {reason:'moved', to}` + the new `lobby:state` are fed straight into the net system's
+       message handler (the shared relay here runs older code). Then the old relay's plain `lobby:left` → `lobby:state`
+       pair, which used to finish its undock into the personal ship with a lobby and never dock (measured before the fix). */
+    const lobbyOf = (code, host) => ({ code, hostId: host, isPublic: false, started: false, seed: null,
+      players: [{ id: host, name: code, slot: 0, ready: false, isHost: true, connected: true }] });
+    const feedMove = (frames) => page.evaluate((fs) => {
+      window.__dock = [];
+      if (!window.__dockHooked) {
+        window.__dockHooked = true;
+        window.__game.ctx.bus.on('hub:docking', (e) => window.__dock.push(`${e.stage}:${e.direction}`));
+      }
+      const net = window.__game.getSystem('net');
+      for (const f of fs) net.client.onMessage(f);
+    }, frames);
+    const hubState = () => page.evaluate(() => { const h = window.__game.getSystem('hub'); return { phase: window.__game.ctx.phase, ship: h.ship, cut: h.cutscene?.direction ?? null, lobby: window.__game.ctx.net.lobby?.code ?? null, dock: window.__dock.slice() }; });
+    await page.evaluate((l) => { const net = window.__game.getSystem('net'); net._lobby = l; }, lobbyOf('MOVEAA', 'peer-a'));
+    await feedMove([{ t: 'lobby:left', reason: 'moved', to: 'MOVEBB' }, { t: 'lobby:state', lobby: lobbyOf('MOVEBB', 'peer-b') }]);
+    let mv = await hubState();
+    ok(mv.cut === 'dock' && mv.phase === 'docking' && mv.lobby === 'MOVEBB' && mv.dock.join(',') === 'start:dock',
+      `moved: no undock cutscene, the new lobby starts the docking cutscene at once (${JSON.stringify(mv)})`);
+    await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.getSystem('hub').ship === 'shared', 'moved → docked into the new shared ship', 120000);
+    mv = await hubState();
+    ok(mv.ship === 'shared' && mv.lobby === 'MOVEBB' && !mv.dock.includes('start:undock'), `moved: landed in shared ship MOVEBB after ONE docking cutscene (${JSON.stringify(mv.dock)})`);
+    await feedMove([{ t: 'lobby:left' }, { t: 'lobby:state', lobby: lobbyOf('MOVECC', 'peer-c') }]);
+    mv = await hubState();
+    ok(mv.cut === 'dock' && mv.dock.join(',') === 'start:undock,start:dock',
+      `old relay (plain lobby:left → lobby:state): the undock turns into a dock instead of stranding us (${JSON.stringify(mv)})`);
+    await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.getSystem('hub').ship === 'shared', 'old-flow → docked', 120000);
+    mv = await hubState();
+    ok(mv.ship === 'shared' && mv.lobby === 'MOVECC', `old relay: ends in the shared ship of the new lobby, not the personal ship (${JSON.stringify(mv)})`);
+    // a `moved` whose lobby:state never comes falls back to an ordinary leave (undock) after the hub's wait
+    await feedMove([{ t: 'lobby:left', reason: 'moved', to: 'NEVER1' }]);
+    mv = await hubState();
+    ok(mv.cut === null && mv.ship === 'shared' && mv.dock.length === 0, `moved without its lobby:state: nothing happens at once (${JSON.stringify(mv)})`);
+    await waitFor(page, () => window.__game.getSystem('hub').cutscene?.direction === 'undock' || window.__game.getSystem('hub').ship === 'personal', 'moved fallback → undock', 30000);
+    ok(true, 'moved without its lobby:state: the hub gives up and undocks like an ordinary leave');
+
     await page.evaluate(() => { const net = window.__game.getSystem('net'); net._lobby = null; window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }); });
     await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'personal', 'back to the personal ship (3b)');
     await waitSim(0.4);

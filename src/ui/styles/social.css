@@ -1,0 +1,79 @@
+/* ══ 2026-09-11 (B-3 · B-4): 초대 중 배지 · 대화 기록 / 차단 목록 페이지 · 귓속말 전송 상태 ══════════════════════════
+   Imported by `menus/social/SocialColumn` and `hud/ChatLog`. The 소셜 열 / 커뮤니티 패널 / chat base rules stay in
+   base.css; only the additions live here. Scrollbars inherit the dark in-game tokens (`--sb-*`) from base.css. */
+
+/* 초대 중 · 72초 — between the 아이디 and the level on a profile card (`ProfileCard`, ticked by `SocialColumn.tick`) */
+.sc-inv {
+  flex: none; padding: 0 5px;
+  border: 1px solid rgba(255, 179, 71, 0.55); background: rgba(255, 179, 71, 0.1);
+  font-size: 9px; line-height: 14px; letter-spacing: 0.06em; color: var(--c-accent);
+  white-space: nowrap;
+}
+
+/* 커뮤니티 panel head: 차단 목록 n (left of 닫기) */
+.cp-blocked { flex: none; }
+
+/* pages laid over the column — the panel keeps its fixed box */
+.cp-frame .social-col { position: relative; }
+.sc-page {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; gap: 10px; min-height: 0;
+  background: var(--c-panel-strong);
+}
+.sc-page-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--c-border); }
+.sc-back {
+  flex: none; padding: 2px 8px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-dim); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.sc-back:hover { color: var(--c-accent); border-color: var(--c-accent); }
+.sc-page-title { font-size: 13px; font-weight: 700; letter-spacing: 0.18em; }
+.sc-page-sub { flex: 1; min-width: 0; font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-page-body {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 4px;
+  scrollbar-width: thin; padding-right: 4px;
+}
+.sc-page.is-blocked .sc-page-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; }
+.sc-page-empty { padding: 4px 0; }
+
+/* 대화 기록 lines */
+.sc-logline {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0;
+  padding: 4px 8px; background: rgba(255, 255, 255, 0.025);
+  font-size: 12px; line-height: 1.45;
+}
+.sc-logline .ts { flex: none; font-size: 10px; color: var(--c-text-faint); }
+.sc-logline .dir { flex: none; font-weight: 700; color: var(--c-text-dim); }
+.sc-logline.out .dir { color: var(--c-accent); }
+.sc-logline .txt { flex: 1; min-width: 0; color: #d9a3ff; overflow-wrap: anywhere; }
+.sc-logline .st { flex: none; font-size: 9px; letter-spacing: 0.06em; color: var(--c-text-faint); }
+.sc-logline.pending .txt { opacity: 0.55; }
+.sc-logline.stored .st { color: var(--c-accent); }
+.sc-logline.failed .txt { color: var(--c-text-dim); text-decoration: line-through; }
+.sc-logline.failed .st { color: var(--c-danger); }
+.sc-logline.backlog .st { color: var(--c-accent); }
+
+.sc-log-input-row { display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+.sc-log-input {
+  flex: 1; min-width: 0; height: 30px; padding: 0 10px;
+  border: 1px solid var(--c-border-strong); background: rgba(0, 0, 0, 0.35);
+  font: inherit; font-size: 12px; color: var(--c-text); outline: none;
+}
+.sc-log-input:focus { border-color: var(--c-accent); }
+.sc-log-input::placeholder { color: var(--c-text-faint); }
+.sc-log-send { flex: none; width: 72px; height: 30px; }
+
+/* 차단 목록 cards */
+.sc-card.is-blocked { cursor: context-menu; }
+.sc-card.is-blocked .sc-name { color: var(--c-text-dim); }
+.sc-unblock { flex: none; padding: 1px 8px; }
+.sc-unblock:hover { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.55); }
+
+/* 귓속말 전송 상태 in the chat log (`hud/ChatLog`) */
+.chat-line .wst { flex: none; font-size: 9px; letter-spacing: 0.06em; color: var(--c-text-faint); font-style: normal; }
+.chat-line.whisper.pending .txt, .chat-line.whisper.pending .who { opacity: 0.55; }
+.chat-line.whisper.stored .wst, .chat-line.whisper.backlog .wst { color: var(--c-accent); }
+.chat-line.whisper.failed .txt { color: var(--c-text-dim); text-decoration: line-through; }
+.chat-line.whisper.failed .wst { color: var(--c-danger); }

@@ -16,6 +16,7 @@ import {
 } from '@/shared';
 import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
+import { PROFILE_QUEUE_STORAGE_KEY } from '@/shared';
 import { SocialSync } from './SocialSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
@@ -71,6 +72,19 @@ export class NetSystem implements GameSystem, NetRef {
   lobbySuspended = false;
   /** We were inside a running mission when the socket dropped (seamless-resume candidate). */
   wasInSessionAtDrop = false;
+
+  /* ── B-1 (2026-09-11): 링크 상태 · 배경 프로브 — 규칙은 `parts/Socket` 의 `setLink` / `goUnreachable` ── */
+  /** Stored link (`link` getter adds the live `nextProbeInMs`). `url` = the address the state is about. */
+  _link: NetLinkInfo = { state: 'idle', url: '' };
+  probeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 0-based index into `NET_PROBE_BACKOFF_MS` for the next wait (last value repeats). */
+  probeAttempt = 0;
+  /** `performance.now()` at which the pending probe fires (valid while `probeTimer` is set). */
+  probeDueAt = 0;
+  /** Bumped by every stop / restart: an in-flight probe or shell-route lookup of an older generation is ignored. */
+  probeGen = 0;
+  /** Desktop shell: is this same-origin url the embedded relay? One `NET_SHELL_RELAY_ROUTE` lookup per url. */
+  embeddedCache: { url: string; embedded: boolean } | null = null;
 
   /* ── Phase 7 ── */
   readonly profileSync = new ProfileSync();
@@ -156,6 +170,8 @@ export class NetSystem implements GameSystem, NetRef {
     this.profileSync.bus = ctx.bus;
     this.profileSync.send = (m) => this.client.send(m);
     this.profileSync.serverNow = () => this.serverNow();
+    // 2026-09-11 (E-6): the write queue survives a reload / an offline session (per character slot)
+    this.profileSync.useStorage(slotKey(PROFILE_QUEUE_STORAGE_KEY));
     /* Phase 11: the social mirror gets the same injected wiring (no socket / no lobby knowledge of its own). */
     this.socialSync.bus = ctx.bus;
     this.socialSync.send = (m) => this.client.send(m);
@@ -222,6 +238,8 @@ export class NetSystem implements GameSystem, NetRef {
      * 같은 이벤트를 낸다 — 어느 쪽도 `ctx.net` 을 직접 붙잡지 않는다.
      */
     bus.on('leader:transferRequested', ({ peerId }) => this.transferHost(peerId));
+    /* B-1 (2026-09-11): a server the background probe found during a raid / training is joined once we are back in the ship / title. */
+    bus.on('game:phaseChanged', ({ phase }) => Sock.onPhaseChanged(this, phase));
   }
 
   /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
@@ -263,6 +281,7 @@ export class NetSystem implements GameSystem, NetRef {
 
   dispose(): void {
     this.stopReconnect();
+    Sock.stopProbe(this);
     this.intentionalClose = true;
     this.profileSync.flush();
     this.socialSync.dispose();
@@ -288,10 +307,8 @@ export class NetSystem implements GameSystem, NetRef {
 
   defaultUrl(): string { return Sock.defaultUrl(this); }
 
-  /* ── 링크 상태 (2026-09-11 계약 자리, B-1): ④ 가 `parts/Socket` 에서 실제 상태를 기른다 ── */
-  get link(): NetLinkInfo {
-    return { state: this.client.connected ? 'connected' : 'idle', url: Sock.defaultUrl(this) };
-  }
+  /* ── 링크 상태 (2026-09-11, B-1): 전이는 전부 `parts/Socket` 이 `setLink` 로 한다 ── */
+  get link(): NetLinkInfo { return Sock.linkInfo(this); }
 
   /* ── 서버 주소 (2026-09-10) ─────────────────────────────────────────── */
   get relayUrl(): string { return Sock.defaultUrl(this); }
@@ -405,7 +422,7 @@ export class NetSystem implements GameSystem, NetRef {
 
   playerInMission(p: LobbyPlayer, lobby: LobbyState): boolean { return Lobby.playerInMission(this, p, lobby); }
 
-  dropLobby(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void { return Lobby.dropLobby(this, reason); }
+  dropLobby(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' | 'moved', to?: string): void { return Lobby.dropLobby(this, reason, to); }
 
   endSessionPending = false;
   /** Deferred session end: runs after every synchronous handler of the triggering bus event has finished. */

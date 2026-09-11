@@ -17,6 +17,8 @@ import {
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
+import { bumpClockHigh } from '../SoloRaid';
+import { saveSoloAt } from './Session';
 import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from '../model';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
@@ -148,6 +150,9 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   // 훈련장: remember the inventory so ammo / durability spent on the range are refunded on exit.
   sys.trainingSnapshot = sys.isTraining() ? (ctx.inventory?.captureRaidState() ?? null) : null;
   sys.raidSaveTimer = (sys.isRaidSession() || sys.isSoloRaid()) ? RAID_SAVE_INTERVAL_S : -1;
+  // 2026-09-11 (E-5 ①): a **new** solo raid restarts the clock record at "now" — a clock that once ran far ahead must not
+  // fail every later resume. A stored run was already judged at boot, so nothing pending can slip through here.
+  if (sys.isSoloRaid() && !sys.rejoining) bumpClockHigh(Date.now(), true);
   sys.awaitingWorld = true;
   sys.ensureNetHooks();
   // WorldSystem generates synchronously inside its own handler; if it already ran (registered earlier),
@@ -165,7 +170,18 @@ export function onWorldReady(sys: GameFlowSystem): void {
   // 2026-09-08: 시뮬레이션 훈련장은 강하가 없다 (`player/`도 헬포드를 건너뛴다) — 'deploying' 을 거치면
   //   `player:landed` 가 영영 오지 않아 화면이 강하 오버레이에 갇힌다. 바로 'playing' 으로 간다.
   sys.setPhase(sys.isTraining() ? 'playing' : 'deploying');
-  if (!sys.rejoining) return;
+  if (!sys.rejoining) {
+    /*
+     * 2026-09-11 (E-5 ③): inventory has just marked the kit as out on this solo raid (`raidSeed`). Write the resumable
+     * snapshot now — standing at the spawn — so a reload during the hellpod drop resumes the run instead of reading as
+     * "marker without a save" (= 레이드 실패). `player:landed` overwrites it with the real pose.
+     */
+    if (sys.isSoloRaid()) {
+      const spawn = ctx.world?.getPlayerSpawn();
+      if (spawn) saveSoloAt(sys, spawn);
+    }
+    return;
+  }
   sys.rejoining = false;
   const blob = sys.raidBlob;
   sys.raidBlob = null;

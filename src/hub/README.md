@@ -15,7 +15,7 @@ Everything is procedural Three.js geometry — no asset files. Import via `@/hub
 | `parts/Planet.ts` | **목표 행성 선택과 워프 이동** (Phase 11 · **창문 워프** 2026-09-09). 임무는 여전히 무작위 시드로 생성되지만 **어느 행성인지**는 플레이어가 고른다. 로비에서는 **호스트만** 정하고 나머지는 `lobby:state` 로 같은 워프를 본다. 이동은 함선 내부를 재생성하지 않는다 — 창밖만 바뀐다. 목표 행성이 없으면 발사 슬롯에 탑승할 수 없다. **2026-09-09**: 이동은 더 이상 컷씬이 아니다 — `startTravel` 이 `HubSystem.warp`(`WarpState`)를 켜고 `tickTravel` 이 매 프레임 `speed`(smoothstep 램프 `HUB_WARP_RAMP_S` 위/아래, 중간 1)를 계산해 `interior.setWarp(speed, dest)` · `hub:warpProgress {planet, t, speed}` · `camera:shake`(`HUB_WARP_SHAKE_INTERVAL_S` 마다 `HUB_WARP_SHAKE_PEAK × speed`) 를 낸다. 카메라 오버라이드 · 조작 잠금 **없음**. `finishTravel` = 도착 꼬리(`applyPlanetLook` · 화면 · 포드 · `hub:travel end` · `hub:planetChanged` · 토스트 · `hub_dock_clamp`), `cancelTravel` = 내부가 허물어질 때 이벤트 없이 접기(`travelling` off · `setWarp(0)` · `applyPlanetLook`). `warpSpeedAt(elapsed)` 은 순수 함수. |
 | `parts/Pods.ts` | **발사 포드 · 카운트다운 · 출격**. 포드에 타면 준비 완료가 되고, 접속한 전원이 준비되면 3초 카운트다운 뒤 호스트가 `startGame` 한다. 임무가 진행 중이면 포드는 재합류 입구가 된다. 탑승을 막는 이유(`podBlockReason`)는 프롬프트로 보여 준다 — `canInteract:false` 로 막으면 프롬프트 자체가 사라져 이유를 알 수 없다. |
 | `parts/Interior.ts` | **함선 내부 짓기 · 허물기**. 개인 함선(조종석 → 복도 → 방 10개 → 에어락)과 공유 함선의 지오메트리, 스테이션 배치, 가구 배치(`buildHousing`), 방 추적과 표지판. 모든 클라이언트가 같은 지오메트리를 만들어야 공유 함선의 위치 스냅샷이 맞는다. |
-| `parts/Transitions.ts` | **함선을 드나드는 전환**. 타이틀 → 개인 함선, 도킹 → 공유 함선, 임무 종료 → 함선, 재접속 복귀. 컷씬을 태울지 바로 바꿔치울지(`swapDirect`)와, 진행 중인 레이드로 자동 재투입할지를 정한다. **2026-09-10**: 도킹 컷씬이 `PREBUILD_AFTER_S` 지나면 도착할 함선을 미리 짓고 `ctx.shaders.warm(ship.root, cutscene.root)` 로 백그라운드 컴파일해 둔다(`prebuildTarget` → `HubSystem.pendingInterior`, `finishTransition` 이 `build(…, prebuilt)` 로 붙이고 `disposeInterior` 가 못 쓴 것을 버린다). 진입 · 컷씬 시작 · 도착 · 직접 교체 · 격납고 드나들기마다 `ctx.shaders.holdForScene()`. |
+| `parts/Transitions.ts` | **함선을 드나드는 전환**. 타이틀 → 개인 함선, 도킹 → 공유 함선, 임무 종료 → 함선, 재접속 복귀. 컷씬을 태울지 바로 바꿔치울지(`swapDirect`)와, 진행 중인 레이드로 자동 재투입할지를 정한다. **2026-09-10**: 도킹 컷씬이 `PREBUILD_AFTER_S` 지나면 도착할 함선을 미리 짓고 `ctx.shaders.warm(ship.root, cutscene.root)` 로 백그라운드 컴파일해 둔다(`prebuildTarget` → `HubSystem.pendingInterior`, `finishTransition` 이 `build(…, prebuilt)` 로 붙이고 `disposeInterior` 가 못 쓴 것을 버린다). 진입 · 컷씬 시작 · 도착 · 직접 교체 · 격납고 드나들기마다 `ctx.shaders.holdForScene()`. **2026-09-11 (B-6)**: `net:lobbyLeft {reason:'moved', to}` 는 분리 컷씬을 틀지 않고 `HubSystem.pendingMove` 에 적어 두며, 이어지는 그 로비의 `net:lobbyUpdated` 가 **도킹 컷씬 한 번**을 부른다(공유 A → 공유 B · 격납고 방문 중에도). 새 로비가 **분리 컷씬 도중**에 오면(옛 릴레이의 `lobby:left` → `lobby:state`) 컷씬을 도킹으로 뒤집는다. `lobby:state` 가 `MOVE_WAIT_MS`(4 s) 안에 안 오면 평범한 떠남으로 처리한다. |
 | `parts/Hangar.ts` | **공용 함선 격납고** (2026-09-08). 정박 구역 4곳의 상호작용(`hub_ship_bay_<slot>`)과 프롬프트 · 거절 사유, 개인 함선 배치(`refreshBays`), 그리고 남의 함선을 그리기 위한 배치 정보 교환 (`ship state` / `shipq state`, 크루 카드와 같은 방식 — 도착 시 1회 · 내 함선이 바뀌면 디바운스 · 요청에는 즉시). 레이아웃이 아직 안 왔으면 `SHIP_VISIT_WAIT_S` 동안 기다렸다가(`tickPendingVisit`) 들여보내거나 포기한다. |
 | `parts/Crew.ts` | **크루 카드** (Phase 10) · 훈련장 입장 · **분대장 넘기기 상호작용** (2026-09-09, `updateLeaderHandoff` / `clearLeaderHandoff` — 같은 함선 안의 원격 분대원마다 `lead:<peerId>` `Interactable`, 내가 호스트일 때만). 허브에서는 `PlayerSnapshot` 의 무기 · 임플란트가 null 이고 `LobbyPlayer` 에는 레벨이 없다. 그래서 발사 준비 패널이 쓸 정보(이름 · 레벨 · 장착 임플란트 · 방어구)를 별도 `crew` 메시지로 주고받는다. 요청이 오면 그 대원의 장비 문서도 보낸다. |
 | `HousingMode.ts` | 3D side of housing mode (rules live in `ctx.housing`): reacts to `housing:modeChanged` **and `housing:shipManageChanged`** (함선 관리, Phase 8), controls off + oblique top-down camera over the room, pointer-locked cursor, ghost + footprint frame, LMB / R / X / C / wheel / `[ ]` / **M** (2026-09-08: was Esc — M is the key that entered the mode), `housing:cursorChanged`. See **Housing mode** below. **2026-09-09**: Tab (`Keys.INVENTORY`) leaves the mode exactly like M (consumed, so the inventory never opens on it); owns 키 가이드 owner `'housing'` (`LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소`, live labels) — replaces the deleted `ui/hud/HousingHint`. |
@@ -384,6 +384,29 @@ over the 닫기 (Esc) / 타이틀로 footer.
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (B-1 통합 — 거절당한 연결은 함선 진입으로 다시 붙지 않는다, 리드)** — `parts/Transitions.tryResume` 이 `net.link.state === 'refused'`
+  (서버 추방 · 인원 초과 · 다른 창 접속)면 `ensureConnected()` 를 부르지 않는다. `ensureConnected` 는 명시적 접속이라 `refused` 를 지우므로,
+  개인 함선에 들어설 때마다 추방된 사람이 자동으로 다시 붙고 있었다. 다시 붙는 길은 터미널 `신호 찾기` · 타이틀 `다시 시도` 뿐이다.
+
+- **2026-09-11 (B-6 — 서버가 옮겨 준 분대 이동은 도킹 컷씬 한 번, 에이전트 ②)** — 같이 하기 · 초대 수락으로 릴레이가
+  나를 다른 로비로 옮기면 `lobby:left {reason:'moved', to}` 뒤에 곧바로 새 `lobby:state` 가 온다(배가 없던 사람은
+  `lobby:state` 만 — 개인 함선에서의 기존 도킹 경로 그대로). `parts/Transitions.onLobbyLeft(sys, reason, to)` 가 `moved` 면
+  분리 컷씬 없이 `HubSystem.pendingMove` 만 적고, `onLobbyUpdated` 가 그 로비를 받으면 `startTransition('dock')`(시작된
+  로비면 `swapDirect`) — 공유 함선 A → B 가 **도킹 컷씬 한 번**이다(사용자 결정). `HubSystem` 은 `net:lobbyLeft` 의
+  `reason` · `to` 를 넘기기만 한다.
+  **실측한 경쟁(수정 전)**: 공유 함선에서 `lobby:left`(사유 없음) → `lobby:state(B)` 를 연달아 먹이면 분리 컷씬이 시작되고
+  새 로비는 `phase === 'docking'` 이라 무시돼, 3 초 뒤 **로비 B 에 있는데 개인 함선**에 멈췄다(12 초 관찰, 도킹 없음).
+  이제 분리 컷씬 도중 온 새 로비는 컷씬을 도킹으로 뒤집는다 — 옛 릴레이에서도 결국 공유 함선 B 에 선다.
+  `moved` 뒤 `lobby:state` 가 `MOVE_WAIT_MS`(4 s) 안에 오지 않으면 평범한 떠남(분리)으로 처리한다.
+  검사: `scripts/smoke-controls-hub.mjs` 3c (moved → `start:dock` 하나 · 도착 · 옛 흐름 `start:undock,start:dock` → 공유 함선 · 폴백 분리).
+
+- **2026-09-11 (C-59 — 터미널이 닫혀 있어도 거절 사유가 사라지지 않는다, 에이전트 ④)** — `ui/HubMenu.showMsg(text, kind, toast = true)`
+  는 터미널이 닫혀 있으면 아무것도 안 했다 → 서버 콘솔 `kick` · `max`(`server_full`) · 다른 창(`duplicate`)의 한국어 문구가
+  `net:error` 로만 와서 사라졌다. 이제 닫혀 있고 **함선 안(phase `hub`)이면 `ui:notify` 토스트로** 넘긴다. 같은 순간 다른 폴더가 이미
+  토스트를 내는 줄은 `toast:false` — `net:lobbyLeft` 셋(hostLeft = ui/Notifications · kicked = 이어지는 `net:error` 가 진짜 사유 ·
+  disconnected = ui/hud/NetBadge), `net:matched` · `net:peerJoined` · `net:peerLeft`, 초대 링크 복사. 레이드 · 타이틀에서는 닫힌 터미널이
+  그대로 조용하다(레이드 문구는 game/ 소유). `errorText` 에 `kicked` · `server_full`(서버 문구 우선). 검사: `scripts/smoke-netlink.mjs` 7절.
 
 - **2026-09-11** — `interiors/LightPool.ts` 의 구현을 `@/shared` (`lightPool.ts`) 로 옮겼다. 행성 구조물이 같은 풀을 쓴다. 이 파일은 다시 내보내기만 하므로 함선 코드의 import 는 그대로다.
 - **2026-09-10 (멀티 렉: 광원 풀 · 도착 함선 선빌드 · 셰이더 hold)** — 공유 함선에 합류하면 도착 직후 0.4 / 0.8 /

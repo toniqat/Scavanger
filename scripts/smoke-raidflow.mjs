@@ -4,6 +4,7 @@
 // `NET_GHOST_RESTORE_TIMEOUT_S` hellpod fallback, extraction consoles absent when the world has no pads.
 // 2026-09-09: 자동 부활 폐지 — 죽은 몸으로 복귀해도 카운트다운이 없고 `game:respawn` 은 무력하다 (구조선만이 되살린다).
 // 2026-09-11: 사망 시 임플란트의 망가진 짝이 시체로 (`stripImplantsForCorpse` + `spawnLocalCorpse`) · 전차 위 시체가 전차에 실려 간다.
+// 2026-09-11 (E-5): 솔로 레이드 복귀 — 정상 새로고침 · 1 초 역행은 복귀, 미래 savedAt · clockHigh 역행 · 저장 키 삭제(+ 로드아웃 raidSeed)는 레이드 실패.
 // Usage: node scripts/smoke-raidflow.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -533,6 +534,109 @@ try {
   ok((await storedImplants()) === 0, 'solo death: the loss was saved at once');
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (solo death)', 20000);
+
+  /*
+   * 2026-09-11 (E-5, 오프라인 방어 1–3): the solo raid resume no longer trusts the local clock blindly and a deleted save
+   * key no longer brings the pre-raid kit back. Every case reloads the page; the storage is edited by a script that runs
+   * on the *new* document before the game boots (after the old page's page-hide saves), exactly like a player editing it
+   * between two sessions.
+   */
+  console.log('2026-09-11: E-5 솔로 레이드 복귀 — 시계 · 저장 키 삭제');
+  const MARK = 'gem_amber';
+  const rebootWith = async (tamper, arg) => {
+    const reg = tamper ? await page.evaluateOnNewDocument(tamper, arg) : null;
+    await page.goto(BASE, { waitUntil: 'load' });
+    if (reg) await page.removeScriptToEvaluateOnNewDocument(reg.identifier);
+    await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'reboot');
+    await P(() => {
+      let lastRaf = performance.now();
+      (function tick() { lastRaf = performance.now(); requestAnimationFrame(tick); })();
+      setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
+      const canvas = document.getElementById('game-canvas');
+      Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+    });
+  };
+  const stored = () => P((mark) => {
+    const read = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+    const lo = read('scav.s1.loadout');
+    const solo = read('scav.s1.soloraid');
+    const has = (save) => !!save && [...(save.bag ?? []), ...Object.values(save.slots ?? {}), ...(save.quick ?? [])].some((e) => e && e.defId === mark);
+    return { raidSeed: lo?.raidSeed ?? null, kitHasMark: has(lo), solo: solo ? { seed: solo.seed, savedAt: solo.savedAt } : null, clockHigh: Number(localStorage.getItem('scav.s1.clockHigh')) || 0 };
+  }, MARK);
+  /** Hub → a marked item in the bag → a solo raid on `seed`, landed, with its first snapshot on disk. */
+  const soloRaidWithMark = async (seed) => {
+    await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+    await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (E-5)', 60000);
+    await P((mark) => { const ctx = window.__game.ctx; if (!ctx.inventory.getAllItems().some((i) => i.defId === mark)) ctx.inventory.tryAddItem(ctx.loot.createItem(mark, 1)); }, MARK);
+    await P((s) => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; ctx.bus.emit('game:newMission', { seed: s }); }, seed);
+    await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (E-5)', 60000);
+    await waitSim(0.3);
+  };
+  /** Reboot and tell what the first frames did: resumed into `seed`, or failed (marker + kit gone), or nothing. */
+  const outcomeAfter = async (seed) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60000) {
+      const s = await P(() => { const ctx = window.__game?.ctx; if (!ctx) return null; return { phase: ctx.phase, seed: ctx.stats?.seed, rejoin: ctx.rejoinPending }; });
+      if (s && s.phase === 'playing' && s.seed === seed && !s.rejoin) return { kind: 'resumed', ...(await stored()) };
+      const disk = await stored();
+      // 레이드 실패 = `game:abort` → the kit (with its marker) was reset and saved
+      if (s && s.phase === 'menu' && disk.raidSeed === null && !disk.kitHasMark) return { kind: 'failed', ...disk };
+      await sleep(150);
+    }
+    return { kind: 'none', ...(await stored()) };
+  };
+
+  await soloRaidWithMark(41);
+  let e5 = await stored();
+  ok(e5.raidSeed === 41 && e5.kitHasMark && e5.solo?.seed === 41 && e5.clockHigh > 0,
+    'E-5: a solo raid marks the saved kit (loadout raidSeed = seed) and has a snapshot + a clock record on disk right after landing', JSON.stringify(e5));
+
+  // ① a normal reload inside the grace resumes
+  await rebootWith(null);
+  let out = await outcomeAfter(41);
+  ok(out.kind === 'resumed' && out.raidSeed === 41 && out.solo?.seed === 41, 'E-5: a normal reload within 5 min → the solo raid resumes (marker kept, snapshot re-written)', JSON.stringify(out));
+  // ② the clock moved back 1 s (NTP): the save is 1 s "in the future" → still resumes
+  await rebootWith(() => {
+    const k = 'scav.s1.soloraid'; const s = JSON.parse(localStorage.getItem(k));
+    s.savedAt = Date.now() + 1000; localStorage.setItem(k, JSON.stringify(s));
+  });
+  out = await outcomeAfter(41);
+  ok(out.kind === 'resumed', 'E-5: a save 1 s in the future (NTP step back) still resumes', JSON.stringify(out));
+  // ③ a save 10 min in the future (played with the clock ahead, set it back) → stale → 레이드 실패, kit lost
+  await rebootWith(() => {
+    const k = 'scav.s1.soloraid'; const s = JSON.parse(localStorage.getItem(k));
+    s.savedAt = Date.now() + 10 * 60_000; localStorage.setItem(k, JSON.stringify(s));
+  });
+  out = await outcomeAfter(41);
+  ok(out.kind === 'failed' && out.raidSeed === null && !out.kitHasMark && out.solo === null,
+    'E-5: a save 10 min in the future → stale: 레이드 실패, the marker and the carried kit are gone', JSON.stringify(out));
+
+  // ④ booting more than 2 min before the recorded clock (the clock was set back after a later boot) → stale
+  await soloRaidWithMark(42);
+  await rebootWith(() => {
+    localStorage.setItem('scav.s1.clockHigh', String(Date.now() + 10 * 60_000));
+    const k = 'scav.s1.soloraid'; const s = JSON.parse(localStorage.getItem(k));
+    s.savedAt = Date.now() - 1000; localStorage.setItem(k, JSON.stringify(s));
+  });
+  out = await outcomeAfter(42);
+  ok(out.kind === 'failed' && out.raidSeed === null && !out.kitHasMark, 'E-5: a boot 10 min before clockHigh (clock moved back) → stale even with a 1 s old save', JSON.stringify(out));
+
+  // ⑤ the save key deleted while the loadout still carries the marker → the same 레이드 실패
+  await soloRaidWithMark(43);
+  await rebootWith(() => { localStorage.removeItem('scav.s1.soloraid'); });
+  out = await outcomeAfter(43);
+  ok(out.kind === 'failed' && out.raidSeed === null && !out.kitHasMark, 'E-5: solo raid key deleted + loadout raidSeed → 레이드 실패 (the pre-raid kit does not come back)', JSON.stringify(out));
+
+  // ⑥ measured: the path the marker closes — with the marker stripped too (= the loadout before 2026-09-11) nothing is failed
+  await soloRaidWithMark(44);
+  await rebootWith(() => {
+    localStorage.removeItem('scav.s1.soloraid');
+    const k = 'scav.s1.loadout'; const l = JSON.parse(localStorage.getItem(k)); delete l.raidSeed; localStorage.setItem(k, JSON.stringify(l));
+  });
+  await sleep(2500);
+  out = { phase: await P(() => window.__game.ctx.phase), ...(await stored()) };
+  ok(out.phase === 'menu' && out.kitHasMark && out.raidSeed === null,
+    'E-5 (measured hole): without the marker a deleted save key boots to the title with the carried kit — the marker is what closes it (editing the loadout document itself stays possible offline)', JSON.stringify(out));
 
   // cleanly back to the hub
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

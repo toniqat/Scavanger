@@ -251,7 +251,8 @@ export function playerInMission(sys: NetSystem, p: LobbyPlayer, lobby: LobbyStat
   return p.inMission ?? (lobby.started && p.connected);
   }
 
-export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void {
+/** `moved` + `to` (2026-09-11, B-6): the server moved me straight into lobby `to`; its `lobby:state` follows at once. */
+export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' | 'moved', to?: string): void {
   const had = sys._lobby !== null;
   sys._lobby = null;
   sys._inSession = false;
@@ -266,7 +267,7 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   sys.shipVisits.clear();  // 2026-09-08: so do the ship layouts behind the 격납고 bays
   sys.carryActive = false;
   sys.clearRemotes();
-  if (had) sys.ctx.bus.emit('net:lobbyLeft', { reason });
+  if (had) sys.ctx.bus.emit('net:lobbyLeft', reason === 'moved' && to ? { reason, to } : { reason });
   }
 
 /** Deferred session end: runs after every synchronous handler of the triggering bus event has finished. */

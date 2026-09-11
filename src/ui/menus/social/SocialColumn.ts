@@ -4,9 +4,11 @@ import {
   SOCIAL_RECENT_MAX, SQUAD_VOICE_DEFAULT, formatPlayerCode,
 } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
-import { buildProfileCard } from './ProfileCard';
+import { buildProfileCard, inviteBadgeText } from './ProfileCard';
 import { SocialMenu } from './SocialMenu';
+import { SocialPages } from './SocialPages';
 import { SOCIAL_UNAVAILABLE_KO, socialOf } from './socialSource';
+import '../../styles/social.css';
 
 export interface SocialColumnOptions {
   /** Draw the 분대원 section on top (it hides itself when there is no lobby). Both hosts pass true. */
@@ -16,6 +18,8 @@ export interface SocialColumnOptions {
    * input cannot take focus while a `'menu'` blocker is up.
    */
   onWhisper?(code: PlayerCode, name: string): void;
+  /** 2026-09-11: Tab inside a page's text field (which swallows keys) — the host closes itself. */
+  onRequestClose?(): void;
 }
 
 /** Voice slider state — Phase 11 keeps it in this component and does nothing with it (there is no voice chat). */
@@ -44,6 +48,11 @@ const VOICE_HINT = '보이스 채팅 준비 중';
  * a compact profile with its voice control on the **right**. Slots nobody holds are drawn as `빈 자리` rather than
  * collapsing, so the row's width never changes as squadmates come and go. The section header carries
  * **파티 떠나기**, which asks first through the column's shared confirm card (`SocialMenu.askConfirm`).
+ *
+ * **2026-09-11 (B-3 · B-4).** A card I have an open squad invite to carries the `초대 중 · n초` badge (`ProfileCard`);
+ * `tick()` — polled by the host while open — rewrites those badges once a second off `ctx.net.serverNow()` without
+ * rebuilding a card. The card menu gained `대화 기록` / `차단` (`SocialMenu`), and two pages lie over the column
+ * (`SocialPages`): the 대화 기록 of one 아이디 and the 차단 목록 (`openBlocked()`, the panel head's button).
  */
 export class SocialColumn {
   readonly root: HTMLElement;
@@ -63,6 +72,9 @@ export class SocialColumn {
   private recentGrid: HTMLElement;
   private recentEmpty: HTMLElement;
   private menu: SocialMenu | null = null;
+  private pages: SocialPages;
+  /** Last whole second the invite badges were written for (`tick`). */
+  private badgeSecond = -1;
   private ctx!: GameContext;
   private unsubs: Array<() => void> = [];
   private voice = new Map<string, VoiceState>();
@@ -106,6 +118,16 @@ export class SocialColumn {
     this.recentHead = el('span', { cls: 'ui-label', text: '최근 플레이어', parent: ch });
     this.recentGrid = this.grid(recent, SOCIAL_RECENT_ROWS, true);
     this.recentEmpty = el('div', { cls: 'sc-empty', text: '함께 출격한 기록이 없습니다', parent: recent });
+
+    /* ── 2026-09-11: 대화 기록 · 차단 목록 pages, laid over the column ── */
+    this.pages = new SocialPages(this.root, {
+      onContext: (p, ev) => {
+        const s = this.ctx ? socialOf(this.ctx) : null;
+        if (!s) return;
+        this.menu?.openAt(p, false, null, ev.clientX + 4, ev.clientY + 4, s.isBlocked(p.code));
+      },
+      onRequestClose: () => this.opts.onRequestClose?.(),
+    });
   }
 
   /**
@@ -128,7 +150,10 @@ export class SocialColumn {
       onWhisper: (code, name) => this.opts.onWhisper?.(code, name),
       onAdd: (code) => socialOf(ctx)?.requestFriend(code),
       onRemove: (code) => { socialOf(ctx)?.removeFriend(code); this.refresh(true); },
+      onHistory: (code, name) => this.pages.openHistory(code, name),
+      onBlock: (code, blocked) => { socialOf(ctx)?.block(code, blocked); this.refresh(true); this.pages.refresh(); },
     });
+    this.pages.bind(ctx);
     this.unsubs.push(
       ctx.bus.on('social:updated', () => this.refresh()),
       ctx.bus.on('social:play', () => this.refresh()),
@@ -144,6 +169,34 @@ export class SocialColumn {
   get isAvailable(): boolean { return this.available; }
   /** The 분대원 header's 파티 떠나기 button (debug / smoke). */
   get leaveButton(): HTMLButtonElement { return this.leaveBtn; }
+  /** 2026-09-11: the 대화 기록 / 차단 목록 pages (debug / smoke). */
+  get socialPages(): SocialPages { return this.pages; }
+
+  /** Open the 차단 목록 page (the 커뮤니티 panel head's button). */
+  openBlocked(): void { this.menu?.close(); this.pages.openBlocked(); }
+  /** Open the 대화 기록 page of `code`. */
+  openHistory(code: PlayerCode, name: string): void { this.menu?.close(); this.pages.openHistory(code, name); }
+  /** Close whichever page is up (the host closing). */
+  closePage(): void { this.pages.close(); }
+
+  /**
+   * Host-polled while the column is on screen: rewrite each `초대 중` badge once per whole second of the relay clock
+   * (a finished one hides itself; the snapshot that follows removes it for good).
+   */
+  tick(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.available) return;
+    const now = ctx.net?.serverNow() ?? Date.now();
+    const sec = Math.floor(now / 1000);
+    if (sec === this.badgeSecond) return;
+    this.badgeSecond = sec;
+    for (const b of this.root.querySelectorAll<HTMLElement>('.sc-inv[data-until]')) {
+      const txt = inviteBadgeText(Number(b.dataset.until), now);
+      if (txt === null) { if (!b.hidden) b.hidden = true; continue; }
+      if (b.textContent !== txt) b.textContent = txt;
+      if (b.hidden) b.hidden = false;
+    }
+  }
 
   /** Re-read the mirror and repaint whatever changed. `force` skips the change key (after a local mutation). */
   refresh(force = false): void {
@@ -164,21 +217,24 @@ export class SocialColumn {
   }
 
   private buildKey(s: SocialRef): string {
-    const row = (p: SocialPlayer): string => `${p.code}|${p.name}|${p.level}|${p.presence}|${p.squad}`;
+    const row = (p: SocialPlayer): string => `${p.code}|${p.name}|${p.level}|${p.presence}|${p.squad}|${p.inviteAt ?? ''}`;
     const lobby = this.opts.squad
       ? (this.ctx.net?.lobby?.players ?? []).map((p) => `${p.id}:${p.slot}:${p.name}`).join(',')
       : '';
     return [
       s.me?.code ?? '', s.friends.map(row).join(','), s.incoming.map(row).join(','), s.recent.map(row).join(','), lobby,
+      s.blocked.map((b) => b.code).join(','),
     ].join('#');
   }
 
   private paint(social: SocialRef): void {
     const ctx = this.ctx;
     const isFriend = (code: PlayerCode): boolean => social.friends.some((f) => f.code === code);
+    const now = ctx.net?.serverNow() ?? Date.now();
+    this.badgeSecond = -1;
     const handlers = {
       onContext: (p: SocialPlayer, ev: MouseEvent) => {
-        this.menu?.openAt(p, isFriend(p.code), social.playBlock(p.code), ev.clientX + 4, ev.clientY + 4);
+        this.menu?.openAt(p, isFriend(p.code), social.playBlock(p.code), ev.clientX + 4, ev.clientY + 4, social.isBlocked(p.code));
       },
       onRespond: (code: PlayerCode, accept: boolean) => { social.respondFriend(code, accept); this.refresh(true); },
     };
@@ -212,19 +268,19 @@ export class SocialColumn {
     this.reqSection.hidden = inc.length === 0;
     if (inc.length > 0) {
       setText(this.reqHead, `받은 친구 요청 ${inc.length}`);
-      this.reqGrid.replaceChildren(...inc.map((p) => buildProfileCard(p, handlers, true)));
+      this.reqGrid.replaceChildren(...inc.map((p) => buildProfileCard(p, handlers, true, now)));
     }
 
     /* 친구 */
     setText(this.friendHead, `친구 ${social.friends.length} · 접속 ${social.onlineFriends}`);
-    this.friendGrid.replaceChildren(...social.friends.map((p) => buildProfileCard(p, handlers)));
+    this.friendGrid.replaceChildren(...social.friends.map((p) => buildProfileCard(p, handlers, false, now)));
     this.friendEmpty.hidden = social.friends.length > 0;
     toggleClass(this.friendGrid, 'is-empty', social.friends.length === 0);
 
     /* 최근 플레이어 */
     const recent = social.recent.slice(0, SOCIAL_RECENT_MAX);
     setText(this.recentHead, `최근 플레이어 ${recent.length}`);
-    this.recentGrid.replaceChildren(...recent.map((p) => buildProfileCard(p, handlers)));
+    this.recentGrid.replaceChildren(...recent.map((p) => buildProfileCard(p, handlers, false, now)));
     this.recentEmpty.hidden = recent.length > 0;
     toggleClass(this.recentGrid, 'is-empty', recent.length === 0);
   }
@@ -305,6 +361,7 @@ export class SocialColumn {
     this.unsubs = [];
     this.menu?.dispose();
     this.menu = null;
+    this.pages.dispose();
     this.root.remove();
   }
 }

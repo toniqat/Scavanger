@@ -10,6 +10,7 @@ import {
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
+import { bumpClockHigh, readClockHigh, soloRaidBootStatus } from './SoloRaid';
 
 import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -119,8 +120,14 @@ export class GameFlowSystem implements GameSystem {
         this.onWorldReady();
       }),
       b.on('player:landed', () => {
-        if (ctx.phase === 'deploying') this.setPhase('playing');
+        if (ctx.phase !== 'deploying') return;
+        this.setPhase('playing');
+        // 2026-09-11 (E-5): the body is on the ground — the resumable snapshot takes the real pose right away
+        if (this.isSoloRaid() && !ctx.rejoinPending) this.saveSolo();
       }),
+      // E-5 ①: a save made in the ship is a clock reading too
+      b.on('inventory:loadoutSaved', () => { if (ctx.isHubPhase()) bumpClockHigh(); }),
+      b.on('hub:entered', () => bumpClockHigh()),
       b.on('extraction:activated', () => { if (ctx.phase === 'playing') this.setPhase('extracting'); }),
       b.on('extraction:shipLanded', () => { if (ctx.phase === 'extracting') this.setPhase('shipLanded'); }),
       b.on('extraction:boarded', () => { this.boarded = true; }),
@@ -199,10 +206,14 @@ export class GameFlowSystem implements GameSystem {
      * yet, and `WorldSystem` must be listening before we emit `game:newMission`.
      */
     const solo = loadSoloRaid();
-    const status = soloRaidStatus(solo);
+    // 2026-09-11 (E-5): judged against the highest clock this slot has seen and the loadout's solo raid marker
+    // (`InventoryRef.soloRaidSeed` — inventory inits before us), then the boot itself is recorded as a clock reading.
+    const now = Date.now();
+    const status = soloRaidBootStatus(solo, ctx.inventory?.soloRaidSeed ?? null, now, readClockHigh());
+    bumpClockHigh(now);
     this.soloPending = status === 'fresh' ? solo : null;
     this.soloExpired = status === 'stale';
-    if (status !== 'none') clearSoloRaid();
+    if (solo) clearSoloRaid();
     // Make sure listeners know the initial phase even though ctx.phase already equals 'menu'.
     ctx.phase = 'menu';
     ctx.bus.emit('game:phaseChanged', { phase: 'menu', prev: 'menu' });

@@ -20,6 +20,7 @@ import { ITEM_DEF_MAP } from '@/items';
 import { Grid } from '../Grid';
 import { LOADOUT_SLOTS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
+import * as Docs from './ProfileDocs';
 
 /** `pcorpse:...` 컨테이너 격자 (상자보다 크다 — 사망 시점의 장비 + 가방이 전부 들어가야 한다). */
 export function corpseGridSize(): { cols: number; rows: number } {
@@ -92,6 +93,8 @@ export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
   // a reload after death must not resurrect the kit that is now lying on the ground
   sys.announcePending = false;
   sys.loadoutStore.saveNow('corpse');
+  // 2026-09-11 (E-6): the empty loadout and the implant strip progression just saved are one edit → one transaction
+  Docs.joinProfileTx(sys, ['loadout', 'progression']);
   return out;
 }
 

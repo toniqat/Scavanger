@@ -9,6 +9,13 @@ import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../menus/social/socialSource';
 import type { CutsceneWatch } from './CutsceneWatch';
 
 /**
+ * "Rebuild the invite stack on the next frame". Never a real key (`from|name|id,…`, or `''` for an empty stack) — the
+ * resets used to write `''`, so closing the **last** invite matched the empty stack's key and its card stayed on screen
+ * (2026-09-11, found by smoke-social once a real `SocialSync` drove the stack).
+ */
+const STALE_KEY = '#';
+
+/**
  * 커뮤니티 icon + 분대 초대 stack (`.community`, social layer — the layer that stays visible in the ship), Phase 11.
  *
  * Ship only, exactly like `hud/ShipManageHint`: it self-gates on `ctx.isHubPhase()` every frame and never appears in
@@ -36,6 +43,10 @@ import type { CutsceneWatch } from './CutsceneWatch';
  * guard already refuses while `COMMUNITY_BLOCKER` is up), and the open panel emits `ui:keyGuide {owner:'community'}`
  * (`우클릭 메뉴` · `P 닫기`; re-emitted on `input:bindingsChanged`, `null` on close) for the bottom-right 키 가이드,
  * which appends `Tab 닫기` itself.
+ *
+ * **2026-09-11 (B-3 · B-4):** an invite card's × is a real 거절 (`SocialRef.declineInvite` → the inviter is told); the
+ * panel head has a `차단 목록 n` button that opens the column's blocked page; while open, `update` ticks the column's
+ * `초대 중` countdown badges. Closing the panel closes any page (대화 기록 · 차단 목록) with it.
  */
 export class Community {
   readonly root: HTMLElement;
@@ -61,6 +72,8 @@ export class Community {
   private pAccepted = false;
   private pHeld = 0;
   private closeBtn: HTMLElement | null = null;
+  private blockedBtn!: HTMLButtonElement;
+  private lastBlockedLabel = '#';   // never a real label: the first open always writes the button
 
   /* 2026-09-09 — 분대장 넘기기: 분대원 행의 우클릭 메뉴 + 확인 팝업. 내가 호스트일 때만 열린다. */
   private leadMenu!: HTMLElement;
@@ -94,12 +107,16 @@ export class Community {
     const head = el('div', { cls: 'cp-head', parent: frame });
     el('div', { cls: 'cp-title', text: '커뮤니티', parent: head });
     this.panelCode = el('div', { cls: 'cp-code ui-mono', text: '', parent: head });
+    /* 2026-09-11 (B-4): 차단 목록 page (해제 가능) — only while the mirror is available (`update` keeps the label). */
+    this.blockedBtn = el('button', { cls: 'ui-btn small cp-blocked', text: '차단 목록', parent: head }) as HTMLButtonElement;
+    this.blockedBtn.addEventListener('click', (e) => { e.stopPropagation(); this.column.openBlocked(); });
     const close = el('button', { cls: 'ui-btn small cp-close', text: `닫기 (${keyLabel(Keys.INVITE)})`, parent: head });
     close.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
     this.closeBtn = close;
     this.column = new SocialColumn(frame, {
       squad: true,
       onWhisper: (code, name) => { this.close(); ctx.bus.emit('chat:whisperTo', { code, name }); },
+      onRequestClose: () => this.close(),
     });
     this.column.bind(ctx);
     this.panel.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -136,11 +153,11 @@ export class Community {
     window.addEventListener('mousedown', this.onDocDownLead, true);
 
     this.unsubs.push(
-      ctx.bus.on('social:updated', () => { this.inviteKey = ''; }),
-      ctx.bus.on('social:invited', () => { this.inviteKey = ''; }),
-      ctx.bus.on('social:inviteClosed', () => { this.inviteKey = ''; this.held = 0; }),
+      ctx.bus.on('social:updated', () => { this.inviteKey = STALE_KEY; }),
+      ctx.bus.on('social:invited', () => { this.inviteKey = STALE_KEY; }),
+      ctx.bus.on('social:inviteClosed', () => { this.inviteKey = STALE_KEY; this.held = 0; }),
       // The 닫기 label and the invite hint both name the live `Keys.INVITE` — never cache a key label.
-      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = ''; this.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
+      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = STALE_KEY; this.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
       ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); }),
       ctx.bus.on('game:newMission', () => { if (this._open) this.close(); }),
     );
@@ -184,8 +201,19 @@ export class Community {
     if (news !== this.lastNews) { this.lastNews = news; this.dot.hidden = !news; }
 
     const invites = (social?.available ? social.invites : []).slice(-SQUAD_INVITE_MAX);
-    const key = invites.map((v) => `${v.from}|${v.name}`).join(',');
+    const key = invites.map((v) => `${v.from}|${v.name}|${v.id ?? ''}`).join(',');
     if (key !== this.inviteKey) { this.inviteKey = key; this.rebuildInvites(invites); }
+    if (this._open) {
+      // 2026-09-11 (B-3 · B-4): the `초대 중` countdown badges, and the head's 차단 목록 count.
+      this.column.tick();
+      const n = social?.available ? social.blocked.length : -1;
+      const label = n < 0 ? '' : n > 0 ? `차단 목록 ${n}` : '차단 목록';
+      if (label !== this.lastBlockedLabel) {
+        this.lastBlockedLabel = label;
+        this.blockedBtn.hidden = n < 0;
+        if (label) setText(this.blockedBtn, label);
+      }
+    }
 
     /*
      * P (`Keys.INVITE`) — **tap = 커뮤니티 패널, hold = 분대 초대 수락** (2026-09-08).
@@ -207,7 +235,7 @@ export class Community {
       this.held = 0;
       this.pAccepted = true;
       social?.acceptInvite(from);
-      this.inviteKey = '';
+      this.inviteKey = STALE_KEY;
     }
     // `free` above already ignores our own blocker, so the panel can close itself; a 일시정지 메뉴 / 인벤토리 on
     // top of it clears `free` and P goes quiet. A press held past the tap window was aimed at an invite, so an
@@ -287,8 +315,9 @@ export class Community {
       const top = el('div', { cls: 'ci-top', parent: card });
       el('span', { cls: 'ci-id ui-mono', text: formatPlayerCode(inv.from), parent: top });
       const x = el('button', { cls: 'ci-x', text: '×', parent: top });
-      x.title = '초대 무시';
-      x.addEventListener('click', (e) => { e.stopPropagation(); socialOf(this.ctx)?.dismissInvite(inv.from); this.inviteKey = ''; });
+      x.title = '초대 거절';
+      // 2026-09-11 (B-3): × is a real 거절 now — the inviter is told (`social:inviteReply {accept:false}`).
+      x.addEventListener('click', (e) => { e.stopPropagation(); socialOf(this.ctx)?.declineInvite(inv.from); this.inviteKey = STALE_KEY; });
       el('div', { cls: 'ci-name', text: `${inv.name || '분대원'} 분대 초대`, parent: card });
       el('div', { cls: 'ci-hint', text: `${keyLabel(Keys.INVITE)} 홀드로 참여`, parent: card });
       const bar = el('div', { cls: 'ci-bar', parent: card });
@@ -326,6 +355,7 @@ export class Community {
     this._open = false;
     this.panel.hidden = true;
     this.column.contextMenu?.close();
+    this.column.closePage();
     this.closeLeadMenu();
     this.ask.close();
     ctx.uiBlockers.delete(COMMUNITY_BLOCKER);

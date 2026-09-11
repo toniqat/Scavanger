@@ -1,6 +1,26 @@
 import type { GameContext } from '@/shared';
 import { CONTRACT_DEFS, Keys, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
+/* 2026-09-11 (B-3): 초대 결과 토스트 */
+import type { SocialErrorCode } from '@/shared';
+import { SOCIAL_ERROR_MESSAGE_KO, SOCIAL_INVITE_OUTCOME_KO } from '@/shared';
+
+/**
+ * Why a squad invite `failed` (B-3). The relay reuses `SocialErrorCode`s with an invite-specific meaning — `not_found` is
+ * "the squad is gone (dissolved / the inviter left)", not "no such 아이디" — so the generic error lines would mislead.
+ */
+const INVITE_FAIL_KO: Partial<Record<SocialErrorCode, string>> = {
+  not_found: '분대가 없어졌습니다',
+  full: '분대가 가득 찼습니다',
+  in_mission: '분대가 임무를 시작했습니다',
+  limit: '받은 초대가 너무 많습니다',
+  busy: '이미 다른 분대에 있습니다',
+};
+function inviteFailWhy(code: SocialErrorCode | undefined): string {
+  if (!code) return '';
+  const text = INVITE_FAIL_KO[code] ?? SOCIAL_ERROR_MESSAGE_KO[code] ?? '';
+  return text ? ` <span style="color:var(--c-text-dim)">(${escapeHtml(text)})</span>` : '';
+}
 import { stratagemDef } from './stratagemGlyphs';
 
 type Kind = 'info' | 'warning' | 'danger' | 'success';
@@ -69,16 +89,13 @@ export class Notifications {
         const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
         this.push(`<b>${escapeHtml(byName ?? '분대원')}</b> 획득: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? item.defId)}</b>${qty}`, 'info', '분대', 3);
       }),
-      // reconnection / matchmaking / hub
-      b.on('net:reconnecting', ({ attempt }) => this.push(`서버 재연결 중… <span style="color:var(--c-text-dim)">(${attempt})</span>`, 'warning', '네트워크', 3)),
-      b.on('net:resumed', ({ seamless, inProgress, lobby }) => {
-        if (seamless) { this.push('재연결됨', 'success', '네트워크', 3); return; }
-        // A 훈련장 is not the squad's mission — it never reads as 임무 진행 중 (individual entry from the terminal).
-        const training = lobby?.started === true && (lobby.mode ?? 'raid') === 'training';
-        this.push(inProgress && !training
-          ? '함선에 복귀했습니다 — 임무 진행 중, 발사 포드에서 재합류'
-          : training ? '함선에 복귀했습니다 — 훈련장 진행 중, 터미널에서 합류' : '함선에 복귀했습니다', 'success', '네트워크', 4);
-      }),
+      // matchmaking / hub
+      /*
+       * 2026-09-11 (B-1): `net:reconnecting` / `net:resumed` 토스트를 여기서 걷어냈다 — 같은 순간에 두 줄씩 떴다.
+       * 레이드 · 훈련 중에는 `game/GameFlowSystem` 이 (`서버 재연결 중… (n)` · `재연결됨` · 복귀 사유), 함선에서는
+       * `hud/NetBadge`(끊김 → 연결 전이 토스트 + 배지의 `서버 재연결 중… (n)`)와 `hub/parts/Transitions.onResumed`
+       * (`함선에 재접속했습니다` · `진행 중인 임무로 복귀합니다`)가 각자 한 줄씩만 낸다.
+       */
       b.on('net:matched', ({ created }) => this.push(created ? '신호 송출 시작 — 대원 대기 중' : '공유 함선 신호 포착', created ? 'info' : 'success', '매치', 4)),
       b.on('hub:launchCountdown', ({ seconds }) => {
         const s = Math.ceil(seconds);
@@ -132,6 +149,24 @@ export class Notifications {
         else this.push(`<b>${who}</b>에게 분대 초대를 보냈습니다`, 'info', '소셜', 3.5);
       }),
       b.on('social:invited', ({ invite }) => this.push(`<b>${escapeHtml(invite.name || '분대원')}</b> 분대 초대 — ${keyLabel(Keys.INVITE)} 홀드로 참여`, 'info', '소셜', 5)),
+      /*
+       * 2026-09-11 (B-3): how an invite **I sent** ended. 거절 and 만료 read differently on purpose (user decision) —
+       * `superseded` says nothing (the newer invite's own `…에게 분대 초대를 보냈습니다` already did). A failed whisper is
+       * never toasted here: its own chat line turns `전송 실패` (B-4).
+       */
+      b.on('social:inviteResult', ({ name, outcome, reason }) => {
+        // `accepted` (리드 통합): 받은 사람이 들어오는 순간 `net:peerJoined` 의 `<이름> 합류` 가 이미 뜬다 — 세 번째 줄은 뺀다.
+        if (outcome === 'superseded' || outcome === 'accepted') return;
+        const why = outcome === 'failed' ? inviteFailWhy(reason) : '';
+        const kind = outcome === 'declined' || outcome === 'failed' ? 'warning' : 'info';
+        this.push(`<b>${escapeHtml(name || '분대원')}</b> ${escapeHtml(SOCIAL_INVITE_OUTCOME_KO[outcome])}${why}`, kind, '소셜', 4);
+      }),
+      // B-3: an invite I **received** that the relay cancelled (their squad started / filled / dissolved) — the card is gone.
+      // `limit` is the relay trimming my stack for a newer invite: the card just makes room, exactly like the local trim.
+      b.on('social:inviteClosed', ({ reason, detail }) => {
+        if (reason !== 'failed' || detail === 'limit') return;
+        this.push(`분대 초대가 취소되었습니다${inviteFailWhy(detail)}`, 'warning', '소셜', 3.5);
+      }),
       /* ── tactical kit: gear, gathering, crafting, gadgets, progression ── */
       b.on('durability:changed', ({ uid, defId, durability, max }) => {
         if (max <= 0) return;

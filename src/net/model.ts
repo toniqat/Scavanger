@@ -35,7 +35,11 @@ export const NAME_STORAGE_KEY = 'scav.playerName';
 export const SNAPSHOT_INTERVAL = 1 / NET_PLAYER_SNAPSHOT_HZ;
 /** Seconds a departed peer's RemotePlayer lingers (connected=false) before removal. */
 export const PEER_LINGER = 1.0;
-/** Auto-reconnect attempts made when we are NOT a lobby member (with a suspended lobby we retry forever). */
+/**
+ * Auto-reconnect attempts made when we are NOT a lobby member (with a suspended lobby we retry forever).
+ * B-1 (2026-09-11): running out is no longer silent — the link goes `unreachable` and the anonymous background probe
+ * (`NET_PROBE_BACKOFF_MS`, `parts/Socket.goUnreachable`) keeps looking.
+ */
 export const MAX_LOBBYLESS_ATTEMPTS = NET_RECONNECT_BACKOFF_MS.length;
 /**
  * 2026-09-10: `설정 › 서버 설정` 의 연결 테스트가 기다리는 시간. 죽은 IP 는 OS 의 TCP 타임아웃(수십 초)까지

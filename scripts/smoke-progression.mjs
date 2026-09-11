@@ -231,7 +231,12 @@ try {
   // Leave strength at 1 with progress 0.9 (progress-only change → dirty, flushed by pagehide on reload).
   const key = await page.evaluate(() => {
     window.__game.ctx.progression.save();
-    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if ((localStorage.getItem(k) ?? '').includes('"statProgress"')) return k; }
+    // 2026-09-11 (E-6): the persisted profile write queue (`scav.s1.profileQueue`) holds a copy of the progression document
+    // too — match the profile save itself (top-level `stats` + `statProgress`), not any key that merely contains the text.
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      try { const v = JSON.parse(localStorage.getItem(k) ?? 'null'); if (v && typeof v === 'object' && v.stats && 'statProgress' in v) return k; } catch { /* not JSON */ }
+    }
     return null;
   });
   ok(!!key, 'profile saved with statProgress in localStorage', `${key}`);

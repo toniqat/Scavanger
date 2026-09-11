@@ -51,7 +51,8 @@ import { GameCursor } from './hud/GameCursor';
 import { ShipManage } from './hud/ShipManage';
 import { ShipManageHint } from './hud/ShipManageHint';
 import { Community } from './hud/Community';
-import { setDebugSocial, debugSocialCalls } from './menus/social/socialSource';
+import { setDebugSocial, setDebugSocialRef, debugSocialCalls } from './menus/social/socialSource';
+import type { SocialRef, WhisperLine } from '@/shared';
 import { RoomLabel } from './hud/RoomLabel';
 import { ContractPanel } from './hud/ContractPanel';
 import { TrainingPanel } from './hud/TrainingPanel';
@@ -60,6 +61,8 @@ import { MetaToasts } from './hud/MetaToasts';
 import { DroneHud } from './hud/DroneHud';
 import { NamedScanWarning } from './hud/NamedScanWarning';
 import { GadgetHandHint } from './hud/GadgetHandHint';
+/* 2026-09-11 (B-1): 서버 연결 배지 (함선 · 타이틀 우측 상단) */
+import { NetBadge } from './hud/NetBadge';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -194,6 +197,8 @@ export class HudSystem implements GameSystem {
   private shipHint!: ShipManageHint;
   /* Phase 11: ship-only 커뮤니티 icon + 분대 초대 stack (social layer) */
   private community!: Community;
+  /* B-1 (2026-09-11): 서버 연결 배지 (#ui-root 직계, 함선 · 타이틀) */
+  private netBadge!: NetBadge;
   private itemTip!: ItemTip;
   /* Phase 10: the software-cursor sprite (a direct child of `ctx.uiRoot`, like `itemTip`) */
   private gameCursor!: GameCursor;
@@ -327,6 +332,8 @@ export class HudSystem implements GameSystem {
     // 2026-09-09: 타이틀의 `설정` 은 일시정지 메뉴와 **같은** 설정 오버레이를 연다 — 조작 다이어그램과
     // `키 설정 변경` 이 타이틀을 떠나 그 안(키 설정 구획)으로 들어갔기 때문이다.
     this.title = new TitleMenu(ctx.uiRoot, () => this.settings.open(), () => { this.settings.open(); this.settings.select('keys'); });
+    // B-1 (2026-09-11): 서버 연결 배지 — `#ui-root` 직계 (타이틀 위에서 버튼을 받아야 한다). `서버 설정` 은 같은 설정 오버레이.
+    this.netBadge = new NetBadge(ctx.uiRoot, () => { this.settings.open(); this.settings.select('network'); }, this.cutscene);
     this.pause = new PauseMenu(ctx.uiRoot, () => this.settings.open());
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
@@ -341,6 +348,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.bind(ctx);
     this.community.bind(ctx);
+    this.netBadge.bind(ctx);
     this.rescuePick.bind(ctx);
     // 2026-09-09 (레이드 플레이 개선): 의사소통 휠 · 재해 HUD · 레이드 알림
     for (const c of [this.comms, this.hazard, this.raidAlerts]) c.bind(ctx);
@@ -410,6 +418,8 @@ export class HudSystem implements GameSystem {
     this.roomLabel.update(ctx);
     // 함선 관리 hint: two compares per frame, and it must survive a hidden social layer state change.
     this.shipHint.update(ctx);
+    // 서버 연결 배지: 함선 · 타이틀에서만 스스로 뜬다 (레이드 HUD 에서는 숨김 — 사용자 결정).
+    this.netBadge.update(ctx);
     // 함선 내 점 크로스헤어: same self-gating (phase / blockers / cutscene), one compare per frame.
     this.hubDot.update(ctx);
     // 커뮤니티: same self-gating, plus the P-hold on a 분대 초대 (it needs dt).
@@ -593,8 +603,17 @@ export class HudSystem implements GameSystem {
    * 2026-09-08: the ESC screen no longer carries a social column (social is the 커뮤니티 panel alone), so the
    * community panel is the only consumer left.
    */
-  debugSocial(snapshot: SocialSnapshot | 'offline' | null, invites: readonly SquadInvite[] = [], mySquad = 1): void {
-    setDebugSocial(snapshot, invites, mySquad);
+  debugSocial(
+    snapshot: SocialSnapshot | 'offline' | null, invites: readonly SquadInvite[] = [], mySquad = 1,
+    history: Readonly<Record<string, readonly WhisperLine[]>> = {},
+  ): void {
+    setDebugSocial(snapshot, invites, mySquad, history);
+    this.community.socialColumn.refresh(true);
+  }
+
+  /** 2026-09-11 (B-3 · B-4): install any `SocialRef` — a detached `SocialSync` fed server frames by the smoke. */
+  debugSocialRef(ref: SocialRef | null): void {
+    setDebugSocialRef(ref);
     this.community.socialColumn.refresh(true);
   }
 
@@ -602,6 +621,10 @@ export class HudSystem implements GameSystem {
   get debugSocialLog(): readonly { m: string; args: unknown[] }[] { return debugSocialCalls; }
   /** 커뮤니티 widget / panel / invite state (debug, Phase 11). */
   get isCommunityOn(): boolean { return this.community.isShowing; }
+  /** B-1 (2026-09-11): 서버 연결 배지 — 떠 있나 · 두 줄 · 타이틀 버튼이 보이나 (debug / smoke). */
+  get netBadgeState(): { on: boolean; main: string; sub: string; actions: boolean } {
+    return { on: this.netBadge.isShowing, main: this.netBadge.mainText, sub: this.netBadge.subText, actions: this.netBadge.hasActions };
+  }
   get isCommunityOpen(): boolean { return this.community.isOpen; }
   /** 2026-09-09: 구조선 대상 선택 화면이 떠 있나 / 고를 수 있는 칸 수 (debug / smoke). */
   get isRescuePickerOpen(): boolean { return this.rescuePick.isOpen; }
@@ -656,6 +679,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.dispose();
     this.community.dispose();
+    this.netBadge.dispose();
     this.rescuePick.dispose();
     for (const c of [this.comms, this.hazard, this.raidAlerts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();

@@ -1,5 +1,6 @@
 import type { MissionStats, PlanetId } from '@/shared';
 import { slotKey } from '@/shared';
+import { SOLO_CLOCK_BACK_TOLERANCE_MS, SOLO_CLOCK_HIGH_KEY } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 솔로 레이드 세션 저장 (2026-09-07).
@@ -18,6 +19,9 @@ import { slotKey } from '@/shared';
  *
  * It owns nothing else: the world is regenerated from the seed (procedural + deterministic), and enemies / containers
  * are not part of the snapshot — exactly the guarantees a multiplayer rejoin gives.
+ *
+ * 2026-09-11 (E-5): the local clock is no longer trusted blindly — `clockHigh` (clock went back) · a save from the
+ * future · the loadout's `raidSeed` marker (the save key was deleted). See `soloRaidStatus` / `soloRaidBootStatus`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export const SOLO_RAID_STORAGE_KEY = 'scav.soloraid';
@@ -105,12 +109,58 @@ export function loadSoloRaid(): SoloRaidSave | null {
   };
 }
 
-/** `fresh` = inside the grace window (resumable); `stale` = the run is lost. */
-export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now()): SoloRaidStatus {
+/**
+ * `fresh` = inside the grace window (resumable); `stale` = the run is lost.
+ *
+ * 2026-09-11 (E-5 — 오프라인 방어, 사용자 결정 1–3): the grace used to be `now − savedAt ≤ 5 min` on the local clock and a
+ * save from the future was always fresh, so "play with the clock ahead, close, set it back" kept a run resumable forever.
+ *   ① `clockHigh` (the latest `Date.now()` this slot has seen, `readClockHigh`): booting more than
+ *      `SOLO_CLOCK_BACK_TOLERANCE_MS` before it means the clock went back → `stale`.
+ *   ② a save more than that tolerance in the future → `stale`; a few seconds (NTP correction) still resume.
+ * (③, the loadout's `raidSeed` marker, is checked by the caller — it needs `InventoryRef`.)
+ * What stays open (accepted): close → set the clock back → reopen inside 5 min without having booted in between.
+ */
+export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now(), clockHigh = 0): SoloRaidStatus {
   if (!save) return 'none';
   const age = now - save.savedAt;
-  // a save from the future (clock moved back) is treated as fresh rather than silently destroying the run
+  if (age < -SOLO_CLOCK_BACK_TOLERANCE_MS) return 'stale';
+  if (clockHigh > 0 && now < clockHigh - SOLO_CLOCK_BACK_TOLERANCE_MS) return 'stale';
+  // a save a few seconds in the future (NTP moved the clock back a little) is still fresh
   return age <= SOLO_RAID_GRACE_MS ? 'fresh' : 'stale';
+}
+
+/**
+ * E-5 ③: how the boot reads the stored raid together with the loadout's solo raid marker (`InventoryRef.soloRaidSeed`).
+ * A marker whose save is gone (the key was deleted) or belongs to another seed is a lost run exactly like a stale save.
+ */
+export function soloRaidBootStatus(save: SoloRaidSave | null, raidSeed: number | null, now: number = Date.now(), clockHigh = 0): SoloRaidStatus {
+  const status = soloRaidStatus(save, now, clockHigh);
+  if (raidSeed !== null && (!save || save.seed !== raidSeed)) return 'stale';
+  return status;
+}
+
+/** E-5 ①: the latest `Date.now()` recorded for this slot (0 = never). */
+export function readClockHigh(): number {
+  const s = storage();
+  if (!s) return 0;
+  try {
+    const v = Number(s.getItem(slotKey(SOLO_CLOCK_HIGH_KEY)));
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  } catch { return 0; }
+}
+
+/**
+ * E-5 ①: record `now` if it is later than what is stored (boot · every solo raid save · saves in the ship). `reset`
+ * writes `now` unconditionally — used when a **new** solo raid starts, so a clock that once ran far ahead (then
+ * corrected) does not fail every later resume; a run already pending was judged at boot before that can happen.
+ */
+export function bumpClockHigh(now: number = Date.now(), reset = false): void {
+  const s = storage();
+  if (!s || !Number.isFinite(now) || now <= 0) return;
+  try {
+    if (!reset && now <= readClockHigh()) return;
+    s.setItem(slotKey(SOLO_CLOCK_HIGH_KEY), String(Math.floor(now)));
+  } catch { /* quota / blocked */ }
 }
 
 /** Write the snapshot. Silently gives up when storage is blocked / full — a raid must never break on a save. */
@@ -118,6 +168,7 @@ export function saveSoloRaid(save: SoloRaidSave): void {
   const s = storage();
   if (!s) return;
   try { s.setItem(slotKey(SOLO_RAID_STORAGE_KEY), JSON.stringify(save)); } catch { /* quota / blocked */ }
+  bumpClockHigh();
 }
 
 /** Drop the stored raid (extraction, failure, abort, resume consumed). */

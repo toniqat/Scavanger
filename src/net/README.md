@@ -10,13 +10,13 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 |---|---|
 | `NetSystem.ts` | `GameSystem` (`name: 'net'`, registered first in `main.ts`) implementing `NetRef`. Session token, connection lifecycle + auto-reconnect state machine, lobby mirror (`lobby:state` diff → `net:peerJoined/peerLeft`; Phase 7: `net:missionMembership`, `net:peerSuspended`, `net:hostChanged`), quick match, `game:start` / `rejoinMission()` → `net:gameStarting` + `game:newMission` (training-aware), `leaveMission()`, session end (`game:complete/over/abort` → raid host sends `lobby:reset`, everyone else `lobby:mission false`), snapshot broadcast at `NET_PLAYER_SNAPSHOT_HZ` (mission + hub), inbound relay dispatch (bus translation + `onMessage` subscribers; `ghost` / `dmg.kb` / `flow takeover` applied here), remote player registry, `profile` / `raidBlob` / `saveRaid` / `missionMode` / `tookOver`; Phase 8: `serverNow()`; Phase 9: the cached `serverOffset`, `net:hostChanged` for any *started* lobby (not only in-session), the reload → `lobby:mission false` rule, and `lobby:error` forwarded to `ProfileSync.onError`. **Phase 10**: the `crewCards` map + `getCrewCard` / `requestCrewLoadout` (`crew` / `crewq` receive side, `sanitizeCrewCard`, the local card snooped in `send()`), the `carry` one-shots, and the per-frame `refreshCarriedBy()` derivation. **Phase 11**: the `SocialSync` instance (`social`), `lobbyPlanet` / `setLobbyPlanet`, `startGame(seed, mode?, planet?)`, the planet threaded through `game:start` / `beginSession` / `rejoinMission` (`ctx.missionPlanet` set **before** `game:newMission`), the five `social:*` server cases, and `pushLevel()` on `progress:loaded` / `progress:levelUp`. |
 | `model.ts` | 폴더 공용 어휘 — `NetSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `NetSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
-| `parts/Socket.ts` | **연결 · 세션 토큰 · 자동 재접속**. 소켓이 끊기면 백오프로 다시 붙고, 같은 토큰이면 서버가 슬롯을 5분(레이드 중이면 레이드가 끝날 때까지) 지켜 준다 → `net:reconnecting` → `net:resumed {seamless}`. 릴레이 주소 결정도 여기다. |
+| `parts/Socket.ts` | **연결 · 세션 토큰 · 자동 재접속**. 소켓이 끊기면 백오프로 다시 붙고, 같은 토큰이면 서버가 슬롯을 5분(레이드 중이면 레이드가 끝날 때까지) 지켜 준다 → `net:reconnecting` → `net:resumed {seamless}`. 릴레이 주소 결정도 여기다. **2026-09-11 (B-1)**: **링크 상태**(`ctx.net.link`)의 유일한 전이 지점 `setLink` → `net:linkChanged {link, prev}` · `goUnreachable`(익명 배경 프로브 `NET_PROBE_BACKOFF_MS`, 데스크톱 셸의 임베디드 목표면 프로브 없음 — `NET_SHELL_RELAY_ROUTE` 로 판별) · `onPhaseChanged`(레이드 중 찾은 서버는 함선 · 타이틀에서 접속). 아래 `Link state` 절. |
 | `parts/Lobby.ts` | **로비 · 세션 · 호스트 이관**. 방 만들기 / 참가 / 신호 찾기 / 준비 / 시작 / 나가기, 목표 행성 지정, 그리고 임무의 시작과 끝. 임무가 끝나도 **로비는 유지된다** — 로비를 떠나는 것은 `leaveLobby()`(도킹 해제) 하나뿐이다. |
 | `parts/Remotes.ts` | **원격 플레이어 참조**. 들어온 스냅샷마다 `RemotePlayerRef` 를 만들고 지운다. 이름 · 레벨 · 크루 카드 · 들쳐메기 관계가 각각 다른 메시지로 오므로, 그것들을 하나의 ref 위에 합치는 것이 이 파일의 일이다. |
 | `parts/Messages.ts` | **수신 메시지 분배**. 서버 프로토콜 메시지(`handleServerMessage`)와 다른 클라이언트가 보낸 불투명 게임 메시지 (`handleRelay`)를 각 시스템의 `onMessage` 구독자에게 넘긴다. 게임 규칙은 여기 없다 — 스냅샷 적용과 `net:*` 버스 이벤트 번역까지가 이 파일의 범위다. |
-| `ProfileSync.ts` | `ProfileRef` implementation behind `ctx.net.profile` (Phase 7): mirrors the server `ProfileRecord` from `welcome.profile` / `profile:docs`, `get(key)`, `set(key, doc, {fresh?})` with a `PROFILE_SYNC_DEBOUNCE_MS` upload queue (`profile:set`), `flush()` (also on `pagehide`, on session end and right after every welcome), `addCredits(delta, reason)` → `credits:tx` matched by `txId` (10 s timeout; rejects only when offline). Emits `net:profileLoaded {profile, migrated}` (`migrated` = server credits still null → meta/ uploads its local balance with reason `'migrate'`). `available=false` + `credits=null` while the socket is down; pending transactions reject on a drop. **Phase 9 (newest wins)**: a `set` is **never dropped any more** — availability is irrelevant, every call lands in the `pending` map as `{doc, at}` where `at = serverNow()` (a `fresh` save carries `at: null`) and only the debounce timer is gated on the connection, so an offline queue simply waits for the next welcome. `flush()` sends `{key, doc, at}` or `{key, doc, fresh:true}` and mirrors the accepted stamp into `docsAt`. `applyRecord` (shared by `onWelcome` / `onDocs`, and where `migrated` is computed for both) mirrors the server record + its `docsAt`, then merges the queue over it: a stamped pending doc survives only while `at >= docsAt[key]` (ties: ours), a `fresh` one only while the server has nothing for that key — a loser is dropped and the server copy wins. `onError('too_large')` evicts the keys of the last flush so a doc the server refuses is never retried forever. `pendingKeys` exposes the queue for diagnostics / smokes. |
-| `SocialSync.ts` | `SocialRef` implementation behind `ctx.net.social` (**Phase 11**): client mirror of the relay's social state — my `SocialCard`, 친구 / 받은 요청 / 보낸 요청 / 최근 만난 플레이어, 귓속말 and 분대 초대. Fed by NetSystem (`onWelcome(welcome.social)` / `onState` / `onInvited` / `onWhisper` / `onPlay` / `onError` / `onDisconnected`) with the same injected wiring as `ProfileSync` (`bus` / `send` / `serverNow`, plus `joinLobby` and `squadSize`). **The client never edits the lists**: `requestFriend` / `respondFriend` / `removeFriend` / `playWith` are requests and the server answers with a whole new snapshot (`social:updated {snapshot, first}`). `invites` holds at most `SQUAD_INVITE_MAX` live `SquadInvite`s, each with its own `SQUAD_INVITE_TTL_S` timer off the invite's own `at` (expiry / accept / dismiss / trim → `social:inviteClosed {reason}`; a second invite from the same 아이디 replaces the first); `acceptInvite` drops it and calls the ordinary `net.joinLobby(invite.lobby)`. `whisper(code, text)` trims to `SOCIAL_WHISPER_MAX`, refuses locally for empty text / a row known to be `offline` / a failed send, and emits the sender's own echo (`social:whisper {line.out:true}`); an inbound `social:whisper` becomes the same event with `out:false`. `setLevel` is debounced by `SOCIAL_ME_DEBOUNCE_MS` and a level reported while offline waits for the next snapshot. `playBlock(code)` is the shared `playBlockReason(row, squadSize(), NET_MAX_PLAYERS, isSelf)` (unknown 아이디 → `'offline'`). Everything is inert while `available` is false — `refresh()` excepted, since `social:get` is how a connection becomes available when a welcome carried no snapshot. Inbound frames are sanitized field by field (code validated with `isValidPlayerCode`, name capped, level / squad clamped, presence whitelisted, lists de-duplicated and capped, invite lobby code validated) and **only `PlayerCode`s ever cross the wire**. |
-| `NetClient.ts` | Bare WebSocket transport: `connect(url)` resolves on `welcome`, JSON encode/decode with validation (type whitelist incl. `profile:docs` / `credits:result`, 2 MB inbound cap — a welcome may carry every profile document plus a raid blob), `ping` every 2 s → `rttMs`, status changes (`offline/connecting/connected/error`), clean `close()`. Phase 8: `serverTimeOffset` (`serverTime - performance.now()`) is captured at the **welcome** as well as at every pong, with `hasServerTime` telling whether the current connection ever supplied a clock (both reset by `teardown`). No lobby, reconnect or gameplay knowledge. |
+| `ProfileSync.ts` | `ProfileRef` implementation behind `ctx.net.profile` (Phase 7): mirrors the server `ProfileRecord` from `welcome.profile` / `profile:docs`, `get(key)`, `set(key, doc, {fresh?})` with a `PROFILE_SYNC_DEBOUNCE_MS` upload queue (`profile:set`), `flush()` (also on `pagehide`, on session end and right after every welcome), `addCredits(delta, reason)` → `credits:tx` matched by `txId` (10 s timeout; rejects only when offline). Emits `net:profileLoaded {profile, migrated}` (`migrated` = server credits still null → meta/ uploads its local balance with reason `'migrate'`). `available=false` + `credits=null` while the socket is down; pending transactions reject on a drop. **Phase 9 (newest wins)**: a `set` is **never dropped any more** — availability is irrelevant, every call lands in the `pending` map as `{doc, at}` where `at = serverNow()` (a `fresh` save carries `at: null`) and only the debounce timer is gated on the connection, so an offline queue simply waits for the next welcome. `flush()` sends `{key, doc, at}` or `{key, doc, fresh:true}` and mirrors the accepted stamp into `docsAt`. `applyRecord` (shared by `onWelcome` / `onDocs`, and where `migrated` is computed for both) mirrors the server record + its `docsAt`, then merges the queue over it: a stamped pending doc survives only while `at >= docsAt[key]` (ties: ours), a `fresh` one only while the server has nothing for that key — a loser is dropped and the server copy wins. `onError('too_large')` evicts the keys of the last flush so a doc the server refuses is never retried forever. `pendingKeys` exposes the queue for diagnostics / smokes. **2026-09-11 (E-6)**: rewritten around **document revisions** — see `문서 리비전 (E-6)` below: persisted queue (`useStorage`), `setMany` transactions, `revOf`, `onAck` / `onConflict` / `onRefused`, `queueState` for smokes; the Phase 9 stamp rules above now apply only to a relay whose welcome has no `docsRev`. |
+| `SocialSync.ts` | `SocialRef` implementation behind `ctx.net.social` (**Phase 11**): client mirror of the relay's social state — my `SocialCard`, 친구 / 받은 요청 / 보낸 요청 / 최근 만난 플레이어, 귓속말 and 분대 초대. Fed by NetSystem (`onWelcome(welcome.social)` / `onState` / `onInvited` / `onWhisper` / `onPlay` / `onError` / `onDisconnected`) with the same injected wiring as `ProfileSync` (`bus` / `send` / `serverNow`, plus `joinLobby` and `squadSize`). **The client never edits the lists**: `requestFriend` / `respondFriend` / `removeFriend` / `playWith` are requests and the server answers with a whole new snapshot (`social:updated {snapshot, first}`). `invites` holds at most `SQUAD_INVITE_MAX` live `SquadInvite`s, each with its own `SQUAD_INVITE_TTL_S` timer off the invite's own `at` (expiry / accept / dismiss / trim → `social:inviteClosed {reason}`; a second invite from the same 아이디 replaces the first); `acceptInvite` drops it and calls the ordinary `net.joinLobby(invite.lobby)`. `whisper(code, text)` trims to `SOCIAL_WHISPER_MAX`, refuses locally for empty text / a row known to be `offline` / a failed send, and emits the sender's own echo (`social:whisper {line.out:true}`); an inbound `social:whisper` becomes the same event with `out:false`. `setLevel` is debounced by `SOCIAL_ME_DEBOUNCE_MS` and a level reported while offline waits for the next snapshot. `playBlock(code)` is the shared `playBlockReason(row, squadSize(), NET_MAX_PLAYERS, isSelf)` (unknown 아이디 → `'offline'`). Everything is inert while `available` is false — `refresh()` excepted, since `social:get` is how a connection becomes available when a welcome carried no snapshot. Inbound frames are sanitized field by field (code validated with `isValidPlayerCode`, name capped, level / squad clamped, presence whitelisted, lists de-duplicated and capped, invite lobby code validated) and **only `PlayerCode`s ever cross the wire**. **2026-09-11 (B-3 · B-4)**: invite ids (`social:inviteReply` accept / decline, `onInviteClosed` · `onInviteResult`, re-sent ids announced once), `blocked` / `isBlocked` / `block`, whisper nonces with `pending → sent / stored / failed` (`onWhisperAck` → `social:whisperUpdated`, old-relay fallbacks), `onWhisperBacklog`, and the one thing it persists — the per-slot 대화 기록 (`whisperHistory` / `whisperPeers` / `lastWhisperPeer`, `slotKey(WHISPER_STORAGE_KEY)`). See 변경 이력. |
+| `NetClient.ts` | Bare WebSocket transport: `connect(url)` resolves on `welcome` (**2026-09-11 B-1**: or fails after `connectTimeoutMs` = `NET_CONNECT_TIMEOUT_MS` — the socket is closed, status `error`, reject — a dead IP no longer hangs until the OS TCP timeout), JSON encode/decode with validation (type whitelist incl. `profile:docs` / `credits:result`, 2 MB inbound cap — a welcome may carry every profile document plus a raid blob), `ping` every 2 s → `rttMs`, status changes (`offline/connecting/connected/error`), clean `close()`. Phase 8: `serverTimeOffset` (`serverTime - performance.now()`) is captured at the **welcome** as well as at every pong, with `hasServerTime` telling whether the current connection ever supplied a clock (both reset by `teardown`). No lobby, reconnect or gameplay knowledge. |
 | `Snapshotter.ts` | Builds the local `PlayerSnapshot` from `ctx.player` into one reused object (floats rounded to 3 decimals). Caches active weapon id/slot from `weapon:equipped` / `loadout:changed` for `w`, `HAS_WEAPON`, `TWO_HANDED`. Sets `IN_HUB` while `ctx.isHubPhase()` (and hides the weapon there) and `IN_POD` from `ctx.player.isInPod`. Phase 7: reads `ctx.weapons.remoteState` every snapshot (guarded when weapons is absent) → `h` (held consumable def id while `HOLDING_ITEM`), `att` (attachment ids of the active weapon, omitted when none / in the hub), flags `THROWING / COOKING / CHARGING / SPRAYING / HEAVY`; `ctx.player.isMeleeHeavy` → `MELEE_HEAVY`. Phase 9: `dhp` (`Math.round(player.downHp)`) rides along while the player is downed and is deleted otherwise, so a host ghost inherits the real bleed pool instead of a full one. **Phase 10**: `ctx.player.carrying` → `cr` + `PlayerFlags.CARRYING`, and a carrier is forced down the **no-gun** path (neither `HAS_WEAPON` nor `HOLDING_ITEM`, `w` nulled) because both hands hold the squadmate; `ctx.player.isCarried` → `PlayerFlags.CARRIED`; `ctx.implants.barrierHp` → `bhp` whenever the `BARRIER` flag is set (deleted otherwise). **2026-09-09**: `typing` (from `ui:chatToggled`) → `PlayerFlags.TYPING`. **2026-09-10**: `shm` / `sh` (방탄복 실드와 그 최대치) 는 `dhp` 와 같은 규약으로 **방탄복을 입었을 때만** 실리고, 아니면 지워진다 — 원격 체력 바 · 호스트 고스트 · 재접속 복귀가 전부 이 값을 읽는다. **2026-09-11**: `ctx.player.climbingLadder` 가 문자열이면(함선 밖) `PlayerFlags.CLIMBING` — 새 필드는 없고 `p` / `v.y` 가 수직 이동을 싣는다. |
 | `RemotePlayer.ts` | `RemotePlayerRef` implementation. 16-entry ring buffer of `{arrival, snapshot}`; `tick(now)` renders at `now - NET_INTERP_DELAY`: lerp position/velocity/pitch, shortest-arc yaw/stride, extrapolate ≤ 0.25 s past the newest sample then hold, `stale` after `NET_STALE_AFTER`. Discrete fields (stance, flags, hp, weaponId, moveBlend, `heldItemId`, `attachments` — same array while unchanged) come from the newest sample. `resetStream()` forgets the `seq` guard + history when a peer's stream restarts (reload / rejoin with the same stable id); `push` also detects a restart itself (`seq` ≥ 200 below the last one, or any lower `seq` while stale). Phase 7: `suspended` / `inMission` mirrors, `applyGhost(GhostWire)` (position / yaw / hp / DOWNED / DEAD from the host's ghost, `ghosted=true` → `tick` leaves the pose alone, `ghostDownHp`), `clearGhost()` (ghost gone; the next live `push` also clears it). `position`/`velocity` are stable `Vector3` instances. Phase 9: `applyGhost` also stores `ghostState` (`GhostWire.st`: 0 alive / 1 downed / 2 dead) and `clearGhost` resets both it and `ghostDownHp` to `undefined` — game/ reads `ref.ghostState` for the wipe check instead of keeping its own map; `push` fills `downHp` from `PlayerSnapshot.dhp` while the DOWNED flag is set (undefined otherwise), which is what the host's `createGhost` inherits. **Phase 10**: `carrying` (from `cr` while CARRYING; also written optimistically by a `carry pick/drop` one-shot), the `isCarried` / `isBarrierUp` flag getters, `barrierHp` (from `bhp` while BARRIER), the NetSystem-written `carriedBy`, and the crew-card mirrors `crewLevel` / `equippedImplant`. `applyGhost` clears `carrying` / `barrierHp` and masks CARRYING / CARRIED / BARRIER out of `flags` — a ghost owns its pose, carries nobody and holds no shield. **2026-09-10**: `shield` / `maxShield` 를 `PlayerSnapshot.sh` / `.shm` 에서 받는다 (방탄복이 없으면 둘 다 `undefined`); `applyGhost` 는 둘을 지운다. **2026-09-11**: `applyGhost` 가 `CLIMBING` 도 가린다 (끊긴 고스트가 사다리 자세로 굳지 않게). |
 | `index.ts` | Barrel. |
@@ -63,6 +63,38 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 - A fresh page load with a stored token: `ensureConnected()` → `welcome.lobby` → `net:resumed {seamless:false}` with
   `inProgress` telling the hub whether the party is mid-mission.
 - `net:statusChanged` is emitted for every transport status change as before (UI shows connecting/error).
+
+## Link state (B-1, 2026-09-11)
+`ctx.net.link: NetLinkInfo` is the one-line answer to "what is my relationship with the server right now". Every
+transition goes through `parts/Socket.setLink`, which emits **`net:linkChanged {link, prev}`**; `ui/hud/NetBadge` draws it.
+```
+   idle ──connect()──▶ connecting ──welcome──▶ connected ──drop──▶ reconnecting ──(no lobby, 6 attempts)──┐
+                         │ refused port / NET_CONNECT_TIMEOUT_MS                                          │
+                         ▼                                                                                ▼
+                    unreachable ◀─────────────────────────────────────────────────────────────────────────┘
+                         │ anonymous probeRelay every NET_PROBE_BACKOFF_MS[i] (5 · 10 · 20 · 30 · 60 s, last repeats)
+                         ▼ found
+             phase hub / menu → ensureConnected()      raid / training → {found:true}, probe stops;
+                                                        `game:phaseChanged` to hub / menu connects
+   refused {kicked | server_full | duplicate} — no probe, no auto-reconnect; an explicit connect() clears it
+   disconnect() → idle (probe stopped)
+```
+- **`unreachable`** is entered by a failed *initial* connect (`onSocketDown(false)`) and by the lobbyless reconnect give-up
+  (`scheduleReconnect`, no longer silent). `nextProbeInMs` in the getter is live (remaining wait of the pending probe);
+  `null` while a probe is in flight, while the shell route is being asked, when `found`, or when `embedded`.
+- **The probe is anonymous** (`probeRelay`, no token): the same token would be kicked as `duplicate`. A probe answered with
+  `lobby:error server_full` counts as not found (keeps probing).
+- **Desktop shell + embedded target**: when `isDesktopShell()` and the target is the page's own origin (no settings override,
+  no `VITE_WS_URL`), `NET_SHELL_RELAY_ROUTE` is fetched once per url (`embeddedCache`); `embedded:true` in the JSON, or a
+  `source` containing `내장 서버`, means the embedded relay — **never probed** (the first `/ws` is what starts it, C-28).
+  A missing route / non-JSON answer (vite) = not embedded.
+- **Found during a raid / training** only records `found:true`: a mid-mission welcome would make every persisting folder swap
+  its state (`net:profileLoaded`). `hub:enter`'s `tryResume` and `onPhaseChanged` connect once back in the ship / title.
+- `setRelayOverride` while `unreachable` restarts the probe (attempt 0) for the new address.
+- A `refused` link is set **before** `dropLobby`, so `net:lobbyLeft` listeners can read `ctx.net.link.refused`
+  (game/Wire tells an operator kick from a duplicate tab that way).
+- Fields on `NetSystem` (folder-internal): `_link`, `probeTimer`, `probeAttempt`, `probeDueAt`, `probeGen` (bumped by every
+  stop so a stale probe / route lookup is ignored), `embeddedCache`.
 
 ## Lobby / hub / mission API (what the hub & UI call)
 | `NetRef` member | Effect |
@@ -183,6 +215,29 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
   server still lists us as `inMission` sends `lobby:mission false` (mirrored optimistically). The host then parks our
   ghost and the server never waits on us for the authority; a pod / the terminal re-enters with `rejoinMission()`,
   which flips the flag back.
+
+## 문서 리비전 (E-6, 2026-09-11)
+사용자 결정 "리비전 전체 · 충돌은 서버 우선 + 경고". 설계 `docs/plans/net-social-trust.md` §7, 서버 쪽은 `server/README.md` `문서 리비전`.
+- **큐가 영속이다.** `NetSystem.init` 이 `profileSync.useStorage(slotKey(PROFILE_QUEUE_STORAGE_KEY))` 를 부른다 — 폴더들이 첫 저장을
+  하기 전이다. 파일은 `{v:1, revs, pending, inflight}` 이고, 쓰기는 **ack · refused · 서버 우선 충돌 해소**에서만 빠진다.
+  새로고침 · 크래시 · 서버 없이 한 세션 전체가 더는 업로드를 잃지 않는다(예전 큐는 메모리뿐이었다).
+- **쓰기 = `baseRev` + id.** 문서마다 "이 사본이 올라탄 서버 rev" 를 들고 `profile:set {baseRev, writeId}` 로 간다.
+  키마다 **하나만** 비행 중이고, 그 사이의 새 편집은 기다린다(base = 비행 중 rev + 1) → ack 가 오면 곧바로 간다.
+  `setMany(docs)` 는 한 편집이 문서를 걸칠 때 **한 트랜잭션**(`profile:setMany {txId}`)이다 — 서버 사본과 같고 대기 중이
+  아닌 키는 건너뛰고, 그 키들을 가진 대기 쓰기를 모두 합친다. 호출부: inventory 합친 디바운스(창고 + 로드아웃) ·
+  시체 벗기기(loadout + progression) · 퀘스트 완료(meta + 창고 + 로드아웃).
+- **welcome / profile:docs 에서** (`applyRecord`): 보낸 쓰기 — rev 가 base 그대로면 유효(같은 id 로 **재전송**), base+1 에
+  같은 문서면 ack 만 잃은 것(정리), base 보다 낮으면 서버가 뒤로 감(대기로 되돌려 rebase), 그 밖은 충돌. 보내지 않은 쓰기 —
+  base = 서버 rev(유효 비행분 +1)면 **로컬 승리**(미러가 로컬 문서를 보여 주므로 `net:profileLoaded` 를 받은 폴더는 자기
+  오프라인 진행을 그대로 받는다 — `inventory/parts/ProfileDocs.applyProfileDocs` 등이 서버 사본으로 덮던 구멍), 서버 rev 가
+  더 높으면 **서버 승리** → `console.warn` + `net:profileConflict {keys}` 가 `net:profileLoaded` **앞에** 간다. `fresh` 기본값은
+  서버에 문서가 있으면 조용히 진다(충돌이 아니다). 충돌한 비행 쓰기 위에 쌓인 편집도 함께 진다.
+- **연결 중 `profile:conflict`** → 그 쓰기와 그 위의 대기 편집을 버리고 경고 + `profile:get` 한 번(`profile:docs` → 재발표).
+  모든 키의 rev 가 base 보다 낮으면(서버 데이터 손실) 대기로 되돌려 같은 재조회가 rebase 한다. `profile:refused` → 버린다(재시도 없음).
+- **옛 릴레이 호환**: welcome 에 `docsRev` 가 없으면 Phase 9 그대로 — `{at}` / `{fresh}` 프레임, 보내면 큐에서 지우기,
+  `lobby:error too_large` 로 마지막 flush 제거. 공용 릴레이(옛 코드)에 붙은 스모크가 이 경로다.
+- 검증: `smoke-search` 2b 절(스텁 릴레이 12 단언) + 합친 디바운스 2 단언, `net:selftest` part 11, 수동 통합(새 릴레이 8880 +
+  실제 브라우저: 온라인 ack · 오프라인 +진행 → 새로고침 → 로컬 승리 · 다른 세션 쓰기 → 서버 승리 · 퀘스트형 트랜잭션 ack).
 
 ## Phase 11 (2026-09-07): 소셜 미러 · 목표 행성 와이어
 - **`ctx.net.social` = `SocialSync`** (new file, modelled on `ProfileSync`): the relay owns every social fact, this
@@ -317,6 +372,11 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-11 (E-6 문서 리비전, 에이전트 ③)** — 위 `문서 리비전 (E-6)` 절. `ProfileSync.ts` 재작성(영속 큐 `useStorage` ·
+  `setMany` · `revOf` · `onAck` / `onConflict` / `onRefused` · `queueState` · 옛 릴레이용 `flushLegacy`), `NetSystem.init` 에서
+  `useStorage(slotKey(PROFILE_QUEUE_STORAGE_KEY))`, `NetClient` 가 `profile:ack` · `profile:conflict` · `profile:refused` 를 받고,
+  `parts/Messages` 가 셋을 `ProfileSync` 로 넘긴다. 계약(`ProfileRef.setMany` · `revOf` · 메시지 · `net:profileConflict`)은 리드 커밋 9bd72ce.
+
 - **tactical kit** — `PlayerSnapshot.imp` / `ar` (wielded implant, armor), flags CLOAKED / BARRIER / MELEE / HOVER / OVERCHARGED, `RemotePlayerRef.implantId` / `armorId` / `isCloaked`, relays `imp` / `buff` / `melee` / `gad` / `gadq` / `harv` / `harvq`
 
 - **Phase 7** — `ProfileSync.ts` (`ctx.net.profile`: welcome record → `net:profileLoaded {migrated}`, debounced `set` / `flush`, `addCredits` transactions by `txId`), `raidBlob` / `saveRaid`, `startGame(seed, mode)` / `leaveMission` / training `game:start` (only `inMission` members enter), `suspended` + `inMission` on refs (`net:peerSuspended` / `net:missionMembership`), ghost messages applied to the ref (`applyGhost`), `net:hostChanged` + `tookOver` + `flow takeover`, `Snapshotter` pose bits / `h` / `att` / MELEE_HEAVY, `dmg.kb` → knockback
@@ -381,3 +441,36 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
   그리는 쪽은 `player/RemoteAvatar` (높이 변화 → 오르기 위상, 가까운 사다리 → 방향, `AIRBORNE` 가림).
   `RemotePlayer.applyGhost` 는 다른 자세 비트와 함께 `CLIMBING` 도 지운다 — 끊긴 고스트가 허공에서 사다리를 타지 않게.
 
+- **2026-09-11 (B-1 링크 상태 · 배경 프로브)** — `ctx.net.link` 의 임시 getter 를 실제 상태 기계로 바꿨다 (`parts/Socket`
+  의 `linkInfo` · `setLink` · `goUnreachable` · `stopProbe` · `onPhaseChanged`, 위 `Link state` 절). `NetClient.connect` 에
+  `NET_CONNECT_TIMEOUT_MS` 타임아웃(필드 `connectTimeoutMs`). 로비 없는 재접속 6회 포기가 **조용히 끝나지 않고** `unreachable`
+  + 익명 프로브로 넘어간다. 프로브가 찾으면 함선 · 타이틀에서만 `ensureConnected()`, 레이드 · 훈련 중이면 `found:true` 만.
+  `refused {kicked|server_full|duplicate}` 뒤에는 프로브도 자동 재접속도 없다 (명시적 connect 가 지운다 — 규약 그대로).
+  데스크톱 셸의 임베디드 목표(`NET_SHELL_RELAY_ROUTE` — shared 에 추가)는 프로브하지 않는다. 와이어 · 스냅샷 · 프로필 규약은
+  그대로. 검사: `scripts/smoke-netlink.mjs`.
+
+- **2026-09-11 (B-3 초대 결과 · B-4 차단 / 전송 확인 / 대화 기록 · B-6 moved — 클라이언트 소셜, 에이전트 ②)** —
+  `docs/plans/net-social-trust.md` §1 · §2 · §4 의 net 쪽. 서버 프레임 넷을 `NetClient` 허용 목록 · `parts/Messages` 에
+  더했다(`social:inviteResult` · `social:inviteClosed` · `social:whisperAck` · `social:whisperBacklog`).
+  - **`lobby:left {reason:'moved', to}`** → `dropLobby('moved', to)` → `net:lobbyLeft {reason:'moved', to}` (그 뒤의 `lobby:state`
+    는 평소대로 `applyLobby`). 도킹 연출은 hub/ 가, 임무 중 무시는 game/ 가 한다.
+  - **초대 (`SocialSync`)**: `SquadInvite.id` 를 정화해 보존(없으면 옛 서버). 수락 = `social:inviteReply {id, accept:true}`
+    (서버가 옮긴다 — 실패는 `social:error`), id 없으면 예전 `lobby:join`. `dismissInvite` = `declineInvite` = `inviteReply accept:false`
+    (id 없으면 로컬 `dismissed`). 서버의 `social:inviteClosed {id, outcome, reason}` → 카드 닫기 + 버스 `social:inviteClosed
+    {from, reason: outcome, id, detail}`. `social:inviteResult` → 버스 이벤트 + 그 행의 `inviteAt` 을 바로 지워 `초대 중` 배지를
+    끝낸다(`superseded` 는 새 초대가 열려 있으니 두고, `social:updated` 한 번). 서버가 재접속 뒤 **같은 id 로 다시 보낸** 초대는
+    카드만 돌아오고 `social:invited` 는 다시 내지 않는다(`seenInviteIds`, 최근 64). 차단한 사람의 초대 · 귓속말은 혹시 새어 들어와도 버린다.
+  - **차단**: `blocked` 는 스냅샷의 `blocked`(없으면 []), `isBlocked` · `block(code, on)` = `social:block` 요청(목록은 서버 답으로만
+    바뀐다). 차단한 상대에게 친구 요청 · 같이 하기 · 귓속말은 **보내지 않고** `social:error invalid "차단한 상대입니다 — …"` 한 번
+    (릴레이는 이유 없는 `invalid` 로 답한다).
+  - **전송 확인**: `whisper()` 가 `nonce` 를 붙이고 `WhisperLine {nonce, state:'pending'}` 를 곧바로 낸다. `social:whisperAck` →
+    `sent` / `stored`(오프라인 친구 보관) / `failed(failCode)` 로 **그 줄 객체를 고치고** `social:whisperUpdated`. 오프라인인
+    **친구**에게도 보낸다(서버 보관), 오프라인인 비친구는 보내지 않고 `failed · offline` 줄. 옛 릴레이 호환 둘: ack 가
+    `WHISPER_ACK_FALLBACK_MS`(5 s, 전송 가드라 로컬 상수) 안에 안 오면 `sent`, 이 연결에서 ack 를 한 번도 못 봤고 마지막 요청이
+    귓속말이면 `social:error offline/not_found/invalid/self` 를 그 줄의 실패로 돌린다(토스트 없음). 소켓이 끊기면 대기 줄은 `failed · unavailable`.
+  - **대화 기록**: `slotKey(WHISPER_STORAGE_KEY)`(`scav.s<n>.whispers`)에 `{v:1, peers:[{code, name, at, lines}]}` — 상대당
+    `WHISPER_HISTORY_PER_PEER`(50) 줄 · `WHISPER_HISTORY_PEERS`(20)명, 최근 상대가 앞. 보낸 줄 · 받은 줄 · backlog(`backlog:true`)
+    모두, 한 태스크에 한 번 저장(마이크로태스크). 읽을 때 필드 단위 정화, 저장 당시 `pending` 은 `sent` 로 읽는다.
+    `whisperHistory(code)` · `whisperPeers()` · `lastWhisperPeer` 는 오프라인에서도 동작한다. 서버에는 저장하지 않는다.
+  - 검사: `scripts/smoke-social.mjs` (떼어 낸 `SocialSync` 에 프레임을 손으로 먹인다 — 공용 릴레이가 옛 코드라서) ·
+    `scripts/smoke-controls-hub.mjs` 3c (moved).

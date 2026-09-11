@@ -12,6 +12,9 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
+/* B-1 (2026-09-11): 링크 상태 · 배경 프로브 */
+import type { GamePhase, NetLinkInfo, NetLinkState } from '@/shared';
+import { NET_PROBE_BACKOFF_MS, NET_SHELL_RELAY_ROUTE, isDesktopShell } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -50,6 +53,9 @@ export function connect(sys: NetSystem, url?: string): Promise<void> {
   sys.serverRefused = null;   // C-29: no ban — an explicit connect may try again
   // An explicit connect while the backoff timer is pending: attempt right now instead.
   if (sys.reconnectTimer !== null) { clearTimeout(sys.reconnectTimer); sys.reconnectTimer = null; }
+  // B-1: an explicit attempt ends the background probe (and a `refused`); the reconnect loop keeps its own state.
+  if (sys._reconnecting) setLink(sys, 'reconnecting', { attempt: Math.max(1, sys.reconnectAttempt) });
+  else if (sys._link.state !== 'connecting') setLink(sys, 'connecting', url ? { url } : {});
   const p = sys.client.connect(sys.withSession(url ?? sys.defaultUrl()));
   // Keep the reconnect loop alive if this manual attempt fails (attemptReconnect's own catch may already have rescheduled).
   if (sys._reconnecting) p.catch(() => { if (sys._reconnecting && sys.reconnectTimer === null) sys.scheduleReconnect(); });
@@ -68,6 +74,7 @@ export function disconnect(sys: NetSystem): void {
   if (sys._lobby || sys._inSession) sys.dropLobby('left');
   sys.lastLocalId = null;
   sys.client.close();
+  setLink(sys, 'idle');   // B-1: we chose to go offline — nothing to probe for
   }
 
 /* ── 릴레이 주소 (2026-09-10) ────────────────────────────────────────────
@@ -90,6 +97,8 @@ export function setRelayOverride(sys: NetSystem, raw: string): boolean {
     else localStorage.removeItem(RELAY_STORAGE_KEY);
   } catch { /* storage unavailable → 이 페이지 동안만 유효 */ }
   sys.ctx?.bus.emit('net:relayChanged', { url: defaultUrl(sys), custom: !!text });
+  // B-1: still looking for a server → look for the new one, from the first backoff step.
+  if (sys._link.state === 'unreachable') goUnreachable(sys);
   return true;
   }
 
@@ -165,9 +174,11 @@ export function withSession(sys: NetSystem, url: string): string {
 /** Socket went offline/error. `wasConnected` = an established (welcomed) connection dropped, not a failed attempt. */
 export function onSocketDown(sys: NetSystem, wasConnected: boolean): void {
   if (sys.intentionalClose) return;
+  // B-1: every `refused` link is set **before** `dropLobby`, so `net:lobbyLeft` listeners (game/Wire's toast) can read why.
   if (sys.duplicateKicked) {
     // Another tab took over this session: hand the lobby over to it and stay offline.
     sys.stopReconnect();
+    setLink(sys, 'refused', { refused: 'duplicate' });
     if (sys._lobby || sys._inSession) sys.dropLobby('kicked');
     return;
   }
@@ -175,11 +186,14 @@ export function onSocketDown(sys: NetSystem, wasConnected: boolean): void {
     // C-29: the relay closed us on purpose (`kicked` by its operator / `server_full`). Retrying would only hammer it
     // (a kick) or be refused again (a full server) — stay offline; `net:error` already carried the Korean reason.
     sys.stopReconnect();
+    setLink(sys, 'refused', { refused: sys.serverRefused });
     if (sys._lobby || sys._inSession) sys.dropLobby(sys.serverRefused === 'kicked' ? 'kicked' : 'disconnected');
     return;
   }
   if (sys._reconnecting) return;          // a retry failed; attemptReconnect() schedules the next one
-  if (!wasConnected) return;                // an initial connect() failed → the caller decides (offline hub)
+  // An initial connect() failed (refused port, timeout, bad address): the caller still decides what to do with the
+  // offline ship, but the link goes `unreachable` and the anonymous background probe starts looking (B-1).
+  if (!wasConnected) { goUnreachable(sys); return; }
   sys.beginReconnect();
   }
 
@@ -205,9 +219,12 @@ export function scheduleReconnect(sys: NetSystem): void {
   }
   if (!sys.lobbySuspended && attempt > MAX_LOBBYLESS_ATTEMPTS) {
     sys.stopReconnect();
+    // B-1: no longer a silent give-up — the tokened loop hands over to the anonymous background probe.
+    goUnreachable(sys);
     return;
   }
   const delay = NET_RECONNECT_BACKOFF_MS[Math.min(attempt - 1, NET_RECONNECT_BACKOFF_MS.length - 1)];
+  setLink(sys, 'reconnecting', { attempt });
   sys.ctx.bus.emit('net:reconnecting', { attempt, nextInMs: delay });
   sys.reconnectTimer = setTimeout(() => { sys.reconnectTimer = null; void sys.attemptReconnect(); }, delay);
   }
@@ -233,6 +250,8 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
   const bus = sys.ctx.bus;
   const resumedAfterDrop = sys._reconnecting;
   sys.stopReconnect();
+  // B-1: first, so every `net:resumed` / `net:profileLoaded` listener below already reads `link.state === 'connected'`.
+  setLink(sys, 'connected');
   sys.lastLocalId = msg.id;
   if (sys.client.hasServerTime) sys.serverOffset = sys.client.serverTimeOffset;
   const lobby = msg.lobby ?? null;
@@ -284,4 +303,121 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
     sys.dropLobby('disconnected');
   }
   sys.wasInSessionAtDrop = false;
+  }
+
+/* ══ B-1 (2026-09-11): 링크 상태 · 배경 프로브 ═══════════════════════════
+ *
+ * `ctx.net.link` 는 "지금 서버와 어떤 사이인가" 한 줄이다. 전이는 **이 파일의 `setLink` 로만** 일어나고
+ * 바뀔 때마다 `net:linkChanged {link, prev}` 가 나간다 (그리는 쪽은 `ui/hud/NetBadge`).
+ *
+ *   idle ──connect()──▶ connecting ──welcome──▶ connected ──drop──▶ reconnecting ──(로비 없이 6회)──┐
+ *                          │ fail / NET_CONNECT_TIMEOUT_MS                                          │
+ *                          ▼                                                                         ▼
+ *                     unreachable ◀──────────────────────────────────────────────────────────────────┘
+ *                          │ 익명 probeRelay 를 NET_PROBE_BACKOFF_MS 로 (토큰 없이 — 같은 토큰은 duplicate 로 끊긴다)
+ *                          ▼ 찾음
+ *              함선 · 타이틀 → ensureConnected() · 레이드 · 훈련 → `found: true` 만 (함선으로 돌아오면 접속)
+ *
+ *   refused {kicked | server_full | duplicate} — 프로브도 자동 재접속도 없다. 명시적인 connect() 만 지운다.
+ *
+ * 데스크톱 셸이 같은 오리진 `/ws` 를 **임베디드 릴레이**로 보내고 있으면(`NET_SHELL_RELAY_ROUTE` 의 source) 프로브하지
+ * 않는다 — 첫 `/ws` 가 그 릴레이를 켜므로(C-28) 두드리는 것 자체가 지연 시작을 무의미하게 만든다 (`embedded: true`).
+ */
+
+/** The live `NetRef.link`: the stored state plus the remaining wait of a pending probe. */
+export function linkInfo(sys: NetSystem): NetLinkInfo {
+  const l = sys._link;
+  const out: NetLinkInfo = { ...l, url: l.url || defaultUrl(sys) };
+  if (l.state === 'unreachable') {
+    out.nextProbeInMs = sys.probeTimer !== null ? Math.max(0, Math.round(sys.probeDueAt - performance.now())) : null;
+  }
+  return out;
+  }
+
+/** The one place the link changes. Leaving `unreachable` stops the probe (a stale probe result is ignored by generation). */
+export function setLink(sys: NetSystem, state: NetLinkState, extra: Partial<Omit<NetLinkInfo, 'state'>> = {}): void {
+  if (state !== 'unreachable') stopProbe(sys);
+  const prev = sys._link.state;
+  sys._link = { url: defaultUrl(sys), ...extra, state };
+  sys.ctx?.bus.emit('net:linkChanged', { link: linkInfo(sys), prev });
+  }
+
+export function stopProbe(sys: NetSystem): void {
+  if (sys.probeTimer !== null) { clearTimeout(sys.probeTimer); sys.probeTimer = null; }
+  sys.probeGen++;
+  }
+
+/**
+ * An attempt failed (or the tokened reconnect loop gave up): report `unreachable` and start looking from the first
+ * backoff step — unless the target is the desktop shell's embedded relay, which is never probed.
+ */
+export function goUnreachable(sys: NetSystem): void {
+  stopProbe(sys);
+  sys.probeAttempt = 0;
+  const url = defaultUrl(sys);
+  if (!sameOriginTarget() || !isDesktopShell()) { scheduleProbe(sys); return; }
+  const cached = sys.embeddedCache?.url === url ? sys.embeddedCache.embedded : null;
+  if (cached === true) { setLink(sys, 'unreachable', { embedded: true, nextProbeInMs: null }); return; }
+  if (cached === false) { scheduleProbe(sys); return; }
+  // Unknown yet: say `unreachable` now (not probing), ask the shell once, then decide.
+  setLink(sys, 'unreachable', { nextProbeInMs: null });
+  const gen = sys.probeGen;
+  void shellSaysEmbedded().then((embedded) => {
+    sys.embeddedCache = { url, embedded };
+    if (gen !== sys.probeGen || sys._link.state !== 'unreachable') return;
+    if (embedded) setLink(sys, 'unreachable', { embedded: true, nextProbeInMs: null });
+    else scheduleProbe(sys);
+  });
+  }
+
+function scheduleProbe(sys: NetSystem): void {
+  if (sys.probeTimer !== null) { clearTimeout(sys.probeTimer); sys.probeTimer = null; }
+  const delay = NET_PROBE_BACKOFF_MS[Math.min(sys.probeAttempt, NET_PROBE_BACKOFF_MS.length - 1)];
+  const gen = sys.probeGen;
+  sys.probeDueAt = performance.now() + delay;
+  sys.probeTimer = setTimeout(() => { sys.probeTimer = null; void runProbe(sys, gen); }, delay);
+  setLink(sys, 'unreachable', { nextProbeInMs: delay });
+  }
+
+async function runProbe(sys: NetSystem, gen: number): Promise<void> {
+  if (gen !== sys.probeGen || sys._link.state !== 'unreachable') return;
+  // Anonymous on purpose (see `probeRelay`): a probe must never collide with this session's own token.
+  const r = await probeRelay(sys);
+  if (gen !== sys.probeGen || sys._link.state !== 'unreachable') return;
+  sys.probeAttempt++;
+  if (!r.ok) { scheduleProbe(sys); return; }
+  if (shipOrTitle(sys.ctx?.phase)) { void ensureConnected(sys); return; }
+  // In a raid / training: a mid-mission `welcome` would make every persisting folder swap its state out from under the
+  // mission (`net:profileLoaded`). Remember that a server is there; `onPhaseChanged` connects back in the ship / title.
+  setLink(sys, 'unreachable', { found: true, nextProbeInMs: null });
+  }
+
+/** `game:phaseChanged`: the server found during a mission is joined as soon as we are in the ship or on the title. */
+export function onPhaseChanged(sys: NetSystem, phase: GamePhase): void {
+  if (sys._link.state !== 'unreachable' || !sys._link.found || !shipOrTitle(phase)) return;
+  void ensureConnected(sys);
+  }
+
+function shipOrTitle(phase: GamePhase | undefined): boolean { return phase === 'hub' || phase === 'menu'; }
+
+/** `defaultUrl` falls through to the page's own origin (no settings override, no `VITE_WS_URL`). */
+function sameOriginTarget(): boolean {
+  if (relayUrlFrom(relayOverride())) return false;
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  return !env?.VITE_WS_URL;
+  }
+
+/**
+ * Ask the desktop shell where its `/ws` goes. `embedded` (appended to the route by the shell, if ever) wins; otherwise
+ * the embedded relay is recognised by its source label (`이 PC 의 내장 서버` / `… (필요할 때 켜짐)`). No route, not JSON
+ * (vite answers index.html) or any failure = not embedded → the ordinary probe runs.
+ */
+async function shellSaysEmbedded(): Promise<boolean> {
+  try {
+    const res = await fetch(NET_SHELL_RELAY_ROUTE, { cache: 'no-store' });
+    if (!res.ok) return false;
+    const j = await res.json() as { embedded?: unknown; source?: unknown };
+    if (typeof j.embedded === 'boolean') return j.embedded;
+    return typeof j.source === 'string' && j.source.includes('내장 서버');
+  } catch { return false; }
   }

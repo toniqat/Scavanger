@@ -50,8 +50,13 @@ The ` keydown is `preventDefault`ed so the character never lands in the field; w
 has focus the key is left alone. Keys typed into the input stop at the element (never reach `Input`); keys dispatched elsewhere
 while the console is open are swallowed in the capture phase so the player does not move.
 
-Events: emits `console:toggled`, `console:executed`, `cheat:moveCheat`, `cheat:seed`. Listens to nothing on the bus (reads refs
-directly). Does not close on phase changes — a dev tool stays where it was.
+Events: emits `console:toggled`, `console:executed`, `cheat:moveCheat`, `cheat:seed`. Listens to one bus event (below), otherwise
+reads refs directly. Does not close on phase changes — a dev tool stays where it was.
+
+**2026-09-11 (E-4 서버 크레딧 검증)** — `/credits` (meta 가 등록하는 명령) 는 서버 프로필이 있으면 dev 사유 `console` 로 `credits:tx` 를
+보낸다. 릴레이는 `SCAV_DEV_ECONOMY=1` 로 띄운 것(스모크 러너가 스스로 띄우는 릴레이)만 그 사유를 받고 **`npm run dev:all` · `npm run server`
+는 거절**하므로(사용자 결정), meta 가 크레딧을 되돌리면(`meta:creditsChanged {reason:'revert:console'}`) 콘솔이 빨간 줄 하나를 찍는다 —
+`서버가 /credits 를 거절했습니다 — 개발용 크레딧은 SCAV_DEV_ECONOMY=1 로 띄운 릴레이에서만 됩니다`. 오프라인(릴레이 없음)에서는 예전처럼 로컬로 먹는다.
 
 ## Verification
 `node scripts/smoke-console.mjs` (needs `npm run dev`): dev-host gating (`isDevHost('example.com') === false` via a dynamic import of

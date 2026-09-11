@@ -1,6 +1,7 @@
 import type { LoadoutSlot } from '@/shared';
 import { LOADOUT_STORAGE_KEY, QUICK_SLOTS } from '@/shared';
 import { readSaveFile, writeSaveFile, type SavedExtras, type SavedPlacement } from './Serialize';
+/* 2026-09-11 (E-5 · E-6): 솔로 레이드 표식 · 창고와 합친 디바운스 — see `LoadoutStore` */
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Loadout persistence (Phase 5, 2026-09-06): the equipment slots, the bag contents (positions / rotation /
@@ -80,21 +81,58 @@ export function sanitizeLoadoutSave(file: unknown): LoadoutSave | null {
   return { v: LOADOUT_SAVE_VERSION, slots, bag, quick };
 }
 
+/**
+ * 2026-09-11 (E-5): the solo-raid marker inside the **local** loadout file (`{...save, raidSeed}`). It lives in the same
+ * document as the kit it protects, so deleting only the solo raid save (`scav.soloraid`) no longer brings the pre-raid
+ * kit back: game/ sees a marker without a matching save at boot and fails the raid. Never uploaded, never part of
+ * `LoadoutSave` (`sanitizeLoadoutSave` drops it), never in a raid blob or crew card.
+ */
+const RAID_SEED_FIELD = 'raidSeed';
+
 export class LoadoutStore {
   private timer: number | null = null;
   private pendingReason: string | null = null;
   private onPageHide = (): void => this.flush();
+  /** E-6: when set, `markDirty` hands the debounce to the owner (`InventorySystem` saves 창고 + 로드아웃 together). */
+  schedule: (() => void) | null = null;
+  /** E-5: seed of the solo raid the saved kit was carried into (null = none). Read from the file once, here. */
+  private _raidSeed: number | null = null;
 
   /** `onSaved(reason, file)` runs after every successful write (event + Phase 7 profile upload). */
   constructor(private readonly capture: () => LoadoutSave, private readonly onSaved: (reason: string, file: LoadoutSave) => void) {
+    const raw = readSaveFile<Record<string, unknown>>(LOADOUT_STORAGE_KEY);
+    const seed = raw && typeof raw === 'object' ? raw[RAID_SEED_FIELD] : undefined;
+    this._raidSeed = typeof seed === 'number' && Number.isFinite(seed) ? seed : null;
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('beforeunload', this.onPageHide);
+  }
+
+  /** E-5: the solo raid marker as stored (null = the kit is not out on a solo raid). */
+  get raidSeed(): number | null { return this._raidSeed; }
+
+  /** E-5: a solo raid with `seed` starts — the kit on disk is now "out on that raid" (local file only, no upload / event). */
+  markRaid(seed: number): void {
+    if (!Number.isFinite(seed)) return;
+    this._raidSeed = seed;
+    writeSaveFile(LOADOUT_STORAGE_KEY, this.withMarker(this.capture()));
+  }
+
+  /** E-5: the solo raid ended (extraction · 레이드 실패 · abort) — drop the marker (rewrites the local file if it had one). */
+  clearRaid(): void {
+    if (this._raidSeed === null) return;
+    this._raidSeed = null;
+    writeSaveFile(LOADOUT_STORAGE_KEY, this.capture());
+  }
+
+  private withMarker(file: LoadoutSave): LoadoutSave {
+    return this._raidSeed === null ? file : ({ ...file, [RAID_SEED_FIELD]: this._raidSeed } as LoadoutSave);
   }
 
   /** Schedule a debounced write (a drag session writes once). The first reason of a burst wins. */
   markDirty(reason: string): void {
     if (this.pendingReason === null) this.pendingReason = reason;
-    if (this.timer !== null) clearTimeout(this.timer);
+    if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
+    if (this.schedule) { this.schedule(); return; }
     this.timer = window.setTimeout(() => { this.timer = null; this.flush(); }, SAVE_DELAY_MS);
   }
 
@@ -103,7 +141,8 @@ export class LoadoutStore {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
     this.pendingReason = null;
     const file = this.capture();
-    if (writeSaveFile(LOADOUT_STORAGE_KEY, file)) this.onSaved(reason, file);
+    // the marker stays on disk while the raid runs; the uploaded / announced document never carries it
+    if (writeSaveFile(LOADOUT_STORAGE_KEY, this.withMarker(file))) this.onSaved(reason, file);
   }
 
   /** Write the pending change, if any (page hide, dispose). */

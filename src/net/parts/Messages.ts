@@ -90,7 +90,9 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       return;
 
     case 'lobby:left':
-      sys.dropLobby('left');
+      // 2026-09-11 (B-6): `reason:'moved'` = the server moved me into lobby `to`; its `lobby:state` follows at once.
+      if (msg.reason === 'moved') sys.dropLobby('moved', typeof msg.to === 'string' ? msg.to : undefined);
+      else sys.dropLobby('left');
       return;
 
     case 'game:start': {
@@ -133,6 +135,16 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
     case 'credits:result':
       sys.profileSync.onCreditsResult(msg);
       return;
+    /* 2026-09-11 (E-6): 문서 리비전 — one answer per queued write (matched by writeId / txId inside ProfileSync) */
+    case 'profile:ack':
+      sys.profileSync.onAck(msg);
+      return;
+    case 'profile:conflict':
+      sys.profileSync.onConflict(msg);
+      return;
+    case 'profile:refused':
+      sys.profileSync.onRefused(msg);
+      return;
 
     /* Phase 11: 소셜 — SocialSync validates every frame before it reaches the UI. */
     case 'social:state':
@@ -149,6 +161,19 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       return;
     case 'social:error':
       sys.socialSync.onError(msg);
+      return;
+    /* 2026-09-11 (B-3 · B-4) */
+    case 'social:inviteResult':
+      sys.socialSync.onInviteResult(msg);
+      return;
+    case 'social:inviteClosed':
+      sys.socialSync.onInviteClosed(msg);
+      return;
+    case 'social:whisperAck':
+      sys.socialSync.onWhisperAck(msg);
+      return;
+    case 'social:whisperBacklog':
+      sys.socialSync.onWhisperBacklog(msg);
       return;
   }
   }

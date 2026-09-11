@@ -62,9 +62,69 @@ export function applyRaidState(sys: InventorySystem, state: unknown): boolean {
  * the document is sent as a default (`{fresh:true}`, accepted only while the server has none for that key).
  */
 export function uploadProfileDoc(sys: InventorySystem, key: 'stash' | 'loadout', doc: unknown): void {
+  // 2026-09-11 (E-6): inside `flushSaves` the documents are collected and go up together once both are written
+  if (sys.uploadBatch) { sys.uploadBatch[key] = { doc, fresh: sys.freshSave }; return; }
   const profile = sys.ctx.net?.profile;
   if (!profile || typeof profile.set !== 'function') return;
   try { profile.set(key, doc, sys.freshSave ? { fresh: true } : undefined); } catch { /* net not ready */ }
+  }
+
+/**
+ * 2026-09-11 (E-6): the **one** debounce of the 창고 and the loadout (`Stash.schedule` / `LoadoutStore.schedule` point
+ * here) — a move between the two used to be two unrelated `profile:set`s 350 ms apart on separate timers, so a crash or
+ * a refused write in between duplicated or lost the item on the server.
+ */
+export function scheduleSaves(sys: InventorySystem): void {
+  if (sys.saveTimer !== null) clearTimeout(sys.saveTimer);
+  sys.saveTimer = window.setTimeout(() => { sys.saveTimer = null; flushSaves(sys); }, SAVE_BATCH_DELAY_MS);
+  }
+
+/** Debounce of the merged save — the same 350 ms both stores used on their own. */
+export const SAVE_BATCH_DELAY_MS = 350;
+
+/**
+ * Write the pending 창고 / 로드아웃 saves now. Both written → one `ProfileRef.setMany({stash, loadout})` (all or nothing on
+ * the server); one → an ordinary `set`. A `fresh` (default) save keeps its own `set {fresh}` — a transaction has no
+ * default semantics. Also `InventoryRef.flushSaves` (meta/ quest completion) and the page-hide path.
+ */
+export function flushSaves(sys: InventorySystem): void {
+  if (sys.saveTimer !== null) { clearTimeout(sys.saveTimer); sys.saveTimer = null; }
+  if (sys.uploadBatch) return;   // re-entrant call from inside a flush
+  const batch: NonNullable<InventorySystem['uploadBatch']> = {};
+  sys.uploadBatch = batch;
+  try {
+    sys.stash?.flush();
+    sys.loadoutStore?.flush();
+  } finally {
+    sys.uploadBatch = null;
+  }
+  const entries = Object.entries(batch) as ['stash' | 'loadout', { doc: unknown; fresh: boolean }][];
+  if (entries.length === 0) return;
+  const profile = sys.ctx.net?.profile;
+  if (!profile || typeof profile.set !== 'function') return;
+  try {
+    if (entries.length > 1 && entries.every(([, e]) => !e.fresh) && typeof profile.setMany === 'function') {
+      profile.setMany({ stash: batch.stash?.doc, loadout: batch.loadout?.doc });
+      return;
+    }
+    for (const [key, e] of entries) profile.set(key, e.doc, e.fresh ? { fresh: true } : undefined);
+  } catch { /* net not ready */ }
+  }
+
+/**
+ * 2026-09-11 (E-6): join the documents `keys` that are queued right now into **one** profile transaction. The owners have
+ * already queued them (`set`); `ProfileRef.get` hands back exactly those documents and `setMany` merges their queued
+ * writes (a key whose document is unchanged and not queued is skipped). Used by the corpse strip (loadout + the
+ * progression document the implant strip just saved).
+ */
+export function joinProfileTx(sys: InventorySystem, keys: readonly ('meta' | 'stash' | 'loadout' | 'progression' | 'ship')[]): void {
+  const profile = sys.ctx.net?.profile;
+  if (!profile || typeof profile.setMany !== 'function' || typeof profile.get !== 'function') return;
+  try {
+    const docs: Partial<Record<(typeof keys)[number], unknown>> = {};
+    for (const k of keys) { const d = profile.get(k); if (d !== undefined) docs[k] = d; }
+    if (Object.keys(docs).length > 1) profile.setMany(docs);
+  } catch { /* net not ready */ }
   }
 
 /** Run `fn` with every save it triggers uploaded as a `fresh` (default) document. */

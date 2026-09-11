@@ -181,7 +181,13 @@ try {
     const net = window.__game.ctx.net;
     window.__profileCalls = [];
     // `profile` is a getter on NetSystem: shadow it with an own property (configurable, restored at the end of the section)
-    const spy = { available: true, credits: null, get: () => undefined, set: (k, d) => window.__profileCalls.push([k, JSON.parse(JSON.stringify(d))]), flush() {}, addCredits: async () => ({ ok: false, credits: 0 }) };
+    window.__profileMany = [];
+    const spy = {
+      available: true, credits: null, get: () => undefined, set: (k, d) => window.__profileCalls.push([k, JSON.parse(JSON.stringify(d))]), flush() {}, addCredits: async () => ({ ok: false, credits: 0 }),
+      // 2026-09-11 (E-6): a transaction is recorded as one entry (its keys) plus one call per document, so the checks below see both
+      setMany: (docs) => { window.__profileMany.push(Object.keys(docs).sort()); for (const [k, d] of Object.entries(docs)) window.__profileCalls.push([k, JSON.parse(JSON.stringify(d))]); },
+      revOf: () => 0,
+    };
     Object.defineProperty(net, 'profile', { get: () => spy, configurable: true });
   });
   await page.evaluate(() => {
@@ -199,6 +205,23 @@ try {
     && Array.isArray(loadoutCall[1].quick) && loadoutCall[1].quick.length === 8
     && loadoutCall[1].quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
     'loadout save → profile.set("loadout", file v2 with the wheel stacks)', JSON.stringify(loadoutCall && { v: loadoutCall[1].v, bag: loadoutCall[1].bag.length, quick: loadoutCall[1].quick }));
+  // 2026-09-11 (E-6): 창고 + 가방 changed in the same burst → ONE merged debounce → ONE `setMany({stash, loadout})`
+  const many = await page.evaluate(() => ({ many: window.__profileMany, stashSets: window.__profileCalls.filter((c) => c[0] === 'stash').length }));
+  ok(many.many.length === 1 && many.many[0].join() === 'loadout,stash' && many.stashSets === 1,
+    'E-6: a 창고 + 가방 change is saved by one merged debounce as one profile.setMany({stash, loadout})', JSON.stringify(many));
+  // …and the page-hide path goes through the same merge (both stores dirty → one transaction, no separate sets)
+  const hide = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory');
+    const ctx = window.__game.ctx;
+    const m0 = window.__profileMany.length, c0 = window.__profileCalls.length;
+    sys.tryAddToStash(ctx.loot.createItem('mat_scrap', 1));
+    sys.tryAddItem(ctx.loot.createItem('mat_alloy', 1));
+    window.dispatchEvent(new Event('pagehide'));
+    // (other systems flush on page hide too — meta / progression documents are not this check's business)
+    return { many: window.__profileMany.slice(m0), keys: window.__profileCalls.slice(c0).map((c) => c[0]).filter((k) => k === 'stash' || k === 'loadout').sort(), timer: sys.saveTimer };
+  });
+  ok(hide.many.length === 1 && hide.many[0].join() === 'loadout,stash' && hide.keys.join() === 'loadout,stash' && hide.timer === null,
+    'E-6: page hide writes both dirty stores at once as one transaction (the merged timer is cleared)', JSON.stringify(hide));
   // a server record replaces the local state
   const loaded = await page.evaluate(() => {
     const ctx = window.__game.ctx;
@@ -280,7 +303,143 @@ try {
   });
   ok(merge.localWins === 'local' && merge.localAt === '1000' && merge.serverWins === 'server' && merge.serverSent === 0
     && merge.freshLoses === 'server' && merge.freshSent === 0 && merge.freshKept === 'starter' && merge.freshFlag && merge.pending === 0,
-    'ProfileSync newest-wins: a queued edit stamped after the server copy is kept + uploaded with its `at`, an older one loses, a `fresh` default only fills a key the server has no document for', JSON.stringify(merge));
+    'ProfileSync newest-wins (a relay without docsRev — old server compatible): a queued edit stamped after the server copy is kept + uploaded with its `at`, an older one loses, a `fresh` default only fills a key the server has no document for', JSON.stringify(merge));
+
+  /* ── 2b. 2026-09-11 (E-6): 문서 리비전 — persisted queue, baseRev merge, transactions, conflicts (stubbed relay) ── */
+  console.log('profile revisions (E-6)');
+  const rev = await page.evaluate(async () => {
+    const m = await import('/src/net/ProfileSync.ts');
+    const KEY = 'scav.s1.smokeProfileQueue';
+    localStorage.removeItem(KEY);
+    const events = [];
+    const bus = { emit: (t, p) => events.push([t, JSON.parse(JSON.stringify(p))]) };
+    /** A ProfileSync as NetSystem wires it; `persist` = the page reload survives (same storage key). */
+    const make = (persist = true) => {
+      const ps = new m.ProfileSync();
+      ps.serverNow = () => 1000; ps.sent = []; ps.bus = bus;
+      ps.send = (msg) => { if (ps.down) return false; ps.sent.push(JSON.parse(JSON.stringify(msg))); return true; };
+      ps.useStorage(persist ? KEY : null);
+      return ps;
+    };
+    const rec = (docs, docsRev, docsAt) => (docsRev === undefined ? { credits: 0, docs, updatedAt: 0, docsAt } : { credits: 0, docs, updatedAt: 0, docsRev });
+    const S3 = { v: 2, tag: 'server-r3' }, LOCAL = { v: 2, tag: 'offline-edit' };
+    const out = {};
+
+    /* ① offline session → reload → connect: the local edit wins (base = server rev) and goes up */
+    let a = make();
+    a.onWelcome(rec({ stash: S3 }, { stash: 3 }));
+    a.onDisconnected();
+    a.set('stash', LOCAL);                              // played offline
+    const onDisk = JSON.parse(localStorage.getItem(KEY));
+    a = make();                                         // page reload: a fresh instance reads the queue back
+    out.reloaded = { get: a.get('stash')?.tag, pending: a.pendingKeys, diskBase: onDisk?.pending?.[0]?.docs?.stash?.baseRev, diskRev: onDisk?.revs?.stash };
+    events.length = 0;
+    a.onWelcome(rec({ stash: S3 }, { stash: 3 }));
+    const sent1 = a.sent.find((s) => s.t === 'profile:set');
+    out.localWins = { record: a.record.docs.stash?.tag, sent: sent1 && { key: sent1.key, base: sent1.baseRev, tag: sent1.doc?.tag, hasId: typeof sent1.writeId === 'string', at: sent1.at }, conflicts: events.filter((e) => e[0] === 'net:profileConflict').length, loaded: events.filter((e) => e[0] === 'net:profileLoaded').map((e) => e[1].profile.docs.stash?.tag) };
+    a.onAck({ t: 'profile:ack', writeId: sent1?.writeId, revs: { stash: 4 } });
+    out.acked = { rev: a.revOf('stash'), pending: a.pendingKeys.length, disk: JSON.parse(localStorage.getItem(KEY)) };
+    /* measured: the loss path this closes — the same offline edit with a memory-only queue (before 2026-09-11) */
+    localStorage.removeItem(KEY);
+    let old = make(false); old.onWelcome(rec({ stash: S3 }, { stash: 3 })); old.onDisconnected(); old.set('stash', LOCAL);
+    old = make(false); old.onWelcome(rec({ stash: S3 }, { stash: 3 }));
+    out.memoryOnly = { record: old.record.docs.stash?.tag, sent: old.sent.length };
+
+    /* ② another session wrote meanwhile (server rev above the base) → the server wins + warning event, nothing sent */
+    localStorage.removeItem(KEY);
+    let b = make(); b.onWelcome(rec({ stash: S3 }, { stash: 3 })); b.onDisconnected(); b.set('stash', LOCAL);
+    b = make(); events.length = 0;
+    b.onWelcome(rec({ stash: { v: 2, tag: 'other-session-r5' } }, { stash: 5 }));
+    const evOrder = events.map((e) => e[0]);
+    out.serverWins = { record: b.record.docs.stash?.tag, sent: b.sent.filter((s) => s.t !== 'profile:get').length, pending: b.pendingKeys.length, conflict: events.find((e) => e[0] === 'net:profileConflict')?.[1], order: evOrder.indexOf('net:profileConflict') < evOrder.indexOf('net:profileLoaded'), rev: b.revOf('stash'), loaded: events.find((e) => e[0] === 'net:profileLoaded')?.[1].profile.docs.stash?.tag };
+
+    /* ③ setMany cut mid-flight: one frame, one txId; the reconnect resends that same transaction (never two sets); a mixed
+         server state (one key moved, one not) is not a partial commit to keep — both keys take the server copies */
+    localStorage.removeItem(KEY);
+    let c = make();
+    c.onWelcome(rec({ stash: { tag: 's1' }, loadout: { tag: 'l1' } }, { stash: 1, loadout: 1 }));
+    c.setMany({ stash: { tag: 's2' }, loadout: { tag: 'l2' } });
+    c.flush();
+    const tx = c.sent.find((s) => s.t === 'profile:setMany');
+    c.onDisconnected();                                  // the socket died before any answer
+    c = make();                                          // …and the page reloaded
+    c.onWelcome(rec({ stash: { tag: 's1' }, loadout: { tag: 'l1' } }, { stash: 1, loadout: 1 }));   // the relay stored nothing
+    const resent = c.sent.filter((s) => s.t === 'profile:setMany' || s.t === 'profile:set');
+    out.txCut = { oneFrame: !!tx && Object.keys(tx.docs).sort().join() === 'loadout,stash' && tx.docs.stash.baseRev === 1, resent: resent.map((s) => s.t), sameId: resent[0]?.txId === tx?.txId, record: [c.record.docs.stash?.tag, c.record.docs.loadout?.tag] };
+    c.onDisconnected();
+    c = make(); events.length = 0;
+    c.onWelcome(rec({ stash: { tag: 's2' }, loadout: { tag: 'l-other' } }, { stash: 2, loadout: 3 }));
+    out.txMixed = { record: [c.record.docs.stash?.tag, c.record.docs.loadout?.tag], pending: c.pendingKeys.length, conflict: events.find((e) => e[0] === 'net:profileConflict')?.[1]?.keys?.slice().sort() };
+    /* the ack was lost but the relay stored the transaction (rev = base + 1, same documents) → settled, nothing resent */
+    localStorage.removeItem(KEY);
+    let d = make();
+    d.onWelcome(rec({ stash: { tag: 's1' }, loadout: { tag: 'l1' } }, { stash: 1, loadout: 1 }));
+    d.setMany({ stash: { tag: 's2' }, loadout: { tag: 'l2' } }); d.flush(); d.onDisconnected();
+    d = make(); events.length = 0;
+    d.onWelcome(rec({ stash: { tag: 's2' }, loadout: { tag: 'l2' } }, { stash: 2, loadout: 2 }));
+    out.ackLost = { sent: d.sent.length, pending: d.pendingKeys.length, conflicts: events.filter((e) => e[0] === 'net:profileConflict').length, revs: [d.revOf('stash'), d.revOf('loadout')] };
+
+    /* ④ while connected: a newer edit of a key waits for the in-flight write; a conflict drops both, warns and re-fetches */
+    localStorage.removeItem(KEY);
+    const e = make();
+    e.onWelcome(rec({ meta: { tag: 'm1' } }, { meta: 1 }));
+    e.set('meta', { tag: 'm2' }); e.flush();
+    e.set('meta', { tag: 'm3' }); e.flush();
+    const w1 = e.sent.filter((s) => s.t === 'profile:set');
+    events.length = 0;
+    e.onConflict({ t: 'profile:conflict', writeId: w1[0]?.writeId, docs: { meta: { rev: 2, doc: { tag: 'elsewhere' } } } });
+    out.liveConflict = { framesBefore: w1.length, base1: w1[0]?.baseRev, pending: e.pendingKeys.length, get: e.sent.some((s) => s.t === 'profile:get'), conflict: events.find((x) => x[0] === 'net:profileConflict')?.[1] };
+    /* …an ack instead lets the waiting edit go with base = the new rev */
+    const f = make();
+    f.onWelcome(rec({ meta: { tag: 'm1' } }, { meta: 1 }));
+    f.set('meta', { tag: 'm2' }); f.flush(); f.set('meta', { tag: 'm3' }); f.flush();
+    const f1 = f.sent.filter((s) => s.t === 'profile:set');
+    f.onAck({ t: 'profile:ack', writeId: f1[0]?.writeId, revs: { meta: 2 } });
+    const f2 = f.sent.filter((s) => s.t === 'profile:set');
+    out.liveAck = { waited: f1.length, after: f2.length, base2: f2[1]?.baseRev, tag2: f2[1]?.doc?.tag };
+    /* refused → dropped, never retried */
+    f.onRefused({ t: 'profile:refused', writeId: f2[1]?.writeId, code: 'too_large' });
+    out.refused = { pending: f.pendingKeys.length };
+
+    /* ⑤ an old relay (welcome without docsRev) after a revision session: Phase 9 frames (at, no baseRev), removed once sent */
+    localStorage.removeItem(KEY);
+    let g = make(); g.onWelcome(rec({ ship: { tag: 'r1' } }, { ship: 1 })); g.onDisconnected(); g.set('ship', { tag: 'offline' });
+    g = make();
+    g.onWelcome(rec({ ship: { tag: 'old-server' } }, undefined, { ship: 500 }));
+    const gs = g.sent.find((s) => s.t === 'profile:set');
+    out.oldRelay = { frame: gs && { at: gs.at, baseRev: gs.baseRev, writeId: gs.writeId }, pending: g.pendingKeys.length, record: g.record.docs.ship?.tag, hasRevs: g.record.docsRev !== undefined };
+    /* ⑥ setMany skips a document identical to the server copy (nothing queued for it) */
+    const h = make(); h.onWelcome(rec({ stash: { tag: 'same' }, meta: { tag: 'm' } }, { stash: 1, meta: 1 }));
+    h.setMany({ stash: { tag: 'same' }, meta: { tag: 'm-new' } }); h.flush();
+    out.skipSame = h.sent.filter((s) => s.t !== 'profile:get').map((s) => s.t + ':' + (s.key ?? Object.keys(s.docs).join('+')));
+    localStorage.removeItem(KEY);
+    return out;
+  });
+  ok(rev.reloaded.get === 'offline-edit' && rev.reloaded.pending.join() === 'stash' && rev.reloaded.diskBase === 3 && rev.reloaded.diskRev === 3,
+    'E-6: an offline edit is persisted with its baseRev and read back after a reload (not memory-only any more)', JSON.stringify(rev.reloaded));
+  ok(rev.localWins.record === 'offline-edit' && rev.localWins.sent?.key === 'stash' && rev.localWins.sent.base === 3 && rev.localWins.sent.tag === 'offline-edit' && rev.localWins.sent.hasId
+    && rev.localWins.sent.at === undefined && rev.localWins.conflicts === 0 && rev.localWins.loaded.join() === 'offline-edit',
+    'E-6: connecting with base = server rev → the local edit wins: net:profileLoaded hands the folders the LOCAL copy and it is sent as profile:set {baseRev, writeId}', JSON.stringify(rev.localWins));
+  ok(rev.acked.rev === 4 && rev.acked.pending === 0 && rev.acked.disk?.pending?.length === 0 && rev.acked.disk?.inflight?.length === 0 && rev.acked.disk?.revs?.stash === 4,
+    'E-6: profile:ack settles the write (rev 4) and removes it from the persisted queue', JSON.stringify(rev.acked));
+  ok(rev.memoryOnly.record === 'server-r3' && rev.memoryOnly.sent === 0,
+    'E-6 (measured loss path): with a memory-only queue the same offline edit is gone after the reload and the server copy replaces it', JSON.stringify(rev.memoryOnly));
+  ok(rev.serverWins.record === 'other-session-r5' && rev.serverWins.sent === 0 && rev.serverWins.pending === 0 && rev.serverWins.conflict?.keys?.join() === 'stash'
+    && rev.serverWins.order && rev.serverWins.rev === 5 && rev.serverWins.loaded === 'other-session-r5',
+    'E-6: another session wrote meanwhile (server rev 5 > base 3) → server wins: net:profileConflict before net:profileLoaded with the server copy, nothing sent', JSON.stringify(rev.serverWins));
+  ok(rev.txCut.oneFrame && rev.txCut.resent.join() === 'profile:setMany' && rev.txCut.sameId && rev.txCut.record.join() === 's2,l2',
+    'E-6: setMany is one frame; cut before the answer, the reconnect resends the same transaction (same txId, never two sets)', JSON.stringify(rev.txCut));
+  ok(rev.txMixed.record.join() === 's2,l-other' && rev.txMixed.pending === 0 && rev.txMixed.conflict?.join() === 'loadout,stash',
+    'E-6: a server state that does not match the transaction as a whole → both keys take the server copies (no half-applied local transaction)', JSON.stringify(rev.txMixed));
+  ok(rev.ackLost.sent === 0 && rev.ackLost.pending === 0 && rev.ackLost.conflicts === 0 && rev.ackLost.revs.join() === '2,2',
+    'E-6: a lost ack (server rev = base + 1 with our documents) is settled at welcome — nothing resent, no conflict', JSON.stringify(rev.ackLost));
+  ok(rev.liveConflict.framesBefore === 1 && rev.liveConflict.base1 === 1 && rev.liveConflict.pending === 0 && rev.liveConflict.get && rev.liveConflict.conflict?.keys?.join() === 'meta',
+    'E-6: one write per key in flight; a live profile:conflict drops it and the edit waiting on it, warns and re-fetches with profile:get', JSON.stringify(rev.liveConflict));
+  ok(rev.liveAck.waited === 1 && rev.liveAck.after === 2 && rev.liveAck.base2 === 2 && rev.liveAck.tag2 === 'm3' && rev.refused.pending === 0,
+    'E-6: the ack releases the waiting edit with base = the acked rev; profile:refused drops a write for good', JSON.stringify({ ack: rev.liveAck, refused: rev.refused }));
+  ok(rev.oldRelay.frame?.at === 1000 && rev.oldRelay.frame.baseRev === undefined && rev.oldRelay.frame.writeId === undefined && rev.oldRelay.pending === 0 && rev.oldRelay.record === 'offline' && !rev.oldRelay.hasRevs,
+    'E-6: an old relay (no docsRev in welcome) gets Phase 9 frames ({at}, no baseRev) and the queue empties once sent', JSON.stringify(rev.oldRelay));
+  ok(rev.skipSame.join() === 'profile:set:meta', 'E-6: setMany skips a document identical to the server copy (one changed key → an ordinary set)', JSON.stringify(rev.skipSame));
   await page.evaluate(() => { delete window.__game.ctx.net.profile; window.__game.getSystem('inventory').reset(); }); // starter kit again for the mission tests
 
   /* ── 3. container search on a mission ───────────────────────────────── */
