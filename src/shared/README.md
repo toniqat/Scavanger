@@ -638,6 +638,23 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-11 (소셜 · 신뢰 · 연결 계약, 추가만 — `docs/plans/net-social-trust.md`)** — `net.ts`: `lobby:left.reason?/to?`(B-6) ·
+  `social:whisper.nonce?` · `profile:set.baseRev?/writeId?` · `strat call.by?` · `stratq call` · `meta sync.rid?` / `metaq sync.rid?` ·
+  `ClientToServerAppended2026_09_11b`(`social:inviteReply` · `social:block` · `profile:setMany`) · `ServerToClientAppended2026_09_11b`
+  (`social:inviteResult` · `social:inviteClosed` · `social:whisperAck` · `social:whisperBacklog` · `profile:ack` · `profile:conflict` ·
+  `profile:refused`) · `NetLinkState` · `NetLinkInfo` · `NetRef.link` · `NET_CONNECT_TIMEOUT_MS` · `NET_PROBE_BACKOFF_MS`.
+  `social.ts`: `InviteOutcome` · `SOCIAL_INVITE_OUTCOME_KO` · `SocialErrorCode 'expired'` · `SquadInvite.id?` · `SocialPlayer.inviteAt?` ·
+  `SocialSnapshot.blocked?` · `SocialRecord.blocked? / inbox?` · `WhisperLine.nonce? / state? / failCode? / backlog?` · `SOCIAL_BLOCK_MAX` ·
+  `SOCIAL_WHISPER_INBOX_MAX / _TTL_MS` · `SOCIAL_PUSH_COALESCE_MS` · `SocialRef.blocked / isBlocked / block / declineInvite / whisperHistory /
+  whisperPeers / lastWhisperPeer`. `profile.ts`: `ProfileRecord.docsRev? / ledger?` · `ProfileRef.setMany / revOf` · `PROFILE_QUEUE_STORAGE_KEY` ·
+  `PROFILE_SETMANY_MAX_BYTES`. `events.ts`: `net:lobbyLeft 'moved'` · `social:inviteClosed` 사유 확장 · `social:inviteResult` ·
+  `social:whisperUpdated` · `net:linkChanged` · `net:profileConflict` · `enemy:squadKill`. 신규 **`credits.ts`**(서버 크레딧 사유 문법 ·
+  `EconomyTable` · `CreditLedger` — 런타임 import 없음, 릴레이도 읽는다) · **`buffRules.ts`**(받는 쪽 버프 상한 `BuffGuard` — 본문은 E-4 담당).
+  `constants.ts`/`data/constants.csv`: `BUFF_RANGE_SLACK` · `BUFF_HEAL_RATE_MARGIN` · `META_HIT_RATE` · `STRAT_MAX_CALL_RANGE` ·
+  `SOLO_CLOCK_BACK_TOLERANCE_MS` · `SOLO_CLOCK_HIGH_KEY` · `WHISPER_HISTORY_PER_PEER / _PEERS` · `WHISPER_STORAGE_KEY`.
+  `NET_*` 두 타이밍은 이웃 `NET_RECONNECT_BACKOFF_MS` 처럼 `net.ts` TS 리터럴이다. 구현 클래스(`NetSystem` · `ProfileSync` · `SocialSync` ·
+  `ui/menus/social/socialSource`)에는 typecheck 용 자리만 넣었다.
+
 - **2026-09-11 (B-2 프로필 GC, 추가만)** — `profile.ts`: `ProfileRecord.seenAt?`(서버 내부 — 접속 · 해제 시각, 와이어 스냅샷에는
   없다) + `PROFILE_GC_INACTIVE_MS`(90일). `social.ts`: `SocialRecord.requestsAt?`(대기 중인 친구 요청마다 서버 시각, 양쪽에 같은 값) +
   `SOCIAL_RECENT_TTL_MS` · `SOCIAL_REQUEST_TTL_MS`(30일). 셋 다 릴레이가 읽는 수치라 csv 가 아니라 TS 리터럴이다

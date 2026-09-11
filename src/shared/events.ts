@@ -144,7 +144,11 @@ export interface GameEvents {
   /** Lobby created/joined/changed (players, ready flags, host). Fires with the full state every time. */
   'net:lobbyUpdated': { lobby: LobbyState };
   /** We left (or were dropped from) the lobby; `ctx.net.lobby` is null afterwards. */
-  'net:lobbyLeft': { reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' };
+  /**
+   * `'moved'` + `to` appended (2026-09-11, B-6): the server moved me straight into lobby `to` (같이 하기 / invite accept);
+   * its `net:lobbyUpdated` follows at once — the hub skips the undock cutscene and docks into the new shared ship.
+   */
+  'net:lobbyLeft': { reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' | 'moved'; to?: string };
   'net:peerJoined': { id: PeerId; name: string; slot: number };
   'net:peerLeft': { id: PeerId; name: string };
   /** Server accepted the host's start. Net emits `game:newMission {seed}` right after this. */
@@ -699,7 +703,16 @@ export interface GameEvents {
   /** A squad invite arrived (panel under the community thumbnail, P-hold to accept). */
   'social:invited': { invite: SquadInvite };
   /** An invite left the list: accepted, dismissed, or `SQUAD_INVITE_TTL_S` expired. */
-  'social:inviteClosed': { from: PlayerCode; reason: 'accepted' | 'dismissed' | 'expired' };
+  /**
+   * `declined` · `failed` · `offline` · `superseded` + `id` · `detail` appended (2026-09-11, B-3): the server now closes invites
+   * too (`social:inviteClosed` wire) — `detail` narrows `failed` (full · started · not_found …).
+   */
+  'social:inviteClosed': {
+    from: PlayerCode;
+    reason: 'accepted' | 'dismissed' | 'expired' | 'declined' | 'failed' | 'offline' | 'superseded';
+    id?: string;
+    detail?: SocialErrorCode;
+  };
   /** A whisper was sent or received (`line.out` distinguishes). ChatLog renders it, nothing else consumes it. */
   'social:whisper': { line: WhisperLine };
   /** How my 같이 하기 resolved — `joined` (a docking cutscene follows) or `invited` (they were asked). */
@@ -1001,4 +1014,34 @@ export interface KeyGuideEntry {
   label: string;
   /** 2026-09-09: the key must be **held** (탑승 · 1초 홀드) — the guide draws a downward chevron over the keycap. */
   hold?: boolean;
+}
+
+/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) ══ */
+import type { InviteOutcome } from './social';
+import type { NetLinkInfo, NetLinkState } from './net';
+import type { ProfileDocKey } from './profile';
+export interface GameEvents {
+  /** B-3 (owner: net/SocialSync): how an invite **I sent** ended. ui/ toasts `name + SOCIAL_INVITE_OUTCOME_KO[outcome]`. */
+  'social:inviteResult': { id: string; code: PlayerCode; name: string; outcome: InviteOutcome; reason?: SocialErrorCode };
+  /**
+   * B-4 (owner: net/SocialSync): an outgoing whisper line changed delivery state (`pending` → `sent` / `stored` /
+   * `failed`) — ChatLog finds its row by `line.nonce` and redraws it (no separate error toast).
+   */
+  'social:whisperUpdated': { line: WhisperLine };
+  /**
+   * B-1 (owner: net/parts/Socket): `ctx.net.link` changed. ui/hud/NetBadge draws it (ship · title only), the transition
+   * toasts (connected → dropped, dropped → connected) come from the same place.
+   */
+  'net:linkChanged': { link: NetLinkInfo; prev: NetLinkState };
+  /**
+   * E-6 (owner: net/ProfileSync): the server refused local writes for `keys` as stale and its copies won. A
+   * `net:profileLoaded` carrying those copies follows; this one exists for the console warning / a smoke to see.
+   */
+  'net:profileConflict': { keys: ProfileDocKey[] };
+  /**
+   * E-4 (owner: enemies): an enemy was killed by **a squad-mate** (`by` = their PeerId, never the local player — that is
+   * `enemy:killed {by:'local'}`). Emitted on every client from the host's authoritative kill: the host from its damage
+   * path, replicas from `ee kill {killer}`. meta/ counts the squad share of kill goals from this instead of `meta contractHit`.
+   */
+  'enemy:squadKill': { id: number; type: EnemyType; position: THREE.Vector3; by: PeerId };
 }

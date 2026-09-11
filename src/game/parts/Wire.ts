@@ -65,9 +65,10 @@ export function onHostChanged(sys: GameFlowSystem, isLocalHost: boolean): void {
  * The party is gone (server gave up on us / host left / kicked) mid-mission → abort after a short toast and
  * return to the personal ship. A plain socket drop is `net:reconnecting` (handled above) and never aborts.
  */
-export function onLobbyLeft(sys: GameFlowSystem, reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void {
+export function onLobbyLeft(sys: GameFlowSystem, reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' | 'moved'): void {
   const ctx = sys.ctx;
-  if (reason === 'left') return;                       // we chose to leave (abort / menu) — nothing to do
+  /* we chose to leave (abort / menu) — nothing to do. `moved` (2026-09-11, B-6) is a server move between ships, never mid-mission. */
+  if (reason === 'left' || reason === 'moved') return;
   if (!sys.inLiveMission()) return;
   if (sys.disconnectAbortTimer >= 0) return;
   const text = reason === 'hostLeft' ? '호스트가 나갔습니다 — 함선으로 복귀' : reason === 'kicked' ? '분대에서 분리되었습니다' : '연결이 끊어졌습니다 — 함선으로 복귀';

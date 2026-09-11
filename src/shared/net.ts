@@ -16,6 +16,8 @@ import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
 import type {
   PlayOutcome, PlayerCode, SocialErrorCode, SocialRef, SocialSnapshot, SquadInvite,
 } from './social';
+/* appended (2026-09-11): 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) */
+import type { InviteOutcome } from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -199,7 +201,13 @@ export type ClientToServer =
   | { t: 'profile:get' }
   /** Store one opaque document (≤ PROFILE_DOC_MAX_BYTES). No reply; `too_large` error when refused. */
   /** `at` / `fresh` appended (Phase 9): see `ProfileRecord.docsAt` — newest-wins merge on the server. */
-  | { t: 'profile:set'; key: ProfileDocKey; doc: unknown; at?: number; fresh?: boolean }
+  /**
+   * `baseRev` / `writeId` appended (2026-09-11, E-6): optimistic concurrency. `baseRev` = the `ProfileRecord.docsRev[key]`
+   * this write was made on top of (0 = no document yet). Accepted iff it equals the server's current rev → `profile:ack`;
+   * otherwise `profile:conflict` with the server copy. A resend of the last accepted `writeId` is acked again (idempotent).
+   * A frame with `baseRev` ignores `at` / `fresh`; a frame without it keeps the Phase 9 stamp rules (old clients).
+   */
+  | { t: 'profile:set'; key: ProfileDocKey; doc: unknown; at?: number; fresh?: boolean; baseRev?: number; writeId?: string }
   /** Credits transaction; server answers `credits:result {txId}`. */
   | { t: 'credits:tx'; txId: number; delta: number; reason: string }
   /** Save my mid-raid state for a reconnect (only accepted while my lobby is started with `blob.seed`). */
@@ -229,7 +237,11 @@ export type ClientToServer =
    */
   | { t: 'social:play'; code: PlayerCode }
   /** Direct message by 아이디, delivered as `social:whisper` if the target is connected. Works outside a lobby. */
-  | { t: 'social:whisper'; code: PlayerCode; text: string }
+  /**
+   * `nonce` appended (2026-09-11, B-4): sender-local id of this line. A server that knows it answers
+   * `social:whisperAck {nonce}` (sent / stored for an offline friend / failed); without it the old fire-and-forget rules apply.
+   */
+  | { t: 'social:whisper'; code: PlayerCode; text: string; nonce?: number }
   /* ── appended (2026-09-09): 분대장 지명 이관 ── */
   /**
    * 분대장(호스트)을 `targetId` 에게 넘긴다. 서버가 받아 주는 경우는 둘뿐이다:
@@ -242,7 +254,9 @@ export type ClientToServer =
    * 호스트 본인이 이 레이드에서 완전히 사망했다(또는 되살아났다)고 서버에 알린다. 서버는 이 표시가
    * 있는 동안에만 남의 `lobby:transferHost {claim:true}` 를 허용한다. 미션이 끝나면 자동으로 지워진다.
    */
-  | { t: 'lobby:hostDown'; down: boolean };
+  | { t: 'lobby:hostDown'; down: boolean }
+  /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
+  | ClientToServerAppended2026_09_11b;
 
 export type ServerToClient =
   /**
@@ -263,7 +277,12 @@ export type ServerToClient =
     }
   | { t: 'lobby:state'; lobby: LobbyState }
   | { t: 'lobby:error'; code: LobbyErrorCode; message: string }
-  | { t: 'lobby:left' }
+  /**
+   * `reason` / `to` appended (2026-09-11, B-6): `'moved'` = the server moved me straight into lobby `to` (같이 하기 · invite
+   * accept) and its `lobby:state` follows at once — the hub skips the undock cutscene and docks into the new ship.
+   * Absent = an ordinary leave (as before).
+   */
+  | { t: 'lobby:left'; reason?: 'moved'; to?: string }
   /** `mode` (appended, Phase 7): a training start reaches everyone but only members with `inMission` enter it. */
   /** `planet` (appended, Phase 11): the raid's 목표 행성, echoed from `LobbyState.planet` at start time. */
   | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode; planet?: PlanetId }
@@ -283,7 +302,9 @@ export type ServerToClient =
   | { t: 'social:whisper'; code: PlayerCode; name: string; text: string; at: number }
   /** How my `social:play` was resolved (`joined` = I am in their lobby now, `invited` = the invite went out). */
   | { t: 'social:play'; code: PlayerCode; name: string; outcome: PlayOutcome }
-  | { t: 'social:error'; code: SocialErrorCode; message: string };
+  | { t: 'social:error'; code: SocialErrorCode; message: string }
+  /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
+  | ServerToClientAppended2026_09_11b;
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
 
@@ -403,7 +424,11 @@ export interface ReviveMessage { t: 'revive'; ev: 'progress' | 'cancel' | 'done'
  * `structHp` (any → others): a structure of `callId` at `index` changed hp (0 = destroyed) so cover stays in sync.
  */
 export type StratagemMessage =
-  | { t: 'strat'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; eta: number; seed: number }
+  /**
+   * `by` appended (2026-09-11, E-4): the caller, filled in by the **host** when it re-broadcasts a validated
+   * `stratq call`. A receiver accepts a `strat call` only when `from === lobby.hostId` (a host's own call carries its own id).
+   */
+  | { t: 'strat'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; eta: number; seed: number; by?: PeerId }
   | { t: 'strat'; ev: 'structHp'; callId: string; index: number; hp: number }
   /* appended (Phase 9): late-join sync — the host answers `stratq sync` / `flow rejoined` with every live call it knows. */
   | { t: 'strat'; ev: 'sync'; calls: StratagemCallWire[] };
@@ -414,7 +439,15 @@ export type StratagemMessage =
  */
 export interface StratagemCallWire { callId: string; kind: StratagemId; p: Vec3Tuple; seed: number; eta: number; caller: PeerId | null; looted?: boolean; st?: [number, number][] }
 /** Client → host (Phase 9): send me every live ship call (`world:ready` on a non-host). */
-export type StratagemRequest = { t: 'stratq'; ev: 'sync' };
+export type StratagemRequest =
+  | { t: 'stratq'; ev: 'sync' }
+  /**
+   * appended (2026-09-11, E-4): a non-host confirmed a ship call → host. The host checks kind (`STRATAGEM_ORDER`),
+   * `STRATAGEM_HOST_ONLY`, the caller's shared cooldown, the rescue grant, map bounds + `STRAT_MAX_CALL_RANGE` from the
+   * caller's snapshot, rewrites `eta` from the csv delay, then broadcasts `strat call {…, by}`. A refused call is dropped
+   * silently (the caller's local cooldown already ran — same as a lost frame).
+   */
+  | { t: 'stratq'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; seed: number };
 /** Client → host: my local raycast hit enemy `id` for `dmg` (pre-multiplier) at point `p` travelling `d`. Owner: enemies (replica Enemy.takeDamage). */
 /**
  * Appended (2026-09-06): `st` = status the host should apply with the hit — bits of `ENEMY_STATUS_BITS`
@@ -620,13 +653,14 @@ export type ItemRequest =
 export type MetaMessage =
   | { t: 'meta'; ev: 'contractHit'; corp: import('./meta').CorpId; goal: import('./meta').ContractGoalKind; amount: number }
   /* appended (Phase 9): late-join catch-up — every peer answers `metaq sync` ONCE per requester per mission with the hits it broadcast so far this mission. */
-  | { t: 'meta'; ev: 'sync'; corp: import('./meta').CorpId; hits: [import('./meta').ContractGoalKind, number][] }
+  /** `rid` appended (2026-09-11, E-4): echoes `metaq sync.rid` — a receiver drops a `meta sync` it never asked for. */
+  | { t: 'meta'; ev: 'sync'; corp: import('./meta').CorpId; hits: [import('./meta').ContractGoalKind, number][]; rid?: number }
   /* appended (Phase 9 UI pass): this member's own active contract + progress, so every squad HUD can draw it
    * (`ui/hud/ContractPanel`). `id` null = no contract / abandoned / settled. Broadcast on `world:ready`, on every
    * local progress change (≤ 1 Hz) and on accept / abandon, and repeated to whoever asks with `metaq sync`. */
   | { t: 'meta'; ev: 'contract'; id: string | null; progress: number };
 /** Client → others (Phase 9): peer-to-peer (the host holds no tallies) — sent on `world:ready` of a rejoin. */
-export type MetaRequest = { t: 'metaq'; ev: 'sync' };
+export type MetaRequest = { t: 'metaq'; ev: 'sync'; /** appended (2026-09-11, E-4): request id echoed in `meta sync.rid`. */ rid?: number };
 
 export type GameMessage =
   | PlayerSnapshot
@@ -1488,3 +1522,94 @@ export interface NetRef {
   /** 저장된 주소로 다시 붙는다. 로비에 있었다면 떠난다. 성공 여부를 돌려준다. */
   reconnectRelay(): Promise<boolean>;
 }
+
+/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) ═════════════════════════════════════
+ * B-3 초대 결과 · B-4 차단 / 전송 확인 / 오프라인 보관 · E-6 문서 리비전 · B-1 링크 상태. 전부 추가만.
+ * Owners: server/ (①소셜 · ③저장), net/ (②소셜 · ③ProfileSync · ④Socket), ui/ · hub/ (②④).
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Client → server additions. Every social one needs a profile (anonymous → `social:error unavailable`). */
+export type ClientToServerAppended2026_09_11b =
+  /**
+   * B-3: answer a squad invite by its `SquadInvite.id`. `accept` → the **server** moves me into the inviter's lobby
+   * (`lobby:left {reason:'moved'}` + `lobby:state`; refused with `social:error` busy / full / started / not_found / expired),
+   * `accept:false` → declined. Both close the invite on both sides (`social:inviteResult` / `social:inviteClosed`).
+   */
+  | { t: 'social:inviteReply'; id: string; accept: boolean }
+  /**
+   * B-4: block / unblock a 아이디. Blocking also removes them from my friends / incoming / outgoing / recent **and** me
+   * from theirs, and closes open invites between us. Everything a blocked player sends me afterwards is swallowed
+   * silently (they are never told). Answered with `social:state` (my `blocked` list), refused with `limit` over
+   * `SOCIAL_BLOCK_MAX`.
+   */
+  | { t: 'social:block'; code: PlayerCode; blocked: boolean }
+  /**
+   * E-6: several documents in **one** transaction — the server checks every `baseRev` first and stores all or none.
+   * Answered with one `profile:ack {txId, revs}` or one `profile:conflict {txId, docs}` (every conflicting key) or
+   * `profile:refused {txId}` (a document over `PROFILE_DOC_MAX_BYTES`, bad key). A resend of the last accepted `txId` is acked again.
+   */
+  | { t: 'profile:setMany'; txId: string; docs: Partial<Record<ProfileDocKey, { doc: unknown; baseRev: number }>> };
+
+/** Server → client additions. */
+export type ServerToClientAppended2026_09_11b =
+  /** B-3 → the **inviter**: how invite `id` to `code` ended. `reason` narrows `failed` (full · started · not_found · busy · in_mission). */
+  | { t: 'social:inviteResult'; id: string; code: PlayerCode; name: string; outcome: InviteOutcome; reason?: SocialErrorCode }
+  /** B-3 → the **invitee**: invite `id` is gone (the card closes). Not sent for the invitee's own reply. */
+  | { t: 'social:inviteClosed'; id: string; outcome: InviteOutcome; reason?: SocialErrorCode }
+  /**
+   * B-4 → the sender of `social:whisper {nonce}`. `ok` = delivered (also true when the target blocked me — hidden),
+   * `stored` = the target is an offline **friend** and the line went to their inbox, `!ok` → `code` (offline · not_found · invalid).
+   */
+  | { t: 'social:whisperAck'; nonce: number; ok: boolean; at?: number; stored?: boolean; code?: SocialErrorCode }
+  /** B-4: whispers kept for me while I was offline (friends only), oldest first — sent once right after `welcome`, then the inbox is emptied. */
+  | { t: 'social:whisperBacklog'; lines: { code: PlayerCode; name: string; text: string; at: number }[] }
+  /** E-6: write `writeId` (a `profile:set`) or `txId` (a `profile:setMany`) was stored; `revs` = the new rev of every key written. */
+  | { t: 'profile:ack'; writeId?: string; txId?: string; revs: Partial<Record<ProfileDocKey, number>> }
+  /**
+   * E-6: the write was made on a stale rev and nothing was stored. `docs` = the server's copy + rev of every conflicting key
+   * (a `setMany` lists all of them). Policy (user decision): **the server wins** — the client adopts the copy, re-emits
+   * `net:profileLoaded` for those keys and logs a warning.
+   */
+  | { t: 'profile:conflict'; writeId?: string; txId?: string; docs: Partial<Record<ProfileDocKey, { rev: number; doc: unknown }>> }
+  /** E-6: the write can never succeed as sent (too large · unknown key · malformed) — drop it from the queue. */
+  | { t: 'profile:refused'; writeId?: string; txId?: string; code: LobbyErrorCode };
+
+/* ── B-1: 링크 상태 (owner: net/parts/Socket) ── */
+
+/**
+ * - `idle` — nothing tried yet this page (offline single-player until someone calls `ensureConnected`).
+ * - `connecting` — a socket is opening (bounded by `NET_CONNECT_TIMEOUT_MS`).
+ * - `connected` — `welcome` arrived.
+ * - `unreachable` — the last attempt failed / timed out; an anonymous background probe runs on `NET_PROBE_BACKOFF_MS`
+ *   (not for the desktop shell's embedded relay — `embedded`).
+ * - `refused` — the server said kicked / server_full / duplicate: no probing, no auto-reconnect until an explicit connect.
+ * - `reconnecting` — was connected, socket dropped, the reconnect backoff is running.
+ */
+export type NetLinkState = 'idle' | 'connecting' | 'connected' | 'unreachable' | 'refused' | 'reconnecting';
+
+export interface NetLinkInfo {
+  state: NetLinkState;
+  /** The relay address this state is about (`NetRef.relayUrl`). */
+  url: string;
+  /** `unreachable`: ms until the next background probe (null = not probing, e.g. `embedded`). */
+  nextProbeInMs?: number | null;
+  /** `refused`: why. */
+  refused?: 'kicked' | 'server_full' | 'duplicate';
+  /** `reconnecting`: 1-based attempt. */
+  attempt?: number;
+  /** The target is the desktop shell's same-origin embedded relay (starts on demand — never probed). */
+  embedded?: boolean;
+  /** `unreachable` after a probe succeeded while in a raid / training: a server is there, connect from the ship. */
+  found?: boolean;
+}
+
+export interface NetRef {
+  /* ── appended (2026-09-11, B-1) ── */
+  /** Current link state; changes are announced with `net:linkChanged`. */
+  readonly link: NetLinkInfo;
+}
+
+/** B-1: a connect attempt that has not reached `welcome` within this long is closed and reported `unreachable`. */
+export const NET_CONNECT_TIMEOUT_MS = 6000;
+/** B-1: background anonymous probe schedule while `unreachable` (ms); the last value repeats. */
+export const NET_PROBE_BACKOFF_MS: readonly number[] = [5000, 10000, 20000, 30000, 60000];

@@ -54,6 +54,9 @@ export function setDebugSocial(
       dismissInvite: nop('dismissInvite'), setLevel: nop('setLevel'),
       whisper(code, text) { debugSocialCalls.push({ m: 'whisper', args: [code, text] }); return false; },
       find() { return undefined; }, playBlock() { return 'offline' as PlayBlock; },
+      /* 2026-09-11 계약 자리 (B-3 · B-4): ② 가 채운다 */
+      blocked: [], isBlocked() { return false; }, block: nop('block'), declineInvite: nop('declineInvite'),
+      whisperHistory() { return []; }, whisperPeers() { return []; }, lastWhisperPeer: null,
     };
     return;
   }
@@ -106,5 +109,13 @@ export function setDebugSocial(
       if (!row) return 'offline' as PlayBlock;
       return playBlockReason(row, mySquad, NET_MAX_PLAYERS, code === snap.me.code);
     },
+    /* 2026-09-11 계약 자리 (B-3 · B-4): ② 가 채운다 */
+    blocked: [],
+    isBlocked() { return false; },
+    block(code, blocked) { log('block', code, blocked); },
+    declineInvite(from) { log('declineInvite', from); drop(from); },
+    whisperHistory() { return []; },
+    whisperPeers() { return []; },
+    lastWhisperPeer: null,
   };
 }

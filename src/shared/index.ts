@@ -54,3 +54,6 @@ export * from './drones';
 export * from './named';
 /* appended (2026-09-11, C-18): 차량 탑승 좌표 변환 — 플레이어 · 적 · 시체가 같은 식으로 전차에 탄다 */
 export * from './ride';
+/* appended (2026-09-11): 소셜 · 신뢰 · 연결 — 받는 쪽 버프 상한 · 서버 크레딧 사유 문법 / 경제 표 */
+export * from './buffRules';
+export * from './credits';

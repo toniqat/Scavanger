@@ -184,7 +184,9 @@ export type SocialErrorCode =
   | 'my_squad_full' // my own squad has no free slot to invite them into
   | 'in_squad'      // they are already in my squad
   | 'in_mission'
-  | 'invalid';
+  | 'invalid'
+  /* appended (2026-09-11, B-3): the invite answered is no longer open (`social:inviteReply` after it closed). */
+  | 'expired';
 
 export const SOCIAL_ERROR_MESSAGE_KO: Readonly<Record<SocialErrorCode, string>> = {
   unavailable: '소셜 기능을 사용할 수 없습니다',
@@ -199,6 +201,7 @@ export const SOCIAL_ERROR_MESSAGE_KO: Readonly<Record<SocialErrorCode, string>> 
   in_squad: '이미 같은 분대입니다',
   in_mission: '상대가 임무 중입니다',
   invalid: '잘못된 요청입니다',
+  expired: '이미 끝난 초대입니다',
 };
 
 /* ── Caps / timings ───────────────────────────────────────────────────────── */
@@ -255,6 +258,107 @@ export interface SocialRecord {
 export const SOCIAL_RECENT_TTL_MS = 30 * 24 * 60 * 60_000;
 /** A friend request nobody answered for this long is withdrawn on both sides by the relay's GC. */
 export const SOCIAL_REQUEST_TTL_MS = 30 * 24 * 60 * 60_000;
+
+/* ── appended (2026-09-11): 초대 결과 · 차단 · 전송 확인 · 오프라인 보관 · 합치기 (B-3 · B-4 · B-5) ── */
+
+/**
+ * How a squad invite ended (B-3). The server holds invites in memory (`server/` ① — not persisted) and closes each one
+ * exactly once through one function that tells **both** sides.
+ * - `accepted` — the invitee accepted and the server moved them into the lobby.
+ * - `declined` — the invitee said no (card ×). The inviter reads "OO 님이 초대를 거절했습니다" (user decision: distinct from expired).
+ * - `expired` — `SQUAD_INVITE_TTL_S` passed on the server clock. Also what an inviter the invitee **blocked** sees (hidden).
+ * - `failed` — the lobby dissolved / filled / started, or the inviter left it (`reason` says which).
+ * - `offline` — the invitee's socket closed.
+ * - `superseded` — the same inviter sent the same invitee a newer invite.
+ */
+export type InviteOutcome = 'accepted' | 'declined' | 'expired' | 'failed' | 'offline' | 'superseded';
+
+export const SOCIAL_INVITE_OUTCOME_KO: Readonly<Record<InviteOutcome, string>> = {
+  accepted: '님이 분대에 합류했습니다',
+  declined: '님이 초대를 거절했습니다',
+  expired: '님이 초대에 응답하지 않았습니다',
+  failed: '님에게 보낸 초대가 취소되었습니다',
+  offline: '님이 접속을 종료했습니다',
+  superseded: '님에게 새 초대를 보냈습니다',
+};
+
+export interface SquadInvite {
+  /**
+   * appended (B-3): server invite id — answer with `social:inviteReply {id}`. Absent from an older server: the client
+   * falls back to the Phase 11 `lobby:join` path.
+   */
+  id?: string;
+}
+
+export interface SocialPlayer {
+  /**
+   * appended (B-3, user decision "커뮤니티 행에 배지도"): server time (epoch ms) **I** sent this player a squad invite
+   * that is still open. The row shows `초대 중` with the time left (`SQUAD_INVITE_TTL_S`). Absent = none open.
+   */
+  inviteAt?: number;
+}
+
+export interface SocialSnapshot {
+  /** appended (B-4): players I blocked, newest first (unblock from the community screen). Absent from an older server. */
+  blocked?: SocialCard[];
+}
+
+export interface SocialRecord {
+  /** appended (B-4): 아이디 I blocked, newest first, at most `SOCIAL_BLOCK_MAX`. Server-owned; `sanitizeSocial` keeps it. */
+  blocked?: PlayerCode[];
+  /**
+   * appended (B-4): whispers from **friends** that arrived while I was offline, oldest first — at most
+   * `SOCIAL_WHISPER_INBOX_MAX`, each dropped after `SOCIAL_WHISPER_INBOX_TTL_MS`. Delivered once as
+   * `social:whisperBacklog` after `welcome`, then emptied. Lives in the profile file, so the B-2 GC removes it with the profile.
+   */
+  inbox?: { from: PlayerCode; name: string; text: string; at: number }[];
+}
+
+export interface WhisperLine {
+  /** appended (B-4): my own line's `social:whisper.nonce` — the ack finds the line by it. Absent on received lines. */
+  nonce?: number;
+  /**
+   * appended (B-4): delivery state of an **outgoing** line. `pending` = drawn dimmed until the ack; `sent`; `stored` = kept
+   * in an offline friend's inbox; `failed` (`failCode`). Absent on received lines and on an older server (treated as `sent`).
+   */
+  state?: 'pending' | 'sent' | 'stored' | 'failed';
+  failCode?: SocialErrorCode;
+  /** appended (B-4): arrived through `social:whisperBacklog` (the sender wrote it while I was offline). */
+  backlog?: boolean;
+}
+
+/** B-4: players one profile may block. */
+export const SOCIAL_BLOCK_MAX = 100;
+/** B-4: offline whispers kept per receiver (friends only). */
+export const SOCIAL_WHISPER_INBOX_MAX = 20;
+/** B-4: an offline whisper nobody collected for this long is dropped. */
+export const SOCIAL_WHISPER_INBOX_TTL_MS = 7 * 24 * 60 * 60_000;
+/**
+ * B-5: presence / social pushes to a viewer are coalesced into one `social:state` per this window. The requester's own
+ * answer to `social:request` · `respond` · `remove` · `block` is **not** delayed.
+ */
+export const SOCIAL_PUSH_COALESCE_MS = 250;
+
+export interface SocialRef {
+  /* ── appended (2026-09-11) ── */
+  /** B-4: players I blocked (empty while unavailable / older server). */
+  readonly blocked: readonly SocialCard[];
+  /** B-4: true when `code` is in my `blocked` list (squad chat lines from that member are not drawn). */
+  isBlocked(code: PlayerCode): boolean;
+  /** B-4: block / unblock. */
+  block(code: PlayerCode, blocked: boolean): void;
+  /**
+   * B-3: decline an invite (sends `social:inviteReply {accept:false}` when the invite has an `id`; otherwise local only).
+   * `dismissInvite` (the card ×) now does the same.
+   */
+  declineInvite(from: PlayerCode): void;
+  /** B-4: this character's saved conversation with `code`, oldest first (client-side, `slotKey(WHISPER_STORAGE_KEY)`). */
+  whisperHistory(code: PlayerCode): readonly WhisperLine[];
+  /** B-4: conversation partners, most recent first (at most `WHISPER_HISTORY_PEERS`). */
+  whisperPeers(): readonly { code: PlayerCode; name: string; at: number }[];
+  /** B-4: the last player I whispered with (either direction) — the chat's `/r` target. null = none. */
+  readonly lastWhisperPeer: PlayerCode | null;
+}
 
 /* ── `ctx.net.social` (owner: net/SocialSync.ts) ──────────────────────────── */
 

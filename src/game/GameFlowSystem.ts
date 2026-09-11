@@ -283,7 +283,7 @@ export class GameFlowSystem implements GameSystem {
    * The party is gone (server gave up on us / host left / kicked) mid-mission → abort after a short toast and
    * return to the personal ship. A plain socket drop is `net:reconnecting` (handled above) and never aborts.
    */
-  private onLobbyLeft(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void { return Wire.onLobbyLeft(this, reason); }
+  private onLobbyLeft(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' | 'moved'): void { return Wire.onLobbyLeft(this, reason); }
 
   /* ── Pause / focus ───────────────────────────────────────────────────── */
   /**

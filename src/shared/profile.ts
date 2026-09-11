@@ -131,3 +131,39 @@ export interface ProfileRecord {
  * one inside its reconnect grace) is never collected. Server-read, so a TS literal like the other relay timings.
  */
 export const PROFILE_GC_INACTIVE_MS = 90 * 24 * 60 * 60_000;
+
+/* ══ appended: 2026-09-11 — 문서 리비전 (E-6) · 서버 크레딧 검증 (E-4) ═══════════════════════════════════════════════ */
+
+export interface ProfileRecord {
+  /**
+   * E-6: per-document revision — +1 on every accepted write (`profile:set {baseRev}` / `profile:setMany`). Travels in
+   * `welcome.profile` / `profile:docs`. Absent key = 0 (never written, or written before 2026-09-11 — the store seeds 1 for
+   * an existing document on load). Replaces the clock stamp as the merge rule; `docsAt` stays for old-frame compatibility.
+   */
+  docsRev?: Partial<Record<ProfileDocKey, number>>;
+  /**
+   * E-4: the relay's credits ledger for this profile (`server/` ⑦). **Server-internal** — `ProfileStore.snapshot()` does not
+   * copy it. Shape owned by `src/shared/credits.ts` (`CreditLedger`).
+   */
+  ledger?: import('./credits').CreditLedger;
+}
+
+export interface ProfileRef {
+  /* ── appended (2026-09-11, E-6) ── */
+  /**
+   * Queue several documents as **one** transaction (`profile:setMany`): stored all-or-nothing on the server. Use it
+   * whenever one edit spans documents — stash + loadout (inventory's merged debounce), corpse strip (progression + loadout),
+   * quest completion (meta + stash). Same offline / queue semantics as `set`.
+   */
+  setMany(docs: Partial<Record<ProfileDocKey, unknown>>): void;
+  /** The server rev the local copy of `key` is based on (0 = none / offline). */
+  revOf(key: ProfileDocKey): number;
+}
+
+/**
+ * E-6: localStorage key (pass through `slotKey`) of the persisted write queue `{key → {doc, baseRev, writeId}}` plus pending
+ * transactions. An entry is removed only on `profile:ack` / `profile:refused` / a conflict resolved in the server's favour.
+ */
+export const PROFILE_QUEUE_STORAGE_KEY = 'scav.profileQueue';
+/** E-6: a `profile:setMany` frame may carry at most this many bytes of JSON (every document still ≤ `PROFILE_DOC_MAX_BYTES`). */
+export const PROFILE_SETMANY_MAX_BYTES = PROFILE_DOC_MAX_BYTES * 5;

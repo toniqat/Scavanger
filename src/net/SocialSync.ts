@@ -1,6 +1,6 @@
 import type {
   ClientToServer, EventBus, PlayBlock, PlayerCode, PresenceState, ServerToClient, SocialCard, SocialPlayer,
-  SocialRef, SocialSnapshot, SquadInvite,
+  SocialRef, SocialSnapshot, SquadInvite, WhisperLine,
 } from '@/shared';
 import {
   NET_MAX_PLAYERS, SOCIAL_FRIEND_MAX, SOCIAL_ME_DEBOUNCE_MS, SOCIAL_RECENT_MAX, SOCIAL_REQUEST_MAX,
@@ -118,6 +118,15 @@ export class SocialSync implements SocialRef {
   dismissInvite(from: PlayerCode): void {
     this.closeInvite(normalizePlayerCode(from), 'dismissed');
   }
+
+  /* ── 2026-09-11 계약 자리 (B-3 · B-4): ② 가 구현한다 ── */
+  get blocked(): readonly SocialCard[] { return []; }
+  isBlocked(_code: PlayerCode): boolean { return false; }
+  block(_code: PlayerCode, _blocked: boolean): void { /* ② */ }
+  declineInvite(from: PlayerCode): void { this.dismissInvite(from); }
+  whisperHistory(_code: PlayerCode): readonly WhisperLine[] { return []; }
+  whisperPeers(): readonly { code: PlayerCode; name: string; at: number }[] { return []; }
+  get lastWhisperPeer(): PlayerCode | null { return null; }
 
   whisper(code: PlayerCode, text: string): boolean {
     const c = this.wanted(code);

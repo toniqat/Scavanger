@@ -78,6 +78,13 @@ export class ProfileSync implements ProfileRef {
     }
   }
 
+  /* 2026-09-11 계약 자리 (E-6): 리비전 · 트랜잭션은 ③ 이 구현한다 — 그때까지는 문서마다 따로 보낸다. */
+  setMany(docs: Partial<Record<ProfileDocKey, unknown>>): void {
+    for (const [key, doc] of Object.entries(docs) as [ProfileDocKey, unknown][]) this.set(key, doc);
+  }
+
+  revOf(_key: ProfileDocKey): number { return 0; }
+
   flush(): void {
     if (this.flushTimer !== null) { clearTimeout(this.flushTimer); this.flushTimer = null; }
     if (this.pending.size === 0) return;

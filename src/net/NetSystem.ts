@@ -5,6 +5,7 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
+import type { NetLinkInfo } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 */
 import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
@@ -286,6 +287,11 @@ export class NetSystem implements GameSystem, NetRef {
   }
 
   defaultUrl(): string { return Sock.defaultUrl(this); }
+
+  /* ── 링크 상태 (2026-09-11 계약 자리, B-1): ④ 가 `parts/Socket` 에서 실제 상태를 기른다 ── */
+  get link(): NetLinkInfo {
+    return { state: this.client.connected ? 'connected' : 'idle', url: Sock.defaultUrl(this) };
+  }
 
   /* ── 서버 주소 (2026-09-10) ─────────────────────────────────────────── */
   get relayUrl(): string { return Sock.defaultUrl(this); }
