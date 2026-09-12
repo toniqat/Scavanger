@@ -7,6 +7,10 @@ import {
   ROOM_PURPOSES_ASSIGNABLE, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
   analyzerSlotsForLevel, cultureSlotsForLevel, slotKey,
 } from '@/shared';
+/* A-3e (2026-09-12): 서재 매체 (v9) */
+import type { ShelfMedium } from '@/shared';
+import { SHELF_SLOTS, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
+import { shelfMediumOfDefId } from './Rules';
 import {
   NEEDS_GREENHOUSE,
   autoPlaceSpot, canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, furnitureRefundCost, growTierOpen,
@@ -43,9 +47,14 @@ import {
  * 시뮬레이션 허브는 은퇴 가구라 은퇴 청소가 재료로 돌려준다. 그리고 **모든 로드**가 공용 시설 가구 두 점(전술 임플란트
  * 시술대 · 기업 네트워크 컴퓨터)이 어딘가에 있는지 보고 없으면 조종석에 채운다 (`ensureCockpitFurniture`).
  */
+/*
+ * 서재 매체 (A-3e, 2026-09-12): state **version 9** — `media` (디스크 전시대 · 레코드랙 칸, `PlacedBook` 모양) · `mediaDex`
+ * (디스크 · 레코드 도감) · `toggled` (켜 둔 TV · 레코드 플레이어). 없던 필드가 생기는 것뿐이라 v8 세이브는 빈 값으로 열리고
+ * 마이그레이션이 없다. v8 의 「사라진 방의 보관함 → 함선 창고」 환불은 디스크 · 레코드에도 똑같이 적용된다.
+ */
 const SAVE_DELAY_MS = 350;
-/** Current on-disk version (8 since the cockpit / eight rooms; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(8, SHIP_STATE_VERSION);
+/** Current on-disk version (9 since the 서재 매체; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(9, SHIP_STATE_VERSION);
 /** 옛 세이브에서 읽어 볼 방의 최대 개수 (방 수가 10 이던 세이브 + 손으로 고친 파일에 대한 여유). */
 const MAX_SAVED_ROOMS = 32;
 /**
@@ -92,6 +101,9 @@ export function freshState(): ShipState {
     analyses: [],                             // 연구실 분석기 (v5, 2026-09-11)
     sampleDex: [],
     cultures: [],                             // 온실 배양조 (v6, A-14, 2026-09-11)
+    media: [],                                // 서재 매체 (v9, A-3e, 2026-09-12)
+    mediaDex: [],
+    toggled: [],
   };
   ensureCockpitFurniture(state);              // 2026-09-12: 조종석의 공용 시설 가구 두 점 (f-1 시술대 · f-2 컴퓨터)
   return state;
@@ -307,6 +319,8 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const displaced: StoredFurniture[] = [];
   /** v8: uids of the displaced pieces — a displaced 책장's books go back to the 함선 창고 (below), like `recover` does. */
   const displacedUids = new Set<string>();
+  /** v9 (A-3e): displaced uid → the shelf medium it held (a displaced 디스크 전시대 · 레코드랙 refunds its media the same way). */
+  const displacedShelf = new Map<string, ShelfMedium>();
   for (const f of Array.isArray(r.furniture) ? (r.furniture as Partial<PlacedFurniture>[]) : []) {
     if (!f || typeof f.defId !== 'string') continue;
     const def = FURNITURE_DEF_MAP.get(f.defId);
@@ -331,6 +345,8 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (lostRoom || (hereRoom !== null && !furnitureAllowedIn(def, hereRoom))) {
       displaced.push({ defId: def.id, level: item.level, qty: 1 });
       if (item.uid) displacedUids.add(item.uid);
+      const shelfM = shelfMediumOfInteraction(def.interaction);
+      if (item.uid && shelfM) displacedShelf.set(item.uid, shelfM);
       continue;
     }
     /*
@@ -548,11 +564,53 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     cultures.push(entry);
   }
 
+  /* 서재 매체 (v9, A-3e, 2026-09-12): 디스크 · 레코드 칸은 `books` 와 같은 규칙이다 — 배치된 보관함 uid 이고 **그 보관함의 매체가
+     id 모양의 매체와 같아야 하며**(`disc_*` 는 디스크 전시대에만), 칸 < `SHELF_SLOTS[매체]`, (uid, slot) 하나에 하나. 진짜
+     디스크 · 레코드인지는 `parts/Library.media()` 가 `ctx.loot` 로 한 번 걸러 낸다. 사라진 방에서 가구 창고로 간 보관함의 것은
+     책처럼 `out.refund`(함선 창고)로 돌려준다. */
+  const media: PlacedBook[] = [];
+  const shelfMediumByUid = new Map<string, ShelfMedium>();
+  for (const f of furniture) {
+    const m = shelfMediumOfInteraction(FURNITURE_DEF_MAP.get(f.defId)?.interaction ?? 'none');
+    if (m && m !== 'book') shelfMediumByUid.set(f.uid, m);
+  }
+  const takenMediaSlots = new Set<string>();
+  for (const e of Array.isArray(r.media) ? (r.media as Partial<PlacedBook>[]) : []) {
+    if (!e || typeof e.uid !== 'string') continue;
+    const m = shelfMediumOfDefId(e.defId);
+    if (!m || m === 'book') continue;
+    const holder = shelfMediumByUid.get(e.uid);
+    if (holder === undefined) {
+      if (displacedShelf.get(e.uid) === m) mergeCost(refund, [{ defId: e.defId as string, qty: 1 }]);
+      continue;
+    }
+    if (holder !== m) continue;
+    const slot = int(e.slot, -1, -1);
+    if (slot < 0 || slot >= SHELF_SLOTS[m]) continue;
+    const key = `${e.uid}#${slot}`;
+    if (takenMediaSlots.has(key)) continue;
+    takenMediaSlots.add(key);
+    media.push({ uid: e.uid, slot, defId: e.defId as string });
+  }
+  // 도감: `disc_*` / `record_*` 모양의 유일한 id, 꽂혀 있는 것은 전부 포함 (`bookDex` 와 같다)
+  const mediaDex: string[] = [];
+  for (const id of [...(Array.isArray(r.mediaDex) ? r.mediaDex : []), ...media.map((e) => e.defId)]) {
+    const m = shelfMediumOfDefId(id);
+    if (m && m !== 'book' && !mediaDex.includes(id as string)) mediaDex.push(id as string);
+  }
+  // 켜짐: 배치된 TV · 레코드 플레이어 uid 만, 중복 없이
+  const toggleUids = new Set(furniture.filter((f) => isToggleInteraction(FURNITURE_DEF_MAP.get(f.defId)?.interaction ?? 'none')).map((f) => f.uid));
+  const toggled: string[] = [];
+  for (const uid of Array.isArray(r.toggled) ? r.toggled : []) {
+    if (typeof uid === 'string' && toggleUids.has(uid) && !toggled.includes(uid)) toggled.push(uid);
+  }
+
   const state: ShipState = {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots: [],
     nameLocked: r.nameLocked === true,
     books, bookDex, grows, analyses, sampleDex, cultures,
+    media, mediaDex, toggled,
   };
   // 2026-09-12: 공용 시설 가구 두 점은 잃을 수 없다 — uid 를 다 매긴 뒤라야 새 uid 가 겹치지 않는다
   const grantedCockpit = ensureCockpitFurniture(state);

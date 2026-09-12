@@ -14,7 +14,7 @@ frame already has real numbers; `NetSystem` still goes first).
 |---|---|
 | `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush — **Phase 9: offline too**, `ProfileSync` queues it; `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`; Phase 8: `createSheetView(host)` + the `views` set (overlay **and** every embedded tab are repainted through `refreshSheets` / `refreshSheetSkill` / `refreshSheetStat`). |
 | `defs.ts` | The 5 `StatDef` / 14 `SkillDef` (한국어 이름·설명), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
-| `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. |
+| `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. A-3a: `trainedBonusOf` — the effective stat is base + implant bonus + 헬스장 단련 보너스. |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. **2026-09-07**: `DEFAULT_IMPLANT` (`'grapple'`) — a fresh profile starts with 갈고리 in the 전술 임플란트 slot instead of an empty one (all six implants are owned from level 1, so an empty slot was just a missed default). Existing saves are untouched. |
 | `ui/SheetBody.ts` | **공용 렌더러** (Phase 8): `CharacterSheetHost` 인터페이스 + `SheetBody` — 헤더 / XP 바 / 능력치 · 숙련도 2단 / 파생 능력치 그리드 / 푸터(캐릭터 초기화)를 넘겨받은 부모 요소 안에 만든다. blocker · 포인터 락 · Esc · `.scr-tabs` 는 **모른다** (껍데기의 몫). `el()` 헬퍼도 여기서 export. |
 | `ui/CharacterSheet.ts` | 단독 오버레이 (`.menu.char-sheet`): `.scr-tabs` + `.frame` + `SheetBody`. Blocker token `'stats'`, 포인터 락, capture-phase **Tab** 닫기 (2026-09-08). 2026-09-09: 키 가이드 owner `'character'` (`keys: []`). |
@@ -311,11 +311,80 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
   (migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다 — 2026-09-09 `accent` 사고와 같은 자리), 서버 문서
   왕복도 그 길을 탄다.
 
+## 단련 보너스 · 운동 디버프 (A-3a, 2026-09-12)
+
+함선 헬스장의 운동 기구 미니게임(housing)을 끝내면 housing 이 `applyGymSession(stat, 점수)` 를 부른다. 규칙 · 저장 ·
+이벤트의 주인은 이 폴더이고, 미니게임 판정은 housing, 자세 · 카메라는 player/hub, 함선 디버프 배지는 ui 가 맡는다.
+**스탯 포인트와 따로 센다** (사용자 결정) — `getStat` 은 여전히 기본값이다.
+
+| 필드 | 뜻 |
+|---|---|
+| `PlayerProfile.trained` | 단련 보너스 (`GYM_STATS` = 근력 · 지구력, 정수 0 … `GYM_TRAINED_MAX`). 0 인 항목은 적지 않는다 |
+| `PlayerProfile.trainedProgress` | 다음 단련까지 0 … 0.999999, **상한이면 정확히 1** (`statProgress` 와 같은 규칙) |
+| `PlayerProfile.gymFatigueUntil` | 운동 디버프가 끝나는 epoch ms. 지난 값은 「없음」 과 같다 |
+
+```
+xp               = round(GYM_SESSION_XP × clamp01(점수)) × (디버프 중 ? GYM_FATIGUE_GAIN_MUL : 1)   ← 이미 상한이면 0
+trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)       ← 150 · 396 · 698 · 1045 · 1428
+실효 능력치       = stats[id] + 임플란트 보너스 + trained[id]                       ← derive.stat() 한 곳
+```
+
+- `applyGymSession(id, score)` — **함선 전용**: `ctx.isRaidActive()` · `ctx.phase !== 'hub'` · 운동 능력치가 아님이면 `null`
+  이고 아무것도 바꾸지 않는다. 점수는 0 … 1 로 자르고 NaN 은 0. 저장된 진행도를 지금 단계의 raw XP 로 바꿔 더하고,
+  넘치면 다음 단계로 **이월**하며(루프는 상한 폭으로 묶여 있다) 상한에서 진행도 1 로 멈춘다.
+  디버프가 **없던** 능력치에만 `now + GYM_FATIGUE_HOURS` 를 건다 — 디버프 중의 세션은 XP 0 이고 디버프를 늘리지 않는다.
+  점수 0 이어도 끝낸 세션이면 디버프는 걸린다. 결과 `GymSessionResult.xp` 는 **실제로 더해진** 값이다 (디버프 · 상한이면 0).
+- 시각은 `gymNow()` = `ctx.net.serverNow()`(유한 > 0 일 때) ?? `Date.now()` — 온실 · 분석기와 같은 현실 시간.
+- 이벤트: 호출마다 `progress:trainedChanged {id, value, progress, delta: xp}`, 디버프를 걸면 `progress:gymFatigue {id, until}`,
+  보너스가 바뀌면 `derived` 재계산 + `progress:statChanged` (값은 기본 스탯 그대로 — 인벤토리 탭 레드닷 같은 새로 그리기 신호).
+  그리고 **즉시 저장** (`markDirty(true)` → localStorage + `progression` 서버 문서) — 새로고침으로 보너스도 디버프도 잃지 않는다.
+- 부팅 마이크로태스크 · `net:profileLoaded` · `resetProfile` 은 `emitGymState()` 로 두 능력치의 `trainedChanged {delta 0}` 와
+  **살아 있는** 디버프의 `gymFatigue` 를 다시 낸다 (함선 디버프 배지가 듣는다). 만료에는 이벤트가 없다 — 시각의 함수다.
+- 질의: `getTrainedBonus(id)` (`derive.trainedBonusOf` 한 곳이 `profile.trained` 를 읽는다) · `getTrainedProgress(id)` ·
+  `trainedXpToNext(id)` · `getGymFatigueUntil(id)` (없음 / 만료 = 0).
+- **개발자 콘솔 전용** (계약 appended 2026-09-12): `addTrainedXp(id, ±xp)` — 디버프 · 레이드 · phase · 세션 상한 **없이**
+  단련 경험치를 더하고 뺀다. 음수는 진행도가 0 아래로 가면 한 단계씩 내려가며 그 단계의 필요량을 되돌려 더한다(바닥 0 · 0),
+  상한에서 빼면 상한의 진행도 1 은 고정 표시일 뿐이라 raw 0 에서 시작한다(5 − 100 → +4 · (need(4)−100)/need(4)).
+  운동 능력치가 아니거나 NaN 이면 아무것도 안 한다. `clearGymFatigue(id?)` — 디버프 스탬프를 지운다(생략 = 둘 다, 지난 스탬프도),
+  지운 능력치마다 `progress:gymFatigue {id, until: 0}` + 무언가 지웠으면 즉시 저장.
+- **공식은 한 곳이다**: `applyGymSession` 과 `addTrainedXp` 가 같은 `stepTrained(id, ±xp)` 를 부른다 — 이월 · 상한 · 내려가기 ·
+  프로필 쓰기 · `derived` 재계산 · 즉시 저장 · `trainedChanged`(+ `statChanged`) 가 전부 거기 있다. `applyGymSession` 은 디버프를
+  먼저 적고(그래서 한 번의 저장이 둘을 담는다) 스텝 뒤에 `gymFatigue` 를 낸다.
+- **`getStatWithImplants(id)` 가 단련까지 포함한다** — 계약의 뜻(「`derived` 가 계산되는 값」) 그대로. `src/` 에 이것을 읽는
+  다른 폴더는 없고(스모크 `smoke-progression` · `smoke-raidflow` 만, 둘 다 단련 0 에서 읽는다) 이중 합산은 없다.
+  단련 보너스는 `STAT_MAX` 로 자르지 않는다 (임플란트와 같은 의도).
+- **`Profile.sanitizeGym`** 이 migrate 에서 세 필드를 옮겨 담는다 (`GYM_STATS` 키만, 정수 반올림 + 클램프, 진행도 규칙, 유한 > 0
+  시각). 2026-09-09 `accent` 사고와 같은 자리 — 빠뜨리면 새로고침 한 번에 보너스와 24시간 디버프가 사라진다. `freshProfile` 은
+  빈 맵 셋, `resetProfile` 도 그것으로 비운다. `PROFILE_VERSION` 은 그대로.
+- **캐릭터 시트** (`ui/SheetBody`, 두 셸 공용): 값 칸이 `base` · `.ib`(임플란트) · **`.tb`**(` (+n 단련)`, `--c-info` 색, 0 이면 빈
+  칸 + hidden)이다. 근력 · 지구력 행만 설명 아래 `.gy` 줄을 갖는다 — 왼쪽 `.gtr` `단련 +2 · 40 %` / `단련 최대`, 오른쪽 `.fat`
+  `근육통 · 남은 HH:MM:SS` / `심폐 피로 · …` (디버프 중에만). 카운트다운은 **디버프가 있고 본문이 화면에 보이는 동안만** 1초
+  `setInterval` 로 다시 그리고, 숨겨지면(오버레이 닫힘 · 인벤토리 다른 탭) 스스로 멈춘다 — 두 셸이 다시 보일 때 `refresh()` 를
+  부르므로 그때 다시 선다. `dispose` 가 멈춘다.
+- 스모크: `smoke-progression` **170 / 170** (2026-09-12, +47) — 공식 · 이월 · 상한 · 디버프 게이트 · 거절 3종 · 점수 클램프 ·
+  derived(적재량 · 스태미나) · 시트 DOM + 실시간 카운트다운 · 새로고침 · migrate 쓰레기값 · 서버 문서 왕복 · 초기화, 그리고 콘솔 API
+  (`addTrainedXp` 한 번에 세 단계 이월 · 음수로 한 단계 내려가기 · 바닥 · 상한에서 빼기 · 게이트 무시 · 무시되는 입력, `clearGymFatigue` 하나 / 둘 다).
+  한 **세션**의 최대 XP(100)는 가장 싼 단계(150)보다 작아 세션으로는 두 단계를 한 번에 넘지 못한다 — 여러 단계 이월은 `addTrainedXp` 로 검사한다.
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-12 (A-3a 헬스장, 에이전트 progression)** — 계약은 읽기만 했다 (`GymStat` · `GYM_STATS` · `GYM_FATIGUE_LABEL_KO`,
+  `PlayerProfile.trained` · `trainedProgress` · `gymFatigueUntil`, `GymSessionResult`, `ProgressionRef` 의 optional 5종,
+  `progress:trainedChanged` · `progress:gymFatigue`, `GYM_*` 상수). 위 *단련 보너스 · 운동 디버프* 절이 전부다.
+  - `Profile.ts` — `freshProfile` 에 빈 맵 셋, `sanitizeGym(raw)`, **`migrate` 가 세 필드를 옮겨 담는다**.
+  - `derive.ts` — `trainedBonusOf(profile, id)`, `stat()` 이 임플란트 보너스 옆에서 단련을 더한다 (`computeDerived` 시그니처 무변경).
+  - `ProgressionSystem.ts` — `trainedXpFor(n)` export, `getTrainedBonus` · `getTrainedProgress` · `trainedXpToNext` ·
+    `getGymFatigueUntil` · `gymNow` · `applyGymSession` · `emitGymState`, `getStatWithImplants` 에 단련 포함, 두 새 이벤트에
+    `refreshSheetStat`, 부팅 · `onProfileLoaded` · `resetProfile` 이 `emitGymState`.
+  - `ui/SheetBody.ts` — `CharacterSheetHost` 에 optional 4종, `.tb` span · `.gy` 줄 · 보일 때만 도는 1초 카운트다운. `ui/character.css` — `.tb` · `.gy` · `.gtr` · `.fat`.
+  - 계약 추가분(같은 날, 리드): `addTrainedXp(id, ±xp)` · `clearGymFatigue(id?)` 구현 — `applyGymSession` 의 이월 코드를
+    `stepTrained` 로 떼어 둘이 함께 쓴다 (음수 · 내려가기는 여기서 생겼다).
+  - `scripts/smoke-progression.mjs` — 헬스장 절 + 콘솔 API 절 (+47 검사, 기록 이벤트에 두 새 이벤트).
+  - 검증: `npm run typecheck` — 트리 전체 에러 0. `verify --only smoke-progression` (개인 vite 5303) 170/170.
 
 - **2026-09-11 (A-3c 식사, 에이전트 progression+net)** — 계약은 읽기만 했다 (`PlayerProfile.meal` · `mealActive`,
   `ProgressionRef.getMeal` · `getActiveMeal` · `useMeal` · `serveMeal`, `progress:mealChanged`, `MealDef` · `MealBuff`).

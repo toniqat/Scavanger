@@ -3,6 +3,8 @@
 // order, refusals, `housing:booksChanged`), the 도감 (`bookDex`), the bonus maths (`getBookBonus`, cap, folded into
 // `getSkillGainMul`), recovering a shelf that still holds books, the v3 save round-trip + corrupt-save sanitising and
 // the 책장 panel / 함선 tab 도감 DOM.
+// A-3e (2026-09-12): 서재 매체 — 디스크 전시대 · 레코드랙 꽂기/빼기 · 매체별 상한과 합산 · 보조 가구 배율(레코드 플레이어 3대 = 한 번) ·
+// TV / 레코드 플레이어 켜기 저장 · 보관함 패널의 매체 전환 · 회수 · v9 세이브 sanitize (+ 사라진 방의 보관함 매체 환불).
 // Usage: node scripts/smoke-library.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -23,7 +25,12 @@ const BOOKS_PER_SHELF = 6;
 const BOOK_XP_PER_BOOK = 0.05;
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다
    (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`, 6 = 배양조의 `cultures`, 7 = 방 시설 레벨 제거). */
-const SHIP_STATE_VERSION = 8;   // 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구
+const SHIP_STATE_VERSION = 9;   // 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구, v9 = 서재 매체 (media · mediaDex · toggled)
+/* A-3e (2026-09-12) 서재 매체 — data/constants.csv 의 DISC_* · RECORD_* · SHELF_AUX_BONUS_* (리터럴로 적어 조용한 재조정을 잡는다) */
+const DISC_SLOTS = 6, RECORD_SLOTS = 4;
+const DISC_XP = 0.06, RECORD_XP = 0.07;
+const MEDIA_GAIN_MAX = 2.0;
+const AUX_BONUS = 0.25;
 const BOOK_RARITY_MUL = { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 6 };
 const BOOK_GAIN_MAX = 2.0;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
@@ -81,7 +88,8 @@ try {
       window.__ev = {};
       const bus = window.__game.ctx.bus;
       for (const n of ['housing:loaded', 'housing:changed', 'housing:booksChanged', 'housing:furniturePlaced', 'housing:furnitureRecovered',
-        'housing:roomPurposeChanged', 'ui:bookshelfToggled', 'ui:housingToggled', 'ui:notify']) {
+        'housing:roomPurposeChanged', 'ui:bookshelfToggled', 'ui:housingToggled', 'ui:notify',
+        'housing:shelfChanged', 'ui:shelfToggled', 'housing:furnitureToggled', 'audio:play']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
       }
@@ -455,6 +463,289 @@ try {
   const roomCount = await H(async () => (await import('/src/shared/index.ts')).SHIP_ROOM_COUNT);
   ok(shipView.roomRows === roomCount && roomCount === 8, `함선 tab lists the ${roomCount} rooms (${shipView.roomRows})`);
   ok(await H(() => { window.__view.dispose(); const n = document.getElementById('smoke-shipview').querySelectorAll('.hs-ship').length; document.getElementById('smoke-shipview').remove(); return n === 0; }), 'createShipView().dispose() removes the view');
+
+  /* ══ 8. 서재 매체 (A-3e, 2026-09-12) ═══════════════════════════════════════ */
+  console.log('서재 매체 — 디스크 · 레코드 · 보조 가구 (A-3e)');
+  const K = await H(async () => {
+    const s = await import('/src/shared/index.ts');
+    return { slots: s.SHELF_SLOTS, xp: s.SHELF_XP_PER_ITEM, max: s.SHELF_GAIN_MAX, aux: s.SHELF_AUX_BONUS };
+  });
+  ok(K.slots.disc === DISC_SLOTS && K.slots.record === RECORD_SLOTS && K.slots.book === BOOKS_PER_SHELF, `SHELF_SLOTS 6 / 6 / 4 (${JSON.stringify(K.slots)})`);
+  ok(near(K.xp.book, BOOK_XP_PER_BOOK) && near(K.xp.disc, DISC_XP) && near(K.xp.record, RECORD_XP), `SHELF_XP_PER_ITEM 0.05 / 0.06 / 0.07 (${JSON.stringify(K.xp)})`);
+  ok(near(K.max.disc, MEDIA_GAIN_MAX) && near(K.max.record, MEDIA_GAIN_MAX) && near(K.aux.book, AUX_BONUS) && near(K.aux.disc, AUX_BONUS) && near(K.aux.record, AUX_BONUS),
+    `SHELF_GAIN_MAX 2.0 · SHELF_AUX_BONUS 0.25 (${JSON.stringify({ max: K.max, aux: K.aux })})`);
+  const mediaDefs = await H(() => {
+    const all = window.__game.ctx.loot.getAllItemDefs();
+    const pick = (k) => all.filter((d) => d[k]).map((d) => ({ id: d.id, skill: d[k].skill, rarity: d.rarity }));
+    return { disc: pick('disc'), record: pick('record') };
+  });
+  const haveMedia = mediaDefs.disc.length === 14 && mediaDefs.record.length === 14
+    && ['disc_gun_AR', 'disc_cryptography', 'disc_medicine', 'record_cryptography', 'record_medicine'].every((id) => [...mediaDefs.disc, ...mediaDefs.record].some((d) => d.id === id));
+  ok(haveMedia, `14 disc + 14 record item defs (items/) with disc_<skill> / record_<skill> ids (${mediaDefs.disc.length} / ${mediaDefs.record.length})`);
+  if (haveMedia) {
+    const rarityOf = (id) => [...mediaDefs.disc, ...mediaDefs.record].find((d) => d.id === id).rarity;
+    const hs = (fn, arg) => H(fn, arg);
+    const placeDef = (defId) => hs((d) => {
+      const h = window.__game.ctx.housing;
+      h.addToStorage(d, 1);
+      const s = h.findFreeSpot(3, d);
+      return s ? h.place(3, d, s.x, s.y, s.yaw)?.uid ?? null : null;
+    }, defId);
+    const shelfBonus = (skill) => hs((s) => window.__game.ctx.housing.getShelfBonus(s), skill);
+
+    // ── 보관함 배치 · 매체 질의 ──
+    const stand = await placeDef('furn_disc_stand');
+    const rack = await placeDef('furn_record_rack');
+    ok(!!stand && !!rack, `디스크 전시대 · 레코드랙 placed in the 서재 (${stand}, ${rack})`);
+    const med = await hs(({ stand, rack, shelfA }) => {
+      const h = window.__game.ctx.housing;
+      return { s: h.getShelfMedium(stand), r: h.getShelfMedium(rack), b: h.getShelfMedium(shelfA), none: h.getShelfMedium('f-999'),
+        cockpit: h.getShelfMedium(h.getPlaced(100)[0]?.uid ?? 'x'),
+        slotsS: h.getShelfSlots(stand), slotsR: h.getShelfSlots(rack), same: JSON.stringify(h.getShelfSlots(shelfA)) === JSON.stringify(h.getBooks(shelfA)),
+        notShelf: h.getShelfSlots('f-999').length };
+    }, { stand, rack, shelfA });
+    ok(med.s === 'disc' && med.r === 'record' && med.b === 'book' && med.none === null && med.cockpit === null,
+      `getShelfMedium → disc / record / book / null (${JSON.stringify([med.s, med.r, med.b, med.none, med.cockpit])})`);
+    ok(med.slotsS.length === DISC_SLOTS && med.slotsR.length === RECORD_SLOTS && med.slotsS.every((s, i) => s.slot === i && s.defId === null && s.weight === 0),
+      `getShelfSlots → ${DISC_SLOTS} / ${RECORD_SLOTS} empty slots (${med.slotsS.length}/${med.slotsR.length})`);
+    ok(med.same && med.notShelf === 0, 'getShelfSlots(책장) === getBooks(책장), a non-보관함 → []');
+
+    // ── 꽂기 ──
+    ok(await giveStash('disc_gun_AR', 1) === 1 && await giveStash('disc_cryptography', 6) === 6 && await giveStash('record_cryptography', 4) === 4,
+      'discs (돌격소총 1 · 암호학 6) and records (암호학 4) in the 창고');
+    const ownedM = await hs(() => { const h = window.__game.ctx.housing; return { d: h.getOwnedShelfItems('disc'), r: h.getOwnedShelfItems('record'), b: JSON.stringify(h.getOwnedShelfItems('book')) === JSON.stringify(h.getOwnedBooks()) }; });
+    ok(ownedM.d.length === 2 && ownedM.d.some((e) => e.defId === 'disc_cryptography' && e.qty === 6) && ownedM.r.length === 1 && ownedM.r[0].qty === 4 && ownedM.b,
+      `getOwnedShelfItems per medium (${JSON.stringify(ownedM)})`);
+    const b0 = await shelfBonus('gun_AR');
+    ok(b0.parts.disc === 0 && b0.parts.record === 0 && !b0.aux.book && !b0.aux.disc && !b0.aux.record && near(b0.total, 1 + b0.parts.book) && near(await bonus('gun_AR'), b0.total),
+      `getShelfBonus without media / aux = the book part alone = getBookBonus (${JSON.stringify(b0)})`);
+    const nShelfEv = (await ev('housing:shelfChanged')).length;
+    ok(await hs(({ stand }) => window.__game.ctx.housing.placeShelfItem(stand, 0, 'disc_gun_AR'), { stand }) === null, 'placeShelfItem(전시대, 0, disc_gun_AR) → null');
+    ok((await countAll('disc_gun_AR')) === 0, 'the disc left the 창고');
+    const sc = await lastEv('housing:shelfChanged');
+    ok(sc && sc.uid === stand && sc.medium === 'disc' && sc.count === 1, `housing:shelfChanged {uid, disc, 1} (${JSON.stringify(sc)})`);
+    ok((await lastEv('housing:changed'))?.reason === 'shelfPlace', "housing:changed {reason: 'shelfPlace'}");
+    const dexes = await hs(() => { const h = window.__game.ctx.housing; return { d: h.getShelfDex('disc'), r: h.getShelfDex('record'), b: h.getShelfDex('book'), bd: h.getBookDex() }; });
+    ok(dexes.d.includes('disc_gun_AR') && !dexes.r.includes('disc_gun_AR') && !dexes.b.includes('disc_gun_AR') && JSON.stringify(dexes.b) === JSON.stringify(dexes.bd),
+      `도감 per medium (disc ${dexes.d.join(',')} · book = getBookDex)`);
+    const s0d = (await hs(({ stand }) => window.__game.ctx.housing.getShelfSlots(stand), { stand }))[0];
+    ok(s0d.defId === 'disc_gun_AR' && s0d.skill === 'gun_AR' && s0d.rarity === rarityOf('disc_gun_AR') && s0d.weight === BOOK_RARITY_MUL[s0d.rarity],
+      `slot 0 carries skill / rarity / weight (${JSON.stringify(s0d)})`);
+    const b1 = await shelfBonus('gun_AR');
+    ok(near(b1.parts.disc, DISC_XP * BOOK_RARITY_MUL[rarityOf('disc_gun_AR')]) && near(b1.total, 1 + b1.parts.book + b1.parts.disc)
+      && near(await bonus('gun_AR'), b1.total) && near(await hs(() => window.__game.ctx.housing.getSkillGainMul('gun_AR')), b1.total),
+    `one disc adds its own part; getBookBonus = getSkillGainMul = the total (${JSON.stringify(b1)})`);
+    // refusals
+    const ref = await hs(({ stand, rack }) => {
+      const h = window.__game.ctx.housing;
+      return {
+        dup: h.placeShelfItem(stand, 0, 'disc_cryptography'), book: h.placeShelfItem(stand, 1, 'book_grit'), wrong: h.placeShelfItem(rack, 0, 'disc_cryptography'),
+        slotD: h.placeShelfItem(stand, 6, 'disc_cryptography'), slotR: h.placeShelfItem(rack, 4, 'record_cryptography'),
+        none: h.placeShelfItem('f-999', 0, 'disc_cryptography'), stock: h.placeShelfItem(stand, 1, 'disc_medicine'),
+      };
+    }, { stand, rack });
+    ok(ref.dup === '이미 디스크가 꽂혀 있습니다' && ref.book === '디스크가 아닙니다' && ref.wrong === '레코드가 아닙니다', `매체가 맞지 않으면 거절 (${JSON.stringify([ref.dup, ref.book, ref.wrong])})`);
+    ok(/없는 .*칸입니다/.test(ref.slotD ?? '') && /없는 .*칸입니다/.test(ref.slotR ?? '') && ref.none === '보관함이 아닙니다' && /없습니다/.test(ref.stock ?? ''),
+      `slot ${DISC_SLOTS} / ${RECORD_SLOTS} out of range, missing uid, unowned disc (${JSON.stringify([ref.slotD, ref.slotR, ref.none, ref.stock])})`);
+    ok((await ev('housing:shelfChanged')).length === nShelfEv + 1, 'no housing:shelfChanged from any refusal');
+    // the common API on a 책장 goes through the old book path
+    const bookPut = await hs(({ shelfA }) => {
+      const h = window.__game.ctx.housing;
+      const free = h.getShelfSlots(shelfA).find((s) => !s.defId);
+      const owned = h.getOwnedShelfItems('book')[0];
+      if (!free || !owned) return { skipped: true };
+      return { r: h.placeShelfItem(shelfA, free.slot, owned.defId), defId: owned.defId };
+    }, { shelfA });
+    ok(bookPut.skipped || (bookPut.r === null && (await lastEv('housing:booksChanged'))?.uid === shelfA && (await lastEv('housing:shelfChanged'))?.medium === 'book'
+      && (await lastEv('housing:changed'))?.reason === 'bookPlace'),
+    `placeShelfItem on a 책장 = placeBook (+ housing:booksChanged and housing:shelfChanged {book}) (${JSON.stringify(bookPut)})`);
+
+    // ── 매체별 상한 · 합산 ──
+    const cryptoR = BOOK_RARITY_MUL[rarityOf('disc_cryptography')];
+    const cryptoBook = (await shelfBonus('cryptography')).parts.book;
+    for (let slot = 1; slot < DISC_SLOTS; slot++) await hs(({ stand, slot }) => window.__game.ctx.housing.placeShelfItem(stand, slot, 'disc_cryptography'), { stand, slot });
+    const bc5 = await shelfBonus('cryptography');
+    const discPart = Math.min(MEDIA_GAIN_MAX - 1, DISC_XP * cryptoR * (DISC_SLOTS - 1));
+    ok(near(bc5.parts.disc, discPart), `${DISC_SLOTS - 1} discs → the disc part is min(1, 0.06 × ${cryptoR} × ${DISC_SLOTS - 1}) = ${discPart} (${bc5.parts.disc})`);
+    for (let slot = 0; slot < RECORD_SLOTS; slot++) await hs(({ rack, slot }) => window.__game.ctx.housing.placeShelfItem(rack, slot, 'record_cryptography'), { rack, slot });
+    const bc9 = await shelfBonus('cryptography');
+    const recordPart = Math.min(MEDIA_GAIN_MAX - 1, RECORD_XP * BOOK_RARITY_MUL[rarityOf('record_cryptography')] * RECORD_SLOTS);
+    ok(near(bc9.parts.record, recordPart) && near(bc9.total, 1 + cryptoBook + discPart + recordPart),
+      `records add their own capped part — total 1 + ${cryptoBook} + ${discPart} + ${recordPart} (${bc9.total})`);
+    ok(bc9.total > BOOK_GAIN_MAX && near(await bonus('cryptography'), bc9.total), `separate caps: the 서재 total passes the old BOOK_GAIN_MAX (${bc9.total})`);
+    ok((await lastEv('housing:shelfChanged'))?.medium === 'record' && (await lastEv('housing:shelfChanged'))?.count === RECORD_SLOTS, 'housing:shelfChanged {record, 4}');
+
+    // ── 보조 가구 ──
+    const tv = await placeDef('furn_tv');
+    ok(!!tv && await hs(() => { const h = window.__game.ctx.housing; return h.hasShelfAux('disc') && !h.hasShelfAux('record') && !h.hasShelfAux('book'); }), `TV placed → hasShelfAux(disc) only (${tv})`);
+    const bTv = await shelfBonus('cryptography');
+    ok(bTv.aux.disc && near(bTv.parts.disc, discPart * (1 + AUX_BONUS)) && near(bTv.parts.record, recordPart), `TV multiplies the capped disc part × ${1 + AUX_BONUS} (${bTv.parts.disc})`);
+    const gram = await placeDef('furn_gramophone');
+    const bG = await shelfBonus('cryptography');
+    ok(!!gram && bG.aux.record && near(bG.parts.record, recordPart * (1 + AUX_BONUS)), `축음기 → record part × ${1 + AUX_BONUS} (${bG.parts.record})`);
+    const juke = await placeDef('furn_jukebox');
+    const turn = await placeDef('furn_turntable');
+    const b3 = await shelfBonus('cryptography');
+    ok(!!juke && !!turn && near(b3.parts.record, recordPart * (1 + AUX_BONUS)), `3 레코드 플레이어 apply once, not three times (${b3.parts.record})`);
+    const chair = await placeDef('furn_rocking_chair');
+    const bChair = await shelfBonus('gun_AR');
+    ok(!!chair && bChair.aux.book && near(bChair.parts.book, b1.parts.book * (1 + AUX_BONUS)) && near(await bonus('gun_AR'), bChair.total),
+      `흔들의자 → book part × ${1 + AUX_BONUS} (${b1.parts.book} → ${bChair.parts.book})`);
+    ok(await hs(({ tv, chair }) => window.__game.ctx.housing.getShelfMedium(tv) === null && window.__game.ctx.housing.getShelfMedium(chair) === null, { tv, chair }), 'aux pieces are not 보관함');
+
+    // ── 켜기 / 끄기 ──
+    const tg = await hs(({ tv, gram, juke, stand, chair }) => {
+      const h = window.__game.ctx.housing;
+      const n = window.__ev['audio:play'].length;
+      const out = { tv: h.toggleFurniture(tv), gram: h.toggleFurniture(gram), juke1: h.toggleFurniture(juke), juke2: h.toggleFurniture(juke),
+        stand: h.toggleFurniture(stand), chair: h.toggleFurniture(chair), none: h.toggleFurniture('f-999') };
+      out.sounds = window.__ev['audio:play'].slice(n).map((e) => e.id);
+      out.on = { tv: h.isFurnitureOn(tv), gram: h.isFurnitureOn(gram), juke: h.isFurnitureOn(juke), stand: h.isFurnitureOn(stand) };
+      out.toggled = [...h.state.toggled];
+      return out;
+    }, { tv, gram, juke, stand, chair });
+    ok(tg.tv === true && tg.gram === true && tg.juke1 === true && tg.juke2 === false, `toggleFurniture returns the new state (${JSON.stringify(tg)})`);
+    ok(tg.stand === null && tg.chair === null && tg.none === null, 'a 보관함 / 흔들의자 / missing uid cannot be toggled (null)');
+    ok(tg.on.tv && tg.on.gram && !tg.on.juke && !tg.on.stand && JSON.stringify(tg.toggled) === JSON.stringify([tv, gram]), `isFurnitureOn + state.toggled (${JSON.stringify(tg.toggled)})`);
+    ok(JSON.stringify(tg.sounds) === JSON.stringify(['tv_on', 'record_on', 'record_on', 'record_off']), `audio:play tv_on / record_on / record_off (${tg.sounds.join(',')})`);
+    const ft = await lastEv('housing:furnitureToggled');
+    ok(ft && ft.uid === juke && ft.on === false && (await lastEv('housing:changed'))?.reason === 'toggle', `housing:furnitureToggled + housing:changed {toggle} (${JSON.stringify(ft)})`);
+
+    // ── 빼기 ──
+    ok(await hs(({ stand }) => window.__game.ctx.housing.takeShelfItem(stand, 0), { stand }) === null, 'takeShelfItem(전시대, 0) → null');
+    ok((await countAll('disc_gun_AR')) === 1 && (await shelfBonus('gun_AR')).parts.disc === 0, 'the disc came back and its part is gone');
+    ok((await lastEv('housing:shelfChanged'))?.count === DISC_SLOTS - 1 && (await lastEv('housing:changed'))?.reason === 'shelfTake', "housing:shelfChanged {5} + housing:changed {shelfTake}");
+    const takeRef = await hs(({ stand }) => ({ empty: window.__game.ctx.housing.takeShelfItem(stand, 0), none: window.__game.ctx.housing.takeShelfItem('f-999', 0), dex: window.__game.ctx.housing.getShelfDex('disc') }), { stand });
+    ok(takeRef.empty === '꽂힌 디스크가 없습니다' && takeRef.none === '보관함이 아닙니다' && takeRef.dex.includes('disc_gun_AR'), `take refusals; 도감 keeps the disc (${JSON.stringify(takeRef)})`);
+
+    // ── 패널 ──
+    await hs(({ stand }) => window.__game.ctx.housing.openShelf(stand), { stand });
+    await sleep(140);
+    const pD = await hs(() => {
+      const root = document.querySelector('.menu.housing-menu.bookshelf-menu');
+      return { hidden: root.hidden, medium: root.dataset.medium, cards: root.querySelectorAll('.hs-book').length, filled: root.querySelectorAll('.hs-book:not(.empty)').length,
+        title: root.querySelector('.hs-head .title').textContent, sub: root.querySelector('.hs-head .subtitle').textContent,
+        aux: root.querySelector('.hs-shelf-aux').textContent, auxOn: root.querySelector('.hs-shelf-aux').classList.contains('on'),
+        dexMedium: root.querySelector('.hs-dex').dataset.medium, dexOwned: root.querySelectorAll('.hs-dex-row.owned').length,
+        picks: root.querySelectorAll('.hs-bookpick').length, blocker: window.__game.ctx.uiBlockers.has('housing') };
+    });
+    ok(!pD.hidden && pD.blocker && pD.medium === 'disc' && pD.cards === DISC_SLOTS && pD.filled === DISC_SLOTS - 1, `openShelf(전시대) → disc panel, ${DISC_SLOTS} cards (${JSON.stringify(pD)})`);
+    ok(/디스크 전시대/.test(pD.title) && /5 \/ 6장/.test(pD.sub), `title / subtitle name the stand (${pD.title} · ${pD.sub})`);
+    ok(pD.auxOn && /TV/.test(pD.aux) && pD.aux.includes(`+${Math.round(AUX_BONUS * 100)} %`) && /디스크 몫/.test(pD.aux), `aux line from SHELF_AUX_BONUS (${pD.aux})`);
+    ok(pD.dexMedium === 'disc' && pD.dexOwned === 2 && pD.picks === 2, `도감 · picker switched to discs (owned ${pD.dexOwned}, picks ${pD.picks})`);
+    const stD = await lastEv('ui:shelfToggled');
+    ok(stD && stD.open === true && stD.uid === stand && stD.medium === 'disc', `ui:shelfToggled {open, uid, disc} (${JSON.stringify(stD)})`);
+    const nBookTog = (await ev('ui:bookshelfToggled')).length;
+    await hs(({ rack }) => window.__game.ctx.housing.openShelf(rack), { rack });
+    await sleep(140);
+    const pR = await hs(() => {
+      const root = document.querySelector('.menu.housing-menu.bookshelf-menu');
+      return { medium: root.dataset.medium, cards: root.querySelectorAll('.hs-book').length, sub: root.querySelector('.hs-head .subtitle').textContent, aux: root.querySelector('.hs-shelf-aux').textContent };
+    });
+    const togs = (await ev('ui:shelfToggled')).slice(-2);
+    ok(pR.medium === 'record' && pR.cards === RECORD_SLOTS && /4 \/ 4장/.test(pR.sub) && /축음기/.test(pR.aux), `openShelf(레코드랙) redraws for records (${JSON.stringify(pR)})`);
+    ok(togs[0]?.open === false && togs[1]?.open === true && togs[1]?.medium === 'record' && (await ev('ui:bookshelfToggled')).length === nBookTog,
+      `switching 보관함 closes the disc panel first; no ui:bookshelfToggled (${JSON.stringify(togs)})`);
+    // pick a record in the panel? all 4 are shelved — take one out through the DOM instead
+    await hs(() => document.querySelector('.menu.bookshelf-menu .hs-book:not(.empty) .actions .ui-btn:not(.primary)').click());
+    await sleep(120);
+    ok((await hs(({ rack }) => window.__game.ctx.housing.getShelfSlots(rack).filter((s) => s.defId).length, { rack })) === RECORD_SLOTS - 1
+      && /레코드를 뺐습니다/.test(await hs(() => document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '')), '빼기 button on a record card');
+    await tap('KeyE');
+    await sleep(140);
+    ok(await hs(() => document.querySelector('.menu.bookshelf-menu').hidden && !window.__game.ctx.uiBlockers.has('housing')) && (await lastEv('ui:shelfToggled'))?.open === false,
+      'E closes the record panel (ui:shelfToggled {open:false})');
+    await hs(({ shelfA }) => window.__game.ctx.housing.openShelf(shelfA), { shelfA });
+    await sleep(140);
+    const pB = await hs(() => { const root = document.querySelector('.menu.bookshelf-menu'); return { medium: root.dataset.medium, cards: root.querySelectorAll('.hs-book').length, aux: root.querySelector('.hs-shelf-aux').textContent }; });
+    ok(pB.medium === 'book' && pB.cards === BOOKS_PER_SHELF && /흔들의자 배치됨/.test(pB.aux) && (await lastEv('ui:bookshelfToggled'))?.open === true,
+      `openShelf(책장) = the book panel + ui:bookshelfToggled (${JSON.stringify(pB)})`);
+    await tap('KeyE');
+    await sleep(140);
+    const notBox = await hs(({ tv }) => { const n = window.__ev['ui:notify'].length; window.__game.ctx.housing.openShelf(tv); return { opened: !document.querySelector('.menu.bookshelf-menu').hidden, warned: window.__ev['ui:notify'].length > n }; }, { tv });
+    ok(!notBox.opened && notBox.warned, 'openShelf on a non-보관함 warns instead of opening');
+
+    // ── 회수 ──
+    const blockedR = await hs(({ rack }) => {
+      const inv = window.__game.ctx.inventory;
+      const realAdd = inv.tryAddToStash, realSize = inv.getStashSize, realItems = inv.getStashItems;
+      inv.tryAddToStash = () => false;
+      inv.getStashSize = () => ({ cols: 1, rows: 1 });
+      inv.getStashItems = () => [];
+      const h = window.__game.ctx.housing;
+      const out = { reason: h.recoverBlock(rack), empty: h.purposeBlock(3, 'empty'), recovered: h.recover(rack), left: h.getShelfSlots(rack).filter((s) => s.defId).length };
+      inv.tryAddToStash = realAdd; inv.getStashSize = realSize; inv.getStashItems = realItems;
+      return out;
+    }, { rack });
+    ok(/레코드를 먼저 빼세요/.test(blockedR.reason ?? '') && blockedR.recovered === false && blockedR.left === RECORD_SLOTS - 1,
+      `recoverBlock / recover refuse a 레코드랙 whose records have no room (${JSON.stringify(blockedR)})`);
+    ok(typeof blockedR.empty === 'string' && /먼저 빼세요/.test(blockedR.empty), `purposeBlock(서재, 빈 방) reports a 보관함 too (${blockedR.empty})`);
+    const stashRec = await countStash('record_cryptography');
+    ok(await hs(({ rack }) => window.__game.ctx.housing.recover(rack), { rack }) === true, 'recover the 레코드랙');
+    ok((await countStash('record_cryptography')) === stashRec + RECORD_SLOTS - 1 && (await shelfBonus('cryptography')).parts.record === 0, 'its records moved to the 창고, the record part is gone');
+    const scR = await lastEv('housing:shelfChanged');
+    ok(scR && scR.uid === rack && scR.medium === 'record' && scR.count === 0, `housing:shelfChanged {record, count 0} on recover (${JSON.stringify(scR)})`);
+    ok(await hs(({ gram }) => { const h = window.__game.ctx.housing; return h.recover(gram) && !h.state.toggled.includes(gram) && h.hasShelfAux('record'); }, { gram }),
+      'recovering a toggled 축음기 drops it from toggled; 주크박스 · 턴테이블 keep the record aux');
+
+    // ── 저장 · 새로고침 ──
+    await hs(() => window.__game.ctx.housing.save());
+    const savedM = await hs(() => JSON.parse(localStorage.getItem('scav.s1.ship')));
+    ok(savedM.version === SHIP_STATE_VERSION && Array.isArray(savedM.media) && savedM.media.length === DISC_SLOTS - 1 && savedM.media.every((e) => e.uid === stand && e.defId === 'disc_cryptography'),
+      `v${SHIP_STATE_VERSION} save carries media (${JSON.stringify(savedM.media)})`);
+    ok(['disc_gun_AR', 'disc_cryptography', 'record_cryptography'].every((id) => savedM.mediaDex.includes(id)) && JSON.stringify(savedM.toggled) === JSON.stringify([tv]),
+      `mediaDex + toggled written (${savedM.mediaDex.join(',')} · ${JSON.stringify(savedM.toggled)})`);
+    await page.reload({ waitUntil: 'load' });
+    await setup();
+    const afterM = await hs(({ stand, tv, juke }) => {
+      const h = window.__game.ctx.housing;
+      return { v: h.state.version, on: h.isFurnitureOn(tv), juke: h.isFurnitureOn(juke), filled: h.getShelfSlots(stand).filter((s) => s.defId).length,
+        disc: h.getShelfBonus('cryptography').parts.disc, rdex: h.getShelfDex('record') };
+    }, { stand, tv, juke });
+    ok(afterM.v === SHIP_STATE_VERSION && afterM.on === true && afterM.juke === false, `TV stays on across a reload (${JSON.stringify(afterM)})`);
+    ok(afterM.filled === DISC_SLOTS - 1 && near(afterM.disc, discPart * (1 + AUX_BONUS)) && afterM.rdex.includes('record_cryptography'), 'media · bonus · record 도감 survive a reload');
+
+    // ── sanitize (v9) + 사라진 방의 보관함 매체 환불 (v8 경로) ──
+    await hs(() => window.__game.ctx.housing.save());
+    ok((await countAll('disc_medicine')) === 0, 'no 『전장 의학』 disc anywhere before the corrupt save');
+    await hs(({ stand, tv, juke, shelfA }) => {
+      const raw = JSON.parse(localStorage.getItem('scav.s1.ship'));
+      raw.media = [
+        { uid: stand, slot: 0, defId: 'disc_ghost' },            // disc-shaped, no such def → pruned at runtime
+        ...raw.media,                                              // the five 암호학 discs (slots 1…5)
+        { uid: stand, slot: 1, defId: 'disc_medicine' },         // duplicate slot → dropped
+        { uid: stand, slot: 6, defId: 'disc_grit' },             // slot out of range → dropped
+        { uid: stand, slot: 0, defId: 'record_grit' },           // a record on a 디스크 전시대 → dropped
+        { uid: stand, slot: 0, defId: 'book_grit' },             // a book in media → dropped
+        { uid: tv, slot: 0, defId: 'disc_grit' },                // not a 보관함 → dropped
+        { uid: shelfA, slot: 5, defId: 'disc_grit' },            // a 책장 holds no discs → dropped
+        { uid: 'f-nope', slot: 0, defId: 'disc_grit' },          // unknown uid → dropped
+        { uid: stand, slot: 'x', defId: 'disc_grit' },           // bad slot → dropped
+        { uid: 'f-900', slot: 0, defId: 'disc_medicine' },       // on a stand in a removed room → refunded to the 창고
+        { uid: 'f-900', slot: 1, defId: 'record_medicine' },     // wrong medium for that stand → not refunded
+      ];
+      raw.mediaDex = ['disc_gun_AR', 'disc_gun_AR', 'mat_scrap', 7, 'book_grit', 'record_cryptography'];
+      raw.toggled = [tv, tv, stand, 'f-nope', juke, 42];
+      raw.rooms[8] = { purpose: 'library', level: 1 };           // 방 9 (v8: removed + refunded)
+      raw.furniture.push({ uid: 'f-900', defId: 'furn_disc_stand', room: 8, x: 0, y: 0, yaw: 0, level: 1 });
+      localStorage.setItem('scav.s1.ship', JSON.stringify(raw));
+    }, { stand, tv, juke, shelfA });
+    await page.reload({ waitUntil: 'load' });
+    await setup();
+    await waitFor(page, () => window.__game.ctx.inventory.countDefAll('disc_medicine') >= 1, 'removed-room disc refund', 15000).catch(() => null);
+    const sanM = await hs(({ stand, tv, juke }) => {
+      const h = window.__game.ctx.housing;
+      return { slots: h.getShelfSlots(stand).map((s) => s.defId), media: h.media().length, ddex: h.getShelfDex('disc'), rdex: h.getShelfDex('record'), raw: [...h.state.mediaDex],
+        toggled: [...h.state.toggled], f900: !!h.getPlacedByUid('f-900'),
+        med: window.__game.ctx.inventory.countDefAll('disc_medicine'), recMed: window.__game.ctx.inventory.countDefAll('record_medicine') };
+    }, { stand, tv, juke });
+    ok(sanM.slots[0] === null && sanM.slots.slice(1).every((d) => d === 'disc_cryptography') && sanM.media === DISC_SLOTS - 1,
+      `every bad media entry dropped, the unknown disc pruned at runtime (${JSON.stringify(sanM.slots)})`);
+    ok(sanM.ddex.filter((d) => d === 'disc_gun_AR').length === 1 && sanM.ddex.includes('disc_cryptography') && !sanM.raw.includes('mat_scrap') && !sanM.raw.includes('book_grit') && !sanM.raw.includes(7)
+      && sanM.rdex.includes('record_cryptography'), `mediaDex de-duplicated, shape-checked, contains every shelved disc (${sanM.raw.join(',')})`);
+    ok(JSON.stringify(sanM.toggled) === JSON.stringify([tv, juke]), `toggled keeps only placed TV / 레코드 플레이어 uids, once (${JSON.stringify(sanM.toggled)})`);
+    ok(!sanM.f900 && sanM.med === 1 && sanM.recMed === 0, `a removed room's 디스크 전시대 refunds its disc to the 창고, not the wrong-medium record (${JSON.stringify({ f900: sanM.f900, med: sanM.med, rec: sanM.recMed })})`);
+  }
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

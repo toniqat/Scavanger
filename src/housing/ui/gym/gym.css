@@ -1,0 +1,173 @@
+/* ============================================================================
+ * SCAVANGER — 헬스장 운동 화면 (A-3a, 2026-09-12; housing/ui/gym). 접두사 `.gym-` 전용.
+ *
+ * 키보드 게임이라 **화면 전체를 덮지 않는다** — hub 가 옆에서 비추는 운동 자세가 보여야 한다. 루트는 투명한 막
+ * (`pointer-events: none`)이고 카드(시작 안내 · 결과)는 일시정지 메뉴와 같은 자리(화면 왼쪽 절반의 가운데), 게임
+ * 패널은 화면 아래 가운데에 선다. 모서리 강조 · 반투명 판 · 모노 숫자는 `.menu .frame` 과 같은 결이다.
+ * 판정 색: 완벽 = 강조색(호박) · 좋음 = 본문색 · 실패 = 위험색.
+ * ========================================================================== */
+
+.gym { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
+.gym[hidden] { display: none; }
+
+.gym-card, .gym-panel {
+  position: absolute;
+  display: flex; flex-direction: column;
+  background: var(--c-panel-strong);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  animation: gymIn 260ms var(--ease);
+}
+.gym-card::before, .gym-card::after, .gym-panel::before, .gym-panel::after {
+  content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--c-accent); pointer-events: none;
+}
+.gym-card::before, .gym-panel::before { left: -1px; top: -1px; border-right: none; border-bottom: none; }
+.gym-card::after, .gym-panel::after { right: -1px; bottom: -1px; border-left: none; border-top: none; }
+@keyframes gymIn { from { opacity: 0; transform: translate(var(--gym-tx, 0), calc(var(--gym-ty, 0px) + 8px)); } }
+
+/* ── 카드 (시작 안내 · 결과) ──────────────────────────────────────────── */
+.gym-card {
+  --gym-tx: -50%; --gym-ty: -50%;
+  left: clamp(220px, 25vw, 50vw); top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(400px, calc(100vw - 48px));
+  gap: 14px; padding: 28px 30px;
+}
+.gym-kicker { font-size: 10px; font-weight: 600; letter-spacing: 0.18em; color: var(--c-text-dim); }
+.gym-title { font-size: 28px; font-weight: 700; letter-spacing: 0.16em; line-height: 1.05; margin-top: -4px; }
+.gym-sub { font-size: 12px; letter-spacing: 0.12em; color: var(--c-accent); margin-top: -6px; }
+.gym-rule, .gym-hint { font-size: 12px; line-height: 1.55; letter-spacing: 0.03em; color: var(--c-text-dim); }
+.gym-warn {
+  font-size: 12px; line-height: 1.5; letter-spacing: 0.03em; color: var(--c-danger);
+  padding: 8px 10px; border-left: 2px solid var(--c-danger); background: rgba(255, 77, 77, 0.08);
+}
+.gym-warn.is-gone, .gym-fatigue.is-gone { display: none; }
+.gym-foot { display: flex; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+.gym-foot .keycap { min-width: 54px; height: 26px; font-size: 12px; border-color: var(--c-accent); color: var(--c-accent); }
+.gym-foot-label { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; }
+
+.gym-trained { display: flex; flex-direction: column; gap: 6px; }
+.gym-trained-line { display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.gym-trained-stat { font-weight: 700; letter-spacing: 0.1em; }
+.gym-trained-val { font-family: var(--ui-mono); color: var(--c-accent); font-weight: 700; }
+.gym-trained-next { margin-left: auto; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-faint); }
+.gym-bar { position: relative; height: 4px; background: var(--c-fill); overflow: hidden; }
+.gym-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--c-accent); }
+
+.gym-score { display: flex; align-items: baseline; gap: 4px; font-family: var(--ui-mono); line-height: 1; }
+.gym-score-num { font-size: 56px; font-weight: 700; letter-spacing: 0.02em; }
+.gym-score-unit { font-size: 20px; color: var(--c-text-dim); }
+.gym-counts { display: flex; gap: 16px; font-size: 12px; }
+.gym-cnt { display: inline-flex; gap: 6px; align-items: baseline; }
+.gym-cnt b { font-weight: 600; letter-spacing: 0.08em; }
+.gym-cnt span { font-family: var(--ui-mono); }
+.gym-cnt.is-perfect b { color: var(--c-accent); }
+.gym-cnt.is-miss b { color: var(--c-danger); }
+.gym-xp { font-family: var(--ui-mono); font-size: 14px; letter-spacing: 0.04em; }
+.gym-level {
+  align-self: flex-start; padding: 4px 10px;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.12em; color: #111; background: var(--c-accent);
+}
+.gym-fatigue { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
+
+/* ── 게임 패널 ───────────────────────────────────────────────────────── */
+.gym-panel {
+  --gym-tx: -50%;
+  left: 50%; bottom: 14vh;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 48px));
+  gap: 12px; padding: 16px 20px 14px;
+}
+.gym-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.gym-name { font-size: 11px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gym-count { font-family: var(--ui-mono); font-size: 14px; font-weight: 700; color: var(--c-text); }
+.gym-hint { font-size: 11px; color: var(--c-text-faint); }
+
+.gym-verdict {
+  position: absolute; left: 50%; top: -18px; transform: translate(-50%, -100%);
+  font-size: 34px; font-weight: 800; letter-spacing: 0.22em; margin-right: -0.22em;
+  opacity: 0; pointer-events: none; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+.gym-verdict.is-perfect { color: var(--c-accent); }
+.gym-verdict.is-good { color: var(--c-text); }
+.gym-verdict.is-miss { color: var(--c-danger); }
+.gym-verdict.show { animation: gymVerdict 620ms var(--ease) forwards; }
+@keyframes gymVerdict {
+  0% { opacity: 0; transform: translate(-50%, -80%) scale(1.25); }
+  18% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -125%) scale(1); }
+}
+
+/* 벤치프레스 — 굵은 가로 바 · 가운데 구역 · 왕복 원형 커서 */
+.gym-press { display: flex; flex-direction: column; gap: 10px; }
+.gym-press-bar {
+  position: relative; height: 34px; margin: 0 17px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--c-border-strong);
+}
+.gym-press-zone, .gym-press-perfect, .gym-press-mid { position: absolute; top: 0; bottom: 0; left: 50%; transform: translateX(-50%); }
+.gym-press-zone { background: rgba(255, 255, 255, 0.12); border-left: 1px solid rgba(255, 255, 255, 0.35); border-right: 1px solid rgba(255, 255, 255, 0.35); }
+.gym-press-perfect { background: color-mix(in srgb, var(--c-accent) 55%, transparent); }
+.gym-press-mid { width: 1px; background: var(--c-accent); }
+.gym-press-cursor {
+  position: absolute; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border-radius: 50%; border: 2px solid var(--c-text); background: rgba(8, 9, 11, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+.gym-press-cursor.in-zone { border-color: var(--c-accent); box-shadow: 0 0 10px color-mix(in srgb, var(--c-accent) 60%, transparent); }
+.gym-press-cursor.is-down { background: var(--c-text); }
+.gym-press-bar.hit-perfect { animation: gymHitPerfect 380ms var(--ease); }
+.gym-press-bar.hit-good { animation: gymHitGood 380ms var(--ease); }
+.gym-press-bar.hit-miss { animation: gymHitMiss 380ms var(--ease); }
+@keyframes gymHitPerfect { from { border-color: var(--c-accent); box-shadow: 0 0 14px color-mix(in srgb, var(--c-accent) 70%, transparent); } }
+@keyframes gymHitGood { from { border-color: var(--c-text); } }
+@keyframes gymHitMiss { from { border-color: var(--c-danger); background: rgba(255, 77, 77, 0.14); } }
+
+.gym-pips { display: flex; justify-content: center; gap: 6px; }
+.gym-pip { width: 18px; height: 6px; background: var(--c-fill); border: 1px solid var(--c-border); }
+.gym-pip.is-now { border-color: var(--c-text); }
+.gym-pip.is-perfect { background: var(--c-accent); border-color: var(--c-accent); }
+.gym-pip.is-good { background: var(--c-text); border-color: var(--c-text); }
+.gym-pip.is-miss { background: var(--c-danger); border-color: var(--c-danger); }
+
+/* 호흡 달리기 · 사이클링 — 오른쪽에서 흘러와 판정선에 닿는 표식 */
+.gym-lanes { display: flex; flex-direction: column; gap: 6px; }
+.gym-lane-row { display: flex; align-items: center; gap: 10px; }
+.gym-lane-key { flex: none; min-width: 48px; height: 26px; font-size: 12px; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.gym-lane-key.is-down { background: var(--c-accent); border-color: var(--c-accent); color: #111; }
+.gym-lane {
+  --judge: 10%;
+  position: relative; flex: 1; min-width: 0; height: 44px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
+}
+.gym-cycle .gym-lane { height: 36px; }
+.gym-judge { position: absolute; top: 0; bottom: 0; left: var(--judge); width: 2px; margin-left: -1px; background: var(--c-accent); box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 60%, transparent); }
+.gym-lane.hit-perfect { animation: gymHitPerfect 300ms var(--ease); }
+.gym-lane.hit-miss { animation: gymHitMiss 300ms var(--ease); }
+
+.gym-note {
+  --nh: 28px; --x: 2; --f: 0;
+  position: absolute; top: 50%;
+  left: calc(var(--judge) + var(--x) * (100% - var(--judge)));
+  width: var(--nh); height: var(--nh);
+  transform: translate(-50%, -50%);
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(232, 230, 225, 0.7); border-radius: 50%;
+  background: rgba(8, 9, 11, 0.85);
+  font-size: 12px; font-weight: 700;
+}
+.gym-cycle .gym-note { --nh: 24px; font-size: 10px; font-family: var(--ui-mono); }
+.gym-note.is-off { display: none; }
+.gym-note.is-next { border-color: var(--c-text); }
+.gym-note.is-hold {
+  width: calc(var(--len) * (100% - var(--judge)) + var(--nh));
+  transform: translate(calc(var(--nh) / -2), -50%);
+  border-radius: calc(var(--nh) / 2);
+  justify-content: flex-start; padding-left: 7px; overflow: hidden;
+}
+.gym-note-fill { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--f) * 100%); background: color-mix(in srgb, var(--c-accent) 40%, transparent); }
+.gym-note-label { position: relative; }
+.gym-note.is-holding { border-color: var(--c-accent); }
+.gym-note.is-perfect { border-color: var(--c-accent); background: color-mix(in srgb, var(--c-accent) 30%, rgba(8, 9, 11, 0.85)); }
+.gym-note.is-good { border-color: var(--c-text); background: rgba(232, 230, 225, 0.18); }
+.gym-note.is-miss { border-color: var(--c-danger); color: var(--c-danger); opacity: 0.55; }

@@ -6,7 +6,7 @@
  * `PlayerSystem.ts` 가 그대로 재수출하므로 기존 import 경로는 전부 유지된다.
  */
 import * as THREE from 'three';
-import type { PlayerRestoreState } from '@/shared';
+import type { FurniturePoseKind, PlayerRestoreState } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -88,6 +88,111 @@ export const CLIMB_GRAB_OFFSET_MAX = 2;
 /** 가로대 소리 크기: 보통 / 빠르게. */
 export const LADDER_STEP_VOLUME = 0.45;
 export const LADDER_STEP_VOLUME_FAST = 0.6;
+
+/* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) — 몸의 오프셋은 `SoldierModel` 의 `FURN_*` 가 원본이다 ── */
+/** 자세 블렌드(0 ↔ 1)의 감쇠 계수 — 앉기 · 눕기 · 일어서기가 약 0.6 초에 끝난다. */
+export const FURN_BLEND_RATE = 5;
+/** 자세 중 몸이 향하는 방향으로 도는 감쇠 계수. */
+export const FURN_YAW_RATE = 10;
+/** 카메라 피벗(눈) 높이 — **anchor 위**로 잰다. 흔들의자는 자유 시점이라 이 값이 곧 궤도 중심이다. */
+export const FURN_EYE: Readonly<Record<FurniturePoseKind, number>> = { sit: 0.85, bench: 0.45, run: EYE_STAND, cycle: 0.8 };
+/** 부른 쪽이 위상을 한 번도 안 주면 스스로 도는 속도: 벤치 한 회 (초) · 달리기 걸음 / 초 · 페달 바퀴 / 초. */
+export const FURN_BENCH_REP_S = 2.6;
+export const FURN_RUN_STEPS_PER_S = 2.8;
+export const FURN_CYCLE_REV_PER_S = 1.2;
+/** `run` 은 보행 주기를 그대로 쓴다 — 그때 넣는 moveBlend · sprint 블렌드. */
+export const FURN_RUN_MOVE = 1.15;
+export const FURN_RUN_SPRINT = 0.7;
+/** `releaseOnInteract` 자세에서 E 캡션. */
+export const FURN_STAND_PROMPT = '일어나기';
+/** 원격 명판: 자세 중 머리 높이 = anchor + `FURN_EYE[kind]` + 이만큼 (서 있을 때 머리 1.7 − 눈 1.55). */
+export const FURN_HEAD_ABOVE_EYE = 0.15;
+
+/* ── 가구 자세 공용 수학 (2026-09-12 캐릭터 버프 — 로컬 `parts/FurniturePose` 와 원격 `RemoteAvatar` 가 같은 식을 쓴다) ── */
+/** 몸(루트) 방향 — `bench` 는 머리 → 거치대라 발끝이 반대 = `yaw + π`. */
+export function furnitureBodyYaw(kind: FurniturePoseKind, yaw: number): number {
+  return kind === 'bench' ? yaw + Math.PI : yaw;
+}
+/** 자세 블렌드 한 걸음 (`FURN_BLEND_RATE`). */
+export function stepFurnitureBlend(blend: number, on: boolean, dt: number): number {
+  return damp(blend, on ? 1 : 0, FURN_BLEND_RATE, dt);
+}
+/** 루트를 anchor 쪽으로: `out` 에는 서 있던 자리가 이미 들어 있다 — smoothstep(blend) 만큼 `anchor` 로 끌어간다. */
+export function lerpFurnitureRoot(out: THREE.Vector3, anchor: THREE.Vector3, blend: number): THREE.Vector3 {
+  const e = blend * blend * (3 - 2 * blend);
+  return out.lerp(anchor, e);
+}
+/**
+ * `SoldierPose` 의 가구 자세 필드. `cumPhase` 는 **누적 위상**(`FurniturePoseState.phase` 와이어 규약 — bench 0…1 · run 걸음 수 ·
+ * cycle 바퀴 수 · sit 0). `run` 은 보행 주기(`stridePhase = π × 걸음`)를 타고, 나머지 셋은 `SoldierModel.poseFurniture` 가 뼈대를 맡는다.
+ * 호출 전에 평소 자세 값(moveBlend · sprint …)이 이미 쓰여 있어야 한다 — `run` 은 그 위에 블렌드한다.
+ */
+export function writeFurniturePose(p: SoldierPose, kind: FurniturePoseKind | null, blend: number, cumPhase: number): void {
+  if (kind === null) { p.furniture = 0; p.furnitureKind = null; p.furniturePhase = 0; return; }
+  const ph = Number.isFinite(cumPhase) ? cumPhase : 0;
+  p.furniture = blend;
+  p.furnitureKind = kind;
+  p.furniturePhase = kind === 'bench' || kind === 'sit' ? Math.min(1, Math.max(0, ph)) : ph - Math.floor(ph);
+  if (kind !== 'run') return;
+  const e = blend;
+  p.moveBlend += (FURN_RUN_MOVE - p.moveBlend) * e;
+  p.sprint += (FURN_RUN_SPRINT - p.sprint) * e;
+  p.stridePhase = Math.PI * ph;
+  p.airborne *= 1 - e;
+  p.torsoTwist *= 1 - e;
+  p.crouch *= 1 - e;
+}
+/** 캐릭터 버프 목록을 다시 모으는 주기(초) — 운동 디버프 만료처럼 이벤트가 없는 변화를 잡는다 (`parts/Buffs`). */
+export const BUFF_TICK_S = 1;
+
+/** `PlayerSystem.furn` — 가구 자세 하나의 상태 (`parts/FurniturePose` 만 쓴다). */
+export interface FurniturePoseState {
+  /** 논리 상태 (`PlayerRef.furniturePose`). null = 자세 없음. */
+  kind: FurniturePoseKind | null;
+  /** 모델이 그리는 자세 — 풀린 뒤에도 블렌드가 0 이 될 때까지 남는다. */
+  visKind: FurniturePoseKind | null;
+  /** 0..1, `FURN_BLEND_RATE` 로 감쇠. */
+  blend: number;
+  releaseOnInteract: boolean;
+  readonly anchor: THREE.Vector3;
+  yaw: number;
+  /** 고정 카메라를 걸었는가 (`camPos` · `camLook` 이 그 값). */
+  hasCamera: boolean;
+  readonly camPos: THREE.Vector3;
+  readonly camLook: THREE.Vector3;
+  /** 자세 직전의 발 위치 · 몸 방향 · 자세 — 풀면 여기로 돌아간다. */
+  readonly restorePos: THREE.Vector3;
+  restoreYaw: number;
+  restoreStance: Stance;
+  /** `setFurniturePoseDrive` 가 한 번이라도 불렸는가 (아니면 스스로 돈다). */
+  driven: boolean;
+  /** 위상 0..1 — `bench` 바벨 · `cycle` 크랭크 · `run` 걸음 안의 위치. */
+  phase: number;
+  /**
+   * `run`: 지나간 걸음 수 · `cycle`: 지나간 바퀴 수 (위상이 1 → 0 으로 감길 때마다 +1 — 좌우 발이 번갈아야 한다).
+   * 2026-09-12: 와이어의 **누적 위상**이 `steps + phase` 다 (`furniturePoseState`).
+   */
+  steps: number;
+  /** 자기 구동용 시계 (초). */
+  clock: number;
+  /** 2026-09-12: `FurniturePose.furnitureUid` (모르면 null) — 버프 · 와이어가 가구 조각을 가리킨다. */
+  furnitureUid: string | null;
+  /** 2026-09-12: `PlayerRef.furniturePoseState` 가 돌려주는 재사용 객체 (`anchor` 는 위 `anchor` 와 같은 Vector3). */
+  readonly wire: { kind: FurniturePoseKind; anchor: THREE.Vector3; yaw: number; phase: number; furnitureUid: string | null };
+}
+
+export function createFurniturePoseState(): FurniturePoseState {
+  const anchor = new THREE.Vector3();
+  return {
+    kind: null, visKind: null, blend: 0, releaseOnInteract: false,
+    anchor, yaw: 0,
+    hasCamera: false, camPos: new THREE.Vector3(), camLook: new THREE.Vector3(),
+    restorePos: new THREE.Vector3(), restoreYaw: 0, restoreStance: 'stand',
+    driven: false, phase: 0, steps: 0, clock: 0,
+    furnitureUid: null,
+    wire: { kind: 'sit', anchor, yaw: 0, phase: 0, furnitureUid: null },
+  };
+}
 
 export const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new THREE.Vector3();
 export const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();

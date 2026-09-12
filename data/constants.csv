@@ -385,6 +385,7 @@ GYM_TRAIN_XP_EXPONENT,1.4,
 GYM_TRAINED_MAX,5,"능력치 하나가 운동으로 얻는 단련 보너스 상한. 스탯 포인트 · 임플란트 보너스와 따로 센다."
 GYM_FATIGUE_HOURS,24,"운동을 끝낸 능력치에 걸리는 디버프(근력 = 근육통 · 지구력 = 심폐 피로)의 현실 시간 — 사용자 명세."
 GYM_FATIGUE_GAIN_MUL,0,"디버프 중 같은 능력치 운동의 상승 배율. 0 = −100 % (사용자 명세). 디버프를 다시 늘리지는 않는다."
+GYM_LEAD_BEATS,4,"박자 게임(호흡 달리기 · 사이클링)의 예비 박자 수 — 첫 표식이 판정선까지 걸어오는 시간이고, 그동안의 입력은 무시한다."
 GYM_SCORE_PERFECT,1,판정 한 번이 세션 점수(판정들의 평균)에 넣는 값 — 완벽.
 GYM_SCORE_GOOD,0.6,판정 한 번이 세션 점수에 넣는 값 — 성공. 실패는 0.
 GYM_PRESS_REPS,8,벤치프레스 한 세션의 판정 횟수.
@@ -400,6 +401,10 @@ GYM_BREATH_HOLD_TOL_S,0.22,"「하」 를 떼는 순간의 판정 창(±초)."
 GYM_CYCLE_STROKES,24,사이클링 한 세션에서 A · D 를 번갈아 밟는 횟수.
 GYM_CYCLE_BEAT_S,0.45,박자 간격(초).
 GYM_CYCLE_WINDOW_S,0.15,"판정 창(±초). 이 값의 1/3 안이면 완벽. 틀린 발은 실패."
+
+# ── 2026-09-12: 캐릭터 버프 (owner: player 목록 · net 와이어 · ui 썸네일) ──
+CHAR_BUFF_WIRE_MAX,12,"한 캐릭터의 버프 목록이 와이어에 실리는 최대 개수. 식사 1 + 준비물(환경당 1) + 환경 노출 1 + 운동 디버프 2 + 자세 1 이라 지금은 7 을 넘지 않는다 — 여유를 둔 상한이고 받는 쪽이 넘치는 것을 버린다."
+CHAR_BUFF_SYNC_COOLDOWN_S,1,"스냅샷의 버프 리비전(bfr)이 가진 목록과 달라 cbufq sync 를 보낸 뒤 같은 사람에게 다시 묻기까지(초). 답하는 쪽도 요청자별로 이만큼 막는다."
 
 # ── 시뮬레이션 훈련장 target modes (owner: world) ──
 TRAINING_MOVING_SPAN,3.2,"이동 표적: sweep half-width (m, keeps the target inside its lane), speed (m/s) and the pause at each end."

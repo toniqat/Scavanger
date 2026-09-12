@@ -120,14 +120,37 @@ export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
     furniture,
   };
   if (Array.isArray(w.books)) {
-    const books: PlacedBook[] = [];
-    for (const b of w.books.slice(0, SHIP_VISIT_MAX_BOOKS)) {
-      const e = b as Partial<PlacedBook>;
-      const uid = defIdOrNull(e?.uid), defId = defIdOrNull(e?.defId);
-      if (uid === null || defId === null || !isNum(e?.slot)) continue;
-      books.push({ uid, defId, slot: Math.max(0, Math.min(99, Math.floor(e.slot as number))) });
-    }
+    const books = sanitizeShelved(w.books);
     if (books.length > 0) out.books = books;
+  }
+  /* 2026-09-12 (A-3e): 디스크 전시대 · 레코드랙에 꽂힌 것 (`media`) 과 켜 둔 TV · 레코드 플레이어 (`toggled`). 이 함수는
+     새 객체를 만들어 필드를 하나씩 옮기므로, 여기서 받아 주지 않으면 보낸 쪽이 실어도 방문자에게는 사라진다. `books` 와
+     같은 규칙이고 **없으면 생략**한다. 매체와 보관함이 맞는지는 그리는 쪽(hub 의 `FurnitureSource`)이 def 로 가린다. */
+  if (Array.isArray(w.media)) {
+    const media = sanitizeShelved(w.media);
+    if (media.length > 0) out.media = media;
+  }
+  if (Array.isArray(w.toggled)) {
+    // 켜짐은 배치된 조각에만 뜻이 있다 — 문서 안의 가구 목록에 없는 uid 는 버린다 (같은 uid 두 번도 한 번으로).
+    const placed = new Set(furniture.map((f) => f.uid));
+    const toggled: string[] = [];
+    for (const u of w.toggled.slice(0, SHIP_VISIT_MAX_FURNITURE)) {
+      const uid = defIdOrNull(u);
+      if (uid !== null && placed.has(uid) && !toggled.includes(uid)) toggled.push(uid);
+    }
+    if (toggled.length > 0) out.toggled = toggled;
+  }
+  return out;
+}
+
+/** 서재 보관함 한 목록 (`books` · `media`) — 모양이 깨진 항목만 버리고 칸 번호는 0 … 99 로 자른다. */
+function sanitizeShelved(list: readonly unknown[]): PlacedBook[] {
+  const out: PlacedBook[] = [];
+  for (const b of list.slice(0, SHIP_VISIT_MAX_BOOKS)) {
+    const e = b as Partial<PlacedBook> | null;
+    const uid = defIdOrNull(e?.uid), defId = defIdOrNull(e?.defId);
+    if (uid === null || defId === null || !isNum(e?.slot)) continue;
+    out.push({ uid, defId, slot: Math.max(0, Math.min(99, Math.floor(e?.slot as number))) });
   }
   return out;
 }

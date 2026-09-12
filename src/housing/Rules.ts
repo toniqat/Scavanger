@@ -245,6 +245,74 @@ export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], def
   return Math.min(BOOK_GAIN_MAX, 1 + BOOK_XP_PER_BOOK * sum);
 }
 
+/* ── 서재 매체 (A-3e, 2026-09-12) ─────────────────────────────────────────────
+ * 책장 · 디스크 전시대 · 레코드랙은 같은 규칙이다 — 매체마다 몫을 **따로 상한으로 자르고**, 그 매체의 보조 가구가 함선
+ * 어딘가에 배치돼 있으면 자른 뒤에 `1 + SHELF_AUX_BONUS[m]` 을 곱하고, 셋을 더한다 (docs/plans/a3a-a3e.md §4):
+ *
+ *     몫[m]     = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[등급]) × (보조 가구 ? 1 + SHELF_AUX_BONUS[m] : 1)
+ *     서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]
+ *
+ * 책만 있고 보조 가구가 없으면 `1 + min(BOOK_GAIN_MAX − 1, x)` = `min(BOOK_GAIN_MAX, 1 + x)` 라 `bookGainMulFor` 와 **같은 값**이다
+ * (`smoke-library` 의 Phase 9 검사가 그대로 통과해야 한다). 수치는 전부 계약의 `SHELF_*` 표(= `data/constants.csv`)에서 온다.
+ * ────────────────────────────────────────────────────────────────────────── */
+import type { ShelfBonusInfo, ShelfMedium } from '@/shared';
+import { SHELF_AUX_BONUS, SHELF_AUX_INTERACTION, SHELF_GAIN_MAX, SHELF_MEDIA, SHELF_XP_PER_ITEM, shelfItemOf } from '@/shared';
+
+/** 세이브의 매체 id 접두사 — `ctx.loot` 가 없을 때(`sanitize`) 모양만 보는 규칙. 진짜 매체인지는 런타임에 걸러 낸다. */
+export const SHELF_ID_PREFIX: Readonly<Record<ShelfMedium, string>> = { book: 'book_', disc: 'disc_', record: 'record_' };
+const SHELF_ID_SHAPE = /^(book|disc|record)_[A-Za-z0-9_]{1,40}$/;
+
+/** 매체 id **모양**(`book_*` · `disc_*` · `record_*`)에서 읽은 매체, 모양이 아니면 null. */
+export function shelfMediumOfDefId(defId: unknown): ShelfMedium | null {
+  if (typeof defId !== 'string') return null;
+  const m = SHELF_ID_SHAPE.exec(defId);
+  return m ? (m[1] as ShelfMedium) : null;
+}
+
+/** 꽂힌 한 장(권)의 가중치 `BOOK_RARITY_MUL[rarity]` — 서재 매체가 아니면 0. `bookWeightOf` 의 매체 공통판. */
+export function shelfItemWeightOf(def: ItemDef | undefined): number {
+  if (!def || !shelfItemOf(def)) return 0;
+  const w = BOOK_RARITY_MUL[def.rarity];
+  return Number.isFinite(w) && w > 0 ? w : 0;
+}
+
+/**
+ * 매체 `medium` 의 몫: `items` 중 그 매체이면서 `skill` 을 가르치는 것의 가중치 합 × `SHELF_XP_PER_ITEM[medium]`, 상한
+ * `SHELF_GAIN_MAX[medium] − 1` 로 자른 뒤 보조 가구 배율. 없으면 정확히 0.
+ */
+export function shelfPartFor(
+  medium: ShelfMedium, skill: SkillId, items: readonly PlacedBook[], defOf: (defId: string) => ItemDef | undefined, aux: boolean,
+): number {
+  let sum = 0;
+  for (const it of items) {
+    const def = defOf(it.defId);
+    const s = shelfItemOf(def);
+    if (s && s.medium === medium && s.skill === skill) sum += shelfItemWeightOf(def);
+  }
+  if (sum <= 0) return 0;
+  const part = Math.min(SHELF_GAIN_MAX[medium] - 1, SHELF_XP_PER_ITEM[medium] * sum);
+  return aux ? part * (1 + SHELF_AUX_BONUS[medium]) : part;
+}
+
+/**
+ * 그 매체의 보조 가구(`SHELF_AUX_INTERACTION[medium]`)가 함선 어딘가에 배치돼 있는가. 여러 대여도 **한 번**이다 —
+ * 축음기 · 주크박스 · 턴테이블은 모두 `record_player` 라 이 질의 하나가 「셋은 외형만 다른 한 역할」(사용자 결정)을 성립시킨다.
+ */
+export function shelfAuxPlaced(furniture: readonly PlacedFurniture[], medium: ShelfMedium): boolean {
+  const want = SHELF_AUX_INTERACTION[medium];
+  return furniture.some((f) => FURNITURE_DEF_MAP.get(f.defId)?.interaction === want);
+}
+
+/** 한 숙련의 서재 배율을 매체별로 (`HousingRef.getShelfBonus`). `books` = `ShipState.books`, `media` = `ShipState.media`. */
+export function shelfGainFor(
+  skill: SkillId, books: readonly PlacedBook[], media: readonly PlacedBook[],
+  defOf: (defId: string) => ItemDef | undefined, aux: Readonly<Record<ShelfMedium, boolean>>,
+): ShelfBonusInfo {
+  const parts: Record<ShelfMedium, number> = { book: 0, disc: 0, record: 0 };
+  for (const m of SHELF_MEDIA) parts[m] = shelfPartFor(m, skill, m === 'book' ? books : media, defOf, aux[m]);
+  return { total: 1 + parts.book + parts.disc + parts.record, parts, aux: { book: aux.book, disc: aux.disc, record: aux.record } };
+}
+
 /* ── 온실 재배 스테이션 (2026-09-11) ──────────────────────────────────────────
  * 순수 판정만 여기 있다 — 층이 열렸는가 · 토양 궁합 · 성장에 걸리는 시간 · 진행도. 상태를 건드리는 것은
  * `parts/Garden.ts` 이고, 수치는 전부 `@/shared`(= `data/*.csv`) 에서 온다.

@@ -29,6 +29,9 @@ import * as Culture from './parts/Culture';
 import * as Dining from './parts/Dining';
 import * as Lib from './parts/Library';
 import * as Preset from './parts/Presets';
+import * as Gym from './parts/Gym';                          // 헬스장 (A-3a)
+import type { GymState } from './parts/Gym';
+import { GymScreen } from './ui/gym/GymScreen';
 
 export class HousingSystem implements GameSystem, HousingRef {
   readonly name = 'housing';
@@ -106,6 +109,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.cultureTank = new CultureTank(ctx, this);
     this.diningTable = new DiningTable(ctx, this);
     this.bookshelfMenu = new BookshelfMenu(ctx, this);
+    this.gymScreen = new GymScreen(ctx, this);                 // 헬스장 (A-3a)
+    this.unsubs.push(...Gym.bindGym(this));
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -132,6 +137,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.cultureTank?.dispose(); this.diningTable?.dispose(); this.bookshelfMenu?.dispose();
     this.growStation = null; this.analyzerPanel = null;
     this.cultureTank = null; this.diningTable = null; this.bookshelfMenu = null;
+    this.gymScreen?.dispose(); this.gymScreen = null;          // 헬스장 (A-3a)
     this.store?.dispose(); this.store = null;
   }
 
@@ -622,6 +628,48 @@ export class HousingSystem implements GameSystem, HousingRef {
   getBookDex(): readonly string[] { return Lib.getBookDex(this); }
 
   openBookshelfMenu(uid: string): void { return Lib.openBookshelfMenu(this, uid); }
+
+  /* ══ 서재 매체 (A-3e) ══ — 디스크 전시대 · 레코드랙 · 보조 가구 · TV / 레코드 플레이어 켜기 (`parts/Library.ts`, 2026-09-12).
+     책장은 위의 옛 경로(`books` · `placeBook` · `housing:booksChanged`)를 그대로 타고, 매체 공통 API 가 책장이면 그리로 넘긴다. */
+  /** 디스크 · 레코드 칸 (`ShipState.media`); prunes ids `ctx.loot` no longer knows on first access. */
+  media(): PlacedBook[] { return Lib.media(this); }
+  /** 디스크 · 레코드 도감 (append-only). */
+  mediaDex(): string[] { return Lib.mediaDex(this); }
+  /** 켜 둔 TV · 레코드 플레이어 uid (`ShipState.toggled`). */
+  toggledUids(): string[] { return Lib.toggledUids(this); }
+  /** Everything shelved in 보관함 `uid` (책장 → `booksOf`). */
+  shelfItemsOf(uid: string): PlacedBook[] { return Lib.shelfItemsOf(this, uid); }
+  /** `…를 먼저 빼세요` while a 보관함's contents cannot go to the stash (free-cell estimate), else null. */
+  shelfBlock(uid: string): string | null { return Lib.shelfBlock(this, uid); }
+  /** Move a 보관함's contents into the stash, all or nothing (책장 → `stashBooksOf`). */
+  stashShelfItemsOf(uid: string): boolean { return Lib.stashShelfItemsOf(this, uid); }
+  /** Forget the on-state of a recovered piece. */
+  dropToggled(uid: string): void { return Lib.dropToggled(this, uid); }
+  getShelfMedium(uid: string): import('@/shared').ShelfMedium | null { return Lib.shelfMediumOf(this, uid); }
+  getShelfSlots(uid: string): BookSlotInfo[] { return Lib.getShelfSlots(this, uid); }
+  placeShelfItem(uid: string, slot: number, defId: string): string | null { return Lib.placeShelfItem(this, uid, slot, defId); }
+  takeShelfItem(uid: string, slot: number): string | null { return Lib.takeShelfItem(this, uid, slot); }
+  getOwnedShelfItems(medium: import('@/shared').ShelfMedium): { defId: string; qty: number }[] { return Lib.getOwnedShelfItems(this, medium); }
+  getShelfDex(medium: import('@/shared').ShelfMedium): readonly string[] { return Lib.getShelfDex(this, medium); }
+  getShelfBonus(skill: SkillId): import('@/shared').ShelfBonusInfo { return Lib.getShelfBonus(this, skill); }
+  hasShelfAux(medium: import('@/shared').ShelfMedium): boolean { return Lib.hasShelfAux(this, medium); }
+  openShelf(uid: string): void { return Lib.openShelf(this, uid); }
+  isFurnitureOn(uid: string): boolean { return Lib.isFurnitureOn(this, uid); }
+  toggleFurniture(uid: string): boolean | null { return Lib.toggleFurniture(this, uid); }
+  /* ══ 서재 매체 (A-3e) 끝 ══ */
+
+  /* ══ 헬스장 (A-3a) ══ — 운동 기구 미니게임 세션 (`parts/Gym.ts` · 판정 `parts/GymGames.ts` · 화면 `ui/gym/`, 2026-09-12). */
+  /** 운동 화면 (시작 안내 · 게임 · 결과). */
+  gymScreen: GymScreen | null = null;
+  /** 진행 중인 세션 — `gymSession` 이 이것의 `info` 다. */
+  gymState: GymState | null = null;
+  get gymSession(): import('@/shared').GymSessionInfo | null { return Gym.gymSession(this); }
+  gymBlock(uid: string): string | null { return Gym.gymBlock(this, uid); }
+  startGymSession(uid: string): string | null { return Gym.startGymSession(this, uid); }
+  cancelGymSession(): void { return Gym.cancelGymSession(this); }
+  /** 스모크 훅 — 화면 상태 · 판정 객체 · 결과 · 건너뛰기. */
+  get gymDebug(): Gym.GymDebug { return Gym.gymDebug(this); }
+  /* ══ 헬스장 (A-3a) 끝 ══ */
 
   /* ── loadout presets (은퇴 — 2026-09-12 사용자 결정 「프리셋 기능 제거」: 전부 「슬롯 없음」으로 답한다, `parts/Presets.ts`) ── */
   getPresetCount(): number { return Preset.getPresetCount(this); }

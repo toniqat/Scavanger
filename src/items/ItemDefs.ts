@@ -1,7 +1,7 @@
 import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
-  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
+  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 
 /*
@@ -279,6 +279,77 @@ export const BOOK_ITEM_DEFS: readonly ItemDef[] = csvRows('books.csv').map((r) =
 export const BOOK_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(BOOK_ITEM_DEFS.map((d) => [d.book!.skill, d]));
 for (const s of SKILL_IDS) if (!BOOK_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no book`);
 
+/* ── 서재 매체: 디스크 · 레코드 (A-3e, 2026-09-12) — data/discs.csv · data/records.csv ──────────
+ * 책과 **똑같은 역할**의 아이템 2종 — 숙련 하나에 한 장씩(`disc_<skill>` · `record_<skill>`), 등급은 **같은 숙련의 책과 같다**
+ * (그 등급이 `BOOK_RARITY_MUL` 가중치다). 디스크는 서재 디스크 전시대(`furn_disc_stand`), 레코드는 레코드랙(`furn_record_rack`)에
+ * 꽂고, 매체별 몫 · 상한 · 보조 가구 배율은 `housing/` 이 계산한다 (`SHELF_*` 표). items 는 표만 옮긴다.
+ * 루팅(디스크 티어 2–4 · 레코드 티어 3–5) + 세레스 상점(신뢰도 3 · 4)뿐 — 제작 불가, 퀵슬롯 불가, 로그 시체 서적 굴림에 안 섞인다.
+ *
+ * 책 로더와 달리 `skill` · `rarity` 를 열거값으로 읽고, **책과 등급이 다르면 · 같은 숙련이 두 줄이면** `data:check` 가 잡는다. */
+interface ShelfMediumSpec {
+  file: string;
+  category: 'disc' | 'record';
+  idOf: (skill: SkillId) => string;
+  width: number;
+  height: number;
+  valueTable: string;
+  weightKey: string;
+}
+
+function shelfMediumDefs(spec: ShelfMediumSpec): ItemDef[] {
+  const value = numberMap<Rarity>('tables.csv', spec.valueTable);
+  const weight = T.num(spec.weightKey);
+  const seen = new Set<SkillId>();
+  const out: ItemDef[] = [];
+  for (const r of csvRows(spec.file)) {
+    const skill = r.enum('skill', SKILL_IDS);
+    const rarity = r.enum('rarity', RARITY_ORDER);
+    if (seen.has(skill)) { r.report('skill', `'${skill}' 가 두 번 나온다 — 숙련 하나에 한 장이다`); continue; }
+    seen.add(skill);
+    const bookRarity = BOOK_DEF_BY_SKILL.get(skill)?.rarity;
+    if (bookRarity && bookRarity !== rarity) r.report('rarity', `'${skill}' 는 책(books.csv)이 ${bookRarity} 다 — 같은 숙련의 책과 등급이 같아야 한다`);
+    out.push({
+      ...def({
+        id: spec.idOf(skill), name: r.str('name'), category: spec.category, rarity,
+        width: spec.width, height: spec.height, stackMax: 1, value: value[rarity],
+        icon: CATEGORY_ICON[spec.category], description: r.str('description'),
+        ...(spec.category === 'disc' ? { disc: { skill } } : { record: { skill } }), weight,
+      }),
+      color: CATEGORY_COLOR[spec.category],
+    });
+  }
+  return out;
+}
+
+/** Item id of the 디스크 that teaches `skill` (`gun_AR` → `disc_gun_AR`). */
+export function discItemIdFor(skill: SkillId): string {
+  return `disc_${skill}`;
+}
+
+/** Item id of the 레코드 that teaches `skill` (`gun_AR` → `record_gun_AR`). */
+export function recordItemIdFor(skill: SkillId): string {
+  return `record_${skill}`;
+}
+
+/** The 14 디스크 (2×2), in `data/discs.csv` order (one per skill). */
+export const DISC_ITEM_DEFS: readonly ItemDef[] = shelfMediumDefs({
+  file: 'discs.csv', category: 'disc', idOf: discItemIdFor, width: 2, height: 2,
+  valueTable: 'DISC_VALUE_BY_RARITY', weightKey: 'DISC_WEIGHT',
+});
+
+/** The 14 레코드 (3×3), in `data/records.csv` order (one per skill). */
+export const RECORD_ITEM_DEFS: readonly ItemDef[] = shelfMediumDefs({
+  file: 'records.csv', category: 'record', idOf: recordItemIdFor, width: 3, height: 3,
+  valueTable: 'RECORD_VALUE_BY_RARITY', weightKey: 'RECORD_WEIGHT',
+});
+
+export const DISC_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(DISC_ITEM_DEFS.map((d) => [d.disc!.skill, d]));
+export const RECORD_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(RECORD_ITEM_DEFS.map((d) => [d.record!.skill, d]));
+for (const s of SKILL_IDS) {
+  if (!DISC_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no disc`);
+  if (!RECORD_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no record`);
+}
+
 /* ── armor generated from the ArmorDef table (tactical kit) ───────────────── */
 const armorItem = (a: ArmorDef): ItemDef => {
   const { width, height } = armorItemSize(a);
@@ -441,6 +512,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   /* seeds (Phase 8: 온실 재배층에 심는다) · books (Phase 9: 서재 책장에 꽂는다) */
   ...SEED_ITEM_DEFS,
   ...BOOK_ITEM_DEFS,
+  /* 2026-09-12 (A-3e): 서재 매체 — 책과 같은 역할이라 책 바로 뒤 (디스크 전시대 · 레코드랙) */
+  ...DISC_ITEM_DEFS,
+  ...RECORD_ITEM_DEFS,
   /* 임플란트 (Phase 12: 캐릭터 탭에 장착; 망가진 것만 루팅, 세레스 바이오가 수리 · 판매 — `ImplantDefs.ts`) */
   ...IMPLANT_ITEM_DEFS,
   /* gadgets (behaviour lives in src/gadgets; here they are just consumables) */

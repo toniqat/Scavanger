@@ -265,6 +265,7 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   sys.membership.clear();
   sys.crewCards.clear();   // Phase 10: cards belong to the party we just left (hub/ re-sends ours on `hub:entered`)
   sys.shipVisits.clear();  // 2026-09-08: so do the ship layouts behind the 격납고 bays
+  sys.charBuffRelay.clear(); // 2026-09-12: and the squad's buff lists (the next lobby's members answer `bfr` with `cbufq sync`)
   sys.carryActive = false;
   sys.clearRemotes();
   if (had) sys.ctx.bus.emit('net:lobbyLeft', reason === 'moved' && to ? { reason, to } : { reason });

@@ -2302,6 +2302,48 @@ export interface PlayerRef {
   setFurniturePoseDrive?(phase: number): void;
 }
 
+/* ══ appended (2026-09-12): 캐릭터 버프 · 가구 자세 동기화 — docs/plans/char-buffs.md ═══════════════════════════ */
+import type { CharBuff } from './charBuffs';
+
+export interface FurniturePose {
+  /**
+   * appended (2026-09-12): 몸을 맡긴 가구 조각의 uid (hub 가 넣는다). 버프(`rest` · `exercise`)와 원격 동기화(`PlayerSnapshot.fu`)가
+   * 이것으로 그 가구를 가리킨다 — 방문자 쪽 hub 가 그 조각의 바벨 · 벨트 · 크랭크를 같은 위상으로 돌린다. 생략 = 모른다.
+   */
+  furnitureUid?: string;
+}
+
+/** 지금 취한 가구 자세를 와이어로 보낼 모양 (`PlayerRef.furniturePoseState`, owner: player). */
+export interface FurniturePoseState {
+  kind: FurniturePoseKind;
+  /** `FurniturePose.anchor` 그대로 (월드). */
+  anchor: Readonly<THREE.Vector3>;
+  /** `FurniturePose.yaw` 그대로 (카메라 yaw 규약, `bench` 는 엉덩이 → 머리). */
+  yaw: number;
+  /**
+   * **감지 않은 누적 위상** — 받는 쪽이 스냅샷 사이를 선형 보간할 수 있어야 한다. `bench`: 0 … 1 (바벨 가슴 → 팔 다 편 자리, 감지
+   * 않는 값이 원래 이것이다) · `run`: 걸음 수(정수부 = 몇 번째 걸음, 소수부 = 한 걸음 안의 위상) · `cycle`: 크랭크 바퀴 수 ·
+   * `sit`: 0.
+   */
+  phase: number;
+  /** `FurniturePose.furnitureUid`, 모르면 null. */
+  furnitureUid: string | null;
+}
+
+export interface PlayerRef {
+  /* ── appended (2026-09-12): 캐릭터 버프 (owner: player) ── */
+  /** 지금 가구 자세의 와이어 값, 자세가 없으면 null. net 이 스냅샷 `fp` · `fu` 로 싣는다. */
+  readonly furniturePoseState?: FurniturePoseState | null;
+  /**
+   * 이 캐릭터에 걸린 버프 · 디버프 전부 (`CharBuff`, `CHAR_BUFF_ORDER` 순). player 가 progression(식사 · 준비물 · 운동 디버프) ·
+   * housing(운동 세션) · 자기 자세(휴식 · 운동) · 자기 환경 판정(노출)을 모아 **바뀔 때만** 새 배열로 갈아 끼운다
+   * (같은 배열이면 안 바뀐 것이다 — 소비자는 참조로 비교해도 된다). 시각은 `ctx.net.serverNow() ?? Date.now()` 의 epoch ms.
+   */
+  readonly buffs?: readonly CharBuff[];
+  /** `buffs` 가 바뀔 때마다 +1 (1 부터). net 이 스냅샷 `bfr` 로 싣고, 받는 쪽은 이 번호로 목록이 낡았는지 안다. */
+  readonly buffsRevision?: number;
+}
+
 /* ══ appended (2026-09-11): C 항목 배치 계약 (docs/plans/c-batch.md §3-2) ═══════════════════════════════════ */
 
 export interface EnemyManagerRef {

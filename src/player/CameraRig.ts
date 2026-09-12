@@ -173,6 +173,14 @@ export class CameraRig {
   }
 
   /**
+   * 2026-09-12 (가구 자세): true = 오버라이드가 걸려 있고 그 자리가 `pos` 다. 자세가 걸었던 고정 카메라를 풀 때, 그사이 다른
+   * 연출(도킹 · 발사)이 오버라이드를 새로 걸었으면 건드리지 않으려고 묻는다.
+   */
+  overrideMatches(pos: THREE.Vector3): boolean {
+    return this.overrideTarget > 0.5 && this.overridePos.distanceToSquared(pos) < 1e-6;
+  }
+
+  /**
    * 2026-09-11 드론 시점 on / off. Clears the pending shake and recoil offsets both ways, ignores `addShake` while on and
    * snaps the FOV to the base value on entry (an ADS / sprint FOV would otherwise damp out inside the drone view).
    */

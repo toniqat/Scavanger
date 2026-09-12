@@ -18,7 +18,7 @@
 /** csv 를 읽는 모듈 전부 (vite 경로). */
 export const DATA_OWNERS = [
   '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs
-  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · books · armor · implants
+  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · books · discs · records · armor · implants
   '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
   '/src/items/LootTables.ts',    // loot_*
   '/src/items/Recipes.ts',       // recipes
@@ -53,6 +53,9 @@ export const CSV_FOLDERS = {
   // 2026-09-11 (A-3c): 요리는 items/ 가 정의하고 housing/(식탁) · progression/(식사 버프) 이 소비한다
   'meals.csv':               ['items', 'housing', 'progression'],
   'books.csv':               ['items', 'housing'],
+  // 2026-09-12 (A-3e): 서재 매체 — items/ 가 정의하고 housing/(디스크 전시대 · 레코드랙 · 서재 배율) 이 소비한다
+  'discs.csv':               ['items', 'housing'],
+  'records.csv':             ['items', 'housing'],
   'implants_perks.csv':      ['items', 'implants'],
   'implants_repair.csv':     ['items', 'meta'],
   'recipes.csv':             ['items', 'inventory'],

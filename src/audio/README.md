@@ -237,6 +237,19 @@ Appended (tactical kit):
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-12 (헬스장 A-3a · 서재 매체 A-3e)** — `Synth.SOUNDS` 에 12종 추가. 전부 절차 합성이고 **housing/ · hub/ 가
+  `audio:play {id}` 로만 부른다** (자동 구독 없음). 함선 안 UI 성격이라 `RANGED_SOUNDS` 에 넣지 않았다 — 위치 없이 오면 늘 같은
+  크기, 위치와 오면 기본 패너(inverse, 가까이서만).
+  `gym_start`(기구 잡는 딸깍 + 오르는 삼각파 두 음, ≈0.42 s) · `gym_perfect`(밝은 두 음 차임 + 고역 반짝임, ≈0.38 s) ·
+  `gym_good`(가운데 높이 한 음, ≈0.22 s) · `gym_miss`(낮게 꺾이는 둔한 음 + 저역 쿵 — `ui_error` 버저보다 부드럽다, ≈0.28 s) ·
+  `gym_finish`(원반 내려놓는 금속 쿵 + 오르는 네 음 아르페지오, ≈0.95 s) · `gym_breath`(부드러운 날숨 — 아래로 쓸리는 밴드패스
+  노이즈, 느린 어택 · 선형 페이드 · 클릭 없음, ≈0.5 s) · `gym_pedal`(체인 딸깍 + 크랭크의 작은 몸, ≈0.06 s — 박자마다 불려도
+  거슬리지 않게 작다) · `chair_creak`(나무 스틱-슬립: 점점 벌어지는 좁은 밴드패스 알갱이 16개 + 비브라토 낀 낮은 saw 몸통,
+  ≈0.48 s) · `tv_on`(스위치 + 브라운관 퍽 + 잡음 + 가늘게 사라지는 고음) · `tv_off`(스위치 + 점으로 줄어드는 하강 블립) ·
+  `record_on`(스위치 + 바늘 닿는 쿵 + 따뜻한 바닥 음 + 치직임) · `record_off`(스위치 + 플래터가 느려지며 내려가는 음).
+  위 `Sound ids` 목록에는 이 줄로 대신한다: 헬스장 `gym_start` `gym_perfect` `gym_good` `gym_miss` `gym_finish` `gym_breath`
+  `gym_pedal`, 서재 가구 `chair_creak` `tv_on` `tv_off` `record_on` `record_off`.
+
 - **2026-09-12 (눈 발소리 재튜닝, 사용자 결정)** — `Synth.SOUNDS.footstep_snow` 한 줄기만 고쳤다 (사용자 불만
   "툰드라 지형에서의 발걸음 소리가 너무 거슬린다"). **모래로 바꾸지 않고** 편하다고 평가받은 `footstep_sand` 의
   성질 셋을 눈으로 옮겼다 — ① 크런치 알갱이의 필터를 `highpass` → `bandpass`(q 0.8, 중심이 아래로 쓸린다)로

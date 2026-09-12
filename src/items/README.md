@@ -6,7 +6,7 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 |---|---|
 | `WeaponDefs.ts` | 6 weapon **families** (one per class, 2026-09-07) × 5 grades = 30 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
-| `ItemDefs.ts` | `ItemDef` 전부 (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (**10**, Phase 8 + 2026-09-11 온실 개편 — `SeedDef.soilTag` 포함), **`SAMPLE_ITEM_DEFS` (6, 2026-09-11 연구실 — `data/samples.csv`, `ItemDef.sample`)**, `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials, **약초 6 · 작물 8 · 토양 6 · 준비물 2 (2026-09-11, `ItemDef.soil = {tag, uses}` 는 `items.csv` 의 `soilTag` · `soilUses` 선택 열에서, `ItemDef.prep = {env, short}` 는 `prepEnv` · `prepShort` 선택 열에서 온다)**, **`MEAL_ITEM_DEFS` (10, 2026-09-11 주방 A-3c — `data/meals.csv`, `ItemDef.meal`)**, **주머니 4 · 세포주 5 · 배지 2 · 배양 산물 5 · 필라멘트 3 · 열쇠 1 (2026-09-11 A-14 · A-15 — `items.csv` 의 선택 열 `pouchCols`/`pouchRows`/`pouchAccepts` → `ItemDef.pouch`, `strainOut`/`strainQty`/`strainHours` → `ItemDef.strain`, `mediumUses`/`mediumSpeed` → `ItemDef.medium`)**, `ITEM_CATEGORIES` (`CATEGORY_LABEL_KO` 의 키 — csv 카테고리 목록 칸 검증용); rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
+| `ItemDefs.ts` | `ItemDef` 전부 (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (**10**, Phase 8 + 2026-09-11 온실 개편 — `SeedDef.soilTag` 포함), **`SAMPLE_ITEM_DEFS` (6, 2026-09-11 연구실 — `data/samples.csv`, `ItemDef.sample`)**, `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), **`DISC_ITEM_DEFS` · `RECORD_ITEM_DEFS` (14 + 14, 2026-09-12 A-3e — `data/discs.csv` · `data/records.csv`, `discItemIdFor` · `recordItemIdFor` · `DISC_DEF_BY_SKILL` · `RECORD_DEF_BY_SKILL`, 책 바로 뒤)**, `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials, **약초 6 · 작물 8 · 토양 6 · 준비물 2 (2026-09-11, `ItemDef.soil = {tag, uses}` 는 `items.csv` 의 `soilTag` · `soilUses` 선택 열에서, `ItemDef.prep = {env, short}` 는 `prepEnv` · `prepShort` 선택 열에서 온다)**, **`MEAL_ITEM_DEFS` (10, 2026-09-11 주방 A-3c — `data/meals.csv`, `ItemDef.meal`)**, **주머니 4 · 세포주 5 · 배지 2 · 배양 산물 5 · 필라멘트 3 · 열쇠 1 (2026-09-11 A-14 · A-15 — `items.csv` 의 선택 열 `pouchCols`/`pouchRows`/`pouchAccepts` → `ItemDef.pouch`, `strainOut`/`strainQty`/`strainHours` → `ItemDef.strain`, `mediumUses`/`mediumSpeed` → `ItemDef.medium`)**, `ITEM_CATEGORIES` (`CATEGORY_LABEL_KO` 의 키 — csv 카테고리 목록 칸 검증용); rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5). **2026-09-10: `repairCost` 는 여기서 사라졌다** — 수리비는 제작 재료 × 내구도 구간 배수이고 구현은 `Salvage.repairCostFor` 다 |
 | `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*) |
 | `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*; **2026-09-10** 부터 총기가 아닌 것들에는 행성 희귀도 배수도 걸린다 — 아래 *행성별 희귀도 배수*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
@@ -180,7 +180,7 @@ Ammo stack sizes are the 세트 sizes (`AMMO_STACK_ROUNDS`: light 80 / medium 50
 | 3 | 귀중품 금고 | 4–5 | 55 % | 12 / 6 | 50–85 % | guaranteed rare+ valuable |
 | 4 | 희귀 캐시 | 5–6 | 100 % | 12 / 8 | 60–100 % | guaranteed epic/legendary valuable **and** a weapon |
 
-Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul` keys match an exact item id or, for weapons, the family (`wpn_sr` or `sr`) — applied to every grade (a unique is its own family, so `wpn_u_flame` is the key). At most one bag per crate. `rollCrate` is deterministic for a given `Random`; same-def stackables merge (an ammo overflow becomes a second smaller stack — so a crate can hold fewer instances than `count`) and the result is sorted largest-first for container placement. Phase 6: tier 5 gained `material: 4` (회로 기판 only), `weaponChance` 0.03 (uniques only) and `legendary: 1`; see *Unique weapons* for the unique / unique-ammo weights per tier. Phase 8: tiers 1–3 gained `seed: 4 / 4 / 3`; see *씨앗*. Phase 9: tiers 2–4 gained `book: 3 / 3 / 2`; see *서적*.
+Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul` keys match an exact item id or, for weapons, the family (`wpn_sr` or `sr`) — applied to every grade (a unique is its own family, so `wpn_u_flame` is the key). At most one bag per crate. `rollCrate` is deterministic for a given `Random`; same-def stackables merge (an ammo overflow becomes a second smaller stack — so a crate can hold fewer instances than `count`) and the result is sorted largest-first for container placement. Phase 6: tier 5 gained `material: 4` (회로 기판 only), `weaponChance` 0.03 (uniques only) and `legendary: 1`; see *Unique weapons* for the unique / unique-ammo weights per tier. Phase 8: tiers 1–3 gained `seed: 4 / 4 / 3`; see *씨앗*. Phase 9: tiers 2–4 gained `book: 3 / 3 / 2`; see *서적*. 2026-09-12: tiers 2–4 gained `disc: 2 / 2 / 1.5` and tiers 3–5 `record: 1 / 1.5 / 1`; see *서재 매체*.
 
 ## Phase 3 (2026-09-06)
 - Loot tier 5 `보급 투하 상자` (`SUPPLY_CRATE_TIER`): 4–6 consumables only (ammo 45 / stim 30 / grenade 25, guaranteed stim + ammo, no weapons or valuables). Used by the ship-call supply drop.
@@ -548,6 +548,33 @@ All 14: **1×2**, `stackMax` 1 (never stack), `weight` 0.6 kg, icon `CATEGORY_IC
 (they carry `BUG_SEEDS` instead). The 세레스 corp shop stocks `{category:'book', minRepLevel:2}`. No `CraftRecipe`
 outputs a book.
 
+## 서재 매체: 디스크 · 레코드 (A-3e, 2026-09-12)
+
+책과 **똑같은 역할**의 아이템 2종. `category: 'disc'` / `'record'`, `ItemDef.disc` / `ItemDef.record` (모양은 `BookDef {skill}`).
+숙련 하나에 한 장씩 — 각 14장, id `disc_<skill>` · `record_<skill>` (`discItemIdFor` · `recordItemIdFor`), 조회
+`DISC_DEF_BY_SKILL` · `RECORD_DEF_BY_SKILL`. 원본은 **전용 파일** `data/discs.csv` · `data/records.csv` (열은
+`books.csv` 와 같다: `skill,name,rarity,description`). 두 파일을 `ItemDefs.shelfMediumDefs` 로더 하나가 읽고,
+책 로더와 달리 `skill` · `rarity` 를 열거값으로 읽어 **같은 숙련의 책과 등급이 다르거나 한 숙련이 두 줄이면**
+`npm run data:check` 가 잡는다. 디스크는 서재 **디스크 전시대**(`furn_disc_stand`), 레코드는 **레코드랙**
+(`furn_record_rack`)에 꽂고 — 매체별 몫 · 상한 · 보조 가구 배율(TV · 레코드 플레이어)은 전부 `housing/` 이 `SHELF_*`
+표로 계산한다. items 는 데이터만 갖는다.
+
+| | 디스크 | 레코드 |
+|---|---|---|
+| 칸 · 스택 | **2×2** · 1 | **3×3** · 1 |
+| 무게 (`tuning.csv`) | `DISC_WEIGHT` 0.4 kg | `RECORD_WEIGHT` 0.9 kg |
+| 가격 (`tables.csv`, 일반 → 전설) | `DISC_VALUE_BY_RARITY` 210 / 450 / 980 / 2100 / 4200 | `RECORD_VALUE_BY_RARITY` 280 / 600 / 1300 / 2800 / 5600 |
+| 아이콘 · 색 | `CATEGORY_ICON.disc` ◉ · `CATEGORY_COLOR.disc` | `CATEGORY_ICON.record` ⊚ · `CATEGORY_COLOR.record` |
+| 상자 (`loot_category_weights.csv`) | 티어 2 · 3 · 4 = 2 / 2 / 1.5 (책 3 / 3 / 2 보다 조금 낮게) | 티어 3 · 4 · 5 = 1 / 1.5 / 1 |
+| 세레스 상점 (`corp_stock.csv`) | 신뢰도 **3** | 신뢰도 **4** |
+
+가격은 책(150 / 320 / 700 / 1500 / 3000)의 약 1.4 배 · 1.9 배 — 서재 몫이 책 < 디스크 < 레코드 순으로 세다.
+등급은 책과 같으므로 상점의 신뢰도 등급 상한(`SHOP_RARITY_CAP_BY_REP` 3 = 서사, 4 = 전설)에 막히는 줄이 없다.
+이름 표기로 매체를 가른다 — 책 『…』 · 디스크 〈…〉 · 레코드 《…》. 설명에는 숫자가 없다.
+**제작 불가 · 퀵슬롯 불가**, 그리고 로그 시체의 서적 굴림(`CorpseTable.book`)은 **여전히 책만** 준다
+(`Loot.rollCorpse` 가 `BOOK_ITEM_DEFS` 에서 고른다 — rng 벡터 불변). 상자 굴림은 카테고리 가중치에서 카테고리를 먼저
+뽑고 그 카테고리의 def 를 등급 가중치로 고르는 일반 경로라 코드 변경이 없다.
+
 ## Recipes (`getAllRecipes`) — 제작 100 + 분해 44 (2026-09-10 제작 대개편, 2026-09-11 가젯 3줄 · 온실 약재 3줄)
 
 원본은 **`data/recipes.csv`**(제작 97줄)와 **`data/salvage.csv`**(손으로 적은 분해 6줄)다. 나머지 분해 38줄은
@@ -874,6 +901,15 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 ---
 
 ## 변경 이력
+
+- **2026-09-12 (서재 매체 A-3e — items/ 몫)** — 새 아이템 **28종**, 위 *서재 매체: 디스크 · 레코드* 절이 표다.
+  `data/discs.csv` · `data/records.csv`(각 14줄, 등급 = 같은 숙련의 책) + 로더 `shelfMediumDefs` → `DISC_ITEM_DEFS` ·
+  `RECORD_ITEM_DEFS`(`ITEM_DEFS` 에서 책 바로 뒤), `discItemIdFor` · `recordItemIdFor` · `DISC_DEF_BY_SKILL` ·
+  `RECORD_DEF_BY_SKILL`. 새 수치 `tables.csv` 의 `DISC_VALUE_BY_RARITY` · `RECORD_VALUE_BY_RARITY`, `tuning.csv` 의
+  `DISC_WEIGHT` · `RECORD_WEIGHT`. 루팅은 `loot_category_weights.csv` 7줄(디스크 티어 2–4 · 레코드 티어 3–5), 상점은
+  `corp_stock.csv` 세레스 2줄(신뢰도 3 · 4) — 둘 다 카테고리 일반 경로라 `Loot.ts` · `meta/` 코드 무변경. 로그 시체
+  서적 굴림은 책만. `scripts/data-owners.mjs` 에 두 파일(→ items · housing), `server/economy.gen.json` 재생성.
+  inventory 쪽 최소 줄: 정렬 순서 · 무한 상자 `서재` 탭 · 툴팁 「스킬 / 용도」 두 줄 (inventory README).
 
 - **2026-09-12 (방탄복 전부 2×2, 사용자 결정)** — `ArmorDefs.armorItemSize()` 가 등급 · 퍽을 보지 않고 늘
   `{ width: 2, height: 2 }` 를 돌려준다. 예전에는 초경량 · 광학미채 · I–II 만 2×2 이고 III–V 와 재생은 2×3 이라,

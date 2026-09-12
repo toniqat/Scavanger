@@ -59,8 +59,10 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
   /* 2026-09-12 (A-3e): 서재 매체 — 보관함은 아이템 분류 글자(`CATEGORY_ICON.disc/record`)와 같은 글자, 보조 가구는 제 모양.
      축음기 · 주크박스 · 턴테이블은 한 역할이지만 외형이 달라 글자도 다르다. */
   disc_stand: '◉', record_rack: '⊚', rocking_chair: '⌓', tv: '⊡', gramophone: '♫', jukebox: '♪', turntable: '◐',
-  /* 2026-09-12 (A-3a): 헬스장 운동 기구 */
-  bench_rack: '╤', smith_machine: '╦', treadmill: '═', exercise_bike: '⊘',
+  /* 2026-09-12 (A-3a): 헬스장 운동 기구. 리드의 임시 글자 중 셋을 바꿨다 — `╤`/`╦` 는 카드 크기에서 거의 같은 모양이었고
+     `═` 은 아무것으로도 안 읽혔고 `⊘` 는 「금지」로 읽혔다. 벤치 랙 `╤`(기둥 위 바벨) · 스미스 머신 `╫`(두 레일을 가로지르는
+     바) · 트레드밀 `▱`(기울어진 벨트 판) · 사이클 `⚯`(프레임으로 이어진 두 바퀴). 넷 다 위의 어떤 글자와도 겹치지 않는다. */
+  bench_rack: '╤', smith_machine: '╫', treadmill: '▱', exercise_bike: '⚯',
 };
 
 /**

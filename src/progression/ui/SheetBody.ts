@@ -1,5 +1,15 @@
-import type { DerivedStats, GameContext, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
-import { SKILL_LEVEL_MAX, STAT_MAX } from '@/shared';
+import type { DerivedStats, GameContext, GymStat, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
+import { GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SKILL_LEVEL_MAX, STAT_MAX } from '@/shared';
+
+const isGymStat = (id: StatId): id is GymStat => (GYM_STATS as readonly string[]).includes(id);
+
+/** `HH:MM:SS` of a positive span in ms (hours are not wrapped — a fresh 24 h debuff reads `24:00:00`). */
+function hms(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  const p2 = (n: number): string => String(n).padStart(2, '0');
+  return `${p2(h)}:${p2(m)}:${p2(s)}`;
+}
 
 /** What the sheet needs from ProgressionSystem (kept structural so there is no circular import). */
 export interface CharacterSheetHost {
@@ -20,6 +30,11 @@ export interface CharacterSheetHost {
   /** Stat XP (2026-09-06): 0..1 toward the next point, and the raw XP that point costs. */
   getStatProgress(id: StatId): number;
   statXpToNext(id: StatId): number;
+  /** 헬스장 (A-3a): 단련 보너스 · 다음 단계까지의 진행도 · 디버프 끝 시각 (0 = 없음) and the clock it is measured on. */
+  getTrainedBonus?(id: StatId): number;
+  getTrainedProgress?(id: StatId): number;
+  getGymFatigueUntil?(id: StatId): number;
+  gymNow?(): number;
   /** Ship-facility skill-gain multiplier (사격장); 1 when nothing applies. */
   getSkillGainMul(id: SkillId): number;
   getAllStatDefs(): readonly StatDef[];
@@ -47,7 +62,14 @@ const pct = (v: number): string => `${Math.round(v * 100)} %`;
 const mul = (v: number): string => `×${v.toFixed(2)}`;
 const dist = (v: number): string => `${v.toFixed(1)} m`;
 
-interface StatRow { root: HTMLElement; value: HTMLElement; base: HTMLElement; bonus: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement }
+interface StatRow {
+  root: HTMLElement; value: HTMLElement; base: HTMLElement; bonus: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement;
+  /** A-3a: ` (+n 단련)` after the implant bonus (empty + hidden at 0). */
+  trained: HTMLElement;
+  /** A-3a, 근력 · 지구력 only: `단련 +n · p %` / `단련 최대` and the debuff countdown line. */
+  gymProg: HTMLElement | null;
+  fatigue: HTMLElement | null;
+}
 
 interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
 
@@ -85,6 +107,12 @@ export class SheetBody {
   private statHint: HTMLElement;
   private resetBtn: HTMLButtonElement;
   private resetArmed = false;
+  /**
+   * A-3a: 1 Hz repaint of the debuff countdown. Runs **only** while a debuff is active **and** the body is on screen — the
+   * tick stops itself when the body is hidden (closed overlay / other inventory tab) or no debuff is left; both shells call
+   * `refresh()` when they show the body again, which restarts it.
+   */
+  private ticker: number | null = null;
 
   constructor(
     private readonly ctx: GameContext,
@@ -209,13 +237,70 @@ export class SheetBody {
     const hasBonus = Number.isFinite(bonus) && bonus !== 0;
     row.bonus.hidden = !hasBonus;
     setText(row.bonus, hasBonus ? ` (${bonus > 0 ? '+' : ''}${bonus})` : '');
-    row.root.classList.toggle('has-bonus', hasBonus);
+    // A-3a: 헬스장 단련 보너스 — its own span and colour after the implant one: `10 (+2) (+1 단련)`
+    const tb = typeof this.host.getTrainedBonus === 'function' ? this.host.getTrainedBonus(id) : 0;
+    const hasTrained = Number.isFinite(tb) && tb > 0;
+    row.trained.hidden = !hasTrained;
+    setText(row.trained, hasTrained ? ` (+${tb} 단련)` : '');
+    row.root.classList.toggle('has-bonus', hasBonus || hasTrained);
+    if (row.gymProg) {
+      const maxedT = hasTrained && tb >= GYM_TRAINED_MAX;
+      const tp = typeof this.host.getTrainedProgress === 'function' ? this.host.getTrainedProgress(id) : 0;
+      const pc = Math.floor(Math.min(1, Math.max(0, Number.isFinite(tp) ? tp : 0)) * 100);
+      setText(row.gymProg, maxedT ? '단련 최대' : `단련 +${hasTrained ? tb : 0} · ${pc} %`);
+      row.gymProg.classList.toggle('maxed', maxedT);
+    }
+    this.paintFatigue(id, row);
+    this.syncTicker();
     const maxed = v >= STAT_MAX;
     const need = Math.max(1, this.host.statXpToNext(id));
     const p = Math.min(1, Math.max(0, this.host.getStatProgress(id)));
     row.fill.style.transform = `scaleX(${(maxed ? 1 : p).toFixed(4)})`;
     setText(row.xp, maxed ? '최대' : `${Math.floor(p * need)} / ${need} XP`);
     row.root.classList.toggle('maxed', maxed);
+  }
+
+  /* ── 헬스장 디버프 countdown (A-3a) ───────────────────────────────────── */
+  /** Remaining ms of the debuff on `id` (0 when none / expired / the host has no gym API). */
+  private fatigueLeft(id: StatId): number {
+    const h = this.host;
+    if (typeof h.getGymFatigueUntil !== 'function') return 0;
+    const until = h.getGymFatigueUntil(id);
+    if (!(until > 0)) return 0;
+    const now = typeof h.gymNow === 'function' ? h.gymNow() : Date.now();
+    return Math.max(0, until - now);
+  }
+
+  private paintFatigue(id: StatId, row: StatRow): void {
+    if (!row.fatigue || !isGymStat(id)) return;
+    const left = this.fatigueLeft(id);
+    row.fatigue.hidden = left <= 0;
+    setText(row.fatigue, left > 0 ? `${GYM_FATIGUE_LABEL_KO[id]} · 남은 ${hms(left)}` : '');
+    row.root.classList.toggle('is-fatigued', left > 0);
+  }
+
+  private anyFatigue(): boolean { return GYM_STATS.some((id) => this.fatigueLeft(id) > 0); }
+
+  /** Start the 1 Hz countdown when a debuff is showing, stop it when none is left. */
+  private syncTicker(): void {
+    const need = this.anyFatigue();
+    if (need && this.ticker === null) this.ticker = window.setInterval(() => this.tick(), 1000);
+    else if (!need) this.stopTicker();
+  }
+
+  private stopTicker(): void {
+    if (this.ticker !== null) { window.clearInterval(this.ticker); this.ticker = null; }
+  }
+
+  private tick(): void {
+    const anchor = this.created[0];
+    // hidden (closed overlay, another inventory tab) or torn down → stop; the next `refresh()` restarts it
+    if (!anchor || !anchor.isConnected || anchor.getClientRects().length === 0) { this.stopTicker(); return; }
+    for (const id of GYM_STATS) {
+      const row = this.statRows.get(id);
+      if (row) this.paintFatigue(id, row);
+    }
+    if (!this.anyFatigue()) this.stopTicker();
   }
 
   /* ── builders ─────────────────────────────────────────────────────────── */
@@ -229,10 +314,21 @@ export class SheetBody {
     const bar = el('div', { cls: 'bar', parent: prog });
     const fill = el('i', { parent: bar });
     const xp = el('div', { cls: 'xp ui-mono', text: '', parent: prog });
+    // A-3a: 근력 · 지구력 carry a short 단련 line (`단련 +2 · 40 %` / `단련 최대`) and, while a debuff runs, its countdown
+    let gymProg: HTMLElement | null = null;
+    let fatigue: HTMLElement | null = null;
+    if (isGymStat(def.id)) {
+      const gy = el('div', { cls: 'gy', parent: txt });
+      gymProg = el('span', { cls: 'gtr ui-mono', text: '', parent: gy });
+      fatigue = el('span', { cls: 'fat ui-mono', text: '', parent: gy });
+      fatigue.hidden = true;
+    }
     const value = el('div', { cls: 'v ui-mono', parent: row });
     const base = el('span', { cls: 'base', text: '0', parent: value });
     const bonus = el('span', { cls: 'ib', text: '', parent: value });   // Phase 12: ` (+n)` from 임플란트 items
     bonus.hidden = true;
+    const trained = el('span', { cls: 'tb', text: '', parent: value });  // A-3a: ` (+n 단련)` from the 헬스장
+    trained.hidden = true;
     const plus = el('button', { cls: 'ui-btn plus', text: '＋', parent: row });
     plus.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -241,7 +337,7 @@ export class SheetBody {
         this.refresh();
       }
     });
-    this.statRows.set(def.id, { root: row, value, base, bonus, plus, fill, xp });
+    this.statRows.set(def.id, { root: row, value, base, bonus, plus, fill, xp, trained, gymProg, fatigue });
   }
 
   private buildSkillRow(parent: HTMLElement, def: SkillDef): void {
@@ -277,6 +373,7 @@ export class SheetBody {
   }
 
   dispose(): void {
+    this.stopTicker();
     for (const e of this.created) e.remove();
     this.created = [];
     this.statRows.clear();

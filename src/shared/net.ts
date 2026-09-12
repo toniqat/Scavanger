@@ -775,7 +775,10 @@ export type GameMessage =
   | DroneMessage
   | DroneRequest
   /* appended (2026-09-11, A-3c): 공유 함선 식탁 (owner: net/parts/Meal — 아래 `MealMessage` 절) */
-  | MealMessage;
+  | MealMessage
+  /* appended (2026-09-12): 캐릭터 버프 목록 (owner: net — 아래 `CharBuffMessage` 절) */
+  | CharBuffMessage
+  | CharBuffRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /**
@@ -788,6 +791,66 @@ export type GameMessage =
  * 그래서 `serve` 에는 받을 사람(`who`)이 실린다.
  */
 export interface MealMessage { t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }
+
+/* ══ 2026-09-12 wire: 캐릭터 버프 · 가구 자세 (사용자 결정 — docs/plans/char-buffs.md) ══════════════════════════════════
+ *
+ * 앉기 · 운동 같은 가구 상호작용 상태가 **캐릭터 버프**가 됐고, 식사 · 준비물 · 운동 디버프 · 환경 노출도 같은 목록에 산다.
+ * 분대원의 목록은 두 길로 온다:
+ *
+ *   1. **목록 자체**(`cbuf state`) — 보낸 사람의 목록이 바뀔 때 `others` 로 한 번 (드물다).
+ *   2. **리비전**(`PlayerSnapshot.bfr`) — 20 Hz 스냅샷에 숫자 하나. 받는 쪽이 가진 목록의 리비전과 다르면 그 사람에게
+ *      `cbufq sync` 를 보내 목록을 받는다 (`CHAR_BUFF_SYNC_COOLDOWN_S` 에 한 번). 그래서 **늦게 합류하거나 함선을 방문한
+ *      사람**, `cbuf` 를 놓친 사람도 따로 규칙 없이 따라온다 — 사용자 명세 「캐릭터 정보를 불러올 때 버프와 같이」.
+ *
+ * 가구 자세의 **연속 값**(anchor 높이 · yaw · 누적 위상 · 조각 uid)은 목록이 아니라 스냅샷(`fp` · `fu`)에 실린다 — 동작 위상은
+ * 매 프레임 움직이므로 20 Hz 보간이 필요하고, 목록 메시지와 순서가 엇갈려도 자세는 늘 최신 스냅샷을 따른다.
+ * 받는 쪽 가드: 로비 멤버가 보낸 것만 · `sanitizeCharBuffs` 로 모양 · 개수(`CHAR_BUFF_WIRE_MAX`)를 자른다. 버프에는 게임 효과가
+ * 없으므로(사용자 결정) 권위 검사는 필요 없다 — 효과가 있는 식사 · 준비물은 여전히 자기 프로필이 원본이다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+import type { FurniturePoseKind } from './types';
+import type { CharBuff } from './charBuffs';
+
+/** 가구 자세 번호 — `PlayerSnapshot.fp[0]` 이 이 배열의 인덱스다. 순서를 바꾸지 않는다 (추가만). */
+export const FURNITURE_POSE_WIRE: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle'];
+
+/** 보낸 사람의 버프 목록 전부. `rev` = `PlayerRef.buffsRevision`. */
+export interface CharBuffMessage { t: 'cbuf'; ev: 'state'; rev: number; buffs: CharBuff[] }
+/** 받는 사람 → 보낸 사람: 네 목록을 달라 (스냅샷 `bfr` 가 내가 가진 리비전과 다를 때). */
+export interface CharBuffRequest { t: 'cbufq'; ev: 'sync' }
+
+export interface PlayerSnapshot {
+  /* appended (2026-09-12): 캐릭터 버프 · 가구 자세 — optional, 옛 송신자와 호환 */
+  /** `PlayerRef.buffsRevision`. 0 · 생략 = 버프가 한 번도 없었다. */
+  bfr?: number;
+  /**
+   * 가구 자세 중에만: `[FURNITURE_POSE_WIRE 인덱스, anchor y, yaw, 누적 위상]` (`FurniturePoseState`). 발의 x · z 는 `p` 가 이미
+   * anchor 의 x · z 다 (자세 중 player 가 발을 거기 박는다). 자세가 없으면 생략.
+   */
+  fp?: [number, number, number, number];
+  /** 가구 자세의 조각 uid (`FurniturePoseState.furnitureUid`). 자세가 없거나 모르면 생략. */
+  fu?: string;
+}
+
+/** 원격 분대원의 가구 자세 — net 이 스냅샷 `fp` · `fu` 를 보간해 만든다. */
+export interface RemoteFurniturePose {
+  kind: FurniturePoseKind;
+  anchorY: number;
+  yaw: number;
+  /** 보간된 누적 위상 (`FurniturePoseState.phase` 규약). */
+  phase: number;
+  furnitureUid: string | null;
+}
+
+export interface RemotePlayerRef {
+  /* ── appended (2026-09-12): 캐릭터 버프 · 가구 자세 (owner: net) ── */
+  /** 이 분대원의 버프 목록 (`cbuf state` 로 받은 마지막 것, 검증 뒤). 아직 모르면 빈 배열. 바뀌면 새 배열이다. */
+  readonly buffs?: readonly CharBuff[];
+  /** 지금 `buffs` 의 리비전 (0 = 아직 받은 적 없음). */
+  readonly buffsRevision?: number;
+  /** 가구 자세 중이면 보간된 값, 아니면 null. 고스트 · stale 이면 null. */
+  readonly furniturePose?: RemoteFurniturePose | null;
+}
 
 /* ══ 2026-09-09 wire: 시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 ════════════════════════════════════════
  *

@@ -1,7 +1,8 @@
-import type { GameContext, Rarity } from '@/shared';
+import type { CharBuff, GameContext, Rarity } from '@/shared';
 import { ARMOR_SHIELD_PER_SEGMENT, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_DOWN_HP } from '@/shared';
 import { el, setText, toggleClass, damp, rarityColor } from '../dom';
 import '../styles/raidHud.css';
+import { BuffStrip } from './BuffStrip';
 
 const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
 /** Fallback name when neither the lobby nor the profile has one yet. */
@@ -39,9 +40,17 @@ interface Bar {
  * `부활 중 <byName> … n%` + a progress bar (hidden on `t = -1`). 실드 줄은 그동안 접힌다. **Phase 9:** the Space
  * give-up hold shows a red `포기` caption (`.giveup`, `player:giveUpProgress {t}`); 2026-09-08 the progress itself is
  * drawn by `hud/HoldGauge` at the crosshair — this is only the label.
+ *
+ * **2026-09-12 (캐릭터 버프, 사용자 결정):** 이 블록은 **함선에서도** 보인다 — 그래서 루트는 `HudSystem` 이 **소셜 레이어**에 붙이고
+ * (`new Vitals(gameplayRoot, null)` → `socialRoot.appendChild(vitals.root)`, 2026-09-09 의 `HoldGauge` 와 같은 이동), 스태미나 바만
+ * 게임플레이 레이어에 남아 **레이드 전용**이다. 함선(`hub` · `docking`)에서는 체력 · 실드를 **늘 가득**으로 그린다 (분대 목록의
+ * `hub ? 1` 과 같은 규칙). 체력바 **바로 아래**에 내 버프 썸네일 줄(`hud/BuffStrip`)이 선다 — `ctx.player.buffs` 를 매 프레임
+ * 참조 비교로 폴링하고 `player:buffsChanged` 로도 받는다. `setDebugBuffs(list)` 는 스모크용 덮어쓰기(null = 원래 원본).
  */
 export class Vitals {
   readonly root: HTMLElement;
+  /** 2026-09-12: 내 버프 · 디버프 썸네일 줄 (체력바 바로 아래). */
+  readonly buffs: BuffStrip;
   private nameEl: HTMLElement;
   private hpBar: Bar;
   private shBar: Bar;
@@ -74,13 +83,22 @@ export class Vitals {
   private lastReviveT = -1;
   private lastGiveUpT = -1;
   private unsubs: Array<() => void> = [];
+  /** Smoke override for the buff strip; `undefined` = read `ctx.player.buffs`. */
+  private debugBuffs: readonly CharBuff[] | undefined = undefined;
 
-  constructor(parent: HTMLElement) {
-    this.root = el('div', { cls: 'vitals', parent });
+  /**
+   * @param staminaParent  layer for the raid-only stamina bar (the gameplay HUD).
+   * @param vitalsParent   layer for the name / shield / hp block; `null` leaves the root detached for the caller to mount
+   *                       (HudSystem puts it in the social layer so it shows in the ship). Defaults to `staminaParent`.
+   */
+  constructor(staminaParent: HTMLElement, vitalsParent: HTMLElement | null = staminaParent) {
+    this.root = el('div', { cls: 'vitals', parent: vitalsParent ?? undefined });
     this.nameEl = el('div', { cls: 'vt-name', text: '', parent: this.root });
     this.shBar = this.makeBar('sh-bar', 'sh-seg', 0);
     this.hpBar = this.makeBar('hp-bar', 'seg', cellsFor(PLAYER_MAX_HP));
     this.shBar.root.hidden = true;
+    // 2026-09-12: right under the hp bar (before the downed caption rows, which stay hidden outside 전투불능).
+    this.buffs = new BuffStrip(this.root);
 
     // 2026-09-10: `.hp-num` / `.hp-max` 숫자와 `생명력` 라벨은 사라졌다. 라벨 요소는 전투불능 문구 전용으로 남는다
     // (`styles/raidHud.css` 가 평상시에는 `display:none`).
@@ -94,7 +112,7 @@ export class Vitals {
     el('div', { cls: 'txt', text: '포기', parent: this.giveUpEl });
 
     // Stamina: bottom-centre bar (its own HUD element, not part of the vitals block); hidden while full.
-    this.stamRoot = el('div', { cls: 'stamina full', parent });
+    this.stamRoot = el('div', { cls: 'stamina full', parent: staminaParent });
     const stamBar = el('div', { cls: 'stam-bar', parent: this.stamRoot });
     this.stamFill = el('div', { cls: 'fill', parent: stamBar });
     el('div', { cls: 'ui-label', text: '스태미나', parent: this.stamRoot });
@@ -124,6 +142,8 @@ export class Vitals {
 
   bind(ctx: GameContext): void {
     this.unsubs.push(
+      // 2026-09-12: the list reference also gets polled in `update`; the event only makes the change land this frame.
+      ctx.bus.on('player:buffsChanged', ({ buffs }) => { if (this.debugBuffs === undefined) this.buffs.set(buffs, ctx); }),
       ctx.bus.on('player:healthChanged', ({ hp, maxHp, delta }) => {
         this.hp = hp; this.maxHp = maxHp;
         if (delta < 0) this.ghostDelay = 0.55;
@@ -165,16 +185,22 @@ export class Vitals {
   }
 
   update(dt: number, ctx: GameContext): void {
+    // 2026-09-12: the block shows in the ship too, where the body is always full (the squad list's `hub ? 1` rule).
+    const hub = ctx.phase === 'hub' || ctx.phase === 'docking';
     if (ctx.player) {
-      this.hp = ctx.player.hp; this.maxHp = ctx.player.maxHp;
+      this.maxHp = ctx.player.maxHp;
+      this.hp = hub ? ctx.player.maxHp : ctx.player.hp;
       // 실드 계약은 player/ 소유다 — 아직 게시하지 않은 빌드에서도 죽지 않도록 `?? 0` 로 읽는다.
-      this.shield = ctx.player.shield ?? 0;
       this.maxShield = ctx.player.maxShield ?? 0;
+      this.shield = hub ? this.maxShield : (ctx.player.shield ?? 0);
       this.shieldRarity = ctx.player.shieldRarity ?? null;
       // Poll the live pool while the player really is downed; otherwise trust `player:downHpChanged`.
       if (this.downed && ctx.player.isDowned && typeof ctx.player.downHp === 'number') this.downHp = ctx.player.downHp;
     }
     this.updateName(ctx);
+    // same array = no-op inside the strip (the owner swaps the array only when the list really changed)
+    this.buffs.set(this.debugBuffs !== undefined ? this.debugBuffs : (ctx.player?.buffs ?? null), ctx);
+    this.buffs.update(ctx);
     this.updateStamina(dt, ctx);
     this.updateShield(dt);
     const target = this.downed ? this.downHp : this.hp;
@@ -289,6 +315,8 @@ export class Vitals {
   get shieldSegments(): number { return this.shBar.root.hidden ? 0 : this.shBar.cells; }
   /** 표시 중인 플레이어 이름 (debug). */
   get displayName(): string { return this.lastName; }
+  /** Smoke hook: draw this list instead of `ctx.player.buffs` (`null` hands the strip back to the player). */
+  setDebugBuffs(list: readonly CharBuff[] | null): void { this.debugBuffs = list ?? undefined; }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); this.stamRoot.remove(); }
 }

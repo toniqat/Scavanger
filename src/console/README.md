@@ -11,7 +11,7 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `console.css` | Bottom bar styling (z-index 90, mono font, line colours by `ConsoleLineKind`) |
 | `commands/index.ts` | `builtinCommands(host)` — the list below, in `help` order; `BuiltinHost` = what commands need beyond `ConsoleRef` (`clearLog`, `setMoveCheat`, `moveCheat`) |
 | `commands/types.ts` | `BuiltinHost`, `CommandFactory`, helpers `err`, `parseNumber`, `fmt` |
-| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
+| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `gym.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
 | `ColliderOverlay.ts` | (2026-09-12) `colliders` 명령의 와이어프레임 — `ctx.world.getObstacles()` 중 플레이어(없으면 카메라) 둘레 30 m 를 `LineSegments` 하나에 0.25 초마다 다시 채운다 (원기둥 노랑 · 상자 하늘 · 경사 초록 · 볼록 윤곽 주황 + 총알 층 어두운 주황). 깊이 검사 끔 · 광원 없음 · 게임플레이 페이즈에서만 보인다 · 끄면 dispose |
 | `index.ts` | exports `ConsoleSystem` |
 
@@ -26,6 +26,7 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `items` | anywhere | Closes the console, then `ctx.inventory.openCatalog()` (the infinite-crate window is inventory's) |
 | `stat <id\|이름> <±xp>` | anywhere | `ctx.progression.addStatXp(id, n)`; id = `str/end/per/int/dex`, full id, or 한국어 (근력 …). Prints `근력 7 (312/1852)` from `getStat` / `getStatProgress` / `statXpToNext`. `complete` = aliases + ids + names |
 | `skill <id\|이름> <±xp>` | anywhere | `ctx.progression.addSkillXpRaw(id, n)`; 14 ids (`gun_AR` …, case-insensitive) or 한국어 names (the name may contain spaces — the last token is the xp). Prints `사격 · 돌격소총 Lv.3 (40 %)`. `complete` = ids + names |
+| `gym [clear [str\|end] \| <str\|end> <±xp>]` | anywhere | (2026-09-12, A-3a) **공개 `ProgressionRef` API 만** 쓴다 (`profile.trained` · `gymFatigueUntil` 를 직접 만지지 않는다). 인자 없음 → 두 운동 능력치의 `근력 단련 +2 (40/120) · 근육통 23:12:05` (`getTrainedBonus` · `getTrainedProgress` · `trainedXpToNext` · `getGymFatigueUntil`). `<str\|end> <±xp>` → dev 전용 `addTrainedXp(stat, xp)`(디버프 · 함선 게이트 · 세션 상한 없음, 음수는 뺀다) 뒤 `단련 경험치 +50 · 근력 단련 +1` + 상태 줄. `clear [str\|end]` → `clearGymFatigue(stat?)`(생략 = 둘 다) 뒤 상태 줄. 두 dev 메서드는 optional 이라 없으면 `진행 시스템에 addTrainedXp 가 아직 없습니다` 빨간 줄. 스탯 이름은 `stat` 의 `resolveStatId`(str/end · 전체 id · 한국어). `complete` = `clear` / `str` / `end`, `clear ` 뒤에는 `str` / `end` |
 | `pos` | anywhere | Phase (+ 멀티플레이 / ship / room), feet position, yaw, world seed |
 | `colliders [0\|1]` | anywhere (draws in gameplay phases) | (2026-09-12) Toggle (no arg = flip) the collider wireframe around the player (`ColliderOverlay`). Prints `콜라이더 표시 켜짐 (n개)`. For hunting "보이지 않는 벽" — the colliders buried inside walls show because depth test is off. `complete` = `0` / `1` |
 
@@ -83,6 +84,9 @@ events at its virtual position, so the suggestion list's mouse wiring and the in
 polls neither `input.mouseX / mouseY` nor `document.elementFromPoint`, so nothing else needed migrating. The console
 is still dev-client only (`isDevHost()`), so this path never runs for a player.
 
+- **2026-09-12 (헬스장 A-3a)** — 명령 `gym [clear [str|end] | <str|end> <±xp>]` + `commands/gym.ts` (위 표). **공개 `ProgressionRef` API 만**
+  쓴다: 상태는 단련 · 디버프 질의 넷, 경험치는 리드가 계약 끝에 더한 dev 전용 `addTrainedXp?(id, xp)`, 지우기는 `clearGymFatigue?(id?)`
+  (둘 다 optional 이라 `typeof` — 없으면 무엇이 없는지 빨간 줄). `applyGymSession` 은 부르지 않는다(세션 상한 · 디버프가 붙는다).
 - **2026-09-12** — 명령 `colliders [0|1]` + `ColliderOverlay.ts` (구조물 도달성 작업, `src/world/README.md` 의 `## 2026-09-12`).
   `BuiltinHost` 에 `setColliders` · `colliders` · `colliderCount` 가 붙었고 `update()` 가 이동 치트보다 먼저 오버레이를 돌린다
   (dev 클라이언트에서만 만든다 · `dispose()` 가 정리한다).

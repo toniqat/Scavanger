@@ -176,7 +176,11 @@ export const TEXT = {
    */
   bagStats: { grid: '칸', quickSlots: '퀵슬롯', tactical: '전술형', durability: '내구도', capacity: '소지 한계' },
   /* Phase 9: 서적 (`ItemDef.book`) */
-  bookStats: { skill: '스킬', use: '용도', shelf: '서재 책장에 꽂으면 해당 스킬 XP 증가' },
+  /* 2026-09-12 (A-3e): 디스크 · 레코드도 같은 두 줄 — 꽂는 보관함만 다르다 */
+  bookStats: {
+    skill: '스킬', use: '용도', shelf: '서재 책장에 꽂으면 해당 스킬 XP 증가',
+    discShelf: '서재 디스크 전시대에 꽂으면 해당 스킬 XP 증가', recordShelf: '서재 레코드랙에 꽂으면 해당 스킬 XP 증가',
+  },
   /* appended: tactical kit */
   weight: '무게',
   /* 2026-09-10: 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다 — `dr` 은 안 쓰지만 남겨 둔다 */
@@ -224,7 +228,7 @@ export const TEXT = {
     bagFull: '가방에 공간이 없습니다',
     tabs: {
       all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
-      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서적', furniture: '가구',
+      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서재', furniture: '가구',
       /** Phase 12: 임플란트 items (label from the shared category table, the one source of the word). */
       implant: CATEGORY_LABEL_KO.implant,
     },

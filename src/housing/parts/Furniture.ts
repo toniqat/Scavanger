@@ -30,6 +30,7 @@ import { formatRemaining } from '../ui/dom';
 import type { HousingPanel } from '../ui/Panel';
 import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
 import type { HousingSystem } from '../HousingSystem';
+import { SHELF_BLOCK_REASON } from '../model';   // A-3e (2026-09-12): 서재 매체 보관함의 회수 거절
 
 export function storageEntry(sys: HousingSystem, defId: string): StoredFurniture | null {
   let best: StoredFurniture | null = null;
@@ -224,7 +225,8 @@ export function move(sys: HousingSystem, uid: string, x: number, y: number, yaw:
 export function recoverBlock(sys: HousingSystem, uid: string): string | null {
   const item = sys.getPlacedByUid(uid);
   if (!item) return '설치되지 않은 가구입니다';
-  return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid);
+  // A-3e (2026-09-12): 디스크 전시대 · 레코드랙도 책장처럼 — 담긴 것이 창고에 안 들어가면 `…를 먼저 빼세요`
+  return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid);
   }
 
 export function recover(sys: HousingSystem, uid: string): boolean {
@@ -235,6 +237,11 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   // a 책장 hands its books to the stash first; when they do not all fit nothing moves
   const hadBooks = sys.booksOf(uid).length;
   if (hadBooks > 0 && !sys.stashBooksOf(uid)) { sys.notify(BOOKS_BLOCK_REASON, 'warning'); return false; }
+  // A-3e: a 디스크 전시대 · 레코드랙 does the same with its media (all or nothing)
+  const shelfMedium = sys.getShelfMedium(uid);
+  const hadMedia = shelfMedium && shelfMedium !== 'book' ? sys.shelfItemsOf(uid).length : 0;
+  if (hadMedia > 0 && !sys.stashShelfItemsOf(uid)) { sys.notify(SHELF_BLOCK_REASON[shelfMedium!], 'warning'); return false; }
+  sys.dropToggled(uid);                       // 회수한 TV · 레코드 플레이어의 켜짐은 남기지 않는다
   sys.state.furniture.splice(i, 1);
   sys.addToStorage(item.defId, item.level);
   sys.dropGrowsOf(uid);                       // 재배 스테이션을 회수하면 토양 · 작물도 함께 사라진다
@@ -242,7 +249,11 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   sys.dropCulturesOf(uid);                    // 배양조를 회수하면 배지 · 배양 중이던 세포주도 함께 사라진다
   sys.ctx.bus.emit('housing:furnitureRecovered', { uid, defId: item.defId, room: item.room });
   sys.changed('recover');
-  if (hadBooks > 0) sys.ctx.bus.emit('housing:booksChanged', { uid, count: 0 });
+  if (hadBooks > 0) {
+    sys.ctx.bus.emit('housing:booksChanged', { uid, count: 0 });
+    sys.ctx.bus.emit('housing:shelfChanged', { uid, medium: 'book', count: 0 });
+  }
+  if (hadMedia > 0 && shelfMedium) sys.ctx.bus.emit('housing:shelfChanged', { uid, medium: shelfMedium, count: 0 });
   return true;
   }
 

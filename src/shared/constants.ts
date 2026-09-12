@@ -617,7 +617,7 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
  * 방 시설 레벨 제거 (2026-09-12): **7** — 모양은 같다. `RoomState.level` 이 늘 1 이 되고, v6 이하 세이브의 작업실 ·
  * 사격장 레벨은 관물대 · 시뮬레이션 허브 레벨로 옮겨지거나 재료로 환불된다 (`housing/ShipState.sanitize`, 한 번만).
  */
-export const SHIP_STATE_VERSION = 7;
+export const SHIP_STATE_VERSION = 9;   // 2026-09-12: 9 = 서재 매체 (`media` · `mediaDex` · `toggled`, A-3e)
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
@@ -787,6 +787,8 @@ export const GYM_TRAINED_MAX = K.num('GYM_TRAINED_MAX');
 export const GYM_FATIGUE_HOURS = K.num('GYM_FATIGUE_HOURS');
 /** 디버프 중 같은 능력치 운동의 상승 배율 — 0 = −100 %. */
 export const GYM_FATIGUE_GAIN_MUL = K.num('GYM_FATIGUE_GAIN_MUL');
+/** 박자 게임(호흡 달리기 · 사이클링)의 예비 박자 수 — 첫 표식이 판정선까지 걸어오는 동안, 입력은 무시한다. */
+export const GYM_LEAD_BEATS = K.num('GYM_LEAD_BEATS');
 /** 판정 한 번이 세션 점수(판정들의 평균)에 넣는 값 — 완벽 · 성공 (실패는 0). */
 export const GYM_SCORE_PERFECT = K.num('GYM_SCORE_PERFECT');
 export const GYM_SCORE_GOOD = K.num('GYM_SCORE_GOOD');
@@ -806,6 +808,12 @@ export const GYM_BREATH_HOLD_TOL_S = K.num('GYM_BREATH_HOLD_TOL_S');
 export const GYM_CYCLE_STROKES = K.num('GYM_CYCLE_STROKES');
 export const GYM_CYCLE_BEAT_S = K.num('GYM_CYCLE_BEAT_S');
 export const GYM_CYCLE_WINDOW_S = K.num('GYM_CYCLE_WINDOW_S');
+
+/* ── appended (2026-09-12): 캐릭터 버프 (owner: player 목록, net 와이어, ui 썸네일) ── */
+/** 한 캐릭터의 버프 목록이 와이어에 실을 수 있는 최대 개수 — 받는 쪽 `sanitizeCharBuffs` 가 넘치는 것을 버린다. */
+export const CHAR_BUFF_WIRE_MAX = K.num('CHAR_BUFF_WIRE_MAX');
+/** 스냅샷 `bfr` 가 가진 리비전과 달라 `cbufq sync` 를 보낸 뒤 같은 사람에게 다시 묻기까지 기다리는 시간(초). 답하는 쪽도 요청자별로 이만큼 막는다. */
+export const CHAR_BUFF_SYNC_COOLDOWN_S = K.num('CHAR_BUFF_SYNC_COOLDOWN_S');
 
 /* ── 시뮬레이션 훈련장 target modes (owner: world) ── */
 /** 이동 표적: sweep half-width (m, keeps the target inside its lane), speed (m/s) and the pause at each end. */

@@ -332,7 +332,7 @@ try {
   /* ── Phase 9 UI pass: 무게 표시 제거 · 분대 목록은 좌하단 · 우하단은 임플란트 → 빠른 사용 → 무기 슬롯 ── */
   const p9 = await P(() => {
     const bl = document.querySelector('.hud.social .hud-bl');
-    const vitals = document.querySelector('.hud.gameplay .vitals');
+    const vitals = document.querySelector('.hud .vitals');   // 2026-09-12: the vitals block lives in the social layer now
     const w = document.querySelector('.hud.gameplay .weapon');
     const filled = [...document.querySelectorAll('.qstrip .qs-cell')].filter((c) => !c.hidden && !c.classList.contains('empty'));
     return {
@@ -569,7 +569,7 @@ try {
   ok(!!row && !/\bsuspended\b/.test(row.cls) && row.state === '', 'debug peer row in the squad panel, connected (no state text)', JSON.stringify(row));
   ok(!!row && row.badge === '임무 중' && !row.badgeHidden, 'raid member badge 임무 중', JSON.stringify(row));
   const squadPos = await P(() => {
-    const s = document.querySelector('.squad'), v = document.querySelector('.hud.gameplay .vitals');
+    const s = document.querySelector('.squad'), v = document.querySelector('.hud .vitals');
     const sr = s.getBoundingClientRect(), vr = v.getBoundingClientRect();
     return { h: Math.round(sr.height), above: sr.bottom <= vr.top + 4, left: Math.round(sr.left), vLeft: Math.round(vr.left) };
   });

@@ -989,14 +989,15 @@ input { font: inherit; color: inherit; }
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /* Bottom-left column (Phase 9 UI pass): chat log on top, squad list under it, both stacked over the vitals.
-   In the hub / while spectating there are no vitals, so the whole column drops to the bottom edge. */
+   While spectating there are no vitals, so the whole column drops to the bottom edge. 2026-09-12 (캐릭터 버프): the vitals
+   show in the ship too now, so the old `.hud.hub .hud-bl { bottom: 32px }` drop is gone — the column sits above them there
+   as well (and `styles/buffs.css` lifts it a little further while the PC buff strip has thumbnails). */
 .hud-bl {
   position: absolute; left: 32px; bottom: 122px;
   width: 380px; max-width: calc(100vw - 64px);
   display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
   transition: bottom var(--t-med) var(--ease);
 }
-.hud.hub .hud-bl { bottom: 32px; }
 .hud.spectating .hud-bl { bottom: 32px; }
 .chat {
   width: 100%;

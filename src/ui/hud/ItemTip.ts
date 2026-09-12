@@ -1,7 +1,8 @@
-import type { CurrencyDef, GameContext, ItemDef, ItemInstance, StatId } from '@/shared';
+import type { CurrencyDef, GameContext, ItemDef, ItemInstance, ShelfMedium, SkillId, StatId } from '@/shared';
 import {
   CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, MEAL_BUFF_LABEL_KO, PERK_DEFS,
-  RARITY_COLORS, RARITY_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
+  RARITY_COLORS, RARITY_LABEL_KO, SHELF_INTERACTION, SHELF_MEDIUM_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
+  currencyDef, formatCredits, itemCreditValue, shelfItemOf,
 } from '@/shared';
 import { el, setText } from '../dom';
 import { mealBuffAmountText } from './mealText';
@@ -230,6 +231,14 @@ export class ItemTip {
       rows.push(['사용', '다음 레이드 1회분']);
       rows.push(['차단', `${ENV_LABEL_KO[prep.env]} 환경`, ENV_COLOR[prep.env]]);
     }
+    /* 서재 매체 (A-3e, 2026-09-12): 책 · 디스크 · 레코드는 같은 역할이라 같은 두 줄이다 — **어떤 숙련을 올리는가**와
+       **서재의 어느 보관함에 꽂는가**. 매체 판정은 계약의 `shelfItemOf` 하나이고, 보관함 이름은 가구 표(`furniture.csv`)에서
+       그 매체의 interaction 을 가진 서재 가구를 찾아 쓴다 — 이름을 여기 베껴 적지 않는다(표가 바뀌면 카드가 따라온다). */
+    const shelf = shelfItemOf(def);
+    if (shelf) {
+      rows.push(['숙련', this.skillName(shelf.skill)]);
+      rows.push(['꽂는 곳', `서재 · ${this.shelfName(shelf.medium)}`]);
+    }
     /* 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15, 2026-09-11): 요리 · 주머니 · 세포주 · 배지 넷도 준비물과 같은 결로
        「무엇을 얼마나 오래 / 얼마나 올려 주는가」가 카드에서 끝난다. 요리의 값은 `hud/mealText` 가 찍는다 — 레이드
        HUD 의 식사 배지와 **같은 문장**이어야 하고, 단위(`%` · `kg` · `m`)를 정하는 표는 `shared/labels` 의
@@ -316,6 +325,23 @@ export class ItemTip {
     this.valueEl.hidden = true;
     this.root.hidden = false;
     this.visible = true;
+  }
+
+  /** 숙련의 한국어 이름 (`getSkillDef`), progression 이 없으면 id. */
+  private skillName(skill: SkillId): string {
+    try { return this.ctx?.progression?.getSkillDef(skill)?.name ?? skill; } catch { return skill; }
+  }
+
+  /**
+   * 매체를 받는 서재 보관함의 이름 — 서재 가구 중 `SHELF_INTERACTION[medium]` 을 가진 def (책장 · 디스크 전시대 · 레코드랙).
+   * housing 이 답하지 못하면 `디스크 보관함` 처럼 매체 이름으로 만든다.
+   */
+  private shelfName(medium: ShelfMedium): string {
+    try {
+      const def = this.ctx?.housing?.getFurnitureFor('library').find((d) => d.interaction === SHELF_INTERACTION[medium]);
+      if (def) return def.name;
+    } catch { /* skeleton */ }
+    return `${SHELF_MEDIUM_LABEL_KO[medium]} 보관함`;
   }
 
   /** `근력 +2 · 재주 +1` for an implant's stat bonuses (empty when it has none). */

@@ -37,8 +37,10 @@
 .hud.drone-view .wcharge,
 .hud.drone-view .qwheel,
 .hud.drone-view .swheel { opacity: 0 !important; visibility: hidden; }
-/* PC 가 맞으면 조종이 끊기므로 체력은 작게 남긴다. 나침반은 PC 의 방위라 흐리게. */
-.hud.drone-view .vitals { opacity: 0.55; transform: scale(0.8); transform-origin: left bottom; }
+/* PC 가 맞으면 조종이 끊기므로 체력은 작게 남긴다. 나침반은 PC 의 방위라 흐리게.
+   2026-09-12: 체력 블록은 이제 **소셜 레이어**에 산다 (함선에서도 보인다) — `drone-view` 는 게임플레이 레이어에만 붙으므로
+   형제 선택자로 닿는다 (`.hud.gameplay` 가 `#ui-root` 안에서 `.hud.social` 보다 앞선 형제다). */
+.hud.gameplay.drone-view ~ .hud.social .vitals { opacity: 0.55; transform: scale(0.8); transform-origin: left bottom; }
 .hud.drone-view .compass { opacity: 0.35; }
 
 /* ── 화면 외곽 지지직 ─────────────────────────────────────────────────────── */

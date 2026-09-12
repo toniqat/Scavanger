@@ -81,8 +81,9 @@ export function purposeCost(sys: HousingSystem, purpose: RoomPurpose): readonly 
 /** Why the room cannot be emptied right now (a 책장 whose books have no stash room), null when it can. */
 export function emptyRoomBlock(sys: HousingSystem, index: number): string | null {
   for (const f of sys.state.furniture) {
-    if (f.room !== index || !isBookshelfDefId(f.defId)) continue;
-    const reason = sys.booksBlock(f.uid);
+    // A-3e (2026-09-12): 책장만이 아니라 서재 보관함 전부 (디스크 전시대 · 레코드랙) — `shelfBlock` 은 책장이면 `booksBlock` 이다
+    if (f.room !== index || !sys.getShelfMedium(f.uid)) continue;
+    const reason = sys.shelfBlock(f.uid);
     if (reason) return reason;
   }
   return null;

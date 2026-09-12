@@ -36,7 +36,7 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
   { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
-  { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book'] },   // Phase 9: 서적 (shown once items/ ships book defs)
+  { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book', 'disc', 'record'] },   // Phase 9: 서적 · 2026-09-12 (A-3e): 디스크 · 레코드도 같은 서재 탭
   { id: 'furniture', label: TEXT.catalog.tabs.furniture, categories: ['furniture'] },
 ];
 

@@ -437,4 +437,12 @@ export interface ProgressionRef {
    * 즉시 저장한다. 레이드 중이거나 운동 능력치가 아니면 null (아무것도 바꾸지 않는다).
    */
   applyGymSession?(id: GymStat, score: number): GymSessionResult | null;
+  /**
+   * appended (2026-09-12, 개발자 콘솔 `gym` 전용): 단련 경험치를 **디버프 · 함선 게이트 · 세션 상한 없이** 더한다 (음수 = 뺀다,
+   * 0 아래로는 안 내려간다 · 상한 `GYM_TRAINED_MAX`). `progress:trainedChanged` · 보너스가 바뀌면 `derived` 재계산 · 저장.
+   * 정상 플레이는 `applyGymSession` 을 쓴다.
+   */
+  addTrainedXp?(id: GymStat, xp: number): void;
+  /** appended (2026-09-12, 개발자 콘솔 `gym clear` 전용): 운동 디버프를 지운다 (`id` 생략 = 둘 다). 저장. */
+  clearGymFatigue?(id?: GymStat): void;
 }

@@ -78,11 +78,21 @@ const SMOKES = {
   /* 2026-09-11: 사다리 (잡기 · W/S · 달리기 스태미나 · 꼭대기 올라서기 · E 놓기 · 점프 · 발치 내려서기 · 무기 잠금 ·
      CLIMBING 비트) + 단차 보간(`bodyOffset`) + 월드 천장 클램프. 가짜 `LadderDef` 로 돌아 world 의 사다리가 없어도 된다. */
   'smoke-ladder':       { file: 'scripts/smoke-ladder.mjs',       folders: ['player', 'net'] },
+  /* 2026-09-12 (A-3a · A-3e): 가구 자세 — 거절 조건 · 발 고정 · 입력 무시 · E 로 일어나기(옆 가구 프롬프트를 치지 않는다) ·
+     고정 카메라 블렌드 · 위상 드라이브(바벨 손 높이 · 페달 발 높이) · 자리 복귀 · spawnStanding / 페이즈 변경 reset.
+     가구 모델 없이 anchor 만으로 돌므로 hub 의 가구가 없어도 된다. */
+  'smoke-pose':         { file: 'scripts/smoke-pose.mjs',         folders: ['player', 'hub'] },
   'smoke-raidflow':     { file: 'scripts/smoke-raidflow.mjs',     folders: ['game', 'extraction', 'player', 'inventory', 'world'] },
   'smoke-library':      { file: 'scripts/smoke-library.mjs',      folders: ['housing', 'items', 'hub', 'inventory'] },
   /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
      HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */
   'smoke-stations':     { file: 'scripts/smoke-stations.mjs',     folders: ['housing', 'inventory', 'items'] },
+  /* 2026-09-12 (A-3a): 헬스장 — gymBlock 사유 · 미니게임 판정 3종(화면 없이) · 세션 흐름(블로커 · ESC · 키 가이드 ·
+     Space 가 Input 에 안 닿는다) · applyGymSession 결과 + 근육통 · 근육통 중 경험치 0 · 취소 · 새로고침 보존. */
+  'smoke-gym':          { file: 'scripts/smoke-gym.mjs',          folders: ['housing', 'progression', 'hub', 'player'] },
+  /* 2026-09-12 (캐릭터 버프): PC 체력 블록이 함선에서도 보인다 · 체력바 아래 버프 썸네일 줄(흐림 · 디버프 테두리 · 시간 게이지 ·
+     키로 DOM 재사용) · 분대원 행의 미니 줄(디버그 원격 ref) · 옛 배지 셋이 없다 · 레이드 자리 / 드론 시점 축소. */
+  'smoke-buffs':        { file: 'scripts/smoke-buffs.mjs',        folders: ['ui', 'player', 'net'] },
   'smoke-enemy-delta':  { file: 'scripts/smoke-enemy-delta.mjs',  folders: ['enemies', 'net'] },
   /* Phase 11 */
   'smoke-planets':      { file: 'scripts/smoke-planets.mjs',      folders: ['hub', 'world', 'game'] },

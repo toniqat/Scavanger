@@ -159,7 +159,8 @@ try {
   // SHIP_STATE_VERSION (src/shared/constants.ts): 4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses`/`sampleDex`, 6 = 배양조의 `cultures`,
   // 7 = 방 시설 레벨 제거 (2026-09-12 — 모양은 같고 옛 방 레벨을 한 번만 옮기려고 올렸다)
   // 8 = 조종석 · 방 8 개 · 시뮬레이션실 / 휴식 공간 제거 (2026-09-12 — 모양은 같고 옛 방 9 · 10 을 한 번만 환불하려고 올렸다)
-  ok(st0.version === 8 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v8 with empty books / bookDex (v${st0.version})`);
+  // 9 = 서재 매체 (A-3e, 2026-09-12 — `media` · `mediaDex` · `toggled`, 없던 필드가 생기는 것뿐)
+  ok(st0.version === 9 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v9 with empty books / bookDex (v${st0.version})`);
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => { const h = window.__game.ctx.housing; const c = h.getFurnitureFor('cockpit'); return c.length > 0 && c.every((d) => d.room === 'any') && h.getFurnitureFor('range').every((d) => d.room === 'any'); }),
     "조종석 catalogue = 공용('any') 가구만 · 시뮬레이션실 전용 가구는 전부 은퇴해 목록에 없다");
@@ -1061,7 +1062,7 @@ try {
     return n >= want.n;
   }, '은퇴 가구 환불', 15000, { id: refundIds[0], n: (stashBeforeMig[refundIds[0]] ?? 0) + rackCraft[0].qty * 2 }).catch(() => null);
   const stashAfterMig = await stashOf(refundIds);
-  ok(mig.version === 8, `로드하면 세이브가 v8 로 올라온다 (v${mig.version})`);
+  ok(mig.version === 9, `로드하면 세이브가 v9 로 올라온다 (v${mig.version})`);
   ok(!mig.anyRack && !mig.placed.includes('furn_grow_rack') && mig.room6 === 'greenhouse',
     '배치된 · 창고의 옛 재배층이 모두 사라진다 (온실 방 자체는 남는다)', JSON.stringify(mig));
   ok(mig.plots === 0, `v3 의 plots 도 함께 사라진다 (${mig.plots})`);
@@ -1167,7 +1168,7 @@ try {
       d: { granted: outD.grantedCockpit, removed: outD.migratedRooms, same: JSON.stringify(sd.furniture) === JSON.stringify(sc.furniture) },
     };
   });
-  ok(migRooms.a.version === 8 && migRooms.a.rooms === ROOM_COUNT && migRooms.a.lv0 === 1 && migRooms.a.room5 === 'empty' && !migRooms.a.retired
+  ok(migRooms.a.version === 9 && migRooms.a.rooms === ROOM_COUNT && migRooms.a.lv0 === 1 && migRooms.a.room5 === 'empty' && !migRooms.a.retired
     && migRooms.a.levels === true && migRooms.a.removed === true,
   'v6 → v8: 방 레벨 1 · 시뮬레이션실은 빈 방 · 은퇴 가구는 하나도 남지 않는다', JSON.stringify(migRooms.a));
   ok(JSON.stringify(migRooms.a.refund) === JSON.stringify(migRooms.a.want),
@@ -1396,6 +1397,98 @@ try {
   ok(storePlaced.placed && storePlaced.sel === null && !storePlaced.moving && storePlaced.left === 1, 'placing it ends the state even with one more in storage', JSON.stringify(storePlaced));
   await H(() => window.__game.ctx.housing.closeShipManage());
   await sleep(80);
+
+  /* ── 2026-09-12: 원격 가구 연출 (캐릭터 버프 · 가구 자세 동기화 §6-C) ─────────────────────────────────────────────
+     같은 함선(`hubSite`)의 분대원 ref 가 `furniturePose.furnitureUid` 로 가리키는 조각을 그 사람의 위상으로 돌린다. 릴레이 없이
+     `hub.debugRemoteFurniture` 로 가짜 ref 를 심는다 (HudSystem.debugRemotes 와 같은 모양). 조각의 움직이는 그룹은 이름으로 찾는다
+     — `FurnitureLeisure` 의 rigGroup 이름: barbell · plates · belt · crank · flywheel. */
+  console.log('원격 가구 연출 (2026-09-12)');
+  const gymRoom = await H(() => {
+    const h = window.__game.ctx.housing;
+    h.state.generatorLevel = Math.max(h.state.generatorLevel ?? 0, 5);
+    for (let i = 0; i < h.state.rooms.length; i++) if (h.getRoom(i).purpose === 'gym') return i;
+    for (let i = 0; i < h.state.rooms.length; i++) {
+      if (h.getRoom(i).purpose === 'empty' && !h.getPlaced().some((p) => p.room === i)) { h.state.rooms[i].purpose = 'gym'; return i; }
+    }
+    return -1;
+  });
+  const placeGym = (defId) => H(({ room, defId }) => {
+    const h = window.__game.ctx.housing;
+    h.state.furnitureStorage.push({ defId, level: 1, qty: 1 });
+    const spot = h.findFreeSpot(room, defId);
+    if (!spot) return null;
+    return h.place(room, defId, spot.x, spot.y, spot.yaw)?.uid ?? null;
+  }, { room: gymRoom, defId });
+  const rackUid = gymRoom >= 0 ? await placeGym('furn_bench_rack') : null;
+  const treadUid = gymRoom >= 0 ? await placeGym('furn_treadmill') : null;
+  const bikeUid = gymRoom >= 0 ? await placeGym('furn_exercise_bike') : null;
+  ok(!!rackUid, `a 벤치 랙 is placed in a 헬스장 (room ${gymRoom}) — treadmill ${treadUid} · bike ${bikeUid}`);
+  await waitFor(page, (uid) => !!window.__game.getSystem('hub').furnitureLayer?.objectOf(uid), 'bench rack model', 10000, rackUid);
+  // rig 읽기: 바 y · 원반 보임 · 벨트 z · 크랭크 x (모델이 재빌드되면 그룹이 바뀌므로 매번 uid 로 다시 찾는다)
+  const rigState = (uids) => H((u) => {
+    const layer = window.__game.getSystem('hub').furnitureLayer;
+    const g = (uid) => (uid ? layer.objectOf(uid) : null);
+    const bar = g(u.rack)?.getObjectByName('barbell'), plates = g(u.rack)?.getObjectByName('plates');
+    return {
+      barY: bar?.position.y ?? null, barZ: bar?.position.z ?? null, plates: plates?.visible ?? null,
+      beltZ: g(u.tread)?.getObjectByName('belt')?.position.z ?? null,
+      crankX: g(u.bike)?.getObjectByName('crank')?.rotation.x ?? null,
+      staged: layer.remoteStage.map((s) => `${s.kind}:${s.uid}`).sort().join(','),
+    };
+  }, uids);
+  const U = { rack: rackUid, tread: treadUid, bike: bikeUid };
+  const rest0 = await rigState(U);
+  const poseUid = await H((uid) => window.__game.getSystem('hub').furnitureLayer.poseFor(uid)?.furnitureUid ?? null, rackUid);
+  ok(poseUid === rackUid, `poseFor(bench rack).furnitureUid names the piece (${poseUid})`);
+  ok(rest0.plates === false && Math.abs(rest0.barY - (0.4 + 0.81 - 0.07)) < 1e-3 && rest0.staged === '', 'at rest: plates hidden, bar on its J hooks (y 1.14), nothing staged', JSON.stringify(rest0));
+  // 가짜 원격 분대원: 우리와 같은 함선 · 벤치 랙 위상 0 (가슴)
+  await H((u) => {
+    const hub = window.__game.getSystem('hub');
+    const mk = (id, slot, pose) => ({ id, name: `원격 ${slot}`, slot, connected: true, stale: false, suspended: false, hubSite: hub.hubSite, furniturePose: pose });
+    window.__fpRemotes = [
+      mk('debug-fp-1', 1, { kind: 'bench', anchorY: 0.4, yaw: 0, phase: 0, furnitureUid: u.rack }),
+      mk('debug-fp-2', 2, u.tread ? { kind: 'run', anchorY: 0.19, yaw: 0, phase: 10, furnitureUid: u.tread } : null),
+      mk('debug-fp-3', 3, u.bike ? { kind: 'cycle', anchorY: 0.93, yaw: 0, phase: 0.25, furnitureUid: u.bike } : null),
+    ];
+    hub.debugRemoteFurniture(window.__fpRemotes);
+  }, U);
+  await waitSim(0.8);   // UNRACK_S 0.6 초 — 바가 거치대에서 가슴 위로 다 옮겨 간다
+  const low = await rigState(U);
+  ok(low.plates === true && Math.abs(low.barY - (0.4 + 0.5)) < 0.01 && Math.abs(low.barZ - (0.6 - 0.03)) < 0.01,
+    `remote bench phase 0 → plates on, bar on the chest (y ${low.barY?.toFixed(3)} ≈ 0.90, z ${low.barZ?.toFixed(3)} ≈ 0.57)`, JSON.stringify(low));
+  ok(low.staged.includes(`bench:${rackUid}`), `layer.remoteStage lists the bench (${low.staged})`);
+  if (bikeUid) ok(Math.abs(low.crankX - (-Math.PI / 2)) < 1e-3, `remote bike 0.25 revolutions → crank −π/2 (${low.crankX?.toFixed(3)})`);
+  const belt0 = low.beltZ;
+  // 위상을 옮긴다: 벤치 1 (팔 다 편 자리) · 트레드밀 +1 걸음 · 사이클 +2.5 바퀴
+  await H(() => { const r = window.__fpRemotes; r[0].furniturePose.phase = 1; if (r[1].furniturePose) r[1].furniturePose.phase = 11; if (r[2].furniturePose) r[2].furniturePose.phase = 2.75; });
+  await waitSim(0.1);
+  const high = await rigState(U);
+  ok(Math.abs(high.barY - (0.4 + 0.81)) < 0.01 && Math.abs(high.barZ - (0.6 + 0.06)) < 0.01, `remote bench phase 1 → bar at arms' length (y ${high.barY?.toFixed(3)} ≈ 1.21)`, JSON.stringify(high));
+  // 한 걸음 = RUN_BELT_SPEED 2.4 / RUN_STRIDE_HZ 2.8 m, 줄무늬 간격 0.18 로 감긴다
+  const stride = 2.4 / 2.8, spacing = 0.18, wrap = (x) => ((x % spacing) + spacing) % spacing;
+  if (treadUid) ok(Math.abs(high.beltZ - wrap(belt0 + stride)) < 1e-3, `remote treadmill +1 step → belt +${stride.toFixed(3)} m wrapped (${belt0?.toFixed(3)} → ${high.beltZ?.toFixed(3)})`);
+  if (bikeUid) ok(Math.abs(high.crankX - (-Math.PI * 2 * 0.75)) < 1e-3, `remote bike 2.75 revolutions → crank −1.5π (${high.crankX?.toFixed(3)})`);
+  // 위상이 0 으로 되돌아가도 (자세 재시작) 벨트는 거꾸로 감기지 않는다 · 방을 다시 지어도 새 rig 가 곧바로 같은 자리를 받는다
+  await H((room) => { const r = window.__fpRemotes; if (r[1].furniturePose) r[1].furniturePose.phase = 0; window.__game.getSystem('hub').furnitureLayer.rebuildRoom(room); }, gymRoom);
+  await waitSim(0.1);
+  const rebuilt = await rigState(U);
+  ok(rebuilt.plates === true && Math.abs(rebuilt.barY - (0.4 + 0.81)) < 0.01, 'a rebuilt room: the new bench model is found by uid and staged again (plates on, bar up)', JSON.stringify(rebuilt));
+  if (treadUid) ok(Math.abs(rebuilt.beltZ - high.beltZ) < 1e-3, `treadmill phase reset 11 → 0: belt does not spin back (${high.beltZ?.toFixed(3)} → ${rebuilt.beltZ?.toFixed(3)})`);
+  // 다른 함선에 있는 분대원은 연출하지 않는다
+  await H(() => { const r = window.__fpRemotes; for (const x of r) x.hubSite = 'someone-else'; });
+  await waitSim(0.1);
+  const otherSite = await rigState(U);
+  ok(otherSite.staged === '' && otherSite.plates === false && Math.abs(otherSite.barY - (0.4 + 0.81 - 0.07)) < 1e-3, 'a remote in another hubSite stages nothing — rig restored', JSON.stringify(otherSite));
+  // 같은 함선으로 돌아와 다시 올라간 뒤, 자세가 끝나면(furniturePose null) 원래대로
+  await H(() => { const hub = window.__game.getSystem('hub'); for (const x of window.__fpRemotes) x.hubSite = hub.hubSite; });
+  await waitSim(0.8);
+  const again = await rigState(U);
+  await H(() => { for (const x of window.__fpRemotes) x.furniturePose = null; });
+  await waitSim(0.1);
+  const ended = await rigState(U);
+  ok(again.plates === true && ended.plates === false && Math.abs(ended.barY - (0.4 + 0.81 - 0.07)) < 1e-3 && ended.staged === '',
+    `the pose ends → plates hidden, bar back on the hooks (y ${ended.barY?.toFixed(3)}), nothing staged`, JSON.stringify({ again, ended }));
+  await H(() => { window.__game.getSystem('hub').debugRemoteFurniture(null); delete window.__fpRemotes; });
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

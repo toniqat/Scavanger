@@ -225,6 +225,40 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
     // 주방 식탁 (A-3c, 2026-09-11): 개인 함선의 **가구** 식탁이므로 그 조각의 uid 로 연다
     // (공유 함선의 고정 식탁은 가구가 아니라 `buildStations` 의 `hub_dining_table` 이고 `null` 로 연다)
     onDiningTable: (uid) => openDiningTable(ctx, uid),
+    /* ── 서재 매체 (A-3e) · 헬스장 (A-3a), 2026-09-12 — 전부 duck-typed (병렬로 짓는 폴더가 아직 없을 수 있다) ── */
+    onShelf: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openShelf === 'function') h.openShelf(uid);
+      else ctx.bus.emit('ui:notify', { text: '보관함을 사용할 수 없습니다', kind: 'warning' });
+    },
+    onSit: (_uid, pose) => {
+      const p = ctx.player;
+      let ok = false;
+      if (p && typeof p.setFurniturePose === 'function') {
+        try { ok = p.setFurniturePose(pose); } catch (err) { console.warn('[hub] setFurniturePose failed', err); }
+      }
+      if (ok) ctx.bus.emit('audio:play', { id: 'chair_creak', position: pose.anchor.clone() });
+      else ctx.bus.emit('ui:notify', { text: '지금은 앉을 수 없습니다', kind: 'warning' });
+      return ok;
+    },
+    onToggle: (uid) => {
+      const h = ctx.housing;
+      const next = h && typeof h.toggleFurniture === 'function' ? h.toggleFurniture(uid) : null;
+      if (next === null) ctx.bus.emit('ui:notify', { text: '켜고 끌 수 없습니다', kind: 'warning' });
+    },
+    onGym: (uid) => {
+      const h = ctx.housing;
+      if (!h || typeof h.startGymSession !== 'function') { ctx.bus.emit('ui:notify', { text: '운동 기구를 사용할 수 없습니다', kind: 'warning' }); return; }
+      let reason: string | null = null;
+      try { reason = h.startGymSession(uid); } catch (err) { console.warn('[hub] startGymSession failed', err); reason = '운동 기구를 사용할 수 없습니다'; }
+      if (reason) ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
+    },
+    /*
+     * 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화): 같은 함선에 있는 분대원의 `furniturePose` 로 그 조각을 돌린다.
+     * 방문 중인 함선(`source`)의 layer 도 같은 두 콜백을 받는다 — 방문자가 주인의 운동을 보는 것이 이 기능의 본래 쓰임이다.
+     */
+    remotePlayers: () => sys.remoteFurnitureRefs(),
+    hubSite: () => sys.hubSite,
   }, source);
   sys.housingMode.setShip(source ? null : interior, source ? null : sys.furniture);
   sys.refreshRoomSigns();

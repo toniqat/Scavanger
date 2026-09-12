@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Layers, type ArmorDef } from '@/shared';
+import { Layers, type ArmorDef, type FurniturePoseKind } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
 import { buildArmorPlate, type GearLook } from './GearLook';
 
@@ -74,6 +74,16 @@ export interface SoldierPose {
    * `CLIMB_HIDE_WEAPON`.
    */
   climb?: number;
+  /* ── appended: 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
+  /**
+   * Furniture pose blend 0..1 (already damped by the owner). `sit` / `bench` / `cycle` hand the skeleton to
+   * `poseFurniture` (root = the pose anchor, see the `FURN_*` geometry below); `run` is fed through the walk cycle by the
+   * owner and only hides the weapon socket here.
+   */
+  furniture?: number;
+  furnitureKind?: FurniturePoseKind | null;
+  /** `bench`: 0 = bar on the chest … 1 = arms locked out; `cycle`: crank turn 0..1 (0 = left pedal on top). */
+  furniturePhase?: number;
 }
 
 interface Limb {
@@ -103,6 +113,79 @@ const ROLL_PIVOT_Y = 0.55;
 /** Above this climb blend the weapon socket (gun, held item, remote attachments) is hidden — both hands are on the rungs. */
 const CLIMB_HIDE_WEAPON = 0.35;
 const _silColor = new THREE.Color();
+
+/* ══ 가구 자세 기하 (2026-09-12, `poseFurniture`) ═══════════════════════════════════════════════════════════════
+ * 루트 = `FurniturePose.anchor` 이고 값은 전부 **anchor 기준 m**, 루트 좌표계(앞 = −Z)다. `bench` 는 PlayerSystem 이 루트를
+ * `yaw + π` 로 돌리므로 루트 +Z 가 머리(= 계약의 `yaw` 방향)다. hub 는 가구 모델을 이 값에 맞춘다 —
+ * 바꾸면 src/player/README.md 의 *가구 자세* 표도 고친다. 손 · 발은 두 마디 IK(`solveTwoBone`)라 목표점에 정확히 닿는다. */
+/** 흔들의자: 좌판 윗면 중앙. 발바닥이 anchor 아래 0.36 m(= 좌판 높이), 손은 허벅지 위. */
+export const FURN_SIT = {
+  hipsY: 0.13, bodyZ: 0.06, hipPitch: 0.2, torsoLean: 0.06,
+  footX: 0.17, footY: -0.36, footZ: -0.4, handX: 0.18, handY: 0.22, handZ: -0.2,
+} as const;
+/**
+ * 벤치: 패드 윗면의 견갑골 자리. 등(배낭)이 패드에 닿고 머리는 +Z, 발은 −Z 쪽 바닥(anchor 아래 0.40 m = 패드 높이).
+ * 바벨(주먹 중심)은 위상 0 에서 (±0.42, 0.50, −0.03), 1 에서 (±0.42, 0.81, +0.06) — 그 사이는 선형.
+ */
+export const FURN_BENCH = {
+  backY: 0.19, bodyZ: -1.4, torsoLean: -0.12,
+  footX: 0.36, footY: -0.4, footZ: -0.78, barX: 0.42, barY0: 0.5, barZ0: -0.03, barY1: 0.81, barZ1: 0.06,
+} as const;
+/**
+ * 사이클: 안장 윗면. 크랭크 축 (0, −0.60, −0.25), 반지름 0.16, 페달 x ±0.13 (왼발 = −x). 위상 0 = 왼 페달 맨 위, 앞으로 돈다
+ * (위에서 −Z 로). 손잡이 (±0.22, +0.14, −0.50).
+ */
+export const FURN_CYCLE = {
+  hipsY: 0.11, hipPitch: -0.12, torsoLean: -0.36,
+  crankY: -0.6, crankZ: -0.25, crankR: 0.16, pedalX: 0.13, gripX: 0.22, gripY: 0.14, gripZ: -0.5,
+} as const;
+/** 팔 · 다리 마디 길이와 관절 자리 — `makeArm` · `makeLeg` 의 치수 그대로 (손 = 장갑 중심, 발 = 발바닥 접점). */
+const ARM_U = 0.3, ARM_F = 0.29, SHOULDER_X = 0.29, SHOULDER_Y = 0.5;
+const LEG_U = 0.47, LEG_F = 0.42, HIP_X = 0.11, HIP_Y = -0.05;
+
+/** 한 프레임의 가구 자세 목표 (모듈 스크래치 하나 — 프레임당 할당 없음). 팔다리 배열 [0] = 오른쪽(+x), [1] = 왼쪽. */
+const _fk = {
+  bodyRotX: 0, bodyY: 0, bodyZ: 0, hipsY: 0, hipX: 0, hipZ: 0, torsoX: 0, torsoY: 0, torsoZ: 0, headX: 0, headY: 0,
+  cape0: 0, cape1: 0, limbL: 14,
+  hand: [new THREE.Vector3(), new THREE.Vector3()], elbowPole: [new THREE.Vector3(), new THREE.Vector3()],
+  foot: [new THREE.Vector3(), new THREE.Vector3()], kneePole: [new THREE.Vector3(), new THREE.Vector3()],
+};
+interface LimbSolve { x: number; y: number; z: number; k: number }
+const _armOut: LimbSolve[] = [{ x: 0, y: 0, z: 0, k: 0 }, { x: 0, y: 0, z: 0, k: 0 }];
+const _legOut: LimbSolve[] = [{ x: 0, y: 0, z: 0, k: 0 }, { x: 0, y: 0, z: 0, k: 0 }];
+const _ikH = new THREE.Vector3(), _ikP = new THREE.Vector3(), _ikE = new THREE.Vector3(), _ikG = new THREE.Vector3();
+const _ikX = new THREE.Vector3(), _ikY = new THREE.Vector3(), _ikZ = new THREE.Vector3();
+const _ikBasis = new THREE.Matrix4(), _ikEuler = new THREE.Euler();
+const _fkMBody = new THREE.Matrix4(), _fkMHips = new THREE.Matrix4(), _fkMTorso = new THREE.Matrix4();
+const _fkMTmp = new THREE.Matrix4(), _fkMInv = new THREE.Matrix4();
+const _fkQ = new THREE.Quaternion(), _fkEuler = new THREE.Euler(), _fkPos = new THREE.Vector3(), _fkOne = new THREE.Vector3(1, 1, 1);
+const _fkT = new THREE.Vector3(), _fkPole = new THREE.Vector3();
+
+/**
+ * Two-bone IK in the parent frame of the upper segment. `rel` = target minus the joint, `pole` = the direction the
+ * middle joint should stick out to, `bend` +1 = the lower segment folds toward −Z (elbow), −1 = toward +Z (knee) — the
+ * model's hinge conventions, so the plates / boots keep facing the right way. Writes the upper Euler (XYZ) and the
+ * lower hinge angle `k`. Out-of-reach targets are clamped to the reach.
+ */
+function solveTwoBone(rel: THREE.Vector3, pole: THREE.Vector3, u: number, f: number, bend: 1 | -1, out: LimbSolve): void {
+  let d = rel.length();
+  if (d < 1e-5) _ikH.set(0, -1, 0); else _ikH.copy(rel).divideScalar(d);
+  d = THREE.MathUtils.clamp(d, Math.abs(u - f) + 1e-3, u + f - 1e-3);
+  const cosA = THREE.MathUtils.clamp((u * u + d * d - f * f) / (2 * u * d), -1, 1);
+  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+  _ikP.copy(pole).addScaledVector(_ikH, -pole.dot(_ikH));
+  if (_ikP.lengthSq() < 1e-8) { _ikP.set(0, 0, -1).addScaledVector(_ikH, _ikH.z); if (_ikP.lengthSq() < 1e-8) _ikP.set(1, 0, 0); }
+  _ikP.normalize();
+  _ikE.copy(_ikH).multiplyScalar(cosA).addScaledVector(_ikP, sinA);                       // upper segment direction
+  _ikG.copy(_ikH).multiplyScalar(d).addScaledVector(_ikE, -u).normalize();                // lower segment direction
+  out.k = bend * Math.acos(THREE.MathUtils.clamp(_ikE.dot(_ikG), -1, 1));
+  _ikY.copy(_ikE).negate();                                                               // segments hang along local −Y
+  _ikZ.copy(_ikP).addScaledVector(_ikE, -_ikP.dot(_ikE)).normalize().multiplyScalar(bend);
+  _ikX.crossVectors(_ikY, _ikZ);
+  _ikBasis.makeBasis(_ikX, _ikY, _ikZ);
+  _ikEuler.setFromRotationMatrix(_ikBasis, 'XYZ');
+  out.x = _ikEuler.x; out.y = _ikEuler.y; out.z = _ikEuler.z;
+}
 
 /*
  * 2026-09-10 — **공유 GPU 자원.** 병사 한 명은 지오메트리 43개 · 실루엣 머티리얼 1개를 쓰는데, 그 값은 인스턴스와
@@ -503,7 +586,8 @@ export class SoldierModel {
     this.syncSocketRenderOrder();
     this.updateGlow(dt, time);
     // 2026-09-11: hanging on a ladder → no gun in the hands (weapons/ owns the model; hiding the socket is enough)
-    const socketShown = !((p.climb ?? 0) > CLIMB_HIDE_WEAPON && p.dead <= 0 && p.downed <= 0.001);
+    // 2026-09-12: a furniture pose holds nothing in the hands either (the hub has no weapon; items would clip the bar)
+    const socketShown = !(((p.climb ?? 0) > CLIMB_HIDE_WEAPON || (p.furniture ?? 0) > CLIMB_HIDE_WEAPON) && p.dead <= 0 && p.downed <= 0.001);
     if (this.weaponSocket.visible !== socketShown) this.weaponSocket.visible = socketShown;
     const dead = p.dead;
     if (dead > 0) { this.poseDead(dt, p); return; }
@@ -511,6 +595,9 @@ export class SoldierModel {
     //   back. It takes over the whole skeleton the way death does, so no crawl / aim / weapon blend leaks into it.
     if (p.downed > 0.001) { this.poseDowned(dt, time, p); return; }
     if (dt <= 0) return;
+    // 2026-09-12: 가구 자세 (앉기 · 벤치 · 사이클) take over the skeleton the same way; `run` stays on the walk cycle below
+    const furn = p.furniture ?? 0;
+    if (furn > 0.001 && p.furnitureKind && p.furnitureKind !== 'run') { this.poseFurniture(dt, time, p, furn, p.furnitureKind); return; }
 
     const phi = p.stridePhase;
     const mv = Math.min(1, p.moveBlend);
@@ -831,6 +918,113 @@ export class SoldierModel {
     }
     // 전투불능 never reaches here any more (`poseDowned` takes the frame), so the body only ever unwinds toward 0.
     this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0, 8, dt);
+  }
+
+  /**
+   * 가구 자세 (2026-09-12). The root is the pose anchor (see `FURN_SIT` / `FURN_BENCH` / `FURN_CYCLE`); `w` is the owner's
+   * damped blend, eased here. Trunk joints lerp from neutral toward the pose by the blend, the bench lie-back is written
+   * straight from it (the owner already damps `w`), and hands / feet come from two-bone IK solved in the frames the parents
+   * will have at the full pose — so the feet stay planted while the chair rocks, the fists ride the bar path and the feet
+   * follow the pedal circle (`p.furniturePhase`). Leaving the pose hands back to `update`, which damps every joint (and
+   * `bodyGroup`) back to the upright rig.
+   */
+  private poseFurniture(dt: number, time: number, p: SoldierPose, w: number, kind: FurniturePoseKind): void {
+    const s = THREE.MathUtils.clamp(w, 0, 1);
+    const e = s * s * (3 - 2 * s);
+    const T = _fk;
+    const ph = p.furniturePhase ?? 0;
+    const breathe = Math.sin(time * 1.7);
+    T.bodyRotX = 0; T.bodyY = 0; T.bodyZ = 0; T.hipZ = 0; T.torsoY = 0; T.torsoZ = 0; T.headY = 0;
+    if (kind === 'sit') {
+      const S = FURN_SIT;
+      const rock = Math.sin(time * 1.3) * 0.035;   // a lazy rock in the chair (the hub's chair model does not move)
+      T.bodyZ = S.bodyZ;
+      T.hipsY = S.hipsY; T.hipX = S.hipPitch + rock;
+      T.torsoX = S.torsoLean + breathe * 0.01;
+      T.headX = -0.18 - rock * 0.6;
+      T.headY = THREE.MathUtils.clamp(p.torsoTwist, -0.9, 0.9) * 0.5;   // glance toward the free camera
+      T.cape0 = 0.2; T.cape1 = 0.35; T.limbL = 14;
+      for (let i = 0; i < 2; i++) {
+        const sg = i === 0 ? 1 : -1;
+        T.foot[i].set(sg * S.footX, S.footY, S.footZ); T.kneePole[i].set(sg * 0.15, 0.35, -1);
+        T.hand[i].set(sg * S.handX, S.handY + breathe * 0.004, S.handZ); T.elbowPole[i].set(sg, -0.3, 0.6);
+      }
+    } else if (kind === 'bench') {
+      const B = FURN_BENCH;
+      const b = THREE.MathUtils.clamp(ph, 0, 1);
+      T.bodyRotX = Math.PI / 2; T.bodyY = B.backY; T.bodyZ = B.bodyZ;
+      T.hipsY = this.hipsBaseY; T.hipX = 0;
+      T.torsoX = B.torsoLean + breathe * 0.008;
+      T.headX = -0.22;
+      T.cape0 = -0.05; T.cape1 = 0; T.limbL = 22;
+      const barY = B.barY0 + (B.barY1 - B.barY0) * b, barZ = B.barZ0 + (B.barZ1 - B.barZ0) * b;
+      for (let i = 0; i < 2; i++) {
+        const sg = i === 0 ? 1 : -1;
+        T.foot[i].set(sg * B.footX, B.footY, B.footZ); T.kneePole[i].set(sg * 0.35, 1, -0.3);
+        T.hand[i].set(sg * B.barX, barY, barZ); T.elbowPole[i].set(sg, -0.7, -0.2);
+      }
+    } else {
+      const C = FURN_CYCLE;
+      const th = Math.PI * 2 * ph;
+      T.hipsY = C.hipsY; T.hipX = C.hipPitch; T.hipZ = Math.sin(th) * 0.035;
+      T.torsoX = C.torsoLean; T.torsoZ = -Math.sin(th) * 0.02;
+      T.headX = 0.42;
+      T.cape0 = 0.3; T.cape1 = 0.25; T.limbL = 34;   // fast enough that the soles stay on a pedal turning 1–2 ×/s
+      for (let i = 0; i < 2; i++) {
+        const sg = i === 0 ? 1 : -1;
+        const a = th + (i === 1 ? 0 : Math.PI);      // left crank on top at phase 0, right half a turn later
+        T.foot[i].set(sg * C.pedalX, C.crankY + C.crankR * Math.cos(a) + 0.02, C.crankZ - C.crankR * Math.sin(a));
+        T.kneePole[i].set(sg * 0.1, 0.3, -1);
+        T.hand[i].set(sg * C.gripX, C.gripY, C.gripZ); T.elbowPole[i].set(sg * 0.8, -0.6, 0.4);
+      }
+    }
+
+    // ── trunk
+    this.bodyGroup.rotation.x = T.bodyRotX * e;
+    this.bodyGroup.position.y = T.bodyY * e;
+    this.bodyGroup.position.z = T.bodyZ * e;
+    this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0, 8, dt);
+    const L = 14;
+    this.hips.position.y = damp(this.hips.position.y, THREE.MathUtils.lerp(this.hipsBaseY, T.hipsY, e), L, dt);
+    this.j(this.hips, T.hipX * e, 0, T.hipZ * e, dt, L);
+    this.j(this.torso, T.torsoX * e, T.torsoY * e, T.torsoZ * e, dt, L);
+    this.chestMesh.scale.y = 1 + breathe * 0.012;
+    this.j(this.headPivot, T.headX * e, T.headY * e, 0, dt, 12);
+
+    // ── limbs: IK against the full-pose parent frames (root → bodyGroup → hips → torso)
+    _fkMBody.makeRotationX(T.bodyRotX).setPosition(0, T.bodyY, T.bodyZ);
+    _fkQ.setFromEuler(_fkEuler.set(T.hipX, 0, T.hipZ, 'XYZ'));
+    _fkMHips.multiplyMatrices(_fkMBody, _fkMTmp.compose(_fkPos.set(0, T.hipsY, 0), _fkQ, _fkOne));
+    _fkQ.setFromEuler(_fkEuler.set(T.torsoX, T.torsoY, T.torsoZ, 'XYZ'));
+    _fkMTorso.multiplyMatrices(_fkMHips, _fkMTmp.compose(_fkPos.set(0, 0, 0), _fkQ, _fkOne));
+    _fkMInv.copy(_fkMHips).invert();
+    for (let i = 0; i < 2; i++) {
+      const sg = i === 0 ? 1 : -1;
+      _fkT.copy(T.foot[i]).applyMatrix4(_fkMInv).sub(_fkPos.set(sg * HIP_X, HIP_Y, 0));
+      _fkPole.copy(T.kneePole[i]).transformDirection(_fkMInv);
+      solveTwoBone(_fkT, _fkPole, LEG_U, LEG_F, -1, _legOut[i]);
+    }
+    _fkMInv.copy(_fkMTorso).invert();
+    for (let i = 0; i < 2; i++) {
+      const sg = i === 0 ? 1 : -1;
+      _fkT.copy(T.hand[i]).applyMatrix4(_fkMInv).sub(_fkPos.set(sg * SHOULDER_X, SHOULDER_Y, 0));
+      _fkPole.copy(T.elbowPole[i]).transformDirection(_fkMInv);
+      solveTwoBone(_fkT, _fkPole, ARM_U, ARM_F, 1, _armOut[i]);
+    }
+    const LL = T.limbL;
+    const lr = _legOut[0], ll = _legOut[1], ar = _armOut[0], al = _armOut[1];
+    this.j(this.legR.upper, lr.x * e, lr.y * e, lr.z * e, dt, LL); this.j(this.legR.lower, lr.k * e, 0, 0, dt, LL);
+    this.j(this.legL.upper, ll.x * e, ll.y * e, ll.z * e, dt, LL); this.j(this.legL.lower, ll.k * e, 0, 0, dt, LL);
+    this.j(this.armR.upper, ar.x * e, ar.y * e, ar.z * e, dt, LL); this.j(this.armR.lower, ar.k * e, 0, 0, dt, LL);
+    this.j(this.armL.upper, al.x * e, al.y * e, al.z * e, dt, LL); this.j(this.armL.lower, al.k * e, 0, 0, dt, LL);
+
+    // ── cape rests against the chair back / under the body / trails a little on the bike
+    for (let i = 0; i < this.capeSegs.length; i++) {
+      const seg = this.capeSegs[i];
+      seg.rotation.x = damp(seg.rotation.x, (i === 0 ? T.cape0 : T.cape1) * e, 8, dt);
+      seg.rotation.z = damp(seg.rotation.z, 0, 8, dt);
+    }
+    this.visorMat.emissiveIntensity = 0.85 + Math.sin(time * 2.2) * 0.15;
   }
 
   /**

@@ -79,6 +79,8 @@ export function syncRemoteIdentities(sys: NetSystem): void {
   for (const id of Array.from(sys.crewCards.keys())) if (id !== me && !seen.has(id)) sys.crewCards.delete(id);
   // 2026-09-08: and their ship layouts, so a 격납고 bay never renders a member who left (ours is kept — hub/ owns it).
   for (const id of Array.from(sys.shipVisits.keys())) if (id !== me && !seen.has(id)) sys.shipVisits.delete(id);
+  // 2026-09-12: and their buff lists + sync cooldowns.
+  sys.charBuffRelay.prune(seen);
   }
 
 /** `ghost state` / `sync` entry for a lobby member (never ourselves): the ref is created when missing. */
@@ -104,6 +106,8 @@ export function getOrCreateRemote(sys: NetSystem, id: PeerId): RemotePlayer {
   // Phase 10: a card that arrived before the ref existed (hub → mission transition) is applied now.
   const card = sys.crewCards.get(id);
   if (card) { r.crewLevel = card.level; r.equippedImplant = card.implant; }
+  // 2026-09-12: a buff list we already hold (the ref was rebuilt at a hub ↔ mission change) — no flicker, no request.
+  sys.charBuffRelay.mirror(r);
   sys.ctx.bus.emit('net:remotePlayerAdded', { id });
   if (r.suspended) sys.ctx.bus.emit('net:peerSuspended', { id, name: r.name, suspended: true });
   return r;

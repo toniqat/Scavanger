@@ -139,3 +139,14 @@
 /* stat value with an implant bonus: `4 (+2)` */
 .cs-stat .v .ib { font-size: 12px; font-weight: 600; color: #e39cff; }
 .cs-stat.has-bonus .v { min-width: 0; white-space: nowrap; }
+
+/* A-3a 헬스장: `10 (+2) (+1 단련)` — the 단련 span after the implant one, in its own colour */
+.cs-stat .v .tb { font-size: 12px; font-weight: 600; color: var(--c-info); }
+/* 근력 · 지구력: `단련 +2 · 40 %` / `단련 최대` on the left, the debuff countdown on the right */
+.cs-stat .gy { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 1px; min-width: 0; }
+.cs-stat .gy .gtr { font-size: 10px; letter-spacing: 0.04em; color: var(--c-info); white-space: nowrap; }
+.cs-stat .gy .gtr.maxed { color: var(--c-accent); }
+.cs-stat .gy .fat {
+  font-size: 10px; letter-spacing: 0.04em; color: #ff8f6b; white-space: nowrap;
+  border: 1px solid rgba(255, 143, 107, 0.4); padding: 0 5px; line-height: 14px;
+}

@@ -46,6 +46,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   }
   if (sys.ctx.world?.ready) _v.y = Math.max(_v.y, sys.ctx.world.getHeightAt(_v.x, _v.z));
   sys.releaseDroneControl();   // 2026-09-11
+  sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -133,6 +134,7 @@ export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
  */
 export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: number): void {
   sys.releaseDroneControl();   // 2026-09-11
+  sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -180,6 +182,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
 export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: number, snap?: boolean): void {
   if (!sys.spawned || sys.isDead || sys._inPod) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
+  sys.releaseFurniturePose('reset');   // 2026-09-12: a move cheat stands the body up first
   sys.clearClimbState();
   _v.copy(position);
   if (snap !== false) {
@@ -206,6 +209,7 @@ export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: numbe
 export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: number): void {
   const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
   sys.releaseDroneControl();   // 2026-09-11
+  sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();
   sys.attachTo(null);
   sys.setInterior(null);
@@ -360,6 +364,7 @@ export function updateDrop(sys: PlayerSystem, dt: number): void {
 
 export function resetAll(sys: PlayerSystem): void {
   sys.releaseDroneControl();   // 2026-09-11: game:abort · 재접속 대기
+  sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);

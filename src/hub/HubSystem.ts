@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose, ShipVisitWire } from '@/shared';
+import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RemotePlayerRef, RoomPurpose, ShipVisitWire } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, MENU_BLOCKER, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
@@ -31,6 +31,8 @@ import * as Trans from './parts/Transitions';
 import * as Crew from './parts/Crew';
 /* 공용 함선 격납고 (2026-09-08) */
 import * as Hangar from './parts/Hangar';
+
+const NO_REMOTES: readonly RemotePlayerRef[] = [];
 
 export class HubSystem implements GameSystem, HubRef {
   readonly name = 'hub';
@@ -217,6 +219,20 @@ export class HubSystem implements GameSystem, HubRef {
     if (!v) return null;
     return v.peerId ?? (this.ctx.net?.localId ?? 'local');
   }
+  /* ── 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화) ────────────── */
+  /** 스모크가 심은 가짜 원격 ref — null 이 아니면 `ctx.net` 의 목록 **대신** 쓴다 (`HudSystem.debugRemotes` 와 같은 모양). */
+  debugFurnitureRemotes: readonly RemotePlayerRef[] | null = null;
+  /**
+   * Smoke-test hook: feed synthetic remote refs (`{ id, connected, stale, suspended, hubSite, furniturePose }` is enough) to the
+   * furniture layer's remote staging without a relay session. `debugRemoteFurniture(null)` hands it back to `ctx.net`.
+   */
+  debugRemoteFurniture(refs: readonly RemotePlayerRef[] | null): void { this.debugFurnitureRemotes = refs; }
+  /** The remote refs the furniture layer stages from (the debug list while one is installed). */
+  remoteFurnitureRefs(): readonly RemotePlayerRef[] {
+    if (this.debugFurnitureRemotes) return this.debugFurnitureRemotes;
+    const net = this.ctx?.net;
+    return net && typeof net.getRemotePlayers === 'function' ? net.getRemotePlayers() : NO_REMOTES;
+  }
   /** PeerId of the ship being **visited** (someone else's), or null in our own ship / on the shared deck. */
   get visitingPeer(): PeerId | null { return this.visit?.peerId ?? null; }
   /** Inside someone else's ship: every console, bench, furniture piece and 시설 관리 is refused (둘러보기 전용). */
@@ -293,6 +309,9 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('housing:changed', () => Hangar.shipStateChanged(this)),
       b.on('housing:loaded', () => Hangar.shipStateChanged(this)),
       b.on('housing:booksChanged', () => Hangar.shipStateChanged(this)),
+      // A-3e (2026-09-12): 디스크 · 레코드 · TV/레코드 플레이어 켜짐도 방문자가 보는 함선의 일부다
+      b.on('housing:shelfChanged', () => Hangar.shipStateChanged(this)),
+      b.on('housing:furnitureToggled', () => Hangar.shipStateChanged(this)),
       b.on('progress:levelUp', () => this.crewCardChanged()),
       b.on('implant:equipped', () => this.crewCardChanged()),
       b.on('equip:changed', () => this.crewCardChanged()),

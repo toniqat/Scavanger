@@ -1,0 +1,82 @@
+/*
+ * src/ui/styles/buffs.css — 캐릭터 버프 썸네일 줄 (`hud/BuffStrip`, 2026-09-12, `docs/plans/char-buffs.md` §6-D).
+ *
+ *   `.bfs(.has-items .is-mini)`   썸네일 한 줄. 비어 있으면 `display:none` 이라 자리를 차지하지 않는다.
+ *     `.bfs-cell(.is-pending .is-debuff .is-timed)[data-key][data-kind]`   정사각 썸네일 (`--bc` 색 · `--r` 0…1 남은 비율)
+ *       `.bfs-face`                흐린 바탕 얼굴 (글리프)
+ *       `.bfs-reveal > .bfs-face.lit`  밝은 사본 — 밑에서부터 `--r` 만큼만 보인다 (= 시간 게이지, `implant.css` 의 두 얼굴 기법)
+ *       `.bfs-t`                   우하단 남은 시간 `23h` · `42m` · `35s` (타이머가 없으면 빈다)
+ *
+ * 붙는 곳은 둘이다: PC 체력바 바로 아래(`.vitals .bfs`, 22 px)와 좌하단 분대 목록 분대원 행의 체력바 아래(`.srow .bfs.is-mini`, 14 px —
+ * 너무 작아 시간 글자는 숨기고 게이지만 남긴다). 접두사 `bfs-` 는 `rg "\.bfs-" src` 로 비어 있음을 확인했다.
+ * 색 · 트랜지션 변수는 `base.css` 의 `:root` 것이고, 버프 색만 인라인 `--bc` 로 들어온다.
+ */
+
+.bfs {
+  --bfs: 22px;
+  display: none; flex-wrap: wrap; align-items: center; gap: 4px;
+  pointer-events: none;
+}
+.bfs.has-items { display: flex; }
+.bfs.is-mini { --bfs: 14px; gap: 3px; }
+
+.bfs-cell {
+  --bc: var(--c-text-dim);
+  --r: 1;
+  box-sizing: border-box;
+  position: relative; flex: none;
+  width: var(--bfs); height: var(--bfs);
+  overflow: hidden;
+  background: rgba(8, 10, 14, 0.66);
+  border: 1px solid color-mix(in srgb, var(--bc) 45%, rgba(255, 255, 255, 0.18));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.bfs-face {
+  position: absolute; left: 0; bottom: 0;
+  width: 100%; height: calc(var(--bfs) - 2px);
+  display: flex; align-items: center; justify-content: center;
+  font-size: calc(var(--bfs) * 0.6); line-height: 1;
+  color: var(--bc);
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.9);
+}
+.bfs-face:not(.lit) { opacity: 0.3; }
+.bfs-face.lit {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--bc) 12%, transparent),
+    color-mix(in srgb, var(--bc) 26%, transparent));
+}
+/* 밝은 사본을 밑에서부터 `--r` 만큼만 드러낸다 — 타이머가 없으면 `--r` 은 1 이라 얼굴 전체가 밝다. */
+.bfs-reveal {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: calc(var(--r) * 100%);
+  overflow: hidden;
+}
+.bfs-cell.is-timed .bfs-reveal { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bc) 70%, transparent); }
+
+.bfs-t {
+  position: absolute; right: 1px; bottom: 0;
+  font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: 0;
+  color: var(--c-text);
+  text-shadow: 0 0 3px #000, 0 1px 1px #000;
+}
+.bfs-t:empty, .bfs.is-mini .bfs-t { display: none; }
+
+/* 함선에서 다음 레이드에 실어 둔 것 — 흐리게, 출격하면 선명해진다 */
+.bfs-cell.is-pending { opacity: 0.42; }
+.bfs-cell.is-pending .bfs-face.lit { filter: saturate(0.35); }
+/* 디버프 — 빨간 테두리 */
+.bfs-cell.is-debuff {
+  border-color: var(--c-danger);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 6px -1px var(--c-danger);
+}
+
+/* ── 자리: PC 체력바 아래 ── */
+.hud .vitals .bfs { max-width: 240px; margin-top: 1px; }
+/* 줄이 생기면 체력 블록이 그만큼 위로 자라므로, 그 위에 앉은 채팅 · 분대 열(`.hud-bl`, base.css 의 122 px)도 같이 올린다.
+   관전 중(체력 블록이 숨는다) · 귓속말 중(열이 화면 가운데로 올라간다)의 자리는 건드리지 않는다. */
+.hud.social:not(.spectating):has(.vitals .bfs.has-items) .hud-bl:not(.whispering) { bottom: 151px; }
+
+/* ── 자리: 분대원 행의 체력바 아래 ── */
+.srow .bfs { margin-top: 1px; }
+.squad .srow:has(.bfs.has-items) { height: auto; min-height: 30px; }

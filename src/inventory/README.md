@@ -834,6 +834,13 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-12 (서재 매체 A-3e — 에이전트 items 의 최소 줄)** — 새 카테고리 `disc`(디스크 2×2) · `record`(레코드 3×3)가
+  손으로 적힌 카테고리 목록에 들어갔다. ① `model.ts` 의 `SORT_CATEGORY_ORDER` — `book` 뒤에 `disc` · `record`.
+  필터 칩(`FILTER_GROUPS`)은 책과 같이 어느 칩에도 없어 `기타` 로 간다 (무변경). ② 무한 상자 `CATALOG_TABS` 의 `book`
+  탭이 `['book', 'disc', 'record']` 를 받고 라벨이 `서적` → **`서재`**. ③ `ui/Tooltip.ts` — 디스크 · 레코드도 책과 같은
+  `스킬` · `용도` 두 줄, 용도 문구만 꽂는 보관함(`TEXT.bookStats.discShelf` · `recordShelf`). 주머니 · 퀵슬롯 규칙은 무변경
+  (둘 다 퀵슬롯 불가 카테고리이고 받아 주는 주머니가 없다).
+
 - **2026-09-12 (2차 UI/UX 묶음 9건, 에이전트 inventory)** — 계약(`src/shared`) · `data/` 는 한 글자도 안 건드렸다.
   ① **툴팁** — 내구도가 `내구도  120 / 300` 텍스트 행에서 **가로 게이지 한 줄**(`buildDurabilityBar` →
   `.inv-tt-durbar`, 무기 2×2 게이지의 `.track` / `.fill` 재사용)로. 그 아래 `구간` 줄(C-37)과 그것을 위해 있던

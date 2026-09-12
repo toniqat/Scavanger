@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { GhostState, GhostWire, ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
-import { NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@/shared';
+import type { CharBuff, RemoteFurniturePose } from '@/shared';
+import { FURNITURE_POSE_WIRE, NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@/shared';
 
 const RING_SIZE = 16;
 const MAX_EXTRAPOLATE = 0.25;
@@ -8,6 +9,19 @@ const MAX_EXTRAPOLATE = 0.25;
 const SEQ_RESET_GAP = 200;
 const TWO_PI = Math.PI * 2;
 const EMPTY_ATT: readonly string[] = [];
+/** 2026-09-12: the shared "no buffs known" list — every ref starts with this one frozen instance. */
+export const EMPTY_CHAR_BUFFS: readonly CharBuff[] = Object.freeze([] as CharBuff[]);
+
+/** `PlayerSnapshot.fp[0]` as a `FURNITURE_POSE_WIRE` index when the tuple is well-formed, else -1. */
+function poseIndexOf(s: PlayerSnapshot): number {
+  const fp = s.fp;
+  if (!Array.isArray(fp) || fp.length < 4) return -1;
+  const i = fp[0];
+  if (typeof i !== 'number' || !Number.isInteger(i) || i < 0 || i >= FURNITURE_POSE_WIRE.length) return -1;
+  if (!Number.isFinite(fp[1]) || !Number.isFinite(fp[2]) || !Number.isFinite(fp[3])) return -1;
+  return i;
+}
+const poseUidOf = (s: PlayerSnapshot): string | null => (typeof s.fu === 'string' && s.fu.length > 0 ? s.fu : null);
 
 interface Sample {
   arrival: number;
@@ -126,6 +140,25 @@ export class RemotePlayer implements RemotePlayerRef {
    */
   hubSite: PeerId | null = null;
 
+  /* ── appended (2026-09-12): 캐릭터 버프 · 가구 자세 ── */
+  /** The member's buff list from the last accepted `cbuf state` (written by `parts/CharBuffs`). A new array whenever it changes. */
+  buffs: readonly CharBuff[] = EMPTY_CHAR_BUFFS;
+  /** Revision of `buffs` (0 = nothing received yet). */
+  buffsRevision = 0;
+  /**
+   * The furniture pose of the newest snapshot (`fp` / `fu`) with its phase interpolated at the render time; null when the
+   * newest snapshot has none, while stale and while ghosted. **One object mutated in place every `tick`** — copy it to keep it.
+   */
+  furniturePose: RemoteFurniturePose | null = null;
+  /** `PlayerSnapshot.bfr` of the newest snapshot (0 when omitted) — `parts/CharBuffs` compares it with `buffsRevision`. */
+  snapshotBuffsRev = 0;
+  /**
+   * The stream restarted (`resetStream`): the sender may have reloaded and restarted its revision counter, so an equal
+   * `bfr` proves nothing — `parts/CharBuffs` asks once more and clears this when a list arrives.
+   */
+  buffsResync = false;
+  private readonly poseView: RemoteFurniturePose = { kind: 'sit', anchorY: 0, yaw: 0, phase: 0, furnitureUid: null };
+
   /**
    * The peer's snapshot stream restarted (page reload / rejoin with the same stable PeerId → `seq` starts at 1
    * again). Forget the sequence guard and the interpolation history; the next `push` snaps to the new stream.
@@ -136,6 +169,8 @@ export class RemotePlayer implements RemotePlayerRef {
     this.head = 0;
     this.hasAny = false;
     for (const r of this.ring) r.s = null;
+    this.furniturePose = null;
+    this.buffsResync = true;   // 2026-09-12: the last known `buffs` stay; the revision is re-checked (see the field)
   }
 
   /**
@@ -181,6 +216,8 @@ export class RemotePlayer implements RemotePlayerRef {
     this.shield = this.maxShield !== undefined && typeof s.sh === 'number' && Number.isFinite(s.sh) ? s.sh : undefined;
     /* 격납고 (2026-09-08): which ship interior the sender is standing in (null = the shared deck). */
     this.hubSite = typeof s.hs === 'string' && s.hs.length > 0 ? s.hs : null;
+    /* 2026-09-12: buff list revision (the pose itself is derived per frame in `tick`). */
+    this.snapshotBuffsRev = typeof s.bfr === 'number' && Number.isFinite(s.bfr) && s.bfr > 0 ? Math.floor(s.bfr) : 0;
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);
@@ -216,6 +253,8 @@ export class RemotePlayer implements RemotePlayerRef {
     this.barrierHp = undefined;
     this.shield = undefined;
     this.maxShield = undefined;
+    /* 2026-09-12: a ghost is not sitting / exercising. The last known `buffs` are kept (the squad list still shows them). */
+    this.furniturePose = null;
     let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD
       | PlayerFlags.CARRYING | PlayerFlags.CARRIED | PlayerFlags.BARRIER | PlayerFlags.TYPING | PlayerFlags.CLIMBING);
     if (g.st === 1) f |= PlayerFlags.DOWNED;
@@ -236,12 +275,13 @@ export class RemotePlayer implements RemotePlayerRef {
   /** Advance the interpolated view to `now` (ctx.time). Allocation-free. */
   tick(now: number): void {
     this.stale = now - this.lastUpdate > NET_STALE_AFTER;
-    if (this.ghosted) return; // the ghost owns the pose
-    if (this.count === 0) return;
+    if (this.ghosted) { this.furniturePose = null; return; } // the ghost owns the pose
+    if (this.count === 0) { this.furniturePose = null; return; }
     const renderTime = now - NET_INTERP_DELAY;
     const newestIdx = (this.head + this.count - 1) % RING_SIZE;
     const newest = this.ring[newestIdx];
     const ns = newest.s!;
+    this.updateFurniturePose(renderTime, newest.arrival, ns);
 
     if (renderTime >= newest.arrival) {
       // Beyond the newest sample: extrapolate with velocity for a short while, then hold.
@@ -290,6 +330,45 @@ export class RemotePlayer implements RemotePlayerRef {
     this.yaw = as.yaw + angleDelta(as.yaw, bs.yaw) * t;
     this.pitch = as.pitch + (bs.pitch - as.pitch) * t;
     this.stridePhase = as.stride + angleDelta(as.stride, bs.stride) * t;
+  }
+
+  /**
+   * 2026-09-12: `furniturePose` from the newest snapshot — kind · uid · anchor y · yaw are discrete (newest sample, like
+   * `stance`), the **cumulative** phase is interpolated like `position`: linear between the two samples bracketing
+   * `renderTime` (the value never wraps, so no shortest-arc), held past the newest sample (like `stride`). When the kind or
+   * the uid differs inside the pair the phase snaps: it holds the first sample of the current pose until the render time
+   * reaches it, so a pose that just started never runs backwards. Allocation-free; cheap (no walk while nobody is posed).
+   */
+  private updateFurniturePose(renderTime: number, newestArrival: number, ns: PlayerSnapshot): void {
+    const kind = this.stale ? -1 : poseIndexOf(ns);
+    if (kind < 0) { this.furniturePose = null; return; }
+    const fp = ns.fp!;
+    const uid = poseUidOf(ns);
+    const v = this.poseView;
+    v.kind = FURNITURE_POSE_WIRE[kind];
+    v.anchorY = fp[1];
+    v.yaw = fp[2];
+    v.furnitureUid = uid;
+    v.phase = fp[3];
+    if (renderTime < newestArrival) {
+      let laterPhase = fp[3];
+      let laterArrival = newestArrival;
+      for (let k = this.count - 2; k >= 0; k--) {
+        const smp = this.ring[(this.head + k) % RING_SIZE];
+        const s = smp.s;
+        if (!s || poseIndexOf(s) !== kind || poseUidOf(s) !== uid) break;   // pose began after this sample: hold its first value
+        const ph = s.fp![3];
+        if (smp.arrival <= renderTime) {
+          const span = laterArrival - smp.arrival;
+          laterPhase = span > 0 ? ph + (laterPhase - ph) * ((renderTime - smp.arrival) / span) : laterPhase;
+          break;
+        }
+        laterPhase = ph;
+        laterArrival = smp.arrival;
+      }
+      v.phase = laterPhase;
+    }
+    this.furniturePose = v;
   }
 
   dispose(): void {

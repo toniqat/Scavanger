@@ -14,8 +14,8 @@ import type {
   GameContext, HubShipBay, PeerId, PlacedBook, PlacedFurniture, Rarity, RoomPurpose, ShipVisitWire,
 } from '@/shared';
 import {
-  BOOKS_PER_SHELF, NET_MAX_PLAYERS, SHIP_ROOM_COUNT, SHIP_VISIT_COOLDOWN_S, SHIP_VISIT_MAX_FURNITURE,
-  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S,
+  BOOKS_PER_SHELF, FURNITURE_DEF_MAP, NET_MAX_PLAYERS, SHELF_SLOTS, SHIP_ROOM_COUNT, SHIP_VISIT_COOLDOWN_S, SHIP_VISIT_MAX_FURNITURE,
+  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S, shelfMediumOfInteraction,
 } from '@/shared';
 import type { FurnitureSource } from '../interiors/Furniture';
 import type { HubSystem } from '../HubSystem';
@@ -73,6 +73,11 @@ export function shipStateWire(sys: HubSystem): ShipVisitWire | null {
     }
   }
   if (books.length > 0) wire.books = books;
+  // A-3e (2026-09-12): 디스크 전시대 · 레코드랙의 매체와 켜 둔 TV · 레코드 플레이어 — `books` 와 같은 모양, 비어 있으면 생략
+  // (받는 쪽 `net` 의 `sanitizeShipVisit` 이 두 필드를 검증해 남긴다)
+  const state = h.state;
+  if (state?.media && state.media.length > 0) wire.media = state.media.map((m) => ({ uid: m.uid, slot: m.slot, defId: m.defId }));
+  if (state?.toggled && state.toggled.length > 0) wire.toggled = [...state.toggled];
   return wire;
   }
 
@@ -147,11 +152,35 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
     try { rarity = ctx.loot?.getItemDef(bk.defId)?.rarity ?? 'common'; } catch { /* unknown book */ }
     slots[bk.slot] = rarity;
   }
+  /*
+   * A-3e (2026-09-12): 디스크 전시대 · 레코드랙의 칸 — 칸 수는 그 조각의 매체(`SHELF_SLOTS`)에서 오고, 와이어에 없는 uid ·
+   * 칸 범위 밖 · 보관함이 아닌 조각은 버린다 (책과 같은 방어). 등급은 책처럼 로컬 카탈로그에서 찾는다.
+   */
+  const defOfUid = new Map<string, string>();
+  for (const piece of wire.furniture) defOfUid.set(piece.uid, piece.defId);
+  const mediaByUid = new Map<string, (Rarity | null)[]>();
+  for (const m of wire.media ?? []) {
+    const defId = defOfUid.get(m.uid);
+    const def = defId ? FURNITURE_DEF_MAP.get(defId) : undefined;
+    const medium = def ? shelfMediumOfInteraction(def.interaction) : null;
+    if (!medium || medium === 'book') continue;
+    const n = SHELF_SLOTS[medium];
+    if (m.slot < 0 || m.slot >= n) continue;
+    let slots = mediaByUid.get(m.uid);
+    if (!slots) { slots = new Array(n).fill(null); mediaByUid.set(m.uid, slots); }
+    let rarity: Rarity = 'common';
+    try { rarity = ctx.loot?.getItemDef(m.defId)?.rarity ?? 'common'; } catch { /* unknown medium */ }
+    slots[m.slot] = rarity;
+  }
+  const toggled = new Set(wire.toggled ?? []);
   const EMPTY_ROOM: readonly PlacedFurniture[] = [];
   const EMPTY_SHELF: readonly (Rarity | null)[] = new Array(BOOKS_PER_SHELF).fill(null);
+  const EMPTY_MEDIA: readonly (Rarity | null)[] = [];
   return {
     getPlaced: (room) => byRoom.get(room) ?? EMPTY_ROOM,
     getBooks: (uid) => byUid.get(uid) ?? EMPTY_SHELF,
+    getMedia: (uid) => mediaByUid.get(uid) ?? EMPTY_MEDIA,
+    isOn: (uid) => toggled.has(uid),
   };
   }
 

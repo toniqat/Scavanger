@@ -208,10 +208,12 @@ export class Tooltip {
       rows.push([t.amount, Number.isFinite(charge.amount) ? `+${Math.round(charge.amount)}` : t.full]);
       rows.push([t.useTime, `${charge.useTime} s`]);
     }
-    if (def.book) {
+    // 2026-09-12 (A-3e): 디스크 · 레코드는 책과 같은 두 줄, 용도만 꽂는 보관함 이름이 다르다
+    const media = def.book ?? def.disc ?? def.record;
+    if (media) {
       const t = TEXT.bookStats;
-      rows.push([t.skill, this.lookups.getSkillName?.(def.book.skill) ?? def.book.skill]);
-      rows.push([t.use, t.shelf]);
+      rows.push([t.skill, this.lookups.getSkillName?.(media.skill) ?? media.skill]);
+      rows.push([t.use, def.book ? t.shelf : def.disc ? t.discShelf : t.recordShelf]);
     }
     // Phase 12: 임플란트 — slot cost + one line per stat bonus (`근력 +2`); a broken one has no bonuses to list
     const imp = def.implant;

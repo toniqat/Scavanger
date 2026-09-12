@@ -1,8 +1,9 @@
 import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance, MealDef,
-  DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
+  DerivedStats, EmbeddedView, GameContext, GameSystem, GymSessionResult, GymStat, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
 import {
+  GYM_FATIGUE_GAIN_MUL, GYM_FATIGUE_HOURS, GYM_SESSION_XP, GYM_STATS, GYM_TRAIN_XP_BASE, GYM_TRAIN_XP_EXPONENT, GYM_TRAINED_MAX,
   brokenImplantIdOf,
   IMPLANT_SLOTS_BASE, IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_PER_LEVELS,
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
@@ -12,7 +13,7 @@ import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
-import { applyMealBuff, computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, emptyPerks, xpForLevel, type ImplantContribution } from './derive';
+import { applyMealBuff, computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
 import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 import { SheetView } from './ui/SheetView';
@@ -30,6 +31,14 @@ const SKILL_STAT_FACTOR = 0.04;
  * Phase 8 (`ui:statsToggled` still opens the overlay for anyone who emits it), and P now belongs to `Keys.INVITE`
  * (분대 초대 수락 홀드). Both listened with `uiBlockers.size === 0`, so they would have fought each other.
  */
+
+/** 단련 경험치 needed to go from 단련 보너스 `n` to `n + 1`: round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT) (A-3a). */
+export function trainedXpFor(n: number): number {
+  const k = Math.max(0, Math.round(Number.isFinite(n) ? n : 0));
+  return Math.max(1, Math.round(GYM_TRAIN_XP_BASE * Math.pow(k + 1, GYM_TRAIN_XP_EXPONENT)));
+}
+
+const isGymStat = (id: unknown): id is GymStat => (GYM_STATS as readonly unknown[]).includes(id);
 
 /** Raw stat XP needed for the point after stat value `value`: round(STAT_XP_BASE × value^STAT_XP_EXPONENT). */
 export function statXpFor(value: number): number {
@@ -72,8 +81,11 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
 
   getEquippedImplants(): readonly EquippedImplant[] { return this.equippedList(); }
 
-  /** Base stat + equipped implant bonuses — what `derived` is computed from. */
-  getStatWithImplants(id: StatId): number { return this.getStat(id) + this.getImplantBonus(id); }
+  /**
+   * Base stat + equipped implant bonuses + 헬스장 단련 보너스 (A-3a) — what `derived` is computed from. The name predates
+   * the gym; the contract keeps its meaning (「`derived` 가 계산되는 값」), so it includes `trained` too.
+   */
+  getStatWithImplants(id: StatId): number { return this.getStat(id) + this.getImplantBonus(id) + this.getTrainedBonus(id); }
 
   /** Sum of `implant.stats[id]` over the equipped implants (0 when none / items not up yet). */
   getImplantBonus(id: StatId): number {
@@ -442,6 +454,157 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.ctx?.bus.emit('progress:mealChanged', { meal: this.mealId(), active: this.activeMealId() });
   }
 
+  /* ══ 헬스장 — 단련 보너스 · 운동 디버프 (A-3a, 2026-09-12 — 사용자 결정: 스탯 포인트와 따로 센다) ══════════════════════
+   * housing 의 미니게임이 끝나면 `applyGymSession(stat, 점수)` 를 부른다. 점수 → 단련 경험치 → `profile.trained[stat]`
+   * (상한 `GYM_TRAINED_MAX`, 넘친 경험치는 이월). 단련 보너스는 `stats` 와 섞이지 않고 `derive.stat()` 가 임플란트 보너스와
+   * **같은 자리**에서 더한다. 끝낸 세션은 디버프가 없던 능력치에 `GYM_FATIGUE_HOURS` 의 디버프를 건다 (디버프 중이면
+   * 경험치 × `GYM_FATIGUE_GAIN_MUL` 이고 디버프는 늘지 않는다). 시각은 `ctx.net.serverNow() ?? Date.now()` (온실과 같은
+   * 현실 시간). 세 필드 모두 프로필에 살고 `Profile.sanitizeGym` 이 migrate 에서 옮겨 담는다.
+   * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+  getTrainedBonus(id: StatId): number { return trainedBonusOf(this._profile, id); }
+
+  getTrainedProgress(id: StatId): number {
+    if (!isGymStat(id)) return 0;
+    if (this.getTrainedBonus(id) >= GYM_TRAINED_MAX) return 1;
+    const p = this._profile.trainedProgress?.[id];
+    return typeof p === 'number' && Number.isFinite(p) ? Math.max(0, Math.min(0.999999, p)) : 0;
+  }
+
+  trainedXpToNext(id: StatId): number { return trainedXpFor(this.getTrainedBonus(id)); }
+
+  getGymFatigueUntil(id: StatId): number {
+    if (!isGymStat(id)) return 0;
+    const until = this._profile.gymFatigueUntil?.[id];
+    if (typeof until !== 'number' || !Number.isFinite(until)) return 0;
+    return until > this.gymNow() ? until : 0;
+  }
+
+  /** The clock of the gym debuff: relay wall time when connected (`ctx.net.serverNow()`), else `Date.now()`. */
+  gymNow(): number {
+    try {
+      const net = this.ctx?.net;
+      if (net && typeof net.serverNow === 'function') {
+        const t = net.serverNow();
+        if (typeof t === 'number' && Number.isFinite(t) && t > 0) return t;
+      }
+    } catch { /* net not ready */ }
+    return Date.now();
+  }
+
+  /**
+   * 함선 전용. 끝낸 운동 세션 하나를 반영한다 (§4 공식). null — 아무것도 바꾸지 않는다 — 레이드 중 · 함선 phase 가 아님 ·
+   * 운동 능력치가 아님. 점수는 0 … 1 로 자르고(NaN = 0), 점수 0 이어도 끝낸 세션이면 디버프가 걸린다.
+   * `xp` 는 **실제로 더해진** 경험치다 — 디버프 중이거나 이미 상한이면 0.
+   */
+  applyGymSession(id: GymStat, score: number): GymSessionResult | null {
+    const ctx = this.ctx;
+    if (!ctx || !isGymStat(id)) return null;
+    try { if (ctx.isRaidActive()) return null; } catch { return null; }
+    if (ctx.phase !== 'hub') return null;
+
+    const s = typeof score === 'number' && Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0;
+    const now = this.gymNow();
+    const activeUntil = this.getGymFatigueUntil(id);
+    const wasFatigued = activeUntil > 0;
+    const earned = Math.round(GYM_SESSION_XP * s) * (wasFatigued ? GYM_FATIGUE_GAIN_MUL : 1);
+    const xp = this.getTrainedBonus(id) >= GYM_TRAINED_MAX ? 0 : Math.max(0, Math.round(earned));
+
+    // the debuff is written before the step, whose immediate save then carries both
+    let fatigueUntil = activeUntil;
+    if (!wasFatigued) {
+      fatigueUntil = now + GYM_FATIGUE_HOURS * 3600e3;
+      const p = this._profile;
+      (p.gymFatigueUntil ?? (p.gymFatigueUntil = {}))[id] = fatigueUntil;
+    }
+    const step = this.stepTrained(id, xp);
+    if (!wasFatigued) ctx.bus.emit('progress:gymFatigue', { id, until: fatigueUntil });
+
+    return {
+      stat: id, score: s, xp, wasFatigued, trainedBefore: step.before, trainedAfter: step.after,
+      progress: step.progress, capped: step.capped, fatigueUntil,
+    };
+  }
+
+  /**
+   * 개발자 콘솔 `gym` 전용 (계약 appended 2026-09-12): 단련 경험치를 디버프 · 함선 게이트 · 세션 상한 없이 더한다.
+   * 음수는 뺀다 — 진행도가 0 아래로 가면 한 단계씩 내려가고 0 · 0 이 바닥이다. 상한 `GYM_TRAINED_MAX`.
+   * 운동 능력치가 아니거나 유한한 수가 아니면 아무것도 하지 않는다.
+   */
+  addTrainedXp(id: GymStat, xp: number): void {
+    if (!isGymStat(id) || typeof xp !== 'number' || !Number.isFinite(xp)) return;
+    this.stepTrained(id, xp);
+  }
+
+  /**
+   * 개발자 콘솔 `gym clear` 전용: 운동 디버프를 지운다 (`id` 생략 = 둘 다). 지운 능력치마다 `progress:gymFatigue {id, until: 0}` 를
+   * 내서 시트 · 배지가 곧바로 다시 그리게 하고, 무언가 지웠으면 즉시 저장한다. 지난 스탬프도 함께 치운다.
+   */
+  clearGymFatigue(id?: GymStat): void {
+    const ids: readonly GymStat[] = id === undefined ? GYM_STATS : isGymStat(id) ? [id] : [];
+    const map = this._profile.gymFatigueUntil;
+    const cleared: GymStat[] = [];
+    for (const k of ids) {
+      if (map && k in map) { delete map[k]; cleared.push(k); }
+    }
+    if (cleared.length === 0) return;
+    this.markDirty(true);
+    for (const k of cleared) this.ctx?.bus.emit('progress:gymFatigue', { id: k, until: 0 });
+  }
+
+  /**
+   * The one 단련 step shared by `applyGymSession` and `addTrainedXp`: signed `xp` on top of the stored progress.
+   * The stored fraction becomes raw XP at the current step (0 at the cap — progress 1 there is only a pin), then the bonus
+   * climbs as many steps as the XP pays for (carry-over, cap `GYM_TRAINED_MAX` → progress 1) or, for a deficit, drops one
+   * step at a time adding that step's need back (floor 0 · 0). Both loops are bounded by the cap width.
+   * Writes the profile, recomputes `derived` when the bonus moved, saves **immediately**, and emits
+   * `progress:trainedChanged {delta: xp}` (+ `progress:statChanged` when the bonus moved).
+   */
+  private stepTrained(id: GymStat, xp: number): { before: number; after: number; progress: number; capped: boolean } {
+    const before = this.getTrainedBonus(id);
+    let n = before;
+    let raw = (before >= GYM_TRAINED_MAX ? 0 : this.getTrainedProgress(id) * trainedXpFor(n)) + xp;
+    for (let i = 0; i <= GYM_TRAINED_MAX && n < GYM_TRAINED_MAX && raw >= trainedXpFor(n); i++) {
+      raw -= trainedXpFor(n);
+      n += 1;
+    }
+    for (let i = 0; i <= GYM_TRAINED_MAX && n > 0 && raw < 0; i++) {
+      n -= 1;
+      raw += trainedXpFor(n);
+    }
+    if (!(raw > 0)) raw = 0;
+    const capped = n >= GYM_TRAINED_MAX;
+    if (capped) n = GYM_TRAINED_MAX;
+    let progress = capped ? 1 : Math.max(0, Math.min(0.999999, raw / trainedXpFor(n)));
+    if (!Number.isFinite(progress)) progress = 0;
+
+    const p = this._profile;
+    const trained = p.trained ?? (p.trained = {});
+    const prog = p.trainedProgress ?? (p.trainedProgress = {});
+    if (n > 0) trained[id] = n; else delete trained[id];
+    if (progress > 0) prog[id] = progress; else delete prog[id];
+
+    const changed = n !== before;
+    if (changed) this.recompute();                        // the bonus feeds every stat formula (carry · stamina …)
+    this.markDirty(true);                                 // immediate: a reload must neither drop the gain nor the debuff
+
+    const bus = this.ctx?.bus;
+    bus?.emit('progress:trainedChanged', { id, value: n, progress, delta: xp });
+    if (changed) bus?.emit('progress:statChanged', { id, value: this.getStat(id), pointsLeft: p.statPoints });
+    return { before, after: n, progress, capped };
+  }
+
+  /** Re-announce the 헬스장 state (boot · server document · reset): `trainedChanged` with delta 0, `gymFatigue` while active. */
+  private emitGymState(): void {
+    const bus = this.ctx?.bus;
+    if (!bus) return;
+    for (const id of GYM_STATS) {
+      bus.emit('progress:trainedChanged', { id, value: this.getTrainedBonus(id), progress: this.getTrainedProgress(id), delta: 0 });
+      const until = this.getGymFatigueUntil(id);
+      if (until > 0) bus.emit('progress:gymFatigue', { id, until });
+    }
+  }
+
   private afterImplantsChanged(): void {
     this.recompute();
     this.markDirty(true);
@@ -564,6 +727,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
        * 여기가 유일한 자리인 이유: 프로필의 주인이 이 시스템이고, `progress:loaded` 는 부팅(마이크로태스크
        * 방송) · 서버 프로필 수신 · 캐릭터 초기화 **세 경우 모두** 지나가는 한 지점이다. */
       b.on('progress:loaded', ({ profile }) => { try { ctx.net?.setPlayerName(profile.name); } catch { /* net 미준비 */ } }),
+      /* ── 헬스장 (A-3a): the sheet's `(+n 단련)` · progress line · debuff countdown ── */
+      b.on('progress:trainedChanged', ({ id }) => this.refreshSheetStat(id)),
+      b.on('progress:gymFatigue', ({ id }) => this.refreshSheetStat(id)),
       /* ── server profile (Phase 7) ── */
       b.on('net:profileLoaded', () => this.onProfileLoaded()),
       /* ── 운반 (distance accumulated in update) ── */
@@ -594,6 +760,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       ctx.bus.emit('progress:loaded', { profile: this._profile });
       this.emitPrepChanged();                                   // A-13: 부팅 시점의 준비물 (HUD 배지 · 출격 준비 화면)
       this.emitMealChanged();                                   // A-3c: 부팅 시점의 식사 (HUD 식사 배지 · 식탁 화면)
+      this.emitGymState();                                      // A-3a: 부팅 시점의 단련 · 운동 디버프 (함선 디버프 배지)
     });
   }
 
@@ -905,6 +1072,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.emitImplantsChanged();                 // Phase 12: the equipped 임플란트 items came with the document
     this.emitPrepChanged();                     // A-13: 준비물도 문서와 함께 왔다 (재접속 복귀가 여기를 지난다)
     this.emitMealChanged();                     // A-3c: 식사도 마찬가지 (`mealActive` 가 살아서 돌아온다)
+    this.emitGymState();                        // A-3a: 단련 보너스 · 운동 디버프도 문서와 함께 왔다
     this.refreshSheets();
   }
 
@@ -933,6 +1101,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.emitImplantsChanged();
     this.emitPrepChanged();
     this.emitMealChanged();
+    this.emitGymState();                        // A-3a: freshProfile 이 단련 · 디버프를 비웠다
     this.refreshSheets();
   }
 

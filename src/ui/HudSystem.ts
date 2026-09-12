@@ -1,4 +1,4 @@
-import type { GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, PeerId, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
+import type { CharBuff, GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, PeerId, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
@@ -25,9 +25,8 @@ import { ReloadGauge } from './hud/ReloadGauge';
 import { StratagemWheel } from './hud/StratagemWheel';
 import { CommsWheel } from './hud/CommsWheel';
 import { HazardHud } from './hud/HazardHud';
-/* 2026-09-11 (A-13): 행성 상시 환경 배지 — 레이드 HUD 좌측 상단, `player:envChanged` 의 유일한 소비자 */
-import { EnvBadge } from './hud/EnvBadge';
-import { MealBadge } from './hud/MealBadge';
+/* 2026-09-12 (캐릭터 버프): 환경 · 식사 · 운동 디버프 배지 셋은 `hud/BuffStrip` 썸네일 줄로 대체됐다 (Vitals · Squad 안) */
+import type { BuffCellState } from './hud/BuffStrip';
 import { RaidAlerts } from './hud/RaidAlerts';
 import { StratagemPanel } from './hud/StratagemPanel';
 import { RescuePicker } from './hud/RescuePicker';
@@ -116,10 +115,10 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * Phase 11 (소셜): `Community` joins the social layer — the ship-only 커뮤니티 thumbnail, its panel (which reuses the
  * ESC screen's `menus/social/SocialColumn`) and the 분대 초대 stack with its `Keys.INVITE` hold; the pause menu's own
  * social column is built by `PauseMenu`, and `debugSocial(snapshot, invites)` fakes the mirror for the smoke.
- * 2026-09-11 (A-13 행성 상시 환경): `EnvBadge` joins the gameplay layer under the mission clock — `player:envChanged`
- * 의 유일한 소비자이고, 레이어가 함선 · 타이틀에서 내려가므로 **레이드에서만** 보인다.
- * 2026-09-11 (A-3c 주방): 그 자리가 **배지 한 줄**(`.hud-badges`)이 됐다 — `EnvBadge` 옆에 `MealBadge`
- * (`progress:mealChanged` 의 유일한 소비자)가 나란히 선다. 행에는 배경도 여백도 없어 둘 다 숨으면 아무것도 안 남는다.
+ * 2026-09-12 (캐릭터 버프, 사용자 결정): the **vitals block moved to the social layer** (like `HoldGauge` did) so the PC
+ * name · shield · hp show in the ship too; only its stamina bar stays in the gameplay layer (raid-only). Under the hp bar
+ * sits the local `BuffStrip`, and every squadmate row in `Squad` carries a mini one. The three text badges that used to
+ * say the same things — `EnvBadge` · `MealBadge` (top-left `.hud-badges` row, raid) and `GymFatigueBadge` (ship) — are gone.
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -159,9 +158,6 @@ export class HudSystem implements GameSystem {
   private comms!: CommsWheel;
   /** 2026-09-09: 환경 재해 경고 (배너 · 안전지대 게이지 · 화면 가장자리). */
   private hazard!: HazardHud;
-  /** 2026-09-11 (A-13 · A-3c): 좌상단 배지 행 — 행성 상시 환경 · 이번 레이드에 실린 식사가 한 줄에 나란히 선다. */
-  private envBadge!: EnvBadge;
-  private mealBadge!: MealBadge;
   /** 2026-09-09: 새 랜드마크 발견 · 로그 강하 예고 토스트 (DOM 없음 — `ui:notify` 로만 나간다). */
   private raidAlerts = new RaidAlerts();
   private strat!: StratagemPanel;
@@ -261,12 +257,9 @@ export class HudSystem implements GameSystem {
     this.comms = new CommsWheel(this.hudRoot);
     // 환경 재해: 배너 · 게이지는 게임플레이 레이어, 가장자리 맥동은 비네트와 같은 오버레이 레이어.
     this.hazard = new HazardHud(this.hudRoot, this.overlayRoot);
-    /* 좌상단 배지 행 (A-13 환경 + A-3c 식사). 게임플레이 레이어라서 함선 · 타이틀에서는 레이어째 내려간다
-       = 레이드 전용. 행(`.hud-badges`, `styles/env.css`)은 배경도 여백도 없어 **둘 다 숨으면 빈 상자가 남지 않는다.** */
-    const badgeRow = el('div', { cls: 'hud-badges', parent: this.hudRoot });
-    this.envBadge = new EnvBadge(badgeRow);
-    this.mealBadge = new MealBadge(badgeRow);
-    this.vitals = new Vitals(this.hudRoot);
+    // 2026-09-12: the stamina bar is created here (gameplay layer, raid-only, same DOM slot as before); the name · shield · hp
+    // block stays detached until the social layer exists and is mounted there below, so it also shows in the ship.
+    this.vitals = new Vitals(this.hudRoot, null);
     this.weapon = new WeaponPanel(this.hudRoot);
     // The strip lives **inside** the weapon panel so it stacks on top of the gun box and inherits its
     // right-bottom anchor, its fade and the `.hud.spectating` rule. `prepend` puts it first in the panel.
@@ -301,6 +294,10 @@ export class HudSystem implements GameSystem {
     this.bottomLeft = el('div', { cls: 'hud-bl', parent: this.socialRoot });
     this.chat = new ChatLog(this.bottomLeft);
     this.squad = new Squad(this.bottomLeft);
+    // 2026-09-12 (캐릭터 버프): PC 체력 블록 — 소셜 레이어라 함선에서도 보인다 (`.hud-bl` 은 base.css 에서 늘 그 위에 앉는다).
+    // Raid visibility is unchanged: in gameplay phases this layer follows the gameplay one (menu / solo death), and the
+    // `.hud.spectating .vitals` rule applies here too. The drone-view shrink moved to a sibling selector in `styles/drone.css`.
+    this.socialRoot.appendChild(this.vitals.root);
     this.prompt = new InteractionPrompt(this.socialRoot);
     // 2026-09-09: the 홀드 링 moved from the gameplay layer to this one — the social layer is the one that stays up in
     // the ship, and the 발사 포드 탑승 (0.4 s hold) had no ring there. One instance serves both phases; the
@@ -371,7 +368,7 @@ export class HudSystem implements GameSystem {
     this.netBadge.bind(ctx);
     this.rescuePick.bind(ctx);
     // 2026-09-09 (레이드 플레이 개선): 의사소통 휠 · 재해 HUD · 레이드 알림
-    for (const c of [this.comms, this.hazard, this.raidAlerts, this.envBadge, this.mealBadge]) c.bind(ctx);
+    for (const c of [this.comms, this.hazard, this.raidAlerts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -412,9 +409,10 @@ export class HudSystem implements GameSystem {
     this.applyVisibility();
     // Map polls M and draws itself while open (also handles its own blocker token).
     this.map.update(ctx);
+    // 2026-09-12: the vitals block lives in the social layer (up in the ship too); its raid-only stamina bar just idles there.
+    if (this.hudVisible || this.socialVisible) this.vitals.update(dt, ctx);
     if (this.hudVisible) {
       this.reticle.update(dt, ctx);
-      this.vitals.update(dt, ctx);
       this.reload.update(dt);
       this.strat.update(ctx);
       this.targeting.update(ctx);
@@ -508,11 +506,15 @@ export class HudSystem implements GameSystem {
   get isHazardBannerOn(): boolean { return this.hazard.isBannerOn; }
   get isInHazard(): boolean { return this.hazard.isInside; }
   get hazardSafeShare(): number { return this.hazard.safeShare; }
-  /** 2026-09-11 (A-13) 행성 상시 환경 배지: 그리고 있는 환경 · 준비물이 막고 있나 (debug / smoke). */
-  get envBadgeKind(): string | null { return this.envBadge.shownEnv; }
-  get isEnvProtected(): boolean { return this.envBadge.isProtected; }
-  /** 2026-09-11 (A-3c): 지금 배지가 그리고 있는 요리 def id (없으면 null). */
-  get mealBadgeDefId(): string | null { return this.mealBadge.shownMeal; }
+  /**
+   * 2026-09-12 (캐릭터 버프) — debug / smoke. `localBuffs` = the thumbnails under the PC hp bar, in DOM order
+   * (key · kind · glyph · color · dim = pending · debuff frame · gauge ratio · time label · title);
+   * `squadBuffs(id)` = the same for member `id`'s squad row (null when no row shows that member — the local row never has any).
+   */
+  get localBuffs(): BuffCellState[] { return this.vitals.buffs.state; }
+  squadBuffs(id: string): BuffCellState[] | null { return this.squad.buffStateOf(id); }
+  /** Smoke hook: draw `list` under the PC hp bar instead of `ctx.player.buffs`; `null` hands it back to the player. */
+  debugLocalBuffs(list: readonly CharBuff[] | null): void { this.vitals.setDebugBuffs(list); }
   /** Whether the targeting frame is up (debug). */
   get isTargeting(): boolean { return this.targeting.isActive; }
   /** Whether the key-settings overlay is open (debug). */
@@ -618,6 +620,8 @@ export class HudSystem implements GameSystem {
    * Smoke-test hook (Phase 7): feed synthetic remote refs (e.g. `remotePlayers.debugSpawn`, with `suspended` /
    * `inMission` flipped by the test) and a synthetic `LobbyState` to the nameplates, the 입력 중 말풍선 and the
    * squad panel without a relay session. `debugRemotes(null)` clears all three.
+   * 2026-09-12: a ref may carry `buffs` (+ `buffsRevision`) — the squad row draws them under its hp bar; reassign
+   * `ref.buffs` to a new array (and/or emit `net:remoteBuffsChanged`) to change them.
    */
   debugRemotes(refs: readonly RemotePlayerRef[] | null, lobby: LobbyState | null = null): void {
     this.nameplates.setDebugRefs(refs);
@@ -715,7 +719,7 @@ export class HudSystem implements GameSystem {
     this.community.dispose();
     this.netBadge.dispose();
     this.rescuePick.dispose();
-    for (const c of [this.comms, this.hazard, this.raidAlerts, this.envBadge, this.mealBadge]) c.dispose();
+    for (const c of [this.comms, this.hazard, this.raidAlerts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();
     this.keybinds.dispose();

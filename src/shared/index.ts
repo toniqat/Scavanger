@@ -57,3 +57,5 @@ export * from './ride';
 /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — 받는 쪽 버프 상한 · 서버 크레딧 사유 문법 / 경제 표 */
 export * from './buffRules';
 export * from './credits';
+/* appended (2026-09-12): 캐릭터 버프 — 식사 · 준비물 · 운동 디버프 · 환경 노출 · 휴식 / 운동 중을 한 목록으로 (docs/plans/char-buffs.md) */
+export * from './charBuffs';

@@ -1,5 +1,6 @@
-import type { DerivedStats, MealDef, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
+import type { DerivedStats, GymStat, MealDef, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
 import {
+  GYM_STATS, GYM_TRAINED_MAX,
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
   PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, STAT_MAX, STAT_MIN, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
   XP_BASE, XP_EXPONENT,
@@ -84,13 +85,28 @@ function frac(profile: PlayerProfile, id: SkillId): number {
   return Math.min(1, Math.max(0, lv / SKILL_LEVEL_MAX));
 }
 
-/** Effective stat: base + equipped implant bonus (the base alone is `ProgressionRef.getStat`). */
-function stat(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
-  const bonus = imp.bonus[id];
-  return (profile.stats[id] ?? STAT_BASE) + (typeof bonus === 'number' && Number.isFinite(bonus) ? bonus : 0);
+/**
+ * A-3a (2026-09-12): 헬스장 단련 보너스 of `id` — an integer 0 … `GYM_TRAINED_MAX`, 0 for a stat that is not a `GYM_STATS`
+ * entry or a missing / junk value. The one reader of `profile.trained` (derive + `ProgressionSystem.getTrainedBonus`).
+ */
+export function trainedBonusOf(profile: PlayerProfile, id: StatId): number {
+  if (!(GYM_STATS as readonly string[]).includes(id)) return 0;
+  const v = profile.trained?.[id as GymStat];
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(GYM_TRAINED_MAX, Math.round(v)));
 }
 
-/** Points above the starting value (implants included); drives every stat-derived multiplier. */
+/**
+ * Effective stat: base + equipped implant bonus + 헬스장 단련 보너스 (the base alone is `ProgressionRef.getStat`).
+ * Neither bonus is clamped to `STAT_MAX` (contract: 「임플란트와 같은 의도」).
+ */
+function stat(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
+  const bonus = imp.bonus[id];
+  return (profile.stats[id] ?? STAT_BASE) + (typeof bonus === 'number' && Number.isFinite(bonus) ? bonus : 0)
+    + trainedBonusOf(profile, id);
+}
+
+/** Points above the starting value (implants and 헬스장 단련 included); drives every stat-derived multiplier. */
 function over(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
   return stat(profile, id, imp) - STAT_BASE;
 }

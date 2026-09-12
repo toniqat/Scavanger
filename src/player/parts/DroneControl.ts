@@ -15,7 +15,7 @@ import type { PlayerSystem } from '../PlayerSystem';
 
 /** 지금 조종을 **시작**해도 되는가. 거부는 조용하다 — `droneControl` 이 false 로 남아 드론 쪽이 알 수 있다. */
 export function canEnterDroneControl(sys: PlayerSystem): boolean {
-  return canHoldDroneControl(sys) && sys.carryLock <= 0;
+  return canHoldDroneControl(sys) && sys.carryLock <= 0 && sys.furn.kind === null;   // 2026-09-12: 가구 자세 중 거절
 }
 
 /** 조종을 **유지**해도 되는가. 몸이 더 이상 자유롭지 않으면(`update` 맨 위의 백스톱) 조종이 풀린다. */

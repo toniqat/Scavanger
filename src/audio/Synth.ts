@@ -1459,6 +1459,108 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t, dur: 0.012, gain: 0.08, filter: { type: 'highpass', f0: 3400 * q } });
     return 0.07;
   },
+
+  /* ══ appended (2026-09-12): 헬스장 (A-3a) · 서재 매체 가구 (A-3e) — 전부 housing/ · hub/ 가 `audio:play` 로 부른다 ════════
+   * 함선 안 UI 성격의 소리라 `RANGED_SOUNDS` 에 넣지 않는다 — 위치 없이 오면 늘 같은 크기, 위치와 오면 기본 패너(가까이서만). */
+
+  /** 운동 시작 — 호루라기 대신 짧은 준비 신호: 오르는 삼각파 두 음 + 기구를 잡는 딸깍. */
+  gym_start: (s, d, t, p) => {
+    s.click(d, t, 1600 * p, 0.08, 0.02);
+    s.tone(d, { type: 'triangle', f0: 587 * p, t0: t + 0.03, dur: 0.14, gain: 0.12, lp: 3000 });
+    s.tone(d, { type: 'triangle', f0: 880 * p, t0: t + 0.16, dur: 0.24, gain: 0.13, lp: 3200 });
+    s.tone(d, { type: 'sine', f0: 1760 * p, t0: t + 0.16, dur: 0.16, gain: 0.025 });
+    return 0.42;
+  },
+  /** 판정 완벽 — 밝은 두 음 차임 + 고역 반짝임. `gym_good` 보다 높고 길다. */
+  gym_perfect: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1319 * p, t0: t, dur: 0.22, gain: 0.13, attack: 0.004 });
+    s.tone(d, { type: 'sine', f0: 1976 * p, t0: t + 0.05, dur: 0.3, gain: 0.11, attack: 0.004 });
+    s.tone(d, { type: 'triangle', f0: 3951 * p, t0: t + 0.05, dur: 0.12, gain: 0.02 });
+    s.noise(d, { t0: t + 0.03, dur: 0.18, gain: 0.03, filter: { type: 'highpass', f0: 6000 * p, q: 0.6 } });
+    return 0.38;
+  },
+  /** 판정 좋음 — 가운데 높이의 짧은 한 음 (차분한 확인). */
+  gym_good: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 880 * p, t0: t, dur: 0.18, gain: 0.12, lp: 2600 });
+    s.tone(d, { type: 'sine', f0: 1320 * p, t0: t, dur: 0.1, gain: 0.03 });
+    return 0.22;
+  },
+  /** 판정 실패 — 낮게 꺾이는 둔한 음 + 짧은 저역 쿵 (`ui_error` 버저보다 부드럽다). */
+  gym_miss: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 262 * p, f1: 175 * p, t0: t, dur: 0.24, gain: 0.13, lp: 1200 });
+    s.noise(d, { t0: t, dur: 0.1, gain: 0.08, filter: { type: 'lowpass', f0: 500 * p, f1: 160, q: 0.7 } });
+    return 0.28;
+  },
+  /** 세션 끝 — 원반을 거치대에 내려놓는 금속 쿵 + 오르는 네 음 아르페지오. */
+  gym_finish: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 110 * p, f1: 50, t0: t, dur: 0.22, gain: 0.3 });
+    s.click(d, t + 0.005, 1200 * p, 0.14, 0.04);
+    s.tone(d, { type: 'triangle', f0: 540 * p, f1: 520 * p, t0: t + 0.01, dur: 0.3, gain: 0.03 });
+    const notes = [523, 659, 784, 1047];
+    notes.forEach((f, i) => {
+      s.tone(d, { type: 'sine', f0: f * p, t0: t + 0.18 + i * 0.1, dur: i === 3 ? 0.6 : 0.2, gain: 0.11 });
+      s.tone(d, { type: 'triangle', f0: f * 2 * p, t0: t + 0.18 + i * 0.1, dur: 0.12, gain: 0.02 });
+    });
+    return 0.95;
+  },
+  /** 호흡 — 부드러운 날숨: 아래로 쓸리는 밴드패스 노이즈, 어택이 느리고 선형으로 사라진다 (클릭 없음). */
+  gym_breath: (s, d, t, p) => {
+    const q = p * r(0.95, 1.05);
+    s.noise(d, { t0: t, dur: 0.46, gain: 0.09, attack: 0.07, filter: { type: 'bandpass', f0: 1300 * q, f1: 520 * q, q: 0.9 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t, dur: 0.36, gain: 0.05, attack: 0.05, filter: { type: 'lowpass', f0: 420 * q, f1: 200, q: 0.5 }, decayCurve: 'lin' });
+    return 0.5;
+  },
+  /** 페달 — 가벼운 기계 틱: 체인 딸깍 + 크랭크의 아주 작은 몸. */
+  gym_pedal: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.click(d, t, 2600 * q, 0.05, 0.012);
+    s.tone(d, { type: 'sine', f0: 160 * q, f1: 110, t0: t, dur: 0.035, gain: 0.04 });
+    return 0.06;
+  },
+  /** 흔들의자 삐걱 — 나무 스틱-슬립: 좁은 밴드패스 알갱이가 점점 벌어지며 이어지고 그 밑에 낮은 나무 몸통이 운다. */
+  chair_creak: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    let at = 0, gap = 0.014;
+    for (let i = 0; i < 16 && at < 0.42; i++) {
+      s.noise(d, { t0: t + at, dur: 0.012, gain: 0.07 * (0.6 + 0.4 * Math.sin((i / 15) * Math.PI)), filter: { type: 'bandpass', f0: r(620, 780) * q, q: 9 } });
+      at += gap; gap *= 1.09;
+    }
+    s.tone(d, { type: 'sawtooth', f0: 190 * q, f1: 150 * q, t0: t, dur: 0.44, gain: 0.025, attack: 0.05, lp: 700, vibratoHz: 24, vibratoDepth: 70, decayCurve: 'lin' });
+    return 0.48;
+  },
+  /** TV 켜기 — 스위치 딸깍 + 브라운관 퍽 + 짧은 잡음 + 가늘게 사라지는 고음. */
+  tv_on: (s, d, t, p) => {
+    s.click(d, t, 2200 * p, 0.08, 0.02);
+    s.tone(d, { type: 'sine', f0: 90 * p, f1: 45, t0: t + 0.02, dur: 0.18, gain: 0.18 });
+    s.noise(d, { t0: t + 0.03, dur: 0.32, gain: 0.05, attack: 0.02, filter: { type: 'bandpass', f0: 3200 * p, f1: 1800 * p, q: 0.7 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 4200 * p, t0: t + 0.05, dur: 0.45, gain: 0.012, attack: 0.04, decayCurve: 'lin' });
+    return 0.52;
+  },
+  /** TV 끄기 — 스위치 딸깍 + 화면이 점으로 줄어드는 하강 블립 + 꼬리 잡음. */
+  tv_off: (s, d, t, p) => {
+    s.click(d, t, 2000 * p, 0.07, 0.02);
+    s.tone(d, { type: 'sine', f0: 1400 * p, f1: 90 * p, t0: t + 0.01, dur: 0.2, gain: 0.07 });
+    s.noise(d, { t0: t + 0.01, dur: 0.12, gain: 0.03, filter: { type: 'highpass', f0: 2600 * p, q: 0.6 } });
+    return 0.3;
+  },
+  /** 레코드 켜기 — 스위치 딸깍 + 바늘이 닿는 작은 쿵 + 따뜻한 바닥 음 + 잠깐의 치직임. */
+  record_on: (s, d, t, p) => {
+    s.click(d, t, 1500 * p, 0.08, 0.02);
+    s.tone(d, { type: 'sine', f0: 140 * p, f1: 70, t0: t + 0.12, dur: 0.1, gain: 0.1 });
+    s.tone(d, { type: 'triangle', f0: 196 * p, t0: t + 0.16, dur: 0.5, gain: 0.03, attack: 0.08, lp: 900, decayCurve: 'lin' });
+    for (let i = 0; i < 7; i++) {
+      s.noise(d, { t0: t + 0.14 + r(0, 0.5), dur: 0.006, gain: r(0.02, 0.05), filter: { type: 'highpass', f0: r(3000, 5000) * p } });
+    }
+    s.noise(d, { t0: t + 0.14, dur: 0.5, gain: 0.012, attack: 0.05, filter: { type: 'bandpass', f0: 2400 * p, q: 0.5 }, decayCurve: 'lin' });
+    return 0.72;
+  },
+  /** 레코드 끄기 — 스위치 딸깍 + 플래터가 느려지며 내려가는 음. */
+  record_off: (s, d, t, p) => {
+    s.click(d, t, 1400 * p, 0.08, 0.02);
+    s.tone(d, { type: 'triangle', f0: 330 * p, f1: 100 * p, t0: t + 0.02, dur: 0.5, gain: 0.05, lp: 800, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.02, dur: 0.3, gain: 0.01, filter: { type: 'bandpass', f0: 2000 * p, f1: 900 * p, q: 0.5 }, decayCurve: 'lin' });
+    return 0.55;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

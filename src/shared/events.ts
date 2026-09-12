@@ -24,6 +24,8 @@ import type { FacilityId, PlacedFurniture, RoomPurpose, ShipState } from './hous
 import type { GymMinigame, ShelfMedium } from './housing';
 import type { GymSessionResult, GymStat } from './progression';
 import type { FurniturePoseKind } from './types';
+/* appended (2026-09-12): 캐릭터 버프 */
+import type { CharBuff } from './charBuffs';
 /* appended (2026-09-08): 튜토리얼 */
 import type { TutorialStepId } from './tutorial';
 
@@ -1188,4 +1190,12 @@ export interface GameEvents {
    * `reset` = 페이즈 변경 · 스폰 · `game:abort` · `hub:left`.
    */
   'player:furniturePoseEnded': { kind: FurniturePoseKind; reason: 'interact' | 'caller' | 'reset' };
+}
+
+/* ══ appended: 2026-09-12 — 캐릭터 버프. docs/plans/char-buffs.md ══ */
+export interface GameEvents {
+  /** (owner: player) 내 버프 목록이 바뀌었다 — `PlayerRef.buffs` 와 같은 배열. ui 의 버프 줄과 net 의 `cbuf state` 가 듣는다. */
+  'player:buffsChanged': { buffs: readonly CharBuff[]; revision: number };
+  /** (owner: net) 분대원 `id` 의 버프 목록이 바뀌었다 (`RemotePlayerRef.buffs` 와 같은 배열). ui 의 분대 목록이 듣는다. */
+  'net:remoteBuffsChanged': { id: PeerId; buffs: readonly CharBuff[] };
 }

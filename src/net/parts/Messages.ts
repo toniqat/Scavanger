@@ -198,7 +198,8 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       const r = sys.getOrCreateRemote(from);
       const wasDowned = r.isDowned;
       const wasCarrying = r.carrying;
-      r.push(d, sys.ctx.time);
+      // 2026-09-12: an accepted snapshot whose `bfr` differs from the list we hold → `cbufq sync` (`parts/CharBuffs`).
+      if (r.push(d, sys.ctx.time)) sys.charBuffRelay.onSnapshot(r);
       // Phase 10: the carried peer changed → HUD markers / 분대 목록 (`carriedBy` is derived in `update`).
       if (r.carrying !== wasCarrying) bus.emit('net:remoteCarryChanged', { id: from, carrying: r.carrying });
       // Phase 2: squadmate went down / got back up → HUD feed (derived from the DOWNED flag transition)

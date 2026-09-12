@@ -5,14 +5,36 @@
  * `parts/*` 모듈이 `HousingSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
  * `HousingSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
  */
-import type { FacilityId, FurnitureDef } from '@/shared';
-import { FURNITURE_DEFS } from '@/shared';
+import type { FacilityId, FurnitureDef, ShelfMedium } from '@/shared';
+import { FURNITURE_DEFS, SHELF_AUX_INTERACTION, SHELF_INTERACTION } from '@/shared';
 import './housing.css';
 
 export const FACILITY_IDS: readonly FacilityId[] = ['generator', 'storage', 'workshop', 'range'];
 export const PRESET_NAME_MAX = 24;
 /** 한국어 refusal when a 책장 cannot be recovered because its books have nowhere to go. */
 export const BOOKS_BLOCK_REASON = '책을 먼저 빼세요';
+/**
+ * A-3e (2026-09-12): 보관함을 회수할 수 없는 사유 — 매체별 (책장은 옛 `BOOKS_BLOCK_REASON` 그대로).
+ * 디스크 · 레코드는 모음으로 끝나므로 조사는 「를 · 가」로 고정이다.
+ */
+export const SHELF_BLOCK_REASON: Readonly<Record<ShelfMedium, string>> = {
+  book: BOOKS_BLOCK_REASON, disc: '디스크를 먼저 빼세요', record: '레코드를 먼저 빼세요',
+};
+/** 매체 이름 + 목적격 조사 (`책을` · `디스크를` · `레코드를`) — 보관함 화면의 문장용. */
+export const SHELF_OBJ_KO: Readonly<Record<ShelfMedium, string>> = { book: '책을', disc: '디스크를', record: '레코드를' };
+/** 매체를 세는 단위 (`6 / 6권` · `4 / 4장`). */
+export const SHELF_UNIT_KO: Readonly<Record<ShelfMedium, string>> = { book: '권', disc: '장', record: '장' };
+
+/** 그 매체를 받는 보관함 가구의 이름 (`data/furniture.csv` 에서 — 책장 · 디스크 전시대 · 레코드랙). */
+export function shelfHolderName(medium: ShelfMedium): string {
+  return ACTIVE_FURNITURE_DEFS.find((d) => d.interaction === SHELF_INTERACTION[medium])?.name ?? '보관함';
+}
+
+/** 그 매체의 보조 가구 이름들 (`흔들의자` · `TV` · `축음기 · 주크박스 · 턴테이블`). */
+export function shelfAuxNames(medium: ShelfMedium): string {
+  return ACTIVE_FURNITURE_DEFS.filter((d) => d.interaction === SHELF_AUX_INTERACTION[medium]).map((d) => d.name).join(' · ');
+}
+
 /** 한국어 answer of the retired 재배층 API (`plantSeed` · `harvestPlot`). 온실 개편, 2026-09-11. */
 export const RETIRED_RACK_REASON = '재배층은 재배 스테이션으로 교체되었습니다';
 

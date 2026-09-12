@@ -88,13 +88,16 @@ async function open(tag) {
     window.__travel = []; bus.on('hub:travel', (e) => window.__travel.push({ stage: e.stage, planet: e.planet }));
     window.__planetChanged = []; bus.on('hub:planetChanged', (e) => window.__planetChanged.push({ planet: e.planet, by: e.by }));
   });
-  // Background tabs get no requestAnimationFrame in Chrome; drive Engine.frame() from a timer when rAF stalls.
-  await page.evaluate(() => {
+  await driveFrames(page);
+  return page;
+}
+// Background tabs get no requestAnimationFrame in Chrome; drive Engine.frame() from a timer when rAF stalls (re-armed after a reload).
+function driveFrames(page) {
+  return page.evaluate(() => {
     let lastRaf = performance.now();
     (function tick() { lastRaf = performance.now(); requestAnimationFrame(tick); })();
     setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
   });
-  return page;
 }
 const hubShip = (page) => page.evaluate(() => ({ phase: window.__game.ctx.phase, ship: window.__game.ctx.hub?.ship ?? null }));
 const boardPod = (page) => page.evaluate(() => {
@@ -108,6 +111,75 @@ const boardPod = (page) => page.evaluate(() => {
   if (warn && !warn.hidden) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 출격').click();
   return 'ok';
 });
+
+/* ── 2026-09-12 캐릭터 버프 · 가구 자세 helpers ─────────────────────────────────────────────────────────────── */
+const readBuffs = (page) => page.evaluate(() => {
+  const p = window.__game.ctx.player;
+  return { rev: typeof p.buffsRevision === 'number' ? p.buffsRevision : 0, keys: Array.isArray(p.buffs) ? p.buffs.map((b) => b.key) : [] };
+});
+/**
+ * Give A a 운동 디버프 through the real APIs (`progression.applyGymSession` → player's list) when player/ implements
+ * `ctx.player.buffs`; otherwise (or when the real list never shows it) stub the two getters and emit `player:buffsChanged`
+ * so the **wire** is still covered. Returns 'real' or `stubbed (why)`.
+ */
+const driveBuffs = (page) => page.evaluate(async () => {
+  const ctx = window.__game.ctx; const p = ctx.player;
+  let why = 'ctx.player.buffs not implemented';
+  if (Array.isArray(p.buffs) && typeof p.buffsRevision === 'number') {
+    const res = typeof ctx.progression?.applyGymSession === 'function' ? ctx.progression.applyGymSession('strength', 0.5) : null;
+    why = res ? 'fatigue:strength never appeared in ctx.player.buffs' : 'applyGymSession refused';
+    const t0 = performance.now();
+    while (res && performance.now() - t0 < 4000) {
+      if (p.buffs.some((b) => b.key === 'fatigue:strength')) return 'real';
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  const now = ctx.net.serverNow();
+  const list = [
+    { kind: 'gym_fatigue', key: 'fatigue:strength', debuff: true, state: 'active', stat: 'strength', startedAt: now, endsAt: now + 3600e3 },
+    { kind: 'meal', key: 'meal', debuff: false, state: 'pending', defId: 'e2e_meal' },
+  ];
+  window.__stubBuffs = { rev: Math.max(1, (typeof p.buffsRevision === 'number' ? p.buffsRevision : 0) + 1), list };
+  Object.defineProperty(p, 'buffs', { configurable: true, get: () => window.__stubBuffs.list });
+  Object.defineProperty(p, 'buffsRevision', { configurable: true, get: () => window.__stubBuffs.rev });
+  ctx.bus.emit('player:buffsChanged', { buffs: list, revision: window.__stubBuffs.rev });
+  return `stubbed (${why})`;
+});
+/** A takes a furniture pose on a bare anchor (its own feet). A player build without `furniturePoseState` gets a stub getter. */
+const takePose = (page, kind, uid) => page.evaluate((k, u) => {
+  const p = window.__game.ctx.player;
+  if (typeof p.setFurniturePose !== 'function') return { r: 'setFurniturePose missing' };
+  const anchor = p.position.clone();
+  if (!p.setFurniturePose({ kind: k, anchor, yaw: 0.5, furnitureUid: u })) return { r: 'refused' };
+  window.__e2ePose = { anchor, uid: u, t0: performance.now() };
+  if (!('furniturePoseState' in p)) {
+    window.__e2ePoseStub = true;
+    Object.defineProperty(p, 'furniturePoseState', { configurable: true, get: () => {
+      const kk = p.furniturePose; const s = window.__e2ePose;
+      if (!kk || !s) return null;
+      return { kind: kk, anchor: s.anchor, yaw: 0.5, phase: kk === 'sit' ? 0 : (performance.now() - s.t0) / 1000 * 2.8, furnitureUid: s.uid };
+    } });
+  }
+  return { r: 'ok', stub: !!window.__e2ePoseStub, anchorY: anchor.y };
+}, kind, uid);
+const remotePose = (page, id) => page.evaluate((i) => {
+  const fp = window.__game.ctx.net.getRemotePlayer(i)?.furniturePose ?? null;
+  return fp ? { kind: fp.kind, anchorY: fp.anchorY, yaw: fp.yaw, phase: fp.phase, uid: fp.furnitureUid } : null;
+}, id);
+/** Poll until `dst`'s ref of `srcId` holds exactly `src`'s current list at `src`'s current revision. */
+async function buffsAgree(src, dst, srcId, timeout = 8000) {
+  const t0 = Date.now(); let last = null;
+  while (Date.now() - t0 < timeout) {
+    try {
+      const a = await readBuffs(src);
+      const b = await dst.evaluate((id) => { const r = window.__game.ctx.net.getRemotePlayer(id); return r ? { rev: r.buffsRevision, keys: r.buffs.map((x) => x.key) } : null; }, srcId);
+      last = { a, b };
+      if (b && a.rev === b.rev && a.keys.join() === b.keys.join()) return last;
+    } catch { /* page busy */ }
+    await sleep(150);
+  }
+  return { ...(last ?? {}), timeout: true };
+}
 
 try {
   console.log('boot two clients');
@@ -224,6 +296,47 @@ try {
     return hit ?? null;   // hub/ already answered the earlier `crewq loadout` with A's real document
   }, 'B net:crewLoadout', 6000, aIdCrew).catch(() => null);
   ok(loadout && loadout.level === 7 && loadout.loadout && loadout.loadout.probe === 'e2e', `B received A's loadout document verbatim ${JSON.stringify(loadout && loadout.loadout)}`);
+
+  console.log('캐릭터 버프 · 가구 자세 (2026-09-12: cbuf state · bfr → cbufq sync · fp / fu)');
+  await B.evaluate(() => { window.__rbuf = []; window.__game.ctx.bus.on('net:remoteBuffsChanged', (e) => window.__rbuf.push({ id: e.id, keys: e.buffs.map((b) => b.key), debuffs: e.buffs.filter((b) => b.debuff).map((b) => b.key) })); });
+  await A.evaluate(() => { window.__cbufq = []; window.__game.ctx.net.onMessage('cbufq', (m, from) => window.__cbufq.push({ ev: m.ev, from })); });
+  const buffMode = await driveBuffs(A);
+  if (buffMode !== 'real') console.log(`  note: A's buff list is ${buffMode} — the wire is tested with a stubbed player getter`);
+  const aBuf = await readBuffs(A);
+  ok(aBuf.rev > 0 && aBuf.keys.includes('fatigue:strength'), `A carries a 운동 디버프 in its buff list (${buffMode}) ${JSON.stringify(aBuf)}`);
+  const agree1 = await buffsAgree(A, B, aIdCrew, 6000);
+  ok(!agree1.timeout, `B ref.buffs mirrors A's list at A's revision ${JSON.stringify(agree1)}`);
+  const fatOnB = await B.evaluate((id) => { const b = window.__game.ctx.net.getRemotePlayer(id)?.buffs.find((x) => x.key === 'fatigue:strength'); return b ? { debuff: b.debuff, state: b.state, stat: b.stat, timer: typeof b.endsAt === 'number' && b.endsAt > b.startedAt } : null; }, aIdCrew);
+  ok(fatOnB && fatOnB.debuff === true && fatOnB.state === 'active' && fatOnB.stat === 'strength' && fatOnB.timer, `the debuff kept its fields and timer on the wire ${JSON.stringify(fatOnB)}`);
+  ok(await B.evaluate((id) => window.__rbuf.some((e) => e.id === id && e.keys.includes('fatigue:strength')), aIdCrew), 'B emitted net:remoteBuffsChanged for A');
+  // A forged list at a far higher revision: sanitized on B (unknown kind / junk dropped, duplicate key kept once, `debuff`
+  // re-derived from the kind) — then A's next snapshot `bfr` disagrees, B asks, and A's real (lower) revision is taken back.
+  const rbufN = await B.evaluate(() => window.__rbuf.length);
+  const qN = await A.evaluate(() => window.__cbufq.length);
+  const forgedRev = aBuf.rev + 50;
+  await A.evaluate((rev) => window.__game.ctx.net.send({ t: 'cbuf', ev: 'state', rev, buffs: [{ kind: 'nope', key: 'x' }, { kind: 'rest', key: 'pose', pose: 'sit', debuff: true }, { kind: 'rest', key: 'pose', pose: 'bench' }, 'junk'] }, 'others'), forgedRev);
+  const forged = await waitFor(B, (arg) => window.__rbuf.slice(arg.n).find((e) => e.id === arg.id) ?? null, 'B forged list event', 6000, { n: rbufN, id: aIdCrew }).catch(() => null);
+  ok(forged && forged.keys.join() === 'pose' && forged.debuffs.length === 0, `B sanitized a malformed list ${JSON.stringify(forged)}`);
+  const healed = await buffsAgree(A, B, aIdCrew, 8000);
+  ok(!healed.timeout && healed.b.rev < forgedRev, `bfr mismatch → B took A's real revision back ${JSON.stringify(healed)}`);
+  ok(await A.evaluate((arg) => window.__cbufq.slice(arg.n).some((q) => q.ev === 'sync' && q.from === arg.b), { n: qN, b: bIdCrew }), 'A received cbufq sync from B');
+  // Furniture pose on a bare anchor: kind · uid · anchor y · yaw from the snapshot, phase interpolated between snapshots.
+  const pose = await takePose(A, 'run', 'e2e_probe');
+  ok(pose.r === 'ok', `A setFurniturePose(run) on its own feet ${JSON.stringify(pose)}`);
+  if (pose.r === 'ok') {
+    if (pose.stub) console.log('  note: ctx.player.furniturePoseState is not implemented yet — stubbed on A');
+    const p1 = await waitFor(B, (id) => { const fp = window.__game.ctx.net.getRemotePlayer(id)?.furniturePose; return fp && fp.kind === 'run' ? { anchorY: fp.anchorY, yaw: fp.yaw, phase: fp.phase, uid: fp.furnitureUid } : null; }, 'B ref.furniturePose run', 6000, aIdCrew).catch(() => null);
+    ok(p1 && p1.uid === 'e2e_probe' && Math.abs(p1.yaw - 0.5) < 0.01 && Math.abs(p1.anchorY - pose.anchorY) < 0.05, `B ref.furniturePose kind / uid / yaw / anchorY ${JSON.stringify(p1)}`);
+    const trace = await B.evaluate(async (id) => {
+      const out = []; const t0 = performance.now();
+      while (performance.now() - t0 < 900) { const fp = window.__game.ctx.net.getRemotePlayer(id)?.furniturePose; if (fp) out.push(fp.phase); await new Promise((r) => setTimeout(r, 16)); }
+      return out;
+    }, aIdCrew);
+    const mono = trace.length > 3 && trace.every((v, i) => i === 0 || v >= trace[i - 1] - 1e-6);
+    ok(mono && trace[trace.length - 1] - trace[0] > 0.8, `B's interpolated phase advances without stepping back (${trace.length} samples, ${new Set(trace).size} distinct, ${trace[0]?.toFixed(2)} → ${trace[trace.length - 1]?.toFixed(2)})`);
+    await A.evaluate(() => window.__game.ctx.player.setFurniturePose(null));
+    ok(!!(await waitFor(B, (id) => window.__game.ctx.net.getRemotePlayer(id)?.furniturePose === null ? 1 : 0, 'B pose cleared', 6000, aIdCrew).catch(() => 0)), 'A stands up → fp omitted → B ref.furniturePose null');
+  }
 
   console.log('chat relay (hub)');
   await A.evaluate(() => { window.__chat = null; window.__game.ctx.bus.on('net:chat', (e) => { window.__chat = e; }); });
@@ -356,6 +469,9 @@ try {
   ok(dist < 3, `B sees A within 3 m (d=${dist.toFixed(2)})`);
   ok(bSeesA.name === '호스트' && bSeesA.slot === 0 && !bSeesA.stale && bSeesA.hp === 100, `B remote ref fields ${JSON.stringify(bSeesA)}`);
   ok(await B.evaluate(() => document.querySelectorAll('.nameplate, [class*="nameplate"]').length >= 1), 'B renders a nameplate');
+  // 2026-09-12: the mission ref was rebuilt at the scene change; the buff list is inherited from the per-member store.
+  const agreeM = await buffsAgree(A, B, aIdCrew, 6000);
+  ok(!agreeM.timeout && agreeM.b.keys.includes('fatigue:strength'), `B's mission ref of A carries A's buff list ${JSON.stringify(agreeM)}`);
 
   console.log('movement interpolation');
   await A.evaluate(() => { const p = window.__game.ctx.player; p.respawnAt(p.position.clone().add(new (p.position.constructor)(6, 0, 0)), 0); });
@@ -675,6 +791,28 @@ try {
   await waitFor(A, () => window.__game.ctx.net.lobby && !window.__game.ctx.net.lobby.started, 'lobby reset after the last trainee left', 8000);
   await waitFor(B, () => window.__game.ctx.net.lobby && !window.__game.ctx.net.lobby.started, 'B sees the reset', 8000);
   ok(await A.evaluate(() => window.__game.ctx.net.missionMode === null && window.__game.ctx.net.lobby.players.every((p) => !p.inMission)), 'server reset the training once its last member left (started false, missionMode null)');
+
+  console.log('캐릭터 버프 늦은 합류 (2026-09-12: B reloads → A\'s bfr ≠ B\'s empty copy → cbufq sync → cbuf state)');
+  const aIdL = await A.evaluate(() => window.__game.ctx.net.localId);
+  const bIdL = await B.evaluate(() => window.__game.ctx.net.localId);
+  const sit = await takePose(A, 'sit', 'e2e_chair');
+  ok(sit.r === 'ok', `A sits on a bare anchor in the shared ship ${JSON.stringify(sit)}`);
+  await sleep(1500);   // let A's list settle (a real player adds 휴식 중) so nothing but B's request can deliver it after the reload
+  await A.evaluate(() => { window.__cbufq = []; });
+  await B.reload({ waitUntil: 'load' });
+  await waitFor(B, () => !!window.__game && !!window.__game.ctx.net, 'B boot after reload');
+  await driveFrames(B);
+  await B.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(B, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub?.ship === 'shared' && window.__game.ctx.net.lobby?.players.length === 2, 'B back in the shared ship after the reload', 30000);
+  ok(await B.evaluate((id) => window.__game.ctx.net.localId === id, bIdL), 'B resumed into the same lobby slot after the reload (same token)');
+  const late = await buffsAgree(A, B, aIdL, 10000);
+  ok(!late.timeout && late.b.rev > 0 && late.b.keys.includes('fatigue:strength'), `the reloaded B holds A's list at A's revision ${JSON.stringify(late)}`);
+  ok(await A.evaluate((b) => window.__cbufq.some((q) => q.ev === 'sync' && q.from === b), bIdL), 'the list came through B\'s cbufq sync (bfr mismatch path)');
+  if (sit.r === 'ok') {
+    const latePose = await waitFor(B, (id) => { const fp = window.__game.ctx.net.getRemotePlayer(id)?.furniturePose; return fp && fp.kind === 'sit' ? { uid: fp.furnitureUid, phase: fp.phase } : null; }, 'B sees A seated', 6000, aIdL).catch(() => null);
+    ok(latePose && latePose.uid === 'e2e_chair', `the late joiner sees A's seat pose straight from the snapshot ${JSON.stringify(latePose)}`);
+  }
+  await A.evaluate(() => { const ctx = window.__game.ctx; ctx.player.setFurniturePose?.(null); ctx.progression?.clearGymFatigue?.('strength'); });
 
   console.log('peer leave → undock');
   await B.evaluate(() => window.__game.ctx.net.leaveLobby());

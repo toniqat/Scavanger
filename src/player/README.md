@@ -15,6 +15,8 @@ Also owns `RemotePlayerSystem` (`name: 'remotePlayers'`, registered right after 
 | `parts/Interact.ts` | **E 상호작용.** 화면 안의 `Interactable` 중 가장 알맞은 것을 고르고, 탭 / 홀드를 구분해 `onHoldProgress` · `onHoldCancel` 을 흘린다(홀드 시간은 능력치의 영향을 여기서 한 번만 받는다). |
 | `parts/Climb.ts` | **몸이 수직으로 어떻게 옮겨 가는가: 사다리 · 단차 보간** (2026-09-11). `ladder:grab` → `grabLadder`(규칙 검사 · 서기 · 조준 해제 · 잡는 순간의 XZ 스냅을 `bodyOffset` 으로 미끄러뜨림), `readClimbInput`(W/S · Shift = 스태미나 있을 때 빠르게 · Space = 스태미나 · 무게 규칙 · E = 놓기), `releaseLadder` / `clearClimbState`(리셋 경로), `syncClimb`(`player:climbChanged` 는 여기서만, 값이 바뀔 때 한 번), `updateStepSmoothing`(접지 → 접지 사이 **단차로 보이는** 높이 변화만 `bodyOffset.y` 에 쌓고 `STEP_SMOOTH_RATE` 로 감쇠). 아래 *사다리 · 단차 보간* 절. |
 | `parts/DroneControl.ts` | **드론 시점으로 조종하는 동안 몸은 무엇을 하는가** (2026-09-11). `PlayerRef.setDroneControl` / `droneControl` 의 구현 — 켜기 규칙(`canEnterDroneControl`) · 유지 규칙(`canHoldDroneControl`, `update` 맨 위 백스톱) · 자세 강제와 복원 · `CameraRig.setDroneView`. 아래 *드론 조종* 절. |
+| `parts/FurniturePose.ts` | **가구에 몸을 맡기는 동안 몸은 무엇을 하는가** (2026-09-12, A-3a · A-3e). `PlayerRef.setFurniturePose` / `furniturePose` / `setFurniturePoseDrive` 의 구현 — 거절 · 유지 규칙(`canHoldFurniturePose`, `update` 맨 위 백스톱) · 발 고정 · E 로 일어나기 · 고정 카메라 · 자리 복귀 · `player:furniturePoseEnded` 한 곳 · 모델 블렌드와 루트 슬라이드. 뼈대 자세는 `SoldierModel.poseFurniture`(두 마디 IK). 2026-09-12 캐릭터 버프: `furnitureUid` 보관 · `poseWireState`(`PlayerRef.furniturePoseState`, **누적 위상**) · 자세 시작/끝이 `buffsDirty`. 블렌드 · 루트 · 몸 방향 · `SoldierPose` 쓰기 식은 `model.ts` 공용 함수(`RemoteAvatar` 와 같은 식). 아래 *가구 자세* 절. |
+| `parts/Buffs.ts` | **이 캐릭터에 지금 무엇이 걸려 있는가** (2026-09-12, 캐릭터 버프). `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged` 의 구현 — progression(식사 · 준비물 · 운동 디버프) · housing(운동 세션) · 자기 자세(휴식 · 운동) · 자기 환경 판정(노출)을 모아 `CHAR_BUFF_ORDER` 로 정렬하고 `sameCharBuffs` 가 다르다고 할 때만 새 배열 · 리비전 +1. 사건은 `buffsDirty` 만 세우고 `update` 끝이 프레임당 한 번 + 1 초 틱. 아래 *캐릭터 버프 · 원격 가구 자세* 절. |
 | `RemotePlayerSystem.ts` | `GameSystem 'remotePlayers'`. Each frame — in every phase, so shared-ship hub avatars render while `ctx.net.inHubSession` — iterates `ctx.net?.getRemotePlayers()` (NetSystem has already interpolated them — it updates first), creates a `RemoteAvatar` on first sight (or on `net:remotePlayerAdded`), sets `ref.avatar`, drives it, and ends it on `net:remotePlayerRemoved`, `!ref.connected` (unless `ref.suspended`), a ref vanishing from the list (frame-stamp sweep), and wholesale on `game:abort` / `game:newMission` / `hub:entered` (surviving refs get a fresh avatar next frame from a fresh snapshot, so mission positions never linger in the ship). **2026-09-10**: an ended avatar's body is parked in `soldierPool` (`SoldierPool`) and the next avatar of that slot colour reuses it, so those wholesale clears no longer rebuild meshes / materials; `clearAll` only **hides** the remote pods (`RemotePods.clear`) and `dispose()` is the one place that disposes the pods and the pool. **원격 발소리** (2026-09-10): `emitFootstep` 은 아바타를 돌린 직후 `ref.stridePhase` 의 π 경계마다 `remote:footstep {position, sprinting, peerId}` 를 낸다 — 접지(`!AIRBORNE`) · 구르지 않음(`!DIVE`) · 수평 속도 > `STRIDE_MIN_SPEED` · `av.isShown` · 살아 있음 · `!stale && !suspended` 일 때만이고, peer 당 `FOOTSTEP_MIN_INTERVAL_S` 로 쓰로틀한다. 거리 감쇠는 `audio/` 의 몫이다. **Revive interactable** (Phase 2): every ref with `isDowned && !isDead && (suspended || (connected && !stale))` gets an `Interactable` `revive:<peerId>` (`position` = the ref's own Vector3 instance, radius `PLAYER_REVIVE_RANGE` 3 m, `holdTime` `PLAYER_REVIVE_HOLD` 10 s, prompt `부활: <name>`, `canInteract` = local player alive, not downed, `ctx.isGameplayActive()`); `onHoldProgress` relays `{t:'revive', ev:'progress', target, p}` to that peer at ≤ 4 Hz, `onHoldCancel` → `ev:'cancel'`, completed hold → `ev:'done'` + `ui:notify "<name> 부활"` + `stim` SFX, then the interactable is withheld 1.5 s until the peer's `DOWNED` flag clears. On a **suspended** peer nothing is relayed (socket down) and the completed hold sends `ghostq revive` to `'host'` (or revives the ghost directly when this client is the host). Unregistered when the ref stops being downed / dies / leaves and by every `clearAll` (abort / new mission / hub). `getReviveTargets()` lists the peers currently offering one. Queries: `getAvatar(id)`, `getAvatars()`, `getGhosts()` / `getGhost(id)` / `getLastGhostStates()`. **Ghosts** (Phase 7, host only) — see *Ghosts* below. **Debug**: `debugSpawn({ slot?, id?, name?, stance?, flags?, weaponId?, isDowned?, implantId?, armorId?, heldItemId?, position? })` returns a fully writable `DebugRemoteRef` (fake peer, no NetSystem needed) placed 2 + slot m beside the local player — mutate `flags` / `stance` / `position` / `velocity` / `isDead` / `isDowned` / `stale` / `suspended` / `heldItemId` / `armorId` from the console; `debugClear(id?)` removes them; `debugSuspend(id, on)` flips `suspended` + `stale` and emits `net:peerSuspended` (a ghost is created offline too — `ctx.net.send` is a no-op); `debugRejoin(id)` plays the member's `flow rejoined` (returns the `ghost restore` wire). `window.__game.getSystem('remotePlayers')`. |
 | `RemoteAvatar.ts` | Implements `RemoteAvatarRef` (`root`, `weaponSocket` = the model's right-hand socket, **`shoulderSocket`** = its right shoulder, `getHeadPosition(out)` = feet + blended head height stand **1.6** / crouch **1.34** / prone **0.55** — re-anchored on the Phase 10 body — sinks toward the prone value when dead; while the body is carried the anchor comes from the avatar root's **world** position, because `ref.position` is then a stale snapshot). Wraps `new SoldierModel(NET_SLOT_COLORS[slot])`. Per frame from the `RemotePlayerRef`: `root.position = ref.position`; body yaw damped with PlayerSystem's rules (roll → velocity dir, aiming/firing/reloading/throwing/cooking/prone/suspended → `ref.yaw`, else velocity dir when horizontal speed > 0.4); `SoldierPose` from `moveBlend` / `stridePhase` / `pitch` / `velocity.y` and damped blends of `stance` + `PlayerFlags` (SPRINT, AIM, DIVE = rolling, AIRBORNE, HAS_WEAPON, TWO_HANDED, RELOADING; **DOWNED** → prone + crawl cycle with sprint/aim/crouch/roll/airborne forced off — weapons hides the gun model itself; **HOLDING_ITEM** → `SoldierPose.holdItem`); recoil pulses every 0.11 s while FIRING; `dead` ramps 0→1 over 0.9 s after `isDead` (pose reset on respawn); flinch 0. **Phase 7 flags**: `THROWING` → `SoldierPose.throw` wind-up, `COOKING` → `SoldierPose.cooking` (pin-pull, over the item pose), `CHARGING` / `SPRAYING` / `HEAVY` (with `HAS_WEAPON`, never downed) → `charging` / `spraying` / `heavyCarry`, `MELEE` + `MELEE_HEAVY` on the rising edge → the 용검 sweep replayed for `SLASH_DURATION` (`meleeHeavy` 1) instead of the 0.45 s chop, `OVERCHARGED` → `model.setGlow` rim glow. **Held item**: the ref's `heldItemId` (duck-typed — `heldItem` also accepted; net mirrors `PlayerSnapshot.h`) while `HOLDING_ITEM` → `GearLook.buildHeldItem(ctx.loot.getItemDef(id).category)` parented into `weaponSocket` (stim cylinder / grenade sphere / gadget box), rebuilt only on change, `net:remoteHeldItem {id, defId}` on every change (→ null included). **Armor**: `ref.armorId` (`ar`; an `ArmorDef.id` or an item def id with `armorId`, resolved through `ctx.loot` by `resolveArmorDef`) → `model.setArmor` — the same plate look as the local soldier. **Suspended** (`ref.suspended`): stays visible even while `stale` / `!connected`, `model.setGreyed(true)` (flat grey, dim visor), silhouette off, glow off, every animated flag masked (only HAS_WEAPON / TWO_HANDED / DOWNED / DEAD / IN_POD / IN_HUB survive), `moveBlend` 0, pitch 0, body yaw held on `ref.yaw`; the downed / dead pose follows the ghost-driven `isDowned` / `isDead`. Hidden while `flags & DROPPING` (inside their hellpod) — the first visible frame afterwards plays a `ParticleBurst.dust` landing puff; also hidden while `flags & IN_POD` (boarded in a hub launch pod), or `ref.stale` / `!connected` when not suspended. Shows the slot-tinted occlusion silhouette (`model.setSilhouette(!isDead)`) while visible and not suspended / cloaked; no weapon in the hub because the sender clears `HAS_WEAPON`. Sprinting remotes puff dust on every stride-phase π boundary. No collision with the local player. Test queries: `heldItemId`, `armorId`, `isGreyed`, `isShown`, `heavySlashProgress`, `poseView`. `dispose()` clears `ref.avatar`, frees the held-item look and the downed beacon, detaches the avatar's weapon socket and hands the body back to the pool (`SoldierPool.release`; without a pool it calls `SoldierModel.dispose()`). **2026-09-10 (몸 재사용)**: the constructor takes an optional `SoldierPool` and gets its body from `pool.acquire(NET_SLOT_COLORS[slot])`. **`weaponSocket` is a fresh `Object3D` per avatar**, parented at identity inside `model.weaponSocket` — a pooled body may have served another avatar a moment ago, and `weapons/RemoteWeapons` keys its model on socket identity (`e.socket !== socket` → rebuild), so the model's own socket must never be handed out twice; `dispose()` detaches that object and whatever `weapons/` · `implants/` hung on it leaves with it (the same subtree disposing the model used to detach). `implants/RemoteImplants` re-parents its hand device on socket identity too since 2026-09-11 (C-43) — before that it kept an "attached once" boolean and left the device in a disposed avatar's socket. `shoulderSocket` is still the model's (carried bodies are evacuated before any dispose). A `disposed` guard makes `update` / a second `dispose` no-ops, since the body may already drive someone else. |
 | `GearLook.ts` | **Shared procedural gear looks** (Phase 7): `buildArmorPlate(def: ArmorDef)` — chest / back plates + shoulder caps tinted with `ArmorDef.color`, one accent rib per tier I..V on the chest, emissive rim strips for uniques (tier 0); `buildHeldItem(category)` — stim cylinder with a glowing fluid core / grenade sphere with cap + spoon / boxy gadget with a status light (anything else = gadget), oriented -Z along the arm like a weapon. Each returns a `GearLook {group, materials, dispose()}` that owns its geometries / materials (`Layers.NO_RAYCAST`, no lights). `SoldierModel.setArmor` uses the first for both the local soldier (`PlayerGear.armor`) and remote avatars (`ar`), `RemoteAvatar` the second. |
@@ -461,6 +463,98 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 
 ---
 
+## 가구 자세 (2026-09-12 — `PlayerRef.setFurniturePose`, 호출자 hub · A-3a 헬스장 · A-3e 흔들의자)
+
+계약은 `shared/types.ts` 끝의 `FurniturePose` · `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive` 와
+`player:furniturePoseEnded`. 설계는 `docs/plans/a3a-a3e.md` §5 · §6-5. 구현은 `parts/FurniturePose.ts` + `SoldierModel.poseFurniture`.
+~~원격 아바타에는 보내지 않는다~~ — **2026-09-12 부터 보낸다**: `furniturePoseState` 가 net 의 스냅샷 `fp` · `fu` 가 되고 `RemoteAvatar` 가
+`ref.furniturePose` 로 같은 자세를 그린다 (아래 *캐릭터 버프 · 원격 가구 자세* 절).
+
+| 무엇 | 자세 중 |
+|---|---|
+| 거절 (false, 아무것도 안 바뀜) | `ctx.phase !== 'hub'` · 스폰 전 · 사망 · 전투불능 · 드론 조종 · 사다리 · 포드 · 헬포드 · 업힘 · 들쳐메기(+ 애니메이션) · 부모에 붙음 · 탈출선 박스 · NaN anchor / yaw / 카메라 · 모르는 kind. **UI 블로커와 `controlsEnabled` 는 보지 않는다** — 운동 화면이 열린 채로 자세를 건다 |
+| 이동 · 점프 · 자세 키 · 구르기 · 가방 부양 | `update` 의 `posed` 가지가 입력을 0 으로 두고 **컨트롤러를 돌리지 않는다**(`moveFrozen` — 콜라이더 해소 없음). 발(`position`)은 매 프레임 `(anchor.x, 직전 발 높이, anchor.z)` 에 박힌다 — XZ 는 가구 위, 높이는 바닥 |
+| 조준 · 무기 · 근접 · 들쳐메기 · 사다리 · 드론 | `setAiming` 게이트, `canUseWeapons()` · `canAct()` false, `grabLadder` · `canEnterDroneControl` 거절 |
+| E | 상호작용 대상을 찾지 않는다(`updatePosePrompt` 가 `updateInteraction` 대신). `releaseOnInteract` 면 캡션 `일어나기` 하나, E = `releaseFurniturePose('interact')` — 키를 `consume` 하고 `interactCooldown` 0.35 s 를 걸어 **같은 누름이 가구 프롬프트를 다시 치지 않는다**. 아니면 E 는 아무것도 안 한다 |
+| 카메라 | `camera` 없음(흔들의자) = 평소 리그 · 마우스 자유 시점, 피벗 = 발 + `FURN_EYE[kind]`(anchor 위). `camera` 있음 = `rig.setOverride(pos, look)` **블렌드**(감쇠 12), 마우스 시점 · 근접 페이드 끔. 풀 때 `CameraRig.overrideMatches(camPos)` 가 참일 때만(= 그사이 다른 연출이 안 걸었을 때) `setOverride(null)` 블렌드 아웃 |
+| 몸 | 자세 = `stand` 로 두고 직전 자세를 적는다. 몸 방향은 `yaw`(벤치는 `yaw + π`)로 감쇠 10. 모델 루트는 직전 자리에서 `anchor` 로 블렌드(`FURN_BLEND_RATE` 5, 약 0.6 s) |
+| 위상 | `setFurniturePoseDrive(p)` 한 번이면 그 뒤로는 부른 값만 쓴다. 안 부르면 스스로: 벤치 한 회 2.6 s · 달리기 초당 2.8 걸음 · 페달 초당 1.2 바퀴. `bench` 는 0..1 로 자르고 `run` · `cycle` 은 감는다. **`run` 의 0 → 1 은 한 걸음**(보행 주기의 π)이고 1 → 0 으로 감길 때 걸음 수가 +1 이라 좌우 발이 번갈아 나온다 |
+
+**풀기**: 발은 **첫 자세 직전의 자리 그대로**(다른 기구로 바로 갈아타도 처음 자리), 자세도 직전 값으로 즉시. `interact` · `caller` 는
+몸 방향 · 모델이 블렌드로 돌아오고, `reset` 은 즉시(`model.resetPose`). `reset` 을 내는 곳: `game:phaseChanged`(모든 전이),
+`setInterior(null)`(= `hub:left` · 부활), `spawnStanding` · `respawnAt` · `restoreState` · `resetAll`(= `game:abort` · 재접속 대기) ·
+`teleport`, `setInPod(true)` · `attachTo(parent)` · `setShipInterior(bounds)`, `Vitals.enterDowned` · `die`, 그리고 `update` 백스톱.
+`player:furniturePoseEnded {kind, reason}` 는 `releaseFurniturePose` 한 곳에서 **한 번만** 나간다. 자세가 없을 때 `setFurniturePose(null)` 은
+true 이고 이벤트는 없다.
+
+### 몸의 기하 — hub 가 가구 모델 · anchor 를 여기에 맞춘다
+
+값의 원본은 `SoldierModel.ts` 의 `FURN_SIT` · `FURN_BENCH` · `FURN_CYCLE`. **모두 anchor 기준 m**, "앞" = 계약의 `yaw` 방향
+`(−sin yaw, 0, −cos yaw)`, x = 몸의 오른쪽(+) / 왼쪽(−). 손 · 발은 두 마디 IK 라 아래 점에 정확히 닿는다(스모크가 잰다).
+
+| kind | anchor | 루트 방향 | 몸 | 위상 |
+|---|---|---|---|---|
+| `sit` | 좌판 윗면 중앙 | `yaw` | 골반 위 0.13 · 등 쪽 0.06, 뒤로 약 0.26 rad 기댐 + 느린 흔들림. **발바닥 (±0.17, −0.36, 앞 0.40) → 좌판 높이 ≈ 0.36 m**. 손은 허벅지 위 (±0.18, +0.22, 앞 0.20) | 안 쓴다 |
+| `bench` | 패드 윗면의 **견갑골** 자리 | `yaw + π` (머리 = `yaw`) | 반듯이 누움. 등(배낭)이 anchor 높이에 닿는다(배낭은 약 0.08 가라앉고 골반은 약 0.08 뜬다 — 배낭 두께). 골반은 발 쪽 0.42. **발바닥 (±0.36, −0.40, 발 쪽 0.78) → 패드 높이 ≈ 0.40 m**, 무릎은 위로 | 바벨 = 주먹 중심, 그립 x ±0.42. 위상 0 = anchor 위 **0.50** · 머리 쪽 −0.03(가슴), 1 = **0.81** · 머리 쪽 +0.06(팔 폄), 사이는 선형 |
+| `run` | 벨트 윗면 중앙 | `yaw` | 그 자리 달리기(보행 주기, moveBlend 1.15 · sprint 0.7). 발 = anchor 높이 | 걸음 |
+| `cycle` | 안장 윗면 | `yaw` | 골반 위 0.11, 앞으로 약 0.48 rad 숙임. **크랭크 축 (0, −0.60, 앞 0.25), 반지름 0.16, 페달 x ±0.13**(왼발 = −x). 발바닥은 페달 윗면 +0.02. 손잡이 (±0.22, +0.14, 앞 0.50) | 크랭크: 0 = 왼 페달 맨 위, 0.5 = 오른 페달 맨 위, 위에서 **앞으로** 돈다(왼 페달 = 축 + (−0.13, 0.16·cos 2πφ, 앞 0.16·sin 2πφ)) |
+
+`SoldierModel.poseFurniture` 는 `update` 의 전투불능 가지처럼 뼈대를 통째로 가져간다(`sit` · `bench` · `cycle`; `run` 은 보행 주기 그대로).
+몸통 관절은 블렌드만큼 중립에서 자세로, 벤치의 눕기(`bodyGroup` 회전 · 이동)는 블렌드에서 바로, 손발은 **자세가 다 됐을 때의 부모
+좌표계**(루트 → bodyGroup → hips → torso)에서 푼 IK(`solveTwoBone` — 팔꿈치는 −Z, 무릎은 +Z 로만 접혀 판 · 부츠 방향이 뒤집히지 않는다)를
+블렌드만큼 적용한다. 흔들의자가 흔들려도 발은 바닥에, 페달이 돌아도 발바닥은 페달에 붙는다. 자세를 벗으면 `update` 가 모든 관절과
+`bodyGroup` 을 감쇠로 되돌린다. 무기 소켓은 블렌드 0.35 위에서 숨긴다. 스크래치는 모듈 하나 — 프레임당 할당 없음, 광원 없음.
+
+---
+
+## 캐릭터 버프 · 원격 가구 자세 (2026-09-12 — `PlayerRef.buffs` · `furniturePoseState`, 설계 `docs/plans/char-buffs.md` §4 · §6-A)
+
+계약은 `shared/charBuffs.ts`(`CharBuff` · 순서 · `sameCharBuffs` · `sortCharBuffs`), `shared/types.ts` 끝(`FurniturePose.furnitureUid` ·
+`FurniturePoseState` · `PlayerRef.furniturePoseState` / `buffs` / `buffsRevision`), `shared/net.ts` 끝(`RemoteFurniturePose` ·
+`RemotePlayerRef.furniturePose`), `player:buffsChanged`. 버프에는 **효과가 없다** — 표시 · 동기화용이고 효과의 원본은 제자리다.
+
+### 버프 목록 (`parts/Buffs.ts`)
+
+| kind | key | 원본 | state | 타이머 |
+|---|---|---|---|---|
+| `meal` | `meal` | 함선 `progression.getMeal()` · 레이드 `getActiveMeal()` | 함선 `pending` · 레이드 `active` | 없음 |
+| `prep` | `prep:<env>` | 함선 `getPreps()` · 레이드 `getActivePreps()` 각각, env = `ctx.loot.getItemDef(id).prep.env` (def 에 env 가 없으면 `prep:<defId>`) | 같다 | 없음 |
+| `env_exposed` | `env` | `parts/Statuses.updateEnv` 의 판정 `envKind !== null && !envProtected` (레이드에서만 선다) | `active` · 디버프 | 없음 |
+| `gym_fatigue` | `fatigue:<stat>` | `getGymFatigueUntil(stat) > now` (함선 · 레이드 어디서든) | `active` · 디버프 | `startedAt = until − GYM_FATIGUE_HOURS h` · `endsAt = until` |
+| `rest` | `pose` | `furn.kind === 'sit'` (+ `furnitureUid`) | `active` | 없음 |
+| `exercise` | `pose` | `furn.kind` = `bench` · `run` · `cycle` (+ `furnitureUid`, `ctx.housing.gymSession` 이 있고 uid 가 같거나 자세에 uid 가 없으면 `stat` · `minigame`) | `active` | 없음 |
+
+- **함선 / 레이드**는 `ctx.isRaidActive()` 가 가른다 (progression 이 준비물 · 식사 사용을 거절하는 기준과 같다). 시각은 `ctx.net.serverNow()` → 없으면 `Date.now()`.
+- **언제**: `progress:mealChanged` · `progress:prepChanged` · `progress:gymFatigue` · `player:envChanged` · `housing:gymSession` · `game:newMission` ·
+  `game:abort` · `game:phaseChanged` · `hub:entered` 와 자세 시작/끝(`setFurniturePose` · `releaseFurniturePose`)은 **`buffsDirty` 만** 세운다.
+  `update` 맨 끝의 `updateBuffs` 가 프레임당 한 번 모으므로 같은 프레임의 여러 변경은 리비전 하나다. 그리고 **1 초 틱**(`BUFF_TICK_S`, `model.ts`)이
+  디버프 만료처럼 이벤트가 없는 변화를 잡는다.
+- **리비전**: 모은 목록(풀 객체 — 틱마다 할당 없음)을 정렬해 `sameCharBuffs` 로 지금 목록과 비교하고 **다를 때만** 깨끗한 복사본 새 배열 ·
+  `buffsRevision + 1` · `player:buffsChanged {buffs, revision}` (이벤트의 `buffs` 는 `PlayerRef.buffs` 와 같은 배열). 처음은 빈 배열 · 0 이라 첫 비지 않은 목록이 1 이다.
+- 모든 progression / housing 메서드는 덕 타이핑으로 부른다 — 없으면 그 항목만 빠진다. `recomputeBuffs()` 는 스모크 · 콘솔용 한 줄 위임.
+
+### 와이어 자세 (`furniturePoseState`)
+
+자세 중에만 재사용 객체 `{kind, anchor, yaw, phase, furnitureUid}` (자세가 없으면 null). `anchor` 는 `furn.anchor` 그 Vector3 이다. **`phase` 는 누적**이다 —
+`bench` 0 … 1 · `run` 걸음 수 + 위상 · `cycle` 바퀴 수 + 위상 · `sit` 0. 로컬 구동은 그대로이고, `writePhase` 가 `run` 과 함께 **`cycle` 도 감길 때 `steps` 를 센다**
+(좌우 발 홀짝을 쓰는 곳은 여전히 `run` 뿐이라 로컬 동작은 같다). 기구를 바로 갈아타면 `steps` 가 0 으로 돌아가므로 누적값도 새로 시작한다(kind 도 함께 바뀐다).
+`furnitureUid` 는 `FurniturePose.furnitureUid` 가 `[A-Za-z0-9_:\-.]{1,64}` 일 때만 받아 둔다(`sanitizeCharBuffs` 와 같은 문자 집합, housing uid 는 `f-N`).
+
+### 원격 자세 (`RemoteAvatar`)
+
+`ref.furniturePose`(net 이 `fp` · `fu` 를 보간 — 덕 타이핑, 없으면 null)가 있으면 로컬과 **같은 식**으로 그린다. 식은 `model.ts` 공용 함수 넷:
+`furnitureBodyYaw`(bench = yaw + π) · `stepFurnitureBlend`(`FURN_BLEND_RATE`) · `lerpFurnitureRoot`(smoothstep) · `writeFurniturePose`(`SoldierPose.furniture` /
+`furnitureKind` / `furniturePhase`, `run` 은 `stridePhase = π × 누적 걸음` + moveBlend · sprint 블렌드, `cycle` 은 위상의 소수부).
+
+- **루트**: `ref.position` 은 바닥 높이의 anchor XZ 다(보낸 쪽이 발을 박는다) — 루트를 `(ref.x, anchorY, ref.z)` 로 블렌드. 자세가 끝나면 마지막 anchor 에서 `ref.position` 으로 블렌드 아웃.
+- **몸 방향**: 자세 중 `furnitureBodyYaw` 로 감쇠 `FURN_YAW_RATE`, 끝나면 평소 규칙(조준 · 속도 방향).
+- **보일 때만** (`hubSite` 게이트 포함). 숨겨지면 자세를 잊고, **처음 보이는 프레임에 이미 자세가 있으면 블렌드 1 로 스냅**한다 — 함선에 들어선 방문자 앞에서
+  주인이 다시 앉는 연출을 하지 않는다. 이미 보이던 몸은 로컬처럼 블렌드로 들어간다.
+- 전투불능 · 사망 · `suspended` · 업힌 몸은 자세를 그리지 않는다. 명판 앵커(`getHeadPosition`)는 자세 중 `anchorY + FURN_EYE[kind] + FURN_HEAD_ABOVE_EYE` 로 블렌드.
+- 테스트 질의: `furniturePoseKind` · `furniturePoseBlend` (+ 기존 `poseView`).
+
+---
+
 ## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
 
 `PlayerSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
@@ -504,6 +598,27 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-12 (캐릭터 버프 · 가구 자세 동기화, 에이전트 player — `docs/plans/char-buffs.md` §6-A)** — 위 *캐릭터 버프 · 원격 가구 자세* 절.
+  계약은 읽기만 했다 (`shared/charBuffs.ts`, `FurniturePose.furnitureUid`, `FurniturePoseState`, `PlayerRef.furniturePoseState` / `buffs` /
+  `buffsRevision`, `RemoteFurniturePose` · `RemotePlayerRef.furniturePose`, `player:buffsChanged`). 새 `parts/Buffs.ts`(모으기 · 리비전 · 이벤트 바인딩 ·
+  1 초 틱), `PlayerSystem` 에 `_buffs` · `_buffsRevision` · `buffsDirty` · `buffsTick` · 스크래치 풀 + getter `buffs` / `buffsRevision` /
+  `furniturePoseState` + `recomputeBuffs()` + `init` 의 `bindBuffs` + `update` 끝의 `updateBuffs`. `parts/FurniturePose` 가 `furnitureUid` 를 받고
+  `poseWireState` · `cumulativePhase` 를 내며 **`cycle` 도 바퀴 수를 센다**, 블렌드 · 루트 · 몸 방향 · 자세 쓰기는 `model.ts` 공용 함수
+  (`furnitureBodyYaw` · `stepFurnitureBlend` · `lerpFurnitureRoot` · `writeFurniturePose`, `FURN_HEAD_ABOVE_EYE`, `BUFF_TICK_S`)로 옮겼다 — 로컬 동작 무변경.
+  `RemoteAvatar` 가 `ref.furniturePose` 로 원격 자세를 그린다(블렌드 · 루트 · 방향 · 처음 보일 때 스냅 · 명판 높이, 질의 `furniturePoseKind` /
+  `furniturePoseBlend`). 수치 csv · 광원 · 와이어 코드(net 몫) 변경 없음. 검증: `scripts/smoke-pose.mjs` 7 · 7b · 8 · 9 절.
+
+- **2026-09-12 (A-3a · A-3e 가구 자세, 에이전트 player)** — 위 *가구 자세* 절. 계약은 읽기만 했다 (`FurniturePose` ·
+  `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive`, `player:furniturePoseEnded`). 새 `parts/FurniturePose.ts`,
+  `model.ts` 에 `FURN_*` 수치 · `FurniturePoseState` · `createFurniturePoseState`, `PlayerSystem` 에 `furn` 상태 · 위임 넷 ·
+  `update` 의 `posed` 가지(입력 0 · `moveFrozen` · 조준 · 들쳐메기 · 마우스 시점 · 상호작용 게이트 · 눈 높이 · 몸 방향 · 루트) ·
+  `lateUpdate` 근접 페이드 제외 · `game:phaseChanged` 리스너 · `setInterior(null)` / `setInPod` / `attachTo` / `setShipInterior` 해제,
+  `canUseWeapons` · `Locomotion.canAct` · `Climb.grabLadder` · `DroneControl.canEnterDroneControl` 거절, `Spawn`(restoreState ·
+  spawnStanding · respawnAt · resetAll · teleport) · `Vitals`(enterDowned · die) 해제. `SoldierPose.furniture` / `furnitureKind` /
+  `furniturePhase` + `SoldierModel.poseFurniture`(앉기 · 벤치 · 사이클, 두 마디 IK `solveTwoBone`) + `FURN_SIT` · `FURN_BENCH` ·
+  `FURN_CYCLE`. `CameraRig.overrideMatches(pos)`. 네트워크 · 수치 csv · 광원 변경 없음. 검증: 새 `scripts/smoke-pose.mjs`
+  (verify 등록 — folders `player` · `hub`).
 
 - **2026-09-11 (A-13 행성 상시 환경, 에이전트 prep)** — 계약은 읽기만 했다 (`WorldRef.env`, `PLANET_ENV_DPS` ·
   `PLANET_ENV_TICK_S`, `player:envChanged`). `parts/Statuses.updateEnv` 하나 + `PlayerSystem` 의 필드 셋

@@ -1,5 +1,5 @@
 import type { GameContext, ImplantId, PlayerSnapshot, WeaponSlot } from '@/shared';
-import { PlayerFlags } from '@/shared';
+import { FURNITURE_POSE_WIRE, PlayerFlags } from '@/shared';
 
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 
@@ -29,6 +29,8 @@ export class Snapshotter {
     stance: 'stand', f: 0, hp: 0, w: null, stride: 0, move: 0,
     imp: null, ar: null, h: null,
   };
+  /** 2026-09-12: the reused `fp` tuple (`[pose index, anchor y, yaw, cumulative phase]`) — no per-snapshot allocation. */
+  private readonly fp: [number, number, number, number] = [0, 0, 0, 0];
 
   reset(): void { this.seq = 0; }
 
@@ -79,6 +81,25 @@ export class Snapshotter {
     const carrying = typeof p.carrying === 'string' && p.carrying.length > 0 ? p.carrying : null;
     if (carrying !== null) m.cr = carrying;
     else delete m.cr;
+
+    /*
+     * 2026-09-12 (캐릭터 버프 · 가구 자세): `bfr` = my buff list revision (omitted while 0 — "never had a buff"); a receiver
+     * whose copy is older asks `cbufq sync` (`parts/CharBuffs`). `fp` / `fu` = the furniture pose's continuous values, only
+     * while posed — the feet x · z already ride on `p`. Valid in the hub and the raid alike (player refuses poses outside
+     * the ship, so the raid simply never carries them). Duck-typed: an older player impl has neither member.
+     */
+    const rev = p.buffsRevision;
+    if (typeof rev === 'number' && Number.isFinite(rev) && rev > 0) m.bfr = Math.floor(rev);
+    else delete m.bfr;
+    const pose = p.furniturePoseState;
+    const poseIdx = pose ? FURNITURE_POSE_WIRE.indexOf(pose.kind) : -1;
+    if (pose && poseIdx >= 0 && Number.isFinite(pose.anchor.y) && Number.isFinite(pose.yaw) && Number.isFinite(pose.phase)) {
+      const t = this.fp;
+      t[0] = poseIdx; t[1] = round3(pose.anchor.y); t[2] = round3(pose.yaw); t[3] = round3(pose.phase);
+      m.fp = t;
+      if (typeof pose.furnitureUid === 'string' && pose.furnitureUid.length > 0) m.fu = pose.furnitureUid;
+      else delete m.fu;
+    } else { delete m.fp; delete m.fu; }
 
     /* Phase 7: pose / held item / attachments from weapons' per-frame remote state (guarded: weapons may be absent). */
     const rs = ctx.weapons ? ctx.weapons.remoteState : undefined;

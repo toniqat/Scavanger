@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { EnvKind, PlayerRestoreState, Rarity } from '@/shared';
+import type { EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -21,7 +21,7 @@ import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER
 import type { CarryHost } from './Carry';
 import { createPortraits } from './Portraits';
 
-import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST } from './model';
+import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST, createFurniturePoseState, type FurniturePoseState } from './model';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
@@ -33,6 +33,9 @@ import * as Shoulder from './parts/Shoulder';
 import * as Act from './parts/Interact';
 import * as Climb from './parts/Climb';
 import * as Drone from './parts/DroneControl';
+import * as Pose from './parts/FurniturePose';
+import * as Buffs from './parts/Buffs';
+import type { CharBuff, FurniturePoseState as FurniturePoseWire } from '@/shared';
 
 /**
  * 로컬 캐릭터의 악센트 색 (`PlayerProfile.accent`, 캐릭터 생성창에서 고른 값) 을 숫자 hex 로.
@@ -200,6 +203,20 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   _droneControl = false;
   /** Stance before `setDroneControl(true)` (restored on a manual release when it was `stand`). */
   droneStancePrev: Stance | null = null;
+  /* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
+  /** Sit / bench / run / cycle on a piece of ship furniture: logical state, restore spot, drive phase, model blend. */
+  readonly furn: FurniturePoseState = createFurniturePoseState();
+  /* ── 캐릭터 버프 (2026-09-12, `parts/Buffs`) ── */
+  /** Published list (`PlayerRef.buffs`) — replaced by a new array only when it changed. */
+  _buffs: readonly CharBuff[] = [];
+  _buffsRevision = 0;
+  /** Set by the events / pose changes that may change the list; `update` recomputes once per frame. */
+  buffsDirty = true;
+  /** Seconds toward the next `BUFF_TICK_S` recompute (debuff expiry has no event). */
+  buffsTick = 0;
+  /** Recompute scratch (pooled `CharBuff` objects, never published). */
+  readonly buffScratch: CharBuff[] = [];
+  readonly buffPool: CharBuff[] = [];
 
   // interaction
   interactTarget: Interactable | null = null;
@@ -282,6 +299,33 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setDroneControl(active: boolean): void { return Drone.setDroneControl(this, active); }
   /** Internal auto-release (death · downed · resets · pod · ship · hub): no stance restore, camera override cut at once. */
   releaseDroneControl(restoreStance = false, cutCamera = true): void { return Drone.releaseDroneControl(this, restoreStance, cutCamera); }
+
+  /* ── 가구 자세 (2026-09-12, appended contract `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive`) ── */
+  get furniturePose(): FurniturePoseKind | null { return this.furn.kind; }
+  /**
+   * Sit / lie / run / pedal on ship furniture (`null` releases → `player:furniturePoseEnded {reason:'caller'}`). Ship only;
+   * refused (false, nothing changed) outside `phase 'hub'` and while dead · downed · drone · ladder · pod · carried / carrying.
+   * While posed: no move / jump / stance / roll / aim / weapons / interaction (E stands up when `releaseOnInteract`), the
+   * feet are pinned under `anchor`, `camera` blends the rig override in. Release returns to the exact spot / stance.
+   */
+  setFurniturePose(pose: FurniturePose | null): boolean { return Pose.setFurniturePose(this, pose); }
+  /** Exercise phase 0..1 (`bench` bar · `run` step · `cycle` crank). Self-driven until the first call. */
+  setFurniturePoseDrive(phase: number): void { return Pose.setFurniturePoseDrive(this, phase); }
+  /** Internal release (E · resets). No-op without a pose; emits `player:furniturePoseEnded` once. */
+  releaseFurniturePose(reason: Pose.FurniturePoseEndReason): void { return Pose.releaseFurniturePose(this, reason); }
+  /**
+   * 2026-09-12 (캐릭터 버프): the pose as net puts it on the wire (`fp` · `fu`) — kind, anchor, yaw, **cumulative** phase
+   * (bench 0…1 · run steps · cycle revolutions · sit 0), furniture uid. A reused object; null without a pose.
+   */
+  get furniturePoseState(): FurniturePoseWire | null { return Pose.poseWireState(this); }
+
+  /* ── 캐릭터 버프 (2026-09-12, appended contract `PlayerRef.buffs` / `buffsRevision`, `player:buffsChanged`) ── */
+  /** Everything on this character (`CHAR_BUFF_ORDER`); a new array only when it changed. See `parts/Buffs`. */
+  get buffs(): readonly CharBuff[] { return this._buffs; }
+  /** +1 per published change (0 = never had a list). */
+  get buffsRevision(): number { return this._buffsRevision; }
+  /** Collect the list now; true when it changed (revision bumped, `player:buffsChanged` emitted). Smokes / console. */
+  recomputeBuffs(): boolean { return Buffs.recomputeBuffs(this); }
 
   /**
    * Rejoin: resume the body exactly as the host's ghost left it — standing at `position` facing `yaw`, no hellpod,
@@ -487,6 +531,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    */
   setInterior(collider: InteriorCollider | null): void {
     if (collider) { this.releaseDroneControl(); this.releaseLadder(); }
+    else this.releaseFurniturePose('reset');   // 2026-09-12: no deck (hub:left · respawn) → no furniture to sit on
     this._interior = collider;
     this.controller.interior = collider;
     this.rigInput.interior = collider;
@@ -519,7 +564,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setInPod(inPod: boolean): void {
     if (inPod === this._inPod) return;
     this._inPod = inPod;
-    if (inPod) { this.releaseDroneControl(); this.releaseLadder(); this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
+    if (inPod) { this.releaseDroneControl(); this.releaseLadder(); this.releaseFurniturePose('reset'); this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
     if (this.spawned && !this.scopeHidden) this.model.setVisible(!inPod);
   }
 
@@ -576,7 +621,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   respawnAt(position: THREE.Vector3, yaw?: number): void { return Spawn.respawnAt(this, position, yaw); }
 
   setShipInterior(bounds: ShipBounds): void {
-    if (bounds) { this.releaseDroneControl(); this.releaseLadder(); }
+    if (bounds) { this.releaseDroneControl(); this.releaseLadder(); this.releaseFurniturePose('reset'); }
     this.shipBounds = bounds;
     this.controller.shipBounds = bounds;
   }
@@ -587,7 +632,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   attachTo(parent: THREE.Object3D | null): void {
-    if (parent) { this.releaseDroneControl(); this.releaseLadder(); }
+    if (parent) { this.releaseDroneControl(); this.releaseLadder(); this.releaseFurniturePose('reset'); }
     const target = parent ?? this.ctx.scene;
     if (this.model.root.parent === target) { this.attachedParent = parent; return; }
     this.model.root.updateWorldMatrix(true, false);
@@ -611,6 +656,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
       && !this.controller.climbing   // 2026-09-11: both hands are on the ladder
       && !this._droneControl         // 2026-09-11: the inputs belong to the drone
+      && this.furn.kind === null     // 2026-09-12: sitting / lying / running on ship furniture
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
@@ -692,7 +738,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       if (ownerId === me) this.model.setVisible(false);
     });
     // the hub tore its ship down: nothing to walk on any more (world:ready -> respawnAt clears it too)
-    ctx.bus.on('hub:left', () => this.setInterior(null));
+    ctx.bus.on('hub:left', () => this.setInterior(null));   // (setInterior(null) also releases a furniture pose)
+    // 2026-09-12: 가구 자세는 함선(`hub`) 전용 — 페이즈가 바뀌면 무조건 푼다 (reason 'reset')
+    ctx.bus.on('game:phaseChanged', () => this.releaseFurniturePose('reset'));
     // 2026-09-11: 사다리 — world 의 사다리 Interactable 이 E 로 낸다. 함선에 들어가면 무조건 놓는다.
     ctx.bus.on('ladder:grab', ({ ladder, from }) => { this.grabLadder(ladder, from); });
     ctx.bus.on('hub:entered', () => { this.releaseDroneControl(); this.clearClimbState(); });
@@ -712,6 +760,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     ctx.bus.on('durability:broken', dirty);
     ctx.bus.on('repair:completed', dirty);
     ctx.bus.on('hub:entered', dirty);
+    // 2026-09-12: 캐릭터 버프 — progression · housing · 환경 · 페이즈 사건이 목록을 다시 모으게 한다 (`parts/Buffs`)
+    Buffs.bindBuffs(this, ctx);
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -740,6 +790,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       || (this.hellpod.isActive && this.hellpod.state !== 'exiting'))) this.releaseLadder();
     // 2026-09-11: same backstop for the drone view — the drone (registered after us) sees `droneControl` false this frame
     if (this._droneControl && !Drone.canHoldDroneControl(this)) this.releaseDroneControl();
+    // 2026-09-12: same backstop for a furniture pose (left the ship · died · pod …); the explicit reset paths release it too
+    if (this.furn.kind !== null && !Pose.canHoldFurniturePose(this)) this.releaseFurniturePose('reset');
+    const posed = this.furn.kind !== null;
 
     // movement / stances / interaction / camera run in gameplay AND hub phases (no UI blocker)
     const control = ctx.isControlActive();
@@ -749,7 +802,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const locked = input.isPointerLocked;
     const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
     // Phase 10: the pick-up / put-down animation and being carried both freeze movement (the camera keeps working)
-    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0;
+    // 2026-09-12: a furniture pose freezes the controller too (no collision resolve — the feet are pinned under the anchor)
+    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0 || posed;
 
     // click-to-relock fallback (also in the hub)
     if (control && !locked && input.wasMousePressed(0)) input.requestPointerLock();
@@ -788,16 +842,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
     // 2026-09-11: the drone view owns the mouse too — its own flag, so it never releases the quick wheel's `lookLocked`
-    if (active && locked && !this.lookLocked && !this._droneControl) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    // 2026-09-12: a furniture pose with a fixed camera owns the view too (the rocking chair keeps free look)
+    if (active && locked && !this.lookLocked && !this._droneControl && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
     // 2026-09-08: the aim origin for this frame's shots is where the camera *will* be after `lateUpdate` for the look
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
     // with the real position once the rig has moved.
     this.rig.predictPosition(this.aimOrigin);
-    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && !posed && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
 
     // ── carry input (F tap): pick up / put down. Runs before the movement branches so the key is consumed
     //    before WeaponSystem (which updates later) can read it as a melee swing.
-    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl);
+    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl && !posed);
 
     // ── movement input
     const mi = this.moveInput;
@@ -812,6 +867,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       // 자세(앉기 / 엎드리기)로 제자리에 멈춘다. 컨트롤러는 입력 0 으로 계속 돌아 중력 · 접지 · 탑승은 평소대로다.
       mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
       if (this._hovering) this.setHovering(false);
+    } else if (posed) {
+      // 가구 자세 (2026-09-12, `parts/FurniturePose`): 이동 · 점프 · 자세 키 · 구르기 · 가방 부양은 없고 발은 가구 위에 박힌다.
+      // `releaseOnInteract` 면 E 가 일어나기다 (키를 삼키고 쿨다운을 건다 — 같은 누름이 가구를 다시 치지 않는다).
+      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
+      if (this._hovering) this.setHovering(false);
+      Pose.updateFurniturePose(this, dt, active);
     } else if (active && !moveFrozen && downed) {
       // downed: crawl only — no stance changes, no jump / sprint / dive; Space held = give up
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
@@ -923,7 +984,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── interaction (a downed player cannot interact; neither can one with a body on the shoulder)
     //    2026-09-11: nor one hanging on a ladder — E belongs to the ladder (let go) while climbing
     //    2026-09-11: nor one looking through a drone (a running hold is cancelled, the prompt clears)
-    this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl);
+    //    2026-09-12: nor one sitting / lying on furniture — only the `일어나기` caption of a `releaseOnInteract` pose
+    if (posed) Pose.updatePosePrompt(this, active && !downed);
+    else this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
@@ -950,7 +1013,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.heavyBlend = damp(this.heavyBlend, this.weaponState.heavy ? 1 : 0, 8, dt);
     this.carryBlend = damp(this.carryBlend, this._carrying ? 1 : 0, 8, dt);
     this.climbBlend = damp(this.climbBlend, c.climbing ? 1 : 0, 12, dt);
-    const eyeTarget = diving ? EYE_ROLL : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
+    Pose.updatePoseBlend(this, dt);
+    const poseEye = Pose.poseEyeHeight(this);   // 2026-09-12: seated / lying eye above the pinned feet
+    const eyeTarget = poseEye !== null ? poseEye : diving ? EYE_ROLL : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
     // body faces aim when aiming/firing/reloading/throwing/meleeing or prone, the roll direction while rolling, else movement
@@ -959,7 +1024,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const ladder = c.climbLadder;
     if (!this.isDead) {
       // on a ladder the body faces the rungs (-normal); the camera stays free
-      if (ladder) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(ladder.normal.x, ladder.normal.z), 18, dt);
+      if (Pose.updatePoseYaw(this, dt)) { /* 2026-09-12: 가구 자세 — 몸은 가구 쪽 (벤치는 발끝이 반대) */ }
+      else if (ladder) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(ladder.normal.x, ladder.normal.z), 18, dt);
       else if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.rollDir.x, -c.rollDir.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, this._stance === 'prone' ? 7 : 18, dt);
       else if (c.speed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.moveDir.x, -c.moveDir.z), 12, dt);
@@ -995,6 +1061,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.climb = this.climbBlend;
     p.downed = this.downedBlend;   // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
+    Pose.applyPoseToSoldier(this, p);   // 2026-09-12: furniture pose blend / kind / phase (`run` rides the walk cycle)
     this.model.update(dt, ctx.time, p);
 
     // ── write model transform (world → parent local when attached). While carried the transform is owned by the
@@ -1007,10 +1074,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.attachedParent.worldToLocal(root.position);
       this.attachedParent.getWorldQuaternion(_q).invert();
       root.quaternion.setFromAxisAngle(_up, this.bodyYaw).premultiply(_q);
-    } else {
+    } else if (!Pose.placeRoot(this)) {   // 2026-09-12: a furniture pose slides the root onto its anchor
       root.position.copy(c.position).add(this.bodyOffset);   // 2026-09-11: step / ladder-grab smoothing (visual only)
       root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
     }
+
+    // ── 2026-09-12: 캐릭터 버프 — 이번 프레임의 자세 · 환경 · 사건을 한 번에 모은다 (+ 1 초 틱, `parts/Buffs`)
+    Buffs.updateBuffs(this, dt);
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
@@ -1045,7 +1115,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── near-clip fade: the camera pulled into the body (obstacle behind the back, scoped tuck) -> fade the soldier
     // 2026-09-11: in the drone view `pivotDistance` is drone camera → shoulder — a drone parked beside the body must not
     // fade it out (the pilot has to see his own crouched body). The silhouette stays as usual.
-    let alpha = this.spawned && !this.scopeHidden && !this._droneControl ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
+    // 2026-09-12: nor may a fixed furniture camera parked close to the bench fade the body it is there to show
+    let alpha = this.spawned && !this.scopeHidden && !this._droneControl && !(this.furn.kind !== null && this.furn.hasCamera) ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
     // cloaked: the local player sees himself shimmer too (remotes get the same treatment in RemoteAvatar)
     if (this._cloaked && !this.isDead) alpha = Math.min(alpha, CLOAK_FADE);
     this.model.setFade(alpha);

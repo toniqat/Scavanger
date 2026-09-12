@@ -9,6 +9,10 @@ import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from './SoldierModel';
 import { buildHeldItem, type GearLook } from './GearLook';
 import type { SoldierPool } from './SoldierPool';
+import type { FurniturePoseKind, RemoteFurniturePose } from '@/shared';
+import {
+  FURN_EYE, FURN_HEAD_ABOVE_EYE, FURN_YAW_RATE, furnitureBodyYaw, lerpFurnitureRoot, stepFurnitureBlend, writeFurniturePose,
+} from './model';
 
 /* Nameplate anchors for the armoured trooper body (head ≈ 1.7 m standing; the HUD adds +0.35 m). */
 const HEAD_STAND = 1.7;
@@ -122,6 +126,17 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private climbStepIdx = 0;
   /** Facing of the matched ladder (`atan2(normal.x, normal.z)`); null = not matched yet / not climbing. */
   private climbYaw: number | null = null;
+  /* ── 2026-09-12: 원격 가구 자세 (`ref.furniturePose` — net 이 스냅샷 `fp` · `fu` 를 보간한다) ── */
+  /** Pose the model draws — outlives the release until the blend is out (null = none). */
+  private furnKind: FurniturePoseKind | null = null;
+  /** The ref reports a pose this frame. */
+  private furnPosed = false;
+  private furnBlend = 0;
+  private furnYaw = 0;
+  /** Last cumulative phase (`FurniturePoseState.phase` wire convention). */
+  private furnPhase = 0;
+  /** Seat point: the ref's XZ (the sender pins the feet under the anchor) at `anchorY`; kept after the release for the blend back. */
+  private readonly furnAnchor = new THREE.Vector3();
   private heldLook: GearLook | null = null;
   private heldDefId: string | null = null;
   private armorLookId: string | null = null;
@@ -180,8 +195,19 @@ export class RemoteAvatar implements RemoteAvatarRef {
     if (this.pose.dead > 0) h = THREE.MathUtils.lerp(h, HEAD_PRONE, this.pose.dead);
     // while carried the ref's own position is stale — the body hangs wherever the carrier's socket is
     const base = this.isRiding ? this.root.getWorldPosition(_wp) : this.ref.position;
+    // 2026-09-12: seated / lying / pedalling — the head rides the seat, not the floor-level ref
+    if (this.furnKind !== null && !this.isRiding) {
+      const b = this.furnBlend, e = b * b * (3 - 2 * b);
+      h = THREE.MathUtils.lerp(h, this.furnAnchor.y - base.y + FURN_EYE[this.furnKind] + FURN_HEAD_ABOVE_EYE, e);
+    }
     return out.copy(base).setY(base.y + h);
   }
+
+  /* ── 2026-09-12 furniture pose queries (smoke tests) ── */
+  /** Furniture pose the body draws (null = none; stays set while blending out). */
+  get furniturePoseKind(): FurniturePoseKind | null { return this.furnKind; }
+  /** 0..1 furniture pose blend. */
+  get furniturePoseBlend(): number { return this.furnBlend; }
 
   /* ── Phase 7 queries (smoke tests / HUD) ── */
   /** Def id of the consumable / gadget mesh currently in the hand (null = none). */
@@ -227,6 +253,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     this.wasDropping = dropping;
 
     const riding = this.isRiding;
+    const wasShown = this.shown;
     if (visible !== this.shown) { this.shown = visible; this.model.setVisible(visible); }
     // keep the root where the ref is even while hidden (weapon sockets / pings may read it) — unless the body is
     // riding on a carrier's shoulder socket, which owns the transform (Phase 10)
@@ -234,6 +261,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
     if (!visible) {
       this.model.setSilhouette(false);
       if (this.downMarker) this.downMarker.visible = false;
+      // 2026-09-12: a hidden body forgets its furniture pose — the next visible frame snaps to whatever the ref reports
+      this.furnKind = null; this.furnPosed = false; this.furnBlend = 0;
       return;
     }
     // ── suspended: flat grey, no silhouette, no glow
@@ -333,6 +362,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const carrying = (flags & PlayerFlags.CARRYING) !== 0 && !downed && !ref.isDead;
     this.carryBlend = damp(this.carryBlend, carrying ? 1 : 0, 8, dt);
     this.updateDownMarker(ctx, downed && !ref.isDead);
+    // 2026-09-12: 가구 자세 — net 이 스냅샷 `fp` 를 보간한 값. 전투불능 · 사망 · 정지(suspended) · 업힌 몸은 그리지 않는다
+    this.updateFurniturePose(dt, !wasShown, downed || ref.isDead || suspended || riding);
 
     // ── recoil pulses while firing
     if (firing && hasWeapon) {
@@ -349,8 +380,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const hSpeed = suspended ? 0 : Math.hypot(v.x, v.z);
     if (!ref.isDead) {
       const faceCamera = (aiming || firing || reloading || prone || meleeing || throwing || cooking || suspended) && !rolling;
+      // 2026-09-12: on furniture the body faces the piece (bench: feet away from the rack = yaw + π) — the local rule
+      if (this.furnPosed && this.furnKind !== null) this.bodyYaw = dampAngle(this.bodyYaw, furnitureBodyYaw(this.furnKind, this.furnYaw), FURN_YAW_RATE, dt);
       // climbing: face the matched ladder's rungs (the snapshot yaw is the camera's); unmatched → hold the facing
-      if (climbing) { if (this.climbYaw !== null) this.bodyYaw = dampAngle(this.bodyYaw, this.climbYaw, 18, dt); }
+      else if (climbing) { if (this.climbYaw !== null) this.bodyYaw = dampAngle(this.bodyYaw, this.climbYaw, 18, dt); }
       else if (rolling && hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, ref.yaw, prone ? 7 : 18, dt);
       else if (hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 12, dt);
@@ -398,9 +431,15 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     p.carry = this.carryBlend;
     p.climb = this.climbBlend;
+    // 2026-09-12: the same furniture-pose fields / blend the local body writes (`run` rides the walk cycle on the cumulative steps)
+    writeFurniturePose(p, this.furnKind, this.furnKind !== null ? this.furnBlend : 0, this.furnPhase);
     this.model.update(dt, ctx.time, p);
 
-    if (!riding) this.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
+    if (!riding) {
+      // 2026-09-12: the ref sits at floor height under the seat — lift the root onto the anchor by the blend (local `placeRoot`)
+      if (this.furnKind !== null) lerpFurnitureRoot(this.root.position.copy(ref.position), this.furnAnchor, this.furnBlend);
+      this.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
+    }
   }
 
   /**
@@ -426,6 +465,29 @@ export class RemoteAvatar implements RemoteAvatarRef {
 
   /** Test query: 0..1 climb blend. */
   get climbAmount(): number { return this.climbBlend; }
+
+  /**
+   * 2026-09-12 (캐릭터 버프 · 가구 자세 동기화). `ref.furniturePose` (net 이 스냅샷 `fp` · `fu` 를 보간 — 누적 위상이라 감김 없이
+   * 선형) → 자세 종류 · 방향 · 위상 · anchor, 블렌드는 로컬과 같은 `stepFurnitureBlend`. `justShown` = 이번 프레임에 처음 보인다 —
+   * 이미 자세를 든 몸은 블렌드 1 로 스냅한다. `blocked` (전투불능 · 사망 · suspended · 업힘)이면 자세가 없는 것으로 본다.
+   * 자세가 끝나면 마지막 anchor · 위상을 들고 블렌드가 빠질 때까지 그린다.
+   */
+  private updateFurniturePose(dt: number, justShown: boolean, blocked: boolean): void {
+    const fp = blocked ? null : validFurniturePose(this.ref.furniturePose);
+    if (fp) {
+      this.furnPosed = true;
+      this.furnKind = fp.kind;
+      this.furnYaw = fp.yaw;
+      this.furnPhase = fp.phase;
+      this.furnAnchor.set(this.ref.position.x, fp.anchorY, this.ref.position.z);
+      if (justShown) this.furnBlend = 1;
+    } else {
+      this.furnPosed = false;
+    }
+    if (this.furnKind === null) return;
+    this.furnBlend = stepFurnitureBlend(this.furnBlend, this.furnPosed, dt);
+    if (!this.furnPosed && this.furnBlend < 0.005) { this.furnBlend = 0; this.furnKind = null; }
+  }
 
   /* ─────────────────────────── Phase 7 gear looks ─────────────────────────── */
   /**
@@ -523,6 +585,13 @@ function nearestLadderYaw(ctx: GameContext, pos: THREE.Vector3): number | null {
     if (d < bestD) { bestD = d; best = l; }
   }
   return best ? Math.atan2(best.normal.x, best.normal.z) : null;
+}
+
+/** A usable remote furniture pose (known kind, finite numbers) or null — net sanitises too; this keeps a bad ref from NaN-ing the body. */
+function validFurniturePose(fp: RemoteFurniturePose | null | undefined): RemoteFurniturePose | null {
+  if (!fp || typeof fp.kind !== 'string' || !Object.prototype.hasOwnProperty.call(FURN_EYE, fp.kind)) return null;
+  if (!Number.isFinite(fp.anchorY) || !Number.isFinite(fp.yaw) || !Number.isFinite(fp.phase)) return null;
+  return fp;
 }
 
 /** `ar` may be an ArmorDef id or the item def id that links to one (`ItemDef.armorId`). */

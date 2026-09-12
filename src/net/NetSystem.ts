@@ -31,6 +31,7 @@ import * as Lobby from './parts/Lobby';
 import * as Remotes from './parts/Remotes';
 import * as Msg from './parts/Messages';
 import { MealRelay } from './parts/Meal';
+import { CharBuffRelay } from './parts/CharBuffs';
 
 export class NetSystem implements GameSystem, NetRef {
   readonly name = 'net';
@@ -123,6 +124,10 @@ export class NetSystem implements GameSystem, NetRef {
   /* ── A-3c (2026-09-11) ── */
   /** 공유 함선 식탁의 `meal serve` 와이어 (`parts/Meal`): 규칙은 progression, 토스트는 ui — 여기는 흐름만. */
   readonly mealRelay = new MealRelay();
+
+  /* ── 2026-09-12: 캐릭터 버프 ── */
+  /** `cbuf state` / `cbufq sync` + the per-member list store (`parts/CharBuffs`). */
+  readonly charBuffRelay = new CharBuffRelay();
 
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
@@ -247,6 +252,8 @@ export class NetSystem implements GameSystem, NetRef {
     bus.on('game:phaseChanged', ({ phase }) => Sock.onPhaseChanged(this, phase));
     /* A-3c (2026-09-11): 공유 함선 식탁 — `housing:mealServed` ↔ `meal` 와이어 (호스트 권한, `parts/Meal`). */
     this.mealRelay.init(this);
+    /* 2026-09-12: 캐릭터 버프 — `player:buffsChanged` ↔ `cbuf` / `cbufq` (`parts/CharBuffs`). */
+    this.charBuffRelay.init(this);
   }
 
   /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
@@ -267,6 +274,10 @@ export class NetSystem implements GameSystem, NetRef {
       }
       // Phase 10: derive `carriedBy` from everyone's `carrying` (≤ 4 refs; skipped entirely while nobody carries).
       this.refreshCarriedBy();
+
+      // 2026-09-12: my buff list changed since the last frame → one `cbuf state`, sent BEFORE the snapshot that carries
+      // the new `bfr`, so receivers normally never see the revision ahead of the list (any phase, while in a lobby).
+      this.charBuffRelay.flush();
 
       // Broadcast our own snapshot: in a mission (gameplay phases + hellpod drop) or while walking the shared ship.
       // Timed on unscaled ctx.time (Engine passes dt = 0 while paused, but a multiplayer pause is non-freezing and
@@ -293,6 +304,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.profileSync.flush();
     this.socialSync.dispose();
     this.mealRelay.dispose();
+    this.charBuffRelay.dispose();
     this.client.close();
     this.clearRemotes();
     this.handlers.clear();

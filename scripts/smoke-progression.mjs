@@ -5,6 +5,9 @@
 // Phase 12 (2026-09-08): 임플란트 items — slots by level (4 / 5 / 10), the 46 defs + repair costs + HEAL_SPRAY_GAUGE, loot rules
 // (broken-only, boss legendaries, tier 4 only), equip / unequip / refusals / derived + perks, raid lock, 캐릭터 sheet block +
 // picker DOM, reload + server-document round-trip. 119 checks.
+// A-3a (2026-09-12): 헬스장 — applyGymSession formula / carry-over / cap / debuff gating (xp 0, no extension) / refusals (raid,
+// non-hub, non-gym stat), derived includes 단련 (carryCapacity · maxStamina), sheet `(+n 단련)` + progress line + live countdown,
+// reload keeps the three fields, migrate clamps junk, server document round-trip, reset clears.
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -71,7 +74,7 @@ try {
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       window.__ev = {};
       const bus = window.__game.ctx.bus;
-      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained', 'progress:implantsChanged']) {
+      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained', 'progress:implantsChanged', 'progress:trainedChanged', 'progress:gymFatigue']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p))); });
       }
@@ -666,6 +669,263 @@ try {
     for (const it of [...ctx.inventory.getStashItems(), ...ctx.inventory.getAllItems()]) if (ctx.loot.getItemDef(it.defId)?.category === 'implant') ctx.inventory.takeItem(it.uid);
   });
   ok(await page.evaluate(() => window.__game.ctx.inventory.getStashItems().every((i) => window.__game.ctx.loot.getItemDef(i.defId)?.category !== 'implant')), 'cleanup: no implant items left in the 창고');
+
+  /* ══ 헬스장 (A-3a, 2026-09-12): 단련 보너스 · 운동 디버프 ══════════════════════════════════════════════════════
+   * data/constants.csv: GYM_SESSION_XP 100 · GYM_TRAIN_XP_BASE 150 · GYM_TRAIN_XP_EXPONENT 1.4 · GYM_TRAINED_MAX 5 ·
+   * GYM_FATIGUE_HOURS 24 · GYM_FATIGUE_GAIN_MUL 0. The debuff clock is `ctx.net.serverNow()` — stubbed to a fake epoch here. */
+  console.log('헬스장 (A-3a): 단련 보너스 · 운동 디버프');
+  const GYM = { xp: 100, base: 150, exp: 1.4, max: 5, hours: 24 };
+  const needAt = (n) => Math.max(1, Math.round(GYM.base * Math.pow(n + 1, GYM.exp)));
+  const H = 3600e3;
+  await page.evaluate(() => { const ctx = window.__game.ctx; ctx.setPhase('hub'); ctx.progression.resetProfile(); });
+  const g0 = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    return { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), next: p.trainedXpToNext('strength'), fat: p.getGymFatigueUntil('strength'),
+      per: p.getTrainedBonus('perception'), maps: [p.profile.trained, p.profile.trainedProgress, p.profile.gymFatigueUntil].map((m) => JSON.stringify(m)),
+      base: p.getStat('strength'), carry: p.derived.carryCapacity, stam: p.derived.maxStamina, endBase: p.getStat('endurance') };
+  });
+  ok(g0.tb === 0 && g0.tp === 0 && g0.fat === 0 && g0.per === 0 && g0.maps.every((m) => m === '{}'), 'fresh profile: 단련 0, 진행도 0, 디버프 없음, three empty maps', JSON.stringify(g0));
+  ok(g0.next === needAt(0) && g0.next === 150, 'trainedXpToNext at +0 = round(150 × 1^1.4) = 150', `${g0.next}`);
+
+  const refused = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    const t0 = window.__ev['progress:trainedChanged'].length, f0 = window.__ev['progress:gymFatigue'].length;
+    const r = { per: p.applyGymSession('perception', 1), junk: p.applyGymSession('nope', 1) };
+    const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
+    try { r.raid = p.applyGymSession('strength', 1); } finally { ctx.isRaidActive = real; }
+    ctx.setPhase('menu');
+    try { r.menu = p.applyGymSession('strength', 1); } finally { ctx.setPhase('hub'); }
+    r.after = { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), fat: p.getGymFatigueUntil('strength'),
+      tev: window.__ev['progress:trainedChanged'].length - t0, fev: window.__ev['progress:gymFatigue'].length - f0 };
+    return r;
+  });
+  ok(refused.per === null && refused.junk === null, 'applyGymSession refuses a non-gym stat (perception / unknown) with null', JSON.stringify(refused));
+  ok(refused.raid === null && refused.menu === null && refused.after.tb === 0 && refused.after.tp === 0 && refused.after.fat === 0 && refused.after.tev === 0 && refused.after.fev === 0,
+    'applyGymSession refused while isRaidActive() and outside the hub phase — nothing changed, no events', JSON.stringify(refused));
+
+  // fake relay clock: T is far in the past so every stubbed debuff has expired once the real clock comes back
+  await page.evaluate(() => {
+    const net = window.__game.ctx.net;
+    window.__realServerNow = Object.getOwnPropertyDescriptor(net, 'serverNow') ?? null;
+    window.__T = Date.now() - 400 * 3600e3;
+    window.__fakeNow = window.__T;
+    net.serverNow = () => window.__fakeNow;
+  });
+  const gym = (id, score, h) => page.evaluate((a) => {
+    const p = window.__game.ctx.progression;
+    if (a.h !== null) window.__fakeNow = window.__T + a.h * 3600e3;
+    const r = p.applyGymSession(a.id, a.score === 'NaN' ? NaN : a.score);
+    const tev = window.__ev['progress:trainedChanged'], fev = window.__ev['progress:gymFatigue'];
+    return { r, T: window.__T, tb: p.getTrainedBonus(a.id), tp: p.getTrainedProgress(a.id), fat: p.getGymFatigueUntil(a.id),
+      eff: p.getStatWithImplants(a.id), base: p.getStat(a.id), carry: p.derived.carryCapacity, stam: p.derived.maxStamina,
+      tLast: tev[tev.length - 1], tn: tev.length, fLast: fev[fev.length - 1], fn: fev.length, sc: window.__ev['progress:statChanged'].length,
+      stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null') };
+  }, { id, score: Number.isNaN(score) ? 'NaN' : score, h });
+
+  // ① score 0.5 → 50 XP, no step, debuff set
+  const s1 = await gym('strength', 0.5, 0);
+  const T = s1.T;
+  ok(s1.r && s1.r.stat === 'strength' && s1.r.score === 0.5 && s1.r.xp === 50 && s1.r.wasFatigued === false && s1.r.trainedBefore === 0 && s1.r.trainedAfter === 0
+    && near(s1.r.progress, 50 / 150, 1e-6) && s1.r.capped === false && s1.r.fatigueUntil === T + GYM.hours * H,
+  'session 0.5 → GymSessionResult {xp 50, 0 → 0, progress 50/150, fatigueUntil now + 24 h}', JSON.stringify(s1.r));
+  ok(s1.tb === 0 && near(s1.tp, 1 / 3, 1e-6) && s1.fat === T + 24 * H, 'getTrainedProgress 1/3, getGymFatigueUntil = now + 24 h', JSON.stringify({ tb: s1.tb, tp: s1.tp, fat: s1.fat }));
+  ok(s1.tLast && s1.tLast.id === 'strength' && s1.tLast.value === 0 && near(s1.tLast.progress, 1 / 3, 1e-6) && s1.tLast.delta === 50
+    && s1.fLast && s1.fLast.id === 'strength' && s1.fLast.until === T + 24 * H, 'progress:trainedChanged {strength, 0, 1/3, delta 50} + progress:gymFatigue {until}', JSON.stringify({ t: s1.tLast, f: s1.fLast }));
+  ok(s1.stored && near(s1.stored.trainedProgress?.strength, 1 / 3, 1e-6) && s1.stored.gymFatigueUntil?.strength === T + 24 * H, 'saved immediately (localStorage carries trainedProgress + gymFatigueUntil)', JSON.stringify(s1.stored?.gymFatigueUntil));
+
+  // ② while fatigued: xp 0, the debuff is not extended, no new gymFatigue event
+  const s2 = await gym('strength', 1, 1);
+  ok(s2.r && s2.r.wasFatigued === true && s2.r.xp === 0 && s2.r.trainedAfter === 0 && near(s2.r.progress, 1 / 3, 1e-6) && s2.r.fatigueUntil === T + 24 * H,
+    'fatigued session (+1 h, score 1) → xp 0, progress unchanged, fatigueUntil not extended', JSON.stringify(s2.r));
+  ok(s2.fn === s1.fn && s2.tn === s1.tn + 1 && s2.tLast.delta === 0 && s2.fat === T + 24 * H, 'no progress:gymFatigue while fatigued; progress:trainedChanged still fires with delta 0', JSON.stringify({ fn: [s1.fn, s2.fn], tn: [s1.tn, s2.tn], d: s2.tLast }));
+  const expired = await page.evaluate((t) => { window.__fakeNow = t; return window.__game.ctx.progression.getGymFatigueUntil('strength'); }, T + 24 * H);
+  ok(expired === 0, 'getGymFatigueUntil is 0 once the clock reaches the stamp', `${expired}`);
+
+  // ③ after expiry: 50 + 100 = 150 = need(0) → 단련 +1, leftover 0, derived follows
+  const s3 = await gym('strength', 1, 25);
+  ok(s3.r && s3.r.xp === 100 && s3.r.wasFatigued === false && s3.r.trainedBefore === 0 && s3.r.trainedAfter === 1 && s3.r.progress === 0 && s3.r.fatigueUntil === T + 49 * H,
+    'session after expiry (+25 h) → 0 → +1 with 0 left, new debuff until +49 h', JSON.stringify(s3.r));
+  ok(s3.base === g0.base && s3.eff === g0.base + 1 && near(s3.carry, g0.carry + 2.2, 1e-6), 'getStat stays the base, getStatWithImplants = base + 1, carryCapacity +2.2', JSON.stringify({ base: s3.base, eff: s3.eff, carry: s3.carry, before: g0.carry }));
+  ok(s3.sc === s2.sc + 1 && s3.tLast.value === 1 && s3.tLast.delta === 100, 'bonus change → progress:statChanged + trainedChanged {value 1, delta 100}', JSON.stringify({ sc: [s2.sc, s3.sc], t: s3.tLast }));
+  ok((await page.evaluate(() => window.__game.ctx.progression.trainedXpToNext('strength'))) === needAt(1), `trainedXpToNext at +1 = ${needAt(1)}`);
+
+  // ④ endurance is independent of the strength debuff; its bonus feeds maxStamina
+  const e1 = await gym('endurance', 1, 26);
+  ok(e1.r && e1.r.wasFatigued === false && e1.r.xp === 100 && e1.r.trainedAfter === 0 && near(e1.tp, 100 / 150, 1e-6) && e1.fat === T + 50 * H,
+    'endurance session during the strength debuff: not fatigued, +100 XP, its own debuff', JSON.stringify(e1.r));
+  const e2 = await gym('endurance', 1, 51);
+  ok(e2.r && e2.r.trainedAfter === 1 && near(e2.r.progress, 50 / needAt(1), 1e-6) && near(e2.stam, g0.stam + 5, 1e-6),
+    `endurance +1 with 50/${needAt(1)} carried over, maxStamina +5`, JSON.stringify({ r: e2.r, stam: e2.stam, before: g0.stam }));
+
+  // ⑤ carry-over into the next step: 단련 +1 at 0.9 → 0.9 × need(1) + 100 − need(1) left of need(2)
+  const s4 = await page.evaluate(() => { window.__game.ctx.progression.profile.trainedProgress.strength = 0.9; return true; }).then(() => gym('strength', 1, 50));
+  const left4 = 0.9 * needAt(1) + 100 - needAt(1);
+  ok(s4.r && s4.r.trainedBefore === 1 && s4.r.trainedAfter === 2 && near(s4.r.progress, left4 / needAt(2), 1e-6) && near(s4.carry, g0.carry + 2.2 * 2, 1e-6),
+    `carry-over: +1 @ 90 % + 100 → +2 with ${left4.toFixed(1)}/${needAt(2)}`, JSON.stringify({ r: s4.r, carry: s4.carry }));
+
+  // ⑥ cap: +4 @ 99 % + 100 → +5, progress pinned at 1; a later session adds 0 and stays capped (but still sets the debuff)
+  const s5 = await page.evaluate(() => { const p = window.__game.ctx.progression.profile; p.trained.strength = 4; p.trainedProgress.strength = 0.99; return true; }).then(() => gym('strength', 1, 80));
+  ok(s5.r && s5.r.trainedAfter === GYM.max && s5.r.capped === true && s5.r.progress === 1 && s5.tp === 1 && s5.eff === g0.base + 5 && near(s5.carry, g0.carry + 2.2 * 5, 1e-6),
+    'cap: +4 @ 99 % + 100 → GYM_TRAINED_MAX 5, progress 1, capped, carry +11', JSON.stringify({ r: s5.r, tp: s5.tp, eff: s5.eff, carry: s5.carry }));
+  const s6 = await gym('strength', 5, 140);
+  ok(s6.r && s6.r.score === 1 && s6.r.xp === 0 && s6.r.trainedAfter === 5 && s6.r.progress === 1 && s6.r.capped && s6.r.wasFatigued === false && s6.r.fatigueUntil === T + 164 * H,
+    'score 5 clamps to 1; at the cap xp 0 and progress stays 1, the debuff is still set', JSON.stringify(s6.r));
+  const e3 = await gym('endurance', NaN, 200);
+  ok(e3.r && e3.r.score === 0 && e3.r.xp === 0 && e3.r.wasFatigued === false && e3.r.fatigueUntil === T + 224 * H && e3.fn === s6.fn + 1 && near(e3.r.progress, 50 / needAt(1), 1e-6),
+    'score NaN → 0: xp 0, progress unchanged, a finished session still sets the debuff (+ progress:gymFatigue)', JSON.stringify(e3.r));
+
+  // back to the real clock: one endurance session that leaves a live 24 h debuff for the sheet + reload checks
+  await page.evaluate(() => { const net = window.__game.ctx.net; if (window.__realServerNow) Object.defineProperty(net, 'serverNow', window.__realServerNow); else delete net.serverNow; });
+  const nowBefore = Date.now();
+  const e4 = await gym('endurance', 1, null);
+  ok(e4.r && e4.r.xp === 100 && e4.r.trainedAfter === 1 && near(e4.r.progress, 150 / needAt(1), 1e-6) && e4.r.fatigueUntil >= nowBefore + 24 * H - 5000 && e4.r.fatigueUntil <= Date.now() + 24 * H + 5000,
+    'real clock: endurance debuff runs until ≈ now + 24 h', JSON.stringify({ r: e4.r, nowBefore }));
+  const liveUntil = e4.r?.fatigueUntil ?? 0;
+
+  console.log('헬스장: 캐릭터 시트');
+  await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
+  await sleep(250);
+  const readGymSheet = () => page.evaluate(() => {
+    const root = document.querySelector('.char-sheet');
+    const rows = [...root.querySelectorAll('.cs-stat')];
+    const r = (i) => ({ v: rows[i].querySelector('.v').textContent, ib: rows[i].querySelector('.v .ib').textContent, tb: rows[i].querySelector('.v .tb')?.textContent, tbHidden: rows[i].querySelector('.v .tb')?.hidden,
+      gtr: rows[i].querySelector('.gy .gtr')?.textContent ?? null, fat: rows[i].querySelector('.gy .fat')?.textContent ?? null, fatHidden: rows[i].querySelector('.gy .fat')?.hidden ?? null });
+    return { open: !root.hidden, str: r(0), end: r(1), per: r(2), gyCount: root.querySelectorAll('.cs-stat .gy').length };
+  });
+  const gs = await readGymSheet();
+  ok(gs.open && gs.str.tb === ' (+5 단련)' && !gs.str.tbHidden && gs.str.ib === '' && gs.str.v === `${g0.base} (+5 단련)`, '근력 row: `5 (+5 단련)` in its own span (implant span empty)', JSON.stringify(gs.str));
+  ok(gs.end.tb === ' (+1 단련)' && gs.per.tb === '' && gs.per.tbHidden === true && gs.gyCount === 2, '지구력 `(+1 단련)`; 인지력 has no 단련 span text; only 근력 · 지구력 carry the 단련 line', JSON.stringify({ end: gs.end, per: gs.per, gy: gs.gyCount }));
+  ok(gs.str.gtr === '단련 최대' && gs.end.gtr === `단련 +1 · ${Math.floor((150 / needAt(1)) * 100)} %`, `progress lines: 근력 \`단련 최대\`, 지구력 \`단련 +1 · ${Math.floor((150 / needAt(1)) * 100)} %\``, JSON.stringify({ s: gs.str.gtr, e: gs.end.gtr }));
+  ok(gs.str.fatHidden === true && gs.end.fatHidden === false && /^심폐 피로 · 남은 2[34]:[0-5]\d:[0-5]\d$/.test(gs.end.fat), 'debuff line only on 지구력: `심폐 피로 · 남은 HH:MM:SS` (근력 debuff expired → hidden)', JSON.stringify({ s: gs.str.fat, e: gs.end.fat }));
+  await sleep(2100);
+  const gs2 = await readGymSheet();
+  ok(gs2.end.fat !== gs.end.fat && /^심폐 피로 · 남은 2[34]:[0-5]\d:[0-5]\d$/.test(gs2.end.fat), 'countdown repaints while the sheet is visible', JSON.stringify({ a: gs.end.fat, b: gs2.end.fat }));
+  await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: false }));
+  await sleep(150);
+
+  console.log('헬스장: 새로고침 · migrate · 서버 문서 · 초기화');
+  await page.reload({ waitUntil: 'load' });
+  await boot();
+  const rl = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    return { str: p.getTrainedBonus('strength'), strP: p.getTrainedProgress('strength'), end: p.getTrainedBonus('endurance'), endP: p.getTrainedProgress('endurance'),
+      endFat: p.getGymFatigueUntil('endurance'), strFat: p.getGymFatigueUntil('strength'), carry: p.derived.carryCapacity, stam: p.derived.maxStamina };
+  });
+  ok(rl.str === 5 && rl.strP === 1 && rl.end === 1 && near(rl.endP, 150 / needAt(1), 1e-6) && rl.endFat === liveUntil && rl.strFat === 0,
+    'reload keeps 단련 (5 / 1), 진행도 and the live endurance debuff stamp', JSON.stringify({ rl, liveUntil }));
+  ok(near(rl.carry, g0.carry + 2.2 * 5, 1e-6) && near(rl.stam, g0.stam + 5, 1e-6), 'derived after reload includes 단련 (carry +11, stamina +5)', JSON.stringify(rl));
+
+  await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
+    raw.trained = { strength: 99.7, endurance: 2.6, perception: 4, bogus: 2 };
+    raw.trainedProgress = { strength: 0.4, endurance: 7, perception: 0.5 };
+    raw.gymFatigueUntil = { strength: 1000, endurance: 'x', perception: 1e12, dexterity: -5 };
+    localStorage.setItem('scav.s1.profile', JSON.stringify(raw));
+  });
+  await page.reload({ waitUntil: 'load' });
+  await boot();
+  const mj = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    return { trained: p.profile.trained, prog: p.profile.trainedProgress, fat: p.profile.gymFatigueUntil, per: p.getTrainedBonus('perception'),
+      strFat: p.getGymFatigueUntil('strength'), endFat: p.getGymFatigueUntil('endurance'), endP: p.getTrainedProgress('endurance') };
+  });
+  ok(JSON.stringify(mj.trained) === JSON.stringify({ strength: 5, endurance: 3 }) && mj.per === 0, 'migrate: trained clamped + rounded (99.7 → 5, 2.6 → 3), non-gym keys dropped', JSON.stringify(mj));
+  ok(mj.prog.strength === 1 && mj.prog.endurance === 0.999999 && Object.keys(mj.prog).length === 2 && mj.endP === 0.999999, 'migrate: progress 1 only at the cap, else clamped to 0.999999; junk keys dropped', JSON.stringify(mj.prog));
+  ok(JSON.stringify(mj.fat) === JSON.stringify({ strength: 1000 }) && mj.strFat === 0 && mj.endFat === 0, 'migrate: fatigue keeps only finite > 0 gym stamps; an old stamp reads as no debuff', JSON.stringify(mj.fat));
+
+  const srvGym = await page.evaluate(() => {
+    const ctx = window.__game.ctx, net = ctx.net, p = ctx.progression;
+    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    const desc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+    try {
+      p.save();
+      const up = fake.docs.progression && { trained: fake.docs.progression.trained, prog: fake.docs.progression.trainedProgress, fat: fake.docs.progression.gymFatigueUntil };
+      const doc = JSON.parse(JSON.stringify(fake.docs.progression));
+      const until = Date.now() + 3600e3;
+      doc.trained = { strength: 2 }; doc.trainedProgress = { strength: 0.25 }; doc.gymFatigueUntil = { strength: until };
+      fake.docs = { progression: doc };
+      const t0 = window.__ev['progress:trainedChanged'].length, f0 = window.__ev['progress:gymFatigue'].length;
+      ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: fake.docs, updatedAt: 0 }, migrated: false });
+      return { up, until, tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), end: p.getTrainedBonus('endurance'), fat: p.getGymFatigueUntil('strength'),
+        eff: p.getStatWithImplants('strength'), base: p.getStat('strength'), carry: p.derived.carryCapacity,
+        tev: window.__ev['progress:trainedChanged'].length - t0, fev: window.__ev['progress:gymFatigue'].slice(f0) };
+    } finally { if (desc) Object.defineProperty(net, 'profile', desc); else delete net.profile; }
+  });
+  ok(srvGym.up && srvGym.up.trained?.strength === 5 && srvGym.up.prog?.strength === 1 && srvGym.up.fat?.strength === 1000, "save → profile.set('progression') carries trained / trainedProgress / gymFatigueUntil", JSON.stringify(srvGym.up));
+  ok(srvGym.tb === 2 && near(srvGym.tp, 0.25) && srvGym.end === 0 && srvGym.fat === srvGym.until && srvGym.eff === srvGym.base + 2 && near(srvGym.carry, 28 + 2.2 * (srvGym.base + 2), 1e-6),
+    'net:profileLoaded → server 단련 + debuff replace the local ones, derived re-computed', JSON.stringify(srvGym));
+  ok(srvGym.tev === 2 && srvGym.fev.length === 1 && srvGym.fev[0].id === 'strength' && srvGym.fev[0].until === srvGym.until, 'server document re-emits trainedChanged ×2 + gymFatigue for the active debuff', JSON.stringify({ tev: srvGym.tev, fev: srvGym.fev }));
+
+  const rs = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    const t0 = window.__ev['progress:trainedChanged'].length;
+    p.resetProfile();
+    const tev = window.__ev['progress:trainedChanged'].slice(t0);
+    return { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), fat: p.getGymFatigueUntil('strength'),
+      maps: [p.profile.trained, p.profile.trainedProgress, p.profile.gymFatigueUntil].map((m) => JSON.stringify(m)), tev,
+      stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.gymFatigueUntil };
+  });
+  ok(rs.tb === 0 && rs.tp === 0 && rs.fat === 0 && rs.maps.every((m) => m === '{}') && JSON.stringify(rs.stored) === '{}', 'resetProfile clears 단련 · 진행도 · 디버프 (memory + storage)', JSON.stringify(rs));
+  ok(rs.tev.length === 2 && rs.tev.every((e) => e.value === 0 && e.delta === 0), 'resetProfile re-emits trainedChanged {value 0} for both gym stats', JSON.stringify(rs.tev));
+
+  console.log('헬스장: 콘솔 API addTrainedXp · clearGymFatigue');
+  const tx = (id, xp) => page.evaluate((a) => {
+    const p = window.__game.ctx.progression;
+    const t0 = window.__ev['progress:trainedChanged'].length, s0 = window.__ev['progress:statChanged'].length;
+    p.addTrainedXp(a.id, a.xp === 'NaN' ? NaN : a.xp);
+    const tev = window.__ev['progress:trainedChanged'];
+    return { tb: p.getTrainedBonus(a.id), tp: p.getTrainedProgress(a.id), carry: p.derived.carryCapacity, stam: p.derived.maxStamina,
+      tn: tev.length - t0, tLast: tev[tev.length - 1], sn: window.__ev['progress:statChanged'].length - s0,
+      stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null') };
+  }, { id, xp: Number.isNaN(xp) ? 'NaN' : xp });
+  // multi-level carry-over in one call: need(0) + need(1) + need(2) + 50 → +3 with 50 / need(3)
+  const multi = needAt(0) + needAt(1) + needAt(2) + 50;
+  const a1 = await tx('endurance', multi);
+  ok(a1.tb === 3 && near(a1.tp, 50 / needAt(3), 1e-6) && near(a1.stam, g0.stam + 15, 1e-6), `addTrainedXp(endurance, ${multi}) → +3 with 50/${needAt(3)} carried across three steps, maxStamina +15`, JSON.stringify(a1));
+  ok(a1.tn === 1 && a1.tLast.value === 3 && a1.tLast.delta === multi && a1.sn === 1 && a1.stored?.trained?.endurance === 3, 'one trainedChanged {value 3, delta xp} + statChanged, saved immediately', JSON.stringify({ t: a1.tLast, sn: a1.sn, stored: a1.stored?.trained }));
+  const a2 = await tx('endurance', -100);
+  ok(a2.tb === 2 && near(a2.tp, (needAt(2) - 50) / needAt(2), 1e-6) && a2.tLast.delta === -100, `negative: +3 @ 50 − 100 → +2 with ${needAt(2) - 50}/${needAt(2)} (deficit off the lower step)`, JSON.stringify(a2));
+  const a3 = await tx('endurance', -1e6);
+  ok(a3.tb === 0 && a3.tp === 0 && near(a3.stam, g0.stam, 1e-6) && JSON.stringify(a3.stored?.trained) === '{}', 'addTrainedXp(endurance, −1e6) → floor 0 · 0, stamina back to base, storage emptied', JSON.stringify(a3));
+  const a4 = await tx('strength', 1e6);
+  ok(a4.tb === GYM.max && a4.tp === 1 && near(a4.carry, g0.carry + 2.2 * 5, 1e-6), 'addTrainedXp(strength, 1e6) → cap 5, progress 1, carry +11', JSON.stringify(a4));
+  const a5 = await tx('strength', -100);
+  ok(a5.tb === 4 && near(a5.tp, (needAt(4) - 100) / needAt(4), 1e-6), `negative from the cap: 5 − 100 → +4 with ${needAt(4) - 100}/${needAt(4)}`, JSON.stringify(a5));
+  const a6 = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    const t0 = window.__ev['progress:trainedChanged'].length;
+    const before = { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength') };
+    p.addTrainedXp('perception', 500); p.addTrainedXp('strength', NaN); p.addTrainedXp('nope', 500);
+    const ignored = { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), per: p.getTrainedBonus('perception'), tn: window.__ev['progress:trainedChanged'].length - t0 };
+    // no gates: a live debuff, a raid and a non-hub phase do not stop it
+    p.profile.gymFatigueUntil.strength = Date.now() + 3600e3;
+    const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
+    const phase = ctx.phase; ctx.setPhase('menu');
+    try { p.addTrainedXp('strength', 100); } finally { ctx.isRaidActive = real; ctx.setPhase(phase); }
+    return { before, ignored, after: { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), fat: p.getGymFatigueUntil('strength') } };
+  });
+  ok(a6.ignored.tb === a6.before.tb && a6.ignored.tp === a6.before.tp && a6.ignored.per === 0 && a6.ignored.tn === 0, 'non-gym stat / unknown id / NaN ignored (no change, no event)', JSON.stringify(a6));
+  ok(a6.after.tb === 5 && a6.after.tp === 1 && a6.after.fat > 0, 'addTrainedXp ignores the debuff, the raid gate and the phase (+100 → cap), debuff untouched', JSON.stringify(a6.after));
+  const cf = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    p.profile.gymFatigueUntil.endurance = Date.now() + 7200e3;
+    const f0 = window.__ev['progress:gymFatigue'].length;
+    p.clearGymFatigue('strength');
+    const one = { str: p.getGymFatigueUntil('strength'), end: p.getGymFatigueUntil('endurance'), fev: window.__ev['progress:gymFatigue'].slice(f0),
+      stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.gymFatigueUntil };
+    const f1 = window.__ev['progress:gymFatigue'].length;
+    p.clearGymFatigue();
+    const both = { str: p.getGymFatigueUntil('strength'), end: p.getGymFatigueUntil('endurance'), fev: window.__ev['progress:gymFatigue'].slice(f1),
+      map: JSON.stringify(p.profile.gymFatigueUntil), stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.gymFatigueUntil };
+    const f2 = window.__ev['progress:gymFatigue'].length;
+    p.clearGymFatigue();
+    return { one, both, again: window.__ev['progress:gymFatigue'].length - f2 };
+  });
+  ok(cf.one.str === 0 && cf.one.end > 0 && cf.one.fev.length === 1 && cf.one.fev[0].id === 'strength' && cf.one.fev[0].until === 0 && !('strength' in (cf.one.stored ?? {})) && 'endurance' in (cf.one.stored ?? {}),
+    "clearGymFatigue('strength') clears only strength, emits gymFatigue {strength, until 0}, saved", JSON.stringify(cf.one));
+  ok(cf.both.str === 0 && cf.both.end === 0 && cf.both.map === '{}' && JSON.stringify(cf.both.stored) === '{}' && cf.both.fev.length === 1 && cf.both.fev[0].id === 'endurance' && cf.again === 0,
+    'clearGymFatigue() clears the rest (one event per cleared stat, none when nothing is left)', JSON.stringify({ both: cf.both, again: cf.again }));
 
   // Clean up so the next script starts from a fresh character.
   await page.evaluate(() => window.__game.ctx.progression.resetProfile());

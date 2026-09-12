@@ -463,6 +463,14 @@
 .hs-bookpick { cursor: pointer; padding: 4px; border: 1px solid transparent; background: none; }
 .hs-bookpick:hover { border-color: rgba(255, 255, 255, 0.4); }
 .hs-bookpick.sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+/* A-3e (2026-09-12): 서재 매체 — 같은 카드를 매체별 색으로 (색은 `data/furniture.csv` 의 보관함 색), 보조 가구 한 줄 */
+.bookshelf-menu[data-medium="disc"] .hs-book:not(.empty) { border-color: rgba(159, 208, 255, 0.45); background: rgba(159, 208, 255, 0.06); }
+.bookshelf-menu[data-medium="disc"] .hs-book:not(.empty) .state { color: #9fd0ff; }
+.bookshelf-menu[data-medium="record"] .hs-book:not(.empty) { border-color: rgba(232, 160, 208, 0.45); background: rgba(232, 160, 208, 0.06); }
+.bookshelf-menu[data-medium="record"] .hs-book:not(.empty) .state { color: #e8a0d0; }
+.bookshelf-menu[data-medium="record"] .hs-shelf { grid-template-columns: repeat(2, 1fr); }
+.hs-shelf-aux { margin-top: 8px; font-size: 11px; letter-spacing: 0.04em; font-family: var(--ui-mono); color: var(--c-text-faint); }
+.hs-shelf-aux.on { color: var(--c-success); }
 
 /* 도감: one row per skill (shared by the 책장 panel and the 함선 tab) */
 .hs-dex { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

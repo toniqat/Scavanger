@@ -1,7 +1,10 @@
 import * as THREE from 'three';
-import type { FurnitureDef, FurnitureModelKind, GameContext, GrowTier, Interactable, PlacedFurniture, Rarity, WorkbenchKind } from '@/shared';
-import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, HOUSING_CELL_SIZE, RARITY_COLORS, analyzerSlotsForLevel, benchKindOf, cultureSlotsForLevel, furnitureFootprint, growTiersForLevel } from '@/shared';
+import type { FurnitureDef, FurnitureModelKind, FurniturePose, GameContext, GrowTier, Interactable, PeerId, PlacedFurniture, Rarity, RemotePlayerRef, ShelfMedium, WorkbenchKind } from '@/shared';
+import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, GYM_MINIGAME_LABEL_KO, HOUSING_CELL_SIZE, RARITY_COLORS, SHELF_SLOTS, analyzerSlotsForLevel, benchKindOf, cultureSlotsForLevel, furnitureFootprint, growTiersForLevel, gymEquipmentOf, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
+import { LEISURE_BUILDERS, isLeisureKind, type FurnitureRig, type LeisureKind } from './FurnitureLeisure';
+import { GymStaging, gymPoseOf, poseRock, sitPoseOf, type FootBox } from './GymStaging';
+import { RemoteFurnitureStaging } from './RemoteFurnitureStaging';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
 import { computerScreenPose, implantBayBody, shipComputerBody } from './stations';
@@ -68,6 +71,10 @@ export interface FurnitureModel {
   /** Animated sub-groups (`sim_hub` hologram rings): `spin` turns about Y, `spinInner` tumbles inside it. */
   spin?: THREE.Group;
   spinInner?: THREE.Group;
+  /** `spin` 의 회전 속도 (rad/s). 없으면 시뮬레이션 허브의 0.6 — 턴테이블 · 축음기의 레코드는 3.5 (A-3e, 2026-09-12). */
+  spinRate?: number;
+  /** 흔들의자 · 운동 기구의 자세 기하 + 움직이는 부분 (가구 로컬 좌표, `FurnitureLeisure`). A-3e · A-3a, 2026-09-12. */
+  rig?: FurnitureRig;
 }
 
 /** Per-piece data a builder may read (Phase 9): the 책장's shelved books by slot (rarity, null = empty). */
@@ -86,6 +93,15 @@ export interface BuildExtra {
    * the 배양 magenta, and no `THREE.PointLight` is created for it.
    */
   cultureReady?: number;
+  /**
+   * 디스크 전시대 · 레코드랙 (A-3e, 2026-09-12): 칸별로 꽂힌 매체의 등급 (null = 빈 칸). 칸마다 등급색 케이스 · 슬리브가 선다.
+   * 책장은 여전히 `books` 다.
+   */
+  media?: readonly (Rarity | null)[];
+  /** TV · 축음기 · 주크박스 · 턴테이블 (A-3e): 켜져 있는가 (`ShipState.toggled`) — 화면 · 네온 · LED 재질을 고른다. */
+  on?: boolean;
+  /** 벤치 랙 · 스미스 머신 (A-3a): 이 조각으로 운동 세션이 진행 중이다 — 바벨에 원반이 끼워진 채로 짓는다. */
+  gymActive?: boolean;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -95,11 +111,14 @@ export function buildFurniture(def: FurnitureDef, level = 1, extra?: BuildExtra)
   const b = new GeoBatch();
   const w = def.cols * HOUSING_CELL_SIZE, d = def.rows * HOUSING_CELL_SIZE, h = def.height;
   const accent = tint(def.color);
-  BUILDERS[def.model](b, w, d, h, accent, level, extra);
   const meshes: THREE.Mesh[] = [];
-  b.build(g, meshes);
   const model: FurnitureModel = { group: g, meshes, w, d };
-  if (def.model === 'sim_hub') simHubRings(model, Math.min(w, d) / 2, h);
+  const kind = def.model;
+  // A-3e · A-3a (2026-09-12): the 11 서재 · 헬스장 models also add moving sub-groups + pose geometry to the model
+  if (isLeisureKind(kind)) LEISURE_BUILDERS[kind](b, model, w, d, h, accent, extra);
+  else BUILDERS[kind](b, w, d, h, accent, level, extra);
+  b.build(g, meshes);
+  if (kind === 'sim_hub') simHubRings(model, Math.min(w, d) / 2, h);
   return model;
 }
 
@@ -151,19 +170,11 @@ function benchBody(b: GeoBatch, w: number, d: number, h: number, accent: THREE.M
 }
 
 /**
- * 2026-09-12 (A-3e · A-3a 계약 커밋): 새 모델 11종의 **임시 몸체** — 받침 상자 하나 + 앞면 악센트 띠. hub 담당이 진짜 빌더로
- * 바꾸고 이 함수를 지운다 (`Record<FurnitureModelKind, Builder>` 가 전부를 요구해 계약 커밋이 타입체크를 통과하게 하는 자리다).
+ * Every model kind except the 11 서재 매체 · 헬스장 pieces (A-3e · A-3a, 2026-09-12), whose builders live in
+ * `FurnitureLeisure.ts` (`LEISURE_BUILDERS`) because they also rig moving parts and pose geometry. Between the two
+ * records the type still demands **every** `FurnitureModelKind`.
  */
-const pendingBody: Builder = (b, w, d, h, a) => {
-  b.boxB(w, h, d, 0, 0, 0, M.hullDark);
-  b.box(w * 0.9, 0.05, 0.03, 0, h * 0.8, -(d / 2 + 0.01), a);
-};
-
-const BUILDERS: Record<FurnitureModelKind, Builder> = {
-  /* A-3e · A-3a 임시 몸체 (hub 담당이 교체) */
-  disc_stand: pendingBody, record_rack: pendingBody, rocking_chair: pendingBody, tv: pendingBody,
-  gramophone: pendingBody, jukebox: pendingBody, turntable: pendingBody,
-  bench_rack: pendingBody, smith_machine: pendingBody, treadmill: pendingBody, exercise_bike: pendingBody,
+const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
   bench_gun: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
     const top = h - 0.02;
     b.boxB(0.26, 0.16, 0.2, -w * 0.3, top, 0.05, M.hullDark);                                   // vise
@@ -697,7 +708,26 @@ export interface FurnitureCallbacks {
    * and is registered by `parts/Interior.buildStations` instead of this layer.
    */
   onDiningTable(uid: string): void;
+  /* ── A-3e · A-3a (2026-09-12) ── */
+  /** 디스크 전시대 · 레코드랙: 그 보관함의 화면 (`ctx.housing.openShelf(uid)`). */
+  onShelf(uid: string): void;
+  /**
+   * 흔들의자: `pose` (좌판 윗면 anchor · 앞을 보는 yaw · E 로 풀림)로 앉는다 (`ctx.player.setFurniturePose`). 앉았으면 true —
+   * 그 동안 layer 가 의자를 흔든다.
+   */
+  onSit(uid: string, pose: FurniturePose): boolean;
+  /** TV · 레코드 플레이어: 켜기 / 끄기 (`ctx.housing.toggleFurniture(uid)`). */
+  onToggle(uid: string): void;
+  /** 운동 기구: 미니게임 세션 (`ctx.housing.startGymSession(uid)` — 거절 사유는 토스트). 자세 · 카메라는 layer 의 `GymStaging` 이 건다. */
+  onGym(uid: string): void;
+  /* ── 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화) — 둘 다 optional, 방문 중인 함선의 layer 도 같은 것을 받는다 ── */
+  /** 원격 분대원 목록 (스모크의 디버그 ref 포함). 없으면 `ctx.net.getRemotePlayers()`. */
+  remotePlayers?(): readonly RemotePlayerRef[];
+  /** 우리가 서 있는 함선 (`HubRef.hubSite`). 없으면 `ctx.hub.hubSite`. */
+  hubSite?(): PeerId | null;
 }
+
+const NO_REMOTES: readonly RemotePlayerRef[] = [];
 
 /**
  * 개인 함선 방문 (2026-09-08): where the layer reads its pieces from. Default = `ctx.housing` (our own ship). A
@@ -708,6 +738,10 @@ export interface FurnitureSource {
   getPlaced(room: number): readonly PlacedFurniture[];
   /** Shelved book rarities of a 책장 by slot (null = empty slot). */
   getBooks(uid: string): readonly (Rarity | null)[];
+  /** A-3e (2026-09-12): 디스크 전시대 · 레코드랙에 꽂힌 매체의 등급, 칸 순서 (`ShipVisitWire.media`). */
+  getMedia?(uid: string): readonly (Rarity | null)[];
+  /** A-3e (2026-09-12): TV · 레코드 플레이어가 켜져 있는가 (`ShipVisitWire.toggled`). */
+  isOn?(uid: string): boolean;
 }
 
 interface Piece {
@@ -718,6 +752,8 @@ interface Piece {
   /** 2026-09-12: 기업 네트워크 컴퓨터의 모니터 글자판 (그 조각의 그룹 자식 — 조각과 함께 버린다). */
   screen: TextPlane | null;
   interactable: Interactable | null;
+  /** 월드 상자 (콜라이더 blocker 와 같은 치수) — 운동 카메라가 이웃 가구에 가리는지 본다 (A-3a, 2026-09-12). */
+  box: FootBox;
 }
 
 /**
@@ -749,6 +785,8 @@ const COVERED_CHANGE_REASONS: ReadonlySet<string> = new Set([
   'craft', 'preset', 'purpose',                       // storage / presets / purpose (its recoveries were per-piece)
   'books',                                            // Phase 9: `housing:booksChanged` rebuilds that shelf's room
   'facility:generator', 'facility:storage', 'facility:workshop', 'facility:range',
+  'shelfPlace', 'shelfTake',                          // A-3e: `housing:shelfChanged` rebuilds that 전시대 · 레코드랙's room
+  'toggle',                                           // A-3e: `housing:furnitureToggled` rebuilds that TV · 레코드 플레이어's room
 ]);
 
 /**
@@ -760,6 +798,16 @@ const COVERED_CHANGE_REASONS: ReadonlySet<string> = new Set([
 export class FurnitureLayer {
   private pieces = new Map<string, Piece>();
   private unsubs: Array<() => void> = [];
+  /** 운동 세션 연출 (A-3a) — 우리 함선에서만 (방문 중인 함선은 null). */
+  private staging: GymStaging | null = null;
+  /** 앉아 있는 흔들의자 uid (A-3e) — 플레이어 자세가 `sit` 인 동안 흔든다. */
+  private sitUid: string | null = null;
+  /**
+   * 원격 가구 연출 (2026-09-12) — 같은 함선의 분대원이 가리키는 조각을 그 사람의 위상으로 돌린다. `GymStaging` 과 달리
+   * **방문 중인 함선의 layer 에도** 있다 (방문자가 주인의 운동을 보는 것이 이 기능의 본래 쓰임이다).
+   */
+  private remote: RemoteFurnitureStaging | null = null;
+  private lastTime = -1;
 
   /**
    * `source` (2026-09-08) overrides `ctx.housing` — a visited member's ship. A sourced layer is **read-only**: it
@@ -787,9 +835,48 @@ export class FurnitureLayer {
         b.on('housing:analysisChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
         // A-14 (2026-09-11): 배양이 시작 · 완료 · 회수됐다 → 그 배양조만 다시 짓는다 (분석기와 같은 길, 광원 없음).
         b.on('housing:cultureChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+        // A-3e (2026-09-12): 디스크 · 레코드가 꽂혔다 / 빠졌다 → 그 보관함의 방만 (책장은 위의 `housing:booksChanged` 가 이미 짓는다)
+        b.on('housing:shelfChanged', ({ uid, medium }) => { if (medium === 'book') return; const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+        // A-3e: TV · 레코드 플레이어를 켰다 / 껐다 → 화면 · 네온 · LED 재질이 바뀌므로 그 방만 다시 짓는다 (광원 없음)
+        b.on('housing:furnitureToggled', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
       );
+      this.staging = new GymStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
     }
+    this.remote = new RemoteFurnitureStaging({
+      find: (uid) => this.pieces.get(uid) ?? null,
+      isLocal: (uid) => this.staging?.uid === uid || this.sitUid === uid,
+    });
     this.rebuildAll();
+  }
+
+  /** 디버그 · 스모크 (2026-09-12): 원격 분대원 자세로 연출 중인 조각들. */
+  get remoteStage(): Array<{ peer: PeerId; uid: string; kind: string; phase: number }> {
+    return this.remote?.staged ?? [];
+  }
+
+  /**
+   * 디버그 · 스모크 (A-3e · A-3a): 이 조각이 플레이어에게 줄 자세 (흔들의자 = 앉기, 운동 기구 = anchor · yaw · 옆 카메라),
+   * 자세가 없는 가구면 null.
+   */
+  poseFor(uid: string): FurniturePose | null {
+    const p = this.pieces.get(uid);
+    if (!p) return null;
+    return sitPoseOf(p) ?? gymPoseOf(p, this.blockersFor(uid));
+  }
+
+  /** 같은 방의 다른 조각들의 월드 상자 (운동 카메라의 가림 판정). */
+  private blockersFor(uid: string): FootBox[] {
+    const me = this.pieces.get(uid);
+    const out: FootBox[] = [];
+    if (!me) return out;
+    for (const p of this.pieces.values()) if (p !== me && p.item.room === me.item.room) out.push(p.box);
+    return out;
+  }
+
+  /** 디버그 · 스모크 (A-3a): 연출 중인 운동 기구 uid 와 동작 위상, 없으면 null. */
+  get gymStage(): { uid: string; phase: number } | null {
+    const s = this.staging;
+    return s && s.uid ? { uid: s.uid, phase: s.drivePhase ?? 0 } : null;
   }
 
   /** Placed piece under a room cell, or null. With a stack (재배층) the **top** layer wins — housing only lets the top one be recovered. */
@@ -810,14 +897,41 @@ export class FurnitureLayer {
   /** Number of rendered pieces (debug / smoke). */
   get count(): number { return this.pieces.size; }
 
-  /** Per-frame animation: the 시뮬레이션 허브 rings turn slowly (nothing else animates). */
+  /**
+   * Per-frame animation: the 시뮬레이션 허브 rings and a playing 턴테이블 · 축음기 record turn (`spin` · `spinRate`),
+   * the 흔들의자 the player sits in rocks, and `GymStaging` drives the barbell / belt / crank of a running 운동 세션.
+   */
   update(time: number): void {
+    const dt = this.lastTime < 0 ? 0 : Math.min(0.1, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
     for (const p of this.pieces.values()) {
       const m = p.model;
       if (!m.spin) continue;
-      m.spin.rotation.y = time * 0.6;
+      m.spin.rotation.y = time * (m.spinRate ?? 0.6);
       if (m.spinInner) { m.spinInner.rotation.x = 0.55 + Math.sin(time * 0.7) * 0.35; m.spinInner.rotation.z = time * 0.9; }
     }
+    if (this.sitUid) {
+      const rig = this.pieces.get(this.sitUid)?.model.rig;
+      if (this.ctx.player?.furniturePose === 'sit') {
+        if (rig) poseRock(rig, time);
+      } else {
+        if (rig?.rock) rig.rock.rotation.x = 0;
+        this.sitUid = null;
+      }
+    }
+    this.staging?.update(dt);
+    // 원격 분대원의 가구 자세 — 로컬 연출 뒤에 돌아야 이번 프레임에 로컬이 잡은 조각을 건너뛴다
+    if (this.remote) {
+      const cb = this.cb;
+      const refs = cb.remotePlayers ? cb.remotePlayers() : this.netRemotes();
+      const site = cb.hubSite ? cb.hubSite() : (this.ctx.hub?.hubSite ?? null);
+      this.remote.update(dt, time, refs, site);
+    }
+  }
+
+  private netRemotes(): readonly RemotePlayerRef[] {
+    const net = this.ctx.net;
+    return net && typeof net.getRemotePlayers === 'function' ? net.getRemotePlayers() : NO_REMOTES;
   }
 
   /**
@@ -890,9 +1004,15 @@ export class FurnitureLayer {
       const kind = def.interaction;
       const stack = Math.max(1, def.stackLimit ?? 1);
       const fixture = FIXTURE_INTERACTABLE[kind];
+      // A-3e · A-3a (2026-09-12): 보관함 · 흔들의자 · 켜는 가구 · 운동 기구
+      const shelf = kind === 'disc_stand' || kind === 'record_rack';
+      const toggle = isToggleInteraction(kind);
+      const gym = gymEquipmentOf(kind);
       const prompt = fixture ? fixture.prompt
         : bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
         : stack > 1 ? `${def.name} ${layer + 1}층`
+        : kind === 'rocking_chair' ? `${def.name} · 앉기`
+        : gym ? `${def.name} · ${GYM_MINIGAME_LABEL_KO[gym.minigame]}`
         : def.name;
       // A stack shares one footprint, so every layer would sit on the same anchor: spread the layers along the
       // piece's front edge instead (a control panel per 층) so `findBest` can tell them apart.
@@ -915,7 +1035,8 @@ export class FurnitureLayer {
         id,
         position: anchor,
         radius: fixture ? fixture.radius : stack > 1 ? 1.2 : Math.max(w, d) / 2 + 1.1,
-        getPrompt: () => (cb.canUse() ? prompt : null),
+        // TV · 레코드 플레이어의 프롬프트는 지금 상태를 따라간다 (`TV · 켜기` / `TV · 끄기`)
+        getPrompt: () => (cb.canUse() ? (toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : prompt) : null),
         canInteract: () => cb.canUse(),
         interact: () => {
           if (bench) cb.onBench(bench, level);
@@ -927,12 +1048,21 @@ export class FurnitureLayer {
           else if (kind === 'analyzer') cb.onAnalyzer(uid);
           else if (kind === 'culture_tank') cb.onCultureTank(uid);
           else if (kind === 'dining_table') cb.onDiningTable(uid);
+          else if (shelf) cb.onShelf(uid);
+          else if (kind === 'rocking_chair') {
+            const piece = this.pieces.get(uid);
+            const pose = piece ? sitPoseOf(piece) : null;
+            if (pose && cb.onSit(uid, pose)) this.sitUid = uid;
+          }
+          else if (toggle) cb.onToggle(uid);
+          else if (gym) cb.onGym(uid);
           /* anything else (a future interaction nobody wired yet) does nothing rather than opening a wrong window */
         },
       };
       this.ctx.interactables.register(interactable);
     }
-    this.pieces.set(item.uid, { item, model, blocker, sign, screen, interactable });
+    const box: FootBox = { minX: _pos.x - w / 2, maxX: _pos.x + w / 2, minY: layerY, maxY: layerY + def.height, minZ: _pos.z - d / 2, maxZ: _pos.z + d / 2 };
+    this.pieces.set(item.uid, { item, model, blocker, sign, screen, interactable, box });
   }
 
   /** Per-piece state a builder reads: 책장 = shelved books, 분석기 / 배양조 = how many 칸 wait to be collected. */
@@ -940,7 +1070,45 @@ export class FurnitureLayer {
     if (def.model === 'bookshelf') return { books: this.shelfBooks(uid) };
     if (def.model === 'analyzer') return { analysisReady: this.analysisReady(uid) };
     if (def.model === 'culture_tank') return { cultureReady: this.cultureReady(uid) };
+    // A-3e · A-3a (2026-09-12)
+    const medium = shelfMediumOfInteraction(def.interaction);
+    if (medium && medium !== 'book') return { media: this.shelfMedia(uid, medium) };
+    if (isToggleInteraction(def.interaction)) return { on: this.isOn(uid) };
+    // 2026-09-12: 원격 분대원이 쓰고 있는 기구도 원반을 낀 채로 짓는다 (재빌드 한 프레임 동안 원반이 사라지지 않게)
+    if (gymEquipmentOf(def.interaction)) return { gymActive: this.staging?.uid === uid || this.remote?.drives(uid) === true };
     return undefined;
+  }
+
+  /**
+   * 디스크 전시대 · 레코드랙에 꽂힌 매체의 등급 (칸 순서, `SHELF_SLOTS[medium]` 칸). 방문 중인 함선은 와이어
+   * (`FurnitureSource.getMedia`), 우리 함선은 `ctx.housing.getShelfSlots(uid)` — 둘 다 duck-typed / try-caught 라 짓는 중인
+   * 폴더가 방 재빌드 도중 던지지 않는다.
+   */
+  private shelfMedia(uid: string, medium: ShelfMedium): (Rarity | null)[] {
+    const out: (Rarity | null)[] = new Array(SHELF_SLOTS[medium]).fill(null);
+    if (this.source) {
+      try {
+        const src = this.source.getMedia?.(uid) ?? [];
+        for (let i = 0; i < out.length && i < src.length; i++) out[i] = src[i] ?? null;
+      } catch { /* malformed wire */ }
+      return out;
+    }
+    const h = this.ctx.housing;
+    if (!h || typeof h.getShelfSlots !== 'function') return out;
+    try {
+      for (const s of h.getShelfSlots(uid)) if (s.defId && s.slot >= 0 && s.slot < out.length) out[s.slot] = s.rarity ?? 'common';
+    } catch { /* stub */ }
+    return out;
+  }
+
+  /** TV · 레코드 플레이어가 켜져 있는가 — 방문 중이면 와이어, 아니면 `ctx.housing.isFurnitureOn(uid)`. */
+  private isOn(uid: string): boolean {
+    if (this.source) {
+      try { return this.source.isOn?.(uid) === true; } catch { return false; }
+    }
+    const h = this.ctx.housing;
+    if (!h || typeof h.isFurnitureOn !== 'function') return false;
+    try { return h.isFurnitureOn(uid) === true; } catch { return false; }
   }
 
   /**
@@ -1005,6 +1173,8 @@ export class FurnitureLayer {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
+    this.staging?.dispose(); this.staging = null;
+    this.remote?.dispose(); this.remote = null;
     for (const p of this.pieces.values()) this.removePiece(p);
     this.pieces.clear();
   }

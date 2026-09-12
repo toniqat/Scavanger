@@ -27,8 +27,8 @@
 
 | ID | 항목 | 근거 (2026-09-08 확인) |
 |---|---|---|
-| A-3 | **함선 방 4종의 기능**. 용도 지정 · 장식만 되고 메커니즘이 없다 (2026-09-11 에 연구실이 빠져 5 → 4종) | `ROOM_PURPOSES_ACTIVE` 가 `['empty','workshop','range','greenhouse','library','lab']` 로 늘었다 — 남은 넷(헬스장 · 주방 · 채굴 · 휴식)은 설명이 여전히 `(다음 업데이트)`, UI 는 배지만 (`src/housing/ui/ShipView.ts`, `src/ui/hud/ShipManage.ts`) |
-| A-3a | · 헬스장 — 미니게임, 쿨타임, 근육통 디버프 | 위와 동일 |
+| A-3 | **함선 방 1종의 기능**. 용도 지정 · 장식만 되고 메커니즘이 없다 (2026-09-11 연구실 · 주방, 2026-09-12 헬스장 · 휴식이 빠져 채굴 1종만 남았다) | `ROOM_PURPOSES_ACTIVE` = `['empty','workshop','greenhouse','library','lab','kitchen','gym']` — 채굴(`mining`)만 설명이 `(다음 업데이트)` 다 |
+| ~~A-3a~~ | ~~· 헬스장~~ — **2026-09-12 완료**. `gym` 이 활성화됐고 운동 기구 4종(벤치 랙 · 스미스 머신 · 트레드밀 · 사이클) · 미니게임 3종 · 스탯 포인트와 따로 세는 **단련 보너스**(`PlayerProfile.trained`) · 현실 시간 24시간 근육통 / 심폐 피로 · 운동 자세 + 고정 카메라가 들어갔다 | → [HISTORY.md](HISTORY.md), `docs/plans/a3a-a3e.md` |
 | ~~A-3b~~ | ~~· 연구실~~ — **2026-09-11 완료**. `lab` 이 활성화됐고 분석기(표본 해석 · 해석 도감) · 추출기 · 조합대가 들어갔다. 「연구실이 씨앗 공급처가 된다」도 이뤄졌다 (개량 품종 2종은 분석기 해석으로만 나온다). 남은 배양기 · 생체 프린터는 A-14 · A-15 다 | → [HISTORY.md](HISTORY.md), `docs/plans/lab-a11-a13.md` |
 | ~~A-3c~~ | ~~· 주방~~ — **2026-09-11 완료**. `kitchen` 이 활성화됐고 조리대(`WorkbenchKind` `'cook'`) · 식탁 · 요리 10종 · 별도 「식사」 칸(`PlayerProfile.meal` / `mealActive`) · 공유 함선 식탁(한 명이 차리면 분대 전원)이 들어갔다. 작물 8종의 소비처가 판매 · 납품 · 추출기 · **조리대** 넷이 됐다 | → [HISTORY.md](HISTORY.md), `docs/plans/a3c-a14-a15.md` |
 
@@ -44,7 +44,7 @@
 |---|---|---|
 | A-16 | · 필라멘트로 만드는 **생활 가구**(함선 꾸미기용) | 사용자 메모: "이는 메모만 해놓고 나중에나 구현함". 선행은 전부 끝났다 — 필라멘트 3등급(`mat_filament_1~3`)과 프린터(`bench print`)가 이미 있으므로 `data/furniture.csv` 줄과 `recipes.csv` 줄만 늘리면 된다 |
 | A-3d | · 채굴 — 그래픽카드, 코인 차트 | 위와 동일 |
-| A-3e | · 휴식 공간 — TV/스피커로 비디오 · Vinyl 재생 | 위와 동일 |
+| ~~A-3e~~ | ~~· 휴식 공간~~ — **2026-09-12 완료** (휴식 공간은 서재에 합쳐졌으므로 서재에 들어갔다). 책과 같은 역할의 **디스크**(2×2) · **레코드**(3×3) 숙련 14종씩, 보관함 디스크 전시대 · 레코드랙, 보조 가구 흔들의자(책 · 앉기) · TV(디스크 · 켜기) · 축음기 / 주크박스 / 턴테이블(레코드 · 켜기, 외형만 다른 한 역할) | → [HISTORY.md](HISTORY.md), `docs/plans/a3a-a3e.md` |
 | A-5 | **상위 개인 함선** (함선 티어 업그레이드) | `grep -rn "shipTier\|shipUpgrade\|상위 함선" src/` → 0 hit |
 | B-9 | **시설 관리의 발전기 행이 빈 방 picker 안에서만 보인다**. 용도가 이미 있는 방은 여전히 Tab 함선 탭으로 가야 한다 | HISTORY Phase 12 |
 
@@ -123,6 +123,7 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | D-9 | **드론 · 원격 지뢰 · 네임드 수치 전부 1차값** (2026-09-11) — 드론 사거리 70/90 m · 체력 30/10 · 질주 소음 35 m, 원격 지뢰 260 / 6 m · 중첩 50 %, 네임드 확률 4–35 % · 로든 150 · 헤비 6 × 12발/s · 타길라 초당 50 · 스캔 음파 5회 / 38 m | `data/constants.csv` · `data/enemy_abilities.csv` · `data/tables.csv` |
 | D-10 | **네임드 확정 드롭이 행성 등급 곡선을 무시한다** — 난이도 1–2 행성에서도 III+ 저격소총 · 방탄복 · 유니크 미니건이 나온다(사용자 명세 "최소 희귀부터" 를 글자대로). 초반 행성 경제가 흔들리면 `data/loot_named.csv` 에 행성 등급 상한 열을 더한다 | `data/loot_named.csv`, `src/items/Loot.ts` `rollNamedDrop` |
 | D-11 | **C 배치(2026-09-11) 수치 전부 1차값** — 재해가 적에게 주는 조용한 피해 `HAZARD_ENEMY_DPS` 2(강제 탈출 압박이 줄지 않게 낮게), 고철 부가 코어 `GATHER_SALVAGE_CORE_CHANCE` 15 %(코어 공급이 늘어 정제 관문이 약해진다), 가방 `durabilityMax` 100 · `BAG_DURABILITY_PER_RAID` 10, 상위재 상자 비율 T3–5 = 5 · 10 · 15 %, 곡사포 `ARTILLERY_AI.maxRefusals` 3 · `refusalCooldown` 8(막힌 자리 대기가 줄어 실발사 빈도가 오를 수 있다), 벌레 산성이 로그에게 직격 18 · 스플래시 10(예전 0 — 버그 ↔ 로그 교전 균형이 바뀐다), 발소리 재질 배수 `FOOTSTEP_MATERIAL_GAIN` | `data/constants.csv`, `data/bags.csv`, `data/loot_item_weights.csv`, `data/enemy_abilities.csv`, `data/tables.csv` |
+| D-12 | **헬스장 · 서재 매체 수치 전부 1차값** (2026-09-12) — 매체당 몫 책 0.05 · 디스크 0.06 · 레코드 0.07, 상한 각 2.0, 칸 6 · 6 · 4, 보조 가구 +25 %, 디스크 · 레코드 가치 책의 약 1.4 · 1.9 배, 상자 가중치(디스크 티어 2–4 = 2 · 2 · 1.5, 레코드 티어 3–4 = 1 · 1.5), 세레스 신뢰도 3 · 4. 단련 세션 100 XP · 필요 150 × (n+1)^1.4 · 상한 +5 · 디버프 24 h, 미니게임 박자 · 판정 창 · 반복 수 | `data/constants.csv`, `data/tables.csv`, `data/tuning.csv`, `data/loot_category_weights.csv`, `data/corp_stock.csv` |
 
 ---
 

@@ -7,6 +7,10 @@
 # 2026-09-11 (A-12): sample(미확인 표본)은 **티어 3 이상에만** 있다 — 구조물 · 지하실의 값나가는 컨테이너에서만
 #   나오라는 뜻이다 (사용자 결정). 티어 1·2 에 줄이 없는 것이 곧 차단이고, prep(준비물)은 어느 티어에도 없다:
 #   준비물은 연구실 조합대에서만 만든다.
+# 2026-09-12 (A-3e): 서재 매체. disc(디스크)는 책과 같은 티어 2–4 에 책보다 조금 낮게 (2 / 2 / 1.5),
+#   record(레코드)는 티어 3–4 에만 더 드물게 (1 / 1.5) — 레코드가 서재 몫이 가장 세다. 티어 5(함선 보급 투하)는 소모품
+#   상자라 서재 매체를 넣지 않는다 (책도 없다).
+#   로그 시체의 서적 굴림(loot_corpse_rolls.csv 의 bookChance)은 여전히 책만 준다.
 tier,category,weight
 # 티어 1 — 보급 상자
 1,ammo,30
@@ -33,6 +37,7 @@ tier,category,weight
 2,armor,4
 2,seed,6
 2,book,3
+2,disc,2
 2,implant,2
 
 # 티어 3 — 귀중품 금고
@@ -49,6 +54,8 @@ tier,category,weight
 3,seed,5
 3,sample,5
 3,book,3
+3,disc,2
+3,record,1
 3,implant,3
 
 # 티어 4 — 희귀 캐시
@@ -63,6 +70,8 @@ tier,category,weight
 4,herb,2
 4,armor,7
 4,book,2
+4,disc,1.5
+4,record,1.5
 4,implant,4
 4,sample,7
 
