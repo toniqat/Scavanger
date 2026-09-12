@@ -683,8 +683,9 @@ export class MapScreen {
         c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.fill(); c.stroke();
         c.fillStyle = COL.structure;
         c.fillRect(x - 3.5, y - 3.5, 7, 7);
-        // 지하실이 있고 아직 잠겨 있으면 호박색 자물쇠 점을 하나 더 찍는다 (키카드가 안에 있다는 신호)
-        if (st.hasBasement && !st.unlocked) {
+        // 잠긴 문(전진기지 지하실 · 연구소 2층 잠긴 방)이 아직 잠겨 있으면 호박색 자물쇠 점을 하나 더 찍는다
+        // (2026-09-12: 열쇠는 이제 그 건물 안에 있다는 보장이 없다 — 「열쇠 · 키카드를 챙겨 올 곳」이라는 표시다)
+        if ((st.hasBasement || st.hasLockedRoom) && !st.unlocked) {
           c.fillStyle = COL.accent;
           c.beginPath(); c.arc(x + 6, y - 6, 2, 0, Math.PI * 2); c.fill();
         }

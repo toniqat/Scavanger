@@ -153,9 +153,9 @@ DETECT_ENEMY_COLOR,0xff4d4d,
 # ── tactical implants ──
 IMPLANT_GRAPPLE_RANGE,45,
 IMPLANT_GRAPPLE_SPEED,26,pull speed (m/s)
-IMPLANT_GRAPPLE_COOLDOWN,12,2026-09-09: 6 → 12 (2배).
+IMPLANT_GRAPPLE_COOLDOWN,24,"2026-09-12: 12 → 24 (2배) — 대신 끝날 때 환급한다 (IMPLANT_GRAPPLE_REFUND_* · IMPLANT_GRAPPLE_CANCEL_*). 2026-09-09: 6 → 12."
 IMPLANT_DASH_CHARGES,3,
-IMPLANT_DASH_DISTANCE,7.5,
+IMPLANT_DASH_DISTANCE,11.25,"2026-09-12: 7.5 → 11.25 (1.5배). 앞 벽은 여전히 레이캐스트로 자른다."
 IMPLANT_DASH_COOLDOWN,5,per charge
 IMPLANT_BARRIER_HP,2000,
 IMPLANT_BARRIER_WIDTH,7,
@@ -585,7 +585,7 @@ COMMS_COOLDOWN_S,2,같은 사람이 다시 한 마디를 보낼 수 있게 되�
 # ── 2026-09-09: 버려진 구조물 (owner: world/Structures) ──
 STRUCTURE_SCAN_RADIUS,170,구조물 컴퓨터의 행성 스캔이 안개를 걷는 반경(m).
 STRUCTURE_SCAN_HOLD_S,3,행성 스캔 콘솔을 꾹 눌러야 하는 시간(초).
-STRUCTURE_UNLOCK_HOLD_S,2,키카드로 지하실 문을 여는 홀드 시간(초).
+STRUCTURE_UNLOCK_HOLD_S,2,열쇠 · 키카드로 잠긴 문(전진기지 지하실 · 연구소 잠긴 방)을 여는 홀드 시간(초).
 STRUCTURE_INTERACT_RANGE,2.8,구조물 문 · 컴퓨터 상호작용 거리(m).
 
 # ── 2026-09-09: 선로 · 전차 (owner: world/Rails) ──
@@ -782,3 +782,44 @@ MEAL_SERVE_RANGE,12,"공유 함선 식탁의 「분대에 차리기」 가 먹�
 
 # ── 2026-09-12: 하이브리드 사격 판정 (owner: weapons/parts/AimLine) ──
 WEAPON_MUZZLE_BLOCK_RANGE,3,"총구 앞 이 거리(m) 안에서 총구 선이 벽 · 창틀 · 엄폐물에 걸리면 총알은 거기에 맞는다 (그 자리에 빨간 원 · 크로스헤어 경고색). 그보다 먼 장애물은 크로스헤어 선이 판정한다 — 3인칭 카메라가 어깨 뒤에 있어 총구 선이 크로스헤어 옆을 지나기 때문이다. 늘리면 사실적이지만 중거리 엄폐물 가장자리에서 원이 자주 뜨고, 줄이면 크로스헤어대로 나가는 경우가 늘어난다 (사용자 결정 3 m)."
+
+# ══ 2026-09-12: 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 (docs/plans/consumables-keys-favorites.md) ══
+# 병렬 에이전트마다 자기 블록 안에만 줄을 더한다 (기존 값 변경은 설계안 §9 에 적힌 줄만).
+# ── [A1] 소모품 3종 ──
+BOOST_ADRENALINE_DURATION_S,15,"아드레날린 주사의 효과 시간(초). 쓰는 순간 스태미나를 가득 채우고, 이 시간 동안 **지속 소모**(질주 · 사다리 빠르게 오르기 · 가방 부양)만 0 이다 — 점프 · 구르기 · 근접 · 실드 배쉬 같은 한 번 소모는 그대로 든다 (사용자 결정). 교전 한 번을 뛰어서 빠져나갈 만큼이다."
+BOOST_STIMULANT_DURATION_S,30,"각성제의 효과 시간(초). 장전 · 정조준 전환이 빨라지고 조준 흔들림이 줄지만 그동안 스태미나 소모가 늘어난다. 아드레날린과 동시에 걸리지 않는다 — 나중에 쓴 쪽이 앞의 효과를 지운다."
+BOOST_STIMULANT_RELOAD_SPEED_MUL,1.3,"각성제 동안 장전 속도 배수 (1.3 = 30 % 빠름). 사격 숙련의 reloadSpeedMul 과 곱해진다 — 장전 시간 = reloadTime ÷ (숙련 × 이 값)."
+BOOST_STIMULANT_ADS_SPEED_MUL,1.4,"각성제 동안 정조준 전환 속도 배수 (1.4 = 40 % 빠름). 무기의 adsTime 이 정한 감쇠율에 곱해진다 — 들어갈 때와 나올 때 모두."
+BOOST_STIMULANT_AIM_SWAY_MUL,0.7,"각성제 동안 조준 흔들림 배수 (0.7 = 30 % 줄어듦). PlayerRef.aimSwayMul 로 게시되고 카메라 흔들림(A2)이 곱한다. 효과가 없을 때는 1."
+BOOST_STIMULANT_STAMINA_COST_MUL,1.5,"각성제의 대가: 스태미나 소모 배수 (1.5 = 50 % 더). 지속 소모(질주 · 사다리 · 부양)와 한 번 소모(점프 · 구르기 · 근접 · 실드 배쉬 · 용검)에 모두 곱한다."
+# ── end [A1] ──
+# ── [A2] 조준 흔들림 ──
+AIM_SWAY_PITCH_RATIO,0.55,"조준 흔들림의 위아래 크기 = 좌우(data/aim_sway.csv 의 amplitudeDeg) × 이 값. 위아래가 두 배 빠르게 돌아 8자를 그린다. 1 이면 세로로 긴 8자, 0 이면 좌우로만 흔들린다."
+AIM_SWAY_CROUCH_MUL,0.6,"앉아서 정조준할 때 조준 흔들림에 곱하는 배수."
+AIM_SWAY_PRONE_MUL,0.25,"엎드려 정조준할 때 조준 흔들림에 곱하는 배수. 엎드려쏴가 저격의 정답이 되게 작다."
+AIM_SWAY_MOVE_MUL,1.8,"걸으면서(걷기 속도 이상) 정조준할 때 조준 흔들림에 곱하는 배수. 멈춰 설수록 1 로 돌아온다."
+AIM_SWAY_BLEND_RATE,6,"조준 흔들림 크기가 자세 · 이동 · 무기 교체를 따라가는 감쇠 속도 (클수록 빠르다). 작으면 엎드린 뒤에도 한동안 크게 흔들린다."
+# ── end [A2] ──
+# ── [B] 전술 임플란트 · 함선 호출 준비 연출 ──
+IMPLANT_GRAPPLE_REFUND_MAX,0.5,"갈고리가 붙은 뒤 놓았을 때 돌려주는 최대 쿨타임 비율 (실효 쿨타임 대비). 당겨진 거리 0 m 에서 이 값이고 IMPLANT_GRAPPLE_REFUND_DIST 까지 선형으로 0 이 된다 — 짧게 끊어 쓰면 자주 쓸 수 있다 (사용자 결정)."
+IMPLANT_GRAPPLE_REFUND_DIST,15,"이 거리(m) 이상 당겨졌으면 환급이 0 이다. 거리는 붙은 순간 → 놓은 순간의 실제 이동이고 놓은 뒤 관성은 세지 않는다."
+IMPLANT_GRAPPLE_CANCEL_REFUND,0.9,"갈고리가 붙기 전에 끝났을 때(날아가는 중 Q 회수 · 드론 앵커 소실) 돌려주는 쿨타임 비율 (실효 쿨타임 대비)."
+IMPLANT_GRAPPLE_CANCEL_MIN_S,3,"붙기 전 취소로 환급받아도 남는 최소 쿨타임(초). 헛발사를 연타 수단으로 쓰지 못하게 한다."
+# ── end [B] ──
+# ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 ──
+# ── end [C] ──
+# ── [D] 지상드론 스캔 ──
+DRONE_SCAN_HOLD_S,3,"지상 드론 조종 중 상자 · 컨테이너 · 시체 · 보급 상자에 조준을 유지한 채 좌클릭을 누르고 있어야 하는 시간(초). 채우면 그 안의 최고 등급이 대상 위에 레이드 내내 뜬다 (사용자 결정 3 초). 조준이 벗어나거나 멀어지면 처음부터 다시 센다."
+DRONE_SCAN_RANGE,6,"드론 스캔이 닿는 거리(m) — 드론 렌즈에서 대상 중심까지의 3-D 거리. 문틈 · 환풍구로 들여다보는 거리이지 원거리 투시가 아니다 (사용자 결정 약 6 m)."
+DRONE_SCAN_AIM_RADIUS,0.7,"드론 스캔의 조준 판정 구 반지름(m). 렌즈 중심 광선이 대상 중심에서 이만큼 안을 지나면 조준된 것으로 본다. 상자 한 개(1.25 × 0.85 m)를 화면 가운데에 두면 걸리는 크기이고, 키우면 옆 상자까지 잡힌다."
+DRONE_SCAN_HINT_RANGE,12,"조준은 됐지만 DRONE_SCAN_RANGE 밖인 대상에 「더 가까이」 안내를 띄우는 거리(m). 이보다 먼 대상은 아무 안내도 없다."
+DRONE_SCAN_LABEL_HEIGHT,1.4,"스캔 결과 월드 라벨이 서는 높이(m, 대상의 바닥 기준). 궤짝 · 캐비닛 · 누운 시체 위 머리 높이쯤이다."
+DRONE_SCAN_LABEL_MAX_DIST,80,"스캔 결과 월드 라벨이 보이는 최대 거리(m, 카메라 기준). 결과 자체는 레이드 내내 남고 이 거리 안으로 들어오면 다시 보인다 — 맵 전체에 라벨이 떠 화면을 덮지 않게."
+DRONE_SCAN_SHARE_SLACK,4,"분대원이 보낸 스캔 결과를 믿는 여유(m). 받는 쪽은 보낸 사람의 지상 드론 복제본이 대상에서 DRONE_SCAN_RANGE + 이 값 안에 있을 때만 라벨을 세운다 (복제본은 보간 지연만큼 뒤처져 있다)."
+# ── end [D] ──
+# ── [E1] 즐겨찾기 코어 ──
+# ── end [E1] ──
+# ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ──
+# ── end [E2] ──
+# ── [F] 헬스 미니게임 ──
+# ── end [F] ──

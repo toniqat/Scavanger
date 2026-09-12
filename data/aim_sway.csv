@@ -1,0 +1,17 @@
+# 조준 흔들림 (2026-09-12, owner: weapons/AimSway · 소비 player/CameraRig) — 정조준 중 화면이 느리게 8자로 떠돈다.
+# 무기 계열(class) 한 줄씩. class 는 코드가 찾는 값이므로 바꾸지 않는다 (AR · SMG · SG · DMR · SR · PISTOL).
+# 흔들림은 카메라 자체가 움직이는 것이고 총알은 크로스헤어 선을 따라가므로 보이는 대로 맞는다 — 플레이어가 마우스로 보정한다.
+# 허리 사격에는 없다. 정조준 전환 정도(aimBlend)에 비례해 커진다.
+#
+# amplitudeDeg — 좌우 흔들림의 최대 각도(도). 위아래는 constants.csv 의 AIM_SWAY_PITCH_RATIO 배이고 두 배 빠르다 (그래서 8자).
+#                같은 각도라도 배율이 높은 조준경일수록 화면에서 크게 보인다 (저격소총 4배율 = 기본 정조준의 약 3배).
+#                멀리 쏠수록 빗나가는 거리가 커진다 — 0.3° 는 100 m 에서 약 0.5 m 다.
+# frequencyHz  — 좌우 한 번 왕복하는 빈도(Hz). 작을수록 느리게 흐른다. 0.32 = 약 3.1 초에 한 바퀴.
+# 자세 · 이동 배수(앉기 · 엎드리기 · 걷기)는 constants.csv 의 AIM_SWAY_* 다. 각성제는 PlayerRef.aimSwayMul 로 곱한다.
+class,amplitudeDeg,frequencyHz
+AR,0.12,0.45
+SMG,0.08,0.6
+SG,0.1,0.5
+DMR,0.2,0.38
+SR,0.3,0.32
+PISTOL,0.09,0.65

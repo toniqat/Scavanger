@@ -1,5 +1,6 @@
-import type { AmmoType, EffectiveWeaponStats, ItemDef, ItemInstance, Loadout } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemDef, ItemInstance, Loadout, RaidFoundScope } from '@/shared';
 import { CONTAINER_TAKE_ANIM_S, CONTAINER_TAKE_END_SCALE, CONTAINER_TAKE_RISE_PX, SOCKET_SLOTS } from '@/shared';
+import { countsForRecovery, sameRaidFoundScope } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
 import { WEAPON_SLOT_IDS } from '../model';
@@ -56,6 +57,45 @@ export function setNeededAmmoFrom(loadout: Loadout, getStats: StatsLookup): bool
   return true;
 }
 
+/* ── 2026-09-12 (E1, 사용자 결정): 즐겨찾기 — 타일 우측 상단 **파란 사선 띠** ─────────────────────────────────────
+ * `neededAmmo` 와 같은 이유로 모듈이 표 하나를 든다: `buildTileContent` 는 순수 함수라 인벤토리를 모르기 때문이다.
+ * 표의 주인은 `InventorySystem`(`parts/Favorites`)이고 여기는 그 사본만 받는다. `favoriteRev` 는 바뀔 때마다 오르며
+ * `GridView.refresh` 가 그것을 보고 격자 버전이 그대로여도 다시 칠한다 (띠 · 필터 칩 「즐겨찾기」의 어두움).
+ */
+let favoriteDefs: ReadonlySet<string> = new Set<string>();
+let favoriteRev = 0;
+
+/** 이 아이템 종류가 즐겨찾기인가 (표시 전용 사본 — 규칙은 `InventoryRef.isFavorite`). */
+export const isFavoriteDef = (defId: string): boolean => favoriteDefs.has(defId);
+/** 즐겨찾기 표가 바뀐 횟수 — 다시 그릴지 판단하는 서명에 넣는다. */
+export const favoritesRevision = (): number => favoriteRev;
+/** 표를 갈아 끼운다 (`parts/Favorites` 만 부른다). */
+export function setFavoriteDefs(defs: ReadonlySet<string>): void {
+  favoriteDefs = new Set(defs);
+  favoriteRev++;
+}
+
+/* ── 2026-09-12 (아이템 회수 계약, 사용자 결정): 이번 레이드에서 얻은 계약 아이템 — 즐겨찾기와 **똑같은** 사선 띠 ────────────
+ * 레이드 중(훈련장 아님)에만, 활성 `extract_with_items` 계약 아이템 중 **이번 레이드 표식**(`ItemInstance.raidFound`)이 있는
+ * 스택에 `.is-recovery-item` 을 건다. CSS 는 `.is-favorite` 띠와 같은 선언이라 둘은 구분되지 않고, 둘 다면 띠는 하나다.
+ * `.is-favorite` 는 계속 「사용자 즐겨찾기」 만 뜻한다 (필터 · 정렬 · 글로우 · 판매/분해 확인). 범위의 주인은
+ * `InventorySystem`(`parts/RaidFound.raidFoundScope`)이고 매 프레임 · Tab 창 새로 그리기 때 여기 사본을 갈아 끼운다.
+ */
+let recoveryScope: RaidFoundScope | null = null;
+let recoveryRev = 0;
+
+/** 이 타일에 회수 계약 띠를 거나 (표시 전용 사본 — 규칙은 `shared/raidFound.countsForRecovery`). */
+export const isRecoveryTile = (item: ItemInstance): boolean => countsForRecovery(item, recoveryScope);
+/** 회수 범위가 바뀐 횟수 — 다시 그릴지 판단하는 서명에 넣는다. */
+export const recoveryRevision = (): number => recoveryRev;
+/** 범위를 갈아 끼운다. **바뀌었을 때만 true**. */
+export function setRecoveryScope(scope: RaidFoundScope | null): boolean {
+  if (sameRaidFoundScope(scope, recoveryScope)) return false;
+  recoveryScope = scope;
+  recoveryRev++;
+  return true;
+}
+
 /**
  * Footprint-only content for an unsearched container item (Phase 7 search): neutral colour, `?` icon, `???` name —
  * nothing that leaks the def (no rarity class / colour, no qty, no pips, no durability).
@@ -98,6 +138,8 @@ function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, 
  */
 export function buildSlotCardContent(el: HTMLElement, item: ItemInstance, def: ItemDef, stats?: EffectiveWeaponStats | null): boolean {
   el.className = `inv-tile inv-slot-card rarity-${def.rarity}`;
+  if (isFavoriteDef(def.id)) el.classList.add('is-favorite');   // 2026-09-12 (E1): 파란 사선 띠
+  if (isRecoveryTile(item)) el.classList.add('is-recovery-item');   // 2026-09-12: 회수 계약 — 같은 띠
   el.style.setProperty('--rc', def.color);
   el.innerHTML = '';
 
@@ -161,6 +203,10 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   if (def.bag) el.classList.add('is-bag');
   // 2026-09-12: 우상단 사선 띠 — 지금 장착한 무기가 쓰는 탄약만 (무기 타일의 소켓 핍과 자리가 겹칠 일은 없다)
   if (isNeededAmmo(def)) el.classList.add('is-ammo-needed');
+  // 2026-09-12 (E1): 즐겨찾기 파란 띠 — 필요한 탄약이기도 하면 CSS 가 노란 띠를 그 **아래**로 민다 (둘 다 보인다)
+  if (isFavoriteDef(def.id)) el.classList.add('is-favorite');
+  // 2026-09-12: 이번 레이드에서 얻은 회수 계약 아이템 — 즐겨찾기와 같은 띠 (감정 전 타일은 위에서 이미 돌아갔다: 내용을 흘리지 않는다)
+  if (isRecoveryTile(item)) el.classList.add('is-recovery-item');
   el.style.setProperty('--rc', def.color);
   const { width, height } = tileSizeAt(w, h, cell);
   el.style.width = `${width}px`;
@@ -232,10 +278,10 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
  * `needAmmo` (2026-09-12) is in here because the 사선 띠 depends on the **equipped weapon**, not on the item itself —
  * swapping guns has to redraw the ammo tiles.
  */
-function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean): string {
+function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean, favorite: boolean, recovery = false): string {
   let sockets = '';
   if (item.sockets) for (const s of SOCKET_SLOTS) sockets += `${item.sockets[s]?.defId ?? ''},`;
-  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}`;
+  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}|${favorite ? 1 : 0}|${recovery ? 1 : 0}`;
 }
 
 /** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */
@@ -260,6 +306,10 @@ export class GridView {
   private tiles = new Map<string, HTMLElement>();
   private grid: Grid | null = null;
   private lastVersion = -1;
+  /** 2026-09-12 (E1): `favoritesRevision()` at the last repaint. */
+  private lastFavRev = -1;
+  /** 2026-09-12 (아이템 회수 계약): `recoveryRevision()` at the last repaint. */
+  private lastRecoveryRev = -1;
   private dims = '';
   /** uid → direction glyph for items assigned to the quick-use wheel (bag grid only). */
   private quickBadges = new Map<string, string>();
@@ -373,8 +423,12 @@ export class GridView {
   refresh(force = false): void {
     const grid = this.grid;
     if (!grid) return;
-    if (!force && grid.version === this.lastVersion) return;
+    // 2026-09-12 (E1): 즐겨찾기가 바뀌면 격자 버전이 그대로여도 다시 칠한다 (띠 · 「즐겨찾기」 필터)
+    // 2026-09-12: …and when the 회수 계약 범위 changed (raid start / end, contract abandoned) — the ribbon follows it
+    if (!force && grid.version === this.lastVersion && favoriteRev === this.lastFavRev && recoveryRev === this.lastRecoveryRev) return;
     this.lastVersion = grid.version;
+    this.lastFavRev = favoriteRev;
+    this.lastRecoveryRev = recoveryRev;
     this.syncDims(grid);
 
     const seen = new Set<string>();
@@ -394,7 +448,7 @@ export class GridView {
         // 2026-09-12: no `.is-new` pop — an item that moved grids is simply there (사용자 결정: 즉시 옮겨진다)
       }
       const badge = this.quickBadges.get(p.item.uid);
-      const sig = tileSignature(p.item, fp.w, fp.h, badge, isNeededAmmo(def));
+      const sig = tileSignature(p.item, fp.w, fp.h, badge, isNeededAmmo(def), isFavoriteDef(def.id), isRecoveryTile(p.item));
       if (this.sigs.get(p.item.uid) !== sig) {
         this.sigs.set(p.item.uid, sig);
         const wasDragging = el.classList.contains('is-dragging');

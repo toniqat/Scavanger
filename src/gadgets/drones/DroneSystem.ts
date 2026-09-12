@@ -13,11 +13,14 @@
 import type * as THREE from 'three';
 import type {
   DroneKind, DroneRayHit, DroneRef, DroneReleaseReason, DronesRef, GameContext, GameSystem, PeerId,
+  DroneScanAim, DroneScanResult, Rarity,
 } from '@/shared';
 import type { Drone, DroneInput } from './model';
 import * as Control from './parts/Control';
 import * as Life from './parts/Lifecycle';
 import * as Wire from './parts/Wire';
+/* appended (2026-09-12): 지상 드론 스캔 */
+import * as Scan from './parts/Scan';
 
 export class DroneSystem implements GameSystem, DronesRef {
   readonly name = 'drones';
@@ -38,7 +41,26 @@ export class DroneSystem implements GameSystem, DronesRef {
   /** 모르는 드론의 `state` 를 받고 그 소유자에게 `droneq sync` 를 마지막으로 물은 시각. */
   readonly syncAskedAt = new Map<PeerId, number>();
 
+  /* ── 2026-09-12: 지상 드론 스캔 (`parts/Scan`) ── */
+  /** 스캔 홀드 누적 시간(초)과 그 대상 id (바뀌면 0 부터). */
+  scanT = 0;
+  scanTargetId: string | null = null;
+  /** 스캔을 한 번 채웠다 — 좌클릭을 뗄 때까지 다시 세지 않는다. */
+  scanLatch = false;
+  /** 지금 조준선에 걸린 대상 (`scanAimOn` 일 때만 유효, 재사용 객체). */
+  scanAimOn = false;
+  readonly scanAimView: Scan.MutableScanAim = { id: '', kind: 'crate', name: '', distance: 0, inRange: false };
+  /** 이번 레이드의 결과 — 대상 id → 최신 결과 (`scanList` 는 그 값 배열, 바뀔 때만 새로 만든다). */
+  readonly scans = new Map<string, DroneScanResult>();
+  scanList: readonly DroneScanResult[] = [];
+  /** 받는 쪽: 보낸 사람별 마지막으로 받아들인 스캔 시각 · 버린 스캔 수(디버그 · 스모크). */
+  readonly scanRecvAt = new Map<PeerId, number>();
+  scanRefused = 0;
+
   get controlHold(): number { return Control.controlHold(this); }
+  get scanHold(): number { return Scan.scanHold(this); }
+  get scanAim(): DroneScanAim | null { return Scan.scanAim(this); }
+  getScanResults(): readonly DroneScanResult[] { return Scan.getScanResults(this); }
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -76,6 +98,7 @@ export class DroneSystem implements GameSystem, DronesRef {
       if (d.isLocal) Wire.maybeSendState(this, d);
     }
     Control.updateControlled(this, dt);
+    Scan.updateScan(this, dt);
   }
 
   dispose(): void {
@@ -94,7 +117,22 @@ export class DroneSystem implements GameSystem, DronesRef {
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, kind?: DroneKind): DroneRayHit | null { return Life.raycast(this, origin, dir, maxDist, kind); }
   damageDrone(id: string, amount: number, from?: THREE.Vector3): void { return Life.damageDrone(this, id, amount, from); }
   applyExplosion(center: THREE.Vector3, radius: number, damage: number): void { return Life.applyExplosion(this, center, radius, damage); }
-  clear(): void { return Life.clear(this); }
+  clear(): void { Scan.clearScans(this); return Life.clear(this); }
+
+  /* ═══════════════════════════ debug / smoke ═══════════════════════════ */
+  /** 내 드론 `id` 의 시점으로 곧장 들어간다 (R 홀드 없이 — 스모크용). 성공하면 true. */
+  debugControl(id: string): boolean {
+    const d = this.byId.get(id);
+    if (!d || !d.isLocal || d.removing) return false;
+    Control.startControl(this, d);
+    return this.controlled === d;
+  }
+  /** 대상 `id` 를 지금 스캔하면 나올 결과 (아무것도 기록 · 방송하지 않는다), 알 수 없으면 null. */
+  scanPreview(id: string): { rarity: Rarity | null; defIds: string[] } | null {
+    const items = Scan.previewItems(this, id);
+    if (!items) return null;
+    return { rarity: Scan.maxRarity(this, items), defIds: items.filter((i) => i.qty > 0).map((i) => `${i.defId}x${i.qty}`).sort() };
+  }
 
   /* ═══════════════════════════ networking ═══════════════════════════ */
   private ensureNetHooks(): void { return Wire.ensureNetHooks(this); }

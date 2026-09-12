@@ -916,7 +916,7 @@ export interface GameEvents {
   'ping:wheelChanged': { open: boolean; downed: boolean; hover: 'left' | 'right' | null };
 
   /* ── 버려진 구조물 (owner: world/Structures) ── */
-  /** Fact: 구조물의 지하실 문이 키카드로 열렸다 (키카드는 소비된다). */
+  /** Fact: 구조물의 잠긴 문(전진기지 지하실 · 연구소 2층 잠긴 방)이 열쇠 · 키카드로 열렸다 (연 사람의 것이 1 개 소비된다). */
   'structure:unlocked': { id: string; kind: StructureKind; by: string | null; position: THREE.Vector3 };
   /** Fact: 구조물의 컴퓨터로 행성 스캔을 돌려 주변 `radius` m 의 안개가 걷혔다 (구조물당 1회). */
   'structure:scanned': { id: string; kind: StructureKind; position: THREE.Vector3; radius: number };
@@ -1209,3 +1209,57 @@ export interface GameEvents {
    */
   'weapon:aimBlocked': { blocked: boolean };
 }
+
+/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/plans/consumables-keys-favorites.md ══
+ * 병렬 에이전트마다 **자기 블록 안에만** 추가한다 (`export interface GameEvents { … }` 를 그 안에 쓴다). 블록 순서를 바꾸지 않는다. */
+/* ── [A1] 소모품 3종 ── */
+/* ── end [A1] ── */
+/* ── [A2] 조준 흔들림 ── */
+/* ── end [A2] ── */
+/* ── [B] 전술 임플란트 · 함선 호출 준비 연출 ── */
+export interface GameEvents {
+  /**
+   * (owner: implants) 로컬 임플란트가 **쓸 수 있게 된 순간**. 쿨타임이 끝나 충전 하나가 돌아왔다(`full` false = 충전형의 중간
+   * 충전 — 대시 3칸 중 1 · 2칸째), 배리어 붕괴 잠금이 풀렸다, 오버차지 에너지가 가득 찼다, 또는 `ImplantsRef.refillAll`
+   * (`refill` true — 이미 가득이어도 나간다). **게임플레이 페이즈에서만** 나간다 — 미션 시작 · 리셋 · 장착으로 처음부터 가득인
+   * 것은 준비되는 순간이 아니다. ui 의 준비 플래시(`hud/ImplantWidget`)와 audio 의 `implant_ready` 가 듣는다.
+   */
+  'implant:ready': { id: ImplantId; charges: number; maxCharges: number; full: boolean; refill: boolean };
+  /**
+   * (owner: implants) 갈고리 쿨타임 환급이 적용됐다 — 남은 쿨타임이 `seconds` 만큼 줄었다. `ratio` 는 규칙이 준 비율
+   * (실효 쿨타임 대비, `IMPLANT_GRAPPLE_REFUND_*` · `_CANCEL_*`). HUD 의 초록 `−N초` 가 듣는다.
+   */
+  'implant:cooldownRefunded': { id: ImplantId; seconds: number; ratio: number };
+  /**
+   * (owner: stratagems) 공유 함선 호출 쿨타임이 0 이 된 순간 — 게임플레이 페이즈에서만. `refunded` = 호스트 거절 환불
+   * (`refundCooldown`)로 0 이 됐다: audio 는 이때 `stratagem_ready` 를 내지 않는다 (거절음이 이미 났다).
+   */
+  'stratagem:ready': { refunded: boolean };
+}
+/* ── end [B] ── */
+/* ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 ── */
+/* ── end [C] ── */
+/* ── [D] 지상드론 스캔 ── */
+import type { DroneScanTargetKind } from './drones';
+export interface GameEvents {
+  /**
+   * (owner: gadgets/drones `parts/Scan`) 드론 스캔 결과가 생겼다 · 바뀌었다 — 내 스캔(`local`)과 분대원 스캔 모두. `id` = 대상
+   * `Interactable.id`, `rarity` null = 비어 있음, `position` = 대상의 살아 있는 벡터. 라벨은 `DronesRef.getScanResults` 를 읽는다.
+   */
+  'drone:scanned': { id: string; kind: DroneScanTargetKind; name: string; rarity: Rarity | null; position: THREE.Vector3; local: boolean; byName: string };
+}
+/* ── end [D] ── */
+/* ── [E1] 즐겨찾기 코어 ── */
+export interface GameEvents {
+  /**
+   * 2026-09-12 (E1): 아이템 **종류(def id)** 하나의 즐겨찾기가 켜지거나 꺼졌다 (`InventoryRef.toggleFavorite`,
+   * 서버 프로필 문서가 다른 목록을 들고 와 바뀐 것도 def 마다 한 번). 상태가 실제로 바뀔 때만 난다.
+   * 칩 · 상점 타일처럼 인벤토리 밖에서 그린 표식은 이것을 듣고 다시 칠한다.
+   */
+  'inventory:favoritesChanged': { defId: string; favorite: boolean };
+}
+/* ── end [E1] ── */
+/* ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ── */
+/* ── end [E2] ── */
+/* ── [F] 헬스 미니게임 ── */
+/* ── end [F] ── */

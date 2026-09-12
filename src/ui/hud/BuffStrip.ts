@@ -47,7 +47,7 @@ interface Cell {
  * 크기만 `mini` 로 갈린다. 목록을 모으는 것은 player(내 것) · net(분대원 것)이고, 이 파일은 받은 목록을 **그대로 그린다**
  * (정렬은 소유자가 `CHAR_BUFF_ORDER` 로 이미 했다).
  *
- *   - 글리프 · 색: `meal` · `prep` = 아이템 def 의 `icon` · `color` (`ctx.loot.getItemDef`), `env_exposed` = `ENV_ICON` · `ENV_COLOR`,
+ *   - 글리프 · 색: `meal` · `prep` · `adrenaline` · `stimulant` = 아이템 def 의 `icon` · `color` (`ctx.loot.getItemDef`), `env_exposed` = `ENV_ICON` · `ENV_COLOR`,
  *     못 찾으면 `CHAR_BUFF_GLYPH` · `CHAR_BUFF_COLOR`.
  *   - `pending`(함선에서 다음 레이드에 실어 둔 것) = 흐리게 (`.is-pending`), 디버프 = 빨간 테두리 (`.is-debuff`).
  *   - 타이머(`startedAt` · `endsAt`)가 있으면 **시간 게이지** — 임플란트 썸네일(`styles/implant.css`)과 같은 두 얼굴 기법이다:
@@ -144,7 +144,9 @@ export class BuffStrip {
 
   private paintCell(cell: Cell, b: CharBuff, ctx: GameContext | null): void {
     cell.buff = b;
-    const def = (b.kind === 'meal' || b.kind === 'prep') && b.defId ? defOf(ctx, b.defId) : undefined;
+    // 2026-09-12: 전투 소모품(아드레날린 · 각성제)도 그 아이템의 글리프 · 색을 쓴다
+    const itemKind = b.kind === 'meal' || b.kind === 'prep' || b.kind === 'adrenaline' || b.kind === 'stimulant';
+    const def = itemKind && b.defId ? defOf(ctx, b.defId) : undefined;
     let glyph: string = CHAR_BUFF_GLYPH[b.kind] ?? '•';
     let color: string = CHAR_BUFF_COLOR[b.kind] ?? 'var(--c-text-dim)';
     if (def) { glyph = def.icon || glyph; color = def.color || color; }

@@ -511,12 +511,12 @@ items 는 `ItemDef.pouch: PouchDef { cols, rows, accepts }` 만 준다. `accepts
 ### 열쇠 `category: 'key'`
 
 `key_basement` 가 `valuable` 에서 갈라져 나왔다 — **열쇠 주머니가 귀중품과 섞이면 안 되기 때문**이다.
-`ItemDef` 에 새 필드는 없고 카테고리만 바뀌었다 (`items.csv` 의 그 한 칸). 아래 *지하실 키카드* 절의 성질
-(값 0 · 무작위 루팅 차단 · 열면 소비)은 그대로다.
+`ItemDef` 에 새 필드는 없고 카테고리만 바뀌었다 (`items.csv` 의 그 한 칸). ~~아래 *지하실 키카드* 절의 성질
+(값 0 · 무작위 루팅 차단 · 열면 소비)은 그대로다.~~ → **2026-09-12 에 소모형 만능 열쇠 두 종으로 바뀌었다** (아래 *소모형 만능 열쇠* 절).
 
 ### 루팅 — **코드 변경 0**
 
-`meal` · `pouch` · `key` 는 `loot_category_weights.csv` 에 **줄이 없다**. `Loot.rollCrate` 의 카테고리 굴림은
+`meal` · `pouch` 는 `loot_category_weights.csv` 에 **줄이 없다** (`key` 는 2026-09-12 부터 티어 3 · 4 에 줄이 있다 — 아래 *소모형 만능 열쇠*). `Loot.rollCrate` 의 카테고리 굴림은
 `Object.keys(table.categoryWeights)` 에서만 고르고 그 표는 csv 줄에서만 채워지므로 **줄이 없는 것이 곧 차단**이다
 (작물 · 토양 · 준비물과 같은 근거). `loot_guaranteed.csv` 의 확정 픽도 카테고리를 직접 적으므로 후보가 아니다.
 함선 전용 재료 15종(배지 2 · 세포주 5 · 배양 산물 5 · 필라멘트 3)은 `material` 카테고리라 줄만으로는 못 막아
@@ -889,7 +889,32 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 - 네임드가 아닌 적은 이 분기에 들어오지도 않으므로 `warrior` / `rogue` / `rogue_boss` 의 rng 벡터는 그대로다.
 - 헤비의 호위는 평범한 `rogue` (SMG) 라 기존 `rogue` 표를 그대로 굴린다.
 
+## 소모형 만능 열쇠 (2026-09-12 — 에이전트 C)
+
+사용자 결정(설계안 `docs/plans/consumables-keys-favorites.md` §3). 둘 다 카테고리 `key` · **서사(epic)** · 1×1 · **스택 1** ·
+₩1200. 정의는 `data/items.csv` 두 줄뿐이고 items/ 코드는 한 줄도 안 바뀌었다 — 어느 문을 여는지는 `data/structures.csv` 의
+`key` 열이, 소모는 `src/world/Structures` 가 한다.
+
+| id | 이름 | 여는 문 |
+|---|---|---|
+| `key_basement` | 지하실 열쇠 (옛 id 그대로 — 세이브 호환) | 버려진 전진기지 지하실 |
+| `keycard_lab` | 연구소 보안 키카드 (신규) | 버려진 연구소 2층 잠긴 방 |
+
+같은 종류면 어느 건물이든 열리고, 열면 연 사람의 것이 1 개 사라진다. 등장처 — 전부 드물게 (실측은 `node scripts/check-planet-loot.mjs`):
+
+| 경로 | 표 | 값 | 실측 (2만 회) |
+|---|---|---|---|
+| 상자 티어 3 · 4 | `loot_category_weights.csv` 의 `key` 줄 (티어 3 **0.3** · 티어 4 **0.6**, 다른 티어는 줄이 없다) + `loot_item_weights.csv` 두 열쇠 티어 3 · 4 `mul 1` · 티어 1 · 2 · 5 `mul 0` (안전핀) | — | 상자 한 개당 T3 0.50 % · T4 0.90 % |
+| 로그 · 네임드 시체 | `loot_corpses.csv` — `rogue` 각 0.008 · `rogue_boss` 각 0.03 · `rogue_sniper/hammer/heavy` 각 0.05 | — | 로그 1.46 % · 로그 보스 5.68 % (두 열쇠 합) |
+| 구조물 지상 컨테이너 | `structures.csv` 의 `keyChance` 0.05 (컨테이너 하나마다, 전진기지 → 열쇠 · 연구소 → 키카드) | 부가 굴림 — world | 건물 한 채(8칸)에 하나 이상 ≈ 34 % |
+| 노마드 장비 상점 | `corp_stock.csv` `nomad,key,…,minRepLevel 3` — 상점 등급 상한도 Lv.3 에서 서사를 연다 | 가격은 `value` 기준 | — |
+
+`key` 카테고리 안에 서사 두 종뿐이라 행성 희귀도 배수(`epicMul`)는 카테고리 **안** 비율만 바꾸고 빈도는 못 바꾼다 — 빈도는 카테고리 가중치가 정한다.
+옛 「무작위 루팅 절대 차단 · 구조물마다 지상 컨테이너 하나에 확정」은 없어졌다. 가치를 바꾸면 `npm run data:check -- --write` (`server/economy.gen.json`).
+
 ## 지하실 키카드 (2026-09-09)
+
+> **2026-09-12**: 위 *소모형 만능 열쇠* 로 바뀌었다 (이름 · 등급 · 가치 · 루팅). 이 절은 기록으로 남긴다.
 
 `key_basement` **버려진 구조물의 지하실 키카드** — 카테고리 `valuable`, uncommon, 1×1, 스택 1, ₩0, 0.05 kg,
 아이콘 `▨`. 정의는 `data/items.csv` 한 줄뿐이고 **무작위 루팅에는 절대 안 나온다**:
@@ -901,6 +926,19 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 ---
 
 ## 변경 이력
+
+- **2026-09-12 (소모형 만능 열쇠 — 에이전트 C, items/ 몫은 데이터뿐)** — 위 *소모형 만능 열쇠* 절. `items.csv`: `key_basement` 이름 ·
+  등급 · 가치 · 무게 · 아이콘 · 설명 변경, `keycard_lab` 추가. `loot_category_weights.csv` 에 `key` 2줄(티어 3 · 4), `loot_item_weights.csv`
+  열쇠 줄 10개(티어 3 · 4 = 1, 나머지 0), `loot_corpses.csv` 로그 · 로그 보스 · 네임드 3종에 두 열쇠씩. 코드 변경 없음.
+- **2026-09-12 (전투 소모품 3종, 에이전트 A1 — `docs/plans/consumables-keys-favorites.md` §1)** — `data/items.csv` 에
+  `boost_adrenaline` 아드레날린 주사(일반, 스택 3) · `boost_stimulant` 각성제(고급, 스택 3) · `boost_stabilizer` 안정제(희귀, 스택 2),
+  전부 `category: 'stim'` · 1×1 · 퀵슬롯. 새 열 `boostEffect`(adrenaline | stimulant | implant_refill) · `boostUseTime`(3 초)을
+  `mediumSpeed` 뒤에 붙였고, 실드 충전기와 같은 **옆 표** 규약으로 `ItemDefs.ts` 가 `BOOST_ITEM_MAP` · `boostItemOf(defId)` ·
+  `BoostEffect` · `BOOST_EFFECTS` · `BoostItemDef` 를 낸다 (`ItemDef` 무변경). 효과 수치는 `data/constants.csv` 의 `BOOST_*`.
+  설명 글에는 숫자가 없다 (툴팁이 보여 준다). 루팅: `loot_item_weights.csv` 7줄(티어 1 아드레날린 0.6 · 각성제 0.4 · 안정제 0,
+  티어 2 안정제 0.6, 티어 5 셋 다 줄임), `loot_corpses.csv` 로그 · 로그 보스 · 네임드 3종에 줄 추가. 상점은 `ceres,stim` 규칙이
+  그대로 판다(등급은 신뢰도 상한). 제작: `recipes.csv` 의학 작업대 `make_boost_adrenaline`(Lv.1) · `_stimulant`(Lv.2) ·
+  `_stabilizer`(Lv.3) — 분해 줄은 없다. 검사: `scripts/smoke-consumables.mjs`.
 
 - **2026-09-12 (서재 매체 A-3e — items/ 몫)** — 새 아이템 **28종**, 위 *서재 매체: 디스크 · 레코드* 절이 표다.
   `data/discs.csv` · `data/records.csv`(각 14줄, 등급 = 같은 숙련의 책) + 로더 `shelfMediumDefs` → `DISC_ITEM_DEFS` ·

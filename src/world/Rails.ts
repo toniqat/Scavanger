@@ -31,6 +31,7 @@ import {
   TRAM_START_DELAY_S, TRAM_STATES,
   type GameContext, type PeerId, type RailLineDef, type RailPlatformDef,
   type TramDef, type TramMessage, type TramRequest, type TramState, type TramWire,
+  type ItemInstance,
 } from '@/shared';
 import { merge, type BuildCtx } from './build';
 import type { SpatialHash } from './SpatialHash';
@@ -314,6 +315,8 @@ export class Rails {
   markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
   /** 2026-09-11 (C-57): 플랫폼 · 전차 컨테이너 위치 (없으면 null). */
   containerPositionOf(id: string): THREE.Vector3 | null { return this.containers.positionOf(id); }
+  /** 2026-09-12 (C): 플랫폼 · 전차 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
+  previewContainerItems(id: string): ItemInstance[] | null { return this.containers.preview(id); }
 
   update(dt: number, time: number): void {
     if (!this.built) return;

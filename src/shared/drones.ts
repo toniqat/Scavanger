@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { PeerId, Vec3Tuple } from './net';
 import type { GadgetId } from './gadgets';
+import type { Rarity } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 드론 (2026-09-11). Owner: `gadgets/drones/DroneSystem` publishes `ctx.drones`.
@@ -99,6 +100,71 @@ export interface DronesRef {
   clear(): void;
 }
 
+/* ══ appended (2026-09-12): 지상 드론 스캔 — docs/plans/consumables-keys-favorites.md §4 ══════════════════════════
+ * 지상 드론 조종 중 렌즈 중심 광선을 상자 · 컨테이너 · 시체 · 보급 상자에 맞추고 좌클릭을 `DRONE_SCAN_HOLD_S` 누르고
+ * 있으면 그 안의 **최고 등급**이 대상 위 월드 라벨로 레이드 내내 남는다 (분대 공유 + 채팅 한 줄). 공중 드론은 못 한다.
+ * 미리보기는 **여는 것과 같은 굴림**이다 (`InventoryRef.peekContainerItems` · `peekSuppliedItems` ·
+ * `WorldRef.previewContainerItems`) — 스캔은 아무것도 열거나 굴려 두거나 옮기지 않는다. 소리 · 소음 · 어그로도 없다. */
+
+/** 스캔할 수 있는 대상 종류 — `Interactable.id` 접두어로 가른다. */
+export type DroneScanTargetKind = 'crate' | 'container' | 'corpse' | 'playerCorpse' | 'supply';
+
+/**
+ * 상호작용 id → 스캔 대상 종류, 스캔할 수 없으면 null. 맵 상자 `crate_<n>` · 구조물/플랫폼/전차 컨테이너 `container:<spec>` ·
+ * 적 시체 `corpse:<enemyId>` · 분대원 시체 `pcorpse:<owner>:<n>` · 보급 상자 `supply:<callId>`.
+ */
+export function droneScanKindOf(id: string): DroneScanTargetKind | null {
+  if (typeof id !== 'string') return null;
+  if (id.startsWith('crate_')) return 'crate';
+  if (id.startsWith('container:')) return 'container';
+  if (id.startsWith('corpse:')) return 'corpse';
+  if (id.startsWith('pcorpse:')) return 'playerCorpse';
+  if (id.startsWith('supply:')) return 'supply';
+  return null;
+}
+
+/** 채팅 · 안내 · 라벨에 쓰는 대상 이름. */
+export const DRONE_SCAN_TARGET_NAME: Readonly<Record<DroneScanTargetKind, string>> = {
+  crate: '상자', container: '컨테이너', corpse: '시체', playerCorpse: '유해', supply: '보급 상자',
+};
+
+/** 지금 드론 조준선에 걸린 스캔 대상 (HUD 안내). */
+export interface DroneScanAim {
+  readonly id: string;
+  readonly kind: DroneScanTargetKind;
+  readonly name: string;
+  /** 렌즈 → 대상 중심 3-D 거리(m). */
+  readonly distance: number;
+  /** `DRONE_SCAN_RANGE` 안이라 지금 누르면 게이지가 찬다. */
+  readonly inRange: boolean;
+}
+
+/** 레이드에 남는 스캔 결과 하나 (대상마다 최신 한 개 — 다시 스캔하면 갈아 끼운다). */
+export interface DroneScanResult {
+  readonly id: string;
+  readonly kind: DroneScanTargetKind;
+  readonly name: string;
+  /** 안에 든 것 중 최고 등급, null = 비어 있음. */
+  readonly rarity: Rarity | null;
+  /** 대상의 살아 있는 자리 (알면 대상 `Interactable.position` 그 벡터 — 전차 위에서도 따라간다). */
+  readonly position: THREE.Vector3;
+  /** 내가 스캔했다 (false = 분대원). */
+  readonly local: boolean;
+  readonly byName: string;
+  /** `ctx.time` 기준 스캔 시각. */
+  readonly at: number;
+}
+
+export interface DronesRef {
+  /* ── appended (2026-09-12, 드론 스캔) — 옵셔널: 스텁 · 옛 구현은 없어도 된다 ── */
+  /** 스캔 홀드 진행도 0..1 (누르고 있지 않거나 조준이 없으면 0). */
+  readonly scanHold?: number;
+  /** 조종 중인 지상 드론의 조준선에 걸린 스캔 대상 (`DRONE_SCAN_HINT_RANGE` 안), 없으면 null. */
+  readonly scanAim?: DroneScanAim | null;
+  /** 이번 레이드의 스캔 결과 전부 (내 것 + 분대원). 레이드 리셋(`game:newMission/abort` · `hub:entered` · `world:ready`)에 비워진다. */
+  getScanResults?(): readonly DroneScanResult[];
+}
+
 /* ── wire (owner: gadgets/drones) ─────────────────────────────────────────── */
 
 /** `DroneWire.fl` / `drone state.fl` 비트. */
@@ -128,7 +194,13 @@ export type DroneMessage =
   | { t: 'drone'; ev: 'spawn'; d: DroneWire }
   | { t: 'drone'; ev: 'state'; id: string; p: Vec3Tuple; yaw: number; hp: number; fl: number }
   | { t: 'drone'; ev: 'remove'; id: string; reason: 'destroyed' | 'recovered' | 'expired' }
-  | { t: 'drone'; ev: 'sync'; items: DroneWire[] };
+  | { t: 'drone'; ev: 'sync'; items: DroneWire[] }
+  /**
+   * appended (2026-09-12, 드론 스캔): 스캔한 사람 → others. `id` = 대상 `Interactable.id`, `r` = 최고 등급(null = 비어 있음),
+   * `p` = 스캔한 순간의 대상 자리. **표시 전용**이라 확정이 없다 — 받는 쪽은 로비 멤버 · 모양 · 보낸 사람의 지상 드론 거리를
+   * 보고 라벨만 세운다 (`gadgets/drones/parts/Scan.onRemoteScan`). 늦게 합류한 사람에게는 가지 않는다 (설계안 §7).
+   */
+  | { t: 'drone'; ev: 'scan'; id: string; r: Rarity | null; p: Vec3Tuple };
 
 /** Any → drone owner (`damage`) / any → others (`sync` = 내 드론 목록을 보내 달라). */
 export type DroneRequest =

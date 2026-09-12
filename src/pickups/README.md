@@ -73,6 +73,10 @@ Audio: emits `audio:play {id:'pickup'}` on a local take — the audio module nee
 
 ## 변경 이력
 
+- **2026-09-12 (아이템 회수 계약 — 표식이 바닥을 건넌다)** — `PickupSystem.wireOf` 가 `ItemInstance.raidFound` 를 `PickupWire.rf` 로 싣고
+  `itemFromWire` 가 되살린다(생략 = 표식 없음 — 옛 피어 · 가져온 아이템). 싱글 플레이는 인스턴스가 그대로 오가므로 원래 보존됐다.
+  분대원이 떨어뜨린 「이번 레이드에서 얻은」 계약 아이템을 주워도 그대로 센다.
+
 - **2026-09-11 (A-3c · A-15 주방 · 프린터)** — `PickupVisuals` 에 새 카테고리 셋. `REST_Y` 에 **`meal` 0.06 ·
   `pouch` 0.12 · `key` 0.05** 을 더하고, 이번에는 **전용 실루엣도 함께** 만들었다 (작물 · 토양 · 표본 · 준비물은
   `crate` 공용 가지를 탔다): 그릇에 담긴 요리 · 덮개 달린 파우치 · 자기 카드. 지오메트리는 전부 코드에서 만든

@@ -1,6 +1,6 @@
 import type { ItemCategory, ItemDef, ItemInstance } from '@/shared';
 import type { InventorySystem } from '../InventorySystem';
-import { buildTileContent } from './GridView';
+import { buildTileContent, isFavoriteDef } from './GridView';
 import { TEXT, rarityColor } from './labels';
 
 /** Handlers the window supplies (drag / tooltip / double-click / close). */
@@ -248,6 +248,11 @@ export class CatalogView {
 
   /** Number of tiles currently shown (smoke tests). */
   get visibleCount(): number { return this.listEl.childElementCount; }
+
+  /** 2026-09-12 (E1): tiles are built once — re-flag the 즐겨찾기 ribbon after a toggle. */
+  refreshFavorites(): void {
+    for (const e of this.entries) e.tile.classList.toggle('is-favorite', isFavoriteDef(e.def.id));
+  }
 
   dispose(): void {
     this.el.remove();

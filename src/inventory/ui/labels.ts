@@ -150,6 +150,18 @@ export const TEXT = {
     quickClear: '빠른 슬롯 해제',
     drop: '버리기',
     dropOne: '하나 버리기',
+    /* 2026-09-12 (E1, 사용자 결정): 우클릭은 **모든 아이템**에 메뉴를 연다 — 예전의 「바로 옮기기」는 이 항목이 됐다 */
+    quickMove: { bag: '빠른 이동 (가방)', stash: '빠른 이동 (창고)', container: '빠른 이동 (상자)', pouch: '빠른 이동 (주머니)' } as Record<'bag' | 'stash' | 'container' | 'pouch', string>,
+    favoriteOn: '즐겨찾기 켜기',
+    favoriteOff: '즐겨찾기 끄기',
+  },
+  /** 2026-09-12 (E1): 즐겨찾기 — 분해 전에 한 번 더 묻는 확인 카드 (`ui/DisassemblePanel`). */
+  favorite: {
+    confirmTitle: '즐겨찾기한 아이템입니다',
+    confirmBody: (name: string): string => `${name} 을(를) 정말 분해할까요?`,
+    confirmHint: (sec: number): string => `분해 버튼을 ${sec}초 동안 누르고 있어야 실행됩니다`,
+    cancel: '취소',
+    confirm: '분해',
   },
   split: {
     title: '수량 지정',
@@ -187,6 +199,12 @@ export const TEXT = {
   armorStats: { dr: '피해 감소', shield: '실드', durability: '내구도', perk: '특성' },
   /* 2026-09-10: 실드 충전기 (`shieldChargeOf`) */
   shieldChargeStats: { amount: '실드 회복', useTime: '사용 시간', full: '최대치까지' },
+  /* 2026-09-12: 전투 소모품 3종 (`boostItemOf`) — 아드레날린 주사 · 각성제 · 안정제 */
+  boostStats: {
+    stamina: '스태미나', staminaFull: '전부 회복', drain: '지속 소모', drainNone: '없음 (질주 · 사다리 · 부양)',
+    reload: '장전 속도', ads: '정조준 전환', sway: '조준 흔들림', staminaCost: '스태미나 소모',
+    implant: '전술 임플란트', implantFull: '전부 충전 · 쿨타임 초기화', duration: '지속 시간', useTime: '사용 시간',
+  },
   craft: '제작',
   craftPanel: '필드 제작',
   craftNone: '지금 만들 수 있는 레시피가 없습니다',

@@ -22,6 +22,7 @@ import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClas
 import { WeaponModel, type WeaponAttachmentVisuals } from '../WeaponModel';
 import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
 import { WeaponFx } from '../fx/WeaponFx';
+import { aimSwayFor } from '../AimSway';
 import { GrenadeManager } from '../Grenade';
 import { ProjectilePool, projectileOptsFor, type ProjectileHit } from '../Projectile';
 import { RemoteWeapons } from '../RemoteWeapons';
@@ -54,6 +55,10 @@ export function applyAimZoom(sys: WeaponSystem, stats: EffectiveWeaponStats | nu
     sys.adsTimeSent = adsTime;
     if (host && typeof host.setAdsTime === 'function') host.setAdsTime(adsTime);
   }
+  // 2026-09-12 조준 흔들림 (A2): the class sway travels with the zoom (null stats = nothing aimable in hand → 0). Two numbers,
+  // no de-dup cache needed; the rig damps a change so a swap never jumps the view.
+  const sway = aimSwayFor(stats);
+  if (host && typeof host.setAimSway === 'function') host.setAimSway(sway.amplitudeDeg, sway.frequencyHz);
   if (sys.zoomSent.zoom === zoom && sys.zoomSent.scope === scope) return;
   sys.zoomSent.zoom = zoom; sys.zoomSent.scope = scope;
   if (host && typeof host.setAimZoom === 'function') host.setAimZoom(zoom, scope);
@@ -283,10 +288,15 @@ export function recoilMulFor(sys: WeaponSystem, cls: WeaponClass): number {
   return typeof v === 'number' && v > 0 ? v : 1;
   }
 
-/** 사격 스킬 reload speed multiplier for a class (>1 = faster). */
+/**
+ * 사격 스킬 reload speed multiplier for a class (>1 = faster). 2026-09-12: × the player's boost multiplier
+ * (`PlayerRef.boostReloadSpeedMul` — 각성제), read at each reload start.
+ */
 export function reloadSpeedFor(sys: WeaponSystem, cls: WeaponClass): number {
   const v = sys.ctx.progression?.derived.reloadSpeedMul[cls];
-  return typeof v === 'number' && v > 0 ? v : 1;
+  const skill = typeof v === 'number' && v > 0 ? v : 1;
+  const b = sys.ctx.player?.boostReloadSpeedMul;
+  return skill * (typeof b === 'number' && b > 0 ? b : 1);
   }
 
 /** Fire rate after the overcharge implant bonus. */

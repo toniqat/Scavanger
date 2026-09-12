@@ -24,6 +24,14 @@ export type ImplantHudKind = 'cooldown' | 'charges' | 'gauge';
  *     잠긴 동안은(`barrierLockout`) 쿨타임형과 같은 딤드 + 밝아짐 + 남은 초로 그린다 — 잠금 시간에 맞춰
  *     내구도가 0 → 만충으로 차오르므로 게이지가 그대로 진행도다.
  *
+ * **준비 연출 (2026-09-12, 사용자 결정).** 준비되는 **순간** 강한 플래시 1회(`.rdy-major` — 썸네일 밖으로 퍼지는
+ * 테두리 `.imp-ring` + 안쪽 섬광 `.ib-flash`), **준비된 동안** 윤곽 글로우(`.is-ready` — 딤드가 아닌 동안 = 쓸 수
+ * 있는 동안). 순간은 이 위젯이 추측하지 않고 **`implant:ready`** 하나만 믿는다 (implants 가 게임플레이 페이즈에서만
+ * 낸다 — 미션 시작 · 리셋 · 장착 · 함선은 처음부터 가득이라 순간이 아니다). 충전형의 중간 충전(`full` false)은
+ * 약한 플래시(`.rdy-minor`)다. 갈고리 쿨타임 환급(`implant:cooldownRefunded`)은 썸네일 오른쪽에 초록 `−N초` 가
+ * 떠오르고(`.imp-refund`) 차오른 부분이 번쩍인다(`.rf-flash`). 플래시 요소를 따로 둔 이유: `.pulse` · `.hit` 이
+ * 이미 `.imp-thumb` 의 `animation` 을 쓰고 클래스가 남아 있으므로, 같은 요소에 얹으면 서로의 재생을 막는다.
+ *
  * 값은 매 프레임 `ctx.implants` 에서 읽고 이벤트(`implant:*`)는 늦은 등록 · 연출(플래시 · 피격)에만 쓴다.
  * 아무것도 장착하지 않았거나 전투불능이면 숨는다 (전투불능 화면은 출혈 / 포기 링의 것이다, 2026-09-08).
  */
@@ -38,6 +46,8 @@ export class ImplantWidget {
   private faceBase: HTMLElement;
   private faceLit: HTMLElement;
   private keyEl: HTMLElement;
+  private ringEl: HTMLElement;
+  private refundEl: HTMLElement;
 
   private ctx!: GameContext;
   private equipped: ImplantId | null = null;
@@ -56,6 +66,9 @@ export class ImplantWidget {
   private kind: ImplantHudKind = 'cooldown';
   private fill = 0;
   private dimmed = false;
+  private ready = false;
+  private lastFlash: 'major' | 'minor' | null = null;
+  private flashCount = 0;
   private lastKey = '';
   private unsubs: Array<() => void> = [];
 
@@ -67,12 +80,18 @@ export class ImplantWidget {
     this.faceBase = el('div', { cls: 'ib-face', text: '◈', parent: this.thumb });
     this.reveal = el('div', { cls: 'ib-reveal', parent: this.thumb });
     this.faceLit = el('div', { cls: 'ib-face lit', text: '◈', parent: this.reveal });
+    // 2026-09-12: the ready flash inside the thumb (clipped by it) — under the numbers so they stay readable
+    el('div', { cls: 'ib-flash', parent: this.thumb });
     this.cdEl = el('div', { cls: 'ib-cd ui-mono', text: '', parent: this.thumb });
     this.chEl = el('div', { cls: 'ib-ch ui-mono', text: '', parent: this.thumb });
     this.gauge = el('div', { cls: 'ib-gauge', parent: this.thumb });
     this.gauge.hidden = true;
     this.gaugeFill = el('i', { parent: this.gauge });
     this.keyEl = el('kbd', { cls: 'keycap imp-key', text: keyLabel(Keys.IMPLANT), parent: this.root });
+    // 2026-09-12: the ring that bursts out of the thumb on a ready moment, and the green `−N초` of a refund —
+    // both absolutely placed over / beside the thumb, outside its clip
+    this.ringEl = el('div', { cls: 'imp-ring', parent: this.root });
+    this.refundEl = el('div', { cls: 'imp-refund ui-mono', text: '', parent: this.root });
   }
 
   bind(ctx: GameContext): void {
@@ -91,24 +110,51 @@ export class ImplantWidget {
       b.on('implant:barrierChanged', ({ hp, maxHp }) => { this.barrierHp = hp; this.barrierMax = maxHp; }),
       b.on('implant:barrierHit', () => this.flash('hit')),
       b.on('implant:energyChanged', ({ energy, max }) => { this.energy = energy; this.energyMax = max; }),
+      // 2026-09-12: 준비 순간 · 갈고리 환급
+      b.on('implant:ready', ({ full }) => this.flashReady(full)),
+      b.on('implant:cooldownRefunded', ({ seconds }) => this.showRefund(seconds)),
       b.on('game:newMission', () => this.resetTransient()),
       b.on('game:abort', () => this.resetTransient()),
+      b.on('hub:entered', () => this.resetTransient()),
       b.on('input:bindingsChanged', syncKey),
       onKeybindsChanged(syncKey),
     );
   }
 
-  /** Restart a one-shot CSS animation (remove → reflow → add is the only reliable way). */
-  private flash(cls: 'pulse' | 'hit'): void {
-    this.root.classList.remove(cls);
+  /** Restart a one-shot CSS animation class (remove → reflow → add is the only reliable way). */
+  private restart(...cls: string[]): void {
+    this.root.classList.remove(...cls);
     void this.root.offsetWidth;
+  }
+
+  private flash(cls: 'pulse' | 'hit'): void {
+    this.restart(cls);
     this.root.classList.add(cls);
+  }
+
+  /** 2026-09-12: the ready moment — `major` for the last / only charge (and 안정제), `minor` for an intermediate one. */
+  private flashReady(major: boolean): void {
+    this.restart('rdy-major', 'rdy-minor');
+    this.root.classList.add(major ? 'rdy-major' : 'rdy-minor');
+    this.lastFlash = major ? 'major' : 'minor';
+    this.flashCount++;
+  }
+
+  /** 2026-09-12: a grapple refund — green `−N초` floats up beside the thumb, the filled part flares. */
+  private showRefund(seconds: number): void {
+    if (!(seconds > 0)) return;
+    setText(this.refundEl, `−${this.secs(seconds)}초`);
+    this.restart('rf-flash');
+    this.root.classList.add('rf-flash');
   }
 
   private resetTransient(): void {
     this.wielded = false; this.holding = false;
     toggleClass(this.root, 'wielded', false);
     toggleClass(this.root, 'holding', false);
+    this.root.classList.remove('rdy-major', 'rdy-minor', 'rf-flash');
+    setText(this.refundEl, '');
+    this.lastFlash = null;
     this.barrierHp = 0; this.barrierMax = 0; this.barrierLockout = 0;
     this.lastKey = '';
   }
@@ -174,18 +220,22 @@ export class ImplantWidget {
   /** Seconds text: one decimal under 10 s, whole seconds above (the old gauge's rule). */
   private secs(t: number): string { return t.toFixed(t < 10 ? 1 : 0); }
 
-  /** Write the whole thumbnail in one go; a rounded key keeps the DOM untouched between real changes. */
-  private paint(fill: number, dim: boolean, accent: boolean, cd: string, ch: string, gauge: number, low: boolean): void {
+  /**
+   * Write the whole thumbnail in one go; a rounded key keeps the DOM untouched between real changes.
+   * `ready` (2026-09-12) = usable right now → the held outline glow (`.is-ready`).
+   */
+  private paint(fill: number, dim: boolean, accent: boolean, cd: string, ch: string, gauge: number, low: boolean, ready: boolean): void {
     const f = Math.min(1, Math.max(0, fill));
-    const key = `${f.toFixed(3)}|${dim ? 1 : 0}|${accent ? 1 : 0}|${cd}|${ch}|${gauge < 0 ? -1 : gauge.toFixed(3)}|${low ? 1 : 0}`;
+    const key = `${f.toFixed(3)}|${dim ? 1 : 0}|${accent ? 1 : 0}|${cd}|${ch}|${gauge < 0 ? -1 : gauge.toFixed(3)}|${low ? 1 : 0}|${ready ? 1 : 0}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
-    this.fill = f; this.dimmed = dim;
+    this.fill = f; this.dimmed = dim; this.ready = ready;
     this.root.style.setProperty('--fill', f.toFixed(3));
     toggleClass(this.root, 'dim', dim);
     toggleClass(this.root, 'accent', accent);
     toggleClass(this.root, 'low', low);
     toggleClass(this.root, 'empty', ch === '0');
+    toggleClass(this.root, 'is-ready', ready);
     setText(this.cdEl, cd);
     setText(this.chEl, ch);
     if (gauge < 0) {
@@ -200,33 +250,33 @@ export class ImplantWidget {
   private renderCooldown(): void {
     const ready = this.charges > 0 && this.remaining <= 0.001;
     const f = ready ? 1 : this.total > 0 ? 1 - Math.min(1, this.remaining / this.total) : 1;
-    this.paint(ready ? 0 : f, !ready, false, ready ? '' : this.secs(this.remaining), '', -1, false);
+    this.paint(ready ? 0 : f, !ready, false, ready ? '' : this.secs(this.remaining), '', -1, false, ready);
   }
 
-  /** 대시: charge count bottom-right; 0 = the cooldown look, 1…max−1 = accent rising, max = plain. */
+  /** 대시: charge count bottom-right; 0 = the cooldown look, 1…max−1 = accent rising, max = plain. Ready = a charge in hand. */
   private renderCharges(): void {
     const n = Math.max(1, this.maxCharges);
     const refill = this.total > 0 && this.remaining > 0 ? 1 - Math.min(1, this.remaining / this.total) : 0;
     const ch = `${Math.max(0, this.charges)}`;
-    if (this.charges <= 0) { this.paint(refill, true, false, this.secs(this.remaining), ch, -1, false); return; }
-    if (this.charges >= n) { this.paint(0, false, false, '', ch, -1, false); return; }
-    this.paint(refill, false, true, '', ch, -1, false);
+    if (this.charges <= 0) { this.paint(refill, true, false, this.secs(this.remaining), ch, -1, false, false); return; }
+    if (this.charges >= n) { this.paint(0, false, false, '', ch, -1, false, true); return; }
+    this.paint(refill, false, true, '', ch, -1, false, true);
   }
 
-  /** 배리어 내구도 / 오버차지 에너지: a gauge at the bottom centre of the thumbnail. */
+  /** 배리어 내구도 / 오버차지 에너지: a gauge at the bottom centre of the thumbnail. Ready = not locked / not empty. */
   private renderGauge(): void {
     if (this.equipped === 'barrier') {
       const max = this.barrierMax > 0 ? this.barrierMax : 1;
       const r = Math.min(1, Math.max(0, this.barrierHp / max));
       const locked = this.barrierLockout > 0.001;
       // 붕괴 잠금 중에는 내구도가 잠금 시간에 맞춰 0 → 만충으로 차오른다 = 그대로 쿨타임 진행도.
-      this.paint(locked ? r : 0, locked, false, locked ? this.secs(this.barrierLockout) : '', '', r, !locked && r < 0.25);
+      this.paint(locked ? r : 0, locked, false, locked ? this.secs(this.barrierLockout) : '', '', r, !locked && r < 0.25, !locked);
       return;
     }
     const max = this.energyMax > 0 ? this.energyMax : 1;
     const r = Math.min(1, Math.max(0, this.energy / max));
     const empty = r < 0.02;
-    this.paint(empty ? r : 0, empty, false, '', '', r, r < 0.15 && !this.holding);
+    this.paint(empty ? r : 0, empty, false, '', '', r, r < 0.15 && !this.holding, !empty);
   }
 
   /** Implant drawn right now, null while hidden (debug / smoke). */
@@ -237,6 +287,11 @@ export class ImplantWidget {
   get fillAmount(): number { return this.fill; }
   /** Whether the thumbnail is dimmed (cooldown / no charge / barrier lockout) (debug / smoke). */
   get isDimmed(): boolean { return this.dimmed; }
+  /** 2026-09-12: whether the held ready glow is on (debug / smoke). */
+  get isReadyGlow(): boolean { return this.ready; }
+  /** 2026-09-12: the last ready flash played and how many so far (debug / smoke). */
+  get lastReadyFlash(): 'major' | 'minor' | null { return this.lastFlash; }
+  get readyFlashCount(): number { return this.flashCount; }
 
   dispose(): void {
     for (const u of this.unsubs) u();

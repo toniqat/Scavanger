@@ -1,5 +1,5 @@
 import type { AmmoType, EmbeddedView, ItemCategory, ItemDef, ItemInstance, MissionStats, Rarity, WeaponClass } from './types';
-import { csvGroups, csvRows, keyTable, numberList, stringList } from './data/tables';
+import { addDataIssue, csvGroups, csvRows, keyTable, numberList, stringList } from './data/tables';
 import { buyPriceFrom, sellPriceFrom } from './credits';
 
 /*
@@ -113,10 +113,13 @@ export function sellPriceOf(value: number, qty = 1): number {
 }
 
 /* ── contracts ── */
-export type ContractGoalKind = 'kill_bugs' | 'kill_rogues' | 'open_crates' | 'loot_corpses' | 'extract_with_value' | 'use_stratagems';
+export type ContractGoalKind = 'kill_bugs' | 'kill_rogues' | 'open_crates' | 'loot_corpses' | 'extract_with_value' | 'use_stratagems'
+  /* appended 2026-09-12 (E2): 특정 아이템 회수 — `ContractDef.itemDefId` 를 `target` 개 몸에 지니고 탈출한다 */
+  | 'extract_with_items';
 export const CONTRACT_GOAL_LABEL_KO: Readonly<Record<ContractGoalKind, string>> = {
   kill_bugs: '터미니드 처치', kill_rogues: '로그 처치', open_crates: '상자 개봉', loot_corpses: '시체 수색',
   extract_with_value: '전리품 가치와 함께 탈출', use_stratagems: '함선 호출 사용',
+  extract_with_items: '아이템 회수',
 };
 
 export interface ContractDef {
@@ -131,6 +134,13 @@ export interface ContractDef {
   creditsReward: number;
   name: string;   // 한국어
   desc: string;   // 한국어
+  /* appended 2026-09-12 (E2): 특정 아이템 회수 */
+  /**
+   * `goal === 'extract_with_items'` 일 때만: 회수할 아이템 def id (`data/contracts.csv` 의 `itemDefId` 열), `target` = 개수.
+   * **가방 격자 + 퀵슬롯 + 주머니**(`InventoryRef.countWhere` — 몸에 지닌 것 전부, 창고 제외)를 탈출 순간에 센다.
+   * 다른 목표에는 없다. 알 수 없는 id 는 `npm run data:check` 가 잡는다 (`scripts/data-check.mjs`).
+   */
+  itemDefId?: string;
 }
 
 /** Progress a squadmate's contract action is worth to us when we run a contract of the same corp. */
@@ -138,18 +148,28 @@ export const CONTRACT_SQUAD_SHARE = T.num('CONTRACT_SQUAD_SHARE');
 /** Contracts active at once. */
 export const CONTRACT_MAX_ACTIVE = T.num('CONTRACT_MAX_ACTIVE');
 
-export const CONTRACT_DEFS: readonly ContractDef[] = csvRows('contracts.csv').map((r) => ({
-  id: r.str('id'),
-  corp: r.str('corp') as CorpId,
-  minRepLevel: r.int('minRepLevel', { min: 0 }),
-  goal: r.enum('goal', ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems'] as const),
-  target: r.int('target', { min: 1 }),
-  repReward: r.int('repReward', { min: 0 }),
-  xpReward: r.int('xpReward', { min: 0 }),
-  creditsReward: r.int('creditsReward', { min: 0 }),
-  name: r.str('name'),
-  desc: r.str('desc'),
-}));
+export const CONTRACT_DEFS: readonly ContractDef[] = csvRows('contracts.csv').map((r) => {
+  const goal = r.enum('goal', ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems', 'extract_with_items'] as const);
+  /* 2026-09-12 (E2): `itemDefId` 는 아이템 회수 계약에만 있고, 그 계약에는 반드시 있다. */
+  const itemDefId = r.optStr('itemDefId');
+  if (goal === 'extract_with_items' && !itemDefId) r.str('itemDefId');          // 빈 칸 → 「값이 비었다」 문제
+  else if (goal !== 'extract_with_items' && itemDefId) {
+    addDataIssue({ file: r.file, line: r.line, column: 'itemDefId', message: `'${goal}' 계약에는 itemDefId 가 쓰이지 않는다` });
+  }
+  return {
+    id: r.str('id'),
+    corp: r.str('corp') as CorpId,
+    minRepLevel: r.int('minRepLevel', { min: 0 }),
+    goal,
+    target: r.int('target', { min: 1 }),
+    repReward: r.int('repReward', { min: 0 }),
+    xpReward: r.int('xpReward', { min: 0 }),
+    creditsReward: r.int('creditsReward', { min: 0 }),
+    name: r.str('name'),
+    desc: r.str('desc'),
+    ...(goal === 'extract_with_items' && itemDefId ? { itemDefId } : {}),
+  };
+});
 
 /* ── quests ── */
 export type QuestState = 'locked' | 'available' | 'accepted' | 'complete';

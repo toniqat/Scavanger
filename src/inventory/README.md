@@ -25,6 +25,9 @@
 | `parts/CorpseLoot.ts` | **죽으면 들고 있던 것이 전부 시체로 간다** (2026-09-09). `stripForCorpse()` 가 장비 슬롯 · 가방 격자 · 퀵슬롯을 하나의 목록으로 뽑고 로컬 인벤토리를 **빈손**으로 만든다 (무기의 내구도 · 장전 탄약 · 소켓은 `ItemInstance` 채로 넘어가므로 보존된다). `openContainerItemsSized()` 는 `openContainerItems` 와 같지만 격자 크기를 지정한다 (`PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). **2026-09-11**: 장착 임플란트의 **망가진 짝**(`ctx.progression.stripImplantsForCorpse?.()`, 옵셔널 — 없으면 빈 배열)을 목록 끝에 합치고(C-12), 뽑기 전에 장착 가방을 레이드 1회분 닳게 한다(C-36, `wearBagForRaid`). 시체 격자는 `fitCorpseGrid(items, cols, rows)` 가 **그 순서 그대로 전부 들어가도록 행을 늘린다** — 예전에는 넘치는 것이 `Container.fill` 의 경고 한 줄과 함께 사라졌다. `hookCorpseWire()` 는 `pcorpse` 를 구독해 시체 컨테이너를 **열지 않고 미리 만들어 둔다** — 호스트는 자기가 한 번도 열어 본 적 없는 시체의 `contq take` 도 심판해야 하기 때문이다. 가져가기 자체는 상자와 똑같이 기존 `cont` / `contq` 경로다. |
 | `parts/Pouch.ts` | **주머니는 가방 격자가 아니다** (2026-09-11, A-15). 장비칸 `pouch` **한 칸**(`POUCH_SLOTS` = 1)에 끼운 주머니가 여는 별도 격자의 전부 — `getEquippedPouch` · `getPouchSize`(주머니가 없으면 `{0,0}`) · `pouchAccepts`(`PouchDef.accepts`) · `pouchItems` / `pouchTotalValue` · `pouchSignature` + `emitPouchChanged`(`inventory:pouchChanged`, `quickSlotsSignature` 와 같은 게이트) · `resetPouchGrid` / `drainPouch`(킷 리셋 · 시체) · **`changePouch(next, from, oldTo, hint?, dest?)`**. `changeBag` 이 본보기이지만 거절 규칙이 하나 더 있다: 새 주머니가 못 받는(또는 자리가 없는) 내용물은 가방으로 가고, **하나라도 못 들어가면 전부 되돌리고 이동 자체를 거절한다** (`setQuickSlot` 이 세운 "휠 아이템을 조용히 버리지 않는다" 그대로 — 주머니 안의 물건도 바닥에 흘리지 않는다). 격자가 없을 때의 내부 `Grid` 는 1×1 이고 `getPouchSize()` 가 `{0,0}` 으로 "그리지 마라" 를 말한다 |
 | `parts/Sort.ts` | **가방 · 창고 자동 정렬** (2026-09-12). `sortGrid(sys, 'bag' \| 'stash', keep?)` — 카테고리(`SORT_CATEGORY_ORDER`) → 등급(높은 것 먼저) → 크기(큰 것 먼저) → 이름 → 수량. 같은 아이템 스택을 `stackMax` 까지 합치고(`keep` uid 는 합치지 않는다 — 기업 거래 트레이가 uid 로 들고 있다) 위에서부터 줄 단위로 채운다. 카테고리 순서로 다 안 들어가면 크기 순으로 한 번 더, 그래도 안 되면 `snapshot()` 으로 **정렬 전 그대로** 되돌리고 `'fail'` (합친 수량까지 복원) — 아이템을 절대 잃지 않는다. 창고는 함선에서만. `compareForSort` 는 순서 자체 |
+| `parts/Favorites.ts` | **아이템 즐겨찾기** (2026-09-12, E1, 사용자 결정). 표는 `InventorySystem.favorites`(def id 집합) 하나이고 `isFavorite` · `toggleFavorite(defId, on?)`(새 상태 · 모르는 def 는 false · 실제로 바뀔 때만 `inventory:favoritesChanged`) · `favoriteDefIds`(정렬된 사본)가 계약이다. 저장은 로드아웃 문서의 `fav` — 함선에서는 `markDirty('favorite')`, 함선 밖에서는 `favoritesDirty` 만 세우고 다음 로드아웃 저장(탈출 · 사망 · 실패 · 다음 `hub:entered` 의 `flushDeferred`)이 싣는다(레이드 중에 킷을 파일에 쓰지 않는다). 표를 갈아 끼우는 곳은 부팅 파일(`applySavedFavorites(…, force)`)과 서버 문서뿐이고, 올리지 못한 토글(`favoritesDirty` · 저장 디바운스)이 있으면 들어온 목록은 버린다. 그리는 쪽은 `ui/GridView` 의 모듈 사본(`setFavoriteDefs` · `isFavoriteDef` · `favoritesRevision`) |
+| `parts/RaidFound.ts` | **아이템 회수 계약 — 「이번 레이드에서 얻은 아이템」** (2026-09-12, §5-2). 규칙(시드 · 표식 · 분류 열쇠)은 `shared/raidFound.ts` 에 있고 여기는 **거는 자리**만: `installRaidFoundRules`(모든 격자 · 휠 · 정렬이 보는 `Grid.setStackKeyRule` + 상자 굴림의 `ContainerStore.raidMark`, 둘 다 질의 시점의 ctx) · `raidFoundScope`(진짜 레이드 + 활성 `extract_with_items`) · `stripRaidMarks`(레이드 끝: 장비칸 · 가방 · 휠 · 주머니 · 창고) · `annotateRaidState`(레이드 blob 에만 `rf`) |
+| `parts/Peek.ts` | **이 컨테이너를 지금 열면 무엇이 보이나** (2026-09-12, 드론 스캔). `InventoryRef.peekContainerItems(id, tier?)` · `peekSuppliedItems(id, items, cols?, rows?)` 의 구현. 이미 굴린 컨테이너 = 지금 내용물. 아니면 **여는 경로를 그대로 흉내 낸다** — `getOrCreate` 와 같은 `Random(missionSeed ^ hash(id))` → `rollCrateOn(tier, rng, 행성)` (또는 호출자가 댄 목록), `Container.fill` 과 같은 순서로 같은 크기 사본 격자에 `autoPlace`(넘쳐 탈락 · 스택 병합까지 같다; `cols` 를 주면 `openContainerItemsSized` 처럼 `fitCorpseGrid`), 그리고 `pendingTakenOf(id, idx)` 를 롤 순서대로 뺀다(`applyPending`). 사본 인스턴스만 만진다 — 캐시 · `openedIds` · 감정 · 이벤트는 그대로다. 호출자는 `gadgets/drones/parts/Scan`. |
 | `parts/Catalog.ts` | **무한 상자 (개발자 카탈로그, Phase 6).** `/items` 콘솔 명령이 여는 치트 창이다. 다른 그리드와 달리 원본이 줄지 않고 드래그마다 **새 인스턴스**를 만든다 (`dropFromCatalog` / `takeFromCatalog`). 훈련장의 무기 거치대도 카테고리를 지정해 이 창을 연다. |
 | `ui/model.ts` | 인벤토리 창의 공용 어휘 (타입 · 상수). `ui/InventoryUI.ts` 가 재수출한다 |
 | `ui/parts/Drag.ts` | **아이템 끌어 놓기.** 누름 판정 → 고스트 생성 → 커서 추적 → 대상 격자/칸 판정 → 놓기 까지의 포인터 상태 기계 전부. 어떤 칸에 놓을 수 있는지는 여기서 정하지 않는다 — `inventory/parts/DropResolver.ts` 에 물어보고 그 답(`ok` / `swap` / `merge` / `bad`)을 하이라이트 색으로 그릴 뿐이다. 고스트는 커서 **중앙**에 붙고, 확대는 CSS `scale:` 이 아니라 `positionGhost` 의 transform 안에 있다 (개별 변환은 translate → scale 순이라 JS 가 쓴 translate 가 곱해져 커서에서 벌어졌다). |
@@ -832,7 +835,96 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   `사용` 항목이 있으므로 준비물은 평범한 우클릭으로도 메뉴가 열린다(`hasMenu`).
 - 분해 · 수리 대상이 아니다 — `Durability` · `Salvage` 경로는 한 줄도 바뀌지 않았다.
 
+## 아이템 즐겨찾기 (2026-09-12, E1, 사용자 결정)
+
+- **단위는 아이템 종류(def id)** — 같은 아이템은 전부 표시된다. 캐릭터별(슬롯 로드아웃 파일)이고 서버 프로필 `loadout` 문서의
+  `fav`(정렬된 목록, 비었으면 필드 없음)로 동기화된다. **새 프로필 키도, 로드아웃 버전 올림도 없다** (없던 선택 필드 — v3 리더는 무시한다).
+  킷과 수명이 달라서 `applyLoadoutSave`(레이드 blob · 훈련장 복원 · 크루 카드가 지나는 길)는 즐겨찾기를 건드리지 않고,
+  `captureRaidState` · `captureCrewLoadout` 은 `fav` 를 빼고 싣는다. 서버 문서가 `fav` 만 다르면 킷은 다시 짓지 않는다
+  (`applyProfileDocs` 가 `fav` 를 뺀 킷끼리 비교 — 그러지 않으면 `saveNow('profile')` 이 대기 중인 즐겨찾기 저장을 지운다).
+- **우클릭 = 모든 아이템에 메뉴** (`ui/parts/ContextMenu.onContextMenu`). 예전의 「메뉴가 없는 아이템은 우클릭 한 번에 옮긴다」 ·
+  Shift+우클릭 규칙은 없어졌다. 그 이동은 첫 구역의 **「빠른 이동 (가방 / 창고 / 상자)」**(목적지는 `quickMove` 와 같은
+  `DropResolver.quickMoveDest`, 더블클릭이 같은 일을 하는 자리에는 `더블클릭` 힌트)이고, 1c(퀵슬롯 등록) 뒤에 언제나
+  **「즐겨찾기 켜기 / 끄기」**(`ui_click`). 장비칸 카드 · 휠 칸 · 상자 / 시체 창도 같다. 감정 전 타일은 여전히 메뉴가 없다.
+- **더블클릭 = 빠른 이동** — `activate` 그대로다(가방의 무기 · 가방 · 방탄복은 장착, 상자가 안 열린 가방의 회복제 · 수류탄은 퀵슬롯 등록,
+  창고는 빈 장비칸 · 퀵슬롯이 먼저, 나머지는 `quickMoveImpl`). 격자 네 곳(가방 · 창고 · 상자 · 주머니) 모두 확인했고 고칠 틈은 없었다.
+  힌트 줄 · 키 가이드는 `더블클릭 빠른 이동` · `우클릭 메뉴` 로 바뀌었다.
+- **파란 사선 띠** — `.inv-tile.is-favorite::before`(우상단). 색은 `:root` 의 `--c-favorite` 하나이고 E2 의 칩 표식이 같은 변수를 읽는다.
+  `buildTileContent` · `buildSlotCardContent` 가 걸므로 격자 · 장비칸 · 휠 · 드래그 고스트 · 크루 카드 · 제작 썸네일(`CraftPanel` 서명에
+  `favoritesRevision`) · TradeGrids · `buildItemTile`(기업 상점) 전부다. 한 번 만든 카탈로그 타일은 `CatalogView.refreshFavorites`.
+  필요한 탄약이면서 즐겨찾기면 노란 띠(`::after`)가 34 px 상자의 12–19 px 로 **안쪽으로 물러나** 둘 다 보인다. `GridView.refresh` 는
+  격자 버전뿐 아니라 `favoritesRevision()` 이 바뀌어도 다시 칠한다. 감정 전 타일은 띠가 없다(정체를 흘리지 않는다).
+- **자동 정렬** — 즐겨찾기 종류가 맨 앞, 그 안에서 카테고리 → 등급 → 크기 (`compareForSort(a, b, isFavorite?)`).
+- **필터 칩 「즐겨찾기」(★)** — `FILTER_GROUPS` 두 번째. `filterPredicate(id, isFavorite)` 가 살아 있는 표를 읽으므로 칩이 켜진 채 토글해도
+  다시 칠하기만 하면 된다. Tab 창과 TradeGrids 모두.
+- **분해 확인** — 즐겨찾기 종류를 `분해` 하면 `DisassemblePanel` 안에 확인 카드가 먼저 뜬다: 빨간 `분해` 를 `UI_HOLD_CONFIRM_S` 동안 눌러야
+  시작되고(클릭 · Enter 는 아무것도 안 한다), `취소` · Escape · Tab 은 카드만 물린다(`closePopups` → `cancelConfirm`, 분해 창은 남는다).
+  확인은 그 분해 한 번에만 유효하다. 판매 경고는 meta(E2) 몫이다.
+- **상자 · 시체 창 강조** — `.inv-panel-container .inv-tile.is-favorite` 테두리 + outline 글로우(전설 등급의 숨쉬기 그림자가 덮어도 outline 은 남는다).
+- 인벤토리 밖에서 그린 표식(칩 · 기업 상점 타일)은 `inventory:favoritesChanged` 를 듣고 다시 칠한다 — 클래스 이름은 `is-favorite`.
+
+## 아이템 회수 계약: 이번 레이드에서 얻은 아이템 (2026-09-12, §5-2, 사용자 결정)
+
+- **표식** `ItemInstance.raidFound` = 그 아이템을 만든 레이드의 맵 시드. 규칙 전부는 `shared/raidFound.ts` 하나다(`raidFoundSeed` ·
+  `isRaidFound` · `markRaidFound` · `raidFoundStackKey` · `mergeRaidFoundMark` · `copyRaidFoundMark` · `countsForRecovery`).
+  인벤토리가 직접 찍는 곳은 **상자 굴림**(`ContainerStore.getOrCreate` → `raidMark`) 하나 — 구조물 · 플랫폼 · 전차 컨테이너와 보급 상자가
+  전부 그 길이다. 호출자가 내용물을 대는 컨테이너(적 시체 · 열쇠 부가 컨테이너)는 **그 폴더가** 찍고 넘기며, 플레이어 시체는 아이템의 표식을
+  그대로 싣는다(가져간 장비는 표식이 없다). 훈련장 · 함선에서는 `raidFoundSeed` 가 null 이라 아무것도 안 찍는다. rng 는 한 번도 더 안 쓴다.
+- **합치기 규칙** — `Grid` 의 모듈 수준 **스택 분류 열쇠**(`setStackKeyRule` · `stackKeyOf` · `canStackTogether`). 기본은 전부 `''`.
+  활성 회수 계약 아이템만 「이번 레이드 표식」 이 `'rf'` 로 갈려 **가져온 스택과 절대 합쳐지지 않는다**. 이 열쇠를 보는 곳:
+  `Grid.mergeCapacity(defId, incoming?)` · `canAbsorb` · `mergeIntoStacks` · `mergeInto` · `QuickSlots.mergeIntoQuick` · `parts/Sort.mergeStacks`
+  (그룹 = def + 열쇠) · `InventorySystem.mergeIntoQuickSlot` · `previewQuickPartial` / `dropQuickPartial` · `DropResolver.previewDrop`(격자 ·
+  휠 — 열쇠가 다르면 `merge` 가 아니라 교체 판정으로 내려간다) · `previewPartial` / `dropPartialImpl` · `Catalog.previewCatalog`.
+  다른 아이템은 예전처럼 합치되 **표식이 다른 둘이 합쳐지면 결과는 표식 없음**(세탁 금지). `Grid.snapshot` / `restore` 가 표식도 되돌리므로
+  `gridFits` 같은 시험 배치가 표식을 지우지 않는다. 나누기(`splitItem` · `dropItemImpl` 일부 · 부분 드래그 · 휠 부분 드롭)는 표식을 물려받는다.
+- **사선 띠** — 레이드 중(훈련장 아님), 활성 회수 계약 아이템 중 표식이 이번 레이드인 타일에 `.is-recovery-item`. CSS 는
+  `.is-favorite::before` 와 **같은 규칙에 선택자만 나란히** 둔다(구분 불가 · 둘 다면 띠 하나 · 탄약 노란 띠 규칙 동일). 글로우 · 필터 ·
+  정렬 앞 · 판매/분해 확인은 여전히 `.is-favorite`(사용자 즐겨찾기)만의 것이다. 범위의 표시 사본은 `ui/GridView` 의 `setRecoveryScope`
+  (매 프레임 `InventorySystem.update` + `InventoryUI.refresh`), `GridView.refresh` 는 `recoveryRevision()` 이 바뀌면 다시 칠하고 타일 서명에
+  그 여부가 들어간다. 감정 전 타일은 띠가 없다.
+- **와이어 · 저장** — 픽업 `PickupWire.rf` · 시체 `CorpseItemWire.rf`(생략 = 표식 없음) · 레이드 세션 blob 은 `captureRaidState` 가
+  `SavedExtras.rf` 를 붙이고 `reviveItem` 이 되살린다. **창고 · 로드아웃 문서에는 없다**(`serializeExtras` 는 쓰지 않는다).
+- **레이드 끝** — `game:complete`(meta 정산 뒤 · 저장 전) · `game:over` · `game:abort` · `hub:entered` 에서 `stripRaidMarks` 가 몸 · 창고의
+  표식을 전부 지운다 — 함선에서는 다시 평범하게 합쳐진다.
+
 ## 변경 이력
+
+- **2026-09-12 (아이템 회수 계약 — 이번 레이드에서 얻은 아이템만, §5-2)** — 위 절 전부. 새 파일 `parts/RaidFound.ts` ·
+  `scripts/smoke-recovery-contract.mjs`(verify 등록). 바뀐 파일: `Grid.ts`(스택 분류 열쇠 · `mergeCapacity(defId, incoming?)` · 병합 표식 ·
+  스냅샷 표식) · `QuickSlots.ts` · `parts/Sort.ts` · `Container.ts`(`raidMark`) · `Serialize.ts`(`SavedExtras.rf` · `reviveItem`) ·
+  `parts/ProfileDocs.ts`(blob 표식) · `parts/DropResolver.ts` · `parts/Catalog.ts` · `parts/CorpseLoot.ts`(`corpseItemsFromWire` 의 `rf`) ·
+  `InventorySystem.ts`(`raidFoundScope` · `stripRaidMarks` · 이벤트 · 나누기 · 휠 합치기) · `ui/GridView.ts`(띠 · 서명 · 리비전) ·
+  `ui/InventoryUI.ts` · `inventory.css`. 계약은 `shared/types.ts`(`ItemInstance.raidFound`) · `shared/net.ts`(`rf`) · `shared/raidFound.ts`.
+
+- **2026-09-12 (리드 통합 — TradeGrids 우클릭 메뉴 · 굴림 시드 식)** — `ui/TradeGrids` 가 격자 타일 우클릭에 `ContextMenu` 를 연다
+  (사용자 결정 「모든 아이템 우클릭 = 메뉴」 — 기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁에만 메뉴가 없었다): 「빠른 이동」
+  (= 그 화면의 더블클릭 `onTake`, 이름은 새 옵션 `takeLabel`, `onTake` 가 없으면 항목 없음) + 「즐겨찾기 켜기 / 끄기」. 메뉴는
+  `ctx.uiRoot` 에 붙고(`.inv-menu` 가 `position: fixed` 라 transform 이 걸린 화면 안이면 어긋난다) `.tg-menu` 로 z-index 190(가구 화면 위 ·
+  호버 카드 200 아래), `dispose` 가 함께 치운다. `Container.ContainerStore.getOrCreate` · `parts/Peek` 의 굴림 rng 는
+  `shared/lootRolls.crateLootRandom` 한 함수 — world 미리보기와 식이 갈라질 수 없다.
+- **2026-09-12 (아이템 즐겨찾기 — E1)** — 위 절 전부. 새 파일 `parts/Favorites.ts` · `scripts/smoke-favorites.mjs`(verify 등록).
+  계약(`[E1]` 블록): `InventoryRef.isFavorite?` · `toggleFavorite?` · `favoriteDefIds?`, 이벤트 `inventory:favoritesChanged {defId, favorite}`.
+  바뀐 파일: `Loadout.ts`(`fav` · `sanitizeFavoriteList`) · `parts/Lifecycle.ts`(capture · 부팅 복원) · `parts/ProfileDocs.ts`(레이드 blob 제외 ·
+  서버 문서 적용 · 킷 비교에서 `fav` 제외) · `parts/DropResolver.ts`(`quickMoveDest` 로 목적지 규칙을 떼어냈다 — 동작 무변경) · `parts/Sort.ts` ·
+  `model.ts`(칩) · `InventorySystem.ts`(표 · 위임 · 저장 훅 · 크루 카드) · `ui/GridView.ts`(모듈 사본 · 서명 · 리비전) · `ui/parts/ContextMenu.ts` ·
+  `ui/InventoryUI.ts`(칩 술어 · 힌트 · 키 가이드 · 이벤트 · Escape) · `ui/TradeGrids.ts` · `ui/CatalogView.ts` · `ui/CraftPanel.ts` ·
+  `ui/DisassemblePanel.ts`(확인 카드) · `ui/labels.ts`(`TEXT.menu.quickMove` · `favoriteOn/Off` · `TEXT.favorite`) · `inventory.css`(`:root --c-favorite`).
+  같은 배치에서 A1 요청으로 `QuickSlots.pickStarterQuick` 의 stim 고르기가 **`def.heal` 이 있는 스택을 먼저** 본다 (전투 소모품 · 실드 충전기가
+  기본 지급 S 칸을 차지하지 않게; 회복제가 없으면 예전처럼 가장 큰 stim 스택 — 바로 아래 A1 항목의 「그대로」를 대체한다).
+  **조작 변경**: 우클릭은 이제 언제나 메뉴다 (예전: 메뉴가 없는 아이템은 곧장 이동, Shift+우클릭 = 메뉴). 빠른 이동은 더블클릭 또는 메뉴의 「빠른 이동」.
+  **알려진 것**: 함선 밖(레이드 · 훈련장)에서 켠 즐겨찾기는 다음 로드아웃 저장 전에 새로고침하면 사라진다(레이드 중에 킷을 파일에 쓰지 않으려는 대가).
+  TradeGrids(기업 거래 · 가구 화면) 타일에는 우클릭 메뉴가 없다 — 띠 · 칩만. 장비칸 카드의 더블클릭은 여전히 아무것도 안 한다(빠른 이동은 메뉴에서).
+
+- **2026-09-12 (드론 스캔 미리보기 — 에이전트 D 의 최소 줄)** — 새 `parts/Peek.ts`(위 표) + `InventorySystem` 의 import 한 줄 ·
+  위임 두 줄(`peekContainerItems` · `peekSuppliedItems`, `openContainerItemsSized` 바로 아래). 계약은 `shared/types.ts` [D] 블록의
+  옵셔널 두 메서드뿐이고 기존 경로는 한 줄도 안 바뀌었다. 검사: `scripts/smoke-drone-scan.mjs`(상자 · 보급 상자 + 확정된 남의
+  가져가기 · 적 시체 · 구조물 컨테이너에서 미리보기 = 연 뒤 격자의 `defId × qty` 전부).
+
+- **2026-09-12 (전투 소모품 3종 — 에이전트 A1 의 최소 줄)** — ① `ui/Tooltip.ts` 가 `boostItemOf(def.id)` 면 효과 줄을 더한다:
+  아드레날린 `스태미나 전부 회복` · `지속 소모 없음` · `지속 시간`, 각성제 `장전 속도 +30 %` · `정조준 전환 +40 %` · `조준 흔들림 −30 %`
+  (초록) · `스태미나 소모 +50 %`(빨강) · `지속 시간`, 안정제 `전술 임플란트 전부 충전 · 쿨타임 초기화`, 셋 다 `사용 시간`. 수치는
+  `@/shared` 의 `BOOST_*` 에서 읽는다 (`TEXT.boostStats`, `ui/labels.ts`). ② `parts/LaunchCheck` 의 「회복 아이템 없음」 은 실드 충전기처럼
+  이 셋도 세지 않는다. 자동 퀵슬롯(`QuickSlots.pick('stim')`)은 그대로 — 가장 많이 든 stim 스택이 간다.
 
 - **2026-09-12 (서재 매체 A-3e — 에이전트 items 의 최소 줄)** — 새 카테고리 `disc`(디스크 2×2) · `record`(레코드 3×3)가
   손으로 적힌 카테고리 목록에 들어갔다. ① `model.ts` 의 `SORT_CATEGORY_ORDER` — `book` 뒤에 `disc` · `record`.

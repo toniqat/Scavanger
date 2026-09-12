@@ -1,13 +1,14 @@
 import type {
-  ContractInfo, CorpId, CurrencyReward, EmbeddedView, GameContext, ItemDef, ItemInstance, QuestInfo, QuestState,
+  ContractInfo, CorpId, CurrencyReward, EmbeddedView, GameContext, ItemDef, ItemFavoriteApi, ItemInstance, QuestInfo, QuestState,
   ShopItem, TradeGridsViewOptions,
 } from '@/shared';
 import {
-  CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
+  CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, ITEM_FAVORITE_MENU_ATTR, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
   appendCurrencyRewards, buildItemChip, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { chevrons, el, fmtNum, setText, toggleClass } from './dom';
+import { HoldAsk } from './HoldAsk';
 import { TileGrid, type TileSpec } from './TileGrid';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -98,6 +99,8 @@ export class CorpView {
   private readonly subTabs = new Map<CorpPage, HTMLButtonElement>();
   private readonly page: HTMLElement;
   private readonly msg: HTMLElement;
+  /** 2026-09-12 (E2): 즐겨찾기 아이템을 팔 때의 한 번 더 확인 (1초 홀드 · Escape 취소). Hangs off `ctx.uiRoot`. */
+  private readonly ask: HoldAsk;
   /** 귀중품 전부 담기 — under the 판매 tray, so it is built with the 거래 page. */
   private btnStageValuables: HTMLButtonElement | null = null;
   private unsubs: Array<() => void> = [];
@@ -210,6 +213,7 @@ export class CorpView {
     const msgSlot = add(el('div', { cls: 'corp-msg-slot', parent: host }));
     this.msg = el('div', { cls: 'form-msg', parent: msgSlot });
     this.msg.hidden = true;
+    this.ask = new HoldAsk(ctx, ctx.uiRoot);
 
     const b = ctx.bus;
     const refresh = (): void => this.refreshIfVisible();
@@ -223,6 +227,8 @@ export class CorpView {
       }),
       b.on('meta:sale', refresh), b.on('meta:loaded', refresh),
       b.on('inventory:changed', refresh), b.on('inventory:stashChanged', refresh), b.on('loadout:changed', refresh),
+      // 2026-09-12 (E2): the tiles carry the blue ribbon from `buildItemTile` — rebuild them when a favorite flips
+      b.on('inventory:favoritesChanged', refresh),
       meta.onPurchaseFailure((f: PurchaseFailure) => {
         if (!this.visible || this.settling) return;
         this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
@@ -394,6 +400,9 @@ export class CorpView {
       tile.appendChild(buildItemChip(def, { size: 34 }));
     }
     tile.classList.add('cv-tile', ...cls.split(' ').filter(Boolean));
+    // 2026-09-12 (E2): every desk tile (stock the player does not own included) takes the 즐겨찾기 right-click menu —
+    // `ui/hud/ItemFavoriteMenu` delegates on this attribute next to `data-def-id`. The drag ghost does not.
+    if (!cls.includes('cv-ghost')) tile.setAttribute(ITEM_FAVORITE_MENU_ATTR, '');
     return { tile, w: def?.width ?? 1, h: def?.height ?? 1 };
   }
 
@@ -471,7 +480,7 @@ export class CorpView {
       const done = window.setTimeout(() => {
         if (!this.hold || this.hold.t0 !== t0) return;
         this.cancelHold();
-        this.confirmTrade();
+        this.requestTrade();
       }, holdMs);
       this.hold = { t0, raf: requestAnimationFrame(tick), timer: done };
       btn.classList.add('is-holding');
@@ -715,22 +724,67 @@ export class CorpView {
     this.refresh();
   }
 
-  /** Stage every 귀중품 the player holds into the 판매 tray (the old 귀중품 전부 판매, now one click short of it). */
+  /**
+   * Stage every 귀중품 the player holds into the 판매 tray (the old 귀중품 전부 판매, now one click short of it).
+   * 2026-09-12 (E2): **즐겨찾기는 일괄 담기에서 빠진다** — 손으로 담는 것만 된다 (그리고 거래 성사 때 한 번 더 묻는다).
+   */
   private stageValuables(): void {
     let added = 0;
+    let skippedFav = 0;
     for (const inst of this.meta.getSellable()) {
       const d = this.itemDef(inst.defId);
       if (!d || d.category !== 'valuable') continue;
       if (this.sellLines.some((s) => s.uid === inst.uid)) continue;
       // 일괄 담기만 0 C 를 건너뛴다 (손으로 담는 `stageSell` 은 E-9 이후 허용한다).
       if ((this.meta.sellPriceOf(inst.uid) ?? 0) <= 0) continue;
+      if (this.isFavorite(inst.defId)) { skippedFav++; continue; }
       this.sellLines.push({ uid: inst.uid, qty: inst.qty });
       added++;
     }
     this.ctx.bus.emit('audio:play', { id: added > 0 ? 'ui_click' : 'ui_deny' });
-    this.showMsg(added > 0 ? `귀중품 ${added}종을 판매칸에 담았습니다` : '담을 귀중품이 없습니다', added > 0 ? 'info' : 'warning');
+    const favNote = skippedFav > 0 ? ` · 즐겨찾기 ${skippedFav}점 제외` : '';
+    this.showMsg(added > 0 ? `귀중품 ${added}종을 판매칸에 담았습니다${favNote}` : `담을 귀중품이 없습니다${favNote}`, added > 0 ? 'info' : 'warning');
     this.refresh();
   }
+
+  /* ── 즐겨찾기 (2026-09-12, E2) ─────────────────────────────────────────────────────────────────────────────── */
+
+  /** Is `defId` a favorite (`InventoryRef.isFavorite`, E1)? False while inventory cannot answer. */
+  private isFavorite(defId: string): boolean {
+    const api = this.ctx.inventory as unknown as ItemFavoriteApi | null;
+    try { return api?.isFavorite?.(defId) === true; } catch { return false; }
+  }
+
+  /** Names of the favorites staged for sale (one per def, staging order). */
+  private favoriteSales(): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const s of this.sellLines) {
+      const inst = this.ctx.inventory?.findItemAnywhere?.(s.uid) ?? null;
+      if (!inst || seen.has(inst.defId) || !this.isFavorite(inst.defId)) continue;
+      seen.add(inst.defId);
+      out.push(this.defName(inst.defId));
+    }
+    return out;
+  }
+
+  /**
+   * 거래 성사 hold finished. A basket that sells a **즐겨찾기** item asks once more (1초 홀드, Escape 취소 —
+   * `HoldAsk`); anything else settles right away. Cancelling keeps the basket as it was.
+   */
+  private requestTrade(): void {
+    const favs = this.favoriteSales();
+    if (favs.length === 0) { this.confirmTrade(); return; }
+    this.ask.open({
+      title: '즐겨찾기 아이템 판매',
+      body: `판매칸에 즐겨찾기로 표시한 아이템이 있습니다.\n${favs.join(' · ')}`,
+      ok: '그래도 판매',
+      run: () => { if (!this.disposed) this.confirmTrade(); },
+    });
+  }
+
+  /** The favorite-sale confirmation is up (debug / smoke). */
+  get isFavoriteAskOpen(): boolean { return this.ask.isOpen; }
 
   /** Drop staged lines that no longer exist (item sold elsewhere, shop line gone, corp switched). */
   private pruneBasket(): void {
@@ -839,12 +893,26 @@ export class CorpView {
     if (detail) el('div', { cls: 'tag corp', text: CORP_DEFS[d.corp]?.name ?? d.corp, parent: nl });
     el('div', { cls: 'tag dim', text: `신뢰도 Lv.${d.minRepLevel}`, parent: nl });
     el('div', { cls: 'sub', text: d.desc, parent: mid });
-    const frac = Math.max(0, Math.min(1, d.target > 0 ? c.progress / d.target : 0));
+    /*
+     * 2026-09-12 (E2): 특정 아이템 회수 — 그 아이템의 칩(보유/필요)과 이름 한 줄. 보유는 **지금 몸에 지닌 개수**(가방 격자 ·
+     * 퀵슬롯 · 주머니, 창고 제외 — 정산이 세는 것과 같다)이고, 기업 화면은 함선에서만 열리므로 막대 · 수치도 그 값을 쓴다.
+     * 칩은 `buildItemChip` 이라 공용 호버 카드와 즐겨찾기 우클릭 메뉴가 저절로 붙는다.
+     * 2026-09-12 (§5-2): `carriedCount` 는 **진행 중인 레이드에서 얻은 것만** 센다 — 함선에서는 늘 0 이다 (가져간 것은 세지 않는다).
+     */
+    const itemDefId = d.goal === 'extract_with_items' ? d.itemDefId : undefined;
+    const shown = itemDefId ? this.meta.carriedCount(itemDefId) : c.progress;
+    if (itemDefId) {
+      const line = el('div', { cls: 'cc-item', parent: mid });
+      const idef = this.itemDef(itemDefId);
+      line.appendChild(buildItemChip(idef, { size: 30, have: shown, need: d.target }));
+      el('span', { cls: 'nm', text: idef?.name ?? itemDefId, parent: line });
+    }
+    const frac = Math.max(0, Math.min(1, d.target > 0 ? shown / d.target : 0));
     const bar = el('div', { cls: 'goal-bar', parent: mid });
     const fill = el('i', { parent: bar });
     fill.style.transform = `scaleX(${frac.toFixed(3)})`;
-    toggleClass(bar, 'done', c.active && c.progress >= d.target);
-    el('div', { cls: 'goal-text', text: `${CONTRACT_GOAL_LABEL_KO[d.goal]} ${fmtNum(Math.floor(c.progress))} / ${fmtNum(d.target)}`, parent: mid });
+    toggleClass(bar, 'done', c.active && shown >= d.target);
+    el('div', { cls: 'goal-text', text: `${CONTRACT_GOAL_LABEL_KO[d.goal]} ${fmtNum(Math.floor(shown))} / ${fmtNum(d.target)}`, parent: mid });
     // 보상은 재화 칩이다 (2026-09-09). 신뢰도는 **그 계약의 기업** 것이다.
     const reward = el('div', { cls: 'reward', parent: r });
     appendCurrencyRewards(reward, [
@@ -1130,6 +1198,7 @@ export class CorpView {
     if (this.disposed) return;
     this.disposed = true;
     this.cancelHold();
+    this.ask.dispose();
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.tradeGrids?.dispose(); this.tradeGrids = null;

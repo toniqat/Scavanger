@@ -34,6 +34,14 @@
  * rng 쓰는 순서가 바뀌었으므로 같은 시드의 건물 **안쪽** 배치는 2026-09-11 과 다르다 (부지 · 크기 · 층수 · 지하실
  * 유무는 `layout.ts` 라 그대로다). 도달성은 `scripts/smoke-structure-reach.mjs` 가 여러 시드로 잰다.
  *
+ * ## 2026-09-12 — 연구소 잠긴 방 · 지상드론 개구멍 (소모형 만능 열쇠)
+ *  - 연구소는 지하실이 없다. **2층이 올라간 연구소**의 2층 모서리 하나에 **잠긴 방**(바깥벽 두 면 + 안벽 두 면)을 세운다 —
+ *    계단 구멍 · 도착 자리 · 사다리/해치 구역 · 격벽 통로 앞마당을 피하고, 문 앞마당(`OPENING_APPROACH`)을 비운다.
+ *    자리는 전용 rng(`plan.lockRng`)로 고르므로 건물 본래의 추첨 스트림을 밀지 않는다. 자리가 없으면 방이 없다.
+ *  - 잠긴 문(지하실 문 · 잠긴 방 문) **바로 옆 벽 하단에 개구멍**: 벽 토막 사이의 틈 + 인방(밑면 = 바닥 + `VENT_H`).
+ *    사람 · 적은 인방에 밀리고, 키를 넘기는 지상드론만 지나간다 (`WorldRef.resolveCollision(p, r, height)`).
+ *    지하실은 문 앞 층계참 구간의 **복도 옆벽**(복도 ↔ 지하실 방)에, 잠긴 방은 **문 벽**에 뚫는다. 문이 열려도 그대로다.
+ *
  * 3인칭 카메라가 천장에 갇히는 문제는 `player/CameraRig` 가 이미 `world.raycast` 로 당겨 오므로 특례가 없다.
  */
 import * as THREE from 'three';
@@ -42,7 +50,8 @@ import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
 import { propHullOf } from '../../propHull';
 import {
   BASEMENT_FLOOR_T, BASEMENT_HALL_HALF, BASEMENT_LANDING, DOOR_H, DOOR_W, FLOOR_LIP, FLOOR_OVERHANG, HATCH_D, HATCH_W,
-  LADDER_STANDOFF, OPENING_APPROACH, PARAPET_H, RAIL_H, RAIL_T, SLAB_T, STAIR_ARRIVAL, STAIR_LANDING, STAIR_SLOPE, STAIR_W,
+  LADDER_STANDOFF, LOCKED_DOOR_W, LOCKED_ROOM_DEPTH, LOCKED_ROOM_LEN, OPENING_APPROACH, PARAPET_H, RAIL_H, RAIL_T, SLAB_T,
+  STAIR_ARRIVAL, STAIR_LANDING, STAIR_SLOPE, STAIR_W, VENT_H, VENT_MARGIN, VENT_POST, VENT_W,
   WALL_T, WINDOW_SILL, WINDOW_TOP, WINDOW_W,
 } from '../model';
 import type { WindowSpec } from './Glass';
@@ -62,6 +71,10 @@ export interface BuildingPlan {
   /** 지상 · 지하 컨테이너 수. 조명이 **컨테이너 있는 방에만** 달리므로 자리 고르기가 여기서 끝난다. */
   containers: number;
   basementContainers: number;
+  /** 2026-09-12: 2층 잠긴 방의 컨테이너 수 (0 = 방을 세우지 않는다). 2층이 실제로 올라갔을 때만 방이 선다. */
+  lockedContainers: number;
+  /** 잠긴 방 자리 고르기 전용 rng (건물 본래의 스트림을 밀지 않으려고 따로 받는다). 없으면 방을 세우지 않는다. */
+  lockRng: Random | null;
 }
 
 /** 무언가가 설 자리 — 월드 좌표 + 벽을 등진 방향(수학 규약 yaw). */
@@ -110,6 +123,10 @@ export interface StructureNav {
   stairTop: [number, number] | null;
   /** 무너진 틈 (없으면 null) — side 0 북 · 1 서 · 2 동, `c` = 벽을 따라간 가운데. */
   breach: { side: number; c: number } | null;
+  /** 2026-09-12: 2층 잠긴 방의 안쪽 사각형 (층 `k`), 없으면 null. 잠긴 동안 사람이 닿지 못해야 하는 칸이다. */
+  locked: { k: number; x0: number; x1: number; z0: number; z1: number } | null;
+  /** 2026-09-12: 지상드론 개구멍마다 문 쪽(`out`) · 방 쪽(`in`) 한 걸음과 바닥 높이 `y`. */
+  vents: { out: [number, number]; in: [number, number]; y: number }[];
 }
 
 export interface BuildingOut {
@@ -121,6 +138,9 @@ export interface BuildingOut {
   console: Spot | null;
   /** 지하실 문 (지하실이 없으면 null). */
   door: DoorSpot | null;
+  /** 2026-09-12: 2층 잠긴 방 문 (방이 없으면 null) · 그 방의 컨테이너 자리. 한 건물에 지하실 문과 함께 서지 않는다. */
+  lockedDoor: DoorSpot | null;
+  lockedContainers: Spot[];
   /** 지하실 바닥 높이 (지하실이 없으면 y0). */
   basementY: number;
   ladders: LadderSpot[];
@@ -256,6 +276,45 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       s = g1;
     }
     seg(s, to, yBase, h);
+  };
+
+  /** 2026-09-12: 지상드론 개구멍마다 문 쪽 · 방 쪽 한 걸음 (도달성 스모크가 드론 몸 · 사람 몸으로 지나가 본다). */
+  const vents: StructureNav['vents'] = [];
+  /**
+   * 2026-09-12 — 개구멍의 **그림**: 틀(윗대 + 양 기둥) + 방 쪽으로 들려 올라간 살창 덮개. 콜라이더는 없다 — 막는 것은
+   * 벽 토막과 인방뿐이다. `c` 는 벽을 따라간 가운데, `thick` 은 벽 두께, `toward` 는 덮개가 들리는 쪽의 부호
+   * (벽에 수직인 건물 축 — X 를 따라가는 벽이면 Z, Z 를 따라가는 벽이면 X). 덮개 아랫변은 드론 키보다 높게 들린다.
+   */
+  const ventDecor = (alongZ: boolean, fixed: number, c: number, yBase: number, thick: number, toward: number): void => {
+    const at = (along: number): [number, number] => (alongZ ? [fixed, along] : [along, fixed]);
+    {
+      const [tx, tz] = at(c);
+      solid(tx, tz, VENT_W / 2 + 0.07, thick / 2 + 0.04, yBase + VENT_H, 0.07, alongZ, null, METAL_DARK, METAL);
+    }
+    for (const s of [-1, 1]) {
+      const [px, pz] = at(c + s * (VENT_W / 2 + 0.035));
+      solid(px, pz, 0.035, thick / 2 + 0.04, yBase, VENT_H, alongZ, null, METAL_DARK, METAL);
+    }
+    const fh = VENT_H * 0.92;
+    const pieces: THREE.BufferGeometry[] = [];
+    const plateG = new THREE.BoxGeometry(VENT_W - 0.05, fh, 0.025);
+    plateG.translate(0, -fh / 2, 0);
+    pieces.push(plateG);
+    for (let i = 0; i < 4; i++) {
+      const slat = new THREE.BoxGeometry(VENT_W - 0.12, 0.035, 0.07);
+      slat.translate(0, -fh * (0.16 + i * 0.22), 0.02);
+      pieces.push(slat);
+    }
+    const flap = merge(pieces);
+    for (const p of pieces) p.dispose();
+    // 로컬 +Z 는 X 를 따라가는 벽이면 건물 +Z, Z 를 따라가는 벽이면 건물 −X 다 (`solid` 의 Euler 와 같은 규약).
+    // rotateX(a) 는 아랫변을 로컬 −sign(a) Z 로 보낸다 → 원하는 쪽 부호의 반대로 돌린다. 1.4 rad 면 아랫변이 바닥 + 0.51 m.
+    const localToward = toward * (alongZ ? -1 : 1);
+    flap.rotateX(-localToward * 1.4);
+    const [hx, hz] = rot(...at(c));
+    xform(flap, { x: hx, y: yBase + VENT_H - 0.02, z: hz }, new THREE.Euler(0, -(yaw + (alongZ ? Math.PI / 2 : 0)), 0));
+    paint(flap, METAL_DARK);   // rng 를 쓰지 않는다 — 지하실 개구멍이 건물 본래의 추첨 스트림을 밀면 안 된다
+    parts.push(flap);
   };
 
   /* ── 배치 결정: 정문 → 격벽 · 실내 계단 · 지하 계단 구멍 · 격벽 통로 → 무너진 틈 ─────────────────────
@@ -447,6 +506,61 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   const hatch = rect(ladderX - HATCH_W / 2, ladderX + HATCH_W / 2, ladderFace, ladderFace + ladderSide * HATCH_D);
   const ladderZone = rect(ladderX - 1.1, ladderX + 1.1, ladderFace, ladderFace + ladderSide * 2.0);
 
+  /* ── 2026-09-12: 2층 잠긴 방 자리 ──────────────────────────────────────────
+   * 모서리(sx, sz) 하나에 붙인다. 좌표는 (u, b) 틀로 잰다 — u = 문 벽을 따라 옆 벽 쪽 끝(0)에서 바깥벽 쪽(L)으로,
+   * b = 모서리의 바깥벽 안쪽 면(0)에서 안으로. 문 벽은 b = D + WALL_T/2, 옆 벽은 u = −WALL_T/2 에 선다.
+   * `alongZ` = 문 벽이 로컬 Z 를 따라간다. 8 후보(모서리 4 × 문 벽 방향 2)를 전용 rng 로 섞어 처음 맞는 것을 쓴다. */
+  interface LockPlan {
+    sx: number; sz: number; alongZ: boolean;
+    map: (u: number, b: number) => [number, number];
+    block: Rect; yard: Rect; interior: Rect;
+  }
+  const LOCK_L = LOCKED_ROOM_LEN, LOCK_D = LOCKED_ROOM_DEPTH;
+  const LOCK_U_VENT = VENT_MARGIN + VENT_W / 2;
+  const LOCK_U_DOOR0 = VENT_MARGIN + VENT_W + VENT_POST;
+  const LOCK_U_DOOR = LOCK_U_DOOR0 + LOCKED_DOOR_W / 2;
+  let lock: LockPlan | null = null;
+  if (floors === 2 && plan.lockedContainers > 0 && plan.lockRng) {
+    const lr = plan.lockRng;
+    const makeLock = (sx: number, sz: number, alongZ: boolean): LockPlan => {
+      const map = (u: number, b: number): [number, number] => (alongZ
+        ? [sx * (iw - b), sz * (id - LOCK_L + u)]
+        : [sx * (iw - LOCK_L + u), sz * (id - b)]);
+      const fr = (u0: number, u1: number, b0: number, b1: number): Rect => {
+        const [xa, za] = map(u0, b0), [xb, zb] = map(u1, b1);
+        return rect(xa, xb, za, zb);
+      };
+      return {
+        sx, sz, alongZ, map,
+        block: fr(-WALL_T, LOCK_L, 0, LOCK_D + WALL_T),
+        yard: fr(0, LOCK_U_DOOR0 + LOCKED_DOOR_W, LOCK_D + WALL_T, LOCK_D + WALL_T + OPENING_APPROACH),
+        interior: fr(0, LOCK_L, 0, LOCK_D),
+      };
+    };
+    // 2층의 계단 구멍 + 난간 + 도착 자리 (도착한 사람은 안쪽 옆으로 빠져나가므로 넉넉히 비운다)
+    const stairZone2 = rect(sOuter, sInner, sBottomZ - stairRoom * RAIL_T, sTopZ + stairRoom * STAIR_ARRIVAL);
+    const ladderWall = hasPartition ? null : rect(ladderX - 1.6, ladderX + 1.6, mountZ - WALL_T / 2, mountZ + WALL_T / 2);
+    const fits = (c: LockPlan): boolean => {
+      if (overlaps(grow(c.block, 1.2), stairZone2) || overlaps(c.yard, grow(stairZone2, 0.3))) return false;
+      if (overlaps(grow(c.block, 1.0), ladderZone) || overlaps(c.yard, grow(ladderZone, 0.2))) return false;
+      if (ladderWall && (overlaps(grow(c.block, 1.0), ladderWall) || overlaps(c.yard, ladderWall))) return false;
+      if (hasPartition) {
+        const pz0 = partZ - WALL_T / 2, pz1 = partZ + WALL_T / 2;
+        // 방 · 앞마당이 격벽 한쪽에만 있고, 방과 격벽 사이는 사람이 지나갈 만큼(1.2 m) 떨어진다 (죽은 틈을 만들지 않는다)
+        const z0 = Math.min(c.block.z0, c.yard.z0), z1 = Math.max(c.block.z1, c.yard.z1);
+        if (c.sz > 0 ? z0 < pz1 + 0.05 : z1 > pz0 - 0.05) return false;
+        if (c.sz > 0 ? c.block.z0 - pz1 < 1.2 : pz0 - c.block.z1 < 1.2) return false;
+        const pass = passZoneAt(partZ, passX);
+        if (overlaps(grow(c.block, 0.6), pass) || overlaps(c.yard, pass)) return false;
+      }
+      return true;
+    };
+    const cands: LockPlan[] = [];
+    for (const sx of [1, -1]) for (const sz of [1, -1]) for (const az of [false, true]) cands.push(makeLock(sx, sz, az));
+    for (let i = cands.length - 1; i > 0; i--) { const j = lr.int(0, i); const t = cands[i]; cands[i] = cands[j]; cands[j] = t; }
+    lock = cands.find(fits) ?? null;
+  }
+
   /* ── 바닥판 · 천장 · 옥상 ────────────────────────────────────────────────── */
   const fx0 = halfW + FLOOR_OVERHANG, fz0 = halfD + FLOOR_OVERHANG;
   const fxs = halfW + WALL_T / 2, fzs = halfD + WALL_T / 2;
@@ -502,6 +616,12 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     }
     // 2026-09-12: 계단이 붙은 바깥벽에는 **어느 층이든** 계단 구간(층계참 포함)에 창을 내지 않는다
     if (floors === 2) (stairSide > 0 ? fE : fW).push({ c: (stairFace + sTopZ) / 2, w: Math.abs(sTopZ - stairFace) + 1.2 });
+    // 2026-09-12: 잠긴 방이 붙은 바깥벽 두 면에는 창을 내지 않는다 (안벽이 창 한가운데에 붙지 않게, 방은 봉인된 금고다)
+    if (k === 1 && lock) {
+      const b = lock.block;
+      (lock.sz > 0 ? fN : fS).push({ c: (b.x0 + b.x1) / 2, w: b.x1 - b.x0 + 0.8 });
+      (lock.sx > 0 ? fE : fW).push({ c: (b.z0 + b.z1) / 2, w: b.z1 - b.z0 + 0.8 });
+    }
     south.push(...windowOps(iw, fS));
     north.push(...windowOps(iw, fN));
     west.push(...windowOps(id, fW));
@@ -519,6 +639,84 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   if (!hasPartition) {
     // 격벽이 들어갈 자리가 없던 건물: 사다리를 붙일 짧은 벽 한 토막만 맨 위층에 세운다
     solid(ladderX, mountZ, 1.6, WALL_T / 2, levelY(topK), H, false, 'building');
+  }
+
+  /* ── 2026-09-12: 2층 잠긴 방 — 안벽 두 면 · 문(자리만, 문짝은 `Structures`) · 개구멍 · 조명 · 컨테이너 자리 ───── */
+  let lockedDoor: DoorSpot | null = null;
+  const lockedSpots: Spot[] = [];
+  if (lock) {
+    const L = LOCK_L, D = LOCK_D;
+    const y1 = levelY(1);
+    const wallB = D + WALL_T / 2;
+    /** 문 벽 위의 u 를 그 벽이 따라가는 로컬 좌표로. */
+    const along = (u: number): number => { const [x, z] = lock!.map(u, wallB); return lock!.alongZ ? z : x; };
+    const [fx, fz] = lock.map(0, wallB);
+    const doorWallFixed = lock.alongZ ? fx : fz;
+    const a0 = along(0), a1 = along(L);
+    wallRun(lock.alongZ, doorWallFixed, Math.min(a0, a1), Math.max(a0, a1), y1, H, [
+      { c: along(LOCK_U_VENT), w: VENT_W, y0: 0, y1: VENT_H },
+      { c: along(LOCK_U_DOOR), w: LOCKED_DOOR_W, y0: 0, y1: DOOR_H },
+    ]);
+    // 옆 벽 (문 벽에 수직, 모서리 기둥 몫까지)
+    {
+      const sideAlongZ = !lock.alongZ;
+      const [p0x, p0z] = lock.map(-WALL_T / 2, 0), [p1x, p1z] = lock.map(-WALL_T / 2, D + WALL_T);
+      const fixed = sideAlongZ ? p0x : p0z;
+      const s0 = sideAlongZ ? p0z : p0x, s1 = sideAlongZ ? p1z : p1x;
+      wallRun(sideAlongZ, fixed, Math.min(s0, s1), Math.max(s0, s1), y1, H, []);
+    }
+    // 문틀: 양 문설주 + 윗대 (벽 면에서 조금 튀어나오므로 콜라이더를 건다 — 지하실 문틀과 같다)
+    for (const u of [LOCK_U_DOOR0 - 0.08, LOCK_U_DOOR0 + LOCKED_DOOR_W + 0.08]) {
+      const [px, pz] = lock.map(u, wallB);
+      solid(px, pz, 0.08, WALL_T / 2 + 0.05, y1, DOOR_H, lock.alongZ, 'building', METAL_DARK, METAL);
+    }
+    {
+      const [px, pz] = lock.map(LOCK_U_DOOR, wallB);
+      solid(px, pz, LOCKED_DOOR_W / 2 + 0.16, WALL_T / 2 + 0.05, y1 + DOOR_H - 0.1, 0.12, lock.alongZ, 'building', METAL_DARK, METAL);
+      // 문 위 경고등 띠 (그림만)
+      const [gx, gz] = rot(...lock.map(LOCK_U_DOOR, D + WALL_T + 0.06));
+      const lampG = new THREE.BoxGeometry(0.6, 0.1, 0.08);
+      xform(lampG, { x: gx, y: y1 + DOOR_H + 0.25, z: gz }, new THREE.Euler(0, -(yaw + (lock.alongZ ? Math.PI / 2 : 0)), 0));
+      glow.push(lampG);
+    }
+    ventDecor(lock.alongZ, doorWallFixed, along(LOCK_U_VENT), y1, WALL_T, lock.alongZ ? lock.sx : lock.sz);
+    {
+      const [ox, oz] = lock.map(LOCK_U_VENT, D + WALL_T + 0.8), [ix, iz] = lock.map(LOCK_U_VENT, D - 0.8);
+      vents.push({ out: [ox, oz], in: [ix, iz], y: y1 });
+    }
+    // 문 (문짝은 벽 속 주머니 = +u 쪽으로 밀려 들어간다 — 문짝 두께 0.18 < 벽 두께라 열린 문짝은 벽 안에 숨는다)
+    {
+      const [dlx, dlz] = lock.map(LOCK_U_DOOR, wallB);
+      const [dx, dz] = rot(dlx, dlz);
+      const slide = LOCKED_DOOR_W + 0.02;
+      const [sxw, szw] = lock.alongZ ? dirW(0, lock.sz * slide) : dirW(lock.sx * slide, 0);
+      const [rx, rz] = rot(...lock.map(VENT_MARGIN + VENT_W + VENT_POST / 2, D + WALL_T + 0.08));
+      const [ix, iz] = rot(...lock.map(LOCK_U_DOOR, D + WALL_T + 0.85));
+      const byaw = yaw + (lock.alongZ ? Math.PI / 2 : 0);
+      lockedDoor = {
+        x: dx, y: y1, z: dz, yaw: byaw, halfW: LOCKED_DOOR_W / 2 - 0.06, height: DOOR_H - 0.04, thick: 0.18,
+        slideX: sxw, slideZ: szw,
+        reader: { x: rx, z: rz, yaw: byaw },
+        interact: { x: ix, y: y1, z: iz },
+      };
+    }
+    // 방 조명 (컨테이너가 있는 방이다 — 광원 풀의 자리 하나)
+    {
+      const [wx, wz] = rot(...lock.map(L / 2, D / 2));
+      const g = new THREE.BoxGeometry(1.1, 0.07, 0.45);
+      xform(g, { x: wx, y: y1 + H - 0.04, z: wz }, new THREE.Euler(0, -yaw, 0));
+      glow.push(g);
+      fixtures.push({ x: wx, y: y1 + H - 0.4, z: wz, color: lightColor, intensity: LIGHT_INTENSITY * 0.8, distance: LIGHT_DISTANCE });
+    }
+    // 컨테이너 자리: 바깥벽(b = 0)을 등지고 문 벽 쪽을 본다 — 층의 다른 컨테이너와 같은 인셋
+    {
+      const n = Math.min(4, plan.lockedContainers);
+      const facing = lock.alongZ ? (lock.sx > 0 ? Math.PI : 0) : -lock.sz * Math.PI / 2;
+      for (let i = 0; i < n; i++) {
+        const [wx, wz] = rot(...lock.map(L * (i + 0.5) / n, 0.95));
+        lockedSpots.push({ x: wx, y: y1, z: wz, yaw: yaw + facing });
+      }
+    }
   }
 
   /* 정문 상인방 장식 + 등 (그림만 — 문 높이 위라 머리에 닿지 않는다) */
@@ -605,7 +803,20 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
      * 문 벽 앞에서 한 뼘 끊는다 — 열린 문짝이 그 틈으로 방 쪽에 밀려 들어간다. */
     {
       const zEnd = bDoorZ - bDz * (WALL_T / 2 + 0.14);
-      solid(bInner - bSide * 0.1, (bZA + zEnd) / 2, Math.abs(zEnd - bZA) / 2, 0.1, yB, bRise, true, 'building');
+      const wx = bInner - bSide * 0.1;
+      /* 2026-09-12: 문 바로 앞 층계참 구간(계단 낮은 끝 ~ 벽 끝)의 가운데에 **지상드론 개구멍** — 벽 토막 둘 + 인방.
+       * 복도 → 지하실 방으로 드론만 지나간다 (사람은 인방에 밀린다). 방 쪽 1.1 m 는 컨테이너 자리에서 이미 비어 있다. */
+      const vc = (bLowZ + zEnd) / 2;
+      const v0 = vc - VENT_W / 2, v1 = vc + VENT_W / 2;
+      const zLo = Math.min(bZA, zEnd), zHi = Math.max(bZA, zEnd);
+      const seg = (a: number, b: number, yb: number, h: number): void => {
+        if (b - a > 0.05 && h > 0.03) solid(wx, (a + b) / 2, (b - a) / 2, 0.1, yb, h, true, 'building', CONCRETE_DARK, CONCRETE, yB, yB + bRise);
+      };
+      seg(zLo, v0, yB, bRise);
+      seg(v0, v1, yB + VENT_H, bRise - VENT_H);
+      seg(v1, zHi, yB, bRise);
+      ventDecor(true, wx, vc, yB, 0.2, -bSide);
+      vents.push({ out: [bInner + bSide * 0.6, vc], in: [bInner - bSide * 0.9, vc], y: yB });
     }
     /* 1층에서 구멍으로 떨어지지 않게 난간 세 변 (높은 끝 = 들어가는 쪽은 비운다) */
     solid(bInner - bSide * RAIL_T / 2, (bZA + bLowZ) / 2, bRun / 2, RAIL_T / 2, y0, RAIL_H, true, 'building', METAL_DARK, METAL);
@@ -686,6 +897,7 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       if (pit) ex.push(grow(rect(bOuter, bInner, bZA - bDz * 1.6, bLowZ), 0.9));
     }
     if (k === 1) ex.push(grow(rect(sOuter, sInner, sBottomZ, sTopZ + stairRoom * 1.6), 0.5));
+    if (k === 1 && lock) ex.push(grow(lock.block, 0.8), grow(lock.yard, 0.4));   // 2026-09-12: 잠긴 방 · 그 문 앞마당
     if (k === topK) ex.push(grow(ladderZone, 0.2));
     return ex;
   };
@@ -756,8 +968,14 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       const z0 = hasPartition ? (back ? partZ + WALL_T / 2 : -id) : -id;
       const z1 = hasPartition ? (back ? id : partZ - WALL_T / 2) : id;
       // 조명은 계단 쪽을 피해 방 한가운데 조금 옆에 (2층 바닥 구멍 밑에 발광 판이 뜨지 않게)
-      const lx = floors === 2 ? -stairSide * iw * 0.3 : 0;
+      let lx = floors === 2 ? -stairSide * iw * 0.3 : 0;
       const lz = (z0 + z1) / 2;
+      // 2026-09-12: 그 자리가 잠긴 방 안이면 방 밖으로 옮긴다 (방 조명은 잠긴 방이 따로 갖는다)
+      if (k === 1 && lock && inRect(grow(lock.block, 0.5), lx, lz)) {
+        const alt = [0, stairSide * iw * 0.3, -stairSide * iw * 0.6].find((x) =>
+          !inRect(grow(lock!.block, 0.5), x, lz) && !inRect(grow(stairRect, 0.3), x, lz));
+        if (alt !== undefined) lx = alt;
+      }
       const ceil = levelY(k) + H;
       const [wx, wz] = rot(lx, lz);
       const g = new THREE.BoxGeometry(1.4, 0.07, 0.5);
@@ -812,13 +1030,15 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     stairBottom: floors === 2 ? [sXc, (stairFace + sBottomZ) / 2] : null,
     stairTop: floors === 2 ? [sXc, sTopZ + stairRoom * STAIR_ARRIVAL / 2] : null,
     breach,
+    locked: lock ? { k: 1, ...lock.interior } : null,
+    vents,
   };
 
   return {
     parts, glow,
     containers: chosen.map((c) => c.spot),
     basementContainers: basementSpots,
-    console: consoleSpot, door, basementY: pit ? yB : y0,
+    console: consoleSpot, door, lockedDoor, lockedContainers: lockedSpots, basementY: pit ? yB : y0,
     ladders, windows, fixtures, floors, roofY, nav,
   };
 }
@@ -986,11 +1206,12 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
   const nav: StructureNav = {
     cx, cz, yaw, halfW, halfD, levels: [y0],
     doorOut: [0, rampOut], doorIn: [0, -halfD + 1.2],
-    rooms: [], stairBottom: null, stairTop: null, breach: null,
+    rooms: [], stairBottom: null, stairTop: null, breach: null, locked: null, vents: [],
   };
 
   return {
     parts, glow, containers: spots.slice(0, Math.max(0, plan.containers)), basementContainers: [], console: null, door: null,
+    lockedDoor: null, lockedContainers: [],
     basementY: y0, ladders: [], windows: [], fixtures, floors: 1, roofY: Number.NaN, nav,
   };
 }

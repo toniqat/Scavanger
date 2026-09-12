@@ -1,5 +1,6 @@
 import type { ItemDef, ItemInstance } from '@/shared';
-import { QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive } from '@/shared';
+import { QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, mergeRaidFoundMark } from '@/shared';
+import { canStackTogether } from './Grid';
 
 /**
  * Pure bookkeeping for the quick-use wheel: eight slots indexed by wheel direction (`QUICK_SLOT_DIRS`: 0 N … 4 S …
@@ -58,12 +59,14 @@ export function mergeIntoQuick(slots: QuickSlotItems, item: ItemInstance, getDef
   if (!def || def.stackMax <= 1) return item.qty;
   for (const q of slots) {
     if (item.qty <= 0) break;
-    if (!q || q.defId !== item.defId || q.uid === item.uid) continue;
+    // 2026-09-12: the stack key (아이템 회수 계약 — raid-found vs brought) gates the merge like every grid
+    if (!q || q.uid === item.uid || !canStackTogether(q, item)) continue;
     const room = def.stackMax - q.qty;
     if (room <= 0) continue;
     const moved = Math.min(room, item.qty);
     q.qty += moved;
     item.qty -= moved;
+    mergeRaidFoundMark(q, item);
   }
   return item.qty;
 }
@@ -82,11 +85,19 @@ export function pickStarterQuick(
 ): { index: number; item: ItemInstance }[] {
   const taken = slots.map((s) => s !== null);
   const out: { index: number; item: ItemInstance }[] = [];
+  /*
+   * 2026-09-12 (E1, A1 요청): `stim` 카테고리에 체력 회복이 아닌 것(전투 소모품 `boost_*` · 실드 충전기)이 섞였다.
+   * 기본 지급의 S 칸은 **회복제**의 자리이므로 `def.heal` 이 있는 스택이 먼저 이기고, 같은 부류 안에서는 예전처럼 큰 스택이다.
+   * 회복제가 하나도 없으면 예전과 똑같이 가장 큰 stim 스택이다.
+   */
   const pick = (category: string): ItemInstance | null => {
     let best: ItemInstance | null = null;
+    let bestRank = -1;
     for (const it of items) {
-      if (getDef(it.defId)?.category !== category) continue;
-      if (!best || it.qty > best.qty) best = it;
+      const def = getDef(it.defId);
+      if (def?.category !== category) continue;
+      const rank = category === 'stim' && def.heal ? 1 : 0;
+      if (!best || rank > bestRank || (rank === bestRank && it.qty > best.qty)) { best = it; bestRank = rank; }
     }
     return best;
   };

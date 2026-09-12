@@ -1,7 +1,7 @@
 import type { CraftRecipe, ItemDef, WorkbenchKind } from '@/shared';
 import { WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
-import { buildTileContent } from './GridView';
+import { buildTileContent, favoritesRevision } from './GridView';
 import { CELL, TEXT } from './labels';
 
 /**
@@ -231,7 +231,8 @@ export class CraftPanel {
     //   따로 거르는 것은 `빠른제작`(bench 없음) 하나뿐이다.
     this.buildBenches(bench?.kind ?? null);
     const recipes = bench ? all : all.filter((r) => isFieldRecipe(r.recipe));
-    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}`
+    // 2026-09-12 (E1): 산출물 썸네일의 즐겨찾기 띠도 이 서명을 탄다 (`favoritesRevision`)
+    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}|f${favoritesRevision()}`
       + `|${recipes.map((r) => `${r.recipe.id}${r.locked ? '!' : ''}`).join('|')}`;
     if (sig !== this.sig) {
       this.sig = sig;

@@ -149,6 +149,40 @@
 .corp-row.st-complete.is-sel { opacity: 0.8; }
 .corp-row.st-locked { opacity: 0.55; }
 .corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+/* 2026-09-12 (E2): 특정 아이템 회수 계약 — 아이템 칩(보유/필요) + 이름 한 줄. 칩은 호버 카드 · 우클릭 메뉴를 받으므로 pointer-events 를 끄지 않는다 */
+.corp-row .cc-item { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; min-width: 0; }
+.corp-row .cc-item .nm { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ══ 한 번 더 확인 팝업 (2026-09-12, E2 — `ui/HoldAsk.ts`: 즐겨찾기 아이템 판매) ═══════════════════════════════════
+ * `ctx.uiRoot` 바로 아래의 전체 화면 뒤판 + 가운데 카드. 확인은 1초 홀드(`.cv-ask-fill` scaleX 0 → 1), 취소 · Escape · 뒤판. */
+.cv-ask {
+  position: fixed; inset: 0; z-index: 205;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 4, 6, 0.55);
+}
+.cv-ask[hidden] { display: none; }
+.cv-ask-card {
+  width: min(420px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 18px 20px 16px;
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
+  border: 1px solid color-mix(in srgb, var(--c-danger) 55%, transparent);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.65);
+}
+.cv-ask-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-danger); }
+.cv-ask-body { font-size: 12px; line-height: 1.55; color: var(--c-text); white-space: pre-line; }
+.cv-ask-hint { font-size: 11px; color: var(--c-text-faint); transition: color var(--t-fast) var(--ease); }
+.cv-ask-hint.is-flash { color: var(--c-accent); }
+.cv-ask-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.cv-ask-foot .ui-btn { min-width: 96px; height: 34px; font-size: 11px; }
+.cv-ask-ok { position: relative; overflow: hidden; }
+.cv-ask-ok .cv-ask-label { position: relative; }
+.cv-ask-fill {
+  position: absolute; inset: 0;
+  transform: scaleX(0); transform-origin: left;
+  background: color-mix(in srgb, var(--c-danger) 45%, transparent);
+  pointer-events: none;
+}
 
 @media (max-height: 940px) { .corp-view { --corp-page-min: 360px; } }
 @media (max-height: 820px) { .corp-view { --corp-page-min: 300px; } }

@@ -277,14 +277,16 @@ try {
 
   /* ── 9. 월드 천장 ─────────────────────────────────────────────────────────── */
   console.log('world ceiling clamp');
-  const room = await page.evaluate((H) => {
+  const rooms = await page.evaluate((H) => {
     const ctx = window.__game.ctx, w = ctx.world;
-    if (typeof w.getStructures !== 'function') return null;
+    if (typeof w.getStructures !== 'function') return [];
     const V3 = ctx.camera.position.constructor;
     const o = new V3(), up = new V3(0, 1, 0);
     // prefer the lowest standable ceiling: under ~3.3 m a free jump (apex ≈ 1.2 m) would push feet + 2.1 into the
-    // slab, so the clamp has to engage there — a 3.6 m room only proves nothing shoves the body
-    let best = null;
+    // slab, so the clamp has to engage there — a 3.6 m room only proves nothing shoves the body.
+    // 2026-09-12: every candidate, lowest first — the lowest one can sit inside a spot the body cannot stand in (a locked
+    // lab room since the consumable-key change: pushed 0.62 m), and taking only the best one skipped the whole check.
+    const cands = [];
     for (const st of w.getStructures()) {
       for (const [dx, dz] of [[0, 0], [1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5], [2.5, 2.5], [-2.5, -2.5], [2.5, -2.5], [-2.5, 2.5]]) {
         const x = st.position.x + dx, z = st.position.z + dz;
@@ -295,24 +297,30 @@ try {
         if (!hit) continue;
         const ceil = o.y + hit.distance;
         if (ceil - floor < 2.1 + 0.1 || ceil - floor > H + 2.2) continue;   // standable, and a jump must reach it
-        if (!best || ceil - floor < best.ceil - best.floor) best = { x, z, floor, ceil };
+        cands.push({ x, z, floor, ceil });
       }
     }
-    return best;
+    cands.sort((a, b) => (a.ceil - a.floor) - (b.ceil - b.floor));
+    return cands.slice(0, 12);
   }, C.HEIGHT);
-  if (!room) {
+  if (!rooms.length) {
     console.log('  skip (no structure with a reachable ceiling in this seed)');
   } else {
-    const placed = await page.evaluate((r) => {
-      const ctx = window.__game.ctx, V3 = ctx.camera.position.constructor;
-      ctx.player.teleport(new V3(r.x, r.floor + 0.02, r.z), undefined, false);
-      return true;
-    }, room);
-    await waitSim(page, 0.4);
-    const rest = await state();
-    const pushed = Math.hypot(rest.x - room.x, rest.z - room.z);
-    if (!placed || pushed > 0.2 || !rest.grounded) {
-      console.log(`  skip (spot not free: pushed ${pushed.toFixed(2)} m, grounded ${rest.grounded})`);
+    // first candidate the body actually settles on (not pushed, grounded), lowest ceiling first
+    let room = null, lastMiss = '';
+    for (const cand of rooms) {
+      await page.evaluate((r) => {
+        const ctx = window.__game.ctx, V3 = ctx.camera.position.constructor;
+        ctx.player.teleport(new V3(r.x, r.floor + 0.02, r.z), undefined, false);
+      }, cand);
+      await waitSim(page, 0.4);
+      const rest = await state();
+      const pushed = Math.hypot(rest.x - cand.x, rest.z - cand.z);
+      if (pushed <= 0.2 && rest.grounded) { room = cand; break; }
+      lastMiss = `pushed ${pushed.toFixed(2)} m, grounded ${rest.grounded}`;
+    }
+    if (!room) {
+      console.log(`  skip (no free spot among ${rooms.length} candidates: ${lastMiss})`);
     } else {
       const jump = await page.evaluate(() => new Promise((resolve) => {
         const ctx = window.__game.ctx, p = ctx.player, w = ctx.world;

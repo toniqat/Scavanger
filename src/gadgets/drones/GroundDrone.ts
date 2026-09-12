@@ -194,7 +194,7 @@ export class GroundDrone implements DroneBody {
       const up = world.getSurfaceY(pos.x, pos.z, pos.y);
       if (up > pos.y) pos.y = up;
     }
-    world.resolveCollision(pos, this.radius);
+    world.resolveCollision(pos, this.radius, this.height);   // 2026-09-12 (C): 키를 넘겨 개구멍 인방 밑을 지나간다
 
     // ── 바닥
     const g = world.getSurfaceY(pos.x, pos.z, pos.y);

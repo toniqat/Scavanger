@@ -79,19 +79,61 @@ export function tickCooldown(sys: ImplantSystem, dt: number): void {
   sys.hudAcc += dt;
   if (sys.cdRemaining <= 0) return;
   sys.cdRemaining = Math.max(0, sys.cdRemaining - dt);
-  if (sys.cdRemaining === 0) {
-    const def = sys.def();
-    const max = def?.charges ?? 1;
-    if (sys.chargesLeft < max) {
-      sys.chargesLeft++;
-      if (sys.chargesLeft < max) { sys.startCooldown(); return; }
-    }
-    if (sys.barrierLocked) { sys.barrierLocked = false; sys.barrier.hp = sys.barrier.maxHp; sys.emitBarrier(); }
-    sys.emitCooldown(true);
-    sys.ctx.bus.emit('audio:play', { id: 'implant_ready', volume: 0.4 });
-    return;
-  }
+  if (sys.cdRemaining === 0) { sys.finishCooldown(); return; }
   if (sys.hudAcc >= HUD_EMIT_INTERVAL) sys.emitCooldown(false);
+  }
+
+/**
+ * The running cooldown reached 0 (by ticking, or by a grapple refund that ate the rest): one charge comes back — a
+ * charge implant with more missing starts the next refill at once — and a barrier collapse lockout is lifted.
+ * 2026-09-12: every charge back is a **ready moment** (`implant:ready`, `full` false for an intermediate dash charge);
+ * the `implant_ready` sound moved to audio/, which hears that event (it used to be an `audio:play` here that no
+ * `SOUNDS` entry answered).
+ */
+export function finishCooldown(sys: ImplantSystem): void {
+  sys.cdRemaining = 0;
+  const def = sys.def();
+  const max = def?.charges ?? 1;
+  if (sys.chargesLeft < max) {
+    sys.chargesLeft++;
+    if (sys.chargesLeft < max) { sys.startCooldown(); emitReady(sys, false, false); return; }
+  }
+  if (sys.barrierLocked) { sys.barrierLocked = false; sys.barrier.hp = sys.barrier.maxHp; sys.emitBarrier(); }
+  sys.emitCooldown(true);
+  emitReady(sys, true, false);
+  }
+
+/**
+ * 2026-09-12: `implant:ready` — the local implant just became usable. Gameplay phases only: the ship, a mission start,
+ * a reset or an equip hand the implant over full, which is not a "became ready" moment (they never reach here anyway —
+ * `resetRuntime` fills without ticking — the gate is the belt to that).
+ */
+export function emitReady(sys: ImplantSystem, full: boolean, refill: boolean): void {
+  const ctx = sys.ctx, id = sys.equippedId;
+  if (!ctx || !id || !ctx.isGameplayPhase()) return;
+  ctx.bus.emit('implant:ready', { id, charges: sys.chargesLeft, maxCharges: sys.def()?.charges ?? 1, full, refill });
+  }
+
+/**
+ * 2026-09-12 (`ImplantsRef.refillAll`, 안정제): everything full at once — charges, cooldown, barrier lockout + hp,
+ * overcharge energy — then the HUD events again and a ready moment (even when nothing was missing: the item was used).
+ * Deliberately **not** `resetRuntime`: that also resets the grapple / shield / channel, and a stim can be taken with
+ * the hook out or the shield up. A grapple released after this finds no cooldown left, so it refunds nothing.
+ */
+export function refillAll(sys: ImplantSystem): void {
+  const def = sys.def();
+  if (!def || !sys.ctx) return;
+  sys.chargesLeft = def.charges;
+  sys.cdRemaining = 0;
+  sys.cdTotal = sys.effectiveCooldown();
+  sys.barrierLocked = false;
+  if (sys.barrier) { sys.barrier.hp = sys.barrier.maxHp; sys.barrierEmitAcc = 0; }
+  sys.ocEnergy = IMPLANT_OVERCHARGE_ENERGY;
+  sys.energyEmitAcc = 0;
+  sys.emitCooldown(true);
+  sys.emitBarrier();
+  sys.emitEnergy(true);
+  emitReady(sys, true, true);
   }
 
 export function emitCooldown(sys: ImplantSystem, force: boolean): void {
@@ -135,6 +177,7 @@ export function tickEnergy(sys: ImplantSystem, dt: number, def: ImplantDef | und
   if (sys.energyEmitAcc >= HUD_EMIT_INTERVAL || sys.ocEnergy >= IMPLANT_OVERCHARGE_ENERGY) {
     sys.energyEmitAcc = 0;
     sys.emitEnergy(false);
-    if (sys.ocEnergy >= IMPLANT_OVERCHARGE_ENERGY) sys.ctx.bus.emit('audio:play', { id: 'implant_ready', volume: 0.3 });
+    // 2026-09-12: a refilled pool is the overcharge's ready moment (flash + `implant_ready` via the event)
+    if (sys.ocEnergy >= IMPLANT_OVERCHARGE_ENERGY) emitReady(sys, true, false);
   }
   }

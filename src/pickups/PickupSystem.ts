@@ -306,13 +306,18 @@ export class PickupSystem implements GameSystem, PickupsRef {
     const w: PickupWire = { id: p.id, defId: p.item.defId, qty: p.item.qty, p: toTuple(p.position) };
     const ex = extrasOf(p.item);
     if (ex) w.ex = ex;
+    if (typeof p.item.raidFound === 'number') w.rf = p.item.raidFound;   // 2026-09-12: 아이템 회수 계약 표식
     return w;
   }
 
   private itemFromWire(w: PickupWire): ItemInstance {
     const loot = this.ctx.loot;
-    if (loot && loot.getItemDef(w.defId)) return loot.createItem(w.defId, w.qty, w.ex);
-    return { uid: `pk-${w.id}`, defId: w.defId, qty: w.qty, rotated: false, ...(w.ex ?? {}) };
+    const item: ItemInstance = loot && loot.getItemDef(w.defId)
+      ? loot.createItem(w.defId, w.qty, w.ex)
+      : { uid: `pk-${w.id}`, defId: w.defId, qty: w.qty, rotated: false, ...(w.ex ?? {}) };
+    // 2026-09-12: the raid-found mark travels with the item (omitted = not raid-found — an older peer, a brought item)
+    if (typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;
+    return item;
   }
 
   /** Host → clients. */

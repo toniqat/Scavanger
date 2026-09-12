@@ -54,6 +54,16 @@ import * as Corpse from './parts/CorpseLoot';
 /* appended (2026-09-11, A-15): 주머니 — 퀵슬롯과 같은 선을 긋는 또 하나의 컨테이너 */
 import * as Pouch from './parts/Pouch';
 import * as SortOps from './parts/Sort';
+/* appended (2026-09-12, 드론 스캔): 컨테이너를 열지 않고 들여다보기 */
+import * as Peek from './parts/Peek';
+/* appended (2026-09-12, E1): 아이템 즐겨찾기 */
+import * as Fav from './parts/Favorites';
+/* appended (2026-09-12): 아이템 회수 계약 — 「이번 레이드에서 얻은 아이템」 표식 (규칙은 `shared/raidFound.ts`) */
+import * as RaidMarks from './parts/RaidFound';
+import type { RaidFoundScope } from '@/shared';
+import { canStackTogether } from './Grid';
+import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
+import { setRecoveryScope } from './ui/GridView';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
@@ -188,10 +198,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // open) is a catch-up, not something happening in front of the player → `live: false`, no animation.
     this.containers.onTaken = (info) =>
       this.emitItemTaken(info.containerId, info.idx, info.uid, info.qty, info.remaining, null, false);
+    // 2026-09-12 (아이템 회수 계약): stack key for every grid / the wheel / sort + the crate roll's raid-found seed
+    RaidMarks.installRaidFoundRules(this);
     // Phase 5: the persisted loadout fills the bag + slots once, here; from now on the session state is the truth.
     this.loadoutStore = new LoadoutStore(() => this.captureLoadoutSave(), (reason, file) => {
       ctx.bus.emit('inventory:loadoutSaved', { reason });
-      if (reason !== 'profile') this.uploadProfileDoc('loadout', file); // Phase 7: mirror to the server profile
+      if (reason !== 'profile') {
+        this.uploadProfileDoc('loadout', file); // Phase 7: mirror to the server profile
+        Fav.onLoadoutSaved(this);               // 2026-09-12 (E1): the favourite list went up with it
+      }
     });
     // E-6: one debounce for both stores (a 창고 ↔ 가방 move is one save, one transaction)
     this.stash.schedule = () => Docs.scheduleSaves(this);
@@ -216,11 +231,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
         this.loadoutStore.clearRaid();   // 2026-09-11 (E-5): the solo raid is over — its marker goes before the save
         // 2026-09-11 (C-36): 탈출에 성공했으면 장착 가방이 레이드 1회분 닳는다 — 저장 **전에**
         if (stats.extracted) this.wearBagForRaid();
+        // 2026-09-12 (아이템 회수 계약): meta settled before this event — the raid-found marks stop meaning anything now
+        this.stripRaidMarks();
         this.loadoutStore.saveNow('complete');
       }),
-      bus.on('game:over', () => this.onGameOver()),
+      bus.on('game:over', () => { this.onGameOver(); this.stripRaidMarks(); }),
       bus.on('player:respawn', () => this.onRespawn()),
-      bus.on('game:abort', () => this.onAbort()),
+      bus.on('game:abort', () => { this.onAbort(); this.stripRaidMarks(); }),
       bus.on('game:newMission', () => { this.closeAll(); this.clearContainers(); this.outcome = 'none'; }),
       /* Phase 7: server profile documents + host migration */
       bus.on('net:profileLoaded', ({ profile }) => this.onProfileLoaded(profile)),
@@ -233,6 +250,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
           // a fresh browser: the starter is "no data", not an edit — it goes up as a `fresh` document so a real server profile wins
           this.withFreshSave(() => this.applyStarter());
         } else if (this.announcePending) this.announceLoaded();
+        Fav.flushDeferred(this);   // 2026-09-12 (E1): a favourite toggled outside the ship is saved now
+        if (this.stripRaidMarks()) this.afterChange();   // 2026-09-12: no raid-found mark survives into the ship
       }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
@@ -263,6 +282,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   update(dt: number, ctx: GameContext): void {
+    // 2026-09-12 (아이템 회수 계약): the ribbon's display copy of the scope (`ui/GridView`) — every open grid repaints on a change
+    setRecoveryScope(this.raidFoundScope());
     // Tab: bag window on a mission, the 3-column ship screen (창고 / 장비 / 가방) in the hub.
     // Phase 10: the launch-pod READY panel holds its own blocker, and Tab must still work while boarded (as before).
     const onlyReadyBlocked = ctx.uiBlockers.size === 0
@@ -323,6 +344,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Snapshot for the save file: slots + bag placements + quick slots as bag indices. */
   captureLoadoutSave(): LoadoutSave { return Life.captureLoadoutSave(this); }
+
+  /* ── 2026-09-12: 아이템 회수 계약 (`parts/RaidFound.ts`) ── */
+  /** 활성 회수 계약 범위 — 진짜 레이드이고 활성 계약이 `extract_with_items` 일 때만, 아니면 null. */
+  raidFoundScope(): RaidFoundScope | null { return RaidMarks.raidFoundScope(this); }
+  /** 레이드가 끝났다: 몸 · 창고의 「이번 레이드에서 얻은」 표식을 전부 지운다 (바뀐 것이 있으면 true). */
+  stripRaidMarks(): boolean { return RaidMarks.stripRaidMarks(this); }
 
   /**
    * Fill the slots / bag / quick slots from the save (init only, no events). A missing / empty save leaves
@@ -873,12 +900,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const occupant = isQuickIndex(index) ? this.quickSlots[index] : null;
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
-    if (!occupant || !item || !def || occupant.uid === uid || occupant.defId !== item.defId || def.stackMax <= 1) return false;
+    // 2026-09-12 (아이템 회수 계약): a raid-found contract stack and a brought one never merge (`canStackTogether`)
+    if (!occupant || !item || !def || occupant.uid === uid || !canStackTogether(occupant, item) || def.stackMax <= 1) return false;
     if (item.searched === false) return false;
     const moved = Math.min(def.stackMax - occupant.qty, item.qty);
     if (moved <= 0) return false;
     occupant.qty += moved;
     item.qty -= moved;
+    mergeRaidFoundMark(occupant, item);
     const to: ItemLocation = { kind: 'quick', index };
     if (this.locKind(from) !== 'player') this.emitTransfer({ ...item, qty: moved }, def, from, to);
     if (item.qty <= 0) {
@@ -901,7 +930,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (!item || !def || !isQuickUsable(def) || !Number.isFinite(n) || n < 1 || n >= item.qty) return 'bad';
     const occupant = this.quickSlots[index];
     if (!occupant) return 'ok';
-    return occupant.defId === item.defId && occupant.qty < def.stackMax ? 'merge' : 'bad';
+    return canStackTogether(occupant, item) && occupant.qty < def.stackMax ? 'merge' : 'bad';
   }
 
   /** 2026-09-12: execute `previewQuickPartial` — a new wheel stack in an empty cell, or a merge into the same item. */
@@ -916,6 +945,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const to: ItemLocation = { kind: 'quick', index };
     if (pv === 'ok') {
       const created = this.loot.createItem(item.defId, n);
+      copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
       item.qty -= n;
       src.version++;
       this.quickSlots[index] = created;
@@ -929,6 +959,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (moved <= 0) return 'fail';
     occupant.qty += moved;
     item.qty -= moved;
+    mergeRaidFoundMark(occupant, item);
     src.version++;
     if (this.locKind(from) !== 'player') this.emitTransfer({ ...item, qty: moved }, def, from, to);
     this.afterQuickChange();
@@ -1096,6 +1127,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       dropped = item;
     } else {
       dropped = this.loot.createItem(item.defId, n);
+      copyRaidFoundMark(dropped, item);   // 2026-09-12: the dropped part keeps the raid-found mark
       item.qty -= n;
       if (from.kind === 'grid') { const g = this.getGrid(from.grid); if (g) g.version++; }
     }
@@ -1120,6 +1152,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const n = Math.floor(qty);
     if (!def || def.stackMax <= 1 || !Number.isFinite(n) || n < 1 || n >= item.qty) return false;
     const created = this.loot.createItem(item.defId, n);
+    copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
     const slot = grid.findFreeSlot(created, item.rotated);
     if (!slot || !grid.place(created, slot.x, slot.y, slot.rotated)) return false;
     item.qty -= n;
@@ -1251,6 +1284,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return Corpse.openContainerItemsSized(this, containerId, items, position, cols, rows, title);
   }
 
+  /** 2026-09-12 (드론 스캔) — 열지 않고 지금 열면 보일 내용물 (`parts/Peek`). */
+  peekContainerItems(containerId: string, tier?: number): readonly ItemInstance[] | null { return Peek.peekContainerItems(this, containerId, tier); }
+  peekSuppliedItems(containerId: string, items: readonly ItemInstance[], cols?: number, rows?: number): readonly ItemInstance[] { return Peek.peekSuppliedItems(this, containerId, items, cols, rows); }
+
   /**
    * 2026-09-09 — 사망 시점의 전부(장비 · 가방 · 퀵슬롯)를 뽑고 로컬 인벤토리를 비운다. 시체 컨테이너를
    * 채우는 유일한 입구이고, `game/parts/Death` 의 사망 처리에서 정확히 한 번만 불린다.
@@ -1325,6 +1362,25 @@ export class InventorySystem implements GameSystem, InventoryRef {
     el.dataset.defId = defId;
     return el;
   }
+
+  /* ── 2026-09-12 (E1): 아이템 즐겨찾기 (InventoryRef, `parts/Favorites.ts`) ─────────────────────────────── */
+
+  /** Favourite item kinds (def ids). The one table — `ui/GridView` only holds a drawing copy. */
+  favorites = new Set<string>();
+  /** A toggle not yet written with a loadout save (set outside the ship, or while the save debounce runs). */
+  favoritesDirty = false;
+  /** Sorted `favoriteDefIds` snapshot (null = rebuild). */
+  favoriteIdsCache: string[] | null = null;
+
+  isFavorite(defId: string): boolean { return Fav.isFavorite(this, defId); }
+  toggleFavorite(defId: string, on?: boolean): boolean { return Fav.toggleFavorite(this, defId, on); }
+  get favoriteDefIds(): readonly string[] { return Fav.favoriteDefIds(this); }
+  /** `LoadoutSave.fav` for `captureLoadoutSave` (undefined when empty). */
+  captureFavorites(): string[] | undefined { return Fav.captureFavorites(this); }
+  /** Replace the table with a stored list (boot file with `force`, server document without). */
+  applySavedFavorites(raw: unknown, force = false): void { return Fav.applySavedFavorites(this, raw, force); }
+  /** Where a quick move from `from` would go (null = nowhere). The right-click menu labels 「빠른 이동」 with it. */
+  quickMoveDest(from: ItemLocation): GridId | null { return Drop.quickMoveDest(this, from); }
 
   /* ── Phase 5: corp shop / stash access (InventoryRef) ─────────────────── */
 
@@ -1897,7 +1953,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * per-container `searched` flags (a crew card is a public snapshot; `captureRaidState` is the one that keeps them).
    */
   captureCrewLoadout(): unknown {
-    const save = this.captureLoadoutSave();
+    // 2026-09-12 (E1): a crew card is about the kit — my favourites stay mine
+    const { fav: _fav, ...save } = this.captureLoadoutSave();
     return { ...save, bag: save.bag.map((sv) => { const { searched: _s, ...rest } = sv as SavedPlacement & { searched?: boolean }; return rest; }) };
   }
 

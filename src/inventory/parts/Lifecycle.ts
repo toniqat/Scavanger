@@ -74,10 +74,14 @@ export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
   for (const s of LOADOUT_SLOTS) { const it = sys.loadout[s]; if (it) slots[s] = serializeExtras(it); }
   const placements = sys.bag.items();
   const quick = sys.quickSlots.map((it) => (it ? serializeExtras(it) : null));
-  return {
+  const save: LoadoutSave = {
     v: LOADOUT_SAVE_VERSION, slots, bag: placements.map(serializePlacement), quick,
     pouch: sys.pouch.items().map(serializePlacement),
   };
+  // 2026-09-12 (E1): 즐겨찾기 종류 목록 — 비었으면 필드가 없다 (`LoadoutSave.fav`, `parts/Favorites.ts`)
+  const fav = sys.captureFavorites();
+  if (fav) save.fav = fav;
+  return save;
   }
 
 /**
@@ -87,6 +91,8 @@ export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
  */
 export function restoreLoadoutSave(sys: InventorySystem): boolean {
   const save = loadLoadoutSave();
+  // 2026-09-12 (E1): 즐겨찾기는 킷이 비어 있어도 읽는다 — 킷과 수명이 다르다 (`parts/Favorites.ts`)
+  sys.applySavedFavorites(save?.fav, true);
   if (!save || isEmptyLoadoutSave(save)) return false;
   sys.applyLoadoutSave(save);
   sys.announcePending = true;

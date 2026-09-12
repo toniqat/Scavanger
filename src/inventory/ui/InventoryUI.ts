@@ -13,7 +13,7 @@ import { RepairPanel } from './RepairPanel';
 import { ImplantPanel } from './ImplantPanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
-import { GridView, buildSlotCardContent, buildTileContent, setNeededAmmoFrom, type HighlightState } from './GridView';
+import { GridView, buildSlotCardContent, buildTileContent, setNeededAmmoFrom, setRecoveryScope, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
@@ -424,13 +424,38 @@ export class InventoryUI {
     // 2026-09-08: 튜토리얼이 감춘 화면 탭 · 레시피는 단계가 넘어가거나 건너뛰어지는 즉시 돌아온다
     // 2026-09-09: the stash grid's `version` does not move when the 단계 does, so the hidden-item sweep is forced here
     this.ctx.bus.on('tutorial:changed', () => { this.markTab(); this.stashView.refresh(true); this.refresh(); });
+    // 2026-09-12 (E1): 즐겨찾기 — 격자 타일은 `GridView.refresh` 가 리비전을 보고 다시 칠하고, 한 번 만든 카탈로그 타일은 표시만 고친다
+    this.ctx.bus.on('inventory:favoritesChanged', () => this.onFavoritesChanged());
+  }
+
+  /* ── 2026-09-12 (E1): 즐겨찾기 ─────────────────────────────────────────── */
+
+  private favRefreshQueued = false;
+
+  /** Several `inventory:favoritesChanged` in one go (a server document) repaint once. */
+  private onFavoritesChanged(): void {
+    if (this.favRefreshQueued) return;
+    this.favRefreshQueued = true;
+    queueMicrotask(() => {
+      this.favRefreshQueued = false;
+      if (!this.root) return;
+      this.catalogView.refreshFavorites();
+      this.refresh();
+    });
+  }
+
+  /** The context menu's 「즐겨찾기 켜기 / 끄기」. */
+  toggleFavoriteFromMenu(defId: string): void {
+    this.sys.toggleFavorite(defId);
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
   /** Bottom hint bar (mission): rotation / drop keys read the live bindings. */
   private buildHints(): void {
     this.hintsEl.textContent = '';
     const hints: Array<[string, string]> = [
-      [keyLabel(Keys.ROTATE_ITEM), TEXT.hintRotate], ['우클릭', '빠른 이동/메뉴'], ['Shift+드래그', '절반'], ['Ctrl+드래그', '하나'],
+      // 2026-09-12 (E1): 우클릭은 언제나 메뉴, 빠른 이동은 더블클릭
+      [keyLabel(Keys.ROTATE_ITEM), TEXT.hintRotate], ['더블클릭', '빠른 이동'], ['우클릭', '메뉴'], ['Shift+드래그', '절반'], ['Ctrl+드래그', '하나'],
       ['드래그→무기', '부착'], ['드래그→퀵슬롯', '등록'], [keyLabel(Keys.DROP_ITEM), TEXT.hintDrop], ['휠클릭', '요청'],
     ];
     for (const [key, label] of hints) {
@@ -465,7 +490,9 @@ export class InventoryUI {
       { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
       // X: 임무에서는 바닥에 버리고, 함선에서는 창고로 보낸다 (`InventorySystem.dropItem`)
       { key: keyLabel(Keys.DROP_ITEM), label: this.hub ? '창고로' : '버리기' },
-      { key: '우클릭', label: '빠른 이동 · 메뉴' },
+      // 2026-09-12 (E1): 빠른 이동은 더블클릭, 우클릭은 모든 아이템에 메뉴 (즐겨찾기 포함)
+      { key: '더블클릭', label: '빠른 이동' },
+      { key: '우클릭', label: '메뉴' },
       { key: '휠클릭', label: '요청' },
     ];
   }
@@ -498,7 +525,8 @@ export class InventoryUI {
   closePopups(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
-    const d = this.disassemble?.close() ?? false;
+    // 2026-09-12 (E1): 즐겨찾기 분해 확인 카드가 떠 있으면 Escape · Tab 은 그 카드만 물린다 (분해 창은 남는다)
+    const d = (this.disassemble?.cancelConfirm() ?? false) || (this.disassemble?.close() ?? false);
     const r = this.repair?.close() ?? false;
     const f = this.implantPanel?.closePickers() ?? false;   // 2026-09-08: 임플란트 피커도 Escape 한 번을 먹는다
     return a || b || d || f || r;
@@ -639,7 +667,10 @@ export class InventoryUI {
      * 2026-09-12 (사용자 결정): 내게 **필요한 탄약**에만 우상단 사선 띠. 표는 `ui/GridView` 가 들고 있고 여기서
      * 갈아 끼운다 — 바뀌었을 때만 true 이므로 무기를 바꾼 프레임에만 타일을 통째로 다시 그린다.
      */
-    if (setNeededAmmoFrom(this.sys.getLoadout(), (item) => this.sys.getStats(item))) {
+    // 2026-09-12 (아이템 회수 계약): the ribbon's scope is refreshed here too (the system also does it every frame) —
+    // evaluated first so both tables are updated even when the ammo table changed
+    const recoveryChanged = setRecoveryScope(this.sys.raidFoundScope());
+    if (setNeededAmmoFrom(this.sys.getLoadout(), (item) => this.sys.getStats(item)) || recoveryChanged) {
       this.bagView.refresh(true);
       this.stashView.refresh(true);
       this.pouchView.refresh(true);
@@ -864,7 +895,7 @@ export class InventoryUI {
   /** Pick a filter chip: every grid of the window dims what the group does not contain. */
   setFilterGroup(id: FilterGroupId): void {
     this.filterGroup = id;
-    const pred = filterPredicate(id);
+    const pred = filterPredicate(id, (defId) => this.sys.isFavorite(defId));   // 2026-09-12 (E1): 「즐겨찾기」 칩
     this.bagView.setFilter(pred);
     this.stashView.setFilter(pred);
     this.pouchView.setFilter(pred);

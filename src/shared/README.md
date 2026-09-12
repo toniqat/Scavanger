@@ -19,7 +19,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `Random.ts` | Seeded RNG (mulberry32) with `range/int/pick/weighted/shuffle/fork` |
 | `planets.ts` | 행성 **계약만** (`PlanetId`, `PLANET_IDS`, `isPlanetId`, `PLANET_NONE_LABEL`, `PLANET_STORAGE_KEY`). 서버가 Node 에서 그대로 실행하므로 csv 를 읽지 않는다 — 표는 `planetDefs.ts` |
 | `net.ts` | Multiplayer contract: lobby types, client↔server wire protocol (`ClientToServer`/`ServerToClient`), relayed `GameMessage` union (player/enemy snapshots, hit/explode requests, extraction/flow messages), `NetRef` (`ctx.net`), `RemotePlayerRef`/`RemoteAvatarRef`, `PlayerFlags`, tuning constants, slot colours, lobby-code helpers. Shared with the Node server (`server/`) — no runtime deps beyond plain constants |
-| `itemChip.ts` | 재료 요구 칩 렌더러 (`buildItemChip` · `renderItemCost`). shared 의 DOM 둘 중 하나 |
+| `itemChip.ts` | 재료 요구 칩 렌더러 (`buildItemChip` · `renderItemCost`). shared 의 DOM 둘 중 하나. 2026-09-12: 즐겨찾기 표식 공급자(`setItemChipFavoriteSource` → `.is-favorite`) · 우클릭 메뉴 옵트인 속성 `ITEM_FAVORITE_MENU_ATTR` · `ItemFavoriteApi` |
 | `currency.ts` | **재화** (2026-09-09) — 크레딧 · 경험치 · 기업별 신뢰도의 정의(`CURRENCY_DEFS`, `data/currencies.csv`)와 칩 렌더러 (`buildCurrencyChip` · `appendCurrencyRewards`). 아이템이 아닌 보상을 아이템 칩과 같은 자리 · 같은 크기로, 다른 틀(육각)로 그린다. 호버 카드는 `ui/hud/ItemTip` 의 `.is-currency` |
 | `saveSlot.ts` | **캐릭터 세이브 슬롯** (2026-09-09) — `slotKey('scav.profile')` → `scav.s2.profile`. `activeSlot` · `setActiveSlot` · `ensureMigrated`(옛 단일 키 → 슬롯 1) · `readSlotCards` · `deleteSlot` · `markAutoStart`/`takeAutoStart`. 공용 저장(`SHARED_KEYS`: 키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 접두사를 받지 않는다 |
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
@@ -639,6 +639,39 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-12 (리드 통합 — 루팅 굴림 시드 식 `lootRolls.ts`)** — 새 파일 `lootRolls.ts`(`index.ts` 가 다시 내보낸다):
+  `crateLootRandom(seed, containerId)` · `corpseLootRandom(seed, enemyId)`. 상자 · 컨테이너 굴림 식이 inventory `ContainerStore.getOrCreate` ·
+  inventory `parts/Peek`(드론 스캔) · world `structures/parts/Containers.rollCrateContents` 세 곳에, 적 시체 식이 enemies `Corpses` ·
+  gadgets `drones/parts/Scan` 두 곳에 복사돼 있었다 — 한쪽만 고치면 「스캔은 서사라는데 열어 보니 없다」 가 된다(`ballistics` 와 같은 처리).
+  식은 비트 단위로 그대로다. 같은 날 키카드 문구 주석만 새 규칙으로(`types.ts` `StructureKind` 머리 · `events.ts` `structure:unlocked` ·
+  `net.ts` `StructureMessage` · `constants.ts` `STRUCTURE_UNLOCK_HOLD_S`).
+- **2026-09-12 (지상 드론 스캔, 추가만 — 에이전트 D)** — `drones.ts`(D 전용): `DroneScanTargetKind` · `droneScanKindOf(id)`(상호작용 id
+  접두어 `crate_` · `container:` · `corpse:` · `pcorpse:` · `supply:`) · `DRONE_SCAN_TARGET_NAME` · `DroneScanAim` · `DroneScanResult` ·
+  `DronesRef` 옵셔널 `scanHold` · `scanAim` · `getScanResults()` · `DroneMessage` 에 `{t:'drone', ev:'scan', id, r: Rarity | null, p: Vec3Tuple}`
+  (표시 전용 방송 — 기존 `drone` 채널이라 `net.ts` 는 안 건드렸다). `types.ts` [D]: `InventoryRef.peekContainerItems?(containerId, tier?)` ·
+  `peekSuppliedItems?(containerId, items, cols?, rows?)` — 열지 않고 여는 것과 같은 굴림 · 채우기. `events.ts` [D]: `drone:scanned
+  {id, kind, name, rarity, position, local, byName}`. `constants.ts` [D]: `DRONE_SCAN_HOLD_S` · `DRONE_SCAN_RANGE` · `DRONE_SCAN_AIM_RADIUS` ·
+  `DRONE_SCAN_HINT_RANGE` · `DRONE_SCAN_LABEL_HEIGHT` · `DRONE_SCAN_LABEL_MAX_DIST` · `DRONE_SCAN_SHARE_SLACK`.
+
+- **2026-09-12 (즐겨찾기 칩 · 특정 아이템 회수 계약, 추가만 — 에이전트 E2)** — 공용 파일(`events` · `types` · `constants`)의 `[E2]`
+  블록은 비어 있다 (쓸 것이 없었다). 바뀐 것은 E2 전용 두 파일뿐이다:
+  - `itemChip.ts` 끝 블록: `ITEM_CHIP_FAVORITE_CLASS`(`'is-favorite'`) · `ITEM_FAVORITE_MENU_ATTR`(`'data-fav-menu'` — 칩이 아닌
+    `[data-def-id]` 요소가 즐겨찾기 우클릭 메뉴에 옵트인, `data-item-tip` 과 같은 규약) · `ItemFavoriteApi`(`InventoryRef` 의 즐겨찾기
+    절반을 **전부 선택 멤버로** — E1 구현 전에도 컴파일되게 `ctx.inventory` 를 캐스트해 읽는다) · `setItemChipFavoriteSource(fn | null)` ·
+    `isItemChipFavorite(defId)`. `buildItemChip` 이 def 가 있을 때 공급자에게 물어 `.is-favorite` 를 붙인다. 공급자는 `ui/hud/ItemFavoriteMenu`
+    가 등록하고, 이미 그려진 칩은 그 메뉴가 `inventory:favoritesChanged`(E1) 로 고친다 — 칩은 여전히 `ctx` 도 리스너도 모른다.
+  - `meta.ts`: `ContractGoalKind` 에 **`'extract_with_items'`**(라벨 `아이템 회수`), `ContractDef.itemDefId?`(그 목표에만 있다),
+    `CONTRACT_DEFS` 로더가 `contracts.csv` 의 새 `itemDefId` 열을 읽고 **목표에 빈 칸 · 다른 목표에 값**을 `dataIssues` 로 잡는다.
+    아이템 id 가 실제로 있는지는 로더가 items/ 를 몰라 `scripts/data-check.mjs` 가 `ITEM_DEF_MAP` 과 맞춰 본다. 서버(`Economy.ts`)는
+    목표 종류를 모른다 — `economy.gen.json` 에 계약 보상 줄만 늘었다.
+
+- **2026-09-12 (전투 소모품 3종, 추가만 — 에이전트 A1)** — `types.ts` [A1] 블록: `BoostKind`('adrenaline' | 'stimulant') ·
+  `PlayerRef` 선택 멤버 `applyBoost(kind, defId?)` · `boost` · `aimSwayMul`(A2 가 읽는다) · `boostReloadSpeedMul` · `adsSpeedMul` ·
+  `staminaDrainMul` · `staminaCostMul` (owner player, caller weapons). `constants.ts` [A1]: `BOOST_ADRENALINE_DURATION_S` ·
+  `BOOST_STIMULANT_DURATION_S` · `_RELOAD_SPEED_MUL` · `_ADS_SPEED_MUL` · `_AIM_SWAY_MUL` · `_STAMINA_COST_MUL`.
+  `charBuffs.ts`: 종류 `adrenaline` · `stimulant` 추가(`CHAR_BUFF_KINDS` · `ORDER` — 디버프 뒤 · 자세 앞, `LABEL_KO` · `GLYPH` ·
+  `COLOR`, `charBuffTitle` 은 아이템 이름, 둘 다 버프). 키는 `boost`, `defId` · `startedAt` / `endsAt` 을 싣는다 — 옛 클라이언트는 모르는 종류를 버린다.
+
 - **2026-09-11 (E-4 신뢰 경로 본문, 추가만 — 에이전트 ⑤)** — `buffRules.ts` 본문: `createBuffGuard` 가 자리표시에서 실제 상한으로
   (보낸 사람 · 사거리 · 치유 버킷 · boost / 지속 clamp), `buffRangeOf` · `buffHealRate` · `buffSenderOf` · `buffLineClear` 추가,
   `BuffSender.id?` 추가(보낸 사람별 치유 버킷). 스프레이 수치는 `items.csv` 의 `sprayTick` · `sprayHeal` · `sprayRadius` 를 같이 읽는다.
@@ -1064,3 +1097,12 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
 - `constants.ts`: **`WEAPON_MUZZLE_BLOCK_RANGE`** (`data/constants.csv`, 3 m). `KeyBindings.SHOULDER` + `DEFAULT_KEYS.SHOULDER = 'KeyX'`
   (어깨 전환, owner: player/CameraRig). X 는 `DROP_ITEM`(인벤토리 범위)과 겹치지만 범위가 달라 충돌이 아니다.
 - `Keybinds.ts`: `KEY_ACTION_DEFS` 에 `SHOULDER` 줄(`전투` 그룹, `game` 범위) — 설정 · 키 설정 화면이 자동으로 따라간다.
+
+### 2026-09-12 — 아이템 회수 계약: 「이번 레이드에서 얻은 아이템」 표식 (사용자 결정, 추가만)
+- `types.ts`(끝의 새 블록): **`ItemInstance.raidFound?: number`** — 그 인스턴스를 만든 레이드의 맵 시드(`>>> 0`). 레이드 루팅 굴림만 찍는다.
+  생략 = 레이드에서 얻은 것이 아니다. 프로필 문서에는 실리지 않는다.
+- `net.ts`(끝): **`PickupWire.rf?`** · **`CorpseItemWire.rf?`** (`ItemInstanceExtras` 는 `Pick<>` 별칭이라 넓히지 않았다). 생략 = 표식 없음.
+- 새 **`raidFound.ts`** (index 재수출): `raidFoundSeed(ctx)`(진짜 레이드 · 훈련장 아님 · 월드 시드, 아니면 null) · `isRaidFound(item, seed)` ·
+  `markRaidFound(items, seed)` · `stripRaidFound` · `copyRaidFoundMark` · `mergeRaidFoundMark`(표식이 다르면 결과는 표식 없음) ·
+  `raidFoundScopeOf(ctx)` → `RaidFoundScope {seed, defId}`(활성 `extract_with_items`) · `countsForRecovery` · `raidFoundStackKey` ·
+  `sameRaidFoundScope`. 개수(meta) · 스택 분리와 사선 띠(inventory) · 찍기(inventory · world · enemies)가 전부 이 파일을 부른다.

@@ -1561,6 +1561,33 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.02, dur: 0.3, gain: 0.01, filter: { type: 'bandpass', f0: 2000 * p, f1: 900 * p, q: 0.5 }, decayCurve: 'lin' });
     return 0.55;
   },
+
+  /* ── 준비 소리 (2026-09-12) — 임플란트와 함선 호출이 서로 다르게 들린다 ─────────────────────── */
+  /**
+   * 전술 임플란트 준비 — 짧고 높은 전자음: 위로 튕기는 사각파 칩 하나 + 맑은 사인 핑 + 아주 옅은 배음. ≈0.16 s.
+   * (id 는 implants/ 가 오래전부터 보내던 것인데 정의가 없어 한 번도 울리지 않았다. 이제 audio/ 가 `implant:ready` 를 듣는다.)
+   */
+  implant_ready: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 1568 * p, f1: 2093 * p, t0: t, dur: 0.045, gain: 0.06, lp: 5200 });
+    s.tone(d, { type: 'sine', f0: 2637 * p, t0: t + 0.038, dur: 0.12, gain: 0.13, attack: 0.003 });
+    s.tone(d, { type: 'sine', f0: 5274 * p, t0: t + 0.038, dur: 0.05, gain: 0.02 });
+    return 0.17;
+  },
+  /**
+   * 함선 호출 준비 — 무전 톤 두 음 차임: 스퀠치가 열리는 잡음 + 딸깍, 좁은 대역의 두 음(G5 → D6, 뒤 음이 길다),
+   * 스퀠치가 닫히는 짧은 잡음. 임플란트의 높은 핑과 달리 낮고 둥글다. ≈0.56 s.
+   */
+  stratagem_ready: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.07, gain: 0.07, filter: { type: 'bandpass', f0: 2400 * p, q: 1.2 } });
+    s.click(d, t, 1800 * p, 0.035, 0.015);
+    [784, 1175].forEach((f, i) => {
+      const t0 = t + 0.06 + i * 0.17;
+      s.tone(d, { type: 'triangle', f0: f * p, t0, dur: i ? 0.34 : 0.16, gain: 0.13, attack: 0.006, lp: 3200 });
+      s.tone(d, { type: 'square', f0: f * 0.5 * p, t0, dur: i ? 0.22 : 0.12, gain: 0.016, lp: 1400 });
+    });
+    s.noise(d, { t0: t + 0.48, dur: 0.06, gain: 0.035, filter: { type: 'bandpass', f0: 2000 * p, q: 1.5 } });
+    return 0.56;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

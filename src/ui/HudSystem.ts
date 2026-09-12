@@ -49,6 +49,7 @@ import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
 import { KeyGuide } from './hud/KeyGuide';
 import { ItemTip } from './hud/ItemTip';
+import { ItemFavoriteMenu } from './hud/ItemFavoriteMenu';
 import { GameCursor } from './hud/GameCursor';
 import { ShipManage } from './hud/ShipManage';
 import { CursorHoldGauge } from './hud/CursorHoldGauge';
@@ -209,6 +210,8 @@ export class HudSystem implements GameSystem {
   /* B-1 (2026-09-11): 서버 연결 배지 (#ui-root 직계, 함선 · 타이틀) */
   private netBadge!: NetBadge;
   private itemTip!: ItemTip;
+  /* 2026-09-12 (E2): 칩 · 옵트인 타일의 즐겨찾기 우클릭 메뉴 (direct child of `ctx.uiRoot`, like `itemTip`) */
+  private itemFavMenu!: ItemFavoriteMenu;
   /* Phase 10: the software-cursor sprite (a direct child of `ctx.uiRoot`, like `itemTip`) */
   private gameCursor!: GameCursor;
   /* Phase 5 (corporations) */
@@ -327,6 +330,8 @@ export class HudSystem implements GameSystem {
     // 재료 요구 칩 hover card: a direct child of `#ui-root` so it floats over the inventory window, the 함선 관리
     // screen and every menu — it delegates on `.item-chip[data-def-id]` wherever a chip is rendered.
     this.itemTip = new ItemTip(ctx.uiRoot);
+    // 2026-09-12 (E2): 칩 즐겨찾기 우클릭 메뉴 — same delegation on `ctx.uiRoot`, and the chip favorite source it registers.
+    this.itemFavMenu = new ItemFavoriteMenu(ctx.uiRoot);
     // 키 가이드 (2026-09-09): same placement rationale — the bottom-right one-liner must sit over every open screen.
     this.keyGuide = new KeyGuide(ctx.uiRoot);
     // 구조선 대상 선택 (2026-09-09): a full-screen picker, so it hangs off `#ui-root` like the map / menus.
@@ -360,7 +365,7 @@ export class HudSystem implements GameSystem {
     this.scanTracker.bind(ctx);
     this.cutscene.bind(ctx);
     for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.keyGuide]) c.bind(ctx);
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.bind(ctx);
@@ -478,6 +483,8 @@ export class HudSystem implements GameSystem {
       this.danger.lateUpdate(dt, ctx);
       this.statusMarkers.lateUpdate(ctx);
       this.scanWarning.lateUpdate(dt, ctx);
+      // 2026-09-12: 드론 스캔 결과 월드 라벨 (DroneHud 가 들고 있다)
+      this.droneHud.lateUpdate(ctx);
     }
     if (this.socialVisible) { this.nameplates.lateUpdate(ctx); this.typing.lateUpdate(ctx); }
     this.detection.lateUpdate(dt, ctx);
@@ -712,7 +719,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     this.scanTracker.dispose();
     this.cutscene.dispose();
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.dispose();
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.dispose();
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.dispose();

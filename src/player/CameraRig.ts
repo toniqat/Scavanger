@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { SLASH_FOV_MUL, type InteriorCollider, type WorldRef } from '@/shared';
+import {
+  SLASH_FOV_MUL, AIM_SWAY_PITCH_RATIO, AIM_SWAY_CROUCH_MUL, AIM_SWAY_PRONE_MUL, AIM_SWAY_MOVE_MUL, AIM_SWAY_BLEND_RATE,
+  type InteriorCollider, type WorldRef,
+} from '@/shared';
 import { damp, dampVec3, noise1, smoothDamp, type SpringState } from '@/core/util/MathUtil';
 
 export interface RigInput {
@@ -20,7 +23,25 @@ export interface RigInput {
   interior: InteriorCollider | null;
 }
 
+/**
+ * 2026-09-12 조준 흔들림 입력 (`CameraRig.sway`, PlayerSystem 이 `advanceSway` 직전에 채운다). 흔들림은 `update` 보다 **먼저**
+ * 이번 프레임 값으로 정해져야 한다 — 같은 프레임의 `predictPosition` · `getLookDir`(= 사격 판정)과 `lateUpdate` 의 렌더가 같은 각을 쓴다.
+ */
+export interface SwayInput {
+  /** 0..1 정조준 정도 (`aimBlend`) — 바로 곱한다 (정조준 전환이 곧 흔들림의 시작 · 끝). */
+  aim: number;
+  /** false = 흔들림이 없어야 하는 상태 (함선 · 사다리 · 드론 · 가구 · 연출 카메라 …). 크기가 `AIM_SWAY_BLEND_RATE` 로 0 이 된다. */
+  on: boolean;
+  crouch: number;       // 0..1
+  prone: number;        // 0..1
+  /** 0..1 = 걷기 속도에 대한 비율. */
+  move: number;
+  /** 외부 배수 (`PlayerRef.aimSwayMul`, 각성제 0.7). */
+  mul: number;
+}
+
 const DEG = Math.PI / 180;
+const TWO_PI = Math.PI * 2;
 const PITCH_MIN = -60 * DEG;
 const PITCH_MIN_PRONE = -25 * DEG;
 /** Prone with the ground rising behind the player: the camera may barely look down at all. */
@@ -115,6 +136,21 @@ export class CameraRig {
   // recoil (offset that recovers)
   private recoilPitch = 0;
   private recoilYaw = 0;
+  // 2026-09-12 조준 흔들림 (aim sway): an additive look offset like the recoil — the mouse counters it, nothing locks
+  /** Filled by the player before `advanceSway`. */
+  readonly sway: SwayInput = { aim: 0, on: false, crouch: 0, prone: 0, move: 0, mul: 1 };
+  /** Weapon-class amplitude (rad, yaw) / frequency (Hz) from `setAimSway`; `swayAmpCur` damps toward it (weapon swap). */
+  private swayAmp = 0;
+  private swayAmpCur = 0;
+  private swayHz = 0;
+  /** Stance × movement × `aimSwayMul`, 0 when off — damped by `AIM_SWAY_BLEND_RATE`. */
+  private swayFactor = 0;
+  private swayPhase = 0;
+  /** This frame's offsets (rad), added to yaw / pitch in `getLookDir`, `predictPosition` and `update`. */
+  swayYaw = 0;
+  swayPitch = 0;
+  /** This frame's yaw amplitude (rad) after the ADS blend, stance, movement and `aimSwayMul` (test / HUD probe). */
+  swayAmplitude = 0;
   // override
   private overrideWeight = 0;
   private overrideTarget = 0;
@@ -154,6 +190,37 @@ export class CameraRig {
     // part of the kick is permanent so the player must compensate
     this.pitch = THREE.MathUtils.clamp(this.pitch + pitch * 0.35, this.pitchMin, PITCH_MAX);
     this.yaw += yaw * 0.35;
+  }
+
+  /** 2026-09-12 조준 흔들림: the weapon in hand's class sway (`data/aim_sway.csv`); 0 = none (holstered / no aimable weapon). */
+  setAimSway(amplitudeDeg: number, frequencyHz: number): void {
+    this.swayAmp = Math.max(0, amplitudeDeg || 0) * DEG;
+    this.swayHz = Math.max(0, frequencyHz || 0);
+  }
+
+  /**
+   * 2026-09-12 조준 흔들림 — advance the figure-8 (yaw `sin φ`, pitch `ratio · sin 2φ`) for this frame. Call from the player's
+   * `update` **before** `predictPosition`: the shot (weapons `update`, crosshair line) and the frame the rig renders in
+   * `lateUpdate` then read the same offsets, so the reticle and the impact never disagree. The phase restarts at the centre
+   * whenever the sway has fully faded, so every ADS begins on the crosshair.
+   */
+  advanceSway(dt: number): void {
+    const s = this.sway;
+    const stance = Math.max(0, 1 + (AIM_SWAY_CROUCH_MUL - 1) * s.crouch + (AIM_SWAY_PRONE_MUL - 1) * s.prone);
+    const moving = 1 + (AIM_SWAY_MOVE_MUL - 1) * THREE.MathUtils.clamp(s.move, 0, 1);
+    const want = s.on && !this.droneView ? stance * moving * Math.max(0, s.mul) : 0;
+    this.swayFactor = damp(this.swayFactor, want, AIM_SWAY_BLEND_RATE, dt);
+    this.swayAmpCur = damp(this.swayAmpCur, this.swayAmp, AIM_SWAY_BLEND_RATE, dt);
+    const amp = this.swayAmpCur * this.swayFactor * THREE.MathUtils.clamp(s.aim, 0, 1);
+    this.swayAmplitude = amp;
+    if (amp < 1e-6) { this.swayPhase = 0; this.swayYaw = 0; this.swayPitch = 0; return; }
+    this.swayPhase = (this.swayPhase + TWO_PI * this.swayHz * dt) % TWO_PI;
+    this.swayYaw = amp * Math.sin(this.swayPhase);
+    this.swayPitch = amp * AIM_SWAY_PITCH_RATIO * Math.sin(2 * this.swayPhase);
+  }
+
+  private resetSway(): void {
+    this.swayFactor = 0; this.swayPhase = 0; this.swayYaw = 0; this.swayPitch = 0; this.swayAmplitude = 0;
   }
 
   /** 2026-09-12: swap the camera to the other shoulder (the move itself is damped in `update`). */
@@ -199,6 +266,7 @@ export class CameraRig {
     this.droneView = on;
     this.trauma = 0; this.shakeTimer = 0;
     this.recoilPitch = 0; this.recoilYaw = 0;
+    this.resetSway();   // 2026-09-12: the drone camera never sways (and the body comes back on the crosshair)
     if (on) { this.fov = this.baseFov; this.fovMul = 1; }
   }
 
@@ -208,6 +276,7 @@ export class CameraRig {
     this.distSpring.value = HIP_DIST; this.distSpring.velocity = 0;
     this.collisionDist = HIP_DIST;
     this.recoilPitch = this.recoilYaw = 0;
+    this.resetSway();
     this.trauma = 0;
     this.rearRise = 0;
     this.pitchMin = PITCH_MIN;
@@ -235,9 +304,9 @@ export class CameraRig {
   getForward(out: THREE.Vector3): THREE.Vector3 {
     return out.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
   }
-  /** Full 3D look direction (including pitch & recoil offsets). */
+  /** Full 3D look direction (including pitch, recoil and 2026-09-12 aim-sway offsets — what the reticle points at). */
   getLookDir(out: THREE.Vector3): THREE.Vector3 {
-    const p = this.pitch + this.recoilPitch, y = this.yaw + this.recoilYaw;
+    const p = this.pitch + this.recoilPitch + this.swayPitch, y = this.yaw + this.recoilYaw + this.swayYaw;
     const cp = Math.cos(p);
     return out.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
   }
@@ -253,7 +322,7 @@ export class CameraRig {
    */
   predictPosition(out: THREE.Vector3): THREE.Vector3 {
     if (this.overrideWeight > 0.001 || !this.pivotInit) return out.copy(this.camera.position);
-    const p = this.pitch + this.recoilPitch, y = this.yaw + this.recoilYaw;
+    const p = this.pitch + this.recoilPitch + this.swayPitch, y = this.yaw + this.recoilYaw + this.swayYaw;
     const cp = Math.cos(p);
     _fwd.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
     _right.set(Math.cos(y), 0, -Math.sin(y));
@@ -292,8 +361,8 @@ export class CameraRig {
     this.pivot.z = damp(this.pivot.z, inp.pivot.z, 30, dt);
     this.pivot.y = damp(this.pivot.y, inp.pivot.y + pivotLift, inp.grounded ? 7 : 30, dt);
 
-    // ── look basis
-    const p = this.pitch + this.recoilPitch, y = this.yaw + this.recoilYaw;
+    // ── look basis (the aim sway was advanced earlier this frame by the player — same offsets the shot used)
+    const p = this.pitch + this.recoilPitch + this.swayPitch, y = this.yaw + this.recoilYaw + this.swayYaw;
     const cp = Math.cos(p);
     _fwd.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
     _right.set(Math.cos(y), 0, -Math.sin(y));

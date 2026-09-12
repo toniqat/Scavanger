@@ -13,8 +13,14 @@
  * E(`Keys.INTERACT`)는 패널 규약대로 시작 안내 · 결과에서 닫고, **게임 도중에는 삼키기만 한다** (사이클의 D 바로 위 키라
  * 한 번 스쳐서 세션을 날리지 않게). 키 가이드 owner 는 `housing.gym` 이고 화면마다 자기 키를 올린다.
  *
- * 시간은 `performance.now()` 기반이다: `setInterval` 틱이 판정 객체를 밀고(rAF 가 멈춘 헤드리스에서도 돈다), 키가 오면
- * **그 순간까지** 먼저 민 뒤 판정한다 — 틱 간격만큼 판정이 늦지 않다.
+ * 시간은 `performance.now()` 기반이다. **루프는 화면 프레임마다 한 번**(`requestAnimationFrame`) 판정 객체를 밀고 그린다 —
+ * 키가 오면 **그 순간까지** 먼저 민 뒤 판정하고 그 자리에서 다시 그린다 (틱 간격만큼 판정이 늦지 않고, 화면이 판정과 어긋나지 않는다).
+ *
+ * 2026-09-12 정정 (F): 처음 판은 `setInterval(16 ms)` 가 밀고 그렸다. 3D 프레임이 무겁고 입력(포인터 락 마우스 · 키)이
+ * 들어오는 동안 Chrome 은 렌더링 · 입력 태스크를 타이머보다 먼저 돌리므로, 30 ms 프레임 + 입력 스트림에서 그 타이머는
+ * 1.6 초에 24 번(중간 61 ms · 최대 122 ms 간격 — rAF 는 52 번)밖에 못 돌았다. 커서 · 표식이 2–4 프레임씩 건너뛰며 끊겼고,
+ * 키 핸들러는 판정 객체만 밀고 그리지 않아 화면이 키 입력 순간에 맞춰 튀는 것처럼 보였다. rAF 는 **그리기 직전에** 돌므로
+ * 화면이 바뀌는 프레임마다 반드시 한 번 칠한다. 예비 타이머(`FALLBACK_MS`)는 rAF 가 멈춘 경우(헤드리스 · 가려진 창)에만 일한다.
  */
 import type { GameContext, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry } from '@/shared';
 import {
@@ -33,8 +39,10 @@ export type GymScreenKind = 'intro' | 'game' | 'result';
 
 const ESCAPE_TOKEN = 'housing.gym';
 const GUIDE_OWNER = 'housing.gym';
-/** 틱 간격 (ms) — 커서 · 표식이 부드럽게 흐를 만큼. */
-const TICK_MS = 16;
+/** 예비 타이머 간격 (ms) — rAF 가 돌지 않을 때만 일한다 (구현 값). */
+const FALLBACK_MS = 50;
+/** 마지막 루프가 이보다 오래됐으면 rAF 가 멈춘 것으로 본다 (ms, 구현 값). */
+const FALLBACK_STALE_MS = 100;
 /** 마지막 판정 뒤 결과 화면으로 넘어가기까지 (ms) — 마지막 판정 글자를 읽을 틈 (연출 시간). */
 const RESULT_DELAY_MS = 700;
 
@@ -58,8 +66,12 @@ export class GymScreen {
   private verdict: HTMLElement | null = null;
   private view: GymView | null = null;
   private clocks: Clock[] = [];
+  private raf = 0;
   private timer = 0;
+  /** 판정 객체를 마지막으로 민 시각 (`performance.now()`). */
   private last = 0;
+  /** 루프가 마지막으로 돈 시각 — 예비 타이머가 rAF 가 살아 있는지 본다. */
+  private lastLoop = 0;
   private resultAt = 0;
   private finalScore = 0;
   private readonly consumed = new Set<string>();
@@ -72,6 +84,8 @@ export class GymScreen {
   }
 
   get isOpen(): boolean { return this.screen !== null; }
+  /** 화면 루프(rAF · 예비 타이머)가 걸려 있는가 — 스모크 (닫으면 false). */
+  get ticking(): boolean { return this.raf !== 0 || this.timer !== 0; }
 
   /* ── 열기 · 닫기 ─────────────────────────────────────────────────────────── */
   open(session: GymSessionInfo, equipName: string): void {
@@ -88,8 +102,7 @@ export class GymScreen {
     window.addEventListener('keyup', this.onKeyUp, true);
     this.root.hidden = false;
     this.showIntro();
-    this.last = performance.now();
-    this.timer = window.setInterval(this.loop, TICK_MS);
+    this.startLoop();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
@@ -101,7 +114,7 @@ export class GymScreen {
   }
 
   private teardown(): void {
-    if (this.timer) { clearInterval(this.timer); this.timer = 0; }
+    this.stopLoop();
     window.removeEventListener('keydown', this.onKeyDown, true);
     window.removeEventListener('keyup', this.onKeyUp, true);
     this.consumed.clear();
@@ -119,9 +132,42 @@ export class GymScreen {
 
   dispose(): void {
     this.close();
+    this.stopLoop();
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.root.remove();
+  }
+
+  /* ── 루프 ────────────────────────────────────────────────────────────────── */
+  private startLoop(): void {
+    this.stopLoop();
+    this.last = this.lastLoop = performance.now();
+    this.raf = requestAnimationFrame(this.onFrame);
+    this.timer = window.setInterval(this.onFallback, FALLBACK_MS);
+  }
+
+  private stopLoop(): void {
+    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    if (this.timer) { clearInterval(this.timer); this.timer = 0; }
+  }
+
+  /** 화면 프레임마다 — 그리기 직전이라 이번 프레임에 반드시 보인다. */
+  private readonly onFrame = (): void => {
+    this.raf = requestAnimationFrame(this.onFrame);
+    this.loop();
+  };
+
+  /** rAF 가 멈췄을 때만 (헤드리스 · 가려진 창) — 살아 있으면 한 프레임에 두 번 칠하지 않는다. */
+  private readonly onFallback = (): void => {
+    if (performance.now() - this.lastLoop < FALLBACK_STALE_MS) return;
+    this.loop();
+  };
+
+  private loop(): void {
+    if (!this.isOpen) { this.stopLoop(); return; }
+    this.lastLoop = performance.now();
+    this.tick();
+    this.paint();
   }
 
   /* ── 흐름 ────────────────────────────────────────────────────────────────── */
@@ -155,11 +201,6 @@ export class GymScreen {
     this.showResult(false);
     return r;
   }
-
-  private readonly loop = (): void => {
-    this.tick();
-    this.paint();
-  };
 
   private tick(): void {
     const now = performance.now();
@@ -244,6 +285,7 @@ export class GymScreen {
     if (this.screen !== 'game' || !this.game) return;
     this.game.press(action);
     this.flush();
+    this.paint();                                  // 판정한 그 자리를 곧바로 — 다음 프레임까지 옛 자리를 보여 주지 않는다
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
@@ -258,6 +300,7 @@ export class GymScreen {
     if (this.screen !== 'game' || !this.game) return;
     this.game.release(action);
     this.flush();
+    this.paint();
   };
 
   /* ── 화면 ────────────────────────────────────────────────────────────────── */

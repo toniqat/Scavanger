@@ -268,7 +268,9 @@ export function generateLayout(rng: Random): WorldLayout {
           yaw: rng.range(-Math.PI, Math.PI), height: 0,
         };
         // 지하실은 전진기지 · 연구실만 (불시착 함선은 밑이 없다). 벽에서 2.2 m 안쪽으로 파낸다.
-        const wantPit = row.basementChance > 0 && rng.chance(row.basementChance);
+        // 2026-09-12: 연구실은 `basementChance` 0 이 됐지만 **들어가는 건물 두 종은 이 추첨을 늘 소비한다** — 조건을
+        // `basementChance > 0` 로 두면 연구실에서 draw 가 하나 빠져 그 뒤의 부지 · 층수 · 다른 구조물 추첨이 전부 밀린다.
+        const wantPit = (row.kind === 'outpost' || row.kind === 'lab') && rng.chance(row.basementChance);
         const pit = wantPit && row.halfW > 3.4 && row.halfD > 3.4
           ? { halfX: row.halfW - 2.2, halfZ: row.halfD - 2.2, depth: row.basementDepth }
           : null;

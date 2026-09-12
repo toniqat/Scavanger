@@ -21,7 +21,7 @@
  */
 import type { AmmoType, ItemDef, LaunchWarning } from '@/shared';
 import { AMMO_STACK_ROUNDS, ENV_DESC_KO, ENV_LABEL_KO, getPlanet } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef, shieldChargeOf } from '@/items';
+import { ITEM_DEF_MAP, boostItemOf, getWeaponDef, shieldChargeOf } from '@/items';
 import { WEAPON_SLOT_IDS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -81,9 +81,10 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
   if (!implant) out.push({ id: 'noImplant', text: '전술 임플란트가 없습니다', detail: '인벤토리 장착 장비 칸에서 하나 고르세요.' });
 
   /* 6. 회복 아이템 (가방에 든 것만 — 창고에 있는 건 못 들고 나간다)
-   *    2026-09-10: 실드 충전기도 `category: 'stim'` 이지만 체력을 채우지 않으므로 여기서는 세지 않는다. */
+   *    2026-09-10: 실드 충전기도 `category: 'stim'` 이지만 체력을 채우지 않으므로 여기서는 세지 않는다.
+   *    2026-09-12: 전투 소모품 3종(`boostItemOf` — 아드레날린 · 각성제 · 안정제)도 같은 이유로 세지 않는다. */
   let heals = 0;
-  try { heals = sys.countWhere((d) => d.category === 'stim' && !shieldChargeOf(d.id)); } catch { heals = 0; }
+  try { heals = sys.countWhere((d) => d.category === 'stim' && !shieldChargeOf(d.id) && !boostItemOf(d.id)); } catch { heals = 0; }
   if (heals <= 0) out.push({ id: 'noHeal', text: '회복 아이템이 없습니다', detail: '가방에 붕대나 주사기를 넣어 두세요.' });
 
   /* 7. 준비물 — 목표 행성의 상시 환경을 막을 것을 실었나 (2026-09-11, A-13).

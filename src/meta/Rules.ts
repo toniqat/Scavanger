@@ -220,8 +220,14 @@ export interface SettleResult {
  * `outcome` (Phase 7) names the branch: `success` / `incomplete` (extracted, short) / `failed` (raid failed — no rep even
  * when the goal was met). ui words 미완 / 실패 from it, never from `stats.extracted`.
  */
-export function settleContract(def: ContractDef, progress: number, progressAtStart: number, stats: MissionStats): SettleResult {
-  const p = def.goal === 'extract_with_value' ? Math.max(0, stats.lootValue) : progress;
+export function settleContract(
+  def: ContractDef, progress: number, progressAtStart: number, stats: MissionStats, carried?: number,
+): SettleResult {
+  /* 2026-09-12 (E2): `extract_with_items` reads `carried` — units of `def.itemDefId` on the body (bag grid + quick slots +
+     pouch) at the moment of settlement, counted by the caller before anything moves the bag. Omitted = the live progress. */
+  const p = def.goal === 'extract_with_value' ? Math.max(0, stats.lootValue)
+    : def.goal === 'extract_with_items' ? Math.max(0, Math.floor(carried ?? progress))
+      : progress;
   const success = !!stats.extracted && p >= def.target;
   const outcome: NonNullable<ContractSettlement['outcome']> = success ? 'success' : stats.extracted ? 'incomplete' : 'failed';
   const settlement: ContractSettlement = {

@@ -1,6 +1,23 @@
-import type { ItemDef, ItemInstance } from '@/shared';
+import type { ItemDef, ItemInstance, RaidFoundItem } from '@/shared';
+import { mergeRaidFoundMark } from '@/shared';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
+
+/* ── 2026-09-12 (아이템 회수 계약, 사용자 결정): 스택 분류 열쇠 ─────────────────────────────────────────────────────────
+ * 같은 def 의 두 스택은 **열쇠가 같을 때만** 합친다. 기본은 모두 `''` 라 예전과 똑같다. `InventorySystem` 이 활성 회수 계약
+ * 아이템의 「이번 레이드에서 얻은 것」 을 `'rf'` 로 가르는 규칙(`shared/raidFound.raidFoundStackKey`)을 **질의 시점의 ctx** 로
+ * 꽂는다 (`parts/RaidFound.installRaidFoundRules`). 모든 격자(가방 · 창고 · 주머니 · 상자 · 시체 · 미리보기 흉내 격자)와
+ * 휠(`QuickSlots.mergeIntoQuick`) · 자동 정렬(`parts/Sort`)이 같은 열쇠를 본다. */
+export type StackKeyRule = (item: RaidFoundItem) => string;
+let stackKeyRule: StackKeyRule | null = null;
+/** 스택 분류 규칙을 꽂는다 (null = 전부 한 분류). `InventorySystem.init` 만 부른다. */
+export function setStackKeyRule(rule: StackKeyRule | null): void { stackKeyRule = rule; }
+/** 이 스택의 분류 열쇠. */
+export function stackKeyOf(item: RaidFoundItem): string { return stackKeyRule ? stackKeyRule(item) : ''; }
+/** 두 스택이 합쳐질 수 있는 사이인가 (같은 def + 같은 분류). 수량 여유는 따로 본다. */
+export function canStackTogether(a: RaidFoundItem, b: RaidFoundItem): boolean {
+  return a.defId === b.defId && stackKeyOf(a) === stackKeyOf(b);
+}
 
 export interface Placement {
   item: ItemInstance;
@@ -18,7 +35,8 @@ export interface PriorityPlacement { item: ItemInstance; x?: number; y?: number 
 export interface GridSnapshot {
   cols: number;
   rows: number;
-  placements: { item: ItemInstance; x: number; y: number; rotated: boolean; qty: number }[];
+  /** `raidFound` (2026-09-12): a merge can clear the mark, so an undo must put it back too. */
+  placements: { item: ItemInstance; x: number; y: number; rotated: boolean; qty: number; raidFound?: number }[];
 }
 
 /**
@@ -118,19 +136,23 @@ export class Grid {
     return null;
   }
 
-  /** How many more units of `defId` existing stacks can absorb. */
-  mergeCapacity(defId: string): number {
+  /**
+   * How many more units of `defId` existing stacks can absorb. `incoming` (2026-09-12) = the stack that would merge —
+   * only stacks it may join count (`canStackTogether`); omitted = a fresh, unmarked stack of `defId` (crafting · purchases).
+   */
+  mergeCapacity(defId: string, incoming?: RaidFoundItem): number {
     const def = this.getDef(defId);
     if (!def || def.stackMax <= 1) return 0;
+    const probe: RaidFoundItem = incoming ?? { defId };
     let cap = 0;
-    for (const p of this.placements.values()) if (p.item.defId === defId) cap += def.stackMax - p.item.qty;
+    for (const p of this.placements.values()) if (canStackTogether(p.item, probe)) cap += def.stackMax - p.item.qty;
     return cap;
   }
 
   /** Whether `autoPlace` would fully absorb the item (merge + free slot). Non-mutating. */
   canAbsorb(item: ItemInstance): boolean {
     if (this.placements.has(item.uid)) return false;
-    if (item.qty <= this.mergeCapacity(item.defId)) return true;
+    if (item.qty <= this.mergeCapacity(item.defId, item)) return true;
     return this.findFreeSlot(item) !== null;
   }
 
@@ -181,27 +203,29 @@ export class Grid {
     if (!def || def.stackMax <= 1) return item.qty;
     for (const p of this.placements.values()) {
       if (item.qty <= 0) break;
-      if (p.item.defId !== item.defId || p.item.uid === item.uid) continue;
+      if (p.item.uid === item.uid || !canStackTogether(p.item, item)) continue;
       const room = def.stackMax - p.item.qty;
       if (room <= 0) continue;
       const moved = Math.min(room, item.qty);
       p.item.qty += moved;
       item.qty -= moved;
+      mergeRaidFoundMark(p.item, item);   // 2026-09-12: mixed marks → the result is unmarked (no laundering)
       this.version++;
     }
     return item.qty;
   }
 
-  /** Move qty from `source` into the stack `targetUid`. Returns units moved. */
+  /** Move qty from `source` into the stack `targetUid`. Returns units moved (0 when the two may not stack). */
   mergeInto(source: ItemInstance, targetUid: string): number {
     const target = this.placements.get(targetUid);
-    if (!target || target.item.defId !== source.defId || target.item.uid === source.uid) return 0;
+    if (!target || target.item.uid === source.uid || !canStackTogether(target.item, source)) return 0;
     const def = this.getDef(source.defId);
     if (!def || def.stackMax <= 1) return 0;
     const moved = Math.min(def.stackMax - target.item.qty, source.qty);
     if (moved <= 0) return 0;
     target.item.qty += moved;
     source.qty -= moved;
+    mergeRaidFoundMark(target.item, source);
     this.version++;
     return moved;
   }
@@ -308,7 +332,7 @@ export class Grid {
     return {
       cols: this._cols,
       rows: this._rows,
-      placements: this.items().map((p) => ({ item: p.item, x: p.x, y: p.y, rotated: p.item.rotated, qty: p.item.qty })),
+      placements: this.items().map((p) => ({ item: p.item, x: p.x, y: p.y, rotated: p.item.rotated, qty: p.item.qty, raidFound: p.item.raidFound })),
     };
   }
 
@@ -321,6 +345,7 @@ export class Grid {
     for (const p of s.placements) {
       p.item.rotated = p.rotated;
       p.item.qty = p.qty;
+      if (p.raidFound === undefined) delete p.item.raidFound; else p.item.raidFound = p.raidFound;
       const { w, h } = this.footprintOf(p.item);
       this.fill(p.item.uid, p.x, p.y, w, h);
       this.placements.set(p.item.uid, { item: p.item, x: p.x, y: p.y });

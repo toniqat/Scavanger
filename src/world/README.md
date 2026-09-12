@@ -31,10 +31,10 @@ textures are procedural.
 | `hazard/parts/Grove.ts` | **거대 버섯 군락** — 줄기 · 갓 · 발광하는 갓 밑면 · 밑동 통풍구를 절차로 세워 두 메시(본체 · 발광)로 병합한다. **콜라이더는 줄기뿐이다** (갓은 4~9 m 상공에 있다 — `Props` 의 나무와 같은 이유). 발광 세기만 `update` 에서 맥동한다. |
 | `hazard/parts/Visuals.ts` | **표현**: 카메라를 따라다니며 감기는 입자 구름(`Ambience` 가 본보기, 구역 밖에서는 그리지 않는다) + 경계에 서는 벽 (`front` = 전선을 따라 `frontBandM` 두께로 겹친 커튼 3장, `circle` = 열린 원통). 커튼 텍스처는 절차 `CanvasTexture` 이고 시간에 따라 흐른다. |
 | `obb.ts` | **사각(OBB) 콜라이더** 수학 (2026-09-09, `Obstacle.box`). `boxRadius` (버킷팅용 외접원) · `boxContainsXZ` (윗면 판정) · `boxPushOut` (원 vs 상자 밀어내기, 중심이 안이면 가장 얕은 면으로) · `rayBox` (슬래브 셋 + `boxHitNormal`) · `BOX_HEADROOM`. **`o.box` 가 있을 때만 불린다** — 원기둥 경로는 그대로다. 회전 규약: `box.yaw` 는 수학 규약(로컬 +X → 월드 `(cos, sin)`)이고 같은 상자를 그리는 메시의 Euler 는 `-yaw` 다 (three 의 Y 회전이 반대 손). **2026-09-11**: `rampTopAt` · `rayRamp`(쐐기 = 반공간 6 장) 추가, `BOX_HEADROOM` 값은 `data/constants.csv` (player 의 천장 클램프와 같은 값). |
-| `Structures.ts` | **버려진 구조물** — 전진기지 · 연구실 · 불시착 함선. 건물 세우기, 컴퓨터(행성 스캔) · 지하실 해치 상호작용, 컨테이너 배치, `struct`/`structq` 호스트 권위, `getDefs` / `structureAt`. 지하실 해치는 **잠긴 동안 계단 구멍을 막는 상자 콜라이더**이고 열리면 hash 에서 빠지며 옆으로 미끄러진다. 로그 강하의 "구역당 1회" 기록(`roguedZones`)도 여기 있다. **2026-09-11**: 해치 → **지하 계단 복도 끝의 서 있는 문**(`buildDoor`, 문짝 콜라이더 `door`, 옆으로 밀려 열린다), 콘솔은 **옥상 맵 스캐너**(불시착 함선은 없음, 누르면 모두의 화면에 `ScanWave`), **사다리** `Interactable` 발치 · 꼭대기 → `ladder:grab`(`getLadders`), **창문**(`GlassSet`, 깬 클라이언트가 `struct glass` 를 보내고 `sync.glass` 에 실린다), **구조물 광원 풀**(`LightPool` `STRUCTURE_POINT_LIGHTS` 4개, 구조물이 없어도 만든다 — 레이드의 점광원 개수를 맵마다 같게), 열린 모습 동기화 위임(`setOpenListener` · `markContainerOpened`). |
+| `Structures.ts` | **버려진 구조물** — 전진기지 · 연구실 · 불시착 함선. 건물 세우기, 컴퓨터(행성 스캔) · 지하실 해치 상호작용, 컨테이너 배치, `struct`/`structq` 호스트 권위, `getDefs` / `structureAt`. 지하실 해치는 **잠긴 동안 계단 구멍을 막는 상자 콜라이더**이고 열리면 hash 에서 빠지며 옆으로 미끄러진다. 로그 강하의 "구역당 1회" 기록(`roguedZones`)도 여기 있다. **2026-09-11**: 해치 → **지하 계단 복도 끝의 서 있는 문**(`buildDoor`, 문짝 콜라이더 `door`, 옆으로 밀려 열린다), 콘솔은 **옥상 맵 스캐너**(불시착 함선은 없음, 누르면 모두의 화면에 `ScanWave`), **사다리** `Interactable` 발치 · 꼭대기 → `ladder:grab`(`getLadders`), **창문**(`GlassSet`, 깬 클라이언트가 `struct glass` 를 보내고 `sync.glass` 에 실린다), **구조물 광원 풀**(`LightPool` `STRUCTURE_POINT_LIGHTS` 4개, 구조물이 없어도 만든다 — 레이드의 점광원 개수를 맵마다 같게), 열린 모습 동기화 위임(`setOpenListener` · `markContainerOpened`). **2026-09-12 (C)**: 잠긴 문이 건물마다 많아야 하나(전진기지 지하실 · 연구소 2층 잠긴 방) — 문의 열쇠는 `structures.csv` 의 `key`(`Inst.keyDefId`), 문구는 `DOOR_TEXT`, 소모는 그 열쇠만. 「지상 컨테이너 하나에 확정 키카드」 제거 → 지상 컨테이너마다 `keyChance` 부가 굴림. 잠긴 방 컨테이너 `_l` (전용 rng `structureLocks`). `previewContainerItems` · `debugNav().lockedDoor`. `StructureDef.hasLockedRoom / lockedRoomDoor / unlockDefId` 를 채운다. |
 | `structures/model.ts` | 구조물 · 선로가 공유하는 어휘. **`data/structures.csv` 를 읽는 유일한 자리** (개수 · 크기 · 컨테이너 수 · 지하실 확률/깊이 · 상자 티어 가중치) + 건물 치수 상수(`WALL_T` · `DOOR_W` · `STAIR_HALF` · **`STAIR_RISE_MAX` · `STAIR_TREAD_MIN`** · `SLAB_T` · `PIT_BLEND` · **`FLOOR_OVERHANG` · `FLOOR_LIP`** · `CONTAINER_RADIUS`) + `pickTier`. **2026-09-10**: `data/constants.csv` 의 **`RAIL_CLEARANCE_M`** 도 여기서 읽는다 — 정식 주인은 `shared/constants.ts` 지만 그 배치가 `src/shared` 를 건드리지 않기로 돼 있었고, 이 모듈이 이미 `DATA_OWNERS` 라 `data:check` 의 "아무도 읽지 않는 키" 에 걸리지 않는다 (나중에 한 줄 옮기면 된다). THREE 를 **값으로 쓰지 않는다** — `layout.ts` 와 `scripts/data-check.mjs` 가 아주 이르게 읽는다. |
-| `structures/parts/Build.ts` | 건물 지오메트리 + 콜라이더. `buildBuilding` (벽 · 문틀 · 격벽 · **무너진 지붕** · **계단 구멍을 도려낸 지상층 바닥판 네 조각** · 구덩이 라이닝 · 계단 · 해치 자리 · 컨테이너/콘솔 자리), `buildWreck` (동체 데크 · 옆판 · 후미 램프 · 기수 · 날개 · 나셀). 벽 하나 = 상자 하나이고 그린 `BoxGeometry` 와 **같은 수**를 콜라이더에 쓴다. **2026-09-10 — 바닥판(`floorPlate`)이 그리는 판이자 서는 판이다**: 발자국 + `FLOOR_OVERHANG` 까지 덮고 콜라이더 윗면이 정확히 `y0`, 밑면이 `y0 − SLAB_T` 라 그대로 지하실 천장이다. 예전의 "그린 바닥(콜라이더 없음) + 좁은 천장 슬래브(콜라이더만)" 두 겹은 사라졌다 — 넓이가 달라 그 사이 띠에서 꺼진 지형을 밟던 것이 문턱 버그였다. 계단 치수(`stairSteps`/`stairTread`)도 구멍 길이보다 **먼저** 푼다. **2026-09-11 전면 개편** — 아래 `## 2026-09-11` 절: 층마다 천장 · 무작위 2층 · 실내 계단 · 옥상(난간벽 · 해치 · 사다리) · 창문 · 컨테이너 있는 방마다 조명 자리 · 지하실 방(바닥판 · 계단 복도 · 층계참 · 서 있는 문) · 옥상 스캐너 자리. 격벽 자리를 여러 번 굴려 계단 방 길이 · 지하 계단 구멍 · 구덩이 제약을 한꺼번에 만족시킨다. |
-| `structures/parts/Containers.ts` | 구조물 · 플랫폼 · 전차 안의 **상호작용 컨테이너** (`ContainerSet`). 새 루팅 경로를 만들지 않는다 — 열면 `crate:open {crateId, tier, position}` 을 쏘고 `inventory/` 의 상자 코드가 티어 롤 · 캐시 · 동기화 · 감정 XP · 계약 카운터를 전부 한다. 더하는 것은 실루엣 3종과 두 규칙뿐: 구역에서 **처음** 열면 `structure:investigated`, `bonusDefId`(지하실 키카드)가 있으면 `openContainerItems` 로 먼저 채우고 그 다음 `crate:open`. `dynamic` 스펙은 콜라이더 없이 매 프레임 따라 움직인다 (전차 객실). **2026-09-11**: 열린 모습(`opened`)과 로컬 첫 개봉(`rolled` — 키카드 채우기 · `structure:investigated`)을 갈랐다. 남이 먼저 열어도 내 캐시에는 키카드가 없으므로 내 첫 개봉에서 채워야 한다. `markOpened` · `isOpened` · `setOpenListener`, 열리면 램프가 꺼진다. |
+| `structures/parts/Build.ts` | 건물 지오메트리 + 콜라이더. `buildBuilding` (벽 · 문틀 · 격벽 · **무너진 지붕** · **계단 구멍을 도려낸 지상층 바닥판 네 조각** · 구덩이 라이닝 · 계단 · 해치 자리 · 컨테이너/콘솔 자리), `buildWreck` (동체 데크 · 옆판 · 후미 램프 · 기수 · 날개 · 나셀). 벽 하나 = 상자 하나이고 그린 `BoxGeometry` 와 **같은 수**를 콜라이더에 쓴다. **2026-09-10 — 바닥판(`floorPlate`)이 그리는 판이자 서는 판이다**: 발자국 + `FLOOR_OVERHANG` 까지 덮고 콜라이더 윗면이 정확히 `y0`, 밑면이 `y0 − SLAB_T` 라 그대로 지하실 천장이다. 예전의 "그린 바닥(콜라이더 없음) + 좁은 천장 슬래브(콜라이더만)" 두 겹은 사라졌다 — 넓이가 달라 그 사이 띠에서 꺼진 지형을 밟던 것이 문턱 버그였다. 계단 치수(`stairSteps`/`stairTread`)도 구멍 길이보다 **먼저** 푼다. **2026-09-11 전면 개편** — 아래 `## 2026-09-11` 절: 층마다 천장 · 무작위 2층 · 실내 계단 · 옥상(난간벽 · 해치 · 사다리) · 창문 · 컨테이너 있는 방마다 조명 자리 · 지하실 방(바닥판 · 계단 복도 · 층계참 · 서 있는 문) · 옥상 스캐너 자리. 격벽 자리를 여러 번 굴려 계단 방 길이 · 지하 계단 구멍 · 구덩이 제약을 한꺼번에 만족시킨다. **2026-09-12 (C)**: 2층 연구소의 **잠긴 방**(모서리 8 후보 · 전용 rng `plan.lockRng` · 계단 · 사다리 · 격벽 통로 · 문 앞마당 회피 · 창 금지 · 조명 자리 · 컨테이너 자리 `lockedContainers`)과 잠긴 문 옆 **지상드론 개구멍** 두 곳(지하실 복도 옆벽 · 잠긴 방 문 벽 — 벽 토막 + 인방 + `ventDecor` 틀 · 들린 살창), `StructureNav.locked / vents`. |
+| `structures/parts/Containers.ts` | 구조물 · 플랫폼 · 전차 안의 **상호작용 컨테이너** (`ContainerSet`). 새 루팅 경로를 만들지 않는다 — 열면 `crate:open {crateId, tier, position}` 을 쏘고 `inventory/` 의 상자 코드가 티어 롤 · 캐시 · 동기화 · 감정 XP · 계약 카운터를 전부 한다. 더하는 것은 실루엣 3종과 두 규칙뿐: 구역에서 **처음** 열면 `structure:investigated`, `bonusDefId`(지하실 키카드)가 있으면 `openContainerItems` 로 먼저 채우고 그 다음 `crate:open`. `dynamic` 스펙은 콜라이더 없이 매 프레임 따라 움직인다 (전차 객실). **2026-09-11**: 열린 모습(`opened`)과 로컬 첫 개봉(`rolled` — 키카드 채우기 · `structure:investigated`)을 갈랐다. 남이 먼저 열어도 내 캐시에는 키카드가 없으므로 내 첫 개봉에서 채워야 한다. `markOpened` · `isOpened` · `setOpenListener`, 열리면 램프가 꺼진다. **2026-09-12 (C)**: `bonusDefId` 는 `bonusChance`(생략 = 1) 확률의 **부가** 굴림(`<시드> ^ hash(id + '#bonus')`), 여는 코드와 미리보기가 같은 `contents()` 를 쓴다 — `preview(id)` · 상자 코드와 같은 식의 `rollCrateContents(game, id, tier)`(`WorldRef.previewContainerItems` 의 몸통). |
 | `Rails.ts` | **선로 · 플랫폼 · 전차의 수명 · 상태 기계 · 멀티**. 중심선(지형 높이 평활화 + `RAIL_DECK_Y` + **지형 최고점 실측 부양**) 계산, `rails/parts/*` 호출, 전차 상태 기계(`idle` ↔ `moving` ↔ `docked`, **2026-09-10: 정차 뒤 자동 재출발 없음 — `idle` 로 내려앉아 운전실 콘솔을 기다린다**), **운전실 콘솔 · 플랫폼 호출 콘솔 `Interactable` 등록**(**2026-09-10: 호출 = 목적지를 정한 시동 — `applyStart` 로 합류하고 목적지는 요청자 위치에서 읽는다 `targetSFor`, 운행 중 중복 호출은 홀드 0 + 거부**), 발광 콘솔 메시 병합, `tram`/`tramq` 호스트 권위, `getLines` / `getTrams`. **선로는 지형을 평탄화하지 않는다** — 교각이 높이를 맞춘다. 지오메트리는 한 줄도 없다. **2026-09-11 (C-39)**: 호출이 수락되면 **부른 콘솔 자리에서 이 클라이언트에만** `tram_call` 차임(클라이언트는 낙관적), 부를 수 없으면 `tram_deny` (예전에는 `keycard_deny` 를 빌려 썼다). 소리 정의는 `audio/`. |
 | `rails/model.ts` | 선로 · 전차가 공유하는 **어휘**. `RailPath` (`makePath` · `wrapS` · `sampleAt` · `nearestS` · `deltaS`) + `RAIL_DECK_Y`(0.75) · `TIE_STEP`(1.8) · `PIER_STEP`(9) · `GAUGE_HALF` · `RAIL_DECK_STEP`(**2026-09-10: 5 → 3**) · `RAIL_DECK_T` · `RAIL_DECK_HALF_W` · `RAIL_MAX_GRADE` · `DOCK_WINDOW` · `TRAM_NET_INTERVAL` · `TRAM_SNAP_M` · `PLATFORM_OFFSET`, **차체 치수(`TRAM_FLOOR_UP` · `TRAM_DOOR_HALF` · `TRAM_WALL_*` · `TRAM_NOSE_T` · `TRAM_CAB_LEN` · `TRAM_DESK_*`) · 색(**2026-09-10: 호출 콘솔 발광 `CONSOLE_GLOW` · `CONSOLE_GLOW_BASE`**) · `RailBuild`(**`glow` 채널 = 발광 조각을 모아 한 메시로 합친다**) · `MovingPart` · `TramInst`**(2026-09-11: `hitCooldown` 숫자 → 대상별 `hitUntil` 맵). **축 규약이 여기 적혀 있다: 로컬 +X = 진행 방향(길이), 로컬 +Z = 좌우(폭).** |
 | `rails/parts/Track.ts` | 침목 · 레일 토막 · 교각 지오메트리 + 교각 콜라이더 + **걸어 다니는 선로 발판 상자**(`RAIL_DECK_STEP` 마다). |
@@ -140,6 +140,8 @@ structures → rails → props → crates → gather`). 벽 · 데크 · 컨테�
 
 ### 지하실 · 키카드
 > **2026-09-11**: 바닥 해치 → 계단 복도 끝의 **서 있는 문**. 키카드 규칙(지상 컨테이너 하나 · 호스트 확정 · 연 사람의 것만 소비)은 그대로다.
+> **2026-09-12**: 「지상 컨테이너 하나에 확정」은 **없어졌다** — 소모형 만능 열쇠(지하실 열쇠 · 연구소 키카드)로 바뀌었고 연구소는
+> 지하실 대신 2층 잠긴 방을 갖는다. 아래 `## 2026-09-12: 소모형 만능 열쇠` 절이 지금의 규칙이다. 이 절은 기록으로 남긴다.
 
 `layout` 이 건물 밑에 회전한 사각 **구덩이**(벽에서 2.2 m 안쪽, 깊이 `basementDepth`)를 예약하고
 `Terrain` 이 pad 평탄화 다음에 그것을 판다. 그 위를 덮는 것이 **지상층 바닥판**(`floorPlate`) — 밑면
@@ -588,6 +590,71 @@ PROP_STEP_UP_MAX)` 를 바닥으로 쓴다 — 2층 바닥 · 옥상 · 계단�
 - 날개 경사 콜라이더는 토막 안에서 판 밑이 조금(토막 경사만큼) 채워진다. 기수 윤곽은 볼록이라 구겨진 원뿔의 오목한 곳도 막는다.
 - 도달성은 **걷기만** 본다 — 점프 · 갈고리로 가는 길은 세지 않는다. 지하실 **안**(문 너머)은 문이 잠겨 있어 재지 않는다.
 
+## 2026-09-12: 소모형 만능 열쇠 · 연구소 잠긴 방 · 지상드론 개구멍 (에이전트 C)
+
+설계안 `docs/plans/consumables-keys-favorites.md` §3 (사용자 결정). 계약은 `src/shared/types.ts` 의 `[C]` 블록 —
+`WorldRef.resolveCollision(position, radius, height?)` 오버로드 · `WorldRef.previewContainerItems?(containerId)` ·
+`StructureDef.hasLockedRoom / lockedRoomDoor / unlockDefId`(인터페이스 병합, 선택 필드).
+
+### ① 열쇠 두 종 — 만능 · 소모형
+| 문 | 여는 아이템 | 원본 |
+|---|---|---|
+| 버려진 전진기지 **지하실** | `key_basement` 지하실 열쇠 (옛 id 그대로 — 세이브 호환) | `data/structures.csv` outpost 줄의 `key` |
+| 버려진 연구소 **2층 잠긴 방** | `keycard_lab` 연구소 보안 키카드 | lab 줄의 `key` |
+
+같은 종류면 **어느 건물이든** 열리고, 열면 **연 사람의 것이 1 개** 소모된다 (호스트 확정 · `struct unlocked.by` — 규칙은 옛 지하실
+그대로다). 한 건물에 잠긴 문은 많아야 하나라 `StructureDef.unlocked` · `struct`/`structq` 와이어는 한 줄도 안 바뀌었다 — 문의 종류는
+구조물 id 로 정해진다. 맞는 열쇠가 없으면 홀드 0 · `keycard_deny` · `지하실 열쇠가 필요하다` / `연구소 보안 키카드가 필요하다`,
+프롬프트는 `열쇠로 지하실 개방 (E)` · `지하실 잠김 — 열쇠 필요` / `키카드로 잠긴 방 개방 (E)` · `잠긴 방 — 키카드 필요`
+(`Structures.DOOR_TEXT`). 다른 종류 열쇠는 안 줄어든다.
+
+**열쇠가 그 건물 안에 있다는 보장은 없다.** 지상 컨테이너마다 `keyChance`(0.05)로 그 종류의 열쇠가 **부가로** 들어 있고
+(`ContainerSpec.bonusChance`, 굴림은 `<맵 시드> ^ hash(id + '#bonus')` 의 따로 된 rng — 상자 내용물을 밀지 않는다),
+나머지 등장처(상자 티어 3 · 4 · 로그 · 네임드 시체 · 노마드 상점 신뢰도 3)는 `items/` · `meta/` 의 표다 (`data/README.md`).
+
+### ② 연구소 — 지하실 대신 2층 잠긴 방
+`basementChance` 0. `layout.ts` 의 지하실 추첨은 **들어가는 건물 두 종이면 늘 소비한다**(조건을 종류로 바꿨다) — 연구소에서 draw 가
+빠지면 그 뒤의 부지 · 층수 · 다른 구조물 추첨이 전부 밀린다. 2층이 올라간 연구소(`upperChance` 0.5)에만 `parts/Build` 가 2층
+모서리 하나에 **잠긴 방**(안쪽 `LOCKED_ROOM_LEN` 5.4 × `LOCKED_ROOM_DEPTH` 3.4 m, 바깥벽 두 면 + 안벽 두 면)을 세운다.
+- 자리: 모서리 4 × 문 벽 방향 2 = 8 후보를 **전용 rng**(`Structures` 의 `ctx.rng.fork('structureLocks').fork(id)`)로 섞어 처음 맞는 것.
+  버리는 조건 — 방이 계단 구멍 · 난간 · 도착 자리에서 1.2 m 안, 사다리 · 해치 구역(사다리 벽 토막 포함)에서 1.0 m 안, 격벽을
+  걸치거나 격벽과 1.2 m 미만의 죽은 틈을 남김, 격벽 통로 앞마당과 겹침, **문 앞마당**(`OPENING_APPROACH`)이 계단 · 사다리와 겹침.
+  맞는 자리가 없으면 방이 없다 (실측: 2층 연구소 전부에 섰다).
+- 문 벽은 옆 벽 쪽 끝부터 [여유 0.3][개구멍 `VENT_W`][기둥 0.4][문 `LOCKED_DOOR_W` 1.8][문짝 주머니] — 문짝은 `+u` 로 벽 속에 밀려
+  들어간다 (두께 0.18 < 벽 0.42 라 열린 문짝이 벽 안에 숨는다). 문틀 · 윗대 콜라이더, 문 위 경고등 띠(발광).
+- 방이 붙은 바깥벽 두 면에는 2층 창을 내지 않는다. 층의 다른 컨테이너 · 소품은 방 + 0.8 m · 문 앞마당 + 0.4 m 를 비운다.
+  층의 방 조명이 잠긴 방 안에 떨어지면 방 밖 자리로 옮기고, 잠긴 방은 **자기 조명 자리**를 하나 갖는다 (광원 풀 — 진짜 광원 수는 그대로).
+- 컨테이너 `${id}_l${i}` 2–3 개(`lockedMin`~`lockedMax`) · 티어 `lockedTiers` `4:4|3:1` · 바깥벽을 등지고 고르게 선다. 개수 · 티어도 전용 rng.
+- 지도(`ui/map/MapScreen`)의 호박색 자물쇠 점은 `hasBasement || hasLockedRoom` 이고 열리면 사라진다.
+
+### ③ 지상드론 개구멍 — 인방 밑면이 곧 규칙
+잠긴 문 **바로 옆 벽 하단**의 틈 (`VENT_W` 1.0 × `VENT_H` 0.6 m) — 지하실은 문 앞 층계참 구간의 **복도 옆벽**(복도 ↔ 지하실 방),
+잠긴 방은 **문 벽**. 문이 열려도 따로 남는다. 틈은 벽 토막 둘 사이의 진짜 빈자리이고 그 위를 **인방 상자**(밑면 = 바닥 + `VENT_H`)가
+막는다. 사람이 못 지나가는 이유는 폭이 아니라 인방이다:
+- `resolveCollision(p, r)` — 떠 있는 상자는 발 + `BOX_HEADROOM`(2.1) 이 밑면 이하일 때만 머리 위로 지나간다 → 사람 · 적 · 원격은 인방에 밀린다.
+- `resolveCollision(p, r, height)` — **키를 밝힌 몸**은 그 키로 잰다 → 지상드론(0.35 · 0.45, `gadgets/drones/GroundDrone` 이 넘긴다)은
+  0.45 ≤ 0.6 이라 지나간다. 윤곽(`o.hull`) 가지도 같은 키를 쓴다. 안 넘기면 한 줄도 다르지 않다.
+- 수류탄 같은 작은 몸(`SMALL_BODY_R` 미만)은 원래 규칙(머리 위 여유 `2r`)대로 지나간다 (설계안 §7).
+- 레이(총알 · 시야 · 드론 카메라)는 틈을 그대로 지나간다 — 틈은 그냥 빈자리다. 인방 밑 `getSurfaceY` 는 인방 윗면이 발 + 0.9 위라
+  발판으로 세지 않는다 (바닥 그대로).
+- 그림: 금속 틀(윗대 + 양 기둥, 콜라이더 없음) + 방 쪽으로 1.4 rad 들린 살창 덮개 — 아랫변이 바닥 + 0.51 m 라 드론 머리 위다.
+  덮개는 `paint` 에 rng 를 넘기지 않는다 (지하실 개구멍이 전진기지 본래의 스트림을 밀지 않게).
+- `StructureNav.vents`(문 쪽 · 방 쪽 한 걸음) · `StructureNav.locked`(방 안쪽 사각형) · `debugNav().lockedDoor` — 스모크 전용.
+
+### ④ `previewContainerItems` — 여는 코드와 같은 함수
+`WorldSystem.previewContainerItems(id)` → `Structures` · `Rails` 의 `ContainerSet.preview(id)` → 여는 코드(`ContainerSet.open`)와 같은
+`contents(spec)`(상자 굴림 + 열쇠 부가 굴림). 부가 굴림이 빗나간 컨테이너와 맵 상자는 상자 코드(`inventory/Container.ContainerStore.getOrCreate`)가
+여는데, 그 식을 `structures/parts/Containers.rollCrateContents`(`<맵 시드> ^ hash(id)` → `rollCrateOn(tier, rng, ctx.missionPlanet)`)가 똑같이
+갖고 있다 — **한쪽을 고치면 다른 쪽도 고친다**. 순수(열린 표시 · 이벤트 · 캐시 없음) · 결정적. 훈련장 · 준비 전 · 모르는 id 는 null.
+이미 연 컨테이너의 지금 내용물은 inventory 캐시가 답한다 (소비자 = 지상드론 스캔, 에이전트 D).
+
+### 알려진 한계 (2026-09-12, 열쇠)
+- 같은 시드의 **연구소 안쪽 배치 · 모든 건물의 지상 컨테이너 티어**가 전날과 다르다 (연구소 지하실 분기가 사라졌고, 옛 「확정 열쇠 자리」
+  draw 를 지웠다). 부지 · 크기 · 층수는 그대로다 (위 ②).
+- 부가 굴림이 맞은 컨테이너는 첫 개봉을 `openContainerItems` 로 채우므로 창 제목이 티어 제목이 아니라 `컨테이너` 다 (옛 키카드 컨테이너와 같다).
+- 호스트는 요청자가 열쇠를 가졌는지 검사하지 않는다 (옛 지하실과 같다 — 요청자 클라이언트가 먼저 거른다).
+- 잠긴 방에는 창이 없고 개구멍은 드론만 지나가므로, 잠긴 방 안을 확인하는 길은 열쇠 · 지상드론뿐이다.
+
 ## 2026-09-09: 환경 재해 (제한시간 행성)
 
 Contract (pre-written, read-only, `git show 9ea3fc0`): `HazardKind` · `HAZARD_KINDS` · `HAZARD_LABEL_KO` ·
@@ -767,6 +834,22 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 
 ## 변경 이력
 
+- **2026-09-12 (아이템 회수 계약 — 레이드 루팅 표식)** — `structures/parts/Containers.open` 이 열쇠 부가 굴림이 맞은 컨테이너의 내용물을
+  `openContainerItems` 로 넘기기 **직전에** `shared/raidFound.markRaidFound(items, raidFoundSeed(ctx))` 로 표식을 찍는다(미리보기 `preview` 경로는
+  그대로 — 사람 손에 닿지 않는다). 부가 굴림이 빗나간 컨테이너는 inventory 의 상자 굴림이 찍는다. `Gather.collect` 도 채집물(부가 코어 포함)에
+  같은 표식을 찍는다. 훈련장 · 함선이면 시드가 null 이라 아무것도 안 한다. rng 소비는 한 줄도 안 바뀌었다.
+- **2026-09-12 (리드 통합 — 굴림 시드 식)** — `structures/parts/Containers.rollCrateContents` 가 inventory `ContainerStore.getOrCreate` 의 식을
+  **복사해 두던 것**을 `shared/lootRolls.crateLootRandom(seed, id)` 로 바꿨다 (inventory 도 같은 함수). 에이전트 C 의 「한쪽을 고치면 다른 쪽도 고친다」
+  주석이 가리키던 위험이 없어졌다 — 식은 그대로. 열쇠 부가 굴림(`#bonus` rng)은 world 에만 있는 규칙이라 제자리다.
+- **2026-09-12 (소모형 만능 열쇠 · 연구소 잠긴 방 · 지상드론 개구멍, 에이전트 C)** — 위 `## 2026-09-12: 소모형 만능 열쇠` 절.
+  `src/shared/types.ts` `[C]` 블록(`WorldRef.resolveCollision` `height?` 오버로드 · `previewContainerItems?` · `StructureDef` 선택 필드 3개).
+  `WorldSystem`(`resolveCollision` 키 · `previewContainerItems`) · `layout`(지하실 추첨을 종류 조건으로 — 스트림 보존) ·
+  `structures/model`(`key` · `keyChance` · `lockedMin/Max` · `lockedTiers` 열, `LOCKED_ROOM_*` · `LOCKED_DOOR_W` · `VENT_*` 치수) ·
+  `structures/parts/Build`(잠긴 방 자리 · 벽 · 문 · 조명 · 컨테이너 자리, 개구멍 두 곳 + 그림, `BuildingPlan.lockedContainers/lockRng`,
+  `BuildingOut.lockedDoor/lockedContainers`, `StructureNav.locked/vents`) · `structures/parts/Containers`(`bonusChance` · `contents` ·
+  `preview` · `rollCrateContents`) · `Structures`(열쇠 종류별 문 · `DOOR_TEXT` · 확정 열쇠 제거 · 잠긴 방 컨테이너 · `previewContainerItems` ·
+  `debugNav().lockedDoor`) · `Rails.previewContainerItems`. 폴더 밖 한 줄씩: `gadgets/drones/GroundDrone`(키를 넘긴다) ·
+  `ui/map/MapScreen`(자물쇠 점). 데이터: `structures.csv` · `items.csv`(열쇠 두 줄) · 루팅 csv · `corp_stock.csv`. 스모크 `smoke-structure-reach` 확장.
 - **2026-09-12 (구조물 도달성 — 계단 층계참 · 출입구 앞마당 · 그린 대로 콜라이더, 포크 C)** — 위 `## 2026-09-12` 절.
   `structures/model`(+`STAIR_LANDING` · `STAIR_ARRIVAL` · `OPENING_APPROACH`) · `structures/parts/Build`(배치 결정 재작성 —
   정문 먼저 · 구멍/통로/틈이 앞마당을 피한다, 1층 계단 방 쪽 벽 제거, 창문이 모든 층에서 계단 구간을 피한다, 실내 소품 상자

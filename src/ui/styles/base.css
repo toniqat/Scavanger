@@ -1977,6 +1977,51 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
 /* a chip with a def carries the hover card (hud/ItemTip) — advertise it with the cursor */
 .item-chip[data-def-id] { cursor: help; }
 button.item-chip[data-def-id] { cursor: pointer; }
+/* ── 즐겨찾기 표식 (2026-09-12, E2 — markup: `shared/itemChip.ts` 의 `.is-favorite`) ──
+ * 썸네일 **우측 상단의 파란 사선 띠**. 인벤토리 타일의 띠(inventory.css, E1)와 같은 색 `--c-favorite` 를 쓰고, 그 변수가
+ * 없으면 같은 파랑으로 떨어진다. 개수 배지는 우측 하단이라 겹치지 않는다. 띠는 클릭 · 호버를 먹지 않는다. */
+.item-chip.is-favorite .item-chip-thumb::after {
+  content: "";
+  position: absolute; top: 0; right: 0;
+  width: 58%; height: 58%;
+  background: linear-gradient(225deg, transparent 0 20%, var(--c-favorite, #4a90ff) 20% 44%, transparent 44%);
+  pointer-events: none;
+}
+
+/* ── 즐겨찾기 우클릭 메뉴 (2026-09-12, E2 — `ui/hud/ItemFavoriteMenu.ts`, 접두사 `.icm-`) ──
+ * 칩 · 옵트인 타일 어디서든 뜨는 작은 메뉴. 모양은 인벤토리 우클릭 메뉴(`.inv-menu`)와 같고, 창 · 호버 카드 위에 뜬다. */
+.icm {
+  position: fixed; left: 0; top: 0;
+  z-index: 210;
+  min-width: 176px; max-width: 260px;
+  padding: 6px;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(16, 19, 25, 0.97), rgba(9, 11, 15, 0.97));
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 4px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+.icm-head {
+  padding: 3px 10px 6px; margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.icm-item {
+  appearance: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  font: inherit; font-size: 12px; letter-spacing: 0.04em; text-align: left;
+  color: var(--c-text); background: transparent; border: 0; border-radius: 3px;
+  cursor: pointer;
+}
+.icm-item:hover, .icm-item:focus-visible { background: rgba(255, 255, 255, 0.1); outline: none; }
+.icm-mark {
+  flex: none; width: 12px; height: 12px;
+  border: 1px solid color-mix(in srgb, var(--c-favorite, #4a90ff) 70%, transparent);
+  background: linear-gradient(225deg, var(--c-favorite, #4a90ff) 0 50%, transparent 50%);
+}
+.icm-item.is-on .icm-mark { background: transparent; }
 
 /* ── 시설 레벨 요구 칩 (markup contract: src/shared/itemChip.ts `buildFacilityChip`, 2026-09-12 사용자 결정) ──
  * 「발전기 Lv.2 필요」를 재료 칩과 **같은 줄 · 같은 높이**에 세운다. 아이템과 헷갈리지 않게 썸네일은 **가로로 길고

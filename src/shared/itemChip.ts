@@ -58,6 +58,8 @@ export function buildItemChip(def: ItemDef | undefined, opts: ItemChipOptions = 
   // the same inventory-style item tooltip. A native `title` would race that card, so it is only written when a
   // caller explicitly asks for one (a chip whose def is unknown keeps the placeholder name as its title).
   if (def) el.dataset.defId = def.id;
+  // 2026-09-12 (E2): 즐겨찾기 표식 — the source is registered by ui/ (`setItemChipFavoriteSource`), see the block at the end
+  if (def && isItemChipFavorite(def.id)) el.classList.add(ITEM_CHIP_FAVORITE_CLASS);
   if (opts.title !== undefined) el.title = opts.title;
   else if (!def) el.title = d.name;
 
@@ -194,4 +196,44 @@ export function buildFacilityChip(
   thumb.append(icon, label, count);
   root.appendChild(thumb);
   return root;
+}
+
+/* ══ appended: 2026-09-12 (E2) — 즐겨찾기 표식 · 우클릭 메뉴 opt-in ═══════════════════════════════════════════════
+ * 아이템 즐겨찾기는 **종류(def id) 단위**이고 원본은 inventory 다 (`InventoryRef.isFavorite` · `toggleFavorite` ·
+ * `inventory:favoritesChanged`, E1). 칩은 `ctx` 를 모르므로 **모듈 수준 공급자**를 하나 둔다 — ui/ 의
+ * `hud/ItemFavoriteMenu` 가 부팅 때 `setItemChipFavoriteSource` 로 등록하고, `buildItemChip` 이 칩을 만들 때 물어
+ * `.is-favorite` 를 붙인다 (스타일은 `ui/styles/base.css` 의 파란 사선 띠). 이미 그려진 칩은 같은 메뉴가
+ * `inventory:favoritesChanged` 를 받아 DOM 에서 클래스만 고친다 — 칩을 다시 만들 필요가 없다.
+ *
+ * 우클릭 메뉴 「즐겨찾기 켜기 / 끄기」 는 `.item-chip[data-def-id]` 전부에 자동으로 붙는다. 칩이 아닌 요소(기업 상점의
+ * 인벤토리 타일 등)는 `data-def-id` 옆에 **`ITEM_FAVORITE_MENU_ATTR`** 를 달아 옵트인한다 — `data-item-tip` 이 호버 카드에
+ * 옵트인하는 것과 같은 규약이다. 안쪽 요소가 자기 `contextmenu` 에서 `stopPropagation` 하면 그쪽 메뉴가 이긴다.
+ */
+
+/** Class `buildItemChip` puts on a chip whose def is a favorite. */
+export const ITEM_CHIP_FAVORITE_CLASS = 'is-favorite';
+/** Attribute (value ignored) that opts a non-chip `[data-def-id]` element into the 즐겨찾기 right-click menu. */
+export const ITEM_FAVORITE_MENU_ATTR = 'data-fav-menu';
+
+/**
+ * The favorite half of `InventoryRef` as a reader that may predate it sees it (every member optional). Folders that must
+ * work before / without inventory's implementation cast `ctx.inventory` to this.
+ */
+export interface ItemFavoriteApi {
+  isFavorite?(defId: string): boolean;
+  toggleFavorite?(defId: string, on?: boolean): boolean;
+  readonly favoriteDefIds?: readonly string[];
+}
+
+let favoriteSource: ((defId: string) => boolean) | null = null;
+
+/** Register (or clear with null) who answers "is this def a favorite?" for every chip built from now on. */
+export function setItemChipFavoriteSource(fn: ((defId: string) => boolean) | null): void {
+  favoriteSource = fn;
+}
+
+/** The registered source's answer; false without a source or when it throws. */
+export function isItemChipFavorite(defId: string): boolean {
+  if (!favoriteSource) return false;
+  try { return favoriteSource(defId) === true; } catch { return false; }
 }

@@ -948,6 +948,12 @@ attack phase 4  0.25 s 회복 → chase
 
 ## 변경 이력
 
+- **2026-09-12 (아이템 회수 계약 — 레이드 루팅 표식)** — `Corpses.Corpse.interact` 가 굴린 시체 내용물(네임드 확정 드롭 포함)에
+  `shared/raidFound.markRaidFound(items, raidFoundSeed(ctx))` 로 「이번 레이드에서 얻은」 표식을 찍은 뒤 `openContainerItems` 로 넘긴다.
+  훈련장이면 시드가 null 이라 찍지 않는다. `corpseLootRandom` 스트림은 그대로(표식은 rng 를 안 쓴다) — 드론 스캔 미리보기와 같은 내용물이다.
+- **2026-09-12 (리드 통합 — 시체 굴림 시드 식)** — `Corpses.Corpse.interact` 의 rng 가 `shared/lootRolls.corpseLootRandom(seed, enemyId)` 를
+  부른다. 식은 그대로(`seed ^ enemyId × 2654435761`, 0 이면 1)이고 지상 드론 스캔(`gadgets/drones/parts/Scan`)이 열지 않고 같은 내용물을
+  미리 보려고 같은 함수를 쓴다 — 이 식을 폴더 안에서 다시 적지 않는다.
 - **2026-09-11 (E-8 (a)(b) — `explode` · `st` 요청 가드, 에이전트 ①)** — `docs/plans/net-trust-gaps.md` §1 · §2.
   **와이어 계약은 한 칸도 안 바뀐다** (주석만 — 리드가 `shared/net.ts` 에 먼저 적었다).
   ① **`onExplodeRequest`** 가 `hosting` + 상한 둘만 보던 것을 네 겹으로 — **모양**(`isVec3Tuple(p)` · `r`/`dmg` 유한 +

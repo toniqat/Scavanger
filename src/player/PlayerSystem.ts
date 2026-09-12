@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity } from '@/shared';
+import type { BoostKind, EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -35,6 +35,7 @@ import * as Climb from './parts/Climb';
 import * as Drone from './parts/DroneControl';
 import * as Pose from './parts/FurniturePose';
 import * as Buffs from './parts/Buffs';
+import * as Boosts from './parts/Boosts';
 import type { CharBuff, FurniturePoseState as FurniturePoseWire } from '@/shared';
 
 /**
@@ -217,6 +218,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Recompute scratch (pooled `CharBuff` objects, never published). */
   readonly buffScratch: CharBuff[] = [];
   readonly buffPool: CharBuff[] = [];
+  /* ── 전투 소모품 효과 (2026-09-12, `parts/Boosts`) ── */
+  /** Running boost (null = none). Durations in `ctx.time` seconds; `boostStartedAt` / `boostEndsAt` = the buff clock (epoch ms). */
+  boostKind: BoostKind | null = null;
+  boostDefId: string | null = null;
+  boostDuration = 0;
+  boostUntil = 0;
+  boostStartedAt = 0;
+  boostEndsAt = 0;
+  /** Reused `PlayerRef.boost` view. */
+  readonly boostView: { kind: BoostKind; remaining: number; duration: number; defId: string | null } = { kind: 'adrenaline', remaining: 0, duration: 0, defId: null };
 
   // interaction
   interactTarget: Interactable | null = null;
@@ -326,6 +337,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get buffsRevision(): number { return this._buffsRevision; }
   /** Collect the list now; true when it changed (revision bumped, `player:buffsChanged` emitted). Smokes / console. */
   recomputeBuffs(): boolean { return Buffs.recomputeBuffs(this); }
+
+  /* ── 전투 소모품 효과 (2026-09-12, appended contract `PlayerRef.applyBoost` …, `parts/Boosts`) ── */
+  /** 아드레날린 · 각성제 — weapons' `Healing.finishHeal` after the item was consumed. Starting one clears the other. */
+  applyBoost(kind: BoostKind, defId?: string): void { return Boosts.applyBoost(this, kind, defId); }
+  get boost(): { kind: BoostKind; remaining: number; duration: number; defId: string | null } | null { return Boosts.boostState(this); }
+  /** 1 normally, `BOOST_STIMULANT_AIM_SWAY_MUL` under 각성제 (the camera sway multiplies it). */
+  get aimSwayMul(): number { return Boosts.aimSwayMul(this); }
+  get boostReloadSpeedMul(): number { return Boosts.reloadSpeedMul(this); }
+  get adsSpeedMul(): number { return Boosts.adsSpeedMul(this); }
+  get staminaDrainMul(): number { return Boosts.staminaDrainMul(this); }
+  get staminaCostMul(): number { return Boosts.staminaCostMul(this); }
 
   /**
    * Rejoin: resume the body exactly as the host's ghost left it — standing at `position` facing `yaw`, no hellpod,
@@ -463,7 +485,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._carrying) { this.dropCarried('action'); return false; }
     if (this.meleeTimer > 0 || this.meleeCooldown > 0) return false;
     if (kind !== 'heavy') {
-      if (this.stamina < MELEE_STAMINA_COST) {
+      if (this.stamina < MELEE_STAMINA_COST * this.staminaCostMul) {   // 2026-09-12: 각성제 = 소모 증가 (spendStamina 가 곱한다)
         this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
         return false;
       }
@@ -685,6 +707,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setAimZoom(zoom: number, scope: boolean): void {
     if (this.rig) this.rig.setAimZoom(zoom, scope);
   }
+  /** 2026-09-12 조준 흔들림: the weapon in hand's class sway (weapons calls it beside `setAimZoom`). */
+  setAimSway(amplitudeDeg: number, frequencyHz: number): void {
+    if (this.rig) this.rig.setAimSway(amplitudeDeg, frequencyHz);
+  }
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
   init(ctx: GameContext): void {
@@ -847,6 +873,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // 2026-09-12 어깨 전환 (`Keys.SHOULDER`, 기본 X): 카메라를 반대쪽 어깨로 — 옮기는 것은 CameraRig 의 감쇠다. 커서 화면
     // (인벤토리의 X = 버리기 · 시설 관리의 X = 회수)은 `active` / `locked` 에서 이미 빠진다. 드론 시점 · 고정 카메라 자세는 제외.
     if (active && locked && !this._droneControl && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
+    // 2026-09-12 조준 흔들림 (ADS only): this frame's figure-8 offset is fixed *before* the aim origin / `getAimRay` are read, so
+    // the shot and the frame `lateUpdate` renders use the same angle. Off on the ship, ladders, drone / furniture / cutscene views.
+    const sw = this.rig.sway;
+    sw.aim = this.aimBlend;
+    sw.on = this.spawned && !this.isDead && !downed && !hub && !this._droneControl && !posed && !c.climbing && !dropping
+      && !this._inPod && !this._interior && !this.shipBounds && !this.attachedParent && this.carriedSocket === null && !this.rig.isOverridden;
+    sw.crouch = this.crouchBlend; sw.prone = this.proneBlend;
+    sw.move = Math.min(1, c.speed / PLAYER_WALK_SPEED);
+    sw.mul = this.aimSwayMul ?? 1;   // [A1] 각성제 (0.7)
+    this.rig.advanceSway(dt);
     // 2026-09-08: the aim origin for this frame's shots is where the camera *will* be after `lateUpdate` for the look
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
     // with the real position once the rig has moved.
@@ -904,7 +940,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       const transitioning = this.standUpTimer > 0;
       mi.sprint = input.isDown(Keys.SPRINT) && !this.exhausted && this.stamina > 0 && !transitioning && !this.gear.overloaded;
       mi.jump = wantsJump && this._stance === 'stand' && !transitioning && c.grounded && !c.rolling
-        && this.stamina >= STAMINA_JUMP_COST && !this.gear.overloaded;
+        && this.stamina >= STAMINA_JUMP_COST * this.staminaCostMul && !this.gear.overloaded;
       mi.aiming = this.isAiming;
       // Alt = roll (replaces the dive); the roll itself validates stamina / weight / cooldown / hub
       if (input.wasPressed(Keys.DIVE) && !transitioning && this._stance !== 'prone') this.roll();
@@ -961,6 +997,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     if (c.grounded) { this.autoHoverUsed = false; if (this._hovering) this.setHovering(false); }
 
+    // ── 전투 소모품 효과 (2026-09-12): 만료 · 사망 · 함선 — 스태미나 배수를 읽기 전에 (`parts/Boosts`)
+    Boosts.updateBoost(this);
     // ── stamina
     this.updateStamina(dt);
     // ── tactical kit: cloak, burning, armor regen
@@ -996,7 +1034,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── pose blends (the roll reuses the old dive plumbing: `diving` = rolling)
     const diving = c.rolling;
-    this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, this.adsRate, dt);
+    // 2026-09-12: 각성제의 정조준 전환 배수는 여기서 곱한다 — `setAdsTime` 은 무기가 바뀔 때만 오므로 거기서 곱하면 효과가 늦게 붙는다
+    this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, this.adsRate * this.adsSpeedMul, dt);
     // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
     const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
@@ -1181,7 +1220,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * Called from `respawnAt`, `spawnStanding` and the `game:abort` reset. The gear cache is only marked dirty —
    * armor survives a respawn.
    */
-  resetTactical(): void { return Spawn.resetTactical(this); }
+  resetTactical(): void { Boosts.clearBoost(this); return Spawn.resetTactical(this); }
 
   /** Common precondition for roll / melee. */
   canAct(): boolean { return Loco.canAct(this); }

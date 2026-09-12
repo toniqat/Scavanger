@@ -1,4 +1,4 @@
-import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
+import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, BoostKind, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
@@ -476,6 +476,36 @@ export const SHIELD_CHARGE_MAP: ReadonlyMap<string, ShieldChargeDef> = new Map(
 /** 이 아이템이 실드 충전기면 그 수치, 아니면 undefined. */
 export function shieldChargeOf(defId: string | undefined): ShieldChargeDef | undefined {
   return defId ? SHIELD_CHARGE_MAP.get(defId) : undefined;
+}
+
+/* ── 전투 소모품 3종 (2026-09-12 — 아드레날린 주사 · 각성제 · 안정제) ───────────────
+ * 실드 충전기와 같은 옆 표 규약이다: `category: 'stim'` 이라 퀵슬롯 · 루팅 카테고리 · 손에 든 모습 · 좌클릭 홀드가 공짜로
+ * 따라오고, 다른 점은 홀드가 끝났을 때 **어디로 가는가**뿐이다 — `adrenaline` · `stimulant` 는 `PlayerRef.applyBoost`,
+ * `implant_refill` 은 `ImplantsRef.refillAll`. 체력이 가득해도 쓸 수 있다 (회복약의 "가득이면 거절" 을 타지 않는다).
+ * 효과 수치는 `data/constants.csv` 의 `BOOST_*` 이고 여기에는 **효과 종류와 홀드 시간**만 있다.
+ */
+export type BoostEffect = BoostKind | 'implant_refill';
+export const BOOST_EFFECTS: readonly BoostEffect[] = ['adrenaline', 'stimulant', 'implant_refill'];
+
+export interface BoostItemDef {
+  effect: BoostEffect;
+  /** 좌클릭을 눌러야 하는 시간(초) — 회복 소모품의 `heal.useTime` 과 같은 뜻. */
+  useTime: number;
+}
+
+/** `items.csv` 의 `boostEffect` / `boostUseTime` 칸이 채워진 줄 = 전투 소모품. */
+export const BOOST_ITEM_MAP: ReadonlyMap<string, BoostItemDef> = new Map(
+  csvRows('items.csv')
+    .filter((r) => r.has('boostEffect'))
+    .map((r) => [r.str('id'), {
+      effect: r.enum('boostEffect', BOOST_EFFECTS) as BoostEffect,
+      useTime: r.num('boostUseTime', { min: 0 }),
+    }] as const),
+);
+
+/** 이 아이템이 전투 소모품이면 그 효과 · 홀드 시간, 아니면 undefined. */
+export function boostItemOf(defId: string | undefined): BoostItemDef | undefined {
+  return defId ? BOOST_ITEM_MAP.get(defId) : undefined;
 }
 
 /* ── definitions ──────────────────────────────────────────────────────────── */

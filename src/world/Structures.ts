@@ -1,10 +1,13 @@
 /**
  * src/world/Structures.ts — **버려진 구조물** (전진기지 · 연구실 · 불시착 함선).
  *
- * 들어갈 수 있는 폐건물이다. 안에는 상호작용 컨테이너가 밀집해 있고, 전진기지 · 연구실에는 **지하실**이
- * 딸릴 수 있다 — 지하실 문은 **언제나 잠겨 있고** 그 구조물의 지상층 컨테이너 **딱 하나**에 키카드가
- * 들어 있다 (`key_basement`, 열면 소비된다). 전진기지 · 연구실의 **옥상**에는 주변 안개를 걷는 **맵 스캐너**가
- * 있다 (구조물당 1회).
+ * 들어갈 수 있는 폐건물이다. 안에는 상호작용 컨테이너가 밀집해 있고, 전진기지에는 **지하실**이, 2층이 올라간
+ * 연구소에는 2층 **잠긴 방**이 딸릴 수 있다 — 둘 다 **언제나 잠겨 있고** 소모형 만능 열쇠로 연다 (2026-09-12:
+ * 지하실 = `key_basement` 지하실 열쇠, 잠긴 방 = `keycard_lab` 연구소 키카드 — `data/structures.csv` 의 `key` 열).
+ * 같은 종류면 어느 건물이든 열리고, 열면 연 사람의 것이 1 개 소모된다. 열쇠는 더 이상 그 건물 안에 보장되지 않는다 —
+ * 지상층 컨테이너마다 `keyChance` 로 가끔 들어 있고, 상자 · 로그 시체 · 노마드 상점에서도 나온다.
+ * 잠긴 문 바로 옆 벽 하단에는 지상드론만 지나가는 **개구멍**이 있다 (`parts/Build`). 전진기지 · 연구실의 **옥상**에는
+ * 주변 안개를 걷는 **맵 스캐너**가 있다 (구조물당 1회).
  *
  * 2026-09-11 — 천장 · 2층 · 창문 · 사다리 · 옥상 스캐너 · 실내 조명 · 지하 계단 복도와 서 있는 문
  * (지오메트리는 `structures/parts/Build`, 유리는 `parts/Glass`, 파동은 `parts/ScanWave`). 여기에는 수명 ·
@@ -21,8 +24,8 @@ import * as THREE from 'three';
 import {
   LADDER_GRAB_RANGE, Layers, LightPool, STRUCTURE_INTERACT_RANGE, STRUCTURE_LABEL_KO, STRUCTURE_POINT_LIGHTS,
   STRUCTURE_SCAN_HOLD_S, STRUCTURE_SCAN_RADIUS, STRUCTURE_UNLOCK_HOLD_S,
-  type GameContext, type LadderDef, type LightFixture, type PeerId, type Random, type StructureDef, type StructureKind,
-  type StructureMessage, type StructureRequest,
+  type GameContext, type ItemInstance, type LadderDef, type LightFixture, type PeerId, type Random, type StructureDef,
+  type StructureKind, type StructureMessage, type StructureRequest,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
@@ -35,8 +38,24 @@ import { GlassSet, type WindowSpec } from './structures/parts/Glass';
 import { ScanWave } from './structures/parts/ScanWave';
 import { pickTier, structureRow } from './structures/model';
 
-/** 지하실 열쇠의 아이템 def id. `items/` 가 아직 등록하지 않았으면 키카드가 그냥 안 들어간다 (문은 그대로 잠긴다). */
+/**
+ * 지하실 열쇠의 아이템 def id. 2026-09-12 부터 **원본은 `data/structures.csv` 의 `key` 열**이고 이 모듈은 이 상수를
+ * 읽지 않는다 — `world/index.ts` 가 내보내 온 이름이라 남겨 둔다 (옛 세이브 호환으로 id 자체는 그대로다).
+ */
 export const BASEMENT_KEY_DEF = 'key_basement';
+
+/** 잠긴 문의 종류 — 프롬프트 · 토스트 문구만 가른다 (규칙은 같다). */
+type DoorKind = 'basement' | 'locked';
+const DOOR_TEXT: Readonly<Record<DoorKind, { open: string; locked: string; need: string; done: string }>> = {
+  basement: {
+    open: '열쇠로 지하실 개방 (E)', locked: '지하실 잠김 — 열쇠 필요',
+    need: '지하실 열쇠가 필요하다', done: '지하실이 열렸다 (열쇠 소모)',
+  },
+  locked: {
+    open: '키카드로 잠긴 방 개방 (E)', locked: '잠긴 방 — 키카드 필요',
+    need: '연구소 보안 키카드가 필요하다', done: '잠긴 방이 열렸다 (키카드 소모)',
+  },
+};
 
 /** 지하실 문짝이 옆으로 밀려나는 데 걸리는 시간(초). */
 const DOOR_SLIDE_S = 1.1;
@@ -52,6 +71,18 @@ interface Inst {
   scanMat: THREE.MeshStandardMaterial | null;
   /** 옥상 스캐너 자리 (불시착 함선은 null). */
   scanPos: THREE.Vector3 | null;
+  /** 2026-09-12: 잠긴 문의 종류 (없으면 null) · 그 문을 여는 아이템 def id. */
+  doorKind: DoorKind | null;
+  keyDefId: string | null;
+}
+
+/** 디버그 · 스모크용 건물 안내 한 줄. */
+interface NavRow {
+  id: string; kind: StructureKind; nav: StructureNav;
+  /** 지하실 문 상호작용 자리 (없으면 null). */
+  basementDoor: { x: number; y: number; z: number } | null;
+  /** 2026-09-12: 잠긴 방 문 상호작용 자리 (없으면 null). */
+  lockedDoor: { x: number; y: number; z: number } | null;
 }
 
 const _c = new THREE.Vector3();
@@ -64,7 +95,7 @@ export class Structures {
   private readonly defs: StructureDef[] = [];
   private readonly ladders: LadderDef[] = [];
   /** 2026-09-12: 건물 안내 (도달성 스모크 · 디버그 전용 — 판정에 쓰지 않는다). */
-  private readonly navs: { id: string; kind: StructureKind; nav: StructureNav; basementDoor: { x: number; y: number; z: number } | null }[] = [];
+  private readonly navs: NavRow[] = [];
   /**
    * 로그 강하를 이미 굴린 구역 (`structure:investigated` 의 `zoneId`). 구조물 id 뿐 아니라 **선로 플랫폼 ·
    * 전차**의 zoneId 도 들어간다 — 그쪽은 `StructureDef` 가 아니라 여기 문자열로만 남는다.
@@ -123,9 +154,12 @@ export class Structures {
    * 2026-09-12: 건물마다의 안내 — 정문 안팎 · 방 사각형 · 계단 층계참/도착 자리 · 지하실 문 상호작용 자리
    * (`scripts/smoke-structure-reach.mjs` 가 이것으로 flood fill 을 시작하고 목표를 잡는다). 디버그 · 스모크 전용.
    */
-  debugNav(): readonly { id: string; kind: StructureKind; nav: StructureNav; basementDoor: { x: number; y: number; z: number } | null }[] {
+  debugNav(): readonly NavRow[] {
     return this.navs;
   }
+
+  /** 2026-09-12 (C): 이 묶음의 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
+  previewContainerItems(id: string): ItemInstance[] | null { return this.containers.preview(id); }
 
   /** `(x, z)` 를 품는 구조물 (자기 `radius` 안), 없으면 null. */
   structureAt(x: number, z: number): StructureDef | null {
@@ -157,6 +191,8 @@ export class Structures {
     const sites = ctx.layout.structures;
     if (sites.length === 0) return;
     const rng = ctx.rng.fork('structures');
+    /* 2026-09-12: 잠긴 방(자리 · 컨테이너 수 · 티어) 전용 — 구조물마다 `fork(id)` 라 본래 스트림도, 다른 건물도 밀지 않는다. */
+    const lockBase = ctx.rng.fork('structureLocks');
 
     this.structMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0.2 });
     this.glowMat = new THREE.MeshStandardMaterial({ color: 0x08120f, emissive: new THREE.Color(0xfff0d0), emissiveIntensity: 1.6 });
@@ -172,10 +208,13 @@ export class Structures {
       const n = counters[site.kind] ?? 0;
       counters[site.kind] = n + 1;
       const id = `struct_${site.kind}_${n}`;
+      const lockRng = lockBase.fork(id);
+      const lockedCount = site.kind !== 'wreck' && row.lockedMax > 0 ? lockRng.int(row.lockedMin, row.lockedMax) : 0;
       const plan: BuildingPlan = {
         cx: site.pad.x, cz: site.pad.z, yaw: site.pad.yaw, y0: site.pad.height,
         halfW: site.halfW, halfD: site.halfD, wallH: site.wallH, pit: site.pit, floors: site.floors,
         containers: row.containers, basementContainers: row.basementContainers,
+        lockedContainers: lockedCount, lockRng: lockedCount > 0 ? lockRng : null,
       };
       const out = site.kind === 'wreck' ? buildWreck(ctx, plan, rng) : buildBuilding(ctx, plan, rng, site.kind === 'lab');
 
@@ -196,6 +235,10 @@ export class Structures {
         this.group.add(gm);
       }
 
+      /* 2026-09-12: 잠긴 문은 건물마다 많아야 하나 — 지하실 문(전진기지) 또는 2층 잠긴 방 문(연구소). */
+      const lockDoor = out.door ?? out.lockedDoor;
+      const doorKind: DoorKind | null = out.door ? 'basement' : out.lockedDoor ? 'locked' : null;
+      if (lockDoor && !row.key) console.warn(`[Structures] ${id}: 잠긴 문이 있는데 structures.csv 의 key 가 비었다 — 영영 열리지 않는다`);
       const def: StructureDef = {
         id, kind: site.kind,
         position: new THREE.Vector3(site.pad.x, site.pad.height, site.pad.z),
@@ -203,22 +246,26 @@ export class Structures {
         radius: Math.hypot(site.halfW, site.halfD) + 2,
         hasBasement: out.door !== null,
         basementDoor: out.door ? new THREE.Vector3(out.door.x, out.door.y, out.door.z) : null,
+        hasLockedRoom: out.lockedDoor !== null,
+        lockedRoomDoor: out.lockedDoor ? new THREE.Vector3(out.lockedDoor.x, out.lockedDoor.y, out.lockedDoor.z) : null,
+        unlockDefId: lockDoor ? row.key : null,
         unlocked: false, scanned: false, rogueDropUsed: false,
       };
       const inst: Inst = {
         def, doorEntry: null, doorMesh: null, doorBase: new THREE.Vector3(), doorSlide: new THREE.Vector3(), doorAnim: -1,
-        scanMat: null, scanPos: null,
+        scanMat: null, scanPos: null, doorKind, keyDefId: def.unlockDefId ?? null,
       };
 
-      /* 컨테이너: 지상층(1 · 2층) + (있으면) 지하실. 키카드는 **지상 컨테이너 하나**에만 들어간다 — 지하실 안에
-       * 넣으면 영영 못 여는 방이 된다. 자리 고르기는 `buildBuilding` 이 이미 끝냈다 (조명이 그 방에 달린다). */
+      /* 컨테이너: 지상층(1 · 2층) + (있으면) 지하실 + (있으면) 2층 잠긴 방. 자리 고르기는 `buildBuilding` 이 이미 끝냈다
+       * (조명이 그 방에 달린다). 2026-09-12: 열쇠는 더 이상 "지상 컨테이너 하나에 확정" 이 아니다 — 지상 컨테이너마다
+       * `keyChance` 로 그 종류의 열쇠가 **부가로** 들어 있을 수 있고(보장 없음), 굴림은 `ContainerSet` 이 시드로 한다. */
       const ground = out.containers;
-      const keyIdx = def.hasBasement && ground.length > 0 ? rng.int(0, ground.length - 1) : -1;
+      const bonusKey = row.key && row.keyChance > 0 ? row.key : undefined;
       ground.forEach((s, i) => specs.push({
         id: `${id}_c${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
         tier: pickTier(row.tiers, rng.next()), style: (i % 3) as 0 | 1 | 2,
         zoneId: id, zoneKind: site.kind,
-        bonusDefId: i === keyIdx ? BASEMENT_KEY_DEF : undefined,
+        bonusDefId: bonusKey, bonusChance: bonusKey ? row.keyChance : undefined,
       }));
       const deepTiers = row.basementTiers.length > 0 ? row.basementTiers : row.tiers;
       out.basementContainers.forEach((s, i) => specs.push({
@@ -226,9 +273,15 @@ export class Structures {
         tier: pickTier(deepTiers, rng.next()), style: ((i + 1) % 3) as 0 | 1 | 2,
         zoneId: id, zoneKind: site.kind,
       }));
+      const lockTiers = row.lockedTiers.length > 0 ? row.lockedTiers : deepTiers;
+      out.lockedContainers.forEach((s, i) => specs.push({
+        id: `${id}_l${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
+        tier: pickTier(lockTiers, lockRng.next()), style: ((i + 2) % 3) as 0 | 1 | 2,
+        zoneId: id, zoneKind: site.kind,
+      }));
 
       if (out.console) this.buildConsole(ctx, game, rng, inst, out.console);
-      if (out.door) this.buildDoor(ctx, game, rng, inst, out.door);
+      if (lockDoor) this.buildDoor(ctx, game, rng, inst, lockDoor);
       out.ladders.forEach((l, i) => {
         const ladder: LadderDef = {
           id: `ladder_${id}_${i}`,
@@ -242,7 +295,11 @@ export class Structures {
       });
       out.windows.forEach((w, i) => glassSpecs.push({ structureId: id, index: i, spec: w }));
       fixtures.push(...out.fixtures);
-      this.navs.push({ id, kind: site.kind, nav: out.nav, basementDoor: out.door ? { ...out.door.interact } : null });
+      this.navs.push({
+        id, kind: site.kind, nav: out.nav,
+        basementDoor: out.door ? { ...out.door.interact } : null,
+        lockedDoor: out.lockedDoor ? { ...out.lockedDoor.interact } : null,
+      });
 
       this.insts.push(inst);
       this.byId.set(id, inst);
@@ -367,7 +424,7 @@ export class Structures {
     });
   }
 
-  /* ── 지하실 문 (서 있는 문짝) ──────────────────────────────────────── */
+  /* ── 잠긴 문 (지하실 문 · 2층 잠긴 방 문 — 서 있는 문짝) ─────────────────── */
 
   private buildDoor(ctx: BuildCtx, game: GameContext, rng: Random, inst: Inst, door: DoorSpot): void {
     const parts: THREE.BufferGeometry[] = [];
@@ -421,22 +478,29 @@ export class Structures {
 
     const pos = new THREE.Vector3(door.interact.x, door.interact.y, door.interact.z);
     const self = this;
+    const text = DOOR_TEXT[inst.doorKind ?? 'basement'];
     game.interactables.register({
       id: `struct:${inst.def.id}:door`,
       position: pos,
       radius: STRUCTURE_INTERACT_RANGE,
-      /* 키카드가 없으면 홀드 0 — 눌러 보면 바로 거부음이 난다. 게이지를 다 채우고 나서 거절당하는 것보다 낫다. */
-      get holdTime(): number { return self.hasKeycard() ? STRUCTURE_UNLOCK_HOLD_S : 0; },
-      getPrompt: () => (inst.def.unlocked ? null
-        : self.hasKeycard() ? '키카드로 지하실 개방 (E)' : '지하실 잠김 — 키카드 필요'),
+      /* 맞는 열쇠가 없으면 홀드 0 — 눌러 보면 바로 거부음이 난다. 게이지를 다 채우고 나서 거절당하는 것보다 낫다. */
+      get holdTime(): number { return self.hasKey(inst) ? STRUCTURE_UNLOCK_HOLD_S : 0; },
+      getPrompt: () => (inst.def.unlocked ? null : self.hasKey(inst) ? text.open : text.locked),
       canInteract: () => !inst.def.unlocked && !!this.game?.isGameplayActive(),
       interact: () => this.requestUnlock(inst),
     });
   }
 
-  private hasKeycard(): boolean {
+  /** 이 클라이언트가 그 문을 여는 열쇠(`inst.keyDefId`)를 하나라도 들고 있나 (가방 · 퀵슬롯 · 주머니 — `countWhere`). */
+  private hasKey(inst: Inst): boolean {
     const inv = this.game?.inventory;
-    return !!inv && inv.countWhere((def) => def.id === BASEMENT_KEY_DEF) > 0;
+    const key = inst.keyDefId;
+    return !!inv && !!key && inv.countWhere((def) => def.id === key) > 0;
+  }
+
+  /** 잠긴 문의 월드 위치 (소리 · 이벤트). */
+  private doorPosOf(inst: Inst): THREE.Vector3 {
+    return inst.def.basementDoor ?? inst.def.lockedRoomDoor ?? inst.def.position;
   }
 
   /* ── 사다리 ───────────────────────────────────────────────────────── */
@@ -506,9 +570,9 @@ export class Structures {
   private requestUnlock(inst: Inst): void {
     const ctx = this.game;
     if (!ctx || inst.def.unlocked) return;
-    if (!this.hasKeycard()) {
-      ctx.bus.emit('audio:play', { id: 'keycard_deny', position: inst.def.basementDoor ?? inst.def.position });
-      ctx.bus.emit('ui:notify', { text: '키카드가 필요하다 — 이 건물 어딘가에 있다', kind: 'warning', duration: 2.4 });
+    if (!this.hasKey(inst)) {
+      ctx.bus.emit('audio:play', { id: 'keycard_deny', position: this.doorPosOf(inst) });
+      ctx.bus.emit('ui:notify', { text: DOOR_TEXT[inst.doorKind ?? 'basement'].need, kind: 'warning', duration: 2.4 });
       return;
     }
     const net = ctx.net;
@@ -537,21 +601,21 @@ export class Structures {
     ctx.bus.emit('ui:notify', { text: `${STRUCTURE_LABEL_KO[inst.def.kind]} — 맵 스캔 완료`, kind: 'success', duration: 2.6 });
   }
 
-  /** `consume` = 이 클라이언트가 키카드를 낸 사람인가. */
+  /** `consume` = 이 클라이언트가 열쇠를 낸 사람인가 (그 문의 열쇠 `inst.keyDefId` 가 1 개 소모된다). */
   private applyUnlock(inst: Inst, by: PeerId | null, consume: boolean): void {
     const ctx = this.game;
     if (!ctx || inst.def.unlocked) return;
     inst.def.unlocked = true;
     if (inst.doorEntry) { this.hash?.remove(inst.doorEntry); inst.doorEntry = null; }
     inst.doorAnim = 0;
+    const at = this.doorPosOf(inst);
     if (consume) {
-      ctx.inventory?.consumeWhere((def) => def.id === BASEMENT_KEY_DEF, 1);
-      ctx.bus.emit('audio:play', { id: 'keycard_use', position: inst.def.basementDoor ?? inst.def.position });
-      ctx.bus.emit('ui:notify', { text: '지하실이 열렸다', kind: 'success', duration: 2.2 });
+      const key = inst.keyDefId;
+      if (key) ctx.inventory?.consumeWhere((def) => def.id === key, 1);
+      ctx.bus.emit('audio:play', { id: 'keycard_use', position: at });
+      ctx.bus.emit('ui:notify', { text: DOOR_TEXT[inst.doorKind ?? 'basement'].done, kind: 'success', duration: 2.2 });
     }
-    ctx.bus.emit('structure:unlocked', {
-      id: inst.def.id, kind: inst.def.kind, by, position: inst.def.basementDoor ?? inst.def.position,
-    });
+    ctx.bus.emit('structure:unlocked', { id: inst.def.id, kind: inst.def.kind, by, position: at });
   }
 
   /* ── 멀티 ─────────────────────────────────────────────────────────── */
@@ -603,7 +667,7 @@ export class Structures {
     if (net.isHost) return;
     if (m.ev === 'unlocked') {
       const inst = this.byId.get(m.id);
-      // 키카드는 **연 사람의 것만** 사라진다
+      // 열쇠 · 키카드는 **연 사람의 것만** 사라진다
       if (inst) this.applyUnlock(inst, m.by, m.by !== null && m.by === net.localId);
       return;
     }
@@ -646,7 +710,8 @@ export class Structures {
     const inst = this.byId.get(m.id);
     if (!inst) return;
     if (m.ev === 'unlock') {
-      if (inst.def.unlocked) return;              // 먼저 연 사람이 있다 — 요청자의 키카드는 살아남는다
+      if (inst.def.unlocked) return;              // 먼저 연 사람이 있다 — 요청자의 열쇠는 살아남는다
+      if (!inst.keyDefId) return;                 // 열쇠가 정해지지 않은 문 (csv 설정 오류) — 누구도 열 수 없다
       this.applyUnlock(inst, from, false);
       net.send({ t: 'struct', ev: 'unlocked', id: inst.def.id, by: from }, 'others');
       return;

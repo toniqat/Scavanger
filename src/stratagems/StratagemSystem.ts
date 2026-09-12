@@ -178,9 +178,11 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
 
   /** Debug: clear the shared cooldown (emits `stratagem:cooldown {remaining: 0}`). */
   debugCooldownReset(): void {
+    const wasRunning = this._cooldown > 0;
     this._cooldown = 0;
     this.cooldownEmitAcc = 0;
     this.ctx.bus.emit('stratagem:cooldown', { remaining: 0, total: this._cooldownTotal });
+    if (wasRunning) this.emitReady(false);
   }
 
   /* ─────────────────────────── helpers ─────────────────────────── */
@@ -223,6 +225,17 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
       this.cooldownEmitAcc = 0;
       this.ctx.bus.emit('stratagem:cooldown', { remaining: this._cooldown, total: this._cooldownTotal });
     }
+    if (this._cooldown === 0) this.emitReady(false);
+  }
+  /**
+   * 2026-09-12: `stratagem:ready` — the shared cooldown just reached 0 (after the `stratagem:cooldown {0}` that
+   * repaints the HUD). Gameplay phases only: the cooldown keeps ticking in the ship (it is not reset on `hub:entered`),
+   * and running out there is no moment anyone should be flashed or chimed at. `refunded` = a host refusal gave it back
+   * (`refundCooldown`) — audio/ stays silent for that one, the refusal already buzzed.
+   */
+  private emitReady(refunded: boolean): void {
+    if (!this.ctx.isGameplayPhase()) return;
+    this.ctx.bus.emit('stratagem:ready', { refunded });
   }
   startCooldown(seconds: number): void {
     this._cooldown = this._cooldownTotal = seconds;
@@ -238,12 +251,15 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
    * 남이 내 쿨타임을 되돌리지 못하게 하는 관문은 `parts/Wire.onCallDenied` 하나다 (호스트 + 내 `callId`).
    */
   refundCooldown(): void {
+    const wasRunning = this._cooldown > 0;
     this._cooldown = 0;
     this._cooldownTotal = 0;
     this.cooldownEmitAcc = 0;
     // `refunded` (E-8): tells the toast this 0 is a refusal being given back, not a cooldown that ran out —
     // without it 「호출이 거절되었습니다」 and 「함선 호출 준비 완료」 pop side by side (`ui/hud/Notifications`).
     this.ctx.bus.emit('stratagem:cooldown', { remaining: 0, total: 0, refunded: true });
+    // 2026-09-12: still a ready moment for the HUD (a weak flash), but audio/ keeps the chime for real run-outs
+    if (wasRunning) this.emitReady(true);
   }
 
   /* ─────────────────────────── input ─────────────────────────── */

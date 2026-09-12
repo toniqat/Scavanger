@@ -45,7 +45,7 @@ export function roll(sys: PlayerSystem, direction?: THREE.Vector3): boolean {
     sys.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
     return false;
   }
-  if (sys.stamina < ROLL_STAMINA_COST) {
+  if (sys.stamina < ROLL_STAMINA_COST * sys.staminaCostMul) {
     sys.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
     return false;
   }
@@ -121,7 +121,7 @@ export function setHovering(sys: PlayerSystem, hovering: boolean): void {
 export function consumeStamina(sys: PlayerSystem, amount: number): boolean {
   if (!(amount > 0)) return true;
   if (!sys.spawned || sys.isDead || sys._downed) return false;
-  if (sys.exhausted || sys.stamina < amount) return false;
+  if (sys.exhausted || sys.stamina < amount * sys.staminaCostMul) return false;
   sys.spendStamina(amount);
   return true;
   }
@@ -152,8 +152,12 @@ export function updateStanceInput(sys: PlayerSystem, wantsJump: boolean, wantsSp
   }
   }
 
+/**
+ * A one-off stamina cost (jump · roll · melee · shield bash · big slash). 2026-09-12: × `staminaCostMul` (각성제 +50 %) —
+ * every one-off path lands here, so callers pass the base cost; the "enough stamina?" checks scale the same way.
+ */
 export function spendStamina(sys: PlayerSystem, cost: number): void {
-  sys.stamina = Math.max(0, sys.stamina - cost);
+  sys.stamina = Math.max(0, sys.stamina - cost * sys.staminaCostMul);
   sys.regenDelay = STAMINA_REGEN_DELAY;
   if (sys.stamina <= 0) sys.onStaminaDepleted();
   }
@@ -173,14 +177,16 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
   const c = sys.controller;
   const max = sys.maxStamina;
   if (sys.stamina > max) sys.stamina = max;
-  if (sys._hovering && !c.grounded && !sys.isDead) {
-    sys.stamina = Math.max(0, sys.stamina - HOVER_STAMINA_DRAIN * dt);
+  // 2026-09-12 전투 소모품: 지속 소모 배수 — 아드레날린 0 (소모도 회복 차단도 없다) · 각성제 1.5 (`parts/Boosts`)
+  const drainMul = sys.staminaDrainMul;
+  if (sys._hovering && !c.grounded && !sys.isDead && drainMul > 0) {
+    sys.stamina = Math.max(0, sys.stamina - HOVER_STAMINA_DRAIN * drainMul * dt);
     sys.regenDelay = STAMINA_REGEN_DELAY;
     if (sys.stamina <= 0) { sys.onStaminaDepleted(); sys.setHovering(false); }
     return;
   }
   // 2026-09-11: 사다리를 빠르게 오르내리는 동안은 달리기와 같은 자리에서 `LADDER_SPRINT_DRAIN` 을 쓴다 (회복도 막는다)
-  const drain = c.climbFast ? LADDER_SPRINT_DRAIN : c.sprinting ? STAMINA_SPRINT_DRAIN : 0;
+  const drain = (c.climbFast ? LADDER_SPRINT_DRAIN : c.sprinting ? STAMINA_SPRINT_DRAIN : 0) * drainMul;
   if (drain > 0 && !sys.isDead) {
     sys.stamina -= drain * dt;
     sys.regenDelay = STAMINA_REGEN_DELAY;

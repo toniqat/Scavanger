@@ -11,9 +11,11 @@ import type {
   ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+/* appended (2026-09-12): 아이템 회수 계약 — 스택 분류 열쇠 · 표식 병합 / 나누기 */
+import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
+import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
 import { firstFreeQuickSlot, isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
@@ -62,7 +64,7 @@ export function previewPartial(sys: InventorySystem, uid: string, from: ItemLoca
   if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
   if (blockers[0] === uid) return 'noop';
   const other = grid.get(blockers[0]);
-  return other && other.item.defId === item.defId && other.item.qty < def.stackMax ? 'merge' : 'bad';
+  return other && canStackTogether(other.item, item) && other.item.qty < def.stackMax ? 'merge' : 'bad';
   }
 
 /**
@@ -86,6 +88,7 @@ export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLoc
 
   if (blockers.length === 0) {
     const created = sys.loot.createItem(item.defId, qty);
+    copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
     if (!grid.place(created, target.x, target.y, target.rotated)) return 'fail';
     item.qty -= qty;
     srcGrid.version++;
@@ -97,11 +100,12 @@ export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLoc
   if (blockers.length !== 1 || blockers[0] === OOB) return 'fail';
   if (blockers[0] === uid) return 'noop';
   const other = grid.get(blockers[0]);
-  if (!other || other.item.defId !== item.defId || other.item.searched === false) return 'fail';
+  if (!other || !canStackTogether(other.item, item) || other.item.searched === false) return 'fail';
   const moved = Math.min(def.stackMax - other.item.qty, qty);
   if (moved <= 0) return 'fail';
   other.item.qty += moved;
   item.qty -= moved;
+  mergeRaidFoundMark(other.item, item);
   grid.version++;
   srcGrid.version++;
   if (sys.locKind(from) !== sys.locKind(to)) sys.emitTransfer({ ...item, qty: moved }, def, from, to);
@@ -144,7 +148,8 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
     const occupant = sys.quickSlots[target.index];
     if (occupant?.uid === uid) return 'noop';
     // 2026-09-12 (사용자 결정): 같은 아이템이 든 칸이면 교체가 아니라 **합치기** (넘친 만큼은 커서에 남는다)
-    if (occupant && occupant.defId === item.defId && def.stackMax > 1 && occupant.qty < def.stackMax && item.searched !== false) return 'merge';
+    // 2026-09-12 (아이템 회수 계약): a raid-found contract stack and a brought one are not "the same item" here — swap instead
+    if (occupant && canStackTogether(occupant, item) && def.stackMax > 1 && occupant.qty < def.stackMax && item.searched !== false) return 'merge';
     /*
      * 2026-09-10 — **1:1 교체는 가방 여유를 요구하지 않는다.** 예전에는 여기서 `sys.bag.canAbsorb(occupant)` 만
      * 봤는데, 그 검사는 들어오는 스택이 **아직 격자에 있는 상태**에서 돌아 그것이 곧 비울 칸을 세지 않았다.
@@ -193,7 +198,7 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   const other = grid.get(blockers[0]);
   if (!other) return 'bad';
   if (target.grid === 'container' && other.item.searched === false) return 'bad'; // never touch an unsearched item
-  if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
+  if (canStackTogether(other.item, item) && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
   // A-15: 교체는 밀려난 쪽이 **주머니로 들어가는** 이동이기도 하다 — 주머니가 안 받으면 교체 자체가 안 된다
   if (from.kind === 'grid' && from.grid === 'pouch' && !sys.pouchAccepts(ITEM_DEF_MAP.get(other.item.defId))) return 'bad';
   if (from.kind === 'slot') {
@@ -321,7 +326,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
   if (target.grid === 'container' && other.item.searched === false) return 'fail';
 
   // stack merge
-  if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) {
+  if (canStackTogether(other.item, item) && def.stackMax > 1 && other.item.qty < def.stackMax) {
     const moved = grid.mergeInto(item, other.item.uid);
     if (moved <= 0) return 'fail';
     if (item.qty <= 0) {
@@ -367,6 +372,25 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
   return 'ok';
   }
 
+/**
+ * Where a quick move from `from` goes right now (null = nowhere — the move would fail). `quickMoveImpl` uses exactly this,
+ * and the right-click menu (2026-09-12, E1) names the 「빠른 이동」 entry after it. Whether the item still **fits** there
+ * is not checked (that stays the move's own refusal + `inventory:full`).
+ */
+export function quickMoveDest(sys: InventorySystem, from: ItemLocation): GridId | null {
+  let dest: GridId;
+  if (from.kind === 'slot') dest = 'bag';
+  // 2026-09-09: 우클릭 = 가방으로 되돌리기. 2026-09-10: 상자를 열어 둔 채라면 그 상자로 곧장 간다 (가방과 같은 규칙).
+  else if (from.kind === 'quick') dest = sys.activeContainer ? 'container' : 'bag';
+  // 2026-09-11 (A-15): 주머니에서 우클릭하면 가방으로 (퀵슬롯과 같다)
+  else if (from.grid === 'container' || from.grid === 'stash' || from.grid === 'pouch') dest = 'bag';
+  else if (sys.activeContainer) dest = 'container';
+  else if (sys.hubMode) dest = 'stash';
+  else return null;
+  if (dest === 'container' && sys.ctx.isMultiplayer) return null; // Phase 7: nothing goes into a shared container
+  return dest;
+  }
+
 /** Right-click quick action: container ↔ bag auto-place; slot → bag (the bag slot shrinks the grid first). */
 export function quickMove(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.quickMoveImpl(uid, from));
@@ -380,16 +404,8 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   if (from.kind === 'slot' && from.slot === 'bag') return sys.changeBag(null, null, 'grid');
   // A-15: 장착한 주머니의 우클릭도 `changePouch` 를 지난다 (내용물이 먼저 가방으로 간다)
   if (from.kind === 'slot' && from.slot === 'pouch') return sys.changePouch(null, null, 'grid');
-  let dest: GridId;
-  if (from.kind === 'slot') dest = 'bag';
-  // 2026-09-09: 우클릭 = 가방으로 되돌리기. 2026-09-10: 상자를 열어 둔 채라면 그 상자로 곧장 간다 (가방과 같은 규칙).
-  else if (from.kind === 'quick') dest = sys.activeContainer ? 'container' : 'bag';
-  // 2026-09-11 (A-15): 주머니에서 우클릭하면 가방으로 (퀵슬롯과 같다)
-  else if (from.grid === 'container' || from.grid === 'stash' || from.grid === 'pouch') dest = 'bag';
-  else if (sys.activeContainer) dest = 'container';
-  else if (sys.hubMode) dest = 'stash';
-  else return 'fail';
-  if (dest === 'container' && sys.ctx.isMultiplayer) return 'fail'; // Phase 7: nothing goes into a shared container
+  const dest = quickMoveDest(sys, from);
+  if (!dest) return 'fail';
   const grid = sys.getGrid(dest);
   if (!grid) return 'fail';
   if (!grid.canAbsorb(item)) {

@@ -9,13 +9,23 @@
 // 검사 (건물마다):
 //   1. 정문 바깥에서 걸어 들어갈 수 있다 (불시착 함선은 후미 램프)
 //   2. **건물 밖으로 나가지 않고** (틈 · 창으로 돌아 들어가는 길 금지) 정문 안쪽에서:
-//      - 방마다 서 있을 수 있는 칸의 대부분에 닿는다 (1층 · 2층)
+//      - 방마다 서 있을 수 있는 칸의 대부분에 닿는다 (1층 · 2층 — 잠긴 방 안은 뺀다)
 //      - 2층 건물: 1층 계단 층계참 → 2층 도착 자리
-//      - 옥상 사다리 발치 · 지하실 문 앞 (문은 잠겨 있어도 문 앞까지는 간다)
+//      - 옥상 사다리 발치 · 지하실 문 앞 · 잠긴 방 문 앞 (문은 잠겨 있어도 문 앞까지는 간다)
 //      - 지상 컨테이너마다 상호작용 거리 안
 //   3. 음성 대조: 걸어서는 옥상에 올라가지 못한다 (flood fill 이 벽 · 천장을 뚫지 않는다는 근거)
 //
-// 시드를 돌려 전진기지 · 연구실 · 2층 · 지하실 · 불시착 함선이 각각 몇 채 이상 나올 때까지 (최대 MAX_SEEDS).
+// 2026-09-12 (소모형 만능 열쇠 · 연구소 잠긴 방 · 지상드론 개구멍) — 추가 검사:
+//   4. 잠긴 방: 잠긴 동안 사람 flood fill 이 방 안쪽 칸에 **닿지 않는다** (문 · 개구멍 · 창으로 새지 않는다)
+//   5. 개구멍: 문 쪽 → 방 쪽으로 곧장 걸어 보면 **지상드론 몸**(반지름 0.35 · 키 0.45, `resolveCollision(p, r, h)`)은
+//      지나가고 **사람 몸**(0.45, 키 없음)은 막힌다 — 지하실 문 옆 · 잠긴 방 문 옆 둘 다
+//   6. 열쇠: 열쇠 없음 → 거부 · 다른 종류 열쇠 → 거부(안 줄어든다) · 맞는 열쇠 → 열리고 **그 열쇠만 1 개** 줄어든다,
+//      문짝 콜라이더가 빠진다 (전진기지 = `key_basement`, 연구소 = `keycard_lab`)
+//   7. 연 뒤: 안에서 걸어 잠긴 방 컨테이너 · 지하실 컨테이너에 손이 닿는다
+//   8. 미리보기: `world.previewContainerItems(id)` 가 두 번 불러도 같고, 실제로 열었을 때 inventory 가 채운 내용물과
+//      같다 (구조물 지상 · 잠긴 방 · 맵 상자 · 열쇠 부가 굴림이 맞은 컨테이너)
+//
+// 시드를 돌려 전진기지 · 연구실 · 2층 · 지하실 · 잠긴 방 · 불시착 함선이 각각 몇 채 이상 나올 때까지 (최대 MAX_SEEDS).
 //
 // Usage: node scripts/smoke-structure-reach.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -24,8 +34,8 @@ import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const SEED_POOL = [21, 7, 1234, 3, 42, 99, 555, 808, 2026, 31337, 11, 64, 777, 4242, 9001, 123, 5150, 6060];
-const MAX_SEEDS = 14;
-const WANT = { outpost: 4, lab: 4, twoFloor: 4, basement: 4, wreck: 2 };
+const MAX_SEEDS = 16;
+const WANT = { outpost: 4, lab: 4, twoFloor: 4, basement: 4, locked: 3, wreck: 2 };
 /** 방 하나에서 서 있을 수 있는 칸 중 닿아야 하는 비율. 벽 · 컨테이너 사이 몸이 안 들어가는 구석은 애초에 칸이 아니다. */
 const ROOM_COVERAGE_MIN = 0.85;
 
@@ -49,17 +59,23 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   throw new Error(`timeout waiting for ${label}`);
 }
 
-/** 브라우저 안에서 도는 flood fill. 건물마다 결과 한 줄. */
-function reachAll(roomMin) {
+/**
+ * 브라우저 안에서 도는 flood fill. 건물마다 결과 한 줄.
+ * `after` = 열쇠 검사로 문을 연 **뒤**의 두 번째 패스 — 잠긴 문이 있던 건물만, 안쪽 컨테이너(`_l` · `_b`) 손닿음만 잰다.
+ */
+function reachAll({ roomMin, after }) {
   const ctx = window.__game.ctx, w = ctx.world;
   const V3 = ctx.camera.position.constructor;
   const ws = window.__game.getSystem('world');
   const R = 0.45, STEP = 0.3, MARGIN = 4, NODE_CAP = 80000;
+  const DRONE_R = 0.35, DRONE_H = 0.45;
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   const p = new V3();
   const rows = [];
+  const defs = new Map(w.getStructures().map((d) => [d.id, d]));
 
   for (const s of ws.structures.debugNav()) {
+    if (after && !s.lockedDoor && !s.basementDoor) continue;
     const t0 = performance.now();
     const nav = s.nav;
     const c = Math.cos(nav.yaw), sn = Math.sin(nav.yaw);
@@ -118,16 +134,56 @@ function reachAll(roomMin) {
       }
       return { ok: best <= tol, d: Number.isFinite(best) ? +best.toFixed(2) : null };
     };
+    /** 곧장 걸어 보기: 로컬 `a` → `b` 로 0.1 m 씩 내디디며 표면 먼저 · 밀어내기 나중. 끝에서 `b` 까지 남은 거리. */
+    const walk = (a, b, y, r, h) => {
+      const [ax, az] = toW(a[0], a[1]), [bx, bz] = toW(b[0], b[1]);
+      p.set(ax, w.getSurfaceY(ax, az, y + 0.3), az);
+      for (let it = 0; it < 90; it++) {
+        const dx = bx - p.x, dz = bz - p.z, d = Math.hypot(dx, dz);
+        if (d < 0.04) break;
+        const st = Math.min(0.1, d);
+        p.x += (dx / d) * st; p.z += (dz / d) * st;
+        p.y = w.getSurfaceY(p.x, p.z, p.y);
+        if (h === undefined) w.resolveCollision(p, r); else w.resolveCollision(p, r, h);
+      }
+      return +Math.hypot(bx - p.x, bz - p.z).toFixed(2);
+    };
+    const containersOf = (set, prefix, tol) => {
+      const out = { total: 0, reached: 0, missing: [] };
+      for (const it of ctx.interactables.all()) {
+        if (!it.id.startsWith(`container:${s.id}_${prefix}`)) continue;
+        out.total++;
+        const [lx, lz] = toL(it.position.x, it.position.z);
+        const r = near(set, lx, lz, it.position.y, tol);
+        if (r.ok) out.reached++;
+        else out.missing.push({ id: it.id.slice(10), d: r.d });
+      }
+      return out;
+    };
 
     const y0 = nav.levels[0];
-    const outside = bfs(nav.doorOut, y0, false);
     const inside = bfs(nav.doorIn, y0, true);
+    const def = defs.get(s.id);
+
+    if (after) {
+      rows.push({
+        id: s.id, kind: s.kind, unlocked: !!def?.unlocked, inBlocked: inside.startBlocked, capped: inside.capped,
+        locked: s.lockedDoor ? containersOf(inside.seen, 'l', 1.5) : null,
+        basement: s.basementDoor ? containersOf(inside.seen, 'b', 1.5) : null,
+        ms: Math.round(performance.now() - t0),
+      });
+      continue;
+    }
+
+    const outside = bfs(nav.doorOut, y0, false);
+    const lockedR = nav.locked;
     const row = {
-      id: s.id, kind: s.kind, floors: nav.levels.length, basement: !!s.basementDoor, breach: nav.breach,
+      id: s.id, kind: s.kind, floors: nav.levels.length, basement: !!s.basementDoor, lockedRoom: !!s.lockedDoor, breach: nav.breach,
       outBlocked: outside.startBlocked, inBlocked: inside.startBlocked, capped: outside.capped || inside.capped,
       nodes: inside.seen.size,
       doorIn: near(outside.seen, nav.doorIn[0], nav.doorIn[1], y0, 0.45),
-      stairBottom: null, stairTop: null, ladder: null, basementDoor: null,
+      stairBottom: null, stairTop: null, ladder: null, basementDoor: null, lockedDoor: null, lockedLeak: null,
+      vents: [],
       containers: { total: 0, reached: 0, missing: [] },
       rooms: [],
       roofWalk: false,
@@ -147,20 +203,41 @@ function reachAll(roomMin) {
       const [lx, lz] = toL(s.basementDoor.x, s.basementDoor.z);
       row.basementDoor = near(set, lx, lz, s.basementDoor.y, 0.6);
     }
-    for (const it of ctx.interactables.all()) {
-      if (!it.id.startsWith(`container:${s.id}_c`)) continue;
-      row.containers.total++;
-      const [lx, lz] = toL(it.position.x, it.position.z);
-      const r = near(set, lx, lz, it.position.y, 1.5);
-      if (r.ok) row.containers.reached++;
-      else row.containers.missing.push({ id: it.id.slice(10), d: r.d });
+    if (s.lockedDoor) {
+      const [lx, lz] = toL(s.lockedDoor.x, s.lockedDoor.z);
+      row.lockedDoor = near(set, lx, lz, s.lockedDoor.y, 0.6);
     }
+    if (lockedR) {
+      // 잠긴 동안 방 안쪽(벽에서 0.3 m 들인 사각형)의 칸에 사람이 닿으면 새는 것이다 — 안에서도 밖에서도
+      const ly = nav.levels[lockedR.k];
+      let leak = 0;
+      for (const seenSet of [inside.seen, outside.seen]) {
+        for (const [i, j, yy] of seenSet.values()) {
+          if (Math.abs(yy - ly) > 0.35) continue;
+          const x = i * STEP, z = j * STEP;
+          if (x > lockedR.x0 + 0.3 && x < lockedR.x1 - 0.3 && z > lockedR.z0 + 0.3 && z < lockedR.z1 - 0.3) leak++;
+        }
+      }
+      row.lockedLeak = leak;
+    }
+    for (const v of nav.vents) {
+      row.vents.push({
+        drone: walk(v.out, v.in, v.y, DRONE_R, DRONE_H),
+        person: walk(v.out, v.in, v.y, R, undefined),
+      });
+    }
+    row.containers = containersOf(set, 'c', 1.5);
     for (const room of nav.rooms) {
       const level = nav.levels[room.k];
       let clear = 0, got = 0;
       const lost = [];
       for (let i = Math.ceil(room.x0 / STEP); i * STEP <= room.x1; i++) {
         for (let j = Math.ceil(room.z0 / STEP); j * STEP <= room.z1; j++) {
+          // 잠긴 방 (+ 벽 두께 여유) 안의 칸은 잠긴 동안 닿지 않는 것이 맞다 — 세지 않는다
+          if (lockedR && room.k === lockedR.k) {
+            const x = i * STEP, z = j * STEP;
+            if (x > lockedR.x0 - 0.8 && x < lockedR.x1 + 0.8 && z > lockedR.z0 - 0.8 && z < lockedR.z1 + 0.8) continue;
+          }
           const y = stand(i, j, level + 0.3);
           if (y === null || Math.abs(y - level) > 0.05) continue;
           clear++;
@@ -174,6 +251,89 @@ function reachAll(roomMin) {
     row.roomsOk = row.rooms.every((r) => r.cov >= roomMin);
     rows.push(row);
   }
+  return rows;
+}
+
+/** 열쇠 검사 (6): 잠긴 문이 있는 건물마다 — 없음 · 다른 종류 · 맞는 열쇠. 이 클라이언트 혼자(싱글)라 호스트 경로 그대로다. */
+function keyFlow() {
+  const ctx = window.__game.ctx, w = ctx.world, inv = ctx.inventory, loot = ctx.loot;
+  const count = (id) => inv.countWhere((d) => d.id === id);
+  const clear = (id) => { const n = count(id); if (n > 0) inv.consumeWhere((d) => d.id === id, n); };
+  const give = (id) => inv.tryAddItem(loot.createItem(id, 1));
+  const rows = [];
+  for (const s of w.getStructures()) {
+    if (!s.unlockDefId || s.unlocked) continue;
+    const it = ctx.interactables.all().find((x) => x.id === `struct:${s.id}:door`);
+    const doorPos = s.basementDoor ?? s.lockedRoomDoor;
+    if (!it || !doorPos) { rows.push({ id: s.id, missing: true }); continue; }
+    const doorObs = () => w.getObstacles().some((o) => o.kind === 'door' && Math.hypot(o.position.x - doorPos.x, o.position.z - doorPos.z) < 0.25);
+    const key = s.unlockDefId;
+    const other = key === 'key_basement' ? 'keycard_lab' : 'key_basement';
+    clear('key_basement'); clear('keycard_lab');
+    const r = { id: s.id, kind: s.kind, key, basement: !!s.hasBasement, lockedRoom: !!s.hasLockedRoom, missing: false };
+    r.promptNoKey = it.getPrompt();
+    r.holdNoKey = it.holdTime ?? null;
+    it.interact();
+    r.denyKeepsLocked = !s.unlocked && doorObs();
+    r.otherGiven = give(other);
+    it.interact();
+    r.wrongKeyKeepsLocked = !s.unlocked && doorObs() && count(other) === 1;
+    r.keyGiven = give(key);
+    r.promptWithKey = it.getPrompt();
+    r.holdWithKey = it.holdTime ?? null;
+    it.interact();
+    r.unlocked = s.unlocked;
+    r.doorGone = !doorObs();
+    r.keyLeft = count(key);
+    r.otherLeft = count(other);
+    r.promptAfter = it.getPrompt();
+    clear(other);
+    rows.push(r);
+  }
+  return rows;
+}
+
+/** 미리보기 검사 (8): 미리보기 두 번 = 같다, 그리고 실제로 열어 inventory 캐시와 견준다. */
+function previewFlow() {
+  const ctx = window.__game.ctx, w = ctx.world;
+  const invSys = window.__game.getSystem('inventory');
+  const sig = (items) => {
+    const m = new Map();
+    for (const it of items) m.set(it.defId, (m.get(it.defId) ?? 0) + it.qty);
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([d, q]) => `${d}x${q}`).join(',');
+  };
+  const ids = [];
+  const all = ctx.interactables.all().filter((x) => x.id.startsWith('container:struct_')).map((x) => x.id.slice(10));
+  const keyed = all.filter((id) => (w.previewContainerItems(id) ?? []).some((it) => it.defId === 'key_basement' || it.defId === 'keycard_lab'));
+  ids.push(...keyed.slice(0, 3));
+  for (const id of all.filter((x) => /_c\d+$/.test(x)).slice(0, 2)) if (!ids.includes(id)) ids.push(id);
+  for (const id of all.filter((x) => /_l\d+$/.test(x)).slice(0, 1)) if (!ids.includes(id)) ids.push(id);
+  const crate = w.getCrates()[0];
+  const rows = [];
+  for (const id of ids) {
+    const a = w.previewContainerItems(id), b = w.previewContainerItems(id);
+    const it = ctx.interactables.all().find((x) => x.id === `container:${id}`);
+    const wasCached = !!invSys.containers.get(id);
+    it?.interact();
+    const cont = invSys.containers.get(id);
+    const got = cont ? cont.grid.items().map((pl) => pl.item) : null;
+    ctx.inventory.closeAll();
+    rows.push({
+      id, kind: 'structure', keyed: keyed.includes(id), wasCached,
+      stable: !!a && !!b && sig(a) === sig(b), preview: a ? sig(a) : null, opened: got ? sig(got) : null,
+    });
+  }
+  if (crate && !invSys.containers.get(crate.id)) {
+    const a = w.previewContainerItems(crate.id);
+    ctx.bus.emit('crate:open', { crateId: crate.id, tier: crate.tier, position: crate.position });
+    const cont = invSys.containers.get(crate.id);
+    ctx.inventory.closeAll();
+    rows.push({
+      id: crate.id, kind: 'crate', keyed: false, wasCached: false, stable: true,
+      preview: a ? sig(a) : null, opened: cont ? sig(cont.grid.items().map((pl) => pl.item)) : null,
+    });
+  }
+  rows.push({ id: 'unknown-id', kind: 'unknown', unknownIsNull: w.previewContainerItems('nope_container') === null });
   return rows;
 }
 
@@ -205,9 +365,9 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub');
 
-  const seen = { outpost: 0, lab: 0, twoFloor: 0, basement: 0, wreck: 0 };
+  const seen = { outpost: 0, lab: 0, twoFloor: 0, basement: 0, locked: 0, wreck: 0 };
   const enough = () => Object.entries(WANT).every(([k, v]) => seen[k] >= v);
-  let seeds = 0;
+  let seeds = 0, keyedPreviews = 0;
   for (const seed of SEED_POOL) {
     if (seeds >= MAX_SEEDS || enough()) break;
     seeds++;
@@ -215,16 +375,17 @@ try {
     await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
     await waitFor(page, () => window.__game.ctx.world.ready, 'world ready', 30000);
     await sleep(300);
-    const rows = await page.evaluate(reachAll, ROOM_COVERAGE_MIN);
+    const rows = await page.evaluate(reachAll, { roomMin: ROOM_COVERAGE_MIN, after: false });
     console.log(`seed ${seed}: ${rows.length} structures`);
     for (const r of rows) {
       if (r.kind === 'outpost' || r.kind === 'lab') seen[r.kind]++;
       if (r.kind === 'wreck') seen.wreck++;
       if (r.floors === 2) seen.twoFloor++;
       if (r.basement) seen.basement++;
-      const tag = `${r.id} (${r.kind}${r.floors === 2 ? ' · 2층' : ''}${r.basement ? ' · 지하실' : ''}${r.breach ? ` · 틈 ${['북', '서', '동'][r.breach.side]}` : ''})`;
+      if (r.lockedRoom) seen.locked++;
+      const tag = `${r.id} (${r.kind}${r.floors === 2 ? ' · 2층' : ''}${r.basement ? ' · 지하실' : ''}${r.lockedRoom ? ' · 잠긴 방' : ''}${r.breach ? ` · 틈 ${['북', '서', '동'][r.breach.side]}` : ''})`;
       const detail = JSON.stringify({ ...r, rooms: r.rooms.map((x) => `${x.k}:${x.got}/${x.clear}${x.lost.length ? ` ${JSON.stringify(x.lost)}` : ''}`) });
-      console.log(`  --   ${tag}: 노드 ${r.nodes} · 방 ${r.rooms.map((x) => `${x.k}F ${Math.round(x.cov * 100)}%`).join(' ')} · 컨테이너 ${r.containers.reached}/${r.containers.total} · ${r.ms} ms`);
+      console.log(`  --   ${tag}: 노드 ${r.nodes} · 방 ${r.rooms.map((x) => `${x.k}F ${Math.round(x.cov * 100)}%`).join(' ')} · 컨테이너 ${r.containers.reached}/${r.containers.total}${r.vents.length ? ` · 개구멍 ${r.vents.map((v) => `드론 ${v.drone} / 사람 ${v.person}`).join(' · ')}` : ''} · ${r.ms} ms`);
       ok(!r.outBlocked && !r.inBlocked && !r.capped, `${tag}: flood fill 시작 자리가 비어 있다`, detail);
       ok(r.doorIn.ok, `${tag}: 바깥에서 ${r.kind === 'wreck' ? '후미 램프로' : '정문으로'} 걸어 들어간다`, detail);
       if (r.kind !== 'wreck') ok(r.roomsOk, `${tag}: 방마다 서 있을 수 있는 칸의 ${Math.round(ROOM_COVERAGE_MIN * 100)}% 이상에 **안에서** 닿는다`, detail);
@@ -232,12 +393,57 @@ try {
       if (r.stairTop) ok(r.stairTop.ok, `${tag}: 실내 계단으로 2층에 올라간다`, detail);
       if (r.ladder) ok(r.ladder.ok, `${tag}: 옥상 사다리 발치에 안에서 닿는다`, detail);
       if (r.basementDoor) ok(r.basementDoor.ok, `${tag}: 지하 계단으로 지하실 문 앞까지 내려간다`, detail);
+      if (r.lockedDoor) ok(r.lockedDoor.ok, `${tag}: 2층 잠긴 방 문 앞까지 안에서 걸어간다`, detail);
+      if (r.lockedLeak !== null) ok(r.lockedLeak === 0, `${tag}: 잠긴 동안 사람은 잠긴 방 안쪽 칸에 닿지 못한다 (${r.lockedLeak}칸)`, detail);
+      if (r.kind === 'lab') ok(!r.basement, `${tag}: 연구소에는 지하실이 없다`, detail);
+      if (r.basement || r.lockedRoom) ok(r.vents.length >= 1, `${tag}: 잠긴 문 옆에 개구멍이 있다 (${r.vents.length})`, detail);
+      r.vents.forEach((v, i) => {
+        ok(v.drone < 0.15, `${tag}: 개구멍 ${i} — 지상드론 몸(0.35 · 키 0.45)은 지나간다 (남은 ${v.drone} m)`, detail);
+        ok(v.person > 0.6, `${tag}: 개구멍 ${i} — 사람 몸(0.45)은 막힌다 (남은 ${v.person} m)`, detail);
+      });
       ok(r.containers.reached === r.containers.total, `${tag}: 지상 컨테이너 ${r.containers.total}개 모두 손이 닿는다`, detail);
       if (r.kind !== 'wreck') ok(!r.roofWalk, `${tag}: (음성 대조) 걸어서는 옥상에 못 올라간다`, detail);
     }
+
+    // 8. 미리보기 = 첫 개봉 (열쇠 검사 · 열린 뒤 flood fill 보다 먼저 — 문을 열어도 컨테이너 내용물은 안 바뀌지만 순서를 고정한다)
+    const prev = await page.evaluate(previewFlow);
+    for (const p of prev) {
+      if (p.kind === 'unknown') { ok(p.unknownIsNull, 'previewContainerItems(모르는 id) === null'); continue; }
+      if (p.keyed) keyedPreviews++;
+      const tag = `seed ${seed} ${p.id}${p.keyed ? ' (열쇠 부가 굴림)' : ''}`;
+      ok(p.preview !== null && p.stable, `${tag}: 미리보기가 있고 두 번 불러도 같다`, JSON.stringify(p));
+      if (!p.wasCached) ok(p.preview === p.opened, `${tag}: 미리보기 = 실제로 열었을 때의 내용물`, JSON.stringify(p));
+    }
+
+    // 6. 열쇠
+    const keys = await page.evaluate(keyFlow);
+    for (const k of keys) {
+      if (k.missing) { ok(false, `seed ${seed} ${k.id}: 잠긴 문 상호작용 · 위치가 있다`); continue; }
+      const tag = `seed ${seed} ${k.id} (${k.kind}, ${k.key})`;
+      const detail = JSON.stringify(k);
+      ok(k.kind === 'outpost' ? k.key === 'key_basement' && k.basement : k.key === 'keycard_lab' && k.lockedRoom,
+        `${tag}: 전진기지 지하실 = 열쇠 · 연구소 잠긴 방 = 키카드`, detail);
+      ok(/필요/.test(k.promptNoKey ?? '') && k.holdNoKey === 0, `${tag}: 열쇠 없으면 「… 필요」 프롬프트 · 홀드 0 (${k.promptNoKey})`, detail);
+      ok(k.denyKeepsLocked, `${tag}: 열쇠 없이 누르면 문이 그대로 잠겨 있다`, detail);
+      ok(k.otherGiven && k.wrongKeyKeepsLocked, `${tag}: 다른 종류 열쇠로는 안 열리고 그 열쇠도 안 줄어든다`, detail);
+      ok(k.keyGiven && /개방/.test(k.promptWithKey ?? '') && k.holdWithKey > 0, `${tag}: 맞는 열쇠가 있으면 「… 개방 (E)」 · 홀드 (${k.promptWithKey})`, detail);
+      ok(k.unlocked && k.doorGone && k.promptAfter === null, `${tag}: 맞는 열쇠로 열린다 — 문짝 콜라이더가 빠진다`, detail);
+      ok(k.keyLeft === 0 && k.otherLeft === 1, `${tag}: 연 열쇠만 1 개 소모된다 (남은 ${k.keyLeft} · 다른 종류 ${k.otherLeft})`, detail);
+    }
+
+    // 7. 연 뒤 — 안쪽 컨테이너 손닿음 (문짝이 미끄러지는 애니메이션은 콜라이더와 무관하다)
+    const afterRows = await page.evaluate(reachAll, { roomMin: ROOM_COVERAGE_MIN, after: true });
+    for (const r of afterRows) {
+      const tag = `seed ${seed} ${r.id} (연 뒤)`;
+      const detail = JSON.stringify(r);
+      if (!r.unlocked) continue;
+      if (r.locked) ok(r.locked.total >= 2 && r.locked.reached === r.locked.total, `${tag}: 잠긴 방 컨테이너 ${r.locked.total}개 모두 손이 닿는다 (2–3개)`, detail);
+      if (r.basement) ok(r.basement.reached === r.basement.total, `${tag}: 지하실 컨테이너 ${r.basement.total}개 모두 손이 닿는다`, detail);
+    }
   }
-  console.log(`seeds ${seeds}: ${JSON.stringify(seen)}`);
+  console.log(`seeds ${seeds}: ${JSON.stringify(seen)} · 열쇠 부가 굴림이 맞은 컨테이너 미리보기 ${keyedPreviews}개`);
   ok(enough(), `건물 종류가 충분히 나왔다 (원하는 수 ${JSON.stringify(WANT)})`, JSON.stringify(seen));
+  if (keyedPreviews === 0) console.log('  --   이번 시드들에서는 열쇠 부가 굴림이 맞은 지상 컨테이너가 없었다 (keyChance) — 그 경로의 미리보기 대조는 건너뛰었다');
   ok(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '));
 } catch (e) {
   fail++;

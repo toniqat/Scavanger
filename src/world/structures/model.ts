@@ -36,6 +36,17 @@ export interface StructureRow {
   basementTiers: readonly TierWeight[];
   /** 2층이 올라갈 확률 (2026-09-11). 0 = 늘 단층 (불시착 함선 · 선로 부속). */
   upperChance: number;
+  /**
+   * 2026-09-12 — 이 종류의 잠긴 문을 여는 아이템 id 이자 지상 컨테이너의 부가 열쇠 (`key_basement` · `keycard_lab`).
+   * null = 잠긴 문도 부가 열쇠도 없다.
+   */
+  key: string | null;
+  /** 지상 컨테이너 하나마다 `key` 가 부가로 들어 있을 확률 (보장 없음). */
+  keyChance: number;
+  /** 2층 잠긴 방의 컨테이너 수 범위 (0 = 잠긴 방 없음). 2층이 올라간 건물에만 방이 선다. */
+  lockedMin: number;
+  lockedMax: number;
+  lockedTiers: readonly TierWeight[];
 }
 
 const ROW_KINDS: readonly StructureRowKind[] = ['outpost', 'lab', 'wreck', 'rail_platform', 'tram'];
@@ -50,6 +61,9 @@ function tierList(raw: CsvRow, column: string): TierWeight[] {
 export const STRUCTURE_ROWS: readonly StructureRow[] = csvRows('structures.csv').map((r) => {
   const kind = r.str('kind') as StructureRowKind;
   if (!ROW_KINDS.includes(kind)) r.report('kind', `'${kind}' 는 ${ROW_KINDS.join(' | ')} 중 하나여야 한다`);
+  const lockedMin = r.int('lockedMin', { min: 0, fallback: 0 });
+  const lockedMax = r.int('lockedMax', { min: 0, fallback: 0 });
+  if (lockedMax < lockedMin) r.report('lockedMax', `lockedMax ${lockedMax} 이 lockedMin ${lockedMin} 보다 작다`);
   return {
     kind,
     label: r.str('label'),
@@ -66,6 +80,11 @@ export const STRUCTURE_ROWS: readonly StructureRow[] = csvRows('structures.csv')
     tiers: tierList(r, 'tiers'),
     basementTiers: tierList(r, 'basementTiers'),
     upperChance: r.num('upperChance', { min: 0, max: 1 }),
+    key: r.optStr('key') ?? null,
+    keyChance: r.num('keyChance', { min: 0, max: 1, fallback: 0 }),
+    lockedMin,
+    lockedMax: Math.max(lockedMin, lockedMax),
+    lockedTiers: tierList(r, 'lockedTiers'),
   };
 });
 
@@ -149,6 +168,27 @@ export const BASEMENT_FLOOR_T = 0.3;
  * 실내를 걷다 빠진다. `Terrain` 과 `structures/parts/Build` 가 같은 값을 봐야 하므로 여기 하나만 둔다.
  */
 export const PIT_BLEND = 1.6;
+/**
+ * 2026-09-12 — 연구소 2층 **잠긴 방**의 안쪽 치수(m). `LEN` = 문 벽을 따라간 길이, `DEPTH` = 문 벽에서 바깥벽까지.
+ * 문 벽은 옆 벽 쪽 끝부터 [여유 `VENT_MARGIN`][개구멍 `VENT_W`][기둥 `VENT_POST`][문 `LOCKED_DOOR_W`][문짝이 밀려
+ * 들어가는 벽 속 주머니] 순서라 `LEN ≥ VENT_MARGIN + VENT_W + VENT_POST + 2 × LOCKED_DOOR_W` 여야 한다.
+ */
+export const LOCKED_ROOM_LEN = 5.4;
+export const LOCKED_ROOM_DEPTH = 3.4;
+/** 잠긴 방 문 폭(m) — 몸 지름(0.9 m)의 두 배. 지하실 문(복도 폭)보다 좁다. */
+export const LOCKED_DOOR_W = 1.8;
+/**
+ * 2026-09-12 — 잠긴 문 옆 벽 하단의 **지상드론 개구멍**(m). 폭 · 높이는 지상드론 몸(반지름 0.35 · 키 0.45,
+ * `gadgets/drones/GroundDrone`)보다 조금 크고, 사람이 못 지나가는 이유는 크기가 아니라 **인방**이다 — 인방 밑면
+ * (바닥 + `VENT_H`)이 사람 헤드룸(`BOX_HEADROOM`)보다 낮으므로 `resolveCollision` 이 사람을 밀어낸다. 키를 넘기는 몸
+ * (`resolveCollision(p, r, height)`)만 `height ≤ VENT_H` 면 지나간다. 드론 치수를 바꾸면 이 두 값을 같이 본다.
+ */
+export const VENT_W = 1.0;
+export const VENT_H = 0.6;
+/** 개구멍 옆 여유 · 개구멍과 문 사이 기둥 폭(m). */
+export const VENT_MARGIN = 0.3;
+export const VENT_POST = 0.4;
+
 /** 컨테이너 상호작용 반경(m) — 상자(2.8)보다 좁다. 실내에 밀집하므로 서로를 가리지 않게. */
 export const CONTAINER_RADIUS = 1.9;
 /**

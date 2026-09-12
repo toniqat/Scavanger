@@ -1183,7 +1183,7 @@ export const COMMS_COOLDOWN_S = K.num('COMMS_COOLDOWN_S');
 export const STRUCTURE_SCAN_RADIUS = K.num('STRUCTURE_SCAN_RADIUS');
 /** 행성 스캔 콘솔의 홀드 시간(초). */
 export const STRUCTURE_SCAN_HOLD_S = K.num('STRUCTURE_SCAN_HOLD_S');
-/** 키카드로 지하실 문을 여는 홀드 시간(초). */
+/** 열쇠 · 키카드로 잠긴 문(전진기지 지하실 · 연구소 잠긴 방)을 여는 홀드 시간(초). */
 export const STRUCTURE_UNLOCK_HOLD_S = K.num('STRUCTURE_UNLOCK_HOLD_S');
 /** 구조물 문 · 컴퓨터 상호작용 거리(m). */
 export const STRUCTURE_INTERACT_RANGE = K.num('STRUCTURE_INTERACT_RANGE');
@@ -1574,3 +1574,72 @@ export const MEAL_SERVE_RANGE = K.num('MEAL_SERVE_RANGE');
  * 왼쪽으로 박히던 것을 없앤다.
  */
 export const WEAPON_MUZZLE_BLOCK_RANGE = K.num('WEAPON_MUZZLE_BLOCK_RANGE');
+
+/* ══ 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 (docs/plans/consumables-keys-favorites.md) ══
+ * 병렬 에이전트마다 **자기 블록 안에만** 추가한다. 값은 data/constants.csv 의 같은 표식 블록에. */
+/* ── [A1] 소모품 3종 ── */
+/**
+ * owner: player (`parts/Boosts`). 아드레날린 주사의 효과 시간(초) — 스태미나 전량 회복 + 이 시간 동안 **지속 소모만** 0.
+ * 한 번 소모(점프 · 구르기 · 근접 · 실드 배쉬)는 그대로다.
+ */
+export const BOOST_ADRENALINE_DURATION_S = K.num('BOOST_ADRENALINE_DURATION_S');
+/** owner: player. 각성제의 효과 시간(초). 아드레날린과 서로 지운다 (나중 것이 이긴다). */
+export const BOOST_STIMULANT_DURATION_S = K.num('BOOST_STIMULANT_DURATION_S');
+/** 각성제 동안 장전 속도 배수 (>1 = 빠름). weapons 가 `PlayerRef.boostReloadSpeedMul` 로 읽는다. */
+export const BOOST_STIMULANT_RELOAD_SPEED_MUL = K.num('BOOST_STIMULANT_RELOAD_SPEED_MUL');
+/** 각성제 동안 정조준 전환 속도 배수 (>1 = 빠름). player 가 ADS 블렌드 감쇠율에 곱한다. */
+export const BOOST_STIMULANT_ADS_SPEED_MUL = K.num('BOOST_STIMULANT_ADS_SPEED_MUL');
+/** 각성제 동안 조준 흔들림 배수 (<1 = 줄어듦). `PlayerRef.aimSwayMul` 로 게시된다. */
+export const BOOST_STIMULANT_AIM_SWAY_MUL = K.num('BOOST_STIMULANT_AIM_SWAY_MUL');
+/** 각성제의 대가: 스태미나 소모 배수 — 지속 소모와 한 번 소모 모두. */
+export const BOOST_STIMULANT_STAMINA_COST_MUL = K.num('BOOST_STIMULANT_STAMINA_COST_MUL');
+/* ── end [A1] ── */
+/* ── [A2] 조준 흔들림 ── */
+/**
+ * 조준 흔들림 (owner: player/CameraRig · 계열별 크기는 `data/aim_sway.csv` → weapons/AimSway). 정조준 중 카메라가 8자로 떠돈다 —
+ * 위아래 크기는 좌우 × `AIM_SWAY_PITCH_RATIO`(두 배 빠르게 돈다). 자세 · 이동 배수는 앉기 · 엎드리기 · 걷기 속도에서의 값이다.
+ */
+export const AIM_SWAY_PITCH_RATIO = K.num('AIM_SWAY_PITCH_RATIO');
+export const AIM_SWAY_CROUCH_MUL = K.num('AIM_SWAY_CROUCH_MUL');
+export const AIM_SWAY_PRONE_MUL = K.num('AIM_SWAY_PRONE_MUL');
+export const AIM_SWAY_MOVE_MUL = K.num('AIM_SWAY_MOVE_MUL');
+/** 흔들림 크기(자세 · 이동 · 무기 교체 · 정조준 게이트)가 목표를 따라가는 `damp` 속도. */
+export const AIM_SWAY_BLEND_RATE = K.num('AIM_SWAY_BLEND_RATE');
+/* ── end [A2] ── */
+/* ── [B] 전술 임플란트 · 함선 호출 준비 연출 ── */
+/**
+ * (owner: implants/parts/Devices.refundGrapple) 갈고리 쿨타임 환급 — 비율은 전부 실효 쿨타임(`ImplantsRef.cooldownTotal`) 기준.
+ * 붙은 뒤 놓았으면: 붙은 순간 → 놓은 순간의 실제 이동 거리 d(관성 제외)로 `REFUND_MAX × max(0, 1 − d / REFUND_DIST)`.
+ * 붙기 전에 끝났으면(날아가는 중 Q 회수 · 드론 앵커 소실): `CANCEL_REFUND`, 단 남은 쿨타임은 `CANCEL_MIN_S` 이상.
+ */
+export const IMPLANT_GRAPPLE_REFUND_MAX = K.num('IMPLANT_GRAPPLE_REFUND_MAX');
+export const IMPLANT_GRAPPLE_REFUND_DIST = K.num('IMPLANT_GRAPPLE_REFUND_DIST');
+export const IMPLANT_GRAPPLE_CANCEL_REFUND = K.num('IMPLANT_GRAPPLE_CANCEL_REFUND');
+export const IMPLANT_GRAPPLE_CANCEL_MIN_S = K.num('IMPLANT_GRAPPLE_CANCEL_MIN_S');
+/* ── end [B] ── */
+/* ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 ── */
+/* ── end [C] ── */
+/* ── [D] 지상드론 스캔 ── */
+/**
+ * owner: gadgets/drones (`parts/Scan`). 지상 드론 조종 중 조준을 유지한 채 좌클릭을 누르고 있어야 하는 시간(초) —
+ * 채우면 대상 안의 **최고 등급**이 레이드 내내 대상 위에 뜬다 (분대 공유). 조준이 벗어나거나 멀어지면 0 부터.
+ */
+export const DRONE_SCAN_HOLD_S = K.num('DRONE_SCAN_HOLD_S');
+/** 드론 렌즈 → 대상 중심의 최대 3-D 거리(m). */
+export const DRONE_SCAN_RANGE = K.num('DRONE_SCAN_RANGE');
+/** 조준 판정 구 반지름(m) — 렌즈 중심 광선이 대상 중심에서 이만큼 안을 지나면 조준된 것이다. */
+export const DRONE_SCAN_AIM_RADIUS = K.num('DRONE_SCAN_AIM_RADIUS');
+/** 조준됐지만 사거리 밖인 대상에 「더 가까이」 안내를 띄우는 거리(m). */
+export const DRONE_SCAN_HINT_RANGE = K.num('DRONE_SCAN_HINT_RANGE');
+/** owner: ui (`hud/DroneScanLabels`). 월드 라벨 높이(m, 대상 바닥 기준) · 보이는 최대 거리(m, 카메라 기준). */
+export const DRONE_SCAN_LABEL_HEIGHT = K.num('DRONE_SCAN_LABEL_HEIGHT');
+export const DRONE_SCAN_LABEL_MAX_DIST = K.num('DRONE_SCAN_LABEL_MAX_DIST');
+/** 받는 쪽: 보낸 사람의 지상 드론 복제본이 대상에서 `DRONE_SCAN_RANGE` + 이 값(m) 안일 때만 분대원 스캔을 믿는다. */
+export const DRONE_SCAN_SHARE_SLACK = K.num('DRONE_SCAN_SHARE_SLACK');
+/* ── end [D] ── */
+/* ── [E1] 즐겨찾기 코어 ── */
+/* ── end [E1] ── */
+/* ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ── */
+/* ── end [E2] ── */
+/* ── [F] 헬스 미니게임 ── */
+/* ── end [F] ── */

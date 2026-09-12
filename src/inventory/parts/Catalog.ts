@@ -12,7 +12,7 @@ import type {
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
+import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
 import { setStarterGrantState, starterGrantState } from '../Stash';
@@ -84,7 +84,7 @@ export function previewCatalog(sys: InventorySystem, item: ItemInstance, target:
   if (blockers.length === 0) return 'ok';
   if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
   const other = grid.get(blockers[0]);
-  return other && other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax ? 'merge' : 'bad';
+  return other && canStackTogether(other.item, item) && def.stackMax > 1 && other.item.qty < def.stackMax ? 'merge' : 'bad';
   }
 
 /**

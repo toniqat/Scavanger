@@ -236,14 +236,17 @@ export const SORT_CATEGORY_ORDER: readonly ItemCategory[] = [
   'material', 'herb', 'seed', 'soil', 'crop', 'sample', 'book', 'disc', 'record', 'furniture',
 ];
 
-export type FilterGroupId = 'all' | 'weapon' | 'gear' | 'ammo' | 'consumable' | 'gadget' | 'material' | 'valuable' | 'bio' | 'other';
+export type FilterGroupId = 'all' | 'favorite' | 'weapon' | 'gear' | 'ammo' | 'consumable' | 'gadget' | 'material' | 'valuable' | 'bio' | 'other';
 
 /**
- * 가방 · 창고 필터 칩. `categories` null = 전체(`all`) 또는 나머지 전부(`other` — 다른 칩 어디에도 없는 카테고리).
+ * 가방 · 창고 필터 칩. `categories` null = 전체(`all`) · 즐겨찾기(`favorite` — 카테고리가 아니라 종류 표를 본다) ·
+ * 나머지 전부(`other` — 다른 칩 어디에도 없는 카테고리).
  * 걸러진 타일은 **자리를 지킨 채 어두워질 뿐**이다 (`GridView.setFilter`).
  */
 export const FILTER_GROUPS: readonly { id: FilterGroupId; label: string; icon: string; categories: readonly ItemCategory[] | null }[] = [
   { id: 'all', label: '전체', icon: '✱', categories: null },
+  // 2026-09-12 (E1, 사용자 결정): 즐겨찾기한 종류만 밝게
+  { id: 'favorite', label: '즐겨찾기', icon: '★', categories: null },
   { id: 'weapon', label: '무기 · 부착물', icon: CATEGORY_ICON.primary, categories: ['primary', 'secondary', 'attachment'] },
   { id: 'gear', label: '방어구 · 가방', icon: CATEGORY_ICON.armor, categories: ['armor', 'bag', 'pouch'] },
   { id: 'ammo', label: '탄약', icon: CATEGORY_ICON.ammo, categories: ['ammo'] },
@@ -255,9 +258,14 @@ export const FILTER_GROUPS: readonly { id: FilterGroupId; label: string; icon: s
   { id: 'other', label: '기타', icon: '…', categories: null },
 ];
 
-/** Predicate for a filter chip; null for `all` (nothing is dimmed). */
-export function filterPredicate(id: FilterGroupId): ((item: ItemInstance, def: ItemDef) => boolean) | null {
+/**
+ * Predicate for a filter chip; null for `all` (nothing is dimmed).
+ * 2026-09-12 (E1): `favorite` reads the live favourites through `isFavorite` (the caller passes `InventoryRef.isFavorite`),
+ * so toggling a favourite while that chip is lit only needs a repaint, not a new predicate.
+ */
+export function filterPredicate(id: FilterGroupId, isFavorite?: (defId: string) => boolean): ((item: ItemInstance, def: ItemDef) => boolean) | null {
   if (id === 'all') return null;
+  if (id === 'favorite') return (_item, def) => !!isFavorite?.(def.id);
   if (id === 'other') {
     const named = new Set<ItemCategory>();
     for (const g of FILTER_GROUPS) for (const c of g.categories ?? []) named.add(c);

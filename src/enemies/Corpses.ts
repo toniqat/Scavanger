@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import {
-  CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, CORPSE_LOOT_CHANCE, Random,
+  CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, CORPSE_LOOT_CHANCE, Random, corpseLootRandom,
   type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type InteractableKind, type ItemInstance,
 } from '@/shared';
+/* appended (2026-09-12): 아이템 회수 계약 — 레이드 루팅 표식 */
+import { markRaidFound, raidFoundSeed } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Lootable corpses (Phase 4). A dead enemy whose corpse *rolled searchable* registers an `Interactable`
@@ -76,9 +78,12 @@ export class Corpse implements Interactable {
     const inv = ctx.inventory;
     if (this.looted || !inv || typeof inv.openContainerItems !== 'function') return;
     if (!this.items) {
-      const rng = new Random(((this.seed ^ (this.enemyId * 2654435761)) >>> 0) || 1);
+      // 2026-09-12: 시드 식은 `shared/lootRolls` 한 곳 — 지상 드론 스캔(`gadgets/drones/parts/Scan`)이 같은 식으로 미리 굴린다
+      const rng = corpseLootRandom(this.seed, this.enemyId);
       // 2026-09-09: 행성의 등급 상한을 적용한다 (`rollCorpseOn`; 행성이 null 이면 `rollCorpse` 와 완전히 같다).
       this.items = ctx.loot && typeof ctx.loot.rollCorpseOn === 'function' ? ctx.loot.rollCorpseOn(this.type, rng, this.weaponId, ctx.missionPlanet) : [];
+      // 2026-09-12: raid loot (named drops included) carries the raid-found mark — null outside a real raid (훈련장)
+      markRaidFound(this.items, raidFoundSeed(ctx));
     }
     this.hidePillar = true;
     inv.openContainerItems(this.id, this.items, this.position, '시체');

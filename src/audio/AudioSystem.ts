@@ -372,6 +372,11 @@ export class AudioSystem implements GameSystem, AudioRef {
       b.on('implant:rocketExploded', ({ position }) => auto('rocket_explode', position, 1)),
       b.on('implant:wieldChanged', ({ wielded }) => auto(wielded ? 'ui_equip' : 'ui_close', undefined, 0.45)),
       b.on('implant:equipped', () => auto('ui_equip', undefined, 0.7)),
+      // 2026-09-12 준비 소리: 임플란트 = 짧고 높은 전자음 (충전형의 중간 충전은 작고 조금 낮게, 마지막 충전 · 단일 충전 ·
+      // 안정제는 정식), 함선 호출 = 무전 두 음 차임. 거절 환불로 0 이 된 순간(`refunded`)은 조용하다 — 거절음이 이미 났다.
+      // 둘 다 게임플레이 페이즈에서만 나오는 이벤트라 여기서 페이즈를 다시 보지 않는다.
+      b.on('implant:ready', ({ full }) => auto('implant_ready', undefined, full ? 0.55 : 0.26, full ? 1 : 0.9)),
+      b.on('stratagem:ready', ({ refunded }) => { if (!refunded) auto('stratagem_ready', undefined, 0.7); }),
       // gadgets
       b.on('gadget:used', ({ id, position }) => {
         // 2026-09-11: drones (`drone_deploy`) and the remote mine (`c4_place`) are voiced by gadgets/ itself.

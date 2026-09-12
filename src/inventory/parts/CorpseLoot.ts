@@ -123,6 +123,7 @@ export function corpseItemsFromWire(sys: InventorySystem, wire: readonly CorpseI
   for (const w of wire) {
     if (!w || typeof w.defId !== 'string') continue;
     const item = sys.loot.createItem(w.defId, Math.max(1, Math.floor(w.qty || 1)), w.ex);
+    if (item && typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;   // 2026-09-12: 생략 = 표식 없음
     if (item) out.push(item);
   }
   return out;

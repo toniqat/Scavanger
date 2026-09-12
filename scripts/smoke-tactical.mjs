@@ -2,7 +2,8 @@
 // implants, gadgets, gear/weight, melee, roll, gathering, field crafting and progression (91 checks; Phase 12 added the
 // 3.2 m shield width, `resolveBarrierCollision` / `absorbFrontalAttack`, the 실드 배쉬 via a synthetic LMB and the
 // one-shot 정찰 in a third mission; 2026-09-11 the explicit 오버차지 flag (C-3) and the bash knockback through the
-// contract `EnemyManagerRef.pushBack` (C-1)).
+// contract `EnemyManagerRef.pushBack` (C-1); 2026-09-12 → 115: ready moments / sounds, dash 11.25 m + wall clamp,
+// `refillAll`, and a fourth mission for the grapple cooldown refund).
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
 //
@@ -139,10 +140,26 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
   const inHub = await page.evaluate(() => {
-    const im = window.__game.ctx.implants;
+    const ctx = window.__game.ctx, im = ctx.implants;
+    // 2026-09-12: every ready moment and every ready / refund sound request from here on (the sounds are recorded at
+    // AudioSystem.play, before its "is the AudioContext running" gate, so a headless page still sees them)
+    window.__ready = [];
+    ctx.bus.on('implant:ready', (e) => window.__ready.push({ full: e.full, refill: e.refill, charges: e.charges, phase: ctx.phase }));
+    window.__snd = [];
+    const audio = window.__game.getSystem('audio');
+    const play = audio.play.bind(audio);
+    audio.play = (id, pos, vol, pitch, ...rest) => {
+      if (id === 'implant_ready' || id === 'stratagem_ready') window.__snd.push({ id, vol, pitch });
+      return play(id, pos, vol, pitch, ...rest);
+    };
     return { set: im.setEquipped('dash'), equipped: im.equipped };
   });
   ok(inHub.set && inHub.equipped === 'dash', 'implant equipped in the ship');
+  const soundIds = await page.evaluate(async () => {
+    const m = await import('/src/audio/Synth.ts');
+    return { implant: typeof m.SOUNDS.implant_ready === 'function', strat: typeof m.SOUNDS.stratagem_ready === 'function' };
+  });
+  ok(soundIds.implant && soundIds.strat, `SOUNDS defines implant_ready (${soundIds.implant}) and stratagem_ready (${soundIds.strat})`);
 
   /* ── mission ──────────────────────────────────────────────────────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 42 }));
@@ -224,6 +241,89 @@ try {
   ok(dash.max === 3, 'dash carries 3 charges');
   ok(dash.after === dash.before - 1, `dash consumed a charge (${dash.before}→${dash.after})`);
   ok(dashMoved > 2, `dash teleported ${dashMoved.toFixed(2)} m`);
+  ok((await page.evaluate(() => window.__ready.length)) === 0, 'no implant:ready from the ship equip / the mission start / a dash (things start full)');
+
+  /* ── 2026-09-12: dash ×1.5 = 11.25 m on a clear line, still clamped in front of a wall ── */
+  // CameraRig.getForward = (−sin yaw, 0, −cos yaw); respawnAt(pos, yaw) snaps the rig to that yaw.
+  const dClear = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.player, w = ctx.world;
+    const V = p.position.constructor;
+    const base = p.position.clone(), o = new V(), d = new V();
+    for (let k = 0; k < 32; k++) {
+      const a = (k / 32) * Math.PI * 2;
+      d.set(-Math.sin(a), 0, -Math.cos(a));
+      o.copy(base); o.y += 1.0;
+      const end = base.clone().addScaledVector(d, 11.25);
+      if (w.raycast(o, d, 12.5) || !w.isInsideBounds(end.x, end.z) || Math.abs(w.getHeightAt(end.x, end.z) - base.y) >= 1.5) continue;
+      p.respawnAt(base, a);
+      const f = new V(); p.getForward(f);
+      const from = p.position.clone(), c0 = ctx.implants.charges;
+      ctx.implants.activate();
+      const moved = Math.hypot(p.position.x - from.x, p.position.z - from.z);
+      return { found: true, yawOk: f.distanceTo(d) < 1e-3, used: c0 - ctx.implants.charges, moved };
+    }
+    return { found: false };
+  });
+  ok(dClear.found && dClear.yawOk && dClear.used === 1 && Math.abs(dClear.moved - 11.25) < 0.35, `clear line: the dash covers IMPLANT_DASH_DISTANCE 11.25 m (${dClear.moved?.toFixed(2)} m)`, JSON.stringify(dClear));
+  await gameSleep(page, 0.2);
+  // a wall 3–10 m ahead: stand 6 m off a tall prop / wall (nearest first), face it, dash — it must stop in front
+  const dWall = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.player, w = ctx.world, im = ctx.implants;
+    const V = p.position.constructor;
+    const me = p.position.clone(), o = new V(), d = new V();
+    const obs = w.getObstacles().filter((ob) => ob.height >= 2.5 && !ob.velocity && !ob.fragile && !ob.destructible)
+      .sort((a, b) => a.position.distanceToSquared(me) - b.position.distanceToSquared(me)).slice(0, 80);
+    for (const ob of obs) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const out = new V(Math.cos(a), 0, Math.sin(a));
+        const spot = ob.position.clone().addScaledVector(out, ob.radius + 6);
+        if (!w.isInsideBounds(spot.x, spot.z) || w.getObstaclesNear(spot.x, spot.z, 1.5).length) continue;
+        spot.y = w.getHeightAt(spot.x, spot.z);
+        d.set(-out.x, 0, -out.z);
+        o.copy(spot); o.y += 1.0;
+        const hit = w.raycast(o, d, 12.5);
+        if (!hit || hit.distance < 3 || hit.distance > 10) continue;
+        p.respawnAt(spot, Math.atan2(-d.x, -d.z));
+        const f = new V(); p.getForward(f);
+        const from = p.position.clone(), c0 = im.charges;
+        im.activate();
+        const moved = Math.hypot(p.position.x - from.x, p.position.z - from.z);
+        return { found: true, yawOk: f.distanceTo(d) < 1e-3, used: c0 - im.charges, moved, wallAt: hit.distance, kind: ob.box ? 'box' : ob.hull ? 'hull' : 'cyl' };
+      }
+    }
+    return { found: false };
+  });
+  ok(dWall.found && dWall.yawOk && dWall.used === 1 && dWall.moved < 11 && dWall.moved <= dWall.wallAt - 0.45 + 0.3,
+    `wall ${dWall.wallAt?.toFixed(2)} m ahead (${dWall.kind}): the longer dash still stops in front of it (${dWall.moved?.toFixed(2)} m)`, JSON.stringify(dWall));
+
+  /* ── 2026-09-12: ready moments — every dash charge back flashes (intermediate weak, last full) + implant_ready ── */
+  await gameSleep(page, 0.2);
+  const cooling = await page.evaluate(() => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('implants');
+    sys.chargesLeft = 0; sys.cdRemaining = 2; sys.cdTotal = 5;   // pin a known empty state
+    window.__readyMark = window.__ready.length; window.__sndMark = window.__snd.length;
+    return true;
+  });
+  await gameSleep(page, 0.2);
+  const empty = await page.evaluate(() => { const h = document.querySelector('.imp-hud'); return { dim: h.classList.contains('dim'), ready: h.classList.contains('is-ready') }; });
+  ok(cooling && empty.dim && !empty.ready, `dash with no charge: dimmed, no ready glow (${JSON.stringify(empty)})`);
+  const flashes = [];
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => { window.__game.getSystem('implants').cdRemaining = 0.05; });
+    await gameSleep(page, 0.25);
+    flashes.push(await page.evaluate(() => {
+      const h = document.querySelector('.imp-hud');
+      return { charges: window.__game.ctx.implants.charges, major: h.classList.contains('rdy-major'), minor: h.classList.contains('rdy-minor'), ready: h.classList.contains('is-ready') };
+    }));
+  }
+  const rd = await page.evaluate(() => ({ ev: window.__ready.slice(window.__readyMark), snd: window.__snd.slice(window.__sndMark) }));
+  ok(rd.ev.length === 3 && rd.ev.map((e) => e.full).join() === 'false,false,true' && rd.ev.map((e) => e.charges).join() === '1,2,3' && rd.ev.every((e) => !e.refill),
+    `implant:ready per charge back: full ${rd.ev.map((e) => e.full).join('/')}, charges ${rd.ev.map((e) => e.charges).join('/')}`);
+  ok(flashes[0].minor && !flashes[0].major && flashes[1].minor && flashes[2].major && !flashes[2].minor && flashes.every((f) => f.ready),
+    `.imp-hud flashes .rdy-minor, .rdy-minor, .rdy-major and holds .is-ready (${JSON.stringify(flashes)})`);
+  ok(rd.snd.length === 3 && rd.snd.every((s) => s.id === 'implant_ready') && rd.snd[0].vol < rd.snd[2].vol && rd.snd[1].vol < rd.snd[2].vol,
+    `implant_ready per charge, intermediate quieter (${rd.snd.map((s) => s.vol).join(' / ')})`);
 
   /* ── gadgets: throwables, then place-types from separate spots ────── */
   await page.evaluate(() => {
@@ -565,6 +665,31 @@ try {
   ok(follow2.active === false && follow2.carried === false && follow2.down === null, 'Q again lowers the shield (getBarrierPose → null)');
   ok(follow2.events[follow2.events.length - 1] === false, 'implant:barrierCarried {up:false} emitted on lower');
 
+  /* ── 2026-09-12: ImplantsRef.refillAll (안정제) lifts a collapse lockout, fills the shield (and the overcharge pool) ── */
+  const refillBar = await page.evaluate(async () => {
+    const ctx = window.__game.ctx, im = ctx.implants, sys = window.__game.getSystem('implants');
+    const K = await import('/src/shared/constants.ts');
+    im.activate();                                  // raise again
+    const V = ctx.player.position.constructor;
+    const pose = new V(); im.getBarrierPose(pose);
+    im.damageBarrier('local', pose, 1e6);           // collapse → lockout, shield put away
+    const locked = { lockout: im.barrierLockout, hp: im.barrierHp, charges: im.charges, carried: im.barrierCarried };
+    const n0 = window.__ready.length;
+    sys.ocEnergy = 1;
+    im.refillAll();
+    const after = { lockout: im.barrierLockout, hp: im.barrierHp, max: im.barrierMaxHp, charges: im.charges, cd: im.cooldownRemaining, oc: sys.ocEnergy, ocMax: K.IMPLANT_OVERCHARGE_ENERGY };
+    const major = document.querySelector('.imp-hud').classList.contains('rdy-major');
+    im.activate();                                  // no longer refused as 재충전 중
+    const up = im.barrierCarried;
+    im.activate();
+    return { locked, after, ready: window.__ready.slice(n0), major, up, down: !im.barrierCarried };
+  });
+  ok(refillBar.locked.lockout > 0 && refillBar.locked.hp === 0 && refillBar.locked.charges === 0 && !refillBar.locked.carried, `barrier collapsed: lockout ${refillBar.locked.lockout?.toFixed(1)} s, shield put away`);
+  ok(refillBar.after.lockout === 0 && refillBar.after.cd === 0 && refillBar.after.charges === 1 && refillBar.after.hp === refillBar.after.max && refillBar.after.oc === refillBar.after.ocMax,
+    `refillAll: lockout lifted, shield ${refillBar.after.hp}/${refillBar.after.max}, charge back, overcharge pool full (${refillBar.after.oc})`);
+  ok(refillBar.ready.length === 1 && refillBar.ready[0].refill === true && refillBar.ready[0].full === true && refillBar.major, `refillAll is a ready moment: implant:ready {refill, full} + .rdy-major (${JSON.stringify(refillBar.ready)})`);
+  ok(refillBar.up && refillBar.down, 'the refilled shield can be raised again at once');
+
   /* ── 정찰 (Phase 12): instant, one wide pulse, revealed to us + the squad ── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (scan)');
@@ -616,6 +741,94 @@ try {
   ok(scan.activated.length === 1 && scan.activated[0] === 'scan' && scan.scanned.length === 1 && scan.scanned[0] === 1, 'implant:activated (skill XP hook) + implant:scanned fire exactly once per cast');
   ok(scan.charges0 === 1 && scan.after.charges === 0 && scan.after.holding === false && scan.after.cd > 20 && Math.abs(scan.after.total - 30 * scan.mul) < 1e-6,
     `instant cast: no hold, charge spent, cooldown ${scan.after.total.toFixed(1)} s running (${scan.after.cd.toFixed(1)} s left)`);
+
+  /* ── 2026-09-12: refillAll mid-cooldown → the scan can be cast again at once ── */
+  const scanRefill = await page.evaluate(() => {
+    const im = window.__game.ctx.implants;
+    const cd0 = im.cooldownRemaining, n0 = window.__ready.length;
+    im.refillAll();
+    const after = { cd: im.cooldownRemaining, charges: im.charges };
+    im.activate();
+    return { cd0, after, casts: window.__scan.casts.length, ready: window.__ready.slice(n0) };
+  });
+  ok(scanRefill.cd0 > 20 && scanRefill.after.cd === 0 && scanRefill.after.charges === 1 && scanRefill.casts === 2 && scanRefill.ready.length === 1 && scanRefill.ready[0].refill,
+    `refillAll on a 정찰 cooling ${scanRefill.cd0.toFixed(1)} s: cooldown 0, charge back, second cast goes out (${scanRefill.casts} casts)`);
+
+  /* ── 2026-09-12: 갈고리 — cooldown 24 s, refund when a use ends, 안정제 mid-flight ── */
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (grapple)');
+  ok(await page.evaluate(() => { const im = window.__game.ctx.implants; return im.setEquipped('grapple') && im.equipped === 'grapple'; }), '갈고리 equipped in the ship');
+  await page.evaluate(() => { window.__readyMark = window.__ready.length; window.__game.ctx.bus.emit('game:newMission', { seed: 44 }); });
+  await waitFor(page, () => window.__game.ctx.world?.ready === true && window.__game.ctx.isGameplayPhase() && window.__game.ctx.player?.isDropping === false, 'fourth mission (grapple)');
+  await gameSleep(page, 1.0);
+  const g = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants, sys = window.__game.getSystem('implants'), p = ctx.player;
+    const refunds = [];
+    const off = ctx.bus.on('implant:cooldownRefunded', (e) => refunds.push({ seconds: e.seconds, ratio: e.ratio, id: e.id }));
+    const readyAtStart = window.__ready.length - window.__readyMark;
+    const fresh = () => { sys.cdRemaining = 0; sys.chargesLeft = 1; };
+    // A. Q while the hook is still flying (castGrapple → releaseGrapple(false)) → 90 %, at least 3 s left.
+    //    The multiplier is read before the fire: its `implant:activated` awards 임플란트 숙련 XP, which can lower it.
+    fresh();
+    const mul0 = ctx.progression?.derived?.implantCooldownMul ?? 1;
+    sys.fireGrapple();
+    const A = { flying: sys.grappleState === 'flying', before: im.cooldownRemaining, total: im.cooldownTotal };
+    im.activate();
+    A.after = im.cooldownRemaining; A.idle = sys.grappleState === 'idle'; A.ev = refunds.slice();
+    // B. attached (as updateGrapple does it), pulled `m` metres, released → 0.5 × max(0, 1 − m / 15)
+    const pull = (m) => {
+      fresh(); sys.fireGrapple();
+      sys.grappleState = 'attached'; sys.grappleAttachPos.copy(p.position);
+      const before = im.cooldownRemaining, total = im.cooldownTotal, n = refunds.length;
+      const x0 = p.position.x;
+      p.position.x += m;
+      sys.releaseGrapple(false);
+      p.position.x = x0;
+      return { before, total, after: im.cooldownRemaining, ev: refunds.slice(n) };
+    };
+    const B0 = pull(0), B20 = pull(20), B6 = pull(6);
+    const hud = { text: document.querySelector('.imp-refund')?.textContent ?? null, rf: document.querySelector('.imp-hud').classList.contains('rf-flash') };
+    // C. 안정제 while the hook flies: cooldown 0, the hook keeps flying, the release after it refunds nothing
+    fresh(); sys.fireGrapple();
+    const nC = refunds.length;
+    im.refillAll();
+    const C = { flying: sys.grappleState === 'flying', cd: im.cooldownRemaining, charges: im.charges };
+    im.activate();
+    C.after = im.cooldownRemaining; C.idle = sys.grappleState === 'idle'; C.ev = refunds.length - nC;
+    // D. a cancel leaves 3 s — wait for them below
+    fresh(); sys.fireGrapple(); im.activate();
+    const D = { cd: im.cooldownRemaining };
+    window.__readyMarkD = window.__ready.length;
+    off();
+    return { def: im.getDef('grapple').cooldown, mul: mul0, readyAtStart, A, B0, B6, B20, C, D, hud };
+  });
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  ok(g.def === 24 && near(g.A.total, 24 * g.mul), `IMPLANT_GRAPPLE_COOLDOWN 24 (effective ${g.A.total?.toFixed(1)} s)`);
+  ok(g.readyAtStart === 0, `no implant:ready from the ship / the grapple mission start (${g.readyAtStart})`);
+  ok(g.A.flying && g.A.idle && near(g.A.after, Math.max(Math.min(g.A.before, 3), g.A.before - 0.9 * g.A.total)) && g.A.after >= 3 - 1e-6
+    && g.A.ev.length === 1 && g.A.ev[0].ratio === 0.9 && near(g.A.ev[0].seconds, g.A.before - g.A.after),
+    `cancel before attaching: 90 % refund floored at 3 s (${g.A.before.toFixed(2)} → ${g.A.after.toFixed(2)} s, −${g.A.ev[0]?.seconds?.toFixed(2)})`);
+  ok(near(g.B0.after, g.B0.before - 0.5 * g.B0.total) && g.B0.ev.length === 1 && g.B0.ev[0].ratio === 0.5,
+    `attached, no pull: 50 % refund (${g.B0.before.toFixed(2)} → ${g.B0.after.toFixed(2)} s)`);
+  ok(near(g.B6.after, g.B6.before - 0.3 * g.B6.total) && g.B6.ev.length === 1 && near(g.B6.ev[0].ratio, 0.3),
+    `attached, 6 m pull: 0.5 × (1 − 6/15) = 30 % (${g.B6.before.toFixed(2)} → ${g.B6.after.toFixed(2)} s)`);
+  ok(near(g.B20.after, g.B20.before) && g.B20.ev.length === 0, 'attached, 20 m pull (≥ 15 m): no refund, no event');
+  {
+    const s = g.B6.ev[0]?.seconds ?? 0;
+    const want = `−${s.toFixed(s < 10 ? 1 : 0)}초`;
+    ok(g.hud.text === want && g.hud.rf, `HUD: green "${want}" beside the thumbnail + .rf-flash (${g.hud.text})`);
+  }
+  ok(g.C.flying && g.C.cd === 0 && g.C.charges === 1 && g.C.idle && g.C.after === 0 && g.C.ev === 0, `refillAll with the hook out: keeps flying, cooldown 0, the release refunds nothing (${JSON.stringify(g.C)})`);
+  await gameSleep(page, 0.2);
+  const gCool = await page.evaluate(() => { const h = document.querySelector('.imp-hud'); return { dim: h.classList.contains('dim'), ready: h.classList.contains('is-ready') }; });
+  ok(near(g.D.cd, 3) && gCool.dim && !gCool.ready, `after a cancel: 3 s left, dimmed, no ready glow (${JSON.stringify(gCool)})`);
+  await gameSleep(page, 3.2);
+  const gReady = await page.evaluate(() => {
+    const h = document.querySelector('.imp-hud');
+    return { ev: window.__ready.slice(window.__readyMarkD), major: h.classList.contains('rdy-major'), ready: h.classList.contains('is-ready'), dim: h.classList.contains('dim'), snd: window.__snd.slice(-1)[0] };
+  });
+  ok(gReady.ev.length === 1 && gReady.ev[0].full && !gReady.ev[0].refill && gReady.major && gReady.ready && !gReady.dim && gReady.snd?.id === 'implant_ready',
+    `the grapple cooldown runs out: implant:ready {full} → .rdy-major + .is-ready + implant_ready (${JSON.stringify(gReady)})`);
 
   /* ── HUD widgets ──────────────────────────────────────────────────── */
   const hud = await page.evaluate(() => {

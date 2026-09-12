@@ -290,5 +290,61 @@
   100% { opacity: 0; }
 }
 
+/* ── 2026-09-12: 지상 드론 스캔 ─────────────────────────────────────────────
+   `.dsc-*` = 조종 HUD 안 (조준점 둘레 홀드 링 · 아래 안내), `.dsl-*` = 월드 라벨 (`hud/DroneScanLabels`, 조종과 무관하게 레이드 내내).
+   `.dr-scan` 은 이미 외곽 지지직의 스캔라인이다 — 그래서 접두사를 따로 뒀다. */
+.dsc-ring {
+  --dc: #8fe3ff;
+  position: absolute; left: 50%; top: 50%;
+  width: 96px; height: 96px; margin: -48px 0 0 -48px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.dsc-ring.show { opacity: 1; }
+.dsc-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.dsc-ring circle { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.dsc-ring .track { stroke: rgba(255, 255, 255, 0.14); }
+.dsc-ring .fill { stroke: var(--dc); filter: drop-shadow(0 0 3px rgba(143, 227, 255, 0.6)); }
+
+/* 조준점 아래: 대상 이름 · 거리 + 동작 안내 (조종 전환 링 반지름 60 바깥에서 시작) */
+.dsc-hint {
+  position: absolute; left: 50%; top: calc(50% + 64px);
+  transform: translateX(-50%);
+  display: none; flex-direction: column; align-items: center; gap: 3px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+.dsc-hint.show { display: flex; }
+.dsc-hint .tgt { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); }
+.dsc-hint .dist { margin-left: 6px; font-family: var(--ui-mono); font-size: 11px; font-weight: 500; color: var(--c-text-dim); }
+.dsc-hint .act { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #8fe3ff; }
+.dsc-hint.far .act { color: var(--c-text-dim); }
+
+/* 월드 라벨 */
+.dsl-root { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.dsl-label {
+  --rc: #9aa3ad;
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+.dsl-label .r {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px;
+  background: rgba(8, 10, 12, 0.74); border: 1px solid var(--rc);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--rc);
+}
+.dsl-label .r::before { content: ''; width: 6px; height: 6px; background: var(--rc); transform: rotate(45deg); }
+.dsl-label .n { font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.dsl-label.empty .r { color: var(--c-text-dim); border-color: rgba(255, 255, 255, 0.3); }
+.dsl-label.empty .r::before { background: transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+.dsl-label.pop .r { animation: dslPop 600ms var(--ease); }
+@keyframes dslPop {
+  0% { transform: scale(1.35); box-shadow: 0 0 16px var(--rc); }
+  100% { transform: scale(1); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+}
+
 /* 관전 중에는 개인 조종 HUD 가 의미 없다 (`base.css` 의 `.hud.spectating` 규칙과 같은 취급) */
 .hud.spectating .drone-hud, .hud.spectating .dr-static { opacity: 0 !important; visibility: hidden; }

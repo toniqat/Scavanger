@@ -77,7 +77,8 @@ export function readClimbInput(sys: PlayerSystem, active: boolean): void {
   inp.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
   inp.fast = inp.z !== 0 && input.isDown(Keys.SPRINT) && !sys.exhausted && sys.stamina > 0;
   if (input.wasPressed(Keys.JUMP)) {
-    if (sys.stamina >= STAMINA_JUMP_COST && !sys.gear.overloaded) inp.jump = true;
+    // 2026-09-12: 각성제 = 한 번 소모 ×1.5 — 검사도 `spendStamina` 가 실제로 빼는 양으로 잰다 (보통 점프 · 구르기와 같다)
+    if (sys.stamina >= STAMINA_JUMP_COST * sys.staminaCostMul && !sys.gear.overloaded) inp.jump = true;
     else sys.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
   }
   inp.drop = !inp.jump && input.wasPressed(Keys.INTERACT) && sys.interactCooldown <= 0;

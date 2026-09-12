@@ -5,16 +5,35 @@
  * `inventory/` 의 상자 코드가 그대로 한다 (티어별 롤 · 컨테이너 캐시 · 멀티 동기화 · 감정 XP · 계약 카운터 ·
  * `stats.cratesOpened`). 이 파일이 더하는 것은 **실루엣**(캐비닛 · 궤짝 · 시약장)과 두 가지 규칙뿐이다:
  *   1. 그 **구역에서 처음** 컨테이너를 열면 `structure:investigated` 가 나간다 (enemies/ 의 로그 강하 계기).
- *   2. 한 컨테이너에는 `bonusDefId`(지하실 키카드)가 **반드시** 들어 있을 수 있다 — 그때만
- *      `inventory.openContainerItems` 로 내용물을 직접 채우고 **그 다음** `crate:open` 을 쏜다.
+ *   2. 한 컨테이너에는 `bonusDefId`(열쇠 · 키카드)가 `bonusChance` 확률로 **부가로** 들어 있을 수 있다 — 그 굴림이
+ *      맞았을 때만 `inventory.openContainerItems` 로 내용물을 직접 채우고 **그 다음** `crate:open` 을 쏜다.
  *      캐시가 먼저 만들어지므로 상자 코드는 이미 있는 컨테이너를 그대로 보여 주고, 통계 · XP · 계약은
- *      다른 상자와 똑같이 오른다 (대가는 `inventory:containerOpened` 가 그 한 번 두 번 나가는 것뿐이다).
+ *      다른 상자와 똑같이 오른다.
+ *
+ * 2026-09-12 — **미리보기** (`preview`, `WorldRef.previewContainerItems` 의 몸통): 여는 코드와 같은 `contents()` 가
+ * 내용물을 만든다. 부가 굴림이 빗나간 컨테이너는 상자 코드(`inventory/Container.ContainerStore.getOrCreate`)가
+ * 굴리는데 두 쪽 모두 **`shared/lootRolls.crateLootRandom`** 한 식(`<맵 시드> ^ hash(id)` → `rollCrateOn(tier, rng, 목표 행성)`)을
+ * 부른다 (2026-09-12 리드 — 복사본을 없앴다). 부가 굴림은 `<맵 시드> ^ hash(id + '#bonus')` 의 **따로 된 rng** 라 상자 내용물을 밀지 않는다.
  */
 import * as THREE from 'three';
 import {
-  Layers, Random,
+  Layers, Random, crateLootRandom,
   type GameContext, type Interactable, type ItemInstance, type StructureKind,
 } from '@/shared';
+/* appended (2026-09-12): 아이템 회수 계약 — 레이드 루팅 표식 */
+import { markRaidFound, raidFoundSeed } from '@/shared';
+
+/**
+ * 2026-09-12 — 컨테이너 `id`(티어 `tier`)를 이 클라이언트가 처음 열 때 **상자 코드가 굴리는 내용물**. 순수 · 결정적.
+ * 시드 식은 `inventory/Container.ContainerStore.getOrCreate` 와 같은 `crateLootRandom` 이다 (구조물 · 플랫폼 · 전차 컨테이너와
+ * 맵 상자가 전부 그 길로 열린다). `ctx.loot` 가 없으면 null.
+ */
+export function rollCrateContents(game: GameContext, id: string, tier: number): ItemInstance[] | null {
+  const loot = game.loot;
+  if (!loot) return null;
+  const rng = crateLootRandom(game.world?.seed ?? 0, id);
+  return loot.rollCrateOn(tier, rng, game.missionPlanet);
+}
 import type { BuildCtx } from '../../build';
 import { merge, paint, paintGradient, xform } from '../../build';
 import { CONTAINER_RADIUS } from '../model';
@@ -30,8 +49,10 @@ export interface ContainerSpec {
   /** "구역당 1회" 를 세는 열쇠 — 구조물 id 또는 플랫폼 id. */
   zoneId: string;
   zoneKind: StructureKind | 'platform';
-  /** 이 컨테이너에 반드시 들어 있는 아이템 def id (지하실 키카드). */
+  /** 이 컨테이너에 부가로 들어 있을 수 있는 아이템 def id (열쇠 · 키카드). */
   bonusDefId?: string;
+  /** 2026-09-12: `bonusDefId` 가 들어 있을 확률 (0~1, 시드 결정적). 생략하면 1 = 반드시. */
+  bonusChance?: number;
   /**
    * true = **움직이는** 컨테이너 (전차 안). 콜라이더를 걸지 않고, 매 프레임 `position` / `yaw` 를 메시에
    * 다시 옮긴다 — 배치한 쪽이 같은 `Vector3` 객체를 제자리에서 고치면 상호작용 판정(`Interactable.position`
@@ -170,10 +191,12 @@ export class ContainerSet {
     }
     if (first) {
       inst.rolled = true;
-      // 키카드가 든 컨테이너만 내용물을 직접 채운다 — 나머지는 상자 코드가 티어로 굴린다.
-      if (spec.bonusDefId) {
-        const items = this.rollWithBonus(game, spec);
-        if (items) game.inventory?.openContainerItems(spec.id, items, spec.position, '컨테이너');
+      // 열쇠 부가 굴림이 맞은 컨테이너만 내용물을 직접 채운다 — 나머지는 상자 코드가 같은 식으로 티어대로 굴린다.
+      const c = spec.bonusDefId ? this.contents(spec) : null;
+      if (c?.bonus) {
+        // 2026-09-12: raid loot carries the raid-found mark (the preview path stays unmarked — it never reaches a player)
+        markRaidFound(c.items, raidFoundSeed(game));
+        game.inventory?.openContainerItems(spec.id, c.items, spec.position, '컨테이너');
       }
     }
     game.bus.emit('crate:open', { crateId: spec.id, tier: spec.tier, position: spec.position });
@@ -193,15 +216,31 @@ export class ContainerSet {
    * 행성의 무기 등급 곡선(`data/planet_loot.csv`)도 희귀도 배수도 타지 않았다 — 등급 IV · V 가 봉인된
    * 앞쪽 행성에서 구조물이 그 봉인의 우회로였다. "상자 코드와 같은 방식" 이라는 이 주석의 약속이 곧 계약이다.
    */
-  private rollWithBonus(game: GameContext, spec: ContainerSpec): ItemInstance[] | null {
-    const loot = game.loot;
-    if (!loot) return null;
-    const rng = new Random((((game.world?.seed ?? 0) >>> 0) ^ Random.hash(spec.id)) >>> 0);
-    const items = loot.rollCrateOn(spec.tier, rng, game.missionPlanet);
+  private contents(spec: ContainerSpec): { items: ItemInstance[]; bonus: boolean } | null {
+    const game = this.game;
+    const loot = game?.loot;
+    if (!game || !loot) return null;
+    const items = rollCrateContents(game, spec.id, spec.tier);
+    if (!items) return null;
+    let bonus = false;
     if (spec.bonusDefId && loot.getItemDef(spec.bonusDefId)) {
-      try { items.unshift(loot.createItem(spec.bonusDefId, 1)); } catch { /* def 가 있어도 만들 수 없으면 그냥 넘어간다 */ }
+      const chance = spec.bonusChance ?? 1;
+      const hit = chance >= 1
+        || (chance > 0 && new Random((((game.world?.seed ?? 0) >>> 0) ^ Random.hash(`${spec.id}#bonus`)) >>> 0).chance(chance));
+      if (hit) {
+        try { items.unshift(loot.createItem(spec.bonusDefId, 1)); bonus = true; } catch { /* def 가 있어도 만들 수 없으면 그냥 넘어간다 */ }
+      }
     }
-    return items;
+    return { items, bonus };
+  }
+
+  /**
+   * 2026-09-12 — 이 묶음의 컨테이너 `id` 를 **처음 열면 나올** 내용물 (열쇠 부가 굴림 포함). 순수 — 열린 표시 ·
+   * 이벤트 · 캐시를 건드리지 않는다. 이 묶음의 것이 아니거나 `ctx.loot` 가 없으면 null.
+   */
+  preview(id: string): ItemInstance[] | null {
+    const inst = this.byId.get(id);
+    return inst ? this.contents(inst.spec)?.items ?? null : null;
   }
 
   update(dt: number, time: number): void {

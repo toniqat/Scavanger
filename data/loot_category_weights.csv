@@ -57,6 +57,8 @@ tier,category,weight
 3,disc,2
 3,record,1
 3,implant,3
+# 2026-09-12 (C): 열쇠 · 키카드 — 티어 3 · 4 에만, 아주 드물게 (상자 한 개당 약 0.7 % · 1.7 %, check-planet-loot 가 잰다)
+3,key,0.3
 
 # 티어 4 — 희귀 캐시
 4,ammo,10
@@ -74,6 +76,7 @@ tier,category,weight
 4,record,1.5
 4,implant,4
 4,sample,7
+4,key,0.6
 
 # 티어 5 — 보급 투하 상자
 5,ammo,45

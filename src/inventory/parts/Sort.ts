@@ -11,7 +11,7 @@
 import type { ItemDef, ItemInstance } from '@/shared';
 import { rarityRank } from '@/shared';
 import { ITEM_DEF_MAP } from '@/items';
-import type { Grid } from '../Grid';
+import { stackKeyOf, type Grid } from '../Grid';
 import { SORT_CATEGORY_ORDER, type OpResult } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -22,10 +22,15 @@ function categoryRank(def: ItemDef | undefined): number {
   return i < 0 ? SORT_CATEGORY_ORDER.length : i;
 }
 
-/** The sort order itself (exported for the smoke tests' expectations). */
-export function compareForSort(a: ItemInstance, b: ItemInstance): number {
+/**
+ * The sort order itself (exported for the smoke tests' expectations).
+ * 2026-09-12 (E1, 사용자 결정): `isFavorite` 를 주면 **즐겨찾기한 종류가 맨 앞**이고, 그 안에서 원래 순서를 따른다.
+ */
+export function compareForSort(a: ItemInstance, b: ItemInstance, isFavorite?: (defId: string) => boolean): number {
   const da = ITEM_DEF_MAP.get(a.defId), db = ITEM_DEF_MAP.get(b.defId);
-  return (categoryRank(da) - categoryRank(db))
+  const fa = isFavorite?.(a.defId) ? 0 : 1, fb = isFavorite?.(b.defId) ? 0 : 1;
+  return (fa - fb)
+    || (categoryRank(da) - categoryRank(db))
     || ((db ? rarityRank(db.rarity) : -1) - (da ? rarityRank(da.rarity) : -1))
     || (area(db) - area(da))
     || (da?.name ?? a.defId).localeCompare(db?.name ?? b.defId, 'ko')
@@ -38,19 +43,23 @@ export function compareForSort(a: ItemInstance, b: ItemInstance): number {
  * 기업 거래 desk has them staged in a tray by uid. Returns the stacks that still hold something.
  */
 function mergeStacks(items: readonly ItemInstance[], keep?: (uid: string) => boolean): ItemInstance[] {
-  const groups = new Map<string, ItemInstance[]>();
+  // 2026-09-12 (아이템 회수 계약): groups are def + stack key — a raid-found contract stack never folds into a brought one
+  const groups = new Map<string, { max: number; list: ItemInstance[] }>();
   for (const it of items) {
     const def = ITEM_DEF_MAP.get(it.defId);
     if (!def || def.stackMax <= 1 || keep?.(it.uid)) continue;
-    const g = groups.get(it.defId);
-    if (g) g.push(it); else groups.set(it.defId, [it]);
+    const key = `${it.defId}|${stackKeyOf(it)}`;
+    const g = groups.get(key);
+    if (g) g.list.push(it); else groups.set(key, { max: def.stackMax, list: [it] });
   }
-  for (const [defId, g] of groups) {
+  for (const { max, list: g } of groups.values()) {
     if (g.length < 2) continue;
-    const max = ITEM_DEF_MAP.get(defId)!.stackMax;
     g.sort((a, b) => b.qty - a.qty);
     let left = g.reduce((s, it) => s + it.qty, 0);
-    for (const it of g) { const q = Math.min(max, left); it.qty = q; left -= q; }
+    let moved = false;
+    for (const it of g) { const q = Math.min(max, left); if (q !== it.qty) moved = true; it.qty = q; left -= q; }
+    // units moved between stacks with different marks → none of them keeps a mark (the grid snapshot restores it on 'fail')
+    if (moved && g.some((it) => it.raidFound !== g[0].raidFound)) for (const it of g) delete it.raidFound;
   }
   return items.filter((it) => it.qty > 0);
 }
@@ -81,10 +90,11 @@ export function sortGrid(sys: InventorySystem, gridId: 'bag' | 'stash', keep?: (
   const before = layoutKey(snap.placements.map((p) => ({ uid: p.item.uid, x: p.x, y: p.y, rotated: p.rotated, qty: p.qty })));
 
   const merged = mergeStacks(items, keep);
+  const fav = (defId: string): boolean => sys.isFavorite(defId);   // 2026-09-12 (E1): 즐겨찾기가 앞
   grid.clear();
-  if (!pack(grid, [...merged].sort(compareForSort))) {
+  if (!pack(grid, [...merged].sort((a, b) => compareForSort(a, b, fav)))) {
     grid.clear();
-    const bySize = [...merged].sort((a, b) => (area(ITEM_DEF_MAP.get(b.defId)) - area(ITEM_DEF_MAP.get(a.defId))) || compareForSort(a, b));
+    const bySize = [...merged].sort((a, b) => (area(ITEM_DEF_MAP.get(b.defId)) - area(ITEM_DEF_MAP.get(a.defId))) || compareForSort(a, b, fav));
     if (!pack(grid, bySize)) { grid.restore(snap); return 'fail'; }
   }
 

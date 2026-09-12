@@ -55,6 +55,9 @@ const SMOKES = {
   'smoke-stratagems':   { file: 'scripts/smoke-stratagems.mjs',   folders: ['stratagems', 'world'] },
   'smoke-phase4':       { file: 'scripts/smoke-phase4.mjs',       folders: ['enemies', 'items', 'world', 'inventory', 'weapons', 'player'] },
   'smoke-tactical':     { file: 'scripts/smoke-tactical.mjs',     folders: ['implants', 'gadgets', 'progression', 'player', 'world', 'enemies', 'inventory', 'items', 'weapons', 'audio'] },
+  /* 2026-09-12 (agent D): 지상 드론 스캔 — 조준 · 3 초 홀드 · 조준 이탈 초기화 · 등급 = 열었을 때 내용물 · 라벨 · 채팅 · 좌클릭이 총으로 새지 않음 ·
+     적 시체 / 보급 상자 / 구조물 컨테이너 미리보기 ≡ 열기 · 레이드 리셋에 라벨이 사라진다. */
+  'smoke-drone-scan':   { file: 'scripts/smoke-drone-scan.mjs',   folders: ['gadgets', 'inventory'] },
   'smoke-controls-hub': { file: 'scripts/smoke-controls-hub.mjs', folders: ['ui', 'hub', 'inventory', 'implants', 'progression', 'player', 'net'] },
   'smoke-ship-rooms':   { file: 'scripts/smoke-ship-rooms.mjs',   folders: ['hub', 'housing'] },
   'smoke-inventory-p6': { file: 'scripts/smoke-inventory-p6.mjs', folders: ['inventory', 'housing', 'items'] },
@@ -73,6 +76,13 @@ const SMOKES = {
   'smoke-rogue-drop':   { file: 'scripts/smoke-rogue-drop.mjs',   folders: ['enemies', 'world'] },
   'smoke-resume-gate':  { file: 'scripts/smoke-resume-gate.mjs',  folders: ['game', 'ui'] },
   'smoke-meta':         { file: 'scripts/smoke-meta.mjs',         folders: ['meta', 'inventory', 'hub', 'ui', 'game'] },
+  /* 2026-09-12 (E2): 즐겨찾기 칩 우클릭 메뉴(위임 · 띠 · 이벤트 재도색 · Escape) · 기업 상점 타일 옵트인 · 즐겨찾기 판매 한 번 더 확인
+     (1초 홀드 · Escape 취소 · 일괄 담기 제외) · 특정 아이템 회수 계약(계약 행 칩 · 몸에 지닌 개수 정산). E1 API 가 없으면 스텁. */
+  'smoke-favorite-chips': { file: 'scripts/smoke-favorite-chips.mjs', folders: ['meta', 'ui', 'inventory'] },
+  /* 2026-09-12 (§5-2): 아이템 회수 계약 — 이번 레이드에서 얻은 것만 센다 · 가져온 스택과 안 합쳐진다 · 같은 사선 띠(레이드 중만) ·
+     나누기 / 바닥 픽업 와이어 / 시체 와이어 / 레이드 blob 이 표식을 지킨다 · 다른 아이템은 섞이면 표식 없음 · 정산 ·
+     함선 복귀 시 표식 제거 + 진행도 0 · 훈련장은 표식 없음. */
+  'smoke-recovery-contract': { file: 'scripts/smoke-recovery-contract.mjs', folders: ['meta', 'inventory', 'pickups', 'game', 'world', 'enemies'] },
   'smoke-training':     { file: 'scripts/smoke-training.mjs',     folders: ['world', 'hub', 'housing', 'game'] },
   'smoke-ghost':        { file: 'scripts/smoke-ghost.mjs',        folders: ['player', 'net', 'game'] },
   /* 2026-09-11: 사다리 (잡기 · W/S · 달리기 스태미나 · 꼭대기 올라서기 · E 놓기 · 점프 · 발치 내려서기 · 무기 잠금 ·
@@ -82,17 +92,27 @@ const SMOKES = {
      고정 카메라 블렌드 · 위상 드라이브(바벨 손 높이 · 페달 발 높이) · 자리 복귀 · spawnStanding / 페이즈 변경 reset.
      가구 모델 없이 anchor 만으로 돌므로 hub 의 가구가 없어도 된다. */
   'smoke-pose':         { file: 'scripts/smoke-pose.mjs',         folders: ['player', 'hub'] },
+  /* 2026-09-12 (A2): 조준 흔들림 — 함선 · 허리 사격은 0 · 정조준 8자(표의 크기 · 부호 교차) · 렌더된 카메라 === getLookDir ·
+     흔들림 속 퍼짐 0 사격이 화면 중심 선 위 · 반동 · aimSwayMul 0.5 · 앉기 / 엎드리기 / 걷기 배수 · 어깨 전환 · 연출 카메라 · 해제. */
+  'smoke-aim-sway':     { file: 'scripts/smoke-aim-sway.mjs',     folders: ['player', 'weapons'] },
   'smoke-raidflow':     { file: 'scripts/smoke-raidflow.mjs',     folders: ['game', 'extraction', 'player', 'inventory', 'world'] },
   'smoke-library':      { file: 'scripts/smoke-library.mjs',      folders: ['housing', 'items', 'hub', 'inventory'] },
   /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
      HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */
   'smoke-stations':     { file: 'scripts/smoke-stations.mjs',     folders: ['housing', 'inventory', 'items'] },
+  /* 2026-09-12 (E1): 아이템 즐겨찾기 — API · 이벤트 · 우클릭 = 모든 아이템에 메뉴(격자 · 장비칸 · 휠 · 시체 창) · 더블클릭 빠른 이동 ·
+     파란 사선 띠(가방 · 창고 · 장비칸 · TradeGrids · buildItemTile, 필요한 탄약이면 노란 띠와 둘 다) · 정렬 앞쪽 · 「즐겨찾기」 칩 ·
+     분해 확인 1초 홀드 · 시체 창 글로우 · 로드아웃 `fav` 저장 / 새로고침 / 서버 문서 교체 + 올리지 못한 토글 보호. */
+  'smoke-favorites':    { file: 'scripts/smoke-favorites.mjs',    folders: ['inventory'] },
   /* 2026-09-12 (A-3a): 헬스장 — gymBlock 사유 · 미니게임 판정 3종(화면 없이) · 세션 흐름(블로커 · ESC · 키 가이드 ·
      Space 가 Input 에 안 닿는다) · applyGymSession 결과 + 근육통 · 근육통 중 경험치 0 · 취소 · 새로고침 보존. */
   'smoke-gym':          { file: 'scripts/smoke-gym.mjs',          folders: ['housing', 'progression', 'hub', 'player'] },
   /* 2026-09-12 (캐릭터 버프): PC 체력 블록이 함선에서도 보인다 · 체력바 아래 버프 썸네일 줄(흐림 · 디버프 테두리 · 시간 게이지 ·
      키로 DOM 재사용) · 분대원 행의 미니 줄(디버그 원격 ref) · 옛 배지 셋이 없다 · 레이드 자리 / 드론 시점 축소. */
   'smoke-buffs':        { file: 'scripts/smoke-buffs.mjs',        folders: ['ui', 'player', 'net'] },
+  /* 2026-09-12 (A1): 전투 소모품 3종 — 아드레날린(스태미나 전량 · 지속 소모 0) · 각성제(장전 · 정조준 · 흔들림 배수 · 소모 +50 %) ·
+     안정제(`refillAll`), 체력 가득해도 홀드 시작 · 버프 `boost` 항목 · HUD 썸네일 · 만료 · 서로 지우기 · 레시피 · 로그 시체. */
+  'smoke-consumables':  { file: 'scripts/smoke-consumables.mjs',  folders: ['weapons', 'player', 'items'] },
   'smoke-enemy-delta':  { file: 'scripts/smoke-enemy-delta.mjs',  folders: ['enemies', 'net'] },
   /* Phase 11 */
   'smoke-planets':      { file: 'scripts/smoke-planets.mjs',      folders: ['hub', 'world', 'game'] },

@@ -41,6 +41,26 @@ export interface LoadoutSave {
    * v2 이하의 파일에서는 빈 배열이다 (`sanitizeLoadoutSave`).
    */
   pouch: SavedPlacement[];
+  /**
+   * 2026-09-12 (E1) — **즐겨찾기한 아이템 종류(def id)**, 정렬된 목록. 비었으면 필드 자체가 없다 (그래야 즐겨찾기가 없는
+   * 옛 문서와 `sameProfileDoc` 비교가 그대로 같다). 버전은 올리지 않았다 — 없던 선택 필드라 v3 리더는 그냥 무시한다.
+   * 킷(장비 · 가방)과 수명이 다르므로 `applyLoadoutSave` 는 이것을 건드리지 않는다 — `parts/Favorites.ts` 참고.
+   */
+  fav?: string[];
+}
+
+/** 2026-09-12 (E1): corrupt-document guard for `fav` (a list of def ids — far above the item catalogue's size). */
+const FAVORITES_SANE_MAX = 2000;
+
+/** `fav` from any document shape: strings only, deduped, sorted; undefined when nothing is left. */
+export function sanitizeFavoriteList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const set = new Set<string>();
+  for (const v of raw) {
+    if (typeof v === 'string' && v.length > 0 && v.length <= 96) set.add(v);
+    if (set.size >= FAVORITES_SANE_MAX) break;
+  }
+  return set.size > 0 ? [...set].sort() : undefined;
 }
 
 /** True when the save holds nothing (treated like no save → starter kit on the first hub entry). */
@@ -91,7 +111,9 @@ export function sanitizeLoadoutSave(file: unknown): LoadoutSave | null {
   }
   // v3 (A-15): 없던 필드가 생기는 것뿐 — v1 · v2 파일은 빈 주머니로 읽힌다
   const pouch = Array.isArray(f.pouch) ? f.pouch.filter((e): e is SavedPlacement => !!e && typeof e === 'object') : [];
-  return { v: LOADOUT_SAVE_VERSION, slots, bag, quick, pouch };
+  // 2026-09-12 (E1): 즐겨찾기 — 비었으면 필드를 싣지 않는다 (`LoadoutSave.fav`)
+  const fav = sanitizeFavoriteList(f.fav);
+  return fav ? { v: LOADOUT_SAVE_VERSION, slots, bag, quick, pouch, fav } : { v: LOADOUT_SAVE_VERSION, slots, bag, quick, pouch };
 }
 
 /**

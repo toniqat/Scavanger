@@ -3,7 +3,8 @@ import type { InventorySystem, GridId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
 import { GridView, buildTileContent, setNeededAmmoFrom } from './GridView';
 import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
-import { CELL, GAP, tileSizeAt } from './labels';
+import { CELL, GAP, TEXT, tileSizeAt } from './labels';
+import { ContextMenu, type MenuEntry } from './ContextMenu';
 
 /** Which of the player's grids a trade screen may show, top to bottom. */
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
@@ -28,6 +29,11 @@ export interface TradeGridsOptions {
    * 가방 / 함선 창고 grids match the 5-column 구매 / 판매 tray beside them.
    */
   cell?: number;
+  /**
+   * 2026-09-12: 우클릭 메뉴의 첫 항목 이름 — 이 화면의 더블클릭(`onTake`)이 하는 일. 기본 `빠른 이동`.
+   * `onTake` 가 없으면 그 항목 자체가 없다 (메뉴에는 즐겨찾기만).
+   */
+  takeLabel?: string;
 }
 
 interface Block {
@@ -95,6 +101,11 @@ export class TradeGrids implements EmbeddedView {
   private moveRaf = 0;
   private refreshRaf = 0;
   private disposed = false;
+  /**
+   * 2026-09-12 (사용자 결정 「모든 아이템 우클릭 = 메뉴」): 빠른 이동(= 더블클릭) · 즐겨찾기. `ctx.uiRoot` 에 붙인다 —
+   * `.inv-menu` 는 `position: fixed` 라 transform 이 걸린 화면 안에 두면 자리가 어긋난다.
+   */
+  private readonly menu: ContextMenu;
 
   constructor(
     private readonly inv: InventorySystem,
@@ -105,6 +116,8 @@ export class TradeGrids implements EmbeddedView {
     this.root = document.createElement('div');
     this.root.className = `trade-grids${opts.className ? ` ${opts.className}` : ''}`;
     host.appendChild(this.root);
+    this.menu = new ContextMenu(ctx.uiRoot);
+    this.menu.el.classList.add('tg-menu');
 
     const cell = Math.max(16, Math.round(opts.cell ?? CELL));
     this.cell = cell;
@@ -138,7 +151,7 @@ export class TradeGrids implements EmbeddedView {
         onEnter: () => { /* the hover card is `ui/hud/ItemTip` (data-item-tip) */ },
         onMove: () => { /* no-op */ },
         onLeave: () => { /* no-op */ },
-        onContext: () => { /* no context menu in a trade */ },
+        onContext: (uid, gridId, e) => this.openMenu(uid, gridId as TradeGridId, e),
         onDblClick: (uid, gridId) => this.take(uid, gridId as TradeGridId, null),
       }, cell);
       if (id === 'bag') view.setFrameRows(BAG_FRAME_ROWS);
@@ -159,6 +172,8 @@ export class TradeGrids implements EmbeddedView {
     this.unsubs.push(
       b.on('inventory:changed', repaint), b.on('inventory:stashChanged', repaint),
       b.on('inventory:bagChanged', repaint), b.on('loadout:changed', repaint),
+      // 2026-09-12 (E1): 즐겨찾기 띠 · 「즐겨찾기」 필터 — `GridView.refresh` 가 즐겨찾기 리비전을 보고 다시 칠한다
+      b.on('inventory:favoritesChanged', repaint),
     );
     this.refresh();
   }
@@ -205,7 +220,7 @@ export class TradeGrids implements EmbeddedView {
   private setFilter(id: FilterGroupId): void {
     this.filter = id;
     this.chips.set(id);
-    const pred = filterPredicate(id);
+    const pred = filterPredicate(id, (defId) => this.inv.isFavorite(defId));
     for (const bl of this.blocks) bl.view.setFilter(pred);
   }
 
@@ -300,9 +315,29 @@ export class TradeGrids implements EmbeddedView {
     this.opts.onTake?.(p.item, gridId, target);
   }
 
+  /** 2026-09-12: 우클릭 메뉴 — 이 화면의 더블클릭 동작(`takeLabel`) · 즐겨찾기 켜기 / 끄기 (Tab 창의 `favoriteEntry` 와 같은 문구). */
+  private openMenu(uid: string, gridId: TradeGridId, e: MouseEvent): void {
+    if (this.drag || this.disposed) return;
+    const p = this.inv.getGrid(gridId)?.get(uid);
+    if (!p) return;
+    const defId = p.item.defId;
+    const entries: MenuEntry[] = [];
+    if (this.opts.onTake) {
+      entries.push({ label: this.opts.takeLabel ?? '빠른 이동', hint: '더블클릭', run: () => this.take(uid, gridId, null) });
+    }
+    const on = this.inv.isFavorite(defId);
+    entries.push({
+      label: on ? TEXT.menu.favoriteOff : TEXT.menu.favoriteOn,
+      separator: entries.length > 0,
+      run: () => { this.inv.toggleFavorite(defId); this.ctx.bus.emit('audio:play', { id: 'ui_click' }); },
+    });
+    this.menu.open(e.clientX, e.clientY, entries);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.menu.dispose();
     this.endDrag();
     if (this.refreshRaf) { cancelAnimationFrame(this.refreshRaf); this.refreshRaf = 0; }
     for (const u of this.unsubs) u();

@@ -23,7 +23,7 @@
 | `model.ts` | 폴더 공용 어휘 — `ImplantSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `ImplantSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Barrier.ts` | **배리어 방패** (Phase 10 손에 드는 형태 → Phase 12 벽 + 실드 배쉬). 방패는 세 가지를 동시에 한다: 적 발사체를 **막고**(`onBarrierBlocked`), 지상 적이 통과하지 못하는 **벽**이며(`resolveBarrierCollision` — 부딪힌 적은 잠시 방패를 든 사람을 노린다), 정면 근접을 플레이어 대신 **받는다**(`absorbFrontalAttack`). 들고 좌클릭하면 **실드 배쉬**(`tryBash`). `IMPLANT_BARRIER_CARRY_OFFSET` 은 `PLAYER_RADIUS` 보다 커야 한다 — 그보다 작으면 적 히트스캔이 방패보다 먼저 플레이어 캡슐에 닿아 방패가 조용히 동작하지 않는다. |
 | `parts/Devices.ts` | **갈고리 · 대시 · 정찰 · 오버차지 · 대전차포**. 배리어를 뺀 나머지 임플란트 다섯 종의 실제 동작. 각각 `instant` / `hold` / `wielded` 중 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라 **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다. |
-| `parts/Charges.ts` | **쿨다운 · 충전 · 에너지 풀**. 임플란트를 쓸 수 있는지, 얼마나 남았는지 하나로 관리한다: 대시의 3충전, 오버차지의 에너지 풀, 배리어 붕괴 후의 잠금, 그리고 `derived.implantCooldownMul` 이 곱해지는 지점. 크로스헤어 왼쪽 세로 게이지가 읽는 이벤트(`implant:cooldown` / `energyChanged`)도 여기서 나간다. |
+| `parts/Charges.ts` | **쿨다운 · 충전 · 에너지 풀**. 임플란트를 쓸 수 있는지, 얼마나 남았는지 하나로 관리한다: 대시의 3충전, 오버차지의 에너지 풀, 배리어 붕괴 후의 잠금, 그리고 `derived.implantCooldownMul` 이 곱해지는 지점. HUD 썸네일이 읽는 이벤트(`implant:cooldownChanged` / `energyChanged`)도 여기서 나간다. **2026-09-12**: 충전이 돌아오는 지점 `finishCooldown`, 준비 순간 `emitReady`(`implant:ready`, 게임플레이 페이즈만), 안정제용 `refillAll`. |
 | `parts/Wield.ts` | **손에 드는 임플란트**와 프로필 연동. 대전차포와 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다. |
 | `parts/Wire.ts` | **임플란트의 네트워크 경로** (`imp` / `buff`). 방패 상태 · 오버차지 빔 · 실드 배쉬 · 정찰 스캔을 분대에 알리고, 남이 보낸 것을 우리 월드에 적용한다. 정찰은 결과가 아니라 **시전 사실**만 보내고(`imp scanCast`) 각 피어가 자기 월드에서 드러낸다. 받은 `buff heal/boost` 는 `buffGuard` 를 통과해야 적용된다 (2026-09-11 E-4). |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
@@ -40,8 +40,8 @@
 
 | id | 이름 | 방식 | 동작 | 쿨타임 |
 |---|---|---|---|---|
-| `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손) | `IMPLANT_GRAPPLE_COOLDOWN` |
-| `dash` | 대시 | instant | 전방 레이캐스트로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
+| `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손). 쿨타임은 발사에 시작하고 **끝날 때 환급**(2026-09-12 — 붙은 뒤: 당겨진 거리로 `IMPLANT_GRAPPLE_REFUND_*`, 붙기 전: `IMPLANT_GRAPPLE_CANCEL_*`, 아래 변경 이력) | `IMPLANT_GRAPPLE_COOLDOWN` (24) |
+| `dash` | 대시 | instant | 전방 레이캐스트(`IMPLANT_DASH_DISTANCE` 11.25 m + 반경)로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
 
 | `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH`(Phase 12: **3.2 m**) `× _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. **Phase 12**: 벌레가 통과하지 못하고(`resolveBarrierCollision`), 정면 근접공격은 방패가 대신 맞으며(`absorbFrontalAttack`), 든 채로 **좌클릭 / 근접키 = 실드 배쉬**(스태미나 `IMPLANT_SHIELD_BASH_STAMINA`, 방패 폭 × `_RANGE` 상자 안의 적에게 `_DAMAGE × meleeDamageMul`, `_COOLDOWN`, 포즈는 `player.startMelee('heavy')`). 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
 | `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
@@ -108,8 +108,9 @@
 ## 필요한 SFX id (audio 담당)
 
 `grapple_fire`, `grapple_attach`, `grapple_release`, `dash`, `barrier_deploy`, `barrier_stow`, `barrier_hit`,
-`barrier_break`, `overcharge_beam`, `scan_pulse`, `rocket_fire`, `rocket_explode`, `implant_wield`, `implant_ready`.
-(없는 id 는 AudioSystem 이 콘솔 경고만 내고 무시한다.)
+`barrier_break`, `overcharge_beam`, `scan_pulse`, `rocket_fire`, `rocket_explode`, `implant_wield`.
+(없는 id 는 AudioSystem 이 콘솔 경고만 내고 무시한다.) `implant_ready` 는 2026-09-12 부터 이 폴더가 보내지 않는다 —
+audio/ 가 `implant:ready` 를 듣고 낸다 (그 전에는 `audio:play` 를 보냈지만 `SOUNDS` 에 정의가 없어 한 번도 울리지 않았다).
 
 ## 장착 UI (2026-09-06)
 임플란트 장착은 함선 **Tab 화면**(inventory 폴더, 장비 열 아래의 임플란트 슬롯 → 클릭 → 6종 카드; 장착 중인 카드를 다시 누르면 해제)에서 한다.
@@ -259,6 +260,33 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-12 (갈고리 환급 · 쿨 2배 · 대시 1.5배 · `refillAll` · 준비 순간 — docs/plans/consumables-keys-favorites.md §2, 에이전트 B)** —
+  계약: `ImplantsRef.refillAll?()` (`shared/implants.ts` 끝 절), `implant:ready {id, charges, maxCharges, full, refill}` ·
+  `implant:cooldownRefunded {id, seconds, ratio}` (`events.ts` [B]), `IMPLANT_GRAPPLE_REFUND_MAX` 0.5 · `_REFUND_DIST` 15 ·
+  `IMPLANT_GRAPPLE_CANCEL_REFUND` 0.9 · `_CANCEL_MIN_S` 3 (`constants.csv` [B]). 수치 변경: `IMPLANT_GRAPPLE_COOLDOWN` 12 → **24**,
+  `IMPLANT_DASH_DISTANCE` 7.5 → **11.25** (코드 무변경 — 앞 벽은 원래대로 1 m 높이 레이캐스트 − 반경 − 0.15 로 자르고 `resolveCollision` ·
+  `isInsideBounds` 가 뒤를 받친다. 스모크가 트인 방향 11.25 m · 벽 앞 정지를 둘 다 잰다).
+  - **갈고리 환급** (`parts/Devices.refundGrapple`). 쿨타임은 여전히 발사(`fireGrapple` 의 `useCharge`)에서 시작하고, `releaseGrapple(false)` 가
+    끝에 부른다. 붙은 뒤 놓았으면 `grappleAttachPos`(붙는 순간의 발, `updateGrapple` 이 기록) → 놓는 순간의 발 사이 거리 d 로
+    `0.5 × max(0, 1 − d/15)` × `cdTotal`, 붙기 전에 끝났으면(날아가는 중 Q · 드론 앵커 소실) 0.9 × `cdTotal` 이되 남은 쿨타임은 3 초 이상(원래
+    남은 것보다 늘리지는 않는다). 두 위치를 둘 다 동기적으로 읽으므로 놓은 뒤의 관성은 들어가지 않는다. **조용한 해제(`silent` — `stow` 경유의
+    사망 · 페이즈 변경 · 리셋 · 드론 조종)는 환급하지 않는다**: 리셋이 어차피 쿨타임을 0 으로 만들고, 미션 시작에 `−N초` 가 뜨면 안 된다.
+    남은 쿨타임을 전부 먹는 환급은 틱과 같은 `finishCooldown` 으로 끝난다. 비행 중 타임아웃 규칙은 코드에 없다(비행은 늘 도착한다) — 명세의
+    "시간 초과" 는 붙은 뒤의 `GRAPPLE_MAX_TIME` 으로, 그것은 거리 규칙을 탄다.
+  - **준비 순간** (`parts/Charges.finishCooldown` · `emitReady`). `tickCooldown` 의 0 도달 가지를 `finishCooldown` 으로 떼어 **충전 하나가
+    돌아올 때마다** `implant:ready` 를 낸다 — 대시의 중간 충전은 `full: false`, 마지막 · 단일 충전 · 배리어 잠금 해제는 `full: true`.
+    오버차지 에너지가 가득 차는 순간도 `full: true`. **게임플레이 페이즈에서만** 나간다 (`resetRuntime` 은 틱 없이 채우므로 장착 · 미션 시작 ·
+    함선은 원래 여기를 지나지 않는다 — 게이트는 이중 안전장치). 소리 `implant_ready` 는 audio/ 가 이 이벤트로 낸다.
+  - **`refillAll`** (`parts/Charges.refillAll`, 안정제용): 충전 가득 · 쿨타임 0 · `cdTotal` = 실효값 · 배리어 잠금 해제 + 내구도 가득 · 오버차지
+    에너지 가득 → `emitCooldown` · `emitBarrier` · `emitEnergy` → `implant:ready {refill: true}`(이미 가득이어도 — 아이템을 쓴 피드백).
+    `resetRuntime` 을 쓰지 않는다 — 날아가는 갈고리 · 들고 있는 방패 · 오버차지 채널을 끊기 때문이다. 비행 중에 쓰면 그 뒤 해제는 남은
+    쿨타임이 없어 환급하지 않는다.
+  - `ImplantDefs` 갈고리 설명에 환급 한 문장(숫자 없음). 위임 메서드 `finishCooldown` · `refillAll` · `refundGrapple` 을 `ImplantSystem` 에 추가.
+  - 검증: `smoke-tactical` — 소리 id 2종, 미션 시작 · 장착 · 대시로는 `implant:ready` 가 없다, 대시 11.25 m · 벽 앞 정지, 대시 충전 셋이 차며
+    `full` false/false/true + `.rdy-minor/.rdy-minor/.rdy-major` + `.is-ready` + 중간이 더 작은 `implant_ready`, 배리어 붕괴 뒤 `refillAll`,
+    정찰 쿨타임 중 `refillAll` → 즉시 재시전, 네 번째 미션(갈고리): 쿨타임 24 · 날아가는 중 Q = 3 초 남음 · 붙은 뒤 0 m = 50 % · 6 m = 30 % ·
+    20 m = 환급 없음 · HUD `−N초` · 비행 중 `refillAll` 뒤 해제 = 환급 없음 · 취소 뒤 3 초가 지나면 `.rdy-major`.
 
 - **2026-09-11 (E-4 — 받는 쪽 버프 상한 · 벽 뒤 빔)** — `ImplantSystem.buffGuard`(`shared/createBuffGuard`) 하나와 디버그용
   `lastBuffVerdict`. `parts/Wire.onBuff` 는 `heal` · `boost` 만 보고, 죽음/전투불능 검사를 먼저 한 뒤 `buffSenderOf(net, from, 내 위치)` 로

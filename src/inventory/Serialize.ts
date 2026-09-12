@@ -15,6 +15,11 @@ export interface SavedExtras {
   durability?: number;
   ammoInMag?: number;
   sockets?: Partial<Record<SocketSlot, SavedExtras>>;
+  /**
+   * 2026-09-12 (아이템 회수 계약): `ItemInstance.raidFound`. **레이드 세션 blob 에만** 실린다 (`parts/ProfileDocs.captureRaidState`
+   * 가 붙인다 — `serializeExtras` 는 쓰지 않으므로 창고 · 로드아웃 문서에는 없다). 생략 = 표식 없음.
+   */
+  rf?: number;
 }
 
 /** One item placed on a grid. */
@@ -89,6 +94,7 @@ export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup
   const item = loot.createItem(sv.defId, qty);
   if (typeof sv.durability === 'number' && Number.isFinite(sv.durability)) item.durability = Math.max(0, sv.durability);
   if (typeof sv.ammoInMag === 'number' && Number.isFinite(sv.ammoInMag)) item.ammoInMag = Math.max(0, Math.floor(sv.ammoInMag));
+  if (typeof sv.rf === 'number' && Number.isFinite(sv.rf)) item.raidFound = sv.rf >>> 0;   // 2026-09-12: raid blob only
   if (sv.sockets && typeof sv.sockets === 'object') {
     for (const slot of SOCKET_SLOTS) {
       const att = sv.sockets[slot];

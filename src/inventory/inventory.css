@@ -2,6 +2,10 @@
 /* 스크롤바 (2026-09-09): 색은 `ui/styles/base.css` 의 `--sb-thumb` / `--sb-track` 하나뿐이다. 이 파일은 그
    스타일시트를 import 하지 않으므로 fallback 을 함께 적는다 — 값이 바뀌면 base.css 쪽만 고친다. */
 
+/* 2026-09-12 (E1 · E2): 즐겨찾기 파랑 — 타일 띠(`.inv-tile.is-favorite`)와 칩 표식(`shared/itemChip`, ui/ 스타일)이 **같은 변수**를
+   읽는다. 창 밖에 끼우는 타일(TradeGrids · 기업 상점 · 크루 카드)도 있어 `.inv-root` 가 아니라 `:root` 에 둔다. */
+:root { --c-favorite: #4a90ff; }
+
 .inv-root {
   --inv-cell: 54px;
   --inv-gap: 2px;
@@ -351,6 +355,73 @@
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--inv-accent) 55%, transparent));
   pointer-events: none;
   z-index: 2;
+}
+
+/* ── 2026-09-12 (E1, 사용자 결정): 즐겨찾기 — 우측 상단 **파란 사선 띠** ─────────────────────────────────────────
+   `.is-favorite` 는 `buildTileContent` / `buildSlotCardContent` 가 건다 (격자 · 장비칸 · 휠 · 고스트 · 카탈로그 · 제작 썸네일 ·
+   TradeGrids · `buildItemTile`). 필요한 탄약이면서 즐겨찾기면 파란 띠가 모서리를 차지하고 **노란 띠가 그 아래(안쪽)**로
+   물러난다 — 둘 다 보인다. 둘 다 포인터를 먹지 않는다. */
+/* 2026-09-12 (아이템 회수 계약, 사용자 결정): 이번 레이드에서 얻은 계약 아이템(`.is-recovery-item`, 레이드 중에만)은 **같은 띠** —
+   선택자만 나란히 둔다 (구분할 수 없고, 둘 다면 띠는 하나). 글로우 · 필터 · 정렬은 `.is-favorite` 만의 것이다. */
+.inv-tile.is-favorite::before,
+.inv-tile.is-recovery-item::before {
+  content: "";
+  position: absolute;
+  right: 0; top: 0;
+  width: 22px; height: 22px;
+  background: linear-gradient(225deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--c-favorite, #4a90ff) 92%, white 8%) 3px 10px,
+    transparent 10px);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c-favorite, #4a90ff) 60%, transparent));
+  pointer-events: none;
+  z-index: 3;
+}
+.inv-tile.is-favorite.is-ammo-needed::after,
+.inv-tile.is-recovery-item.is-ammo-needed::after {
+  width: 34px; height: 34px;
+  background: linear-gradient(225deg,
+    transparent 0 12px,
+    color-mix(in srgb, var(--inv-accent, #f0c46a) 92%, white 8%) 12px 19px,
+    transparent 19px);
+}
+/* 상자 · 시체 창에서는 즐겨찾기한 종류가 한눈에 — 테두리 글로우 (전설 등급의 숨쉬기 그림자가 덮어도 outline 은 남는다) */
+.inv-panel-container .inv-tile.is-favorite {
+  border-color: var(--c-favorite, #4a90ff);
+  outline: 1px solid color-mix(in srgb, var(--c-favorite, #4a90ff) 75%, transparent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 14px color-mix(in srgb, var(--c-favorite, #4a90ff) 55%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--c-favorite, #4a90ff) 25%, transparent);
+}
+.inv-filter-chip[data-filter="favorite"] { color: color-mix(in srgb, var(--c-favorite, #4a90ff) 65%, rgba(233, 236, 239, 0.4)); }
+.inv-filter-chip[data-filter="favorite"].is-on {
+  color: var(--c-favorite, #4a90ff);
+  border-color: color-mix(in srgb, var(--c-favorite, #4a90ff) 70%, transparent);
+  background: color-mix(in srgb, var(--c-favorite, #4a90ff) 14%, transparent);
+}
+/* 즐겨찾기 분해 확인 카드 (`ui/DisassemblePanel`) — 확정은 빨간 버튼 1초 홀드 */
+.inv-dis-confirm {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--c-favorite, #4a90ff) 55%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--c-favorite, #4a90ff) 8%, rgba(9, 11, 15, 0.88));
+}
+.inv-dis-confirm[hidden] { display: none; }
+.inv-dis-confirm-title { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--c-favorite, #4a90ff); }
+.inv-dis-confirm-body { font-size: 12px; color: var(--inv-text, #e9ecef); }
+.inv-dis-confirm-hint { font-size: 10px; color: var(--inv-muted, rgba(233, 236, 239, 0.55)); }
+.inv-dis-confirm-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+.inv-dis-confirm-ok {
+  position: relative; overflow: hidden;
+  color: var(--inv-bad, #ff5c5c);
+  border-color: color-mix(in srgb, var(--inv-bad, #ff5c5c) 60%, transparent);
+}
+.inv-dis-confirm-ok > span { position: relative; }
+.inv-dis-confirm-fill {
+  position: absolute; inset: 0 auto 0 0; width: 0;
+  background: color-mix(in srgb, var(--inv-bad, #ff5c5c) 40%, transparent);
+  pointer-events: none;
 }
 
 /* attachment dragged over a weapon: socket target feedback */
@@ -791,6 +862,8 @@ kbd {
 }
 
 /* ── context menu ───────────────────────────────────────────────────────── */
+/* 2026-09-12: TradeGrids(기업 거래 · 가구 화면)의 우클릭 메뉴는 `#ui-root` 에 붙는다 — 그 화면들보다 위, 아이템 호버 카드(200) 아래. */
+.inv-menu.tg-menu { z-index: 190; }
 .inv-menu {
   position: fixed;
   left: 0; top: 0;

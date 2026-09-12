@@ -1,6 +1,10 @@
 import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
-import { WEAPON_CLASS_LABEL_KO, shieldChargeOf } from '@/items';
+import {
+  BOOST_ADRENALINE_DURATION_S, BOOST_STIMULANT_ADS_SPEED_MUL, BOOST_STIMULANT_AIM_SWAY_MUL, BOOST_STIMULANT_DURATION_S,
+  BOOST_STIMULANT_RELOAD_SPEED_MUL, BOOST_STIMULANT_STAMINA_COST_MUL,
+} from '@/shared';
+import { WEAPON_CLASS_LABEL_KO, boostItemOf, shieldChargeOf } from '@/items';
 import { bagCapacityBonus } from '../Gear';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
@@ -207,6 +211,26 @@ export class Tooltip {
       const t = TEXT.shieldChargeStats;
       rows.push([t.amount, Number.isFinite(charge.amount) ? `+${Math.round(charge.amount)}` : t.full]);
       rows.push([t.useTime, `${charge.useTime} s`]);
+    }
+    // 2026-09-12: 전투 소모품 3종 (아드레날린 · 각성제 · 안정제) — 효과 줄 · 지속 시간 · 사용 시간 (수치는 csv 의 BOOST_*)
+    const boost = boostItemOf(def.id);
+    if (boost) {
+      const t = TEXT.boostStats;
+      const up = (mul: number): string => `+${Math.round((mul - 1) * 100)} %`;
+      if (boost.effect === 'adrenaline') {
+        rows.push([t.stamina, t.staminaFull, 'is-bonus']);
+        rows.push([t.drain, t.drainNone, 'is-bonus']);
+        rows.push([t.duration, `${BOOST_ADRENALINE_DURATION_S} s`]);
+      } else if (boost.effect === 'stimulant') {
+        rows.push([t.reload, up(BOOST_STIMULANT_RELOAD_SPEED_MUL), 'is-bonus']);
+        rows.push([t.ads, up(BOOST_STIMULANT_ADS_SPEED_MUL), 'is-bonus']);
+        rows.push([t.sway, `−${Math.round((1 - BOOST_STIMULANT_AIM_SWAY_MUL) * 100)} %`, 'is-bonus']);
+        rows.push([t.staminaCost, up(BOOST_STIMULANT_STAMINA_COST_MUL), 'is-broken']);
+        rows.push([t.duration, `${BOOST_STIMULANT_DURATION_S} s`]);
+      } else {
+        rows.push([t.implant, t.implantFull, 'is-bonus']);
+      }
+      rows.push([t.useTime, `${boost.useTime} s`]);
     }
     // 2026-09-12 (A-3e): 디스크 · 레코드는 책과 같은 두 줄, 용도만 꽂는 보관함 이름이 다르다
     const media = def.book ?? def.disc ?? def.record;

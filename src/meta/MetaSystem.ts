@@ -140,7 +140,11 @@ export class MetaSystem implements GameSystem, MetaRef {
         if (caller === null || caller === (ctx.net?.localId ?? null)) this.localHit('use_stratagems', 1);
       }),
       // live `extract_with_value` readout for the HUD (the settlement still reads `stats.lootValue`)
-      b.on('inventory:changed', ({ totalValue }) => this.trackLootValue(totalValue)),
+      b.on('inventory:changed', ({ totalValue }) => { this.trackLootValue(totalValue); this.trackItemCount(); }),
+      /* 2026-09-12 (E2): `extract_with_items` also follows the quick wheel (a stack moved there leaves the bag grid but
+         stays on the body) and the first gameplay frame (what the player carried in counts from the drop) */
+      b.on('inventory:quickSlotsChanged', () => this.trackItemCount()),
+      b.on('game:phaseChanged', () => this.trackItemCount()),
     );
     this.subscribeNet();
     b.emit('meta:loaded', { credits: this.store.data.credits });
@@ -281,6 +285,15 @@ export class MetaSystem implements GameSystem, MetaRef {
   private localHit(goal: ContractGoalKind, amount: number): void { return Contract.localHit(this, goal, amount); }
 
   private trackLootValue(totalValue: number): void { return Contract.trackLootValue(this, totalValue); }
+
+  /** 2026-09-12 (E2): live `extract_with_items` progress = units on the body (raid only). */
+  private trackItemCount(): void { return Contract.trackItemCount(this); }
+
+  /**
+   * 2026-09-12 (E2): units of `defId` on the body — bag grid + quick slots + pouch, not the stash (item contracts).
+   * §5-2: only units found in raid `seed` (default: the running raid; outside a raid → 0).
+   */
+  carriedCount(defId: string | undefined, seed?: number | null): number { return Contract.carriedCount(this, defId, seed); }
 
   /* ── MetaRef: credits / rep ─────────────────────────────────────────────── */
   get credits(): number { return this.store.data.credits; }

@@ -249,26 +249,53 @@ for (const rank of [1, 2]) {
 }
 check(ur(3).t4 < ur(5).t4, `티어4 상자 유니크도 순번에 따라 오른다 — 3번 ${pct(ur(3).t4).trim()} < 5번 ${pct(ur(5).t4).trim()}`);
 
-/* ── 지하실 키카드는 무작위 루팅에 절대 안 나온다 ─────────────────────────────── */
+/* ── 소모형 만능 열쇠 (2026-09-12) — 드물게만 나온다 ─────────────────────────────
+ * 기대치 (사용자 결정 「전부 희귀하게」, 수치는 에이전트 C 가 정했다):
+ *   · 상자 티어 1 · 2 · 5(보급 투하)는 0 — `loot_category_weights.csv` 에 `key` 줄이 티어 3 · 4 에만 있다
+ *   · 티어 3 은 상자 한 개당 0 초과 · 1.5 % 미만 (목표 약 0.7 %), 티어 4 는 0 초과 · 3 % 미만 (목표 약 1.7 %)
+ *   · 두 열쇠가 둘 다 나온다 (한쪽만 나오면 배수 줄이 빠진 것이다)
+ *   · 시체: 벌레(warrior · behemoth) 0, 로그 0 초과 · 3 % 미만, 로그 보스 0 초과 · 10 % 미만 (두 열쇠 합, `loot_corpses.csv`)
+ * 구조물 지상 컨테이너의 부가 굴림(`structures.csv` 의 `keyChance`)은 상자 굴림 밖이라 여기서 재지 않는다. */
 console.log('');
-console.log('키카드 (key_basement) — 무작위 루팅 차단');
+console.log('열쇠 (key_basement · keycard_lab) — 희귀 드롭');
 {
-  const def = ITEM_DEF_MAP.get('key_basement');
-  check(!!def, `아이템 정의가 있다 — ${def?.name ?? '(없음)'}`);
-  let seen = 0;
+  const KEYS = ['key_basement', 'keycard_lab'];
+  for (const id of KEYS) {
+    const def = ITEM_DEF_MAP.get(id);
+    check(!!def && def.category === 'key' && def.rarity === 'epic' && def.stackMax === 1 && def.width === 1 && def.height === 1,
+      `${id}: 정의 = key · 서사 · 1×1 · 스택 1 — ${def ? `${def.name} · ${def.category} · ${def.rarity} · ${def.width}×${def.height} · 스택 ${def.stackMax}` : '(없음)'}`);
+  }
+  const N = 20000;
+  const crateRate = {};
+  const seenIds = new Set();
   for (let tier = 1; tier <= 5; tier++) {
-    for (let i = 0; i < 20000; i++) {
-      for (const it of loot.rollCrate(tier, new Random((i * 22695477 + tier) >>> 0))) if (it.defId === 'key_basement') seen++;
+    let crates = 0;
+    for (let i = 0; i < N; i++) {
+      let got = false;
+      for (const it of loot.rollCrate(tier, new Random((i * 22695477 + tier) >>> 0))) {
+        if (KEYS.includes(it.defId)) { got = true; seenIds.add(it.defId); }
+      }
+      if (got) crates++;
     }
+    crateRate[tier] = crates / N;
   }
-  check(seen === 0, `상자 10만 회 (티어 1~5) 에서 0회 — ${seen}회`);
-  let corpseSeen = 0;
+  console.log(`  상자 한 개당 열쇠가 든 비율: ${[1, 2, 3, 4, 5].map((t) => `T${t} ${pct(crateRate[t]).trim()}`).join(' · ')}`);
+  check(crateRate[1] === 0 && crateRate[2] === 0 && crateRate[5] === 0, `티어 1 · 2 · 5 상자에는 열쇠가 없다`);
+  check(crateRate[3] > 0 && crateRate[3] < 0.015, `티어 3 상자: 0 초과 · 1.5 % 미만 — ${pct(crateRate[3]).trim()}`);
+  check(crateRate[4] > 0 && crateRate[4] < 0.03, `티어 4 상자: 0 초과 · 3 % 미만 — ${pct(crateRate[4]).trim()}`);
+  check(KEYS.every((k) => seenIds.has(k)), `두 열쇠가 모두 상자에서 나온다 — ${[...seenIds].join(', ') || '(없음)'}`);
+  const corpseRate = {};
   for (const type of ['warrior', 'behemoth', 'rogue', 'rogue_boss']) {
+    let n = 0;
     for (let i = 0; i < 5000; i++) {
-      for (const it of loot.rollCorpse(type, new Random((i * 69069 + 1) >>> 0), 'ar')) if (it.defId === 'key_basement') corpseSeen++;
+      for (const it of loot.rollCorpse(type, new Random((i * 69069 + 1) >>> 0), 'ar')) if (KEYS.includes(it.defId)) { n++; break; }
     }
+    corpseRate[type] = n / 5000;
   }
-  check(corpseSeen === 0, `시체 2만 회에서 0회 — ${corpseSeen}회`);
+  console.log(`  시체 한 구당: ${Object.entries(corpseRate).map(([t, r]) => `${t} ${pct(r).trim()}`).join(' · ')}`);
+  check(corpseRate.warrior === 0 && corpseRate.behemoth === 0, '벌레 시체에는 열쇠가 없다');
+  check(corpseRate.rogue > 0 && corpseRate.rogue < 0.03, `로그 시체: 0 초과 · 3 % 미만 — ${pct(corpseRate.rogue).trim()}`);
+  check(corpseRate.rogue_boss > 0 && corpseRate.rogue_boss < 0.1, `로그 보스 시체: 0 초과 · 10 % 미만 — ${pct(corpseRate.rogue_boss).trim()}`);
 }
 
 if (failed) {

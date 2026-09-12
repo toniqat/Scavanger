@@ -18,7 +18,7 @@ import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shar
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
-import { shieldChargeOf } from '@/items';
+import { boostItemOf, shieldChargeOf } from '@/items';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
 import { WeaponModel, type WeaponAttachmentVisuals } from './WeaponModel';
 import { attachmentVisualsFor, attachmentIdsOf, sameIds } from './Attachments';
@@ -108,6 +108,9 @@ export function useTimeOf(def: ItemDef): number {
   // 2026-09-10 실드 충전기: 회복 소모품과 같은 홀드 틀을 쓰지만 자기 사용 시간을 갖는다 (data/items.csv)
   const sc = shieldChargeOf(def.id);
   if (sc) return Math.max(0, sc.useTime);
+  // 2026-09-12 전투 소모품 3종 (아드레날린 · 각성제 · 안정제): 같은 홀드 틀, 자기 사용 시간 (data/items.csv `boostUseTime`)
+  const boost = boostItemOf(def.id);
+  if (boost) return Math.max(0, boost.useTime);
   if (def.category === 'stim') return HEAL_HOLD_S;
   return def.gadgetId === 'defib' ? DEFIB_USE_TIME_S : 0;
 }

@@ -1877,9 +1877,11 @@ export interface Obstacle {
 
 /* ── 버려진 구조물 (owner: world/Structures) ──────────────────────────────────────────────────────────── */
 /**
- * 행성 구역마다 무작위로 놓이는 **들어갈 수 있는** 폐건물. 안에 상호작용 컨테이너가 밀집해 있고,
- * `outpost` / `lab` 은 지하실을 가질 수 있다 — 지하실 문은 **항상 잠겨 있고** 그 구조물의 지상층 컨테이너
- * 어딘가에 키카드가 **정확히 하나** 들어 있다.
+ * 행성 구역마다 무작위로 놓이는 **들어갈 수 있는** 폐건물. 안에 상호작용 컨테이너가 밀집해 있다.
+ * 2026-09-12 (사용자 결정): 잠긴 공간은 둘이다 — `outpost` 의 **지하실**(열쇠 `key_basement`)과 2층이 굴려진 `lab` 의
+ * **2층 잠긴 방**(키카드 `keycard_lab`). 둘 다 **소모형 만능 열쇠**로 열리고(같은 종류면 어느 건물이든 · 쓰면 1 개 사라진다),
+ * 건물마다 확정으로 넣어 두는 열쇠는 없다 — 상자 · 구조물 컨테이너 · 로그 시체 · 노마드 상점에서 드물게 나온다.
+ * 문이 요구하는 아이템은 `unlockDefId`, 문 옆 벽 아래에는 지상 드론만 드나드는 환풍구가 있다.
  */
 export type StructureKind = 'outpost' | 'lab' | 'wreck';
 export const STRUCTURE_KINDS: readonly StructureKind[] = ['outpost', 'lab', 'wreck'];
@@ -2562,3 +2564,129 @@ export interface InventoryRef {
   /** 장착한 주머니의 격자 크기. 주머니가 없으면 `{ cols: 0, rows: 0 }` — 그 자리를 통째로 안 그린다는 뜻이다. */
   getPouchSize?(): { cols: number; rows: number };
 }
+
+/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/plans/consumables-keys-favorites.md ══
+ * 병렬 에이전트마다 **자기 블록 안에만** 추가한다 (인터페이스 병합 — `export interface PlayerRef { … }` 처럼 그 안에 쓴다).
+ * 기존 선언은 이름 변경 · 삭제 금지. 블록 순서를 바꾸지 않는다. */
+/* ── [A1] 소모품 3종 (PlayerRef boost · ItemDef) ── */
+/**
+ * 소모품이 거는 시간제 효과 (2026-09-12, owner: player — `parts/Boosts`). 한 번에 하나만 걸린다: 새로 쓴 것이 앞의 것을 지운다.
+ *   `adrenaline` 아드레날린 주사 — 스태미나 전량 + 지속 소모 0 (`BOOST_ADRENALINE_DURATION_S`)
+ *   `stimulant`  각성제 — 장전 · 정조준 빠름 · 조준 흔들림 감소 / 스태미나 소모 증가 (`BOOST_STIMULANT_*`)
+ * 안정제(임플란트 재충전)는 시간제 효과가 아니라서 여기 없다 — weapons 가 `ImplantsRef.refillAll` 을 부른다.
+ */
+export type BoostKind = 'adrenaline' | 'stimulant';
+
+export interface PlayerRef {
+  /* ── appended (2026-09-12, A1): 소모품 효과 (owner: player; caller: weapons `parts/Healing.finishHeal`) ── */
+  /**
+   * Start (or restart) a timed boost. `defId` = the item that caused it (the buff thumbnail draws its icon / name).
+   * `adrenaline` also refills the stamina bar at once. Starting one clears the other kind.
+   */
+  applyBoost?(kind: BoostKind, defId?: string): void;
+  /** The boost running now (`remaining` / `duration` in seconds of `ctx.time`), null when none. */
+  readonly boost?: { kind: BoostKind; remaining: number; duration: number; defId: string | null } | null;
+  /** Aim-sway multiplier (1 normally, `BOOST_STIMULANT_AIM_SWAY_MUL` under 각성제). Read by the camera sway (A2). */
+  readonly aimSwayMul?: number;
+  /** Reload speed multiplier from boosts (>1 = faster; 1 normally). weapons multiplies the class skill multiplier with it. */
+  readonly boostReloadSpeedMul?: number;
+  /** ADS transition speed multiplier from boosts (>1 = faster; 1 normally). Applied by player to the ADS blend rate. */
+  readonly adsSpeedMul?: number;
+  /** Stamina cost multiplier from boosts for continuous drains (sprint · ladder · hover): 0 under 아드레날린, 1.5 under 각성제. */
+  readonly staminaDrainMul?: number;
+  /** Stamina cost multiplier from boosts for one-off costs (jump · roll · melee · bash): 1.5 under 각성제, else 1. */
+  readonly staminaCostMul?: number;
+}
+/* ── end [A1] ── */
+/* ── [A2] 조준 흔들림 ── */
+export interface PlayerWeaponHost {
+  /**
+   * 조준 흔들림 (2026-09-12, weapons → player): 손에 든 무기 계열의 정조준 흔들림 — 좌우 최대 각도(도)와 좌우 왕복 빈도(Hz)
+   * (`data/aim_sway.csv`). 0 = 흔들림 없음 (손에 무기가 없다 · 넣었다 · RMB 가 대체 사격인 유니크). 장착 · 교체 · 해제마다
+   * `setAimZoom` 옆에서 부른다. 실제 흔들림은 player 가 정조준 정도 · 자세 · 이동 · `aimSwayMul` 로 키우고 줄인다.
+   */
+  setAimSway?(amplitudeDeg: number, frequencyHz: number): void;
+}
+/* ── end [A2] ── */
+/* ── [B] 전술 임플란트 (ImplantsRef 는 shared/implants.ts) ── */
+/* ── end [B] ── */
+/* ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 (WorldRef.resolveCollision height · previewContainerItems) ── */
+export interface WorldRef {
+  /**
+   * appended (2026-09-12, C): **키를 밝힌 몸**의 밀어내기. `height` 를 주면 떠 있는 상자(인방 · 슬래브 · 전차 바닥)를
+   * 사람 기준 `BOX_HEADROOM` 이 아니라 **그 키**로 잰다 — 밑면이 `발 + height` 보다 높으면 머리 위로 지나간다.
+   * 지상드론(`GroundDrone`)이 잠긴 문 옆 **개구멍**(인방 밑면이 드론 키보다 조금 높은 벽 틈)을 지나가는 유일한 길이다.
+   * 안 넘기면 예전과 한 줄도 다르지 않다 (플레이어 · 적 · 원격 · 투척물).
+   */
+  resolveCollision(position: THREE.Vector3, radius: number, height?: number): THREE.Vector3;
+  /**
+   * appended (2026-09-12, C): world 가 가진 컨테이너(구조물 지상 `_c` · 지하실 `_b` · 잠긴 방 `_l` · 선로 플랫폼 ·
+   * 전차 · 맵 상자)를 **이 클라이언트가 처음 열면 나올 내용물** — 열쇠 · 키카드 부가 굴림까지 포함한다. 여는 코드와
+   * **같은 함수**라 어긋나지 않는다. 순수 · 결정적이다 (열린 표시 · 이벤트 · 캐시 없음). world 의 것이 아니거나
+   * 월드가 준비 전이면 null. 이미 연 컨테이너의 **지금** 내용물은 inventory 의 캐시가 답한다 (이 함수는 모른다).
+   */
+  previewContainerItems?(containerId: string): ItemInstance[] | null;
+}
+export interface StructureDef {
+  /** appended (2026-09-12, C): 2층 **잠긴 방**이 있는가 (2층이 올라간 연구소만). 없으면 false/undefined. */
+  hasLockedRoom?: boolean;
+  /** 잠긴 방 문의 위치 (문짝 밑변 가운데). 없으면 null/undefined. */
+  lockedRoomDoor?: THREE.Vector3 | null;
+  /**
+   * 이 구조물의 잠긴 문(지하실 · 잠긴 방 — 구조물마다 많아야 하나)을 여는 아이템 def id
+   * (`key_basement` 지하실 열쇠 · `keycard_lab` 연구소 키카드). 잠긴 문이 없으면 null/undefined.
+   * 여는 사람의 것이 1 개 소모된다. `unlocked` 는 이 문 하나의 상태다.
+   */
+  unlockDefId?: string | null;
+}
+/* ── end [C] ── */
+/* ── [D] 지상드론 스캔 ── */
+export interface InventoryRef {
+  /* ── appended (2026-09-12, 드론 스캔; owner: inventory `parts/Peek`, caller: gadgets/drones `parts/Scan`) ── */
+  /**
+   * 컨테이너를 **열지 않고** 지금 열면 보일 내용물. 이 클라이언트가 이미 굴린(연) 컨테이너면 지금 들어 있는 것이고,
+   * 아니면 `tier`(≥ 1)로 `openContainer` 와 **같은** 결정적 굴림(`missionSeed ^ hash(id)` · 행성 곡선) + 같은 격자 채우기
+   * (넘치는 것 탈락) + 이미 확정된 남의 가져가기(`pendingTaken`)를 흉내 낸다. `tier` 없이 모르는 id 면 null.
+   * 캐시 · `openedIds` · 감정 상태 · 이벤트 어느 것도 바꾸지 않는다. 돌려준 목록은 **읽기 전용**이다.
+   */
+  peekContainerItems?(containerId: string, tier?: number): readonly ItemInstance[] | null;
+  /**
+   * 내용물을 호출자가 대는 컨테이너(시체 · 열쇠가 든 구조물 컨테이너)의 같은 질의. `cols` 가 없으면 `openContainerItems`
+   * (기본 6×4), 있으면 `openContainerItemsSized`(전부 들어가도록 행을 늘린다)와 같은 채우기다. 이미 굴린 id 면 `items` 를
+   * 무시하고 지금 내용물. 읽기 전용.
+   */
+  peekSuppliedItems?(containerId: string, items: readonly ItemInstance[], cols?: number, rows?: number): readonly ItemInstance[];
+}
+/* ── end [D] ── */
+/* ── [E1] 즐겨찾기 코어 (InventoryRef) ── */
+export interface InventoryRef {
+  /* ── appended (2026-09-12, E1): 아이템 즐겨찾기 (owner: inventory; callers: meta · ui 칩 위임) ──
+   * 즐겨찾기는 **아이템 종류(def id)** 단위다 — 같은 아이템은 전부 표시된다. 캐릭터별이고 로드아웃 문서(`loadout`)의
+   * `fav` 목록에 실려 서버와 동기화된다. 가지고 있지 않은 아이템도 켤 수 있다. */
+  /** 이 아이템 종류가 즐겨찾기인가. */
+  isFavorite?(defId: string): boolean;
+  /**
+   * 즐겨찾기를 켜거나 끈다. `on` 을 주면 그 상태로, 생략하면 뒤집는다. 돌려주는 값은 **새 상태**다.
+   * 모르는 def id 는 아무것도 바꾸지 않고 false. 실제로 바뀌면 `inventory:favoritesChanged` 가 난다.
+   */
+  toggleFavorite?(defId: string, on?: boolean): boolean;
+  /** 지금 즐겨찾기한 def id 전부 (정렬됨, 읽기 전용 사본). */
+  readonly favoriteDefIds?: readonly string[];
+}
+/* ── end [E1] ── */
+/* ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ── */
+/* ── end [E2] ── */
+/* ── [F] 헬스 미니게임 ── */
+/* ── end [F] ── */
+
+/* ══ appended: 2026-09-12 — 아이템 회수 계약: 「이번 레이드에서 얻은 아이템」 표식 (§5-2, 규칙은 `shared/raidFound.ts`) ══ */
+export interface ItemInstance {
+  /**
+   * 이 인스턴스를 **만든 레이드의 맵 시드** (`WorldRef.seed`, `>>> 0`). 레이드 루팅 굴림(상자 · 컨테이너 · 보급 · 적 시체 ·
+   * 채집)만 찍고, 함선에서 가져온 것 · 제작 · 상점 · 지급품에는 없다. 아이템과 함께 다닌다 — 픽업 와이어(`PickupWire.rf`) ·
+   * 시체 와이어(`CorpseItemWire.rf`) · 레이드 세션 blob(`SavedExtras.rf`). **생략 = 레이드에서 얻은 것이 아니다.**
+   * 프로필 문서(창고 · 로드아웃)에는 실리지 않고, 레이드가 끝나면 inventory 가 지운다.
+   */
+  raidFound?: number;
+}
+/* ══ end 2026-09-12 아이템 회수 표식 ══ */

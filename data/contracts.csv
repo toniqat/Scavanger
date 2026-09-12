@@ -1,7 +1,9 @@
 # 기업 계약. id · corp · goal 은 코드가 찾는 값이므로 바꾸지 않는다.
-# goal: kill_bugs | kill_rogues | open_crates | loot_corpses | extract_with_value | use_stratagems.
+# goal: kill_bugs | kill_rogues | open_crates | loot_corpses | extract_with_value | use_stratagems | extract_with_items.
 # target = 목표 수치, minRepLevel = 받을 수 있는 신뢰도 레벨.
-id,corp,minRepLevel,goal,target,repReward,xpReward,creditsReward,name,desc
+# itemDefId (2026-09-12) = extract_with_items(특정 아이템 회수) 전용 — 그 아이템을 target 개 몸에 지니고(가방 격자 + 퀵슬롯 + 주머니,
+#   창고 제외) 탈출하면 달성이다. 다른 목표의 줄은 비워 둔다. 모르는 id 는 npm run data:check 가 잡는다.
+id,corp,minRepLevel,goal,target,repReward,xpReward,creditsReward,name,desc,itemDefId
 helix_1,helix,0,kill_bugs,25,60,150,120,소탕 작전 I,터미니드 25마리를 처치한다.
 helix_2,helix,1,kill_bugs,60,120,320,260,소탕 작전 II,터미니드 60마리를 처치한다.
 helix_3,helix,2,kill_bugs,120,220,600,500,소탕 작전 III,터미니드 120마리를 처치한다.
@@ -20,3 +22,12 @@ ceres_1,ceres,0,loot_corpses,6,60,150,110,검체 채취 I,시체 6구를 수색�
 ceres_2,ceres,1,loot_corpses,15,130,330,250,검체 채취 II,시체 15구를 수색한다.
 ceres_3,ceres,2,loot_corpses,30,240,620,480,검체 채취 III,시체 30구를 수색한다.
 ceres_4,ceres,3,loot_corpses,50,400,1000,850,검체 채취 IV,시체 50구를 수색한다.
+# ── 특정 아이템 회수 (2026-09-12) — 기업마다 둘. 아이템은 전부 레이드에서 나오는 것이다 (상점에서 팔지 않는다) ──
+helix_cores,helix,1,extract_with_items,2,130,340,280,기록 회수,전초기지의 데이터 코어를 가방에 담아 온다.,data_core
+helix_crypto,helix,3,extract_with_items,1,380,1000,900,암호 해독 의뢰,군 등급 암호화 코어를 가방에 담아 온다.,data_core_encrypted
+bastion_salvage,bastion,1,extract_with_items,3,140,360,300,장비 인양,추락한 장비의 전자장비를 뜯어 온다.,salvage_electronics
+bastion_parts,bastion,2,extract_with_items,8,250,660,540,부품 수거,로그 장비에서 뜯어낸 기계 부품을 모아 온다.,mat_machine_parts
+nomad_chips,nomad,0,extract_with_items,5,60,160,110,칩 수거,흩어진 크레딧 칩을 모아 온다.,cred_chip
+nomad_artifact,nomad,3,extract_with_items,1,400,1050,900,유물 운반,외계 유물을 온전히 가지고 돌아온다.,alien_artifact
+ceres_samples,ceres,1,extract_with_items,2,130,330,260,샘플 확보,터미니드 조직 샘플 캐니스터를 가지고 돌아온다.,sample_canister
+ceres_pure,ceres,2,extract_with_items,1,250,640,500,고순도 검체,정제 샘플 캐니스터를 가지고 돌아온다.,sample_canister_pure

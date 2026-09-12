@@ -45,6 +45,20 @@ for (const mod of DATA_OWNERS) {
 
 const tables = await server.ssrLoadModule('/src/shared/data/tables.ts');
 
+/* 계약 → 아이템 참조 (2026-09-12, E2): `contracts.csv` 의 `itemDefId`(특정 아이템 회수)가 실제 아이템인가. 로더(`shared/meta.ts`)는
+ * items/ 를 모르므로 빈 칸 · 쓰이지 않는 칸만 잡고, 이름이 맞는지는 여기서 아이템 표와 맞춰 본다. */
+const refProblems = [];
+try {
+  const shared = await server.ssrLoadModule('/src/shared/index.ts');
+  const items = await server.ssrLoadModule('/src/items/ItemDefs.ts');
+  for (const c of shared.CONTRACT_DEFS) {
+    if (c.itemDefId && !items.ITEM_DEF_MAP.has(c.itemDefId)) refProblems.push(`data/contracts.csv [itemDefId] — ${c.id}: 모르는 아이템 '${c.itemDefId}'`);
+  }
+} catch (e) {
+  loadFailed = true;
+  console.error(`\n[data:check] 계약 아이템 참조를 못 봤다:\n  ${String(e?.message ?? e).split('\n')[0]}`);
+}
+
 /* 제작 ↔ 분해 ↔ 수리 경제 검산 (2026-09-10): 「제작 → (수리) → 분해 → 제작」 이 이득이 되면 안 된다.
  * 스키마가 아니라 **수치의 뜻**을 보는 검사라 로더가 아니라 items/Salvage.ts 가 직접 계산한다. */
 let economy = [];
@@ -76,7 +90,13 @@ const touched = new Set(tables.touchedFiles());
 const orphans = files.filter((f) => !touched.has(f));
 const unread = tables.allKeyTables().flatMap((t) => t.unreadKeys().map((k) => `${t.file}: ${k}`));
 
-const rows = issues.length + orphans.length + unread.length + economy.length + econTable.problems.length + (econTable.stale ? 1 : 0);
+const rows = issues.length + orphans.length + unread.length + economy.length + econTable.problems.length + (econTable.stale ? 1 : 0)
+  + refProblems.length;
+
+if (refProblems.length) {
+  console.error(`\n모르는 아이템을 가리키는 칸 ${refProblems.length}건`);
+  for (const p of refProblems) console.error(`  ${p}`);
+}
 
 if (issues.length) {
   console.error(`\n잘못된 칸 ${issues.length}건`);

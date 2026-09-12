@@ -45,6 +45,7 @@ Pickups: `item_toss` `pickup_land` `pickup_chime` `pickup` (alias of `pickup_chi
 Net: `net_warning` `net_resumed` `net_matched`
 Tactical kit — melee/movement: `melee_swing` `melee_hit` `roll` `jumppad`
 Tactical kit — implants: `grapple_fire` `grapple_attach` `grapple_release` `dash` `barrier_deploy` `barrier_hit` `barrier_break` `overcharge_beam` `scan_pulse` `rocket_fire` `rocket_explode`
+준비 소리 (2026-09-12): `implant_ready` (짧고 높은 전자음) `stratagem_ready` (무전 두 음 차임)
 Tactical kit — gadgets: `gadget_place` `dome_deploy` `smoke_hiss` `lure_beep` `mine_arm` `mine_explode` `fire_ignite` `turret_shot` `gadget_break` `defib`
 Tactical kit — survival: `downed` `revive` `grit_save` `cloak_on` `cloak_off`
 Tactical kit — upkeep/progression: `gather` `craft_start` `craft_done` `repair_done` `durability_break` `level_up` `skill_up`
@@ -223,7 +224,9 @@ Appended (tactical kit):
 - Implants: `implant:activated {id:'atlauncher'}`→rocket_fire · `implant:dashed`→dash · `implant:grappleFired/Attached/Released`→grapple_fire/attach/release ·
   `implant:barrierChanged`→barrier_deploy when `active` flips true, the servo whir when it folds away, barrier_break the first time `hp` reaches 0 (the system tracks `barrierActive` / `barrierHp`; both reset on `game:newMission`) ·
   `implant:barrierHit`→barrier_hit (positional) · `implant:scanned`→scan_pulse (pitch + 6 % per pulse) · `implant:overcharge {active:true}`→overcharge_beam ·
-  `implant:rocketExploded`→rocket_explode (positional) · `implant:wieldChanged`→ui_equip|ui_close · `implant:equipped`→ui_equip.
+  `implant:rocketExploded`→rocket_explode (positional) · `implant:wieldChanged`→ui_equip|ui_close · `implant:equipped`→ui_equip ·
+  **2026-09-12** `implant:ready`→implant_ready (`full` 0.55 · 피치 1, 충전형의 중간 충전 0.26 · 피치 0.9).
+- Ship calls (2026-09-12): `stratagem:ready {refunded:false}`→stratagem_ready (0.7). `refunded: true`(호스트 거절 환불로 0 이 된 순간)는 **무음**.
 - Gadgets: `gadget:used`→defib (defib) | cloak_on (cloakVeil) | grenade_throw (everything else) · `gadget:deployed`→mine_arm | dome_deploy | smoke_hiss | fire_ignite | lure_beep | gadget_place by `kind` (positional) ·
   `gadget:removed {reason:'destroyed'}`→mine_explode (mines) | gadget_break, `'recovered'`→ui_equip · `gadget:throwModeChanged`→ui_click.
 - Gear / crafting / weight: `gather:collected`→gather · `craft:started`→craft_start · `craft:completed`→craft_done · `craft:failed` (not cancelled)→ui_error ·
@@ -236,6 +239,15 @@ Appended (tactical kit):
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-12 (준비 소리 2종 — 사용자 결정, 에이전트 B, docs/plans/consumables-keys-favorites.md §2)** — `Synth.SOUNDS` 에 2종.
+  `implant_ready` — implants/ 가 오래전부터 `audio:play` 로 보내던 id 인데 **정의가 없어 한 번도 울리지 않았다**(자동 경로가 아니라 콘솔
+  경고만 남았다). 짧고 높은 전자음: 위로 튕기는 사각파 칩 + 맑은 2.6 kHz 사인 핑 + 옅은 배음, ≈0.17 s. `stratagem_ready` — 무전 톤 두 음
+  차임: 스퀠치 열림 잡음 + 딸깍, 좁은 대역(lowpass 3.2 kHz)의 G5 → D6 삼각파 두 음(뒤 음이 길다) + 한 옥타브 아래 사각파 몸통, 스퀠치 닫힘,
+  ≈0.56 s — 임플란트의 높은 핑과 헷갈리지 않게 낮고 둥글다. 둘 다 **자동 구독**이다: `implant:ready` · `stratagem:ready` (둘 다 게임플레이
+  페이즈에서만 나오는 이벤트라 여기서 페이즈를 다시 보지 않는다). implants/ 의 직접 `audio:play implant_ready` 두 줄은 이벤트로 바뀌었다 —
+  중간 충전을 작고 낮게 내는 결정은 이제 audio/ 한 곳에 있다. 함선 호출 거절 환불(`refunded`)은 무음(거절음이 이미 났다).
+  `RANGED_SOUNDS` 에 넣지 않았다 (위치 없는 로컬 알림). 검증: `smoke-tactical` · `smoke-phase3` 가 `AudioSystem.play` 를 감싸 요청을 센다.
 
 - **2026-09-12 (헬스장 A-3a · 서재 매체 A-3e)** — `Synth.SOUNDS` 에 12종 추가. 전부 절차 합성이고 **housing/ · hub/ 가
   `audio:play {id}` 로만 부른다** (자동 구독 없음). 함선 안 UI 성격이라 `RANGED_SOUNDS` 에 넣지 않았다 — 위치 없이 오면 늘 같은

@@ -328,6 +328,11 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-12 (아이템 회수 계약 — 시체 와이어의 표식)** — `Corpses.itemsToWire` 가 `ItemInstance.raidFound` 를 `CorpseItemWire.rf` 로 싣고
+  `parts/CorpseNet.itemsFromWire` 가 되살린다(생략 = 표식 없음). 사망자가 레이드에서 주운 계약 아이템은 시체에서 꺼낸 분대원에게도 세어지고,
+  함선에서 가져간 장비는 표식이 없으니 세어지지 않는다. 정산 순서(`Death.complete` / `gameOver` 의 `awardMissionXp` → `game:complete` /
+  `game:over`)는 그대로 — inventory 가 그 이벤트에서 표식을 지운다.
+
 - **2026-09-11 (A-13 준비물 레이드 경계, 에이전트 prep)** — 계약은 읽기만 했다 (`ProgressionRef.armPreps` ·
   `clearActivePreps`). `parts/Phases.onNewMission` · `onAbort`, `parts/Death.complete` · `gameOver` 에 한 줄씩.
   위 *준비물의 레이드 경계* 절이 전부다.

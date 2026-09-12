@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Random } from '@/shared';
+import { Random, crateLootRandom, markRaidFound } from '@/shared';
 import type { ContainerTakenWire, ItemInstance, LootRef, PlanetId } from '@/shared';
 import { Grid, type DefLookup, type Placement } from './Grid';
 
@@ -156,6 +156,11 @@ export class ContainerStore {
   private lastSeq = new Map<string, number>();
   /** Set by `InventorySystem`: a take applied from the shared state (never a live one). */
   onTaken: ((info: StoreTakenInfo) => void) | null = null;
+  /**
+   * 2026-09-12 (아이템 회수 계약): set by `InventorySystem` — the seed a crate roll stamps on its items
+   * (`shared/raidFound.raidFoundSeed`; null outside a real raid). Caller-supplied contents are stamped by their source.
+   */
+  raidMark: (() => number | null) | null = null;
 
   constructor(private readonly getDef: DefLookup) {}
 
@@ -172,8 +177,11 @@ export class ContainerStore {
     }
     c = new Container(id, tier, position, this.getDef);
     c.anchor = position;
-    const rng = new Random(((missionSeed >>> 0) ^ Random.hash(id)) >>> 0);
-    c.fill(loot.rollCrateOn(tier, rng, planet));
+    // 2026-09-12: 시드 식은 `shared/lootRolls` 한 곳 — world 의 미리보기 · 드론 스캔(`parts/Peek`)이 같은 식으로 미리 굴린다
+    const rng = crateLootRandom(missionSeed, id);
+    const items = loot.rollCrateOn(tier, rng, planet);
+    markRaidFound(items, this.raidMark?.() ?? null);   // 2026-09-12: raid loot — never touches the rng
+    c.fill(items);
     this.containers.set(id, c);
     this.applyPending(c);
     return c;

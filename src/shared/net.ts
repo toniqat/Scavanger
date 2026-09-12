@@ -1486,8 +1486,8 @@ export interface NetRef {
 export interface CommsMessage { t: 'comm'; id: CommsId; text: string }
 
 /**
- * 구조물 (owner: world/Structures). 호스트가 지하실 잠금 해제 · 행성 스캔 · 로그 강하 소모를 확정한다 —
- * 두 사람이 같은 문을 동시에 열어 키카드가 둘 다 사라지는 일을 막는다.
+ * 구조물 (owner: world/Structures). 호스트가 잠긴 문(지하실 · 잠긴 방) 해제 · 행성 스캔 · 로그 강하 소모를 확정한다 —
+ * 두 사람이 같은 문을 동시에 열어 열쇠 · 키카드가 둘 다 사라지는 일을 막는다.
  */
 export type StructureMessage =
   | { t: 'struct'; ev: 'unlocked'; id: string; by: PeerId | null }
@@ -1754,3 +1754,14 @@ export const NET_PROBE_BACKOFF_MS: readonly number[] = [5000, 10000, 20000, 3000
  * configured one. A browser / vite has no such route (vite answers index.html — not JSON).
  */
 export const NET_SHELL_RELAY_ROUTE = '/__scav/relay';
+
+/* ══ appended: 2026-09-12 — 아이템 회수 계약: 「이번 레이드에서 얻은 아이템」 표식이 와이어를 건넌다 (`shared/raidFound.ts`) ══
+ * `ItemInstanceExtras` 는 `Pick<>` 별칭이라 넓힐 수 없어 옆 필드로 싣는다. 생략 = 표식 없음 (옛 피어 · 가져온 아이템). */
+export interface PickupWire {
+  /** 바닥에 떨어진 아이템의 `ItemInstance.raidFound` (레이드 맵 시드). */
+  rf?: number;
+}
+export interface CorpseItemWire {
+  /** 플레이어 시체 안 아이템의 `ItemInstance.raidFound`. */
+  rf?: number;
+}

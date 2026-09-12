@@ -22,9 +22,10 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | 기능 폴더 안에서만 쓰는 스칼라 — 아이템 무게 기본값 · 분해 산출량 · 상점 가격 계수 · 경험치 … | [`tuning.csv`](tuning.csv) |
 | **무기** 6계열 (등급 I 기준, II–V 는 자동) | [`weapons.csv`](weapons.csv) |
 | **전설 유니크 무기** 6종 | [`weapons_unique.csv`](weapons_unique.csv) |
+| **조준 흔들림** — 무기 계열별 정조준 8자 흔들림의 크기 · 빈도 (자세 · 이동 배수는 `constants.csv` 의 `AIM_SWAY_*`) | [`aim_sway.csv`](aim_sway.csv) |
 | 무기 부착물 | [`attachments.csv`](attachments.csv) |
 | 탄약 · 가방(격자 · 퀵슬롯 · **내구도**) · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
-| 일반 아이템 — 수류탄 · 회복 소모품 · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · 가젯 | [`items.csv`](items.csv) |
+| 일반 아이템 — 수류탄 · 회복 소모품 · **전투 소모품(`boostEffect`·`boostUseTime`)** · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · 가젯 | [`items.csv`](items.csv) |
 | 씨앗 · 서적 | [`seeds.csv`](seeds.csv) · [`books.csv`](books.csv) |
 | **미확인 표본** — 해석 시간 · 해석 보상 · 첫 해석 보너스 (연구실 분석기가 읽는다) | [`samples.csv`](samples.csv) |
 | 임플란트 아이템 — 등급별 가격 · 수리 재료 · 전설 퍽 | [`implants_repair.csv`](implants_repair.csv) · [`implants_perks.csv`](implants_perks.csv) |
@@ -149,6 +150,69 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-12 — 특정 아이템 회수 계약: `contracts.csv` 의 `itemDefId` 열 + 8줄 (에이전트 E2)
+
+- 새 목표 **`extract_with_items`** — `itemDefId` 아이템을 `target` 개 **몸에 지니고**(가방 격자 + 퀵슬롯 + 주머니, 창고 제외) 탈출하면
+  달성. 정산 순간(`game/` 이 `game:complete` 전에 부른다 — 가방은 아직 그대로다)에 센다. `itemDefId` 열은 `desc` 뒤에 붙였고 다른 목표의
+  줄은 비워 둔다 (옛 줄은 칸이 모자라도 된다). 빈 칸 · 쓰이지 않는 칸은 로더가, 모르는 id 는 `data-check.mjs` 의 새 참조 검사가 잡는다.
+- 기업마다 둘, 아이템은 전부 레이드 루팅 전용(상점 규칙에 안 걸린다), 보상은 같은 신뢰도 레벨의 기존 계약과 같은 폭:
+
+  | id | 기업 | Lv | 아이템 × 개수 | 신뢰도 · XP · 크레딧 |
+  |---|---|---|---|---|
+  | `helix_cores` | helix | 1 | `data_core` ×2 | 130 · 340 · 280 |
+  | `helix_crypto` | helix | 3 | `data_core_encrypted` ×1 | 380 · 1000 · 900 |
+  | `bastion_salvage` | bastion | 1 | `salvage_electronics` ×3 | 140 · 360 · 300 |
+  | `bastion_parts` | bastion | 2 | `mat_machine_parts` ×8 | 250 · 660 · 540 |
+  | `nomad_chips` | nomad | 0 | `cred_chip` ×5 | 60 · 160 · 110 |
+  | `nomad_artifact` | nomad | 3 | `alien_artifact` ×1 | 400 · 1050 · 900 |
+  | `ceres_samples` | ceres | 1 | `sample_canister` ×2 | 130 · 330 · 260 |
+  | `ceres_pure` | ceres | 2 | `sample_canister_pure` ×1 | 250 · 640 · 500 |
+- 크레딧 보상은 서버 검증 표에 들어간다 — `npm run data:check -- --write` 후 `server/economy.gen.json` 에 8줄이 늘었다.
+
+### 2026-09-12 — 전투 소모품 3종: `items.csv` 의 `boostEffect`·`boostUseTime` · `constants.csv` `[A1]` 6줄 (에이전트 A1)
+
+- **`items.csv`** 새 선택 열 **`boostEffect`**(`adrenaline` | `stimulant` | `implant_refill`) · **`boostUseTime`**(좌클릭 홀드 초) —
+  `mediumSpeed` 뒤에 붙였다. 새 줄 셋, 전부 `category: stim` · 1×1 · 퀵슬롯 · 홀드 3 초: `boost_adrenaline` 아드레날린 주사
+  (일반, 스택 3, ₩90, 0.12 kg) · `boost_stimulant` 각성제 (고급, 스택 3, ₩210, 0.12 kg) · `boost_stabilizer` 안정제 (희귀, 스택 2, ₩460, 0.2 kg).
+  가치는 붕대 45 · 약초 붕대 130 · 회복주사 260 사이에 맞췄다. 설명 글에는 숫자가 없다 (툴팁이 `BOOST_*` 를 읽어 보여 준다).
+- **`constants.csv` `[A1]`**: `BOOST_ADRENALINE_DURATION_S` 15 · `BOOST_STIMULANT_DURATION_S` 30 · `_RELOAD_SPEED_MUL` 1.3 ·
+  `_ADS_SPEED_MUL` 1.4 · `_AIM_SWAY_MUL` 0.7 · `_STAMINA_COST_MUL` 1.5 (사용자 결정 수치).
+- **`recipes.csv`**: 의학 작업대 `make_boost_adrenaline`(Lv.1, 주사기 1 + 혈근초 2, 의학 15) · `make_boost_stimulant`(Lv.2, 주사기 1 +
+  소독약 1 + 잿빛잎 2, 의학 30) · `make_boost_stabilizer`(Lv.3, 주사기 1 + 회로 기판 1 + 발광버섯 1, 의학 40). 분해 줄은 없다.
+- **`loot_item_weights.csv`** 7줄 (파일 끝 A1 묶음): 티어 1 아드레날린 0.6 · 각성제 0.4 · 안정제 0, 티어 2 안정제 0.6, 티어 5 셋 다 0.5 / 0.5 / 0.3.
+  **`loot_corpses.csv`**: `rogue`(아드레날린 0.1 · 각성제 0.05) · `rogue_boss`(0.4 · 0.25 · 안정제 0.1) · 네임드 3종에 성격대로 (로든 = 각성제 ·
+  타길라 = 아드레날린 · 헤비 = 셋). 상점은 `corp_stock.csv` 의 `ceres,stim` 규칙이 그대로 판다 (등급은 신뢰도 상한). `server/economy.gen.json` 재생성.
+
+### 2026-09-12 — 조준 흔들림: `aim_sway.csv` (신규) · `constants.csv` `[A2]` 5줄
+
+- **`aim_sway.csv`** 신규 (owner `src/weapons/AimSway.ts`, 소비 `player/CameraRig`) — `class,amplitudeDeg,frequencyHz`.
+  정조준 중 카메라가 좌우 `amplitudeDeg` · 위아래 그 × `AIM_SWAY_PITCH_RATIO` 로 8자를 그린다 (위아래가 두 배 빠르다).
+  값: **AR 0.12° @ 0.45 Hz · SMG 0.08° @ 0.6 · SG 0.1° @ 0.5 · DMR 0.2° @ 0.38 · SR 0.3° @ 0.32 · PISTOL 0.09° @ 0.65**.
+  근거 — 흔들림은 각도라 조준경 배율이 화면 크기를 키운다: 저격소총(4배율, 세로 FOV 17.5°)의 0.3° 는 화면에서 또렷이 보이고
+  100 m 에서 약 0.5 m 지만 최대 각속도가 약 0.6°/s 라 마우스로 따라잡힌다. 기본 정조준(FOV 50°) 무기는 거의 안 보일 만큼 작다.
+  유니크는 `weapons_unique.csv` 의 `class` 를 따른다 (RMB 가 대체 사격인 유니크는 정조준이 없어 흔들림도 없다).
+- **`constants.csv` `[A2]`**: `AIM_SWAY_PITCH_RATIO` 0.55 · `AIM_SWAY_CROUCH_MUL` 0.6 · `AIM_SWAY_PRONE_MUL` 0.25 (엎드려쏴가 저격의 답) ·
+  `AIM_SWAY_MOVE_MUL` 1.8 (걷기 속도에서) · `AIM_SWAY_BLEND_RATE` 6 (크기 변화 감쇠). 스태미나는 요인이 아니다 (사용자 결정).
+- `scripts/data-owners.mjs`: `DATA_OWNERS` 에 `/src/weapons/AimSway.ts`, `CSV_FOLDERS` 에 `aim_sway.csv → weapons, player`.
+
+### 2026-09-12 — 소모형 만능 열쇠 · 연구소 잠긴 방 (`structures.csv` 5열 · 열쇠 줄)
+
+설계안 `docs/plans/consumables-keys-favorites.md` §3 (사용자 결정, 수치는 에이전트 C).
+
+- **`structures.csv`** — 끝에 5열: `key`(그 종류의 잠긴 문을 여는 아이템 id 이자 지상 컨테이너의 부가 열쇠) · `keyChance`(지상 컨테이너
+  **하나마다** 그 열쇠가 부가로 들어 있을 확률 — 보장 없음) · `lockedMin`~`lockedMax`(2층 잠긴 방 컨테이너 수, 0 = 방 없음) ·
+  `lockedTiers`(잠긴 방 상자 티어). 전진기지 `key_basement` 0.05 · 방 없음, **연구실 `basementChance` 0**(지하실 없음) ·
+  `keycard_lab` 0.05 · 방 2–3 · `4:4|3:1`. 방은 **2층이 올라간 건물에만** 선다 (`upperChance`).
+- **`items.csv`** — `key_basement` = **지하실 열쇠**(서사 · 스택 1 · ₩1200 · 0.08 kg · `⚿`), `keycard_lab` = **연구소 보안 키카드**(신규,
+  서사 · 스택 1 · ₩1200 · 0.05 kg). 둘 다 만능 · 소모형 (같은 종류면 어느 건물이든 열고, 열면 1 개 사라진다).
+- **루팅 (전부 드물게)** — `loot_category_weights.csv` `3,key,0.3` · `4,key,0.6` (상자 한 개당 약 0.5 % · 0.9 %) · `loot_item_weights.csv` 두 열쇠
+  티어 3 · 4 `1`, 티어 1 · 2 · 5 `0`(안전핀) · `loot_corpses.csv` 로그 각 0.008 · 로그 보스 각 0.03 · 네임드 3종 각 0.05 ·
+  `corp_stock.csv` `nomad,key,…` 신뢰도 3. 기대치 단언은 `scripts/check-planet-loot.mjs` 의 열쇠 절.
+- `server/economy.gen.json` 을 다시 구웠다 (`data:check -- --write`, 열쇠 가치).
+
+아래 `2026-09-09 — structures.csv` 절의 「지하실이 있으면 지상층 컨테이너 하나에 키카드가 반드시 들어간다」와
+`2026-09-09 — planet_loot.csv · 지하실 키카드` 절의 「티어 1~5 전부 `mul 0`」은 **더 이상 사실이 아니다** (기록으로 남긴다).
 
 ### 2026-09-11 — 연구실: `samples.csv` (신규) · `items.csv` 의 `prepEnv`·`prepShort` · 표본 tuning 2줄
 

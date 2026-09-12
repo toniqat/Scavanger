@@ -42,14 +42,18 @@ export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEven
   if (sys.sys.getActiveContainer()) {
     entries.push({ label: TEXT.menu.toContainer, run: () => sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid) });
   }
+  // 2026-09-12 (E1): 휠 칸의 스택도 즐겨찾기를 켜고 끈다
+  const stack = sys.sys.getQuickSlots()[index];
+  if (stack) entries.push(favoriteEntry(sys, stack.defId, true));
   entries.push({ label: TEXT.menu.request, hint: '휠클릭', separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } });
   sys.menu.open(e.clientX, e.clientY, entries);
   }
 
 /**
- * Scheme: plain right-click on a weapon, a bag, armor, worn gear (ship) or a stack with qty ≥ 2 opens the menu; on
- * anything else it performs the quick action directly (container / stash ↔ bag / slot → bag). Shift+right-click
- * always opens the menu.
+ * **2026-09-12 (E1, 사용자 결정) — 우클릭은 모든 아이템에 메뉴를 연다.** 예전에는 무기 · 가방 · 방탄복 · 수리할 장비 ·
+ * 2개 이상 스택 · 준비물 · 요리만 메뉴가 뜨고 나머지는 우클릭 한 번에 곧장 옮겨졌다(Shift+우클릭 = 메뉴). 이제 그 이동은
+ * 메뉴의 「빠른 이동 (…)」 항목이자 **더블클릭**이고, 메뉴에는 언제나 「즐겨찾기 켜기 / 끄기」가 있다.
+ * 감정 전(잠긴) 타일은 예전처럼 아무 메뉴도 없다.
  */
 export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation, e: MouseEvent): void {
   if (sys.drag?.started || sys.dialog.isOpen) return;
@@ -58,20 +62,14 @@ export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation,
   const item = sys.sys.findItem(uid, from);
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return;
-  const isStack = def.stackMax > 1 && item.qty >= 2;
-  const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
-  const repairable = sys.hub && !!sys.sys.repairInfo(uid);
-  const breakable = sys.canDisassemble(uid, from);
-  // A-13: 준비물은 어디서든 우클릭하면 메뉴가 뜬다 (함선에서는 `사용`, 레이드 중에는 잠긴 채로 사유가 보인다)
-  // A-3c · A-15 (2026-09-11): 요리(`먹기`)와 주머니(장착)도 마찬가지다
-  const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || isPouchDef(def)
-    || quickable || repairable || breakable || !!def.prep || !!def.meal;
-  if (!hasMenu && !e.shiftKey) {
-    sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid);
-    return;
-  }
   sys.tooltip.hide();
   sys.menu.open(e.clientX, e.clientY, sys.menuEntries(uid, from, item, def));
+  }
+
+/** 2026-09-12 (E1): the 즐겨찾기 entry — one shape for grid tiles, equipment slot cards and wheel cells. */
+export function favoriteEntry(sys: InventoryUI, defId: string, separator: boolean): MenuEntry {
+  const on = sys.sys.isFavorite(defId);
+  return { label: on ? TEXT.menu.favoriteOff : TEXT.menu.favoriteOn, separator, run: () => sys.toggleFavoriteFromMenu(defId) };
   }
 
 /**
@@ -88,9 +86,11 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   // A-15: 주머니도 「내가 들고 있는 것」이다 (퀵슬롯과 같다)
   const owned = from.kind === 'slot' || from.kind === 'quick' || from.grid === 'bag' || from.grid === 'pouch';
 
-  // 1. quick action (what a plain right-click / double-click does)
+  // 1. quick action. 2026-09-12 (E1): 「빠른 이동 (가방 / 창고 / 상자)」 — the move a plain right-click used to make on
+  //    its own; the destination is `quickMoveDest`, the very rule `quickMove` follows
+  const dest = sys.sys.quickMoveDest(from);
   if (from.kind === 'slot') {
-    entries.push({ label: TEXT.menu.toBag, run: quick });
+    entries.push({ label: TEXT.menu.quickMove.bag, run: quick });
     if (sys.hub) entries.push({ label: TEXT.menu.toStash, run: () => sys.result(sys.sys.moveToStash(uid, from), 'ui_drop', from, uid) });
   } else {
     const target = sys.sys.equipTargetFor(def);
@@ -101,12 +101,13 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
         entries.push({ label: TEXT.menu.equipPrimary2, run: () => sys.result(sys.sys.equip(uid, 'primary2') ? 'ok' : 'fail', 'ui_equip', from, uid) });
       }
     }
-    if (from.kind === 'quick') entries.push({ label: TEXT.menu.toBag, run: quick });   // 2026-09-09: 휠 → 가방
-    else if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
-    else if (from.grid === 'stash') entries.push({ label: TEXT.menu.toBag, run: quick });
-    else if (from.grid === 'pouch') entries.push({ label: TEXT.menu.toBag, run: quick });   // A-15: 주머니 → 가방
-    else if (hasContainer && !isBagDef(def)) entries.push({ label: TEXT.menu.toContainer, run: quick });
-    else if (sys.hub && !isBagDef(def)) entries.push({ label: TEXT.menu.toStash, run: quick });
+    if (dest) {
+      // `더블클릭` hint only where a double-click makes this very move: not from the 창고 (it tries the empty 장비칸 /
+      // 퀵슬롯 first) and not from the bag when it equips or registers the stack on the wheel
+      const dblSame = from.kind === 'grid' && from.grid !== 'stash'
+        && !(from.grid === 'bag' && (!!target || (isQuickUsable(def) && !hasContainer)));
+      entries.push({ label: TEXT.menu.quickMove[dest], hint: dblSame ? '더블클릭' : undefined, run: quick });
+    }
   }
 
   // 1a. repair (ship only, worn weapon / armor the player owns)
@@ -152,6 +153,9 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
       entries.push({ label: TEXT.menu.quickAssign, hint: '더블클릭', separator: entries.length > 0, run: () => sys.result(sys.sys.registerQuick(uid), 'ui_equip', from, uid) });
     }
   }
+
+  // 1c-1. 즐겨찾기 (2026-09-12, E1, 사용자 결정): 모든 아이템 — 종류(def id) 단위로 켜고 끈다
+  entries.push(favoriteEntry(sys, def.id, entries.length > 0));
 
   /* 1c-2. 준비물 (A-13, 2026-09-11): **함선에서만** — 쓰면 그 자리에서 소모돼 다음 레이드 1회분으로 실린다
    * (`ctx.progression.usePrep`). 레이드 중이거나 이미 같은 환경을 준비했으면 항목은 그대로 보이되 사유가

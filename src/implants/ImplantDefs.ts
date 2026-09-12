@@ -17,7 +17,7 @@ export const IMPLANT_DEFS: readonly ImplantDef[] = [
   {
     id: 'grapple',
     name: '갈고리',
-    description: 'Q를 누르면 조준점의 지형·지물에 와이어 앵커를 박고 그 지점으로 몸을 끌어당긴다. 조준점 괄호가 켜지면 걸 수 있다. 다시 누르면 와이어를 끊는다.',
+    description: 'Q를 누르면 조준점의 지형·지물에 와이어 앵커를 박고 그 지점으로 몸을 끌어당긴다. 조준점 괄호가 켜지면 걸 수 있다. 다시 누르면 와이어를 끊는다. 붙기 전에 끊으면 재사용 대기시간 대부분을 돌려받고, 붙은 뒤에는 짧게 끌려갈수록 더 돌려받는다.',
     mode: 'instant',
     cooldown: IMPLANT_GRAPPLE_COOLDOWN,
     charges: 1,

@@ -1,5 +1,5 @@
 import type { CraftRecipe, ItemDef } from '@/shared';
-import { buildItemChip, renderItemCost } from '@/shared';
+import { UI_HOLD_CONFIRM_S, buildItemChip, renderItemCost } from '@/shared';
 import type { InventorySystem } from '../InventorySystem';
 import { Modeless } from './Modeless';
 import { TEXT } from './labels';
@@ -70,6 +70,20 @@ export class DisassemblePanel {
   private lastT = -1;
   /** A progress report went out for the current hold (so a cancel owes the `{t:0}` reset). */
   private reported = false;
+  /*
+   * 2026-09-12 (E1, 사용자 결정) — **즐겨찾기한 아이템은 분해 전에 한 번 더 묻는다.** 경고 팝업의 규약 그대로:
+   * 확정은 빨간 `분해` 를 `UI_HOLD_CONFIRM_S` 동안 누르는 것뿐이고(클릭 · Enter 로는 안 된다), `취소` · Escape · Tab 은
+   * 카드만 물린다 (`InventoryUI.closePopups` → `cancelConfirm`). 한 번 확인하면 그 분해 한 번에만 유효하다.
+   */
+  private readonly confirmEl: HTMLElement;
+  private readonly confirmBody: HTMLElement;
+  private readonly confirmCancel: HTMLButtonElement;
+  private readonly confirmOk: HTMLButtonElement;
+  private readonly confirmFill: HTMLElement;
+  /** The uid whose 분해 was just confirmed (the next `run()` for it skips the card once). */
+  private confirmedUid: string | null = null;
+  private holdRaf = 0;
+  private holdStart = 0;
 
   constructor(
     private readonly sys: InventorySystem,
@@ -114,6 +128,106 @@ export class DisassemblePanel {
     this.button.addEventListener('click', () => this.run());
 
     this.shell.body.append(this.preview, this.durEl, this.msgEl, this.button);
+
+    // 2026-09-12 (E1): 즐겨찾기 확인 카드 (평소에는 숨어 있다)
+    this.confirmEl = document.createElement('div');
+    this.confirmEl.className = 'inv-dis-confirm';
+    this.confirmEl.hidden = true;
+    const cTitle = document.createElement('div');
+    cTitle.className = 'inv-dis-confirm-title';
+    cTitle.textContent = `★ ${TEXT.favorite.confirmTitle}`;
+    this.confirmBody = document.createElement('div');
+    this.confirmBody.className = 'inv-dis-confirm-body';
+    const cHint = document.createElement('div');
+    cHint.className = 'inv-dis-confirm-hint';
+    cHint.textContent = TEXT.favorite.confirmHint(UI_HOLD_CONFIRM_S);
+    const cRow = document.createElement('div');
+    cRow.className = 'inv-dis-confirm-row';
+    this.confirmCancel = document.createElement('button');
+    this.confirmCancel.type = 'button';
+    this.confirmCancel.className = 'inv-btn inv-dis-confirm-cancel';
+    this.confirmCancel.textContent = TEXT.favorite.cancel;
+    this.confirmCancel.addEventListener('click', () => { if (this.cancelConfirm()) this.sys.sfx('ui_drop'); });
+    this.confirmOk = document.createElement('button');
+    this.confirmOk.type = 'button';
+    this.confirmOk.className = 'inv-btn inv-dis-confirm-ok';
+    this.confirmFill = document.createElement('i');
+    this.confirmFill.className = 'inv-dis-confirm-fill';
+    const okLabel = document.createElement('span');
+    okLabel.textContent = TEXT.favorite.confirm;
+    this.confirmOk.append(this.confirmFill, okLabel);
+    this.confirmOk.addEventListener('pointerdown', (e) => this.startHold(e));
+    this.confirmOk.addEventListener('pointerleave', () => this.stopHold());
+    // Enter / Space on the focused button never confirm — only the hold does
+    this.confirmOk.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); } });
+    this.confirmOk.addEventListener('click', (e) => e.preventDefault());
+    cRow.append(this.confirmCancel, this.confirmOk);
+    this.confirmEl.append(cTitle, this.confirmBody, cHint, cRow);
+    this.shell.body.append(this.confirmEl);
+  }
+
+  /* ── 2026-09-12 (E1): 즐겨찾기 분해 확인 ─────────────────────────────── */
+
+  /** The confirm card is showing (smoke tests). */
+  get isConfirming(): boolean { return !this.confirmEl.hidden; }
+  /** The red hold-to-confirm button (smoke tests). */
+  get confirmButton(): HTMLButtonElement { return this.confirmOk; }
+
+  private needsFavoriteConfirm(uid: string): boolean {
+    const item = this.sys.findItem(uid);
+    return !!item && this.sys.isFavorite(item.defId) && this.confirmedUid !== uid;
+  }
+
+  private openConfirm(uid: string): void {
+    const item = this.sys.findItem(uid);
+    const def = item ? this.getDef(item.defId) : undefined;
+    this.confirmBody.textContent = TEXT.favorite.confirmBody(def?.name ?? '');
+    this.stopHold();
+    this.confirmEl.hidden = false;
+    this.button.style.display = 'none';
+    this.sys.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.confirmCancel.focus({ preventScroll: true });
+  }
+
+  /** Close the confirm card (nothing is salvaged). True when it was showing — Escape / Tab consume that press. */
+  cancelConfirm(): boolean {
+    if (this.confirmEl.hidden) return false;
+    this.stopHold();
+    this.confirmEl.hidden = true;
+    this.button.style.display = '';
+    return true;
+  }
+
+  private startHold(e: PointerEvent): void {
+    if (e.button !== 0 || this.holdRaf) return;
+    e.preventDefault();
+    this.holdStart = performance.now();
+    window.addEventListener('pointerup', this.onHoldRelease, true);
+    window.addEventListener('pointercancel', this.onHoldRelease, true);
+    const step = (): void => {
+      const t = Math.min(1, (performance.now() - this.holdStart) / (Math.max(0.05, UI_HOLD_CONFIRM_S) * 1000));
+      this.confirmFill.style.width = `${(t * 100).toFixed(1)}%`;
+      if (t >= 1) { this.finishHold(); return; }
+      this.holdRaf = requestAnimationFrame(step);
+    };
+    this.holdRaf = requestAnimationFrame(step);
+  }
+
+  private onHoldRelease = (): void => { this.stopHold(); };
+
+  private stopHold(): void {
+    if (this.holdRaf) { cancelAnimationFrame(this.holdRaf); this.holdRaf = 0; }
+    window.removeEventListener('pointerup', this.onHoldRelease, true);
+    window.removeEventListener('pointercancel', this.onHoldRelease, true);
+    this.confirmFill.style.width = '0%';
+  }
+
+  private finishHold(): void {
+    const uid = this.uid;
+    this.cancelConfirm();
+    if (!uid) return;
+    this.confirmedUid = uid;
+    this.run();
   }
 
   get el(): HTMLElement { return this.shell.el; }
@@ -133,6 +247,8 @@ export class DisassemblePanel {
     this.recipe = recipe;
     this.running = false;
     this.hideMsg();
+    this.confirmedUid = null;   // 2026-09-12 (E1): a fresh dialog asks again
+    this.cancelConfirm();
     this.refresh();
     this.shell.open(anchor);
     this.shell.place();
@@ -154,6 +270,8 @@ export class DisassemblePanel {
     const uid = this.uid;
     if (this.running) { this.sys.cancelCraft(); this.running = false; }
     this.resetBar(uid);
+    this.cancelConfirm();
+    this.confirmedUid = null;
     this.uid = null;
     this.recipe = null;
     this.hideMsg();
@@ -263,6 +381,9 @@ export class DisassemblePanel {
     const uid = this.uid;
     if (!r || !uid) return;
     if (this.running) { this.sys.cancelCraft(); this.running = false; this.resetBar(uid); this.refresh(); return; }
+    // 2026-09-12 (E1): 즐겨찾기한 종류면 확인 카드부터 — 확인은 이 한 번의 분해에만 유효하다
+    if (this.needsFavoriteConfirm(uid)) { this.openConfirm(uid); return; }
+    this.confirmedUid = null;
     this.running = true;
     this.lastEmitAt = -Infinity;
     this.reported = false;
@@ -299,6 +420,7 @@ export class DisassemblePanel {
 
   dispose(): void {
     this.hideMsg();
+    this.stopHold();
     this.shell.dispose();
   }
 }

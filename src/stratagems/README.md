@@ -59,7 +59,7 @@ its **own** player (linear falloff) on every impact; `camera:shake` scales with 
 
 ## Events
 Emits `stratagem:wheelChanged`, `stratagem:armed`, `stratagem:chargeChanged`, `stratagem:targeting` (on entry + cursor moves > 0.2 m + exit),
-`stratagem:called`, `stratagem:landed`, `stratagem:ended`, `stratagem:cooldown` (start / every 0.5 s / 0), `structure:damaged`,
+`stratagem:called`, `stratagem:landed`, `stratagem:ended`, `stratagem:cooldown` (start / every 0.5 s / 0), **`stratagem:ready {refunded}`** (2026-09-12 — the moment it reaches 0, gameplay phases only), `structure:damaged`,
 `structure:destroyed`, `crate:open`, `camera:shake`, `audio:play` (`ui_equip` arm, `ui_open` wheel / top view, `ui_click` hover / confirm,
 `ui_deny`, `hellpod_fall` 2.5 s before landing, `explosion` impacts), `ui:notify`.
 2026-09-09 추가: `rescue:countChanged` (잔여 횟수), `rescue:called` (호출 확정 — 차감 시점), `rescue:landed` (부활 신호).
@@ -180,6 +180,13 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 ---
 
 ## 변경 이력
+
+- **2026-09-12 — 준비 순간 `stratagem:ready {refunded}` (에이전트 B, docs/plans/consumables-keys-favorites.md §2).** 공유 쿨타임이 0 이
+  되는 **순간**을 이 폴더가 한 번만 알린다 — 그 전에는 HUD 토스트(`ui/hud/Notifications`)가 `stratagem:cooldown` 의 전이를 스스로 추측했고,
+  준비 플래시(`ui/hud/StratagemPanel`)와 준비 소리(`audio/`)가 같은 추측을 또 베끼게 될 참이었다. `tickCooldown` 이 0 에 닿은 틱(그 틱의
+  `stratagem:cooldown {0}` **뒤**), `refundCooldown`(돌던 쿨타임이 있었으면 `refunded: true`), `debugCooldownReset`(돌던 게 있었으면) 셋이
+  `emitReady` 를 부른다. **게임플레이 페이즈에서만** 나간다 — 쿨타임은 `hub:entered` 에서 초기화되지 않고 함선에서도 계속 줄어드는데,
+  거기서 끝나는 것은 알릴 순간이 아니다. 토스트는 손대지 않았다(ui 소유).
 
 - **2026-09-11 — E-8 (c) 거절된 분대원 호출: 통보 + 쿨타임 환불 (docs/plans/net-trust-gaps.md §3).** `Targeting.confirm` 의
   `startCooldown` 은 요청을 보내기 **전에** 도는 낙관적 값인데 호스트의 거절은 `lastCallRefusal` 기록뿐이라, 분대원은

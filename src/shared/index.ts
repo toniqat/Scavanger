@@ -59,3 +59,7 @@ export * from './buffRules';
 export * from './credits';
 /* appended (2026-09-12): 캐릭터 버프 — 식사 · 준비물 · 운동 디버프 · 환경 노출 · 휴식 / 운동 중을 한 목록으로 (docs/plans/char-buffs.md) */
 export * from './charBuffs';
+/* appended (2026-09-12): 루팅 굴림 시드 식 — 여는 코드와 미리보기(world · 드론 스캔)가 같은 식을 쓴다 */
+export * from './lootRolls';
+/* appended (2026-09-12): 「이번 레이드에서 얻은 아이템」 표식 — 아이템 회수 계약의 개수 · 스택 분리 · 사선 띠 (docs/plans/consumables-keys-favorites.md §5-2) */
+export * from './raidFound';

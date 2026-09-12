@@ -12,6 +12,8 @@ import {
 import { _w0, angleDelta, Drone, DRONE_REPLICA_SNAP_DIST, DRONE_SYNC_RETRY_S, droneMaxHp } from '../model';
 import type { DroneSystem } from '../DroneSystem';
 import { addDrone, applyOwnDamage, createBody, destroyFx, removeDrone } from './Lifecycle';
+/* appended (2026-09-12): 분대원의 스캔 결과 (`drone scan`) */
+import { onRemoteScan } from './Scan';
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
@@ -176,6 +178,10 @@ export function onDroneMessage(sys: DroneSystem, m: DroneMessage, from: PeerId):
       sys.syncAskedAt.delete(from);
       break;
     }
+    case 'scan':
+      // 2026-09-12: 표시 전용 — 모양 · 로비 멤버 · 빈도 · 보낸 사람의 지상 드론 거리는 `Scan.onRemoteScan` 이 본다
+      onRemoteScan(sys, m, from);
+      break;
   }
 }
 

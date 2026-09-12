@@ -20,7 +20,7 @@ import {
   implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
 } from '../Rules';
 import { CorpView } from '../ui/CorpView';
-import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
+import { CORP_ALIASES, GOAL_IDS, INVENTORY_GOALS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 /* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로 (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';
@@ -57,6 +57,8 @@ export function onMetaMessage(sys: MetaSystem, msg: GameMessageOf<'meta'>, from:
      * token bucket (`META_HIT_RATE`/s, burst ×2); an over-budget hit is trimmed to what is left.
      */
     if (msg.goal === 'kill_bugs' || msg.goal === 'kill_rogues') return;
+    // 2026-09-12 (E2): an inventory goal (`extract_with_items`) has no hits at all — nobody legitimately sends one
+    if (INVENTORY_GOALS.has(msg.goal)) return;
     const amount = spendHitBudget(sys, `${from}|${msg.goal}`, msg.amount);
     if (amount <= 0) return;
     sys.reportContractHit(msg.goal, amount, false);
@@ -68,7 +70,7 @@ export function onMetaMessage(sys: MetaSystem, msg: GameMessageOf<'meta'>, from:
     for (const entry of msg.hits) {
       if (!Array.isArray(entry) || entry.length < 2) continue;
       const [goal, n] = entry;
-      if (!isValidHit(goal, n, def.target)) continue;
+      if (!isValidHit(goal, n, def.target) || INVENTORY_GOALS.has(goal)) continue;
       sys.reportContractHit(goal, n, false);
     }
   }

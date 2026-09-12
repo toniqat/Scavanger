@@ -7,6 +7,8 @@ import {
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemCategory, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
 } from '@/shared';
+/* appended (2026-09-12): 아이템 회수 계약 — 채집물도 레이드 루팅이다 */
+import { markRaidFound, raidFoundSeed } from '@/shared';
 import { type BuildCtx, PLAY_LIMIT, composeMatrix, displace, isSpotFree, merge, paint, paintGradient, scratch, xform } from './build';
 import { SEED_INTERACT_TIME, SEED_NODE_RADIUS, planetSeeds } from './flora';
 import {
@@ -678,11 +680,14 @@ export class Gather {
     ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId: node.def.defId, qty, kind: node.kind });
     ctx.bus.emit('audio:play', { id: 'gather', position: node.def.position, volume: 0.7 });
     const item = this.makeItem(node.def.defId, qty);
+    const seed = raidFoundSeed(ctx);   // 2026-09-12: 아이템 회수 계약 표식 (훈련장 · 함선이면 null)
+    markRaidFound(item, seed);
     if (item) ctx.inventory?.tryAddItem(item);
     /* 2026-09-11 (C-20): 부가 코어는 **아이템만 하나 더** 넣는다 — `gather:collected` · 소리 · 제작 XP 는 위의 1회뿐.
      * 채집 수율(원예)을 곱하지 않는 것은 폐금속과 같다. */
     if (node.bonus) {
       const extra = this.makeItem(node.bonus.defId, node.bonus.qty);
+      markRaidFound(extra, seed);
       if (extra) ctx.inventory?.tryAddItem(extra);
     }
   }

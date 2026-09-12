@@ -78,7 +78,7 @@ export class ContractPanel {
       b.on('world:ready', () => { this.fromMeta(ctx); this.mateDirty = true; this.applyShow(); }),
       b.on('meta:contractProgress', ({ id, goal, progress, target }) => {
         const def = CONTRACT_DEFS.find((d) => d.id === id);
-        this.set(def?.name ?? id, goal, progress, target);
+        this.set(def?.name ?? id, goal, progress, target, def?.itemDefId);
         this.pulseUntil = ctx.time + PULSE_SECONDS;
         toggleClass(this.root, 'pulse', true);
       }),
@@ -96,12 +96,15 @@ export class ContractPanel {
   private fromMeta(ctx: GameContext): void {
     const info = ctx.meta?.activeContract ?? null;
     if (!info) { this.hideMine(); return; }
-    this.set(info.def.name, info.def.goal, info.progress, info.def.target);
+    this.set(info.def.name, info.def.goal, info.progress, info.def.target, info.def.itemDefId);
   }
 
-  private set(name: string, goal: ContractGoalKind, progress: number, target: number): void {
+  /** `itemDefId` (2026-09-12, 「특정 아이템 회수」 계약): 목표 글자 뒤에 그 아이템 이름을 붙인다 — `아이템 회수 · 데이터 코어`. */
+  private set(name: string, goal: ContractGoalKind, progress: number, target: number, itemDefId?: string): void {
     setText(this.nameEl, name);
-    setText(this.goalEl, CONTRACT_GOAL_LABEL_KO[goal] ?? goal);
+    const label = CONTRACT_GOAL_LABEL_KO[goal] ?? goal;
+    const itemName = itemDefId ? this.ctx?.loot?.getItemDef(itemDefId)?.name : undefined;
+    setText(this.goalEl, itemName ? `${label} · ${itemName}` : label);
     const p = Math.floor(progress);
     setText(this.numEl, `${p.toLocaleString('ko-KR')} / ${target.toLocaleString('ko-KR')}`);
     const fill = target > 0 ? Math.min(1, Math.max(0, progress / target)) : 0;

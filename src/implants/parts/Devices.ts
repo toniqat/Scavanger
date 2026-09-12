@@ -12,6 +12,7 @@ import {
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
   IMPLANT_DASH_DISTANCE, IMPLANT_GRAPPLE_RANGE,
+  IMPLANT_GRAPPLE_CANCEL_MIN_S, IMPLANT_GRAPPLE_CANCEL_REFUND, IMPLANT_GRAPPLE_REFUND_DIST, IMPLANT_GRAPPLE_REFUND_MAX,
   IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_ENERGY,
   IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_REGEN_TIME, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
   IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
@@ -136,6 +137,7 @@ export function updateGrapple(sys: ImplantSystem, dt: number, active: boolean): 
     const total = _muzzle.distanceTo(sys.grapplePoint);
     if (sys.grappleFlown >= total) {
       sys.grappleState = 'attached';
+      sys.grappleAttachPos.copy(p.position);   // 2026-09-12: the refund measures the pull from here
       sys.grappleTip.copy(sys.grapplePoint);
       sys.setGrapplePull(sys.grapplePoint);
       ctx.bus.emit('implant:grappleAttached', { point: sys.grapplePoint.clone() });
@@ -186,6 +188,10 @@ export function fireGrapple(sys: ImplantSystem): void {
 /** `silent` = the wire was cut by something else (stow / death), so no release sting is played. */
 export function releaseGrapple(sys: ImplantSystem, silent: boolean): void {
   if (sys.grappleState === 'idle') return;
+  // 2026-09-12: the refund needs how it ended — attached or not, and the pull so far (feet now vs at the attach,
+  // both read synchronously, so the inertia kept after this release is never counted)
+  const wasAttached = sys.grappleState === 'attached';
+  const pull = wasAttached && sys.ctx.player ? sys.ctx.player.position.distanceTo(sys.grappleAttachPos) : 0;
   sys.grappleState = 'idle';
   sys.grappleFlown = 0;
   sys.grappleTimer = 0;
@@ -198,6 +204,39 @@ export function releaseGrapple(sys: ImplantSystem, silent: boolean): void {
   sys.aimRay(_o, _d);
   sys.muzzle(_muzzle, _d);
   sys.send({ t: 'imp', ev: 'grapple', o: tuple(_muzzle), p: null });
+  // a silent cut (stow on death / phase change / reset / drone control) is not a use that ended — no refund there:
+  // the reset paths zero the cooldown anyway, and the HUD must not float `−N초` at a mission start
+  if (!silent) sys.refundGrapple(wasAttached, pull);
+  }
+
+/**
+ * 2026-09-12: 갈고리 쿨타임 환급 (사용자 결정). The cooldown started at the fire (`useCharge` in `fireGrapple`); when
+ * the use ends it gives part of the **effective total** (`cdTotal`) back:
+ *   - attached, then released after a pull of `pullDist` m → `IMPLANT_GRAPPLE_REFUND_MAX × max(0, 1 − d / IMPLANT_GRAPPLE_REFUND_DIST)`
+ *     (0 m = 50 %, ≥ 15 m = nothing);
+ *   - ended before attaching (Q while flying, the drone anchor gone) → `IMPLANT_GRAPPLE_CANCEL_REFUND`, but at least
+ *     `IMPLANT_GRAPPLE_CANCEL_MIN_S` stays (never more than was left).
+ * Emits `implant:cooldownRefunded` (the HUD's green `−N초`); a refund that eats the whole rest finishes the cooldown
+ * like a tick would (`implant:ready`). Nothing left to refund (e.g. 안정제 mid-flight) → nothing happens.
+ */
+export function refundGrapple(sys: ImplantSystem, attached: boolean, pullDist: number): void {
+  const total = sys.cdTotal, before = sys.cdRemaining;
+  if (sys.equippedId !== 'grapple' || !(total > 0) || !(before > 0)) return;
+  let ratio: number, after: number;
+  if (attached) {
+    ratio = IMPLANT_GRAPPLE_REFUND_MAX * Math.max(0, 1 - Math.max(0, pullDist) / IMPLANT_GRAPPLE_REFUND_DIST);
+    after = before - ratio * total;
+  } else {
+    ratio = IMPLANT_GRAPPLE_CANCEL_REFUND;
+    after = Math.max(Math.min(before, IMPLANT_GRAPPLE_CANCEL_MIN_S), before - ratio * total);
+  }
+  after = Math.max(0, after);
+  const seconds = before - after;
+  if (seconds <= 1e-3) return;
+  sys.cdRemaining = after;
+  sys.ctx.bus.emit('implant:cooldownRefunded', { id: 'grapple', seconds, ratio });
+  if (after <= 0) sys.finishCooldown();
+  else sys.emitCooldown(true);
   }
 
 /** `PlayerRef.setGrappleTarget` is part of the tactical-kit contract; player/ may not have it yet. */

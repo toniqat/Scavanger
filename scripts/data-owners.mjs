@@ -32,6 +32,7 @@ export const DATA_OWNERS = [
   '/src/world/flora.ts',
   '/src/world/specimen.ts',
   '/src/audio/AudioSystem.ts',   // tables (FOOTSTEP_MATERIAL_GAIN — 2026-09-11 C-22)
+  '/src/weapons/AimSway.ts',     // aim_sway (무기 계열별 조준 흔들림 — 2026-09-12 A2)
 ];
 
 /** 거의 모든 폴더가 읽는 표 — 스모크를 고르지 않는다 (경고만). */
@@ -44,6 +45,8 @@ export const CSV_FOLDERS = {
   'items.csv':               ['items', 'inventory', 'housing'],
   'weapons.csv':             ['items', 'weapons'],
   'weapons_unique.csv':      ['items', 'weapons'],
+  // 2026-09-12 (A2): 조준 흔들림 — weapons/ 가 계열별 크기를 골라 넘기고 player/ 의 CameraRig 가 흔든다
+  'aim_sway.csv':            ['weapons', 'player'],
   'ammo.csv':                ['items', 'weapons'],
   'attachments.csv':         ['items', 'weapons'],
   'armor.csv':               ['items', 'player'],

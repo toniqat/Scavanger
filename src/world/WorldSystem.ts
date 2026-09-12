@@ -20,6 +20,8 @@ import { Ambience } from './Ambience';
 import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rampTopAt, rayBox, rayRamp } from './obb';
 import { hullAreaCentroid, hullContainsXZ, hullHitNormal, hullPushOut, rayHull } from './hull';
 import { SMALL_BODY_R } from './structures/parts/Glass';
+import { rollCrateContents } from './structures/parts/Containers';
+import type { ItemInstance } from '@/shared';
 import { Fog } from './Fog';
 import { type Biome, biomeById, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
@@ -647,9 +649,14 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   /* ── WorldRef: collision ───────────────────────────────────────────── */
 
-  resolveCollision(position: THREE.Vector3, radius: number): THREE.Vector3 {
+  /**
+   * 2026-09-12 (C): `height` = 그 몸의 키. 주면 떠 있는 상자 · 윤곽 밑을 사람 헤드룸(`BOX_HEADROOM`)이 아니라 이 키로 잰다 —
+   * 지상드론이 잠긴 문 옆 개구멍(인방 밑면 = 바닥 + `VENT_H`)을 지나가는 길이다. 안 주면 예전과 같다.
+   */
+  resolveCollision(position: THREE.Vector3, radius: number, height?: number): THREE.Vector3 {
     const out = this.queryOut;
     out.length = 0;
+    const bodyH = height !== undefined && height > 0 ? height : 0;
     this.hash.query(position.x, position.z, radius, out);
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
@@ -663,7 +670,7 @@ export class WorldSystem implements GameSystem, WorldRef {
       if (o.hull) {
         // 2026-09-11 — 볼록 다각형 기둥. 원기둥 소품과 **같은 규칙**(올라설 수 있는 단 예외 없음)이고 판정만
         // 원 대신 윤곽이다. 밑면은 땅에 묻혀 있으므로 머리 위 판정은 사실상 켜지지 않는다.
-        if (position.y + BOX_HEADROOM <= o.position.y) continue;
+        if (position.y + (bodyH > 0 ? bodyH : BOX_HEADROOM) <= o.position.y) continue;
         hullPushOut(o.hull.points, position, radius);
         continue;
       }
@@ -674,7 +681,8 @@ export class WorldSystem implements GameSystem, WorldRef {
         // 사람 기준(2.1 m)을 그대로 쓰면 실내에서 던진 수류탄이 1.5 m 만 떠도 천장판에 걸려 건물 밖으로
         // 밀려 나가고, 창 윗벽에 밀려 창문을 못 지나가며, 난간 · 창턱을 그냥 뚫고 지나갔다.
         const small = radius < SMALL_BODY_R;
-        if (position.y + (small ? radius * 2 : BOX_HEADROOM) <= o.position.y) continue;
+        // 2026-09-12 (C): 키를 밝힌 몸은 그 키가 머리 위 여유다 (지상드론 — 개구멍 인방 밑)
+        if (position.y + (bodyH > 0 ? bodyH : small ? radius * 2 : BOX_HEADROOM) <= o.position.y) continue;
         /* 2026-09-10 — **올라설 수 있는 단은 벽이 아니다.** 윗면이 발 높이에서 `PROP_STEP_UP_MAX` 안이면
          * `getSurfaceY(x, z, feetY)` 가 어차피 그 위로 발을 올려 준다 (움직이는 쪽의 규약: 표면 먼저,
          * 밀어내기 나중). 그런데도 여기서 밀어내면 **몸이 그 단 위로 올라갈 자리에 닿기 전에 밀려나** 영영
@@ -882,6 +890,20 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
   /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
   getLadders(): readonly LadderDef[] { return this.mode === 'training' ? NONE_LADDERS : this.structures.getLadders(); }
+
+  /**
+   * 2026-09-12 (C) — `WorldRef.previewContainerItems`: world 가 가진 컨테이너를 **처음 열면 나올** 내용물. 구조물 ·
+   * 선로 컨테이너는 여는 코드와 같은 `ContainerSet.preview`(열쇠 부가 굴림 포함), 맵 상자는 상자 코드와 같은 식
+   * (`rollCrateContents`). 순수 — 열린 표시 · 이벤트 · 캐시를 건드리지 않는다. 모르는 id · 훈련장 · 준비 전이면 null.
+   */
+  previewContainerItems(containerId: string): ItemInstance[] | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.ready || this.mode === 'training' || typeof containerId !== 'string') return null;
+    const fromSets = this.structures.previewContainerItems(containerId) ?? this.rails.previewContainerItems(containerId);
+    if (fromSets) return fromSets;
+    const crate = this.crates.getDefs().find((c) => c.id === containerId);
+    return crate ? rollCrateContents(ctx, crate.id, crate.tier) : null;
+  }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {
     const result: THREE.Vector3[] = [];

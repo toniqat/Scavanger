@@ -190,7 +190,8 @@ host 는 `flow rejoined` 에도 gad sync 로 답한다
 | `drones/GroundDrone.ts` | **지상 드론 몸체**. 4륜 로버(차체 · 바퀴 · 센서 헤드 렌즈 · 안테나 · emissive LED · 탑재판, 광원 없음, 인스턴스별 지오메트리 · 머티리얼을 `dispose`). 물리: 걷기 `PLAYER_WALK_SPEED × DRONE_GROUND_WALK_MUL` · 질주 `PLAYER_SPRINT_SPEED × DRONE_GROUND_SPRINT_MUL` · 가감속 · 제동, 점프 `sqrt(2·GRAVITY·DRONE_GROUND_JUMP_HEIGHT)`, 천장 레이, **표면을 먼저 잡고**(`getSurfaceY(x,z,feetY)` — 낮은 턱은 오른다) `resolveCollision(radius)`, `SNAP_DOWN` 접지. `sprinting` = 질주 입력 + 실제 이동. 소리: 소유자 쪽 `drone_jump` · `drone_land`(위치), 조종자 전용 `drone_move`(위치 없음 · 아주 작게 — "걷기는 소리가 안 난다"). 렌즈 카메라(몸체 반경 안쪽 0.2 m), `raycast` = 해석적 구, `setOwnerView` = 센서 헤드 숨김. |
 | `drones/parts/Control.ts` | **누가 언제 드론 시점으로 들어가고 나오는가.** R 홀드(`DRONE_CONTROL_HOLD_S`, 이번 누름에서만 시작 · R `consume`) → `controlHold`, 조종 시작(`setDroneControl(true)` 뒤 `player.droneControl` 이 false 면 거절) · 복귀(`setCameraOverride(null, undefined, true)` = 즉시 컷), 조종 입력 → `DroneInput`(마우스 = 리그와 같은 감도 0.0022, WASD · Shift · Space(점프 `wasPressed` / 상승 `isDown`) · C), 매 프레임 카메라, `linkRatio`(소유자 PC ↔ 드론 3D ÷ 사거리 — 복제본은 소유자 원격 위치 + `LINK_LOST`), ≥ `DRONE_LINK_WARN_RATIO` 동안 `drone_static`, ≥ 1 이면 `releaseControl('range')`. |
 | `drones/parts/Lifecycle.ts` | **드론이 생기고, 움직이고, 맞고, 사라지는 것.** `deploy`(게임플레이 · 레이드 · 생존 · 사다리 아님 · 종류당 1대, 지상 = 정면 1.25 m 표면(벽이 가까우면 그 앞), 공중 = 눈 앞 1.4 m 위 0.8 m(천장 아래)), 소유자 시뮬레이션 · 질주 소음 기억, 질주음 `drone_sprint`(위치 · 소유자와 복제본 모두) · 복제본 점프/착지음, **권한만** `world:noise`, `damageDrone`(비소유자 → `droneq damage`) · 파괴(파티클 풀 폭발 · `drone_destroyed` · **그때 소유자 `consumeWhere(gadgetId)` 1개 — 퀵슬롯 포함**) · `applyExplosion`(선형 감쇠), E 홀드 회수 `drone:<id>`(무소모, 조종 중 불가), `raycast`(모든 몸체, kind 필터), `clear`. |
-| `drones/parts/Wire.ts` | **소유자 권한 동기화.** `drone spawn/state/remove/sync` · `droneq damage/sync`, 복제본 보간(지금 그려진 자세 → 새 샘플을 샘플 간격 동안, 8 m 넘게 뛰면 순간이동), 모르는 드론의 `state` 는 그 소유자에게 `droneq sync` (2 초에 한 번). |
+| `drones/parts/Wire.ts` | **소유자 권한 동기화.** `drone spawn/state/remove/sync` · `droneq damage/sync`, 복제본 보간(지금 그려진 자세 → 새 샘플을 샘플 간격 동안, 8 m 넘게 뛰면 순간이동), 모르는 드론의 `state` 는 그 소유자에게 `droneq sync` (2 초에 한 번). **2026-09-12**: `drone scan` 수신은 `Scan.onRemoteScan` 으로 넘긴다. |
+| `drones/parts/Scan.ts` | **지상 드론이 들여다본 상자 · 컨테이너 · 시체 안에서 가장 좋은 것은 몇 등급인가** (2026-09-12). 지상 드론 조종 중 렌즈 중심 광선 × 스캔 대상(`droneScanKindOf` — `crate_*` · `container:*` · `corpse:*` · `pcorpse:*` · `supply:*`)의 중심 구(바닥 + 종류별 높이, 반지름 `DRONE_SCAN_AIM_RADIUS`) — 가장 먼저 닿는 것, `DRONE_SCAN_HINT_RANGE` 밖은 무시. **가림**: 렌즈 → 대상 중심 `world.raycast` 에서 대상 **자기 콜라이더**(맞은 `obstacle` 중심이 대상 자리에서 수평 0.3 m 안)가 아닌 것이 중심보다 0.35 m 앞에서 걸리면 조준 아님. **홀드**: 좌클릭을 누른 채 `DRONE_SCAN_RANGE` 안 대상에 `DRONE_SCAN_HOLD_S` — 대상이 바뀌거나 조준 · 거리를 잃거나 떼거나 조종이 끝나면 0, 채우면 뗄 때까지 래치(좌클릭이 총으로 새지 않는 것은 weapons 의 `droneLatch`). **미리보기 = 여는 것**(`previewItems`): 상자 = `inventory.peekContainerItems(id, crate.tier)`, 보급 상자 = `SUPPLY_CRATE_TIER`, 구조물 컨테이너 = 캐시(`container:` 를 뗀 명세 id) → `WorldRef.previewContainerItems`(world 소유, 모양으로 읽는다 — 없으면 거부) → `peekSuppliedItems`, 적 시체 = 캐시 → `enemies/Corpses.Corpse.interact` 와 같은 식(`시드 ^ enemyId × 2654435761` → `rollCorpseOn`, 공개 필드 `enemyId` · `type` · `weaponId` 를 모양으로 읽는다) → `peekSuppliedItems`, 분대원 시체 = 캐시 → `PlayerCorpse.items` → `peekSuppliedItems(…, PLAYER_CORPSE_COLS/ROWS)`. 결과 = `maxRarity`(null = 비어 있음) → `record`(대상마다 최신 하나, `scanList` 는 바뀔 때만 새 배열) + `drone:scanned` + 조종자에게만 `ui_click` + `chat:post {kind:'ping'}` `드론 스캔: 상자 — 최고 등급 서사` + 멀티면 `drone scan` 방송. `world:noise` 없음. 받는 쪽 `onRemoteScan`: 로비 멤버(`getLobbyPlayer`) · id 길이 · 종류 · 등급 화이트리스트 · 유한 좌표 · 보낸 사람당 `DRONE_SCAN_HOLD_S / 2` 간격 · **보낸 사람의 지상 드론 복제본이 대상에서 `DRONE_SCAN_RANGE + DRONE_SCAN_SHARE_SLACK` 안** — 거절은 `scanRefused` 로 센다. 리셋은 `DroneSystem.clear`(`clearScans`). |
 
 **계약 요약** (`shared/drones.ts`)
 
@@ -217,6 +218,8 @@ damageDrone(비소유) → droneq damage {id,dmg} ─► 소유자 → applyOwnD
 
 늦게 합류: world:ready → clear → droneq sync ─► others;  각 소유자 → drone sync {items} ─► 그 피어 (그 소유자 몫 전부 교체)
 net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
+
+스캔한 사람 → drone scan {id, r, p} ─► others   표시 전용 (확정 없음) · 늦게 합류한 사람에게는 가지 않는다
 ```
 
 - 복제본은 레이드 월드가 서 있을 때만 받는다 (`world.ready && isRaidActive`). 그 전 것은 `world:ready` 의 sync 가 채운다.
@@ -243,6 +246,21 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 ---
 
 ## 변경 이력
+
+- **2026-09-12 (리드 통합)** — `drones/parts/Scan` 의 적 시체 미리보기가 `enemies/Corpses` 에서 **복사해 온 굴림 식** 대신
+  `shared/lootRolls.corpseLootRandom` 을 부른다 (enemies 도 같은 함수). 시체 필드(`enemyId` · `type` · `weaponId` · `seed`)를 모양으로 읽는 것은 그대로다.
+- **2026-09-12 (지상 드론 스캔 — 사용자 결정, 에이전트 D, docs/plans/consumables-keys-favorites.md §4)** — 새 `drones/parts/Scan.ts`
+  (위 표). `DroneSystem` 에 스캔 상태(`scanT` · `scanTargetId` · `scanLatch` · `scanAimOn` / `scanAimView` · `scans` / `scanList` ·
+  `scanRecvAt` · `scanRefused`)와 `DronesRef` 옵셔널 추가분 `scanHold` · `scanAim` · `getScanResults()`, `update` 끝에
+  `Scan.updateScan`(카메라 자세를 받은 뒤), `clear()` 가 `clearScans` 를 먼저 부른다 — `game:newMission/abort` · `hub:entered` ·
+  `world:ready` 에서 결과가 사라진다. `parts/Wire` 의 `drone` 스위치에 `scan`. 스모크 · 디버그용 `debugControl(id)`(R 홀드 없이
+  조종) · `scanPreview(id)`(기록 · 방송 없이 `{rarity, defIds}`). **계약** (`shared/drones.ts` · 전부 추가만): `DroneScanTargetKind` ·
+  `droneScanKindOf` · `DRONE_SCAN_TARGET_NAME` · `DroneScanAim` · `DroneScanResult` · `DronesRef.scanHold? / scanAim? / getScanResults?` ·
+  `DroneMessage` 의 `{t:'drone', ev:'scan', id, r: Rarity | null, p}`; `events.ts` [D] `drone:scanned`; `types.ts` [D]
+  `InventoryRef.peekContainerItems?` · `peekSuppliedItems?`(구현 `inventory/parts/Peek`); 수치 `DRONE_SCAN_*` 7개 (`data/constants.csv` [D]).
+  **알려진 한계**: 적 시체 굴림 식을 `enemies/Corpses` 에서 **베껴 왔다**(시체 id · 종류 · 무기가 계약 밖이라) — 한쪽을 고치면 다른
+  쪽도 고친다, 둘을 `shared` 로 뽑거나 `Interactable` 에 미리보기 훅을 두는 것이 다음 단계다. 구조물 컨테이너는 world 의
+  `previewContainerItems` 가 게시돼야 스캔된다(없으면 이미 연 것만). 검사: `scripts/smoke-drone-scan.mjs`.
 
 - **2026-09-11 (E-4 — 받는 쪽 버프 상한: 소생 · 은폐)** — `GadgetSystem.buffGuard`(`shared/createBuffGuard`) + `lastBuffVerdict`.
   `parts/Wire.onBuff` 는 `revive` · `cloak` 만 보고, 원래의 상태 검사(은폐 = 살아 있음 · 소생 = **실제로 전투불능**)를 먼저 한 뒤

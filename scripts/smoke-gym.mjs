@@ -4,7 +4,9 @@
 // 헛누름 = 다음 표식 실패 · 하 = 시작 + 떼기 둘 다 · 너무 일찍 / 너무 오래), 사이클링(틀린 발 · 놓침 · 점프 무시) →
 // 실제 세션: `housing:gymSession {active:true}` · 블로커 · ESC 스택 · 키 가이드 → Space 는 `Input` 에 기록되지 않고 게임을
 // 시작 → 가운데에서 누른 첫 판정 → `finish(1)` → `applyGymSession` 결과 + `housing:gymResult` + 근육통 → Tab 닫기 = completed →
-// 근육통 중 두 번째 근력 운동 = 경험치 0 (디버프 안 늘어남) → Space 연타로 끝까지 가서 결과 화면 → 취소 · Tab 취소 = 아무것도
+// 근육통 중 두 번째 근력 운동 = 경험치 0 (디버프 안 늘어남) → Space 연타로 끝까지 가서 결과 화면 → 입력 없이 화면이 흐른다
+// (2026-09-12: 벤치프레스 커서 `left` · 호흡 · 사이클 표식 `--x` 를 MutationObserver 로, 키 핸들러가 그 자리에서 다시 그린다,
+// 닫으면 rAF · 예비 타이머가 멈춘다) → 취소 · Tab 취소 = 아무것도
 // 안 걸린다 · 게임 도중 E 는 삼키기만 → 새로고침 뒤에도 단련 · 근육통이 남는다.
 // Usage: node scripts/smoke-gym.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -33,6 +35,8 @@ let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
 const note = (s) => console.log(`  note ${s}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** 입력 없이 화면이 흐르는지 재는 창 · 기준 (2026-09-12 F) — 헤드리스 GPU 60 fps 면 창 동안 ~50 번 바뀐다. 병렬 러너의 느린 프레임을 넉넉히 봐준다. */
+const FLOW_WINDOW_MS = 900, FLOW_MIN_CHANGES = 12, FLOW_MAX_GAP_MS = 250;
 async function waitFor(page, fn, label, timeout = 60000, arg) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
@@ -66,6 +70,32 @@ try {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { code: c, key: c, bubbles: true }));
     document.body.dispatchEvent(new KeyboardEvent('keyup', { code: c, key: c, bubbles: true }));
   }, code);
+  /**
+   * 2026-09-12 (F): 입력 없이 `FLOW_WINDOW_MS` 동안 요소의 스타일 값(`left` 또는 CSS 변수)이 **화면에서** 몇 번 · 얼마 간격으로
+   * 바뀌는지 잰다. MutationObserver 라 표본을 뜨는 쪽이 타이머에 굶지 않고, 페이지 밖 호출(CDP)도 창 동안 하지 않는다.
+   * 처음 판은 `setInterval` 이 그려서 무거운 프레임 + 입력 사이에서 60–120 ms 씩 건너뛰었다 — 판정 객체만 몰던 검사는 그걸 못 봤다.
+   */
+  const sampleFlow = (sel, prop) => page.evaluate(({ sel, prop, ms }) => new Promise((res) => {
+    const target = document.querySelector(sel);
+    if (!target) { res({ err: `no ${sel}`, wall: 0, changes: 0, distinct: 0, maxGap: 1e9, nums: [] }); return; }
+    const read = () => (prop === 'left' ? target.style.left : target.style.getPropertyValue(prop));
+    const t0 = performance.now();
+    const times = [t0], values = [read()];
+    const mo = new MutationObserver(() => {
+      const v = read();
+      if (v !== values[values.length - 1]) { times.push(performance.now()); values.push(v); }
+    });
+    mo.observe(target, { attributes: true, attributeFilter: ['style'] });
+    setTimeout(() => {
+      mo.disconnect();
+      const end = performance.now();
+      times.push(end);
+      let maxGap = 0;
+      for (let i = 1; i < times.length; i++) maxGap = Math.max(maxGap, times[i] - times[i - 1]);
+      res({ wall: Math.round(end - t0), changes: values.length - 1, distinct: new Set(values).size, maxGap: Math.round(maxGap),
+        first: values[0], last: values[values.length - 1], nums: values.map((v) => parseFloat(v)) });
+    }, ms);
+  }), { sel, prop, ms: FLOW_WINDOW_MS });
 
   /** Boot + frame driver (rAF stalls in headless) + fake pointer lock + event recorders. */
   const boot = async () => {
@@ -276,7 +306,11 @@ try {
     guide: window.__rec.guide.at(-1), audio: window.__rec.audio.includes('gym_start') }));
   ok(g1.bar && g1.pips === K.GYM_PRESS_REPS && g1.audio, `게임 화면: 바 · 커서 · 회차 칸 ${g1.pips} · gym_start`);
   ok(JSON.stringify(g1.guide) === JSON.stringify(['들어 올리기']), `키 가이드: 들어 올리기 (${JSON.stringify(g1.guide)})`);
-  // 커서가 가운데 근처일 때 진짜 keydown — 핸들러가 **지금까지** 게임을 민 뒤 판정한다
+  // 2026-09-12: 입력 없이도 **화면의** 커서가 흐른다 — 판정 객체가 아니라 DOM(`style.left`)을 3D 장면이 그려지는 채로 잰다
+  const pressFlow = await sampleFlow('.gym-press-cursor', 'left');
+  ok(pressFlow.changes >= FLOW_MIN_CHANGES && pressFlow.distinct >= FLOW_MIN_CHANGES && pressFlow.maxGap < FLOW_MAX_GAP_MS,
+    `입력 없이 벤치프레스 커서가 흐른다 (${pressFlow.wall} ms 동안 left 변경 ${pressFlow.changes}회 · 값 ${pressFlow.distinct}개 · 최대 간격 ${pressFlow.maxGap} ms)`, JSON.stringify(pressFlow));
+  // 커서가 가운데 근처일 때 진짜 keydown — 핸들러가 **지금까지** 게임을 민 뒤 판정하고, 그 자리를 **곧바로** 그린다
   const live = await H(() => new Promise((res) => {
     const h = window.__game.ctx.housing;
     const t0 = performance.now();
@@ -286,14 +320,18 @@ try {
       if (Math.abs(g.pos - 0.5) < 0.012 || performance.now() - t0 > 8000) {
         clearInterval(iv);
         document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+        const drawn = { left: document.querySelector('.gym-press-cursor')?.style.left ?? null, want: `${(g.pos * 100).toFixed(2)}%`,
+          count: document.querySelector('.gym-count')?.textContent ?? null, wantCount: `${Math.min(g.judgements.length + 1, g.total)} / ${g.total}` };
         document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true }));
-        res({ beats: window.__rec.beats.map((b) => ({ ...b })), judgements: [...g.judgements], verdict: document.querySelector('.gym-verdict')?.textContent ?? null });
+        res({ beats: window.__rec.beats.map((b) => ({ ...b })), judgements: [...g.judgements], verdict: document.querySelector('.gym-verdict')?.textContent ?? null, drawn });
       }
     }, 1);
   }));
   ok(live.beats?.length === 1 && live.beats[0].index === 0 && live.beats[0].total === K.GYM_PRESS_REPS && live.beats[0].quality !== 'miss',
     `가운데에서 누른 판정 → housing:gymBeat (${JSON.stringify(live.beats?.[0])})`, JSON.stringify(live));
   ok(['완벽', '좋음'].includes(live.verdict), `판정 글자 (${live.verdict})`);
+  ok(live.drawn && live.drawn.left === live.drawn.want && live.drawn.count === live.drawn.wantCount,
+    `키 핸들러가 판정 직후의 커서 · 회차를 그 자리에서 그린다 (${JSON.stringify(live.drawn)})`);
 
   if (hasProg) {
     const fin = await H(() => {
@@ -315,10 +353,11 @@ try {
   const closed = await H(() => {
     const ctx = window.__game.ctx;
     return { ev: window.__rec.sessions.at(-1), info: ctx.housing.gymSession, blocker: ctx.uiBlockers.has('housing.gym'), esc: ctx.escape.has('housing.gym'),
-      hidden: document.querySelector('.gym').hidden, inv: !!ctx.inventory.isOpen, guide: window.__rec.guide.at(-1) };
+      hidden: document.querySelector('.gym').hidden, inv: !!ctx.inventory.isOpen, guide: window.__rec.guide.at(-1), ticking: ctx.housing.gymScreen?.ticking };
   });
   ok(closed.ev.active === false && closed.ev.completed === hasProg && closed.info === null, `Tab → housing:gymSession {active:false, completed:${closed.ev.completed}}`);
   ok(!closed.blocker && !closed.esc && closed.hidden && !closed.inv && closed.guide === null, 'Tab: 블로커 · ESC · 화면 · 키 가이드 정리, 인벤토리는 안 열린다');
+  ok(closed.ticking === false, `Tab: 화면 루프(rAF · 예비 타이머)가 멈춘다 (ticking=${closed.ticking})`);
 
   if (hasProg) {
     /* ── 근육통 중 두 번째 근력 운동 ── */
@@ -353,6 +392,25 @@ try {
     ok(nat2.res && nat2.res.uid === BENCH && Math.abs(nat2.res.result.score - nat.score) < 1e-9 && /완벽\d+좋음\d+실패\d+/.test(nat2.text), `끝낸 게임의 점수가 넘어갔다 (${nat.score?.toFixed(3)} · ${nat2.text})`);
     await tap('KeyE');
     ok(await H(() => window.__game.ctx.housing.gymSession === null && window.__rec.sessions.at(-1).completed === true), '결과 화면에서 E → 닫기');
+  }
+
+  /* ══ 3-1. 화면 흐름 — 호흡 · 사이클 (입력 없이) ══════════════════════════════ */
+  console.log('화면 흐름 (호흡 달리기 · 사이클링 — 입력 없이)');
+  for (const [uid, kind, label] of [[TREAD, 'breath', '호흡 달리기'], [BIKE, 'cycle', '사이클링']]) {
+    const st = await H((u) => {
+      const h = window.__game.ctx.housing;
+      const r = h.startGymSession(u);
+      const started = h.gymDebug.start();
+      return { r, started, screen: h.gymDebug.screen, minigame: h.gymSession?.minigame ?? null, notes: document.querySelectorAll('.gym-panel .gym-note').length };
+    }, uid);
+    ok(st.r === null && st.started && st.screen === 'game' && st.minigame === kind && st.notes > 0, `${label} 게임 화면 (표식 ${st.notes}개)`, JSON.stringify(st));
+    // 첫 표식(DOM 첫 `.gym-note`)은 오른쪽 가까이에서 출발해 판정선 쪽으로 — `--x` 가 창 내내 줄어든다
+    const flow = await sampleFlow('.gym-panel .gym-note', '--x');
+    const falling = flow.nums.length > 1 && flow.nums.every((v, i) => i === 0 || v < flow.nums[i - 1]);
+    ok(flow.changes >= FLOW_MIN_CHANGES && flow.maxGap < FLOW_MAX_GAP_MS && falling,
+      `입력 없이 ${label} 표식이 흘러온다 (${flow.wall} ms 동안 --x ${flow.first} → ${flow.last} · 변경 ${flow.changes}회 · 최대 간격 ${flow.maxGap} ms)`, JSON.stringify({ ...flow, nums: flow.nums.slice(0, 8) }));
+    const stopped = await H(() => { const h = window.__game.ctx.housing; h.cancelGymSession(); return { ticking: h.gymScreen?.ticking, info: h.gymSession }; });
+    ok(stopped.ticking === false && stopped.info === null, `${label} 취소 → 화면 루프가 멈춘다 (ticking=${stopped.ticking})`);
   }
 
   /* ══ 4. 취소 ══════════════════════════════════════════════════════════════ */

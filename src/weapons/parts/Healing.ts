@@ -18,7 +18,7 @@ import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shar
 import { ARMOR_IMMUNE_AMMO, buffLineClear } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
-import { shieldChargeOf } from '@/items';
+import { boostItemOf, shieldChargeOf } from '@/items';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from '../WeaponDefaults';
 import { WeaponModel, type WeaponAttachmentVisuals } from '../WeaponModel';
 import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
@@ -97,7 +97,8 @@ export function canChargeShield(sys: WeaponSystem): boolean {
 /**
  * LMB pressed with a 회복 소모품 / 실드 충전기 / 제세동기 in hand. A plain heal is refused at full hp (the old
  * instant-use rule); a 실드 충전기 is refused with no armor / a full shield; the 스프레이 is refused only when its
- * gauge is empty (it also heals squadmates), the 제세동기 never checks hp.
+ * gauge is empty (it also heals squadmates), the 제세동기 never checks hp. 2026-09-12: the 전투 소모품 3종
+ * (`boostItemOf` — 아드레날린 · 각성제 · 안정제) are never refused either.
  */
 export function beginHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
   // 2026-09-10 실드 충전기 — 회복 소모품과 같은 홀드 · 이동 감속을 쓰고, 끝나면 chargeShield 로 간다
@@ -124,7 +125,8 @@ export function beginHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
     sys.emitHeal(gauge / max, true, 0);
     return;
   }
-  if (q.kind === 'stim' && host.hp >= host.maxHp) { sys.deny(); return; }
+  // 2026-09-12 전투 소모품 3종: 체력 · 임플란트 상태와 상관없이 홀드를 시작한다 (안정제는 가득이어도 소모 — 사용자 결정)
+  if (q.kind === 'stim' && !boostItemOf(q.defId) && host.hp >= host.maxHp) { sys.deny(); return; }
   sys.healSpray = false;
   sys.healHeld = true;
   sys.healT = 0;
@@ -246,8 +248,17 @@ export function finishHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
   sys.firingTimer = FIRING_POSE_HOLD * 0.5;
   if (!spray) {
     const charge = shieldChargeOf(q.defId);
+    const boost = boostItemOf(q.defId);
     const p = sys.ctx.player as (PlayerRef & { applyHeal?: (a: number, s: number, quiet?: boolean) => boolean }) | null;
-    if (charge) {
+    if (boost) {
+      // 2026-09-12 전투 소모품: 시간제 효과는 player 가 들고, 안정제는 implants 가 채운다 (둘 다 선택 메서드 — 없으면 조용히 소모만)
+      if (boost.effect === 'implant_refill') {
+        (sys.ctx.implants as { refillAll?(): void } | null)?.refillAll?.();
+        sys.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.7 });
+      } else {
+        p?.applyBoost?.(boost.effect, q.defId);
+      }
+    } else if (charge) {
       // 실드 충전기: 체력이 아니라 실드를 채운다 (`Infinity` = 완전 회복). 이벤트는 player/ 가 낸다.
       p?.chargeShield?.(charge.amount);
     } else {

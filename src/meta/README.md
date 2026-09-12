@@ -23,6 +23,7 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `ui/CorpView.ts` | **(2026-09-12 2차)** 좌 `.corp-rail` 은 이제 `.corp-shell` **밖의 독립 카드**다 — 호스트 격자의 첫 칸에서 **세로 중앙**에 뜨고 메인 패널(`.corp-shell` → `.corp-page`)과 `--corp-rail-gap` 만큼 떨어져 각자 배경 · 테두리를 갖는다. `기업` 제목 줄은 없다. **퀘스트**: 목록 우측 상단 `완료된 항목 보기` 체크박스(기본 켜짐 · 화면이 열려 있는 동안만, `showDoneQuests`), 완료는 **딤드 + 맨 아래**(정렬은 `renderQuests` 의 안정 분할 — `parts/Contracts.getQuests()` 의 순서는 그대로다), 보상 줄(`.cq-rewards`)은 목록 열이 아니라 **납품 패널 바로 아래**. **임플란트**: 좌 한 열에 망가진 임플란트 격자 + 수리 카드, 우에 `makeGrids()` 의 **가방 + 함선 창고**(드롭 대상이 없으므로 `dropSelector` · `onTake` 없이 읽기 전용). 거래 · 퀘스트 · 임플란트 세 화면의 우측 격자 열 폭은 `--cv-inv-w` 하나다. 아래는 그 이전 기록. **(2026-09-12 기준)** 좌 `.corp-rail` 은 **트리** — 기업 버튼들 사이로 가지 하나(`.corp-branch` = 신뢰도 게이지 + 거래 / 계약 / 퀘스트 / 임플란트 탭)가 선택한 기업 바로 아래로 옮겨 다니고(`aria-expanded`), 크레딧 표시는 없다. 거래칸의 모든 칸(기업 판매 물품 · 구매 / 판매 트레이 · 임플란트 데스크)은 `InventoryRef.buildItemTile` 의 **인벤토리 타일**을 `ui/TileGrid` 에 채운 것이라 가방 / 창고와 같은 모양이고 `data-item-tip` 으로 호버 카드가 뜬다. 구매 트레이 우측 상단 › ×3 · 판매 트레이 좌측 상단 ‹ ×3 (`dom.chevrons`), 거래 후 크레딧은 라벨 없이 가운데(+ 초록 ▲ 오른쪽 / − 빨강 ▼ 왼쪽 / 0 은 화살표 없음), **거래 성사는 1초 홀드**(`UI_HOLD_CONFIRM_S` — 게이지는 rAF, 확정은 타이머; 클릭 · Enter 는 안내만). 진행 중인 계약 패널 · 행의 `--cc` 는 그 계약 기업의 색. 클래스 접두사는 `.cv-`. 아래는 그 이전 기록. **(2026-09-09 기준)** The screen **body**. 좌 `.corp-rail` 한 열(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) + 우 `.corp-page`(세로 전부). 계약 보상 · 퀘스트 보상은 `@/shared/currency` 의 **재화 칩**이고 퀘스트 목록 행은 이름 + 상태 배지뿐이다. 아래는 그 이전 기록. **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. **Phase 12**: a fourth vertical page **임플란트** (`CorpPage 'implants'`, `PAGES[].corp = 'ceres'` → `pagesFor(corp)`; the button is `hidden` for every other corp and `setCorp` falls back to 거래): left `.ci-list` grid of broken implants (`.ct-cell.broken[data-uid]`, fee badge, `.is-sel`), right `.ci-repair` card — broken → result chips, `renderItemCost` material chips, `.ci-fee`, `.ci-block` reason + `.ci-repair-btn` 수리; results arrive through `meta.onImplantRepaired`. |
 | ~~`ui/CorpMenu.ts`~~ | **Deleted 2026-09-07.** The standalone overlay `.menu.corp-menu` (and with it the `'corp'` blocker, the capture-phase Esc and the cursor ownership) is gone: the 기업 screen is the Tab window's 기업 tab, opened through `ctx.inventory.openScreen('corp')`. `CorpPage` is exported from `ui/CorpView.ts`. |
 | `ui/TileGrid.ts` | **(2026-09-12)** 기업 화면의 **채움식 아이템 격자**. 호출부가 만든 타일(`InventoryRef.buildItemTile`)과 발자국을 받아 인벤토리의 `.inv-grid > .inv-cells + .inv-tiles` 마크업 위에 줄 우선 first-fit(`packFootprints`)으로 `transform` 배치한다. 열 수는 고정(트레이 5) 또는 스크롤 상자 폭에 맞춘다(`minCols`), 빈 줄은 상자 높이까지 채우고, 비었을 때 사유를 가운데 띄운다. `ResizeObserver`(한 프레임 미룸)로 다시 배치. 리스너는 호출부 몫. |
+| `ui/HoldAsk.ts` | **(2026-09-12, E2)** 기업 화면의 **한 번 더 확인** 팝업 — 지금은 즐겨찾기 아이템 판매 하나에 쓴다. `ui/menus/askPopup` 과 같은 규약(확인 = `UI_HOLD_CONFIRM_S` 홀드 · 게이지 rAF · 확정 타이머, 클릭 · Enter · Space 는 삼킨다, 일찍 떼면 안내 줄이 번쩍인다, 최초 포커스 `취소`)이지만 폴더끼리 import 하지 않으므로 meta 가 따로 갖는다. **Escape = 취소**는 `ctx.escape` 토큰 `meta:holdAsk` 로 — Tab 창보다 위라 먼저 닫힌다. 뒤판 빈 곳 = 취소. `ctx.uiRoot` 바로 아래에 붙는다(창의 transform 이 `position: fixed` 를 가두지 않게). blocker · 커서 소유 없음. 스타일 `meta.css` 의 `.cv-ask*`. `isOpen` / `holdProgress`. |
 | `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers + **`chevrons(dir, count)`** (2026-09-12 — 겹친 셰브런 인라인 SVG, 흐름 애니메이션용 `c0…` 클래스) (other folders' helpers are internal to them). `fmtNum` is for **non-credit** numbers only (신뢰도, 목표 진척, 납품 수량) — every credit readout goes through `formatCredits` (`@/shared`). |
 | `meta.css` | **2026-09-12 2차**: 호스트(`.corp-view`)가 격자다 — `var(--corp-rail-w) minmax(0,1fr)` × `minmax(--corp-page-min,1fr) auto`, 첫 칸이 **기업 카드**(`align-self: center` · 자기 배경 · 테두리 · 그림자), 둘째 칸이 **메인 패널**(`.corp-shell`, 자기 배경 · 테두리), 아래 전 폭이 `.corp-msg-slot`. 900 px 아래는 세로로 접는다. `--cv-inv-w`(창고 10칸)가 `.corp-view` 로 올라가 `.cv` · `.cq` · `.ci` 가 같은 값을 쓴다. 셰브런은 **정적**(`cv-chev-flow` 키프레임 · 스태거 삭제), `.corp-row.st-complete` 는 딤드, `.cq-head` · `.cv-check` 체크박스, `.cq-col.detail .cq-rewards` 는 납품 패널에 이어 붙고(`border-top: 0`), `.ci-col.desk` 는 4행 격자 · `.ci-col.inv` 는 창고 열. 아래는 그 이전 기록. **2026-09-12: 클래스 접두사 `.cv-`** (예전 `.ct-*` 는 housing.css 배양조와 이름이 겹쳤다), 트리 `.corp-branch`, 타일 격자 `.cv-scroll / .cv-grid / .cv-tile`, 거래 열 `shop | tray | inv(창고 10칸 폭)` 과 `max-width 1500` 접힘(판매 물품 위 · 거래칸 아래, 트레이 나란히) · `1240` 에서 가방 열 숨김, `.cv-chev` · `.cv-total` · `.cv-confirm-fill`. Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour, `--corp-rail-w` = the 기업 열 width, `--corp-page-min` = the page's **floor** on a short viewport (2026-09-09: the height itself comes from `.inv-screen.corp-view { height: calc(100vh - 130px) }`, so the page fills the window — the old fixed `--corp-page-h` band is gone). `.item-chip*` / `.currency-chip*` are ui's (`base.css`). **Phase 12**: `.ci*` — the 임플란트 desk (two columns, selected cell accent, repair card). |
 | `index.ts` | Barrel. |
@@ -69,6 +70,16 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
   Phase 7: `settlement.outcome` = `'success'` / `'incomplete'` (extracted, short) / `'failed'` (raid failed) — ui words 미완 / 실패 from it;
   `stats.mode === 'training'` → **null** (the 시뮬레이션 훈련장 settles nothing, no event). Goal counters, the live loot readout and relayed
   `meta contractHit` messages are ignored while `ctx.isTraining()`.
+- **Item contracts (2026-09-12, E2 — `extract_with_items`)**: `ContractDef.itemDefId` × `target` **on the body** at settlement — bag grid
+  + quick slots + pouch (`InventoryRef.countWhere`, `MetaSystem.carriedCount(defId)`), never the 함선 창고 (사용자 결정 "가방에 담고 탈출" 의
+  해석: 퀵슬롯과 주머니도 가방 공간이다 — 루트 CLAUDE.md 「퀵슬롯은 가방 격자가 아니다」 의 무게 · `countWhere` 쪽). `settleMission` counts
+  the body itself and hands it to `Rules.settleContract(…, carried)` — `game/parts/Death.complete` settles **before** `game:complete`, so the
+  bag still holds what came out of the raid (nothing moves it to the stash until the player does). Same three outcomes as every contract
+  (`success` / `incomplete` / `failed`). Live progress (`Contracts.trackItemCount`, raid only, never in the 훈련장) follows
+  `inventory:changed` · `inventory:quickSlotsChanged` · `game:phaseChanged` and feeds the HUD + the squad row (`broadcastContract`).
+  **No hits**: `model.INVENTORY_GOALS` makes `reportContractHit` a no-op for it and `Credits.onMetaMessage` drops a relayed `contractHit` /
+  `sync` entry for it (nobody legitimately sends one). The 계약 row draws the item chip (`buildItemChip`, have = carried now / need = target)
+  + the item name; the bar and `아이템 회수 n / t` use the same carried count (the 기업 screen only opens in the ship).
 - **Quests**: `locked / available` recomputed from `QuestDef.requires` (rep level + prerequisite quests complete); `accepted / complete` in the save.
   `acceptQuest` ship only → `meta:questChanged`. `completeQuest` ship only: deliveries counted with `inventory.countDefAll` (bag + stash); **reward
   items are placed first** (`tryAddItemAnywhere`, stack-split by `stackMax`) — if one does not fit the placed ones are taken back and the quest reports
@@ -286,6 +297,30 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 ---
 
 ## 변경 이력
+
+- **2026-09-12 (아이템 회수 계약 — 이번 레이드에서 얻은 것만 센다, §5-2 사용자 결정)** — `parts/Contracts.ts` · `MetaSystem.ts` ·
+  `ui/CorpView.ts`(주석). `carriedCount(defId, seed?)` 가 몸의 그 아이템 중 **`ItemInstance.raidFound` 가 레이드 시드와 같은 단위만** 센다
+  (`shared/raidFound.isRaidFound`; `seed` 기본 = 진행 중인 레이드의 `raidFoundSeed`, 레이드 밖이면 0). 실시간 진행도(`trackItemCount`) ·
+  정산(`settleMission` — 레이드 시드, 없으면 `stats.seed`) · 기업 화면 계약 행이 전부 그 값이다 — 그래서 **함선에서는 행이 늘 0 / n** 이다.
+  목표 전체를 한 레이드 안에서 채워야 한다. 레이드 밖에서는 `trackItemCount` 가 저장된 진행도를 0 으로 되돌리고(`markDirty`),
+  미완료 정산도 이 목표만은 0 으로 둔다 — 한 레이드의 개수가 함선 UI · 다음 레이드로 새지 않는다. 성공 · 보상 규칙은 그대로.
+  표식 · 스택 분리 · 사선 띠는 inventory(`parts/RaidFound.ts`), 표식을 찍는 루팅 원천은 inventory · world · enemies 다.
+
+- **2026-09-12 (즐겨찾기 · 특정 아이템 회수 계약 — 에이전트 E2)** — `ui/CorpView.ts` · 새 `ui/HoldAsk.ts` · `meta.css` · `model.ts` ·
+  `Rules.ts` · `parts/Contracts.ts` · `parts/Credits.ts` · `MetaSystem.ts`, 그리고 `shared/meta.ts` · `data/contracts.csv`.
+  1. **상점 · 거래칸 타일 = 즐겨찾기 우클릭 메뉴.** `makeTile` 이 드래그 고스트를 뺀 모든 타일에 `ITEM_FAVORITE_MENU_ATTR` 를 단다 —
+     메뉴 자체는 `ui/hud/ItemFavoriteMenu` 의 위임 리스너 하나다(칩과 같은 메뉴, 가지고 있지 않은 상점 물품도 켠다). 파란 띠는
+     `buildItemTile`(E1)이 그리므로 뷰는 `inventory:favoritesChanged` 에 refresh 만 한다. 퀘스트 납품 · 보상 · 임플란트 수리 재료 칩은
+     `buildItemChip` / `renderItemCost` 라 손대지 않고 저절로 메뉴 · 띠를 받는다.
+  2. **즐겨찾기 판매 = 한 번 더 확인.** 거래 성사 홀드가 끝나면 `requestTrade()` 가 판매칸에서 즐겨찾기를 찾고, 있으면 `HoldAsk`
+     (`즐겨찾기 아이템 판매` · 이름 목록 · `그래도 판매` 1초 홀드 · Escape 취소)를 띄운다. 취소하면 바구니 · 아이템 · 크레딧이 그대로다.
+     없으면 예전처럼 곧장 정산한다. **`귀중품 전부 담기` 는 즐겨찾기를 건너뛰고** 메시지에 `즐겨찾기 n점 제외` 를 붙인다(손으로 담는 것은 된다).
+  3. **새 계약 목표 `extract_with_items`** (위 Rules 절) — 기업마다 둘, 8줄 (`data/README.md` 표). 계약 행에 아이템 칩(보유/필요) + 이름.
+     `settleContract` 에 선택 인자 `carried` (생략 = 예전과 같다), `GOAL_IDS` 에 추가(콘솔 자동 완성 · 중계 화이트리스트), `INVENTORY_GOALS`.
+  - `scripts/smoke-meta.mjs`: ceres 계약 행 수 4 → **6** (그 한 줄뿐). 새 `scripts/smoke-favorite-chips.mjs` (50/50, E1 실제 API).
+  - 알려진 한계: 계약을 받은 뒤 **창고의 그 아이템을 가방에 넣고 출격해 곧장 탈출해도 달성**이다 — `extract_with_value` 와 같은 결이고
+    (들고 들어간 귀중품도 전리품 가치다) 명세가 "지니고 탈출" 이라 그대로 뒀다. 레이드에서 **새로 얻은** 개수로 바꾸려면 `game:newMission`
+    에서 몸의 개수를 찍어 두고 빼면 된다.
 
 - **2026-09-12 2차 (기업 화면 UI/UX 6건 — 목록 분리 · 정적 셰브런 · 퀘스트 · 임플란트)** — `ui/CorpView.ts` · `meta.css` 두 파일뿐.
   1. **좌측 상단 `기업` 라벨 삭제.** 기업 이름 넷이 곧 그 설명이다. `.cv-title` 규칙 자체는 판매 물품 · 계약 · 퀘스트 · 임플란트가

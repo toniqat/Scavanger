@@ -25,6 +25,13 @@ import '../styles/shipCall.css';
  *
  * 구조선을 손에 들었을 때만 우측 하단에 **분대 공용 잔여 횟수**(`rescue:countChanged`)가 붙는다.
  * `ctx.stratagems` 가 없고 이벤트도 아직 없으면 통째로 숨는다(`.off`).
+ *
+ * **준비 연출 (2026-09-12, 사용자 결정)** — 임플란트 썸네일과 같은 규칙. 쿨타임이 끝나는 **순간** 강한 플래시 1회
+ * (`.rdy-major` — 밖으로 퍼지는 테두리 `.sc-ring` + 안쪽 섬광 `.sb-flash`), **준비된 동안** 윤곽 글로우(`.is-ready`).
+ * 순간은 `stratagem:ready` 하나만 믿는다 (stratagems 가 게임플레이 페이즈에서만 낸다 — 함선에서 끝난 쿨타임은
+ * 순간이 아니다). 거절 환불로 0 이 된 순간(`refunded`)은 약한 플래시(`.rdy-minor`) — 다시 부를 수 있게 된 것은
+ * 사실이라 표시는 하되, 거절 토스트 옆에서 크게 번쩍이지 않는다 (소리는 audio/ 가 내지 않는다).
+ * 플래시 요소를 따로 둔 이유: 무장 `.pulse` 가 이미 `.sc-thumb` 의 `animation` 을 쓰고 클래스가 남아 있다.
  */
 export class StratagemPanel {
   readonly root: HTMLElement;
@@ -45,6 +52,9 @@ export class StratagemPanel {
   private seen = false;
   private fill = 0;
   private dimmed = false;
+  private ready = false;
+  private lastFlash: 'major' | 'minor' | null = null;
+  private flashCount = 0;
   private lastKey = '';
   private unsubs: Array<() => void> = [];
   /** 2026-09-09: 분대 공용 구조선 잔여 횟수 (`rescue:countChanged`, 없으면 만재로 본다). */
@@ -57,9 +67,13 @@ export class StratagemPanel {
     this.faceBase = el('div', { cls: 'sb-face', text: '', parent: this.thumb });
     this.reveal = el('div', { cls: 'sb-reveal', parent: this.thumb });
     this.faceLit = el('div', { cls: 'sb-face lit', text: '', parent: this.reveal });
+    // 2026-09-12: 준비 섬광 (썸네일 안 — 숫자 밑)
+    el('div', { cls: 'sb-flash', parent: this.thumb });
     this.cdEl = el('div', { cls: 'sc-cd ui-mono', text: '', parent: this.thumb });
     this.chEl = el('div', { cls: 'sc-ch ui-mono', text: '', parent: this.thumb });
     this.keyEl = el('kbd', { cls: 'keycap sc-key', text: keyLabel(Keys.SHIP_CALL), parent: this.root });
+    // 2026-09-12: 준비 순간 썸네일 밖으로 퍼지는 테두리 (썸네일 위에 절대 배치)
+    el('div', { cls: 'sc-ring', parent: this.root });
   }
 
   bind(ctx: GameContext): void {
@@ -80,6 +94,8 @@ export class StratagemPanel {
         if (remaining <= 0) this.total = total;
         this.render();
       }),
+      // 2026-09-12: 준비 순간 — 정상 종료는 강하게, 거절 환불은 약하게
+      b.on('stratagem:ready', ({ refunded }) => this.flashReady(!refunded)),
       b.on('rescue:countChanged', ({ left }) => { this.rescueLeft = Math.max(0, left); this.seen = true; this.render(); }),
       b.on('game:newMission', () => this.resetTransient()),
       b.on('game:abort', () => this.resetTransient()),
@@ -90,6 +106,8 @@ export class StratagemPanel {
   private resetTransient(): void {
     this.armed = null; this.targeting = false;
     this.rescueLeft = RESCUE_DROPS_PER_RAID;
+    this.root.classList.remove('rdy-major', 'rdy-minor');
+    this.lastFlash = null;
     this.render();
   }
 
@@ -98,6 +116,15 @@ export class StratagemPanel {
     this.root.classList.remove('pulse');
     void this.root.offsetWidth;
     this.root.classList.add('pulse');
+  }
+
+  /** 2026-09-12: the ready moment — `major` when the cooldown ran out, `minor` when a refusal gave it back. */
+  private flashReady(major: boolean): void {
+    this.root.classList.remove('rdy-major', 'rdy-minor');
+    void this.root.offsetWidth;
+    this.root.classList.add(major ? 'rdy-major' : 'rdy-minor');
+    this.lastFlash = major ? 'major' : 'minor';
+    this.flashCount++;
   }
 
   update(ctx: GameContext): void {
@@ -130,12 +157,14 @@ export class StratagemPanel {
     const key = `${this.seen ? 1 : 0}|${id}|${this.armed ? 1 : 0}|${this.targeting ? 1 : 0}|${fill.toFixed(3)}|${cd}|${ch}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
-    this.fill = fill; this.dimmed = !ready;
+    this.fill = fill; this.dimmed = !ready; this.ready = ready && this.seen;
 
     toggleClass(this.root, 'off', !this.seen);
     toggleClass(this.root, 'armed', this.armed !== null);
     toggleClass(this.root, 'targeting', this.targeting);
     toggleClass(this.root, 'dim', !ready);
+    // 2026-09-12: 준비된 동안 윤곽 글로우
+    toggleClass(this.root, 'is-ready', this.ready);
     toggleClass(this.root, 'spent', ch !== '' && this.rescueLeft <= 0);
     this.root.style.setProperty('--sc', STRATAGEM_COLOR[id]);
     this.root.style.setProperty('--fill', fill.toFixed(3));
@@ -155,6 +184,11 @@ export class StratagemPanel {
   get fillAmount(): number { return this.fill; }
   /** Whether the thumbnail is dimmed = on cooldown (debug / smoke). */
   get isDimmed(): boolean { return this.dimmed; }
+  /** 2026-09-12: whether the held ready glow is on (debug / smoke). */
+  get isReadyGlow(): boolean { return this.ready; }
+  /** 2026-09-12: the last ready flash played and how many so far (debug / smoke). */
+  get lastReadyFlash(): 'major' | 'minor' | null { return this.lastFlash; }
+  get readyFlashCount(): number { return this.flashCount; }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }
 }

@@ -12,6 +12,7 @@
  * | `gym_fatigue` | `fatigue:<stat>` | `getGymFatigueUntil(stat) > now` | `active`, `startedAt = until − GYM_FATIGUE_HOURS h` · `endsAt = until` |
  * | `rest` | `pose` | 가구 자세 `sit` | `active` |
  * | `exercise` | `pose` | 가구 자세 `bench` · `run` · `cycle` (+ `housing.gymSession` 의 `stat` · `minigame`) | `active` |
+ * | `adrenaline` · `stimulant` | `boost` | `parts/Boosts` (`boostKind` · `boostDefId` · 버프 시계로 찍은 시작 / 끝) | `active` |
  *
  * 함선 / 레이드는 `ctx.isRaidActive()` 가 가른다 (progression 이 준비물 사용을 거절하는 기준과 같다). 시각은
  * `ctx.net.serverNow() ?? Date.now()`. 모든 선택 메서드는 덕 타이핑으로 부른다.
@@ -129,6 +130,14 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
       b.startedAt = Math.max(0, until - GYM_FATIGUE_HOURS * HOUR_MS);
       b.endsAt = until;
     }
+  }
+
+  // ── 전투 소모품 (2026-09-12 — 레이드 시간제, `parts/Boosts`): 시각은 Boosts 가 버프 시계로 찍어 둔 값 (정수 ms)
+  if (sys.boostKind !== null) {
+    const b = take(sys, sys.boostKind, 'boost', 'active');
+    if (sys.boostDefId) b.defId = sys.boostDefId;
+    const s = Math.max(0, Math.round(sys.boostStartedAt)), e = Math.max(0, Math.round(sys.boostEndsAt));
+    if (e >= s) { b.startedAt = s; b.endsAt = e; }
   }
 
   // ── 가구 자세 (휴식 중 · 운동 중)

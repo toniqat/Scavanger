@@ -206,6 +206,46 @@ try {
     return { active: ctx.isGameplayActive(), phase: ctx.phase, dead: p.isDead, downed: p.isDowned, hp: Math.round(p.hp), blockers: [...ctx.uiBlockers] }; });
   ok(afterLoot.active, 'gameplay active again after closing the loot window', JSON.stringify(afterLoot));
 
+  /* ── 2026-09-12: 준비 연출 — 쿨타임이 끝나는 순간 플래시 + 준비된 동안 글로우, 무전 차임 (거절 환불은 약한 플래시 · 무음) ──
+   * `stratagem:ready` 는 게임플레이 페이즈에서만 나간다. 예전에는 이 구간이 레이저 **뒤**에 있었는데, 레이저 구간이 timeScale 4 로
+   * 수십 초를 흘리는 동안 플레이어가 죽어 함선으로 돌아가면 이벤트가 하나도 안 나와 5개가 한꺼번에 빨갛게 됐다(verify:all 1회).
+   * 게임플레이가 확인된 바로 여기서 잰다. */
+  console.log('ready flash');
+  const rdy0 = await P(async () => {
+    const ctx = window.__game.ctx, s = window.__game.getSystem('stratagems'), audio = window.__game.getSystem('audio');
+    const m = await import('/src/audio/Synth.ts');
+    window.__rdy = { ev: [], snd: [] };
+    ctx.bus.on('stratagem:ready', (e) => window.__rdy.ev.push(e.refunded));
+    // recorded at AudioSystem.play, before its "is the AudioContext running" gate
+    const play = audio.play.bind(audio);
+    audio.play = (id, ...rest) => { if (id === 'stratagem_ready') window.__rdy.snd.push(id); return play(id, ...rest); };
+    s.startCooldown(0.3);
+    const el = document.querySelector('.scall');
+    return { sound: typeof m.SOUNDS.stratagem_ready === 'function', dim: el.classList.contains('dim'), ready: el.classList.contains('is-ready'), phase: ctx.phase };
+  });
+  ok(rdy0.sound, 'SOUNDS defines stratagem_ready');
+  ok(rdy0.dim && !rdy0.ready, `cooling ship call: dimmed, no ready glow (${JSON.stringify(rdy0)})`);
+  await waitSim(0.6);
+  const rdy1 = await P(() => {
+    const el = document.querySelector('.scall');
+    return { ev: window.__rdy.ev.slice(), snd: window.__rdy.snd.length, major: el.classList.contains('rdy-major'), minor: el.classList.contains('rdy-minor'), ready: el.classList.contains('is-ready'), dim: el.classList.contains('dim'), phase: window.__game.ctx.phase };
+  });
+  ok(rdy1.ev.length === 1 && rdy1.ev[0] === false, `cooldown ran out → one stratagem:ready {refunded:false} (${JSON.stringify(rdy1)})`);
+  ok(rdy1.major && !rdy1.minor && rdy1.ready && !rdy1.dim, `.scall flashes (.rdy-major) and keeps the ready glow (.is-ready) (${JSON.stringify(rdy1)})`);
+  ok(rdy1.snd === 1, `stratagem_ready chime requested once (${rdy1.snd})`);
+  const rdy2 = await P(() => {
+    const s = window.__game.getSystem('stratagems');
+    s.startCooldown(5);
+    const el = document.querySelector('.scall');
+    const cooling = { dim: el.classList.contains('dim'), ready: el.classList.contains('is-ready') };
+    s.refundCooldown();                            // a host refusal gives the cooldown back
+    return { cooling, ev: window.__rdy.ev.slice(), snd: window.__rdy.snd.length, major: el.classList.contains('rdy-major'), minor: el.classList.contains('rdy-minor'), ready: el.classList.contains('is-ready') };
+  });
+  ok(rdy2.cooling.dim && !rdy2.cooling.ready, 'a new cooldown turns the ready glow off');
+  ok(rdy2.ev.length === 2 && rdy2.ev[1] === true && rdy2.minor && !rdy2.major && rdy2.ready, `refused call refund → stratagem:ready {refunded:true}, weak flash (.rdy-minor), glow back (${JSON.stringify(rdy2)})`);
+  ok(rdy2.snd === 1, `no chime for the refund (${rdy2.snd} requests in total)`);
+  await P(() => { window.__game.getSystem('stratagems').debugCooldownReset?.(); });   // the laser below calls on a clean cooldown
+
   console.log('laser');
   // 2026-09-09 (적 체력 ×2): 이 구간은 timeScale 4 로 수십 초를 흘려보내는데, 앞선 폭격에서 살아남은 벌레가
   // 그 사이에 플레이어를 물어 죽이면 레이드가 실패해 함선으로 돌아가고 호출 목록이 통째로 비워진다 —

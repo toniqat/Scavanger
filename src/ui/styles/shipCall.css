@@ -96,6 +96,46 @@
   .scall .sc-key { height: 11px; font-size: 8px; }
 }
 
+/* ══ 준비 연출 (2026-09-12, 사용자 결정) — `implant.css` 의 같은 절과 짝이다 ══
+ * 준비된 동안 윤곽 글로우(`.is-ready`), 쿨타임이 끝나는 순간 밖으로 퍼지는 테두리(`.sc-ring`) + 안쪽 섬광(`.sb-flash`).
+ * 거절 환불로 0 이 된 순간은 약하게(`.rdy-minor`). 무장 테두리(`.armed`)가 이기도록 이 절을 그 앞에 둔다. */
+.scall.is-ready .sc-thumb {
+  border-color: color-mix(in srgb, var(--sc) 60%, transparent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 7px color-mix(in srgb, var(--sc) 40%, transparent),
+    inset 0 0 6px color-mix(in srgb, var(--sc) 16%, transparent);
+}
+.sc-ring {
+  position: absolute; left: 50%; top: 0;
+  width: var(--imp-th); height: var(--imp-th);
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  border: 2px solid var(--sc);
+  box-shadow: 0 0 14px var(--sc), inset 0 0 10px color-mix(in srgb, var(--sc) 55%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.sb-flash {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at center, #fff 0%, color-mix(in srgb, var(--sc) 75%, #fff) 36%, transparent 78%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  pointer-events: none;
+}
+.scall.rdy-major .sc-ring { animation: scallReadyRing 680ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.scall.rdy-major .sb-flash { animation: scallReadyFlash 560ms ease-out both; }
+.scall.rdy-minor .sc-ring { animation: scallReadyRingMinor 420ms ease-out both; }
+.scall.rdy-minor .sb-flash { animation: scallReadyFlashMinor 340ms ease-out both; }
+@keyframes scallReadyRing {
+  0% { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) scale(1.9); }
+}
+@keyframes scallReadyFlash { 0% { opacity: 0.95; } 100% { opacity: 0; } }
+@keyframes scallReadyRingMinor {
+  0% { opacity: 0.5; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) scale(1.35); }
+}
+@keyframes scallReadyFlashMinor { 0% { opacity: 0.4; } 100% { opacity: 0; } }
+
 /* 무장 중: 테두리 · 키캡이 그 호출의 색을 쓴다 (임플란트의 `.wielded` 와 같은 연출) */
 .scall.armed .sc-thumb { border-color: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 45%, transparent); }
 .scall.armed .sc-key { color: var(--sc); border-color: var(--sc); }

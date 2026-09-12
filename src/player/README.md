@@ -595,9 +595,54 @@ true 이고 이벤트는 없다.
 
 ---
 
+## 조준 흔들림 (2026-09-12 — `CameraRig.advanceSway`, 설계 `docs/plans/consumables-keys-favorites.md` §1-1)
+
+정조준 중에만 카메라가 느리게 8자로 떠돈다 (사용자 결정). 총알은 크로스헤어 선(weapons `parts/AimLine`)으로 판정하므로
+**보이는 대로 맞고**, 흔들림은 반동과 같은 **더하는 시점 오프셋**이라 마우스로 보정된다 — 무엇도 잠그지 않는다.
+
+- **모양**: 좌우 `A · sin φ`, 위아래 `A · AIM_SWAY_PITCH_RATIO · sin 2φ` (리사주 1:2 = 8자), `φ += 2π · Hz · dt`.
+  흔들림이 완전히 사라지면 위상이 0 으로 돌아가 **정조준은 늘 크로스헤어 한가운데에서 시작한다**.
+- **크기** = 무기 계열 진폭(`data/aim_sway.csv`, weapons 가 `PlayerWeaponHost.setAimSway` 로 넘긴다) × `aimBlend`(바로 곱한다) ×
+  자세(`1 + (AIM_SWAY_CROUCH_MUL−1)·crouch + (AIM_SWAY_PRONE_MUL−1)·prone`) × 이동(`1 + (AIM_SWAY_MOVE_MUL−1)·min(1, 속도/걷기)`) ×
+  `ctx.player.aimSwayMul ?? 1`(A1 각성제 0.7). 자세 · 이동 · 배수 · 게이트는 `swayFactor` 로, 무기 진폭은 `swayAmpCur` 로
+  `AIM_SWAY_BLEND_RATE` 감쇠 — 엎드리기 · 무기 교체가 화면을 튀기지 않는다. 스태미나는 요인이 아니다.
+- **꺼지는 곳** (`CameraRig.sway.on = false` → 크기가 감쇠로 0): 스폰 전 · 사망 · 전투불능 · 함선(허브 페이즈 · 실내 · 함선 박스) ·
+  드론 조종(`setDroneView` 는 즉시 0) · 가구 자세 · 사다리 · 헬포드 강하 · 발사 포드 · 들쳐메여 있음 · 부모에 붙음 · 연출 카메라
+  (`isOverridden`). 허리 사격 · 손에 든 게 없음 · RMB 가 대체 사격인 유니크는 `aimBlend` 0 또는 진폭 0 이다.
+- **순서가 요점이다**: `PlayerSystem.update` 가 `rig.sway` 를 채우고 `advanceSway(dt)` 를 **`predictPosition` 직전**에 부른다.
+  그래서 같은 프레임의 조준 원점 · `getLookDir` · `getAimRay`(weapons `update` 의 사격 · 빨간 원)와 `lateUpdate` 의 `rig.update`
+  렌더가 **같은 오프셋**을 본다 (`getLookDir` · `predictPosition` · `update` 의 look basis 셋 다 `swayPitch` / `swayYaw` 를 더한다).
+  HUD 투영은 `HudSystem.lateUpdate` 규칙 그대로 렌더된 카메라를 읽는다. 원격에 가는 `aimPitch` 는 흔들림을 싣지 않는다.
+- 조사용 필드: `rig.swayYaw` · `swayPitch`(이번 프레임 rad) · `swayAmplitude`(이번 프레임 좌우 진폭 rad).
+- 검증: `scripts/smoke-aim-sway.mjs` (verify 등록 — folders `player` · `weapons`).
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-12 (리드 통합 — 사다리 도약 스태미나)** — `parts/Climb.readClimbInput` 의 도약 검사가 `STAMINA_JUMP_COST × staminaCostMul` 로 잰다
+  (에이전트 A1 보고). 소모는 이미 `spendStamina` 가 ×1.5 로 빼고 있었는데 검사만 옛 값이라, 각성제 중 스태미나가 모자란 채 도약이 받아들여졌다 —
+  보통 점프 · 구르기 · 근접과 같은 규칙이 됐다.
+- **2026-09-12 (전투 소모품 효과, 에이전트 A1 — `docs/plans/consumables-keys-favorites.md` §1)** — 계약 추가(`types.ts` [A1] 블록):
+  `BoostKind` · `PlayerRef.applyBoost?(kind, defId?)` · `boost?` · `aimSwayMul?` · `boostReloadSpeedMul?` · `adsSpeedMul?` ·
+  `staminaDrainMul?` · `staminaCostMul?`. 새 **`parts/Boosts.ts`** 가 전부를 갖고 `PlayerSystem` 에는 필드(`boostKind` · `boostDefId` ·
+  `boostDuration` · `boostUntil` · `boostStartedAt` / `boostEndsAt`(버프 시계 epoch ms) · `boostView`)와 위임 getter 만 있다.
+  - **한 번에 하나** — 아드레날린(`BOOST_ADRENALINE_DURATION_S` 15)은 쓰는 순간 스태미나 전량 · 지친 상태 해제 + 지속 소모 배수 0,
+    각성제(`BOOST_STIMULANT_DURATION_S` 30)는 흔들림 0.7(A2 의 `CameraRig` 가 곱한다) · 장전 1.3 · 정조준 1.4 / 소모 1.5. 나중에 쓴 것이 앞의 것을 지운다.
+  - **스태미나**: `Locomotion.updateStamina` 의 부양 · 질주 · 사다리 소모에 `staminaDrainMul` (0 이면 소모도 회복 차단도 없다),
+    `spendStamina` 가 한 번 소모에 `staminaCostMul` 을 곱하고 "충분한가" 검사(`consumeStamina` · 구르기 · 근접 · 점프)도 같은 배수로 잰다.
+    `parts/Climb` 의 사다리 점프 검사만 기본값이다 (spendStamina 가 0 에서 자른다).
+  - **정조준**: `update` 의 `aimBlend` 감쇠율 × `adsSpeedMul` — `setAdsTime` 은 무기가 바뀔 때만 오므로 거기서 곱하면 늦게 붙는다.
+  - **지우는 곳**: `resetTactical` 위임이 `Boosts.clearBoost` 를 먼저 부른다(스폰 · 부활 · 함선 서기 · abort), `updateBoost`(스태미나 직전)가
+    만료 · 사망 · 함선 페이즈에서 지운다. 세이브 · 와이어에 따로 싣지 않는다 — 버프 목록(`parts/Buffs` 의 `boost` 키, kind
+    `adrenaline` / `stimulant`, def id · 시작 / 끝)이 분대원에게 가는 유일한 길이다. 일시정지로 두 시계가 1.5 초 넘게 벌어지면 시각을 다시 찍는다.
+  - 검사: `scripts/smoke-consumables.mjs` (verify 등록 — folders `weapons` · `player` · `items`).
+
+- **2026-09-12 (조준 흔들림 — 에이전트 A2, 사용자 결정)** — 위 *조준 흔들림* 절. 계약 추가: `PlayerWeaponHost.setAimSway?(amplitudeDeg,
+  frequencyHz)` (types `[A2]` 블록), `AIM_SWAY_PITCH_RATIO` · `_CROUCH_MUL` · `_PRONE_MUL` · `_MOVE_MUL` · `_BLEND_RATE` (constants `[A2]`).
+  `CameraRig` 에 `SwayInput` · `sway` · `setAimSway` · `advanceSway` · `resetSway`(스냅 · 드론 시점) + look basis 세 곳, `PlayerSystem` 에
+  `setAimSway` 위임 한 개와 `update` 의 `advanceSway` 블록(`predictPosition` 직전) 하나. `aimSwayMul` 은 A1 소유라 선택 이름으로만 읽는다.
+  반동 · 어깨 전환 · 예측 원점 로직 무변경. 검증: 새 `scripts/smoke-aim-sway.mjs`.
 
 - **2026-09-12 (어깨 전환 — 사용자 결정)** — 3인칭 에임 개선의 일부. `CameraRig.shoulderSide` · `toggleShoulder()` 와
   `PlayerSystem.update` 의 한 줄(`Keys.SHOULDER`, 기본 X — 계약 추가). 목표 어깨 오프셋(허리 0.55 · ADS 0.68 · 스코프 0.35)에 부호를

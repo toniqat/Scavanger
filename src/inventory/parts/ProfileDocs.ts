@@ -27,16 +27,20 @@ import {
   type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
+import * as RaidMarks from './RaidFound';
 
 /** Bag + 5 slots + quick slots with every instance field incl. `searched` (raid session blob / training freeze). */
 export function captureRaidState(sys: InventorySystem): unknown {
-  const save = sys.captureLoadoutSave();
+  // 2026-09-12 (E1): 즐겨찾기는 킷이 아니다 — 레이드 blob · 훈련장 스냅샷에 싣지 않는다 (복원이 토글을 되돌리면 안 된다)
+  const { fav: _fav, ...save } = sys.captureLoadoutSave();
   const placements = sys.bag.items();
   const bag = save.bag.map((sv, i) => {
     const flag = placements[i]?.item.searched;
     return flag === undefined ? sv : { ...sv, searched: flag };
   });
   const state: RaidInventoryState = { ...save, bag, raid: 1 };
+  // 2026-09-12 (아이템 회수 계약): the raid-found marks ride in the blob only (`rf`, revived by `Serialize.reviveItem`)
+  RaidMarks.annotateRaidState(sys, state);
   // 2026-09-11 (C-61): the once-per-raid bag wear travels with the session (stamped with this raid's seed)
   if (sys.bagWornThisRaid) state.bagWorn = sys.missionSeed;
   return state;
@@ -176,10 +180,15 @@ export function applyProfileDocs(sys: InventorySystem, profile: ProfileRecord): 
     if (!isEmptyLoadoutSave(local)) sys.uploadProfileDoc('loadout', local);
     return;
   }
-  if (sys.ctx.isRaidActive()) return;
   const save = sanitizeLoadoutSave(docs.loadout);
+  // 2026-09-12 (E1): 즐겨찾기는 킷이 아니다 — 레이드 중에도 서버 목록을 받는다 (올리지 못한 로컬 토글이 있으면 그것이 이긴다)
+  if (save) sys.applySavedFavorites(save.fav);
+  if (sys.ctx.isRaidActive()) return;
   if (!save) return;
-  if (sameProfileDoc(save, sanitizeLoadoutSave(sys.captureLoadoutSave()))) return; // our own document
+  // …and a document that differs from ours **only** in `fav` must not rebuild the kit (nor re-save as `profile`, which
+  // would drop a pending favourite save): the kits are compared without it
+  const kitOf = (s: LoadoutSave | null): unknown => { if (!s) return s; const { fav: _f, ...kit } = s; return kit; };
+  if (sameProfileDoc(kitOf(save), kitOf(sanitizeLoadoutSave(sys.captureLoadoutSave())))) return; // our own document
   if (isEmptyLoadoutSave(save)) {
     // 2026-09-07: an empty server document must never wipe a kit the player is standing in — it only means the
     // profile has no loadout yet. The local kit stays (and is uploaded); only a player with nothing anywhere is

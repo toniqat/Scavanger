@@ -73,6 +73,11 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   readonly grappleDroneOffset = new THREE.Vector3();
   /** Seconds since the last `imp grapple` refresh of a drone anchor. */
   grappleSendAcc = 0;
+  /**
+   * 2026-09-12: the player's feet the moment the hook attached. The cooldown refund on release measures the pull from
+   * here to the feet at the release (`parts/Devices.refundGrapple`) — the inertia after the release is not counted.
+   */
+  readonly grappleAttachPos = new THREE.Vector3();
 
   /** 실드 배쉬 (Phase 12): seconds left of the swing pose / FX, and of the re-bash cooldown. */
   bashTimer = 0;
@@ -368,6 +373,15 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
 
   startCooldown(seconds?: number): void { return Charge.startCooldown(this, seconds); }
 
+  /** The running cooldown reached 0: a charge back (+ the next refill), lockout lifted, `implant:ready` (2026-09-12). */
+  finishCooldown(): void { return Charge.finishCooldown(this); }
+
+  /**
+   * 2026-09-12 (안정제): charges full, cooldown 0, barrier lockout lifted + hp full, overcharge energy full, HUD events
+   * again and a ready moment. Leaves a hook in flight / a raised shield / a channel alone (not `resetRuntime`).
+   */
+  refillAll(): void { return Charge.refillAll(this); }
+
   private tickCooldown(dt: number): void { return Charge.tickCooldown(this, dt); }
 
   emitCooldown(force: boolean): void { return Charge.emitCooldown(this, force); }
@@ -471,6 +485,12 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
 
   /** `PlayerRef.setGrappleTarget` is part of the tactical-kit contract; player/ may not have it yet. */
   setGrapplePull(point: THREE.Vector3 | null): void { return Dev.setGrapplePull(this, point); }
+
+  /**
+   * 2026-09-12: cooldown refund when a grapple use ends — attached: `REFUND_MAX × max(0, 1 − pull / REFUND_DIST)` of the
+   * effective total; before attaching: `CANCEL_REFUND`, at least `CANCEL_MIN_S` left. `implant:cooldownRefunded`.
+   */
+  refundGrapple(attached: boolean, pullDist: number): void { return Dev.refundGrapple(this, attached, pullDist); }
 
   /* ═══════════════════════════ 정찰 (instant, Phase 12) ═══════════════════════════ */
   /**

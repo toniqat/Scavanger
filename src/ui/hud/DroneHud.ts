@@ -1,10 +1,17 @@
-import type { DroneKind, DroneRef, DroneReleaseReason, GameContext } from '@/shared';
+import type { DroneKind, DroneRef, DroneReleaseReason, DronesRef, GameContext } from '@/shared';
 import {
   DRONE_AIR_MAX_ALTITUDE, DRONE_AIR_RANGE, DRONE_GROUND_RANGE, DRONE_LINK_WARN_RATIO,
+  DRONE_SCAN_RANGE,
   Keys, keyLabel, onKeybindsChanged,
 } from '@/shared';
 import { el, setText, toggleClass, clamp01 } from '../dom';
+/* appended (2026-09-12): 드론 스캔 결과 월드 라벨 — 이 위젯이 들고 `lateUpdate` 로 투영한다 */
+import { DroneScanLabels } from './DroneScanLabels';
 import '../styles/drone.css';
+
+/** 스캔 홀드 링 — 조준점 둘레(반지름 36), 조종 전환 링(60)보다 안쪽이라 둘이 겹치지 않는다. */
+const SCAN_RING_SIZE = 96;
+const SCAN_RING_R = 36;
 
 /** 드론 종류 표시 이름 (프레임 좌측 상단 태그). */
 const KIND_NAME: Record<DroneKind, string> = { ground: '지상 드론', air: '공중 드론' };
@@ -91,6 +98,18 @@ export class DroneHud {
   private circumference: number;
   private lastRingT = -1;
   private lastRingLbl = '';
+
+  /* 2026-09-12: 지상 드론 스캔 — 조준점 둘레 홀드 링 · 아래 안내 · 월드 라벨 */
+  private scanRing: HTMLElement;
+  private scanFill: SVGCircleElement;
+  private scanCirc: number;
+  private lastScanT = -1;
+  private scanHint: HTMLElement;
+  private scanTgt: HTMLElement;
+  private scanDist: HTMLElement;
+  private scanAct: HTMLElement;
+  private lastScanKey = '';
+  private readonly scanLabels: DroneScanLabels;
 
   /* 알림 */
   private alertEl: HTMLElement;
@@ -209,6 +228,29 @@ export class DroneHud {
 
     // ── 연결 해제 알림 ──
     this.alertEl = el('div', { cls: 'dr-alert', text: '', parent: this.root });
+
+    // ── 2026-09-12: 지상 드론 스캔 (조종 중 층 안) ──
+    this.scanRing = el('div', { cls: 'dsc-ring', parent: this.view });
+    const scanSvg = document.createElementNS(svgNS, 'svg');
+    scanSvg.setAttribute('viewBox', `0 0 ${SCAN_RING_SIZE} ${SCAN_RING_SIZE}`);
+    const mkScan = (cls: string): SVGCircleElement => {
+      const c = document.createElementNS(svgNS, 'circle');
+      c.setAttribute('class', cls);
+      c.setAttribute('cx', String(SCAN_RING_SIZE / 2)); c.setAttribute('cy', String(SCAN_RING_SIZE / 2)); c.setAttribute('r', String(SCAN_RING_R));
+      scanSvg.appendChild(c);
+      return c;
+    };
+    mkScan('track');
+    this.scanFill = mkScan('fill');
+    this.scanCirc = 2 * Math.PI * SCAN_RING_R;
+    this.scanFill.style.strokeDasharray = `0 ${this.scanCirc.toFixed(2)}`;
+    this.scanRing.appendChild(scanSvg);
+    this.scanHint = el('div', { cls: 'dsc-hint', parent: this.view });
+    const tgt = el('div', { cls: 'tgt', parent: this.scanHint });
+    this.scanTgt = el('span', { text: '', parent: tgt });
+    this.scanDist = el('span', { cls: 'dist', text: '', parent: tgt });
+    this.scanAct = el('div', { cls: 'act', text: '', parent: this.scanHint });
+    this.scanLabels = new DroneScanLabels(parent);
   }
 
   /** 조작 안내 한 줄: 키캡(실제 바인딩) + 한국어 동작. `group` 은 종류별 표시(`air` / `ground`) 또는 `back`. */
@@ -240,7 +282,13 @@ export class DroneHud {
       b.on('game:newMission', () => this.reset()),
       b.on('game:abort', () => this.reset()),
     );
+    this.scanLabels.bind(ctx);
     this.refreshKeys();
+  }
+
+  /** `HudSystem.lateUpdate` (카메라 행렬 갱신 뒤) — 스캔 결과 월드 라벨 투영. */
+  lateUpdate(ctx: GameContext): void {
+    this.scanLabels.lateUpdate(ctx);
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -248,6 +296,7 @@ export class DroneHud {
     const d = drones?.controlled ?? null;
     this.setControlled(d);
     this.updateRing(drones?.controlHold ?? 0, d !== null);
+    this.updateScan(d?.kind === 'ground' ? drones : null);
 
     if (d) {
       this.updateLink(d);
@@ -383,6 +432,30 @@ export class DroneHud {
     this.ringFill.style.strokeDasharray = `${(v * this.circumference).toFixed(2)} ${this.circumference.toFixed(2)}`;
   }
 
+  /* ── 지상 드론 스캔: 홀드 링 · 안내 (2026-09-12) ──────────────────────── */
+
+  /** `drones` null = 지상 드론을 조종하고 있지 않다 → 둘 다 숨긴다. */
+  private updateScan(drones: DronesRef | null): void {
+    const hold = drones ? clamp01(Number.isFinite(drones.scanHold) ? (drones.scanHold ?? 0) : 0) : 0;
+    const show = hold > 0.001;
+    toggleClass(this.scanRing, 'show', show);
+    const v = show ? hold : 0;
+    if (Math.abs(v - this.lastScanT) >= 0.003) {
+      this.lastScanT = v;
+      this.scanFill.style.strokeDasharray = `${(v * this.scanCirc).toFixed(2)} ${this.scanCirc.toFixed(2)}`;
+    }
+    const aim = drones?.scanAim ?? null;
+    const key = aim ? `${aim.id}|${aim.name}|${aim.distance.toFixed(1)}|${aim.inRange ? 1 : 0}` : '';
+    if (key === this.lastScanKey) return;
+    this.lastScanKey = key;
+    toggleClass(this.scanHint, 'show', aim !== null);
+    if (!aim) return;
+    toggleClass(this.scanHint, 'far', !aim.inRange);
+    setText(this.scanTgt, aim.name);
+    setText(this.scanDist, `${aim.distance.toFixed(1)} m`);
+    setText(this.scanAct, aim.inRange ? '좌클릭 꾹 — 내용물 스캔' : `더 가까이 — ${Math.round(DRONE_SCAN_RANGE)} m 안`);
+  }
+
   /* ── 연결 해제 알림 ────────────────────────────────────────────────────── */
 
   private showAlert(reason: DroneReleaseReason | null): void {
@@ -481,10 +554,15 @@ export class DroneHud {
   get alertText(): string { return this.alertEl.classList.contains('show') ? (this.alertEl.textContent ?? '') : ''; }
   /** 홀드 링이 보이는가. */
   get isHoldShowing(): boolean { return this.ring.classList.contains('show'); }
+  /** 2026-09-12: 스캔 홀드 링이 보이는가 · 스캔 안내 문구(없으면 '') · 떠 있는 스캔 라벨 수. */
+  get isScanRingShowing(): boolean { return this.scanRing.classList.contains('show'); }
+  get scanHintText(): string { return this.scanHint.classList.contains('show') ? (this.scanHint.textContent ?? '') : ''; }
+  get scanLabelCount(): number { return this.scanLabels.count; }
 
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
+    this.scanLabels.dispose();
     this.parent.classList.remove('drone-view');
     this.staticRoot.remove();
     this.root.remove();

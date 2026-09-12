@@ -314,6 +314,21 @@ still runs at the item's own rate).
 
 ## 변경 이력
 
+- **2026-09-12 (전투 소모품 3종 — 에이전트 A1)** — 아드레날린 주사 · 각성제 · 안정제(`@/items` 의 `boostItemOf`)가 회복약과 같은
+  **퀵 사용 홀드** 길을 탄다 — 사용 중 이동 50 % · LMB 떼면 취소 · 소모 시점이 같다. `model.useTimeOf` 가 `boostUseTime`(3 초)을
+  돌려주고(퍽 `quick_heal` 이 반으로 줄이는 것도 같다), `parts/Healing.beginHeal` 은 이 셋에 **"체력 가득이면 거절" 을 걸지 않는다**
+  (안정제는 임플란트가 가득이어도 소모 — 사용자 결정). `finishHeal` 은 소모 뒤 `adrenaline` · `stimulant` 면
+  `ctx.player.applyBoost(kind, defId)`, `implant_refill` 이면 `ctx.implants.refillAll()`(둘 다 선택 호출) + `stim` 소리.
+  `parts/Firing.reloadSpeedFor` 가 숙련 배수에 `ctx.player.boostReloadSpeedMul`(각성제 1.3)을 곱한다 — 장전 시작 때 읽는다.
+  정조준 전환 배수는 player 가 ADS 블렌드에서 곱한다. 검사: `scripts/smoke-consumables.mjs`.
+
+- **2026-09-12 (조준 흔들림 — 에이전트 A2, 사용자 결정)** — 새 `AimSway.ts`: `data/aim_sway.csv`(계열 6줄 — 좌우 진폭 ° · 빈도 Hz)를 읽어
+  `aimSwayOfClass(cls)` · `aimSwayFor(stats)`(null = 흔들림 없음)를 낸다 (`scripts/data-owners.mjs` 의 `DATA_OWNERS` · `CSV_FOLDERS` 에 등록).
+  `parts/Firing.applyAimZoom` 이 줌 옆에서 **매번** `host.setAimSway?.(amplitudeDeg, frequencyHz)` 를 부른다 (두 숫자라 중복 제거 캐시 없음 —
+  player 쪽이 변화를 감쇠한다). 그래서 장착 · 교체 · 넣기(`applyAimZoom(null)`) · 손에 든 소모품 · RMB 대체 사격 유니크(`zoomStatsFor` null)가
+  모두 같은 길로 0 / 계열 값이 된다. 흔들림 자체(8자 · 정조준 · 자세 · 이동 · `aimSwayMul`)는 player 의 `CameraRig` 가 돌리고
+  `getAimRay` 가 그 오프셋을 포함하므로 `parts/AimLine` · 빨간 원 · 퍼짐 계산은 한 줄도 안 바뀌었다. 검증: `scripts/smoke-aim-sway.mjs`.
+
 - **2026-09-12 (하이브리드 사격 판정 · 총구 막힘 표시 — 사용자 결정)** — 지향사격 · 정조준에서 "거리에 따라 가끔 크로스헤어보다
   왼쪽으로" 날아가던 것. 모든 사격이 모델 총구에서 나가 카메라 레이가 맞춘 점으로 수렴했는데, 카메라 레이가 아무것도 못 맞히면
   수렴점이 사거리 끝이라 중간 거리에서 탄이 크로스헤어 선보다 ~0.3 m 옆을 지나 조준하지 않은 것에 맞았고, 크로스헤어 선은

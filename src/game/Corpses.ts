@@ -227,7 +227,9 @@ export function itemsToWire(items: readonly ItemInstance[]): CorpseItemWire[] {
     const ex = (it.durability !== undefined || it.ammoInMag !== undefined || it.sockets !== undefined)
       ? { durability: it.durability, ammoInMag: it.ammoInMag, sockets: it.sockets }
       : undefined;
-    out.push(ex ? { defId: it.defId, qty: it.qty, ex } : { defId: it.defId, qty: it.qty });
+    const w: CorpseItemWire = ex ? { defId: it.defId, qty: it.qty, ex } : { defId: it.defId, qty: it.qty };
+    if (typeof it.raidFound === 'number') w.rf = it.raidFound;   // 2026-09-12: 아이템 회수 계약 표식은 아이템과 함께 간다
+    out.push(w);
   }
   return out;
 }

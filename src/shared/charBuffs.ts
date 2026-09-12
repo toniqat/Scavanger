@@ -27,9 +27,12 @@ export type CharBuffKind =
   | 'env_exposed'   // 디버프: 상시 환경 행성에서 맞는 준비물 없이 노출돼 체력이 깎이고 있다 (레이드)
   | 'gym_fatigue'   // 디버프: 근육통 · 심폐 피로 (현실 시간 타이머)
   | 'rest'          // 휴식 중 — 흔들의자에 앉아 있다
-  | 'exercise';     // 운동 중 — 운동 기구 세션
+  | 'exercise'      // 운동 중 — 운동 기구 세션
+  /* appended (2026-09-12, 소모품 3종 — docs/plans/consumables-keys-favorites.md §1) */
+  | 'adrenaline'    // 아드레날린 주사 — 레이드 시간제 (sim 시간), 아이템 썸네일 + 시간 게이지
+  | 'stimulant';    // 각성제 — 같다
 
-export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise'];
+export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant'];
 
 /** `pending` = 함선에서 다음 레이드에 실어 둔 것 (썸네일이 흐리다) · `active` = 지금 몸에 걸려 있는 것. */
 export type CharBuffState = 'pending' | 'active';
@@ -44,7 +47,7 @@ export interface CharBuff {
   /** 디버프인가 (`env_exposed` · `gym_fatigue`). 와이어에서는 믿지 않고 `kind` 에서 다시 정한다. */
   debuff: boolean;
   state: CharBuffState;
-  /** `meal` · `prep`: 아이템 def id (썸네일 글리프 · 색 · 이름). */
+  /** `meal` · `prep` · `adrenaline` · `stimulant`: 아이템 def id (썸네일 글리프 · 색 · 이름). 소모품 둘의 key 는 `boost`. */
   defId?: string;
   /** `prep` · `env_exposed`: 행성 환경. */
   env?: EnvKind;
@@ -63,10 +66,11 @@ export interface CharBuff {
 }
 
 /** 썸네일 순서 — 디버프가 먼저, 그다음 지금 하고 있는 것, 그다음 실어 둔 것. */
-export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'exercise', 'rest', 'meal', 'prep'];
+export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'adrenaline', 'stimulant', 'exercise', 'rest', 'meal', 'prep'];
 
 export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
   meal: '식사', prep: '준비물', env_exposed: '환경 노출', gym_fatigue: '운동 피로', rest: '휴식 중', exercise: '운동 중',
+  adrenaline: '아드레날린', stimulant: '각성제',
 };
 
 /**
@@ -75,9 +79,11 @@ export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
  */
 export const CHAR_BUFF_GLYPH: Readonly<Record<CharBuffKind, string>> = {
   meal: '♨', prep: '⌾', env_exposed: '☣', gym_fatigue: '✱', rest: '☕', exercise: '⚖',
+  adrenaline: '↯', stimulant: '◎',
 };
 export const CHAR_BUFF_COLOR: Readonly<Record<CharBuffKind, string>> = {
   meal: '#ffb0a0', prep: '#ffd08a', env_exposed: '#ff6b6b', gym_fatigue: '#ff8a6b', rest: '#e8a0d0', exercise: '#ff9f7a',
+  adrenaline: '#ffd24a', stimulant: '#7ad7ff',
 };
 
 export const isDebuffKind = (kind: CharBuffKind): boolean => kind === 'env_exposed' || kind === 'gym_fatigue';
@@ -95,6 +101,11 @@ export function charBuffTitle(b: CharBuff, defOf?: (defId: string) => ItemDef | 
     case 'gym_fatigue': return b.stat ? GYM_FATIGUE_LABEL_KO[b.stat] : CHAR_BUFF_LABEL_KO.gym_fatigue;
     case 'rest': return CHAR_BUFF_LABEL_KO.rest;
     case 'exercise': return b.minigame ? `${CHAR_BUFF_LABEL_KO.exercise} · ${GYM_MINIGAME_LABEL_KO[b.minigame]}` : CHAR_BUFF_LABEL_KO.exercise;
+    case 'adrenaline':
+    case 'stimulant': {
+      if (b.defId && defOf) { try { return defOf(b.defId)?.name ?? CHAR_BUFF_LABEL_KO[b.kind]; } catch { /* keep the label */ } }
+      return CHAR_BUFF_LABEL_KO[b.kind];
+    }
   }
 }
 

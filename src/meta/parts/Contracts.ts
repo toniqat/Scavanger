@@ -20,10 +20,12 @@ import {
   implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
 } from '../Rules';
 import { CorpView } from '../ui/CorpView';
-import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
+import { CORP_ALIASES, GOAL_IDS, INVENTORY_GOALS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 /* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로 (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';
+/* 2026-09-12 (§5-2): 아이템 회수 계약은 이번 레이드에서 얻은 것만 센다 (`shared/raidFound.ts`). */
+import { isRaidFound, raidFoundSeed } from '@/shared';
 
 /** `MetaRef.getSquadContracts` — other members only, in peer order. */
 export function getSquadContracts(sys: MetaSystem): readonly SquadContractInfo[] {
@@ -90,6 +92,43 @@ export function trackLootValue(sys: MetaSystem, totalValue: number): void {
   sys.broadcastContract();
   }
 
+/**
+ * 2026-09-12 (E2): units of `defId` **on the body** — bag grid + quick slots + pouch (`InventoryRef.countWhere`), never the
+ * 함선 창고. That is what an `extract_with_items` contract checks at extraction. 0 without an inventory.
+ *
+ * 2026-09-12 (§5-2, 사용자 결정): **only units found in this raid** count — `ItemInstance.raidFound` equal to `seed`
+ * (`shared/raidFound.isRaidFound`). `seed` defaults to the running raid's (`raidFoundSeed`, null outside a real raid → 0).
+ * Brought units (from the ship, crafted, bought) never count, so the whole target has to come out of one raid.
+ */
+export function carriedCount(sys: MetaSystem, defId: string | undefined, seed?: number | null): number {
+  const inv = sys.ctx.inventory;
+  if (!defId || !inv || typeof inv.countWhere !== 'function') return 0;
+  const s = seed === undefined ? raidFoundSeed(sys.ctx) : seed;
+  if (s === null) return 0;
+  try { return Math.max(0, Math.floor(inv.countWhere((d, inst) => d.id === defId && isRaidFound(inst, s)))); } catch { return 0; }
+}
+
+/**
+ * 2026-09-12 (E2): live `extract_with_items` readout for the HUD (the settlement recounts the body itself). Mirrors
+ * `trackLootValue`: raid only, never in the 훈련장, and the squad row follows through `broadcastContract`.
+ */
+export function trackItemCount(sys: MetaSystem): void {
+  const def = sys.activeDef();
+  const ac = sys.store.data.activeContract;
+  if (!def || !ac || def.goal !== 'extract_with_items') return;
+  if (!sys.ctx.isGameplayPhase() || sys.inTraining()) {
+    // 2026-09-12 (§5-2): outside a raid nothing counts (the marks are gone) — never carry a raid's count into the ship UI
+    if (ac.progress !== 0) { ac.progress = 0; sys.progressAtStart = 0; sys.store.markDirty(); }
+    return;
+  }
+  const v = Math.min(MAX_PROGRESS, carriedCount(sys, def.itemDefId));
+  if (v === ac.progress) return;
+  const delta = v - ac.progress;
+  ac.progress = v;
+  sys.ctx.bus.emit('meta:contractProgress', { id: def.id, corp: def.corp, goal: def.goal, progress: v, target: def.target, delta });
+  sys.broadcastContract();
+  }
+
 /* ── MetaRef: contracts ─────────────────────────────────────────────────── */
 export function getContracts(sys: MetaSystem, corp: CorpId): ContractInfo[] {
   const ac = sys.store.data.activeContract;
@@ -133,6 +172,7 @@ export function reportContractHit(sys: MetaSystem, goal: ContractGoalKind, amoun
   const def = sys.activeDef();
   const ac = sys.store.data.activeContract;
   if (!def || !ac || def.goal !== goal || !Number.isFinite(amount)) return;
+  if (INVENTORY_GOALS.has(goal)) return;   // 2026-09-12 (E2): the body decides `extract_with_items`, not hits
   const delta = contractHitDelta(amount, local);
   if (delta <= 0) return;
   const before = ac.progress;
@@ -156,7 +196,11 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   const def = sys.activeDef();
   const ac = sys.store.data.activeContract;
   if (!def || !ac) return null;
-  const { settlement, keepProgress } = settleContract(def, ac.progress, sys.progressAtStart, stats);
+  // 2026-09-12 (E2): `extract_with_items` counts the body **now** — `game/` settles before `game:complete`, while the bag
+  // still holds what came out of the raid (nothing moves it to the 창고 until the player does so in the ship)
+  // 2026-09-12 (§5-2): only units found in **this** raid — the running raid's seed, else the settled mission's own seed
+  const carried = def.goal === 'extract_with_items' ? carriedCount(sys, def.itemDefId, raidFoundSeed(sys.ctx) ?? stats.seed) : undefined;
+  const { settlement, keepProgress } = settleContract(def, ac.progress, sys.progressAtStart, stats, carried);
   if (settlement.success) {
     sys.store.data.activeContract = null;
     sys.store.data.stats.contractsDone += 1;
@@ -166,7 +210,8 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
       sys.store.data.stats.creditsEarned += settlement.credits;
     }
   } else {
-    ac.progress = keepProgress ?? 0;
+    // 2026-09-12 (§5-2): an item contract starts every raid from 0 — what was found this time does not count next time
+    ac.progress = def.goal === 'extract_with_items' ? 0 : keepProgress ?? 0;
   }
   sys.progressAtStart = sys.store.data.activeContract?.progress ?? 0;
   sys.store.markDirty();

@@ -44,7 +44,12 @@ import './meta.css';
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export const CORP_ALIASES: Readonly<Record<string, CorpId>> = { helix: 'helix', bastion: 'bastion', nomad: 'nomad', ceres: 'ceres' };
-export const GOAL_IDS: readonly ContractGoalKind[] = ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems'];
+export const GOAL_IDS: readonly ContractGoalKind[] = ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems', 'extract_with_items'];
+/**
+ * 2026-09-12 (E2): goals whose progress is **read from the inventory**, never counted from hits — `reportContractHit`
+ * ignores them and a relayed `meta contractHit` / `meta sync` entry for them is dropped (`Credits.onMetaMessage`).
+ */
+export const INVENTORY_GOALS: ReadonlySet<ContractGoalKind> = new Set<ContractGoalKind>(['extract_with_items']);
 
 /** Phase 9 relay validation: a whitelisted goal with a finite amount in `1..max`. */
 export function isValidHit(goal: unknown, amount: unknown, max: number): goal is ContractGoalKind {

@@ -659,7 +659,8 @@ try {
     active: document.querySelectorAll('.cc-active .corp-row.contract, .cc-active .corp-empty').length,
     on: document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page,
   }));
-  ok(contractsDom.on === 'contracts' && contractsDom.rows.length === 4 && contractsDom.rows[0].id === 'ceres_1' && contractsDom.rows[0].btn === '수락' && contractsDom.rows[0].disabled === false, '계약 tab: 4 ceres rows, ceres_1 수락 enabled', JSON.stringify(contractsDom));
+  // 2026-09-12 (E2): ceres 는 검체 채취 4 + 특정 아이템 회수 2 (`ceres_samples` · `ceres_pure`) = 6줄
+  ok(contractsDom.on === 'contracts' && contractsDom.rows.length === 6 && contractsDom.rows[0].id === 'ceres_1' && contractsDom.rows[0].btn === '수락' && contractsDom.rows[0].disabled === false, '계약 tab: 6 ceres rows, ceres_1 수락 enabled', JSON.stringify(contractsDom));
   // 2026-09-12: 진행 중인 계약 패널은 그 계약을 맺은 기업의 색이다 (선택한 기업 탭 색이 아니다)
   const otherContract = await P(() => {
     const m = window.__game.ctx.meta;
