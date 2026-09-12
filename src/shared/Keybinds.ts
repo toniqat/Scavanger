@@ -50,6 +50,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   // 2026-09-10: 보조무기 칸이 사라져 `SECONDARY` 줄은 이 목록에서 빠졌다 (설정 화면에도 안 뜬다).
   // `Keys.SECONDARY` · `DEFAULT_KEYS.SECONDARY` 자체는 계약이라 그대로 있다 — 아무도 읽지 않을 뿐이다.
   { id: 'MELEE', label: '근접 공격 · (전투불능 아군 근처) 들쳐메기 / 내려놓기', group: '전투', scope: 'game' },
+  /* appended (2026-09-12): 카메라를 반대쪽 어깨로 — 왼쪽 엄폐물 뒤에서 쏠 때 */
+  { id: 'SHOULDER', label: '어깨 전환 (카메라 왼쪽 / 오른쪽)', group: '전투', scope: 'game' },
 
   { id: 'IMPLANT', label: '전술 임플란트', group: '장비', scope: 'game' },
   { id: 'QUICK', label: '빠른 사용 (길게: 휠) · 회복약은 좌클릭 2초', group: '장비', scope: 'game' },

@@ -3,6 +3,9 @@
 // + Phase 9 barrier purity (`raycastBarrier` emits nothing, `damageBarrier` once per resolved hit) and status `attacker` from the uniques.
 // + Phase 12 (2026-09-08): 정밀 사격 (SR shot on the crosshair ray at 30 / 150 m), `ctx.enemies.reportShot` per local shot,
 //   회복 스프레이 gauge 200 / stays at 0 / `item:channelChanged`, perks quick_heal · auto_revive · kill_stamina (137 checks).
+// + 2026-09-12: 하이브리드 사격 판정 (no left drift past a post the crosshair clears · a post 1.6 m ahead of the muzzle
+//   → red marker + `weapon:aimBlocked` + `.reticle.blocked` + the shot lands on it · 5 m out blocks nothing · a wall under
+//   the crosshair is no warning · `services.aimShot` on the crosshair line), 어깨 전환 X (right → left → right).
 // Usage: node scripts/smoke-weapons.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -534,10 +537,18 @@ try {
     const V = p.position.constructor;
     const origRay = imp.raycastBarrier.bind(imp); const origDmg = imp.damageBarrier.bind(imp);
     const fwd = p.getForward(new V()); fwd.y = 0; fwd.normalize();
-    imp.raycastBarrier = (o, _d, _m, _fe) => ({ point: o.clone().addScaledVector(fwd, 3), owner: 'local' });
+    // 2026-09-12: the synthetic barrier stands 1.2 m down whichever shot ray asks (short probes under 1 m — the hybrid
+    // resolver's barrel / line-start checks — see nothing). It used to sit 3 m along the *body* forward regardless of the
+    // ray, which only worked while every shot converged from the muzzle; on the crosshair line the terrain 2.7–2.9 m
+    // ahead of a downward look is legitimately nearer than a point that is not on the line at all.
+    imp.raycastBarrier = (o, d, m, _fe) => (m > 1 ? { point: o.clone().addScaledVector(d, 1.2), owner: 'local' } : null);
     window.__dmgCalls = [];
     imp.damageBarrier = (owner, point, amount) => { window.__dmgCalls.push([owner, +point.x.toFixed(2), +point.y.toFixed(2), +point.z.toFixed(2), amount ?? null]); };
-    window.__restoreBarrier = () => { imp.raycastBarrier = origRay; imp.damageBarrier = origDmg; };
+    // every resolved hit with the shot mode it came from (hybrid resolver) — printed when the billing check fails
+    const ws = window.__game.getSystem('weapons'); const origHit = ws.applyHit.bind(ws);
+    window.__hitLog = [];
+    ws.applyHit = (h, dmg, dir, light, ammo) => { window.__hitLog.push({ mode: ws.shot.mode, owner: h.barrierOwner, enemy: !!h.enemy, obstacle: h.obstacle, d: +h.distance.toFixed(2) }); return origHit(h, dmg, dir, light, ammo); };
+    window.__restoreBarrier = () => { imp.raycastBarrier = origRay; imp.damageBarrier = origDmg; ws.applyHit = origHit; };
     window.__barrierEv = window.__ev['implant:barrierHit'].length;
     return { mag: inv.getLoadout().primary.ammoInMag, blocks: imp.blocksWeapons };
   });
@@ -546,13 +557,13 @@ try {
   await waitSim(0.3);
   const shotR = await page.evaluate(() => {
     const ctx = window.__game.ctx; const inv = ctx.inventory;
-    const r = { mag: inv.getLoadout().primary.ammoInMag, calls: window.__dmgCalls.slice(), losEvents: window.__ev['implant:barrierHit'].length - window.__barrierEv };
+    const r = { mag: inv.getLoadout().primary.ammoInMag, calls: window.__dmgCalls.slice(), losEvents: window.__ev['implant:barrierHit'].length - window.__barrierEv, hits: window.__hitLog.slice() };
     window.__restoreBarrier();
     return r;
   });
   const shots = shot0.mag - shotR.mag;
   ok(shots >= 1, `burst fired ${shots} rounds into the stubbed barrier`);
-  ok(shotR.calls.length === shots && shotR.calls.every((c) => c[0] === 'local'), `each resolved hit calls damageBarrier('local', point) exactly once (${shots} shots → ${shotR.calls.length} calls)`, JSON.stringify(shotR.calls.slice(0, 3)));
+  ok(shotR.calls.length === shots && shotR.calls.every((c) => c[0] === 'local'), `each resolved hit calls damageBarrier('local', point) exactly once (${shots} shots → ${shotR.calls.length} calls)`, JSON.stringify({ calls: shotR.calls.slice(0, 3), hits: shotR.hits }));
   ok(shotR.losEvents === 0, 'the raycasts themselves emitted no implant:barrierHit (damage is routed explicitly)');
 
   console.log('status attacker (Phase 9)');
@@ -738,6 +749,156 @@ try {
   ok((await page.evaluate(() => window.__shots.rep.length)) === 0, 'a visual-only projectile replica reports nothing');
   await page.evaluate(() => { const ctx = window.__game.ctx; ctx.enemies.reportShot = window.__origRep; if (window.__farRemove) window.__farRemove(); const inv = ctx.inventory; if (window.__arUid) inv.equip(window.__arUid, 'primary'); if (window.__srUid) inv.dropItem(window.__srUid); });
   await waitSim(0.5);
+
+  console.log('하이브리드 사격 판정 · 총구 막힘 표시 · 어깨 전환 (2026-09-12)');
+  // AR in hand, zero spread, full mag; a look line clear for ≥ 25 m. Probe cylinders are world obstacles dropped on the
+  // crosshair / gun lines computed from the live camera + muzzle, so the checks do not depend on the spawn terrain.
+  await tap('Digit1');
+  await waitSim(0.8);
+  const hy0 = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const ws = window.__game.getSystem('weapons'); const rig = window.__game.getSystem('player').rig; const V = ctx.camera.position.constructor;
+    ctx.enemies.killAll(); ctx.player.heal(1000);
+    const w = ws.slots[ws.active];
+    if (!w) return null;
+    w.stats.spread = 0; w.stats.adsSpread = 0; w.inst.ammoInMag = w.stats.magSize;
+    const d = new V(); let best = null;
+    for (let yi = 0; yi < 36; yi++) {
+      const yaw = yi * Math.PI / 18;
+      d.set(-Math.sin(yaw), -0.03, -Math.cos(yaw)).normalize();
+      const r = ctx.world.raycast(ctx.camera.position, d, 60);
+      const dist = r ? r.distance : 60;
+      if (!best || dist > best.dist) best = { yaw, dist };
+      if (!r) break;
+    }
+    rig.yaw = best.yaw; rig.pitch = -0.03;
+    window.__hyEv = { hits: [], blocked: [] };
+    if (!window.__hyBound) {
+      window.__hyBound = true;
+      ctx.bus.on('weapon:hit', (p) => window.__hyEv.hits.push([p.point.x, p.point.y, p.point.z]));
+      ctx.bus.on('weapon:aimBlocked', (p) => window.__hyEv.blocked.push(p.blocked));
+    }
+    // live aim geometry: crosshair ray, muzzle, screen-right, the crosshair line's start at the muzzle depth, the old
+    // muzzle → far-point convergence direction (what the gun did before when the crosshair met nothing)
+    window.__hyGeo = () => {
+      const o = new V(), dd = new V(); ctx.player.getAimRay(o, dd);
+      const wi = ws.slots[ws.active]; wi.model.muzzle.updateWorldMatrix(true, false);
+      const m = new V().setFromMatrixPosition(wi.model.muzzle.matrixWorld);
+      const right = new V(-dd.z, 0, dd.x).normalize();
+      const depth = new V().subVectors(m, o).dot(dd);
+      const p0 = o.clone().addScaledVector(dd, depth);
+      const gunDir = p0.clone().addScaledVector(dd, wi.def.range - depth).sub(m).normalize();
+      return { o, d: dd, m, right, depth, p0, gunDir };
+    };
+    window.__hyPost = (c, R) => { c.y = ctx.world.getHeightAt(c.x, c.z) - 5; window.__hyRemove = ctx.world.addObstacle({ position: c, radius: R, height: 60 }); };
+    window.__hyState = () => {
+      const p = new V(); const mp = ws.aimMarker.getPoint(p);
+      return { blocked: ws.aimBlocked, marker: ws.aimMarker.isShowing, mp: mp ? [mp.x, mp.z] : null, reticle: document.querySelector('.reticle')?.classList.contains('blocked') ?? null, last: window.__hyEv.blocked[window.__hyEv.blocked.length - 1] ?? null, lineMode: ws.aimLine.mode, shotMode: ws.shot.mode };
+    };
+    return { dist: best.dist };
+  });
+  ok(!!hy0 && hy0.dist >= 18, `a look line clear for ${hy0?.dist?.toFixed(1)} m (the farthest probe post stands 15 m out)`, JSON.stringify(hy0));
+  await mDown(2);            // ADS (AR: no scope) — the body faces the camera, so the muzzle holds still beside the crosshair line
+  await waitSim(1.2);
+  const hyFire = async () => {
+    await page.evaluate(() => { window.__hyEv.hits.length = 0; const ws = window.__game.getSystem('weapons'); const w = ws.slots[ws.active]; w.inst.ammoInMag = w.stats.magSize; });
+    await mDown(0); await waitSim(0.1); await mUp(0);
+    await waitSim(0.4);
+    return page.evaluate(() => ({ hits: window.__hyEv.hits.slice(), mode: window.__game.getSystem('weapons').shot.mode }));
+  };
+  const axisGap = (p, c) => Math.hypot(p[0] - c[0], p[2] - c[1]);
+  const removePost = () => page.evaluate(() => { window.__hyRemove?.(); window.__hyRemove = null; });
+
+  // A. the left drift: a post 15 m out between the crosshair line and the old gun line. The crosshair clears it, so the shot must too.
+  const hyA = await page.evaluate(() => {
+    const V = window.__game.ctx.camera.position.constructor; const g = window.__hyGeo(); const D = 15, R = 0.35;
+    const gunAtD = g.m.clone().addScaledVector(g.gunDir, (D - g.depth) / g.gunDir.dot(g.d));
+    const camAtD = g.o.clone().addScaledVector(g.d, D);
+    const gl = new V().subVectors(gunAtD, camAtD).dot(g.right);
+    const c = camAtD.clone().addScaledVector(g.right, gl / 2 + Math.sign(gl) * R);
+    window.__hyPost(c, R);
+    const cr = window.__game.ctx.world.raycast(g.p0, g.d, D + 1 - g.depth);
+    return { gl, c: [c.x, c.z], R, crosshairMeets: !!cr };
+  });
+  ok(Math.abs(hyA.gl) > 0.1 && !hyA.crosshairMeets, `probe post 15 m out: the old muzzle→far-point line passes ${hyA.gl.toFixed(2)} m beside the crosshair (through the post), the crosshair line clears it`, JSON.stringify(hyA));
+  await waitSim(0.3);
+  const hyA1 = await hyFire();
+  ok(hyA1.hits.every((p) => axisGap(p, hyA.c) > hyA.R + 0.1) && hyA1.mode === 'line', `the shot follows the crosshair line — the post is not hit (mode ${hyA1.mode}, ${hyA1.hits.length} impacts)`, JSON.stringify(hyA1));
+  await removePost();
+
+  // B. a post 1.6 m ahead of the muzzle on the gun line, off the crosshair line: marker + crosshair warning, and the shot hits the post
+  const hyB = await page.evaluate(() => {
+    const V = window.__game.ctx.camera.position.constructor; const g = window.__hyGeo(); const R = 0.12, L = 1.6;
+    const side = Math.sign(new V().subVectors(g.m, g.p0).dot(g.right)) || -1;
+    const c = g.m.clone().addScaledVector(g.gunDir, L).addScaledVector(g.right, side * 0.03);
+    const camAt = g.o.clone().addScaledVector(g.d, new V().subVectors(c, g.o).dot(g.d));
+    const camGap = Math.hypot(camAt.x - c.x, camAt.z - c.z);
+    window.__hyPost(c, R);
+    return { c: [c.x, c.z], R, camGap };
+  });
+  ok(hyB.camGap > hyB.R + 0.05, `probe post 1.6 m ahead of the muzzle, ${hyB.camGap.toFixed(2)} m off the crosshair line`, JSON.stringify(hyB));
+  await waitSim(0.3);
+  const hyB1 = await page.evaluate(() => window.__hyState());
+  ok(hyB1.blocked && hyB1.marker && !!hyB1.mp && Math.hypot(hyB1.mp[0] - hyB.c[0], hyB1.mp[1] - hyB.c[1]) < hyB.R + 0.1 && hyB1.lineMode === 'near',
+    `barrel blocked: red marker on the post (${hyB1.mp ? Math.hypot(hyB1.mp[0] - hyB.c[0], hyB1.mp[1] - hyB.c[1]).toFixed(2) : '—'} m from its axis)`, JSON.stringify(hyB1));
+  ok(hyB1.reticle === true && hyB1.last === true, 'weapon:aimBlocked {blocked: true} → crosshair in the warning colour (.reticle.blocked)', JSON.stringify(hyB1));
+  const hyB2 = await hyFire();
+  ok(hyB2.hits.length >= 1 && hyB2.hits.every((p) => axisGap(p, hyB.c) < hyB.R + 0.08) && hyB2.mode === 'near', `the shot lands on the post where the marker was (${hyB2.hits.length} impacts, mode ${hyB2.mode})`, JSON.stringify(hyB2));
+  await removePost();
+  await waitSim(0.3);
+  const hyB3 = await page.evaluate(() => window.__hyState());
+  ok(!hyB3.blocked && !hyB3.marker && hyB3.reticle === false && hyB3.last === false, 'post removed → marker hidden, weapon:aimBlocked {false}, crosshair back to white', JSON.stringify(hyB3));
+
+  // C. the same post 5 m ahead (beyond WEAPON_MUZZLE_BLOCK_RANGE): not an obstruction, the crosshair line decides
+  const hyC = await page.evaluate(() => {
+    const V = window.__game.ctx.camera.position.constructor; const g = window.__hyGeo(); const R = 0.12, L = 5;
+    const side = Math.sign(new V().subVectors(g.m, g.p0).dot(g.right)) || -1;
+    const c = g.m.clone().addScaledVector(g.gunDir, L).addScaledVector(g.right, side * 0.03);
+    const camAt = g.o.clone().addScaledVector(g.d, new V().subVectors(c, g.o).dot(g.d));
+    window.__hyPost(c, R);
+    return { c: [c.x, c.z], R, camGap: Math.hypot(camAt.x - c.x, camAt.z - c.z), range: window.__game.ctx.camera && 3 };
+  });
+  await waitSim(0.3);
+  const hyC1 = await page.evaluate(() => window.__hyState());
+  const hyC2 = await hyFire();
+  ok(hyC.camGap > hyC.R + 0.05 && !hyC1.blocked && !hyC1.marker && hyC2.hits.every((p) => axisGap(p, hyC.c) > hyC.R + 0.08) && hyC2.mode === 'line',
+    `a post on the gun line 5 m out (> ${hyC.range} m) blocks nothing and shows no marker`, JSON.stringify({ hyC, hyC1, hyC2 }));
+  await removePost();
+
+  // D. aiming straight at a wall 2.6 m ahead of the muzzle: the gun meets the crosshair's own point — no marker
+  await page.evaluate(() => { const g = window.__hyGeo(); window.__hyPost(g.o.clone().addScaledVector(g.d, g.depth + 2.6 + 1.5), 1.5); });
+  await waitSim(0.3);
+  const hyD = await page.evaluate(() => window.__hyState());
+  ok(!hyD.blocked && !hyD.marker && hyD.lineMode === 'near', `crosshair on a wall inside the block range → near hit on the aim point itself, no warning (mode ${hyD.lineMode})`, JSON.stringify(hyD));
+  await removePost();
+
+  // E. projectile launch (unique services): on the crosshair line from the muzzle depth, along the aim
+  await waitSim(0.2);
+  const hyE = await page.evaluate(() => {
+    const ws = window.__game.getSystem('weapons'); const V = window.__game.ctx.camera.position.constructor; const g = window.__hyGeo();
+    const origin = new V(), dir = new V();
+    ws.services.aimShot(ws.slots[ws.active], 120, origin, dir);
+    const t = new V().subVectors(origin, g.o).dot(g.d);
+    return { off: origin.distanceTo(g.o.clone().addScaledVector(g.d, t)), dot: dir.dot(g.d), ahead: t - g.depth };
+  });
+  ok(hyE.off < 0.02 && hyE.dot > 0.9999 && Math.abs(hyE.ahead) < 0.05, `services.aimShot launches on the crosshair line at the muzzle depth (off ${hyE.off.toFixed(3)} m)`, JSON.stringify(hyE));
+  await mUp(2);
+  await waitSim(0.6);
+
+  // F. 어깨 전환 (X): the camera slides to the left shoulder and back
+  const sideNow = () => page.evaluate(() => {
+    const ctx = window.__game.ctx; const rig = window.__game.getSystem('player').rig; const V = ctx.camera.position.constructor;
+    const d = new V(); rig.getLookDir(d); const right = new V(-d.z, 0, d.x).normalize();
+    return { side: rig.shoulderSide, shoulder: rig.shoulder, rel: new V().subVectors(ctx.camera.position, ctx.player.position).dot(right) };
+  });
+  const sh0 = await sideNow();
+  await tap('KeyX'); await waitSim(0.8);
+  const sh1 = await sideNow();
+  await tap('KeyX'); await waitSim(0.8);
+  const sh2 = await sideNow();
+  ok(sh0.side === 1 && sh0.rel > 0.2, `camera starts over the right shoulder (${sh0.rel.toFixed(2)} m right)`, JSON.stringify(sh0));
+  ok(sh1.side === -1 && sh1.shoulder < -0.4 && sh1.rel < -0.2, `X → left shoulder (${sh1.rel.toFixed(2)} m)`, JSON.stringify(sh1));
+  ok(sh2.side === 1 && sh2.shoulder > 0.4 && sh2.rel > 0.2, `X again → right shoulder (${sh2.rel.toFixed(2)} m)`, JSON.stringify(sh2));
+  await waitSim(0.3);
 
   console.log('perks: quick_heal / auto_revive / kill_stamina (Phase 12)');
   const perkOn = await page.evaluate((k) => { const d = window.__game.ctx.progression?.derived; if (!d || !d.perks) return null; d.perks[k] = true; return d.perks[k]; }, 'quick_heal');

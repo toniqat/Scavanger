@@ -99,13 +99,23 @@ export function buildServices(sys: WeaponSystem): UniqueServices {
     },
     aimTarget(range, out) {
       const host = sys.getHost();
+      const w = sys.slots[sys.active];
       if (!host) { out.set(0, 0, 0); return; }
       host.getAimRay(_o, _d);
-      _tmp.copy(host.position); _tmp.y += 1.5;
-      const camToPlayer = _tmp.distanceTo(_o) + 0.4;
-      sys.raycastAll(_o, _d, range, sys.uniqueHit);
-      if (sys.uniqueHit.valid && sys.uniqueHit.distance < camToPlayer) sys.uniqueHit.valid = false;
-      if (sys.uniqueHit.valid) out.copy(sys.uniqueHit.point); else out.copy(_o).addScaledVector(_d, range);
+      // 2026-09-12: the crosshair point of the hybrid resolver (`parts/AimLine`) — from the muzzle's depth on
+      if (w) { w.model.muzzle.updateWorldMatrix(true, false); _muzzle.setFromMatrixPosition(w.model.muzzle.matrixWorld); } else _muzzle.copy(host.position);
+      sys.aim.begin(host, _muzzle, _o, _d);
+      out.copy(sys.aim.resolve(_d, range, sys.uniqueShot).target);
+    },
+    aimShot(w, range, origin, dir) {
+      w.model.muzzle.updateWorldMatrix(true, false);
+      _muzzle.setFromMatrixPosition(w.model.muzzle.matrixWorld);
+      const host = sys.getHost();
+      if (!host) { origin.copy(_muzzle); dir.set(0, 0, -1); return; }
+      host.getAimRay(_o, _d);
+      sys.aim.begin(host, _muzzle, _o, _d);
+      const shot = sys.aim.resolve(_d, range, sys.uniqueShot);
+      origin.copy(shot.origin); dir.copy(shot.dir);
     },
     hitscan(w, spread, damage, range, tracerWidth, out: UniqueShot) {
       const wi = w as WeaponInstance;
@@ -115,25 +125,18 @@ export function buildServices(sys: WeaponSystem): UniqueServices {
       host.getAimRay(_o, _d);
       wi.model.muzzle.updateWorldMatrix(true, false);
       _muzzle.setFromMatrixPosition(wi.model.muzzle.matrixWorld);
-      _tmp.copy(host.position); _tmp.y += 1.5;
-      const camToPlayer = _tmp.distanceTo(_o) + 0.4;
       randomInCone(_d, spread, _pd, _tA, _tB);
-      sys.raycastAll(_o, _pd, range, sys.camHit);
-      if (sys.camHit.valid && sys.camHit.distance < camToPlayer) sys.camHit.valid = false;
-      if (sys.camHit.valid) _target.copy(sys.camHit.point); else _target.copy(_o).addScaledVector(_pd, range);
-      _md.subVectors(_target, _muzzle);
-      const mdist = _md.length();
-      if (mdist < 1e-3) { out.end.copy(_target); return; }
-      _md.divideScalar(mdist);
-      sys.raycastAll(_muzzle, _md, mdist + 0.05, sys.gunHit);
-      const hit = sys.gunHit.valid ? sys.gunHit : (sys.camHit.valid ? sys.camHit : null);
-      out.end.copy(hit ? hit.point : _target);
+      // 2026-09-12: hybrid judgement, same as `fire()` (`parts/AimLine`)
+      sys.aim.begin(host, _muzzle, _o, _d);
+      const shot = sys.aim.resolve(_pd, range, sys.uniqueShot);
+      const hit = shot.hit;
+      out.end.copy(shot.end);
       ctx.enemies?.reportShot(_o, _d, range, hit ? hit.point : null);   // Phase 12 총알 추적
       const fxm = FxManager.get();
       if (fxm) fxm.tracers.add(_muzzle, out.end, wi.def.tracerColor, tracerWidth, _muzzle.distanceTo(out.end) / 600 + 0.06, 600);
       if (!hit) return;
-      const dmg = damage * damageFalloff(wi.def, _muzzle.distanceTo(hit.point));
-      const killed = sys.applyHit(hit, dmg, _md, false, wi.stats.ammoType);
+      const dmg = damage * damageFalloff(wi.def, shot.origin.distanceTo(hit.point));
+      const killed = sys.applyHit(hit, dmg, shot.dir, false, wi.stats.ammoType);
       out.hit = true; out.enemy = !!hit.enemy; out.killed = killed;
       if (hit.enemy) ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: hit.headshot });
     },

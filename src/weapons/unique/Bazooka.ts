@@ -6,7 +6,7 @@ import {
 import type { ProjectileHit } from '../Projectile';
 import type { UniqueHandler, UniqueInput, UniquePose, UniqueServices, UniqueWeapon } from './UniqueHandler';
 
-const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _d = new THREE.Vector3(), _centre = new THREE.Vector3();
+const _muzzle = new THREE.Vector3(), _launch = new THREE.Vector3(), _d = new THREE.Vector3(), _centre = new THREE.Vector3();
 const _away = new THREE.Vector3(), _imp = new THREE.Vector3(), _blast = new THREE.Vector3();
 /** Blast damage falloff floor for destructible cover at the edge of the radius. */
 const COVER_MIN = 0.3;
@@ -53,11 +53,10 @@ export class Bazooka implements UniqueHandler {
   private launch(w: UniqueWeapon, alt: boolean): void {
     const s = this.s;
     s.muzzle(w, _muzzle);
-    s.aimTarget(w.def.range, _target);
-    _d.subVectors(_target, _muzzle);
-    if (_d.lengthSq() < 1e-6) s.aimRay(_target, _d); else _d.normalize();
+    // 2026-09-12: launch on the crosshair line unless the barrel is blocked (`aimShot`, hybrid judgement)
+    s.aimShot(w, w.def.range, _launch, _d);
     const dmg = alt ? (w.def.altDamage ?? BAZOOKA_ALT_DAMAGE) : (w.stats.damage || BAZOOKA_DAMAGE);
-    s.projectiles.fire(_muzzle, _d, w.def.projectileSpeed ?? BAZOOKA_SPEED, dmg, w.def.range, w.def.tracerColor, w.def.id, false,
+    s.projectiles.fire(_launch, _d, w.def.projectileSpeed ?? BAZOOKA_SPEED, dmg, w.def.range, w.def.tracerColor, w.def.id, false,
       { style: 'rocket', gravityMul: 0.02, tag: alt ? 1 : 0, fuse: alt ? BAZOOKA_ALT_FUSE : undefined });
     s.fx.muzzleFlash(_muzzle, _d, 0xffb060, 2.2);
     w.model.kick(3);

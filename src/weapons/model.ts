@@ -128,12 +128,12 @@ export const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md =
 /** Phase 12: impact point handed to `ctx.enemies.reportShot` (scratch). */
 export const _rep = new THREE.Vector3();
 export const _netDir = new THREE.Vector3();
-/**
- * 2026-09-08 (스코프 탄도) — where a scoped shot actually leaves from: the model muzzle projected onto the aim ray,
- * so the bullet rides the crosshair line instead of converging onto it from the left. See `parts/Firing.fire`.
- */
-export const _shotO = new THREE.Vector3();
 export const _mq = new THREE.Quaternion();
+/**
+ * 2026-09-12 (하이브리드 판정): a near-muzzle hit closer than this to the crosshair point is the crosshair's own target
+ * (aiming at a wall 2 m ahead), not an obstruction — no red marker, no crosshair warning. A tolerance, not a balance value.
+ */
+export const AIM_BLOCK_SAME_EPS = 0.25;
 export const _block = new THREE.Vector3();
 export const _blockInfo = makeBlockInfo();
 

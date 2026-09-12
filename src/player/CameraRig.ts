@@ -52,7 +52,8 @@ const _q = new THREE.Quaternion(), _qShake = new THREE.Quaternion(), _overrideQ 
 const _m = new THREE.Matrix4(), _up = new THREE.Vector3(0, 1, 0);
 
 /**
- * Over-the-right-shoulder third-person rig with spring-damped follow, terrain / interior collision,
+ * Over-the-shoulder third-person rig (right shoulder by default — `toggleShoulder` swaps sides, 2026-09-12) with
+ * spring-damped follow, terrain / interior collision,
  * sprint/aim FOV (weapon-driven zoom), recoil and trauma-based screen shake. Also supports a
  * cutscene override pose (hellpod drop, hub docking / launch) that blends back to the rig.
  *
@@ -97,6 +98,12 @@ export class CameraRig {
   private readonly pivot = new THREE.Vector3();
   private pivotInit = false;
   private shoulder = HIP_SHOULDER;
+  /**
+   * 2026-09-12 어깨 전환 (`Keys.SHOULDER`): +1 = 오른쪽 어깨 (기본), −1 = 왼쪽. 거리 · 충돌 · 조준 원점은 전부 부호가 붙은
+   * `shoulder` 하나를 보므로 이 값만 뒤집으면 된다 — 옮겨 가는 동안은 평소 어깨 감쇠(damp 10)로 부드럽게 넘어간다.
+   * 병사 모델은 뒤집지 않는다 (총은 여전히 오른손에 있다). 사격 판정은 크로스헤어 선이라 어느 쪽이든 같다 (`weapons/parts/AimLine`).
+   */
+  shoulderSide: 1 | -1 = 1;
   private collisionDist = 10;
   private rearRise = 0;
   private pivotDist = HIP_DIST;
@@ -148,6 +155,9 @@ export class CameraRig {
     this.pitch = THREE.MathUtils.clamp(this.pitch + pitch * 0.35, this.pitchMin, PITCH_MAX);
     this.yaw += yaw * 0.35;
   }
+
+  /** 2026-09-12: swap the camera to the other shoulder (the move itself is damped in `update`). */
+  toggleShoulder(): void { this.shoulderSide = this.shoulderSide === 1 ? -1 : 1; }
 
   /** Weapon-driven ADS zoom. zoom ≤ 1 → default ADS (base − 20°); zoom > 1 → base / zoom. */
   setAimZoom(zoom: number, scope: boolean): void {
@@ -202,7 +212,10 @@ export class CameraRig {
     this.rearRise = 0;
     this.pitchMin = PITCH_MIN;
     // place the camera behind the pivot right away so the first frame doesn't lerp from the old spot
-    _pivotS.set(pivot.x + Math.cos(yaw) * HIP_SHOULDER, pivot.y, pivot.z - Math.sin(yaw) * HIP_SHOULDER);
+    // (2026-09-12: on the shoulder the player picked — a respawn keeps the side)
+    const sh = HIP_SHOULDER * this.shoulderSide;
+    this.shoulder = sh;
+    _pivotS.set(pivot.x + Math.cos(yaw) * sh, pivot.y, pivot.z - Math.sin(yaw) * sh);
     this.position.set(_pivotS.x + Math.sin(yaw) * HIP_DIST, _pivotS.y + 0.38, _pivotS.z + Math.cos(yaw) * HIP_DIST);
   }
 
@@ -289,9 +302,9 @@ export class CameraRig {
     const hipDist = HIP_DIST + 0.35 * inp.sprint - 0.25 * inp.crouch - 0.5 * inp.prone + 0.3 * inp.dive;
     const adsDist = this.scoped ? SCOPE_DIST : ADS_DIST;
     const wantDist = inp.dead ? 4.5 : THREE.MathUtils.lerp(hipDist, adsDist, inp.aim);
-    const shoulder = THREE.MathUtils.lerp(HIP_SHOULDER, this.scoped ? SCOPE_SHOULDER : ADS_SHOULDER, inp.aim);
+    const shoulder = THREE.MathUtils.lerp(HIP_SHOULDER, this.scoped ? SCOPE_SHOULDER : ADS_SHOULDER, inp.aim) * this.shoulderSide;
     this.shoulder = damp(this.shoulder, shoulder, 10, dt);
-    // pivot pushed to the shoulder side so the character sits left of the reticle
+    // pivot pushed to the shoulder side so the character sits beside the reticle (left of it on the default right shoulder)
     _pivotS.copy(this.pivot).addScaledVector(_right, this.shoulder);
     _dir.copy(_fwd).negate();
     // while prone the pivot is 0.45 m off the ground, so the world ray starts a little higher and

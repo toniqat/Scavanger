@@ -11,7 +11,7 @@ const DEG = Math.PI / 180;
 const SLASH_WINDUP = 0.18;
 const SLASH_MAX_TARGETS = 12;
 const _up = new THREE.Vector3(0, 1, 0);
-const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _d = new THREE.Vector3(), _fan = new THREE.Vector3();
+const _muzzle = new THREE.Vector3(), _launch = new THREE.Vector3(), _d = new THREE.Vector3(), _fan = new THREE.Vector3();
 const _origin = new THREE.Vector3(), _fwd = new THREE.Vector3(), _to = new THREE.Vector3(), _c = new THREE.Vector3(), _swing = new THREE.Vector3();
 
 function toTuple(v: THREE.Vector3): Vec3Tuple {
@@ -101,19 +101,17 @@ export class Shuriken implements UniqueHandler {
     }
   }
 
-  /** `n` stars from the muzzle toward the reticle target: 1 straight, 3 fanned horizontally. */
+  /** `n` stars along the shot line (`aimShot` — crosshair line unless the hand is blocked): 1 straight, 3 fanned horizontally. */
   private throwStars(w: UniqueWeapon, n: number): void {
     const s = this.s;
     s.muzzle(w, _muzzle);
-    s.aimTarget(w.def.range, _target);
-    _d.subVectors(_target, _muzzle);
-    if (_d.lengthSq() < 1e-6) s.aimRay(_target, _d); else _d.normalize();
+    s.aimShot(w, w.def.range, _launch, _d);
     const dmg = w.stats.damage || SHURIKEN_DAMAGE;
     const speed = w.def.projectileSpeed ?? SHURIKEN_SPEED;
     for (let i = 0; i < n; i++) {
       const ang = n === 1 ? 0 : (i - (n - 1) / 2) * SHURIKEN_TRIPLE_SPREAD_DEG * DEG;
       _fan.copy(_d).applyAxisAngle(_up, ang);
-      s.projectiles.fire(_muzzle, _fan, speed, dmg, w.def.range, w.def.tracerColor, w.def.id, false, { style: 'shuriken', gravityMul: 0.08 });
+      s.projectiles.fire(_launch, _fan, speed, dmg, w.def.range, w.def.tracerColor, w.def.id, false, { style: 'shuriken', gravityMul: 0.08 });
     }
     w.model.kick(0.6);
     s.recoil(w.stats.recoilV, (Math.random() - 0.5) * w.stats.recoilH);

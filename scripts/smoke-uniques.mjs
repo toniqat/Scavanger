@@ -338,13 +338,24 @@ try {
   await look(0, 3000);
   await waitSim(0.05);
   const air = await P(() => ({ grounded: window.__game.ctx.player.isGrounded, vy: window.__game.ctx.player.velocity.y, pitch: window.__game.ctx.player.pitch }));
+  // 2026-09-12: where the rocket left (hybrid resolver) and where it went off — printed when the jump check fails
+  await P(() => {
+    const ws = window.__game.getSystem('weapons'); const r2 = (v) => [v.x, v.y, v.z].map((n) => +n.toFixed(2));
+    window.__origPH = window.__origPH ?? ws.onProjectileHit.bind(ws); window.__phLog = [];
+    ws.onProjectileHit = (h, dmg, id) => { const p = window.__game.ctx.player; window.__phLog.push({ pt: r2(h.point), fused: h.fused, enemy: !!h.enemy, obstacle: h.obstacle, dist: +h.distance.toFixed(2), feet: r2(p.position), grounded: p.isGrounded }); return window.__origPH(h, dmg, id); };
+  });
   await click(2);
   await waitSim(0.6);
-  const jump = await P(() => ({ alt: window.__ev['weapon:altFired'].length, blast: window.__ev['player:blastJump'], hp: window.__game.ctx.player.hp, vy: window.__game.ctx.player.velocity.y, grounded: window.__game.ctx.player.isGrounded, hits: window.__ev['weapon:hit'] }));
+  const jump = await P(() => {
+    const ws = window.__game.getSystem('weapons'); const s = ws.uniqueShot; const r2 = (v) => [v.x, v.y, v.z].map((n) => +n.toFixed(2));
+    ws.onProjectileHit = window.__origPH;
+    return { alt: window.__ev['weapon:altFired'].length, blast: window.__ev['player:blastJump'], hp: window.__game.ctx.player.hp, vy: window.__game.ctx.player.velocity.y, grounded: window.__game.ctx.player.isGrounded, hits: window.__ev['weapon:hit'],
+      dbg: { mode: s.mode, origin: r2(s.origin), dir: r2(s.dir), target: r2(s.target), ph: window.__phLog.slice() } };
+  });
   ok(!air.grounded && air.pitch < -0.6, `airborne and looking down before the shot (pitch ${air.pitch?.toFixed(2)})`, JSON.stringify(air));
   ok(jump.alt === 1, 'RMB rocket → weapon:altFired');
   ok(!jump.grounded, 'still airborne when the rocket went off (the condition the super jump needs)', JSON.stringify({ vy: jump.vy, grounded: jump.grounded }));
-  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 17, 'player:blastJump with BAZOOKA_SUPER_JUMP', JSON.stringify(jump.blast));
+  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 17, 'player:blastJump with BAZOOKA_SUPER_JUMP', JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
   ok(jump.hp <= hpJump - 22 + 0.01, `self damage 22 (hp ${hpJump} → ${jump.hp})`);
   ok(jump.vy > air.vy + 5, `velocity.y raised by the blast (${air.vy.toFixed(1)} → ${jump.vy.toFixed(1)})`);
   await P(() => { window.__game.ctx.timeScale = 1; });

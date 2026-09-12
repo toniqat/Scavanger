@@ -17,6 +17,7 @@ import { attachmentVisualsFor, attachmentIdsOf, sameIds } from './Attachments';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
 import { ThrowArc } from './fx/ThrowArc';
+import { AimBlockMarker } from './fx/AimBlockMarker';
 import { ProjectilePool, projectileOptsFor, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
 import { MeleeController } from './Melee';
@@ -32,6 +33,7 @@ import * as Quick from './parts/QuickUse';
 import * as Heal from './parts/Healing';
 import * as Throw from './parts/Throwing';
 import * as Svc from './parts/Services';
+import * as Aim from './parts/AimLine';
 
 export class WeaponSystem implements GameSystem {
   readonly name = 'weapons';
@@ -146,6 +148,17 @@ export class WeaponSystem implements GameSystem {
 
   readonly camHit = makeHit();
   readonly gunHit = makeHit();
+  /**
+   * 2026-09-12 하이브리드 판정 (`parts/AimLine`): one resolver shared by `fire()`, the unique services and the 총구 막힘
+   * marker, plus their scratch lines (`shot` = fire, `aimLine` = marker, `uniqueShot` = services).
+   */
+  readonly aim = new Aim.ShotResolver(this);
+  readonly shot = Aim.makeShotLine();
+  readonly aimLine = Aim.makeShotLine();
+  /** Red ring on the surface the barrel meets (`fx/AimBlockMarker`). */
+  aimMarker!: AimBlockMarker;
+  /** Last `weapon:aimBlocked` sent. */
+  aimBlocked = false;
   private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false, altFire: false };
   /**
    * Phase 7: what the snapshot builder (net/) reads every tick — one object updated in place at the end of `update`.
@@ -166,6 +179,8 @@ export class WeaponSystem implements GameSystem {
     this.fx = new WeaponFx(ctx.scene);
     this.grenades = new GrenadeManager(ctx, this.fx);
     this.throwArc = new ThrowArc(ctx);
+    // 2026-09-12: in the scene (hidden) from the start so the core shader warm-up compiles it with everything else
+    this.aimMarker = new AimBlockMarker(ctx.scene);
     // Phase 3: live grenade positions for the HUD's off-screen indicators
     ctx.weapons = {
       getGrenades: () => this.grenades.getViews(),
@@ -258,7 +273,7 @@ export class WeaponSystem implements GameSystem {
 
     this.ensureNet();
     const host = this.getHost();
-    if (!host) { this.melee.cancel(); this.throwArc.hide(); return; }
+    if (!host) { this.melee.cancel(); this.throwArc.hide(); this.setAimBlocked(false); return; }
 
     // ── holster outside gameplay (hub / docking / menu) or while a wielded implant is in the hands (tactical kit):
     //    model hidden, unarmed pose, neutral zoom. The implant case must NOT wipe grenades / projectiles.
@@ -411,7 +426,14 @@ export class WeaponSystem implements GameSystem {
     host.setWeaponState(ws);
     this.updateRemoteState(armed ? weapon : null);
     this.updateThrowArc(host);
+    this.updateAimBlock(host, weapon, armedAndFree);
   }
+
+  /** 2026-09-12 총구 막힘: red ring where the barrel really hits + `weapon:aimBlocked` (`parts/AimLine`, same resolver as `fire()`). */
+  private updateAimBlock(host: Host, weapon: WeaponInstance | null, armedAndFree: boolean): void { return Aim.updateAimBlock(this, host, weapon, armedAndFree); }
+
+  /** Marker off when clear; `weapon:aimBlocked` only on change. */
+  setAimBlocked(blocked: boolean): void { return Aim.setAimBlocked(this, blocked); }
 
   /**
    * 투척 궤적 (2026-09-08). While a grenade or a throwable gadget is in the hand, re-simulate the throw that LMB
@@ -492,7 +514,7 @@ export class WeaponSystem implements GameSystem {
     for (const u of this.netUnsub) u();
     this.netUnsub.length = 0;
     for (const s of WEAPON_SLOTS) this.setSlot(s, null);
-    this.remote.dispose(); this.fx.dispose(); this.ufx.dispose(); this.grenades.dispose(); this.projectiles.dispose(); this.throwArc.dispose();
+    this.remote.dispose(); this.fx.dispose(); this.ufx.dispose(); this.grenades.dispose(); this.projectiles.dispose(); this.throwArc.dispose(); this.aimMarker.dispose();
   }
 
   /* ─────────────────────────── loadout ─────────────────────────── */
@@ -799,6 +821,7 @@ export class WeaponSystem implements GameSystem {
   private resetTransient(): void {
     this.melee.cancel();
     this.throwArc.hide();
+    this.setAimBlocked(false);
     for (const s of WEAPON_SLOTS) this.slots[s]?.unique?.reset();
     this.grenades.clear();
     this.projectiles.clear();
@@ -819,6 +842,8 @@ export class WeaponSystem implements GameSystem {
 
   /* ─────────────────────────── Phase 6: unique weapon services ─────────────────────────── */
   readonly uniqueHit = makeHit();
+  /** 2026-09-12: scratch line for the services' `aimTarget` / `aimShot` / `hitscan` (hybrid resolver). */
+  readonly uniqueShot = Aim.makeShotLine();
 
   /**
    * The narrow API a `UniqueHandler` gets. Ammo / durability stay on the shared item instance and go through

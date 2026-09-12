@@ -1057,3 +1057,10 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
 - `render.ts`: **`OutlineRef` / `OutlineChannel`** + `GameContext.outline` (화면 공간 외곽선, 구현 `core/`).
 - `constants.ts`: `HOUSING_MOVE_HOLD_S` (0.5). 데이터: `SHIP_ROOM_COUNT` 10 → **8**, `RANGE_SKILL_GAIN_PER_LEVEL` 은퇴 표기,
   `furniture.csv` 관물대 · 표적 레인 · 시뮬레이션 허브 `retired=1` + `furn_implant_bay` · `furn_corp_computer`, `room_purposes.csv` `cockpit` 줄.
+
+### 2026-09-12 — 하이브리드 사격 판정 · 총구 막힘 표시 · 어깨 전환 (사용자 결정, 추가만)
+- `events.ts`: **`weapon:aimBlocked {blocked}`** (owner: weapons/parts/AimLine) — 총구가 앞 `WEAPON_MUZZLE_BLOCK_RANGE` m 안의 벽 ·
+  창틀 · 엄폐물에 걸려 크로스헤어대로 나가지 않는다. 바뀔 때만 나가고 `ui/hud/Reticle` 이 크로스헤어를 빨갛게 칠한다.
+- `constants.ts`: **`WEAPON_MUZZLE_BLOCK_RANGE`** (`data/constants.csv`, 3 m). `KeyBindings.SHOULDER` + `DEFAULT_KEYS.SHOULDER = 'KeyX'`
+  (어깨 전환, owner: player/CameraRig). X 는 `DROP_ITEM`(인벤토리 범위)과 겹치지만 범위가 달라 충돌이 아니다.
+- `Keybinds.ts`: `KEY_ACTION_DEFS` 에 `SHOULDER` 줄(`전투` 그룹, `game` 범위) — 설정 · 키 설정 화면이 자동으로 따라간다.

@@ -62,13 +62,19 @@ export interface UniqueServices {
   /** Camera aim ray (reticle). */
   aimRay(origin: THREE.Vector3, dir: THREE.Vector3): void;
   /**
-   * The point the reticle is on (nearest enemy / world hit along the camera ray up to `range`, ignoring the
-   * gap between the camera and the player), else the far point. Projectiles fly from the muzzle toward it.
+   * The point the reticle is on (nearest enemy / world hit along the crosshair line up to `range`, starting at the
+   * muzzle's depth), else the far point.
    */
   aimTarget(range: number, out: THREE.Vector3): void;
   /**
-   * One standard hitscan shot: camera ray + `spread` → target, re-cast from the muzzle, tracer, impact FX,
-   * `applyHit` (damage × falloff of the def, armour / interception rules), hitmarker. No ammo, no recoil, no net.
+   * 2026-09-12 (하이브리드 판정, `parts/AimLine`): where a projectile of the weapon in hand leaves and which way it
+   * flies — on the crosshair line from the muzzle's depth, or from the muzzle toward what blocks the barrel in its
+   * first `WEAPON_MUZZLE_BLOCK_RANGE` m. Projectile uniques launch with exactly this (muzzle flash stays on `muzzle`).
+   */
+  aimShot(w: UniqueWeapon, range: number, origin: THREE.Vector3, dir: THREE.Vector3): void;
+  /**
+   * One standard hitscan shot: crosshair ray + `spread`, judged by the hybrid resolver like `fire()`, tracer from the
+   * muzzle, impact FX, `applyHit` (damage × falloff of the def, armour / interception rules), hitmarker. No ammo, no recoil, no net.
    */
   hitscan(w: UniqueWeapon, spread: number, damage: number, range: number, tracerWidth: number, out: UniqueShot): void;
   /** The whole regular `fire()` path (ammo, durability, stance spread, recoil, FX, `weapon:fired`, net). */

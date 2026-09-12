@@ -66,6 +66,8 @@ export interface KeyBindings {
   CURSOR: string;
   /* appended (2026-09-09): H 홀드 = 의사소통 휠. 톡 누르면 아무 일도 없다 (STIM 이 은퇴하며 비운 자리다). */
   COMMS: string;
+  /* appended (2026-09-12): 어깨 전환 — 3인칭 카메라를 왼쪽 / 오른쪽 어깨로 옮긴다 (owner: player/CameraRig). */
+  SHOULDER: string;
 }
 
 /** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
@@ -102,6 +104,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   CURSOR: 'AltLeft',
   /* 2026-09-09: 의사소통 휠. 은퇴한 STIM 과 같은 H 를 쓴다 — 그 키는 아무 데도 안 걸려 있었다. */
   COMMS: 'KeyH',
+  /* 2026-09-12: 어깨 전환. X 는 인벤토리(DROP_ITEM) · 시설 관리(회수)에서도 쓰지만 그 둘은 커서 화면이라 범위가 겹치지 않는다. */
+  SHOULDER: 'KeyX',
 };
 
 /**
@@ -1562,3 +1566,11 @@ export const POUCH_SLOTS = K.num('POUCH_SLOTS');
  * — 호스트가 스냅샷 거리로 검사한다 (`shared/buffRules` 의 거리 가드와 같은 결).
  */
 export const MEAL_SERVE_RANGE = K.num('MEAL_SERVE_RANGE');
+
+/* ── 2026-09-12: 하이브리드 사격 판정 (owner: weapons/parts/AimLine) ── */
+/**
+ * 총구 앞 몇 m 안의 장애물까지 "총구가 막혔다" 로 보는가. 이 안에서 총구 선에 걸리면 총알은 거기에 맞고
+ * (벽에 빨간 원 · 크로스헤어 경고색), 그보다 먼 것은 크로스헤어 선이 판정한다 — 먼 바위 모서리에 조준하지 않은 총알이
+ * 왼쪽으로 박히던 것을 없앤다.
+ */
+export const WEAPON_MUZZLE_BLOCK_RANGE = K.num('WEAPON_MUZZLE_BLOCK_RANGE');

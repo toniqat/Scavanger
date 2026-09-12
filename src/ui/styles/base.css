@@ -213,7 +213,11 @@ input { font: inherit; color: inherit; }
 .reticle .hitmarker.head.show { transform: scale(1.6); }
 /* 소모품 모드 (2026-09-09, hud/Reticle): a grenade / gadget / 회복 소모품 in hand → dot only, the four ticks fade out,
    and a small mono readout sits to the **right** of the dot (`×3`, or `×1 · 62%` for a 회복 스프레이 gauge). */
-.reticle .tick { transition: opacity var(--t-fast) var(--ease); }
+.reticle .tick { transition: opacity var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
+/* 2026-09-12 — 총구 막힘 (hud/Reticle ← `weapon:aimBlocked`): 총구가 앞의 벽 · 창틀에 걸려 크로스헤어대로 나가지 않는다.
+   벽에 뜨는 빨간 원(weapons/fx/AimBlockMarker)과 같은 색이다. */
+.reticle .dot { transition: background-color var(--t-fast) var(--ease); }
+.reticle.blocked .tick, .reticle.blocked .dot { background: var(--c-danger); box-shadow: 0 0 3px rgba(0, 0, 0, 0.95); }
 .reticle.consumable .tick { opacity: 0; }
 .reticle.consumable .dot { width: 3px; height: 3px; left: -1.5px; top: -1.5px; }
 .reticle .qinfo {

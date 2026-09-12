@@ -844,6 +844,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // 2026-09-11: the drone view owns the mouse too — its own flag, so it never releases the quick wheel's `lookLocked`
     // 2026-09-12: a furniture pose with a fixed camera owns the view too (the rocking chair keeps free look)
     if (active && locked && !this.lookLocked && !this._droneControl && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    // 2026-09-12 어깨 전환 (`Keys.SHOULDER`, 기본 X): 카메라를 반대쪽 어깨로 — 옮기는 것은 CameraRig 의 감쇠다. 커서 화면
+    // (인벤토리의 X = 버리기 · 시설 관리의 X = 회수)은 `active` / `locked` 에서 이미 빠진다. 드론 시점 · 고정 카메라 자세는 제외.
+    if (active && locked && !this._droneControl && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
     // 2026-09-08: the aim origin for this frame's shots is where the camera *will* be after `lateUpdate` for the look
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
     // with the real position once the rig has moved.

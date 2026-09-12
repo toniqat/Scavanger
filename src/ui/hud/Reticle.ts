@@ -39,6 +39,10 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
  * 하나가 유일한 근거이고 (= `castGrapple` 이 보는 `grappleTargetValid` 와 같은 값), 여기서는 레이캐스트를
  * 한 번도 쏘지 않는다. 임플란트 쿨타임 · 충전 수는 이 칩에 없다 — 그것은 전부 화면 중앙 하단의
  * `hud/ImplantWidget` 썸네일로 내려갔다.
+ *
+ * **총구 막힘 (2026-09-12):** 총구가 앞 몇 m 안의 벽 · 창틀 · 엄폐물에 걸려 크로스헤어대로 나가지 않을 때 점과 틱이
+ * 빨갛게 바뀐다 (`.reticle.blocked`). 근거는 weapons/ 의 **`weapon:aimBlocked {blocked}`** 하나 — 벽의 빨간 원과 실제
+ * 사격이 쓰는 같은 판정(`weapons/parts/AimLine`)이다.
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -146,8 +150,10 @@ export class Reticle {
       onKeybindsChanged(() => setText(this.grapKey, keyLabel(Keys.IMPLANT))),
       b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); this.lastHookKey = ''; this.syncHook(); }),
       b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
-      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); }),
-      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); }),
+      // 2026-09-12 총구 막힘: weapons/ 가 빨간 원을 띄우는 바로 그 판정 — 여기서는 레이캐스트를 쏘지 않고 색만 바꾼다
+      b.on('weapon:aimBlocked', ({ blocked }) => toggleClass(this.root, 'blocked', blocked)),
+      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
+      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
     );
   }
 
@@ -223,6 +229,9 @@ export class Reticle {
     this.lastQuickText = text;
     setText(this.qinfo, text);
   }
+
+  /** 2026-09-12: the crosshair is in its 총구 막힘 warning colour (`weapon:aimBlocked`) (debug / smoke). */
+  get isBlocked(): boolean { return this.root.classList.contains('blocked'); }
 
   /** Whether the reticle is in 소모품 모드 (dot only + count) (debug / smoke). */
   get isConsumable(): boolean { return this.quickItem !== null; }

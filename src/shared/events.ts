@@ -1199,3 +1199,13 @@ export interface GameEvents {
   /** (owner: net) 분대원 `id` 의 버프 목록이 바뀌었다 (`RemotePlayerRef.buffs` 와 같은 배열). ui 의 분대 목록이 듣는다. */
   'net:remoteBuffsChanged': { id: PeerId; buffs: readonly CharBuff[] };
 }
+
+/* ══ appended: 2026-09-12 — 하이브리드 사격 판정 · 총구 막힘 표시 ══ */
+export interface GameEvents {
+  /**
+   * (owner: weapons/parts/AimLine) 총구가 앞 `WEAPON_MUZZLE_BLOCK_RANGE` m 안의 벽 · 창틀 · 엄폐물에 걸려 크로스헤어대로
+   * 나가지 않는다(`true`) / 다시 트였다(`false`). 바뀔 때만 나간다. 벽의 빨간 원(weapons)과 크로스헤어 경고색
+   * (ui/hud/Reticle)이 같은 판정을 본다 — 실제 사격도 그 판정 그대로 맞는다.
+   */
+  'weapon:aimBlocked': { blocked: boolean };
+}
