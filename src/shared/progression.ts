@@ -370,3 +370,71 @@ export interface ProgressionRef {
    */
   serveMeal(defId: string): void;
 }
+
+/* ══ appended (2026-09-12, A-3a): 헬스장 — 단련 보너스 · 운동 디버프 (사용자 결정: 스탯 포인트와 따로 센다) ═══════════════
+ *
+ * 운동 기구 미니게임을 끝내면 housing 이 `applyGymSession(stat, 점수)` 를 부른다. 점수(0 … 1)가 **단련 경험치**
+ * (`round(GYM_SESSION_XP × 점수)`)가 되고, 경험치가 `trainedXpToNext` 를 넘으면 그 능력치의 **단련 보너스** `trained[stat]` 가
+ * +1 이다 (상한 `GYM_TRAINED_MAX`, 넘친 경험치는 다음 단계로 이월, 상한이면 진행도 1).
+ *
+ * 단련 보너스는 스탯 포인트(`stats`)와 섞이지 않는다 — `getStat` 은 여전히 기본값이고, 임플란트 보너스처럼 `derived` 를
+ * 계산하기 직전에 더해지며(`getStatWithImplants` = 기본 + 임플란트 + 단련, 「`derived` 가 계산되는 값」 이라는 뜻 그대로)
+ * 캐릭터 시트는 `10 (+2 단련)` 처럼 따로 보여 준다. `STAT_MAX` 로 자르지 않는다 (임플란트와 같은 의도).
+ *
+ * 세션을 끝낼 때 그 능력치에 디버프가 없으면 `gymFatigueUntil[stat] = 지금 + GYM_FATIGUE_HOURS` 가 걸린다 (근력 = 근육통 ·
+ * 지구력 = 심폐 피로). 디버프 중의 세션은 경험치 × `GYM_FATIGUE_GAIN_MUL`(0 = −100 %)이고 디버프를 **다시 늘리지 않는다**.
+ * 점수가 0 이어도 끝낸 세션이면 디버프가 걸린다 (「가구를 사용하면」). 시각은 `ctx.net.serverNow() ?? Date.now()` (온실과 같은
+ * 현실 시간). 세 필드 모두 프로필에 살며 `Profile.migrate` 가 옮겨 담아야 새로고침을 견딘다 (2026-09-09 `accent` 사고와 같은 자리).
+ * `resetProfile` 은 셋을 비운다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 운동으로 단련하는 능력치. */
+export type GymStat = Extract<StatId, 'strength' | 'endurance'>;
+export const GYM_STATS: readonly GymStat[] = ['strength', 'endurance'];
+/** 디버프 이름 — 근력 운동 뒤 근육통, 지구력 운동 뒤 심폐 피로 (사용자 명세). */
+export const GYM_FATIGUE_LABEL_KO: Readonly<Record<GymStat, string>> = { strength: '근육통', endurance: '심폐 피로' };
+
+export interface PlayerProfile {
+  /** 운동으로 얻은 단련 보너스 (정수, 0 … GYM_TRAINED_MAX). 옛 세이브에는 없다 = 0. */
+  trained?: Partial<Record<GymStat, number>>;
+  /** 다음 단련 보너스까지의 진행도 0 … 1 (상한이면 1). */
+  trainedProgress?: Partial<Record<GymStat, number>>;
+  /** 운동 디버프가 끝나는 시각 (epoch ms). 지난 값은 「디버프 없음」 과 같다. */
+  gymFatigueUntil?: Partial<Record<GymStat, number>>;
+}
+
+/** `applyGymSession` 의 결과 — 결과 화면 · `housing:gymResult` 가 그대로 쓴다. */
+export interface GymSessionResult {
+  stat: GymStat;
+  /** 0 … 1 로 자른 점수. */
+  score: number;
+  /** 실제로 더해진 단련 경험치 (디버프 중이었으면 0). */
+  xp: number;
+  /** 세션을 끝낸 순간 이미 디버프 중이었다 (그래서 xp 가 0 이고 디버프는 늘지 않았다). */
+  wasFatigued: boolean;
+  trainedBefore: number;
+  trainedAfter: number;
+  /** 세션 뒤 다음 단련까지의 진행도 0 … 1. */
+  progress: number;
+  /** 단련 보너스가 상한이다. */
+  capped: boolean;
+  /** 디버프가 끝나는 시각 (epoch ms). */
+  fatigueUntil: number;
+}
+
+export interface ProgressionRef {
+  /** 운동으로 얻은 단련 보너스 (운동 능력치가 아니면 0). */
+  getTrainedBonus?(id: StatId): number;
+  /** 다음 단련 보너스까지의 진행도 0 … 1. */
+  getTrainedProgress?(id: StatId): number;
+  /** 지금 단계에서 다음 단련 보너스에 필요한 경험치. */
+  trainedXpToNext?(id: StatId): number;
+  /** 운동 디버프가 끝나는 시각 (epoch ms). 디버프가 없거나 지났으면 0. */
+  getGymFatigueUntil?(id: StatId): number;
+  /**
+   * 함선 전용. 끝낸 운동 세션 하나를 반영한다 — 단련 경험치를 더하고(디버프 중이면 0), 디버프가 없었으면 건다.
+   * `progress:trainedChanged` · (디버프를 걸었으면) `progress:gymFatigue` 를 내고, 보너스가 바뀌면 `derived` 를 다시 계산하고
+   * 즉시 저장한다. 레이드 중이거나 운동 능력치가 아니면 null (아무것도 바꾸지 않는다).
+   */
+  applyGymSession?(id: GymStat, score: number): GymSessionResult | null;
+}

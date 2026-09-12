@@ -150,7 +150,20 @@ function benchBody(b: GeoBatch, w: number, d: number, h: number, accent: THREE.M
   deco(b);
 }
 
+/**
+ * 2026-09-12 (A-3e · A-3a 계약 커밋): 새 모델 11종의 **임시 몸체** — 받침 상자 하나 + 앞면 악센트 띠. hub 담당이 진짜 빌더로
+ * 바꾸고 이 함수를 지운다 (`Record<FurnitureModelKind, Builder>` 가 전부를 요구해 계약 커밋이 타입체크를 통과하게 하는 자리다).
+ */
+const pendingBody: Builder = (b, w, d, h, a) => {
+  b.boxB(w, h, d, 0, 0, 0, M.hullDark);
+  b.box(w * 0.9, 0.05, 0.03, 0, h * 0.8, -(d / 2 + 0.01), a);
+};
+
 const BUILDERS: Record<FurnitureModelKind, Builder> = {
+  /* A-3e · A-3a 임시 몸체 (hub 담당이 교체) */
+  disc_stand: pendingBody, record_rack: pendingBody, rocking_chair: pendingBody, tv: pendingBody,
+  gramophone: pendingBody, jukebox: pendingBody, turntable: pendingBody,
+  bench_rack: pendingBody, smith_machine: pendingBody, treadmill: pendingBody, exercise_bike: pendingBody,
   bench_gun: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
     const top = h - 0.02;
     b.boxB(0.26, 0.16, 0.2, -w * 0.3, top, 0.05, M.hullDark);                                   // vise

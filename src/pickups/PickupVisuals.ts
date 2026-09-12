@@ -39,6 +39,9 @@ const REST_Y: Record<ItemCategory, number> = {
   seed: 0.07,
   /* appended: Phase 9 — 서적 (flat, lies like a plate) */
   book: 0.06,
+  /* appended: 2026-09-12 서재 매체 — 디스크는 얇은 케이스, 레코드는 넓은 슬리브라 둘 다 책처럼 눕는다 */
+  disc: 0.05,
+  record: 0.04,
   /* appended: 2026-09-08 — 임플란트 (small capsule) */
   implant: 0.08,
   /* appended: 2026-09-11 온실 개편 — 작물은 약초처럼 낮게 눕고, 토양은 한 자루라 재료 상자와 같은 높이다.

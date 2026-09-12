@@ -366,6 +366,41 @@ BOOKS_PER_SHELF,6,Book slots per 책장.
 BOOK_XP_PER_BOOK,0.05,"Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight."
 BOOK_GAIN_MAX,2.0,Cap of the 서재 multiplier for one skill.
 
+# ── 2026-09-12: 서재 매체 — 디스크 · 레코드 · 보조 가구 (A-3e; owner: housing rules, hub geometry, items data) ──
+# 서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]. 몫[m] = min(GAIN_MAX[m] − 1, XP_PER[m] × Σ BOOK_RARITY_MUL) × (보조 가구가 있으면 1 + SHELF_AUX_BONUS_[m])
+DISC_SLOTS_PER_STAND,6,디스크 전시대 한 대의 칸 수.
+RECORD_SLOTS_PER_RACK,4,레코드랙 한 대의 칸 수.
+DISC_XP_PER_ITEM,0.06,"디스크 한 장이 그 숙련의 몫에 더하는 값 (× BOOK_RARITY_MUL[등급]). 책(BOOK_XP_PER_BOOK)보다 약간 높다 — 사용자 명세."
+RECORD_XP_PER_ITEM,0.07,"레코드 한 장이 그 숙련의 몫에 더하는 값. 디스크보다 약간 높다 — 사용자 명세."
+DISC_GAIN_MAX,2.0,"디스크 몫의 상한 (1 + 몫 ≤ 이 값). 책 · 레코드 몫과는 따로 잘린 뒤 더해진다."
+RECORD_GAIN_MAX,2.0,"레코드 몫의 상한 (1 + 몫 ≤ 이 값)."
+SHELF_AUX_BONUS_BOOK,0.25,"흔들의자가 배치돼 있으면 책 몫 × (1 + 이 값). 상한으로 잘린 뒤에 곱한다 — 보조 가구는 상한을 넘기는 유일한 길이다."
+SHELF_AUX_BONUS_DISC,0.25,"TV 가 배치돼 있으면 디스크 몫 × (1 + 이 값)."
+SHELF_AUX_BONUS_RECORD,0.25,"축음기 · 주크박스 · 턴테이블 중 하나라도 배치돼 있으면 레코드 몫 × (1 + 이 값). 셋은 외형만 다른 한 역할이라 여러 대여도 한 번만 곱한다 — 사용자 결정."
+
+# ── 2026-09-12: 헬스장 (A-3a; owner: progression rules, housing minigames, hub geometry) ──
+GYM_SESSION_XP,100,"운동 한 세션 만점(점수 1)이 주는 단련 경험치. 실제 = round(이 값 × 점수)."
+GYM_TRAIN_XP_BASE,150,"단련 +n → +(n+1) 에 필요한 경험치 = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT). 능력치당 하루 한 세션이라 만점이면 첫 +1 이 이틀이다."
+GYM_TRAIN_XP_EXPONENT,1.4,
+GYM_TRAINED_MAX,5,"능력치 하나가 운동으로 얻는 단련 보너스 상한. 스탯 포인트 · 임플란트 보너스와 따로 센다."
+GYM_FATIGUE_HOURS,24,"운동을 끝낸 능력치에 걸리는 디버프(근력 = 근육통 · 지구력 = 심폐 피로)의 현실 시간 — 사용자 명세."
+GYM_FATIGUE_GAIN_MUL,0,"디버프 중 같은 능력치 운동의 상승 배율. 0 = −100 % (사용자 명세). 디버프를 다시 늘리지는 않는다."
+GYM_SCORE_PERFECT,1,판정 한 번이 세션 점수(판정들의 평균)에 넣는 값 — 완벽.
+GYM_SCORE_GOOD,0.6,판정 한 번이 세션 점수에 넣는 값 — 성공. 실패는 0.
+GYM_PRESS_REPS,8,벤치프레스 한 세션의 판정 횟수.
+GYM_PRESS_SPEED,0.9,"커서 속도 (바 폭/초) — 첫 회."
+GYM_PRESS_SPEED_STEP,0.12,회차마다 더해지는 커서 속도.
+GYM_PRESS_ZONE,0.12,"성공 구역 반폭 (바 폭 비율, 가운데 기준)."
+GYM_PRESS_PERFECT,0.035,"완벽 구역 반폭 (바 폭 비율)."
+GYM_BREATH_CYCLES,6,"호흡 달리기 한 세션의 후-후-하 묶음 수 (판정 = 묶음 × 3)."
+GYM_BREATH_BEAT_S,0.6,박자 간격(초).
+GYM_BREATH_HOLD_S,1.2,「하」 를 누르고 있어야 하는 길이(초).
+GYM_BREATH_WINDOW_S,0.18,"탭 · 「하」 시작의 판정 창(±초). 이 값의 1/3 안이면 완벽."
+GYM_BREATH_HOLD_TOL_S,0.22,"「하」 를 떼는 순간의 판정 창(±초)."
+GYM_CYCLE_STROKES,24,사이클링 한 세션에서 A · D 를 번갈아 밟는 횟수.
+GYM_CYCLE_BEAT_S,0.45,박자 간격(초).
+GYM_CYCLE_WINDOW_S,0.15,"판정 창(±초). 이 값의 1/3 안이면 완벽. 틀린 발은 실패."
+
 # ── 시뮬레이션 훈련장 target modes (owner: world) ──
 TRAINING_MOVING_SPAN,3.2,"이동 표적: sweep half-width (m, keeps the target inside its lane), speed (m/s) and the pause at each end."
 TRAINING_MOVING_SPEED,2.2,

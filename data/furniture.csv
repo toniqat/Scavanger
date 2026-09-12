@@ -39,3 +39,17 @@ furn_bench_print,3D 프린터,lab,4,2,1.6,bench_print,workbench_print,mat_scrap:
 # 같은 날 시뮬레이션실이 없어지면서 관물대 · 표적 레인 · 시뮬레이션 허브가 은퇴했다 (위의 retired 1).
 furn_implant_bay,전술 임플란트 시술대,any,3,4,1.7,implant_bay,implant_bay,,1,,,#8fe8ff,전술 임플란트를 장착하고 교체합니다. 어느 방에나 옮겨 놓을 수 있습니다.
 furn_corp_computer,기업 네트워크 컴퓨터,any,3,3,1.3,corp_computer,corp_computer,,1,,,#7cf07a,기업 네트워크에 접속해 거래 · 계약 · 퀘스트를 확인합니다. 어느 방에나 옮겨 놓을 수 있습니다.
+# ── 2026-09-12 (A-3e, 사용자 결정): 서재 매체 — 보관함 2종 + 보조 가구 5종. 전부 서재(library)에만 놓인다 ──
+# 보조 가구는 배치만으로 그 매체의 몫을 올린다 (constants.csv 의 SHELF_AUX_BONUS_*). 축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할이라 여러 대여도 한 번만 적용된다.
+furn_disc_stand,디스크 전시대,library,3,1,1.8,disc_stand,disc_stand,mat_scrap:6|mat_alloy:1|mat_circuit:1,1,,,#9fd0ff,레이드에서 주운 디스크를 꽂습니다. 꽂힌 디스크는 그 숙련의 상승량을 올리고 도감에 기록됩니다.
+furn_record_rack,레코드랙,library,3,2,1.2,record_rack,record_rack,mat_scrap:6|mat_alloy:2|mat_cloth:2,1,,,#e8a0d0,레코드를 꽂습니다. 꽂힌 레코드는 그 숙련의 상승량을 올리고 도감에 기록됩니다.
+furn_rocking_chair,흔들의자,library,2,2,1.1,rocking_chair,rocking_chair,mat_scrap:4|mat_cloth:3,1,,,#c9a77a,서재에 두면 책장의 책이 주는 상승량이 더 늘어납니다. 앉아서 쉴 수 있습니다.
+furn_tv,TV,library,3,1,1.3,tv,tv,mat_scrap:4|mat_circuit:2|mat_cable:2,1,,,#8fd8ff,서재에 두면 디스크 전시대의 디스크가 주는 상승량이 더 늘어납니다. 화면을 켜고 끌 수 있습니다.
+furn_gramophone,축음기,library,2,2,1.3,gramophone,record_player,mat_scrap:5|mat_alloy:2|mat_cable:1,1,,,#d9b98a,레트로 축음기. 서재에 두면 레코드랙의 레코드가 주는 상승량이 더 늘어납니다. 주크박스 · 턴테이블과 효과가 같아 하나만 적용됩니다.
+furn_jukebox,주크박스,library,2,2,1.8,jukebox,record_player,mat_scrap:8|mat_circuit:2|mat_cable:2,1,,,#ffb0a0,클래식 주크박스. 서재에 두면 레코드랙의 레코드가 주는 상승량이 더 늘어납니다. 축음기 · 턴테이블과 효과가 같아 하나만 적용됩니다.
+furn_turntable,턴테이블,library,3,2,1.0,turntable,record_player,mat_scrap:4|mat_circuit:2|mat_cable:1,1,,,#b0b8c4,현대식 턴테이블. 서재에 두면 레코드랙의 레코드가 주는 상승량이 더 늘어납니다. 축음기 · 주크박스와 효과가 같아 하나만 적용됩니다.
+# ── 2026-09-12 (A-3a): 헬스장 운동 기구 — 근력(벤치 랙 · 스미스 머신) · 지구력(트레드밀 · 사이클). 운동 규칙은 shared/housing 의 GYM_EQUIPMENT ──
+furn_bench_rack,벤치 랙,gym,3,5,1.6,bench_rack,gym_bench_press,mat_scrap:10|mat_alloy:3,1,,,#ff9f7a,바벨 거치대와 벤치. 벤치프레스로 근력을 단련합니다.
+furn_smith_machine,스미스 머신,gym,4,5,2.2,smith_machine,gym_smith,mat_scrap:12|mat_alloy:4|mat_cable:2,1,,,#ffc08a,레일에 고정된 바벨로 벤치프레스를 해 근력을 단련합니다.
+furn_treadmill,트레드밀,gym,2,4,1.4,treadmill,gym_treadmill,mat_scrap:8|mat_circuit:2|mat_cable:2,1,,,#8fe8c8,호흡을 맞춰 달리며 지구력을 단련합니다.
+furn_exercise_bike,사이클,gym,2,3,1.2,exercise_bike,gym_cycle,mat_scrap:8|mat_alloy:2|mat_cable:1,1,,,#9fe0a0,박자에 맞춰 페달을 밟으며 지구력을 단련합니다.

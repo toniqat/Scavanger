@@ -85,7 +85,10 @@ export type ItemCategory =
   /* appended: 주방 · 프린터 (A-3c · A-15, 2026-09-11) */
   | 'meal'        // 요리 (see `ItemDef.meal`): 함선 식탁에서 먹으면 **다음 레이드 1회분**으로 실린다 (파생 수치 하나를 올린다)
   | 'pouch'       // 주머니 (see `ItemDef.pouch`): 장비칸 `pouch` 한 칸에 끼우면 퀵슬롯 아래에 별도 격자가 열린다
-  | 'key';        // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
+  | 'key'         // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
+  /* appended: 서재 매체 (A-3e, 2026-09-12) */
+  | 'disc'        // 디스크 (see `ItemDef.disc`): 서재 디스크 전시대에 꽂는다 — 책과 같은 역할이고 책보다 조금 세다. loot + corp shop, never craftable
+  | 'record';     // 레코드 (see `ItemDef.record`): 서재 레코드랙에 꽂는다 — 디스크보다 조금 세다. loot + corp shop, never craftable
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -2246,6 +2249,57 @@ export interface PlayerRef {
    * 전투불능 · 사망 · `respawnAt` · `spawnStanding` · `game:abort` 가 false 로 되돌린다.
    */
   setDroneControl?(active: boolean): void;
+}
+
+/* ══ appended (2026-09-12): 서재 매체 (A-3e) · 헬스장 (A-3a) — docs/plans/a3a-a3e.md ═══════════════════════════════ */
+
+export interface ItemDef {
+  /* ── appended (A-3e, owner: items) ── */
+  /** category 'disc': 서재 디스크 전시대에 꽂으면 올리는 숙련. 모양은 `BookDef` 와 같다 (등급 = `BOOK_RARITY_MUL` 가중치). */
+  disc?: BookDef;
+  /** category 'record': 서재 레코드랙에 꽂으면 올리는 숙련. */
+  record?: BookDef;
+}
+
+/** 가구에 몸을 맡기는 자세 (owner: player; caller: hub). `sit` = 흔들의자, 나머지 셋 = 헬스장 운동 기구. */
+export type FurniturePoseKind = 'sit' | 'bench' | 'run' | 'cycle';
+
+export interface FurniturePose {
+  kind: FurniturePoseKind;
+  /**
+   * 몸을 받치는 면의 월드 좌표 — `sit`: 좌판 윗면 중앙 · `bench`: 벤치 패드 윗면의 **등(견갑골) 자리** ·
+   * `run`: 러닝 벨트 윗면 중앙 · `cycle`: 안장 윗면. 몸의 오프셋(엉덩이 높이 · 누운 몸 길이)은 player 가 정한다.
+   */
+  anchor: THREE.Vector3;
+  /**
+   * 향하는 방향 — 플레이어 카메라 yaw 와 같은 규약 (앞 = `(−sin yaw, 0, −cos yaw)`). `bench` 는 **엉덩이 → 머리** 방향이다
+   * (누워서 바벨 거치대 쪽으로 머리를 둔다).
+   */
+  yaw: number;
+  /** 고정 카메라. 없으면 평소 3인칭 리그(마우스 시점 자유) — 흔들의자는 생략, 운동 기구는 옆에서 비추는 고정 카메라를 준다. */
+  camera?: { position: THREE.Vector3; lookAt: THREE.Vector3 } | null;
+  /** true 면 E(`Keys.INTERACT`)로 자세가 풀린다 (흔들의자 토글). 운동 기구는 부른 쪽(`setFurniturePose(null)`)만 푼다. */
+  releaseOnInteract?: boolean;
+}
+
+export interface PlayerRef {
+  /* ── appended (2026-09-12): 가구 자세 (owner: player; caller: hub) ── */
+  /** 지금 취하고 있는 가구 자세, 없으면 null. */
+  readonly furniturePose?: FurniturePoseKind | null;
+  /**
+   * 가구 자세를 취한다 / 푼다. 취하는 동안: 이동 · 점프 · 자세 · 구르기 · 무기 · (releaseOnInteract 가 아니면) E 상호작용을
+   * 무시하고 몸을 `anchor` 에 붙여 자세 애니메이션을 돈다. `camera` 가 있으면 그 자리로 블렌드한다. **풀면 자세를 취하기 직전에
+   * 서 있던 자리로 돌아간다** (가구 콜라이더 안에 남지 않는다). 함선(`phase === 'hub'`)에서만 — 레이드 · 드론 조종 · 사다리 ·
+   * 포드 · 전투불능이면 false 를 돌려주고 아무것도 바꾸지 않는다. `game:abort` · `hub:left` · 페이즈 변경 · `spawnStanding` 이
+   * 풀고 `player:furniturePoseEnded {reason:'reset'}` 을 낸다.
+   */
+  setFurniturePose?(pose: FurniturePose | null): boolean;
+  /**
+   * 운동 자세의 동작 위상 0 … 1 — `bench`: 0 = 바벨이 가슴 · 1 = 팔을 다 편 자리, `run`: 한 걸음 주기(0 → 1 반복),
+   * `cycle`: 크랭크 한 바퀴(0 = 왼발이 위 · 0.5 = 오른발이 위). hub 가 바벨 · 페달 모델과 같은 값으로 매 프레임 준다.
+   * 한 번도 부르지 않으면 player 가 스스로 기본 속도로 돌린다. `sit` 에는 쓰지 않는다.
+   */
+  setFurniturePoseDrive?(phase: number): void;
 }
 
 /* ══ appended (2026-09-11): C 항목 배치 계약 (docs/plans/c-batch.md §3-2) ═══════════════════════════════════ */

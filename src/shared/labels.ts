@@ -40,6 +40,8 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   meal: '요리',
   pouch: '주머니',
   key: '열쇠',
+  disc: '디스크',
+  record: '레코드',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -58,6 +60,8 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   meal: '#ffb0a0',
   pouch: '#c9a98a',
   key: '#c8ccd2',
+  disc: '#9fd0ff',
+  record: '#e8a0d0',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -76,6 +80,8 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   meal: '♨',
   pouch: '◫',
   key: '⚿',
+  disc: '◉',
+  record: '⊚',
 };
 
 /**

@@ -20,6 +20,10 @@ import type { PlayerProfile, SkillId, StatId } from './progression';
 import type { EquippedImplant } from './progression';
 /* appended (2026-09-06): ship housing payloads */
 import type { FacilityId, PlacedFurniture, RoomPurpose, ShipState } from './housing';
+/* appended (2026-09-12): 서재 매체 (A-3e) · 헬스장 (A-3a) */
+import type { GymMinigame, ShelfMedium } from './housing';
+import type { GymSessionResult, GymStat } from './progression';
+import type { FurniturePoseKind } from './types';
 /* appended (2026-09-08): 튜토리얼 */
 import type { TutorialStepId } from './tutorial';
 
@@ -1150,4 +1154,38 @@ export interface GameEvents {
    * 들었다. ui/ 가 **커서 위치를 중심으로** 원형 게이지를 그린다 (좌표는 ui 가 `ctx.input.uiX/uiY` 로 읽는다).
    */
   'housing:moveHold': { progress: number | null };
+}
+
+/* ══ appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). docs/plans/a3a-a3e.md ══ */
+export interface GameEvents {
+  /**
+   * (owner: housing) 보관함 `uid` 에 꽂힌 것이 바뀌었다 — 책장 · 디스크 전시대 · 레코드랙 공통 (책장은 `housing:booksChanged` 도
+   * 그대로 낸다). 보관함을 회수하면 `count: 0`.
+   */
+  'housing:shelfChanged': { uid: string; medium: ShelfMedium; count: number };
+  /** (owner: housing) 디스크 전시대 · 레코드랙 화면이 열렸다 / 닫혔다 (책장은 여전히 `ui:bookshelfToggled`). */
+  'ui:shelfToggled': { open: boolean; uid: string | null; medium: ShelfMedium | null };
+  /** (owner: housing) TV · 레코드 플레이어를 켰다 / 껐다. hub 가 그 조각의 화면 · 램프 재질을 바꾼다 (광원 없음). */
+  'housing:furnitureToggled': { uid: string; on: boolean };
+  /**
+   * (owner: housing) 운동 세션이 시작됐다(`active: true`) / 끝났다(`false`). `completed` = 끝까지 해서 점수가 반영됐다 (취소면 false).
+   * hub 가 이것을 보고 바벨에 원반을 끼우고 `ctx.player.setFurniturePose` 로 자세 · 고정 카메라를 건다 / 푼다.
+   */
+  'housing:gymSession': { uid: string; active: boolean; stat: GymStat; minigame: GymMinigame; completed: boolean };
+  /**
+   * (owner: housing) 미니게임 판정 한 번. hub 가 바벨 · 페달 · 몸 동작을 여기에 맞추고 audio 가 소리를 낸다.
+   * `index` 0 부터, `total` = 이 세션의 판정 수.
+   */
+  'housing:gymBeat': { uid: string; minigame: GymMinigame; quality: 'perfect' | 'good' | 'miss'; index: number; total: number };
+  /** (owner: housing) 세션 결과 — `ProgressionRef.applyGymSession` 이 돌려준 그대로. */
+  'housing:gymResult': { uid: string; result: GymSessionResult };
+  /** (owner: progression) 단련 보너스 · 진행도가 움직였다. `value` = 단련 보너스, `delta` = 이번에 더한 경험치. */
+  'progress:trainedChanged': { id: GymStat; value: number; progress: number; delta: number };
+  /** (owner: progression) 운동 디버프가 걸렸다. `until` = epoch ms. 만료는 시각의 함수라 이벤트가 없다. */
+  'progress:gymFatigue': { id: GymStat; until: number };
+  /**
+   * (owner: player) 가구 자세가 풀렸다 — `interact` = E 로 일어났다 (흔들의자), `caller` = `setFurniturePose(null)`,
+   * `reset` = 페이즈 변경 · 스폰 · `game:abort` · `hub:left`.
+   */
+  'player:furniturePoseEnded': { kind: FurniturePoseKind; reason: 'interact' | 'caller' | 'reset' };
 }

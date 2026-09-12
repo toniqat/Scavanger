@@ -760,6 +760,53 @@ export const BOOK_RARITY_MUL: Readonly<Record<'common' | 'uncommon' | 'rare' | '
 /** Cap of the 서재 multiplier for one skill. */
 export const BOOK_GAIN_MAX = K.num('BOOK_GAIN_MAX');
 
+/* ── appended (2026-09-12): 서재 매체 — 디스크 · 레코드 · 보조 가구 (A-3e; owner: housing rules, hub geometry, items data) ── */
+/** 디스크 전시대 · 레코드랙 한 대의 칸 수 (책장은 `BOOKS_PER_SHELF`). */
+export const DISC_SLOTS_PER_STAND = K.num('DISC_SLOTS_PER_STAND');
+export const RECORD_SLOTS_PER_RACK = K.num('RECORD_SLOTS_PER_RACK');
+/** 한 장이 그 숙련의 몫에 더하는 값 (× `BOOK_RARITY_MUL[rarity]`) — 책의 `BOOK_XP_PER_BOOK` 과 같은 자리. */
+export const DISC_XP_PER_ITEM = K.num('DISC_XP_PER_ITEM');
+export const RECORD_XP_PER_ITEM = K.num('RECORD_XP_PER_ITEM');
+/** 매체별 몫의 상한 (`1 + 몫 ≤ 이 값`) — 책의 `BOOK_GAIN_MAX` 와 같은 자리. 세 매체의 몫은 따로 잘린 뒤 더해진다. */
+export const DISC_GAIN_MAX = K.num('DISC_GAIN_MAX');
+export const RECORD_GAIN_MAX = K.num('RECORD_GAIN_MAX');
+/** 보조 가구가 배치돼 있으면 그 매체의 몫 × (1 + 이 값) — 흔들의자(책) · TV(디스크) · 축음기 · 주크박스 · 턴테이블(레코드, 셋 중 하나만). */
+export const SHELF_AUX_BONUS_BOOK = K.num('SHELF_AUX_BONUS_BOOK');
+export const SHELF_AUX_BONUS_DISC = K.num('SHELF_AUX_BONUS_DISC');
+export const SHELF_AUX_BONUS_RECORD = K.num('SHELF_AUX_BONUS_RECORD');
+
+/* ── appended (2026-09-12): 헬스장 (A-3a; owner: progression rules, housing minigames, hub geometry) ── */
+/** 운동 한 세션 만점(점수 1)이 주는 단련 경험치 — 실제 = round(GYM_SESSION_XP × 점수). */
+export const GYM_SESSION_XP = K.num('GYM_SESSION_XP');
+/** 단련 +n → +(n+1) 에 필요한 경험치: round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT). */
+export const GYM_TRAIN_XP_BASE = K.num('GYM_TRAIN_XP_BASE');
+export const GYM_TRAIN_XP_EXPONENT = K.num('GYM_TRAIN_XP_EXPONENT');
+/** 능력치 하나가 운동으로 얻는 단련 보너스의 상한. */
+export const GYM_TRAINED_MAX = K.num('GYM_TRAINED_MAX');
+/** 운동을 끝낸 뒤 그 능력치에 걸리는 디버프(근육통 · 심폐 피로)의 현실 시간(시간). */
+export const GYM_FATIGUE_HOURS = K.num('GYM_FATIGUE_HOURS');
+/** 디버프 중 같은 능력치 운동의 상승 배율 — 0 = −100 %. */
+export const GYM_FATIGUE_GAIN_MUL = K.num('GYM_FATIGUE_GAIN_MUL');
+/** 판정 한 번이 세션 점수(판정들의 평균)에 넣는 값 — 완벽 · 성공 (실패는 0). */
+export const GYM_SCORE_PERFECT = K.num('GYM_SCORE_PERFECT');
+export const GYM_SCORE_GOOD = K.num('GYM_SCORE_GOOD');
+/** 벤치프레스(벤치 랙 · 스미스 머신): 판정 횟수, 커서 속도(바 폭/초)와 회차마다 더하는 속도, 성공 · 완벽 구역 반폭(바 폭 비율). */
+export const GYM_PRESS_REPS = K.num('GYM_PRESS_REPS');
+export const GYM_PRESS_SPEED = K.num('GYM_PRESS_SPEED');
+export const GYM_PRESS_SPEED_STEP = K.num('GYM_PRESS_SPEED_STEP');
+export const GYM_PRESS_ZONE = K.num('GYM_PRESS_ZONE');
+export const GYM_PRESS_PERFECT = K.num('GYM_PRESS_PERFECT');
+/** 호흡(트레드밀): 후-후-하 묶음 수, 박자 간격(초), 「하」 길이(초), 탭 판정 창(±초), 「하」 를 떼는 판정 창(±초). */
+export const GYM_BREATH_CYCLES = K.num('GYM_BREATH_CYCLES');
+export const GYM_BREATH_BEAT_S = K.num('GYM_BREATH_BEAT_S');
+export const GYM_BREATH_HOLD_S = K.num('GYM_BREATH_HOLD_S');
+export const GYM_BREATH_WINDOW_S = K.num('GYM_BREATH_WINDOW_S');
+export const GYM_BREATH_HOLD_TOL_S = K.num('GYM_BREATH_HOLD_TOL_S');
+/** 사이클링: A · D 를 번갈아 밟는 횟수, 박자 간격(초), 판정 창(±초). */
+export const GYM_CYCLE_STROKES = K.num('GYM_CYCLE_STROKES');
+export const GYM_CYCLE_BEAT_S = K.num('GYM_CYCLE_BEAT_S');
+export const GYM_CYCLE_WINDOW_S = K.num('GYM_CYCLE_WINDOW_S');
+
 /* ── 시뮬레이션 훈련장 target modes (owner: world) ── */
 /** 이동 표적: sweep half-width (m, keeps the target inside its lane), speed (m/s) and the pause at each end. */
 export const TRAINING_MOVING_SPAN = K.num('TRAINING_MOVING_SPAN');

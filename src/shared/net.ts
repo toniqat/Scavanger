@@ -1360,6 +1360,10 @@ export interface ShipVisitWire {
   furniture: PlacedFurniture[];
   /** Books on 책장 shelves so the spines read right. Omitted when the ship has none. */
   books?: PlacedBook[];
+  /** appended (2026-09-12, A-3e): 디스크 전시대 · 레코드랙에 꽂힌 것 (`ShipState.media`). 없으면 생략. */
+  media?: PlacedBook[];
+  /** appended (2026-09-12, A-3e): 켜 둔 TV · 레코드 플레이어 uid (`ShipState.toggled`). 없으면 생략. */
+  toggled?: string[];
 }
 export type ShipVisitMessage = { t: 'ship'; ev: 'state'; ship: ShipVisitWire };
 export type ShipVisitRequest = { t: 'shipq'; ev: 'state' };

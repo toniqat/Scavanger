@@ -56,6 +56,11 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
   /* 2026-09-12 (사용자 결정): 조종석의 고정 설비였던 둘이 공용 시설 가구가 됐다 — 시술대 `⚕`(의료) · 컴퓨터 `⌨`(키보드),
      둘 다 위의 어떤 글자와도 겹치지 않는다. */
   implant_bay: '⚕', corp_computer: '⌨',
+  /* 2026-09-12 (A-3e): 서재 매체 — 보관함은 아이템 분류 글자(`CATEGORY_ICON.disc/record`)와 같은 글자, 보조 가구는 제 모양.
+     축음기 · 주크박스 · 턴테이블은 한 역할이지만 외형이 달라 글자도 다르다. */
+  disc_stand: '◉', record_rack: '⊚', rocking_chair: '⌓', tv: '⊡', gramophone: '♫', jukebox: '♪', turntable: '◐',
+  /* 2026-09-12 (A-3a): 헬스장 운동 기구 */
+  bench_rack: '╤', smith_machine: '╦', treadmill: '═', exercise_bike: '⊘',
 };
 
 /**

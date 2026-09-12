@@ -48,9 +48,9 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   empty: '아직 용도가 정해지지 않은 방입니다.',
   workshop: '총기 · 장비 · 가젯 · 의학 작업대를 설치해 제작과 수리를 합니다.',
   range: '관물대로 로드아웃 프리셋을 관리하고, 시뮬레이션 허브로 훈련장에 들어가 사격 숙련 상승량을 높입니다.',
-  gym: '운동 기구로 근력 · 지구력을 단련합니다. (다음 업데이트)',
+  gym: '벤치 랙 · 스미스 머신으로 근력을, 트레드밀 · 사이클로 지구력을 단련합니다. 운동한 능력치는 한동안 근육통 · 심폐 피로로 더 오르지 않습니다.',
   /* 2026-09-12 (사용자 결정): 휴식 공간이 서재에 합쳐졌다 — 휴식 공간에 들어갈 것(TV · 스피커 …)은 이제 서재에 놓인다. */
-  library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다. 쉬어 가는 공간이기도 합니다.',
+  library: '책장 · 디스크 전시대 · 레코드랙에 책 · 디스크 · 레코드를 꽂으면 그 숙련의 상승량이 늘어납니다. 흔들의자 · TV · 턴테이블 같은 가구를 곁에 두면 더 늘어납니다. 꽂아 본 것은 도감에 남습니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
@@ -88,7 +88,7 @@ export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { de
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen'];   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen', 'gym'];   // 2026-09-12 appended `gym` (A-3a);   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
 
 /**
  * appended (2026-09-12, 사용자 결정): **빈 방이 될 수 있는 용도** — 시설 증축 목록이 그리는 것은 이것뿐이다.
@@ -172,7 +172,11 @@ export type FurnitureModelKind =
   | 'bench_cook' | 'dining_table' | 'culture_tank' | 'bench_print'
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk'
   /* appended (2026-09-12): 조종석의 고정 설비였던 전술 임플란트 시술대 · 함선 컴퓨터가 공용 시설 가구가 됐다 */
-  | 'implant_bay' | 'corp_computer';
+  | 'implant_bay' | 'corp_computer'
+  /* appended (2026-09-12, A-3e): 서재 매체 보관함 2종 + 보조 가구 5종 (축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할) */
+  | 'disc_stand' | 'record_rack' | 'rocking_chair' | 'tv' | 'gramophone' | 'jukebox' | 'turntable'
+  /* appended (2026-09-12, A-3a): 헬스장 운동 기구 4종 */
+  | 'bench_rack' | 'smith_machine' | 'treadmill' | 'exercise_bike';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
@@ -197,7 +201,13 @@ export type FurnitureInteraction =
   | 'culture_tank'                                                                // → ctx.housing.openCultureTank(uid): 배지 붓기 / 세포주 넣기 / 수확
   /* appended (2026-09-12) — 공용 시설 가구 */
   | 'implant_bay'                                                                 // → Tab 화면 (임플란트 칸) — 옛 `hub_implant_bay` 와 같은 길
-  | 'corp_computer';                                                              // → 기업 네트워크 (`ctx.meta.openCorpMenu()`) — 옛 `hub_computer` 와 같은 길
+  | 'corp_computer'                                                               // → 기업 네트워크 (`ctx.meta.openCorpMenu()`) — 옛 `hub_computer` 와 같은 길
+  /* appended (2026-09-12, A-3e) — 서재 매체 */
+  | 'disc_stand' | 'record_rack'                                                  // → ctx.housing.openShelf(uid): 디스크 · 레코드 꽂기 / 빼기 / 도감 (책장과 같은 결의 화면)
+  | 'rocking_chair'                                                               // → ctx.player.setFurniturePose({kind:'sit', releaseOnInteract:true}) — 앉기 토글. 배치만으로 책 몫 보너스
+  | 'tv' | 'record_player'                                                        // → ctx.housing.toggleFurniture(uid): 화면 · 조명 켜기/끄기 (광원 없음). 배치만으로 디스크 · 레코드 몫 보너스
+  /* appended (2026-09-12, A-3a) — 헬스장 (`GYM_EQUIPMENT`) */
+  | 'gym_bench_press' | 'gym_smith' | 'gym_treadmill' | 'gym_cycle';            // → ctx.housing.startGymSession(uid): 미니게임
 
 export interface FurnitureDef {
   id: string;
@@ -1099,4 +1109,179 @@ export interface HousingRef {
   furnitureUpgradeRequirements(uid: string): readonly FacilityRequirement[];
   /** appended (2026-09-12): 빈 방에 `purpose` 를 **증축**하는 데 채워지지 않은 시설 레벨 요구 (발전기 Lv.1 게이트). */
   purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[];
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). 설계 · 사용자 결정: docs/plans/a3a-a3e.md
+ *
+ * 1. **서재 매체.** 책장(`bookshelf`) 옆에 디스크 전시대(`disc_stand`) · 레코드랙(`record_rack`)이 선다. 셋은 같은 규칙이다 —
+ *    칸에 매체를 꽂으면 그 매체가 가르치는 숙련의 상승량 배율이 오르고, 꽂아 본 것은 도감에 남는다. 매체마다 몫을 따로 잘라 더한다:
+ *
+ *        몫[m] = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[등급])  ×  (보조 가구[m] 배치 ? 1 + SHELF_AUX_BONUS[m] : 1)
+ *        서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]     ← `getBookBonus(skill)` 이 이제 이 값이다 (`getSkillGainMul` 에 접힌다)
+ *
+ *    보조 가구는 **배치만으로** 켜진다 (사용자 명세 「배치 시」): 흔들의자 → 책, TV → 디스크, 축음기 · 주크박스 · 턴테이블 → 레코드.
+ *    레코드 셋은 외형만 다른 한 역할이라 몇 대를 놓아도 한 번만 곱한다 (사용자 결정). 전부 서재에만 놓인다 (사용자 결정 — 2026-09-12 에
+ *    휴식 공간이 서재에 합쳐졌다). 흔들의자는 E 로 앉기 토글, TV · 레코드 플레이어는 E 로 켜고 끈다 (광원 없음 — emissive 만).
+ * 2. **헬스장.** 운동 기구 4종(`GYM_EQUIPMENT`)이 미니게임을 연다. 끝낸 세션의 점수가 `ProgressionRef.applyGymSession` 으로 가서
+ *    스탯 포인트와 **따로 세는 단련 보너스**(`PlayerProfile.trained`)가 된다 (사용자 결정). 세션을 끝내면 그 능력치에 현실 시간
+ *    `GYM_FATIGUE_HOURS` 디버프(근력 = 근육통 · 지구력 = 심폐 피로)가 걸리고 그동안 같은 능력치 운동은 상승량 −100 % 다
+ *    (사용 자체는 막지 않는다). 운동 중에는 캐릭터가 기구 위에서 자세를 취하고 카메라가 고정된다 (사용자 결정 —
+ *    `PlayerRef.setFurniturePose`, 부르는 쪽은 hub).
+ *
+ * 새 `HousingRef` 메서드는 전부 optional 이다 — 병렬로 짓는 동안에도 트리가 타입체크를 통과하고, 소비자는 늘 하던 대로
+ * `typeof h.x === 'function'` 로 방어한다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import {
+  BOOKS_PER_SHELF, BOOK_GAIN_MAX, BOOK_XP_PER_BOOK, DISC_GAIN_MAX, DISC_SLOTS_PER_STAND, DISC_XP_PER_ITEM, RECORD_GAIN_MAX,
+  RECORD_SLOTS_PER_RACK, RECORD_XP_PER_ITEM, SHELF_AUX_BONUS_BOOK, SHELF_AUX_BONUS_DISC, SHELF_AUX_BONUS_RECORD,
+} from './constants';
+import type { FurniturePoseKind, ItemDef } from './types';
+import type { GymStat } from './progression';
+
+/** 서재 보관함에 꽂는 매체. */
+export type ShelfMedium = 'book' | 'disc' | 'record';
+export const SHELF_MEDIA: readonly ShelfMedium[] = ['book', 'disc', 'record'];
+export const SHELF_MEDIUM_LABEL_KO: Readonly<Record<ShelfMedium, string>> = { book: '책', disc: '디스크', record: '레코드' };
+
+/** 매체 하나를 받는 보관함 가구의 interaction. */
+export const SHELF_INTERACTION: Readonly<Record<ShelfMedium, FurnitureInteraction>> = {
+  book: 'bookshelf', disc: 'disc_stand', record: 'record_rack',
+};
+/** 그 매체의 몫을 올리는 보조 가구의 interaction (레코드는 축음기 · 주크박스 · 턴테이블이 모두 `record_player`). */
+export const SHELF_AUX_INTERACTION: Readonly<Record<ShelfMedium, FurnitureInteraction>> = {
+  book: 'rocking_chair', disc: 'tv', record: 'record_player',
+};
+/** 보관함 한 대의 칸 수. */
+export const SHELF_SLOTS: Readonly<Record<ShelfMedium, number>> = {
+  book: BOOKS_PER_SHELF, disc: DISC_SLOTS_PER_STAND, record: RECORD_SLOTS_PER_RACK,
+};
+/** 한 장(권)이 몫에 더하는 값 (× `BOOK_RARITY_MUL[rarity]`). */
+export const SHELF_XP_PER_ITEM: Readonly<Record<ShelfMedium, number>> = {
+  book: BOOK_XP_PER_BOOK, disc: DISC_XP_PER_ITEM, record: RECORD_XP_PER_ITEM,
+};
+/** 매체별 `1 + 몫` 의 상한 (보조 가구 배율은 자른 뒤에 곱한다). */
+export const SHELF_GAIN_MAX: Readonly<Record<ShelfMedium, number>> = {
+  book: BOOK_GAIN_MAX, disc: DISC_GAIN_MAX, record: RECORD_GAIN_MAX,
+};
+/** 보조 가구가 있을 때 그 매체의 몫에 곱하는 추가분 (`× (1 + 값)`). */
+export const SHELF_AUX_BONUS: Readonly<Record<ShelfMedium, number>> = {
+  book: SHELF_AUX_BONUS_BOOK, disc: SHELF_AUX_BONUS_DISC, record: SHELF_AUX_BONUS_RECORD,
+};
+
+/** 보관함 가구면 그 매체, 아니면 null. */
+export function shelfMediumOfInteraction(interaction: FurnitureInteraction): ShelfMedium | null {
+  for (const m of SHELF_MEDIA) if (SHELF_INTERACTION[m] === interaction) return m;
+  return null;
+}
+/** 보조 가구면 그것이 올리는 매체, 아니면 null. */
+export function shelfAuxMediumOf(interaction: FurnitureInteraction): ShelfMedium | null {
+  for (const m of SHELF_MEDIA) if (SHELF_AUX_INTERACTION[m] === interaction) return m;
+  return null;
+}
+/** 아이템이 서재 매체면 매체와 숙련 (`ItemDef.book` · `disc` · `record`), 아니면 null. */
+export function shelfItemOf(def: ItemDef | null | undefined): { medium: ShelfMedium; skill: SkillId } | null {
+  if (!def) return null;
+  if (def.book) return { medium: 'book', skill: def.book.skill };
+  if (def.disc) return { medium: 'disc', skill: def.disc.skill };
+  if (def.record) return { medium: 'record', skill: def.record.skill };
+  return null;
+}
+
+/** E 로 켜고 끄는 가구 (`ShipState.toggled`). */
+export const TOGGLE_INTERACTIONS: readonly FurnitureInteraction[] = ['tv', 'record_player'];
+export function isToggleInteraction(interaction: FurnitureInteraction): boolean {
+  return TOGGLE_INTERACTIONS.includes(interaction);
+}
+
+/** 한 숙련의 서재 배율을 매체별로 나눈 것 (보관함 화면 · 도감 · 캐릭터 시트의 설명 줄). */
+export interface ShelfBonusInfo {
+  /** `1 + Σ parts` — `getBookBonus(skill)` 과 같은 값. */
+  total: number;
+  /** 매체별 몫 (상한으로 자르고 보조 가구 배율까지 곱한 뒤). */
+  parts: Readonly<Record<ShelfMedium, number>>;
+  /** 그 매체의 보조 가구가 함선에 배치돼 있는가. */
+  aux: Readonly<Record<ShelfMedium, boolean>>;
+}
+
+export interface ShipState {
+  /* ── appended (A-3e, 2026-09-12, version 9) ── */
+  /**
+   * 디스크 전시대 · 레코드랙에 꽂힌 것 — `PlacedBook` 과 같은 모양이고 `defId` 는 그 보관함의 매체와 맞아야 한다
+   * (`disc_*` / `record_*`). 책은 여전히 `books` 다 (옛 세이브 · 방문 와이어 호환).
+   */
+  media?: PlacedBook[];
+  /** 디스크 · 레코드 도감: 한 번이라도 꽂아 본 def id (`bookDex` 와 같은 append-only 기록). */
+  mediaDex?: string[];
+  /** 켜 둔 TV · 레코드 플레이어의 uid. 배치에서 사라진 uid 는 `sanitize` 가 버린다. */
+  toggled?: string[];
+}
+
+/** 운동 미니게임 3종 — 벤치프레스(바 타이밍) · 호흡 달리기(후-후-하) · 사이클링(A/D 번갈아). */
+export type GymMinigame = 'press' | 'breath' | 'cycle';
+export const GYM_MINIGAME_LABEL_KO: Readonly<Record<GymMinigame, string>> = {
+  press: '벤치프레스', breath: '호흡 달리기', cycle: '사이클링',
+};
+
+/** 운동 기구 하나가 무엇을 올리고 어떤 미니게임 · 자세를 쓰는가. */
+export interface GymEquipmentDef {
+  stat: GymStat;
+  minigame: GymMinigame;
+  pose: FurniturePoseKind;
+}
+export const GYM_EQUIPMENT: Readonly<Partial<Record<FurnitureInteraction, GymEquipmentDef>>> = {
+  gym_bench_press: { stat: 'strength', minigame: 'press', pose: 'bench' },
+  gym_smith: { stat: 'strength', minigame: 'press', pose: 'bench' },
+  gym_treadmill: { stat: 'endurance', minigame: 'breath', pose: 'run' },
+  gym_cycle: { stat: 'endurance', minigame: 'cycle', pose: 'cycle' },
+};
+export function gymEquipmentOf(interaction: FurnitureInteraction): GymEquipmentDef | null {
+  return GYM_EQUIPMENT[interaction] ?? null;
+}
+
+/** 진행 중인 운동 세션. */
+export interface GymSessionInfo {
+  uid: string;
+  defId: string;
+  stat: GymStat;
+  minigame: GymMinigame;
+}
+
+export interface HousingRef {
+  /* ══ appended (A-3e, 2026-09-12): 서재 매체 ══ */
+  /** 배치된 조각이 보관함(책장 · 디스크 전시대 · 레코드랙)이면 그 매체, 아니면 null. */
+  getShelfMedium?(uid: string): ShelfMedium | null;
+  /** 보관함 한 대의 칸 전부, 늘 `SHELF_SLOTS[medium]` 개 (책장이면 `getBooks` 와 같다). 보관함이 아니면 빈 배열. */
+  getShelfSlots?(uid: string): BookSlotInfo[];
+  /** 매체 하나를 (가방 → 창고) 꺼내 `slot` 에 꽂는다. 매체가 그 보관함과 맞아야 한다. 함선 전용. 한국어 사유 / null. */
+  placeShelfItem?(uid: string, slot: number, defId: string): string | null;
+  /** `slot` 의 매체를 가방(없으면 창고)으로 뺀다. 한국어 사유 / null. */
+  takeShelfItem?(uid: string, slot: number): string | null;
+  /** 지금 가진 그 매체 (가방 + 창고), 숙련 순. */
+  getOwnedShelfItems?(medium: ShelfMedium): { defId: string; qty: number }[];
+  /** 그 매체의 도감 (책 = `bookDex`, 디스크 · 레코드 = `mediaDex` 에서 그 접두사). */
+  getShelfDex?(medium: ShelfMedium): readonly string[];
+  /** 한 숙련의 서재 배율을 매체별로. `total === getBookBonus(skill)`. */
+  getShelfBonus?(skill: SkillId): ShelfBonusInfo;
+  /** 그 매체의 보조 가구가 함선에 배치돼 있는가. */
+  hasShelfAux?(medium: ShelfMedium): boolean;
+  /** 보관함 화면을 연다 — 책장 · 디스크 전시대 · 레코드랙 공통 (책장은 `openBookshelfMenu` 와 같은 화면이어도 된다). */
+  openShelf?(uid: string): void;
+  /** TV · 레코드 플레이어가 켜져 있는가 (`ShipState.toggled`). 켤 수 없는 가구는 false. */
+  isFurnitureOn?(uid: string): boolean;
+  /** 켜기 / 끄기를 뒤집고 새 상태를 돌려준다 (`housing:furnitureToggled` + 저장). 켤 수 없는 가구면 null. */
+  toggleFurniture?(uid: string): boolean | null;
+
+  /* ══ appended (A-3a, 2026-09-12): 헬스장 ══ */
+  /** 진행 중인 운동 세션, 없으면 null. */
+  readonly gymSession?: GymSessionInfo | null;
+  /** 지금 `startGymSession(uid)` 가 거절할 한국어 사유, null = 시작할 수 있다. */
+  gymBlock?(uid: string): string | null;
+  /**
+   * 운동 기구 `uid` 로 세션을 시작한다 — 미니게임 화면을 열고 `housing:gymSession {active:true}` 를 낸다 (hub 가 자세 · 카메라를 건다).
+   * 끝까지 하면 점수가 `ctx.progression.applyGymSession` 으로 가고 `housing:gymResult` 가 난다. 한국어 사유 / null.
+   */
+  startGymSession?(uid: string): string | null;
+  /** 진행 중인 세션을 보상 · 디버프 없이 끝낸다 (`housing:gymSession {active:false, completed:false}`). 없으면 no-op. */
+  cancelGymSession?(): void;
 }
