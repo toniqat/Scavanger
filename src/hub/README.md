@@ -773,3 +773,43 @@ over the 닫기 (Esc) / 타이틀로 footer.
   닫기 스택에는 각자 자기 key 를 쓴다 — `'hub:terminal'` · `'hub:workbench'` · `'hub:launchWarn'`.
 - **`ui/CrewLoadoutPanel`**: 자기 blocker 가 없는 팝업(아래 포드 패널이 들고 있다)이라 `'hub:crewLoadout'` key 로
   올린다. 포드 패널보다 나중에 열리므로 ESC 한 번은 이 팝업만 닫는다.
+
+### 2026-09-12 — 조종석 가구 공간 · 격자는 시설 관리에서만 · 꾹 눌러 옮기기 · 외곽선 · 터미널 훈련장 (사용자 결정)
+
+- **조종석이 꾸미는 공간이다.** `interiors/RoomLayout` 의 `COCKPIT` 은 이제 계약 격자(`COCKPIT_GRID_COLS/ROWS × HOUSING_CELL_SIZE`
+  = 10 × 6 m)에서 유도하고, `COCKPIT_ROOM_BOX`(방 번호 `COCKPIT_ROOM_INDEX`)가 `roomBox` · `roomCellToWorld` ·
+  `worldToRoomCell` 에 들어간다. `ROOM_BOXES` 에는 조종석이 없다(방 표지 · 방 조명 · `roomAtWorld`/`hub:roomEntered` 는 그대로) —
+  조종석까지 보는 질의는 `editAreaAtWorld`. `ShipInterior.cockpit?: EditAreaDef` (`RoomDef extends EditAreaDef`),
+  그룹 이름 `cockpit-furniture`.
+- **붙박이 임플란트 시술대 · 함선 컴퓨터가 개인 함선에서 빠졌다** — 공용 시설 가구 `furn_implant_bay` · `furn_corp_computer`
+  (모델 `implant_bay` · `corp_computer`)이고 housing 이 `COCKPIT_DEFAULT_FURNITURE` 자리에 놓아 준다. 모델은 `stations.ts` 에서
+  떼어 낸 몸체 함수(`implantBayBody` · `shipComputerBody`, 모니터 자리는 순수 함수 `computerScreenPose`)를 그대로 쓰고 공유 함선의
+  붙박이도 같은 함수를 부른다. `ShipInterior.computer` · `ShipStations.implantBay` 는 optional(공유 함선만). 가구 층은 두 가구를
+  **옛 상호작용 id 그대로** 등록한다(`hub_computer` 반경 2.2 `기업 네트워크` · `hub_implant_bay` 반경 2.3 `전술 임플란트 장착`, 앵커는
+  가구 앞 0.6 m) — 튜토리얼 · 스모크 · 게임 코드 어디도 바뀔 필요가 없다. 컴퓨터의 글자판 `TextPlane` 은 조각 그룹의 자식이고 조각과 함께 버린다.
+- **조종석 격자의 구멍** = `shared/housing` 의 `COCKPIT_BLOCKED_RECTS`(계기판 + 앞 띠 · 좌석과 복도 아치까지의 통로 · 사물함 · 발사 포드와
+  탑승 동선 + 창고 · 침상). 격자선은 막힌 칸 사이에는 긋지 않는다. 기본 자리: 시술대 `(0, 3) yaw 1`(좌현 앞, 앞이 +X), 컴퓨터
+  `(2, 9) yaw 0`(뒷벽 좌현, 모니터가 −Z). 조종석 소품을 옮기면 그 표를 같이 고친다.
+- **격자선은 시설 관리 중에만** (방 · 조종석 전부): `PersonalShip.gridGroup` 이 자기 `GeoBatch` 로 지어지고 `setGridVisible` 로
+  `visible` 만 바꾼다(`HousingMode.activate` 켬 · `deactivate` 끔, 디버그 `gridVisible`). 머티리얼은 `M.grid` — 맵 없는
+  `MeshStandardMaterial` 이라 이미 화면에 있는 갑판과 프로그램 키가 같아 처음 보일 때 컴파일이 없다. 광원 없음.
+- **은퇴 상호작용**: `FurnitureCallbacks.onRangeConsole` · `onSimHub` 제거(관물대 · 시뮬레이션 허브 은퇴, 프리셋 기능 제거). 새 콜백
+  `onImplantBay` · `onCorpComputer`. `RETIRED_INTERACTIONS`(`range_console` · `sim_hub` · `repair_bench`)는 그려도 E 가 없고, 모르는
+  상호작용은 더 이상 `onRangeConsole` 로 흘러가지 않는다.
+- **터미널 훈련장** (`ui/HubMenu`): 시뮬레이션 훈련장 섹션이 개인 함선(솔로 포함)에도 늘 보인다 — 솔로는 `시작` 이 늘 켜져 있고
+  `host.startTraining()` 이 네트 없이 연다. 로비 상태(합류 n명 · 임무 진행 중)는 예전 그대로.
+- **`HousingMode` (시설 관리)**:
+  - 방 · 조종석 공통 — `roomBox` · `roomGridSize` 로 커서 레이 · 발자국 클램프, 카메라 틀은 `camSpan(rb)`(방 8 m 그대로, 조종석 10 m).
+  - **외곽선**: 커서 밑 조각(위치 이동 상태 · UI 위 · 방 밖이 아닐 때) → `ctx.outline.set('hover', …)`, 선택한 uid →
+    `set('selected', …)`. 위치 이동 중에는 둘 다 끈다. 대상 오브젝트는 `FurnitureLayer.objectOf(uid)` 이고 방이 다시 지어지면
+    참조가 바뀌므로 매 프레임 참조를 비교해 바뀔 때만 다시 넣는다. 모드를 나가거나 함선이 바뀌면 `clear()`.
+  - **꾹 눌러 옮기기**: 조각을 LMB 로 누르면 선택되고(예전 그대로), 같은 조각 위에서 `HOUSING_MOVE_HOLD_S`(0.5 s) 동안 누르고 있으면
+    `beginMove` — 떼거나 · 커서가 조각을 벗어나거나 · UI 위로 가면 취소. 진행은 `housing:moveHold {progress}`(0 … 1)로 매 프레임,
+    끝 · 취소 · 완료에 `{progress:null}` — 짧은 클릭에 게이지가 깜빡이지 않게 `HOLD_GAUGE_MIN_PROGRESS`(0.15)부터 낸다. 누름은
+    **진짜 `pointerdown`** 만 무장하고 `pointerup` / `mouseup` / `blur` 가 푼다 — 맨 `mousedown` 만 흉내 내는 헤드리스 스모크의
+    클릭은 예전처럼 선택으로 끝난다. 놓기는 여전히 **누르는 순간** 판정이라 게이지를 채운 뒤 손을 떼도 놓이지 않는다.
+  - **키 가이드**: 선택만 된 상태의 한 줄이 `E 또는 LMB(꾹) 위치 이동` — `KeyGuideEntry.alt` 로 보낸다(그리는 것은 ui/KeyGuide).
+- **방문 문서** (`src/net/model.sanitizeShipVisit`): 조종석 가구(`COCKPIT_ROOM_INDEX`)를 받고 칸 클램프를 `roomGridSize` 로 한다.
+  방 수 8 은 `SHIP_ROOM_COUNT` 를 그대로 따라온다.
+- 스모크(정적 수정): `smoke-ship-rooms`(방 그룹 8 · `cockpit-furniture` · 격자 숨김 · 컴퓨터 주석), `smoke-training`(개인 함선
+  터미널의 `시작` 으로 입장 — 가구로 훈련장에 들어가는 길은 없다), `smoke-hangar`(방문 함선의 조각 수는 조종석 가구 포함 → 총기 작업대 존재로 본다).

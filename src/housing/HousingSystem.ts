@@ -1,7 +1,7 @@
 import type {
   AnalysisSlot, AnalysisSlotInfo,
-  BookSlotInfo, CraftIngredient, CultureSlot, CultureSlotInfo, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext,
-  GameSystem, GrowPlotInfo,
+  BookSlotInfo, CraftIngredient, CultureSlot, CultureSlotInfo, EmbeddedView, FacilityId, FacilityInfo, FacilityRequirement, FurnitureDef,
+  GameContext, GameSystem, GrowPlotInfo,
   GrowSlot, GrowSlotInfo, GrowTier, HarvestDestination,
   HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
@@ -9,7 +9,6 @@ import type {
 import { ShipStore, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
 import type { SanitizeOutcome } from './ShipState';
 import { mergeCost } from './Rules';
-import { PresetMenu } from './ui/PresetMenu';
 import { GrowStation } from './ui/GrowStation';
 import { Analyzer } from './ui/Analyzer';
 import { CultureTank } from './ui/CultureTank';
@@ -45,8 +44,13 @@ export class HousingSystem implements GameSystem, HousingRef {
   private store: ShipStore | null = null;
   nextUid = 0;
   private fresh = false;
-  /** 2026-09-12 (v7): the local save carried 작업실 / 사격장 room levels that `sanitize` moved or refunded — write it back. */
+  /**
+   * 2026-09-12 (v7 · v8): the local save carried 작업실 / 사격장 room levels, 방 9 · 10 or a 시뮬레이션실 / 휴식 공간 that
+   * `sanitize` moved or refunded — write it back and keep it over an older server copy.
+   */
   private migrated = false;
+  /** 2026-09-12: `sanitize` put back a 공용 시설 가구 (조종석) the save had lost — write it back (not an edit). */
+  private granted = false;
   /**
    * 2026-09-11: a real edit (`changed()`) happened — as opposed to the boot-time "fresh state" save. Together with
    * `ShipStore.isDirty` it tells `onProfileLoaded` that the local state holds an edit **newer than anything the profile
@@ -54,7 +58,7 @@ export class HousingSystem implements GameSystem, HousingRef {
    */
   private editPending = false;
   private unsubs: Array<() => void> = [];
-  presetMenu: PresetMenu | null = null;
+  /* 2026-09-12: `presetMenu` (ui/PresetMenu) is gone with the preset feature — see `parts/Presets.ts` */
   growStation: GrowStation | null = null;
   /** 분석 화면 (연구실, 2026-09-11). 이름이 `analyzer` 가 아닌 것은 `openAnalyzer` 메서드와 겹치지 않게 하기 위함이다. */
   analyzerPanel: Analyzer | null = null;
@@ -85,6 +89,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.fresh = loaded.fresh;
     this.pendingRefund = loaded.refund;
     this.migrated = loaded.migrated;
+    this.granted = loaded.granted;
     this.nextUid = maxUidIndex(this.state.furniture);
   }
 
@@ -93,10 +98,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.ctx = ctx;
     ctx.housing = this;
     this.store = new ShipStore(() => this.state, () => this.profileRef());
-    if (this.fresh || this.migrated) this.store.markDirty();
-    // v7: the moved levels are a local edit the server copy has never seen — a welcome inside the debounce must not undo it
+    if (this.fresh || this.migrated || this.granted) this.store.markDirty();
+    // v7 · v8: the moved levels / removed rooms are a local edit the server copy has never seen — a welcome inside the debounce must not undo it
     if (this.migrated) this.editPending = true;
-    this.presetMenu = new PresetMenu(ctx, this);
     this.growStation = new GrowStation(ctx, this);
     this.analyzerPanel = new Analyzer(ctx, this);
     this.cultureTank = new CultureTank(ctx, this);
@@ -124,9 +128,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.presetMenu?.dispose(); this.growStation?.dispose(); this.analyzerPanel?.dispose();
+    this.growStation?.dispose(); this.analyzerPanel?.dispose();
     this.cultureTank?.dispose(); this.diningTable?.dispose(); this.bookshelfMenu?.dispose();
-    this.presetMenu = null; this.growStation = null; this.analyzerPanel = null;
+    this.growStation = null; this.analyzerPanel = null;
     this.cultureTank = null; this.diningTable = null; this.bookshelfMenu = null;
     this.store?.dispose(); this.store = null;
   }
@@ -196,8 +200,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.culturesPruned = false;
     this.fresh = false;
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
-    // …unless the server copy itself was a pre-v7 document whose room levels `sanitize` just moved: upload it once
-    if (out.migratedRoomLevels) this.store?.markDirty();
+    // …unless the server copy itself was a pre-v8 document `sanitize` just migrated (room levels · 방 9 · 10 · 시뮬레이션실 /
+    // 휴식 공간) or one missing a 공용 시설 가구 it had to put back: upload it once
+    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit) this.store?.markDirty();
     const b = this.ctx.bus;
     b.emit('housing:loaded', { state: this.state });
     b.emit('housing:changed', { reason: 'profile' });
@@ -336,8 +341,14 @@ export class HousingSystem implements GameSystem, HousingRef {
   getBenchLevel(kind: WorkbenchKind): number { return Rooms.getBenchLevel(this, kind); }
 
   getCraftCostMul(): number { return Rooms.getCraftCostMul(this); }
-  /** 시뮬레이션 허브 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
+  /** 서재 (`getBookBonus`, every shelved book of that skill). 2026-09-12: the 시뮬레이션 허브 term left with the furniture. */
   getSkillGainMul(skill: SkillId): number { return Rooms.getSkillGainMul(this, skill); }
+
+  /** 2026-09-12: 빈 방에 `purpose` 를 증축하는 데 채워지지 않은 시설 레벨 요구 (발전기 Lv.1 게이트 — `Rules.purposeRequirementsFor`). */
+  purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[] { return Rooms.purposeRequirements(this, purpose); }
+
+  /** 2026-09-12: 놓인 가구의 다음 강화를 막는 시설 레벨 요구 (`Rules.furnitureUpgradeRequirementsFor`). */
+  furnitureUpgradeRequirements(uid: string): readonly FacilityRequirement[] { return Furn.furnitureUpgradeRequirements(this, uid); }
   getStashSize(): { cols: number; rows: number } { return Rooms.getStashSize(this); }
 
   /* ── furniture ─────────────────────────────────────────────────────────── */
@@ -612,7 +623,7 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   openBookshelfMenu(uid: string): void { return Lib.openBookshelfMenu(this, uid); }
 
-  /* ── loadout presets (관물대) ──────────────────────────────────────────── */
+  /* ── loadout presets (은퇴 — 2026-09-12 사용자 결정 「프리셋 기능 제거」: 전부 「슬롯 없음」으로 답한다, `parts/Presets.ts`) ── */
   getPresetCount(): number { return Preset.getPresetCount(this); }
 
   getPresets(): readonly (LoadoutPreset | null)[] { return Preset.getPresets(this); }

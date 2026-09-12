@@ -1,5 +1,6 @@
 // Smoke test for the personal-ship rooms + 3D housing mode (함선 꾸미기, hub folder, 2026-09-06):
-// cockpit → corridor → 10 rooms, room tracking (`currentRoom` / `hub:roomEntered`), the terminal without a seed
+// cockpit → corridor → 8 rooms (2026-09-12: was 10; the cockpit is a furniture area and its implant bay / computer are
+// 공용 시설 가구 seated by housing under the old ids), room tracking (`currentRoom` / `hub:roomEntered`), the terminal without a seed
 // section, the removed door / facility consoles (Phase 8 UI pass), housing mode (camera override, cursor from mouse deltas, ghost,
 // LMB place, X recover, Esc exit), placed furniture (mesh under the room group, collider push-out, interactable) and the
 // ship computer (Phase 5: `hub_computer` → corp screen `ui:corpToggled` or the fallback warning toast, Esc, desk collider,
@@ -116,8 +117,11 @@ try {
     const ids = ctx.interactables.all().map((i) => i.id);
     let lights = 0, roomGroups = 0;
     ctx.scene.getObjectByName('PersonalShip').traverse((o) => { if (o.isPointLight) lights++; if (o.isGroup && /^room-\d+$/.test(o.name)) roomGroups++; });
-    const pool = window.__game.getSystem('hub').interior?.lights?.size ?? -1;
-    return { ship: ctx.hub.ship, ids, lights, pool, roomGroups, pos: [ctx.player.position.x, ctx.player.position.z], room: ctx.hub.currentRoom };
+    const interior = window.__game.getSystem('hub').interior;
+    const pool = interior?.lights?.size ?? -1;
+    const cockpitGroup = !!ctx.scene.getObjectByName('cockpit-furniture');
+    const gridHidden = interior?.gridVisible === false;
+    return { ship: ctx.hub.ship, ids, lights, pool, roomGroups, cockpitGroup, gridHidden, pos: [ctx.player.position.x, ctx.player.position.z], room: ctx.hub.currentRoom };
   });
   ok(ship.ship === 'personal' && Math.abs(ship.pos[0]) < 0.01 && Math.abs(ship.pos[1] + 1.8) < 0.05, `spawned in the cockpit at (${ship.pos.map((n) => n.toFixed(2))})`);
   // Phase 8: the cockpit lost its built-in 정비 벤치 (now 작업실 furniture) and its 수경 재배 rack (now 온실 재배층).
@@ -131,7 +135,10 @@ try {
   // 2026-09-10: the ship owns exactly its `LightPool` (HUB_POINT_LIGHTS) — the pool re-anchors to the nearest fixtures
   // (cockpit / corridor / airlock / nearest lit rooms) and the count stays constant. Read the size, not a literal.
   ok(ship.pool > 0 && ship.lights === ship.pool, `constant point-light count = light pool size (${ship.lights} / pool ${ship.pool})`);
-  ok(ship.roomGroups === 10, `one furniture group per room (${ship.roomGroups})`);
+  // 2026-09-12: 8 rooms (SHIP_ROOM_COUNT 10 → 8); the cockpit's furniture group is `cockpit-furniture`, not `room-<n>`
+  ok(ship.roomGroups === 8, `one furniture group per room (${ship.roomGroups})`);
+  ok(ship.cockpitGroup, 'the cockpit has its own furniture group (cockpit-furniture)');
+  ok(ship.gridHidden, 'the housing floor grid is hidden while walking the ship');
   ok(ship.room === null, 'currentRoom is null in the cockpit');
   // 2026-09-07: a ship starts with ten empty rooms and no furniture — the room-1 작업실 is gone. The housing-mode
   // walk-through below needs a 작업실 with a bench in storage, so seed room 1 the way a player would build it.
@@ -186,7 +193,9 @@ try {
   });
   ok(!!comp && comp.prompt === '기업 네트워크' && comp.radius === 2.2 && comp.hold === 0, `hub_computer: prompt ${comp?.prompt}, radius ${comp?.radius}, instant`);
   // Phase 9 UI pass: the desk moved off the +X wall (where its prompt fought the launch pod) to the port half of
-  // the rear wall, replacing the lockers that overlapped the bunk. Anchor ≈ (−3.15, −1.83), facing −Z.
+  // the rear wall, replacing the lockers that overlapped the bunk. 2026-09-12: it is the `furn_corp_computer` furniture
+  // now (cells x 2…4, y 9…11 = x −4 … −2.5, z −1.5 … 0), registered under the same id — anchor ≈ (−3.25, −2.1), facing −Z.
+  // Its collider is the footprint box, so the circle below is still pushed out toward the room.
   ok(!!comp && comp.pos[0] > -4.2 && comp.pos[0] < -2.1 && comp.pos[1] > -2.6 && comp.pos[1] < -1.0, `anchor on the rear wall, port side (${comp?.pos.map((n) => n.toFixed(2))})`);
   // desk collider (desk + chair box x −3.92 … −2.38, z −1.18 … −0.03): a 0.45 m circle inside it is pushed into the room
   const deskPush = await page.evaluate(() => {
@@ -362,7 +371,8 @@ try {
     const group = root.getObjectByName('room-0');
     const meshes = []; group.traverse((o) => { if (o.isMesh) meshes.push(o); });
     const layer = window.__game.getSystem('hub').furnitureLayer;
-    return { children: group.children.length, meshes: meshes.length, count: layer.count, furn: ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).map((i) => i.id), center: (() => { const m = group.children.find((c) => typeof c.name === 'string' && c.name.startsWith('furn-')) ?? group.children[0]; return m ? [m.position.x, m.position.z] : null; })() };
+    // 2026-09-12: the cockpit always holds its two 공용 pieces (시술대 · 컴퓨터) — they live in the layer too
+    return { children: group.children.length, meshes: meshes.length, count: layer.count - ctx.housing.getPlaced(100).length, furn: ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).map((i) => i.id), center: (() => { const m = group.children.find((c) => typeof c.name === 'string' && c.name.startsWith('furn-')) ?? group.children[0]; return m ? [m.position.x, m.position.z] : null; })() };
   });
   ok(rendered.children >= 1 && rendered.meshes >= 2 && rendered.count === 1, `furniture mesh under the room-0 group (${rendered.children} objects, ${rendered.meshes} meshes)`);
   ok(rendered.furn.length === 1 && rendered.furn[0] === `hub_furn_${placedItem.uid}`, `bench interactable ${rendered.furn[0]}`);
@@ -416,7 +426,7 @@ try {
     const recBefore = await page.evaluate(() => window.__ev['housing:furnitureRecovered'].length);
     await tap('KeyX');
     await waitSim(0.2);
-    const rec = await page.evaluate(() => ({ ev: window.__ev['housing:furnitureRecovered'].length, count: window.__game.getSystem('hub').furnitureLayer.count, furn: window.__game.ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).length, stored: window.__game.ctx.housing.getStored().length }));
+    const rec = await page.evaluate(() => ({ ev: window.__ev['housing:furnitureRecovered'].length, count: window.__game.getSystem('hub').furnitureLayer.count - window.__game.ctx.housing.getPlaced(100).length, furn: window.__game.ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).length, stored: window.__game.ctx.housing.getStored().length }));
     ok(rec.ev === recBefore + 1 && rec.count === 0 && rec.furn === 0, `X recovered the bench (meshes ${rec.count}, interactables ${rec.furn}, storage entries ${rec.stored})`);
     await tap('KeyM');
     await waitSim(0.2);
@@ -477,7 +487,7 @@ try {
      locked cursor deltas by the same `rb.side`, so rooms 6–10 read 180° rotated. Both now use the port convention:
      eye on the room's +X side looking −X, screen-right = world −Z. The port checks above only look at camera y / z
      and only drive the cursor in room 0, so they pass either way — this block is the starboard half. */
-  console.log('starboard housing camera (rooms 6-10)');
+  console.log('starboard housing camera (rooms 5-8)');
   await teleport(cxOf(rb5), czOf(rb5), 0);
   await waitSim(0.3);
   await page.evaluate(() => window.__game.ctx.bus.emit('housing:modeChanged', { active: true, room: 5 }));

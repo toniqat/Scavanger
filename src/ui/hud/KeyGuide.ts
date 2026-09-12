@@ -81,9 +81,14 @@ export class KeyGuide {
 
   private render(): void {
     const top = this.stack.length ? this.stack[this.stack.length - 1] : null;
-    const entries: KeyGuideEntry[] = top ? [...top.keys, { key: keyLabel(Keys.INVENTORY), label: '닫기' }] : [];
-    // 2026-09-09: the 닫기 item names **two** keys (Tab · ESC), so a rebound Escape must re-render as well.
-    const key = `${entries.map((e) => `${e.key}${e.hold ? '⌄' : ''} ${e.label}`).join('')}${keyLabel(Keys.MENU)}`;
+    // 2026-09-09: **ESC 도 화면을 닫는다** (`game/escapeKey`), so the 닫기 item names two keys. 2026-09-12: they are the
+    // same action on different keys, so the second one rides `alt` and reads `Tab 또는 Esc`. Tab stays the first
+    // keycap — the tutorial and the smokes read that first `.keycap`.
+    const entries: KeyGuideEntry[] = top
+      ? [...top.keys, { key: keyLabel(Keys.INVENTORY), label: '닫기', alt: [{ key: keyLabel(Keys.MENU) }] }]
+      : [];
+    const key = entries.map((e) => `${e.key}${e.hold ? '⌄' : ''}${(e.combo ?? []).map((c) => `+${c}`).join('')}`
+      + `${(e.alt ?? []).map((a) => `|${a.key}${a.hold ? '⌄' : ''}`).join('')} ${e.label}`).join('');
     if (key !== this.renderKey) {
       this.renderKey = key;
       this.rendered = entries;
@@ -95,15 +100,19 @@ export class KeyGuide {
         const close = i === entries.length - 1;
         const item = el('span', { cls: close ? 'kg-item kg-close' : 'kg-item', parent: this.root });
         // 2026-09-09: `hold: true` → `.keycap.kc-hold` (the ⌄ chevron above the cap lives in the stylesheet, once).
-        el('span', { cls: e.hold ? 'keycap kc-hold' : 'keycap', text: e.key, parent: item });
-        // 2026-09-09: **ESC 도 화면을 닫는다** (`game/escapeKey` — 열린 순서의 역순으로 맨 위 하나), so the 닫기
-        // item carries a second keycap. Tab stays the first one: it is the key every screen has always closed on,
-        // and the tutorial / smokes read that first `.keycap`.
-        if (close) el('span', { cls: 'keycap', text: keyLabel(Keys.MENU), parent: item });
+        this.cap(item, e.key, e.hold);
+        // 2026-09-12 (사용자 결정): keys pressed **together** are joined by a small `+`, keys that do the **same**
+        // action by a small `또는`. Combo first (it belongs to the primary key), then the alternatives.
+        for (const c of e.combo ?? []) { el('span', { cls: 'kg-plus', text: '+', parent: item }); this.cap(item, c, false); }
+        for (const a of e.alt ?? []) { el('span', { cls: 'kg-or', text: '또는', parent: item }); this.cap(item, a.key, a.hold); }
         el('span', { cls: 'kg-label', text: e.label, parent: item });
       });
     }
     this.apply();
+  }
+
+  private cap(parent: HTMLElement, text: string, hold: boolean | undefined): void {
+    el('span', { cls: hold ? 'keycap kc-hold' : 'keycap', text, parent });
   }
 
   private apply(): void {

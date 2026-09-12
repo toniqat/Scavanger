@@ -103,3 +103,21 @@ Notes
 - **2026-09-11 (C-58)** — perf guard 가 블룸을 끄면 `render:autoAdjusted {bloom:false, reason:'perf'}` 를 부팅당 1회 낸다
   (`perfDisableBloom`), 그때 `requestedPost` = false(설정이 실효값을 발행하므로 플레이어의 켜기만 바뀐 요청이 된다),
   dev 훅 `debugForcePerfGuard()`. 위 C-58 절 · `smoke-lights` 단언 +9.
+
+- **2026-09-12 (외곽선 선컴파일은 hold 중에도)** — `Engine.frame` 이 `outline.warm` 을 **그리기 분기 밖**에서 부른다.
+  블룸 · 그림자 토글은 키가 바뀌는 그 프레임에 hold 를 시작하므로, 그리는 프레임에서만 데우면 새 외곽선 프로그램이 hold 가
+  **풀린 직후** 링크됐다(`smoke-lights` 블룸 토글 133 → 134). `renderer.compile` 은 링크만 걸어 두므로 hold 를 막지 않는다.
+- **2026-09-12 (화면 공간 외곽선 `ctx.outline`)** — `Outline.ts` 신규, 계약은 `shared/render.ts` 의 `OutlineRef`
+  (사용자 결정: 시설 관리 가구 호버 = 약한 흰색, 선택 = 중간 밝기 연두색, 화면 공간 아웃라인 패스). three 의 `OutlinePass`
+  를 채널마다 하나(`ChannelPass`) — `hover` 흰색 `0xffffff` · strength 1.4 · thickness 1.0, `selected` 연두 `0xa8f060` ·
+  strength 3.0 · thickness 1.5, glow 0, 가려진 가장자리도 같은 색. Engine 이 생성자에서 `ctx.outline` 을 게시하고
+  (`ctx.shaders` 옆), 컴포저에는 **블룸 뒤 · OutputPass 앞**에 끼운다. 매 프레임 `prepare()` 가 씬에서 떨어진 오브젝트를
+  빼고 `selected` 와 겹치는(같은 · 조상 · 자손) `hover` 를 지운 뒤 **빈 채널의 패스를 끈다** — 아무도 안 쓰면 비용 0.
+  **블룸 꺼짐**(캔버스 경로)에서는 컴포저로 갈아타지 않고(렌더 타깃이 바뀌면 씬 전체 재컴파일) `renderDirect` 가 씬 위에
+  같은 패스를 캔버스로 덧그리며, 그 경로는 톤매핑 · sRGB 인코딩이 없어 색을 sRGB 인코딩 값으로 바꿔 끼운다.
+  **첫 호버 멈춤 방지**: `warm()` 이 `shaders.beforeRender()`(광원 예산 채움) 뒤, 포그 종류 · 해 그림자 · 블룸 경로가 바뀔
+  때마다 한 번 깊이 · 마스크 머티리얼(평범한 박스 + 인스턴스 박스, 씬 광원 · 포그, 선형 렌더 타깃 — 마스크는 패스처럼
+  메시를 전부 숨긴 채) · 전체 화면 쿼드 머티리얼(광원 0 · 포그 없음) · overlay(캔버스 경로면 캔버스 변형까지)를
+  `renderer.compile` 로 링크해 둔다. 광원은 만들지 않고, 패스가 잠깐 바꾸는 `visible` 은 메시 · 스프라이트 · 점 · 선뿐이며
+  렌더 안에서 되돌리므로 `smoke-lights` 의 개수는 그대로다. 패스 안의 씬 렌더 두 번은 `shadowMap.autoUpdate` 를 꺼
+  그림자 맵을 다시 그리지 않는다. `stop()` 이 패스 · 워밍 지오메트리를 dispose.

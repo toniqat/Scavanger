@@ -239,6 +239,7 @@ export class GrowStation extends HousingPanel {
       gain: opened.length ? `${opened.map((t) => GROW_TIER_LABEL_KO[t]).join(' · ')} 개방` : '',
       cost: nextFurnitureCost(def, level),
       reason: h.furnitureUpgradeBlock(this.uid),
+      requirements: h.furnitureUpgradeRequirements(this.uid),
     };
   }
 

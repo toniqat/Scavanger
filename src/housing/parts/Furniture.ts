@@ -13,17 +13,17 @@ import {
   BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
   benchKindOf, isUtilityFurniture,
 } from '@/shared';
+import type { FacilityRequirement } from '@/shared';
 import {
   autoPlaceSpot,
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, formatCost, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
+  facilityPurposeOf, formatCost, furnitureUpgradeRequirementsFor, isPlaceRoom, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
   nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
 } from '../Rules';
 import type { FurniturePlacement } from '../Rules';
 import { ShipStore, freshRoom, isAnalyzerDefId, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
-import { PresetMenu } from '../ui/PresetMenu';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
 import { formatRemaining } from '../ui/dom';
@@ -106,10 +106,11 @@ export function exitHousingMode(sys: HousingSystem): void {
  */
 export function openShipManage(sys: HousingSystem, room?: number): boolean {
   if (sys.shipManageBlock()) return false;
-  const target = isRoomIndex(sys.state, room ?? -1)
+  // 2026-09-12: 조종석(`COCKPIT_ROOM_INDEX`)도 편집 대상이다 — 방 번호가 아니라 「가구를 놓을 수 있는 자리」로 본다
+  const target = isPlaceRoom(sys.state, room ?? -1)
     ? (room as number)
     : sys.ctx.hub?.currentRoom ?? sys.state.rooms.findIndex((r) => r.purpose !== 'empty');
-  const index = isRoomIndex(sys.state, target) ? target : 0;
+  const index = isPlaceRoom(sys.state, target) ? target : 0;
   sys.enterMode(index);
   sys.shipManageMode = true;
   sys.ctx.bus.emit('housing:shipManageChanged', { active: true, room: index });
@@ -117,7 +118,7 @@ export function openShipManage(sys: HousingSystem, room?: number): boolean {
   }
 
 export function setManageRoom(sys: HousingSystem, room: number): boolean {
-  if (!sys.shipManageMode || !isRoomIndex(sys.state, room)) return false;
+  if (!sys.shipManageMode || !isPlaceRoom(sys.state, room)) return false;
   if (sys.housingRoom === room) return true;
   sys.housingRoom = room;
   sys.selectedFurniture = null;
@@ -315,11 +316,21 @@ export function furnitureCraftBlock(sys: HousingSystem, defId: string): string |
   const def = FURNITURE_DEF_MAP.get(defId);
   if (!def) return '알 수 없는 가구입니다';
   if (def.retired) return '더 이상 만들 수 없는 가구입니다';
-  if (!def.craft) return '제작할 수 없는 가구입니다';
   const tutorial = sys.ctx.tutorial?.blockReason('furniture', defId);
   if (tutorial) return tutorial;
   if (isUtilityFurniture(def) && ownsFurniture(sys, defId)) return '이미 보유 중입니다';
+  // 2026-09-12: 공용 시설 가구(시술대 · 컴퓨터)는 `craft` 가 비어 있다 — 늘 가지고 있으므로 보통은 위 줄이 먼저 답한다
+  if (!def.craft) return '제작할 수 없는 가구입니다';
   const missing = missingIngredients(def.craft, sys.countDef);
   if (missing.length) return `재료 부족: ${formatCost(missing, sys.nameOf)}`;
   return null;
+  }
+
+/**
+ * 2026-09-12: 놓인 가구 `uid` 의 **다음 강화**를 막는 시설 레벨 요구 (채워지지 않은 것만 — 지금은 발전기 하나).
+ * 규칙은 `Rules.furnitureUpgradeRequirementsFor` 하나다 — `furnitureUpgradeReason` 의 발전기 게이트와 같은 식이다.
+ */
+export function furnitureUpgradeRequirements(sys: HousingSystem, uid: string): FacilityRequirement[] {
+  const item = sys.getPlacedByUid(uid);
+  return item ? furnitureUpgradeRequirementsFor(sys.state, item) : [];
   }

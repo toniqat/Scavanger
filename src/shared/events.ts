@@ -109,7 +109,11 @@ export interface GameEvents {
   'inventory:opened': { containerId: string | null };
   'inventory:closed': Record<string, never>;
   'inventory:changed': { totalValue: number; itemCount: number };
-  'inventory:itemAdded': { item: ItemInstance; name: string; rarity: string };
+  /**
+   * 2026-09-12 (appended optional): `fromStash` true = 함선 창고에서 가방으로 **옮긴** 것이다 (새로 얻은 것이 아니다).
+   * ui/hud/Notifications 는 그 줄에 획득 티커를 띄우지 않는다 (사용자 결정). 생략 = 예전 그대로 획득.
+   */
+  'inventory:itemAdded': { item: ItemInstance; name: string; rarity: string; fromStash?: boolean };
   'inventory:itemRemoved': { item: ItemInstance };
   'inventory:full': { item: ItemInstance; name: string };
   'inventory:itemRotated': { item: ItemInstance };
@@ -1026,6 +1030,22 @@ export interface KeyGuideEntry {
   label: string;
   /** 2026-09-09: the key must be **held** (탑승 · 1초 홀드) — the guide draws a downward chevron over the keycap. */
   hold?: boolean;
+  /**
+   * appended (2026-09-12): **다른 키로도 같은 행동**을 한다. 가이드는 `key 또는 alt[0] 또는 …` 로 그린다 — 키캡 사이의
+   * `또는` 은 작은 글씨다. 각 키는 자기 `hold` 를 갖는다 (예: `E` 탭 또는 `LMB` 꾹 = 위치 이동).
+   */
+  alt?: ReadonlyArray<KeyGuideKey>;
+  /**
+   * appended (2026-09-12): **함께 눌러야 하는** 키 (`Ctrl + R`). 가이드는 `key + combo[0] + …` 로 그린다 — `+` 는 작은 글씨다.
+   * 지금 쓰는 곳은 없지만 규칙이 먼저 정해졌다 (사용자 결정).
+   */
+  combo?: ReadonlyArray<string>;
+}
+
+/** appended (2026-09-12): `KeyGuideEntry.alt` 의 키 하나. */
+export interface KeyGuideKey {
+  key: string;
+  hold?: boolean;
 }
 
 /* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) ══ */
@@ -1124,4 +1144,10 @@ export interface GameEvents {
    * **위쪽**에 짧은 토스트로 띄운다 (전역 `ui:notify` 가 아닌 이유 — 사용자가 본 자리 바로 위에 떠야 한다).
    */
   'housing:placeRefused': { reason: string };
+  /**
+   * appended (2026-09-12, owner: hub — `HousingMode`): 시설 관리에서 놓인 가구를 **LMB 로 꾹 누르는 중**이다.
+   * `progress` 0 … 1 (`HOUSING_MOVE_HOLD_S` 동안 차오른다), `null` = 누르기가 끝났다 · 취소됐다 · 1 에 닿아 위치 이동 상태로
+   * 들었다. ui/ 가 **커서 위치를 중심으로** 원형 게이지를 그린다 (좌표는 ui 가 `ctx.input.uiX/uiY` 로 읽는다).
+   */
+  'housing:moveHold': { progress: number | null };
 }

@@ -141,7 +141,9 @@
 ## 시작 · 저장 · 재시작
 
 - **자동 시작**: `hub:entered {ship:'personal'}` 에서, 저장이 없고 **정말 새 캐릭터일 때만**.
-  "새 캐릭터"는 `looksFresh()` 가 본다 — 놓인 가구 0 · 용도 있는 방 0 · 레벨 1. 튜토리얼이 없던 시절부터
+  "새 캐릭터"는 `looksFresh()` 가 본다 — 놓인 가구 0 · 용도 있는 방 0 · 레벨 1. **2026-09-12**: 조종석의 기본 공용 가구
+  (`COCKPIT_DEFAULT_FURNITURE` — 전술 임플란트 시술대 · 기업 네트워크 컴퓨터)는 모든 함선에 늘 놓여 있으므로 「놓인 가구」에서 뺀다
+  (빼지 않으면 새 함선도 꾸민 함선으로 읽혀 튜토리얼이 영영 시작되지 않았다 — `smoke-tutorial` 이 잡았다). 튜토리얼이 없던 시절부터
   하던 프로필도 `scav.tutorial` 이 없기는 마찬가지라, 그런 프로필은 조용히 `done` 으로 표시하고 다시는 켜지 않는다.
 - **저장**: `scav.tutorial` (`TutorialSave` + `granted` · `benchUid`). 단계가 바뀔 때마다 쓰므로 새로고침을 견딘다.
   `ui/menus/newCharacter.resetCharacterSaves()` 가 `scav.` 접두 키를 전부 지우므로 **새 캐릭터로 시작**하면 다시 돈다.

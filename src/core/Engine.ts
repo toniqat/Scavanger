@@ -7,6 +7,7 @@ import { GameContext, getPlanet, type GameSystem } from '@/shared';
 import { Atmosphere } from './Atmosphere';
 import { FxManager } from './fx/FxManager';
 import { LightBudget } from './LightBudget';
+import { Outline } from './Outline';
 import { ShaderWarmup } from './ShaderWarmup';
 
 const MAX_DT = 0.05;
@@ -28,6 +29,8 @@ export class Engine {
   readonly lights: LightBudget;
   /** 2026-09-10: `ctx.shaders` — compile before showing, hold the frame while the driver links. */
   readonly shaders: ShaderWarmup;
+  /** 2026-09-12: `ctx.outline` — screen-space furniture outlines for 시설 관리 (off = zero cost). */
+  readonly outline: Outline;
 
   private readonly systems: GameSystem[] = [];
   private composer: EffectComposer | null = null;
@@ -64,6 +67,9 @@ export class Engine {
 
     this.atmosphere = new Atmosphere(this.scene);
     this.fx = FxManager.install(this.scene);
+    // 2026-09-12: before `setupPost` — the composer takes the outline passes between bloom and output
+    this.outline = new Outline(this.scene, this.camera);
+    this.ctx.outline = this.outline;
 
     this.setupPost();
     this.resize();
@@ -125,6 +131,7 @@ export class Engine {
     cancelAnimationFrame(this.rafId);
     this.started = false;
     for (const s of this.systems) s.dispose?.();
+    this.outline.dispose();   // 2026-09-12: outline passes' render targets / materials and the warm-up geometry
   }
 
   /**
@@ -195,6 +202,8 @@ export class Engine {
       this.bloomPass = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.35, 0.45, 0.85);
       this.composer.addPass(this.bloomPass);
       this.composer.addPass(new OutputPass());
+      // 2026-09-12: outlines after bloom (a bright edge must not glow) and before output (tone mapping + sRGB)
+      this.outline.attach(this.composer);
     } catch (e) {
       console.warn('[Engine] post-processing unavailable, falling back', e);
       this.composer = null; this.bloomPass = null;
@@ -209,6 +218,7 @@ export class Engine {
     const pr = this.renderer.getPixelRatio();
     this.composer?.setSize(w, h);
     this.bloomPass?.setSize(w * pr * 0.5, h * pr * 0.5);
+    this.outline.setSize(w * pr, h * pr);   // the composer sizes its passes too; this covers the canvas path / no composer
     this.fx.setViewport(w * pr, h * pr);
   }
 
@@ -241,10 +251,20 @@ export class Engine {
 
     this.shaders.update();         // resolve warm-ups whose programs finished linking
     this.shaders.beforeRender();   // light budget + a queued whole-scene warm-up (may start a hold)
+    // 2026-09-12: outlines — what each channel draws this frame (empty = pass off), programs linked for this scene state
+    this.outline.prepare();
+    const post = this.postEnabled && this.composer !== null;
+    // 2026-09-12: warm **before** the hold check — a bloom / shadow toggle starts a hold the same frame it changes the
+    // key, and warming only on drawn frames linked the new outline program right *after* the hold released
+    // (`smoke-lights` 블룸 토글: 133 → 134). `renderer.compile` only links (parallel), so it never blocks the hold.
+    this.outline.warm(this.renderer, this.camera, this.atmosphere.sun.castShadow, !post);
     // while holding, the canvas keeps the last frame: drawing now would block on the very compile we are waiting for
     if (!this.shaders.holding) {
-      if (this.postEnabled && this.composer) this.composer.render(dt);
-      else this.renderer.render(this.scene, this.camera);
+      if (post) this.composer!.render(dt);
+      else {
+        this.renderer.render(this.scene, this.camera);
+        this.outline.renderDirect(this.renderer, dt);   // bloom off: draw the outlines straight over the canvas
+      }
     }
 
     this.perfGuard(dt);

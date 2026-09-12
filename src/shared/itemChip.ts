@@ -139,3 +139,59 @@ export function renderItemCost(
   }
   return ok;
 }
+
+/* ══ appended: 2026-09-12 — 시설 레벨 요구 칩 ═══════════════════════════════════════════════════════════════════
+ * 「발전기 Lv.2 가 필요하다」 같은 **시설 레벨 요구**를 아이템 칩 옆에 같은 줄로 그린다 (사용자 결정). 아이템과 헷갈리지
+ * 않게 **가로로 긴 썸네일 + 이중 테두리**이고, 수치는 필요 갯수가 아니라 `현재 레벨/필요 레벨` 이다.
+ *
+ *   div.facility-chip[.is-short]                   ← `--fc` = 시설 색, `--chip-size` = 썸네일 높이 (아이템 칩과 같은 값을 넘긴다)
+ *     div.facility-chip-thumb                      ← 폭은 높이의 2배 (CSS) · `border-style: double`
+ *       span.facility-chip-icon                    ← 시설 글리프 (`FACILITY_GLYPH`)
+ *       span.facility-chip-name                    ← 시설 이름 (`FACILITY_LABEL_KO`)
+ *       div.facility-chip-count > span.facility-chip-have + '/' + span.facility-chip-need
+ *
+ * 스타일은 `src/ui/styles/base.css` 의 `.facility-chip*` (아이템 칩 바로 아래). 이 함수는 시설 표를 import 하지 않는다 —
+ * 부르는 쪽이 이름 · 글리프 · 색을 넘긴다 (`itemChip.ts` 가 `housing.ts` 에 기대지 않게).
+ */
+export interface FacilityChipOptions {
+  /** 썸네일 높이 px — 같은 줄의 아이템 칩 `size` 와 맞춘다. 기본 34. */
+  size?: number;
+  /** 네이티브 툴팁. 생략하면 `이름 Lv.need 필요 (현재 Lv.have)`. */
+  title?: string;
+}
+
+export function buildFacilityChip(
+  name: string, glyph: string, color: string, have: number, need: number, opts: FacilityChipOptions = {},
+): HTMLElement {
+  const root = document.createElement('div');
+  root.className = 'facility-chip';
+  root.style.setProperty('--chip-size', `${opts.size ?? 34}px`);
+  root.style.setProperty('--fc', color);
+  const h = Math.max(0, Math.floor(have)), n = Math.max(0, Math.floor(need));
+  if (h < n) root.classList.add('is-short');
+  root.title = opts.title ?? `${name} Lv.${n} 필요 (현재 Lv.${h})`;
+
+  const thumb = document.createElement('div');
+  thumb.className = 'facility-chip-thumb';
+  const icon = document.createElement('span');
+  icon.className = 'facility-chip-icon';
+  icon.textContent = glyph;
+  const label = document.createElement('span');
+  label.className = 'facility-chip-name';
+  label.textContent = name;
+  const count = document.createElement('div');
+  count.className = 'facility-chip-count';
+  const hs = document.createElement('span');
+  hs.className = 'facility-chip-have';
+  hs.textContent = String(h);
+  const sep = document.createElement('span');
+  sep.className = 'facility-chip-sep';
+  sep.textContent = '/';
+  const ns = document.createElement('span');
+  ns.className = 'facility-chip-need';
+  ns.textContent = String(n);
+  count.append(hs, sep, ns);
+  thumb.append(icon, label, count);
+  root.appendChild(thumb);
+  return root;
+}

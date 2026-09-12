@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
 import {
-  HOUSING_CELL_SIZE, HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
-  ROOM_STRIP_DIM, ROOM_STRIP_LIT, SHIP_ROOM_COUNT,
+  COCKPIT_ROOM_INDEX, HOUSING_CELL_SIZE, HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, ROOM_GRID_COLS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
+  ROOM_STRIP_DIM, ROOM_STRIP_LIT, SHIP_ROOM_COUNT, roomCellBlocked, roomGridSize,
 } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
@@ -11,14 +11,20 @@ import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
-import { implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
+import type { ShipStations } from './stations';
 import { TextPlane } from '../Labels';
-import { AIRLOCK, CEIL, COCKPIT, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOM_DEPTH, ROOM_GAP, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
-import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
+import { AIRLOCK, CEIL, COCKPIT, COCKPIT_ROOM_BOX, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOM_DEPTH, ROOM_GAP, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
+import type { EditAreaDef, PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
 /**
- * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → ten `ROOM_SIZE × ROOM_DEPTH`
- * housing rooms (five per side, doors on the corridor) → airlock. Every coordinate lives in `RoomLayout.ts`.
+ * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → `SHIP_ROOM_COUNT` (8 since
+ * 2026-09-12, was 10) `ROOM_SIZE × ROOM_DEPTH` housing rooms (half per side, doors on the corridor) → airlock. Every
+ * coordinate lives in `RoomLayout.ts`.
+ *
+ * **2026-09-12 (사용자 결정) — 조종석도 가구 공간이다.** 붙박이 임플란트 시술대 · 함선 컴퓨터가 없어졌고(공용 시설 가구
+ * `furn_implant_bay` · `furn_corp_computer` 가 그 자리를 받는다) 조종석은 `cockpit`(`COCKPIT_ROOM_INDEX`) 가구 공간이다.
+ * 바닥 격자선은 방 · 조종석 모두 **자기 메시(`gridGroup`)** 로 떨어져 시설 관리 중에만 보인다(`setGridVisible`) —
+ * 조종석 격자는 고정 소품 자리(`COCKPIT_BLOCKED_RECTS`)에 선을 긋지 않는다.
  *
  * **2026-09-12 — 방이 8 × 8 m 다** (`ROOM_GRID_COLS/ROWS` 8 → 16). 이 파일에서는 숫자를 하나도 새로 적지
  * 않았다: 방 · 복도 · 에어락 좌표는 전부 `RoomLayout` 에서 오고, 예전에 박혀 있던 에어락 z(26.0 · 26.4 · 26.3)만
@@ -54,13 +60,22 @@ export class PersonalShip implements ShipInterior {
   readonly airlockYaw = 0;
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
-  readonly computer: StationDef;
-  readonly stations: ShipStations;
+  /*
+   * 2026-09-12 (사용자 결정): `computer` 와 `stations.implantBay` 가 여기 있었다 — 조종석 붙박이 함선 컴퓨터 · 임플란트
+   * 시술대. 둘 다 **공용 시설 가구**(`furn_corp_computer` · `furn_implant_bay`)가 됐고 housing 이 조종석에 한 대씩 놓아 준다
+   * (`COCKPIT_DEFAULT_FURNITURE`). 모델은 `interiors/Furniture` 의 빌더가 `stations.ts` 의 몸체 함수를 그대로 쓴다.
+   */
+  readonly stations: ShipStations = {};
   readonly rooms: RoomDef[] = [];
+  /** 2026-09-12: 조종석을 가구 공간으로 (`COCKPIT_ROOM_INDEX`). 격자는 `roomGridSize` · 막힌 칸은 `roomCellBlocked`. */
+  readonly cockpit: EditAreaDef;
   /** 자동문: room doorways + the cockpit arch (own meshes, never merged, no collider). */
   readonly doors = new ShipDoors(this.root);
 
   private meshes: THREE.Mesh[] = [];
+  /** 2026-09-12: 방 · 조종석 바닥 격자선 — 시설 관리 중에만 보인다 (`setGridVisible`). 광원 없음. */
+  private readonly gridGroup = new THREE.Group();
+  private gridMeshes: THREE.Mesh[] = [];
   private stars: Starfield;
   private planet: Planet;
   /** 창문 워프 (2026-09-09): streaks past the cockpit viewport, driven by the hub through `setWarp`. */
@@ -157,10 +172,9 @@ export class PersonalShip implements ShipInterior {
     this.terminal = { position: new THREE.Vector3(0, 0, C.minZ + 1.5), yaw: yawFromForward(0, -1), screen };
     P.signStrip(0, CEIL - 0.07, C.minZ + 0.9, 1.8, M.stripCyan, 0);      // ceiling bar over the dashboard
 
-    // −X wall (front → back): implant bay, bunk. The bunk sits flush against the wall (x −5.0 … −4.0) and was moved
-    // aft to z −2.8 … −0.7 — it used to run into the rear-wall lockers that stood where the 함선 컴퓨터 is now.
-    const faceX = yawFromForward(1, 0);
-    const implantDef = implantBay(b, col, C.minX + 0.95, -4.9, faceX);
+    // −X wall: bunk. The bunk sits flush against the wall (x −5.0 … −4.0), z −2.8 … −0.7. 2026-09-12: the implant bay
+    // that stood in front of it (x −4.05, z −4.9) is the `furn_implant_bay` furniture now — housing seats it at
+    // `COCKPIT_DEFAULT_FURNITURE`, and `COCKPIT_BLOCKED_RECTS` (shared/housing) keeps every prop below off the grid.
     const bunkX = C.minX + 0.5, bunkZ = -1.75;
     b.boxB(1.0, 0.5, 2.1, bunkX, 0, bunkZ, M.hullDark);
     b.box(0.94, 0.14, 2.0, bunkX, 0.57, bunkZ, M.fabric);
@@ -184,19 +198,10 @@ export class PersonalShip implements ShipInterior {
     this.pods.push({ slot: 0, position: new THREE.Vector3(px, 0, pz), yaw: faceNegX, door: new THREE.Vector3(-1, 0, 0), doorBlocker });
     P.signStrip(C.maxX - WALL / 2 - 0.03, 2.6, pz, 1.6, M.stripAmber, Math.PI / 2);
 
-    // +Z (rear) wall, port side: **함선 컴퓨터** (기업 네트워크) where the lockers used to be — they overlapped the
-    // bunk and the desk needed a spot away from the launch pod. Monitors face −Z, into the cockpit.
-    const cp = shipComputer(b, col, -3.15, C.maxZ - 0.35, 0);
-    const cScreen = new TextPlane(0.56, 0.34, 256, false);
-    cScreen.mesh.position.copy(cp.screenPos);
-    cScreen.mesh.rotation.copy(cp.screenRot);
-    cScreen.set(['기업 네트워크', '접속 대기'], '#7cf07a', 'rgba(4,14,10,1)', '#9fd8b0');
-    r.add(cScreen.mesh);
-    this.screens.push(cScreen);
-    this.computer = { position: cp.position, yaw: cp.yaw };
+    // +Z (rear) wall, port side: the **함선 컴퓨터** desk stood here (x −3.15) until 2026-09-12 — it is the
+    // `furn_corp_computer` furniture now and housing seats it on the same spot (`COCKPIT_DEFAULT_FURNITURE`).
     // stash cabinet on the starboard half of the rear wall (clear of the arch and the pod socket)
     this.stashCabinet(b, col, 2.4, C.maxZ - 0.3);
-    this.stations = { implantBay: implantDef };
     // 자동문 on the cockpit arch (x −1.5 … 1.5, the wall slab at z 0 … 0.3)
     this.doors.add(0, C.maxZ + WALL / 2, CORRIDOR.maxX - CORRIDOR.minX, 2.55, 0.12, 'x');
 
@@ -235,7 +240,21 @@ export class PersonalShip implements ShipInterior {
     }
 
     /* ── rooms ── */
-    for (const rb of ROOM_BOXES) this.rooms.push(this.buildRoom(b, P, rb));
+    // 2026-09-12 (사용자 결정): the floor grid lines are **their own meshes** (`gridGroup`), shown only while 시설 관리 is
+    // up (`setGridVisible`). They reuse `M.grid` — a plain `MeshStandardMaterial` with no maps, i.e. the same program
+    // key as the deck materials already on screen — so the first reveal compiles nothing (no shader hitch).
+    const grid = new GeoBatch();
+    for (const rb of ROOM_BOXES) this.rooms.push(this.buildRoom(b, grid, P, rb));
+    /* ── cockpit as a furniture area (`COCKPIT_ROOM_INDEX`) + its grid, holes left where the fixed props stand ── */
+    this.gridLines(grid, COCKPIT_ROOM_BOX);
+    const cockpitGroup = new THREE.Group();
+    cockpitGroup.name = 'cockpit-furniture';
+    this.root.add(cockpitGroup);
+    this.cockpit = { index: COCKPIT_ROOM_INDEX, minX: COCKPIT.minX, maxX: COCKPIT.maxX, minZ: COCKPIT.minZ, maxZ: COCKPIT.maxZ, furnitureGroup: cockpitGroup };
+    this.gridGroup.name = 'housing-grid';
+    this.gridGroup.visible = false;
+    grid.build(this.gridGroup, this.gridMeshes, false, true);
+    this.root.add(this.gridGroup);
 
     /* ── airlock ── */
     const A = { minX: AIRLOCK.minX, maxX: AIRLOCK.maxX, minZ: AIRLOCK.minZ - 0.2, maxZ: AIRLOCK.maxZ };
@@ -311,8 +330,53 @@ export class PersonalShip implements ShipInterior {
     col.addBox(x, 0, z, 0.9, 2.2, 0.55);
   }
 
-  /** One housing room: floor + grid, walls with a corridor door, emissive strips and the door sign. */
-  private buildRoom(b: GeoBatch, P: Parts, rb: RoomBox): RoomDef {
+  /**
+   * 2026-09-12: 시설 관리 격자선 — `gridGroup` 을 켜고 끈다. 메시를 넣고 빼지 않고 `visible` 만 바꾸며 광원도 머티리얼도 새로
+   * 만들지 않는다 (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」).
+   */
+  setGridVisible(on: boolean): void { this.gridGroup.visible = on; }
+  /** Whether the housing grid is showing (debug / smoke). */
+  get gridVisible(): boolean { return this.gridGroup.visible; }
+
+  /**
+   * Cell lines of one edit area into `g` (2026-09-12). A line segment is drawn only where **at least one** of the two
+   * cells it separates is placeable (`roomCellBlocked`), so the cockpit's fixed props (dashboard, seats, pod socket,
+   * lockers, bunk) sit in clean holes instead of under a lattice. Consecutive segments are merged into one box.
+   */
+  private gridLines(g: GeoBatch, rb: RoomBox): void {
+    const { cols, rows } = roomGridSize(rb.index);
+    const free = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < cols && y < rows && !roomCellBlocked(rb.index, x, y);
+    const S = HOUSING_CELL_SIZE;
+    // vertical lines (constant x = k), running along +Z
+    for (let k = 0; k <= cols; k++) {
+      let start = -1;
+      for (let y = 0; y <= rows; y++) {
+        const on = y < rows && (free(k - 1, y) || free(k, y));
+        if (on && start < 0) start = y;
+        if (!on && start >= 0) {
+          const len = (y - start) * S;
+          g.box(0.02, 0.006, len, rb.minX + k * S, 0.004, rb.minZ + start * S + len / 2, M.grid);
+          start = -1;
+        }
+      }
+    }
+    // horizontal lines (constant z = k), running along +X
+    for (let k = 0; k <= rows; k++) {
+      let start = -1;
+      for (let x = 0; x <= cols; x++) {
+        const on = x < cols && (free(x, k - 1) || free(x, k));
+        if (on && start < 0) start = x;
+        if (!on && start >= 0) {
+          const len = (x - start) * S;
+          g.box(len, 0.006, 0.02, rb.minX + start * S + len / 2, 0.004, rb.minZ + k * S, M.grid);
+          start = -1;
+        }
+      }
+    }
+  }
+
+  /** One housing room: floor, walls with a corridor door, emissive strips and the door sign (grid lines go into `grid`). */
+  private buildRoom(b: GeoBatch, grid: GeoBatch, P: Parts, rb: RoomBox): RoomDef {
     const side = rb.side;
     const face = side < 0 ? CORRIDOR.minX : CORRIDOR.maxX;          // corridor wall face on this side
     const doorLo = rb.doorZ - DOOR_WIDTH / 2, doorHi = rb.doorZ + DOOR_WIDTH / 2;
@@ -322,9 +386,8 @@ export class PersonalShip implements ShipInterior {
     const fMinX = side < 0 ? rb.minX : face, fMaxX = side < 0 ? face : rb.maxX;
     b.plane(fMaxX - fMinX, rb.maxZ - rb.minZ, (fMinX + fMaxX) / 2, 0, cz, M.floor);
     b.plane(fMaxX - fMinX, rb.maxZ - rb.minZ, (fMinX + fMaxX) / 2, CEIL, cz, M.hullDark, Math.PI / 2);
-    // cell grid
-    for (let k = 0; k <= ROOM_GRID_COLS; k++) b.box(0.02, 0.006, rb.maxZ - rb.minZ, rb.minX + k * HOUSING_CELL_SIZE, 0.004, cz, M.grid);
-    for (let k = 0; k <= ROOM_GRID_ROWS; k++) b.box(rb.maxX - rb.minX, 0.006, 0.02, cx, 0.004, rb.minZ + k * HOUSING_CELL_SIZE, M.grid);
+    // cell grid — its own batch since 2026-09-12 (shown only in 시설 관리)
+    this.gridLines(grid, rb);
     // walls (door on the corridor side)
     const door = { lo: doorLo, hi: doorHi, y0: 0, y1: DOOR_HEIGHT };
     P.walls({ minX: rb.minX, maxX: rb.maxX, minZ: rb.minZ, maxZ: rb.maxZ }, WALL, side < 0 ? { e: door } : { w: door });
@@ -450,6 +513,9 @@ export class PersonalShip implements ShipInterior {
   dispose(): void {
     this.doors.dispose();
     disposeMeshes(this.meshes);
+    disposeMeshes(this.gridMeshes);
+    this.gridGroup.removeFromParent();
+    this.cockpit.furnitureGroup.removeFromParent();
     this.lightPool.dispose();
     for (const mats of this.stripMats) for (const m of mats ?? []) m.dispose();     // per-room clones, not shared
     this.stripMats.length = 0;

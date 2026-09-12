@@ -28,7 +28,11 @@ export interface StationDef {
 /** Every station an interior offers. `bench` only exists where the ship still has a built-in repair bench. */
 export interface ShipStations {
   bench?: StationDef;
-  implantBay: StationDef;
+  /**
+   * 2026-09-12 (사용자 결정): **optional** — 개인 함선의 시술대는 조종석 붙박이가 아니라 공용 시설 가구
+   * (`furn_implant_bay`)가 됐다. 공유 함선만 붙박이를 갖는다.
+   */
+  implantBay?: StationDef;
   /**
    * 공유 함선의 고정 식탁 (주방 A-3c, 2026-09-11). **공유 함선에만 있다** — 개인 함선의 식탁은 주방에 놓는
    * `furn_dining_table` 가구이고, 공유 함선에는 가구가 없어서 인테리어가 하나를 심어 둔다. 가구가 아니므로
@@ -84,7 +88,19 @@ export function repairBench(b: GeoBatch, col: BoxInteriorCollider, x: number, z:
 export function implantBay(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number): StationDef {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);
   const W = 0.9, D = 1.55;
+  implantBayBody(b, x, z, ry);
+  const [fw, fd] = footprint(ry, W + 0.5, D);
+  col.addBox(lx(x, ry, -0.1, 0.05), 0, lz(z, ry, -0.1, 0.05), fw, 1.7, fd);
+  return { position: new THREE.Vector3(x + fx * (D / 2 + 0.85), 0, z + fz * (D / 2 + 0.85)), yaw: ry };
+}
 
+/**
+ * 시술대의 **몸체만** (collider · 앵커 없음). 2026-09-12: 개인 함선의 시술대는 공용 시설 가구(`implant_bay` 모델)라
+ * `interiors/Furniture` 의 빌더가 가구 로컬 좌표(`ry` 0)로 이것을 부르고, 공유 함선의 붙박이는 위의 `implantBay` 가 부른다 —
+ * 두 곳이 같은 실루엣이다. 몸체 범위(로컬): x −0.79 … 0.36, z −0.62 … 0.75.
+ */
+export function implantBayBody(b: GeoBatch, x: number, z: number, ry: number): void {
+  const D = 1.55;
   b.cyl(0.34, 0.44, 0.22, 14, x, 0.11, z, M.hullDark);
   b.boxB(0.16, 0.42, 0.4, x, 0.22, z, M.gunmetal, ry);
   // seat pad (slightly reclined) + backrest toward the back of the bay
@@ -98,11 +114,6 @@ export function implantBay(b: GeoBatch, col: BoxInteriorCollider, x: number, z: 
   // instrument tray beside the chair
   b.boxB(0.34, 0.72, 0.34, lx(x, ry, -0.62, 0.2), 0, lz(z, ry, -0.62, 0.2), M.hullDark, ry);
   b.box(0.4, 0.05, 0.4, lx(x, ry, -0.62, 0.2), 0.74, lz(z, ry, -0.62, 0.2), M.trimDark, ry);
-
-  const [fw, fd] = footprint(ry, W + 0.5, D);
-  col.addBox(lx(x, ry, -0.1, 0.05), 0, lz(z, ry, -0.1, 0.05), fw, 1.7, fd);
-
-  return { position: new THREE.Vector3(x + fx * (D / 2 + 0.85), 0, z + fz * (D / 2 + 0.85)), yaw: ry };
 }
 
 /* ── 식탁 (dining table, 주방 A-3c 2026-09-11) ───────────────────────────── */
@@ -168,12 +179,43 @@ const DESK_H = 0.76;
 const MON_TILT = 0.14;
 
 /**
+ * Where the **left monitor's** `TextPlane` goes for a desk centred at (x, z) with yaw `ry` — the same numbers
+ * `shipComputerBody` returns, without drawing anything (2026-09-12: the furniture layer needs the pose after the
+ * model is built, and a throw-away `GeoBatch` would leak its source geometries).
+ */
+export function computerScreenPose(x: number, z: number, ry: number): { screenPos: THREE.Vector3; screenRot: THREE.Euler } {
+  const fx = -Math.sin(ry), fz = -Math.cos(ry);
+  const mz = DESK_D / 2 - 0.16, my = DESK_H + 0.44;
+  const nx = fx * Math.cos(MON_TILT), ny = Math.sin(MON_TILT), nz = fz * Math.cos(MON_TILT);
+  const sx = lx(x, ry, -0.38, mz), sz = lz(z, ry, -0.38, mz);
+  return {
+    screenPos: new THREE.Vector3(sx + nx * 0.02, my + ny * 0.02, sz + nz * 0.02),
+    screenRot: new THREE.Euler(-MON_TILT, ry + Math.PI, 0, 'YXZ'),
+  };
+}
+
+/**
  * Ship computer against a wall (back = local +Z, front toward the room): steel desk with a drawer block and a PC
  * tower, keyboard + mouse, two tilted monitors on stands (right = emissive cyan panel, left = the caller's
  * `TextPlane`), a chair tucked under the front edge and a cyan lamp strip on the wall above. One collider box
  * covers desk + chair. Returns the interaction anchor 0.9 m in front of the chair.
  */
 export function shipComputer(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number): ComputerStationDef {
+  const fx = -Math.sin(ry), fz = -Math.cos(ry);
+  const { screenPos, screenRot } = shipComputerBody(b, x, z, ry);
+  // one collider box: desk + chair
+  const [fw, fd] = footprint(ry, DESK_W + 0.04, DESK_D + 0.5);
+  col.addBox(lx(x, ry, 0, -0.25), 0, lz(z, ry, 0, -0.25), fw, 1.3, fd);
+  const reach = DESK_D / 2 + 0.25 + 0.9;
+  return { position: new THREE.Vector3(x + fx * reach, 0, z + fz * reach), yaw: ry, screenPos, screenRot };
+}
+
+/**
+ * 함선 컴퓨터의 **몸체만** (collider · 앵커 없음) + 왼쪽 모니터 `TextPlane` 자리. 2026-09-12: 개인 함선의 컴퓨터는 공용 시설
+ * 가구(`corp_computer` 모델)라 `interiors/Furniture` 의 빌더가 가구 로컬 좌표로 부르고, 공유 함선의 붙박이는 위의
+ * `shipComputer` 가 부른다. 몸체 범위(로컬, 책상 중심 기준): x ±0.75, z −0.77 … 0.35 (의자 등받이 … 벽 조명).
+ */
+export function shipComputerBody(b: GeoBatch, x: number, z: number, ry: number): { screenPos: THREE.Vector3; screenRot: THREE.Euler } {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);
   const W = DESK_W, D = DESK_D, H = DESK_H;
   const L = (ox: number, oz: number): [number, number] => [lx(x, ry, ox, oz), lz(z, ry, ox, oz)];
@@ -224,12 +266,5 @@ export function shipComputer(b: GeoBatch, col: BoxInteriorCollider, x: number, z
   { const [px, pz] = L(0, cz - 0.21); b.box(0.46, 0.5, 0.06, px, 0.78, pz, M.padding, ry); }
   // lamp strip on the wall above the monitors
   { const [px, pz] = L(0, D / 2 + 0.02); b.box(W - 0.3, 0.05, 0.04, px, 1.75, pz, M.stripCyan, ry); }
-
-  // one collider box: desk + chair
-  const [fw, fd] = footprint(ry, W + 0.04, D + 0.5);
-  const [cx, czw] = L(0, -0.25);
-  col.addBox(cx, 0, czw, fw, 1.3, fd);
-
-  const reach = D / 2 + 0.25 + 0.9;
-  return { position: new THREE.Vector3(x + fx * reach, 0, z + fz * reach), yaw: ry, screenPos, screenRot };
+  return { screenPos, screenRot };
 }

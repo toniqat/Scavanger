@@ -1,6 +1,6 @@
 // Smoke test for the 시뮬레이션 훈련장 (Phase 7 §9, world + hub folders, 2026-09-06):
-// personal ship → 시뮬레이션실 (옛 사격장) room (room 6, built here — a new ship has no facility rooms) with a real `furn_sim_hub` (placed through `ctx.housing`, holo pedestal + spinning rings)
-// → E on the hub → `game:newMission {mode:'training'}` → arena world (flat floor, walls, 12 pop-up targets, exit console,
+// personal ship → the ship terminal's 시뮬레이션 훈련장 section, solo (2026-09-12: the 시뮬레이션실 / `furn_sim_hub` are retired —
+// the terminal is the entry on both ships) → 시작 → `game:newMission {mode:'training'}` → arena world (flat floor, walls, 12 pop-up targets, exit console,
 // no crates / nests / gather / extraction, space-mode "indoor" look, `ui:objective` counter) → arena queries (height /
 // bounds / collision clamp / raycast floor + wall + target cylinder) → the real gun knocks target 0 down through the
 // destructible-obstacle path → it pops back after TRAINING_TARGET_RESPAWN_S → the exit console emits
@@ -91,58 +91,35 @@ try {
   const lastEv = async (n) => { const a = await ev(n); return a[a.length - 1]; };
   const P = (fn, arg) => page.evaluate(fn, arg);
 
-  /* ── 1. personal ship: place a real sim hub in a 사격장 room ─────────────── */
-  console.log('personal ship · furn_sim_hub');
+  /* ── 1. personal ship: the terminal's 시뮬레이션 훈련장 section ─────────────── */
+  // 2026-09-12 (사용자 결정): the 시뮬레이션실 and its `furn_sim_hub` are retired — the arena is entered from the ship
+  // terminal on **both** ships, solo included. Open the terminal and press 시작.
+  console.log('personal ship · terminal training entry');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
   await waitSim(0.3);
-  const housing = await P(() => {
-    const ctx = window.__game.ctx, h = ctx.housing;
-    if (!h || typeof h.place !== 'function' || typeof h.craftFurniture !== 'function') return { available: false };
-    // materials into the bag (the stash may be empty on a fresh profile)
-    for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 12], ['mat_circuit', 12], ['mat_alloy', 12]]) {
-      for (let k = 0; k < 3; k++) { try { if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, n))) break; } catch { break; } }
-    }
-    let gen = 0; try { while (gen < 3 && h.upgrade('generator')) gen++; } catch {}
-    const purpose = h.setRoomPurpose(5, 'range');
-    const can = h.canCraftFurniture('furn_sim_hub');
-    const crafted = h.craftFurniture('furn_sim_hub');
-    const placed = crafted ? h.place(5, 'furn_sim_hub', 3, 3, 0) : null;
-    return { available: true, gen, purpose, can, crafted, uid: placed?.uid ?? null };
+  await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
+  await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
+  const solo = await P(() => {
+    const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
+    const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
+    const btn = sec?.querySelector('button');
+    const simHubs = window.__game.ctx.interactables.all().filter((i) => /훈련장/.test(i.getPrompt?.() ?? '')).length;
+    return { has: !!sec && !sec.hidden, label: btn?.textContent ?? null, disabled: btn?.disabled ?? null, simHubs };
   });
-  const hasHub = housing.available && !!housing.uid;
-  ok(housing.available, 'ctx.housing available (real HousingSystem)');
-  ok(housing.purpose === true, `room 6 → 사격장 (generator ${housing.gen})`);
-  ok(housing.crafted === true, `craftFurniture(furn_sim_hub) ${JSON.stringify(housing.can)}`);
-  ok(hasHub, `furn_sim_hub placed in room 6 (${housing.uid})`);
-  let simInteractId = null;
-  if (hasHub) {
-    await waitSim(0.5);
-    const model = await P((uid) => {
-      const ctx = window.__game.ctx;
-      const room = ctx.scene.getObjectByName('room-5');
-      const g = room?.getObjectByName('furn-furn_sim_hub') ?? null;
-      const spin = g?.getObjectByName('sim-spin') ?? null;
-      const inner = g?.getObjectByName('sim-spin-inner') ?? null;
-      let meshes = 0, lights = 0; g?.traverse((o) => { if (o.isMesh) meshes++; if (o.isLight) lights++; });
-      const it = ctx.interactables.all().find((i) => i.id === `hub_furn_${uid}`) ?? null;
-      return { has: !!g, meshes, lights, spinY: spin?.rotation.y ?? 0, innerZ: inner?.rotation.z ?? 0, id: it?.id ?? null, prompt: it?.getPrompt() ?? null, can: it?.canInteract() ?? false };
-    }, housing.uid);
-    ok(model.has && model.meshes >= 4, `holo pedestal model under room-5 (${model.meshes} meshes)`);
-    ok(model.lights === 0, 'sim hub adds no light');
-    ok(model.spinY > 0.05 && model.innerZ > 0.05, `rings rotate (spin.y ${model.spinY.toFixed(2)}, inner.z ${model.innerZ.toFixed(2)})`);
-    ok(model.id !== null && /시뮬레이션 허브/.test(model.prompt ?? '') && /훈련장/.test(model.prompt ?? ''), `interactable ${model.id} prompt "${model.prompt}"`);
-    ok(model.can, 'sim hub usable while walking the ship');
-    simInteractId = model.id;
-  }
+  ok(solo.has, 'personal-ship terminal has a 시뮬레이션 훈련장 section (solo)');
+  ok(solo.label === '시작' && solo.disabled === false, `solo → "${solo.label}" enabled`);
+  ok(solo.simHubs === 0, `no furniture offers 훈련장 입장 any more (${solo.simHubs})`);
 
   /* ── 2. enter the training ───────────────────────────────────────────────── */
   console.log('training arena');
-  const entered = await P((id) => {
-    const ctx = window.__game.ctx;
-    if (id) { const it = ctx.interactables.all().find((i) => i.id === id); it.interact(); return 'furniture'; }
+  const entered = await P(() => {
+    const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
+    const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
+    const btn = sec?.querySelector('button');
+    if (btn && !btn.disabled) { btn.click(); return 'terminal'; }
     return window.__game.getSystem('hub').startTraining() ? 'startTraining' : 'refused';
-  }, simInteractId);
+  });
   ok(entered !== 'refused', `entered through ${entered}`);
   const nm = await lastEv('game:newMission');
   ok(nm && nm.mode === 'training', `game:newMission {mode:'training'} (${JSON.stringify(nm)})`);

@@ -708,6 +708,34 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-12 (시설 관리 2차 · 조종석 · 키 가이드 `또는`, 사용자 결정, 에이전트 ui)** — 계약(`src/shared`)은 먼저 적혔고
+  이 폴더는 그것을 그린다. 규칙은 전부 housing/ 에, 입력은 hub/ 에 있다.
+  - **`hud/ShipManage.ts`** — ① 방 목록 **맨 위에 조종석 행**(`COCKPIT_ROOM_INDEX`, `.sm-room.is-cockpit`, 번호 칸 없음) +
+    방 1 … `SHIP_ROOM_COUNT`(8). 모든 행에 `data-room`. 조종석은 가구 제작 / 가구 창고 탭만 있고 시설 제거가 없다.
+    ② 우측 머리 라벨은 **시설 이름만**(`작업실` · `조종석`, 빈 방은 `용도 지정`). ③ 용도 지정 목록은 계약의
+    `ROOM_PURPOSES_ASSIGNABLE`(시뮬레이션실 · 휴식 공간 없음)을 돌고, 비용 칩 뒤에 `purposeRequirements` 를
+    **시설 레벨 칩**(`buildFacilityChip`)으로 붙인다. ④ 가구 카드는 grid 가 되어 **재료 줄이 이름 아래 전체 폭**을 받는다 —
+    최대 4개 · 줄바꿈 없음 · 36 px 칩, `보유/필요` 는 썸네일 **안쪽 아래 띠**라 삐져나오지 않는다(보유 100 이상은 `99+`).
+    제작할 수 없는 가구(`craft` null — 시술대 · 컴퓨터)는 재료 자리에 `제작 불가`. ⑤ **가구 창고에도** 시설 가구 / 꾸밈용
+    가구 하위 탭. ⑥ 인스펙터의 `위치 이동` 버튼과 사유 줄(`.sm-ins-note`)이 없어지고 하단이 **업그레이드 구역**
+    (`.sm-ins-upsec`: `업그레이드 비용` · 재료 칩 + `furnitureUpgradeRequirements` 시설 칩 · `업그레이드`)이다. 막혀 있으면
+    버튼은 딤드지만 눌리고(`aria-disabled` + `.is-disabled`) — 재료가 모자라면 인스펙터 위 토스트 `재료가 부족하여
+    업그레이드할 수 없습니다.`, 아니면 그 사유(발전기 …). 최대 레벨은 진짜 `disabled` 인 `최대`. ⑦ 헤더 `빈 방으로` →
+    빨간 **`시설 제거`**, 팝업 제목 `{시설 이름} 제거`, 돌려받는 칩은 **수량만**(`×N`), 확정은 빨간 `시설 제거` 를
+    `UI_HOLD_CONFIRM_S` 동안 누른다(클릭 · Enter 로는 안 된다, 초기 포커스는 `취소`, Escape 취소). 시설 증축 · 발전기
+    확인은 예전 그대로 클릭이다. 두 새 HousingRef 질의는 `typeof` 대비가 있다(없으면 발전기 Lv 규칙으로 같은 답을 만든다).
+  - **`hud/KeyGuide.ts`** — `KeyGuideEntry.alt` 는 키캡 사이 작은 **`또는`**(`.kg-or`), `combo` 는 작은 **`+`**(`.kg-plus`).
+    각 alt 키가 자기 `hold` chevron 을 갖는다. 가이드가 붙이는 닫기도 `Tab 또는 Esc` 다(첫 keycap 은 Tab, `.kg-close` 유지).
+  - **`hud/CursorHoldGauge.ts`** (새 파일, `.hud.housing` 층) — `housing:moveHold {progress}` 의 유일한 소비자. 가구를 꾹 누르는
+    동안 **커서 중심**(`ctx.input.uiX/uiY`)에 원형 게이지(`.cursor-hold`, 크로스헤어 `.hold` 와 같은 SVG 결)를 채운다.
+  - **`hud/Notifications.ts`** — `inventory:itemAdded {fromStash: true}`(함선 창고 → 가방)에는 획득 티커가 없다.
+  - **`styles/base.css`** — `.facility-chip*`(아이템 칩 바로 아래: 폭 = 2 × `--chip-size`, `border: 3px double`, 글리프 + 이름 +
+    `현재/필요`), `.sm-side` 300 → 320 px(+ 인스펙터 · 토스트 폭 계산), `.fcard` grid + `.fcard > .fcard-cost`, 빨간 `.sm-clear`,
+    `.sm-ins-upsec` · `.sm-ins-cost`, `.sm-confirm-ok` + `.sm-hold-fill` + `.ui-btn.sm-danger` + `.sm-confirm-hint`, `.kg-or` / `.kg-plus`,
+    `.cursor-hold`. 지운 선택자: `.sm-ins-move` · `.sm-ins-note` 사용처 · `.sm-ins-acts` 사용처.
+  - `HudSystem` 디버그 훅: `shipManageConfirmHold` · `shipManageConfirmDanger` · `isCursorHoldOn` · `cursorHoldProgress`.
+  - `scripts/smoke-ui-p6.mjs` — `또는` / `+` 렌더 한 줄 · `fromStash` 티커 없음 한 줄 추가.
+
 - **2026-09-12 (애니메이션 주기 완화, 사용자 결정)** — `styles/base.css` 두 줄. 둘 다 "너무 빠르게 흔들린다" 는
   불만이라 **동작은 그대로 두고 주기만 늘렸다**. ① 꾹 누르는 키 chevron `.keycap.kc-hold::before` 900ms → **1800ms**
   (`alternate` 라 왕복은 duration 의 2배 — 1.8 s → 3.6 s). 움직임 폭 `-2px → 1px` 은 유지했다: 느려진 만큼 폭까지

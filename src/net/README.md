@@ -504,6 +504,8 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
   데스크톱 셸의 임베디드 목표(`NET_SHELL_RELAY_ROUTE` — shared 에 추가)는 프로브하지 않는다. 와이어 · 스냅샷 · 프로필 규약은
   그대로. 검사: `scripts/smoke-netlink.mjs`.
 
+- **2026-09-12 (조종석 가구 · 방 8개, hub 에이전트)** — `model.sanitizeShipVisit` 의 조각 정화가 **조종석 가구**(`room === COCKPIT_ROOM_INDEX`, 방 번호 범위 밖의 고정값)를 받고, 칸 클램프를 방마다의 격자 `roomGridSize(room)` 로 한다(조종석 20 × 12, 방 16 × 16). 방 수는 `SHIP_ROOM_COUNT`(10 → 8)를 그대로 따라오므로 옛 피어가 보낸 방 9 · 10 의 조각은 버려진다.
+
 - **2026-09-11 (B-3 초대 결과 · B-4 차단 / 전송 확인 / 대화 기록 · B-6 moved — 클라이언트 소셜, 에이전트 ②)** —
   `docs/plans/net-social-trust.md` §1 · §2 · §4 의 net 쪽. 서버 프레임 넷을 `NetClient` 허용 목록 · `parts/Messages` 에
   더했다(`social:inviteResult` · `social:inviteClosed` · `social:whisperAck` · `social:whisperBacklog`).

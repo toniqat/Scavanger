@@ -7,24 +7,23 @@
  * 규칙 자체는 `Rules.ts` 가 갖고, 여기서는 그 규칙에 따라 재료를 소모하고 상태를 쓴다.
  */
 import type {
-  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
+  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FacilityRequirement, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
   HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
 } from '@/shared';
 import {
-  BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
+  BOOKS_PER_SHELF, COCKPIT_ROOM_INDEX, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
   benchKindOf,
 } from '@/shared';
 import {
   NEEDS_GREENHOUSE,
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
+  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, purposeRequirementsFor, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
   nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
 } from '../Rules';
 import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
-import { PresetMenu } from '../ui/PresetMenu';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
 import { formatRemaining } from '../ui/dom';
@@ -53,13 +52,21 @@ export function emitStashSizeIfChanged(sys: HousingSystem): void {
   }
 
 /* ── rooms ─────────────────────────────────────────────────────────────── */
-export function getRoom(sys: HousingSystem, index: number): RoomState { return sys.state.rooms[index] ?? freshRoom(); }
+/** 2026-09-12: 조종석(`COCKPIT_ROOM_INDEX`)은 `rooms[]` 에 없는 고정 공간이다 — 늘 `{purpose: 'cockpit', level: 1}`. */
+export function getRoom(sys: HousingSystem, index: number): RoomState {
+  if (index === COCKPIT_ROOM_INDEX) return { purpose: 'cockpit', level: 1 };
+  return sys.state.rooms[index] ?? freshRoom();
+}
+
+/** 조종석에 대한 용도 · 제거 거절 문장 (시설 관리의 버튼이 이 한 줄을 그린다). */
+export const COCKPIT_PURPOSE_REASON = '조종석은 용도를 바꾸거나 제거할 수 없습니다';
 
 /**
  * 한국어 reason `setRoomPurpose` would refuse (null = allowed). Used by the room menu for button hints. `empty`
  * recovers every piece, so it is also refused while a 책장 in the room cannot hand its books to the stash.
  */
 export function purposeBlock(sys: HousingSystem, index: number, purpose: RoomPurpose): string | null {
+  if (index === COCKPIT_ROOM_INDEX) return COCKPIT_PURPOSE_REASON;
   // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계가 허락한 용도만 지을 수 있다 (튜토리얼이 꺼져 있으면 null)
   const tut = sys.ctx.tutorial?.blockReason('roomPurpose', purpose) ?? null;
   if (tut) return tut;
@@ -164,6 +171,7 @@ export function facilityRefund(sys: HousingSystem, index: number): CraftIngredie
  * returned (null = removed).
  */
 export function removeRoomFacility(sys: HousingSystem, index: number): string | null {
+  if (index === COCKPIT_ROOM_INDEX) return COCKPIT_PURPOSE_REASON;
   const room = sys.state.rooms[index];
   if (!room) return '알 수 없는 방입니다';
   if (room.purpose === 'empty') return '이미 빈 방입니다';
@@ -242,7 +250,15 @@ export function placedLevelOf(sys: HousingSystem, interaction: string): number {
   return best;
 }
 
-/** 시뮬레이션 허브 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
-export function getSkillGainMul(sys: HousingSystem, skill: SkillId): number { return skillGainMulFor(skill, placedLevelOf(sys, 'sim_hub')) * sys.getBookBonus(skill); }
+/**
+ * 서재 (`getBookBonus`, every shelved book of that skill). 2026-09-12 (사용자 결정 — 시뮬레이션실 · 시뮬레이션 허브 제거):
+ * the 허브 term (`gun_*` × `1 + 0.1 × level`) is gone with the furniture — `Rules.skillGainMulFor` has no caller any more.
+ */
+export function getSkillGainMul(sys: HousingSystem, skill: SkillId): number { return sys.getBookBonus(skill); }
+
+/** 2026-09-12: 빈 방에 `purpose` 를 증축하는 데 채워지지 않은 시설 레벨 요구 (`Rules.purposeRequirementsFor`). */
+export function purposeRequirements(sys: HousingSystem, purpose: RoomPurpose): FacilityRequirement[] {
+  return purposeRequirementsFor(sys.state, purpose);
+}
 
 export function getStashSize(sys: HousingSystem): { cols: number; rows: number } { return stashSizeFor(sys.state.storageLevel); }

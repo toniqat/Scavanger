@@ -187,6 +187,12 @@ try {
   // 2026-09-09: ESC 도 맨 위 화면 하나를 닫으므로 (`game/escapeKey`) 닫기 항목은 keycap 이 둘이다 — Tab 다음에 Esc.
   const kgClose = await P(() => [...document.querySelectorAll('#ui-root > .key-guide .kg-close .keycap')].map((k) => k.textContent));
   ok(kgClose.join(' ') === 'Tab Esc', '닫기 항목은 Tab · Esc 두 keycap (ESC 닫기, 2026-09-09)', kgClose.join(' '));
+  // 2026-09-12 (사용자 결정): 같은 행동의 다른 키는 작은 `또는`, 함께 누르는 키는 작은 `+` 로 잇는다 — 닫기도 `Tab 또는 Esc`
+  await emit('ui:keyGuide', { owner: 'housing', keys: [{ key: 'E', label: '위치 이동', alt: [{ key: 'LMB', hold: true }] }, { key: 'Ctrl', label: '조합', combo: ['R'] }] });
+  const kgAlt = await P(() => [...document.querySelectorAll('#ui-root > .key-guide .kg-item')].map((i) => [...i.children]
+    .map((c) => (c.classList.contains('keycap') ? `[${c.textContent}${c.classList.contains('kc-hold') ? '⌄' : ''}]` : c.textContent)).join(' ')));
+  ok(kgAlt.join(' · ') === '[E] 또는 [LMB⌄] 위치 이동 · [Ctrl] + [R] 조합 · [Tab] 또는 [Esc] 닫기',
+    'alt → 또는 (각 키의 hold chevron 유지), combo → +, 닫기는 Tab 또는 Esc', kgAlt.join(' · '));
   await emit('ui:keyGuide', { owner: 'housing', keys: null });
   hh = await P(() => { const h = window.__game.getSystem('hud'); return { cls: document.querySelector('#ui-root > .key-guide').className, on: h.isKeyGuideOn, owner: h.keyGuideOwner }; });
   ok(!/\bshow\b/.test(hh.cls) && !hh.on && hh.owner === null, 'ui:keyGuide {keys:null} → guide hidden', JSON.stringify(hh));
@@ -424,6 +430,16 @@ try {
   });
   ok(!!gathered && gathered.added, `herb ${gathered && gathered.name} added to the bag`);
   ok(gathered && gathered.gatherLabel === 0 && gathered.acquired === 1 && gathered.after === gathered.before + 1, `exactly one 획득 ticker, no 채집 toast (${gathered && `${gathered.before} → ${gathered.after}`})`, JSON.stringify(gathered));
+  // 2026-09-12 (사용자 결정): 함선 창고 → 가방은 옮긴 것이다 — `fromStash` 가 붙은 itemAdded 에는 획득 티커가 없다
+  const moved = await P(() => {
+    const ctx = window.__game.ctx;
+    const def = ctx.loot.getAllItemDefs().find((d) => d.category === 'herb');
+    if (!def) return null;
+    const before = document.querySelectorAll('.notifs .notif').length;
+    ctx.bus.emit('inventory:itemAdded', { item: ctx.loot.createItem(def.id, 1), name: def.name, rarity: def.rarity, fromStash: true });
+    return { before, after: document.querySelectorAll('.notifs .notif').length };
+  });
+  ok(!!moved && moved.after === moved.before, 'inventory:itemAdded {fromStash:true} → no 획득 ticker', JSON.stringify(moved));
 
   console.log('mission reset');
   s = await spot();

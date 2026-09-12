@@ -37,3 +37,18 @@ export interface ShaderWarmupRef {
   /** 씬에 늘 보이는 점광원 개수 (`SCENE_POINT_LIGHT_BUDGET`). */
   readonly pointLightBudget: number;
 }
+
+/* ══ appended: 2026-09-12 — 화면 공간 외곽선 (`ctx.outline`, 구현 `core/`) ══════════════════════════════════════
+ * 시설 관리(하우징 모드)에서 가구에 커서를 올리면 **약한 흰색**, 클릭해 고르면 **중간 밝기 연두색** 외곽선이 선다
+ * (사용자 결정 — 화면 공간 아웃라인 패스). 색 · 두께는 core 가 갖는다: 채널이 곧 「무엇을 뜻하는 외곽선인가」다.
+ * 두 채널에 같은 오브젝트가 들어 있으면 `selected` 가 이긴다. 대상이 하나도 없으면 패스 자체가 꺼져 비용이 0 이다.
+ * **광원을 만들지 않는다** — 점광원 개수를 바꾸지 않으므로 셰이더 재컴파일을 부르지 않는다 (CLAUDE.md 광원 규칙).
+ */
+export type OutlineChannel = 'hover' | 'selected';
+
+export interface OutlineRef {
+  /** `channel` 의 외곽선 대상을 통째로 갈아 끼운다. `null` · 빈 배열 = 그 채널을 끈다. 매 프레임 불러도 싸다(같은 목록이면 아무 일도 없다). */
+  set(channel: OutlineChannel, objects: readonly THREE.Object3D[] | null): void;
+  /** 두 채널을 모두 끈다 (모드를 나갈 때 · 장면이 바뀔 때). */
+  clear(): void;
+}

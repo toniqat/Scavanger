@@ -35,7 +35,8 @@ const MSG_TTL = 4500;
  * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
  *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
  *   Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
- * - **right, bottom**: `시뮬레이션 훈련장`; the footer is **닫기 (E) alone**. (2026-09-08: the `/seed` 안내
+ * - **right, bottom**: `시뮬레이션 훈련장` — **2026-09-12: on both ships** (solo too): the 시뮬레이션실 and its
+ *   시뮬레이션 허브 were retired, so the terminal is the only way into the arena. The footer is **닫기 (E) alone**. (2026-09-08: the `/seed` 안내
  *   줄과 신호 섹션의 `자동 매칭은 …` 안내 줄은 지웠다 — 화면에 당연한 설명을 남기지 않는다.)
  *   2026-09-08: the terminal closes on **E**, not Escape — Escape is the 일시정지 메뉴 everywhere now.
  *   2026-09-09: **Tab closes it too** (every screen does — `Keys.INVENTORY`, polled in `update()` which `HubSystem`
@@ -187,7 +188,7 @@ export class HubMenu {
     this.pEnv.hidden = true;
     this.btnTravel = this.button(planet, '행성 이동', () => this.travel(), 'primary hp-travel');
 
-    // ── 시뮬레이션 훈련장 (shared ship; the personal ship enters through the 사격장 sim hub) ──
+    // ── 시뮬레이션 훈련장 — 2026-09-12: **both ships** (the 시뮬레이션실 · 시뮬레이션 허브 are retired, the terminal is the one entry) ──
     this.secTrain = this.section(right, '시뮬레이션 훈련장');
     this.btnTrain = this.button(this.secTrain, '시작', () => host.startTraining(), 'primary wide');
     el('div', { cls: 'hint', text: '개별 입장 · 카운트다운 없음. 탄약과 내구도는 소모되지 않습니다. 진행 중인 훈련에는 언제든 합류할 수 있습니다.', parent: this.secTrain });
@@ -385,7 +386,9 @@ export class HubMenu {
 
     this.refreshTravel();
 
-    this.secTrain.hidden = !lobby;
+    // 2026-09-12 (사용자 결정): 시뮬레이션실이 없어져 훈련장은 **어느 함선에서든 터미널로** 들어간다 — 섹션은 늘 보인다
+    this.secTrain.hidden = false;
+    if (!lobby) { setText(this.btnTrain, '시작'); this.btnTrain.disabled = false; }   // 솔로: `startTraining` 이 네트 없이 연다
     if (lobby) {
       const mode = net?.missionMode ?? lobby.mode ?? 'raid';
       const training = lobby.started && mode === 'training';

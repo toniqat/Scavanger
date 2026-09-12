@@ -324,6 +324,7 @@ then **함선 창고** (`GridId 'stash'`, `GridView('stash')` inside a scrolling
 locked with a toast during a raid) · **가방** with the quick-use rose to its right (`.inv-bag-body` row).
 - Moves: drag between stash / bag / slots, right-click quick action (stash ↔ bag; equipped item → 가방으로 이동 / 창고로 이동 via `moveToStash`), double-click equips.
   `locKind('stash')` is `'container'` (HUD counts treat the stash like a crate), so bag → stash emits `inventory:itemRemoved` and stash → bag `inventory:itemAdded`.
+  **2026-09-12:** stash → bag carries **`fromStash: true`** (`emitTransfer`) — it is a move, not a pickup, so `ui/hud/Notifications` shows no 획득 ticker for it (사용자 결정). A crate / corpse → bag is unchanged.
 - **수리**: right-click on a worn weapon / armor the player owns shows `수리` with the material cost as item chips (`repairInfo(uid)` → `ctx.loot.getRepairCost` → `renderItemCost`; armor is free) → `repair(uid)`.
   Slot meta shows the durability; `.is-worn` tints it. The terminal's 정비 tab is gone; the workbench menu remains for weapons.
 - **No world drops in the ship**: `dropItem` returns false, the X key / drop zone / 버리기 entries are off; overflow from a bag swap or socket swap goes to the stash

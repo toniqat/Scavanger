@@ -29,7 +29,10 @@ export type RoomPurpose =
   | 'lab'         // 연구실 (requires greenhouse)
   | 'kitchen'     // 주방
   | 'mining'      // 암호화폐 채굴 시설 (2026-09-12: 채굴 시설에서 이름만 바뀌었다)
-  | 'lounge';     // 휴식 공간
+  | 'lounge'      // 휴식 공간 (2026-09-12: 더 이상 지을 수 없다 — 서재에 합쳐졌다)
+  /* appended (2026-09-12): 조종석. `ShipState.rooms` 에 들어가지 않는 **고정 공간**이고 방 번호는
+     `COCKPIT_ROOM_INDEX` 다. 용도를 바꾸거나 제거할 수 없으며 `'any'`(공용) 가구만 놓인다. */
+  | 'cockpit';
 
 export const ROOM_PURPOSES: readonly RoomPurpose[] = [
   'empty', 'workshop', 'range', 'gym', 'library', 'greenhouse', 'lab', 'kitchen', 'mining', 'lounge',
@@ -38,6 +41,7 @@ export const ROOM_PURPOSES: readonly RoomPurpose[] = [
 export const ROOM_PURPOSE_LABEL_KO: Readonly<Record<RoomPurpose, string>> = {
   empty: '빈 방', workshop: '작업실', range: '시뮬레이션실', gym: '헬스장', library: '서재', greenhouse: '온실',
   lab: '연구실', kitchen: '주방', mining: '암호화폐 채굴 시설', lounge: '휴식 공간',
+  cockpit: '조종석',
 };
 
 export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
@@ -45,12 +49,14 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   workshop: '총기 · 장비 · 가젯 · 의학 작업대를 설치해 제작과 수리를 합니다.',
   range: '관물대로 로드아웃 프리셋을 관리하고, 시뮬레이션 허브로 훈련장에 들어가 사격 숙련 상승량을 높입니다.',
   gym: '운동 기구로 근력 · 지구력을 단련합니다. (다음 업데이트)',
-  library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다.',
+  /* 2026-09-12 (사용자 결정): 휴식 공간이 서재에 합쳐졌다 — 휴식 공간에 들어갈 것(TV · 스피커 …)은 이제 서재에 놓인다. */
+  library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다. 쉬어 가는 공간이기도 합니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
   mining: '그래픽카드로 암호화폐를 채굴합니다. (다음 업데이트)',
-  lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (다음 업데이트)',
+  lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (서재에 합쳐졌습니다)',
+  cockpit: '함선의 조종석입니다. 공용 가구를 놓을 수 있고, 용도를 바꾸거나 제거할 수 없습니다.',
 };
 
 /**
@@ -61,10 +67,12 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
 export const ROOM_PURPOSE_GLYPH: Readonly<Record<RoomPurpose, string>> = {
   empty: '·', workshop: '⚒', range: '◎', gym: '⚖', library: '▤', greenhouse: '❀',
   lab: '⚗', kitchen: '♨', mining: '⛏', lounge: '☕',
+  cockpit: '✈',
 };
 export const ROOM_PURPOSE_COLOR: Readonly<Record<RoomPurpose, string>> = {
   empty: '#7d858f', workshop: '#ffd27a', range: '#7fd2ff', gym: '#ff9f7a', library: '#c9a77a', greenhouse: '#7ee08a',
   lab: '#c79fff', kitchen: '#ffb0a0', mining: '#9fb4c8', lounge: '#e8a0d0',
+  cockpit: '#8fd8ff',
 };
 
 /**
@@ -80,7 +88,14 @@ export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { de
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library', 'lab', 'kitchen'];   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c)
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen'];   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
+
+/**
+ * appended (2026-09-12, 사용자 결정): **빈 방이 될 수 있는 용도** — 시설 증축 목록이 그리는 것은 이것뿐이다.
+ * `ROOM_PURPOSES` 는 옛 세이브를 읽으려고 `range`(시뮬레이션실) · `lounge`(휴식 공간, 서재에 합쳐졌다)를 그대로 갖지만
+ * 둘 다 여기에는 없다. `empty` 와 `cockpit` 도 없다 (빈 방은 「시설 제거」의 결과이고 조종석은 방이 아니다).
+ */
+export const ROOM_PURPOSES_ASSIGNABLE: readonly RoomPurpose[] = ['workshop', 'gym', 'library', 'greenhouse', 'lab', 'kitchen', 'mining'];
 
 /**
  * @deprecated 2026-09-07 — **no longer enforced**. The Phase 8 UI pass gave every ship a built-in 작업실 locked to
@@ -155,14 +170,16 @@ export type FurnitureModelKind =
   | 'analyzer' | 'bench_extract' | 'bench_mixer'
   /* appended (주방 · 배양조 · 프린터, 2026-09-11): 배양조는 `level` 만큼 배양관이 켜진다 (분석기와 같은 방식) */
   | 'bench_cook' | 'dining_table' | 'culture_tank' | 'bench_print'
-  | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
+  | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk'
+  /* appended (2026-09-12): 조종석의 고정 설비였던 전술 임플란트 시술대 · 함선 컴퓨터가 공용 시설 가구가 됐다 */
+  | 'implant_bay' | 'corp_computer';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
   | 'none'
   | 'workbench_gun' | 'workbench_gear' | 'workbench_gadget' | 'workbench_medical'  // → ctx.inventory.openBenchCraft(kind)
   | 'workbench_refine'                                                            // appended (2026-09-10) → 같은 길, kind 'refine'
-  | 'range_console'                                                               // → ctx.housing.openPresetMenu()
+  | 'range_console'                                                               // 은퇴 (2026-09-12 — 관물대 · 프리셋 기능 제거). E 상호작용 없음
   | 'sim_hub'                                                                     // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
   /* appended (Phase 8) */
   | 'grow_rack'                                                                   // → ctx.housing.openGrowMenu(uid): 씨앗 심기 / 수확
@@ -177,7 +194,10 @@ export type FurnitureInteraction =
   /* appended (주방 · 배양조 · 프린터, 2026-09-11) */
   | 'workbench_cook' | 'workbench_print'                                          // → 같은 길, kind 'cook' / 'print'
   | 'dining_table'                                                                // → ctx.housing.openDiningTable(uid): 먹기 / (공유 함선이면) 분대에 차리기
-  | 'culture_tank';                                                               // → ctx.housing.openCultureTank(uid): 배지 붓기 / 세포주 넣기 / 수확
+  | 'culture_tank'                                                                // → ctx.housing.openCultureTank(uid): 배지 붓기 / 세포주 넣기 / 수확
+  /* appended (2026-09-12) — 공용 시설 가구 */
+  | 'implant_bay'                                                                 // → Tab 화면 (임플란트 칸) — 옛 `hub_implant_bay` 와 같은 길
+  | 'corp_computer';                                                              // → 기업 네트워크 (`ctx.meta.openCorpMenu()`) — 옛 `hub_computer` 와 같은 길
 
 export interface FurnitureDef {
   id: string;
@@ -397,7 +417,10 @@ export interface LoadoutPreset {
 /** Persisted in localStorage (SHIP_STORAGE_KEY). Bump `version` when the shape changes. */
 export interface ShipState {
   version: number;
-  /** SHIP_ROOM_COUNT entries; index 0..4 = port side (−X) front→back, 5..9 = starboard (+X) front→back. */
+  /**
+   * SHIP_ROOM_COUNT entries; the first half = port side (−X) front→back, the second half = starboard (+X) front→back
+   * (2026-09-12: 8 rooms → 0..3 / 4..7). The cockpit is **not** in here — see `COCKPIT_ROOM_INDEX`.
+   */
   rooms: RoomState[];
   generatorLevel: number;
   storageLevel: number;
@@ -976,4 +999,104 @@ export interface HousingRef {
    * 요리 **1개**를 소모하고 분대 전원이 같은 식사를 받는다 (사용자 결정).
    */
   openDiningTable(uid: string | null): void;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-12 — 조종석 · 시설 레벨 요구 (사용자 결정)
+ *
+ * 1. **조종석은 방 목록 맨 위에 늘 있는 공간이다.** `ShipState.rooms` 에는 들어가지 않고(용도 · 레벨이 없다) 방 번호로는
+ *    `COCKPIT_ROOM_INDEX` 를 쓴다 — `getRoom(COCKPIT_ROOM_INDEX).purpose === 'cockpit'`, `getPlaced(COCKPIT_ROOM_INDEX)`,
+ *    `canPlace / place / move / recover`, `setManageRoom(COCKPIT_ROOM_INDEX)` 가 모두 그 번호를 받는다.
+ *    `setRoomPurpose` · `removeRoomFacility` 는 거절한다. 조종석에는 `room: 'any'`(공용) 가구만 놓인다.
+ *    번호가 `SHIP_ROOM_COUNT` 가 아니라 **고정값**인 이유: 방 수가 나중에 늘어도 저장된 조종석 가구가 다른 방으로 옮겨 가면 안 된다.
+ *    `-1` 이 아닌 이유: hub 의 `HousingMode.room = -1` 이 「모드 꺼짐」이다.
+ * 2. **조종석의 격자는 방보다 크고 구멍이 있다.** `roomGridSize(room)` 이 방마다 격자 크기를, `roomCellBlocked` 가 고정 소품
+ *    (계기판 · 좌석 · 발사 포드 · 사물함 · 침상 · 창고 · 복도 통로) 자리를 답한다. 배치 규칙(`housing/Rules`)과 격자선 ·
+ *    카메라(`hub/`)가 **이 표 하나**를 읽는다. 소품을 옮기면 이 표를 같이 고친다.
+ * 3. **시설 레벨 요구**(발전기 Lv.n)는 재료 칩 옆에 `buildFacilityChip` 으로 그린다 — 질의는 아래 `HousingRef` 두 줄.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import { ROOM_GRID_COLS, ROOM_GRID_ROWS } from './constants';
+
+/** 조종석의 방 번호 (방이 아니므로 `0 … SHIP_ROOM_COUNT − 1` 밖의 고정값). */
+export const COCKPIT_ROOM_INDEX = 100;
+
+/**
+ * 조종석 바닥 격자 (칸). `hub/interiors/RoomLayout.COCKPIT` = x −5 … 5, z −6 … 0 (10 × 6 m) 을 `HOUSING_CELL_SIZE`(0.5)로
+ * 나눈 것이다. 칸 (0, 0) 은 방과 같은 규약으로 min-x / min-z 모서리(좌현 · 앞창 쪽)이고 `x` 는 월드 +X, `y` 는 월드 +Z 다.
+ */
+export const COCKPIT_GRID_COLS = 20;
+export const COCKPIT_GRID_ROWS = 12;
+
+/** 격자 위의 칸 사각형 (좌상단 칸 + 크기). */
+export interface GridRect { x: number; y: number; cols: number; rows: number }
+
+/**
+ * 조종석에서 가구를 놓을 수 없는 칸 — 고정 소품과 반드시 비워야 하는 통로. `hub/interiors/PersonalShip` 의 조종석 소품
+ * 좌표에서 잡았다 (칸 x = (월드 x + 5) / 0.5, 칸 y = (월드 z + 6) / 0.5).
+ */
+export const COCKPIT_BLOCKED_RECTS: readonly GridRect[] = [
+  { x: 3, y: 0, cols: 14, rows: 3 },    // 계기판(x ±3.3, z −6 … −5.3) + 앞 0.8 m (x −3.5 … 3.5, z −6 … −4.5)
+  { x: 7, y: 3, cols: 6, rows: 9 },     // 조종석 두 개 · 터미널 자리 · 복도 아치까지의 통로 (x −1.5 … 1.5, z −4.5 … 0)
+  { x: 18, y: 1, cols: 2, rows: 3 },    // +X 벽 사물함 두 칸 (x 4.48 … 4.98, z −5.32 … −4.08)
+  { x: 13, y: 7, cols: 7, rows: 5 },    // 발사 포드 소켓(x 3 … 5, z −2.2 … −0.2) + 문 앞 탑승 동선 + 창고 캐비닛 (x 1.5 … 5, z −2.5 … 0)
+  { x: 0, y: 6, cols: 2, rows: 5 },     // −X 벽 침상 (x −5 … −4, z −2.8 … −0.7)
+];
+
+/** appended: 공용 시설 가구 두 점의 def id. */
+export const IMPLANT_BAY_DEF_ID = 'furn_implant_bay';
+export const CORP_COMPUTER_DEF_ID = 'furn_corp_computer';
+
+/**
+ * 모든 함선이 조종석에 갖고 시작하는 공용 시설 가구와 그 자리. 새 함선(`freshState`)과 옛 세이브(두 점 중 배치도 보관도
+ * 안 된 것이 있으면) 모두 이 자리에 채운다 — 자리가 막혀 있으면 `housing/Rules.autoPlaceSpot` 으로, 그래도 없으면 가구 창고로.
+ * 좌표는 옛 고정 설비가 서 있던 곳(시술대 = 좌현 앞 모서리, 컴퓨터 = 좌현 뒤 벽)이다.
+ */
+export const COCKPIT_DEFAULT_FURNITURE: readonly { defId: string; x: number; y: number; yaw: 0 | 1 | 2 | 3 }[] = [
+  /* 시술대: yaw 1 = 앞이 +X(조종석 안쪽) · 등받이가 −X 벽 — 발자국 4 × 3 칸 = x −5 … −3, z −4.5 … −3 (계기판 앞 띠 바로 뒤) */
+  { defId: IMPLANT_BAY_DEF_ID, x: 0, y: 3, yaw: 1 },
+  /* 컴퓨터: yaw 0 = 모니터가 −Z(조종석 안쪽) · 책상 등이 뒷벽 — 3 × 3 칸 = x −4 … −2.5, z −1.5 … 0 (침상 옆, 옛 책상 자리) */
+  { defId: CORP_COMPUTER_DEF_ID, x: 2, y: 9, yaw: 0 },
+];
+
+export function isCockpitRoom(room: number): boolean { return room === COCKPIT_ROOM_INDEX; }
+
+/** 방 `room` 의 바닥 격자 크기 (조종석이면 `COCKPIT_GRID_*`, 아니면 `ROOM_GRID_*`). */
+export function roomGridSize(room: number): { cols: number; rows: number } {
+  return room === COCKPIT_ROOM_INDEX
+    ? { cols: COCKPIT_GRID_COLS, rows: COCKPIT_GRID_ROWS }
+    : { cols: ROOM_GRID_COLS, rows: ROOM_GRID_ROWS };
+}
+
+/** 칸 (x, y) 이 고정 소품 자리인가 (방은 늘 false). 격자 밖인지는 보지 않는다 — `roomGridSize` 로 따로 본다. */
+export function roomCellBlocked(room: number, x: number, y: number): boolean {
+  if (room !== COCKPIT_ROOM_INDEX) return false;
+  for (const r of COCKPIT_BLOCKED_RECTS) if (x >= r.x && x < r.x + r.cols && y >= r.y && y < r.y + r.rows) return true;
+  return false;
+}
+
+/** 사각형 `(x, y, cols, rows)` 가 고정 소품 자리와 한 칸이라도 겹치는가. */
+export function roomRectBlocked(room: number, x: number, y: number, cols: number, rows: number): boolean {
+  if (room !== COCKPIT_ROOM_INDEX) return false;
+  for (const r of COCKPIT_BLOCKED_RECTS) {
+    if (x < r.x + r.cols && x + cols > r.x && y < r.y + r.rows && y + rows > r.y) return true;
+  }
+  return false;
+}
+
+/** 채워지지 않은 **시설 레벨 요구** 하나 — 「발전기 Lv.`need` 가 필요한데 지금 Lv.`have`」. */
+export interface FacilityRequirement {
+  facility: FacilityId;
+  have: number;
+  need: number;
+}
+
+export interface HousingRef {
+  /**
+   * appended (2026-09-12): 놓인 가구 `uid` 의 **다음 강화**를 막는 시설 레벨 요구 — 채워지지 않은 것만 (보통 발전기 하나).
+   * 빈 배열 = 시설 레벨은 문제가 없다 (재료 · 최대 레벨은 `furnitureUpgradeBlock` 이 따로 답한다).
+   * ui 는 이것을 재료 칩 옆의 `buildFacilityChip` 으로 그린다 — 가구 인스펙터 · 스테이션 업그레이드 모달.
+   */
+  furnitureUpgradeRequirements(uid: string): readonly FacilityRequirement[];
+  /** appended (2026-09-12): 빈 방에 `purpose` 를 **증축**하는 데 채워지지 않은 시설 레벨 요구 (발전기 Lv.1 게이트). */
+  purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[];
 }

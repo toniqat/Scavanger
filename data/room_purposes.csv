@@ -11,3 +11,8 @@ lab,mat_alloy:6|mat_circuit:2
 kitchen,mat_scrap:8|mat_alloy:2
 mining,mat_alloy:6|mat_circuit:3
 lounge,mat_scrap:6|mat_cable:1
+# ── 2026-09-12 (사용자 결정) ──
+# range(시뮬레이션실) · lounge(휴식 공간)는 더 이상 지을 수 없다 (ROOM_PURPOSES_ASSIGNABLE 에 없다). 줄을 남긴 이유는
+# 옛 세이브에 그 방이 있으면 housing/ShipState 가 여기 적힌 증축 재료를 함선 창고로 돌려주기 때문이다.
+# cockpit(조종석)은 방 목록 맨 위에 늘 있는 고정 공간이라 증축 비용이 없다 — 표를 읽는 쪽이 undefined 를 보지 않게 줄만 둔다.
+cockpit,

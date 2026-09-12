@@ -1973,6 +1973,49 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
 .item-chip[data-def-id] { cursor: help; }
 button.item-chip[data-def-id] { cursor: pointer; }
 
+/* ── 시설 레벨 요구 칩 (markup contract: src/shared/itemChip.ts `buildFacilityChip`, 2026-09-12 사용자 결정) ──
+ * 「발전기 Lv.2 필요」를 재료 칩과 **같은 줄 · 같은 높이**에 세운다. 아이템과 헷갈리지 않게 썸네일은 **가로로 길고
+ * (높이의 2배) 이중 테두리**이며, 수치는 필요 갯수가 아니라 `현재 레벨/필요 레벨` 이다. `--fc` = 시설 색. */
+.facility-chip {
+  --chip-size: 34px;
+  --fc: var(--c-text);
+  position: relative; flex: none;
+  display: inline-flex; align-items: flex-start;
+  font: inherit; color: var(--c-text);
+  transition: opacity var(--t-fast) var(--ease);
+}
+.facility-chip-thumb {
+  position: relative; box-sizing: border-box;
+  width: calc(var(--chip-size) * 2); height: var(--chip-size);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 1fr auto; align-items: center;
+  column-gap: 3px; padding: 1px 4px 0;
+  border: 3px double color-mix(in srgb, var(--fc) 80%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--fc) 14%, transparent), rgba(0, 0, 0, 0.45));
+}
+.facility-chip-icon {
+  grid-row: 1; grid-column: 1;
+  font-size: calc(var(--chip-size) * 0.4); line-height: 1; color: var(--fc);
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.85);
+}
+.facility-chip-name {
+  grid-row: 1; grid-column: 2; min-width: 0;
+  font-size: 9px; line-height: 1.1; letter-spacing: 0.02em; color: color-mix(in srgb, var(--fc) 70%, var(--c-text-dim));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.facility-chip-count {
+  grid-row: 2; grid-column: 1 / -1; justify-self: stretch;
+  display: flex; align-items: center; justify-content: center; gap: 1px;
+  margin: 0 -4px; height: 12px;
+  background: rgba(6, 7, 9, 0.88);
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 9px; line-height: 1;
+}
+.facility-chip-have { color: var(--c-text); font-weight: 700; }
+.facility-chip-sep { color: var(--c-text-faint); }
+.facility-chip-need { color: var(--c-text-dim); }
+.facility-chip.is-short { opacity: 0.72; }
+.facility-chip.is-short .facility-chip-thumb { border-color: rgba(255, 77, 77, 0.7); }
+.facility-chip.is-short .facility-chip-have { color: var(--c-danger); }
+
 /* ── 칩 호버 카드 (hud/ItemTip): the inventory tooltip for a cost chip, over every window and menu ── */
 .item-tip {
   --rc: var(--r-common);
@@ -2184,22 +2227,24 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 
 /* Phase 8 UI pass: the furniture list is a **vertical side panel on the right**, not a bar along the bottom, and
  * it swaps to a 용도 지정 picker while an empty room is selected. */
+/* 2026-09-12: 300 → 320 px — a furniture card's cost row holds four 36 px chips on one line (no wrapping) */
 .sm-side {
   position: absolute; right: 24px; top: 96px; bottom: 96px;
-  width: 300px;
+  width: 320px;
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px;
   background: rgba(8, 9, 11, 0.78); border: 1px solid var(--c-border);
 }
 .sm-side-head { display: flex; align-items: center; gap: 8px; }
 .sm-bar-head { flex: 1; min-width: 0; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); }
+/* 2026-09-12 (사용자 결정): `빈 방으로` → 빨간 `시설 제거` — 되돌릴 수 없는 버튼은 처음부터 위험 색이다 */
 .sm-clear {
   flex: none; padding: 3px 8px;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
-  font: inherit; font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); cursor: pointer;
-  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  border: 1px solid rgba(255, 77, 77, 0.55); background: rgba(255, 77, 77, 0.08);
+  font: inherit; font-size: 10px; letter-spacing: 0.1em; color: var(--c-danger); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
-.sm-clear:hover { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.6); }
+.sm-clear:hover { color: #ffb3b3; border-color: var(--c-danger); background: rgba(255, 77, 77, 0.18); }
 .sm-clear[hidden] { display: none; }
 .sm-empty { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 10px 2px; }
 /* 가구 제작 / 가구 창고 tabs (Phase 9 UI pass) — hidden while an empty room shows the 용도 지정 picker */
@@ -2279,6 +2324,34 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard-size { position: absolute; right: 2px; bottom: 1px; font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); }
 .fcard-name { font-size: 12px; line-height: 1.2; letter-spacing: 0.04em; color: var(--c-text); }
 .fcard-cost { gap: 6px; min-height: 26px; }
+/* 2026-09-12 (사용자 결정): the card is a grid so the **material row gets the full width under the name** — thumb on
+   the left spanning both rows, name / notes + the 제작 · 배치 button on top, the cost row (≤ 4 chips, one line, no
+   wrapping) below. A 가구 창고 card has no cost row, so it keeps the single top row. */
+.fcard {
+  display: grid; grid-template-columns: 54px minmax(0, 1fr) auto;
+  grid-template-areas: "thumb body btn" "thumb cost cost";
+  align-items: center; column-gap: 10px; row-gap: 6px;
+}
+.fcard.store { grid-template-areas: "thumb body btn"; }
+.fcard > .fcard-thumb { grid-area: thumb; align-self: start; }
+.fcard > .fcard-body { grid-area: body; }
+.fcard > .fcard-craft, .fcard > .fcard-place { grid-area: btn; align-self: start; }
+.fcard > .fcard-cost {
+  grid-area: cost;
+  display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 6px;
+  min-width: 0; min-height: 36px; overflow: hidden;
+}
+.fcard-cost .item-chip-free, .fcard-cost .fcard-nocraft { align-self: center; font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+/* 보유/필요 inside the thumbnail's bottom strip — full thumb width, never sticking out of it (사용자 결정). The chip
+   is exactly its thumbnail wide, so `99+/99` at 9 px mono (≈ 32 px) has to fit a 36 px chip — `ShipManage` caps a
+   larger 보유 at `99+`. Shared by the cards and the inspector's 업그레이드 비용 row. */
+.fcard-cost .item-chip, .sm-ins-cost .item-chip { max-width: var(--chip-size); }
+.fcard-cost .item-chip-count, .sm-ins-cost .item-chip-count {
+  left: 0; right: 0; bottom: 0; justify-content: center;
+  height: 13px; padding: 0; border: none; border-top: 1px solid var(--c-border);
+  background: rgba(6, 7, 9, 0.88); font-size: 9px; overflow: hidden;
+}
+.fcard-cost .item-chip-icon, .sm-ins-cost .item-chip-icon { transform: translateY(-5px); font-size: calc(var(--chip-size) * 0.44); }
 .fcard-own { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-success); }
 .fcard-own.none { color: var(--c-text-faint); }
 
@@ -2829,3 +2902,59 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard.is-locked .fcard-name { color: var(--c-text-dim); }
 .fcard.is-locked:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--c-border); }
 .fcard-note.is-locked { color: var(--c-danger); }
+
+/* ── 2026-09-12 (사용자 결정): 인스펙터 하단 = 업그레이드 구역 ──────────────────────────────────────────────────
+   카드 아래에 선을 긋고 좌 `업그레이드 비용` · 가운데 재료 칩 + 시설 레벨 칩(한 줄) · 우 `업그레이드`. 막혀 있어도
+   버튼은 **눌린다**(`aria-disabled`) — 누르면 인스펙터 위 토스트가 이유를 말한다. 최대 레벨이면 진짜 `disabled`. */
+.sm-inspect, .sm-toast { max-width: min(470px, calc(100vw - 640px)); }
+.sm-inspect { width: min(470px, calc(100vw - 640px)); }
+.sm-ins-upsec {
+  display: flex; align-items: center; gap: 10px;
+  margin: 2px -16px -12px; padding: 10px 16px 12px;
+  border-top: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.025);
+}
+.sm-ins-up-label { flex: none; font-size: 10px; letter-spacing: 0.14em; color: var(--c-text-faint); white-space: nowrap; }
+.sm-ins-cost {
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 6px;
+  flex: 1; min-width: 0; min-height: 34px; overflow: hidden;
+}
+.sm-ins-cost .item-chip-free { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.sm-ins-up { flex: none; }
+.sm-gen-btn.sm-ins-up.is-disabled { opacity: 0.45; border-style: dashed; }
+.sm-gen-btn.sm-ins-up.is-disabled:hover { background: rgba(255, 179, 71, 0.12); color: var(--c-accent); }
+
+/* 2026-09-12: 시설 제거 확인 — 빨간 `시설 제거` 버튼을 `UI_HOLD_CONFIRM_S` 동안 누른다 (일시정지 경고 팝업과 같은 게이지) */
+.sm-confirm-card.is-danger { border-color: rgba(255, 77, 77, 0.55); }
+.sm-confirm-card.is-danger .title { color: var(--c-danger); }
+.sm-confirm-ok { position: relative; overflow: hidden; }
+.sm-confirm-ok-t { position: relative; z-index: 1; }
+.sm-hold-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: color-mix(in srgb, var(--c-danger) 45%, transparent);
+  pointer-events: none;
+}
+.sm-confirm-card .acts .ui-btn.sm-danger { border-color: rgba(255, 77, 77, 0.6); color: var(--c-danger); background: rgba(255, 77, 77, 0.08); }
+.sm-confirm-card .acts .ui-btn.sm-danger:hover, .sm-confirm-card .acts .ui-btn.sm-danger.is-holding { border-color: var(--c-danger); color: #ffb3b3; }
+.sm-confirm-hint { font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+.sm-confirm-hint[hidden] { display: none; }
+
+/* 조종석 행 (방 목록 맨 위, 2026-09-12): 번호 칸이 없고 아래 방들과 한 줄 띄운다 */
+.sm-room.is-cockpit { margin-bottom: 4px; border-bottom-color: var(--c-border); }
+
+/* ── 키 가이드의 `또는` · `+` (2026-09-12 사용자 결정): 키캡 사이의 작은 글씨 ── */
+.key-guide .kg-or, .key-guide .kg-plus { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+.key-guide .kg-plus { font-size: 10px; font-weight: 700; }
+
+/* ── 커서 홀드 링 (hud/CursorHoldGauge, 2026-09-12): 시설 관리에서 가구를 꾹 누르는 동안 커서 중심 ──
+   크로스헤어 홀드 링(`.hold`)과 같은 결 · 작은 크기. `transform` 이 커서 좌표이고 margin 이 중심을 맞춘다. */
+.cursor-hold {
+  position: fixed; left: 0; top: 0; z-index: 83;
+  width: 56px; height: 56px; margin: -28px 0 0 -28px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.cursor-hold.show { opacity: 1; }
+.cursor-hold svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.cursor-hold circle { fill: none; stroke-width: 4; stroke-linecap: butt; }
+.cursor-hold .track { stroke: rgba(255, 255, 255, 0.18); }
+.cursor-hold .fill { stroke: var(--c-accent); filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)); }

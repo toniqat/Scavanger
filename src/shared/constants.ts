@@ -1030,6 +1030,8 @@ export const CHAR_NAME_RANDOM_MAX = K.num('CHAR_NAME_RANDOM_MAX');
 /* ── 위험한 버튼의 홀드 확정 (2026-09-09, owner: ui) ── */
 /** 파티 떠나기 · 타이틀로 · 게임 종료 확정 버튼을 눌러 두어야 하는 시간(초). */
 export const UI_HOLD_CONFIRM_S = K.num('UI_HOLD_CONFIRM_S');
+/** appended (2026-09-12): 시설 관리에서 가구를 꾹 눌러 위치 이동 상태로 드는 시간 (hub/HousingMode · ui 의 커서 게이지). */
+export const HOUSING_MOVE_HOLD_S = K.num('HOUSING_MOVE_HOLD_S');
 
 /* ══ 2026-09-09: 사망 · 시체 · 구조선 · 안개 · 지형지물 ═════════════════════════════════════════════════════ */
 

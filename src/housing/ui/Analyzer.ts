@@ -214,6 +214,7 @@ export class Analyzer extends HousingPanel {
       gain: opened > 0 ? `해석 칸 ${opened}개 개방` : '',
       cost: nextFurnitureCost(def, level),
       reason: h.furnitureUpgradeBlock(this.uid),
+      requirements: h.furnitureUpgradeRequirements(this.uid),
     };
   }
 

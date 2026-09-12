@@ -69,7 +69,9 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
    * 개인 함선의 `furn_repair_bench` 가구도 모두 무기 수리 창을 열었는데, 이제 수리는 **인벤토리에서** 한다
    * (재료만 있으면 함선 어디서든). 벤치 소품 자체는 병기고 실루엣으로 남아 있고 누를 것만 없다.
    */
-  sys.computer = ro ? null : new Computer(ctx, interior.computer, () => sys.openCorpMenu(), canUseConsole);
+  // 2026-09-12: only the shared ship still has a built-in computer desk — the personal ship's is `furn_corp_computer`
+  // furniture (the layer registers it under the same `hub_computer` id, see `interiors/Furniture`)
+  sys.computer = ro || !interior.computer ? null : new Computer(ctx, interior.computer, () => sys.openCorpMenu(), canUseConsole);
   sys.buildStations(interior);
   sys.buildHousing(interior);
   if (ship === 'shared') Hangar.buildBays(sys);
@@ -113,10 +115,8 @@ export function buildStations(sys: HubSystem, interior: ShipInterior): void {
   const s = interior.stations;
   // 방문 중(남의 함선)에는 시설이 통째로 없다 — 둘러보기 전용 (2026-09-08)
   if (!s || sys.visitReadOnly) return;
-  sys.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', () => {
-    const inv = sys.ctx.inventory;
-    if (inv && !inv.isOpen) inv.toggleBag();
-  });
+  // 2026-09-12: only the shared ship has a built-in bay; the personal ship's is `furn_implant_bay` furniture
+  if (s.implantBay) sys.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', () => openImplantBay(sys.ctx));
   /*
    * 공유 함선의 고정 식탁 (주방 A-3c, 2026-09-11). 개인 함선의 식탁은 주방에 놓는 **가구**지만 공유 함선에는
    * 가구가 없으므로, 인테리어가 심어 둔 지점 하나가 그 자리를 대신한다 — 계약대로 `openDiningTable(null)` 의
@@ -124,6 +124,15 @@ export function buildStations(sys: HubSystem, interior: ShipInterior): void {
    */
   if (s.diningTable) sys.addStation('hub_dining_table', s.diningTable, '식탁 · 식사', () => openDiningTable(sys.ctx, null), 2.4);
   }
+
+/**
+ * 전술 임플란트 시술대: Tab 창(임플란트 칸)을 연다. 공유 함선의 붙박이(`hub_implant_bay`)와 개인 함선의 공용 시설 가구
+ * (`furn_implant_bay`, 2026-09-12)가 같은 길을 탄다.
+ */
+function openImplantBay(ctx: GameContext): void {
+  const inv = ctx.inventory;
+  if (inv && !inv.isOpen) inv.toggleBag();
+}
 
 /**
  * 식사 화면 (주방 A-3c, 2026-09-11): 가구 식탁은 그 조각의 `uid`, **공유 함선의 고정 식탁은 `null`** 로 연다
@@ -164,18 +173,22 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
    * 함선 관리 is denied the interior, so nothing in here can be touched.
    */
   const source = sys.visitShip ? Hangar.furnitureSource(ctx, sys.visitShip) : null;
-  sys.furniture = new FurnitureLayer(ctx, interior.rooms, interior.collider, {
+  // 2026-09-12: the cockpit is a furniture area too (`COCKPIT_ROOM_INDEX`) — rooms first, cockpit last
+  const areas = [...interior.rooms, interior.cockpit];
+  sys.furniture = new FurnitureLayer(ctx, areas, interior.collider, {
     canUse: () => sys.stationUsable(),
     onBench: (kind, level) => {
       const inv = ctx.inventory;
       if (inv && typeof inv.openBenchCraft === 'function') inv.openBenchCraft(kind, level);
       else ctx.bus.emit('ui:notify', { text: '작업대를 사용할 수 없습니다', kind: 'warning' });
     },
-    onRangeConsole: () => {
-      const h = ctx.housing;
-      if (h && typeof h.openPresetMenu === 'function') h.openPresetMenu();
-    },
-    onSimHub: () => sys.startTraining(),
+    /*
+     * 2026-09-12 (사용자 결정 — 시뮬레이션실 제거): `onRangeConsole`(관물대 → 프리셋 메뉴)과 `onSimHub`(시뮬레이션 허브 →
+     * 훈련장)가 여기 있었다. 두 가구는 은퇴했고(`retired=1`) 프리셋 기능은 없어졌으며, 훈련장은 **터미널**에서 연다.
+     */
+    // 공용 시설 가구 (2026-09-12): 조종석 붙박이였던 두 설비 — 붙박이 때와 같은 창을 연다
+    onImplantBay: () => openImplantBay(ctx),
+    onCorpComputer: () => sys.openCorpMenu(),
     onGrowRack: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openGrowMenu === 'function') h.openGrowMenu(uid);

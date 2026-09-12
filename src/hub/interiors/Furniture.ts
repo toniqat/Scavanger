@@ -4,8 +4,9 @@ import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_M
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
+import { computerScreenPose, implantBayBody, shipComputerBody } from './stations';
 import { TextPlane } from '../Labels';
-import type { RoomDef } from './types';
+import type { EditAreaDef } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Procedural furniture (함선 꾸미기). Every `FurnitureModelKind` is built from boxes / cylinders through a
@@ -617,16 +618,46 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     b.box(0.05, 0.03, 0.4, -(w / 2 - 0.1), 0.9, -(d / 2 - 0.02), M.gunmetal);                   // ladder rungs
     for (let k = 0; k < 4; k++) b.box(0.3, 0.03, 0.03, -(w / 2 - 0.25), 0.6 + k * 0.25, -(d / 2 - 0.02), M.gunmetal);
   },
+  /**
+   * 전술 임플란트 시술대 (2026-09-12, 공용 시설 가구): 조종석 붙박이였던 시술대와 **같은 몸체**(`stations.implantBayBody`)다.
+   * 몸체가 로컬 x −0.79 … 0.36 · z −0.62 … 0.75 라 발자국(3 × 4 칸 = 1.5 × 2 m) 가운데로 오도록 (+0.2, −0.06) 옮기고,
+   * 바닥에 발자국 테두리 판 + 앞 가장자리 악센트만 더한다. 광원 없음 — 캐노피 불빛은 emissive 재질뿐이다.
+   */
+  implant_bay: (b, w, d, _h, a) => {
+    b.box(w - 0.1, 0.03, d - 0.1, 0, 0.015, 0, M.floorGrate);                                    // 바닥 판
+    b.box(w - 0.3, 0.02, 0.05, 0, 0.04, -(d / 2 - 0.08), a);                                     // 앞 악센트
+    implantBayBody(b, 0.2, -0.06, 0);
+  },
+  /**
+   * 기업 네트워크 컴퓨터 (2026-09-12, 공용 시설 가구): 붙박이 책상과 **같은 몸체**(`stations.shipComputerBody`). 책상 등이
+   * 발자국 뒤 가장자리(로컬 +Z)에 붙도록 몸체 중심을 `d/2 − 0.4` 로 민다 — 의자는 앞(−Z) 쪽 발자국 안에 남는다.
+   * 왼쪽 모니터 글자판(`TextPlane`)은 빌더가 만들 수 없어 `FurnitureLayer.addPiece` 가 `COMPUTER_SCREEN_LOCAL` 에 붙인다.
+   */
+  corp_computer: (b, _w, d) => {
+    shipComputerBody(b, 0, d / 2 - 0.4, 0);
+  },
 };
+
+/** 기업 네트워크 컴퓨터 모델의 왼쪽 모니터 자리 (가구 로컬 좌표) — `corp_computer` 빌더와 같은 책상 오프셋이다. */
+function computerScreenLocal(d: number): { pos: THREE.Vector3; rot: THREE.Euler } {
+  const { screenPos, screenRot } = computerScreenPose(0, d / 2 - 0.4, 0);
+  return { pos: screenPos, rot: screenRot };
+}
 
 /* ── placed-furniture layer ───────────────────────────────────────────────── */
 export interface FurnitureCallbacks {
   /** Interactables are usable (walking the ship, no menu, not boarded, not in housing mode). */
   canUse(): boolean;
   onBench(kind: WorkbenchKind, level: number): void;
-  onRangeConsole(): void;
-  /** 시뮬레이션 허브 (Phase 7): start / join the 시뮬레이션 훈련장. */
-  onSimHub(): void;
+  /*
+   * 2026-09-12 (사용자 결정 — 시뮬레이션실 제거): `onRangeConsole()` (관물대 → 프리셋 메뉴) and `onSimHub()` (시뮬레이션
+   * 허브 → 훈련장) lived here. Both pieces are retired (`retired=1`, refunded on load), presets are gone and the arena is
+   * entered from the terminal — `RETIRED_INTERACTIONS` below registers **no** interactable for those kinds.
+   */
+  /** 전술 임플란트 시술대 (2026-09-12, 공용 시설 가구): the Tab window's implant slots, like the old `hub_implant_bay`. */
+  onImplantBay(): void;
+  /** 기업 네트워크 컴퓨터 (2026-09-12, 공용 시설 가구): the corporation screen, like the old `hub_computer`. */
+  onCorpComputer(): void;
   /**
    * 재배층 (Phase 8). @deprecated 2026-09-11 (온실 개편) — `furn_grow_rack` 은 은퇴했고 `ShipState.sanitize` 가
    * 놓인 것을 걷어내므로 실제로는 불리지 않는다. 계약은 추가만 하므로 경로는 그대로 남긴다.
@@ -671,8 +702,27 @@ interface Piece {
   model: FurnitureModel;
   blocker: number;
   sign: TextPlane | null;
+  /** 2026-09-12: 기업 네트워크 컴퓨터의 모니터 글자판 (그 조각의 그룹 자식 — 조각과 함께 버린다). */
+  screen: TextPlane | null;
   interactable: Interactable | null;
 }
+
+/**
+ * 2026-09-12: interactions whose furniture is retired (`retired=1`, refunded by housing on load) — a stale piece that
+ * somehow reaches the layer is drawn but answers to nothing. `range_console` (관물대 · 프리셋 — the feature is gone),
+ * `sim_hub` (시뮬레이션 허브 — the arena is entered from the terminal), `repair_bench` (정비 벤치, retired the same day).
+ */
+const RETIRED_INTERACTIONS: ReadonlySet<string> = new Set(['range_console', 'sim_hub', 'repair_bench']);
+
+/**
+ * 2026-09-12: the two **공용 시설 가구** keep the interactable ids their built-in cockpit fixtures had, so the tutorial,
+ * the smokes and anything else that looks up `hub_computer` / `hub_implant_bay` keeps working. Radius and prompt are
+ * the old stations' too.
+ */
+const FIXTURE_INTERACTABLE: Readonly<Partial<Record<string, { id: string; prompt: string; radius: number }>>> = {
+  corp_computer: { id: 'hub_computer', prompt: '기업 네트워크', radius: 2.2 },
+  implant_bay: { id: 'hub_implant_bay', prompt: '전술 임플란트 장착', radius: 2.3 },
+};
 
 const _pos = new THREE.Vector3();
 
@@ -702,7 +752,12 @@ export class FurnitureLayer {
    * `source` (2026-09-08) overrides `ctx.housing` — a visited member's ship. A sourced layer is **read-only**: it
    * subscribes to nothing (the wire never changes under it) and registers no interactables at all.
    */
-  constructor(private readonly ctx: GameContext, private readonly rooms: readonly RoomDef[], private readonly collider: BoxInteriorCollider, private readonly cb: FurnitureCallbacks, private readonly source: FurnitureSource | null = null) {
+  /**
+   * `areas` (2026-09-12, was `rooms`): every furniture area of the ship — the rooms **and the cockpit**
+   * (`COCKPIT_ROOM_INDEX`), each with its own `furnitureGroup`. Pieces are matched to an area by `index`, never by array
+   * position (the cockpit's index is not a list slot).
+   */
+  constructor(private readonly ctx: GameContext, private readonly areas: readonly EditAreaDef[], private readonly collider: BoxInteriorCollider, private readonly cb: FurnitureCallbacks, private readonly source: FurnitureSource | null = null) {
     const b = ctx.bus;
     if (source === null) {
       this.unsubs.push(
@@ -752,12 +807,21 @@ export class FurnitureLayer {
     }
   }
 
+  /**
+   * 2026-09-12: the root object of a placed piece (its model group), or null — `HousingMode` hands it to `ctx.outline`
+   * for the hover / selected outline. The object is **replaced** when the piece's area is rebuilt, so callers compare
+   * the returned reference rather than caching it.
+   */
+  objectOf(uid: string): THREE.Object3D | null {
+    return this.pieces.get(uid)?.model.group ?? null;
+  }
+
   rebuildAll(): void {
-    for (const r of this.rooms) this.rebuildRoom(r.index);
+    for (const r of this.areas) this.rebuildRoom(r.index);
   }
 
   rebuildRoom(room: number): void {
-    const def = this.rooms[room];
+    const def = this.areas.find((a) => a.index === room);
     if (!def) return;
     for (const [uid, p] of this.pieces) if (p.item.room === room) { this.removePiece(p); this.pieces.delete(uid); }
     let placed: readonly PlacedFurniture[] = [];
@@ -771,7 +835,7 @@ export class FurnitureLayer {
     for (const item of placed) this.addPiece(def, item);
   }
 
-  private addPiece(roomDef: RoomDef, item: PlacedFurniture): void {
+  private addPiece(roomDef: EditAreaDef, item: PlacedFurniture): void {
     const def = FURNITURE_DEF_MAP.get(item.defId);
     if (!def) return;
     const fp = furnitureFootprint(def, item.yaw);
@@ -795,49 +859,67 @@ export class FurnitureLayer {
       roomDef.furnitureGroup.add(sign.mesh);
     }
 
+    // 기업 네트워크 컴퓨터 (2026-09-12): the left monitor's text panel rides on the piece's own group (disposed with it)
+    let screen: TextPlane | null = null;
+    if (def.model === 'corp_computer') {
+      const pose = computerScreenLocal(def.rows * HOUSING_CELL_SIZE);
+      screen = new TextPlane(0.56, 0.34, 256, false);
+      screen.mesh.position.copy(pose.pos);
+      screen.mesh.rotation.copy(pose.rot);
+      screen.set(['기업 네트워크', '접속 대기'], '#7cf07a', 'rgba(4,14,10,1)', '#9fd8b0');
+      model.group.add(screen.mesh);
+    }
+
     // a visited ship is 둘러보기 전용: the pieces are drawn and collide, but nothing answers to E
     let interactable: Interactable | null = null;
-    if (def.interaction !== 'none' && this.source === null) {
+    if (def.interaction !== 'none' && !RETIRED_INTERACTIONS.has(def.interaction) && this.source === null) {
       const bench = benchKindOf(def.interaction);
       const kind = def.interaction;
       const stack = Math.max(1, def.stackLimit ?? 1);
-      const prompt = bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
-        : kind === 'sim_hub' ? `${def.name} · 훈련장 입장`
+      const fixture = FIXTURE_INTERACTABLE[kind];
+      const prompt = fixture ? fixture.prompt
+        : bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
         : stack > 1 ? `${def.name} ${layer + 1}층`
         : def.name;
       // A stack shares one footprint, so every layer would sit on the same anchor: spread the layers along the
       // piece's front edge instead (a control panel per 층) so `findBest` can tell them apart.
       const anchor = _pos.clone();
+      const rot = yawToRotation(item.yaw), cos = Math.cos(rot), sin = Math.sin(rot);
       if (stack > 1) {
         const lw = def.cols * HOUSING_CELL_SIZE, ld = def.rows * HOUSING_CELL_SIZE;
         const ox = (layer - (stack - 1) / 2) * (lw / stack);
         const oz = -(ld / 2 + 0.55);
-        const rot = yawToRotation(item.yaw), cos = Math.cos(rot), sin = Math.sin(rot);
         anchor.set(_pos.x + ox * cos + oz * sin, 0, _pos.z - ox * sin + oz * cos);
+      } else if (fixture) {
+        // 2026-09-12: a fixture's anchor stands **in front of** the piece (local −Z), where the old station's anchor was
+        const oz = -(def.rows * HOUSING_CELL_SIZE / 2 + 0.6);
+        anchor.set(_pos.x + oz * sin, 0, _pos.z + oz * cos);
       }
+      // the old station id when it is still free (one fixture of a kind per ship), else the generic furniture id
+      const id = fixture && !this.ctx.interactables.all().some((i) => i.id === fixture.id) ? fixture.id : `hub_furn_${item.uid}`;
       const cb = this.cb, level = item.level, uid = item.uid;
       interactable = {
-        id: `hub_furn_${item.uid}`,
+        id,
         position: anchor,
-        radius: stack > 1 ? 1.2 : Math.max(w, d) / 2 + 1.1,
+        radius: fixture ? fixture.radius : stack > 1 ? 1.2 : Math.max(w, d) / 2 + 1.1,
         getPrompt: () => (cb.canUse() ? prompt : null),
         canInteract: () => cb.canUse(),
         interact: () => {
           if (bench) cb.onBench(bench, level);
-          else if (kind === 'sim_hub') cb.onSimHub();
+          else if (kind === 'implant_bay') cb.onImplantBay();
+          else if (kind === 'corp_computer') cb.onCorpComputer();
           else if (kind === 'grow_rack') cb.onGrowRack(uid);
           else if (kind === 'grow_station') cb.onGrowStation(uid);
-          else if (kind === 'repair_bench') { /* 2026-09-12 은퇴 — 도달 불가(`retired`), 그러나 fallback 으로 새지 않게 잡는다 */ }
           else if (kind === 'bookshelf') cb.onBookshelf(uid);
           else if (kind === 'analyzer') cb.onAnalyzer(uid);
           else if (kind === 'culture_tank') cb.onCultureTank(uid);
           else if (kind === 'dining_table') cb.onDiningTable(uid);
-          else cb.onRangeConsole();
+          /* anything else (a future interaction nobody wired yet) does nothing rather than opening a wrong window */
         },
       };
       this.ctx.interactables.register(interactable);
     }
-    this.pieces.set(item.uid, { item, model, blocker, sign, interactable });
+    this.pieces.set(item.uid, { item, model, blocker, sign, screen, interactable });
   }
 
   /** Per-piece state a builder reads: 책장 = shelved books, 분석기 / 배양조 = how many 칸 wait to be collected. */
@@ -903,6 +985,7 @@ export class FurnitureLayer {
     p.model.group.removeFromParent();
     this.collider.removeBlocker(p.blocker);
     p.sign?.dispose();
+    if (p.screen) { p.screen.mesh.removeFromParent(); p.screen.dispose(); }
     if (p.interactable) this.ctx.interactables.unregister(p.interactable.id);
   }
 

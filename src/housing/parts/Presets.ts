@@ -1,100 +1,56 @@
 /**
- * src/housing/parts/Presets.ts — **로드아웃 프리셋** (시뮬레이션실의 관물대).
+ * src/housing/parts/Presets.ts — **로드아웃 프리셋 (은퇴)** 과 패널 목록 · 옛 메뉴 진입점.
  *
- * 저장은 `inventory.captureLoadout`, 적용은 `applyLoadout` 을 그대로 부른다 —
- * 여기서 하는 일은 **관물대 레벨**이 정한 개수만큼 슬롯을 관리하는 것뿐이다 (2026-09-12: 예전에는 사격장 방 레벨).
+ * 2026-09-12 (사용자 결정 — 시설관리 정리): 시뮬레이션실이 없어지면서 관물대가 은퇴했고 **프리셋 기능 자체를 걷어냈다.**
+ * 계약(`HousingRef`)은 추가만 하므로 메서드는 남는다 — 전부 「슬롯이 없다」로 답한다: `getPresetCount()` 0,
+ * `getPresets()` 빈 배열, `savePreset` false, `applyPreset` null, `openPresetMenu()` 는 아무 일도 하지 않는다.
+ * 세이브의 `ShipState.presets` 는 **건드리지 않는다** — `sanitize` 가 그대로 읽고 그대로 쓴다.
+ * (저장 · 적용 경로는 `inventory.captureLoadout` / `applyLoadout` 이었고 그 둘은 inventory 에 그대로 있다.)
  */
-import type {
-  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
-  HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
-  StoredFurniture, WorkbenchKind,
-} from '@/shared';
-import {
-  BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf,
-} from '@/shared';
-import {
-  bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
-  furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
-  nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
-  stashSizeFor,
-} from '../Rules';
-import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
-import { PresetMenu } from '../ui/PresetMenu';
-import { BookshelfMenu } from '../ui/BookshelfMenu';
-import { createShipView } from '../ui/ShipView';
-import { formatRemaining } from '../ui/dom';
+import type { LoadoutPreset } from '@/shared';
+import { isRoomIndex } from '../Rules';
 import type { HousingPanel } from '../ui/Panel';
-import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 
-/* ── loadout presets (관물대) ──────────────────────────────────────────── */
-/** Slots from the highest **placed 관물대** level (`PRESETS_BY_RANGE_LEVEL`); 0 when no 관물대 is placed. */
-export function getPresetCount(sys: HousingSystem): number {
-  let level = 0;
-  for (const f of sys.state.furniture) if (FURNITURE_DEF_MAP.get(f.defId)?.interaction === 'range_console') level = Math.max(level, f.level);
-  return presetCountFor(level);
+/* ── loadout presets (은퇴, 2026-09-12) ─────────────────────────────────── */
+/** 늘 0 — 프리셋 슬롯을 여는 가구(관물대)가 은퇴했다. */
+export function getPresetCount(_sys: HousingSystem): number { return 0; }
+
+/** 늘 빈 배열 (저장된 `state.presets` 는 세이브에 그대로 남는다). */
+export function getPresets(sys: HousingSystem): readonly (LoadoutPreset | null)[] {
+  return Array.from({ length: sys.getPresetCount() }, (_, i) => sys.state.presets[i] ?? null);
 }
 
-export function getPresets(sys: HousingSystem): readonly (LoadoutPreset | null)[] {
-  const n = sys.getPresetCount();
-  return Array.from({ length: n }, (_, i) => sys.state.presets[i] ?? null);
-  }
-
+/** 늘 false — 슬롯이 없다. */
 export function savePreset(sys: HousingSystem, index: number, preset: LoadoutPreset): boolean {
-  if (!Number.isInteger(index) || index < 0 || index >= sys.getPresetCount() || !preset) return false;
-  const implant = preset.implant && (IMPLANT_IDS as readonly string[]).includes(preset.implant) ? preset.implant : null;
-  const copy: LoadoutPreset = {
-    name: (preset.name || `프리셋 ${index + 1}`).slice(0, PRESET_NAME_MAX),
-    primary: preset.primary ?? null, primary2: preset.primary2 ?? null, secondary: preset.secondary ?? null,
-    bag: preset.bag ?? null, armor: preset.armor ?? null, implant,
-    // appended (2026-09-08): 임플란트 아이템. Omitted entirely when the caller had none to say, so an old preset
-    // re-saved by an old path never silently gains an empty list (which would mean "unequip everything").
-    ...(preset.implantItems ? { implantItems: preset.implantItems.filter((d) => typeof d === 'string' && !!d).slice(0, 16) } : {}),
-  };
-  while (sys.state.presets.length <= index) sys.state.presets.push(null);
-  sys.state.presets[index] = copy;
-  sys.changed('preset');
-  return true;
-  }
+  return !!preset && Number.isInteger(index) && index >= 0 && index < sys.getPresetCount() && false;
+}
 
-export function deletePreset(sys: HousingSystem, index: number): boolean {
-  if (!sys.state.presets[index]) return false;
-  sys.state.presets[index] = null;
-  while (sys.state.presets.length && sys.state.presets[sys.state.presets.length - 1] === null) sys.state.presets.pop();
-  sys.changed('preset');
-  return true;
-  }
+/** 늘 false — 슬롯이 없으니 지울 것도 없다 (세이브의 옛 프리셋은 그대로 둔다). */
+export function deletePreset(_sys: HousingSystem, _index: number): boolean { return false; }
 
+/** 늘 null — 슬롯이 없다. */
 export function applyPreset(sys: HousingSystem, index: number): { equipped: number; missing: string[] } | null {
-  const preset = index >= 0 && index < sys.getPresetCount() ? sys.state.presets[index] : null;
-  if (!preset || sys.ctx.phase !== 'hub') return null;
-  const inv = sys.ctx.inventory;
-  if (!inv || typeof inv.applyLoadout !== 'function') return null;
-  const result = inv.applyLoadout(preset);
-  sys.ctx.bus.emit('housing:presetApplied', { index, equipped: result.equipped, missing: result.missing });
-  return result;
-  }
+  return index >= 0 && index < sys.getPresetCount() ? null : null;
+}
 
 /** Current equipment as a preset (`ctx.inventory.captureLoadout`), null while inventory has no capture yet. */
 export function captureLoadout(sys: HousingSystem): LoadoutPreset | null {
   const inv = sys.ctx.inventory;
   if (!inv || typeof inv.captureLoadout !== 'function') return null;
   return inv.captureLoadout();
-  }
+}
 
 /* ── UI ────────────────────────────────────────────────────────────────── */
 export function panels(sys: HousingSystem): HousingPanel[] {
   const out: HousingPanel[] = [];
-  if (sys.presetMenu) out.push(sys.presetMenu);
   if (sys.growStation) out.push(sys.growStation);
   if (sys.analyzerPanel) out.push(sys.analyzerPanel);
   if (sys.cultureTank) out.push(sys.cultureTank);
   if (sys.diningTable) out.push(sys.diningTable);
   if (sys.bookshelfMenu) out.push(sys.bookshelfMenu);
   return out;
-  }
+}
 
 /**
  * Phase 8 UI pass: the standalone 방 메뉴 and 함선 시설 메뉴 are gone — rooms and facilities are managed from the
@@ -103,21 +59,19 @@ export function panels(sys: HousingSystem): HousingPanel[] {
  */
 export function openRoomMenu(sys: HousingSystem, room: number): void {
   sys.openShipManage(isRoomIndex(sys.state, room) ? room : undefined);
-  }
+}
 
 export function openFacilityMenu(sys: HousingSystem): void {
   sys.openShipManage();
-  }
+}
 
-export function openPresetMenu(sys: HousingSystem): void {
-  if (!sys.presetMenu) return;
-  sys.exitHousingMode();
-  sys.closeMenus(false);
-  if (sys.getPresetCount() === 0) sys.notify('시뮬레이션실에 관물대를 놓아야 프리셋을 쓸 수 있습니다', 'warning');
-  sys.presetMenu.open();
-  }
+/**
+ * 2026-09-12 (프리셋 기능 제거): **아무 일도 하지 않는다.** 프리셋 메뉴(`ui/PresetMenu.ts`)는 파일째 지웠다 — 계약의 메서드만
+ * 남아 옛 호출자(은퇴한 관물대의 E)가 조용히 끝난다.
+ */
+export function openPresetMenu(_sys: HousingSystem): void { /* retired */ }
 
 /** Close every panel; `relock` false when another panel opens right away. */
 export function closeMenus(sys: HousingSystem, relock = true): void {
   for (const p of sys.panels()) if (p.isOpen) p.close(relock);
-  }
+}

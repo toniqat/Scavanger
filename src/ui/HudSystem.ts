@@ -52,6 +52,7 @@ import { KeyGuide } from './hud/KeyGuide';
 import { ItemTip } from './hud/ItemTip';
 import { GameCursor } from './hud/GameCursor';
 import { ShipManage } from './hud/ShipManage';
+import { CursorHoldGauge } from './hud/CursorHoldGauge';
 import { ShipManageHint } from './hud/ShipManageHint';
 import { Community } from './hud/Community';
 import { setDebugSocial, setDebugSocialRef, debugSocialCalls } from './menus/social/socialSource';
@@ -204,6 +205,8 @@ export class HudSystem implements GameSystem {
   private roomLabel!: RoomLabel;
   /* Phase 8 (ship UX) */
   private shipManage!: ShipManage;
+  /** 2026-09-12: 시설 관리의 가구 꾹 누르기 게이지 (`housing:moveHold`, 커서 중심). */
+  private cursorHold!: CursorHoldGauge;
   private shipHint!: ShipManageHint;
   /* Phase 11: ship-only 커뮤니티 icon + 분대 초대 stack (social layer) */
   private community!: Community;
@@ -321,6 +324,8 @@ export class HudSystem implements GameSystem {
     this.housingRoot = el('div', { cls: 'hud housing', parent: ctx.uiRoot });
     // Phase 8: the 함선 관리 screen (방 목록 + 가구 카드 바) lives in that layer so it survives the same gating.
     this.shipManage = new ShipManage(this.housingRoot);
+    // 2026-09-12: 가구를 꾹 누르면 커서를 중심으로 차오르는 링 — 같은 층이라 시설 관리 화면과 함께 산다.
+    this.cursorHold = new CursorHoldGauge(this.housingRoot);
 
     // 재료 요구 칩 hover card: a direct child of `#ui-root` so it floats over the inventory window, the 함선 관리
     // screen and every menu — it delegates on `.item-chip[data-def-id]` wherever a chip is rendered.
@@ -358,7 +363,7 @@ export class HudSystem implements GameSystem {
     this.scanTracker.bind(ctx);
     this.cutscene.bind(ctx);
     for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.bind(ctx);
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.keyGuide]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.bind(ctx);
@@ -569,6 +574,12 @@ export class HudSystem implements GameSystem {
   get notifCount(): number { return this.notifs.liveCount; }
   /** Phase 12 debug: the 시설 관리 confirm popup (purpose or 발전기) and the pending purpose. */
   get isShipManageConfirmOn(): boolean { return this.shipManage.isConfirmOpen; }
+  /** 2026-09-12: the 시설 제거 confirm's hold fill (0 … 1) and whether that confirm is the red hold one (debug / smoke). */
+  get shipManageConfirmHold(): number { return this.shipManage.confirmHoldProgress; }
+  get shipManageConfirmDanger(): boolean { return this.shipManage.isConfirmDanger; }
+  /** 2026-09-12: the cursor-centred 가구 꾹 누르기 ring (`housing:moveHold`) — showing, and its fill (−1 when hidden). */
+  get isCursorHoldOn(): boolean { return this.cursorHold.isShowing; }
+  get cursorHoldProgress(): number { return this.cursorHold.progress; }
   get shipManageConfirmPurpose(): string | null { return this.shipManage.confirmPurpose; }
   /** Whether the pause menu is in its ship variant (debug). */
   get isPauseHubVariant(): boolean { return this.pause.isHubVariant; }

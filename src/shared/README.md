@@ -1041,3 +1041,19 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
 - `currency.ts` `groupDigits` 로캘 `en-US` → **`ko-KR`** (C-10). `housing.ts` `openRoomMenu` · `openFacilityMenu`
   **`@deprecated`** → `openShipManage(room)` (C-7 — 스모크가 리다이렉트를 단언하므로 지우지 않는다).
   `GatherNodeDef` · `InventoryRef.stripForCorpse` 주석 정정.
+
+### 2026-09-12 — 조종석 · 시뮬레이션실 제거 · 시설 관리 UI (사용자 결정, 추가만)
+- `housing.ts`: `RoomPurpose += 'cockpit'` (+ 라벨 · 설명 · 글리프 · 색). **`ROOM_PURPOSES_ASSIGNABLE`** — 빈 방이 될 수 있는 용도
+  (`range` 시뮬레이션실 · `lounge` 휴식 공간은 빠졌다; 휴식 공간은 서재에 합쳐졌다). `ROOM_PURPOSES` 는 옛 세이브를 읽으려고 둘을
+  그대로 갖는다. `ROOM_PURPOSES_ACTIVE` 에서 `range` 를 뺐다. `FurnitureModelKind` · `FurnitureInteraction += 'implant_bay' |
+  'corp_computer'` (조종석의 고정 설비가 공용 시설 가구가 됐다). **조종석 블록**: `COCKPIT_ROOM_INDEX`(100 — 방 번호가 아닌 고정값),
+  `COCKPIT_GRID_COLS/ROWS`, `GridRect`, `COCKPIT_BLOCKED_RECTS`, `IMPLANT_BAY_DEF_ID` · `CORP_COMPUTER_DEF_ID`,
+  `COCKPIT_DEFAULT_FURNITURE`, `isCockpitRoom` · `roomGridSize` · `roomCellBlocked` · `roomRectBlocked`. `FacilityRequirement` +
+  `HousingRef.furnitureUpgradeRequirements(uid)` · `purposeRequirements(purpose)` (채워지지 않은 시설 레벨 요구만).
+- `itemChip.ts`: **`buildFacilityChip(name, glyph, color, have, need, opts)`** — 시설 레벨 요구 칩(가로로 긴 썸네일 · 이중 테두리 ·
+  `현재/필요`). CSS 는 `ui/styles/base.css` 의 `.facility-chip*`.
+- `events.ts`: `KeyGuideEntry.alt?`(같은 행동의 다른 키 — `또는`) · `combo?`(같이 누르는 키 — `+`) + `KeyGuideKey`;
+  `inventory:itemAdded.fromStash?` (창고 → 가방 옮기기, 획득 티커 없음); `housing:moveHold {progress|null}` (꾹 눌러 위치 이동 게이지).
+- `render.ts`: **`OutlineRef` / `OutlineChannel`** + `GameContext.outline` (화면 공간 외곽선, 구현 `core/`).
+- `constants.ts`: `HOUSING_MOVE_HOLD_S` (0.5). 데이터: `SHIP_ROOM_COUNT` 10 → **8**, `RANGE_SKILL_GAIN_PER_LEVEL` 은퇴 표기,
+  `furniture.csv` 관물대 · 표적 레인 · 시뮬레이션 허브 `retired=1` + `furn_implant_bay` · `furn_corp_computer`, `room_purposes.csv` `cockpit` 줄.

@@ -1,7 +1,8 @@
-import type { CraftIngredient, FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
+import type { CraftIngredient, FacilityRequirement, FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
 import {
-  FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
-  ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, WORKBENCH_ICON, isUtilityFurniture,
+  COCKPIT_ROOM_INDEX, FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, Keys, renderItemCost, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSES_ASSIGNABLE,
+  ROOM_PURPOSE_BUILD_GENERATOR_LEVEL, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, UI_HOLD_CONFIRM_S,
+  WORKBENCH_ICON, buildFacilityChip, buildItemChip, isUtilityFurniture,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
@@ -52,10 +53,22 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
      배양조 `⚗`(증류기 — 「무언가가 안에서 자란다」). 둘 다 위의 어떤 글자와도 겹치지 않는 유니코드 한 글자다. */
   bench_cook: WORKBENCH_ICON.cook, bench_print: WORKBENCH_ICON.print,
   dining_table: '⊞', culture_tank: '⚗',
+  /* 2026-09-12 (사용자 결정): 조종석의 고정 설비였던 둘이 공용 시설 가구가 됐다 — 시술대 `⚕`(의료) · 컴퓨터 `⌨`(키보드),
+     둘 다 위의 어떤 글자와도 겹치지 않는다. */
+  implant_bay: '⚕', corp_computer: '⌨',
 };
 
-/** Purposes offered to an empty room (빈 방 itself is the "clear" action in the header instead). */
-const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'empty');
+/**
+ * Purposes offered to an empty room. 2026-09-12: the contract's `ROOM_PURPOSES_ASSIGNABLE` — 시뮬레이션실 · 휴식 공간
+ * are gone from it (옛 세이브를 읽으려고 `ROOM_PURPOSES` 에만 남았다), and so are 빈 방 / 조종석.
+ */
+const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES_ASSIGNABLE;
+/** 2026-09-12: the most material chips a furniture card shows in its one-line cost row (no wrapping). */
+const CARD_COST_MAX = 4;
+/** Cost chip edge in the furniture cards / inspector: wide enough that `99+/99` fits inside the thumbnail strip. */
+const CARD_CHIP = 36;
+/** The 재료 부족 toast of the inspector's dimmed 업그레이드 button (사용자 결정 문장 그대로). */
+const SHORT_UPGRADE_TEXT = '재료가 부족하여 업그레이드할 수 없습니다.';
 
 /**
  * 시설 관리 screen (`.ship-manage`, Phase 8) — the DOM half of `ctx.housing`'s manage mode (M in the ship). It lives in
@@ -126,6 +139,17 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  *     놓을 수 없는 곳을 누르면 hub/ 가 `housing:placeRefused` 를 내고 이 화면이 인스펙터 **위쪽** 토스트(`.sm-toast`)로
  *     띄운다 — 인스펙터와 토스트는 하단 중앙의 한 `.sm-dock` 에 쌓인다.
  *
+ * **2026-09-12 2차 (사용자 결정 — 조종석 · 업그레이드 구역 · 시설 제거 홀드):**
+ *   - 방 목록 **맨 위에 조종석**(`COCKPIT_ROOM_INDEX`, 방 번호 없음) — 가구 제작 / 가구 창고만 있고 시설 제거가 없다.
+ *     우측 머리 라벨은 시설 이름만이다. 용도 지정은 `ROOM_PURPOSES_ASSIGNABLE`(시뮬레이션실 · 휴식 공간 없음)만 돈다.
+ *   - 가구 카드의 재료는 이름 아래 **한 줄 · 최대 4개**(`CARD_COST_MAX`, `CARD_CHIP` px — 보유/필요가 썸네일 안에 든다).
+ *     시설 가구 / 꾸밈용 가구 하위 탭은 **가구 창고에도** 선다.
+ *   - 인스펙터의 `위치 이동` 버튼은 없어졌다(E · LMB 꾹 누르기 — hub/ 가 `housing:moveHold` 로 커서 게이지를 알린다).
+ *     카드 하단은 **업그레이드 구역**: `업그레이드 비용` · 재료 칩 + 시설 레벨 칩(`buildFacilityChip`) · `업그레이드`.
+ *     딤드여도 눌리고, 재료가 모자라면 `재료가 부족하여 업그레이드할 수 없습니다.` 토스트, 아니면 그 사유.
+ *   - `시설 제거`(빨강) 확인 팝업의 확정은 빨간 `시설 제거` 를 `UI_HOLD_CONFIRM_S` 동안 누른다 — 제목 `{시설 이름} 제거`,
+ *     돌려받는 칩은 수량만.
+ *
  * **2026-09-08 (튜토리얼은 잠그지 않고 감춘다):** `ctx.tutorial.hides('roomPurpose' | 'furniture', id)` 가 참인
  * 항목은 목록에서 **빠진다** — "튜토리얼에서는 ~" 사유를 단 줄을 남겨 두는 대신, 지금 지을 수 있는 것만
  * 보여 준다 (안내 단계에서는 발전기 행 + 작업실 한 줄). 단계가 넘어가거나 튜토리얼을 건너뛰면
@@ -146,7 +170,6 @@ export class ShipManage {
   private genKey = '';
   private toastEl: HTMLElement;
   private toastTimer = 0;
-  private moveUid: string | null = null;
   private cardsEl: HTMLElement;
   private storeEl: HTMLElement;
   private purposesEl: HTMLElement;
@@ -167,9 +190,20 @@ export class ShipManage {
   private confirmTitle: HTMLElement;
   private confirmBody: HTMLElement;
   private confirmCost: HTMLElement;
+  private confirmCard: HTMLElement;
+  private confirmHint: HTMLElement;
   private confirmOk: HTMLButtonElement;
+  private confirmOkText: HTMLElement;
+  private confirmFill: HTMLElement;
+  private confirmCancel: HTMLButtonElement;
   private confirmAction: (() => void) | null = null;
   private pendingPurpose: RoomPurpose | null = null;
+  /* 2026-09-12: 시설 제거 확인은 되돌릴 수 없는 확정이다 — 빨간 `시설 제거` 버튼을 `UI_HOLD_CONFIRM_S` 동안 눌러야 한다 */
+  private confirmDanger = false;
+  private holdStart = 0;
+  private holdTimer = 0;
+  private holdT = 0;
+  private readonly onHoldUp = (): void => this.stopHold();
   /* B-13: 클릭 인스펙터 (모달리스 — blocker 도 escape 토큰도 잡지 않는다) */
   private inspectEl: HTMLElement;
   private inspectThumb: HTMLElement;
@@ -177,14 +211,20 @@ export class ShipManage {
   private inspectName: HTMLElement;
   private inspectLv: HTMLElement;
   private inspectDesc: HTMLElement;
+  /* 2026-09-12: 하단 업그레이드 구역 — `업그레이드 비용` · 재료 + 시설 레벨 칩 · `업그레이드` */
   private inspectCost: HTMLElement;
-  private inspectNote: HTMLElement;
   private inspectBtn: HTMLButtonElement;
-  private inspectMoveBtn: HTMLButtonElement;
   private inspectUid: string | null = null;
 
   private onKey = (e: KeyboardEvent): void => {
-    if (!this.isConfirmOpen || e.code !== Keys.MENU) return;
+    if (!this.isConfirmOpen) return;
+    // 2026-09-12: Enter 로는 되돌릴 수 없는 확정(시설 제거)이 되지 않는다 — 먹기만 한다 (포커스된 취소도 누르지 않는다)
+    if (this.confirmDanger && (e.code === 'Enter' || e.code === 'NumpadEnter')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (e.code !== Keys.MENU) return;
     // Capture phase on `window`: `Input`'s bubble listener never records this Escape, so neither the hub (leave
     // 시설 관리) nor game/ (pause) polls it. `consume` covers the case where Input already saw it this frame.
     e.preventDefault();
@@ -199,12 +239,16 @@ export class ShipManage {
     const rooms = el('div', { cls: 'sm-rooms interactive', parent: this.root });
     el('div', { cls: 'sm-title', text: '방 목록', parent: rooms });
     this.roomsEl = el('div', { cls: 'sm-room-list', parent: rooms });
-    for (let i = 0; i < SHIP_ROOM_COUNT; i++) {
-      const b = el('button', { cls: 'sm-room', parent: this.roomsEl });
+    // 2026-09-12 (사용자 결정): 조종석이 **늘 맨 위**에 서고, 그 아래로 방 1 … SHIP_ROOM_COUNT. 조종석은 방이 아니라
+    // 번호 칸이 비어 있고(`.is-cockpit`) 이름 자리에 `조종석` 이 선다. `data-room` 은 스모크 · 튜토리얼이 행을 집는 손잡이다.
+    for (const i of [COCKPIT_ROOM_INDEX, ...Array.from({ length: SHIP_ROOM_COUNT }, (_, k) => k)]) {
+      const cockpit = i === COCKPIT_ROOM_INDEX;
+      const b = el('button', { cls: cockpit ? 'sm-room is-cockpit' : 'sm-room', parent: this.roomsEl });
+      b.dataset.room = String(i);
       const thumbEl = el('div', { cls: 'sm-thumb', parent: b });
-      const glyphEl = el('span', { cls: 'g', text: ROOM_PURPOSE_GLYPH.empty, parent: thumbEl });
-      el('span', { cls: 'n', text: `방 ${i + 1}`, parent: b });
-      const purposeEl = el('span', { cls: 'p', text: '—', parent: b });
+      const glyphEl = el('span', { cls: 'g', text: ROOM_PURPOSE_GLYPH[cockpit ? 'cockpit' : 'empty'], parent: thumbEl });
+      if (!cockpit) el('span', { cls: 'n', text: `방 ${i + 1}`, parent: b });
+      const purposeEl = el('span', { cls: 'p', text: cockpit ? ROOM_PURPOSE_LABEL_KO.cockpit : '—', parent: b });
       const countEl = el('span', { cls: 'c', text: '', parent: b });
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickRoom(i); });
       this.rows.push({ index: i, root: b, thumbEl, glyphEl, purposeEl, countEl, key: '' });
@@ -215,7 +259,7 @@ export class ShipManage {
     const side = el('div', { cls: 'sm-side interactive', parent: this.root });
     const head = el('div', { cls: 'sm-side-head', parent: side });
     this.sideHead = el('div', { cls: 'sm-bar-head', text: '가구', parent: head });
-    this.clearBtn = el('button', { cls: 'sm-clear', text: '빈 방으로', parent: head });
+    this.clearBtn = el('button', { cls: 'sm-clear', text: '시설 제거', parent: head });   // 2026-09-12: was 빈 방으로
     this.clearBtn.addEventListener('click', (e) => { e.stopPropagation(); this.clearRoom(); });
     // 가구 제작 / 가구 창고 tabs (hidden while an empty room shows the 용도 지정 picker)
     this.tabsEl = el('div', { cls: 'sm-tabs', parent: side });
@@ -253,15 +297,22 @@ export class ShipManage {
        gated with it; `.interactive` because the `.hud.housing` layer itself is pointer-events: none. */
     this.confirmEl = el('div', { cls: 'sm-confirm interactive', parent: this.root });
     this.confirmEl.hidden = true;
-    const card = el('div', { cls: 'sm-confirm-card', parent: this.confirmEl });
+    const card = this.confirmCard = el('div', { cls: 'sm-confirm-card', parent: this.confirmEl });
     this.confirmTitle = el('div', { cls: 'title', text: '시설 증축', parent: card });
     this.confirmBody = el('div', { cls: 'body', parent: card });
     this.confirmCost = el('div', { cls: 'cost', parent: card });
+    this.confirmHint = el('div', { cls: 'sm-confirm-hint', text: `시설 제거 버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 실행됩니다.`, parent: card });
+    this.confirmHint.hidden = true;
     const acts = el('div', { cls: 'acts', parent: card });
-    const cancel = el('button', { cls: 'ui-btn', text: '취소', parent: acts });
-    this.confirmOk = el('button', { cls: 'ui-btn primary', text: '확인', parent: acts });
+    const cancel = this.confirmCancel = el('button', { cls: 'ui-btn', text: '취소', parent: acts });
+    this.confirmOk = el('button', { cls: 'ui-btn primary sm-confirm-ok', parent: acts });
+    this.confirmFill = el('i', { cls: 'sm-hold-fill', parent: this.confirmOk });
+    this.confirmOkText = el('span', { cls: 'sm-confirm-ok-t', text: '확인', parent: this.confirmOk });
     cancel.addEventListener('click', (e) => { e.stopPropagation(); this.closeConfirm(true); });
-    this.confirmOk.addEventListener('click', (e) => { e.stopPropagation(); this.runConfirm(); });
+    // 2026-09-12: a danger confirm (시설 제거) never runs on a click — only the `UI_HOLD_CONFIRM_S` hold below does
+    this.confirmOk.addEventListener('click', (e) => { e.stopPropagation(); if (!this.confirmDanger) this.runConfirm(); });
+    this.confirmOk.addEventListener('pointerdown', (e) => { if (this.confirmDanger && e.button === 0) { e.preventDefault(); this.startHold(); } });
+    this.confirmOk.addEventListener('pointerleave', () => this.stopHold());
     // a click on the dimmed backdrop cancels, like the 함선 tab's popups
     this.confirmEl.addEventListener('mousedown', (e) => { if (e.target === this.confirmEl) this.closeConfirm(true); });
 
@@ -283,13 +334,12 @@ export class ShipManage {
     ix.title = '닫기';
     ix.addEventListener('click', (e) => { e.stopPropagation(); this.setInspect(null, true); });
     this.inspectDesc = el('div', { cls: 'sm-ins-desc', text: '', parent: this.inspectEl });
-    this.inspectCost = el('div', { cls: 'sm-cost', parent: this.inspectEl });
-    this.inspectNote = el('div', { cls: 'sm-ins-note', text: '', parent: this.inspectEl });
-    const iacts = el('div', { cls: 'sm-ins-acts', parent: this.inspectEl });
-    // 2026-09-12: 좌측 하단 = 위치 이동 (hub/ 가 위치 이동 상태로 든다), 우측 = 강화
-    this.inspectMoveBtn = el('button', { cls: 'sm-ins-move', text: '위치 이동', parent: iacts });
-    this.inspectMoveBtn.addEventListener('click', (e) => { e.stopPropagation(); this.moveInspected(); });
-    this.inspectBtn = el('button', { cls: 'sm-gen-btn sm-ins-up', text: '강화', parent: iacts });
+    /* 2026-09-12 (사용자 결정): `위치 이동` 버튼은 없어졌고(E · LMB 꾹 누르기가 한다) 카드 하단이 **업그레이드 구역**이다 —
+       맨 좌측 `업그레이드 비용` · 재료 칩 + 시설 레벨 칩 · 맨 우측 `업그레이드`. */
+    const upsec = el('div', { cls: 'sm-ins-upsec', parent: this.inspectEl });
+    el('span', { cls: 'sm-ins-up-label', text: '업그레이드 비용', parent: upsec });
+    this.inspectCost = el('div', { cls: 'sm-ins-cost', parent: upsec });
+    this.inspectBtn = el('button', { cls: 'sm-gen-btn sm-ins-up', text: '업그레이드', parent: upsec });
     this.inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); this.upgradeInspected(); });
 
     this.root.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -313,8 +363,7 @@ export class ShipManage {
       b.on('housing:selectionChanged', ({ defId }) => this.markSelection(defId)),
       // B-13 (2026-09-11): hub/ 의 시설 관리 레이캐스트가 놓인 가구를 집었다 (`uid: null` = 빈 곳 → 선택 해제).
       b.on('housing:furnitureSelected', ({ uid }) => this.setInspect(uid)),
-      // 2026-09-12: 위치 이동 상태 (인스펙터 버튼의 `이동 중`) · 놓을 수 없는 곳 (인스펙터 위 토스트)
-      b.on('housing:moveStateChanged', ({ active, uid }) => { this.moveUid = active ? uid : null; if (this.active) this.refreshInspect(); }),
+      // 2026-09-12: 놓을 수 없는 곳 (인스펙터 위 토스트). 위치 이동 버튼이 없어져 `moveStateChanged` 는 더 듣지 않는다
       b.on('housing:placeRefused', ({ reason }) => this.showToast(reason)),
       b.on('inventory:changed', () => { if (this.active) this.refresh(); }),
       b.on('inventory:stashChanged', () => { if (this.active) this.refresh(); }),
@@ -341,8 +390,16 @@ export class ShipManage {
   /** B-13: the click inspector — whether it is up and which placed piece it describes (debug / smoke). */
   get isInspectOpen(): boolean { return !this.inspectEl.hidden; }
   get inspectedUid(): string | null { return this.inspectEl.hidden ? null : this.inspectUid; }
-  /** B-13: whether the inspector's 강화 button is live right now (debug / smoke). */
-  get canUpgradeInspected(): boolean { return !this.inspectEl.hidden && !this.inspectBtn.disabled; }
+  /**
+   * B-13: whether the inspector's 업그레이드 button would upgrade right now (debug / smoke). 2026-09-12: a blocked button
+   * stays clickable (it answers with a toast), so "live" is the absence of `.is-disabled`, not the `disabled` attribute.
+   */
+  get canUpgradeInspected(): boolean {
+    return !this.inspectEl.hidden && !this.inspectBtn.disabled && !this.inspectBtn.classList.contains('is-disabled');
+  }
+  /** 2026-09-12: whether the open confirm is the red 시설 제거 hold, and its hold fill 0 … 1 (debug / smoke). */
+  get isConfirmDanger(): boolean { return this.isConfirmOpen && this.confirmDanger; }
+  get confirmHoldProgress(): number { return this.holdT; }
   /** 2026-09-12: which 가구 제작 sub-tab is showing, and the refusal toast text while it is up (debug / smoke). */
   get craftKind(): FurnKind { return this.kind; }
   get toastText(): string | null { return this.toastEl.hidden ? null : this.toastEl.textContent; }
@@ -372,7 +429,6 @@ export class ShipManage {
       this.storeKey = '';
       this.purposeKey = '';
       this.genKey = '';
-      this.moveUid = null;
       this.hideToast();
       return;
     }
@@ -402,6 +458,7 @@ export class ShipManage {
     if (kind === this.kind) return;
     this.kind = kind;
     this.cardsEl.scrollTop = 0;
+    this.storeEl.scrollTop = 0;       // 2026-09-12: the 가구 창고 tab is filtered by the same sub-tab
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refreshSide();
   }
@@ -554,23 +611,47 @@ export class ShipManage {
   }
 
   /* ── Phase 12: confirm popup ─────────────────────────────────────────── */
-  private openConfirm(title: string, body: string, cost: readonly CraftIngredient[], purpose: RoomPurpose | null, action: () => void): void {
+  /**
+   * `opts.refund` (2026-09-12): the chips are what the player **gets back**, so they show the returned quantity only
+   * (`×N`) — a have/need split read as a shortage. `opts.danger`: the red `시설 제거` confirm — no click / Enter, only a
+   * `UI_HOLD_CONFIRM_S` hold on the button; focus starts on 취소.
+   */
+  private openConfirm(
+    title: string, body: string, cost: readonly CraftIngredient[], purpose: RoomPurpose | null, action: () => void,
+    opts: { danger?: boolean; refund?: boolean; okText?: string; requirements?: readonly FacilityRequirement[] } = {},
+  ): void {
+    this.stopHold();
     setText(this.confirmTitle, title);
     setText(this.confirmBody, body);
     this.confirmCost.replaceChildren();
-    if (cost.length) renderItemCost(this.confirmCost, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 34 });
-    else el('span', { cls: 'item-chip-free', text: '재료 없음', parent: this.confirmCost });
+    if (cost.length && opts.refund) {
+      this.confirmCost.classList.add('item-chips');
+      for (const c of cost) this.confirmCost.appendChild(buildItemChip(this.itemDef(c.defId), { need: c.qty, size: 34 }));
+    } else if (cost.length) {
+      renderItemCost(this.confirmCost, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 34 });
+    } else {
+      el('span', { cls: 'item-chip-free', text: '재료 없음', parent: this.confirmCost });
+    }
+    for (const r of opts.requirements ?? []) this.confirmCost.appendChild(this.facilityChip(r, 34));
+    this.confirmDanger = !!opts.danger;
+    toggleClass(this.confirmCard, 'is-danger', this.confirmDanger);
+    this.confirmHint.hidden = !this.confirmDanger;
+    setText(this.confirmOkText, opts.okText ?? '확인');
+    toggleClass(this.confirmOk, 'primary', !this.confirmDanger);
+    toggleClass(this.confirmOk, 'sm-danger', this.confirmDanger);
     this.confirmAction = action;
     this.pendingPurpose = purpose;
     this.confirmEl.hidden = false;
-    this.confirmOk.focus({ preventScroll: true });
+    (this.confirmDanger ? this.confirmCancel : this.confirmOk).focus({ preventScroll: true });
   }
 
   private closeConfirm(sound = false): void {
     if (this.confirmEl.hidden) return;
+    this.stopHold();
     this.confirmEl.hidden = true;
     this.confirmAction = null;
     this.pendingPurpose = null;
+    this.confirmDanger = false;
     if (sound) this.ctx?.bus.emit('audio:play', { id: 'ui_close' });
   }
 
@@ -578,6 +659,40 @@ export class ShipManage {
     const action = this.confirmAction;
     this.closeConfirm();
     action?.();
+  }
+
+  /**
+   * 2026-09-12: the 시설 제거 hold. `setInterval` + `performance.now()` like `housing/ui/UpgradeModal` (rAF stalls in the
+   * headless smokes); releasing anywhere, leaving the button or closing the popup resets it to zero.
+   */
+  private startHold(): void {
+    if (!this.confirmDanger || this.holdTimer || this.confirmEl.hidden) return;
+    this.holdStart = performance.now();
+    this.holdT = 0;
+    this.confirmOk.classList.add('is-holding');
+    window.addEventListener('pointerup', this.onHoldUp);
+    window.addEventListener('pointercancel', this.onHoldUp);
+    this.ctx?.bus.emit('audio:play', { id: 'ui_pickup' });
+    this.holdTimer = window.setInterval(() => {
+      this.holdT = Math.min(1, (performance.now() - this.holdStart) / (Math.max(0.05, UI_HOLD_CONFIRM_S) * 1000));
+      this.confirmFill.style.width = `${(this.holdT * 100).toFixed(1)}%`;
+      if (this.holdT >= 1) { this.stopHold(); this.runConfirm(); }
+    }, 16);
+  }
+
+  private stopHold(): void {
+    if (this.holdTimer) { clearInterval(this.holdTimer); this.holdTimer = 0; }
+    window.removeEventListener('pointerup', this.onHoldUp);
+    window.removeEventListener('pointercancel', this.onHoldUp);
+    this.holdStart = 0;
+    this.holdT = 0;
+    this.confirmFill.style.width = '0%';
+    this.confirmOk.classList.remove('is-holding');
+  }
+
+  /** One 시설 레벨 요구 as the wide double-bordered chip (`shared/itemChip.buildFacilityChip`). */
+  private facilityChip(r: FacilityRequirement, size: number): HTMLElement {
+    return buildFacilityChip(FACILITY_LABEL_KO[r.facility], FACILITY_GLYPH[r.facility], FACILITY_COLOR[r.facility], r.have, r.need, { size });
   }
 
   /* ── B-13 (2026-09-11): 클릭 인스펙터 ─────────────────────────────────── */
@@ -619,28 +734,62 @@ export class ShipManage {
     setText(this.inspectLv, `Lv.${piece.level} / ${def.maxLevel}`);
     setText(this.inspectDesc, def.description);
 
+    // 2026-09-12 (사용자 결정): 하단 업그레이드 구역 — 재료 칩 + 채워지지 않은 시설 레벨 칩, 우측 `업그레이드`.
+    // 막혀 있어도 버튼은 눌린다(딤드 + `aria-disabled`) — 누르면 인스펙터 위 토스트가 이유를 말한다.
     const cost = this.upgradeCost(uid);
     const reason = this.upgradeBlock(uid);
     this.inspectCost.replaceChildren();
-    if (cost && cost.length) renderItemCost(this.inspectCost, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 26 });
-    else el('span', { cls: 'item-chip-free', text: cost ? '재료 없음' : '최대 레벨', parent: this.inspectCost });
-    const note = reason ?? (cost ? '강화할 수 있습니다' : '최대 레벨입니다');
-    setText(this.inspectNote, note);
-    toggleClass(this.inspectNote, 'is-ok', !reason);
-    this.inspectBtn.disabled = !!reason || !cost;
+    if (!cost) {
+      el('span', { cls: 'item-chip-free', text: def.maxLevel <= 1 ? '업그레이드할 수 없는 가구' : '최대 레벨', parent: this.inspectCost });
+    } else {
+      if (cost.length) this.renderCostRow(this.inspectCost, cost, 34);
+      else el('span', { cls: 'item-chip-free', text: '재료 없음', parent: this.inspectCost });
+      for (const r of this.upgradeRequirements(uid)) this.inspectCost.appendChild(this.facilityChip(r, 34));
+    }
+    const blocked = !!reason;
+    setText(this.inspectBtn, cost ? '업그레이드' : '최대');
+    this.inspectBtn.disabled = !cost;
+    toggleClass(this.inspectBtn, 'is-disabled', !!cost && blocked);
+    this.inspectBtn.setAttribute('aria-disabled', !cost || blocked ? 'true' : 'false');
     this.inspectBtn.title = reason ?? (cost ? `${def.name} Lv.${piece.level + 1}` : '최대 레벨');
-    // 2026-09-12: 이 조각을 옮기는 중이면 버튼은 `이동 중` 으로 잠긴다 (E 로 들어간 경우도 같다)
-    const moving = this.moveUid === uid;
-    setText(this.inspectMoveBtn, moving ? '이동 중' : '위치 이동');
-    this.inspectMoveBtn.disabled = moving;
-    toggleClass(this.inspectMoveBtn, 'is-on', moving);
   }
 
-  /** 2026-09-12: `위치 이동` — hub/ 의 `HousingMode` 가 이 조각을 위치 이동 상태로 든다 (E 와 같은 길). */
-  private moveInspected(): void {
-    const uid = this.inspectUid;
-    if (!uid || this.moveUid === uid) return;
-    this.ctx.bus.emit('housing:moveRequested', { uid });
+  /**
+   * 2026-09-12: 채워지지 않은 시설 레벨 요구 (발전기). 계약 질의 `furnitureUpgradeRequirements` 가 원본이고, 구현이 아직
+   * 없으면 housing/ 의 규칙 「가구 Lv.n 으로 올리려면 발전기 Lv.n 이상」으로 같은 답을 만든다.
+   */
+  private upgradeRequirements(uid: string): readonly FacilityRequirement[] {
+    const housing = this.ctx.housing;
+    if (!housing) return [];
+    if (typeof housing.furnitureUpgradeRequirements === 'function') {
+      try { return housing.furnitureUpgradeRequirements(uid); } catch { /* fall through */ }
+    }
+    const piece = housing.getPlacedByUid(uid);
+    if (!piece || !this.upgradeCost(uid)) return [];
+    const have = housing.getFacility('generator').level, need = piece.level + 1;
+    return have < need ? [{ facility: 'generator', have, need }] : [];
+  }
+
+  /** 2026-09-12: 시설 증축의 채워지지 않은 시설 레벨 요구 — 계약 질의가 없으면 발전기 Lv.`ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 게이트. */
+  private purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[] {
+    const housing = this.ctx.housing;
+    if (!housing) return [];
+    if (typeof housing.purposeRequirements === 'function') {
+      try { return housing.purposeRequirements(purpose); } catch { /* fall through */ }
+    }
+    const have = housing.getFacility('generator').level, need = ROOM_PURPOSE_BUILD_GENERATOR_LEVEL;
+    return have < need ? [{ facility: 'generator', have, need }] : [];
+  }
+
+  /**
+   * A cost row of item chips (2026-09-12): the 보유 count is capped at `99+` so the `보유/필요` strip inside a
+   * `CARD_CHIP` thumbnail never sticks out of it (the numbers themselves are unchanged — only the label).
+   */
+  private renderCostRow(host: HTMLElement, cost: readonly CraftIngredient[], size: number): void {
+    renderItemCost(host, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size });
+    for (const h of host.querySelectorAll<HTMLElement>('.item-chip-have')) {
+      if (Number(h.textContent) > 99) h.textContent = '99+';
+    }
   }
 
   /** 2026-09-12: 인스펙터 위쪽 토스트 (`housing:placeRefused`). 같은 문장이 다시 오면 다시 번쩍인다. */
@@ -659,15 +808,22 @@ export class ShipManage {
     this.toastEl.hidden = true;
   }
 
-  /** 강화 버튼. 되돌릴 수 없는 확정이 아니므로 1초 홀드도 확인 팝업도 없다 (GrowStation 의 강화 줄과 같다). */
+  /**
+   * 업그레이드 버튼. 되돌릴 수 없는 확정이 아니므로 1초 홀드도 확인 팝업도 없다 (GrowStation 의 강화 줄과 같다).
+   * 2026-09-12 (사용자 결정): 딤드된 버튼도 눌린다 — 재료가 모자라면 인스펙터 위 토스트 `재료가 부족하여 업그레이드할 수
+   * 없습니다.`, 그 밖의 사유(발전기 레벨 …)면 그 문장을 같은 자리에 띄운다.
+   */
   private upgradeInspected(): void {
     const housing = this.ctx.housing;
     const uid = this.inspectUid;
     if (!housing || !uid) return;
+    const cost = this.upgradeCost(uid);
+    if (!cost) return;                               // 최대 레벨 — the button is really disabled then
     const reason = this.upgradeBlock(uid);
     if (reason) {
+      const short = cost.some((c) => this.owned(c.defId) < c.qty);
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-      this.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
+      this.showToast(short ? SHORT_UPGRADE_TEXT : reason);
       this.refreshInspect();
       return;
     }
@@ -738,27 +894,29 @@ export class ShipManage {
   private clearRoom(): void {
     const housing = this.ctx.housing;
     const room = this.room;
-    if (!housing || room === null) return;
+    if (!housing || room === null || room === COCKPIT_ROOM_INDEX) return;
     const blocked = housing.purposeBlock(room, 'empty');
     if (blocked) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
       this.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning' });
       return;
     }
-    const purpose = housing.getRoom(room)?.purpose ?? 'empty';
+    const label = ROOM_PURPOSE_LABEL_KO[this.purposeOf(room)];
     const placed = housing.getPlaced(room).length;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    // 2026-09-12 (사용자 결정): 제목은 `{시설 이름} 제거`, 돌려받는 칩은 수량만, 확정은 빨간 `시설 제거` 1초 홀드
     this.openConfirm(
-      `방 ${room + 1} — ${ROOM_PURPOSE_LABEL_KO[purpose]} 제거`,
-      `정말로 ${room + 1}번 방을 빈 방으로 되돌리겠습니까?${placed > 0 ? ` 놓인 가구 ${placed}개는 가구 창고로 돌아갑니다.` : ''} 들어간 재료는 전부 함선 창고로 돌려받습니다.`,
+      `${label} 제거`,
+      `정말로 ${label} 시설을 제거하겠습니까?${placed > 0 ? ` 놓인 가구 ${placed}개는 가구 창고로 돌아갑니다.` : ''} 들어간 재료는 전부 함선 창고로 돌려받습니다.`,
       housing.facilityRefund(room),
       null,
-      () => this.emptyRoom(room),
+      () => this.emptyRoom(room, label),
+      { danger: true, refund: true, okText: '시설 제거' },
     );
   }
 
-  /** 확인 on 빈 방으로: `removeRoomFacility` refunds 100 % into the 함선 창고 (or refuses with a 한국어 reason). */
-  private emptyRoom(room: number): void {
+  /** 시설 제거 확정: `removeRoomFacility` refunds 100 % into the 함선 창고 (or refuses with a 한국어 reason). */
+  private emptyRoom(room: number, label: string): void {
     const housing = this.ctx.housing;
     if (!housing) return;
     const reason = housing.removeRoomFacility(room);
@@ -767,9 +925,18 @@ export class ShipManage {
       this.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
     } else {
       this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
-      this.ctx.bus.emit('ui:notify', { text: `방 ${room + 1} — 시설을 제거하고 재료를 함선 창고로 돌려보냈습니다`, kind: 'success' });
+      this.ctx.bus.emit('ui:notify', { text: `${label} — 시설을 제거하고 재료를 함선 창고로 돌려보냈습니다`, kind: 'success' });
     }
     this.refresh();
+  }
+
+  /**
+   * 2026-09-12: purpose of a list index — the cockpit is not in `ShipState.rooms`, so it is `'cockpit'` even while
+   * housing/ has not learned `getRoom(COCKPIT_ROOM_INDEX)` yet.
+   */
+  private purposeOf(index: number): RoomPurpose {
+    if (index === COCKPIT_ROOM_INDEX) return 'cockpit';
+    return this.ctx.housing?.getRoom(index)?.purpose ?? 'empty';
   }
 
   /* ── render ──────────────────────────────────────────────────────────── */
@@ -777,8 +944,7 @@ export class ShipManage {
     const housing = this.ctx.housing;
     if (!housing) return;
     for (const r of this.rows) {
-      const state = housing.getRoom(r.index);
-      const purpose = state?.purpose ?? 'empty';
+      const purpose = this.purposeOf(r.index);
       const count = housing.getPlaced(r.index).length;
       const key = `${purpose}|${count}`;
       if (key !== r.key) {
@@ -801,19 +967,20 @@ export class ShipManage {
     const housing = this.ctx.housing;
     if (!housing) return;
     const room = this.room;
-    const purpose = room !== null ? (housing.getRoom(room)?.purpose ?? 'empty') : 'empty';
+    const purpose = room !== null ? this.purposeOf(room) : 'empty';
     const assigning = room !== null && purpose === 'empty';
+    const cockpit = room === COCKPIT_ROOM_INDEX;
 
-    setText(this.sideHead, room === null
-      ? '가구'
-      : assigning ? `방 ${room + 1} — 용도 지정` : `가구 · 방 ${room + 1} — ${ROOM_PURPOSE_LABEL_KO[purpose]}`);
-    // clearing is only offered on an assigned room the rules allow to go back to 빈 방 (never the built-in 작업실)
-    this.clearBtn.hidden = room === null || assigning || !!housing.purposeBlock(room, 'empty');
+    // 2026-09-12 (사용자 결정): 머리 라벨은 시설 이름만 — `가구 · 방 N — 작업실` → `작업실`
+    setText(this.sideHead, room === null ? '가구' : assigning ? '용도 지정' : ROOM_PURPOSE_LABEL_KO[purpose]);
+    // 시설 제거 is only offered on an assigned room the rules allow to go back to 빈 방 — never on the cockpit
+    this.clearBtn.hidden = room === null || assigning || cockpit || !!housing.purposeBlock(room, 'empty');
 
     this.purposesEl.hidden = !assigning;
     this.tabsEl.hidden = assigning || room === null;
     for (const [id, b] of this.tabBtns) toggleClass(b, 'is-on', id === this.tab);
-    this.subtabsEl.hidden = assigning || room === null || this.tab !== 'craft';
+    // 2026-09-12: 시설 가구 / 꾸밈용 가구 하위 탭은 가구 창고에도 선다
+    this.subtabsEl.hidden = assigning || room === null;
     for (const [id, b] of this.kindBtns) toggleClass(b, 'is-on', id === this.kind);
     if (assigning) {
       this.cardsEl.hidden = true;
@@ -885,16 +1052,16 @@ export class ShipManage {
       .filter((p) => !this.tutHides('roomPurpose', p) && !this.builtElsewhere(room, p))
       .map((p) => {
         const blocked = housing.purposeBlock(room, p);
-        return { p, blocked, rank: blocked ? 1 : 0, cost: housing.purposeCost(p) };
+        return { p, blocked, rank: blocked ? 1 : 0, cost: housing.purposeCost(p), reqs: this.purposeRequirements(p) };
       });
     entries.sort((a, b) => a.rank - b.rank || ASSIGNABLE.indexOf(a.p) - ASSIGNABLE.indexOf(b.p));
     const key = `${room}|t${this.tutKey}|`
-      + entries.map((e) => `${e.p}${e.rank}${e.blocked ?? ''}${this.costKeyOf(e.cost)}`).join(',');
+      + entries.map((e) => `${e.p}${e.rank}${e.blocked ?? ''}${this.costKeyOf(e.cost)}${e.reqs.map((r) => `${r.facility}${r.have}/${r.need}`).join('')}`).join(',');
     if (key === this.purposeKey) return;
     this.purposeKey = key;
     this.purposesEl.replaceChildren();
 
-    for (const { p, blocked, rank, cost } of entries) {
+    for (const { p, blocked, rank, cost, reqs } of entries) {
       const b = el('button', { cls: `sm-purpose rank-${rank}`, parent: this.purposesEl });
       b.dataset.purpose = p;
       const thumb = el('div', { cls: 'sm-thumb', parent: b });
@@ -906,6 +1073,8 @@ export class ShipManage {
       if (!ROOM_PURPOSES_ACTIVE.includes(p)) el('span', { cls: 'badge', text: '다음 업데이트', parent: line });
       const costEl = el('div', { cls: 'sm-cost', parent: body });
       renderItemCost(costEl, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 24 });
+      // 2026-09-12 (사용자 결정): 발전기 레벨 요구는 문장이 아니라 재료 칩과 같은 줄의 가로 긴 이중 테두리 칩이다
+      for (const r of reqs) costEl.appendChild(this.facilityChip(r, 24));
       // Phase 12: the reason is printed, not tucked into a tooltip, and the row stays clickable (→ toast + flash)
       if (blocked) el('div', { cls: 'sm-block', text: blocked, parent: body });
       toggleClass(b, 'is-blocked', !!blocked);
@@ -960,8 +1129,12 @@ export class ShipManage {
       el('span', { cls: 'fcard-size', text: `${def.cols}×${def.rows}`, parent: thumb });
       const body = el('div', { cls: 'fcard-body', parent: card });
       el('div', { cls: 'fcard-name', text: def.name, parent: body });
-      const cost = el('div', { cls: 'fcard-cost', parent: body });
-      renderItemCost(cost, def.craft, (id) => this.itemDef(id), (id) => this.owned(id), { size: 24 });
+      // 2026-09-12 (사용자 결정): the material row is its own grid row under the name — ≤ `CARD_COST_MAX` chips on one
+      // line, `CARD_CHIP` px each so the 보유/필요 strip fits inside the thumbnail. A piece that cannot be crafted
+      // (공용 시설 가구 — 시술대 · 컴퓨터, `craft` null) says so instead of the 무료 a null cost would render.
+      const cost = el('div', { cls: 'fcard-cost', parent: card });
+      if (def.craft) this.renderCostRow(cost, def.craft.slice(0, CARD_COST_MAX), CARD_CHIP);
+      else el('span', { cls: 'fcard-nocraft', text: '제작 불가', parent: cost });
       // 2026-09-12: 보유 수는 꾸밈용 가구만 (시설 가구는 하나뿐이라 수를 셀 이유가 없다)
       if (!utility) {
         const own = el('div', { cls: 'fcard-own', text: `보유 ${owned}`, parent: body });
@@ -972,9 +1145,9 @@ export class ShipManage {
       if (block && !have) el('div', { cls: 'fcard-note is-locked', text: block, parent: body });
       // the row selects a stored piece for placement; the 제작 button spends materials for a new one
       card.addEventListener('click', (e) => { e.stopPropagation(); if (owned > 0) this.pickCard(def.id); else this.craftCard(def.id); });
-      const make = el('button', { cls: 'fcard-craft', text: have ? '이미 보유 중' : '제작', parent: card });
-      make.disabled = !!block;
-      make.title = block ?? `${def.name} 제작`;
+      const make = el('button', { cls: 'fcard-craft', text: have ? '이미 보유 중' : def.craft ? '제작' : '제작 불가', parent: card });
+      make.disabled = !!block || !def.craft;
+      make.title = block ?? (def.craft ? `${def.name} 제작` : `${def.name} — 제작할 수 없는 가구입니다`);
       make.addEventListener('click', (e) => { e.stopPropagation(); this.craftCard(def.id); });
       this.cards.push({ defId: def.id, root: card });
     }
@@ -992,22 +1165,28 @@ export class ShipManage {
     if (!housing) return;
     const allowed = new Set(housing.getFurnitureFor(purpose).map((d) => d.id));
     const stored = this.storedCounts();
+    const kind = this.kind;
     const entries = [...stored].map(([defId, qty]) => {
       const fits = allowed.has(defId);
       const spot = fits && room !== null ? this.findFreeSpot(room, defId) : null;
       return { defId, qty, def: housing.getFurnitureDef(defId), fits, spot };
-    }).filter((e) => !!e.def) as Array<{ defId: string; qty: number; def: FurnitureDef; fits: boolean; spot: FreeSpot | null }>;
+    }).filter((e) => !!e.def && (kind === 'utility') === isUtilityFurniture(e.def)) as Array<{ defId: string; qty: number; def: FurnitureDef; fits: boolean; spot: FreeSpot | null }>;
     entries.sort((a, b) => Number(b.fits) - Number(a.fits) || a.def.name.localeCompare(b.def.name, 'ko'));
 
     // the fit result is part of the key: a piece placed / recovered elsewhere in the room flips `자리 없음` ↔ `배치 가능`
-    const key = `store|${room}|${purpose}|${entries.map((e) => `${e.defId}:${e.qty}:${e.fits ? 1 : 0}${e.spot ? 1 : 0}`).join(',')}`;
+    // 2026-09-12: so is the 시설 가구 / 꾸밈용 가구 sub-tab (the store is filtered by it too)
+    const key = `store|${kind}|${room}|${purpose}|${entries.map((e) => `${e.defId}:${e.qty}:${e.fits ? 1 : 0}${e.spot ? 1 : 0}`).join(',')}`;
     if (key === this.storeKey) { this.markSelection(this.selected); return; }
     this.storeKey = key;
 
     this.storeEl.replaceChildren();
     this.cards = [];
     this.emptyEl.hidden = entries.length > 0;
-    if (entries.length === 0) setText(this.emptyEl, '가구 창고가 비어 있습니다 — 가구 제작 탭에서 만드세요');
+    if (entries.length === 0) {
+      setText(this.emptyEl, stored.size === 0
+        ? '가구 창고가 비어 있습니다 — 가구 제작 탭에서 만드세요'
+        : kind === 'utility' ? '가구 창고에 시설 가구가 없습니다' : '가구 창고에 꾸밈용 가구가 없습니다');
+    }
     for (const { defId, qty, def, fits, spot } of entries) {
       const card = el('button', { cls: `fcard store${fits ? '' : ' is-blocked'}`, parent: this.storeEl });
       card.dataset.defId = defId;       // 가구 제작 카드와 같은 손잡이 — 튜토리얼 스포트라이트 · 스모크가 집는다
@@ -1065,6 +1244,7 @@ export class ShipManage {
   }
 
   dispose(): void {
+    this.stopHold();
     for (const u of this.unsubs) u();
     clearTimeout(this.toastTimer);
     window.removeEventListener('keydown', this.onKey, true);

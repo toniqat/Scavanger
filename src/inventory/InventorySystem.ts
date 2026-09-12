@@ -1827,7 +1827,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   emitTransfer(item: ItemInstance, def: ItemDef, from: ItemLocation, to: ItemLocation): void {
     const a = this.locKind(from), b = this.locKind(to);
     if (a === b) return;
-    if (b === 'player') this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+    // 2026-09-12: 함선 창고 → 가방은 「옮기기」다 — `fromStash` 가 붙으면 ui 가 획득 티커를 띄우지 않는다
+    const fromStash = from.kind === 'grid' && from.grid === 'stash';
+    if (b === 'player') this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity, ...(fromStash ? { fromStash: true } : {}) });
     else this.ctx.bus.emit('inventory:itemRemoved', { item });
   }
 

@@ -53,7 +53,9 @@ export class Notifications {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('ui:notify', ({ text, kind, duration }) => this.push(escapeHtml(text), kind ?? 'info', undefined, duration)),
-      b.on('inventory:itemAdded', ({ name, rarity, item }) => {
+      b.on('inventory:itemAdded', ({ name, rarity, item, fromStash }) => {
+        // 2026-09-12 (사용자 결정): 함선 창고 → 가방은 옮긴 것이지 얻은 것이 아니다 — 획득 티커를 띄우지 않는다
+        if (fromStash) return;
         const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
         this.push(`획득: <b style="color:${rarityColor(rarity)}">${escapeHtml(name)}</b>${qty}`, 'info', '아이템', 3);
       }),

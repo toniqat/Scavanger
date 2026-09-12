@@ -158,7 +158,10 @@ export class HubSystem implements GameSystem, HubRef {
    * `new Workbench(...)` 와 `FurnitureCallbacks.onRepairBench` 를 다시 잇는다.
    * 버스 이벤트 `hub:workbenchToggled` 는 계약이라 `shared/events` 에 그대로 남아 있다 — 아무도 안 낼 뿐이다.
    */
-  /** 함선 컴퓨터 (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. */
+  /**
+   * 함선 컴퓨터 (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. 2026-09-12: only the **shared** ship's built-in desk
+   * lives here; the personal ship's computer is `furn_corp_computer` furniture registered by the layer under the same id.
+   */
   computer: Computer | null = null;
   stationIds: string[] = [];
   /** 함선 꾸미기: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */

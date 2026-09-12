@@ -30,16 +30,23 @@ export interface TerminalDef {
   screen: TextPlane;
 }
 
-/** One of the personal ship's ten housing rooms (see `RoomLayout.ts` for the numbers). */
-export interface RoomDef {
+/**
+ * 2026-09-12: 가구를 놓을 수 있는 공간 하나 — 방 **또는 조종석**(`index === COCKPIT_ROOM_INDEX`). 가구 층
+ * (`interiors/Furniture.FurnitureLayer`)은 이것만 알면 된다.
+ */
+export interface EditAreaDef {
   index: number;
+  minX: number; maxX: number; minZ: number; maxZ: number;
+  /** Parent for the area's furniture meshes (one group per area, added / cleared by the furniture layer). */
+  furnitureGroup: THREE.Group;
+}
+
+/** One of the personal ship's housing rooms (`SHIP_ROOM_COUNT`, see `RoomLayout.ts` for the numbers). */
+export interface RoomDef extends EditAreaDef {
   /** −1 = port (−X) side, +1 = starboard (+X). */
   side: -1 | 1;
-  minX: number; maxX: number; minZ: number; maxZ: number;
   /** `방 n` + purpose sign beside the door (corridor side); the hub rewrites its second line. */
   sign: TextPlane;
-  /** Parent for the room's furniture meshes (one group per room, added / cleared by the furniture layer). */
-  furnitureGroup: THREE.Group;
 }
 
 /** Colours the window planet takes once the warp lands (`PlanetDef.hologram` / `hologramAtmo`). */
@@ -58,12 +65,23 @@ export interface ShipInterior {
   readonly airlockYaw: number;
   readonly pods: PodSlotDef[];
   readonly terminal: TerminalDef;
-  /** 함선 컴퓨터 (Phase 5): interaction anchor in front of the desk (`hub_computer` → 기업 네트워크). */
-  readonly computer: StationDef;
+  /**
+   * 함선 컴퓨터 (Phase 5): interaction anchor in front of the desk (`hub_computer` → 기업 네트워크).
+   * 2026-09-12: **optional** — the personal ship's computer is the `furn_corp_computer` furniture now; only the
+   * shared ship still has a built-in desk.
+   */
+  readonly computer?: StationDef;
   /** 함선 시설 (tactical kit): 정비대 (shared ship) / 임플란트 시술대 anchors. */
   readonly stations: ShipStations;
-  /** 함선 꾸미기 (personal ship only): the ten rooms. The door / facility consoles were removed in the Phase 8 UI pass. */
+  /** 함선 꾸미기 (personal ship only): the rooms. The door / facility consoles were removed in the Phase 8 UI pass. */
   readonly rooms?: readonly RoomDef[];
+  /** 2026-09-12 (personal ship only): the cockpit as a furniture area (`COCKPIT_ROOM_INDEX`). */
+  readonly cockpit?: EditAreaDef;
+  /**
+   * 2026-09-12 (사용자 결정): 방 · 조종석 바닥 격자선은 **시설 관리(하우징 모드) 중에만** 보인다. hub/HousingMode 가
+   * 모드에 들어가며 켜고 나오며 끈다. Optional — 격자가 없는 인테리어(공유 함선)는 생략한다.
+   */
+  setGridVisible?(on: boolean): void;
   /**
    * 목표 행성 (Phase 11): re-tint the decorative planet outside the viewports to the selected planet's
    * `PlanetDef.hologram` / `hologramAtmo`. Called on build and when a warp ends — the interior itself is

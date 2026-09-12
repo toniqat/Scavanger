@@ -26,7 +26,7 @@ import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout */
 import type { PlacedBook, PlacedFurniture, RoomPurpose, ShipVisitWire } from '@/shared';
-import { ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSES, SHIP_ROOM_COUNT, SHIP_VISIT_MAX_FURNITURE } from '@/shared';
+import { COCKPIT_ROOM_INDEX, ROOM_PURPOSES, SHIP_ROOM_COUNT, SHIP_VISIT_MAX_FURNITURE, roomGridSize } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 /* appended (Phase 11): 행성 선택 · 소셜 */
 /* appended (Phase 10): 발사 준비 패널 crew cards */
@@ -139,18 +139,20 @@ function sanitizePlaced(f: unknown): PlacedFurniture | null {
   if (uid === null || defId === null) return null;
   if (!isNum(w.room) || !isNum(w.x) || !isNum(w.y)) return null;
   const room = Math.floor(w.room);
-  if (room < 0 || room >= SHIP_ROOM_COUNT) return null;
+  // 2026-09-12: 조종석 가구(`COCKPIT_ROOM_INDEX`)도 방문 문서에 실린다 — 방 번호 범위 밖의 고정값이라 따로 받는다
+  if (room !== COCKPIT_ROOM_INDEX && (room < 0 || room >= SHIP_ROOM_COUNT)) return null;
   const yaw = w.yaw === 1 || w.yaw === 2 || w.yaw === 3 ? w.yaw : 0;
   /*
    * Clamp to the **room grid**, not to some large round number: `hub/interiors/Furniture` feeds these straight into
    * `roomCellToWorld`, which extrapolates happily — a cell of 63 would put the mesh *and its solid collider blocker*
    * ~31 m outside the room, anywhere in the visitor's own interior, including on top of the airlock anchor that is
-   * the only way out of a visit.
+   * the only way out of a visit. 2026-09-12: the grid is per area (`roomGridSize` — the cockpit is 20 × 12).
    */
+  const grid = roomGridSize(room);
   const piece: PlacedFurniture = {
     uid, defId, room,
-    x: Math.max(0, Math.min(ROOM_GRID_COLS - 1, Math.floor(w.x))),
-    y: Math.max(0, Math.min(ROOM_GRID_ROWS - 1, Math.floor(w.y))),
+    x: Math.max(0, Math.min(grid.cols - 1, Math.floor(w.x))),
+    y: Math.max(0, Math.min(grid.rows - 1, Math.floor(w.y))),
     yaw,
     level: isNum(w.level) ? Math.max(1, Math.min(99, Math.floor(w.level))) : 1,
   };

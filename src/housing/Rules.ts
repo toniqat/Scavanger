@@ -1,8 +1,9 @@
 import type {
-  CraftIngredient, FacilityId, FurnitureDef, GrowTier, ItemDef, PlacedBook, PlacedFurniture, RoomPurpose, ShipState, SkillId,
+  CraftIngredient, FacilityId, FacilityRequirement, FurnitureDef, GrowTier, ItemDef, PlacedBook, PlacedFurniture, RoomPurpose, ShipState, SkillId,
   SoilTag,
 } from '@/shared';
 import {
+  COCKPIT_ROOM_INDEX, ROOM_PURPOSES_ASSIGNABLE, roomGridSize, roomRectBlocked,
   ANALYZE_DEX_SPEEDUP, ANALYZE_KNOWN_SPEEDUP,
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   GROW_SKILL_SPEEDUP, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
@@ -194,7 +195,10 @@ export function stashSizeFor(storageLevel: number): { cols: number; rows: number
   return { cols: STASH_COLS, rows: STASH_ROWS_BY_STORAGE_LEVEL[i] };
 }
 
-/** Preset slots for the highest placed **관물대** level (0 = none placed). 2026-09-12: was the 사격장 room level. */
+/**
+ * Preset slots for the highest placed **관물대** level (0 = none placed). 2026-09-12: was the 사격장 room level.
+ * @deprecated 2026-09-12 (사용자 결정 — 프리셋 기능 제거 · 관물대 은퇴): no caller; `getPresetCount()` is always 0.
+ */
 export function presetCountFor(consoleLevel: number): number {
   const i = Math.max(0, Math.min(PRESETS_BY_RANGE_LEVEL.length - 1, Math.floor(consoleLevel)));
   return PRESETS_BY_RANGE_LEVEL[i];
@@ -211,6 +215,7 @@ export function craftCostMulFor(_workshopLevel: number): number {
 /**
  * Gun skills gain `1 + RANGE_SKILL_GAIN_PER_LEVEL × level` of the highest placed **시뮬레이션 허브** (0 = none);
  * everything else 1. 2026-09-12: was the 사격장 room level.
+ * @deprecated 2026-09-12 (사용자 결정 — 시뮬레이션실 · 시뮬레이션 허브 제거): no caller; `getSkillGainMul` is the 서재 alone.
  */
 export function skillGainMulFor(skill: SkillId, simHubLevel: number): number {
   return skill.startsWith('gun_') && simHubLevel > 0 ? 1 + RANGE_SKILL_GAIN_PER_LEVEL * simHubLevel : 1;
@@ -357,6 +362,25 @@ export function isRoomIndex(state: ShipState, index: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < state.rooms.length;
 }
 
+/**
+ * 2026-09-12 (사용자 결정 — 조종석): 가구를 **놓을 수 있는** 자리 = 방(`isRoomIndex`) 또는 조종석(`COCKPIT_ROOM_INDEX`).
+ * 용도 · 시설 규칙(`setRoomPurpose` · `removeRoomFacility` · 시설 증축)은 여전히 `isRoomIndex` 만 본다 — 조종석에는 용도가 없다.
+ */
+export function isPlaceRoom(state: ShipState, room: number): boolean {
+  return room === COCKPIT_ROOM_INDEX || isRoomIndex(state, room);
+}
+
+/** 가구 규칙이 보는 그 자리의 용도 — 조종석은 `'cockpit'`(= `'any'` 가구만 받는다), 없는 방은 null. */
+export function placeRoomPurpose(state: ShipState, room: number): RoomPurpose | null {
+  if (room === COCKPIT_ROOM_INDEX) return 'cockpit';
+  return isRoomIndex(state, room) ? state.rooms[room].purpose : null;
+}
+
+/** 빈 방이 될 수 있는 용도인가 (`ROOM_PURPOSES_ASSIGNABLE` — 2026-09-12 부터 시뮬레이션실 · 휴식 공간 · 조종석은 아니다). */
+export function isAssignablePurpose(purpose: RoomPurpose): boolean {
+  return ROOM_PURPOSES_ASSIGNABLE.includes(purpose);
+}
+
 export function isRoomPurpose(p: unknown): p is RoomPurpose {
   return typeof p === 'string' && (ROOM_PURPOSES as readonly string[]).includes(p);
 }
@@ -381,8 +405,11 @@ export const NEEDS_GREENHOUSE: readonly RoomPurpose[] = ['lab', 'kitchen'];
  * needs a greenhouse somewhere on the ship.
  */
 export function purposeChangeReason(state: ShipState, index: number, purpose: RoomPurpose): string | null {
+  if (index === COCKPIT_ROOM_INDEX) return '조종석은 용도를 바꾸거나 제거할 수 없습니다';
   if (!isRoomIndex(state, index)) return '없는 방입니다';
   if (purpose === 'empty') return null;
+  // 2026-09-12 (사용자 결정): 시뮬레이션실 · 휴식 공간(서재에 합쳐졌다) · 조종석은 빈 방이 될 수 없다
+  if (!isAssignablePurpose(purpose)) return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 더 이상 지을 수 없습니다`;
   // 온실 선행: 연구실(표본 · 배지)과 **주방**(A-3c — 작물이 유일한 요리 재료다) 둘 다 같은 규칙 한 줄을 탄다
   if (NEEDS_GREENHOUSE.includes(purpose) && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
     return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 온실이 먼저 필요합니다`;
@@ -411,11 +438,15 @@ function overlaps(ax: number, ay: number, aw: number, ah: number, bx: number, by
   return ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah;
 }
 
-/** Inside the room grid after rotation? */
-export function insideGrid(def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3): boolean {
+/**
+ * Inside the grid of `room` after rotation? 2026-09-12: the grid size is per room (`roomGridSize` — 조종석
+ * `COCKPIT_GRID_*`, 방 `ROOM_GRID_*`); `room` defaults to an ordinary room.
+ */
+export function insideGrid(def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, room = 0): boolean {
   if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) return false;
   const fp = furnitureFootprint(def, yaw);
-  return x + fp.cols <= ROOM_GRID_COLS && y + fp.rows <= ROOM_GRID_ROWS;
+  const grid = roomGridSize(room);
+  return x + fp.cols <= grid.cols && y + fp.rows <= grid.rows;
 }
 
 /** Placed piece under cell (x, y) of `room`, or null. In a stack the **top** layer wins (that is what E / X reach). */
@@ -476,12 +507,15 @@ export function topLayer(members: readonly PlacedFurniture[]): number {
  * the stack is below its limit.
  */
 export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
-  if (!isRoomIndex(state, room)) return false;
-  if (!furnitureAllowedIn(def, state.rooms[room].purpose)) return false;
-  if (!insideGrid(def, x, y, yaw)) return false;
+  // 2026-09-12: 조종석도 놓을 자리다 (용도 'cockpit' = 'any' 가구만) — 격자 크기와 고정 소품 자리는 계약의 표가 답한다
+  const purpose = placeRoomPurpose(state, room);
+  if (purpose === null) return false;
+  if (!furnitureAllowedIn(def, purpose)) return false;
+  if (!insideGrid(def, x, y, yaw, room)) return false;
+  const fp = furnitureFootprint(def, yaw);
+  if (roomRectBlocked(room, x, y, fp.cols, fp.rows)) return false;
   const limit = stackLimitOf(def);
   if (limit > 1 && nextFreeLayer(stackMembers(state, room, def, x, y, yaw, ignoreUid), limit) < 0) return false;
-  const fp = furnitureFootprint(def, yaw);
   for (const other of state.furniture) {
     if (other.room !== room || other.uid === ignoreUid) continue;
     const odef = FURNITURE_DEF_MAP.get(other.defId);
@@ -602,13 +636,16 @@ export interface FurniturePlacement { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
  * 이어야 한다. 1차에서 이미 본 자리(구역 밖)는 2차에서 다시 볼 필요가 없다. `canPlaceAt` 은 그대로다.
  */
 export function autoPlaceSpot(state: ShipState, room: number, def: FurnitureDef): FurniturePlacement | null {
-  const door = doorClearanceCell(room);
-  for (const pass of [1, 2] as const) {
+  /* 2026-09-12 (조종석): 격자 크기는 `roomGridSize` 가, 막힌 칸은 `canPlaceAt` 안의 `roomRectBlocked` 가 답한다. 조종석에는
+     문 앞 여유 구역이 없다 — 고정 소품 표(`COCKPIT_BLOCKED_RECTS`)가 이미 복도 아치 · 포드 동선을 비워 두므로 한 패스뿐이다. */
+  const grid = roomGridSize(room);
+  const door = room === COCKPIT_ROOM_INDEX ? null : doorClearanceCell(room);
+  for (const pass of door ? [1, 2] : [1]) {
     for (const yaw of AUTO_PLACE_YAWS) {
       const fp = furnitureFootprint(def, yaw);
-      for (let x = 0; x + fp.cols <= ROOM_GRID_COLS; x++) {          // 화면 세로: 위 → 아래
-        for (let y = ROOM_GRID_ROWS - fp.rows; y >= 0; y--) {        // 화면 가로: 왼쪽 → 오른쪽
-          const inDoorZone = overlaps(x, y, fp.cols, fp.rows, door.x, door.y, DOOR_CLEAR_DEPTH, DOOR_CLEAR_SPAN);
+      for (let x = 0; x + fp.cols <= grid.cols; x++) {               // 화면 세로: 위 → 아래
+        for (let y = grid.rows - fp.rows; y >= 0; y--) {             // 화면 가로: 왼쪽 → 오른쪽
+          const inDoorZone = !!door && overlaps(x, y, fp.cols, fp.rows, door.x, door.y, DOOR_CLEAR_DEPTH, DOOR_CLEAR_SPAN);
           if (inDoorZone !== (pass === 2)) continue;
           if (!canPlaceAt(state, room, def, x, y, yaw)) continue;
           if (pass === 2 && !doorPassageOpen(state, room, { x, y, cols: fp.cols, rows: fp.rows })) continue;
@@ -661,4 +698,28 @@ export function furnitureUpgradeReason(state: ShipState, item: PlacedFurniture, 
   const missing = missingIngredients(cost, count);
   if (missing.length) return `재료 부족: ${formatCost(missing, nameOf)}`;
   return null;
+}
+
+/* ── 시설 레벨 요구 (2026-09-12, 사용자 결정) ────────────────────────────────
+ * 「발전기 Lv.n 이 필요하다」를 문장이 아니라 **칩**으로 그리기 위한 질의다 (`HousingRef.furnitureUpgradeRequirements` ·
+ * `purposeRequirements` → ui 의 `buildFacilityChip`). 게이트의 식은 `generatorGateReason` 과 **같은 한 줄**이다 — 채워지지
+ * 않은 요구만 돌려주므로, 빈 배열 = 시설 레벨은 문제가 없다(재료 · 최대 레벨은 사유 함수가 따로 답한다).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** 발전기가 `targetLevel` 보다 낮으면 그 요구 하나, 아니면 빈 배열. */
+export function generatorRequirement(state: ShipState, targetLevel: number): FacilityRequirement[] {
+  return state.generatorLevel >= targetLevel ? [] : [{ facility: 'generator', have: state.generatorLevel, need: targetLevel }];
+}
+
+/** 놓인 가구의 **다음 강화**를 막는 시설 레벨 요구 (최대 레벨이거나 모르는 가구면 빈 배열). */
+export function furnitureUpgradeRequirementsFor(state: ShipState, item: PlacedFurniture): FacilityRequirement[] {
+  const def = FURNITURE_DEF_MAP.get(item.defId);
+  if (!def || item.level >= furnitureMaxLevel(def)) return [];
+  return generatorRequirement(state, item.level + 1);
+}
+
+/** 빈 방에 `purpose` 를 **증축**하는 데 채워지지 않은 시설 레벨 요구 (빈 방 · 지을 수 없는 용도는 빈 배열). */
+export function purposeRequirementsFor(state: ShipState, purpose: RoomPurpose): FacilityRequirement[] {
+  if (purpose === 'empty' || !isAssignablePurpose(purpose)) return [];
+  return generatorRequirement(state, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL);
 }

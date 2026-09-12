@@ -47,6 +47,17 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-12 (26차) 조종석 편집 · 시뮬레이션실 제거 · 방 8개 · 시설 관리 UI 3차 (`src/shared/{housing,events,render,itemChip,constants,GameContext}.ts` **추가만** · `data/{constants,furniture,room_purposes}.csv` · `src/{housing,hub,ui,core,inventory,tutorial}` + `src/net/model.ts` · 삭제 `src/housing/ui/PresetMenu.ts` · 스모크 8종, **에이전트 4개 병렬(같은 작업 트리) + 리드**):
+
+  ① 계약을 리드가 먼저 쓰고(typecheck 가 새 계약을 아직 구현하지 않은 세 폴더에서만 깨지는 것을 확인) housing · hub · ui · core 4 에이전트 → ② `npm run verify:all` → **6 red, 8분 56초** (exit code 0 — `N failed` 줄로 읽었다).
+  6건 중 **4건은 오래된 기댓값**(조종석 공용 가구 2점이 모든 함선에 늘 놓여 개수가 +2 · 가구 창고도 시설/꾸밈 하위 탭 · 세이브 v8), **2건이 진짜 회귀**였다:
+  - **튜토리얼이 새 캐릭터에서 시작되지 않는다** (`smoke-tutorial` 0/1, 진짜 회귀) — `looksFresh()` 가 「놓인 가구 0」을 새 함선의 조건으로 보는데 조종석 기본 가구가 늘 놓여 있어 **모든 새 함선이 꾸민 함선으로 읽혔다.** `COCKPIT_DEFAULT_FURNITURE` 를 판정에서 뺐다. 이것이 풀리자 같은 스모크의 개수 단언 2건(`placed`)이 드러나 한 번 더 고쳤다.
+  - **블룸 토글 뒤에 외곽선 프로그램 하나가 hold 밖에서 링크된다** (`smoke-lights` 133 → 134, 진짜 회귀) — `outline.warm` 이 그리는 프레임(= hold 가 아닐 때)에서만 불려, 키가 바뀐 프레임에 시작된 hold 가 **풀린 직후** 새 변형을 링크했다. `warm` 을 그리기 분기 밖으로 옮겼다(링크만 하므로 hold 를 막지 않는다).
+  ③ `--rerun-failed` → 5 green + `smoke-tutorial` 84/86 (위의 `placed` 2건) → 수정 → `smoke-tutorial 86/86`.
+  ④ `src/core` 를 고쳤으므로 최종 `npm run verify:all` → **전부 green, 8분 49초**.
+  `docs line: 2026-09-12: typecheck ok, typecheck-server ok, net-selftest 480/480, data-check ok, build 3,078.20 kB JS / 312.47 kB CSS, smoke-quickslots 101/101, smoke-phase2 57/57, smoke-weapons 133/133, smoke-phase3 33/33, smoke-stratagems 75/75, smoke-ship-rooms 74/74, smoke-phase4 60/60, smoke-tactical 91/91, smoke-inventory-p6 151/151, smoke-controls-hub 153/153, smoke-loadout 69/69, smoke-console 63/63, smoke-search 77/77, smoke-housing 271/271, smoke-progression 123/123, smoke-ui-p6 91/91, smoke-ui-p5 142/142, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-drop 30/30, smoke-rogue-v2 52/52, smoke-resume-gate 62/62, smoke-meta 198/198, smoke-training 108/108, smoke-ladder 38/38, smoke-library 127/127, smoke-stations 61/61, smoke-ghost 86/86, smoke-enemy-delta 66/66, smoke-planets 86/86, smoke-ecology 109/109, smoke-props-collision 53/53, smoke-social 209/209, smoke-structure-reach 130/130, smoke-hazard 47/47, smoke-server-dist 36/36, smoke-raidflow 84/84, smoke-tutorial 86/86, smoke-structures 144/144, smoke-named 39/39, smoke-pitch 162/162, smoke-tram-ride 26/26, smoke-lights 30/30, smoke-netlink 48/48, smoke-trust 66/66, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 158/158`
+
+  ⚠ **브라우저에서 손으로 해 본 것은 아니다.** 외곽선의 실제 색 · 두께, 커서 원형 게이지, 조종석 격자선이 고정 소품과 맞는지, 조종석 시설 관리 카메라 구도, 꾹 누르기가 실제 마우스에서 0.5초에 드는지는 스모크가 상태로만 확인했거나 확인하지 않았다(꾹 누르기는 진짜 `pointerdown` 에서만 무장하고 스모크는 `mousedown` 만 보낸다).
 - 2026-09-12 (25차) UI/UX 2차 대묶음 — 방 격자 2배 · 제작 UI 4열 · 기업 화면 분리 · 스테이션 격자 · 정비 벤치 은퇴 · 투척 거리 (`src/shared/{types,housing}.ts` **추가만**(+`refine` 라벨) · `data/{constants,armor,bags,tuning,furniture}.csv` · `src/{inventory,meta,housing,hub,items,audio,ui}` · 삭제 `src/hub/{Workbench.ts,ui/WorkbenchMenu.ts}` · 스모크 9종 기댓값, **에이전트 5개 병렬 + 리드**, 실패 정리에 에이전트 3개 추가):
 
   ① 계약 커밋(`cf2cc81`) 뒤 폴더별 5 에이전트 → ② `npm run verify:all` → **8 red / 21 항목, 9분 44초**. ⚠ **러너가 exit code 0 을 냈다** — 리드가 그것만 보고 한 번 "통과" 로 잘못 보고했다. **`verify:all` 의 결과는 반드시 출력의 `N failed` 줄로 읽는다.**

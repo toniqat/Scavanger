@@ -1,11 +1,18 @@
 import * as THREE from 'three';
 import type { GameContext, KeyGuideEntry } from '@/shared';
 import {
-  FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel,
+  FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, HOUSING_MOVE_HOLD_S, Keys, MouseButtons, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel, roomGridSize,
 } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
-import { ROOM_BOXES, ROOM_DEPTH, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
+import { ROOM_DEPTH, roomBox, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
+
+/**
+ * 2026-09-12 (사용자 결정 — 꾹 눌러 옮기기): the hold gauge is not announced for a plain click. `housing:moveHold` starts
+ * only once the press has lasted this fraction of `HOUSING_MOVE_HOLD_S`, so ui/'s cursor ring does not blink on every
+ * selection click. UI timing, not balance.
+ */
+const HOLD_GAUGE_MIN_PROGRESS = 0.15;
 
 /**
  * Cursor speed: metres of room floor per pixel of pointer-locked mouse movement (the 방 콘솔 path only — 시설 관리
@@ -44,8 +51,14 @@ const MANAGE_BLOCKER = 'shipmanage';
  * i.e. the ghost and the footprint frame were falling off the bottom of the screen. They are **fractions of
  * `ROOM_DEPTH`** instead, so the framing is pixel-for-pixel the old one at any grid size.
  */
-const CAM_TOWARD_DOOR = ROOM_DEPTH * 0.55;   // was 2.2 at ROOM_DEPTH 4
-const CAM_HEIGHT = ROOM_DEPTH * 1.65;        // was 6.6 at ROOM_DEPTH 4
+const CAM_TOWARD_FRAC = 0.55;   // × span — was 2.2 at ROOM_DEPTH 4
+const CAM_HEIGHT_FRAC = 1.65;   // × span — was 6.6 at ROOM_DEPTH 4
+/**
+ * 2026-09-12 (조종석도 꾸민다): the framing scales with the **longer side** of the edit area — `ROOM_DEPTH` (8 m) for a
+ * room, so rooms look exactly as before, and 10 m for the 10 × 6 m cockpit (its long side runs along X, i.e. up the
+ * screen in this camera convention).
+ */
+function camSpan(rb: RoomBox): number { return Math.max(ROOM_DEPTH, rb.maxX - rb.minX, rb.maxZ - rb.minZ); }
 /** Exponential rate the camera glides to another room's goal while 시설 관리 is already open. Higher = snappier. */
 const CAM_GLIDE = 5.0;
 
@@ -96,6 +109,12 @@ const _ray = new THREE.Raycaster();
  * C / Esc 는 들고 있던 것을 제자리로 되돌린다 (놓인 조각은 옮기는 동안에도 상태에서 빠지지 않는다). 커서를 가구
  * 중앙으로 옮기는 기능은 없다 — 브라우저가 OS 커서를 옮기지 못해 요청에서 뺐다. 방 콘솔 모드(`manage` false)는
  * 예전 그대로 클릭 = 집기 · 놓기, X = 커서 밑 회수, 휠 = 창고 순환이다.
+ *
+ * **2026-09-12 (같은 날 두 번째 묶음, 사용자 결정):** ① **조종석**(`COCKPIT_ROOM_INDEX`)도 편집 공간이다 — 방 상자 · 격자는
+ * `roomBox` · `roomGridSize`, 카메라 틀은 `camSpan`. ② 모드 동안에만 바닥 격자선을 켠다(`PersonalShip.setGridVisible`).
+ * ③ **꾹 눌러 옮기기** — 조각 위에서 LMB 를 `HOUSING_MOVE_HOLD_S` 누르고 있으면 위치 이동 상태(`housing:moveHold` 로 커서
+ * 게이지). ④ **외곽선** — 커서 밑 조각은 `ctx.outline` 의 `hover`, 선택한 조각은 `selected`. ⑤ 키 가이드의 위치 이동 줄은
+ * `E 또는 LMB(꾹)` (`KeyGuideEntry.alt`).
  */
 export class HousingMode {
   active = false;
@@ -147,10 +166,29 @@ export class HousingMode {
    */
   private readonly softPressed = new Set<number>();
   private softWheel = 0;
+  /**
+   * 2026-09-12 (꾹 눌러 옮기기): LMB is **physically down** right now. Armed only by a real `pointerdown` (a browser click
+   * sends pointerdown → mousedown → pointerup → mouseup; the headless smokes that synthesise a bare `mousedown` never arm
+   * a hold, so their clicks stay plain selections) and cleared by `pointerup` / `mouseup` / window `blur`.
+   */
+  private buttonDown = false;
+  /** The placed piece the current LMB hold started on, its held time and whether `housing:moveHold` has been shown. */
+  private holdUid: string | null = null;
+  private holdT = 0;
+  private holdShown = false;
+  /** 2026-09-12: objects last handed to `ctx.outline` per channel (the channel is re-set only when they change). */
+  private outlineHover: THREE.Object3D | null = null;
+  private outlineSel: THREE.Object3D | null = null;
   private readonly onSoftPointerDown = (e: Event): void => {
     if (!this.active) return;
-    this.softPressed.add((e as MouseEvent).button);
+    const btn = (e as MouseEvent).button;
+    this.softPressed.add(btn);
+    if (e.type === 'pointerdown' && btn === MouseButtons.FIRE) this.buttonDown = true;
   };
+  private readonly onSoftPointerUp = (e: Event): void => {
+    if ((e as MouseEvent).button === MouseButtons.FIRE) this.buttonDown = false;
+  };
+  private readonly onBlur = (): void => { this.buttonDown = false; };
   private readonly onSoftWheel = (e: Event): void => {
     if (!this.active) return;
     this.softWheel += Math.sign((e as WheelEvent).deltaY);
@@ -185,11 +223,17 @@ export class HousingMode {
     window.addEventListener('pointerdown', this.onSoftPointerDown);
     window.addEventListener('mousedown', this.onSoftPointerDown);
     window.addEventListener('wheel', this.onSoftWheel, { passive: true });
+    // 2026-09-12: the hold-to-move gauge needs the release too (the soft input above only records presses)
+    window.addEventListener('pointerup', this.onSoftPointerUp);
+    window.addEventListener('mouseup', this.onSoftPointerUp);
+    window.addEventListener('blur', this.onBlur);
   }
 
   /** The hub hands over the current personal ship (null in the shared ship / outside the hub). */
   setShip(ship: PersonalShip | null, layer: FurnitureLayer | null): void {
     if (this.active) this.deactivate();
+    this.clearOutline();
+    this.endHold();
     if (this.ship && this.frame.parent) this.frame.removeFromParent();
     this.ship = ship;
     this.layer = layer;
@@ -221,7 +265,7 @@ export class HousingMode {
   /** Enter (or, when already active on another room, retarget to) `room`. The camera blend is the rig's. */
   private activate(room: number): void {
     const ctx = this.ctx;
-    const rb = ROOM_BOXES[room];
+    const rb = roomBox(room);                // 2026-09-12: a room or the cockpit (`COCKPIT_ROOM_INDEX`)
     if (!this.ship || !rb) { ctx.housing?.exitHousingMode(); return; }
     if (this.active && this.room === room) return;
     const retarget = this.active;
@@ -229,7 +273,9 @@ export class HousingMode {
     this.active = true;
     this.room = room;
     this.carry = null;                       // a carried piece belongs to the room it was picked up in
+    this.endHold();
     this.select(null);                       // B-13: the inspector never survives a room change
+    this.ship.setGridVisible(true);          // 2026-09-12: the floor grid only exists while decorating
     this.cell.x = -1; this.cell.y = -1; this.cell.valid = false;
     const p = ctx.player;
     if (p) {
@@ -244,7 +290,8 @@ export class HousingMode {
       // the ship rather than cutting to it (Phase 9 UI pass).
       // Phase 10: the port convention for **every** room (eye on the +X side looking −X), so rooms 5–9 look from the
       // outer hull toward the corridor and their door is at the top of the screen like rooms 0–4's.
-      this.camGoal.set(cx + CAM_TOWARD_DOOR, CAM_HEIGHT, cz);
+      const span = camSpan(rb);
+      this.camGoal.set(cx + span * CAM_TOWARD_FRAC, span * CAM_HEIGHT_FRAC, cz);
       this.lookGoal.set(cx, 0.2, cz);
       if (!retarget) { this.camPos.copy(this.camGoal); this.lookPos.copy(this.lookGoal); }
       p.setCameraOverride(this.camPos, this.lookPos, false);
@@ -270,7 +317,8 @@ export class HousingMode {
           { key: keyLabel(Keys.DROP_ITEM), label: '회수' },
         ];
       }
-      return this.selectedUid ? [{ key: keyLabel(Keys.INTERACT), label: '위치 이동' }] : [];
+      // 2026-09-12: 위치 이동 = E **또는** LMB 꾹 (키 가이드가 두 키캡 사이에 `또는` 을 그린다)
+      return this.selectedUid ? [{ key: keyLabel(Keys.INTERACT), label: '위치 이동', alt: [{ key: keyLabel(Keys.FIRE), hold: true }] }] : [];
     }
     return [
       { key: keyLabel(Keys.FIRE), label: '설치' },
@@ -284,7 +332,7 @@ export class HousingMode {
   /** Emit the guide when its content changed (`force` = re-send anyway, e.g. after a rebind). */
   private emitGuide(force = false): void {
     const keys = this.guideKeys();
-    const key = keys.map((k) => `${k.key}:${k.label}`).join('|');
+    const key = keys.map((k) => `${k.key}:${k.label}:${(k.alt ?? []).map((a) => `${a.key}${a.hold ? '⌄' : ''}`).join('/')}`).join('|');
     if (!force && key === this.guideKey) return;
     this.guideKey = key;
     this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys });
@@ -336,6 +384,8 @@ export class HousingMode {
     this.manage = false;
     // B-13: leaving 시설 관리 closes the 클릭 인스펙터 (emitted directly — `select` is gated on `manage`, off by now)
     if (this.selectedUid !== null) { this.selectedUid = null; this.ctx.bus.emit('housing:furnitureSelected', { uid: null }); }
+    this.endHold();                            // 2026-09-12: a hold in progress never outlives the mode
+    this.clearOutline();
     if (this.active) {
       this.active = false;
       this.room = -1;
@@ -343,6 +393,7 @@ export class HousingMode {
       this.syncState();                        // 2026-09-12: a move in progress ends with the mode
       this.disposeGhost();
       this.frame.visible = false;
+      this.ship?.setGridVisible(false);        // 2026-09-12: the floor grid is a 시설 관리 overlay
       this.guideKey = '';
       this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: null });
       const p = this.ctx.player;
@@ -397,7 +448,8 @@ export class HousingMode {
     this.glideCamera(dt);
     if (this.blockedByPanel()) { this.clearSoftInput(); return; }   // a DOM panel (console / housing menu) has the input
 
-    const rb = ROOM_BOXES[this.room];
+    const rb = roomBox(this.room);
+    if (!rb) { this.clearSoftInput(); this.exit(); return; }
     if (this.manage) {
       // 함선 관리: there is a cursor (the room list / furniture bar are clicked), so the floor cursor follows it —
       // a camera ray onto the deck plane, clamped into the room.
@@ -468,11 +520,14 @@ export class HousingMode {
         this.placeMoving();
       } else {
         // B-13 → 2026-09-12: 위치 이동 상태가 아니면 클릭은 **선택만** 한다 (빈 곳 · 방 밖 = 선택 해제)
-        if (this.cursorInRoom) this.selectUnderCursor();
+        if (this.cursorInRoom) { this.selectUnderCursor(); this.startHold(this.selectedUid); }
         else this.select(null);
       }
     }
+    // 2026-09-12: 꾹 눌러 옮기기 (시설 관리) — the press above may have started a hold; this frame advances or ends it
+    if (this.manage) this.tickHold(dt, overUI);
     this.syncState();
+    if (this.manage) this.syncOutline(overUI);
     this.clearSoftInput();
   }
 
@@ -537,11 +592,14 @@ export class HousingMode {
 
   /** Recompute the footprint cell, validity, ghost and frame; emit `housing:cursorChanged` on change. */
   private refresh(force: boolean): void {
-    const rb = ROOM_BOXES[this.room];
+    const rb = roomBox(this.room);
+    if (!rb) return;
     const sel = this.selection();
+    // 2026-09-12: the grid is per area (`roomGridSize` — the cockpit is 20 × 12, rooms 16 × 16)
+    const grid = roomGridSize(this.room);
     const fx = (this.cursor.x - rb.minX) / HOUSING_CELL_SIZE, fz = (this.cursor.z - rb.minZ) / HOUSING_CELL_SIZE;
-    const x = THREE.MathUtils.clamp(Math.round(fx - sel.cols / 2), 0, ROOM_GRID_COLS - sel.cols);
-    const y = THREE.MathUtils.clamp(Math.round(fz - sel.rows / 2), 0, ROOM_GRID_ROWS - sel.rows);
+    const x = THREE.MathUtils.clamp(Math.round(fx - sel.cols / 2), 0, grid.cols - sel.cols);
+    const y = THREE.MathUtils.clamp(Math.round(fz - sel.rows / 2), 0, grid.rows - sel.rows);
     const housing = this.ctx.housing;
     const inRoom = this.cursorInRoom;
     let valid = false;
@@ -760,6 +818,77 @@ export class HousingMode {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
+  /* ── 꾹 눌러 옮기기 · 외곽선 (2026-09-12, 시설 관리) ──────────────────────── */
+  /** Arm a hold on the piece just clicked (only a real, still-held `pointerdown`; null = nothing under the cursor). */
+  private startHold(uid: string | null): void {
+    this.endHold();
+    if (!uid || !this.manage || this.moving || !this.buttonDown) return;
+    this.holdUid = uid;
+  }
+
+  /**
+   * Advance the hold: still pressed, still over the same piece, not over the UI and not already moving → accumulate
+   * `dt`; at `HOUSING_MOVE_HOLD_S` enter the move state. Anything else cancels. `housing:moveHold` goes out every frame
+   * once the gauge is worth drawing (`HOLD_GAUGE_MIN_PROGRESS`).
+   */
+  private tickHold(dt: number, overUI: boolean): void {
+    const uid = this.holdUid;
+    if (!uid) return;
+    const under = this.buttonDown && !overUI && !this.moving && this.cursorInRoom
+      ? this.layer?.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null
+      : null;
+    if (under !== uid) { this.endHold(); return; }
+    this.holdT += dt;
+    const progress = Math.min(1, this.holdT / HOUSING_MOVE_HOLD_S);
+    if (progress >= 1) {
+      this.endHold();
+      this.beginMove(uid);
+      return;
+    }
+    if (progress >= HOLD_GAUGE_MIN_PROGRESS) {
+      this.holdShown = true;
+      this.ctx.bus.emit('housing:moveHold', { progress });
+    }
+  }
+
+  /** Drop the hold (released / cancelled / completed); tells ui/ to hide the gauge only if it was shown. */
+  private endHold(): void {
+    this.holdUid = null;
+    this.holdT = 0;
+    if (!this.holdShown) return;
+    this.holdShown = false;
+    this.ctx.bus.emit('housing:moveHold', { progress: null });
+  }
+
+  /** The uid a hold is running on (debug / smoke). */
+  get holdingUid(): string | null { return this.holdUid; }
+
+  /**
+   * Hover (weak white) and selected (yellow-green) outlines through `ctx.outline`. Hover = the placed piece under the
+   * cursor while not moving, not over the UI and inside the edit area; a selected piece is never also hovered. Both are
+   * off in the move state (the ghost says green / red there). Re-set only when the target **object** changes — a room
+   * rebuild replaces a piece's group under the same uid.
+   */
+  private syncOutline(overUI: boolean): void {
+    const outline = this.ctx.outline;
+    const layer = this.layer;
+    if (!outline || !layer) return;
+    const moving = this.moving;
+    const selUid = moving ? null : this.selectedUid;
+    const hoverUid = !moving && !overUI && this.cursorInRoom ? layer.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null : null;
+    const sel = selUid ? layer.objectOf(selUid) : null;
+    const hover = hoverUid && hoverUid !== selUid ? layer.objectOf(hoverUid) : null;
+    if (hover !== this.outlineHover) { this.outlineHover = hover; outline.set('hover', hover ? [hover] : null); }
+    if (sel !== this.outlineSel) { this.outlineSel = sel; outline.set('selected', sel ? [sel] : null); }
+  }
+
+  private clearOutline(): void {
+    if (!this.outlineHover && !this.outlineSel) return;
+    this.outlineHover = null;
+    this.outlineSel = null;
+    this.ctx.outline?.clear();
+  }
+
   private disposeGhost(): void {
     if (!this.ghost) return;
     for (const m of this.ghost.meshes) { m.geometry.dispose(); m.removeFromParent(); }
@@ -774,6 +903,9 @@ export class HousingMode {
     window.removeEventListener('pointerdown', this.onSoftPointerDown);
     window.removeEventListener('mousedown', this.onSoftPointerDown);
     window.removeEventListener('wheel', this.onSoftWheel);
+    window.removeEventListener('pointerup', this.onSoftPointerUp);
+    window.removeEventListener('mouseup', this.onSoftPointerUp);
+    window.removeEventListener('blur', this.onBlur);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.frame.geometry.dispose();

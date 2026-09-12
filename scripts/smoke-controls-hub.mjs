@@ -540,14 +540,15 @@ try {
       btn: btn?.textContent ?? null, sticky: btn ? getComputedStyle(btn.parentElement).position : null };
   });
   ok(ship.bg !== 'none' && ship.border !== '0px', `the Tab screen has its own panel background (${ship.border} border)`);
-  ok(ship.cols && ship.facilities.join(',') === 'generator,storage' && ship.rooms === 10, `기본 시설 발전기 · 창고 left, 방 목록 (${ship.rooms}) right (${ship.facilities.join(',')})`);
+  // 2026-09-12 (사용자 결정): 기본 개인 함선의 방은 10 → 8 개 (SHIP_ROOM_COUNT — 조종석은 Tab 함선 탭의 방 목록에 들지 않는다)
+  ok(ship.cols && ship.facilities.join(',') === 'generator,storage' && ship.rooms === 8, `기본 시설 발전기 · 창고 left, 방 목록 (${ship.rooms}) right (${ship.facilities.join(',')})`);
   ok(ship.pickers === 0 && ship.room0Name === '빈 방', `방 목록 has no 용도 드롭다운, rows read the purpose name ('${ship.room0Name}')`);
   ok(!ship.room0Del, '빈 방 offers no 시설 제거 button (2026-09-07: 방 1 is empty on a new ship)');
-  ok(ship.thumbs === 12, `every 시설 / 방 row leads with the shared thumbnail (${ship.thumbs})`);
+  ok(ship.thumbs === 10, `every 시설 / 방 row leads with the shared thumbnail (${ship.thumbs} = 시설 2 + 방 8)`);
   ok(ship.bar && /시설 관리/.test(ship.btn ?? '') && ship.sticky === 'static', `separate bottom bar with the 시설 관리 (M) button on its right (${ship.btn})`);
   ok(ship.screenScroll === 'hidden' && ship.roomsScroll === 'auto' && !ship.subtitle,
     `패널은 스크롤하지 않고 방 목록만 스크롤한다, '용도가 정해진 방' 라벨 없음 (${ship.screenScroll} / ${ship.roomsScroll})`);
-  ok(ship.buildBtns === 10, `빈 방 10개가 시설 증축 버튼을 가진다 (${ship.buildBtns})`);
+  ok(ship.buildBtns === 8, `빈 방 8개가 시설 증축 버튼을 가진다 (${ship.buildBtns})`);
   // 재료 요구 칩 hover card (ui/hud/ItemTip): any cost chip anywhere shows the item's info
   const tip = await page.evaluate(() => {
     const chip = document.querySelector('.inv-root .inv-screen .item-chip[data-def-id]');

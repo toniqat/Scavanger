@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS, SHIP_ROOM_COUNT } from '@/shared';
+import {
+  COCKPIT_GRID_COLS, COCKPIT_GRID_ROWS, COCKPIT_ROOM_INDEX, HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS, SHIP_ROOM_COUNT,
+  roomGridSize,
+} from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Personal-ship layout (metres, world space; the ship is built at the origin, player forward = −Z at spawn).
@@ -7,9 +10,9 @@ import { HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS, SHIP_ROOM_COUNT } fr
  *   cockpit   x −5 … 5,   z −6 … 0          (10 × 6 m, viewport on the −Z wall)
  *   corridor  x −1.5 … 1.5, z 0 … ROOMS_PER_SIDE·SEGMENT   (3 m wide, one SEGMENT per room pair)
  *   room i    ROOM_SIZE × ROOM_DEPTH m, floor grid ROOM_GRID_COLS × ROOM_GRID_ROWS × HOUSING_CELL_SIZE
- *             side −X (i = 0..4): x = CORRIDOR.minX − WALL − ROOM_SIZE … CORRIDOR.minX − WALL
- *             side +X (i = 5..9): x = CORRIDOR.maxX + WALL … + ROOM_SIZE
- *             z  SEGMENT·(i mod 5) + ROOM_GAP/2 … + ROOM_DEPTH, door (1.6 m) centred on the corridor wall
+ *             side −X (i < ROOMS_PER_SIDE): x = CORRIDOR.minX − WALL − ROOM_SIZE … CORRIDOR.minX − WALL
+ *             side +X (the rest):          x = CORRIDOR.maxX + WALL … + ROOM_SIZE
+ *             z  SEGMENT·(i mod ROOMS_PER_SIDE) + ROOM_GAP/2 … + ROOM_DEPTH, door (1.6 m) centred on the corridor wall
  *   airlock   x −1.5 … 1.5, z CORRIDOR.maxZ … + AIRLOCK_DEPTH   (decorative shared-ship entrance)
  *
  * **2026-09-12 — 방이 8 × 8 m 가 됐다.** `ROOM_GRID_COLS/ROWS` 가 8 → 16 으로 커졌으므로 `ROOM_SIZE` ·
@@ -18,12 +21,25 @@ import { HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS, SHIP_ROOM_COUNT } fr
  * 유도한다. 함선이 통째로 길어지는 것(복도 25 → 45 m)은 의도한 결과다. 자유 상수는 방 사이 틈(`ROOM_GAP`)과
  * 에어락 깊이(`AIRLOCK_DEPTH`) 둘뿐이고, 격자 크기를 또 바꿔도 이 파일은 따라온다.
  *
+ * **2026-09-12 (같은 날, 사용자 결정) — 방 8개 · 조종석도 꾸미는 공간이다.** `SHIP_ROOM_COUNT` 가 10 → 8 이라 한 쪽에
+ * 4개씩이고 복도는 45 → 36 m 다(이 파일은 저절로 따라왔다). 조종석은 `COCKPIT_ROOM_BOX`(방 번호
+ * `COCKPIT_ROOM_INDEX`)로 같은 격자 규약을 탄다 — `roomBox` · `roomCellToWorld` · `worldToRoomCell` 이 그 번호를 받는다.
+ * 조종석의 좌표는 이제 **격자에서 유도한다**(`COCKPIT_GRID_COLS/ROWS × HOUSING_CELL_SIZE` = 10 × 6 m): 계약의 격자와
+ * 이 파일의 벽이 어긋날 수 없게 한 것이다. `ROOM_BOXES` 에는 조종석이 **없다** (방 표지 · 방 조명 · 방 추적이 그
+ * 목록을 돌기 때문이다).
+ *
  * Grid cells: `x` runs along world +X, `y` along world +Z; cell (0, 0) is the room's min-x / min-z corner.
  * `yaw` = quarter turns clockwise seen from above (world rotation.y = −yaw·π/2).
  * ──────────────────────────────────────────────────────────────────────────── */
 export const WALL = 0.3;
 export const CEIL = 3.2;
-export const COCKPIT = { minX: -5, maxX: 5, minZ: -6, maxZ: 0 };
+/** 조종석: 격자(20 × 12 칸 × 0.5 m)에서 유도 — 뒷벽(z 0)이 복도 입구, 가로 중앙이 x 0. */
+export const COCKPIT = {
+  minX: -(COCKPIT_GRID_COLS * HOUSING_CELL_SIZE) / 2,
+  maxX: (COCKPIT_GRID_COLS * HOUSING_CELL_SIZE) / 2,
+  minZ: -(COCKPIT_GRID_ROWS * HOUSING_CELL_SIZE),
+  maxZ: 0,
+};
 export const ROOM_SIZE = ROOM_GRID_COLS * HOUSING_CELL_SIZE;   // 8 m (was 4)
 export const ROOM_DEPTH = ROOM_GRID_ROWS * HOUSING_CELL_SIZE;  // 8 m (was 4)
 export const ROOMS_PER_SIDE = SHIP_ROOM_COUNT / 2;
@@ -52,7 +68,18 @@ for (let i = 0; i < SHIP_ROOM_COUNT; i++) {
 }
 export const ROOM_BOXES: readonly RoomBox[] = _boxes;
 
-export function roomBox(room: number): RoomBox | null { return ROOM_BOXES[room] ?? null; }
+/**
+ * 2026-09-12: 조종석을 방처럼 다루는 상자 (`COCKPIT_ROOM_INDEX`). `side` 는 뜻이 없고(−1 로 둔다) `doorZ` 는 복도 아치(z 0)다.
+ */
+export const COCKPIT_ROOM_BOX: RoomBox = {
+  index: COCKPIT_ROOM_INDEX, side: -1, minX: COCKPIT.minX, maxX: COCKPIT.maxX, minZ: COCKPIT.minZ, maxZ: COCKPIT.maxZ, doorZ: COCKPIT.maxZ,
+};
+
+/** Room box of a room index **or the cockpit** (`COCKPIT_ROOM_INDEX`), null for anything else. */
+export function roomBox(room: number): RoomBox | null {
+  if (room === COCKPIT_ROOM_INDEX) return COCKPIT_ROOM_BOX;
+  return ROOM_BOXES[room] ?? null;
+}
 
 /** Room index whose floor rectangle contains (x, z), or null (corridor / cockpit / airlock / outside). */
 export function roomAtWorld(x: number, z: number): number | null {
@@ -63,24 +90,36 @@ export function roomAtWorld(x: number, z: number): number | null {
 }
 
 /**
+ * 2026-09-12: 꾸밀 수 있는 공간(방 **또는 조종석**) 중 (x, z) 를 담은 것의 번호. `roomAtWorld` 는 계약(`hub:roomEntered`
+ * 의 `null` = 복도 · 조종석) 때문에 조종석을 모르는 채로 둔다.
+ */
+export function editAreaAtWorld(x: number, z: number): number | null {
+  const room = roomAtWorld(x, z);
+  if (room !== null) return room;
+  const c = COCKPIT_ROOM_BOX;
+  return x >= c.minX && x <= c.maxX && z >= c.minZ && z <= c.maxZ ? c.index : null;
+}
+
+/**
  * World centre of a footprint whose top-left cell is (x, y) and which spans `cols × rows` cells (after rotation).
  * With cols = rows = 1 this is the centre of one cell.
  */
 export function roomCellToWorld(room: number, x: number, y: number, out: THREE.Vector3, cols = 1, rows = 1): THREE.Vector3 {
-  const r = ROOM_BOXES[room];
+  const r = roomBox(room);
   if (!r) return out.set(0, 0, 0);
   return out.set(r.minX + (x + cols / 2) * HOUSING_CELL_SIZE, 0, r.minZ + (y + rows / 2) * HOUSING_CELL_SIZE);
 }
 
 /** Cell under a world position, clamped into the grid (null when the point is outside the room by > 1 cell). */
 export function worldToRoomCell(room: number, wx: number, wz: number): { x: number; y: number } | null {
-  const r = ROOM_BOXES[room];
+  const r = roomBox(room);
   if (!r) return null;
+  const g = roomGridSize(room);
   const fx = (wx - r.minX) / HOUSING_CELL_SIZE, fz = (wz - r.minZ) / HOUSING_CELL_SIZE;
-  if (fx < -1 || fz < -1 || fx > ROOM_GRID_COLS + 1 || fz > ROOM_GRID_ROWS + 1) return null;
+  if (fx < -1 || fz < -1 || fx > g.cols + 1 || fz > g.rows + 1) return null;
   return {
-    x: THREE.MathUtils.clamp(Math.floor(fx), 0, ROOM_GRID_COLS - 1),
-    y: THREE.MathUtils.clamp(Math.floor(fz), 0, ROOM_GRID_ROWS - 1),
+    x: THREE.MathUtils.clamp(Math.floor(fx), 0, g.cols - 1),
+    y: THREE.MathUtils.clamp(Math.floor(fz), 0, g.rows - 1),
   };
 }
 

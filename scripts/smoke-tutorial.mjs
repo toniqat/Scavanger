@@ -341,7 +341,7 @@ try {
   await waitStep('benchPlace');
   const stashed = await P(() => ({
     stored: (window.__game.ctx.housing.getStored() ?? []).filter((s) => s.defId === 'furn_bench_gun').reduce((n, s) => n + s.qty, 0),
-    placed: window.__game.ctx.housing.getPlaced().length,
+    placed: window.__game.ctx.housing.getPlaced().filter((f) => f.room !== 100).length,   // 2026-09-12: 조종석 공용 가구 2점은 늘 놓여 있다
   }));
   ok(stashed.stored >= 1 && stashed.placed === 0, '제작한 작업대는 가구 창고에 있고 아직 놓이지 않았다', JSON.stringify(stashed));
   await P(() => window.__game.ctx.housing.setManageRoom(1));
@@ -367,7 +367,7 @@ try {
       sel: window.__game.getSystem('housing').selectedFurniture,
       hl: card?.classList.contains('is-sel') ?? null,
       btn: !!btn, enabled: btn ? !btn.disabled : null, note: card?.querySelector('.fcard-note')?.textContent ?? '',
-      placed: window.__game.ctx.housing.getPlaced().length,
+      placed: window.__game.ctx.housing.getPlaced().filter((f) => f.room !== 100).length,   // 2026-09-12: 조종석 공용 가구 2점은 늘 놓여 있다
     };
   });
   ok(picked.sel === null && picked.hl === true && picked.placed === 0,

@@ -222,7 +222,8 @@ try {
   const aId = await A.evaluate(() => window.__game.ctx.net.localId);
   const gotA = await waitFor(B, (id) => {
     const w = window.__game.ctx.net.getShipVisit(id);
-    return w ? { rooms: w.rooms.map((r) => r.purpose).join(','), furn: w.furniture.length } : null;
+    // 2026-09-12: the two cockpit 공용 pieces (room 100) ride the wire on every ship — count the room furniture only
+    return w ? { rooms: w.rooms.map((r) => r.purpose).join(','), furn: w.furniture.filter((f) => f.room !== 100).length } : null;
   }, 'B received A ship state', 15000, aId);
   ok(gotA.furn === 1, `B received A's layout without asking (${gotA.furn} 가구)`);
   ok(gotA.rooms.split(',')[2] === 'workshop' && gotA.rooms.split(',')[7] === 'greenhouse', `…including the room purposes (${gotA.rooms})`);
@@ -252,6 +253,8 @@ try {
       stations: ids.filter((i) => i === 'hub_implant_bay' || i === 'hub_terminal' || i === 'hub_computer'),
       furn: ids.filter((i) => /^hub_furn_/.test(i)).length,
       pieces: window.__game.getSystem('hub').furnitureLayer?.count ?? -1,
+      // 2026-09-12: every ship also carries its two cockpit fixtures (시술대 · 컴퓨터 — 공용 시설 가구), so count the bench itself
+      bench: !!ctx.scene.getObjectByName('furn-furn_bench_gun'),
       manage: window.__game.ctx.hub.hubSite !== null && window.__game.getSystem('hub').openShipManage(),
       z: ctx.player.position.z,
       // 2026-09-12: the corridor grew with the rooms (25 → 45 m), so the airlock plate is wherever `RoomLayout`
@@ -261,7 +264,7 @@ try {
   }, aId);
   ok(inside.ship === 'personal' && inside.lobby && inside.phase === 'hub', 'B is in a personal ship and still in the lobby (no undocking)');
   ok(inside.visiting === aId && inside.ro === true && inside.matchesOwner, `visitingPeer / hubSite = the owner, read-only (${inside.visiting})`);
-  ok(inside.pieces === 1, `A's 총기 작업대 is rendered from the wire (${inside.pieces} pieces)`);
+  ok(inside.bench && inside.pieces >= 1, `A's 총기 작업대 is rendered from the wire (${inside.pieces} pieces incl. cockpit fixtures)`);
   ok(inside.furn === 0, `…but answers to nothing (${inside.furn} furniture interactables)`);
   ok(inside.stations.length === 0, `no terminal / computer / implant bay while visiting (${inside.stations.join(',') || 'none'})`);
   ok(inside.pods === 0, `no launch pod in a visited ship (${inside.pods})`);

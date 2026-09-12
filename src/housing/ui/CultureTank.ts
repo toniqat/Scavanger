@@ -194,6 +194,7 @@ export class CultureTank extends HousingPanel {
       gain: opened > 0 ? `배양 칸 ${opened}개 개방` : '',
       cost: nextFurnitureCost(def, level),
       reason: h.furnitureUpgradeBlock(this.uid),
+      requirements: h.furnitureUpgradeRequirements(this.uid),
     };
   }
 

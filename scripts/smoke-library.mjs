@@ -23,7 +23,7 @@ const BOOKS_PER_SHELF = 6;
 const BOOK_XP_PER_BOOK = 0.05;
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다
    (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`, 6 = 배양조의 `cultures`, 7 = 방 시설 레벨 제거). */
-const SHIP_STATE_VERSION = 7;
+const SHIP_STATE_VERSION = 8;   // 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구
 const BOOK_RARITY_MUL = { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 6 };
 const BOOK_GAIN_MAX = 2.0;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
@@ -257,13 +257,15 @@ try {
   ok((await bonus('carry')) === 1, 'an unrelated skill stays ×1');
   ok(await H((u) => window.__game.ctx.housing.placeBook(u, 1, 'book_gun_AR') === null, shelfA), 'second 돌격소총 book shelved');
   ok(near(await bonus('gun_AR'), 1 + BOOK_XP_PER_BOOK * 2 * BOOK_RARITY_MUL.common), `two common books stack additively (${await bonus('gun_AR')})`);
-  // 시뮬레이션 허브 × 서재 — 2026-09-12: 방 레벨이 사라져 사격 숙련 배율은 시뮬레이션실의 **시뮬레이션 허브** 레벨에서 온다
+  /* 2026-09-12 (사용자 결정 — 시뮬레이션실 제거): 시뮬레이션실은 더 이상 지을 수 없고 시뮬레이션 허브는 은퇴했다 — 사격 숙련
+     배율도 서재 책만 남는다. 그래서 `getSkillGainMul` 은 어느 숙련이든 `getBookBonus` 와 같다. */
   await give('mat_scrap', 20); await give('mat_cable', 6); await give('mat_circuit', 2);
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'range') === true), '방 6 → 시뮬레이션실');
-  ok(near(await H(() => window.__game.ctx.housing.getSkillGainMul('gun_AR')), 1 + BOOK_XP_PER_BOOK * 2), 'the room alone adds nothing (no room level any more)');
-  ok(await H(() => { const h = window.__game.ctx.housing; return h.craftFurniture('furn_sim_hub') && h.place(5, 'furn_sim_hub', 4, 4, 0) !== null; }), '시뮬레이션 허브 Lv.1 placed (skill gain ×1.1 for gun_*)');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'range') === false && /더 이상 지을 수 없습니다/.test(window.__game.ctx.housing.purposeBlock(5, 'range') ?? '')),
+    '시뮬레이션실 증축은 거절된다 (더 이상 지을 수 없다)');
+  ok(await H(() => window.__game.ctx.housing.furnitureCraftBlock('furn_sim_hub') !== null && !window.__game.ctx.housing.getAllFurnitureDefs().some((d) => d.id === 'furn_sim_hub')),
+    '시뮬레이션 허브는 은퇴 — 목록에 없고 제작도 잠긴다');
   const gm = await H(() => ({ ar: window.__game.ctx.housing.getSkillGainMul('gun_AR'), med: window.__game.ctx.housing.getSkillGainMul('medicine'), carry: window.__game.ctx.housing.getSkillGainMul('carry') }));
-  ok(near(gm.ar, 1.1 * (1 + BOOK_XP_PER_BOOK * 2)), `getSkillGainMul(gun_AR) = 시뮬레이션 허브 1.1 × 서재 1.10 (${gm.ar})`);
+  ok(near(gm.ar, 1 + BOOK_XP_PER_BOOK * 2), `getSkillGainMul(gun_AR) = 서재 1.10 alone — no 시뮬레이션 허브 term (${gm.ar})`);
   ok(near(gm.med, 1 + BOOK_XP_PER_BOOK * BOOK_RARITY_MUL.rare), `getSkillGainMul(medicine) is the book bonus alone (${gm.med})`);
   ok(gm.carry === 1, 'getSkillGainMul(carry) = 1 (no range bonus, no book)');
   // cap: 6 epic books (Σ 24 → 1 + 1.2 = 2.2) is clamped to BOOK_GAIN_MAX
@@ -449,7 +451,9 @@ try {
   });
   ok(shipView.dex === 0 && shipView.rows === 0, `함선 tab carries no 도감 any more (${shipView.dex}/${shipView.rows})`);
   ok(!/도감/.test(shipView.heads), `no 도감 section heading in the 함선 tab (${shipView.heads.slice(0, 120)})`);
-  ok(shipView.roomRows === 10, `함선 tab still lists the ten rooms (${shipView.roomRows})`);
+  // 2026-09-12: 기본 개인 함선의 방은 8 개다 (SHIP_ROOM_COUNT — 조종석은 이 목록에 들지 않는다)
+  const roomCount = await H(async () => (await import('/src/shared/index.ts')).SHIP_ROOM_COUNT);
+  ok(shipView.roomRows === roomCount && roomCount === 8, `함선 tab lists the ${roomCount} rooms (${shipView.roomRows})`);
   ok(await H(() => { window.__view.dispose(); const n = document.getElementById('smoke-shipview').querySelectorAll('.hs-ship').length; document.getElementById('smoke-shipview').remove(); return n === 0; }), 'createShipView().dispose() removes the view');
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));

@@ -1,5 +1,5 @@
-import type { CraftIngredient, GameContext } from '@/shared';
-import { UI_HOLD_CONFIRM_S } from '@/shared';
+import type { CraftIngredient, FacilityRequirement, GameContext } from '@/shared';
+import { FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, UI_HOLD_CONFIRM_S, buildFacilityChip } from '@/shared';
 import type { PanelOverlay } from './Panel';
 import type { CostSource } from './dom';
 import { clear, el, renderCost, setText, toggleClass } from './dom';
@@ -16,6 +16,11 @@ export interface UpgradeSpec {
   cost: readonly CraftIngredient[] | null;
   /** `furnitureUpgradeBlock(uid)` — null = 강화할 수 있다. */
   reason: string | null;
+  /**
+   * appended (2026-09-12): 채워지지 않은 **시설 레벨 요구** (`HousingRef.furnitureUpgradeRequirements(uid)` — 보통 발전기).
+   * 재료 칩 뒤에 같은 줄로, 가로로 긴 이중 테두리 칩(`buildFacilityChip`, `현재 레벨/필요 레벨`)으로 그린다.
+   */
+  requirements?: readonly FacilityRequirement[];
 }
 
 const ESCAPE_TOKEN = 'housing.upgrade';
@@ -115,6 +120,12 @@ export class UpgradeModal implements PanelOverlay {
     this.gainEl.hidden = atMax || !s.gain;
     if (atMax || !s.cost) clear(this.costEl);
     else renderCost(this.costEl, s.cost, this.costs, MODAL_CHIP_SIZE);
+    // 2026-09-12: 시설 레벨 요구(발전기 Lv.n)는 재료 칩 **뒤에 같은 줄로** — 아이템과 헷갈리지 않는 가로로 긴 이중 테두리 칩
+    if (!atMax) {
+      for (const q of s.requirements ?? []) {
+        this.costEl.appendChild(buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: MODAL_CHIP_SIZE }));
+      }
+    }
     const blocked = atMax ? '최대 레벨입니다' : s.reason;
     setText(this.noteEl, blocked ?? `「업그레이드」를 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있으면 강화합니다`);
     toggleClass(this.noteEl, 'bad', !!blocked);
