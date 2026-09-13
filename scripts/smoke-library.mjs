@@ -25,7 +25,7 @@ const BOOKS_PER_SHELF = 8;   // 2026-09-13: 4 선반 × 2칸 (was 6)
 const BOOK_XP_PER_BOOK = 0.05;
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다
    (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`, 6 = 배양조의 `cultures`, 7 = 방 시설 레벨 제거). */
-const SHIP_STATE_VERSION = 11;  // 2026-09-13: v11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 스캐폴드 · 분석 결과). v10 = 조종석 전용 시설 · 꾸밈 가구 (cockpit 작업). 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구, v9 = 서재 매체 (media · mediaDex · toggled)
+const SHIP_STATE_VERSION = 12;  // 2026-09-13: v12 = 발전기 전력 (powerAlloc · disabledFurniture · pausedAt).  // 2026-09-13: v11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 스캐폴드 · 분석 결과). v10 = 조종석 전용 시설 · 꾸밈 가구 (cockpit 작업). 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구, v9 = 서재 매체 (media · mediaDex · toggled)
 /* A-3e (2026-09-12) 서재 매체 — data/constants.csv 의 DISC_* · RECORD_* · SHELF_AUX_BONUS_* (리터럴로 적어 조용한 재조정을 잡는다) */
 const DISC_SLOTS = 6, RECORD_SLOTS = 4;
 const DISC_XP = 0.06, RECORD_XP = 0.07;
@@ -211,10 +211,11 @@ try {
   const craftInfo = await H(() => window.__game.ctx.housing.canCraftFurniture('furn_bookshelf'));
   ok(craftInfo.ok === true && craftInfo.missing.length === 0, 'canCraftFurniture(furn_bookshelf) with 폐금속 6 + 합금 1');
   ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_bookshelf') && window.__game.ctx.housing.craftFurniture('furn_bookshelf')), 'craftFurniture(furn_bookshelf) ×2');
-  ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bookshelf', 0, 0, 0) === false && window.__game.ctx.housing.canPlace(3, 'furn_bookshelf', 0, 0, 0) === true),
+  // 2026-09-13 (배치 규칙): 책장은 앞(yaw 0 = y 감소) 한 줄을 비워야 하고 벽을 볼 수 없다 — y 0 이 아니라 y 1 · 3
+  ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bookshelf', 0, 1, 0) === false && window.__game.ctx.housing.canPlace(3, 'furn_bookshelf', 0, 1, 0) === true),
     'canPlace: 책장 refused in a 빈 방, allowed in the 서재');
-  const shelfA = await H(() => window.__game.ctx.housing.place(3, 'furn_bookshelf', 0, 0, 0)?.uid ?? null);
-  const shelfB = await H(() => window.__game.ctx.housing.place(3, 'furn_bookshelf', 0, 2, 0)?.uid ?? null);
+  const shelfA = await H(() => window.__game.ctx.housing.place(3, 'furn_bookshelf', 0, 1, 0)?.uid ?? null);
+  const shelfB = await H(() => window.__game.ctx.housing.place(3, 'furn_bookshelf', 0, 3, 0)?.uid ?? null);
   ok(!!shelfA && !!shelfB && shelfA !== shelfB, `two 책장 placed in the 서재 (${shelfA}, ${shelfB})`);
   ok((await lastEv('housing:furniturePlaced'))?.item?.defId === 'furn_bookshelf', 'housing:furniturePlaced {furn_bookshelf}');
   const slots0 = await H((u) => window.__game.ctx.housing.getBooks(u), shelfA);

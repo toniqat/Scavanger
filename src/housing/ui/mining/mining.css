@@ -1,0 +1,258 @@
+/* ============================================================================
+ * SCAVANGER — 연산 클러스터 화면 · 메인 컴퓨터 (2026-09-13; housing/ui/mining). 접두사 `.mn-` 전용.
+ *
+ * 둘 다 `StationShell` 카드 배치 위에 좌 패널 내용만 더한다 (틀 · 레일 · 카드 모양은 housing.css 의 `.hs-*`).
+ * 결: 반투명 어두운 판 · 호박색 강조 · 모노 숫자 · 코인 색은 `--cc`. 상승 = 성공색, 하락 = 위험색.
+ * 드래그 렉 규약: 진행 막대는 `transform: scaleX` 만, 전이 없음.
+ * ========================================================================== */
+
+/* ── 공용 조각 ─────────────────────────────────────────────────────────────── */
+.mn-glyph {
+  --cc: var(--c-text-dim);
+  flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  font-size: 14px; line-height: 1; color: var(--cc);
+  background: color-mix(in srgb, var(--cc) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc) 55%, transparent);
+}
+.mn-glyph.sm { width: 18px; height: 18px; font-size: 10px; }
+.mn-glyph.lg { width: 40px; height: 40px; font-size: 22px; }
+.mn-lock {
+  flex: none; font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-faint);
+  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
+}
+.mn-lock[hidden] { display: none; }
+.mn-banner {
+  padding: 8px 12px; font-size: 12px; letter-spacing: 0.04em; color: #ffd9d4;
+  background: rgba(255, 77, 77, 0.12); border: 1px solid rgba(255, 77, 77, 0.45); border-left-width: 3px;
+}
+.mn-banner[hidden] { display: none; }
+.mn-sec-head { display: flex; align-items: baseline; gap: 10px; min-height: 20px; }
+.mn-sec-title { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-text); }
+.mn-sec-count { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.mn-hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.03em; }
+.mn-num { font-family: var(--ui-mono); font-size: 12px; text-align: right; white-space: nowrap; color: var(--c-text); }
+.mn-num.dim, .mn-num .dim { color: var(--c-text-faint); }
+.mn-chg.up, .v.up { color: var(--c-success); }
+.mn-chg.down, .v.down { color: var(--c-danger); }
+.mn-meta-bad.hs-meta { color: var(--c-danger); }
+.mn-clock { margin-left: auto; font-family: var(--ui-mono); font-size: 13px; color: var(--c-text); white-space: nowrap; }
+.mn-bar { position: relative; display: block; height: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.07); }
+.mn-bar > i {
+  position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c-success) 70%, transparent), var(--c-success));
+}
+.mn-bar.is-paused > i { background: rgba(232, 230, 225, 0.35); }
+.mn-seg { display: inline-flex; border: 1px solid var(--c-border); }
+.mn-seg-btn {
+  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 5px 10px; cursor: pointer;
+  color: var(--c-text-dim); background: rgba(255, 255, 255, 0.03); border: 0; border-right: 1px solid var(--c-border);
+}
+.mn-seg-btn:last-child { border-right: 0; }
+.mn-seg-btn:hover { color: var(--c-text); }
+.mn-seg-btn.is-active { color: #05070a; background: var(--c-accent); }
+
+/* ── 연산 클러스터 화면 ────────────────────────────────────────────────────── */
+.mn-cl { gap: 14px; }
+.mn-cl-top { display: flex; gap: 18px; flex-wrap: wrap; }
+.mn-corebox { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.mn-cores {
+  --cc: #8fd0ff;
+  display: grid; grid-template-columns: repeat(3, 62px); grid-auto-rows: 62px; gap: 8px; padding: 10px;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--c-border);
+}
+.mn-core {
+  position: relative; display: grid; place-items: center; cursor: default;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 3px, transparent 3px 6px), rgba(5, 7, 10, 0.8);
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+}
+.mn-core.is-closed { opacity: 0.25; }
+.mn-core-chip {
+  width: 34px; height: 34px; opacity: 0; pointer-events: none;
+  background:
+    linear-gradient(var(--cc), var(--cc)) center / 14px 14px no-repeat,
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0 2px, transparent 2px 5px),
+    linear-gradient(160deg, #3a4452, #1b2129);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.mn-core-led { position: absolute; right: 6px; top: 6px; width: 5px; height: 5px; border-radius: 50%; background: #05070a; pointer-events: none; }
+.mn-core.is-on { border-style: solid; border-color: color-mix(in srgb, var(--cc) 55%, transparent); cursor: grab; }
+.mn-core.is-on .mn-core-chip { opacity: 1; }
+.mn-core.is-on .mn-core-led { background: rgba(232, 230, 225, 0.4); }
+.mn-cores.is-mining .mn-core.is-on { box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 35%, transparent), inset 0 0 10px color-mix(in srgb, var(--cc) 20%, transparent); }
+.mn-cores.is-mining .mn-core.is-on .mn-core-led { background: var(--c-success); box-shadow: 0 0 6px var(--c-success); }
+.mn-core.hs-drop-over, .mn-core.tg-drop-over { background: rgba(255, 179, 71, 0.18); }
+
+.mn-stats { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; min-width: 200px; }
+.mn-stat { display: flex; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.mn-stat[hidden] { display: none; }
+.mn-stat .k { flex: none; width: 92px; font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-dim); }
+.mn-stat .v { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-family: var(--ui-mono); font-size: 12px; color: var(--c-text); }
+.mn-stat .v.good { color: var(--c-success); }
+.mn-stat .v.bad { color: var(--c-danger); }
+.mn-cl-prog { display: flex; flex-direction: column; gap: 6px; }
+.mn-cl-prog .mn-bar { height: 8px; }
+
+.mn-coinsec { display: flex; flex-direction: column; gap: 8px; }
+.mn-coins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.mn-coin {
+  --cc: var(--c-text-dim);
+  position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; cursor: pointer;
+  font: inherit; text-align: left; color: var(--c-text); background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+.mn-coin:hover { border-color: rgba(255, 255, 255, 0.35); }
+.mn-coin.is-active { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 12%, transparent); box-shadow: inset 0 0 0 1px var(--cc); }
+.mn-coin-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.mn-coin-ticker { font-family: var(--ui-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+.mn-coin-name { font-size: 10px; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mn-coin-price { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); }
+.mn-coin .mn-lock { display: none; position: absolute; right: 4px; top: 4px; }
+.mn-coin.is-locked { opacity: 0.45; cursor: not-allowed; }
+.mn-coin.is-locked .mn-lock { display: inline-block; }
+.mn-coin.is-locked .mn-coin-price { visibility: hidden; }
+
+/* ── 메인 컴퓨터 ──────────────────────────────────────────────────────────── */
+.mining-computer .hs-card-station { flex: 1 1 1180px; max-width: 1400px; }
+.mn-pc { gap: 12px; }
+.mn-page { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.mn-page[hidden] { display: none; }
+.mn-sum { display: flex; flex-wrap: wrap; gap: 10px; }
+.mn-sum-item {
+  display: flex; flex-direction: column; gap: 4px; min-width: 150px; padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.035); border: 1px solid var(--c-border);
+}
+.mn-sum-item .k { font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-faint); }
+.mn-sum-item .v { font-family: var(--ui-mono); font-size: 16px; font-weight: 700; color: var(--c-text); }
+.mn-sum-item .v.good { color: var(--c-success); }
+.mn-sum-rates { flex: 1 1 260px; }
+.mn-sum-rates .v { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; font-weight: 600; }
+.mn-rate { display: inline-flex; align-items: center; gap: 6px; }
+
+.mn-crows, .mn-wrows { display: flex; flex-direction: column; gap: 4px; }
+.mn-crow {
+  display: grid; grid-template-columns: minmax(130px, 1.2fr) 90px 150px minmax(150px, 1.4fr) minmax(120px, 1.3fr) 56px;
+  align-items: center; gap: 12px; padding: 8px 12px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+.mn-crow:hover { border-color: rgba(255, 255, 255, 0.35); }
+.mn-crow.is-mining { border-left: 3px solid var(--c-success); }
+.mn-crow.mn-chead, .mn-wrow.mn-whead {
+  cursor: default; background: none; border-color: transparent; padding-block: 2px;
+  font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-faint);
+}
+.mn-cname { display: flex; flex-direction: column; min-width: 0; }
+.mn-cname b, .mn-wname b, .mn-xrow-name b { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mn-cname small, .mn-wname small, .mn-xrow-name small { font-size: 10px; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mn-ccoin { display: flex; align-items: center; gap: 6px; font-family: var(--ui-mono); font-size: 12px; }
+.mn-ccores { display: flex; align-items: center; gap: 8px; font-family: var(--ui-mono); font-size: 12px; }
+.mn-pips { display: grid; grid-template-columns: repeat(9, 6px); gap: 2px; }
+.mn-pips i { width: 6px; height: 10px; background: #05070a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
+.mn-pips i.on { background: #8fd0ff; box-shadow: none; }
+.mn-crow.is-mining .mn-pips i.on { background: var(--c-success); }
+.mn-cprog { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mn-cprog .mn-bar { flex: 1; min-width: 40px; }
+.mn-cprog .mn-clock { margin-left: 0; font-size: 12px; }
+.mn-cstatus { font-size: 11px; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mn-cstatus.good { color: var(--c-success); }
+.mn-cstatus.bad { color: var(--c-danger); }
+.mn-cpower { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); text-align: right; }
+
+.mn-wrow {
+  display: grid; grid-template-columns: minmax(180px, 1.6fr) 1fr 1fr 90px 1fr;
+  align-items: center; gap: 12px; padding: 8px 12px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+.mn-wrow:hover { border-color: rgba(255, 255, 255, 0.35); }
+.mn-wrow.mn-whead span:not(:first-child) { text-align: right; }
+.mn-wname { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mn-wname > span:not(.mn-glyph):not(.mn-lock) { display: flex; flex-direction: column; min-width: 0; }
+
+/* 거래소 */
+.mn-page-x { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; align-items: start; }
+.mn-page-x[hidden] { display: none; }
+.mn-xlist { display: flex; flex-direction: column; gap: 4px; }
+.mn-xrow {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px; cursor: pointer; min-width: 0;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+.mn-xrow:hover { border-color: rgba(255, 255, 255, 0.35); }
+.mn-xrow.is-active { border-color: color-mix(in srgb, var(--c-accent) 60%, transparent); background: rgba(255, 179, 71, 0.08); }
+.mn-xrow.is-locked .mn-xrow-name b { color: var(--c-text-dim); }
+.mn-xrow-name { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.mn-xrow-nums { display: flex; flex-direction: column; align-items: flex-end; }
+.mn-xrow-nums .mn-num { font-size: 11px; }
+.mn-xrow .mn-lock { padding: 0 4px; }
+.mn-xmain { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mn-xhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mn-xhead-l { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mn-xhead-names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mn-xhead-name { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; }
+.mn-xhead-priceline { display: flex; align-items: baseline; gap: 10px; }
+.mn-xhead-price { font-family: var(--ui-mono); font-size: 20px; font-weight: 700; }
+.mn-xhead-priceline .mn-chg { font-family: var(--ui-mono); font-size: 12px; }
+.mn-xhead-r { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.mn-chart {
+  position: relative; height: clamp(220px, 34vh, 360px); min-width: 0; overflow: hidden;
+  background: rgba(0, 0, 0, 0.38); border: 1px solid var(--c-border);
+}
+.mn-chart-canvas { position: absolute; left: 0; top: 0; display: block; cursor: crosshair; }
+.mn-chart-msg {
+  position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px;
+  font-size: 13px; letter-spacing: 0.08em; color: var(--c-text-dim); pointer-events: none;
+}
+.mn-chart-msg[hidden] { display: none; }
+.mn-chart-tip {
+  position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; min-width: 132px; padding: 7px 9px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border-strong); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+.mn-chart-tip[hidden] { display: none; }
+.mn-chart-tip-t { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); margin-bottom: 4px; }
+.mn-chart-tip-rows { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; }
+.mn-chart-tip-rows .k { font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); }
+.mn-chart-tip-rows .v { font-family: var(--ui-mono); font-size: 11px; text-align: right; color: var(--c-text); }
+
+.mn-trade {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+}
+.mn-trade-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mn-sides .mn-seg-btn { padding: 6px 18px; font-size: 12px; }
+.mn-sides .mn-side-buy.is-active { background: var(--c-success); }
+.mn-sides .mn-side-sell.is-active { background: var(--c-danger); color: #fff; }
+.mn-have { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
+.mn-trade-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mn-amt {
+  flex: 1 1 200px; display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px;
+  background: rgba(0, 0, 0, 0.4); border: 1px solid var(--c-border);
+}
+.mn-amt:focus-within { border-color: var(--c-accent); }
+.mn-amt-input {
+  flex: 1; min-width: 0; font-family: var(--ui-mono); font-size: 14px; color: var(--c-text);
+  background: none; border: 0; outline: none;
+}
+.mn-amt-input:disabled { color: var(--c-text-faint); }
+.mn-amt-ticker { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); }
+.mn-quick { display: inline-flex; gap: 4px; }
+.mn-quick .mn-seg-btn { border: 1px solid var(--c-border); }
+.mn-quote { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mn-quote-row { display: flex; flex-direction: column; gap: 2px; }
+.mn-quote-row .k { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+.mn-quote-row .v { font-family: var(--ui-mono); font-size: 13px; color: var(--c-text); }
+.mn-trade-block { font-size: 11px; letter-spacing: 0.03em; color: var(--c-text-faint); min-height: 16px; }
+.mn-trade-block.bad { color: var(--c-danger); }
+.mn-hold { position: relative; overflow: hidden; height: 38px; font-size: 13px; letter-spacing: 0.14em; }
+.mn-hold-fill {
+  position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0); pointer-events: none;
+  background: rgba(255, 255, 255, 0.28);
+}
+.mn-hold-label { position: relative; }
+.mn-hold:disabled { opacity: 0.45; cursor: not-allowed; }
+.mn-trade.is-locked, .mn-trade.is-offline { opacity: 0.72; }
+.mn-trade.is-locked .mn-quick, .mn-trade.is-offline .mn-quick { pointer-events: none; opacity: 0.5; }
+
+@media (max-width: 1280px) {
+  .mn-crow { grid-template-columns: minmax(110px, 1fr) 80px 120px minmax(120px, 1fr) minmax(90px, 1fr) 48px; }
+  .mn-page-x { grid-template-columns: 1fr; }
+  .mn-xlist { flex-direction: row; flex-wrap: wrap; }
+  .mn-xrow { flex: 1 1 170px; }
+  .mn-coins { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

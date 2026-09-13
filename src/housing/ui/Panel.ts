@@ -2,7 +2,8 @@ import type { GameContext } from '@/shared';
 import { Keys, MENU_BLOCKER } from '@/shared';
 import { el, section } from './dom';
 
-export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer' | 'culture' | 'dining' | 'cook';
+export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer' | 'culture' | 'dining' | 'cook'
+  | 'cluster' | 'computer';   // 2026-09-13 암호화폐 채굴 — 연산 클러스터 화면 · 메인 컴퓨터 (`ui/mining`, `ui:miningToggled`)
 const BLOCKER = 'housing';
 
 /**

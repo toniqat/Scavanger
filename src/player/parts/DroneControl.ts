@@ -23,6 +23,7 @@ export function canHoldDroneControl(sys: PlayerSystem): boolean {
   const c = sys.controller;
   if (!sys.spawned || sys.isDead || sys._downed || !sys.controlsEnabled) return false;
   if (sys._inPod || sys.carriedSocket !== null || c.climbing) return false;
+  if (sys._roverRide !== null) return false;   // 2026-09-13: 탐사 차량 안에서는 드론을 조종하지 않는다
   if (sys.attachedParent !== null || sys.shipBounds !== null || sys._interior !== null) return false;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return false;
   return !sys.ctx.isHubPhase();

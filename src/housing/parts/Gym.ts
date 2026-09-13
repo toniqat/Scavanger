@@ -54,6 +54,8 @@ export function gymBlock(sys: HousingSystem, uid: string): string | null {
   if (!gymEquipmentAt(sys, uid)) return '운동 기구가 아닙니다';
   if (ctx.isRaidActive() || !ctx.isHubPhase()) return '함선에서만 운동할 수 있습니다';
   if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) return '내 함선에서만 운동할 수 있습니다';
+  const power = sys.furnitureOperationalBlock(uid);          // 전력 (2026-09-13): 전력 부족 · 비활성화된 기구
+  if (power) return power;
   if (sys.gymState) return '이미 운동 중입니다';
   if (sys.housingMode || sys.shipManageMode || sys.isMenuOpen || ctx.uiBlockers.size > 0) return '다른 화면을 먼저 닫으세요';
   return null;

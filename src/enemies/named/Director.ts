@@ -36,7 +36,7 @@
 import * as THREE from 'three';
 import {
   ENEMY_SPAWN_BLOCK_RATIO, ENEMY_SPAWN_CLEARANCE_MUL, NAMED_HEAVY_ESCORTS_BY_SQUAD, NAMED_ROGUE_MIN_SPAWN_DIST,
-  NAMED_ROGUE_TYPES, RAIL_CLEARANCE_M, Random, isNamedRogueType, planetThreat, planetTier,
+  NAMED_ROGUE_TYPES, RAIL_CLEARANCE_M, ROVER_ROUTE_CLEARANCE_M, Random, isNamedRogueType, planetThreat, planetTier,
   type EnemyType, type NamedRogueType, type PlanetId, type WorldRef,
 } from '@/shared';
 /**
@@ -446,8 +446,28 @@ function spotOk(world: WorldRef, x: number, z: number, spawn: THREE.Vector3, rad
   if (Math.abs(x) > half || Math.abs(z) > half || !world.isInsideBounds(x, z)) return false;
   if (Math.hypot(x - spawn.x, z - spawn.z) < NAMED_ROGUE_MIN_SPAWN_DIST) return false;
   if (railDistance(world, x, z) < RAIL_CLEARANCE_M + RAIL_EXTRA_M) return false;
+  // 2026-09-13: 탐사 차량 흙길 회랑도 비운다 — 엎드린 저격수가 차량이 지나가는 길 한가운데 서지 않게.
+  if (roverRouteDistance(world, x, z) < ROVER_ROUTE_CLEARANCE_M + RAIL_EXTRA_M) return false;
   if (world.structureAt(x, z)) return false;
   return !blocked(world, x, z, radius);
+}
+
+/** 탐사 차량 흙길 중심선(닫힌 고리)까지의 수평 거리(m). 차량이 없으면 Infinity. 할당 없음. */
+function roverRouteDistance(world: WorldRef, x: number, z: number): number {
+  const pts = world.rover?.route.points;
+  if (!pts || pts.length < 2) return Infinity;
+  let best = Infinity;
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const abx = b.x - a.x, abz = b.z - a.z;
+    const len2 = abx * abx + abz * abz;
+    const t = len2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / len2)) : 0;
+    const dx = x - (a.x + abx * t), dz = z - (a.z + abz * t);
+    const d = dx * dx + dz * dz;
+    if (d < best) best = d;
+  }
+  return Math.sqrt(best);
 }
 
 /** `Spawner.spawnBlocked` 와 같은 규칙을 반경으로 직접 — 네임드는 `ENEMY_BIG_RADIUS` 밑이라 그 함수가 늘 false 다. */

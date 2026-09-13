@@ -631,7 +631,8 @@ try {
     };
   });
   ok(refine.title === '가공 작업대 Lv.3', `가공 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
-  ok(refine.refineRecipes.length === 7, `가공 레시피 7종 (${refine.refineRecipes.join(', ')})`);
+  /* 2026-09-13 (암호화폐 채굴): 연산 코어(`refine_compute_core`)가 가공 작업대에 더해져 7 → 8 종 */
+  ok(refine.refineRecipes.length === 8, `가공 레시피 8종 (${refine.refineRecipes.join(', ')})`);
   ok(refine.benchOnEntry, '작업대를 열고 들어오면 리스트에서 그 작업대가 선택된 채다');
   /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 7 → 9 종.
      2026-09-12 (사용자 결정): `전체` 탭이 없어져 **10 개**다 (빠른제작 + 작업대 9종), 그리고 맨 위가 빠른제작이다.
@@ -650,7 +651,7 @@ try {
     `조리대는 제작 창을 열지 않는다 — 토스트 「조리대에서 요리하세요」 (${JSON.stringify(refine.cookToasts)})`, JSON.stringify(refine.kitchenBench));
   ok(!refine.cookInLists && refine.cookNamed > 0 && !refine.tabs.some((t) => t.id === 'cook'),
     `조리대 레시피는 일반 제작 목록에 없다 — 조리대를 이름으로 물을 때만 ${refine.cookNamed}종`);
-  ok(refine.rowsRefine.length === 7 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
+  ok(refine.rowsRefine.length === 8 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
     `작업대를 고르면 그 작업대 레시피만 — 가공 ${refine.rowsRefine.length}줄`, JSON.stringify(refine.rowsRefine));
   ok(refine.ready.length > 1 && /^1*0*$/.test(refine.ready.join('')),
     `만들 수 있는 줄이 위로 (준비 ${refine.ready.filter(Boolean).length} / ${refine.ready.length})`);

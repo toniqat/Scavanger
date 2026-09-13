@@ -151,7 +151,7 @@ export function equipDetonator(sys: WeaponSystem, defId: string | null, fromPlac
 export function updateDetonator(sys: WeaponSystem, dt: number, host: Host, inputFree: boolean): void {
   if (sys.detonatorGraceT > 0) sys.detonatorGraceT = Math.max(0, sys.detonatorGraceT - dt);
   if (liveRemoteMines(sys) > 0) sys.detonatorGraceT = 0;
-  else if (sys.detonatorGraceT <= 0 && sys.ctx.player?.droneControl !== true) { sys.returnToGun(); return; }
+  else if (sys.detonatorGraceT <= 0 && sys.ctx.player?.droneControl !== true && sys.ctx.player?.roverRide !== true) { sys.returnToGun(); return; }
   if (!inputFree || sys.quickCooldown > 0 || sys.quickHolsterT > 0) return;
   const input = sys.ctx.input;
   if (input.wasMousePressed(MouseButtons.AIM)) { sys.detonateHeld(host); return; }

@@ -65,6 +65,14 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
   switch (msg.t) {
     case 'welcome':
       sys.onWelcome(msg);
+      sys.cryptoMarket.onWelcome();   // 2026-09-13: the relay forgot `crypto:watch` with the old socket
+      return;
+    /* 2026-09-13: 암호화폐 시세 — `parts/Crypto` validates and caches */
+    case 'crypto:prices':
+      sys.cryptoMarket.onPrices(msg);
+      return;
+    case 'crypto:history':
+      sys.cryptoMarket.onHistory(msg);
       return;
     case 'pong':
       if (sys.client.hasServerTime) sys.serverOffset = sys.client.serverTimeOffset;

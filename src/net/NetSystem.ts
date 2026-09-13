@@ -32,6 +32,9 @@ import * as Remotes from './parts/Remotes';
 import * as Msg from './parts/Messages';
 import { MealRelay } from './parts/Meal';
 import { CharBuffRelay } from './parts/CharBuffs';
+/* 2026-09-13: 암호화폐 시세 창구 `ctx.net.crypto` */
+import { CryptoMarketClient } from './parts/Crypto';
+import type { CryptoMarketRef } from '@/shared';
 
 export class NetSystem implements GameSystem, NetRef {
   readonly name = 'net';
@@ -129,6 +132,12 @@ export class NetSystem implements GameSystem, NetRef {
   /** `cbuf state` / `cbufq sync` + the per-member list store (`parts/CharBuffs`). */
   readonly charBuffRelay = new CharBuffRelay();
 
+  /* ── 2026-09-13: 암호화폐 시세 ── */
+  /** `crypto:watch` refcount + the last `crypto:prices` / `crypto:history` (`parts/Crypto`). */
+  readonly cryptoMarket = new CryptoMarketClient();
+  /** `ctx.net.crypto`: 서버 시세 · 봉 이력 (`available` false = 서버에 붙어 있지 않거나 시세를 아직 못 받았다). */
+  get crypto(): CryptoMarketRef { return this.cryptoMarket; }
+
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
   get connected(): boolean { return this.client.connected; }
@@ -209,6 +218,7 @@ export class NetSystem implements GameSystem, NetRef {
       if (status === 'offline' || status === 'error') {
         this.profileSync.onDisconnected();
         this.socialSync.onDisconnected();   // Phase 11: nothing social survives a connection (the server owns it)
+        this.cryptoMarket.onDisconnected(); // 2026-09-13: prices are only `available` on a live connection
         this.onSocketDown(wasConnected);
       }
     };
@@ -254,6 +264,8 @@ export class NetSystem implements GameSystem, NetRef {
     this.mealRelay.init(this);
     /* 2026-09-12: 캐릭터 버프 — `player:buffsChanged` ↔ `cbuf` / `cbufq` (`parts/CharBuffs`). */
     this.charBuffRelay.init(this);
+    /* 2026-09-13: 암호화폐 시세 — `crypto:watch` refcount / history cache (`parts/Crypto`, wired in Messages + onStatus). */
+    this.cryptoMarket.init(this);
   }
 
   /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
@@ -305,6 +317,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.socialSync.dispose();
     this.mealRelay.dispose();
     this.charBuffRelay.dispose();
+    this.cryptoMarket.dispose();
     this.client.close();
     this.clearRemotes();
     this.handlers.clear();

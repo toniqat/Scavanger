@@ -7,7 +7,7 @@ import { type BookDexView, createBookDex } from './BookDex';
 import { ProductDrag } from './ProductDrag';
 import type { Product } from './ProductDrag';
 import { type ShelfDrawing, buildShelfDrawing, paintShelfSlot } from './ShelfDrawing';
-import { buildStationShell, mountStationGrids } from './StationShell';
+import { buildStationShell, mountStationGrids, paintStationPower } from './StationShell';
 import type { StationShell } from './StationShell';
 import { el, setText, toggleClass } from './dom';
 
@@ -67,6 +67,7 @@ export class BookshelfMenu extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '책장',
       upgrade: false,
+      power: { ctx, uid: () => this.uid },            // 전력 (2026-09-13): 비활성화 버튼 · 멈춤 배너 (서재 보너스도 전력이 필요하다)
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
 
@@ -250,6 +251,7 @@ export class BookshelfMenu extends HousingPanel {
     const holder = shelfHolderName(m);
     const slots = SHELF_SLOTS[m];
     const shelf = h.getPlacedByUid(this.uid);
+    paintStationPower(this.shell);                  // 전력 (2026-09-13): 멈춘 보관함은 서재 보너스를 주지 않는다
     const infos = shelf ? h.getShelfSlots(this.uid) : [];
     const filled = infos.filter((i) => i.defId !== null).length;
     setText(this.shell.title, shelf ? `${holder} · 방 ${shelf.room + 1}` : holder);

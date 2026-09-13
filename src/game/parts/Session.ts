@@ -91,6 +91,9 @@ export function saveRaid(sys: GameFlowSystem): void {
   sys.raidSaveTimer = RAID_SAVE_INTERVAL_S;
   }
 
+/** 2026-09-13: scratch for the pose saved while riding the 탐사 차량 (`PlayerRef.roverSafePosition`). */
+const _roverSafe = new THREE.Vector3();
+
 /** Mirror the live solo raid (seed / planet / clock / stats / inventory / body) into localStorage. */
 export function saveSolo(sys: GameFlowSystem): void {
   saveSoloAt(sys, null);
@@ -104,7 +107,8 @@ export function saveSoloAt(sys: GameFlowSystem, at: THREE.Vector3 | null): void 
   const ctx = sys.ctx;
   const p = ctx.player;
   if (!p) return;
-  const pos = at ?? p.position;
+  // 2026-09-13: 탐사 차량 안이면 선체 안 좌석이 아니라 차량 옆 지면을 저장한다 (복귀하면 걸어서 서 있다)
+  const pos = at ?? (p.roverRide ? p.roverSafePosition?.(_roverSafe) ?? p.position : p.position);
   try {
     saveSoloRaid({
       v: 1,

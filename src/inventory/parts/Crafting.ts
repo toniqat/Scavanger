@@ -179,8 +179,12 @@ export function benchRepairAll(sys: InventorySystem, skip?: ReadonlySet<string>)
 export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: WorkbenchKind, level = 0): readonly CraftRecipe[] {
   const skillOf = (id: CraftRecipe['skill']): number => sys.ctx.progression?.getSkill(id) ?? 0;
   const housing = sys.ctx.housing;
-  const placedLevel = (kind: WorkbenchKind): number =>
-    housing && typeof housing.getBenchLevel === 'function' ? Math.max(0, housing.getBenchLevel(kind) || 0) : 0;
+  const placedLevel = (kind: WorkbenchKind): number => {
+    if (!housing) return 0;
+    // 전력 (2026-09-13): 멈춘(전력 부족 · 비활성) 작업대는 가방 제작 목록의 함선 레시피를 열지 않는다
+    if (typeof housing.getOperationalBenchLevel === 'function') return Math.max(0, housing.getOperationalBenchLevel(kind) || 0);
+    return typeof housing.getBenchLevel === 'function' ? Math.max(0, housing.getBenchLevel(kind) || 0) : 0;
+  };
   return sys.loot.getAllRecipes().filter((r) => {
     if (skillOf(r.skill) < r.skillRequired) return false;
     /* 2026-09-13 (요리 미니게임): 조리대 레시피는 일반 제작 목록(가방의 `제작` · 빠른제작 · 다른 작업대)에 뜨지 않는다.

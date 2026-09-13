@@ -1,9 +1,16 @@
 import * as THREE from 'three';
-import type { FogRef, GameContext, HazardRef, PingKind } from '@/shared';
-import { HAZARD_LABEL_KO, Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, keyLabel } from '@/shared';
-import { el, setText } from '../dom';
+import type { FogRef, GameContext, HazardRef, KeyGuideEntry, PingKind, RoverRef, RoverStationDef, StructureKind } from '@/shared';
+import {
+  HAZARD_LABEL_KO, Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, UI_HOLD_CONFIRM_S, keyLabel, mouseButtonOf,
+} from '@/shared';
+import { el, fmtInt, setText, toggleClass } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
+import {
+  FONT_LABEL, MAP_COL, MARKER_SCALE, MapLabels, drawDiamond, drawGatherCross, drawHazardSwatch, drawLabel, drawPad, drawPlatform,
+  drawPlayerArrow, drawPlayerCone, drawRover, drawShip, drawSquadArrow, drawSquadDead, drawStation, drawTram, strokeRail, strokeRoute,
+} from './mapIcons';
+import '../styles/rover.css';
 
 const BLOCKER = 'map';
 const SAMPLES = 256;          // height samples per axis for the static layer
@@ -13,36 +20,28 @@ const GRID_STEP = 100;        // meters between grid lines
 const MIN_ZOOM = 1, MAX_ZOOM = 4;
 const NEST_RADIUS_M = 22;     // soft hazard radius drawn around nests
 // Canvas fonts cannot reference CSS variables; mirror the stacks from base.css.
-const FONT_LABEL = "600 9px 'Segoe UI', 'Malgun Gothic', 'Noto Sans KR', sans-serif";
 const FONT_GRID = "9px 'Cascadia Mono', Consolas, monospace";
 
-const COL = {
-  bg: '#06080a',
-  grid: 'rgba(232,230,225,0.10)',
-  gridText: 'rgba(232,230,225,0.35)',
-  text: '#e8e6e1',
-  dim: 'rgba(232,230,225,0.55)',
-  accent: '#ffb347',
-  danger: '#ff4d4d',
-  success: '#4fd17e',
-  info: '#7fb7e6',
-  crate: '#c9c9c9',
-  crateOpened: 'rgba(201,201,201,0.28)',
-  pad: '#e8e6e1',
-  pickup: '#c77dff',
-  attack: '#ff6a3d',
-  caution: '#ffc23a',
-  /* appended: tactical kit */
-  gather: '#7fe6a1',
-  deploy: '#8fe8ff',
-  /* appended (2026-09-09): 레이드 플레이 개선 — 구조물 · 선로 · 전차 · 환경 재해 */
-  structure: '#d8c48a',
-  rail: '#9fb4c7',
-  tram: '#ffd27f',
-  grove: '#b98cff',
-  /* appended (2026-09-11, C-11): 폐허 전초 (POI) — 구조물(모래색)보다 낮은 채도의 콘크리트 색 */
-  outpost: '#a9a59a',
-};
+/** 2026-09-13: 색 · 마커 그림은 `mapIcons` 로 옮겼다 (범례 견본이 같은 함수를 부른다). */
+const COL = MAP_COL;
+
+/**
+ * 지도 라벨의 **짧은 원래 이름** (2026-09-13 사용자 결정). 예전에는 구조물이 전부 `구조물`, 폐허 전초가 `폐허` 였다.
+ * 토스트(`hud/RaidAlerts`)는 여전히 `STRUCTURE_LABEL_KO` 의 정식 이름을 쓴다 — 지도 라벨만 짧게.
+ */
+const STRUCTURE_SHORT_KO: Readonly<Record<StructureKind, string>> = { outpost: '전진기지', lab: '연구소', wreck: '불시착 함선' };
+/** 라벨 겹침 우선순위 (작을수록 먼저 자리를 차지한다). */
+const PRIO = { ship: 0, pad: 1, station: 2, structure: 3, outpost: 4, platform: 5, nest: 6, grove: 7 } as const;
+/** 지형지물 라벨 색 — 마커보다 조금 밝게 (어두운 윤곽이 둘린다). */
+const LABEL_COL = 'rgba(232,230,225,0.85)';
+/** 목적지 선택: 정류장을 집는 반경(px) · 클릭으로 치는 최대 이동(px). */
+const STATION_HIT_PX = 18;
+const CLICK_SLOP_PX = 5;
+/** 범례 견본 캔버스 크기(CSS px) — 1.6배 플레이어 화살표가 들어가는 크기. */
+const SW_W = 28, SW_H = 20;
+
+type LegendId = 'player' | 'squad' | 'pad' | 'ship' | 'gather' | 'rail' | 'tram' | 'rover' | 'route' | 'hazard';
+interface LegendRow { id: LegendId; row: HTMLElement; cv: HTMLCanvasElement }
 /**
  * 재해 구역 채움 · 경계선. 안개 위에 얹는 붉은 층이라 지형이 비쳐야 하지만, 2026-09-09 의 값
  * (채움 0.16 · 선 2 px)은 컬러 지형 위에서 **모래 폭풍 · 눈보라가 있는지조차 안 보였다**.
@@ -146,9 +145,39 @@ export class MapScreen {
   private pingVec = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
 
+  /* 2026-09-13: 라벨 겹침 층 · 범례 견본 */
+  private readonly labels = new MapLabels();
+  private legendEl: HTMLElement;
+  private legendRows: LegendRow[] = [];
+
+  /* 2026-09-13: 탐사 차량 목적지 선택 모드 */
+  private roverMode = false;
+  /** 목적지 선택 모드가 지도를 **열었다** — 모드가 끝나면 지도도 닫는다 (이미 열린 지도에 들어왔으면 지도는 남긴다). */
+  private roverOpenedMap = false;
+  private roverEnteredAt = 0;
+  private selectedStation: string | null = null;
+  private hoverStation: string | null = null;
+  private tripError: string | null = null;
+  private downX = 0;
+  private downY = 0;
+  private dragMoved = false;
+  private roverPanel: HTMLElement;
+  private rvHint: HTMLElement;
+  private rvDest: HTMLElement;
+  private rvDist: HTMLElement;
+  private rvFare: HTMLElement;
+  private rvCredits: HTMLElement;
+  private rvReason: HTMLElement;
+  private rvBtn: HTMLButtonElement;
+  private rvBtnFill: HTMLElement;
+  private rvBtnLbl: HTMLElement;
+  private holdStart = 0;
+  private holdRaf = 0;
+
   /*
-   * 2026-09-08: Escape does not close the map any more — it is the 일시정지 메뉴 everywhere, and the map closes on
-   * `Keys.MAP`, the key that opened it (polled in `update`). Nothing is captured here at all now.
+   * 2026-09-13: Escape **does** close the map (the stale 2026-09-08 note said otherwise) — `open()` pushes it onto
+   * `ctx.escape` like every screen (2026-09-09 규칙: Escape 는 맨 위 화면 하나를 닫는다). M (`Keys.MAP`) and Tab close it
+   * too (polled in `update`); the 키 가이드 shows all three.
    */
   private onWheel = (e: WheelEvent): void => {
     if (!this._open) return;
@@ -160,26 +189,44 @@ export class MapScreen {
   };
   private onMouseDown = (e: MouseEvent): void => {
     if (!this._open) return;
-    // Phase 10: middle-click drops a ping at that map point instead of starting a pan.
-    if (e.button === 1) { e.preventDefault(); this.pingAt(e.clientX, e.clientY); return; }
+    // Phase 10: the ping button (middle-click by default) drops a ping at that map point instead of starting a pan.
+    // 2026-09-13: it follows `Keys.PING` (the 키 가이드 shows `keyLabel(Keys.PING)`) — unless it was rebound onto the
+    // left button, which pans / picks here.
+    const pingBtn = mouseButtonOf(Keys.PING, 1);
+    if (pingBtn !== 0 && e.button === pingBtn) { e.preventDefault(); this.pingAt(e.clientX, e.clientY); return; }
     if (e.button !== 0) return;
     e.preventDefault();
     this.dragging = true;
     this.lastMx = e.clientX; this.lastMy = e.clientY;
+    this.downX = e.clientX; this.downY = e.clientY;
+    this.dragMoved = false;
     this.canvas.classList.add('grabbing');
   };
   private onMouseMove = (e: MouseEvent): void => {
     if (!this.dragging) return;
     const dx = e.clientX - this.lastMx, dy = e.clientY - this.lastMy;
     this.lastMx = e.clientX; this.lastMy = e.clientY;
+    if (!this.dragMoved && Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > CLICK_SLOP_PX) this.dragMoved = true;
     this.ox += dx; this.oy += dy;
     this.clampView();
   };
-  private onMouseUp = (): void => {
+  private onMouseUp = (e: MouseEvent): void => {
     if (!this.dragging) return;
     this.dragging = false;
     this.canvas.classList.remove('grabbing');
+    // 2026-09-13: 목적지 선택 모드에서 끌지 않은 좌클릭 = 정류장 고르기 (끌면 예전처럼 이동만)
+    if (this.roverMode && !this.dragMoved) this.pickStation(e.clientX, e.clientY);
   };
+  /** 목적지 선택 모드의 정류장 호버 (커서 모양 · 강조 링). */
+  private onHover = (e: MouseEvent): void => {
+    if (!this.roverMode) {
+      if (this.hoverStation !== null) { this.hoverStation = null; this.canvas.classList.remove('pick'); }
+      return;
+    }
+    this.hoverStation = this.stationAt(e.clientX, e.clientY)?.id ?? null;
+    toggleClass(this.canvas, 'pick', this.hoverStation !== null);
+  };
+  private readonly onHoldUp = (): void => { this.stopHold(); };
   private onResize = (): void => { if (this._open) this.fit(); };
 
   constructor(parent: HTMLElement) {
@@ -192,42 +239,57 @@ export class MapScreen {
     el('div', { cls: 'map-title', text: '전술 지도', parent: head });
     this.seedEl = el('div', { cls: 'map-seed ui-mono', text: 'SEED —', parent: head });
 
-    const legend = el('div', { cls: 'map-legend', parent: side });
-    el('div', { cls: 'ui-label', text: '범례', parent: legend });
-    const entries: Array<[string, string, string]> = [
-      ['player', COL.accent, '플레이어'],
-      ['pad', COL.pad, '탈출 지점'],
-      ['pad active', COL.accent, '활성 탈출 지점'],
-      ['ship', COL.success, '탈출 함선'],
-      ['nest', COL.danger, '벌레 둥지'],
-      ['crate', COL.crate, '보급 상자'],
-      ['crate opened', COL.crateOpened, '개봉된 상자'],
-      ['ping', COL.info, '핑'],
-      ['ping attack', COL.attack, '돌격 핑'],
-      ['ping caution', COL.caution, '주의 핑'],
-      ['pickup', COL.pickup, '떨어진 아이템'],
-      ['squad', NET_SLOT_COLORS_CSS[1], '분대원'],
-      ['gather', COL.gather, '채집물'],
-      ['deploy', COL.deploy, '설치물'],
-      ['mine', COL.danger, '지뢰 (피아 구분 없음)'],
-      /* appended (2026-09-09): 레이드 플레이 개선 */
-      ['structure', COL.structure, '버려진 구조물'],
-      ['outpost', COL.outpost, '폐허 전초'],
-      ['rail', COL.rail, '선로 · 플랫폼'],
-      ['tram', COL.tram, '전차'],
-      ['grove', COL.grove, '거대 버섯 군락'],
-      ['hazard', COL.danger, '위험 구역'],
+    /* 범례 (2026-09-13 개편, 사용자 결정): 라벨이 이름을 말하는 지형지물(구조물 · 폐허 전초 · 버섯 군락 · 벌레 둥지)과 핑 · 상자 ·
+     * 지도에서 뺀 것(떨어진 아이템 · 설치물 · 지뢰)은 범례에 없다. 탈출 지점은 한 줄 (지도는 활성 지점의 호박색 펄스를 그대로 그린다).
+     * 견본은 CSS 모양이 아니라 **지도와 같은 그리기 함수**를 부르는 작은 캔버스다 (`mapIcons`). */
+    this.legendEl = el('div', { cls: 'map-legend', parent: side });
+    el('div', { cls: 'ui-label', text: '범례', parent: this.legendEl });
+    const entries: Array<[LegendId, string]> = [
+      ['player', '플레이어'],
+      ['squad', '분대원'],
+      ['pad', '탈출 지점'],
+      ['ship', '탈출 함선'],
+      ['gather', '채집물'],
+      ['rail', '선로 · 플랫폼'],
+      ['tram', '전차'],
+      ['rover', '탐사 차량'],
+      ['route', '차량 경로 · 정류장'],
+      ['hazard', '위험 구역'],
     ];
-    for (const [cls, color, label] of entries) {
-      const row = el('div', { cls: 'map-legend-row', parent: legend });
-      const sw = el('i', { cls: `sw ${cls}`, parent: row });
-      sw.style.setProperty('--sw', color);
-      // 2026-09-11 (C-11): 폐허 전초 견본 — 스타일시트(`ui/styles/base.css`)는 이 파일의 소관이 아니라 인라인으로 준다
-      // (지도의 ㄷ자와 같은 모양: 오른쪽 한 변이 뚫린 사각).
-      if (cls === 'outpost') Object.assign(sw.style, { width: '9px', height: '9px', border: '1.6px solid var(--sw)', borderRightColor: 'transparent' });
+    for (const [id, label] of entries) {
+      const row = el('div', { cls: 'map-legend-row', parent: this.legendEl });
+      row.dataset.legend = id;
+      const cv = el('canvas', { cls: 'sw-cv', parent: row });
       el('span', { text: label, parent: row });
+      this.legendRows.push({ id, row, cv });
     }
 
+    /* 2026-09-13: 탐사 차량 목적지 선택 패널 — 선택 모드 동안 범례 자리를 차지한다 */
+    this.roverPanel = el('div', { cls: 'map-rover', parent: side });
+    this.roverPanel.hidden = true;
+    el('div', { cls: 'ui-label', text: '탐사 차량 · 목적지 선택', parent: this.roverPanel });
+    this.rvHint = el('div', { cls: 'map-rover-hint', text: '지도에서 정류장을 선택하세요', parent: this.roverPanel });
+    const rows = el('div', { cls: 'map-rover-rows', parent: this.roverPanel });
+    const row = (label: string): HTMLElement => {
+      const r = el('div', { cls: 'map-rover-row', parent: rows });
+      el('span', { cls: 'k', text: label, parent: r });
+      return el('span', { cls: 'v ui-mono', text: '—', parent: r });
+    };
+    this.rvDest = row('목적지');
+    this.rvDist = row('거리');
+    this.rvFare = row('요금 (분대 전원)');
+    this.rvCredits = row('보유 크레딧');
+    this.rvReason = el('div', { cls: 'map-rover-reason', parent: this.roverPanel });
+    this.rvBtn = el('button', { cls: 'map-rover-go', parent: this.roverPanel });
+    this.rvBtn.type = 'button';
+    this.rvBtnFill = el('span', { cls: 'fill', parent: this.rvBtn });
+    this.rvBtnLbl = el('span', { cls: 'lbl', text: '목적지를 선택하세요', parent: this.rvBtn });
+    el('div', { cls: 'map-rover-note', text: `버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 출발합니다. 출발하면 도착까지 내릴 수 없습니다.`, parent: this.roverPanel });
+    // 되돌릴 수 없는 확정 = 1초 홀드 (CLAUDE.md). 클릭 · Enter · Space 로는 아무것도 하지 않는다.
+    this.rvBtn.addEventListener('pointerdown', (e) => this.startHold(e));
+    this.rvBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.preventDefault(); });
+
+    // 2026-09-13 (사용자 결정): 좌하단 `초기화` 버튼과 조작 안내 줄은 없앴다 — 조작은 우하단 키 가이드가 말한다.
     const foot = el('div', { cls: 'map-foot', parent: side });
     const exploredRow = el('div', { cls: 'map-zoom-row', parent: foot });
     el('span', { cls: 'ui-label', text: '탐색률', parent: exploredRow });
@@ -235,9 +297,6 @@ export class MapScreen {
     const zoomRow = el('div', { cls: 'map-zoom-row', parent: foot });
     el('span', { cls: 'ui-label', text: '확대', parent: zoomRow });
     this.zoomEl = el('span', { cls: 'ui-mono', text: '1.0×', parent: zoomRow });
-    const reset = el('button', { cls: 'ui-btn small', text: '초기화', parent: foot });
-    reset.addEventListener('click', (e) => { e.stopPropagation(); this.resetView(); this.ctx?.bus.emit('audio:play', { id: 'ui_click' }); });
-    el('div', { cls: 'map-hint', html: '<span class="keycap">M</span> / <span class="keycap">Esc</span> 닫기 · 휠 확대 · 드래그 이동 · 휠클릭 핑', parent: foot });
 
     const wrap = el('div', { cls: 'map-canvas-wrap', parent: frame });
     this.canvas = el('canvas', { cls: 'map-canvas', parent: wrap });
@@ -250,10 +309,25 @@ export class MapScreen {
 
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.canvas.addEventListener('mousedown', this.onMouseDown);
+    this.canvas.addEventListener('mousemove', this.onHover);
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   get isOpen(): boolean { return this._open; }
+  /** 2026-09-13 (debug · smoke): 탐사 차량 목적지 선택 모드인가 · 고른 정류장 id. */
+  get isRoverMode(): boolean { return this.roverMode; }
+  get roverSelection(): string | null { return this.selectedStation; }
+  /** 보이는 범례 줄 id 목록 (debug · smoke). */
+  get legendIds(): string[] { return this.legendRows.filter((r) => !r.row.hidden).map((r) => r.id); }
+  /** Smoke hook: 목적지 선택 모드에서 정류장을 코드로 고른다 (클릭과 같은 경로). 모드가 아니거나 모르는 id 면 false. */
+  selectStation(id: string): boolean {
+    if (!this.roverMode) return false;
+    const rv = this.ctx?.world?.rover;
+    if (!rv?.route.stations.some((s) => s.id === id)) return false;
+    this.selectedStation = id;
+    this.tripError = null;
+    return true;
+  }
 
   /** Draw pings from a live list (local + squad pings with owner colours) instead of the `ping:*` events. */
   setPingSource(source: (() => readonly PingView[]) | null): void { this.pingSource = source; }
@@ -288,6 +362,13 @@ export class MapScreen {
         setText(this.seedEl, `SEED ${seed}`);
         setText(this.exploredEl, '—');
         this.resetView();
+        if (this.roverMode) this.exitRoverMode(true);
+        if (this._open) this.refreshLegend();
+      }),
+      // 2026-09-13: 탐사 차량 — 막 탔으면 목적지 선택 모드로 연다, 출발 · 하차 · 파괴면 닫는다
+      b.on('rover:destinationSelect', ({ open }) => {
+        if (open) this.enterRoverMode();
+        else if (this.roverMode) this.exitRoverMode(true);
       }),
       // 2026-09-09: the fog layer is rebuilt ONLY here — never per frame from `FogRef.mask`.
       b.on('fog:revealed', ({ explored }) => {
@@ -321,25 +402,32 @@ export class MapScreen {
   update(ctx: GameContext): void {
     if (ctx.input.wasPressed(Keys.MAP) && ctx.isGameplayPhase() && !(ctx.player?.isDead ?? false)
       && !ctx.uiBlockers.has(MENU_BLOCKER) && (this._open || ctx.uiBlockers.size === 0)) {
-      if (this._open) this.close(); else this.open();
+      if (this._open) this.close();
+      else {
+        // 2026-09-13: 탐사 차량에 타 정차해 있으면 M 은 목적지 선택 모드로 연다
+        const rv = ctx.world?.rover;
+        if (rv?.localAboard && rv.vehicle.state === 'stopped') this.enterRoverMode(); else this.open();
+      }
     } else if (this._open && ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
       // 2026-09-09: Tab closes every screen; swallow it so nothing later in the frame opens the inventory on it.
       ctx.input.consume(Keys.INVENTORY);
       this.close();
     }
+    if (this.roverMode) this.tickRoverMode(ctx);
     if (this._open) this.draw(ctx);
   }
 
-  /** 키 가이드 entries for the map (the guide appends `Tab 닫기` itself). */
+  /**
+   * 키 가이드 entries for the map (the guide appends `Tab 또는 Esc 또는 M 닫기` itself — owner `'map'`).
+   * 2026-09-13: 핑 키는 지도에서 실제로 핑을 찍는 버튼(`Keys.PING`)을, 이동은 실제로 끄는 좌클릭(`Mouse0`)을 말한다
+   * (예전에는 `Keys.FIRE` 를 읽어 사격 키를 바꾸면 거짓말을 했다). 목적지 선택 모드면 맨 앞에 `좌클릭 목적지 선택`.
+   */
   private emitGuide(): void {
-    this.ctx.bus.emit('ui:keyGuide', {
-      owner: 'map',
-      keys: [
-        { key: keyLabel(Keys.PING), label: '핑' },
-        { key: '휠', label: '확대' },
-        { key: `${keyLabel(Keys.FIRE)} 드래그`, label: '이동' },
-      ],
-    });
+    const keys: KeyGuideEntry[] = [];
+    if (this.roverMode) keys.push({ key: keyLabel('Mouse0'), label: '목적지 선택' });
+    if (mouseButtonOf(Keys.PING, 1) !== 0) keys.push({ key: keyLabel(Keys.PING), label: '핑' });
+    keys.push({ key: '휠', label: '확대' }, { key: `${keyLabel('Mouse0')} 드래그`, label: '이동' });
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'map', keys });
   }
 
   open(): void {
@@ -360,6 +448,7 @@ export class MapScreen {
     setText(this.exploredEl, fog ? `${Math.round(fog.explored * 100)}%` : '—');
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
+    this.refreshLegend();
     this.emitGuide();
     ctx.bus.emit('ui:mapToggled', { open: true });
   }
@@ -373,6 +462,7 @@ export class MapScreen {
     if (!this._open) return;
     const ctx = this.ctx;
     this._open = false;
+    this.resetRoverMode();
     this.dragging = false;
     this.canvas.classList.remove('grabbing');
     this.root.hidden = true;
@@ -674,9 +764,13 @@ export class MapScreen {
 
     const world = ctx.world;
     const t = ctx.time;
+    const labels = this.labels;
     if (world?.ready) {
       // 선로 · 플랫폼 · 전차 (2026-09-09): 지형지물이므로 발견한 것만. 전차는 매 프레임 움직인다.
       this.drawRails(ctx);
+      // 탐사 차량 흙길 · 정류장 (2026-09-13) — 차체는 아래에서 함선 뒤에 그린다
+      const rover = world.rover ?? null;
+      if (rover) this.drawRoverRoute(rover);
       // 버려진 구조물 (2026-09-09)
       for (const st of world.getStructures()) {
         if (!this.discovered(st.position)) continue;
@@ -694,10 +788,8 @@ export class MapScreen {
           c.fillStyle = COL.accent;
           c.beginPath(); c.arc(x + 6, y - 6, 2, 0, Math.PI * 2); c.fill();
         }
-        c.fillStyle = COL.dim;
-        c.font = FONT_LABEL;
-        c.textAlign = 'center'; c.textBaseline = 'top';
-        c.fillText('구조물', x, y + rr + 2);
+        // 2026-09-13: `구조물` 대신 짧은 원래 이름 (연구소 · 전진기지 · 불시착 함선)
+        labels.add(STRUCTURE_SHORT_KO[st.kind] ?? '구조물', x, y + rr + 2, LABEL_COL, PRIO.structure);
       }
       /* 폐허 전초 (2026-09-11, C-11) — 발견 이벤트로 쌓인 것만. 무너진 벽을 닮은 **ㄷ자** (한 변이 뚫린 사각)이고
        * 구조물의 채운 사각형과 겹치지 않게 테두리만 긋는다. */
@@ -710,10 +802,7 @@ export class MapScreen {
         c.stroke();
         c.fillStyle = COL.outpost;
         c.fillRect(x + 3, y - 1, 1.6, 1.6);                 // 안테나 비콘 점
-        c.fillStyle = COL.dim;
-        c.font = FONT_LABEL;
-        c.textAlign = 'center'; c.textBaseline = 'top';
-        c.fillText('폐허', x, y + 7);
+        labels.add('폐허 전초', x, y + 7, LABEL_COL, PRIO.outpost);
       }
       // 거대 버섯 군락 (독성 포자 발생지) — 발견한 것만
       for (const src of ctx.world?.hazard?.getSources() ?? []) {
@@ -723,6 +812,7 @@ export class MapScreen {
         c.strokeStyle = COL.grove; c.lineWidth = 1.3;
         c.beginPath(); c.arc(x, y - 1.5, 4, Math.PI, 0); c.stroke();
         c.beginPath(); c.moveTo(x, y - 1.5); c.lineTo(x, y + 3.5); c.stroke();
+        labels.add('버섯 군락', x, y + 6, LABEL_COL, PRIO.grove);
       }
       // nests
       for (const p of world.getNestPositions()) {
@@ -736,6 +826,7 @@ export class MapScreen {
         c.fillStyle = grad;
         c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.fill();
         this.triangle(c, x, y, 6, COL.danger, 'rgba(255,77,77,0.35)');
+        labels.add('벌레 둥지', x, y + 7, LABEL_COL, PRIO.nest);
       }
       // crates
       for (const cr of world.getCrates()) {
@@ -763,12 +854,7 @@ export class MapScreen {
             c.strokeRect(x - 2.5, y - 2.5, 5, 5);
             continue;
           }
-          c.strokeStyle = g.harvested ? 'rgba(127,230,161,0.25)' : COL.gather;
-          c.lineWidth = 1.2;
-          c.beginPath();
-          c.moveTo(x - 3, y); c.lineTo(x + 3, y);
-          c.moveTo(x, y - 3); c.lineTo(x, y + 3);
-          c.stroke();
+          drawGatherCross(c, x, y, g.harvested ? 'rgba(127,230,161,0.25)' : COL.gather);
         }
       }
       // extraction pads
@@ -784,57 +870,24 @@ export class MapScreen {
           c.lineWidth = 1.5;
           c.beginPath(); c.arc(x, y, 10 + 10 * pulse, 0, Math.PI * 2); c.stroke();
         }
-        this.diamond(c, x, y, active ? 8 : 6, active ? COL.accent : COL.pad, active ? 'rgba(255,179,71,0.45)' : 'rgba(0,0,0,0.5)');
-        c.fillStyle = active ? COL.accent : COL.dim;
-        c.font = FONT_LABEL;
-        c.textAlign = 'center'; c.textBaseline = 'top';
-        c.fillText('탈출', x, y + 10);
+        drawPad(c, x, y, active);
+        labels.add('탈출', x, y + 10, active ? COL.accent : LABEL_COL, PRIO.pad);
       }
       // landed ship
       if (this.shipPos) {
         const x = this.toX(this.shipPos.x), y = this.toY(this.shipPos.z);
         if (this.inView(x, y, 20)) {
-          c.fillStyle = COL.success;
-          c.beginPath(); c.arc(x, y, 7, 0, Math.PI * 2); c.fill();
-          c.fillStyle = COL.bg;
-          c.beginPath(); c.moveTo(x, y - 4); c.lineTo(x + 3.5, y + 3); c.lineTo(x - 3.5, y + 3); c.closePath(); c.fill();
-          c.fillStyle = COL.success;
-          c.font = FONT_LABEL;
-          c.textAlign = 'center'; c.textBaseline = 'top';
-          c.fillText('함선', x, y + 10);
+          drawShip(c, x, y);
+          labels.add('함선', x, y + 10, COL.success, PRIO.ship);
         }
       }
+      // 탐사 차량 차체 (2026-09-13)
+      if (rover) this.drawRoverVehicle(rover);
+      // 지형지물 라벨은 여기서 한 번에 — 겹치면 우선순위가 낮은 것을 버린다
+      labels.flush(c);
+      if (rover && this.roverMode) this.drawRoverReason(rover);
     }
-    // dropped pickups: small diamonds
-    const pickups = ctx.pickups?.getPickups();
-    if (pickups) {
-      for (const pk of pickups) {
-        const x = this.toX(pk.position.x), y = this.toY(pk.position.z);
-        if (!this.inView(x, y, 6)) continue;
-        this.diamond(c, x, y, 3, COL.pickup, 'rgba(199,125,255,0.35)');
-      }
-    }
-    // deployed gadgets: mines in red with their blast radius, everything else as a small cyan square
-    const deployables = ctx.gadgets?.getDeployables?.();
-    if (deployables) {
-      for (const d of deployables) {
-        const x = this.toX(d.position.x), y = this.toY(d.position.z);
-        if (!this.inView(x, y, 24)) continue;
-        if (d.kind === 'mine') {
-          const rr = Math.max(3, (d.radius > 0 ? d.radius : 6.5) * s);
-          c.strokeStyle = 'rgba(255,77,77,0.45)'; c.lineWidth = 1;
-          c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.stroke();
-          c.strokeStyle = d.armed ? COL.danger : COL.accent; c.lineWidth = 1.4;
-          c.beginPath();
-          c.moveTo(x - 3.5, y - 3.5); c.lineTo(x + 3.5, y + 3.5);
-          c.moveTo(x + 3.5, y - 3.5); c.lineTo(x - 3.5, y + 3.5);
-          c.stroke();
-        } else {
-          c.strokeStyle = COL.deploy; c.lineWidth = 1.2;
-          c.strokeRect(x - 3, y - 3, 6, 6);
-        }
-      }
-    }
+    /* 2026-09-13 (사용자 결정): 떨어진 아이템 · 설치물 · 지뢰는 지도에 그리지 않는다. */
     // pings (local: kind colour; squad: owner slot colour + name)
     const pingList: Iterable<MapPing> = this.pingSource ? this.pingSource() : this.pings.values();
     for (const p of pingList) {
@@ -870,11 +923,8 @@ export class MapScreen {
         case 'rail': c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 5, y); c.lineTo(x + 5, y); c.stroke(); break;
         default: c.fillStyle = col; c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill(); break;
       }
-      c.fillStyle = col;
-      c.font = FONT_LABEL;
-      c.textAlign = 'center'; c.textBaseline = 'bottom';
       const label = p.label ?? PING_LABEL[p.kind];
-      c.fillText(p.owner ? `${p.owner.name} · ${label}` : label, x, y - 8);
+      drawLabel(c, p.owner ? `${p.owner.name} · ${label}` : label, x, y - 8, col, 'bottom');
       c.globalAlpha = 1;
     }
     // squad members (multiplayer): slot-coloured arrows + names; dead = hollow ring
@@ -888,48 +938,20 @@ export class MapScreen {
         if (!this.inView(x, y, 30)) continue;
         const col = suspended ? COL_SUSPENDED : (NET_SLOT_COLORS_CSS[r.slot] ?? '#fff');
         c.globalAlpha = suspended ? 0.6 : r.stale ? 0.45 : 1;
-        if (r.isDead) {
-          c.strokeStyle = col; c.lineWidth = 1.5;
-          c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.stroke();
-          c.beginPath(); c.moveTo(x - 3, y - 3); c.lineTo(x + 3, y + 3); c.moveTo(x + 3, y - 3); c.lineTo(x - 3, y + 3); c.stroke();
-        } else {
-          const fx = -Math.sin(r.yaw), fz = -Math.cos(r.yaw);
-          c.save();
-          c.translate(x, y); c.rotate(Math.atan2(fz, fx));
-          c.fillStyle = col; c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1.5;
-          c.beginPath(); c.moveTo(7, 0); c.lineTo(-5, 4.5); c.lineTo(-2.5, 0); c.lineTo(-5, -4.5); c.closePath();
-          c.fill(); c.stroke();
-          c.restore();
-        }
-        c.fillStyle = col;
-        c.font = FONT_LABEL;
-        c.textAlign = 'center'; c.textBaseline = 'top';
-        c.fillText(suspended ? `${r.name} · ${SUSPENDED_LABEL_KO}` : r.isDead ? `${r.name} · 전사` : r.name, x, y + 9);
+        // 2026-09-13: 1.6배 화살표 — 범례 견본과 같은 함수 (`mapIcons`)
+        if (r.isDead) drawSquadDead(c, x, y, col);
+        else drawSquadArrow(c, x, y, Math.atan2(-Math.cos(r.yaw), -Math.sin(r.yaw)), col);
+        drawLabel(c, suspended ? `${r.name} · ${SUSPENDED_LABEL_KO}` : r.isDead ? `${r.name} · 전사` : r.name, x, y + 9 * MARKER_SCALE, col);
         c.globalAlpha = 1;
       }
     }
-    // player
+    // player — forward = (-sin yaw, -cos yaw) in world XZ; canvas y = +Z
     const player = ctx.player;
     if (player) {
       const x = this.toX(player.position.x), y = this.toY(player.position.z);
-      // forward = (-sin yaw, -cos yaw) in world XZ; canvas y = +Z
-      const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
-      const ang = Math.atan2(fz, fx);
-      c.save();
-      c.translate(x, y);
-      c.rotate(ang);
-      // view cone
-      const cone = c.createRadialGradient(0, 0, 0, 0, 0, 40);
-      cone.addColorStop(0, 'rgba(255,179,71,0.30)');
-      cone.addColorStop(1, 'rgba(255,179,71,0)');
-      c.fillStyle = cone;
-      c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, 40, -0.55, 0.55); c.closePath(); c.fill();
-      // arrow
-      c.fillStyle = COL.accent;
-      c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1.5;
-      c.beginPath(); c.moveTo(9, 0); c.lineTo(-6, 5.5); c.lineTo(-3, 0); c.lineTo(-6, -5.5); c.closePath();
-      c.fill(); c.stroke();
-      c.restore();
+      const ang = Math.atan2(-Math.cos(player.yaw), -Math.sin(player.yaw));
+      drawPlayerCone(c, x, y, ang);
+      drawPlayerArrow(c, x, y, ang);
     }
     c.globalAlpha = 1;
   }
@@ -1025,10 +1047,7 @@ export class MapScreen {
     c.restore();
 
     if (hz.kind) {
-      c.fillStyle = COL.danger;
-      c.font = FONT_LABEL;
-      c.textAlign = 'left'; c.textBaseline = 'top';
-      c.fillText(`${HAZARD_LABEL_KO[hz.kind]} · 안전지대 ${Math.max(0, Math.round((1 - hz.progress) * 100))}%`, 8, C - 16);
+      drawLabel(c, `${HAZARD_LABEL_KO[hz.kind]} · 안전지대 ${Math.max(0, Math.round((1 - hz.progress) * 100))}%`, 8, C - 17, COL.danger, 'top', 'left');
     }
   }
 
@@ -1103,34 +1122,296 @@ export class MapScreen {
       const pts = line.points;
       if (pts.length < 2) continue;
       if (!pts.some((p) => this.discovered(p))) continue;
-      c.strokeStyle = COL.rail; c.lineWidth = 1.4;
-      c.setLineDash([5, 3]);
       c.beginPath();
       for (let i = 0; i < pts.length; i++) {
         const X = this.toX(pts[i].x), Y = this.toY(pts[i].z);
         if (i) c.lineTo(X, Y); else c.moveTo(X, Y);
       }
       if (line.kind === 'loop') c.closePath();
-      c.stroke();
-      c.setLineDash([]);
+      strokeRail(c);
       for (const p of line.platforms) {
         if (!this.discovered(p.position)) continue;
         const X = this.toX(p.position.x), Y = this.toY(p.position.z);
         if (!this.inView(X, Y, 8)) continue;
-        c.strokeStyle = COL.rail; c.lineWidth = 1.4;
-        c.strokeRect(X - 4, Y - 2.5, 8, 5);
+        drawPlatform(c, X, Y);
+        this.labels.add('플랫폼', X, Y + 4, LABEL_COL, PRIO.platform);
       }
     }
     for (const tram of world.getTrams()) {
       if (!this.discovered(tram.position)) continue;
       const X = this.toX(tram.position.x), Y = this.toY(tram.position.z);
       if (!this.inView(X, Y, 10)) continue;
-      c.save();
-      c.translate(X, Y); c.rotate(-tram.yaw);
-      c.fillStyle = tram.state === 'moving' ? COL.tram : 'rgba(255,210,127,0.5)';
-      c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1;
-      c.beginPath(); c.rect(-6, -3, 12, 6); c.fill(); c.stroke();
-      c.restore();
+      drawTram(c, X, Y, tram.yaw, tram.state === 'moving');
+    }
+  }
+
+  /* ── 2026-09-13: 탐사 차량 ─────────────────────────────────────────────── */
+
+  /** 정류장이 지도에 보이는가 — 모든 정류장이 공개됐거나(누군가 탔다) 안개로 그 표지 기둥을 발견했다. */
+  private stationVisible(rover: RoverRef, st: RoverStationDef): boolean {
+    return rover.stationsRevealed || this.discovered(st.polePosition);
+  }
+
+  /** 흙길(공개된 뒤에만) + 정류장 마커 · 라벨. 목적지 선택 모드면 요금 · 현재 위치 · 막힌 정류장을 함께 그린다. */
+  private drawRoverRoute(rover: RoverRef): void {
+    const c = this.c2d;
+    const pts = rover.route.points;
+    if (rover.stationsRevealed && pts.length >= 2) {
+      c.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const X = this.toX(pts[i].x), Y = this.toY(pts[i].z);
+        if (i) c.lineTo(X, Y); else c.moveTo(X, Y);
+      }
+      c.closePath();
+      strokeRoute(c);
+    }
+    const v = rover.vehicle;
+    for (const st of rover.route.stations) {
+      if (!this.stationVisible(rover, st)) continue;
+      const X = this.toX(st.polePosition.x), Y = this.toY(st.polePosition.z);
+      if (!this.inView(X, Y, 40)) continue;
+      const swallowed = rover.isStationSwallowed(st.id);
+      if (!this.roverMode) {
+        drawStation(c, X, Y, { swallowed });
+        this.labels.add(st.label, X, Y + 8, swallowed ? COL.danger : COL.station, PRIO.station);
+        continue;
+      }
+      const current = v.stationId === st.id;
+      const blocked = !current && rover.tripBlock(st.id) !== null;
+      const ring = current ? 'current' : st.id === this.selectedStation ? 'selected' : st.id === this.hoverStation ? 'hover' : null;
+      drawStation(c, X, Y, { swallowed, disabled: blocked, ring });
+      this.labels.add(st.label, X, Y + 12, current ? COL.success : blocked ? COL.dim : COL.station, PRIO.station);
+      const fare = current ? null : rover.fareTo(st.id);
+      const sub = current ? '현재 위치' : fare !== null ? `${fmtInt(fare)} 크레딧` : '';
+      if (sub) this.labels.add(sub, X, Y + 25, current ? COL.success : blocked ? COL.dim : COL.accent, PRIO.station);
+    }
+  }
+
+  /** 차체 마커 — 지금 자리를 발견했거나 · 정류장이 공개됐거나 · 내가 타 있으면. */
+  private drawRoverVehicle(rover: RoverRef): void {
+    const v = rover.vehicle;
+    if (!rover.stationsRevealed && !rover.localAboard && !this.discovered(v.position)) return;
+    const X = this.toX(v.position.x), Y = this.toY(v.position.z);
+    if (!this.inView(X, Y, 14)) return;
+    drawRover(this.c2d, X, Y, v.yaw, v.state === 'destroyed');
+  }
+
+  /** 목적지 선택 모드: 호버 · 선택한 정류장이 막혀 있으면 그 사유를 마커 옆에 붉게 쓴다. */
+  private drawRoverReason(rover: RoverRef): void {
+    const id = this.hoverStation ?? this.selectedStation;
+    if (!id || rover.vehicle.stationId === id) return;
+    const st = this.findStation(rover, id);
+    if (!st) return;
+    const reason = rover.tripBlock(id);
+    if (!reason) return;
+    drawLabel(this.c2d, reason, this.toX(st.polePosition.x), this.toY(st.polePosition.z) - 12, COL.danger, 'bottom');
+  }
+
+  private findStation(rover: RoverRef, id: string): RoverStationDef | null {
+    for (const st of rover.route.stations) if (st.id === id) return st;
+    return null;
+  }
+
+  /** 캔버스 좌표 → 가장 가까운 보이는 정류장 (`STATION_HIT_PX` 안), 없으면 null. */
+  private stationAt(clientX: number, clientY: number): RoverStationDef | null {
+    const rover = this.ctx?.world?.rover;
+    if (!rover) return null;
+    const r = this.canvas.getBoundingClientRect();
+    const mx = clientX - r.left, my = clientY - r.top;
+    let best: RoverStationDef | null = null, bestD = STATION_HIT_PX;
+    for (const st of rover.route.stations) {
+      if (!this.stationVisible(rover, st)) continue;
+      const d = Math.hypot(this.toX(st.polePosition.x) - mx, this.toY(st.polePosition.z) - my);
+      if (d < bestD) { bestD = d; best = st; }
+    }
+    return best;
+  }
+
+  private pickStation(clientX: number, clientY: number): void {
+    const st = this.stationAt(clientX, clientY);
+    this.selectedStation = st ? st.id : null;
+    this.tripError = null;
+    if (st) this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+  }
+
+  /**
+   * 목적지 선택 모드로 들어간다 (`rover:destinationSelect {open:true}` · 타 있는 채 정차 중 M). 지도가 닫혀 있으면 연다 —
+   * 다른 화면이 떠 있으면(인벤토리 등) 가로채지 않고 무시한다 (나중에 M 으로 열 수 있다).
+   */
+  private enterRoverMode(): void {
+    const ctx = this.ctx;
+    if (!ctx?.world?.rover) return;
+    if (!this._open) {
+      if (ctx.uiBlockers.size > 0 || !ctx.isGameplayPhase()) return;
+      this.open();
+      if (!this._open) return;
+      this.roverOpenedMap = true;
+    }
+    this.roverMode = true;
+    this.roverEnteredAt = ctx.time;
+    this.selectedStation = null;
+    this.tripError = null;
+    this.legendEl.hidden = true;
+    this.roverPanel.hidden = false;
+    this.emitGuide();
+  }
+
+  /** 모드 상태만 지운다 (지도는 건드리지 않는다) — `close()` 가 부른다. */
+  private resetRoverMode(): void {
+    this.stopHold();
+    this.roverMode = false;
+    this.roverOpenedMap = false;
+    this.selectedStation = null;
+    this.hoverStation = null;
+    this.tripError = null;
+    this.legendEl.hidden = false;
+    this.roverPanel.hidden = true;
+    this.canvas.classList.remove('pick');
+  }
+
+  /** 모드를 끝낸다. `closeMap` 이고 모드가 지도를 열었으면 지도도 닫는다, 아니면 지도의 가이드를 되돌린다. */
+  private exitRoverMode(closeMap: boolean): void {
+    const opened = this.roverOpenedMap;
+    this.resetRoverMode();
+    if (!this._open) return;
+    if (closeMap && opened) this.close(); else this.emitGuide();
+  }
+
+  /**
+   * 매 프레임: 차가 정차 상태를 벗어났거나(누가 결제했다 · 파괴) 내가 더 이상 타 있지 않으면 모드를 끝낸다. 들어온 직후
+   * 0.5 초는 `localAboard` 를 보지 않는다 (`rover:destinationSelect` 가 탑승 표시보다 먼저 올 수 있다). 패널 값도 여기서 쓴다.
+   */
+  private tickRoverMode(ctx: GameContext): void {
+    const rover = ctx.world?.rover ?? null;
+    const settled = ctx.time - this.roverEnteredAt > 0.5;
+    if (!rover || rover.vehicle.state === 'destroyed' || (settled && (!rover.localAboard || rover.vehicle.state !== 'stopped'))) {
+      this.exitRoverMode(true);
+      return;
+    }
+    const credits = ctx.meta?.credits;
+    setText(this.rvCredits, typeof credits === 'number' ? `${fmtInt(credits)} 크레딧` : '—');
+    const st = this.selectedStation ? this.findStation(rover, this.selectedStation) : null;
+    if (!st) {
+      this.rvHint.hidden = false;
+      setText(this.rvDest, '—'); setText(this.rvDist, '—'); setText(this.rvFare, '—');
+      setText(this.rvReason, this.tripError ?? '');
+      setText(this.rvBtnLbl, '목적지를 선택하세요');
+      this.setBtnBlocked(true);
+      return;
+    }
+    this.rvHint.hidden = true;
+    const dist = rover.tripDistance(st.id);
+    const fare = rover.fareTo(st.id);
+    const block = rover.vehicle.stationId === st.id ? '지금 서 있는 정류장입니다' : rover.tripBlock(st.id);
+    setText(this.rvDest, st.label);
+    setText(this.rvDist, dist !== null ? `${fmtInt(Math.round(dist))} m` : '—');
+    setText(this.rvFare, fare !== null ? `${fmtInt(fare)} 크레딧` : '—');
+    setText(this.rvReason, this.tripError ?? block ?? '');
+    setText(this.rvBtnLbl, fare !== null ? `${fmtInt(fare)} 크레딧 지불 · 출발` : '출발할 수 없음');
+    this.setBtnBlocked(block !== null);
+  }
+
+  private setBtnBlocked(blocked: boolean): void {
+    toggleClass(this.rvBtn, 'is-blocked', blocked);
+    this.rvBtn.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+    if (blocked && this.holdStart) this.stopHold();
+  }
+
+  /* 출발 확정 = `UI_HOLD_CONFIRM_S` 홀드 (일시정지 메뉴 · 제작과 같은 게이지 — 게이지는 rAF, 일찍 떼면 0) */
+  private startHold(e: PointerEvent): void {
+    if (e.button !== 0 || !this.roverMode || this.holdStart) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (this.rvBtn.classList.contains('is-blocked')) { this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.6 }); return; }
+    this.holdStart = performance.now();
+    this.rvBtn.classList.add('is-holding');
+    window.addEventListener('pointerup', this.onHoldUp);
+    window.addEventListener('pointercancel', this.onHoldUp);
+    this.ctx.bus.emit('audio:play', { id: 'ui_pickup' });
+    this.tickHold();
+  }
+
+  private readonly tickHold = (): void => {
+    if (!this.holdStart) return;
+    this.holdRaf = 0;
+    const t = Math.min(1, (performance.now() - this.holdStart) / (Math.max(0.05, UI_HOLD_CONFIRM_S) * 1000));
+    this.rvBtnFill.style.width = `${(t * 100).toFixed(1)}%`;
+    if (t < 1) { this.holdRaf = requestAnimationFrame(this.tickHold); return; }
+    this.stopHold();
+    this.confirmTrip();
+  };
+
+  private stopHold(): void {
+    if (this.holdRaf) { cancelAnimationFrame(this.holdRaf); this.holdRaf = 0; }
+    if (!this.holdStart) return;
+    this.holdStart = 0;
+    window.removeEventListener('pointerup', this.onHoldUp);
+    window.removeEventListener('pointercancel', this.onHoldUp);
+    this.rvBtnFill.style.width = '0%';
+    this.rvBtn.classList.remove('is-holding');
+  }
+
+  /** 홀드가 끝났다 — 결제 + 출발 요청. 막히면 사유를 패널에, 나가면 모드와 지도를 닫는다. */
+  private confirmTrip(): void {
+    const rover = this.ctx.world?.rover;
+    const id = this.selectedStation;
+    if (!rover || !id) return;
+    const reason = rover.requestTrip(id);
+    if (reason) {
+      this.tripError = reason;
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.6 });
+      return;
+    }
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.resetRoverMode();
+    this.close();
+  }
+
+  /* ── 범례 ──────────────────────────────────────────────────────────────── */
+
+  /**
+   * 범례 줄 보이기 · 견본 다시 그리기 (지도를 열 때 · 새 월드). 분대원은 멀티에서만, 선로 · 전차는 선로가 있을 때만,
+   * 탐사 차량 두 줄은 차량이 있을 때만. 분대원 견본은 실제 분대원의 슬롯 색을 쓴다.
+   */
+  private refreshLegend(): void {
+    const ctx = this.ctx;
+    const world = ctx?.world;
+    const hasRail = !!world?.ready && world.getRailLines().length > 0;
+    const hasRover = !!world?.rover;
+    const multi = !!ctx?.isMultiplayer;
+    let squadCol = NET_SLOT_COLORS_CSS[1];
+    if (multi && ctx.net) for (const r of ctx.net.getRemotePlayers()) { if (NET_SLOT_COLORS_CSS[r.slot]) { squadCol = NET_SLOT_COLORS_CSS[r.slot]; break; } }
+    for (const lr of this.legendRows) {
+      const show = lr.id === 'squad' ? multi : lr.id === 'rail' || lr.id === 'tram' ? hasRail : lr.id === 'rover' || lr.id === 'route' ? hasRover : true;
+      lr.row.hidden = !show;
+      if (show) this.drawSwatch(lr, squadCol);
+    }
+  }
+
+  /** 범례 견본 한 칸 — 지도와 **같은 그리기 함수**를 같은 크기로 부른다. */
+  private drawSwatch(lr: LegendRow, squadCol: string): void {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cv = lr.cv;
+    const w = Math.round(SW_W * dpr), h = Math.round(SW_H * dpr);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    const c = cv.getContext('2d');
+    if (!c) return;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, SW_W, SW_H);
+    const cx = SW_W / 2, cy = SW_H / 2;
+    const k = MARKER_SCALE;
+    switch (lr.id) {
+      // 화살표는 앞 끝과 뒤 끝의 가운데가 견본 가운데에 오게 민다
+      case 'player': drawPlayerArrow(c, cx - 1.5 * k, cy, 0); break;
+      case 'squad': drawSquadArrow(c, cx - 1 * k, cy, 0, squadCol); break;
+      case 'pad': drawPad(c, cx, cy); break;
+      case 'ship': drawShip(c, cx, cy); break;
+      case 'gather': drawGatherCross(c, cx, cy); break;
+      case 'rail': c.beginPath(); c.moveTo(2, cy); c.lineTo(SW_W - 2, cy); strokeRail(c); drawPlatform(c, cx, cy); break;
+      case 'tram': drawTram(c, cx, cy, 0, true); break;
+      case 'rover': drawRover(c, cx - 1.5, cy, 0); break;
+      case 'route': c.beginPath(); c.moveTo(1, cy); c.lineTo(SW_W - 1, cy); strokeRoute(c); drawStation(c, cx, cy); break;
+      case 'hazard': drawHazardSwatch(c, 3, 4, SW_W - 6, SW_H - 8); break;
     }
   }
 
@@ -1160,9 +1441,7 @@ export class MapScreen {
   }
 
   private diamond(c: CanvasRenderingContext2D, x: number, y: number, r: number, stroke: string, fill = 'rgba(0,0,0,0.5)'): void {
-    c.beginPath(); c.moveTo(x, y - r); c.lineTo(x + r, y); c.lineTo(x, y + r); c.lineTo(x - r, y); c.closePath();
-    c.fillStyle = fill; c.fill();
-    c.strokeStyle = stroke; c.lineWidth = 1.5; c.stroke();
+    drawDiamond(c, x, y, r, stroke, fill);
   }
 
   /** Upward chevron / arrow (attack ping). */
@@ -1182,6 +1461,7 @@ export class MapScreen {
 
   dispose(): void {
     for (const u of this.unsubs) u();
+    this.stopHold();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);

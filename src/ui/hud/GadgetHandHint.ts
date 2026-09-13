@@ -76,7 +76,7 @@ export class GadgetHandHint {
   update(_dt: number, ctx: GameContext): void {
     let n = 0;
     const p = ctx.player;
-    const on = ctx.isGameplayActive() && !!p && !p.isDead && !(p.droneControl ?? false) && ctx.uiBlockers.size === 0;
+    const on = ctx.isGameplayActive() && !!p && !p.isDead && !(p.droneControl ?? false) && !(p.roverRide ?? false) && ctx.uiBlockers.size === 0;
     if (on) {
       const held = this.heldGadget(ctx);
       // 기폭기 손: 마지막 C4 를 놓은 뒤 슬롯 없는 손. `heldItemId` 는 C4 def 그대로이고 weapons 가 `detonator` 를 켠다.

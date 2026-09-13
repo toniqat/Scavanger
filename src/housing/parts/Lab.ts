@@ -85,9 +85,22 @@ export function dropAnalysesOf(sys: HousingSystem, uid: string): void {
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
 }
 
+/** 전력 (2026-09-13): 멈춰 있던 분석기가 다시 돌았다 — 해석 중인 칸의 시각을 멈춘 시간만큼 민다 (`parts/Power` 가 부른다). */
+export function shiftPausedAnalyses(sys: HousingSystem, uid: string, pausedMs: number): number {
+  if (!(pausedMs > 0) || !sys.analyzerOf(uid)) return 0;
+  let n = 0;
+  for (const a of sys.analyses()) {
+    if (a.uid !== uid || !a.startedAt || !a.readyAt) continue;
+    a.startedAt += pausedMs;
+    a.readyAt += pausedMs;
+    n++;
+  }
+  return n;
+}
+
 /** Finished 칸 of an analyzer (the `housing:analysisChanged` payload and the hub's 발광 창). */
 export function readyAnalyses(sys: HousingSystem, uid: string): number {
-  const now = sys.nowMs();
+  const now = sys.stationNow(uid);
   return sys.analyses().filter((a) => a.uid === uid && now >= a.readyAt).length;
 }
 
@@ -147,7 +160,7 @@ function rollResult(sys: HousingSystem, def: ItemDef, family: SampleFamily, leve
 export function getAnalyses(sys: HousingSystem, uid: string): AnalysisSlotInfo[] {
   const analyzer = sys.analyzerOf(uid);
   if (!analyzer) return [];
-  const now = sys.nowMs();
+  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 분석기는 멈춘 시각에 서 있다
   const open = analyzerSlotsForLevel(analyzer.level);
   const found = analysisFound(sys);
   const out: AnalysisSlotInfo[] = [];
@@ -271,7 +284,7 @@ export function startAnalysis(sys: HousingSystem, uid: string, slot: number, sam
   if (!result) return '이 표본에서 얻을 수 있는 결과가 없습니다';
   const inv = sys.ctx.inventory;
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(sampleDefId, 1)) return '표본을 꺼낼 수 없습니다';
-  const startedAt = sys.nowMs();
+  const startedAt = sys.stationNow(uid);           // 전력 (2026-09-13): 멈춘 분석기에 넣으면 다시 돌 때부터 해석한다
   sys.analyses().push({
     uid, slot, sampleDefId, startedAt,
     readyAt: startedAt + analysisDurationMs(def.sample.analyzeHours, level),
@@ -303,7 +316,7 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   if (block) return block;
   const a = sys.analysisAt(uid, slot);
   if (!a) return '해석 중인 표본이 없습니다';
-  const now = sys.nowMs();
+  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 분석기는 멈춘 시각 기준
   if (now < a.readyAt) return `아직 해석 중입니다 (${formatRemaining(Math.ceil((a.readyAt - now) / 1000))} 남음)`;
   const def = sys.sampleDef(a.sampleDefId);
   const loot = sys.ctx.loot;
@@ -353,7 +366,7 @@ export function collectAllAnalyses(sys: HousingSystem, uid: string): number {
   let taken = 0;
   for (let slot = 0; slot < analyzerSlotsForLevel(analyzer.level); slot++) {
     const a = sys.analysisAt(uid, slot);
-    if (!a || sys.nowMs() < a.readyAt) continue;
+    if (!a || sys.stationNow(uid) < a.readyAt) continue;
     if (sys.collectAnalysis(uid, slot) === null) taken++;
   }
   return taken;

@@ -267,7 +267,8 @@ export class Pings {
   private updateGesture(ctx: GameContext): void {
     const input = ctx.input;
     // v3: pings work in the ship too — control active (gameplay OR hub, no blockers) + pointer locked + alive.
-    const canPing = ctx.isControlActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false);
+    // 2026-09-13: 탐사 차량 안에서는 핑을 찍지 않는다 (궤도 카메라 시점 — 사용자 결정 「무기 · 아이템 · 호출 불가」 와 같은 줄)
+    const canPing = ctx.isControlActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false) && !(ctx.player?.roverRide ?? false);
 
     if (!this.holding) {
       if (!(canPing && input.wasMousePressed(MouseButtons.PING) && ctx.time - this.lastPingTime >= COOLDOWN)) return;

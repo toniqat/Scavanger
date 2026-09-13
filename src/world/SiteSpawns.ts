@@ -41,7 +41,7 @@ import {
   type RailPlatformDef, type SiteSpawnPlace, type StructureDef, type TerrainHit,
 } from '@/shared';
 import { PLAY_LIMIT } from './build';
-import { railClearance, type WorldLayout } from './layout';
+import { railClearance, roverClearance, type WorldLayout } from './layout';
 import { hullAreaCentroid } from './hull';
 import { boxContainsXZ } from './obb';
 import type { OutpostSite } from './Outposts';
@@ -304,6 +304,7 @@ export class SiteSpawns {
       const x = f.cx + lx * f.cos - lz * f.sin, z = f.cz + lx * f.sin + lz * f.cos;
       if (Math.abs(x) > PLAY_LIMIT || Math.abs(z) > PLAY_LIMIT) continue;
       if (railClearance(layout, x, z) < BODY_R) continue;
+      if (roverClearance(layout, x, z) < BODY_R) continue;       // 2026-09-13: 탐사 차량 흙길 회랑 · 정류장 부지
       if (s.slopeAt(x, z) > OUT_MAX_SLOPE) continue;
       // 다른 거점 · 착륙장 · 둥지 안이 아니다
       const st = s.structureAt(x, z);

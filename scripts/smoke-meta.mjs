@@ -700,9 +700,12 @@ try {
   }));
   /* 2026-09-12 (사용자 결정): 완료 퀘스트는 초록이 아니라 **딤드**이고 목록 **맨 아래**로 내려간다.
      완료가 아닌 것들끼리는 csv 순서 그대로다 (안정 분할) — 그래서 h2 가능 · h3/h4 잠김 · h1 완료 순이다.
-     「완료된 항목 보기」 체크박스는 기본 켜짐이라 네 줄이 다 보인다. */
-  ok(questsDom.rows.length === 4 && questsDom.rows[0].id === 'h2' && questsDom.rows[0].badge === '가능'
-    && questsDom.rows[3].id === 'h1' && questsDom.rows[3].badge === '완료' && questsDom.doneToggle === true,
+     「완료된 항목 보기」 체크박스는 기본 켜짐이라 줄이 다 보인다.
+     2026-09-13 (암호화폐 채굴): 헬릭스 채굴 인가 퀘스트 `hx_crypto`(h2 선행 · 잠김)가 더해져 다섯 줄이다 — 완료 h1 은 여전히 맨 아래. */
+  const lastRow = questsDom.rows[questsDom.rows.length - 1];
+  ok(questsDom.rows.length === 5 && questsDom.rows[0].id === 'h2' && questsDom.rows[0].badge === '가능'
+    && questsDom.rows.some((r) => r.id === 'hx_crypto' && r.badge === '잠김')
+    && lastRow?.id === 'h1' && lastRow?.badge === '완료' && questsDom.doneToggle === true,
     'helix 퀘스트 tab: 완료한 h1 이 맨 아래, h2 가능이 맨 위, 완료 보기 기본 켜짐', JSON.stringify(questsDom.rows));
   ok(questsDom.rewardsInDetail, '보상은 납품 패널 아래 같은 열에 붙는다 (목록 열이 아니다)');
   ok(questsDom.deliver >= 1 && questsDom.grids >= 1,`퀘스트 tab: 납품 table in the middle, 가방 + 함선 창고 grids on the right (${questsDom.deliver} lines, ${questsDom.grids} grids)`);

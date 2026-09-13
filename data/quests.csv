@@ -22,3 +22,9 @@ cg1,ceres,함선 작물 시식,1,ci1,crop_tuber:6|crop_beanpod:6|crop_leafgreen:
 cg2,ceres,온실 약재 임상,2,cg1,herb_frostmoss:5|herb_emberpod:5|herb_ironleaf:3,400,800,600,soil_mineral:2,"서리이끼 5개, 불씨꼬투리 5개, 철엽초 3개를 납품한다. 보상: 광물토 2개."
 cl1,ceres,미확인 표본 제출,,,spec_cell:4,200,300,220,,"아직 해석하지 않은 미확인 세포 4개를 납품한다. 세레스 바이오는 남이 해석하기 전의 것을 원한다."
 cl2,ceres,심층 생체 분석,2,cl1,mat_extract_bio:4,380,700,500,spec_dna:1,"생체 추출물 4개를 납품한다. 대가로 미확인 DNA 하나를 받는다."
+# 암호화폐 채굴 인가 (2026-09-13, 사용자 결정) — 완료하면 그 기업의 코인(data/crypto.csv 의 unlockQuest) 채굴 · 매매가 열린다.
+# rewardCredits 는 0 보다 커야 한다 — 릴레이가 크레딧 원장(quest:<id>)으로 해금 여부를 확인한다.
+hx_crypto,helix,헬릭스 채굴 인가,2,h2,mat_circuit:6|mat_power_cell:4,300,600,300,,"회로 기판 6개, 파워 셀 4개를 납품한다. 완료하면 헬릭스 토큰(HLXT)을 채굴하고 거래할 수 있다."
+bs_crypto,bastion,바스티온 채굴 인가,2,b1,mat_circuit:6|mat_alloy:10,300,600,300,,"회로 기판 6개, 합금 판 10개를 납품한다. 완료하면 바스티온 본드(BSTN)를 채굴하고 거래할 수 있다."
+nm_crypto,nomad,노마드 채굴 인가,2,n1,mat_circuit:6|mat_cable:8,300,600,300,,"회로 기판 6개, 전력 케이블 8개를 납품한다. 완료하면 노마드 마일(NMDM)을 채굴하고 거래할 수 있다."
+ce_crypto,ceres,세레스 채굴 인가,2,c1,mat_circuit:6|mat_bio_sample:10,300,600,300,,"회로 기판 6개, 생체 조직 10개를 납품한다. 완료하면 세레스 셀(CRSC)을 채굴하고 거래할 수 있다."

@@ -107,10 +107,20 @@ const SMOKES = {
   /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
      HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */
   'smoke-stations':     { file: 'scripts/smoke-stations.mjs',     folders: ['housing', 'inventory', 'items'] },
+  /* 2026-09-13 (배치 규칙 — 접근 면): front(벽 · 앞 줄) / sides(좁은 끝 허용 · 넓은 면 거절 · 넓은 면 벽 허용) / all(모서리 허용) · 통로 공유 ·
+     양방향 · 자동 배치 · 옛 배치 → 가구 창고 + 담긴 흙 · 씨앗 환불 · 조종석 시설 유지 · 상호작용 방향(앞 / 넓은 면) · 고스트 칸 타일. */
+  'smoke-furniture-access': { file: 'scripts/smoke-furniture-access.mjs', folders: ['housing', 'hub'] },
   /* 2026-09-13 (요리 재료 티어 · agent B): 순수 규칙(기본값 = 옛 식 · 비율 · 마모 · 결과표 추첨) · 분석 결과를 넣는 순간 굴린다 · 회수 →
      경험치 · 레벨업 · 분석 도감 · 흙 / 배지 내구도(0 이어도 칸 유지 · 비율 보너스) · 소켓 끼우기 / 가득 참 / 교체 · 스캐폴드 → 종별 고기 ·
      은퇴 세포주 거절 · 세이브 왕복 · 요리 effects → derived(마지막, 너그럽게). */
   'smoke-food-chain':   { file: 'scripts/smoke-food-chain.mjs',   folders: ['housing', 'items', 'progression'] },
+  /* 2026-09-13 (발전기 전력): 공급표 Lv.0–10 · 요구 = 기본 + 활성 가구 + 코어 · 새 시설 · 배치 자동 보충(남는 전력에서만) · 할당 한도 ·
+     전력 부족 → 작업대 · 가방 제작 목록 · 운동 · 서재 보너스 막힘 · 토스트 · 비활성화는 요구에서 빠진다 · 메인 컴퓨터 없는 클러스터 ·
+     재배 시계 멈춤(진행도 고정 · 다시 돌면 readyAt 이 멈춘 시간만큼 밀린다) · v12 이관(방 순서 자동 할당 · 공급 초과 절삭) ·
+     스테이션 화면 비활성화 버튼 · 배너 · 시설 관리 전력 패널(요구량 맞추기) · 인스펙터 요구 전력 줄 · 비활성화 버튼. */
+  'smoke-power':        { file: 'scripts/smoke-power.mjs',        folders: ['housing', 'ui'] },
+  /* 2026-09-13: 암호화폐 채굴 규칙 — 클러스터 주기 · 지갑 · 코어 · 잠긴 코인 · 회수 거절 · 세이브 정리 (housing `parts/Mining` · `MiningRules`, items 프로세서 · 연산 코어) */
+  'smoke-mining':       { file: 'scripts/smoke-mining.mjs',       folders: ['housing', 'items', 'meta'] },
   /* 2026-09-12 (E1): 아이템 즐겨찾기 — API · 이벤트 · 우클릭 = 모든 아이템에 메뉴(격자 · 장비칸 · 휠 · 시체 창) · 더블클릭 빠른 이동 ·
      파란 사선 띠(가방 · 창고 · 장비칸 · TradeGrids · buildItemTile, 필요한 탄약이면 노란 띠와 둘 다) · 정렬 앞쪽 · 「즐겨찾기」 칩 ·
      분해 확인 1초 홀드 · 시체 창 글로우 · 로드아웃 `fav` 저장 / 새로고침 / 서버 문서 교체 + 올리지 못한 토글 보호. */
@@ -122,6 +132,10 @@ const SMOKES = {
      실제 pointerdown 칼질) · 결과 = 품질 요리가 창고에 · 재료는 끝에서 · 품질 다른 요리 둘 · 취소 = 재료 그대로 · 자동 가구 Lv.1/2/3 ·
      식탁 품질 줄 · 새로고침 보존 · 출격 식사의 derived 보너스. */
   'smoke-cooking':      { file: 'scripts/smoke-cooking.mjs',      folders: ['housing', 'inventory', 'progression', 'hub', 'player'] },
+  /* 2026-09-13 (암호화폐 채굴 화면): 연산 클러스터 화면(코어 칸 3×3 드롭 · 우클릭 / 더블클릭 빼기 · 코인 지정 · 진행도 있으면 1초 홀드 경고 ·
+     잠긴 코인 거절 · 레일) · 메인 컴퓨터(현황 · 지갑 · 거래소 — 스텁 시세로 차트 · 호버 OHLC · 기간 · 봉/선 · watch 참조 계수 · 견적 사유로 막히는
+     1초 홀드 매매 · 잠긴 코인 · 오프라인 문구) · Tab / Esc 닫기 · 두 가구 모델 · 코어 수만큼 켜진 칸 · 점광원 개수 불변. */
+  'smoke-mining-ui':    { file: 'scripts/smoke-mining-ui.mjs',    folders: ['housing', 'hub'] },
   /* 2026-09-12 (캐릭터 버프): PC 체력 블록이 함선에서도 보인다 · 체력바 아래 버프 썸네일 줄(흐림 · 디버프 테두리 · 시간 게이지 ·
      키로 DOM 재사용) · 분대원 행의 미니 줄(디버그 원격 ref) · 옛 배지 셋이 없다 · 레이드 자리 / 드론 시점 축소. */
   'smoke-buffs':        { file: 'scripts/smoke-buffs.mjs',        folders: ['ui', 'player', 'net'] },
@@ -178,6 +192,10 @@ const SMOKES = {
   'smoke-burrow':       { file: 'scripts/smoke-burrow.mjs',       folders: ['enemies', 'audio'] },
   'smoke-sandworm':     { file: 'scripts/smoke-sandworm.mjs',     folders: ['enemies', 'audio', 'console'] },
   'smoke-tram-ride':    { file: 'scripts/smoke-tram-ride.mjs',    folders: ['enemies', 'world'] },
+  /* 2026-09-13 (탐사 차량 R2): 정류장 4–5 · 정차 · 탑승(프롬프트 · 홀드 · riders · 정류장 공개 · 목적지 선택 열기) · 요금(10 단위 · 범위) ·
+     결제 → 크레딧 차감 → 5초 유예 → trip · 이동 중 탑승 거절 · 도착 강제 하차(목적지 곁) · 순환 출발 + 포탑 사격 · 피해 · 파괴(탑승자 하차 ·
+     targetable false · 탑승 거절). 콘솔 `rover` 치트(`cheat:rover`)로 시간을 줄인다. src/world/rover 는 `world` 폴더다. */
+  'smoke-rover':        { file: 'scripts/smoke-rover.mjs',        folders: ['world', 'audio', 'console'] },
   /* 2026-09-11 (E-4 + C-57 · X-6): 신뢰 경로 — 두 클라이언트 · **코드로 만든 비공개 로비**(빠른 매칭 아님)로 레이드에 들어가
      위조 strat call / stratq call · 버프 상한 · 벽 뒤 스프레이 · 계약 킬 파생 · meta sync rid · crate opened 거리 · 넉백 기하 ·
      hit 요청 DPS 상한을 잰다. 공용 릴레이를 쓰지만 자기 로비라 exclusive 가 아니다. */

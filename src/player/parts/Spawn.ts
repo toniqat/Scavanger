@@ -133,6 +133,7 @@ export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
  * active camera override (the hub owns that via `setCameraOverride(null)`).
  */
 export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: number): void {
+  sys.releaseRoverRide();   // 2026-09-13
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();
@@ -182,6 +183,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
 export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: number, snap?: boolean): void {
   if (!sys.spawned || sys.isDead || sys._inPod) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
+  sys.releaseRoverRide();   // 2026-09-13: a move cheat takes the body out of the rover first
   sys.releaseFurniturePose('reset');   // 2026-09-12: a move cheat stands the body up first
   sys.clearClimbState();
   _v.copy(position);
@@ -208,6 +210,7 @@ export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: numbe
 
 export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: number): void {
   const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
+  sys.releaseRoverRide();   // 2026-09-13
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();
@@ -363,6 +366,7 @@ export function updateDrop(sys: PlayerSystem, dt: number): void {
   }
 
 export function resetAll(sys: PlayerSystem): void {
+  sys.releaseRoverRide();   // 2026-09-13: game:abort · 재접속 대기
   sys.releaseDroneControl();   // 2026-09-11: game:abort · 재접속 대기
   sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearClimbState();

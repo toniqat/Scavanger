@@ -620,9 +620,52 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 - 조사용 필드: `rig.swayYaw` · `swayPitch`(이번 프레임 rad) · `swayAmplitude`(이번 프레임 좌우 진폭 rad).
 - 검증: `scripts/smoke-aim-sway.mjs` (verify 등록 — folders `player` · `weapons`).
 
+## 탐사 차량 탑승 (2026-09-13 — `PlayerRef.roverRide` · `roverBoardBlock` · `setRoverRide` · `roverSafePosition`, 호출자 `world/rover`)
+
+규칙의 원본은 `shared/types.ts` 의 탐사 차량 절이다 (사용자 결정: **내부 탑승 · 마우스 궤도 카메라 · 탑승자 무적**). 구현은 `parts/RoverRide.ts`,
+카메라는 `CameraRig` 의 궤도 모드. 수치는 `data/constants.csv` 의 `[R3]` 블록(`ROVER_CAM_*` · `ROVER_SAFE_SIDE_M` · `ROVER_REMOTE_EXIT_HIDE_S`)과
+공용 `ROVER_EXIT_HOLD_S`.
+
+- **`roverBoardBlock()`** — 탈 수 없는 한국어 사유: 이미 탑승 · 사망 · 전투불능 · 들쳐메기 · 업힘 · 사다리 · 드론 조종 · 가구 자세 · 발사 포드 ·
+  헬포드 강하 · 탈출 함선 안 · 부모에 붙음 · 실내 · 게임플레이 페이즈 밖. world 는 탑승 요청 **전에** 이것을 묻는다.
+- **`setRoverRide(binding)`** — 거절(위 사유)은 **조용하다**(`console.warn` 한 줄, `roverRide` 가 false 로 남는다) — 호스트 확정이 늦게 와서 그사이
+  몸이 쓰러졌을 수 있으므로 **world 는 부른 뒤 `roverRide` 를 다시 본다**. 받아들이면: 조준 · 구르기 · 갈고리 · 부양 · 화상 · 둔화 · 근접 · E 홀드 취소,
+  서기, `controller.reset(seat)`(전차 탑승 · 사다리 상태까지 비운다), 모델 · 실루엣 숨김, `rig.enterRoverOrbit(focus, cameraDistance, yaw)`.
+  같은 탑승 중 새 끈이 오면 몸은 두고 초점만 바꾼다.
+- **매 프레임** — `update` 맨 위에서 `canHoldRoverRide`(살아 있음 · 게임플레이 · 포드/업힘/부모/실내/함선 박스 아님)가 거짓이면 차량 옆에 내리고,
+  아니면 발을 `seat` 에 붙인다(속도 0 · 접지). `moveFrozen` 이라 컨트롤러 · 발소리 · 중력이 없다. 조준 · 어깨 전환 · 흔들림 · 들쳐메기 입력이 없고
+  휠은 궤도 거리(`zoomRoverOrbit`)다. `canUseWeapons()` · `canAct()` 가 false.
+- **E** — 상호작용 스캔 대신 `updateRoverPrompt`: `binding.canExit` 면 `하차` + 홀드 쉐브런, `ROVER_EXIT_HOLD_S` 를 채우면 `binding.requestExit()`
+  (탑승 홀드에 쓴 E 는 한 번 떼야 새 홀드가 시작된다). 못 내리면 `binding.lockedPrompt` 만(홀드 없음). 화면이 열려 있으면 프롬프트 없음.
+- **하차 `setRoverRide(null, exitAt)`** — `exitAt`(없으면 지금 자리)를 `getSurfaceY` 로 지면에 붙이고 `resolveCollision` 으로 콜라이더 밖에 민 뒤
+  `controller.reset`, 몸을 차량 진행 방향으로 돌려 다시 보이게 하고 `rig.exitRoverOrbit()` + `snapTo` **하드 컷**. 같은 E 가 내린 자리의 상호작용을
+  치지 않게 `holdArmed = false` + 쿨다운 0.35 s.
+- **강제 해제 `releaseRoverRide()`** — 좌석에서 차량 **오른쪽** `ROVER_SAFE_SIDE_M` 의 지면(`roverSafePosition`)에 내린다. 부르는 곳: `die`(자발적 귀환 —
+  시체가 선체 안에 서지 않게) · `respawnAt` · `spawnStanding` · `resetAll`(`game:abort`) · `teleport` · `setInterior` · `setInPod` · `setShipInterior` ·
+  `attachTo` · `hub:entered` · 게임플레이 밖으로의 `game:phaseChanged` · 백스톱.
+- **피해 면제** — `Vitals.applyDamage`(재해 · 화상 틱 · 전차 · 폭발 · 적 전부가 이 길) · `applyKnockback` · `Locomotion.applyImpulse` · `Statuses.setBurning` ·
+  행성 환경 틱(`updateEnv` — 노출 배지는 그대로) 이 탑승 중 아무것도 안 한다. `world/Hazard` 도 명시적으로 `!p.roverRide` 일 때만 깎는다(시야 · 알림은 유지).
+- **궤도 카메라 (`CameraRig`)** — 카메라 = `focus − look × 거리`. 시작은 차 뒤 · 고도 `ROVER_CAM_ELEV_START_DEG`, 마우스 고도 범위
+  `ROVER_CAM_ELEV_MIN/MAX_DEG`(피치 = −고도), 휠 = 기본 거리 × `ROVER_CAM_ZOOM_MIN/MAX_MUL`. `world.raycast(focus → 카메라)` 가 당기면 즉시,
+  풀릴 때는 `ROVER_CAM_ZOOM_RATE`, 지형 위 `ROVER_CAM_FLOOR`, 위치는 `ROVER_CAM_SMOOTH_RATE` 로 따라간다. 흔들림 · 반동 · 조준 흔들림 · FOV 가산이
+  없다(드론 시점과 같다). 연출 오버라이드 블렌드와 카메라 쓰기는 어깨 리그와 같은 `finishFrame` 을 탄다. **focus 는 선체 지붕 위여야 한다**
+  (world/rover) — 레이가 차량 자신의 콜라이더에서 시작하면 카메라가 `ROVER_CAM_MIN_DIST` 로 붙는다.
+- **원격** — `net/Snapshotter` 가 `PlayerFlags.IN_ROVER`(레이드만)를 싣고, `RemoteAvatar` 는 그 동안 + 내린 뒤 `ROVER_REMOTE_EXIT_HIDE_S` 더 숨긴다
+  (좌석 → 하차 자리로 보간되는 모습을 가린다). `ui/hud/Nameplates` · `TypingBubbles` 도 같은 비트로 숨기고, 고스트(`RemotePlayer.applyGhost`)는 비트를 지운다.
+- **다른 폴더의 입력 게이트** (`droneControl` 을 보던 자리에 `roverRide` 를 같이): weapons `WeaponSystem` 래치(사격 · 장전 · 교체 · 근접 · T · 휠) ·
+  `parts/QuickUse` 기폭기 손 유지 · implants `piloting`(Q) · gadgets `parts/Preview` · `drones/parts/Control`(R 꾹) · `drones/parts/Lifecycle`(꺼내기) ·
+  stratagems `parts/Targeting`(G) · ui `hud/CommsWheel`(H) · `hud/GadgetHandHint` · `hud/Pings`(핑).
+- **레이드 세이브** — `game/parts/Session.saveSoloAt` 가 탑승 중이면 좌석이 아니라 `roverSafePosition` 을 저장한다(복귀하면 차량 옆에 서 있다).
+  멀티 레이드 blob 에는 자세가 없다 — 끊긴 탑승자는 호스트(world/rover)가 내린다.
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-13 (탐사 차량 탑승 — 에이전트 D · R3)** — 새 `parts/RoverRide.ts`, `CameraRig` 궤도 모드(`enterRoverOrbit` · `exitRoverOrbit` ·
+  `zoomRoverOrbit` · `isRoverOrbit`, 꼬리를 `finishFrame` 으로 뽑아 어깨 리그와 공유), `PlayerSystem`(`_roverRide` · 게이트 · 해제 지점),
+  `parts/Vitals` · `Locomotion` · `Statuses` · `Spawn` · `DroneControl` · `Climb`(면제 · 해제 · 거절), `RemoteAvatar`(`IN_ROVER` 숨김).
+  계약 추가: `PlayerRef.roverSafePosition?` (types.ts 탐사 차량 절 안). 위 *탐사 차량 탑승* 절.
 
 - **2026-09-13 (요리 미니게임 — 조리 자세 · `cooking` 버프 · 식사 품질, 에이전트 cook-progression-player — `docs/plans/cooking-minigames.md` §6-3)** — 계약은 읽기만 했다
   (`FurniturePoseKind 'cook'` · `CharBuffKind 'cooking'` · `CharBuff.quality` · `HousingRef.cookSession` · `housing:cookSession` · `ProgressionRef.getMealQuality` / `getActiveMealQuality`).

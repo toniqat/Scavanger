@@ -884,3 +884,15 @@
 .hs-build-row .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 .hs-build-row.is-blocked { border-style: dashed; opacity: 0.75; }
 .hs-build-row.is-blocked .name { color: var(--c-text-dim); }
+
+/* ── 발전기 전력 (2026-09-13): 스테이션 카드의 비활성화 버튼 · 멈춤 배너 (`ui/StationShell.paintStationPower`). 접두사 `.hpw-` ── */
+.hpw-toggle { flex: none; height: 34px; padding: 0 14px; font-size: 11px; letter-spacing: 0.1em; }
+.hpw-toggle[hidden] { display: none; }
+.hpw-toggle.is-off { border-color: var(--c-success); color: var(--c-success); }
+.hpw-banner {
+  margin: 2px 0 6px; padding: 6px 10px;
+  border: 1px solid rgba(255, 77, 77, 0.55); background: rgba(255, 77, 77, 0.12);
+  font-size: 12px; letter-spacing: 0.04em; color: var(--c-danger);
+}
+.hpw-banner[hidden] { display: none; }
+.hpw-banner.is-disabled { border-color: var(--c-border); background: rgba(255, 255, 255, 0.05); color: var(--c-text-dim); }

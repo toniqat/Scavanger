@@ -40,7 +40,8 @@ export function updateInput(sys: StratagemSystem, dt: number): void {
    * 2026-09-11 드론 조종: 입력은 드론 것이다 — G 를 무시하고, 열려 있던 휠 · 충전 · 상단 시점은 닫는다 (무장한 호출은
    * 그대로 둔다; 지면 링은 끈다). `canUseWeapons()` 도 false 라 아래 경로는 어차피 막히지만, 휠 열기는 그 전에 G 를 읽는다.
    */
-  if (ctx.player?.droneControl) {
+  // 2026-09-13: 탐사 차량 안(`roverRide`)도 같다 — 몸이 선체 안이라 호출할 수 없다
+  if (ctx.player?.droneControl || ctx.player?.roverRide) {
     if (sys.topview || sys.wheelOpen || sys.charge >= 0) sys.cancelTargeting();
     sys.setGroundTargeting(false);
     sys.gHeld = false;

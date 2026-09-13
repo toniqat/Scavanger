@@ -4,6 +4,8 @@ import {
   FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, HOUSING_MOVE_HOLD_S, Keys, MouseButtons, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel, roomGridSize,
 } from '@/shared';
 import { COCKPIT_ONLY_RECOVER_REASON, isCockpitOnlyFurniture } from '@/shared';
+/* 2026-09-13 (배치 규칙 — 접근 면): 고스트의 비워야 하는 칸 표시 */
+import { accessAllowsWall, furnitureAccessOf, furnitureClearanceCells, roomCellBlocked } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_DEPTH, roomBox, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
@@ -155,6 +157,25 @@ export class HousingMode {
   private ghostValid: boolean | null = null;
   private readonly frame: THREE.Mesh;
   private readonly frameMat: THREE.MeshBasicMaterial;
+  /**
+   * 2026-09-13 (배치 규칙 — 접근 면): 바닥 칸 타일. 고스트가 비워야 하는 칸 = 초록(비었다) / 빨강(막혔다 · 앞이 벽), 이미 놓인 가구가 비워야 하는
+   * 칸 = 흐린 청록(고스트 몸체가 들어가면 빨강). 재질 셋은 `frameMat` 과 같은 설정이라 **같은 셰이더 프로그램**을 쓰고(새 컴파일 없음), 광원은 없다.
+   * 메시는 풀로 재사용하고 칸 · 회전 · 선택 · 배치가 바뀔 때만 다시 깐다 (`syncClearanceTiles`).
+   */
+  private readonly tileGeo = new THREE.PlaneGeometry(1, 1);
+  private readonly tileOkMat = new THREE.MeshBasicMaterial({ color: 0x5cff8a, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  private readonly tileBadMat = new THREE.MeshBasicMaterial({ color: 0xff5a4a, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  private readonly tileOtherMat = new THREE.MeshBasicMaterial({ color: 0x5fd7ff, transparent: true, opacity: 0.14, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  private readonly tiles: THREE.Mesh[] = [];
+  private tilesDirty = true;
+  private tileDef: string | null = null;
+  private tileX = -99;
+  private tileY = -99;
+  private tileYaw = -1;
+  private tileIgnore: string | null = null;
+  private tileRoom = -1;
+  /** 디버그 · 스모크: 지금 깔린 타일 수 (ok = 고스트의 빈 칸 · bad = 막힌 칸 · other = 놓인 가구의 칸). */
+  readonly clearanceTiles = { ok: 0, bad: 0, other: 0 };
 
   /**
    * Mouse buttons / wheel notches seen this frame. 함선 관리 runs in 커서 모드, where `Input` deliberately keeps the
@@ -218,6 +239,11 @@ export class HousingMode {
       ctx.bus.on('input:bindingsChanged', () => { if (this.active) this.emitGuide(true); }),
       // 2026-09-12: ui/ 인스펙터의 `위치 이동` 버튼 — E 와 같은 길
       ctx.bus.on('housing:moveRequested', ({ uid }) => this.beginMove(uid)),
+      // 2026-09-13 (배치 규칙): 배치가 바뀌면 비워야 하는 칸 타일을 다시 깐다
+      ctx.bus.on('housing:furniturePlaced', () => { this.tilesDirty = true; }),
+      ctx.bus.on('housing:furnitureMoved', () => { this.tilesDirty = true; }),
+      ctx.bus.on('housing:furnitureRecovered', () => { this.tilesDirty = true; }),
+      ctx.bus.on('housing:loaded', () => { this.tilesDirty = true; }),
     );
     // Both events, because the two callers differ: a real browser fires `pointerdown` then `mousedown` (the Set
     // below dedupes them inside the frame), while the headless smokes dispatch only `mousedown`.
@@ -239,6 +265,9 @@ export class HousingMode {
     this.ship = ship;
     this.layer = layer;
     if (ship) ship.root.add(this.frame);
+    // 2026-09-13: 칸 타일도 새 함선 루트로 옮긴다 (없으면 숨긴 채 떼어 둔다)
+    for (const t of this.tiles) { t.visible = false; if (ship) ship.root.add(t); else t.removeFromParent(); }
+    this.tilesDirty = true;
   }
 
   /* ── enter / leave ───────────────────────────────────────────────────── */
@@ -397,6 +426,7 @@ export class HousingMode {
       this.syncState();                        // 2026-09-12: a move in progress ends with the mode
       this.disposeGhost();
       this.frame.visible = false;
+      this.hideClearanceTiles();                 // 2026-09-13
       this.ship?.setGridVisible(false);        // 2026-09-12: the floor grid is a 시설 관리 overlay
       this.ship?.setCockpitCeilingHidden(false);   // 2026-09-13: the cockpit ceiling fades back in
       this.guideKey = '';
@@ -647,6 +677,7 @@ export class HousingMode {
     this.frame.position.set(_pos.x, 0.02, _pos.z);
     this.frame.scale.set(sel.cols * HOUSING_CELL_SIZE, sel.rows * HOUSING_CELL_SIZE, 1);
     this.frameMat.color.setHex(sel.defId ? (valid ? 0x5cff8a : 0xff5a4a) : valid ? 0xffd27a : 0x5fd7ff);
+    this.syncClearanceTiles(inRoom ? sel.defId : null, sel.yaw, sel.ignoreUid ?? null, x, y);   // 2026-09-13 배치 규칙
 
     if (changed) this.ctx.bus.emit('housing:cursorChanged', { room: this.room, x, y, valid });
   }
@@ -671,6 +702,7 @@ export class HousingMode {
         return uid;
       }
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      if (!this.manage) this.ctx.bus.emit('ui:notify', { text: this.refuseReason(), kind: 'warning' });   // 2026-09-13: 방 콘솔 모드도 사유를 본다
       this.refresh(true);
       return null;
     }
@@ -678,6 +710,7 @@ export class HousingMode {
     if (defId) {
       const placed = typeof housing.place === 'function' ? housing.place(this.room, defId, x, y, housing.selectedYaw) : null;
       this.ctx.bus.emit('audio:play', { id: placed ? 'ui_equip' : 'ui_deny' });
+      if (!placed && !this.manage) this.ctx.bus.emit('ui:notify', { text: this.refuseReason(), kind: 'warning' });   // 2026-09-13
       this.refresh(true);
       return placed?.uid ?? null;
     }
@@ -734,7 +767,16 @@ export class HousingMode {
   /** Why the current footprint cannot be placed — the room's purpose when that is the reason, else a plain line. */
   private refuseReason(): string {
     if (!this.cursorInRoom) return '방 밖에는 설치할 수 없습니다';
-    const defId = this.selection().defId;
+    const sel = this.selection();
+    const defId = sel.defId;
+    // 2026-09-13 (배치 규칙): housing 이 아는 구체적인 사유 (앞쪽이 벽에 막힙니다 · 앞쪽 1칸을 비워야 합니다 · 다른 가구의 접근 공간을 막습니다 …)
+    const housingRef = this.ctx.housing;
+    if (defId && housingRef && typeof housingRef.placementBlock === 'function') {
+      try {
+        const why = housingRef.placementBlock(this.room, defId, this.cell.x, this.cell.y, sel.yaw, sel.ignoreUid);
+        if (why) return why;
+      } catch { /* fall through to the generic lines */ }
+    }
     const def = defId ? FURNITURE_DEF_MAP.get(defId) : undefined;
     const purpose = this.ctx.housing?.getRoom(this.room)?.purpose;
     if (def && purpose && def.room !== 'any' && def.room !== purpose) {
@@ -906,6 +948,90 @@ export class HousingMode {
     this.ctx.outline?.clear();
   }
 
+  /* ── 비워야 하는 칸 (2026-09-13, 배치 규칙 — 접근 면) ─────────────────────── */
+  /**
+   * Lay the clearance tiles for a ghost of `defId` at (x, y, yaw) — `null` hides them (no selection / cursor outside the room).
+   * Recomputed only when the pose, the selection or the placed layout changed (`tilesDirty`). Tile states follow the rule in
+   * `housing/Rules.placementBlockOf`: a ghost cell is red when it is a wall (`front` only), a fixed cockpit prop or another
+   * body; a placed piece's cell turns red when the ghost's body sits in it. Cells outside the grid are drawn only for `front`.
+   */
+  private syncClearanceTiles(defId: string | null, yaw: Yaw, ignoreUid: string | null, x: number, y: number): void {
+    if (!this.tilesDirty && defId === this.tileDef && x === this.tileX && y === this.tileY && yaw === this.tileYaw
+      && ignoreUid === this.tileIgnore && this.room === this.tileRoom) return;
+    this.tilesDirty = false;
+    this.tileDef = defId; this.tileX = x; this.tileY = y; this.tileYaw = yaw; this.tileIgnore = ignoreUid; this.tileRoom = this.room;
+    const stats = this.clearanceTiles;
+    stats.ok = 0; stats.bad = 0; stats.other = 0;
+    let used = 0;
+    const def = defId ? FURNITURE_DEF_MAP.get(defId) : undefined;
+    const housing = this.ctx.housing;
+    const ship = this.ship;
+    if (def && housing && ship && this.active) {
+      const room = this.room, grid = roomGridSize(room);
+      const placed = housing.getPlaced(room);
+      const fp = furnitureFootprint(def, yaw);
+      const bodyAt = (cx: number, cy: number): boolean => {
+        for (const f of placed) {
+          if (f.uid === ignoreUid) continue;
+          const d = FURNITURE_DEF_MAP.get(f.defId);
+          if (!d) continue;
+          const ofp = furnitureFootprint(d, f.yaw);
+          if (cx >= f.x && cx < f.x + ofp.cols && cy >= f.y && cy < f.y + ofp.rows) return true;
+        }
+        return false;
+      };
+      /** cell key → 0 other · 1 ok · 2 bad (the worst state wins). Keys allow −1 (a `front` wall cell). */
+      const cells = new Map<number, number>();
+      const put = (cx: number, cy: number, v: number): void => {
+        const k = (cy + 1) * 1024 + (cx + 1);
+        const cur = cells.get(k);
+        if (cur === undefined || v > cur) cells.set(k, v);
+      };
+      for (const f of placed) {
+        if (f.uid === ignoreUid) continue;
+        const d = FURNITURE_DEF_MAP.get(f.defId);
+        if (!d || furnitureAccessOf(d) === 'none') continue;
+        for (const c of furnitureClearanceCells(d, f.x, f.y, f.yaw)) {
+          if (c.x < 0 || c.y < 0 || c.x >= grid.cols || c.y >= grid.rows) continue;
+          const underGhost = c.x >= x && c.x < x + fp.cols && c.y >= y && c.y < y + fp.rows;
+          put(c.x, c.y, underGhost ? 2 : 0);
+        }
+      }
+      const wallOk = accessAllowsWall(furnitureAccessOf(def));
+      for (const c of furnitureClearanceCells(def, x, y, yaw)) {
+        const outside = c.x < 0 || c.y < 0 || c.x >= grid.cols || c.y >= grid.rows;
+        if (outside && wallOk) continue;
+        put(c.x, c.y, outside || roomCellBlocked(room, c.x, c.y) || bodyAt(c.x, c.y) ? 2 : 1);
+      }
+      const size = HOUSING_CELL_SIZE * 0.92;
+      for (const [k, v] of cells) {
+        let mesh = this.tiles[used];
+        if (!mesh) {
+          mesh = new THREE.Mesh(this.tileGeo, this.tileOkMat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.renderOrder = 2;
+          this.tiles.push(mesh);
+          ship.root.add(mesh);
+        }
+        used++;
+        roomCellToWorld(room, (k % 1024) - 1, Math.floor(k / 1024) - 1, _pos);
+        mesh.position.set(_pos.x, 0.015, _pos.z);
+        mesh.scale.set(size, size, 1);
+        mesh.material = v === 2 ? this.tileBadMat : v === 1 ? this.tileOkMat : this.tileOtherMat;
+        mesh.visible = true;
+        if (v === 2) stats.bad++; else if (v === 1) stats.ok++; else stats.other++;
+      }
+    }
+    for (let i = used; i < this.tiles.length; i++) this.tiles[i].visible = false;
+  }
+
+  private hideClearanceTiles(): void {
+    for (const t of this.tiles) t.visible = false;
+    this.clearanceTiles.ok = 0; this.clearanceTiles.bad = 0; this.clearanceTiles.other = 0;
+    this.tileDef = null;
+    this.tilesDirty = true;
+  }
+
   private disposeGhost(): void {
     if (!this.ghost) return;
     for (const m of this.ghost.meshes) { m.geometry.dispose(); m.removeFromParent(); }
@@ -928,5 +1054,9 @@ export class HousingMode {
     this.frame.geometry.dispose();
     this.frameMat.dispose();
     this.frame.removeFromParent();
+    // 2026-09-13: 칸 타일 (메시는 지오메트리 · 재질을 함께 쓴다)
+    for (const t of this.tiles) t.removeFromParent();
+    this.tiles.length = 0;
+    this.tileGeo.dispose(); this.tileOkMat.dispose(); this.tileBadMat.dispose(); this.tileOtherMat.dispose();
   }
 }

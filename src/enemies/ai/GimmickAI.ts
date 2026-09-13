@@ -260,6 +260,8 @@ function startCharge(e: Enemy, host: EnemyHost): void {
 }
 
 const _tp = new THREE.Vector3();
+/** 2026-09-13: `Enemy.chargeDrones` 에 넣는 탐사 차량 표식 — 드론 id 는 `#` 으로 시작하지 않는다. */
+const VEHICLE_CHARGE_MARK = '#rover';
 
 /**
  * 2026-09-11 (C-47): can the charging body touch `t` at all? A target whose underside floats above the behemoth's height
@@ -328,6 +330,17 @@ export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     e.chargeDrones.push(dr.droneId);
     _knock.copy(e.chargeDir);
     host.chargeHit(e, dr, BEHEMOTH_CHARGE_DAMAGE, _knock);
+  }
+  // 2026-09-13 (탐사 차량): 차체 발자국에 닿으면 한 돌진에 한 번 (`chargeDrones` 에 드론 id 와 겹치지 않는 표식). 피해는 `applyDamage` 의 차량 가지.
+  const vehicles = host.targets.vehicles;
+  for (let i = 0; i < vehicles.length; i++) {
+    const v = vehicles[i];
+    if (v.isDeadOrDowned || e.chargeDrones.indexOf(VEHICLE_CHARGE_MARK) >= 0) continue;
+    if (v.dist2D(pos) >= e.stats.radius + 0.4) continue;
+    if (v.position.y > pos.y + e.stats.height || v.position.y + v.bodyHeight < pos.y - 0.5) continue;
+    e.chargeDrones.push(VEHICLE_CHARGE_MARK);
+    _knock.copy(e.chargeDir);
+    host.chargeHit(e, v, BEHEMOTH_CHARGE_DAMAGE, _knock);
   }
   // enemies of either faction in the path: heavy damage + shove
   const active = host.active;

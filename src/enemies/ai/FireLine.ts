@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ENEMY_FIRE_LOS_S, ENEMY_FIRE_STRAFE_S, ENEMY_WALL_STANDOFF } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
-import type { CombatTarget } from '../Targets';
+import { VEHICLE_RAY_MARGIN, type CombatTarget } from '../Targets';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 총구 사선 (2026-09-10) — 적이 벽에 딱 붙은 채로 사격하지 않게.
@@ -56,7 +56,13 @@ export function hasFireLine(e: Enemy, host: EnemyHost, t: CombatTarget): boolean
   _d.multiplyScalar(1 / dist);
   // 총구보다 ENEMY_WALL_STANDOFF 뒤(제 몸 안)에서 출발한다 — 위 규약 2.
   _o.addScaledVector(_d, -ENEMY_WALL_STANDOFF);
-  const hit = world.raycast(_o, _d, dist + ENEMY_WALL_STANDOFF - 0.3);
+  // 2026-09-13 (탐사 차량): 차체 상자에 들어가기 전에 멈춘다 — 차체 자신의 콜라이더는 사선을 막는 벽이 아니라 표적이다
+  let limit = dist + ENEMY_WALL_STANDOFF - 0.3;
+  if (t.vehicle) {
+    const enter = t.rayVehicle(_o, _d, dist + ENEMY_WALL_STANDOFF);
+    if (enter >= 0) limit = enter - VEHICLE_RAY_MARGIN;
+  }
+  const hit = limit > 0 ? world.raycast(_o, _d, limit) : null;
   // 막은 물체까지의 거리를 **총구 기준**으로 기록한다(음수 = 총구가 이미 그 안이다).
   e.fireLineGap = hit ? hit.distance - ENEMY_WALL_STANDOFF : Infinity;
   e.fireLineClear = hit === null;

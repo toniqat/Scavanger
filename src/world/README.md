@@ -14,7 +14,7 @@ textures are procedural.
 | `layout.ts` | Macro layout from the seed: spawn pad near an edge (**2026-09-13: 독성 포자 레이드는 맵 중앙** — `LayoutOptions.sporeLayout`), extraction pads **by planet threat 2–3 / 2 / 1–2, 포자 레이드는 외곽에 2–3** (2026-09-13 `extractionPadCount` · `LayoutOptions.extractionCount`, 옛 3 고정) (≥180 m apart, ≥150 m from spawn), 4–6 nest pads, 5–8 POI pads, craters, basins. `padClearance`, `nearestPad`. **2026-09-10 — 선로를 제일 먼저 잡고 나머지가 전부 피한다** (`railDistance` · `railClearance` · 내부 `railFree`): 선로의 자유도가 `line` = 방향 하나, `loop` = 반지름 하나뿐이라 패드를 다 뽑아 놓고 그 사이를 지나는 값을 찾는 것은 불가능하다. 그래서 2026-09-09 의 "크레이터 다음에 굴린다" 를 뒤집었다 — 그 대가로 **같은 시드의 매크로 레이아웃이 예전과 다르다** (멀티 결정성은 그대로). **2026-09-09**: `structures: StructureSite[]` (버려진 구조물 부지 + 지하실 구덩이 치수) 와 `rail: RailPlan | null` (`RAIL_CHANCE`, `loop`/`line`, 위상, 플랫폼 패드)이 붙었다 — 둘 다 **지형이 평탄화해야** 하는 자리라 매크로 단계에서 먼저 잡는다. 크레이터 · 분지를 다 뽑은 **뒤에** 굴리므로 그 앞의 추첨은 밀리지 않지만, 새 패드가 `pads` 에 들어가 `padClearance` 를 바꾸므로 **소품 · 상자 · 적 스폰의 자리는 달라진다** (건물 안에 바위가 서지 않게 하려면 그게 맞다). **2026-09-11**: `StructureSite.floors`(1 · 2, `upperChance`) — 루프 **맨 끝**에서 굴려 앞의 추첨을 밀지 않는다. |
 | `Terrain.ts` | **2026-09-09**: pad 평탄화 **다음에** `layout.structures` 의 지하실 **구덩이**를 판다 — 회전한 사각형을 `PIT_BLEND`(1.6 m, `structures/model`) 폭에 걸쳐 `pad.height − depth` 까지 내린다. 그 폭만큼 흙이 비스듬해지므로 천장 슬래브는 구덩이보다 `PIT_BLEND` 넓게 덮어야 한다 (안 그러면 구덩이 둘레에 도랑이 남는다). Heightfield (417×417 verts, 2 m spacing, covers ±416 m incl. border mountains) from warped fBm + ridged noise + craters/basins + flattened pads + edge cliffs. 8×8 chunk meshes with vertex colors (biome bands by height/slope, AO, crater scorch, nest goo), procedural tiled detail albedo + normal `CanvasTexture`s. Fast bilinear `getHeightAt`, `getNormalAt`, `getSlopeAt`, adaptive ray-march `raycast`. **2026-09-11 (C-40, 결과 비트 동일)**: 높이장 루프가 줄마다 닿는 패드 · 구덩이만 훑고(`rowPads` · `rowPits`), 능선 가림막이 0 인 곳은 `ridged` 를 굴리지 않으며(0 × x = 0), 크레이터 · 분지는 제곱 거리로 먼저 거른다. 디테일 텍스처 두 장은 토러스 cos/sin 표(`torusTrig`)를 쓴다. `timings`(height · normals · colors · textures · chunks) 를 남긴다. |
 | `SpatialHash.ts` | 16 m XZ grid of `ObstacleEntry` cylinders: `add/query/overlaps/walkSegment`. **2026-09-08**: `add(…, shot?)` also takes the **shot** cylinder (`Obstacle.shotRadius / shotHeight`) and bucketing / `maxRadius` use the larger of the two, so `walkSegment` never misses a prop whose shot cylinder reaches into a cell its collider does not. `query` still filters on `o.radius`, so movement collision is untouched. **2026-09-09**: `addBox(position, halfX, halfZ, yaw, height, kind)` 가 **사각(OBB) 콜라이더**를 넣는다 — `radius` 는 계약대로 외접원(`hypot`)으로 채우므로 버킷팅 · `overlaps` · `query` 는 예전 그대로이고 정확한 판정만 `WorldSystem` 에서 갈린다. `move(o, x, y, z, yaw?)` 는 움직이는 장애물(전차)을 옮기고 **덮는 셀이 바뀔 때만** 다시 버킷팅한다 (`TrainingArena.setTargetX` 와 같은 수법). **2026-09-11**: `addHull(position, hull, height, kind)` (외접원을 `radius` 로) · `addRamp(…, rise, kind)` · world 내부 플래그 `passRays` / `passSmall`(깨진 창틀). |
-| `build.ts` | `BuildCtx` shared by sub-builders and geometry helpers: `isSpotFree`, `paint`, `paintGradient`, `displace`, `merge` (BufferGeometryUtils), `xform`, `composeMatrix`, soft particle texture. **2026-09-10**: `isSpotFree` 가 `railClearance` 도 본다 — 소품 · 상자 · 채집물 · 버섯 군락이 선로 회랑에 들어가지 않는다. **`ignorePads` 로도 못 끈다** (상자는 폐허 · 구조물 둘레 고리를 `ignorePads: true` 로 뿌리는데 그 고리가 선로를 가로지른다). |
+| `build.ts` | `BuildCtx` shared by sub-builders and geometry helpers: `isSpotFree`, `paint`, `paintGradient`, `displace`, `merge` (BufferGeometryUtils), `xform`, `composeMatrix`, soft particle texture. **2026-09-10**: `isSpotFree` 가 `railClearance` 도 본다 — 소품 · 상자 · 채집물 · 버섯 군락이 선로 회랑에 들어가지 않는다. **`ignorePads` 로도 못 끈다** (상자는 폐허 · 구조물 둘레 고리를 `ignorePads: true` 로 뿌리는데 그 고리가 선로를 가로지른다). **2026-09-13**: `roverClearance`(탐사 차량 흙길 회랑 · 정류장 부지)도 같은 자리에서 본다. |
 | `Props.ts` | Jittered-grid + noise-cluster scatter into `InstancedMesh` variants (named `prop_<kind>`): boulders (also on border slopes), rock spires, fungal/dead trees, emissive crystal clusters (pulse), wind-swaying grass tufts (shader injection), pebbles, debris (crates/pod shells/panels). Collidable kinds (boulder, spire, tree, crystal, crate/pod debris) register obstacles; grass, pebbles and panels do not. **2026-09-09 — the movement collider is the drawn silhouette too.** `hullOf` used to size only the *shot* cylinder; the mover's cylinder was still a guess (`s*0.82 / s*1.3` for a boulder, `s*0.8 / s*4.2` for a spire that draws up to `1.5·s·4.2`, a flat `5*s` for every tree, `0.8s / 2.5s` for a crystal), which is why a rock you could see the top of was an invisible wall half a metre above itself and could never be stood on. Now **boulder / spire / crystal / debris pass the measured hull to both cylinders** and the height carries the instance's own `sy`. Two deliberate exceptions: a **tree** keeps the trunk radius (`0.5*s`) for both — a fungal cap is 2 m wide 3.5 m up, so a hull-wide cylinder would be an invisible wall at ground level and would stop bullets in open air — and only its *height* is measured; a **debris crate** is randomly yawed, so its XZ radius is the corner sweep (`√2 × half-width`) rather than the mean half-width. ⚠ **A seed's prop layout is no longer byte-identical to before this change**: `isSpotFree` tests `SpatialHash.overlaps`, which filters on `o.radius`, and a rejected spot skips the rest of that scatter callback's rng draws — so wider rock colliders shift the stream for everything scattered after them (and for crates / outposts, whose `isSpotFree` reads the same hash). Multiplayer determinism is untouched (every client runs the same code from the same seed); what is gone is only "seed 21 looks exactly like it did yesterday". **2026-09-09 (같은 날, 뒤늦게) — 그 실측 실루엣이 거짓말이었다.** `hullOf` 는 정직하게 바운딩 박스를 쟀지만 지오메트리에 `noise3` 버그로 튕겨 나간 정점이 섞여 있어서, 시드 21 에서 **첨탑 콜라이더가 반지름 최대 18.2 m · 높이 22.2 m** 로 부풀었다 (그려진 원뿔은 반지름 4 m). 걸어서 못 지나가는 보이지 않는 벽이자 총알이 허공에서 멈추는 원기둥이다. `noise.ts` 를 고치자 같은 시드에서 **최대 반지름 18.15 → 3.87 m**, `shotRadius − 실측 최대 반지름` 이 전부 ≤ 0 (콜라이더가 그려진 것을 넘지 않는다), 소품 위 여유 높이 최대 4.64 → 0.51 m 로 내려왔다. `hullOf` 자체는 그대로다 — 잰 값이 옳아졌을 뿐이다. **2026-09-10 — 바위 · 첨탑은 `hullOf` 가 아니라 `footprintOf` 로 잰다 (땅 위로 보이는 부분).** `hullOf` 는 메시 **전체**라 땅에 묻힌 적도(바위 `s×0.28` · 첨탑 `s×0.4` — 가장 넓은 둘레가 지하다), 경사지에서 묻힌 오르막 옆구리, `displace` 로 튀어나온 정점 하나까지 반지름에 넣었고, 실측하니 행성마다 바위의 **절반쯤이 보이는 바위보다 0.5 m 이상 앞에서 막았다**(한 방위 최대 3.9 m) — 폭풍 안개 속에서는 그대로 보이지 않는 벽이다. `footprintOf(ctx, geo, instanceMatrix, y)` 는 인스턴스 행렬로 정점을 월드에 옮겨 **지형 위 정점 + 삼각형 변이 지형을 뚫고 나오는 점**만 모으고(큰 바위는 변이 ~2 m 라 정점만 세면 가장자리보다 한참 안쪽이 된다), ① 그 윤곽의 XZ 바운딩 박스 중앙을 **중심**으로(경사지 바위는 보이는 부분이 내리막으로 몇 m 치우친다 — 원점 중심이면 오르막에서 ~3 m 앞에서 막았다), ② 그 중심에서 `FOOT_BINS`(32) 방위마다 가장 먼 점의 **평균**을 반지름으로, ③ 그려진 윗면을 높이로 삼는다. **이동 · 총알 원기둥 둘 다** 이 값이다(사용자 결정). 땅 위에 아무것도 없으면 콜라이더를 만들지 않는다. ⚠ 그래서 **바위 · 첨탑 `Obstacle.position` 의 XZ 는 인스턴스 원점이 아니다** — 경사지에서는 몇 m 옮겨져 있다 (`position.y` 는 여전히 인스턴스 원점 높이). 크리스탈 · 잔해는 `hullOf`, 나무는 줄기 반경 그대로다. **2026-09-11 — 원 하나가 아니라 볼록 윤곽이다** (`propHull.ts`, 사용자 결정): 바위 · 첨탑 · 크리스탈 · 잔해(상자 · 포드 껍질)가 `ctx.hash.addHull` 로 `Obstacle.hull` 을 건다. `footprintOf` 는 지웠다 — 방위 평균 반지름 원은 길쭉한 바위의 긴 쪽으로 파고들고 짧은 쪽에서 앞서 막았다. `position` XZ 는 이동 윤곽의 바운딩 박스 중앙, y 는 여전히 인스턴스 원점이다. 나무는 줄기 원기둥 그대로. |
 | `Nests.ts` | Bug nests on nest pads: displaced organic mounds, glowing rim/holes (pulsing emissive), spikes, egg sacs, goo discs. Mounds are obstacles; `getHolePositions()` feeds `getNestPositions()`. |
 | `Pads.ts` | Extraction platforms (concrete disc, seams, yellow/black hazard ring, H marker, 20 blinking edge lights, 4 light poles just outside the 14 m clear zone, one warm PointLight) and the spawn marker (scorch ring + green beacons). `PLATFORM_HEIGHT/RADIUS`. **2026-09-09**: 조명 기둥의 콜라이더가 `0.45 × 5.4` 한 덩어리였다 — 그려진 기둥은 반지름 0.2→0.12 뿐이라 기둥 옆이 보이지 않는 벽이고 총알도 먹었다. 이제 받침(`0.7 × 0.35`)과 기둥(`0.22 × 5.05`) 두 실린더다. |
@@ -39,6 +39,17 @@ textures are procedural.
 | `Rails.ts` | **선로 · 플랫폼 · 전차의 수명 · 상태 기계 · 멀티**. 중심선(지형 높이 평활화 + `RAIL_DECK_Y` + **지형 최고점 실측 부양**) 계산, `rails/parts/*` 호출, 전차 상태 기계(`idle` ↔ `moving` ↔ `docked`, **2026-09-10: 정차 뒤 자동 재출발 없음 — `idle` 로 내려앉아 운전실 콘솔을 기다린다**), **운전실 콘솔 · 플랫폼 호출 콘솔 `Interactable` 등록**(**2026-09-10: 호출 = 목적지를 정한 시동 — `applyStart` 로 합류하고 목적지는 요청자 위치에서 읽는다 `targetSFor`, 운행 중 중복 호출은 홀드 0 + 거부**), 발광 콘솔 메시 병합, `tram`/`tramq` 호스트 권위, `getLines` / `getTrams`. **선로는 지형을 평탄화하지 않는다** — 교각이 높이를 맞춘다. 지오메트리는 한 줄도 없다. **2026-09-11 (C-39)**: 호출이 수락되면 **부른 콘솔 자리에서 이 클라이언트에만** `tram_call` 차임(클라이언트는 낙관적), 부를 수 없으면 `tram_deny` (예전에는 `keycard_deny` 를 빌려 썼다). 소리 정의는 `audio/`. |
 | `rails/model.ts` | 선로 · 전차가 공유하는 **어휘**. `RailPath` (`makePath` · `wrapS` · `sampleAt` · `nearestS` · `deltaS`) + `RAIL_DECK_Y`(0.75) · `TIE_STEP`(1.8) · `PIER_STEP`(9) · `GAUGE_HALF` · `RAIL_DECK_STEP`(**2026-09-10: 5 → 3**) · `RAIL_DECK_T` · `RAIL_DECK_HALF_W` · `RAIL_MAX_GRADE` · `DOCK_WINDOW` · `TRAM_NET_INTERVAL` · `TRAM_SNAP_M` · `PLATFORM_OFFSET`, **차체 치수(`TRAM_FLOOR_UP` · `TRAM_DOOR_HALF` · `TRAM_WALL_*` · `TRAM_NOSE_T` · `TRAM_CAB_LEN` · `TRAM_DESK_*`) · 색(**2026-09-10: 호출 콘솔 발광 `CONSOLE_GLOW` · `CONSOLE_GLOW_BASE`**) · `RailBuild`(**`glow` 채널 = 발광 조각을 모아 한 메시로 합친다**) · `MovingPart` · `TramInst`**(2026-09-11: `hitCooldown` 숫자 → 대상별 `hitUntil` 맵). **축 규약이 여기 적혀 있다: 로컬 +X = 진행 방향(길이), 로컬 +Z = 좌우(폭).** |
 | `rails/parts/Track.ts` | 침목 · 레일 토막 · 교각 지오메트리 + 교각 콜라이더 + **걸어 다니는 선로 발판 상자**(`RAIL_DECK_STEP` 마다). |
+| `rover/model.ts` | **탐사 차량 어휘** (2026-09-13). `RoverPlan`(레이아웃 2D 계획 — 고리 점열 · 정류장 · 부지 반지름 · 회랑 거리 격자 `RoverRoadIndex`) + 고리 경로 수학(`makeRoverPath` · `sampleRoute` · `nearestRouteS` · `wrapRouteS` · `forwardDistance` · `shortestTrip` — 선로 `rails/model` 을 닫힌 고리로 쓴다). 함수 서명은 R1(흙길) · R2(차량)가 같이 쓴다. |
+| `rover/RoadPlan.ts` | **흙길 매크로 계획** (R1, 2026-09-13, THREE 없음). `planRoverRoute(rng, {railFree, railLoopExtent, spawn})` — 맵 중심 둘레 고른 각도 칸에 정류장 4–5개, 극좌표 보간 고리(스스로 교차하지 않는다), 회랑에 걸린 점은 반지름을 밀어 고치고 편다, 회전 반경 검사, 실패하면 null. `roverRouteDistance`(격자 버킷, `reach` 에서 포화) · `minTurnRadius`. |
+| `rover/RoverRoad.ts` | **흙길 · 정류장 세우기** (R1). 계획을 Catmull-Rom 3 m 로 다시 뽑고 노면 높이를 편다(지형 아래로는 안 내린다) → `RoverRouteDef`(정류장 `rst<n>` · `정류장 A…` · `s` · 표지 기둥 자리). 그림 4덩어리(흙길 · 기둥 몸통 · 비콘 · 표지판) · 기둥 콜라이더. `route` · `path` · `dispose`. |
+| `rover/RoadMesh.ts` | 흙길 그림 한 메시 — 중심선 점마다 가로 10정점(가장자리 지형색 · 다진 흙 · 바퀴자국 두 줄), 정점 높이 = 그 자리 지형 + `ROVER_ROAD_LIFT_M`, 지형 법선, polygonOffset. 표지 기둥 밑 자갈 원판 포함. 콜라이더 없음. |
+| `rover/StationMesh.ts` | 정류장 표지 기둥 (강철 기둥 · 받침 · 경고 띠 · 발광 비콘 — **광원 없음** · 흙길을 보는 표지판 앞뒤, 글자 CanvasTexture 아틀라스 한 장) + `Pads` 와 같은 기둥 콜라이더 짝. `stationLetter(index)`. |
+| `rover/Rover.ts` | **탐사 차량 본체** (R2, 2026-09-13). 수명(`attach` · `build(route)` · `update` · `dispose`) · 상태 기계(`stopped` → `patrol` → `stopped` / 결제 → `departing` → `trip` → 도착 강제 하차 / `destroyed`) · 이동 곡선(가속 · 제동 · 제자리 회전, 호스트 · 클라이언트 공용) · 탑승 상호작용 `rover:board` · `RoverRideBinding` · 결제(`tripBlock` · `requestTrip` · 결제자만 `credits:tx rover:<from>:<to>`) · 재해 피해 ×5 · 탑승자 정리 · `RoverRef` · 멀티(`rover` / `roverq`, 로비 호스트만) · 치트 `cheat:rover`. |
+| `rover/parts/Body.ts` | 차체 절차 모델(8륜 장갑차 · 경사 전면 · 지붕 포탑 · 발광 등 — **광원 없음**) · 사각 콜라이더 한 개(kind `rover`, `velocity` 없음) · `placeRoverBody` · 지형 기울기 · 바퀴 회전 · 잔해 모습(머티리얼 색만). |
+| `rover/parts/Turret.ts` | 포탑: 모든 클라이언트의 회전 · 포구 화염, 권위의 표적 고르기(사거리 · 시야 레이는 차체 밖에서 시작) · 사격(`takeDamage(…, ROVER_DAMAGE_SOURCE)`), 리플리카의 `fire` 적용. |
+| `rover/parts/Impact.ts` | 달리는 차량에 부딪힘 — 적(권위) 피해 + 넉백, 로컬 플레이어 · 고스트는 넉백만, 탑승자 제외, 대상별 쿨다운. |
+| `rover/parts/Exits.ts` | 하차 자리 — 차체 옆 · 뒤 · 앞 후보를 `getSurfaceY` + `resolveCollision` 로 걸러 서로 떨어진 `count` 개. |
+| `rover/parts/Fx.ts` | 예광탄 풀 · 파괴 파편 · 화구 · 잔해 연기 (전부 `MeshBasicMaterial`, 숨김 = 크기 0 이라 선컴파일에 들어간다). |
 | `rails/parts/Platform.ts` | 플랫폼 데크(땅에서 올라오는 OBB) · **계단**(2026-09-10 개편 — 단수를 `RAIL_STAIR_MAX_RISE` 에서 뽑는다) · 난간 · 컨테이너 · **「전차 호출」 콘솔**(2026-09-10 — 예전 안내판 자리, 받침 · 몸통 · 기울어진 화면 · 버튼 · 발광 띠. 발광 조각은 `RailBuild.glow` 로 넘기고 **콘솔 자리를 돌려준다** — `Interactable` 등록은 `Rails`). **2026-09-11**: 계단 콜라이더는 단마다 상자가 아니라 `Stairs.buildStairFlight` 의 경사면 하나(데크 안으로 0.08 m 겹친다)다. |
 | `rails/parts/Tram.ts` | 전차 차체(**진행 방향으로 길쭉**) · 앞 격벽 + 걸어 들어가는 **운전실** · **운전 콘솔 데스크** · 콜라이더(`Obstacle.box` + 공유 `velocity`) · 객실 컨테이너 · `placeTram`(매 프레임 배치) · **`updateTramHit`(고속 충돌 피해 + 넉백)**. **2026-09-11 (C-18)**: 로컬 플레이어(각자) + **권위에서 적 · 끊긴 분대원**. 적은 `ctx.enemies.queryNear` → 같은 OBB · 높이 창 → `EnemyManagerRef.pushBack`(그 적 하나에 방향) + `takeDamage(…, 'ai')`, 고스트는 `ghost:damage {kb}`. ~~데크 윗면 − `RIDE_FOOT_DROP` 위의 적은 탑승자라 치지 않는다~~ → **2026-09-11 (C-63)**: 셋 다 위 경계가 `바닥 − TRAM_HIT_FLOOR_CLEAR` 로 같고, 그 밑 `RIDE_FOOT_DROP` 띠는 새 `riderExempt`(차체 단면 + `RIDE_EDGE_MARGIN` 안 + 발밑 발판이 이 전차이거나 비어 있음)만 빼 준다 — **선로 발판 위의 적이 치인다**. 적 탑승 상태를 묻지 않는 것은 그대로(발밑은 월드가 본다). 쿨다운은 대상별(`hitUntil`), 소리는 `tram_hit`. |
 | `hull.ts` | **볼록 다각형 기둥 수학** (2026-09-11, `Obstacle.hull`). `convexHull2D`(monotone chain, 반시계, `HULL_MAX_VERTS` 14 로 넓이를 가장 적게 잃는 꼭짓점부터 뺀다 — 밖으로 부풀리지 않는다) · `hullRadiusFrom`(외접원) · `hullAreaCentroid` · `hullContainsXZ` · `hullPushOut`(가장 얕은 변으로 · 바깥이면 정확한 최근접점) · `rayHull`(Cyrus–Beck + Y 슬래브, 원점이 안이면 −1) · `hullHitNormal`. **`o.hull` 이 있을 때만** 불린다. **2026-09-11 (C-40)**: 정렬이 `Array.prototype.sort(비교 함수)` 에서 재사용 `Int32Array` 위의 퀵 · 삽입 정렬(`sortIdx`)로 — (x, z) 사전순만 같으면 껍질 좌표가 같다(같은 좌표끼리의 순서는 외적 0 으로 빠진다). |
@@ -833,7 +844,105 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 
 ---
 
+## 2026-09-13: 탐사 차량 흙길 · 정류장 (R1)
+
+규칙의 원본은 `src/shared/types.ts` 의 탐사 차량 절이다. 이 절은 **길과 정류장**만 다룬다 — 차량 본체 · 상태 기계 · 동기화는
+`rover/Rover.ts` (R2) 의 몫이다.
+
+### 생성 순서 — 선로와 같은 이유로 먼저 선다
+
+흙길은 맵을 한 바퀴 도는 고리라, 패드 · 구조물을 다 놓은 뒤에 뽑으면 비켜 갈 곳이 없다 (2026-09-10 선로 회랑과 같은 결론).
+`generateLayout` 이 **선로 → 강하 지점 → 흙길** 순으로 잡고, 탈출 패드 · 둥지 · 폐허 · 크레이터 · 구조물이 `roverFree` 로 회랑과
+정류장 부지를 피한다. 흙길 계획은 `rng.fork('rover')` 라 부모 스트림을 밀지 않는다 — 선로 · 강하 지점 추첨은 이전과 같고,
+그 뒤 배치는 회랑 검사 때문에 달라진다 (사용자 수락). 정류장 부지는 `station` 패드라 `Terrain` 이 평평하게 편다(주로 평지).
+작은 배치는 `isSpotFree` 가 `roverClearance` 를 **`ignorePads` 로도 못 끄게** 보고(소품 · 상자 · 채집물 · 버섯 군락),
+적 실외 스폰(`SiteSpawns.outdoorOf`)도 같은 값을 본다. 월드 빌드에서는 `RoverRoad.build` 가 선로 바로 뒤 · 재해 · 소품 앞이다.
+
+### 모양 — 극좌표 고리
+
+정류장 n(4–5)개를 맵 중심 둘레 **고른 각도 칸**에 하나씩(± `ROVER_STATION_ANGLE_JITTER`) 세워 서로 최대한 멀리 떨어뜨리고,
+반지름은 `ROVER_RING_MIN_M` … (`ROVER_ROUTE_BOUND_M` 네모 안) 에서 뽑는다. 이웃 정류장 사이는 각도는 선형 · 반지름은 smoothstep +
+구간마다 휨(`ROVER_ROUTE_WIGGLE_M`)으로 잇는다 — 각도가 한 방향으로만 느니 **고리가 스스로 교차하지 않는다**.
+**선로를 가로지르지 않는다**: 순환 선로(원점 중심 원)가 있으면 반지름 하한을 선로 고리 + 두 회랑 + `ROVER_RAIL_GAP_M` 까지 올리고,
+왕복 선로(원점을 지나는 선분 · 끝의 플랫폼)는 `railFree` 에 걸린 표본의 반지름을 밀어 고친 뒤 `[1,2,1]/4` 로 편다. 그래서
+선로 건널목 · 경사로를 만들 일이 없다. 끝으로 최소 회전 반경(`ROVER_MIN_TURN_RADIUS_M`)을 보고, `ROVER_PLAN_ATTEMPTS`(64)번 다 실패하면 차량이 없다.
+두 가지 여유가 붙어 있다: ① 표본점 검사에 1.5 m(`CHORD_MARGIN`) — 거리 질의는 점 사이 **선분**을 보므로 10 m 현이 플랫폼 원을 스치면
+0.55 m 안으로 파고들었다. ② 강하 지점 여유 `ROVER_SPAWN_GAP_M` 은 **시도의 앞 절반에만** — 가장자리 강하 지점이 왕복 선로 끝 플랫폼과
+같은 쪽이면 그 틈(약 66 m)에 둘 다 들어가지 못해 3000 시드 중 19개가 차량 없이 끝났다.
+
+### 세우기 — 노면 · 그림
+
+`RoverRoad` 가 계획을 Catmull-Rom 으로 `ROVER_ROUTE_STEP_M`(3 m) 간격으로 다시 뽑고(정류장 제어점은 곡선 위에 그대로 남는다),
+노면 높이를 `ROVER_ROUTE_SMOOTH_PASSES` 번 펴되 매번 지형 아래로는 안 내린다 → `RoverRouteDef.points`. 정류장은 가장 가까운 `s`,
+`s` 순서로 `rst0…` · `정류장 A…`, 표지 기둥은 맵 바깥쪽 옆 `ROVER_POLE_OFFSET_M`. 흙길 그림은 **경로 `y` 가 아니라 그 자리 지형**
+높이에 붙인다(차량은 경로를 타고, 그림은 땅에 붙어야 한다). 표지 기둥의 비콘은 emissive 뿐이다 — 레이드 점광원 예산 여분은 0.
+안개 발견은 `Fog.setRoverStations`(`WorldSystem` 이 흙길에서 직접 넘긴다 — 차량이 없거나 파괴돼도 정류장은 발견된다) →
+`fog:discovered {kind:'rover', id, position: 표지 기둥}`. 토스트는 ui/ 의 몫이라 `Fog.TOAST` 에 없다.
+
+### 측정 (vite SSR, `generateLayout` 3000 시드 · 선로 loop 1094 / line 1032 / 없음 874)
+
+- 계획 실패 0 · 정류장 4개 1511 / 5개 1489 · 같은 시드 두 번 생성 불일치 0.
+- 가장 가까운 두 정류장 거리 최소 140 m · 하위 5 % 166 m · 중앙값 220 m (정류장별 최근접 평균의 중앙값 247 m).
+- 고리 길이 하위 5 % 1211 · 중앙값 1393 · 상위 5 % 1562 m. 최소 회전 반경 최소 18.0 · 하위 5 % 20.1 · 중앙값 31.9 m.
+- 선로 회랑 · 탈출 패드 · 둥지 · 폐허 · 플랫폼 · 구조물 · 크레이터 침범 0, 중심선 |x| · |z| 최대 248 m.
+- `generateLayout` 전체 평균 0.28 ms. 흙길 지오메트리(492점 · 4995정점, 지형 질의 흉내) 약 1 ms, `roverClearance` 200회 0.09 ms.
+  브라우저의 `genTimings.rover` 는 직접 재지 않았다 (vite 서버 금지 배치) — 표지판 아틀라스 캔버스 몫이 더해진다.
+
+### 알려진 한계 (R1)
+
+- 고리는 늘 **맵 가장자리 쪽 둘레**(반지름 150–250 m)를 돈다 — 맵 한가운데를 지나는 흙길은 없다.
+- 노면은 지형을 평평하게 파지 않는다 — 가파른 언덕을 그대로 넘는다 (최대 경사 제한 없음; 차량 R2 가 기울기를 그린다).
+- 네임드 로든의 엎드려쏴 자리(`enemies/named/Director`)는 선로 회랑만 보고 흙길 회랑은 모른다 (enemies 폴더 몫).
+
+## 2026-09-13: 탐사 차량 본체 · 상태 기계 · 포탑 · 탑승 · 동기화 (R2)
+
+규칙의 원본은 `src/shared/types.ts` 의 탐사 차량 절이다. 경로(`RoverRouteDef`)는 R1 의 `RoverRoad` 가 세우고 `WorldSystem` 이
+`roverSys.build(route, bctx)` 로 넘긴다 (흙길 뒤 · 재해/소품/상자 앞 — 차체 콜라이더가 먼저 hash 에 들어간다).
+
+### 상태 기계 (호스트 권위)
+- 처음에는 시드(`rng.fork('roverVehicle')`)로 고른 정류장에 서서 `ROVER_DWELL_S` 정차한다. 탑승자가 있으면 타이머가 멈추고,
+  비면 +s 방향 다음 정류장으로 순환(`patrol`, `ROVER_PATROL_SPEED`)한다.
+- 탑승자 한 명이 결제하면 `departing`(`ROVER_DEPART_GRACE_S`, 타고 내릴 수 있다) → `trip`(고리의 짧은 쪽, `ROVER_TRIP_SPEED`, 사이 정류장은 지나친다) →
+  도착하면 `rover:arrived {trip:true}` 뒤 **전원 강제 하차**(`parts/Exits` 가 고른 자리 · `rover eject`), 그 정류장에서 정차부터 다시.
+- 방향이 뒤집히면 서 있는 동안 제자리 회전(`ROVER_TURN_RATE`)을 먼저 하고, 정렬(`ROVER_ALIGN_EPS`)된 뒤에 출발한다.
+- 제동은 `sqrt(2 × ROVER_BRAKE × 남은 거리)` 곡선 + 최저 1 m/s — 호스트 · 클라이언트가 같은 `motion` 을 돌리고 도착 판정만 호스트다.
+- 체력 0 → `destroyed`: 탑승자 그 자리 하차 → 폭발 파편 · 화구 · 영구 연기 · 그을린 색, 콜라이더는 잔해로 남는다. 환불 없음.
+
+### 피해
+- 적: `RoverRef.damage` (호스트 · 싱글만 적용 — enemies 가 부른다). 플레이어 무기는 부르지 않는다 (사용자 결정).
+- 재해: 호스트가 `HAZARD_TICK_S` 마다 `HAZARD_DPS × damageMul × ROVER_HAZARD_DAMAGE_MUL` (탑승자가 없어도). 탑승자 몸은 player 가 면제한다.
+- 재해에 잡아먹힌 정류장(표지 기둥 자리)은 목적지 거절 · 그 정류장에 선 차는 탑승 거절. 이미 달리는 결제 이동은 그대로 간다.
+
+### 포탑 · 부딪힘
+- 달리는 동안만, 권위만: 사거리 `ROVER_TURRET_RANGE` 안 가장 가까운 적(시야 레이 — 차체 콜라이더를 치지 않게 포탑에서 4.4 m 앞에서 시작) →
+  회전 → 원추 안이면 `ROVER_TURRET_DAMAGE` / `ROVER_TURRET_INTERVAL_S`. 킬 크레딧 없음(`ROVER_DAMAGE_SOURCE`). 리플리카는 `rover fire {p}` 로 조준 · 예광탄.
+- 부딪힘은 전차 틀 그대로지만 **플레이어는 넉백만** 받는다 (운전수 없는 차가 분대원을 죽이지 않는다). 적은 피해 + 넉백.
+
+### 멀티
+- `rover state` (`ROVER_NET_INTERVAL` + 변화 즉시, 모아서 `0.1 s`) · `trip {by}`(**결제자만** `ctx.meta.addCredits(-fare, rover:<from>:<to>)`) ·
+  `eject` · `fire` · `reply {to, rid, req}`. 받는 쪽은 `from === lobby.hostId` 만.
+- 요청 `board`(로비 멤버 · 살아 있음 · 스냅샷 거리 `ROVER_BOARD_CHECK_RANGE` · 상태 · 재해 · 좌석) · `exit` · `trip`(요금을 호스트가 다시 계산해 같아야 한다) · `sync`.
+- 첫 `state` 는 사건 없이 적용한다(늦은 합류) — 단 `rover:stationsRevealed` 는 낸다(지도 공개). `net:hostChanged` 로 호스트가 되면 받아 둔 상태에서 이어 굴린다.
+- 탑승자 목록은 PeerId(싱글 `'local'`). 호스트는 로비를 떠났거나 끊겼거나 죽은 탑승자를 매 프레임 뺀다. 클라이언트는 호스트 목록에서 1.5 초 넘게 빠져 있으면 스스로 내린다.
+
+### 알려진 한계 (R2)
+- 요금 결제 실패(서버 거절 · 오프라인 잔액 부족)는 콘솔 경고만 남기고 이동은 그대로다 — 호스트는 결제 결과를 모른다 (결제 전에 `tripBlock` 이 잔액을 본다).
+- 차체는 경로 위를 달릴 뿐 콜라이더에 막히지 않는다 (회랑이 비워져 있다는 R1 의 보장에 기댄다). 선로와 교차하는 곳에서는 전차와 겹쳐 지나간다.
+- 탑승 중 새로고침한 사람은 차 밖(좌석 자리)에서 복귀한다 — 레이드 세이브에 탑승 상태가 없다.
+
 ## 변경 이력
+
+- **2026-09-13 (탐사 차량 본체, 에이전트 R2)** — 위 절. `rover/Rover.ts` 스텁 구현 + 새 파일 `rover/parts/Body.ts` · `Turret.ts` · `Impact.ts` · `Exits.ts` · `Fx.ts`.
+  `rover/model.ts` 에 `routeDelta` · `angleDelta` · `wrapAngle` · `roverFareFor`(요금 식의 유일한 원본) 추가. 수치는 `data/constants.csv` `[R2]` 28줄.
+  계약 추가: `cheat:rover` 이벤트(`shared/events.ts` 탐사 차량 절). 스모크 `scripts/smoke-rover.mjs` (verify 의 `world` · `audio` · `console`).
+
+- **2026-09-13 (탐사 차량 흙길 · 정류장, 에이전트 R1)** — 위 절. 새 파일 `rover/RoadPlan.ts` · `RoadMesh.ts` · `StationMesh.ts`,
+  `rover/RoverRoad.ts`(스텁 구현), `rover/model.ts` 의 `RoverPlan` 필드 추가(`padRadius` · `index` · `RoverRoadIndex`). `layout.ts`: `PadKind 'station'` ·
+  `WorldLayout.rover` · `roverClearance` · 선로/강하 지점 뒤 흙길 계획 + 탈출 패드 · 둥지 · 폐허 · 크레이터 · 구조물의 `roverFree`.
+  `build.isSpotFree` · `SiteSpawns.outdoorOf` 가 `roverClearance` 를 본다. `Fog`: `'rover'` 발견 + `setRoverStations`. `WorldSystem`: 그 한 줄.
+  csv `[R1]` 20줄. 대가: 같은 시드의 탈출 패드 이후 매크로 배치가 이전과 다르다 (선로 · 강하 지점은 같다).
+- **2026-09-13 (탐사 차량 탑승자 재해 면제 — 에이전트 D)** — `Hazard.ts` 의 로컬 피해 틱이 `ctx.player.roverRide` 면 깎지 않는다
+  (차량이 대신 맞는다 — `rover/`). `hazard:insideChanged` · 시야 제한은 그대로다 (카메라는 폭풍 속 차량 밖에 있다).
 
 - **2026-09-13 (탈출 개편 — `addObstacle` 이 `box` 를 싣는다, extraction 에이전트)** — `WorldSystem.addObstacle` 이 `Obstacle.box` 를 해시 항목에 옮긴다
   (두 줄). 착륙한 탈출 함선의 외피가 사각 콜라이더 여덟 개로 들어오기 때문이다(`src/extraction/Hull.ts`). `radius` 는 호출부가 외접원으로 채운다

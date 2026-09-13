@@ -52,7 +52,7 @@ export function separate(e: Enemy, grid: SpatialGrid<Enemy>, players: readonly C
   const minD = r + PLAYER_RADIUS + 0.1;
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
-    if (p.isDead) continue;
+    if (p.isDead || p.riding) continue;   // 2026-09-13: 탐사 차량 안의 몸은 차체가 대신 막는다
     const dx = pos.x - p.position.x, dz = pos.z - p.position.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < minD * minD) {

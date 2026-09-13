@@ -1742,3 +1742,126 @@ export const SANDWORM_CHANCE_BY_THREAT = numberList('tables.csv', 'SANDWORM_CHAN
 /** 분출 버그 무리 수 — index 0 = 분대 1명. */
 export const SANDWORM_BURST_BY_SQUAD = numberList('tables.csv', 'SANDWORM_BURST_BY_SQUAD');
 /* ── end 2026-09-13 굴착 스폰 · 지하벌레 ── */
+
+/* ── 2026-09-13 탐사 차량 — 공용 (값은 data/constants.csv, 규칙은 shared/types.ts 의 탐사 차량 절) ── */
+/** 탑승 · 하차 E 홀드 시간(초). */
+export const ROVER_BOARD_HOLD_S = K.num('ROVER_BOARD_HOLD_S');
+export const ROVER_EXIT_HOLD_S = K.num('ROVER_EXIT_HOLD_S');
+/** 정류장 정차 시간(초) — 탑승자가 있고 결제 전이면 줄지 않는다. */
+export const ROVER_DWELL_S = K.num('ROVER_DWELL_S');
+/** 결제 뒤 출발 유예(초). */
+export const ROVER_DEPART_GRACE_S = K.num('ROVER_DEPART_GRACE_S');
+/** 차량 체력. */
+export const ROVER_HP = K.num('ROVER_HP');
+/** 재해 구역 안에서 받는 재해 피해 배수. */
+export const ROVER_HAZARD_DAMAGE_MUL = K.num('ROVER_HAZARD_DAMAGE_MUL');
+/** 요금 = 10 단위 반올림(MIN + 거리 × PER_M) 을 [MIN, MAX] 로 자른다. 식의 원본은 `RoverRef.fareTo`. */
+export const ROVER_FARE_MIN = K.num('ROVER_FARE_MIN');
+export const ROVER_FARE_MAX = K.num('ROVER_FARE_MAX');
+export const ROVER_FARE_PER_M = K.num('ROVER_FARE_PER_M');
+/* ── [R1] 경로 · 정류장 · 흙길 (owner: world/rover RoverRoad · world/layout) ── */
+/** 흙길 회랑 반폭(m) — 이 안에는 아무것도 놓지 않는다 (`layout.roverClearance` · `isSpotFree`). */
+export const ROVER_ROUTE_CLEARANCE_M = K.num('ROVER_ROUTE_CLEARANCE_M');
+/** 정류장 수 범위 (시드). */
+export const ROVER_STATION_COUNT_MIN = K.num('ROVER_STATION_COUNT_MIN');
+export const ROVER_STATION_COUNT_MAX = K.num('ROVER_STATION_COUNT_MAX');
+/** 정류장끼리 최소 거리(m). */
+export const ROVER_STATION_MIN_GAP_M = K.num('ROVER_STATION_MIN_GAP_M');
+/** 정류장 각도 흔들기 (각도 칸 폭 비율 ±). */
+export const ROVER_STATION_ANGLE_JITTER = K.num('ROVER_STATION_ANGLE_JITTER');
+/** 정류장 부지(평탄화 패드) 반지름 · 가장자리 폭(m). */
+export const ROVER_STATION_PAD_R = K.num('ROVER_STATION_PAD_R');
+export const ROVER_STATION_PAD_BLEND = K.num('ROVER_STATION_PAD_BLEND');
+/** 흙길 · 정류장의 맵 중심 최소 거리(m) (순환 선로가 있으면 자동으로 넓힌다). */
+export const ROVER_RING_MIN_M = K.num('ROVER_RING_MIN_M');
+/** 흙길 중심선의 |x| · |z| 최대(m). */
+export const ROVER_ROUTE_BOUND_M = K.num('ROVER_ROUTE_BOUND_M');
+/** 순환 선로 회랑과 흙길 회랑 사이 여유(m). */
+export const ROVER_RAIL_GAP_M = K.num('ROVER_RAIL_GAP_M');
+/** 강하 지점 부지와의 여유(m). */
+export const ROVER_SPAWN_GAP_M = K.num('ROVER_SPAWN_GAP_M');
+/** 정류장 사이 구간의 최대 휨(m). */
+export const ROVER_ROUTE_WIGGLE_M = K.num('ROVER_ROUTE_WIGGLE_M');
+/** 레이아웃 경로 점 간격(m) · 계획 재시도 수 · 최소 회전 반경(m). */
+export const ROVER_PLAN_STEP_M = K.num('ROVER_PLAN_STEP_M');
+export const ROVER_PLAN_ATTEMPTS = K.num('ROVER_PLAN_ATTEMPTS');
+export const ROVER_MIN_TURN_RADIUS_M = K.num('ROVER_MIN_TURN_RADIUS_M');
+/** 세운 경로 점 간격(m) · 노면 평활화 횟수. */
+export const ROVER_ROUTE_STEP_M = K.num('ROVER_ROUTE_STEP_M');
+export const ROVER_ROUTE_SMOOTH_PASSES = K.num('ROVER_ROUTE_SMOOTH_PASSES');
+/** 흙길 그림 반폭 · 띄우기(m). */
+export const ROVER_ROAD_HALF_WIDTH_M = K.num('ROVER_ROAD_HALF_WIDTH_M');
+export const ROVER_ROAD_LIFT_M = K.num('ROVER_ROAD_LIFT_M');
+/** 표지 기둥의 흙길 중심선 옆 거리 · 높이(m). */
+export const ROVER_POLE_OFFSET_M = K.num('ROVER_POLE_OFFSET_M');
+export const ROVER_POLE_HEIGHT_M = K.num('ROVER_POLE_HEIGHT_M');
+/* ── end [R1] ── */
+/* ── [R2] 차량 · 포탑 · 동기화 (owner: world/rover Rover) ── */
+/** 순환 · 결제 이동 최고 속도(m/s) · 가속 · 감속(m/s²). */
+export const ROVER_PATROL_SPEED = K.num('ROVER_PATROL_SPEED');
+export const ROVER_TRIP_SPEED = K.num('ROVER_TRIP_SPEED');
+export const ROVER_ACCEL = K.num('ROVER_ACCEL');
+export const ROVER_BRAKE = K.num('ROVER_BRAKE');
+/** 제자리 회전 속도(rad/s) · 출발 허용 정렬 각(rad). */
+export const ROVER_TURN_RATE = K.num('ROVER_TURN_RATE');
+export const ROVER_ALIGN_EPS = K.num('ROVER_ALIGN_EPS');
+/** 좌석 수 · 탑승 상호작용 거리(m) · 호스트의 탑승 요청 거리 검사(m). */
+export const ROVER_SEATS = K.num('ROVER_SEATS');
+export const ROVER_BOARD_RANGE = K.num('ROVER_BOARD_RANGE');
+export const ROVER_BOARD_CHECK_RANGE = K.num('ROVER_BOARD_CHECK_RANGE');
+/** 탑승 궤도 카메라 기본 거리(m). */
+export const ROVER_CAMERA_DISTANCE = K.num('ROVER_CAMERA_DISTANCE');
+/** 차체 반길이 · 반폭 · 전체 높이 · 콜라이더 높이(m). */
+export const ROVER_HALF_LENGTH = K.num('ROVER_HALF_LENGTH');
+export const ROVER_HALF_WIDTH = K.num('ROVER_HALF_WIDTH');
+export const ROVER_HEIGHT = K.num('ROVER_HEIGHT');
+export const ROVER_HULL_H = K.num('ROVER_HULL_H');
+/** 포탑: 사거리(m) · 한 발 피해 · 간격(초) · 재조준(초) · 회전(rad/s) · 사격 원추(rad). */
+export const ROVER_TURRET_RANGE = K.num('ROVER_TURRET_RANGE');
+export const ROVER_TURRET_DAMAGE = K.num('ROVER_TURRET_DAMAGE');
+export const ROVER_TURRET_INTERVAL_S = K.num('ROVER_TURRET_INTERVAL_S');
+export const ROVER_TURRET_RETARGET_S = K.num('ROVER_TURRET_RETARGET_S');
+export const ROVER_TURRET_TURN_RATE = K.num('ROVER_TURRET_TURN_RATE');
+export const ROVER_TURRET_AIM_CONE = K.num('ROVER_TURRET_AIM_CONE');
+/** 부딪힘: 최저 속도(m/s) · 적 피해 · 넉백(m/s) · 대상별 쿨다운(초). */
+export const ROVER_HIT_SPEED_MIN = K.num('ROVER_HIT_SPEED_MIN');
+export const ROVER_HIT_DAMAGE = K.num('ROVER_HIT_DAMAGE');
+export const ROVER_HIT_KNOCKBACK = K.num('ROVER_HIT_KNOCKBACK');
+export const ROVER_HIT_COOLDOWN_S = K.num('ROVER_HIT_COOLDOWN_S');
+/** 방송 주기(초) · 클라이언트 스냅 거리(m). */
+export const ROVER_NET_INTERVAL = K.num('ROVER_NET_INTERVAL');
+export const ROVER_SNAP_M = K.num('ROVER_SNAP_M');
+/** 하차 자리가 차체 가장자리에서 떨어진 거리(m). */
+export const ROVER_EXIT_GAP_M = K.num('ROVER_EXIT_GAP_M');
+/** 차량 피격음 최소 간격(초, audio). */
+export const ROVER_CLANG_GAP_S = K.num('ROVER_CLANG_GAP_S');
+/* ── end [R2] ── */
+/* ── [R3] 탑승 모드 · 궤도 카메라 (owner: player) ── */
+/** 궤도 카메라 고도각 범위 · 시작값(도, 초점 기준). */
+export const ROVER_CAM_ELEV_MIN_DEG = K.num('ROVER_CAM_ELEV_MIN_DEG');
+export const ROVER_CAM_ELEV_MAX_DEG = K.num('ROVER_CAM_ELEV_MAX_DEG');
+export const ROVER_CAM_ELEV_START_DEG = K.num('ROVER_CAM_ELEV_START_DEG');
+/** 휠 확대 · 축소 범위(기본 거리 배수) · 한 칸 비율 · 충돌 뒤 풀리는 감쇠율. */
+export const ROVER_CAM_ZOOM_MIN_MUL = K.num('ROVER_CAM_ZOOM_MIN_MUL');
+export const ROVER_CAM_ZOOM_MAX_MUL = K.num('ROVER_CAM_ZOOM_MAX_MUL');
+export const ROVER_CAM_ZOOM_STEP = K.num('ROVER_CAM_ZOOM_STEP');
+export const ROVER_CAM_ZOOM_RATE = K.num('ROVER_CAM_ZOOM_RATE');
+/** 위치 추종 감쇠율 · 충돌 여유(m) · 최소 거리(m) · 지형 위 최소 높이(m). */
+export const ROVER_CAM_SMOOTH_RATE = K.num('ROVER_CAM_SMOOTH_RATE');
+export const ROVER_CAM_COLLISION_PAD = K.num('ROVER_CAM_COLLISION_PAD');
+export const ROVER_CAM_MIN_DIST = K.num('ROVER_CAM_MIN_DIST');
+export const ROVER_CAM_FLOOR = K.num('ROVER_CAM_FLOOR');
+/** 탑승 중 세이브 · 강제 해제가 몸을 두는 거리(m, 차량 오른쪽). */
+export const ROVER_SAFE_SIDE_M = K.num('ROVER_SAFE_SIDE_M');
+/** 원격 분대원이 내린 뒤 아바타를 더 숨기는 시간(초). */
+export const ROVER_REMOTE_EXIT_HIDE_S = K.num('ROVER_REMOTE_EXIT_HIDE_S');
+/* ── end [R3] ── */
+/* ── [R4] 적이 차량을 노린다 (owner: enemies) ── */
+/** 차량에 맞은 적(과 무리)이 차량을 노리는 시간(초). */
+export const ROVER_AGGRO_S = K.num('ROVER_AGGRO_S');
+/** 차량에 맞은 적과 함께 차량을 노리게 되는 같은 팩션 무리의 반경(m). */
+export const ROVER_AGGRO_GROUP_RADIUS = K.num('ROVER_AGGRO_GROUP_RADIUS');
+/** 서 있는 차량을 알아채는 거리(m, 차체 가장자리까지 · 사선 필요). */
+export const ROVER_NOTICE_STOPPED_M = K.num('ROVER_NOTICE_STOPPED_M');
+/* ── end [R4] ── */
+/* ── end 2026-09-13 탐사 차량 ── */

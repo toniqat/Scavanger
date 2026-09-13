@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "hash": "09954347f79c5b",
+  "hash": "14fcf166fcf63b",
   "creditsInitial": 500,
   "creditsMax": 9999999,
   "shopPriceBaseMul": 1.6,
@@ -8,6 +8,25 @@
   "shopPriceMinMul": 0.9,
   "sellPriceMul": 0.5,
   "repLevelMax": 5,
+  "roverFareMin": 150,
+  "roverFareMax": 600,
+  "crypto": {
+    "unitsPerCoin": 1000,
+    "fee": 0.02,
+    "maxUnits": 1000000,
+    "quoteWindowMs": 30000,
+    "tickMs": 10000,
+    "coins": {
+      "bastion": {"basePrice":8200,"volatility":0.06,"unlockQuest":"bs_crypto"},
+      "ceres": {"basePrice":11500,"volatility":0.12,"unlockQuest":"ce_crypto"},
+      "helix": {"basePrice":5200,"volatility":0.08,"unlockQuest":"hx_crypto"},
+      "nomad": {"basePrice":3600,"volatility":0.09,"unlockQuest":"nm_crypto"},
+      "pulse": {"basePrice":6000,"volatility":0.1},
+      "scrap": {"basePrice":1800,"volatility":0.04},
+      "void": {"basePrice":11000,"volatility":0.16},
+      "volt": {"basePrice":3200,"volatility":0.07}
+    }
+  },
   "items": {
     "alien_artifact": {"value":3200,"stack":1},
     "alien_relic": {"value":7500,"stack":1},
@@ -207,6 +226,7 @@
     "mat_capacitor": {"value":140,"stack":10},
     "mat_circuit": {"value":120,"stack":10},
     "mat_cloth": {"value":8,"stack":20},
+    "mat_compute_core": {"value":3200,"stack":9},
     "mat_control_module": {"value":380,"stack":10},
     "mat_core": {"value":30,"stack":10},
     "mat_extract_bio": {"value":140,"stack":10},
@@ -220,6 +240,7 @@
     "mat_medium_basic": {"value":90,"stack":10},
     "mat_medium_rich": {"value":210,"stack":10},
     "mat_power_cell": {"value":85,"stack":10},
+    "mat_processor": {"value":3000,"stack":3},
     "mat_scrap": {"value":15,"stack":10},
     "mat_syringe": {"value":50,"stack":10},
     "mat_weave": {"value":55,"stack":10},
@@ -417,9 +438,11 @@
     "b1": 200,
     "b2": 400,
     "b3": 1200,
+    "bs_crypto": 300,
     "c1": 150,
     "c2": 300,
     "c3": 1500,
+    "ce_crypto": 300,
     "cg1": 250,
     "cg2": 600,
     "ci1": 200,
@@ -431,7 +454,9 @@
     "h2": 250,
     "h3": 400,
     "h4": 900,
+    "hx_crypto": 300,
     "n1": 300,
-    "n2": 350
+    "n2": 350,
+    "nm_crypto": 300
   }
 }

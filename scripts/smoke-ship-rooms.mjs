@@ -344,7 +344,9 @@ try {
     await tap('KeyR');
     await waitSim(0.1);
     ok((await page.evaluate(() => window.__game.ctx.housing.selectedYaw)) === 1, 'R rotated the selection (yaw 1)');
-    await tap('KeyR'); await tap('KeyR'); await tap('KeyR');
+    // 2026-09-13 (배치 규칙): 한 프레임에 겹친 탭은 한 번으로 읽혀 yaw 2 에 멈출 수 있다 — 그러면 바닥 끝 줄의 작업대는 앞이 벽이라 설치가 거절된다.
+    // 탭마다 시뮬레이션을 흘려 yaw 0 으로 확실히 되돌린다.
+    for (let i = 0; i < 6 && (await page.evaluate(() => window.__game.ctx.housing.selectedYaw)) !== 0; i++) { await tap('KeyR'); await waitSim(0.1); }
     await waitSim(0.1);
     // Rotation changes the footprint, so the clamped top-left cell moves with it — sample the ghost again
     // right before the click instead of comparing against the pre-rotation cell.

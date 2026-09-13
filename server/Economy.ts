@@ -12,6 +12,12 @@
  *   refund:repair:<broken> 창 안 미환불 `repair:<broken>` 짝
  *   contract:<id>          delta === 보상, 한 시간에 `CREDIT_CONTRACT_MAX_PER_HOUR` 회
  *   quest:<id>             delta === 보상, 퀘스트 id 당 1회 (원장)
+ *   rover:<from>:<to>      (2026-09-13 탐사 차량 요금) delta < 0 정수, |delta| ∈ [roverFareMin, roverFareMax] (경로 거리는 시드마다
+ *                          달라 범위만 본다), from ≠ to, 한 시간에 `CREDIT_ROVER_MAX_PER_HOUR` 회 (원장 `roverAt`), 환불 짝 없음
+ *   cbuy:<coin>:<units>    (2026-09-13 암호화폐 매수) delta < 0 정수, |delta| ≥ cryptoTradeCredits('buy', 시세 창 최저가, units), 코인이 표에
+ *                          있고 해금 퀘스트가 있으면 원장 `quests` 에 있어야 한다, 1 ≤ units ≤ maxUnits, 한 시간에 `CREDIT_CRYPTO_MAX_PER_HOUR` 회
+ *                          (원장 `cryptoAt`), 환불 짝 없음. 시세 창은 주입된 `CryptoQuoteSource`(릴레이의 `CryptoMarket`) — 없으면 전부 거절
+ *   csell:<coin>:<units>   (매도) 0 < delta ≤ cryptoTradeCredits('sell', 시세 창 최고가, units), 나머지는 cbuy 와 같다
  *   migrate                잔액이 null 일 때 1회, [0, CREDITS_MAX] 로 clamp
  *   console · smoke:* · e2e:* · shot   `devEconomy` 릴레이에서만 (`SCAV_DEV_ECONOMY=1` — 스모크 러너가 띄우는 릴레이뿐, dev:all 도 끔)
  *   그 밖                  거절 (`CREDIT_TX_INVALID_KO`)
@@ -26,9 +32,12 @@
  */
 import type { CreditLedger, CreditReason, EconomyTable } from '../src/shared/credits.ts';
 import {
-  CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_DEV_ENV, CREDIT_REFUND_WINDOW_MS, economyTableDigest, formatCreditReason,
+  CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_DEV_ENV, CREDIT_REFUND_WINDOW_MS, CREDIT_ROVER_MAX_PER_HOUR, economyTableDigest, formatCreditReason,
   parseCreditReason, tableMinBuyPrice, tableSellPrice,
 } from '../src/shared/credits.ts';
+/* 2026-09-13: 암호화폐 매매 `cbuy:` · `csell:` (서버 시세 창) */
+import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
+import { cryptoTradeCredits } from '../src/shared/cryptoMarket.ts';
 import generated from './economy.gen.json' with { type: 'json' };
 
 /** Rolling window of the `contract:` hourly cap. */
@@ -59,6 +68,23 @@ export function loadEconomyTable(raw: unknown): EconomyTable {
   }
   for (const k of ['repairFees', 'contracts', 'quests'] as const) {
     for (const [id, n] of Object.entries(raw[k] as Record<string, unknown>)) if (!finite(n)) throw new Error(`economy table: ${k}.${id} is not a number`);
+  }
+  // 2026-09-13: optional (an older table has none — every rover fare is then refused), but never junk
+  for (const k of ['roverFareMin', 'roverFareMax'] as const) {
+    if (raw[k] !== undefined && !finite(raw[k])) throw new Error(`economy table: ${k} is not a number`);
+  }
+  // 2026-09-13: optional `crypto` (an older table has none — every cbuy / csell is refused and no market runs), but never junk
+  if (raw.crypto !== undefined) {
+    const cx = raw.crypto;
+    if (!isRecord(cx) || !isRecord(cx.coins)) throw new Error('economy table: crypto is malformed');
+    for (const k of ['unitsPerCoin', 'fee', 'maxUnits', 'quoteWindowMs', 'tickMs'] as const) {
+      if (!finite(cx[k])) throw new Error(`economy table: crypto.${k} is not a number`);
+    }
+    for (const [id, c] of Object.entries(cx.coins)) {
+      if (!isRecord(c) || !finite(c.basePrice) || !finite(c.volatility) || (c.unlockQuest !== undefined && typeof c.unlockQuest !== 'string')) {
+        throw new Error(`economy table: crypto coin ${id} is malformed`);
+      }
+    }
   }
   return raw as unknown as EconomyTable;
 }
@@ -101,6 +127,16 @@ export function sanitizeLedger(raw: unknown, now: number = Date.now()): CreditLe
   if (Array.isArray(raw.contractsAt)) {
     for (const at of raw.contractsAt) if (finite(at)) out.contractsAt.push(Math.min(Math.max(0, Math.floor(at)), now));
   }
+  if (Array.isArray(raw.roverAt)) {
+    const roverAt: number[] = [];
+    for (const at of raw.roverAt) if (finite(at)) roverAt.push(Math.min(Math.max(0, Math.floor(at)), now));
+    if (roverAt.length) out.roverAt = roverAt;
+  }
+  if (Array.isArray(raw.cryptoAt)) {
+    const cryptoAt: number[] = [];
+    for (const at of raw.cryptoAt) if (finite(at)) cryptoAt.push(Math.min(Math.max(0, Math.floor(at)), now));
+    if (cryptoAt.length) out.cryptoAt = cryptoAt;
+  }
   if (Array.isArray(raw.debits)) {
     for (const d of raw.debits) {
       if (!isRecord(d) || typeof d.reason !== 'string' || d.reason.length > LEDGER_REASON_MAX || !finite(d.amount) || !finite(d.at)) continue;
@@ -111,12 +147,22 @@ export function sanitizeLedger(raw: unknown, now: number = Date.now()): CreditLe
     }
   }
   pruneLedger(out, now);
-  return out.quests.length || out.contractsAt.length || out.debits.length ? out : null;
+  return out.quests.length || out.contractsAt.length || out.debits.length || out.roverAt?.length || out.cryptoAt?.length ? out : null;
 }
 
 /** Drop entries no rule reads any more and enforce the caps (oldest first). Mutates. */
 export function pruneLedger(l: CreditLedger, now: number): void {
   l.contractsAt = l.contractsAt.filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS);
+  if (l.roverAt) {
+    l.roverAt = l.roverAt.filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS);
+    if (l.roverAt.length > CREDIT_ROVER_MAX_PER_HOUR) l.roverAt.splice(0, l.roverAt.length - CREDIT_ROVER_MAX_PER_HOUR);
+    if (l.roverAt.length === 0) delete l.roverAt;
+  }
+  if (l.cryptoAt) {
+    l.cryptoAt = l.cryptoAt.filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS);
+    if (l.cryptoAt.length > CREDIT_CRYPTO_MAX_PER_HOUR) l.cryptoAt.splice(0, l.cryptoAt.length - CREDIT_CRYPTO_MAX_PER_HOUR);
+    if (l.cryptoAt.length === 0) delete l.cryptoAt;
+  }
   l.debits = l.debits.filter((d) => now - d.at <= CREDIT_REFUND_WINDOW_MS && d.refunded < d.amount);
   if (l.debits.length > CREDIT_LEDGER_DEBITS_MAX) l.debits.splice(0, l.debits.length - CREDIT_LEDGER_DEBITS_MAX);
   if (l.quests.length > CREDIT_LEDGER_QUESTS_MAX) l.quests.splice(0, l.quests.length - CREDIT_LEDGER_QUESTS_MAX);
@@ -140,16 +186,31 @@ export type CreditCheck =
 export interface CreditEconomyOptions {
   /** Accept `console` · `smoke:*` · `e2e:*` · `shot` (only the relay a smoke runner starts itself — `npm run dev:all` keeps it off). */
   dev?: boolean;
+  /** 2026-09-13: where `cbuy:` / `csell:` read the relay's recent price window (the relay passes its `CryptoMarket`). */
+  cryptoQuotes?: CryptoQuoteSource | null;
+}
+
+/**
+ * 2026-09-13: the price window a crypto trade is judged against — lowest / highest price of `coin` inside the relay's quote
+ * window at `now` (`server/CryptoMarket.quoteRange`). Injected so this file stays pure (no timers, no RelayServer import).
+ */
+export interface CryptoQuoteSource {
+  quoteRange(coin: string, now: number): { min: number; max: number } | null;
 }
 
 export class CreditEconomy {
   readonly table: EconomyTable;
   readonly dev: boolean;
+  private cryptoQuotes: CryptoQuoteSource | null;
 
   constructor(table: EconomyTable = ECONOMY_TABLE, opts: CreditEconomyOptions = {}) {
     this.table = table;
     this.dev = opts.dev === true;
+    this.cryptoQuotes = opts.cryptoQuotes ?? null;
   }
+
+  /** 2026-09-13: attach (or detach with null) the market that prices `cbuy:` / `csell:` — without one every crypto trade is refused. */
+  setCryptoQuotes(src: CryptoQuoteSource | null): void { this.cryptoQuotes = src; }
 
   /** The most recent unrefunded debit of `reason` inside the window that still covers `amount`. */
   private pairDebit(ledger: CreditLedger | undefined, reason: string, amount: number, now: number): CreditLedger['debits'][number] | null {
@@ -220,6 +281,44 @@ export class CreditEconomy {
         if (d !== reward) return { ok: false, why: `quest ${parsed.id} for ${d} ≠ ${reward}` };
         return ledger?.quests.includes(parsed.id) ? { ok: false, why: `quest ${parsed.id} already paid` } : okay(d);
       }
+      case 'rover': {
+        /* 2026-09-13 탐사 차량 요금: the fare comes from the seed's route length, which the relay cannot know — so only the
+         * csv range, the sign, whole credits and an hourly cap. `parseCreditReason` already refused from === to / bad ids. */
+        const lo = t.roverFareMin, hi = t.roverFareMax;
+        if (!finite(lo) || !finite(hi)) return { ok: false, why: 'rover fare but the table has no roverFareMin/roverFareMax' };
+        if (!finite(delta) || delta !== d) return { ok: false, why: `rover fare ${String(delta)} is not whole credits` };
+        if (d >= 0) return { ok: false, why: `rover fare with delta ${d} ≥ 0` };
+        if (-d < lo || -d > hi) return { ok: false, why: `rover fare ${-d} outside ${lo}…${hi}` };
+        const recent = (ledger?.roverAt ?? []).filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS).length;
+        return recent < CREDIT_ROVER_MAX_PER_HOUR ? okay(d) : { ok: false, why: `rover fare cap ${CREDIT_ROVER_MAX_PER_HOUR}/h reached` };
+      }
+      case 'crypto-buy':
+      case 'crypto-sell': {
+        /* 2026-09-13 암호화폐 매매 (`credits.ts` 의 같은 날 절): the amount must be one a client could have computed from a price the
+         * relay showed inside the quote window — a buy at least the cost at the window's lowest price, a sell at most the payout at its
+         * highest. Wallet ownership is not checked (the ship document is a client write — the same limit as items). */
+        const cx = t.crypto;
+        const buy = parsed.kind === 'crypto-buy';
+        if (!cx) return { ok: false, why: 'crypto trade but the table has no crypto section' };
+        const coin = Object.prototype.hasOwnProperty.call(cx.coins, parsed.id) ? cx.coins[parsed.id] : undefined;
+        if (!coin) return { ok: false, why: `crypto trade of unknown coin ${parsed.id}` };
+        if (coin.unlockQuest && !(ledger?.quests ?? []).includes(coin.unlockQuest)) return { ok: false, why: `crypto ${parsed.id} is locked (quest ${coin.unlockQuest} not paid)` };
+        const units = parsed.qty ?? 0;
+        if (!Number.isInteger(units) || units < 1 || units > cx.maxUnits) return { ok: false, why: `crypto ${parsed.id} units ${units} outside 1…${cx.maxUnits}` };
+        if (!finite(delta) || delta !== d) return { ok: false, why: `crypto trade ${String(delta)} is not whole credits` };
+        const q = this.cryptoQuotes?.quoteRange(parsed.id, now) ?? null;
+        if (!q) return { ok: false, why: `crypto ${parsed.id}: no market price on this relay` };
+        if (buy) {
+          const min = cryptoTradeCredits('buy', q.min, units, cx.unitsPerCoin, cx.fee);
+          if (d >= 0) return { ok: false, why: `crypto buy with delta ${d} ≥ 0` };
+          if (-d < min) return { ok: false, why: `crypto buy ${parsed.id}×${units} for ${-d} < ${min} (window low ${q.min})` };
+        } else {
+          const max = cryptoTradeCredits('sell', q.max, units, cx.unitsPerCoin, cx.fee);
+          if (d <= 0 || d > max) return { ok: false, why: `crypto sell ${parsed.id}×${units} for ${d} outside 1…${max} (window high ${q.max})` };
+        }
+        const recent = (ledger?.cryptoAt ?? []).filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS).length;
+        return recent < CREDIT_CRYPTO_MAX_PER_HOUR ? okay(d) : { ok: false, why: `crypto trade cap ${CREDIT_CRYPTO_MAX_PER_HOUR}/h reached` };
+      }
     }
     return { ok: false, why: 'unhandled reason' };
   }
@@ -243,6 +342,15 @@ export class CreditEconomy {
         break;
       case 'quest':
         if (!ledger.quests.includes(p.id)) ledger.quests.push(p.id);
+        break;
+      case 'rover':
+        // a stamp for the hourly cap only — deliberately not a `debits` entry, so no `refund:` can ever pair with a fare
+        (ledger.roverAt ??= []).push(now);
+        break;
+      case 'crypto-buy':
+      case 'crypto-sell':
+        // 2026-09-13: the hourly cap only — never a `debits` entry (a trade has no refund; the reverse trade is the undo)
+        (ledger.cryptoAt ??= []).push(now);
         break;
       default:
         break;

@@ -8,6 +8,12 @@ generator,2,mat_scrap:8|mat_cable:2
 generator,3,mat_alloy:6|mat_cable:4|mat_power_cell:1
 generator,4,mat_alloy:10|mat_circuit:3|mat_power_cell:2
 generator,5,mat_alloy:14|mat_circuit:6|mat_power_cell:4
+# 2026-09-13 (사용자 결정 — 전력): 발전기 최대 레벨 5 → 10. 6 이상은 상위 재료 계열이다.
+generator,6,mat_ingot:4|mat_circuit:8|mat_power_cell:6
+generator,7,mat_ingot:6|mat_capacitor:2|mat_power_cell:8
+generator,8,mat_ingot:8|mat_capacitor:4|mat_control_module:2
+generator,9,mat_ingot:10|mat_capacitor:6|mat_control_module:4|mat_processor:1
+generator,10,mat_ingot:14|mat_capacitor:8|mat_control_module:6|mat_processor:2
 
 # storage — 레벨 n 으로 올리는 데 드는 재료
 storage,1,mat_scrap:6

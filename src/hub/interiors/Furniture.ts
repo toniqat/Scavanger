@@ -4,6 +4,8 @@ import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_M
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import { LEISURE_BUILDERS, isLeisureKind, type FurnitureRig, type LeisureKind } from './FurnitureLeisure';
 import { KITCHEN_APPLIANCE_BUILDERS, cookBenchTools, type CookRig } from './FurnitureKitchen';
+import { MINING_BUILDERS } from './FurnitureMining';
+import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES } from '@/shared';     // 2026-09-13 암호화폐 채굴
 import { CookStaging, cookPoseOf } from './CookStaging';
 import { GymStaging, gymPoseOf, poseRock, sitPoseOf, type FootBox } from './GymStaging';
 import { RemoteFurnitureStaging } from './RemoteFurnitureStaging';
@@ -12,6 +14,7 @@ import { roomCellToWorld, yawToRotation } from './RoomLayout';
 import { computerScreenPose, implantBayBody, shipComputerBody } from './stations';
 import { TextPlane } from '../Labels';
 import type { EditAreaDef } from './types';
+import { furnitureAccessOf, furnitureFaceDir } from '@/shared';   // 2026-09-13 배치 규칙 — 접근 면에서만 상호작용
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Procedural furniture (함선 꾸미기). Every `FurnitureModelKind` is built from boxes / cylinders through a
@@ -111,6 +114,13 @@ export interface BuildExtra {
    * 짓는다 (조리 중에 방이 다시 지어져도 도구가 제자리로 튀지 않는다). null · 생략 = 조리 중 아님.
    */
   cookGame?: CookGame | null;
+  /**
+   * 연산 클러스터 (2026-09-13, 암호화폐 채굴): 꽂힌 연산 코어 수 — 그만큼 양면의 코어 칸이 켜진다 (`FurnitureMining`). 광원 없이 모습만 바꾸는
+   * 길이라 `housing:clusterChanged` 에서 **그 값이 바뀔 때만** 방을 다시 짓는다. 생략 = 0.
+   */
+  cores?: number;
+  /** 연산 클러스터: 지금 채굴 중인가 (코어 상태등 초록 / 호박색). */
+  clusterMining?: boolean;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -188,6 +198,9 @@ function benchBody(b: GeoBatch, w: number, d: number, h: number, accent: THREE.M
 const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
   /* 2026-09-13 요리 미니게임: 자동 조리 가구 4종 (푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서) — `FurnitureKitchen.ts` */
   ...KITCHEN_APPLIANCE_BUILDERS,
+  /* 2026-09-13 암호화폐 채굴: 리드의 임시 몸체 (계약이 모델 종류를 늘려 `Record` 가 요구한다) — 실제 모델은 `FurnitureMining.ts` 가 대신한다 */
+  /* 2026-09-13 암호화폐 채굴: 연산 클러스터(양면 코어 칸 3×3 · 켜진 코어 = `extra.cores`) · 메인 컴퓨터(모니터 셋) — `FurnitureMining.ts` */
+  ...MINING_BUILDERS,
   bench_gun: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
     const top = h - 0.02;
     b.boxB(0.26, 0.16, 0.2, -w * 0.3, top, 0.05, M.hullDark);                                   // vise
@@ -759,6 +772,11 @@ export interface FurnitureCallbacks {
   onToggle(uid: string): void;
   /** 운동 기구: 미니게임 세션 (`ctx.housing.startGymSession(uid)` — 거절 사유는 토스트). 자세 · 카메라는 layer 의 `GymStaging` 이 건다. */
   onGym(uid: string): void;
+  /* ── 암호화폐 채굴 (2026-09-13) — 둘 다 optional: 없으면 layer 가 `ctx.housing.openComputeCluster` / `openMiningComputer` 를 직접 부른다 ── */
+  /** 연산 클러스터: 그 클러스터의 화면 (`ctx.housing.openComputeCluster(uid)`). */
+  onComputeCluster?(uid: string): void;
+  /** 메인 컴퓨터: 메인 컴퓨터 화면 (`ctx.housing.openMiningComputer(uid)`). */
+  onMiningComputer?(uid: string): void;
   /* ── 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화) — 둘 다 optional, 방문 중인 함선의 layer 도 같은 것을 받는다 ── */
   /** 원격 분대원 목록 (스모크의 디버그 ref 포함). 없으면 `ctx.net.getRemotePlayers()`. */
   remotePlayers?(): readonly RemotePlayerRef[];
@@ -848,6 +866,8 @@ export class FurnitureLayer {
   private remote: RemoteFurnitureStaging | null = null;
   /** 조리 연출 (2026-09-13, 요리 미니게임) — 우리 함선에서만 (방문 중인 함선은 null). */
   private cook: CookStaging | null = null;
+  /** 연산 클러스터 uid → 지어진 모습의 열쇠 (`코어:채굴 여부`, 2026-09-13) — 바뀔 때만 다시 짓는다. */
+  private clusterKeys = new Map<string, string>();
   private lastTime = -1;
 
   /**
@@ -880,6 +900,10 @@ export class FurnitureLayer {
         b.on('housing:shelfChanged', ({ uid, medium }) => { if (medium === 'book') return; const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
         // A-3e: TV · 레코드 플레이어를 켰다 / 껐다 → 화면 · 네온 · LED 재질이 바뀌므로 그 방만 다시 짓는다 (광원 없음)
         b.on('housing:furnitureToggled', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+        // 2026-09-13 암호화폐 채굴: 코어 수 · 채굴 여부가 **바뀐** 연산 클러스터만 그 방을 다시 짓는다 (코어 칸 발광 — 광원 없음)
+        b.on('housing:clusterChanged', ({ uid }) => this.refreshClusterPiece(uid)),
+        b.on('housing:operationalChanged', ({ uid }) => this.refreshClusterPiece(uid)),
+        b.on('housing:powerChanged', () => { for (const uid of [...this.clusterKeys.keys()]) this.refreshClusterPiece(uid); }),
       );
       this.staging = new GymStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
       this.cook = new CookStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
@@ -1059,7 +1083,11 @@ export class FurnitureLayer {
       // 2026-09-13 요리 미니게임: 조리대 · 자동 조리 가구 — 둘 다 조리대 화면을 연다 (조리대는 `bench` 이기도 하므로 그보다 먼저 잡는다)
       const cookBench = kind === 'workbench_cook';
       const cookAppliance = cookGamesOfAppliance(kind).length > 0;
+      // 2026-09-13 암호화폐 채굴: 연산 클러스터(프롬프트는 코어 수를 따라간다) · 메인 컴퓨터
+      const cluster = kind === 'compute_cluster';
+      const miningPc = kind === 'mining_computer';
       const prompt = fixture ? fixture.prompt
+        : miningPc ? '메인 컴퓨터'
         : cookBench ? `${def.name} · 요리하기`
         : cookAppliance ? `${def.name} · 조리대 열기`
         : bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
@@ -1071,6 +1099,21 @@ export class FurnitureLayer {
       // piece's front edge instead (a control panel per 층) so `findBest` can tell them apart.
       const anchor = _pos.clone();
       const rot = yawToRotation(item.yaw), cos = Math.cos(rot), sin = Math.sin(rot);
+      /* 2026-09-13 (배치 규칙 — 접근 면, 사용자 결정): front = 앞에서만, sides = 넓은 두 면(로컬 ±Z)에서만, all · none = 어디서든.
+         플레이어 발 위치를 조각 중심에서 앞 방향(`furnitureFaceDir` — 격자 x = 월드 +X, 격자 y = 월드 +Z)으로 투영해 몸체 반 두께 밖이어야 한다.
+         front 조각의 anchor 는 앞면 바로 앞으로 옮긴다 (고정 설비는 원래 거기 있었다). */
+      const access = furnitureAccessOf(def);
+      const faceDir = furnitureFaceDir(item.yaw, 'front');
+      const faceX = faceDir.dx, faceZ = faceDir.dy;
+      const halfDepth = (faceX !== 0 ? w : d) / 2, faceHalfWidth = (faceX !== 0 ? d : w) / 2;
+      const pcx = _pos.x, pcz = _pos.z;
+      const accessOk = (): boolean => {
+        if (access !== 'front' && access !== 'sides') return true;
+        const p = this.ctx.player?.position;
+        if (!p) return true;
+        const s = (p.x - pcx) * faceX + (p.z - pcz) * faceZ;
+        return access === 'front' ? s >= halfDepth : Math.abs(s) >= halfDepth;
+      };
       if (stack > 1) {
         const lw = def.cols * HOUSING_CELL_SIZE, ld = def.rows * HOUSING_CELL_SIZE;
         const ox = (layer - (stack - 1) / 2) * (lw / stack);
@@ -1080,6 +1123,8 @@ export class FurnitureLayer {
         // 2026-09-12: a fixture's anchor stands **in front of** the piece (local −Z), where the old station's anchor was
         const oz = -(def.rows * HOUSING_CELL_SIZE / 2 + 0.6);
         anchor.set(_pos.x + oz * sin, 0, _pos.z + oz * cos);
+      } else if (access === 'front') {
+        anchor.set(pcx + faceX * (halfDepth + 0.4), 0, pcz + faceZ * (halfDepth + 0.4));
       }
       // the old station id when it is still free (one fixture of a kind per ship), else the generic furniture id
       const id = fixture && !this.ctx.interactables.all().some((i) => i.id === fixture.id) ? fixture.id : `hub_furn_${item.uid}`;
@@ -1087,11 +1132,19 @@ export class FurnitureLayer {
       interactable = {
         id,
         position: anchor,
-        radius: fixture ? fixture.radius : stack > 1 ? 1.2 : Math.max(w, d) / 2 + 1.1,
+        radius: fixture ? fixture.radius : stack > 1 ? 1.2 : access === 'front' ? faceHalfWidth + 1.1 : Math.max(w, d) / 2 + 1.1,
         // TV · 레코드 플레이어의 프롬프트는 지금 상태를 따라간다 (`TV · 켜기` / `TV · 끄기`)
-        getPrompt: () => (cb.canUse() ? (toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : prompt) : null),
-        canInteract: () => cb.canUse(),
+        getPrompt: () => (cb.canUse() && accessOk() ? (toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : cluster ? this.clusterPrompt(uid) : prompt) : null),
+        canInteract: () => cb.canUse() && accessOk(),
         interact: () => {
+          /* 전력 (2026-09-13): 멈춘(전력 부족 · 비활성) 작업대 · 조리대 · 운동 기구 · 꺼진 TV/레코드 플레이어는 사유만 알린다.
+             스테이션(재배 · 분석 · 배양 · 보관함 · 채굴)은 그대로 열어 안을 관리하게 둔다 — 멈춘 사유는 그 화면의 배너가 말한다. */
+          const powerBlock = bench || gym || (toggle && !this.isOn(uid)) ? this.ctx.housing?.furnitureOperationalBlock?.(uid) ?? null : null;
+          if (powerBlock) {
+            this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+            this.ctx.bus.emit('ui:notify', { text: `${def.name} — ${powerBlock}`, kind: 'warning' });
+            return;
+          }
           if (cookBench) cb.onCookStation(uid);
           else if (cookAppliance) cb.onCookStation(this.cookBenchUid(uid));
           else if (bench) cb.onBench(bench, level);
@@ -1111,6 +1164,8 @@ export class FurnitureLayer {
           }
           else if (toggle) cb.onToggle(uid);
           else if (gym) cb.onGym(uid);
+          else if (cluster) this.openMining(uid, 'cluster');
+          else if (miningPc) this.openMining(uid, 'computer');
           /* anything else (a future interaction nobody wired yet) does nothing rather than opening a wrong window */
         },
       };
@@ -1146,6 +1201,12 @@ export class FurnitureLayer {
     if (isToggleInteraction(def.interaction)) return { on: this.isOn(uid) };
     // 2026-09-13: 조리 중인 조리대는 지금 단계의 도구를 작업 자리에 둔 채로 짓는다
     if (def.model === 'bench_cook') return { cookGame: this.cook?.gameFor(uid) ?? null };
+    // 2026-09-13 암호화폐 채굴: 연산 클러스터는 꽂힌 코어만큼 칸이 켜진 채로 짓는다 (지은 모습의 열쇠를 적어 둔다)
+    if (def.model === 'compute_cluster') {
+      const s = this.clusterState(uid);
+      this.clusterKeys.set(uid, `${s.cores}:${s.mining ? 1 : 0}`);
+      return { cores: s.cores, clusterMining: s.mining };
+    }
     // 2026-09-12: 원격 분대원이 쓰고 있는 기구도 원반을 낀 채로 짓는다 (재빌드 한 프레임 동안 원반이 사라지지 않게)
     if (gymEquipmentOf(def.interaction)) return { gymActive: this.staging?.uid === uid || this.remote?.drives(uid) === true };
     return undefined;
@@ -1181,6 +1242,46 @@ export class FurnitureLayer {
     const h = this.ctx.housing;
     if (!h || typeof h.isFurnitureOn !== 'function') return false;
     try { return h.isFurnitureOn(uid) === true; } catch { return false; }
+  }
+
+  /**
+   * 연산 클러스터의 지금 모습 (2026-09-13): 꽂힌 코어 수 · 채굴 중인가. 방문 중인 함선은 와이어에 채굴 상태가 없어 0 / false,
+   * `ctx.housing` 은 duck-typed / try-caught — 짓는 중인 폴더가 방 재빌드 도중 던지지 않는다.
+   */
+  private clusterState(uid: string): { cores: number; mining: boolean } {
+    if (this.source) return { cores: 0, mining: false };
+    const h = this.ctx.housing;
+    if (!h || typeof h.getComputeCluster !== 'function') return { cores: 0, mining: false };
+    try {
+      const c = h.getComputeCluster(uid);
+      return { cores: Math.max(0, Math.floor(c?.cores ?? 0)), mining: !!c?.mining };
+    } catch { return { cores: 0, mining: false }; }
+  }
+
+  /** 모습이 바뀐 연산 클러스터만 그 방을 다시 짓는다 (`housing:clusterChanged` 는 채굴 주기마다도 온다). */
+  private refreshClusterPiece(uid: string): void {
+    const p = this.pieces.get(uid);
+    if (!p || p.item.defId !== COMPUTE_CLUSTER_DEF_ID) return;
+    const s = this.clusterState(uid);
+    if (this.clusterKeys.get(uid) === `${s.cores}:${s.mining ? 1 : 0}`) return;
+    this.rebuildRoom(p.item.room);
+  }
+
+  /** `연산 클러스터 · 코어 n/9` — 코어 수를 지금 읽는다. */
+  private clusterPrompt(uid: string): string {
+    return `연산 클러스터 · 코어 ${this.clusterState(uid).cores}/${COMPUTE_CLUSTER_MAX_CORES}`;
+  }
+
+  /** 채굴 화면을 연다 — 콜백이 있으면 콜백(hub 가 토스트 규약을 갖는다), 없으면 `ctx.housing` 을 직접. */
+  private openMining(uid: string, page: 'cluster' | 'computer'): void {
+    const cb = this.cb;
+    if (page === 'cluster' && cb.onComputeCluster) { cb.onComputeCluster(uid); return; }
+    if (page === 'computer' && cb.onMiningComputer) { cb.onMiningComputer(uid); return; }
+    const h = this.ctx.housing;
+    try {
+      if (page === 'cluster') h?.openComputeCluster?.(uid);
+      else h?.openMiningComputer?.(uid);
+    } catch (err) { console.warn('[hub] open mining screen failed', err); }
   }
 
   /**

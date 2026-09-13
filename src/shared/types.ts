@@ -2970,3 +2970,158 @@ export interface InventoryRef {
   completeCook?(recipeId: string, benchLevel: number, quality: number): { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null };
 }
 /* ══ end 2026-09-13 요리 미니게임 ══ */
+
+/* ══ appended: 2026-09-13 — 탐사 차량 (rover). 사용자 결정은 이 머리 주석이 원본이다 ══════════════════════════════════════════
+ * 병렬 에이전트마다 **자기 블록 안에만** 추가한다. 기존 선언은 이름 변경 · 삭제 금지.
+ *
+ * 탐사 차량 = **레이드당 1대**, 사람이 타지 않는 자동 장갑차 (타르코프 BTR 과 달리 운전수가 없다).
+ *   - 선로 없이 **닫힌 고리 경로**(바퀴자국 흙길)를 따라 정류장 4–5곳을 **순환**하고 정류장마다 `ROVER_DWELL_S`(60) 정차한다.
+ *     정류장은 경로 옆 평지에 표지 기둥으로 서고, 서로 최대한 멀리 · 다른 구조물과 겹치지 않게 놓인다. 경로 회랑은 선로처럼 비운다.
+ *   - 정차 중(`stopped` · `departing`) E 꾹(`ROVER_BOARD_HOLD_S`) = 탑승. 캐릭터는 **차량 안에 숨고** 무기 · 아이템 · 함선 호출을 못 쓰며
+ *     카메라는 차량을 비추는 **마우스 궤도 3인칭**이 된다. 탑승자는 **어떤 피해도 받지 않는다** (재해 · 행성 환경 포함) — 차량만 맞는다.
+ *   - 누군가 처음 타는 순간 **모든 정류장 위치가 분대 전원의 지도에 레이드 내내** 남는다 (그 전에는 안개로 발견한 정류장만).
+ *   - 탑승자가 있고 결제 전이면 정차 타이머가 멈춘다 (기다린다). 탑승자 **한 명이 전원분 요금**(경로 거리 비례, `ROVER_FARE_MIN`–`MAX`)을
+ *     내면 `ROVER_DEPART_GRACE_S`(5) 유예 뒤 목표 정류장으로 **직행**한다 (고리의 짧은 쪽). 유예 중에는 타고 내릴 수 있고,
+ *     출발한 뒤로는 탑승 · 하차가 불가하다. 도착하면 **전원 강제 하차** 후 그 정류장에서 정차부터 다시 순환한다.
+ *   - 이동 중(`patrol` · `trip`)에는 좁은 반경의 적을 쏜다. 체력 `ROVER_HP`(2000). **적과 재해만** 피해를 준다 (플레이어 무기 · 폭발 무효).
+ *     재해 구역 안에서는 재해 피해의 `ROVER_HAZARD_DAMAGE_MUL`(5)배. 파괴되면 탑승자 즉시 그 자리 하차 · 그 레이드는 사용 불가 (잔해가 남는다).
+ *     파괴 · 도중 사고에 환불은 없다.
+ *   - 재해에 잡아먹힌 정류장은 목적지로 고를 수 없고 (이미 이동 중이면 그대로 간다), 그 정류장에 서 있는 차량은 탑승을 거부한다.
+ * 권위: **호스트** (전차와 같다 — 경로는 시드 결정적, 와이어는 `s` · 상태 · 체력 · 탑승자). 요금은 결제자 클라이언트가 `credits:tx` 로 낸다.
+ * 소유: world/rover (경로 계획 · 흙길 · 정류장 · 차량 · 동기화), player (탑승 모드 · 궤도 카메라 · 피해 면제), enemies (차량을 표적으로),
+ *       ui/map (정류장 · 경로 · 목적지 선택), server (요금 검증).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** `stopped` 정류장 정차 · `departing` 결제 뒤 출발 유예 · `patrol` 빈 차 순환 주행 · `trip` 결제 이동 · `destroyed` 파괴 (레이드 내내). */
+export type RoverState = 'stopped' | 'departing' | 'patrol' | 'trip' | 'destroyed';
+/** 와이어 순서 (`RoverWire.st` 가 이 배열의 index). 재정렬 금지. */
+export const ROVER_STATES: readonly RoverState[] = ['stopped', 'departing', 'patrol', 'trip', 'destroyed'];
+/** 탐사 차량이 적을 때릴 때 `EnemyRef.takeDamage(…, attacker)` 에 넘기는 값 — enemies 는 킬 크레딧을 주지 않고 차량에 어그로를 건다. */
+export const ROVER_DAMAGE_SOURCE = 'rover';
+
+export interface RoverStationDef {
+  /** `rst<n>` — 영숫자만 (크레딧 사유 `rover:<from>:<to>` 에 그대로 실린다). */
+  id: string;
+  /** 경로 순서 0..n-1 (`s` 오름차순). */
+  index: number;
+  /** 화면 이름 (`정류장 A` …). */
+  label: string;
+  /** 차량이 서는 경로 위 점 (y = 노면). */
+  position: THREE.Vector3;
+  /** 표지 기둥 자리 (경로 옆, y = 지면). 안개 발견 · 재해 판정 · 지도 마커는 이 점을 쓴다. */
+  polePosition: THREE.Vector3;
+  /** 경로 위 진행거리(m) — 차량이 이 `s` 에 선다. */
+  s: number;
+}
+
+export interface RoverRouteDef {
+  /** 흙길 중심선 (y = 노면). **닫힌 고리** — 마지막 → 첫 점이 이어진다. 빈 차 순환은 늘 +s 방향이다. */
+  points: readonly THREE.Vector3[];
+  /** 고리 전체 길이(m, 닫는 구간 포함). */
+  length: number;
+  /** 경로 순서대로 (`s` 오름차순). */
+  stations: readonly RoverStationDef[];
+}
+
+/** 차량의 살아 있는 상태 (호스트가 굴리고 클라이언트는 보간한다). 객체는 재사용된다 — 보관하지 말고 읽고 바로 쓴다. */
+export interface RoverVehicleDef {
+  /** 차체 중심 바닥 (y = 노면). */
+  position: THREE.Vector3;
+  /** 차체가 향한 방향. 규약은 `TramDef.yaw` 와 같다: 전방 = `(cos yaw, 0, sin yaw)` (지도는 `-yaw` 로 돌려 그린다). */
+  yaw: number;
+  state: RoverState;
+  /** 경로 위 진행거리(m). 호스트 권위. */
+  s: number;
+  /** 지금 주행 방향 (+1 / −1). 빈 차 순환은 +1, 결제 이동은 짧은 쪽. */
+  dir: 1 | -1;
+  hp: number;
+  maxHp: number;
+  /** 서 있는(`stopped` · `departing`) 정류장 id, 아니면 null. */
+  stationId: string | null;
+  /** `departing` · `trip` = 결제한 목적지, `patrol` = 다음 정류장, 그 밖에는 null. */
+  targetId: string | null;
+  /** `stopped` = 정차 남은 초 (탑승자가 있으면 줄지 않는다) · `departing` = 출발까지 남은 초 · 그 밖에는 0. */
+  timer: number;
+  /** 탑승자 — 이 클라이언트 기준으로 로컬 플레이어는 `'local'`, 나머지는 PeerId. */
+  riders: readonly string[];
+}
+
+export interface RoverRef {
+  readonly route: RoverRouteDef;
+  readonly vehicle: Readonly<RoverVehicleDef>;
+  /** 누군가 한 번 탑승해 모든 정류장이 공개됐는가 (분대 공유 · 레이드 내내). 공개되면 `rover:stationsRevealed`. */
+  readonly stationsRevealed: boolean;
+  /** 로컬 플레이어가 지금 타 있는가. */
+  readonly localAboard: boolean;
+  /** 이 정류장(표지 기둥 자리)이 지금 재해 피해 구역 안인가. */
+  isStationSwallowed(stationId: string): boolean;
+  /** 지금 서 있는 정류장에서 `stationId` 까지 결제 이동 거리(m, 고리의 짧은 쪽). 서 있지 않거나 같은 정류장이면 null. */
+  tripDistance(stationId: string): number | null;
+  /** 그 거리의 요금(크레딧, 전원분). `tripDistance` 가 null 이면 null. **요금 식의 유일한 원본** — 지도는 이것을 그린다. */
+  fareTo(stationId: string): number | null;
+  /**
+   * 로컬 플레이어가 지금 `stationId` 로 결제 출발을 **할 수 없는** 한국어 사유, 가능하면 null.
+   * (타 있지 않음 · 정차 중이 아님 · 이미 결제됨 · 같은 정류장 · 재해 지역 · 크레딧 부족 · 파괴됨)
+   */
+  tripBlock(stationId: string): string | null;
+  /** 결제 + 출발 요청. 요청이 나갔으면 null, 막히면 `tripBlock` 사유. 확정은 `rover:tripStarted`, 거절은 `rover:refused`. */
+  requestTrip(stationId: string): string | null;
+  /** 적이 노릴 수 있는 상태인가 (파괴되지 않았다). enemies 가 표적 목록을 만들 때 본다. */
+  readonly targetable: boolean;
+  /** 차체 판정 치수(m): 반길이(전방 축) · 반폭 · 높이. 판정 상자 = `vehicle.position` 에서 위로 `height`, `vehicle.yaw` 로 돈 OBB. */
+  readonly halfLength: number;
+  readonly halfWidth: number;
+  readonly height: number;
+  /**
+   * 적의 피해를 넣는다. 호스트 · 솔로에서만 적용된다 (리플리카에서 부르면 무시). 재해 피해는 world 가 스스로 넣으므로 부르지 않는다.
+   * 플레이어의 무기 · 가젯 · 함선 호출은 이것을 부르지 않는다 (사용자 결정: 적 · 재해만).
+   */
+  damage(amount: number, from?: THREE.Vector3): void;
+}
+
+export interface WorldRef {
+  /* ── appended (2026-09-13): 탐사 차량 (owner: world/rover) ── */
+  /** 이번 레이드의 탐사 차량. 훈련장 · 경로를 못 놓은 맵 · 월드 준비 전이면 null. */
+  readonly rover?: RoverRef | null;
+}
+
+/** 탑승 모드가 player 에게 건네는 끈 (owner: world/rover 가 만든다, player 가 읽는다). 벡터는 **살아 있다** — 매 프레임 읽는다. */
+export interface RoverRideBinding {
+  /** 탑승자의 발이 있을 월드 위치 (차체 안). player 가 매 프레임 몸을 여기로 옮긴다 (안개 · 지도 · 스냅샷이 이 위치를 쓴다). */
+  readonly seat: THREE.Vector3;
+  /** 궤도 카메라가 도는 중심 (차체 윗면 위). */
+  readonly focus: THREE.Vector3;
+  /** 차체 yaw (`RoverVehicleDef.yaw` 규약) — 탑승 순간 카메라를 차 뒤에 놓는 데 쓴다. */
+  readonly yaw: number;
+  /** 궤도 카메라 기본 거리(m). */
+  readonly cameraDistance: number;
+  /** 지금 E 꾹 하차가 되는가. false 면 player 는 홀드를 시작하지 않고 `lockedPrompt` 를 프롬프트로 띄운다. */
+  readonly canExit: boolean;
+  /** 하차가 막혔을 때의 프롬프트 (`이동 중 — 하차 불가`). */
+  readonly lockedPrompt: string;
+  /** E 홀드(`ROVER_EXIT_HOLD_S`)가 끝났다. world 가 확정하면 `setRoverRide(null, 내릴 자리)` 를 부른다 (거절이면 `rover:refused`). */
+  requestExit(): void;
+}
+
+export interface PlayerRef {
+  /* ── appended (2026-09-13): 탐사 차량 탑승 (owner: player; caller: world/rover) ── */
+  /** 탐사 차량에 타 있는가. */
+  readonly roverRide?: boolean;
+  /** 지금 탑승할 수 **없는** 한국어 사유 (사망 · 전투불능 · 들쳐메기 · 업힘 · 사다리 · 드론 조종 · 함선/포드 안), 가능하면 null. */
+  roverBoardBlock?(): string | null;
+  /**
+   * 탑승 / 하차. `binding` 이 있으면: 몸을 숨기고(모델 · 그림자 — 원격에는 `PlayerFlags.IN_ROVER`), 이동 · 점프 · 자세 · 무기 · 상호작용 ·
+   * 퀵슬롯 · 임플란트 · 함선 호출 · 핑 · 의사소통 휠을 막고(`droneControl` 을 보는 게이트에 같이 건다), **모든 피해를 무시하고**
+   * (`takeDamage` · 넉백 · 재해 · 행성 환경), 매 프레임 몸을 `seat` 에 두고, 마우스로 `focus` 주위를 도는 궤도 카메라를 쓴다.
+   * E 꾹 = `canExit` 면 하차 홀드 → `requestExit()`. Tab(인벤토리) · M(지도) · 채팅 · Esc 는 그대로 쓴다.
+   * `null` 이면: `exitAt`(없으면 지금 자리)에 몸을 세우고 다시 보이게 하고 카메라를 PC 뒤로 하드 컷한다.
+   * `game:abort` · `game:newMission` · `respawnAt` · `spawnStanding` 이 스스로 푼다. 이미 같은 상태면 아무것도 안 한다.
+   */
+  setRoverRide?(binding: RoverRideBinding | null, exitAt?: THREE.Vector3): void;
+  /**
+   * appended (R3, player): 탑승 중이면 차량 오른쪽 `ROVER_SAFE_SIDE_M` 의 지면(충돌 밀어내기까지)을 `out` 에 적어 돌려준다, 아니면 null.
+   * 레이드 세이브(game)가 선체 안 좌석을 저장하지 않게 이 자리를 쓴다 — 사망 · 리셋이 탑승을 풀 때도 같은 자리에 선다.
+   */
+  roverSafePosition?(out: THREE.Vector3): THREE.Vector3 | null;
+}
+/* ══ end 2026-09-13 탐사 차량 ══ */

@@ -35,6 +35,7 @@ Player: `stim` `player_hurt` `player_death` `footstep` `ladder_step` `player_lan
 재질별 발소리 (2026-09-11, C-22 — `SurfaceMaterial` 이름 그대로): `footstep_dirt`(= 옛 `footstep`) `footstep_sand` `footstep_snow` `footstep_mud` `footstep_moss` `footstep_ash` `footstep_rock` `footstep_crystal` `footstep_organic` `footstep_metal` `footstep_concrete`
 World (structures): `glass_break`
 선로 · 전차 (2026-09-11, C-39 · C-18): `tram_call` `tram_deny` `tram_hit` (+ 기존 `tram_start` `tram_dock`)
+탐사 차량 (2026-09-13, world/rover): `rover_engine` (엔진 조각 — `update` 가 이어 붙인다) `rover_depart` (경적 + 감김) `rover_shot` (포탑 기관포) `rover_hatch` (해치) `rover_brake` (공기 제동) `rover_clang` (장갑 피격) `rover_explode` (파괴) `rover_pay` (요금 결제 — 로컬 차임)
 Bugs: `bug_screech` `bug_attack` `bug_death` `bug_step` `bug_hit` `acid_splash` `wave_alarm`
 레이더 강하 (옛 로그 강하 — id 는 그대로): `rogue_drop_alarm` `rogue_pod_fall` `rogue_pod_impact`
 안드로이드 (2026-09-13): `android_hit` (외피 금속 피격) `android_death` (전원 차단) `android_step` (걸음 서보 — 재질 발소리 위에 겹친다) `android_glitch` (전소 오작동음)
@@ -210,7 +211,8 @@ The one-shots at the ends of a trip (`hub_dock_thrusters` / `hub_dock_clamp`) ar
 `inventory:opened/closed`→ui_open/close · `inventory:itemAdded`→ui_pickup · `inventory:full`→ui_error · `inventory:itemRotated`→ui_rotate ·
 `crate:open`→crate_open · `ping:placed`→ping (positional, pitch/volume by kind) for `ground|enemy|crate|extraction`, ping_attack | ping_caution | ping_item for the v2 kinds · `ui:mapToggled`→map_open|map_close · `input:pointerLockLost`→ui_close (soft; there is no dedicated pause sound) ·
 `extraction:boarded`→ui_equip · `extraction:doorsClosed`→door_close ·
-`game:phaseChanged` deploying→hellpod_fall, complete→mission_complete, menu→ui_close.
+`game:phaseChanged` deploying→hellpod_fall, complete→mission_complete, menu→ui_close ·
+`housing:cryptoMined`→crypto_mined (함선 페이즈에서만, 2026-09-13).
 Gunshots are **not** auto-hooked — WeaponSystem sends `audio:play shot_*` (incl. `shot_smg`, `shot_sniper`, `bolt_cycle`) itself. EnemySystem sends its own `bug_*`. `ping:removed` is intentionally silent.
 
 Appended (ship hub / chat / pickups / reconnection):
@@ -240,6 +242,17 @@ Appended (tactical kit):
 ---
 
 ## 변경 이력
+
+- **2026-09-13 (암호화폐 채굴, 에이전트 ④)** — `Synth.SOUNDS.crypto_mined`(짧은 디지털 블립 + 높은 동전 음 + 딸깍, ≈0.26 s) + 자동 구독
+  `housing:cryptoMined` → `crypto_mined` (볼륨 0.5, 위치 없음 = 거리 감쇠 없음). **`ctx.phase === 'hub'` 일 때만** 운다 — 채굴은 레이드 · 오프라인
+  따라잡기 중에도 지갑에 들어오는데 레이드 한가운데 동전 소리가 나면 안 된다.
+
+- **2026-09-13 (탐사 차량, R2)** — `Synth.SOUNDS` 에 8종(위 목록) + `AudioSystem` 자동 구독: `rover:departed` → `rover_depart` · `rover:fired` →
+  `rover_shot` · `rover:boarded` → `rover_hatch` (로컬이면 크게) · `rover:arrived` → `rover_brake` · `rover:damaged` → `rover_clang`
+  (재해 피해는 소리 없음, `ROVER_CLANG_GAP_S` 간격) · `rover:destroyed` → `rover_explode` · `rover:refused` → 기존 `tram_deny` ·
+  `rover:tripStarted`(local) → `rover_pay`. 위치는 전부 `playRequested` 로 들어가 `RANGED_SOUNDS` 곡선을 탄다 (7줄 — 파괴 폭발만 floor 0.2).
+  엔진음은 루프 노드를 두지 않았다: `updateRoverEngine` 이 `ctx.world.rover.vehicle` 을 보고 달리는 동안(+ 출발 유예 공회전)
+  `ROVER_ENGINE_STEP_S`(0.5 s)마다 0.62 s 조각을 차량 자리에서 내며, 크기 · 피치는 프레임 사이 이동 거리로 잰 속도를 따른다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 

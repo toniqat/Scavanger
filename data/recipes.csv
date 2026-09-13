@@ -40,6 +40,7 @@ refine_capacitor,축전 모듈 정제,ship,refine,2,mat_core:4,mat_capacitor,1,,
 refine_fiber,복합 방탄섬유 직조,ship,refine,2,mat_cloth:6|mat_bio_sample:3,mat_ballistic_fiber,1,,8,crafting,20,"천조각 6 + 생체 조직 3 → 복합 방탄섬유 1. 정제 작업대 Lv.2, 제작 20 필요."
 refine_ingot,강화합금 잉곳 주조,ship,refine,3,mat_alloy:2,mat_ingot,1,,10,crafting,35,"합금 판 2 → 강화합금 잉곳 1. 정제 작업대 Lv.3, 제작 35 필요."
 refine_control_module,제어 모듈 조립,ship,refine,3,mat_circuit:2|mat_power_cell:1,mat_control_module,1,,10,crafting,35,"회로 기판 2 + 파워 셀 1 → 제어 모듈 1. 정제 작업대 Lv.3, 제작 35 필요."
+refine_compute_core,연산 코어 조립,ship,refine,2,mat_circuit:2|mat_processor:1,mat_compute_core,1,,12,crafting,30,"회로 기판 2 + 프로세서 1 → 연산 코어 1 (2026-09-13 암호화폐 채굴). 가공 작업대 Lv.2, 제작 30 필요."
 make_wpn_ar,돌격소총 I 제작,ship,gun,1,mat_scrap:8,wpn_ar,1,,8,crafting,0,폐금속 8 → 돌격소총 I. 총기 작업대.
 make_wpn_ar_g2,돌격소총 II 제작,ship,gun,1,mat_scrap:11,wpn_ar_g2,1,,9,crafting,15,"폐금속 11 → 돌격소총 II. 총기 작업대, 제작 15 필요."
 make_wpn_ar_g3,돌격소총 III 제작,ship,gun,2,mat_scrap:14|mat_alloy:3|mat_machine_parts:2,wpn_ar_g3,1,,10,crafting,25,"폐금속 14 + 합금 판 3 + 기계 부품 2 → 돌격소총 III. 총기 작업대 Lv.2, 제작 25 필요."

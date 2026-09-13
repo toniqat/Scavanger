@@ -314,7 +314,8 @@ export class WeaponSystem implements GameSystem {
     // button the drone was using (LMB · RMB · R) is released afterwards. Checked here on its own, not only through
     // `canUseWeapons()`, so fire / reload / swap / melee / T / wheel / unique input / throw arc all stop together.
     // The hand itself is left alone: when the control ends the player holds exactly what they held before.
-    if (ctx.player?.droneControl === true) this.droneLatch = true;
+    // 2026-09-13: 탐사 차량 안도 같은 래치다 — 무기 · 장전 · 교체 · 근접 · T · 휠이 전부 멈추고, 내린 뒤 버튼을 뗄 때까지 새지 않는다
+    if (ctx.player?.droneControl === true || ctx.player?.roverRide === true) this.droneLatch = true;
     else if (this.droneLatch && !input.isMouseDown(MouseButtons.FIRE) && !input.isMouseDown(MouseButtons.AIM) && !input.isDown(Keys.RELOAD)) this.droneLatch = false;
     const armedAndFree = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive && !this.droneLatch;
     // a wielded implant (Q) holsters the weapon: no firing, no reload, no swap, no quick use

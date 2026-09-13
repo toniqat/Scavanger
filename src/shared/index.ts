@@ -69,3 +69,6 @@ export * from './raidFound';
 export * from './extraction';
 /* appended (2026-09-13): 요리 미니게임 · 요리 품질 — 조리대 단계표 · 자동 조리 가구 · 품질 별 (docs/plans/cooking-minigames.md) */
 export * from './cooking';
+/* appended (2026-09-13): 암호화폐 채굴 · 거래소 — 코인 표(csv) · 순수 시세 식(릴레이 공용) */
+export * from './crypto';
+export * from './cryptoMarket';

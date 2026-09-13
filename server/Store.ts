@@ -561,7 +561,7 @@ export class ProfileStore {
     const res = this.applyCredits(id, check.delta, check.seed ? CREDITS_MIGRATE_REASON : reason, economy.table.creditsMax);
     if (res.ok) {
       economy.commit(rec.ledger ??= emptyLedger(), check, now);
-      if (rec.ledger.quests.length === 0 && rec.ledger.contractsAt.length === 0 && rec.ledger.debits.length === 0) delete rec.ledger;
+      if (rec.ledger.quests.length === 0 && rec.ledger.contractsAt.length === 0 && rec.ledger.debits.length === 0 && !rec.ledger.roverAt?.length && !rec.ledger.cryptoAt?.length) delete rec.ledger;
       this.markDirty();
     }
     return res;

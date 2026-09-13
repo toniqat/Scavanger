@@ -10,6 +10,8 @@ import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type Rogu
 import { animateNamedRig, namedBodyNearest } from './models/named';
 /* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
 import { BURROW_SINK_EXTRA_M, GRAVITY } from '@/shared';
+/* appended (2026-09-13): 탐사 차량 어그로 */
+import { ROVER_AGGRO_GROUP_RADIUS, ROVER_AGGRO_S, ROVER_DAMAGE_SOURCE } from '@/shared';
 import { isWormType } from './EnemyTypes';
 import { animateWorm, createWormRig, disposeWormRig, type WormRig } from './models/WormModel';
 import { nearestOnStandingCapsule } from './RayTests';
@@ -343,6 +345,12 @@ export class Enemy implements EnemyRef {
   shotCheckAt = -Infinity;
   /** 배리어 충돌: prefer the shield carrier as the target until this ctx.time (`pickTarget`). */
   barrierUntil = -Infinity;
+  /**
+   * 2026-09-13 (탐사 차량): 이 시각(`ctx.time`)까지 차량을 노린다 — 차량 포탑 · 들이받기(`attacker === ROVER_DAMAGE_SOURCE`)에 맞은 적과
+   * 그 무리(`noteVehicleAggro`). `parts/Alerts.pickTarget` 이 이 동안 플레이어보다 차량을 먼저 고르고 `ai/Perception.acquireTarget` 은
+   * 히스테리시스 없이 바꾼다. 권한만.
+   */
+  vehicleAggroUntil = -Infinity;
   barrierOwner: TargetId | null = null;
   /** ctx.time of the last `implant:barrierBumped` for this enemy (≤ 2 Hz). */
   barrierBumpAt = -Infinity;
@@ -494,6 +502,7 @@ export class Enemy implements EnemyRef {
     // Phase 12
     this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
     this.barrierUntil = -Infinity; this.barrierOwner = null; this.barrierBumpAt = -Infinity;
+    this.vehicleAggroUntil = -Infinity;
     // 2026-09-10 (총구 사선)
     this.fireLineAt = -Infinity; this.fireLineClear = true; this.fireLineGap = Infinity;
     this.fireBlockTimer = 0; this.fireStrafeSign = Math.random() < 0.5 ? -1 : 1;
@@ -680,6 +689,13 @@ export class Enemy implements EnemyRef {
    */
   takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3, attacker: TargetId = 'local'): void {
     if (!this.active || this.state === 'dead' || amount <= 0) return;
+    /* 2026-09-13 (탐사 차량): 차량(포탑 · 들이받기)은 호스트 권위다 — 리플리카에서는 요청을 만들지 않는다. 킬 크레딧은 아무에게도
+     * 가지 않도록 `'ai'` 로 접고(PeerId 로 읽히지 않는다), 맞은 적과 그 무리는 차량을 노린다. */
+    const fromRover = attacker === ROVER_DAMAGE_SOURCE;
+    if (fromRover) {
+      if (this.host?.replica) return;
+      attacker = 'ai';
+    }
     const part = this.classifyHit(hitPoint, hitDir);
     const dmg = amount * this.multiplierFor(part);
     // visual feedback
@@ -704,6 +720,7 @@ export class Enemy implements EnemyRef {
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
       this.host?.alertNear(this.position, 14, this);
     }
+    if (fromRover) this.noteVehicleAggro();
     // duck when hit while popped out — 2026-09-13: not an android (it never takes cover; hint 6 would crouch it on replicas)
     if (this.isHumanoid && this.roguePhase === 3 && this.faction !== 'android') this.hitCrouchTimer = ROGUE_AI.hitCrouch;
     this.host?.onEnemyDamaged(this, dmg, part, hitPoint, hitDir);
@@ -716,6 +733,28 @@ export class Enemy implements EnemyRef {
     const threshold = this.maxHp * this.stats.staggerFraction * (this.chargePhase === 2 ? 1.6 : 1);
     if (dmg >= threshold && this.state !== 'stagger' && !this.airborne && this.toxicPhase === 0) {
       this.enterStagger(this.type === 'charger' || this.type === 'behemoth' ? 0.9 : 0.6);
+    }
+  }
+
+  /**
+   * 2026-09-13 (탐사 차량): 차량에게 맞았다 — 이 적과 `ROVER_AGGRO_GROUP_RADIUS` 안의 같은 팩션 전투원이 `ROVER_AGGRO_S` 동안 차량을
+   * 노린다 (무리를 깨우는 것은 플레이어에게 맞았을 때와 같은 `alertNear`). 표적 재평가를 곧장 돌린다. 스캔 드론 · 지하벌레 · 로든은
+   * 차량을 노리지 않으므로(`parts/Alerts.pickVehicleTarget`) 표시만 남아도 무해하다. 권한만.
+   */
+  noteVehicleAggro(): void {
+    const host = this.host;
+    if (!host || host.replica) return;
+    const until = host.ctx.time + ROVER_AGGRO_S;
+    host.alertNear(this.position, ROVER_AGGRO_GROUP_RADIUS, this);
+    const r2 = ROVER_AGGRO_GROUP_RADIUS * ROVER_AGGRO_GROUP_RADIUS;
+    const list = host.active;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o !== this && (!o.isCombatant || o.faction !== this.faction)) continue;
+      const dx = o.position.x - this.position.x, dz = o.position.z - this.position.z;
+      if (o !== this && dx * dx + dz * dz > r2) continue;
+      if (until > o.vehicleAggroUntil) o.vehicleAggroUntil = until;
+      o.targetTimer = 0;
     }
   }
 

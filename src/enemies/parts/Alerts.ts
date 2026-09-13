@@ -20,8 +20,9 @@ import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
 import { LureField } from '../ai/Lures';
-import { becomeAlert, canPerceive } from '../ai/Perception';
+import { becomeAlert, canPerceive, hasLineOfSight } from '../ai/Perception';
 import { beginInvestigation, endInvestigation } from '../ai/Investigate';
+import { ROVER_NOTICE_STOPPED_M } from '@/shared';
 import { BloodFX } from '../fx/BloodFX';
 import { EnemyXray } from '../fx/Xray';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from '../fx/AcidProjectile';
@@ -195,6 +196,29 @@ export function pickDroneTarget(sys: EnemySystem, e: Enemy, maxDist: number): Co
   return best;
 }
 
+/** 차량을 노리지 않는 적 — 날아다니는 스캔 드론 · 땅에 박힌 지하벌레 · 플레이어만 쏘는 로든 (사용자 결정). */
+function ignoresVehicle(e: Enemy): boolean {
+  return e.type === 'rogue_scan_drone' || e.type === 'sandworm' || e.type === 'rogue_sniper';
+}
+
+/**
+ * 2026-09-13 (탐사 차량): `e` 가 지금 차량을 노릴 수 있으면 그 프록시(`TargetList.vehicles`), 아니면 null.
+ * - **어그로**(`e.vehicleAggroUntil` — 차량 포탑 · 들이받기에 맞은 적과 그 무리): 거리 · 인지와 무관하게 차량.
+ * - 그 밖에는 플레이어보다 **확실히** 가까워야 한다(`< DRONE_PREFER_MUL ×`, 플레이어가 없으면 무관) — 보이는 플레이어가 먼저다.
+ * - **달리는** 차량(`patrol` · `trip`)은 청각 반경(`stats.hearRadius`, 차체 가장자리까지) 안이거나 평소 인지 규칙(`canPerceive`)으로.
+ * - **서 있는** 차량은 `ROVER_NOTICE_STOPPED_M` 안 + 사선이 있을 때만 (정류장에 조용히 서 있는 빈 차는 잘 눈에 띄지 않는다).
+ * 레이캐스트는 앞의 값싼 검사를 통과했을 때만 쏜다.
+ */
+export function pickVehicleTarget(sys: EnemySystem, e: Enemy, playerDist: number): CombatTarget | null {
+  const t = sys.targets.vehicleTarget();
+  if (!t || t.isDeadOrDowned || ignoresVehicle(e)) return null;
+  if (sys.ctx.time < e.vehicleAggroUntil) return t;
+  const d = t.dist2D(e.position);
+  if (d >= playerDist * DRONE_PREFER_MUL) return null;
+  if (t.vehicleMoving) return d < e.stats.hearRadius || canPerceive(e, sys, t, true) ? t : null;
+  return d < ROVER_NOTICE_STOPPED_M && hasLineOfSight(e, sys, t) ? t : null;
+}
+
 /**
  * 2026-09-11 (적 ↔ 드론): `world:noise` — 질주하는 지상 드론. **권한 클라이언트에서만** 나오고 여기서도 권한만 반응한다.
  * 들을 수 있는 거리(`hearingReach`, 총성과 같은 식) 안에서 **아직 아무것도 인지하지 못한** 적이 그 소리 쪽을 조사하러
@@ -229,6 +253,9 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   }
   const player = sys.targets.nearestAlive(e.position);
   const pd = player ? player.dist2D(e.position) : Infinity;
+  // 2026-09-13 (탐사 차량): 차량에 맞은 적은 차량부터 — 배리어 캐리어 다음, 다른 모든 규칙 앞
+  const vehicle = pickVehicleTarget(sys, e, pd);
+  if (vehicle && sys.ctx.time < e.vehicleAggroUntil) return vehicle;
   const range = e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius;
   let foe: Enemy | null = null;
   let fd = range;
@@ -241,6 +268,8 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   }
   const drone = pickDroneTarget(sys, e, player ? pd * DRONE_PREFER_MUL : Infinity);
   if (drone && (!foe || drone.dist2D(e.position) <= fd)) return drone;
+  // 2026-09-13: 알아챈 차량 (플레이어보다 확실히 가깝다 — `pickVehicleTarget`) — 반대 팩션 적보다 가깝거나 같을 때
+  if (vehicle && (!foe || vehicle.dist2D(e.position) <= fd)) return vehicle;
   if (e.isHumanoid) {
     if (player && pd < ROGUE_RANGE && (!foe || fd > pd * 0.5)) return player;
     return foe ? foe.asTarget : player;

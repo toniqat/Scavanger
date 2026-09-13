@@ -967,6 +967,12 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-13 (발전기 전력, docs/plans/power-crypto.md, 전력 에이전트)** — 멈춘(전력 부족 · 비활성) 작업대는 제작에 쓰이지 않는다.
+  `parts/Crafting.getRecipes` 의 「배치된 작업대 레벨」이 `HousingRef.getOperationalBenchLevel`(없으면 옛 `getBenchLevel`)을 읽어 가방 제작 목록의 함선 레시피가 빠진다.
+  `ui/CraftPanel.buildBenches` 는 놓여 있지만 멈춘 작업대를 리스트에 **흐리게**(`.inv-craft-bench.is-unpowered`, 점선) 남기고 `title` 에 사유,
+  누르면 갈아 끼우지 않고 `ui_deny` + 토스트 `<작업대> — <사유>`(`HousingRef.benchOperationalBlock`). 서명에 사유가 들어가 전력이 바뀌면 다시 짓는다.
+  `openBenchCraft` 자체는 막지 않는다 — 함선의 E 가 먼저 막는다(`hub/interiors/Furniture`), 스모크는 계속 직접 연다.
+
 - **2026-09-13 (요리 미니게임 §6-2 — 요리 품질 스택 · 저장 · 와이어 · 조리 API)** — 위 절 전부. 새 파일 `parts/MealQuality.ts`.
   바뀐 파일: `Grid.ts`(`StackItem` · `stackKeyOf` 에 품질) · `Serialize.ts`(`SavedExtras.q`) · `InventorySystem.ts`(나누기 3곳 · InventoryRef 5종 위임) ·
   `parts/DropResolver.ts`(부분 드래그 나누기) · `parts/Sort.ts`(품질 높은 순) · `parts/CorpseLoot.ts`(`q`) · `parts/StashOps.ts`(`먹기` 품질) ·

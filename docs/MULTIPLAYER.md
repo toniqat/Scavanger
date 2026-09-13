@@ -78,3 +78,21 @@
 ## 6. 아직 동기화되지 않은 것
 
 - **Not synced yet**: pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0); a host promoted mid-mission does not inherit the old host's guard anchors / lures and takes its wave index from the `ee wave` events it saw; a corpse the host never opened validates only the first take per index; `ee grenadeHit` matches replica grenades by proximity.
+
+## 7. 암호화폐 시세 · 매매 (2026-09-13, docs/plans/power-crypto.md)
+
+- **시세는 릴레이가 시뮬레이션한다** (`server/CryptoMarket.ts`) — 로비 · 호스트와 무관하고 **익명 연결도** 받는다 (시세는 비밀이 아니다).
+  서버에 붙어 있어야 차트 · 매매가 된다 (사용자 결정). 채굴은 함선 상태의 로컬 시계라 서버 없이도 돈다.
+- `{t:'crypto:watch', on}` → `on` 이면 즉시 한 번, 그 뒤 틱(`CRYPTO_TICK_S`)마다 `{t:'crypto:prices', at, prices, change24h}`
+  (가격 = 코인 1개당 크레딧, `at` = 서버 epoch ms). 구독은 **소켓에** 붙어 있어 연결이 끊기면 서버가 잊는다 — 클라이언트
+  (`net/parts/Crypto`)가 welcome 뒤 스스로 다시 켠다.
+- `{t:'crypto:history', coin, range}` → **요청한 소켓에만** `{t:'crypto:history', coin, range, at, candles}` — 오래된 → 최근,
+  최대 `CRYPTO_CANDLE_COUNT[range]` 개, 봉 길이 `CRYPTO_CANDLE_MS[range]`, 마지막 봉은 진행 중일 수 있다. 모르는 코인 · 기간과
+  소켓별 요율(버스트 16 · 초당 4) 초과는 **무응답**이다 (`lobby:error` 도 없다).
+- **매매는 새 메시지가 아니다** — `credits:tx {delta, reason}` 의 사유 `cbuy:<coin>:<units>` · `csell:<coin>:<units>`
+  (`units` = 지갑 단위, `CRYPTO_UNITS_PER_COIN` 단위 = 코인 1개). 릴레이가 최근 `CRYPTO_QUOTE_WINDOW_S`(+ 한 틱) 시세 창의
+  **최저가**로 매수 비용 하한을, **최고가**로 매도 대금 상한을 `shared/cryptoMarket.cryptoTradeCredits` 로 계산해 검사한다 —
+  창 안의 어느 시세로 계산했어도 통과한다. 잠긴 코인(`unlockQuest`)은 그 퀘스트의 `quest:` 크레딧 지급이 원장에 있어야 하고,
+  1 ≤ units ≤ `CRYPTO_TRADE_MAX_UNITS`, 프로필당 시간당 `CREDIT_CRYPTO_MAX_PER_HOUR`(240)회. 거절은 평소의
+  `credits:result {ok:false, reason: CREDIT_TX_INVALID_KO}`. **지갑을 정말 가졌는지는 보지 않는다** — 함선 문서가 클라이언트
+  쓰기라 서버가 비교할 근거가 없다 (아이템 판매와 같은 한계).

@@ -138,7 +138,8 @@ export class CommsWheel {
     // 2026-09-11: 드론 조종 중에는 열리지 않는다 (열려 있으면 아래 `!usable` 이 아무것도 보내지 않고 접는다) —
     // 마우스가 드론 시점이다. 핑(`hud/Pings`)은 막지 않는다.
     const usable = ctx.isGameplayActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false)
-      && !(ctx.player?.droneControl ?? false);
+      && !(ctx.player?.droneControl ?? false)
+      && !(ctx.player?.roverRide ?? false);   // 2026-09-13: 탐사 차량 안에서도 열리지 않는다
 
     if (!this.held) {
       if (usable && input.wasPressed(Keys.COMMS)) { this.held = true; this.holdT = 0; }

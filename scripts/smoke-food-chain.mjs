@@ -155,7 +155,7 @@ try {
     .filter((k) => typeof window.__game.ctx.housing[k] !== 'function'));
   ok(api.length === 0, 'HousingRef 요리 재료 티어 API 8종', `missing: ${api.join(', ')}`);
   const st0 = await H(() => ({ v: window.__game.ctx.housing.state.version, xp: window.__game.ctx.housing.state.analysisXp, found: window.__game.ctx.housing.state.analysisFound }));
-  ok(st0.v === 11 && st0.xp && Object.keys(st0.xp).length === 0 && Array.isArray(st0.found) && st0.found.length === 0, `새 함선 = v11 · analysisXp {} · analysisFound [] (${JSON.stringify(st0)})`);
+  ok(st0.v >= 11 && st0.xp && Object.keys(st0.xp).length === 0 && Array.isArray(st0.found) && st0.found.length === 0, `새 함선 = v11 · analysisXp {} · analysisFound [] (${JSON.stringify(st0)})`);
 
   /* ── 함선: 방 용도는 state 에 직접 (용도 규칙은 smoke-housing 의 몫) ── */
   for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 24], ['mat_bio_sample', 30], ['mat_circuit', 16], ['mat_cloth', 10],
@@ -333,7 +333,7 @@ try {
       h.cancelAnalysis(AZ, 0);
       return out;
     }, AZ);
-    ok(persist.e === null && persist.raw.v === 11 && persist.raw.xp > 0 && persist.raw.found?.length > 0 && /:mineral:[a-z]\w+:\d+$/.test(persist.raw.a[0] ?? ''),
+    ok(persist.e === null && persist.raw.v >= 11 && persist.raw.xp > 0 && persist.raw.found?.length > 0 && /:mineral:[a-z]\w+:\d+$/.test(persist.raw.a[0] ?? ''),
       `세이브에 계열 · 결과 · analysisXp · analysisFound 가 실린다 (${JSON.stringify(persist.raw)})`);
     ok(JSON.stringify(persist.san) === JSON.stringify(persist.raw), 'ShipState.sanitize 가 분석 새 필드를 버리지 않는다', JSON.stringify(persist.san));
   }

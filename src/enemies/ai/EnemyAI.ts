@@ -539,6 +539,7 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   }
 
   if (!charging) {
+    if (e.hasMoveTarget && speed > 0) steerToVehicleSide(e);
     if (e.hasMoveTarget && speed > 0) seek(pos, e.moveTarget, speed, e.state === 'wander' ? 1.5 : 0.6, _desired);
     else _desired.set(0, 0, 0);
     _steer.set(0, 0, 0);
@@ -620,6 +621,25 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
 
   // slope conforming
   applySlope(e, world, dt);
+}
+
+/** 2026-09-13: 차체 옆으로 다가간 적이 공격 사거리의 이 비율 안에 들면 멈춘다. 알고리즘 상수. */
+const VEHICLE_STOP_FRAC = 0.6;
+/** 2026-09-13: 차체 발자국을 몸 반경에 더해 이만큼(m) 넓힌 둘레가 조향 목표다. 알고리즘 상수. */
+const VEHICLE_APPROACH_PAD = 0.15;
+
+/**
+ * 2026-09-13 (탐사 차량): 이동 목표가 표적 차량의 차체 **안**이면(= 차 중심을 향해 달린다 — 추격 · 돌격 · 근접 기동이 모두
+ * `t.position` 을 넣는다) 차체 가장자리에서 가장 가까운 점으로 바꾸고, 차체까지 공격 사거리의 `VEHICLE_STOP_FRAC` 안이면 멈춘다.
+ * 움직이는 차체 콜라이더에 매 프레임 몸을 들이밀어 떨지 않게. 차체 밖의 목표(엄폐 · 후퇴 · 옆걸음)는 건드리지 않는다.
+ */
+function steerToVehicleSide(e: Enemy): void {
+  const t = e.target;
+  if (!t || t.vehicle === null || !t.present) return;
+  const pad = e.stats.radius + VEHICLE_APPROACH_PAD;
+  if (!t.vehicleContainsXZ(e.moveTarget.x, e.moveTarget.z, pad)) return;
+  if (e.distToTarget <= e.stats.attackRange * VEHICLE_STOP_FRAC) { e.hasMoveTarget = false; return; }
+  t.vehicleApproach(e.position, pad, e.moveTarget);
 }
 
 /**

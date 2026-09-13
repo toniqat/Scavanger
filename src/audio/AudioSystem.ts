@@ -8,6 +8,8 @@ import {
   FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
   ROGUE_DROP_ALARM_VOLUME, ROGUE_DROP_ALERT_FALLOFF_EXP, ROGUE_DROP_ALERT_RADIUS,
   ROGUE_DROP_FALL_LEAD_S, ROGUE_DROP_FALL_VOLUME, ROGUE_DROP_MIN_VOLUME,
+  /* 2026-09-13: 탐사 차량 */
+  ROVER_CLANG_GAP_S, ROVER_TRIP_SPEED,
 } from '@/shared';
 /* 2026-09-13 (요리 미니게임): 조리대 요리의 제작 완료음 겹침 방지 */
 import { cookStepsOf } from '@/shared';
@@ -137,7 +139,17 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   ...Object.fromEntries(Object.values(FOOTSTEP_ID).map((id) => [id, ENEMY_STEP_RANGE])),
   // 2026-09-13: 안드로이드 서보음은 재질 발소리 위에 겹쳐 나므로 같은 곡선이어야 발소리보다 멀리 들리지 않는다
   android_step: ENEMY_STEP_RANGE,
+  // 2026-09-13: 탐사 차량 (world/rover). 파괴 폭발만 멀리서도 들려야 한다 — floor.
+  rover_engine: { range: 70, exp: 1.4 },
+  rover_depart: { range: 120, exp: 1.2 },
+  rover_shot: { range: 160, exp: 1.0 },
+  rover_hatch: { range: 25, exp: 1.5 },
+  rover_brake: { range: 60, exp: 1.3 },
+  rover_clang: { range: 45, exp: 1.4 },
+  rover_explode: { range: 320, exp: 0.9, floor: 0.2 },
 };
+/** 탐사 차량 엔진음 한 조각의 간격(초) — `rover_engine` 은 이보다 조금 길어 겹치며 이어진다. */
+const ROVER_ENGINE_STEP_S = 0.5;
 /** `floor` 가 사거리 끝 이 비율 구간에서 선형으로 0 이 된다. */
 const RANGED_FLOOR_EDGE = 0.15;
 /** 이보다 조용해질 바에는 보이스를 만들지 않는다. */
@@ -194,6 +206,11 @@ export class AudioSystem implements GameSystem, AudioRef {
 
   /** 예고~착지 사이의 로그 강하 (2026-09-10) — 굉음을 낼 시각을 기다린다. */
   private drops: DropSound[] = [];
+  /* 2026-09-13: 탐사 차량 — 엔진음 다음 시각 · 속도 추정 · 피격음 간격 */
+  private roverEngineNext = 0;
+  private readonly roverLastPos = new THREE.Vector3();
+  private roverHasLast = false;
+  private roverLastClang = -Infinity;
 
   private camPos = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -261,6 +278,25 @@ export class AudioSystem implements GameSystem, AudioRef {
       // 로그 강하 (2026-09-10): 경보는 지금, 낙하 굉음은 착지 직전에. 둘 다 인지력이 아니라 전용 반경을 본다.
       b.on('rogueDrop:incoming', ({ dropId, position, eta }) => this.rogueDropIncoming(dropId, position, eta)),
       b.on('rogueDrop:landed', ({ dropId }) => this.rogueDropDone(dropId)),
+
+      // 탐사 차량 (2026-09-13, world/rover). 엔진음은 `update` 가 차량 속도를 보고 조각으로 잇는다.
+      b.on('rover:departed', () => { const v = ctx.world?.rover?.vehicle; if (v) this.playRequested('rover_depart', v.position, 0.9, 1); }),
+      b.on('rover:fired', ({ from }) => this.playRequested('rover_shot', from, 0.7, 0.95 + Math.random() * 0.1)),
+      b.on('rover:boarded', ({ local }) => {
+        const v = ctx.world?.rover?.vehicle;
+        if (v) this.playRequested('rover_hatch', v.position, local ? 0.9 : 0.6, local ? 1 : 0.95);
+      }),
+      b.on('rover:arrived', () => { const v = ctx.world?.rover?.vehicle; if (v) this.playRequested('rover_brake', v.position, 0.85, 1); }),
+      b.on('rover:damaged', ({ hazard }) => {
+        if (hazard || ctx.time - this.roverLastClang < ROVER_CLANG_GAP_S) return;
+        const v = ctx.world?.rover?.vehicle;
+        if (!v) return;
+        this.roverLastClang = ctx.time;
+        this.playRequested('rover_clang', v.position, 0.75, 0.9 + Math.random() * 0.2);
+      }),
+      b.on('rover:destroyed', ({ position }) => this.playRequested('rover_explode', position, 1, 1)),
+      b.on('rover:refused', () => auto('tram_deny', undefined, 0.8)),
+      b.on('rover:tripStarted', ({ local }) => { if (local) auto('rover_pay', undefined, 0.7); }),
 
       // inventory / crates
       b.on('inventory:opened', () => auto('ui_open')),
@@ -422,6 +458,8 @@ export class AudioSystem implements GameSystem, AudioRef {
       b.on('craft:completed', ({ item }) => { if (cookStepsOf(item?.defId ?? '').length === 0) auto('craft_done', undefined, 0.8); }),
       b.on('craft:failed', ({ reason }) => { if (reason !== 'cancelled') auto('ui_error', undefined, 0.7); }),
       b.on('repair:completed', () => auto('repair_done', undefined, 0.8)),
+      // 2026-09-13 암호화폐 채굴: 주기가 끝나 지갑에 들어왔다 — 함선에 있을 때만 (레이드 · 오프라인 따라잡기 중에는 조용히), 거리 감쇠 없음
+      b.on('housing:cryptoMined', () => { if (ctx.phase === 'hub') auto('crypto_mined', undefined, 0.5); }),
       b.on('durability:broken', () => auto('durability_break', undefined, 0.9)),
       b.on('inventory:overloaded', ({ state }) => { if (state === 'heavy' || state === 'over') auto('ui_deny', undefined, 0.7); }),
       b.on('equip:changed', () => auto('ui_equip', undefined, 0.6)),
@@ -718,6 +756,26 @@ export class AudioSystem implements GameSystem, AudioRef {
     }
   }
 
+  /**
+   * 탐사 차량 엔진음 (2026-09-13). 루프 노드를 두지 않고 `rover_engine` 조각을 `ROVER_ENGINE_STEP_S` 마다 차량 자리에서 낸다 —
+   * 조각이 간격보다 조금 길어 이어져 들린다. 크기 · 피치는 프레임 사이 이동 거리로 잰 속도를 따른다 (차량이 속도를 내보이지 않는다).
+   * 서 있는 차는 출발 유예(`departing`) 동안만 공회전한다.
+   */
+  private updateRoverEngine(dt: number, ctx: GameContext): void {
+    const rv = ctx.world?.rover;
+    if (!rv || !ctx.isGameplayPhase()) { this.roverHasLast = false; return; }
+    const v = rv.vehicle;
+    let speed = 0;
+    if (this.roverHasLast && dt > 1e-4) speed = this.roverLastPos.distanceTo(v.position) / dt;
+    this.roverLastPos.copy(v.position);
+    this.roverHasLast = true;
+    const running = v.state === 'patrol' || v.state === 'trip' || v.state === 'departing';
+    if (!running || ctx.time < this.roverEngineNext) return;
+    this.roverEngineNext = ctx.time + ROVER_ENGINE_STEP_S;
+    const k = Math.max(0, Math.min(1, speed / Math.max(1, ROVER_TRIP_SPEED)));
+    this.playRequested('rover_engine', v.position, 0.5 + 0.4 * k, 0.78 + 0.45 * k);
+  }
+
   /* ── 거리 곡선 (2026-09-11) ──────────────────────────────────────────── */
   /** `RANGED_SOUNDS` 한 줄의 거리별 배수. 0 = 사거리 밖. */
   private rangeGain(prof: RangeProfile, d: number): number {
@@ -825,6 +883,8 @@ export class AudioSystem implements GameSystem, AudioRef {
 
     // 로그 강하: 착지 직전의 굉음 (camPos 를 갱신한 뒤라야 거리 감쇠가 이 프레임 값이다).
     if (this.drops.length) this.updateDrops(ctx.time);
+    // 탐사 차량 엔진 (2026-09-13)
+    this.updateRoverEngine(dt, ctx);
 
     // Ambience targets by phase. The hub is not gameplay: planet wind + ship engine are silenced, interior hum runs.
     const inHub = this.hubActive || ctx.phase === 'hub' || ctx.phase === 'docking';

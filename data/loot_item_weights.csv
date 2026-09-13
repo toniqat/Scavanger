@@ -417,3 +417,18 @@ tier,target,mul
 5,food_egg,0
 5,food_milk,0
 5,food_cheese,0
+
+# ── 2026-09-13 (암호화폐 채굴): 프로세서 · 연산 코어 ──
+# 프로세서는 티어 4(희귀 캐시 · 구조물 지하실 · 연구소 잠긴 방 · 불시착 함선 · 전차의 티어 4 컨테이너) · 티어 5(보급 투하)에서만 나온다.
+#   배수는 "티어 4 컨테이너 하나당 ≈ 2 % · 보급 투하 하나당 ≈ 0.5 %" 로 역산했다 (src/items/README.md 의 「프로세서 · 연산 코어」 — 평균 레이드 ≈ 1/18).
+# 연산 코어는 가공 작업대에서만 만든다 — 모든 티어 0.
+1,mat_processor,0
+2,mat_processor,0
+3,mat_processor,0
+4,mat_processor,2
+5,mat_processor,0.5
+1,mat_compute_core,0
+2,mat_compute_core,0
+3,mat_compute_core,0
+4,mat_compute_core,0
+5,mat_compute_core,0

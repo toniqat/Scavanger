@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  NET_SLOT_COLORS, PlayerFlags, ROLL_DURATION, SLASH_DURATION, type ArmorDef, type GameContext, type RemoteAvatarRef,
+  NET_SLOT_COLORS, PlayerFlags, ROLL_DURATION, ROVER_REMOTE_EXIT_HIDE_S, SLASH_DURATION, type ArmorDef, type GameContext, type RemoteAvatarRef,
   type RemotePlayerRef,
 } from '@/shared';
 import { LADDER_RUNG_M } from './PlayerController';
@@ -221,6 +221,9 @@ export class RemoteAvatar implements RemoteAvatarRef {
   /** Current pose values (read-only snapshot for tests). */
   get poseView(): Readonly<SoldierPose> { return this.pose; }
 
+  /** 2026-09-13 탐사 차량: `ctx.time` until which the body stays hidden after `IN_ROVER` cleared (the ref still slides seat → exit). */
+  private roverHideUntil = 0;
+
   update(dt: number, ctx: GameContext): void {
     if (this.disposed) return;   // the pooled body may already be driving another avatar
     const ref = this.ref;
@@ -243,7 +246,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
      */
     const replacedByCorpse = ref.isDead && !!ctx.corpses?.latestOf(ref.id);
     // Phase 7: a suspended member stays visible even though its snapshots are stale (the host's ghost owns the body)
-    const visible = !dropping && !inPod && !elsewhere && !replacedByCorpse && (suspended || (!ref.stale && ref.connected));
+    // 2026-09-13 탐사 차량: inside the hull the body is hidden, and for `ROVER_REMOTE_EXIT_HIDE_S` after it alights
+    if ((flags & PlayerFlags.IN_ROVER) !== 0) this.roverHideUntil = ctx.time + ROVER_REMOTE_EXIT_HIDE_S;
+    const inRover = ctx.time < this.roverHideUntil;
+    const visible = !dropping && !inPod && !inRover && !elsewhere && !replacedByCorpse && (suspended || (!ref.stale && ref.connected));
 
     // ── landing burst: first frame out of the hellpod
     if (this.wasDropping && !dropping && ref.connected) {

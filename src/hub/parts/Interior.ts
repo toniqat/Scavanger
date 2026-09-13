@@ -234,6 +234,19 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
         try { h.openCookStation(uid); } catch (err) { console.warn('[hub] openCookStation failed', err); }
       } else ctx.bus.emit('ui:notify', { text: '조리대를 사용할 수 없습니다', kind: 'warning' });
     },
+    // 암호화폐 채굴 (2026-09-13): 연산 클러스터 화면 · 메인 컴퓨터 화면 — duck-typed (병렬로 짓는 폴더가 아직 없을 수 있다)
+    onComputeCluster: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openComputeCluster === 'function') {
+        try { h.openComputeCluster(uid); } catch (err) { console.warn('[hub] openComputeCluster failed', err); }
+      } else ctx.bus.emit('ui:notify', { text: '연산 클러스터를 사용할 수 없습니다', kind: 'warning' });
+    },
+    onMiningComputer: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openMiningComputer === 'function') {
+        try { h.openMiningComputer(uid); } catch (err) { console.warn('[hub] openMiningComputer failed', err); }
+      } else ctx.bus.emit('ui:notify', { text: '메인 컴퓨터를 사용할 수 없습니다', kind: 'warning' });
+    },
     // 주방 식탁 (A-3c, 2026-09-11): 개인 함선의 **가구** 식탁이므로 그 조각의 uid 로 연다
     // (공유 함선의 고정 식탁은 가구가 아니라 `buildStations` 의 `hub_dining_table` 이고 `null` 로 연다)
     onDiningTable: (uid) => openDiningTable(ctx, uid),

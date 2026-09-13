@@ -330,6 +330,9 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `parts/Session.saveSoloAt` 가 탑승 중이면 선체 안 좌석 대신 `ctx.player.roverSafePosition`
+  (차량 오른쪽 지면)을 저장한다 — 새로고침 복귀가 벽 안에서 일어나지 않게.
+
 - **2026-09-13 (요리 품질 — 시체 와이어)** — `Corpses.itemsToWire` 가 `ItemInstance.quality`(> 0 일 때만)를 `CorpseItemWire.q` 로 싣고
   `parts/CorpseNet.itemsFromWire` 가 `normalizeMealQuality` 로 되살린다 (생략 = 품질 0). 인벤토리 쪽 시체 컨테이너(`inventory/parts/CorpseLoot`)도
   같은 필드를 읽는다. `rf` 와 같은 자리 · 같은 규약이다.

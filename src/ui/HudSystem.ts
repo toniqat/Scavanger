@@ -65,6 +65,7 @@ import { TrainingPanel } from './hud/TrainingPanel';
 import { MetaToasts } from './hud/MetaToasts';
 /* 2026-09-11: 드론 조종 HUD · 로든 스캔 경고 · 손에 든 가젯 안내(설치 · 기폭 · 드론 조종) */
 import { DroneHud } from './hud/DroneHud';
+import { RoverHud } from './hud/RoverHud';
 import { NamedScanWarning } from './hud/NamedScanWarning';
 import { GadgetHandHint } from './hud/GadgetHandHint';
 /* 2026-09-11 (B-1): 서버 연결 배지 (함선 · 타이틀 우측 상단) */
@@ -180,6 +181,8 @@ export class HudSystem implements GameSystem {
   private implantWidget!: ImplantWidget;
   /* 2026-09-11: 드론 조종 HUD · 로든 스캔 경고 · 손에 든 가젯 안내 */
   private droneHud!: DroneHud;
+  /** 2026-09-13: 탐사 차량 탑승 HUD. */
+  private roverHud!: RoverHud;
   private scanWarning!: NamedScanWarning;
   private handHint!: GadgetHandHint;
   /* Phase 9 UI pass: right-hand column above the weapon panel — 빠른 사용 썸네일 strip */
@@ -286,6 +289,8 @@ export class HudSystem implements GameSystem {
     this.implantWidget = new ImplantWidget(this.hudRoot);
     // 2026-09-11: 드론 조종 HUD · 로든 스캔 경고 · 손에 든 가젯 안내 — 각자 자기 조건으로 뜬다.
     this.droneHud = new DroneHud(this.hudRoot);
+    // 2026-09-13: 탐사 차량 탑승 HUD — 탄 동안만 뜨고 게임플레이 레이어에 `rover-view` 를 건다.
+    this.roverHud = new RoverHud(this.hudRoot);
     this.scanWarning = new NamedScanWarning(this.hudRoot);
     this.handHint = new GadgetHandHint(this.hudRoot);
     // 2026-09-10 (2차, 사용자 결정): 함선 호출은 더 이상 우측 하단 무기 열의 텍스트 패널이 아니라
@@ -373,7 +378,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
-    for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.bind(ctx);
+    for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.bind(ctx);
     this.community.bind(ctx);
     this.netBadge.bind(ctx);
     this.rescuePick.bind(ctx);
@@ -442,6 +447,8 @@ export class HudSystem implements GameSystem {
     this.applyVisibility();
     // Map polls M and draws itself while open (also handles its own blocker token).
     this.map.update(ctx);
+    // 2026-09-13: 탐사 차량 탑승 HUD — 레이어 가시성과 무관하게 돈다 (키 가이드 · `rover-view` 를 제때 걷어야 한다)
+    this.roverHud.update(dt, ctx);
     // 2026-09-12: the vitals block lives in the social layer (up in the ship too); its raid-only stamina bar just idles there.
     if (this.hudVisible || this.socialVisible) this.vitals.update(dt, ctx);
     if (this.hudVisible) {
@@ -522,6 +529,12 @@ export class HudSystem implements GameSystem {
 
   /** Whether the tactical map is currently open (debug / other HUD parts). */
   get isMapOpen(): boolean { return this.map.isOpen; }
+  /** 2026-09-13 (smoke): 지도가 탐사 차량 목적지 선택 모드인가 · 고른 정류장 · 보이는 범례 줄 · 탑승 HUD. */
+  get isMapRoverMode(): boolean { return this.map.isRoverMode; }
+  get mapRoverSelection(): string | null { return this.map.roverSelection; }
+  get mapLegendIds(): string[] { return this.map.legendIds; }
+  mapSelectStation(id: string): boolean { return this.map.selectStation(id); }
+  get isRoverHudShowing(): boolean { return this.roverHud.isShowing; }
   /** Whether the chat input is open (debug). */
   get isChatOpen(): boolean { return this.chat.isOpen; }
   /** Whether the quick-use wheel is showing (debug). */
@@ -752,7 +765,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.dispose();
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
-    for (const c of [this.droneHud, this.scanWarning, this.handHint]) c.dispose();
+    for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.dispose();
     this.community.dispose();
     this.netBadge.dispose();
     this.rescuePick.dispose();

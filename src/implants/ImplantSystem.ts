@@ -197,7 +197,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   get piloting(): boolean {
     const ctx = this.ctx;
     if (!ctx) return false;
-    return ctx.player?.droneControl === true || (ctx.drones?.controlled ?? null) !== null;
+    // 2026-09-13: 탐사 차량 안(`roverRide`)도 같은 처리 — Q 와 들고 있는 임플란트의 입력을 무시한다
+    return ctx.player?.droneControl === true || ctx.player?.roverRide === true || (ctx.drones?.controlled ?? null) !== null;
   }
 
   /**

@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Random } from '@/shared';
 import type { Biome } from './biomes';
 import type { WorldLayout } from './layout';
-import { padClearance, railClearance } from './layout';
+import { padClearance, railClearance, roverClearance } from './layout';
 import type { Noise } from './noise';
 import type { SpatialHash } from './SpatialHash';
 import { HALF, Terrain } from './Terrain';
@@ -41,6 +41,8 @@ export function isSpotFree(
   if (ctx.terrain.getSlopeAt(x, z) > maxSlope) return false;
   if (!opts.ignorePads && padClearance(ctx.layout, x, z, opts.padExtra ?? 4) < radius) return false;
   if (railClearance(ctx.layout, x, z) < radius) return false;
+  // 2026-09-13: 탐사 차량 흙길 회랑 · 정류장 부지도 선로 회랑처럼 `ignorePads` 로 못 끈다
+  if (roverClearance(ctx.layout, x, z) < radius) return false;
   if (ctx.hash.overlaps(x, z, radius)) return false;
   return true;
 }

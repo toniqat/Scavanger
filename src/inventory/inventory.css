@@ -1249,6 +1249,9 @@ kbd {
 .inv-craft-bench-ico { font-style: normal; font-size: 14px; line-height: 1; flex: none; opacity: 0.9; }
 .inv-craft-bench-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-craft-bench-lv { flex: none; font-size: 9px; letter-spacing: 0.04em; opacity: 0.75; font-variant-numeric: tabular-nums; }
+/* 전력 (2026-09-13): 놓여 있지만 멈춘 작업대 — 흐리게 + 점선, 누르면 사유 토스트 (`CraftPanel.buildBenches`) */
+.inv-craft-bench.is-unpowered { opacity: 0.5; border-style: dashed; }
+.inv-craft-bench.is-unpowered .inv-craft-bench-lv { color: var(--c-danger, #ff4d4d); opacity: 1; }
 /* 2026-09-09 (제작 UI 2차): 썸네일 · 정보 · (수량 + 홀드) 세 칸. 썸네일은 인벤토리 격자 타일 그대로라 4×2 소총이면
    실제로 4×2 크기다 — 행 높이가 레시피마다 다른 것은 의도한 것이다. `align-items: flex-start` 로 위를 맞춘다. */
 .inv-craft-row {

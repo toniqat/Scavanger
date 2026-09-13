@@ -79,7 +79,7 @@ export class TypingBubbles {
     // (2026-09-11 B-11: the same 차단 gate `hud/ChatLog` uses on their typed lines; only asked for someone who IS typing)
     if (!typing || isPeerBlocked(ctx, ref.id)) { if (existing) this.hide(existing); return; }
     const b = existing ?? this.create(ref.id);
-    const gone = !ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD)) !== 0;
+    const gone = !ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD | PlayerFlags.IN_ROVER)) !== 0;   // 2026-09-13: + 탐사 차량 안
     if (gone) { this.hide(b); return; }
 
     ref.avatar!.getHeadPosition(this.v);

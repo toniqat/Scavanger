@@ -20,7 +20,9 @@ import {
 } from '@/shared';
 
 /** `fog:discovered.kind` — 지도 마커 종류와 같은 이름. 2026-09-09 에 `structure` · `rail` 이 붙었다. */
-type DiscoverKind = 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail';
+type DiscoverKind = 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail'
+  /* 2026-09-13: 탐사 차량 정류장 (표지 기둥 자리). 토스트는 ui/ 가 소유한다 — 여기 `TOAST` 에 올리지 않는다 */
+  | 'rover';
 
 /**
  * 발견 토스트를 띄우는 종류와 문구 (상자 · 채집물은 너무 잦아 토스트 없이 이벤트만 나간다).
@@ -75,6 +77,11 @@ export class Fog implements FogRef {
    * 발견되면 `fog:discovered {kind:'outpost'}` + 토스트 — 지도가 그 이벤트를 쌓아 아이콘을 그린다.
    */
   private outposts: readonly OutpostSpot[] = [];
+  /**
+   * 2026-09-13: 탐사 차량 정류장. 차량(`ctx.world.rover`)이 없어도 · 파괴돼도 정류장은 발견된다 — 그래서 `RoverRef` 가 아니라
+   * `WorldSystem` 이 흙길(`RoverRoad.route`)에서 직접 넘긴다.
+   */
+  private roverStations: readonly { readonly id: string; readonly polePosition: THREE.Vector3 }[] = [];
 
   constructor() {
     this.cells = Math.max(1, Math.ceil(MAP_SIZE / FOG_CELL_M));
@@ -105,11 +112,16 @@ export class Fog implements FogRef {
     this.revision = 0;
     this.seen.clear();
     this.outposts = [];
+    this.roverStations = [];
     this.ctx = null;
   }
 
   /** 2026-09-11 (C-11): 이번 맵의 폐허 전초 목록 (`WorldSystem.generate`). */
   setOutposts(sites: readonly OutpostSpot[]): void { this.outposts = sites; }
+  /** 2026-09-13: 이번 맵의 탐사 차량 정류장 (`WorldSystem.generate`, 흙길이 없으면 빈 배열). */
+  setRoverStations(stations: readonly { readonly id: string; readonly polePosition: THREE.Vector3 }[]): void {
+    this.roverStations = stations;
+  }
 
   /* ── 질의 ──────────────────────────────────────────────────────────── */
 
@@ -208,6 +220,8 @@ export class Fog implements FogRef {
     for (const line of world.getRailLines()) {
       for (const p of line.platforms) this.discover('rail', p.id, p.position);
     }
+    // 2026-09-13: 탐사 차량 정류장 — 표지 기둥 자리가 밝혀지면
+    for (const st of this.roverStations) this.discover('rover', st.id, st.polePosition);
   }
 
   private discover(kind: DiscoverKind, id: string, position: THREE.Vector3): void {

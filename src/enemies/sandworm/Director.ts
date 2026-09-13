@@ -346,6 +346,7 @@ export class SandwormDirector {
     _c.set(p.x, p.y + 1, p.z);
     sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE, 'ai', null, worm, 'bug');   // 다른 팩션 적 (벌레는 제 편)
     ctx.drones?.applyExplosion(p, R, SANDWORM_ERUPT_DAMAGE);
+    sys.targets.damageVehicleAt(p, R, SANDWORM_ERUPT_DAMAGE, 0.3);   // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
 
     this.spawnBurst(p);
     this.eruptFxLocal(p);

@@ -893,7 +893,9 @@ export interface GameEvents {
   /* 2026-09-09 (레이드 플레이 개선): `structure` (버려진 전진기지 · 연구실 · 불시착 함선), `rail` (선로 · 플랫폼),
      `grove` (거대 버섯 군락 = 독성 포자 발생지) 추가 — union 은 추가만 한다. */
   'fog:discovered': {
-    kind: 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail' | 'grove';
+    kind: 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail' | 'grove'
+      /* appended (2026-09-13): 탐사 차량 정류장 — `id` = `RoverStationDef.id`, `position` = 표지 기둥 */
+      | 'rover';
     id: string; position: THREE.Vector3;
   };
 
@@ -1351,3 +1353,67 @@ export interface GameEvents {
   'housing:cookResult': { uid: string; result: CookResult };
 }
 /* ── end [2026-09-13] 요리 미니게임 ── */
+
+/* ── [2026-09-13] 탐사 차량 (owner: world/rover — 규칙은 `shared/types.ts` 의 탐사 차량 절; 소비: ui · audio · player) ── */
+import type { RoverState } from './types';
+export interface GameEvents {
+  /**
+   * Command (world/rover → ui/map): 로컬 플레이어가 막 탔다 → 지도를 **목적지 선택 모드**로 연다. `open:false` = 그 모드를 닫아라
+   * (출발 · 하차 · 파괴 · 강제 하차). 탑승 중 정차해 있는 동안에는 M 으로 다시 열어도 같은 모드다 (ui 가 `ctx.world.rover` 를 본다).
+   */
+  'rover:destinationSelect': { open: boolean };
+  /** Fact (every client): 차량 상태가 바뀌었다. */
+  'rover:state': { state: RoverState; stationId: string | null; targetId: string | null };
+  /** Fact (every client): 모든 정류장이 처음 공개됐다 (레이드당 한 번). */
+  'rover:stationsRevealed': Record<string, never>;
+  /** Fact (every client): 누군가 탔다(`aboard: true`) / 내렸다. `local` = 로컬 플레이어, `by` = 'local' 또는 PeerId. */
+  'rover:boarded': { by: string; name: string; local: boolean; aboard: boolean };
+  /** Fact (every client): 결제 출발이 확정됐다 — `grace` 초 뒤 출발. `local` = 로컬 플레이어가 냈다. */
+  'rover:tripStarted': { by: string; name: string; fromId: string; toId: string; fare: number; local: boolean; grace: number };
+  /** Fact (every client): 차량이 실제로 출발했다 (유예 끝 · 빈 차 순환 출발 포함). `trip` = 결제 이동. */
+  'rover:departed': { trip: boolean; targetId: string | null };
+  /** Fact (local): 로컬 플레이어의 탑승 · 하차 · 결제 요청이 거절됐다. */
+  'rover:refused': { reason: string };
+  /** Fact (every client): 정류장에 도착했다. `trip` = 결제 이동의 도착 (강제 하차가 뒤따른다). */
+  'rover:arrived': { stationId: string; trip: boolean };
+  /** Fact (every client): 체력이 바뀌었다. */
+  'rover:damaged': { hp: number; maxHp: number; hazard: boolean };
+  /** Fact (every client): 파괴됐다 (레이드 내내 사용 불가). */
+  'rover:destroyed': { position: THREE.Vector3 };
+  /** Fact (every client): 포탑이 한 발 쐈다 (연출 · 소리). */
+  'rover:fired': { from: THREE.Vector3; to: THREE.Vector3 };
+  /* appended (2026-09-13, R2) */
+  /**
+   * Command (console `rover` → world/rover, 권위에서만 적용): 개발용 치트. `hp` = 체력을 `value` 로 (0 = 파괴) ·
+   * `speed` = 주행 속도 배수 · `depart` = 정차 · 출발 유예 타이머를 0 으로 · `arrive` = 달리는 중이면 목적지 몇 m 앞으로 건너뛴다.
+   * (`rover:fired` 의 `from` · `to` 는 재사용 벡터다 — 받은 자리에서 읽고 보관하지 않는다.)
+   */
+  'cheat:rover': { action: 'hp' | 'speed' | 'depart' | 'arrive'; value?: number };
+}
+/* ── end [2026-09-13] 탐사 차량 ── */
+
+/* ── [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 (docs/plans/power-crypto.md — 규칙은 `shared/housing.ts` 의 같은 날 절) ── */
+import type { CryptoChartRange } from './cryptoMarket';
+export interface GameEvents {
+  /** Fact (housing): 발전기 공급 · 시설 할당 · 가구 활성 · 요구 전력이 바뀌었다. 발전기 화면 · 인스펙터 · 스테이션 배너가 다시 그린다. */
+  'housing:powerChanged': { reason: string };
+  /**
+   * Fact (housing): 전력을 쓰는 가구 하나의 작동 여부가 바뀌었다 (할당 · 활성 · 배치 · 회수 · 발전기 · 메인 컴퓨터 때문에).
+   * `operational: true` 이면 `pausedMs` = 멈춰 있던 시간 — 재배 · 배양 · 해석 · 채굴은 **이 이벤트를 받는 자리에서 동기로** 자기 시각을 그만큼 민다.
+   * `operational: false` 이면 `pausedMs` 0 (멈춘 시각은 `stationNow(uid)` 가 들고 있다).
+   */
+  'housing:operationalChanged': { uid: string; operational: boolean; pausedMs: number };
+  /** Fact (housing): 연산 클러스터의 코인 · 코어 · 진행 구간이 바뀌었다. */
+  'housing:clusterChanged': { uid: string };
+  /** Fact (housing): 클러스터가 주기를 끝내 지갑에 넣었다 (따라잡기로 여러 주기면 합친 한 번). */
+  'housing:cryptoMined': { uid: string; coinId: string; units: number };
+  /** Fact (housing): 지갑 잔고가 바뀌었다. `units` = 바뀐 뒤 잔고, `delta` = 변화량. */
+  'housing:walletChanged': { coinId: string; units: number; delta: number; reason: 'mined' | 'buy' | 'sell' | 'cheat' };
+  /** Fact (housing/ui): 연산 클러스터 화면 · 메인 컴퓨터 화면이 열렸다 / 닫혔다. */
+  'ui:miningToggled': { open: boolean; uid: string | null; page: 'cluster' | 'computer' };
+  /** Fact (net): 새 시세가 도착했다 (`ctx.net.crypto.prices`). */
+  'net:cryptoPrices': { at: number };
+  /** Fact (net): 요청한 봉 이력이 도착했다 (`ctx.net.crypto.getHistory`). */
+  'net:cryptoHistory': { coin: string; range: CryptoChartRange };
+}
+/* ── end [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 ── */

@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import {
   SLASH_FOV_MUL, AIM_SWAY_PITCH_RATIO, AIM_SWAY_CROUCH_MUL, AIM_SWAY_PRONE_MUL, AIM_SWAY_MOVE_MUL, AIM_SWAY_BLEND_RATE,
+  /* 2026-09-13 탐사 차량 궤도 카메라 */
+  ROVER_CAM_ELEV_MIN_DEG, ROVER_CAM_ELEV_MAX_DEG, ROVER_CAM_ELEV_START_DEG, ROVER_CAM_ZOOM_MIN_MUL, ROVER_CAM_ZOOM_MAX_MUL,
+  ROVER_CAM_ZOOM_STEP, ROVER_CAM_ZOOM_RATE, ROVER_CAM_SMOOTH_RATE, ROVER_CAM_COLLISION_PAD, ROVER_CAM_MIN_DIST, ROVER_CAM_FLOOR,
   type InteriorCollider, type WorldRef,
 } from '@/shared';
 import { damp, dampVec3, noise1, smoothDamp, type SpringState } from '@/core/util/MathUtil';
@@ -114,6 +117,15 @@ export class CameraRig {
    * behind the player so releasing the override returns to a valid spot.
    */
   private droneView = false;
+  /**
+   * 2026-09-13 탐사 차량 궤도 모드 (`enterRoverOrbit`): non-null = the live focus vector the camera orbits (mouse = yaw / pitch,
+   * `orbitWant` = wheel zoom, `orbitCur` = after collision). The shoulder pivot / collision / FOV logic is skipped; shake, recoil
+   * and sway are off like the drone view. `exitRoverOrbit` + `snapTo` hard-cut back behind the body.
+   */
+  private orbitFocus: THREE.Vector3 | null = null;
+  private orbitBase = 8;
+  private orbitWant = 8;
+  private orbitCur = 8;
   private pitchMin = PITCH_MIN;
   private readonly distSpring: SpringState = { value: HIP_DIST, velocity: 0 };
   private readonly pivot = new THREE.Vector3();
@@ -174,17 +186,21 @@ export class CameraRig {
     const s = this.sensitivity * THREE.MathUtils.lerp(1, this.fov / this.baseFov, aim);
     this.yaw -= dx * s;
     this.pitch -= dy * s;
-    this.pitch = THREE.MathUtils.clamp(this.pitch, this.pitchMin, PITCH_MAX);
+    // 2026-09-13: the rover orbit clamps the elevation instead (pitch = −elevation — a camera above looks down)
+    if (this.orbitFocus) this.pitch = THREE.MathUtils.clamp(this.pitch, -ROVER_CAM_ELEV_MAX_DEG * DEG, -ROVER_CAM_ELEV_MIN_DEG * DEG);
+    else this.pitch = THREE.MathUtils.clamp(this.pitch, this.pitchMin, PITCH_MAX);
     if (this.yaw > Math.PI) this.yaw -= Math.PI * 2; else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
   }
 
   addShake(intensity: number, duration: number): void {
     if (this.droneView) return;   // 2026-09-11: shakes are centred on the body, not on the drone we look through
+    if (this.orbitFocus) return;  // 2026-09-13: nor on the rover the body sits in (the orbit camera never shakes)
     this.trauma = Math.min(1, this.trauma + intensity);
     this.shakeTimer = Math.max(this.shakeTimer, duration);
   }
 
   addRecoil(pitch: number, yaw: number): void {
+    if (this.orbitFocus) return;   // 2026-09-13: no weapons inside the rover — never kick the orbit
     this.recoilPitch += pitch;
     this.recoilYaw += yaw;
     // part of the kick is permanent so the player must compensate
@@ -208,7 +224,7 @@ export class CameraRig {
     const s = this.sway;
     const stance = Math.max(0, 1 + (AIM_SWAY_CROUCH_MUL - 1) * s.crouch + (AIM_SWAY_PRONE_MUL - 1) * s.prone);
     const moving = 1 + (AIM_SWAY_MOVE_MUL - 1) * THREE.MathUtils.clamp(s.move, 0, 1);
-    const want = s.on && !this.droneView ? stance * moving * Math.max(0, s.mul) : 0;
+    const want = s.on && !this.droneView && !this.orbitFocus ? stance * moving * Math.max(0, s.mul) : 0;
     this.swayFactor = damp(this.swayFactor, want, AIM_SWAY_BLEND_RATE, dt);
     this.swayAmpCur = damp(this.swayAmpCur, this.swayAmp, AIM_SWAY_BLEND_RATE, dt);
     const amp = this.swayAmpCur * this.swayFactor * THREE.MathUtils.clamp(s.aim, 0, 1);
@@ -270,6 +286,42 @@ export class CameraRig {
     if (on) { this.fov = this.baseFov; this.fovMul = 1; }
   }
 
+  /**
+   * 2026-09-13 탐사 차량: orbit `focus` (a live vector — read every frame) at `distance`, starting behind the vehicle
+   * (`vehicleYaw` = `RoverVehicleDef.yaw`, forward `(cos, 0, sin)`) at `ROVER_CAM_ELEV_START_DEG`. Clears shake / recoil / sway,
+   * resets the FOV, places the camera at once (no sweep from the shoulder). Calling it again swaps the focus and keeps the view.
+   */
+  enterRoverOrbit(focus: THREE.Vector3, distance: number, vehicleYaw: number): void {
+    const again = this.orbitFocus !== null;
+    this.orbitFocus = focus;
+    this.orbitBase = Math.max(ROVER_CAM_MIN_DIST, distance || 0);
+    if (again) return;
+    this.orbitWant = this.orbitBase;
+    this.orbitCur = this.orbitBase;
+    this.yaw = Math.atan2(-Math.cos(vehicleYaw), -Math.sin(vehicleYaw));
+    this.pitch = -ROVER_CAM_ELEV_START_DEG * DEG;
+    this.trauma = 0; this.shakeTimer = 0;
+    this.recoilPitch = 0; this.recoilYaw = 0;
+    this.resetSway();
+    this.fov = this.baseFov; this.fovMul = 1; this.viewWiden = false;
+    const cp = Math.cos(this.pitch);
+    _fwd.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+    this.position.copy(focus).addScaledVector(_fwd, -this.orbitCur);
+  }
+
+  /** 2026-09-13: leave the rover orbit. The caller (`parts/RoverRide`) follows with `snapTo` behind the body. */
+  exitRoverOrbit(): void { this.orbitFocus = null; }
+
+  /** 2026-09-13: wheel notches (+ = away, like the map) — the orbit distance within the zoom limits of the base distance. */
+  zoomRoverOrbit(steps: number): void {
+    if (!this.orbitFocus || !steps) return;
+    const next = this.orbitWant * (1 + Math.sign(steps) * ROVER_CAM_ZOOM_STEP * Math.min(3, Math.abs(steps)));
+    this.orbitWant = THREE.MathUtils.clamp(next, this.orbitBase * ROVER_CAM_ZOOM_MIN_MUL, this.orbitBase * ROVER_CAM_ZOOM_MAX_MUL);
+  }
+
+  /** true while the rover orbit owns the camera. */
+  get isRoverOrbit(): boolean { return this.orbitFocus !== null; }
+
   snapTo(pivot: THREE.Vector3, yaw: number): void {
     this.yaw = yaw; this.pitch = -0.12;
     this.pivot.copy(pivot); this.pivotInit = true;
@@ -322,6 +374,7 @@ export class CameraRig {
    */
   predictPosition(out: THREE.Vector3): THREE.Vector3 {
     if (this.overrideWeight > 0.001 || !this.pivotInit) return out.copy(this.camera.position);
+    if (this.orbitFocus) return out.copy(this.position);   // 2026-09-13: nothing is aimed from the rover orbit
     const p = this.pitch + this.recoilPitch + this.swayPitch, y = this.yaw + this.recoilYaw + this.swayYaw;
     const cp = Math.cos(p);
     _fwd.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
@@ -336,6 +389,9 @@ export class CameraRig {
     // ── recoil recovery
     this.recoilPitch = damp(this.recoilPitch, 0, 9, dt);
     this.recoilYaw = damp(this.recoilYaw, 0, 9, dt);
+
+    // 2026-09-13 탐사 차량: the orbit owns the camera — none of the shoulder pivot / collision / FOV logic below applies
+    if (this.orbitFocus) { this.updateRoverOrbit(dt, world, this.orbitFocus); return; }
 
     // ── prone on a slope: probe the terrain behind the player; a rising rear lifts the pivot and
     //    narrows the pitch-down range so the camera never orbits into the hillside
@@ -446,6 +502,44 @@ export class CameraRig {
       if (this.position.y < floor) this.position.y = floor;
     }
 
+    // ── FOV: gentle sprint kick; ADS either the default −20° or the weapon's zoom divisor
+    const hipFov = this.baseFov + SPRINT_FOV_KICK * inp.sprint * inp.moveBlend;
+    const aimFov = this.aimZoom > 1 ? this.baseFov / this.aimZoom : this.baseFov - ADS_FOV_DROP;
+    const targetFov = this.droneView ? this.baseFov : THREE.MathUtils.lerp(hipFov, aimFov, inp.aim);
+    this.finishFrame(dt, p, y, targetFov, _pivotS);
+  }
+
+  /**
+   * 2026-09-13 탐사 차량 궤도: camera = `focus − look × distance`, the distance pulled in (instantly) by a `world.raycast` from the
+   * focus and eased back out, never under the terrain, the position damped toward it (`ROVER_CAM_SMOOTH_RATE`). The focus sits above
+   * the hull roof (world/rover), so the ray starts clear of the vehicle's own colliders.
+   */
+  private updateRoverOrbit(dt: number, world: WorldRef | null, focus: THREE.Vector3): void {
+    const p = this.pitch, y = this.yaw;
+    const cp = Math.cos(p);
+    _fwd.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
+    _dir.copy(_fwd).negate();
+    let maxDist = this.orbitWant;
+    if (world) {
+      const hit = world.raycast(focus, _dir, this.orbitWant + ROVER_CAM_COLLISION_PAD);
+      if (hit) maxDist = Math.max(Math.min(ROVER_CAM_MIN_DIST, this.orbitWant), hit.distance - ROVER_CAM_COLLISION_PAD);
+    }
+    this.orbitCur = maxDist < this.orbitCur ? maxDist : damp(this.orbitCur, maxDist, ROVER_CAM_ZOOM_RATE, dt);
+    _desired.copy(focus).addScaledVector(_dir, this.orbitCur);
+    if (world) {
+      const floor = world.getHeightAt(_desired.x, _desired.z) + ROVER_CAM_FLOOR;
+      if (_desired.y < floor) _desired.y = floor;
+    }
+    if (dt > 0) dampVec3(this.position, _desired, ROVER_CAM_SMOOTH_RATE, dt); else this.position.copy(_desired);
+    if (world) {
+      const floor = world.getHeightAt(this.position.x, this.position.z) + ROVER_CAM_FLOOR;
+      if (this.position.y < floor) this.position.y = floor;
+    }
+    this.finishFrame(dt, p, y, this.baseFov, focus);
+  }
+
+  /** Shake → rotation, FOV (+ view widen), cutscene override blend, write the camera. Shared by the shoulder rig and the rover orbit. */
+  private finishFrame(dt: number, p: number, y: number, targetFov: number, pivot: THREE.Vector3): void {
     // ── shake: trauma decays, noise offsets rotation
     if (this.shakeTimer > 0) this.shakeTimer -= dt; else this.trauma = damp(this.trauma, 0, 6, dt);
     if (this.shakeTimer > 0) this.trauma = damp(this.trauma, 0, 1.5, dt);
@@ -461,12 +555,8 @@ export class CameraRig {
     _qShake.setFromEuler(_euler);
     this.quaternion.copy(_q).multiply(_qShake);
 
-    // ── FOV: gentle sprint kick; ADS either the default −20° or the weapon's zoom divisor
-    const hipFov = this.baseFov + SPRINT_FOV_KICK * inp.sprint * inp.moveBlend;
-    const aimFov = this.aimZoom > 1 ? this.baseFov / this.aimZoom : this.baseFov - ADS_FOV_DROP;
-    const targetFov = this.droneView ? this.baseFov : THREE.MathUtils.lerp(hipFov, aimFov, inp.aim);
     // view widen (big slash): multiplies whatever the sprint / ADS logic wants, snappy in, softer out
-    const widen = this.viewWiden && !this.droneView;
+    const widen = this.viewWiden && !this.droneView && !this.orbitFocus;
     this.fovMul = damp(this.fovMul, widen ? SLASH_FOV_MUL : 1, widen ? 14 : 7, dt);
     this.fov = damp(this.fov, Math.min(150, targetFov * this.fovMul), 6, dt);
 
@@ -483,7 +573,7 @@ export class CameraRig {
       this.camera.position.copy(this.position);
       this.camera.quaternion.copy(this.quaternion);
     }
-    this.pivotDist = this.camera.position.distanceTo(_pivotS);
+    this.pivotDist = this.camera.position.distanceTo(pivot);
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();

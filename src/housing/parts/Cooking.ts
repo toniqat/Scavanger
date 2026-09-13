@@ -24,6 +24,7 @@ import {
 import type { HousingSystem } from '../HousingSystem';
 import type { CookScreenKind } from '../ui/cook/CookScreen';
 import { createCookGame } from './CookGames';
+import { computePower, operationalBlockIn } from '../PowerRules';   // 전력 (2026-09-13)
 import type { AnyCookGame } from './CookGames';
 
 /** 조리 오버레이의 `ctx.uiBlockers` 토큰 — 패널들의 `'housing'` 과 따로라, 조리대 화면이 닫히며 지워 가지 않는다. */
@@ -89,9 +90,11 @@ export function cookSession(sys: HousingSystem): CookSessionInfo | null {
 /** 그 게임을 대신하는 자동 조리 가구 중 함선에 배치된 가장 높은 레벨의 것 (방은 묻지 않는다 — 주방에만 놓인다). */
 export function getCookAuto(sys: HousingSystem, game: CookGame): CookAutoInfo | null {
   let best: CookAutoInfo | null = null;
+  const snap = computePower(sys.state);                     // 전력 (2026-09-13): 멈춘 자동 조리 가구는 대신해 주지 않는다
   for (const f of sys.state.furniture) {
     const def = sys.getFurnitureDef(f.defId);
     if (!def || !cookGamesOfAppliance(def.interaction).includes(game)) continue;
+    if (operationalBlockIn(snap, f.uid) !== null) continue;
     if (!best || f.level > best.level) {
       best = { interaction: def.interaction, uid: f.uid, defId: f.defId, level: f.level, score: cookAutoScore(f.level) };
     }
@@ -106,6 +109,8 @@ function blockCore(sys: HousingSystem, uid: string, recipeId: string, ignoreActi
   if (!bench) return '조리대가 아닙니다';
   if (ctx.isRaidActive() || !ctx.isHubPhase()) return '함선에서만 요리할 수 있습니다';
   if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) return '내 함선에서만 요리할 수 있습니다';
+  const power = sys.furnitureOperationalBlock(uid);          // 전력 (2026-09-13): 전력 부족 · 비활성화된 조리대
+  if (power) return power;
   if (!ignoreActive && sys.cookState) return '이미 조리 중입니다';
   const recipe = cookRecipeOf(sys, recipeId);
   if (!recipe) return '요리 레시피가 아닙니다';
@@ -244,6 +249,7 @@ export function openCookStation(sys: HousingSystem, uid: string): void {
   if (!cookBenchAt(sys, uid)) reason = '조리대가 아닙니다';
   else if (ctx.isRaidActive() || !ctx.isHubPhase()) reason = '함선에서만 요리할 수 있습니다';
   else if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) reason = '내 함선에서만 요리할 수 있습니다';
+  else if (sys.furnitureOperationalBlock(uid)) reason = sys.furnitureOperationalBlock(uid);   // 전력 (2026-09-13)
   else if (sys.cookState) reason = '이미 조리 중입니다';
   if (reason) { sys.notify(reason, 'warning'); return; }
   sys.exitHousingMode();

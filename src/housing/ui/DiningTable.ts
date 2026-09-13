@@ -4,7 +4,7 @@ import {
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { HousingPanel } from './Panel';
-import { buildStationShell, mountStationGrids } from './StationShell';
+import { buildStationShell, mountStationGrids, paintStationPower } from './StationShell';
 import type { StationShell } from './StationShell';
 import { clear, el, setText, toggleClass } from './dom';
 
@@ -48,6 +48,7 @@ export class DiningTable extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '식탁',
       upgrade: false,
+      power: { ctx, uid: () => this.uid },            // 전력 (2026-09-13): 비활성화 버튼 · 멈춤 배너 (공유 함선 식탁 = null → 없음)
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
     const left = this.shell.left;
@@ -113,6 +114,7 @@ export class DiningTable extends HousingPanel {
   refresh(): void {
     const shared = this.housing.isSharedTable();
     setText(this.shell.title, shared ? '공유 함선 식탁' : '식탁');
+    paintStationPower(this.shell);                  // 전력 (2026-09-13)
     this.paintPlate();
     this.buildList(shared);
   }

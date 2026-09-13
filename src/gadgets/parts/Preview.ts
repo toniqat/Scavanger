@@ -317,7 +317,7 @@ function heldPlaceDef(ctx: GameContext): GadgetDef | null {
   if (!ctx.isGameplayActive()) return null;
   if (isDetonatorHand(ctx)) return null;
   const p = ctx.player;
-  if (!p || p.isDead || p.isDowned || p.droneControl) return null;
+  if (!p || p.isDead || p.isDowned || p.droneControl || p.roverRide) return null;   // 2026-09-13: 탐사 차량 안 — 고스트 없음
   const itemId = ctx.weapons?.remoteState?.heldItemId;
   if (!itemId) return null;
   const gid = ctx.loot?.getItemDef(itemId)?.gadgetId as GadgetId | undefined;

@@ -715,21 +715,73 @@ export function topLayer(members: readonly PlacedFurniture[]): number {
   return top;
 }
 
+/* ── 배치 규칙: 접근 면 (2026-09-13, 사용자 결정 — docs/plans/power-crypto.md · 계약 `shared/housing.ts` 끝 절) ──────────
+ * 가구의 앞은 로컬 −Z 다. `front` 가구는 앞 한 줄(몸체 폭 × 깊이 1칸)에 다른 가구 몸체가 없어야 하고 그 줄이 격자 밖(벽)이어도 안 된다.
+ * `sides` 는 넓은 두 면(로컬 ±Z), `all` 은 네 면의 한 줄씩에 몸체가 없어야 하되 벽은 된다. 모서리 칸은 비울 필요가 없다.
+ * 규칙은 **양방향**이다 — 새 몸체가 이미 놓인 가구의 비워야 하는 칸에 들어가도 안 된다. 비워야 하는 칸끼리는 겹쳐도 된다
+ * (마주보는 작업대 둘이 1칸 통로를 나눠 쓴다). 조종석 고정 소품 자리(`roomCellBlocked`)는 몸체로 센다.
+ * 칸 계산의 원본은 계약의 `furnitureFaceDir` · `furnitureClearanceCells` 이고, 여기서는 면마다 한 줄짜리 **사각형**으로 본다
+ * (칸 목록을 만들지 않으려고 — 하우징 모드가 매 프레임 묻는다). 방향표는 모듈 로드 때 계약 함수로 한 번 채운다.
+ * ────────────────────────────────────────────────────────────────────────── */
+import type { FurnitureAccess, FurnitureFace } from '@/shared';
+import { accessAllowsWall, furnitureAccessFaces, furnitureAccessOf, furnitureFaceDir, isCockpitOnlyFurniture } from '@/shared';
+
+/** 배치를 막는 규칙의 종류. `access` = 접근 면 규칙(2026-09-13) — `ShipState.sanitize` 는 이것만 가구 창고로 옮기고 나머지는 예전처럼 버린다. */
+export type PlacementBlockKind = 'place' | 'purpose' | 'grid' | 'fixture' | 'stack' | 'overlap' | 'access';
+export interface PlacementBlock { kind: PlacementBlockKind; reason: string }
+
+/** 배치 거절 문장 (시설 관리 토스트 · 스모크가 같은 글을 본다). */
+export const PLACEMENT_REASON_KO = {
+  place: '가구를 놓을 수 없는 곳입니다',
+  grid: '방 격자 밖으로 나갑니다',
+  fixture: '고정 설비와 겹칩니다',
+  stack: '더 쌓을 수 없습니다',
+  overlap: '다른 가구와 겹칩니다',
+  frontWall: '앞쪽이 벽에 막힙니다',
+  front: '앞쪽 1칸을 비워야 합니다',
+  sides: '넓은 면 1칸을 비워야 합니다',
+  all: '사방 1칸을 비워야 합니다',
+  blocksOther: '다른 가구의 접근 공간을 막습니다',
+} as const;
+
+const ACCESS_FACES: readonly FurnitureFace[] = ['front', 'back', 'right', 'left'];
+/** `FACE_DIR[yaw][face]` = 계약의 `furnitureFaceDir(yaw, face)` (모듈 로드 때 한 번). */
+const FACE_DIR: ReadonlyArray<Readonly<Record<FurnitureFace, { dx: number; dy: number }>>> = ([0, 1, 2, 3] as const).map(
+  (yaw) => Object.fromEntries(ACCESS_FACES.map((f) => [f, furnitureFaceDir(yaw, f)])) as Record<FurnitureFace, { dx: number; dy: number }>,
+);
+/** 면 한 줄의 사각형 (재사용 스크래치 — 받은 자리에서 바로 읽는다). */
+const _face = { x: 0, y: 0, cols: 0, rows: 0 };
+function faceRect(x: number, y: number, cols: number, rows: number, yaw: 0 | 1 | 2 | 3, face: FurnitureFace): typeof _face {
+  const { dx, dy } = FACE_DIR[yaw][face];
+  if (dy !== 0) { _face.x = x; _face.cols = cols; _face.rows = 1; _face.y = dy < 0 ? y - 1 : y + rows; }
+  else { _face.y = y; _face.rows = rows; _face.cols = 1; _face.x = dx < 0 ? x - 1 : x + cols; }
+  return _face;
+}
+
+function accessReason(access: FurnitureAccess): string {
+  return access === 'front' ? PLACEMENT_REASON_KO.front : access === 'sides' ? PLACEMENT_REASON_KO.sides : PLACEMENT_REASON_KO.all;
+}
+
 /**
- * Purpose match (or 'any') + inside the grid + no overlap with other pieces in the room (`ignoreUid` = the piece being
- * moved). Stackable defs (`stackLimit > 1`) may share their footprint with the same def at the same cell / yaw while
- * the stack is below its limit.
+ * `def` 를 `room` 의 (x, y, yaw) 에 놓을 수 없는 이유 — null 이면 놓을 수 있다. 순서: 자리 → 용도 → 격자 → 고정 소품 → 쌓기 한도 →
+ * 몸체 겹침 → 내 접근 면(벽 · 몸체) → 남의 접근 면. `ignoreUid` = 옮기는 중인 조각 (자기 자신과는 비교하지 않는다).
  */
-export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
-  // 2026-09-12: 조종석도 놓을 자리다 (용도 'cockpit' = 'any' 가구만) — 격자 크기와 고정 소품 자리는 계약의 표가 답한다
+export function placementBlockOf(
+  state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string,
+): PlacementBlock | null {
+  // 2026-09-12: 조종석도 놓을 자리다 (용도 'cockpit' = 'any' 가구 + 조종석 전용 시설) — 격자 크기와 고정 소품 자리는 계약의 표가 답한다
   const purpose = placeRoomPurpose(state, room);
-  if (purpose === null) return false;
-  if (!furnitureAllowedIn(def, purpose)) return false;
-  if (!insideGrid(def, x, y, yaw, room)) return false;
+  if (purpose === null) return { kind: 'place', reason: PLACEMENT_REASON_KO.place };
+  if (!furnitureAllowedIn(def, purpose)) {
+    const reason = isCockpitOnlyFurniture(def) ? '조종석 전용 시설입니다'
+      : def.room !== 'any' ? `${ROOM_PURPOSE_LABEL_KO[def.room as RoomPurpose] ?? def.room} 전용 가구입니다` : PLACEMENT_REASON_KO.place;
+    return { kind: 'purpose', reason };
+  }
+  if (!insideGrid(def, x, y, yaw, room)) return { kind: 'grid', reason: PLACEMENT_REASON_KO.grid };
   const fp = furnitureFootprint(def, yaw);
-  if (roomRectBlocked(room, x, y, fp.cols, fp.rows)) return false;
+  if (roomRectBlocked(room, x, y, fp.cols, fp.rows)) return { kind: 'fixture', reason: PLACEMENT_REASON_KO.fixture };
   const limit = stackLimitOf(def);
-  if (limit > 1 && nextFreeLayer(stackMembers(state, room, def, x, y, yaw, ignoreUid), limit) < 0) return false;
+  if (limit > 1 && nextFreeLayer(stackMembers(state, room, def, x, y, yaw, ignoreUid), limit) < 0) return { kind: 'stack', reason: PLACEMENT_REASON_KO.stack };
   for (const other of state.furniture) {
     if (other.room !== room || other.uid === ignoreUid) continue;
     const odef = FURNITURE_DEF_MAP.get(other.defId);
@@ -738,9 +790,61 @@ export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x:
     if (!overlaps(x, y, fp.cols, fp.rows, other.x, other.y, ofp.cols, ofp.rows)) continue;
     // a stack may only be shared by the identical def in the identical spot
     if (limit > 1 && other.defId === def.id && other.x === x && other.y === y && other.yaw === yaw) continue;
-    return false;
+    return { kind: 'overlap', reason: PLACEMENT_REASON_KO.overlap };
   }
-  return true;
+  // 2026-09-13: 내 접근 면 — 앞(front)은 벽이 안 되고, 어느 면이든 그 줄에 고정 소품 · 다른 가구 몸체가 없어야 한다
+  const access = furnitureAccessOf(def);
+  if (access !== 'none') {
+    const grid = roomGridSize(room);
+    for (const face of furnitureAccessFaces(access)) {
+      const r = faceRect(x, y, fp.cols, fp.rows, yaw, face);
+      const inside = r.x >= 0 && r.y >= 0 && r.x + r.cols <= grid.cols && r.y + r.rows <= grid.rows;
+      if (!inside) {
+        if (!accessAllowsWall(access)) return { kind: 'access', reason: PLACEMENT_REASON_KO.frontWall };
+        continue;                                   // 한 줄짜리라 격자 밖이면 줄 전체가 벽이다 (몸체는 이미 격자 안)
+      }
+      const rx = r.x, ry = r.y, rc = r.cols, rr = r.rows;
+      if (roomRectBlocked(room, rx, ry, rc, rr)) return { kind: 'access', reason: accessReason(access) };
+      for (const other of state.furniture) {
+        if (other.room !== room || other.uid === ignoreUid) continue;
+        const odef = FURNITURE_DEF_MAP.get(other.defId);
+        if (!odef) continue;
+        const ofp = furnitureFootprint(odef, other.yaw);
+        if (overlaps(rx, ry, rc, rr, other.x, other.y, ofp.cols, ofp.rows)) return { kind: 'access', reason: accessReason(access) };
+      }
+    }
+  }
+  // 2026-09-13: 남의 접근 면 — 내 몸체가 이미 놓인 가구의 비워야 하는 줄에 들어가면 안 된다 (줄끼리는 겹쳐도 된다)
+  for (const other of state.furniture) {
+    if (other.room !== room || other.uid === ignoreUid) continue;
+    const odef = FURNITURE_DEF_MAP.get(other.defId);
+    if (!odef) continue;
+    const oaccess = furnitureAccessOf(odef);
+    if (oaccess === 'none') continue;
+    const ofp = furnitureFootprint(odef, other.yaw);
+    for (const face of furnitureAccessFaces(oaccess)) {
+      const r = faceRect(other.x, other.y, ofp.cols, ofp.rows, other.yaw, face);
+      if (overlaps(x, y, fp.cols, fp.rows, r.x, r.y, r.cols, r.rows)) return { kind: 'access', reason: PLACEMENT_REASON_KO.blocksOther };
+    }
+  }
+  return null;
+}
+
+/** `placementBlockOf` 의 문장만 — `HousingRef.placementBlock` 이 이것을 돌려준다. null = 놓을 수 있다. */
+export function placementBlockReason(
+  state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string,
+): string | null {
+  return placementBlockOf(state, room, def, x, y, yaw, ignoreUid)?.reason ?? null;
+}
+
+/**
+ * Purpose match (or 'any') + inside the grid + no overlap with other pieces in the room (`ignoreUid` = the piece being
+ * moved). Stackable defs (`stackLimit > 1`) may share their footprint with the same def at the same cell / yaw while
+ * the stack is below its limit. **2026-09-13**: + the access-face rules (`placementBlockOf`) — this is exactly
+ * `placementBlockOf(...) === null`, so every caller (hand placement · `move` · 자동 배치 · `sanitize`) sees one rule.
+ */
+export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
+  return placementBlockOf(state, room, def, x, y, yaw, ignoreUid) === null;
 }
 
 /* ── 자동 배치 (2026-09-10) ────────────────────────────────────────────────
@@ -769,6 +873,13 @@ export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x:
  * "yaw 1 로 안 들어가는 가구"는 yaw 3 으로도 안 들어가기 때문이다 — 눕혀 봐야 의미가 있다.
  */
 export const AUTO_PLACE_YAWS: readonly (0 | 1 | 2 | 3)[] = [1, 0];
+/**
+ * 2026-09-13 (배치 규칙): 선호 회전(`AUTO_PLACE_YAWS`)으로 자리가 없을 때 이어서 보는 회전. 접근 면 규칙이 생기면서 yaw 3 은 더 이상
+ * yaw 1 의 사본이 아니다 — 발자국은 같아도 **앞이 반대**라, 앞이 벽에 막히는 `front` 가구(격자 끝 줄)가 돌아서면 선다.
+ * 순서 · 선호 회전은 그대로이고, 접근 면이 없는 가구에게는 새 자리가 생기지 않는다(발자국이 같다).
+ */
+export const AUTO_PLACE_FALLBACK_YAWS: readonly (0 | 1 | 2 | 3)[] = [3, 2];
+const AUTO_PLACE_YAW_ORDER: readonly (0 | 1 | 2 | 3)[] = [...AUTO_PLACE_YAWS, ...AUTO_PLACE_FALLBACK_YAWS];
 
 /* ── 출입구 앞 여유 (자동 배치에만 적용) ───────────────────────────────────
  * 순서만 바꾸면 **문이 막힌다.** 방문은 방의 ±X 벽 한가운데(`hub/interiors/RoomLayout`: `doorZ` = 방의 z 중앙,
@@ -855,7 +966,7 @@ export function autoPlaceSpot(state: ShipState, room: number, def: FurnitureDef)
   const grid = roomGridSize(room);
   const door = room === COCKPIT_ROOM_INDEX ? null : doorClearanceCell(room);
   for (const pass of door ? [1, 2] : [1]) {
-    for (const yaw of AUTO_PLACE_YAWS) {
+    for (const yaw of AUTO_PLACE_YAW_ORDER) {        // 2026-09-13: 선호 회전 다음에 뒤집은 회전 (접근 면 규칙)
       const fp = furnitureFootprint(def, yaw);
       for (let x = 0; x + fp.cols <= grid.cols; x++) {               // 화면 세로: 위 → 아래
         for (let y = grid.rows - fp.rows; y >= 0; y--) {             // 화면 가로: 왼쪽 → 오른쪽

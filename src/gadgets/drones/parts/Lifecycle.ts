@@ -49,7 +49,7 @@ export function deploy(sys: DroneSystem, kind: DroneKind): boolean {
   const world = ctx.world;
   // 함선(허브) · 메뉴 · 강하 전에는 꺼낼 수 없다
   if (!ctx.isGameplayPhase() || !ctx.isRaidActive() || !world || !world.ready) return deny(sys, null);
-  if (!p || p.isDead || p.isDowned || p.climbingLadder || p.droneControl) return deny(sys, null);
+  if (!p || p.isDead || p.isDowned || p.climbingLadder || p.droneControl || p.roverRide) return deny(sys, null);   // 2026-09-13: + 탐사 차량 안
   if (ownDrone(sys, kind)) return deny(sys, `이미 ${droneName(kind)}을 꺼내 뒀다`);
 
   const body = createBody(kind);

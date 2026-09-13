@@ -219,7 +219,11 @@ function reachAll({ roomMin, after }) {
       const [lx, lz] = toL(lad.base.x, lad.base.z);
       row.ladder = near(set, lx, lz, lad.base.y, 0.6);
       // 음성 대조: 옥상 높이의 칸이 하나라도 걸어서 닿았으면 flood fill 이 무언가를 뚫은 것이다
-      for (const [, , yy] of outside.seen.values()) if (Math.abs(yy - lad.topY) < 0.3) { row.roofWalk = true; break; }
+      // 2026-09-13: **발자국 안의** 칸만 옥상이다 — 건물 밖 언덕이 우연히 옥상 높이인 칸(흙길 회랑으로 배치가 바뀐 seed 7 연구소)을 옥상으로 세지 않는다
+      for (const [ii, jj, yy] of outside.seen.values()) {
+        if (Math.abs(ii * STEP) > nav.halfW || Math.abs(jj * STEP) > nav.halfD) continue;
+        if (Math.abs(yy - lad.topY) < 0.3) { row.roofWalk = true; break; }
+      }
     }
     if (s.basementDoor) {
       const [lx, lz] = toL(s.basementDoor.x, s.basementDoor.z);

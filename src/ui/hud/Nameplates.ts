@@ -87,7 +87,7 @@ export class Nameplates {
     const suspended = ref.suspended === true;
     // A suspended member's ref is stale by definition (no snapshots) — keep the plate on its ghost body.
     const gone = suspended ? (!ref.avatar || (ref.flags & PlayerFlags.IN_POD) !== 0)
-      : (!ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD)) !== 0);
+      : (!ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD | PlayerFlags.IN_ROVER)) !== 0);   // 2026-09-13: + 탐사 차량 안
     if (gone) { this.hide(plate); return; }
 
     ref.avatar!.getHeadPosition(this.v);

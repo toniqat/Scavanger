@@ -12,6 +12,8 @@ const SERVER_TYPES: ReadonlySet<string> = new Set([
   'social:inviteResult', 'social:inviteClosed', 'social:whisperAck', 'social:whisperBacklog',
   /* 2026-09-11 (E-6): the answer to a revision write / transaction (a conflict carries ≤ 5 documents — under the cap) */
   'profile:ack', 'profile:conflict', 'profile:refused',
+  /* 2026-09-13: 암호화폐 시세 (`parts/Crypto`) — prices ≈ 8 coins, history ≤ 180 candles */
+  'crypto:prices', 'crypto:history',
 ]);
 const PING_INTERVAL_MS = 2000;
 /** `welcome` may carry every profile document (5 × PROFILE_DOC_MAX_BYTES) plus a raid blob. */

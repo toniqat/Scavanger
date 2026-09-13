@@ -648,6 +648,31 @@ id 는 `sock_<target>_<effect>_<n>`. 등급은 I 고급 · II 희귀 · III 서�
 - **상점**: `corp_stock.csv` 의 어느 규칙도 새 재료 · 소켓 · 요리 · 은퇴 아이템을 팔지 않는다 (세레스 `material` 은 임플란트 수리 재료만). `server/economy.gen.json`
   에는 새 아이템 가치가 들어간다 (판매 사유 검증용).
 
+## 프로세서 · 연산 코어 (2026-09-13 — 암호화폐 채굴, `docs/plans/power-crypto.md`)
+
+| id | 이름 | 등급 | 크기 · 스택 | 가치 | 출처 |
+|---|---|---|---|---|---|
+| `mat_processor` | 프로세서 | 전설 | 1×1 · 3 | 3000 | 레이드에서만 — 상자 티어 4 · 5, 안드로이드 시체. 상점 없음 (`corp_stock.csv` 의 어느 규칙도 전설 재료를 팔지 않는다) |
+| `mat_compute_core` | 연산 코어 | 전설 | 1×1 · 9 | 3200 | 가공 작업대 Lv.2 `refine_compute_core` = 회로 기판 2 + 프로세서 1 (제작 30). 모든 상자 티어 0 |
+
+연산 클러스터 한 대가 코어 9개(`COMPUTE_CLUSTER_MAX_CORES`)를 받으므로 스택 9 = 꽉 찬 클러스터 한 대분이다 (`removeClusterCores` 가 한 스택으로 돌려준다).
+발전기 Lv.9 · Lv.10 강화에 프로세서 1 · 2 가 들어간다 (`facility_upgrades.csv`). 내구도 장비가 아니라 `checkSalvageEconomy()` 에는 걸리지 않는다.
+
+**드롭률 — 목표 「평균 플레이어 15–25 레이드에 하나」 (타르코프 GPU 급)**. 수치는 `scratchpad` 모의 굴림(`LootService.rollCrateOn` 행성 5곳 × 티어 3–5 × 40 000 상자)으로 맞췄다:
+
+- `loot_item_weights.csv` — 티어 1–3 `0`, 티어 4 **`2`**, 티어 5 **`0.5`** (전설 희귀도 가중치 × 배수가 재료 픽 안에서의 몫). 결과: **티어 4 컨테이너 하나당 ≈ 2.2 %**
+  (아켈론 II 는 행성 `legMul` 때문에 ≈ 0.9 %), **보급 투하 하나당 ≈ 0.6–0.7 %**, 티어 3 0 %.
+- 티어 4 컨테이너는 상자만이 아니다 — 구조물 컨테이너가 같은 표를 굴린다: 한 맵 기대치 ≈ 열린 필드 희귀 캐시 1.5 + 전진기지 지하실 1.8(1.5곳 × 지하실 65 % × 5칸 × 티어 4 3/8)
+  + 연구소 잠긴 방 1.5(키카드 필요) + 불시착 함선 0.6 + 전차 0.4 ≈ **5.8개를 전부 열었을 때**. 평균 플레이어가 그 ⅓ 쯤(≈ 2개)을 연다고 보면 레이드당 ≈ 0.044.
+- `loot_corpses.csv` — `android,mat_processor,1,1,0.002` (threat 1 행성만). 한 레이드 안드로이드 시체 10–15구를 뒤지면 ≈ 0.02–0.03.
+- 보급 투하는 레이드당 0.5번 남짓 × 0.65 % ≈ 0.003.
+- 합 ≈ **0.05–0.07 / 레이드 → 15–20 레이드에 하나**. 꽉 찬 클러스터(9개)는 그래서 수백 레이드짜리 장기 목표이고, 코어 1–3개 단계는 거의 벌이가 없다(아래 `data/crypto.csv`).
+- ⚠ 안드로이드 시체 표에 줄이 하나 늘어 `rollCorpse('android')` 의 rng 소비가 한 번 밀린다 (시드 고정 검사는 로그 계열뿐이라 영향 없음).
+
+**채굴 경제** (`data/crypto.csv` · 사용자 목표 「코어 9개 클러스터 ≈ 1,300–2,000 C/시간」): 코어 n 개의 시간당 벌이 = `yieldUnits / 1000 × basePrice / cycleHours × 2^(n−1)`.
+코어 1개 ≈ 5–8 C/h(거의 없음) → 9개 ≈ ×256. 열린 4종 스크랩 1536 · 볼트 1536 · 펄스 1344 · 보이드 1330, 기업 4종 헬릭스 1997 · 바스티온 1799 · 노마드 1843 · 세레스 1840 C/h
+(기준 시세, 수수료 2 % 전). 2026-09-13 에 펄스 `yieldUnits` 20 → 21 · 보이드 16 → 17 로 올려 열린 코인이 하한 1300 밑으로 내려가지 않게 했다.
+
 ## 서적 (Phase 9, 2026-09-06)
 
 `category: 'book'`, `ItemDef.book: BookDef {skill}`. **One book per skill** — 14 of them, `BOOK_ITEM_DEFS` in `SKILL_IDS`
@@ -1090,6 +1115,10 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
 
 ## 변경 이력
 
+- **2026-09-13 (암호화폐 채굴 데이터 — 에이전트 ③, `docs/plans/power-crypto.md`)** — 위 *프로세서 · 연산 코어* 절이 표다. 데이터만 바뀌었다(코드 0): `items.csv` 2줄
+  (`mat_processor` · `mat_compute_core`, 제어 모듈 바로 뒤) · `recipes.csv` `refine_compute_core` · `loot_item_weights.csv` 10줄(프로세서 T4 2 · T5 0.5 · 나머지 0, 코어 전부 0) ·
+  `loot_corpses.csv` 안드로이드 프로세서 0.2 % · `facility_upgrades.csv` 발전기 Lv.9 · 10 에 프로세서 1 · 2 · `crypto.csv` 펄스 · 보이드 `yieldUnits` +1.
+  기업 채굴 인가 퀘스트 4줄(`hx_crypto` …)의 납품은 **그대로 뒀다** — 프로세서 · 코어를 요구하면 15–20 레이드짜리 아이템이 해금 비용이 되어 기업 코인이 사실상 닫힌다.
 - **2026-09-13 (행성별 적 팩션 — faction-loot 에이전트, `docs/plans/enemy-factions.md` 1절)** — 위 *인간형 팩션 시체* 절이 표다. 데이터: **`loot_factions.csv` 신규**
   (android · rogue · raider 3줄) · **`loot_faction_sites.csv` 신규**(raider @ lab 아이템 4줄 · @ outpost 등급 1줄) · `loot_corpses.csv`(로그 회복 · 수류탄 6줄 삭제,
   android 4줄 · raider 5줄) · `loot_corpse_rolls.csv`(android · raider). 코드: `LootTables.ts`(두 표 로더 · 행성 씨앗 표 · 시체 표 종류 = 두 csv 합집합) ·

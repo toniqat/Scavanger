@@ -391,6 +391,7 @@ function remoteAimPoint(e: Enemy, host: ReplicaHost, out: THREE.Vector3): boolea
   const targets = host.targets;
   considerTargets(targets.alive);
   considerTargets(targets.drones);
+  considerTargets(targets.vehicles);   // 2026-09-13: 탐사 차량 (리플리카의 프록시도 `ctx.world.rover` 로 갱신된다)
   const active = host.active;
   for (let i = 0; i < active.length; i++) {
     const o = active[i];

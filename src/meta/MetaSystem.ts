@@ -307,6 +307,9 @@ export class MetaSystem implements GameSystem, MetaRef {
    */
   addCredits(delta: number, reason: string): boolean { return Credits.addCredits(this, delta, reason); }
 
+  /** 2026-09-13 (암호화폐 매매): `addCredits` 처럼 적용하되 릴레이의 답까지 기다린다 (`parts/Credits.creditsTx`). */
+  creditsTx(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }> { return Credits.creditsTx(this, delta, reason); }
+
   addRep(corp: CorpId, delta: number, reason: string): void { return Credits.addRep(this, corp, delta, reason); }
 
   /* ── MetaRef: shop ──────────────────────────────────────────────────────── */

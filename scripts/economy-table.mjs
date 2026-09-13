@@ -54,6 +54,20 @@ export async function buildEconomyTable(server) {
     shopPriceMinMul: shared.SHOP_PRICE_MIN_MUL,
     sellPriceMul: shared.SELL_PRICE_MUL,
     repLevelMax: shared.REP_LEVEL_MAX,
+    /* 2026-09-13: 탐사 차량 요금 범위 (`rover:<from>:<to>`) — 경로 거리는 시드마다 달라 릴레이는 범위만 본다 */
+    roverFareMin: shared.ROVER_FARE_MIN,
+    roverFareMax: shared.ROVER_FARE_MAX,
+    /* 2026-09-13: 암호화폐 — 릴레이의 시세 시뮬레이션(`server/CryptoMarket.ts`)과 `cbuy:` · `csell:` 검증이 읽는다 */
+    crypto: {
+      unitsPerCoin: shared.CRYPTO_UNITS_PER_COIN,
+      fee: shared.CRYPTO_TRADE_FEE,
+      maxUnits: shared.CRYPTO_TRADE_MAX_UNITS,
+      quoteWindowMs: Math.round(shared.CRYPTO_QUOTE_WINDOW_S * 1000),
+      tickMs: Math.round(shared.CRYPTO_TICK_S * 1000),
+      coins: sortedObject(shared.CRYPTO_COIN_DEFS.map((d) => [d.id, d.unlockQuest
+        ? { basePrice: d.basePrice, volatility: d.volatility, unlockQuest: d.unlockQuest }
+        : { basePrice: d.basePrice, volatility: d.volatility }])),
+    },
     items: sortedObject(items),
     repairFees: sortedObject(repairFees),
     contracts: sortedObject(contracts),
@@ -119,6 +133,33 @@ export async function checkEconomyTable(server, table) {
     const back = shared.parseCreditReason(raw);
     if (!back || back.kind !== r.kind || back.id !== r.id || (r.qty !== undefined && back.qty !== r.qty)) push(`사유 ${raw} 가 문법을 왕복하지 못한다 (id 에 [a-z0-9_] 밖의 글자이거나 64자 초과)`);
   }
+  /* 2026-09-13: 탐사 차량 요금 — 0 < MIN ≤ MAX 정수, 사유 `rover:<from>:<to>` 왕복 */
+  if (!Number.isInteger(table.roverFareMin) || !Number.isInteger(table.roverFareMax) || table.roverFareMin <= 0 || table.roverFareMin > table.roverFareMax) {
+    push(`탐사 차량 요금 범위 ${table.roverFareMin}…${table.roverFareMax} 가 0 < ROVER_FARE_MIN ≤ ROVER_FARE_MAX 인 정수가 아니다`);
+  }
+  const rov = shared.parseCreditReason(shared.formatCreditReason({ kind: 'rover', id: 'rst0', to: 'rst4' }));
+  if (!rov || rov.kind !== 'rover' || rov.id !== 'rst0' || rov.to !== 'rst4') push('사유 rover:rst0:rst4 가 문법을 왕복하지 못한다');
+  /* 2026-09-13: 암호화폐 — 코인이 csv 와 같고, 수치가 쓸 만하고, 잠긴 코인의 퀘스트가 `quest:` 로 원장에 오를 수 있고(크레딧 보상이 없으면
+     그 코인은 서버에서 영영 거래할 수 없다), 가장 긴 `cbuy` · `csell` 사유가 64자 안에서 왕복한다 */
+  const cx = table.crypto;
+  if (!cx) push('crypto 절이 없다 — 릴레이가 시세를 돌리지 않고 모든 cbuy / csell 을 거절한다');
+  else {
+    if (!(cx.unitsPerCoin >= 1) || !(cx.fee >= 0 && cx.fee < 1) || !(cx.maxUnits >= 1) || !(cx.quoteWindowMs >= 0) || !(cx.tickMs >= 1000)) {
+      push(`crypto 수치가 이상하다 (unitsPerCoin ${cx.unitsPerCoin} · fee ${cx.fee} · maxUnits ${cx.maxUnits} · quoteWindowMs ${cx.quoteWindowMs} · tickMs ${cx.tickMs})`);
+    }
+    const defs = shared.CRYPTO_COIN_DEFS;
+    if (Object.keys(cx.coins).length !== defs.length) push(`crypto 코인 수 ${Object.keys(cx.coins).length} ≠ data/crypto.csv ${defs.length}`);
+    for (const d of defs) {
+      const c = cx.coins[d.id];
+      if (!c || c.basePrice !== d.basePrice || c.volatility !== d.volatility || (c.unlockQuest ?? null) !== (d.unlockQuest ?? null)) push(`crypto ${d.id}: 표가 csv 와 다르다`);
+      if (d.unlockQuest && table.quests[d.unlockQuest] === undefined) push(`crypto ${d.id}: 해금 퀘스트 ${d.unlockQuest} 에 크레딧 보상이 없어 원장에 오르지 않는다 — 서버가 이 코인의 매매를 영영 거절한다`);
+      for (const kind of ['crypto-buy', 'crypto-sell']) {
+        const raw = shared.formatCreditReason({ kind, id: d.id, qty: cx.maxUnits });
+        const back = shared.parseCreditReason(raw);
+        if (!back || back.kind !== kind || back.id !== d.id || back.qty !== cx.maxUnits) push(`사유 ${raw} 가 문법을 왕복하지 못한다`);
+      }
+    }
+  }
   for (const [id, n] of [...Object.entries(table.contracts), ...Object.entries(table.quests), ...Object.entries(table.repairFees)]) {
     if (!Number.isInteger(n) || n < 0) push(`${id}: 크레딧 ${n} 이 0 이상의 정수가 아니다`);
   }
@@ -133,6 +174,22 @@ export function formatEconomyTable(t) {
   keys.forEach((k, i) => {
     const comma = i < keys.length - 1 ? ',' : '';
     const v = t[k];
+    if (k === 'crypto' && v && typeof v === 'object') {
+      /* 2026-09-13: one coin per line (a csv edit of one coin stays a one-line diff) */
+      lines.push(`  ${JSON.stringify(k)}: {`);
+      const ents = Object.entries(v);
+      ents.forEach(([ek, ev], j) => {
+        const c = j < ents.length - 1 ? ',' : '';
+        if (ek === 'coins' && ev && typeof ev === 'object') {
+          const coins = Object.entries(ev);
+          lines.push(`    ${JSON.stringify(ek)}: {`);
+          coins.forEach(([ck, cv], n) => lines.push(`      ${JSON.stringify(ck)}: ${JSON.stringify(cv)}${n < coins.length - 1 ? ',' : ''}`));
+          lines.push(`    }${c}`);
+        } else lines.push(`    ${JSON.stringify(ek)}: ${JSON.stringify(ev)}${c}`);
+      });
+      lines.push(`  }${comma}`);
+      return;
+    }
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const ents = Object.entries(v);
       if (ents.length === 0) { lines.push(`  ${JSON.stringify(k)}: {}${comma}`); return; }

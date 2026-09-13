@@ -158,6 +158,18 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
 
+### 2026-09-13 — 암호화폐 채굴 데이터: 프로세서 · 연산 코어 (`items.csv` 2줄 · `recipes.csv` · `loot_item_weights.csv` · `loot_corpses.csv` · `facility_upgrades.csv` · `crypto.csv`)
+
+- **`items.csv`**: `mat_processor`(전설 1×1 · 스택 3 · 가치 3000) · `mat_compute_core`(전설 1×1 · 스택 9 = 클러스터 한 대분 · 3200), 제어 모듈 바로 뒤.
+- **`recipes.csv`**: `refine_compute_core` = 회로 기판 2 + 프로세서 1 → 연산 코어 1 (가공 작업대 Lv.2, 제작 30).
+- **`loot_item_weights.csv`**: 프로세서 티어 1–3 `0` · 티어 4 `2` · 티어 5 `0.5`, 연산 코어 전 티어 `0`. **역산**: 모의 굴림으로 「티어 4 컨테이너 하나당 ≈ 2 %,
+  보급 투하 하나당 ≈ 0.5 %」 에 맞췄다(실측 2.2 % · 0.6–0.7 %, 아켈론 II 는 `legMul` 때문에 0.9 %). 희귀도 가중치(`loot_tiers.csv`)나 다른 재료 배수를 바꾸면 이 몫도
+  움직인다 — 레이드당 기대치 계산은 `src/items/README.md` 의 *프로세서 · 연산 코어* 절.
+- **`loot_corpses.csv`**: `android,mat_processor,1,1,0.002`.
+- **`facility_upgrades.csv`**: 발전기 Lv.9 `+mat_processor:1` · Lv.10 `+mat_processor:2`.
+- **`crypto.csv`**: 펄스 `yieldUnits` 20 → 21 · 보이드 16 → 17 — 코어 9개 시간당 벌이(기준 시세)가 열린 코인 1330–1536 · 기업 코인 1799–1997 C 로 목표 1300–2000 안에 든다.
+- `quests.csv` 의 채굴 인가 4줄은 그대로 (프로세서를 해금 비용으로 쓰지 않는다).
+
 ### 2026-09-13 — 요리 미니게임 · 요리 품질 (`cook_steps.csv` · `cook_grill.csv` 신규 · `constants.csv` `COOK_*` · `tables.csv` 3표 · `furniture.csv` 4줄)
 
 설계안 `docs/plans/cooking-minigames.md` (사용자 결정). 로더는 `src/shared/cooking.ts` 하나다.

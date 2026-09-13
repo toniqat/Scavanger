@@ -52,6 +52,7 @@ export function revive(sys: PlayerSystem): void {
  */
 export function applyKnockback(sys: PlayerSystem, direction: THREE.Vector3, speed: number): void {
   if (sys.isDead || sys._downed || !sys.spawned) return;
+  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안의 몸은 밀리지 않는다
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
   const len = direction.length();
   if (len < 1e-5 || !(speed > 0)) return;
@@ -98,6 +99,7 @@ export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vecto
  */
 export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean): void {
   if (sys.isDead || !(amount > 0) || !sys.spawned) return;
+  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 차량만 맞는다 (재해 · 화상 · 전차 · 폭발 전부 이 길을 탄다)
   if (!dot && sys.invuln > 0) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return; // safe inside the pod
   if (!dot) sys.invuln = INVULN_TIME;
@@ -277,6 +279,7 @@ export function clearDowned(sys: PlayerSystem): void {
 
 export function die(sys: PlayerSystem): void {
   if (sys.isDead) return;
+  sys.releaseRoverRide();   // 2026-09-13: 자발적 귀환(`die`)은 차량 옆에서 죽는다 — 시체가 선체 안에 서지 않게
   sys.isDead = true;
   sys.deadTimer = 0;
   sys.healPool = 0;

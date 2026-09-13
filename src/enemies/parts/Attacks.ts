@@ -19,7 +19,7 @@ import { ENEMY_INCENDIARY, ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
 import { ENEMY_GRENADE_KINDS, type EnemyGrenadeKind } from '@/shared';
 import { humanoidProfile } from '../ai/HumanoidProfile';
 import { SpatialGrid } from '../SpatialGrid';
-import { CombatTarget, TargetList, type TargetId } from '../Targets';
+import { CombatTarget, TargetList, VEHICLE_RAY_MARGIN, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
 import { LureField } from '../ai/Lures';
 import { becomeAlert, canPerceive } from '../ai/Perception';
@@ -135,6 +135,7 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
     }
     sys.explode(p, radius, damage, 'ai', null, null, thrower?.faction ?? 'rogue');
     ctx.drones?.applyExplosion(p, radius, damage);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
+    sys.targets.damageVehicleAt(p, radius, damage);  // 2026-09-13: 탐사 차량 (적의 폭발만)
     sys.alertHearing(p, GRENADE_NOISE);
     if (sys.hosting) {
       const k = Math.max(0, ENEMY_GRENADE_KINDS.indexOf(kind));
@@ -158,6 +159,7 @@ const FIRE_ZONE_HEIGHT = 2.5;
  * - **enemies not of `faction`**: the burning status (`burnDps` / `burnTimer`), credited to `'ai'` unless a player
  *   already lit it — so an enemy's fire never hands a player a kill.
  * Drones are not touched (a fire on the ground does not reach a flying body; a ground drone is not aggroable anyway).
+ * 2026-09-13: the **탐사 차량** burns too when its footprint overlaps the zone on the same floor (`RoverRef.damage`, dps × tick).
  */
 export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: number, owner: number, faction: EnemyFaction, tick: number): void {
   if (!sys.authority) return;
@@ -176,6 +178,10 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
       if (pl && !pl.isDead && typeof pl.setBurning === 'function') pl.setBurning(dps, ENEMY_INCENDIARY.afterburn);
     } else sys.applyDamage(t, dps * tick, p, owner, type, null, 0, false);
   }
+  const veh = sys.targets.vehicleTarget();
+  if (veh && veh.vehicle && veh.vehicleGap2D(p.x, p.z) <= radius && Math.abs(veh.position.y - p.y) <= FIRE_ZONE_HEIGHT) {
+    veh.vehicle.damage(dps * tick, p);
+  }
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
     if (!e.isCombatant || e.faction === faction) continue;
@@ -190,7 +196,8 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
   }
 
 export function fireAcid(sys: EnemySystem, from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void {
-  if (target.drone) {
+  // 2026-09-13: 탐사 차량 프록시도 같은 길 — `ee acid` 는 플레이어만 이름 붙이므로 조준점 그대로 `ee acidAt`. 직격은 글롭이 차체 상자로 판정한다.
+  if (target.drone || target.vehicle) {
     // 2026-09-11: 드론 표적 — 예측 조준(`fire`)은 그대로. 직격은 `AcidProjectiles` 가 드론 몸체로 판정한다.
     // C-48: `ee acid` 는 플레이어만 이름 붙일 수 있으므로 조준점 그대로 `ee acidAt` 으로 보낸다 (예전엔 와이어가 없었다).
     if (sys.acid?.fire(from, target, shooter.id, _acidTo, shooter.faction)) sendAcidAt(sys, shooter.id, from, _acidTo);
@@ -255,9 +262,19 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const tt = rayCapsule(_m, _dir, t.position.x, t.position.z, Math.min(cy, t.position.y + r), Math.max(cy, t.position.y + h - r), r).t;
     if (tt >= 0 && tt < hitT) { hitT = tt; victim = null; droneHit = t; }
   }
+  // 2026-09-13 (탐사 차량): 차체 상자. 월드 레이캐스트가 차체 콜라이더에서 먼저 멈추므로(`wh`) 그 탄착이 차체 입구의
+  // `VEHICLE_RAY_MARGIN` 안이면 차량이 맞은 것이다 — 플레이어를 노린 총알이 앞을 가로막은 차량에 맞아도 같다.
+  let vehicleHit: CombatTarget | null = null;
+  const vehicles = sys.targets.vehicles;
+  for (let i = 0; i < vehicles.length; i++) {
+    const t = vehicles[i];
+    if (t.isDeadOrDowned) continue;
+    const tt = t.rayVehicle(_m, _dir, hitT + VEHICLE_RAY_MARGIN);
+    if (tt >= 0) { hitT = Math.min(hitT, tt); victim = null; droneHit = null; vehicleHit = t; }
+  }
   let foe: Enemy | null = null;
   const eh = sys.raycastEx(_m, _dir, hitT, e);
-  if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; droneHit = null; foe = eh.enemy as Enemy; }
+  if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; droneHit = null; vehicleHit = null; foe = eh.enemy as Enemy; }
   // Phase 9: a 배리어 in the line stops the round (one pure raycast per shot; the barrier takes the block damage)
   let barrier = false;
   const imp = ctx.implants;
@@ -265,7 +282,7 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const bh = imp.raycastBarrier(_m, _dir, hitT, true);
     if (bh) {
       const bd = bh.point.distanceTo(_m);
-      if (bd < hitT) { hitT = bd; victim = null; droneHit = null; foe = null; barrier = true; imp.damageBarrier(bh.owner, bh.point); }
+      if (bd < hitT) { hitT = bd; victim = null; droneHit = null; vehicleHit = null; foe = null; barrier = true; imp.damageBarrier(bh.owner, bh.point); }
     }
   }
   _to.copy(_m).addScaledVector(_dir, hitT);
@@ -277,13 +294,18 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const fx = FxManager.get();
     if (fx) { _v2.copy(_dir).negate(); ParticleBurst.sparks(fx.additive, _to, _v2, 6, 5); }
   }
+  else if (vehicleHit) {
+    sys.applyDamage(vehicleHit, dmg, e.position, e.id, e.type, null, 0, false);   // 2026-09-13 → RoverRef.damage
+    const fx = FxManager.get();
+    if (fx) { _v2.copy(_dir).negate(); ParticleBurst.sparks(fx.additive, _to, _v2, 6, 5); }
+  }
   else if (foe && foe.faction !== e.faction) {
     foe.takeDamage(dmg, _to, _dir, 'ai');
     sys.noteClash(_to);
   }
   // 2026-09-11: 로그의 총알도 창문 유리를 깬다 (몸 · 배리어에 막히지 않고 유리가 첫 표면일 때)
-  if (wh && !victim && !droneHit && !foe && !barrier && wh.obstacle?.fragile) wh.obstacle.destructible?.onDamage(dmg, wh.point);
-  if (wh && !victim && !droneHit && !foe && !barrier) {
+  if (wh && !victim && !droneHit && !vehicleHit && !foe && !barrier && wh.obstacle?.fragile) wh.obstacle.destructible?.onDamage(dmg, wh.point);
+  if (wh && !victim && !droneHit && !vehicleHit && !foe && !barrier) {
     const fx = FxManager.get();
     if (fx) ParticleBurst.dust(fx.alpha, wh.point, wh.normal, 4, 0.5);
   }
@@ -379,6 +401,7 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
     }
     sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 'ai', null, null);   // friendly fire on bugs and rogues alike
     ctx.drones?.applyExplosion(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE);      // 2026-09-11: 드론도 (권한에서 한 번)
+    sys.targets.damageVehicleAt(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 0.25); // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
   }
   sys.playAudio('explosion', p, 1, 0.85);
   const dl = sys.targets.distToLocal(p);
@@ -412,6 +435,7 @@ export function acidBurst(sys: EnemySystem, e: Enemy): void {
       }
     }
     ctx.drones?.applyExplosion(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage);   // 2026-09-11
+    sys.targets.damageVehicleAt(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage, 0.4);   // 2026-09-13
   }
   const local = sys.targets.local();
   if (local && !local.isDead) {
@@ -436,6 +460,7 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
   }
   sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 'ai', null, e);
   ctx.drones?.applyExplosion(_c, TOXIC_RADIUS, TOXIC_DAMAGE);   // 2026-09-11: 자폭은 권한에서만 불린다
+  sys.targets.damageVehicleAt(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 0.2);   // 2026-09-13: 탐사 차량
   ctx.bus.emit('enemy:toxicBurst', { id: e.id, position: _c.clone(), radius: TOXIC_RADIUS });
   if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'toxic', id: e.id, p: tuple(_c, 2) }, 'others');
   }

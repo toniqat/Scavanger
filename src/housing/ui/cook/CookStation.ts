@@ -74,6 +74,7 @@ export class CookStation extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '조리대',
       upgrade: true,
+      power: { ctx, uid: () => this.benchUid },       // 전력 (2026-09-13): 비활성화 버튼 · 멈춤 배너
       onUpgrade: () => this.openUpgrade(),
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });

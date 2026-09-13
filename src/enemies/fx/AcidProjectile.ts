@@ -34,6 +34,8 @@ interface Glob {
   faction: EnemyFaction;
   /** Enemy id the glob struck directly (the splash skips it), −1 = none. */
   directEnemy: number;
+  /** 2026-09-13: the glob struck the 탐사 차량 hull directly (the splash skips it). */
+  directVehicle: boolean;
 }
 
 const _d = new THREE.Vector3();
@@ -57,7 +59,7 @@ export class AcidProjectiles {
       mesh.visible = false;
       mesh.layers.enable(Layers.NO_RAYCAST);
       scene.add(mesh);
-      this.globs.push({ mesh, active: false, vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, shooterId: -1, faction: 'bug', directEnemy: -1 });
+      this.globs.push({ mesh, active: false, vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, shooterId: -1, faction: 'bug', directEnemy: -1, directVehicle: false });
     }
   }
 
@@ -84,6 +86,7 @@ export class AcidProjectiles {
     if (!g) return false;
     g.faction = faction;
     g.directEnemy = -1;
+    g.directVehicle = false;
     const dist = from.distanceTo(aimFeet);
     const T = THREE.MathUtils.clamp(dist / 15, 0.7, 1.5);
     _aim.copy(aimFeet);
@@ -147,6 +150,15 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
+      // 2026-09-13 (탐사 차량): 차체 상자에 닿으면 직격 — 월드 레이캐스트(차체 콜라이더)보다 먼저 본다. 피해는 권한에서만.
+      const vehicles = host.targets.vehicles;
+      for (let i = 0; i < vehicles.length && !splashed; i++) {
+        const t = vehicles[i];
+        if (t.isDeadOrDowned || t.vehicleGap3D(g.mesh.position) > GLOB_RADIUS) continue;
+        g.directVehicle = true;
+        host.damageTargetAcid(t, SPEWER_SPIT.damage, g.prev, g.shooterId, { duration: SPEWER_SPIT.slowDuration, factor: 0.55 });
+        splashed = true;
+      }
       if (!splashed && world) {
         _d.subVectors(g.mesh.position, g.prev);
         const len = _d.length();
@@ -194,6 +206,14 @@ export class AcidProjectiles {
       const t = drones[i];
       const d = t.getChest(_q).distanceTo(p);
       if (d < 2.4 && d > Math.max(0.6, t.bodyRadius + GLOB_RADIUS)) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
+    }
+    // 2026-09-13: 탐사 차량 — 차체 상자까지의 거리. 직격한 글롭은 위 `update` 가 이미 줬으므로 뺀다.
+    if (!g.directVehicle) {
+      const vehicles = host.targets.vehicles;
+      for (let i = 0; i < vehicles.length; i++) {
+        const t = vehicles[i];
+        if (!t.isDeadOrDowned && t.vehicleGap3D(p) < 2.4) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
+      }
     }
   }
 

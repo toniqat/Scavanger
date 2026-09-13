@@ -26,12 +26,17 @@ import { ProfileStore, PROFILE_BACKUP_SUFFIX, PROFILE_FILE, SOCIAL_LEVEL_MAX } f
 /* 2026-09-11 (E-4 ⑦) — part 12: 서버 크레딧 검증 */
 import type { CreditLedger, CreditReason } from '../src/shared/credits.ts';
 import {
-  CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_REFUND_WINDOW_MS, CREDIT_TX_INVALID_KO, economyTableDigest, formatCreditReason,
+  CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_REFUND_WINDOW_MS, CREDIT_ROVER_MAX_PER_HOUR, CREDIT_TX_INVALID_KO, economyTableDigest, formatCreditReason,
   parseCreditReason, tableMinBuyPrice, tableSellPrice,
 } from '../src/shared/credits.ts';
 import {
   CREDIT_CONTRACT_WINDOW_MS, CREDIT_LEDGER_DEBITS_MAX, CreditEconomy, ECONOMY_TABLE, devEconomyFromEnv, emptyLedger, sanitizeLedger,
 } from './Economy.ts';
+/* 2026-09-13 — part 13: 암호화폐 시세 */
+import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
+import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
+import { CRYPTO_CANDLE_COUNT, CRYPTO_CANDLE_MS, CRYPTO_CHART_RANGES, cryptoTradeCredits } from '../src/shared/cryptoMarket.ts';
+import { CRYPTO_BACKUP_SUFFIX, CRYPTO_FILE, CRYPTO_PRICE_BAND, CryptoMarket, DAY_MS, HOUR_MS, type CryptoTable } from './CryptoMarket.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -2277,6 +2282,9 @@ async function main(): Promise<void> {
 
     /* ══════════════════════ part 12 (2026-09-11, E-4 ⑦): 서버 크레딧 검증 ══════════════════════ */
     await part12CreditEconomy();
+
+    /* ══════════════════════ part 13 (2026-09-13): 암호화폐 시세 · 봉 · 저장 · cbuy / csell ══════════════════════ */
+    await part13CryptoMarket();
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {
@@ -2509,6 +2517,35 @@ async function part12CreditEconomy(): Promise<void> {
   assert(paid === CREDIT_CONTRACT_MAX_PER_HOUR && chk(CREWARD, `contract:${CONTRACT}`, LC, 0, NOW + CREDIT_CONTRACT_WINDOW_MS + CREDIT_CONTRACT_MAX_PER_HOUR),
     `E-4: contract payouts stop at ${CREDIT_CONTRACT_MAX_PER_HOUR} per rolling hour and open again after it`, { paid });
 
+  /* 2026-09-13: 탐사 차량 요금 `rover:<from>:<to>` */
+  const FMIN = T.roverFareMin ?? NaN, FMAX = T.roverFareMax ?? NaN;
+  assert(Number.isInteger(FMIN) && Number.isInteger(FMAX) && FMIN > 0 && FMIN <= FMAX,
+    'rover: the economy table carries 0 < roverFareMin ≤ roverFareMax (ROVER_FARE_MIN / ROVER_FARE_MAX)', { FMIN, FMAX });
+  const rvTrip = parseCreditReason(formatCreditReason({ kind: 'rover', id: 'rst0', to: 'rst3' }));
+  const rvJunk = ['rover:rst0:rst0', 'rover:rst0', 'rover:', 'rover::rst1', 'rover:rst0:', 'rover:rst0:rst1:2', 'rover:bad-id:rst1', `rover:rst0:${'x'.repeat(60)}`];
+  assert(!!rvTrip && rvTrip.kind === 'rover' && rvTrip.id === 'rst0' && rvTrip.to === 'rst3' && rvJunk.every((s) => parseCreditReason(s) === null),
+    'rover: rover:<from>:<to> round-trips; same station / missing part / extra segment / bad id / over 64 chars parse to null',
+    { rvTrip, parsed: rvJunk.filter((s) => parseCreditReason(s) !== null) });
+  assert(chk(-FMIN, 'rover:rst0:rst1') && chk(-FMAX, 'rover:rst0:rst1') && chk(-Math.round((FMIN + FMAX) / 2), 'rover:rst4:rst0'),
+    'rover: a fare inside [roverFareMin, roverFareMax] is accepted (both ends included)');
+  assert(!chk(-(FMIN - 1), 'rover:rst0:rst1') && !chk(-(FMAX + 1), 'rover:rst0:rst1') && !chk(FMIN, 'rover:rst0:rst1') && !chk(0, 'rover:rst0:rst1')
+    && !chk(-(FMIN + 0.5), 'rover:rst0:rst1') && !chk(-FMIN, 'rover:rst0:rst0'),
+    'rover: refuses a fare under / over the range, a positive / zero / fractional delta and the same station');
+  const noFare = new CreditEconomy({ ...T, roverFareMin: undefined, roverFareMax: undefined });
+  assert(!noFare.check(100_000, undefined, -FMIN, 'rover:rst0:rst1', NOW).ok, 'rover: a table without the fare range refuses every fare');
+  const LR = emptyLedger();
+  let rides = 0;
+  for (let i = 0; i < CREDIT_ROVER_MAX_PER_HOUR + 1; i++) {
+    const rc = eco.check(100_000, LR, -FMIN, 'rover:rst0:rst1', NOW + i);
+    if (rc.ok) { eco.commit(LR, rc, NOW + i); rides++; }
+  }
+  assert(rides === CREDIT_ROVER_MAX_PER_HOUR && chk(-FMIN, 'rover:rst0:rst1', LR, 100_000, NOW + CREDIT_CONTRACT_WINDOW_MS + CREDIT_ROVER_MAX_PER_HOUR)
+    && LR.debits.length === 0 && !chk(FMIN, 'refund:rst0', LR, 100_000, NOW + 1_000),
+    `rover: fares stop at ${CREDIT_ROVER_MAX_PER_HOUR} per rolling hour, open again after it, and never leave a refundable debit`, { rides, LR });
+  const keptRover = sanitizeLedger({ roverAt: [NOW - 1_000, 'x', NOW + 99_999_999, NOW - 2 * CREDIT_CONTRACT_WINDOW_MS] }, NOW);
+  assert(!!keptRover && keptRover.roverAt?.length === 2 && keptRover.roverAt.every((at) => at <= NOW),
+    'rover: sanitizeLedger keeps the rover stamps of the last hour (junk dropped, future clamped to now)', keptRover);
+
   /* migrate, dev */
   const m1 = eco.check(null, undefined, T.creditsMax + 12_345, 'migrate', NOW);
   const m0 = eco.check(null, undefined, -50, 'migrate', NOW);
@@ -2637,6 +2674,303 @@ async function part12CreditEconomy(): Promise<void> {
     d.close();
   } finally {
     await dev.close();
+  }
+}
+
+/**
+ * part 13 (2026-09-13): 암호화폐 — the relay's price simulation (`CryptoMarket`: determinism, band, candle ranges + aggregation,
+ * quote window), `crypto.json` (round trip, gap fill = an uninterrupted run, long gap cap, dropped / new coins, corrupt + `.bak`,
+ * clock going back), `cbuy:` / `csell:` in `Economy.ts` (window prices, locked coins, units, hourly cap, grammar) and the wire
+ * (`crypto:watch` · `crypto:history` · `crypto:prices`, rate limit, trades through `credits:tx`).
+ */
+async function part13CryptoMarket(): Promise<void> {
+  const T = ECONOMY_TABLE;
+  const CX = T.crypto;
+  assert(!!CX && Object.keys(CX.coins).length > 0 && CX.tickMs >= 1000 && CX.unitsPerCoin >= 1 && CX.maxUnits >= 1,
+    'crypto: economy.gen.json carries the crypto section (npm run data:check -- --write)', CX ? { tickMs: CX.tickMs, coins: Object.keys(CX.coins) } : null);
+  if (!CX) return;
+  const coinIds = Object.keys(CX.coins);
+  const OPEN = coinIds.find((id) => !CX.coins[id].unlockQuest)!;
+  const LOCKED = coinIds.find((id) => !!CX.coins[id].unlockQuest);
+  const U = CX.unitsPerCoin;
+  const NOW = 1_800_000_123_456;   // deliberately not on a bucket boundary
+  const mk = (now: number, seed = 42, dataDir: string | null = null, table: CryptoTable = CX): CryptoMarket =>
+    new CryptoMarket({ table, dataDir, seed, now: () => now, quiet: true });
+  const same = (x: CryptoMarket, y: CryptoMarket): boolean => JSON.stringify(x.pricesMessage()) === JSON.stringify(y.pricesMessage())
+    && CRYPTO_CHART_RANGES.every((r) => coinIds.every((id) => JSON.stringify(x.history(id, r)) === JSON.stringify(y.history(id, r))));
+  const consecutive = (list: readonly { t: number }[], ms: number): boolean => list.every((k, i) => k.t % ms === 0 && (i === 0 || k.t - list[i - 1].t === ms));
+
+  /* determinism · backfill */
+  const t0 = Date.now();
+  const a = mk(NOW), b = mk(NOW), c = mk(NOW, 43);
+  const threeBackfillsMs = Date.now() - t0;
+  assert(same(a, b) && !same(a, c), 'crypto: the market is a function of seed + clock (same seed → identical prices and candles, another seed → different)');
+  assert(threeBackfillsMs < 4000, `crypto: a 31-day backfill of ${coinIds.length} coins is cheap (3 markets in ${threeBackfillsMs} ms)`);
+  const msgA = a.pricesMessage();
+  assert(msgA.t === 'crypto:prices' && msgA.at === Math.floor(NOW / CX.tickMs) * CX.tickMs
+    && coinIds.every((id) => msgA.prices[id] > 0 && Number.isFinite(msgA.change24h[id]) && Math.abs(msgA.change24h[id]) < 5),
+    'crypto: prices frame = every coin, at = the last tick boundary, a finite change24h', msgA);
+
+  /* candle ranges + aggregation */
+  const shape: string[] = [];
+  for (const id of coinIds) {
+    for (const r of CRYPTO_CHART_RANGES) {
+      const h = a.history(id, r) ?? [];
+      const ms = CRYPTO_CANDLE_MS[r];
+      const lastOk = h.length > 0 && h[h.length - 1].t === Math.floor(msgA.at / ms) * ms;
+      const ohlcOk = h.every((k) => k.h >= Math.max(k.o, k.c) && k.l <= Math.min(k.o, k.c) && k.l > 0);
+      if (h.length !== CRYPTO_CANDLE_COUNT[r] || !lastOk || !consecutive(h, ms) || !ohlcOk) shape.push(`${id} ${r}: n=${h.length} last=${lastOk} ohlc=${ohlcOk}`);
+    }
+  }
+  assert(shape.length === 0, 'crypto: after the backfill every coin answers every range with exactly CRYPTO_CANDLE_COUNT consecutive candles ending in the current bucket', shape.slice(0, 6));
+  const m60 = a.history(OPEN, '1h')!, d96 = a.history(OPEN, '1d')!, w168 = a.history(OPEN, '1w')!, mo180 = a.history(OPEN, '1M')!;
+  const aggOk = (big: { t: number; o: number; h: number; l: number; c: number }, small: readonly { t: number; o: number; h: number; l: number; c: number }[]): boolean => {
+    const part = small.filter((k) => k.t >= big.t);
+    return part.length > 0 && big.o === part[0].o && big.c === part[part.length - 1].c
+      && big.h === Math.max(...part.map((k) => k.h)) && big.l === Math.min(...part.map((k) => k.l));
+  };
+  assert(aggOk(d96[d96.length - 1], m60) && aggOk(mo180[mo180.length - 1], w168),
+    'crypto: a 15-min candle aggregates its 1-min candles and a 4-h candle its 1-h candles (o first · h max · l min · c last)');
+  assert(a.history('no_such_coin', '1h') === null && a.history(OPEN, '5m') === null && a.history(OPEN, 'toString') === null
+    && a.history('__proto__', '1d') === null && a.quoteRange('no_such_coin', NOW) === null,
+    'crypto: an unknown coin / range (including prototype names) → null');
+
+  /* band + reversion */
+  const band: string[] = [];
+  for (const id of coinIds) {
+    const base = CX.coins[id].basePrice;
+    const mo = a.history(id, '1M')!;
+    const closes = mo.map((k) => k.c).sort((x, y) => x - y);
+    const med = closes[closes.length >> 1];
+    const lo = Math.min(...mo.map((k) => k.l)), hi = Math.max(...mo.map((k) => k.h));
+    if (lo < base / CRYPTO_PRICE_BAND || hi > base * CRYPTO_PRICE_BAND || med < base / 2.5 || med > base * 2.5) band.push(`${id}: base ${base} med ${med} ${lo}…${hi}`);
+  }
+  assert(band.length === 0, 'crypto: 30 days of every coin stay inside [base/5, base×5] and hover around the base price (median within ×2.5)', band);
+  const wild = mk(NOW, 7, null, { ...CX, coins: { wild: { basePrice: 1000, volatility: 3 } } });
+  let wmin = Infinity, wmax = 0;
+  for (const r of CRYPTO_CHART_RANGES) for (const k of wild.history('wild', r)!) { wmin = Math.min(wmin, k.l); wmax = Math.max(wmax, k.h); }
+  assert(wmin >= 1000 / CRYPTO_PRICE_BAND && wmax <= 1000 * CRYPTO_PRICE_BAND && (wmin === 1000 / CRYPTO_PRICE_BAND || wmax === 1000 * CRYPTO_PRICE_BAND),
+    'crypto: the hard band holds at volatility 3 per day (and is actually reached)', { wmin, wmax });
+
+  /* ticks + quote window */
+  const q = mk(NOW);
+  let onTick = 0;
+  q.onTick = () => { onTick++; };
+  const seen: [number, number][] = [];
+  let at = q.pricesAt, moved = 0;
+  for (let i = 0; i < 12; i++) {
+    at += CX.tickMs;
+    if (q.tick(at)) moved++;
+    seen.push([at, q.price(OPEN)!]);
+  }
+  const again = q.tick(at + Math.floor(CX.tickMs / 2));
+  const inWin = seen.filter(([t]) => t >= at - CX.quoteWindowMs - CX.tickMs).map(([, p]) => p);
+  const qr = q.quoteRange(OPEN, at)!;
+  assert(moved === 12 && onTick === 12 && !again && q.pricesAt === at && qr.min === Math.min(...inWin) && qr.max === Math.max(...inWin),
+    'crypto: each tick advances one tickMs (onTick once per move, half a tick later nothing moves); quoteRange = min / max of the ticks inside quoteWindow + one tick',
+    { qr, inWin, moved, onTick });
+
+  /* persistence */
+  const dir = mkdtempSync(join(tmpdir(), 'scav-crypto-'));
+  try {
+    const file = join(dir, CRYPTO_FILE);
+    const p1 = mk(NOW, 99, dir);
+    const firstNote = p1.loadResult.note;
+    p1.tick(NOW + 3 * CX.tickMs);
+    p1.close();
+    const onDisk = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as { v: number; seed: number; coins: Record<string, { at: number; p: number }> } : null;
+    const p2 = mk(NOW + 3 * CX.tickMs, 1234, dir);   // another seed: the file's own wins
+    assert(firstNote === 'backfilled' && !!onDisk && onDisk.v === 1 && onDisk.seed === 99 && Object.keys(onDisk.coins).length === coinIds.length
+      && p2.loadResult.note === 'loaded' && p2.loadResult.seed === 99 && same(p1, p2),
+      'crypto: crypto.json round trip — a fresh market backfills, close() writes it, a reload (any seed option) has the same seed, prices and candles',
+      { firstNote, note: p2.loadResult.note });
+    p2.close();
+
+    const GAP = 5 * HOUR_MS + 7 * 60_000;
+    const g1 = mk(NOW + GAP, 1, dir), g2 = mk(NOW + GAP, 2, dir);
+    const never = mk(NOW, 99);
+    never.tick(NOW + 3 * CX.tickMs);
+    never.tick(NOW + GAP);
+    assert(g1.loadResult.note === 'loaded' && same(g1, g2) && same(g1, never) && g1.history(OPEN, '1h')!.length === 60
+      && consecutive(g1.history(OPEN, '1w')!, HOUR_MS) && g1.history(OPEN, '1w')!.length === 168,
+      'crypto: a relay down for 5 h replays the gap tick by tick — identical to one that never stopped, charts without holes');
+    const tl = Date.now();
+    const long = mk(NOW + 75 * DAY_MS, 3, dir);
+    const longMs = Date.now() - tl;
+    assert(long.history(OPEN, '1M')!.length === 180 && long.history(OPEN, '1d')!.length === 96
+      && long.pricesAt === Math.floor((NOW + 75 * DAY_MS) / CX.tickMs) * CX.tickMs && longMs < 2000,
+      'crypto: a 75-day gap replays at most 31 days (full charts, bounded work)', { longMs });
+    g1.close(); g2.close(); long.close();
+
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { coins: Record<string, { at: number; p: number }> };
+    const DROPPED = coinIds.find((id) => id !== OPEN)!;
+    raw.coins.zz_gone = raw.coins[OPEN];
+    delete raw.coins[DROPPED];
+    writeFileSync(file, JSON.stringify(raw));
+    const at2 = raw.coins[OPEN].at;
+    const u = mk(at2, 5, dir);
+    assert(u.loadResult.note === 'loaded' && !u.coinIds.includes('zz_gone') && u.coinIds.length === coinIds.length
+      && u.history(DROPPED, '1M')!.length === 180 && u.price(OPEN) === raw.coins[OPEN].p,
+      'crypto: a coin the table no longer has is dropped, a coin missing from the file is backfilled, the rest load as saved');
+    u.close();
+
+    const hadBak = existsSync(`${file}${CRYPTO_BACKUP_SUFFIX}`);
+    writeFileSync(file, '{ not json');
+    const k1 = mk(at2, 6, dir);
+    const kept = readdirSync(dir).filter((f) => f.startsWith('crypto.corrupt-'));
+    assert(hadBak && k1.loadResult.note === 'corrupt-recovered' && kept.length === 1 && k1.coinIds.length === coinIds.length,
+      'crypto: an unreadable crypto.json is kept as crypto.corrupt-<ts>.json and the .bak generation loads', { hadBak, note: k1.loadResult.note, kept });
+    k1.close();
+    rmSync(`${file}${CRYPTO_BACKUP_SUFFIX}`, { force: true });
+    writeFileSync(file, '[]');
+    const k2 = mk(at2 + 1, 6, dir);
+    assert(k2.loadResult.note === 'corrupt-backfilled' && k2.history(OPEN, '1M')!.length === 180,
+      'crypto: with no usable .bak the history is regenerated (charts are never empty)', k2.loadResult);
+    k2.close();
+    const past = at2 - 2 * HOUR_MS;
+    const back = mk(past, 8, dir);
+    assert(back.loadResult.note === 'loaded' && back.pricesAt <= past && CRYPTO_CHART_RANGES.every((r) => back.history(OPEN, r)!.every((k) => k.t <= past)),
+      'crypto: a file from the future (clock went back) loads without candles after now', { note: back.loadResult.note, at: back.pricesAt, past });
+    back.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  /* economy rules (pure, a fixed quote window) */
+  let quote: { min: number; max: number } | null = { min: 1000, max: 1100 };
+  const eco = new CreditEconomy(T, { cryptoQuotes: { quoteRange: () => quote } });
+  const BUY = cryptoTradeCredits('buy', 1000, U, U, CX.fee);
+  const SELL = cryptoTradeCredits('sell', 1100, U, U, CX.fee);
+  const ok = (delta: number, reason: string, ledger?: CreditLedger, e: CreditEconomy = eco): boolean => e.check(1e9, ledger, delta, reason, NOW).ok;
+  const cb = (units: number, coin = OPEN): string => `cbuy:${coin}:${units}`;
+  const cs = (units: number, coin = OPEN): string => `csell:${coin}:${units}`;
+  assert(BUY === Math.ceil(1000 * (1 + CX.fee)) && SELL === Math.floor(1100 * (1 - CX.fee)), 'crypto: cryptoTradeCredits rounds a buy up and a sell down', { BUY, SELL });
+  assert(ok(-BUY, cb(U)) && ok(-(BUY + 999), cb(U)) && !ok(-(BUY - 1), cb(U)) && !ok(BUY, cb(U)) && !ok(0, cb(U)) && !ok(-(BUY + 0.5), cb(U)),
+    'crypto: cbuy accepts the cost at the window low (or more), refuses one credit less, a positive / zero / fractional delta');
+  assert(ok(SELL, cs(U)) && ok(1, cs(U)) && !ok(SELL + 1, cs(U)) && !ok(0, cs(U)) && !ok(-SELL, cs(U)) && !ok(SELL - 0.5, cs(U)),
+    'crypto: csell accepts up to the payout at the window high, refuses more / zero / negative / fractional');
+  assert(ok(-cryptoTradeCredits('buy', 1000, CX.maxUnits, U, CX.fee), cb(CX.maxUnits)) && !ok(-1e12, cb(CX.maxUnits + 1)) && !ok(-BUY, cb(U, 'no_such_coin')),
+    'crypto: units up to maxUnits and not one more; an unknown coin is refused');
+  if (LOCKED) {
+    const LQ = CX.coins[LOCKED].unlockQuest!;
+    const paid: CreditLedger = { ...emptyLedger(), quests: [LQ] };
+    assert(!ok(-BUY, cb(U, LOCKED)) && !ok(SELL, cs(U, LOCKED), emptyLedger()) && ok(-BUY, cb(U, LOCKED), paid) && ok(SELL, cs(U, LOCKED), paid),
+      `crypto: locked coin ${LOCKED} is refused until quest ${LQ} is in the ledger, then both sides are accepted`);
+  } else fail('crypto: the table has no locked coin to test');
+  quote = null;
+  const noQuote = !ok(-BUY, cb(U));
+  quote = { min: 1000, max: 1100 };
+  const noSource = !new CreditEconomy(T).check(1e9, undefined, -BUY, cb(U), NOW).ok;
+  const noTable = !new CreditEconomy({ ...T, crypto: undefined }, { cryptoQuotes: { quoteRange: () => quote } }).check(1e9, undefined, -BUY, cb(U), NOW).ok;
+  assert(noQuote && noSource && noTable, 'crypto: refused without a price (source returns null · no source injected · table without crypto)', { noQuote, noSource, noTable });
+  const cjunk = [`cbuy:${OPEN}`, `cbuy:${OPEN}:0`, `cbuy:${OPEN}:1.5`, `cbuy:${OPEN}:-5`, `cbuy:${OPEN}:05`, 'csell::5', 'cbuy:bad-id:5',
+    `cbuy:${OPEN}:1234567890`, `csell:${OPEN}:5:1`, 'cbuy', `cbuy:${'x'.repeat(60)}:1`];
+  const trips = [
+    parseCreditReason(formatCreditReason({ kind: 'crypto-buy', id: OPEN, qty: 1234 })),
+    parseCreditReason(formatCreditReason({ kind: 'crypto-sell', id: OPEN, qty: CX.maxUnits })),
+  ];
+  assert(cjunk.every((s) => parseCreditReason(s) === null) && trips[0]?.kind === 'crypto-buy' && trips[0].qty === 1234
+    && trips[1]?.kind === 'crypto-sell' && trips[1].qty === CX.maxUnits && trips.every((r) => r?.id === OPEN),
+    'crypto: cbuy / csell round-trip with their units; missing / zero / fractional / negative / padded / 10-digit units, an extra segment, a bad id parse to null',
+    cjunk.filter((s) => parseCreditReason(s) !== null));
+  const LC = emptyLedger();
+  let trades = 0;
+  for (let i = 0; i < CREDIT_CRYPTO_MAX_PER_HOUR + 1; i++) {
+    const r = eco.check(1e9, LC, i % 2 ? SELL : -BUY, i % 2 ? cs(U) : cb(U), NOW + i);
+    if (r.ok) { eco.commit(LC, r, NOW + i); trades++; }
+  }
+  assert(trades === CREDIT_CRYPTO_MAX_PER_HOUR && eco.check(1e9, LC, -BUY, cb(U), NOW + CREDIT_CONTRACT_WINDOW_MS + CREDIT_CRYPTO_MAX_PER_HOUR).ok
+    && LC.debits.length === 0 && !eco.check(1e9, LC, BUY, `refund:${OPEN}`, NOW + 1_000).ok,
+    `crypto: trades stop at ${CREDIT_CRYPTO_MAX_PER_HOUR} per rolling hour, open again after it, and never leave a refundable debit`, { trades });
+  const keptC = sanitizeLedger({ cryptoAt: [NOW - 1_000, 'x', NOW + 99_999_999, NOW - 2 * CREDIT_CONTRACT_WINDOW_MS] }, NOW);
+  assert(!!keptC && keptC.cryptoAt?.length === 2 && keptC.cryptoAt.every((t) => t <= NOW),
+    'crypto: sanitizeLedger keeps the trade stamps of the last hour (junk dropped, future clamped to now)', keptC);
+  const ps = new ProfileStore({ dataDir: null, quiet: true });
+  ps.applyCreditsTx('c13', 100_000, 'migrate', eco, NOW);
+  const stx = ps.applyCreditsTx('c13', -BUY, cb(U), eco, NOW);
+  assert(stx.ok && stx.credits === 100_000 - BUY && ps.ledgerOf('c13')?.cryptoAt?.length === 1,
+    'crypto: Store.applyCreditsTx keeps a trade-only ledger (its cryptoAt stamp is not deleted as an empty ledger)', ps.ledgerOf('c13'));
+  ps.close();
+
+  /* the relay writes crypto.json next to profiles.json */
+  const rdir = mkdtempSync(join(tmpdir(), 'scav-crypto-relay-'));
+  try {
+    const rs = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: rdir, profileGcIntervalMs: null, cryptoSeed: 5 });
+    const health = await (await fetch(`http://127.0.0.1:${rs.port}/health`)).json() as { crypto?: number };
+    await rs.close();
+    assert(existsSync(join(rdir, CRYPTO_FILE)) && health.crypto === coinIds.length, 'crypto: startRelayServer runs the market (/health.crypto = coin count) and close() writes crypto.json into dataDir', health);
+  } finally {
+    rmSync(rdir, { recursive: true, force: true });
+  }
+
+  /* wire — a 200 ms tick so the selftest sees ticks */
+  const srv = await startRelayServer({
+    port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: null, profileGcIntervalMs: null,
+    economyTable: { ...T, crypto: { ...CX, tickMs: 200 } }, cryptoSeed: 11,
+  });
+  const url = `ws://127.0.0.1:${srv.port}${NET_WS_PATH}`;
+  try {
+    const { c: anon } = await connect('C13a', url);
+    anon.send({ t: 'crypto:watch', on: true });
+    const pa = await anon.wait('crypto:prices');
+    const pb = await anon.wait('crypto:prices', (m) => m.at > pa.at, 2_000);
+    assert(!!srv.crypto && coinIds.every((id) => pa.prices[id] > 0) && pb.at > pa.at,
+      'crypto wire: an anonymous watcher gets the prices at once and again on the next tick', { pa: pa.at, pb: pb.at });
+    const bad: string[] = [];
+    for (const r of CRYPTO_CHART_RANGES) {
+      anon.send({ t: 'crypto:history', coin: OPEN, range: r });
+      const h = await anon.wait('crypto:history', (m) => m.coin === OPEN && m.range === r);
+      const ms = CRYPTO_CANDLE_MS[r];
+      if (!(h.at > 0 && h.candles.length > 0 && h.candles.length <= CRYPTO_CANDLE_COUNT[r] && h.candles.every((k, i) => k.t % ms === 0 && (i === 0 || k.t > h.candles[i - 1].t)))) {
+        bad.push(`${r}: ${h.candles.length}`);
+      }
+    }
+    assert(bad.length === 0, 'crypto wire: crypto:history answers every range to the asking socket (≤ CRYPTO_CANDLE_COUNT, bucketed, ascending)', bad);
+    anon.send({ t: 'crypto:history', coin: 'no_such_coin', range: '1h' });
+    anon.send({ t: 'crypto:history', coin: OPEN, range: '5m' as CryptoChartRange });
+    assert(await anon.expectNone('crypto:history', 400) && await anon.expectNone('lobby:error', 10),
+      'crypto wire: an unknown coin / range gets no answer and no lobby:error');
+    await sleep(4_100);   // refill the history bucket
+    anon.flush();
+    for (let i = 0; i < 40; i++) anon.send({ t: 'crypto:history', coin: OPEN, range: '1h' });
+    await sleep(500);
+    let got = 0;
+    while (!(await anon.expectNone('crypto:history', 60))) got++;
+    assert(got >= 12 && got <= 20, `crypto wire: a burst of 40 history requests is cut to about CRYPTO_HISTORY_BURST (got ${got})`);
+    anon.send({ t: 'crypto:watch', on: false });
+    await sleep(300);
+    anon.flush();
+    assert(await anon.expectNone('crypto:prices', 700), 'crypto wire: crypto:watch off stops the ticks');
+    anon.close();
+
+    const { c: tr } = await connect('C13t', url, { token: makeToken('q'), name: '코인' });
+    let txId = 90_000;
+    const txr = async (delta: number, reason: string): Promise<Extract<ServerToClient, { t: 'credits:result' }>> => {
+      const id = ++txId;
+      tr.send({ t: 'credits:tx', txId: id, delta, reason });
+      return tr.wait('credits:result', (m) => m.txId === id);
+    };
+    await txr(1_000_000, 'migrate');
+    tr.send({ t: 'crypto:watch', on: true });
+    const pr = await tr.wait('crypto:prices');
+    const po = pr.prices[OPEN];
+    const wb = await txr(-cryptoTradeCredits('buy', po, U, U, CX.fee), cb(U));
+    const wsell = await txr(cryptoTradeCredits('sell', po, U, U, CX.fee), cs(U));
+    const rich = await txr(cryptoTradeCredits('sell', po * 1.5, U, U, CX.fee), cs(U));
+    const cheap = await txr(-cryptoTradeCredits('buy', po * 0.5, U, U, CX.fee), cb(U));
+    assert(wb.ok && wsell.ok && !rich.ok && rich.reason === CREDIT_TX_INVALID_KO && !cheap.ok && cheap.reason === CREDIT_TX_INVALID_KO,
+      'crypto wire: credits:tx cbuy / csell at the broadcast price are accepted; a sell at 1.5× / a buy at 0.5× the price are refused', { wb, wsell, rich, cheap });
+    if (LOCKED) {
+      const LQ = CX.coins[LOCKED].unlockQuest!;
+      const pl = pr.prices[LOCKED];
+      const before = await txr(-cryptoTradeCredits('buy', pl, U, U, CX.fee), cb(U, LOCKED));
+      const questPay = T.quests[LQ] !== undefined ? await txr(T.quests[LQ], `quest:${LQ}`) : null;
+      const after = await txr(-cryptoTradeCredits('buy', pl, U, U, CX.fee), cb(U, LOCKED));
+      assert(!before.ok && !!questPay?.ok && after.ok, `crypto wire: ${LOCKED} is refused before quest:${LQ} is paid and accepted after`, { before, questPay, after });
+    }
+    tr.close();
+  } finally {
+    await srv.close();
   }
 }
 

@@ -409,6 +409,12 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
     if (target.droneId !== null) ctx.drones?.damageDrone(target.droneId, amount, from);
     return;
   }
+  // 2026-09-13 (탐사 차량): 호스트 권위 — `RoverRef.damage` 하나로 끝난다. 플레이어 이벤트 · `dmg` · `ee attack` · 배리어 흡수 ·
+  // 넉백 · 둔화는 없다 (탑승자는 차량 안에서 아무 피해도 받지 않는다).
+  if (target.vehicle) {
+    if (sys.authority && target.present && target.vehicle.targetable) target.vehicle.damage(amount, from);
+    return;
+  }
   if (target.enemy) {
     const victim = target.enemy;
     if (!victim.isCombatant) return;

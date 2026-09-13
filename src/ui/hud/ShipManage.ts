@@ -53,6 +53,8 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
      배양조 `⚗`(증류기 — 「무언가가 안에서 자란다」). 둘 다 위의 어떤 글자와도 겹치지 않는 유니코드 한 글자다. */
   bench_cook: WORKBENCH_ICON.cook, bench_print: WORKBENCH_ICON.print,
   dining_table: '⊞', culture_tank: '⚗',
+  /* 2026-09-13 (암호화폐 채굴): 연산 클러스터 `▥`(칸이 줄지어 선 서버 랙) · 메인 컴퓨터 `⌨` — 위 · 아래 어떤 가구 글자와도 겹치지 않는다 */
+  compute_cluster: '▥', mining_computer: '⌨',
   /* 2026-09-13 (요리 미니게임): 자동 조리 가구 4종. 리드 임시 글자는 넷 다 바꿨다 — `⊚` 는 레코드랙과 겹쳤고, `▦` · `⩡` 는 조리대 화면의
      단계 칩 글리프(`COOK_GAME_ICON` 굽기 · 붓기)와 같아 「가구」 와 「단계」 가 한 글자로 읽혔다(자동 그릴은 볶기도 한다). `⊗` 는 「닫힘」 으로 읽혔다.
      푸드 프로세서 `⌽`(칼날 축이 선 둥근 볼) · 자동 그릴 `≋`(달아오른 열선) · 자동 교반기 `⚲`(아래로 내린 교반 날개) · 계량 디스펜서 `⛛`(깔때기).
@@ -231,6 +233,13 @@ export class ShipManage {
   private inspectCost: HTMLElement;
   private inspectBtn: HTMLButtonElement;
   private inspectUid: string | null = null;
+  /* 2026-09-13 (발전기 전력): 발전기 행 아래의 전력 패널 · 인스펙터의 요구 전력 줄과 비활성화 버튼 */
+  private powerEl: HTMLElement;
+  private powerKey = '';
+  /** 가구별 내역을 펼친 시설 (방 번호). */
+  private powerOpen = new Set<number>();
+  private inspectPower: HTMLElement;
+  private inspectToggle: HTMLButtonElement;
 
   private onKey = (e: KeyboardEvent): void => {
     if (!this.isConfirmOpen) return;
@@ -271,6 +280,10 @@ export class ShipManage {
     }
     // 2026-09-12: 발전기 행은 함선 전체 시설이라 방 목록 아래에 산다 (용도 지정 목록에서 빠졌다)
     this.genEl = el('div', { cls: 'sm-gen-host', parent: rooms });
+    // 2026-09-13 (발전기 전력): 발전기 행 바로 아래의 전력 패널 — 공급 막대 · 요구 합 · 시설별 할당 (`refreshPower`)
+    this.powerEl = el('div', { cls: 'sm-pw', parent: rooms });
+    this.powerEl.hidden = true;
+    for (const evt of ['mousedown', 'click'] as const) this.powerEl.addEventListener(evt, (e) => e.stopPropagation());
 
     const side = el('div', { cls: 'sm-side interactive', parent: this.root });
     const head = el('div', { cls: 'sm-side-head', parent: side });
@@ -355,9 +368,15 @@ export class ShipManage {
     this.inspectLock.hidden = true;
     /* 2026-09-12 (사용자 결정): `위치 이동` 버튼은 없어졌고(E · LMB 꾹 누르기가 한다) 카드 하단이 **업그레이드 구역**이다 —
        맨 좌측 `업그레이드 비용` · 재료 칩 + 시설 레벨 칩 · 맨 우측 `업그레이드`. */
+    /* 2026-09-13 (발전기 전력): 전력을 쓰는 가구면 `요구 전력 n` 줄(멈췄으면 사유)과 업그레이드 **왼쪽**의 `비활성화` / `활성화` 버튼 */
+    this.inspectPower = el('div', { cls: 'sm-ins-desc sm-pw-ins', text: '', parent: this.inspectEl });
+    this.inspectPower.hidden = true;
     const upsec = el('div', { cls: 'sm-ins-upsec', parent: this.inspectEl });
     el('span', { cls: 'sm-ins-up-label', text: '업그레이드 비용', parent: upsec });
     this.inspectCost = el('div', { cls: 'sm-ins-cost', parent: upsec });
+    this.inspectToggle = el('button', { cls: 'sm-gen-btn sm-pw-toggle', text: '비활성화', parent: upsec });
+    this.inspectToggle.hidden = true;
+    this.inspectToggle.addEventListener('click', (e) => { e.stopPropagation(); this.toggleInspectedPower(); });
     this.inspectBtn = el('button', { cls: 'sm-gen-btn sm-ins-up', text: '업그레이드', parent: upsec });
     this.inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); this.upgradeInspected(); });
 
@@ -384,6 +403,8 @@ export class ShipManage {
       b.on('housing:furnitureSelected', ({ uid }) => this.setInspect(uid)),
       // 2026-09-12: 놓을 수 없는 곳 (인스펙터 위 토스트). 위치 이동 버튼이 없어져 `moveStateChanged` 는 더 듣지 않는다
       b.on('housing:placeRefused', ({ reason }) => this.showToast(reason)),
+      // 2026-09-13 (발전기 전력): 공급 · 할당 · 요구 · 가구 활성이 바뀌었다 — 전력 패널 · 방 목록 표시 · 인스펙터
+      b.on('housing:powerChanged', () => { if (this.active) this.refresh(); }),
       b.on('inventory:changed', () => { if (this.active) this.refresh(); }),
       b.on('inventory:stashChanged', () => { if (this.active) this.refresh(); }),
       b.on('game:newMission', () => this.setActive(false, null)),
@@ -754,6 +775,22 @@ export class ShipManage {
     setText(this.inspectDesc, def.description);
     this.inspectLock.hidden = !isCockpitOnlyFurniture(def);
 
+    // 2026-09-13 (발전기 전력): 전력을 쓰는 가구면 `요구 전력 n` 줄(멈췄으면 사유) + 업그레이드 왼쪽의 비활성화 / 활성화
+    const facPower = typeof housing.getFacilityPower === 'function' ? housing.getFacilityPower(piece.room) : null;
+    const pInfo = facPower?.furniture.find((f) => f.uid === uid) ?? null;
+    this.inspectPower.hidden = !pInfo;
+    this.inspectToggle.hidden = !pInfo;
+    if (pInfo && facPower) {
+      const block = typeof housing.furnitureOperationalBlock === 'function' ? housing.furnitureOperationalBlock(uid) : pInfo.block;
+      setText(this.inspectPower, block
+        ? `요구 전력 ${pInfo.demand} · ${block}`
+        : `요구 전력 ${pInfo.demand} · 가동 중 (시설 할당 ${facPower.allocated} / 요구 ${facPower.required})`);
+      toggleClass(this.inspectPower, 'is-short', !!block && !pInfo.disabled);
+      setText(this.inspectToggle, pInfo.disabled ? '활성화' : '비활성화');
+      toggleClass(this.inspectToggle, 'is-off', pInfo.disabled);
+      this.inspectToggle.title = pInfo.disabled ? '켜면 시설 요구 전력에 다시 더해집니다' : '끄면 시설 요구 전력에서 빠지고 작동을 멈춥니다';
+    }
+
     // 2026-09-12 (사용자 결정): 하단 업그레이드 구역 — 재료 칩 + 채워지지 않은 시설 레벨 칩, 우측 `업그레이드`.
     // 막혀 있어도 버튼은 눌린다(딤드 + `aria-disabled`) — 누르면 인스펙터 위 토스트가 이유를 말한다.
     const cost = this.upgradeCost(uid);
@@ -963,6 +1000,10 @@ export class ShipManage {
   private refresh(): void {
     const housing = this.ctx.housing;
     if (!housing) return;
+    // 2026-09-13 (발전기 전력): 할당이 요구에 못 미친 시설은 방 목록에서도 표시한다 (`.sm-room.is-unpowered`)
+    const unpowered = new Set<number>();
+    if (typeof housing.getPowerOverview === 'function') for (const f of housing.getPowerOverview().facilities) if (!f.powered) unpowered.add(f.room);
+    for (const r of this.rows) toggleClass(r.root, 'is-unpowered', unpowered.has(r.index));
     for (const r of this.rows) {
       const purpose = this.purposeOf(r.index);
       const count = housing.getPlaced(r.index).length;
@@ -978,6 +1019,7 @@ export class ShipManage {
       toggleClass(r.root, 'is-on', r.index === this.room);
     }
     this.refreshGenerator();
+    this.refreshPower();                              // 2026-09-13 (발전기 전력)
     this.refreshSide();
     // B-13: 인스펙터도 같은 한 바퀴에 올라탄다 — 재료 · 레벨 · 조각의 존재가 바뀌면 카드가 따라간다
     this.refreshInspect();
@@ -1057,6 +1099,152 @@ export class ShipManage {
       ? `시설 증축에는 발전기 Lv.${ROOM_PURPOSE_BUILD_GENERATOR_LEVEL} 이 필요합니다${gen.blocked && gen.nextCost ? ` (${gen.blocked})` : ''}`
       : gen.blocked && gen.nextCost ? gen.blocked : gen.nextCost ? '' : '최대 레벨';
     if (genNote) el('div', { cls: 'sm-block', text: genNote, parent: g });
+  }
+
+  /* ── 2026-09-13 (발전기 전력): 전력 패널 ──────────────────────────────── */
+
+  /**
+   * 발전기 행 아래의 전력 패널 (`.sm-pw`, 사용자 결정 — 수동 할당). 머리 `할당 a / 공급 s · 남음 f` → 공급 막대(시설별 할당 조각은
+   * 그 용도 색, 멈춘 시설은 빗금, 끝에 남는 전력) → `요구 합 r / 공급 s` (넘치면 `발전기 업그레이드가 필요합니다`) → 시설마다
+   * [▸ 글리프 이름][요구 n] / [−][할당 n][+][요구량 맞추기]. 이름을 누르면 시설 기본 + 가구별 요구 · 꺼짐이 펼쳐진다.
+   * 버튼은 `HousingRef.setPowerAllocation` · 거절은 인스펙터 위 토스트. 계약 API 가 없으면 패널이 숨는다. 한 번 그린 키가 같으면 다시 짓지 않는다.
+   */
+  private refreshPower(): void {
+    const housing = this.ctx.housing;
+    if (!housing || typeof housing.getPowerOverview !== 'function') { this.powerEl.hidden = true; return; }
+    const ov = housing.getPowerOverview();
+    this.powerEl.hidden = false;
+    const key = `${ov.supply}/${ov.allocated}/${ov.required}|${[...this.powerOpen].sort().join(',')}|`
+      + ov.facilities.map((f) => `${f.room}:${f.purpose}:${f.required}:${f.allocated}:`
+        + f.furniture.map((p) => `${p.uid}.${p.demand}.${p.disabled ? 1 : 0}.${p.block ?? ''}`).join(';')).join(',');
+    if (key === this.powerKey) return;
+    this.powerKey = key;
+    this.powerEl.replaceChildren();
+
+    const head = el('div', { cls: 'sm-pw-head', parent: this.powerEl });
+    el('span', { cls: 't', text: '전력', parent: head });
+    el('span', { cls: 'v', text: `할당 ${ov.allocated} / 공급 ${ov.supply} · 남음 ${ov.free}`, parent: head });
+    const bar = el('div', { cls: 'sm-pw-bar', parent: this.powerEl });
+    for (const f of ov.facilities) {
+      if (f.allocated <= 0) continue;
+      const seg = el('i', { cls: `sm-pw-seg${f.powered ? '' : ' is-short'}`, parent: bar });
+      seg.style.flex = String(f.allocated);
+      seg.style.setProperty('--pc', ROOM_PURPOSE_COLOR[f.purpose]);
+      seg.title = `${ROOM_PURPOSE_LABEL_KO[f.purpose]} — 할당 ${f.allocated} / 요구 ${f.required}`;
+    }
+    if (ov.free > 0 || ov.allocated <= 0) {
+      const seg = el('i', { cls: 'sm-pw-seg free', parent: bar });
+      seg.style.flex = String(Math.max(1, ov.free));
+      seg.title = `남는 전력 ${ov.free}`;
+    }
+    const over = ov.required > ov.supply;
+    el('div', { cls: `sm-pw-req${over ? ' is-over' : ''}`, text: `요구 합 ${ov.required} / 공급 ${ov.supply}`, parent: this.powerEl });
+    if (over) el('div', { cls: 'sm-block', text: '발전기 업그레이드가 필요합니다', parent: this.powerEl });
+    if (!ov.facilities.length) {
+      el('div', { cls: 'sm-pw-empty', text: '전력을 쓰는 시설이 없습니다', parent: this.powerEl });
+      return;
+    }
+
+    const list = el('div', { cls: 'sm-pw-list', parent: this.powerEl });
+    list.addEventListener('wheel', (e) => {
+      if (list.scrollHeight <= list.clientHeight) return;
+      e.preventDefault(); e.stopPropagation();
+      list.scrollTop += e.deltaY;
+    }, { passive: false });
+    for (const f of ov.facilities) {
+      const row = el('div', { cls: `sm-pw-row${f.powered ? '' : ' is-short'}`, parent: list });
+      row.dataset.room = String(f.room);
+      const l1 = el('div', { cls: 'sm-pw-l1', parent: row });
+      const open = this.powerOpen.has(f.room);
+      const name = el('button', { cls: 'sm-pw-name', parent: l1 });
+      name.style.setProperty('--pc', ROOM_PURPOSE_COLOR[f.purpose]);
+      el('span', { cls: 'car', text: open ? '▾' : '▸', parent: name });
+      el('span', { cls: 'g', text: ROOM_PURPOSE_GLYPH[f.purpose], parent: name });
+      el('span', { cls: 'nm', text: ROOM_PURPOSE_LABEL_KO[f.purpose], parent: name });
+      name.title = `방 ${f.room + 1} — 가구별 요구 전력 ${open ? '접기' : '펼치기'}`;
+      name.addEventListener('click', (e) => { e.stopPropagation(); this.togglePowerRow(f.room); });
+      const need = el('span', { cls: 'sm-pw-need', text: `요구 ${f.required}`, parent: l1 });
+      need.title = f.powered ? '가동 중' : '할당이 요구에 못 미쳐 이 시설의 가구가 전부 멈췄습니다';
+
+      const l2 = el('div', { cls: 'sm-pw-l2', parent: row });
+      const minus = el('button', { cls: 'sm-pw-btn sm-pw-minus', text: '−', parent: l2 });
+      minus.disabled = f.allocated <= 0;
+      minus.title = '할당 −1 (Shift: −5)';
+      minus.addEventListener('click', (e) => { e.stopPropagation(); this.stepPower(f.room, e.shiftKey ? -5 : -1); });
+      el('span', { cls: 'sm-pw-val', text: `할당 ${f.allocated}`, parent: l2 });
+      const plus = el('button', { cls: 'sm-pw-btn sm-pw-plus', text: '+', parent: l2 });
+      plus.disabled = ov.free <= 0;
+      plus.title = ov.free > 0 ? '할당 +1 (Shift: +5)' : '남는 전력이 없습니다';
+      plus.addEventListener('click', (e) => { e.stopPropagation(); this.stepPower(f.room, e.shiftKey ? 5 : 1); });
+      const fit = el('button', { cls: 'sm-pw-btn sm-pw-fit', text: '요구량 맞추기', parent: l2 });
+      fit.disabled = f.allocated === f.required || (f.allocated < f.required && ov.free <= 0);
+      fit.title = `할당을 min(요구 ${f.required}, 할당 + 남는 전력 ${f.allocated + ov.free}) 로`;
+      fit.addEventListener('click', (e) => { e.stopPropagation(); this.fitPower(f.room); });
+
+      if (!open) continue;
+      const fl = el('div', { cls: 'sm-pw-furn', parent: row });
+      const baseLine = el('div', { cls: 'sm-pw-f', parent: fl });
+      el('span', { cls: 'fn', text: '시설 기본', parent: baseLine });
+      el('span', { cls: 'fd', text: String(f.base), parent: baseLine });
+      if (!f.furniture.length) el('div', { cls: 'sm-pw-f', text: '전력을 쓰는 가구 없음', parent: fl });
+      for (const p of f.furniture) {
+        const line = el('div', { cls: `sm-pw-f${p.disabled ? ' is-off' : ''}`, parent: fl });
+        el('span', { cls: 'fn', text: housing.getFurnitureDef(p.defId)?.name ?? p.defId, parent: line });
+        el('span', { cls: 'fd', text: p.disabled ? `${p.demand} · 꺼짐` : String(p.demand), parent: line });
+        line.title = p.block ?? '가동 중';
+      }
+    }
+  }
+
+  private togglePowerRow(room: number): void {
+    if (this.powerOpen.has(room)) this.powerOpen.delete(room); else this.powerOpen.add(room);
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.refreshPower();
+  }
+
+  /** 할당을 `amount` 로 (음수는 0). 거절 사유는 토스트. */
+  private allocatePower(room: number, amount: number): void {
+    const housing = this.ctx.housing;
+    if (!housing || typeof housing.setPowerAllocation !== 'function') return;
+    const reason = housing.setPowerAllocation(room, Math.max(0, Math.floor(amount)));
+    this.ctx.bus.emit('audio:play', { id: reason ? 'ui_deny' : 'ui_click' });
+    if (reason) this.showToast(reason);
+    this.refresh();
+  }
+
+  /** − / + : 지금 할당에서 `delta` 만큼 (늘릴 때는 남는 전력까지만). */
+  private stepPower(room: number, delta: number): void {
+    const housing = this.ctx.housing;
+    const f = housing?.getFacilityPower?.(room);
+    if (!housing || !f) return;
+    if (delta > 0) {
+      const free = housing.getPowerOverview?.().free ?? 0;
+      if (free <= 0) { this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); this.showToast('남는 전력이 없습니다 — 발전기를 업그레이드하거나 다른 시설의 할당을 줄이세요'); return; }
+      this.allocatePower(room, f.allocated + Math.min(delta, free));
+    } else {
+      this.allocatePower(room, f.allocated + delta);
+    }
+  }
+
+  /** 요구량 맞추기 = min(요구, 할당 + 남는 전력) — 요구보다 많이 받고 있으면 요구까지 돌려준다. */
+  private fitPower(room: number): void {
+    const housing = this.ctx.housing;
+    const f = housing?.getFacilityPower?.(room);
+    if (!housing || !f) return;
+    const free = housing.getPowerOverview?.().free ?? 0;
+    this.allocatePower(room, Math.min(f.required, f.allocated + free));
+  }
+
+  /** 인스펙터의 비활성화 / 활성화 (`HousingRef.setFurnitureDisabled`). */
+  private toggleInspectedPower(): void {
+    const housing = this.ctx.housing;
+    const uid = this.inspectUid;
+    if (!housing || !uid || typeof housing.setFurnitureDisabled !== 'function') return;
+    const off = housing.isFurnitureDisabled?.(uid) === true;
+    const reason = housing.setFurnitureDisabled(uid, !off);
+    this.ctx.bus.emit('audio:play', { id: reason ? 'ui_deny' : 'ui_click' });
+    if (reason) this.showToast(reason);
+    this.refresh();
   }
 
   /**

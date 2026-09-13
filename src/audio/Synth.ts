@@ -924,6 +924,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 1046 * p, t0: t + 0.11, dur: 0.22, gain: 0.14 });
     return 0.36;
   },
+  /** 2026-09-13 암호화폐 채굴: 연산 클러스터가 주기를 끝내 지갑에 넣었다 — 짧은 디지털 블립 + 높은 동전 음 + 딸깍. ≈0.26 s. */
+  crypto_mined: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 1318 * p, t0: t, dur: 0.05, gain: 0.05, lp: 3200 });
+    s.click(d, t + 0.055, 3200 * p, 0.08, 0.02);
+    s.tone(d, { type: 'sine', f0: 1760 * p, t0: t + 0.06, dur: 0.18, gain: 0.11, attack: 0.004 });
+    s.tone(d, { type: 'sine', f0: 3520 * p, t0: t + 0.06, dur: 0.06, gain: 0.02 });
+    return 0.26;
+  },
   /** Repair complete: wrench clink + rising confirm. */
   repair_done: (s, d, t, p) => {
     s.click(d, t, 1800 * p, 0.2, 0.03);
@@ -1841,6 +1849,65 @@ export const SOUNDS: Record<string, SoundFn> = {
       s.tone(d, { type: 'triangle', f0: f * 2 * p, t0: t + 0.14 + i * 0.1, dur: 0.1, gain: 0.018 });
     });
     return 1.0;
+  },
+
+  /* ── 탐사 차량 (2026-09-13, world/rover) — 거리 곡선은 `AudioSystem.RANGED_SOUNDS` ── */
+  /** 엔진 한 조각: 낮은 디젤 톱니 + 5도 위 사각 + 흙먼지 잡음. 조각끼리 겹쳐 이어지게 평탄 유지 + 짧은 페이드. ≈0.62 s. */
+  rover_engine: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 46 * p, t0: t, dur: 0.62, gain: 0.15, attack: 0.08, release: 0.14, lp: 380 });
+    s.tone(d, { type: 'square', f0: 69 * p, t0: t, dur: 0.62, gain: 0.05, attack: 0.08, release: 0.14, lp: 300 });
+    s.noise(d, { t0: t, dur: 0.62, gain: 0.06, attack: 0.1, release: 0.16, filter: { type: 'lowpass', f0: 260 * p, q: 0.7 } });
+    return 0.62;
+  },
+  /** 출발: 두 음 경적 + 엔진이 감겨 오른다. ≈1.4 s. */
+  rover_depart: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 311 * p, t0: t, dur: 0.32, gain: 0.08, lp: 1600, decayCurve: 'lin' });
+    s.tone(d, { type: 'square', f0: 392 * p, t0: t + 0.38, dur: 0.4, gain: 0.08, lp: 1600, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 38 * p, f1: 105 * p, t0: t + 0.2, dur: 1.2, gain: 0.22, attack: 0.15, lp: 600 });
+    s.noise(d, { t0: t + 0.2, dur: 1.1, gain: 0.08, attack: 0.3, filter: { type: 'lowpass', f0: 300 * p, f1: 900 * p, q: 0.7 }, decayCurve: 'lin' });
+    return 1.4;
+  },
+  /** 포탑 기관포 한 발: 대역 잡음 폭발 + 둔한 저역 쿵 + 금속 딸깍. ≈0.3 s. */
+  rover_shot: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.12, gain: 0.34, filter: { type: 'bandpass', f0: 950 * p, f1: 420 * p, q: 0.9 } });
+    s.tone(d, { type: 'sine', f0: 150 * p, f1: 48 * p, t0: t, dur: 0.22, gain: 0.34 });
+    s.click(d, t + 0.01, 2600 * p, 0.05, 0.02);
+    s.noise(d, { t0: t + 0.05, dur: 0.25, gain: 0.06, filter: { type: 'lowpass', f0: 700 * p, f1: 200, q: 0.5 }, decayCurve: 'lin' });
+    return 0.3;
+  },
+  /** 해치 여닫힘: 빗장 딸깍 + 무거운 문짝 쿵. ≈0.45 s. */
+  rover_hatch: (s, d, t, p) => {
+    s.click(d, t, 1800 * p, 0.08, 0.025);
+    s.tone(d, { type: 'sine', f0: 120 * p, f1: 58 * p, t0: t + 0.12, dur: 0.28, gain: 0.3 });
+    s.noise(d, { t0: t + 0.12, dur: 0.16, gain: 0.12, filter: { type: 'lowpass', f0: 900 * p, f1: 250, q: 0.7 } });
+    return 0.45;
+  },
+  /** 정차: 공기 제동 쉭 + 차체가 한 번 출렁이는 쿵. ≈0.9 s. */
+  rover_brake: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.7, gain: 0.18, attack: 0.02, filter: { type: 'highpass', f0: 3000 * p, f1: 1400 * p, q: 0.7 } });
+    s.tone(d, { type: 'sine', f0: 92 * p, f1: 44 * p, t0: t + 0.5, dur: 0.35, gain: 0.26 });
+    return 0.9;
+  },
+  /** 장갑 피격: 금속 쨍 + 짧은 울림. ≈0.35 s. */
+  rover_clang: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 820 * p, f1: 610 * p, t0: t, dur: 0.1, gain: 0.07, lp: 3200 });
+    s.noise(d, { t0: t, dur: 0.06, gain: 0.16, filter: { type: 'bandpass', f0: 2400 * p, q: 2 } });
+    s.tone(d, { type: 'sine', f0: 470 * p, t0: t, dur: 0.33, gain: 0.08, vibratoHz: 9, vibratoDepth: 15 });
+    return 0.35;
+  },
+  /** 파괴: 큰 폭발 — 저역 붕괴 + 긴 잔향 + 늦게 튀는 파편 딸깍. ≈2.0 s. */
+  rover_explode: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 1.6, gain: 0.6, filter: { type: 'lowpass', f0: 1400 * p, f1: 110, q: 0.6 } });
+    s.tone(d, { type: 'sine', f0: 72 * p, f1: 26 * p, t0: t, dur: 1.3, gain: 0.6 });
+    s.tail(d, t + 0.1, 1.8, 0.22, 900 * p, 120);
+    for (let i = 0; i < 5; i++) s.click(d, t + 0.35 + i * 0.17 + r(0, 0.06), r(1200, 3200) * p, 0.05, 0.02);
+    return 2.0;
+  },
+  /** 요금 결제 (로컬): 짧은 두 음 차임. ≈0.3 s. */
+  rover_pay: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 880 * p, t0: t, dur: 0.12, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.09, dur: 0.2, gain: 0.1 });
+    return 0.3;
   },
 };
 

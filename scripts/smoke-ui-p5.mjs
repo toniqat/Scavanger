@@ -230,9 +230,14 @@ try {
   const mapPt = await P(() => {
     const c = document.querySelector('.map-canvas');
     const r = c.getBoundingClientRect();
-    return { hint: document.querySelector('.map-hint').textContent, x: Math.round(r.left + r.width * 0.4), y: Math.round(r.top + r.height * 0.6) };
+    // 2026-09-13: the map's bottom-left hint line is gone — the bottom-right key guide carries 핑 · 확대 · 이동 · `Tab 또는 Esc 또는 M 닫기`
+    return {
+      hint: document.querySelector('.key-guide')?.textContent ?? '',
+      close: document.querySelector('.key-guide .kg-close')?.textContent ?? '',
+      x: Math.round(r.left + r.width * 0.4), y: Math.round(r.top + r.height * 0.6),
+    };
   });
-  ok(/휠클릭 핑/.test(mapPt.hint), `map footer hint mentions the middle-click ping (${mapPt.hint})`);
+  ok(/핑/.test(mapPt.hint) && /또는\s*M/.test(mapPt.close), `map key guide lists the ping key and M as a close key (${mapPt.hint})`);
   await P((pt) => {
     document.querySelector('.map-canvas').dispatchEvent(new MouseEvent('mousedown', { button: 1, buttons: 4, clientX: pt.x, clientY: pt.y, bubbles: true, cancelable: true }));
   }, mapPt);

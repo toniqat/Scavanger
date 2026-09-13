@@ -1,5 +1,5 @@
 import type { CraftIngredient } from './gear';
-import { costLevels, csvRows, keyTable } from './data/tables';
+import { costLevels, csvRows, keyTable, numberList } from './data/tables';
 
 /* 함선 꾸미기 수치의 원본: 가구는 `data/furniture.csv` + `data/furniture_upgrades.csv`,
  * 방 용도 증축 비용은 `data/room_purposes.csv`, 발전기 요구 레벨은 `data/tuning.csv` 다. */
@@ -54,7 +54,8 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
-  mining: '그래픽카드로 암호화폐를 채굴합니다. (다음 업데이트)',
+  /* 2026-09-13: 채굴이 들어왔다 (docs/plans/power-crypto.md) */
+  mining: '연산 클러스터에 연산 코어를 꽂아 암호화폐를 채굴합니다. 메인 컴퓨터에서 클러스터 현황 · 지갑 · 거래소를 확인합니다.',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (서재에 합쳐졌습니다)',
   cockpit: '함선의 조종석입니다. 공용 가구를 놓을 수 있고, 용도를 바꾸거나 제거할 수 없습니다.',
 };
@@ -88,7 +89,7 @@ export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { de
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen', 'gym'];   // 2026-09-12 appended `gym` (A-3a);   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen', 'gym', 'mining'];   // 2026-09-13 appended `mining` (암호화폐 채굴)   // 2026-09-12 appended `gym` (A-3a);   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
 
 /**
  * appended (2026-09-12, 사용자 결정): **빈 방이 될 수 있는 용도** — 시설 증축 목록이 그리는 것은 이것뿐이다.
@@ -180,7 +181,9 @@ export type FurnitureModelKind =
   /* appended (2026-09-13): 조종석의 고정 소품이던 서랍장(창고 캐비닛)이 꾸밈 가구 `furn_drawer` 가 됐다 */
   | 'drawer'
   /* appended (2026-09-13, 요리 미니게임): 주방의 자동 조리 가구 4종 — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (`level` 만큼 표시등) */
-  | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser';
+  | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser'
+  /* appended (2026-09-13, 암호화폐 채굴 — docs/plans/power-crypto.md): 연산 클러스터(코어 칸 9개, 꽂힌 수만큼 점등) · 메인 컴퓨터 */
+  | 'compute_cluster' | 'mining_computer';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
@@ -217,7 +220,9 @@ export type FurnitureInteraction =
    * E → `ctx.housing.openCookStation(<함선의 조리대 uid>)` (조리대가 없으면 토스트). ⚠ 같은 날부터 **`workbench_cook` 의 E 도 인벤토리 제작 창이 아니라
    * `ctx.housing.openCookStation(uid)`** 다 (`benchKindOf` 는 그대로 'cook' 을 돌려준다 — 레벨 · 레시피 게이트가 그 이름을 쓴다).
    */
-  | 'cook_processor' | 'cook_grill' | 'cook_stirrer' | 'cook_dispenser';
+  | 'cook_processor' | 'cook_grill' | 'cook_stirrer' | 'cook_dispenser'
+  /* appended (2026-09-13, 암호화폐 채굴): → ctx.housing.openComputeCluster(uid) (코인 지정 · 코어 꽂기) / ctx.housing.openMiningComputer(uid) (현황 · 지갑 · 거래소) */
+  | 'compute_cluster' | 'mining_computer';
 
 export interface FurnitureDef {
   id: string;
@@ -754,8 +759,19 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').
     color: r.str('color'),
     ...(r.has('stackLimit') ? { stackLimit: r.int('stackLimit', { min: 1 }) } : {}),
     ...(r.bool('retired') ? { retired: true } : {}),
+    /* appended (2026-09-13): 배치 접근 면 · 요구 전력 · 여러 대 제작 (docs/plans/power-crypto.md) */
+    ...(r.has('access') ? { access: accessCell(r.str('access'), (m) => r.report('access', m)) } : {}),
+    ...(r.has('power') ? { power: r.num('power', { min: 0 }) } : {}),
+    ...(r.bool('multi') ? { multi: true } : {}),
   };
 });
+
+function accessCell(v: string, report: (message: string) => void): FurnitureAccess {
+  // 목록을 여기 적는 이유: `FURNITURE_DEFS` 는 모듈 로드 중에 계산되는데 `FURNITURE_ACCESS_VALUES` 는 파일 끝(추가 절)에 있어 아직 초기화 전이다
+  if (v === 'none' || v === 'front' || v === 'sides' || v === 'all') return v;
+  report(`'${v}' — none · front · sides · all 중 하나`);
+  return 'none';
+}
 
 export const FURNITURE_DEF_MAP: ReadonlyMap<string, FurnitureDef> = new Map(FURNITURE_DEFS.map((d) => [d.id, d]));
 
@@ -1577,3 +1593,322 @@ export interface HousingRef {
   getCookAuto?(game: CookGame): CookAutoInfo | null;
 }
 /* ══ end 2026-09-13 요리 미니게임 ══ */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-13 — 가구 배치 규칙 · 발전기 전력 · 암호화폐 채굴 (docs/plans/power-crypto.md, 사용자 결정)
+ *
+ * 1. **배치 규칙** (`FurnitureDef.access`). 가구의 앞은 로컬 −Z 다 — 격자로는 yaw 0 = y 감소 · 1 = x 증가 · 2 = y 증가 · 3 = x 감소.
+ *    - `front` — 앞 한 줄(가구 폭만큼, 깊이 1칸)에 다른 가구가 없어야 하고 격자 밖(벽)이어도 안 된다. 상호작용은 앞에서만.
+ *    - `sides` — 넓은 두 면(로컬 ±Z — csv 는 cols ≥ rows 로 적는다)의 한 줄에 다른 가구가 없어야 한다. 벽은 된다. 두 면 어디서든.
+ *    - `all`   — 네 면의 한 줄씩(모서리 칸 제외)에 다른 가구가 없어야 한다. 벽은 된다. 어느 면이든 (헬스 기구).
+ *    - `none`  — 예전 그대로 (몸체끼리만 안 겹치면 된다).
+ *    비워야 하는 칸끼리는 겹쳐도 된다(마주보는 작업대 둘이 1칸 통로를 나눠 쓴다). 조종석 고정 소품 자리(`COCKPIT_BLOCKED_RECTS`)는 가구처럼 막는다.
+ *    규칙은 양방향이다 — 내 몸체가 남의 비워야 하는 칸에 들어가도 안 된다. 옛 세이브에서 규칙을 어기는 가구는 로드할 때 **가구 창고로** 간다
+ *    (사용자 결정 — `ShipState.sanitize` 가 받아들인 순서대로 검사한다).
+ * 2. **전력.** 발전기 레벨이 공급(`GENERATOR_POWER_BY_LEVEL`, 최대 Lv.10)을 정한다. 시설(방)마다 요구 전력 = `ROOM_PURPOSE_POWER[용도]` + 그 방의
+ *    **활성** 가구 `power` 합 (연산 클러스터는 + 꽂힌 코어 × `COMPUTE_CLUSTER_POWER_PER_CORE`). 플레이어가 발전기 화면에서 시설마다 전력을
+ *    **수동 할당**하고(할당 합 ≤ 공급), 할당 < 요구면 **그 시설의 가구 전부**가 작동하지 않는다 (사용자 결정). 비활성화한 가구는 요구에서 빠지고
+ *    작동하지 않는다. 작동하지 않는 동안 재배 · 배양 · 해석 · 채굴 시계는 **멈춘다** (썩지 않는다 — 편의 규칙): `stationNow(uid)` 가 멈춘 시각에
+ *    서 있고, 다시 돌면 `housing:operationalChanged {pausedMs}` 를 받은 쪽이 자기 시각을 그만큼 민다. 조종석은 전력을 쓰지 않는다(늘 가동).
+ *    서재의 숙련 보너스도 전력이 필요하다 (사용자 결정).
+ * 3. **암호화폐 채굴.** 채굴 시설(`mining`)에 연산 클러스터(`compute_cluster` — 1×2칸, 여러 대)와 메인 컴퓨터(`mining_computer` — 함선당 1대)를 둔다.
+ *    클러스터마다 코인을 정하고 연산 코어를 최대 `COMPUTE_CLUSTER_MAX_CORES` 개 꽂는다. **메인 컴퓨터가 가동 중이어야** 클러스터가 채굴한다 (사용자 결정).
+ *    시간은 클러스터 한 대에 하나(재배 칸처럼 코어마다 따로 흐르지 않는다) — 주기 = `coinCycleMs(coin, cores)`. 한 주기가 끝날 때마다
+ *    `yieldUnits` 가 **지갑**(`cryptoWallet`)에 저절로 들어가고 다음 주기가 이어진다. 코어 수가 바뀌면 진행도를 접어 새 주기 길이로 이어 가고,
+ *    코인을 바꾸면 진행도가 0 이 된다. 메인 컴퓨터 = 클러스터 현황 · 지갑 · 거래소(서버 시세 차트 · 매수 · 매도 — 잠긴 코인도 차트는 보인다).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import type { CryptoCoinDef } from './crypto';
+import type { CryptoTradeSide } from './cryptoMarket';
+
+/* ── 1. 배치 규칙 ── */
+
+export type FurnitureAccess = 'none' | 'front' | 'sides' | 'all';
+export const FURNITURE_ACCESS_VALUES: readonly FurnitureAccess[] = ['none', 'front', 'sides', 'all'];
+/** 가구의 네 면. `front` = 로컬 −Z, `back` = +Z, `right` = 로컬 +X, `left` = 로컬 −X (격자 계산용 이름). */
+export type FurnitureFace = 'front' | 'back' | 'right' | 'left';
+
+export interface FurnitureDef {
+  /** appended (2026-09-13): 접근 면 규칙 (`data/furniture.csv` 의 `access`). 없으면 `'none'`. */
+  access?: FurnitureAccess;
+  /** appended (2026-09-13): 활성일 때 그 시설의 요구 전력에 더하는 값 (`power`). 없으면 0. */
+  power?: number;
+  /** appended (2026-09-13): 실용 가구지만 여러 대 만들 수 있다 (`multi` — 연산 클러스터). 없으면 「이미 보유 중」 규칙. */
+  multi?: boolean;
+}
+
+export function furnitureAccessOf(def: FurnitureDef | null | undefined): FurnitureAccess {
+  return def?.access ?? 'none';
+}
+
+/** 규칙이 비워 두라는 면 (= 상호작용할 수 있는 면). */
+export function furnitureAccessFaces(access: FurnitureAccess): readonly FurnitureFace[] {
+  switch (access) {
+    case 'front': return ['front'];
+    case 'sides': return ['front', 'back'];
+    case 'all': return ['front', 'back', 'right', 'left'];
+    default: return [];
+  }
+}
+
+/** 비워야 하는 칸이 격자 밖(벽)이어도 되는가 — `front` 만 안 된다. */
+export function accessAllowsWall(access: FurnitureAccess): boolean {
+  return access !== 'front';
+}
+
+const FACE_LOCAL: Readonly<Record<FurnitureFace, readonly [number, number]>> = {
+  front: [0, -1], back: [0, 1], right: [1, 0], left: [-1, 0],
+};
+
+/**
+ * yaw 로 돌린 면이 가리키는 격자 방향 (`dx` = 격자 x, `dy` = 격자 y, 둘 중 하나만 ±1).
+ * 근거: 격자 x = 월드 +X, y = 월드 +Z, 월드 회전 = −yaw·π/2 (`hub/interiors/RoomLayout`) — yaw 한 번에 (x, z) → (−z, x).
+ */
+export function furnitureFaceDir(yaw: 0 | 1 | 2 | 3, face: FurnitureFace): { dx: number; dy: number } {
+  let [x, z] = FACE_LOCAL[face];
+  for (let i = 0; i < yaw; i++) { const nx = -z; z = x; x = nx; }
+  return { dx: x, dy: z };
+}
+
+/** 가구 하나가 비워 두라는 칸 하나. 격자 밖 좌표일 수 있다 (벽). */
+export interface ClearanceCell { x: number; y: number; face: FurnitureFace }
+
+/**
+ * (x, y, yaw) 에 놓인 `def` 가 비워 두라는 칸 전부 — 접근 면마다 몸체에 붙은 깊이 1칸 한 줄, 모서리 칸은 없다. `none` 이면 빈 배열.
+ * 격자 밖 칸도 그대로 돌려준다 (`accessAllowsWall` 로 벽 허용 여부를 따로 본다).
+ */
+export function furnitureClearanceCells(def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3): ClearanceCell[] {
+  const fp = furnitureFootprint(def, yaw);
+  const out: ClearanceCell[] = [];
+  for (const face of furnitureAccessFaces(furnitureAccessOf(def))) {
+    const { dx, dy } = furnitureFaceDir(yaw, face);
+    if (dy !== 0) {
+      const cy = dy < 0 ? y - 1 : y + fp.rows;
+      for (let cx = x; cx < x + fp.cols; cx++) out.push({ x: cx, y: cy, face });
+    } else {
+      const cx = dx < 0 ? x - 1 : x + fp.cols;
+      for (let cy = y; cy < y + fp.rows; cy++) out.push({ x: cx, y: cy, face });
+    }
+  }
+  return out;
+}
+
+/* ── 2. 전력 ── */
+
+/** 발전기 레벨별 공급 전력 (`data/tables.csv` 의 `GENERATOR_POWER_BY_LEVEL`, 키 0 … `GENERATOR_MAX_LEVEL`). */
+export const GENERATOR_POWER_BY_LEVEL: readonly number[] = numberList('tables.csv', 'GENERATOR_POWER_BY_LEVEL');
+
+/** 발전기 `level` 의 공급 전력. 표 밖 레벨은 가장 가까운 끝값. */
+export function generatorPowerSupply(level: number): number {
+  if (GENERATOR_POWER_BY_LEVEL.length === 0) return 0;
+  const i = Math.max(0, Math.min(GENERATOR_POWER_BY_LEVEL.length - 1, Math.floor(Number(level) || 0)));
+  return GENERATOR_POWER_BY_LEVEL[i];
+}
+
+/** 시설(방 용도)의 기본 요구 전력 (`data/room_purposes.csv` 의 `power`, 비면 0). */
+export const ROOM_PURPOSE_POWER: Readonly<Record<RoomPurpose, number>> = Object.fromEntries(
+  csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.num('power', { min: 0, fallback: 0 })]),
+) as Record<RoomPurpose, number>;
+
+/** 연산 클러스터에 꽂힌 코어 하나가 더하는 요구 전력 (`data/tuning.csv`). */
+export const COMPUTE_CLUSTER_POWER_PER_CORE = T.num('COMPUTE_CLUSTER_POWER_PER_CORE');
+
+/** 할당이 요구에 못 미쳐 멈춘 시설의 가구를 쓰려 할 때의 사유 (hub 토스트 · 스테이션 화면 배너 · 인벤토리 작업대 목록이 같은 글을 쓴다). */
+export const POWER_SHORT_REASON_KO = '전력이 부족합니다';
+/** 비활성화한 가구를 쓰려 할 때의 사유. */
+export const FURNITURE_DISABLED_REASON_KO = '비활성화된 가구입니다';
+/** appended (2026-09-13, 전력 에이전트): 연산 클러스터가 채굴하지 못하는 사유 — 함선에 가동 중인 메인 컴퓨터가 없다. */
+export const MINING_COMPUTER_REQUIRED_REASON_KO = '메인 컴퓨터가 가동 중이어야 합니다';
+/**
+ * appended (2026-09-13, 전력 에이전트): `data/tuning.csv` 의 `POWER_AUTO_TOPUP` — 가동 중이던(또는 새로 증축한) 시설의 요구 전력이 늘면
+ * 부족분을 **남는 전력에서만** 자동으로 채운다 (다른 시설의 할당은 가져오지 않는다 · 모자라면 채우지 않고 멈춘다). false = 완전 수동.
+ */
+export const POWER_AUTO_TOPUP = (T.has('POWER_AUTO_TOPUP') ? T.num('POWER_AUTO_TOPUP') : 1) > 0;
+
+/** 가구 하나의 전력 현황. */
+export interface FurniturePowerInfo {
+  uid: string;
+  defId: string;
+  /** 활성일 때 요구 전력 (코어 포함). 비활성이어도 이 값을 보여 준다 — 요구 합에 들어가지 않을 뿐이다. */
+  demand: number;
+  disabled: boolean;
+  /** 지금 작동하는가 (활성 · 시설 전력 충분 · 가구별 추가 조건 — 클러스터는 메인 컴퓨터). */
+  operational: boolean;
+  /** 작동하지 않는 한국어 사유, 작동 중이면 null. */
+  block: string | null;
+}
+
+/** 시설(방) 하나의 전력 현황. 조종석 · 빈 방은 들어가지 않는다. */
+export interface FacilityPowerInfo {
+  room: number;
+  purpose: RoomPurpose;
+  /** `ROOM_PURPOSE_POWER[purpose]`. */
+  base: number;
+  /** base + 활성 가구 demand 합. */
+  required: number;
+  /** 플레이어가 할당한 전력. */
+  allocated: number;
+  /** allocated ≥ required. */
+  powered: boolean;
+  /** 이 방에 놓인 가구 중 전력을 쓰는 것 (demand > 0) — 비활성 포함. */
+  furniture: FurniturePowerInfo[];
+}
+
+export interface PowerOverview {
+  /** `generatorPowerSupply(state.generatorLevel)`. */
+  supply: number;
+  /** 할당 합. */
+  allocated: number;
+  /** supply − allocated (≥ 0). */
+  free: number;
+  /** 모든 시설 required 합 (공급과 비교해 발전기 업그레이드 필요를 알린다). */
+  required: number;
+  facilities: FacilityPowerInfo[];
+}
+
+/* ── 3. 암호화폐 채굴 ── */
+
+export const COMPUTE_CLUSTER_DEF_ID = 'furn_compute_cluster';
+export const MINING_COMPUTER_DEF_ID = 'furn_mining_computer';
+/** 레이드에서 극히 드물게 나오는 프로세서 (items/ 가 정의한다). */
+export const PROCESSOR_DEF_ID = 'mat_processor';
+/** 회로 기판 + 프로세서로 만드는 연산 코어 (items/ 가 정의한다). 클러스터에 꽂는 것은 이것뿐이다. */
+export const COMPUTE_CORE_DEF_ID = 'mat_compute_core';
+
+/** 연산 클러스터 한 대의 채굴 상태. 코어도 코인도 없는 클러스터는 `ShipState.clusters` 에 없어도 된다. */
+export interface ComputeClusterSlot {
+  /** 연산 클러스터 `PlacedFurniture.uid`. */
+  uid: string;
+  /** 채굴할 코인 id (`data/crypto.csv`). 없으면 채굴하지 않는다. */
+  coinId?: string;
+  /** 꽂힌 연산 코어 수 (0 … `COMPUTE_CLUSTER_MAX_CORES`). 코어는 서로 같아 개수만 센다. */
+  cores: number;
+  /** `segmentAt` 시점까지 쌓인 진행도 (주기 단위, 0 ≤ p < 1 — 넘친 주기는 지갑에 넣고 뺀다). */
+  progress: number;
+  /** 지금 구간이 시작된 epoch ms (`stationNow` 기준). 코어 · 코인 · 가동 상태가 바뀌면 진행도를 접고 새로 연다. */
+  segmentAt: number;
+}
+
+export interface ShipState {
+  /* ── appended (2026-09-13, 전력 — version 12) ── */
+  /** 시설 전력 할당: 방 번호(문자열) → 할당량. 없으면 0. 용도가 바뀌거나 방이 비면 그 키를 지운다. */
+  powerAlloc?: Record<string, number>;
+  /** 비활성화한 가구 uid. 회수하면 빠진다. */
+  disabledFurniture?: string[];
+  /** 작동이 멈춘 시계형 가구(재배 · 배양 · 해석 · 채굴)의 멈춘 시각: uid → epoch ms. 다시 돌면 지운다. */
+  pausedAt?: Record<string, number>;
+  /* ── appended (2026-09-13, 암호화폐 채굴) ── */
+  clusters?: ComputeClusterSlot[];
+  /** 지갑: 코인 id → 단위 수 (`CRYPTO_UNITS_PER_COIN` 단위 = 코인 1개). */
+  cryptoWallet?: Record<string, number>;
+  /** 지금까지 채굴한 누적 단위 (현황 화면 표시용). */
+  cryptoMined?: Record<string, number>;
+}
+
+/** 클러스터 한 대를 화면이 보는 모양. */
+export interface ComputeClusterInfo {
+  uid: string;
+  room: number;
+  coinId: string | null;
+  cores: number;
+  maxCores: number;
+  /** 지금 설정의 주기 (ms). 코어 0 · 코인 없음이면 0. */
+  cycleMs: number;
+  /** 이번 주기 진행도 0 … 1 (채굴하지 않으면 0 — 멈췄으면 멈춘 자리). */
+  progress: number;
+  /** 이번 주기 남은 초 (채굴하지 않으면 0). */
+  remainingS: number;
+  /** 지금 시계가 흐르는가 (코인 · 코어 · 가동 · 메인 컴퓨터 전부 충족). */
+  mining: boolean;
+  /** 흐르지 않는 한국어 사유 (코인 미지정 · 코어 없음 · 전력 · 비활성 · 메인 컴퓨터 · 잠긴 코인), 흐르면 null. */
+  block: string | null;
+  /** 이 클러스터의 요구 전력 (코어 포함). */
+  power: number;
+}
+
+/** 코인 하나를 화면이 보는 모양. */
+export interface CryptoCoinInfo {
+  def: CryptoCoinDef;
+  unlocked: boolean;
+  /** 잠긴 이유 (`<기업> 퀘스트 「…」 완료 필요`), 열렸으면 null. */
+  lockReason: string | null;
+  walletUnits: number;
+  /** 서버 시세 (코인 1개당 크레딧), 서버에 붙어 있지 않으면 null. */
+  price: number | null;
+  /** 24시간 변동률 (비율), 모르면 null. */
+  change24h: number | null;
+}
+
+export type MiningComputerTab = 'clusters' | 'wallet' | 'exchange';
+
+/** 거래소 견적. `credits` = 팔면 받는 · 사면 내는 크레딧 (수수료 반영, `cryptoCreditsFor`). */
+export interface CryptoQuote {
+  coinId: string;
+  side: CryptoTradeSide;
+  units: number;
+  price: number;
+  credits: number;
+  /** 거래를 막는 한국어 사유 (서버 없음 · 잠김 · 지갑 부족 · 크레딧 부족 · 단위 범위), 가능하면 null. */
+  block: string | null;
+}
+
+export interface HousingRef {
+  /* ══ appended: 2026-09-13 — 배치 규칙 ══ */
+  /**
+   * (room, defId, x, y, yaw) 배치를 막는 한국어 사유, null = 놓을 수 있다. `canPlace` 와 **같은 판정**이고 사유만 더 준다
+   * (겹침 · 격자 밖 · 앞이 벽 · 앞 · 넓은 면 · 사방 칸이 막힘 · 다른 가구의 접근 칸을 막음 …). 하우징 모드의 고스트 · 거절 토스트가 쓴다.
+   */
+  placementBlock?(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): string | null;
+
+  /* ══ appended: 2026-09-13 — 전력 ══ */
+  getPowerOverview?(): PowerOverview;
+  /** 방 하나의 전력 현황 (조종석 · 빈 방 · 모르는 방은 null). */
+  getFacilityPower?(room: number): FacilityPowerInfo | null;
+  /** 시설에 전력을 할당한다 (정수, 0 이상, 할당 합 ≤ 공급). 한국어 사유 / null. `housing:powerChanged`. */
+  setPowerAllocation?(room: number, amount: number): string | null;
+  isFurnitureDisabled?(uid: string): boolean;
+  /** 가구를 비활성화 / 활성화한다 (전력을 쓰는 가구만). 한국어 사유 / null. `housing:powerChanged` · 필요하면 `housing:operationalChanged`. */
+  setFurnitureDisabled?(uid: string, disabled: boolean): string | null;
+  /** 이 가구를 지금 쓸 수 없는 한국어 사유 (`FURNITURE_DISABLED_REASON_KO` · `POWER_SHORT_REASON_KO` · 가구별 조건), 쓸 수 있으면 null. 전력을 안 쓰는 가구는 늘 null. */
+  furnitureOperationalBlock?(uid: string): string | null;
+  /** 시계형 가구의 「지금」 — 작동 중이면 `serverNow`, 멈췄으면 멈춘 시각. 진행도 · 남은 시간 계산은 이것을 쓴다. */
+  stationNow?(uid: string): number;
+  /**
+   * appended (2026-09-13, 전력 에이전트): **작동 중인** 작업대 중 그 종류의 가장 높은 레벨 (0 = 없거나 전부 멈춤). `getBenchLevel` 은 배치만 본다 —
+   * 인벤토리 제작 목록이 「실제로 쓸 수 있는 작업대」를 물을 때 이것을 쓴다.
+   */
+  getOperationalBenchLevel?(kind: WorkbenchKind): number;
+  /** appended (2026-09-13, 전력 에이전트): 그 종류의 작업대가 배치돼 있지만 **하나도 작동하지 않는** 사유, 작동하는 것이 있거나 배치된 것이 없으면 null. */
+  benchOperationalBlock?(kind: WorkbenchKind): string | null;
+
+  /* ══ appended: 2026-09-13 — 암호화폐 채굴 ══ */
+  getCryptoCoins?(): CryptoCoinInfo[];
+  getCryptoWallet?(): Readonly<Record<string, number>>;
+  /** 함선에 놓인 메인 컴퓨터 uid (없으면 null). */
+  getMiningComputerUid?(): string | null;
+  getComputeClusters?(): ComputeClusterInfo[];
+  getComputeCluster?(uid: string): ComputeClusterInfo | null;
+  /** 채굴할 코인을 정한다 (null = 해제). 잠긴 코인은 거절. 코인이 바뀌면 진행도 0. 한국어 사유 / null. `housing:clusterChanged`. */
+  setClusterCoin?(uid: string, coinId: string | null): string | null;
+  /** 연산 코어를 (가방 → 창고에서) `qty` 개 꽂는다 — 빈 칸만큼만. 진행도는 접어서 새 주기로 잇는다. 한국어 사유 / null. */
+  insertClusterCores?(uid: string, qty: number): string | null;
+  /** 연산 코어를 `qty` 개 뺀다 (`dest` 기본 `'bag-first'`, 자리가 없으면 거절). 한국어 사유 / null. */
+  removeClusterCores?(uid: string, qty: number, dest?: HarvestDestination): string | null;
+  /** 지금 서버 시세로 낸 견적. 코인을 모르면 null. */
+  cryptoQuote?(coinId: string, side: CryptoTradeSide, units: number): CryptoQuote | null;
+  /** 매매한다 — 크레딧은 서버 검증(`cbuy` · `csell`), 지갑은 성공했을 때만 바뀐다. 한국어 사유 / null. `housing:walletChanged`. */
+  tradeCrypto?(coinId: string, side: CryptoTradeSide, units: number): Promise<string | null>;
+  /** 연산 클러스터 화면 (코인 지정 · 코어 칸 9개 · 함선 창고 / 가방). */
+  openComputeCluster?(uid: string): void;
+  /** 메인 컴퓨터 화면. `uid` null = 함선의 메인 컴퓨터 (없으면 토스트). */
+  openMiningComputer?(uid: string | null, tab?: MiningComputerTab): void;
+}
+export interface HousingRef {
+  /* ══ appended: 2026-09-13 — 암호화폐 채굴 개발용 (콘솔 `crypto`, 스모크) ══ */
+  /** 개발용: 지갑 잔고를 `units`(정수 단위)로 맞춘다 — `housing:walletChanged {reason: 'cheat'}`. 모르는 코인이면 한국어 사유. */
+  devSetCryptoWallet?(coinId: string, units: number): string | null;
+  /** 개발용: 연산 클러스터의 코어를 아이템 없이 `cores` 개로 맞춘다 (끝난 주기를 넣고 진행도를 접는다). 한국어 사유 / null. */
+  devSetClusterCores?(uid: string, cores: number): string | null;
+  /** 개발용: 채굴할 수 있는(열린 코인 + 코어) 모든 클러스터의 시계를 `hours` 만큼 앞당기고 끝난 주기를 지갑에 넣는다. 넣은 단위 합. */
+  devAdvanceMining?(hours: number): number;
+}
+/* ══ end 2026-09-13 배치 규칙 · 전력 · 암호화폐 채굴 ══ */

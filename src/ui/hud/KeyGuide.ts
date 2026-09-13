@@ -5,6 +5,12 @@ import { el, toggleClass } from '../dom';
 interface Owner { owner: string; keys: ReadonlyArray<KeyGuideEntry> }
 
 /**
+ * 2026-09-13: owners that are **not screens** — nothing closes them with Tab / Esc, so the guide does not append the
+ * 닫기 entry. `'rover'` = 탐사 차량 탑승 중 (`hud/RoverHud` — `M 목적지 선택`).
+ */
+const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover']);
+
+/**
  * 키 가이드 (2026-09-09) — one line in the bottom-right corner, `R 회전 · X 버리기 · Tab 닫기`, for whichever screen or
  * mode is on top. Consumes `ui:keyGuide {owner, keys}`: an owner with keys is pushed onto a stack in open order (or
  * updated in place when it re-emits, e.g. on `input:bindingsChanged`), `keys: null` pops it; the **topmost** owner is
@@ -84,8 +90,11 @@ export class KeyGuide {
     // 2026-09-09: **ESC 도 화면을 닫는다** (`game/escapeKey`), so the 닫기 item names two keys. 2026-09-12: they are the
     // same action on different keys, so the second one rides `alt` and reads `Tab 또는 Esc`. Tab stays the first
     // keycap — the tutorial and the smokes read that first `.keycap`.
+    // 2026-09-13 (사용자 결정): the map also closes on the key that opened it, so its 닫기 reads `Tab 또는 Esc 또는 M`.
+    const noClose = top !== null && NO_CLOSE_OWNERS.has(top.owner);
+    const closeAlt = top?.owner === 'map' ? [{ key: keyLabel(Keys.MENU) }, { key: keyLabel(Keys.MAP) }] : [{ key: keyLabel(Keys.MENU) }];
     const entries: KeyGuideEntry[] = top
-      ? [...top.keys, { key: keyLabel(Keys.INVENTORY), label: '닫기', alt: [{ key: keyLabel(Keys.MENU) }] }]
+      ? noClose ? [...top.keys] : [...top.keys, { key: keyLabel(Keys.INVENTORY), label: '닫기', alt: closeAlt }]
       : [];
     const key = entries.map((e) => `${e.key}${e.hold ? '⌄' : ''}${(e.combo ?? []).map((c) => `+${c}`).join('')}`
       + `${(e.alt ?? []).map((a) => `|${a.key}${a.hold ? '⌄' : ''}`).join('')} ${e.label}`).join('');
@@ -97,7 +106,7 @@ export class KeyGuide {
         if (i) el('span', { cls: 'kg-sep', text: '·', parent: this.root });
         // 2026-09-09: the appended 닫기 (always last) carries `kg-close` so something can point at just the close
         // key — the tutorial's 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
-        const close = i === entries.length - 1;
+        const close = !noClose && i === entries.length - 1;
         const item = el('span', { cls: close ? 'kg-item kg-close' : 'kg-item', parent: this.root });
         // 2026-09-09: `hold: true` → `.keycap.kc-hold` (the ⌄ chevron above the cap lives in the stylesheet, once).
         this.cap(item, e.key, e.hold);

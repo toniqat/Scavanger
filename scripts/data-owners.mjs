@@ -101,6 +101,8 @@ export const CSV_FOLDERS = {
   'furniture.csv':           ['housing', 'hub'],
   'furniture_upgrades.csv':  ['housing', 'hub'],
   'room_purposes.csv':       ['housing', 'hub'],
+  // 2026-09-13 (암호화폐 채굴): 코인 표 — housing/(채굴 · 지갑) · net/(시세) 이 읽고 서버 경제 표로 구워진다
+  'crypto.csv':              ['housing', 'net'],
   // 여러 폴더가 읽지만 목록이 짧다 (items · meta · progression · shared/housing · shared/meta)
   'tuning.csv':              ['items', 'meta', 'progression', 'housing'],
 };

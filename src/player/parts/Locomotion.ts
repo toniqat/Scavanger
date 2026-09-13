@@ -86,6 +86,7 @@ export function setSpeedModifier(sys: PlayerSystem, key: string, mul: number, du
 /** Add to the velocity (jump pad, rocket blast, grapple release). Emits `player:launched`. */
 export function applyImpulse(sys: PlayerSystem, impulse: THREE.Vector3): void {
   if (!sys.spawned || sys.isDead) return;
+  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 점프대 · 폭발 충격이 몸을 선체 밖으로 날리지 않는다
   sys.controller.applyImpulse(impulse);
   if (impulse.y > 0.01) sys.autoHoverUsed = false;
   sys.ctx.bus.emit('player:launched', { position: sys.controller.position.clone(), impulse: impulse.clone() });
@@ -210,6 +211,7 @@ export function canAct(sys: PlayerSystem): boolean {
     && !sys.controller.climbing   // 2026-09-11: 사다리에 매달린 손으로는 구르기 · 근접 · 들쳐메기가 없다
     && !sys._droneControl         // 2026-09-11: 드론 조종 중에도 없다 (`parts/DroneControl`)
     && sys.furn.kind === null     // 2026-09-12: 가구 자세 중에도 없다 (`parts/FurniturePose`)
+    && sys._roverRide === null    // 2026-09-13: 탐사 차량 안에서도 없다 (`parts/RoverRide`)
     && sys.ctx.isControlActive()
     && !(sys.hellpod.isActive && sys.hellpod.state !== 'exiting');
   }

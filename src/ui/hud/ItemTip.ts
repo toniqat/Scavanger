@@ -10,6 +10,7 @@ import { el, setText } from '../dom';
 import { cookStepsText, mealBuffAmountText, mealEffects, mealQualityText, mealTierLabel } from './mealText';
 /* 2026-09-13 (요리 미니게임): 품질 줄 */
 import { normalizeMealQuality } from '@/shared';
+import { COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 암호화폐 채굴
 
 /** `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (아래 주석). */
 type TipRow = [string, string, string?];
@@ -266,6 +267,9 @@ export class ItemTip {
         }
       }
     }
+    /* 암호화폐 채굴 (2026-09-13): 연산 코어 · 프로세서는 평범한 재료처럼 보이지만 **어디에 쓰는가**가 카드에서 끝나야 한다. */
+    if (def.id === COMPUTE_CORE_DEF_ID) rows.push(['사용', `연산 클러스터에 꽂는다 (최대 ${COMPUTE_CLUSTER_MAX_CORES}개)`]);
+    else if (def.id === PROCESSOR_DEF_ID) rows.push(['사용', '회로 기판과 조립해 연산 코어로 만든다']);
     const prep = def.prep;
     if (prep && ENV_LABEL_KO[prep.env]) {
       rows.push(['사용', '다음 레이드 1회분']);

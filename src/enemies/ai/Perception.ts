@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CLOAK_REVEAL_DISTANCE, ENEMY_SHOT_ALERT_CONE_MUL } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
-import type { CombatTarget } from '../Targets';
+import { VEHICLE_RAY_MARGIN, type CombatTarget } from '../Targets';
 
 const _o = new THREE.Vector3();
 const _t = new THREE.Vector3();
@@ -30,7 +30,13 @@ export function hasLineOfSight(e: Enemy, host: EnemyHost, target: CombatTarget):
   const dist = _d.length();
   if (dist < 1e-3) return true;
   _d.multiplyScalar(1 / dist);
-  return world.raycast(_o, _d, dist - 0.3) === null;
+  // 2026-09-13 (탐사 차량): 차체에 들어가기 전에 멈춘다 — 안 그러면 차체 자신의 콜라이더가 늘 사선을 막는다
+  let limit = dist - 0.3;
+  if (target.vehicle) {
+    const enter = target.rayVehicle(_o, _d, dist);
+    if (enter >= 0) limit = enter - VEHICLE_RAY_MARGIN;
+  }
+  return limit <= 0 || world.raycast(_o, _d, limit) === null;
 }
 
 /**
@@ -105,8 +111,12 @@ export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
     } else if (!curValid) {
       e.target = best;
     } else if (best !== cur) {
-      const keep = e.hasLOS ? 0.6 : 0.75;
-      if (best.dist2D(e.position) < cur.dist2D(e.position) * keep) e.target = best;
+      // 2026-09-13 (탐사 차량): 차량에 맞은 적은 히스테리시스 없이 곧장 차량으로 돌아선다
+      if (best.vehicle !== null && host.ctx.time < e.vehicleAggroUntil) e.target = best;
+      else {
+        const keep = e.hasLOS ? 0.6 : 0.75;
+        if (best.dist2D(e.position) < cur.dist2D(e.position) * keep) e.target = best;
+      }
     }
     // 2026-09-10: 총구 사선 캐시(`ai/FireLine`)도 표적과 함께 버린다 — 옛 표적에 대한 답이다.
     if (e.target !== cur) { e.hasLOS = false; e.perceptionTimer = 0; e.fireLineAt = -Infinity; e.fireLineClear = true; e.fireBlockTimer = 0; }
@@ -163,12 +173,17 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   if (!e.aware) {
     // Phase 12: an investigating enemy looks harder toward the shot origin (cone × ENEMY_SHOT_ALERT_CONE_MUL)
     const acquire = e.investigating ? range * shotConeFactor(e, t.position) : range;
+    // 2026-09-13 (탐사 차량): 달리는 차량은 **들린다** — 청각 반경(차체 가장자리까지) 안이면 사선 없이도 깨어난다 (`hasLOS` 는 그대로 사선)
+    const heard = t.vehicle !== null && t.vehicleMoving && dist < e.stats.hearRadius;
     if (dist < acquire) {
       // very close bugs notice you regardless of LOS (but not through a smoke wall)
       const seen = (dist < Math.min(5, acquire) && clarity > SMOKE_BLIND) || hasLineOfSight(e, host, t);
       e.hasLOS = seen;
-      if (seen) becomeAlert(e, host, true);
-    } else e.hasLOS = false;
+      if (seen || heard) becomeAlert(e, host, true);
+    } else {
+      e.hasLOS = false;
+      if (heard) becomeAlert(e, host, true);
+    }
   } else {
     const blinded = clarity <= SMOKE_BLIND && dist > CLOAK_REVEAL_DISTANCE;
     // once alerted a bug keeps tracking well past its acquisition range (90 m for a plain target,

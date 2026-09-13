@@ -32,6 +32,7 @@ import type { ShelfBonusInfo, ShelfMedium } from '@/shared';
 import { SHELF_MEDIUM_LABEL_KO, SHELF_SLOTS, isToggleInteraction, shelfItemOf, shelfMediumOfInteraction } from '@/shared';
 import { SHELF_ID_PREFIX, shelfAuxPlaced, shelfGainFor, shelfItemWeightOf, shelfMediumOfDefId } from '../Rules';
 import { SHELF_BLOCK_REASON, SHELF_OBJ_KO, shelfHolderName } from '../model';
+import { computePower, operationalBlockIn } from '../PowerRules';   // 전력 (2026-09-13)
 
 /* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
 /**
@@ -428,8 +429,13 @@ export function getShelfDex(sys: HousingSystem, medium: ShelfMedium): readonly s
 export function hasShelfAux(sys: HousingSystem, medium: ShelfMedium): boolean { return shelfAuxPlaced(sys.state.furniture, medium); }
 
 export function getShelfBonus(sys: HousingSystem, skill: SkillId): ShelfBonusInfo {
-  const aux = { book: hasShelfAux(sys, 'book'), disc: hasShelfAux(sys, 'disc'), record: hasShelfAux(sys, 'record') };
-  return shelfGainFor(skill, sys.books(), media(sys), sys.defOf, aux);
+  /* 전력 (2026-09-13, 사용자 결정): 서재 보너스도 전력이 필요하다 — 멈춘(전력 부족 · 비활성) 보관함의 매체와 보조 가구는 세지 않는다.
+     전력을 쓰지 않는 가구(흔들의자)는 늘 작동한다. 스냅숏은 한 번만 계산한다. */
+  const snap = computePower(sys.state);
+  const live = (uid: string): boolean => operationalBlockIn(snap, uid) === null;
+  const furniture = sys.state.furniture.filter((f) => live(f.uid));
+  const aux = { book: shelfAuxPlaced(furniture, 'book'), disc: shelfAuxPlaced(furniture, 'disc'), record: shelfAuxPlaced(furniture, 'record') };
+  return shelfGainFor(skill, sys.books().filter((b) => live(b.uid)), media(sys).filter((e) => live(e.uid)), sys.defOf, aux);
   }
 
 /** 보관함 화면 — 책장 · 디스크 전시대 · 레코드랙 공통 (`BookshelfMenu` 한 장이 매체를 바꿔 그린다). */
@@ -459,6 +465,8 @@ export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null
   const list = toggledUids(sys);
   const i = list.indexOf(uid);
   const on = i < 0;
+  // 전력 (2026-09-13): 멈춘(전력 부족 · 비활성) TV · 레코드 플레이어는 켤 수 없다 — 끄기는 된다
+  if (on && sys.furnitureOperationalBlock(uid)) return null;
   if (on) list.push(uid); else list.splice(i, 1);
   sys.changed('toggle');
   sys.ctx.bus.emit('housing:furnitureToggled', { uid, on });

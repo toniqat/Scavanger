@@ -181,6 +181,8 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 
 ## 변경 이력
 
+- **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `parts/Targeting` 의 드론 조종 가지가 `ctx.player.roverRide` 에도 걸린다 — 탑승 중 G 무시 · 열린 휠 · 상단 시점 닫기.
+
 - **2026-09-12 — 준비 순간 `stratagem:ready {refunded}` (에이전트 B, docs/plans/consumables-keys-favorites.md §2).** 공유 쿨타임이 0 이
   되는 **순간**을 이 폴더가 한 번만 알린다 — 그 전에는 HUD 토스트(`ui/hud/Notifications`)가 `stratagem:cooldown` 의 전이를 스스로 추측했고,
   준비 플래시(`ui/hud/StratagemPanel`)와 준비 소리(`audio/`)가 같은 추측을 또 베끼게 될 참이었다. `tickCooldown` 이 0 에 닿은 틱(그 틱의

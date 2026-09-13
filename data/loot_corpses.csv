@@ -94,6 +94,7 @@ android,mat_core,1,2,0.45
 android,mat_cable,1,2,0.3
 android,mat_power_cell,1,1,0.12
 android,mat_circuit,1,1,0.08
+android,mat_processor,1,1,0.002
 
 # raider — 2026-09-13 행성 threat 2–3. 로그보다 조금 넉넉한 잡템 + 탄을 손으로 채우던 화약. 회복 · 방탄복 · 가방은
 #   loot_factions.csv, 연구소 · 전진기지 보너스는 loot_faction_sites.csv.

@@ -45,6 +45,14 @@ import { PROFILE_SETMANY_MAX_BYTES } from '../src/shared/profile.ts';
 /* 2026-09-11 (E-4 ⑦): 서버 크레딧 검증 */
 import type { EconomyTable } from '../src/shared/credits.ts';
 import { CreditEconomy, ECONOMY_TABLE, economyTableIntact } from './Economy.ts';
+/* 2026-09-13: 암호화폐 시세 (`crypto:watch` · `crypto:history` · `crypto:prices`) */
+import { CryptoMarket } from './CryptoMarket.ts';
+import { DEFAULT_DATA_DIR } from './Store.ts';
+import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
+
+/** 2026-09-13: per-socket `crypto:history` token bucket — burst and refill per second (a chart screen asks for one coin × range at a time). */
+export const CRYPTO_HISTORY_BURST = 16;
+export const CRYPTO_HISTORY_PER_S = 4;
 
 /** Cap for ordinary frames (lobby ops, relayed game messages). */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -86,6 +94,11 @@ interface Client {
   connectedAt: number;
   /** 2026-09-11 (C-29): kicked by the operator — frames arriving before the close event are ignored. */
   kicked: boolean;
+  /** 2026-09-13: `crypto:watch {on:true}` — receives `crypto:prices` every market tick. Forgotten with the socket. */
+  cryptoWatch: boolean;
+  /** 2026-09-13: `crypto:history` token bucket (tokens, `Date.now()` of the last refill). */
+  cryptoTokens: number;
+  cryptoTokensAt: number;
 }
 
 /** 2026-09-11 (C-29): one row of the operator console's `list` (`RelayServer.listClients`). */
@@ -141,6 +154,8 @@ export interface RelayServerOptions {
   devEconomy?: boolean;
   /** 2026-09-11 (E-4 ⑦): the economy table (default: the committed `economy.gen.json`). Selftest only. */
   economyTable?: EconomyTable;
+  /** 2026-09-13: RNG seed of a **fresh** crypto market (a `crypto.json` keeps its own). Selftest only. */
+  cryptoSeed?: number;
 }
 
 export interface RelayServer {
@@ -174,6 +189,8 @@ export interface RelayServer {
    * `now` is for the selftest.
    */
   collectGarbage(now?: number): ProfileGcReport;
+  /** 2026-09-13: the crypto market (null when the economy table has no `crypto` section). */
+  readonly crypto: CryptoMarket | null;
 }
 
 function randomPeerId(): PeerId {
@@ -318,6 +335,12 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     }
     case 'lobby:hostDown':
       return typeof m.down === 'boolean' ? { t: 'lobby:hostDown', down: m.down } : null;
+    /* appended: 2026-09-13 — 암호화폐 시세. Shapes only: an unknown coin / range is ignored by the handler (contract: 조용히 무시). */
+    case 'crypto:watch':
+      return typeof m.on === 'boolean' ? { t: 'crypto:watch', on: m.on } : null;
+    case 'crypto:history':
+      return typeof m.coin === 'string' && m.coin.length > 0 && m.coin.length <= MAX_CODE_INPUT && typeof m.range === 'string' && m.range.length <= 4
+        ? { t: 'crypto:history', coin: m.coin, range: m.range as CryptoChartRange } : null;
     default:
       return null;
   }
@@ -375,6 +398,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   /* E-4 (⑦): credits:tx rules. `devEconomy` only from `server/index.ts` (env) — the shipped exe / desktop shell never pass it. */
   const economy = new CreditEconomy(opts.economyTable ?? ECONOMY_TABLE, { dev: opts.devEconomy === true });
   log(`economy table ${economy.table.hash}${economyTableIntact(economy.table) ? '' : ' (digest mismatch — regenerate with npm run data:check -- --write)'} · ${Object.keys(economy.table.items).length} items · dev reasons ${economy.dev ? 'ON' : 'off'}`);
+  /* 2026-09-13: 암호화폐 시세 — every entrypoint (index.ts · tool.ts exe · the desktop shell's embedded relay) goes through here.
+     Same directory as the profile store (`crypto.json` next to `profiles.json`); `dataDir: null` keeps it in memory. */
+  const market = economy.table.crypto
+    ? new CryptoMarket({ table: economy.table.crypto, dataDir: opts.dataDir === undefined ? DEFAULT_DATA_DIR : opts.dataDir, quiet, ...(opts.cryptoSeed !== undefined ? { seed: opts.cryptoSeed } : {}) })
+    : null;
+  economy.setCryptoQuotes(market);
+  if (!market) log('crypto market off (economy table has no crypto section)');
   const lobbies = new LobbyManager();
   const clients = new Map<PeerId, Client>();
   /** C-29: `null` = unlimited. */
@@ -388,7 +418,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const url = req.url ?? '/';
     if (req.method === 'GET' && (url === '/health' || url.startsWith('/health?'))) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*' });
-      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()), maxClients, devEconomy: economy.dev, economy: economy.table.hash }));
+      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()), maxClients, devEconomy: economy.dev, economy: economy.table.hash, crypto: market ? market.coinIds.length : 0 }));
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
@@ -1345,6 +1375,26 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
+      /* ── appended: 2026-09-13 — 암호화폐 시세. Anonymous sockets too (prices are not secret). ── */
+      case 'crypto:watch': {
+        if (!market) return;
+        c.cryptoWatch = m.on;
+        if (m.on) sendTo(c, market.pricesMessage());
+        return;
+      }
+      case 'crypto:history': {
+        if (!market) return;
+        const now = Date.now();
+        c.cryptoTokens = Math.min(CRYPTO_HISTORY_BURST, c.cryptoTokens + ((now - c.cryptoTokensAt) / 1000) * CRYPTO_HISTORY_PER_S);
+        c.cryptoTokensAt = now;
+        if (c.cryptoTokens < 1) return;   // over the rate: dropped silently, like an unknown coin
+        c.cryptoTokens -= 1;
+        const candles = market.history(m.coin, m.range);
+        if (!candles) return;
+        sendTo(c, { t: 'crypto:history', coin: m.coin, range: m.range, at: market.pricesAt, candles });
+        return;
+      }
+
       case 'relay': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
@@ -1371,6 +1421,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const c: Client = {
       id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?', hasProfile: token !== null,
       connectedAt: Date.now(), kicked: false,
+      cryptoWatch: false, cryptoTokens: CRYPTO_HISTORY_BURST, cryptoTokensAt: Date.now(),
     };
 
     // Same session already attached (second tab / zombie socket): the newest connection wins.
@@ -1508,6 +1559,19 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   }, heartbeatMs);
   heartbeat.unref();
 
+  /* ── 2026-09-13: 암호화폐 시세 — every tick that moved the market goes to the watching sockets (one JSON for all) ── */
+  if (market) {
+    market.onTick = (msg) => {
+      let text: string | null = null;
+      for (const c of clients.values()) {
+        if (!c.cryptoWatch || c.ws.readyState !== WebSocket.OPEN) continue;
+        text ??= JSON.stringify(msg);
+        try { c.ws.send(text); } catch { /* the close handler cleans up */ }
+      }
+    };
+    market.start();
+  }
+
   /* ── C-29: operator console (server/tool.ts) ─────────────────────────── */
   const listClients = (): RelayClientInfo[] => {
     const out: RelayClientInfo[] = [];
@@ -1602,8 +1666,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         setMaxClients,
         get maxClients() { return maxClients; },
         collectGarbage,
+        crypto: market,
         close: () => new Promise<void>((done) => {
           clearInterval(heartbeat);
+          market?.close();   // 2026-09-13: stops the tick timer, writes crypto.json synchronously
           if (gcTimer) clearInterval(gcTimer);
           for (const t of graceTimers.values()) clearTimeout(t);
           graceTimers.clear();

@@ -264,7 +264,9 @@ export type ClientToServer =
    */
   | { t: 'lobby:hostDown'; down: boolean }
   /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
-  | ClientToServerAppended2026_09_11b;
+  | ClientToServerAppended2026_09_11b
+  /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
+  | ClientToServerAppended2026_09_13crypto;
 
 export type ServerToClient =
   /**
@@ -312,7 +314,9 @@ export type ServerToClient =
   | { t: 'social:play'; code: PlayerCode; name: string; outcome: PlayOutcome }
   | { t: 'social:error'; code: SocialErrorCode; message: string }
   /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
-  | ServerToClientAppended2026_09_11b;
+  | ServerToClientAppended2026_09_11b
+  /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
+  | ServerToClientAppended2026_09_13crypto;
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
 
@@ -375,6 +379,9 @@ export const PlayerFlags = {
   /* appended (2026-09-11): 사다리 */
   /** Hanging on a ladder (`PlayerRef.climbingLadder`); remotes play the climb pose, `p` moves vertically. */
   CLIMBING: 1 << 29,
+  /* appended (2026-09-13): 탐사 차량 */
+  /** Riding inside the 탐사 차량 (`PlayerRef.roverRide`): remotes hide the avatar · nameplate; enemies do not target this player. */
+  IN_ROVER: 1 << 30,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -810,7 +817,10 @@ export type GameMessage =
   | MealMessage
   /* appended (2026-09-12): 캐릭터 버프 목록 (owner: net — 아래 `CharBuffMessage` 절) */
   | CharBuffMessage
-  | CharBuffRequest;
+  | CharBuffRequest
+  /* appended (2026-09-13): 탐사 차량 (owner: world/rover — 아래 `RoverMessage` 절) */
+  | RoverMessage
+  | RoverRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /**
@@ -1832,3 +1842,72 @@ export interface MealMessage {
   q?: number;
 }
 /* ══ end 2026-09-13 요리 품질 ══ */
+
+/* ══ appended: 2026-09-13 — 탐사 차량 (owner: world/rover · 규칙은 `shared/types.ts` 의 탐사 차량 절) ══
+ * 호스트 권위 — 경로는 시드 결정적이라 흐르는 것은 진행거리 · 상태 · 체력 · 탑승자뿐이다 (`tram` 과 같은 철학).
+ * 받는 쪽은 **로비 호스트가 보낸 것만** 받는다. 요청(`roverq`)은 호스트가 모양 · 보낸 사람(로비 멤버 · 살아 있음) · 거리를 본다.
+ * world/rover 에이전트가 이 절 **안에서만** 변형을 추가할 수 있다 (기존 필드 변경 금지). */
+/**
+ * 차량 한 대의 와이어 상태. `st` = `ROVER_STATES` index · `stn`/`tgt` = 정류장 index (−1 = 없음) · `tm` = `RoverVehicleDef.timer` ·
+ * `rd` = 탑승자 PeerId (호스트 자신도 PeerId) · `rv` = 정류장 공개됨.
+ */
+export interface RoverWire { s: number; dir: 1 | -1; st: number; stn: number; tgt: number; tm: number; hp: number; rd: string[]; rv: 0 | 1 }
+export type RoverMessage =
+  /** 호스트 → 전원: `ROVER_NET_INTERVAL` 마다 + 상태 · 탑승자 · 체력 변화마다. 늦게 합류한 사람의 `roverq sync` 답도 이것이다. */
+  | { t: 'rover'; ev: 'state'; rover: RoverWire }
+  /** 호스트 → 전원: 요청 결과. `to` = 요청자 PeerId, `rid` = 그 요청 번호 — 받는 쪽은 자기 것만. `exit` = 하차 자리 (board 거절 · exit 확정). */
+  | { t: 'rover'; ev: 'reply'; to: string; rid: number; req: 'board' | 'exit' | 'trip'; ok: boolean; reason?: string; exit?: Vec3Tuple }
+  /** 호스트 → 전원: 결제 출발 확정. `by` = 결제자 PeerId — **그 사람만** 크레딧을 낸다. */
+  | { t: 'rover'; ev: 'trip'; by: string; from: number; to: number; fare: number }
+  /** 호스트 → 전원: 강제 하차 (도착 · 파괴). `exits` = 탑승자 PeerId → 내릴 자리. */
+  | { t: 'rover'; ev: 'eject'; reason: 'arrived' | 'destroyed'; exits: Record<string, Vec3Tuple> }
+  /** 호스트 → 전원: 포탑 사격 한 발 (연출 · 소리). `p` = 탄착점. */
+  | { t: 'rover'; ev: 'fire'; p: Vec3Tuple };
+export type RoverRequest =
+  | { t: 'roverq'; ev: 'board'; rid: number }
+  | { t: 'roverq'; ev: 'exit'; rid: number }
+  /** `to` = 정류장 index, `fare` = 요청자가 본 요금 (호스트가 다시 계산해 다르면 거절). */
+  | { t: 'roverq'; ev: 'trip'; rid: number; to: number; fare: number }
+  | { t: 'roverq'; ev: 'sync' };
+/* ══ end 2026-09-13 탐사 차량 ══ */
+
+/* ══ appended: 2026-09-13 — 암호화폐 시세 (docs/plans/power-crypto.md · owner: server/CryptoMarket · net/parts/Crypto) ══
+ * 릴레이가 코인 시세를 시뮬레이션하고(`CRYPTO_TICK_S`) 봉 이력을 저장한다 — 서버에 붙어 있어야 차트 · 매매가 된다 (사용자 결정).
+ * 값의 원본은 `server/economy.gen.json` 의 `crypto` 절(← data/crypto.csv · tuning.csv). 익명 연결도 받는다 (시세는 비밀이 아니다).
+ * 매매 자체는 새 메시지가 아니라 `credits:tx` 의 사유 `cbuy:` · `csell:` 이다 (`shared/credits.ts`). */
+import type { CryptoCandle, CryptoChartRange } from './cryptoMarket';
+
+export type ClientToServerAppended2026_09_13crypto =
+  /** 시세 구독 on / off. 켜 있는 동안 틱마다 `crypto:prices` (켜는 순간 한 번 즉시). 연결이 끊기면 서버가 잊는다 — 재접속 뒤 다시 켠다. */
+  | { t: 'crypto:watch'; on: boolean }
+  /** 한 코인의 한 기간 봉을 요청한다 → `crypto:history`. 모르는 코인 · 기간은 조용히 무시한다. */
+  | { t: 'crypto:history'; coin: string; range: CryptoChartRange };
+
+export type ServerToClientAppended2026_09_13crypto =
+  /** 모든 코인의 지금 시세 (코인 1개당 크레딧) + 24시간 변동률(비율). `at` = 서버 epoch ms. */
+  | { t: 'crypto:prices'; at: number; prices: Record<string, number>; change24h: Record<string, number> }
+  /** `crypto:history` 의 답. 오래된 봉 → 최근 봉, 최대 `CRYPTO_CANDLE_COUNT[range]` 개. 마지막 봉은 아직 진행 중일 수 있다. */
+  | { t: 'crypto:history'; coin: string; range: CryptoChartRange; at: number; candles: CryptoCandle[] };
+
+/** `ctx.net.crypto` — 거래소 화면 · housing 의 견적이 읽는 시세 창구 (owner: net/). */
+export interface CryptoMarketRef {
+  /** 서버에 붙어 있고 시세를 한 번이라도 받았다 (false = 차트 · 매매 불가 — 「서버에 연결되어야 합니다」). */
+  readonly available: boolean;
+  /** 마지막 `crypto:prices` 의 시세. 받은 적 없으면 빈 객체. */
+  readonly prices: Readonly<Record<string, number>>;
+  readonly change24h: Readonly<Record<string, number>>;
+  /** 마지막 시세의 서버 epoch ms (0 = 받은 적 없음). */
+  readonly pricesAt: number;
+  /** 시세 구독을 건다 (참조 계수 — 첫 구독에서 `crypto:watch on`, 마지막 해제에서 off). 돌려받은 함수로 푼다. 재접속하면 스스로 다시 건다. */
+  watch(): () => void;
+  /** 봉 이력을 요청한다 — 도착하면 `net:cryptoHistory {coin, range}`. */
+  requestHistory(coin: string, range: CryptoChartRange): void;
+  /** 마지막으로 받은 봉 이력 (없으면 null). */
+  getHistory(coin: string, range: CryptoChartRange): readonly CryptoCandle[] | null;
+}
+
+export interface NetRef {
+  /* ── appended (2026-09-13): 암호화폐 시세 ── */
+  readonly crypto?: CryptoMarketRef;
+}
+/* ══ end 2026-09-13 암호화폐 시세 ══ */

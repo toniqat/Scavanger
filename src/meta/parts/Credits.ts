@@ -221,6 +221,25 @@ export function addCredits(sys: MetaSystem, delta: number, reason: string): bool
   return true;
   }
 
+/**
+ * 2026-09-13 (암호화폐 매매, `MetaRef.creditsTx`): `addCredits` 와 같은 낙관적 적용인데 **릴레이의 답까지 기다린다** — meta 밖 폴더(housing 의
+ * 거래소)가 크레딧이 정말 움직였을 때만 자기 상태(지갑)를 바꾸기 위해서다. 로컬 검사(0 아래)에서 막히면 곧바로 `{ok:false}`,
+ * 오프라인이면 로컬 적용이 곧 성공이다. 서버가 거절하면 `serverTx` 가 잔액을 되돌린 뒤 `{ok:false, reason}`. 소켓이 끊겨 답이 없으면
+ * (`serverTx` → null) **실패로 보고 로컬 적용을 되돌린다** — 지갑이 「성공했을 때만 바뀐다」 는 약속이 먼저이고, 서버가 사실은 처리했더라도
+ * 다음 `net:profileLoaded` 가 잔액을 서버 값으로 맞춘다 (`addCredits` 의 「끊기면 로컬 값 유지」 와 다른 이유다).
+ */
+export function creditsTx(sys: MetaSystem, delta: number, reason: string): Promise<{ ok: boolean; reason?: string }> {
+  const d = Math.round(Number(delta) || 0);
+  if (!sys.applyCreditsLocal(d, reason)) return Promise.resolve({ ok: false, reason: REASON.credits });
+  if (d === 0 || !sys.serverCredits) return Promise.resolve({ ok: true });
+  return sys.serverTx(d, reason).then((res) => {
+    if (res && res.ok) return { ok: true };
+    if (res) return { ok: false, reason: res.reason || REASON.credits };   // 거절 — `serverTx` 가 이미 되돌렸다
+    sys.applyCreditsLocal(-d, `revert:${reason}`);
+    return { ok: false, reason: '서버 응답이 없습니다' };
+  });
+}
+
 export function addRep(sys: MetaSystem, corp: CorpId, delta: number, reason: string): void {
   const c = sys.store.corp(corp);
   const before = c.rep;

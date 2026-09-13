@@ -24,7 +24,7 @@ export function grabLadder(sys: PlayerSystem, ladder: LadderDef, from: 'bottom' 
   const c = sys.controller;
   if (!ladder || c.climbing) return false;
   if (!sys.spawned || sys.isDead || sys._downed || !sys.controlsEnabled) return false;
-  if (sys._droneControl) return false;   // 2026-09-11: 드론 조종 중에는 `ladder:grab` 을 무시한다
+  if (sys._droneControl || sys._roverRide) return false;   // 2026-09-13: 탐사 차량 안도 마찬가지   // 2026-09-11: 드론 조종 중에는 `ladder:grab` 을 무시한다
   if (sys.furn.kind !== null) return false;   // 2026-09-12: 가구 자세 중에도 (`parts/FurniturePose`)
   if (sys._carrying || sys.carriedSocket || sys.carryLock > 0 || sys._inPod) return false;
   if (sys._interior || sys.shipBounds || sys.attachedParent) return false;

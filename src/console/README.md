@@ -11,7 +11,7 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `console.css` | Bottom bar styling (z-index 90, mono font, line colours by `ConsoleLineKind`) |
 | `commands/index.ts` | `builtinCommands(host)` — the list below, in `help` order; `BuiltinHost` = what commands need beyond `ConsoleRef` (`clearLog`, `setMoveCheat`, `moveCheat`) |
 | `commands/types.ts` | `BuiltinHost`, `CommandFactory`, helpers `err`, `parseNumber`, `fmt` |
-| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `gym.ts` `cook.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
+| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `gym.ts` `cook.ts` `crypto.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
 | `ColliderOverlay.ts` | (2026-09-12) `colliders` 명령의 와이어프레임 — `ctx.world.getObstacles()` 중 플레이어(없으면 카메라) 둘레 30 m 를 `LineSegments` 하나에 0.25 초마다 다시 채운다 (원기둥 노랑 · 상자 하늘 · 경사 초록 · 볼록 윤곽 주황 + 총알 층 어두운 주황). 깊이 검사 끔 · 광원 없음 · 게임플레이 페이즈에서만 보인다 · 끄면 dispose |
 | `index.ts` | exports `ConsoleSystem` |
 
@@ -30,6 +30,8 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `cook [give <요리 id\|이름> [품질 0-5] [수량]]` | anywhere | (2026-09-13, 요리 미니게임) **공개 ref 만** 쓴다. 인자 없음 → `조리 중: <요리> (단계 n개)`(`ctx.housing.cookSession`) 또는 `조리 중이 아닙니다` + 사용법. `give` → 요리 def(`ItemDef.meal` 이 있는 것 — id 대소문자 무시 · 한국어 이름 · 띄어쓰기를 뺀 이름)를 `ctx.loot.createItem(id, n)` 으로 만들고 `quality`(0 이면 안 붙인다)를 붙여 `ctx.inventory.tryAddItem` — 수량은 `stackMax` 묶음으로 나눠 넣고 자리가 없으면 넣은 만큼만(빨간 줄 `가방에 자리가 모자랍니다: <요리> ★★★☆☆ ×2 / 5`). 이름에 띄어쓰기가 있을 수 있어 **끝의 숫자 토큰**(최대 둘)을 품질 · 수량으로 읽는다. 품질은 0 … `MEAL_QUALITY_MAX` 정수, 수량은 1 … 99. 조리대 요리가 아니면(`cookStepsOf` 빈 배열) 줄 끝에 `· 조리대 요리 아님`. 오류: `알 수 없는 요리` · `요리가 아닙니다`(아이템은 있는데 요리가 아님) · 품질 · 수량 범위. `complete` = `give`, 그 뒤 은퇴하지 않은 요리 id / 이름 |
 | `pos` | anywhere | Phase (+ 멀티플레이 / ship / room), feet position, yaw, world seed |
 | `worm [뱉기초]` | gameplay phases, authority (not the 훈련장) | (2026-09-13) 지하벌레 이벤트를 **지금** 내 발밑에서 시작한다 — 굴림 · 시각 창 · 레이드당 1회를 무시. `뱉기초` = 이번 분출의 버그 뱉기 단계 길이(초, 0 = 곧장 독극물). enemies/ 를 import 하지 않고 `cheat:sandworm {spitS?}` 버스 명령만 낸다 (`EnemySystem` → `sandworm/Director.debugForce`). `commands/worm.ts` |
+| `crypto [wallet <coin> <coins> \| cores <uid\|all> <n> \| ff <hours>]` | anywhere | (2026-09-13, 암호화폐 채굴) **공개 `HousingRef` 만** 쓴다 (`commands/crypto.ts`, 내보내는 이름은 전역 `crypto` 를 가리지 않게 `cryptoCmd`). 인자 없음 → 클러스터마다 `f-12 (방 4) · 스크랩코인 · 코어 3/9 · 주기 03:00:00 · 진행 42 % · 채굴 중 (…)` / `멈춤 — <사유>` + 메인 컴퓨터 uid + 지갑. `wallet <coin> <coins>` → 잔고를 그 코인 개수로 **맞춘다**(`devSetCryptoWallet(coin, coinToUnits(n))` — id · 티커 · 이름). `cores <uid\|all> <n>` → 아이템 없이 코어 n 개(`devSetClusterCores`, 끝난 주기 넣고 접는다). `ff <hours>` → `devAdvanceMining(hours)` 뒤 넣은 단위 + 상태. dev 메서드가 없으면 빨간 줄. `complete` = `wallet` / `cores` / `ff`, 그 뒤 코인 id · `all` + 클러스터 uid |
+| `rover [tp\|hp <n>\|speed <배수>\|depart\|arrive]` | gameplay phases (not the 훈련장); cheats authority only | (2026-09-13) 탐사 차량. 인자 없음 → 상태 한 줄(상태 · 체력 · 정류장 → 목적지 · 타이머 · 탑승 수 · 정류장 수 · 공개 여부). `tp` = 내 몸을 차 옆으로 (`PlayerRef.teleport`). `hp` · `speed` · `depart`(정차 · 유예 타이머 0) · `arrive`(달리는 중이면 목적지 6 m 앞으로) 는 world/ 를 import 하지 않고 `cheat:rover {action, value?}` 버스 명령만 낸다 (`world/rover/Rover.cheat`). `commands/rover.ts` |
 | `colliders [0\|1]` | anywhere (draws in gameplay phases) | (2026-09-12) Toggle (no arg = flip) the collider wireframe around the player (`ColliderOverlay`). Prints `콜라이더 표시 켜짐 (n개)`. For hunting "보이지 않는 벽" — the colliders buried inside walls show because depth test is off. `complete` = `0` / `1` |
 
 Other folders add commands with `ctx.console.register({ name, usage, description, run, complete? })` (returns the unregister
@@ -86,12 +88,16 @@ events at its virtual position, so the suggestion list's mouse wiring and the in
 polls neither `input.mouseX / mouseY` nor `document.elementFromPoint`, so nothing else needed migrating. The console
 is still dev-client only (`isDevHost()`), so this path never runs for a player.
 
+- **2026-09-13 (탐사 차량, R2)** — 명령 `rover [tp|hp <n>|speed <배수>|depart|arrive]` + `commands/rover.ts` (위 표), `help` 순서에서 `worm` 다음.
+  새 이벤트 `cheat:rover` (`shared/events.ts` 의 탐사 차량 절). `scripts/smoke-rover.mjs` 가 같은 버스 명령으로 이동 · 파괴를 앞당긴다.
 - **2026-09-13 (지하벌레)** — 명령 `worm [뱉기초]` + `commands/worm.ts` (위 표). 콘솔은 `cheat:sandworm` 을 낼 뿐이고(새 이벤트, `shared/events.ts`
   끝에 추가) 검사는 게임플레이 페이즈 · 권위 · 훈련장 아님까지만 — 전조가 이미 돌고 있으면 enemies/ 가 조용히 무시한다. 스모크는 같은 경로의
   `EnemySystem.debugSandworm` 을 직접 부른다 (`scripts/smoke-sandworm.mjs`).
 - **2026-09-13 (요리 미니게임, 에이전트 cook-misc — docs/plans/cooking-minigames.md §6-5)** — 명령 `cook [give <요리 id|이름> [품질 0-5] [수량]]` +
   `commands/cook.ts` (위 표), `commands/index.ts` 의 `help` 순서에서 `gym` 다음. 품질 붙은 요리를 가방에 넣어 툴팁 별 · 품질 스택 분리 · 식탁 · 버프 별을
   조리 미니게임 없이 확인하려고 만들었다. `ItemInstanceExtras` 에 `quality` 가 없어(계약은 `ItemInstance.quality?` 만 더했다) `createItem` 뒤 인스턴스에 직접 적는다.
+- **2026-09-13 (암호화폐 채굴)** — 명령 `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` + `commands/crypto.ts` (위 표), `help` 순서에서 `rover` 다음.
+  계약 `HousingRef` 에 dev optional 3종(`devSetCryptoWallet` · `devSetClusterCores` · `devAdvanceMining`)을 추가했다. `smoke-mining` 이 모듈을 직접 불러 `wallet` · 상태 출력을 본다.
 - **2026-09-12 (헬스장 A-3a)** — 명령 `gym [clear [str|end] | <str|end> <±xp>]` + `commands/gym.ts` (위 표). **공개 `ProgressionRef` API 만**
   쓴다: 상태는 단련 · 디버프 질의 넷, 경험치는 리드가 계약 끝에 더한 dev 전용 `addTrainedXp?(id, xp)`, 지우기는 `clearGymFatigue?(id?)`
   (둘 다 optional 이라 `typeof` — 없으면 무엇이 없는지 빨간 줄). `applyGymSession` 은 부르지 않는다(세션 상한 · 디버프가 붙는다).

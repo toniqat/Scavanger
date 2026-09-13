@@ -10,6 +10,7 @@ import type {
 import { ShipStore, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
 import type { SanitizeOutcome } from './ShipState';
 import { mergeCost } from './Rules';
+import { placementBlockReason } from './Rules';                 // 2026-09-13 배치 규칙 (접근 면)
 import { GrowStation } from './ui/GrowStation';
 import { Analyzer } from './ui/Analyzer';
 import { CultureTank } from './ui/CultureTank';
@@ -29,16 +30,22 @@ import * as Lab from './parts/Lab';
 import * as Culture from './parts/Culture';
 import * as Dining from './parts/Dining';
 import * as Sockets from './parts/Sockets';                  // 요리 재료 티어 (2026-09-13)
+import * as Power from './parts/Power';                      // 발전기 전력 (2026-09-13)
 import * as Lib from './parts/Library';
 import * as Preset from './parts/Presets';
 import * as Gym from './parts/Gym';                          // 헬스장 (A-3a)
 import type { GymState } from './parts/Gym';
 import { GymScreen } from './ui/gym/GymScreen';
 import * as Cooking from './parts/Cooking';                  // 요리 미니게임 (2026-09-13)
+import * as Mining from './parts/Mining';                    // 암호화폐 채굴 (2026-09-13)
+import type { ComputeClusterInfo, CryptoCoinInfo, CryptoQuote, CryptoTradeSide } from '@/shared';
 import type { CookState } from './parts/Cooking';
 import { CookScreen } from './ui/cook/CookScreen';
 import { CookStation } from './ui/cook/CookStation';
 import type { CookAutoInfo, CookGame, CookSessionInfo, CraftRecipe } from '@/shared';
+import type { MiningComputerTab } from '@/shared';
+import { ClusterScreen, openComputeClusterScreen } from './ui/mining/ClusterScreen';    // 암호화폐 채굴 화면 (2026-09-13)
+import { MiningComputer, openMiningComputerScreen } from './ui/mining/MiningComputer';
 
 export class HousingSystem implements GameSystem, HousingRef {
   readonly name = 'housing';
@@ -100,15 +107,22 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.pendingRefund = loaded.refund;
     this.migrated = loaded.migrated;
     this.granted = loaded.granted;
+    this.evictNotice = loaded.evicted;
     this.nextUid = maxUidIndex(this.state.furniture);
   }
+
+  /**
+   * 2026-09-13 (배치 규칙, 사용자 결정): `sanitize` 가 접근 면 규칙을 어기는 옛 배치를 가구 창고로 옮긴 조각 수. 첫 `update` 에서 한 번 알린다
+   * (생성자 시점에는 알림을 받을 HUD 가 없다). 옮긴 결과는 곧바로 저장한다 — 서버 사본도 다음 로드에서 같은 답을 낸다.
+   */
+  private evictNotice = 0;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
   init(ctx: GameContext): void {
     this.ctx = ctx;
     ctx.housing = this;
     this.store = new ShipStore(() => this.state, () => this.profileRef());
-    if (this.fresh || this.migrated || this.granted) this.store.markDirty();
+    if (this.fresh || this.migrated || this.granted || this.evictNotice > 0) this.store.markDirty();
     // v7 · v8: the moved levels / removed rooms are a local edit the server copy has never seen — a welcome inside the debounce must not undo it
     if (this.migrated) this.editPending = true;
     this.growStation = new GrowStation(ctx, this);
@@ -121,6 +135,10 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.cookStation = new CookStation(ctx, this);             // 요리 미니게임 (2026-09-13)
     this.cookScreen = new CookScreen(ctx, this);
     this.unsubs.push(...Cooking.bindCooking(this));
+    this.unsubs.push(...Power.bindPower(this));                // 발전기 전력 (2026-09-13) — 첫 계산(멈춤 기록 기준)도 여기서
+    this.unsubs.push(...Mining.bindMining(this));              // 암호화폐 채굴 (2026-09-13)
+    this.clusterScreen = new ClusterScreen(ctx, this);         // 암호화폐 채굴 화면 (2026-09-13, 에이전트 ④)
+    this.miningComputer = new MiningComputer(ctx, this);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -136,6 +154,11 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   update(_dt: number, ctx: GameContext): void {
     if (this.pendingRefund.length) this.flushRetiredRefund();
+    Mining.tickMining(this);                                   // 암호화폐 채굴: 끝난 주기를 지갑에 (1 Hz, 2026-09-13)
+    if (this.evictNotice > 0) {
+      this.notify(`배치 규칙에 맞지 않는 가구 ${this.evictNotice}개를 가구 창고로 옮겼습니다`, 'warning');
+      this.evictNotice = 0;
+    }
     if (this.housingMode && (ctx.phase !== 'hub' || ctx.hub?.ship !== 'personal')) this.exitHousingMode();
   }
 
@@ -150,6 +173,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.gymScreen?.dispose(); this.gymScreen = null;          // 헬스장 (A-3a)
     this.cookScreen?.dispose(); this.cookScreen = null;        // 요리 미니게임 (2026-09-13)
     this.cookStation?.dispose(); this.cookStation = null;
+    this.clusterScreen?.dispose(); this.clusterScreen = null;  // 암호화폐 채굴 화면 (2026-09-13)
+    this.miningComputer?.dispose(); this.miningComputer = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -221,7 +246,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     // …unless the server copy itself was a pre-v8 document `sanitize` just migrated (room levels · 방 9 · 10 · 시뮬레이션실 /
     // 휴식 공간) or one missing a 공용 시설 가구 it had to put back: upload it once
     // (2026-09-13: or a pre-v10 document that just got the 조종석 꾸밈 가구)
-    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit || out.migratedCockpit) this.store?.markDirty();
+    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit || out.migratedCockpit || out.migratedPower) this.store?.markDirty();
+    // 2026-09-13 (배치 규칙): 서버 사본의 옛 배치도 같은 규칙으로 가구 창고에 옮겨졌다 — 알리고 한 번 올린다
+    if (out.evictedByAccess) { this.evictNotice += out.evictedByAccess; this.store?.markDirty(); }
     const b = this.ctx.bus;
     b.emit('housing:loaded', { state: this.state });
     b.emit('housing:changed', { reason: 'profile' });
@@ -233,6 +260,15 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.editPending = true;
     this.store?.markDirty();
     this.ctx.bus.emit('housing:changed', { reason });
+  }
+
+  /**
+   * 2026-09-13 (발전기 전력): 저장만 예약한다 — `housing:changed` 를 내지 않는다. `parts/Power.recompute` 가 멈춤 기록 · 자동 보충을
+   * `housing:changed` 를 받은 자리에서 쓰므로, 여기서 다시 내면 끝없이 돈다.
+   */
+  saveSoon(): void {
+    this.editPending = true;
+    this.store?.markDirty();
   }
 
   /** Units of `defId` in bag + stash (0 while inventory has no `countDefAll`). */
@@ -379,6 +415,15 @@ export class HousingSystem implements GameSystem, HousingRef {
   getStored(): readonly StoredFurniture[] { return Furn.getStored(this); }
 
   canPlace(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean { return Furn.canPlace(this, room, defId, x, y, yaw, ignoreUid); }
+
+  /**
+   * 2026-09-13 (배치 규칙 — 계약 `HousingRef.placementBlock`): 놓을 수 없는 한국어 사유, null = `canPlace` 가 true.
+   * 순서 · 문장은 `Rules.placementBlockOf` 한 곳 (자리 → 용도 → 격자 → 고정 소품 → 쌓기 → 겹침 → 내 접근 면 → 남의 접근 면).
+   */
+  placementBlock(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): string | null {
+    const def = this.getFurnitureDef(defId);
+    return def ? placementBlockReason(this.state, room, def, x, y, yaw, ignoreUid) : '알 수 없는 가구입니다';
+  }
 
   /**
    * 자동 배치가 고를 자리 (2026-09-10): 화면 좌측 상단부터 가로줄 먼저, 가구는 화면 아래를 향한다 (yaw 1).
@@ -717,6 +762,27 @@ export class HousingSystem implements GameSystem, HousingRef {
   get cookDebug(): Cooking.CookDebug { return Cooking.cookDebug(this); }
   /* ══ 요리 미니게임 끝 ══ */
 
+  /* ══ 암호화폐 채굴 화면 (2026-09-13, 에이전트 ④) ══ — `ui/mining/` (클러스터 화면 · 메인 컴퓨터). 규칙 · 지갑 · 매매는 `parts/Mining` (에이전트 ③). */
+  /** 연산 클러스터 화면 (코어 칸 3×3 · 코인 지정 · 함선 창고 / 가방). */
+  clusterScreen: ClusterScreen | null = null;
+  /** 메인 컴퓨터 화면 (클러스터 현황 · 지갑 · 거래소). */
+  miningComputer: MiningComputer | null = null;
+  openComputeCluster(uid: string): void { return openComputeClusterScreen(this, uid); }
+  openMiningComputer(uid: string | null, tab?: MiningComputerTab): void { return openMiningComputerScreen(this, uid, tab); }
+  /* ══ 암호화폐 채굴 화면 끝 ══ */
+
+  /* ══ 발전기 전력 (2026-09-13) ══ — 할당 · 비활성화 · 멈춤 (`parts/Power.ts` · 순수 판정 `PowerRules.ts`). */
+  getPowerOverview(): import('@/shared').PowerOverview { return Power.getPowerOverview(this); }
+  getFacilityPower(room: number): import('@/shared').FacilityPowerInfo | null { return Power.getFacilityPower(this, room); }
+  setPowerAllocation(room: number, amount: number): string | null { return Power.setPowerAllocation(this, room, amount); }
+  isFurnitureDisabled(uid: string): boolean { return Power.isFurnitureDisabled(this, uid); }
+  setFurnitureDisabled(uid: string, disabled: boolean): string | null { return Power.setFurnitureDisabled(this, uid, disabled); }
+  furnitureOperationalBlock(uid: string): string | null { return Power.furnitureOperationalBlock(this, uid); }
+  stationNow(uid: string): number { return Power.stationNow(this, uid); }
+  getOperationalBenchLevel(kind: WorkbenchKind): number { return Power.getOperationalBenchLevel(this, kind); }
+  benchOperationalBlock(kind: WorkbenchKind): string | null { return Power.benchOperationalBlock(this, kind); }
+  /* ══ 발전기 전력 끝 ══ */
+
   /* ── loadout presets (은퇴 — 2026-09-12 사용자 결정 「프리셋 기능 제거」: 전부 「슬롯 없음」으로 답한다, `parts/Presets.ts`) ── */
   getPresetCount(): number { return Preset.getPresetCount(this); }
 
@@ -749,6 +815,22 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   /** Close every panel; `relock` false when another panel opens right away. */
   closeMenus(relock = true): void { return Preset.closeMenus(this, relock); }
+
+  /* ══ 암호화폐 채굴 (2026-09-13) ══ — 연산 클러스터 · 지갑 · 거래소 (`parts/Mining.ts` · 순수 규칙 `MiningRules.ts`). 화면(`openComputeCluster` · `openMiningComputer`)은 ui 쪽. */
+  getCryptoCoins(): CryptoCoinInfo[] { return Mining.getCryptoCoins(this); }
+  getCryptoWallet(): Readonly<Record<string, number>> { return Mining.getCryptoWallet(this); }
+  getMiningComputerUid(): string | null { return Mining.getMiningComputerUid(this); }
+  getComputeClusters(): ComputeClusterInfo[] { return Mining.getComputeClusters(this); }
+  getComputeCluster(uid: string): ComputeClusterInfo | null { return Mining.getComputeCluster(this, uid); }
+  setClusterCoin(uid: string, coinId: string | null): string | null { return Mining.setClusterCoin(this, uid, coinId); }
+  insertClusterCores(uid: string, qty: number): string | null { return Mining.insertClusterCores(this, uid, qty); }
+  removeClusterCores(uid: string, qty: number, dest?: HarvestDestination): string | null { return Mining.removeClusterCores(this, uid, qty, dest); }
+  cryptoQuote(coinId: string, side: CryptoTradeSide, units: number): CryptoQuote | null { return Mining.cryptoQuote(this, coinId, side, units); }
+  tradeCrypto(coinId: string, side: CryptoTradeSide, units: number): Promise<string | null> { return Mining.tradeCrypto(this, coinId, side, units); }
+  devSetCryptoWallet(coinId: string, units: number): string | null { return Mining.devSetCryptoWallet(this, coinId, units); }
+  devSetClusterCores(uid: string, cores: number): string | null { return Mining.devSetClusterCores(this, uid, cores); }
+  devAdvanceMining(hours: number): number { return Mining.devAdvanceMining(this, hours); }
+  /* ══ 암호화폐 채굴 끝 ══ */
 
   save(): void { this.store?.flush(); }
 }

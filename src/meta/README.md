@@ -15,7 +15,7 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `model.ts` | 폴더 공용 어휘 — `MetaSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `MetaSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Trade.ts` | **기업 상점: 구매 · 판매 · 가격**. 신뢰도가 무엇을 팔지 정하고(`getShop`), 크레딧은 릴레이가 있으면 **서버 트랜잭션**이다: 낙관적으로 차감 → `credits:tx` → `ok` 에서 아이템 지급, 실패하면 전액 되돌림. 오프라인이면 같은 검사를 로컬에서 미리 하고 끝낸다. |
 | `parts/Contracts.ts` | **계약 · 퀘스트**. 계약은 하나만 활성이고 목표 카운터가 버스 이벤트(`enemy:killed` / `crate:open` / …)에서 오른다. 분대원의 진척은 `meta contractHit` 로 공유되고, 레이드가 끝나면 `settleMission` 이 `outcome` 에 따라 정산한다. 퀘스트는 가방 + 창고에서 납품받는 사슬이다. **훈련장에서는 아무것도 세지 않는다.** |
-| `parts/Credits.ts` | **크레딧 · 신뢰도 · 서버 프로필**. 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다. `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다. 분대 중계(`meta` · `metaq`)의 검증 — 로비 멤버 · 킬 목표 무시 · 토큰 버킷 · `rid` 짝맞춤 — 도 여기다 (2026-09-11 E-4). |
+| `parts/Credits.ts` | **크레딧 · 신뢰도 · 서버 프로필**. 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다. `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다. 분대 중계(`meta` · `metaq`)의 검증 — 로비 멤버 · 킬 목표 무시 · 토큰 버킷 · `rid` 짝맞춤 — 도 여기다 (2026-09-11 E-4). **2026-09-13**: `creditsTx(delta, reason)` — `MetaRef.creditsTx` 구현. `addCredits` 처럼 낙관적으로 적용하되 릴레이 답까지 기다린다: 로컬 잔액 부족 → `{ok:false, reason:'크레딧 부족'}`, 오프라인 · delta 0 → `{ok:true}`, 거절 → `serverTx` 가 되돌리고 `{ok:false, reason}`, 답 없음(`null`) → **로컬 적용을 되돌리고** `{ok:false, reason:'서버 응답이 없습니다'}` (housing 거래소가 「성공했을 때만 지갑을 바꾼다」). |
 | `parts/ImplantDesk.ts` | **세레스 바이오 임플란트 수리 데스크** (Phase 12). 레이드에서는 **망가진 임플란트만** 나온다. 여기서 재료 + 수수료를 내고 고치면 쓸 수 있는 물건이 된다. 크레딧 경로는 구매와 완전히 같고(서버 트랜잭션 / 오프라인 분기), 실패하면 재료까지 전액 되돌린다. |
 | `parts/Console.ts` | 개발자 콘솔 명령 `credits` / `rep` / `contract` / `quest` / `implant`. dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다. |
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
@@ -301,6 +301,8 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 ## 변경 이력
 
+- **2026-09-13 (암호화폐 매매용 `creditsTx` — 에이전트 ③, docs/plans/power-crypto.md)** — `parts/Credits.creditsTx` + `MetaSystem.creditsTx` 한 줄 위임 (위 표).
+  사유 문자열은 부르는 쪽(housing)이 `formatCreditReason({kind:'crypto-buy'|'crypto-sell', id, qty})` 로 만든다. `addCredits` · `serverTx` 는 그대로다.
 - **2026-09-13 (킬 계약이 인간형 적 전부를 센다 — 행성별 적 난이도, faction-presentation, docs/plans/enemy-factions.md)** — `Rules.killGoalOf`
   가 `rogue` · `rogue_boss` 만 `kill_rogues` 로 세고 **네임드 3종(로든 · 타길라 · 헤비)을 벌레(`kill_bugs`)로 잘못 세고 있었다.** 이제
   `data/enemies.csv` 의 `faction` 열을 모듈 로드 때 한 번 읽어(`csvRows`) 벌레가 아닌 타입 전부 — 로그 · 그룹장 · 안드로이드 · 레이더 ·

@@ -16,7 +16,11 @@ import {
   type EnvKind,
   /* appended (2026-09-13): 거점 스폰 자리 */
   type RuinSiteDef, type SiteSpawnPlace,
+  /* appended (2026-09-13): 탐사 차량 */
+  type RoverRef,
 } from '@/shared';
+import { Rover } from './rover/Rover';
+import { RoverRoad } from './rover/RoverRoad';
 import { SiteSpawns } from './SiteSpawns';
 import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
 import { Ambience } from './Ambience';
@@ -99,6 +103,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly crates = new Crates();
   private readonly structures = new Structures();
   private readonly rails = new Rails();
+  /** 2026-09-13: 탐사 차량 — 경로 · 흙길 · 정류장 (R1) 과 차량 본체 (R2). */
+  private readonly roverRoad = new RoverRoad();
+  private readonly roverSys = new Rover();
   private readonly gather = new Gather();
   private readonly hazardSys = new Hazard();
   private readonly ambience = new Ambience();
@@ -173,6 +180,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.gather.attach(ctx);
     this.structures.attach(ctx);
     this.rails.attach(ctx);
+    this.roverSys.attach(ctx);
     this.ensureOpenNet();
     this.unsubs.push(
       // `mode` / `planet` travel on the event; a rejoin without them falls back to `ctx.missionMode` / `ctx.missionPlanet`
@@ -200,6 +208,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.crates.update(dt, t);
     this.structures.update(dt, t, this.eyeFor(ctx));
     this.rails.update(dt, t);
+    this.roverSys.update(dt, t);
     this.gather.update(dt, t);
     this.hazardSys.update(dt, ctx);
     this.ambience.update(dt, ctx.camera);
@@ -211,6 +220,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.gather.detach();
     this.structures.detach();
     this.rails.detach();
+    this.roverSys.detach();
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.root.removeFromParent();
@@ -275,6 +285,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     lap('structures');
     this.rails.build(bctx, ctx);
     lap('rails');
+    /* 2026-09-13 — 탐사 차량도 **소품 · 상자 앞**이다: 흙길 회랑 · 정류장 기둥 · 차체가 먼저 hash 에 들어가야 `isSpotFree` 가 피한다.
+     * 경로 자체(`layout.rover`)는 선로처럼 `generateLayout` 이 먼저 잡아 두었다. 경로를 못 놓았으면 차량이 없다. */
+    this.roverRoad.build(bctx, ctx);
+    if (this.roverRoad.route) this.roverSys.build(this.roverRoad.route, bctx);
+    lap('rover');
     /* 2026-09-09 — 환경 재해도 **소품 · 상자 앞**이다: 거대 버섯 군락의 줄기가 먼저 hash 에 들어가야
      * `isSpotFree` 가 군락 한가운데를 피한다. 재해 종류 · 시작 시각은 미션 시드에서만 나오므로
      * 여기서 만들어도 클라이언트끼리 어긋나지 않는다. */
@@ -306,7 +321,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     // 전장의 안개는 레이드에서만 — 스폰 주변은 미리 밝혀 둔다 (강하 지점은 분대가 이미 아는 자리다)
     this.fogMask = new Fog();
     this.fogMask.attach(ctx);
-    this.fogMask.setOutposts(this.outposts.getSites());   // 2026-09-11 (C-11): 폐허 전초 발견 → 지도 아이콘
+    this.fogMask.setOutposts(this.outposts.getSites());
+    this.fogMask.setRoverStations(this.roverRoad.route?.stations ?? []);   // 2026-09-13: 탐사 차량 정류장 발견 → 지도   // 2026-09-11 (C-11): 폐허 전초 발견 → 지도 아이콘
     this.fogMask.reveal(sp.x, sp.z, FOG_REVEAL_RADIUS);
 
     lap('ambience+fog');
@@ -379,6 +395,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.ambience.dispose();
     this.hazardSys.dispose();
     this.gather.dispose();
+    this.roverSys.dispose();
+    this.roverRoad.dispose();
     this.rails.dispose();
     this.structures.dispose();
     this.crates.dispose();
@@ -915,6 +933,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   getTrams(): readonly TramDef[] { return this.mode === 'training' ? NONE_TRAMS : this.rails.getTrams(); }
   /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
   get hazard(): HazardRef | null { return this.mode === 'training' ? null : this.hazardSys.ref; }
+  /** 2026-09-13: 이번 레이드의 탐사 차량. 훈련장 · 경로 없음 · 준비 전이면 null. */
+  get rover(): RoverRef | null { return this.mode === 'training' || !this.ready ? null : this.roverSys.ref; }
   /**
    * 2026-09-11 (A-13): 이번 레이드 행성의 **상시 환경** (`data/planets.csv` 의 `env`), 없으면 null.
    * `getPlanet(id)?.env` 를 그대로 돌려주는 얇은 질의다 — 행성 id 를 들고 다니지 않아도 되도록 world 가

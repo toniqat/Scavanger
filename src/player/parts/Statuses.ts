@@ -49,6 +49,7 @@ export function setBurning(sys: PlayerSystem, dps: number, duration: number): vo
     if (sys._burning) { sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0; sys.ctx.bus.emit('player:burning', { active: false, dps: 0 }); }
     return;
   }
+  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안에는 불이 붙지 않는다
   const wasBurning = sys._burning;
   sys.burnDps = Math.max(sys.burnDps, dps);
   sys.burnTimer = Math.max(sys.burnTimer, duration);
@@ -128,6 +129,8 @@ export function updateEnv(sys: PlayerSystem, dt: number, ctx: GameContext): void
     ctx.bus.emit('player:envChanged', { env, protected: guarded });
   }
   if (env === null || guarded) return;
+  // 2026-09-13: 탐사 차량 안은 밀폐돼 있다 — 노출 상태(배지)는 그대로 두고 피해만 없다
+  if (sys._roverRide) { sys.envTick = 0; return; }
   // 전투불능 · 사망 · 강하 포드 안 · 아직 안 내린 몸은 대기를 마시지 않는다.
   if (!sys.spawned || sys.isDead || sys._downed) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;

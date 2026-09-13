@@ -384,3 +384,13 @@ export function itemCreditValue(def: Pick<ItemDef, 'value'> | null | undefined, 
   if (!def || !Number.isFinite(def.value)) return 0;
   return Math.max(0, Math.round(def.value * Math.max(1, Math.floor(qty))));
 }
+
+/* ══ appended: 2026-09-13 — 암호화폐 매매 (docs/plans/power-crypto.md) ══ */
+export interface MetaRef {
+  /**
+   * 크레딧 트랜잭션을 **끝까지 기다린다** (meta 밖 폴더용 — housing 의 거래소). 릴레이가 있으면 `addCredits` 처럼 낙관적으로 적용하고
+   * `credits:tx` 의 답을 기다려 `{ok: true}`, 거절이면 잔액을 되돌린 뒤 `{ok: false, reason}` (한국어). 오프라인이면 `addCredits` 와 같은
+   * 검사만 하고 곧바로 끝난다. `reason` 은 `formatCreditReason` 문법이어야 한다 (릴레이가 해석한다).
+   */
+  creditsTx?(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }>;
+}

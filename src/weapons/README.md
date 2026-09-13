@@ -314,6 +314,9 @@ still runs at the item's own rate).
 
 ## 변경 이력
 
+- **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `droneLatch` 가 `ctx.player.roverRide` 동안에도 선다 (사격 · 장전 · 교체 · 근접 · T · 휠이
+  멈추고, 내린 뒤 LMB · RMB · R 을 뗄 때까지 새지 않는다). `parts/QuickUse.updateDetonator` 는 탑승 중 기폭기 손을 총으로 돌리지 않는다.
+
 - **2026-09-12 (전투 소모품 3종 — 에이전트 A1)** — 아드레날린 주사 · 각성제 · 안정제(`@/items` 의 `boostItemOf`)가 회복약과 같은
   **퀵 사용 홀드** 길을 탄다 — 사용 중 이동 50 % · LMB 떼면 취소 · 소모 시점이 같다. `model.useTimeOf` 가 `boostUseTime`(3 초)을
   돌려주고(퍽 `quick_heal` 이 반으로 줄이는 것도 같다), `parts/Healing.beginHeal` 은 이 셋에 **"체력 가득이면 거절" 을 걸지 않는다**

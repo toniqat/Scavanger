@@ -163,6 +163,8 @@ try {
       let boxes = 0, worst = -Infinity, worstRow = null;
       for (const o of world.getObstacles()) {
         if (!o.box) continue;
+        // 2026-09-13: 탐사 차량 차체는 경로를 따라 움직이는 상자다 — 구조물 · 선로가 그린 범위와 무관하다
+        if (o.kind === 'rover') continue;
         boxes++;
         // 2026-09-12: 컨테이너도 상자 콜라이더가 됐다 — 구조물 둘레면 그 구조물, 아니면 선로 플랫폼 것이다
         const near = structs.find((s) => Math.hypot(s.x - o.position.x, s.z - o.position.z) < s.radius + 12)?.id;
@@ -368,7 +370,9 @@ try {
 
       // 조명 풀
       const pool = st.lights;
-      return { rows, wreckScan, ramps, worstStep, worstEnd, win, markOk, pool: pool ? { size: pool.size, fixtures: pool.fixtureList.length } : null };
+      // 2026-09-13: 계단이 생길 이유(2층 · 지하실 · 선로 플랫폼)가 하나도 없는 시드는 경사가 0개인 것이 맞다 (흙길 회랑으로 배치가 바뀌어 seed 7 이 그렇게 됐다)
+      const needRamps = rows.some((r) => r.storeys >= 2) || world.getStructures().some((s) => s.hasBasement) || world.getRailLines().length > 0;
+      return { rows, wreckScan, ramps, needRamps, worstStep, worstEnd, win, markOk, pool: pool ? { size: pool.size, fixtures: pool.fixtureList.length } : null };
     });
     ok(b.rows.length >= 1 && b.rows.every((r) => r.ladders >= 1), `전진기지 · 연구실마다 옥상 사다리가 있다 (${b.rows.map((r) => `${r.id}:${r.storeys}층`).join(', ')})`, JSON.stringify(b.rows));
     ok(b.rows.every((r) => r.roofStand !== null && Math.abs(r.roofStand) < 0.1), '사다리 꼭대기의 내리는 자리가 옥상 바닥이다', JSON.stringify(b.rows.map((r) => r.roofStand)));
@@ -376,7 +380,8 @@ try {
     ok(b.rows.every((r) => r.scanOnRoof), '맵 스캐너가 옥상에 있다', JSON.stringify(b.rows.map((r) => r.scanOnRoof)));
     ok(!b.wreckScan, '불시착 함선에는 스캐너가 없다');
     ok(b.rows.every((r) => r.ceil !== null && r.ceil > 3 && r.ceil < 4.5), `1층에 천장이 있다 (천장 높이 ${b.rows.map((r) => r.ceil).join(', ')} m)`);
-    ok(b.ramps >= 1 && b.worstStep < 0.12, `계단이 경사면이라 한 걸음(0.1 m)에 튀지 않는다 (경사 ${b.ramps}개, 최대 ${b.worstStep.toFixed(3)} m)`);
+    if (!b.needRamps && b.ramps === 0) console.log('  --   no stairs this seed (1층 구조물뿐 · 지하실 · 선로 없음)');
+    else ok(b.ramps >= 1 && b.worstStep < 0.12, `계단이 경사면이라 한 걸음(0.1 m)에 튀지 않는다 (경사 ${b.ramps}개, 최대 ${b.worstStep.toFixed(3)} m)`);
     ok(b.worstEnd < 0.1, `계단 높은 끝이 위층 바닥과 이어진다 (Δ ${b.worstEnd.toFixed(3)} m)`);
     ok(b.win.count > 0 && b.win.hit, `창문 유리가 레이를 막는다 (창 ${b.win.count}장)`, JSON.stringify(b.win));
     ok(b.win.passAfter && b.win.broken >= 1, '깨진 창은 총알이 지나간다', JSON.stringify(b.win));

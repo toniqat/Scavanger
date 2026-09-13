@@ -1023,10 +1023,64 @@ attack phase 4  0.25 s 회복 → chase
 `stopExtractionWaves`(계약) · `enemy:waveStarted` 경로는 **지우지 않고 아무도 부르지 않는다** (`airstrike` · `secondary` 와 같은 처리). 이륙 순간 18 m 안
 벌레가 달아나는 것은 그대로다.
 
+## 적 ↔ 탐사 차량 (2026-09-13)
+
+레이드당 1대인 자동 장갑차(`ctx.world.rover: RoverRef`, **호스트 권위**, 규칙 원본은 `shared/types.ts` 의 탐사 차량 절)를 적이 알아채고 ·
+노리고 · 때리는 규칙, 그리고 **차량 안 탑승자는 표적이 아니라는** 규칙. 차량 자체(경로 · 포탑 · 체력 · 재해 피해)는 `world/rover` 가,
+탑승 모드(피해 면제 · 궤도 카메라)는 `player/` 가 갖는다. 사용자 결정: **적과 재해만** 차량에 피해를 준다 — 플레이어 무기 · 가젯 ·
+함선 호출이 지나는 공용 `explode()` · `applyAreaDamage` · `hit` 요청에는 차량 경로를 넣지 않았다. 와이어 무변경.
+
+- **탑승자 제외** (`Targets.ts`): `CombatTarget.riding` = 로컬 `PlayerRef.roverRide` · 원격 `PlayerFlags.IN_ROVER`. `isDeadOrDowned` 에
+  접히고 `alive` 에서 빠진다 — `targets.alive` 를 읽는 모든 선택 · 피해 루프(근접 · 산성 · 포탄 · 수류탄 · 소이 · 독성 · 지하벌레 분출 ·
+  로든 스캔/저격 · 스캔 드론 추적)가 한 줄도 안 바뀌고 탑승자를 건너뛰며, 탑승자를 들고 있던 적은 `acquireTarget` 에서 다시 고른다.
+  `all` 에는 남는다(스폰 · 재활용 거리). 분리(`Steering.separate`)는 탑승자를 밀지 않는다 — 차체가 막는다.
+- **표적 프록시** (`TargetList.vehicles`, 0 또는 1개 · `vehicleTarget()`): `RoverRef.targetable` 인 동안. `all` / `alive` 에는 넣지 않는다
+  (드론과 같은 이유). `id 'ai'`, `vehicle` 참조(사라져도 남기고 `present` / `isDead` 만 내린다), `position` = 차체 중심 바닥,
+  `vehicleYaw`(차체 규약) · `yaw`(플레이어 규약으로 옮긴 값) · `vehicleMoving`(`patrol` · `trip`) · 위치 차분 속도.
+  **`dist2D` = 차체 발자국(OBB) 가장자리까지의 거리**, `bodyRadius` 0, `bodyHeight` = 차체 높이, `getChest` = 높이의 절반 — 그래서
+  `distToTarget` · 근접 사거리 · 독성 트리거 · 타길라 사거리가 차체 옆면 기준으로 그대로 맞는다. OBB 질의: `vehicleGap2D` · `vehicleGap3D` ·
+  `vehicleContainsXZ` · `vehicleApproach` · `rayVehicle`(슬랩). `VEHICLE_RAY_MARGIN`(0.5 m) = 판정 상자와 차체 콜라이더의 여유.
+- **노리기** (`parts/Alerts.pickVehicleTarget` → `pickTarget`): ① **어그로** — 차량 포탑 · 들이받기(`attacker === ROVER_DAMAGE_SOURCE`)에 맞은 적과
+  `ROVER_AGGRO_GROUP_RADIUS` 안의 같은 팩션 전투원(`Enemy.noteVehicleAggro`, 무리 깨우기는 `alertNear`)이 `ROVER_AGGRO_S` 동안 배리어 캐리어
+  다음 · 다른 모든 규칙 앞에서 차량을 고르고, `acquireTarget` 은 히스테리시스 없이 바꾼다. ② 그 밖에는 플레이어보다 **확실히** 가까울 때
+  (`< DRONE_PREFER_MUL ×`, 플레이어가 없으면 무관) · 반대 팩션 적보다 가깝거나 같을 때: **달리는** 차량은 청각 반경(`stats.hearRadius`) 안 또는
+  `canPerceive`, **서 있는** 차량은 `ROVER_NOTICE_STOPPED_M` 안 + 사선. 스캔 드론 · 지하벌레 · 로든은 차량을 노리지 않는다.
+  인지 전 적은 달리는 차량이 청각 반경 안이면 사선 없이 깨어난다(`ai/Perception.updatePerception`, `hasLOS` 는 그대로 사선).
+- **사선** (`ai/Perception.hasLineOfSight` · `ai/FireLine.hasFireLine`): 차량 표적이면 레이를 차체 입구 − `VEHICLE_RAY_MARGIN` 에서 끊는다 —
+  안 그러면 차체 자신의 콜라이더가 늘 사선을 막아 차량이 영영 안 보이고 로그가 옆걸음만 한다.
+- **다가가기** (`ai/EnemyAI.integrate` → `steerToVehicleSide`): 이동 목표가 표적 차량의 차체 안이면(추격 · 돌격 · 근접 기동이 `t.position` 을
+  넣는다) 차체 가장자리의 가장 가까운 점(몸 반경 + 0.15 m)으로 바꾸고, 차체까지 공격 사거리 × 0.6 안이면 멈춘다 — 움직이는 콜라이더에
+  몸을 들이밀어 떨지 않게. 엄폐 · 후퇴 · 옆걸음 목표는 건드리지 않는다.
+- **때리기** (`parts/Damage.applyDamage` 의 드론 다음 가지): 표적이 차량이면 권한에서 `RoverRef.damage(amount, from)` 하나로 끝난다 — 플레이어
+  이벤트 · `dmg` · `ee attack` · 배리어 흡수 · 넉백 · 둔화 없음. 이리로 오는 경로: 근접(`hitTarget`) · 차저 돌진 · 헌터 도약 착지 · 독성 팽창
+  트리거(`nearestAliveWithin` 이 차체 가장자리 거리 + 수직 겹침으로 차량도 본다) · 베헤모스 돌진(한 돌진에 한 번, `chargeDrones` 의 `#rover`
+  표식) · 로그/헤비 사격(`parts/Attacks.fireGun` — 차체 슬랩 판정, 월드 탄착이 차체 입구의 여유 안이면 차량이 맞은 것 = **플레이어를 노린
+  총알이 가로막은 차량에 맞아도** 차량, 불꽃) · 산성(`fx/AcidProjectile` — 차체 상자 직격 · 스플래시 2.4 m, 조준은 `fireAcid` 의 드론 · 차량
+  가지 → `ee acidAt`). `fireGun` 의 반환값 · `enemy:shot.hit` 은 여전히 플레이어 명중만.
+- **적의 폭발** (`TargetList.damageVehicleAt(center, radius, damage, minFalloff)`, 권한만 — 드론의 `applyExplosion` 옆 한 줄씩): 로그 수류탄 · 소이
+  폭발(`onGrenadeExploded`) · 포탄(`onShellLanded`) · 스퓨어 사망 폭발(`acidBurst`) · 독성 자폭(`toxicBurst`) · 지하벌레 분출. 적 소이 화염
+  지대(`onFireZoneTick`)는 차체 발자국이 겹치면 초당 피해 × 틱.
+- **킬 크레딧**: 차량이 준 피해는 `Enemy.takeDamage` 가 `'ai'` 로 접는다 — `lastDamager` · `enemy:killed` · `ee kill.killer` ·
+  `enemy:squadKill` · 계약 카운터 어디에도 `'rover'` 가 PeerId 로 흘러가지 않는다. 리플리카에서 차량 피해가 들어오면 요청을 만들지 않고 버린다.
+- 리플리카: 헤비의 방위 추론(`remoteAimPoint`)이 차량 프록시도 후보로 본다 (`ctx.world.rover` 는 클라이언트에도 있다).
+- 새 수치: `ROVER_AGGRO_S` · `ROVER_AGGRO_GROUP_RADIUS` · `ROVER_NOTICE_STOPPED_M` (`data/constants.csv` 의 `[R4]`).
+
 ---
 
 ## 변경 이력
 
+- **2026-09-13 (적 ↔ 탐사 차량)** — 위 `## 적 ↔ 탐사 차량`. 탑승자(`CombatTarget.riding`)는 `alive` 에서 빠지고 `isDeadOrDowned` 에 접힌다 ·
+  차량 프록시 `TargetList.vehicles`(OBB 가장자리 거리 `dist2D` · 슬랩 `rayVehicle` · `damageVehicleAt`) · `pickVehicleTarget`(어그로 · 달리면 청각 /
+  서 있으면 근거리 사선) · `Enemy.vehicleAggroUntil` / `noteVehicleAggro`(`attacker === ROVER_DAMAGE_SOURCE` → `'ai'` 로 접는다) · 사선 · 총구 사선이
+  차체 입구에서 끊긴다 · `steerToVehicleSide` · `applyDamage` 차량 가지 · `fireGun` 차체 판정 · 산성 직격/스플래시 · 베헤모스 돌진 · 적 폭발 여섯 곳 ·
+  소이 지대 · `SquadFlank` / 로든은 차량 제외 · 헤비 리플리카 조준 후보. 계약 소비만(`RoverRef` · `ROVER_DAMAGE_SOURCE` · `PlayerFlags.IN_ROVER` ·
+  `PlayerRef.roverRide`), 상수 `[R4]` 3개 추가. 스모크 없음 (차량 런타임(R2)이 서야 검증할 수 있다).
+  리드 후속: `named/Director.spotOk` 가 선로 회랑에 더해 **흙길 회랑**(`ROVER_ROUTE_CLEARANCE_M` + 여유, `roverRouteDistance`)도 피한다 — 로든이 차량 길 한가운데 엎드리지 않게.
+
+- **2026-09-13 (곡사포 재배치 핑퐁 재발 — `ai/GimmickAI.artilleryRelocate`)** — 발사가 계속 거절되는 동안 「가장 가까운 뚫린 자리」 만 고르면 A 에서 옆 7 m 의 B,
+  B 에서 다시 A 를 고르는 X-4 핑퐁이 지형에 따라 되살아났다(`smoke-phase4` C-24, 표적 기준 −1 · +1 · −1). 이제 **연속 거절 중에는 지난번 옆걸음과 같은 편**(앞쪽 ·
+  옆 성분 0 포함)을 먼저 고르고, 그쪽이 전부 막혔을 때만 반대편으로 간다. 지난 편은 `Enemy.fireStrafeSign` 에 적는다(포병은 `ai/FireLine` 옆걸음을 쓰지 않아 겹치지 않는다),
+  첫 거절과 `maxRefusals` 재표적 뒤는 자유. 레이 수 · 후보는 그대로.
 - **2026-09-13 (버그 굴착 스폰 · 지하벌레 · 탈출 디펜스 웨이브 제거)** — 위 `## 굴착 스폰 · 지하벌레`. 새 파일: `sandworm/Director.ts` · `sandworm/Pose.ts` ·
   `models/WormModel.ts` · `fx/BurrowFx.ts` · `ai/Burrow.ts` · `parts/Burrow.ts`. 기존 파일은 얇은 훅만: `Enemy`(굴착 · 뱉어짐 · 지하벌레 필드와
   `startEmerge` / `burrowSink` / `startSpat`, 리그 유니온 `WormRig`, `kill` 이 `spatT` 를 끈다, `EnemyHost.burrowLanded?`) · `EnemyTypes`(`sandworm` ·
@@ -1069,10 +1123,6 @@ attack phase 4  0.25 s 회복 → chase
   (`spendHitBudget` — `hit` 과 **같은** 버킷이다: 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다. 깎이면 깎인
   값으로 터뜨리고 0 이면 버린다). ⚠ `isDead` 거절은 계약대로이므로 **공중에 있는 동안 주인이 죽은 폭발**(수류탄 퓨즈 ·
   호출 `eta`)은 적 피해가 0 이다 — 코드 주석에 근거를 남겼다.
-- **2026-09-13 (곡사포 재배치 핑퐁 재발 — `ai/GimmickAI.artilleryRelocate`)** — 발사가 계속 거절되는 동안 「가장 가까운 뚫린 자리」 만 고르면 A 에서 옆 7 m 의 B,
-  B 에서 다시 A 를 고르는 X-4 핑퐁이 지형에 따라 되살아났다(`smoke-phase4` C-24, 표적 기준 −1 · +1 · −1). 이제 **연속 거절 중에는 지난번 옆걸음과 같은 편**(앞쪽 ·
-  옆 성분 0 포함)을 먼저 고르고, 그쪽이 전부 막혔을 때만 반대편으로 간다. 지난 편은 `Enemy.fireStrafeSign` 에 적는다(포병은 `ai/FireLine` 옆걸음을 쓰지 않아 겹치지 않는다),
-  첫 거절과 `maxRefusals` 재표적 뒤는 자유. 레이 수 · 후보는 그대로.
   ② **`HitRequest.st`** 도 같은 순서로 — **비트 마스크**(`ENEMY_STATUS_BITS_ALL` = 알려진 비트 전부의 합, 남은 게 0 이면
   상태이상 부분만 건너뛴다) → **거리**(`STATUS_SOURCE_REACH` = `max(FLAME_RANGE, SHOCK_RANGE)` +
   `STATUS_REQUEST_RANGE_SLACK` **+ 적 반지름** — 두 원뿔 다 몸 표면까지 재기 때문이다: `coneTargets` 의

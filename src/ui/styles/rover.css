@@ -1,0 +1,66 @@
+/*
+ * src/ui/styles/rover.css — 탐사 차량 · 지도 범례 견본 (2026-09-13). `map/MapScreen` · `hud/RoverHud` 가 import 한다.
+ *
+ *   `.map-legend-row .sw-cv`     범례 견본 캔버스 — 지도와 같은 그리기 함수(`map/mapIcons`)가 그린다
+ *   `.map-rover`                 지도 좌측 열의 목적지 선택 패널 (선택 모드 동안 범례 자리)
+ *   `.map-rover-go(.is-blocked/.is-holding) > .fill + .lbl`   1초 홀드 출발 버튼
+ *   `.hud.rover-view`            탑승 중 게임플레이 레이어 — 쓸 수 없는 전투 위젯을 숨긴다 (`drone.css` 의 `drone-view` 와 같은 목록)
+ *   `.rv-hud(.show/.low)`        탑승 HUD — 차량 체력 · 상태 한 줄 (하단 중앙, 무기 · 임플란트가 사라진 자리)
+ */
+
+/* ── 지도: 범례 견본 · 목적지 선택 ─────────────────────────────────────── */
+.map-legend-row .sw-cv { width: 28px; height: 20px; flex: none; display: block; }
+/* `hidden` 속성이 `display: flex` 규칙에 지지 않게 */
+.map-legend[hidden], .map-legend-row[hidden], .map-rover[hidden], .map-rover-hint[hidden] { display: none !important; }
+.map-canvas.pick { cursor: pointer; }
+
+.map-rover { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--c-border); }
+.map-rover-hint { font-size: 12px; color: var(--c-text-dim); }
+.map-rover-rows { display: flex; flex-direction: column; gap: 6px; }
+.map-rover-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--c-text-dim); }
+.map-rover-row .v { color: var(--c-text); font-size: 13px; }
+.map-rover-reason { min-height: 16px; font-size: 12px; line-height: 1.35; color: #ff6a5a; }
+.map-rover-go {
+  position: relative; overflow: hidden;
+  height: 40px; padding: 0 10px;
+  border: 1px solid var(--c-accent); background: rgba(255, 179, 71, 0.12);
+  color: var(--c-text); font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
+  cursor: pointer; user-select: none;
+}
+.map-rover-go:hover { background: rgba(255, 179, 71, 0.2); }
+.map-rover-go .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(255, 179, 71, 0.45); pointer-events: none; }
+.map-rover-go .lbl { position: relative; pointer-events: none; }
+.map-rover-go.is-blocked { border-color: var(--c-border); background: rgba(255, 255, 255, 0.03); color: var(--c-text-faint); cursor: default; }
+.map-rover-note { font-size: 11px; line-height: 1.4; color: var(--c-text-faint); }
+
+/* ── 탑승 중: 전투 HUD 숨김 (drone.css 와 같은 목록 · 같은 이유로 !important) ── */
+.hud.rover-view .weapon,
+.hud.rover-view .imp-hud,
+.hud.rover-view .scall,
+.hud.rover-view .stamina,
+.hud.rover-view .reticle,
+.hud.rover-view .reload,
+.hud.rover-view .cook,
+.hud.rover-view .heal,
+.hud.rover-view .charge,
+.hud.rover-view .wcharge,
+.hud.rover-view .qwheel,
+.hud.rover-view .swheel { opacity: 0 !important; visibility: hidden; }
+
+/* ── 탑승 HUD ─────────────────────────────────────────────────────────── */
+.rv-hud {
+  position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%);
+  width: 300px; padding: 10px 14px 11px;
+  background: rgba(8, 10, 12, 0.72); border: 1px solid var(--c-border);
+  opacity: 0; transition: opacity 160ms var(--ease, ease-out);
+  pointer-events: none;
+}
+.rv-hud.show { opacity: 1; }
+.rv-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
+.rv-tag { font-weight: 700; letter-spacing: 0.16em; color: #a9c96c; }
+.rv-hpval { font-size: 11px; color: var(--c-text-dim); }
+.rv-bar { height: 6px; margin: 6px 0 7px; background: rgba(255, 255, 255, 0.08); }
+.rv-bar .fill { height: 100%; width: 100%; background: #a9c96c; transition: width 120ms linear; }
+.rv-hud.low .rv-bar .fill { background: #ff4d4d; }
+.rv-hud.low .rv-tag { color: #ff6a5a; }
+.rv-state { font-size: 13px; color: var(--c-text); }

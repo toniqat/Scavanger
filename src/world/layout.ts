@@ -2,14 +2,20 @@ import * as THREE from 'three';
 import {
   EXTRACTION_OUTER_MIN_M, EXTRACTION_PADS_MAX_BY_THREAT, EXTRACTION_PADS_MIN_BY_THREAT, EXTRACTION_PADS_SPORES_MAX,
   EXTRACTION_PADS_SPORES_MIN, MAP_SIZE, RAIL_CHANCE, Random, SPORE_SPAWN_CENTER_M, type RailKind, type StructureKind,
+  /* 2026-09-13: 탐사 차량 */
+  ROVER_ROUTE_CLEARANCE_M, ROVER_STATION_PAD_BLEND,
 } from '@/shared';
 import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';
+import type { RoverPlan } from './rover/model';
+import { planRoverRoute, roverRouteDistance } from './rover/RoadPlan';
 
 /**
  * 2026-09-09 — `structure` (버려진 구조물 부지) 와 `platform` (선로 플랫폼) 이 붙었다.
  * 둘 다 지형이 **평탄화해야** 하는 자리라 매크로 레이아웃 단계에서 먼저 잡는다.
  */
-export type PadKind = 'spawn' | 'extraction' | 'nest' | 'poi' | 'structure' | 'platform';
+export type PadKind = 'spawn' | 'extraction' | 'nest' | 'poi' | 'structure' | 'platform'
+  /* 2026-09-13: 탐사 차량 정류장 부지 */
+  | 'station';
 
 /** A flattened circular area blended into the heightfield. */
 export interface Pad {
@@ -69,6 +75,8 @@ export interface WorldLayout {
   /* appended (2026-09-09): 레이드 플레이 개선 */
   structures: StructureSite[];
   rail: RailPlan | null;
+  /* appended (2026-09-13): 탐사 차량 흙길 계획 (`rover/RoadPlan.ts`). null = 이번 맵에는 차량이 없다 */
+  rover: RoverPlan | null;
 }
 
 const HALF = MAP_SIZE / 2;
@@ -107,6 +115,22 @@ export function railDistance(rail: RailPlan | null, x: number, z: number): numbe
  */
 export function railClearance(layout: WorldLayout, x: number, z: number): number {
   return railDistance(layout.rail, x, z) - RAIL_CLEARANCE_M;
+}
+
+/**
+ * 2026-09-13 — 탐사 차량 흙길 회랑 · 정류장 부지까지의 여유(m). 음수면 **회랑 · 부지 안**이라 아무것도 놓지 않는다
+ * (`isSpotFree` · `SiteSpawns` 가 본다 — `railClearance` 와 같은 쓰임). 흙길이 없으면 Infinity.
+ * 흙길 쪽 값은 `RoverRoadIndex.reach − clearance` 에서 포화한다 (그보다 먼 여유는 누구도 묻지 않는다).
+ */
+export function roverClearance(layout: WorldLayout, x: number, z: number): number {
+  const plan = layout.rover;
+  if (!plan) return Infinity;
+  let c = roverRouteDistance(plan, x, z) - ROVER_ROUTE_CLEARANCE_M;
+  for (const s of plan.stations) {
+    const d = dist(x, z, s.x, s.z) - plan.padRadius;
+    if (d < c) c = d;
+  }
+  return c;
 }
 
 /**
@@ -207,6 +231,25 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     spawn = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: Math.atan2(-sx, -sz), height: 0 };
   }
 
+  /* ── 2026-09-13: 탐사 차량 흙길 — 선로 · 강하 지점 **바로 다음**, 다른 모든 배치 앞 ────────────────────
+   * 선로와 같은 이유로 먼저 선다: 흙길은 맵을 한 바퀴 도는 고리라 나중에 뽑으면 비켜 갈 곳이 없다. 자기 fork 라 부모 스트림을
+   * 밀지 않는다 — 선로 · 강하 지점은 이 변경 전과 같고, 그 뒤 배치는 회랑 검사(`roverFree`) 때문에 달라진다 (사용자 수락). */
+  const rover = planRoverRoute(rng.fork('rover'), {
+    railFree, railLoopExtent: rail && rail.kind === 'loop' ? rail.extent : null, spawn,
+  });
+  /** 반지름 `extra` 짜리 자리가 흙길 회랑 · 정류장 부지를 건드리지 않는가. */
+  const roverFree = (x: number, z: number, extra: number): boolean => {
+    if (!rover) return true;
+    if (roverRouteDistance(rover, x, z) < ROVER_ROUTE_CLEARANCE_M + extra) return false;
+    for (const s of rover.stations) if (dist(x, z, s.x, s.z) < rover.padRadius + extra) return false;
+    return true;
+  };
+  const stationPads: Pad[] = rover
+    ? rover.stations.map((s) => ({
+      kind: 'station' as PadKind, x: s.x, z: s.z, radius: rover.padRadius, blend: ROVER_STATION_PAD_BLEND, yaw: 0, height: 0,
+    }))
+    : [];
+
   /* Extraction pads: `opts.extractionCount` (2026-09-13 — 옛 3 고정), pairwise >= 180 m, >= 150 m from spawn.
    * 독성 포자 레이드는 맵 **외곽**(x · z 중 큰 쪽이 `EXTRACTION_OUTER_MIN_M` 이상)에만 — 포자가 마지막에 닿는 곳이다. */
   const extraction: Pad[] = [];
@@ -223,6 +266,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
       if (dist(x, z, spawn.x, spawn.z) < minSpawn) continue;
       if (!farFromAll(x, z, extraction, minPair)) continue;
       if (!railFree(x, z, 20)) continue;
+      if (!roverFree(x, z, 22)) continue;
       extraction.push({ kind: 'extraction', x, z, radius: 20, blend: 26, yaw: rng.range(-Math.PI, Math.PI), height: 0 });
     }
   }
@@ -239,6 +283,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
       if (!farFromAll(x, z, extraction, 62)) continue;
       if (!farFromAll(x, z, nests, 90)) continue;
       if (!railFree(x, z, 20)) continue;
+      if (!roverFree(x, z, 26)) continue;
       nests.push({ kind: 'nest', x, z, radius: 20, blend: 24, yaw: rng.range(-Math.PI, Math.PI), height: 0 });
     }
   }
@@ -256,13 +301,14 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
       if (!farFromAll(x, z, nests, 48)) continue;
       if (!farFromAll(x, z, pois, 70)) continue;
       if (!railFree(x, z, 13)) continue;
+      if (!roverFree(x, z, 16)) continue;
       pois.push({ kind: 'poi', x, z, radius: 13, blend: 16, yaw: rng.range(-Math.PI, Math.PI), height: 0 });
     }
   }
 
   /* 플랫폼 패드는 **구조물보다 먼저** 넣는다: 겹칠 일은 없지만(`railFree`), `Terrain` 이 배열 순서대로
    * 평탄화하므로 만에 하나 겹치면 뒤에 오는 구조물 바닥이 이긴다 — 실내 바닥이 기우는 쪽보다 낫다. */
-  const pads = [spawn, ...extraction, ...nests, ...pois, ...(rail ? rail.platforms : [])];
+  const pads = [spawn, ...extraction, ...nests, ...pois, ...(rail ? rail.platforms : []), ...stationPads];
 
   // Craters: 3–5, away from pads
   const craters: Crater[] = [];
@@ -277,6 +323,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
       if (!farFromAll(x, z, craters, radius + 40)) continue;
       // 선로는 지형을 평탄화하지 않는다 — 크레이터를 가로지르면 교각만 길어지고 궤도가 허공에 뜬다
       if (!railFree(x, z, radius)) continue;
+      if (!roverFree(x, z, radius + 6)) continue;
       craters.push({ x, z, radius, depth: rng.range(4, 8) });
     }
   }
@@ -314,6 +361,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
         if (!farFromAll(x, z, pois, 55)) continue;
         if (!farFromAll(x, z, structures.map((s) => s.pad), 110)) continue;
         if (!railFree(x, z, reach + 4)) continue;
+        if (!roverFree(x, z, reach + 8)) continue;
         const pad: Pad = {
           kind: 'structure', x, z, radius: reach + 4, blend: 11,
           yaw: rng.range(-Math.PI, Math.PI), height: 0,
@@ -337,7 +385,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
   /* 선로 계획은 이 함수 **맨 앞**에서 이미 잡혔다 (위의 2026-09-10 주석) — 여기서는 아무것도 하지 않는다.
    * 플랫폼 패드도 `pads` 에 이미 들어가 있다. */
 
-  return { spawn, extraction, nests, pois, pads, craters, basins, structures, rail };
+  return { spawn, extraction, nests, pois, pads, craters, basins, structures, rail, rover };
 }
 
 /** Distance from (x,z) to nearest pad edge (negative when inside a pad's flat radius). */

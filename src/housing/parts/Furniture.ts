@@ -33,6 +33,7 @@ import type { HousingPanel } from '../ui/Panel';
 import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 import { SHELF_BLOCK_REASON } from '../model';   // A-3e (2026-09-12): 서재 매체 보관함의 회수 거절
+import { clusterRecoverBlock } from './Mining';   // 2026-09-13: 암호화폐 채굴 — 코어가 꽂힌 클러스터의 회수 거절
 
 export function storageEntry(sys: HousingSystem, defId: string): StoredFurniture | null {
   let best: StoredFurniture | null = null;
@@ -230,7 +231,8 @@ export function recoverBlock(sys: HousingSystem, uid: string): string | null {
   // 2026-09-13 (사용자 결정): 조종석 전용 시설(시술대 · 컴퓨터)은 가구 창고로 돌아가지 않는다 — 조종석 안에서 옮기기만 한다
   if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) return COCKPIT_ONLY_RECOVER_REASON;
   // A-3e (2026-09-12): 디스크 전시대 · 레코드랙도 책장처럼 — 담긴 것이 창고에 안 들어가면 `…를 먼저 빼세요`
-  return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid);
+  // 2026-09-13 (암호화폐 채굴): 코어가 꽂힌 연산 클러스터는 `코어를 먼저 빼세요`
+  return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid) ?? clusterRecoverBlock(sys, uid);
   }
 
 export function recover(sys: HousingSystem, uid: string): boolean {
@@ -240,6 +242,9 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   // 2026-09-13: 조종석 전용 시설은 회수할 수 없다 (시설 관리는 `recoverBlock` 을 먼저 보고 자기 토스트를 띄운다 — 여기는 그 밖의 호출자용)
   if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) { sys.notify(COCKPIT_ONLY_RECOVER_REASON, 'warning'); return false; }
   if (recoverBlockReason(sys.state, item)) return false;
+  // 2026-09-13: 코어가 꽂힌 연산 클러스터는 회수하지 않는다 (코어는 가구 창고로 사라지면 안 된다) — 빈 칸은 `parts/Mining` 이 회수 이벤트에서 지운다
+  const clusterBlock = clusterRecoverBlock(sys, uid);
+  if (clusterBlock) { sys.notify(clusterBlock, 'warning'); return false; }
   // a 책장 hands its books to the stash first; when they do not all fit nothing moves
   const hadBooks = sys.booksOf(uid).length;
   if (hadBooks > 0 && !sys.stashBooksOf(uid)) { sys.notify(BOOKS_BLOCK_REASON, 'warning'); return false; }
@@ -337,7 +342,8 @@ export function furnitureCraftBlock(sys: HousingSystem, defId: string): string |
   if (def.retired) return '더 이상 만들 수 없는 가구입니다';
   const tutorial = sys.ctx.tutorial?.blockReason('furniture', defId);
   if (tutorial) return tutorial;
-  if (isUtilityFurniture(def) && ownsFurniture(sys, defId)) return '이미 보유 중입니다';
+  // 2026-09-13: `multi` 가구(연산 클러스터)는 실용 가구여도 여러 대 만든다 — 메인 컴퓨터는 여전히 함선당 하나
+  if (isUtilityFurniture(def) && !def.multi && ownsFurniture(sys, defId)) return '이미 보유 중입니다';
   // 2026-09-12: 공용 시설 가구(시술대 · 컴퓨터)는 `craft` 가 비어 있다 — 늘 가지고 있으므로 보통은 위 줄이 먼저 답한다
   if (!def.craft) return '제작할 수 없는 가구입니다';
   const missing = missingIngredients(def.craft, sys.countDef);

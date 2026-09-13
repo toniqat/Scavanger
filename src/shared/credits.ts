@@ -11,6 +11,8 @@
  *   refund:repair:<brokenId>    pairs with an unrefunded `repair:<brokenId>` inside the window
  *   contract:<contractId>       delta === contracts.csv reward, at most `CREDIT_CONTRACT_MAX_PER_HOUR` per profile
  *   quest:<questId>             delta === quests.csv reward, once per quest id per profile (ledger)
+ *   rover:<from>:<to>           (2026-09-13) delta < 0, integer, |delta| ∈ [roverFareMin, roverFareMax], from ≠ to, at most
+ *                               `CREDIT_ROVER_MAX_PER_HOUR` per profile per rolling hour; never refundable (no ledger debit)
  *   migrate                     only while the server balance is null, clamped to `CREDITS_MAX`
  *   console · smoke:* · e2e:* · shot     refused unless the relay runs with the dev-economy flag (verify runner / e2e)
  *   anything else               refused (`credits:result ok:false reason:'invalid'`)
@@ -25,7 +27,11 @@
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type CreditReasonKind =
-  | 'buy' | 'sell' | 'refund' | 'repair' | 'refund-repair' | 'contract' | 'quest' | 'migrate' | 'dev';
+  | 'buy' | 'sell' | 'refund' | 'repair' | 'refund-repair' | 'contract' | 'quest' | 'migrate' | 'dev'
+  /* appended (2026-09-13): 탐사 차량 요금 `rover:<fromStationId>:<toStationId>` — delta < 0, |delta| ∈ [roverFareMin, roverFareMax] */
+  | 'rover'
+  /* appended (2026-09-13): 암호화폐 매매 `cbuy:<coin>:<units>` · `csell:<coin>:<units>` — 서버 시세 창 안의 금액이어야 한다 (`shared/cryptoMarket`) */
+  | 'crypto-buy' | 'crypto-sell';
 
 export interface CreditReason {
   kind: CreditReasonKind;
@@ -35,12 +41,17 @@ export interface CreditReason {
   qty?: number;
   /** dev only: the raw tag (`console`, `smoke:xyz`, `e2e:…`, `shot`). */
   tag?: string;
+  /** appended (2026-09-13) — rover only: the destination station id (`id` = the station the trip starts from). */
+  to?: string;
 }
 
 /** Wire form. The relay caps `reason` at 64 characters, so ids must stay short (they are csv ids). */
 export function formatCreditReason(r: CreditReason): string {
   switch (r.kind) {
     case 'sell': return `sell:${r.id}:${Math.max(1, Math.floor(r.qty ?? 1))}`;
+    case 'rover': return `rover:${r.id}:${r.to ?? ''}`;
+    case 'crypto-buy': return `cbuy:${r.id}:${Math.max(1, Math.floor(r.qty ?? 1))}`;
+    case 'crypto-sell': return `csell:${r.id}:${Math.max(1, Math.floor(r.qty ?? 1))}`;
     case 'refund-repair': return `refund:repair:${r.id}`;
     case 'migrate': return 'migrate';
     case 'dev': return r.tag ?? 'console';
@@ -62,6 +73,13 @@ export function parseCreditReason(raw: string): CreditReason | null {
   }
   if (parts[0] === 'sell' && parts.length === 3 && ID.test(parts[1]) && /^[1-9]\d{0,4}$/.test(parts[2])) {
     return { kind: 'sell', id: parts[1], qty: Number(parts[2]) };
+  }
+  /* appended (2026-09-13): 암호화폐 매매 — `qty` = 지갑 단위 수 */
+  if ((parts[0] === 'cbuy' || parts[0] === 'csell') && parts.length === 3 && ID.test(parts[1]) && /^[1-9]\d{0,8}$/.test(parts[2])) {
+    return { kind: parts[0] === 'cbuy' ? 'crypto-buy' : 'crypto-sell', id: parts[1], qty: Number(parts[2]) };
+  }
+  if (parts[0] === 'rover' && parts.length === 3 && ID.test(parts[1]) && ID.test(parts[2]) && parts[1] !== parts[2]) {
+    return { kind: 'rover', id: parts[1], to: parts[2] };
   }
   if (parts.length === 2 && ID.test(parts[1])) {
     const k = parts[0];
@@ -135,12 +153,19 @@ export interface CreditLedger {
   contractsAt: number[];
   /** Recent debits a refund may pair with (pruned to `CREDIT_REFUND_WINDOW_MS`). */
   debits: { reason: string; amount: number; at: number; refunded: number }[];
+  /** appended (2026-09-13): server epoch ms of recent `rover:` fares (pruned to the last hour) — the hourly cap. */
+  roverAt?: number[];
 }
 
 /** A `refund:` must follow its debit within this long. */
 export const CREDIT_REFUND_WINDOW_MS = 60_000;
 /** `contract:` payouts accepted per profile per rolling hour (a raid takes minutes; several contracts per raid never happen). */
 export const CREDIT_CONTRACT_MAX_PER_HOUR = 12;
+/**
+ * (2026-09-13) `rover:` fares accepted per profile per rolling hour. A trip takes a 5 s grace plus the drive and one rover
+ * exists per raid, so a real player pays a handful per raid; the cap only stops a script draining / cycling the ledger.
+ */
+export const CREDIT_ROVER_MAX_PER_HOUR = 30;
 /** Env var / CLI flag the relay reads to accept `dev` reasons (2026-09-11 사용자 결정: only the relay a smoke runner starts itself — `npm run dev:all` · `npm run server` · the shipped exe · the desktop shell keep it off). */
 export const CREDIT_DEV_ENV = 'SCAV_DEV_ECONOMY';
 
@@ -157,7 +182,37 @@ export const CREDIT_DEV_ENV = 'SCAV_DEV_ECONOMY';
 export interface EconomyTable {
   /** `REP_LEVEL_MAX` of `shared/meta` (highest reputation level = the best shop discount). */
   repLevelMax?: number;
+  /** appended (2026-09-13): 탐사 차량 요금의 하한 · 상한 (`ROVER_FARE_MIN` · `ROVER_FARE_MAX`). 경로 거리는 시드마다 달라 서버는 범위만 본다. */
+  roverFareMin?: number;
+  roverFareMax?: number;
 }
+
+/* ══ appended: 2026-09-13 — 암호화폐 매매 검증 (docs/plans/power-crypto.md) ══════════════════════════════════════════════
+ *   cbuy:<coin>:<units>     delta < 0 정수, |delta| ≥ cryptoTradeCredits('buy', 창 안 **최저** 시세, units), 코인이 표에 있고
+ *                           `unlockQuest` 가 있으면 원장 `quests` 에 그 id 가 있어야 한다, 1 ≤ units ≤ maxUnits, 한 시간에 `CREDIT_CRYPTO_MAX_PER_HOUR` 회
+ *   csell:<coin>:<units>    0 < delta ≤ cryptoTradeCredits('sell', 창 안 **최고** 시세, units), 나머지 조건은 cbuy 와 같다
+ * 「창」 = 릴레이 시세 이력의 최근 `quoteWindowMs`. 지갑을 정말 가졌는지는 보지 않는다 (함선 문서는 클라이언트 쓰기 — 아이템과 같은 한계).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface EconomyTable {
+  /** appended (2026-09-13): 암호화폐 — `data/crypto.csv` + `data/tuning.csv` 의 `CRYPTO_*` · 없으면 모든 cbuy / csell 거절 · 시세도 돌지 않는다. */
+  crypto?: {
+    unitsPerCoin: number;
+    fee: number;
+    maxUnits: number;
+    quoteWindowMs: number;
+    tickMs: number;
+    coins: Record<string, { basePrice: number; volatility: number; unlockQuest?: string }>;
+  };
+}
+
+export interface CreditLedger {
+  /** appended (2026-09-13): 최근 `cbuy:` · `csell:` 의 서버 epoch ms (최근 한 시간) — 시간당 상한. */
+  cryptoAt?: number[];
+}
+
+/** (2026-09-13) `cbuy:` · `csell:` accepted per profile per rolling hour. */
+export const CREDIT_CRYPTO_MAX_PER_HOUR = 240;
 
 /** The refusal text of a `credits:tx` the relay's economy rules do not accept (`credits:result {ok:false, reason}`). */
 export const CREDIT_TX_INVALID_KO = '서버가 거래를 확인하지 못했습니다';

@@ -257,7 +257,8 @@ export class Hazard implements HazardRef {
       while (this.damageTimer >= HAZARD_TICK_S) {
         this.damageTimer -= HAZARD_TICK_S;
         // 2026-09-13: 재해는 시간에 따라 강해진다 — 진행도 0 에서 `HAZARD_DPS`, 1 에서 `HAZARD_DPS_MAX`
-        p.takeDamage(dpsAt(pr) * HAZARD_TICK_S);
+        // 2026-09-13: 탐사 차량 안의 탑승자는 재해 피해를 받지 않는다 (차량이 대신 맞는다 — world/rover). 시야 · 알림은 그대로다.
+        if (!p.roverRide) p.takeDamage(dpsAt(pr) * HAZARD_TICK_S);
       }
     } else {
       this.damageTimer = 0;

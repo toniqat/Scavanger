@@ -41,7 +41,7 @@ export function updateSquadFlank(e: Enemy, dt: number, host: EnemyHost, t: Comba
   if (!isSquadFlanker(e)) return false;
   const P = HUMANOID_RAIDER;
   if (e.flankPhase === 0) {
-    if (e.flankCd > 0 || e.roguePhase === 4 || e.reloadTimer > 0 || e.throwTimer > 0 || t.drone !== null) return false;
+    if (e.flankCd > 0 || e.roguePhase === 4 || e.reloadTimer > 0 || e.throwTimer > 0 || t.drone !== null || t.vehicle !== null) return false;
     const d = e.distToTarget;
     if (d < P.flankMinDist || d > P.flankMaxDist || !squadEngaged(e, host)) { e.flankCd = RETRY_S; return false; }
     // take the flank we are already on (the shorter arc)

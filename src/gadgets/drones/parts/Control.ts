@@ -54,7 +54,7 @@ export function updateControl(sys: DroneSystem, dt: number): void {
     return;
   }
 
-  const able = !!p && !p.isDead && !p.isDowned && !p.droneControl && ctx.isGameplayActive();
+  const able = !!p && !p.isDead && !p.isDowned && !p.droneControl && !p.roverRide && ctx.isGameplayActive();   // 2026-09-13: 탐사 차량 안 제외
   const kind = able ? heldDroneKind(sys) : null;
   const d = kind ? ownDrone(sys, kind) : null;
   if (!d) { sys.holding = false; sys.holdT = 0; return; }

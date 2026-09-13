@@ -1,15 +1,16 @@
 # 방 용도별 증축 비용. purpose 는 코드가 찾는 값이므로 바꾸지 않는다 (empty 는 비용 없음).
 # cost 는 "아이템id:수량" 을 | 로 이어 쓴다.
-purpose,cost
+# power (2026-09-13): 시설의 기본 요구 전력. 요구 전력 = 이 값 + 그 방에 놓인 활성 가구의 power 합. 발전기 화면에서 이만큼 할당해야 시설이 돈다. 비우면 0.
+purpose,cost,power
 empty,
-workshop,mat_scrap:8|mat_cable:2
+workshop,mat_scrap:8|mat_cable:2,2
 range,mat_scrap:10|mat_cable:2
-gym,mat_scrap:8
-library,mat_scrap:10|mat_alloy:2
-greenhouse,mat_scrap:12|mat_alloy:2
-lab,mat_alloy:6|mat_circuit:2
-kitchen,mat_scrap:8|mat_alloy:2
-mining,mat_alloy:6|mat_circuit:3
+gym,mat_scrap:8,2
+library,mat_scrap:10|mat_alloy:2,1
+greenhouse,mat_scrap:12|mat_alloy:2,3
+lab,mat_alloy:6|mat_circuit:2,3
+kitchen,mat_scrap:8|mat_alloy:2,2
+mining,mat_alloy:6|mat_circuit:3,3
 lounge,mat_scrap:6|mat_cable:1
 # ── 2026-09-12 (사용자 결정) ──
 # range(시뮬레이션실) · lounge(휴식 공간)는 더 이상 지을 수 없다 (ROOM_PURPOSES_ASSIGNABLE 에 없다). 줄을 남긴 이유는

@@ -126,7 +126,7 @@ function createData(e: Enemy): SniperData {
 
 /** 로든이 쏠 수 있는 표적 = 살아 있는 **플레이어** (드론 · 적 프록시 제외). */
 function isPlayerTarget(t: CombatTarget): boolean {
-  return t.present && !t.isDeadOrDowned && t.enemy === null && !t.isDrone;
+  return t.present && !t.isDeadOrDowned && t.enemy === null && !t.isDrone && !t.isVehicle;
 }
 
 function hosting(host: EnemyHost): boolean {
