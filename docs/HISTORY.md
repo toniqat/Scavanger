@@ -46,6 +46,12 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-13 (38차: 통합 커밋 뒤 `verify:all` · 실패 정리):
+
+  `a4609fd` 뒤 `npm run verify:all` — 3 failed. `smoke-rogue-drop` 은 재실행 48/48(flaky). `smoke-phase3` 는 **스모크 결함**(보급 구조물 착지점 곁 창문 유리도 destructible 로 셌다 →
+  `glass:` 제외), `smoke-phase4` C-24 는 **게임 결함** — 곡사포가 연속 거절 중 가장 가까운 뚫린 자리만 골라 두 자리를 오가는 X-4 핑퐁이 지형에 따라 되살아났다 →
+  연속 거절 중에는 지난번 옆걸음과 같은 편을 먼저 고른다(`ai/GimmickAI.artilleryRelocate`, `Enemy.fireStrafeSign`). 두 스모크 41/41 · 58/58.
+
 - 2026-09-13 (37차: 요리 미니게임 · 요리 품질 · 주방 자동 조리 가구):
 
   사용자 명세 「요리 미니게임」. `AskUserQuestion` 3라운드 11문항 → 리드 계약 · 데이터 → 에이전트 5개 병렬(cook-housing · cook-inventory · cook-progression-player ·

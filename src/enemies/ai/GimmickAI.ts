@@ -112,6 +112,13 @@ function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
   const world = host.ctx.world!;
   e.dug = 0;
   e.shellRefusals++;
+  /*
+   * 2026-09-13 (X-4 재발): 「가장 가까운 뚫린 자리」 만 고르면, 발사가 계속 거절되는 동안 A 에서 옆 7 m 의 B 를, B 에서 다시 A 를 고르는
+   * 핑퐁이 지형에 따라 되살아났다(`smoke-phase4` C-24 가 같은 표적 기준으로 −1 · +1 · −1). 그래서 **연속 거절 중에는 지난번 옆걸음과 같은 쪽**
+   * (표적 선의 같은 편 · 앞쪽 · 옆 성분 0)을 먼저 고르고, 그쪽에 뚫린 자리가 하나도 없을 때만 반대편으로 간다. 지난 쪽은
+   * `Enemy.fireStrafeSign` 에 적는다 — 포병은 `ai/FireLine` 옆걸음을 쓰지 않으므로 이 필드를 빌려도 겹치지 않는다. 첫 거절 · 표적을 바꾼 뒤는 자유.
+   */
+  let continuing = e.shellRefusals > 1;
   e.fireBlockTimer = ENEMY_FIRE_STRAFE_S;
   // the shell timer only runs while dug in (`chaseArtillery`), so it waits for the re-dig, not for the walk
   e.shellTimer = ARTILLERY_AI.digTime + 0.2;
@@ -119,7 +126,7 @@ function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
     e.shellRefusals = 0;
     e.shellTimer = Math.max(e.shellTimer, ARTILLERY_AI.refusalCooldown);
     const other = otherTargetInRange(e, host, t);
-    if (other) { e.target = other; e.targetTimer = ARTILLERY_AI.refusalCooldown; e.distToTarget = other.dist2D(e.position); }
+    if (other) { e.target = other; e.targetTimer = ARTILLERY_AI.refusalCooldown; e.distToTarget = other.dist2D(e.position); continuing = false; }
   }
   const tp = (e.target ?? t).position;   // after a retarget the new spot is searched against the new target
   const dx = tp.x - e.position.x, dz = tp.z - e.position.z;
@@ -127,17 +134,24 @@ function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
   if (l < 1e-3) { e.fireBlockTimer = 0; return; }
   const nx = dx / l, nz = dz / l;
   _aimT.set(tp.x, world.getHeightAt(tp.x, tp.z), tp.z);
-  let bestD = Infinity, bx = 0, bz = 0;
+  const prevSide = continuing ? e.fireStrafeSign : 0;
+  let bestD = Infinity, bx = 0, bz = 0, bestSide = 0;
+  let revD = Infinity, rx = 0, rz = 0, revSide = 0;
   const probe = (cx: number, cz: number): void => {
     if (!world.isInsideBounds(cx, cz)) return;
     const walk = Math.hypot(cx - e.position.x, cz - e.position.z);
-    if (walk >= bestD) return;
+    // 표적 선에 대한 옆 성분의 부호 (+ = 표적을 보고 왼쪽 · `smoke-phase4` 의 side 와 같은 식)
+    const lateral = (cz - e.position.z) * nx - (cx - e.position.x) * nz;
+    const side = Math.abs(lateral) < 0.5 ? 0 : Math.sign(lateral);
+    const reversing = prevSide !== 0 && side !== 0 && side !== prevSide;
+    if (walk >= (reversing ? revD : bestD)) return;
     const td = Math.hypot(tp.x - cx, tp.z - cz);
     if (td < ARTILLERY_AI.retreatDist || td > ARTILLERY_AI.maxRange) return;
     if (world.obstacleCoverage(cx, cz, e.stats.radius) > ARTILLERY_PROBE_MAX_COVERAGE) return;
     _from.set(cx, world.getHeightAt(cx, cz) + e.stats.height * 0.95, cz);
     if (shellArcBlocked(world, _from, _aimT, SHELL_FLIGHT_TIME)) return;
-    bestD = walk; bx = cx; bz = cz;
+    if (reversing) { revD = walk; rx = cx; rz = cz; revSide = side; }
+    else { bestD = walk; bx = cx; bz = cz; bestSide = side; }
   };
   for (let i = 0; i < ARTILLERY_PROBES.length; i++) {
     const [along, side] = ARTILLERY_PROBES[i];
@@ -147,7 +161,11 @@ function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
   world.getNormalAt(e.position.x, e.position.z, _uphill);
   const hl = Math.hypot(_uphill.x, _uphill.z);
   if (hl > 0.05) probe(e.position.x - _uphill.x / hl * ARTILLERY_PROBE_FORWARD_M, e.position.z - _uphill.z / hl * ARTILLERY_PROBE_FORWARD_M);
-  if (bestD < Infinity) { e.shellSpot.set(bx, 0, bz); walkFor(e, bestD); return; }
+  if (bestD === Infinity && revD < Infinity) { bestD = revD; bx = rx; bz = rz; bestSide = revSide; }
+  if (bestD < Infinity) {
+    if (bestSide !== 0) e.fireStrafeSign = bestSide > 0 ? 1 : -1;
+    e.shellSpot.set(bx, 0, bz); walkFor(e, bestD); return;
+  }
   // nothing clear nearby: close in on the target (never inside the retreat distance)
   const step = Math.min(ARTILLERY_PROBE_FORWARD_M * 1.5, l - ARTILLERY_AI.retreatDist - 2);
   if (step > 2) { e.shellSpot.set(e.position.x + nx * step, 0, e.position.z + nz * step); walkFor(e, step); }

@@ -47,6 +47,20 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-13 (38차) `a4609fd` 통합 커밋 뒤 `npm run verify:all` + 실패 3건 정리 (`scripts/smoke-phase3.mjs` · `src/enemies/ai/GimmickAI.ts`, 리드 단독):
+
+  ① 떠 있던 프로세스 정리 — 이 세션의 개발 릴레이(8787, `npm run server` 태스크를 멈춰도 자식 node 가 남아 있었다)와 15:39 부터 떠 있던 주인 없는 vite(5299)를 끄고 시작.
+  ② `npm run verify:all` → **3 failed, 11 min 17 s**: `smoke-phase3` 18/20 · `smoke-phase4` 57/58 · `smoke-rogue-drop` 46/48. `--rerun-failed` 에서 rogue-drop 48/48(착지 순간 레이더가
+  근처 적을 보고 진격 상태를 벗어나는 배치 난수 — flaky), phase3 · phase4 는 **같은 숫자로 다시 실패**(결정적).
+  ③ `smoke-phase3` = **스모크 결함**: 보급 구조물 착지점 12 m 안에 창 달린 건물이 서면 창문 유리(`Glass`, destructible id `glass:…`)까지 구조물로 세고(7개), 첫 destructible 로 유리를 집어
+  깨는 순간 `o.destructible` 이 사라져 `.hp` 에서 던졌다 — 같은 날 맵 배치가 바뀌어 드러났다. `glass:` 를 거른다 → 41/41.
+  ④ `smoke-phase4` C-24 = **게임 결함(X-4 핑퐁 재발)**: 곡사포가 발사를 계속 거절당하면 「가장 가까운 뚫린 자리」 만 골라 A → B → A 를 오갔다(표적 기준 옆 −1 · +1 · −1, 인간형을 치워도
+  같은 숫자 — 표적 탓이 아니었다). `artilleryRelocate` 가 연속 거절 중에는 지난번 옆걸음과 같은 편(앞쪽 · 옆 성분 0 포함)을 먼저 고르고 그쪽이 다 막혔을 때만 반대편으로 간다(지난 편 =
+  `Enemy.fireStrafeSign`, 첫 거절 · 재표적 뒤는 자유) → `--only smoke-phase4,smoke-ecology,smoke-enemy-delta` **58/58 · 103/103 · 66/66**.
+  `docs line: 2026-09-13: typecheck ok, typecheck-server ok, net-selftest 480/480, data-check ok, build 3,576.60 kB JS / 371.99 kB CSS, smoke-quickslots 101/101, smoke-phase3 41/41 (fix), smoke-phase2 57/57, smoke-weapons 147/147, smoke-stratagems 75/75, smoke-drone-scan 24/24, smoke-phase4 58/58 (fix), smoke-tactical 115/115, smoke-ship-rooms 77/77, smoke-inventory-p6 183/183, smoke-controls-hub 153/153, smoke-loadout 69/69, smoke-console 63/63, smoke-search 77/77, smoke-housing 300/300, smoke-ui-p6 91/91, smoke-progression 237/237, smoke-ui-p5 142/142, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-v2 52/52, smoke-faction-sites 263/263, smoke-resume-gate 62/62, smoke-meta 198/198, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-rogue-drop 48/48 (rerun), smoke-humanoid-ai 39/39, smoke-training 108/108, smoke-ladder 38/38, smoke-ghost 86/86, smoke-pose 144/144, smoke-library 205/205, smoke-aim-sway 25/25, smoke-food-chain 79/79, smoke-stations 98/98, smoke-favorites 45/45, smoke-gym 64/64, smoke-cooking 92/92, smoke-buffs 41/41, smoke-enemy-delta 66/66, smoke-consumables 36/36, smoke-extraction 36/36, smoke-planets 86/86, smoke-raidflow 89/89, smoke-ecology 103/103, smoke-props-collision 53/53, smoke-social 209/209, smoke-structure-reach 353/353, smoke-site-spawns 269/269, smoke-server-dist 36/36, smoke-tutorial 86/86, smoke-structures 144/144, smoke-pitch 162/162, smoke-hazard 57/57, smoke-named 44/44, smoke-burrow 22/22, smoke-tram-ride 26/26, smoke-lights 30/30, smoke-sandworm 41/41, smoke-trust 66/66, smoke-netlink 48/48, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 175/175`
+
+  ⚠ 두 수정 뒤에는 `verify:all` 을 다시 돌리지 않았다 — 고친 두 스모크와 곡사포를 쓰는 스모크 둘만 다시 봤다.
+
 - 2026-09-13 (37차) 요리 미니게임 · 요리 품질 · 주방 자동 조리 가구 (`src/shared/cooking.ts` 신규 · `src/shared/{types,housing,progression,events,net,charBuffs,index}.ts` **추가만** ·
   `data/{cook_steps,cook_grill}.csv` 신규 · `data/{constants,tables,furniture,furniture_upgrades}.csv` · `src/{housing,inventory,pickups,game,progression,player,hub,ui,audio,net,console}` ·
   스모크 신규 `smoke-cooking` + `smoke-inventory-p6` · `smoke-progression` · `smoke-pose` · `smoke-housing` 확장, **에이전트 5개 병렬 + 리드**, 같은 트리에서 다른 세션 둘이 동시 작업):

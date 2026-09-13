@@ -1069,6 +1069,10 @@ attack phase 4  0.25 s 회복 → chase
   (`spendHitBudget` — `hit` 과 **같은** 버킷이다: 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다. 깎이면 깎인
   값으로 터뜨리고 0 이면 버린다). ⚠ `isDead` 거절은 계약대로이므로 **공중에 있는 동안 주인이 죽은 폭발**(수류탄 퓨즈 ·
   호출 `eta`)은 적 피해가 0 이다 — 코드 주석에 근거를 남겼다.
+- **2026-09-13 (곡사포 재배치 핑퐁 재발 — `ai/GimmickAI.artilleryRelocate`)** — 발사가 계속 거절되는 동안 「가장 가까운 뚫린 자리」 만 고르면 A 에서 옆 7 m 의 B,
+  B 에서 다시 A 를 고르는 X-4 핑퐁이 지형에 따라 되살아났다(`smoke-phase4` C-24, 표적 기준 −1 · +1 · −1). 이제 **연속 거절 중에는 지난번 옆걸음과 같은 편**(앞쪽 ·
+  옆 성분 0 포함)을 먼저 고르고, 그쪽이 전부 막혔을 때만 반대편으로 간다. 지난 편은 `Enemy.fireStrafeSign` 에 적는다(포병은 `ai/FireLine` 옆걸음을 쓰지 않아 겹치지 않는다),
+  첫 거절과 `maxRefusals` 재표적 뒤는 자유. 레이 수 · 후보는 그대로.
   ② **`HitRequest.st`** 도 같은 순서로 — **비트 마스크**(`ENEMY_STATUS_BITS_ALL` = 알려진 비트 전부의 합, 남은 게 0 이면
   상태이상 부분만 건너뛴다) → **거리**(`STATUS_SOURCE_REACH` = `max(FLAME_RANGE, SHOCK_RANGE)` +
   `STATUS_REQUEST_RANGE_SLACK` **+ 적 반지름** — 두 원뿔 다 몸 표면까지 재기 때문이다: `coneTargets` 의

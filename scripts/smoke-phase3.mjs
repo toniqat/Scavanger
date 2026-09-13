@@ -171,9 +171,11 @@ try {
   await waitFor(page, () => window.__ev['stratagem:landed'].some((e) => e.kind === 'structure_drop'), 'structures landed', 240000);
   await waitSim(2.5);
   await P(() => { window.__game.ctx.timeScale = 1; });
-  const obs = await P((t) => { const w = window.__game.ctx.world; const near = w.getObstaclesNear(t[0], t[2], 12); return { total: near.length, destructible: near.filter((o) => o.destructible).length, count: window.__game.getSystem('stratagems').structureCount }; }, target);
+  // 2026-09-13: 구조물 창문 유리(`world/structures/parts/Glass` — id `glass:…`)도 destructible 이다. 착지점 12 m 안에 창 달린 건물이 서면
+  // 유리를 구조물로 세고, 첫 destructible 로 유리를 집어 깨는 순간 `o.destructible` 이 사라져 `.hp` 에서 던졌다 — 함선 호출 구조물만 센다.
+  const obs = await P((t) => { const w = window.__game.ctx.world; const near = w.getObstaclesNear(t[0], t[2], 12); const isCover = (o) => o.destructible && !String(o.destructible.id).startsWith('glass:'); return { total: near.length, destructible: near.filter(isCover).length, count: window.__game.getSystem('stratagems').structureCount }; }, target);
   ok(obs.destructible === 5 && obs.count === 5, '5 destructible cover obstacles registered in the world', JSON.stringify(obs));
-  const destroyed = await P((t) => { const w = window.__game.ctx.world; const o = w.getObstaclesNear(t[0], t[2], 12).find((x) => x.destructible); const id = o.destructible.id; o.destructible.onDamage(500); const hpMid = o.destructible.hp; o.destructible.onDamage(5000); const still = w.getObstaclesNear(t[0], t[2], 12).some((x) => x.destructible && x.destructible.id === id); return { hpMid, still, count: window.__game.getSystem('stratagems').structureCount }; }, target);
+  const destroyed = await P((t) => { const w = window.__game.ctx.world; const o = w.getObstaclesNear(t[0], t[2], 12).find((x) => x.destructible && !String(x.destructible.id).startsWith('glass:')); const id = o.destructible.id; o.destructible.onDamage(500); const hpMid = o.destructible.hp; o.destructible.onDamage(5000); const still = w.getObstaclesNear(t[0], t[2], 12).some((x) => x.destructible && x.destructible.id === id); return { hpMid, still, count: window.__game.getSystem('stratagems').structureCount }; }, target);
   ok(destroyed.hpMid === 1500, 'structure hp 2000 → 1500 after 500 damage', `${destroyed.hpMid}`);
   ok(!destroyed.still && destroyed.count === 4, 'destroyed structure leaves the world', JSON.stringify(destroyed));
   ok((await ev('structure:destroyed')).length === 1 && (await ev('structure:damaged')).length >= 1, 'structure:damaged / destroyed emitted');
