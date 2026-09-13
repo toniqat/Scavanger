@@ -42,7 +42,8 @@ export async function buildEconomyTable(server) {
     if (target) repairFees.push([d.id, rules.implantRepairFee(target)]);
   }
   const contracts = shared.CONTRACT_DEFS.map((c) => [c.id, c.creditsReward]);
-  const quests = shared.QUEST_DEFS.filter((q) => (q.rewards.credits ?? 0) > 0).map((q) => [q.id, q.rewards.credits]);
+  // 2026-09-14: 기업 퀘스트 폐지 — `quest:<id>` 는 NPC 퀘스트의 크레딧 보상이다 (docs/plans/messenger-quests.md)
+  const quests = shared.NPC_QUEST_DEFS.filter((q) => (q.rewards.credits ?? 0) > 0).map((q) => [q.id, q.rewards.credits]);
 
   const table = {
     v: 1,

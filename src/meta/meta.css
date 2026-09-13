@@ -11,7 +11,6 @@
  *   처럼 블러 위에 따로 뜬다. 호스트 격자: 좌 `.corp-rail`(기업 목록 카드) | 우 `.corp-shell` → `.corp-page` → 페이지 루트,
  *   아래 전 폭 `.corp-msg-slot`. 페이지 루트는 **가로 flex 한 줄**이고 그 자식 하나하나가 카드(`.cv-card`)다:
  *     거래     `.cv`  [판매 물품 .is-fluid] [거래 테이블] [함선 창고 .cv-inv] [가방 .cv-inv]
- *     퀘스트   `.cq`  [목록 .is-fluid] [상세 · 납품 .is-fluid] [함선 창고] [가방]
  *     임플란트 `.ci`  [데스크 .is-fluid] [함선 창고] [가방]
  *     계약     `.cc`  한 카드(계약 목록 | 진행 중인 계약) — 기업 목록만 분리됐다.
  *   `.is-fluid` 카드만 남는 폭을 나눠 갖고(최소 폭은 여기 `min-width`), 나머지는 내용(격자) 폭 그대로다. 카드 머리줄 ·
@@ -287,12 +286,12 @@
 }
 .inv-tile.cv-ghost.is-ok { outline: 2px solid var(--c-success); outline-offset: 2px; }
 
-/* ══ 카드 줄 (2026-09-13) — 거래 `.cv` · 퀘스트 `.cq` · 임플란트 `.ci` ═══════════════════════════════════════════
+/* ══ 카드 줄 (2026-09-13) — 거래 `.cv` · 임플란트 `.ci` (2026-09-14 퀘스트 `.cq` 삭제) ═══════════════════════════════════════════
    가로 flex 한 줄. 내용 폭 카드는 줄어들지 않고(`flex: none`), `.is-fluid` 만 남는 폭을 나눈다. 폭이 모자라는 일은
    `CorpView.fitLayout` 이 칸 크기를 줄여(→ 32 px) 막고, 그래도 모자라면 `.is-inv-hidden` 이 창고 · 가방 카드를 뺀다. */
-.cv, .cq, .ci { display: flex; flex-direction: row; align-items: stretch; gap: var(--cv-card-gap); min-width: 0; min-height: 0; }
-.cv-col, .cq-col, .ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; flex: none; }
-.cv > .is-fluid, .cq > .is-fluid, .ci > .is-fluid { flex: 1 1 0; }
+.cv, .ci { display: flex; flex-direction: row; align-items: stretch; gap: var(--cv-card-gap); min-width: 0; min-height: 0; }
+.cv-col, .ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; flex: none; }
+.cv > .is-fluid, .ci > .is-fluid { flex: 1 1 0; }
 .is-inv-hidden > .cv-inv { display: none; }
 
 /* 함선 창고 · 가방 카드 — `createTradeGrids({ grids: [id], layout: 'split' })` 하나씩. 카드 폭 = 격자 폭 + 스크롤바 자리 + 안여백 */
@@ -372,39 +371,9 @@
 .corp-row.contract.is-detail { grid-template-columns: minmax(0, 1fr); }
 .corp-row.contract.is-detail .reward { justify-content: flex-start; }
 
-/* ── 퀘스트: 목록 | 상세 · 납품 + 보상 | 함선 창고 | 가방 ── */
-.cq-col.list { flex: 1.1 1 0; min-width: 200px; }
-.cq-col.detail { flex: 1 1 0; min-width: 230px; }
-.cq-list, .cq-deliver {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
-  display: flex; flex-direction: column; gap: 6px; padding-right: 4px;
-}
-/* 목록 머리: 제목 왼쪽 · 완료된 항목 보기 체크박스 오른쪽 (2026-09-12 2차) */
-.cq-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; min-width: 0; }
 .cv-check { display: inline-flex; align-items: center; gap: 6px; flex: none; cursor: pointer; font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; user-select: none; }
 .cv-check input { accent-color: var(--cc); width: 13px; height: 13px; margin: 0; cursor: pointer; }
 .cv-check:hover { color: var(--c-text); }
-/* 보상은 납품 패널 **바로 아래**에 이어 붙는다 — 테두리를 위로 없애 한 패널처럼 읽힌다 (2026-09-12 2차) */
-.cq-col.detail .cq-rewards {
-  flex: none; display: flex; flex-direction: column; gap: 6px;
-  padding: 8px 10px 10px; border: 1px solid var(--c-border); border-top: 0; background: rgba(0, 0, 0, 0.24);
-}
-.cq-rewards .cq-reward-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; padding-bottom: 4px; }
-.cq-rewards .cq-reward-none { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; align-self: center; }
-.cq-list .corp-row.quest { grid-template-columns: 44px minmax(0, 1fr); cursor: pointer; }
-.cq-list .corp-row.quest.is-sel { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 10%, transparent); }
-.cq-deliver { padding: 10px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24); }
-.cq-deliver.is-over { border-color: var(--c-success); }
-.cq-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--cc); }
-.cq-desc { font-size: 11px; line-height: 1.5; color: var(--c-text-dim); }
-.cq-table { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.cq-line { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 4px 2px; border-bottom: 1px dotted var(--c-border); }
-.cq-line .nm { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cq-line .qty { font-family: var(--ui-mono); font-size: 12px; color: var(--c-success); white-space: nowrap; }
-.cq-line.short .qty { color: var(--c-danger); }
-.cq-none { font-size: 11px; color: var(--c-text-faint); }
-.cq-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 8px; }
-.cq-acts .ui-btn { min-width: 110px; justify-content: center; }
 
 /* ── 임플란트 수리 (Phase 12, 세레스 바이오) ──
    2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 격자 + 수리 카드**, 그 오른쪽은 거래 · 퀘스트와 같은

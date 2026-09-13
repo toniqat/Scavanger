@@ -1,0 +1,80 @@
+/* ── 전술 지도 퀘스트 패널 (2026-09-14, `ui/map/QuestPanels` — 접두사 `mq-`) ─────────────────────────────────────
+   좌측 열(`.map-side`, base.css)에서 머리와 범례 사이의 남는 높이를 차지하고, 길어지면 `.mq-scroll` 만 스크롤한다
+   (열 높이는 `MapScreen.fit` 이 캔버스 높이로 못 박는다 — 패널이 늘어도 프레임이 자라지 않는다). */
+.mq-list {
+  flex: 1 1 0; min-height: 0;
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 12px; border-top: 1px solid var(--c-border);
+}
+.mq-head { display: flex; align-items: baseline; justify-content: space-between; }
+.mq-count { font-size: 11px; color: var(--c-text-dim); }
+.mq-scroll {
+  flex: 1 1 0; min-height: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; scrollbar-color: var(--sb-thumb, #3a3f47) var(--sb-track, transparent);
+  scrollbar-gutter: stable;
+}
+.mq-panel {
+  flex: none;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 7px 9px 0 9px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--c-border);
+  border-left: 2px solid var(--mq-npc, var(--c-accent));
+  overflow: hidden;
+  cursor: default;
+}
+.mq-panel:hover { background: rgba(255, 255, 255, 0.065); border-color: var(--c-border-strong); border-left-color: var(--mq-npc, var(--c-accent)); }
+.mq-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mq-glyph {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #0b0d10;
+  background: var(--mq-npc, var(--c-accent));
+}
+.mq-names { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mq-name { font-size: 13px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mq-npc { font-size: 11px; line-height: 1.2; color: var(--mq-npc, var(--c-text-dim)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mq-objs { display: flex; flex-direction: column; gap: 2px; }
+.mq-obj { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--c-text-dim); }
+.mq-obj-l { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mq-obj-n { flex: none; font-size: 11px; color: var(--c-text, #e8e6e1); }
+.mq-obj.is-done { opacity: 0.5; }
+.mq-obj.is-done .mq-obj-n { color: var(--c-success, #6ee7a8); }
+/* 패널 안 하단 게이지 — 패널 좌우 안여백을 넘어 테두리 안쪽 끝까지 */
+.mq-gauge { height: 3px; margin: 2px -9px 0 -9px; background: rgba(255, 255, 255, 0.08); }
+.mq-gauge > i { display: block; height: 100%; background: var(--mq-npc, var(--c-accent)); transition: width 240ms var(--ease, ease-out); }
+.mq-panel.is-ready .mq-gauge > i { background: var(--c-success, #6ee7a8); }
+
+/* 호버 상세 툴팁 — 지도 화면 루트에 붙고 좌측 열 오른쪽에 뜬다 (포인터를 먹지 않는다) */
+.mq-tip {
+  position: fixed; z-index: 60;
+  width: 290px; max-width: calc(100vw - 16px);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  background: var(--c-panel-strong);
+  border: 1px solid var(--c-border-strong);
+  border-top: 2px solid var(--mq-npc, var(--c-accent));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  font-size: 12px; line-height: 1.4;
+  pointer-events: none;
+}
+.mq-tip-name { font-size: 15px; font-weight: 700; line-height: 1.25; }
+.mq-tip-npc { margin-top: -3px; font-size: 11px; color: var(--mq-npc, var(--c-text-dim)); }
+.mq-tip-sum { color: var(--c-text-dim); }
+.mq-tip-sec {
+  margin-top: 3px; padding-top: 6px; border-top: 1px solid var(--c-border);
+  font-size: 10px; letter-spacing: 0.14em; color: var(--c-text-dim);
+}
+.mq-tip-objs { display: flex; flex-direction: column; gap: 3px; }
+.mq-tip-obj { display: flex; align-items: baseline; gap: 6px; }
+.mq-tip-obj .l { flex: 1 1 auto; min-width: 0; }
+.mq-tip-obj .tag { flex: none; padding: 0 4px; font-size: 10px; color: var(--c-text-dim); border: 1px solid var(--c-border); }
+.mq-tip-obj .n { flex: none; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; }
+.mq-tip-obj.is-done { opacity: 0.55; }
+.mq-tip-obj.is-done .n { color: var(--c-success, #6ee7a8); }
+.mq-tip-obj.is-off .l { color: var(--c-text-dim); }
+.mq-tip-rw { display: flex; flex-wrap: wrap; gap: 3px 10px; }
+.mq-rw { white-space: nowrap; }
+.mq-tip-foot { margin-top: 2px; font-size: 11px; color: var(--c-text-dim); }

@@ -96,3 +96,16 @@
   1 ≤ units ≤ `CRYPTO_TRADE_MAX_UNITS`, 프로필당 시간당 `CREDIT_CRYPTO_MAX_PER_HOUR`(240)회. 거절은 평소의
   `credits:result {ok:false, reason: CREDIT_TX_INVALID_KO}`. **지갑을 정말 가졌는지는 보지 않는다** — 함선 문서가 클라이언트
   쓰기라 서버가 비교할 근거가 없다 (아이템 판매와 같은 한계).
+
+## 8. 단체 메신저방 (2026-09-14, docs/plans/messenger-quests.md)
+
+- **로비와 무관한 서버 권위 · 영속 채널**이다 (`server/Rooms.ts` → `rooms.json`). 프로필(토큰)이 있어야 하고 게임 메시지(`relay`)를 타지 않는다.
+- 클라 → 서버: `room:get` · `room:create {name, invite?, nonce}` · `room:invite {room, code}` · `room:reply {room, accept}` · `room:leave {room}` ·
+  `room:kick {room, code}` · `room:rename {room, name}` · `room:say {room, text, nonce}` · `room:history {room, before?}`.
+- 서버 → 클라: `room:state {rooms: {rooms, invites}}` (welcome 직후 · 변경마다 관계자에게, 소셜과 같은 250 ms 합치기 — 요청자는 즉시) ·
+  `room:line {line}` (지금 멤버 중 접속자, `say` 는 보낸 사람 제외) · `room:ack {nonce, ok, room?, at?, code?}` (create · say 만) ·
+  `room:history {room, lines, more}` · `room:error {code, message}`.
+- 권한은 **방장형**(초대 · 강퇴 · 이름 변경), 초대는 **친구만** · 영속 7일, 방 20명 · 줄 200 · 한 사람 20방. 방장이 나가면 가장 먼저 들어온 멤버,
+  마지막 멤버가 나가면 삭제. 차단은 소셜과 같은 방향 규칙(나를 차단 → `not_found`, 내가 차단 → `invalid`)이고 같은 방 안의 차단은 클라이언트가 숨긴다.
+- **채팅창과 연동하지 않는다** (사용자 결정) — 단체방은 메신저 안에서만. 개인 대화(옛 귓속말)는 여전히 `social:whisper` 하나이고 채팅창 · 메신저가 같은 기록을 쓴다.
+- 읽지 않음은 클라이언트 표시다 (`slotKey(ROOM_READ_STORAGE_KEY)` · 대화 기록의 `readAt`).

@@ -485,6 +485,8 @@ export class Rover {
       if (old.includes(id)) continue;
       const local = id === self;
       game.bus.emit('rover:boarded', { by: local ? 'local' : id, name: this.nameOf(id), local, aboard: true });
+      // 2026-09-14 (NPC 퀘스트 interact): 내가 탔다 — 호스트가 탑승자 목록으로 확정한 뒤라 클라이언트도 정확하다
+      if (local) game.bus.emit('world:interacted', { kind: 'rover', id: BOARD_ID });
     }
     for (const id of old) {
       if (list.includes(id)) continue;

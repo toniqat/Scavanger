@@ -66,7 +66,11 @@ export interface GameEvents {
   'world:ready': { seed: number; playerSpawn: THREE.Vector3; planet?: PlanetId | null };
   'world:cleared': Record<string, never>;
   /** A crate was interacted with; Inventory opens the container window. */
-  'crate:open': { crateId: string; tier: number; position: THREE.Vector3 };
+  'crate:open': {
+    crateId: string; tier: number; position: THREE.Vector3;
+    /* appended (2026-09-14, NPC 퀘스트 search 목표): 구조물 · 선로 플랫폼 · 전차 컨테이너면 그 구역 id 와 종류. 월드 상자는 없음. */
+    zoneId?: string; zoneKind?: StructureKind | 'platform' | 'tram';
+  };
   'crate:looted': { crateId: string };   // emitted by inventory when container becomes empty
 
   /* ── player (owner: player/PlayerSystem) ────────────────────────────── */
@@ -112,7 +116,12 @@ export interface GameEvents {
   'enemy:damaged': { id: number; type: EnemyType; amount: number; position: THREE.Vector3; hp: number };
   /** `by` (appended, Phase 9): PeerId | 'local' credited (burn kills go to the fire's owner), null for an AI / unknown kill. */
   /** `deathDir` appended (Phase 10): which way the body went down (enemies/ decides it seeded, so it replicates). */
-  'enemy:killed': { id: number; type: EnemyType; position: THREE.Vector3; by?: string | null; deathDir?: EnemyDeathDir };
+  'enemy:killed': {
+    id: number; type: EnemyType; position: THREE.Vector3; by?: string | null; deathDir?: EnemyDeathDir;
+    /* appended (2026-09-14, NPC 퀘스트 kill 목표): `by === 'local'` 일 때 **내 막타**가 총기였으면 그 계열, 아니면 null (수류탄 · 가젯 · 근접 · 화상).
+       생략 = 모른다 (옛 경로) — 계열 조건이 있는 목표는 세지 않는다. 비호스트도 자기 킬에 채운다. */
+    weaponClass?: WeaponClassForKill | null;
+  };
   'enemy:attacked': { id: number; type: EnemyType; damage: number; position: THREE.Vector3 };
   'enemy:alerted': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:waveStarted': { index: number; count: number };
@@ -749,13 +758,13 @@ export interface GameEvents {
   /** A social request was refused. `message` is the Korean line from `SOCIAL_ERROR_MESSAGE_KO`. */
   'social:error': { code: SocialErrorCode; message: string };
 
-  /* ── 커뮤니티 / 귓속말 UI (owner: ui) ── */
+  /* ── 커뮤니티 / 개인 대화 UI (owner: ui) ── */
   /** The ship's top-right 커뮤니티 panel opened / closed (blocker `COMMUNITY_BLOCKER`). */
   'ui:communityToggled': { open: boolean };
   /* appended (2026-09-07, 커서 rework): Alt freed / re-captured the mouse cursor with no screen behind it. */
   'ui:freeCursorToggled': { active: boolean };
   /**
-   * Command: open the chat input in whisper mode aimed at `code` (the ESC screen's 귓속말하기 closes itself and emits
+   * Command: open the chat input in whisper mode aimed at `code` (the ESC screen's 개인 대화 closes itself and emits
    * this). ChatLog keeps the target until the player clears it, so the next Enter also whispers.
    */
   'chat:whisperTo': { code: PlayerCode; name: string };
@@ -1456,3 +1465,49 @@ export interface GameEvents {
   'ui:tipPinned': { owner: string; uid: string | null };
 }
 /* ── end [2026-09-14] 인벤토리 툴팁 고정 ── */
+
+/* ── [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 (docs/plans/messenger-quests.md — 계약 본문은 `shared/npc.ts` · `shared/social.ts` 끝 절) ── */
+import type { WeaponClass as WeaponClassForKill } from './types';
+import type { MessengerTab, NpcInteractKind, NpcLogEntry, NpcQuestState } from './npc';
+import type { RoomErrorCode, RoomId, RoomInvite, RoomLine } from './social';
+export interface GameEvents {
+  /** Fact (meta): NPC 대화에 사건 하나가 붙었다 (첫 연락 · 제안 · 수락 · 보류 · 다시 수주 · 완료). 함선 토스트 · 메신저 목록이 듣는다. */
+  'npc:message': { npc: string; entry: NpcLogEntry };
+  /** Fact (meta): NPC 메시지 읽지 않음 합이 바뀌었다. */
+  'npc:unreadChanged': { total: number };
+  /** Fact (meta): NPC 퀘스트 상태가 바뀌었다 (`prev` null = hidden 에서). */
+  'npc:questChanged': { id: string; npc: string; state: NpcQuestState; prev: NpcQuestState | null };
+  /**
+   * Fact (meta): 목표 진행이 바뀌었다. `raid` = 레이드 목표, `done` = 확정됐다 (그 순간 한 번 true 로 온다),
+   * `delta` = 이번 변화 (레이드 끝의 되돌림은 음수).
+   */
+  'npc:objectiveProgress': { questId: string; index: number; progress: number; target: number; done: boolean; delta: number; raid: boolean };
+  /** Fact (meta): 진행 중 퀘스트의 목표가 전부 찼다 — [완료 보고] 가능. */
+  'npc:questReady': { id: string; npc: string };
+  /**
+   * Fact (world): **이 클라이언트의 조작으로** 상호작용이 성사됐다 — 맵 스캐너 작동 · 잠긴 문 열기 · 전차 호출/시동 · 탐사 차량 탑승.
+   * 분대원의 조작에는 나지 않는다 (NPC 퀘스트 interact 목표는 본인만 — 사용자 결정). `id` = 구조물 · 플랫폼 · 전차 · 차량 id.
+   */
+  'world:interacted': { kind: NpcInteractKind; id: string; structureKind?: StructureKind };
+  /** Fact (ui): 메신저가 열렸다 / 닫혔다. */
+  'ui:messengerToggled': { open: boolean };
+  /** Command (누구든 → ui): 메신저를 연다 (함선 전용 — 레이드 중이면 무시). 대상이 있으면 그 대화 · 탭으로. */
+  'ui:openMessenger': { tab?: MessengerTab; npc?: string; code?: PlayerCode; room?: RoomId };
+  /** Fact (net): 개인 대화 읽지 않음 합이 바뀌었다 (받은 줄 · 읽음 표시). */
+  'social:unreadChanged': { total: number };
+  /** Fact (net): 방 목록 · 초대가 바뀌었다 (`ctx.net.rooms`). `first` = 이 연결의 첫 스냅샷. */
+  'room:updated': { first: boolean };
+  /** Fact (net): 방에 줄이 붙었다 (받은 줄 · 내 pending 줄 · 시스템 줄). */
+  'room:line': { line: RoomLine };
+  /** Fact (net): 내 줄의 전송 상태가 바뀌었다 (ack). */
+  'room:lineUpdated': { line: RoomLine };
+  /** Fact (net): 방 초대를 받았다. */
+  'room:invited': { invite: RoomInvite };
+  /** Fact (net): 요청한 줄 한 쪽이 도착했다. */
+  'room:history': { room: RoomId };
+  /** Fact (net): 단체방 읽지 않음 합이 바뀌었다. */
+  'room:unreadChanged': { total: number };
+  /** Fact (net): 방 요청이 거절됐다 (`message` 는 한국어). */
+  'room:error': { code: RoomErrorCode; message: string };
+}
+/* ── end [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 ── */

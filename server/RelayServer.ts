@@ -47,6 +47,13 @@ import type { EconomyTable } from '../src/shared/credits.ts';
 import { CreditEconomy, ECONOMY_TABLE, economyTableIntact } from './Economy.ts';
 /* 2026-09-13: 암호화폐 시세 (`crypto:watch` · `crypto:history` · `crypto:prices`) */
 import { CryptoMarket } from './CryptoMarket.ts';
+/* 2026-09-14: 단체 메신저방 (`room:*` · server/Rooms.ts) */
+import type { RoomErrorCode, RoomInfo, RoomInvite, RoomLine, RoomRecord, RoomSnapshot, SocialRecord } from '../src/shared/social.ts';
+import {
+  ROOM_MEMBER_MAX, ROOM_NAME_MAX, ROOM_SAY_BURST, ROOM_SAY_PER_S, ROOM_TEXT_MAX, formatPlayerCode, isValidRoomId, roomErrorMessage,
+  roomSystemTextKo,
+} from '../src/shared/social.ts';
+import { RoomStore, type RoomOp } from './Rooms.ts';
 import { DEFAULT_DATA_DIR } from './Store.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
 
@@ -81,6 +88,10 @@ const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
 const MAX_WHISPER_INPUT = 4 * SOCIAL_WHISPER_MAX;
 /* 2026-09-11 (B-3): an invite id is 8 base64url chars (`InviteTable`); anything longer is not ours. */
 const MAX_INVITE_ID_INPUT = 64;
+/* 2026-09-14: what a `room:*` frame may carry before `sanitizeRoomName` / `sanitizeRoomText` trim it. */
+const MAX_ROOM_NAME_INPUT = 4 * ROOM_NAME_MAX;
+const MAX_ROOM_TEXT_INPUT = 4 * ROOM_TEXT_MAX;
+const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 interface Client {
   id: PeerId;
@@ -99,6 +110,9 @@ interface Client {
   /** 2026-09-13: `crypto:history` token bucket (tokens, `Date.now()` of the last refill). */
   cryptoTokens: number;
   cryptoTokensAt: number;
+  /** 2026-09-14: `room:say` token bucket (`ROOM_SAY_BURST`, refilled `ROOM_SAY_PER_S`). */
+  roomTokens: number;
+  roomTokensAt: number;
 }
 
 /** 2026-09-11 (C-29): one row of the operator console's `list` (`RelayServer.listClients`). */
@@ -191,6 +205,8 @@ export interface RelayServer {
   collectGarbage(now?: number): ProfileGcReport;
   /** 2026-09-13: the crypto market (null when the economy table has no `crypto` section). */
   readonly crypto: CryptoMarket | null;
+  /** 2026-09-14: 단체 메신저방 저장소 (`rooms.json` next to `profiles.json`). */
+  readonly rooms: RoomStore;
 }
 
 function randomPeerId(): PeerId {
@@ -341,6 +357,31 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     case 'crypto:history':
       return typeof m.coin === 'string' && m.coin.length > 0 && m.coin.length <= MAX_CODE_INPUT && typeof m.range === 'string' && m.range.length <= 4
         ? { t: 'crypto:history', coin: m.coin, range: m.range as CryptoChartRange } : null;
+    /* appended: 2026-09-14 — 단체 메신저방. Shapes + input caps only; membership / owner / friend rules are the handler's and the store's. */
+    case 'room:get':
+      return { t: 'room:get' };
+    case 'room:create': {
+      if (typeof m.name !== 'string' || m.name.length > MAX_ROOM_NAME_INPUT || !isFiniteNum(m.nonce)) return null;
+      if (m.invite === undefined) return { t: 'room:create', name: m.name, nonce: m.nonce };
+      if (!Array.isArray(m.invite) || m.invite.length > ROOM_MEMBER_MAX || !m.invite.every(validSocialCode)) return null;
+      return { t: 'room:create', name: m.name, invite: m.invite as string[], nonce: m.nonce };
+    }
+    case 'room:invite':
+      return isValidRoomId(m.room) && validSocialCode(m.code) ? { t: 'room:invite', room: m.room, code: m.code as string } : null;
+    case 'room:kick':
+      return isValidRoomId(m.room) && validSocialCode(m.code) ? { t: 'room:kick', room: m.room, code: m.code as string } : null;
+    case 'room:reply':
+      return isValidRoomId(m.room) && typeof m.accept === 'boolean' ? { t: 'room:reply', room: m.room, accept: m.accept } : null;
+    case 'room:leave':
+      return isValidRoomId(m.room) ? { t: 'room:leave', room: m.room } : null;
+    case 'room:rename':
+      return isValidRoomId(m.room) && typeof m.name === 'string' && m.name.length <= MAX_ROOM_NAME_INPUT ? { t: 'room:rename', room: m.room, name: m.name } : null;
+    case 'room:say':
+      return isValidRoomId(m.room) && typeof m.text === 'string' && m.text.length <= MAX_ROOM_TEXT_INPUT && isFiniteNum(m.nonce)
+        ? { t: 'room:say', room: m.room, text: m.text, nonce: m.nonce } : null;
+    case 'room:history':
+      if (!isValidRoomId(m.room) || (m.before !== undefined && !isFiniteNum(m.before))) return null;
+      return m.before === undefined ? { t: 'room:history', room: m.room } : { t: 'room:history', room: m.room, before: m.before as number };
     default:
       return null;
   }
@@ -599,9 +640,118 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     for (const w of set) if (w !== id) pushSocial(w);
   };
   /** `id` moved (connected / disconnected / joined / left / entered a mission / picked a planet). */
-  const pushPresence = (id: PeerId): void => { pushSocial(id); notifyWatchers(id); };
+  const pushPresence = (id: PeerId): void => { pushSocial(id); notifyWatchers(id); markRoomPeers(id); };
   /** A whole squad moved at once (start, reset, membership, 목표 행성). */
   const pushLobbyPresence = (lobby: Lobby): void => { for (const id of lobby.players.keys()) pushPresence(id); };
+
+  /* ── 2026-09-14: 단체 메신저방 (server/Rooms.ts — rules + persistence; here: profiles, friends, blocks, presence, fan-out) ── */
+  const rooms = new RoomStore({
+    dataDir: opts.dataDir === undefined ? DEFAULT_DATA_DIR : opts.dataDir,
+    quiet,
+    ...(opts.profileSaveDebounceMs !== undefined ? { saveDebounceMs: opts.profileSaveDebounceMs } : {}),
+    nameOf: (code) => { const pid = store.peerByCode(code); return (pid !== undefined ? store.card(pid)?.name : '') || formatPlayerCode(code); },
+  });
+  /** One `RoomInfo` as `viewer`-independent data (presence folded from the relay's live state). */
+  const roomInfo = (r: RoomRecord, now: number): RoomInfo => {
+    const members: RoomInfo['members'] = [];
+    for (const code of r.members) {
+      const pid = store.peerByCode(code);
+      const card = pid === undefined ? null : store.card(pid);
+      if (pid !== undefined && card) members.push({ ...card, presence: presenceOf(pid).presence });
+    }
+    const pending: RoomInfo['pending'] = [];
+    for (const inv of rooms.pendingOf(r, now)) {
+      const pid = store.peerByCode(inv.code);
+      const card = pid === undefined ? null : store.card(pid);
+      if (card) pending.push(card);
+    }
+    const info: RoomInfo = { id: r.id, name: r.name, owner: r.owner, members, pending, createdAt: r.createdAt, lastAt: RoomStore.lastAt(r) };
+    const last = r.lines.at(-1);
+    if (last) {
+      const wire = RoomStore.wire(r, last);
+      info.lastText = last.system ? roomSystemTextKo(wire) : last.text;
+      info.lastCode = last.code;
+      if (last.system) info.lastSystem = last.system;
+    }
+    return info;
+  };
+  /** Rooms + open invites of one profile socket (null without a social record). Invites from someone I blocked are hidden. */
+  const buildRoomSnapshot = (id: PeerId): RoomSnapshot | null => {
+    const soc = store.social(id);
+    if (!soc) return null;
+    const now = Date.now();
+    const invitesOut: RoomInvite[] = [];
+    for (const inv of rooms.invitesOf(soc.code, now)) {
+      if (store.isBlocked(id, inv.from)) continue;
+      const pid = store.peerByCode(inv.from);
+      const fromName = (pid !== undefined ? store.card(pid)?.name : '') || formatPlayerCode(inv.from);
+      invitesOut.push({ room: inv.room.id, name: inv.room.name, from: inv.from, fromName, members: inv.room.members.length, at: inv.at });
+    }
+    return { rooms: rooms.roomsOf(soc.code).map((r) => roomInfo(r, now)), invites: invitesOut };
+  };
+  const sendRooms = (id: PeerId): void => {
+    const c = clients.get(id);
+    if (!c || !c.hasProfile) return;
+    const snap = buildRoomSnapshot(id);
+    if (snap) sendTo(c, { t: 'room:state', rooms: snap });
+  };
+  /* Same coalescing as social pushes: a member hears at most one `room:state` per window; the actor's own answer goes now. */
+  const roomPushes = new PushCoalescer({ send: sendRooms, windowMs: opts.socialPushCoalesceMs });
+  const roomError = (c: Client, code: RoomErrorCode): void => { sendTo(c, { t: 'room:error', code, message: roomErrorMessage(code) }); };
+  /** `id` moved (presence): everyone sharing a room with it gets a fresh (coalesced) `room:state`. */
+  const markRoomPeers = (id: PeerId): void => {
+    const code = store.card(id)?.code;
+    if (!code) return;
+    for (const r of rooms.roomsOf(code)) {
+      for (const m of r.members) {
+        if (m === code) continue;
+        const pid = store.peerByCode(m);
+        if (pid !== undefined && clients.get(pid)?.hasProfile) roomPushes.mark(pid);
+      }
+    }
+  };
+  /** A room line to every connected member (`except` = the sender of a `room:say`, who has its ack). */
+  const sendRoomLine = (room: RoomRecord, line: RoomLine, except?: PeerId): void => {
+    let text: string | null = null;
+    for (const code of room.members) {
+      const pid = store.peerByCode(code);
+      if (pid === undefined || pid === except) continue;
+      const rc = clients.get(pid);
+      if (!rc || rc.ws.readyState !== WebSocket.OPEN) continue;
+      text ??= JSON.stringify({ t: 'room:line', line } satisfies ServerToClient);
+      try { rc.ws.send(text); } catch { /* the close handler cleans up */ }
+    }
+  };
+  /**
+   * Fan a successful store mutation out: `room:state` first (the actor at once, everyone else coalesced — so a joiner knows
+   * the room before its `join` line arrives), then the appended lines to the current members.
+   */
+  const applyRoomOp = (actor: Client | null, op: Extract<RoomOp, { ok: true }>, except?: PeerId): void => {
+    for (const code of new Set(op.notify)) {
+      const pid = store.peerByCode(code);
+      if (pid === undefined || !clients.get(pid)?.hasProfile) continue;
+      if (actor && pid === actor.id) roomPushes.now(pid); else roomPushes.mark(pid);
+    }
+    if (op.room) for (const line of op.lines) sendRoomLine(op.room, line, except);
+  };
+  const roomActor = (soc: SocialRecord): { code: PlayerCode; name: string } => ({ code: soc.code, name: soc.name });
+  /** `room:invite` (also each `room:create.invite` entry): room rules first, then friends-only + blocks. null = invited. */
+  const inviteToRoom = (c: Client, soc: SocialRecord, roomId: string, raw: string): RoomErrorCode | null => {
+    const room = rooms.get(roomId);
+    if (!room || !room.members.includes(soc.code)) return 'not_member';
+    if (room.owner !== soc.code) return 'not_owner';
+    const target = peerOfCode(raw);
+    if (!target) return 'not_found';
+    if (target.id === c.id || target.code === soc.code) return 'self';
+    if (store.isBlocked(c.id, target.code)) return 'invalid';        // I blocked them: unblock first (same as a whisper)
+    if (store.isBlocked(target.id, soc.code)) return 'not_found';    // they blocked me: indistinguishable from a wrong 아이디
+    if (!soc.friends.includes(target.code)) return 'not_friend';
+    const op = rooms.invite(roomId, soc.code, target.code, Date.now());
+    if (!op.ok) return op.code;
+    applyRoomOp(c, op);
+    log(`rooms: ${soc.code} invited ${target.code} to ${roomId}`);
+    return null;
+  };
 
   const socialError = (c: Client, code: SocialErrorCode): void => {
     sendTo(c, { t: 'social:error', code, message: SOCIAL_ERROR_MESSAGE_KO[code] });
@@ -1395,6 +1545,93 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
+      /* ── appended: 2026-09-14 — 단체 메신저방. Profile sockets only (anonymous → `unavailable`). `create` / `say` answer with
+       * `room:ack {nonce}`; every other refusal is `room:error`. ── */
+      case 'room:get': {
+        if (!socialOf(c)) { roomError(c, 'unavailable'); return; }
+        roomPushes.now(c.id);
+        return;
+      }
+      case 'room:create': {
+        const soc = socialOf(c);
+        if (!soc) { sendTo(c, { t: 'room:ack', nonce: m.nonce, ok: false, code: 'unavailable' }); return; }
+        const op = rooms.create(roomActor(soc), m.name, Date.now());
+        if (!op.ok) { sendTo(c, { t: 'room:ack', nonce: m.nonce, ok: false, code: op.code }); return; }
+        sendTo(c, { t: 'room:ack', nonce: m.nonce, ok: true, room: op.roomId, at: op.lines[0]?.at ?? Date.now() });
+        applyRoomOp(c, op);
+        let invited = 0;
+        for (const code of m.invite ?? []) if (inviteToRoom(c, soc, op.roomId, code) === null) invited++;
+        log(`rooms: ${soc.code} created ${op.roomId} (${op.room?.name ?? ''}) with ${invited} invite(s)`);
+        return;
+      }
+      case 'room:invite': {
+        const soc = socialOf(c);
+        if (!soc) { roomError(c, 'unavailable'); return; }
+        const err = inviteToRoom(c, soc, m.room, m.code);
+        if (err) roomError(c, err);
+        return;
+      }
+      case 'room:reply': {
+        const soc = socialOf(c);
+        if (!soc) { roomError(c, 'unavailable'); return; }
+        const op = rooms.reply(m.room, roomActor(soc), m.accept, Date.now());
+        if (!op.ok) { roomError(c, op.code); roomPushes.now(c.id); return; }   // the refusal also refreshes my invite list
+        applyRoomOp(c, op);
+        log(`rooms: ${soc.code} ${m.accept ? 'joined' : 'declined'} ${m.room}`);
+        return;
+      }
+      case 'room:leave': {
+        const soc = socialOf(c);
+        if (!soc) { roomError(c, 'unavailable'); return; }
+        const op = rooms.leave(m.room, roomActor(soc), Date.now());
+        if (!op.ok) { roomError(c, op.code); return; }
+        applyRoomOp(c, op);
+        log(`rooms: ${soc.code} left ${m.room}${op.room ? '' : ' (deleted — nobody left)'}`);
+        return;
+      }
+      case 'room:kick': {
+        const soc = socialOf(c);
+        if (!soc) { roomError(c, 'unavailable'); return; }
+        const code = normalizePlayerCode(m.code);   // a member whose profile is gone can still be kicked by 아이디
+        if (!code) { roomError(c, 'not_found'); return; }
+        const op = rooms.kick(m.room, roomActor(soc), code, Date.now());
+        if (!op.ok) { roomError(c, op.code); return; }
+        applyRoomOp(c, op);
+        log(`rooms: ${soc.code} kicked ${code} from ${m.room}`);
+        return;
+      }
+      case 'room:rename': {
+        const soc = socialOf(c);
+        if (!soc) { roomError(c, 'unavailable'); return; }
+        const op = rooms.rename(m.room, roomActor(soc), m.name, Date.now());
+        if (!op.ok) { roomError(c, op.code); return; }
+        applyRoomOp(c, op);
+        return;
+      }
+      case 'room:say': {
+        const refuse = (code: RoomErrorCode): void => { sendTo(c, { t: 'room:ack', nonce: m.nonce, ok: false, code }); };
+        const soc = socialOf(c);
+        if (!soc) { refuse('unavailable'); return; }
+        const now = Date.now();
+        c.roomTokens = Math.min(ROOM_SAY_BURST, c.roomTokens + ((now - c.roomTokensAt) / 1000) * ROOM_SAY_PER_S);
+        c.roomTokensAt = now;
+        if (c.roomTokens < 1) { refuse('limit'); return; }
+        const op = rooms.say(m.room, roomActor(soc), m.text, now);
+        if (!op.ok) { refuse(op.code); return; }
+        c.roomTokens -= 1;
+        sendTo(c, { t: 'room:ack', nonce: m.nonce, ok: true, room: op.roomId, at: op.lines[0].at });
+        applyRoomOp(c, op, c.id);
+        return;
+      }
+      case 'room:history': {
+        const soc = socialOf(c);
+        if (!soc) { roomError(c, 'unavailable'); return; }
+        const res = rooms.history(m.room, soc.code, m.before);
+        if (!res.ok) { roomError(c, res.code); return; }
+        sendTo(c, { t: 'room:history', room: m.room, lines: res.lines, more: res.more });
+        return;
+      }
+
       case 'relay': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
@@ -1422,6 +1659,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?', hasProfile: token !== null,
       connectedAt: Date.now(), kicked: false,
       cryptoWatch: false, cryptoTokens: CRYPTO_HISTORY_BURST, cryptoTokensAt: Date.now(),
+      roomTokens: ROOM_SAY_BURST, roomTokensAt: Date.now(),
     };
 
     // Same session already attached (second tab / zombie socket): the newest connection wins.
@@ -1516,6 +1754,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       /* Phase 11: subscribe this socket to the presence of everyone in its lists and tell everyone watching that it is online. */
       rewatch(id);
       notifyWatchers(id);
+      /* 2026-09-14: my rooms + open room invites right after the welcome (clients never ask on their own), and room-mates see me online. */
+      roomPushes.now(id);
+      markRoomPeers(id);
     }
 
     ws.on('pong', () => { c.alive = true; });
@@ -1542,6 +1783,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       try {
         notifyWatchers(c.id);
         unwatchAll(c.id);
+        if (c.hasProfile) markRoomPeers(c.id);   // 2026-09-14: room-mates see me offline
         /* B-3: invites waiting on me cannot be answered any more (a hidden one keeps its own clock → `expired`). */
         for (const inv of invites.toPeer(c.id)) closeInvite(inv, 'offline');
       } catch (e) { log(`social cleanup error ${c.id}: ${(e as Error).message}`); }
@@ -1641,6 +1883,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       log(`profile gc: removed ${report.removed.length} inactive profiles, dropped ${report.danglingRefs} dangling / `
         + `${report.expiredRecent} old recent / ${report.expiredRequests} old request entries (${store.size} profiles left)`);
     }
+    /* 2026-09-14: a collected 아이디 leaves its rooms (owner handoff / empty room deleted); expired room invites go too. */
+    const rg = rooms.collectGarbage((code) => store.peerByCode(code) !== undefined, now);
+    for (const code of rg.notify) {
+      const pid = store.peerByCode(code);
+      if (pid !== undefined && clients.get(pid)?.hasProfile) roomPushes.mark(pid);
+    }
+    for (const { room, line } of rg.lines) sendRoomLine(room, line);
     return report;
   };
   collectGarbage();
@@ -1667,6 +1916,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         get maxClients() { return maxClients; },
         collectGarbage,
         crypto: market,
+        rooms,
         close: () => new Promise<void>((done) => {
           clearInterval(heartbeat);
           market?.close();   // 2026-09-13: stops the tick timer, writes crypto.json synchronously
@@ -1680,6 +1930,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           watching.clear();
           pushes.close();    // B-5: the pending coalescing timer
           invites.clear();   // B-3: every invite TTL timer
+          roomPushes.close();   // 2026-09-14
+          rooms.close();        // 2026-09-14: writes rooms.json synchronously
           store.close();
           for (const c of clients.values()) { try { c.ws.terminate(); } catch { /* ignore */ } }
           wss.close(() => { http.close(() => done()); });

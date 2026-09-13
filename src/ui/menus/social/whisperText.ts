@@ -2,8 +2,8 @@ import type { SocialErrorCode, WhisperLine } from '@/shared';
 import { SOCIAL_ERROR_MESSAGE_KO } from '@/shared';
 
 /**
- * 귓속말 전송 상태를 한 줄로 (2026-09-11, B-4). 채팅 로그(`hud/ChatLog`)와 대화 기록 화면(`SocialPages`)이 **같은
- * 문구**를 쓰도록 여기 하나에 둔다. 빈 문자열 = 덧붙일 말 없음 (받은 줄 · 전달된 줄).
+ * 개인 대화(2026-09-14 전 이름 귓속말) 전송 상태를 한 줄로 (2026-09-11, B-4). 채팅 로그(`hud/ChatLog`)와 메신저 대화
+ * (`menus/messenger/ChatTab`)가 **같은 문구**를 쓰도록 여기 하나에 둔다. 빈 문자열 = 덧붙일 말 없음 (받은 줄 · 전달된 줄).
  */
 const FAIL_SHORT_KO: Partial<Record<SocialErrorCode, string>> = {
   offline: '오프라인',

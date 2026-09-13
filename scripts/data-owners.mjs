@@ -100,7 +100,10 @@ export const CSV_FOLDERS = {
   'corps.csv':               ['meta'],
   'contracts.csv':           ['meta'],
   'corp_stock.csv':          ['meta'],
-  'quests.csv':              ['meta'],
+  // 2026-09-14 (메신저 · NPC 퀘스트 — 옛 quests.csv 대신): meta/(엔진) · ui/(메신저 · 지도 패널 · 토스트) 가 소비한다
+  'npcs.csv':                ['meta', 'ui'],
+  'npc_quests.csv':          ['meta', 'ui'],
+  'npc_objectives.csv':      ['meta', 'ui'],
   'facility_upgrades.csv':   ['housing', 'hub'],
   'furniture.csv':           ['housing', 'hub'],
   'furniture_upgrades.csv':  ['housing', 'hub'],

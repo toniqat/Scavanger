@@ -14,6 +14,8 @@ const SERVER_TYPES: ReadonlySet<string> = new Set([
   'profile:ack', 'profile:conflict', 'profile:refused',
   /* 2026-09-13: 암호화폐 시세 (`parts/Crypto`) — prices ≈ 8 coins, history ≤ 180 candles */
   'crypto:prices', 'crypto:history',
+  /* 2026-09-14: 단체 메신저방 (`RoomSync`) — a history page ≤ ROOM_HISTORY_PAGE lines */
+  'room:state', 'room:line', 'room:ack', 'room:history', 'room:error',
 ]);
 const PING_INTERVAL_MS = 2000;
 /** `welcome` may carry every profile document (5 × PROFILE_DOC_MAX_BYTES) plus a raid blob. */

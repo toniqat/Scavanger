@@ -83,6 +83,7 @@ export function setDebugSocial(
       find() { return undefined; }, playBlock() { return 'offline' as PlayBlock; },
       blocked: [], isBlocked() { return false; }, block: nop('block'), declineInvite: nop('declineInvite'),
       whisperHistory() { return []; }, whisperPeers() { return []; }, lastWhisperPeer: null,
+      whisperUnread() { return 0; }, markWhisperRead: nop('markWhisperRead'), whisperUnreadTotal: 0,
     };
     return;
   }
@@ -102,6 +103,9 @@ export function setDebugSocial(
     if (i >= 0) live.splice(i, 1);
   };
   const lines = new Map<string, WhisperLine[]>(Object.entries(history).map(([k, v]) => [k, [...v]]));
+  /* 2026-09-14 (메신저): 읽지 않음 = 받은 줄 중 상대별 readAt 보다 새 것 (seed 의 받은 줄은 전부 읽지 않음으로 시작한다). */
+  const readAt = new Map<string, number>();
+  const unreadOf = (code: string): number => (lines.get(code) ?? []).filter((l) => !l.out && l.at > (readAt.get(code) ?? 0)).length;
   debugRef = {
     available: true,
     get me() { return snap.me; },
@@ -158,5 +162,12 @@ export function setDebugSocial(
       return [...lines.entries()].map(([code, l]) => ({ code, name: l.at(-1)?.name ?? '', at: l.at(-1)?.at ?? 0 }));
     },
     get lastWhisperPeer() { return lines.keys().next().value ?? null; },
+    whisperUnread(code) { return unreadOf(code); },
+    markWhisperRead(code) {
+      log('markWhisperRead', code);
+      const last = (lines.get(code) ?? []).reduce((m, l) => Math.max(m, l.at), 0);
+      readAt.set(code, last);
+    },
+    get whisperUnreadTotal() { let n = 0; for (const code of lines.keys()) n += unreadOf(code); return n; },
   };
 }

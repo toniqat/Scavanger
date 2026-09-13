@@ -1,5 +1,5 @@
 /**
- * src/meta/parts/Console.ts — 개발자 콘솔 명령 `credits` / `rep` / `contract` / `quest` / `implant`.
+ * src/meta/parts/Console.ts — 개발자 콘솔 명령 `credits` / `rep` / `contract` / `implant` / `npc` (2026-09-14 — 옛 `quest` 대신).
  *
  * dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다.
  */
@@ -21,6 +21,7 @@ import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 import { formatCreditReason } from '@/shared';
+import { NPC_DEFS, NPC_QUEST_DEFS } from '@/shared';
 
 export function registerConsole(sys: MetaSystem): void {
   const con = sys.ctx.console;
@@ -122,31 +123,53 @@ export function registerConsole(sys: MetaSystem): void {
         return [];
       },
     },
+    /* 2026-09-14: 기업 퀘스트(`quest`) 폐지 → NPC 퀘스트(`npc`). 조건 무시 연락 · 제안, 수락 · 보류 · 납품 · 보고, 진행 치트, 초기화. */
     {
-      name: 'quest', usage: 'quest list|accept <id>|complete <id>', description: '퀘스트 목록 / 수락 / 납품',
+      name: 'npc', usage: 'npc list|contact <npc>|offer <quest>|accept <quest>|defer <quest>|deliver <quest> <i>|report <quest>|progress <quest> <i> <n>|reset',
+      description: 'NPC 연락 · 퀘스트 목록 / 강제 연락 · 제안 / 수락 · 보류 · 납품 · 완료 보고 / 진행 치트',
       run: (args, _ctx, print) => {
+        const nq = sys.npcQuests;
         const sub = (args[0] ?? 'list').toLowerCase();
         if (sub === 'list') {
-          for (const d of QUEST_DEFS) {
-            const st = sys.getQuestState(d.id);
-            print(`  ${d.id}  ${CORP_DEFS[d.corp].name} · ${d.name} · ${st} · ${d.deliver.map((x) => `${x.defId}×${x.qty}`).join(', ')}`, st === 'complete' ? 'success' : 'info');
+          for (const c of nq.getContacts()) print(`  ${c.npc.id}  ${c.npc.name} (${c.npc.title}) · 안 읽음 ${c.unread}`, 'info');
+          for (const q of nq.getQuests()) {
+            const objs = q.objectives.map((o, i) => `#${i} ${o.label} ${o.progress}/${o.target}${o.done ? '✓' : ''}`).join(' · ');
+            print(`  ${q.def.id}  [${q.state}] ${q.npc.name} · ${q.def.name} — ${objs}`, q.state === 'complete' ? 'success' : 'info');
           }
-          return `${QUEST_DEFS.length}개`;
+          return `연락 ${nq.getContacts().length} · 퀘스트 ${nq.getQuests().length} (정의 NPC ${NPC_DEFS.length} · 퀘스트 ${NPC_QUEST_DEFS.length})`;
+        }
+        if (sub === 'reset') {
+          sys.store.data.npc = { contacts: {}, log: {}, quests: {} };
+          sys.store.markDirty();
+          nq.reset();
+          nq.evaluate();
+          return 'NPC 연락 · 대화 · 퀘스트 초기화';
         }
         const id = args[1];
-        if (!id) return { error: `사용법: /quest ${sub} <id>` };
-        const def = QUEST_DEFS.find((d) => d.id === id);
-        if (!def) return { error: `알 수 없는 퀘스트: ${id}` };
-        if (sub === 'accept') return sys.acceptQuest(id) ? `퀘스트 수락: ${def.name}` : { error: `수락 실패 (${sys.getQuestState(id)})` };
-        if (sub === 'complete') {
-          if (sys.completeQuest(id)) return `퀘스트 완료: ${def.name}`;
-          return { error: `납품 실패: ${sys.questInfo(def).blocked ?? '알 수 없음'}` };
+        if (!id) return { error: `사용법: /npc ${sub} <id>` };
+        if (sub === 'contact') return nq.forceContact(id) ? `연락: ${id}` : { error: `이미 연락했거나 모르는 NPC: ${id}` };
+        if (sub === 'offer') return nq.forceOffer(id) ? `제안: ${id}` : { error: `이미 상태가 있거나 모르는 퀘스트: ${id}` };
+        if (sub === 'accept') return nq.accept(id) ? `수락: ${id}` : { error: `수락 실패 (${nq.getQuest(id)?.state ?? '제안 없음'}${sys.inShip ? '' : ' · 함선에서만'})` };
+        if (sub === 'defer') return nq.defer(id) ? `보류: ${id}` : { error: `보류 실패 (${nq.getQuest(id)?.state ?? '제안 없음'})` };
+        if (sub === 'report') return nq.report(id) ? `완료 보고: ${id}` : { error: `보고 실패: ${nq.getQuest(id)?.blocked ?? '진행 중인 퀘스트가 아닙니다'}` };
+        const idx = num(args[2]);
+        if (sub === 'deliver') {
+          if (Number.isNaN(idx)) return { error: '사용법: /npc deliver <quest> <목표 번호>' };
+          const n = nq.deliver(id, idx);
+          return n > 0 ? `납품 ${n}개` : { error: `납품 실패: ${nq.getQuest(id)?.objectives[idx]?.blocked ?? '납품 목표가 아닙니다'}` };
         }
-        return { error: '사용법: /quest list|accept <id>|complete <id>' };
+        if (sub === 'progress') {
+          const n = num(args[3]);
+          if (Number.isNaN(idx) || Number.isNaN(n)) return { error: '사용법: /npc progress <quest> <목표 번호> <n>' };
+          return nq.devProgress(id, idx, n) ? `진행 ${id} #${idx} = ${n}` : { error: '진행 중인 퀘스트 · 목표가 아닙니다' };
+        }
+        return { error: '사용법: /npc list|contact|offer|accept|defer|deliver|report|progress|reset' };
       },
       complete: (args) => {
-        if (args.length <= 1) return ['list', 'accept', 'complete'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
-        if (args.length === 2) return QUEST_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
+        const subs = ['list', 'contact', 'offer', 'accept', 'defer', 'deliver', 'report', 'progress', 'reset'];
+        if (args.length <= 1) return subs.filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
+        if (args.length === 2 && args[0] === 'contact') return NPC_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
+        if (args.length === 2) return NPC_QUEST_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
         return [];
       },
     },

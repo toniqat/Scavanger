@@ -1267,3 +1267,14 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 - **Phase 9** — **표적 모드** (`ctx.world.training` = `TrainingRef`: 고정 / 이동 (lane sweep, the hash entry is re-bucketed) / 타임 코스 (`TRAINING_COURSE_TARGETS` in `TRAINING_COURSE_TIME_S`, best time in `TRAINING_BEST_STORAGE_KEY`), `training:modeChanged / scored / courseFinished`), arena consoles `training_mode` (cycle / start) and `training_rack` (→ `inventory.openCatalog({category:'primary'})`, undone by the exit restore), `harvq sync` re-requested on `net:hostChanged`
 
 - **Phase 11** — `biomes.biomeById(id)` 로 행성이 바이옴을 **직접** 고르고(`pickBiome(seed)` 는 무행성 폴백), `WorldRef.planet` + `world:ready.planet`, `Gather` 는 모양(`variant`)과 아이템(`defId`)을 분리해 `eco.herbs` 가중 추첨을 쓰고 노드 수는 `× eco.gatherDensity` (무행성이면 rng 소비까지 예전과 동일)
+
+## NPC 퀘스트 배관 — 상호작용 · 컨테이너 구역 (2026-09-14)
+
+- `crate:open` 이 구조물 · 플랫폼 · 전차 컨테이너에서 **`zoneId` · `zoneKind`** 를 싣는다 (`structures/parts/Containers.open`). 월드 상자는 없다.
+- `world:interacted {kind, id, structureKind?}` — **이 클라이언트의 조작으로** 성사된 상호작용 (분대원 조작에는 나지 않는다):
+  - `scanner` (`Structures.requestScan`) · `tram` (`Rails.requestStart` · `requestCall`) — **요청하는 순간** 낸다. 호스트의 `struct scanned` · `tram state` 에는 누가 했는지가 없어서다.
+    이미 스캔된 스캐너 · 달리는 전차 · 호출 불가 상태는 앞선 가드가 막으므로 거절되는 경우는 같은 틱의 경합뿐이다.
+  - `basement_door` · `lab_door` (`Structures.applyUnlock` 의 `consume`) — 열쇠를 낸 사람 = 호스트가 `by` 로 확정한 뒤 (클라이언트도 정확).
+  - `rover` (`Rover.setRiders`) — 내가 탑승자 목록에 들어간 순간 (호스트 확정 뒤).
+
+- **2026-09-14 (에이전트 B)** — `crate:open.zoneId/zoneKind` · `world:interacted` (스캐너 · 지하실/연구소 문 · 전차 · 탐사 차량).

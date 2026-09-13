@@ -35,11 +35,18 @@ function errCode(v: unknown): SocialErrorCode | undefined {
 function inviteId(v: unknown): string | null { return typeof v === 'string' && INVITE_ID_RE.test(v) ? v : null; }
 
 /** One conversation partner in the local 대화 기록 (`slotKey(WHISPER_STORAGE_KEY)`), newest partner first. */
-interface PeerHistory { code: PlayerCode; name: string; at: number; lines: WhisperLine[] }
+interface PeerHistory {
+  code: PlayerCode; name: string; at: number; lines: WhisperLine[];
+  /**
+   * 2026-09-14: received lines newer than this are 읽지 않음 (`whisperUnread`). Moved forward by `markWhisperRead` and by my own
+   * line (writing to someone means reading them). A history saved before this field reads as all read.
+   */
+  readAt: number;
+}
 
 /**
  * `ctx.net.social` (Phase 11): client mirror of the relay's social state — 아이디 · 친구 · 받은/보낸 요청 ·
- * 최근 만난 플레이어 · 귓속말 · 분대 초대. Modelled on `ProfileSync`: NetSystem owns it, injects `bus` / `send` /
+ * 최근 만난 플레이어 · 개인 대화(옛 귓속말) · 분대 초대. Modelled on `ProfileSync`: NetSystem owns it, injects `bus` / `send` /
  * `serverNow` / `joinLobby` / `squadSize` and feeds it the socket messages:
  *   - `onWelcome(social)`   → `welcome.social`; absent (anonymous socket / a relay without a store) = unavailable.
  *   - `onState(snapshot)`   → `social:state` after `social:get` and after every mutation / presence move.
@@ -100,6 +107,8 @@ export class SocialSync implements SocialRef {
   /* ── B-4: 대화 기록 (lazy — the slot is fixed for the page's lifetime) ── */
   private history: PeerHistory[] | null = null;
   private saveQueued = false;
+  /** 2026-09-14: the last `social:unreadChanged.total` emitted (null = never). */
+  private lastUnread: number | null = null;
 
   /* ── wired by NetSystem ── */
   /** Sends a frame when the socket is up (false otherwise). */
@@ -225,6 +234,7 @@ export class SocialSync implements SocialRef {
       line.failCode = 'offline';
       this.record(line);
       this.bus?.emit('social:whisper', { line: { ...line } });
+      this.emitUnread();
       return true;
     }
     const nonce = ++this.nonceSeq;
@@ -237,6 +247,7 @@ export class SocialSync implements SocialRef {
     this.pending.set(nonce, { line, timer });
     this.record(line);
     this.bus?.emit('social:whisper', { line: { ...line } });
+    this.emitUnread();
     return true;
   }
 
@@ -251,6 +262,31 @@ export class SocialSync implements SocialRef {
   }
 
   get lastWhisperPeer(): PlayerCode | null { return this.loadHistory()[0]?.code ?? null; }
+
+  /* ── 2026-09-14: 개인 대화 읽지 않음 (메신저 배지) ── */
+  whisperUnread(code: PlayerCode): number {
+    const c = normalizePlayerCode(code);
+    const peer = this.loadHistory().find((p) => p.code === c);
+    return peer ? SocialSync.unreadOf(peer) : 0;
+  }
+
+  markWhisperRead(code: PlayerCode): void {
+    const c = normalizePlayerCode(code);
+    const peer = this.loadHistory().find((p) => p.code === c);
+    if (!peer) return;
+    let at = peer.readAt;
+    for (const l of peer.lines) at = Math.max(at, l.at);
+    if (at === peer.readAt) return;
+    peer.readAt = at;
+    this.saveSoon();
+    this.emitUnread();
+  }
+
+  get whisperUnreadTotal(): number {
+    let n = 0;
+    for (const p of this.loadHistory()) n += SocialSync.unreadOf(p);
+    return n;
+  }
 
   /** Debounced `social:me`: level changes fire on every XP tick, and an offline change waits for the next snapshot. */
   setLevel(level: number): void {
@@ -364,6 +400,7 @@ export class SocialSync implements SocialRef {
     if (!line) return;
     this.record(line);
     this.bus?.emit('social:whisper', { line: { ...line } });
+    this.emitUnread();
   }
 
   /** B-4 `social:whisperAck`: my `pending` line by nonce → `sent` / `stored` / `failed`. */
@@ -389,6 +426,7 @@ export class SocialSync implements SocialRef {
       this.record(line);
       this.bus?.emit('social:whisper', { line: { ...line } });
     }
+    this.emitUnread();
   }
 
   /** `social:play`: how the server resolved my 같이 하기 (`joined` = I am in their lobby, `invited` = they were asked). */
@@ -587,7 +625,7 @@ export class SocialSync implements SocialRef {
   private record(line: WhisperLine): void {
     const list = this.loadHistory();
     const i = list.findIndex((p) => p.code === line.code);
-    const peer: PeerHistory = i >= 0 ? list.splice(i, 1)[0] : { code: line.code, name: line.name, at: line.at, lines: [] };
+    const peer: PeerHistory = i >= 0 ? list.splice(i, 1)[0] : { code: line.code, name: line.name, at: line.at, lines: [], readAt: 0 };
     if (line.name && line.name !== formatPlayerCode(line.code)) peer.name = line.name;
     // Oldest first by `at` — a backlog line is older than what may already be there.
     let at = peer.lines.length;
@@ -595,6 +633,7 @@ export class SocialSync implements SocialRef {
     peer.lines.splice(at, 0, line);
     if (peer.lines.length > WHISPER_HISTORY_PER_PEER) peer.lines.splice(0, peer.lines.length - WHISPER_HISTORY_PER_PEER);
     peer.at = Math.max(peer.at, line.at);
+    if (line.out) peer.readAt = Math.max(peer.readAt, line.at);   // 2026-09-14: writing to them = having read them
     list.unshift(peer);
     if (list.length > WHISPER_HISTORY_PEERS) list.length = WHISPER_HISTORY_PEERS;
     this.saveSoon();
@@ -617,7 +656,7 @@ export class SocialSync implements SocialRef {
     const doc = {
       v: 1,
       peers: list.map((p) => ({
-        code: p.code, name: p.name, at: p.at,
+        code: p.code, name: p.name, at: p.at, readAt: p.readAt,
         lines: p.lines.map((l) => {
           const o: Record<string, unknown> = { name: l.name, text: l.text, at: l.at, out: l.out };
           if (l.state) o.state = l.state;
@@ -639,7 +678,7 @@ export class SocialSync implements SocialRef {
     for (const p of peers) {
       if (out.length >= WHISPER_HISTORY_PEERS) break;
       if (typeof p !== 'object' || p === null) continue;
-      const w = p as { code?: unknown; name?: unknown; at?: unknown; lines?: unknown };
+      const w = p as { code?: unknown; name?: unknown; at?: unknown; lines?: unknown; readAt?: unknown };
       if (typeof w.code !== 'string' || !isValidPlayerCode(w.code) || out.some((q) => q.code === w.code)) continue;
       const code = w.code;
       const name = typeof w.name === 'string' ? w.name.slice(0, NAME_MAX) : '';
@@ -657,9 +696,26 @@ export class SocialSync implements SocialRef {
         lines.push(line);
       }
       lines.sort((a, b) => a.at - b.at);
-      out.push({ code, name: name || formatPlayerCode(code), at: isNum(w.at) ? w.at : (lines.at(-1)?.at ?? 0), lines });
+      const lastAt = lines.at(-1)?.at ?? 0;
+      // 2026-09-14: a history saved before read markers existed reads as all read (no badge storm after the update)
+      out.push({ code, name: name || formatPlayerCode(code), at: isNum(w.at) ? w.at : lastAt, lines, readAt: isNum(w.readAt) ? w.readAt : lastAt });
     }
     return out;
+  }
+
+  /** 2026-09-14: received lines of one partner newer than its read marker. */
+  private static unreadOf(peer: PeerHistory): number {
+    let n = 0;
+    for (const l of peer.lines) if (!l.out && l.at > peer.readAt) n++;
+    return n;
+  }
+
+  /** 2026-09-14: `social:unreadChanged` when the total moved (arrivals, backlog, my own line, `markWhisperRead`). */
+  private emitUnread(): void {
+    const total = this.whisperUnreadTotal;
+    if (total === this.lastUnread) return;
+    this.lastUnread = total;
+    this.bus?.emit('social:unreadChanged', { total });
   }
 
   /* ── static validation (inbound data is untrusted) ── */

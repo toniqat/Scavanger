@@ -453,3 +453,5 @@ still runs at the item's own rate).
 - **2026-09-07 (회복 소모품)** — 홀드 시간이 **아이템별**(`useTimeOf` — `ItemDef.heal.useTime`, 제세동기는 `DEFIB_USE_TIME_S`), 사용 중 `CONSUMABLE_SLOW_MUL` 이동 감속, 완료 시 `applyHeal(amount, overTime)` 로 지속 회복, **회복 스프레이**는 인스턴스 `durability` 게이지를 0.1초마다 깎으며 자신 + 반경 내 아군(`buff heal`, 0.5초 배치)을 회복
 
 - **Phase 12 (2026-09-08)** — `ctx.enemies.reportShot` 를 **모든 로컬 사격** 뒤에 호출(히트스캔은 트리거당 1회, 유니크 히트스캔, 발사체는 발사 + 착탄; 원격 재생은 호출하지 않는다), 회복 스프레이는 게이지 0 에서도 **소모되지 않고** 남으며(`스프레이가 비었습니다` 거부) 시작 · ≤10 Hz · **모든 종료 경로**에서 `item:channelChanged {uid, defId, active, gauge 0..1}`, 퍽 `quick_heal` 이 `holdTimeOf()` 로 모든 홀드 사용 시간(제세동기 포함)을 ×0.5 하고 그 값이 `heal:holdChanged.dur` 로 나간다
+
+- **2026-09-14 (메신저 NPC 퀘스트, 에이전트 B)** — `WeaponSystem.applyHit` 이 `shared/damageSource.withLocalGunHit(this.slots[this.active]?.stats.weaponClass)` 로 `Fire.applyHit` 를 감싼다 — enemies 가 그 구간의 로컬 피해에만 총기 계열을 적어 `enemy:killed.weaponClass`(「산탄총으로 n명 처치」)가 된다. 히트스캔 · 발사체 · 유니크 히트스캔이 모두 이 한 곳을 지난다. 발사체는 **착탄 순간 손에 든 총**의 계열이다(쏜 뒤 무기를 바꾸면 바뀐 계열 — 드문 경우라 받아들였다).

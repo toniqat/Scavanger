@@ -329,8 +329,9 @@ try {
   ok(toVolt === null && s3.coinId === 'volt' && s3.progress === 0, '코인 변경 — 진행도 0', JSON.stringify(s3));
 
   // 퀘스트 완료(가짜) 뒤 잠긴 코인 허용
-  await H(() => { const m = window.__game.getSystem('meta'); m.store.corp('nomad').quests['nm_crypto'] = 'complete'; });
-  const unlocked = await H((u) => [window.__game.ctx.meta.getQuestState('nm_crypto'), window.__game.ctx.housing.setClusterCoin(u, 'nomad'),
+  // 2026-09-14: 기업 퀘스트 폐지 — 노마드 코인 해금은 NPC 퀘스트 q_nm_permit (`MetaSave.npc.quests`)
+  await H(() => { const m = window.__game.getSystem('meta'); m.npcQuests.save.quests['q_nm_permit'] = { s: 'complete', at: Date.now(), p: [] }; });
+  const unlocked = await H((u) => [window.__game.ctx.meta.getQuestState('q_nm_permit'), window.__game.ctx.housing.setClusterCoin(u, 'nomad'),
     window.__game.ctx.housing.getCryptoCoins().find((c) => c.def.id === 'nomad').unlocked], C1);
   ok(unlocked[0] === 'complete' && unlocked[1] === null && unlocked[2] === true, '퀘스트 완료 → 잠긴 코인 지정 · unlocked', JSON.stringify(unlocked));
 

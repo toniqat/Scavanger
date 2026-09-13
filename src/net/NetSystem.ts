@@ -18,6 +18,8 @@ import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
 import { PROFILE_QUEUE_STORAGE_KEY } from '@/shared';
 import { SocialSync } from './SocialSync';
+import { RoomSync } from './RoomSync';
+import type { RoomsRef } from '@/shared';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
@@ -123,6 +125,8 @@ export class NetSystem implements GameSystem, NetRef {
   /* ── Phase 11 ── */
   /** `ctx.net.social`: the relay's social state (friends / requests / recent / whispers / squad invites). */
   readonly socialSync = new SocialSync();
+  /** 2026-09-14: `ctx.net.rooms` — 단체 메신저방 mirror (`RoomSync`). */
+  readonly roomSync = new RoomSync();
 
   /* ── A-3c (2026-09-11) ── */
   /** 공유 함선 식탁의 `meal serve` 와이어 (`parts/Meal`): 규칙은 progression, 토스트는 ui — 여기는 흐름만. */
@@ -171,8 +175,10 @@ export class NetSystem implements GameSystem, NetRef {
    * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
    */
   setLobbyPlanet(planet: PlanetId): void { return Lobby.setLobbyPlanet(this, planet); }
-  /** 친구 · 요청 · 최근 플레이어 · 귓속말 · 분대 초대 (always present; `available` is false offline). */
+  /** 친구 · 요청 · 최근 플레이어 · 개인 대화 · 분대 초대 (always present; `available` is false offline). */
   get social(): SocialRef { return this.socialSync; }
+  /** 2026-09-14: 단체 메신저방 (always present; `available` is false offline / anonymous / a relay without rooms). */
+  get rooms(): RoomsRef { return this.roomSync; }
   /* ── Phase 8 ── */
   /**
    * Relay wall clock in epoch ms: the offset captured at the last `welcome` / `pong` plus the elapsed local time.
@@ -197,6 +203,12 @@ export class NetSystem implements GameSystem, NetRef {
     this.socialSync.serverNow = () => this.serverNow();
     this.socialSync.joinLobby = (code) => this.joinLobby(code);
     this.socialSync.squadSize = () => this._lobby?.players.length ?? 0;
+    /* 2026-09-14: the room mirror borrows my card and the block list from the social mirror. */
+    this.roomSync.bus = ctx.bus;
+    this.roomSync.send = (m) => this.client.send(m);
+    this.roomSync.serverNow = () => this.serverNow();
+    this.roomSync.me = () => this.socialSync.me;
+    this.roomSync.isBlocked = (code) => this.socialSync.isBlocked(code);
 
     try {
       const stored = localStorage.getItem(slotKey(NAME_STORAGE_KEY));
@@ -218,6 +230,7 @@ export class NetSystem implements GameSystem, NetRef {
       if (status === 'offline' || status === 'error') {
         this.profileSync.onDisconnected();
         this.socialSync.onDisconnected();   // Phase 11: nothing social survives a connection (the server owns it)
+        this.roomSync.onDisconnected();     // 2026-09-14: rooms are server-owned too (the line cache stays)
         this.cryptoMarket.onDisconnected(); // 2026-09-13: prices are only `available` on a live connection
         this.onSocketDown(wasConnected);
       }
@@ -315,6 +328,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.intentionalClose = true;
     this.profileSync.flush();
     this.socialSync.dispose();
+    this.roomSync.dispose();
     this.mealRelay.dispose();
     this.charBuffRelay.dispose();
     this.cryptoMarket.dispose();

@@ -266,7 +266,9 @@ export type ClientToServer =
   /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
   | ClientToServerAppended2026_09_11b
   /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
-  | ClientToServerAppended2026_09_13crypto;
+  | ClientToServerAppended2026_09_13crypto
+  /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
+  | ClientToServerAppended2026_09_14rooms;
 
 export type ServerToClient =
   /**
@@ -316,7 +318,9 @@ export type ServerToClient =
   /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
   | ServerToClientAppended2026_09_11b
   /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
-  | ServerToClientAppended2026_09_13crypto;
+  | ServerToClientAppended2026_09_13crypto
+  /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
+  | ServerToClientAppended2026_09_14rooms;
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
 
@@ -1911,3 +1915,42 @@ export interface NetRef {
   readonly crypto?: CryptoMarketRef;
 }
 /* ══ end 2026-09-13 암호화폐 시세 ══ */
+
+/* ══ appended: 2026-09-14 — 단체 메신저방 (docs/plans/messenger-quests.md · owner: server/ · net/) ══
+ * 서버 권위 · 영속. 프로필(토큰)이 있어야 한다 — 익명이면 `room:error {code:'unavailable'}`. 타입 · 상수는 `shared/social.ts` 끝 절.
+ * 받는 쪽은 `room:state` 를 통째로 받는다 (방 목록 · 초대가 작다). 줄은 `room:line` 으로 방 멤버 중 접속자에게 퍼진다.
+ * A 에이전트(서버 · 넷)가 이 절 **안에서만** 변형을 추가할 수 있다 (기존 필드 변경 금지). */
+import type { RoomErrorCode, RoomId, RoomLine, RoomSnapshot, RoomsRef } from './social';
+
+export type ClientToServerAppended2026_09_14rooms =
+  /** 방 목록 · 초대 다시 받기 → `room:state` (welcome 직후에는 서버가 먼저 보낸다). */
+  | { t: 'room:get' }
+  /** 방 만들기 (나 = 방장). `invite` = 함께 초대할 친구 아이디. 답: `room:ack {nonce, room}` + `room:state`. */
+  | { t: 'room:create'; name: string; invite?: PlayerCode[]; nonce: number }
+  /** 방장만 · 친구만. */
+  | { t: 'room:invite'; room: RoomId; code: PlayerCode }
+  /** 받은 초대에 답한다. */
+  | { t: 'room:reply'; room: RoomId; accept: boolean }
+  | { t: 'room:leave'; room: RoomId }
+  /** 방장만. */
+  | { t: 'room:kick'; room: RoomId; code: PlayerCode }
+  /** 방장만. */
+  | { t: 'room:rename'; room: RoomId; name: string }
+  /** 한 줄. 답: `room:ack {nonce, ok, at}` (+ 멤버에게 `room:line`). */
+  | { t: 'room:say'; room: RoomId; text: string; nonce: number }
+  /** `before` 보다 오래된 한 쪽 (`ROOM_HISTORY_PAGE`), 생략 = 최근 쪽. */
+  | { t: 'room:history'; room: RoomId; before?: number };
+
+export type ServerToClientAppended2026_09_14rooms =
+  | { t: 'room:state'; rooms: RoomSnapshot }
+  | { t: 'room:line'; line: RoomLine }
+  | { t: 'room:ack'; nonce: number; ok: boolean; room?: RoomId; at?: number; code?: RoomErrorCode }
+  /** 오래된 것 → 최근. `more` = 더 오래된 줄이 남아 있다. */
+  | { t: 'room:history'; room: RoomId; lines: RoomLine[]; more: boolean }
+  | { t: 'room:error'; code: RoomErrorCode; message: string };
+
+export interface NetRef {
+  /* ── appended (2026-09-14): 단체 메신저방 ── */
+  readonly rooms?: RoomsRef;
+}
+/* ══ end 2026-09-14 단체 메신저방 ══ */

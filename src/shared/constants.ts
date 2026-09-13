@@ -1540,7 +1540,7 @@ export const STATUS_REQUEST_BURST_S = K.num('STATUS_REQUEST_BURST_S');
 export const SOLO_CLOCK_BACK_TOLERANCE_MS = K.num('SOLO_CLOCK_BACK_TOLERANCE_MS');
 /** E-5: 지금까지 본 가장 늦은 `Date.now()` 를 적어 두는 키 (`slotKey` 를 통과시킨다). */
 export const SOLO_CLOCK_HIGH_KEY = 'scav.clockHigh';
-/** B-4 (owner: net/SocialSync): 귓속말 대화 기록 — 상대당 줄 수 · 상대 수 · 키(`slotKey`). */
+/** B-4 (owner: net/SocialSync): 개인 대화(옛 귓속말) 기록 — 상대당 줄 수 · 상대 수 · 키(`slotKey`). */
 export const WHISPER_HISTORY_PER_PEER = K.num('WHISPER_HISTORY_PER_PEER');
 export const WHISPER_HISTORY_PEERS = K.num('WHISPER_HISTORY_PEERS');
 export const WHISPER_STORAGE_KEY = 'scav.whispers';

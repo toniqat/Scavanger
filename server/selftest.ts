@@ -37,6 +37,12 @@ import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
 import { CRYPTO_CANDLE_COUNT, CRYPTO_CANDLE_MS, CRYPTO_CHART_RANGES, cryptoTradeCredits } from '../src/shared/cryptoMarket.ts';
 import { CRYPTO_BACKUP_SUFFIX, CRYPTO_FILE, CRYPTO_PRICE_BAND, CryptoMarket, DAY_MS, HOUR_MS, type CryptoTable } from './CryptoMarket.ts';
+/* 2026-09-14 — part 14: 단체 메신저방 */
+import {
+  ROOM_ERROR_MESSAGE_KO, ROOM_HISTORY_PAGE, ROOM_INVITE_TTL_MS, ROOM_JOINED_MAX, ROOM_LINES_MAX, ROOM_MEMBER_MAX, ROOM_SAY_BURST,
+  isValidRoomId, roomSystemTextKo,
+} from '../src/shared/social.ts';
+import { ROOM_FILE, RoomStore } from './Rooms.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -1331,7 +1337,7 @@ async function main(): Promise<void> {
     p8b.send({ t: 'lobby:leave' });
     await p8b.wait('lobby:left');
 
-    /* ── 귓속말 ── */
+    /* ── 개인 대화 (옛 귓속말) ── */
     p8a.send({ t: 'social:whisper', code: codeB, text: '  안녕 <b>친구</b>  ' });
     const wh = await p8b.wait('social:whisper');
     assert(wh.code === code1 && wh.name === 'Uno' && wh.text === '안녕 b친구/b' && wh.at > 0,
@@ -1567,7 +1573,7 @@ async function main(): Promise<void> {
       }
     }
 
-    /* ── part 8c (2026-09-11, B-6 · B-3 · B-5 · B-4): 원자적 이동 · 초대 표 · 푸시 합치기 · 차단 · 귓속말 확인/보관 ── */
+    /* ── part 8c (2026-09-11, B-6 · B-3 · B-5 · B-4): 원자적 이동 · 초대 표 · 푸시 합치기 · 차단 · 개인 대화 확인/보관 ── */
     {
       /* B-6 (unit): one join rule, and a refused move changes nothing */
       const lm = new LobbyManager();
@@ -2285,6 +2291,9 @@ async function main(): Promise<void> {
 
     /* ══════════════════════ part 13 (2026-09-13): 암호화폐 시세 · 봉 · 저장 · cbuy / csell ══════════════════════ */
     await part13CryptoMarket();
+
+    /* ══════════════════════ part 14 (2026-09-14): 단체 메신저방 — 저장소 규칙 · 릴레이 흐름 · 재시작 · GC ══════════════════════ */
+    await part14Rooms();
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {
@@ -2674,6 +2683,337 @@ async function part12CreditEconomy(): Promise<void> {
     d.close();
   } finally {
     await dev.close();
+  }
+}
+
+/**
+ * part 14 (2026-09-14): 단체 메신저방 — `server/Rooms.ts` rules without sockets (name sanitizing, owner-only invite / kick / rename,
+ * invite expiry, member / joined / line caps, strictly increasing line times, history paging, owner handoff, deletion, GC,
+ * `rooms.json` round-trip + corrupt file) and the relay over real sockets (welcome `room:state`, anonymous refusal, friends-only +
+ * blocks, ack / line fan-out without echo, rate limit, rename / kick / leave → owner, relay restart, profile GC dropping an owner).
+ */
+async function part14Rooms(): Promise<void> {
+  const eq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const res = (r: { ok: boolean; code?: string }): string => (r.ok ? 'ok' : r.code ?? '?');
+  const names = new Map<string, string>();
+  const actor = (i: number): { code: PlayerCode; name: string } => {
+    const code = playerCodeFrom(`room-peer-${i}`);
+    names.set(code, `P${i}`);
+    return { code, name: `P${i}` };
+  };
+  const rs = new RoomStore({ dataDir: null, quiet: true, nameOf: (c) => names.get(c) ?? c });
+  const t0 = 1_000_000;
+  const A = actor(0), B = actor(1), C = actor(2);
+
+  /* ── store: create / invite / reply ── */
+  assert(res(rs.create(A, '   ', t0)) === 'invalid' && res(rs.create(A, '<>', t0)) === 'invalid', 'part 14: a blank / markup-only room name is refused (invalid)');
+  const mk = rs.create(A, '  원정   대  ', t0);
+  if (!mk.ok) { fail('part 14: create', mk); return; }
+  const id = mk.roomId;
+  assert(rs.get(id)?.name === '원정 대' && rs.get(id)?.owner === A.code && eq(rs.get(id)?.members, [A.code]) && mk.lines[0]?.system === 'create' && eq(mk.notify, [A.code]),
+    'part 14: create → squashed name, owner = creator, a create line, only the creator notified', { room: rs.get(id), mk });
+  assert(res(rs.invite(id, B.code, C.code, t0)) === 'not_member', 'part 14: a non-member cannot invite (not_member)');
+  const inv = rs.invite(id, A.code, B.code, t0 + 1);
+  assert(inv.ok && eq(inv.notify, [B.code, A.code]) && rs.invitesOf(B.code, t0 + 1).length === 1, 'part 14: invite → the invitee and the members are notified, one open invite', inv);
+  assert(res(rs.invite(id, A.code, B.code, t0 + 2)) === 'already' && res(rs.invite(id, A.code, A.code, t0)) === 'self', 'part 14: inviting again → already; inviting yourself → self');
+  const joined = rs.reply(id, B, true, t0 + 3);
+  assert(joined.ok && eq(rs.get(id)?.members, [A.code, B.code]) && joined.lines[0]?.system === 'join' && rs.invitesOf(B.code, t0 + 3).length === 0,
+    'part 14: accept → member (in join order), a join line, the invite is gone', joined);
+  assert(res(rs.invite(id, B.code, C.code, t0 + 4)) === 'not_owner', 'part 14: a member who is not the owner cannot invite (not_owner)');
+  rs.invite(id, A.code, C.code, t0 + 5);
+  assert(res(rs.reply(id, C, true, t0 + 5 + ROOM_INVITE_TTL_MS + 1)) === 'expired' && rs.get(id)?.invites.length === 0,
+    'part 14: an invite answered after ROOM_INVITE_TTL_MS → expired, and it is tidied away');
+  rs.invite(id, A.code, C.code, t0 + 10);
+  const dec = rs.reply(id, C, false, t0 + 11);
+  assert(dec.ok && dec.lines.length === 0 && !rs.get(id)?.members.includes(C.code) && rs.invitesOf(C.code, t0 + 11).length === 0, 'part 14: decline → no member, no line, no invite');
+
+  /* ── store: caps ── */
+  for (let i = 3; i < ROOM_MEMBER_MAX; i++) { const p = actor(i); rs.invite(id, A.code, p.code, t0 + 20 + i); rs.reply(id, p, true, t0 + 40 + i); }
+  const late1 = actor(30), late2 = actor(31);
+  rs.invite(id, A.code, late1.code, t0 + 90);
+  rs.invite(id, A.code, late2.code, t0 + 91);
+  const fill = rs.reply(id, late1, true, t0 + 92);
+  const over = rs.reply(id, late2, true, t0 + 93);
+  assert(fill.ok && rs.get(id)?.members.length === ROOM_MEMBER_MAX && res(over) === 'room_full' && rs.invitesOf(late2.code, t0 + 93).length === 1,
+    'part 14: accepting into a room that filled meanwhile → room_full, and the invite is kept', { members: rs.get(id)?.members.length, over });
+  assert(res(rs.invite(id, A.code, actor(32).code, t0 + 94)) === 'room_full', 'part 14: a full room refuses a new invite (room_full)');
+  const X = actor(50);
+  for (let i = 0; i < ROOM_JOINED_MAX; i++) rs.create(X, `방${i}`, t0 + 100 + i);
+  assert(rs.joinedCount(X.code) === ROOM_JOINED_MAX && res(rs.create(X, '하나 더', t0 + 150)) === 'room_limit', `part 14: ${ROOM_JOINED_MAX} rooms joined → create refused (room_limit)`);
+  const rb = rs.create(B, 'B의 방', t0 + 160);
+  if (rb.ok) {
+    rs.invite(rb.roomId, B.code, X.code, t0 + 161);
+    assert(res(rs.reply(rb.roomId, X, true, t0 + 162)) === 'room_limit' && rs.invitesOf(X.code, t0 + 162).length === 1,
+      'part 14: accepting while at ROOM_JOINED_MAX → room_limit, the invite stays for later');
+  }
+
+  /* ── store: lines · history ── */
+  const talk = rs.create(C, '수다방', t0 + 200);
+  if (!talk.ok) { fail('part 14: talk room', talk); return; }
+  for (let i = 0; i < ROOM_LINES_MAX + 10; i++) rs.say(talk.roomId, C, `줄 ${i}`, t0 + 300);   // one ms for all of them
+  const tr = rs.get(talk.roomId);
+  const ats = tr?.lines.map((l) => l.at) ?? [];
+  assert(tr?.lines.length === ROOM_LINES_MAX && ats.every((a, i) => i === 0 || a > ats[i - 1]) && tr.lines.at(-1)?.text === `줄 ${ROOM_LINES_MAX + 9}`,
+    'part 14: lines capped at ROOM_LINES_MAX (oldest dropped), times strictly increasing even inside one ms', { n: tr?.lines.length });
+  const seen: string[] = [];
+  let before: number | undefined;
+  let pages = 0;
+  for (let guard = 0; guard < 20; guard++) {
+    const h = rs.history(talk.roomId, C.code, before);
+    if (!h.ok) break;
+    seen.unshift(...h.lines.map((l) => l.text));
+    pages++;
+    if (!h.more || h.lines.length === 0) break;
+    before = h.lines[0].at;
+  }
+  assert(seen.length === ROOM_LINES_MAX && new Set(seen).size === ROOM_LINES_MAX && pages === Math.ceil(ROOM_LINES_MAX / ROOM_HISTORY_PAGE),
+    'part 14: history pages of ROOM_HISTORY_PAGE walk back through every kept line exactly once', { seen: seen.length, pages });
+  assert(res(rs.history(talk.roomId, A.code)) === 'not_member' && res(rs.say(talk.roomId, A, 'x', t0)) === 'not_member' && res(rs.say(talk.roomId, C, '  ', t0)) === 'invalid',
+    'part 14: history / say need membership; a blank (control-only) line is invalid');
+
+  /* ── store: rename · owner handoff · kick · delete ── */
+  const D = actor(60), E = actor(61), F = actor(62);
+  const small = rs.create(D, '작은방', t0 + 700);
+  if (!small.ok) { fail('part 14: small room', small); return; }
+  const sid = small.roomId;
+  for (const p of [E, F]) { rs.invite(sid, D.code, p.code, t0 + 701); rs.reply(sid, p, true, t0 + 702); }
+  assert(res(rs.kick(sid, E, F.code, t0 + 703)) === 'not_owner' && res(rs.kick(sid, D, D.code, t0 + 703)) === 'self' && res(rs.rename(sid, E, '새이름', t0 + 703)) === 'not_owner',
+    'part 14: kick / rename are owner-only; kicking yourself → self');
+  const same1 = rs.rename(sid, D, '작은방', t0 + 704);
+  const ren = rs.rename(sid, D, '  큰방 ', t0 + 705);
+  assert(same1.ok && same1.lines.length === 0 && ren.ok && ren.lines[0]?.system === 'rename' && ren.lines[0].text === '큰방' && rs.get(sid)?.name === '큰방',
+    'part 14: renaming to the same name is a no-op; a new name → a rename line', { same1, ren });
+  const lv = rs.leave(sid, D, t0 + 706);
+  assert(lv.ok && rs.get(sid)?.owner === E.code && eq(lv.lines.map((l) => l.system), ['leave', 'owner']) && lv.lines[1]?.target === E.code && lv.lines[1]?.targetName === 'P61',
+    'part 14: the owner leaves → the earliest remaining member is owner (leave + owner lines)', lv);
+  assert(lv.ok && roomSystemTextKo(lv.lines[1]) === 'P61 님이 방장이 되었습니다', 'part 14: roomSystemTextKo(owner) names the new owner');
+  const kk = rs.kick(sid, E, F.code, t0 + 707);
+  assert(kk.ok && eq(rs.get(sid)?.members, [E.code]) && kk.lines[0]?.system === 'kick' && kk.notify.includes(F.code) && rs.joinedCount(F.code) === 0,
+    'part 14: the owner kicks → member gone, a kick line, the kicked player notified', kk);
+  rs.invite(sid, E.code, D.code, t0 + 708);
+  const last = rs.leave(sid, E, t0 + 709);
+  assert(last.ok && last.room === null && !rs.get(sid) && last.notify.includes(D.code) && rs.invitesOf(D.code, t0 + 709).length === 0,
+    'part 14: the last member leaves → the room is deleted and its open invitee notified', last);
+
+  /* ── store: GC ── */
+  const G = actor(70), H = actor(71), I = actor(72);
+  const gr = rs.create(G, 'GC방', t0 + 800);
+  if (!gr.ok) { fail('part 14: gc room', gr); return; }
+  rs.invite(gr.roomId, G.code, H.code, t0 + 801);
+  rs.reply(gr.roomId, H, true, t0 + 802);
+  rs.invite(gr.roomId, G.code, I.code, t0 + 803);
+  const g1 = rs.collectGarbage((c) => c !== G.code, t0 + 804);
+  assert(rs.get(gr.roomId)?.owner === H.code && eq(rs.get(gr.roomId)?.members, [H.code]) && g1.droppedMembers === 1
+    && g1.lines.some((x) => x.line.system === 'owner') && g1.notify.includes(H.code),
+    'part 14: GC — a vanished owner leaves (no leave line), the next member becomes owner with an owner line', g1);
+  const g2 = rs.collectGarbage(() => true, t0 + 803 + ROOM_INVITE_TTL_MS + 1);
+  assert(g2.expiredInvites >= 1 && rs.get(gr.roomId)?.invites.length === 0 && rs.invitesOf(I.code, t0).length === 0, 'part 14: GC — invites past ROOM_INVITE_TTL_MS are dropped', g2);
+
+  /* ── store: rooms.json ── */
+  const dir = mkdtempSync(join(tmpdir(), 'scav-rooms-'));
+  try {
+    const p1 = new RoomStore({ dataDir: dir, quiet: true, saveDebounceMs: 10 });
+    const c1 = p1.create(A, '저장방', t0);
+    if (c1.ok) {
+      p1.say(c1.roomId, A, '남는 줄', t0 + 1);
+      p1.invite(c1.roomId, A.code, B.code, t0 + 2);
+      await waitFor(() => p1.writeCount > 0);
+      await p1.idle();
+      p1.close();
+      const p2 = new RoomStore({ dataDir: dir, quiet: true });
+      const back = p2.get(c1.roomId);
+      assert(p2.loadResult.note === 'loaded' && back?.name === '저장방' && back.lines.at(-1)?.text === '남는 줄' && p2.invitesOf(B.code, t0 + 3).length === 1 && p2.roomsOf(A.code).length === 1,
+        'part 14: rooms.json round-trip — the room, its lines, its invite and both indexes come back', { note: p2.loadResult, back });
+      p2.close();
+    }
+    writeFileSync(join(dir, ROOM_FILE), '{not json');
+    const p3 = new RoomStore({ dataDir: dir, quiet: true });
+    const kept = readdirSync(dir).some((f) => f.startsWith('rooms.corrupt-'));
+    assert((p3.loadResult.note === 'corrupt-recovered' || p3.loadResult.note === 'corrupt-empty') && kept,
+      'part 14: an unreadable rooms.json is kept aside (rooms.corrupt-*) and the .bak generation is tried', { load: p3.loadResult, files: readdirSync(dir) });
+    p3.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  /* ── relay over sockets ── */
+  const dataDir = mkdtempSync(join(tmpdir(), 'scav-rooms-relay-'));
+  const relayOpts = {
+    port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir,
+    socialPushCoalesceMs: 30, profileGcIntervalMs: null, profileSaveDebounceMs: 20,
+  };
+  let srv = await startRelayServer(relayOpts);
+  let url = `ws://127.0.0.1:${srv.port}${NET_WS_PATH}`;
+  const open: TestClient[] = [];
+  type RP = { c: TestClient; code: PlayerCode; first: Extract<ServerToClient, { t: 'room:state' }> };
+  const conn = async (label: string, ch: string, name: string): Promise<RP> => {
+    const r = await connect(label, url, { token: makeToken(ch), name });
+    open.push(r.c);
+    const first = await r.c.wait('room:state');
+    return { c: r.c, code: r.welcome.social?.me.code ?? '', first };
+  };
+  const befriend = async (a: RP, b: RP): Promise<void> => {
+    a.c.send({ t: 'social:request', code: b.code });
+    await b.c.wait('social:state', (mm) => mm.social.incoming.some((r) => r.code === a.code));
+    b.c.send({ t: 'social:respond', code: a.code, accept: true });
+    await Promise.all([
+      a.c.wait('social:state', (mm) => mm.social.friends.some((r) => r.code === b.code)),
+      b.c.wait('social:state', (mm) => mm.social.friends.some((r) => r.code === a.code)),
+    ]);
+  };
+  try {
+    const A1 = await conn('14A', 'A', 'Alice');
+    assert(eq(A1.first.rooms, { rooms: [], invites: [] }), 'part 14 relay: a token socket gets room:state right after its welcome (empty)', A1.first);
+    const B1 = await conn('14B', 'B', 'Bob');
+    const C1 = await conn('14C', 'C', 'Carol');
+    const D1 = await conn('14D', 'D', 'Dave');
+    const E1 = await conn('14E', 'E', 'Eve');
+    const anon = await connect('14anon', url);
+    open.push(anon.c);
+    anon.c.send({ t: 'room:get' });
+    const ae = await anon.c.wait('room:error');
+    anon.c.send({ t: 'room:create', name: 'x', nonce: 1 });
+    const aa = await anon.c.wait('room:ack');
+    assert(ae.code === 'unavailable' && !aa.ok && aa.code === 'unavailable' && await anon.c.expectNone('room:state', 120),
+      'part 14 relay: an anonymous socket gets no room:state and its room requests are unavailable', { ae, aa });
+    anon.c.sendRaw(JSON.stringify({ t: 'room:say', room: 'bad id', text: 'x', nonce: 1 }));
+    assert((await anon.c.wait('lobby:error')).code === 'invalid', 'part 14 relay: a malformed room frame (bad room id) is refused by the parser');
+    await befriend(A1, B1);
+    await befriend(A1, D1);
+    await befriend(A1, E1);
+
+    A1.c.send({ t: 'room:create', name: ' 원정대 ', invite: [B1.code, C1.code], nonce: 5 });
+    const ack = await A1.c.wait('room:ack', (mm) => mm.nonce === 5);
+    const roomId = ack.room ?? '';
+    const [aState, , bState] = await Promise.all([
+      A1.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === roomId)),
+      A1.c.wait('room:line', (mm) => mm.line.room === roomId && mm.line.system === 'create'),
+      B1.c.wait('room:state', (mm) => mm.rooms.invites.some((i) => i.room === roomId)),
+    ]);
+    const info = aState.rooms.rooms.find((r) => r.id === roomId);
+    assert(ack.ok && isValidRoomId(roomId) && info?.name === '원정대' && info.owner === A1.code && info.members.length === 1 && info.members[0].presence === 'ship' && info.lastSystem === 'create',
+      'part 14 relay: room:create → ack {ok, room}, the creator\'s room:state (owner, presence, create preview) and a create line', { ack, info });
+    const bInv = bState.rooms.invites.find((i) => i.room === roomId);
+    assert(bInv?.from === A1.code && bInv.fromName === 'Alice' && bInv.name === '원정대' && bInv.members === 1, 'part 14 relay: the invited friend sees the invite (from · name · members)', bInv);
+    const aPend = await A1.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === roomId && r.pending.some((p) => p.code === B1.code)));
+    assert(!!aPend && await C1.c.expectNone('room:state', 150, (mm) => mm.t === 'room:state' && mm.rooms.invites.length > 0),
+      'part 14 relay: the owner sees B pending; a non-friend listed in room:create.invite is skipped');
+
+    A1.c.send({ t: 'room:invite', room: roomId, code: C1.code });
+    const nf = await A1.c.wait('room:error');
+    B1.c.send({ t: 'room:invite', room: roomId, code: D1.code });
+    const nm = await B1.c.wait('room:error');
+    assert(nf.code === 'not_friend' && nf.message === ROOM_ERROR_MESSAGE_KO.not_friend && nm.code === 'not_member', 'part 14 relay: invite a non-friend → not_friend; invite as a non-member → not_member', { nf, nm });
+    E1.c.send({ t: 'social:block', code: A1.code, blocked: true });
+    await E1.c.wait('social:state', (mm) => (mm.social.blocked ?? []).some((r) => r.code === A1.code));
+    A1.c.send({ t: 'room:invite', room: roomId, code: E1.code });
+    const be = await A1.c.wait('room:error');
+    A1.c.send({ t: 'social:block', code: D1.code, blocked: true });
+    await A1.c.wait('social:state', (mm) => (mm.social.blocked ?? []).some((r) => r.code === D1.code));
+    A1.c.send({ t: 'room:invite', room: roomId, code: D1.code });
+    const bd = await A1.c.wait('room:error');
+    assert(be.code === 'not_found' && bd.code === 'invalid', 'part 14 relay: inviting someone who blocked me → not_found (hidden); someone I blocked → invalid', { be, bd });
+
+    B1.c.send({ t: 'room:reply', room: roomId, accept: true });
+    const [bJoin, aJoinLine] = await Promise.all([
+      B1.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === roomId)),
+      A1.c.wait('room:line', (mm) => mm.line.room === roomId && mm.line.system === 'join'),
+    ]);
+    const bJoinLine = await B1.c.wait('room:line', (mm) => mm.line.system === 'join');
+    assert(bJoin.rooms.invites.length === 0 && eq(bJoin.rooms.rooms.find((r) => r.id === roomId)?.members.map((x) => x.code), [A1.code, B1.code])
+      && aJoinLine.line.code === B1.code && bJoinLine.line.targetName === 'Bob',
+      'part 14 relay: accept → B is a member (its room:state first), the join line reaches both', { bJoin: bJoin.rooms, aJoinLine });
+
+    await sleep(80);
+    A1.c.flush(); B1.c.flush();
+    A1.c.send({ t: 'room:say', room: roomId, text: ' 안녕 <b>여러분</b> ', nonce: 7 });
+    const [sayAck, bLine] = await Promise.all([A1.c.wait('room:ack', (mm) => mm.nonce === 7), B1.c.wait('room:line', (mm) => !mm.line.system)]);
+    assert(sayAck.ok && bLine.line.text === '안녕 b여러분/b' && bLine.line.code === A1.code && bLine.line.name === 'Alice' && bLine.line.at === sayAck.at
+      && await A1.c.expectNone('room:line', 120),
+      'part 14 relay: say → ack {ok, at} to the sender, the sanitized line (same at) to the member, no echo to the sender', { sayAck, bLine });
+    A1.c.send({ t: 'room:say', room: roomId, text: '   ', nonce: 8 });
+    C1.c.send({ t: 'room:say', room: roomId, text: 'hi', nonce: 9 });
+    const [blank, outsider] = await Promise.all([A1.c.wait('room:ack', (mm) => mm.nonce === 8), C1.c.wait('room:ack', (mm) => mm.nonce === 9)]);
+    assert(!blank.ok && blank.code === 'invalid' && !outsider.ok && outsider.code === 'not_member', 'part 14 relay: a blank line → ack invalid; a non-member → ack not_member', { blank, outsider });
+    B1.c.send({ t: 'room:history', room: roomId });
+    const hist = await B1.c.wait('room:history');
+    assert(hist.room === roomId && eq(hist.lines.map((l) => l.system ?? l.text), ['create', 'join', '안녕 b여러분/b']) && hist.more === false,
+      'part 14 relay: room:history → create · join · the line, oldest first, more:false', hist);
+    C1.c.send({ t: 'room:history', room: roomId });
+    assert((await C1.c.wait('room:error')).code === 'not_member', 'part 14 relay: a non-member cannot read the history');
+
+    let limited = 0;
+    const burst = ROOM_SAY_BURST + 4;
+    for (let i = 0; i < burst; i++) A1.c.send({ t: 'room:say', room: roomId, text: `연타 ${i}`, nonce: 100 + i });
+    for (let i = 0; i < burst; i++) { const a = await A1.c.wait('room:ack', (mm) => mm.nonce === 100 + i); if (!a.ok && a.code === 'limit') limited++; }
+    assert(limited >= 3, `part 14 relay: room:say past ROOM_SAY_BURST → ack limit (${limited} of ${burst})`);
+
+    B1.c.send({ t: 'room:rename', room: roomId, name: '해적단' });
+    const nr = await B1.c.wait('room:error');
+    A1.c.send({ t: 'room:rename', room: roomId, name: '  해적단 ' });
+    const [renLine, bRen] = await Promise.all([
+      A1.c.wait('room:line', (mm) => mm.line.system === 'rename'),
+      B1.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === roomId && r.name === '해적단')),
+    ]);
+    assert(nr.code === 'not_owner' && renLine.line.text === '해적단' && !!bRen, 'part 14 relay: rename by a member → not_owner; by the owner → rename line + the new name in room:state');
+    A1.c.send({ t: 'room:kick', room: roomId, code: B1.code });
+    const [kLine, bGone] = await Promise.all([
+      A1.c.wait('room:line', (mm) => mm.line.system === 'kick'),
+      B1.c.wait('room:state', (mm) => !mm.rooms.rooms.some((r) => r.id === roomId)),
+    ]);
+    assert(kLine.line.target === B1.code && kLine.line.targetName === 'Bob' && !!bGone, 'part 14 relay: kick → a kick line, and the kicked member\'s room:state no longer lists the room', kLine);
+
+    A1.c.send({ t: 'room:invite', room: roomId, code: B1.code });
+    await B1.c.wait('room:state', (mm) => mm.rooms.invites.some((i) => i.room === roomId));
+    B1.c.send({ t: 'room:reply', room: roomId, accept: true });
+    await B1.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === roomId));
+    A1.c.send({ t: 'room:leave', room: roomId });
+    const [aLeft, bOwner] = await Promise.all([
+      A1.c.wait('room:state', (mm) => !mm.rooms.rooms.some((r) => r.id === roomId)),
+      B1.c.wait('room:line', (mm) => mm.line.system === 'owner'),
+    ]);
+    const bNow = await B1.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === roomId && r.owner === B1.code));
+    assert(!!aLeft && bOwner.line.target === B1.code && bNow.rooms.rooms.find((r) => r.id === roomId)?.members.length === 1,
+      'part 14 relay: the owner leaves → the remaining member gets the owner line and becomes owner', bOwner);
+    A1.c.send({ t: 'room:leave', room: roomId });
+    assert((await A1.c.wait('room:error')).code === 'not_member', 'part 14 relay: leaving a room you are not in → not_member');
+
+    B1.c.send({ t: 'room:say', room: roomId, text: '남을 줄', nonce: 300 });
+    await B1.c.wait('room:ack', (mm) => mm.nonce === 300);
+    for (const c of open.splice(0)) c.close();
+    await srv.close();
+    srv = await startRelayServer(relayOpts);
+    url = `ws://127.0.0.1:${srv.port}${NET_WS_PATH}`;
+    const B2 = await conn('14B2', 'B', 'Bob');
+    const re = B2.first.rooms.rooms.find((r) => r.id === roomId);
+    B2.c.send({ t: 'room:history', room: roomId });
+    const h2 = await B2.c.wait('room:history');
+    assert(!!re && re.owner === B2.code && re.lastText === '남을 줄' && h2.lines.at(-1)?.text === '남을 줄',
+      'part 14 relay: after a relay restart rooms.json brings the room, its owner and its lines back (welcome room:state + history)', { re, last: h2.lines.at(-1) });
+
+    const F2 = await conn('14F', 'F', 'Frank');
+    await befriend(B2, F2);
+    F2.c.send({ t: 'room:create', name: '프랭크방', invite: [B2.code], nonce: 400 });
+    const fAck = await F2.c.wait('room:ack', (mm) => mm.nonce === 400);
+    const fRoom = fAck.room ?? '';
+    await B2.c.wait('room:state', (mm) => mm.rooms.invites.some((i) => i.room === fRoom));
+    B2.c.send({ t: 'room:reply', room: fRoom, accept: true });
+    await B2.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === fRoom));
+    F2.c.close();
+    await F2.c.closed();
+    await sleep(80);
+    B2.c.flush();
+    srv.collectGarbage(Date.now() + PROFILE_GC_INACTIVE_MS + 60_000);
+    const [gcLine, gcState] = await Promise.all([
+      B2.c.wait('room:line', (mm) => mm.line.room === fRoom && mm.line.system === 'owner'),
+      B2.c.wait('room:state', (mm) => mm.rooms.rooms.some((r) => r.id === fRoom && r.owner === B2.code && r.members.length === 1)),
+    ]);
+    assert(!!gcLine && !!gcState && srv.rooms.get(fRoom)?.members.length === 1 && srv.rooms.get(fRoom)?.owner === B2.code,
+      'part 14 relay: the profile GC collects an offline owner → it leaves its room, the member left is owner (owner line + room:state)');
+  } finally {
+    for (const c of open) c.close();
+    await srv.close();
+    rmSync(dataDir, { recursive: true, force: true });
   }
 }
 

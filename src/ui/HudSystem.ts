@@ -58,6 +58,10 @@ import { CursorHoldGauge } from './hud/CursorHoldGauge';
 import { ShipManageHint } from './hud/ShipManageHint';
 import { Community } from './hud/Community';
 import { setDebugSocial, setDebugSocialRef, debugSocialCalls } from './menus/social/socialSource';
+/* 2026-09-14: 메신저 — NPC · 단체방 창구 스모크 훅 */
+import type { NpcQuestRef, RoomsRef } from '@/shared';
+import { setDebugNpc, setDebugRooms } from './menus/messenger/sources';
+import type { Messenger } from './menus/messenger/Messenger';
 import type { SocialRef, WhisperLine } from '@/shared';
 import { RoomLabel } from './hud/RoomLabel';
 import { ContractPanel } from './hud/ContractPanel';
@@ -701,6 +705,15 @@ export class HudSystem implements GameSystem {
     this.community.socialColumn.refresh(true);
   }
 
+  /** 2026-09-14 (메신저): install any `NpcQuestRef` as `ctx.meta.npc` for the messenger (null hands it back). */
+  debugNpc(ref: NpcQuestRef | null): void { setDebugNpc(ref); }
+  /** 2026-09-14 (메신저): install any `RoomsRef` as `ctx.net.rooms` for the messenger (null hands it back). */
+  debugRooms(ref: RoomsRef | null): void { setDebugRooms(ref); }
+  /** 2026-09-14: the messenger body — tabs, 대화 / 퀘스트 tabs, 친구 tab column (debug / smoke). */
+  get messenger(): Messenger { return this.community.messenger; }
+  /** 2026-09-14: the messenger thumbnail's unread count badge (debug / smoke). */
+  get messengerUnreadBadge(): number { return this.community.unreadBadge; }
+
   /** Mutations the synthetic social ref received, newest last (debug; empty in a real session). */
   get debugSocialLog(): readonly { m: string; args: unknown[] }[] { return debugSocialCalls; }
   /** 커뮤니티 widget / panel / invite state (debug, Phase 11). */
@@ -715,7 +728,7 @@ export class HudSystem implements GameSystem {
   get rescuePickerSelectable(): number { return this.rescuePick.selectableCount; }
   get communityInviteCount(): number { return this.community.inviteCount; }
   get communityHoldProgress(): number { return this.community.holdProgress; }
-  /** 귓속말 target of the chat input, null when it is ordinary squad chat (debug, Phase 11). */
+  /** 개인 대화 target of the chat input, null when it is ordinary squad chat (debug, Phase 11). */
   get chatWhisperTarget(): string | null { return this.chat.whisperTarget; }
   /** 입력 중 말풍선 — who has one showing right now (debug / smoke, 2026-09-11 B-11). */
   get typingBubbleIds(): readonly PeerId[] { return this.typing.visibleIds; }

@@ -1,5 +1,5 @@
 import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
-import { Keys, CHAT_MAX_LINES, SOCIAL_WHISPER_MAX, formatPlayerCode, keyLabel } from '@/shared';
+import { Keys, CHAT_MAX_LINES, PRIVATE_CHAT_LABEL_KO, SOCIAL_WHISPER_MAX, formatPlayerCode, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { isPeerBlocked, socialOf } from '../menus/social/socialSource';
 import { whisperStateClass, whisperStateText } from '../menus/social/whisperText';
@@ -10,7 +10,7 @@ const LINE_FADE_AFTER = 12;   // seconds a line stays fully visible while the in
 const FADE_CHECK = 0.25;      // seconds between fade sweeps
 /** 2026-09-11 (B-4): the relay's own whisper cap (was 120, so a long whisper was cut short on the sender's side). */
 const MAX_TEXT = SOCIAL_WHISPER_MAX;
-/** `/r <텍스트>` — reply to the last 귓속말 partner. `/ㄱ` is the same keys on a Korean layout. */
+/** `/r <텍스트>` — reply to the last 개인 대화 partner. `/ㄱ` is the same keys on a Korean layout. */
 const REPLY_RE = /^\/[rRㄱ](?:\s+([\s\S]*))?$/;
 /** Closed-state log height in line pitches: three full lines + the fourth cut in half at the top (2026-09-09). */
 const CLOSED_LINES = 3.5;
@@ -56,8 +56,8 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * (`시뮬레이션 훈련장 입장` on `game:newMission {mode:'training'}`, `퇴장` on `training:exitRequested`). Every line emits
  * `chat:message`. Works as a local log in single-player too.
  *
- * **귓속말 (Phase 11).** `chat:whisperTo {code, name}` (emitted by the ESC social column / the community panel's
- * 귓속말하기) opens the input in **whisper mode**: a `.chat-target` chip reads `→ 이름` and every Enter goes out through
+ * **개인 대화 (Phase 11 귓속말 — 2026-09-14 공식 명칭 변경).** `chat:whisperTo {code, name}` opens the input in **whisper mode**
+ * (the lines land in the same `SocialRef.whisperHistory` the messenger's 대화 tab draws): a `.chat-target` chip reads `→ 이름` and every Enter goes out through
  * `ctx.net.social.whisper(code, text)` instead of `chat:post`. The sender's echo is **not** written locally — the
  * whisper mirror answers with `social:whisper {line}` for both directions (`line.out` distinguishes them) and that is
  * what draws a `kind:'whisper'` line; a `whisper()` that returns false (offline / unavailable / empty) leaves a system
@@ -150,7 +150,7 @@ export class ChatLog {
     this.targetChip.hidden = true;
     this.targetName = el('span', { cls: 't', text: '', parent: this.targetChip });
     const clearTarget = el('button', { cls: 'x', text: '×', parent: this.targetChip });
-    clearTarget.title = '귓속말 대상 해제';
+    clearTarget.title = `${PRIVATE_CHAT_LABEL_KO} 대상 해제`;
     clearTarget.addEventListener('click', (e) => { e.stopPropagation(); this.setTarget(null); this.input.focus(); });
     el('span', { cls: 'chat-prompt', text: '›', parent: this.inputRow });
     this.input = el('input', {
@@ -270,7 +270,9 @@ export class ChatLog {
    * state as a modifier class + a `.wst` tag, and keeps a still-changing row by nonce for `updateWhisper`.
    */
   private addWhisper(line: WhisperLine): void {
-    const who = line.out ? `귓속말 → ${line.name || formatPlayerCode(line.code)}` : `귓속말 ${line.name || formatPlayerCode(line.code)}`;
+    const who = line.out
+      ? `${PRIVATE_CHAT_LABEL_KO} → ${line.name || formatPlayerCode(line.code)}`
+      : `${PRIVATE_CHAT_LABEL_KO} ${line.name || formatPlayerCode(line.code)}`;
     const row = this.add(null, who, line.text, 'whisper', line.out, whisperStateClass(line));
     const st = whisperStateText(line);
     const tag = el('span', { cls: 'wst', text: st, parent: row });
@@ -304,7 +306,7 @@ export class ChatLog {
     this.target = t;
     this.targetChip.hidden = !t;
     if (t) setText(this.targetName, `→ ${t.name || formatPlayerCode(t.code)}`);
-    this.input.placeholder = t ? '귓속말 입력… (Enter 전송 · Esc 대상 해제)' : '메시지 입력… (Enter 전송)';
+    this.input.placeholder = t ? `${PRIVATE_CHAT_LABEL_KO} 입력… (Enter 전송 · Esc 대상 해제)` : '메시지 입력… (Enter 전송)';
     toggleClass(this.root, 'whispering', !!t);
     // The column that holds the log is owned by HudSystem (`.hud-bl`); the spec puts it mid-left while whispering.
     const col = this.root.parentElement;
@@ -430,7 +432,7 @@ export class ChatLog {
     if (t) {
       // The mirror echoes a successful whisper back as `social:whisper {line.out}` — never double-write it here.
       const sent = socialOf(this.ctx)?.whisper(t.code, text) ?? false;
-      if (!sent) this.system(`귓속말 전송 실패 — ${t.name || formatPlayerCode(t.code)}`);
+      if (!sent) this.system(`${PRIVATE_CHAT_LABEL_KO} 전송 실패 — ${t.name || formatPlayerCode(t.code)}`);
     } else {
       this.ctx.bus.emit('chat:post', { text, kind: 'text' });
     }
@@ -442,10 +444,10 @@ export class ChatLog {
   private reply(text: string): void {
     const social = socialOf(this.ctx);
     const last = social?.lastWhisperPeer ?? null;
-    if (!social || !last) { this.system('답장할 귓속말 상대가 없습니다'); return; }
+    if (!social || !last) { this.system(`답장할 ${PRIVATE_CHAT_LABEL_KO} 상대가 없습니다`); return; }
     const name = social.whisperPeers().find((p) => p.code === last)?.name || social.find(last)?.name || formatPlayerCode(last);
     if (!text) { this.setTarget({ code: last, name }); return; }
-    if (!social.whisper(last, text)) this.system(`귓속말 전송 실패 — ${name}`);
+    if (!social.whisper(last, text)) this.system(`${PRIVATE_CHAT_LABEL_KO} 전송 실패 — ${name}`);
   }
 
   dispose(): void {

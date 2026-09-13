@@ -66,6 +66,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
     case 'welcome':
       sys.onWelcome(msg);
       sys.cryptoMarket.onWelcome();   // 2026-09-13: the relay forgot `crypto:watch` with the old socket
+      sys.roomSync.onWelcome();       // 2026-09-14: the relay pushes `room:state` right after this frame
       return;
     /* 2026-09-13: 암호화폐 시세 — `parts/Crypto` validates and caches */
     case 'crypto:prices':
@@ -182,6 +183,22 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       return;
     case 'social:whisperBacklog':
       sys.socialSync.onWhisperBacklog(msg);
+      return;
+    /* 2026-09-14: 단체 메신저방 — RoomSync validates every frame before it reaches the UI */
+    case 'room:state':
+      sys.roomSync.onState(msg);
+      return;
+    case 'room:line':
+      sys.roomSync.onLine(msg);
+      return;
+    case 'room:ack':
+      sys.roomSync.onAck(msg);
+      return;
+    case 'room:history':
+      sys.roomSync.onHistory(msg);
+      return;
+    case 'room:error':
+      sys.roomSync.onError(msg);
       return;
   }
   }

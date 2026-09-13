@@ -100,10 +100,66 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const part of row.list('seeds')) ref(`data/planets.csv [seeds] — ${row.raw('id')}`, part.slice(0, part.lastIndexOf(':') > 0 ? part.lastIndexOf(':') : part.length).trim());
   }
-  // 퀘스트 납품 · 보상 아이템도 출처다 (리드 — cl1 이 은퇴한 spec_tissue 를 요구하고 cl2 가 spec_genome 을 주고 있었다)
-  for (const q of shared.QUEST_DEFS ?? []) {
-    for (const d of q.deliver ?? []) ref(`data/quests.csv [deliver] — ${q.id}`, d.defId);
-    for (const d of q.rewards?.items ?? []) ref(`data/quests.csv [rewardItems] — ${q.id}`, d.defId);
+  /* 2026-09-14 (메신저 · NPC 퀘스트 — docs/plans/messenger-quests.md): 옛 quests.csv 대신. 로더(`shared/npc.ts`)는 열 모양만 보고,
+   * 표끼리의 참조 — NPC · 선행 퀘스트 · 아이템 · 적 · 행성 — 와 「그 행성에서 그 적이 나올 수 있나」 는 여기서 본다. */
+  {
+    const Q = 'data/npc_quests.csv', O = 'data/npc_objectives.csv', N = 'data/npcs.csv';
+    const enemyTypes = await server.ssrLoadModule('/src/enemies/EnemyTypes.ts');
+    const factionOf = new Map(shared.csvRows('enemies.csv').map((r) => [r.raw('type'), r.raw('faction')]));
+    const questIds = new Set();
+    for (const q of shared.NPC_QUEST_DEFS) {
+      if (questIds.has(q.id)) refProblems.push(`${Q} — '${q.id}' 줄이 둘이다`);
+      questIds.add(q.id);
+      if (!/^[a-z0-9_]{1,48}$/.test(q.id)) refProblems.push(`${Q} — '${q.id}': id 는 소문자 · 숫자 · _ 만 (크레딧 사유 quest:<id>)`);
+    }
+    const npcIds = new Set();
+    for (const n of shared.NPC_DEFS) {
+      if (npcIds.has(n.id)) refProblems.push(`${N} — '${n.id}' 줄이 둘이다`);
+      npcIds.add(n.id);
+      for (const r of n.requires.quests ?? []) if (!questIds.has(r)) refProblems.push(`${N} [reqQuests] — ${n.id}: 모르는 퀘스트 '${r}'`);
+      if (!shared.NPC_QUEST_DEFS.some((q) => q.npc === n.id)) refProblems.push(`${N} — ${n.id}: 이 NPC 의 퀘스트가 없다`);
+    }
+    const threatOf = (p) => shared.planetThreat(p);
+    const planets = shared.PLANET_DEFS.map((p) => p.id);
+    for (const q of shared.NPC_QUEST_DEFS) {
+      for (const r of q.requires.quests ?? []) {
+        if (!questIds.has(r)) refProblems.push(`${Q} [reqQuests] — ${q.id}: 모르는 퀘스트 '${r}'`);
+        if (r === q.id) refProblems.push(`${Q} [reqQuests] — ${q.id}: 자기 자신을 선행으로 둘 수 없다`);
+      }
+      for (const d of q.rewards.items) ref(`${Q} [rewardItems] — ${q.id}`, d.defId);
+      for (const o of q.objectives) {
+        const where = `${O} — ${q.id} #${o.index} (${o.kind})`;
+        if (o.item) {
+          const cls = o.item.startsWith(shared.NPC_ITEM_WEAPON_PREFIX) ? o.item.slice(shared.NPC_ITEM_WEAPON_PREFIX.length) : null;
+          if (!cls) ref(`${where} [item]`, o.item);
+          else if (!items.ITEM_DEFS.some((d) => d.weaponId && !d.retired)) refProblems.push(`${where} [item]: 무기 아이템이 없다`);
+        }
+        const planetsFor = o.planet ? [o.planet] : planets;
+        if (o.kind === 'kill' && o.enemy) {
+          const groups = shared.NPC_ENEMY_GROUPS;
+          if (!groups.includes(o.enemy) && !factionOf.has(o.enemy)) refProblems.push(`${where} [enemy]: '${o.enemy}' 는 묶음(${groups.join(' | ')})도 적 타입도 아니다`);
+          // 인간형 팩션은 행성 threat 가 정한다 (enemies/factionTables): 1 = 안드로이드 · 2 = 로그/레이더 · 3 = 레이더. 네임드는 threat 2 이상.
+          const faction = groups.includes(o.enemy) ? o.enemy : factionOf.get(o.enemy);
+          const canAppear = (p) => {
+            const t = threatOf(p);
+            if (faction === 'android') return t === 1;
+            if (faction === 'rogue') return t === 2;
+            if (faction === 'raider' || o.enemy === 'named') return t >= 2;
+            return true;
+          };
+          if (!planetsFor.some(canAppear)) refProblems.push(`${where}: '${o.enemy}' 는 ${o.planet ? `'${o.planet}'(threat ${threatOf(o.planet)})` : '어느 행성'}에도 나오지 않는다`);
+        }
+        if (o.enemy === 'named' || (o.enemy && shared.NAMED_ROGUE_TYPES.includes(o.enemy))) {
+          if (!o.planet || threatOf(o.planet) < 2) { /* 운에 달린 목표 — 경고만 하지 않는다 (콘텐츠 의도) */ }
+        }
+      }
+    }
+    void enemyTypes;
+    for (const c of shared.CRYPTO_COIN_DEFS) {
+      if (!c.unlockQuest) continue;
+      const q = shared.NPC_QUEST_DEFS.find((x) => x.id === c.unlockQuest);
+      if (q && !(q.rewards.credits > 0)) refProblems.push(`${Q} — ${q.id}: 채굴 해금 퀘스트는 rewardCredits 가 0 보다 커야 한다 (서버 원장 quest:<id>)`);
+    }
   }
   for (const row of shared.csvRows('planets.csv')) {
     for (const c of row.costList('samples')) ref(`data/planets.csv [samples] — ${row.raw('id')}`, c.defId);

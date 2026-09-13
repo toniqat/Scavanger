@@ -345,7 +345,7 @@ try {
   ok(chat && chat.text === '안녕' && chat.name === '분대원', `A received chat ${JSON.stringify(chat)}`);
   ok(await A.evaluate(() => !!document.querySelector('.chat') && document.querySelector('.chat').textContent.includes('안녕')), 'A chat log shows the line');
 
-  console.log('social (Phase 11: 아이디 · 친구 요청 → 수락 → 상호 프리즌스 · 귓속말)');
+  console.log('social (Phase 11: 아이디 · 친구 요청 → 수락 → 상호 프리즌스 · 개인 대화)');
   const socialA = await waitFor(A, () => window.__game.ctx.net.social.available, 'A social available', 6000).catch(() => false);
   const socialB = socialA && await waitFor(B, () => window.__game.ctx.net.social.available, 'B social available', 6000).catch(() => false);
   let aCode = null, bCode = null;
@@ -379,12 +379,12 @@ try {
       'B has A as a friend too, the request is gone, hasNews cleared');
     ok(await A.evaluate((c) => !window.__game.ctx.net.social.recent.some((r) => r.code === c), bCode), 'a friend left 최근 만난 플레이어');
     ok(await A.evaluate((c) => window.__game.ctx.net.social.find(c)?.code === c, bCode), 'find(아이디) resolves the row');
-    // 귓속말: A → B, with a local echo on the sender.
-    const sent = await A.evaluate((c) => window.__game.ctx.net.social.whisper(c, '귓속말 테스트'), bCode);
+    // 개인 대화: A → B, with a local echo on the sender.
+    const sent = await A.evaluate((c) => window.__game.ctx.net.social.whisper(c, '개인 대화 테스트'), bCode);
     ok(sent === true, 'A whisper() accepted');
-    ok(await A.evaluate(() => { const w = window.__whispers[window.__whispers.length - 1]; return !!w && w.out === true && w.text === '귓속말 테스트' && w.name === '분대원'; }), 'A rendered its own whisper line (out:true, target name)');
+    ok(await A.evaluate(() => { const w = window.__whispers[window.__whispers.length - 1]; return !!w && w.out === true && w.text === '개인 대화 테스트' && w.name === '분대원'; }), 'A rendered its own whisper line (out:true, target name)');
     const got = await waitFor(B, (c) => window.__whispers.find((w) => w.code === c && !w.out) ?? null, 'B whisper line', 6000, aCode).catch(() => null);
-    ok(got && got.text === '귓속말 테스트' && got.name === '호스트', `B received the whisper ${JSON.stringify(got && { name: got.name, text: got.text, out: got.out })}`);
+    ok(got && got.text === '개인 대화 테스트' && got.name === '호스트', `B received the whisper ${JSON.stringify(got && { name: got.name, text: got.text, out: got.out })}`);
     // Unfriend (mutual) so the next run starts clean.
     await B.evaluate((c) => window.__game.ctx.net.social.removeFriend(c), aCode);
     ok(await waitFor(A, (c) => window.__game.ctx.net.social.friends.every((f) => f.code !== c) ? 1 : 0, 'A unfriended', 6000, bCode).catch(() => 0) === 1,

@@ -46,6 +46,26 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-14 (메신저 · NPC 퀘스트 · 단체방 · 개인 대화):
+
+  사용자 명세 [메신저]. `AskUserQuestion` 2라운드 8문항 — **P 키 독립 패널**(커뮤니티 대체) · **함선 전용** · **레이드 목표는 채우는 순간 확정** · **기존 기업 퀘스트 전부 삭제** ·
+  **분대 공유는 구조물 발견만** · **단체방 = 방장형 + 채팅창 연동 없음** · **NPC 10명 · 퀘스트 약 40개** · **보고 버튼, 포기 불가**. 설계 원본은 `docs/plans/messenger-quests.md`.
+  리드가 먼저 계약(`shared/npc.ts` · `meta.ts` / `social.ts` / `net.ts` / `events.ts` 의 2026-09-14 절)과 빈 csv 3개를 써 두고 `quests.csv` 를 지운 뒤 에이전트 5개를 병렬로 돌렸다.
+  - 단체방 · 개인 대화(agent A): `server/Rooms.ts`(`rooms.json`, .bak) · 친구만 초대 · 방장 권한 · 방장 승계 · 20명 · 200줄 · 말 요율 · 차단 규칙 · 프로필 GC 연동, `net/RoomSync`(`ctx.net.rooms`),
+    개인 대화 읽지 않음(`whisperUnread` · `social:unreadChanged`), net · shared · server 의 「귓속말」 → 「개인 대화」, selftest part 14, `smoke-rooms`.
+  - 퀘스트 엔진(agent B): `meta/NpcRules` · `parts/NpcQuests` · `parts/NpcObjectives`(`ctx.meta.npc`) — 함선에서만 연락 · 순차 제안, 사건 로그 → 말풍선, 보류 → 퀘스트 탭 재수주(brief),
+    나눠 납품, 완료 보고(아이템 → `quest:<id>` → 신뢰도 → XP), 목표 6종 · `chain` · `planet` · 레이드 끝 되돌림 · 회수는 탈출 정산, `MetaSave` v2. 배관: `shared/damageSource` + `WeaponSystem.applyHit`
+    → `enemy:killed.weaponClass`(비호스트는 자기 마지막 요청 계열), `world:interacted`(문 · 차량은 호스트 확정 뒤, 스캐너 · 전차는 요청 시점), `crate:open.zoneId/zoneKind`.
+    기업 화면 퀘스트 탭 · 콘솔 `quest` 삭제(→ `npc`), 경제 표 · data-check · 코인 해금이 NPC 퀘스트를 본다, `smoke-npc-quests`.
+  - 메신저 UI(agent C): `ui/menus/messenger/` — 대화(NPC · 개인 대화 · 단체방 섞은 목록 + 퀘스트 카드) · 친구(옛 소셜 열) · 퀘스트(진행 중 · 보류 · 완료 + 납품 · 완료 보고), 썸네일 읽지 않음 숫자,
+    NPC 연락 토스트, 대화 기록 페이지 삭제, ChatLog 「개인 대화」, `smoke-messenger`.
+  - 콘텐츠(agent D): NPC 10(기업마다 임원 · 직원 + 무소속 레이븐 · 케인) · 퀘스트 41 · 목표 94, 임원은 신뢰도 1 + 직원 퀘스트 뒤 연락, 채굴 인가 `q_*_permit`(신뢰도 2).
+  - 지도 · 토스트(agent E): `ui/map/QuestPanels` — 좌측 열 = 퀘스트 패널(게이지 · 호버 툴팁) → 범례 좌측 하단, 열 280 px, 목표 확정 · 보고 가능 · 완료 토스트, `smoke-map-quests`.
+  - 검증: 전용 vite(5316) · 공용 릴레이 유지로 변경 폴더 전체 — typecheck · server typecheck · net-selftest 568/568 · data-check · build · 스모크 57/58
+    (`smoke-humanoid-ai` 38/39 → 재실행 39/39, 부하 중 흔들리는 우회조 검사). 8787 릴레이 · 5273 vite 가 다른 세션의 워크트리(`scav-0914`) 것이라 e2e-mp 는
+    그 서버들이 내려간 뒤 따로 돌렸다 — 175/175.
+  - 넘어가지 않는 것(사용자 결정): 옛 기업 퀘스트 완료 기록 · 옛 코인 해금(`hx_crypto` 등). 방 멤버 presence 는 푸시 때만 갱신된다.
+
 - 2026-09-14 (총기 밸런스 · 모든 총알 발사체 · 툴팁 고정 · 대시 벽 판정 · 벌레 난이도):
 
   사용자 명세 [총기 밸런스] [전술 임플란트] [높은 난이도 행성의 벌레 밸런스] 묶음. `AskUserQuestion` 2라운드 8문항 — **모든 총알을 고속 발사체로**(휘는 판정선 · 영점 눈금 대신) ·

@@ -199,7 +199,8 @@ export class ContainerSet {
         game.inventory?.openContainerItems(spec.id, c.items, spec.position, '컨테이너');
       }
     }
-    game.bus.emit('crate:open', { crateId: spec.id, tier: spec.tier, position: spec.position });
+    // 2026-09-14: 구역 id · 종류를 싣는다 — NPC 퀘스트의 「구조물 안 컨테이너 조사」 가 센다
+    game.bus.emit('crate:open', { crateId: spec.id, tier: spec.tier, position: spec.position, zoneId: spec.zoneId, zoneKind: spec.zoneKind });
     if (!first) return;
     if (this.investigated.has(spec.zoneId)) return;
     this.investigated.add(spec.zoneId);

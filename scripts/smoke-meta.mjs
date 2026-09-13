@@ -230,7 +230,8 @@ try {
   // save mirrors the document
   await P(() => window.__game.ctx.meta.save());
   const setsS = await P(() => ({ sets: window.__fakeProfile.sets.slice(), doc: window.__fakeProfile.docs.meta }));
-  ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 1 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits }));
+  // 2026-09-14: MetaSave v2 (NPC 퀘스트 `npc`)
+  ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 2 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits, v: setsS.doc?.v }));
   // net:profileLoaded: the server document replaces the save, the balance is the server's
   const snapS = await P(() => JSON.parse(localStorage.getItem('scav.s1.meta')));
   const loadedBefore = (await ev('meta:loaded')).length;
@@ -522,46 +523,25 @@ try {
   const cab = await lastEv('meta:contractAbandoned');
   ok(cab && cab.id === 'helix_1' && (await P(() => window.__game.ctx.meta.activeContract)) === null, 'meta:contractAbandoned + no active contract', JSON.stringify(cab));
 
-  console.log('quests: h1 → h2');
-  const q0 = await P(() => window.__game.ctx.meta.getQuests('helix').map((q) => ({ id: q.def.id, state: q.state, blocked: q.blocked, have: q.deliver.map((d) => d.have) })));
-  ok(q0.find((q) => q.id === 'h1')?.state === 'available' && q0.find((q) => q.id === 'h2')?.state === 'locked', 'h1 available, h2 locked (requires h1)', JSON.stringify(q0));
-  ok(await P(() => window.__game.ctx.meta.completeQuest('h1')) === false, 'completeQuest before accepting → false');
-  ok(await P(() => window.__game.ctx.meta.acceptQuest('h2')) === false, 'acceptQuest(h2) locked → false');
-  const scrapAdded = await P(() => { const c = window.__game.ctx; return c.inventory.tryAddItem(c.loot.createItem('mat_scrap', 10)); });
-  ok(scrapAdded, 'mat_scrap ×10 added to the bag');
-  ok(await P(() => window.__game.ctx.meta.acceptQuest('h1')) === true, 'acceptQuest(h1) → true');
-  let qc = await lastEv('meta:questChanged');
-  ok(qc && qc.id === 'h1' && qc.state === 'accepted', 'meta:questChanged {h1, accepted}', JSON.stringify(qc));
-  const q1 = await P(() => window.__game.ctx.meta.getQuests('helix').find((q) => q.def.id === 'h1'));
-  ok(q1.state === 'accepted' && q1.blocked === null && q1.deliver[0].have >= 10, 'h1 accepted, deliverable (have ≥ 10)', JSON.stringify({ state: q1.state, blocked: q1.blocked, have: q1.deliver[0].have }));
-  const scrapBefore = await P(() => window.__game.ctx.inventory.countDefAll('mat_scrap'));
-  const credBeforeQ = await credits();
-  const repBeforeQ = (await rep('helix')).rep;
-  const xpBefore = await P(() => window.__game.ctx.progression ? window.__game.ctx.progression.xp + window.__game.ctx.progression.level * 1e6 : null);
-  ok(await P(() => window.__game.ctx.meta.completeQuest('h1')) === true, 'completeQuest(h1) → true');
-  const scrapAfter = await P(() => window.__game.ctx.inventory.countDefAll('mat_scrap'));
-  ok(scrapAfter === scrapBefore - 10, 'mat_scrap −10 consumed', `${scrapBefore} → ${scrapAfter}`);
-  ok(await credits() === credBeforeQ + 150, 'credits +150', `${await credits()}`);
-  ok((await rep('helix')).rep === repBeforeQ + 150, 'helix rep +150', `${(await rep('helix')).rep}`);
-  const xpAfter = await P(() => window.__game.ctx.progression ? window.__game.ctx.progression.xp + window.__game.ctx.progression.level * 1e6 : null);
-  ok(xpBefore === null || xpAfter > xpBefore, 'character XP +200 via progression.addXp', `${xpBefore} → ${xpAfter}`);
-  qc = await lastEv('meta:questChanged');
-  ok(qc && qc.id === 'h1' && qc.state === 'complete', 'meta:questChanged {h1, complete}', JSON.stringify(qc));
-  const q2 = await P(() => window.__game.ctx.meta.getQuests('helix').map((q) => ({ id: q.def.id, state: q.state })));
-  ok(q2.find((q) => q.id === 'h1')?.state === 'complete' && q2.find((q) => q.id === 'h2')?.state === 'available', 'h1 complete → h2 available', JSON.stringify(q2));
-  ok(await P(() => window.__game.ctx.meta.acceptQuest('h1')) === false, 'completed quest cannot be re-accepted');
+  /* 2026-09-14: 기업 퀘스트 폐지 (docs/plans/messenger-quests.md) — 옛 API 는 빈 목록 · false 이고, NPC 퀘스트는
+     scripts/smoke-npc-quests.mjs 가 본다. 뒤의 검사들이 기대하는 helix 신뢰도(Lv.2 · 310)는 옛 h1 보상 150 을 직접 더해 맞춘다. */
+  console.log('corp quests are gone');
+  ok(await P(() => window.__game.ctx.meta.getQuests('helix').length) === 0, 'getQuests(helix) → [] (기업 퀘스트 없음)');
+  ok(await P(() => window.__game.ctx.meta.acceptQuest('h1')) === false && await P(() => window.__game.ctx.meta.completeQuest('h1')) === false, 'acceptQuest / completeQuest → false');
+  ok(await P(() => window.__game.ctx.meta.getQuestState('h1')) === 'locked', 'getQuestState(unknown) → locked');
+  await P(() => window.__game.ctx.meta.addRep('helix', 150, 'smoke'));
 
   console.log('persistence: reload');
   const snap = { credits: await credits(), rep: (await rep('helix')).rep, level: (await rep('helix')).level };
   await P(() => window.__game.ctx.meta.save());
   const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.s1.meta')); } catch { return null; } });
-  ok(saved && saved.v === 1 && saved.credits === snap.credits && saved.corps.helix.rep === snap.rep && saved.corps.helix.quests.h1 === 'complete' && saved.activeContract === null, 'localStorage scav.s1.meta v1 holds credits / rep / h1 complete', JSON.stringify(saved));
+  ok(saved && saved.v === 2 && saved.credits === snap.credits && saved.corps.helix.rep === snap.rep && saved.activeContract === null && saved.npc && typeof saved.npc.quests === 'object',
+    'localStorage scav.s1.meta v2 holds credits / rep / npc', JSON.stringify(saved && { v: saved.v, credits: saved.credits, npc: !!saved.npc }));
   await page.reload({ waitUntil: 'load' });
   await boot();
   ok(await credits() === snap.credits, `credits persisted (${snap.credits})`, `${await credits()}`);
   const rr = await rep('helix');
   ok(rr.rep === snap.rep && rr.level === snap.level, `helix rep persisted (${snap.rep} / Lv.${snap.level})`, JSON.stringify(rr));
-  ok(await P(() => window.__game.ctx.meta.getQuestState('h1')) === 'complete' && await P(() => window.__game.ctx.meta.getQuestState('h2')) === 'available', 'quest states persisted (h1 complete, h2 available)');
   console.log('corp screen');
   await enterHub();
   await P(() => window.__game.ctx.meta.openCorpMenu('ceres'));
@@ -616,13 +596,13 @@ try {
     JSON.stringify(dom && { railDetached: dom.railDetached, railOrder: dom.railOrder, tree: dom.tree, branchParts: dom.branchParts, expanded: dom.expanded }));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && /^Lv\.\d+$/.test(dom.repLv ?? '') && !dom.motto,
     '4 corp tabs, ceres selected, 게이지가 그 기업의 Lv 를 읽는다 (no motto banner)', JSON.stringify(dom && { tabs: dom.tabs, repLv: dom.repLv }));
-  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants', 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres', JSON.stringify(dom && dom.subs));
-  // 2026-09-08 UI/UX: 신뢰도 Lv.0 → 거래 탭은 잠기고, 화면은 잠기지 않는 퀘스트 탭으로 열린다.
+  // 2026-09-14: 퀘스트 탭 삭제 (기업 퀘스트 폐지) — 거래 / 계약 / 임플란트
+  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,implants', 'sub-tabs 거래 / 계약 / 임플란트 at ceres (퀘스트 탭 없음)', JSON.stringify(dom && dom.subs));
+  // 2026-09-08 UI/UX: 신뢰도 Lv.0 → 거래 탭은 잠기고, 화면은 잠기지 않은 첫 탭(2026-09-14: 계약)으로 열린다.
   // 계약은 세레스에 minRepLevel 0 짜리가 있으므로 잠기지 않는다 (요구사항: Lv.0 에서도 계약은 가능).
   const subTrade = dom && dom.subs.find((s) => s.page === 'trade');
   const subContracts = dom && dom.subs.find((s) => s.page === 'contracts');
-  const subQuests = dom && dom.subs.find((s) => s.page === 'quests');
-  ok(subQuests && subQuests.on && !subQuests.locked, '신뢰도가 모자라면 퀘스트 탭으로 열린다', JSON.stringify(subQuests));
+  ok(subContracts && subContracts.on && !subContracts.locked, '신뢰도가 모자라면 계약 탭으로 열린다', JSON.stringify(subContracts));
   // 2026-09-08: `disabled` 였을 때는 클릭 이벤트가 아예 안 나서 왜 잠겼는지 볼 방법이 툴팁뿐이었다.
   ok(subTrade && subTrade.locked && !subTrade.disabled && /신뢰도 Lv\.1 부터 거래 가능/.test(subTrade.why), '거래 탭이 잠긴다 (흐려지되 클릭은 받는다)', JSON.stringify(subTrade));
   const lockToast = await P(() => {
@@ -640,7 +620,7 @@ try {
     const on = document.querySelector('.corp-subtabs .scr-tab.is-on');
     return { on: on?.dataset.page, msg: document.querySelector('.corp-view .form-msg')?.textContent ?? '' };
   });
-  ok(clickLocked.on === 'quests', '잠긴 거래 탭을 눌러도 퀘스트 탭에 머문다', JSON.stringify(clickLocked));
+  ok(clickLocked.on === 'contracts', '잠긴 거래 탭을 눌러도 계약 탭에 머문다', JSON.stringify(clickLocked));
   // 신뢰도를 Lv.1 로 올리면 거래 탭이 풀린다
   const unlocked = await P(() => {
     window.__game.ctx.meta.addRep('ceres', 100, 'smoke');
@@ -688,27 +668,7 @@ try {
   // the branch follows the selected corp — still exactly one, now under 헬릭스
   const treeHelix = await P(() => [...document.querySelectorAll('.corp-rail .corp-tabs > *')].map((e) => e.classList.contains('corp-branch') ? 'branch' : e.dataset.corp));
   ok(treeHelix[treeHelix.indexOf('helix') + 1] === 'branch' && treeHelix.filter((t) => t === 'branch').length === 1, '헬릭스를 누르면 가지가 헬릭스 아래로 옮겨 간다', JSON.stringify(treeHelix));
-  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]').click());
-  const questsDom = await P(() => ({
-    rows: [...document.querySelectorAll('.cq-list .corp-row.quest')].map((r) => ({ id: r.dataset.id, badge: r.querySelector('.badge')?.textContent })),
-    // the middle column shows the selected quest's delivery table; the right column is the embedded grids
-    deliver: document.querySelectorAll('.cq-deliver .cq-line').length,
-    grids: document.querySelectorAll('.cq-col.inv .trade-grids .tg-block').length,
-    // 2026-09-12: 보상은 목록 열 아래가 아니라 **납품 패널 바로 아래** 같은 열에 붙는다
-    rewardsInDetail: !!document.querySelector('.cq-col.detail .cq-rewards'),
-    doneToggle: document.querySelector('.cq-head .cv-check input[type="checkbox"]')?.checked ?? null,
-  }));
-  /* 2026-09-12 (사용자 결정): 완료 퀘스트는 초록이 아니라 **딤드**이고 목록 **맨 아래**로 내려간다.
-     완료가 아닌 것들끼리는 csv 순서 그대로다 (안정 분할) — 그래서 h2 가능 · h3/h4 잠김 · h1 완료 순이다.
-     「완료된 항목 보기」 체크박스는 기본 켜짐이라 줄이 다 보인다.
-     2026-09-13 (암호화폐 채굴): 헬릭스 채굴 인가 퀘스트 `hx_crypto`(h2 선행 · 잠김)가 더해져 다섯 줄이다 — 완료 h1 은 여전히 맨 아래. */
-  const lastRow = questsDom.rows[questsDom.rows.length - 1];
-  ok(questsDom.rows.length === 5 && questsDom.rows[0].id === 'h2' && questsDom.rows[0].badge === '가능'
-    && questsDom.rows.some((r) => r.id === 'hx_crypto' && r.badge === '잠김')
-    && lastRow?.id === 'h1' && lastRow?.badge === '완료' && questsDom.doneToggle === true,
-    'helix 퀘스트 tab: 완료한 h1 이 맨 아래, h2 가능이 맨 위, 완료 보기 기본 켜짐', JSON.stringify(questsDom.rows));
-  ok(questsDom.rewardsInDetail, '보상은 납품 패널 아래 같은 열에 붙는다 (목록 열이 아니다)');
-  ok(questsDom.deliver >= 1 && questsDom.grids >= 1,`퀘스트 tab: 납품 table in the middle, 가방 + 함선 창고 grids on the right (${questsDom.deliver} lines, ${questsDom.grids} grids)`);
+  ok(await P(() => !document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]') && !document.querySelector('.cq, .cq-list')), '헬릭스에도 퀘스트 탭 · 퀘스트 페이지가 없다 (2026-09-14)');
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click());
   // helix is Lv.2 by now (310 rep): the shelf grew past the Lv.1 list, so compare with the live shop
   await sleep(80);   // the tile grids size themselves off the laid-out boxes (ResizeObserver)
@@ -900,7 +860,8 @@ try {
   await P(() => window.__game.ctx.meta.openCorpMenu('ceres'));
   await sleep(50);
   const tabsCeres = await P(() => [...document.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, hidden: b.hidden })));
-  ok(tabsCeres.length === 4 && tabsCeres.find((t) => t.page === 'implants')?.hidden === false, '임플란트 tab visible at ceres', JSON.stringify(tabsCeres));
+  // 2026-09-14: 퀘스트 탭 삭제 → 거래 / 계약 / 임플란트 셋
+  ok(tabsCeres.length === 3 && tabsCeres.find((t) => t.page === 'implants')?.hidden === false, '임플란트 tab visible at ceres', JSON.stringify(tabsCeres));
   await P(() => document.querySelector('.corp-tab[data-corp="helix"]').click());
   const tabsHelix = await P(() => ({ hidden: document.querySelector('.corp-subtabs .scr-tab[data-page="implants"]')?.hidden, page: document.querySelector('.corp-page')?.dataset.page }));
   ok(tabsHelix.hidden === true && tabsHelix.page === 'trade', '임플란트 tab hidden at helix (page stays 거래)', JSON.stringify(tabsHelix));
@@ -980,36 +941,20 @@ try {
   ok(await P(() => { const c = window.__game.ctx; const w = c.inventory.getStashItems().find((i) => i.defId === 'imp_strength_1'); return w ? window.__game.getSystem('meta').getImplantRepair(w.uid) : 'none'; }) === null, 'a working implant is not a repair candidate (getImplantRepair → null)');
   await P((uid) => window.__game.ctx.inventory.takeItem(uid), seeded2.uid);   // leave the stash tidy for the quest checks
 
-  console.log('implants (Phase 12): ceres quest chain');
-  const chain = await P(() => window.__game.ctx.meta.getQuests('ceres').filter((q) => /^ci\d$/.test(q.def.id)).map((q) => ({ id: q.def.id, state: q.state, rep: q.def.requires.repLevel ?? 0, after: q.def.requires.quests ?? [], items: (q.def.rewards.items ?? []).map((i) => i.defId), deliver: q.def.deliver.map((d) => d.defId) })));
-  ok(chain.length === 3 && chain[0].id === 'ci1' && chain[0].state === 'available' && chain[0].rep === 1 && chain[0].items[0] === 'imp_perception_3',
-    'ci1 available at ceres Lv.2 (needs Lv.1), rewards imp_perception_3', JSON.stringify(chain[0]));
-  ok(chain[1].state === 'locked' && chain[1].after[0] === 'ci1' && chain[1].deliver.includes('imp_broken_intelligence_1') && chain[1].items[0] === 'imp_intelligence_3',
-    'ci2 locked behind ci1, delivers a broken implant + materials, rewards imp_intelligence_3', JSON.stringify(chain[1]));
-  ok(chain[2].state === 'locked' && chain[2].rep === 3 && chain[2].after[0] === 'ci2' && chain[2].items[0] === 'imp_perk_quick_heal', 'ci3 locked (ci2 + Lv.3), rewards imp_perk_quick_heal', JSON.stringify(chain[2]));
-  ok(await P((ids) => ids.every((id) => !!window.__game.ctx.loot.getItemDef(id)), chain.flatMap((q) => [...q.items, ...q.deliver])), 'every ci delivery / reward id resolves to an item def');
-  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]').click());
-  await P(() => document.querySelector('.cq-list .corp-row.quest[data-id="ci1"]').click());
-  const questDom = await P(() => ({
-    badge: document.querySelector('.cq-list .corp-row.quest[data-id="ci1"] .badge')?.textContent, sel: document.querySelector('.cq-list .corp-row.quest[data-id="ci1"]')?.classList.contains('is-sel'),
-    name: document.querySelector('.cq-deliver .cq-name')?.textContent, lines: document.querySelectorAll('.cq-deliver .cq-line').length,
-    // 2026-09-09: 보상은 상세 패널이 아니라 퀘스트 목록 아래(.cq-rewards)에 재화 칩 + 아이템 칩 한 줄로 선다
-    reward: !!document.querySelector('.cq-rewards .item-chip[data-def-id="imp_perception_3"]'),
-    repChip: !!document.querySelector('.cq-rewards .currency-chip[data-currency-id="rep:ceres"]'),
-    accept: document.querySelector('.cq-acts .ui-btn')?.textContent,
+  /* 2026-09-14: 옛 ci1 → ci3 임플란트 퀘스트 사슬은 기업 퀘스트와 함께 없어졌다. 재화 칩 잘림 검사는 계약 탭의 보상 칩으로 옮겼다. */
+  console.log('currency reward chip (contracts tab)');
+  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
+  await sleep(60);
+  const chipClip = await P(() => {
     // 2026-09-12: 재화 칩의 우측 하단 수치가 도형에 잘리지 않는다 — 깎은 모서리는 썸네일이 아니라 뒤판(::before)에 있다
-    clip: (() => {
-      const th = document.querySelector('.cq-rewards .currency-chip .currency-thumb');
-      const cnt = th?.querySelector('.item-chip-count');
-      if (!th || !cnt) return null;
-      const a = th.getBoundingClientRect(), b = cnt.getBoundingClientRect();
-      return { thumb: getComputedStyle(th).clipPath, plate: getComputedStyle(th, '::before').clipPath !== 'none', overhang: b.right > a.right || b.bottom > a.bottom };
-    })(),
-  }));
-  ok(questDom.clip && questDom.clip.thumb === 'none' && questDom.clip.plate && questDom.clip.overhang,
-    '퀘스트 보상 재화 칩: 썸네일에 clip-path 없음(뒤판에만) → 모서리 밖 수치 배지가 잘리지 않는다', JSON.stringify(questDom.clip));
-  ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.repChip && questDom.accept === '수락',
-    '퀘스트 tab: ci1 가능 · 3 delivery lines · 목록 아래 보상(재화 rep:ceres + imp_perception_3) · 수락', JSON.stringify(questDom));
+    const th = document.querySelector('.cc-list .reward .currency-chip .currency-thumb');
+    const cnt = th?.querySelector('.item-chip-count');
+    if (!th || !cnt) return null;
+    const a = th.getBoundingClientRect(), b = cnt.getBoundingClientRect();
+    return { thumb: getComputedStyle(th).clipPath, plate: getComputedStyle(th, '::before').clipPath !== 'none', overhang: b.right > a.right || b.bottom > a.bottom };
+  });
+  ok(chipClip && chipClip.thumb === 'none' && chipClip.plate && chipClip.overhang,
+    '계약 보상 재화 칩: 썸네일에 clip-path 없음(뒤판에만) → 모서리 밖 수치 배지가 잘리지 않는다', JSON.stringify(chipClip));
   // The 기업 desk is a tab of the inventory window, so **Tab** closes it (2026-09-09: Esc closes it as well —
   // the top open screen — and the 일시정지 메뉴 is what an Esc with nothing open opens).
   await tap('Tab');
@@ -1028,10 +973,13 @@ try {
   await boot();
   const san = await P(() => {
     const m = window.__game.ctx.meta;
-    return { credits: m.credits, helix: m.getRep('helix').rep, ceres: m.getRep('ceres').rep, h1: m.getQuestState('h1'), b1: m.getQuestState('b1'), c1: m.getQuestState('c1'), ac: m.activeContract };
+    const d = window.__game.getSystem('meta').store.data;
+    return { credits: m.credits, helix: m.getRep('helix').rep, ceres: m.getRep('ceres').rep, h1: m.getQuestState('h1'), c1: m.getQuestState('c1'), ac: m.activeContract,
+      oldQuests: Object.keys(d.corps.helix.quests).length + Object.keys(d.corps.ceres.quests).length, v: d.v, npc: !!d.npc };
   });
-  ok(san.credits === 0 && san.helix === 0 && san.ceres === 250 && san.h1 === 'available' && san.b1 === 'available' && san.c1 === 'accepted' && san.ac === null,
-    'corrupt fields clamped / dropped (credits 0, rep 0 / 250, bogus quest states dropped, unknown contract cleared)', JSON.stringify(san));
+  // 2026-09-14: 옛 기업 퀘스트 상태는 전부 버린다 (NPC 퀘스트 `npc` 는 빈 채로 채워진다)
+  ok(san.credits === 0 && san.helix === 0 && san.ceres === 250 && san.h1 === 'locked' && san.c1 === 'locked' && san.oldQuests === 0 && san.npc && san.ac === null,
+    'corrupt fields clamped / dropped (credits 0, rep 0 / 250, old corp quest states dropped, npc save present, unknown contract cleared)', JSON.stringify(san));
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   ok(gameErrors.length === 0, 'no console errors', gameErrors.slice(0, 3).join(' | '));

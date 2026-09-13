@@ -81,9 +81,7 @@ try {
   await page.evaluate(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]')?.click());
   await sleep(300);
   await shot('06-corp-contracts');
-  await page.evaluate(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]')?.click());
-  await sleep(300);
-  await shot('07-corp-quests');
+  // 2026-09-14: 기업 퀘스트 탭 삭제 (퀘스트는 메신저) — 07 번은 비워 둔다
 
   /* 3. 제작 열 (함선) */
   await tab('인벤토리');

@@ -92,6 +92,16 @@ try {
         { code: 'NPQR5678', name: '최근다섯', level: 7, presence: 'ship', squad: 0, joinable: true, at: 5 },
       ],
     });
+    /* 2026-09-14 (메신저): the thumbnail badge also counts NPC / 단체방 unread — park both behind empty refs so only the
+       social mirror under test moves it (the messenger itself is scripts/smoke-messenger.mjs). */
+    window.__game.getSystem('hud').debugNpc({
+      getContacts: () => [], getMessages: () => [], markRead() {}, unreadTotal: 0, getQuests: () => [], getQuest: () => null,
+      accept: () => false, defer: () => false, deliver: () => 0, report: () => false, getRaidTracks: () => [],
+    });
+    window.__game.getSystem('hud').debugRooms({
+      available: false, rooms: [], invites: [], find() { return undefined; }, history: () => [], requestHistory() {}, hasMore: () => false,
+      create: () => false, invite() {}, respond() {}, leave() {}, kick() {}, rename() {}, say: () => false, unread: () => 0, markRead() {}, unreadTotal: 0,
+    });
     window.__setSocial = (snap, invites = [], mySquad = 1) => window.__game.getSystem('hud').debugSocial(snap, invites, mySquad);
     window.__log = () => window.__game.getSystem('hud').debugSocialLog.map((c) => `${c.m}:${c.args.join(',')}`);
     window.__ctxMenu = (sel, i = 0) => {
@@ -206,6 +216,9 @@ try {
   await waitSim(0.3);
   await click('.cm-btn');
   await waitSim(0.15);
+  // 2026-09-14 (메신저): the social column is the messenger's 친구 tab now — the tab is remembered across open / close.
+  await P(() => window.__game.getSystem('hud').messenger.setTab('friends'));
+  await waitSim(0.1);
   let off = await P(() => ({
     off: document.querySelector('.community-panel .sc-off').hidden,
     body: document.querySelector('.community-panel .sc-body').hidden,
@@ -287,9 +300,9 @@ try {
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   let menu = await P(() => window.__menu());
   ok(menu.open, 'right-click opens the profile context menu');
-  // 2026-09-11 (B-4): 대화 기록 and 차단 joined the menu.
-  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|history|remove|block',
-    'a friend gets 같이 하기 / 귓속말하기 / 대화 기록 / 친구 삭제 / 차단', JSON.stringify(menu.items.map((i) => i.label)));
+  // 2026-09-11 (B-4): 차단 joined the menu. 2026-09-14: 귓속말하기 → 개인 대화, 대화 기록 left (the messenger conversation replaces it).
+  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|remove|block' && menu.items[1].label === '개인 대화',
+    'a friend gets 같이 하기 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu.items.map((i) => i.label)));
   ok(!menu.items[0].off && menu.items[0].why === '', '같이 하기 enabled for a friend in the ship with no squad', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 1));
   menu = await P(() => window.__menu());
@@ -302,8 +315,8 @@ try {
   ok(menu.items[0].off && menu.items[0].why === '상대 분대가 가득 참', '같이 하기 disabled with 상대 분대가 가득 참', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.recent .sc-card', 0));
   menu = await P(() => window.__menu());
-  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|history|add|block', 'a non-friend gets 친구 추가 instead of 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
-  ok(menu.items[3].label === '친구 추가', 'the fourth entry reads 친구 추가', menu.items[3].label);
+  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|add|block', 'a non-friend gets 친구 추가 instead of 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
+  ok(menu.items[2].label === '친구 추가', 'the third entry reads 친구 추가', menu.items[2].label);
 
   // 친구 추가 → requestFriend
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="add"]');
@@ -485,8 +498,8 @@ try {
   ok(!cm.dot, 'a pending friend request raises the red dot');
   ok(cm.cheatTop === '108px', 'the MOVE CHEAT tag moves below the thumbnail in the ship', cm.cheatTop);
   await P(() => { const s = window.__snap(); s.incoming = []; window.__setSocial(s); });
-  await waitSim(0.2);
-  ok(await P(() => document.querySelector('.cm-dot').hidden), 'no pending request → no red dot');
+  await waitSim(0.4);   // the badge re-counts at 4 Hz
+  ok(await P(() => document.querySelector('.cm-dot').hidden), 'no pending request → no badge (2026-09-14: the red dot is the messenger unread badge)');
 
   console.log('커뮤니티 panel');
   await click('.cm-btn');
@@ -606,7 +619,7 @@ try {
   ok(w.target === 'CDEF2345', 'the input is aimed at that 아이디', String(w.target));
   ok(!w.chipHidden && w.chip === '→ 친구하나', 'a → 이름 chip marks the whisper target', `${w.chipHidden} ${w.chip}`);
   ok(w.col, 'the bottom-left column moves to mid-left (.hud-bl.whispering)');
-  ok(w.ph.includes('귓속말'), 'the placeholder says 귓속말', w.ph);
+  ok(w.ph.includes('개인 대화'), 'the placeholder says 개인 대화 (2026-09-14 공식 명칭)', w.ph);
   await P(() => { document.querySelector('.chat-input').value = '거기 있나'; window.__key('Enter', 'keydown'); });
   await waitSim(0.2);
   let sent = await P(() => ({ log: window.__log(), open: window.__game.getSystem('hud').isChatOpen, target: window.__game.getSystem('hud').chatWhisperTarget }));
@@ -622,8 +635,8 @@ try {
     who: l.querySelector('.who').textContent, txt: l.querySelector('.txt').textContent, me: l.classList.contains('me'),
   })));
   ok(drawn.length === 2, 'both directions draw a .chat-line.whisper', String(drawn.length));
-  ok(drawn[0].who === '귓속말 → 친구하나:' && drawn[0].me, 'an outgoing whisper is prefixed 귓속말 →', JSON.stringify(drawn[0]));
-  ok(drawn[1].who === '귓속말 친구하나:' && !drawn[1].me, 'an incoming whisper is prefixed 귓속말', JSON.stringify(drawn[1]));
+  ok(drawn[0].who === '개인 대화 → 친구하나:' && drawn[0].me, 'an outgoing whisper is prefixed 개인 대화 →', JSON.stringify(drawn[0]));
+  ok(drawn[1].who === '개인 대화 친구하나:' && !drawn[1].me, 'an incoming whisper is prefixed 개인 대화', JSON.stringify(drawn[1]));
   await P(() => { window.__key('Enter', 'keydown'); });
   await waitSim(0.1);
   await click('.chat-target .x');
@@ -646,7 +659,7 @@ try {
     const l = [...document.querySelectorAll('.chat-line.system .txt')].map((e) => e.textContent);
     return { last: l.at(-1), whispers: document.querySelectorAll('.chat-line.whisper').length };
   });
-  ok(String(failed.last).startsWith('귓속말 전송 실패'), 'an unavailable mirror leaves a failure line', JSON.stringify(failed));
+  ok(String(failed.last).startsWith('개인 대화 전송 실패'), 'an unavailable mirror leaves a failure line', JSON.stringify(failed));
   ok(failed.whispers === 2, 'and no new whisper line', String(failed.whispers));
   await emit('game:paused', { paused: true, freeze: false });
   await waitSim(0.1);
@@ -814,7 +827,7 @@ try {
   ok(bl.open && bl.title === '차단 목록' && same(bl.cards, ['GHJK6789']) && bl.esc, '차단 목록 page lists the blocked 아이디 (on the Escape stack)', JSON.stringify(bl));
   await P(() => window.__ctxMenu('.community-panel .sc-page .sc-card', 0));
   menu = await P(() => window.__menu());
-  ok(menu.items.map((i) => i.act).join('|') === 'history|unblock', 'a blocked row\'s menu: 대화 기록 / 차단 해제 only', JSON.stringify(menu.items));
+  ok(menu.items.map((i) => i.act).join('|') === 'unblock', 'a blocked row\'s menu: 차단 해제 only (2026-09-14: 대화 기록 left)', JSON.stringify(menu.items));
   await P(() => window.__tap('Escape'));
   await click('.community-panel .sc-page .sc-unblock');
   ok(same(await lastSent(), { t: 'social:block', code: 'GHJK6789', blocked: false }), '차단 해제 → social:block {blocked:false}', JSON.stringify(await lastSent()));
@@ -831,7 +844,7 @@ try {
     return { drew, sent: window.__sent.length, errs: window.__ev['social:error'].slice(-3).map((e) => e.message) };
   });
   ok(bl.sent === nB && bl.errs.length === 3 && bl.errs.every((m) => m.startsWith('차단한 상대입니다')),
-    '같이 하기 / 친구 추가 / 귓속말 to a blocked player send nothing and say 차단한 상대입니다', JSON.stringify({ nB, bl }));
+    '같이 하기 / 친구 추가 / 개인 대화 to a blocked player send nothing and say 차단한 상대입니다', JSON.stringify({ nB, bl }));
 
   console.log('차단한 분대원의 분대 채팅');
   const chatHide = await P(() => {
@@ -1024,7 +1037,7 @@ try {
   await P(() => window.__ss.onWhisperBacklog({ lines: [{ code: 'QRST6789', name: '친구넷', text: '없는 동안 보낸 말', at: Date.now() - 60000 }] }));
   await waitSim(0.1);
   wl = await lastWhisper();
-  ok(wl.who === '귓속말 친구넷:' && / backlog/.test(wl.cls) && wl.wst === '접속 전에 받음', 'a backlog line is drawn and tagged 접속 전에 받음', JSON.stringify(wl));
+  ok(wl.who === '개인 대화 친구넷:' && / backlog/.test(wl.cls) && wl.wst === '접속 전에 받음', 'a backlog line is drawn and tagged 접속 전에 받음', JSON.stringify(wl));
   hist = await P(() => ({ last: window.__ss.lastWhisperPeer, line: window.__ss.whisperHistory('QRST6789').at(-1) }));
   ok(hist.last === 'QRST6789' && hist.line?.backlog === true && hist.line?.out === false, 'and recorded (backlog:true) — its sender is the /r target now', JSON.stringify(hist));
   await click('.chat-target .x');
@@ -1038,46 +1051,46 @@ try {
   ok(await hud('chatWhisperTarget') === 'QRST6789', '/r alone aims the input at the last partner', String(await hud('chatWhisperTarget')));
   for (let i = 0; i < 3 && await hud('isChatOpen'); i++) { await P(() => window.__tap('Escape')); await waitSim(0.05); }
 
-  console.log('대화 기록 화면');
+  /* 2026-09-14 (메신저): the old 대화 기록 page is the messenger's 대화 tab now — the same `whisperHistory`, drawn as bubbles. */
+  console.log('메신저 개인 대화 (옛 대화 기록 화면)');
   await click('.cm-btn');
   await waitSim(0.2);
-  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));   // CDEF2345
-  await click('.sc-menu:not([hidden]) .sc-mi[data-act="history"]');
+  await P(() => window.__game.getSystem('hud').messenger.setTab('friends'));
   await waitSim(0.1);
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));   // CDEF2345
+  await click('.sc-menu:not([hidden]) .sc-mi[data-act="whisper"]');
+  await waitSim(0.2);
   const pageState = () => P(() => {
-    const pg = document.querySelector('.community-panel .sc-page');
+    const hudSys = window.__game.getSystem('hud');
+    const th = document.querySelector('.community-panel .ms-thread');
     return {
-      open: !pg.hidden, title: pg.querySelector('.sc-page-title').textContent, sub: pg.querySelector('.sc-page-sub').textContent,
-      lines: [...pg.querySelectorAll('.sc-logline')].map((l) => ({ cls: l.className, txt: l.querySelector('.txt').textContent, st: l.querySelector('.st')?.textContent ?? '' })),
-      focus: document.activeElement === pg.querySelector('.sc-log-input'),
-      panel: window.__game.getSystem('hud').isCommunityOpen,
+      tab: hudSys.messenger.tab, sel: hudSys.messenger.chat.selectedKey,
+      sub: th.querySelector('.ms-thead-sub')?.textContent ?? '',
+      lines: [...th.querySelectorAll('.ms-tbody .ms-msg:not(.sys)')].map((l) => ({
+        cls: l.className, txt: l.querySelector('.ms-bubble')?.textContent ?? '', st: l.querySelector('.ms-state')?.textContent ?? '',
+      })),
+      panel: hudSys.isCommunityOpen,
     };
   });
   let hp = await pageState();
-  ok(hp.open && hp.title === '대화 기록' && hp.sub.includes('CDEF-2345') && hp.focus, '대화 기록 opens over the column with its field focused', JSON.stringify(hp));
+  ok(hp.panel && hp.tab === 'chat' && hp.sel === 'pc:CDEF2345' && hp.sub.includes('CDEF-2345'),
+    '친구 탭의 「개인 대화」 → 메신저 대화 탭의 그 사람 (패널은 열린 채)', JSON.stringify(hp));
   ok(hp.lines.length === 3 && /failed/.test(hp.lines[0].cls) && hp.lines[0].st === '전송 실패 — 오프라인' && hp.lines[1].st === '',
-    'the page lists the saved lines with their states', JSON.stringify(hp.lines));
-  await P(() => { const i = document.querySelector('.community-panel .sc-log-input'); i.value = '기록에서 보냄'; i.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true })); });
+    'the conversation lists the saved lines with their states (chat-window lines land in the same history)', JSON.stringify(hp.lines));
+  await P(() => { const i = document.querySelector('.community-panel .ms-input'); i.value = '기록에서 보냄'; i.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true })); });
   await waitSim(0.1);
   sentW = await lastSent();
   hp = await pageState();
-  ok(sentW?.code === 'CDEF2345' && sentW.text === '기록에서 보냄', 'Enter in the page field whispers that partner', JSON.stringify(sentW));
-  ok(hp.lines.length === 4 && /pending/.test(hp.lines[3].cls), 'the new line appears on the page, pending', JSON.stringify(hp.lines.at(-1)));
+  ok(sentW?.code === 'CDEF2345' && sentW.text === '기록에서 보냄', 'Enter in the messenger field sends 개인 대화 to that partner', JSON.stringify(sentW));
+  ok(hp.lines.length === 4 && /pending/.test(hp.lines[3].cls), 'the new line appears in the conversation, pending', JSON.stringify(hp.lines.at(-1)));
   await P((n) => window.__ss.onWhisperAck({ nonce: n, ok: true }), sentW.nonce);
   await waitSim(0.1);
   hp = await pageState();
   ok(!/pending/.test(hp.lines[3].cls), 'and settles there on its ack', JSON.stringify(hp.lines.at(-1)));
-  await P(() => document.querySelector('.community-panel .sc-log-input').dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })));
-  await waitSim(0.1);
-  hp = await pageState();
-  ok(!hp.open && hp.panel && !(await P(() => window.__game.ctx.escape.has('community:page'))), 'Escape in the field closes the page, the panel stays', JSON.stringify(hp));
-  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
-  await click('.sc-menu:not([hidden]) .sc-mi[data-act="history"]');
-  await waitSim(0.1);
-  await P(() => document.querySelector('.community-panel .sc-log-input').dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true })));
+  await P(() => document.querySelector('.community-panel .ms-input').dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true })));
   await waitSim(0.15);
   hp = await pageState();
-  ok(!hp.open && !hp.panel && !(await P(() => window.__game.ctx.uiBlockers.has('community'))), 'Tab in the field closes the whole panel (Tab = 공용 닫기)', JSON.stringify(hp));
+  ok(!hp.panel && !(await P(() => window.__game.ctx.uiBlockers.has('community'))), 'Tab in the field closes the whole panel (Tab = 공용 닫기)', JSON.stringify(hp));
 
   console.log('옛 서버: ack 가 없으면 잠시 뒤 sent');
   const grace = await P(async () => {

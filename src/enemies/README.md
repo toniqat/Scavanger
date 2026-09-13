@@ -1387,3 +1387,12 @@ attack phase 4  0.25 s 회복 → chase
 - **Phase 11** — `world:ready` 에서 `PlanetEcosystem` 을 스포너 / 웨이브 / 로그 가드에 주입 — 기존 위협 게이트(`AMBIENT_GATE` / `WAVE_GATE`)는 그대로 두고 각 슬롯의 실루엣만 `eco.bugs` 가중 추첨으로 뽑으며, 앰비언트 상한 `× eco.pressure`, `maxArtillery` / `maxBehemoth`, 가드 밀도 `× eco.rogues` (`eco.boss:false` 면 보스는 시드 확률). 호스트 권한 · `es` / `ee` 는 불변
 
 - **Phase 12 (2026-09-08)** — `resolveBarrier` 를 지상 적마다 호출(`ctx.implants.resolveBarrierCollision` → 밀려남 + 6초 캐리어 재타겟 + `implant:barrierBumped` ≤ 2 Hz), 근접 피해는 `absorbFrontalAttack` 을 거쳐(피어 소유면 `dmg` 대신 `ee barrierHit`, 수신 측은 `damageBarrier('local', …)`), `reportShot` / `shotq` → `ai/Investigate.ts`(주시 `ENEMY_SHOT_ALERT_WATCH_S` → 전진: 로그는 `pickApproachCover` 엄폐 이동 · 버그는 직진 → `ENEMY_SHOT_ALERT_GIVE_UP_S` 포기, 인지하면 즉시 정상 교전 — 와이어 무변경), `Perception.shotConeFactor`(원점 방향 ±45° 콘 ×`ENEMY_SHOT_ALERT_CONE_MUL`, 은폐 · 연막 계수 유지), `setXray` = `fx/Xray.ts` 빨간 관통 실루엣(GreaterDepth · 공유 머티리얼 · 풀), 실드 배쉬용 내부 `pushBack`(인터페이스 밖)
+
+## 막타 계열 — NPC 퀘스트 kill 목표 (2026-09-14)
+
+`enemy:killed` 에 **`weaponClass`** 가 붙는다 (`by === 'local'` 일 때만): 이 클라이언트의 마지막 피해가 총기 한 발이면 그 계열, 아니면 null.
+- `Enemy.lastLocalWeaponClass` — `takeDamage(attacker 'local')` 가 `shared/damageSource.localGunHitClass()` 를 적는다(리플리카는 `requestHit` 로 넘기기 **전에**), `applyDot(…, 'local')` 은 null, `reset` 은 null.
+- weapons 의 `WeaponSystem.applyHit` 가 총알 한 발의 피해 구간을 `withLocalGunHit(손에 든 총의 계열)` 로 감싼다. 수류탄 · 가젯 · 근접 · 방패 배쉬는 그 구간 밖이라 null.
+- 호스트 = 막타 그 순간의 값(`parts/Damage.onEnemyKilled`). 리플리카 = 호스트의 `ee kill {killer: 나}` 를 받을 때 **내가 그 적에게 보낸 마지막 요청**의 값(`net/Replica`) — 호스트의 화상 지속 피해가 끝낸 경우는 알 수 없어 마지막 요청의 계열이 남는다(알려진 한계).
+
+- **2026-09-14 (에이전트 B)** — `enemy:killed.weaponClass` (`Enemy.lastLocalWeaponClass` · `Damage.onEnemyKilled` · `Replica kill`).

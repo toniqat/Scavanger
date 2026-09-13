@@ -11,6 +11,8 @@ import {
   drawPlayerArrow, drawPlayerCone, drawRover, drawShip, drawSquadArrow, drawSquadDead, drawStation, drawTram, strokeRail, strokeRoute,
 } from './mapIcons';
 import '../styles/rover.css';
+/* 2026-09-14 (메신저 · NPC 퀘스트): 좌측 열의 퀘스트 패널 목록 + 호버 툴팁 */
+import { MapQuestPanels } from './QuestPanels';
 
 const BLOCKER = 'map';
 const SAMPLES = 256;          // height samples per axis for the static layer
@@ -149,6 +151,9 @@ export class MapScreen {
   private readonly labels = new MapLabels();
   private legendEl: HTMLElement;
   private legendRows: LegendRow[] = [];
+  /* 2026-09-14: 좌측 열 = 머리 → 퀘스트 패널(`quests`) → 범례(좌측 하단) → 발밑 줄. 열 높이는 `fit` 이 캔버스 높이로 못 박는다. */
+  private readonly sideEl: HTMLElement;
+  private readonly quests: MapQuestPanels;
 
   /* 2026-09-13: 탐사 차량 목적지 선택 모드 */
   private roverMode = false;
@@ -238,6 +243,11 @@ export class MapScreen {
     const head = el('div', { cls: 'map-head', parent: side });
     el('div', { cls: 'map-title', text: '전술 지도', parent: head });
     this.seedEl = el('div', { cls: 'map-seed ui-mono', text: 'SEED —', parent: head });
+    this.sideEl = side;
+
+    /* 2026-09-14 (사용자 결정): 범례 윗부분에 진행 중인 NPC 퀘스트 패널 목록 — 남는 높이를 차지하고 길면 스크롤한다.
+     * 범례는 그 아래, 좌측 하단에 붙는다 (`.map-legend { margin-top: auto }`). */
+    this.quests = new MapQuestPanels(side, this.root);
 
     /* 범례 (2026-09-13 개편, 사용자 결정): 라벨이 이름을 말하는 지형지물(구조물 · 폐허 전초 · 버섯 군락 · 벌레 둥지)과 핑 · 상자 ·
      * 지도에서 뺀 것(떨어진 아이템 · 설치물 · 지뢰)은 범례에 없다. 탈출 지점은 한 줄 (지도는 활성 지점의 호박색 펄스를 그대로 그린다).
@@ -319,6 +329,9 @@ export class MapScreen {
   get roverSelection(): string | null { return this.selectedStation; }
   /** 보이는 범례 줄 id 목록 (debug · smoke). */
   get legendIds(): string[] { return this.legendRows.filter((r) => !r.row.hidden).map((r) => r.id); }
+  /** 2026-09-14 (debug · smoke): 퀘스트 패널로 그려진 퀘스트 id · 툴팁이 떠 있는 퀘스트. */
+  get questIds(): string[] { return this.quests.questIds; }
+  get questTip(): string | null { return this.quests.tipQuest; }
   /** Smoke hook: 목적지 선택 모드에서 정류장을 코드로 고른다 (클릭과 같은 경로). 모드가 아니거나 모르는 id 면 false. */
   selectStation(id: string): boolean {
     if (!this.roverMode) return false;
@@ -394,7 +407,11 @@ export class MapScreen {
         this.pings.clear(); this.shipPos = null; this.activePadId = null; this.outposts.clear();
       }),
       b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
+      // 2026-09-14: 퀘스트 패널 — 목표 진행 · 상태가 바뀌면 곧바로 (나머지는 `quests.tick` 의 폴링)
+      b.on('npc:objectiveProgress', () => { if (this._open) this.quests.refresh(true); }),
+      b.on('npc:questChanged', () => { if (this._open) this.quests.refresh(true); }),
     );
+    this.quests.bind(ctx);
     window.addEventListener('resize', this.onResize);
   }
 
@@ -414,7 +431,10 @@ export class MapScreen {
       this.close();
     }
     if (this.roverMode) this.tickRoverMode(ctx);
-    if (this._open) this.draw(ctx);
+    if (this._open) {
+      this.quests.tick(ctx.time);
+      this.draw(ctx);
+    }
   }
 
   /**
@@ -449,6 +469,7 @@ export class MapScreen {
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     this.refreshLegend();
+    this.quests.refresh(true);
     this.emitGuide();
     ctx.bus.emit('ui:mapToggled', { open: true });
   }
@@ -463,6 +484,7 @@ export class MapScreen {
     const ctx = this.ctx;
     this._open = false;
     this.resetRoverMode();
+    this.quests.hide();
     this.dragging = false;
     this.canvas.classList.remove('grabbing');
     this.root.hidden = true;
@@ -479,7 +501,10 @@ export class MapScreen {
 
   private fit(): void {
     const vw = window.innerWidth, vh = window.innerHeight;
-    const side = Math.max(240, Math.floor(Math.min(vh * 0.85, vw - 340)));
+    // 2026-09-14: 좌측 열 240 → 280 px (퀘스트 패널 + 2열 범례) — 가로 여유도 그만큼 (열 280 + 간격 22 + 안여백 44 + 테두리 · 여유)
+    const side = Math.max(240, Math.floor(Math.min(vh * 0.85, vw - 380)));
+    // 열 높이 = 캔버스 테두리 상자 높이. 못 박지 않으면 퀘스트 패널이 늘어난 만큼 프레임이 자라 화면 밖으로 나간다.
+    this.sideEl.style.height = `${side + 2}px`;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     if (side !== this.side || this.canvas.width !== Math.round(side * this.dpr)) {
       // keep the same map point centered when the canvas resizes
@@ -1253,6 +1278,9 @@ export class MapScreen {
     this.tripError = null;
     this.legendEl.hidden = true;
     this.roverPanel.hidden = false;
+    // 2026-09-14: 목적지 선택 패널이 열의 자리를 쓴다 — 퀘스트 목록도 숨기고 발밑 줄은 바닥에 (`.is-rover`)
+    this.quests.setSuppressed(true);
+    this.sideEl.classList.add('is-rover');
     this.emitGuide();
   }
 
@@ -1266,6 +1294,8 @@ export class MapScreen {
     this.tripError = null;
     this.legendEl.hidden = false;
     this.roverPanel.hidden = true;
+    this.quests.setSuppressed(false);
+    this.sideEl.classList.remove('is-rover');
     this.canvas.classList.remove('pick');
   }
 
@@ -1462,6 +1492,7 @@ export class MapScreen {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.stopHold();
+    this.quests.dispose();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);

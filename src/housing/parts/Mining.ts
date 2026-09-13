@@ -19,7 +19,7 @@ import type {
 } from '@/shared';
 import {
   COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, CORP_DEFS, CRYPTO_COIN_DEFS,
-  CRYPTO_COIN_MAP, CRYPTO_TRADE_MAX_UNITS, MINING_COMPUTER_DEF_ID, MINING_COMPUTER_REQUIRED_REASON_KO, QUEST_DEFS, coinCycleMs, cryptoCreditsFor,
+  CRYPTO_COIN_MAP, CRYPTO_TRADE_MAX_UNITS, MINING_COMPUTER_DEF_ID, MINING_COMPUTER_REQUIRED_REASON_KO, NPC_DEF_MAP, NPC_QUEST_MAP, coinCycleMs, cryptoCreditsFor,
   formatCoinUnits, formatCreditReason, miningProgressAt,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
@@ -83,8 +83,10 @@ export function coinLockReason(sys: HousingSystem, def: CryptoCoinDef): string |
   let state: string | undefined;
   try { state = sys.ctx.meta?.getQuestState(def.unlockQuest); } catch { state = undefined; }
   if (state === 'complete') return null;
-  const quest = QUEST_DEFS.find((q) => q.id === def.unlockQuest);
-  const corpId = def.corp ?? quest?.corp ?? null;
+  // 2026-09-14: 기업 퀘스트 폐지 — 해금 퀘스트는 기업 임원 NPC 의 퀘스트다 (`shared/npc.ts`)
+  const quest = NPC_QUEST_MAP.get(def.unlockQuest);
+  const npc = quest ? NPC_DEF_MAP.get(quest.npc) : undefined;
+  const corpId = def.corp ?? npc?.corp ?? null;
   const corpName = corpId ? CORP_DEFS[corpId]?.name ?? corpId : '기업';
   return `${corpName} 퀘스트 「${quest?.name ?? def.unlockQuest}」 완료 필요`;
 }

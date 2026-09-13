@@ -1,5 +1,6 @@
-import type { CorpId, MetaSave, ProfileRef, QuestState } from '@/shared';
-import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, QUEST_DEFS, slotKey } from '@/shared';
+import type { CorpId, MetaSave, ProfileRef } from '@/shared';
+import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, slotKey } from '@/shared';
+import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * MetaSave v1 in localStorage `META_STORAGE_KEY` (`scav.meta`), same pattern as `inventory/Stash.ts`:
@@ -10,7 +11,8 @@ import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY
  * available; `replace()` swaps the data for the server document without echoing it back.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const META_SAVE_VERSION = 1;
+/** 2: 2026-09-14 — 기업 퀘스트(`corps[].quests`) 폐지 · NPC 연락/대화/퀘스트(`npc`) 추가. 옛 문서는 `sanitizeMetaSave` 가 그대로 읽는다. */
+export const META_SAVE_VERSION = 2;
 const SAVE_DELAY_MS = 350;
 /** Guard against an absurd progress figure inflating the HUD (loads and live hits are clamped to it). */
 export const MAX_PROGRESS = 1_000_000_000;
@@ -40,6 +42,7 @@ export function freshMetaSave(): MetaSave {
     corps,
     activeContract: null,
     stats: { contractsDone: 0, questsDone: 0, creditsEarned: 0, creditsSpent: 0 },
+    npc: freshNpcSave(),
   };
 }
 
@@ -54,16 +57,11 @@ export function sanitizeMetaSave(raw: unknown): MetaSave {
   for (const id of CORP_IDS) {
     const c = corps[id];
     if (!c || typeof c !== 'object') continue;
-    const cc = c as { rep?: unknown; quests?: unknown };
+    const cc = c as { rep?: unknown };
     out.corps[id].rep = clampInt(cc.rep, 0, Number.MAX_SAFE_INTEGER, 0);
-    const q = (cc.quests && typeof cc.quests === 'object') ? cc.quests as Record<string, unknown> : {};
-    for (const qid in q) {
-      const def = QUEST_DEFS.find((d) => d.id === qid);
-      if (!def || def.corp !== id) continue;
-      const st = q[qid];
-      if (st === 'accepted' || st === 'complete') out.corps[id].quests[qid] = st as QuestState;
-    }
+    // 2026-09-14: 기업 퀘스트 폐지 — 옛 `quests` 상태는 버린다 (NPC 퀘스트는 `npc` 에 산다, 옛 완료 기록은 이어지지 않는다)
   }
+  out.npc = sanitizeNpcSave(r.npc);
 
   const ac = r.activeContract;
   if (ac && typeof ac === 'object') {

@@ -184,23 +184,11 @@ export interface QuestDef {
   rewards: { rep: number; xp: number; credits?: number; items?: readonly { defId: string; qty: number }[] };
 }
 
-export const QUEST_DEFS: readonly QuestDef[] = csvRows('quests.csv').map((r) => ({
-  id: r.str('id'),
-  corp: r.str('corp') as CorpId,
-  name: r.str('name'),
-  desc: r.str('desc'),
-  requires: {
-    ...(r.has('reqRepLevel') ? { repLevel: r.int('reqRepLevel', { min: 0 }) } : {}),
-    ...(r.has('reqQuests') ? { quests: r.list('reqQuests') } : {}),
-  },
-  deliver: r.costList('deliver'),
-  rewards: {
-    rep: r.int('rewardRep', { min: 0 }),
-    xp: r.int('rewardXp', { min: 0 }),
-    ...(r.has('rewardCredits') ? { credits: r.int('rewardCredits', { min: 0 }) } : {}),
-    ...(r.has('rewardItems') ? { items: r.costList('rewardItems') } : {}),
-  },
-}));
+/*
+ * 2026-09-14: 기업 퀘스트 폐지 (docs/plans/messenger-quests.md, 사용자 결정 「전부 삭제」) — 퀘스트는 NPC 가 메신저로 준다
+ * (`shared/npc.ts` 의 `NPC_QUEST_DEFS`). `data/quests.csv` 는 지웠고, 타입 · 이름은 계약이라 남기고 표만 비운다.
+ */
+export const QUEST_DEFS: readonly QuestDef[] = [];
 
 /* ── runtime shapes ── */
 export interface RepInfo {
@@ -394,3 +382,20 @@ export interface MetaRef {
    */
   creditsTx?(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }>;
 }
+
+/* ══ appended: 2026-09-14 — 메신저 · NPC 퀘스트 (docs/plans/messenger-quests.md · 계약 본문은 `shared/npc.ts`) ══
+ * 기업 퀘스트는 없어졌다. `getQuests(corp)` 는 빈 목록, `acceptQuest` · `completeQuest` 는 false 이고,
+ * `getQuestState(id)` 는 **NPC 퀘스트**로 답한다 — complete → 'complete', active → 'accepted', offered/deferred → 'available', 그 밖 → 'locked'
+ * (housing 채굴 해금 게이트가 이 한 줄에 기댄다). */
+import type { NpcQuestRef, NpcSave } from './npc';
+
+export interface MetaRef {
+  /** NPC 연락 · 대화 · 퀘스트 (owner: meta/parts). 선택 속성 — `ctx.meta?.npc?`. */
+  readonly npc?: NpcQuestRef;
+}
+
+export interface MetaSave {
+  /** 2026-09-14: NPC 연락 · 대화 기록 · 퀘스트 상태. 없으면 빈 것 (옛 세이브). `corps[corp].quests` 는 더 이상 쓰지 않는다. */
+  npc?: NpcSave;
+}
+/* ══ end 2026-09-14 메신저 · NPC 퀘스트 ══ */

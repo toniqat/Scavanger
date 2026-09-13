@@ -14,8 +14,8 @@ export interface SocialColumnOptions {
   /** Draw the 분대원 section on top (it hides itself when there is no lobby). Both hosts pass true. */
   squad?: boolean;
   /**
-   * 귓속말하기 was chosen. The host is expected to close itself **first** and then emit `chat:whisperTo` — the chat
-   * input cannot take focus while a `'menu'` blocker is up.
+   * `개인 대화` was chosen (2026-09-14, was 귓속말하기). The messenger switches to its 대화 tab on that 아이디
+   * (`menus/messenger/Messenger.openTarget`) — the panel stays open.
    */
   onWhisper?(code: PlayerCode, name: string): void;
   /** 2026-09-11: Tab inside a page's text field (which swallows keys) — the host closes itself. */
@@ -51,8 +51,11 @@ const VOICE_HINT = '보이스 채팅 준비 중';
  *
  * **2026-09-11 (B-3 · B-4).** A card I have an open squad invite to carries the `초대 중 · n초` badge (`ProfileCard`);
  * `tick()` — polled by the host while open — rewrites those badges once a second off `ctx.net.serverNow()` without
- * rebuilding a card. The card menu gained `대화 기록` / `차단` (`SocialMenu`), and two pages lie over the column
- * (`SocialPages`): the 대화 기록 of one 아이디 and the 차단 목록 (`openBlocked()`, the panel head's button).
+ * rebuilding a card. The card menu gained `차단` (`SocialMenu`), and a page lies over the column (`SocialPages`): the
+ * 차단 목록 (`openBlocked()`, the panel head's button).
+ *
+ * **2026-09-14 (메신저).** The column is the messenger's **친구 tab** now (`menus/messenger/Messenger`). `개인 대화` switches
+ * to the 대화 tab; the `대화 기록` menu entry and its page are gone (the messenger conversation replaces them).
  */
 export class SocialColumn {
   readonly root: HTMLElement;
@@ -150,7 +153,6 @@ export class SocialColumn {
       onWhisper: (code, name) => this.opts.onWhisper?.(code, name),
       onAdd: (code) => socialOf(ctx)?.requestFriend(code),
       onRemove: (code) => { socialOf(ctx)?.removeFriend(code); this.refresh(true); },
-      onHistory: (code, name) => this.pages.openHistory(code, name),
       onBlock: (code, blocked) => { socialOf(ctx)?.block(code, blocked); this.refresh(true); this.pages.refresh(); },
     });
     this.pages.bind(ctx);
@@ -169,13 +171,11 @@ export class SocialColumn {
   get isAvailable(): boolean { return this.available; }
   /** The 분대원 header's 파티 떠나기 button (debug / smoke). */
   get leaveButton(): HTMLButtonElement { return this.leaveBtn; }
-  /** 2026-09-11: the 대화 기록 / 차단 목록 pages (debug / smoke). */
+  /** 2026-09-11: the 차단 목록 page (debug / smoke). */
   get socialPages(): SocialPages { return this.pages; }
 
-  /** Open the 차단 목록 page (the 커뮤니티 panel head's button). */
+  /** Open the 차단 목록 page (the messenger head's button). */
   openBlocked(): void { this.menu?.close(); this.pages.openBlocked(); }
-  /** Open the 대화 기록 page of `code`. */
-  openHistory(code: PlayerCode, name: string): void { this.menu?.close(); this.pages.openHistory(code, name); }
   /** Close whichever page is up (the host closing). */
   closePage(): void { this.pages.close(); }
 

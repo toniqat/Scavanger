@@ -1,7 +1,7 @@
 import type { PeerId } from './net';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Social — 아이디 · 친구 · 최근 만난 플레이어 · 귓속말 · 분대 초대 (Phase 11, 2026-09-07).
+ * Social — 아이디 · 친구 · 최근 만난 플레이어 · 개인 대화(옛 귓속말) · 분대 초대 (Phase 11, 2026-09-07).
  *
  * Until Phase 11 a player only existed **inside a lobby**: `LobbyPlayer.name` was the only name anyone else could
  * see, and it vanished the moment the ship undocked. The social layer adds the missing half — a stable public
@@ -408,3 +408,217 @@ export interface SocialRef {
   /** Why 같이 하기 is unavailable for this row right now, or null. Pure — mirrors the server's own check. */
   playBlock(code: PlayerCode): PlayBlock | null;
 }
+
+/* ══ appended: 2026-09-14 — 개인 대화(옛 귓속말) 읽음 · 단체 메신저방 (docs/plans/messenger-quests.md) ══
+ * 소유: server/ (방 저장소 · 권한 · fan-out), net/ (`ctx.net.rooms` · 읽지 않음), ui/ (메신저).
+ * 사용자 결정: 방장형 — 누구나 만들고 **친구를** 초대, 초대 · 강퇴 · 이름 변경은 방장만, 방장이 나가면 가장 먼저 들어온 멤버가 방장,
+ * 마지막 멤버가 나가면 방 삭제. 최대 `ROOM_MEMBER_MAX` 명, 서버가 최근 `ROOM_LINES_MAX` 줄 보관. **채팅창과 연동하지 않는다** (메신저 안에서만).
+ * A 에이전트(서버 · 넷)가 이 절 **안에서** 필드를 더할 수 있다 (기존 필드 변경 금지). */
+
+/** 공식 명칭 (2026-09-14): 귓속말 → 개인 대화. UI 문자열은 이 상수를 쓴다. */
+export const PRIVATE_CHAT_LABEL_KO = '개인 대화';
+
+export interface SocialRef {
+  /** 그 상대와의 개인 대화 중 읽지 않은 받은 줄 수 (슬롯 localStorage 의 상대별 readAt 기준). 옛 구현이면 없음. */
+  whisperUnread?(code: PlayerCode): number;
+  /** 그 상대와의 개인 대화를 읽음으로 (메신저가 그 대화를 보고 있을 때). `social:unreadChanged`. */
+  markWhisperRead?(code: PlayerCode): void;
+  /** 모든 상대의 읽지 않은 개인 대화 합. */
+  readonly whisperUnreadTotal?: number;
+}
+
+export type RoomId = string;
+
+export const ROOM_MEMBER_MAX = 20;
+/** 서버가 방마다 보관하는 최근 줄 수. */
+export const ROOM_LINES_MAX = 200;
+export const ROOM_NAME_MAX = 24;
+/** 한 사람이 동시에 들어가 있을 수 있는 방 수. */
+export const ROOM_JOINED_MAX = 20;
+/** 응답하지 않은 방 초대가 사라지는 시간. */
+export const ROOM_INVITE_TTL_MS = 7 * 24 * 60 * 60_000;
+/** 한 줄 글자 수 (개인 대화와 같다). */
+export const ROOM_TEXT_MAX = SOCIAL_WHISPER_MAX;
+/** `room:history` 한 번에 돌려주는 줄 수. */
+export const ROOM_HISTORY_PAGE = 50;
+
+/** 시스템 줄 종류 — 방 만들기 · 참여 · 나가기 · 강퇴 · 이름 변경 · 방장 변경. */
+export type RoomSystemKind = 'create' | 'join' | 'leave' | 'kick' | 'rename' | 'owner';
+
+export interface RoomMember extends SocialCard {
+  presence: PresenceState;
+}
+
+export interface RoomInfo {
+  id: RoomId;
+  name: string;
+  owner: PlayerCode;
+  /** 들어온 순서 (첫 멤버가 다음 방장 후보). */
+  members: RoomMember[];
+  /** 초대했지만 아직 답하지 않은 사람 (멤버 모두에게 보인다). */
+  pending: SocialCard[];
+  createdAt: number;
+  /** 마지막 줄 시각 (없으면 createdAt). */
+  lastAt: number;
+  /** 마지막 줄 미리보기 (시스템 줄 포함, 없으면 생략). */
+  lastText?: string;
+}
+
+export interface RoomInvite {
+  room: RoomId;
+  /** 방 이름. */
+  name: string;
+  from: PlayerCode;
+  fromName: string;
+  /** 초대 시점의 멤버 수. */
+  members: number;
+  at: number;
+}
+
+export interface RoomSnapshot {
+  rooms: RoomInfo[];
+  invites: RoomInvite[];
+}
+
+export type RoomErrorCode = SocialErrorCode | 'not_member' | 'not_owner' | 'room_full' | 'room_limit' | 'not_friend';
+
+export const ROOM_ERROR_MESSAGE_KO: Readonly<Record<Exclude<RoomErrorCode, SocialErrorCode>, string>> = {
+  not_member: '방 멤버가 아닙니다',
+  not_owner: '방장만 할 수 있습니다',
+  room_full: '방이 가득 찼습니다',
+  room_limit: '더 이상 방에 들어갈 수 없습니다',
+  not_friend: '친구만 초대할 수 있습니다',
+};
+
+export function roomErrorMessage(code: RoomErrorCode): string {
+  return (ROOM_ERROR_MESSAGE_KO as Record<string, string>)[code] ?? SOCIAL_ERROR_MESSAGE_KO[code as SocialErrorCode] ?? '요청을 처리할 수 없습니다';
+}
+
+export interface RoomLine {
+  room: RoomId;
+  /** 보낸 사람 (시스템 줄은 그 행동을 한 사람). */
+  code: PlayerCode;
+  name: string;
+  text: string;
+  at: number;
+  /** 내 줄의 `room:say.nonce` (ack 가 이것으로 찾는다). */
+  nonce?: number;
+  /** 내 줄의 전송 상태 (받은 줄 · 옛 서버는 없음 = sent). */
+  state?: 'pending' | 'sent' | 'failed';
+  failCode?: RoomErrorCode;
+  /** 시스템 줄이면 그 종류 (`text` 는 비어 있어도 된다 — ui 가 문장을 만든다). */
+  system?: RoomSystemKind;
+  /** join · kick · owner 의 대상. */
+  target?: PlayerCode;
+  targetName?: string;
+}
+
+/** 서버 저장 모양 (owner: server/ — 클라이언트로 그대로 나가지 않는다). */
+export interface RoomRecord {
+  id: RoomId;
+  name: string;
+  owner: PlayerCode;
+  members: PlayerCode[];
+  invites: { code: PlayerCode; from: PlayerCode; at: number }[];
+  lines: { code: PlayerCode; name: string; text: string; at: number; system?: RoomSystemKind; target?: PlayerCode; targetName?: string }[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SocialRecord {
+  /** 2026-09-14: 들어가 있는 방 id (서버 색인). */
+  rooms?: RoomId[];
+}
+
+/** `ctx.net.rooms` — 단체방 클라이언트 거울 (owner: net/). 사용 불가(오프라인 · 익명 · 옛 서버)면 `available` false 이고 모든 변경은 무시된다. */
+export interface RoomsRef {
+  readonly available: boolean;
+  /** 들어가 있는 방, 마지막 줄이 최근인 순. */
+  readonly rooms: readonly RoomInfo[];
+  /** 받은 초대, 최근 순. */
+  readonly invites: readonly RoomInvite[];
+  find(room: RoomId): RoomInfo | undefined;
+  /** 받아 둔 줄 (오래된 것 → 최근). 처음 열면 `requestHistory` 로 채운다. */
+  history(room: RoomId): readonly RoomLine[];
+  /** `before` (epoch ms) 보다 오래된 줄 한 쪽을 요청 → `room:history {room}`. 생략 = 최근 쪽. */
+  requestHistory(room: RoomId, before?: number): void;
+  /** 더 오래된 줄이 서버에 남아 있나 (마지막 `room:history.more`). */
+  hasMore(room: RoomId): boolean;
+  /** 방을 만든다 (`invite` = 함께 초대할 친구). false = 보낼 수 없음 (사용 불가 · 이름 없음). */
+  create(name: string, invite?: readonly PlayerCode[]): boolean;
+  invite(room: RoomId, code: PlayerCode): void;
+  respond(room: RoomId, accept: boolean): void;
+  leave(room: RoomId): void;
+  kick(room: RoomId, code: PlayerCode): void;
+  rename(room: RoomId, name: string): void;
+  /** 한 줄 보내기 — 곧바로 `pending` 줄이 생기고 ack 로 확정된다. false = 보낼 수 없음. */
+  say(room: RoomId, text: string): boolean;
+  /** 읽지 않은 줄 수 (내 줄 · 시스템 줄 제외, 슬롯 localStorage 의 방별 readAt 기준). */
+  unread(room: RoomId): number;
+  markRead(room: RoomId): void;
+  readonly unreadTotal: number;
+}
+
+/* ── 2026-09-14 (A 에이전트 — 서버 · 넷): 위 계약에 더한 것 ── */
+
+export interface RoomInfo {
+  /** 마지막 줄을 쓴 사람 (시스템 줄은 그 행동을 한 사람). 읽지 않음 추정에 쓴다 — 줄을 아직 받지 않은 방. */
+  lastCode?: PlayerCode;
+  /** 마지막 줄이 시스템 줄이면 그 종류 (시스템 줄은 읽지 않음에 세지 않는다). */
+  lastSystem?: RoomSystemKind;
+}
+
+/** 방별 읽음 표시 (`slotKey` 로 캐릭터 슬롯마다 갈라진다 — owner: net/RoomSync). `{v:1, rooms: {roomId: epochMs}}`. */
+export const ROOM_READ_STORAGE_KEY = 'scav.roomRead';
+/** 서버 `room:say` 토큰 버킷 — 한 번에 몰아 보낼 수 있는 줄 수 · 초당 회복량. 넘치면 `room:ack {ok:false, code:'limit'}`. */
+export const ROOM_SAY_BURST = 12;
+export const ROOM_SAY_PER_S = 2;
+
+/** 방 id — 서버가 만드는 base64url 문자열. 이 모양이 아니면 와이어에서 버린다. */
+export function isValidRoomId(v: unknown): v is RoomId {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]{6,32}$/.test(v);
+}
+
+/** 제어 문자는 공백, 마크업 `<` `>` 는 제거 (개인 대화 · 이름과 같은 규칙). */
+function stripRoomChars(raw: string): string {
+  let out = '';
+  for (const ch of raw) {
+    const cc = ch.codePointAt(0) ?? 0;
+    if (cc < 0x20 || cc === 0x7f) { out += ' '; continue; }
+    if (ch === '<' || ch === '>') continue;
+    out += ch;
+  }
+  return out;
+}
+
+/** 방 이름: 제어 문자 · 마크업 제거, 공백 한 칸으로 접기, `ROOM_NAME_MAX` 자. 빈 문자열 = 쓸 수 없는 이름. 서버 · 클라이언트 공용. */
+export function sanitizeRoomName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return stripRoomChars(raw).replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX).trim();
+}
+
+/** 방 한 줄: 제어 문자 · 마크업 제거, `ROOM_TEXT_MAX` 자. 빈 문자열 = 보낼 수 없음. 서버 · 클라이언트 공용. */
+export function sanitizeRoomText(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return stripRoomChars(raw).trim().slice(0, ROOM_TEXT_MAX);
+}
+
+/**
+ * 시스템 줄의 한국어 문장 (서버의 `lastText` 미리보기와 메신저 말풍선이 같은 문장을 쓴다).
+ * create · join · leave = `code/name` 이 그 사람, kick = `name` 이 방장 · `targetName` 이 내보낸 사람,
+ * rename = `text` 가 새 이름, owner = `name` 이 나간 방장 · `targetName` 이 새 방장.
+ */
+export function roomSystemTextKo(line: Pick<RoomLine, 'system' | 'name' | 'targetName' | 'text'>): string {
+  const who = line.name || '누군가';
+  const target = line.targetName || '누군가';
+  switch (line.system) {
+    case 'create': return `${who} 님이 방을 만들었습니다`;
+    case 'join': return `${who} 님이 들어왔습니다`;
+    case 'leave': return `${who} 님이 나갔습니다`;
+    case 'kick': return `${who} 님이 ${target} 님을 내보냈습니다`;
+    case 'rename': return `${who} 님이 방 이름을 「${line.text}」(으)로 바꿨습니다`;
+    case 'owner': return `${target} 님이 방장이 되었습니다`;
+    default: return line.text;
+  }
+}
+/* ══ end 2026-09-14 단체 메신저방 ══ */

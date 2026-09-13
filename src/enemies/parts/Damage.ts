@@ -563,7 +563,8 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
   // only our own kills bump the local counters: a remote killer counts it on its own client (from the `kill` event /
   // a `hitc`), an AI kill is credited to nobody and never reaches the bus.
   if (countKill && localKill) ctx.stats.kills++;
-  if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by, deathDir: e.deathDir });
+  // 2026-09-14: `weaponClass` = 내 막타가 총기였으면 그 계열 (NPC 퀘스트 kill 목표 — `shared/damageSource`)
+  if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by, deathDir: e.deathDir, ...(localKill ? { weaponClass: e.lastLocalWeaponClass } : {}) });
   // 2026-09-11: 로든의 스캔 드론은 기계다 — 비명 · 피 대신 파괴음 · 불꽃
   if (e.type === 'rogue_scan_drone') {
     sys.playAudio('drone_destroyed', e.position, 1, 1);

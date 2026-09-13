@@ -327,7 +327,8 @@ export class EnemyReplica {
           ctx.stats.kills++;
           _p.set(msg.p[0], msg.p[1], msg.p[2]);
           // Phase 9: the wire carries our real peer id; the bus payload names our own credit `'local'` (same as the host path)
-          ctx.bus.emit('enemy:killed', { id: msg.id, type: msg.ty, position: e ? e.position : _p.clone(), by: 'local' });
+          // 2026-09-14: 계열 = 이 클라이언트가 그 적에게 보낸 마지막 요청의 출처 (호스트의 화상 지속 피해 막타는 알 수 없다)
+          ctx.bus.emit('enemy:killed', { id: msg.id, type: msg.ty, position: e ? e.position : _p.clone(), by: 'local', weaponClass: e ? e.lastLocalWeaponClass : null });
         } else if (typeof msg.killer === 'string' && msg.killer) {
           // 2026-09-11 (E-4): a squad-mate's kill (the host counts it too — `parts/Damage.onEnemyKilled`). meta/ derives the
           // squad share of kill goals from this instead of trusting a relayed `meta contractHit`.

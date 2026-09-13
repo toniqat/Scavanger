@@ -44,7 +44,7 @@ import {
   SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_RECENT_TTL_MS, SOCIAL_REQUEST_MAX, SOCIAL_REQUEST_TTL_MS,
   isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
-/* 2026-09-11 (B-4): 차단 · 오프라인 귓속말 보관 */
+/* 2026-09-11 (B-4): 차단 · 오프라인 개인 대화 보관 */
 import { SOCIAL_BLOCK_MAX, SOCIAL_WHISPER_INBOX_MAX, SOCIAL_WHISPER_INBOX_TTL_MS, SOCIAL_WHISPER_MAX } from '../src/shared/social.ts';
 /* 2026-09-11 (E-4 ⑦): 서버 크레딧 검증 */
 import type { CreditLedger } from '../src/shared/credits.ts';
@@ -743,7 +743,7 @@ export class ProfileStore {
     return changed;
   }
 
-  /* ── 2026-09-11 (B-4): 차단 · 오프라인 귓속말 보관 ─────────────────────── */
+  /* ── 2026-09-11 (B-4): 차단 · 오프라인 개인 대화 보관 ─────────────────────── */
 
   private hasBlocked(owner: SocialRecord, code: PlayerCode): boolean {
     return owner.blocked !== undefined && owner.blocked.includes(code);

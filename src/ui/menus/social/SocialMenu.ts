@@ -8,8 +8,6 @@ export interface SocialMenuActions {
   onAdd(code: PlayerCode): void;
   /** Already confirmed by the popup below. */
   onRemove(code: PlayerCode): void;
-  /** 2026-09-11 (B-4): `대화 기록` — the column opens its conversation page for that 아이디. */
-  onHistory(code: PlayerCode, name: string): void;
   /** 2026-09-11 (B-4): `차단` (already confirmed by the popup below) / `차단 해제` (immediate — it only undoes). */
   onBlock(code: PlayerCode, blocked: boolean): void;
 }
@@ -22,11 +20,11 @@ export interface SocialMenuActions {
  * Four entries, exactly as the plan spells them out:
  *   - `같이 하기` — enabled only while `SocialRef.playBlock(code)` is null; otherwise disabled with the Korean reason
  *     from `PLAY_BLOCK_LABELS` beside it (the pure rule the server refuses with, so the UI can never disagree).
- *   - `귓속말하기` — the host closes itself and emits `chat:whisperTo`.
+ *   - `개인 대화` (2026-09-14, was `귓속말하기`) — the messenger switches to its 대화 tab on that 아이디.
  *   - `친구 삭제` — friends only, and only through the confirm card (mutual removal).
  *   - `친구 추가` — non-friends only (a 최근 플레이어 row).
- *   - (2026-09-11, B-4) `대화 기록` — the column's conversation page with that 아이디, and `차단` behind its own
- *     confirm card. A blocked row (the column's 차단 목록) offers only `대화 기록` + `차단 해제`.
+ *   - (2026-09-11, B-4) `차단` behind its own confirm card. A blocked row (the column's 차단 목록) offers only `차단 해제`
+ *     (2026-09-14: the `대화 기록` entry went with its page — the messenger conversation replaces it).
  *
  * It takes no blocker token: it only ever opens on top of a surface that already owns one (`'menu'` for the ESC
  * screen, `COMMUNITY_BLOCKER` for the community panel). Escape closes just the menu (capture phase,
@@ -101,12 +99,10 @@ export class SocialMenu {
     this.target = p;
     this.items.replaceChildren();
     if (blocked) {
-      this.entry('history', '대화 기록', true, '');
       this.entry('unblock', '차단 해제', true, '');
     } else {
       this.entry('play', '같이 하기', block === null, block ? PLAY_BLOCK_LABELS[block] : '');
-      this.entry('whisper', '귓속말하기', true, '');
-      this.entry('history', '대화 기록', true, '');
+      this.entry('whisper', '개인 대화', true, '');
       if (isFriend) this.entry('remove', '친구 삭제', true, '');
       else this.entry('add', '친구 추가', true, '');
       this.entry('block', '차단', true, '');
@@ -142,7 +138,6 @@ export class SocialMenu {
         case 'whisper': this.actions.onWhisper(p.code, p.name); break;
         case 'add': this.actions.onAdd(p.code); break;
         case 'remove': this.openConfirm(p); break;
-        case 'history': this.actions.onHistory(p.code, p.name); break;
         case 'block': this.openBlockConfirm(p); break;
         case 'unblock': this.actions.onBlock(p.code, false); break;
         default: break;
@@ -181,7 +176,7 @@ export class SocialMenu {
   private openBlockConfirm(p: SocialPlayer): void {
     this.askConfirm(
       '차단',
-      `${p.name || '이름 없음'} (${formatPlayerCode(p.code)}) 을(를) 차단합니다. 귓속말 · 친구 요청 · 분대 초대가 오지 않고 분대 채팅도 가려집니다. 친구 · 요청 · 최근 목록에서도 사라지며, 상대에게는 알리지 않습니다.`,
+      `${p.name || '이름 없음'} (${formatPlayerCode(p.code)}) 을(를) 차단합니다. 개인 대화 · 친구 요청 · 분대 초대가 오지 않고 분대 채팅도 가려집니다. 친구 · 요청 · 최근 목록에서도 사라지며, 상대에게는 알리지 않습니다.`,
       '차단',
       () => this.actions.onBlock(p.code, true),
     );

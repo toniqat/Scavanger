@@ -84,6 +84,9 @@ const SMOKES = {
   'smoke-faction-sites': { file: 'scripts/smoke-faction-sites.mjs', folders: ['enemies', 'world'] },
   'smoke-resume-gate':  { file: 'scripts/smoke-resume-gate.mjs',  folders: ['game', 'ui'] },
   'smoke-meta':         { file: 'scripts/smoke-meta.mjs',         folders: ['meta', 'inventory', 'hub', 'ui', 'game'] },
+  /* 2026-09-14 (메신저 · NPC 퀘스트): 첫 연락 · 순차 제안 · 보류 → 수락(brief) · 나눠 납품 · 완료 보고 보상 · 레이드 목표(막타 계열 · 발견+조사 chain ·
+     상호작용 · 탈출 회수 · 행성 조건 · 레이드 끝 되돌림) · 실제 배관(damageSource → enemy:killed.weaponClass) · getQuestState · 저장 · 정리. */
+  'smoke-npc-quests':   { file: 'scripts/smoke-npc-quests.mjs',   folders: ['meta', 'enemies', 'world', 'weapons'] },
   /* 2026-09-12 (E2): 즐겨찾기 칩 우클릭 메뉴(위임 · 띠 · 이벤트 재도색 · Escape) · 기업 상점 타일 옵트인 · 즐겨찾기 판매 한 번 더 확인
      (1초 홀드 · Escape 취소 · 일괄 담기 제외) · 특정 아이템 회수 계약(계약 행 칩 · 몸에 지닌 개수 정산). E1 API 가 없으면 스텁. */
   'smoke-favorite-chips': { file: 'scripts/smoke-favorite-chips.mjs', folders: ['meta', 'ui', 'inventory'] },
@@ -160,6 +163,10 @@ const SMOKES = {
   /* Phase 11 */
   'smoke-planets':      { file: 'scripts/smoke-planets.mjs',      folders: ['hub', 'world', 'game'] },
   'smoke-social':       { file: 'scripts/smoke-social.mjs',       folders: ['ui', 'net'] },
+  /* 2026-09-14 (메신저): P 패널 = 대화(NPC · 개인 대화 · 단체방) · 친구 · 퀘스트 탭, 썸네일 읽지 않음 배지, 퀘스트 카드 수락 / 보류 ·
+     납품 · 완료 보고, 단체방 기록 · 보내기 · 초대 · 이름 변경 · 내보내기 · 나가기(1초 홀드), NPC 메시지 토스트, 두 해상도 스크린샷. */
+  'smoke-messenger':    { file: 'scripts/smoke-messenger.mjs',    folders: ['ui', 'meta', 'net'] },
+  'smoke-rooms':        { file: 'scripts/smoke-rooms.mjs',        folders: ['net'] },
   'smoke-ecology':      { file: 'scripts/smoke-ecology.mjs',      folders: ['world', 'enemies', 'items'] },
   /* 2026-09-09: 소품 콜라이더가 그려진 실루엣보다 큰지 **숫자로** 잰다. `Props.hullOf` 가 바운딩 박스로
      콜라이더를 만들기 때문에 지오메트리 쪽 사고(→ `noise3` 의 lerp 인자 순서)가 곧 보이지 않는 벽이 된다. */
@@ -210,6 +217,10 @@ const SMOKES = {
      결제 → 크레딧 차감 → 5초 유예 → trip · 이동 중 탑승 거절 · 도착 강제 하차(목적지 곁) · 순환 출발 + 포탑 사격 · 피해 · 파괴(탑승자 하차 ·
      targetable false · 탑승 거절). 콘솔 `rover` 치트(`cheat:rover`)로 시간을 줄인다. src/world/rover 는 `world` 폴더다. */
   'smoke-rover':        { file: 'scripts/smoke-rover.mjs',        folders: ['world', 'audio', 'console'] },
+  /* 2026-09-14 (메신저 · NPC 퀘스트 E): 전술 지도 좌측 열(머리 → 퀘스트 패널 → 범례 좌측 하단 → 발밑 줄, 열 높이 = 캔버스) · 가짜 NpcQuestRef
+     패널 · 레이드 목표 줄 · 게이지 · 호버 툴팁 · 이벤트 갱신 · 트랙 6 스크롤 / 0 숨김 · 목적지 선택 모드 숨김 · 퀘스트 토스트 3종 ·
+     1280×720 / 1920×1080 프레임 + 스크린샷. 릴레이 없이 돈다. */
+  'smoke-map-quests':   { file: 'scripts/smoke-map-quests.mjs',   folders: ['ui', 'meta'] },
   /* 2026-09-11 (E-4 + C-57 · X-6): 신뢰 경로 — 두 클라이언트 · **코드로 만든 비공개 로비**(빠른 매칭 아님)로 레이드에 들어가
      위조 strat call / stratq call · 버프 상한 · 벽 뒤 스프레이 · 계약 킬 파생 · meta sync rid · crate opened 거리 · 넉백 기하 ·
      hit 요청 DPS 상한을 잰다. 공용 릴레이를 쓰지만 자기 로비라 exclusive 가 아니다. */

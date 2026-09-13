@@ -12,6 +12,8 @@ import { animateNamedRig, namedBodyNearest } from './models/named';
 import { BURROW_SINK_EXTRA_M, GRAVITY } from '@/shared';
 /* appended (2026-09-13): 탐사 차량 어그로 */
 import { ROVER_AGGRO_GROUP_RADIUS, ROVER_AGGRO_S, ROVER_DAMAGE_SOURCE } from '@/shared';
+/* 2026-09-14 (NPC 퀘스트 kill 목표): 로컬 막타가 어느 계열 총기였나 (`shared/damageSource`) */
+import { localGunHitClass, type WeaponClass } from '@/shared';
 import { isWormType } from './EnemyTypes';
 import { animateWorm, createWormRig, disposeWormRig, type WormRig } from './models/WormModel';
 import { nearestOnStandingCapsule } from './RayTests';
@@ -192,6 +194,11 @@ export class Enemy implements EnemyRef {
   lastDamager: TargetId = 'local';
   /** Replica: ctx.time of the last optimistic local hit (suppresses the echoed `damaged` flash). */
   lastLocalHit = -Infinity;
+  /**
+   * 2026-09-14: 이 클라이언트가 넣은 **마지막** 피해가 총기 한 발이었으면 그 계열, 아니면 null (수류탄 · 가젯 · 근접 · 화상).
+   * `enemy:killed.weaponClass` 가 읽는다 — 호스트는 막타 그 순간, 리플리카는 자기 마지막 요청 기준.
+   */
+  lastLocalWeaponClass: WeaponClass | null = null;
   /** Replica: interpolation ring buffer (created lazily by the replica manager, reused across pool cycles). */
   netBuf: ReplicaBuffer | null = null;
 
@@ -471,7 +478,7 @@ export class Enemy implements EnemyRef {
     this.rideInertia.set(0, 0, 0); this.rideInertiaT = 0;
     this.spawnTime = now;
     this.relentless = false;
-    this.lastDamager = 'local'; this.lastLocalHit = -Infinity;
+    this.lastDamager = 'local'; this.lastLocalHit = -Infinity; this.lastLocalWeaponClass = null;
     this.hasLure = false; this.lureWeight = 0;
     this.suspicionTimer = 0; this.suspicionSpread = 0; this.suspicionAt = -Infinity;
     this.spitAtPoint = false;
@@ -708,6 +715,7 @@ export class Enemy implements EnemyRef {
       a.flinchX = -(hitDir.x * c - hitDir.z * s);   // roll: +X side dips when pushed toward +X
       a.flinchZ = (hitDir.x * s + hitDir.z * c);    // pitch: nose dips when pushed forward
     } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; }
+    if (attacker === 'local') this.lastLocalWeaponClass = localGunHitClass();   // 2026-09-14: NPC 퀘스트 계열 처치
     if (this.host?.replica) {
       this.host.requestHit(this, amount, part, hitPoint, hitDir);
       return;
@@ -769,6 +777,7 @@ export class Enemy implements EnemyRef {
     if (!this.active || this.state === 'dead' || amount <= 0) return;
     this.hp -= amount;
     this.lastDamager = attacker;
+    if (attacker === 'local') this.lastLocalWeaponClass = null;   // 2026-09-14: 지속 피해 막타는 계열 없음
     if (quiet) { if (this.hp <= 0) { this.hp = 0; this.kill(true); } return; }
     this.anim.hitFlash = Math.max(this.anim.hitFlash, 0.45);
     if (!this.aware) {

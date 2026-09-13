@@ -21,11 +21,11 @@ import { TileGrid, type TileSpec } from './TileGrid';
  * Screen shape (**2026-09-13, 사용자 결정 — 한 줄로 늘어선 독립 카드들**):
  *
  *   `.corp-rail`  기업 목록 카드 — 화면 맨 왼쪽, 호스트 격자의 첫 칸(세로 전부). 트리다: 선택한 기업 버튼 **바로 아래**에
- *                 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 퀘스트 / 임플란트 탭.
- *   `.corp-shell` → `.corp-page` → 페이지 루트(`.cv` / `.cq` / `.ci` / `.cc`) — **카드가 가로 한 줄**로 선다:
+ *                 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 임플란트 탭.
+ *   `.corp-shell` → `.corp-page` → 페이지 루트(`.cv` / `.ci` / `.cc`) — **카드가 가로 한 줄**로 선다:
  *     • 거래     [판매 물품] [거래 테이블(구매 · 판매 트레이 · 크레딧 변화 · 1초 홀드)] [함선 창고] [가방]
- *     • 퀘스트   [퀘스트 목록] [상세 / 납품 + 보상] [함선 창고] [가방]
  *     • 임플란트 [망가진 임플란트 + 수리 카드] [함선 창고] [가방]
+ *   **2026-09-14: 퀘스트 탭 삭제** — 기업 퀘스트가 없어졌다. 퀘스트는 NPC 가 메신저로 준다 (`ctx.meta.npc`, docs/plans/messenger-quests.md).
  *     • 계약     기업 목록만 분리됐고 나머지(계약 목록 | 진행 중인 계약)는 한 카드 그대로.
  *   함선 창고 · 가방은 **서로 다른 카드**이고 각자 머리(이름 · 개수 · 정렬 · 필터)와 자기 세로 스크롤을 갖는다 —
  *   `InventoryRef.createTradeGrids(card, { grids: [id], layout: 'split' })` 를 카드마다 하나씩.
@@ -48,28 +48,25 @@ import { TileGrid, type TileSpec } from './TileGrid';
  *   • **거래**: items are staged into a tray (click, or drag a stock tile / an inventory tile onto it) and the basket
  *     settles at once;
  *   • **계약**: the corp's contract list and **진행 중인 계약** drawn in **that contract's corp colour** (2026-09-12);
- *   • **퀘스트**: the quest list (이름 + 상태 배지, **완료는 딤드 + 맨 아래**, `완료된 항목 보기` 체크박스), the 납품 table
- *     with the selected quest's 보상 under it, the inventory cards;
  *   • **임플란트** (세레스 바이오 only): 망가진 임플란트 타일 + 수리 카드, the inventory cards (read-only there).
  *
  * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use looks locked (`.is-locked`) but stays clickable so
- * the click can say why, and the view opens on **퀘스트** instead (`resolvePage`).
+ * the click can say why, and the view opens on the first open page instead (`resolvePage` — 2026-09-14: 퀘스트 탭이 없어져
+ * 계약 → 임플란트 순으로 찾는다).
  *
  * Page bodies are built **once** and swapped, not rebuilt per refresh — the embedded grids own bus subscriptions and
  * a pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export type CorpPage = 'trade' | 'contracts' | 'quests' | 'implants';
+export type CorpPage = 'trade' | 'contracts' | 'implants';
 
 const PAGES: readonly { id: CorpPage; label: string; corp?: CorpId }[] = [
-  { id: 'trade', label: '거래' }, { id: 'contracts', label: '계약' }, { id: 'quests', label: '퀘스트' },
+  { id: 'trade', label: '거래' }, { id: 'contracts', label: '계약' },
   { id: 'implants', label: '임플란트', corp: 'ceres' },   // Phase 12: the 임플란트 수리 desk, 세레스 바이오 only
 ];
 
 /** Pages the corp actually has (the 임플란트 desk exists at 세레스 바이오 alone). */
 const pagesFor = (corp: CorpId): CorpPage[] => PAGES.filter((p) => !p.corp || p.corp === corp).map((p) => p.id);
-
-const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', available: '가능', accepted: '진행', complete: '완료' };
 
 /**
  * Cell edge of every item grid on this screen, in px (2026-09-13, 사용자 결정): **40**, shrunk to fit the window down to
@@ -169,16 +166,6 @@ export class CorpView {
   private contractActiveCol!: HTMLElement;
   private contractActiveEl!: HTMLElement;
 
-  private questsEl: HTMLElement | null = null;
-  private questListEl!: HTMLElement;
-  /** 선택한 퀘스트의 보상 — **납품 패널 하단**의 한 줄 (재화 칩 + 아이템 칩), 2026-09-12 2차. */
-  private questRewardEl!: HTMLElement;
-  private questDetailEl!: HTMLElement;
-  private questInv: InvCard[] = [];
-  private selectedQuest: string | null = null;
-  /** 퀘스트 목록에 완료 항목을 그릴까 (기본 켜짐). 화면이 열려 있는 동안만 산다 — 영속화하지 않는다. */
-  private showDoneQuests = true;
-
   /* Phase 12: 임플란트 수리 desk */
   private implantsEl: HTMLElement | null = null;
   private implantGrid!: TileGrid;
@@ -265,7 +252,7 @@ export class CorpView {
     const refresh = (): void => this.refreshIfVisible();
     this.unsubs.push(
       b.on('meta:creditsChanged', refresh), b.on('meta:repChanged', refresh), b.on('meta:contractAccepted', refresh),
-      b.on('meta:contractAbandoned', refresh), b.on('meta:contractSettled', refresh), b.on('meta:questChanged', refresh),
+      b.on('meta:contractAbandoned', refresh), b.on('meta:contractSettled', refresh),
       b.on('meta:purchase', ({ defId, price }) => {
         if (this.quietPurchases > 0) this.quietPurchases--;
         else if (this.visible && !this.settling) this.showMsg(`${this.defName(defId)} 구매 · −${formatCredits(price)}`, 'success');
@@ -307,7 +294,6 @@ export class CorpView {
     if (this.corp === corp || !CORP_DEFS[corp]) return;
     this.corp = corp;
     this.clearBasket();              // a basket belongs to the corp it was assembled at
-    this.selectedQuest = null;
     this.selectedImplant = null;
     // the 임플란트 desk is 세레스 only, and the new corp's 신뢰도 may lock 거래 / 계약 (2026-09-08)
     this.current = this.resolvePage(this.current);
@@ -323,8 +309,8 @@ export class CorpView {
 
   /**
    * Why `page` is locked at the current corp / 신뢰도 (Korean), or null when it is open. 거래 opens at
-   * `SHOP_UNLOCK_REP_LEVEL`; 계약 opens as soon as **one** of the corp's contracts is within reach. 퀘스트 and the
-   * 임플란트 수리 desk are never rep-gated — they are how a Lv.0 player earns the reputation in the first place.
+   * `SHOP_UNLOCK_REP_LEVEL`; 계약 opens as soon as **one** of the corp's contracts is within reach. The 임플란트 수리 desk is
+   * never rep-gated.
    */
   pageLock(page: CorpPage): string | null {
     const level = this.meta.getRep(this.corp).level;
@@ -339,12 +325,11 @@ export class CorpView {
     return null;
   }
 
-  /** `want` when this corp has it and it is unlocked, else 퀘스트, else the first page that is open. */
+  /** `want` when this corp has it and it is unlocked, else the first page that is open (계약 when every page is locked). */
   private resolvePage(want: CorpPage): CorpPage {
     const pages = pagesFor(this.corp);
     if (pages.includes(want) && !this.pageLock(want)) return want;
-    if (pages.includes('quests') && !this.pageLock('quests')) return 'quests';
-    return pages.find((p) => !this.pageLock(p)) ?? 'quests';
+    return pages.find((p) => !this.pageLock(p)) ?? 'contracts';
   }
 
   /**
@@ -418,13 +403,11 @@ export class CorpView {
     this.pruneBasket();
     const body = this.current === 'trade' ? this.buildTrade()
       : this.current === 'contracts' ? this.buildContracts()
-        : this.current === 'quests' ? this.buildQuests()
-          : this.buildImplants();
+        : this.buildImplants();
     if (this.page.firstElementChild !== body) this.page.replaceChildren(body);
     if (this.current !== 'trade') this.cancelHold();
     if (this.current === 'trade') this.renderTrade();
     else if (this.current === 'contracts') this.renderContracts();
-    else if (this.current === 'quests') this.renderQuests();
     else this.renderImplants();
     // 2026-09-13: every page has its own cards — a page switch (and the first paint) fits the cell size to them
     if (this.fittedPage !== this.current) { this.fittedPage = this.current; this.scheduleFit(0); }
@@ -445,7 +428,7 @@ export class CorpView {
   }
 
   private pageRoot(): HTMLElement | null {
-    return this.current === 'trade' ? this.tradeEl : this.current === 'quests' ? this.questsEl : this.current === 'implants' ? this.implantsEl : null;
+    return this.current === 'trade' ? this.tradeEl : this.current === 'implants' ? this.implantsEl : null;
   }
 
   /**
@@ -491,7 +474,7 @@ export class CorpView {
 
   private setInvHidden(hide: boolean): void {
     this.invHidden = hide;
-    for (const r of [this.tradeEl, this.questsEl, this.implantsEl]) if (r) toggleClass(r, 'is-inv-hidden', hide);
+    for (const r of [this.tradeEl, this.implantsEl]) if (r) toggleClass(r, 'is-inv-hidden', hide);
   }
 
   /** New cell edge: CSS vars, every tile grid built so far, every inventory card, then a repaint (tiles bake their size). */
@@ -500,7 +483,7 @@ export class CorpView {
     this.applyCellVars();
     if (this.tradeEl) { this.shopGrid.setCell(cell); this.buyGrid.setCell(cell); this.sellGrid.setCell(cell); }
     if (this.implantsEl) this.implantGrid.setCell(cell);
-    for (const c of [...this.tradeInv, ...this.questInv, ...this.implantInv]) {
+    for (const c of [...this.tradeInv, ...this.implantInv]) {
       if (!c.view) continue;
       if (isTradeGridsView(c.view)) c.view.setCell(cell);
       else { c.view.dispose(); c.view = this.createInv(c.card, c.id, c.drop); }   // an inventory without `setCell`: rebuild
@@ -1091,157 +1074,12 @@ export class CorpView {
     }
   }
 
-  /* ══ 퀘스트 ═══════════════════════════════════════════════════════════════ */
-
-  private buildQuests(): HTMLElement {
-    if (this.questsEl) return this.questsEl;
-    const root = el('div', { cls: 'cq' });
-    toggleClass(root, 'is-inv-hidden', this.invHidden);
-    const list = el('div', { cls: 'cq-col list cv-card is-fluid', parent: root });
-    /* 목록 머리: 제목 왼쪽, **완료된 항목 보기** 체크박스 오른쪽 (2026-09-12 2차, 기본 켜짐). */
-    const head = el('div', { cls: 'cq-head', parent: list });
-    el('div', { cls: 'cv-title', text: '퀘스트 목록', parent: head });
-    const toggle = el('label', { cls: 'cv-check', parent: head });
-    const box = el('input', { parent: toggle });
-    box.type = 'checkbox';
-    box.checked = this.showDoneQuests;
-    el('span', { text: '완료된 항목 보기', parent: toggle });
-    box.addEventListener('change', (e) => {
-      e.stopPropagation();
-      this.showDoneQuests = box.checked;
-      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-      this.refresh();
-    });
-    this.questListEl = el('div', { cls: 'cq-list', parent: list });
-    const detail = el('div', { cls: 'cq-col detail cv-card is-fluid', parent: root });
-    el('div', { cls: 'cv-title', text: '납품', parent: detail });
-    this.questDetailEl = el('div', { cls: 'cq-deliver', parent: detail });
-    /* 선택한 퀘스트의 보상은 **그 퀘스트의 납품 내용 바로 아래**에 붙는다 (2026-09-12 2차 — 예전에는 목록 열 아래였다). */
-    const rewards = el('div', { cls: 'cq-rewards', parent: detail });
-    el('div', { cls: 'cv-title', text: '보상', parent: rewards });
-    this.questRewardEl = el('div', { cls: 'cq-reward-line item-chips', parent: rewards });
-    this.questInv = this.makeInvCards(root, 'cq-col', '.cq-deliver');
-    this.questsEl = root;
-    this.nodes.push(root);
-    return root;
-  }
-
-  private renderQuests(): void {
-    const all = this.meta.getQuests(this.corp);
-    /*
-     * 2026-09-12 (2차): **완료는 맨 아래**, 그 밖의 순서는 csv 그대로(안정 분할). 정렬을 여기서만 하는 이유는
-     * `parts/Contracts.getQuests()` 의 반환 순서를 콘솔 · 스모크 등 다른 소비자도 보기 때문이다.
-     * 체크박스를 끄면 완료 항목이 목록에서 빠지고, **기본 선택도 보이는 행 중에서만** 고른다.
-     */
-    const ordered = [...all.filter((q) => q.state !== 'complete'), ...all.filter((q) => q.state === 'complete')];
-    const list = this.showDoneQuests ? ordered : ordered.filter((q) => q.state !== 'complete');
-    this.questListEl.replaceChildren();
-    if (list.length === 0) this.empty(this.questListEl, all.length === 0 ? '이 기업의 퀘스트가 없습니다' : '표시할 퀘스트가 없습니다');
-    // default selection: the accepted quest, else the first available, else the first visible row
-    if (!list.some((q) => q.def.id === this.selectedQuest)) {
-      this.selectedQuest = (list.find((q) => q.state === 'accepted') ?? list.find((q) => q.state === 'available') ?? list[0])?.def.id ?? null;
-    }
-    for (const q of list) this.questRow(q);
-
-    this.questDetailEl.replaceChildren();
-    const sel = list.find((q) => q.def.id === this.selectedQuest) ?? null;
-    if (!sel) this.empty(this.questDetailEl, '퀘스트를 선택하세요');
-    else this.questDetail(sel);
-    this.renderQuestRewards(sel);
-    this.refreshInv(this.questInv);
-  }
-
-  /** One quest row: **이름 + 상태 배지뿐이다** (2026-09-09). 설명은 상세 패널에 있다. */
-  private questRow(q: QuestInfo): void {
-    const d = q.def;
-    const r = el('div', { cls: `corp-row quest st-${q.state}`, parent: this.questListEl, attrs: { 'data-id': d.id } });
-    toggleClass(r, 'is-sel', d.id === this.selectedQuest);
-    el('div', { cls: 'badge', text: QUEST_BADGE[q.state], parent: r });
-    const mid = el('div', { cls: 'mid', parent: r });
-    el('div', { cls: 'name', text: d.name, parent: mid });
-    r.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.selectedQuest === d.id) return;
-      this.selectedQuest = d.id;
-      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-      this.refresh();
-    });
-  }
-
-  /**
-   * 선택한 퀘스트의 보상 한 줄 — **납품 패널 하단**에 붙는다 (2026-09-12 2차). 재화(신뢰도 · XP · 크레딧)는
-   * `appendCurrencyRewards` 의 칩, 아이템은 `buildItemChip` 이고 **한 줄에 이어 붙는다**.
-   */
-  private renderQuestRewards(q: QuestInfo | null): void {
-    const host = this.questRewardEl;
-    host.replaceChildren();
-    if (!q) { el('div', { cls: 'cq-reward-none', text: '퀘스트를 선택하세요', parent: host }); return; }
-    const rw = q.def.rewards;
-    const currency: CurrencyReward[] = [
-      { id: repCurrencyId(q.def.corp), amount: rw.rep },
-      { id: 'xp', amount: rw.xp },
-      { id: 'credits', amount: rw.credits ?? 0 },
-    ];
-    appendCurrencyRewards(host, currency, { size: 32 });
-    for (const it of rw.items ?? []) host.appendChild(buildItemChip(this.itemDef(it.defId), { size: 32, need: it.qty }));
-    if (host.childElementCount === 0) el('div', { cls: 'cq-reward-none', text: '보상 없음', parent: host });
-  }
-
-  /** The selected quest's delivery table + its 수락 / 납품 button (the drop target of the inventory grids). */
-  private questDetail(q: QuestInfo): void {
-    const d = q.def;
-    const host = this.questDetailEl;
-    el('div', { cls: 'cq-name', text: d.name, parent: host });
-    el('div', { cls: 'cq-desc', text: d.desc, parent: host });
-
-    const table = el('div', { cls: 'cq-table', parent: host });
-    for (const line of q.deliver) {
-      const def = this.itemDef(line.defId);
-      const row = el('div', { cls: 'cq-line', parent: table });
-      toggleClass(row, 'short', line.have < line.qty);
-      const cell = el('div', { cls: 'thumb', parent: row });
-      cell.appendChild(buildItemChip(def, { size: 34, have: line.have, need: line.qty }));
-      el('div', { cls: 'nm', text: def?.name ?? line.defId, parent: row });
-      el('div', { cls: 'qty', text: `${fmtNum(line.have)} / ${fmtNum(line.qty)}`, parent: row });
-    }
-    if (q.deliver.length === 0) el('div', { cls: 'cq-none', text: '납품할 물품이 없습니다', parent: table });
-
-    // 보상 칩은 여기가 아니라 이 패널 **바로 아래**의 고정 줄이다 (`renderQuestRewards`). 완료 토스트만 말로 적는다.
-    const rw = d.rewards;
-    const parts = [`신뢰도 +${rw.rep}`, `XP +${rw.xp}`];
-    if (rw.credits) parts.push(`크레딧 +${formatCredits(rw.credits)}`);
-    const items = rw.items ?? [];
-    const summary = [...parts, ...items.map((it) => `${this.defName(it.defId)} ×${it.qty}`)];
-    const acts = el('div', { cls: 'cq-acts', parent: host });
-    if (q.state === 'available') {
-      this.button(acts, '수락', () => {
-        const ok = this.meta.acceptQuest(d.id);
-        this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
-        this.showMsg(ok ? `${d.name} 수락` : '수락할 수 없습니다', ok ? 'success' : 'danger');
-        this.refresh();
-      }, 'primary');
-    } else if (q.state === 'accepted') {
-      const btn = this.button(acts, '납품', () => {
-        const ok = this.meta.completeQuest(d.id);
-        this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
-        const after = this.meta.getQuests(this.corp).find((x) => x.def.id === d.id);
-        this.showMsg(ok ? `${d.name} 완료 · ${summary.join(' · ')}` : `납품 실패 · ${after?.blocked ?? ''}`, ok ? 'success' : 'danger');
-        this.refresh();
-      }, 'primary');
-      btn.disabled = q.blocked !== null;
-      btn.title = q.blocked ?? '';
-    } else {
-      const b = this.button(acts, q.state === 'complete' ? '완료' : '잠김', () => { /* nothing to do */ });
-      b.disabled = true;
-    }
-  }
-
   /* ══ 임플란트 수리 (Phase 12, 세레스 바이오) ══════════════════════════════════════════════════════════════════ */
 
   private buildImplants(): HTMLElement {
     if (this.implantsEl) return this.implantsEl;
     /*
-     * 2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 목록 + 수리 카드**가 쌓이고, 그 오른쪽은 거래 · 퀘스트와
+     * 2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 목록 + 수리 카드**가 쌓이고, 그 오른쪽은 거래와
      * **똑같은 함선 창고 · 가방** 카드다 (2026-09-13 — 둘이 서로 다른 카드). 수리 대상 수집은
      * `parts/ImplantDesk.getRepairableImplants()` 그대로 — 그 함수가 이미 가방과 창고 양쪽을 본다.
      */
@@ -1355,8 +1193,8 @@ export class CorpView {
     if (this.fitTimer) { clearTimeout(this.fitTimer); this.fitTimer = 0; }
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    for (const c of [...this.tradeInv, ...this.questInv, ...this.implantInv]) { c.view?.dispose(); c.view = null; }
-    this.tradeInv = []; this.questInv = []; this.implantInv = [];
+    for (const c of [...this.tradeInv, ...this.implantInv]) { c.view?.dispose(); c.view = null; }
+    this.tradeInv = []; this.implantInv = [];
     if (this.tradeEl) { this.shopGrid.dispose(); this.buyGrid.dispose(); this.sellGrid.dispose(); }
     if (this.implantsEl) this.implantGrid.dispose();
     for (const n of this.nodes) n.remove();

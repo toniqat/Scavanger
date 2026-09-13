@@ -13,7 +13,8 @@
  * ──────────────────────────────────────────────────────────────────────────── */
 import { csvRows, keyTable } from './data/tables';
 import type { CorpId } from './meta';
-import { QUEST_DEFS } from './meta';
+/* 2026-09-14: 기업 퀘스트 폐지 — 해금 퀘스트는 NPC 퀘스트 (`data/npc_quests.csv`) */
+import { NPC_QUEST_DEFS } from './npc';
 import { cryptoTradeCredits, formatCryptoUnits, miningCycleMs, type CryptoTradeSide } from './cryptoMarket';
 
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
@@ -26,7 +27,7 @@ export interface CryptoCoinDef {
   ticker: string;
   /** 연관 기업. null = 처음부터 열린 코인. */
   corp: CorpId | null;
-  /** 완료해야 채굴 · 매매가 열리는 퀘스트 id (`data/quests.csv`). null = 열려 있다. */
+  /** 완료해야 채굴 · 매매가 열리는 NPC 퀘스트 id (`data/npc_quests.csv`). null = 열려 있다. */
   unlockQuest: string | null;
   color: string;
   glyph: string;
@@ -42,13 +43,13 @@ export interface CryptoCoinDef {
 }
 
 const COIN_ID = /^[a-z0-9_]+$/;
-const QUEST_IDS = new Set(QUEST_DEFS.map((q) => q.id));
+const QUEST_IDS = new Set(NPC_QUEST_DEFS.map((q) => q.id));
 
 export const CRYPTO_COIN_DEFS: readonly CryptoCoinDef[] = csvRows('crypto.csv').map((r) => {
   const id = r.str('id');
   if (id && !COIN_ID.test(id)) r.report('id', `'${id}' — 소문자 · 숫자 · _ 만 쓴다 (크레딧 사유 문법)`);
   const unlockQuest = r.has('unlockQuest') ? r.str('unlockQuest') : null;
-  if (unlockQuest && !QUEST_IDS.has(unlockQuest)) r.report('unlockQuest', `'${unlockQuest}' 는 data/quests.csv 에 없는 퀘스트다`);
+  if (unlockQuest && !QUEST_IDS.has(unlockQuest)) r.report('unlockQuest', `'${unlockQuest}' 는 data/npc_quests.csv 에 없는 퀘스트다`);
   return {
     id,
     name: r.str('name'),

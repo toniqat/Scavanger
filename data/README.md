@@ -48,7 +48,8 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | 제작 레시피 | [`recipes.csv`](recipes.csv) |
 | **분해** — 무엇을 뜯으면 무엇이 나오나 (장비는 여기 없다 — 제작 재료에서 자동으로 만든다) | [`salvage.csv`](salvage.csv) |
 | 능력치 · 숙련도 | [`stats.csv`](stats.csv) · [`skills.csv`](skills.csv) |
-| 기업 · 판매 목록 · 계약 · 퀘스트 | [`corps.csv`](corps.csv) · [`corp_stock.csv`](corp_stock.csv) · [`contracts.csv`](contracts.csv) · [`quests.csv`](quests.csv) |
+| 기업 · 판매 목록 · 계약 | [`corps.csv`](corps.csv) · [`corp_stock.csv`](corp_stock.csv) · [`contracts.csv`](contracts.csv) |
+| **메신저 NPC · NPC 퀘스트** (2026-09-14 — 기업 퀘스트 `quests.csv` 대신) | [`npcs.csv`](npcs.csv) · [`npc_quests.csv`](npc_quests.csv) · [`npc_objectives.csv`](npc_objectives.csv) |
 | 함선 — 방 용도 증축 · 시설 강화 · 가구 | [`room_purposes.csv`](room_purposes.csv) · [`facility_upgrades.csv`](facility_upgrades.csv) · [`furniture.csv`](furniture.csv) · [`furniture_upgrades.csv`](furniture_upgrades.csv) |
 | 행성 5곳 — 위협 · 생태 · 하늘 | [`planets.csv`](planets.csv) |
 | **행성 진행도별 드롭 곡선** — ① 총기 등급(앞쪽 행성에서 III 이상 봉인) ② **총기가 아닌 것들의 희귀도 배수** | [`planet_loot.csv`](planet_loot.csv) |
@@ -709,3 +710,21 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 `items.csv` 에 **`key_basement` 버려진 구조물의 지하실 키카드** (귀중품, 1×1, 스택 1, ₩0) 가 붙었다.
 구조물이 자기 컨테이너에 직접 넣는 물건이라 `loot_item_weights.csv` 의 **티어 1~5 전부에 `mul 0`** 을
 걸어 무작위 루팅에서 완전히 막아 뒀다. 그 다섯 줄을 지우면 귀중품 굴림에 섞여 나온다.
+
+### 2026-09-14 — 메신저 NPC 퀘스트: `npcs.csv` · `npc_quests.csv` · `npc_objectives.csv` (신규) · `quests.csv` 삭제 · `crypto.csv` · `tuning.csv`
+
+설계 원본 `docs/plans/messenger-quests.md`. 로더 `src/shared/npc.ts`(열 모양 · 열거 · 종류별 필수/불필요 열), 표끼리의 참조는 `npm run data:check`.
+
+- **`npcs.csv`** `id,name,title,corp,role,color,glyph,reqLevel,reqRep,reqQuests,intro,bio` — `corp` 비움 = 무소속, `role` executive | staff | independent.
+  첫 연락 조건 = `reqLevel` ∧ `reqRep`(`기업:레벨` | …) ∧ `reqQuests`(완료한 퀘스트 id | …). `intro` 는 `|` 로 말풍선을 나눈다.
+- **`npc_quests.csv`** `id,npc,name,summary,reqLevel,reqRep,reqQuests,rewardCredits,rewardXp,rewardRep,rewardItems,offer,accept,decline,brief,complete` —
+  같은 NPC 의 퀘스트는 **줄 순서대로 하나씩** 제안된다. `rewardRep` = `기업:양` | …, `rewardItems` = `아이템id:수량` | …. id 는 소문자 · 숫자 · `_`(크레딧 사유 `quest:<id>`).
+  대사 5종은 `|` 로 말풍선을 나누고, 기록에는 사건만 남으므로 **대사를 고치면 옛 대화도 바뀐다**.
+- **`npc_objectives.csv`** `quest,kind,target,item,enemy,weapon,site,interact,planet,chain,label` — 줄 순서 = 표시 순서.
+  `kind` deliver(item) | recover(item) | interact(interact) | kill(enemy, weapon?) | discover(site) | search(site). `item` = 아이템 id 또는 `weapon:<AR|SMG|SR|DMR|SG>`.
+  `enemy` = humanoid | rogue | raider | android | bug | named | 적 타입 id. `planet` · `chain` 은 레이드 목표만 (deliver 에 쓰면 로더가 잡는다).
+  data:check 가 보는 것: 모르는 NPC · 선행 · 아이템 · 보상 아이템 · 적, **그 행성에 그 적이 나올 수 있나**(안드로이드 threat 1 · 로그 threat 2 · 레이더 · 네임드 threat ≥ 2),
+  퀘스트 없는 NPC, 중복 id, 채굴 해금 퀘스트의 `rewardCredits > 0`.
+- **`crypto.csv`** — `unlockQuest` 가 NPC 퀘스트 id(`q_hx_permit` · `q_bs_permit` · `q_nm_permit` · `q_ce_permit`)로 바뀌었다. 옛 `hx_crypto` 등의 해금 기록은 이어지지 않는다.
+- **`tuning.csv`** — `NPC_LOG_MAX` 200 (NPC 한 명의 대화 사건 수) · `NPC_OFFER_CHECK_S` 5 (함선에서 연락 · 제안 조건을 다시 보는 간격).
+- ⚠ 퀘스트 크레딧 보상을 고치면 `npm run data:check -- --write` 로 `server/economy.gen.json` 을 다시 굽는다 (릴레이가 `quest:<id>` 금액을 표로 검사한다).

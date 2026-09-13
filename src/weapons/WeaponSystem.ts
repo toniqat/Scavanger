@@ -9,6 +9,7 @@ import {
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
+import { withLocalGunHit } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
@@ -686,7 +687,11 @@ export class WeaponSystem implements GameSystem {
   updateDetonator(dt: number, host: Host, inputFree: boolean): void { return Quick.updateDetonator(this, dt, host, inputFree); }
 
   /** Returns true if the hit killed an enemy. */
-  applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean, ammoType?: string): boolean { return Fire.applyHit(this, h, damage, dir, light, ammoType); }
+  applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean, ammoType?: string): boolean {
+    /* 2026-09-14 (NPC 퀘스트 「그 계열 총기로 처치」): 총알 한 발의 피해 구간을 지금 손에 든 총의 계열로 표시한다 — enemies 가
+       이 구간에 들어온 로컬 피해에만 계열을 적는다 (`shared/damageSource`). 수류탄 · 가젯 · 근접은 이 경로를 지나지 않는다. */
+    return withLocalGunHit(this.slots[this.active]?.stats.weaponClass ?? null, () => Fire.applyHit(this, h, damage, dir, light, ammoType));
+  }
 
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void { return Fire.onProjectileHit(this, h, damage, weaponId); }
 

@@ -433,10 +433,8 @@ try {
   await emit('meta:repChanged', { corp: 'helix', rep: 130, level: 1, delta: 30, levelUp: false });
   rep = await texts('.ptoast.rep');
   ok(rep.length === 1, 'rep gain without a level-up raises no toast', JSON.stringify(rep));
-  await emit('meta:questChanged', { id: 'h1', corp: 'helix', state: 'complete' });
-  await emit('meta:questChanged', { id: 'h2', corp: 'helix', state: 'accepted' });
-  let notifs = await texts('.notif');
-  ok(notifs.some((t) => t.includes('퀘스트') && t.includes('퀘스트 완료 · 고철 납품')) && !notifs.some((t) => t.includes('합금 납품')), 'meta:questChanged complete → 퀘스트 완료 · 고철 납품 (accepted stays silent)', JSON.stringify(notifs));
+  // 2026-09-14: 기업 퀘스트(`meta:questChanged`) 폐지 — NPC 퀘스트 토스트는 ui 의 메신저 · 지도 스모크가 본다
+  let notifs;
   await emit('meta:contractAccepted', { id: 'bastion_1', corp: 'bastion' });
   await emit('meta:purchase', { corp: 'helix', defId: 'ammo_light', price: 40, placed: 'stash' });
   await emit('meta:sale', { defId: 'gem_amber', qty: 2, credits: 130 });

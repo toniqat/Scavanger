@@ -1,11 +1,14 @@
 import type { GameContext, SquadInvite } from '@/shared';
 import {
-  COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX, formatPlayerCode, keyLabel,
+  COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, NPC_DEF_MAP, NPC_QUEST_MAP, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX,
+  formatPlayerCode, keyLabel,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { AskPopup } from '../menus/askPopup';
-import { SocialColumn } from '../menus/social/SocialColumn';
-import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../menus/social/socialSource';
+import { clip } from '../menus/messenger/format';
+import { Messenger, messengerUnreadTotal } from '../menus/messenger/Messenger';
+import type { SocialColumn } from '../menus/social/SocialColumn';
+import { socialOf } from '../menus/social/socialSource';
 import type { CutsceneWatch } from './CutsceneWatch';
 
 /**
@@ -16,37 +19,30 @@ import type { CutsceneWatch } from './CutsceneWatch';
 const STALE_KEY = '#';
 
 /**
- * 커뮤니티 icon + 분대 초대 stack (`.community`, social layer — the layer that stays visible in the ship), Phase 11.
+ * **메신저** 아이콘 + 패널 호스트 + 분대 초대 stack (`.community`, social layer — the layer that stays visible in the ship).
+ * Phase 11 의 커뮤니티 패널이 2026-09-14 **메신저**(`menus/messenger/Messenger` — 대화 · 친구 · 퀘스트)로 바뀌었다
+ * (docs/plans/messenger-quests.md). 이 클래스가 쥐는 것은 그대로다: 창 틀, blocker(`COMMUNITY_BLOCKER`), 소프트웨어 커서,
+ * Escape 스택, P 탭 토글 / P 홀드 초대 수락, 키 가이드. 패널 틀 안은 `Messenger` 가 짓는다.
  *
  * Ship only, exactly like `hud/ShipManageHint`: it self-gates on `ctx.isHubPhase()` every frame and never appears in
- * a raid (the ESC screen's social column is ship-only for the same reason). Top-right, above the `.cheat-tag` (whose
- * `top` shifts down in the hub so the two cannot overlap):
- *   - the **thumbnail** with the number of connected friends (`SocialRef.onlineFriends`) **inside its bottom-right**
- *     corner and a red dot at its **top-right** while a friend request is waiting (`SocialRef.hasNews`);
- *   - clicking it — or a **tap of `Keys.INVITE` (P)** — opens the 커뮤니티 panel, and the same tap closes it. Since
- *     2026-09-08 this is the game's **only** social surface (the ESC screen's column is gone) and Escape belongs to
- *     the 일시정지 메뉴, so P is both the open and the close key. It holds `COMMUNITY_BLOCKER` +
- *     `setCursorMode(true, COMMUNITY_BLOCKER)` and emits `ui:communityToggled`;
+ * a raid (사용자 결정 2026-09-14: 메신저는 함선 전용 — 레이드 중에는 채팅창 개인 대화와 지도 퀘스트 패널만). Top-right:
+ *   - the **thumbnail** with the number of connected friends (`SocialRef.onlineFriends`) inside its bottom-right corner
+ *     and, at its **top-right**, a red **count badge** (`.cm-dot.has-num`) = `messengerUnreadTotal` — NPC · 개인 대화 ·
+ *     단체방 읽지 않음 + 받은 방 초대 + 받은 친구 요청 (2026-09-14; it was a plain red dot for a friend request);
+ *   - clicking it — or a **tap of `Keys.INVITE` (P)** — opens the panel, and the same tap closes it. It holds
+ *     `COMMUNITY_BLOCKER` + `setCursorMode(true, COMMUNITY_BLOCKER)` and emits `ui:communityToggled` **and**
+ *     `ui:messengerToggled`;
  *   - **분대 초대 panels** stack *under* the thumbnail (at most `SQUAD_INVITE_MAX`, newest on top) with a
  *     `Keys.INVITE` (P) hold gauge — `SQUAD_INVITE_HOLD_S` of holding the key in the ship with no other blocker up
- *     calls `social.acceptInvite(from)`. Expiry / acceptance simply removes the invite from `SocialRef.invites`.
+ *     calls `social.acceptInvite(from)`.
  *
- * Counts, the red dot and the invite list are polled once per frame from the mirror and compared before any DOM is
- * written; with no relay the thumbnail still shows (count 0, no dot) and the panel carries the one
- * `소셜 기능을 사용할 수 없습니다` line.
+ * `ui:openMessenger {tab, npc, code, room}` opens the panel onto that target (ignored outside the ship / in a cutscene /
+ * while the tutorial hides the button). A new NPC message (`npc:message` intro · offer) toasts while the panel is closed.
  *
- * **Phase 12:** hidden for the length of a docking / warp cutscene (`CutsceneWatch` — `hub:docking` / `hub:travel`
- * start → end, phase `'docking'`, `ctx.hub.travelling`); the phase check alone missed the warp, whose phase stays
- * `'hub'`. The open panel closes when a cutscene starts.
- *
- * **2026-09-09:** **Tab (`Keys.INVENTORY`) closes the panel too** (consumed so the inventory does not open — its own
- * guard already refuses while `COMMUNITY_BLOCKER` is up), and the open panel emits `ui:keyGuide {owner:'community'}`
- * (`우클릭 메뉴` · `P 닫기`; re-emitted on `input:bindingsChanged`, `null` on close) for the bottom-right 키 가이드,
- * which appends `Tab 닫기` itself.
- *
- * **2026-09-11 (B-3 · B-4):** an invite card's × is a real 거절 (`SocialRef.declineInvite` → the inviter is told); the
- * panel head has a `차단 목록 n` button that opens the column's blocked page; while open, `update` ticks the column's
- * `초대 중` countdown badges. Closing the panel closes any page (대화 기록 · 차단 목록) with it.
+ * **Phase 12:** hidden for the length of a docking / warp cutscene (`CutsceneWatch`). The open panel closes when a
+ * cutscene starts. **2026-09-09:** Tab (`Keys.INVENTORY`) closes the panel too (consumed), and the open panel emits
+ * `ui:keyGuide {owner:'community'}` (`우클릭 메뉴` · `P 닫기`). **2026-09-11 (B-3 · B-4):** an invite card's × is a real
+ * 거절; the panel head's `차단 목록 n` opens the 친구 tab's blocked page.
  */
 export class Community {
   readonly root: HTMLElement;
@@ -55,14 +51,14 @@ export class Community {
   private dot: HTMLElement;
   private inviteWrap: HTMLElement;
   private panel!: HTMLElement;
-  private panelCode!: HTMLElement;
-  private column!: SocialColumn;
+  private messengerView!: Messenger;
   private ctx!: GameContext;
   private unsubs: Array<() => void> = [];
   private shown = false;
   private _open = false;
   private lastCount = -1;
-  private lastNews = false;
+  private lastUnread = -1;
+  private unreadAcc = 1;
   private inviteKey = '';
   private cards: { from: string; root: HTMLElement; fill: HTMLElement }[] = [];
   private held = 0;
@@ -71,8 +67,6 @@ export class Community {
   /** 2026-09-08: P tap = panel, P hold = invite. `pHeld` is the whole press; `pAccepted` blocks the tap after one. */
   private pAccepted = false;
   private pHeld = 0;
-  private closeBtn: HTMLElement | null = null;
-  private blockedBtn!: HTMLButtonElement;
   private lastBlockedLabel = '#';   // never a real label: the first open always writes the button
 
   /* 2026-09-09 — 분대장 넘기기: 분대원 행의 우클릭 메뉴 + 확인 팝업. 내가 호스트일 때만 열린다. */
@@ -88,11 +82,11 @@ export class Community {
   constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null) {
     this.root = el('div', { cls: 'community', parent });
     this.btn = el('button', { cls: 'cm-btn interactive', parent: this.root });
-    this.btn.title = '커뮤니티';
-    el('span', { cls: 'cm-glyph', text: '⛬', parent: this.btn });
-    el('span', { cls: 'cm-tag', text: '커뮤니티', parent: this.btn });
+    this.btn.title = '메신저';
+    el('span', { cls: 'cm-glyph', text: '✉', parent: this.btn });
+    el('span', { cls: 'cm-tag', text: '메신저', parent: this.btn });
     this.countEl = el('span', { cls: 'cm-count ui-mono', text: '0', parent: this.btn });
-    this.dot = el('i', { cls: 'cm-dot', parent: this.btn });
+    this.dot = el('i', { cls: 'cm-dot has-num ui-mono', parent: this.btn });
     this.dot.hidden = true;
     this.inviteWrap = el('div', { cls: 'cm-invites', parent: this.root });
     this.btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
@@ -101,30 +95,17 @@ export class Community {
   bind(ctx: GameContext): void {
     this.ctx = ctx;
     /* The panel is a direct child of `#ui-root` so it is never hidden by the social layer's own gating. */
-    this.panel = el('div', { cls: 'community-panel interactive', parent: ctx.uiRoot });
+    this.panel = el('div', { cls: 'community-panel ms-panel interactive', parent: ctx.uiRoot });
     this.panel.hidden = true;
     const frame = el('div', { cls: 'cp-frame', parent: this.panel });
-    const head = el('div', { cls: 'cp-head', parent: frame });
-    el('div', { cls: 'cp-title', text: '커뮤니티', parent: head });
-    this.panelCode = el('div', { cls: 'cp-code ui-mono', text: '', parent: head });
-    /* 2026-09-11 (B-4): 차단 목록 page (해제 가능) — only while the mirror is available (`update` keeps the label). */
-    this.blockedBtn = el('button', { cls: 'ui-btn small cp-blocked', text: '차단 목록', parent: head }) as HTMLButtonElement;
-    this.blockedBtn.addEventListener('click', (e) => { e.stopPropagation(); this.column.openBlocked(); });
-    const close = el('button', { cls: 'ui-btn small cp-close', text: `닫기 (${keyLabel(Keys.INVITE)})`, parent: head });
-    close.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
-    this.closeBtn = close;
-    this.column = new SocialColumn(frame, {
-      squad: true,
-      onWhisper: (code, name) => { this.close(); ctx.bus.emit('chat:whisperTo', { code, name }); },
-      onRequestClose: () => this.close(),
-    });
-    this.column.bind(ctx);
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
+    this.messengerView = new Messenger(frame, { close: () => self.close(), get isOpen() { return self._open; } });
+    this.messengerView.bind(ctx);
     this.panel.addEventListener('mousedown', (e) => e.stopPropagation());
     /*
-     * 2026-09-09 — **분대장 넘기기**. 분대원 행(`.sc-srow[data-peer-id]`, `menus/social/SocialColumn` 이 그린다)을
-     * 우클릭하면 메뉴가 뜬다. 내가 호스트가 아니거나 나 자신을 눌렀으면 아무것도 열지 않는다 (규칙은 서버와
-     * 같다: 호스트만, 같은 로비의 연결된 멤버에게만). 확정은 되돌릴 수 없는 일이 아니지만 실수 방지를 위해
-     * `menus/askPopup` 의 확인 팝업을 한 번 거치고, 초기 포커스는 그 팝업의 규약대로 **취소** 쪽이다.
+     * 2026-09-09 — **분대장 넘기기**. 친구 탭의 분대원 행(`.sc-srow[data-peer-id]`, `menus/social/SocialColumn` 이 그린다)을
+     * 우클릭하면 메뉴가 뜬다. 내가 호스트가 아니거나 나 자신을 눌렀으면 아무것도 열지 않는다 (규칙은 서버와 같다).
      */
     this.panel.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -143,23 +124,30 @@ export class Community {
     this.leadMenu.addEventListener('contextmenu', (e) => e.preventDefault());
     this.ask = new AskPopup(ctx.uiRoot);
     this.ask.bind(ctx);
-    /*
-     * `title.css` 의 `.tm-ask` 는 타이틀 화면 **안**에 놓이려고 `position:absolute; z-index:5` 다. 여기서는
-     * `#ui-root` 의 직계 자식이라 커뮤니티 패널(과 그 위의 우클릭 메뉴) 밑으로 깔린다 — 이 인스턴스에만
-     * 인라인으로 못을 박는다 (`.sc-confirm` 이 쓰는 302 보다 위).
-     */
     this.ask.root.style.position = 'fixed';
     this.ask.root.style.zIndex = '320';
     window.addEventListener('mousedown', this.onDocDownLead, true);
 
     this.unsubs.push(
-      ctx.bus.on('social:updated', () => { this.inviteKey = STALE_KEY; }),
+      ctx.bus.on('social:updated', () => { this.inviteKey = STALE_KEY; this.unreadAcc = 1; }),
       ctx.bus.on('social:invited', () => { this.inviteKey = STALE_KEY; }),
       ctx.bus.on('social:inviteClosed', () => { this.inviteKey = STALE_KEY; this.held = 0; }),
       // The 닫기 label and the invite hint both name the live `Keys.INVITE` — never cache a key label.
-      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = STALE_KEY; this.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
+      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = STALE_KEY; this.messengerView.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
       ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); }),
       ctx.bus.on('game:newMission', () => { if (this._open) this.close(); }),
+      /* 2026-09-14: 메신저 */
+      ctx.bus.on('npc:unreadChanged', () => { this.unreadAcc = 1; }),
+      ctx.bus.on('social:unreadChanged', () => { this.unreadAcc = 1; }),
+      ctx.bus.on('room:unreadChanged', () => { this.unreadAcc = 1; }),
+      ctx.bus.on('room:updated', () => { this.unreadAcc = 1; }),
+      ctx.bus.on('npc:message', ({ npc, entry }) => this.toastNpc(npc, entry.e, entry.q)),
+      ctx.bus.on('ui:openMessenger', (t) => {
+        const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
+        if (!ctx.isHubPhase() || cutscene || (ctx.tutorial?.hides('community') ?? false)) return;
+        this.open();
+        this.messengerView.openTarget(t);
+      }),
     );
   }
 
@@ -169,15 +157,19 @@ export class Community {
   get inviteCount(): number { return this.cards.length; }
   /** 0..1 of the P hold on the newest invite (debug). */
   get holdProgress(): number { return Math.min(1, this.held / SQUAD_INVITE_HOLD_S); }
-  /** The panel's social column (debug). */
-  get socialColumn(): SocialColumn { return this.column; }
+  /** The 친구 tab's social column (debug). */
+  get socialColumn(): SocialColumn { return this.messengerView.column; }
+  /** The messenger body (debug / smoke). */
+  get messenger(): Messenger { return this.messengerView; }
+  /** The number on the thumbnail's badge (debug / smoke). */
+  get unreadBadge(): number { return Math.max(0, this.lastUnread); }
 
   update(dt: number, ctx: GameContext): void {
     // Visible in the ship whenever nothing else owns the screen — our own panel does not count.
     const blockers = ctx.uiBlockers;
     const free = blockers.size === 0 || (blockers.size === 1 && blockers.has(COMMUNITY_BLOCKER));
     const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
-    // 2026-09-08: 튜토리얼이 도는 동안에는 우측 상단 커뮤니티 버튼을 감춘다 (안내 밖으로 새지 않게)
+    // 2026-09-08: 튜토리얼이 도는 동안에는 우측 상단 버튼을 감춘다 (안내 밖으로 새지 않게)
     const tutorial = ctx.tutorial?.hides('community') ?? false;
     const on = ctx.isHubPhase() && free && !cutscene && !tutorial;
     if (tutorial && this._open) this.close();
@@ -197,39 +189,43 @@ export class Community {
     const social = socialOf(ctx);
     const count = social?.available ? social.onlineFriends : 0;
     if (count !== this.lastCount) { this.lastCount = count; setText(this.countEl, String(count)); }
-    const news = !!social?.available && social.hasNews;
-    if (news !== this.lastNews) { this.lastNews = news; this.dot.hidden = !news; }
+    this.unreadAcc += dt;
+    if (this.unreadAcc >= 0.25) {
+      this.unreadAcc = 0;
+      const n = messengerUnreadTotal(ctx);
+      if (n !== this.lastUnread) {
+        this.lastUnread = n;
+        this.dot.hidden = n <= 0;
+        setText(this.dot, n > 99 ? '99+' : String(n));
+      }
+    }
 
     const invites = (social?.available ? social.invites : []).slice(-SQUAD_INVITE_MAX);
     const key = invites.map((v) => `${v.from}|${v.name}|${v.id ?? ''}`).join(',');
     if (key !== this.inviteKey) { this.inviteKey = key; this.rebuildInvites(invites); }
     if (this._open) {
-      // 2026-09-11 (B-3 · B-4): the `초대 중` countdown badges, and the head's 차단 목록 count.
-      this.column.tick();
+      this.messengerView.update(dt);
       const n = social?.available ? social.blocked.length : -1;
       const label = n < 0 ? '' : n > 0 ? `차단 목록 ${n}` : '차단 목록';
       if (label !== this.lastBlockedLabel) {
         this.lastBlockedLabel = label;
-        this.blockedBtn.hidden = n < 0;
-        if (label) setText(this.blockedBtn, label);
+        this.messengerView.blockedBtn.hidden = n < 0;
+        if (label) setText(this.messengerView.blockedBtn, label);
       }
     }
 
     /*
-     * P (`Keys.INVITE`) — **tap = 커뮤니티 패널, hold = 분대 초대 수락** (2026-09-08).
-     *
-     * The panel used to close on Escape; Escape is the 일시정지 메뉴 now, so P became both the open and the close
-     * key. The invite hold it already carried keeps priority: the toggle fires on *release*, and only when the press
-     * stayed inside `COMMUNITY_TAP_MAX_S` — a longer press was an invite hold the player abandoned, and must not
-     * open a panel as a consolation prize. With no invite on screen there is nothing to hold for, so any release
-     * toggles and the key stays forgiving.
+     * P (`Keys.INVITE`) — **tap = 메신저 패널, hold = 분대 초대 수락** (2026-09-08). The toggle fires on *release*, and only
+     * when the press stayed inside `COMMUNITY_TAP_MAX_S` — a longer press was an invite hold the player abandoned. With no
+     * invite on screen any release toggles. Typing a `p` into a messenger text field never reaches here: the field stops
+     * the key's propagation (`menus/messenger/textInput`).
      */
     if (ctx.input.wasPressed(Keys.INVITE)) { this.pHeld = 0; this.pAccepted = false; }
     const down = ctx.input.isDown(Keys.INVITE);
-    if (down) this.pHeld += dt;                       // the whole press, whether or not it can accept anything
+    if (down) this.pHeld += dt;
     const canHold = this.shown && blockers.size === 0 && this.cards.length > 0;
     const holding = canHold && down;
-    this.held = holding ? this.held + dt : 0;         // the gauge, which only runs while an invite can be accepted
+    this.held = holding ? this.held + dt : 0;
     if (holding && this.held >= SQUAD_INVITE_HOLD_S) {
       const from = this.cards[0].from;
       this.held = 0;
@@ -237,16 +233,21 @@ export class Community {
       social?.acceptInvite(from);
       this.inviteKey = STALE_KEY;
     }
-    // `free` above already ignores our own blocker, so the panel can close itself; a 일시정지 메뉴 / 인벤토리 on
-    // top of it clears `free` and P goes quiet. A press held past the tap window was aimed at an invite, so an
-    // abandoned hold must not also open the panel.
     if (ctx.input.wasReleased(Keys.INVITE) && !this.pAccepted && free && (this.shown || this._open)
       && (this.cards.length === 0 || this.pHeld <= COMMUNITY_TAP_MAX_S)) this.toggle();
     this.applyHold();
   }
 
-  private refreshKeyLabels(): void {
-    if (this.closeBtn) setText(this.closeBtn, `닫기 (${keyLabel(Keys.INVITE)})`);
+  /** 2026-09-14: a new NPC message while the panel is closed (ship only) — one toast, no click action. */
+  private toastNpc(npcId: string, e: string, questId?: string): void {
+    const ctx = this.ctx;
+    if (this._open || !ctx.isHubPhase()) return;
+    if (e !== 'intro' && e !== 'offer') return;
+    const def = NPC_DEF_MAP.get(npcId);
+    const name = def?.name ?? '알 수 없는 발신자';
+    const first = e === 'intro' ? def?.intro[0] : questId ? NPC_QUEST_MAP.get(questId)?.lines.offer[0] : undefined;
+    const tail = first ? ` — ${clip(first, 38)}` : '';
+    ctx.bus.emit('ui:notify', { text: `✉ ${name}${tail}`, kind: 'info', duration: 3.2 });
   }
 
   /* ── 분대장 넘기기 (2026-09-09) ───────────────────────────────────────── */
@@ -254,7 +255,6 @@ export class Community {
   private openLeadMenu(peerId: string, name: string, x: number, y: number): void {
     this.leadTarget = peerId;
     const items = el('div', { cls: 'sc-menu-items' });
-    // `.sc-mi .w` 는 붉은 "못 하는 이유" 칸이므로 이름은 라벨 안에 넣는다.
     const b = el('button', { cls: 'sc-mi', parent: items });
     el('span', { cls: 'l', text: `분대장 넘기기 → ${name}`, parent: b });
     b.addEventListener('click', (e) => {
@@ -316,7 +316,6 @@ export class Community {
       el('span', { cls: 'ci-id ui-mono', text: formatPlayerCode(inv.from), parent: top });
       const x = el('button', { cls: 'ci-x', text: '×', parent: top });
       x.title = '초대 거절';
-      // 2026-09-11 (B-3): × is a real 거절 now — the inviter is told (`social:inviteReply {accept:false}`).
       x.addEventListener('click', (e) => { e.stopPropagation(); socialOf(this.ctx)?.declineInvite(inv.from); this.inviteKey = STALE_KEY; });
       el('div', { cls: 'ci-name', text: `${inv.name || '분대원'} 분대 초대`, parent: card });
       el('div', { cls: 'ci-hint', text: `${keyLabel(Keys.INVITE)} 홀드로 참여`, parent: card });
@@ -338,14 +337,11 @@ export class Community {
     // Phase 10 cursor rules: keep the pointer lock, hand UI input to the software cursor.
     ctx.escape.push(COMMUNITY_BLOCKER, () => this.close());
     ctx.input.setCursorMode(true, COMMUNITY_BLOCKER);
-    const social = socialOf(ctx);
-    social?.refresh();
-    setText(this.panelCode, social?.available && social.me
-      ? `내 아이디 ${formatPlayerCode(social.me.code)}`
-      : SOCIAL_UNAVAILABLE_KO);
-    this.column.refresh(true);
+    socialOf(ctx)?.refresh();
+    this.messengerView.onOpen();
     this.emitGuide();
     ctx.bus.emit('ui:communityToggled', { open: true });
+    ctx.bus.emit('ui:messengerToggled', { open: true });
     ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
@@ -354,8 +350,7 @@ export class Community {
     const ctx = this.ctx;
     this._open = false;
     this.panel.hidden = true;
-    this.column.contextMenu?.close();
-    this.column.closePage();
+    this.messengerView.onClose();
     this.closeLeadMenu();
     this.ask.close();
     ctx.uiBlockers.delete(COMMUNITY_BLOCKER);
@@ -363,6 +358,8 @@ export class Community {
     ctx.input.setCursorMode(false, COMMUNITY_BLOCKER);
     ctx.bus.emit('ui:keyGuide', { owner: 'community', keys: null });
     ctx.bus.emit('ui:communityToggled', { open: false });
+    ctx.bus.emit('ui:messengerToggled', { open: false });
+    this.unreadAcc = 1;
   }
 
   dispose(): void {
@@ -378,7 +375,7 @@ export class Community {
       this.ctx?.escape.remove(COMMUNITY_BLOCKER);
       this.ctx?.input.setCursorMode(false, COMMUNITY_BLOCKER);
     }
-    this.column?.dispose();
+    this.messengerView?.dispose();
     this.panel?.remove();
     this.root.remove();
   }

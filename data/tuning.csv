@@ -72,6 +72,8 @@ SHOP_BAG_RARITY_BONUS,1,가방은 등급 상한을 이만큼 더 받는다
 SELL_PRICE_MUL,0.5,판매가 = value × 이 값
 CONTRACT_SQUAD_SHARE,0.25,같은 기업 계약 중인 분대원의 행동이 내 진행에 주는 비율
 CONTRACT_MAX_ACTIVE,1,동시에 받을 수 있는 계약 수
+NPC_LOG_MAX,200,NPC 한 명과의 대화 기록에 남기는 사건 수 (2026-09-14 메신저 — 넘치면 오래된 것부터 지운다)
+NPC_OFFER_CHECK_S,5,함선에 있는 동안 NPC 첫 연락 · 퀘스트 제안 조건을 다시 보는 간격(초)
 IMPLANT_REPAIR_FEE,150,세레스 바이오 임플란트 수리 기본 수수료 (등급 배수는 코드)
 
 # housing — 방 용도 증축

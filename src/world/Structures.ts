@@ -570,6 +570,9 @@ export class Structures {
     const ctx = this.game;
     if (!ctx || inst.def.scanned) return;
     const net = ctx.net;
+    /* 2026-09-14 (NPC 퀘스트 interact): 「내가 스캐너를 작동했다」. 호스트의 `struct scanned` 에는 누가 돌렸는지가 없어서
+       클라이언트는 **요청하는 순간** 낸다 — 이미 스캔된 스캐너는 위 가드가 막으므로 거절되는 경우는 같은 틱의 경합뿐이다. */
+    ctx.bus.emit('world:interacted', { kind: 'scanner', id: inst.def.id, structureKind: inst.def.kind });
     if (ctx.isMultiplayer && net && !net.isHost) { net.send({ t: 'structq', ev: 'scan', id: inst.def.id }, 'host'); return; }
     this.applyScan(inst, true);
     if (ctx.isMultiplayer && net) net.send({ t: 'struct', ev: 'scanned', id: inst.def.id }, 'others');
@@ -622,6 +625,8 @@ export class Structures {
       if (key) ctx.inventory?.consumeWhere((def) => def.id === key, 1);
       ctx.bus.emit('audio:play', { id: 'keycard_use', position: at });
       ctx.bus.emit('ui:notify', { text: DOOR_TEXT[inst.doorKind ?? 'basement'].done, kind: 'success', duration: 2.2 });
+      // 2026-09-14 (NPC 퀘스트 interact): 열쇠를 낸 사람 = 이 클라이언트 (호스트가 `by` 로 확정해 준 뒤)
+      ctx.bus.emit('world:interacted', { kind: inst.doorKind === 'locked' ? 'lab_door' : 'basement_door', id: inst.def.id, structureKind: inst.def.kind });
     }
     ctx.bus.emit('structure:unlocked', { id: inst.def.id, kind: inst.def.kind, by, position: at });
   }

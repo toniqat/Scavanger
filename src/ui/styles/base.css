@@ -804,16 +804,25 @@ input { font: inherit; color: inherit; }
 }
 .map-frame::before { left: -1px; top: -1px; border-right: none; border-bottom: none; }
 .map-frame::after { right: -1px; bottom: -1px; border-left: none; border-top: none; }
-.map-side { display: flex; flex-direction: column; gap: 18px; width: 240px; }
+/* 2026-09-14 (메신저 · NPC 퀘스트): 좌측 열 = 머리 → 퀘스트 패널 목록(`.mq-list`, styles/mapquests.css — 남는 높이 · 스크롤) →
+   범례(좌측 하단 고정, 2열) → 발밑 줄. 폭 240 → 280 px, 높이는 `MapScreen.fit` 이 캔버스 높이로 못 박는다 (`min-height: 0` 이 있어야
+   목록이 줄어든다). 목적지 선택 모드(`.is-rover`)는 범례 · 퀘스트를 숨기므로 발밑 줄이 바닥을 잡는다. */
+.map-side { display: flex; flex-direction: column; gap: 14px; width: 280px; min-height: 0; }
 .map-head { display: flex; flex-direction: column; gap: 6px; }
 .map-title { font-size: 22px; font-weight: 700; letter-spacing: 0.2em; line-height: 1; }
 .map-seed { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.12em; }
-.map-legend { display: flex; flex-direction: column; gap: 7px; padding-top: 14px; border-top: 1px solid var(--c-border); }
-.map-legend .ui-label { margin-bottom: 2px; }
+.map-legend {
+  margin-top: auto; flex: none;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px;
+  padding-top: 12px; border-top: 1px solid var(--c-border);
+}
+.map-legend .ui-label { grid-column: 1 / -1; margin-bottom: 2px; }
 /* 2026-09-13: 범례 견본은 CSS 모양이 아니라 캔버스다 (`.sw-cv`, `styles/rover.css` · `map/mapIcons`) — 옛 `.sw.*` 모양 규칙은 걷었다.
    좌하단 `초기화` 버튼 · 조작 안내 줄(`.map-hint`)도 없어졌다. */
-.map-legend-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--c-text-dim); }
-.map-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid var(--c-border); }
+.map-legend-row { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--c-text-dim); white-space: nowrap; }
+.map-legend-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.map-foot { flex: none; display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--c-border); }
+.map-side.is-rover .map-foot { margin-top: auto; }
 .map-zoom-row { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; }
 .map-canvas-wrap { position: relative; flex: none; }
 .map-canvas { display: block; background: #06080a; border: 1px solid var(--c-border-strong); cursor: grab; }

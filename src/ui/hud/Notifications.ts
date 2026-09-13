@@ -1,5 +1,8 @@
 import type { GameContext } from '@/shared';
-import { CONTRACT_DEFS, Keys, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
+import { CONTRACT_DEFS, Keys, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
+/* 2026-09-14 (메신저 · NPC 퀘스트): 목표 달성 · 보고 가능 · 완료 보상 토스트 — 옛 기업 퀘스트(`QUEST_DEFS`) 토스트는 없어졌다 */
+import type { NpcQuestDef } from '@/shared';
+import { CORP_DEFS, NPC_QUEST_MAP } from '@/shared';
 /* 2026-09-13 (요리 재료 티어): 분석 도감 · 분석 레벨업 토스트 */
 import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/shared';
 /* 2026-09-13 (요리 미니게임): 조리 결과 · 식탁 품질 토스트 */
@@ -318,10 +321,37 @@ export class Notifications {
         this.push(`전술 임플란트 장착: <b>${escapeHtml(name)}</b>`, 'info', '임플란트', 3);
       }),
       /* ── Phase 5: corporations (short lines; the credits chip / rep / contract toasts live in MetaToasts) ── */
-      b.on('meta:questChanged', ({ id, state }) => {
-        if (state !== 'complete') return;
-        const name = QUEST_DEFS.find((q) => q.id === id)?.name ?? id;
-        this.push(`퀘스트 완료 · <b>${escapeHtml(name)}</b>`, 'success', '퀘스트', 4);
+      /* ── 2026-09-14: NPC 퀘스트 (docs/plans/messenger-quests.md) — 옛 기업 퀘스트 완료 토스트(`meta:questChanged`)는 기업 퀘스트와 함께
+       * 없어졌다. 새 NPC 메시지(`npc:message`)는 메신저(ui/menus/messenger)가 띄운다. 훈련장에서는 아무것도 띄우지 않는다. ── */
+      b.on('npc:objectiveProgress', ({ questId, index, done, raid }) => {
+        if (!done || !raid || ctx.isTraining()) return;
+        const info = ctx.meta?.npc?.getQuest(questId) ?? null;
+        const name = info?.def.name ?? NPC_QUEST_MAP.get(questId)?.name ?? questId;
+        const label = info?.objectives.find((o) => o.def.index === index)?.label ?? '';
+        this.push(`퀘스트 목표 달성 — <b>${escapeHtml(name)}</b>${label ? `: ${escapeHtml(label)}` : ''}`, 'success', '퀘스트', 4);
+      }),
+      b.on('npc:questReady', ({ id }) => {
+        if (ctx.isTraining()) return;
+        const name = ctx.meta?.npc?.getQuest(id)?.def.name ?? NPC_QUEST_MAP.get(id)?.name ?? id;
+        this.push(`<b>${escapeHtml(name)}</b> — 함선에서 메신저로 완료 보고`, 'info', '퀘스트', 5);
+      }),
+      b.on('npc:questChanged', ({ id, state, prev }) => {
+        if (state !== 'complete' || prev === 'complete' || ctx.isTraining()) return;
+        const def: NpcQuestDef | undefined = ctx.meta?.npc?.getQuest(id)?.def ?? NPC_QUEST_MAP.get(id);
+        const r = def?.rewards;
+        const parts: string[] = [];
+        if (r) {
+          if (r.credits > 0) parts.push(`크레딧 ${formatCredits(r.credits, { sign: true })}`);
+          if (r.xp > 0) parts.push(`XP +${r.xp}`);
+          for (const rep of r.rep) parts.push(`${escapeHtml(CORP_DEFS[rep.corp]?.name ?? rep.corp)} 신뢰도 +${rep.amount}`);
+          for (const it of r.items) {
+            const d = ctx.loot?.getItemDef(it.defId);
+            const qty = it.qty > 1 ? ` ×${it.qty}` : '';
+            parts.push(`<b style="color:${rarityColor(d?.rarity ?? 'common')}">${escapeHtml(d?.name ?? it.defId)}</b>${qty}`);
+          }
+        }
+        const rw = parts.length ? ` <span style="color:var(--c-text-dim)">— ${parts.join(' · ')}</span>` : '';
+        this.push(`퀘스트 완료 · <b>${escapeHtml(def?.name ?? id)}</b>${rw}`, 'success', '퀘스트', 5);
       }),
       b.on('meta:contractAccepted', ({ id }) => {
         const name = CONTRACT_DEFS.find((c) => c.id === id)?.name ?? id;

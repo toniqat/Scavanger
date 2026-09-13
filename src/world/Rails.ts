@@ -438,6 +438,8 @@ export class Rails {
     const inst = this.tram;
     if (!ctx || !inst || inst.def.state === 'moving') return;
     const net = ctx.net;
+    // 2026-09-14 (NPC 퀘스트 interact): 전차 시동 — 클라이언트는 요청 순간(호스트의 `tram state` 에는 누가 걸었는지가 없다)
+    ctx.bus.emit('world:interacted', { kind: 'tram', id: inst.def.id });
     if (ctx.isMultiplayer && net && !net.isHost) { net.send({ t: 'tramq', ev: 'start', id: inst.def.id }, 'host'); return; }
     this.applyStart(net?.localId ?? null);
   }
@@ -477,6 +479,7 @@ export class Rails {
      * `tram_start` 는 전차 위치에서 나므로 반대편 승강장에서 부른 사람에게는 거리 감쇠로 들리지 않았다.
      * 클라이언트는 호스트의 답을 기다리지 않고 낙관적으로 울린다 (토스트와 같다 — 거절되면 출발음이 없을 뿐). */
     ctx.bus.emit('audio:play', { id: 'tram_call', position: at });
+    ctx.bus.emit('world:interacted', { kind: 'tram', id: inst.def.id });   // 2026-09-14: 전차 호출 (NPC 퀘스트 interact)
     const net = ctx.net;
     if (ctx.isMultiplayer && net && !net.isHost) {
       /* 와이어에는 목적지 칸이 없다 (`TramRequest` 는 계약이고 이 배치는 `src/shared` 를 건드리지 않는다).

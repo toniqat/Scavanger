@@ -74,3 +74,7 @@ export * from './crypto';
 export * from './cryptoMarket';
 /* appended (2026-09-13): 서재 시리즈 · 매체 효과 · 비디오게임 (docs/plans/library-series-games.md) */
 export * from './library';
+/* appended (2026-09-14): 메신저 NPC · NPC 퀘스트 (docs/plans/messenger-quests.md) */
+export * from './npc';
+/* appended (2026-09-14): 로컬 총기 피해 출처 — NPC 퀘스트 「그 계열 총기로 처치」 (weapons 가 감싸고 enemies 가 읽는다) */
+export * from './damageSource';

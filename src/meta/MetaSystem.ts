@@ -23,11 +23,18 @@ import * as Contract from './parts/Contracts';
 import * as Credits from './parts/Credits';
 import * as Desk from './parts/ImplantDesk';
 import * as Cmd from './parts/Console';
+/* 2026-09-14: 메신저 NPC 퀘스트 — `ctx.meta.npc` (docs/plans/messenger-quests.md) */
+import type { NpcQuestRef } from '@/shared';
+import { NpcQuests } from './parts/NpcQuests';
 
 export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
   ctx!: GameContext;
   store!: MetaStorage;
+  /** 2026-09-14: NPC 연락 · 대화 · 퀘스트 — 생성자는 ctx 를 건드리지 않는다 (`subscribe` 는 `init` 에서). */
+  readonly npcQuests: NpcQuests = new NpcQuests(this);
+  /** `MetaRef.npc` */
+  get npc(): NpcQuestRef { return this.npcQuests; }
   /** Embedded 기업 tabs handed out by `createCorpView` (their message timers tick with the system). */
   private readonly views = new Set<CorpView>();
   /** Corp the next 기업 tab opens on (`openCorpMenu(corp)`); the tab builds a fresh `CorpView` every time. */
@@ -146,14 +153,17 @@ export class MetaSystem implements GameSystem, MetaRef {
       b.on('inventory:quickSlotsChanged', () => this.trackItemCount()),
       b.on('game:phaseChanged', () => this.trackItemCount()),
     );
+    // 2026-09-14: NPC 퀘스트 — 위의 `net:profileLoaded` 구독 **뒤에** 붙어야 서버 문서를 받은 다음에 제안을 판정한다
+    this.unsubs.push(...this.npcQuests.subscribe());
     this.subscribeNet();
     b.emit('meta:loaded', { credits: this.store.data.credits });
   }
 
-  update(_dt: number, ctx: GameContext): void {
+  update(dt: number, ctx: GameContext): void {
     if (!this.consoleRegistered && ctx.console?.enabled) { this.consoleRegistered = true; this.registerConsole(); }
     if (!this.unsubNet) this.subscribeNet();
     for (const v of this.views) v.update();
+    this.npcQuests.update(dt);
   }
 
   dispose(): void {
@@ -404,10 +414,15 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   reportContractHit(goal: ContractGoalKind, amount: number, local: boolean): void { return Contract.reportContractHit(this, goal, amount, local); }
 
-  settleMission(stats: MissionStats): ContractSettlement | null { return Contract.settleMission(this, stats); }
+  settleMission(stats: MissionStats): ContractSettlement | null {
+    // 2026-09-14: NPC 퀘스트 회수 목표를 먼저 — 가방이 아직 레이드에서 가져온 그대로다
+    try { this.npcQuests.settleRaid(stats); } catch (e) { console.error('[meta] npc quest settlement failed', e); }
+    return Contract.settleMission(this, stats);
+  }
 
   /* ── MetaRef: quests ────────────────────────────────────────────────────── */
-  getQuestState(id: string): QuestState { return Contract.getQuestState(this, id); }
+  /** 2026-09-14: NPC 퀘스트 상태를 옛 `QuestState` 로 (기업 퀘스트는 없어졌다 — housing 채굴 해금 게이트가 읽는다). */
+  getQuestState(id: string): QuestState { return this.npcQuests.questState(id); }
 
   questInfo(def: typeof QUEST_DEFS[number]): QuestInfo { return Contract.questInfo(this, def); }
 
@@ -476,6 +491,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.store.reset();
     this.progressAtStart = 0;
     this.questBlocked.clear();
+    this.npcQuests.reset();
     const b = this.ctx.bus;
     b.emit('meta:loaded', { credits: this.store.data.credits });
     if (this.store.data.credits !== before) b.emit('meta:creditsChanged', { credits: this.store.data.credits, delta: this.store.data.credits - before, reason: 'reset' });

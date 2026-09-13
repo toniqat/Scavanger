@@ -235,32 +235,21 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   return settlement;
   }
 
-/* ── MetaRef: quests ────────────────────────────────────────────────────── */
-export function getQuestState(sys: MetaSystem, id: string): QuestState {
-  const def = QUEST_DEFS.find((d) => d.id === id);
-  if (!def) return 'locked';
-  return questStateOf(def, sys.store.corp(def.corp).quests[id], sys.level(def.corp), (q) => sys.getQuestState(q));
-  }
-
+/* ── MetaRef: quests ────────────────────────────────────────────────────────
+ * 2026-09-14: 기업 퀘스트 폐지 (docs/plans/messenger-quests.md) — 퀘스트는 NPC 가 메신저로 준다 (`parts/NpcQuests.ts`,
+ * `ctx.meta.npc`). 옛 API 는 계약이라 남기되 기업 퀘스트 표(`QUEST_DEFS`)가 비어 있으므로 빈 목록 · false 다.
+ * `getQuestState` 는 `MetaSystem` 이 NPC 퀘스트로 답한다. */
 export function questInfo(sys: MetaSystem, def: typeof QUEST_DEFS[number]): QuestInfo {
-  const state = sys.getQuestState(def.id);
   const deliver = def.deliver.map((d) => ({ defId: d.defId, qty: d.qty, have: sys.countAll(d.defId) }));
-  const blocked = questBlockReason(state, deliver, sys.inShip) ?? sys.questBlocked.get(def.id) ?? null;
-  return { def, state, deliver, blocked };
+  return { def, state: 'locked', deliver, blocked: REASON.locked };
   }
 
-export function getQuests(sys: MetaSystem, corp: CorpId): QuestInfo[] {
-  return QUEST_DEFS.filter((d) => d.corp === corp).map((d) => sys.questInfo(d));
+export function getQuests(_sys: MetaSystem, _corp: CorpId): QuestInfo[] {
+  return [];
   }
 
-export function acceptQuest(sys: MetaSystem, id: string): boolean {
-  const def = QUEST_DEFS.find((d) => d.id === id);
-  if (!def || !sys.inShip) return false;
-  if (sys.getQuestState(id) !== 'available') return false;
-  sys.store.corp(def.corp).quests[id] = 'accepted';
-  sys.store.markDirty();
-  sys.ctx.bus.emit('meta:questChanged', { id, corp: def.corp, state: 'accepted' });
-  return true;
+export function acceptQuest(_sys: MetaSystem, _id: string): boolean {
+  return false;
   }
 
 /**
@@ -270,7 +259,7 @@ export function acceptQuest(sys: MetaSystem, id: string): boolean {
  * saves now (`InventoryRef.flushSaves`), meta flushes its own, and the queued documents are joined with
  * `ProfileRef.setMany` (it skips a key whose document did not change). Offline the same transaction waits in the queue.
  */
-function commitQuestTx(sys: MetaSystem): void {
+export function commitQuestTx(sys: MetaSystem): void {
   const p = sys.profileRef();
   try { sys.ctx.inventory?.flushSaves?.(); } catch { /* inventory not ready */ }
   sys.save();
@@ -282,51 +271,7 @@ function commitQuestTx(sys: MetaSystem): void {
   } catch { /* net not ready */ }
   }
 
-export function completeQuest(sys: MetaSystem, id: string): boolean {
-  const def = QUEST_DEFS.find((d) => d.id === id);
-  if (!def || !sys.inShip) return false;
-  if (sys.getQuestState(id) !== 'accepted') return false;
-  const inv = sys.ctx.inventory;
-  const loot = sys.ctx.loot;
-  if (!inv || !loot) return false;
-  for (const d of def.deliver) if (sys.countAll(d.defId) < d.qty) { sys.questBlocked.set(id, REASON.missing); return false; }
-
-  // rewards first: nothing is consumed unless every reward item found a home (bag, else stash)
-  const placed: ItemInstance[] = [];
-  for (const r of def.rewards.items ?? []) {
-    const remaining = Math.max(1, Math.floor(r.qty));
-    const rdef = loot.getItemDef(r.defId);
-    if (!rdef) continue;   // unknown reward id: skip rather than block the chain
-    const per = Math.max(1, rdef.stackMax);
-    let left = remaining;
-    while (left > 0) {
-      const n = Math.min(per, left);
-      const item = loot.createItem(r.defId, n);
-      if (!sys.addAnywhere(item)) {
-        for (const p of placed) sys.takeBack(p.uid);
-        sys.questBlocked.set(id, REASON.space);
-        return false;
-      }
-      placed.push(item);
-      left -= n;
-    }
-  }
-  for (const d of def.deliver) {
-    const ok = typeof inv.consumeDefAll === 'function' ? inv.consumeDefAll(d.defId, d.qty) : inv.consumeWhere((x) => x.id === d.defId, d.qty) >= d.qty;
-    if (!ok) console.warn(`[meta] quest ${id}: delivery of ${d.defId} ×${d.qty} could not be consumed fully`);
-  }
-  sys.questBlocked.delete(id);
-  sys.store.corp(def.corp).quests[id] = 'complete';
-  sys.store.data.stats.questsDone += 1;
-  if (def.rewards.credits) {
-    sys.addCredits(def.rewards.credits, formatCreditReason({ kind: 'quest', id }));   // E-4: = quests.csv reward, once per quest (relay ledger)
-    sys.store.data.stats.creditsEarned += def.rewards.credits;
-  }
-  if (def.rewards.rep) sys.addRep(def.corp, def.rewards.rep, `quest:${id}`);
-  const prog = sys.ctx.progression;
-  if (def.rewards.xp > 0 && prog && typeof prog.addXp === 'function') { try { prog.addXp(def.rewards.xp); } catch { /* progression not ready */ } }
-  sys.store.markDirty();
-  commitQuestTx(sys);
-  sys.ctx.bus.emit('meta:questChanged', { id, corp: def.corp, state: 'complete' });
-  return true;
+/** 2026-09-14: 기업 퀘스트 폐지 — 늘 false. NPC 퀘스트의 보고는 `ctx.meta.npc.report(id)`. */
+export function completeQuest(_sys: MetaSystem, _id: string): boolean {
+  return false;
   }

@@ -157,24 +157,25 @@ try {
   await waitSim(0.25);
   ok(!(await menu()).open && await P(() => window.__game.ctx.meta.isMenuOpen), 'Escape closes the menu, the 기업 window stays open');
 
-  // a chip built after the flip asks the source: quest reward / delivery chips of a favorite def
-  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]').click());
+  // a chip built after the flip asks the source: the item-recovery contract row's chip of a favorite def
+  // (2026-09-14: 기업 퀘스트 탭이 없어졌다 — 같은 검사를 계약 탭의 아이템 회수 칩으로 옮겼다)
+  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   await waitSim(0.1);
   const questChip = await P(() => {
-    const chips = [...document.querySelectorAll('.cq-deliver .item-chip[data-def-id], .cq-rewards .item-chip[data-def-id]')];
+    const chips = [...document.querySelectorAll('.cc-list .cc-item .item-chip[data-def-id]')];
     return chips.map((c) => c.dataset.defId)[0] ?? null;
   });
   if (questChip) {
     await P((id) => window.__game.ctx.inventory.toggleFavorite(id, true), questChip);
     await P((v) => eval(v).refresh(), view);
-    ok(await P((id) => document.querySelector(`.cq-col.detail .item-chip[data-def-id="${id}"]`)?.classList.contains('is-favorite') === true, questChip),
-      `rebuilt quest chip (${questChip}) comes out with .is-favorite`);
-    await rightClick(`.cq-col.detail .item-chip[data-def-id="${questChip}"]`);
+    ok(await P((id) => document.querySelector(`.cc-list .cc-item .item-chip[data-def-id="${id}"]`)?.classList.contains('is-favorite') === true, questChip),
+      `rebuilt contract chip (${questChip}) comes out with .is-favorite`);
+    await rightClick(`.cc-list .cc-item .item-chip[data-def-id="${questChip}"]`);
     m = await menu();
-    ok(m.open && m.label === '즐겨찾기 끄기', 'quest chip takes the menu (끄기)', JSON.stringify(m));
+    ok(m.open && m.label === '즐겨찾기 끄기', 'contract chip takes the menu (끄기)', JSON.stringify(m));
     await P(() => document.querySelector('.icm .icm-item').click());
-    ok(!(await isFav(questChip)), 'quest chip menu turned it off');
-  } else ok(false, 'ceres quest page has an item chip');
+    ok(!(await isFav(questChip)), 'contract chip menu turned it off');
+  } else ok(false, 'ceres contract page has an item-recovery chip');
 
   /* ── ② shop tile ──────────────────────────────────────────────────────── */
   console.log('shop tiles');

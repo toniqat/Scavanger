@@ -47,6 +47,13 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-14 메신저 · NPC 퀘스트 · 단체방 · 개인 대화 (`src/shared/{npc,damageSource}.ts` 신규 · `src/shared/{meta,social,net,events,crypto,constants,index}.ts` **추가만** ·
+  `data/{npcs,npc_quests,npc_objectives}.csv` 신규 · `data/quests.csv` 삭제 · `src/{meta,net,ui,enemies,weapons,world}` · `server/{Rooms.ts,RelayServer.ts,Store.ts,selftest.ts}` ·
+  `smoke-npc-quests` · `smoke-messenger` · `smoke-rooms` · `smoke-map-quests` 신규 — 서브 에이전트 5개. 5273 vite · 8787 릴레이가 다른 세션의 워크트리 것이라 전용 vite 5316 + `--keep-relay` 로 돌렸다):
+  - `node scripts/verify.mjs --url http://localhost:5316/ --keep-relay --no-e2e --build` (11 min 52 s, 변경 폴더 전체) — 1 failed: `smoke-humanoid-ai` 38/39
+    (레이더 우회조 `roguePhase 4 = rush hint 7` — 총기 밸런스 묶음의 verify:all 에서도 부하 중 같은 검사가 흔들렸다). `--only` 재실행 39/39.
+  - 다른 세션의 서버가 내려간 뒤 `--only e2e-mp` (릴레이 재시작) — net-selftest 568/568, data-check ok, e2e-mp 175/175.
+  - docs line: 2026-09-14: typecheck ok, typecheck-server ok, net-selftest 568/568, data-check ok, build 3,994.01 kB JS / 410.32 kB CSS, smoke-meta 178/178, smoke-npc-quests 66/66, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-humanoid-ai 38/39 (재실행 39/39), smoke-mining 64/64, smoke-mining-ui 69/69, smoke-rooms 37/37, smoke-messenger 66/66, smoke-social 208/208, smoke-map-quests 72/72, smoke-trust 66/66, smoke-netlink 48/48, smoke-tutorial 88/88, smoke-structures 137/137, smoke-rover 30/30, smoke-tram-ride 26/26, smoke-named 44/44, smoke-desktop 54/54, smoke-server-dist 36/36 외 변경 폴더 스모크 전부 통과 (58개 중 57), e2e-mp 175/175
 - 2026-09-14 총기 밸런스 · 모든 총알 발사체 · 툴팁 고정 · 대시 벽 판정 · 벌레 난이도 (`src/shared/{types,events,constants}.ts` **추가만** ·
   `data/{weapons,weapons_unique,attachments,aim_sway,tables,tuning,recipes,constants}.csv` · `src/{weapons,items,inventory,ui,implants,enemies}` ·
   `smoke-ballistics` · `smoke-tip-pin` 신규 — 서브 에이전트 5개. 같은 트리에 다른 세션(메신저 · NPC 퀘스트)의 미커밋 작업이 섞여 있어 이 묶음의 편집만
