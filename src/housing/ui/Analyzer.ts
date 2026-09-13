@@ -11,7 +11,8 @@ import { buildStationShell, mountStationGrids, paintStationLevel } from './Stati
 import type { StationShell } from './StationShell';
 import { UpgradeModal } from './UpgradeModal';
 import type { UpgradeSpec } from './UpgradeModal';
-import { clear, el, renderClock, renderClockText, setText, toggleClass } from './dom';
+import { clear, el, formatRemaining, renderClock, renderClockText, setText, toggleClass } from './dom';
+import { researchTimeMul } from '../parts/Lab';   // 2026-09-13 (H3): 연구 숙련 해석 시간 배수
 
 /** How often the countdowns / progress bars are refreshed while the panel is open (ms). */
 const TICK_MS = 1000;
@@ -55,6 +56,8 @@ export class Analyzer extends HousingPanel {
   private uid = '';
   private readonly shell: StationShell;
   private readonly slotsEl: HTMLElement;
+  /** 2026-09-13 (H3): 해석 탭 머리의 「연구 숙련 — 해석 시간 ×0.85」 줄 (배수가 1 이면 숨김). */
+  private readonly researchEl: HTMLElement;
   private readonly dexHost: HTMLElement;
   private readonly tabBtns: Record<AnalyzerTab, HTMLButtonElement>;
   private readonly modal: UpgradeModal;
@@ -74,7 +77,6 @@ export class Analyzer extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '분석기',
       upgrade: true,
-      power: { ctx, uid: () => this.uid },            // 전력 (2026-09-13): 비활성화 버튼 · 멈춤 배너
       onUpgrade: () => this.openUpgrade(),
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
@@ -85,6 +87,8 @@ export class Analyzer extends HousingPanel {
     tabs.hidden = false;
     this.tabBtns = { slots: this.tabButton(tabs, '해석', 'slots'), dex: this.tabButton(tabs, '분석 도감', 'dex') };
     const pages = el('div', { cls: 'az-pages', parent: this.shell.left });
+    this.researchEl = el('div', { cls: 'hint az-research', parent: pages });
+    this.researchEl.hidden = true;
     this.slotsEl = el('div', { cls: 'az-slots', parent: pages });
     this.dexHost = el('div', { cls: 'az-dexhost', parent: pages });
     this.setTab('slots');
@@ -126,6 +130,7 @@ export class Analyzer extends HousingPanel {
     for (const k of Object.keys(this.tabBtns) as AnalyzerTab[]) toggleClass(this.tabBtns[k], 'is-active', k === id);
     this.slotsEl.hidden = id !== 'slots';
     this.dexHost.hidden = id !== 'dex';
+    this.paintResearch();
     if (id === 'dex') {
       this.mountDex();
       this.dex?.refresh();
@@ -178,7 +183,20 @@ export class Analyzer extends HousingPanel {
     if (!def.sample) { this.showMsg('미확인 표본만 넣을 수 있습니다', 'warning'); return; }
     const reason = this.housing.startAnalysis(this.uid, slot, item.defId);
     const fam = def.sample.family ? SAMPLE_FAMILY_LABEL_KO[def.sample.family] : null;
-    this.showMsg(reason ?? `${def.name} 해석을 시작했습니다${fam ? ` (${fam} 분석)` : ''}`, reason ? 'warning' : 'success');
+    // 2026-09-13 (H3): 넣는 순간 정해진 해석 시간(분석 레벨 × 연구 숙련)을 같이 알린다 — 칸의 시계와 같은 `readyAt` 에서 읽는다
+    const info = reason ? null : this.infoOf(slot);
+    const time = info && info.sampleDefId && !info.ready ? formatRemaining(Math.max(0, Math.ceil(info.remainingS))) : '';
+    const extra = [fam ? `${fam} 분석` : '', time].filter(Boolean).join(' · ');
+    this.showMsg(reason ?? `${def.name} 해석을 시작했습니다${extra ? ` (${extra})` : ''}`, reason ? 'warning' : 'success');
+  }
+
+  /** 2026-09-13 (H3): 연구 숙련이 해석 시간을 줄이고 있으면 해석 탭 머리에 그 배수 — 새로 넣는 표본부터 적용된다. */
+  private paintResearch(): void {
+    if (!this.researchEl) return;
+    const mul = researchTimeMul(this.housing);
+    const show = this.tab === 'slots' && mul < 0.9995;
+    this.researchEl.hidden = !show;
+    if (show) setText(this.researchEl, `연구 숙련 — 해석 시간 ×${mul.toFixed(2)} (넣는 순간 정해집니다)`);
   }
 
   private infoOf(slot: number): AnalysisSlotInfo | null {
@@ -265,6 +283,7 @@ export class Analyzer extends HousingPanel {
       this.build(infos);
     }
     this.paint(infos);
+    this.paintResearch();
     if (this.tab === 'dex') { this.mountDex(); this.dex?.refresh(); }
     this.modal.refresh();
   }

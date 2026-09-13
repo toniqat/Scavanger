@@ -13,9 +13,9 @@
  * 규칙(단련 경험치 · 디버프)은 하나도 여기 없다 — progression 의 몫이다. housing 은 판정(`parts/GymGames`)과 흐름만 갖는다.
  */
 import type {
-  FurnitureDef, FurniturePoseKind, GymEquipmentDef, GymMinigame, GymSessionInfo, GymSessionResult, PlacedFurniture,
+  FurnitureDef, FurniturePoseKind, GymEquipmentDef, GymMinigame, GymSessionInfo, GymSessionResult, HousingRef, LibraryGymTarget, PlacedFurniture,
 } from '@/shared';
-import { gymEquipmentOf } from '@/shared';
+import { LIBRARY_GYM_TARGETS, gymEquipmentOf } from '@/shared';   // LIBRARY_GYM_TARGETS: 서재 헬스 보너스 (H3, 2026-09-13)
 import type { HousingSystem } from '../HousingSystem';
 import { createGymGame } from './GymGames';
 import type { GymGame } from './GymGames';
@@ -54,8 +54,6 @@ export function gymBlock(sys: HousingSystem, uid: string): string | null {
   if (!gymEquipmentAt(sys, uid)) return '운동 기구가 아닙니다';
   if (ctx.isRaidActive() || !ctx.isHubPhase()) return '함선에서만 운동할 수 있습니다';
   if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) return '내 함선에서만 운동할 수 있습니다';
-  const power = sys.furnitureOperationalBlock(uid);          // 전력 (2026-09-13): 전력 부족 · 비활성화된 기구
-  if (power) return power;
   if (sys.gymState) return '이미 운동 중입니다';
   if (sys.housingMode || sys.shipManageMode || sys.isMenuOpen || ctx.uiBlockers.size > 0) return '다른 화면을 먼저 닫으세요';
   return null;
@@ -91,6 +89,19 @@ export function completeGymSession(sys: HousingSystem, score: number): GymSessio
   if (st.finished) return st.result;
   st.finished = true;
   st.score = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
+  /* ══ 서재 헬스 보너스 (H3, 2026-09-13 — docs/plans/library-series-games.md) ══
+   * 운동 기구 4종(`LIBRARY_GYM_TARGETS`)의 세션 점수에 `getLibraryEffects().gymScore[기구 interaction]` 을 더해 1 로 자른다.
+   * 게임(TV) 세션은 `parts/VideoGame.ts` 의 몫이고 기구 interaction 이 아니라서 여기를 지나도 붙지 않는다. */
+  {
+    const interaction = sys.getFurnitureDef(st.info.defId)?.interaction;
+    if (interaction && (LIBRARY_GYM_TARGETS as readonly string[]).includes(interaction)) {
+      const ref: HousingRef | null = sys.ctx.housing ?? null;
+      const lib = ref && typeof ref.getLibraryEffects === 'function' ? ref.getLibraryEffects() : null;
+      const add = lib?.gymScore?.[interaction as LibraryGymTarget];
+      if (typeof add === 'number' && Number.isFinite(add) && add > 0) st.score = Math.min(1, st.score + add);
+    }
+  }
+  /* ══ end 서재 헬스 보너스 (H3) ══ */
   const prog = sys.ctx.progression;
   if (prog && typeof prog.applyGymSession === 'function') {
     try { st.result = prog.applyGymSession(st.info.stat, st.score); } catch (e) { console.error('[housing] applyGymSession threw', e); st.result = null; }

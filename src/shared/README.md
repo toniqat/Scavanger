@@ -644,6 +644,16 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련 — 리드 계약, 추가만, docs/plans/library-series-games.md)** — 새 파일 **`library.ts`**: 시리즈 로더
+  `LIBRARY_SERIES_DEFS/MAP`(← `data/library_series.csv`) · `LibraryEffect`(`skillGain` · `derived` · `gymScore` · `cookScore` · `raidXp` · `trustXp` · `recipe`) · `parseLibraryEffect` ·
+  `LIBRARY_EFFECT_LINES`(책 1 · 비디오 2 · 레코드 3) · `librarySeriesFraction` · `LibraryEffectsSummary` · `libraryTrustMul` · `LibrarySourceInfo` · `GameStat` · `GymGameTuning` ·
+  `GameDiscDef` · `GameConsoleDef` · `GameSessionInfo` · `PlayableGameInfo` · `SEAT_INTERACTIONS` · `ITEM_ALIASES`/`resolveItemAlias`(← `data/item_aliases.csv`).
+  유니언 추가: `SkillId += cooking · research` · `GymStat += intelligence · perception`(+ `GYM_FATIGUE_LABEL_KO` 정신 피로 · 눈의 피로) · `ItemCategory += game_disc · console` ·
+  `FurnitureModelKind += game_stand · sofa · low_table · rug` · `FurnitureInteraction += game_stand · seat` · `ShelfMedium += 'game'`(효과 매체 `SHELF_MEDIA` 는 그대로, 보관함 전부 =
+  `SHELF_HOLDER_MEDIA`). `housing.ts` 끝 절: `FurnitureDef.low`(로더 포함) · `ShipState.tvConsoles` · `HousingRef` 서재 5종 · 비디오게임 11종. `types.ts` 끝: `BookDef.series/volume` ·
+  `ItemDef.gameDisc/gameConsole`. `gear.ts` 끝: `CraftRecipe.unlockSeries`. `progression.ts` 끝: `DerivedStats.cookScoreBonus` · `researchTimeMul` · `researchRefundChance` ·
+  `researchRefundFrac`. `events.ts` 끝: `housing:libraryChanged` · `tvConsoleChanged` · `gameSession` · `gameBeat` · `gameResult` · `ui:tvMenuToggled`. 상수 10개(`SHELF_SERIES_VOLUME_SHARE` …).
+  같은 날 후속: **`charBuffs.ts` 에 `CharBuffKind += 'gaming'`**(게임 중 — 라벨 · 글리프 `⎚` · 색 · 순서 · `charBuffTitle` 이 게임 디스크 이름).
 - **2026-09-13 (탈출 개편 — extraction 에이전트, 추가만)** — 새 파일 **`extraction.ts`**: `ExtractionStage` · `ExtractionRef`(`stage` · `departRemaining` ·
   `idleRemaining` · `riding` · `isInShipBay(p)` · `keepEnemyOut(p, r)` — 적 전용 함선 입구 차단), `GameContext.extraction`(게시: extraction), `index.ts` 재수출.
   `constants.ts` 끝 블록: `EXTRACTION_DEPART_GRACE_S` · `EXTRACTION_AUTO_DEPART_IDLE_S` · `EXTRACTION_LIFTOFF_TO_COMPLETE_S` · `EXTRACTION_CINEMATIC_BLEND_S` ·
@@ -1154,3 +1164,15 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
 - `net.ts`: `FURNITURE_POSE_WIRE` 끝에 `'cook'`(인덱스 4 — 순서 유지). 끝 블록 `PickupWire.q?` · `CorpseItemWire.q?` · `MealMessage.q?`.
 - `charBuffs.ts`: `CharBuffKind += 'cooking'`(조리 중, KINDS · ORDER(운동 중 다음) · 라벨 · 글리프 · 색 · 제목), **`CharBuff.quality?`**(식사 품질 — `sanitizeCharBuffs`
   가 `meal` 에만 받고 `sameCharBuffs` 가 비교하며 `charBuffTitle` 이 별을 붙인다).
+
+### 2026-09-13 — 전력 할당 폐지 · 발전기 = 상위 시설 증축 조건 (사용자 결정, 추가만 + 은퇴 표시)
+
+같은 날 넣었던 「발전기 전력」 계약(`housing.ts` 끝 절의 2 · `events.ts` 의 두 이벤트)을 사용자가 「너무 빡세다」 로 걷어냈다. **이름은 지우지 않았다**(추가만 규약).
+- **추가**: `housing.ts` — `ROOM_PURPOSE_GENERATOR_LEVEL`(`data/room_purposes.csv` 의 `generator`) · `purposeGeneratorLevel(purpose)`(빈 방 0). `constants.ts` — `GENERATOR_START_LEVEL`(1).
+  `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 은 이제 빈 칸의 기본값이다.
+- **은퇴 (값만 남음)**: `GENERATOR_POWER_BY_LEVEL` = 빈 표 · `generatorPowerSupply` = 0 · `ROOM_PURPOSE_POWER` = 빈 표 · `COMPUTE_CLUSTER_POWER_PER_CORE` = 0 · `POWER_AUTO_TOPUP` = false ·
+  `POWER_SHORT_REASON_KO` · `FURNITURE_DISABLED_REASON_KO`(아무도 돌려주지 않는다) · `FurnitureDef.power` · `ShipState.powerAlloc` / `disabledFurniture` / `pausedAt`(housing 이 읽지도 쓰지도 않는다) ·
+  `ComputeClusterInfo.power`(늘 0) · `HousingRef` 의 `getPowerOverview` · `getFacilityPower` · `setPowerAllocation` · `isFurnitureDisabled` · `setFurnitureDisabled` · `getOperationalBenchLevel` ·
+  `benchOperationalBlock`(구현 없음) · 이벤트 `housing:powerChanged` · `housing:operationalChanged`(발행 없음).
+- **뜻이 바뀐 것**: `HousingRef.furnitureOperationalBlock(uid)` = 메인 컴퓨터 없는 연산 클러스터만 사유 · `stationNow(uid)` = 늘 `serverNow` · `MINING_COMPUTER_REQUIRED_REASON_KO` 문장
+  `채굴 시설에 메인 컴퓨터가 있어야 합니다`.

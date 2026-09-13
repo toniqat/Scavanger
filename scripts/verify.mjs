@@ -104,6 +104,9 @@ const SMOKES = {
      탑승 이륙(연출 카메라 · `.hud.cinematic` · 결과 extracted) · 대기 초과 자동 출발에 남겨짐 → reset → 다시 호출 · 화물칸 시체가 함께 떠난다. */
   'smoke-extraction':   { file: 'scripts/smoke-extraction.mjs',   folders: ['extraction', 'game'] },
   'smoke-library':      { file: 'scripts/smoke-library.mjs',      folders: ['housing', 'items', 'hub', 'inventory'] },
+  /* 2026-09-13 (서재 시리즈 · 비디오게임 — hub 쪽): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 · 의자 모델(광원 0 · 앉는 방향 −Z) ·
+     TV 화면 E · 좌석 앉기 · 게임 세션 연출(좌석 자세 · 고정 카메라 · TV 게임 화면 · 거절 → cancelGameSession). housing 메서드는 스텁. */
+  'smoke-tv-games':     { file: 'scripts/smoke-tv-games.mjs',     folders: ['hub'] },
   /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
      HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */
   'smoke-stations':     { file: 'scripts/smoke-stations.mjs',     folders: ['housing', 'inventory', 'items'] },
@@ -114,20 +117,23 @@ const SMOKES = {
      경험치 · 레벨업 · 분석 도감 · 흙 / 배지 내구도(0 이어도 칸 유지 · 비율 보너스) · 소켓 끼우기 / 가득 참 / 교체 · 스캐폴드 → 종별 고기 ·
      은퇴 세포주 거절 · 세이브 왕복 · 요리 effects → derived(마지막, 너그럽게). */
   'smoke-food-chain':   { file: 'scripts/smoke-food-chain.mjs',   folders: ['housing', 'items', 'progression'] },
-  /* 2026-09-13 (발전기 전력): 공급표 Lv.0–10 · 요구 = 기본 + 활성 가구 + 코어 · 새 시설 · 배치 자동 보충(남는 전력에서만) · 할당 한도 ·
-     전력 부족 → 작업대 · 가방 제작 목록 · 운동 · 서재 보너스 막힘 · 토스트 · 비활성화는 요구에서 빠진다 · 메인 컴퓨터 없는 클러스터 ·
-     재배 시계 멈춤(진행도 고정 · 다시 돌면 readyAt 이 멈춘 시간만큼 밀린다) · v12 이관(방 순서 자동 할당 · 공급 초과 절삭) ·
-     스테이션 화면 비활성화 버튼 · 배너 · 시설 관리 전력 패널(요구량 맞추기) · 인스펙터 요구 전력 줄 · 비활성화 버튼. */
-  'smoke-power':        { file: 'scripts/smoke-power.mjs',        folders: ['housing', 'ui'] },
+  /* 2026-09-13 (발전기 = 증축 조건 — 같은 날 전력 할당 폐지, 옛 smoke-power 대체): 전력 API 없음 · 새 함선 v13 · 발전기 Lv.1–5 ·
+     용도별 증축 게이트(room_purposes.csv generator · purposeBlock · purposeRequirements · 실제 setRoomPurpose + 재료 소모) ·
+     가구 · 창고 강화 게이트 · 발전기 강화 csv 비용 · sanitize(0 → 1 · 8 → 5 · 모자란 시설 제거 + 환불 · 가구 창고 · 전력 필드 없음) ·
+     메인 컴퓨터 없는 클러스터 · 시설 관리 발전기 행 해금 줄 · 스테이션 화면 전력 줄 없음 · 새로고침 로드 경로(토스트 · 창고 환불). */
+  'smoke-generator':    { file: 'scripts/smoke-generator.mjs',    folders: ['housing', 'ui'] },
   /* 2026-09-13: 암호화폐 채굴 규칙 — 클러스터 주기 · 지갑 · 코어 · 잠긴 코인 · 회수 거절 · 세이브 정리 (housing `parts/Mining` · `MiningRules`, items 프로세서 · 연산 코어) */
   'smoke-mining':       { file: 'scripts/smoke-mining.mjs',       folders: ['housing', 'items', 'meta'] },
   /* 2026-09-12 (E1): 아이템 즐겨찾기 — API · 이벤트 · 우클릭 = 모든 아이템에 메뉴(격자 · 장비칸 · 휠 · 시체 창) · 더블클릭 빠른 이동 ·
      파란 사선 띠(가방 · 창고 · 장비칸 · TradeGrids · buildItemTile, 필요한 탄약이면 노란 띠와 둘 다) · 정렬 앞쪽 · 「즐겨찾기」 칩 ·
      분해 확인 1초 홀드 · 시체 창 글로우 · 로드아웃 `fav` 저장 / 새로고침 / 서버 문서 교체 + 올리지 못한 토글 보호. */
   'smoke-favorites':    { file: 'scripts/smoke-favorites.mjs',    folders: ['inventory'] },
+  'smoke-library-consumers': { file: 'scripts/smoke-library-consumers.mjs', folders: ['inventory', 'meta', 'game', 'console', 'ui'] },
   /* 2026-09-12 (A-3a): 헬스장 — gymBlock 사유 · 미니게임 판정 3종(화면 없이) · 세션 흐름(블로커 · ESC · 키 가이드 ·
      Space 가 Input 에 안 닿는다) · applyGymSession 결과 + 근육통 · 근육통 중 경험치 0 · 취소 · 새로고침 보존. */
   'smoke-gym':          { file: 'scripts/smoke-gym.mjs',          folders: ['housing', 'progression', 'hub', 'player'] },
+  /* 2026-09-13 (비디오게임, H2): TV 좌석 규칙 매트릭스 · 판정 튜닝 · 게임기 장착/교체/회수 · 게임 목록 · 게임 세션(지능 · 인지력) · 디버프 · 취소. */
+  'smoke-video-games':  { file: 'scripts/smoke-video-games.mjs',  folders: ['housing', 'progression', 'hub', 'items'] },
   /* 2026-09-13 (요리 미니게임): 판정 6종(화면 없이) · cookBlock 사유 · 조리대 레벨 잠김 · 조리대 화면(레일 · 단계 칩) · 세션(블로커 · ESC ·
      실제 pointerdown 칼질) · 결과 = 품질 요리가 창고에 · 재료는 끝에서 · 품질 다른 요리 둘 · 취소 = 재료 그대로 · 자동 가구 Lv.1/2/3 ·
      식탁 품질 줄 · 새로고침 보존 · 출격 식사의 derived 보너스. */

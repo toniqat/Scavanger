@@ -21,6 +21,8 @@
 //   • 그 레시피가 **작업대 창에 뜰 수 있는 모양**인가 (`station: 'field'` · `bench` 없음).
 //   • `stowAmmo` 가 **수량을 전제하지 않는가** — 만든 양(= csv 의 `outputQty`, 스모크에 숫자를 적지 않는다)이
 //     얼마든 가방에 있기만 하면 `terminal` 로 넘어간다.
+// 2026-09-13 (전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 — `generator` 단계는 알려진 즉시(`tutorial:changed`) 조용히 지나가고
+// 시설 관리를 여는 순간 함선 관리 → 작업실이다. 반 박자 포커싱 계측은 그 전환(시설 관리 힌트 → 작업실 행)에서 한다.
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -248,42 +250,32 @@ try {
   });
   ok(/시설 관리/.test(manageSpot.tip) && manageSpot.dx <= 10 && manageSpot.dy <= 10,
     '포커싱이 우측 하단 시설 관리 버튼에 붙는다', JSON.stringify(manageSpot));
-  /* ── 3b. 발전기 단계 (2026-09-08) ──────────────────────────────────── */
-  await P(() => window.__game.ctx.housing.openShipManage(0));
-  await waitStep('generator');
-  // 재료를 채운다 — 발전기 가동과 작업실 증축에 필요하다
+  /* ── 3b. 발전기 단계는 건너뛴다 (2026-09-13, 전력 할당 폐지) ──────────────────
+     새 함선의 발전기는 처음부터 Lv.1 이라 `generator` 단계에 할 일이 없다 — `TutorialSystem.setStep` 이 그 단계를 알리자마자
+     (`tutorial:changed {generator}`) 곧바로 `workshop` 으로 넘긴다. 발전기를 올리는 조작은 어디에도 없다. */
+  const genPre = await P(() => ({ level: window.__game.ctx.housing.getFacility('generator').level, n: window.__ev['tutorial:changed'].length, step: window.__game.ctx.tutorial.step }));
+  ok(genPre.level === 1 && genPre.step === 'manage', `새 함선의 발전기는 이미 Lv.1 이다 (Lv.${genPre.level}, 단계 ${genPre.step})`);
+  // 재료를 채운다 — 작업실 증축에 필요하다
   await P(() => {
     const ctx = window.__game.ctx;
     const give = (id, n) => { const max = ctx.loot.getItemDef(id).stackMax ?? 1; let a = 0; while (a < n) { const q = Math.min(max, n - a); if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, q))) break; a += q; } };
     give('mat_scrap', 40); give('mat_cable', 8); give('mat_alloy', 8);
   });
-  // 2026-09-08: `manage` 단계부터 스포트라이트가 이미 떠 있으므로 (우측 하단 시설 관리 힌트) "보이는가"로는
-  //   모자란다 — 대상이 발전기로 옮겨 붙을 때까지(`RETARGET_INTERVAL` + 2026-09-09 의 반 박자) 말풍선을 보고 기다린다.
-  await waitSpot('발전기', 'spotlight (발전기)');
-  const genUi = await P(() => ({
-    gen: !!document.querySelector('.sm-gen .sm-gen-btn'),
-    purposes: [...document.querySelectorAll('.sm-purposes .sm-purpose')].map((b) => b.dataset.purpose),
-    tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
-    lifted: document.querySelector('.tut-panel')?.classList.contains('is-lifted') ?? false,
-  }));
-  ok(genUi.gen, '발전기 행이 있다 (2026-09-12: 용도 목록이 아니라 방 목록 아래)');
-  ok(genUi.purposes.length === 1 && genUi.purposes[0] === 'workshop',
-    '작업실 외의 용도는 사유가 아니라 아예 목록에서 빠진다', JSON.stringify(genUi.purposes));
-  ok(/발전기/.test(genUi.tip), `말풍선이 발전기를 가리킨다 ("${genUi.tip}")`);
-  ok(genUi.lifted, '포커싱 중에도 목표 패널은 어두운 판 위에 있다 (건너뛰기 클릭 가능)');
 
   /* ── 3b-2. 반 박자 늦게 켜지는 포커싱 (2026-09-09) ──────────────────────
-     발전기 → 작업실은 **같은 목록 안**의 이동이라 다음 대상(`.sm-purpose[data-purpose="workshop"]`)이 이미
-     화면에 있다. 그래도 스포트라이트는 단계가 넘어가는 순간 곧바로 접히고, `TUTORIAL_STEP_DELAY_S`(0.5 s)
+     시설 관리를 여는 순간 단계가 함선 관리 → (발전기) → 작업실로 넘어가고 다음 대상(`.sm-purpose[data-purpose="workshop"]`)이
+     같은 순간 화면에 뜬다. 그래도 스포트라이트는 단계가 넘어가는 순간 곧바로 접히고, `TUTORIAL_STEP_DELAY_S`(0.5 s)
      뒤에야 새 자리에서 다시 켜진다 — "새 화면이 먼저 보이고 포커싱이 따라온다". 켜질 때 어두운 판은
-     `--tut-dim-fade`(= `TUTORIAL_DIM_FADE_S`) 동안 서서히 어두워진다 (`.tut-spot.is-lit`). */
+     `--tut-dim-fade`(= `TUTORIAL_DIM_FADE_S`) 동안 서서히 어두워진다 (`.tut-spot.is-lit`).
+     2026-09-13: 발전기 → 작업실 전환이 없어져 계측을 이 전환(시설 관리 힌트 → 작업실 행)으로 옮겼다. */
   const relight = await P(async () => {
     const spot = () => document.querySelector('.tut-spot');
     const lit = () => { const r = spot(); return !!r && !r.hidden && r.classList.contains('is-lit'); };
     const sp = () => window.__game.getSystem('tutorial').spotlight;
     const before = lit();
     const t0 = performance.now();
-    const acted = window.__game.ctx.housing.upgrade('generator');     // generator → workshop
+    window.__game.ctx.housing.openShipManage(0);                       // manage → (generator) → workshop
+    const acted = window.__game.ctx.housing.shipManageMode === true && window.__game.ctx.tutorial.step === 'workshop';
     const immediate = lit();
     let midway = null, ms = -1;
     while (performance.now() - t0 < 15000) {
@@ -298,7 +290,7 @@ try {
       fade: getComputedStyle(spot()).getPropertyValue('--tut-dim-fade').trim(),
     };
   });
-  ok(relight.acted === true, '발전기를 가동한다');
+  ok(relight.acted === true, '시설 관리를 열자마자 작업실 단계다 (발전기 단계는 그 사이에 지나갔다)', JSON.stringify(relight));
   ok(relight.before === true && relight.immediate === false,
     '단계가 넘어가는 순간 포커싱이 곧바로 접힌다 (다음 대상이 이미 화면에 있어도)', JSON.stringify(relight));
   ok(relight.midway && relight.midway.lit === false && relight.midway.pending === true && relight.midway.wait > 0,
@@ -309,6 +301,21 @@ try {
     `반 박자(TUTORIAL_STEP_DELAY_S 0.5 s) 뒤에 새 대상에서 다시 켜진다 (${Math.round(relight.ms)} ms, "${relight.tip}")`, JSON.stringify(relight));
   ok(relight.fade === '0.5s', `어두운 판은 --tut-dim-fade 동안 서서히 어두워진다 ("${relight.fade}")`);
   await waitStep('workshop');
+  const skipped = await P((n) => ({
+    trail: window.__ev['tutorial:changed'].slice(n).map((e) => e.step),
+    level: window.__game.ctx.housing.getFacility('generator').level,
+    gen: !!document.querySelector('.sm-gen .sm-gen-btn'),
+    purposes: [...document.querySelectorAll('.sm-purposes .sm-purpose')].map((b) => b.dataset.purpose),
+    tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
+    lifted: document.querySelector('.tut-panel')?.classList.contains('is-lifted') ?? false,
+  }), genPre.n);
+  ok(skipped.trail.join(' ') === 'generator workshop' && skipped.level === 1,
+    `함선 관리 → 작업실: 발전기 단계는 알려진 즉시 지나가고 발전기는 Lv.1 그대로 (${skipped.trail.join(' → ')})`, JSON.stringify(skipped));
+  ok(skipped.gen, '발전기 행은 여전히 있다 (2026-09-12: 용도 목록이 아니라 방 목록 아래)');
+  ok(skipped.purposes.length === 1 && skipped.purposes[0] === 'workshop',
+    '작업실 외의 용도는 사유가 아니라 아예 목록에서 빠진다', JSON.stringify(skipped.purposes));
+  ok(/작업실/.test(skipped.tip) && !/발전기/.test(skipped.tip), `말풍선은 발전기가 아니라 작업실을 가리킨다 ("${skipped.tip}")`);
+  ok(skipped.lifted, '포커싱 중에도 목표 패널은 어두운 판 위에 있다 (건너뛰기 클릭 가능)');
 
   // 다른 용도는 여전히 거부된다 (엄격 강제)
   const wrongPurpose = await P(() => {

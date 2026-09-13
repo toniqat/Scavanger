@@ -5,11 +5,10 @@
  * 한 주기가 끝날 때마다 `yieldUnits` 가 지갑(`ShipState.cryptoWallet`)에 저절로 들어가고 다음 주기가 이어진다. 오프라인 · 레이드 중의
  * 시간은 함선에서 틱이 돌 때 한 번에 따라잡는다 (클러스터마다 `housing:cryptoMined` 한 번).
  *
- * 시계 규약 (전력 규칙 에이전트와의 약속):
- *  - 「지금」 = `stationNow(uid)` — 전력이 끊겨 멈춘 가구는 멈춘 시각에 서 있으므로 그동안 진행도가 쌓이지 않는다.
- *  - 다시 돌면 `housing:operationalChanged {operational: true, pausedMs}` 를 받은 자리에서 **동기로** `segmentAt += pausedMs`.
+ * 시계 규약:
+ *  - 「지금」 = `sys.nowMs()`. 2026-09-13 같은 날 전력 할당이 폐지되어 멈춘 시계(`stationNow` · `housing:operationalChanged`)는 없다.
  *  - 코어 수가 바뀌면 끝난 주기를 먼저 넣고 옛 주기 길이로 진행도를 접는다(손해 없음). 코인을 바꾸면 진행도 0.
- *  - 전력 모듈(`stationNow` · `furnitureOperationalBlock`)이 없는 빌드에서는 메인 컴퓨터가 있는지만 보고, 막힌 동안은 구간을 새로 연다.
+ *  - **메인 컴퓨터가 함선에 없는 동안은 흐르지 않는다** (사용자 결정 「메인 컴퓨터 필수」) — 막힌 동안은 구간을 새로 연다.
  *
  * 매매는 서버 시세로만 한다 — 크레딧은 `ctx.meta.creditsTx` 가 릴레이 검증(`cbuy` · `csell`)까지 기다리고, 지갑은 **성공했을 때만** 늘어난다
  * (팔 때는 먼저 떼어 두고 거절이면 되돌린다 — 같은 단위를 두 번 파는 길을 막는다).
@@ -19,8 +18,8 @@ import type {
   PlacedFurniture,
 } from '@/shared';
 import {
-  COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CLUSTER_POWER_PER_CORE, COMPUTE_CORE_DEF_ID, CORP_DEFS, CRYPTO_COIN_DEFS,
-  CRYPTO_COIN_MAP, CRYPTO_TRADE_MAX_UNITS, FURNITURE_DEF_MAP, MINING_COMPUTER_DEF_ID, QUEST_DEFS, coinCycleMs, cryptoCreditsFor,
+  COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, CORP_DEFS, CRYPTO_COIN_DEFS,
+  CRYPTO_COIN_MAP, CRYPTO_TRADE_MAX_UNITS, MINING_COMPUTER_DEF_ID, MINING_COMPUTER_REQUIRED_REASON_KO, QUEST_DEFS, coinCycleMs, cryptoCreditsFor,
   formatCoinUnits, formatCreditReason, miningProgressAt,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
@@ -31,7 +30,7 @@ import { deliverItem, noRoomReason } from './Deliver';
 interface MiningRuntime {
   /** 마지막 틱의 `performance.now()`. */
   lastTick: number;
-  /** 이벤트 처리 중에 칸을 고쳐 다음 틱에 저장해야 한다 (`housing:operationalChanged` 안에서 `changed()` 를 부르지 않기 위해). */
+  /** 이벤트 처리 중에 칸을 고쳐 다음 틱에 저장해야 한다 (이벤트 안에서 `changed()` 를 부르지 않기 위해). */
   dirty: boolean;
 }
 const RUNTIME = new WeakMap<HousingSystem, MiningRuntime>();
@@ -40,9 +39,6 @@ function runtime(sys: HousingSystem): MiningRuntime {
   if (!r) { r = { lastTick: -Infinity, dirty: false }; RUNTIME.set(sys, r); }
   return r;
 }
-
-/** 다른 에이전트가 `HousingSystem` 에 붙이는 계약 메서드(`stationNow` · `furnitureOperationalBlock`)를 타입 안전하게 묻는다. */
-const asRef = (sys: HousingSystem): HousingRef => sys;
 
 const EMPTY_WALLET: Readonly<Record<string, number>> = Object.freeze({});
 
@@ -75,13 +71,8 @@ function pruneSlot(sys: HousingSystem, slot: ComputeClusterSlot): void {
   if (i >= 0) list.splice(i, 1);
 }
 
-/** 이 클러스터의 「지금」 — 전력 모듈이 있으면 `stationNow`(멈추면 멈춘 시각), 없으면 서버 시각. */
-function clockOf(sys: HousingSystem, uid: string): number {
-  const ref = asRef(sys);
-  if (typeof ref.stationNow === 'function') {
-    const t = ref.stationNow(uid);
-    if (Number.isFinite(t) && t > 0) return t;
-  }
+/** 이 클러스터의 「지금」 (2026-09-13 전력 폐지 뒤로는 멈춘 시계가 없어 서버 시각 그대로다). */
+function clockOf(sys: HousingSystem, _uid: string): number {
   return sys.nowMs();
 }
 
@@ -102,13 +93,17 @@ export function getMiningComputerUid(sys: HousingSystem): string | null {
   return sys.state.furniture.find((f) => f.defId === MINING_COMPUTER_DEF_ID)?.uid ?? null;
 }
 
-/** 전력 · 비활성 · 메인 컴퓨터 사유. 전력 모듈이 없으면 메인 컴퓨터가 배치됐는지만 본다. */
+/**
+ * 연산 클러스터가 채굴하지 못하는 가구 쪽 사유 — 함선에 메인 컴퓨터가 없다 (사용자 결정 「메인 컴퓨터 필수」). 클러스터가 아니면 null.
+ * `HousingSystem.furnitureOperationalBlock` 이 이것을 그대로 돌려준다 (2026-09-13 전력 폐지 뒤 남은 유일한 「가동」 조건).
+ */
+export function clusterOperationalBlock(sys: HousingSystem, uid: string): string | null {
+  if (!clusterOf(sys, uid)) return null;
+  return getMiningComputerUid(sys) ? null : MINING_COMPUTER_REQUIRED_REASON_KO;
+}
+
 function operationalBlock(sys: HousingSystem, uid: string): string | null {
-  const ref = asRef(sys);
-  if (typeof ref.furnitureOperationalBlock === 'function') {
-    try { return ref.furnitureOperationalBlock(uid); } catch { return null; }
-  }
-  return getMiningComputerUid(sys) ? null : '메인 컴퓨터가 없습니다';
+  return clusterOperationalBlock(sys, uid);
 }
 
 /** 채굴 칸이 주기를 가질 수 있는가 (알려진 · 열린 코인 + 코어 1개 이상) — 그 코인, 아니면 null. */
@@ -139,14 +134,14 @@ function addWallet(sys: HousingSystem, coinId: string, delta: number, reason: 'm
 
 /* ── 주기 떼어 내기 · 접기 ─────────────────────────────────────────────────── */
 /**
- * 끝난 주기를 지갑에 넣는다. 전력 모듈이 있으면 `stationNow` 가 멈춘 동안의 시간을 이미 빼 주므로 막혀 있어도 멈추기 전까지 쌓인 것을
- * 넣는다. 전력 모듈이 없는데 막혀 있으면 넣지 않고 구간만 새로 연다 (막힌 동안은 흐르지 않는다). 넣은 단위 수(칸을 고쳤으면 −1 도 참).
+ * 끝난 주기를 지갑에 넣는다. 메인 컴퓨터가 없어 막혀 있으면 넣지 않고 구간만 새로 연다 (막힌 동안은 흐르지 않는다).
+ * 넣은 단위 수(칸을 고쳤으면 −1 도 참).
  */
 function settle(sys: HousingSystem, slot: ComputeClusterSlot): { units: number; touched: boolean } {
   const coin = activeCoin(sys, slot);
   if (!coin) return { units: 0, touched: false };
   const now = clockOf(sys, slot.uid);
-  if (typeof asRef(sys).stationNow !== 'function' && operationalBlock(sys, slot.uid)) {
+  if (operationalBlock(sys, slot.uid)) {
     foldProgress(slot, Infinity, now);                  // 시간 장부만 — 매 틱 저장하지 않는다 (다음 실제 변경이 싣는다)
     return { units: 0, touched: false };
   }
@@ -165,8 +160,8 @@ function settleAndFold(sys: HousingSystem, slot: ComputeClusterSlot): void {
   settle(sys, slot);
   const coin = activeCoin(sys, slot);
   const now = clockOf(sys, slot.uid);
-  const blockedNoPower = typeof asRef(sys).stationNow !== 'function' && !!operationalBlock(sys, slot.uid);
-  foldProgress(slot, coin && !blockedNoPower ? coinCycleMs(coin, slot.cores) : Infinity, now);
+  const blocked = !!operationalBlock(sys, slot.uid);
+  foldProgress(slot, coin && !blocked ? coinCycleMs(coin, slot.cores) : Infinity, now);
 }
 
 function commit(sys: HousingSystem, uid: string, reason: string): null {
@@ -196,18 +191,10 @@ export function tickMining(sys: HousingSystem): void {
   if (dirty) sys.changed('mining');
 }
 
-/** 구독 — 전력이 돌아온 클러스터의 구간 밀기 · 회수된 클러스터의 칸 지우기. `HousingSystem.init` 이 unsubs 에 넣는다. */
+/** 구독 — 회수된 클러스터의 칸 지우기. `HousingSystem.init` 이 unsubs 에 넣는다. */
 export function bindMining(sys: HousingSystem): Array<() => void> {
   const b = sys.ctx.bus;
   return [
-    b.on('housing:operationalChanged', ({ uid, operational, pausedMs }) => {
-      if (!operational || !(pausedMs > 0) || !Number.isFinite(pausedMs)) return;
-      const slot = slotOf(sys, uid);
-      if (!slot) return;
-      slot.segmentAt += pausedMs;                 // 동기로 (계약) — 저장은 다음 틱
-      runtime(sys).dirty = true;
-      b.emit('housing:clusterChanged', { uid });
-    }),
     b.on('housing:furnitureRecovered', ({ uid, defId }) => {
       if (defId !== COMPUTE_CLUSTER_DEF_ID) return;
       const slot = slotOf(sys, uid);
@@ -228,8 +215,6 @@ function infoOf(sys: HousingSystem, f: PlacedFurniture): ComputeClusterInfo {
   const slot = slotOf(sys, f.uid);
   const cores = slot?.cores ?? 0;
   const coin = slot?.coinId ? CRYPTO_COIN_MAP.get(slot.coinId) ?? null : null;
-  const def = FURNITURE_DEF_MAP.get(f.defId);
-  const power = (def?.power ?? 0) + cores * COMPUTE_CLUSTER_POWER_PER_CORE;
   const block = miningBlock(sys, f.uid, slot);
   const cycle = coin && cores >= 1 ? coinCycleMs(coin, cores) : Infinity;
   let progress = 0, remainingS = 0;
@@ -240,7 +225,8 @@ function infoOf(sys: HousingSystem, f: PlacedFurniture): ComputeClusterInfo {
   }
   return {
     uid: f.uid, room: f.room, coinId: coin?.id ?? null, cores, maxCores: COMPUTE_CLUSTER_MAX_CORES,
-    cycleMs: Number.isFinite(cycle) ? cycle : 0, progress, remainingS, mining: block === null, block, power,
+    // `power` 는 계약 필드라 남는다 — 2026-09-13 전력 할당 폐지로 늘 0
+    cycleMs: Number.isFinite(cycle) ? cycle : 0, progress, remainingS, mining: block === null, block, power: 0,
   };
 }
 

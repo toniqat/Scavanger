@@ -6,7 +6,7 @@ import { ProductDrag } from '../ProductDrag';
 import type { Product } from '../ProductDrag';
 import { StationTip } from '../StationTip';
 import type { TipRow, TipSpec } from '../StationTip';
-import { buildStationShell, mountStationGrids, paintStationMeta, paintStationPower } from '../StationShell';
+import { buildStationShell, mountStationGrids, paintStationMeta } from '../StationShell';
 import type { StationShell } from '../StationShell';
 import { clear, el, renderClock, renderClockText, setText, toggleClass } from '../dom';
 import {
@@ -31,7 +31,7 @@ interface StatRow { row: HTMLElement; v: HTMLElement }
  *  - **코어 칸 3×3** (`.mn-core[data-core]` = 드롭 대상): 창고 · 가방의 연산 코어를 떨어뜨리면 빈 칸만큼 꽂는다
  *    (`insertClusterCores(uid, min(스택, 빈 칸))`). 꽂힌 칸 = 켜진 코어. 더블클릭 = 함선 창고 먼저 · 우클릭 = 가방 먼저 ·
  *    끌어서 격자에 놓기 = 그 격자로 한 개씩 뺀다 (`removeClusterCores(uid, 1, dest)`, `ProductDrag`).
- *  - **상태** — 채굴 주기(지금 코어) · 코어 +1 이면 · 주기당 채굴 · 시간당 예상 코인 / 크레딧(시세가 있을 때) · 요구 전력 · 시설 전력,
+ *  - **상태** — 채굴 주기(지금 코어) · 코어 +1 이면 · 주기당 채굴 · 시간당 예상 코인 / 크레딧(시세가 있을 때),
  *    이번 주기 진행 막대 + `HH:MM:SS`, 막는 사유 배너(`ComputeClusterInfo.block`).
  *  - **채굴 코인** 8종 — 잠긴 코인은 딤드(호버 카드에 잠긴 이유). 진행도가 있는 채로 다른 코인을 고르면 1초 홀드 경고
  *    (진행도가 0 이 된다 — 되돌릴 수 없다). 지금 코인 우클릭 = 채굴 해제.
@@ -46,7 +46,7 @@ export class ClusterScreen extends HousingPanel {
   private readonly coresEl: HTMLElement;
   private readonly coreCells: HTMLElement[] = [];
   private readonly coreCount: HTMLElement;
-  private readonly stats: Record<'coin' | 'cycle' | 'next' | 'yield' | 'rate' | 'credits' | 'power' | 'facility', StatRow>;
+  private readonly stats: Record<'coin' | 'cycle' | 'next' | 'yield' | 'rate' | 'credits', StatRow>;
   private readonly progFill: HTMLElement;
   private readonly progClock: HTMLElement;
   private readonly progPct: HTMLElement;
@@ -70,7 +70,6 @@ export class ClusterScreen extends HousingPanel {
       title: '연산 클러스터',
       upgrade: false,
       button: (p, l, fn, c) => this.button(p, l, fn, c),
-      power: { ctx, uid: () => this.uid || null },
     });
     this.shell.rail.addEventListener('click', (e) => this.onRailClick(e));
     const left = this.shell.left;
@@ -106,8 +105,6 @@ export class ClusterScreen extends HousingPanel {
       yield: stat('주기당 채굴'),
       rate: stat('시간당 예상'),
       credits: stat('시간당 크레딧'),
-      power: stat('요구 전력'),
-      facility: stat('시설 전력'),
     };
 
     const prog = el('div', { cls: 'mn-cl-prog', parent: left });
@@ -141,7 +138,7 @@ export class ClusterScreen extends HousingPanel {
 
     this.mountMsg();
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
-    el('div', { cls: 'hint', text: '채굴은 현실 시간에 맞춰 진행됩니다 — 메인 컴퓨터가 가동 중이어야 클러스터가 채굴합니다.', parent: el('div', { cls: 'left', parent: foot }) });
+    el('div', { cls: 'hint', text: '채굴은 현실 시간에 맞춰 진행됩니다 — 채굴 시설에 메인 컴퓨터가 있어야 클러스터가 채굴합니다.', parent: el('div', { cls: 'left', parent: foot }) });
     this.button(el('div', { cls: 'right', parent: foot }), '닫기', () => this.close());
 
     this.tip = new StationTip(this.root);
@@ -162,8 +159,6 @@ export class ClusterScreen extends HousingPanel {
     this.unsubs.push(
       b.on('housing:clusterChanged', () => this.refreshIfOpen()),
       b.on('housing:cryptoMined', () => this.refreshIfOpen()),
-      b.on('housing:powerChanged', () => this.refreshIfOpen()),
-      b.on('housing:operationalChanged', () => this.refreshIfOpen()),
       b.on('net:cryptoPrices', () => this.refreshIfOpen()),
     );
   }
@@ -434,10 +429,7 @@ export class ClusterScreen extends HousingPanel {
     paintStationMeta(this.shell, status);
     toggleClass(this.shell.meta, 'mn-meta-bad', !info?.mining);
 
-    // 전력 부족 · 비활성은 틀(`paintStationPower`)의 멈춤 배너가 말한다 — 그 배너가 떠 있으면 같은 사유를 두 번 적지 않는다
-    paintStationPower(this.shell);
-    const powerShown = !!this.shell.powerBanner && !this.shell.powerBanner.hidden;
-    const banner = !placed ? '연산 클러스터가 없습니다' : !info ? NO_API : info.mining || powerShown ? null : info.block;
+    const banner = !placed ? '연산 클러스터가 없습니다' : !info ? NO_API : info.mining ? null : info.block;
     this.banner.hidden = !banner;
     setText(this.banner, banner ?? '');
 
@@ -471,11 +463,6 @@ export class ClusterScreen extends HousingPanel {
     statText(s.rate, uph > 0 ? `${formatCoinUnits(Math.round(uph))} ${def!.ticker}` : '—');
     const price = def ? livePrice(this.ctx, def.id) : null;
     statText(s.credits, uph > 0 && price !== null ? `≈ ${fmtCredits(unitsValue(price, uph))} 크레딧` : uph > 0 ? '— (서버 시세 없음)' : '—');
-    statText(s.power, info ? `${info.power}` : '—');
-    let fac: ReturnType<NonNullable<MiningHousing['getFacilityPower']>> = null;
-    try { fac = info && h.getFacilityPower ? h.getFacilityPower(info.room) : null; } catch { fac = null; }
-    s.facility.row.hidden = !fac;
-    if (fac) statText(s.facility, `할당 ${fac.allocated} / 요구 ${fac.required}`, fac.powered ? 'good' : 'bad');
 
     // 진행 막대 · 시계
     const p = Math.max(0, Math.min(1, info?.progress ?? 0));

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import type { CookGame, FurnitureDef, FurnitureModelKind, FurniturePose, GameContext, GrowTier, Interactable, PeerId, PlacedFurniture, Rarity, RemotePlayerRef, ShelfMedium, WorkbenchKind } from '@/shared';
 import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, GYM_MINIGAME_LABEL_KO, HOUSING_CELL_SIZE, RARITY_COLORS, SHELF_SLOTS, analyzerSlotsForLevel, benchKindOf, cookGamesOfAppliance, cultureSlotsForLevel, furnitureFootprint, growTiersForLevel, gymEquipmentOf, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
-import { LEISURE_BUILDERS, isLeisureKind, type FurnitureRig, type LeisureKind } from './FurnitureLeisure';
+import { LEISURE_BUILDERS, TV_CONSOLE_LOOKS, TV_CONSOLE_LOOK_BY_KIND, isLeisureKind, type FurnitureRig, type LeisureKind, type TvRig } from './FurnitureLeisure';
+import { GameStaging } from './GameStaging';   // 2026-09-13 비디오게임 — 좌석 자세 · 고정 카메라 · TV 게임 화면
 import { KITCHEN_APPLIANCE_BUILDERS, cookBenchTools, type CookRig } from './FurnitureKitchen';
 import { MINING_BUILDERS } from './FurnitureMining';
 import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES } from '@/shared';     // 2026-09-13 암호화폐 채굴
@@ -82,6 +83,8 @@ export interface FurnitureModel {
   rig?: FurnitureRig;
   /** 조리대(`bench_cook`)의 도구 rig — 도마 · 냄비 · 웍 · 그릴 팬 · 비커와 서는 자리 (`FurnitureKitchen.cookBenchTools`, 2026-09-13). */
   cook?: CookRig;
+  /** TV 의 게임 화면 rig (2026-09-13, 비디오게임 — `FurnitureLeisure.TvRig`). */
+  tv?: TvRig;
 }
 
 /** Per-piece data a builder may read (Phase 9): the 책장's shelved books by slot (rarity, null = empty). */
@@ -121,6 +124,13 @@ export interface BuildExtra {
   cores?: number;
   /** 연산 클러스터: 지금 채굴 중인가 (코어 상태등 초록 / 호박색). */
   clusterMining?: boolean;
+  /* ── 2026-09-13 서재 시리즈 · 비디오게임 ── */
+  /** 게임 디스크 전시대: 칸별 게임 디스크의 테마 색 (`GameDiscDef.color`, null = 빈 칸 · 모르는 디스크 → `media` 등급색). */
+  gameColors?: readonly (string | null)[];
+  /** TV: 장착된 게임기의 모양 (0 … `TV_CONSOLE_LOOKS − 1`, `TV_CONSOLE_LOOKS` = 모르는 게임기의 일반 상자). null · 생략 = 게임기 없음. */
+  consoleLook?: number | null;
+  /** TV: 이 TV 로 게임 세션이 진행 중이다 — 게임 화면(`model.tv.overlay`)을 보이는 채로 짓는다. */
+  gameActive?: boolean;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -632,14 +642,7 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     }
     b.box(0.16, 0.02, 0.08, 0, h - 0.05, 0, LEAF, 0.6, 0, 0.3);
   },
-  chair: (b, w, d, h) => {
-    const seatY = h * 0.5;
-    b.box(w - 0.1, 0.05, d - 0.1, 0, seatY, 0, M.padding);
-    b.box(w - 0.14, 0.03, d - 0.14, 0, seatY - 0.04, 0, M.hullDark);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.04, seatY - 0.05, 0.04, sx * (w / 2 - 0.08), 0, sz * (d / 2 - 0.08), M.gunmetal);
-    b.box(w - 0.12, h - seatY, 0.04, 0, seatY + (h - seatY) / 2, d / 2 - 0.07, M.padding, 0, -0.1);
-    b.box(w - 0.16, 0.03, 0.03, 0, h - 0.02, d / 2 - 0.09, M.trim);
-  },
+  /* 의자(`chair`)는 2026-09-13 에 `FurnitureLeisure.ts` 로 옮겨 갔다 — 앉는 자세 기하(`rig`)를 모델과 함께 내야 해서다. */
   /** 시뮬레이션 허브 (Phase 7): holo pedestal — base plate, glowing foot ring, column, dish with three control pads,
    *  emitter disc and a translucent core beam; the rotating rings are added by `simHubRings` after the merge. */
   sim_hub: (b, w, d, h, a) => {
@@ -707,6 +710,7 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     }
     b.box(bw - 0.2, 0.05, 0.04, 0, h - 0.15 * k, front - 0.01, M.stripAmber);
   },
+  /* 2026-09-13 (서재 시리즈 · 비디오게임): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그는 `FurnitureLeisure.ts` 가 짓는다 (리드의 임시 상자 삭제) */
 };
 
 /** 기업 네트워크 컴퓨터 모델의 왼쪽 모니터 자리 (가구 로컬 좌표) — `corp_computer` 빌더와 같은 책상 오프셋이다. */
@@ -772,6 +776,11 @@ export interface FurnitureCallbacks {
   onToggle(uid: string): void;
   /** 운동 기구: 미니게임 세션 (`ctx.housing.startGymSession(uid)` — 거절 사유는 토스트). 자세 · 카메라는 layer 의 `GymStaging` 이 건다. */
   onGym(uid: string): void;
+  /**
+   * TV 화면 (2026-09-13, 비디오게임 — optional): `ctx.housing.openTvMenu(uid)`. layer 는 `openTvMenu` 가 있을 때만 이 길로 보내고(없으면 옛 켜기/끄기
+   * `onToggle`), 콜백이 없으면 `ctx.housing.openTvMenu` 를 직접 부른다.
+   */
+  onTvMenu?(uid: string): void;
   /* ── 암호화폐 채굴 (2026-09-13) — 둘 다 optional: 없으면 layer 가 `ctx.housing.openComputeCluster` / `openMiningComputer` 를 직접 부른다 ── */
   /** 연산 클러스터: 그 클러스터의 화면 (`ctx.housing.openComputeCluster(uid)`). */
   onComputeCluster?(uid: string): void;
@@ -785,6 +794,8 @@ export interface FurnitureCallbacks {
 }
 
 const NO_REMOTES: readonly RemotePlayerRef[] = [];
+/** 카탈로그의 게임기 종류 (정렬) — 처음 필요할 때 한 번 모은다 (`FurnitureLayer.consoleLookOf`). 카탈로그는 세션 중에 바뀌지 않는다. */
+let consoleKinds: string[] | null = null;
 
 /**
  * 개인 함선 방문 (2026-09-08): where the layer reads its pieces from. Default = `ctx.housing` (our own ship). A
@@ -866,6 +877,8 @@ export class FurnitureLayer {
   private remote: RemoteFurnitureStaging | null = null;
   /** 조리 연출 (2026-09-13, 요리 미니게임) — 우리 함선에서만 (방문 중인 함선은 null). */
   private cook: CookStaging | null = null;
+  /** 비디오게임 연출 (2026-09-13) — 좌석 자세 · 고정 카메라 · TV 게임 화면. 우리 함선에서만 (방문 중인 함선은 null). */
+  private game: GameStaging | null = null;
   /** 연산 클러스터 uid → 지어진 모습의 열쇠 (`코어:채굴 여부`, 2026-09-13) — 바뀔 때만 다시 짓는다. */
   private clusterKeys = new Map<string, string>();
   private lastTime = -1;
@@ -902,15 +915,16 @@ export class FurnitureLayer {
         b.on('housing:furnitureToggled', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
         // 2026-09-13 암호화폐 채굴: 코어 수 · 채굴 여부가 **바뀐** 연산 클러스터만 그 방을 다시 짓는다 (코어 칸 발광 — 광원 없음)
         b.on('housing:clusterChanged', ({ uid }) => this.refreshClusterPiece(uid)),
-        b.on('housing:operationalChanged', ({ uid }) => this.refreshClusterPiece(uid)),
-        b.on('housing:powerChanged', () => { for (const uid of [...this.clusterKeys.keys()]) this.refreshClusterPiece(uid); }),
+        // 2026-09-13 비디오게임: TV 의 게임기가 바뀌었다 → 그 TV 의 방만 다시 짓는다 (상판 위 게임기 모양)
+        b.on('housing:tvConsoleChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
       );
       this.staging = new GymStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
       this.cook = new CookStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
+      this.game = new GameStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
     }
     this.remote = new RemoteFurnitureStaging({
       find: (uid) => this.pieces.get(uid) ?? null,
-      isLocal: (uid) => this.staging?.uid === uid || this.sitUid === uid || this.cook?.uid === uid,
+      isLocal: (uid) => this.staging?.uid === uid || this.sitUid === uid || this.cook?.uid === uid || this.game?.seatUid === uid,
     });
     this.rebuildAll();
   }
@@ -933,6 +947,11 @@ export class FurnitureLayer {
   /** 디버그 · 스모크 (2026-09-13): 조리 연출 중인 조리대 · 게임 · 손 위상 · 작업 자리에 나온 도구, 없으면 null. */
   get cookStage(): CookStaging['stage'] {
     return this.cook?.stage ?? null;
+  }
+
+  /** 디버그 · 스모크 (2026-09-13 비디오게임): 연출 중인 게임 세션 (TV · 좌석 · 번쩍임 · 진행 · 게임 화면), 없으면 null. */
+  get gameStage(): GameStaging['stage'] {
+    return this.game?.stage ?? null;
   }
 
   /** 같은 방의 다른 조각들의 월드 상자 (운동 카메라의 가림 판정). */
@@ -981,7 +1000,14 @@ export class FurnitureLayer {
       m.spin.rotation.y = time * (m.spinRate ?? 0.6);
       if (m.spinInner) { m.spinInner.rotation.x = 0.55 + Math.sin(time * 0.7) * 0.35; m.spinInner.rotation.z = time * 0.9; }
     }
-    if (this.sitUid) {
+    // 2026-09-13: 게임 세션 좌석이 흔들의자면 그것을 흔든다 (평소 앉기의 sitUid 는 게임 자세가 대신했으므로 멈추고 비운다)
+    const gameSeat = this.game?.seatUid ?? null;
+    if (gameSeat) {
+      if (this.sitUid && this.sitUid !== gameSeat) { const old = this.pieces.get(this.sitUid)?.model.rig; if (old?.rock) old.rock.rotation.x = 0; }
+      this.sitUid = null;
+      const rig = this.pieces.get(gameSeat)?.model.rig;
+      if (rig && this.ctx.player?.furniturePose === 'sit') poseRock(rig, time);
+    } else if (this.sitUid) {
       const rig = this.pieces.get(this.sitUid)?.model.rig;
       if (this.ctx.player?.furniturePose === 'sit') {
         if (rig) poseRock(rig, time);
@@ -992,6 +1018,7 @@ export class FurnitureLayer {
     }
     this.staging?.update(dt);
     this.cook?.update(dt);
+    this.game?.update(dt);
     // 원격 분대원의 가구 자세 — 로컬 연출 뒤에 돌아야 이번 프레임에 로컬이 잡은 조각을 건너뛴다
     if (this.remote) {
       const cb = this.cb;
@@ -1077,7 +1104,10 @@ export class FurnitureLayer {
       const stack = Math.max(1, def.stackLimit ?? 1);
       const fixture = FIXTURE_INTERACTABLE[kind];
       // A-3e · A-3a (2026-09-12): 보관함 · 흔들의자 · 켜는 가구 · 운동 기구
-      const shelf = kind === 'disc_stand' || kind === 'record_rack';
+      // 2026-09-13 비디오게임: 게임 디스크 전시대도 보관함 화면, 의자 · 쇼파(`seat`)는 흔들의자와 같은 앉기, TV 는 (있으면) TV 화면
+      const shelf = kind === 'disc_stand' || kind === 'record_rack' || kind === 'game_stand';
+      const seat = kind === 'rocking_chair' || kind === 'seat';
+      const tvKind = kind === 'tv';
       const toggle = isToggleInteraction(kind);
       const gym = gymEquipmentOf(kind);
       // 2026-09-13 요리 미니게임: 조리대 · 자동 조리 가구 — 둘 다 조리대 화면을 연다 (조리대는 `bench` 이기도 하므로 그보다 먼저 잡는다)
@@ -1092,7 +1122,7 @@ export class FurnitureLayer {
         : cookAppliance ? `${def.name} · 조리대 열기`
         : bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
         : stack > 1 ? `${def.name} ${layer + 1}층`
-        : kind === 'rocking_chair' ? `${def.name} · 앉기`
+        : seat ? `${def.name} · 앉기`
         : gym ? `${def.name} · ${GYM_MINIGAME_LABEL_KO[gym.minigame]}`
         : def.name;
       // A stack shares one footprint, so every layer would sit on the same anchor: spread the layers along the
@@ -1133,18 +1163,12 @@ export class FurnitureLayer {
         id,
         position: anchor,
         radius: fixture ? fixture.radius : stack > 1 ? 1.2 : access === 'front' ? faceHalfWidth + 1.1 : Math.max(w, d) / 2 + 1.1,
-        // TV · 레코드 플레이어의 프롬프트는 지금 상태를 따라간다 (`TV · 켜기` / `TV · 끄기`)
-        getPrompt: () => (cb.canUse() && accessOk() ? (toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : cluster ? this.clusterPrompt(uid) : prompt) : null),
+        // TV · 레코드 플레이어의 프롬프트는 지금 상태를 따라간다 (`TV · 켜기` / `TV · 끄기`). 2026-09-13: TV 화면이 있으면 `TV 화면`
+        getPrompt: () => (cb.canUse() && accessOk()
+          ? (tvKind && this.tvMenuAvailable() ? `${def.name} 화면` : toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : cluster ? this.clusterPrompt(uid) : prompt)
+          : null),
         canInteract: () => cb.canUse() && accessOk(),
         interact: () => {
-          /* 전력 (2026-09-13): 멈춘(전력 부족 · 비활성) 작업대 · 조리대 · 운동 기구 · 꺼진 TV/레코드 플레이어는 사유만 알린다.
-             스테이션(재배 · 분석 · 배양 · 보관함 · 채굴)은 그대로 열어 안을 관리하게 둔다 — 멈춘 사유는 그 화면의 배너가 말한다. */
-          const powerBlock = bench || gym || (toggle && !this.isOn(uid)) ? this.ctx.housing?.furnitureOperationalBlock?.(uid) ?? null : null;
-          if (powerBlock) {
-            this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-            this.ctx.bus.emit('ui:notify', { text: `${def.name} — ${powerBlock}`, kind: 'warning' });
-            return;
-          }
           if (cookBench) cb.onCookStation(uid);
           else if (cookAppliance) cb.onCookStation(this.cookBenchUid(uid));
           else if (bench) cb.onBench(bench, level);
@@ -1157,11 +1181,13 @@ export class FurnitureLayer {
           else if (kind === 'culture_tank') cb.onCultureTank(uid);
           else if (kind === 'dining_table') cb.onDiningTable(uid);
           else if (shelf) cb.onShelf(uid);
-          else if (kind === 'rocking_chair') {
+          else if (seat) {
+            // 2026-09-13: 쇼파는 플레이어 발에 가장 가까운 쿠션에 앉는다 (의자 · 흔들의자는 자리가 하나)
             const piece = this.pieces.get(uid);
-            const pose = piece ? sitPoseOf(piece) : null;
+            const pose = piece ? sitPoseOf(piece, this.ctx.player?.position ?? null) : null;
             if (pose && cb.onSit(uid, pose)) this.sitUid = uid;
           }
+          else if (tvKind && this.tvMenuAvailable()) this.openTvMenu(uid);   // 2026-09-13 비디오게임: TV 화면이 있으면 TV 는 스테이션처럼 연다
           else if (toggle) cb.onToggle(uid);
           else if (gym) cb.onGym(uid);
           else if (cluster) this.openMining(uid, 'cluster');
@@ -1197,7 +1223,11 @@ export class FurnitureLayer {
     if (def.model === 'culture_tank') return { cultureReady: this.cultureReady(uid) };
     // A-3e · A-3a (2026-09-12)
     const medium = shelfMediumOfInteraction(def.interaction);
+    // 2026-09-13 비디오게임: 게임 디스크 전시대는 등급(방문 와이어의 대체값)과 함께 칸별 테마 색을 받는다
+    if (medium === 'game') return { media: this.shelfMedia(uid, medium), gameColors: this.gameDiscColors(uid) };
     if (medium && medium !== 'book') return { media: this.shelfMedia(uid, medium) };
+    // 2026-09-13 비디오게임: TV 는 켜짐에 더해 장착된 게임기의 모양 · 게임 세션 중인가
+    if (def.model === 'tv') return { on: this.isOn(uid), consoleLook: this.consoleLookOf(uid), gameActive: this.game?.activeOn(uid) === true };
     if (isToggleInteraction(def.interaction)) return { on: this.isOn(uid) };
     // 2026-09-13: 조리 중인 조리대는 지금 단계의 도구를 작업 자리에 둔 채로 짓는다
     if (def.model === 'bench_cook') return { cookGame: this.cook?.gameFor(uid) ?? null };
@@ -1230,6 +1260,62 @@ export class FurnitureLayer {
     if (!h || typeof h.getShelfSlots !== 'function') return out;
     try {
       for (const s of h.getShelfSlots(uid)) if (s.defId && s.slot >= 0 && s.slot < out.length) out[s.slot] = s.rarity ?? 'common';
+    } catch { /* stub */ }
+    return out;
+  }
+
+  /** TV 화면(`ctx.housing.openTvMenu`)이 있는가 — 방문 중인 함선(상호작용 없음)이거나 housing 이 아직 없으면 false (옛 켜기/끄기로 떨어진다). */
+  private tvMenuAvailable(): boolean {
+    return this.source === null && typeof this.ctx.housing?.openTvMenu === 'function';
+  }
+
+  /** TV 화면을 연다 — 콜백이 있으면 콜백(hub 가 토스트 규약을 갖는다), 없으면 `ctx.housing.openTvMenu` 를 직접. */
+  private openTvMenu(uid: string): void {
+    if (this.cb.onTvMenu) { this.cb.onTvMenu(uid); return; }
+    try { this.ctx.housing?.openTvMenu?.(uid); } catch (err) { console.warn('[hub] openTvMenu failed', err); }
+  }
+
+  /**
+   * TV 에 장착된 게임기의 모양 (`BuildExtra.consoleLook`). 게임기 종류(`GameConsoleDef.console`)를 카탈로그 전체의 종류 목록(정렬)에서 찾은
+   * 순번 % `TV_CONSOLE_LOOKS` — 모든 클라이언트가 같은 카탈로그라 같은 모양이 나온다. def 를 모르면 일반 상자(`TV_CONSOLE_LOOKS`), 게임기가
+   * 없으면 null. 방문 중인 함선은 와이어에 게임기가 없어 null (후속 작업).
+   */
+  private consoleLookOf(uid: string): number | null {
+    if (this.source) return null;
+    const h = this.ctx.housing;
+    if (!h || typeof h.getTvConsole !== 'function') return null;
+    let defId: string | null = null;
+    try { defId = h.getTvConsole(uid); } catch { return null; }
+    if (!defId) return null;
+    const loot = this.ctx.loot;
+    let kind: string | undefined;
+    try { kind = loot?.getItemDef(defId)?.gameConsole?.console; } catch { kind = undefined; }
+    if (!kind || !loot) return TV_CONSOLE_LOOKS;
+    const named = TV_CONSOLE_LOOK_BY_KIND[kind];
+    if (named !== undefined) return named;
+    if (!consoleKinds) {
+      try {
+        const set = new Set<string>();
+        for (const d of loot.getAllItemDefs()) if (d.gameConsole?.console) set.add(d.gameConsole.console);
+        consoleKinds = [...set].sort();
+      } catch { return TV_CONSOLE_LOOKS; }
+    }
+    const i = consoleKinds.indexOf(kind);
+    return i < 0 ? TV_CONSOLE_LOOKS : i % TV_CONSOLE_LOOKS;
+  }
+
+  /** 게임 디스크 전시대의 칸별 테마 색 (`GameDiscDef.color`). 방문 중이면 빈 배열 — 와이어의 등급(`media`)이 대신한다. */
+  private gameDiscColors(uid: string): (string | null)[] {
+    const out: (string | null)[] = new Array(SHELF_SLOTS.game).fill(null);
+    if (this.source) return out;
+    const h = this.ctx.housing;
+    if (!h || typeof h.getShelfSlots !== 'function') return out;
+    try {
+      for (const s of h.getShelfSlots(uid)) {
+        if (!s.defId || s.slot < 0 || s.slot >= out.length) continue;
+        const c = this.ctx.loot?.getItemDef(s.defId)?.gameDisc?.color;
+        out[s.slot] = typeof c === 'string' && c ? c : null;
+      }
     } catch { /* stub */ }
     return out;
   }
@@ -1348,6 +1434,7 @@ export class FurnitureLayer {
     this.unsubs.length = 0;
     this.staging?.dispose(); this.staging = null;
     this.cook?.dispose(); this.cook = null;
+    this.game?.dispose(); this.game = null;
     this.remote?.dispose(); this.remote = null;
     for (const p of this.pieces.values()) this.removePiece(p);
     this.pieces.clear();

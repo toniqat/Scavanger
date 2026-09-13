@@ -125,7 +125,7 @@ try {
   const ROOM = 3;
   await H((room) => {
     const h = window.__game.ctx.housing;
-    h.state.generatorLevel = 10;
+    h.state.generatorLevel = 5;                        // 채굴 시설 = 발전기 Lv.5 (2026-09-13 최대)
     h.state.rooms[room].purpose = 'mining';
     h.changed('smoke');
   }, ROOM);
@@ -144,12 +144,9 @@ try {
   const c2P = await placeFurn(ROOM, 'furn_compute_cluster');
   ok(pcP.uid && c1P.uid && c2P.uid, '메인 컴퓨터 1 · 연산 클러스터 2 제작 + 배치', JSON.stringify({ pcP, c1P, c2P }));
   const PC = pcP.uid, C1 = c1P.uid, C2 = c2P.uid;
-  const power = await H((room) => {
-    const h = window.__game.ctx.housing;
-    const sup = h.getPowerOverview?.().supply ?? 0;
-    return { sup, reason: typeof h.setPowerAllocation === 'function' ? h.setPowerAllocation(room, sup) : 'no api' };
-  }, ROOM);
-  if (power.reason) note(`전력 할당: ${power.reason} (supply ${power.sup})`);
+  // 2026-09-13 (전력 할당 폐지): 할당 단계 없음 — 메인 컴퓨터가 있으면 클러스터에 가동 사유가 없다
+  const op = await H((u) => ({ block: window.__game.ctx.housing.furnitureOperationalBlock(u), api: typeof window.__game.ctx.housing.setPowerAllocation }), c1P.uid);
+  ok(op.block === null && op.api === 'undefined', `전력 할당 없음 — 클러스터 가동 사유 없음 (${JSON.stringify(op)})`);
   await waitSim(0.4);
   const lightsAfter = await H(() => window.__lights());
   ok(lightsAfter === lightsBefore, `가구 배치 뒤 점광원 개수 그대로 (${lightsBefore} → ${lightsAfter})`);
@@ -322,6 +319,7 @@ try {
       tabs: [...r.querySelectorAll('.hs-rail .hs-tab')].map((t) => t.textContent),
       active: r.querySelector('.hs-tab.is-active')?.dataset.tab,
       rows: r.querySelectorAll('.mn-crow[data-uid]').length,
+      head: [...r.querySelectorAll('.mn-crow.mn-chead span')].map((s) => s.textContent).join('|'),
       grids: r.querySelectorAll('[data-tg-grid]').length,
       upgrade: !!r.querySelector('.hs-up-open'),
       watch: window.__cryptoStub.watch,
@@ -330,6 +328,7 @@ try {
   });
   ok(pc.tabs.join('|') === '클러스터 현황|지갑|거래소' && pc.active === 'clusters', `레일 탭 셋 · 기본 = 현황 (${pc.tabs.join('|')})`);
   ok(pc.rows === 2 && pc.grids === 0 && !pc.upgrade, `현황 줄 2 · 격자 없음 · 업그레이드 없음 (${JSON.stringify(pc)})`);
+  ok(pc.head === '클러스터|코인|코어|이번 주기|상태', `현황 머리줄에 전력 칸이 없다 (2026-09-13) (${pc.head})`);
   ok(pc.watch === 0 && pc.toggled, `현황 탭은 시세를 구독하지 않는다 · ui:miningToggled computer (watch ${pc.watch})`);
   const rowText = await H(() => document.querySelector('.mining-computer .mn-crow[data-uid] .mn-ccores')?.textContent ?? '');
   ok(/\d\/9/.test(rowText), `현황 줄 코어 n/9 (${rowText})`);

@@ -211,7 +211,7 @@ try {
       const ctx = window.__game.ctx, V = window.__V;
       /* 시설을 몇 개 지어 복도가 볼거리 있게 */
       const h = ctx.housing;
-      for (let i = 0; i < 3 && h.getFacility('generator').level < 1; i++) h.upgrade('generator');
+      h.state.generatorLevel = Math.max(h.state.generatorLevel ?? 1, 5);   // 2026-09-13: 증축은 용도마다 발전기 Lv.1–5 — 촬영용이라 최대로
       ['workshop', 'greenhouse', 'library', 'range'].forEach((p, i) => { try { h.setRoomPurpose(i, p); } catch {} });
       const p = ctx.player;
       p.setCameraOverride(null);
@@ -226,8 +226,8 @@ try {
     return P(({ room, purpose, furnId }) => {
       const h = window.__game.ctx.housing;
       h.closeMenus?.();
-      /* 증축은 발전기 Lv.1 이상을 요구한다 */
-      for (let i = 0; i < 3 && h.getFacility('generator').level < 1; i++) h.upgrade('generator');
+      /* 증축은 용도마다 발전기 레벨을 요구한다 (2026-09-13 — 작업실 1 … 채굴 5) */
+      h.state.generatorLevel = Math.max(h.state.generatorLevel ?? 1, 5);   // 2026-09-13: 증축은 용도마다 발전기 Lv.1–5 — 촬영용이라 최대로
       if (h.getRoom(room).purpose !== purpose && !h.setRoomPurpose(room, purpose)) {
         throw new Error(`setRoomPurpose(${purpose}) refused: ${h.purposeBlock(room, purpose) ?? '?'}`);
       }
@@ -263,7 +263,7 @@ try {
     await P((u) => {
       const ctx = window.__game.ctx;
       /* 꽂을 책이 있어야 패널이 볼거리가 있다 */
-      for (const id of ['book_carry', 'book_appraisal', 'book_medicine', 'book_crafting']) {
+      for (const id of ['book_carry_manual_1', 'book_appraisal_notes_1', 'book_field_medicine_1', 'book_field_crafting_1']) {
         const it = ctx.loot.createItem(id);
         if (it) ctx.inventory.tryAddItemAnywhere(it);
       }

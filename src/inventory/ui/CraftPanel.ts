@@ -1,7 +1,7 @@
 import type { CraftRecipe, ItemDef, RoomPurpose, WorkbenchKind } from '@/shared';
 import { FURNITURE_DEFS, WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, benchKindOf, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
-import { buildTileContent, favoritesRevision } from './GridView';
+import { buildTileContent, favoritesRevision, shelfWantedRevision } from './GridView';
 import { CELL, TEXT } from './labels';
 
 /**
@@ -253,7 +253,7 @@ export class CraftPanel {
     this.buildBenches(bench?.kind ?? null);
     const recipes = bench ? all : all.filter((r) => isFieldRecipe(r.recipe));
     // 2026-09-12 (E1): 산출물 썸네일의 즐겨찾기 띠도 이 서명을 탄다 (`favoritesRevision`)
-    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}|f${favoritesRevision()}`
+    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}|f${favoritesRevision()}|w${shelfWantedRevision()}`
       + `|${recipes.map((r) => `${r.recipe.id}${r.locked ? '!' : ''}`).join('|')}`;
     if (sig !== this.sig) {
       this.sig = sig;
@@ -302,10 +302,6 @@ export class CraftPanel {
       try { lv = Math.max(0, housing?.getBenchLevel(kind) ?? 0); } catch { lv = 0; }
       return bench && bench.kind === kind ? Math.max(lv, bench.level) : lv;
     };
-    /* 전력 (2026-09-13): 놓여 있지만 멈춘(전력 부족 · 비활성) 작업대는 리스트에 흐리게 남고, 누르면 사유만 알린다 */
-    const powerOf = (kind: WorkbenchKind): string | null => {
-      try { return housing?.benchOperationalBlock?.(kind) ?? null; } catch { return null; }
-    };
     const hub = this.sys.ctx.isHubPhase();
     const facility = benchFacility(active);
     const placed = hub
@@ -315,7 +311,7 @@ export class CraftPanel {
     const picks: BenchPick[] = facility === 'workshop' ? [null, ...placed] : placed;
     this.benchesEl.hidden = !hub || picks.length === 0;
     this.benchesEl.dataset.facility = facility;
-    const sig = picks.map((p) => (p === null ? '-' : `${p}:${levelOf(p)}:${powerOf(p) ?? ''}`)).join('|');
+    const sig = picks.map((p) => (p === null ? '-' : `${p}:${levelOf(p)}`)).join('|');
     if (sig !== this.benchSig) {
       this.benchSig = sig;
       this.benchesEl.replaceChildren(...picks.map((pick) => {
@@ -338,16 +334,8 @@ export class CraftPanel {
           b.appendChild(lv);
         }
         b.title = name.textContent;
-        const power = pick ? powerOf(pick) : null;
-        if (power) { b.classList.add('is-unpowered'); b.title = `${name.textContent} — ${power}`; }
         b.addEventListener('click', () => {
           if ((this.sys.getBench()?.kind ?? null) === pick) return;
-          if (power && pick) {
-            // 전력 (2026-09-13): 멈춘 작업대로는 갈아 끼우지 않는다 — 사유만 (hub 의 E 와 같은 문장)
-            this.sys.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-            this.sys.ctx.bus.emit('ui:notify', { text: `${WORKBENCH_LABEL_KO[pick]} — ${power}`, kind: 'warning' });
-            return;
-          }
           this.sys.switchBench(pick, level);
           this.sys.sfx('ui_pickup');
           this.sig = '';                 // 목록이 통째로 바뀐다

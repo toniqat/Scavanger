@@ -24,6 +24,8 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { repairMaterials } from './Durability';
 import { Grid, OOB, stackKeyOf, type Placement, type PriorityPlacement, type StackItem } from '../Grid';
 import { normalizeMealQuality } from '@/shared';
+/* 2026-09-13 (서재 시리즈 · 연구 숙련): 연구실 작업대 제작의 연구 경험치 · 재료 환급 */
+import { RESEARCH_XP_CRAFT } from '@/shared';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
 import { setStarterGrantState, starterGrantState } from '../Stash';
@@ -181,8 +183,6 @@ export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: 
   const housing = sys.ctx.housing;
   const placedLevel = (kind: WorkbenchKind): number => {
     if (!housing) return 0;
-    // 전력 (2026-09-13): 멈춘(전력 부족 · 비활성) 작업대는 가방 제작 목록의 함선 레시피를 열지 않는다
-    if (typeof housing.getOperationalBenchLevel === 'function') return Math.max(0, housing.getOperationalBenchLevel(kind) || 0);
     return typeof housing.getBenchLevel === 'function' ? Math.max(0, housing.getBenchLevel(kind) || 0) : 0;
   };
   return sys.loot.getAllRecipes().filter((r) => {
@@ -494,7 +494,8 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   }
   // 무기 분해 (2026-09-08): socketed attachments are worth more than the plate — they come back before the gun goes
   if (job.targetUid && isDisassembleRecipe(r)) sys.detachAllSockets(job.targetUid);
-  for (const i of sys.craftCost(r)) consumeFor(sys, i.defId, i.qty * count, job.targetUid);
+  const costs = sys.craftCost(r);
+  for (const i of costs) consumeFor(sys, i.defId, i.qty * count, job.targetUid);
   // `addUnits` merges into existing stacks first and then chunks the rest by `stackMax`, so 270 rounds become
   // however many ≤ 50-round stacks the bag needs; its return value is the *overflow* (empty when everything landed)
   // 2026-09-09 (가방 → 안 되면 창고): `addUnits` 가 가방에 못 넣고 돌려준 덩어리는 함선 창고가 받는다.
@@ -513,10 +514,81 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   sys.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
   sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first, count });
   sys.ctx.bus.emit('audio:play', { id: 'craft_done' });
+  // 2026-09-13 (연구 숙련): 추출기 · 조합대 · 3D 프린터 제작은 연구 경험치 + 재료 일부 환급 굴림
+  if (r.bench && RESEARCH_BENCHES.has(r.bench) && !isDisassembleRecipe(r)) researchAfterCraft(sys, costs, count);
   sys.afterChange();
   sys.ui?.refreshCraft();
   job.resolve(first);
   }
+
+/* ══ 2026-09-13 — 연구 숙련: 연구실 작업대 제작 (docs/plans/library-series-games.md §0 · §4, 사용자 결정) ═══════════════════════════════
+ * 「조합대 · 추출기 · 3D 프린터로 제작 시 일부 재료를 돌려받을 확률 및 양」 이 연구 숙련으로 오른다. 수치는 progression 의 파생
+ * (`derived.researchRefundChance` · `researchRefundFrac`, 원본 `data/constants.csv`)이고 여기는 굴림과 지급만 한다.
+ *   - **굴림 단위 = 제작 1회분(run)**: 제작 수량 스테퍼로 5회를 한 번에 누르면 5번 굴린다 — 한 번씩 다섯 번 누른 것과 기대값이 같아야
+ *     스테퍼가 손해가 되지 않는다.
+ *   - **환급량**: 성공한 1회마다 재료 줄마다 `min(1회분 수량, max(1, round(1회분 수량 × 비율)))` — 작업실 할인이 걸린 실제 소비량 기준.
+ *   - **지급**: 가방 → (함선이면) 창고 → 바닥, 제작 산출물과 같은 길. 토스트 `재료 회수: <이름> ×n · …` 한 줄.
+ *   - **경험치**: 성공과 무관하게 제작 1회분마다 `RESEARCH_XP_CRAFT` (`addSkillXp('research', …)`, 서재 · 숙련 배율은 progression 몫).
+ *   - 조리대 요리는 여기를 지나지 않는다(housing 의 조리대 화면 → `completeCook`). 분해(`break_*`)도 환급 대상이 아니다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 연구 숙련이 붙는 작업대. */
+const RESEARCH_BENCHES: ReadonlySet<WorkbenchKind> = new Set<WorkbenchKind>(['extract', 'mixer', 'print']);
+
+/** 0 … 1 로 자른 유한수 (없는 파생 필드 = 0). */
+function unit01(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0;
+}
+
+/** 재료 한 줄이 환급 1회에 돌려주는 개수. */
+export function researchRefundQty(qty: number, frac: number): number {
+  const q = Math.max(0, Math.floor(qty));
+  if (q <= 0) return 0;
+  return Math.min(q, Math.max(1, Math.round(q * unit01(frac))));
+}
+
+/**
+ * 연구실 작업대 제작이 끝난 뒤 — 환급 굴림(`count` 번) + 연구 경험치. `costs` 는 **1회분** 실제 소비량(`craftCost`).
+ * `rng` 는 스모크 · 테스트용 (생략 = `Math.random`). 돌려준 재료 합계를 반환한다 (굴림 실패 = 빈 배열).
+ */
+export function researchAfterCraft(sys: InventorySystem, costs: readonly CraftIngredient[], count: number, rng: () => number = Math.random):
+  Array<{ defId: string; qty: number }> {
+  const ctx = sys.ctx;
+  const prog = ctx.progression;
+  const derived = (prog?.derived ?? null) as { researchRefundChance?: number; researchRefundFrac?: number } | null;
+  const chance = unit01(derived?.researchRefundChance);
+  const frac = unit01(derived?.researchRefundFrac);
+  const runs = normCount(count);
+  const back = new Map<string, number>();
+  if (chance > 0) {
+    for (let i = 0; i < runs; i++) {
+      if (rng() >= chance) continue;
+      for (const c of costs) {
+        const n = researchRefundQty(c.qty, frac);
+        if (n > 0) back.set(c.defId, (back.get(c.defId) ?? 0) + n);
+      }
+    }
+  }
+  const out: Array<{ defId: string; qty: number }> = [];
+  for (const [defId, qty] of back) {
+    if (!ITEM_DEF_MAP.has(defId)) continue;
+    for (const item of sys.addUnits(defId, qty)) {
+      if (ctx.isHubPhase() && sys.tryAddToStash(item)) continue;
+      sys.throwToWorld(item, false);
+    }
+    out.push({ defId, qty });
+  }
+  if (out.length > 0) {
+    const text = out.map((o) => `${ITEM_DEF_MAP.get(o.defId)?.name ?? o.defId} ×${o.qty}`).join(' · ');
+    ctx.bus.emit('ui:notify', { text: `재료 회수: ${text}`, kind: 'success', duration: 2.5 });
+  }
+  // 경험치는 굴림 뒤에 준다 — 이번 제작의 확률은 제작 전 숙련으로 정해진다
+  if (prog && typeof prog.addSkillXp === 'function' && RESEARCH_XP_CRAFT > 0) {
+    try { prog.addSkillXp('research', RESEARCH_XP_CRAFT * runs); } catch (e) { console.warn('[inventory] research XP failed', e); }
+  }
+  return out;
+}
 
 /* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `completeCook`, docs/plans/cooking-minigames.md §6-2) ══════
  * housing 의 조리대 화면이 미니게임을 끝낸 뒤 **품질**을 들고 부른다. 규칙은 함선 작업대 제작과 같다:

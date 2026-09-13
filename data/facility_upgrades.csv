@@ -3,17 +3,15 @@
 # 레벨은 1 부터 빠짐없이 이어져야 한다. 줄을 지우면 최대 레벨이 줄어든다.
 facility,level,cost
 # generator — 레벨 n 으로 올리는 데 드는 재료
-generator,1,mat_scrap:4
-generator,2,mat_scrap:8|mat_cable:2
-generator,3,mat_alloy:6|mat_cable:4|mat_power_cell:1
-generator,4,mat_alloy:10|mat_circuit:3|mat_power_cell:2
-generator,5,mat_alloy:14|mat_circuit:6|mat_power_cell:4
-# 2026-09-13 (사용자 결정 — 전력): 발전기 최대 레벨 5 → 10. 6 이상은 상위 재료 계열이다.
-generator,6,mat_ingot:4|mat_circuit:8|mat_power_cell:6
-generator,7,mat_ingot:6|mat_capacitor:2|mat_power_cell:8
-generator,8,mat_ingot:8|mat_capacitor:4|mat_control_module:2
-generator,9,mat_ingot:10|mat_capacitor:6|mat_control_module:4|mat_processor:1
-generator,10,mat_ingot:14|mat_capacitor:8|mat_control_module:6|mat_processor:2
+# 2026-09-13 (사용자 결정 — 전력 할당 폐지): 발전기는 Lv.1 로 시작해 Lv.5 가 끝이다 (constants.csv 의 GENERATOR_START_LEVEL · GENERATOR_MAX_LEVEL).
+# 레벨이 곧 증축할 수 있는 시설이라(room_purposes.csv 의 generator — Lv.2 온실 · 주방 / Lv.3 연구실 / Lv.4 헬스장 · 서재 / Lv.5 채굴 시설)
+# 예전보다 무겁고 Lv.4 부터 상위 재료(강화합금 잉곳 · 축전 모듈 · 제어 모듈)를 섞는다.
+# Lv.1 줄은 비어 있다 — 새 함선이 처음부터 그 레벨이라 쓰이지 않지만 표는 레벨 1 부터 이어져야 한다.
+generator,1,
+generator,2,mat_scrap:14|mat_cable:4|mat_alloy:3
+generator,3,mat_alloy:10|mat_cable:6|mat_circuit:3|mat_power_cell:2
+generator,4,mat_alloy:16|mat_circuit:6|mat_power_cell:4|mat_ingot:4|mat_capacitor:2
+generator,5,mat_ingot:10|mat_capacitor:5|mat_circuit:10|mat_power_cell:6|mat_control_module:3
 
 # storage — 레벨 n 으로 올리는 데 드는 재료
 storage,1,mat_scrap:6

@@ -20,7 +20,7 @@ import type {
   AnalysisLevelInfo, AnalysisResultInfo, AnalysisSlot, AnalysisSlotInfo, HarvestDestination, ItemDef, PlacedFurniture, SampleFamily,
 } from '@/shared';
 import {
-  ANALYSIS_LEVEL_MAX, ANALYSIS_RESULTS, ANALYSIS_XP_BY_RARITY, ANALYZER_MAX_SLOTS, SAMPLE_FAMILIES,
+  ANALYSIS_LEVEL_MAX, ANALYSIS_RESULTS, ANALYSIS_XP_BY_RARITY, ANALYZER_MAX_SLOTS, RESEARCH_XP_ANALYSIS, SAMPLE_FAMILIES,
   analysisLevelForXp, analysisTimeMul, analysisXpForLevel, analyzerSlotUnlockLevel, analyzerSlotsForLevel,
 } from '@/shared';
 import { analysisChances, analysisDurationMs, growProgress, growRemainingS, rollAnalysisResult } from '../Rules';
@@ -85,19 +85,6 @@ export function dropAnalysesOf(sys: HousingSystem, uid: string): void {
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
 }
 
-/** 전력 (2026-09-13): 멈춰 있던 분석기가 다시 돌았다 — 해석 중인 칸의 시각을 멈춘 시간만큼 민다 (`parts/Power` 가 부른다). */
-export function shiftPausedAnalyses(sys: HousingSystem, uid: string, pausedMs: number): number {
-  if (!(pausedMs > 0) || !sys.analyzerOf(uid)) return 0;
-  let n = 0;
-  for (const a of sys.analyses()) {
-    if (a.uid !== uid || !a.startedAt || !a.readyAt) continue;
-    a.startedAt += pausedMs;
-    a.readyAt += pausedMs;
-    n++;
-  }
-  return n;
-}
-
 /** Finished 칸 of an analyzer (the `housing:analysisChanged` payload and the hub's 발광 창). */
 export function readyAnalyses(sys: HousingSystem, uid: string): number {
   const now = sys.stationNow(uid);
@@ -142,6 +129,28 @@ function levelOf(sys: HousingSystem, family: SampleFamily): number {
   return analysisLevelForXp(analysisXp(sys)[family] ?? 0);
 }
 
+/* ── 2026-09-13 (H3): 연구 숙련 — 분석 시간 단축 (docs/plans/library-series-games.md) ── */
+/** 연구 숙련의 분석 시간 배수 (`derived.researchTimeMul`, 1 = 그대로). progression 이 없거나 값이 이상하면 1. */
+export function researchTimeMul(sys: HousingSystem): number {
+  const v = sys.ctx?.progression?.derived?.researchTimeMul;   // 분석 화면이 생성자에서 부를 때 ctx 가 아직 없을 수 있다
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+/**
+ * 지금 넣으면 걸릴 해석 시간(ms) — `Rules.analysisDurationMs(시간, 분석 레벨) × 연구 숙련 배수`, 최소 1000 ms. **넣는 순간 확정**된다
+ * (`startAnalysis` 가 이 값으로 `readyAt` 을 적는다 — 나중에 숙련이 올라도 돌아가던 해석은 그대로다).
+ */
+export function analysisMsFor(sys: HousingSystem, analyzeHours: number, level: number): number {
+  return Math.max(1000, Math.round(analysisDurationMs(analyzeHours, level) * researchTimeMul(sys)));
+}
+
+/** 표본 하나를 지금 넣으면 걸릴 해석 시간(ms), 표본이 아니면 null (분석 화면의 예상 시간). */
+export function analysisEstimateMs(sys: HousingSystem, sampleDefId: string): number | null {
+  const def = sys.sampleDef(sampleDefId);
+  if (!def?.sample) return null;
+  return analysisMsFor(sys, def.sample.analyzeHours, levelOf(sys, familyOfDef(def)));
+}
+
 /** 결과 한 번 굴리기 — 결과표가 비면 표본의 대체 산출물(`rewardDefId`), 그것도 못 받으면 null. */
 function rollResult(sys: HousingSystem, def: ItemDef, family: SampleFamily, level: number): { defId: string; qty: number } | null {
   const rolled = rollAnalysisResult(family, level, Math.random, resultDefOk(sys));
@@ -160,7 +169,7 @@ function rollResult(sys: HousingSystem, def: ItemDef, family: SampleFamily, leve
 export function getAnalyses(sys: HousingSystem, uid: string): AnalysisSlotInfo[] {
   const analyzer = sys.analyzerOf(uid);
   if (!analyzer) return [];
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 분석기는 멈춘 시각에 서 있다
+  const now = sys.stationNow(uid);
   const open = analyzerSlotsForLevel(analyzer.level);
   const found = analysisFound(sys);
   const out: AnalysisSlotInfo[] = [];
@@ -284,10 +293,10 @@ export function startAnalysis(sys: HousingSystem, uid: string, slot: number, sam
   if (!result) return '이 표본에서 얻을 수 있는 결과가 없습니다';
   const inv = sys.ctx.inventory;
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(sampleDefId, 1)) return '표본을 꺼낼 수 없습니다';
-  const startedAt = sys.stationNow(uid);           // 전력 (2026-09-13): 멈춘 분석기에 넣으면 다시 돌 때부터 해석한다
+  const startedAt = sys.stationNow(uid);
   sys.analyses().push({
     uid, slot, sampleDefId, startedAt,
-    readyAt: startedAt + analysisDurationMs(def.sample.analyzeHours, level),
+    readyAt: startedAt + analysisMsFor(sys, def.sample.analyzeHours, level),   // 2026-09-13 (H3): × 연구 숙련, 넣는 순간 확정
     family, resultDefId: result.defId, resultQty: result.qty,
   });
   sys.analysisChanged(uid, 'analysisStart');
@@ -316,7 +325,7 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   if (block) return block;
   const a = sys.analysisAt(uid, slot);
   if (!a) return '해석 중인 표본이 없습니다';
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 분석기는 멈춘 시각 기준
+  const now = sys.stationNow(uid);
   if (now < a.readyAt) return `아직 해석 중입니다 (${formatRemaining(Math.ceil((a.readyAt - now) / 1000))} 남음)`;
   const def = sys.sampleDef(a.sampleDefId);
   const loot = sys.ctx.loot;
@@ -355,6 +364,11 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   // 옛 표본 도감은 조용히 (`housing:sampleDexAdded` 는 더 내지 않는다)
   const dex = sys.sampleDex();
   if (!dex.includes(a.sampleDefId)) dex.push(a.sampleDefId);
+  // 2026-09-13 (H3): 연구 숙련 경험치 — 회수한 칸마다
+  const prog = sys.ctx.progression;
+  if (prog && typeof prog.addSkillXp === 'function' && RESEARCH_XP_ANALYSIS > 0) {
+    try { prog.addSkillXp('research', RESEARCH_XP_ANALYSIS); } catch (e) { console.error('[housing] progression.addSkillXp(research) threw', e); }
+  }
   sys.analysisChanged(uid, 'analysisCollect');
   return null;
 }

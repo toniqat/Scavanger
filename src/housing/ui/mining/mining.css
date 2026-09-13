@@ -128,7 +128,7 @@
 
 .mn-crows, .mn-wrows { display: flex; flex-direction: column; gap: 4px; }
 .mn-crow {
-  display: grid; grid-template-columns: minmax(130px, 1.2fr) 90px 150px minmax(150px, 1.4fr) minmax(120px, 1.3fr) 56px;
+  display: grid; grid-template-columns: minmax(130px, 1.2fr) 90px 150px minmax(150px, 1.4fr) minmax(120px, 1.3fr);
   align-items: center; gap: 12px; padding: 8px 12px; cursor: pointer;
   background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
 }
@@ -153,7 +153,6 @@
 .mn-cstatus { font-size: 11px; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mn-cstatus.good { color: var(--c-success); }
 .mn-cstatus.bad { color: var(--c-danger); }
-.mn-cpower { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); text-align: right; }
 
 .mn-wrow {
   display: grid; grid-template-columns: minmax(180px, 1.6fr) 1fr 1fr 90px 1fr;
@@ -250,7 +249,7 @@
 .mn-trade.is-locked .mn-quick, .mn-trade.is-offline .mn-quick { pointer-events: none; opacity: 0.5; }
 
 @media (max-width: 1280px) {
-  .mn-crow { grid-template-columns: minmax(110px, 1fr) 80px 120px minmax(120px, 1fr) minmax(90px, 1fr) 48px; }
+  .mn-crow { grid-template-columns: minmax(110px, 1fr) 80px 120px minmax(120px, 1fr) minmax(90px, 1fr); }
   .mn-page-x { grid-template-columns: 1fr; }
   .mn-xlist { flex-direction: row; flex-wrap: wrap; }
   .mn-xrow { flex: 1 1 170px; }

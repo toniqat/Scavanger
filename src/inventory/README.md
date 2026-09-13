@@ -28,6 +28,7 @@
 | `parts/Favorites.ts` | **아이템 즐겨찾기** (2026-09-12, E1, 사용자 결정). 표는 `InventorySystem.favorites`(def id 집합) 하나이고 `isFavorite` · `toggleFavorite(defId, on?)`(새 상태 · 모르는 def 는 false · 실제로 바뀔 때만 `inventory:favoritesChanged`) · `favoriteDefIds`(정렬된 사본)가 계약이다. 저장은 로드아웃 문서의 `fav` — 함선에서는 `markDirty('favorite')`, 함선 밖에서는 `favoritesDirty` 만 세우고 다음 로드아웃 저장(탈출 · 사망 · 실패 · 다음 `hub:entered` 의 `flushDeferred`)이 싣는다(레이드 중에 킷을 파일에 쓰지 않는다). 표를 갈아 끼우는 곳은 부팅 파일(`applySavedFavorites(…, force)`)과 서버 문서뿐이고, 올리지 못한 토글(`favoritesDirty` · 저장 디바운스)이 있으면 들어온 목록은 버린다. 그리는 쪽은 `ui/GridView` 의 모듈 사본(`setFavoriteDefs` · `isFavoriteDef` · `favoritesRevision`) |
 | `parts/RaidFound.ts` | **아이템 회수 계약 — 「이번 레이드에서 얻은 아이템」** (2026-09-12, §5-2). 규칙(시드 · 표식 · 분류 열쇠)은 `shared/raidFound.ts` 에 있고 여기는 **거는 자리**만: `installRaidFoundRules`(모든 격자 · 휠 · 정렬이 보는 `Grid.setStackKeyRule` + 상자 굴림의 `ContainerStore.raidMark`, 둘 다 질의 시점의 ctx) · `raidFoundScope`(진짜 레이드 + 활성 `extract_with_items`) · `stripRaidMarks`(레이드 끝: 장비칸 · 가방 · 휠 · 주머니 · 창고) · `annotateRaidState`(레이드 blob 에만 `rf`) |
 | `parts/MealQuality.ts` | **요리 품질이 붙은 스택** (2026-09-13, 요리 미니게임). 규칙(별 · 보너스)은 `shared/cooking.ts`, 여기는 인벤토리가 품질을 들고 다니는 자리만: `mealQualityOf` · `copyMealQuality`(나누기 · 복사 — `copyRaidFoundMark` 옆에서 부른다, **레이드 끝에도 안 지운다**) · 식탁 · 조리대 질의 `countDefQualityAll` · `consumeDefQualityAll`(가방 먼저 → 창고, 전부 또는 전무) · `getMealStacks`(가방 · 주머니 · 휠 + 창고, 티어 → 이름 → 품질 높은 순). 스택 열쇠 한 줄은 `Grid.stackKeyOf`, 조리 1회(`cookBlock` · `completeCook`)는 `parts/Crafting.ts` |
+| `parts/ShelfWanted.ts` | **「아직 서재에 꽂지 않은」 띠** (2026-09-13, 서재 시리즈 · 사용자 결정). 규칙은 housing 의 `HousingRef.isShelfItemWanted(defId)`(그 매체의 보관함 보유 + 어느 보관함에도 같은 종류가 없음) 하나이고, 여기는 그 질의를 `ui/GridView` 의 모듈 공급자(`setShelfWantedSource`)로 거는 자리다. 답은 def 당 한 번 캐시되고 `housing:libraryChanged` · `loaded` · `shelfChanged` · `booksChanged` · `furniturePlaced` · `furnitureRecovered` · `net:profileLoaded` 에서 `bumpShelfWanted()` 가 비운 뒤 열린 창을 한 번 다시 칠한다(`InventoryUI.onShelfWantedChanged`). 질의가 없으면 늘 false. 즐겨찾기 표와는 완전히 따로다 |
 | `parts/Peek.ts` | **이 컨테이너를 지금 열면 무엇이 보이나** (2026-09-12, 드론 스캔). `InventoryRef.peekContainerItems(id, tier?)` · `peekSuppliedItems(id, items, cols?, rows?)` 의 구현. 이미 굴린 컨테이너 = 지금 내용물. 아니면 **여는 경로를 그대로 흉내 낸다** — `getOrCreate` 와 같은 `Random(missionSeed ^ hash(id))` → `rollCrateOn(tier, rng, 행성)` (또는 호출자가 댄 목록), `Container.fill` 과 같은 순서로 같은 크기 사본 격자에 `autoPlace`(넘쳐 탈락 · 스택 병합까지 같다; `cols` 를 주면 `openContainerItemsSized` 처럼 `fitCorpseGrid`), 그리고 `pendingTakenOf(id, idx)` 를 롤 순서대로 뺀다(`applyPending`). 사본 인스턴스만 만진다 — 캐시 · `openedIds` · 감정 · 이벤트는 그대로다. 호출자는 `gadgets/drones/parts/Scan`. |
 | `parts/Catalog.ts` | **무한 상자 (개발자 카탈로그, Phase 6).** `/items` 콘솔 명령이 여는 치트 창이다. 다른 그리드와 달리 원본이 줄지 않고 드래그마다 **새 인스턴스**를 만든다 (`dropFromCatalog` / `takeFromCatalog`). 훈련장의 무기 거치대도 카테고리를 지정해 이 창을 연다. |
 | `ui/model.ts` | 인벤토리 창의 공용 어휘 (타입 · 상수). `ui/InventoryUI.ts` 가 재수출한다 |
@@ -967,7 +968,26 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
-- **2026-09-13 (발전기 전력, docs/plans/power-crypto.md, 전력 에이전트)** — 멈춘(전력 부족 · 비활성) 작업대는 제작에 쓰이지 않는다.
+- **2026-09-13 (서재 시리즈 · 연구 숙련 소비자 — 에이전트 C, docs/plans/library-series-games.md)** — 세 가지.
+  ① **「아직 꽂지 않은」 띠** (사용자 결정): 책 · 비디오 · 레코드 타일에 즐겨찾기와 **똑같은** 파란 사선 띠 — `HousingRef.isShelfItemWanted(defId)` 가 true 일 때.
+  새 파일 `parts/ShelfWanted.ts`(위 표) · `ui/GridView`(`isShelfWantedDef` · `shelfWantedRevision` · `setShelfWantedSource` · `bumpShelfWanted`, 서명 · `refresh` 게이트에 리비전,
+  `buildTileContent` · `buildSlotCardContent` 가 `.is-shelf-wanted`) · `inventory.css`(`.is-favorite::before` 규칙에 **선택자만 나란히** — 둘 다면 띠 하나, 필요 탄약 노란 띠 규칙도 같이) ·
+  `ui/CatalogView.refreshFavorites` · `ui/CraftPanel`(서명) · `ui/TradeGrids`(`housing:libraryChanged` 에 다시 칠함) · `ui/InventoryUI.onShelfWantedChanged`. 격자 · 장비칸 · 휠 · 주머니 · 루팅 창 ·
+  TradeGrids · `buildItemTile`(기업 상점) 전부 같은 `buildTileContent` 를 지나므로 따로 고칠 곳이 없었다. 정렬 앞 · 「즐겨찾기」 필터 · 분해 확인 · 컨테이너 글로우는 **진짜 즐겨찾기만**.
+  ② **옛 아이템 id 변환** (사용자 결정 — 옛 숙련별 책 · 디스크 · 레코드 → 새 시리즈 1권): `Serialize.reviveItem` 이 모든 저장 아이템 id 를 `resolveItemAlias` 에 먼저 통과시킨다 —
+  창고 문서 · 로드아웃(장비칸 · 가방 · 휠 · 주머니) · 레이드 blob(`applyRaidState` → `applyLoadoutSave`) · 크루 카드(`CrewLoadoutView`) · 소켓 속 아이템이 전부 이 한 함수다.
+  변환된 스택은 **다시 합친다**: `Stash.load` · `Lifecycle.applyLoadoutSave` 가 변환된 스택을 나머지를 다 놓은 뒤에 새 id 의 스택에 합치고(`mergeIntoStacks`) → 저장된 칸 → 빈 자리.
+  즐겨찾기 목록(`Loadout.sanitizeFavoriteList`)과 시체 와이어(`parts/CorpseLoot.corpseItemsFromWire`, 모르는 id 는 건너뛴다)도 같은 표를 지난다. 함선 보관함은 housing(H1) 몫.
+  ③ **연구 숙련 — 연구실 작업대 재료 환급** (사용자 결정): `parts/Crafting.updateCraft` 가 추출기 · 조합대 · 3D 프린터(`RESEARCH_BENCHES`) 제작(분해 제외)을 마치면
+  `researchAfterCraft(sys, costs, count, rng?)` — **제작 1회분마다** `derived.researchRefundChance` 를 굴려(스테퍼로 n 회를 한 번에 눌러도 기대값이 같게) 성공하면 재료 줄마다
+  `researchRefundQty(qty, frac)` = `min(qty, max(1, round(qty × researchRefundFrac)))` 를 가방 → (함선) 창고 → 바닥으로 돌려주고 토스트 `재료 회수: <이름> ×n · …` 한 줄, 그리고
+  성공과 무관하게 `addSkillXp('research', RESEARCH_XP_CRAFT × 회수)`. `qty` 는 작업실 할인이 걸린 실제 1회분 소비량(`craftCost`). 조리대 요리는 여기를 지나지 않는다(`completeCook`).
+  파생 필드가 없으면(progression 작업 전) 확률 0 = 경험치만. 검사 `scripts/smoke-library-consumers.mjs`.
+
+- **2026-09-13 (같은 날 후속 — 전력 할당 폐지, 사용자 결정)** — 아래 항목을 되돌렸다: `parts/Crafting.getRecipes` 는 다시 `getBenchLevel` 만 보고, `ui/CraftPanel.buildBenches` 의
+  `powerOf` · `.is-unpowered` · 갈아 끼우기 거절 토스트와 `inventory.css` 의 `.inv-craft-bench.is-unpowered` 를 지웠다. 작업대는 멈추지 않는다.
+
+- **2026-09-13 (발전기 전력, docs/plans/power-crypto.md, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). 멈춘(전력 부족 · 비활성) 작업대는 제작에 쓰이지 않는다.
   `parts/Crafting.getRecipes` 의 「배치된 작업대 레벨」이 `HousingRef.getOperationalBenchLevel`(없으면 옛 `getBenchLevel`)을 읽어 가방 제작 목록의 함선 레시피가 빠진다.
   `ui/CraftPanel.buildBenches` 는 놓여 있지만 멈춘 작업대를 리스트에 **흐리게**(`.inv-craft-bench.is-unpowered`, 점선) 남기고 `title` 에 사유,
   누르면 갈아 끼우지 않고 `ui_deny` + 토스트 `<작업대> — <사유>`(`HousingRef.benchOperationalBlock`). 서명에 사유가 들어가 전력이 바뀌면 다시 짓는다.

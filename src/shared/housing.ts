@@ -85,8 +85,26 @@ export const ROOM_PURPOSE_COLOR: Readonly<Record<RoomPurpose, string>> = {
 export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { defId: string; qty: number }[]>> =
   Object.fromEntries(csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.costList('cost')])) as Record<RoomPurpose, { defId: string; qty: number }[]>;
 
-/** Generator level a 시설 증축 needs (the same gate every facility upgrade sits behind). */
+/**
+ * Generator level a 시설 증축 needs **by default**. 2026-09-13 (사용자 결정 — 전력 할당 폐지): each purpose names its own level in
+ * `data/room_purposes.csv` (`generator`); this value is only the fallback for an empty cell. Read `purposeGeneratorLevel`.
+ */
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
+
+/**
+ * appended (2026-09-13, 사용자 결정 — 발전기 = 상위 시설의 증축 조건): 용도별 증축에 필요한 발전기 레벨 (`data/room_purposes.csv` 의 `generator`,
+ * 빈 칸 = `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL`). Lv.1 작업실 · Lv.2 온실 · 주방 · Lv.3 연구실 · Lv.4 헬스장 · 서재 · Lv.5 채굴 시설.
+ * 발전기가 이 레벨보다 낮은 함선에 이미 있던 시설은 `housing/ShipState` 가 로드할 때 제거하고 전액 돌려준다.
+ */
+export const ROOM_PURPOSE_GENERATOR_LEVEL: Readonly<Partial<Record<RoomPurpose, number>>> = Object.fromEntries(
+  csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.int('generator', { min: 1, fallback: ROOM_PURPOSE_BUILD_GENERATOR_LEVEL })]),
+) as Partial<Record<RoomPurpose, number>>;
+
+/** appended (2026-09-13): `purpose` 를 증축하는 데 필요한 발전기 레벨 (빈 방 = 0). */
+export function purposeGeneratorLevel(purpose: RoomPurpose): number {
+  if (purpose === 'empty') return 0;
+  return ROOM_PURPOSE_GENERATOR_LEVEL[purpose] ?? ROOM_PURPOSE_BUILD_GENERATOR_LEVEL;
+}
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
 export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen', 'gym', 'mining'];   // 2026-09-13 appended `mining` (암호화폐 채굴)   // 2026-09-12 appended `gym` (A-3a);   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
@@ -183,7 +201,9 @@ export type FurnitureModelKind =
   /* appended (2026-09-13, 요리 미니게임): 주방의 자동 조리 가구 4종 — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (`level` 만큼 표시등) */
   | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser'
   /* appended (2026-09-13, 암호화폐 채굴 — docs/plans/power-crypto.md): 연산 클러스터(코어 칸 9개, 꽂힌 수만큼 점등) · 메인 컴퓨터 */
-  | 'compute_cluster' | 'mining_computer';
+  | 'compute_cluster' | 'mining_computer'
+  /* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
+  | 'game_stand' | 'sofa' | 'low_table' | 'rug';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
@@ -222,7 +242,13 @@ export type FurnitureInteraction =
    */
   | 'cook_processor' | 'cook_grill' | 'cook_stirrer' | 'cook_dispenser'
   /* appended (2026-09-13, 암호화폐 채굴): → ctx.housing.openComputeCluster(uid) (코인 지정 · 코어 꽂기) / ctx.housing.openMiningComputer(uid) (현황 · 지갑 · 거래소) */
-  | 'compute_cluster' | 'mining_computer';
+  | 'compute_cluster' | 'mining_computer'
+  /*
+   * appended (2026-09-13, 서재 시리즈 · 비디오게임): 게임 디스크 전시대 → `ctx.housing.openShelf(uid)` (보관 매체 'game') ·
+   * 좌석(의자 · 쇼파) → 앉기 토글 (흔들의자와 같은 길). ⚠ 같은 날부터 **`tv` 의 E 는 켜기/끄기 토글이 아니라 `ctx.housing.openTvMenu(uid)`**
+   * (켜기/끄기 버튼 · 게임기 장착 · 게임 목록) 다.
+   */
+  | 'game_stand' | 'seat';
 
 export interface FurnitureDef {
   id: string;
@@ -763,6 +789,8 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').
     ...(r.has('access') ? { access: accessCell(r.str('access'), (m) => r.report('access', m)) } : {}),
     ...(r.has('power') ? { power: r.num('power', { min: 0 }) } : {}),
     ...(r.bool('multi') ? { multi: true } : {}),
+    /* appended (2026-09-13): 시야를 막지 않는 낮은 가구 (docs/plans/library-series-games.md) */
+    ...(r.has('low') && r.bool('low') ? { low: true } : {}),
   };
 });
 
@@ -1199,43 +1227,53 @@ export interface HousingRef {
 import {
   BOOKS_PER_SHELF, BOOK_GAIN_MAX, BOOK_XP_PER_BOOK, DISC_GAIN_MAX, DISC_SLOTS_PER_STAND, DISC_XP_PER_ITEM, RECORD_GAIN_MAX,
   RECORD_SLOTS_PER_RACK, RECORD_XP_PER_ITEM, SHELF_AUX_BONUS_BOOK, SHELF_AUX_BONUS_DISC, SHELF_AUX_BONUS_RECORD,
+  GAME_DISC_SLOTS_PER_STAND,   // appended (2026-09-13): 게임 디스크 전시대
 } from './constants';
 import type { FurniturePoseKind, ItemDef } from './types';
 import type { GymStat } from './progression';
 
-/** 서재 보관함에 꽂는 매체. */
-export type ShelfMedium = 'book' | 'disc' | 'record';
+/**
+ * 서재 보관함에 꽂는 매체. appended (2026-09-13): `'game'` = 게임 디스크 (게임 디스크 전시대) — **효과가 없는 보관 매체**라
+ * `SHELF_MEDIA`(서재 효과 · 보조 가구를 계산하는 목록)에는 없고 `SHELF_HOLDER_MEDIA` 에만 있다.
+ */
+export type ShelfMedium = 'book' | 'disc' | 'record' | 'game';
+/** 서재 효과를 내는 매체 — 몫 · 보조 가구 계산은 **이 목록만** 돈다 (게임 디스크 없음). */
 export const SHELF_MEDIA: readonly ShelfMedium[] = ['book', 'disc', 'record'];
-export const SHELF_MEDIUM_LABEL_KO: Readonly<Record<ShelfMedium, string>> = { book: '책', disc: '디스크', record: '레코드' };
+/** appended (2026-09-13): 보관함이 받는 매체 전부 (`SHELF_MEDIA` + 게임 디스크). 꽂기 · 빼기 · 회수 · 칸 수 · 보관함 판정은 이 목록을 돈다. */
+export const SHELF_HOLDER_MEDIA: readonly ShelfMedium[] = ['book', 'disc', 'record', 'game'];
+export const SHELF_MEDIUM_LABEL_KO: Readonly<Record<ShelfMedium, string>> = { book: '책', disc: '디스크', record: '레코드', game: '게임 디스크' };
 
 /** 매체 하나를 받는 보관함 가구의 interaction. */
 export const SHELF_INTERACTION: Readonly<Record<ShelfMedium, FurnitureInteraction>> = {
-  book: 'bookshelf', disc: 'disc_stand', record: 'record_rack',
+  book: 'bookshelf', disc: 'disc_stand', record: 'record_rack', game: 'game_stand',
 };
-/** 그 매체의 몫을 올리는 보조 가구의 interaction (레코드는 축음기 · 주크박스 · 턴테이블이 모두 `record_player`). */
+/**
+ * 그 매체의 몫을 올리는 보조 가구의 interaction (레코드는 축음기 · 주크박스 · 턴테이블이 모두 `record_player`).
+ * 게임 디스크는 보조 가구가 없다(`'none'`) — `SHELF_MEDIA` 에 없으므로 보조 가구 루프가 이 값을 보지 않는다. `SHELF_HOLDER_MEDIA` 로 이 표를 돌지 않는다.
+ */
 export const SHELF_AUX_INTERACTION: Readonly<Record<ShelfMedium, FurnitureInteraction>> = {
-  book: 'rocking_chair', disc: 'tv', record: 'record_player',
+  book: 'rocking_chair', disc: 'tv', record: 'record_player', game: 'none',
 };
 /** 보관함 한 대의 칸 수. */
 export const SHELF_SLOTS: Readonly<Record<ShelfMedium, number>> = {
-  book: BOOKS_PER_SHELF, disc: DISC_SLOTS_PER_STAND, record: RECORD_SLOTS_PER_RACK,
+  book: BOOKS_PER_SHELF, disc: DISC_SLOTS_PER_STAND, record: RECORD_SLOTS_PER_RACK, game: GAME_DISC_SLOTS_PER_STAND,
 };
-/** 한 장(권)이 몫에 더하는 값 (× `BOOK_RARITY_MUL[rarity]`). */
+/** 한 장(권)이 몫에 더하는 값 (× `BOOK_RARITY_MUL[rarity]`). @deprecated 2026-09-13 — 서재 시리즈(`shared/library`)가 대체했다. */
 export const SHELF_XP_PER_ITEM: Readonly<Record<ShelfMedium, number>> = {
-  book: BOOK_XP_PER_BOOK, disc: DISC_XP_PER_ITEM, record: RECORD_XP_PER_ITEM,
+  book: BOOK_XP_PER_BOOK, disc: DISC_XP_PER_ITEM, record: RECORD_XP_PER_ITEM, game: 0,
 };
-/** 매체별 `1 + 몫` 의 상한 (보조 가구 배율은 자른 뒤에 곱한다). */
+/** 매체별 `1 + 몫` 의 상한 (보조 가구 배율은 자른 뒤에 곱한다). @deprecated 2026-09-13 — 종류당 1 개 + 시리즈 공식이 상한 역할을 한다. */
 export const SHELF_GAIN_MAX: Readonly<Record<ShelfMedium, number>> = {
-  book: BOOK_GAIN_MAX, disc: DISC_GAIN_MAX, record: RECORD_GAIN_MAX,
+  book: BOOK_GAIN_MAX, disc: DISC_GAIN_MAX, record: RECORD_GAIN_MAX, game: 1,
 };
-/** 보조 가구가 있을 때 그 매체의 몫에 곱하는 추가분 (`× (1 + 값)`). */
+/** 보조 가구가 있을 때 그 매체의 몫에 곱하는 추가분 (`× (1 + 값)`). 2026-09-13 서재 시리즈에서도 그대로 쓴다 (매체의 효과 줄 전부에 곱한다). */
 export const SHELF_AUX_BONUS: Readonly<Record<ShelfMedium, number>> = {
-  book: SHELF_AUX_BONUS_BOOK, disc: SHELF_AUX_BONUS_DISC, record: SHELF_AUX_BONUS_RECORD,
+  book: SHELF_AUX_BONUS_BOOK, disc: SHELF_AUX_BONUS_DISC, record: SHELF_AUX_BONUS_RECORD, game: 0,
 };
 
-/** 보관함 가구면 그 매체, 아니면 null. */
+/** 보관함 가구면 그 매체, 아니면 null. 2026-09-13: 게임 디스크 전시대(`'game'`)도 보관함이다. */
 export function shelfMediumOfInteraction(interaction: FurnitureInteraction): ShelfMedium | null {
-  for (const m of SHELF_MEDIA) if (SHELF_INTERACTION[m] === interaction) return m;
+  for (const m of SHELF_HOLDER_MEDIA) if (SHELF_INTERACTION[m] === interaction) return m;
   return null;
 }
 /** 보조 가구면 그것이 올리는 매체, 아니면 null. */
@@ -1605,14 +1643,12 @@ export interface HousingRef {
  *    비워야 하는 칸끼리는 겹쳐도 된다(마주보는 작업대 둘이 1칸 통로를 나눠 쓴다). 조종석 고정 소품 자리(`COCKPIT_BLOCKED_RECTS`)는 가구처럼 막는다.
  *    규칙은 양방향이다 — 내 몸체가 남의 비워야 하는 칸에 들어가도 안 된다. 옛 세이브에서 규칙을 어기는 가구는 로드할 때 **가구 창고로** 간다
  *    (사용자 결정 — `ShipState.sanitize` 가 받아들인 순서대로 검사한다).
- * 2. **전력.** 발전기 레벨이 공급(`GENERATOR_POWER_BY_LEVEL`, 최대 Lv.10)을 정한다. 시설(방)마다 요구 전력 = `ROOM_PURPOSE_POWER[용도]` + 그 방의
- *    **활성** 가구 `power` 합 (연산 클러스터는 + 꽂힌 코어 × `COMPUTE_CLUSTER_POWER_PER_CORE`). 플레이어가 발전기 화면에서 시설마다 전력을
- *    **수동 할당**하고(할당 합 ≤ 공급), 할당 < 요구면 **그 시설의 가구 전부**가 작동하지 않는다 (사용자 결정). 비활성화한 가구는 요구에서 빠지고
- *    작동하지 않는다. 작동하지 않는 동안 재배 · 배양 · 해석 · 채굴 시계는 **멈춘다** (썩지 않는다 — 편의 규칙): `stationNow(uid)` 가 멈춘 시각에
- *    서 있고, 다시 돌면 `housing:operationalChanged {pausedMs}` 를 받은 쪽이 자기 시각을 그만큼 민다. 조종석은 전력을 쓰지 않는다(늘 가동).
- *    서재의 숙련 보너스도 전력이 필요하다 (사용자 결정).
+ * 2. **전력 — 은퇴 (같은 날, 사용자 결정 「전력 할당 시스템이 너무 빡세다」).** 수동 할당 · 비활성화 · 멈춘 시계를 모두 걷어냈다. 발전기는
+ *    Lv.1 로 시작해 Lv.5 까지 오르고(`GENERATOR_START_LEVEL` · `GENERATOR_MAX_LEVEL`) 하는 일은 둘뿐이다 — ① 상위 시설의 **증축 조건**
+ *    (`purposeGeneratorLevel` — Lv.2 온실 · 주방 / Lv.3 연구실 / Lv.4 헬스장 · 서재 / Lv.5 채굴 시설), ② 예전 그대로 가구 · 창고 강화 게이트
+ *    (Lv.n 으로 올리려면 발전기 Lv.n). 아래 전력 이름들은 계약이라 남기만 한다. `furnitureOperationalBlock` 은 「메인 컴퓨터 없는 연산 클러스터」만 답한다.
  * 3. **암호화폐 채굴.** 채굴 시설(`mining`)에 연산 클러스터(`compute_cluster` — 1×2칸, 여러 대)와 메인 컴퓨터(`mining_computer` — 함선당 1대)를 둔다.
- *    클러스터마다 코인을 정하고 연산 코어를 최대 `COMPUTE_CLUSTER_MAX_CORES` 개 꽂는다. **메인 컴퓨터가 가동 중이어야** 클러스터가 채굴한다 (사용자 결정).
+ *    클러스터마다 코인을 정하고 연산 코어를 최대 `COMPUTE_CLUSTER_MAX_CORES` 개 꽂는다. **메인 컴퓨터가 배치돼 있어야** 클러스터가 채굴한다 (사용자 결정 — 전력 폐지 전에는 「가동 중」 이었다).
  *    시간은 클러스터 한 대에 하나(재배 칸처럼 코어마다 따로 흐르지 않는다) — 주기 = `coinCycleMs(coin, cores)`. 한 주기가 끝날 때마다
  *    `yieldUnits` 가 **지갑**(`cryptoWallet`)에 저절로 들어가고 다음 주기가 이어진다. 코어 수가 바뀌면 진행도를 접어 새 주기 길이로 이어 가고,
  *    코인을 바꾸면 진행도가 0 이 된다. 메인 컴퓨터 = 클러스터 현황 · 지갑 · 거래소(서버 시세 차트 · 매수 · 매도 — 잠긴 코인도 차트는 보인다).
@@ -1692,37 +1728,34 @@ export function furnitureClearanceCells(def: FurnitureDef, x: number, y: number,
   return out;
 }
 
-/* ── 2. 전력 ── */
+/* ── 2. 전력 — **은퇴** (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」) ──
+ * 발전기는 이제 **상위 시설의 증축 조건**(`ROOM_PURPOSE_GENERATOR_LEVEL`)과 가구 · 창고 강화 게이트뿐이다. 할당 · 비활성화 · 멈춘 시계는 없고,
+ * 아래 이름은 계약이 「추가만」 이라 남긴 것이다 (`airstrike` · `damageReduction` 과 같은 처리) — housing 은 전력 API 를 구현하지 않고
+ * `housing:powerChanged` · `housing:operationalChanged` 도 내지 않는다. 표(`GENERATOR_POWER_BY_LEVEL` · 용도 `power` · 가구 `power` ·
+ * `COMPUTE_CLUSTER_POWER_PER_CORE` · `POWER_AUTO_TOPUP`)는 csv 에서 지웠다. */
 
-/** 발전기 레벨별 공급 전력 (`data/tables.csv` 의 `GENERATOR_POWER_BY_LEVEL`, 키 0 … `GENERATOR_MAX_LEVEL`). */
-export const GENERATOR_POWER_BY_LEVEL: readonly number[] = numberList('tables.csv', 'GENERATOR_POWER_BY_LEVEL');
+/** 은퇴 — 늘 빈 표. */
+export const GENERATOR_POWER_BY_LEVEL: readonly number[] = Object.freeze([]);
 
-/** 발전기 `level` 의 공급 전력. 표 밖 레벨은 가장 가까운 끝값. */
-export function generatorPowerSupply(level: number): number {
-  if (GENERATOR_POWER_BY_LEVEL.length === 0) return 0;
-  const i = Math.max(0, Math.min(GENERATOR_POWER_BY_LEVEL.length - 1, Math.floor(Number(level) || 0)));
-  return GENERATOR_POWER_BY_LEVEL[i];
+/** 은퇴 — 늘 0. */
+export function generatorPowerSupply(_level: number): number {
+  return 0;
 }
 
-/** 시설(방 용도)의 기본 요구 전력 (`data/room_purposes.csv` 의 `power`, 비면 0). */
-export const ROOM_PURPOSE_POWER: Readonly<Record<RoomPurpose, number>> = Object.fromEntries(
-  csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.num('power', { min: 0, fallback: 0 })]),
-) as Record<RoomPurpose, number>;
+/** 은퇴 — 빈 표 (읽으면 undefined). */
+export const ROOM_PURPOSE_POWER: Readonly<Record<RoomPurpose, number>> = Object.freeze({}) as Record<RoomPurpose, number>;
 
-/** 연산 클러스터에 꽂힌 코어 하나가 더하는 요구 전력 (`data/tuning.csv`). */
-export const COMPUTE_CLUSTER_POWER_PER_CORE = T.num('COMPUTE_CLUSTER_POWER_PER_CORE');
+/** 은퇴 — 늘 0. */
+export const COMPUTE_CLUSTER_POWER_PER_CORE = 0;
 
-/** 할당이 요구에 못 미쳐 멈춘 시설의 가구를 쓰려 할 때의 사유 (hub 토스트 · 스테이션 화면 배너 · 인벤토리 작업대 목록이 같은 글을 쓴다). */
+/** 은퇴 — 아무도 돌려주지 않는다. */
 export const POWER_SHORT_REASON_KO = '전력이 부족합니다';
-/** 비활성화한 가구를 쓰려 할 때의 사유. */
+/** 은퇴 — 아무도 돌려주지 않는다. */
 export const FURNITURE_DISABLED_REASON_KO = '비활성화된 가구입니다';
-/** appended (2026-09-13, 전력 에이전트): 연산 클러스터가 채굴하지 못하는 사유 — 함선에 가동 중인 메인 컴퓨터가 없다. */
-export const MINING_COMPUTER_REQUIRED_REASON_KO = '메인 컴퓨터가 가동 중이어야 합니다';
-/**
- * appended (2026-09-13, 전력 에이전트): `data/tuning.csv` 의 `POWER_AUTO_TOPUP` — 가동 중이던(또는 새로 증축한) 시설의 요구 전력이 늘면
- * 부족분을 **남는 전력에서만** 자동으로 채운다 (다른 시설의 할당은 가져오지 않는다 · 모자라면 채우지 않고 멈춘다). false = 완전 수동.
- */
-export const POWER_AUTO_TOPUP = (T.has('POWER_AUTO_TOPUP') ? T.num('POWER_AUTO_TOPUP') : 1) > 0;
+/** 연산 클러스터가 채굴하지 못하는 사유 — 함선에 메인 컴퓨터가 없다 (2026-09-13 전력 폐지 뒤에도 쓰인다: `HousingRef.furnitureOperationalBlock`). */
+export const MINING_COMPUTER_REQUIRED_REASON_KO = '채굴 시설에 메인 컴퓨터가 있어야 합니다';
+/** 은퇴 — 늘 false. */
+export const POWER_AUTO_TOPUP = false;
 
 /** 가구 하나의 전력 현황. */
 export interface FurniturePowerInfo {
@@ -1789,12 +1822,12 @@ export interface ComputeClusterSlot {
 }
 
 export interface ShipState {
-  /* ── appended (2026-09-13, 전력 — version 12) ── */
-  /** 시설 전력 할당: 방 번호(문자열) → 할당량. 없으면 0. 용도가 바뀌거나 방이 비면 그 키를 지운다. */
+  /* ── appended (2026-09-13, 전력 — version 12) · **은퇴** (같은 날 v13 — 전력 할당 폐지): housing 은 읽지도 쓰지도 않는다 ── */
+  /** 은퇴 — 시설 전력 할당이었다. */
   powerAlloc?: Record<string, number>;
-  /** 비활성화한 가구 uid. 회수하면 빠진다. */
+  /** 은퇴 — 비활성화한 가구 uid 였다. */
   disabledFurniture?: string[];
-  /** 작동이 멈춘 시계형 가구(재배 · 배양 · 해석 · 채굴)의 멈춘 시각: uid → epoch ms. 다시 돌면 지운다. */
+  /** 은퇴 — 멈춘 시계형 가구의 멈춘 시각이었다. */
   pausedAt?: Record<string, number>;
   /* ── appended (2026-09-13, 암호화폐 채굴) ── */
   clusters?: ComputeClusterSlot[];
@@ -1859,25 +1892,28 @@ export interface HousingRef {
    */
   placementBlock?(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): string | null;
 
-  /* ══ appended: 2026-09-13 — 전력 ══ */
+  /* ══ appended: 2026-09-13 — 전력 · **은퇴** (같은 날, 사용자 결정 「전력 할당 시스템 제거」) ══
+     아래 전력 질의 · 명령은 housing 이 **구현하지 않는다** (계약은 추가만이라 이름이 남는다). 부르는 쪽은 이미 `typeof … === 'function'` 으로 묻는다. */
+  /** 은퇴 — 구현 없음. */
   getPowerOverview?(): PowerOverview;
-  /** 방 하나의 전력 현황 (조종석 · 빈 방 · 모르는 방은 null). */
+  /** 은퇴 — 구현 없음. */
   getFacilityPower?(room: number): FacilityPowerInfo | null;
-  /** 시설에 전력을 할당한다 (정수, 0 이상, 할당 합 ≤ 공급). 한국어 사유 / null. `housing:powerChanged`. */
+  /** 은퇴 — 구현 없음. */
   setPowerAllocation?(room: number, amount: number): string | null;
+  /** 은퇴 — 구현 없음. */
   isFurnitureDisabled?(uid: string): boolean;
-  /** 가구를 비활성화 / 활성화한다 (전력을 쓰는 가구만). 한국어 사유 / null. `housing:powerChanged` · 필요하면 `housing:operationalChanged`. */
+  /** 은퇴 — 구현 없음. */
   setFurnitureDisabled?(uid: string, disabled: boolean): string | null;
-  /** 이 가구를 지금 쓸 수 없는 한국어 사유 (`FURNITURE_DISABLED_REASON_KO` · `POWER_SHORT_REASON_KO` · 가구별 조건), 쓸 수 있으면 null. 전력을 안 쓰는 가구는 늘 null. */
-  furnitureOperationalBlock?(uid: string): string | null;
-  /** 시계형 가구의 「지금」 — 작동 중이면 `serverNow`, 멈췄으면 멈춘 시각. 진행도 · 남은 시간 계산은 이것을 쓴다. */
-  stationNow?(uid: string): number;
   /**
-   * appended (2026-09-13, 전력 에이전트): **작동 중인** 작업대 중 그 종류의 가장 높은 레벨 (0 = 없거나 전부 멈춤). `getBenchLevel` 은 배치만 본다 —
-   * 인벤토리 제작 목록이 「실제로 쓸 수 있는 작업대」를 물을 때 이것을 쓴다.
+   * 이 가구를 지금 쓸 수 없는 한국어 사유, 쓸 수 있으면 null. 2026-09-13 전력 폐지 뒤로는 **메인 컴퓨터가 없는 연산 클러스터**
+   * (`MINING_COMPUTER_REQUIRED_REASON_KO`)뿐이고 그 밖의 가구는 늘 null 이다.
    */
+  furnitureOperationalBlock?(uid: string): string | null;
+  /** 시계형 가구의 「지금」 — 2026-09-13 전력 폐지 뒤로는 멈추는 가구가 없어 늘 `serverNow` 다. */
+  stationNow?(uid: string): number;
+  /** 은퇴 — 구현 없음 (작업대는 멈추지 않는다 — `getBenchLevel` 을 쓴다). */
   getOperationalBenchLevel?(kind: WorkbenchKind): number;
-  /** appended (2026-09-13, 전력 에이전트): 그 종류의 작업대가 배치돼 있지만 **하나도 작동하지 않는** 사유, 작동하는 것이 있거나 배치된 것이 없으면 null. */
+  /** 은퇴 — 구현 없음. */
   benchOperationalBlock?(kind: WorkbenchKind): string | null;
 
   /* ══ appended: 2026-09-13 — 암호화폐 채굴 ══ */
@@ -1912,3 +1948,82 @@ export interface HousingRef {
   devAdvanceMining?(hours: number): number;
 }
 /* ══ end 2026-09-13 배치 규칙 · 전력 · 암호화폐 채굴 ══ */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-13 — 서재 시리즈 · 비디오게임 (docs/plans/library-series-games.md — 효과 · 시리즈 규칙의 원본은 `shared/library.ts`)
+ *
+ * 1. **서재 시리즈.** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대는 **여러 대** 만들 수 있다 (`FurnitureDef.multi`). 꽂힌 매체는
+ *    **종류(def)당 한 번** 세고, 시리즈 몫(`librarySeriesFraction`) × 효과 줄(전권 값) × 보조 가구 배율로 합산한다 → `getLibraryEffects()`.
+ *    `getSkillGainMul(skill)` = `getBookBonus(skill)` = 1 + `skillGain[skill]` (progression 경로 그대로). 옛 등급 가중치 · 매체 상한은 은퇴.
+ * 2. **띠.** 매체 보관함을 보유(배치 · 가구 창고)하고 있고 그 종류가 어느 보관함에도 꽂혀 있지 않으면 `isShelfItemWanted` 가 true.
+ * 3. **레시피 책.** `recipe` 효과는 그 책이 **꽂혀 있는 동안만** 레시피를 연다 (`isRecipeUnlocked`).
+ * 4. **비디오게임.** TV 에 게임기를 장착하고(`tvConsoles`), 게임 디스크 전시대에 꽂힌 디스크 중 게임기가 맞는 것을 플레이한다.
+ *    TV 정면의 좌석(`SEAT_INTERACTIONS`)이 TV 를 보고 있고 그 사이 통로에 `low` 가 아닌 가구가 없어야 한다 (`tvSeatBlock`).
+ *    결과는 헬스와 같은 `ProgressionRef.applyGymSession(stat, score)` 이다 (능력치별 24 h 디버프 — 사용자 결정).
+ *
+ * 새 `HousingRef` 메서드는 전부 optional — 병렬로 짓는 동안에도 트리가 타입체크를 통과하고, 소비자는 `typeof h.x === 'function'` 로 방어한다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import type { GameSessionInfo, LibraryEffectKind, LibraryEffectsSummary, LibrarySourceInfo, PlayableGameInfo } from './library';
+
+export interface FurnitureDef {
+  /** appended (2026-09-13): 시야를 막지 않는 **낮은 가구** (`data/furniture.csv` 의 `low` — 좌식 테이블 · 러그). TV ↔ 좌석 통로 판정이 건너뛴다. */
+  low?: boolean;
+}
+
+/** TV 한 대에 장착된 게임기. */
+export interface TvConsoleSlot {
+  /** 배치된 TV 의 uid. */
+  uid: string;
+  /** `ItemDef.gameConsole` 이 있는 아이템 def id. */
+  defId: string;
+}
+
+export interface ShipState {
+  /** appended (2026-09-13): TV 마다 장착한 게임기 (TV 당 하나). 배치에서 사라진 TV 의 게임기는 `sanitize` 가 함선 창고로 돌려준다. 게임 디스크는 `media` 에 산다. */
+  tvConsoles?: TvConsoleSlot[];
+}
+
+export interface HousingRef {
+  /* ══ appended (2026-09-13): 서재 시리즈 ══ */
+  /** 작동 중인 보관함 · 보조 가구로 합산한 서재 효과 전부 (함선 상태 기준 — 레이드 중에도 그대로다). 바뀌면 `housing:libraryChanged`. */
+  getLibraryEffects?(): LibraryEffectsSummary;
+  /**
+   * 한 효과 대상에 값을 주는 시리즈들 — 캐릭터 시트의 `시설 ×n` 툴팁 · 아이템 툴팁. `target` 은 효과 줄의 대상 문자열
+   * (`('skillGain', 'carry')` · `('derived', 'maxStamina')` · `('raidXp', '')` · `('trustXp', 'all')` …). 값이 0 인 시리즈는 뺀다.
+   */
+  getLibrarySources?(kind: LibraryEffectKind, target: string): readonly LibrarySourceInfo[];
+  /** 시리즈 하나의 진척 (작동 중인 보관함에 꽂힌 서로 다른 권 / 전체). 모르는 시리즈면 null. */
+  getSeriesProgress?(seriesId: string): { have: number; total: number; fraction: number } | null;
+  /** 이 아이템 타일에 「아직 꽂지 않았다」 띠를 그릴까 (그 매체의 보관함 보유 + 어느 보관함에도 같은 종류가 없음). 서재 효과 매체(책 · 비디오 · 레코드)가 아니면 false. */
+  isShelfItemWanted?(defId: string): boolean;
+  /** 조리 레시피가 열려 있나 — `CraftRecipe.unlockSeries` 가 있으면 그 레시피 책이 **지금 꽂혀 있어야** true. 책이 필요 없는 레시피는 늘 true. */
+  isRecipeUnlocked?(recipeId: string): boolean;
+
+  /* ══ appended (2026-09-13): 비디오게임 ══ */
+  /** TV 에 장착된 게임기 def id, 없으면 null. */
+  getTvConsole?(tvUid: string): string | null;
+  /** 게임기를 (가방 → 창고) 꺼내 TV 에 장착한다. 이미 있으면 교체(옛 것은 가방 → 창고). 함선 전용. 한국어 사유 / null. */
+  attachTvConsole?(tvUid: string, defId: string): string | null;
+  /** 게임기를 빼서 가방(없으면 창고)으로. 한국어 사유 / null. */
+  detachTvConsole?(tvUid: string): string | null;
+  /** TV 를 보고 있는 유효한 좌석 uid (가장 가까운 것), 없으면 null. */
+  getTvSeat?(tvUid: string): string | null;
+  /** 좌석 규칙이 거절하는 한국어 사유 (`TV 정면에 의자나 쇼파가 없습니다` · `TV 와 좌석 사이를 가구가 막고 있습니다` …), 되면 null. */
+  tvSeatBlock?(tvUid: string): string | null;
+  /** 이 TV 로 고를 수 있는 게임 디스크 전부 (함선의 게임 디스크 전시대에 꽂힌 것) + 각각의 거절 사유. */
+  getPlayableGames?(tvUid: string): readonly PlayableGameInfo[];
+  /** TV 화면을 연다 (켜기/끄기 · 게임기 장착 · 좌석 상태 · 게임 목록). hub 의 TV E 가 부른다. */
+  openTvMenu?(tvUid: string): void;
+  /** 진행 중인 게임 세션, 없으면 null. */
+  readonly gameSession?: GameSessionInfo | null;
+  /** 지금 `startGameSession` 이 거절할 한국어 사유, null = 시작할 수 있다. */
+  gameBlock?(tvUid: string, discDefId: string): string | null;
+  /**
+   * 게임 세션 시작 — 운동 화면(디스크 튜닝이 걸린 판정)을 열고 `housing:gameSession {active:true}` (hub 가 좌석 자세 · 고정 카메라).
+   * 끝까지 하면 점수가 `ctx.progression.applyGymSession(stat, score)` 로 가고 `housing:gameResult`. 한국어 사유 / null.
+   */
+  startGameSession?(tvUid: string, discDefId: string): string | null;
+  /** 진행 중인 게임 세션을 보상 · 디버프 없이 끝낸다 (`housing:gameSession {active:false, completed:false}`). 없으면 no-op. */
+  cancelGameSession?(): void;
+}
+/* ══ end 2026-09-13 서재 시리즈 · 비디오게임 ══ */

@@ -628,6 +628,8 @@ export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
 export const ROOM_GRID_ROWS = K.num('ROOM_GRID_ROWS');
 export const HOUSING_CELL_SIZE = K.num('HOUSING_CELL_SIZE');
 export const GENERATOR_MAX_LEVEL = K.num('GENERATOR_MAX_LEVEL');
+/** appended (2026-09-13 — 전력 할당 폐지): a new ship's generator level (it runs from the start; an old Lv.0 save is raised to this). */
+export const GENERATOR_START_LEVEL = K.num('GENERATOR_START_LEVEL');
 export const STORAGE_MAX_LEVEL = K.num('STORAGE_MAX_LEVEL');
 export const WORKSHOP_MAX_LEVEL = K.num('WORKSHOP_MAX_LEVEL');
 export const RANGE_MAX_LEVEL = K.num('RANGE_MAX_LEVEL');
@@ -1865,3 +1867,24 @@ export const ROVER_AGGRO_GROUP_RADIUS = K.num('ROVER_AGGRO_GROUP_RADIUS');
 export const ROVER_NOTICE_STOPPED_M = K.num('ROVER_NOTICE_STOPPED_M');
 /* ── end [R4] ── */
 /* ── end 2026-09-13 탐사 차량 ── */
+
+/* ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/plans/library-series-games.md) ── */
+/** 서재 시리즈 몫 — 전권이 아니면 꽂힌 서로 다른 권마다 전권 보너스의 이만큼 (`librarySeriesFraction`). */
+export const SHELF_SERIES_VOLUME_SHARE = K.num('SHELF_SERIES_VOLUME_SHARE');
+/** 게임 디스크 전시대 한 대의 칸 수 (`SHELF_SLOTS.game`). */
+export const GAME_DISC_SLOTS_PER_STAND = K.num('GAME_DISC_SLOTS_PER_STAND');
+/** 요리 숙련 최대치의 조리 단계 점수 가산 (`derived.cookScoreBonus`). */
+export const COOK_SKILL_SCORE_AT_MAX = K.num('COOK_SKILL_SCORE_AT_MAX');
+/** 조리 한 번의 요리 숙련 경험치 (× max(0.25, 점수)). */
+export const COOK_SKILL_XP = K.num('COOK_SKILL_XP');
+/** 연구 숙련 최대치의 분석 시간 감소 비율 (`derived.researchTimeMul` = 1 − 이 값 × 숙련 비율). */
+export const RESEARCH_TIME_AT_MAX = K.num('RESEARCH_TIME_AT_MAX');
+/** 연구 숙련 최대치의 재료 환급 확률 (`derived.researchRefundChance`). */
+export const RESEARCH_REFUND_CHANCE_AT_MAX = K.num('RESEARCH_REFUND_CHANCE_AT_MAX');
+/** 환급 비율 — 숙련 0 / 최대 (`derived.researchRefundFrac`). */
+export const RESEARCH_REFUND_FRAC_MIN = K.num('RESEARCH_REFUND_FRAC_MIN');
+export const RESEARCH_REFUND_FRAC_MAX = K.num('RESEARCH_REFUND_FRAC_MAX');
+/** 연구 숙련 경험치 — 분석 회수 한 칸 / 연구실 작업대 제작 1개. */
+export const RESEARCH_XP_ANALYSIS = K.num('RESEARCH_XP_ANALYSIS');
+export const RESEARCH_XP_CRAFT = K.num('RESEARCH_XP_CRAFT');
+/* ── end 2026-09-13 서재 시리즈 ── */

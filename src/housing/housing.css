@@ -705,8 +705,64 @@
   color: #f2f4f7; background: rgba(6, 8, 11, 0.74);
 }
 
+/* 게임 디스크 전시대 (2026-09-13) — 짙은 남색 틀 + 세운 게임 케이스: 윗단 = 디스크 테마 색(`--rc`), 속에 비치는 디스크 */
+.lib-case[data-medium="game"] {
+  --lib-frame: #242a3a; --lib-frame-hi: #36405a; --lib-back: #0d1018; --lib-grain: rgba(159, 240, 200, 0.03);
+  --lib-board: #2f3850; --lib-board-edge: rgba(159, 240, 200, 0.45);
+  --lib-tier-h: 106px; --lib-item-w: 62px; --lib-item-h: 86px;
+  width: min(100%, 300px);
+}
+.lib-case[data-medium="game"] .lib-tier { border-bottom-width: 7px; }
+.lib-case[data-medium="game"] .lib-slot.is-filled .lib-item {
+  border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 3px;
+  background: linear-gradient(180deg, var(--rc) 0 15px, rgba(0, 0, 0, 0.55) 15px 16px, #10131b 16px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+.lib-case[data-medium="game"] .lib-deco {
+  display: block; position: absolute; left: 50%; top: 54%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; opacity: 0.9;
+  background: radial-gradient(circle, #0b0e12 0 4px, #d6dde6 4px 5px, color-mix(in srgb, var(--rc) 60%, #fff) 5px 10px, var(--rc) 10px 17px, color-mix(in srgb, var(--rc) 45%, #000) 17px 20px);
+}
+
+/* 서재 시리즈 (2026-09-13): 권 번호 배지 · 전권 윤곽 */
+.lib-vol {
+  position: absolute; left: 2px; top: 2px; z-index: 2; padding: 0 3px; border-radius: 2px; pointer-events: none;
+  font: 700 9px/13px var(--ui-mono); letter-spacing: 0.04em; color: #0b0d11; background: rgba(255, 226, 170, 0.92);
+}
+.lib-vol[hidden] { display: none; }
+.lib-case[data-medium="book"] .lib-vol { left: 50%; top: auto; bottom: 1px; transform: translateX(-50%); }
+.lib-slot.is-full .lib-item { outline: 1px solid rgba(143, 224, 176, 0.75); outline-offset: 2px; }
+.lib-slot.is-full .lib-vol { background: rgba(143, 224, 176, 0.95); }
+
 .hs-shelf-aux { font-size: 11px; letter-spacing: 0.04em; font-family: var(--ui-mono); color: var(--c-text-faint); text-align: center; }
 .hs-shelf-aux.on { color: var(--c-success); }
+.hs-shelf-aux[hidden] { display: none; }
+
+/* 시리즈 진척 (보관함 화면) · 시리즈 도감 (2026-09-13) — 권 칸 `.lib-pip`: is-on = 작동 중인 보관함에 꽂힘(도감: 발견), is-here = 이 보관함, is-live = 지금 효과 */
+.lib-series { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lib-series-head { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-faint); }
+.lib-ser, .lib-dexrow {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 10px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); font-size: 12px;
+}
+.lib-ser.is-full, .lib-dexrow.complete { border-color: rgba(143, 224, 176, 0.5); }
+.lib-ser.is-off { opacity: 0.62; }
+.lib-dexrow.owned:not(.complete) { border-color: rgba(201, 167, 122, 0.45); }
+.lib-ser-top, .lib-dex-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lib-ser-name, .lib-dex-name { flex: 1; min-width: 0; font-weight: 600; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-dexrow:not(.owned) .lib-dex-name { color: var(--c-text-faint); }
+.lib-ser-cnt, .lib-dex-state { flex: none; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); white-space: nowrap; }
+.lib-ser.is-full .lib-ser-cnt, .lib-dexrow.owned .lib-dex-state { color: var(--c-success); }
+.lib-dexrow:not(.owned) .lib-dex-state { color: var(--c-text-faint); }
+.lib-ser-line, .lib-dex-sub { font-family: var(--ui-mono); font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
+.lib-ser-line.is-zero, .lib-dex-sub.planets { color: var(--c-text-faint); }
+.lib-dexrow.boosted .lib-dex-sub.effects { color: color-mix(in srgb, var(--c-accent) 70%, var(--c-text-dim)); }
+.lib-ser-empty { font-size: 11px; color: var(--c-text-faint); text-align: center; padding: 4px 0; }
+.lib-pips { display: inline-flex; gap: 3px; flex: none; }
+.lib-pip { display: block; width: 9px; height: 9px; border: 1px solid rgba(255, 255, 255, 0.28); }
+.lib-pip.is-on { background: var(--c-accent); border-color: var(--c-accent); }
+.lib-pip.is-here { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75); }
+.lib-pip.is-live { box-shadow: 0 0 0 1px var(--c-success); }
+.lib-ser.is-full .lib-pip.is-on, .lib-dexrow.complete .lib-pip.is-on { background: var(--c-success); border-color: var(--c-success); }
 
 /* 도감: one row per skill (shared by the 책장 panel and the 함선 tab) */
 .hs-dex { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -884,15 +940,3 @@
 .hs-build-row .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 .hs-build-row.is-blocked { border-style: dashed; opacity: 0.75; }
 .hs-build-row.is-blocked .name { color: var(--c-text-dim); }
-
-/* ── 발전기 전력 (2026-09-13): 스테이션 카드의 비활성화 버튼 · 멈춤 배너 (`ui/StationShell.paintStationPower`). 접두사 `.hpw-` ── */
-.hpw-toggle { flex: none; height: 34px; padding: 0 14px; font-size: 11px; letter-spacing: 0.1em; }
-.hpw-toggle[hidden] { display: none; }
-.hpw-toggle.is-off { border-color: var(--c-success); color: var(--c-success); }
-.hpw-banner {
-  margin: 2px 0 6px; padding: 6px 10px;
-  border: 1px solid rgba(255, 77, 77, 0.55); background: rgba(255, 77, 77, 0.12);
-  font-size: 12px; letter-spacing: 0.04em; color: var(--c-danger);
-}
-.hpw-banner[hidden] { display: none; }
-.hpw-banner.is-disabled { border-color: var(--c-border); background: rgba(255, 255, 255, 0.05); color: var(--c-text-dim); }

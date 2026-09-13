@@ -128,19 +128,6 @@ export function dropCulturesOf(sys: HousingSystem, uid: string): void {
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
 }
 
-/** 전력 (2026-09-13): 멈춰 있던 배양조가 다시 돌았다 — 배양 중인 칸의 시각을 멈춘 시간만큼 민다 (`parts/Power` 가 부른다). */
-export function shiftPausedCultures(sys: HousingSystem, uid: string, pausedMs: number): number {
-  if (!(pausedMs > 0) || !sys.tankOf(uid)) return 0;
-  let n = 0;
-  for (const c of sys.cultures()) {
-    if (c.uid !== uid || !c.startedAt || !c.readyAt) continue;
-    c.startedAt += pausedMs;
-    c.readyAt += pausedMs;
-    n++;
-  }
-  return n;
-}
-
 /** Finished 칸 of a tank (the `housing:cultureChanged` payload and the hub's glowing tubes). */
 export function readyCultures(sys: HousingSystem, uid: string): number {
   const now = sys.stationNow(uid);
@@ -173,7 +160,7 @@ export function strainDef(sys: HousingSystem, defId: string): ItemDef | null {
 export function getCultureSlots(sys: HousingSystem, uid: string): CultureSlotInfo[] {
   const tank = sys.tankOf(uid);
   if (!tank) return [];
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 배양조는 멈춘 시각에 서 있다
+  const now = sys.stationNow(uid);
   const open = cultureSlotsForLevel(tank.level);
   const out: CultureSlotInfo[] = [];
   for (let slot = 0; slot < CULTURE_MAX_SLOTS; slot++) {
@@ -315,7 +302,7 @@ export function insertStrain(sys: HousingSystem, uid: string, slot: number, stra
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(strainDefId, 1)) return '세포주를 꺼낼 수 없습니다';
   const st = mediumStats(sys, c);
   const hours = scaffold ? scaffold.hours : def.strain.cultureHours;
-  c.startedAt = sys.stationNow(uid);               // 전력 (2026-09-13): 멈춘 배양조에 넣으면 다시 돌 때부터 자란다
+  c.startedAt = sys.stationNow(uid);
   c.readyAt = c.startedAt + cultureDurationMs(hours, st.speedMul, sys.gardening(), st.ratio, socketSum(sys, c.sockets, 'speed'));
   c.strainDefId = strainDefId;
   sys.cultureChanged(uid, 'cultureStart');
@@ -381,7 +368,7 @@ export function harvestCulture(sys: HousingSystem, uid: string, slot: number, de
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c || !c.strainDefId || !c.readyAt) return '배양 중인 세포주가 없습니다';
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 배양조는 멈춘 시각 기준
+  const now = sys.stationNow(uid);
   if (now < c.readyAt) return `아직 배양 중입니다 (${formatRemaining(Math.ceil((c.readyAt - now) / 1000))} 남음)`;
   const output = outputOf(sys, c);
   const loot = sys.ctx.loot;

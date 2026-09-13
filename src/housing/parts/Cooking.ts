@@ -16,15 +16,15 @@
  * 말한다 (조용히 성공한 척하지 않는다, `parts/Gym` 의 `applyGymSession` 과 같은 규약).
  */
 import type {
-  CookAutoInfo, CookGame, CookResult, CookSessionInfo, CookStepDef, CraftRecipe, FurnitureDef, PlacedFurniture,
+  CookAutoInfo, CookGame, CookResult, CookSessionInfo, CookStepDef, CraftRecipe, FurnitureDef, HousingRef, LibraryCookTarget, PlacedFurniture,
 } from '@/shared';
 import {
-  COOK_STEPS, cookAutoScore, cookGamesOfAppliance, cookScoreOf, cookStepsOf, mealQualityForScore,
+  COOK_SKILL_XP, COOK_STEPS, LIBRARY_COOK_TARGETS, LIBRARY_SERIES_MAP, cookAutoScore, cookGamesOfAppliance, cookScoreOf, cookStepsOf,
+  mealQualityForScore,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import type { CookScreenKind } from '../ui/cook/CookScreen';
 import { createCookGame } from './CookGames';
-import { computePower, operationalBlockIn } from '../PowerRules';   // 전력 (2026-09-13)
 import type { AnyCookGame } from './CookGames';
 
 /** 조리 오버레이의 `ctx.uiBlockers` 토큰 — 패널들의 `'housing'` 과 따로라, 조리대 화면이 닫히며 지워 가지 않는다. */
@@ -37,8 +37,12 @@ export interface CookState {
   info: CookSessionInfo;
   /** 시작할 때의 조리대 레벨 — `completeCook` 에 넘긴다. */
   benchLevel: number;
-  /** 이번 판의 단계 점수 (순서대로, 아직이면 비어 있다). */
+  /** 이번 판의 단계 점수 (순서대로, 아직이면 비어 있다). 2026-09-13: 요리 숙련 · 서재 보너스를 **더하고 1 로 자른** 값 — 품질은 이것으로 정한다. */
   stepScores: number[];
+  /** 2026-09-13 (H3): 보너스를 더하기 전의 단계 점수 (미니게임 · 자동 가구가 낸 그대로 — 화면의 `72 → 84`). */
+  stepRaw: number[];
+  /** 2026-09-13 (H3): 단계마다 더한 보너스 (요리 숙련 · 서재). */
+  stepBonus: CookStepBonus[];
   /** 이번 판에서 단계마다 자동으로 처리했나. */
   stepAuto: boolean[];
   /** 이번 판을 마무리했다 (`completeCookRun` 을 불렀다). */
@@ -69,7 +73,18 @@ export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
   let all: readonly CraftRecipe[] = [];
   if (inv && typeof inv.getRecipes === 'function') all = inv.getRecipes('ship', 'cook', 99);
   else if (loot && typeof loot.getAllRecipes === 'function') all = loot.getAllRecipes();
-  return all.filter((r) => r.bench === 'cook' && cookStepsOf(r.outputDefId).length > 0);
+  const out = all.filter((r) => r.bench === 'cook' && cookStepsOf(r.outputDefId).length > 0);
+  // 2026-09-13 (H3): 레시피 책 요리는 잠겨 있어도 목록에 보인다 (딤드 + 사유) — inventory 가 책으로 걸러 냈다면 숙련이 되는 것만 되살린다
+  if (inv && typeof inv.getRecipes === 'function' && loot && typeof loot.getAllRecipes === 'function') {
+    const have = new Set(out.map((r) => r.id));
+    const skillOf = (r: CraftRecipe): number => sys.ctx.progression?.getSkill?.(r.skill) ?? 0;
+    for (const r of loot.getAllRecipes()) {
+      if (!r.unlockSeries || have.has(r.id) || r.bench !== 'cook' || !cookStepsOf(r.outputDefId).length) continue;
+      if (skillOf(r) < r.skillRequired) continue;
+      out.push(r);
+    }
+  }
+  return out;
 }
 
 /**
@@ -87,14 +102,60 @@ export function cookSession(sys: HousingSystem): CookSessionInfo | null {
   return sys.cookState ? sys.cookState.info : null;
 }
 
+/* ── 2026-09-13 (H3): 요리 숙련 · 서재 보너스 · 레시피 책 (docs/plans/library-series-games.md) ───────────────
+ * 단계 점수 = min(1, 미니게임 · 자동 가구 점수 + `derived.cookScoreBonus` + 서재 `cookScore[game]`) — **직접 하기 · 자동 모두** (사용자 결정 ·
+ * 리드 결정). 서재 보너스는 썰기 · 다지기 · 굽기 · 볶기(`LIBRARY_COOK_TARGETS`)만 받는다. 레시피 책(`CraftRecipe.unlockSeries`)은
+ * `HousingRef.isRecipeUnlocked` 가 false 면 잠김 — 서재 에이전트가 그 메서드를 아직 주지 않으면 책이 필요한 레시피는 잠긴 채다. */
+
+/** 한 단계에 더하는 보너스 (0 … 1, 자르기 전). */
+export interface CookStepBonus {
+  /** 요리 숙련 (`derived.cookScoreBonus`). */
+  skill: number;
+  /** 서재 (`getLibraryEffects().cookScore[game]`). */
+  library: number;
+  /** `skill + library`. */
+  total: number;
+}
+
+const finiteNonNeg = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+
+/** 지금 이 조리 단계(`game`)에 더해질 보너스. */
+export function cookStepBonus(sys: HousingSystem, game: CookGame): CookStepBonus {
+  const skill = finiteNonNeg(sys.ctx.progression?.derived?.cookScoreBonus);
+  let library = 0;
+  if ((LIBRARY_COOK_TARGETS as readonly string[]).includes(game)) {
+    const ref: HousingRef | null = sys.ctx.housing ?? null;
+    const lib = ref && typeof ref.getLibraryEffects === 'function' ? ref.getLibraryEffects() : null;
+    library = finiteNonNeg(lib?.cookScore?.[game as LibraryCookTarget]);
+  }
+  return { skill, library, total: skill + library };
+}
+
+/** 단계 점수에 보너스를 더하고 0 … 1 로 자른다. */
+export function applyCookStepBonus(raw: number, bonus: CookStepBonus): number {
+  const s = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
+  return Math.max(0, Math.min(1, s + bonus.total));
+}
+
+/**
+ * 레시피 책이 꽂혀 있지 않아 잠긴 요리면 한국어 사유 (`『시리즈 이름』 을(를) 서재에 꽂아야 합니다`), 아니면 null.
+ * 책이 필요 없는 레시피(`unlockSeries` 없음)는 늘 null.
+ */
+export function cookRecipeBookBlock(sys: HousingSystem, recipe: CraftRecipe): string | null {
+  const series = recipe.unlockSeries;
+  if (!series) return null;
+  const ref: HousingRef | null = sys.ctx.housing ?? null;
+  const unlocked = ref && typeof ref.isRecipeUnlocked === 'function' ? ref.isRecipeUnlocked(recipe.id) !== false : false;
+  if (unlocked) return null;
+  return `『${LIBRARY_SERIES_MAP.get(series)?.name ?? '레시피 책'}』 을(를) 서재에 꽂아야 합니다`;
+}
+
 /** 그 게임을 대신하는 자동 조리 가구 중 함선에 배치된 가장 높은 레벨의 것 (방은 묻지 않는다 — 주방에만 놓인다). */
 export function getCookAuto(sys: HousingSystem, game: CookGame): CookAutoInfo | null {
   let best: CookAutoInfo | null = null;
-  const snap = computePower(sys.state);                     // 전력 (2026-09-13): 멈춘 자동 조리 가구는 대신해 주지 않는다
   for (const f of sys.state.furniture) {
     const def = sys.getFurnitureDef(f.defId);
     if (!def || !cookGamesOfAppliance(def.interaction).includes(game)) continue;
-    if (operationalBlockIn(snap, f.uid) !== null) continue;
     if (!best || f.level > best.level) {
       best = { interaction: def.interaction, uid: f.uid, defId: f.defId, level: f.level, score: cookAutoScore(f.level) };
     }
@@ -109,12 +170,12 @@ function blockCore(sys: HousingSystem, uid: string, recipeId: string, ignoreActi
   if (!bench) return '조리대가 아닙니다';
   if (ctx.isRaidActive() || !ctx.isHubPhase()) return '함선에서만 요리할 수 있습니다';
   if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) return '내 함선에서만 요리할 수 있습니다';
-  const power = sys.furnitureOperationalBlock(uid);          // 전력 (2026-09-13): 전력 부족 · 비활성화된 조리대
-  if (power) return power;
   if (!ignoreActive && sys.cookState) return '이미 조리 중입니다';
   const recipe = cookRecipeOf(sys, recipeId);
   if (!recipe) return '요리 레시피가 아닙니다';
   if (!cookStepsOf(recipe.outputDefId).length) return '조리 단계가 없는 요리입니다';
+  const book = cookRecipeBookBlock(sys, recipe);             // 2026-09-13 (H3): 레시피 책이 꽂혀 있어야 한다
+  if (book) return book;
   const inv = ctx.inventory;
   if (inv && typeof inv.cookBlock === 'function') return inv.cookBlock(recipeId, bench.item.level);
   return fallbackBlock(sys, recipe, bench.item.level);
@@ -151,7 +212,9 @@ export function startCook(sys: HousingSystem, uid: string, recipeId: string): st
   const screen = sys.cookScreen;
   if (!bench || !recipe || !screen) return '조리를 시작할 수 없습니다';
   const info: CookSessionInfo = { uid, recipeId, mealDefId: recipe.outputDefId, steps: cookStepsOf(recipe.outputDefId) };
-  sys.cookState = { info, benchLevel: bench.item.level, stepScores: [], stepAuto: [], finished: false, anyCompleted: false, result: null };
+  sys.cookState = {
+    info, benchLevel: bench.item.level, stepScores: [], stepRaw: [], stepBonus: [], stepAuto: [], finished: false, anyCompleted: false, result: null,
+  };
   // 오버레이가 먼저 커서 · 블로커를 잡고 나서 조리대 화면을 닫는다 — 그 사이에 포인터 락이 되돌아갔다 풀리지 않게
   screen.open(info, sys.nameOf(recipe.outputDefId));
   sys.exitHousingMode();
@@ -171,6 +234,8 @@ export function restartCook(sys: HousingSystem): string | null {
   if (reason || !st) return reason ?? '조리 중이 아닙니다';
   st.benchLevel = cookBenchAt(sys, st.info.uid)?.item.level ?? st.benchLevel;
   st.stepScores = [];
+  st.stepRaw = [];
+  st.stepBonus = [];
   st.stepAuto = [];
   st.finished = false;
   st.result = null;
@@ -185,12 +250,21 @@ export function cancelCook(sys: HousingSystem): void {
   else endCook(sys);
 }
 
-/** 화면이 단계 하나를 끝냈다 — 이번 판의 점수표에 적는다. */
-export function recordCookStep(sys: HousingSystem, index: number, score: number, auto: boolean): void {
+/**
+ * 화면이 단계 하나를 끝냈다 — 이번 판의 점수표에 적는다. 2026-09-13 (H3): `score` 는 미니게임 · 자동 가구가 낸 **원점수**이고, 여기서
+ * 요리 숙련 · 서재 보너스를 더해 1 로 자른 값을 적고 돌려준다 (직접 하기 · 자동 모두). 적지 못하면(세션 없음 · 끝난 판) 원점수를 자른 값.
+ */
+export function recordCookStep(sys: HousingSystem, index: number, score: number, auto: boolean): number {
+  const raw = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
   const st = sys.cookState;
-  if (!st || st.finished || index < 0 || index >= st.info.steps.length) return;
-  st.stepScores[index] = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
+  if (!st || st.finished || index < 0 || index >= st.info.steps.length) return raw;
+  const bonus = cookStepBonus(sys, st.info.steps[index].game);
+  const final = applyCookStepBonus(raw, bonus);
+  st.stepRaw[index] = raw;
+  st.stepBonus[index] = bonus;
+  st.stepScores[index] = final;
   st.stepAuto[index] = auto;
+  return final;
 }
 
 /**
@@ -226,7 +300,15 @@ export function completeCookRun(sys: HousingSystem): CookResult | null {
   }
   const result: CookResult = { recipeId, mealDefId, stepScores, stepAuto, score, quality, itemUid, landed: reason ? null : landed, reason };
   st.result = result;
-  if (!reason) st.anyCompleted = true;
+  if (!reason) {
+    st.anyCompleted = true;
+    // 2026-09-13 (H3): 요리 숙련 경험치 — 요리가 실제로 나온 판만, 점수 비례 (최소 ¼)
+    const prog = sys.ctx.progression;
+    const xp = COOK_SKILL_XP * Math.max(0.25, score);   // 리드 2026-09-13: 숙련 경험치는 소수 눈금(CRAFT_XP 0.5)이라 반올림하지 않는다
+    if (prog && typeof prog.addSkillXp === 'function' && xp > 0) {
+      try { prog.addSkillXp('cooking', xp); } catch (e) { console.error('[housing] progression.addSkillXp(cooking) threw', e); }
+    }
+  }
   sys.ctx.bus.emit('audio:play', { id: reason ? 'ui_deny' : 'cook_finish' });
   sys.ctx.bus.emit('housing:cookResult', { uid, result });
   return result;
@@ -249,7 +331,6 @@ export function openCookStation(sys: HousingSystem, uid: string): void {
   if (!cookBenchAt(sys, uid)) reason = '조리대가 아닙니다';
   else if (ctx.isRaidActive() || !ctx.isHubPhase()) reason = '함선에서만 요리할 수 있습니다';
   else if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) reason = '내 함선에서만 요리할 수 있습니다';
-  else if (sys.furnitureOperationalBlock(uid)) reason = sys.furnitureOperationalBlock(uid);   // 전력 (2026-09-13)
   else if (sys.cookState) reason = '이미 조리 중입니다';
   if (reason) { sys.notify(reason, 'warning'); return; }
   sys.exitHousingMode();
@@ -296,6 +377,10 @@ export interface CookDebug {
   makeGame(step: CookStepDef | CookGame): AnyCookGame;
   /** 조리대 레시피 요약. */
   recipes(): { id: string; mealDefId: string; benchLevel: number; steps: CookGame[] }[];
+  /** 2026-09-13 (H3): 지금 그 단계에 더해질 요리 숙련 · 서재 보너스. */
+  bonus(game: CookGame): CookStepBonus;
+  /** 2026-09-13 (H3): 진행 중인 판의 원점수 (보너스 전), 세션이 없으면 []. */
+  readonly stepRaw: readonly number[];
 }
 
 export function cookDebug(sys: HousingSystem): CookDebug {
@@ -323,5 +408,7 @@ export function cookDebug(sys: HousingSystem): CookDebug {
     recipes: () => cookRecipes(sys).map((r) => ({
       id: r.id, mealDefId: r.outputDefId, benchLevel: r.benchLevel ?? 1, steps: cookStepsOf(r.outputDefId).map((s) => s.game),
     })),
+    bonus: (game: CookGame) => cookStepBonus(sys, game),
+    get stepRaw() { return sys.cookState ? [...sys.cookState.stepRaw] : []; },
   };
 }

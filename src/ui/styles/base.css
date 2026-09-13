@@ -2835,54 +2835,13 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-gen-btn:hover { background: rgba(255, 179, 71, 0.22); color: #ffd18a; }
 .sm-gen-btn:disabled { opacity: 0.45; cursor: default; }
 
-/* 시설 관리 — 전력 패널 (2026-09-13, 발전기 전력): 발전기 행 아래. 공급 막대(시설별 할당 조각 + 남는 전력) · 요구 합 경고 ·
-   시설마다 요구 / 할당 − + · 요구량 맞추기 · 펼치면 가구별 요구 · 비활성. 216 px 열이라 목록은 자기 스크롤을 갖는다. 접두사 `.sm-pw-` */
-.sm-pw { flex: none; display: flex; flex-direction: column; gap: 5px; padding-top: 6px; border-top: 1px solid var(--c-border); }
-.sm-pw[hidden] { display: none; }
-.sm-pw-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
-.sm-pw-head .t { font-size: 10px; letter-spacing: 0.24em; font-weight: 700; color: var(--c-accent); }
-.sm-pw-head .v { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); white-space: nowrap; }
-.sm-pw-bar { display: flex; height: 8px; gap: 1px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--c-border); }
-.sm-pw-seg { min-width: 2px; background: var(--pc, var(--c-accent)); }
-.sm-pw-seg.is-short { background: repeating-linear-gradient(45deg, var(--c-danger) 0 3px, rgba(255, 77, 77, 0.35) 3px 6px); }
-.sm-pw-seg.free { background: transparent; }
-.sm-pw-req { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); }
-.sm-pw-req.is-over { color: var(--c-danger); }
-.sm-pw-list { display: flex; flex-direction: column; gap: 3px; max-height: 210px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-.sm-pw-row { display: flex; flex-direction: column; gap: 3px; padding: 4px 6px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.03); }
-.sm-pw-row.is-short { border-color: rgba(255, 77, 77, 0.55); background: rgba(255, 77, 77, 0.08); }
-.sm-pw-l1 { display: flex; align-items: center; gap: 6px; }
-.sm-pw-name {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none;
-  font: inherit; font-size: 11px; letter-spacing: 0.04em; color: var(--c-text); text-align: left; cursor: pointer;
-}
-.sm-pw-name .g { color: var(--pc, var(--c-accent)); font-size: 12px; }
-.sm-pw-name .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sm-pw-name .car { font-size: 8px; color: var(--c-text-faint); }
-.sm-pw-need { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); white-space: nowrap; }
-.sm-pw-row.is-short .sm-pw-need { color: var(--c-danger); }
-.sm-pw-l2 { display: flex; align-items: center; gap: 3px; }
-.sm-pw-btn {
-  flex: none; min-width: 20px; height: 20px; padding: 0 4px;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.05);
-  font: inherit; font-size: 11px; line-height: 1; color: var(--c-text); cursor: pointer;
-}
-.sm-pw-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
-.sm-pw-btn:disabled { opacity: 0.4; cursor: default; }
-.sm-pw-val { flex: none; min-width: 44px; text-align: center; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text); }
-.sm-pw-fit { flex: 1; min-width: 0; font-size: 9px; letter-spacing: 0.02em; white-space: nowrap; }
-.sm-pw-furn { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 0 14px; }
-.sm-pw-f { display: flex; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--c-text-dim); }
-.sm-pw-f .fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sm-pw-f .fd { flex: none; font-family: var(--ui-mono); }
-.sm-pw-f.is-off { color: var(--c-text-faint); text-decoration: line-through; }
-.sm-pw-empty { font-size: 10px; color: var(--c-text-faint); }
-/* 인스펙터: 요구 전력 줄 · 업그레이드 왼쪽의 비활성화 버튼 */
-.sm-pw-ins { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
-.sm-pw-ins.is-short { color: var(--c-danger); }
-.sm-pw-toggle { flex: none; padding: 6px 10px; }
-.sm-pw-toggle.is-off { border-color: var(--c-success); color: var(--c-success); background: rgba(126, 224, 138, 0.1); }
-.sm-room.is-unpowered .p::after { content: ' ⚡'; color: var(--c-danger); }
+/* 시설 관리 — 발전기 행의 레벨별 해금 표 (2026-09-13, 전력 할당 폐지 뒤): `Lv.2 온실 · 주방` 한 줄씩, 이미 연 레벨은 흐리게 · 다음 레벨은 강조 */
+.sm-gen-unlocks { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.sm-gen-unlock { display: flex; gap: 6px; font-size: 10px; letter-spacing: 0.03em; color: var(--c-text-dim); }
+.sm-gen-unlock .lv { flex: none; min-width: 30px; font-family: var(--ui-mono); color: var(--c-text-faint); }
+.sm-gen-unlock.is-open { color: var(--c-text-faint); }
+.sm-gen-unlock.is-next { color: var(--c-accent); }
+.sm-gen-unlock.is-next .lv { color: var(--c-accent); }
 /* the printed block reason under a purpose / the generator (was a tooltip on a disabled button) */
 .sm-block { font-size: 10px; line-height: 1.45; letter-spacing: 0.03em; color: var(--c-danger); }
 /* a blocked purpose row stays clickable (it answers with the reason) — dashed, dimmed, no not-allowed cursor */

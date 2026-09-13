@@ -309,7 +309,8 @@ SHIP_ROOM_COUNT,8,"기본 개인 함선의 방 수 (한 쪽에 절반씩). 2026-
 ROOM_GRID_COLS,16,"Room floor grid (cells) and cell size (m): 16 × 16 × 0.5 = an 8 × 8 m room. 2026-09-12 (사용자 결정): 8 → 16 — 작업대 가구(4×2) 네 개가 들어가지 않을 만큼 좁았다. 좌상단이 원점이라 기존 세이브의 가구 좌표는 전부 그대로 유효하다. hub/interiors/RoomLayout 의 SEGMENT · CORRIDOR 도 함께 늘어나야 방끼리 겹치지 않는다."
 ROOM_GRID_ROWS,16,
 HOUSING_CELL_SIZE,0.5,
-GENERATOR_MAX_LEVEL,10,
+GENERATOR_MAX_LEVEL,5,"발전기 최대 레벨. 2026-09-13 (사용자 결정 — 전력 할당 폐지): 10 → 5. 발전기는 시설 증축 조건(room_purposes.csv 의 generator)과 가구 · 창고 강화 게이트뿐이다. 옛 세이브의 Lv.6–10 은 환불 없이 이 값으로 내려간다."
+GENERATOR_START_LEVEL,1,"새 함선의 발전기 레벨 (2026-09-13 — 가동하지 않아도 처음부터 이 레벨). 옛 세이브의 Lv.0 도 이 값으로 올라온다."
 STORAGE_MAX_LEVEL,5,
 WORKSHOP_MAX_LEVEL,3,"은퇴 (2026-09-12 — 방 시설 레벨 제거). 읽는 곳이 없다; 계약 상수라 줄만 남는다."
 RANGE_MAX_LEVEL,5,"은퇴 (2026-09-12 — 방 시설 레벨 제거). 읽는 곳이 없다; 계약 상수라 줄만 남는다."
@@ -1011,3 +1012,15 @@ ROVER_AGGRO_GROUP_RADIUS,16,"차량에 맞은 적의 같은 팩션 무리 반경
 ROVER_NOTICE_STOPPED_M,14,"정류장에 **서 있는** 차량을 적이 알아채는 거리(m, 차체 가장자리까지 · 사선 필요). 달리는 차량은 평소 시야 · 청각 반경으로 알아챈다."
 # ── end [R4] ──
 # ── end 2026-09-13 탐사 차량 ──
+# ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/plans/library-series-games.md) ──
+SHELF_SERIES_VOLUME_SHARE,0.1,"서재 시리즈 몫 — 전권이 아니면 꽂힌 서로 다른 권마다 원래(전권) 보너스의 이만큼, 전권이면 100 % (사용자 결정: V 시리즈 4권 = 40 %)."
+GAME_DISC_SLOTS_PER_STAND,6,"게임 디스크 전시대 한 대의 칸 수."
+COOK_SKILL_SCORE_AT_MAX,0.15,"요리 숙련 최대치에서 조리 단계 점수에 더하는 값 (직접 하기 · 자동 모두, 단계 점수는 1 로 자른다)."
+COOK_SKILL_XP,0.8,"조리 한 번이 주는 요리 숙련 경험치 — 실제 = 이 값 × max(0.25, 요리 점수). tuning.csv 의 CRAFT_XP(0.5) · CRATE_OPEN_XP(0.4) 와 같은 눈금이다."
+RESEARCH_TIME_AT_MAX,0.3,"연구 숙련 최대치에서 분석 시간이 줄어드는 비율 (0.3 = −30 %). 넣는 순간 확정."
+RESEARCH_REFUND_CHANCE_AT_MAX,0.35,"연구 숙련 최대치에서 추출기 · 조합대 · 3D 프린터 제작 완료 시 재료 일부를 돌려받을 확률."
+RESEARCH_REFUND_FRAC_MIN,0.2,"돌려받을 때 재료마다 돌려받는 비율 — 연구 숙련 0. 재료당 최소 1 개."
+RESEARCH_REFUND_FRAC_MAX,0.5,"돌려받는 비율 — 연구 숙련 최대."
+RESEARCH_XP_ANALYSIS,1.2,"분석 한 칸을 회수할 때 연구 숙련 경험치 (해석은 현실 시간이 걸려 제작 1회보다 크게)."
+RESEARCH_XP_CRAFT,0.5,"추출기 · 조합대 · 3D 프린터 제작 1회(수량 1)당 연구 숙련 경험치 (CRAFT_XP 와 같은 값)."
+# ── end 2026-09-13 서재 시리즈 ──

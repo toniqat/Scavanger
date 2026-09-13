@@ -6,10 +6,14 @@ import {
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
+/* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md) */
+import type { BookDef, GameStat, GymGameTuning, GymMinigame, LibraryMedium, PlanetId } from '@/shared';
+import { GAME_STATS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, PLANET_IDS, resolveItemAlias, stringMap } from '@/shared';
 
 /*
  * 아이템 수치의 원본은 `data/` 의 csv 다 — `items.csv`(수류탄 · 회복 · 귀중품 · 재료 · 약초 · 가젯),
- * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `books.csv` · `samples.csv` · `sockets.csv` · `meals.csv`,
+ * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `samples.csv` · `sockets.csv` · `meals.csv`,
+ * 서재 매체는 `library_series.csv`(2026-09-13 — 옛 books · discs · records.csv 대신), 비디오게임은 `game_consoles.csv` · `game_discs.csv`,
  * 무기는 `weapons.csv` / `weapons_unique.csv`, 방탄복은 `armor.csv`.
  * 이 파일에는 표가 없고 그 줄들을 `ItemDef` 로 옮기는 코드만 있다.
  *
@@ -295,107 +299,201 @@ export const MEAL_ITEM_DEFS: readonly ItemDef[] = csvRows('meals.csv').map((r) =
   });
 });
 
-/* ── 서적 (Phase 9) — data/books.csv ──────────────────────────────────────────
- * One book per skill (`book_<skill>`), shelved in a 서재 책장 (`furn_bookshelf`, housing/ owns the shelves and the
- * bonus: `1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL[rarity]`, capped at `BOOK_GAIN_MAX`). Loot (tier 2–4 containers,
- * 로그 시체) + 세레스 corp shop (신뢰도 2) only — never craftable, never quick-usable. 1×2, no stacking. */
-const BOOK_ICON = CATEGORY_ICON.book;
-const BOOK_COLOR = CATEGORY_COLOR.book;
-/** Sale value by rarity (the corp shop prices off `value`) — `data/tables.csv`. */
-const BOOK_VALUE_BY_RARITY = numberMap<Rarity>('tables.csv', 'BOOK_VALUE_BY_RARITY');
-
-/** Item id of the book that teaches `skill` (`gun_AR` → `book_gun_AR`). */
-export function bookItemIdFor(skill: SkillId): string {
-  return `book_${skill}`;
-}
-
-/** The 14 books, in `data/books.csv` order (one per skill). */
-export const BOOK_ITEM_DEFS: readonly ItemDef[] = csvRows('books.csv').map((r) => {
-  const skill = r.str('skill') as SkillId;
-  const rarity = r.str('rarity') as Rarity;
-  return {
-    ...def({
-      id: bookItemIdFor(skill), name: r.str('name'), category: 'book', rarity,
-      width: 1, height: 2, stackMax: 1, value: BOOK_VALUE_BY_RARITY[rarity],
-      icon: BOOK_ICON, description: r.str('description'), book: { skill }, weight: T.num('BOOK_WEIGHT'),
-    }),
-    color: BOOK_COLOR,
-  };
-});
-/** Book def for a skill (undefined only if a skill was added without a book — every `SKILL_IDS` entry has one). */
-export const BOOK_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(BOOK_ITEM_DEFS.map((d) => [d.book!.skill, d]));
-for (const s of SKILL_IDS) if (!BOOK_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no book`);
-
-/* ── 서재 매체: 디스크 · 레코드 (A-3e, 2026-09-12) — data/discs.csv · data/records.csv ──────────
- * 책과 **똑같은 역할**의 아이템 2종 — 숙련 하나에 한 장씩(`disc_<skill>` · `record_<skill>`), 등급은 **같은 숙련의 책과 같다**
- * (그 등급이 `BOOK_RARITY_MUL` 가중치다). 디스크는 서재 디스크 전시대(`furn_disc_stand`), 레코드는 레코드랙(`furn_record_rack`)에
- * 꽂고, 매체별 몫 · 상한 · 보조 가구 배율은 `housing/` 이 계산한다 (`SHELF_*` 표). items 는 표만 옮긴다.
- * 루팅(디스크 티어 2–4 · 레코드 티어 3–5) + 세레스 상점(신뢰도 3 · 4)뿐 — 제작 불가, 퀵슬롯 불가, 로그 시체 서적 굴림에 안 섞인다.
+/* ── 서재 매체: 책 · 비디오 · 레코드 (2026-09-13 서재 시리즈 — docs/plans/library-series-games.md) ─────────────
+ * 아이템은 **시리즈**(`data/library_series.csv`, 효과 · 행성 로더는 `shared/library` 의 `LIBRARY_SERIES_DEFS`)에서 만든다 —
+ * 시리즈 한 줄 = 권 수만큼의 아이템. 옛 숙련별 한 권(`book_<skill>` · `disc_<skill>` · `record_<skill>`)은 없어졌고
+ * 세이브 · 와이어의 그 id 는 `data/item_aliases.csv` 가 새 시리즈 1권으로 옮긴다 (`resolveItemAlias`).
  *
- * 책 로더와 달리 `skill` · `rarity` 를 열거값으로 읽고, **책과 등급이 다르면 · 같은 숙련이 두 줄이면** `data:check` 가 잡는다. */
-interface ShelfMediumSpec {
-  file: string;
-  category: 'disc' | 'record';
-  idOf: (skill: SkillId) => string;
+ *  - id   = `book_<시리즈>_<권>` · `disc_<시리즈>_<권>` · `record_<시리즈>` (housing 세이브의 id 모양 `^(book|disc|record|game)_…`).
+ *  - 이름 = 시리즈 이름 + 권 번호 로마 숫자 (단편은 번호 없음).
+ *  - `ItemDef.book` / `disc` / `record` = `{ skill, series, volume }` — `skill` 은 **대표 숙련**(정렬 · 도감 묶음)일 뿐이고
+ *    효과는 시리즈의 효과 줄만 정한다. csv 의 `skill` 칸이 비면 첫 skillGain 줄의 숙련이다.
+ *  - 등급: 책은 등급이 없어 전부 `tables.csv` 의 `LIBRARY_ITEM_RARITY.book`, 비디오 · 레코드는 시리즈의 `rarity` 칸.
+ *  - 가치: 책 `BOOK_VALUE_BY_VOLUME[권]` · 비디오 `DISC_VALUE_BY_RARITY × (1 + DISC_VALUE_VOLUME_STEP × (권 − 1))` · 레코드 `RECORD_VALUE_BY_RARITY`.
+ *  - 칸 · 무게는 옛 매체 그대로 (책 1×2 · 비디오 2×2 · 레코드 3×3, `BOOK_WEIGHT` · `DISC_WEIGHT` · `RECORD_WEIGHT`), 스택 없음.
+ * 드롭은 그 시리즈의 행성에서만 권 가중치로 (`LootTables.isLootableOnPlanet` · `libraryVolumeWeight`). 제작 · 상점 · 퀵슬롯 없음.
+ * 시리즈 ↔ 아이템 1:1 · 숙련마다 책 시리즈 · 레시피 대상 · 행성 threat 같은 표끼리 검사는 `scripts/data-check.mjs` 가 한다. */
+type LibraryItemRow = ReturnType<typeof csvRows>[number];
+const LIBRARY_ITEM_ROWS: ReadonlyMap<string, LibraryItemRow> = new Map(csvRows('library_series.csv').map((r) => [r.raw('id'), r] as const));
+const BOOK_VALUE_BY_VOLUME = numberMap<string>('tables.csv', 'BOOK_VALUE_BY_VOLUME');
+const DISC_VALUE_BY_RARITY = numberMap<Rarity>('tables.csv', 'DISC_VALUE_BY_RARITY');
+const RECORD_VALUE_BY_RARITY = numberMap<Rarity>('tables.csv', 'RECORD_VALUE_BY_RARITY');
+const DISC_VALUE_VOLUME_STEP = T.num('DISC_VALUE_VOLUME_STEP');
+const LIBRARY_ITEM_RARITY = stringMap<'book'>('tables.csv', 'LIBRARY_ITEM_RARITY');
+
+/** 책의 등급 — 책은 등급이 없어 전부 이 값이다 (`tables.csv` 의 `LIBRARY_ITEM_RARITY.book`, 틀리면 data:check 가 잡고 여기서는 uncommon). */
+export const LIBRARY_BOOK_RARITY: Rarity = (RARITY_ORDER as readonly string[]).includes(LIBRARY_ITEM_RARITY.book)
+  ? LIBRARY_ITEM_RARITY.book as Rarity : 'uncommon';
+
+interface LibraryMediumSpec {
   width: number;
   height: number;
-  valueTable: string;
-  weightKey: string;
+  weight: number;
+  value: (rarity: Rarity, volume: number) => number;
 }
 
-function shelfMediumDefs(spec: ShelfMediumSpec): ItemDef[] {
-  const value = numberMap<Rarity>('tables.csv', spec.valueTable);
-  const weight = T.num(spec.weightKey);
-  const seen = new Set<SkillId>();
+const LIBRARY_MEDIUM_SPEC: Readonly<Record<LibraryMedium, LibraryMediumSpec>> = {
+  book: { width: 1, height: 2, weight: T.num('BOOK_WEIGHT'), value: (_rarity, volume) => BOOK_VALUE_BY_VOLUME[String(volume)] ?? 0 },
+  disc: {
+    width: 2, height: 2, weight: T.num('DISC_WEIGHT'),
+    value: (rarity, volume) => Math.round((DISC_VALUE_BY_RARITY[rarity] ?? 0) * (1 + DISC_VALUE_VOLUME_STEP * (volume - 1))),
+  },
+  record: { width: 3, height: 3, weight: T.num('RECORD_WEIGHT'), value: (rarity) => RECORD_VALUE_BY_RARITY[rarity] ?? 0 },
+};
+
+const VOLUME_ROMAN: readonly string[] = ['', 'I', 'II', 'III', 'IV', 'V'];
+
+/** 시리즈 한 권의 아이템 id (`book_carry_manual_2` · `disc_rifle_range_1` · `record_porters_song`). */
+export function libraryItemIdFor(medium: LibraryMedium, seriesId: string, volume: number): string {
+  return medium === 'record' ? `record_${seriesId}` : `${medium}_${seriesId}_${volume}`;
+}
+
+/** 시리즈 한 권의 아이템 이름 — 시리즈 이름 + 로마 숫자 (단편은 이름만). */
+export function libraryItemName(seriesName: string, volumes: number, volume: number): string {
+  return volumes > 1 ? `${seriesName} ${VOLUME_ROMAN[volume] ?? String(volume)}` : seriesName;
+}
+
+function libraryItemDefs(medium: LibraryMedium): ItemDef[] {
+  const spec = LIBRARY_MEDIUM_SPEC[medium];
   const out: ItemDef[] = [];
-  for (const r of csvRows(spec.file)) {
-    const skill = r.enum('skill', SKILL_IDS);
-    const rarity = r.enum('rarity', RARITY_ORDER);
-    if (seen.has(skill)) { r.report('skill', `'${skill}' 가 두 번 나온다 — 숙련 하나에 한 장이다`); continue; }
-    seen.add(skill);
-    const bookRarity = BOOK_DEF_BY_SKILL.get(skill)?.rarity;
-    if (bookRarity && bookRarity !== rarity) r.report('rarity', `'${skill}' 는 책(books.csv)이 ${bookRarity} 다 — 같은 숙련의 책과 등급이 같아야 한다`);
-    out.push({
-      ...def({
-        id: spec.idOf(skill), name: r.str('name'), category: spec.category, rarity,
-        width: spec.width, height: spec.height, stackMax: 1, value: value[rarity],
-        icon: CATEGORY_ICON[spec.category], description: r.str('description'),
-        ...(spec.category === 'disc' ? { disc: { skill } } : { record: { skill } }), weight,
-      }),
-      color: CATEGORY_COLOR[spec.category],
-    });
+  for (const s of LIBRARY_SERIES_DEFS) {
+    if (s.medium !== medium) continue;
+    const row = LIBRARY_ITEM_ROWS.get(s.id);
+    let rarity: Rarity = LIBRARY_BOOK_RARITY;
+    if (medium === 'book') {
+      if (row?.has('rarity')) row.report('rarity', '책은 등급이 없다 — 칸을 비운다 (tables.csv 의 LIBRARY_ITEM_RARITY.book)');
+    } else if (row) {
+      rarity = row.enum('rarity', RARITY_ORDER);
+    }
+    const firstSkill = s.effects.find((e) => e.kind === 'skillGain')?.target as SkillId | undefined;
+    const skill = row?.optEnum('skill', SKILL_IDS) ?? firstSkill;
+    if (!skill) row?.report('skill', 'skillGain 효과가 없는 시리즈는 대표 숙련(skill)을 적는다');
+    for (let volume = 1; volume <= s.volumes; volume++) {
+      const shelf: BookDef = { skill: skill ?? SKILL_IDS[0], series: s.id, volume };
+      out.push({
+        ...def({
+          id: libraryItemIdFor(medium, s.id, volume), name: libraryItemName(s.name, s.volumes, volume), category: medium, rarity,
+          width: spec.width, height: spec.height, stackMax: 1, value: spec.value(rarity, volume),
+          icon: CATEGORY_ICON[medium], description: s.description, weight: spec.weight,
+          ...(medium === 'book' ? { book: shelf } : medium === 'disc' ? { disc: shelf } : { record: shelf }),
+        }),
+        color: CATEGORY_COLOR[medium],
+      });
+    }
   }
   return out;
 }
 
-/** Item id of the 디스크 that teaches `skill` (`gun_AR` → `disc_gun_AR`). */
-export function discItemIdFor(skill: SkillId): string {
-  return `disc_${skill}`;
+/** 책 전부 — 시리즈 순서 × 권 순서. */
+export const BOOK_ITEM_DEFS: readonly ItemDef[] = libraryItemDefs('book');
+/** 비디오(디스크) 전부 — 시리즈 순서 × 권 순서. */
+export const DISC_ITEM_DEFS: readonly ItemDef[] = libraryItemDefs('disc');
+/** 레코드 전부 (시리즈 = 한 장). */
+export const RECORD_ITEM_DEFS: readonly ItemDef[] = libraryItemDefs('record');
+/** 서재 효과 매체 아이템 전부 (책 · 비디오 · 레코드). */
+export const LIBRARY_ITEM_DEFS: readonly ItemDef[] = [...BOOK_ITEM_DEFS, ...DISC_ITEM_DEFS, ...RECORD_ITEM_DEFS];
+
+/** 서재 매체 아이템의 `{ skill, series, volume }` (책 · 비디오 · 레코드가 아니면 undefined). */
+export function libraryShelfOf(d: ItemDef | undefined): BookDef | undefined {
+  return d ? (d.book ?? d.disc ?? d.record) : undefined;
 }
 
-/** Item id of the 레코드 that teaches `skill` (`gun_AR` → `record_gun_AR`). */
-export function recordItemIdFor(skill: SkillId): string {
-  return `record_${skill}`;
+/** 시리즈 id → 권 순서의 아이템 (인덱스 = 권 − 1). */
+export const LIBRARY_ITEMS_BY_SERIES: ReadonlyMap<string, readonly ItemDef[]> = (() => {
+  const out = new Map<string, ItemDef[]>();
+  for (const d of LIBRARY_ITEM_DEFS) {
+    const shelf = libraryShelfOf(d);
+    if (!shelf?.series) continue;
+    const list = out.get(shelf.series);
+    if (list) list.push(d); else out.set(shelf.series, [d]);
+  }
+  return out;
+})();
+
+/** 시리즈의 `volume` 권 아이템 (없으면 undefined). */
+export function libraryItemDefOf(seriesId: string, volume: number): ItemDef | undefined {
+  return LIBRARY_ITEMS_BY_SERIES.get(seriesId)?.find((d) => libraryShelfOf(d)?.volume === volume);
 }
 
-/** The 14 디스크 (2×2), in `data/discs.csv` order (one per skill). */
-export const DISC_ITEM_DEFS: readonly ItemDef[] = shelfMediumDefs({
-  file: 'discs.csv', category: 'disc', idOf: discItemIdFor, width: 2, height: 2,
-  valueTable: 'DISC_VALUE_BY_RARITY', weightKey: 'DISC_WEIGHT',
+/* ── 비디오게임: 게임기 · 게임 디스크 (2026-09-13) — data/game_consoles.csv · data/game_discs.csv ───────────────────
+ * 게임기(`category: 'console'`, `ItemDef.gameConsole {console}`)는 서재 TV 에 장착하고, 게임 디스크(`category: 'game_disc'`,
+ * `ItemDef.gameDisc {console, stat, minigame, tuning, color}`)는 게임 디스크 전시대에 꽂아 두면 그 TV 로 플레이한다 (housing/).
+ * 게임기는 3D 프린터 제작(recipes.csv) + 드문 드롭, 게임 디스크는 드롭 전용. 둘 다 threat 2 이상 행성에서만 나온다 —
+ * 행성 목록은 `ItemDef` 에 칸이 없어 `GAME_ITEM_PLANETS` 로 내주고(드롭 필터 `LootTables.lootPlanetsOf`), threat 검사는 data:check 가 한다.
+ * 색은 카테고리 색이다 (서재 매체와 같다 — 등급 테두리가 등급을 가른다). `gameDisc.color` 는 게임 화면 테마 색. */
+/** 박자형 미니게임의 패턴 토큰 (`GymGameTuning.pattern`) — press 는 패턴이 없다. */
+export const GAME_PATTERN_TOKENS: Readonly<Record<GymMinigame, readonly string[]>> = { press: [], breath: ['t', 'h', 'r'], cycle: ['L', 'R', 'r'] };
+const GAME_MINIGAMES = Object.keys(GYM_MINIGAME_LABEL_KO) as GymMinigame[];
+const GAME_PLANETS = new Map<string, readonly PlanetId[]>();
+
+function gamePlanetsCell(r: LibraryItemRow, id: string): void {
+  const planets: PlanetId[] = [];
+  for (const p of r.list('planets')) {
+    if ((PLANET_IDS as readonly string[]).includes(p)) planets.push(p as PlanetId);
+    else r.report('planets', `행성 '${p}' 를 모른다 (${PLANET_IDS.join(' · ')})`);
+  }
+  if (planets.length === 0) r.report('planets', '등장 행성이 하나 이상 있어야 한다');
+  GAME_PLANETS.set(id, planets);
+}
+
+export const GAME_CONSOLE_ITEM_DEFS: readonly ItemDef[] = csvRows('game_consoles.csv').map((r) => {
+  const id = r.str('id');
+  if (!/^console_[a-z0-9_]{1,40}$/.test(id)) r.report('id', `게임기 id '${id}' 는 console_<소문자 이름> 이어야 한다`);
+  gamePlanetsCell(r, id);
+  return {
+    ...def({
+      id, name: r.str('name'), category: 'console', rarity: r.enum('rarity', RARITY_ORDER),
+      width: r.int('width', { min: 1 }), height: r.int('height', { min: 1 }), stackMax: 1,
+      value: r.int('value', { min: 0 }), weight: r.num('weight', { min: 0 }),
+      icon: CATEGORY_ICON.console, description: r.str('description'), gameConsole: { console: r.str('console') },
+    }),
+    color: CATEGORY_COLOR.console,
+  };
 });
 
-/** The 14 레코드 (3×3), in `data/records.csv` order (one per skill). */
-export const RECORD_ITEM_DEFS: readonly ItemDef[] = shelfMediumDefs({
-  file: 'records.csv', category: 'record', idOf: recordItemIdFor, width: 3, height: 3,
-  valueTable: 'RECORD_VALUE_BY_RARITY', weightKey: 'RECORD_WEIGHT',
+const GAME_CONSOLE_KINDS: ReadonlySet<string> = new Set(GAME_CONSOLE_ITEM_DEFS.map((d) => d.gameConsole!.console));
+
+export const GAME_DISC_ITEM_DEFS: readonly ItemDef[] = csvRows('game_discs.csv').map((r) => {
+  const id = r.str('id');
+  if (!/^game_[a-z0-9_]{1,40}$/.test(id)) r.report('id', `게임 디스크 id '${id}' 는 game_<소문자 이름> 이어야 한다 (서재 보관함 세이브의 id 모양)`);
+  gamePlanetsCell(r, id);
+  const consoleKind = r.str('console');
+  if (!GAME_CONSOLE_KINDS.has(consoleKind)) r.report('console', `게임기 규격 '${consoleKind}' 가 game_consoles.csv 에 없다`);
+  const minigame = r.enum('minigame', GAME_MINIGAMES);
+  const tuning: GymGameTuning = {};
+  for (const key of ['speedMul', 'windowMul', 'countMul'] as const) {
+    const v = r.optNum(key, { min: 0 });
+    if (v === undefined) continue;
+    if (v <= 0) { r.report(key, '0 보다 커야 한다 (비우면 헬스와 같다)'); continue; }
+    tuning[key] = v;
+  }
+  const pattern = r.optStr('pattern');
+  if (pattern) {
+    const allowed = GAME_PATTERN_TOKENS[minigame];
+    if (allowed.length === 0) r.report('pattern', `${minigame} 는 박자 패턴이 없다 — 칸을 비운다`);
+    else {
+      const bad = pattern.split('-').filter((t) => !allowed.includes(t));
+      if (bad.length) r.report('pattern', `'${bad.join(', ')}' 는 ${minigame} 패턴 토큰(${allowed.join(' · ')})이 아니다 — 토큰을 - 로 잇는다`);
+      else tuning.pattern = pattern;
+    }
+  }
+  const color = r.str('color');
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) r.report('color', `'${color}' 는 #rrggbb 색이 아니다`);
+  const stat: GameStat = r.enum('stat', GAME_STATS);
+  return {
+    ...def({
+      id, name: r.str('name'), category: 'game_disc', rarity: r.enum('rarity', RARITY_ORDER),
+      width: r.int('width', { min: 1 }), height: r.int('height', { min: 1 }), stackMax: 1,
+      value: r.int('value', { min: 0 }), weight: r.num('weight', { min: 0 }),
+      icon: CATEGORY_ICON.game_disc, description: r.str('description'),
+      gameDisc: { console: consoleKind, stat, minigame, tuning, color },
+    }),
+    color: CATEGORY_COLOR.game_disc,
+  };
 });
 
-export const DISC_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(DISC_ITEM_DEFS.map((d) => [d.disc!.skill, d]));
-export const RECORD_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(RECORD_ITEM_DEFS.map((d) => [d.record!.skill, d]));
-for (const s of SKILL_IDS) {
-  if (!DISC_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no disc`);
-  if (!RECORD_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no record`);
-}
+/** 게임기 · 게임 디스크 id → 상자에서 나오는 행성 (`game_*.csv` 의 planets). */
+export const GAME_ITEM_PLANETS: ReadonlyMap<string, readonly PlanetId[]> = GAME_PLANETS;
 
 /* ── armor generated from the ArmorDef table (tactical kit) ───────────────── */
 const armorItem = (a: ArmorDef): ItemDef => {
@@ -620,6 +718,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   /* 2026-09-12 (A-3e): 서재 매체 — 책과 같은 역할이라 책 바로 뒤 (디스크 전시대 · 레코드랙) */
   ...DISC_ITEM_DEFS,
   ...RECORD_ITEM_DEFS,
+  /* 2026-09-13 (비디오게임): 게임기(TV 에 장착) · 게임 디스크(게임 디스크 전시대) — 서재 매체 바로 뒤 */
+  ...GAME_CONSOLE_ITEM_DEFS,
+  ...GAME_DISC_ITEM_DEFS,
   /* 임플란트 (Phase 12: 캐릭터 탭에 장착; 망가진 것만 루팅, 세레스 바이오가 수리 · 판매 — `ImplantDefs.ts`) */
   ...IMPLANT_ITEM_DEFS,
   /* gadgets (behaviour lives in src/gadgets; here they are just consumables) */
@@ -630,8 +731,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
 
 export const ITEM_DEF_MAP: ReadonlyMap<string, ItemDef> = new Map(ITEM_DEFS.map((d) => [d.id, d]));
 
+/** 2026-09-13: 옛 id(`data/item_aliases.csv`)는 새 id 로 풀어서 찾는다 — 세이브를 옮기는 폴더가 놓친 id 의 안전망. `ITEM_DEF_MAP` 은 정확한 id 만 안다. */
 export function getItemDef(defId: string): ItemDef | undefined {
-  return ITEM_DEF_MAP.get(defId);
+  return ITEM_DEF_MAP.get(defId) ?? ITEM_DEF_MAP.get(resolveItemAlias(defId));
 }
 
 export function itemDefsByCategory(category: ItemCategory): ItemDef[] {
@@ -693,10 +795,9 @@ export const STARTER_STASH: readonly { id: string; qty: number; stacks?: number 
   /* 여분 가방 · 방탄복 (장착분은 STARTER_LOADOUT) */
   { id: 'bag_common', qty: 1, stacks: 3 },
   { id: 'armor_1', qty: 1, stacks: 3 },
-  /* 첫 시설 체인 전부: 발전기 Lv.1 (`GENERATOR_UPGRADE_COST[0]` 폐금속 4) + 작업실 증축
-     (`ROOM_PURPOSE_BUILD_COST.workshop` 폐금속 8 · 케이블 2) + 총기 작업대 제작 (`furn_bench_gun.craft`
-     폐금속 8 · 합금 2 · 케이블 1) = 폐금속 20 · 케이블 3 · 합금 2. 2026-09-08: 폐금속이 16 이라 마지막
-     작업대를 만들 수 없었다 — 여유를 두고 24 · 4 · 3 으로 올린다. */
+  /* 첫 시설 체인 전부: 작업실 증축 (`ROOM_PURPOSE_BUILD_COST.workshop` 폐금속 8 · 케이블 2) + 총기 작업대 제작
+     (`furn_bench_gun.craft` 폐금속 8 · 합금 2 · 케이블 1) = 폐금속 16 · 케이블 3 · 합금 2. 2026-09-08: 발전기 Lv.1 (폐금속 4)까지
+     쓰면 폐금속이 모자라 24 · 4 · 3 으로 올렸다. 2026-09-13: 발전기가 처음부터 Lv.1 이라 폐금속 8 이 남는다 (그대로 둔다). */
   { id: 'mat_scrap', qty: 8, stacks: 3 },
   { id: 'mat_cable', qty: 4 },
   { id: 'mat_alloy', qty: 3 },

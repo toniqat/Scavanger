@@ -4,10 +4,11 @@
 //      진행도 [0,1) · 구간 시작 · 코인 id 모양 · 중복 uid · 배치되지 않은 uid 의 코어 = orphanCores) / `sanitizeUnitsMap`.
 //   1. 데이터 — 프로세서 · 연산 코어 def(전설), 가공 작업대 레시피, 상자 티어 배수(프로세서 T4 · T5 만, 코어 0), 안드로이드 시체 줄.
 //   2. 채굴 시설 — 방 용도 mining · 메인 컴퓨터 1 + 클러스터 2 제작 · 배치(클러스터는 `multi` 라 두 번째도 제작, 컴퓨터는 「이미 보유 중」),
-//      전력 API 가 있으면 공급 전부를 채굴 시설에 할당.
+//      2026-09-13 전력 할당 폐지 — 전력 API 가 없고 메인 컴퓨터가 있으면 `furnitureOperationalBlock` 은 null.
 //   3. 클러스터 — 코인 미지정 사유, 잠긴 코인 거절(`<기업> 퀘스트 「…」 완료 필요`), 코어 없음 사유, 코어 넣기(가방 → 창고 소모) · 주기가 코어마다
 //      절반, 가짜 시간(구간 시작을 되돌림) → 틱이 끝난 주기를 한 번에 넣음(`housing:cryptoMined` 1건 · `walletChanged mined` · 진행도 소수 부분 유지),
-//      코어 수 변경 = 끝난 주기 넣고 진행도 접기, 코인 변경 = 진행도 0, `housing:operationalChanged {pausedMs}` = 구간 밀기, 퀘스트 완료(가짜) 뒤 잠긴 코인 허용,
+//      코어 수 변경 = 끝난 주기 넣고 진행도 접기, 멈춘 시계 없음(`stationNow` = `nowMs`) · 메인 컴퓨터 회수 = 사유 + 채굴 안 함(끝난 주기를
+//      넣지 않고 구간만 지금으로) → 다시 놓으면 그 자리에서 이어감, 코인 변경 = 진행도 0, 퀘스트 완료(가짜) 뒤 잠긴 코인 허용,
 //      코어 빼기(가방 · 창고로), 코어가 꽂힌 클러스터 회수 거절(`코어를 먼저 빼세요`) → 빼면 회수 · 칸 지움, `devAdvanceMining`.
 //   4. 거래소 — 서버 없음 = `서버에 연결되어야 합니다`, 시세 스텁 → 매도(크레딧 +floor(가격 × 코인 × (1 − 수수료)) · 지갑 −) · 매수(올림 · 지갑 +) ·
 //      잔고 부족 · 크레딧 부족 · 최대 단위 · 잠긴 코인 · 서버 거절이면 지갑 복구 · `creditsTx` 로컬 거절, 콘솔 `crypto wallet`.
@@ -94,7 +95,6 @@ try {
   const ev = (n) => H((k) => window.__ev[k].slice(), n);
   const clearEv = () => H(() => { for (const k of Object.keys(window.__ev)) window.__ev[k].length = 0; });
   const slot = (uid) => H((u) => { const s = window.__game.ctx.housing.state.clusters?.find((x) => x.uid === u); return s ? JSON.parse(JSON.stringify(s)) : null; }, uid);
-  const clock = (uid) => H((u) => { const h = window.__game.ctx.housing; return typeof h.stationNow === 'function' ? h.stationNow(u) : h.nowMs(); }, uid);
   const walletOf = (coin) => H((c) => window.__game.ctx.housing.getCryptoWallet()[c] ?? 0, coin);
 
   /* ══ 0. 순수 규칙 ══════════════════════════════════════════════════════════ */
@@ -175,7 +175,8 @@ try {
   console.log('채굴 시설');
   for (const [id, n] of [['mat_scrap', 40], ['mat_cable', 30], ['mat_circuit', 30], ['mat_alloy', 30]]) await giveStash(id, n);
   const ROOM = 3;
-  await H((room) => { const h = window.__game.ctx.housing; h.state.generatorLevel = 10; h.state.rooms[room].purpose = 'mining'; h.state.rooms[room].level = 1; }, ROOM);
+  // 채굴 시설은 발전기 Lv.5 (2026-09-13 최대) — 게이트는 smoke-housing 의 몫이라 상태로 올린다
+  await H((room) => { const h = window.__game.ctx.housing; h.state.generatorLevel = 5; h.state.rooms[room].purpose = 'mining'; h.state.rooms[room].level = 1; }, ROOM);
   const placeFurn = (room, defId) => H(({ room, defId }) => {
     const h = window.__game.ctx.housing;
     if (!h.craftFurniture(defId)) return { err: `craft: ${h.furnitureCraftBlock?.(defId) ?? '?'}` };
@@ -193,13 +194,14 @@ try {
   const blocks = await H(() => { const h = window.__game.ctx.housing; return [h.furnitureCraftBlock('furn_mining_computer'), h.furnitureCraftBlock('furn_compute_cluster'), h.getMiningComputerUid()]; });
   ok(blocks[0] === '이미 보유 중입니다' && blocks[1] !== '이미 보유 중입니다' && blocks[2] === pc.uid,
     '제작 잠금 — 메인 컴퓨터는 「이미 보유 중」, 클러스터는 아니다 · getMiningComputerUid', JSON.stringify(blocks));
-  const power = await H((room) => {
+  // 2026-09-13 (전력 할당 폐지): 할당할 것이 없다 — 메인 컴퓨터가 놓여 있으면 어떤 채굴 가구에도 가동 사유가 없다
+  const opBlock = await H(({ c1, c2, pc }) => {
     const h = window.__game.ctx.housing;
-    if (typeof h.getPowerOverview !== 'function' || typeof h.setPowerAllocation !== 'function') return null;
-    const sup = h.getPowerOverview().supply;
-    return { supply: sup, set: h.setPowerAllocation(room, sup) };
-  }, ROOM);
-  if (power) console.log(`  (전력 할당 ${JSON.stringify(power)})`); else note('전력 API 없음 — 할당 건너뜀');
+    return { c1: h.furnitureOperationalBlock(c1), c2: h.furnitureOperationalBlock(c2), pc: h.furnitureOperationalBlock(pc),
+      powerApi: ['getPowerOverview', 'getFacilityPower', 'setPowerAllocation', 'isFurnitureDisabled', 'setFurnitureDisabled'].filter((k) => typeof h[k] === 'function') };
+  }, { c1: C1, c2: C2, pc: pc.uid });
+  ok(opBlock.c1 === null && opBlock.c2 === null && opBlock.pc === null && opBlock.powerApi.length === 0,
+    '전력 할당 없음 — 메인 컴퓨터가 있으면 furnitureOperationalBlock 은 null · 전력 API 없음', JSON.stringify(opBlock));
 
   /* ══ 3. 클러스터 ═════════════════════════════════════════════════════════ */
   console.log('클러스터');
@@ -239,9 +241,8 @@ try {
   const afterOver = await H((u) => window.__game.ctx.housing.getComputeCluster(u).cores, C1);
   ok(over === null && afterOver === 6 && await count() === 0, '많이 넣으면 가진 만큼만 (3 + 3 = 6)', JSON.stringify({ over, afterOver }));
   const miningNow = await H((u) => window.__game.ctx.housing.getComputeCluster(u), C1);
-  if (miningNow.mining) ok(miningNow.block === null && miningNow.remainingS > 0, '채굴 중 — 사유 없음 · 남은 초', JSON.stringify(miningNow));
-  else note(`채굴이 막혀 있다 (전력 쪽 사유): ${miningNow.block}`);
-  ok(miningNow.power >= 6, '클러스터 요구 전력 = 가구 power + 코어', String(miningNow.power));
+  ok(miningNow.mining && miningNow.block === null && miningNow.remainingS > 0, '채굴 중 — 사유 없음 · 남은 초 (메인 컴퓨터만 있으면 돈다)', JSON.stringify(miningNow));
+  ok(miningNow.power === 0, 'ComputeClusterInfo.power — 계약 필드만 남아 늘 0 (2026-09-13 전력 할당 폐지)', String(miningNow.power));
 
   // 가짜 시간: 구간 시작을 2.5 주기 되돌린다 → 틱이 두 주기를 한 번에 넣는다
   const cycle6 = miningNow.cycleMs;
@@ -250,7 +251,7 @@ try {
   await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
     const s = h.state.clusters.find((x) => x.uid === u);
-    const now = typeof h.stationNow === 'function' ? h.stationNow(u) : h.nowMs();
+    const now = h.nowMs();
     s.progress = 0; s.segmentAt = now - cycle * 2.5;
   }, { u: C1, cycle: cycle6 });
   const yieldScrap = await H(() => window.__game.ctx.housing.getCryptoCoins().find((c) => c.def.id === 'scrap').def.yieldUnits);
@@ -270,7 +271,7 @@ try {
   await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
     const s = h.state.clusters.find((x) => x.uid === u);
-    const now = typeof h.stationNow === 'function' ? h.stationNow(u) : h.nowMs();
+    const now = h.nowMs();
     s.progress = 0; s.segmentAt = now - cycle * 1.3;
   }, { u: C1, cycle: cycle6 });
   const w1 = await walletOf('scrap');
@@ -281,18 +282,46 @@ try {
   ok(fold === null && s2.cores === 7 && near(s2.progress, 0.3, 0.05) && await walletOf('scrap') === w1 + yieldScrap && info7.cycleMs === cycle6 / 2,
     '코어 변경 — 끝난 주기는 넣고 진행도는 접어 새 주기(절반)로 잇는다', JSON.stringify({ fold, s2, w: await walletOf('scrap') - w1, cycle: info7.cycleMs }));
 
-  // 전력 복귀: pausedMs 만큼 구간을 민다 (동기)
-  const segBefore = (await slot(C1)).segmentAt;
-  await H((u) => window.__game.ctx.bus.emit('housing:operationalChanged', { uid: u, operational: true, pausedMs: 5000 }), C1);
-  ok((await slot(C1)).segmentAt === segBefore + 5000, 'housing:operationalChanged {pausedMs} — 구간 시작을 그만큼 민다');
-  await H((u) => window.__game.ctx.bus.emit('housing:operationalChanged', { uid: u, operational: false, pausedMs: 0 }), C1);
-  ok((await slot(C1)).segmentAt === segBefore + 5000, '멈춤 이벤트는 구간을 건드리지 않는다');
+  /* 2026-09-13 (전력 할당 폐지): 멈추는 시계는 없다 — `stationNow` = `nowMs`, `housing:operationalChanged {pausedMs}` 를 내는 곳도 받는 곳도 없다.
+     남은 「가동」 조건은 메인 컴퓨터 하나다: 없으면 클러스터는 끝난 주기를 넣지 않고 틱마다 구간만 지금으로 다시 연다(진행도는 그대로),
+     다시 놓으면 그 자리에서 이어간다 — 막혀 있던 시간은 따라잡지 않는다. */
+  const clockSame = await H((u) => { const h = window.__game.ctx.housing; const a = h.nowMs(), b = h.stationNow(u), c = h.nowMs(); return b >= a && b <= c; }, C1);
+  ok(clockSame, 'stationNow(uid) = nowMs() — 멈춘 시계 없음');
+  const pcRec = await H((u) => { const h = window.__game.ctx.housing; return { block: h.recoverBlock(u), rec: h.recover(u), comp: h.getMiningComputerUid() }; }, pc.uid);
+  const noPc = await H((u) => { const h = window.__game.ctx.housing; const i = h.getComputeCluster(u); return { op: h.furnitureOperationalBlock(u), mining: i.mining, block: i.block, remainingS: i.remainingS }; }, C1);
+  ok(pcRec.block === null && pcRec.rec === true && pcRec.comp === null && noPc.op === '채굴 시설에 메인 컴퓨터가 있어야 합니다' && noPc.block === noPc.op && noPc.mining === false && noPc.remainingS === 0,
+    '메인 컴퓨터 회수 → 클러스터 사유 「채굴 시설에 메인 컴퓨터가 있어야 합니다」 · 채굴 안 함', JSON.stringify({ pcRec, noPc }));
+  await clearEv();
+  const wBlocked = await walletOf('scrap');
+  const tBlocked = await H((a) => {
+    const h = window.__game.ctx.housing;
+    const s = h.state.clusters.find((x) => x.uid === a.u);
+    const now = h.nowMs();
+    s.progress = 0.3; s.segmentAt = now - a.cycle * 2.5;
+    return now;
+  }, { u: C1, cycle: cycle6 / 2 });
+  await sleep(2300);                                            // MINING_TICK_MS 1 s — at least two ticks while blocked
+  const sBlocked = await slot(C1);
+  ok(await walletOf('scrap') === wBlocked && (await ev('housing:cryptoMined')).length === 0 && near(sBlocked.progress, 0.3, 1e-9) && sBlocked.segmentAt >= tBlocked,
+    '메인 컴퓨터가 없는 동안 — 끝난 주기 2.5 개를 넣지 않고 진행도는 그대로 · 구간은 지금으로 다시 연다', JSON.stringify({ sBlocked, tBlocked }));
+  const rePc = await H((room) => {
+    const h = window.__game.ctx.housing;
+    const spot = h.findFreeSpot(room, 'furn_mining_computer');
+    const p = spot ? h.place(room, 'furn_mining_computer', spot.x, spot.y, spot.yaw) : null;
+    return { uid: p?.uid ?? null, comp: h.getMiningComputerUid(), now: h.nowMs() };
+  }, ROOM);
+  await sleep(1300);
+  const sResumed = await slot(C1);
+  const iResumed = await H((u) => window.__game.ctx.housing.getComputeCluster(u), C1);
+  ok(!!rePc.uid && rePc.comp === rePc.uid && iResumed.mining && iResumed.block === null && await walletOf('scrap') === wBlocked
+    && near(sResumed.progress, 0.3, 1e-9) && sResumed.segmentAt >= tBlocked && sResumed.segmentAt <= rePc.now,
+  '다시 놓으면 곧바로 채굴 — 막혀 있던 시간은 따라잡지 않고 진행도 0.3 에서 이어간다', JSON.stringify({ rePc, sResumed, mining: iResumed.mining, block: iResumed.block }));
 
   // 코인 변경 = 진행도 0
   await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
     const s = h.state.clusters.find((x) => x.uid === u);
-    const now = typeof h.stationNow === 'function' ? h.stationNow(u) : h.nowMs();
+    const now = h.nowMs();
     s.progress = 0; s.segmentAt = now - cycle * 0.6;
   }, { u: C1, cycle: cycle6 / 2 });
   const toVolt = await H((u) => window.__game.ctx.housing.setClusterCoin(u, 'volt'), C1);

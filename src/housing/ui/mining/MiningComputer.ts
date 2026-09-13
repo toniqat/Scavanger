@@ -5,7 +5,7 @@ import {
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { HousingPanel } from '../Panel';
-import { buildStationShell, paintStationMeta, paintStationPower } from '../StationShell';
+import { buildStationShell, paintStationMeta } from '../StationShell';
 import type { StationShell } from '../StationShell';
 import { clear, el, isolateInput, renderClock, renderClockText, setText, toggleClass } from '../dom';
 import { CryptoChart, withLivePrice } from './CryptoChart';
@@ -38,7 +38,6 @@ interface ClusterRow {
   fill: HTMLElement;
   clock: HTMLElement;
   status: HTMLElement;
-  power: HTMLElement;
 }
 interface WalletRow { id: string; row: HTMLElement; units: HTMLElement; value: HTMLElement; change: HTMLElement; mined: HTMLElement; lock: HTMLElement }
 interface ListRow { id: string; row: HTMLElement; price: HTMLElement; change: HTMLElement; lock: HTMLElement }
@@ -47,7 +46,7 @@ interface ListRow { id: string; row: HTMLElement; price: HTMLElement; change: HT
  * **메인 컴퓨터 화면** (2026-09-13, 암호화폐 채굴 — `openMiningComputer(uid | null, tab?)` ← E on a 메인 컴퓨터).
  *
  * `StationShell` 카드 하나(`inventory: false`, 업그레이드 없음 — 메인 컴퓨터는 Lv.1 뿐)에 **레일 탭 셋**:
- *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 코어 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유 · 전력),
+ *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 코어 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유),
  *    줄을 누르면 그 클러스터 화면. 머리 = 채굴 중 n / 전체 · 시간당 예상 크레딧 합(시세를 아는 코인만).
  *  - **지갑** — 코인마다 보유(`formatCoinUnits`) · 평가액(시세 없으면 `—`) · 24시간 변동 · 누적 채굴(`ShipState.cryptoMined`), 총 평가액.
  *    줄을 누르면 그 코인의 거래소.
@@ -113,7 +112,6 @@ export class MiningComputer extends HousingPanel {
       upgrade: false,
       inventory: false,
       button: (p, l, fn, c) => this.button(p, l, fn, c),
-      power: { ctx, uid: () => this.uid },
     });
     const rail = this.shell.rail;
     rail.hidden = false;
@@ -249,8 +247,6 @@ export class MiningComputer extends HousingPanel {
       b.on('housing:clusterChanged', () => this.refreshIfOpen()),
       b.on('housing:cryptoMined', () => this.refreshIfOpen()),
       b.on('housing:walletChanged', () => this.refreshIfOpen()),
-      b.on('housing:powerChanged', () => this.refreshIfOpen()),
-      b.on('housing:operationalChanged', () => this.refreshIfOpen()),
       b.on('meta:creditsChanged', () => { if (this.isOpen) this.paintTrade(); }),
       b.on('net:cryptoPrices', () => this.refreshIfOpen()),
       b.on('net:cryptoHistory', ({ coin, range }) => { if (this.isOpen && coin === this.coin && range === this.range) this.paintChart(); }),
@@ -484,13 +480,9 @@ export class MiningComputer extends HousingPanel {
     const list = clusterList(this.ref);
     const mining = list.filter((c) => c.mining).length;
     paintStationMeta(this.shell, list.length ? `채굴 중 ${mining} / ${list.length}대` : '연산 클러스터 없음');
-    let block: string | null = null;
-    try { block = this.uid && this.ref.furnitureOperationalBlock ? this.ref.furnitureOperationalBlock(this.uid) : null; } catch { block = null; }
+    // 2026-09-13 (전력 할당 폐지): 메인 컴퓨터는 멈추지 않는다 — 배너는 「메인 컴퓨터가 없다」 하나뿐이다
     const placed = this.uid ? this.housing.getPlacedByUid(this.uid) : null;
-    paintStationPower(this.shell);
-    const powerShown = !!this.shell.powerBanner && !this.shell.powerBanner.hidden;
-    const text = !placed ? '메인 컴퓨터가 없습니다'
-      : block ? (powerShown ? '메인 컴퓨터가 멈춰 있어 클러스터가 채굴하지 않습니다' : `${block} — 메인 컴퓨터가 멈춰 있어 클러스터가 채굴하지 않습니다`) : null;
+    const text = !placed ? '메인 컴퓨터가 없습니다' : null;
     this.banner.hidden = !text;
     setText(this.banner, text ?? '');
   }
@@ -541,7 +533,7 @@ export class MiningComputer extends HousingPanel {
       return;
     }
     const head = el('div', { cls: 'mn-crow mn-chead', parent: this.clList });
-    for (const t of ['클러스터', '코인', '코어', '이번 주기', '상태', '전력']) el('span', { text: t, parent: head });
+    for (const t of ['클러스터', '코인', '코어', '이번 주기', '상태']) el('span', { text: t, parent: head });
     list.forEach((c, i) => {
       const row = el('div', { cls: 'mn-crow', attrs: { 'data-uid': c.uid, role: 'button' }, parent: this.clList });
       const name = el('span', { cls: 'mn-cname', parent: row });
@@ -559,8 +551,7 @@ export class MiningComputer extends HousingPanel {
       const fill = el('i', { parent: el('span', { cls: 'mn-bar', parent: progCell }) });
       const clock = el('span', { cls: 'mn-clock hs-clock', parent: progCell });
       const status = el('span', { cls: 'mn-cstatus', parent: row });
-      const power = el('span', { cls: 'mn-cpower', parent: row });
-      this.clRows.push({ uid: c.uid, row, glyph, coin, cores, pips, fill, clock, status, power });
+      this.clRows.push({ uid: c.uid, row, glyph, coin, cores, pips, fill, clock, status });
     });
   }
 
@@ -583,7 +574,6 @@ export class MiningComputer extends HousingPanel {
     toggleClass(r.status, 'good', c.mining);
     toggleClass(r.status, 'bad', !c.mining);
     r.status.title = c.block ?? '';
-    setText(r.power, `⚡ ${c.power}`);
     toggleClass(r.row, 'is-mining', c.mining);
   }
 

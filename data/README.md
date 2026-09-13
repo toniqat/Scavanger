@@ -26,7 +26,10 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | 무기 부착물 | [`attachments.csv`](attachments.csv) |
 | 탄약 · 가방(격자 · 퀵슬롯 · **내구도**) · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
 | 일반 아이템 — 수류탄 · 회복 소모품 · **전투 소모품(`boostEffect`·`boostUseTime`)** · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · 가젯 | [`items.csv`](items.csv) |
-| 씨앗 · 서적 | [`seeds.csv`](seeds.csv) · [`books.csv`](books.csv) |
+| 씨앗 | [`seeds.csv`](seeds.csv) |
+| **서재 시리즈** (2026-09-13) — 책 · 비디오 · 레코드의 시리즈 한 줄: 권 수 · 등장 행성 · 효과 줄(전권 값) · 등급 · 대표 숙련. **아이템은 이 표에서 자동으로 만들어진다** (옛 `books.csv` · `discs.csv` · `records.csv` 는 없어졌다) | [`library_series.csv`](library_series.csv) |
+| 옛 아이템 id → 새 아이템 id (옛 숙련별 책 · 디스크 · 레코드 → 새 시리즈 1권, 세이브 변환) | [`item_aliases.csv`](item_aliases.csv) |
+| **비디오게임** (2026-09-13) — 게임기 · 게임 디스크 (규격 · 능력치 · 미니게임 튜닝 · 테마 색 · 등장 행성) | [`game_consoles.csv`](game_consoles.csv) · [`game_discs.csv`](game_discs.csv) |
 | **미확인 표본** — 계열(세포 · 광물 · DNA) · 해석 시간 · 대체 산출물 · 은퇴 (연구실 분석기가 읽는다) | [`samples.csv`](samples.csv) |
 | **분석기 결과표** — 계열 × 최소 분석 레벨 × 산출물 × 개수 × 가중치 | [`analysis_results.csv`](analysis_results.csv) |
 | **소켓** — 흙 · 배지에 끼우는 영구 강화 (대상 · 효과 · 수치) | [`sockets.csv`](sockets.csv) |
@@ -157,6 +160,44 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-13 — 전력 할당 폐지 · 발전기 = 상위 시설의 증축 조건 (`room_purposes.csv` · `facility_upgrades.csv` · `furniture.csv` · `tables.csv` · `tuning.csv` · `constants.csv`)
+
+사용자 결정 「발전기의 전력 할당 시스템 너무 빡세다 — 제거하고 상위 시설을 짓는 조건으로만」. 아래 「암호화폐 채굴 데이터」 · 전력 열을 넣었던 같은 날의 작업을 되돌린다.
+- **`room_purposes.csv`**: `power` 열 → **`generator`** 열 = 그 시설을 **증축**하는 데 필요한 발전기 레벨 — 작업실 1 · 온실 2 · 주방 2 · 연구실 3 · 헬스장 4 · 서재 4 · 채굴 시설 5
+  (빈 칸 = `tuning.csv` 의 `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL`). 로더 `shared/housing` 의 `ROOM_PURPOSE_GENERATOR_LEVEL` · `purposeGeneratorLevel`.
+- **`constants.csv`**: `GENERATOR_MAX_LEVEL` 10 → **5**, 새 줄 **`GENERATOR_START_LEVEL`** 1 (새 함선이 처음부터 그 레벨 — 가동이 없어졌다).
+- **`facility_upgrades.csv`**: 발전기 Lv.6–10 줄 삭제, Lv.1 줄은 비움(쓰이지 않지만 표는 1 부터 이어져야 한다), Lv.2–5 를 무겁게 — Lv.2 폐금속 14 · 케이블 4 · 합금 3 /
+  Lv.3 합금 10 · 케이블 6 · 회로 3 · 파워 셀 2 / Lv.4 합금 16 · 회로 6 · 파워 셀 4 · 강화합금 잉곳 4 · 축전 모듈 2 / Lv.5 잉곳 10 · 축전 모듈 5 · 회로 10 · 파워 셀 6 · 제어 모듈 3.
+  가구 · 창고 강화의 발전기 게이트(Lv.n → 발전기 Lv.n)는 그대로다. 프로세서는 더 이상 발전기에 쓰이지 않는다.
+- **`furniture.csv`**: `power` 열 삭제. **`tables.csv`**: `GENERATOR_POWER_BY_LEVEL` 삭제. **`tuning.csv`**: `COMPUTE_CLUSTER_POWER_PER_CORE` · `POWER_AUTO_TOPUP` 삭제,
+  `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 설명을 「기본값」 으로.
+
+### 2026-09-13 — 서재 시리즈 · 비디오게임 (`library_series.csv` · `item_aliases.csv` · `game_consoles.csv` · `game_discs.csv` 신규, `books.csv` · `discs.csv` · `records.csv` 삭제 — 에이전트 D)
+
+설계안 `docs/plans/library-series-games.md` (사용자 결정). 효과 · 행성 로더는 `src/shared/library.ts`, 아이템 · 행성 드롭은 `src/items/` (자세한 표는 `src/items/README.md` 의 *서재 시리즈 · 비디오게임*).
+
+- **`library_series.csv`** — 65 시리즈 → 아이템 164개. **책 43 시리즈 / 128권**: 숙련 상승량 16 (숙련 16종마다 하나, 단편 … V, 전권 +10 … +15 %) ·
+  파생 8 (적재 +2 kg · 스태미나 +5 · 감지 +1.5 m · 배수 +3 % — 꽂는 즉시 적용이라 아주 작게) · 헬스 4 (기구마다 +0.08) · 요리 4 (썰기 · 다지기 · 굽기 · 볶기 +0.08) ·
+  레이드 경험치 2 (+10 %) · 신뢰도 5 (전체 +8 % · 기업별 +15 %) · 레시피 4 (단편). **비디오 12 시리즈 / 26장** (단편 · II · III, 효과 2줄). **레코드 10장** (단편, 효과 3줄,
+  threat 2 이상 행성 1–2곳). 책 · 비디오 시리즈는 행성 하나 — 책 amber 9 · tundra 9 · mossy 9 · ashen 8 · crimson 8, 비디오 3 · 3 · 2 · 2 · 2.
+  아이템 쪽 열 `rarity`(비디오 · 레코드만 — 책은 등급이 없다) · `skill`(대표 숙련, skillGain 이 없는 시리즈는 필수). 옛 14 숙련은 전부 비디오 · 레코드 중 하나 이상의 효과 줄에 들어 있다.
+- **`item_aliases.csv`** 42줄 — `book_<skill>` → 그 숙련 skillGain 책 시리즈 1권, `disc_<skill>` → 그 숙련이 든 비디오 1권(장비 관리 → 감정 · 장비 관리 촬영본), `record_<skill>` → 그 숙련이 든 레코드.
+- **`game_consoles.csv`** 3줄 (펄스 스테이션 rare · 레트로 큐브 epic · 홀로 데크 legendary — 규격 `pulse` · `retro` · `holo`) · **`game_discs.csv`** 9줄 (게임기마다 3장, 지능 5 · 인지력 4,
+  press · breath · cycle 3장씩, 속도 · 판정 폭 · 횟수 · 패턴 · 색이 전부 다르다). 둘 다 threat 2 이상 행성에서만.
+- **`tables.csv`** — `BOOK_VALUE_BY_RARITY` → **`BOOK_VALUE_BY_VOLUME`** (권 1..5: 150 · 240 · 380 · 600 · 950), **`LIBRARY_VOLUME_DROP_WEIGHT`** (I 1 · II 0.45 · III 0.2 · IV 0.08 · V 0.03),
+  **`LIBRARY_ITEM_RARITY`** (`book` = uncommon). `DISC_VALUE_BY_RARITY` · `RECORD_VALUE_BY_RARITY` 는 그대로(설명만), `BOOK_RARITY_MUL` 은 `shared/constants` 가 아직 읽어 남겼다(서재 계산에서는 은퇴).
+- **`tuning.csv`** — `DISC_VALUE_VOLUME_STEP` 0.35 (비디오 뒤 권의 판매가 단계).
+- **`loot_category_weights.csv`** — 책 3/3/2 → **4/4/3** (상점에서 빠진 만큼), 레코드 1/1.5 → **0.12 / 0.18**, 새 `game_disc` 0.15 / 0.15 · `console` 0.05 / 0.06 (티어 3 / 4).
+  그 행성에 후보가 없는 카테고리는 추첨에서 빠진다. **실측(threat 2 이상, 상자 한 개당)**: 레코드 T3 0.17 % · T4 0.29 % · 게임 디스크 0.23 % · 0.21 % · 게임기 0.08 % · 0.09 %,
+  맵 평균(티어 분포 가중) 0.04 % · 0.04 % · 0.02 % — 구조물 지하실 · 잠긴 방은 티어 3–4 컨테이너라 레이드당 기대치는 이보다 높다. threat 1(아켈론 II)은 셋 다 0.
+- **`corp_stock.csv`** — 세레스 `book` · `disc` · `record` 줄 삭제 (게임기 · 게임 디스크도 팔지 않는다).
+- **`meals.csv`** 4줄 · **`recipes.csv`** 4줄 · **`cook_steps.csv`** 10줄 — 레시피 책 요리: `meal_meat_pie` 고기 파이 (T2, 조리대 Lv.2) · `meal_bean_curry` 콩 커리 (T2, Lv.2) ·
+  `meal_pork_cutlet` 돼지고기 커틀릿 (T3, Lv.3) · `meal_chicken_stirfry` 닭고기 볶음 (T3, Lv.3). 그 레시피 책이 꽂혀 있는 동안만 만든다 (`CraftRecipe.unlockSeries`, csv 열 없음 — 시리즈의 `recipe:` 효과에서 채운다).
+- **`recipes.csv`** 3줄 — 3D 프린터 게임기 `print_console_pulse` (Lv.2) · `print_console_retro` (Lv.2) · `print_console_holo` (Lv.3). 게임기 가치는 재료 가치 합보다 조금 낮다.
+- **`furniture.csv`** — 새 열 **`low`**(1 = TV 를 가리지 않는 낮은 가구). 새 줄 `furn_game_stand` 게임 디스크 전시대(library · front · multi) · `furn_sofa` 쇼파(any · seat · multi) ·
+  `furn_low_table` 좌식 테이블(low) · `furn_rug` 러그(low). `furn_chair` 가 `seat` + multi, 책장 · 디스크 전시대 · 레코드랙 multi 1. 서재 보관함 · 보조 가구 · TV · 3D 프린터 설명을 시리즈 규칙에 맞게 고쳤다 (숫자 없음).
+- `server/economy.gen.json` 재생성 (새 아이템 가치 176개, 옛 42개 제거).
 
 ### 2026-09-13 — 암호화폐 채굴 데이터: 프로세서 · 연산 코어 (`items.csv` 2줄 · `recipes.csv` · `loot_item_weights.csv` · `loot_corpses.csv` · `facility_upgrades.csv` · `crypto.csv`)
 

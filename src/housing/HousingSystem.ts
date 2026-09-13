@@ -30,7 +30,6 @@ import * as Lab from './parts/Lab';
 import * as Culture from './parts/Culture';
 import * as Dining from './parts/Dining';
 import * as Sockets from './parts/Sockets';                  // 요리 재료 티어 (2026-09-13)
-import * as Power from './parts/Power';                      // 발전기 전력 (2026-09-13)
 import * as Lib from './parts/Library';
 import * as Preset from './parts/Presets';
 import * as Gym from './parts/Gym';                          // 헬스장 (A-3a)
@@ -46,6 +45,8 @@ import type { CookAutoInfo, CookGame, CookSessionInfo, CraftRecipe } from '@/sha
 import type { MiningComputerTab } from '@/shared';
 import { ClusterScreen, openComputeClusterScreen } from './ui/mining/ClusterScreen';    // 암호화폐 채굴 화면 (2026-09-13)
 import { MiningComputer, openMiningComputerScreen } from './ui/mining/MiningComputer';
+import * as VideoGame from './parts/VideoGame';              // 비디오게임 (H2, 2026-09-13)
+import { TvMenu } from './ui/tv/TvMenu';
 
 export class HousingSystem implements GameSystem, HousingRef {
   readonly name = 'housing';
@@ -108,6 +109,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.migrated = loaded.migrated;
     this.granted = loaded.granted;
     this.evictNotice = loaded.evicted;
+    this.generatorNotice = loaded.removedByGenerator;
     this.nextUid = maxUidIndex(this.state.furniture);
   }
 
@@ -116,6 +118,11 @@ export class HousingSystem implements GameSystem, HousingRef {
    * (생성자 시점에는 알림을 받을 HUD 가 없다). 옮긴 결과는 곧바로 저장한다 — 서버 사본도 다음 로드에서 같은 답을 낸다.
    */
   private evictNotice = 0;
+  /**
+   * 2026-09-13 (전력 할당 폐지, 사용자 결정): `sanitize` 가 발전기 레벨이 모자라 제거한 시설 수 (`SanitizeOutcome.removedByGenerator`).
+   * `evictNotice` 처럼 첫 `update` 에서 한 번 알린다 — 환불 자체는 `pendingRefund` 가 따로 알린다.
+   */
+  private generatorNotice = 0;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
   init(ctx: GameContext): void {
@@ -135,10 +142,11 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.cookStation = new CookStation(ctx, this);             // 요리 미니게임 (2026-09-13)
     this.cookScreen = new CookScreen(ctx, this);
     this.unsubs.push(...Cooking.bindCooking(this));
-    this.unsubs.push(...Power.bindPower(this));                // 발전기 전력 (2026-09-13) — 첫 계산(멈춤 기록 기준)도 여기서
+    this.unsubs.push(...Lib.bindLibrary(this));                // 서재 시리즈 (H1, 2026-09-13) — 효과 합산 캐시 · housing:libraryChanged
     this.unsubs.push(...Mining.bindMining(this));              // 암호화폐 채굴 (2026-09-13)
     this.clusterScreen = new ClusterScreen(ctx, this);         // 암호화폐 채굴 화면 (2026-09-13, 에이전트 ④)
     this.miningComputer = new MiningComputer(ctx, this);
+    this.tvMenu = new TvMenu(ctx, this); this.unsubs.push(...VideoGame.bindVideoGame(this));   // 비디오게임 (H2, 2026-09-13)
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -155,9 +163,14 @@ export class HousingSystem implements GameSystem, HousingRef {
   update(_dt: number, ctx: GameContext): void {
     if (this.pendingRefund.length) this.flushRetiredRefund();
     Mining.tickMining(this);                                   // 암호화폐 채굴: 끝난 주기를 지갑에 (1 Hz, 2026-09-13)
+    Lib.tickLibrary(this);                                     // 서재 시리즈 (H1): loot 없이 센 합산을 loot 가 생긴 첫 프레임에 다시
     if (this.evictNotice > 0) {
       this.notify(`배치 규칙에 맞지 않는 가구 ${this.evictNotice}개를 가구 창고로 옮겼습니다`, 'warning');
       this.evictNotice = 0;
+    }
+    if (this.generatorNotice > 0) {
+      this.notify(`발전기 레벨이 모자란 시설 ${this.generatorNotice}곳을 제거했습니다 — 증축 재료는 함선 창고, 가구는 가구 창고로 돌아왔습니다`, 'warning');
+      this.generatorNotice = 0;
     }
     if (this.housingMode && (ctx.phase !== 'hub' || ctx.hub?.ship !== 'personal')) this.exitHousingMode();
   }
@@ -246,7 +259,10 @@ export class HousingSystem implements GameSystem, HousingRef {
     // …unless the server copy itself was a pre-v8 document `sanitize` just migrated (room levels · 방 9 · 10 · 시뮬레이션실 /
     // 휴식 공간) or one missing a 공용 시설 가구 it had to put back: upload it once
     // (2026-09-13: or a pre-v10 document that just got the 조종석 꾸밈 가구)
-    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit || out.migratedCockpit || out.migratedPower) this.store?.markDirty();
+    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit || out.migratedCockpit) this.store?.markDirty();
+    // 2026-09-13 (전력 할당 폐지): 서버 사본에도 발전기 레벨이 모자란 시설이 있었다 — 알린다 (환불은 `pendingRefund`, 저장은 `migratedRooms`)
+    if (out.removedByGenerator) this.generatorNotice += out.removedByGenerator;
+    if (out.migratedLibrary || out.aliasedLibrary) this.store?.markDirty();   // 서재 시리즈 (H1): 옛 id 치환 · 중복 / 게임기 환불을 한 번 올린다
     // 2026-09-13 (배치 규칙): 서버 사본의 옛 배치도 같은 규칙으로 가구 창고에 옮겨졌다 — 알리고 한 번 올린다
     if (out.evictedByAccess) { this.evictNotice += out.evictedByAccess; this.store?.markDirty(); }
     const b = this.ctx.bus;
@@ -263,8 +279,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   }
 
   /**
-   * 2026-09-13 (발전기 전력): 저장만 예약한다 — `housing:changed` 를 내지 않는다. `parts/Power.recompute` 가 멈춤 기록 · 자동 보충을
-   * `housing:changed` 를 받은 자리에서 쓰므로, 여기서 다시 내면 끝없이 돈다.
+   * 2026-09-13: 저장만 예약한다 — `housing:changed` 를 내지 않는다. `housing:changed` 를 받은 자리에서 상태를 고치는 쪽(`parts/Library` 의
+   * 옛 id 치환)이 부른다 — 여기서 다시 내면 끝없이 돈다.
    */
   saveSoon(): void {
     this.editPending = true;
@@ -771,17 +787,13 @@ export class HousingSystem implements GameSystem, HousingRef {
   openMiningComputer(uid: string | null, tab?: MiningComputerTab): void { return openMiningComputerScreen(this, uid, tab); }
   /* ══ 암호화폐 채굴 화면 끝 ══ */
 
-  /* ══ 발전기 전력 (2026-09-13) ══ — 할당 · 비활성화 · 멈춤 (`parts/Power.ts` · 순수 판정 `PowerRules.ts`). */
-  getPowerOverview(): import('@/shared').PowerOverview { return Power.getPowerOverview(this); }
-  getFacilityPower(room: number): import('@/shared').FacilityPowerInfo | null { return Power.getFacilityPower(this, room); }
-  setPowerAllocation(room: number, amount: number): string | null { return Power.setPowerAllocation(this, room, amount); }
-  isFurnitureDisabled(uid: string): boolean { return Power.isFurnitureDisabled(this, uid); }
-  setFurnitureDisabled(uid: string, disabled: boolean): string | null { return Power.setFurnitureDisabled(this, uid, disabled); }
-  furnitureOperationalBlock(uid: string): string | null { return Power.furnitureOperationalBlock(this, uid); }
-  stationNow(uid: string): number { return Power.stationNow(this, uid); }
-  getOperationalBenchLevel(kind: WorkbenchKind): number { return Power.getOperationalBenchLevel(this, kind); }
-  benchOperationalBlock(kind: WorkbenchKind): string | null { return Power.benchOperationalBlock(this, kind); }
-  /* ══ 발전기 전력 끝 ══ */
+  /* ══ 가구 가동 (2026-09-13) ══ — 같은 날 전력 할당(할당 · 비활성화 · 멈춘 시계)이 폐지됐다 (사용자 결정). 전력 API
+     (`getPowerOverview` · `setPowerAllocation` · `setFurnitureDisabled` · `getOperationalBenchLevel` …)는 구현하지 않고, 남은 질의 둘만 둔다. */
+  /** 이 가구를 지금 쓸 수 없는 사유 — 메인 컴퓨터 없는 연산 클러스터뿐이고 그 밖에는 늘 null (`parts/Mining.clusterOperationalBlock`). */
+  furnitureOperationalBlock(uid: string): string | null { return Mining.clusterOperationalBlock(this, uid); }
+  /** 시계형 가구(재배 · 배양 · 해석)의 「지금」 — 멈추는 가구가 없어져 `nowMs()` 그대로다. */
+  stationNow(_uid: string): number { return this.nowMs(); }
+  /* ══ 가구 가동 끝 ══ */
 
   /* ── loadout presets (은퇴 — 2026-09-12 사용자 결정 「프리셋 기능 제거」: 전부 「슬롯 없음」으로 답한다, `parts/Presets.ts`) ── */
   getPresetCount(): number { return Preset.getPresetCount(this); }
@@ -831,6 +843,42 @@ export class HousingSystem implements GameSystem, HousingRef {
   devSetClusterCores(uid: string, cores: number): string | null { return Mining.devSetClusterCores(this, uid, cores); }
   devAdvanceMining(hours: number): number { return Mining.devAdvanceMining(this, hours); }
   /* ══ 암호화폐 채굴 끝 ══ */
+
+  /* ══ 서재 시리즈 (H1, 2026-09-13) ══ — 효과 합산 · 소스 · 띠 질의 · 레시피 해금 (`parts/Library.ts` · 순수 식 `Rules.computeLibraryEffects`).
+     합산은 캐시되고 바뀔 때만 `housing:libraryChanged {revision}` 이 난다 (규칙은 `parts/Library` 의 절 머리). */
+  getLibraryEffects(): import('@/shared').LibraryEffectsSummary { return Lib.getLibraryEffects(this); }
+  getLibrarySources(kind: import('@/shared').LibraryEffectKind, target: string): readonly import('@/shared').LibrarySourceInfo[] { return Lib.getLibrarySources(this, kind, target); }
+  getSeriesProgress(seriesId: string): { have: number; total: number; fraction: number } | null { return Lib.getSeriesProgress(this, seriesId); }
+  isShelfItemWanted(defId: string): boolean { return Lib.isShelfItemWanted(this, defId); }
+  isRecipeUnlocked(recipeId: string): boolean { return Lib.isRecipeUnlocked(this, recipeId); }
+  /** 화면용 (계약 밖): 꽂힌 권이 있는 시리즈의 상태 — 보관함 화면의 시리즈 진척 · 도감. */
+  librarySeriesStates(): ReadonlyMap<string, import('./Rules').LibrarySeriesState> { return Lib.librarySeriesStates(this); }
+  /** 화면용 (계약 밖): 그 매체의 보조 가구가 합산에 들어갔는가 (2026-09-13 전력 폐지 뒤로는 배치 여부 `hasShelfAux` 와 같다). */
+  libraryAuxActive(medium: import('@/shared').ShelfMedium): boolean { return Lib.libraryAuxActive(this, medium); }
+  /** 화면용 (계약 밖): 이 def 가 어느 보관함에든 꽂혀 있는가 (전력 무관). */
+  isShelvedAnywhere(defId: string): boolean { return Lib.isShelvedAnywhere(this, defId); }
+  /* ══ 서재 시리즈 끝 ══ */
+
+  /* ══ 비디오게임 (H2, 2026-09-13) ══ — TV 게임기 · 좌석 · 게임 목록 · 게임 세션 (`parts/VideoGame.ts` · 좌석 규칙 `Rules.tvSeatFor` ·
+     화면 `ui/tv/TvMenu` + 운동 화면의 게임 모드 `ui/gym/GymScreen.openGame`). */
+  /** TV 화면 (켜기/끄기 · 게임기 · 좌석 · 게임 목록). `parts/Presets.panels()` 밖이라 닫기는 `bindVideoGame` 이 한다. */
+  tvMenu: TvMenu | null = null;
+  /** 진행 중인 게임 세션 — `gameSession` 이 이것의 `info` 다. */
+  gameState: VideoGame.GameState | null = null;
+  get gameSession(): import('@/shared').GameSessionInfo | null { return VideoGame.gameSession(this); }
+  getTvConsole(tvUid: string): string | null { return VideoGame.getTvConsole(this, tvUid); }
+  attachTvConsole(tvUid: string, defId: string): string | null { return VideoGame.attachTvConsole(this, tvUid, defId); }
+  detachTvConsole(tvUid: string): string | null { return VideoGame.detachTvConsole(this, tvUid); }
+  getTvSeat(tvUid: string): string | null { return VideoGame.getTvSeat(this, tvUid); }
+  tvSeatBlock(tvUid: string): string | null { return VideoGame.tvSeatBlock(this, tvUid); }
+  getPlayableGames(tvUid: string): readonly import('@/shared').PlayableGameInfo[] { return VideoGame.getPlayableGames(this, tvUid); }
+  openTvMenu(tvUid: string): void { return VideoGame.openTvMenu(this, tvUid); }
+  gameBlock(tvUid: string, discDefId: string): string | null { return VideoGame.gameBlock(this, tvUid, discDefId); }
+  startGameSession(tvUid: string, discDefId: string): string | null { return VideoGame.startGameSession(this, tvUid, discDefId); }
+  cancelGameSession(): void { return VideoGame.cancelGameSession(this); }
+  /** 스모크 훅 — 게임 모드 화면 · 판정 객체(튜닝) · 결과 · 좌석 규칙. */
+  get videoGameDebug(): VideoGame.VideoGameDebug { return VideoGame.videoGameDebug(this); }
+  /* ══ 비디오게임 끝 ══ */
 
   save(): void { this.store?.flush(); }
 }

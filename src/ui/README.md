@@ -714,10 +714,30 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-13 (리드 — 게임 중 버프)** — `hud/BuffStrip.paintCell`: `gaming` 썸네일은 계약 글리프 `⎚` · 색 그대로이고, 툴팁 둘째 줄에 `지능 단련 · 호흡 달리기`
+  (능력치 이름 = `ctx.progression.getStatDef`, 방식 = `GYM_MINIGAME_LABEL_KO`). 분대 목록의 분대원 줄에도 같은 썸네일이 선다 (`smoke-buffs`).
+- **2026-09-13 (서재 시리즈 · 비디오게임 — 툴팁 · 칩 띠, 에이전트 C, docs/plans/library-series-games.md §5)** —
+  - **`hud/ItemTip.ts`** — 옛 서재 매체 `숙련` 줄(숙련별 · 등급 가중치)은 **없어졌다**. 시리즈가 있는 책 · 비디오 · 레코드는 `시리즈`(이름) · `권`(`II / V권`, 1권짜리 `단편`) ·
+    효과 줄마다 한 행(**전권 값**, 여러 권이면 값 뒤 `(전권)`, 글자색 = 매체 카테고리 색 — `skillGain` = `<숙련> 상승량 +n %` · `derived` = 요리 버프 라벨 + `hud/mealText` 값 ·
+    `gymScore` = `<기구 이름> 점수` · `cookScore` = `<조리 단계> 점수` · `raidXp` = `레이드 경험치` · `trustXp` = `<기업> 계약 신뢰도` / `(모든 기업)` · `recipe` = `레시피 — <요리> — 꽂혀 있는 동안`) ·
+    `진행 n/N권 · 적용 n %`(`HousingRef.getSeriesProgress`) · `보관`(그 매체의 보관함을 배치 · 가구 창고 어디에도 없으면 `보관함 없음`, 있으면 `isShelfItemWanted` 로 `아직 꽂지 않음`(띠 파랑) /
+    `서재에 꽂혀 있음`) · `꽂는 곳`(그대로) · `등장 행성`(`PLANET_DEFS` 이름). 게임 디스크 = `게임기`(같은 `console` 의 게임기 아이템 이름) · `능력치` · `방식`(`GYM_MINIGAME_LABEL_KO`) ·
+    `사용 — 게임 디스크 전시대에 꽂고 TV 로 플레이`, 게임기 = `사용 — TV 에 장착`. 수치는 전부 `shared/library` 시리즈 표에서 오고 새 CSS 는 없다(색은 인라인 규약 그대로).
+  - **`hud/ItemFavoriteMenu.ts`** — 칩 띠 공급자가 「즐겨찾기 **또는** `isShelfItemWanted`」 다 (둘 다면 `.is-favorite` 한 클래스 = 띠 하나). `housing:libraryChanged` 에 DOM 의 칩 전부를
+    def 당 한 번씩 물어 다시 칠한다(`paintAll`). 메뉴 문구(`즐겨찾기 켜기 / 끄기`)는 여전히 진짜 즐겨찾기만 본다.
+
 - **2026-09-13 (암호화폐 채굴 — 툴팁, 에이전트 ④)** — `hud/ItemTip.ts`: 연산 코어(`COMPUTE_CORE_DEF_ID`) = `사용 — 연산 클러스터에 꽂는다 (최대 9개)`,
   프로세서(`PROCESSOR_DEF_ID`) = `사용 — 회로 기판과 조립해 연산 코어로 만든다` 한 줄씩. 채굴 화면 자체는 `housing/ui/mining` 이다.
 
-- **2026-09-13 (발전기 전력 — 시설 관리 전력 패널 · 인스펙터, docs/plans/power-crypto.md, 전력 에이전트)** — `hud/ShipManage.ts` 만 바뀌었다 (+ `styles/base.css` 의 `.sm-pw-` 절).
+- **2026-09-13 (같은 날 후속 — 전력 할당 폐지 · 발전기 = 상위 시설 증축 조건, 사용자 결정)** — 아래 「발전기 전력」 항목을 **대체한다**. `hud/ShipManage.ts` + `styles/base.css`.
+  - 전력 패널 `.sm-pw`(`refreshPower` · `allocatePower` · `stepPower` · `fitPower` · `togglePowerRow`) · 인스펙터의 `.sm-pw-ins` 줄과 `.sm-pw-toggle`(`toggleInspectedPower`) ·
+    방 목록 `.is-unpowered` · `housing:powerChanged` 구독을 전부 걷어냈다 (`base.css` 의 `.sm-pw-` 절도).
+  - **발전기 행**: 새 함선이 Lv.1 이라 `is-hint` · `가동` 버튼 · 「시설 증축에는 발전기 Lv.1 이 필요합니다」 안내가 없어졌다(버튼은 늘 `업그레이드` / `최대`, 확인 팝업 문장 하나). 대신
+    **레벨별 해금 표** `.sm-gen-unlocks` — Lv.2 부터 최대까지 `.sm-gen-unlock[data-level]` 한 줄씩(`Lv.3 연구실`), 도달한 레벨 `is-open`(흐림) · 다음 레벨 `is-next`(강조).
+    이름은 `purposeGeneratorLevel` × `ROOM_PURPOSES_ASSIGNABLE` 에서 뽑는다.
+  - 용도 지정 목록의 발전기 칩 · 사유는 계약 질의(`purposeRequirements` · `purposeBlock`) 그대로이고, 질의가 없을 때의 대체 계산도 `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 대신 `purposeGeneratorLevel(purpose)` 를 쓴다.
+
+- **2026-09-13 (발전기 전력 — 시설 관리 전력 패널 · 인스펙터, docs/plans/power-crypto.md, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). `hud/ShipManage.ts` 만 바뀌었다 (+ `styles/base.css` 의 `.sm-pw-` 절).
   - **전력 패널** `.sm-pw` — 방 목록 열의 발전기 행 **바로 아래**. 머리 `할당 a / 공급 s · 남음 f` → 공급 막대(시설별 할당 조각 = 용도 색, 멈춘 시설은 빨간 빗금, 끝에 남는 전력) →
     `요구 합 r / 공급 s`(넘치면 `.sm-block` `발전기 업그레이드가 필요합니다`) → 시설 행 `.sm-pw-row[data-room]`(멈추면 `.is-short`): [▸ 글리프 이름][요구 n] / [−][할당 n][+][요구량 맞추기].
     − / + 는 1(Shift 5), `요구량 맞추기` = `min(요구, 할당 + 남는 전력)`(요구보다 많으면 돌려준다) — 전부 `HousingRef.setPowerAllocation`, 거절은 인스펙터 위 토스트.

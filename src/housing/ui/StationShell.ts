@@ -1,5 +1,4 @@
 import type { EmbeddedView, GameContext, ItemInstance, TradeGridsView } from '@/shared';
-import { FURNITURE_DISABLED_REASON_KO, POWER_SHORT_REASON_KO } from '@/shared';   // 2026-09-13 발전기 전력
 import { el, setText, toggleClass } from './dom';
 
 /**
@@ -28,6 +27,9 @@ import { el, setText, toggleClass } from './dom';
  *
  * 레일을 쓰지 않는 화면(배양조 · 식탁)에서는 `rail` 이 `hidden` 이라 flex gap 까지 사라진다.
  * `inventory: false` 면 격자 카드를 만들지 않는다(`stashCard` · `bagCard` = null, `invHost` 는 빈 자리).
+ *
+ * 2026-09-13 (같은 날, 사용자 결정 「전력 할당 시스템 제거」): 업그레이드 왼쪽의 비활성화 버튼 · 멈춤 배너(`power` 옵션 ·
+ * `paintStationPower` · `.hpw-`)를 걷어냈다 — 가구는 멈추지 않는다.
  */
 export interface StationShell {
   /** Header row of the **station card** (title + Lv + meta left, 업그레이드 right). */
@@ -57,28 +59,9 @@ export interface StationShell {
   readonly stashCard: HTMLElement | null;
   /** 가방 card (`.hs-card-bag`), null with `inventory: false`. */
   readonly bagCard: HTMLElement | null;
-  /* appended 2026-09-13 (발전기 전력) */
-  /** `비활성화` / `활성화` button left of 업그레이드 (`.hpw-toggle`) — null without the `power` option, hidden for furniture that uses no power. */
-  readonly powerBtn: HTMLButtonElement | null;
-  /** Banner under the station head (`.hpw-banner`) — `전력 부족 — 시계가 멈췄습니다` / `비활성화됨`, hidden while the piece runs. */
-  readonly powerBanner: HTMLElement | null;
-  /** The `power` option, kept for `paintStationPower`. */
-  readonly power: StationPowerOptions | null;
-}
-
-/**
- * appended 2026-09-13 (발전기 전력): which placed piece the screen shows, so the shell can draw its 비활성화 button and the
- * 멈춤 banner. The shell asks `ctx.housing` (duck-typed — the power API is optional in the contract) and never keeps state.
- */
-export interface StationPowerOptions {
-  ctx: GameContext;
-  /** uid of the placed piece on screen; null / '' = none (공유 함선 식탁 · 사라진 가구). */
-  uid(): string | null;
 }
 
 export interface StationShellOptions {
-  /** appended 2026-09-13 (발전기 전력): draws the 비활성화 button + 멈춤 banner (`paintStationLevel` repaints them — `paintStationPower` for screens without levels). */
-  power?: StationPowerOptions;
   title: string;
   /** false = no level badge and no 업그레이드 button (식탁). */
   upgrade: boolean;
@@ -116,17 +99,6 @@ export function buildStationShell(frame: HTMLElement, o: StationShellOptions): S
   const meta = el('div', { cls: 'hs-meta', text: '', parent: hl });
   meta.hidden = true;
   const upBtn = o.upgrade ? o.button(head, '업그레이드', () => o.onUpgrade?.(), 'primary hs-up-open') : null;
-  /* 2026-09-13 (발전기 전력): 업그레이드 버튼 **왼쪽**의 비활성화 / 활성화 버튼 + 머리 아래 멈춤 배너 (`paintStationPower`) */
-  const power = o.power ?? null;
-  let powerBtn: HTMLButtonElement | null = null;
-  let powerBanner: HTMLElement | null = null;
-  if (power) {
-    powerBtn = o.button(head, '비활성화', () => toggleStationPower(power), 'hpw-toggle');
-    if (upBtn) head.insertBefore(powerBtn, upBtn);
-    powerBtn.hidden = true;
-    powerBanner = el('div', { cls: 'hpw-banner', parent: stationCard });
-    powerBanner.hidden = true;
-  }
   const body = el('div', { cls: 'hs-station-body', parent: stationCard });
   const rail = el('div', { cls: 'hs-rail', parent: body });
   rail.hidden = true;                       // `display: none` → the flex gap next to it disappears too
@@ -137,7 +109,7 @@ export function buildStationShell(frame: HTMLElement, o: StationShellOptions): S
   // 2026-09-12 (사용자 결정): **함선 창고가 왼쪽, 가방이 오른쪽** — 카드 순서가 곧 그 규칙이다
   const stashCard = withInv ? buildInvCard(right, 'stash') : null;
   const bagCard = withInv ? buildInvCard(right, 'bag') : null;
-  return { head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta, stashCard, bagCard, powerBtn, powerBanner, power };
+  return { head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta, stashCard, bagCard };
 }
 
 /** `Lv. n` + the 업그레이드 button state (`MAX` and disabled at the last level; disabled when the furniture is gone). */
@@ -149,49 +121,6 @@ export function paintStationLevel(shell: StationShell, level: number | null, max
   btn.disabled = level === null || atMax;
   setText(btn, atMax ? 'MAX' : '업그레이드');
   toggleClass(btn, 'is-max', atMax);
-  paintStationPower(shell);                   // 2026-09-13 (발전기 전력): 레벨을 그리는 화면은 전력 줄도 함께 다시 그린다
-}
-
-/**
- * appended 2026-09-13 (발전기 전력): the 비활성화 / 활성화 button and the 멈춤 banner of the piece `shell.power.uid()` names.
- * Hidden for furniture that uses no power (or with no `power` option). `paintStationLevel` calls it; screens without levels
- * (식탁 · 서재 보관함) call it from their `refresh`. Reads `ctx.housing` duck-typed — the power API is optional in the contract.
- */
-export function paintStationPower(shell: StationShell): void {
-  const p = shell.power, btn = shell.powerBtn, banner = shell.powerBanner;
-  if (!p || !btn || !banner) return;
-  const h = p.ctx.housing;
-  const uid = p.uid() || '';
-  const item = uid && h ? h.getPlacedByUid(uid) : null;
-  const facility = item && h && typeof h.getFacilityPower === 'function' ? h.getFacilityPower(item.room) : null;
-  const info = facility?.furniture.find((f) => f.uid === uid) ?? null;
-  btn.hidden = !info;
-  if (!info || !h) { banner.hidden = true; return; }
-  setText(btn, info.disabled ? '활성화' : '비활성화');
-  toggleClass(btn, 'is-off', info.disabled);
-  btn.title = `요구 전력 ${info.demand}${info.disabled ? ' — 활성화하면 시설 요구 전력에 다시 더해집니다' : ' — 비활성화하면 시설 요구 전력에서 빠지고 작동을 멈춥니다'}`;
-  const block = typeof h.furnitureOperationalBlock === 'function' ? h.furnitureOperationalBlock(uid) : info.block;
-  const text = !block ? ''
-    : block === FURNITURE_DISABLED_REASON_KO ? '비활성화됨 — 시계가 멈췄습니다'
-    : block === POWER_SHORT_REASON_KO && facility ? `전력 부족 — 시계가 멈췄습니다 (시설 요구 ${facility.required} · 할당 ${facility.allocated})`
-    : block;
-  setText(banner, text);
-  banner.hidden = !text;
-  toggleClass(banner, 'is-disabled', block === FURNITURE_DISABLED_REASON_KO);
-}
-
-function toggleStationPower(p: StationPowerOptions): void {
-  const h = p.ctx.housing;
-  const uid = p.uid();
-  if (!h || !uid || typeof h.setFurnitureDisabled !== 'function') return;
-  const off = h.isFurnitureDisabled?.(uid) === true;
-  const reason = h.setFurnitureDisabled(uid, !off);
-  if (reason) {
-    p.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-    p.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
-    return;
-  }
-  p.ctx.bus.emit('ui:notify', { text: off ? '가구를 활성화했습니다' : '가구를 비활성화했습니다 — 시설 요구 전력에서 빠집니다', kind: 'info' });
 }
 
 /** appended 2026-09-13: the small text after `Lv. n` (empty string hides it). */

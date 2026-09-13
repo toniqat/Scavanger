@@ -87,7 +87,6 @@ export class CultureTank extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '배양조',
       upgrade: true,
-      power: { ctx, uid: () => this.uid },            // 전력 (2026-09-13): 비활성화 버튼 · 멈춤 배너
       onUpgrade: () => this.openUpgrade(),
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });

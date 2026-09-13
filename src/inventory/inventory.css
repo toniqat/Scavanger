@@ -386,8 +386,11 @@
    물러난다 — 둘 다 보인다. 둘 다 포인터를 먹지 않는다. */
 /* 2026-09-12 (아이템 회수 계약, 사용자 결정): 이번 레이드에서 얻은 계약 아이템(`.is-recovery-item`, 레이드 중에만)은 **같은 띠** —
    선택자만 나란히 둔다 (구분할 수 없고, 둘 다면 띠는 하나). 글로우 · 필터 · 정렬은 `.is-favorite` 만의 것이다. */
+/* 2026-09-13 (서재 시리즈, 사용자 결정): 보관함은 있는데 아직 어디에도 꽂지 않은 책 · 비디오 · 레코드(`.is-shelf-wanted`)도 **같은 띠** —
+   즐겨찾기 · 회수 계약과 겹쳐도 `::before` 는 하나라 띠는 하나다. 글로우 · 필터 · 정렬은 여전히 `.is-favorite` 만의 것이다. */
 .inv-tile.is-favorite::before,
-.inv-tile.is-recovery-item::before {
+.inv-tile.is-recovery-item::before,
+.inv-tile.is-shelf-wanted::before {
   content: "";
   position: absolute;
   right: 0; top: 0;
@@ -401,7 +404,8 @@
   z-index: 3;
 }
 .inv-tile.is-favorite.is-ammo-needed::after,
-.inv-tile.is-recovery-item.is-ammo-needed::after {
+.inv-tile.is-recovery-item.is-ammo-needed::after,
+.inv-tile.is-shelf-wanted.is-ammo-needed::after {
   width: 34px; height: 34px;
   background: linear-gradient(225deg,
     transparent 0 12px,
@@ -1249,9 +1253,6 @@ kbd {
 .inv-craft-bench-ico { font-style: normal; font-size: 14px; line-height: 1; flex: none; opacity: 0.9; }
 .inv-craft-bench-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-craft-bench-lv { flex: none; font-size: 9px; letter-spacing: 0.04em; opacity: 0.75; font-variant-numeric: tabular-nums; }
-/* 전력 (2026-09-13): 놓여 있지만 멈춘 작업대 — 흐리게 + 점선, 누르면 사유 토스트 (`CraftPanel.buildBenches`) */
-.inv-craft-bench.is-unpowered { opacity: 0.5; border-style: dashed; }
-.inv-craft-bench.is-unpowered .inv-craft-bench-lv { color: var(--c-danger, #ff4d4d); opacity: 1; }
 /* 2026-09-09 (제작 UI 2차): 썸네일 · 정보 · (수량 + 홀드) 세 칸. 썸네일은 인벤토리 격자 타일 그대로라 4×2 소총이면
    실제로 4×2 크기다 — 행 높이가 레시피마다 다른 것은 의도한 것이다. `align-items: flex-start` 로 위를 맞춘다. */
 .inv-craft-row {

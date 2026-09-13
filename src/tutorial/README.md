@@ -39,7 +39,7 @@
 |---|---|---|---|
 | 1 | `intro` | 시작 안내 카드 | 카드의 **시작** |
 | 2 | `manage` | M 으로 함선 관리 (포커싱: 우측 하단 `.ship-hint`) | `housing:shipManageChanged {active:true}` |
-| 3 | `generator` | 발전기 가동 (Lv.1) | `housing:facilityUpgraded {id:'generator', level>=1}` |
+| 3 | `generator` | 발전기 가동 (Lv.1) — **2026-09-13 부터 늘 건너뛴다** (새 함선이 Lv.1) | `housing:facilityUpgraded {id:'generator', level>=1}` |
 | 4 | `workshop` | 빈 방 → 작업실 | `housing:roomPurposeChanged {purpose:'workshop'}` |
 | 5 | `bench` | 총기 작업대 **제작** | `housing:changed {reason:'craft'}` + 창고에 `furn_bench_gun` |
 | 6 | `benchPlace` | 가구 창고 → 작업실에 **배치** (카드의 `배치` 버튼 또는 바닥 클릭) | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
@@ -88,6 +88,8 @@
 > `generator` 는 **시설 증축의 전제 조건**이다. 이 단계가 없던 동안에는 발전기 Lv.0 인 새 함선에서
 > 작업실 행이 바로 포커싱되고 발전기 게이트에 막혀 **진행 자체가 불가능**했다 (2026-09-08 수정).
 > 발전기가 이미 Lv.1 이상인 함선이면 `setStep` 이 이 단계를 조용히 지나친다.
+> **2026-09-13 (전력 할당 폐지, 사용자 결정)**: 새 함선의 발전기가 처음부터 **Lv.1** 이고 작업실은 Lv.1 로 지어지므로 이 단계는
+> **언제나** 지나쳐진다 — 실제 흐름은 `manage` → `workshop` 이다. 단계 id 는 `TutorialStepId` 계약이라 표에 남긴다 (`openCraft` 와 같은 처리).
 
 > `bench` 와 `benchPlace` 가 갈라진 것도 같은 이유다 (2026-09-08). 가구는 **제작하면 가구 창고로 들어가고**
 > 배치는 창고 탭에서 다시 골라야 하는데, 한 단계로 묶여 있던 동안에는 스포트라이트가 제작 카드에 붙은 채

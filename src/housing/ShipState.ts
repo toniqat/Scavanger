@@ -11,12 +11,15 @@ import {
   ROOM_PURPOSES_ASSIGNABLE, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
   analyzerSlotsForLevel, cultureSlotsForLevel, slotKey,
 } from '@/shared';
+/* 2026-09-13 (전력 할당 폐지 — v13): 발전기 시작 레벨 · 용도별 증축 요구 */
+import { GENERATOR_START_LEVEL, ROOM_PURPOSE_LABEL_KO, purposeGeneratorLevel } from '@/shared';
 /* A-3e (2026-09-12): 서재 매체 (v9) */
 import type { ShelfMedium } from '@/shared';
 import { SHELF_SLOTS, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
 import { shelfMediumOfDefId } from './Rules';
-/* 2026-09-13 (발전기 전력, v12) */
-import { autoAllocateRequirements, sanitizePowerFields } from './PowerRules';
+/* 2026-09-13 (서재 시리즈 · 비디오게임): 옛 아이템 id 치환 · TV 게임기 */
+import type { TvConsoleSlot } from '@/shared';
+import { resolveItemAlias } from '@/shared';
 /* 2026-09-13 (암호화폐 채굴) */
 import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID } from '@/shared';
 import { sanitizeClusters, sanitizeUnitsMap } from './MiningRules';
@@ -80,14 +83,31 @@ import { furnitureFootprint } from '@/shared';
  * 아이템 표가 있어야 해서 런타임 정리(`parts/Garden.grows()` · `parts/Culture.cultures()`)가 한다. ⚠ 여기서 **새 필드를 버리지 않는 것**이
  * 요점이다 (칸을 필드별로 다시 짓기 때문에 적지 않은 필드는 조용히 사라진다). `soilUsesLeft` · `mediumUsesLeft` 는 이제 0 도 된다.
  */
+/*
+ * 서재 시리즈 · 비디오게임 (2026-09-13, docs/plans/library-series-games.md): **버전을 올리지 않았다** (여전히 12). 새 필드는 `tvConsoles` 하나이고
+ * (없으면 빈 배열), 나머지는 버전과 상관없이 **모든 로드**가 지나는 멱등 규칙이다 — `ensureCockpitFurniture` 와 같은 자리다:
+ *  · `books` · `media` · `bookDex` · `mediaDex` · `tvConsoles` 의 옛 아이템 id 를 `resolveItemAlias`(`data/item_aliases.csv`)로 바꾼다 (사용자 결정: 옛 숙련별
+ *    책 · 디스크 · 레코드 → 새 시리즈 1권). 바꾼 것만 있으면 `out.aliasedLibrary` (저장만 예약 — 편집 취급 아님).
+ *  · 같은 def 는 **보관함 전체에서 한 칸만** — 저장 순서대로 먼저 온 칸이 남고 여분은 `out.refund`(함선 창고)로 (사용자 결정: 같은 책은 한 권만 센다).
+ *  · `tvConsoles`: 배치된 TV · `console_*` 모양 · TV 당 하나. 모양은 맞는데 설 자리가 없으면 게임기를 `out.refund` 로.
+ *  환불이 있었으면 `out.migratedLibrary` — v7/v8 처럼 곧 다시 써서 같은 여분을 두 번 돌려주지 않는다.
+ * 버전 숫자는 여러 스모크(`smoke-housing` · `smoke-library`)가 리터럴로 본다 — 모양이 바뀌지 않는 규칙에 버전을 쓰지 않은 이유다.
+ */
 const SAVE_DELAY_MS = 350;
 /*
- * 발전기 전력 (2026-09-13, docs/plans/power-crypto.md): state **version 12** — `powerAlloc` (방 번호 → 할당) · `disabledFurniture` · `pausedAt`.
- * 정리는 `PowerRules.sanitizePowerFields` (시설 방만 · 합이 공급을 넘으면 높은 방 번호부터 깎는다 · 배치된 uid 만). `version < 12` 세이브는 할당이
- * 없어 전부 꺼질 것이므로 **방 순서대로 요구량을 통째로 할당**한다(`autoAllocateRequirements`, 사용자 결정) — `out.migratedPower` 로 곧 저장한다.
+ * 발전기 전력 (2026-09-13, docs/plans/power-crypto.md): state **version 12** 가 `powerAlloc` · `disabledFurniture` · `pausedAt` 를 들고 있었다.
  */
-/** Current on-disk version (12 since 발전기 전력; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(12, SHIP_STATE_VERSION);
+/*
+ * 발전기 = 증축 조건 (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」): state **version 13**.
+ *  · 전력 필드(`powerAlloc` · `disabledFurniture` · `pausedAt`)는 **읽지도 쓰지도 않는다** — 멈춘 시계가 없으므로 옮길 것도 없다
+ *    (멈춰 있던 칸은 로드한 순간부터 저장된 시각 그대로 다시 흐른다).
+ *  · 발전기 레벨은 `GENERATOR_START_LEVEL` … `GENERATOR_MAX_LEVEL`(1 … 5) — Lv.0 은 1 로, 옛 Lv.6–10 은 **환불 없이** 5 로 (사용자 결정).
+ *  · 발전기가 `purposeGeneratorLevel(용도)` 보다 낮은 방은 **제거 + 전액 환불** (사용자 결정): v8 의 「사라진 방」 과 같은 길이라
+ *    증축 재료 → 함선 창고(`out.refund`), 가구 → 가구 창고, 그 가구에 담긴 것(책 · 매체 · 재배 · 해석 · 배양 칸 · 코어 · 게임기) → 함선 창고.
+ *    규칙이라 **모든 로드**가 지난다(발전기는 내려가지 않으므로 v13 세이브에서는 다시 걸릴 일이 없다). 몇 곳을 지웠는지는 `out.removedByGenerator`.
+ */
+/** Current on-disk version (13 since 발전기 = 증축 조건; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(13, SHIP_STATE_VERSION);
 /** 옛 세이브에서 읽어 볼 방의 최대 개수 (방 수가 10 이던 세이브 + 손으로 고친 파일에 대한 여유). */
 const MAX_SAVED_ROOMS = 32;
 /**
@@ -121,7 +141,7 @@ export function freshState(): ShipState {
   const state: ShipState = {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms: freshRooms(),
-    generatorLevel: 0,
+    generatorLevel: GENERATOR_START_LEVEL,     // 2026-09-13 (전력 할당 폐지): 가동하지 않아도 처음부터 Lv.1
     storageLevel: 0,
     furniture: [],                            // 2026-09-07: no free 총기 작업대 / 정비 벤치 — both are crafted
     furnitureStorage: [],
@@ -137,11 +157,9 @@ export function freshState(): ShipState {
     media: [],                                // 서재 매체 (v9, A-3e, 2026-09-12)
     mediaDex: [],
     toggled: [],
-    powerAlloc: {},                           // 발전기 전력 (v12, 2026-09-13)
-    disabledFurniture: [],
-    pausedAt: {},
     analysisXp: {},                           // 요리 재료 티어 (v11, 2026-09-13)
     analysisFound: [],
+    tvConsoles: [],                           // 비디오게임 (2026-09-13 — TV 마다 장착한 게임기)
   };
   ensureCockpitFurniture(state);             // 2026-09-12: 조종석의 공용 시설 가구 두 점 (f-1 시술대 · f-2 컴퓨터)
   placeCockpitDecor(state);                   // 2026-09-13: 조종석 꾸밈 가구 (f-3 침상 · f-4 / f-5 사물함 · f-6 서랍장)
@@ -338,15 +356,37 @@ export interface SanitizeOutcome {
    */
   migratedCockpit?: boolean;
   /**
-   * 2026-09-13 (발전기 전력, v12): a pre-v12 save got its facilities' power allocated in room order (`PowerRules.autoAllocateRequirements`).
-   * Written back soon, like `migratedRooms` — once stored as v12 the allocation is the player's.
+   * 2026-09-13 (v13 — 전력 할당 폐지, 사용자 결정): 발전기 레벨이 `purposeGeneratorLevel(용도)` 에 못 미쳐 제거한 시설 수. 그 방들은
+   * `migratedRooms` 로도 세어져 곧 저장되고(증축 재료 · 담긴 것은 `refund`, 가구는 가구 창고), 이 수는 caller 가 한 번 알리는 데만 쓴다.
    */
-  migratedPower?: boolean;
+  removedByGenerator?: number;
   /**
    * 2026-09-13 (배치 규칙, 사용자 결정): 접근 면 규칙을 어겨 **가구 창고로** 옮긴 조각 수 (조종석 전용 시설 제외). 담긴 것은 `refund` 에 들어 있다.
    * The caller notifies once and writes the result back.
    */
   evictedByAccess?: number;
+  /**
+   * 2026-09-13 (서재 시리즈 · 비디오게임): `sanitize` 가 무언가를 **함선 창고로 돌려줬다** — 같은 def 가 두 보관함 이상에 꽂혀 있던 여분
+   * (옛 id 치환으로 생긴 것 포함, 사용자 결정 「같은 책은 한 권만 센다」) 또는 배치되지 않은 TV · 두 번째 장착의 게임기. `refund` 에 들어 있다.
+   * `migratedRooms` 처럼 곧 다시 쓴다 (다시 쓰지 않으면 다음 로드가 같은 여분을 또 돌려준다).
+   */
+  migratedLibrary?: boolean;
+  /**
+   * 2026-09-13: 옛 서재 아이템 id(`data/item_aliases.csv`)를 새 id 로 바꿨을 뿐 돌려준 것은 없다 — 치환은 멱등이라 편집 취급하지 않고
+   * (`grantedCockpit` 처럼) 저장만 예약한다.
+   */
+  aliasedLibrary?: boolean;
+}
+
+/** 2026-09-13: TV 에 장착하는 게임기 def id **모양** (`console_*`). 진짜 게임기인지는 런타임(`parts/VideoGame`)이 본다. */
+const isConsoleDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^console_[A-Za-z0-9_]{1,40}$/.test(v);
+
+/** 2026-09-13: 세이브의 아이템 id 를 옛 id 치환표로 — 문자열이 아니면 그대로 (모양 검사가 버린다). `changed` 는 바뀌었을 때만 부른다. */
+function aliasOf(v: unknown, changed: () => void): unknown {
+  if (typeof v !== 'string') return v;
+  const id = resolveItemAlias(v);
+  if (id !== v) changed();
+  return id;
 }
 
 /** A 책장 (Phase 9: any furniture whose E opens the bookshelf panel). */
@@ -415,6 +455,11 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const removedRooms = new Set<number>();
   /** 은퇴 가구 · 사라진 방이 돌려줄 재료: 한 자루에 모아 caller 가 함선 창고로 넣는다. */
   const refund: CraftIngredient[] = [];
+  /* v13 (2026-09-13, 사용자 결정 — 전력 할당 폐지): 발전기 레벨을 방보다 **먼저** 읽는다 — 레벨이 모자란 시설을 v8 의 「사라진 방」 과 같은
+     길(증축 재료 → `refund`, 가구 → 가구 창고, 담긴 것 → `refund`)로 걷어내야 해서다. Lv.0(옛 새 함선) → 시작 레벨, 옛 Lv.6–10 → 최대 (환불 없음). */
+  const generatorLevel = int(r.generatorLevel, GENERATOR_START_LEVEL, GENERATOR_START_LEVEL, facilityMaxLevel('generator'));
+  /** v13: 발전기 레벨이 모자라 제거한 시설 수 (`out.removedByGenerator`). */
+  let removedByGenerator = 0;
   const srcRooms = Array.isArray(r.rooms) ? r.rooms.slice(0, MAX_SAVED_ROOMS) : [];
   /** Source room slots the furniture pass still recognises (a 10-room save keeps pieces of 방 9 · 10). */
   const roomSlots = Math.max(SHIP_ROOM_COUNT, srcRooms.length);
@@ -423,11 +468,18 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const purpose = isRoomPurpose(s?.purpose) ? s!.purpose! : 'empty';
     rawPurposes.push(purpose);
     rawRoomLevels.push(purpose === 'empty' ? 0 : int(s?.level, 1, 1, 99));
-    const gone = purpose !== 'empty' && (i >= SHIP_ROOM_COUNT || !ROOM_PURPOSES_ASSIGNABLE.includes(purpose));
+    const buildable = i < SHIP_ROOM_COUNT && ROOM_PURPOSES_ASSIGNABLE.includes(purpose);
+    const underGenerator = purpose !== 'empty' && buildable && generatorLevel < purposeGeneratorLevel(purpose);
+    const gone = purpose !== 'empty' && (!buildable || underGenerator);
     if (gone) {
       removedRooms.add(i);
       mergeCost(refund, roomRefundCost(purpose, 1));   // the 시설 증축 price (legacy room levels: the v7 block below)
-      console.warn(`[housing] room ${i + 1} (${purpose}) removed — build cost refunded, furniture to storage`);
+      if (underGenerator) {
+        removedByGenerator++;
+        console.warn(`[housing] room ${i + 1} (${ROOM_PURPOSE_LABEL_KO[purpose]}) needs 발전기 Lv.${purposeGeneratorLevel(purpose)} (ship Lv.${generatorLevel}) — removed, build cost refunded, furniture to storage`);
+      } else {
+        console.warn(`[housing] room ${i + 1} (${purpose}) removed — build cost refunded, furniture to storage`);
+      }
     }
     if (i >= SHIP_ROOM_COUNT) continue;
     // 2026-09-12: 방 시설에는 레벨이 없다 — 용도가 있으면 1, 빈 방이면 0 (`Rules.facilityMaxLevel` 이 1 이다)
@@ -447,7 +499,6 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     for (const x of rooms) if (NEEDS_GREENHOUSE.includes(x.purpose)) { x.purpose = 'empty'; x.level = 0; }
   }
 
-  const generatorLevel = int(r.generatorLevel, 0, 0, facilityMaxLevel('generator'));
   const storageLevel = int(r.storageLevel, 0, 0, facilityMaxLevel('storage'));
 
   // placed furniture: every piece must pass the real placement rule against what was accepted before it
@@ -660,27 +711,46 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     grows.push(entry);
   }
 
+  /* 2026-09-13 (서재 시리즈 — 사용자 결정): ① 옛 숙련별 책 · 디스크 · 레코드 id 는 새 시리즈 1권 id 로 바꾼다 (`resolveItemAlias`, 모든 로드 —
+     치환은 멱등이다). ② 같은 def 는 **보관함 전체에서 한 번만** 꽂힌다 — 저장 순서대로 먼저 온 것이 남고, 그 뒤의 같은 def(치환으로 생긴
+     중복 포함)는 칸에서 빼 함선 창고로 돌려준다(`refund`). 칸 번호 충돌 · 모양 오류는 예전처럼 조용히 버린다. */
+  let aliasedLibrary = false;
+  let migratedLibrary = false;
+  const markAliased = (): void => { aliasedLibrary = true; };
+  /** 이미 꽂힌 def (책 + 매체 — 매체가 달라 겹칠 일은 없지만 한 집합으로 본다). */
+  const shelvedDefs = new Set<string>();
+
   // Phase 9 서재: a shelved book needs its 책장 to still be placed; one book per (uid, slot); slot < BOOKS_PER_SHELF
   const books: PlacedBook[] = [];
   const shelfUids = new Set(furniture.filter((f) => isBookshelfDefId(f.defId)).map((f) => f.uid));
   const takenBookSlots = new Set<string>();
   for (const b of Array.isArray(r.books) ? (r.books as Partial<PlacedBook>[]) : []) {
-    if (!b || typeof b.uid !== 'string' || !isBookDefIdShape(b.defId)) continue;
+    if (!b) continue;
+    const defId = aliasOf(b.defId, markAliased);
+    if (typeof b.uid !== 'string' || !isBookDefIdShape(defId)) continue;
     if (!shelfUids.has(b.uid)) {
       // v8: a 책장 that went to furniture storage with its removed room hands its books to the 함선 창고 (like `recover`)
-      if (displacedUids.has(b.uid)) mergeCost(refund, [{ defId: b.defId, qty: 1 }]);
+      if (displacedUids.has(b.uid)) mergeCost(refund, [{ defId, qty: 1 }]);
       continue;
     }
     const slot = int(b.slot, -1, -1);
     if (slot < 0 || slot >= BOOKS_PER_SHELF) continue;
     const key = `${b.uid}#${slot}`;
     if (takenBookSlots.has(key)) continue;
+    if (shelvedDefs.has(defId)) {
+      mergeCost(refund, [{ defId, qty: 1 }]);
+      migratedLibrary = true;
+      console.warn(`[housing] book '${defId}' was shelved twice — the extra copy goes back to the ship stash`);
+      continue;
+    }
     takenBookSlots.add(key);
-    books.push({ uid: b.uid, slot, defId: b.defId });
+    shelvedDefs.add(defId);
+    books.push({ uid: b.uid, slot, defId });
   }
   // 도감: unique book ids, every shelved book included (a save edited by hand cannot forget what is on its shelves)
   const bookDex: string[] = [];
-  for (const id of [...(Array.isArray(r.bookDex) ? r.bookDex : []), ...books.map((b) => b.defId)]) {
+  for (const raw of [...(Array.isArray(r.bookDex) ? r.bookDex : []), ...books.map((b) => b.defId)]) {
+    const id = aliasOf(raw, markAliased);
     if (isBookDefIdShape(id) && !bookDex.includes(id)) bookDex.push(id);
   }
 
@@ -777,11 +847,13 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const takenMediaSlots = new Set<string>();
   for (const e of Array.isArray(r.media) ? (r.media as Partial<PlacedBook>[]) : []) {
     if (!e || typeof e.uid !== 'string') continue;
-    const m = shelfMediumOfDefId(e.defId);
+    const defIdRaw = aliasOf(e.defId, markAliased);        // 2026-09-13: 옛 id → 새 id (게임 디스크 `game_*` 도 이 목록에 산다)
+    const m = shelfMediumOfDefId(defIdRaw);
     if (!m || m === 'book') continue;
+    const defId = defIdRaw as string;
     const holder = shelfMediumByUid.get(e.uid);
     if (holder === undefined) {
-      if (displacedShelf.get(e.uid) === m) mergeCost(refund, [{ defId: e.defId as string, qty: 1 }]);
+      if (displacedShelf.get(e.uid) === m) mergeCost(refund, [{ defId, qty: 1 }]);
       continue;
     }
     if (holder !== m) continue;
@@ -789,14 +861,39 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (slot < 0 || slot >= SHELF_SLOTS[m]) continue;
     const key = `${e.uid}#${slot}`;
     if (takenMediaSlots.has(key)) continue;
+    if (shelvedDefs.has(defId)) {
+      // 2026-09-13: 같은 def 가 이미 다른 칸에 있다 — 여분은 함선 창고로
+      mergeCost(refund, [{ defId, qty: 1 }]);
+      migratedLibrary = true;
+      console.warn(`[housing] shelf item '${defId}' was shelved twice — the extra copy goes back to the ship stash`);
+      continue;
+    }
     takenMediaSlots.add(key);
-    media.push({ uid: e.uid, slot, defId: e.defId as string });
+    shelvedDefs.add(defId);
+    media.push({ uid: e.uid, slot, defId });
   }
-  // 도감: `disc_*` / `record_*` 모양의 유일한 id, 꽂혀 있는 것은 전부 포함 (`bookDex` 와 같다)
+  // 도감: `disc_*` / `record_*` / `game_*` 모양의 유일한 id, 꽂혀 있는 것은 전부 포함 (`bookDex` 와 같다)
   const mediaDex: string[] = [];
-  for (const id of [...(Array.isArray(r.mediaDex) ? r.mediaDex : []), ...media.map((e) => e.defId)]) {
+  for (const raw of [...(Array.isArray(r.mediaDex) ? r.mediaDex : []), ...media.map((e) => e.defId)]) {
+    const id = aliasOf(raw, markAliased);
     const m = shelfMediumOfDefId(id);
     if (m && m !== 'book' && !mediaDex.includes(id as string)) mediaDex.push(id as string);
+  }
+  /* 2026-09-13 (비디오게임): TV 마다 장착한 게임기 — 배치된 TV(`interaction 'tv'`) uid · `console_*` 모양 · TV 당 하나. 모양은 맞는데 TV 가 없거나
+     (회수 · 가구 창고로 옮겨짐 · 사라진 방) 같은 TV 의 두 번째 장착이면 그 게임기를 함선 창고로 돌려준다. 모양이 틀린 줄은 버린다. */
+  const tvUids = new Set(furniture.filter((f) => FURNITURE_DEF_MAP.get(f.defId)?.interaction === 'tv').map((f) => f.uid));
+  const tvConsoles: TvConsoleSlot[] = [];
+  for (const t of Array.isArray(r.tvConsoles) ? (r.tvConsoles as Partial<TvConsoleSlot>[]) : []) {
+    if (!t) continue;
+    const defId = aliasOf(t.defId, markAliased);
+    if (!isConsoleDefIdShape(defId)) continue;
+    if (typeof t.uid === 'string' && tvUids.has(t.uid) && !tvConsoles.some((c) => c.uid === t.uid)) {
+      tvConsoles.push({ uid: t.uid, defId });
+      continue;
+    }
+    mergeCost(refund, [{ defId, qty: 1 }]);
+    migratedLibrary = true;
+    console.warn(`[housing] console '${defId}' of TV '${String(t.uid)}' has no placed TV slot — returned to the ship stash`);
   }
   // 켜짐: 배치된 TV · 레코드 플레이어 uid 만, 중복 없이
   const toggleUids = new Set(furniture.filter((f) => isToggleInteraction(FURNITURE_DEF_MAP.get(f.defId)?.interaction ?? 'none')).map((f) => f.uid));
@@ -824,6 +921,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     books, bookDex, grows, analyses, sampleDex, cultures,
     media, mediaDex, toggled,
     analysisXp, analysisFound,
+    tvConsoles,
   };
   /* v9 → v10 (2026-09-13, 사용자 결정 — 조종석 고정 소품 → 꾸밈 가구): 옛 소품 자리에 침상 · 사물함 두 칸 · 서랍장을 **한 번** 놓는다.
      그 칸들은 v9 까지 `COCKPIT_BLOCKED_RECTS` 였으므로 옛 세이브에는 늘 비어 있다 — 그래서 조종석 전용 시설(아래)보다 **먼저** 놓는다
@@ -836,11 +934,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   // 2026-09-12: 공용 시설 가구 두 점은 잃을 수 없다 — uid 를 다 매긴 뒤라야 새 uid 가 겹치지 않는다
   // 2026-09-13: 조종석 전용 시설이다 — 다른 방 · 가구 창고에 있던 것도 조종석으로 돌아오고, 사본은 걷힌다 (모든 로드)
   const grantedCockpit = ensureCockpitFurniture(state);
-  /* v12 (2026-09-13, 발전기 전력): 할당 · 비활성 · 멈춘 시각 — 가구 · 방 · 발전기가 다 정리된 뒤라야 방 번호 · uid 를 믿을 수 있다.
-     옛 세이브(할당이 없다)는 방 순서대로 요구량을 통째로 할당한다 (사용자 결정 — 업데이트 한 번에 모든 시설이 꺼지지 않게). */
-  sanitizePowerFields(state, r);
-  const migratedPower = version < 12 ? autoAllocateRequirements(state) : false;
-  if (migratedPower) console.warn(`[housing] v${version} ship: facility power allocated in room order (${JSON.stringify(state.powerAlloc)})`);
+  /* v13 (2026-09-13): v12 의 전력 필드(`powerAlloc` · `disabledFurniture` · `pausedAt`)는 옮기지 않는다 — 전력 할당이 폐지됐다 (위 `state` 에 없다). */
   /* 암호화폐 채굴 (2026-09-13): 클러스터 칸은 **최종** 배치(접근 면 규칙으로 가구 창고에 간 것 · 드롭된 것을 뺀 뒤)의 연산 클러스터 것만 남는다 —
      코어 정수 0 … 최대 · 진행도 [0, 1) · 구간 시작 유한 · 코인 id 모양 (`MiningRules.sanitizeClusters`). 배치되지 않은 클러스터에 꽂혀 있던
      코어는 사라지지 않고 은퇴 가구와 같은 자루(`refund` → 함선 창고)로 돌려준다. 지갑 · 누적 채굴은 id 모양 키 · 정수 ≥ 1. */
@@ -859,8 +953,10 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     out.migratedRooms = removedRooms.size > 0;
     out.grantedCockpit = grantedCockpit;
     out.migratedCockpit = migratedCockpit;
-    out.migratedPower = migratedPower;
+    out.removedByGenerator = removedByGenerator;
     out.evictedByAccess = evictedByAccess;
+    out.migratedLibrary = migratedLibrary;
+    out.aliasedLibrary = aliasedLibrary;
   }
   return state;
 }
@@ -870,22 +966,27 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
  * 은퇴 가구 owes the player — `HousingSystem` pays it into the 함선 창고 once the inventory exists.
  * `migrated` (v7 · v8) = room levels / removed rooms were migrated; `granted` = a 공용 시설 가구 was put back.
  */
-export function loadState(): { state: ShipState; fresh: boolean; refund: CraftIngredient[]; migrated: boolean; granted: boolean; evicted: number } {
+export function loadState(): {
+  state: ShipState; fresh: boolean; refund: CraftIngredient[]; migrated: boolean; granted: boolean; evicted: number; removedByGenerator: number;
+} {
   const s = storage();
-  if (!s) return { state: freshState(), fresh: true, refund: [], migrated: false, granted: false, evicted: 0 };
+  if (!s) return { state: freshState(), fresh: true, refund: [], migrated: false, granted: false, evicted: 0, removedByGenerator: 0 };
   let raw: unknown = null;
   try {
     const text = s.getItem(slotKey(SHIP_STORAGE_KEY));
     if (text) raw = JSON.parse(text);
   } catch { raw = null; }
-  if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true, refund: [], migrated: false, granted: false, evicted: 0 };
+  if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true, refund: [], migrated: false, granted: false, evicted: 0, removedByGenerator: 0 };
   const out: SanitizeOutcome = { refund: [] };
   const state = sanitize(raw, out);
   return {
     state, fresh: false, refund: out.refund,
-    migrated: out.migratedRoomLevels === true || out.migratedRooms === true || out.migratedCockpit === true || out.migratedPower === true,
-    granted: out.grantedCockpit === true,
+    // 2026-09-13 (v13): 발전기 레벨로 제거한 시설은 `migratedRooms` 에 들어 있다
+    migrated: out.migratedRoomLevels === true || out.migratedRooms === true || out.migratedCockpit === true
+      || out.migratedLibrary === true,                        // 2026-09-13: 서재 중복 · 게임기 환불은 다시 써야 한 번만 돈다
+    granted: out.grantedCockpit === true || out.aliasedLibrary === true,   // 2026-09-13: 옛 서재 id 치환 (멱등 — 저장만 예약)
     evicted: out.evictedByAccess ?? 0,
+    removedByGenerator: out.removedByGenerator ?? 0,
   };
 }
 

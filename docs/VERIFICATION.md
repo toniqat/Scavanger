@@ -47,6 +47,24 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-13 (42차) 전력 할당 폐지 · 발전기 = 상위 시설 증축 조건 Lv.1–5 (`housing/PowerRules.ts` · `parts/Power.ts` 삭제 · `src/shared/{housing,constants,events}.ts` **추가만 + 은퇴 표시** ·
+  `data/{room_purposes,facility_upgrades,furniture,tables,tuning,constants}.csv` · `src/{housing,ui,hub,inventory,tutorial,items}` · `smoke-power` → `smoke-generator` 신규, 스모크 8종 갱신 — 서브 에이전트 2개):
+  - `node scripts/verify.mjs --folders housing,ui,hub,inventory,tutorial --no-e2e --log-dir scripts/logs/gen` (6 min 55 s) — 1 failed:
+  - docs line: 2026-09-13: typecheck ok, typecheck-server ok, net-selftest 522/522, data-check ok, smoke-quickslots 101/101, smoke-phase2 57/57, smoke-weapons 147/147, smoke-phase3 41/41, smoke-phase4 58/58, smoke-drone-scan 24/24, smoke-ship-rooms 77/77, smoke-tactical 115/115, smoke-inventory-p6 183/183, smoke-controls-hub 153/153, smoke-housing 324/324, smoke-loadout 69/69, smoke-console 63/63, smoke-search 77/77, smoke-ui-p6 91/91, smoke-resume-gate 62/62, smoke-ui-p5 142/142, smoke-meta 198/198, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-uniques 72/72, smoke-training 108/108, smoke-library 84/84, smoke-tv-games 29/29, smoke-furniture-access 49/49, smoke-stations 98/98, smoke-food-chain 83/83, smoke-generator 49/49, smoke-pose 144/144, smoke-mining 64/64, smoke-library-consumers 37/37, smoke-favorites 45/45, smoke-video-games 75/75, smoke-gym 65/66, smoke-cooking 114/114, smoke-mining-ui 69/69, smoke-buffs 42/42, smoke-planets 86/86, smoke-tutorial 88/88, smoke-social 209/209, smoke-raidflow 89/89, smoke-structures 137/137, smoke-netlink 48/48, smoke-lights 30/30, smoke-hangar 58/58
+  - `smoke-gym` 65/66 (재실행도 65/66): 「키 핸들러가 판정 직후의 커서 · 회차를 그 자리에서 그린다」 — `style.left` 가 `50.8%` 로 읽히는데 스모크는 `toFixed(2)` 문자열 `50.80%` 를 기대한다.
+    값은 같고 **문자열 비교가 끝자리 0 을 못 맞추는 스모크 결함**이다 (이 작업은 운동 화면 · 그 스모크를 건드리지 않았다, 41차 세션의 같은 스모크는 66/66). 고치지 않고 남긴다.
+  - 같은 트리의 41차 세션이 같은 날 `--only`(smoke-housing 324 · library 84 · video-games 75 · tv-games 29 · hangar 58 · desktop 54 · e2e-mp 175/175 …)를 이 변경이 들어간 트리에서 통과시켰다.
+  - 수동으로 보지 않은 것: 실제 화면에서 시설 관리 발전기 행의 해금 표 가독성 · 발전기 확인 팝업을 사람 손으로 누르는 흐름 · 옛 서버 프로필(전력 시절 v12 세이브)을 실제 릴레이에서 받아 시설이 제거되는 장면.
+- 2026-09-13 (41차) 서재 시리즈 · 비디오게임 미니게임 · 요리/연구 숙련 · 게임 중 버프 (`src/shared/library.ts` 신규 · `src/shared/{housing,progression,types,gear,events,labels,constants,charBuffs,index}.ts` **추가만** ·
+  `data/{library_series,item_aliases,game_discs,game_consoles}.csv` 신규 · 옛 `books/discs/records.csv` 삭제 · `src/{items,housing,hub,progression,inventory,ui,meta,game,console,player}` ·
+  스모크 신규 3종(`smoke-video-games` · `smoke-tv-games` · `smoke-library-consumers`), **에이전트 7개 병렬 + 리드**, 같은 트리에서 전력 제거 세션(42차)이 동시 작업):
+  - `npm run verify:all` (1차): 5 failed — `smoke-tactical` 114/115 **스모크 기대값**(숙련 14 → 16) · `smoke-humanoid-ai` 37/39 (측면 우회 각도, 이 작업이 건드리지 않은 코드 — 부하 중 흔들림,
+    단독 재실행 39/39) · `smoke-hangar` 0/1 · `e2e-mp` 0/1 · `smoke-desktop` 54/55 — 셋 다 **동시 세션이 `PowerRules.ts` · `parts/Power.ts` 를 지우는 도중**의 404 · 빌드 실패.
+  - 동시 세션이 끝난 뒤 재실행 (`--only`, 실패 5 + 이 작업 스모크 + 전력 제거가 겹친 housing/progression 스모크) — 전부 통과:
+  - docs line: 2026-09-13: typecheck ok, typecheck-server ok, net-selftest 522/522, data-check ok, smoke-buffs 42/42, smoke-cooking 114/114, smoke-library-consumers 37/37, smoke-video-games 75/75, smoke-library 84/84, smoke-tv-games 29/29, smoke-food-chain 83/83, smoke-tactical 115/115, smoke-gym 66/66, smoke-stations 98/98, smoke-progression 262/262, smoke-housing 324/324, smoke-humanoid-ai 39/39, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 175/175
+  - 1차 verify:all 에서 통과한 나머지(재실행 안 함): smoke-quickslots 101/101 · smoke-weapons 147/147 · smoke-inventory-p6 183/183 · smoke-meta 198/198 · smoke-favorites 45/45 · smoke-extraction 36/36 ·
+    smoke-raidflow 89/89 · smoke-tutorial 86/86 · smoke-pitch 162/162 · smoke-lights 30/30 · smoke-social 209/209 · smoke-trust 66/66 외 (전 목록은 `scripts/logs/last-run.json` 이전 판).
+  - 수동으로 보지 않은 것: 실제 화면에서 쇼파 · 좌식 테이블 · 러그 · TV 게임기 모델과 게임 연출 카메라 · 서재 시리즈 화면 가독성 · 행성별 드롭 체감 · 분대원 화면의 「게임 중」 썸네일(스모크는 원격 버프 주입으로만 봤다).
 - 2026-09-13 (40차) 가구 접근 면 배치 규칙 · 발전기 전력 · 암호화폐 채굴 / 거래소 (`src/shared/{crypto,cryptoMarket}.ts` 신규 · `src/shared/{housing,credits,net,events,meta,index}.ts` **추가만** ·
   `data/{furniture,room_purposes,facility_upgrades,tables,tuning,quests,items,recipes,loot_*}.csv` + `data/crypto.csv` 신규 · `src/{housing,hub,ui,inventory,items,meta,console,audio,net}` · `server/{CryptoMarket(신규),RelayServer,Economy,Store,selftest}.ts` ·
   스모크 4종 신규, **에이전트 5개 병렬(같은 작업 트리 · 파일 소유 분리) + 리드**, 같은 트리에서 탐사 차량 세션이 동시 작업):

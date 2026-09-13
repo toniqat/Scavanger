@@ -25,6 +25,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spot: ['.ship-hint'],
     spotText: '시설 관리 — M',
   },
+  /* 2026-09-13 (사용자 결정 — 전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 이라 이 단계는 `TutorialSystem.setStep` 이 늘 조용히 지나친다.
+     발전기가 Lv.0 인 함선이 없어졌을 뿐 단계 id 는 계약(`TUTORIAL_STEPS`)이라 남긴다. */
   generator: {
     id: 'generator', title: '발전기를 가동하세요',
     hint: '시설 증축에는 발전기 Lv.1 이 필요합니다. 방 목록 아래의 발전기를 가동하세요.',

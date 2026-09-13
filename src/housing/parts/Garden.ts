@@ -112,22 +112,6 @@ export function dropGrowsOf(sys: HousingSystem, uid: string): void {
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
 }
 
-/**
- * 전력 (2026-09-13): 멈춰 있던 스테이션이 다시 돌았다 — 그 스테이션에서 심어 둔 작물의 시각을 멈춘 시간만큼 민다
- * (`housing:operationalChanged {operational:true, pausedMs}` 를 `parts/Power` 가 받아 부른다). 바뀐 칸 수.
- */
-export function shiftPausedGrows(sys: HousingSystem, uid: string, pausedMs: number): number {
-  if (!(pausedMs > 0) || !sys.stationOf(uid)) return 0;
-  let n = 0;
-  for (const g of sys.grows()) {
-    if (g.uid !== uid || !g.plantedAt || !g.readyAt) continue;
-    g.plantedAt += pausedMs;
-    g.readyAt += pausedMs;
-    n++;
-  }
-  return n;
-}
-
 /** Ripe 칸 of a station (for the `housing:growChanged` payload and the hub's station visuals). */
 export function readyCount(sys: HousingSystem, uid: string): number {
   const now = sys.stationNow(uid);
@@ -174,7 +158,7 @@ export function yieldQty(sys: HousingSystem, base: number): number {
 export function getGrowSlots(sys: HousingSystem, uid: string): GrowSlotInfo[] {
   const station = sys.stationOf(uid);
   if (!station) return [];
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 스테이션은 멈춘 시각에 서 있다
+  const now = sys.stationNow(uid);
   const out: GrowSlotInfo[] = [];
   for (const tier of GROW_TIER_DRAW_ORDER) {
     const locked = !growTierOpen(station.level, tier);
@@ -326,7 +310,7 @@ export function plantSeedAt(sys: HousingSystem, uid: string, tier: GrowTier, slo
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(seedDefId, 1)) return '씨앗을 꺼낼 수 없습니다';
   const soilTag: SoilTag | null = sys.soilDef(g.soilDefId)?.soil?.tag ?? null;
   const matched = soilMatches(soilTag, def.seed.soilTag);
-  g.plantedAt = sys.stationNow(uid);               // 전력 (2026-09-13): 멈춘 스테이션에 심으면 다시 돌 때부터 자란다
+  g.plantedAt = sys.stationNow(uid);
   const station = sys.stationOf(uid);
   // 2026-09-13: 궁합 보너스 · 소켓 speed 는 흙 내구도 비율만큼 — 심는 순간 확정
   const { ratio } = soilStats(sys, g);
@@ -347,7 +331,7 @@ export function rescaleGrowsForUpgrade(sys: HousingSystem, uid: string, fromLeve
   const oldMul = growStationSpeedMul(fromLevel);
   const newMul = growStationSpeedMul(toLevel);
   if (newMul <= oldMul) return 0;
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 스테이션은 멈춘 시각을 축으로 압축한다
+  const now = sys.stationNow(uid);
   let n = 0;
   for (const g of sys.grows()) {
     if (g.uid !== uid || !g.seedDefId || !g.plantedAt || !g.readyAt || now >= g.readyAt) continue;
@@ -368,7 +352,7 @@ export function harvestAt(sys: HousingSystem, uid: string, tier: GrowTier, slot:
   if (block) return block;
   const g = sys.growSlotAt(uid, tier, slot);
   if (!g || !g.seedDefId || !g.readyAt) return '심어진 씨앗이 없습니다';
-  const now = sys.stationNow(uid);                 // 전력 (2026-09-13): 멈춘 스테이션의 작물은 멈춘 시각 기준으로 여물었나를 본다
+  const now = sys.stationNow(uid);
   if (now < g.readyAt) return `아직 자라는 중입니다 (${formatRemaining(Math.ceil((g.readyAt - now) / 1000))} 남음)`;
   const seed = sys.seedDef(g.seedDefId)?.seed ?? null;
   const loot = sys.ctx.loot;

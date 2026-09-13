@@ -8,7 +8,7 @@ import {
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   GROW_SKILL_SPEEDUP, GROW_STATION_SPEED_PER_LEVEL, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
   RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
-  ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
+  ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, purposeGeneratorLevel,
   SHIP_ROOM_COUNT,
   STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST,
   WORKSHOP_UPGRADE_COST, benchKindOf, furnitureFootprint,
@@ -170,7 +170,8 @@ export function purposeBuildBlockReason(
   const structural = purposeChangeReason(state, index, purpose);
   if (structural) return structural;
   if (purpose === 'empty') return null;
-  const gate = generatorGateReason(state, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL);
+  // 2026-09-13 (사용자 결정 — 전력 할당 폐지): 용도마다 필요한 발전기 레벨이 다르다 (`purposeGeneratorLevel`)
+  const gate = generatorGateReason(state, purposeGeneratorLevel(purpose));
   if (gate) return gate;
   const missing = missingIngredients(purposeBuildCost(purpose), count);
   if (missing.length) return `재료 부족: ${formatCost(missing, nameOf)}`;
@@ -262,10 +263,10 @@ import type { ShelfBonusInfo, ShelfMedium } from '@/shared';
 import { SHELF_AUX_BONUS, SHELF_AUX_INTERACTION, SHELF_GAIN_MAX, SHELF_MEDIA, SHELF_XP_PER_ITEM, shelfItemOf } from '@/shared';
 
 /** 세이브의 매체 id 접두사 — `ctx.loot` 가 없을 때(`sanitize`) 모양만 보는 규칙. 진짜 매체인지는 런타임에 걸러 낸다. */
-export const SHELF_ID_PREFIX: Readonly<Record<ShelfMedium, string>> = { book: 'book_', disc: 'disc_', record: 'record_' };
-const SHELF_ID_SHAPE = /^(book|disc|record)_[A-Za-z0-9_]{1,40}$/;
+export const SHELF_ID_PREFIX: Readonly<Record<ShelfMedium, string>> = { book: 'book_', disc: 'disc_', record: 'record_', game: 'game_' };
+const SHELF_ID_SHAPE = /^(book|disc|record|game)_[A-Za-z0-9_]{1,40}$/;
 
-/** 매체 id **모양**(`book_*` · `disc_*` · `record_*`)에서 읽은 매체, 모양이 아니면 null. */
+/** 매체 id **모양**(`book_*` · `disc_*` · `record_*` · 2026-09-13 `game_*`)에서 읽은 매체, 모양이 아니면 null. */
 export function shelfMediumOfDefId(defId: unknown): ShelfMedium | null {
   if (typeof defId !== 'string') return null;
   const m = SHELF_ID_SHAPE.exec(defId);
@@ -311,9 +312,177 @@ export function shelfGainFor(
   skill: SkillId, books: readonly PlacedBook[], media: readonly PlacedBook[],
   defOf: (defId: string) => ItemDef | undefined, aux: Readonly<Record<ShelfMedium, boolean>>,
 ): ShelfBonusInfo {
-  const parts: Record<ShelfMedium, number> = { book: 0, disc: 0, record: 0 };
+  const parts: Record<ShelfMedium, number> = { book: 0, disc: 0, record: 0, game: 0 };
   for (const m of SHELF_MEDIA) parts[m] = shelfPartFor(m, skill, m === 'book' ? books : media, defOf, aux[m]);
-  return { total: 1 + parts.book + parts.disc + parts.record, parts, aux: { book: aux.book, disc: aux.disc, record: aux.record } };
+  return { total: 1 + parts.book + parts.disc + parts.record, parts, aux: { book: aux.book, disc: aux.disc, record: aux.record, game: false } };
+}
+
+/* ── 서재 시리즈 (2026-09-13, docs/plans/library-series-games.md — 사용자 결정) ─────────────────────────────────────
+ * **옛 공식은 은퇴했다** — 위의 `bookWeightOf` · `bookGainMulFor` · `shelfItemWeightOf` · `shelfPartFor` · `shelfGainFor` 와 계약의
+ * `BOOK_RARITY_MUL` · `SHELF_XP_PER_ITEM` · `SHELF_GAIN_MAX` 는 이름만 남는다 (호출자 없음 — 추가만 하는 규약). 새 공식:
+ *
+ *     가진 권수 = 작동 중인 보관함에 꽂힌 그 시리즈의 **서로 다른 권** 수 (같은 def 여러 장 = 1, 같은 권 번호 = 1)
+ *     시리즈 몫 = librarySeriesFraction(가진 권수, 전체 권수)   ← 전권이면 1, 아니면 권당 SHELF_SERIES_VOLUME_SHARE
+ *     줄 값     = 전권 값 × 시리즈 몫 × (그 매체의 보조 가구가 작동 중 ? 1 + SHELF_AUX_BONUS[매체] : 1)
+ *     합산      = 같은 (종류, 대상)끼리 더한다 → `LibraryEffectsSummary`. `recipe` 는 몫 1 인 시리즈의 대상만 연다.
+ *
+ * 입력 `items` 는 **이미 작동 중인 보관함으로 거른** 칸 목록이다 — 전력 판정 · 캐시 · 이벤트는 `parts/Library` 가 하고, 이 절은 ctx 를 모른다.
+ * 게임 디스크(`'game'`)는 효과가 없는 보관 매체라 여기에 오지 않는다 (시리즈가 없다).
+ * ────────────────────────────────────────────────────────────────────────── */
+import type { LibraryEffect, LibraryEffectKind, LibraryEffectsSummary, LibraryMedium, LibrarySeriesDef, LibrarySourceInfo } from '@/shared';
+import { LIBRARY_SERIES_MAP, librarySeriesFraction } from '@/shared';
+
+/** 보관함에 꽂을 수 있는 아이템이면 그 매체 — 책 · 디스크 · 레코드(`shelfItemOf`) + 게임 디스크(`ItemDef.gameDisc`), 아니면 null. */
+export function shelfHolderMediumOfItem(def: ItemDef | null | undefined): ShelfMedium | null {
+  if (!def) return null;
+  if (def.gameDisc) return 'game';
+  return shelfItemOf(def)?.medium ?? null;
+}
+
+/** 서재 효과 매체 아이템의 시리즈 · 권 번호 (`ItemDef.book` / `disc` / `record` 의 `series` · `volume`). 시리즈가 없으면 null. 권 번호가 없으면 1. */
+export function librarySeriesOfItem(def: ItemDef | null | undefined): { medium: LibraryMedium; seriesId: string; volume: number } | null {
+  if (!def) return null;
+  const medium: LibraryMedium | null = def.book ? 'book' : def.disc ? 'disc' : def.record ? 'record' : null;
+  const data = def.book ?? def.disc ?? def.record;
+  if (!medium || !data || typeof data.series !== 'string' || !data.series) return null;
+  const v = Math.floor(Number(data.volume ?? 1));
+  return { medium, seriesId: data.series, volume: Number.isFinite(v) && v >= 1 ? v : 1 };
+}
+
+/** 한 시리즈의 지금 상태 (`computeLibraryEffects` 가 꽂힌 권이 있는 시리즈마다 하나). */
+export interface LibrarySeriesState {
+  def: LibrarySeriesDef;
+  /** 작동 중인 보관함에 꽂힌 서로 다른 권 수. */
+  have: number;
+  total: number;
+  /** `librarySeriesFraction(have, total)`. */
+  fraction: number;
+  /** 그 매체의 보조 가구가 작동 중인가 (몫이 0 이어도 적는다). */
+  auxApplied: boolean;
+  /** 꽂힌 권 번호 (서로 다른, 오름차순). */
+  volumes: readonly number[];
+  /** 꽂힌 권의 item def id (파일 순서). */
+  defIds: readonly string[];
+}
+
+export interface LibraryComputation {
+  /** 합산 (리비전 없이 — 리비전은 캐시가 붙인다). */
+  effects: Omit<LibraryEffectsSummary, 'revision'>;
+  /** 꽂힌 권이 하나라도 있는 시리즈. */
+  series: ReadonlyMap<string, LibrarySeriesState>;
+}
+
+/** 부동소수 찌꺼기 자르기 (1e-9) — 서명 비교 · 화면 숫자가 `0.30000000000000004` 를 보지 않게. */
+function libRound(v: number): number {
+  return Math.round(v * 1e9) / 1e9;
+}
+
+/** 효과 줄 하나가 지금 실제로 더하는 값: `recipe` = 몫 1 이면 1, 나머지 = 전권 값 × 몫 × 보조 가구 배율. */
+export function libraryLineValue(effect: LibraryEffect, s: Pick<LibrarySeriesState, 'def' | 'fraction' | 'auxApplied'>): number {
+  if (effect.kind === 'recipe') return s.fraction >= 1 ? 1 : 0;
+  const aux = s.auxApplied ? 1 + (SHELF_AUX_BONUS[s.def.medium] ?? 0) : 1;
+  return libRound(effect.value * s.fraction * aux);
+}
+
+/**
+ * 서재 효과 합산 (순수). `items` = 작동 중인 보관함에 꽂힌 칸들 (책 + 디스크 · 레코드 — 게임 디스크가 섞여도 시리즈가 없어 무시된다),
+ * `aux` = 매체별 보조 가구 작동 여부, `seriesMap` = 시리즈 표 (스모크가 주입할 수 있게 인자다). def 는 **한 번만** 센다.
+ * 시리즈의 매체와 아이템의 매체가 다르면(데이터 오류) 세지 않는다.
+ */
+export function computeLibraryEffects(
+  items: readonly PlacedBook[], defOf: (defId: string) => ItemDef | undefined,
+  aux: Readonly<Partial<Record<ShelfMedium, boolean>>>, seriesMap: ReadonlyMap<string, LibrarySeriesDef> = LIBRARY_SERIES_MAP,
+): LibraryComputation {
+  const groups = new Map<string, { vols: Set<number>; defIds: string[] }>();
+  const counted = new Set<string>();
+  for (const it of items) {
+    if (counted.has(it.defId)) continue;
+    counted.add(it.defId);
+    const s = librarySeriesOfItem(defOf(it.defId));
+    if (!s) continue;
+    const def = seriesMap.get(s.seriesId);
+    if (!def || def.medium !== s.medium) continue;
+    let g = groups.get(def.id);
+    if (!g) { g = { vols: new Set(), defIds: [] }; groups.set(def.id, g); }
+    g.vols.add(Math.min(Math.max(1, def.volumes), s.volume));
+    g.defIds.push(it.defId);
+  }
+  const skillGain: Partial<Record<SkillId, number>> = {};
+  const derived: Partial<Record<string, number>> = {};
+  const gymScore: Partial<Record<string, number>> = {};
+  const cookScore: Partial<Record<string, number>> = {};
+  const trustXp: Partial<Record<string, number>> = {};
+  const recipes: string[] = [];
+  let raidXp = 0;
+  const add = (rec: Partial<Record<string, number>>, k: string, v: number): void => { rec[k] = libRound((rec[k] ?? 0) + v); };
+  const series = new Map<string, LibrarySeriesState>();
+  for (const [id, g] of groups) {
+    const def = seriesMap.get(id)!;
+    const total = Math.max(1, def.volumes);
+    const have = g.vols.size;
+    const st: LibrarySeriesState = {
+      def, have, total, fraction: librarySeriesFraction(have, total), auxApplied: aux[def.medium] === true,
+      volumes: [...g.vols].sort((a, b) => a - b), defIds: g.defIds,
+    };
+    series.set(id, st);
+    for (const e of def.effects) {
+      const v = libraryLineValue(e, st);
+      if (!v) continue;
+      switch (e.kind) {
+        case 'skillGain': add(skillGain, e.target, v); break;
+        case 'derived': add(derived, e.target, v); break;
+        case 'gymScore': add(gymScore, e.target, v); break;
+        case 'cookScore': add(cookScore, e.target, v); break;
+        case 'raidXp': raidXp = libRound(raidXp + v); break;
+        case 'trustXp': add(trustXp, e.target, v); break;
+        case 'recipe': if (!recipes.includes(e.target)) recipes.push(e.target); break;
+      }
+    }
+  }
+  return {
+    effects: {
+      skillGain, derived: derived as LibraryEffectsSummary['derived'], gymScore: gymScore as LibraryEffectsSummary['gymScore'],
+      cookScore: cookScore as LibraryEffectsSummary['cookScore'], raidXp, trustXp: trustXp as LibraryEffectsSummary['trustXp'], recipes,
+    },
+    series,
+  };
+}
+
+/** 한 효과 대상에 값을 주는 시리즈들 (`HousingRef.getLibrarySources`) — 값 큰 순. 값이 0 인 시리즈는 뺀다. */
+export function librarySourcesIn(comp: LibraryComputation, kind: LibraryEffectKind, target: string): LibrarySourceInfo[] {
+  const out: LibrarySourceInfo[] = [];
+  for (const st of comp.series.values()) {
+    for (const e of st.def.effects) {
+      if (e.kind !== kind || e.target !== target) continue;
+      const value = libraryLineValue(e, st);
+      if (!value) continue;
+      out.push({
+        seriesId: st.def.id, name: st.def.name, medium: st.def.medium, have: st.have, total: st.total, fraction: st.fraction,
+        value, fullValue: e.kind === 'recipe' ? 1 : e.value, auxApplied: st.auxApplied && e.kind !== 'recipe', defIds: st.defIds,
+      });
+    }
+  }
+  out.sort((a, b) => b.value - a.value || a.seriesId.localeCompare(b.seriesId));
+  return out;
+}
+
+/** 한 숙련의 서재 배율을 매체별로 (`HousingRef.getShelfBonus` — 옛 모양 그대로, 값은 시리즈 공식). 게임 디스크 몫은 늘 0. */
+export function shelfBonusFromLibrary(comp: LibraryComputation, skill: SkillId, aux: Readonly<Partial<Record<ShelfMedium, boolean>>>): ShelfBonusInfo {
+  const parts: Record<ShelfMedium, number> = { book: 0, disc: 0, record: 0, game: 0 };
+  for (const st of comp.series.values()) {
+    for (const e of st.def.effects) if (e.kind === 'skillGain' && e.target === skill) parts[st.def.medium] = libRound(parts[st.def.medium] + libraryLineValue(e, st));
+  }
+  return {
+    total: libRound(1 + parts.book + parts.disc + parts.record), parts,
+    aux: { book: aux.book === true, disc: aux.disc === true, record: aux.record === true, game: false },
+  };
+}
+
+/** 합산의 내용 서명 (리비전 제외, 키 정렬 · 소수 6자리) — 캐시가 「실제로 바뀌었나」를 이것으로 본다. */
+export function libraryEffectsSignature(e: Omit<LibraryEffectsSummary, 'revision'>): string {
+  const rec = (r: Readonly<Partial<Record<string, number>>>): string =>
+    Object.keys(r).filter((k) => r[k]).sort().map((k) => `${k}=${(r[k] as number).toFixed(6)}`).join(',');
+  return [rec(e.skillGain), rec(e.derived), rec(e.gymScore), rec(e.cookScore), e.raidXp.toFixed(6), rec(e.trustXp), [...e.recipes].sort().join(',')].join('|');
 }
 
 /* ── 온실 재배 스테이션 (2026-09-11) ──────────────────────────────────────────
@@ -1046,5 +1215,96 @@ export function furnitureUpgradeRequirementsFor(state: ShipState, item: PlacedFu
 /** 빈 방에 `purpose` 를 **증축**하는 데 채워지지 않은 시설 레벨 요구 (빈 방 · 지을 수 없는 용도는 빈 배열). */
 export function purposeRequirementsFor(state: ShipState, purpose: RoomPurpose): FacilityRequirement[] {
   if (purpose === 'empty' || !isAssignablePurpose(purpose)) return [];
-  return generatorRequirement(state, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL);
+  return generatorRequirement(state, purposeGeneratorLevel(purpose));
+}
+
+/* ── 비디오게임: TV 좌석 (2026-09-13, H2 — docs/plans/library-series-games.md §3) ───────────────────────────────────
+ * 격자 규약은 위 「배치 규칙: 접근 면」 절과 **같은 것**이다 — 가구의 앞 = 로컬 −Z, 그 격자 방향 = 계약의 `furnitureFaceDir(yaw, 'front')`
+ * (yaw 0 → 격자 y 감소 · 1 → x 증가 · 2 → y 증가 · 3 → x 감소). TV 의 접근 면은 `front` 라 앞 한 줄은 늘 비어 있다.
+ *
+ *   ① 좌석 = TV 와 **같은 방**에 놓인 가구 중 interaction ∈ `SEAT_INTERACTIONS` (의자 · 쇼파 `seat`, 흔들의자).
+ *   ② **TV 정면**: 좌석 몸체 전체가 TV 의 앞 끝 바깥에 있다 (앞 방향 = 깊이 축에서 좌석의 가까운 끝이 TV 앞 끝을 넘지 않는다),
+ *      그리고 깊이 축에 수직인 **폭 축**에서 좌석과 TV 의 칸 범위가 한 칸 이상 겹친다.
+ *   ③ **TV 를 본다**: 좌석 yaw = (TV yaw + 2) % 4 — 좌석의 앞(로컬 −Z)이 TV 쪽을 가리킨다.
+ *   ④ **통로** = ② 의 겹친 폭 × TV 앞 끝과 좌석 가까운 끝 **사이** 칸. TV · 그 좌석이 아닌 가구 몸체가 한 칸이라도 걸리면 막힌다 —
+ *      단 `FurnitureDef.low`(좌식 테이블 · 러그)는 건너뛴다. 거리는 무관하다.
+ * 유효한 좌석이 여럿이면 통로가 가장 짧은 것 → 겹친 폭이 넓은 것 → 배치 순서. 없으면 **가장 멀리 간 후보의 사유**를 준다:
+ * 통로가 막힘 > TV 를 보고 있지 않음 > 정면에 없음 (다른 방의 좌석은 후보가 아니다).
+ * hub 는 이 규칙이 고른 좌석에 앉히고 좌석의 앞 방향(= TV 쪽)을 보게 한다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+import { SEAT_INTERACTIONS } from '@/shared';
+
+export const TV_SEAT_REASON_KO = {
+  notTv: 'TV 가 아닙니다',
+  none: 'TV 정면에 의자나 쇼파가 없습니다',
+  facing: '좌석이 TV 를 보고 있지 않습니다',
+  blocked: 'TV 와 좌석 사이를 가구가 막고 있습니다',
+} as const;
+
+/** `tvSeatFor` 의 답 — 좌석이 있으면 `seatUid`(reason null), 없으면 한국어 `reason`(seatUid null). */
+export interface TvSeatResult {
+  seatUid: string | null;
+  reason: string | null;
+  /** 고른 좌석의 통로 사각형 (격자 칸, 깊이 0 이면 좌석이 TV 앞 줄 바로 너머다). 좌석이 없으면 null. */
+  corridor: { x: number; y: number; cols: number; rows: number } | null;
+}
+
+/** TV 를 볼 수 있는 좌석 가구인가 (`SEAT_INTERACTIONS`). */
+export function isSeatDef(def: FurnitureDef | null | undefined): boolean {
+  return !!def && SEAT_INTERACTIONS.includes(def.interaction);
+}
+
+/** TV `tvUid` 를 보는 유효한 좌석 (규칙은 위 절 주석). 순수 함수 — 전력 · 켜짐은 보지 않는다. */
+export function tvSeatFor(state: ShipState, tvUid: string): TvSeatResult {
+  const tv = state.furniture.find((f) => f.uid === tvUid);
+  const tvDef = tv ? FURNITURE_DEF_MAP.get(tv.defId) : undefined;
+  if (!tv || !tvDef || tvDef.interaction !== 'tv') return { seatUid: null, reason: TV_SEAT_REASON_KO.notTv, corridor: null };
+  const tfp = furnitureFootprint(tvDef, tv.yaw);
+  const { dx, dy } = furnitureFaceDir(tv.yaw, 'front');
+  const wantYaw = (tv.yaw + 2) % 4;
+  /** 0 = 정면에 없음 · 1 = 보고 있지 않음 · 2 = 막힘 — 사유는 가장 큰 단계. */
+  let stage = 0;
+  let best: { uid: string; depth: number; width: number; corridor: { x: number; y: number; cols: number; rows: number } } | null = null;
+  for (const seat of state.furniture) {
+    if (seat.uid === tv.uid || seat.room !== tv.room) continue;
+    const sdef = FURNITURE_DEF_MAP.get(seat.defId);
+    if (!sdef || !isSeatDef(sdef)) continue;
+    const sfp = furnitureFootprint(sdef, seat.yaw);
+    let corridor: { x: number; y: number; cols: number; rows: number };
+    if (dy !== 0) {
+      // 깊이 축 = 격자 y, 폭 축 = 격자 x
+      let a: number, b: number;
+      if (dy < 0) { if (seat.y + sfp.rows > tv.y) continue; a = seat.y + sfp.rows; b = tv.y; }
+      else { if (seat.y < tv.y + tfp.rows) continue; a = tv.y + tfp.rows; b = seat.y; }
+      const wa = Math.max(tv.x, seat.x), wb = Math.min(tv.x + tfp.cols, seat.x + sfp.cols);
+      if (wb <= wa) continue;
+      corridor = { x: wa, y: a, cols: wb - wa, rows: b - a };
+    } else {
+      // 깊이 축 = 격자 x, 폭 축 = 격자 y
+      let a: number, b: number;
+      if (dx < 0) { if (seat.x + sfp.cols > tv.x) continue; a = seat.x + sfp.cols; b = tv.x; }
+      else { if (seat.x < tv.x + tfp.cols) continue; a = tv.x + tfp.cols; b = seat.x; }
+      const wa = Math.max(tv.y, seat.y), wb = Math.min(tv.y + tfp.rows, seat.y + sfp.rows);
+      if (wb <= wa) continue;
+      corridor = { x: a, y: wa, cols: b - a, rows: wb - wa };
+    }
+    if (seat.yaw !== wantYaw) { stage = Math.max(stage, 1); continue; }
+    const depth = dy !== 0 ? corridor.rows : corridor.cols;
+    const width = dy !== 0 ? corridor.cols : corridor.rows;
+    let blocked = false;
+    if (corridor.cols > 0 && corridor.rows > 0) {
+      for (const other of state.furniture) {
+        if (other.room !== tv.room || other.uid === tv.uid || other.uid === seat.uid) continue;
+        const odef = FURNITURE_DEF_MAP.get(other.defId);
+        if (!odef || odef.low) continue;
+        const ofp = furnitureFootprint(odef, other.yaw);
+        if (overlaps(corridor.x, corridor.y, corridor.cols, corridor.rows, other.x, other.y, ofp.cols, ofp.rows)) { blocked = true; break; }
+      }
+    }
+    if (blocked) { stage = 2; continue; }
+    if (!best || depth < best.depth || (depth === best.depth && width > best.width)) best = { uid: seat.uid, depth, width, corridor };
+  }
+  if (best) return { seatUid: best.uid, reason: null, corridor: best.corridor };
+  const reason = stage === 2 ? TV_SEAT_REASON_KO.blocked : stage === 1 ? TV_SEAT_REASON_KO.facing : TV_SEAT_REASON_KO.none;
+  return { seatUid: null, reason, corridor: null };
 }

@@ -1395,9 +1395,13 @@ export interface GameEvents {
 /* ── [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 (docs/plans/power-crypto.md — 규칙은 `shared/housing.ts` 의 같은 날 절) ── */
 import type { CryptoChartRange } from './cryptoMarket';
 export interface GameEvents {
-  /** Fact (housing): 발전기 공급 · 시설 할당 · 가구 활성 · 요구 전력이 바뀌었다. 발전기 화면 · 인스펙터 · 스테이션 배너가 다시 그린다. */
+  /**
+   * **은퇴 (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」) — 아무도 내지 않는다.** 계약은 추가만 하므로 이름만 남는다.
+   * Fact (housing): 발전기 공급 · 시설 할당 · 가구 활성 · 요구 전력이 바뀌었다. 발전기 화면 · 인스펙터 · 스테이션 배너가 다시 그린다.
+   */
   'housing:powerChanged': { reason: string };
   /**
+   * **은퇴 (2026-09-13 같은 날) — 아무도 내지 않는다.** 멈춘 시계가 없어졌다.
    * Fact (housing): 전력을 쓰는 가구 하나의 작동 여부가 바뀌었다 (할당 · 활성 · 배치 · 회수 · 발전기 · 메인 컴퓨터 때문에).
    * `operational: true` 이면 `pausedMs` = 멈춰 있던 시간 — 재배 · 배양 · 해석 · 채굴은 **이 이벤트를 받는 자리에서 동기로** 자기 시각을 그만큼 민다.
    * `operational: false` 이면 `pausedMs` 0 (멈춘 시각은 `stationNow(uid)` 가 들고 있다).
@@ -1417,3 +1421,21 @@ export interface GameEvents {
   'net:cryptoHistory': { coin: string; range: CryptoChartRange };
 }
 /* ── end [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 ── */
+
+/* ── [2026-09-13] 서재 시리즈 · 비디오게임 (docs/plans/library-series-games.md — 규칙은 `shared/library.ts` · `shared/housing.ts` 끝 절) ── */
+import type { GameStat } from './library';
+export interface GameEvents {
+  /** Fact (housing): 서재 효과 합산이 바뀌었다 (꽂기 · 빼기 · 보관함/보조 가구 배치 · 회수 · 전력). progression 이 `derived` 를 다시 계산하고 띠 · 시트 · 조리대가 다시 그린다. */
+  'housing:libraryChanged': { revision: number };
+  /** Fact (housing): TV 에 장착된 게임기가 바뀌었다 (`defId` null = 뺐다). hub 가 TV 모델을 다시 짓는다. */
+  'housing:tvConsoleChanged': { uid: string; defId: string | null };
+  /** Fact (housing): 게임 세션 시작 / 끝 — hub 가 좌석에 앉히고 고정 카메라를 건다(`active`), 풀어 준다(`!active`). `completed` = 끝까지 했다. */
+  'housing:gameSession': { tvUid: string; seatUid: string; discDefId: string; active: boolean; stat: GameStat; minigame: GymMinigame; completed: boolean };
+  /** Fact (housing): 게임 판정 한 번 — hub 의 TV 화면 연출. */
+  'housing:gameBeat': { tvUid: string; quality: 'perfect' | 'good' | 'miss'; index: number; total: number };
+  /** Fact (housing): 게임 세션 결과 (`applyGymSession` 이 돌려준 그대로). */
+  'housing:gameResult': { tvUid: string; discDefId: string; result: GymSessionResult };
+  /** Fact (housing/ui): TV 화면이 열렸다 / 닫혔다. */
+  'ui:tvMenuToggled': { open: boolean; uid: string | null };
+}
+/* ── end [2026-09-13] 서재 시리즈 · 비디오게임 ── */
