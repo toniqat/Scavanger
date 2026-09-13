@@ -1,11 +1,14 @@
-import type { DerivedStats, GymStat, MealDef, MealEffect, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
+import type { DerivedStats, GymStat, MealBuff, MealDef, MealEffect, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
 import {
+  MEAL_BUFFS,
   GYM_STATS, GYM_TRAINED_MAX,
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
   PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, STAT_MAX, STAT_MIN, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
   XP_BASE, XP_EXPONENT,
   GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
   mealQualityBonus,
+  /* 2026-09-13 요리 · 연구 숙련 (docs/plans/library-series-games.md) */
+  COOK_SKILL_SCORE_AT_MAX, RESEARCH_REFUND_CHANCE_AT_MAX, RESEARCH_REFUND_FRAC_MAX, RESEARCH_REFUND_FRAC_MIN, RESEARCH_TIME_AT_MAX,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
 
@@ -173,6 +176,11 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     durabilityLossMul: 1 - DURABILITY_AT_MAX * frac(profile, 'equipment'),
     gatherYieldMul: 1 + GATHER_YIELD_AT_MAX * frac(profile, 'gardening'),
     craftSpeedMul: 1 + CRAFT_SPEED_AT_MAX * frac(profile, 'crafting'),
+    /* 2026-09-13: 요리 · 연구 숙련 (docs/plans/library-series-games.md) */
+    cookScoreBonus: COOK_SKILL_SCORE_AT_MAX * frac(profile, 'cooking'),
+    researchTimeMul: 1 - RESEARCH_TIME_AT_MAX * frac(profile, 'research'),
+    researchRefundChance: RESEARCH_REFUND_CHANCE_AT_MAX * frac(profile, 'research'),
+    researchRefundFrac: RESEARCH_REFUND_FRAC_MIN + (RESEARCH_REFUND_FRAC_MAX - RESEARCH_REFUND_FRAC_MIN) * frac(profile, 'research'),
     /* Phase 12: legendary perks of the equipped 임플란트 items (every PerkId present) */
     perks: { ...emptyPerks(), ...imp.perks },
   };
@@ -211,6 +219,23 @@ export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void
   }
 }
 
+/* ══ 서재 파생 효과 (2026-09-13, docs/plans/library-series-games.md) ══════════════════════════════════════════════
+ * 서재 시리즈의 `derived` 효과 줄은 새 필드가 아니라 **요리 버프와 같은 `MealBuff` 키**다 — housing 이 합산한
+ * `LibraryEffectsSummary.derived` 를 `ProgressionSystem.deriveFor` 가 요리 버프 **뒤에** 이 함수로 접는다. 규칙은
+ * `applyMealBuff` 한 줄과 똑같다: 가산 하나 + **0 이 하한**. 키는 `MEAL_BUFFS` 로만 돌아서 문서에서 새어 들어온 다른
+ * 이름(`perks` · `recoilMul` …)이나 숫자가 아닌 값은 조용히 버린다. 즉시 적용이라 수치는 csv 에서 아주 작다.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+export function applyLibraryDerived(d: DerivedStats, lib: Readonly<Partial<Record<MealBuff, number>>> | null | undefined): void {
+  if (!lib || typeof lib !== 'object') return;
+  for (const buff of MEAL_BUFFS) {
+    const v = lib[buff];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v === 0) continue;
+    const cur = d[buff];
+    if (typeof cur !== 'number') continue;
+    d[buff] = Math.max(0, cur + v);
+  }
+}
+
 /** 요리의 능력치 줄 전부 — `effects` 가 있으면 그것, 없으면 옛 `buff` · `amount` 한 줄 (없으면 빈 목록). */
 export function mealEffectsOf(meal: MealDef | null | undefined): readonly MealEffect[] {
   if (!meal) return [];
@@ -226,11 +251,11 @@ export const DEFAULT_DERIVED: DerivedStats = computeDerived(
     stats: { strength: STAT_BASE, endurance: STAT_BASE, perception: STAT_BASE, intelligence: STAT_BASE, dexterity: STAT_BASE },
     skills: {
       carry: 0, appraisal: 0, grit: 0, gardening: 0, crafting: 0, medicine: 0, cryptography: 0,
-      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0,
+      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0, cooking: 0, research: 0,
     },
     skillProgress: {
       carry: 0, appraisal: 0, grit: 0, gardening: 0, crafting: 0, medicine: 0, cryptography: 0,
-      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0,
+      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0, cooking: 0, research: 0,
     },
     implant: null, raids: 0, extractions: 0, implants: [],
   },

@@ -186,12 +186,14 @@
 }
 .cs-derived .cell.pg-linked .k { color: var(--c-text); }
 
-/* 파생 능력치 preview while points are pending: `현재 → 확정 후` */
-.cs-derived .cell.pg-preview { flex-wrap: wrap; }
-.cs-derived .cell.pg-preview .v { margin-left: auto; }
-.cs-derived .v .pg-cur { color: var(--c-text-dim); font-weight: 500; }
-.cs-derived .v .pg-arr { color: var(--c-text-faint); margin: 0 4px; }
-.cs-derived .v .pg-next { color: var(--c-success); }
+/* 파생 능력치 preview while points are pending — 2026-09-13 (사용자 결정): only the resulting value, in green
+   (the player compares by toggling ＋ / －). The value never wraps: `SheetBody.fitDerived` shrinks its inline font-size
+   when it would overflow the cell (floor `DERIVED_FONT_MIN_PX`); only then may the label ellipsize. Fixed line-height so
+   a shrunk value never changes the row height (the grid's ResizeObserver must not loop). */
+.cs-derived .cell.pg-preview .v { color: var(--c-success); }
+.cs-derived .cell { align-items: center; min-width: 0; }
+.cs-derived .k { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cs-derived .v { flex: 0 0 auto; line-height: 18px; }
 
 /* equipped implant thumbnails under 숙련도 (read-only) */
 .pg-imps { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
@@ -228,3 +230,7 @@
 .pg-tip-rows .k { color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-tip-rows .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pg-tip-rows .v.good { color: var(--c-success); }
+/* 2026-09-13: a row's second line (서재 시리즈 `책 · 4 / 5권 · 40 % · 보조 가구 적용`) */
+.pg-tip-rows .n { grid-column: 1 / -1; margin-top: -2px; font-size: 10px; letter-spacing: 0.02em; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 2026-09-13: the `시설 ×n` badge carries the 서재 breakdown tooltip */
+.cs-skill .bonus { cursor: help; }

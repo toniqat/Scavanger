@@ -64,7 +64,8 @@ export class ItemFavoriteMenu {
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
-    setItemChipFavoriteSource((defId) => this.api()?.isFavorite?.(defId) === true);
+    // 2026-09-13 (서재 시리즈): 칩의 파란 띠는 「즐겨찾기 **또는** 아직 서재에 꽂지 않은 매체」 다 — 둘 다면 띠는 하나 (`.is-favorite` 한 클래스)
+    setItemChipFavoriteSource((defId) => this.api()?.isFavorite?.(defId) === true || this.shelfWanted(defId));
     ctx.uiRoot.addEventListener('contextmenu', this.onContext);
     window.addEventListener('pointerdown', this.onOutside, true);
     window.addEventListener('wheel', this.onWheel, { capture: true, passive: true });
@@ -74,6 +75,7 @@ export class ItemFavoriteMenu {
       () => window.removeEventListener('pointerdown', this.onOutside, true),
       () => window.removeEventListener('wheel', this.onWheel, true),
       ctx.bus.on('inventory:favoritesChanged', ({ defId, favorite }) => this.paint(defId, favorite)),
+      ctx.bus.on('housing:libraryChanged', () => this.paintAll()),
       ctx.bus.on('inventory:closed', close),
       ctx.bus.on('game:phaseChanged', close),
       ctx.bus.on('housing:shipManageChanged', close),
@@ -126,7 +128,27 @@ export class ItemFavoriteMenu {
   private paint(defId: string, favorite: boolean): void {
     if (typeof defId !== 'string' || !defId) return;
     const sel = `.item-chip[data-def-id="${CSS.escape(defId)}"]`;
-    for (const chip of document.querySelectorAll<HTMLElement>(sel)) chip.classList.toggle(ITEM_CHIP_FAVORITE_CLASS, favorite === true);
+    const on = favorite === true || this.shelfWanted(defId);   // 2026-09-13: 서재 띠와 한 클래스
+    for (const chip of document.querySelectorAll<HTMLElement>(sel)) chip.classList.toggle(ITEM_CHIP_FAVORITE_CLASS, on);
+  }
+
+  /** 2026-09-13 (서재 시리즈): 서재가 바뀌면 이미 그려진 칩 전부의 띠를 다시 정한다 (def 당 한 번씩만 묻는다). */
+  private paintAll(): void {
+    const answers = new Map<string, boolean>();
+    for (const chip of document.querySelectorAll<HTMLElement>('.item-chip[data-def-id]')) {
+      const defId = chip.dataset.defId;
+      if (!defId) continue;
+      let on = answers.get(defId);
+      if (on === undefined) { on = this.api()?.isFavorite?.(defId) === true || this.shelfWanted(defId); answers.set(defId, on); }
+      chip.classList.toggle(ITEM_CHIP_FAVORITE_CLASS, on);
+    }
+  }
+
+  /** `HousingRef.isShelfItemWanted` — 그 매체의 보관함은 있는데 같은 종류가 어디에도 꽂혀 있지 않다. 질의가 없으면 false. */
+  private shelfWanted(defId: string): boolean {
+    const h = this.ctx?.housing;
+    if (!h || typeof h.isShelfItemWanted !== 'function') return false;
+    try { return h.isShelfItemWanted(defId) === true; } catch { return false; }
   }
 
   close(): void {

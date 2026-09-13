@@ -287,6 +287,18 @@ export function gameOver(sys: GameFlowSystem): void {
   }
 
 /**
+ * 2026-09-13 (서재 시리즈, docs/plans/library-series-games.md): 서재 효과의 레이드 경험치 배율 `1 + raidXp`.
+ * housing 이 합산을 모르면(병렬 작업 · 스켈레톤) 1. 음수 · NaN 은 0 으로 본다.
+ */
+export function libraryRaidXpMul(ctx: GameContext): number {
+  const h = ctx.housing;
+  if (!h || typeof h.getLibraryEffects !== 'function') return 1;
+  let add = 0;
+  try { add = Number(h.getLibraryEffects()?.raidXp ?? 0); } catch { add = 0; }
+  return 1 + (Number.isFinite(add) && add > 0 ? add : 0);
+}
+
+/**
  * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
  * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
  * Loot XP is only paid on a successful extraction — dying leaves the bag on the ground.
@@ -305,7 +317,9 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     let xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
     xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
     if (extracted) xp += XP_EXTRACT_BONUS + Math.max(0, s.lootValue) * XP_PER_LOOT_VALUE;
-    xp = Math.round(xp);
+    // 2026-09-13 (서재 시리즈): 레이드 경험치 책 — `raidXp` 는 배율 가산이다 (0.1 = +10 %). 레이드 몫(처치 · 시간 · 탈출 · 전리품)에만
+    // 곱하고 아래 계약 보상 XP 에는 곱하지 않는다 — 계약 보상은 `contracts.csv` 의 고정값이다.
+    xp = Math.round(xp * libraryRaidXpMul(ctx));
 
     // `raids` / `extractions` are plain profile counters; ProgressionRef has no setter, so bump + save.
     prog.profile.raids += 1;

@@ -72,3 +72,5 @@ export * from './cooking';
 /* appended (2026-09-13): 암호화폐 채굴 · 거래소 — 코인 표(csv) · 순수 시세 식(릴레이 공용) */
 export * from './crypto';
 export * from './cryptoMarket';
+/* appended (2026-09-13): 서재 시리즈 · 매체 효과 · 비디오게임 (docs/plans/library-series-games.md) */
+export * from './library';

@@ -86,6 +86,9 @@ export type ItemCategory =
   | 'meal'        // 요리 (see `ItemDef.meal`): 함선 식탁에서 먹으면 **다음 레이드 1회분**으로 실린다 (파생 수치 하나를 올린다)
   | 'pouch'       // 주머니 (see `ItemDef.pouch`): 장비칸 `pouch` 한 칸에 끼우면 퀵슬롯 아래에 별도 격자가 열린다
   | 'key'         // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
+  /* appended: 비디오게임 (2026-09-13, docs/plans/library-series-games.md) */
+  | 'game_disc'   // 게임 디스크 (see `ItemDef.gameDisc`): 게임 디스크 전시대에 꽂아 두면 TV 로 플레이한다 (지능 · 인지력 단련). 드롭 전용
+  | 'console'     // 게임기 (see `ItemDef.gameConsole`): TV 에 장착한다. 3D 프린터 제작 + 드문 드롭
   /* appended: 서재 매체 (A-3e, 2026-09-12) */
   | 'disc'        // 디스크 (see `ItemDef.disc`): 서재 디스크 전시대에 꽂는다 — 책과 같은 역할이고 책보다 조금 세다. loot + corp shop, never craftable
   /* appended: 요리 재료 티어 (2026-09-13) — 소켓 (see `ItemDef.growSocket`): 부어 둔 흙 · 배지에 끼우는 영구 강화. 분석기가 미확인 DNA 를 해석해서만 나온다 */
@@ -3125,3 +3128,22 @@ export interface PlayerRef {
   roverSafePosition?(out: THREE.Vector3): THREE.Vector3 | null;
 }
 /* ══ end 2026-09-13 탐사 차량 ══ */
+
+/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md (규칙은 `shared/library.ts`) ══ */
+import type { GameConsoleDef, GameDiscDef } from './library';
+export interface BookDef {
+  /**
+   * 시리즈 id (`data/library_series.csv`) — 효과는 이 시리즈의 효과 줄이 정한다. 2026-09-13 부터 모든 책 · 비디오 · 레코드에 있다.
+   * ⚠ 그래서 `skill` 은 **대표 숙련**(정렬 · 도감 묶음용)일 뿐 효과 계산에 쓰지 않는다 — 숙련 효과가 없는 시리즈는 가장 가까운 숙련을 적는다.
+   */
+  series?: string;
+  /** 권 번호 1 … 시리즈 권 수. */
+  volume?: number;
+}
+export interface ItemDef {
+  /** category 'game_disc': 게임 디스크 전시대에 꽂아 TV 로 플레이한다. */
+  gameDisc?: GameDiscDef;
+  /** category 'console': TV 에 장착하는 게임기. */
+  gameConsole?: GameConsoleDef;
+}
+/* ══ end 2026-09-13 서재 시리즈 ══ */

@@ -32,6 +32,11 @@ meal_lard_rice,기름 볶음곡,epic,durabilityLossMul:-0.2|carryCapacity:10|max
 meal_cream_stew,크림 스튜,legendary,maxStamina:35|staminaRegenMul:0.3|healPowerMul:0.3|carryCapacity:10,4,3,980,0.45,♨,,배양 우유로 진하게 끓인 크림 스튜. 오래 달리고 숨이 빨리 돌아오며 약이 잘 듣고 짐도 더 든다.
 meal_omelet,치즈 오믈렛,legendary,skillGainMul:0.2|gatherYieldMul:0.3|searchSpeedMul:0.3|interactSpeedMul:0.2,4,3,1000,0.35,♨,,배양 달걀에 치즈와 갓버섯을 넣어 부친 오믈렛. 배우는 것이 빠르고 채집이 넉넉하며 상자와 장치를 빨리 다룬다.
 meal_cheese_gratin,치즈 그라탕,legendary,gritChance:0.15|durabilityLossMul:-0.25|detectRadius:8|useSpeedMul:0.25,4,3,1020,0.45,♨,,치즈와 우유를 덩이줄기 위에 녹여 구운 그라탕. 한 방을 버티고 장비가 덜 상하며 감각이 예민해지고 소모품을 빨리 쓴다.
+# ── 레시피 책 요리 (2026-09-13 서재 시리즈): 그 레시피 책(data/library_series.csv 의 recipe 효과)이 책장에 꽂혀 있는 동안만 조리대에서 만든다 ──
+meal_meat_pie,고기 파이,rare,carryCapacity:6|useSpeedMul:0.15,2,3,290,0.35,♨,,고기 페이스트와 잿빛 곡물 반죽을 겹겹이 구운 파이. 짐을 조금 더 들고 소모품을 빨리 쓴다.
+meal_bean_curry,콩 커리,rare,detectRadius:4|staminaRegenMul:0.15,2,3,280,0.35,♨,,콩깍지와 고기 페이스트를 염수박과 함께 볶아 끓인 커리. 감각이 예민해지고 숨이 빨리 돌아온다.
+meal_pork_cutlet,돼지고기 커틀릿,epic,interactSpeedMul:0.2|gritChance:0.08|carryCapacity:6,3,3,540,0.4,♨,,곡물 가루를 입혀 동물기름에 튀긴 돼지고기 커틀릿. 손놀림이 빨라지고 한 방을 버티며 짐을 더 든다.
+meal_chicken_stirfry,닭고기 볶음,epic,searchSpeedMul:0.2|healPowerMul:0.2|useSpeedMul:0.15,3,3,530,0.35,♨,,닭고기를 잎채소와 갓버섯에 센 불로 볶아 낸 한 접시. 상자를 빨리 뒤지고 약이 잘 들으며 소모품을 빨리 쓴다.
 # ── 은퇴한 옛 특선 요리 4종 (2026-09-13): 가진 사람은 먹을 수 있다 ──
 meal_cultured_steak,배양육 스테이크,rare,gritChance:0.1,2,3,380,0.4,♨,1,배양육을 두껍게 구운 옛 특선 요리. 더 이상 만들 수 없다.
 meal_protein_omelet,유단백 오믈렛,rare,skillGainMul:0.15,2,3,360,0.35,♨,1,난백과 유단백으로 부친 옛 특선 요리. 더 이상 만들 수 없다.

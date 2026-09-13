@@ -18,12 +18,12 @@ export const BOOKS_BLOCK_REASON = '책을 먼저 빼세요';
  * 디스크 · 레코드는 모음으로 끝나므로 조사는 「를 · 가」로 고정이다.
  */
 export const SHELF_BLOCK_REASON: Readonly<Record<ShelfMedium, string>> = {
-  book: BOOKS_BLOCK_REASON, disc: '디스크를 먼저 빼세요', record: '레코드를 먼저 빼세요',
+  book: BOOKS_BLOCK_REASON, disc: '디스크를 먼저 빼세요', record: '레코드를 먼저 빼세요', game: '게임 디스크를 먼저 빼세요',
 };
 /** 매체 이름 + 목적격 조사 (`책을` · `디스크를` · `레코드를`) — 보관함 화면의 문장용. */
-export const SHELF_OBJ_KO: Readonly<Record<ShelfMedium, string>> = { book: '책을', disc: '디스크를', record: '레코드를' };
+export const SHELF_OBJ_KO: Readonly<Record<ShelfMedium, string>> = { book: '책을', disc: '디스크를', record: '레코드를', game: '게임 디스크를' };
 /** 매체를 세는 단위 (`6 / 6권` · `4 / 4장`). */
-export const SHELF_UNIT_KO: Readonly<Record<ShelfMedium, string>> = { book: '권', disc: '장', record: '장' };
+export const SHELF_UNIT_KO: Readonly<Record<ShelfMedium, string>> = { book: '권', disc: '장', record: '장', game: '장' };
 
 /** 그 매체를 받는 보관함 가구의 이름 (`data/furniture.csv` 에서 — 책장 · 디스크 전시대 · 레코드랙). */
 export function shelfHolderName(medium: ShelfMedium): string {

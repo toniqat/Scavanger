@@ -49,3 +49,14 @@ meal_omelet,3,stirfry,food_egg|crop_capfungus|food_cheese,,
 meal_cheese_gratin,1,chop,crop_tuber,,
 meal_cheese_gratin,2,pour,,milk,250
 meal_cheese_gratin,3,grill,crop_tuber|food_cheese|crop_tuber,,
+# ── 레시피 책 요리 (2026-09-13 서재 시리즈) ──
+meal_meat_pie,1,mince,food_meat_paste,,
+meal_meat_pie,2,grill,food_meat_paste|crop_ashgrain|food_meat_paste,,
+meal_bean_curry,1,chop,crop_saltmelon,,
+meal_bean_curry,2,stirfry,crop_beanpod|food_meat_paste,,
+meal_pork_cutlet,1,chop,food_pork,,
+meal_pork_cutlet,2,pour,,oil,200
+meal_pork_cutlet,3,grill,food_pork|food_pork,,
+meal_chicken_stirfry,1,chop,food_chicken,,
+meal_chicken_stirfry,2,mince,crop_capfungus,,
+meal_chicken_stirfry,3,stirfry,food_chicken|crop_leafgreen|crop_capfungus,,

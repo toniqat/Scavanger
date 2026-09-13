@@ -179,6 +179,8 @@ export class TradeGrids implements TradeGridsView {
       b.on('inventory:bagChanged', repaint), b.on('loadout:changed', repaint),
       // 2026-09-12 (E1): 즐겨찾기 띠 · 「즐겨찾기」 필터 — `GridView.refresh` 가 즐겨찾기 리비전을 보고 다시 칠한다
       b.on('inventory:favoritesChanged', repaint),
+      // 2026-09-13 (서재 시리즈): 「아직 꽂지 않은」 띠 — 캐시는 `parts/ShelfWanted` 가 먼저(시스템 init 구독) 비운다
+      b.on('housing:libraryChanged', repaint),
     );
     this.refresh();
   }

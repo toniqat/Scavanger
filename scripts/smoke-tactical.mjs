@@ -130,7 +130,7 @@ try {
     return { stats: Object.keys(p.profile.stats).length, skills: Object.keys(p.profile.skills).length, carry: d.carryCapacity, recoilAR: d.recoilMul?.AR };
   });
   ok(prog.stats === 5, `5 stats`);
-  ok(prog.skills === 14, `14 skills`);
+  ok(prog.skills === 16, `16 skills (2026-09-13 요리 · 연구)`);
   ok(prog.carry > 0 && prog.recoilAR > 0, `derived stats sane (carry ${prog.carry} kg)`);
 
   /* ── implants: equipping is a ship-only action ────────────────────── */

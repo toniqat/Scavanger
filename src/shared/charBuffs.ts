@@ -33,9 +33,11 @@ export type CharBuffKind =
   | 'adrenaline'    // 아드레날린 주사 — 레이드 시간제 (sim 시간), 아이템 썸네일 + 시간 게이지
   | 'stimulant'     // 각성제 — 같다
   /* appended (2026-09-13, 요리 미니게임 — docs/plans/cooking-minigames.md) */
-  | 'cooking';      // 조리 중 — 조리대 앞 자세 (`defId` = 만드는 요리)
+  | 'cooking'       // 조리 중 — 조리대 앞 자세 (`defId` = 만드는 요리)
+  /* appended (2026-09-13, 비디오게임 — docs/plans/library-series-games.md, 사용자 결정 「헬스처럼 일시적 버프로 분대원에게 보이게」) */
+  | 'gaming';       // 게임 중 — TV 앞 좌석에 앉은 게임 세션 (`defId` = 게임 디스크 · `stat` · `minigame`)
 
-export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant', 'cooking'];
+export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant', 'cooking', 'gaming'];
 
 /** `pending` = 함선에서 다음 레이드에 실어 둔 것 (썸네일이 흐리다) · `active` = 지금 몸에 걸려 있는 것. */
 export type CharBuffState = 'pending' | 'active';
@@ -71,11 +73,11 @@ export interface CharBuff {
 }
 
 /** 썸네일 순서 — 디버프가 먼저, 그다음 지금 하고 있는 것, 그다음 실어 둔 것. */
-export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'adrenaline', 'stimulant', 'exercise', 'cooking', 'rest', 'meal', 'prep'];
+export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'adrenaline', 'stimulant', 'exercise', 'gaming', 'cooking', 'rest', 'meal', 'prep'];
 
 export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
   meal: '식사', prep: '준비물', env_exposed: '환경 노출', gym_fatigue: '운동 피로', rest: '휴식 중', exercise: '운동 중',
-  adrenaline: '아드레날린', stimulant: '각성제', cooking: '조리 중',
+  adrenaline: '아드레날린', stimulant: '각성제', cooking: '조리 중', gaming: '게임 중',
 };
 
 /**
@@ -85,10 +87,11 @@ export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
 export const CHAR_BUFF_GLYPH: Readonly<Record<CharBuffKind, string>> = {
   meal: '♨', prep: '⌾', env_exposed: '☣', gym_fatigue: '✱', rest: '☕', exercise: '⚖',
   adrenaline: '↯', stimulant: '◎', cooking: '⊛',
+  gaming: '⎚',   // 2026-09-13: 게임기 분류 글자(`CATEGORY_ICON.console`)와 같다 — 조리 중 `⊛` · 휴식 `☕` 과 겹치지 않는다
 };
 export const CHAR_BUFF_COLOR: Readonly<Record<CharBuffKind, string>> = {
   meal: '#ffb0a0', prep: '#ffd08a', env_exposed: '#ff6b6b', gym_fatigue: '#ff8a6b', rest: '#e8a0d0', exercise: '#ff9f7a',
-  adrenaline: '#ffd24a', stimulant: '#7ad7ff', cooking: '#ffc890',
+  adrenaline: '#ffd24a', stimulant: '#7ad7ff', cooking: '#ffc890', gaming: '#9ff0c8',
 };
 
 export const isDebuffKind = (kind: CharBuffKind): boolean => kind === 'env_exposed' || kind === 'gym_fatigue';
@@ -111,6 +114,11 @@ export function charBuffTitle(b: CharBuff, defOf?: (defId: string) => ItemDef | 
     case 'gym_fatigue': return b.stat ? GYM_FATIGUE_LABEL_KO[b.stat] : CHAR_BUFF_LABEL_KO.gym_fatigue;
     case 'rest': return CHAR_BUFF_LABEL_KO.rest;
     case 'exercise': return b.minigame ? `${CHAR_BUFF_LABEL_KO.exercise} · ${GYM_MINIGAME_LABEL_KO[b.minigame]}` : CHAR_BUFF_LABEL_KO.exercise;
+    case 'gaming': {
+      // 2026-09-13: 게임 디스크 이름 (없으면 미니게임 방식)
+      if (b.defId && defOf) { try { const n = defOf(b.defId)?.name; if (n) return `${CHAR_BUFF_LABEL_KO.gaming} · ${n}`; } catch { /* keep the label */ } }
+      return b.minigame ? `${CHAR_BUFF_LABEL_KO.gaming} · ${GYM_MINIGAME_LABEL_KO[b.minigame]}` : CHAR_BUFF_LABEL_KO.gaming;
+    }
     case 'adrenaline':
     case 'stimulant': {
       if (b.defId && defOf) { try { return defOf(b.defId)?.name ?? CHAR_BUFF_LABEL_KO[b.kind]; } catch { /* keep the label */ } }

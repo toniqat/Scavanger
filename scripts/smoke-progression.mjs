@@ -8,6 +8,10 @@
 // A-3a (2026-09-12): 헬스장 — applyGymSession formula / carry-over / cap / debuff gating (xp 0, no extension) / refusals (raid,
 // non-hub, non-gym stat), derived includes 단련 (carryCapacity · maxStamina), sheet `(+n 단련)` + progress line + live countdown,
 // reload keeps the three fields, migrate clamps junk, server document round-trip, reset clears.
+// 2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련): 16 skills (migrate fills 요리 · 연구), 4 new derived rows, the stat tooltip without
+// its sub / section title, the preview as the resulting value only + value font fit (never wraps), the `시설 ×n` 서재 breakdown tooltip
+// (stubbed `ctx.housing.getLibrarySources`), the library `derived` fold on `housing:libraryChanged` (stubbed `getLibraryEffects`),
+// and 지능 · 인지력 as gym stats (video games: applyGymSession · 단련 derived · sheet line · migrate · 4 trainedChanged re-emits).
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -246,14 +250,20 @@ try {
     delete raw.statProgress;
     raw.stats.strength = 0;
     raw.stats.dexterity = 7;
+    // 2026-09-13: a save from before 요리 · 연구 existed has neither skill
+    delete raw.skills.cooking; delete raw.skills.research; delete raw.skillProgress.cooking; delete raw.skillProgress.research;
     localStorage.setItem(k, JSON.stringify(raw));
   }, key);
   await page.reload({ waitUntil: 'load' });
   await boot();
   const mig = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
-    return { str: p.getStat('strength'), dex: p.getStat('dexterity'), prog: p.profile.statProgress };
+    return { str: p.getStat('strength'), dex: p.getStat('dexterity'), prog: p.profile.statProgress,
+      skills: Object.keys(p.profile.skills).length, cook: [p.getSkill('cooking'), p.getSkillProgress('cooking')], res: [p.getSkill('research'), p.getSkillProgress('research')],
+      derived: { cook: p.derived.cookScoreBonus, time: p.derived.researchTimeMul, chance: p.derived.researchRefundChance, frac: p.derived.researchRefundFrac } };
   });
+  ok(mig.skills === 16 && mig.cook[0] === 0 && mig.cook[1] === 0 && mig.res[0] === 0 && mig.res[1] === 0, 'migrate: an old save without 요리 · 연구 gets both at level 0 / progress 0 (16 skills)', JSON.stringify(mig));
+  ok(mig.derived.cook === 0 && mig.derived.time === 1 && mig.derived.chance === 0 && near(mig.derived.frac, 0.2, 1e-9), 'derived at 요리 · 연구 0: cookScoreBonus 0, researchTimeMul 1, refund chance 0, refund share = RESEARCH_REFUND_FRAC_MIN', JSON.stringify(mig.derived));
   ok(mig.prog && Object.keys(mig.prog).length === 5 && Object.values(mig.prog).every((v) => v === 0), 'legacy save without statProgress migrates to zeros', JSON.stringify(mig));
   ok(mig.str === 1 && mig.dex === 7, 'migrate clamps stats to STAT_MIN..STAT_MAX (0 → 1, 7 kept)', JSON.stringify(mig));
   await page.evaluate((k) => {
@@ -327,7 +337,7 @@ try {
   });
   ok(srv.level === 7 && srv.xp === 50 && srv.points === 2 && srv.str === 9 && srv.gunAR === 12 && near(srv.gunProg, 0.25), 'net:profileLoaded → server document replaces level / xp / points / stats / skills', JSON.stringify(srv));
   ok(near(srv.carry, 28 + 2.2 * 9, 1e-6), 'derived recomputed from the server profile (carry 47.8 at 근력 9)', `${srv.carry}`);
-  ok(srv.loaded === counts0.loaded + 1 && srv.xpEv === counts0.xp + 1 && srv.stat === counts0.stat + 5 && srv.skill === counts0.skill + 14, 're-emitted progress:loaded + xpGained + 5 statChanged + 14 skillProgress', JSON.stringify({ before: counts0, after: { loaded: srv.loaded, xp: srv.xpEv, stat: srv.stat, skill: srv.skill } }));
+  ok(srv.loaded === counts0.loaded + 1 && srv.xpEv === counts0.xp + 1 && srv.stat === counts0.stat + 5 && srv.skill === counts0.skill + 16, 're-emitted progress:loaded + xpGained + 5 statChanged + 16 skillProgress', JSON.stringify({ before: counts0, after: { loaded: srv.loaded, xp: srv.xpEv, stat: srv.stat, skill: srv.skill } }));
   ok(srv.local === 7, 'localStorage cache updated with the server profile', `${srv.local}`);
   // put the local profile back through the same path so the sheet checks below see the migrated values
   await page.evaluate((snap) => { window.__fakeProfile.docs = { progression: snap }; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false }); }, localSnap);
@@ -416,7 +426,9 @@ try {
       pa: row('strength').querySelector('.pa').textContent, paHidden: row('strength').querySelector('.pa').hidden,
       minusDisabled: row('strength').querySelector('.minus').disabled, plusDisabled: row('strength').querySelector('.plus').disabled,
       tag: root.querySelector('.cs-level .pts').textContent, preview: cell.classList.contains('pg-preview'),
-      cur: cell.querySelector('.pg-cur')?.textContent ?? null, next: cell.querySelector('.pg-next')?.textContent ?? null,
+      // 2026-09-13 (사용자 결정): the preview is the resulting value only — no `현재 →` part, no inner spans, green
+      txt: cell.querySelector('.v').textContent, spans: cell.querySelectorAll('.v span').length, fs: cell.querySelector('.v').style.fontSize,
+      oneLine: cell.querySelector('.v').getBoundingClientRect().height <= 20 && cell.querySelector('.v').getBoundingClientRect().right <= cell.getBoundingClientRect().right + 0.5,
       want: `${p.previewDerived({ strength: 2 }).carryCapacity.toFixed(1)} kg`, now: `${p.derived.carryCapacity.toFixed(1)} kg`,
       previews: root.querySelectorAll('.cs-derived .cell.pg-preview').length,
       confirmDisabled: root.querySelector('.pg-confirm').disabled };
@@ -426,8 +438,14 @@ try {
   let pd = await readPend();
   ok(pd.str === S0.str && pd.pts === 3 && pd.carry === S0.carry && pd.pa === '+2' && !pd.paHidden && pd.tag === '잔여 포인트 1' && !pd.minusDisabled && !pd.confirmDisabled,
     '＋ ×2 only pends: stat / points / derived unchanged, `+2` shown, 잔여 포인트 1, － and 확정 enabled', JSON.stringify(pd));
-  ok(pd.preview && pd.cur === pd.now && pd.next === pd.want && pd.next !== pd.cur && pd.previews === 3,
-    'derived preview `현재 → 확정 후` on the 근력 rows only (carry · melee · throw), computed by previewDerived', JSON.stringify(pd));
+  // colour read a moment later: the smoke page runs every transition at ~0 s, so the computed colour right after the click is still the start value
+  await sleep(150);
+  const pcol = await P(() => {
+    const root = document.querySelector('.char-sheet');
+    return { preview: getComputedStyle(root.querySelector('.cs-derived .cell.pg-preview .v')).color, plain: getComputedStyle(root.querySelector('.cs-derived .cell:not(.pg-preview) .v')).color };
+  });
+  ok(pd.preview && pd.txt === pd.want && pd.want !== pd.now && pd.spans === 0 && pd.oneLine && pd.previews === 3 && pcol.preview === 'rgb(79, 209, 126)' && pcol.plain !== pcol.preview,
+    'derived preview = the resulting value only (green --c-success, one line) on the 근력 rows only (carry · melee · throw), computed by previewDerived', JSON.stringify({ pd, pcol }));
   await P(() => window.__game.ctx.progression.addSkillXpRaw('carry', 1.5));   // level change → full refreshSheets
   pd = await readPend();
   ok(pd.pa === '+2' && pd.tag === '잔여 포인트 1', 'pending survives a sheet refresh (skill level-up repaint)', JSON.stringify(pd));
@@ -436,7 +454,7 @@ try {
   ok(pd.pa === '+1' && pd.tag === '잔여 포인트 2' && pd.str === S0.str, '－ takes back one pending point', JSON.stringify(pd));
   await clickSel('.char-sheet .pg-revert');
   pd = await readPend();
-  ok(pd.paHidden && pd.previews === 0 && pd.confirmDisabled && pd.tag === '잔여 포인트 3' && pd.minusDisabled, '되돌리기 clears every pending point', JSON.stringify(pd));
+  ok(pd.paHidden && pd.previews === 0 && pd.confirmDisabled && pd.tag === '잔여 포인트 3' && pd.minusDisabled && pd.txt === pd.now, '되돌리기 clears every pending point (the derived row reads the current value again)', JSON.stringify(pd));
 
   await clickSel('.char-sheet .cs-stat[data-stat="strength"] .plus');
   await clickSel('.char-sheet .cs-stat[data-stat="strength"] .plus');
@@ -469,6 +487,7 @@ try {
       n.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 4, clientY: r.top + 4 }));
       const tip = document.querySelector('.pg-tip[data-variant="overlay"]');
       const out = { shown: !!tip && !tip.hidden, text: tip?.textContent ?? '',
+        heads: tip ? [...tip.querySelectorAll('.pg-tip-h')].map((e) => e.textContent) : null, subHidden: tip?.querySelector('.pg-tip-sub')?.hidden ?? null,
         skills: [...document.querySelectorAll('.char-sheet .cs-skill.pg-linked')].map((e) => e.dataset.skill),
         derived: [...document.querySelectorAll('.char-sheet .cs-derived .cell.pg-linked')].map((e) => e.dataset.key) };
       n.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
@@ -478,12 +497,124 @@ try {
     };
     return { int: over('.char-sheet .cs-stat[data-stat="intelligence"] .n'), gun: over('.char-sheet .cs-skill[data-skill="gun_AR"] .n'), carry: over('.char-sheet .cs-skill[data-skill="carry"] .n') };
   });
-  ok(tips.int.shown && /모든 숙련 성장 \+6%\/pt/.test(tips.int.text) && tips.int.text.includes('관련 숙련') && tips.int.skills.includes('medicine') && tips.int.skills.includes('gardening')
-    && !tips.int.skills.includes('carry') && JSON.stringify(tips.int.derived) === '["skillGainMul"]', '지능 name tooltip: effect, 관련 숙련, `모든 숙련 성장 +6%/pt`; links its skills + 숙련 상승', JSON.stringify(tips.int));
+  ok(tips.int.shown && /모든 숙련 성장 \+6%\/pt/.test(tips.int.text) && tips.int.text.includes('의학') && tips.int.text.includes('연구') && tips.int.skills.includes('medicine') && tips.int.skills.includes('gardening')
+    && tips.int.skills.includes('research') && !tips.int.skills.includes('carry') && JSON.stringify(tips.int.derived) === '["skillGainMul"]', '지능 name tooltip: effect, skill rows (의학 · 연구 …), `모든 숙련 성장 +6%/pt`; links its skills + 숙련 상승', JSON.stringify(tips.int));
+  // 2026-09-13 (사용자 요청): the stat tooltip has no `능력치` sub and no `관련 숙련 · 성장 속도` title (and no empty header box)
+  ok(tips.int.subHidden === true && JSON.stringify(tips.int.heads) === '[]' && !tips.int.text.includes('관련 숙련') && !tips.int.text.includes('능력치'),
+    '지능 tooltip: sub `능력치` and section title `관련 숙련 · 성장 속도` removed, rows kept', JSON.stringify({ heads: tips.int.heads, sub: tips.int.subHidden, text: tips.int.text }));
   ok(tips.int.hiddenAfter && tips.int.linkedAfter === 0, 'pointerout hides the tooltip and clears the outline');
   ok(tips.gun.shown && /반동 −\d+% · 장전 \+\d+%/.test(tips.gun.text) && tips.gun.text.includes('관련 능력치') && tips.gun.derived.length === 0,
     'gun_AR tooltip shows recoil / reload numbers and highlights no derived row', JSON.stringify(tips.gun));
   ok(tips.carry.shown && JSON.stringify(tips.carry.derived) === '["carryReliefFactor"]', '운반 tooltip links 운반 부담 경감', JSON.stringify(tips.carry));
+  ok(tips.gun.subHidden === false && JSON.stringify(tips.gun.heads) === '["현재 효과","관련 능력치 · 성장 속도"]', 'skill tooltip keeps its sub + section titles (empty 서재 section omitted)', JSON.stringify({ heads: tips.gun.heads, sub: tips.gun.subHidden }));
+
+  /* ── 2026-09-13 서재 시리즈 · 요리/연구 숙련 (docs/plans/library-series-games.md) ── */
+  console.log('캐릭터 시트 (2026-09-13): 숙련 16종 · 새 파생 줄 · 서재 시설 툴팁 · 서재 파생 접기 · 값 글자 맞춤');
+  const hoverTip = (sel) => P((s) => {
+    const n = document.querySelector(s); if (!n) return null;
+    const r = n.getBoundingClientRect();
+    n.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 2, clientY: r.top + 2 }));
+    const tip = document.querySelector('.pg-tip[data-variant="overlay"]');
+    const out = { shown: !!tip && !tip.hidden, name: tip?.querySelector('.pg-tip-name')?.textContent ?? '', sub: tip?.querySelector('.pg-tip-sub')?.textContent ?? '',
+      heads: tip ? [...tip.querySelectorAll('.pg-tip-h')].map((e) => e.textContent) : [], ks: tip ? [...tip.querySelectorAll('.pg-tip-rows .k')].map((e) => e.textContent) : [],
+      vs: tip ? [...tip.querySelectorAll('.pg-tip-rows .v')].map((e) => e.textContent) : [], notes: tip ? [...tip.querySelectorAll('.pg-tip-rows .n')].map((e) => e.textContent) : [],
+      derived: [...document.querySelectorAll('.char-sheet .cs-derived .cell.pg-linked')].map((e) => e.dataset.key).sort() };
+    n.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+    out.hiddenAfter = !tip || tip.hidden;
+    return out;
+  }, sel);
+  const sk16 = await P(() => {
+    const root = document.querySelector('.char-sheet'), p = window.__game.ctx.progression;
+    const v = (k) => root.querySelector(`.cs-derived .cell[data-key="${k}"] .v`)?.textContent ?? null;
+    const rd = () => ({ cook: v('cookScoreBonus'), time: v('researchTimeMul'), chance: v('researchRefundChance'), frac: v('researchRefundFrac') });
+    const out = { rows: root.querySelectorAll('.cs-skill').length, last: [...root.querySelectorAll('.cs-skill')].slice(-2).map((r) => r.dataset.skill), cells: root.querySelectorAll('.cs-derived .cell').length, zero: rd() };
+    p.addSkillXpRaw('cooking', 100); p.addSkillXpRaw('research', 100);
+    out.max = rd();
+    out.d = { cook: p.derived.cookScoreBonus, time: p.derived.researchTimeMul, chance: p.derived.researchRefundChance, frac: p.derived.researchRefundFrac };
+    return out;
+  });
+  ok(sk16.rows === 16 && JSON.stringify(sk16.last) === '["cooking","research"]' && sk16.cells === 22, 'sheet: 16 skill rows (요리 · 연구 last), 22 derived rows', JSON.stringify(sk16));
+  ok(sk16.zero.cook === '+0 %' && sk16.zero.time === '×1.00' && sk16.zero.chance === '0 %' && sk16.zero.frac === '20 %', 'new derived rows at level 0: 요리 점수 +0 % · 분석 시간 ×1.00 · 재료 회수 확률 0 % · 재료 회수량 20 %', JSON.stringify(sk16.zero));
+  ok(near(sk16.d.cook, 0.15, 1e-9) && near(sk16.d.time, 0.7, 1e-9) && near(sk16.d.chance, 0.35, 1e-9) && near(sk16.d.frac, 0.5, 1e-9)
+    && sk16.max.cook === '+15 %' && sk16.max.time === '×0.70' && sk16.max.chance === '35 %' && sk16.max.frac === '50 %',
+    'level 100: cookScoreBonus 0.15 · researchTimeMul 0.70 · refund chance 0.35 · refund share 0.50 (constants.csv), rows repaint', JSON.stringify(sk16));
+  const cookTip = await hoverTip('.char-sheet .cs-skill[data-skill="cooking"] .n');
+  const resTip = await hoverTip('.char-sheet .cs-skill[data-skill="research"] .n');
+  ok(cookTip?.shown && JSON.stringify(cookTip.derived) === '["cookScoreBonus"]' && cookTip.ks.includes('요리 점수') && cookTip.ks.includes('재주'), '요리 tooltip: 현재 효과 요리 점수, grows with 재주, links its derived row', JSON.stringify(cookTip));
+  ok(resTip?.shown && JSON.stringify(resTip.derived) === '["researchRefundChance","researchRefundFrac","researchTimeMul"]' && resTip.ks.includes('분석 시간') && resTip.ks.includes('지능'), '연구 tooltip: 분석 시간 · 재료 회수 확률 · 재료 회수량, grows with 지능', JSON.stringify(resTip));
+  await P(() => { const p = window.__game.ctx.progression; p.addSkillXpRaw('cooking', -1e6); p.addSkillXpRaw('research', -1e6); });
+
+  // 시설 ×n badge → which 서재 series give the bonus (stubbed housing: H1 may not be merged yet)
+  await P(() => {
+    const h = window.__game.ctx.housing;
+    window.__libDesc = Object.fromEntries(['getSkillGainMul', 'getLibrarySources', 'getLibraryEffects'].map((k) => [k, Object.getOwnPropertyDescriptor(h, k) ?? null]));
+    window.__libRestore = () => { for (const [k, d] of Object.entries(window.__libDesc)) { if (d) Object.defineProperty(h, k, d); else delete h[k]; } };
+    h.getSkillGainMul = (id) => (id === 'carry' ? 1.5 : 1);
+    h.getLibrarySources = (kind, target) => (kind === 'skillGain' && target === 'carry' ? [
+      { seriesId: 'smoke_book', name: '운반 노하우', medium: 'book', have: 4, total: 5, fraction: 0.4, value: 0.04, fullValue: 0.1, auxApplied: false, defIds: [] },
+      { seriesId: 'smoke_record', name: '짐꾼의 노래', medium: 'record', have: 1, total: 1, fraction: 1, value: 0.4, fullValue: 0.32, auxApplied: true, defIds: [] },
+      { seriesId: 'smoke_disc', name: '짐 싸는 법', medium: 'disc', have: 3, total: 3, fraction: 1, value: 0.02, fullValue: 0.02, auxApplied: false, defIds: [] },
+      { seriesId: 'smoke_zero', name: '빈 시리즈', medium: 'book', have: 0, total: 5, fraction: 0, value: 0, fullValue: 0.1, auxApplied: false, defIds: [] },
+    ] : []);
+    window.__game.ctx.bus.emit('housing:libraryChanged', { revision: 9001 });
+  });
+  const badge = await P(() => { const b = document.querySelector('.char-sheet .cs-skill[data-skill="carry"] .bonus'); return { hidden: b.hidden, text: b.textContent, others: [...document.querySelectorAll('.char-sheet .cs-skill .bonus')].filter((e) => !e.hidden).length }; });
+  ok(!badge.hidden && badge.text === '시설 ×1.50' && badge.others === 1, 'housing:libraryChanged repaints the sheet: 운반 shows `시설 ×1.50` (the only badge)', JSON.stringify(badge));
+  const facTip = await hoverTip('.char-sheet .cs-skill[data-skill="carry"] .bonus');
+  ok(facTip?.shown && facTip.name === '시설 보너스' && facTip.sub === '운반 · 숙련 상승 ×1.50' && JSON.stringify(facTip.heads) === '["서재 시리즈"]' && facTip.hiddenAfter,
+    '시설 ×n badge tooltip: 시설 보너스 · `운반 · 숙련 상승 ×1.50` · 서재 시리즈 section', JSON.stringify(facTip));
+  ok(JSON.stringify(facTip?.ks) === '["『짐꾼의 노래』","『운반 노하우』","『짐 싸는 법』","기타 시설"]' && JSON.stringify(facTip?.vs) === '["+40.0 %","+4.0 %","+2.0 %","+4.0 %"]',
+    'rows: series largest first, zero-value series dropped, the unexplained rest as 기타 시설', JSON.stringify({ ks: facTip?.ks, vs: facTip?.vs }));
+  ok(JSON.stringify(facTip?.notes) === '["레코드 · 단편 · 100 % · 보조 가구 적용","책 · 4 / 5권 · 40 %","디스크 · 3 / 3권 · 전권 100 %"]',
+    'row notes: medium · n / N권 · share (단편 · 전권 · 보조 가구 적용)', JSON.stringify(facTip?.notes));
+  const carryTip = await hoverTip('.char-sheet .cs-skill[data-skill="carry"] .n');
+  ok(carryTip?.shown && carryTip.heads.includes('시설 보너스 · 서재 시리즈') && carryTip.ks.includes('『운반 노하우』') && carryTip.vs.includes('×1.50'), '운반 name tooltip carries the same 서재 breakdown under its growth rows', JSON.stringify(carryTip));
+
+  // library `derived` effects fold into `derived` like a meal buff (additive, floor 0, MealBuff keys only) on housing:libraryChanged
+  const fold = await P(() => {
+    const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression, sys = window.__game.getSystem('progression');
+    const summary = (derived) => ({ skillGain: {}, derived, gymScore: {}, cookScore: {}, raidXp: 0, trustXp: {}, recipes: [], revision: 1 });
+    const pick = () => ({ carry: p.derived.carryCapacity, regen: p.derived.staminaRegenMul, dur: p.derived.durabilityLossMul, det: p.derived.detectRadius, recoil: p.derived.recoilMul.AR, perks: JSON.stringify(p.derived.perks) });
+    h.getLibraryEffects = () => summary({});
+    sys.recompute();
+    const base = { ...pick(), preview: p.previewDerived({ strength: 1 }).carryCapacity };
+    h.getLibraryEffects = () => summary({ carryCapacity: 2, staminaRegenMul: 0.03, durabilityLossMul: -5, detectRadius: NaN, recoilMul: 9, perks: 1, bogus: 4 });
+    const beforeEmit = p.derived.carryCapacity;
+    ctx.bus.emit('housing:libraryChanged', { revision: 9002 });
+    const on = { ...pick(), preview: p.previewDerived({ strength: 1 }).carryCapacity, sheet: document.querySelector('.char-sheet .cs-derived .cell[data-key="carryCapacity"] .v').textContent };
+    h.getLibraryEffects = () => { throw new Error('smoke: library not ready'); };
+    sys.recompute();
+    const thrown = pick();
+    window.__libRestore();
+    ctx.bus.emit('housing:libraryChanged', { revision: 9003 });
+    return { base, beforeEmit, on, thrown, off: pick(), badgeHidden: document.querySelector('.char-sheet .cs-skill[data-skill="carry"] .bonus').hidden };
+  });
+  ok(fold.beforeEmit === fold.base.carry && near(fold.on.carry, fold.base.carry + 2, 1e-9) && near(fold.on.regen, fold.base.regen + 0.03, 1e-9) && fold.on.dur === 0,
+    'housing:libraryChanged → recompute folds library derived: carry +2, stamina regen +0.03, durability loss floored at 0', JSON.stringify(fold));
+  ok(fold.on.det === fold.base.det && fold.on.recoil === fold.base.recoil && fold.on.perks === fold.base.perks, 'NaN values and non-MealBuff keys (recoilMul · perks · bogus) are ignored', JSON.stringify(fold));
+  ok(near(fold.on.preview, fold.base.preview + 2, 1e-9) && fold.on.sheet === `${fold.on.carry.toFixed(1)} kg`, 'previewDerived and the sheet row include the library fold', JSON.stringify(fold.on));
+  ok(fold.thrown.carry === fold.base.carry && fold.thrown.dur === fold.base.dur && near(fold.off.carry, fold.base.carry, 1e-9) && fold.badgeHidden,
+    'a throwing getLibraryEffects folds nothing; restoring housing brings derived + the badge back', JSON.stringify({ thrown: fold.thrown, off: fold.off, badge: fold.badgeHidden }));
+
+  // 파생 능력치 values never wrap: narrow cells shrink the value font (≥ 8 px), wide cells keep the natural size
+  const fit = await P(async () => {
+    const grid = document.querySelector('.char-sheet .cs-derived .grid');
+    const read = () => [...grid.querySelectorAll('.cell')].map((c) => {
+      const v = c.querySelector('.v'), cr = c.getBoundingClientRect(), vr = v.getBoundingClientRect();
+      return { key: c.dataset.key, fs: v.style.fontSize, inside: vr.right <= cr.right + 0.5 && vr.left >= cr.left - 0.5, oneLine: vr.height <= 20, w: Math.round(cr.width) };
+    });
+    const wide = read();
+    grid.style.gridTemplateColumns = 'repeat(auto-fill, 96px)';
+    await new Promise((r) => setTimeout(r, 450));
+    const narrow = read();
+    grid.style.gridTemplateColumns = '';
+    await new Promise((r) => setTimeout(r, 450));
+    return { wide, narrow, back: read() };
+  });
+  ok(fit.wide.every((c) => c.inside && c.oneLine && c.fs === ''), 'wide grid: every derived value on one line inside its cell at the natural size', JSON.stringify(fit.wide.filter((c) => !(c.inside && c.oneLine && c.fs === ''))));
+  ok(fit.narrow.every((c) => c.inside && c.oneLine && c.w <= 97) && fit.narrow.some((c) => c.fs !== '' && parseFloat(c.fs) >= 8 && parseFloat(c.fs) < 12.5),
+    '96 px cells: values shrink their font (≥ 8 px) instead of wrapping and stay inside the cell', JSON.stringify(fit.narrow));
+  ok(fit.back.every((c) => c.inside && c.oneLine && c.fs === ''), 'grid width restored → fonts back to the natural size (ResizeObserver refit)', JSON.stringify(fit.back.filter((c) => !(c.inside && c.fs === ''))));
 
   const api = await P(() => {
     const ctx = window.__game.ctx, p = ctx.progression;
@@ -742,7 +873,7 @@ try {
   });
   ok(impThumbs.n === 1 && impThumbs.eq === 1 && impThumbs.chip === 'imp_perk_quick_heal' && impThumbs.emptyHidden && impThumbs.buttons === 0
     && impThumbs.slots === `${impThumbs.used} / ${impThumbs.total} 슬롯`, 'sheet: equipped implant as a read-only chip thumbnail + `n / m 슬롯`', JSON.stringify(impThumbs));
-  ok(JSON.stringify(impThumbs.stats) === '["dexterity"]' && JSON.stringify(impThumbs.skills) === '["crafting","equipment","gardening"]'
+  ok(JSON.stringify(impThumbs.stats) === '["dexterity"]' && JSON.stringify(impThumbs.skills) === '["cooking","crafting","equipment","gardening"]'
     && JSON.stringify(impThumbs.derived) === '["interactSpeedMul","useSpeedMul"]' && impThumbs.after === 0,
     'hovering 가속 대사 (재주 +1) outlines 재주, its skills and 사용 · 상호작용 속도; pointerout clears', JSON.stringify(impThumbs));
   await tap('Escape');
@@ -904,7 +1035,8 @@ try {
   const refused = await page.evaluate(() => {
     const ctx = window.__game.ctx, p = ctx.progression;
     const t0 = window.__ev['progress:trainedChanged'].length, f0 = window.__ev['progress:gymFatigue'].length;
-    const r = { per: p.applyGymSession('perception', 1), junk: p.applyGymSession('nope', 1) };
+    // 2026-09-13: 인지력 · 지능 are gym stats now (video games) — 재주 is the non-gym stat
+    const r = { dex: p.applyGymSession('dexterity', 1), junk: p.applyGymSession('nope', 1) };
     const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
     try { r.raid = p.applyGymSession('strength', 1); } finally { ctx.isRaidActive = real; }
     ctx.setPhase('menu');
@@ -913,7 +1045,7 @@ try {
       tev: window.__ev['progress:trainedChanged'].length - t0, fev: window.__ev['progress:gymFatigue'].length - f0 };
     return r;
   });
-  ok(refused.per === null && refused.junk === null, 'applyGymSession refuses a non-gym stat (perception / unknown) with null', JSON.stringify(refused));
+  ok(refused.dex === null && refused.junk === null, 'applyGymSession refuses a non-gym stat (dexterity / unknown) with null', JSON.stringify(refused));
   ok(refused.raid === null && refused.menu === null && refused.after.tb === 0 && refused.after.tp === 0 && refused.after.fat === 0 && refused.after.tev === 0 && refused.after.fev === 0,
     'applyGymSession refused while isRaidActive() and outside the hub phase — nothing changed, no events', JSON.stringify(refused));
 
@@ -996,6 +1128,26 @@ try {
     'real clock: endurance debuff runs until ≈ now + 24 h', JSON.stringify({ r: e4.r, nowBefore }));
   const liveUntil = e4.r?.fatigueUntil ?? 0;
 
+  // 2026-09-13 (docs/plans/library-series-games.md): the video games train 지능 · 인지력 through the same applyGymSession rules
+  const i1 = await gym('intelligence', 1, null);
+  ok(i1.r && i1.r.stat === 'intelligence' && i1.r.xp === 100 && i1.r.wasFatigued === false && i1.r.trainedAfter === 0 && near(i1.tp, 100 / 150, 1e-6)
+    && i1.r.fatigueUntil >= nowBefore + 24 * H - 5000 && i1.fat === i1.r.fatigueUntil && i1.fLast?.id === 'intelligence',
+    'applyGymSession(intelligence): +100 XP and its own 24 h debuff (progress:gymFatigue {intelligence})', JSON.stringify(i1.r));
+  const i2 = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    const r = { gain0: p.derived.skillGainMul, det0: p.derived.detectRadius, int0: p.getStatWithImplants('intelligence'), per0: p.getStatWithImplants('perception') };
+    p.addTrainedXp('intelligence', 50);                      // 100 + 50 = need(0) → +1
+    p.addTrainedXp('perception', 150);
+    Object.assign(r, { int: p.getTrainedBonus('intelligence'), per: p.getTrainedBonus('perception'), gain1: p.derived.skillGainMul, det1: p.derived.detectRadius,
+      int1: p.getStatWithImplants('intelligence'), per1: p.getStatWithImplants('perception'), base: p.getStat('intelligence') });
+    p.addTrainedXp('perception', -150);                      // back to 0 · 0 for the sheet checks below
+    r.perBack = [p.getTrainedBonus('perception'), p.getTrainedProgress('perception'), p.derived.detectRadius];
+    return r;
+  });
+  ok(i2.int === 1 && i2.int1 === i2.int0 + 1 && near(i2.gain1 - i2.gain0, 0.06, 1e-9) && i2.per === 1 && i2.per1 === i2.per0 + 1 && i2.det1 > i2.det0,
+    '단련 지능 +1 → skillGainMul +0.06, 단련 인지력 +1 → detectRadius grows (derive reads every GYM_STATS entry)', JSON.stringify(i2));
+  ok(i2.perBack[0] === 0 && i2.perBack[1] === 0 && near(i2.perBack[2], i2.det0, 1e-9), 'addTrainedXp(perception, −150) back to 0 · 0', JSON.stringify(i2.perBack));
+
   console.log('헬스장: 캐릭터 시트');
   await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
   await sleep(250);
@@ -1004,11 +1156,14 @@ try {
     const rows = [...root.querySelectorAll('.cs-stat')];
     const r = (i) => ({ v: rows[i].querySelector('.v').textContent, ib: rows[i].querySelector('.v .ib').textContent, tb: rows[i].querySelector('.v .tb')?.textContent, tbHidden: rows[i].querySelector('.v .tb')?.hidden,
       gtr: rows[i].querySelector('.gy .gtr')?.textContent ?? null, fat: rows[i].querySelector('.gy .fat')?.textContent ?? null, fatHidden: rows[i].querySelector('.gy .fat')?.hidden ?? null });
-    return { open: !root.hidden, str: r(0), end: r(1), per: r(2), gyCount: root.querySelectorAll('.cs-stat .gy').length };
+    return { open: !root.hidden, str: r(0), end: r(1), per: r(2), int: r(3), dex: r(4), gyCount: root.querySelectorAll('.cs-stat .gy').length };
   });
   const gs = await readGymSheet();
   ok(gs.open && gs.str.tb === ' (+5 단련)' && !gs.str.tbHidden && gs.str.ib === '' && gs.str.v === `${g0.base} (+5 단련)`, '근력 row: `5 (+5 단련)` in its own span (implant span empty)', JSON.stringify(gs.str));
-  ok(gs.end.tb === ' (+1 단련)' && gs.per.tb === '' && gs.per.tbHidden === true && gs.gyCount === 2, '지구력 `(+1 단련)`; 인지력 has no 단련 span text; only 근력 · 지구력 carry the 단련 line', JSON.stringify({ end: gs.end, per: gs.per, gy: gs.gyCount }));
+  ok(gs.end.tb === ' (+1 단련)' && gs.per.tb === '' && gs.per.tbHidden === true && gs.gyCount === 4 && gs.dex.gtr === null,
+    '지구력 `(+1 단련)`; 인지력 has no 단련 span text; 근력 · 지구력 · 인지력 · 지능 carry the 단련 line (재주 does not)', JSON.stringify({ end: gs.end, per: gs.per, dex: gs.dex, gy: gs.gyCount }));
+  ok(gs.int.tb === ' (+1 단련)' && gs.int.gtr === '단련 +1 · 0 %' && gs.per.gtr === '단련 +0 · 0 %' && gs.int.fatHidden === false && /^정신 피로 · 남은 2[34]:[0-5]\d:[0-5]\d$/.test(gs.int.fat) && gs.per.fatHidden === true,
+    '지능 row: `(+1 단련)`, `단련 +1 · 0 %`, `정신 피로 · 남은 HH:MM:SS`; 인지력 `단련 +0 · 0 %` without a debuff', JSON.stringify({ int: gs.int, per: gs.per }));
   ok(gs.str.gtr === '단련 최대' && gs.end.gtr === `단련 +1 · ${Math.floor((150 / needAt(1)) * 100)} %`, `progress lines: 근력 \`단련 최대\`, 지구력 \`단련 +1 · ${Math.floor((150 / needAt(1)) * 100)} %\``, JSON.stringify({ s: gs.str.gtr, e: gs.end.gtr }));
   ok(gs.str.fatHidden === true && gs.end.fatHidden === false && /^심폐 피로 · 남은 2[34]:[0-5]\d:[0-5]\d$/.test(gs.end.fat), 'debuff line only on 지구력: `심폐 피로 · 남은 HH:MM:SS` (근력 debuff expired → hidden)', JSON.stringify({ s: gs.str.fat, e: gs.end.fat }));
   await sleep(2100);
@@ -1031,21 +1186,22 @@ try {
 
   await page.evaluate(() => {
     const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
-    raw.trained = { strength: 99.7, endurance: 2.6, perception: 4, bogus: 2 };
-    raw.trainedProgress = { strength: 0.4, endurance: 7, perception: 0.5 };
-    raw.gymFatigueUntil = { strength: 1000, endurance: 'x', perception: 1e12, dexterity: -5 };
+    // 2026-09-13: 인지력 · 지능 are gym stats now — 재주 / bogus are the keys migrate must drop
+    raw.trained = { strength: 99.7, endurance: 2.6, perception: 4, dexterity: 3, bogus: 2 };
+    raw.trainedProgress = { strength: 0.4, endurance: 7, perception: 0.5, dexterity: 0.3 };
+    raw.gymFatigueUntil = { strength: 1000, endurance: 'x', perception: 1e12, dexterity: -5, intelligence: -1 };
     localStorage.setItem('scav.s1.profile', JSON.stringify(raw));
   });
   await page.reload({ waitUntil: 'load' });
   await boot();
   const mj = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
-    return { trained: p.profile.trained, prog: p.profile.trainedProgress, fat: p.profile.gymFatigueUntil, per: p.getTrainedBonus('perception'),
-      strFat: p.getGymFatigueUntil('strength'), endFat: p.getGymFatigueUntil('endurance'), endP: p.getTrainedProgress('endurance') };
+    return { trained: p.profile.trained, prog: p.profile.trainedProgress, fat: p.profile.gymFatigueUntil, per: p.getTrainedBonus('perception'), dex: p.getTrainedBonus('dexterity'),
+      strFat: p.getGymFatigueUntil('strength'), endFat: p.getGymFatigueUntil('endurance'), perFat: p.getGymFatigueUntil('perception'), endP: p.getTrainedProgress('endurance') };
   });
-  ok(JSON.stringify(mj.trained) === JSON.stringify({ strength: 5, endurance: 3 }) && mj.per === 0, 'migrate: trained clamped + rounded (99.7 → 5, 2.6 → 3), non-gym keys dropped', JSON.stringify(mj));
-  ok(mj.prog.strength === 1 && mj.prog.endurance === 0.999999 && Object.keys(mj.prog).length === 2 && mj.endP === 0.999999, 'migrate: progress 1 only at the cap, else clamped to 0.999999; junk keys dropped', JSON.stringify(mj.prog));
-  ok(JSON.stringify(mj.fat) === JSON.stringify({ strength: 1000 }) && mj.strFat === 0 && mj.endFat === 0, 'migrate: fatigue keeps only finite > 0 gym stamps; an old stamp reads as no debuff', JSON.stringify(mj.fat));
+  ok(JSON.stringify(mj.trained) === JSON.stringify({ strength: 5, endurance: 3, perception: 4 }) && mj.per === 4 && mj.dex === 0, 'migrate: trained clamped + rounded (99.7 → 5, 2.6 → 3), 인지력 kept, non-gym keys (재주 · bogus) dropped', JSON.stringify(mj));
+  ok(mj.prog.strength === 1 && mj.prog.endurance === 0.999999 && mj.prog.perception === 0.5 && Object.keys(mj.prog).length === 3 && mj.endP === 0.999999, 'migrate: progress 1 only at the cap, else clamped to 0.999999; junk keys dropped', JSON.stringify(mj.prog));
+  ok(JSON.stringify(mj.fat) === JSON.stringify({ strength: 1000, perception: 1e12 }) && mj.strFat === 0 && mj.endFat === 0 && mj.perFat === 0, 'migrate: fatigue keeps only finite > 0 gym stamps; an old stamp reads as no debuff', JSON.stringify(mj.fat));
 
   const srvGym = await page.evaluate(() => {
     const ctx = window.__game.ctx, net = ctx.net, p = ctx.progression;
@@ -1069,7 +1225,7 @@ try {
   ok(srvGym.up && srvGym.up.trained?.strength === 5 && srvGym.up.prog?.strength === 1 && srvGym.up.fat?.strength === 1000, "save → profile.set('progression') carries trained / trainedProgress / gymFatigueUntil", JSON.stringify(srvGym.up));
   ok(srvGym.tb === 2 && near(srvGym.tp, 0.25) && srvGym.end === 0 && srvGym.fat === srvGym.until && srvGym.eff === srvGym.base + 2 && near(srvGym.carry, 28 + 2.2 * (srvGym.base + 2), 1e-6),
     'net:profileLoaded → server 단련 + debuff replace the local ones, derived re-computed', JSON.stringify(srvGym));
-  ok(srvGym.tev === 2 && srvGym.fev.length === 1 && srvGym.fev[0].id === 'strength' && srvGym.fev[0].until === srvGym.until, 'server document re-emits trainedChanged ×2 + gymFatigue for the active debuff', JSON.stringify({ tev: srvGym.tev, fev: srvGym.fev }));
+  ok(srvGym.tev === 4 && srvGym.fev.length === 1 && srvGym.fev[0].id === 'strength' && srvGym.fev[0].until === srvGym.until, 'server document re-emits trainedChanged ×4 (every GYM_STATS entry) + gymFatigue for the active debuff', JSON.stringify({ tev: srvGym.tev, fev: srvGym.fev }));
 
   const rs = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
@@ -1081,7 +1237,7 @@ try {
       stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.gymFatigueUntil };
   });
   ok(rs.tb === 0 && rs.tp === 0 && rs.fat === 0 && rs.maps.every((m) => m === '{}') && JSON.stringify(rs.stored) === '{}', 'resetProfile clears 단련 · 진행도 · 디버프 (memory + storage)', JSON.stringify(rs));
-  ok(rs.tev.length === 2 && rs.tev.every((e) => e.value === 0 && e.delta === 0), 'resetProfile re-emits trainedChanged {value 0} for both gym stats', JSON.stringify(rs.tev));
+  ok(rs.tev.length === 4 && rs.tev.every((e) => e.value === 0 && e.delta === 0), 'resetProfile re-emits trainedChanged {value 0} for all four gym stats', JSON.stringify(rs.tev));
 
   console.log('헬스장: 콘솔 API addTrainedXp · clearGymFatigue');
   const tx = (id, xp) => page.evaluate((a) => {
@@ -1110,8 +1266,8 @@ try {
     const ctx = window.__game.ctx, p = ctx.progression;
     const t0 = window.__ev['progress:trainedChanged'].length;
     const before = { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength') };
-    p.addTrainedXp('perception', 500); p.addTrainedXp('strength', NaN); p.addTrainedXp('nope', 500);
-    const ignored = { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), per: p.getTrainedBonus('perception'), tn: window.__ev['progress:trainedChanged'].length - t0 };
+    p.addTrainedXp('dexterity', 500); p.addTrainedXp('strength', NaN); p.addTrainedXp('nope', 500);
+    const ignored = { tb: p.getTrainedBonus('strength'), tp: p.getTrainedProgress('strength'), per: p.getTrainedBonus('dexterity'), tn: window.__ev['progress:trainedChanged'].length - t0 };
     // no gates: a live debuff, a raid and a non-hub phase do not stop it
     p.profile.gymFatigueUntil.strength = Date.now() + 3600e3;
     const real = ctx.isRaidActive; ctx.isRaidActive = () => true;

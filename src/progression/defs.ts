@@ -6,7 +6,7 @@ import { SKILL_IDS, STAT_IDS, csvRows, keyTable, numberMap, stringMap } from '@/
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Static definitions for the 5 stats and 14 skills (Korean names + descriptions)
+ * Static definitions for the 5 stats and 16 skills (Korean names + descriptions)
  * and the raw skill-XP amounts every trained action is worth.
  * Owner: progression/. Nothing else defines these.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -21,6 +21,8 @@ export const DERIVED_PANEL_KEYS = [
   'carryCapacity', 'maxStamina', 'detectRadius', 'enemyDetectRadius', 'meleeDamageMul', 'throwRangeMul',
   'skillGainMul', 'useSpeedMul', 'interactSpeedMul', 'gritChance', 'searchSpeedMul', 'healPowerMul',
   'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'craftSpeedMul', 'carryReliefFactor',
+  /* 2026-09-13 요리 · 연구 숙련 (docs/plans/library-series-games.md) */
+  'cookScoreBonus', 'researchTimeMul', 'researchRefundChance', 'researchRefundFrac',
 ] as const satisfies readonly (keyof DerivedStats)[];
 export type DerivedPanelKey = (typeof DERIVED_PANEL_KEYS)[number];
 

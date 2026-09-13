@@ -14,7 +14,7 @@ import { resolveStatId } from './stat';
  *
  * 두 dev 메서드는 계약상 optional 이라 `typeof` 로 묻고, 없으면 빨간 줄로 무엇이 없는지 말한다.
  */
-const STAT_SHORT: Readonly<Record<GymStat, string>> = { strength: 'str', endurance: 'end' };
+const STAT_SHORT: Readonly<Record<GymStat, string>> = { strength: 'str', endurance: 'end', intelligence: 'int', perception: 'per' };
 
 function now(ctx: GameContext): number {
   try {

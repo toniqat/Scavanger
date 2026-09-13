@@ -1,0 +1,40 @@
+/* ============================================================================
+ * SCAVANGER — TV 화면 (비디오게임, 2026-09-13 · H2; housing/ui/tv). 접두사 `.tvm-` 전용 (빈 이름을 확인했다).
+ *
+ * 틀은 하우징 패널 공통(`.menu.housing-menu .frame`)이고, 여기는 안쪽 줄만 — 머리(TV 이름 · 켜짐 상태 · 켜기/끄기),
+ * 게임기 칸(장착된 것 + 가진 것 목록), 좌석 한 줄, 게임 목록(디스크 테마 색 띠 `--tvm-c`).
+ * ========================================================================== */
+
+.tvm-page { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
+
+.tvm-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.tvm-title { font-size: 22px; font-weight: 700; letter-spacing: 0.14em; }
+.tvm-state { display: flex; align-items: center; gap: 10px; }
+.tvm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-text-faint); }
+.tvm-state.is-on .tvm-dot { background: var(--c-accent); box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 70%, transparent); }
+.tvm-state-text { font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.tvm-state.is-off-power .tvm-state-text { color: var(--c-danger); }
+
+.tvm-console { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); }
+.tvm-console.is-empty { border-style: dashed; }
+.tvm-console .tvm-name { font-size: 13px; color: var(--c-text); }
+.tvm-console .tvm-sub { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+
+.tvm-list { display: flex; flex-direction: column; gap: 6px; }
+.tvm-row {
+  --tvm-c: var(--c-border-strong);
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 10px 8px 12px; border: 1px solid var(--c-border); border-left: 3px solid var(--tvm-c);
+  background: rgba(255, 255, 255, 0.03);
+}
+.tvm-row .tvm-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tvm-row .tvm-name { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tvm-row .tvm-sub { font-size: 10px; color: var(--c-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tvm-row .tvm-block { font-size: 10px; color: var(--c-danger); letter-spacing: 0.03em; }
+.tvm-row .tvm-fatigue { font-size: 10px; font-family: var(--ui-mono); color: color-mix(in srgb, var(--c-danger) 70%, var(--c-text-dim)); }
+.tvm-row.is-blocked .tvm-name { color: var(--c-text-dim); }
+.tvm-acts { display: flex; gap: 6px; }
+.housing-menu .ui-btn.tvm-dim { opacity: 0.5; }
+
+.tvm-seat { font-size: 12px; letter-spacing: 0.03em; padding: 8px 10px; border-left: 2px solid var(--c-accent); background: rgba(255, 255, 255, 0.03); color: var(--c-text); }
+.tvm-seat.is-bad { border-left-color: var(--c-danger); background: rgba(255, 77, 77, 0.08); color: var(--c-danger); }

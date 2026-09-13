@@ -297,6 +297,11 @@
 .cook-rail-dot.on { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
 .cook-rail-lv { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
 .cook-rail-item.is-locked { opacity: 0.5; }
+/* 2026-09-13 (H3): 레시피 책 잠김 · 요리 숙련 / 서재 보너스 */
+.cook-rail-book { padding: 0 4px; border: 1px solid var(--c-border); color: var(--c-accent); }
+.cook-stepchip-bonus { font-family: var(--ui-mono); font-size: 10px; color: var(--c-accent); white-space: nowrap; }
+.cook-stepscore-bonus { margin-left: 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+.cook-result-step-bonus { font-style: normal; font-family: inherit; font-size: 10px; font-weight: 400; color: var(--c-accent); }
 
 .cook-sel-head { display: flex; gap: 12px; align-items: center; }
 .cook-sel-chip { flex: none; }

@@ -36,6 +36,8 @@ for (const line of readFileSync(join(ROOT, 'data', 'tables.csv'), 'utf8').split(
   if (m) T[m[1]][Number(m[2])] = Number(m[3]);
 }
 const qualityFor = (s) => { let q = 0; T.MEAL_QUALITY_SCORE_MIN.forEach((min, i) => { if (s + 1e-9 >= min) q = i; }); return q; };
+/** 2026-09-13 (H3): 요리 숙련 보너스 기대값 — `COOK_SKILL_SCORE_AT_MAX × 레벨 / SKILL_LEVEL_MAX`. */
+const SKILL_LEVEL_MAX = Number(/^SKILL_LEVEL_MAX,([^,\s]+)/m.exec(readFileSync(join(ROOT, 'data', 'constants.csv'), 'utf8'))?.[1] ?? 100);
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
@@ -82,7 +84,26 @@ try {
       const canvas = document.getElementById('game-canvas');
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       const b = window.__game.ctx.bus;
-      window.__rec = { sessions: [], steps: [], beats: [], results: [], audio: [], guide: [], station: [], served: [], notify: [] };
+      window.__rec = { sessions: [], steps: [], beats: [], results: [], audio: [], guide: [], station: [], served: [], notify: [], xp: [] };
+      // 2026-09-13 (H3): 숙련 경험치 호출을 엿본다 — 인스턴스 속성이라 housing 이 부르는 `ctx.progression.addSkillXp` 가 여기를 지난다
+      const prog = window.__game.ctx.progression;
+      if (typeof prog.addSkillXp === 'function') {
+        const origXp = prog.addSkillXp;
+        prog.addSkillXp = function (id, amount) { window.__rec.xp.push([id, amount]); return origXp.call(this, id, amount); };
+      }
+      // 2026-09-13 (H3): housing 인스턴스에 가짜 서재 합산 · 레시피 해금을 덮어 쓰고 되돌린다 (서재 에이전트의 구현과 무관하게 규칙만 본다)
+      window.__patched = new Map();
+      window.__patch = (obj, key, value) => {
+        if (!window.__patched.has(key)) window.__patched.set(key, [obj, Object.getOwnPropertyDescriptor(obj, key)]);
+        obj[key] = value;
+      };
+      window.__unpatch = (key) => {
+        const e = window.__patched.get(key);
+        if (!e) return;
+        const [obj, desc] = e;
+        if (desc) Object.defineProperty(obj, key, desc); else delete obj[key];
+        window.__patched.delete(key);
+      };
       b.on('housing:cookSession', (p) => window.__rec.sessions.push({ ...p }));
       b.on('housing:cookStep', (p) => window.__rec.steps.push({ ...p }));
       b.on('housing:cookBeat', (p) => window.__rec.beats.push({ ...p }));
@@ -326,6 +347,18 @@ try {
   });
   ok(apis.cookBlock && apis.completeCook && apis.countQ && apis.stacks, `inventory 조리 API (${JSON.stringify(apis)})`);
   if (!apis.mealQ) note('progression.getMealQuality 없음 — 식탁 품질 · derived 보너스 검사는 건너뛴다 (cook-progression-player 미완)');
+  /** 2026-09-13 (H3): 요리 숙련을 `level` 로 맞춘다 (프로필은 스모크를 넘어 남는다 — 지난 판의 경험치가 단계 점수 보너스로 새지 않게). */
+  const setCookSkill = (level) => H((level) => {
+    const p = window.__game.ctx.progression;
+    if (typeof p.addSkillXpRaw !== 'function') return null;
+    p.addSkillXpRaw('cooking', -(p.getSkill('cooking') + 1));
+    if (level > 0) p.addSkillXpRaw('cooking', level);
+    const b = p.derived.cookScoreBonus;
+    return { level: p.getSkill('cooking'), bonus: typeof b === 'number' ? b : null };
+  }, level);
+  const skill0 = await setCookSkill(0);
+  ok(skill0 && skill0.level === 0 && (skill0.bonus === 0 || skill0.bonus === null), `요리 숙련 0 에서 시작 (${JSON.stringify(skill0)})`);
+  if (skill0 && skill0.bonus === null) note('derived.cookScoreBonus 없음 — 요리 숙련 보너스는 0 으로 본다 (progression 미완)');
   for (const [id, n] of [['crop_leafgreen', 40], ['crop_frostberry', 10], ['crop_tuber', 20]]) await giveStash(id, n);
 
   /* ══ 3. cookBlock ═════════════════════════════════════════════════════════ */
@@ -441,12 +474,16 @@ try {
     return { screen: h.cookDebug.screen, r, ev: window.__rec.results.at(-1) ?? null, tuber: inv.countDefAll('crop_tuber'), leaf: inv.countDefAll('crop_leafgreen'),
       q: r ? inv.countDefQualityAll('meal_tuber_stew', r.quality) : -1, stars: document.querySelector('.cook-result .cook-stars')?.textContent ?? '',
       landed: document.querySelector('.cook-result .cook-landed')?.textContent ?? '', audio: window.__rec.audio.includes('cook_finish'),
-      again: !document.querySelector('.cook-result .cook-again')?.classList.contains('is-blocked') };
+      again: !document.querySelector('.cook-result .cook-again')?.classList.contains('is-blocked'),
+      xp: window.__rec.xp.filter(([id]) => id === 'cooking'), craftXp: window.__rec.xp.filter(([id]) => id === 'crafting') };
   });
   ok(s3.screen === 'result' && s3.r && near(s3.r.score, 0.75) && s3.r.quality === wantQ1 && JSON.stringify(s3.r.stepScores) === '[1,0.5]', `요리 점수 = 평균 0.75 → 품질 ${s3.r?.quality} (기대 ${wantQ1})`, JSON.stringify(s3.r));
   ok(s3.r && !s3.r.reason && s3.r.itemUid && s3.r.landed === 'stash' && s3.ev?.uid === BENCH && s3.audio, `요리가 함선 창고로 · housing:cookResult · cook_finish (${s3.r?.reason ?? s3.r?.landed})`);
   ok(s3.tuber === before.tuber - 3 && s3.leaf === before.leaf - 2 && s3.q >= 1, `재료는 끝에서 빠진다 (덩이줄기 ${before.tuber} → ${s3.tuber} · 잎채소 ${before.leaf} → ${s3.leaf}) · 품질 ${s3.r?.quality} 스튜 ${s3.q}`);
   ok(s3.stars === '★'.repeat(wantQ1) + '☆'.repeat(5 - wantQ1) && /함선 창고/.test(s3.landed) && s3.again, `결과 카드 (${s3.stars} · ${s3.landed})`);
+  ok(s3.xp.length === 1 && Math.abs(s3.xp[0][1] - K.COOK_SKILL_XP * Math.max(0.25, 0.75)) < 1e-9,
+    `요리가 나온 판 → 요리 숙련 경험치 ${K.COOK_SKILL_XP} × max(0.25, 0.75) (${JSON.stringify(s3.xp)})`);
+  ok(s3.craftXp.length === 0, `조리대 요리는 제작 경험치를 주지 않는다 — 요리 경험치만 (사용자 결정 2026-09-13) (${JSON.stringify(s3.craftXp)})`);
 
   /* ── 다시 만들기 → 품질이 다른 요리 둘은 안 합쳐진다 ── */
   const again = await H(() => {
@@ -456,8 +493,9 @@ try {
     h.cookDebug.finishStep(1); h.cookDebug.finishStep(1);
     const res = h.cookDebug.result;
     const stacks = inv.getMealStacks().filter((s) => s.defId === 'meal_tuber_stew');
-    return { r, mid, res, stacks, q5: inv.countDefQualityAll('meal_tuber_stew', 5) };
+    return { r, mid, res, stacks, q5: inv.countDefQualityAll('meal_tuber_stew', 5), xp: window.__rec.xp.filter(([id]) => id === 'cooking') };
   });
+  ok(again.xp.length === 2 && Math.abs(again.xp[1][1] - K.COOK_SKILL_XP) < 1e-9, `두 번째 판(점수 1) → 경험치 ${again.xp[1]?.[1]} (${JSON.stringify(again.xp)})`);
   ok(again.r === null && again.mid.screen === 'game' && again.mid.index === 0, `다시 만들기 → 같은 세션에서 첫 단계부터 (${JSON.stringify(again.mid)})`);
   ok(again.res && again.res.quality === qualityFor(1) && again.q5 === 1, `두 번째 판 1 점 → 품질 ${again.res?.quality}`);
   ok(again.stacks.length === 2 && again.stacks.every((s) => s.qty === 1) && again.stacks[0].quality > again.stacks[1].quality, `품질이 다른 스튜 둘은 따로 쌓인다 (${JSON.stringify(again.stacks)})`);
@@ -474,6 +512,135 @@ try {
   ok(closed.ev.active === false && closed.ev.completed === true && closed.info === null, 'Tab → housing:cookSession {active:false, completed:true}');
   ok(!closed.blocker && !closed.esc && closed.hidden && !closed.inv && closed.guide === null && closed.ticking === false, 'Tab: 블로커 · ESC · 화면 · 키 가이드 · 루프 정리, 인벤토리는 안 열린다');
 
+  /* ══ 5-1. 요리 숙련 · 서재 보너스 (2026-09-13, H3 — docs/plans/library-series-games.md) ═══════════════ */
+  console.log('요리 숙련 · 서재 보너스 (직접 하기)');
+  const libApi = await H(() => ({ lib: typeof window.__game.ctx.housing.getLibraryEffects === 'function', unlock: typeof window.__game.ctx.housing.isRecipeUnlocked === 'function' }));
+  note(`서재 API — getLibraryEffects ${libApi.lib ? '있음' : '없음'} · isRecipeUnlocked ${libApi.unlock ? '있음' : '없음'} (아래는 housing 인스턴스에 가짜 합산을 덮어 써서 규칙만 본다)`);
+  const skill40 = await setCookSkill(40);
+  const hasSkillBonus = !!skill40 && typeof skill40.bonus === 'number' && skill40.bonus > 0;
+  if (skill40 && skill40.bonus !== null) {
+    ok(skill40.level === 40 && near(skill40.bonus, K.COOK_SKILL_SCORE_AT_MAX * 40 / SKILL_LEVEL_MAX), `요리 숙련 40 → derived.cookScoreBonus ${skill40.bonus} = ${K.COOK_SKILL_SCORE_AT_MAX} × 40 / ${SKILL_LEVEL_MAX}`);
+  }
+  const b1 = await H(async ({ BENCH }) => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const S = await import('/src/shared/index.ts');
+    // 젓기(stir) 는 서재 대상이 아니다 — 합산에 들어 있어도 붙으면 안 된다
+    window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, cookScore: { chop: 0.1, stir: 0.5 }, revision: 9001 }));
+    const bonus = { chop: h.cookDebug.bonus('chop'), stir: h.cookDebug.bonus('stir') };
+    const xp0 = window.__rec.xp.length;
+    const r = h.startCook(BENCH, 'cook_green_salad');
+    const screen = h.cookDebug.screen;
+    h.cookDebug.finishStep(0.5);
+    const res = h.cookDebug.result;
+    const out = { r, screen, bonus, res, raw: h.cookDebug.stepRaw, done: window.__rec.steps.filter((s) => s.phase === 'done').at(-1),
+      flash: document.querySelector('.cook-stepscore')?.textContent ?? '', row: document.querySelector('.cook-result .cook-result-step')?.textContent ?? '' };
+    // 다시 만들기 — 서재 0 · 원점수 0 → 요리 점수가 ¼ 아래라도 경험치는 max(0.25, 점수)
+    window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, revision: 9002 }));
+    out.bonus2 = h.cookDebug.bonus('chop');
+    out.restart = h.cookDebug.restart();
+    h.cookDebug.finishStep(0);
+    out.res2 = h.cookDebug.result;
+    out.xp = window.__rec.xp.slice(xp0).filter(([id]) => id === 'cooking');
+    ctx.escape.closeTop();
+    return out;
+  }, { BENCH });
+  const want1 = Math.min(1, 0.5 + b1.bonus.chop.total);
+  ok(near(b1.bonus.chop.library, 0.1) && b1.bonus.stir.library === 0 && near(b1.bonus.stir.skill, b1.bonus.chop.skill)
+    && (!hasSkillBonus || near(b1.bonus.chop.skill, skill40.bonus)) && near(b1.bonus.chop.total, b1.bonus.chop.skill + b1.bonus.chop.library),
+  `보너스 = 요리 숙련 + 서재 cookScore[game] — 서재는 썰기 · 다지기 · 굽기 · 볶기만 (${JSON.stringify(b1.bonus)})`);
+  ok(b1.r === null && b1.screen === 'game' && b1.res && near(b1.res.stepScores[0], want1) && near(b1.raw[0], 0.5) && b1.res.quality === qualityFor(want1) && near(b1.done?.score, want1),
+    `직접 하기 0.5 → 단계 점수 ${want1.toFixed(3)} · 원점수 0.5 유지 · 품질 ${b1.res?.quality} · cookStep done 도 보너스 반영`, JSON.stringify({ res: b1.res, raw: b1.raw, done: b1.done }));
+  const pc1 = `50 → ${Math.round(want1 * 100)} %`;
+  ok(b1.flash.includes(pc1) && b1.flash.includes(hasSkillBonus ? '(+요리 숙련 · 서재)' : '(+서재)'), `단계 점수 글자 (${b1.flash})`);
+  ok(b1.row.includes(pc1), `결과 카드 단계 줄 (${b1.row})`);
+  const want2 = Math.min(1, b1.bonus2.total);
+  ok(b1.restart === null && b1.res2 && near(b1.res2.stepScores[0], want2) && b1.bonus2.library === 0, `서재 0 · 원점수 0 → 단계 ${want2.toFixed(3)} (요리 숙련만)`, JSON.stringify(b1.res2));
+  ok(b1.xp.length === 2 && Math.abs(b1.xp[0][1] - K.COOK_SKILL_XP * Math.max(0.25, b1.res?.score ?? 0)) < 1e-9 && Math.abs(b1.xp[1][1] - K.COOK_SKILL_XP * Math.max(0.25, b1.res2?.score ?? 0)) < 1e-9,
+    `경험치 = ${K.COOK_SKILL_XP} × max(0.25, 점수) — ${b1.res?.score?.toFixed(3)} · ${b1.res2?.score?.toFixed(3)} (${JSON.stringify(b1.xp)})`);
+
+  const b2 = await H(async ({ BENCH }) => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const S = await import('/src/shared/index.ts');
+    window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, cookScore: { chop: 0.1 }, revision: 9003 }));
+    const bonus = { chop: h.cookDebug.bonus('chop'), stir: h.cookDebug.bonus('stir') };
+    const r = h.startCook(BENCH, 'cook_tuber_stew');
+    h.cookDebug.finishStep(0.95);
+    h.cookDebug.finishStep(0.4);
+    const out = { r, bonus, res: h.cookDebug.result, raw: h.cookDebug.stepRaw, rows: [...document.querySelectorAll('.cook-result .cook-result-step')].map((x) => x.textContent) };
+    ctx.escape.closeTop();
+    window.__unpatch('getLibraryEffects');
+    return out;
+  }, { BENCH });
+  const stirWant = Math.min(1, 0.4 + b2.bonus.stir.total);
+  ok(b2.r === null && b2.res && b2.res.stepScores[0] === 1 && near(b2.raw[0], 0.95) && near(b2.res.stepScores[1], stirWant) && b2.bonus.stir.library === 0
+    && b2.res.quality === qualityFor((1 + stirWant) / 2),
+  `스튜: 썰기 0.95 + 보너스 → 1 로 자른다 · 젓기 0.4 → ${stirWant.toFixed(3)} (서재 없음) · 품질 ${b2.res?.quality}`, JSON.stringify({ res: b2.res, raw: b2.raw }));
+  ok(b2.rows[0]?.includes('95 → 100 %') && (hasSkillBonus ? b2.rows[1]?.includes(`40 → ${Math.round(stirWant * 100)} %`) : /40 %$/.test(b2.rows[1] ?? '')), `결과 단계 줄 (${JSON.stringify(b2.rows)})`);
+
+  /* ── 레시피 책 ── */
+  console.log('레시피 책');
+  const bk = await H(async ({ BENCH }) => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const S = await import('/src/shared/index.ts');
+    const all = ctx.loot.getAllRecipes();
+    const skillOk = (x) => (ctx.progression.getSkill(x.skill) ?? 0) >= x.skillRequired;
+    let r = all.find((x) => x.bench === 'cook' && x.unlockSeries && S.cookStepsOf(x.outputDefId).length > 0 && skillOk(x));
+    let stub = false;
+    if (!r) {
+      r = all.find((x) => x.id === 'cook_green_salad');
+      const series = S.LIBRARY_SERIES_DEFS.find((s) => s.medium === 'book')?.id ?? 'smoke_recipe_book';
+      try { r.unlockSeries = series; } catch { /* frozen */ }
+      stub = r.unlockSeries === series;
+      if (!stub) return { skip: '레시피 객체가 얼어 있고 unlockSeries 가 있는 조리 레시피도 없다' };
+    }
+    const want = `『${S.LIBRARY_SERIES_MAP.get(r.unlockSeries)?.name ?? '레시피 책'}』 을(를) 서재에 꽂아야 합니다`;
+    const out = { id: r.id, stub, want, realApi: typeof h.isRecipeUnlocked === 'function', realLocked: null };
+    if (out.realApi && !stub) out.realLocked = h.isRecipeUnlocked(r.id) === false;
+    window.__patch(h, 'isRecipeUnlocked', (id) => id !== r.id);
+    const s0 = window.__rec.sessions.length;
+    out.block = h.cookBlock(BENCH, r.id);
+    out.start = h.startCook(BENCH, r.id);
+    out.noSession = window.__rec.sessions.length === s0 && h.cookSession === null;
+    out.other = h.cookBlock(BENCH, 'cook_tuber_stew');
+    h.openCookStation(BENCH);
+    h.cookStation.select(r.id);
+    return out;
+  }, { BENCH });
+  if (bk.skip) note(`레시피 책 검사 건너뜀 — ${bk.skip}`);
+  else {
+    if (bk.stub) note(`unlockSeries 가 있는 조리 레시피가 아직 없다 (데이터 에이전트) — ${bk.id} 에 임시로 붙여 검사한다`);
+    if (bk.realLocked !== null) ok(bk.realLocked === true, `실제 isRecipeUnlocked: 책을 꽂지 않은 새 함선에서 ${bk.id} 는 잠김`);
+    ok(bk.block === bk.want && bk.start === bk.want && bk.noSession, `책이 없으면 cookBlock · startCook 거절 (${bk.block})`);
+    ok(bk.other !== bk.want, `책이 필요 없는 요리는 책으로 막히지 않는다 (${bk.other})`);
+    await waitFor(page, (id) => !!document.querySelector(`.menu.cook-station .cook-rail-item.is-book[data-recipe="${id}"]`), '레일에 책 잠김 표시', 5000, bk.id);
+    const bk2 = await H((id) => {
+      const root = document.querySelector('.menu.cook-station');
+      const item = root?.querySelector(`.cook-rail-item[data-recipe="${id}"]`);
+      return { locked: !!item?.classList.contains('is-locked'), badge: item?.querySelector('.cook-rail-book')?.textContent ?? null,
+        reason: root?.querySelector('.cook-sel-reason')?.textContent ?? '', dim: !!root?.querySelector('.cook-start')?.classList.contains('is-blocked'),
+        picked: window.__game.ctx.housing.cookDebug.station.recipeId, startBlock: window.__game.ctx.housing.cookDebug.station.startBlock };
+    }, bk.id);
+    ok(bk2.locked && bk2.badge === '책' && bk2.picked === bk.id && bk2.reason === bk.want && bk2.startBlock === bk.want && bk2.dim, `조리대 화면: 딤드 · 「책」 배지 · 사유 줄 (${bk2.reason})`);
+    // 꽂았다 → housing:libraryChanged 로 화면이 풀린다
+    await H(() => { const ctx = window.__game.ctx; window.__patch(ctx.housing, 'isRecipeUnlocked', () => true); ctx.bus.emit('housing:libraryChanged', { revision: 9010 }); });
+    await waitFor(page, (id) => { const it = document.querySelector(`.menu.cook-station .cook-rail-item[data-recipe="${id}"]`); return !!it && !it.classList.contains('is-book'); }, 'libraryChanged → 잠김 풀림', 5000, bk.id);
+    const bk3 = await H(({ id, BENCH }) => ({ block: window.__game.ctx.housing.cookBlock(BENCH, id), reason: document.querySelector('.menu.cook-station .cook-sel-reason')?.textContent ?? '' }), { id: bk.id, BENCH });
+    ok(bk3.block !== bk.want && bk3.reason !== bk.want, `책을 꽂으면 풀린다 — housing:libraryChanged 에 화면도 (${bk3.block})`);
+    // 서재 API 가 없을 때: 책이 필요한 레시피는 잠긴 채다
+    const bk4 = await H(({ id, BENCH, stub }) => {
+      const ctx = window.__game.ctx, h = ctx.housing;
+      window.__unpatch('isRecipeUnlocked');
+      const out = { api: typeof h.isRecipeUnlocked === 'function', block: h.cookBlock(BENCH, id) };
+      h.closeMenus();
+      if (stub) { const r = ctx.loot.getAllRecipes().find((x) => x.id === id); delete r.unlockSeries; }
+      ctx.bus.emit('housing:libraryChanged', { revision: 9011 });
+      return out;
+    }, { id: bk.id, BENCH, stub: bk.stub });
+    if (!bk4.api) ok(bk4.block === bk.want, `isRecipeUnlocked 가 없으면 책이 필요한 레시피는 잠긴 채 (${bk4.block})`);
+  }
+  const skillBack = await setCookSkill(0);
+  ok(!skillBack || skillBack.level === 0, `요리 숙련 0 으로 되돌린다 (${JSON.stringify(skillBack)})`);
+
   /* ══ 6. 취소 = 재료 그대로 ════════════════════════════════════════════════ */
   console.log('취소');
   const cancel = await H(({ BENCH }) => {
@@ -481,6 +648,7 @@ try {
     const count = () => ({ leaf: inv.countDefAll('crop_leafgreen'), berry: inv.countDefAll('crop_frostberry'), salad: inv.countDefAll('meal_green_salad') });
     const c0 = count();
     const res0 = window.__rec.results.length;
+    const xp0 = window.__rec.xp.length;
     const out = {};
     out.startEsc = h.startCook(BENCH, 'cook_green_salad');
     ctx.escape.closeTop();
@@ -497,8 +665,10 @@ try {
     out.c1 = count();
     out.c0 = c0;
     out.results = window.__rec.results.length - res0;
+    out.xp = window.__rec.xp.slice(xp0).filter(([id]) => id === 'cooking').length;
     return out;
   }, { BENCH });
+  ok(cancel.xp === 0, `취소한 판은 요리 숙련 경험치가 없다 (${cancel.xp})`);
   ok(cancel.startEsc === null && cancel.evEsc.active === false && cancel.evEsc.completed === false, 'Esc (게임 도중) → 취소 completed:false');
   ok(cancel.evAbort.info === null && cancel.evAbort.ev.completed === false && cancel.evAbort.hidden, 'game:abort → 세션 · 화면 정리');
   // `caller` 는 hub 가 스스로 푼 자세라는 뜻이다 — 가짜 이벤트는 hub `CookStaging`(자기가 풀지 않은 cook 자세 끝 = 취소)이 받아 취소하므로
@@ -549,6 +719,39 @@ try {
   // 결과에서 E → 닫기
   await H(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true })); document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', key: 'e', bubbles: true })); });
   ok(await H(() => window.__game.ctx.housing.cookSession === null && window.__rec.sessions.at(-1).completed === true), '결과 화면에서 E → 닫기');
+  // 2026-09-13 (H3): 자동으로 넘긴 단계에도 요리 숙련 · 서재 보너스가 붙는다
+  await setCookSkill(30);
+  const ab = await H(async (BENCH) => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const S = await import('/src/shared/index.ts');
+    window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, cookScore: { chop: 0.05 }, revision: 9100 }));
+    const bonus = h.cookDebug.bonus('chop');
+    h.openCookStation(BENCH);
+    h.cookStation.select('cook_green_salad');
+    const chipBonus = document.querySelector('.menu.cook-station .cook-stepchip-bonus')?.textContent ?? '';
+    const r = h.startCook(BENCH, 'cook_green_salad');
+    const btn = document.querySelector('.cook-choose .cook-choose-auto')?.textContent ?? '';
+    const chosen = h.cookDebug.choose('auto');
+    return { bonus, chipBonus, r, btn, chosen, screen: h.cookDebug.screen, autoText: document.querySelector('.cook-auto-score')?.textContent ?? '' };
+  }, BENCH);
+  await waitFor(page, () => window.__game.ctx.housing.cookDebug.screen === 'result', '자동 (보너스) → 결과', 8000);
+  const ab2 = await H(() => {
+    const h = window.__game.ctx.housing;
+    const out = { res: h.cookDebug.result, raw: h.cookDebug.stepRaw, row: document.querySelector('.cook-result .cook-result-step')?.textContent ?? '' };
+    window.__game.ctx.escape.closeTop();
+    window.__unpatch('getLibraryEffects');
+    return out;
+  });
+  const autoLv2 = T.COOK_AUTO_SCORE_BY_LEVEL[2];
+  const wantA = Math.min(1, autoLv2 + ab.bonus.total);
+  const bp = Math.round(ab.bonus.total * 100);
+  ok(near(ab.bonus.library, 0.05) && bp > 0 && ab.chipBonus.startsWith(`점수 +${bp}`), `조리대 화면 단계 칩에 보너스 (${ab.chipBonus})`);
+  ok(ab.r === null && ab.chosen && ab.screen === 'auto' && ab.btn.includes(`${Math.round(autoLv2 * 100)} % (+${bp})`) && ab.autoText.includes(`→ ${Math.round(wantA * 100)} %`),
+    `선택 카드 · 자동 연출에 보너스 (${ab.btn} · ${ab.autoText})`);
+  ok(ab2.res && ab2.res.stepAuto[0] === true && near(ab2.raw[0], autoLv2) && near(ab2.res.stepScores[0], wantA) && ab2.res.quality === qualityFor(wantA)
+    && ab2.row.includes(`${Math.round(autoLv2 * 100)} → ${Math.round(wantA * 100)} %`),
+  `자동 Lv.2 ${autoLv2} + 보너스 ${ab.bonus.total.toFixed(3)} → 단계 ${wantA.toFixed(3)} · 품질 ${ab2.res?.quality} (${ab2.row})`, JSON.stringify(ab2));
+  await setCookSkill(0);
   // 막힌 조리 시작 = 거절 토스트
   const denied = await H((BENCH) => {
     const h = window.__game.ctx.housing;
@@ -586,13 +789,14 @@ try {
   if (apis.mealQ) {
     const eat = await H((TABLE) => {
       const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory, p = window.__game.ctx.progression;
+      const before = inv.countDefAll('meal_tuber_stew');     // 2026-09-13 (H3): 보너스 구획이 스튜를 하나 더 만든다 — 개수는 먹기 전 기준
       const r = h.eatMeal(TABLE, 'meal_tuber_stew', 5);
-      return { r, meal: p.getMeal(), q: p.getMealQuality(), q5: inv.countDefQualityAll('meal_tuber_stew', 5), total: inv.countDefAll('meal_tuber_stew'),
+      return { r, meal: p.getMeal(), q: p.getMealQuality(), q5: inv.countDefQualityAll('meal_tuber_stew', 5), total: inv.countDefAll('meal_tuber_stew'), before,
         plate: document.querySelector('.menu.dining-table .dt-plate-name')?.textContent ?? '' };
     }, TABLE);
     await sleep(50);
     const plate = await H(() => ({ name: document.querySelector('.menu.dining-table .dt-plate-name')?.textContent ?? '', badge: document.querySelector('.menu.dining-table .dt-plate .cook-dt-q')?.textContent ?? null }));
-    ok(eat.r === null && eat.meal === 'meal_tuber_stew' && eat.q === 5 && eat.q5 === 0 && eat.total === 1, `★5 스튜를 먹는다 → 식사 품질 5 · 그 품질만 빠진다 (${JSON.stringify(eat)})`);
+    ok(eat.r === null && eat.meal === 'meal_tuber_stew' && eat.q === 5 && eat.q5 === 0 && eat.total === eat.before - 1, `★5 스튜를 먹는다 → 식사 품질 5 · 그 품질만 빠진다 (${JSON.stringify(eat)})`);
     ok(/★★★★★/.test(plate.name) && plate.badge === '★5', `접시에 실린 식사의 별 (${plate.name})`);
   }
   await H(() => window.__game.ctx.housing.closeMenus());

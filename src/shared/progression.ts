@@ -23,11 +23,16 @@ export type SkillId =
   | 'cryptography'  // 암호학 (지능)
   | 'implant'       // 전술 임플란트 (지능)
   | 'gun_AR' | 'gun_SMG' | 'gun_SR' | 'gun_DMR' | 'gun_SG'  // 사격 (인지력)
-  | 'equipment';    // 장비 관리 (재주)
+  | 'equipment'     // 장비 관리 (재주)
+  /* appended (2026-09-13, docs/plans/library-series-games.md) */
+  | 'cooking'       // 요리 (재주) — 조리 단계 점수 (자동 포함)
+  | 'research';     // 연구 (지능) — 분석 시간 · 추출기/조합대/3D 프린터 재료 환급
 
 export const SKILL_IDS: readonly SkillId[] = [
   'carry', 'appraisal', 'grit', 'gardening', 'crafting', 'medicine', 'cryptography',
   'implant', 'gun_AR', 'gun_SMG', 'gun_SR', 'gun_DMR', 'gun_SG', 'equipment',
+  /* appended (2026-09-13) */
+  'cooking', 'research',
 ];
 
 export interface StatDef {
@@ -388,11 +393,14 @@ export interface ProgressionRef {
  * `resetProfile` 은 셋을 비운다.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** 운동으로 단련하는 능력치. */
-export type GymStat = Extract<StatId, 'strength' | 'endurance'>;
-export const GYM_STATS: readonly GymStat[] = ['strength', 'endurance'];
-/** 디버프 이름 — 근력 운동 뒤 근육통, 지구력 운동 뒤 심폐 피로 (사용자 명세). */
-export const GYM_FATIGUE_LABEL_KO: Readonly<Record<GymStat, string>> = { strength: '근육통', endurance: '심폐 피로' };
+/**
+ * 운동으로 단련하는 능력치. appended (2026-09-13, docs/plans/library-series-games.md): **비디오게임**이 지능 · 인지력을 같은 규칙
+ * (`applyGymSession` · 단련 보너스 · 능력치별 24 h 디버프 — 사용자 결정 「헬스와 동일」)으로 단련한다.
+ */
+export type GymStat = Extract<StatId, 'strength' | 'endurance' | 'intelligence' | 'perception'>;
+export const GYM_STATS: readonly GymStat[] = ['strength', 'endurance', 'intelligence', 'perception'];
+/** 디버프 이름 — 근력 운동 뒤 근육통, 지구력 운동 뒤 심폐 피로 (사용자 명세). 2026-09-13: 게임 뒤 지능 = 정신 피로 · 인지력 = 눈의 피로. */
+export const GYM_FATIGUE_LABEL_KO: Readonly<Record<GymStat, string>> = { strength: '근육통', endurance: '심폐 피로', intelligence: '정신 피로', perception: '눈의 피로' };
 
 export interface PlayerProfile {
   /** 운동으로 얻은 단련 보너스 (정수, 0 … GYM_TRAINED_MAX). 옛 세이브에는 없다 = 0. */
@@ -476,3 +484,19 @@ export interface ProgressionRef {
   getActiveMealQuality?(): number;
 }
 /* ══ end 2026-09-13 요리 품질 ══ */
+
+/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/plans/library-series-games.md) ══
+ * 새 숙련 둘(`cooking` · `research`)의 파생 수치. 서재의 `derived` 효과는 새 필드가 아니라 `MealBuff` 키에 요리 버프처럼 접힌다
+ * (`ProgressionSystem` 이 `ctx.housing.getLibraryEffects().derived` 를 `recompute` 끝에서 더한다 — `housing:libraryChanged` 에 다시 계산).
+ * 비디오게임은 헬스와 같은 `applyGymSession` 을 쓴다 — `GymStat` 에 지능 · 인지력이 더해졌다 (단련 · 디버프 규칙 그대로). */
+export interface DerivedStats {
+  /** 요리: 조리 단계 점수에 더하는 값 (0 … `COOK_SKILL_SCORE_AT_MAX`). 직접 하기 · 자동 모두 — 단계 점수는 1 로 자른다. */
+  cookScoreBonus: number;
+  /** 연구: 분석 시간 배수 (1 … 1 − `RESEARCH_TIME_AT_MAX`). 넣는 순간 확정된다. */
+  researchTimeMul: number;
+  /** 연구: 추출기 · 조합대 · 3D 프린터 제작 완료 시 재료 일부를 돌려받을 확률 (0 … `RESEARCH_REFUND_CHANCE_AT_MAX`). */
+  researchRefundChance: number;
+  /** 연구: 돌려받을 때 재료마다 돌려받는 비율 (`RESEARCH_REFUND_FRAC_MIN` … `RESEARCH_REFUND_FRAC_MAX`, 재료당 최소 1 개). */
+  researchRefundFrac: number;
+}
+/* ══ end 2026-09-13 서재 시리즈 ══ */

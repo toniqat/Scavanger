@@ -21,30 +21,44 @@
  * 1.6 초에 24 번(중간 61 ms · 최대 122 ms 간격 — rAF 는 52 번)밖에 못 돌았다. 커서 · 표식이 2–4 프레임씩 건너뛰며 끊겼고,
  * 키 핸들러는 판정 객체만 밀고 그리지 않아 화면이 키 입력 순간에 맞춰 튀는 것처럼 보였다. rAF 는 **그리기 직전에** 돌므로
  * 화면이 바뀌는 프레임마다 반드시 한 번 칠한다. 예비 타이머(`FALLBACK_MS`)는 rAF 가 멈춘 경우(헤드리스 · 가려진 창)에만 일한다.
+ *
+ * 2026-09-13 (비디오게임, H2): **게임 모드**(`openGame`)가 같은 화면을 쓴다 — 헬스 모드(`open`)는 한 글자도 바뀌지 않았다.
+ * 게임 모드의 차이: 판정 = `createGymGame(minigame, 디스크 튜닝)` · 제목 = 디스크 이름 · 부제 = 게임기 · 방식(`벤치프레스형` …) ·
+ * 강조색 = 디스크 테마 색(루트의 `--c-accent` 를 덮어 `.gym-*` 전부가 따라간다, 루트 클래스 `is-game`) · 블로커 / ESC / 키 가이드 토큰
+ * `housing.game` · 판정 이벤트 `housing:gameBeat` · 끝 = `parts/VideoGame` 의 `completeGameSession` / `endGameSession`.
+ * 소리는 헬스와 같은 id(`gym_*`)를 쓴다.
  */
-import type { GameContext, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry } from '@/shared';
+import type {
+  GameContext, GameSessionInfo, GymGameTuning, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry,
+} from '@/shared';
 import {
   GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, keyLabel,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { GYM_BLOCKER, completeGymSession, endGymSession } from '../../parts/Gym';
-import { GYM_QUALITY_LABEL_KO, createGymGame } from '../../parts/GymGames';
+import { GAME_BLOCKER, GAME_MINIGAME_LABEL_KO, completeGameSession, endGameSession } from '../../parts/VideoGame';
+import { GYM_QUALITY_LABEL_KO, createGymGame, tunedCount } from '../../parts/GymGames';
 import type { GymAction, GymGame, GymQuality } from '../../parts/GymGames';
 import { clear, clockText, el, setText, toggleClass } from '../dom';
 import { createGymView, replayClass } from './GymViews';
-import type { GymView } from './GymViews';
+import type { GymNoteLabels, GymView } from './GymViews';
 import './gym.css';
 
 export type GymScreenKind = 'intro' | 'game' | 'result';
+/** 화면이 몰고 있는 세션의 종류 — 헬스 기구 · 비디오게임 (2026-09-13). */
+export type GymScreenMode = 'gym' | 'game';
 
-const ESCAPE_TOKEN = 'housing.gym';
-const GUIDE_OWNER = 'housing.gym';
+/** 헬스 모드의 ESC 토큰 · 키 가이드 owner (블로커 `GYM_BLOCKER` 와 같은 글자). */
+const GYM_TOKEN = 'housing.gym';
 /** 예비 타이머 간격 (ms) — rAF 가 돌지 않을 때만 일한다 (구현 값). */
 const FALLBACK_MS = 50;
 /** 마지막 루프가 이보다 오래됐으면 rAF 가 멈춘 것으로 본다 (ms, 구현 값). */
 const FALLBACK_STALE_MS = 100;
 /** 마지막 판정 뒤 결과 화면으로 넘어가기까지 (ms) — 마지막 판정 글자를 읽을 틈 (연출 시간). */
 const RESULT_DELAY_MS = 700;
+/** 게임 모드 호흡형 표식 글자. */
+const GAME_NOTE_LABELS: GymNoteLabels = { tap: '톡', hold: '꾹' };
+const COLOR_SHAPE = /^#[0-9a-fA-F]{6}$/;
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 100);
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
@@ -52,14 +66,40 @@ const isField = (t: EventTarget | null): boolean => t instanceof HTMLInputElemen
 
 interface Clock { el: HTMLElement; until: number; format: (s: string) => string; text: string }
 
+/** 한 번 연 세션의 모든 것 — 헬스 · 게임이 이것 하나로 갈린다. */
+interface ScreenSpec {
+  mode: GymScreenMode;
+  /** 운동 기구 uid · TV uid. */
+  uid: string;
+  stat: GymStat;
+  minigame: GymMinigame;
+  /** 기구 이름 · 디스크 이름. */
+  title: string;
+  /** 게임기 이름 (게임 모드 부제), 헬스는 ''. */
+  consoleName: string;
+  /** 게임 테마 색 `#rrggbb`, 헬스 · 잘못된 값은 null. */
+  color: string | null;
+  tuning: GymGameTuning | undefined;
+}
+
+export interface GameScreenOptions {
+  title: string;
+  color?: string | null;
+  tuning?: GymGameTuning;
+  consoleName?: string;
+}
+
 export class GymScreen {
   readonly root: HTMLElement;
   screen: GymScreenKind | null = null;
   game: GymGame | null = null;
-  /** 마지막으로 끝낸 세션의 결과 (닫은 뒤에도 남는다 — 스모크). */
+  /** 마지막으로 끝낸 **헬스** 세션의 결과 (닫은 뒤에도 남는다 — 스모크). */
   lastResult: GymSessionResult | null = null;
-  private session: GymSessionInfo | null = null;
-  private equipName = '';
+  /** 마지막으로 끝낸 **게임** 세션의 결과 (2026-09-13). */
+  lastGameResult: GymSessionResult | null = null;
+  private spec: ScreenSpec | null = null;
+  /** 지금 열린 모드의 블로커 · ESC · 키 가이드 토큰 (닫을 때 spec 이 먼저 비워져도 남는다). */
+  private token = GYM_TOKEN;
   private card: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
   private countEl: HTMLElement | null = null;
@@ -84,20 +124,39 @@ export class GymScreen {
   }
 
   get isOpen(): boolean { return this.screen !== null; }
+  /** 열린 화면의 모드 (닫혀 있으면 null). */
+  get mode(): GymScreenMode | null { return this.isOpen && this.spec ? this.spec.mode : null; }
   /** 화면 루프(rAF · 예비 타이머)가 걸려 있는가 — 스모크 (닫으면 false). */
   get ticking(): boolean { return this.raf !== 0 || this.timer !== 0; }
 
   /* ── 열기 · 닫기 ─────────────────────────────────────────────────────────── */
+  /** 헬스 기구 세션 (A-3a). */
   open(session: GymSessionInfo, equipName: string): void {
+    this.openSpec({ mode: 'gym', uid: session.uid, stat: session.stat, minigame: session.minigame, title: equipName, consoleName: '', color: null, tuning: undefined });
+  }
+
+  /** 비디오게임 세션 (2026-09-13) — 디스크 이름 · 테마 색 · 튜닝. */
+  openGame(info: GameSessionInfo, opts: GameScreenOptions): void {
+    const color = typeof opts.color === 'string' && COLOR_SHAPE.test(opts.color) ? opts.color : null;
+    this.openSpec({
+      mode: 'game', uid: info.tvUid, stat: info.stat, minigame: info.minigame, title: opts.title,
+      consoleName: opts.consoleName ?? '', color, tuning: opts.tuning,
+    });
+  }
+
+  private openSpec(spec: ScreenSpec): void {
     if (this.isOpen) this.teardown();
-    this.session = session;
-    this.equipName = equipName;
+    this.spec = spec;
+    this.token = spec.mode === 'game' ? GAME_BLOCKER : GYM_TOKEN;
     this.game = null;
-    this.lastResult = null;
+    if (spec.mode === 'game') this.lastGameResult = null; else this.lastResult = null;
     this.resultAt = 0;
     this.finalScore = 0;
-    this.ctx.uiBlockers.add(GYM_BLOCKER);
-    this.ctx.escape.push(ESCAPE_TOKEN, () => this.close());
+    toggleClass(this.root, 'is-game', spec.mode === 'game');
+    if (spec.color) this.root.style.setProperty('--c-accent', spec.color);
+    else this.root.style.removeProperty('--c-accent');
+    this.ctx.uiBlockers.add(spec.mode === 'game' ? GAME_BLOCKER : GYM_BLOCKER);
+    this.ctx.escape.push(this.token, () => this.close());
     window.addEventListener('keydown', this.onKeyDown, true);
     window.addEventListener('keyup', this.onKeyUp, true);
     this.root.hidden = false;
@@ -106,14 +165,17 @@ export class GymScreen {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** 닫는다 — 게임 도중이면 취소다. 세션 끝(`housing:gymSession {active:false}`)은 `endGymSession` 이 낸다. */
+  /** 닫는다 — 게임 도중이면 취소다. 세션 끝(`housing:gymSession` / `housing:gameSession {active:false}`)은 parts 가 낸다. */
   close(): void {
     if (!this.isOpen) return;
+    const mode = this.spec?.mode ?? 'gym';
     this.teardown();
-    endGymSession(this.sys);
+    if (mode === 'game') endGameSession(this.sys);
+    else endGymSession(this.sys);
   }
 
   private teardown(): void {
+    const mode = this.spec?.mode ?? 'gym';
     this.stopLoop();
     window.removeEventListener('keydown', this.onKeyDown, true);
     window.removeEventListener('keyup', this.onKeyUp, true);
@@ -123,11 +185,13 @@ export class GymScreen {
     this.card = this.panel = this.countEl = this.verdict = null;
     this.clocks = [];
     this.root.hidden = true;
+    this.root.style.removeProperty('--c-accent');
+    toggleClass(this.root, 'is-game', false);
     this.screen = null;
-    this.session = null;
-    this.ctx.uiBlockers.delete(GYM_BLOCKER);
-    this.ctx.escape.remove(ESCAPE_TOKEN);
-    this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys: null });
+    this.spec = null;
+    this.ctx.uiBlockers.delete(mode === 'game' ? GAME_BLOCKER : GYM_BLOCKER);
+    this.ctx.escape.remove(this.token);
+    this.ctx.bus.emit('ui:keyGuide', { owner: this.token, keys: null });
   }
 
   dispose(): void {
@@ -136,6 +200,15 @@ export class GymScreen {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.root.remove();
+  }
+
+  /* ── 모드별 끝 ───────────────────────────────────────────────────────────── */
+  private complete(score: number): GymSessionResult | null {
+    return this.spec?.mode === 'game' ? completeGameSession(this.sys, score) : completeGymSession(this.sys, score);
+  }
+
+  private currentResult(): GymSessionResult | null {
+    return (this.spec?.mode === 'game' ? this.sys.gameState?.result : this.sys.gymState?.result) ?? null;
   }
 
   /* ── 루프 ────────────────────────────────────────────────────────────────── */
@@ -173,19 +246,19 @@ export class GymScreen {
   /* ── 흐름 ────────────────────────────────────────────────────────────────── */
   /** 시작 안내 → 게임. */
   start(): boolean {
-    const s = this.session;
+    const s = this.spec;
     if (this.screen !== 'intro' || !s) return false;
     this.clearBody();
-    this.game = createGymGame(s.minigame);
+    this.game = createGymGame(s.minigame, s.tuning);
     this.screen = 'game';
     const panel = this.panel = el('div', { cls: 'gym-panel', parent: this.root });
     panel.dataset.minigame = s.minigame;
     const head = el('div', { cls: 'gym-head', parent: panel });
-    el('div', { cls: 'gym-name', text: `${this.equipName} · ${GYM_MINIGAME_LABEL_KO[s.minigame]}`, parent: head });
+    el('div', { cls: 'gym-name', text: `${s.title} · ${this.minigameLabel(s)}`, parent: head });
     this.countEl = el('div', { cls: 'gym-count', parent: head });
-    this.view = createGymView(this.game, panel);
+    this.view = createGymView(this.game, panel, s.mode === 'game' ? { labels: GAME_NOTE_LABELS } : {});
     this.verdict = el('div', { cls: 'gym-verdict', parent: panel });
-    el('div', { cls: 'gym-hint', text: this.ruleText(s.minigame), parent: panel });
+    el('div', { cls: 'gym-hint', text: this.ruleText(s), parent: panel });
     this.last = performance.now();
     this.emitGuide();
     this.paint();
@@ -197,7 +270,7 @@ export class GymScreen {
   finishWith(score: number): GymSessionResult | null {
     if (this.screen !== 'intro' && this.screen !== 'game') return null;
     this.finalScore = Math.max(0, Math.min(1, score));
-    const r = completeGymSession(this.sys, this.finalScore);
+    const r = this.complete(this.finalScore);
     this.showResult(false);
     return r;
   }
@@ -214,11 +287,12 @@ export class GymScreen {
 
   /** 판정 객체가 쌓은 이벤트 → 버스 · 소리 · 판정 글자. 마지막 판정이면 점수를 넘기고 결과 화면을 예약한다. */
   private flush(): void {
-    const g = this.game, s = this.session;
+    const g = this.game, s = this.spec;
     if (!g || !s) return;
     for (const ev of g.drain()) {
       if (ev.type === 'sound') { this.ctx.bus.emit('audio:play', { id: ev.id }); continue; }
-      this.ctx.bus.emit('housing:gymBeat', { uid: s.uid, minigame: s.minigame, quality: ev.quality, index: ev.index, total: ev.total });
+      if (s.mode === 'game') this.ctx.bus.emit('housing:gameBeat', { tvUid: s.uid, quality: ev.quality, index: ev.index, total: ev.total });
+      else this.ctx.bus.emit('housing:gymBeat', { uid: s.uid, minigame: s.minigame, quality: ev.quality, index: ev.index, total: ev.total });
       this.ctx.bus.emit('audio:play', { id: `gym_${ev.quality}` });
       this.view?.judged(ev.quality, ev.index);
       this.flash(ev.quality);
@@ -226,7 +300,7 @@ export class GymScreen {
     if (g.done && !this.resultAt && this.screen === 'game') {
       this.resultAt = performance.now() + RESULT_DELAY_MS;
       this.finalScore = g.score;
-      completeGymSession(this.sys, g.score);
+      this.complete(g.score);
     }
   }
 
@@ -315,9 +389,20 @@ export class GymScreen {
     try { return this.ctx.progression?.getStatDef(stat)?.name ?? stat; } catch { return stat; }
   }
 
-  private ruleText(kind: GymMinigame): string {
+  private minigameLabel(s: ScreenSpec): string {
+    return s.mode === 'game' ? GAME_MINIGAME_LABEL_KO[s.minigame] : GYM_MINIGAME_LABEL_KO[s.minigame];
+  }
+
+  private ruleText(s: ScreenSpec): string {
     const J = keyLabel(Keys.JUMP);
-    if (kind === 'press') return `커서가 가운데 구역에 들어올 때 ${J} — 가운데일수록 좋습니다 (${Math.round(GYM_PRESS_REPS)}회)`;
+    const kind = s.minigame;
+    const reps = tunedCount(Math.round(GYM_PRESS_REPS), s.tuning?.countMul);
+    if (s.mode === 'game') {
+      if (kind === 'press') return `커서가 가운데 구역에 들어올 때 ${J} — 가운데일수록 좋습니다 (${reps}회)`;
+      if (kind === 'breath') return `표식이 선에 닿을 때 ${J} — 「톡」 은 짧게, 「꾹」 은 꾹 눌렀다가 끝에서 뗍니다`;
+      return `표식에 맞춰 왼쪽 ${keyLabel(Keys.LEFT)} · 오른쪽 ${keyLabel(Keys.RIGHT)} 을 누릅니다`;
+    }
+    if (kind === 'press') return `커서가 가운데 구역에 들어올 때 ${J} — 가운데일수록 좋습니다 (${reps}회)`;
     if (kind === 'breath') return `표식이 선에 닿을 때 ${J} — 「후」 는 짧게, 「하」 는 꾹 눌렀다가 끝에서 뗍니다`;
     return `박자에 맞춰 왼발 ${keyLabel(Keys.LEFT)} · 오른발 ${keyLabel(Keys.RIGHT)} 을 번갈아 밟습니다`;
   }
@@ -337,24 +422,26 @@ export class GymScreen {
   }
 
   private showIntro(): void {
-    const s = this.session;
+    const s = this.spec;
     if (!s) return;
     this.clearBody();
     this.screen = 'intro';
     const prog = this.ctx.progression;
+    const game = s.mode === 'game';
     const card = this.card = el('div', { cls: 'gym-card gym-intro', parent: this.root });
-    el('div', { cls: 'gym-kicker', text: `헬스장 · ${this.statName(s.stat)} 단련`, parent: card });
-    el('div', { cls: 'gym-title', text: this.equipName, parent: card });
-    el('div', { cls: 'gym-sub', text: GYM_MINIGAME_LABEL_KO[s.minigame], parent: card });
+    el('div', { cls: 'gym-kicker', text: `${game ? '비디오게임' : '헬스장'} · ${this.statName(s.stat)} 단련`, parent: card });
+    el('div', { cls: 'gym-title', text: s.title, parent: card });
+    el('div', { cls: 'gym-sub', text: game && s.consoleName ? `${s.consoleName} · ${this.minigameLabel(s)}` : this.minigameLabel(s), parent: card });
     const trained = prog?.getTrainedBonus?.(s.stat) ?? 0;
     const need = prog?.trainedXpToNext?.(s.stat) ?? null;
     this.trainedBlock(card, s.stat, trained, prog?.getTrainedProgress?.(s.stat) ?? 0, need, trained >= GYM_TRAINED_MAX);
-    el('div', { cls: 'gym-rule', text: this.ruleText(s.minigame), parent: card });
+    el('div', { cls: 'gym-rule', text: this.ruleText(s), parent: card });
     const until = prog?.getGymFatigueUntil?.(s.stat) ?? 0;
     if (until > this.sys.nowMs()) {
       const warn = el('div', { cls: 'gym-warn', parent: card });
       const label = GYM_FATIGUE_LABEL_KO[s.stat], name = this.statName(s.stat);
-      this.clocks.push({ el: warn, until, text: '-', format: (t) => `${label} — 이번 운동으로는 ${name}이 오르지 않습니다 (남은 ${t})` });
+      const what = game ? '게임' : '운동';
+      this.clocks.push({ el: warn, until, text: '-', format: (t) => `${label} — 이번 ${what}으로는 ${name}이 오르지 않습니다 (남은 ${t})` });
     }
     const foot = el('div', { cls: 'gym-foot', parent: card });
     const key = el('span', { cls: 'keycap gym-startkey', parent: foot });
@@ -366,17 +453,17 @@ export class GymScreen {
   }
 
   private showResult(fromGame: boolean): void {
-    const s = this.session;
+    const s = this.spec;
     if (!s) return;
     const g = fromGame ? this.game : null;
     const counts = g ? g.counts() : null;
     this.clearBody();
     this.screen = 'result';
     this.resultAt = 0;
-    const r = this.sys.gymState?.result ?? null;
-    this.lastResult = r;
+    const r = this.currentResult();
+    if (s.mode === 'game') this.lastGameResult = r; else this.lastResult = r;
     const card = this.card = el('div', { cls: 'gym-card gym-result', parent: this.root });
-    el('div', { cls: 'gym-kicker', text: `운동 완료 · ${GYM_MINIGAME_LABEL_KO[s.minigame]}`, parent: card });
+    el('div', { cls: 'gym-kicker', text: `${s.mode === 'game' ? '게임' : '운동'} 완료 · ${this.minigameLabel(s)}`, parent: card });
     const score = el('div', { cls: 'gym-score', parent: card });
     el('span', { cls: 'gym-score-num', text: String(pct(r?.score ?? this.finalScore)), parent: score });
     el('span', { cls: 'gym-score-unit', text: '%', parent: score });
@@ -420,23 +507,26 @@ export class GymScreen {
     this.relabelKeys();
     this.view?.relabel();
     const hint = this.panel?.querySelector<HTMLElement>('.gym-hint');
-    if (hint && this.session) setText(hint, this.ruleText(this.session.minigame));
+    if (hint && this.spec) setText(hint, this.ruleText(this.spec));
     const rule = this.card?.querySelector<HTMLElement>('.gym-rule');
-    if (rule && this.session) setText(rule, this.ruleText(this.session.minigame));
+    if (rule && this.spec) setText(rule, this.ruleText(this.spec));
     this.emitGuide();
   }
 
   private emitGuide(): void {
-    const s = this.session;
+    const s = this.spec;
     if (!s || !this.screen) return;
     const J = keyLabel(Keys.JUMP);
+    const game = s.mode === 'game';
     let keys: KeyGuideEntry[] = [];
     if (this.screen === 'intro') keys = [{ key: J, label: '시작' }];
     else if (this.screen === 'game') {
-      if (s.minigame === 'press') keys = [{ key: J, label: '들어 올리기' }];
-      else if (s.minigame === 'breath') keys = [{ key: J, label: '후' }, { key: J, label: '하', hold: true }];
-      else keys = [{ key: keyLabel(Keys.LEFT), label: '왼발' }, { key: keyLabel(Keys.RIGHT), label: '오른발' }];
+      if (s.minigame === 'press') keys = [{ key: J, label: game ? '누르기' : '들어 올리기' }];
+      else if (s.minigame === 'breath') keys = game
+        ? [{ key: J, label: '톡' }, { key: J, label: '꾹', hold: true }]
+        : [{ key: J, label: '후' }, { key: J, label: '하', hold: true }];
+      else keys = [{ key: keyLabel(Keys.LEFT), label: game ? '왼쪽' : '왼발' }, { key: keyLabel(Keys.RIGHT), label: game ? '오른쪽' : '오른발' }];
     }
-    this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys });
+    this.ctx.bus.emit('ui:keyGuide', { owner: this.token, keys });
   }
 }

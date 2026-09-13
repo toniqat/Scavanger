@@ -3,7 +3,10 @@ import type { ArmorDef, CraftIngredient, CraftRecipe, DurabilityBucketInfo, Effe
 import type { CorpseLootOpts, PlanetId, WeaponGrade } from '@/shared';
 import { Random, planetTier } from '@/shared';
 import { UNIQUE_WEAPON_IDS } from '@/shared';
-import { AMMO_TYPES_V2, ATTACHMENT_ITEM_DEFS, BOOK_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
+import { AMMO_TYPES_V2, ATTACHMENT_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
+/* appended (2026-09-13): 서재 매체 · 비디오게임 — 행성 고정 드롭 · 권 가중치 · 옛 id 안전망 */
+import { resolveItemAlias } from '@/shared';
+import { isLootableOnPlanet, libraryBookPool, libraryVolumeWeight, planetCategoryAvailable } from './LootTables';
 import { WEAPON_DEF_MAP, WEAPON_FAMILIES, gradeOf, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
@@ -39,7 +42,8 @@ export function nextUid(): string {
 export class LootService implements LootRef {
   private fallbackRng = new Random(Date.now() & 0x7fffffff);
 
-  getItemDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
+  /** 2026-09-13: 옛 서재 매체 id(`data/item_aliases.csv`)도 새 def 로 풀린다 — 세이브를 옮기는 폴더(housing · inventory)가 놓친 id 의 안전망. */
+  getItemDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId) ?? ITEM_DEF_MAP.get(resolveItemAlias(defId)); }
   getWeaponDef(weaponId: string): WeaponDef | undefined { return WEAPON_DEF_MAP.get(weaponId); }
   getAllItemDefs(): ItemDef[] { return ITEM_DEFS.slice(); }
   /* appended: tactical kit */
@@ -52,9 +56,11 @@ export class LootService implements LootRef {
    * override those and carry sockets across drops / pickups / storage.
    */
   createItem(defId: string, qty = 1, extras?: ItemInstanceExtras): ItemInstance {
-    const def = ITEM_DEF_MAP.get(defId);
+    /* 2026-09-13: 옛 id 면 새 id 로 만든다 (인스턴스의 defId 도 새 id 다). */
+    const id = ITEM_DEF_MAP.has(defId) ? defId : resolveItemAlias(defId);
+    const def = ITEM_DEF_MAP.get(id);
     if (!def) throw new Error(`[Loot] unknown item def '${defId}'`);
-    const inst: ItemInstance = { uid: nextUid(), defId, qty: Math.max(1, Math.min(def.stackMax, Math.floor(qty))), rotated: false };
+    const inst: ItemInstance = { uid: nextUid(), defId: id, qty: Math.max(1, Math.min(def.stackMax, Math.floor(qty))), rotated: false };
     const weapon = def.weaponId ? WEAPON_DEF_MAP.get(def.weaponId) : undefined;
     if (weapon) {
       // uniques never carry sockets (no attachment fits them); everything else keeps its sockets across drops / storage
@@ -115,17 +121,21 @@ export class LootService implements LootRef {
    * container auto-placement fragments less. At most one bag per crate.
    */
   rollCrate(tier: number, rng: Random = this.fallbackRng): ItemInstance[] {
-    return this.rollCrateWithCurve(tier, rng, null);
+    return this.rollCrateWithCurve(tier, rng, null, null);
   }
 
-  /** `rollCrate` 본체. `curve` 가 null 이면 rng 를 한 번도 더 쓰지 않으므로 예전 결과와 완전히 같다. */
-  private rollCrateWithCurve(tier: number, rng: Random, curve: PlanetGradeCurve | null): ItemInstance[] {
+  /**
+   * `rollCrate` 본체. `curve` 가 null 이면 rng 를 한 번도 더 쓰지 않으므로 예전 결과와 완전히 같다.
+   * 2026-09-13: `planet` — 서재 매체 · 게임기 · 게임 디스크를 그 행성의 것만 후보로 둔다. 그 행성에 후보가 없는 카테고리는
+   * 카테고리 추첨 목록에서 빠진다(추첨 draw 수는 그대로 한 번). null 이면 행성이 있는 아이템 전부가 후보다.
+   */
+  private rollCrateWithCurve(tier: number, rng: Random, curve: PlanetGradeCurve | null, planet: PlanetId | null): ItemInstance[] {
     const table = getTierTable(tier);
     const count = rng.int(table.count[0], table.count[1]);
     const picks: ItemDef[] = [];
 
     for (const g of table.guaranteed) {
-      const d = this.pickDef(table, rng, (def) => g.categories.includes(def.category) && rarityRank(def.rarity) >= rarityRank(g.minRarity), true, curve);
+      const d = this.pickDef(table, rng, (def) => g.categories.includes(def.category) && rarityRank(def.rarity) >= rarityRank(g.minRarity), true, curve, planet);
       if (d) picks.push(d);
     }
 
@@ -135,14 +145,14 @@ export class LootService implements LootRef {
     while (picks.length < count) {
       if (weaponPending) {
         weaponPending = false;
-        const d = this.pickDef(table, rng, isWeaponItemDef, true, curve);
+        const d = this.pickDef(table, rng, isWeaponItemDef, true, curve, planet);
         if (d) { picks.push(d); continue; }
       }
       const hasBag = picks.some((d) => d.category === 'bag');
       const cats = (Object.keys(table.categoryWeights) as Array<keyof typeof table.categoryWeights>)
-        .filter((c) => !(hasBag && c === 'bag'));
+        .filter((c) => !(hasBag && c === 'bag') && planetCategoryAvailable(c, planet));
       const cat = rng.weighted(cats, (c) => table.categoryWeights[c] ?? 0);
-      const d = this.pickDef(table, rng, (def) => def.category === cat, false, curve);
+      const d = this.pickDef(table, rng, (def) => def.category === cat, false, curve, planet);
       if (d) picks.push(d); else break;
     }
 
@@ -277,9 +287,12 @@ export class LootService implements LootRef {
       }
     }
 
-    // Phase 9: a reading raider — one 서적, uniform over the 14 books (rolled after the unique so earlier draws are unchanged)
-    if (table.book && BOOK_ITEM_DEFS.length > 0 && rng.chance(table.book.chance)) {
-      out.push(this.createItem(rng.pick(BOOK_ITEM_DEFS).id, 1));
+    // Phase 9: a reading raider — one 서적 (rolled after the unique so earlier draws are unchanged)
+    /* 2026-09-13 (서재 시리즈): 그 레이드 행성의 책 시리즈에서 권 가중치로 한 권 (`libraryBookPool` · `libraryVolumeWeight`).
+       draw 수는 예전(chance + pick)과 같다 (chance + weighted). 행성이 null 이면 모든 책이 후보다. */
+    if (table.book) {
+      const pool = libraryBookPool(planet);
+      if (pool.length > 0 && rng.chance(table.book.chance)) out.push(this.createItem(rng.weighted(pool, libraryVolumeWeight).id, 1));
     }
 
     // Phase 12: a fried implant — one 망가진 임플란트 weighted by rarity (rolled last, so every earlier draw is unchanged)
@@ -366,7 +379,8 @@ export class LootService implements LootRef {
    * `planet` 이 null 이거나 표에 없는 행성이면 `rollCrate` 와 완전히 같다.
    */
   rollCrateOn(tier: number, rng: Random, planet: PlanetId | null): ItemInstance[] {
-    return this.rollCrateWithCurve(tier, rng, this.curveFor(planet));
+    // 2026-09-13: 행성은 서재 매체 · 게임기 · 게임 디스크의 후보도 거른다 (`LootTables.isLootableOnPlanet`).
+    return this.rollCrateWithCurve(tier, rng, this.curveFor(planet), planet);
   }
 
   /**
@@ -509,10 +523,11 @@ export class LootService implements LootRef {
    */
   private pickDef(
     table: TierTable, rng: Random, filter: (d: ItemDef) => boolean, relaxRarity: boolean,
-    curve: PlanetGradeCurve | null = null,
+    curve: PlanetGradeCurve | null = null, planet: PlanetId | null = null,
   ): ItemDef | null {
-    /* 2026-09-13: 은퇴한 아이템은 어떤 굴림(확정 · 무기 · 카테고리 · relaxRarity 폴백)에서도 후보가 아니다. */
-    const all = ITEM_DEFS.filter((d) => isLootableDef(d) && filter(d));
+    /* 2026-09-13: 은퇴한 아이템은 어떤 굴림(확정 · 무기 · 카테고리 · relaxRarity 폴백)에서도 후보가 아니다.
+       같은 날(서재 시리즈): 행성에 묶인 아이템(서재 매체 · 게임기 · 게임 디스크)은 그 행성의 것만 후보다. */
+    const all = ITEM_DEFS.filter((d) => isLootableDef(d) && isLootableOnPlanet(d, planet) && filter(d));
     /* 유니크가 봉인된 행성에서는 후보에서 아예 뺀다 — 가중치만 0 으로 두면 `relaxRarity` 폴백이 도로 집어 온다
        (티어 5 처럼 등급 무기가 전부 0 인 표에서 실제로 일어난다). curve 가 null 이면 후보가 그대로다. */
     const candidates = curve ? all.filter((d) => this.curveMul(curve, d) > 0) : all;
@@ -521,7 +536,8 @@ export class LootService implements LootRef {
        확정 픽 · 무기 픽 · 카테고리 픽이 전부 이 함수를 지난다. 배수가 1 이면 `table.rarityWeights` 를
        그대로(같은 객체로) 돌려받으므로 그 행성의 결과는 예전과 비트 단위로 같다. */
     const rarityWeights = planetRarityWeights(table.rarityWeights, curve);
-    const weightOf = (d: ItemDef): number => rarityWeights[d.rarity] * this.weightMul(table, d) * this.curveMul(curve, d);
+    /* 2026-09-13: 서재 매체는 권 가중치를 곱한다 (뒤 권일수록 드물다 — 서재 매체가 아니면 1). */
+    const weightOf = (d: ItemDef): number => rarityWeights[d.rarity] * this.weightMul(table, d) * this.curveMul(curve, d) * libraryVolumeWeight(d);
     const weighted = candidates.filter((d) => weightOf(d) > 0);
     if (weighted.length > 0) return rng.weighted(weighted, weightOf);
     if (relaxRarity) return rng.weighted(candidates, (d) => 1 / (1 + rarityRank(d.rarity)));

@@ -52,6 +52,7 @@ export function panels(sys: HousingSystem): HousingPanel[] {
   if (sys.cookStation) out.push(sys.cookStation);          // 조리대 화면 (2026-09-13) — 조리 오버레이는 패널이 아니다 (`cookScreen`)
   if (sys.clusterScreen) out.push(sys.clusterScreen);      // 연산 클러스터 화면 (2026-09-13, 암호화폐 채굴)
   if (sys.miningComputer) out.push(sys.miningComputer);    // 메인 컴퓨터 (2026-09-13, 암호화폐 채굴)
+  if (sys.tvMenu) out.push(sys.tvMenu);                    // TV 화면 (2026-09-13, 비디오게임) — `closeMenus` · `isMenuOpen` 이 함께 본다
   return out;
 }
 

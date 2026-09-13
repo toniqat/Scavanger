@@ -233,7 +233,7 @@ export const BAG_FRAME_ROWS: number = (() => {
 export const SORT_CATEGORY_ORDER: readonly ItemCategory[] = [
   'primary', 'secondary', 'attachment', 'armor', 'bag', 'pouch', 'ammo',
   'stim', 'meal', 'prep', 'grenade', 'gadget', 'implant', 'key', 'valuable',
-  'material', 'herb', 'seed', 'soil', 'crop', 'sample', 'book', 'disc', 'record', 'furniture',
+  'material', 'herb', 'seed', 'soil', 'crop', 'sample', 'book', 'disc', 'record', 'game_disc', 'console', 'furniture',
 ];
 
 export type FilterGroupId = 'all' | 'favorite' | 'weapon' | 'gear' | 'ammo' | 'consumable' | 'gadget' | 'material' | 'valuable' | 'bio' | 'other';

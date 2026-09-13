@@ -662,6 +662,10 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (리드 — 게임 중 버프, 사용자 결정 「헬스처럼 일시적 버프로 분대원에게 보이게」)** — `parts/Buffs.recomputeBuffs` 의 가구 자세 절: 자세가 `sit` 이고
+  `ctx.housing.gameSession` 이 있으며 좌석 uid 가 같거나(자세에 uid 가 없으면 그대로) 하면 `rest` 대신 **`gaming`**(키 `pose`, `defId` = 게임 디스크 · `stat` · `minigame`).
+  `housing:gameSession` 이 `buffsDirty` 를 세운다. 목록 · 리비전 · 와이어 규칙은 그대로라 분대원에게는 `cbuf` 로 간다.
+
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D · R3)** — 새 `parts/RoverRide.ts`, `CameraRig` 궤도 모드(`enterRoverOrbit` · `exitRoverOrbit` ·
   `zoomRoverOrbit` · `isRoverOrbit`, 꼬리를 `finishFrame` 으로 뽑아 어깨 리그와 공유), `PlayerSystem`(`_roverRide` · 게이트 · 해제 지점),
   `parts/Vitals` · `Locomotion` · `Statuses` · `Spawn` · `DroneControl` · `Climb`(면제 · 해제 · 거절), `RemoteAvatar`(`IN_ROVER` 숨김).

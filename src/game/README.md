@@ -330,6 +330,10 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (서재 시리즈 — 레이드 경험치 책, 에이전트 C, docs/plans/library-series-games.md)** — `parts/Death.awardMissionXp` 가 레이드 몫 경험치(처치 · 시간 · 탈출 ·
+  전리품)를 `libraryRaidXpMul(ctx)` = `1 + ctx.housing.getLibraryEffects().raidXp`(housing 이 모르면 1, 음수 · NaN = 0)로 곱한 뒤 반올림한다. **계약 보상 XP 에는 곱하지 않는다** —
+  `contracts.csv` 의 고정 보상이다. 결과 화면의 `xpEarned` 는 곱한 값이다.
+
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `parts/Session.saveSoloAt` 가 탑승 중이면 선체 안 좌석 대신 `ctx.player.roverSafePosition`
   (차량 오른쪽 지면)을 저장한다 — 새로고침 복귀가 벽 안에서 일어나지 않게.
 

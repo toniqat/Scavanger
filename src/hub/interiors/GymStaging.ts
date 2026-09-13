@@ -55,11 +55,23 @@ export function worldPoseOf(piece: StagedPiece, rig: FurnitureRig): { anchor: TH
   return { anchor, yaw: yawFromForward(_f.x, _f.z) };
 }
 
-/** 흔들의자 앉기 자세 (카메라 없음 · E 로 일어난다). 흔들의자가 아니면 null. */
-export function sitPoseOf(piece: StagedPiece): FurniturePose | null {
+/**
+ * 앉기 자세 (카메라 없음 · E 로 일어난다) — 흔들의자 · 의자 · 쇼파. 앉는 가구가 아니면 null.
+ * 2026-09-13: `rig.seats` 가 여럿이면(쇼파 쿠션) `near`(월드 — 플레이어 발 · 게임 세션의 TV 화면)에 가장 가까운 자리에 앉는다.
+ */
+export function sitPoseOf(piece: StagedPiece, near?: THREE.Vector3 | null): FurniturePose | null {
   const rig = piece.model.rig;
   if (!rig || rig.pose !== 'sit') return null;
   const { anchor, yaw } = worldPoseOf(piece, rig);
+  if (near && rig.seats && rig.seats.length > 1) {
+    const g = piece.model.group;   // worldPoseOf 가 이미 행렬을 갱신했다
+    let best = Infinity;
+    for (const s of rig.seats) {
+      g.localToWorld(_v.copy(s));
+      const dd = (_v.x - near.x) ** 2 + (_v.z - near.z) ** 2;
+      if (dd < best) { best = dd; anchor.copy(_v); }
+    }
+  }
   // furnitureUid (2026-09-12, 캐릭터 버프 · 가구 자세 동기화): 방문자 쪽 hub 가 이 uid 로 같은 의자를 흔든다
   return { kind: 'sit', anchor, yaw, camera: null, releaseOnInteract: true, furnitureUid: piece.item.uid };
 }

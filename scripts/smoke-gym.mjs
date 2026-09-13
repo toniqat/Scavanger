@@ -362,18 +362,31 @@ try {
   if (hasProg) {
     /* ── 근육통 중 두 번째 근력 운동 ── */
     console.log('세션 (스미스 머신 — 근육통 중)');
-    const s2 = await H((u) => {
+    const s2 = await H(async ({ SMITH, BENCH }) => {
       const h = window.__game.ctx.housing, p = window.__game.ctx.progression;
+      const S = await import('/src/shared/index.ts');
+      // 2026-09-13 (H3): 서재 헬스 보너스 — 기구 interaction 별로만 붙는다. housing 인스턴스에 가짜 합산을 덮어 쓰고 끝에 되돌린다
+      const own = Object.getOwnPropertyDescriptor(h, 'getLibraryEffects');
+      h.getLibraryEffects = () => ({ ...S.EMPTY_LIBRARY_EFFECTS, gymScore: { gym_smith: 0.1, gym_bench_press: 0.3 }, revision: 9200 });
       const before = { until: p.getGymFatigueUntil('strength'), prog: p.getTrainedProgress('strength'), bonus: p.getTrainedBonus('strength') };
-      const r0 = h.startGymSession(u);
+      const r0 = h.startGymSession(SMITH);
       const warn = document.querySelector('.gym-intro .gym-warn')?.textContent ?? '';
       h.gymDebug.start();
-      const r = h.gymDebug.finish(1);
+      const r = h.gymDebug.finish(0.5);
       const text = document.querySelector('.gym-result')?.textContent ?? '';
       const after = { until: p.getGymFatigueUntil('strength'), prog: p.getTrainedProgress('strength'), bonus: p.getTrainedBonus('strength') };
       window.__game.ctx.escape.closeTop();
-      return { r0, warn, r, text, before, after, ev: window.__rec.sessions.at(-1), info: h.gymSession };
-    }, SMITH);
+      const ev = window.__rec.sessions.at(-1), info = h.gymSession;
+      // 같은 합산으로 벤치 랙 0.9 + 0.3 → 1 로 자른다
+      const rb0 = h.startGymSession(BENCH);
+      h.gymDebug.start();
+      const rb = h.gymDebug.finish(0.9);
+      window.__game.ctx.escape.closeTop();
+      if (own) Object.defineProperty(h, 'getLibraryEffects', own); else delete h.getLibraryEffects;
+      return { r0, warn, r, text, before, after, ev, info, rb0, rb };
+    }, { SMITH, BENCH });
+    ok(s2.r && Math.abs(s2.r.score - 0.6) < 1e-9, `서재 gymScore.gym_smith 0.1 → 스미스 머신 0.5 → ${s2.r?.score} (벤치 랙 몫 0.3 은 안 붙는다)`);
+    ok(s2.rb0 === null && s2.rb && s2.rb.score === 1, `서재 gymScore.gym_bench_press 0.3 → 벤치 랙 0.9 → 1 로 자른다 (${s2.rb?.score})`);
     ok(s2.r0 === null && /^근육통 — 이번 운동으로는 근력이 오르지 않습니다 \(남은 \d{2}:\d{2}:\d{2}\)$/.test(s2.warn), `시작 안내의 근육통 경고 (${s2.warn})`);
     ok(s2.r && s2.r.xp === 0 && s2.r.wasFatigued && s2.after.until === s2.before.until && s2.after.prog === s2.before.prog, `근육통 중 = 경험치 0 · 디버프 안 늘어남 (${JSON.stringify(s2.r)})`);
     ok(s2.text.includes('근육통 중이라 근력이 오르지 않았습니다'), '결과 화면이 이유를 말한다');
@@ -471,6 +484,8 @@ try {
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e.stack ?? e}`);
+  // 2026-09-13: 예외로 끝나면 모아 둔 페이지 오류도 찍는다 (새로고침 뒤 boot 가 멈춘 이유가 여기 있다)
+  if (errors.length) console.log(`  page errors (${errors.length}): ${errors.slice(0, 5).join(' | ')}`);
 } finally {
   await browser.close();
 }

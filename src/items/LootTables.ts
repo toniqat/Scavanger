@@ -10,6 +10,9 @@ import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
  */
 import { WEAPON_FAMILIES, WEAPON_GRADES } from './WeaponDefs';
 import { ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
+/* appended (2026-09-13): 서재 매체 · 비디오게임 — 행성 고정 드롭 */
+import { LIBRARY_SERIES_MAP, numberMap } from '@/shared';
+import { GAME_ITEM_PLANETS, ITEM_DEFS, libraryShelfOf } from './ItemDefs';
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
 /* appended (2026-09-11): 네임드 확정 드롭의 방탄복 등급 → armor_n */
 import { ARMOR_DEFS } from './ArmorDefs';
@@ -55,6 +58,68 @@ export const RETIRED_ITEM_IDS: ReadonlySet<string> = new Set([...ITEM_DEF_MAP.va
 /** 상자 · 보급 추첨의 후보가 될 수 있는 아이템인가 (은퇴한 것은 아니다). */
 export function isLootableDef(d: ItemDef): boolean {
   return !d.retired;
+}
+
+/* ── 행성 고정 드롭 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md) ─────────────
+ * 책 · 비디오 · 레코드는 **시리즈의 행성**(`data/library_series.csv`), 게임기 · 게임 디스크는 `game_*.csv` 의 행성에서만 나온다.
+ * 상자 굴림(`Loot.pickDef`)은 후보를 그 레이드 행성으로 거르고, 그 행성에 후보가 하나도 없는 카테고리는 카테고리 추첨에서 뺀다
+ * (`planetCategoryAvailable` — 아켈론 II 의 레코드 · 게임 디스크 · 게임기). 고른 아이템의 가중치에는 권 가중치
+ * (`tables.csv` 의 `LIBRARY_VOLUME_DROP_WEIGHT`)가 곱해진다. 로그 시체의 서적 굴림은 `libraryBookPool(행성)` 에서 권 가중치로 뽑는다.
+ * **행성이 null**(훈련장 · 행성 없는 옛 경로 · `rollCrate`)이면 행성이 하나라도 있는 아이템 전부가 후보다. */
+
+const LIBRARY_VOLUME_DROP_WEIGHT = numberMap<string>('tables.csv', 'LIBRARY_VOLUME_DROP_WEIGHT');
+
+/** 행성으로 거르는 카테고리 — 이 밖의 카테고리는 행성과 무관하다. */
+export const PLANET_BOUND_CATEGORIES: readonly ItemCategory[] = ['book', 'disc', 'record', 'game_disc', 'console'];
+
+/** 이 아이템이 나오는 행성. 행성에 묶이지 않는 아이템이면 null, 묶였는데 목록이 비었으면 `[]` (어디서도 안 나온다). */
+export function lootPlanetsOf(d: ItemDef): readonly PlanetId[] | null {
+  const shelf = libraryShelfOf(d);
+  if (shelf) return (shelf.series ? LIBRARY_SERIES_MAP.get(shelf.series)?.planets : undefined) ?? [];
+  if (d.gameDisc || d.gameConsole) return GAME_ITEM_PLANETS.get(d.id) ?? [];
+  return null;
+}
+
+/** 이 레이드 행성의 상자 · 시체에서 이 아이템이 후보인가. `planet` 이 null 이면 행성이 하나라도 있으면 된다. */
+export function isLootableOnPlanet(d: ItemDef, planet: PlanetId | null | undefined): boolean {
+  const planets = lootPlanetsOf(d);
+  if (planets === null) return true;
+  if (planets.length === 0) return false;
+  return planet == null || planets.includes(planet);
+}
+
+/** 서재 매체의 권 가중치 (`LIBRARY_VOLUME_DROP_WEIGHT[권]`, 표에 없는 권은 0). 서재 매체가 아니면 1. */
+export function libraryVolumeWeight(d: ItemDef): number {
+  const volume = libraryShelfOf(d)?.volume;
+  if (!volume) return 1;
+  return LIBRARY_VOLUME_DROP_WEIGHT[String(volume)] ?? 0;
+}
+
+const CATEGORY_ON_PLANET = new Map<string, boolean>();
+
+/** 그 행성에서 이 카테고리의 후보가 하나라도 있나 (행성 고정 카테고리가 아니면 늘 true). 결과는 (카테고리, 행성)마다 캐시한다. */
+export function planetCategoryAvailable(category: ItemCategory, planet: PlanetId | null | undefined): boolean {
+  if (!PLANET_BOUND_CATEGORIES.includes(category)) return true;
+  const key = `${category}@${planet ?? '*'}`;
+  let hit = CATEGORY_ON_PLANET.get(key);
+  if (hit === undefined) {
+    hit = ITEM_DEFS.some((d) => d.category === category && isLootableDef(d) && isLootableOnPlanet(d, planet) && libraryVolumeWeight(d) > 0);
+    CATEGORY_ON_PLANET.set(key, hit);
+  }
+  return hit;
+}
+
+const BOOK_POOLS = new Map<string, readonly ItemDef[]>();
+
+/** 로그 시체 서적 굴림의 후보 — 그 행성의 책 시리즈 아이템 (은퇴 · 권 가중치 0 제외). 뽑을 때는 `libraryVolumeWeight` 로 가중. */
+export function libraryBookPool(planet: PlanetId | null | undefined): readonly ItemDef[] {
+  const key = planet ?? '*';
+  let pool = BOOK_POOLS.get(key);
+  if (!pool) {
+    pool = ITEM_DEFS.filter((d) => d.category === 'book' && isLootableDef(d) && isLootableOnPlanet(d, planet) && libraryVolumeWeight(d) > 0);
+    BOOK_POOLS.set(key, pool);
+  }
+  return pool;
 }
 
 /**
@@ -312,7 +377,10 @@ export interface CorpseUnique {
   durability: readonly [number, number];
 }
 
-/** Phase 9: chance of one 서적 (uniform over `BOOK_ITEM_DEFS`) on a rogue corpse — the reading kind of raider. */
+/**
+ * Phase 9: chance of one 서적 on a rogue corpse — the reading kind of raider.
+ * 2026-09-13: picked from **the raid planet's book series** (`libraryBookPool`) weighted by `libraryVolumeWeight` (one draw, as before).
+ */
 export interface CorpseBook {
   chance: number;
 }

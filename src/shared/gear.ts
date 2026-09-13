@@ -120,3 +120,12 @@ export interface WeaponWear {
   weaponClass: WeaponClass;
   perShot: number;
 }
+
+/* ── appended (2026-09-13, 서재 시리즈 — docs/plans/library-series-games.md) ── */
+export interface CraftRecipe {
+  /**
+   * 레시피 책 시리즈 id — 있으면 그 책이 서재에 **꽂혀 있는 동안만** 만들 수 있다 (`HousingRef.isRecipeUnlocked`).
+   * csv 열이 아니다: items 로더가 `data/library_series.csv` 의 `recipe:<이 레시피 id>` 효과에서 채운다 (원본은 시리즈 표 하나).
+   */
+  unlockSeries?: string;
+}

@@ -7,8 +7,10 @@
  * 성능: `pointermove` 에서는 좌표만 적고 rAF 에 한 번 `transform` 을 쓴다. 크기는 내용을 바꿀 때만 잰다.
  */
 
-export interface SheetTipRow { k: string; v: string; tone?: 'good' }
-export interface SheetTipSection { title: string; rows: readonly SheetTipRow[] }
+/** `note` (2026-09-13): a small second line under the row spanning both columns (서재 시리즈: `책 · 4 / 5권 · 40 %`). */
+export interface SheetTipRow { k: string; v: string; tone?: 'good'; note?: string }
+/** `title` omitted / empty (2026-09-13) = the rows follow the divider with no header line. */
+export interface SheetTipSection { title?: string; rows: readonly SheetTipRow[] }
 export interface SheetTipSpec {
   name: string;
   sub?: string;
@@ -93,12 +95,13 @@ export class SheetTip {
     for (const s of spec.sections) {
       if (s.rows.length === 0) continue;
       const sec = mk('div', 'pg-tip-sec', b);
-      mk('div', 'pg-tip-h', sec, s.title);
+      if (s.title) mk('div', 'pg-tip-h', sec, s.title);
       const rows = mk('div', 'pg-tip-rows', sec);
       for (const r of s.rows) {
         mk('span', 'k', rows, r.k);
         const v = mk('span', 'v', rows, r.v);
         if (r.tone === 'good') v.classList.add('good');
+        if (r.note) mk('span', 'n', rows, r.note);
       }
     }
   }

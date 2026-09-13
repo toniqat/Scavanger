@@ -7,10 +7,15 @@
 # 2026-09-11 (A-12): sample(미확인 표본)은 **티어 3 이상에만** 있다 — 구조물 · 지하실의 값나가는 컨테이너에서만
 #   나오라는 뜻이다 (사용자 결정). 티어 1·2 에 줄이 없는 것이 곧 차단이고, prep(준비물)은 어느 티어에도 없다:
 #   준비물은 연구실 조합대에서만 만든다.
-# 2026-09-12 (A-3e): 서재 매체. disc(디스크)는 책과 같은 티어 2–4 에 책보다 조금 낮게 (2 / 2 / 1.5),
-#   record(레코드)는 티어 3–4 에만 더 드물게 (1 / 1.5) — 레코드가 서재 몫이 가장 세다. 티어 5(함선 보급 투하)는 소모품
-#   상자라 서재 매체를 넣지 않는다 (책도 없다).
-#   로그 시체의 서적 굴림(loot_corpse_rolls.csv 의 bookChance)은 여전히 책만 준다.
+# 2026-09-12 (A-3e): 서재 매체. disc(비디오)는 책과 같은 티어 2–4 에 책보다 조금 낮게 (2 / 2 / 1.5). 티어 5(함선 보급 투하)는 소모품
+#   상자라 서재 매체를 넣지 않는다.
+# 2026-09-13 (서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md):
+#   book · disc · record · game_disc · console 은 **그 레이드 행성에 나오는 아이템만** 후보다 (library_series.csv · game_*.csv 의 planets).
+#   그 행성에 후보가 하나도 없는 카테고리(아켈론 II 의 레코드 · 게임 디스크 · 게임기)는 카테고리 추첨에서 빠진다.
+#   고른 뒤에는 등급 가중치 × 권 가중치(tables.csv 의 LIBRARY_VOLUME_DROP_WEIGHT)로 아이템을 뽑는다.
+#   책은 상점에서 빠진 만큼 3/3/2 → 4/4/3. record 는 **상자 한 개당 소수점 둘째 자리 %** 가 되도록 1 / 1.5 → 0.12 / 0.18 (사용자 결정),
+#   game_disc 0.15 / 0.15 · console 0.05 / 0.06 도 같은 규모다 — 실측(threat 2 이상 행성, 티어 3 / 4 상자 한 개당)은 scripts/check-planet-loot.mjs 의 서재 매체 절.
+#   로그 시체의 서적 굴림(loot_corpse_rolls.csv 의 bookChance)은 여전히 책만, 그 행성의 시리즈에서 권 가중치로 준다.
 tier,category,weight
 # 티어 1 — 보급 상자
 1,ammo,30
@@ -36,7 +41,7 @@ tier,category,weight
 2,herb,5
 2,armor,4
 2,seed,6
-2,book,3
+2,book,4
 2,disc,2
 2,implant,2
 
@@ -53,9 +58,11 @@ tier,category,weight
 3,armor,4
 3,seed,5
 3,sample,5
-3,book,3
+3,book,4
 3,disc,2
-3,record,1
+3,record,0.12
+3,game_disc,0.15
+3,console,0.05
 3,implant,3
 # 2026-09-12 (C): 열쇠 · 키카드 — 티어 3 · 4 에만, 아주 드물게 (상자 한 개당 약 0.7 % · 1.7 %, check-planet-loot 가 잰다)
 3,key,0.3
@@ -71,9 +78,11 @@ tier,category,weight
 4,gadget,12
 4,herb,2
 4,armor,7
-4,book,2
+4,book,3
 4,disc,1.5
-4,record,1.5
+4,record,0.18
+4,game_disc,0.15
+4,console,0.06
 4,implant,4
 4,sample,7
 4,key,0.6
@@ -84,4 +93,3 @@ tier,category,weight
 5,grenade,25
 5,material,4
 5,sample,9
-

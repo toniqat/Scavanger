@@ -301,6 +301,11 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 ## 변경 이력
 
+- **2026-09-13 (서재 시리즈 — 신뢰도 책, 에이전트 C, docs/plans/library-series-games.md)** — `parts/Contracts.settleMission` 이 성공한 **계약**의 신뢰도를
+  `Math.round(rep × libraryTrustMul(ctx.housing.getLibraryEffects(), corp))`(= `1 + trustXp.all + trustXp[corp]`, 새 헬퍼 `libraryTrustMulOf` — housing 이 모르면 1)로 올린 뒤
+  `addRep` 한다. **정산 객체의 `rep` 자체를 고치므로** 결과 화면 · `meta:contractSettled` 가 실제로 받은 양을 말한다. 퀘스트 보상 신뢰도에는 곱하지 않는다(사용자 명세 「계약 완료」).
+  신뢰도는 크레딧이 아니다 — `Credits.addRep` 은 로컬 저장소 + `meta:repChanged` 뿐이고 서버 `credits:tx` 검증을 지나지 않으므로 배율이 거절될 일이 없다(확인함).
+  `ui/CorpView` 는 `housing:libraryChanged` 에도 다시 그린다 — `buildItemTile` 타일이 「아직 꽂지 않은」 매체에 즐겨찾기와 같은 띠를 단다.
 - **2026-09-13 (암호화폐 매매용 `creditsTx` — 에이전트 ③, docs/plans/power-crypto.md)** — `parts/Credits.creditsTx` + `MetaSystem.creditsTx` 한 줄 위임 (위 표).
   사유 문자열은 부르는 쪽(housing)이 `formatCreditReason({kind:'crypto-buy'|'crypto-sell', id, qty})` 로 만든다. `addCredits` · `serverTx` 는 그대로다.
 - **2026-09-13 (킬 계약이 인간형 적 전부를 센다 — 행성별 적 난이도, faction-presentation, docs/plans/enemy-factions.md)** — `Rules.killGoalOf`

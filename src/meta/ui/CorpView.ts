@@ -275,6 +275,8 @@ export class CorpView {
       b.on('inventory:changed', refresh), b.on('inventory:stashChanged', refresh), b.on('loadout:changed', refresh),
       // 2026-09-12 (E2): the tiles carry the blue ribbon from `buildItemTile` — rebuild them when a favorite flips
       b.on('inventory:favoritesChanged', refresh),
+      // 2026-09-13 (서재 시리즈): `buildItemTile` 은 「아직 꽂지 않은」 책 · 비디오 · 레코드에도 같은 띠를 단다
+      b.on('housing:libraryChanged', refresh),
       meta.onPurchaseFailure((f: PurchaseFailure) => {
         if (!this.visible || this.settling) return;
         this.ctx.bus.emit('audio:play', { id: 'ui_deny' });

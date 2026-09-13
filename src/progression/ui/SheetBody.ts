@@ -1,6 +1,6 @@
-import type { DerivedStats, EquippedImplant, GameContext, GymStat, HoldAskHandle, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
+import type { DerivedStats, EquippedImplant, GameContext, GymStat, HoldAskHandle, LibrarySourceInfo, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
 import {
-  GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, openHoldAsk,
+  GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, openHoldAsk,
 } from '@/shared';
 import { DERIVED_PANEL_KEYS, derivedKeysOfSkill, derivedKeysOfStat, type DerivedPanelKey } from '../defs';
 import { SKILL_GAIN_PER_INT, SKILL_STAT_FACTOR } from '../derive';
@@ -76,6 +76,11 @@ const mul = (v: number): string => `×${v.toFixed(2)}`;
 const dist = (v: number): string => `${v.toFixed(1)} m`;
 /** `0.04` → `4%`, `0.02` → `2%`, `0.015` → `1.5%` (tooltip per-point figures). */
 const perPt = (v: number): string => `+${Number((v * 100).toFixed(1))}%/pt`;
+/** `0.04` → `+4.0 %`, `-0.01` → `−1.0 %` (서재 시리즈 tooltip rows). */
+const signedPct = (v: number): string => `${v < 0 ? '−' : '+'}${Math.abs(v * 100).toFixed(1)} %`;
+
+/** 2026-09-13: floor (px) of the 파생 능력치 value font — a value never wraps, it shrinks down to this, then the label ellipsizes. */
+const DERIVED_FONT_MIN_PX = 8;
 
 interface StatRow {
   root: HTMLElement; name: HTMLElement; value: HTMLElement; base: HTMLElement; bonus: HTMLElement;
@@ -84,14 +89,15 @@ interface StatRow {
   minus: HTMLButtonElement; pend: HTMLElement;
   /** A-3a: ` (+n 단련)` after the implant bonus (empty + hidden at 0). */
   trained: HTMLElement;
-  /** A-3a, 근력 · 지구력 only: `단련 +n · p %` / `단련 최대` and the debuff countdown line. */
+  /** A-3a, `GYM_STATS` only (근력 · 지구력 — 2026-09-13 + 지능 · 인지력 from the video games): `단련 +n · p %` / `단련 최대` and the debuff countdown line. */
   gymProg: HTMLElement | null;
   fatigue: HTMLElement | null;
 }
 
 interface SkillRow { root: HTMLElement; name: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
 
-interface DerivedRow { cell: HTMLElement; value: HTMLElement; shown: string }
+/** `shown` = preview flag + text last written (skip unchanged rows); `label` is measured by `fitDerived`; `w` = last observed cell width. */
+interface DerivedRow { cell: HTMLElement; label: HTMLElement; value: HTMLElement; shown: string; w: number }
 
 export interface SheetBodyOptions {
   /** Standalone overlay only: the 닫기 button in the footer. */
@@ -115,8 +121,10 @@ const LINKED = 'pg-linked';
  *
  * 2026-09-13 (사용자 결정):
  *  - ＋ / － only move **pending** points (`pending`); `되돌리기` clears them, `포인트 투자 확정` invests them with a
- *    `UI_HOLD_CONFIRM_S` hold (`host.spendStatPoints`). While points are pending the 파생 능력치 rows that would change read
- *    `현재 → 확정 후` (`host.previewDerived`). Pending survives every `refresh()`; forced exits call `discardPending()`.
+ *    `UI_HOLD_CONFIRM_S` hold (`host.spendStatPoints`). While points are pending the 파생 능력치 rows that would change show
+ *    only the resulting value in green (`host.previewDerived`; was `현재 → 확정 후` until the same day's follow-up). Values never wrap —
+ *    `fitDerived` shrinks the font. Pending survives every `refresh()`; forced exits call `discardPending()`.
+ *  - The `시설 ×n` skill badge has its own tooltip: the 서재 series behind it (`ctx.housing.getLibrarySources`).
  *  - Hovering a stat / skill **name** shows an in-game tooltip (`SheetTip`) and outlines the linked rows (`.pg-linked`);
  *    hovering an implant thumbnail outlines its stats, their skills and their derived rows.
  *  - Leaving with pending points asks first (`requestLeave`) through the shared hold popup (`openHoldAsk`); 초기화 too.
@@ -157,6 +165,15 @@ export class SheetBody {
    * `refresh()` when they show the body again, which restarts it.
    */
   private ticker: number | null = null;
+  /**
+   * 2026-09-13: refits a 파생 능력치 value when its **cell width** changes (window resize, a different column count, the overlay / tab
+   * becoming visible from `display: none`). Each cell is observed — the grid box itself keeps its width when only the columns change.
+   * The fit runs on the next animation frame so it never mutates inside the observer callback.
+   */
+  private derivedRO: ResizeObserver | null = null;
+  private readonly cellRow = new Map<Element, DerivedRow>();
+  private readonly fitPending = new Set<DerivedRow>();
+  private fitRaf = 0;
 
   private readonly onConfirmUp = (): void => this.cancelConfirmHold();
 
@@ -221,8 +238,29 @@ export class SheetBody {
     const grid = el('div', { cls: 'grid', parent: der });
     for (const key of DERIVED_PANEL_KEYS) {
       const cell = el('div', { cls: 'cell', parent: grid, attrs: { 'data-key': key } });
-      el('div', { cls: 'k', text: DERIVED_LABEL[key], parent: cell });
-      this.derivedRows.set(key, { cell, value: el('div', { cls: 'v ui-mono', text: '', parent: cell }), shown: '' });
+      const label = el('div', { cls: 'k', text: DERIVED_LABEL[key], parent: cell });
+      const row: DerivedRow = { cell, label, value: el('div', { cls: 'v ui-mono', text: '', parent: cell }), shown: '', w: -1 };
+      this.derivedRows.set(key, row);
+      this.cellRow.set(cell, row);
+    }
+    if (typeof ResizeObserver === 'function') {
+      this.derivedRO = new ResizeObserver((entries) => {
+        for (const e of entries) {
+          const row = this.cellRow.get(e.target);
+          const w = Math.round(e.contentRect.width);
+          if (!row || w === row.w) continue;                 // height-only changes never refit (no observer loop)
+          row.w = w;
+          if (w > 0) this.fitPending.add(row);
+        }
+        if (this.fitPending.size === 0 || this.fitRaf) return;
+        this.fitRaf = requestAnimationFrame(() => {
+          this.fitRaf = 0;
+          const rows = [...this.fitPending];
+          this.fitPending.clear();
+          this.fitDerived(rows);
+        });
+      });
+      for (const row of this.derivedRows.values()) this.derivedRO.observe(row.cell);
     }
 
     /* ── footer ── */
@@ -420,25 +458,51 @@ export class SheetBody {
     this.confirmBtn.classList.toggle('is-ready', total > 0 && !inRaid);
     if (this.confirmBtn.disabled) this.cancelConfirmHold();
 
-    // 파생 능력치 — `현재 → 확정 후` (green) on the rows the pending points would change, through the same derive path
+    // 파생 능력치 — 2026-09-13 (사용자 결정): while points are pending, the rows they would change show **only the resulting
+    // value** in green (`.pg-preview`, same derive path) — the player compares by toggling ＋ / －. Changed rows are refitted.
     const d = host.derived;
     const preview = total > 0 ? host.previewDerived(this.allocObj()) : null;
+    const changed: DerivedRow[] = [];
     for (const [key, row] of this.derivedRows) {
       const cur = derivedText(key, d);
       const next = preview ? derivedText(key, preview) : cur;
-      const shown = next === cur ? cur : `${cur} ${next}`;
+      const isPreview = next !== cur;
+      const shown = `${isPreview ? 1 : 0}${next}`;
       if (shown === row.shown) continue;
       row.shown = shown;
-      row.cell.classList.toggle('pg-preview', next !== cur);
-      if (next === cur) { row.value.textContent = cur; continue; }
-      row.value.replaceChildren();
-      el('span', { cls: 'pg-cur', text: cur, parent: row.value });
-      el('span', { cls: 'pg-arr', text: '→', parent: row.value });
-      el('span', { cls: 'pg-next', text: next, parent: row.value });
+      row.cell.classList.toggle('pg-preview', isPreview);
+      row.value.textContent = next;
+      changed.push(row);
     }
+    if (changed.length > 0) this.fitDerived(changed);
 
     this.refreshImplants();
     this.resetBtn.disabled = inRaid;
+  }
+
+  /**
+   * 2026-09-13 (사용자 결정 — 파생 능력치 값은 줄바꿈하지 않는다): shrink a value's font when `label + gap + value` would overflow its
+   * cell, down to `DERIVED_FONT_MIN_PX` (past that the label ellipsizes — CSS). Batched write → read → write so a whole refresh
+   * costs one layout. A hidden cell (width 0) is skipped; the grid's ResizeObserver refits once it has a width.
+   */
+  private fitDerived(rows: Iterable<DerivedRow>): void {
+    const list: DerivedRow[] = [];
+    for (const r of rows) if (r.cell.isConnected) { r.value.style.fontSize = ''; list.push(r); }
+    if (list.length === 0) return;
+    const plan: Array<[DerivedRow, number]> = [];
+    for (const r of list) {
+      const cellW = r.cell.clientWidth;
+      if (cellW <= 0) continue;
+      const natural = r.value.scrollWidth;
+      const cs = getComputedStyle(r.cell);
+      const gap = parseFloat(cs.columnGap) || 0;
+      const avail = cellW - r.label.scrollWidth - gap - 1;             // 1 px slack for sub-pixel text
+      if (natural <= avail) continue;
+      const base = parseFloat(getComputedStyle(r.value).fontSize) || 12.5;
+      const px = Math.floor((base * Math.max(0, avail)) / Math.max(1, natural) * 10) / 10;
+      plan.push([r, Math.max(DERIVED_FONT_MIN_PX, Math.min(base, px))]);
+    }
+    for (const [r, px] of plan) r.value.style.fontSize = `${px}px`;
   }
 
   /** Cheap partial update for a single skill bar (called while training). */
@@ -626,16 +690,60 @@ export class SheetBody {
   private statTip(def: StatDef): SheetTipSpec {
     const skills = this.host.getAllSkillDefs().filter((s) => s.stats.includes(def.id));
     const notes = def.id === 'intelligence' ? [`모든 숙련 성장 ${perPt(SKILL_GAIN_PER_INT)}`] : [];
+    // 2026-09-13 (사용자 결정): no `능력치` sub under the name and no `관련 숙련 · 성장 속도` section title — the rows stay
     return {
       name: def.name,
-      sub: '능력치',
       desc: def.description,
       notes,
       sections: [{
-        title: '관련 숙련 · 성장 속도',
         // statFactor averages the skill's stats, so one point of this stat moves a two-stat skill by half the factor
         rows: skills.map((s) => ({ k: s.name, v: perPt(SKILL_STAT_FACTOR / Math.max(1, s.stats.length)) })),
       }],
+    };
+  }
+
+  /* ── 서재 시리즈 → 시설 보너스 breakdown (2026-09-13) ────────────────── */
+  /** `ctx.housing.getLibrarySources('skillGain', id)` — non-zero rows, largest first; [] when housing has no library API (yet). */
+  private skillSources(id: SkillId): LibrarySourceInfo[] {
+    try {
+      const h = this.ctx.housing;
+      if (!h || typeof h.getLibrarySources !== 'function') return [];
+      const list = h.getLibrarySources('skillGain', id);
+      if (!Array.isArray(list)) return [];
+      return list.filter((s) => !!s && typeof s.value === 'number' && Number.isFinite(s.value) && s.value !== 0)
+        .sort((a, b) => b.value - a.value);
+    } catch {
+      return [];
+    }
+  }
+
+  /** `『운반 노하우』 +4.0 %` over `책 · 4 / 5권 · 40 %` (`전권 100 %` · `단편 · 100 %` · `· 보조 가구 적용`). */
+  private sourceRow(s: LibrarySourceInfo): SheetTipRow {
+    const total = Math.max(0, Math.floor(s.total));
+    const have = Math.max(0, Math.floor(s.have));
+    const parts: string[] = [];
+    const medium = SHELF_MEDIUM_LABEL_KO[s.medium];
+    if (medium) parts.push(medium);
+    if (total <= 1) parts.push('단편', '100 %');
+    else if (have >= total) parts.push(`${have} / ${total}권`, '전권 100 %');
+    else parts.push(`${have} / ${total}권`, `${Math.round((Number.isFinite(s.fraction) ? s.fraction : 0) * 100)} %`);
+    if (s.auxApplied) parts.push('보조 가구 적용');
+    return { k: `『${s.name}』`, v: signedPct(s.value), tone: s.value > 0 ? 'good' : undefined, note: parts.join(' · ') };
+  }
+
+  /** Hovering a skill's `시설 ×n` badge: which 서재 series give the bonus (+ whatever of the multiplier they do not explain). */
+  private facilityTip(def: SkillDef): SheetTipSpec {
+    const m = this.host.getSkillGainMul(def.id);
+    const mult = Number.isFinite(m) && m > 0 ? m : 1;
+    const src = this.skillSources(def.id);
+    const rows = src.map((s) => this.sourceRow(s));
+    const rest = (mult - 1) - src.reduce((t, s) => t + s.value, 0);
+    if (Math.abs(rest) > 5e-4) rows.push({ k: src.length > 0 ? '기타 시설' : '함선 시설', v: signedPct(rest), tone: rest > 0 ? 'good' : undefined });
+    return {
+      name: '시설 보너스',
+      sub: `${def.name} · 숙련 상승 ×${mult.toFixed(2)}`,
+      desc: '함선 서재에 꽂힌 시리즈가 이 숙련의 상승량을 올린다.',
+      sections: [{ title: src.length > 0 ? '서재 시리즈' : undefined, rows }],
     };
   }
 
@@ -659,6 +767,8 @@ export class SheetBody {
     }));
     const facility = host.getSkillGainMul(def.id);
     if (Number.isFinite(facility) && Math.abs(facility - 1) > 1e-6) growth.push({ k: '시설 보너스', v: `×${facility.toFixed(2)}`, tone: 'good' });
+    // 2026-09-13: the same 서재 breakdown as the `시설 ×n` badge tooltip, under the growth rows (omitted when nothing is shelved)
+    const library = this.skillSources(def.id).map((s) => this.sourceRow(s));
     return {
       name: def.name,
       sub: lv >= SKILL_LEVEL_MAX ? `숙련도 · Lv ${lv} 최대` : `숙련도 · Lv ${lv} / ${SKILL_LEVEL_MAX} · ${prog} %`,
@@ -666,6 +776,7 @@ export class SheetBody {
       sections: [
         { title: '현재 효과', rows: effect },
         { title: '관련 능력치 · 성장 속도', rows: growth },
+        { title: '시설 보너스 · 서재 시리즈', rows: library },
       ],
     };
   }
@@ -681,7 +792,7 @@ export class SheetBody {
     const bar = el('div', { cls: 'bar', parent: prog });
     const fill = el('i', { parent: bar });
     const xp = el('div', { cls: 'xp ui-mono', text: '', parent: prog });
-    // A-3a: 근력 · 지구력 carry a short 단련 line (`단련 +2 · 40 %` / `단련 최대`) and, while a debuff runs, its countdown
+    // A-3a: the `GYM_STATS` (근력 · 지구력, 2026-09-13 + 지능 · 인지력) carry a short 단련 line (`단련 +2 · 40 %` / `단련 최대`) and, while a debuff runs, its countdown
     let gymProg: HTMLElement | null = null;
     let fatigue: HTMLElement | null = null;
     if (isGymStat(def.id)) {
@@ -723,6 +834,8 @@ export class SheetBody {
     const fill = el('i', { parent: bar });
     this.skillRows.set(def.id, { root: row, name, level, fill, bonus });
     this.hover(name, () => this.skillTip(def), () => this.derivedCells(derivedKeysOfSkill(def.id)));
+    // 2026-09-13 (사용자 요청): the `시설 ×n` badge explains itself — which 서재 series give the bonus
+    this.hover(bonus, () => this.facilityTip(def), () => []);
   }
 
   private button(parent: HTMLElement, label: string, onClick: () => void, extraCls = ''): HTMLButtonElement {
@@ -764,6 +877,11 @@ export class SheetBody {
 
   dispose(): void {
     this.stopTicker();
+    this.derivedRO?.disconnect();
+    this.derivedRO = null;
+    if (this.fitRaf) { cancelAnimationFrame(this.fitRaf); this.fitRaf = 0; }
+    this.fitPending.clear();
+    this.cellRow.clear();
     this.cancelConfirmHold();
     if (this.ask?.isOpen) this.ask.close();
     this.ask = null;
@@ -798,6 +916,11 @@ const DERIVED_LABEL: Readonly<Record<DerivedPanelKey, string>> = {
   gatherYieldMul: '채집 수확',
   craftSpeedMul: '제작 속도',
   carryReliefFactor: '운반 부담 경감',
+  /* 2026-09-13 요리 · 연구 숙련 */
+  cookScoreBonus: '요리 점수',
+  researchTimeMul: '분석 시간',
+  researchRefundChance: '재료 회수 확률',
+  researchRefundFrac: '재료 회수량',
 };
 
 function derivedText(key: DerivedPanelKey, d: DerivedStats): string {
@@ -821,6 +944,11 @@ function derivedText(key: DerivedPanelKey, d: DerivedStats): string {
     case 'gatherYieldMul': return mul(d.gatherYieldMul);
     case 'craftSpeedMul': return mul(d.craftSpeedMul);
     case 'carryReliefFactor': return pct(d.carryReliefFactor);
+    // 2026-09-13: 요리 — added to every cook step score (shown like the cook screen's `단계 점수 72 %`); 연구 — analysis time ×, refund chance / share
+    case 'cookScoreBonus': return `+${Math.round((d.cookScoreBonus ?? 0) * 100)} %`;
+    case 'researchTimeMul': return mul(d.researchTimeMul ?? 1);
+    case 'researchRefundChance': return pct(d.researchRefundChance ?? 0);
+    case 'researchRefundFrac': return pct(d.researchRefundFrac ?? 0);
     default: return '';
   }
 }

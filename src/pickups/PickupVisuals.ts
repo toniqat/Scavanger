@@ -59,6 +59,9 @@ const REST_Y: Record<ItemCategory, number> = {
   key: 0.05,
   /* appended: 2026-09-13 요리 재료 티어 — 소켓은 작은 캡슐이라 임플란트처럼 선다 */
   socket: 0.08,
+  /* appended: 2026-09-13 비디오게임 — 게임 디스크는 얇은 케이스, 게임기는 납작한 상자 */
+  game_disc: 0.05,
+  console: 0.1,
 };
 
 /**

@@ -18,7 +18,7 @@
 /** csv 를 읽는 모듈 전부 (vite 경로). */
 export const DATA_OWNERS = [
   '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs
-  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · meals · books · discs · records · armor · implants
+  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · meals · library_series(아이템 열) · game_consoles · game_discs · armor · implants
   '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
   '/src/items/LootTables.ts',    // loot_*
   '/src/items/Recipes.ts',       // recipes
@@ -62,10 +62,14 @@ export const CSV_FOLDERS = {
   // 2026-09-13 (요리 미니게임): 단계표 · 굽기 시간은 shared/cooking 이 읽고 housing/(조리대 화면 · 판정) 이 쓴다 · 툴팁의 단계 줄은 ui/
   'cook_steps.csv':          ['housing', 'ui'],
   'cook_grill.csv':          ['housing'],
-  'books.csv':               ['items', 'housing'],
-  // 2026-09-12 (A-3e): 서재 매체 — items/ 가 정의하고 housing/(디스크 전시대 · 레코드랙 · 서재 배율) 이 소비한다
-  'discs.csv':               ['items', 'housing'],
-  'records.csv':             ['items', 'housing'],
+  // 2026-09-13 (서재 시리즈 — 옛 books · discs · records.csv 대신): 시리즈 효과는 housing/(합산 · 레시피 해금) · progression/(숙련 상승량 · 파생) ·
+  //   inventory/(띠) · ui/(툴팁) · meta/(신뢰도) · game/(레이드 경험치) 이 소비하고, 아이템 · 행성 드롭은 items/
+  'library_series.csv':      ['items', 'housing', 'progression', 'inventory', 'ui', 'meta', 'game'],
+  // 옛 서재 매체 id → 새 id — 세이브를 옮기는 housing/(보관함) · inventory/(창고 · 로드아웃 · 레이드) + items/ 안전망
+  'item_aliases.csv':        ['items', 'housing', 'inventory'],
+  // 2026-09-13 (비디오게임): 게임기 · 게임 디스크 — items/ 가 정의, housing/(TV · 게임 세션) · hub/(TV 연출) · ui/(툴팁)
+  'game_consoles.csv':       ['items', 'housing', 'hub', 'ui'],
+  'game_discs.csv':          ['items', 'housing', 'hub', 'ui'],
   'implants_perks.csv':      ['items', 'implants'],
   'implants_repair.csv':     ['items', 'meta'],
   'recipes.csv':             ['items', 'inventory'],

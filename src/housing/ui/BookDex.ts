@@ -1,113 +1,229 @@
-import type { GameContext, ItemDef, ShelfMedium, SkillId } from '@/shared';
-import { SHELF_MEDIA, SHELF_MEDIUM_LABEL_KO, SKILL_IDS, buildItemChip, shelfItemOf } from '@/shared';
+import type { GameContext, GameStat, ItemDef, LibraryEffect, LibrarySeriesDef, ShelfMedium, SkillId } from '@/shared';
+import {
+  CORP_DEFS, COOK_GAME_LABEL_KO, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, SHELF_MEDIUM_LABEL_KO,
+  WEAPON_GRADE_ROMAN, getPlanet,
+} from '@/shared';
+import type { CorpId } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
+import { ACTIVE_FURNITURE_DEFS, SHELF_UNIT_KO } from '../model';
+import { librarySeriesOfItem, shelfHolderMediumOfItem } from '../Rules';
 import { clear, el, setText, toggleClass } from './dom';
 
-/** One 도감 row (a skill and the item of the current medium that teaches it). */
-interface DexRow {
-  root: HTMLElement;
-  skill: HTMLElement;
-  chip: HTMLElement;
-  title: HTMLElement;
-  state: HTMLElement;
-  mul: HTMLElement;
-  defId: string | null;
+/* ── 서재 효과 글 (보관함 화면 · 도감 공용, 2026-09-13) ──────────────────────────────────────────────────────── */
+
+const num = (v: number): string => {
+  const r = Math.round(v * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+};
+const signed = (v: number, unit: string): string => `${v < 0 ? '−' : '+'}${num(Math.abs(v))}${unit}`;
+const pct = (v: number): string => signed(v * 100, ' %');
+
+/** 권 번호 (`II`) — 표 밖이면 숫자. */
+export function volumeRoman(volume: number): string {
+  return WEAPON_GRADE_ROMAN[volume - 1] ?? String(volume);
 }
+
+/** 시리즈 색 — id 해시로 고른 색상환 한 점 (책은 등급이 없어 희귀도 색이 모두 같다). */
+export function seriesTint(seriesId: string): string {
+  let h = 0;
+  for (let i = 0; i < seriesId.length; i++) h = (h * 31 + seriesId.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 42% 56%)`;
+}
+
+function skillName(ctx: GameContext, id: string): string {
+  try {
+    const p = ctx.progression;
+    return (p && typeof p.getSkillDef === 'function' ? p.getSkillDef(id as SkillId)?.name : '') || id;
+  } catch { return id; }
+}
+
+/** 능력치 한국어 이름 (`ctx.progression.getStatDef`), 모르면 id. */
+export function statName(ctx: GameContext, id: GameStat): string {
+  try {
+    const p = ctx.progression;
+    return (p && typeof p.getStatDef === 'function' ? p.getStatDef(id)?.name : '') || id;
+  } catch { return id; }
+}
+
+function recipeName(ctx: GameContext, id: string): string {
+  const loot = ctx.loot;
+  const r = loot && typeof loot.getAllRecipes === 'function' ? loot.getAllRecipes().find((x) => x.id === id) : undefined;
+  if (!r) return id;
+  return loot?.getItemDef(r.outputDefId)?.name ?? r.name ?? id;
+}
+
+/**
+ * 효과 줄 하나를 한국어로 — `value` 는 그 줄에 지금 붙은 값(또는 전권 값). 단위는 효과 종류가 정한다: 숙련 상승량 · 레이드 경험치 · 신뢰도 ·
+ * 헬스 / 요리 점수 = %, 파생 = `MEAL_BUFF_UNIT`(요리 버프와 같은 표). 레시피는 값 없이 요리 이름.
+ */
+export function libraryEffectText(ctx: GameContext, e: LibraryEffect, value: number): string {
+  switch (e.kind) {
+    case 'skillGain': return `${skillName(ctx, e.target)} 상승량 ${pct(value)}`;
+    case 'derived': {
+      const unit = MEAL_BUFF_UNIT[e.target];
+      const amount = unit === '%' ? pct(value) : signed(value, unit ? ` ${unit}` : '');
+      return `${MEAL_BUFF_LABEL_KO[e.target] ?? e.target} ${amount}`;
+    }
+    case 'gymScore': return `${ACTIVE_FURNITURE_DEFS.find((d) => d.interaction === e.target)?.name ?? e.target} 운동 점수 ${pct(value)}`;
+    case 'cookScore': return `${COOK_GAME_LABEL_KO[e.target] ?? e.target} 점수 ${pct(value)}`;
+    case 'raidXp': return `레이드 경험치 ${pct(value)}`;
+    case 'trustXp': return `${e.target === 'all' ? '모든 기업' : CORP_DEFS[e.target as CorpId]?.name ?? e.target} 신뢰도 ${pct(value)}`;
+    case 'recipe': return `레시피 · ${recipeName(ctx, e.target)}`;
+  }
+}
+
+/** 게임 디스크 한 줄 (`게임기 · 능력치 · 방식`). */
+export function gameDiscText(ctx: GameContext, def: ItemDef): string {
+  const g = def.gameDisc;
+  if (!g) return '';
+  const loot = ctx.loot;
+  const consoleDef = loot && typeof loot.getAllItemDefs === 'function' ? loot.getAllItemDefs().find((d) => d.gameConsole?.console === g.console) : undefined;
+  return `${consoleDef?.name ?? g.console} · ${statName(ctx, g.stat)} · ${GYM_MINIGAME_LABEL_KO[g.minigame] ?? g.minigame}형`;
+}
+
+/* ── 도감 ─────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /** Live handle of a rendered 도감 (the 보관함 panel owns one). */
 export interface BookDexView {
   root: HTMLElement;
   refresh(): void;
-  /** A-3e (2026-09-12): switch the medium the rows list (책 · 디스크 · 레코드) and refresh. */
+  /** A-3e (2026-09-12): switch the medium the rows list (책 · 디스크 · 레코드 · 2026-09-13 게임 디스크) and refresh. */
   setMedium(medium: ShelfMedium): void;
 }
 
-/** 서적 · 디스크 · 레코드 — the 도감 summary noun per medium. */
-const DEX_NOUN: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc: '디스크', record: '레코드' };
+/** 서적 · 디스크 · 레코드 · 게임 디스크 — the 도감 summary noun per medium. */
+const DEX_NOUN: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc: '디스크', record: '레코드', game: '게임 디스크' };
+
+interface DexRow { root: HTMLElement; key: string }
 
 /**
- * 도감 (Phase 9; A-3e 2026-09-12 — any 서재 medium): one row per skill in `SKILL_IDS` order — 한국어 skill name (from
- * `ctx.progression.getSkillDef`), the item of `medium` that teaches it (`shelfItemOf(def)`, as an item chip + title), whether
- * it has ever been shelved (`housing.getShelfDex(medium)` → 보유 / 미보유) and the current **서재 배율** for that skill
- * (`housing.getBookBonus` = 책 + 디스크 + 레코드 몫의 합; the row's `title` attribute breaks it down per medium).
+ * 도감 (Phase 9 → A-3e 매체 → **2026-09-13 시리즈**). 매체가 서재 효과 매체면 **시리즈마다 한 줄**(`LIBRARY_SERIES_DEFS` 순서):
+ * 시리즈 이름 · 권 칸(`.lib-pip` — 도감에 적힌 권 = `is-on`, 지금 작동 중인 보관함에 꽂힌 권 = `is-live`) · `n / N권` · 등장 행성 ·
+ * 전권 효과. 게임 디스크면 **디스크마다 한 줄**(이름 · 발견 여부 · 게임기 · 능력치 · 방식). 줄은 `.lib-dexrow[data-series]` /
+ * `[data-def]` 이고 `owned`(한 권이라도 발견) · `complete`(전권 발견) · `boosted`(지금 효과가 난다) 를 단다.
  * Pure DOM into `host`: no blocker, no listeners — the owner calls `refresh()` on its own change events.
  */
 export function createBookDex(ctx: GameContext, housing: HousingSystem, host: HTMLElement, initial: ShelfMedium = 'book'): BookDexView {
   let medium: ShelfMedium = initial;
-  const root = el('div', { cls: 'hs-dex', parent: host });
+  const root = el('div', { cls: 'hs-dex lib-dex', parent: host });
   const summary = el('div', { cls: 'hs-dex-sum', text: '', parent: root });
   const list = el('div', { cls: 'hs-dex-list', parent: root });
-  const rows: DexRow[] = [];
-  for (const id of SKILL_IDS) {
-    const row = el('div', { cls: 'hs-dex-row', parent: list, attrs: { 'data-skill': id } });
-    const skill = el('span', { cls: 'skill', text: id, parent: row });
-    const book = el('span', { cls: 'book', parent: row });
-    const chip = el('span', { cls: 'chipwrap', parent: book });
-    const title = el('span', { cls: 'title', text: '', parent: book });
-    const state = el('span', { cls: 'state', text: '', parent: row });
-    const mul = el('span', { cls: 'mul', text: '', parent: row });
-    rows.push({ root: row, skill, chip, title, state, mul, defId: null });
-  }
+  let rows: DexRow[] = [];
+  let rowsKey = '';
 
-  const skillName = (id: SkillId): string => {
-    try {
-      const p = ctx.progression;
-      const def = p && typeof p.getSkillDef === 'function' ? p.getSkillDef(id) : null;
-      return def?.name || id;
-    } catch { return id; }
-  };
-
-  /** skill → its item of the current medium (one per skill by design; the first wins if a mod adds more). */
-  const itemsBySkill = (): Map<SkillId, ItemDef> => {
-    const out = new Map<SkillId, ItemDef>();
+  /** 시리즈 id → 권 번호 → item def (loot 전체를 한 번 훑는다 — 패널 규모). */
+  const volumesBySeries = (): Map<string, Map<number, ItemDef>> => {
+    const out = new Map<string, Map<number, ItemDef>>();
     const loot = ctx.loot;
     if (!loot || typeof loot.getAllItemDefs !== 'function') return out;
     for (const def of loot.getAllItemDefs()) {
-      const s = shelfItemOf(def);
-      if (s && s.medium === medium && !out.has(s.skill)) out.set(s.skill, def);
+      const s = librarySeriesOfItem(def);
+      if (!s) continue;
+      let m = out.get(s.seriesId);
+      if (!m) { m = new Map(); out.set(s.seriesId, m); }
+      if (!m.has(s.volume)) m.set(s.volume, def);
     }
     return out;
   };
 
-  /** Per-medium breakdown for the row tooltip (`getShelfBonus` is optional in the contract — guarded). */
-  const breakdown = (id: SkillId): string => {
-    if (typeof housing.getShelfBonus !== 'function') return '';
-    const info = housing.getShelfBonus(id);
-    return SHELF_MEDIA.map((m) => `${SHELF_MEDIUM_LABEL_KO[m]} +${Math.round(info.parts[m] * 100)} %${info.aux[m] ? ' (보조 가구)' : ''}`).join(' · ');
+  const gameDiscDefs = (): ItemDef[] => {
+    const loot = ctx.loot;
+    if (!loot || typeof loot.getAllItemDefs !== 'function') return [];
+    return loot.getAllItemDefs().filter((d) => shelfHolderMediumOfItem(d) === 'game')
+      .sort((a, b) => (a.gameDisc!.console.localeCompare(b.gameDisc!.console)) || a.id.localeCompare(b.id));
   };
 
-  function refresh(): void {
-    const dex = medium === 'book' ? housing.getBookDex() : housing.getShelfDex(medium);
-    const items = itemsBySkill();
-    let owned = 0;
-    rows.forEach((row, i) => {
-      const id = SKILL_IDS[i];
-      const def = items.get(id) ?? null;
-      const inDex = !!def && dex.includes(def.id);
-      const bonus = housing.getBookBonus(id);
-      if (inDex) owned++;
-      setText(row.skill, skillName(id));
-      if (row.defId !== (def?.id ?? null)) {
-        row.defId = def?.id ?? null;
-        clear(row.chip);
-        if (def) row.chip.appendChild(buildItemChip(def, { size: 22 }));
+  function refreshSeries(): void {
+    const dex = new Set(medium === 'book' ? housing.getBookDex() : housing.getShelfDex(medium));
+    const seriesList: LibrarySeriesDef[] = LIBRARY_SERIES_DEFS.filter((s) => s.medium === medium);
+    const key = `s:${medium}:${seriesList.map((s) => s.id).join(',')}`;
+    if (key !== rowsKey) {
+      clear(list);
+      rows = seriesList.map((s) => ({ root: el('div', { cls: 'lib-dexrow', attrs: { 'data-series': s.id }, parent: list }), key: '' }));
+      rowsKey = key;
+    }
+    const vols = volumesBySeries();
+    const states = housing.librarySeriesStates();
+    let seenSeries = 0, seenVolumes = 0, allVolumes = 0;
+    seriesList.forEach((s, i) => {
+      const row = rows[i];
+      const byVol = vols.get(s.id) ?? new Map<number, ItemDef>();
+      const live = new Set(states.get(s.id)?.volumes ?? []);
+      let seen = 0;
+      const pips: string[] = [];
+      for (let v = 1; v <= s.volumes; v++) {
+        const def = byVol.get(v);
+        const on = !!def && dex.has(def.id);
+        if (on) seen++;
+        pips.push(`${on ? 1 : 0}${live.has(v) ? 1 : 0}`);
       }
-      setText(row.title, def ? def.name : `해당 ${DEX_NOUN[medium]} 없음`);
-      setText(row.state, inDex ? '보유' : '미보유');
-      setText(row.mul, `×${bonus.toFixed(2)}`);
-      const tip = bonus > 1 + 1e-9 ? breakdown(id) : '';
-      if (row.mul.title !== tip) row.mul.title = tip;
-      toggleClass(row.root, 'owned', inDex);
-      toggleClass(row.root, 'boosted', bonus > 1 + 1e-9);
+      allVolumes += s.volumes;
+      seenVolumes += seen;
+      if (seen > 0) seenSeries++;
+      const planets = s.planets.map((p) => getPlanet(p)?.name ?? p).join(' · ');
+      const effects = s.effects.map((e) => libraryEffectText(ctx, e, e.kind === 'recipe' ? 1 : e.value)).join(' · ');
+      const rowKey = `${pips.join('')}|${planets}|${effects}`;
+      if (row.key !== rowKey) {
+        row.key = rowKey;
+        clear(row.root);
+        const top = el('div', { cls: 'lib-dex-top', parent: row.root });
+        el('span', { cls: 'lib-dex-name', text: s.name, parent: top });
+        const pipBox = el('span', { cls: 'lib-pips', parent: top });
+        for (let v = 1; v <= s.volumes; v++) {
+          const p = pips[v - 1];
+          const pip = el('i', { cls: `lib-pip${p[0] === '1' ? ' is-on' : ''}${p[1] === '1' ? ' is-live' : ''}`, parent: pipBox });
+          pip.title = s.volumes > 1 ? `${volumeRoman(v)}권` : '단편';
+        }
+        el('span', { cls: 'lib-dex-state', text: seen > 0 ? `${seen} / ${s.volumes}${SHELF_UNIT_KO[medium]}` : '미발견', parent: top });
+        el('div', { cls: 'lib-dex-sub planets', text: `등장 · ${planets || '—'}`, parent: row.root });
+        el('div', { cls: 'lib-dex-sub effects', text: `${s.volumes > 1 ? '전권' : '단편'} · ${effects}`, parent: row.root });
+      }
+      toggleClass(row.root, 'owned', seen > 0);
+      toggleClass(row.root, 'complete', seen >= s.volumes);
+      toggleClass(row.root, 'boosted', live.size > 0);
     });
-    setText(summary, `꽂아 본 ${DEX_NOUN[medium]} ${owned} / ${rows.length} · 배율은 지금 서재에 꽂힌 책 · 디스크 · 레코드 전부 기준`);
+    setText(summary, seriesList.length
+      ? `발견한 시리즈 ${seenSeries} / ${seriesList.length} · ${SHELF_MEDIUM_LABEL_KO[medium]} ${seenVolumes} / ${allVolumes}${SHELF_UNIT_KO[medium]} · 효과는 전권 기준`
+      : `아직 알려진 ${DEX_NOUN[medium]} 시리즈가 없습니다`);
+  }
+
+  function refreshGames(): void {
+    const dex = new Set(housing.getShelfDex('game'));
+    const defs = gameDiscDefs();
+    const key = `g:${defs.map((d) => d.id).join(',')}`;
+    if (key !== rowsKey) {
+      clear(list);
+      rows = defs.map((d) => ({ root: el('div', { cls: 'lib-dexrow', attrs: { 'data-def': d.id }, parent: list }), key: '' }));
+      rowsKey = key;
+    }
+    let seen = 0;
+    defs.forEach((d, i) => {
+      const row = rows[i];
+      const on = dex.has(d.id);
+      if (on) seen++;
+      const sub = gameDiscText(ctx, d);
+      const rowKey = `${on}|${sub}`;
+      if (row.key !== rowKey) {
+        row.key = rowKey;
+        clear(row.root);
+        const top = el('div', { cls: 'lib-dex-top', parent: row.root });
+        el('span', { cls: 'lib-dex-name', text: d.name, parent: top });
+        el('span', { cls: 'lib-dex-state', text: on ? '발견' : '미발견', parent: top });
+        el('div', { cls: 'lib-dex-sub effects', text: sub, parent: row.root });
+      }
+      toggleClass(row.root, 'owned', on);
+      toggleClass(row.root, 'complete', on);
+      toggleClass(row.root, 'boosted', false);
+    });
+    setText(summary, defs.length ? `꽂아 본 게임 디스크 ${seen} / ${defs.length} · 게임 디스크는 서재 효과가 없습니다` : '아직 알려진 게임 디스크가 없습니다');
+  }
+
+  function refresh(): void {
+    if (medium === 'game') refreshGames(); else refreshSeries();
   }
 
   function setMedium(m: ShelfMedium): void {
-    if (m !== medium) {
-      medium = m;
-      for (const row of rows) { row.defId = null; clear(row.chip); }   // chips belong to the old medium
-    }
+    if (m !== medium) { medium = m; rowsKey = ''; }
     root.dataset.medium = medium;
     refresh();
   }

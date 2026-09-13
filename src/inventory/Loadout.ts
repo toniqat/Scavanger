@@ -1,5 +1,7 @@
 import type { LoadoutSlot } from '@/shared';
 import { LOADOUT_STORAGE_KEY, QUICK_SLOTS } from '@/shared';
+/* 2026-09-13 (서재 시리즈): 즐겨찾기한 옛 책 · 디스크 · 레코드 id 도 새 시리즈 1권으로 옮긴다 */
+import { resolveItemAlias } from '@/shared';
 import { readSaveFile, writeSaveFile, type SavedExtras, type SavedPlacement } from './Serialize';
 /* 2026-09-11 (E-5 · E-6): 솔로 레이드 표식 · 창고와 합친 디바운스 — see `LoadoutStore` */
 
@@ -57,7 +59,7 @@ export function sanitizeFavoriteList(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const set = new Set<string>();
   for (const v of raw) {
-    if (typeof v === 'string' && v.length > 0 && v.length <= 96) set.add(v);
+    if (typeof v === 'string' && v.length > 0 && v.length <= 96) set.add(resolveItemAlias(v));   // 2026-09-13: 옛 id → 새 id
     if (set.size >= FAVORITES_SANE_MAX) break;
   }
   return set.size > 0 ? [...set].sort() : undefined;

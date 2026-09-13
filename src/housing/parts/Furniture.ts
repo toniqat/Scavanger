@@ -34,6 +34,7 @@ import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MA
 import type { HousingSystem } from '../HousingSystem';
 import { SHELF_BLOCK_REASON } from '../model';   // A-3e (2026-09-12): 서재 매체 보관함의 회수 거절
 import { clusterRecoverBlock } from './Mining';   // 2026-09-13: 암호화폐 채굴 — 코어가 꽂힌 클러스터의 회수 거절
+import { returnTvConsoleForRecover, tvConsoleRecoverBlock } from './VideoGame';   // 2026-09-13 (비디오게임, H2): TV 의 게임기는 함선 창고로
 
 export function storageEntry(sys: HousingSystem, defId: string): StoredFurniture | null {
   let best: StoredFurniture | null = null;
@@ -232,7 +233,8 @@ export function recoverBlock(sys: HousingSystem, uid: string): string | null {
   if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) return COCKPIT_ONLY_RECOVER_REASON;
   // A-3e (2026-09-12): 디스크 전시대 · 레코드랙도 책장처럼 — 담긴 것이 창고에 안 들어가면 `…를 먼저 빼세요`
   // 2026-09-13 (암호화폐 채굴): 코어가 꽂힌 연산 클러스터는 `코어를 먼저 빼세요`
-  return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid) ?? clusterRecoverBlock(sys, uid);
+  // 2026-09-13 (비디오게임): 게임기가 장착된 TV 는 그 게임기가 함선 창고에 들어가야 회수된다
+  return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid) ?? clusterRecoverBlock(sys, uid) ?? tvConsoleRecoverBlock(sys, uid);
   }
 
 export function recover(sys: HousingSystem, uid: string): boolean {
@@ -252,6 +254,9 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   const shelfMedium = sys.getShelfMedium(uid);
   const hadMedia = shelfMedium && shelfMedium !== 'book' ? sys.shelfItemsOf(uid).length : 0;
   if (hadMedia > 0 && !sys.stashShelfItemsOf(uid)) { sys.notify(SHELF_BLOCK_REASON[shelfMedium!], 'warning'); return false; }
+  // 2026-09-13 (비디오게임, H2): TV 에 장착된 게임기는 함선 창고로 — 자리가 없으면 아무것도 바꾸지 않고 회수를 거절한다 (보관함과 같은 규약)
+  const consoleRefusal = returnTvConsoleForRecover(sys, uid);
+  if (consoleRefusal) { sys.notify(consoleRefusal, 'warning'); return false; }
   sys.dropToggled(uid);                       // 회수한 TV · 레코드 플레이어의 켜짐은 남기지 않는다
   sys.state.furniture.splice(i, 1);
   sys.addToStorage(item.defId, item.level);

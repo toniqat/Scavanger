@@ -108,6 +108,73 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const c of row.costList('samples')) ref(`data/planets.csv [samples] — ${row.raw('id')}`, c.defId);
   }
+  /* 2026-09-13 (서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md): 시리즈 ↔ 아이템 1:1, 숙련마다 책 시리즈, 레시피 책의 대상,
+   * 옛 id alias, 행성 threat 규칙 (레코드 · 게임 디스크 · 게임기는 threat 2 이상), 매체별 권 수 · 효과 줄 수. */
+  {
+    const P = 'data/library_series.csv';
+    const series = shared.LIBRARY_SERIES_DEFS;
+    const seriesIds = new Set();
+    for (const s of series) {
+      if (seriesIds.has(s.id)) refProblems.push(`${P} — '${s.id}' 줄이 둘이다`);
+      seriesIds.add(s.id);
+    }
+    const byVolume = new Map();   // `${series}#${volume}` → defId
+    for (const d of items.ITEM_DEFS) {
+      const shelf = d.book ?? d.disc ?? d.record;
+      if (!shelf) continue;
+      const s = shelf.series ? shared.LIBRARY_SERIES_MAP.get(shelf.series) : undefined;
+      if (!s) { refProblems.push(`서재 매체 ${d.id}: 시리즈 '${shelf.series}' 가 ${P} 에 없다`); continue; }
+      if (s.medium !== d.category) refProblems.push(`서재 매체 ${d.id}: 카테고리 ${d.category} 가 시리즈 ${s.id} 의 매체 ${s.medium} 와 다르다`);
+      if (!(Number.isInteger(shelf.volume) && shelf.volume >= 1 && shelf.volume <= s.volumes)) refProblems.push(`서재 매체 ${d.id}: 권 ${shelf.volume} 이 1 … ${s.volumes} 밖이다`);
+      const key = `${s.id}#${shelf.volume}`;
+      if (byVolume.has(key)) refProblems.push(`서재 매체 ${d.id}: ${s.id} ${shelf.volume}권이 ${byVolume.get(key)} 와 겹친다`);
+      byVolume.set(key, d.id);
+      if (!(d.value > 0)) refProblems.push(`서재 매체 ${d.id}: 가치가 0 이다 (tables.csv 의 BOOK_VALUE_BY_VOLUME · DISC/RECORD_VALUE_BY_RARITY)`);
+      if (!/^(book|disc|record|game)_[A-Za-z0-9_]{1,40}$/.test(d.id)) refProblems.push(`서재 매체 ${d.id}: id 가 보관함 세이브 모양(^(book|disc|record|game)_…{1,40})이 아니다 — 시리즈 id 를 줄인다`);
+    }
+    for (const s of series) {
+      for (let v = 1; v <= s.volumes; v++) if (!byVolume.has(`${s.id}#${v}`)) refProblems.push(`${P} — ${s.id}: ${v}권 아이템이 없다`);
+      if (s.volumes > shared.LIBRARY_MAX_VOLUMES[s.medium]) refProblems.push(`${P} — ${s.id}: ${s.medium} 는 ${shared.LIBRARY_MAX_VOLUMES[s.medium]}권까지다 (지금 ${s.volumes})`);
+      if (s.effects.length !== shared.LIBRARY_EFFECT_LINES[s.medium]) refProblems.push(`${P} — ${s.id}: ${s.medium} 는 효과 ${shared.LIBRARY_EFFECT_LINES[s.medium]}줄이다 (지금 ${s.effects.length})`);
+      if (s.medium !== 'record' && s.planets.length !== 1) refProblems.push(`${P} — ${s.id}: 책 · 비디오 시리즈는 행성 하나다 (지금 ${s.planets.join('|') || '없음'})`);
+      if (s.medium === 'record') {
+        for (const p of s.planets) if (shared.planetThreat(p) < 2) refProblems.push(`${P} — ${s.id}: 레코드는 threat 2 이상 행성에서만 나온다 ('${p}' 는 threat ${shared.planetThreat(p)})`);
+      }
+      for (const e of s.effects) {
+        if (e.kind !== 'recipe') continue;
+        const r = recipes.CRAFT_RECIPES.find((x) => x.id === e.target);
+        if (!r) { refProblems.push(`${P} — ${s.id}: recipe 대상 '${e.target}' 레시피가 data/recipes.csv 에 없다`); continue; }
+        if (r.bench !== 'cook') refProblems.push(`${P} — ${s.id}: recipe 대상 '${e.target}' 는 조리대 레시피(bench cook)가 아니다`);
+        if (r.unlockSeries !== s.id) refProblems.push(`${P} — ${s.id}: 레시피 '${e.target}' 의 unlockSeries 가 ${r.unlockSeries ?? '없음'} 이다 (한 레시피를 두 책이 가리키면 안 된다)`);
+        if (s.medium !== 'book' || s.volumes !== 1) refProblems.push(`${P} — ${s.id}: recipe 효과는 책 단편 전용이다`);
+      }
+    }
+    for (const skill of shared.SKILL_IDS) {
+      if (!series.some((s) => s.medium === 'book' && s.effects.some((e) => e.kind === 'skillGain' && e.target === skill))) {
+        refProblems.push(`${P} — 숙련 '${skill}' 의 skillGain 책 시리즈가 없다 (숙련마다 하나)`);
+      }
+    }
+    const bookRarity = shared.stringMap('tables.csv', 'LIBRARY_ITEM_RARITY').book;
+    if (!shared.RARITY_ORDER.includes(bookRarity)) refProblems.push(`data/tables.csv [LIBRARY_ITEM_RARITY.book] — '${bookRarity}' 는 등급이 아니다`);
+    /* 옛 id → 새 id: from 은 정의가 없어야 하고(남아 있으면 변환이 안 된다), to 는 은퇴하지 않은 아이템이어야 하며 다시 alias 이면 안 된다. */
+    const aliasSeen = new Set();
+    for (const row of shared.csvRows('item_aliases.csv')) {
+      const from = row.raw('from'), to = row.raw('to');
+      if (aliasSeen.has(from)) refProblems.push(`data/item_aliases.csv — '${from}' 줄이 둘이다`);
+      aliasSeen.add(from);
+      if (items.ITEM_DEF_MAP.has(from)) refProblems.push(`data/item_aliases.csv [from] — '${from}' 는 아직 아이템 정의가 있다 (옛 id 만 적는다)`);
+      ref(`data/item_aliases.csv [to] — ${from}`, to);
+      if (shared.ITEM_ALIASES.has(to)) refProblems.push(`data/item_aliases.csv [to] — '${to}' 도 alias 다 (한 번에 새 id 로 간다)`);
+    }
+    /* 게임기 · 게임 디스크 — threat 2 이상 행성에서만 */
+    for (const d of items.ITEM_DEFS) {
+      if (!d.gameDisc && !d.gameConsole) continue;
+      const where = `data/${d.gameDisc ? 'game_discs' : 'game_consoles'}.csv [planets] — ${d.id}`;
+      const planets = lootTables.lootPlanetsOf(d) ?? [];
+      if (planets.length === 0) refProblems.push(`${where}: 등장 행성이 없다`);
+      for (const p of planets) if (shared.planetThreat(p) < 2) refProblems.push(`${where}: threat 2 이상 행성에서만 나온다 ('${p}' 는 threat ${shared.planetThreat(p)})`);
+    }
+  }
   for (const d of items.ITEM_DEFS) {
     if (d.sample) ref(`data/samples.csv [rewardDefId] — ${d.id}`, d.sample.rewardDefId);
     if (d.strain) {

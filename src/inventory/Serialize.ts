@@ -1,5 +1,7 @@
 import type { ItemInstance, LootRef, SocketSlot } from '@/shared';
 import { SOCKET_SLOTS, normalizeMealQuality, slotKey } from '@/shared';
+/* 2026-09-13 (서재 시리즈, 사용자 결정): 옛 숙련별 책 · 디스크 · 레코드 id → 새 시리즈 1권 (`data/item_aliases.csv`) */
+import { resolveItemAlias } from '@/shared';
 import type { DefLookup, Placement } from './Grid';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -93,12 +95,14 @@ export function serializePlacement(p: Placement): SavedPlacement {
  * when the def no longer exists; qty / durability / rounds are clamped to sane values. `tag` prefixes warnings.
  */
 export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup, loot: LootRef, tag: string): ItemInstance | null {
-  if (!sv || typeof sv.defId !== 'string' || !getDef(sv.defId)) {
+  // 2026-09-13: every saved item id passes the alias table first — an old 책 · 디스크 · 레코드 comes back as its series vol. 1
+  const defId = sv && typeof sv.defId === 'string' ? resolveItemAlias(sv.defId) : null;
+  if (!sv || !defId || !getDef(defId)) {
     if (sv?.defId) console.warn(`[${tag}] unknown item '${sv.defId}' dropped`);
     return null;
   }
   const qty = Math.max(1, Math.floor(Number(sv.qty) || 1));
-  const item = loot.createItem(sv.defId, qty);
+  const item = loot.createItem(defId, qty);
   if (typeof sv.durability === 'number' && Number.isFinite(sv.durability)) item.durability = Math.max(0, sv.durability);
   if (typeof sv.ammoInMag === 'number' && Number.isFinite(sv.ammoInMag)) item.ammoInMag = Math.max(0, Math.floor(sv.ammoInMag));
   if (typeof sv.rf === 'number' && Number.isFinite(sv.rf)) item.raidFound = sv.rf >>> 0;   // 2026-09-12: raid blob only

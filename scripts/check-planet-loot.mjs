@@ -340,6 +340,77 @@ console.log('인간형 팩션 시체 (rollCorpseOn) — 총 등급 I/II/III/IV/V
   }
 }
 
+/* ── 서재 매체 · 비디오게임 (2026-09-13) — 행성 고정 드롭 · 권 가중치 · 레코드 / 게임 디스크 / 게임기 확률 ─────────────
+ * 사용자 결정 (docs/plans/library-series-games.md): 전부 행성 고정. 레코드 · 게임 디스크(· 게임기)는 threat 2 이상 행성에서만,
+ * 등장 확률은 **소수점 둘째 자리 %**. 책 권 가중치는 LIBRARY_VOLUME_DROP_WEIGHT (I 흔함 → V 아주 드묾).
+ *   · 상자에서 나온 서재 매체 · 게임 아이템은 전부 그 행성의 것이다 (lootPlanetsOf)
+ *   · threat 1 행성은 레코드 · 게임 디스크 · 게임기 0
+ *   · threat 2 이상은 티어 3 · 4 상자 한 개당 레코드 · 게임 디스크 · 게임기 각각 0 초과 · 1 % 미만
+ *   · 책 권별 개수 I > II > III > IV > V
+ *   · 로그 시체의 책도 그 행성의 것 */
+console.log('');
+console.log('서재 매체 · 비디오게임 — 행성 고정 드롭 (rollCrateOn, 상자 1개당)');
+{
+  const MEDIA_ROLLS = Number(process.env.MEDIA_ROLLS ?? 20000);
+  const CATS = ['book', 'disc', 'record', 'game_disc', 'console'];
+  const { lootPlanetsOf } = items;
+  let wrong = 0;
+  const wrongSamples = [];
+  const bookVolumes = [0, 0, 0, 0, 0, 0];
+  const rows = [];
+  for (const planet of PLANET_IDS) {
+    const threat = shared.planetThreat(planet);
+    const perTier = {};
+    for (const tier of [1, 2, 3, 4]) {
+      const hit = Object.fromEntries(CATS.map((c) => [c, 0]));
+      for (let i = 0; i < MEDIA_ROLLS; i++) {
+        const seen = new Set();
+        for (const it of loot.rollCrateOn(tier, new Random((i * 2654435761 + tier * 7919 + 1) >>> 0), planet)) {
+          const def = ITEM_DEF_MAP.get(it.defId);
+          if (!def || !CATS.includes(def.category)) continue;
+          seen.add(def.category);
+          if (!(lootPlanetsOf(def) ?? []).includes(planet)) { wrong++; if (wrongSamples.length < 5) wrongSamples.push(`${it.defId}@${planet}`); }
+          if (def.category === 'book' && def.book?.volume) bookVolumes[def.book.volume]++;
+        }
+        for (const c of seen) hit[c]++;
+      }
+      perTier[tier] = Object.fromEntries(CATS.map((c) => [c, hit[c] / MEDIA_ROLLS]));
+    }
+    const mix = Object.fromEntries(CATS.map((c) => [c, [1, 2, 3, 4].reduce((s, t) => s + perTier[t][c] * TIER_MIX[t] / MIX_TOTAL, 0)]));
+    rows.push({ planet, threat, perTier, mix });
+    const line = (t) => `레코드 ${pct(perTier[t].record).trim()} · 게임 디스크 ${pct(perTier[t].game_disc).trim()} · 게임기 ${pct(perTier[t].console).trim()}`;
+    console.log(`  ${planetLabel(planet).padEnd(10)} threat ${threat} | T3 ${line(3)} | T4 ${line(4)}`);
+    console.log(`  ${''.padEnd(10)}          | 책 T2 ${pct(perTier[2].book).trim()} · T3 ${pct(perTier[3].book).trim()} · T4 ${pct(perTier[4].book).trim()} | 비디오 T2 ${pct(perTier[2].disc).trim()} · T3 ${pct(perTier[3].disc).trim()} · T4 ${pct(perTier[4].disc).trim()} | 맵 평균 레코드 ${pct(mix.record).trim()} · 게임 디스크 ${pct(mix.game_disc).trim()} · 게임기 ${pct(mix.console).trim()}`);
+  }
+  check(wrong === 0, `상자의 서재 매체 · 게임 아이템이 전부 그 행성의 것 — 어긋남 ${wrong}${wrongSamples.length ? ` (${wrongSamples.join(', ')})` : ''}`);
+  for (const r of rows) {
+    const rare = ['record', 'game_disc', 'console'];
+    if (r.threat < 2) {
+      check([1, 2, 3, 4].every((t) => rare.every((c) => r.perTier[t][c] === 0)), `${planetLabel(r.planet)} (threat 1): 레코드 · 게임 디스크 · 게임기 0`);
+    } else {
+      for (const c of rare) for (const t of [3, 4]) {
+        check(r.perTier[t][c] > 0 && r.perTier[t][c] < 0.01, `${planetLabel(r.planet)}: 티어 ${t} 상자 ${c} 0 초과 · 1 % 미만 — ${pct(r.perTier[t][c]).trim()}`);
+      }
+    }
+    check(r.perTier[2].book > 0 && r.perTier[3].book > 0, `${planetLabel(r.planet)}: 책이 나온다 (T2 ${pct(r.perTier[2].book).trim()})`);
+  }
+  console.log(`  책 권별 개수 (모든 행성 · 티어 합): ${[1, 2, 3, 4, 5].map((v) => `${v}권 ${bookVolumes[v]}`).join(' · ')}`);
+  check(bookVolumes[1] > bookVolumes[2] && bookVolumes[2] > bookVolumes[3] && bookVolumes[3] > bookVolumes[4] && bookVolumes[4] > bookVolumes[5],
+    '책 권 가중치: I > II > III > IV > V');
+  let corpseWrong = 0, corpseBooks = 0;
+  for (const planet of PLANET_IDS) {
+    for (let i = 0; i < 4000; i++) {
+      for (const it of loot.rollCorpseOn('rogue_boss', new Random((i * 40503 + 7) >>> 0), 'ar', planet)) {
+        const def = ITEM_DEF_MAP.get(it.defId);
+        if (def?.category !== 'book') continue;
+        corpseBooks++;
+        if (!(lootPlanetsOf(def) ?? []).includes(planet)) corpseWrong++;
+      }
+    }
+  }
+  check(corpseBooks > 0 && corpseWrong === 0, `로그 보스 시체의 책이 전부 그 행성의 시리즈 — ${corpseBooks}권 중 어긋남 ${corpseWrong}`);
+}
+
 if (failed) {
   console.log(`\ncheck-planet-loot 실패 — ${failed}건. data/planet_loot.csv 의 가중치를 고친다.`);
   process.exit(1);

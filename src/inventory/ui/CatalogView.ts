@@ -1,6 +1,6 @@
 import type { ItemCategory, ItemDef, ItemInstance } from '@/shared';
 import type { InventorySystem } from '../InventorySystem';
-import { buildTileContent, isFavoriteDef } from './GridView';
+import { buildTileContent, isFavoriteDef, isShelfWantedDef } from './GridView';
 import { TEXT, rarityColor } from './labels';
 
 /** Handlers the window supplies (drag / tooltip / double-click / close). */
@@ -248,7 +248,10 @@ export class CatalogView {
 
   /** 2026-09-12 (E1): tiles are built once — re-flag the 즐겨찾기 ribbon after a toggle. */
   refreshFavorites(): void {
-    for (const e of this.entries) e.tile.classList.toggle('is-favorite', isFavoriteDef(e.def.id));
+    for (const e of this.entries) {
+      e.tile.classList.toggle('is-favorite', isFavoriteDef(e.def.id));
+      e.tile.classList.toggle('is-shelf-wanted', isShelfWantedDef(e.def));   // 2026-09-13: 서재 띠 — 같은 모양
+    }
   }
 
   dispose(): void {

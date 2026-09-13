@@ -1,0 +1,21 @@
+# 게임 디스크 (2026-09-13 비디오게임 — docs/plans/library-series-games.md). 로더 = src/items/ItemDefs.ts → ItemDef.gameDisc (category game_disc).
+# id 는 코드가 찾는 값이므로 바꾸지 않는다 (game_<이름> — 서재 보관함 세이브의 id 모양). 게임 디스크 전시대에 꽂아 두면 TV 로 플레이한다.
+# 효과(서재 보너스)는 없다 — 플레이하면 헬스와 같은 규칙으로 stat 을 단련한다 (applyGymSession, 24 h 디버프 — 사용자 결정).
+# console = 필요한 게임기 규격 (data/game_consoles.csv). stat = intelligence | perception. minigame = press(벤치프레스형) | breath(호흡형) | cycle(사이클형).
+# 튜닝 (비우면 헬스와 같다): speedMul = 커서 속도 × · 박자 간격 ÷ (클수록 빠르다) · windowMul = 성공 구역 · 판정 창 × (작을수록 어렵다) ·
+#   countMul = 판정 횟수 × · pattern = 박자형 표식 패턴 — 토큰을 - 로 잇는다. breath = t(탭) · h(꾹) · r(쉼), cycle = L · R · r(쉼). press 는 비운다.
+# color = 게임 화면 · TV 화면의 테마 색 (#rrggbb). planets = 상자에서 나오는 행성 (threat 2 이상만 — data:check 가 본다).
+# 드롭 전용 — 제작 · 상점 없음. 확률은 loot_category_weights.csv 의 game_disc 줄. description 에는 숫자를 적지 않는다.
+id,name,rarity,width,height,weight,value,console,stat,minigame,speedMul,windowMul,countMul,pattern,color,planets,description
+# ── 펄스 스테이션 ──
+game_star_miner,스타 마이너,rare,1,2,0.15,650,pulse,intelligence,press,1.1,0.9,,,#7cf0ff,tundra,소행성대에서 광맥을 캐는 계산 게임. 곡괭이를 내리칠 순간을 셈으로 맞춘다.
+game_bug_hunt,버그 헌트 3000,epic,1,2,0.15,1300,pulse,perception,cycle,1.25,0.85,1.2,L-L-R-r,#ff7a5a,ashen|crimson,쏟아지는 벌레 떼를 좌우로 쓸어 담는 아케이드 슈팅. 눈이 따라가야 손이 따라간다.
+game_deep_diver,심해 잠수부,rare,1,2,0.15,650,pulse,perception,breath,0.85,1.1,,t-t-h-r,#4a9cff,mossy,산소 게이지를 보며 숨을 참고 내쉬는 잠수 게임. 물속 그림자를 먼저 알아채야 한다.
+# ── 레트로 큐브 ──
+game_block_tower,블록 타워,rare,1,2,0.15,650,retro,intelligence,press,0.9,0.75,1.3,,#ffd24a,tundra|mossy,떨어지는 블록을 딱 맞는 순간에 멈춰 쌓는 퍼즐 게임.
+game_rhythm_ranger,리듬 레인저,epic,1,2,0.15,1300,retro,perception,cycle,1,1,1.5,L-R-L-R-r-r,#ff5ad0,crimson,화면 양쪽으로 날아오는 표식을 박자에 맞춰 받아치는 리듬 게임.
+game_void_chess,공허 체스,epic,1,2,0.15,1300,retro,intelligence,breath,0.7,0.8,1.2,h-t-r-h,#b89aff,ashen,수를 오래 읽을수록 강해지는 우주 체스. 한 수 한 수 숨을 고르며 둔다.
+# ── 홀로 데크 ──
+game_neural_maze,뉴럴 미로,legendary,1,2,0.15,2600,holo,intelligence,cycle,1.35,0.8,,L-r-R-r-L-R,#5affb0,mossy|crimson,눈앞에 펼쳐진 입체 미로를 좌우 갈림길로 빠져나가는 두뇌 게임.
+game_sniper_vr,스나이퍼 엘리트 VR,legendary,1,2,0.15,2600,holo,perception,press,1.4,0.65,0.8,,#ff4040,crimson,홀로그램 조준경 너머의 표적을 한 호흡에 끊어 내는 사격 시뮬레이터.
+game_zen_orbit,궤도 명상,epic,1,2,0.15,1300,holo,intelligence,breath,0.8,1.2,1.4,t-h-h-r-t,#9ff0c8,tundra,궤도를 도는 행성의 리듬에 호흡을 맞추는 명상 게임. 끝나면 머리가 맑아진다.

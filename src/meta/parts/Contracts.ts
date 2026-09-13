@@ -26,6 +26,8 @@ import type { MetaSystem } from '../MetaSystem';
 import { formatCreditReason } from '@/shared';
 /* 2026-09-12 (§5-2): 아이템 회수 계약은 이번 레이드에서 얻은 것만 센다 (`shared/raidFound.ts`). */
 import { isRaidFound, raidFoundSeed } from '@/shared';
+/* 2026-09-13 (서재 시리즈): 신뢰도 책 — 계약 완료 신뢰도 × `1 + trustXp.all + trustXp[corp]` */
+import { libraryTrustMul } from '@/shared';
 
 /** `MetaRef.getSquadContracts` — other members only, in peer order. */
 export function getSquadContracts(sys: MetaSystem): readonly SquadContractInfo[] {
@@ -191,6 +193,16 @@ export function reportContractHit(sys: MetaSystem, goal: ContractGoalKind, amoun
   if (local) sys.broadcastContract();
   }
 
+/** 2026-09-13: `libraryTrustMul` over housing's summary — 1 while housing cannot answer (병렬 작업 · 스켈레톤). */
+export function libraryTrustMulOf(sys: MetaSystem, corp: CorpId): number {
+  const h = sys.ctx.housing;
+  if (!h || typeof h.getLibraryEffects !== 'function') return 1;
+  try {
+    const mul = libraryTrustMul(h.getLibraryEffects(), corp);
+    return Number.isFinite(mul) && mul > 0 ? mul : 1;
+  } catch { return 1; }
+}
+
 export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSettlement | null {
   if (!stats || stats.mode === 'training') return null;   // the 시뮬레이션 훈련장 settles nothing
   const def = sys.activeDef();
@@ -204,6 +216,10 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   if (settlement.success) {
     sys.store.data.activeContract = null;
     sys.store.data.stats.contractsDone += 1;
+    /* 2026-09-13 (서재 시리즈): 서재의 신뢰도 책이 계약 완료 신뢰도를 올린다 (퀘스트 보상은 아니다). 정산 객체 자체를 고쳐서
+       결과 화면 · `meta:contractSettled` 가 실제로 받은 양을 말한다. 신뢰도는 크레딧이 아니다 — `addRep` 은 로컬 저장소 +
+       `meta:repChanged` 뿐이고 서버 크레딧 검증(`credits:tx`)을 지나지 않으므로 배율을 얹어도 거절될 일이 없다. */
+    if (settlement.rep > 0) settlement.rep = Math.max(0, Math.round(settlement.rep * libraryTrustMulOf(sys, def.corp)));
     if (settlement.rep > 0) sys.addRep(def.corp, settlement.rep, `contract:${def.id}`);
     if (settlement.credits > 0) {
       sys.addCredits(settlement.credits, formatCreditReason({ kind: 'contract', id: def.id }));   // E-4: = contracts.csv reward, ≤ 12/h

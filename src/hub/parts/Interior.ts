@@ -271,6 +271,13 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       const next = h && typeof h.toggleFurniture === 'function' ? h.toggleFurniture(uid) : null;
       if (next === null) ctx.bus.emit('ui:notify', { text: '켜고 끌 수 없습니다', kind: 'warning' });
     },
+    // 2026-09-13 비디오게임: TV 화면 (켜기/끄기 · 게임기 장착 · 좌석 상태 · 게임 목록) — duck-typed
+    onTvMenu: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openTvMenu === 'function') {
+        try { h.openTvMenu(uid); } catch (err) { console.warn('[hub] openTvMenu failed', err); }
+      } else ctx.bus.emit('ui:notify', { text: 'TV 화면을 사용할 수 없습니다', kind: 'warning' });
+    },
     onGym: (uid) => {
       const h = ctx.housing;
       if (!h || typeof h.startGymSession !== 'function') { ctx.bus.emit('ui:notify', { text: '운동 기구를 사용할 수 없습니다', kind: 'warning' }); return; }

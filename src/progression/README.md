@@ -1,6 +1,6 @@
 # src/progression — 캐릭터 성장 (`ProgressionSystem`)
 
-Persistent character: 5 stats, 14 skills, level/XP, and **every number derived from them**.
+Persistent character: 5 stats, 16 skills (2026-09-13 + 요리 · 연구), level/XP, and **every number derived from them**.
 Publishes `ctx.progression` (`ProgressionRef`, see `shared/progression.ts`) in `init`.
 
 > **다른 폴더는 공식을 다시 구현하지 않는다.** 필요한 값은 전부 `ctx.progression?.derived` 에 있다.
@@ -13,11 +13,11 @@ frame already has real numbers; `NetSystem` still goes first).
 | File | Purpose |
 |---|---|
 | `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush — **Phase 9: offline too**, `ProfileSync` queues it; `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`; Phase 8: `createSheetView(host)` + the `views` set (overlay **and** every embedded tab are repainted through `refreshSheets` / `refreshSheetSkill` / `refreshSheetStat`). |
-| `defs.ts` | The 5 `StatDef` / 14 `SkillDef` (한국어 이름·설명), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
-| `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. A-3a: `trainedBonusOf` — the effective stat is base + implant bonus + 헬스장 단련 보너스. |
+| `defs.ts` | The 5 `StatDef` / 16 `SkillDef` (한국어 이름·설명), `DERIVED_PANEL_KEYS` (22 파생 패널 줄), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
+| `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. A-3a: `trainedBonusOf` — the effective stat is base + implant bonus + 헬스장 단련 보너스. 2026-09-13: `applyLibraryDerived` (서재 `derived` 효과 접기). |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. **2026-09-07**: `DEFAULT_IMPLANT` (`'grapple'`) — a fresh profile starts with 갈고리 in the 전술 임플란트 slot instead of an empty one (all six implants are owned from level 1, so an empty slot was just a missed default). Existing saves are untouched. |
 | `ui/SheetBody.ts` | **공용 렌더러** (Phase 8): `CharacterSheetHost` 인터페이스 + `SheetBody` — 헤더 / XP 바 / 능력치 · 숙련도 2단 / 파생 능력치 그리드 / 푸터(캐릭터 초기화)를 넘겨받은 부모 요소 안에 만든다. blocker · 포인터 락 · Esc · `.scr-tabs` 는 **모른다** (껍데기의 몫). `el()` 헬퍼도 여기서 export. **2026-09-13**: 확정 전 배분(`pending`) · `되돌리기` / `포인트 투자 확정`(1초 홀드) · 파생 미리보기 · 이름 툴팁 + 연결 강조(`.pg-linked`) · 임플란트 썸네일 · `requestLeave` / `discardPending` · 초기화 경고 팝업 — 아래 *배분 확정 · 툴팁 · 떠나기 경고* 절. |
-| `ui/SheetTip.ts` | **2026-09-13** 능력치 · 숙련도 이름 툴팁 (`.pg-tip`, `ctx.uiRoot` 아래) — 네이티브 `title` 대신. `housing/ui/StationTip` 과 같은 방식(좌표만 적고 rAF 로 옮긴다). 겉모습은 `.item-tip` 과 같지만 **클래스는 빌리지 않는다** — 이 카드가 HUD 아이템 카드보다 먼저 `#ui-root` 에 붙어 `.item-tip` 을 찾는 스모크(`smoke-controls-hub` · `smoke-housing`)가 이것을 집었다. |
+| `ui/SheetTip.ts` | **2026-09-13** 능력치 · 숙련도 이름 툴팁 (`.pg-tip`, `ctx.uiRoot` 아래) — 네이티브 `title` 대신. 같은 날 후속: 절 제목 생략 가능(`title?`) · 줄 아래 작은 둘째 줄(`note`, 서재 시리즈 `책 · 4 / 5권 · 40 %`) · `시설 ×n` 배지 툴팁. `housing/ui/StationTip` 과 같은 방식(좌표만 적고 rAF 로 옮긴다). 겉모습은 `.item-tip` 과 같지만 **클래스는 빌리지 않는다** — 이 카드가 HUD 아이템 카드보다 먼저 `#ui-root` 에 붙어 `.item-tip` 을 찾는 스모크(`smoke-controls-hub` · `smoke-housing`)가 이것을 집었다. |
 | `ui/CharacterSheet.ts` | 단독 오버레이 (`.menu.char-sheet`): `.scr-tabs` + `.frame` + `SheetBody`. Blocker token `'stats'`, 포인터 락, capture-phase **Tab** 닫기 (2026-09-08). 2026-09-09: 키 가이드 owner `'character'` (`keys: []`). |
 | `ui/SheetView.ts` | 인벤토리 Tab 화면의 **캐릭터 탭** (`EmbeddedView`): `host` 안에 `.cs-embed` + 같은 `SheetBody`. blocker / 락 / Esc / 탭 pill 없음. |
 | `ui/character.css` | Its styles (imported from `CharacterSheet.ts` / `SheetView.ts`); reuses `.menu` / `.ui-*` from `ui/styles/base.css`. |
@@ -61,13 +61,13 @@ statXpToNext(id) = round(STAT_XP_BASE × value^STAT_XP_EXPONENT)   // 5 → 1118
 - `addSkillXpRaw(id, ±amount)`: 지능·스탯·레벨·시설 스케일 **없이** 0..1 진행도에 부호 그대로 더한다 (`1` = 어느 레벨에서든 한 레벨).
   1 이상이면 레벨 +1 (상한 `SKILL_LEVEL_MAX`, 도달 시 진행도 0), 0 미만이면 레벨 −1 (하한 0, 도달 시 진행도 0).
   레벨이 바뀌면 (내려가도) `progress:skillUp {id, level}`, 항상 `progress:skillProgress`. 치트 / 디버프 전용 — 정상 훈련은 `addSkillXp`.
-- `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (**사격장 × 서재** — `gun_*` × `1 + 0.1 × 사격장 level`, times the 서재 책장 bonus of every book of that skill, Phase 9; housing/ folds both into the one number). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
+- `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (2026-09-13: = 1 + 서재 시리즈 `skillGain[id]` — 아래 *서재 시리즈* 절. 옛 설명: **사격장 × 서재** — `gun_*` × `1 + 0.1 × 사격장 level`, times the 서재 책장 bonus of every book of that skill, Phase 9; housing/ folds both into the one number). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
   이걸 다시 곱하지 않는다. housing 이 스켈레톤이거나 없으면 1. 시트의 스킬 행에 `시설 ×1.10` 배지로 표시 (1 이면 숨김).
 - 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`) — **119 / 119** on 2026-09-08 (Phase 12 임플란트 아이템 +51; 65 / 65 on 2026-09-06)
   (Phase 7: 감정 XP `container:itemRevealed`, 훈련장 `gun_*` 전용, 가짜 `ctx.net.profile` 로 `profile.set('progression')` / `net:profileLoaded` 대체 + 이벤트 재발행;
   릴레이 소켓을 막아 8787 의 릴레이가 실행 중이어도 결과가 같다).
 
-## 스킬 (14종)
+## 스킬 (16종 — 2026-09-13 요리 · 연구 추가)
 0..`SKILL_LEVEL_MAX`(100). 레벨 사이 진행도는 `profile.skillProgress[id]` (0..1).
 
 ```
@@ -88,6 +88,8 @@ gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor
 | `implant` 전술 임플란트 | `implant:activated` | `implantCooldownMul` |
 | `gun_AR/SMG/SR/DMR/SG` 사격 | `weapon:hit` (`enemyId !== null`) — 무기 클래스는 직전 `weapon:fired` 의 `weaponId` → `ctx.loot.getWeaponDef` 로 판정 | `recoilMul[class]`, `reloadSpeedMul[class]` |
 | `equipment` 장비 관리 | `repair:completed` | `durabilityLossMul` |
+| `cooking` 요리 (재주) | housing 조리 완료가 `addSkillXp('cooking', …)` (점수 비례 — H3) | `cookScoreBonus` (0 … `COOK_SKILL_SCORE_AT_MAX`, 단계 점수 가산) |
+| `research` 연구 (지능) | housing 분석 회수 · 추출기/조합대/3D 프린터 제작이 `addSkillXp('research', …)` | `researchTimeMul` · `researchRefundChance` · `researchRefundFrac` (`RESEARCH_*`) |
 
 - 산탄총은 펠릿마다 `weapon:hit` 을 쏘므로 **한 발당 한 번만** 적립한다 (`weapon:fired` 로 리셋).
 - **훈련장 (Phase 7)**: `ctx.isTraining()` 인 동안 `addSkillXp` 는 `gun_*` 만 받고 (`× TRAINING_SKILL_GAIN_MUL`, shared/constants), 나머지 스킬은 0.
@@ -112,7 +114,7 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
 `localStorage[PROFILE_STORAGE_KEY]`, `PROFILE_VERSION` 기반. **Phase 7 — 서버 프로필** (`ctx.net.profile`, 문서 키 `progression`):
 - 모든 flush 는 localStorage 에 쓴 뒤 `profile.set('progression', 프로필 사본)` 도 큐에 넣는다 (`available` 이 false 면 no-op).
 - `net:profileLoaded` → 서버 문서가 있으면 `migrate(doc)` 로 정규화해 로컬 프로필을 **대체**하고 (서버가 진실, localStorage 는 캐시로 갱신, 재업로드 없음),
-  `progress:loaded` · `progress:xpGained {amount 0}` · 스탯 5개 `progress:statChanged` · 스킬 14개 `progress:skillProgress` 를 다시 emit 한다 (`levelUp` 은 내지 않는다).
+  `progress:loaded` · `progress:xpGained {amount 0}` · 스탯 5개 `progress:statChanged` · 스킬 16개(`SKILL_IDS`) `progress:skillProgress` 를 다시 emit 한다 (`levelUp` 은 내지 않는다).
   문서가 없으면 로컬 프로필을 업로드한다.
 
 - 저장 시점: 레벨업, 스탯 소비, 스킬 레벨업, `implant:equipped`, 미션 종료(`GameFlow` 가 `save()` 호출),
@@ -132,7 +134,7 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
   닫을 때는 토큰을 지우고 `setCursorMode(false, 'stats')`. `close(relock)` 의 인자는 호출 시그니처 유지용으로만 남아 있다.
 - **2026-09-08**: 시트를 닫는 키는 **Tab**(`Keys.INVENTORY`)이다 — capture-phase 리스너가 잡되 `MENU_BLOCKER` 가 떠 있거나 포커스가 텍스트 입력에 있으면 넘긴다. Escape 는 더 이상 여기서 처리하지 않고 game/ 의 일시정지 메뉴로 간다(시트 위에 쌓인다).
 - 내용: 레벨 + XP 바, 스탯 5종(이름 툴팁 · 값 · `－` / `＋` 확정 전 배분 — 레이드 중 비활성) + 잔여 포인트 + `되돌리기` / `포인트 투자 확정`(1초 홀드),
-  스킬 14종 진행도 바(이름 툴팁) + 장착 임플란트 썸네일, 파생 능력치 18개 readout(배분 중 `현재 → 확정 후`), **캐릭터 초기화** 버튼(함선에서만 —
+  스킬 16종 진행도 바(이름 툴팁 · `시설 ×n` 배지 툴팁) + 장착 임플란트 썸네일, 파생 능력치 22개 readout(배분 중 확정 후 값 한 개만 초록 · 줄바꿈 없이 글자 맞춤), **캐릭터 초기화** 버튼(함선에서만 —
   2026-09-13 부터 경고 팝업 + 1초 홀드). 이 본문 전체는 `ui/SheetBody.ts` 하나가 그린다.
 - 2026-09-13: Tab · Escape(스택 항목) · 닫기 · 인벤토리 탭은 `requestClose()` 를 지난다 — 확정 전 포인트가 있으면 떠나기 경고가 먼저 뜬다.
 
@@ -338,7 +340,7 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 
 | 필드 | 뜻 |
 |---|---|
-| `PlayerProfile.trained` | 단련 보너스 (`GYM_STATS` = 근력 · 지구력, 정수 0 … `GYM_TRAINED_MAX`). 0 인 항목은 적지 않는다 |
+| `PlayerProfile.trained` | 단련 보너스 (`GYM_STATS` = 근력 · 지구력 · **2026-09-13 지능 · 인지력**(비디오게임), 정수 0 … `GYM_TRAINED_MAX`). 0 인 항목은 적지 않는다 |
 | `PlayerProfile.trainedProgress` | 다음 단련까지 0 … 0.999999, **상한이면 정확히 1** (`statProgress` 와 같은 규칙) |
 | `PlayerProfile.gymFatigueUntil` | 운동 디버프가 끝나는 epoch ms. 지난 값은 「없음」 과 같다 |
 
@@ -376,8 +378,8 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
   시각). 2026-09-09 `accent` 사고와 같은 자리 — 빠뜨리면 새로고침 한 번에 보너스와 24시간 디버프가 사라진다. `freshProfile` 은
   빈 맵 셋, `resetProfile` 도 그것으로 비운다. `PROFILE_VERSION` 은 그대로.
 - **캐릭터 시트** (`ui/SheetBody`, 두 셸 공용): 값 칸이 `base` · `.ib`(임플란트) · **`.tb`**(` (+n 단련)`, `--c-info` 색, 0 이면 빈
-  칸 + hidden)이다. 근력 · 지구력 행만 설명 아래 `.gy` 줄을 갖는다 — 왼쪽 `.gtr` `단련 +2 · 40 %` / `단련 최대`, 오른쪽 `.fat`
-  `근육통 · 남은 HH:MM:SS` / `심폐 피로 · …` (디버프 중에만). 카운트다운은 **디버프가 있고 본문이 화면에 보이는 동안만** 1초
+  칸 + hidden)이다. `GYM_STATS` 행(근력 · 지구력 · 2026-09-13 인지력 · 지능 — 재주만 없다)이 설명 아래 `.gy` 줄을 갖는다 — 왼쪽 `.gtr` `단련 +2 · 40 %` / `단련 최대`, 오른쪽 `.fat`
+  `근육통 · 남은 HH:MM:SS` / `심폐 피로 · …` / `정신 피로 · …` / `눈의 피로 · …` (디버프 중에만, 이름은 `GYM_FATIGUE_LABEL_KO`). 카운트다운은 **디버프가 있고 본문이 화면에 보이는 동안만** 1초
   `setInterval` 로 다시 그리고, 숨겨지면(오버레이 닫힘 · 인벤토리 다른 탭) 스스로 멈춘다 — 두 셸이 다시 보일 때 `refresh()` 를
   부르므로 그때 다시 선다. `dispose` 가 멈춘다.
 - 스모크: `smoke-progression` **170 / 170** (2026-09-12, +47) — 공식 · 이월 · 상한 · 디버프 게이트 · 거절 3종 · 점수 클램프 ·
@@ -397,16 +399,21 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
   합 0 · `statPoints` 초과 · `STAT_MAX` 초과면 false. 통과하면 `recompute` 한 번 · 즉시 저장 한 번 · 바뀐 능력치마다
   `progress:statChanged` 한 번. 시트는 부르기 **전에** 걸어 둔 것을 비우고(그 자리의 refresh 가 새 포인트로 다시 자르지 않게), 거절되면 되돌린다.
 - **미리보기 `previewDerived(alloc)`** (`CharacterSheetHost` 전용, 계약 아님): 프로필 얕은 사본에 배분을 더해 **`recompute` 와 같은
-  `deriveFor`** (임플란트 · 단련 · 특수 가방 · 식사 버프)로 계산한다. 바뀌는 파생 줄만 `현재 → 확정 후`(`.pg-preview`, 초록). 진짜 `derived` 는 확정 때만 바뀐다.
+  `deriveFor`** (임플란트 · 단련 · 특수 가방 · 식사 버프 · 2026-09-13 서재 파생)로 계산한다. 바뀌는 파생 줄만 표시가 바뀐다 — **같은 날 후속(사용자 결정)**: `현재 → 확정 후` 가 아니라
+  **확정 후 값 한 개만** 초록(`.pg-preview .v`)으로 보인다 (＋ / － 를 번갈아 눌러 비교한다). 진짜 `derived` 는 확정 때만 바뀐다.
+- **값 글자 맞춤** (2026-09-13 후속): 파생 줄의 값은 줄바꿈하지 않는다. `SheetBody.fitDerived` 가 `라벨 + gap + 값` 이 칸을 넘으면 값의 인라인
+  `font-size` 를 비율로 줄인다(바닥 `DERIVED_FONT_MIN_PX` 8 px, 그 밑이면 라벨이 말줄임). 모든 줄에 적용되고, 바뀐 줄만 그 자리에서 잰다(쓰기 → 읽기 → 쓰기 한 번).
+  그리드 **폭**이 바뀌면(창 크기 · 숨김 → 표시) `ResizeObserver` 가 다음 프레임에 전부 다시 잰다. `.v` 의 `line-height` 가 고정이라 줄어든 글자가 그리드 높이를 바꾸지 않는다(관찰자 루프 없음).
 - **걸어 둔 것은 `refresh()` 를 견딘다** — ProgressionSystem 이 스탯 · 스킬 · `derived` 가 바뀔 때마다 다시 그리므로 그 상태는 본문
   인스턴스에 산다. 그리기 전마다 `reconcilePending` 이 지금 프로필 기준으로 자른다(서버 문서 · 스탯 XP 로 `STAT_MAX` 도달).
-- **이름 툴팁** (`ui/SheetTip`, 네이티브 `title` 제거): 능력치 = 설명(`stats.csv`) + `관련 숙련 · 성장 속도`(그 능력치를 `stats` 칸에 가진 숙련,
-  `SKILL_STAT_FACTOR / 관련 능력치 수` per pt) + 지능만 `모든 숙련 성장 +N%/pt`(`SKILL_GAIN_PER_INT`). 숙련 = 레벨 · 진행도 + 설명 +
-  `현재 효과`(`derived` 칸의 줄 값, 사격 숙련은 무기 종류별 `반동 −n% · 장전 +n%` 숫자만) + `관련 능력치 · 성장 속도` + 시설 보너스.
+- **이름 툴팁** (`ui/SheetTip`, 네이티브 `title` 제거): 능력치 = 설명(`stats.csv`) + 관련 숙련 줄(그 능력치를 `stats` 칸에 가진 숙련,
+  `SKILL_STAT_FACTOR / 관련 능력치 수` per pt) + 지능만 `모든 숙련 성장 +N%/pt`(`SKILL_GAIN_PER_INT`). **2026-09-13 후속(사용자 요청)**: 능력치 툴팁의 부제 `능력치` 와
+  절 제목 `관련 숙련 · 성장 속도` 는 없다(줄은 그대로) — `SheetTip` 은 빈 부제 · 빈 절 제목을 아예 만들지 않는다. 숙련 = 레벨 · 진행도 + 설명 +
+  `현재 효과`(`derived` 칸의 줄 값, 사격 숙련은 무기 종류별 `반동 −n% · 장전 +n%` 숫자만) + `관련 능력치 · 성장 속도` + 시설 보너스 + (꽂힌 게 있으면) `시설 보너스 · 서재 시리즈`.
   두 상수는 `derive.ts` 에서 export 한다 (`SKILL_STAT_FACTOR` 는 `ProgressionSystem` 에서 옮겨 왔다).
 - **연결 강조 `.pg-linked`** (옅은 강조색 바탕 + 안쪽 테두리, 페이드): 능력치 툴팁 = 관련 숙련 행 + 그 능력치의 파생 줄, 숙련 툴팁 = 그 숙련의 파생 줄
   (사격 숙련은 없음), 임플란트 썸네일 = 그 임플란트의 능력치 행 + 그 능력치들의 숙련 행 + 파생 줄.
-- **매핑 데이터**: `stats.csv` · `skills.csv` 의 `derived` 칸(`|` 목록) — 값은 `defs.DERIVED_PANEL_KEYS`(패널 18줄의 키, `DerivedStats` 필드 이름)
+- **매핑 데이터**: `stats.csv` · `skills.csv` 의 `derived` 칸(`|` 목록) — 값은 `defs.DERIVED_PANEL_KEYS`(패널 22줄의 키 — 2026-09-13 요리 · 연구 4줄 추가, `DerivedStats` 필드 이름)
   중 하나여야 하고 로더(`enumList`)가 검사하므로 `npm run data:check` 가 잡는다. 능력치 줄의 빈 칸도 문제로 잡는다(숙련은 사격이 비어 있는 게 정상).
   읽기는 `derivedKeysOfStat(id)` · `derivedKeysOfSkill(id)`. 패널에 없는 효과(도약력 · 스태미나 회복 · 반동 · 장전)는 적지 않는다.
 - **임플란트 썸네일** (숙련도 아래 `.pg-imps`): 장착한 임플란트 아이템(전술 임플란트 제외)을 `buildItemChip` 으로 — `data-def-id` 라
@@ -421,11 +428,48 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
 - 스모크: `smoke-progression` 에 배분 · 홀드 확정 · 미리보기 · 툴팁 · 연결 강조 · 계약 거절 · 오버레이/임베드 떠나기 경고 · 강제 종료 · 초기화 팝업 ·
   임플란트 썸네일 검사.
 
+## 서재 시리즈 · 요리/연구 숙련 · 비디오게임 (2026-09-13, `docs/plans/library-series-games.md`)
+
+계약은 읽기만 했다 — `SkillId` + `cooking` / `research`, `GymStat` 에 지능 · 인지력, `DerivedStats.cookScoreBonus` · `researchTimeMul` ·
+`researchRefundChance` · `researchRefundFrac`, `HousingRef.getLibraryEffects?` · `getLibrarySources?`, `housing:libraryChanged`, `shared/library.ts`.
+
+- **새 숙련 2종**: 표 · 저장 · 초기화 경로는 전부 `SKILL_IDS` / `SKILL_DEFS` 를 돌므로 코드 분기는 없다 — `Profile.migrate` 가 옛 세이브에 0 을 채우고,
+  `net:profileLoaded` 가 `skillProgress` 를 16번 낸다. 공식은 리드가 넣은 `derive.ts` 네 줄(`COOK_SKILL_SCORE_AT_MAX` · `RESEARCH_*`, `constants.csv`)이고 조정은 csv 로만 한다.
+  경험치는 housing(H3)이 `addSkillXp('cooking' | 'research', …)` 로 준다. 시트에서는 csv 순서대로 숙련 목록 맨 끝이다.
+- **새 파생 패널 줄 4개** (`DERIVED_PANEL_KEYS` 18 → 22, `skills.csv` `derived` 칸): `요리 점수` `+N %`(`cookScoreBonus` — 조리 화면의 `단계 점수 72 %` 와 같은 단위) ·
+  `분석 시간` `×0.85`(`researchTimeMul`) · `재료 회수 확률` `N %` · `재료 회수량` `N %`(재료당 돌려받는 비율).
+- **서재 파생 접기**: `deriveFor` 가 요리 버프 **뒤에** `derive.applyLibraryDerived(d, ctx.housing.getLibraryEffects().derived)` — 요리 버프와 같은 규칙(가산 + 0 하한,
+  키는 `MEAL_BUFFS` 만, 숫자가 아니면 버림). housing 이 없거나 API 전이거나 던지면 아무것도 안 접는다. `recompute` · 시트 미리보기(`previewDerived`)가 같은 경로라
+  미리보기에도 들어간다. 다시 계산하는 때: `housing:libraryChanged` · `game:phaseChanged`(전에는 다시 그리기만 했다 — 함선 상태가 그 사이 다시 실렸을 수 있다) · 기존 시점들.
+  숙련 상승량(`skillGain`)은 여전히 `getSkillGainMul` 한 곳이고 housing 이 서재 몫을 접어 준다.
+- **비디오게임 = 헬스와 같은 단련**: `GYM_STATS` 를 도는 코드(`trainedBonusOf` · `sanitizeGym` · `emitGymState` · `clearGymFatigue` · 시트 `.gy` 줄)가 그대로 넷을 다룬다 —
+  이 폴더에서 바꾼 분기는 없다(확인만). 지능 단련은 `skillGainMul`, 인지력 단련은 감지 반경에 들어간다.
+- **`시설 ×n` 배지 툴팁** (사용자 요청): 숙련 줄의 배지에 호버 → `시설 보너스` · `운반 · 숙련 상승 ×1.44` · `서재 시리즈` 절에 시리즈마다
+  `『운반 노하우』 +4.0 %` 와 그 아래 작은 줄 `책 · 4 / 5권 · 40 %`(전권이면 `전권 100 %`, 단편이면 `단편 · 100 %`, 보조 가구가 걸렸으면 `· 보조 가구 적용`).
+  값이 큰 순서, 값 0 인 시리즈는 빼고, 배율 중 시리즈로 설명되지 않는 나머지는 `기타 시설` 줄. 원본은 `ctx.housing.getLibrarySources('skillGain', id)`(`typeof` 방어).
+  같은 줄들이 숙련 이름 툴팁의 `시설 보너스 · 서재 시리즈` 절에도 붙는다(꽂힌 게 없으면 절이 없다).
+- **능력치 툴팁**: 부제 `능력치` · 절 제목 `관련 숙련 · 성장 속도` 삭제(줄은 그대로). **파생 미리보기**: 확정 후 값 한 개만 초록 + 글자 맞춤 — 위 절.
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-13 (리드 — 연구실 작업대 · 조리대 경험치, 사용자 결정)** — `craft:completed` 의 제작 경험치를 추출기 · 조합대 · 3D 프린터 · **조리대**(`LAB_BENCHES`) 레시피에서는
+  주지 않는다(`recipeSkill` 이 null). 연구실 제작은 inventory 가 주는 연구 경험치(`RESEARCH_XP_CRAFT`, `inventory/parts/Crafting` 의 `RESEARCH_BENCHES` 와 함께 고친다)만,
+  요리는 housing `Cooking` 이 주는 요리 경험치(`COOK_SKILL_XP`)만 오른다. `smoke-library-consumers` · `smoke-cooking` 이 제작 경험치 0 을 본다.
+
+- **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련, 에이전트 P — `docs/plans/library-series-games.md`)** — 위 *서재 시리즈 · 요리/연구 숙련 · 비디오게임* 절이 전부다.
+  - `data/skills.csv` — 헤더 16종, `cooking` · `research` 의 `derived` 칸. `defs.ts` — `DERIVED_PANEL_KEYS` 에 4줄.
+  - `derive.ts` — `applyLibraryDerived`. `ProgressionSystem.ts` — `deriveFor` 가 서재 파생을 접는다(`libraryDerived`), `housing:libraryChanged` 구독, `game:phaseChanged` 가 `recompute`.
+  - `ui/SheetTip.ts` — 절 제목 생략 · 줄 `note`. `ui/SheetBody.ts` — 새 파생 줄 라벨 · 포맷, 미리보기 한 값(옛 `${cur}\0${next}` 표시 키에 **NUL 문자**가 박혀 있어 파일이
+    바이너리로 읽혔다 — 걷어냈다), `fitDerived` + 그리드 `ResizeObserver`, 능력치 툴팁 부제 · 절 제목 삭제, `시설 ×n` 배지 툴팁 · 숙련 툴팁 서재 절.
+  - `ui/character.css` — `.pg-cur` · `.pg-arr` · `.pg-next` 와 미리보기 `flex-wrap` 삭제, `.pg-preview .v` 초록, 값 `line-height` 고정 · 라벨 말줄임, `.pg-tip-rows .n`, 배지 `cursor: help`.
+  - `scripts/smoke-progression.mjs` — 16 숙련(migrate 포함) · 새 파생 줄 수치 · 능력치 툴팁 라벨 · 미리보기 한 값 · 글자 맞춤(96 px 칸) · 배지 툴팁(가짜 `getLibrarySources`) ·
+    서재 파생 접기(가짜 `getLibraryEffects` + `housing:libraryChanged`) · 지능/인지력 단련(세션 · 파생 · 시트 줄 · migrate · 재발행 4회).
+    스모크 페이지는 모든 transition 을 ~0 초로 돌리므로 계산된 색은 클릭 직후가 아니라 잠깐 뒤에 읽는다.
+  - 검증: `npm run typecheck` — 이 폴더 에러 0 (다른 에이전트의 진행 중 파일만). `verify --only smoke-progression --log-dir scripts/logs/P` **262 / 262**, data-check ok.
 
 - **2026-09-13 (요리 품질, 에이전트 cook-progression-player — `docs/plans/cooking-minigames.md` §6-3)** — 계약은 읽기만 했다
   (`PlayerProfile.mealQuality` · `mealActiveQuality`, `useMeal` / `serveMeal` 의 `quality`, `getMealQuality` · `getActiveMealQuality`, `progress:mealChanged` 의 두 품질,

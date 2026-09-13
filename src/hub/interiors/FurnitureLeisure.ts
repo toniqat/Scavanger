@@ -21,14 +21,19 @@ import type { BuildExtra, FurnitureModel } from './Furniture';
  * 셰이더 컴파일이 일어나지 않는다 (나팔 안쪽을 `DoubleSide` 로 그리지 않고 입구 원판으로 막은 이유다).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 가구 모델 중 이 파일이 짓는 것. */
+/**
+ * 가구 모델 중 이 파일이 짓는 것. 2026-09-13 (서재 시리즈 · 비디오게임): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그가 더해졌고,
+ * 의자(`chair`)도 앉는 자세 기하(`rig`)를 가져야 해서 `Furniture.ts` 의 `BUILDERS` 에서 이리로 옮겨 왔다.
+ */
 export type LeisureKind =
   | 'disc_stand' | 'record_rack' | 'rocking_chair' | 'tv' | 'gramophone' | 'jukebox' | 'turntable'
-  | 'bench_rack' | 'smith_machine' | 'treadmill' | 'exercise_bike';
+  | 'bench_rack' | 'smith_machine' | 'treadmill' | 'exercise_bike'
+  | 'game_stand' | 'sofa' | 'low_table' | 'rug' | 'chair';
 
 const LEISURE_KIND_SET: ReadonlySet<FurnitureModelKind> = new Set<FurnitureModelKind>([
   'disc_stand', 'record_rack', 'rocking_chair', 'tv', 'gramophone', 'jukebox', 'turntable',
   'bench_rack', 'smith_machine', 'treadmill', 'exercise_bike',
+  'game_stand', 'sofa', 'low_table', 'rug', 'chair',
 ]);
 export function isLeisureKind(kind: FurnitureModelKind): kind is LeisureKind { return LEISURE_KIND_SET.has(kind); }
 
@@ -72,7 +77,34 @@ export interface FurnitureRig {
   /* ── 흔들의자 ── */
   /** 의자 전체 (앉아 있는 동안 X 축으로 흔들린다, 피벗 = 흔들 다리가 바닥에 닿는 점). */
   rock?: THREE.Group;
+  /* ── 쇼파 (2026-09-13) ── */
+  /**
+   * 앉을 수 있는 자리 전부 (쿠션마다 좌판 윗면 한 점, 가구 로컬). 있으면 `sitPoseOf(piece, near)` 가 `near` 에 가장 가까운 자리를 고른다 —
+   * 평소에는 플레이어 발, 게임 세션에는 TV 화면. 없으면 `anchor` 하나뿐이다.
+   */
+  seats?: THREE.Vector3[];
 }
+
+/**
+ * TV 의 게임 화면 rig (2026-09-13, 비디오게임). 화면 앞에 늘 지어 두고 숨겨 두는 하위 그룹 — 게임 세션 동안 `GameStaging` 이 보이게 하고
+ * 공용 재질 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 발광 색 · 세기(uniform)만 바꾼다. 재질을 갈아 끼우지 않으므로 셰이더 컴파일이 없고, 점광원도 없다.
+ */
+export interface TvRig {
+  /** 화면 앞면 한가운데 (가구 로컬) — 게임 카메라가 비추고, 좌석 고르기가 가까운 자리를 찾는 점. */
+  screen: THREE.Vector3;
+  /** 화면 폭 · 높이 (m). */
+  screenW: number;
+  screenH: number;
+  /** 게임 화면 그룹 (`tv-game`) — `BuildExtra.gameActive` 면 보이는 채로 지어진다. */
+  overlay: THREE.Group;
+  /** 화면 속에서 움직이는 표식 (`tv-game-marker`) — x 이동 · y 비율로 미니게임을 흉내 낸다. */
+  marker: THREE.Group;
+  /** 진행 막대 (`tv-game-progress`) — 왼쪽 끝이 원점이라 `scale.x` 가 곧 진행도다. */
+  progress: THREE.Group;
+}
+
+/** 앉는 자리 좌판 윗면 높이 — player `FURN_SIT` 의 발바닥이 이만큼 아래(0.36 m)라 의자 · 쇼파 · 흔들의자가 같은 값을 쓴다. */
+export const SIT_SEAT_TOP = 0.36;
 
 /* ── 재질 (전부 공용 · 버리지 않는다) ─────────────────────────────────────── */
 function std(color: number, roughness: number, metalness: number, emissive = 0, emissiveIntensity = 0): THREE.MeshStandardMaterial {
@@ -121,6 +153,45 @@ function neon(css: string, on: boolean): THREE.MeshStandardMaterial {
     const c = new THREE.Color(css);
     m = on ? std(c.getHex(), 0.3, 0.05, c.getHex(), 2.6) : std(c.clone().multiplyScalar(0.35).getHex(), 0.5, 0.2);
     neonCache.set(key, m);
+  }
+  return m;
+}
+
+/* ── 2026-09-13 비디오게임 재질 (공용 · 버리지 않는다) ── */
+/**
+ * TV 게임 화면 · 화면 속 HUD. **이 둘만** 게임 세션 동안 발광 색 · 세기가 바뀐다(`GameStaging`) — 로컬 세션은 한 번에 하나라 조각마다 따로 둘 필요가
+ * 없다. 둘 다 불투명 `MeshStandardMaterial` 이라 처음 보여도 이미 있는 프로그램을 쓴다.
+ */
+export const TV_GAME_SCREEN = std(0x10202c, 0.35, 0.1, 0x3aa8ff, 1.2);
+export const TV_GAME_HUD = std(0xe8f4ff, 0.3, 0.05, 0xdfefff, 1.6);
+/** 게임 화면의 판정 구역 (어둡게 비치는 띠). */
+const TV_GAME_ZONE = std(0x2a3440, 0.4, 0.1, 0x8fb0c8, 0.55);
+const CONSOLE_BLACK = std(0x121418, 0.28, 0.45);
+const CONSOLE_WHITE = std(0xd9dde2, 0.35, 0.2);
+const CONSOLE_GREEN = std(0x6dff9a, 0.3, 0.05, 0x2cff6a, 2.0);
+const CUP = std(0xd8d2c4, 0.6, 0.05);
+
+const gameCaseCache = new Map<string, THREE.MeshStandardMaterial>();
+/** 게임 디스크 케이스 재질 (`GameDiscDef.color`, 어두운 방에서도 읽히게 약한 발광). 잘못된 색 문자열은 흰색으로. Cached forever. */
+function gameCaseMat(css: string): THREE.MeshStandardMaterial {
+  let m = gameCaseCache.get(css);
+  if (!m) {
+    const c = new THREE.Color(0xffffff);
+    try { c.set(css); } catch { /* malformed colour → white */ }
+    m = std(c.getHex(), 0.5, 0.15, c.getHex(), 0.35);
+    gameCaseCache.set(css, m);
+  }
+  return m;
+}
+const fabricCache = new Map<string, THREE.MeshStandardMaterial>();
+/** 천 재질 — 카탈로그 색을 `mul` 만큼 어둡게 한 무광 (쇼파 · 러그). 발광 없음. Cached forever. */
+function fabricMat(css: string, mul: number): THREE.MeshStandardMaterial {
+  const key = `${css}|${mul}`;
+  let m = fabricCache.get(key);
+  if (!m) {
+    const c = new THREE.Color(css).multiplyScalar(mul);
+    m = std(c.getHex(), 0.96, 0.02);
+    fabricCache.set(key, m);
   }
   return m;
 }
@@ -223,6 +294,88 @@ function slotsOf(extra: BuildExtra | undefined, n: number): (Rarity | null)[] {
   return out;
 }
 
+/* ── 2026-09-13 비디오게임 헬퍼 ─────────────────────────────────────────── */
+
+/** 게임기 모양 수 (`BuildExtra.consoleLook` 0 … 2), 3 = 모르는 게임기의 일반 상자. */
+export const TV_CONSOLE_LOOKS = 3;
+
+/** 패드 하나 (몸체 · 손잡이 둘 · 버튼) — 윗면 `topY` 위에 놓인다. */
+function controllerPad(b: GeoBatch, x: number, topY: number, z: number, body: THREE.Material, accent: THREE.Material, ry: number): void {
+  const c = Math.cos(ry), s = Math.sin(ry);
+  const at = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c];
+  { const [px, pz] = at(0, 0); b.box(0.12, 0.024, 0.06, px, topY + 0.012, pz, body, ry); }
+  for (const sx of [-1, 1]) { const [px, pz] = at(sx * 0.055, 0.02); b.cyl(0.022, 0.022, 0.024, 10, px, topY + 0.012, pz, body); }
+  { const [px, pz] = at(0.03, -0.01); b.box(0.022, 0.006, 0.022, px, topY + 0.027, pz, accent, ry); }
+  { const [px, pz] = at(-0.03, -0.01); b.box(0.026, 0.006, 0.008, px, topY + 0.027, pz, M.hullLight, ry); }
+}
+
+/**
+ * 게임기 종류(`GameConsoleDef.console`, `data/game_consoles.csv`) → 모양. 표에 없는 종류는 `FurnitureLayer.consoleLookOf` 가 카탈로그 종류 목록의
+ * 순번으로 셋 중 하나를 고른다 (모든 클라이언트가 같은 카탈로그라 같은 모양).
+ */
+export const TV_CONSOLE_LOOK_BY_KIND: Readonly<Record<string, number>> = { pulse: 0, retro: 1, holo: 2 };
+
+/**
+ * TV 상판 위 게임기 (`look` = `BuildExtra.consoleLook`). 자리는 상판 왼쪽 x −0.56 (사운드바 ±0.4 · 받침대 ±0.21 과 겹치지 않는다), 패드는 오른쪽.
+ *  0 펄스 스테이션 — 낮고 넓은 검은 슬랩 · 윗면 청록 띠 · 앞 디스크 슬롯
+ *  1 레트로 큐브   — 흰 정육면체 · 윗면 카트리지 홈 · 앞 초록 전원등 · 보라 줄무늬
+ *  2 홀로 데크     — 넓고 낮은 검은 데크 · 윗면 방출 원판 위로 가는 청록 홀로 기둥 (불투명 발광 — 새 셰이더 없음)
+ *  3 일반          — 모르는 게임기: 건메탈 상자 + 초록 LED
+ */
+function tvConsole(b: GeoBatch, look: number, topY: number, a: THREE.Material): void {
+  const x = -0.56, z = -0.04;
+  switch (look) {
+    case 0:
+      b.boxB(0.3, 0.06, 0.22, x, topY, z, CONSOLE_BLACK);
+      b.box(0.24, 0.006, 0.02, x, topY + 0.063, z, M.stripCyan);
+      b.box(0.14, 0.008, 0.004, x, topY + 0.03, z - 0.112, M.floorGrate);
+      controllerPad(b, 0.56, topY, -0.08, CONSOLE_BLACK, M.stripCyan, 0.3);
+      break;
+    case 1:
+      b.boxB(0.2, 0.2, 0.2, x, topY, z, CONSOLE_WHITE);
+      b.box(0.12, 0.012, 0.03, x, topY + 0.2, z + 0.02, M.floorGrate);                              // 카트리지 홈
+      b.box(0.204, 0.018, 0.204, x, topY + 0.14, z, neon('#b89aff', true));                         // 보라 줄무늬
+      b.box(0.02, 0.02, 0.004, x + 0.06, topY + 0.05, z - 0.102, CONSOLE_GREEN);                    // 전원등
+      controllerPad(b, 0.56, topY, -0.08, CONSOLE_WHITE, CONSOLE_GREEN, -0.25);
+      break;
+    case 2:
+      b.boxB(0.3, 0.045, 0.22, x, topY, z, CONSOLE_BLACK);
+      b.cyl(0.075, 0.085, 0.012, 20, x, topY + 0.051, z, M.gunmetal);                               // 방출기 받침
+      b.cyl(0.06, 0.06, 0.004, 20, x, topY + 0.059, z, M.stripCyan);                                // 방출 원판
+      b.cyl(0.008, 0.02, 0.16, 10, x, topY + 0.14, z, M.stripCyan);                                 // 홀로 기둥
+      b.box(0.24, 0.006, 0.004, x, topY + 0.022, z - 0.112, a);                                     // 앞 띠
+      controllerPad(b, 0.56, topY, -0.08, CONSOLE_BLACK, M.stripCyan, 0.15);
+      break;
+    default:
+      b.boxB(0.26, 0.07, 0.2, x, topY, z, M.gunmetal);
+      b.box(0.02, 0.012, 0.004, x + 0.09, topY + 0.035, z - 0.102, CONSOLE_GREEN);
+      b.box(0.2, 0.008, 0.004, x - 0.02, topY + 0.035, z - 0.102, a);
+      controllerPad(b, 0.56, topY, -0.08, M.gunmetal, a, 0.2);
+      break;
+  }
+}
+
+/**
+ * TV 게임 화면 (`model.tv`): 화면 앞(−Z) 몇 mm 에 겹친 판 · 판정 구역 띠 · 움직이는 표식 · 진행 막대. 판은 `TV_GAME_SCREEN`, 표식과 막대는
+ * `TV_GAME_HUD` — 둘 다 공용이라 `GameStaging` 이 색 · 세기만 바꾼다. 그룹은 `active` 가 아니면 숨긴다 (보이지 않는 가지는 그리지도 세지도 않는다).
+ */
+function tvGameOverlay(model: FurnitureModel, cy: number, sw: number, sh: number, active: boolean): void {
+  const overlay = rigGroup(model, model.group, 'tv-game', 0, cy, 0, (ob) => {
+    ob.box(sw, sh, 0.003, 0, 0, 0.008, TV_GAME_SCREEN);                                            // 판 (화면 앞면 0.0115 보다 앞)
+    ob.box(sw * 0.16, sh * 0.62, 0.0015, 0, 0.03, 0.00525, TV_GAME_ZONE);                           // 판정 구역
+    ob.box(sw * 0.8, 0.026, 0.0015, 0, -sh / 2 + 0.06, 0.00525, M.hullDark);                        // 진행 막대 바탕
+  });
+  const marker = rigGroup(model, overlay, 'tv-game-marker', 0, 0.03, 0.0035, (mb) => {
+    mb.box(0.035, sh * 0.5, 0.0015, 0, 0, 0, TV_GAME_HUD);
+  });
+  const progress = rigGroup(model, overlay, 'tv-game-progress', -sw * 0.4, -sh / 2 + 0.06, 0.0035, (pb) => {
+    pb.box(sw * 0.8, 0.018, 0.0015, sw * 0.4, 0, 0, TV_GAME_HUD);
+  });
+  progress.scale.x = 0.001;
+  overlay.visible = active;
+  model.tv = { screen: new THREE.Vector3(0, cy, 0.0115), screenW: sw, screenH: sh, overlay, marker, progress };
+}
+
 export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   /**
    * 디스크 전시대 (`3 × 1 · 1.8`): 금속 프레임 진열장 — 선반 셋에 칸이 둘씩(`SHELF_SLOTS.disc`), 칸마다 앞으로 살짝 기운
@@ -314,7 +467,7 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
    * 윗가로대 · 살 다섯) · 팔걸이. **전부 `rig.rock` 그룹 안**이라 앉아 있는 동안 통째로 흔들린다 (피벗 = 원호 바닥점 = 그룹 원점).
    */
   rocking_chair: (_b, model, _w, _d, _h, a) => {
-    const seatTop = 0.36;                                                                         // player FURN_SIT: 발바닥이 좌판 윗면 0.36 m 아래
+    const seatTop = SIT_SEAT_TOP;                                                                 // player FURN_SIT: 발바닥이 좌판 윗면 0.36 m 아래
     const seatBoard = seatTop - 0.05;                                                             // 좌판 윗면 (쿠션 밑)
     const armY = seatTop + 0.19;
     const rock = rigGroup(model, model.group, 'rock', 0, 0, 0, (b) => {
@@ -353,8 +506,11 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   /**
    * TV (`3 × 1 · 1.3`): 미디어 콘솔(문 둘 · 가운데 칸의 플레이어 · 앞 악센트) 위 받침대에 얇은 패널. `extra.on` 이면 화면이
    * 발광하고 화면 안에 하늘 · 지평선 · 해 · UI 막대가 뜬다. 꺼짐은 검은 유리 + 빨간 대기등.
+   *
+   * 2026-09-13 (비디오게임): 화면 **앞**(−Z)이 TV 의 앞이다 — 좌석은 그 방향에 놓여 TV 를 본다. `extra.consoleLook` 이 있으면 상판 왼쪽에
+   * 게임기(모양 셋 + 일반 상자)가, 오른쪽에 패드가 놓인다. 화면 앞에는 늘 숨긴 게임 화면(`model.tv`)이 지어져 있고 게임 세션 동안만 보인다.
    */
-  tv: (b, _model, w, d, _h, a, extra) => {
+  tv: (b, model, w, d, _h, a, extra) => {
     const on = extra?.on === true;
     b.boxB(w - 0.04, 0.06, d - 0.06, 0, 0, 0, M.gunmetal);                                        // 받침
     b.boxB(w - 0.02, 0.4, d - 0.04, 0, 0.06, 0, M.hullDark);                                     // 콘솔
@@ -388,6 +544,170 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     // 사운드바
     b.boxB(0.8, 0.06, 0.08, 0, 0.49, -0.16, M.hullDark);
     b.box(0.76, 0.03, 0.004, 0, 0.52, -0.2025, M.floorGrate);
+    // 2026-09-13: 게임기 (상판 왼쪽, 사운드바 · 받침대와 겹치지 않는 자리) + 패드 (상판 오른쪽)
+    if (extra?.consoleLook !== undefined && extra.consoleLook !== null) tvConsole(b, extra.consoleLook, 0.49, a);
+    // 2026-09-13: 게임 화면 (숨긴 채로 짓는다 — 세션 중인 TV 만 `gameActive`)
+    tvGameOverlay(model, cy, sw, sh, extra?.gameActive === true);
+  },
+
+  /**
+   * 게임 디스크 전시대 (2026-09-13, `game_stand` — 치수는 csv): 디스크 전시대가 「진열장」 이라면 이것은 **게임 매장 매대**다. 어두운 몸체에
+   * 카탈로그 색 네온 테두리, 머리에 픽셀 무늬 간판, 앞으로 기운 선반마다 케이스가 **앞면을 보이며** 선다. 케이스 색 = 그 게임 디스크의
+   * 테마 색(`extra.gameColors`, 없으면 등급색 `extra.media`). 칸 순서는 디스크 전시대와 같다 (0 = 왼쪽 위, 줄 우선). 광원 없음.
+   */
+  game_stand: (b, _model, w, d, h, a, extra) => {
+    const n = SHELF_SLOTS.game;
+    const colors = extra?.gameColors ?? [];
+    const rarities = slotsOf(extra, n);
+    const perRow = Math.max(1, Math.min(n, Math.floor((w - 0.16) / 0.3)));
+    const rows = Math.ceil(n / perRow);
+    const neonA = neon(accentCss(a), true);
+    const signH = Math.min(0.24, h * 0.16), bodyTop = h - signH;
+    b.boxB(w - 0.02, 0.12, d - 0.02, 0, 0, 0, M.gunmetal);                                        // 받침
+    b.box(w - 0.1, 0.02, 0.012, 0, 0.06, -(d / 2) + 0.004, neonA);                                // 받침 네온
+    for (const sx of [-1, 1]) {
+      b.boxB(0.06, bodyTop - 0.12, d - 0.04, sx * (w / 2 - 0.03), 0.12, 0, CONSOLE_BLACK);        // 옆판
+      b.box(0.012, bodyTop - 0.16, 0.012, sx * (w / 2 - 0.004), 0.14 + (bodyTop - 0.16) / 2, -(d / 2 - 0.03), neonA);   // 옆 네온
+    }
+    b.box(w - 0.12, bodyTop - 0.12, 0.03, 0, 0.12 + (bodyTop - 0.12) / 2, d / 2 - 0.035, M.hullDark);   // 뒷판
+    // 간판: 몸체 위 판 + 픽셀 무늬 (악센트 · 청록 · 호박색이 번갈아)
+    b.boxB(w, signH, d * 0.5, 0, bodyTop, d * 0.18, CONSOLE_BLACK);
+    const px = Math.max(3, Math.floor((w - 0.2) / 0.07));
+    for (let k = 0; k < px; k++) {
+      const pm = k % 3 === 0 ? neonA : k % 3 === 1 ? M.stripCyan : M.stripAmber;
+      const x = -(w - 0.2) / 2 + (k + 0.5) * ((w - 0.2) / px);
+      const y = bodyTop + signH * (k % 2 ? 0.62 : 0.38);
+      b.box(0.045, 0.045, 0.01, x, y, d * 0.18 - d * 0.25 - 0.004, pm);
+    }
+    // 선반 + 케이스
+    const y0 = 0.16, rowH = (bodyTop - 0.2) / rows, tilt = 0.22;
+    const cw = Math.min(0.24, (w - 0.2) / perRow - 0.05), ch = Math.min(rowH - 0.1, cw * 1.3);
+    for (let r = 0; r < rows; r++) {
+      const y = y0 + r * rowH;
+      b.box(w - 0.12, 0.03, d - 0.08, 0, y, 0.0, M.gunmetal);                                     // 선반
+      b.box(w - 0.14, 0.05, 0.02, 0, y + 0.035, -(d / 2 - 0.06), M.trim);                         // 진열 턱
+      b.box(w - 0.2, 0.01, 0.02, 0, y + rowH - 0.03, -(d / 2 - 0.07), M.stripWhite);              // 선반 조명 (위 선반 밑)
+      for (let k = 0; k < perRow; k++) {
+        const slot = (rows - 1 - r) * perRow + k;                                                 // 0 = 왼쪽 위
+        if (slot >= n) continue;
+        const cx = (k - (perRow - 1) / 2) * ((w - 0.2) / perRow);
+        const color = colors[slot] ?? null;
+        const rarity = rarities[slot];
+        b.box(cw * 0.7, 0.02, 0.08, cx, y + 0.025, -0.04, M.hullDark);                            // 받침 클립
+        if (!color && !rarity) continue;
+        const cm = color ? gameCaseMat(color) : caseMat(rarity ?? 'common');
+        const cy = y + 0.02 + ch / 2;
+        b.box(cw, ch, 0.03, cx, cy, 0.0, cm, 0, tilt);                                            // 케이스 (테마 색)
+        b.box(cw * 0.78, ch * 0.5, 0.004, cx, cy + ch * 0.08, -0.018, M.screen, 0, tilt);         // 표지 그림 창
+        b.box(cw * 0.78, ch * 0.1, 0.004, cx, cy + ch * 0.38, -0.018, M.stripWhite, 0, tilt);     // 제목 띠
+      }
+    }
+  },
+
+  /**
+   * 쇼파 (2026-09-13, `sofa` — 치수는 csv): 짧은 원목 다리 위 받침 · 양쪽 팔걸이 · 뒤로 살짝 기운 등받이 + 쿠션 2–3개(폭 1.7 m 이상이면 3).
+   * **앉는 방향 = 가구 앞(로컬 −Z)** — 등받이가 +Z 다 (`access front` 와 같은 규약). 쿠션마다 좌판 윗면이 `rig.seats` 의 한 자리이고 높이는
+   * `SIT_SEAT_TOP` (player `FURN_SIT` 의 발이 바닥에 닿는다). 천은 카탈로그 색을 어둡게 한 무광, 파이핑만 악센트. 광원 없음.
+   */
+  sofa: (b, model, w, d, h, a) => {
+    const fabric = fabricMat(accentCss(a), 0.42), fabricDark = fabricMat(accentCss(a), 0.28);
+    const legH = 0.06, baseTop = SIT_SEAT_TOP - 0.13;
+    const armW = 0.15, inner = Math.max(0.6, w - armW * 2 - 0.04);
+    const depth = Math.max(0.6, d - 0.04);
+    const frontZ = -depth / 2, backZ = depth / 2;
+    const backT = Math.min(0.22, depth * 0.3);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.cyl(0.03, 0.022, legH, 8, sx * (w / 2 - 0.1), legH / 2, sz * (depth / 2 - 0.08), WOOD_DARK);
+    b.boxB(w - 0.04, baseTop - legH, depth, 0, legH, 0, fabricDark);                              // 받침
+    b.box(w - 0.08, 0.016, 0.012, 0, legH + 0.03, frontZ - 0.004, a);                              // 앞 파이핑
+    for (const sx of [-1, 1]) {
+      const armH = SIT_SEAT_TOP + 0.2;
+      b.boxB(armW, armH - legH, depth, sx * (w / 2 - 0.02 - armW / 2), legH, 0, fabric);           // 팔걸이
+      b.box(armW + 0.01, 0.05, depth + 0.01, sx * (w / 2 - 0.02 - armW / 2), armH - 0.02, 0, fabricDark);   // 팔걸이 윗단
+    }
+    const backH = Math.max(SIT_SEAT_TOP + 0.3, h) - legH;
+    b.box(w - 0.04, backH, backT, 0, legH + backH / 2, backZ - backT / 2, fabricDark, 0, 0.08);    // 등받이 틀 (+rx = 윗끝이 뒤(+Z)로 — 흔들의자와 같은 부호)
+    // 쿠션 — 좌판 (윗면 = SIT_SEAT_TOP) · 등 쿠션 (뒤로 기움)
+    const count = w >= 1.7 ? 3 : 2;
+    const cw = inner / count;
+    const seatFront = frontZ + 0.03, seatBack = backZ - backT - 0.02;
+    const seatD = Math.max(0.3, seatBack - seatFront), seatZ = seatFront + seatD / 2;
+    const seats: THREE.Vector3[] = [];
+    for (let i = 0; i < count; i++) {
+      const x = -inner / 2 + (i + 0.5) * cw;
+      b.box(cw - 0.02, SIT_SEAT_TOP - baseTop + 0.01, seatD, x, (baseTop + SIT_SEAT_TOP) / 2 + 0.005, seatZ, fabric);   // 좌판 쿠션
+      b.box(cw - 0.03, 0.012, 0.012, x, SIT_SEAT_TOP - 0.02, seatFront - 0.002, a);               // 쿠션 파이핑
+      const bh = Math.min(0.42, backH - (SIT_SEAT_TOP - legH) - 0.02);
+      b.box(cw - 0.03, bh, 0.12, x, SIT_SEAT_TOP + bh / 2 + 0.01, seatBack - 0.02, fabric, 0, 0.16);    // 등 쿠션 (뒤로 기움)
+      seats.push(new THREE.Vector3(x, SIT_SEAT_TOP, seatZ + 0.04));
+    }
+    // 가운데에 가장 가까운 자리가 기본 anchor
+    let mid = seats[0];
+    for (const s of seats) if (Math.abs(s.x) < Math.abs(mid.x)) mid = s;
+    model.rig = { pose: 'sit', anchor: mid.clone(), forward: { x: 0, z: -1 }, seats };
+  },
+
+  /**
+   * 좌식 테이블 (2026-09-13, `low_table` — `FurnitureDef.low`, TV ↔ 좌석 통로를 막지 않는 낮은 가구): 두꺼운 원목 상판 · 짧은 다리 넷 ·
+   * 아래 선반 · 상판 가장자리 악센트 상감, 위에 잡지 두 권 · 컵 · 패드 하나. 높이는 csv 의 `height` 에 맞춘다. 광원 없음.
+   */
+  low_table: (b, _model, w, d, h, a) => {
+    const top = Math.max(0.2, Math.min(h, 0.5));
+    const tw = w - 0.08, td = d - 0.08;
+    b.box(tw, 0.05, td, 0, top - 0.025, 0, WOOD);                                                 // 상판
+    b.box(tw - 0.06, 0.004, 0.02, 0, top + 0.001, -(td / 2 - 0.05), a);                           // 상감 (앞)
+    b.box(tw - 0.06, 0.004, 0.02, 0, top + 0.001, td / 2 - 0.05, a);                              // 상감 (뒤)
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.06, top - 0.05, 0.06, sx * (tw / 2 - 0.07), 0, sz * (td / 2 - 0.07), WOOD_DARK);   // 다리
+    b.box(tw - 0.2, 0.025, td - 0.2, 0, Math.max(0.05, top * 0.3), 0, WOOD_DARK);                  // 아래 선반
+    b.box(0.22, 0.012, 0.16, -tw * 0.22, top + 0.006, 0.02, M.padding, 0.2);                       // 잡지
+    b.box(0.22, 0.012, 0.16, -tw * 0.2, top + 0.018, 0.0, M.fabric, -0.1);
+    b.cyl(0.035, 0.03, 0.09, 12, tw * 0.28, top + 0.045, -0.05, CUP);                              // 컵
+    controllerPad(b, tw * 0.05, top, 0.06, CONSOLE_BLACK, a, 0.5);                                 // 패드
+  },
+
+  /**
+   * 러그 (2026-09-13, `rug` — `FurnitureDef.low`): 바닥에서 1 cm 띄운 얇은 판(격자선 윗면 0.007 m 보다 위라 z-fighting 이 없다) + 테두리 띠 ·
+   * 안쪽 마름모 무늬 줄 · 긴 쪽 양 끝의 술. 높이는 3 cm 를 넘지 않는다 — 콜라이더(`BODY_MIN` 0.12 m 밑)가 걸음을 막지 않는다.
+   */
+  rug: (b, _model, w, d, _h, a) => {
+    const base = fabricMat(accentCss(a), 0.5), border = fabricMat(accentCss(a), 0.26), light = fabricMat(accentCss(a), 0.85);
+    const rw = w - 0.06, rd = d - 0.06;
+    b.box(rw, 0.008, rd, 0, 0.014, 0, base);                                                      // 판 (0.010 … 0.018)
+    const bt = Math.min(0.12, Math.min(rw, rd) * 0.1);
+    for (const sz of [-1, 1]) b.box(rw, 0.003, bt, 0, 0.0195, sz * (rd / 2 - bt / 2), border);    // 테두리
+    for (const sx of [-1, 1]) b.box(bt, 0.003, rd - bt * 2, sx * (rw / 2 - bt / 2), 0.0195, 0, border);
+    const iw = rw - bt * 3, id = rd - bt * 3;
+    b.box(iw, 0.002, 0.02, 0, 0.0195, -id / 2, light);                                             // 안쪽 테 줄
+    b.box(iw, 0.002, 0.02, 0, 0.0195, id / 2, light);
+    const long = rw >= rd;
+    const diamonds = Math.max(2, Math.floor((long ? iw : id) / 0.4));
+    for (let k = 0; k < diamonds; k++) {
+      const t = -0.5 + (k + 0.5) / diamonds;
+      const s = Math.min(0.22, Math.min(iw, id) * 0.3);
+      b.box(s, 0.002, s, long ? t * iw : 0, 0.0198, long ? 0 : t * id, k % 2 ? light : a, Math.PI / 4);   // 마름모
+    }
+    // 술: 긴 쪽의 양 끝
+    const fringeN = Math.max(4, Math.floor((long ? rd : rw) / 0.08));
+    for (const s of [-1, 1]) {
+      for (let k = 0; k < fringeN; k++) {
+        const t = -0.5 + (k + 0.5) / fringeN;
+        if (long) b.box(0.05, 0.004, 0.012, s * (rw / 2 + 0.022), 0.012, t * rd, light);
+        else b.box(0.012, 0.004, 0.05, t * rw, 0.012, s * (rd / 2 + 0.022), light);
+      }
+    }
+  },
+
+  /**
+   * 의자 (`furn_chair` · `seat`, 2026-09-13 에 `Furniture.ts` 에서 옮겨 왔다): 강철 다리 넷 · 쿠션 좌판 · 뒤(+Z)로 살짝 기운 등받이 — **앞 = −Z**
+   * 가 앉는 방향이다(옛 모델도 등받이가 +Z 였다 — 규약 그대로). 좌판 윗면을 옛 `h × 0.5` 에서 `SIT_SEAT_TOP` 으로 내렸다 — 앉은 발이 바닥에 닿는다.
+   */
+  chair: (b, model, w, d, h) => {
+    const seatY = SIT_SEAT_TOP - 0.025;
+    b.box(w - 0.1, 0.05, d - 0.1, 0, seatY, 0, M.padding);
+    b.box(w - 0.14, 0.03, d - 0.14, 0, seatY - 0.04, 0, M.hullDark);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.04, seatY - 0.05, 0.04, sx * (w / 2 - 0.08), 0, sz * (d / 2 - 0.08), M.gunmetal);
+    b.box(w - 0.12, h - seatY, 0.04, 0, seatY + (h - seatY) / 2, d / 2 - 0.07, M.padding, 0, -0.1);
+    b.box(w - 0.16, 0.03, 0.03, 0, h - 0.02, d / 2 - 0.09, M.trim);
+    model.rig = { pose: 'sit', anchor: new THREE.Vector3(0, SIT_SEAT_TOP, 0.0), forward: { x: 0, z: -1 } };
   },
 
   /**

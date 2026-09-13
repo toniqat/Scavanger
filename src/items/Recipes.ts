@@ -1,5 +1,19 @@
 import type { CraftIngredient, CraftRecipe } from '@/shared';
 import { CRAFT_DEFAULT_TIME, WORKBENCH_KINDS, csvRows } from '@/shared';
+/* appended (2026-09-13, 서재 시리즈): 레시피 책이 여는 조리 레시피 → `CraftRecipe.unlockSeries` */
+import { LIBRARY_SERIES_DEFS } from '@/shared';
+
+/**
+ * 레시피 id → 그 레시피를 여는 **레시피 책 시리즈** id. 원본은 `data/library_series.csv` 의 `recipe:<레시피 id>` 효과 하나다
+ * (csv 열을 따로 두지 않는다). 여러 시리즈가 같은 레시피를 가리키면 첫 시리즈 — data:check 가 대상이 조리대 레시피인지 본다.
+ */
+const RECIPE_UNLOCK_SERIES: ReadonlyMap<string, string> = (() => {
+  const out = new Map<string, string>();
+  for (const s of LIBRARY_SERIES_DEFS) {
+    for (const e of s.effects) if (e.kind === 'recipe' && !out.has(e.target)) out.set(e.target, s.id);
+  }
+  return out;
+})();
 
 /**
  * **제작** 레시피 (`data/recipes.csv`). 분해는 여기 없다 — `Salvage.ts` 가 `data/salvage.csv` 와
@@ -35,6 +49,8 @@ const recipeOf = (r: (typeof RECIPE_ROWS)[number]): CraftRecipe => ({
   ...(r.has('bench') ? { bench: r.enum('bench', WORKBENCH_KINDS) } : {}),
   ...(r.has('benchLevel') ? { benchLevel: r.int('benchLevel', { min: 1 }) } : {}),
   ...(r.has('extraOutputs') ? { extraOutputs: r.costList('extraOutputs') } : {}),
+  /* 2026-09-13: 레시피 책이 꽂혀 있는 동안만 열리는 레시피 (housing 의 `isRecipeUnlocked` 가 본다) */
+  ...(RECIPE_UNLOCK_SERIES.has(r.raw('id')) ? { unlockSeries: RECIPE_UNLOCK_SERIES.get(r.raw('id'))! } : {}),
 });
 
 /** 제작 목록에 뜨는 레시피 전부 (`data/recipes.csv` 의 순서 그대로). */

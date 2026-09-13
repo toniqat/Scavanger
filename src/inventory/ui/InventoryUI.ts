@@ -444,6 +444,16 @@ export class InventoryUI {
     });
   }
 
+  /**
+   * 2026-09-13 (서재 시리즈): 「아직 꽂지 않은」 띠의 답이 바뀌었다 (`parts/ShelfWanted` 가 캐시를 비운 뒤 한 번 부른다).
+   * 격자 타일은 `GridView.refresh` 가 리비전을 보고 다시 칠하고, 한 번 만든 카탈로그 타일은 클래스만 고친다.
+   */
+  onShelfWantedChanged(): void {
+    if (!this.root) return;
+    this.catalogView.refreshFavorites();
+    this.refresh();
+  }
+
   /** The context menu's 「즐겨찾기 켜기 / 끄기」. */
   toggleFavoriteFromMenu(defId: string): void {
     this.sys.toggleFavorite(defId);

@@ -1,0 +1,48 @@
+# 옛 아이템 id → 새 아이템 id (2026-09-13 사용자 결정 — 기존 숙련별 책 · 디스크 · 레코드는 새 시리즈의 1권으로 변환된다).
+# 로더 = src/shared/library.ts 의 ITEM_ALIASES · resolveItemAlias. 세이브(창고 · 로드아웃 · 레이드 · 함선 보관함) · 와이어에서
+# 아이템 id 를 읽는 곳이 이 표를 지난다. from 은 더 이상 아이템 정의가 없어야 하고, to 는 있어야 한다 (data:check).
+# 책 → 그 숙련의 skillGain 책 시리즈 1권 · 디스크 → 그 숙련이 효과 줄에 든 비디오 1권 (장비 관리는 감정 · 장비 관리 촬영본) ·
+# 레코드 → 그 숙련이 효과 줄에 든 레코드 (data/library_series.csv).
+from,to
+book_carry,book_carry_manual_1
+book_appraisal,book_appraisal_notes_1
+book_grit,book_grit_testimony_1
+book_gardening,book_ship_gardening_1
+book_crafting,book_field_crafting_1
+book_medicine,book_field_medicine_1
+book_cryptography,book_cipher_theory_1
+book_implant,book_implant_doctrine_1
+book_gun_AR,book_drill_ar_1
+book_gun_SMG,book_drill_smg_1
+book_gun_SR,book_drill_sr_1
+book_gun_DMR,book_drill_dmr_1
+book_gun_SG,book_drill_sg_1
+book_equipment,book_equipment_manual_1
+disc_carry,disc_hauling_live_1
+disc_appraisal,disc_appraisal_cam_1
+disc_grit,disc_survivor_interviews_1
+disc_gardening,disc_greenhouse_course_1
+disc_crafting,disc_workshop_demo_1
+disc_medicine,disc_medic_practice_1
+disc_cryptography,disc_cipher_briefing_1
+disc_implant,disc_implant_training_1
+disc_gun_AR,disc_rifle_range_1
+disc_gun_SMG,disc_close_quarters_1
+disc_gun_SR,disc_marksman_breath_1
+disc_gun_DMR,disc_rifle_range_1
+disc_gun_SG,disc_close_quarters_1
+disc_equipment,disc_appraisal_cam_1
+record_carry,record_porters_song
+record_appraisal,record_appraiser_night
+record_grit,record_voices_endure
+record_gardening,record_plant_talk
+record_crafting,record_artisan_bench
+record_medicine,record_field_hospital
+record_cryptography,record_no_receiver
+record_implant,record_no_receiver
+record_gun_AR,record_drill_assault
+record_gun_SMG,record_drill_assault
+record_gun_SR,record_drill_marksman
+record_gun_DMR,record_drill_marksman
+record_gun_SG,record_drill_assault
+record_equipment,record_porters_song

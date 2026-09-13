@@ -6,8 +6,11 @@
  *   • 호흡 달리기 · 사이클링: 오른쪽에서 흘러와 판정선에 닿는 표식 (호흡 = 한 줄, 「하」 는 길이가 있는 알약 ·
  *     사이클 = 왼발 / 오른발 두 줄, 줄 머리에 키캡).
  * 키 이름은 사용 시점에 `Keys` 에서 읽는다 (`relabel` — `input:bindingsChanged`).
+ *
+ * 2026-09-13 (비디오게임, H2): 벤치프레스 구역 폭은 판정 객체의 `zone` · `perfect`(디스크 튜닝 `windowMul` 이 걸린 값)에서 읽는다 —
+ * 튜닝이 없으면 `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT` 그대로다. 호흡형 표식 글자는 `GymViewOptions.labels` 로 바꿀 수 있다 (게임 = 톡 · 꾹).
  */
-import { GYM_PRESS_PERFECT, GYM_PRESS_ZONE, Keys, keyLabel } from '@/shared';
+import { Keys, keyLabel } from '@/shared';
 import { BreathGame, CycleGame, GYM_LEAD_BEATS, PressGame } from '../../parts/GymGames';
 import type { BeatNote, GymAction, GymGame, GymQuality } from '../../parts/GymGames';
 import { el, setText, toggleClass } from '../dom';
@@ -46,8 +49,8 @@ class PressView implements GymView {
   constructor(private readonly game: PressGame, parent: HTMLElement) {
     this.root = el('div', { cls: 'gym-stage gym-press', parent });
     this.bar = el('div', { cls: 'gym-press-bar', parent: this.root });
-    el('i', { cls: 'gym-press-zone', parent: this.bar }).style.width = `${(GYM_PRESS_ZONE * 200).toFixed(2)}%`;
-    el('i', { cls: 'gym-press-perfect', parent: this.bar }).style.width = `${(GYM_PRESS_PERFECT * 200).toFixed(2)}%`;
+    el('i', { cls: 'gym-press-zone', parent: this.bar }).style.width = `${(game.zone * 200).toFixed(2)}%`;
+    el('i', { cls: 'gym-press-perfect', parent: this.bar }).style.width = `${(game.perfect * 200).toFixed(2)}%`;
     el('i', { cls: 'gym-press-mid', parent: this.bar });
     this.cursor = el('i', { cls: 'gym-press-cursor', parent: this.bar });
     const row = el('div', { cls: 'gym-pips', parent: this.root });
@@ -59,7 +62,7 @@ class PressView implements GymView {
     const g = this.game;
     const left = `${(g.pos * 100).toFixed(2)}%`;
     if (left !== this.lastLeft) { this.cursor.style.left = left; this.lastLeft = left; }
-    toggleClass(this.cursor, 'in-zone', Math.abs(g.pos - 0.5) <= GYM_PRESS_ZONE);
+    toggleClass(this.cursor, 'in-zone', Math.abs(g.pos - 0.5) <= g.zone);
     const now = g.judgements.length;
     this.pips.forEach((p, i) => toggleClass(p, 'is-now', i === now && !g.done));
   }
@@ -91,7 +94,7 @@ class BeatView implements GymView {
   private readonly look: number;
   private readonly holdLen: number;
 
-  constructor(private readonly game: BreathGame | CycleGame, parent: HTMLElement) {
+  constructor(private readonly game: BreathGame | CycleGame, parent: HTMLElement, private readonly labels: GymNoteLabels = GYM_NOTE_LABELS) {
     const breath = game instanceof BreathGame;
     this.root = el('div', { cls: `gym-stage gym-beat ${breath ? 'gym-breath' : 'gym-cycle'}`, parent });
     this.look = game.beat * (GYM_LEAD_BEATS + 1);
@@ -157,15 +160,24 @@ class BeatView implements GymView {
     for (const l of this.lanes) setText(l.key, keyOf(l.action));
     for (const ne of this.notes) {
       const n = ne.note;
-      setText(ne.label, n.lane ? keyOf(n.lane) : n.hold ? '하' : '후');
+      setText(ne.label, n.lane ? keyOf(n.lane) : n.hold ? this.labels.hold : this.labels.tap);
     }
   }
 
   dispose(): void { this.root.remove(); }
 }
 
-export function createGymView(game: GymGame, parent: HTMLElement): GymView {
+/** 호흡형 표식 글자 (2026-09-13) — 헬스 = 후 · 하, 비디오게임 = 톡 · 꾹. */
+export interface GymNoteLabels { tap: string; hold: string }
+export const GYM_NOTE_LABELS: GymNoteLabels = { tap: '후', hold: '하' };
+
+export interface GymViewOptions {
+  /** 호흡형 표식 글자 — 생략 = 헬스(`GYM_NOTE_LABELS`). */
+  labels?: GymNoteLabels;
+}
+
+export function createGymView(game: GymGame, parent: HTMLElement, opts: GymViewOptions = {}): GymView {
   if (game instanceof PressGame) return new PressView(game, parent);
-  if (game instanceof BreathGame || game instanceof CycleGame) return new BeatView(game, parent);
+  if (game instanceof BreathGame || game instanceof CycleGame) return new BeatView(game, parent, opts.labels ?? GYM_NOTE_LABELS);
   throw new Error(`[housing] unknown gym game ${game.minigame}`);
 }

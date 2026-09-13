@@ -275,6 +275,17 @@ try {
   const sq2 = await P(() => window.__game.getSystem('hud').squadBuffs(window.__peer.id)[0]);
   ok(sq2.kind === 'exercise' && sq2.glyph === '⚖' && sq2.title === '운동 중' && sq2.ratio === null, 'net:remoteBuffsChanged → the row redraws (운동 중)', JSON.stringify(sq2));
 
+  // 2026-09-13 (사용자 결정): 비디오게임 세션은 「게임 중」 버프로 분대원에게 보인다
+  await P(() => {
+    const peer = window.__peer;
+    peer.buffs = [{ kind: 'gaming', key: 'pose', debuff: false, state: 'active', pose: 'sit', stat: 'intelligence', minigame: 'breath' }];
+    peer.buffsRevision = 5;
+    window.__game.ctx.bus.emit('net:remoteBuffsChanged', { id: peer.id, buffs: peer.buffs });
+  });
+  await waitFor(page, () => (window.__game.getSystem('hud').squadBuffs(window.__peer.id) ?? [])[0]?.kind === 'gaming', 'row strip shows 게임 중', 10000);
+  const sq3 = await P(() => window.__game.getSystem('hud').squadBuffs(window.__peer.id)[0]);
+  ok(sq3.kind === 'gaming' && sq3.glyph === '⎚' && /^게임 중 · /.test(sq3.title) && sq3.ratio === null, 'squadmate 게임 중 thumbnail (⎚ · 게임 중 · 방식)', JSON.stringify(sq3));
+
   await P(() => {
     const row = [...document.querySelectorAll('.squad .srow')].find((r) => !r.hidden && r.querySelector('.name').textContent === '브라보');
     window.__smut = 0;

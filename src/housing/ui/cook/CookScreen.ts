@@ -25,7 +25,8 @@ import {
   buildItemChip, keyLabel, mealQualityBonus, mealQualityStars,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
-import { COOK_BLOCKER, completeCookRun, endCook, recordCookStep, restartBlock, restartCook } from '../../parts/Cooking';
+import { COOK_BLOCKER, applyCookStepBonus, completeCookRun, cookStepBonus, endCook, recordCookStep, restartBlock, restartCook } from '../../parts/Cooking';
+import type { CookStepBonus } from '../../parts/Cooking';
 import { createCookGame } from '../../parts/CookGames';
 import type { AnyCookGame, CookButton } from '../../parts/CookGames';
 import { mealEffectLines, mealTierText } from '../DiningTable';
@@ -56,6 +57,21 @@ const BEAT_SOUND: Partial<Record<CookBeatAction, string>> = {
 };
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 100);
+
+/** 2026-09-13 (H3): 보너스를 준 곳 — `(+요리 숙련 · 서재)`, 없으면 빈 문자열. */
+function bonusSourcesText(b: CookStepBonus | undefined): string {
+  if (!b || !(b.total > 0)) return '';
+  const names = [b.skill > 0 ? '요리 숙련' : '', b.library > 0 ? '서재' : ''].filter(Boolean);
+  return names.length ? `(+${names.join(' · ')})` : '';
+}
+/** 2026-09-13 (H3): 보너스 수치 — `요리 숙련 +8 · 서재 +4` (호버 제목). */
+function bonusDetailText(b: CookStepBonus | undefined): string {
+  if (!b || !(b.total > 0)) return '';
+  const parts: string[] = [];
+  if (b.skill > 0) parts.push(`요리 숙련 +${Math.round(b.skill * 100)}`);
+  if (b.library > 0) parts.push(`서재 +${Math.round(b.library * 100)}`);
+  return parts.join(' · ');
+}
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
   || (t instanceof HTMLElement && t.isContentEditable);
 const buttonOf = (b: number): CookButton | null => (b === 0 ? 'left' : b === 2 ? 'right' : null);
@@ -250,7 +266,10 @@ export class CookScreen {
     const row = el('div', { cls: 'cook-choose-row', parent: card });
     this.button(row, '직접 하기', () => this.choose('manual'), 'primary cook-choose-manual');
     const name = this.applianceName(auto);
-    this.button(row, `자동 — ${name} Lv.${auto.level} · ${pct(auto.score)} %`, () => this.choose('auto'), 'cook-choose-auto');
+    const bonus = cookStepBonus(this.sys, step.game);           // 2026-09-13 (H3): 자동 단계에도 요리 숙련 · 서재 보너스가 붙는다
+    const autoBtn = this.button(row, `자동 — ${name} Lv.${auto.level} · ${pct(auto.score)} %${bonus.total > 0 ? ` (+${Math.round(bonus.total * 100)})` : ''}`,
+      () => this.choose('auto'), 'cook-choose-auto');
+    if (bonus.total > 0) autoBtn.title = bonusDetailText(bonus);
     setText(this.hint, `자동으로 넘기면 이 단계 점수는 ${name}의 레벨로 정해집니다 — 강화할수록 높아집니다`);
     this.paintHead();
     this.ctx.bus.emit('housing:cookStep', { uid: info.uid, index: this.stepIndex, total: info.steps.length, game: step.game, phase: 'choose', auto: false, score: null });
@@ -283,7 +302,14 @@ export class CookScreen {
     el('div', { cls: 'cook-auto-name', text: `${this.applianceName(auto)} Lv.${auto.level} — ${COOK_GAME_LABEL_KO[step.game]} 자동 처리 중`, parent: box });
     const bar = this.autoBar = el('div', { cls: 'cook-hbar cook-auto-bar', parent: box });
     el('i', { cls: 'cook-hbar-fill', parent: bar });
-    el('div', { cls: 'cook-auto-score', text: `단계 점수 ${pct(auto.score)} %`, parent: box });
+    const bonus = cookStepBonus(this.sys, step.game);           // 2026-09-13 (H3)
+    el('div', {
+      cls: 'cook-auto-score',
+      text: bonus.total > 0
+        ? `단계 점수 ${pct(auto.score)} → ${pct(applyCookStepBonus(auto.score, bonus))} % ${bonusSourcesText(bonus)}`
+        : `단계 점수 ${pct(auto.score)} %`,
+      parent: box,
+    });
     this.autoStart = performance.now();
     this.autoEndAt = this.autoStart + AUTO_MS;
     setText(this.hint, '');
@@ -323,14 +349,23 @@ export class CookScreen {
     const info = this.info;
     const step = this.currentStep();
     if (!info || !step) return;
-    const s = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
-    recordCookStep(this.sys, this.stepIndex, s, auto);
+    const raw = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
+    // 2026-09-13 (H3): 적는 곳이 요리 숙련 · 서재 보너스를 더해 1 로 자른 값을 돌려준다 — 이벤트 · 품질은 그 값
+    const s = recordCookStep(this.sys, this.stepIndex, raw, auto);
+    const bonus = this.sys.cookState?.stepBonus[this.stepIndex];
     this.screen = 'step';
     this.down.clear();
     this.advanceAt = performance.now() + STEP_SCORE_MS;
     this.ctx.bus.emit('housing:cookStep', { uid: info.uid, index: this.stepIndex, total: info.steps.length, game: step.game, phase: 'done', auto, score: s });
     this.ctx.bus.emit('audio:play', { id: 'cook_step' });
-    setText(this.stepScoreEl, `${auto ? '자동 · ' : ''}${COOK_GAME_LABEL_KO[step.game]} ${pct(s)} %`);
+    clear(this.stepScoreEl);
+    const label = `${auto ? '자동 · ' : ''}${COOK_GAME_LABEL_KO[step.game]}`;
+    if (bonus && bonus.total > 0) {
+      el('span', { text: `${label} ${pct(raw)} → ${pct(s)} %`, parent: this.stepScoreEl });
+      el('small', { cls: 'cook-stepscore-bonus', text: bonusSourcesText(bonus), parent: this.stepScoreEl });
+    } else {
+      el('span', { text: `${label} ${pct(s)} %`, parent: this.stepScoreEl });
+    }
     replayCookClass(this.stepScoreEl, 'show');
     this.paintHead();
     this.emitGuide();
@@ -395,10 +430,21 @@ export class CookScreen {
     el('span', { cls: 'cook-score-unit', text: '%', parent: score });
     el('div', { cls: 'cook-bonus', text: `능력치 +${Math.round(mealQualityBonus(q) * 100)} %`, parent: main });
     const steps = el('div', { cls: 'cook-result-steps', parent: main });
+    const st = this.sys.cookState;
     info.steps.forEach((s, i) => {
       const row = el('div', { cls: 'cook-result-step', parent: steps });
       el('span', { text: `${CIRCLED[i] ?? ''} ${COOK_GAME_LABEL_KO[s.game]}${r?.stepAuto[i] ? ' · 자동' : ''}`, parent: row });
-      el('b', { text: `${pct(r?.stepScores[i] ?? 0)} %`, parent: row });
+      // 2026-09-13 (H3): 보너스가 붙은 단계는 `72 → 84 % (+요리 숙련 · 서재)`, 호버 = 수치
+      const bonus = st?.stepBonus[i];
+      const final = r?.stepScores[i] ?? 0;
+      if (bonus && bonus.total > 0 && st) {
+        row.classList.add('has-bonus');
+        row.title = bonusDetailText(bonus);
+        const val = el('b', { text: `${pct(st.stepRaw[i] ?? final)} → ${pct(final)} %`, parent: row });
+        el('i', { cls: 'cook-result-step-bonus', text: ` ${bonusSourcesText(bonus)}`, parent: val });
+      } else {
+        el('b', { text: `${pct(final)} %`, parent: row });
+      }
     });
 
     const meal = el('div', { cls: 'cook-result-meal', parent: card });

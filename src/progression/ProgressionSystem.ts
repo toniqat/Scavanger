@@ -1,4 +1,4 @@
-import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance, MealDef,
+import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance, MealBuff, MealDef,
   DerivedStats, EmbeddedView, GameContext, GameSystem, GymSessionResult, GymStat, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
@@ -14,7 +14,7 @@ import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
-import { applyMealBuff, computeDerived, DEFAULT_DERIVED, SKILL_STAT_FACTOR, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
+import { applyLibraryDerived, applyMealBuff, computeDerived, DEFAULT_DERIVED, SKILL_STAT_FACTOR, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
 import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 import { SheetView } from './ui/SheetView';
@@ -39,6 +39,11 @@ export function trainedXpFor(n: number): number {
 }
 
 const isGymStat = (id: unknown): id is GymStat => (GYM_STATS as readonly unknown[]).includes(id);
+/**
+ * 2026-09-13 (사용자 결정): 제작 경험치를 주지 않는 작업대 — 연구실 작업대(추출기 · 조합대 · 3D 프린터)는 연구 경험치만
+ * (`inventory/parts/Crafting` 의 `RESEARCH_BENCHES`), 조리대(`cook`)는 요리 경험치만 (`housing/parts/Cooking` 이 `COOK_SKILL_XP` 를 준다) 오른다.
+ */
+const LAB_BENCHES: ReadonlySet<string> = new Set(['extract', 'mixer', 'print', 'cook']);
 
 /** Raw stat XP needed for the point after stat value `value`: round(STAT_XP_BASE × value^STAT_XP_EXPONENT). */
 export function statXpFor(value: number): number {
@@ -723,7 +728,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       /* ── 원예 (고철 해체는 2026-09-08 부터 제작 숙련으로) ── */
       b.on('gather:collected', ({ kind }) => this.addSkillXp(kind === 'salvage' ? 'crafting' : 'gardening', GATHER_XP)),
       /* ── 제작 / 의학 ── */
-      b.on('craft:completed', ({ recipeId }) => this.addSkillXp(this.recipeSkill(recipeId), CRAFT_XP)),
+      // 2026-09-13 (사용자 결정): 연구실 작업대(추출기 · 조합대 · 3D 프린터) 제작은 연구 경험치만 — inventory 가 `RESEARCH_XP_CRAFT` 를 준다
+      b.on('craft:completed', ({ recipeId }) => { const skill = this.recipeSkill(recipeId); if (skill) this.addSkillXp(skill, CRAFT_XP); }),
       /* ── 장비 관리 ── */
       b.on('repair:completed', () => this.addSkillXp('equipment', REPAIR_XP)),
       /* ── 전술 임플란트 ── */
@@ -764,7 +770,10 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('loadout:changed', () => this.recompute()),
       /* ── stat points may not be spent mid-raid; refresh the sheet on every phase change ── */
       /* 2026-09-13: a phase change / raid launch / death is a forced exit — unconfirmed ＋ points are dropped silently */
-      b.on('game:phaseChanged', () => { this.discardSheetPending(); this.refreshSheets(); }),
+      /* 2026-09-13: recompute (not just repaint) — the 서재 `derived` fold reads the ship state, which housing may have (re)loaded meanwhile */
+      b.on('game:phaseChanged', () => { this.discardSheetPending(); this.recompute(); }),
+      /* ── 서재 시리즈 (2026-09-13): the library summary moved → `derived` (+ the sheet's `시설 ×n` badges) again ── */
+      b.on('housing:libraryChanged', () => this.recompute()),
       b.on('player:died', () => this.discardSheetPending()),
       b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; this.cratesAppraised.clear(); this.discardSheetPending(); }),
       b.on('world:ready', () => this.cratesAppraised.clear()),
@@ -1207,7 +1216,22 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     const activeId = typeof profile.mealActive === 'string' && profile.mealActive ? profile.mealActive : null;
     const meal = this.mealDefOf(activeId);
     if (meal) applyMealBuff(d, meal, normalizeMealQuality(profile.mealActiveQuality));
+    /* 2026-09-13 (서재 시리즈): housing 이 합산한 서재 `derived` 효과를 요리 버프 **뒤에** 같은 규칙(가산 + 0 하한)으로 접는다.
+     * 함선 상태라 레이드 중에도 그대로이고, 시트 미리보기도 이 한 경로를 지나므로 같은 값을 본다. */
+    applyLibraryDerived(d, this.libraryDerived());
     return d;
+  }
+
+  /** `ctx.housing.getLibraryEffects().derived` — housing 이 없거나 아직 구현 전이거나 던지면 null (접을 것 없음). */
+  private libraryDerived(): Readonly<Partial<Record<MealBuff, number>>> | null {
+    try {
+      const h = this.ctx?.housing;
+      if (!h || typeof h.getLibraryEffects !== 'function') return null;
+      const lib = h.getLibraryEffects()?.derived;
+      return lib && typeof lib === 'object' ? lib : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1248,12 +1272,16 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
-  /** 제작 vs 의학 vs 원예 — read off the recipe when items/ exposes them, else default to 제작. */
-  private recipeSkill(recipeId: string): SkillId {
+  /**
+   * 제작 vs 의학 vs 원예 — read off the recipe when items/ exposes them, else default to 제작.
+   * 2026-09-13 (사용자 결정): 연구실 작업대(`LAB_BENCHES` — 추출기 · 조합대 · 3D 프린터)의 레시피는 null — 제작 경험치를 주지 않는다 (연구 경험치는 inventory 몫).
+   */
+  private recipeSkill(recipeId: string): SkillId | null {
     try {
       const loot = this.ctx?.loot;
       if (!loot || typeof loot.getAllRecipes !== 'function') return 'crafting';
       const r = loot.getAllRecipes().find((x) => x.id === recipeId);
+      if (r?.bench && LAB_BENCHES.has(r.bench)) return null;
       const s = r?.skill;
       if (s === 'medicine' || s === 'gardening' || s === 'crafting') return s;
       return 'crafting';

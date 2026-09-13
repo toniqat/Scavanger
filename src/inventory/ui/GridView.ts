@@ -76,6 +76,41 @@ export function setFavoriteDefs(defs: ReadonlySet<string>): void {
   favoriteRev++;
 }
 
+/* ── 2026-09-13 (서재 시리즈, 사용자 결정): 「아직 서재에 꽂지 않은」 책 · 비디오 · 레코드 — 즐겨찾기와 **똑같은** 사선 띠 ─────────
+ * 질의는 housing 의 `HousingRef.isShelfItemWanted(defId)` 하나다 (그 매체의 보관함을 보유 + 어느 보관함에도 같은 종류가 없음).
+ * 즐겨찾기 표와 같은 이유로 모듈이 공급자 · 캐시를 든다 — `buildTileContent` 는 ctx 를 모른다. 공급자를 거는 곳은 `parts/ShelfWanted`
+ * 하나이고, 답은 **def 당 한 번** 물어 캐시한다 (타일마다 housing 을 부르지 않는다). `housing:libraryChanged` 등에서
+ * `bumpShelfWanted()` 가 캐시를 비우고 리비전을 올리면 `GridView.refresh` 가 격자 버전이 그대로여도 다시 칠한다.
+ * 클래스는 `.is-shelf-wanted` — CSS 는 `.is-favorite` 띠와 **같은 규칙에 선택자만 나란히** 둔다 (둘 다면 띠는 하나).
+ * 정렬 앞 · 「즐겨찾기」 필터 · 분해/판매 확인 · 컨테이너 글로우는 계속 진짜 즐겨찾기(`.is-favorite`)만의 것이다.
+ */
+let shelfWantedSource: ((defId: string) => boolean) | null = null;
+let shelfWantedRev = 0;
+const shelfWantedCache = new Map<string, boolean>();
+
+/** 이 def 타일에 「아직 꽂지 않았다」 띠를 거나 (책 · 비디오 · 레코드만 묻는다 — 나머지는 공급자를 부르지도 않는다). */
+export function isShelfWantedDef(def: ItemDef): boolean {
+  if (!shelfWantedSource || !(def.book || def.disc || def.record)) return false;
+  let v = shelfWantedCache.get(def.id);
+  if (v === undefined) {
+    try { v = shelfWantedSource(def.id) === true; } catch { v = false; }
+    shelfWantedCache.set(def.id, v);
+  }
+  return v;
+}
+/** 띠 답이 바뀌었을 수 있는 횟수 — 다시 그릴지 판단하는 서명에 넣는다. */
+export const shelfWantedRevision = (): number => shelfWantedRev;
+/** 공급자를 건다 / 뗀다 (`parts/ShelfWanted` 만 부른다). */
+export function setShelfWantedSource(fn: ((defId: string) => boolean) | null): void {
+  shelfWantedSource = fn;
+  bumpShelfWanted();
+}
+/** 캐시를 비우고 리비전을 올린다 — 서재 · 보관함이 바뀌었다. */
+export function bumpShelfWanted(): void {
+  shelfWantedCache.clear();
+  shelfWantedRev++;
+}
+
 /* ── 2026-09-12 (아이템 회수 계약, 사용자 결정): 이번 레이드에서 얻은 계약 아이템 — 즐겨찾기와 **똑같은** 사선 띠 ────────────
  * 레이드 중(훈련장 아님)에만, 활성 `extract_with_items` 계약 아이템 중 **이번 레이드 표식**(`ItemInstance.raidFound`)이 있는
  * 스택에 `.is-recovery-item` 을 건다. CSS 는 `.is-favorite` 띠와 같은 선언이라 둘은 구분되지 않고, 둘 다면 띠는 하나다.
@@ -141,6 +176,7 @@ export function buildSlotCardContent(el: HTMLElement, item: ItemInstance, def: I
   el.className = `inv-tile inv-slot-card rarity-${def.rarity}`;
   if (isFavoriteDef(def.id)) el.classList.add('is-favorite');   // 2026-09-12 (E1): 파란 사선 띠
   if (isRecoveryTile(item)) el.classList.add('is-recovery-item');   // 2026-09-12: 회수 계약 — 같은 띠
+  if (isShelfWantedDef(def)) el.classList.add('is-shelf-wanted');   // 2026-09-13: 아직 꽂지 않은 서재 매체 — 같은 띠
   el.style.setProperty('--rc', def.color);
   el.innerHTML = '';
 
@@ -208,6 +244,8 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   if (isFavoriteDef(def.id)) el.classList.add('is-favorite');
   // 2026-09-12: 이번 레이드에서 얻은 회수 계약 아이템 — 즐겨찾기와 같은 띠 (감정 전 타일은 위에서 이미 돌아갔다: 내용을 흘리지 않는다)
   if (isRecoveryTile(item)) el.classList.add('is-recovery-item');
+  // 2026-09-13 (서재 시리즈): 보관함은 있는데 아직 어디에도 꽂지 않은 책 · 비디오 · 레코드 — 같은 띠 (즐겨찾기와 겹치면 CSS 가 하나만 그린다)
+  if (isShelfWantedDef(def)) el.classList.add('is-shelf-wanted');
   el.style.setProperty('--rc', def.color);
   const { width, height } = tileSizeAt(w, h, cell);
   el.style.width = `${width}px`;
@@ -291,10 +329,10 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
  * `needAmmo` (2026-09-12) is in here because the 사선 띠 depends on the **equipped weapon**, not on the item itself —
  * swapping guns has to redraw the ammo tiles.
  */
-function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean, favorite: boolean, recovery = false): string {
+function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean, favorite: boolean, recovery = false, shelfWanted = false): string {
   let sockets = '';
   if (item.sockets) for (const s of SOCKET_SLOTS) sockets += `${item.sockets[s]?.defId ?? ''},`;
-  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}|${favorite ? 1 : 0}|${recovery ? 1 : 0}|${item.quality ?? ''}`;
+  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}|${favorite ? 1 : 0}|${recovery ? 1 : 0}|${item.quality ?? ''}|${shelfWanted ? 1 : 0}`;
 }
 
 /** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */
@@ -323,6 +361,8 @@ export class GridView {
   private lastFavRev = -1;
   /** 2026-09-12 (아이템 회수 계약): `recoveryRevision()` at the last repaint. */
   private lastRecoveryRev = -1;
+  /** 2026-09-13 (서재 시리즈): `shelfWantedRevision()` at the last repaint. */
+  private lastShelfRev = -1;
   private dims = '';
   /** uid → direction glyph for items assigned to the quick-use wheel (bag grid only). */
   private quickBadges = new Map<string, string>();
@@ -438,10 +478,13 @@ export class GridView {
     if (!grid) return;
     // 2026-09-12 (E1): 즐겨찾기가 바뀌면 격자 버전이 그대로여도 다시 칠한다 (띠 · 「즐겨찾기」 필터)
     // 2026-09-12: …and when the 회수 계약 범위 changed (raid start / end, contract abandoned) — the ribbon follows it
-    if (!force && grid.version === this.lastVersion && favoriteRev === this.lastFavRev && recoveryRev === this.lastRecoveryRev) return;
+    // 2026-09-13: …and when the 서재 띠 answers may have changed (`housing:libraryChanged`)
+    if (!force && grid.version === this.lastVersion && favoriteRev === this.lastFavRev && recoveryRev === this.lastRecoveryRev
+      && shelfWantedRev === this.lastShelfRev) return;
     this.lastVersion = grid.version;
     this.lastFavRev = favoriteRev;
     this.lastRecoveryRev = recoveryRev;
+    this.lastShelfRev = shelfWantedRev;
     this.syncDims(grid);
 
     const seen = new Set<string>();
@@ -461,7 +504,7 @@ export class GridView {
         // 2026-09-12: no `.is-new` pop — an item that moved grids is simply there (사용자 결정: 즉시 옮겨진다)
       }
       const badge = this.quickBadges.get(p.item.uid);
-      const sig = tileSignature(p.item, fp.w, fp.h, badge, isNeededAmmo(def), isFavoriteDef(def.id), isRecoveryTile(p.item));
+      const sig = tileSignature(p.item, fp.w, fp.h, badge, isNeededAmmo(def), isFavoriteDef(def.id), isRecoveryTile(p.item), isShelfWantedDef(def));
       if (this.sigs.get(p.item.uid) !== sig) {
         this.sigs.set(p.item.uid, sig);
         const wasDragging = el.classList.contains('is-dragging');

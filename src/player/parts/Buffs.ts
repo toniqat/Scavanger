@@ -59,6 +59,7 @@ export function bindBuffs(sys: PlayerSystem, ctx: GameContext): void {
   bus.on('player:envChanged', dirty);
   bus.on('housing:gymSession', dirty);
   bus.on('housing:cookSession', dirty);   // 2026-09-13: 조리 중 버프의 요리 (`cookSession.mealDefId`)
+  bus.on('housing:gameSession', dirty);   // 2026-09-13: 게임 중 버프 (좌석 자세 `sit` + `housing.gameSession`)
   bus.on('game:newMission', dirty);
   bus.on('game:abort', dirty);
   bus.on('game:phaseChanged', dirty);
@@ -156,10 +157,17 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
   // ── 가구 자세 (휴식 중 · 운동 중 · 2026-09-13 조리 중)
   const f = sys.furn;
   if (f.kind !== null) {
-    const b = take(sys, f.kind === 'sit' ? 'rest' : f.kind === 'cook' ? 'cooking' : 'exercise', 'pose', 'active');
+    // 2026-09-13 (사용자 결정): TV 앞 좌석의 게임 세션이면 `sit` 이라도 휴식이 아니라 「게임 중」 — 좌석 uid 가 같거나 자세에 uid 가 없을 때
+    const game = f.kind === 'sit' ? (ctx.housing?.gameSession ?? null) : null;
+    const gaming = !!game && (!f.furnitureUid || game.seatUid === f.furnitureUid);
+    const b = take(sys, gaming ? 'gaming' : f.kind === 'sit' ? 'rest' : f.kind === 'cook' ? 'cooking' : 'exercise', 'pose', 'active');
     b.pose = f.kind;
     if (f.furnitureUid) b.furnitureUid = f.furnitureUid;
-    if (f.kind === 'cook') {
+    if (gaming && game) {
+      b.defId = game.discDefId;
+      b.stat = game.stat;
+      b.minigame = game.minigame;
+    } else if (f.kind === 'cook') {
       // 만드는 요리 — 조리대 세션이 있고 uid 가 같거나 자세에 uid 가 없을 때 (운동 세션과 같은 규칙). 타이머는 없다.
       const cook = ctx.housing?.cookSession ?? null;
       if (cook && (!f.furnitureUid || cook.uid === f.furnitureUid) && typeof cook.mealDefId === 'string' && cook.mealDefId) b.defId = cook.mealDefId;

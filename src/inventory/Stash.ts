@@ -1,5 +1,6 @@
 import type { ItemInstance, LootRef } from '@/shared';
 import { STASH_COLS, STASH_ROWS, STASH_STORAGE_KEY, slotKey } from '@/shared';
+import { resolveItemAlias } from '@/shared';   // 2026-09-13 (서재 시리즈): 옛 매체 id → 새 시리즈 1권 (`reviveItem` 이 바꾸고, 여기서 다시 합친다)
 import { Grid, type DefLookup } from './Grid';
 import { readSaveFile, reviveItem, savedCell, serializePlacement, writeSaveFile, type SavedPlacement } from './Serialize';
 
@@ -152,9 +153,20 @@ export class Stash {
       this.grid.resize(cols, rows);
     }
     const pending: ItemInstance[] = [];
+    /** 2026-09-13: stacks whose id went through the alias table — placed after everything else so they can re-merge. */
+    const converted: Array<{ item: ItemInstance; sv: SavedPlacement }> = [];
     for (const sv of file.items) {
       const item = reviveItem(sv, this.getDef, this.loot, 'Stash');
       if (!item) continue;
+      if (typeof sv.defId === 'string' && resolveItemAlias(sv.defId) !== sv.defId) { converted.push({ item, sv }); continue; }
+      const cell = savedCell(sv);
+      if (cell && this.grid.place(item, cell.x, cell.y, !!sv.rotated)) continue;
+      pending.push(item);
+    }
+    // 2026-09-13 (서재 시리즈): a converted stack first joins a stack of its **new** id (two old ids can map to one new id),
+    // then takes its own saved cell, then any free spot like the rest
+    for (const { item, sv } of converted) {
+      if ((this.getDef(item.defId)?.stackMax ?? 1) > 1 && this.grid.mergeIntoStacks(item) <= 0) continue;
       const cell = savedCell(sv);
       if (cell && this.grid.place(item, cell.x, cell.y, !!sv.rotated)) continue;
       pending.push(item);

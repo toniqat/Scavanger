@@ -18,6 +18,27 @@ type TipRow = [string, string, string?];
 /** 2026-09-13 (요리 품질): 품질 줄의 별 색 — 버프 썸네일의 별 배지(`styles/buffs.css` `.bfs-cell[data-q]`)와 같은 금색. */
 const MEAL_QUALITY_STAR_COLOR = '#ffd24a';
 
+/* 2026-09-13 (서재 시리즈 · 비디오게임): 시리즈 이름 · 효과 줄 · 등장 행성 · 기구 · 기업 · 조리 단계 이름 */
+import type { LibraryEffect } from '@/shared';
+import { COOK_GAME_LABEL_KO, CORP_DEFS, FURNITURE_DEFS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_MAP, PLANET_DEFS } from '@/shared';
+
+/** 2026-09-13: `보관 — 아직 꽂지 않음` 의 글자색 = 타일 띠의 파랑 (`--c-favorite`, 없으면 같은 파랑). */
+const FAVORITE_BAND_COLOR = 'var(--c-favorite, #4a90ff)';
+/** 가구 def id → def (보관함 보유 판정). */
+const FURNITURE_DEF_BY_ID = new Map(FURNITURE_DEFS.map((d) => [d.id, d] as const));
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+/** 권 번호 1 … 10 → 로마 숫자 (범위 밖은 아라비아 숫자). */
+function romanVolume(n: number): string {
+  const v = Math.floor(n);
+  return ROMAN[v] ?? String(v);
+}
+/** 배율 가산 → `+12.5 %` (소수 한 자리까지). */
+function pctText(v: number): string {
+  const n = Math.round((Number.isFinite(v) ? v : 0) * 1000) / 10;
+  const mag = Math.abs(n);
+  return `${n < 0 ? '−' : '+'}${Number.isInteger(mag) ? String(mag) : mag.toFixed(1)} %`;
+}
+
 /** 유한한 양수인가 (옛 csv 로 비어 온 내구도 · 시간 칸을 거른다). */
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
@@ -278,11 +299,23 @@ export class ItemTip {
     /* 서재 매체 (A-3e, 2026-09-12): 책 · 디스크 · 레코드는 같은 역할이라 같은 두 줄이다 — **어떤 숙련을 올리는가**와
        **서재의 어느 보관함에 꽂는가**. 매체 판정은 계약의 `shelfItemOf` 하나이고, 보관함 이름은 가구 표(`furniture.csv`)에서
        그 매체의 interaction 을 가진 서재 가구를 찾아 쓴다 — 이름을 여기 베껴 적지 않는다(표가 바뀌면 카드가 따라온다). */
+    /* 2026-09-13 (서재 시리즈, docs/plans/library-series-games.md §5): 옛 `숙련` 한 줄(숙련별 · 등급 가중치)은 없어졌다 — 효과는
+       이제 **시리즈**의 효과 줄이 정한다. 시리즈 매체는 `시리즈` · `권` · 효과 줄(전권 값) · `진행` · `보관` · `꽂는 곳` · `등장 행성`. */
     const shelf = shelfItemOf(def);
     if (shelf) {
-      rows.push(['숙련', this.skillName(shelf.skill)]);
+      const media = def.book ?? def.disc ?? def.record;
+      if (media?.series) this.seriesRows(rows, def, media.series, media.volume ?? 1, shelf.medium);
       rows.push(['꽂는 곳', `서재 · ${this.shelfName(shelf.medium)}`]);
     }
+    /* 2026-09-13 (비디오게임): 게임 디스크 = 게임기 · 능력치 · 방식 · 사용, 게임기 = TV 에 장착 */
+    const game = def.gameDisc;
+    if (game) {
+      rows.push(['게임기', this.consoleName(game.console)]);
+      rows.push(['능력치', this.statName(game.stat)]);
+      rows.push(['방식', GYM_MINIGAME_LABEL_KO[game.minigame] ?? game.minigame]);
+      rows.push(['사용', '게임 디스크 전시대에 꽂고 TV 로 플레이']);
+    }
+    if (def.gameConsole) rows.push(['사용', 'TV 에 장착']);
     /* 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15, 2026-09-11): 요리 · 주머니 · 세포주 · 배지 넷도 준비물과 같은 결로
        「무엇을 얼마나 오래 / 얼마나 올려 주는가」가 카드에서 끝난다. 요리의 값은 `hud/mealText` 가 찍는다 — 레이드
        HUD 의 식사 배지와 **같은 문장**이어야 하고, 단위(`%` · `kg` · `m`)를 정하는 표는 `shared/labels` 의
@@ -411,6 +444,101 @@ export class ItemTip {
   /** 숙련의 한국어 이름 (`getSkillDef`), progression 이 없으면 id. */
   private skillName(skill: SkillId): string {
     try { return this.ctx?.progression?.getSkillDef(skill)?.name ?? skill; } catch { return skill; }
+  }
+
+  /** 능력치의 한국어 이름 (`getStatDef`), progression 이 없으면 id. */
+  private statName(stat: StatId): string {
+    try { return this.ctx?.progression?.getStatDef(stat)?.name ?? stat; } catch { return stat; }
+  }
+
+  /* ── 2026-09-13 서재 시리즈 · 비디오게임 ─────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * 시리즈 매체의 줄들. 수치는 전부 시리즈 표(`LIBRARY_SERIES_MAP`) · housing 질의에서 오고 여기서는 문장만 만든다.
+   *  - `시리즈` 이름 · `권` (`II / V권`, 1권짜리는 `단편`)
+   *  - 효과 줄마다 한 행 — 값은 **전권 기준**(여러 권이면 값 뒤에 `(전권)`), 글자색은 매체 카테고리 색
+   *  - `진행 n/N권 · 적용 n %` (`getSeriesProgress` — 보조 가구 배율은 빼고 시리즈 몫만)
+   *  - `보관` — 그 매체의 보관함이 없으면 `보관함 없음`, 있으면 `isShelfItemWanted` 로 `아직 꽂지 않음` / `서재에 꽂혀 있음`
+   *  - `등장 행성`
+   */
+  private seriesRows(rows: TipRow[], def: ItemDef, seriesId: string, volume: number, medium: ShelfMedium): void {
+    const series = LIBRARY_SERIES_MAP.get(seriesId);
+    if (!series) return;
+    const color = CATEGORY_COLOR[def.category];
+    rows.push(['시리즈', series.name]);
+    rows.push(['권', series.volumes <= 1 ? '단편' : `${romanVolume(volume)} / ${romanVolume(series.volumes)}권`]);
+    const full = series.volumes > 1 ? ' (전권)' : '';
+    for (const e of series.effects) {
+      const line = this.effectRow(e);
+      if (line) rows.push([line[0], `${line[1]}${e.kind === 'recipe' ? '' : full}`, color]);
+    }
+    const h = this.ctx?.housing;
+    if (h && typeof h.getSeriesProgress === 'function') {
+      try {
+        const p = h.getSeriesProgress(seriesId);
+        if (p) rows.push(['진행', `${p.have}/${p.total}권 · 적용 ${Math.round(p.fraction * 100)} %`]);
+      } catch { /* skeleton */ }
+    }
+    const shelved = this.shelvedState(def.id, medium);
+    if (shelved === 'none') rows.push(['보관', '보관함 없음', 'var(--c-text-dim)']);
+    else if (shelved === 'wanted') rows.push(['보관', '아직 꽂지 않음', FAVORITE_BAND_COLOR]);
+    else if (shelved === 'shelved') rows.push(['보관', '서재에 꽂혀 있음']);
+    const planets = series.planets.map((id) => PLANET_DEFS.find((p) => p.id === id)?.name ?? id);
+    if (planets.length) rows.push(['등장 행성', planets.join(' · ')]);
+  }
+
+  /** 효과 줄 하나 → `[행 이름, 값]`. 모르는 대상이면 null. */
+  private effectRow(e: LibraryEffect): [string, string] | null {
+    switch (e.kind) {
+      case 'skillGain': return [`${this.skillName(e.target)} 상승량`, pctText(e.value)];
+      case 'derived': return [MEAL_BUFF_LABEL_KO[e.target] ?? e.target, mealBuffAmountText(e.target, e.value)];
+      case 'gymScore': return [`${this.furnitureName(e.target)} 점수`, pctText(e.value)];
+      case 'cookScore': return [`${COOK_GAME_LABEL_KO[e.target] ?? e.target} 점수`, pctText(e.value)];
+      case 'raidXp': return ['레이드 경험치', pctText(e.value)];
+      case 'trustXp': return [e.target === 'all' ? '계약 신뢰도 (모든 기업)' : `${CORP_DEFS[e.target]?.name ?? e.target} 계약 신뢰도`, pctText(e.value)];
+      case 'recipe': return ['레시피', `${this.recipeName(e.target)} — 꽂혀 있는 동안`];
+    }
+    return null;
+  }
+
+  /**
+   * `'none'` = 이 매체의 보관함을 배치 · 가구 창고 어디에도 갖고 있지 않다, `'wanted'` = 보관함은 있는데 같은 종류가 안 꽂혀 있다,
+   * `'shelved'` = 꽂혀 있다, `null` = housing 이 답하지 못한다 (줄을 그리지 않는다).
+   */
+  private shelvedState(defId: string, medium: ShelfMedium): 'none' | 'wanted' | 'shelved' | null {
+    const h = this.ctx?.housing;
+    if (!h || typeof h.isShelfItemWanted !== 'function') return null;
+    try {
+      const want = SHELF_INTERACTION[medium];
+      const isHolder = (id: string): boolean => FURNITURE_DEF_BY_ID.get(id)?.interaction === want;
+      const st = h.state;
+      const owned = !!st && ((st.furniture ?? []).some((p) => isHolder(p.defId)) || (st.furnitureStorage ?? []).some((s) => s.qty > 0 && isHolder(s.defId)));
+      if (!owned) return 'none';
+      return h.isShelfItemWanted(defId) ? 'wanted' : 'shelved';
+    } catch { return null; }
+  }
+
+  /** 운동 기구 interaction → 그 가구 이름 (가구 표에서 찾는다). */
+  private furnitureName(interaction: string): string {
+    return FURNITURE_DEFS.find((d) => d.interaction === interaction)?.name ?? interaction;
+  }
+
+  /** 조리 레시피 id → 산출 요리 이름. */
+  private recipeName(recipeId: string): string {
+    try {
+      const r = this.ctx?.loot?.getAllRecipes().find((x) => x.id === recipeId);
+      if (r) return this.defOf(r.outputDefId)?.name ?? r.outputDefId;
+    } catch { /* skeleton */ }
+    return recipeId;
+  }
+
+  /** 게임기 종류 → 그 게임기 아이템 이름 (`ItemDef.gameConsole.console`). */
+  private consoleName(consoleId: string): string {
+    try {
+      const d = this.ctx?.loot?.getAllItemDefs().find((x) => x.gameConsole?.console === consoleId);
+      if (d) return d.name;
+    } catch { /* skeleton */ }
+    return consoleId;
   }
 
   /**

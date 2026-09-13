@@ -7,6 +7,8 @@ import { el, setText, toggleClass } from '../dom';
 import { cookStepsText, mealEffectLines } from './mealText';
 /* 2026-09-13 (요리 미니게임): 식사 품질 별 배지 */
 import { normalizeMealQuality } from '@/shared';
+/* 2026-09-13 (비디오게임): 게임 중 버프의 방식 줄 */
+import { GYM_MINIGAME_LABEL_KO } from '@/shared';
 import '../styles/buffs.css';
 
 /** 시간 글자 · 게이지를 다시 쓰는 주기 (UI 타이밍, 밸런스 아님). 타이머가 있는 썸네일이 보일 때만 돈다. */
@@ -178,6 +180,13 @@ export class BuffStrip {
     let lines: string[] = [];
     if (b.kind === 'meal' && def?.meal) lines = mealEffectLines(def.meal, quality);
     else if (b.kind === 'cooking' && b.defId) { const steps = cookStepsText(b.defId); if (steps) lines = [steps]; }
+    else if (b.kind === 'gaming' && (b.stat || b.minigame)) {
+      // 2026-09-13 (비디오게임): 무엇을 단련하는 게임인가 — `지능 단련 · 호흡 달리기`
+      let statName = '';
+      if (b.stat) { try { statName = ctx?.progression?.getStatDef(b.stat)?.name ?? ''; } catch { statName = ''; } }
+      const parts = [statName ? `${statName} 단련` : '', b.minigame ? GYM_MINIGAME_LABEL_KO[b.minigame] : ''].filter(Boolean);
+      if (parts.length) lines = [parts.join(' · ')];
+    }
     const domTitle = lines.length > 0 ? `${title}\n${lines.join('\n')}` : title;
     if (cell.root.title !== domTitle) cell.root.title = domTitle;
     // 2026-09-13 (요리 품질): 좌상단 별 배지 — 글자는 CSS `::after { content: attr(data-q) }`

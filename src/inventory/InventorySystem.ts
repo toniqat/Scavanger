@@ -66,6 +66,8 @@ import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { setRecoveryScope } from './ui/GridView';
 /* appended (2026-09-13): 요리 품질 — 스택 · 나누기 · 식탁 질의 (규칙은 `shared/cooking.ts`) */
 import * as Meal from './parts/MealQuality';
+/* appended (2026-09-13): 서재 시리즈 — 아직 꽂지 않은 매체 띠 (규칙은 `HousingRef.isShelfItemWanted`) */
+import * as ShelfWanted from './parts/ShelfWanted';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
@@ -216,6 +218,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.restoreLoadoutSave();
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
+    // 2026-09-13 (서재 시리즈): 「아직 꽂지 않은」 띠의 공급자 + 캐시를 비우는 사건
+    this.offs.push(...ShelfWanted.installShelfWanted(this));
 
     const bus = ctx.bus;
     this.offs.push(

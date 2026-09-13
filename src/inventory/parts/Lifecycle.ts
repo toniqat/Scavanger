@@ -21,6 +21,7 @@ import { createQuickSlots, isQuickUsable, pickStarterQuick } from '../QuickSlots
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
+import { resolveItemAlias } from '@/shared';   // 2026-09-13 (서재 시리즈): 옛 매체 id 로 저장된 가방 스택을 다시 합친다
 import {
   AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
   LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
@@ -119,10 +120,20 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
   sys.bag.resize(size.cols, size.rows);
   const revived: (ItemInstance | null)[] = [];
   const pending: ItemInstance[] = [];
+  /** 2026-09-13: bag stacks whose id went through the alias table — placed last so they can re-merge. */
+  const converted: Array<{ item: ItemInstance; sv: SavedPlacement }> = [];
   for (const sv of save.bag) {
     const item = reviveItem(sv, getDef, sys.loot, 'Loadout');
     revived.push(item);
     if (!item) continue;
+    if (typeof sv.defId === 'string' && resolveItemAlias(sv.defId) !== sv.defId) { converted.push({ item, sv }); continue; }
+    const cell = savedCell(sv);
+    if (cell && sys.bag.place(item, cell.x, cell.y, !!sv.rotated)) continue;
+    pending.push(item);
+  }
+  // 2026-09-13 (서재 시리즈): same order as `Stash.load` — merge into a stack of the new id, own saved cell, then the refill below
+  for (const { item, sv } of converted) {
+    if ((getDef(item.defId)?.stackMax ?? 1) > 1 && sys.bag.mergeIntoStacks(item) <= 0) continue;
     const cell = savedCell(sv);
     if (cell && sys.bag.place(item, cell.x, cell.y, !!sv.rotated)) continue;
     pending.push(item);

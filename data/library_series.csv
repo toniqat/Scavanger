@@ -1,0 +1,90 @@
+# 서재 시리즈 (2026-09-13 사용자 결정 — docs/plans/library-series-games.md). 로더 = src/shared/library.ts (효과 · 행성) + src/items/ItemDefs.ts (아이템).
+# id = 시리즈 id (코드가 찾는 값). medium = book · disc(비디오) · record. name = 권 번호 없는 시리즈 이름 (책 『』 · 비디오 〈〉 · 레코드 《》).
+# volumes = 권 수 (1 = 단편). 책 ≤ 5 · 비디오 ≤ 3 · 레코드 = 1.
+# planets = 나오는 행성 id 를 | 로 (data/planets.csv). 책 · 비디오 시리즈는 한 행성. 레코드는 threat 2 이상 행성에서만 (data:check 가 본다).
+# effects = kind:target:value 를 | 로 — 책 1줄 · 비디오 2줄 · 레코드 3줄. 값은 **전권 기준**이다.
+#   skillGain:<숙련>:0.1 · derived:<MealBuff>:값 · gymScore:<gym_bench_press|gym_smith|gym_treadmill|gym_cycle>:0.08 ·
+#   cookScore:<chop|mince|grill|stirfry>:0.08 · raidXp::0.1 · trustXp:<all|helix|bastion|nomad|ceres>:0.1 · recipe:<조리 레시피 id>:
+#   derived 는 꽂는 즉시 적용되므로 아주 작게 (적재 kg · 스태미나 · 감지 m 는 단위 그대로, *Mul 은 배수 가산).
+# 시리즈 몫 = 전권이면 100 %, 아니면 꽂힌 서로 다른 권마다 SHELF_SERIES_VOLUME_SHARE (constants.csv).
+# ── 아이템 쪽 열 (items/ 가 읽는다) ──
+# rarity = 비디오 · 레코드의 등급. **책은 비운다** — 책은 등급이 없어 전부 tables.csv 의 LIBRARY_ITEM_RARITY.book 이다.
+# skill = 대표 숙련 (정렬 · 도감 묶음용). 비우면 첫 skillGain 줄의 숙련 — skillGain 이 없는 시리즈는 반드시 적는다.
+# 아이템 id = book_<id>_<권> · disc_<id>_<권> · record_<id>. 이름 = 시리즈 이름 + 권 번호(단편은 없음).
+# 가치: 책 = tables.csv 의 BOOK_VALUE_BY_VOLUME · 비디오 = DISC_VALUE_BY_RARITY × (1 + tuning.csv 의 DISC_VALUE_VOLUME_STEP × (권 − 1)) · 레코드 = RECORD_VALUE_BY_RARITY.
+# 드롭: 그 행성의 상자 · 로그 시체 서적 굴림에서만, 권 가중치 = tables.csv 의 LIBRARY_VOLUME_DROP_WEIGHT. 상점에서는 팔지 않는다.
+# description 에는 숫자를 적지 않는다 (툴팁이 효과 줄 · 권 수를 보여 준다).
+id,medium,name,volumes,planets,effects,rarity,skill,description
+# ══ 책 (43) ══
+# ── 아켈론 II (amber) ──
+carry_manual,book,『짐꾼의 요령』,5,amber,skillGain:carry:0.15,,,사막 채굴 전초의 짐꾼들이 대를 이어 적어 온 수기. 무거운 짐을 오래 지는 요령이 권마다 이어진다.
+appraisal_notes,book,『감정사의 현장 노트』,3,amber,skillGain:appraisal:0.12,,,모래에 묻힌 전리품을 한눈에 가려내는 감정사의 노트.
+equipment_manual,book,『장비 정비 매뉴얼』,4,amber,skillGain:equipment:0.13,,,방어구와 가방을 오래 쓰는 정비 매뉴얼. 모래 먼지 속 정비 요령이 빼곡하다.
+load_bearing,book,『짐 싣는 법』,2,amber,derived:carryCapacity:2,,carry,짐의 무게 중심을 잡는 법을 그림으로 풀어 쓴 얇은 책. 꽂아 두기만 해도 어깨가 조금 가벼워진다.
+desert_running,book,『모래 위를 달리는 법』,3,amber,gymScore:gym_treadmill:0.08,,grit,모래언덕을 달리던 정찰병의 호흡 훈련서. 트레드밀 위의 호흡이 한결 고르게 맞는다.
+knife_basics,book,『칼질 기초』,2,amber,cookScore:chop:0.08,,cooking,전초 식당 조리장의 칼질 교본. 도마 위에서 박자를 잃지 않는다.
+nomad_ledger,book,『노마드 거래 장부』,3,amber,trustXp:nomad:0.15,,appraisal,노마드 장비의 거래 담당자가 남긴 장부. 그들이 무엇을 반기는지 알면 계약이 매끄럽다.
+survival_log,book,『생존 일지』,4,amber,raidXp::0.1,,grit,사막에 고립됐다 돌아온 헬다이버의 일지. 한 번의 출격에서 더 많은 것을 배운다.
+recipe_meat_pie,book,『고기 파이 비법』,1,amber,recipe:cook_meat_pie:,,cooking,전초 식당에서만 팔던 고기 파이의 조리법. 책장에 꽂혀 있는 동안 조리대에서 만들 수 있다.
+# ── 보레아스 IX (tundra) ──
+grit_testimony,book,『버티는 법』,4,tundra,skillGain:grit:0.14,,,치명상을 견디고 살아 돌아온 헬다이버들의 증언집. 얼어붙은 평원에서 모은 이야기가 권마다 이어진다.
+drill_smg,book,『사격 교본: 기관단총』,2,tundra,skillGain:gun_SMG:0.11,,,무리 사냥꾼을 상대로 다듬어진 근접 연사 교본.
+drill_sg,book,『사격 교본: 산탄총』,1,tundra,skillGain:gun_SG:0.1,,,근거리 제압 사격을 한 권에 담은 교본.
+field_medicine,book,『전장 의학』,5,tundra,skillGain:medicine:0.15,,,동상과 자상을 함께 다루는 군의관 교재. 전권이 한 과정이다.
+cold_breathing,book,『한랭지 호흡법』,3,tundra,derived:maxStamina:5,,grit,찬 공기 속에서 숨을 아끼는 법. 조금 더 오래 달릴 수 있다.
+frost_cycling,book,『설원 페달 훈련』,2,tundra,gymScore:gym_cycle:0.08,,grit,설원 기지의 사이클 훈련 일정표. 페달 박자가 흐트러지지 않는다.
+wok_heat,book,『센 불 볶음 교본』,3,tundra,cookScore:stirfry:0.08,,cooking,기지 주방의 볶음 요리사가 불 조절을 정리한 교본.
+bastion_codex,book,『바스티온 조달 규정』,2,tundra,trustXp:bastion:0.15,,appraisal,바스티온 중공업의 조달 규정집. 규정대로 납품하면 신뢰가 빨리 쌓인다.
+recipe_bean_curry,book,『콩 커리 요리첩』,1,tundra,recipe:cook_bean_curry:,,cooking,얼어붙은 기지에서 몸을 데우던 콩 커리 조리법. 책장에 꽂혀 있는 동안 조리대에서 만들 수 있다.
+# ── 베르단트 III (mossy) ──
+ship_gardening,book,『함선 원예 입문』,5,mossy,skillGain:gardening:0.15,,,습지의 약초를 함선 재배층에서 기르는 법을 다룬 입문서.
+cooking_basics,book,『주방 입문』,4,mossy,skillGain:cooking:0.14,,,함선 주방을 처음 맡은 사람을 위한 조리 입문서.
+research_methods,book,『표본 연구 방법론』,3,mossy,skillGain:research:0.13,,,미확인 표본을 다루는 연구원의 방법론. 포자에 젖은 채 발견됐다.
+herbal_remedies,book,『약초 처방집』,2,mossy,derived:healPowerMul:0.03,,medicine,습지 약초를 붕대와 주사에 곁들이는 처방집. 약이 조금 더 잘 듣는다.
+forager_guide,book,『채집꾼 안내서』,3,mossy,derived:gatherYieldMul:0.03,,gardening,이끼 습지 채집꾼의 안내서. 같은 더미에서 조금 더 건진다.
+mince_rhythm,book,『다지기의 리듬』,2,mossy,cookScore:mince:0.08,,cooking,다지기 칼의 좌우 박자를 악보처럼 적은 조리서.
+ceres_journal,book,『세레스 연구 소식지』,4,mossy,trustXp:ceres:0.15,,research,세레스 바이오의 내부 연구 소식지. 그들의 관심사를 알면 계약이 빨리 풀린다.
+recipe_chicken_stirfry,book,『닭고기 볶음 요리첩』,1,mossy,recipe:cook_chicken_stirfry:,,cooking,습지 버섯을 곁들인 닭고기 볶음 조리법. 책장에 꽂혀 있는 동안 조리대에서 만들 수 있다.
+bench_basics,book,『벤치프레스 기본기』,3,mossy,gymScore:gym_bench_press:0.08,,carry,바벨을 내리고 밀어 올리는 타이밍만 다룬 훈련서.
+# ── 피로스 VII (ashen) ──
+drill_dmr,book,『사격 교본: 지정사수소총』,4,ashen,skillGain:gun_DMR:0.13,,,재가 날리는 능선에서 중거리 표적을 끊어 쏘는 교본.
+drill_ar,book,『사격 교본: 돌격소총』,5,ashen,skillGain:gun_AR:0.15,,,슈퍼 지구 표준 돌격소총 사격 교본의 완전판.
+field_crafting,book,『야전 제작 편람』,4,ashen,skillGain:crafting:0.14,,,폐자재로 장비를 만드는 야전 편람. 화산지대 공방에서 쓰였다.
+heat_endurance,book,『열기 속 행군』,2,ashen,derived:staminaRegenMul:0.03,,grit,용암 지대를 행군한 부대의 수기. 숨이 조금 더 빨리 돌아온다.
+smith_program,book,『스미스 머신 프로그램』,2,ashen,gymScore:gym_smith:0.08,,carry,레일 바벨로 근력을 쌓는 단계별 프로그램.
+grill_master,book,『불판의 달인』,3,ashen,cookScore:grill:0.08,,cooking,화산 암반에 고기를 굽던 요리사의 비결. 뒤집는 때를 놓치지 않는다.
+helix_bulletin,book,『헬릭스 방산 기술 회보』,3,ashen,trustXp:helix:0.15,,appraisal,헬릭스 방산의 기술 회보. 그들의 규격을 알면 계약이 빨리 풀린다.
+after_action,book,『작전 후 보고서 모음』,2,ashen,raidXp::0.1,,grit,포격 속에서 살아 나온 분대들의 작전 후 보고서.
+# ── 카민 I (crimson) ──
+drill_sr,book,『사격 교본: 저격소총』,5,crimson,skillGain:gun_SR:0.15,,,멀리까지 보이는 평원에서 쓰인 장거리 저격 교본.
+cipher_theory,book,『암호 해독 원론』,5,crimson,skillGain:cryptography:0.15,,,군 등급 암호 체계의 원리를 파헤친 금서.
+implant_doctrine,book,『전술 임플란트 운용 지침』,4,crimson,skillGain:implant:0.14,,,임플란트 에너지 관리와 냉각 주기를 다룬 기밀 지침서.
+open_plain_watch,book,『평원 감시병 수칙』,3,crimson,derived:detectRadius:1.5,,gun_SR,포그 없는 평원의 감시병 수칙. 조금 더 멀리서 알아챈다.
+scavenger_habits,book,『폐허 뒤지는 습관』,2,crimson,derived:searchSpeedMul:0.03,,appraisal,노련한 약탈자의 상자 뒤지는 습관을 정리한 책.
+quick_hands,book,『손이 빠른 기술자』,2,crimson,derived:interactSpeedMul:0.03,,crafting,장치를 다루는 손놀림을 줄이는 요령집.
+corporate_etiquette,book,『기업 거래 예절』,4,crimson,trustXp:all:0.08,,appraisal,네 기업을 모두 상대해 본 중개인의 거래 예절서.
+recipe_pork_cutlet,book,『돼지고기 커틀릿 요리첩』,1,crimson,recipe:cook_pork_cutlet:,,cooking,붉은 평원 보급 기지의 명물 커틀릿 조리법. 책장에 꽂혀 있는 동안 조리대에서 만들 수 있다.
+# ══ 비디오 (disc, 12) — 단편 · II · III, 줄 2개 ══
+hauling_live,disc,〈짐꾼의 요령: 실전편〉,2,amber,skillGain:carry:0.08|derived:carryCapacity:1.5,uncommon,,노련한 짐꾼이 모래언덕을 넘는 모습을 그대로 찍은 영상 강의.
+appraisal_cam,disc,〈감정사의 눈: 현장 촬영본〉,1,amber,skillGain:appraisal:0.07|skillGain:equipment:0.07,uncommon,,전리품 감정과 장비 손질을 손 위에서 확대해 보여 주는 촬영본.
+field_kitchen,disc,〈야전 주방 24시〉,3,amber,cookScore:chop:0.05|trustXp:nomad:0.08,rare,cooking,노마드 보급 기지 주방의 하루를 따라가는 다큐멘터리.
+survivor_interviews,disc,〈버티는 법: 생존자 인터뷰〉,3,tundra,skillGain:grit:0.08|derived:maxStamina:3,rare,,살아 돌아온 헬다이버들이 카메라 앞에서 털어놓은 증언 영상.
+close_quarters,disc,〈근접 교전 훈련 기록〉,2,tundra,skillGain:gun_SMG:0.08|skillGain:gun_SG:0.08,rare,,문을 따고 들어가는 근접 연사 훈련을 헬멧 카메라로 찍은 기록.
+medic_practice,disc,〈전장 의학 실습 영상〉,1,tundra,skillGain:medicine:0.07|gymScore:gym_cycle:0.05,uncommon,,군의관 교육 과정의 응급 처치 실습과 재활 사이클 훈련 기록.
+greenhouse_course,disc,〈함선 원예 강좌〉,3,mossy,skillGain:gardening:0.08|cookScore:mince:0.05,uncommon,,재배층 관리와 수확물 손질을 따라 하기 쉽게 찍은 교양 강좌.
+workshop_demo,disc,〈야전 제작 시연〉,2,mossy,skillGain:crafting:0.08|skillGain:research:0.08,rare,,폐자재를 분석하고 장비로 조립하는 과정을 처음부터 끝까지 담은 시연 영상.
+rifle_range,disc,〈사격장 훈련 영상: 소총〉,3,ashen,skillGain:gun_AR:0.08|skillGain:gun_DMR:0.08,rare,,돌격소총과 지정사수소총 사격장 훈련을 여러 각도에서 찍은 교육 영상.
+implant_training,disc,〈전술 임플란트 운용 훈련 기록〉,2,ashen,skillGain:implant:0.08|raidXp::0.05,epic,,임플란트 과열과 냉각 주기를 실제 작전 장면으로 보여 주는 기밀 기록.
+marksman_breath,disc,〈저격수의 호흡〉,3,crimson,skillGain:gun_SR:0.08|derived:detectRadius:1,epic,,저격수의 호흡과 시선을 느린 화면으로 보여 주는 교육 영상.
+cipher_briefing,disc,〈암호 해독 브리핑 — 대외비〉,1,crimson,skillGain:cryptography:0.07|trustXp:all:0.04,epic,,정보부 내부 교육용으로만 돌던 해독 브리핑 녹화본.
+# ══ 레코드 (10) — 단편, 줄 3개, threat 2 이상 행성 ══
+porters_song,record,《짐꾼의 노래》,1,tundra,skillGain:carry:0.06|skillGain:equipment:0.06|derived:carryCapacity:1.5,epic,,행군하며 짐을 지고 장비를 챙기는 요령을 입담 좋게 풀어낸 옛 강연 음반.
+appraiser_night,record,《감정사의 밤 강연》,1,mossy|ashen,skillGain:appraisal:0.06|trustXp:nomad:0.06|derived:searchSpeedMul:0.02,epic,,전설적인 감정사가 술자리에서 풀어놓은 감정 비결을 녹음한 LP.
+voices_endure,record,《버티는 자들의 목소리》,1,tundra|crimson,skillGain:grit:0.06|derived:maxStamina:3|raidXp::0.04,epic,,전선에서 살아 돌아온 이들의 육성 증언을 모은 음반.
+plant_talk,record,《식물과 나누는 대화》,1,mossy,skillGain:gardening:0.06|skillGain:cooking:0.06|cookScore:stirfry:0.04,epic,,원예가이자 요리사가 재배층 앞에서 나지막이 들려주는 강연 녹음.
+artisan_bench,record,《장인의 작업대》,1,ashen,skillGain:crafting:0.06|skillGain:research:0.06|derived:interactSpeedMul:0.02,epic,,공방 소음과 함께 녹음된 노장 기술자의 제작과 연구 강연.
+field_hospital,record,《야전병원 강의록》,1,mossy,skillGain:medicine:0.06|derived:healPowerMul:0.02|trustXp:ceres:0.06,legendary,,포성 속에서 이어진 군의관의 강의를 그대로 담은 희귀 음반.
+no_receiver,record,《수신자 없는 방송》,1,crimson,skillGain:cryptography:0.06|skillGain:implant:0.06|trustXp:all:0.03,legendary,,암호 방송을 해독하는 법과 신경 동조 강연이 뒤섞인 정체불명의 금지 음반.
+drill_assault,record,《교관의 목소리: 돌격과 제압》,1,tundra|ashen,skillGain:gun_AR:0.06|skillGain:gun_SMG:0.06|skillGain:gun_SG:0.06,epic,,사격장 교관의 구령과 돌격 · 근접 사격 강의를 한 면에 담은 교육용 음반.
+drill_marksman,record,《교관의 목소리: 정밀 사격》,1,crimson,skillGain:gun_SR:0.06|skillGain:gun_DMR:0.06|derived:detectRadius:1,legendary,,호흡을 고르는 저격수의 강연과 긴 침묵이 담긴 음반.
+iron_rhythm,record,《강철의 리듬》,1,ashen|tundra,gymScore:gym_treadmill:0.04|gymScore:gym_cycle:0.04|gymScore:gym_bench_press:0.04,epic,grit,헬스장 스피커에서 흘러나오던 훈련용 박자 음반.

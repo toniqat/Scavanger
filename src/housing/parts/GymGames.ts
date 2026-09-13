@@ -16,8 +16,18 @@
  *   • **예비 박자** `GYM_LEAD_BEATS` 박 — 첫 표식이 판정선까지 걸어올 시간. 그 사이의 입력은 무시한다.
  *   • **헛누름은 다음 표식의 실패**다 — 다음 표식 창보다 이르지만 직전 창이 닫힌 뒤(`t − (박자 − 창)` 이후)에 누르면
  *     그 표식을 실패로 친다. 그렇지 않으면 Space 를 연타해 모든 창을 줍는 것이 최선의 전략이 된다.
+ *
+ * 2026-09-13 (비디오게임, H2 — docs/plans/library-series-games.md §3): **디스크별 튜닝** `GymGameTuning` 을 받는다
+ * (`createGymGame(kind, tuning?)`). 계약의 뜻 그대로 —
+ *   • `speedMul`  벤치프레스 커서 속도 × · 박자형 박자 간격 ÷ (「하」 를 쥐는 길이도 같이 ÷)
+ *   • `windowMul` 벤치프레스 성공 · 완벽 구역 × · 박자형 판정 창 × (「하」 떼기 창도 같이 ×)
+ *   • `countMul`  판정 횟수 × (반올림, 최소 1)
+ *   • `pattern`   박자형 표식 패턴 — 호흡형 `t` · `h` · `r`, 사이클형 `L` · `R` · `r` 를 `-` 로 잇고 판정 횟수만큼 반복.
+ *                 `r` = 한 박 쉼. 이 게임에 맞지 않는 토큰은 버리고, 표식 토큰이 하나도 없으면 헬스 기본 패턴.
+ * **튜닝이 없으면(또는 전부 1 · 빈 패턴이면) 헬스와 비트 하나 다르지 않다** — 곱하는 1 · 나누는 1 은 부동소수에서도 같은 값이고,
+ * 기본 패턴은 옛 생성 루프와 같은 순서로 같은 덧셈을 한다 (`smoke-gym` 의 기대값이 그대로 산다).
  */
-import type { GymMinigame } from '@/shared';
+import type { GymGameTuning, GymMinigame } from '@/shared';
 import {
   GYM_BREATH_BEAT_S, GYM_BREATH_CYCLES, GYM_BREATH_HOLD_S, GYM_BREATH_HOLD_TOL_S, GYM_BREATH_WINDOW_S,
   GYM_CYCLE_BEAT_S, GYM_CYCLE_STROKES, GYM_CYCLE_WINDOW_S,
@@ -58,6 +68,39 @@ function grade(err: number, window: number): GymQuality | null {
   if (e <= window / 3) return 'perfect';
   if (e <= window) return 'good';
   return null;
+}
+
+/* ── 튜닝 (2026-09-13) ───────────────────────────────────────────────────── */
+
+/** 박자 게임 판정 창의 상한 = 박자 × 이 값 (구현 값) — 창이 박자의 절반을 넘으면 이웃 표식의 창과 겹쳐 헛누름 규칙이 깨진다. */
+const WINDOW_MAX_OF_BEAT = 0.5;
+
+/** 튜닝 배수 하나 — 유한한 양수만, 아니면 1 (= 헬스 기본). */
+export function tuningMul(v: number | undefined): number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+/** 판정 횟수 = `max(1, round(기본 × countMul))`. */
+export function tunedCount(base: number, countMul: number | undefined): number {
+  return Math.max(1, Math.round(base * tuningMul(countMul)));
+}
+
+/** 패턴 토큰 — 호흡형 `t` (탭) · `h` (꾹) · 사이클형 `L` · `R` · 공통 `r` (한 박 쉼). */
+export type GymPatternToken = 't' | 'h' | 'L' | 'R' | 'r';
+const BREATH_TOKENS: readonly GymPatternToken[] = ['t', 'h', 'r'];
+const CYCLE_TOKENS: readonly GymPatternToken[] = ['L', 'R', 'r'];
+
+/**
+ * `t-t-h-r` 같은 패턴을 토큰 목록으로 — `allowed` 밖의 토큰은 버린다. 표식 토큰(`r` 아닌 것)이 하나도 없으면 빈 배열 (= 기본 패턴).
+ */
+export function parseGymPattern(pattern: string | undefined, allowed: readonly GymPatternToken[]): GymPatternToken[] {
+  if (typeof pattern !== 'string' || !pattern.trim()) return [];
+  const out: GymPatternToken[] = [];
+  for (const raw of pattern.split('-')) {
+    const tok = raw.trim() as GymPatternToken;
+    if ((allowed as readonly string[]).includes(tok)) out.push(tok);
+  }
+  return out.some((t) => t !== 'r') ? out : [];
 }
 
 export abstract class GymGame {
@@ -110,13 +153,28 @@ export abstract class GymGame {
 /* ── 벤치프레스 ──────────────────────────────────────────────────────────── */
 export class PressGame extends GymGame {
   readonly minigame = 'press' as const;
-  readonly total = Math.max(1, Math.round(GYM_PRESS_REPS));
+  readonly total: number;
+  /** 성공 구역 반폭 (바 폭 비율) — `GYM_PRESS_ZONE × windowMul`, 0.5 이하. 화면이 이 값으로 구역을 그린다. */
+  readonly zone: number;
+  /** 완벽 구역 반폭 — `GYM_PRESS_PERFECT × windowMul`, 성공 구역 이하. */
+  readonly perfect: number;
+  /** 커서 속도 배수 (`speedMul`). */
+  readonly speedMul: number;
   /** 커서 위치 0 … 1 (바 폭 비율, 가운데 0.5). 왼쪽 끝에서 오른쪽으로 출발한다. */
   pos = 0;
   dir: 1 | -1 = 1;
 
+  constructor(tuning?: GymGameTuning) {
+    super();
+    const w = tuningMul(tuning?.windowMul);
+    this.speedMul = tuningMul(tuning?.speedMul);
+    this.zone = Math.min(0.5, GYM_PRESS_ZONE * w);
+    this.perfect = Math.min(this.zone, GYM_PRESS_PERFECT * w);
+    this.total = tunedCount(Math.round(GYM_PRESS_REPS), tuning?.countMul);
+  }
+
   /** 지금 회차의 커서 속도 (바 폭/초). */
-  get speed(): number { return GYM_PRESS_SPEED + this.judgements.length * GYM_PRESS_SPEED_STEP; }
+  get speed(): number { return (GYM_PRESS_SPEED + this.judgements.length * GYM_PRESS_SPEED_STEP) * this.speedMul; }
 
   protected step(dt: number): void {
     const v = this.speed;
@@ -132,7 +190,7 @@ export class PressGame extends GymGame {
   protected onPress(action: GymAction): void {
     if (action !== 'jump') return;
     const off = Math.abs(this.pos - 0.5);
-    this.judge(off <= GYM_PRESS_PERFECT ? 'perfect' : off <= GYM_PRESS_ZONE ? 'good' : 'miss');
+    this.judge(off <= this.perfect ? 'perfect' : off <= this.zone ? 'good' : 'miss');
   }
 }
 
@@ -178,24 +236,33 @@ abstract class BeatGame extends GymGame {
 /* ── 호흡 달리기 (후 · 후 · 하) ──────────────────────────────────────────── */
 export class BreathGame extends BeatGame {
   readonly minigame = 'breath' as const;
-  readonly beat = GYM_BREATH_BEAT_S;
-  readonly window = GYM_BREATH_WINDOW_S;
-  readonly holdS = GYM_BREATH_HOLD_S;
-  readonly holdTol = GYM_BREATH_HOLD_TOL_S;
+  readonly beat: number;
+  readonly window: number;
+  readonly holdS: number;
+  readonly holdTol: number;
   readonly notes: BeatNote[] = [];
 
-  constructor() {
+  constructor(tuning?: GymGameTuning) {
     super();
+    const speed = tuningMul(tuning?.speedMul), win = tuningMul(tuning?.windowMul);
+    this.beat = GYM_BREATH_BEAT_S / speed;
+    this.holdS = GYM_BREATH_HOLD_S / speed;
+    this.window = Math.min(GYM_BREATH_WINDOW_S * win, this.beat * WINDOW_MAX_OF_BEAT);
+    this.holdTol = Math.min(GYM_BREATH_HOLD_TOL_S * win, this.holdS * WINDOW_MAX_OF_BEAT);
     const B = this.beat;
-    let t = GYM_LEAD_BEATS * B;
     const cycles = Math.max(1, Math.round(GYM_BREATH_CYCLES));
-    for (let c = 0; c < cycles; c++) {
-      this.notes.push({ t, lane: null, hold: false, q: null, start: null });
-      t += B;
-      this.notes.push({ t, lane: null, hold: false, q: null, start: null });
-      t += B;
-      this.notes.push({ t, lane: null, hold: true, q: null, start: null });
-      t += this.holdS + B;                        // 「하」 를 다 뗀 뒤 한 박 쉬고 다음 묶음
+    const total = tunedCount(cycles * 3, tuning?.countMul);
+    const custom = parseGymPattern(tuning?.pattern, BREATH_TOKENS);
+    const seq: readonly GymPatternToken[] = custom.length ? custom : ['t', 't', 'h'];   // 헬스 기본: 후 · 후 · 하
+    let t = GYM_LEAD_BEATS * B;
+    for (let i = 0, made = 0; made < total; i++) {
+      const tok = seq[i % seq.length];
+      if (tok === 'r') { t += B; continue; }            // 한 박 쉼
+      const hold = tok === 'h';
+      this.notes.push({ t, lane: null, hold, q: null, start: null });
+      made++;
+      if (hold) t += this.holdS + B;                    // 「하」 를 다 뗀 뒤 한 박 쉬고 다음 표식
+      else t += B;
     }
   }
 
@@ -238,15 +305,29 @@ export class BreathGame extends BeatGame {
 /* ── 사이클링 (A · D 번갈아) ─────────────────────────────────────────────── */
 export class CycleGame extends BeatGame {
   readonly minigame = 'cycle' as const;
-  readonly beat = GYM_CYCLE_BEAT_S;
-  readonly window = GYM_CYCLE_WINDOW_S;
+  readonly beat: number;
+  readonly window: number;
   readonly notes: BeatNote[] = [];
 
-  constructor() {
+  constructor(tuning?: GymGameTuning) {
     super();
-    const strokes = Math.max(1, Math.round(GYM_CYCLE_STROKES));
-    for (let k = 0; k < strokes; k++) {
-      this.notes.push({ t: (GYM_LEAD_BEATS + k) * this.beat, lane: k % 2 === 0 ? 'left' : 'right', hold: false, q: null, start: null });
+    this.beat = GYM_CYCLE_BEAT_S / tuningMul(tuning?.speedMul);
+    this.window = Math.min(GYM_CYCLE_WINDOW_S * tuningMul(tuning?.windowMul), this.beat * WINDOW_MAX_OF_BEAT);
+    const strokes = tunedCount(Math.max(1, Math.round(GYM_CYCLE_STROKES)), tuning?.countMul);
+    const custom = parseGymPattern(tuning?.pattern, CYCLE_TOKENS);
+    if (!custom.length) {
+      // 헬스 기본: 왼발 · 오른발 번갈아, 쉼 없음
+      for (let k = 0; k < strokes; k++) {
+        this.notes.push({ t: (GYM_LEAD_BEATS + k) * this.beat, lane: k % 2 === 0 ? 'left' : 'right', hold: false, q: null, start: null });
+      }
+      return;
+    }
+    // 패턴: 토큰 하나 = 한 박 (쉼 `r` 도 한 박을 차지한다)
+    for (let s = 0, made = 0; made < strokes; s++) {
+      const tok = custom[s % custom.length];
+      if (tok === 'r') continue;
+      this.notes.push({ t: (GYM_LEAD_BEATS + s) * this.beat, lane: tok === 'L' ? 'left' : 'right', hold: false, q: null, start: null });
+      made++;
     }
   }
 
@@ -267,8 +348,9 @@ export class CycleGame extends BeatGame {
   }
 }
 
-export function createGymGame(kind: GymMinigame): GymGame {
-  return kind === 'press' ? new PressGame() : kind === 'breath' ? new BreathGame() : new CycleGame();
+/** 판정 객체 하나. `tuning` 생략 = 헬스 기본 (2026-09-13: 비디오게임 디스크가 튜닝을 넘긴다). */
+export function createGymGame(kind: GymMinigame, tuning?: GymGameTuning): GymGame {
+  return kind === 'press' ? new PressGame(tuning) : kind === 'breath' ? new BreathGame(tuning) : new CycleGame(tuning);
 }
 
 export function isBeatGame(g: GymGame): g is BreathGame | CycleGame {

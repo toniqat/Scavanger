@@ -1,4 +1,4 @@
-# 숙련도 14종. id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 숙련도 16종 (2026-09-13 요리 · 연구 추가). id 는 코드가 찾는 값이므로 바꾸지 않는다.
 # stats = 이 숙련이 올릴 때 경험치를 나눠 주는 능력치 (| 로 여러 개).
 # weaponClass 는 사격 숙련만 — 그 무기 종류로 맞히면 이 숙련이 오른다 (대응표는 tables.csv 의 WEAPON_CLASS_SKILL).
 # derived = 이 숙련이 바꾸는 캐릭터 시트 「파생 능력치」 줄의 키 (| 로 여러 개, progression/defs.ts 의 DERIVED_PANEL_KEYS 중 하나).
@@ -18,3 +18,5 @@ gun_SR,사격 · 저격소총,perception,SR,저격소총 명중으로 오른다.
 gun_DMR,사격 · 지정사수소총,perception,DMR,지정사수소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
 gun_SG,사격 · 산탄총,perception,SG,산탄총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
 equipment,장비 관리,dexterity,,장비를 수리하면 오른다. 장비 내구도 소모가 줄어든다.,durabilityLossMul
+cooking,요리,dexterity,,조리를 끝내면 오른다. 조리 단계 점수가 오른다 (자동 조리 가구로 처리한 단계 포함).,cookScoreBonus
+research,연구,intelligence,,분석을 회수하거나 추출기 · 조합대 · 3D 프린터로 만들면 오른다. 분석 시간이 줄고 제작 재료 일부를 돌려받는다.,researchTimeMul|researchRefundChance|researchRefundFrac

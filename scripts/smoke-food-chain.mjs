@@ -187,6 +187,9 @@ try {
   ok(famOk, `표본 3종 + family 데이터 (agent A) (missing: ${sMiss.join(', ') || '없음'})`);
   if (AZ && famOk) {
     ok(await giveStash('spec_cell', 12) === 12 && await giveStash('spec_mineral', 2) === 2 && await giveStash('spec_dna', 1) === 1, '표본 준비 (세포 12 · 광물 2 · DNA 1)');
+    // 2026-09-13 (H3): 연구 숙련은 프로필에 남고 회수마다 오른다 — 0 에서 시작하고, 시간 기대값은 그때의 `derived.researchTimeMul` 을 곱한다
+    await H(() => { const p = window.__game.ctx.progression; if (typeof p.addSkillXpRaw === 'function') p.addSkillXpRaw('research', -(p.getSkill('research') + 1)); });
+    const rmulNow = () => H(() => { const v = window.__game.ctx.progression.derived.researchTimeMul; return typeof v === 'number' ? v : 1; });
     const K = await H(async () => {
       const S = await import('/src/shared/index.ts');
       const d = window.__game.ctx.loot.getItemDef('spec_cell');
@@ -205,7 +208,8 @@ try {
       const pool = S.ANALYSIS_RESULTS.filter((r) => r.family === 'cell' && r.minLevel <= 1 && r.weight > 0 && okDef(r.defId));
       const row = raw && pool.find((r) => r.defId === raw.resultDefId);
       return { err, spent: before - inv.countDefAll('spec_cell'), raw, info: JSON.parse(JSON.stringify(h.getAnalyses(AZ)[0])),
-        wantMs: R.analysisDurationMs(def.sample.analyzeHours, 1),
+        wantMs: Math.max(1000, Math.round(R.analysisDurationMs(def.sample.analyzeHours, 1)
+          * (typeof window.__game.ctx.progression.derived.researchTimeMul === 'number' ? window.__game.ctx.progression.derived.researchTimeMul : 1))),
         inPool: !!row && raw.resultQty >= row.qtyMin && raw.resultQty <= row.qtyMax,
         isReward: pool.length === 0 && raw?.resultDefId === def.sample.rewardDefId };
     }, AZ);
@@ -268,13 +272,15 @@ try {
     ok(evLv.length === 1 && evLv[0].family === 'cell' && evLv[0].level === 2, `housing:analysisLevelUp {cell, 2} 한 번 (${JSON.stringify(evLv)})`);
     ok(lvl.info.levelXp === K.xp2 && lvl.info.nextLevelXp === K.xp3 && lvl.info.timeMul === K.mul2,
       `getAnalysisLevel — levelXp · nextLevelXp · timeMul (${JSON.stringify(lvl.info)})`);
+    const rmul2 = await rmulNow();
     const lv2 = await H((AZ) => {
       const h = window.__game.ctx.housing;
       const e = h.startAnalysis(AZ, 0, 'spec_cell');
       const a = h.state.analyses.find((x) => x.uid === AZ && x.slot === 0);
       return { e, ms: a ? a.readyAt - a.startedAt : 0 };
     }, AZ);
-    ok(lv2.e === null && lv2.ms === Math.max(1000, Math.round(K.hours * 3600e3 * K.mul2)), `Lv.2 해석 시간 = analyzeHours × ${K.mul2} (${lv2.ms} ms)`);
+    ok(lv2.e === null && lv2.ms === Math.max(1000, Math.round(Math.max(1000, Math.round(K.hours * 3600e3 * K.mul2)) * rmul2)),
+      `Lv.2 해석 시간 = analyzeHours × ${K.mul2} × 연구 숙련 ${rmul2.toFixed(3)} (${lv2.ms} ms)`);
 
     const legacy = await H((AZ) => {
       const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory;
@@ -290,6 +296,55 @@ try {
     }, AZ);
     ok(legacy.info.ready && legacy.info.resultDefId === null && legacy.info.family === 'cell', '결과가 없는 옛 칸: 끝나도 결과 null · 계열은 표본 def 에서 읽는다', JSON.stringify(legacy.info));
     ok(legacy.err === null && legacy.gain >= 1 && legacy.xpGain === K.xpBy, `옛 칸은 회수하는 순간 굴려서 준다 (+${legacy.gain}개 · xp +${legacy.xpGain})`);
+
+    /* ── 2026-09-13 (H3): 연구 숙련 — 넣는 순간 해석 시간 × derived.researchTimeMul · 회수한 칸마다 연구 경험치 ── */
+    await giveStash('spec_cell', 1);
+    const research = await H(async (AZ) => {
+      const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression;
+      const S = await import('/src/shared/index.ts');
+      const R = await import('/src/housing/Rules.ts');
+      const out = { hasDerived: typeof p.derived.researchTimeMul === 'number', hasRaw: typeof p.addSkillXpRaw === 'function' };
+      if (!out.hasRaw) return out;
+      const reset = () => p.addSkillXpRaw('research', -(p.getSkill('research') + 1));
+      reset();
+      p.addSkillXpRaw('research', 50);
+      out.skill = p.getSkill('research');
+      out.mul = p.derived.researchTimeMul;
+      out.wantMul = 1 - S.RESEARCH_TIME_AT_MAX * (out.skill / S.SKILL_LEVEL_MAX);
+      const lv = h.getAnalysisLevel('cell').level;
+      const hours = ctx.loot.getItemDef('spec_cell').sample.analyzeHours;
+      out.e = h.startAnalysis(AZ, 0, 'spec_cell');
+      const a = h.state.analyses.find((x) => x.uid === AZ && x.slot === 0);
+      out.ms = a ? a.readyAt - a.startedAt : 0;
+      out.baseMs = R.analysisDurationMs(hours, lv);
+      out.wantMs = Math.max(1000, Math.round(out.baseMs * (out.hasDerived ? out.mul : 1)));
+      reset();
+      out.msAfterReset = a ? a.readyAt - a.startedAt : 0;
+      const calls = [];
+      const own = Object.getOwnPropertyDescriptor(p, 'addSkillXp');
+      const orig = p.addSkillXp;
+      p.addSkillXp = function (id, amt) { calls.push([id, amt]); return orig.call(this, id, amt); };
+      if (a) a.readyAt = h.nowMs() - 1000;
+      out.col = h.collectAnalysis(AZ, 0, 'stash-first');
+      if (own) Object.defineProperty(p, 'addSkillXp', own); else delete p.addSkillXp;
+      out.research = calls.filter(([id]) => id === 'research');
+      out.xpWant = S.RESEARCH_XP_ANALYSIS;
+      return out;
+    }, AZ);
+    if (!research.hasRaw) note('progression.addSkillXpRaw 없음 — 연구 숙련 검사는 건너뛴다');
+    else {
+      if (research.hasDerived) {
+        ok(Math.abs(research.mul - research.wantMul) < 1e-9 && research.mul < 1, `연구 숙련 ${research.skill} → derived.researchTimeMul ${research.mul?.toFixed(3)}`);
+        ok(research.e === null && research.ms === research.wantMs && research.ms < research.baseMs,
+          `넣는 순간 해석 시간 = analysisDurationMs × researchTimeMul (${research.baseMs} → ${research.ms} ms)`, JSON.stringify(research));
+      } else {
+        note('derived.researchTimeMul 없음 (progression 미완) — 해석 시간은 배수 1 로 본다');
+        ok(research.e === null && research.ms === research.wantMs, `derived 가 없으면 해석 시간 그대로 (${research.ms} ms)`);
+      }
+      ok(research.msAfterReset === research.ms, '숙련이 바뀌어도 돌아가던 해석 시간은 그대로 (넣는 순간 확정)');
+      ok(research.col === null && research.research.length === 1 && research.research[0][1] === research.xpWant,
+        `회수한 칸 하나 → 연구 숙련 경험치 +${research.xpWant} (${JSON.stringify(research.research)})`);
+    }
 
     const res = await H(() => ({ list: window.__game.ctx.housing.getAnalysisResults('cell'), lv: window.__game.ctx.housing.getAnalysisLevel('cell').level, found: [...window.__game.ctx.housing.getAnalysisFound()] }));
     const unlocked = res.list.filter((r) => r.unlocked);
