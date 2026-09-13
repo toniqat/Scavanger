@@ -16,6 +16,7 @@ import {
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
+import { EXTRACTION_LIFTOFF_TO_COMPLETE_S } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
 /* appended (Phase 11): 목표 행성 */
@@ -23,7 +24,11 @@ import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRai
 /* appended (Phase 12): 브라우저 재개 게이트 + 데스크톱 셸 커서 */
 /* appended (2026-09-07): 솔로 레이드 로컬 세션 저장 — the single-player counterpart of the relay's raid store */
 
-export const LIFTOFF_TO_COMPLETE = 6.5;   // seconds after extraction:liftoff
+/**
+ * Seconds after `extraction:liftoff` (for someone who left aboard, or everyone when the squad is done) until the result
+ * screen. 2026-09-13: 6.5 → the csv value (10) — the departure cinematic plays inside it (`EXTRACTION_LIFTOFF_TO_COMPLETE_S`).
+ */
+export const LIFTOFF_TO_COMPLETE = EXTRACTION_LIFTOFF_TO_COMPLETE_S;
 export const DEATH_TO_SCREEN = 2.5;       // seconds after player:died (single-player only)
 /**
  * Phase 7: a squad wipe (or a solo death) fails the raid again. Individual respawns (PLAYER_RESPAWN_DELAY) stay

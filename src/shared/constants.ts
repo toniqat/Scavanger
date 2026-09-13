@@ -1643,3 +1643,42 @@ export const DRONE_SCAN_SHARE_SLACK = K.num('DRONE_SCAN_SHARE_SLACK');
 /* ── end [E2] ── */
 /* ── [F] 헬스 미니게임 ── */
 /* ── end [F] ── */
+/* ── [H] 재해 세기 · 독성 포자 배치 · 탈출 패드 수 (2026-09-13, owner: world/Hazard · world/layout) ── */
+/** 재해가 맵을 다 덮었을 때(진행도 1)의 초당 피해 — `HAZARD_DPS`(시작)에서 진행도에 비례해 오른다 (`HazardRef.damageMul`). */
+export const HAZARD_DPS_MAX = K.num('HAZARD_DPS_MAX');
+/** 시야 제한 세기 배율 — `hazards.csv` fogMul 의 (fogMul − 1) 에 곱한다. 시작값 → 진행도 1 의 끝값. */
+export const HAZARD_FOG_RAMP_START = K.num('HAZARD_FOG_RAMP_START');
+export const HAZARD_FOG_RAMP_END = K.num('HAZARD_FOG_RAMP_END');
+/** 그리는 입자 비율 (`hazards.csv` particleCount 에 곱한다). 시작값 → 진행도 1 의 끝값. */
+export const HAZARD_PARTICLE_RAMP_START = K.num('HAZARD_PARTICLE_RAMP_START');
+export const HAZARD_PARTICLE_RAMP_END = K.num('HAZARD_PARTICLE_RAMP_END');
+/** 모래 폭풍 · 눈보라 전선은 강하 지점이 붙은 가장자리 쪽에서 들어온다 — 그 방향에서 ± 이 각도(rad). */
+export const HAZARD_FRONT_SPAWN_JITTER_RAD = K.num('HAZARD_FRONT_SPAWN_JITTER_RAD');
+/** 폭풍의 눈 처음 반경 = 눈 중심에서 가장 먼 맵 꼭짓점까지 + 이 값(m). `STORM_EYE_RADIUS_START` 는 그 하한으로만 남는다. */
+export const STORM_EYE_START_MARGIN_M = K.num('STORM_EYE_START_MARGIN_M');
+/** 독성 포자 레이드: 강하 지점 반경(맵 중심 기준, m) · 군락이 서는 중앙 반경 · 군락 ↔ 강하 지점 간격 · 중앙 군락끼리 간격. */
+export const SPORE_SPAWN_CENTER_M = K.num('SPORE_SPAWN_CENTER_M');
+export const SPORE_CENTER_RADIUS_M = K.num('SPORE_CENTER_RADIUS_M');
+export const SPORE_GROVE_SPAWN_GAP_M = K.num('SPORE_GROVE_SPAWN_GAP_M');
+export const SPORE_CENTER_GROVE_GAP_M = K.num('SPORE_CENTER_GROVE_GAP_M');
+/** 독성 포자 레이드의 탈출 패드는 맵 중심에서 x · z 중 큰 쪽이 이 값(m) 이상인 외곽에만 선다. */
+export const EXTRACTION_OUTER_MIN_M = K.num('EXTRACTION_OUTER_MIN_M');
+/** 독성 포자 레이드의 탈출 패드 수 범위 (행성 threat 와 무관). */
+export const EXTRACTION_PADS_SPORES_MIN = K.num('EXTRACTION_PADS_SPORES_MIN');
+export const EXTRACTION_PADS_SPORES_MAX = K.num('EXTRACTION_PADS_SPORES_MAX');
+/** 행성 threat 1..3 (인덱스 0..2) 별 탈출 패드 수 범위 — 미션 시드로 그 사이를 뽑는다 (`world/layout.extractionPadCount`). */
+export const EXTRACTION_PADS_MIN_BY_THREAT: readonly number[] = numberList('tables.csv', 'EXTRACTION_PADS_MIN_BY_THREAT');
+export const EXTRACTION_PADS_MAX_BY_THREAT: readonly number[] = numberList('tables.csv', 'EXTRACTION_PADS_MAX_BY_THREAT');
+/* ── end [H] ── */
+/* ── [2026-09-13] 탈출 개편 (owner: extraction · game · ui) ── */
+/** 출발 스위치(또는 자동 출발) 뒤 실제 이륙까지의 유예(초). 취소 불가 · 그동안에도 탑승 가능. */
+export const EXTRACTION_DEPART_GRACE_S = K.num('EXTRACTION_DEPART_GRACE_S');
+/** 착륙 뒤 아무도 출발 스위치를 누르지 않으면 이 시간(초) 뒤 자동으로 출발 유예가 시작된다. */
+export const EXTRACTION_AUTO_DEPART_IDLE_S = K.num('EXTRACTION_AUTO_DEPART_IDLE_S');
+/** 이륙부터 탑승자의 결과 화면까지(초) — 외부 카메라 연출이 이 안에서 끝난다. */
+export const EXTRACTION_LIFTOFF_TO_COMPLETE_S = K.num('EXTRACTION_LIFTOFF_TO_COMPLETE_S');
+/** 이륙 연출: 캐릭터 카메라 → 함선 외부 카메라 전환 시간(초). */
+export const EXTRACTION_CINEMATIC_BLEND_S = K.num('EXTRACTION_CINEMATIC_BLEND_S');
+/** 이륙 연출: 전투 HUD 가 사라지는 시간(초). */
+export const EXTRACTION_HUD_FADE_S = K.num('EXTRACTION_HUD_FADE_S');
+/* ── end [2026-09-13] 탈출 개편 ── */

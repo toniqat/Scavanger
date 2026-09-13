@@ -13,8 +13,11 @@
 # driftMps      = 입자가 옆으로 흐르는 속도(m/s). riseMps = 위로 뜨는 속도(m/s, 음수면 내린다).
 # wallColor     = 경계에 세우는 벽(전선 커튼 · 폭풍 원통 · 포자 기둥)의 색. wallOpacity = 그 벽의 불투명도.
 # wallHeight    = 그 벽의 높이(m). frontBandM = front 재해에서 전선 커튼의 두께(m, 앞뒤로 겹쳐 세운다).
+#                 2026-09-13: 모래 폭풍 · 눈보라 벽을 0.34/0.30 · 72 m → 0.5/0.46 · 110 m 로 올리고 포그를 받지 않게 했다
+#                 (폭풍의 눈과 같은 처리) — 멀리서 다가오는 전선이 안 보여 "모래 폭풍 · 눈보라를 본 적이 없다" 는 보고였다.
+# 시야 제한 · 입자 수는 진행도에 따라 constants.csv 의 HAZARD_FOG_RAMP_* · HAZARD_PARTICLE_RAMP_* 배율로 오른다 (2026-09-13).
 kind,fogColor,fogMul,particleColor,particleCount,particleSize,particleBox,driftMps,riseMps,wallColor,wallOpacity,wallHeight,frontBandM
-sandstorm,0xc4a068,7,0xd8b478,1100,0.55,58,26,1.2,0xc4a068,0.34,72,14
-blizzard,0xdde9ff,7,0xffffff,1300,0.32,58,19,-2.4,0xcfe0ff,0.30,72,12
+sandstorm,0xc4a068,7,0xd8b478,1100,0.55,58,26,1.2,0xc4a068,0.5,110,14
+blizzard,0xdde9ff,7,0xffffff,1300,0.32,58,19,-2.4,0xcfe0ff,0.46,110,12
 storm_eye,0x8d8b85,24,0xb6b2a8,1500,0.48,58,23,0.9,0xd6d1c4,0.55,130,10
 spores,0x5fc27a,7,0x9dff7a,800,0.62,52,4,1.4,0x5fc27a,0.26,58,8

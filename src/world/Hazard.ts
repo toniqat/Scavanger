@@ -20,18 +20,27 @@
  */
 import * as THREE from 'three';
 import {
-  HAZARD_DPS, HAZARD_EDGE_M, HAZARD_FOG_MUL, HAZARD_TICK_S, HAZARD_WARN_S, Random,
+  HAZARD_DPS, HAZARD_DPS_MAX, HAZARD_EDGE_M, HAZARD_FOG_MUL, HAZARD_FOG_RAMP_END, HAZARD_FOG_RAMP_START, HAZARD_TICK_S,
+  HAZARD_WARN_S, Random,
   type GameContext, type HazardKind, type HazardRef, type HazardSource, type HazardZone, type PeerId,
 } from '@/shared';
 import type { BuildCtx } from './build';
 import { ATMO_EPS, PROGRESS_EMIT_S, type HazardPlan, type HazardRow, hazardRow } from './hazard/model';
-import { planGroveSpots, planHazard } from './hazard/parts/Plan';
+import { HAZARD_FORK, drawHazardKind, planGroveSpots, planHazard } from './hazard/parts/Plan';
 import { buildZones, maxDepth, progressAt } from './hazard/parts/Zones';
 import { Groves } from './hazard/parts/Grove';
 import { HazardVisuals } from './hazard/parts/Visuals';
 
 /** 군락 발견 판정 주기(초). 안개는 5 Hz 로 칠해지므로 이보다 자주 볼 이유가 없다. */
 const DISCOVER_INTERVAL_S = 0.5;
+/** 구역 안에서 진행도 때문에만 시야 배수가 바뀔 때 `atmo:override` 를 다시 내는 최소 변화폭 (2026-09-13). */
+const FOG_MUL_EPS = 0.1;
+
+/** 2026-09-13 — 진행도 `progress` 에서의 초당 피해: `HAZARD_DPS`(시작) → `HAZARD_DPS_MAX`(맵을 다 덮었을 때) 선형. */
+function dpsAt(progress: number): number {
+  const p = progress <= 0 ? 0 : progress >= 1 ? 1 : progress;
+  return HAZARD_DPS + (HAZARD_DPS_MAX - HAZARD_DPS) * p;
+}
 
 export class Hazard implements HazardRef {
   private plan: HazardPlan | null = null;
@@ -62,6 +71,8 @@ export class Hazard implements HazardRef {
   private lastProgress = -1;
   private discoverTimer = 0;
   private lastBlend = 0;
+  /** 마지막으로 보낸 `atmo:override.fogMul` (2026-09-13 — 진행도 램프 때문에 blend 가 그대로여도 바뀐다). */
+  private lastFogMul = 1;
 
   private netHooked = false;
   private readonly unsubs: Array<() => void> = [];
@@ -80,18 +91,26 @@ export class Hazard implements HazardRef {
     this.root = ctx.root;
     if (candidates.length === 0) return false;
 
-    // 군락은 재해 추첨과 **독립적인 fork** 다 — 종류가 무엇이 걸리든 같은 시드면 같은 자리에 선다
+    const biomeId = ctx.biome?.id ?? null;
+    /* 2026-09-13: 이번 레이드의 종류는 **레이아웃보다 먼저** 정해졌다 — `WorldSystem` 이 같은 함수로 뽑아 독성 포자면 중앙 강하 ·
+     * 외곽 패드를 골랐다. 여기서 다시 뽑아도 같은 값이다 (루트의 `'hazard'` fork 첫 draw). */
+    const drawn = drawHazardKind(ctx.rng, candidates, biomeId);
+    // 군락 자리는 재해 추첨과 **독립적인 fork** 다. 이번 레이드가 독성 포자면 맵 중앙에, 아니면 맵 전체에 흩어진다 (2026-09-13)
     if (candidates.includes('spores')) {
-      this.groveSpots = planGroveSpots(ctx, ctx.rng.fork('hazardGroves'));
+      this.groveSpots = planGroveSpots(ctx, ctx.rng.fork('hazardGroves'), drawn === 'spores');
       this.groves.build(ctx, ctx.rng.fork('hazardGroveMesh'), this.groveSpots);
     }
 
     // 2026-09-10: 지형(biome)을 함께 넘긴다 — 눈 덮인 지형이면 모래 폭풍이 눈보라로 바뀐다 (`Plan.SNOWY_BIOMES`).
-    const plan = planHazard(ctx.rng.fork('hazard'), candidates, this.groveSpots, ctx.biome?.id ?? null);
+    // 2026-09-13: 강하 지점도 넘긴다 — 모래 폭풍 · 눈보라 전선이 그쪽 가장자리에서 들어온다.
+    const plan = planHazard(ctx.rng.fork(HAZARD_FORK), candidates, this.groveSpots, biomeId, ctx.layout.spawn);
     if (!plan) return false;
     this.plan = plan;
     this.row = hazardRow(plan.kind) ?? null;
-    if (this.row) this.visuals.build(ctx.root, this.row, plan, HazardVisuals.ringsFor(plan));
+    if (this.row) {
+      this.visuals.build(ctx.root, this.row, plan, HazardVisuals.ringsFor(plan));
+      this.visuals.warm(game.shaders);
+    }
     this.rebuildSources();
     this.ensureNet();
     this.requestSync();
@@ -135,6 +154,7 @@ export class Hazard implements HazardRef {
     this.game = null;
     this.root = null;
     this.lastBlend = 0;
+    this.lastFogMul = 1;
     this.insideFlag = false;
   }
 
@@ -150,6 +170,10 @@ export class Hazard implements HazardRef {
   get progress(): number {
     const p = this.plan;
     return p && this.game ? progressAt(p, this.game.missionTime) : 0;
+  }
+  /** 2026-09-13: 지금 초당 피해 / `HAZARD_DPS` — 1 → `HAZARD_DPS_MAX / HAZARD_DPS` (적의 조용한 피해가 곱한다). */
+  get damageMul(): number {
+    return HAZARD_DPS > 0 ? dpsAt(this.progress) / HAZARD_DPS : 1;
   }
 
   isInside(x: number, z: number): boolean {
@@ -198,9 +222,9 @@ export class Hazard implements HazardRef {
     const zones = this.getZones();
 
     // 진행도 — 초당 몇 번만 (계약 주석)
+    const pr = progressAt(plan, t);
     if (active) {
       this.progressTimer -= dt;
-      const pr = progressAt(plan, t);
       if (this.progressTimer <= 0 && Math.abs(pr - this.lastProgress) > 1e-4) {
         this.progressTimer = PROGRESS_EMIT_S;
         this.lastProgress = pr;
@@ -232,32 +256,39 @@ export class Hazard implements HazardRef {
       // 프레임이 길게 튀어도 정확히 `HAZARD_TICK_S` 마다 한 번씩만 깎는다
       while (this.damageTimer >= HAZARD_TICK_S) {
         this.damageTimer -= HAZARD_TICK_S;
-        p.takeDamage(HAZARD_DPS * HAZARD_TICK_S);
+        // 2026-09-13: 재해는 시간에 따라 강해진다 — 진행도 0 에서 `HAZARD_DPS`, 1 에서 `HAZARD_DPS_MAX`
+        p.takeDamage(dpsAt(pr) * HAZARD_TICK_S);
       }
     } else {
       this.damageTimer = 0;
     }
 
-    this.tickGhosts(dt, ctx, active, zones);
+    this.tickGhosts(dt, ctx, active, zones, pr);
 
     // 경계에서 `HAZARD_EDGE_M` 에 걸쳐 0 → 1. `insideChanged` 와 **같은 조건**으로 잠근다 — 죽었거나
     // 함선 안인데 화면만 뿌예지면 HUD 의 "위험 구역" 표시와 어긋난다.
     const raw = active && playable && depth > -Infinity ? depth / (HAZARD_EDGE_M > 0 ? HAZARD_EDGE_M : 1) : 0;
     const blend = raw <= 0 ? 0 : raw >= 1 ? 1 : raw;
-    if (Math.abs(blend - this.lastBlend) > ATMO_EPS || (blend === 0 && this.lastBlend !== 0)) {
+    // 2026-09-10: 시야 제한의 세기는 **재해마다 다르다** (`data/hazards.csv` 의 fogMul). 폭풍의 눈은
+    // 폭풍 안에서 PC 주변만 보이도록 훨씬 크다 — 그래야 "저기 벽 안쪽이 안전지대" 가 읽힌다.
+    // `HAZARD_FOG_MUL` 은 줄을 못 찾았을 때의 기본값으로만 남았다.
+    // 2026-09-13: 그 세기가 **진행도에 따라 오른다** — (fogMul − 1) 에 `HAZARD_FOG_RAMP_START` → `END` 를 곱한다.
+    const baseFog = this.row ? this.row.fogMul : HAZARD_FOG_MUL;
+    const ramp = HAZARD_FOG_RAMP_START + (HAZARD_FOG_RAMP_END - HAZARD_FOG_RAMP_START) * pr;
+    const peak = Math.max(1, 1 + (baseFog - 1) * ramp);
+    const fogMul = 1 + (peak - 1) * blend;
+    if (Math.abs(blend - this.lastBlend) > ATMO_EPS || (blend === 0 && this.lastBlend !== 0)
+      || (blend > 0 && Math.abs(fogMul - this.lastFogMul) > FOG_MUL_EPS)) {
       this.lastBlend = blend;
-      // 2026-09-10: 시야 제한의 세기는 **재해마다 다르다** (`data/hazards.csv` 의 fogMul). 폭풍의 눈은
-      // 폭풍 안에서 PC 주변만 보이도록 훨씬 크다 — 그래야 "저기 벽 안쪽이 안전지대" 가 읽힌다.
-      // `HAZARD_FOG_MUL` 은 줄을 못 찾았을 때의 기본값으로만 남았다.
-      const fogMul = this.row ? this.row.fogMul : HAZARD_FOG_MUL;
+      this.lastFogMul = fogMul;
       ctx.bus.emit('atmo:override', {
-        fogMul: 1 + (fogMul - 1) * blend,
+        fogMul,
         color: blend > 0 && this.row ? this.row.fogColor : null,
         blend,
       });
     }
 
-    this.visuals.update(dt, ctx.time, ctx.camera, zones, this.lastBlend, active);
+    this.visuals.update(dt, ctx.time, ctx.camera, zones, this.lastBlend, active, pr);
   }
 
   /**
@@ -270,7 +301,7 @@ export class Hazard implements HazardRef {
    * 결과는 호스트의 `ghost state` 가 이미 방송한다. 로컬 틱과 **다른 타이머**다: 호스트 자신이 죽었거나 함선에
    * 있어도 끊긴 사람의 몸은 계속 맞는다. 적의 조용한 DoT 는 `enemies/` 소관이다.
    */
-  private tickGhosts(dt: number, ctx: GameContext, active: boolean, zones: readonly HazardZone[]): void {
+  private tickGhosts(dt: number, ctx: GameContext, active: boolean, zones: readonly HazardZone[], progress: number): void {
     const net = ctx.net;
     if (!active || !net || !ctx.isAuthority || !ctx.isGameplayPhase() || ctx.isTraining()) { this.ghostTimer = 0; return; }
     this.ghostTimer += dt;
@@ -278,7 +309,7 @@ export class Hazard implements HazardRef {
     // 프레임이 길게 튀어도 틱 수만큼 정확히 — 로컬 피해의 `while` 과 같은 합계를 한 이벤트에 싣는다
     const ticks = Math.floor(this.ghostTimer / HAZARD_TICK_S);
     this.ghostTimer -= ticks * HAZARD_TICK_S;
-    const amount = HAZARD_DPS * HAZARD_TICK_S * ticks;
+    const amount = dpsAt(progress) * HAZARD_TICK_S * ticks;   // 2026-09-13: 로컬 피해와 같은 램프
     const refs = net.getRemotePlayers();
     for (let i = 0; i < refs.length; i++) {
       const r = refs[i];
@@ -369,6 +400,7 @@ export class Hazard implements HazardRef {
     if (row && this.root) {
       this.visuals.dispose();
       this.visuals.build(this.root, row, next, HazardVisuals.ringsFor(next));
+      this.visuals.warm(this.game?.shaders);
     }
     console.warn(`[Hazard] 호스트의 계획으로 교체했다 — ${next.kind} @ ${next.startsAt}s`);
   }

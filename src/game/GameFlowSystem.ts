@@ -54,6 +54,17 @@ export class GameFlowSystem implements GameSystem {
   /* ── multiplayer ── */
   /** Local player entered the dropship bay (cleared on death / new mission). */
   boarded = false;
+  /**
+   * 2026-09-13 (탈출 개편): the local player was aboard and alive when the ship left (`extraction:liftoff.aboard`) — the only
+   * thing that makes `stats.extracted` true now. Set together with `squadExtraction` when a liftoff ends this player's raid.
+   */
+  aboardAtLiftoff = false;
+  /**
+   * 2026-09-13: that liftoff left nobody alive outside (`extraction:liftoff.squadDone`) — the raid ends for the whole squad, and
+   * the host sends `flow complete` as before. false = only the riders leave: they `leaveMission()` at their result screen and the
+   * rest play on.
+   */
+  squadExtraction = false;
   /** Host: > 0 while the local player is dead → periodic all-dead check. */
   allDeadCheckTimer = -1;
   /** > 0 after the lobby/server vanished mid-mission → abort when it expires. */
@@ -139,10 +150,20 @@ export class GameFlowSystem implements GameSystem {
       b.on('extraction:activated', () => { if (ctx.phase === 'playing') this.setPhase('extracting'); }),
       b.on('extraction:shipLanded', () => { if (ctx.phase === 'extracting') this.setPhase('shipLanded'); }),
       b.on('extraction:boarded', () => { this.boarded = true; }),
-      b.on('extraction:liftoff', () => {
+      b.on('extraction:liftoff', ({ aboard, squadDone }) => {
         if (ctx.phase !== 'shipLanded' && ctx.phase !== 'extracting') return;
+        const mine = aboard ?? true, done = squadDone ?? true;
+        // 2026-09-13: left behind while someone alive stays too — the raid goes on (`extraction:reset` returns the phase).
+        if (!mine && !done) return;
+        this.aboardAtLiftoff = mine;
+        this.squadExtraction = done;
         this.setPhase('liftoff');
         this.completeTimer = LIFTOFF_TO_COMPLETE;
+      }),
+      // 2026-09-13: the ship left without us → back to 'playing'; any console can call the next one.
+      b.on('extraction:reset', () => {
+        if (this.completeTimer >= 0) return;
+        if (ctx.phase === 'extracting' || ctx.phase === 'shipLanded' || ctx.phase === 'liftoff') this.setPhase('playing');
       }),
       b.on('player:died', () => this.onLocalDied()),
       // 2026-09-13: 일시정지 메뉴 `함선으로 귀환` (경고 팝업 확정 뒤) — 그 자리에서 사망 → 사망 연출 뒤 함선

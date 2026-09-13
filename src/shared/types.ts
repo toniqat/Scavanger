@@ -1797,6 +1797,14 @@ export interface CorpsesRef {
   get(id: string): PlayerCorpse | null;
   /** 이 사람의 가장 최근 시체 (구조선 대상 목록이 위치를 표시할 때 쓴다). */
   latestOf(ownerId: string): PlayerCorpse | null;
+  /* ── appended (2026-09-13, 탈출 개편 — owner: game, caller: extraction) ── */
+  /**
+   * 시체를 움직이는 물체(탈출 함선의 `root`)에 싣는다: `parent` 로컬 좌표 `local`(생략 = 지금 자리)에 눕히고, 그 뒤로는
+   * `parent` 의 변환을 그대로 따라간다(기울기 포함). `parent` null = 지금 월드 자리에 내려놓는다. 모르는 id 면 false.
+   */
+  attachCorpse?(id: string, parent: THREE.Object3D | null, local?: THREE.Vector3): boolean;
+  /** 시체를 레이드에서 치운다 (함선에 실려 떠났다) — 상호작용 · 메시가 함께 사라지고 안의 아이템도 잃는다. */
+  removeCorpse?(id: string): boolean;
 }
 
 /* ── 구조선 투하 (owner: stratagems/parts/Rescue) ─────────────────────────────────────────────────────── */
@@ -1973,8 +1981,12 @@ export interface TramDef {
  */
 export type HazardKind = 'sandstorm' | 'blizzard' | 'storm_eye' | 'spores';
 export const HAZARD_KINDS: readonly HazardKind[] = ['sandstorm', 'blizzard', 'storm_eye', 'spores'];
+/**
+ * 플레이어에게 보이는 이름. 2026-09-13 (사용자 결정): 모래 폭풍 · 눈보라 · 폭풍의 눈은 화면에서 전부 **「폭풍」** 하나다
+ * (구분하지 않는다). 코드 · 문서에서 가를 때는 `HazardKind` 를 쓴다.
+ */
 export const HAZARD_LABEL_KO: Readonly<Record<HazardKind, string>> = {
-  sandstorm: '모래 폭풍', blizzard: '눈보라', storm_eye: '폭풍의 눈', spores: '독성 포자',
+  sandstorm: '폭풍', blizzard: '폭풍', storm_eye: '폭풍', spores: '독성 포자',
 };
 
 /** 위험/안전 구역 한 덩어리. 지도 · HUD · `isInside` 가 모두 이 도형만 본다. */
@@ -2027,6 +2039,12 @@ export interface HazardRef {
   /** 늦게 합류한 클라이언트용 (호스트만 만든다). `HazardMessage 'sync'` 가 실어 나른다. */
   serialize(): string;
   applySerialized(data: string): void;
+  /* appended (2026-09-13) */
+  /**
+   * 피해 배수 = 지금 초당 피해 / `HAZARD_DPS`. 시작 1 → 진행도 1 에서 `HAZARD_DPS_MAX / HAZARD_DPS` (재해가 시간에 따라 강해진다).
+   * 시작 전에도 1 이다 — 쓰는 쪽은 `active` · `isInside` 를 먼저 본다. 적의 조용한 피해(`enemies/`)가 곱한다.
+   */
+  readonly damageMul: number;
 }
 
 /* ── 위 셋을 묶는 world 접근자 ─────────────────────────────────────────────────────────────────────────── */

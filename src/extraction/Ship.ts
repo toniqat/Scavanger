@@ -7,6 +7,8 @@ export const BAY_HALF_W = 1.5;
 export const BAY_Z_MIN = -5.2;
 export const BAY_Z_MAX = 0.2;
 export const BAY_HEIGHT = 2.6;
+/** Liftoff: seconds the ship stays put on the pad (ramp closing, engines spooling) before it starts to climb. */
+export const LIFTOFF_SPOOL_S = 1.6;
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -317,13 +319,13 @@ export class Dropship {
       case 'liftoff': {
         this.t += dt;
         const tt = this.t;
-        if (tt < 1.6) {
+        if (tt < LIFTOFF_SPOOL_S) {
           // Ramp closing; engines spooling up.
           this.thrust += (0.6 - this.thrust) * Math.min(1, dt * 2);
           this.root.position.copy(this.liftoffOrigin);
           this.root.position.y += Math.sin(this.time * 30) * 0.01 * tt;
         } else {
-          const a = tt - 1.6;
+          const a = tt - LIFTOFF_SPOOL_S;
           this.thrust = 1;
           const rise = 6 * a * a + 2 * a;            // accelerating climb
           const fwd = Math.max(0, a - 0.8);
@@ -455,6 +457,34 @@ export class Dropship {
   }
 
   getGroundY(): number { return this.landPos.y; }
+  /** three.js `rotation.y` the ship landed with (the attitude it keeps apart from the climb pitch). */
+  get yaw(): number { return this.landYaw; }
+  /**
+   * 2026-09-13: on the pad, or still within a bay height of it during the liftoff — the only time the bay is a place an
+   * enemy could walk into (`ExtractionSystem.keepEnemyOut`).
+   */
+  get nearGround(): boolean {
+    if (this.state === 'landed') return true;
+    return this.state === 'liftoff' && this.root.position.y - this.landPos.y < BAY_HEIGHT;
+  }
+  /**
+   * 2026-09-13: `p` in the ship's **yaw-only** frame around the root (x right, z toward the rear ramp, y above the deck
+   * origin). The climb pitch is ignored on purpose — the callers (enemy exclusion, corpse-on-deck) care about the
+   * footprint, and a corpse spawned from a wire during the climb has no trustworthy height anyway.
+   */
+  bayLocal(p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    const o = this.root.position;
+    const c = Math.cos(this.landYaw), s = Math.sin(this.landYaw);
+    const dx = p.x - o.x, dz = p.z - o.z;
+    // inverse of three.js rotation.y: local (x, z) → world (x·c + z·s, −x·s + z·c)
+    return out.set(dx * c - dz * s, p.y - o.y, dx * s + dz * c);
+  }
+  /** Inverse of `bayLocal` for the XZ part: ship-local (x, z) → world, y copied from `worldY`. */
+  bayToWorld(lx: number, lz: number, worldY: number, out: THREE.Vector3): THREE.Vector3 {
+    const o = this.root.position;
+    const c = Math.cos(this.landYaw), s = Math.sin(this.landYaw);
+    return out.set(o.x + lx * c + lz * s, worldY, o.z - lx * s + lz * c);
+  }
   get position(): THREE.Vector3 { return this.root.position; }
   get descending(): boolean { return this.state === 'descend'; }
   get liftingOff(): boolean { return this.state === 'liftoff'; }

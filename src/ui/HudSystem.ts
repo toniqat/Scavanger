@@ -1,5 +1,7 @@
 import type { CharBuff, GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, PeerId, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
+/* 2026-09-13 (탈출 개편): 이륙 연출 동안 전투 HUD 페이드 시간 */
+import { EXTRACTION_HUD_FADE_S } from '@/shared';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
 import { WeaponPanel } from './hud/WeaponPanel';
@@ -232,9 +234,12 @@ export class HudSystem implements GameSystem {
   private socialVisible = true;
   private spectating = false;
   private inHub = false;
+  /** 2026-09-13: the departure cinematic owns the screen (`ui:cinematic`) — combat HUD faded out (`styles/raidHud.css`). */
+  private cinematic = false;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    ctx.uiRoot.style.setProperty('--cine-fade', `${Math.max(0, EXTRACTION_HUD_FADE_S)}s`);
     // Layer order: full-screen overlays (vignette, scope) → gameplay HUD → social HUD → deploy overlay → map → menus.
     this.overlayRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.damage = new DamageOverlay(this.overlayRoot);
@@ -396,6 +401,12 @@ export class HudSystem implements GameSystem {
         }
       }),
       b.on('extraction:boarded', () => { if (ctx.phase === 'shipLanded') this.setObjective(OBJECTIVE_TEXT.liftoffSwitch); }),
+      // 2026-09-13 (탈출 개편): 출발 유예 · 남겨진 뒤 다시 찾기 · 이륙 연출이 전투 HUD 를 가져간다
+      b.on('extraction:departureStarted', () => this.setObjective(OBJECTIVE_TEXT.departing)),
+      b.on('extraction:reset', () => { if (ctx.missionMode !== 'training') this.setObjective(OBJECTIVE_TEXT.find); }),
+      b.on('ui:cinematic', ({ active }) => this.setCinematic(active)),
+      b.on('game:abort', () => this.setCinematic(false)),
+      b.on('game:newMission', () => this.setCinematic(false)),
       b.on('extraction:tick', ({ remaining }) => {
         if (ctx.phase !== 'extracting') return;
         // Keep the objective in sync with the timer (cheap: text only changes once a second).
@@ -409,6 +420,23 @@ export class HudSystem implements GameSystem {
   private setObjective(o: { text: string; sub: string }): void {
     this.ctx.bus.emit('ui:objective', { text: o.text, subText: o.sub });
   }
+
+  /**
+   * 2026-09-13: `cinematic` on the overlay, gameplay and social layers. The CSS fades the first two out whole and, in the
+   * social layer, only the combat pieces (PC vitals · interaction caption · hold ring · centre dot) — chat, notifications
+   * and the squad list stay. The class comes off again on `ui:cinematic false`, an abort / new mission, or (`applyVisibility`)
+   * as soon as the phase leaves gameplay (the result screen).
+   */
+  private setCinematic(active: boolean): void {
+    if (active === this.cinematic) return;
+    this.cinematic = active;
+    toggleClass(this.overlayRoot, 'cinematic', active);
+    toggleClass(this.hudRoot, 'cinematic', active);
+    toggleClass(this.socialRoot, 'cinematic', active);
+  }
+
+  /** Smoke hook: the departure cinematic currently hides the combat HUD. */
+  get isCinematic(): boolean { return this.cinematic; }
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
@@ -710,6 +738,8 @@ export class HudSystem implements GameSystem {
     }
     const overlayVisible = inGame || ctx.phase === 'dead';
     toggleClass(this.overlayRoot, 'hidden', !overlayVisible);
+    // 2026-09-13: a cinematic never outlives the raid (the result screen / ship bring the HUD back on their own terms)
+    if (this.cinematic && !ctx.isGameplayPhase()) this.setCinematic(false);
     // Reticle hidden while inventory / any blocker is open (handled in Reticle.update via opacity).
   }
 

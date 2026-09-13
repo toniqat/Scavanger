@@ -136,7 +136,12 @@ export interface GameEvents {
   'extraction:shipIncoming': { position: THREE.Vector3; eta: number };
   'extraction:shipLanded': { position: THREE.Vector3 };
   'extraction:boarded': Record<string, never>;
-  'extraction:liftoff': { position: THREE.Vector3 };
+  /**
+   * 2026-09-13 (appended optional): `aboard` = **이 클라이언트의 플레이어가** 함선 안에 살아서 함께 떠났다 (생략 = true, 옛 의미).
+   * `squadDone` = 함선 밖에 살아 있는 분대원이 하나도 남지 않았다 — 레이드가 모두에게 끝났다 (솔로는 `aboard` 와 같다).
+   * 둘 다 false 면 이 사람은 남겨졌고 레이드가 계속된다 (`extraction:reset` 이 뒤따른다).
+   */
+  'extraction:liftoff': { position: THREE.Vector3; aboard?: boolean; squadDone?: boolean };
   'extraction:doorsClosed': Record<string, never>;
 
   /* ── ui / audio (owner: ui/HudSystem, audio/AudioSystem) ────────────── */
@@ -1269,3 +1274,25 @@ export interface GameEvents {
 /* ── end [E2] ── */
 /* ── [F] 헬스 미니게임 ── */
 /* ── end [F] ── */
+
+/* ── [2026-09-13] 탈출 개편 (owner: extraction/ExtractionSystem — `ui:cinematic` 도 extraction 이 낸다) ── */
+export interface GameEvents {
+  /**
+   * 함선이 착륙해 있는 동안 매 프레임. `waiting` = 자동 출발 유예가 걸리기까지 남은 초(`total` = `EXTRACTION_AUTO_DEPART_IDLE_S`),
+   * `departing` = 이륙까지 남은 초(`total` = `EXTRACTION_DEPART_GRACE_S`). 분대 전원(탑승 여부와 무관)이 받는다.
+   */
+  'extraction:departureTick': { stage: 'waiting' | 'departing'; remaining: number; total: number };
+  /** 출발 유예가 시작됐다 — `auto` = 대기 시간 초과로 스스로 걸렸다(아무도 스위치를 누르지 않았다). 취소되지 않는다. */
+  'extraction:departureStarted': { duration: number; auto: boolean };
+  /**
+   * 함선이 이 사람을 두고 떠나 탈출 흐름이 처음으로 돌아갔다 — 레이드는 계속되고 신호소를 다시 작동할 수 있다.
+   * `game:abort` · `game:newMission` 의 리셋에서는 나지 않는다.
+   */
+  'extraction:reset': Record<string, never>;
+  /**
+   * 이륙 연출이 카메라를 가져갔다(`true`) / 돌려줬다(`false`). ui/HudSystem 이 전투 HUD 를 `EXTRACTION_HUD_FADE_S` 에 걸쳐
+   * 스르륵 숨긴다. 페이즈가 게임플레이를 벗어나거나 `game:abort` 가 나면 ui 가 스스로 되돌린다.
+   */
+  'ui:cinematic': { active: boolean };
+}
+/* ── end [2026-09-13] 탈출 개편 ── */

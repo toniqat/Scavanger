@@ -602,19 +602,39 @@ export type ExtractionMessage =
   | { t: 'ex'; ev: 'shipIncoming'; eta: number }
   | { t: 'ex'; ev: 'shipLanded' }
   | { t: 'ex'; ev: 'boarding'; boarded: PeerId[]; required: PeerId[] }
-  | { t: 'ex'; ev: 'liftoff' }
+  /**
+   * 2026-09-13 (appended optional): `riders` = 호스트가 본 탑승자(살아서 함선 안), `squadDone` = 함선 밖에 살아 있는 분대원이 남지 않았다
+   * (이때만 레이드가 모두에게 끝난다). 받는 쪽의 탑승 여부는 **자기 로컬 판정**이 정한다. 생략 = 옛 호스트 → squadDone true.
+   */
+  | { t: 'ex'; ev: 'liftoff'; riders?: PeerId[]; squadDone?: boolean }
   | { t: 'ex'; ev: 'reset' }
   /* appended (rejoin): host → one rejoining client, full extraction state in reply to `exq sync`. */
-  | { t: 'ex'; ev: 'sync'; state: ExtractionSyncState };
+  | { t: 'ex'; ev: 'sync'; state: ExtractionSyncState }
+  /* appended (2026-09-13, 탈출 개편): 출발 유예 시작 · 0.5 초마다 남은 시간 맞추기 (`auto` = 대기 시간 초과로 걸렸다) */
+  | { t: 'ex'; ev: 'depart'; remaining: number; auto: boolean }
+  /* appended (2026-09-13, 탈출 개편): 착륙 뒤 자동 출발까지 남은 시간 (1 초마다) */
+  | { t: 'ex'; ev: 'wait'; remaining: number };
 
 /** Snapshot of the host's extraction flow for a late / rejoining client. Owner: extraction. */
 export interface ExtractionSyncState {
-  stage: 'idle' | 'countdown' | 'shipIncoming' | 'shipLanded' | 'liftoff';
+  /** 2026-09-13: `'departing'` appended — 착륙한 함선이 출발 유예 중. */
+  stage: 'idle' | 'countdown' | 'shipIncoming' | 'shipLanded' | 'liftoff' | 'departing';
   padId: string | null;
   /** Countdown seconds left (stage 'countdown') or ship ETA (stage 'shipIncoming'). */
   remaining: number;
   boarded: PeerId[];
   required: PeerId[];
+  /* ── appended (2026-09-13, 탈출 개편) — 생략 = 모른다(받는 쪽이 기본값으로 시작) ── */
+  /** 착륙 뒤 자동 출발 유예까지 남은 초 (`shipLanded`). */
+  idleRemaining?: number;
+  /** 이륙까지 남은 초 (`departing`). */
+  departRemaining?: number;
+  /** 출발 유예가 대기 시간 초과로 걸렸는가 (`departing`). */
+  departAuto?: boolean;
+  /** 이륙 뒤 지난 초 (`liftoff`) — 남겨진 사람의 흐름 리셋 시각을 맞춘다. */
+  sinceLiftoff?: number;
+  /** 이륙이 분대 전체의 끝이었는가 (`liftoff`). */
+  squadDone?: boolean;
 }
 
 /** Client → host: extraction requests. Owner: extraction. */

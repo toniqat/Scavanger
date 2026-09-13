@@ -7,6 +7,22 @@ import { el, setText, toggleClass } from '../dom';
 /** 예고 배너가 초 단위로만 바뀌므로 DOM 은 초가 바뀔 때만 건드린다. */
 const NONE = -1;
 
+/** 받침이 있는 한글 음절로 끝나면 '이', 아니면 '가' (한글이 아니면 '이'). */
+function subjectParticle(word: string): string {
+  const ch = word.charCodeAt(word.length - 1);
+  if (ch < 0xac00 || ch > 0xd7a3) return '이';
+  return (ch - 0xac00) % 28 === 0 ? '가' : '이';
+}
+
+/**
+ * 2026-09-13 (사용자 결정) — 예고 문구. 모래 폭풍 · 눈보라 · 폭풍의 눈은 전부 「폭풍」 이라 `폭풍이 다가온다 — n초`,
+ * 독성 포자는 `독성 포자가 다가온다 — n초` (이름은 `HAZARD_LABEL_KO` 하나에서 온다).
+ */
+function approachText(kind: HazardKind, seconds: number): string {
+  const name = HAZARD_LABEL_KO[kind];
+  return `${name}${subjectParticle(name)} 다가온다 — ${seconds}초`;
+}
+
 /**
  * **환경 재해 HUD (2026-09-09).** `ctx.world.hazard` (`HazardRef`) 와 `hazard:*` 이벤트만 본다 — world/ 가 아직
  * 재해를 만들지 않는 동안 `hazard` 는 null 이고 이벤트도 오지 않으므로 이 위젯은 통째로 잠들어 있는다.
@@ -85,7 +101,7 @@ export class HazardHud {
         this.startsAt = ctx.time + Math.max(0, secondsLeft);
         this.startedUntil = NONE;
         this.lastSecond = NONE;
-        ctx.bus.emit('ui:notify', { text: `${HAZARD_LABEL_KO[kind]} 접근 — ${Math.ceil(secondsLeft)}초`, kind: 'warning', duration: 3.5 });
+        ctx.bus.emit('ui:notify', { text: approachText(kind, Math.ceil(secondsLeft)), kind: 'warning', duration: 3.5 });
         ctx.bus.emit('audio:play', { id: 'wave_alarm', volume: 0.7 });
       }),
       b.on('hazard:started', ({ kind }) => {
@@ -143,7 +159,7 @@ export class HazardHud {
       if (left <= 0) { this.startsAt = NONE; } else {
         banner = true;
         const s = Math.ceil(left);
-        if (s !== this.lastSecond) { this.lastSecond = s; setText(this.bannerText, `${HAZARD_LABEL_KO[this.kind]} 접근 — ${s}초`); }
+        if (s !== this.lastSecond) { this.lastSecond = s; setText(this.bannerText, approachText(this.kind, s)); }
       }
     } else if (this.startedUntil !== NONE) {
       if (ctx.time < this.startedUntil) banner = true; else this.startedUntil = NONE;

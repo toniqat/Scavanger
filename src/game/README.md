@@ -29,8 +29,9 @@ Import via `@/game` → `GameFlowSystem`.
 | `player:landed` (in `deploying`) | `playing` |
 | `extraction:activated` | `extracting` |
 | `extraction:shipLanded` | `shipLanded` |
-| `extraction:boarded` | remembers that the local player boarded (for `stats.extracted` in multiplayer) |
-| `extraction:liftoff` | `liftoff`; after 6.5 s → `complete()`: `stats.extracted = true` (multiplayer: `boarded && !isDead && !isDowned`), `lootValue = inventory.getTotalValue()`, `awardMissionXp()`, `complete`, `game:complete {stats}` |
+| `extraction:boarded` | remembers that the local player boarded (legacy flag — `stats.extracted` reads `aboardAtLiftoff` since 2026-09-13) |
+| `extraction:liftoff {aboard, squadDone}` | **2026-09-13**: `aboard` (this player left aboard, alive) or `squadDone` (nobody alive stayed outside) → `aboardAtLiftoff` · `squadExtraction`, phase `liftoff`, after `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`, 10 s) → `complete()`: `stats.extracted = aboardAtLiftoff && !isDead && !isDowned` (solo too), `lootValue`, `awardMissionXp()`, `complete`, `game:complete {stats}`; the host sends `flow complete` **only for a squad extraction**; a rider who leaves squadmates behind calls `net.leaveMission()` right after `game:complete`. Neither → **left behind**: nothing happens (the raid goes on) |
+| `extraction:reset` (2026-09-13) | the ship left without this player → phase `extracting` / `shipLanded` / `liftoff` back to `playing` (unless a result timer already runs) |
 | `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). Solo raid: `raidSaveTimer = -1` + **`clearSoloRaid()` 즉시** (2026-09-11 C-70 — 죽는 순간 레이드는 끝났다), 그 뒤 2.5 s → `gameOver()` (레이드 실패). Multiplayer (**2026-09-09**): phase unchanged, **no countdown** — `stripForCorpse()` → 시체(`parts/CorpseNet.spawnLocalCorpse`) → **`Session.saveRaid(sys)` 1회 강제 저장**(2026-09-11 C-70 — 순서가 곧 근거다: 빈 가방을 찍어야 한다), 호스트였다면 분대장 기기(`parts/Leader.onHostDied`), 토스트 `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 n)`, host runs the all-dead check |
 | `game:returnToShip` (2026-09-13) | 일시정지 메뉴 `함선으로 귀환` 확정. 레이드 중(훈련장 · 강하 중 제외): `returnPending` → `PlayerRef.die()` → 위 `player:died` 정리(구조선 토스트 · 분대장 기기 · 솔로 `deathTimer` 대신 `returnTimer = DEATH_TO_SCREEN`) → `finishReturnToShip`: 솔로 `gameOver()` + `hub:enter`, 분대 사망자 결산 + `net.leaveMission()` + `hub:enter shared` (`onAbort` 가 `flow abort` 를 보내지 않는다). 그 밖에는 곧장 `hub:enter` |
 | `rescue:landed` | `target` 이 나면(싱글은 `'sp'`) 죽음 타이머 · 전멸 체크를 내리고 `deploying` 이면 `playing` 으로. 몸을 세우는 것은 `player/` 가 한다 (`rescueRevive` — 헬포드 · `RESCUE_REVIVE_HP` · 빈손) |
@@ -328,6 +329,21 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-13 (탈출 개편 — 탑승한 사람만 탈출 · 남겨진 사람은 계속 · 화물칸 시체, 사용자 결정)** — 흐름 자체는 `src/extraction/README.md` 의
+  같은 날 항목이다. 이 폴더에서 바뀐 것:
+  - `model.LIFTOFF_TO_COMPLETE` 6.5 → `EXTRACTION_LIFTOFF_TO_COMPLETE_S`(csv 10) — 외부 카메라 이륙 연출이 결과 화면 전에 끝나야 한다.
+  - `GameFlowSystem`: `aboardAtLiftoff` · `squadExtraction` (새 미션 · abort 가 내린다). `extraction:liftoff` 가 `aboard || squadDone` 일 때만 페이즈
+    `liftoff` + 결과 타이머 — 둘 다 아니면 이 사람은 **남겨졌고** 레이드가 계속된다. 새 `extraction:reset` 이 `extracting` / `shipLanded` / `liftoff`
+    를 `playing` 으로 되돌린다.
+  - `parts/Death.complete`: `stats.extracted` 가 `boarded`(탑승 이벤트를 한 번이라도 받았는가 — 내렸어도 true 였다) 대신 **이륙 순간의 탑승**
+    이고 솔로도 같다(솔로도 이제 함선을 놓칠 수 있다). 호스트의 `flow complete` 는 `squadExtraction` 일 때만. 분대를 남기고 떠난 탑승자는 `game:complete`
+    직후 `net.leaveMission()`(자발적 귀환과 같은 `lobby:mission false` — 서버가 남은 대원에게 분대장을 넘기고, 남은 쪽의 전멸 판정은 `inMission`
+    false 인 탑승자를 무시한다).
+  - `Corpses.ts`: `PlayerCorpseObject.attachToParent(parent, local?)` · `onShip` — 메시 그룹을 함선 `root` 의 자식으로 옮기고(`parent.attach`, 기울기
+    포함) `followCarrier` 가 매 프레임 그 월드 자리 · yaw 를 읽는다. 매니저에 `attachCorpse` · `removeCorpse`(`CorpsesRef` 추가 계약, 호출은
+    extraction). 전차 탑승(`carrier`)과는 한 번에 하나다.
+  검증: typecheck 깨끗(이 폴더), 스모크 `smoke-extraction`(새) · `smoke-raidflow`(탈출 함선 절은 그대로 통과해야 한다 — `sys.liftoff()` 직접 호출).
 
 - **2026-09-13 (자발적 귀환 = 그 자리에서 사망, 사용자 결정)** — 일시정지 메뉴 `함선으로 귀환` 이 경고 팝업 + 1초 홀드를 거쳐
   `game:returnToShip` 을 낸다(예전엔 클릭 즉시 `hub:enter` → 포기, 시체 없이 킷 소멸). `parts/Death.requestReturnToShip` 이 레이드 중이면

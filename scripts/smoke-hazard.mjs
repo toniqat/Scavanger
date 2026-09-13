@@ -3,6 +3,8 @@
 //       예고 → 시작 → 진행도(발행 빈도 상한), front 의 "법선 반대편이 위험" 규약, 끝까지 갔을 때
 //       맵 전체가 위험해지는 것, 구역 안에서의 초당 피해 · hazard:insideChanged · atmo:override,
 //       독성 포자의 거대 버섯 군락(발생지 · 채집 버섯 · fog:discovered 'grove'), 훈련장 게이트, 미션 리셋.
+// 2026-09-13: 탈출 패드 수(threat 1 = 2~3 · 2 = 2 · 3 = 1~2), 독성 포자 레이드의 중앙 강하 · 중앙 군락 · 외곽 패드,
+//       폭풍의 눈 = 맵 꼭짓점을 품는 원에서 시작, 전선은 강하 지점 쪽에서, 진행도 1 의 피해 배수 · 초당 HAZARD_DPS_MAX.
 // Usage: node scripts/smoke-hazard.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -20,6 +22,10 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 // 계약 값 (data/constants.csv · data/planets.csv) — 브라우저 안에서 상수를 import 할 수 없으니 옮겨 적는다
 const START_MIN = 360, START_MAX = 480, START_STEP = 30;
 const WARN_S = 30, DPS = 1, TICK_S = 1, FULL_S = 420, EDGE_M = 12;
+// 2026-09-13: 재해가 시간에 따라 강해진다 — 피해 HAZARD_DPS → HAZARD_DPS_MAX, 시야 배율 HAZARD_FOG_RAMP_START → END
+const DPS_MAX = 5, FOG_RAMP_END = 1.25;
+// 2026-09-13: 독성 포자 레이드 = 중앙 강하 · 중앙 군락 · 외곽 탈출 패드 (constants.csv 의 SPORE_* · EXTRACTION_OUTER_MIN_M)
+const SPORE_CENTER_R = 170, SPORE_GROVE_SPAWN_GAP = 80, OUTER_MIN = 200;
 // 2026-09-10: 시야 제한의 세기는 재해마다 다르다 (data/hazards.csv 의 fogMul) — 폭풍의 눈만 훨씬 짙다
 const FOG_MUL = { sandstorm: 7, blizzard: 7, storm_eye: 24, spores: 7 };
 // 2026-09-11 (C-15): 폭풍의 눈도 끝까지 가면 닫힌다 — STORM_EYE_RADIUS_END 60 → 0
@@ -135,6 +141,9 @@ try {
   ok(h0 && h0.active === false && h0.progress === 0, '시작 전에는 active=false · progress=0');
   ok((await P(() => window.__zones())).length === 0, '시작 전에는 도형이 없다');
   ok(await P(() => window.__safeCount(12, 320)) === 13 * 13, '시작 전에는 맵 어디도 위험하지 않다');
+  // 2026-09-13: 탈출 패드 수는 행성 threat 가 정한다 (threat 1 = 2~3)
+  const pads1 = await P(() => window.__game.ctx.world.getExtractionPoints().length);
+  ok(pads1 >= 2 && pads1 <= 3, `threat 1 행성(아켈론 II)의 탈출 패드는 2~3개 (${pads1})`);
 
   /* ── 2. 결정성 ─────────────────────────────────────────────────────────── */
   console.log('결정성 (같은 시드 · 같은 행성)');
@@ -162,6 +171,11 @@ try {
   const prog = await P(() => window.__ev['hazard:progress'].length);
   ok(prog >= 1 && prog <= 10, `hazard:progress 가 2초에 1~10회 — 프레임마다 쏘지 않는다 (${prog})`);
   ok((await P(() => window.__zones())).length >= 1, '시작하면 도형이 생긴다');
+  if (h0.kind === 'storm_eye') {
+    // 2026-09-13: 폭풍의 눈은 맵 네 꼭짓점을 품는 원으로 시작한다 — 시작 순간에는 맵 전체가 안전하다 (한 evaluate 안에서 감고 잰다)
+    const atStart = await P((a) => { window.__game.ctx.missionTime = a; return window.__safeCount(16, 320); }, h0.startsAt);
+    ok(atStart === 17 * 17, `폭풍의 눈 시작 순간 안전지대 100 % (${atStart}/${17 * 17})`);
+  }
 
   /* ── 4. 도형 규약 ──────────────────────────────────────────────────────── */
   console.log('도형 규약');
@@ -170,8 +184,10 @@ try {
   const zs = await P(() => window.__zones());
   if (h0.kind === 'storm_eye') {
     ok(zs.length === 1 && zs[0].shape === 'circle' && zs[0].safeInside === true, `폭풍의 눈 = 안이 안전한 원 하나 (${JSON.stringify(zs)})`);
-    const midR = (EYE_START + EYE_END) / 2;
-    ok(Math.abs(zs[0].r - midR) < 6, `반경이 ${EYE_START}→${EYE_END} 로 선형 축소한다 (중간 ${zs[0].r.toFixed(1)} / ${midR})`);
+    // 2026-09-13: 처음 반경 = 눈 중심에서 가장 먼 맵 꼭짓점까지 (옛 고정 EYE_START 300 은 하한일 뿐)
+    const r0 = Math.max(EYE_START, Math.hypot(MAP / 2 + Math.abs(zs[0].cx), MAP / 2 + Math.abs(zs[0].cz)));
+    const midR = (r0 + EYE_END) / 2;
+    ok(Math.abs(zs[0].r - midR) < 8, `반경이 ${r0.toFixed(0)}(가장 먼 꼭짓점)→${EYE_END} 로 선형 축소한다 (중간 ${zs[0].r.toFixed(1)} / ${midR.toFixed(1)})`);
     const inside = await P((z) => window.__game.ctx.world.hazard.isInside(z.cx, z.cz), zs[0]);
     const outside = await P((z) => window.__game.ctx.world.hazard.isInside(z.cx + z.r + 40, z.cz), zs[0]);
     ok(inside === false && outside === true, `눈 안은 안전 · 밖은 위험 (안 ${inside} / 밖 ${outside})`);
@@ -187,6 +203,10 @@ try {
     }, z);
     ok(sides.behind === true && sides.ahead === false, `법선 반대편(지나온 쪽)이 위험이다 (뒤 ${sides.behind} / 앞 ${sides.ahead})`);
     ok(Math.abs(Math.hypot(z.dx, z.dz) - 1) < 1e-6, '진행 방향이 단위 벡터다');
+    // 2026-09-13: 전선은 강하 지점이 붙은 가장자리 쪽에서 맵 안쪽으로 들어온다 (진행 방향 · 강하 지점 < 0)
+    const sp0 = await P(() => { const s = window.__game.ctx.world.getPlayerSpawn(); return { x: s.x, z: s.z }; });
+    const dot = z.dx * sp0.x + z.dz * sp0.z;
+    ok(dot < 0, `전선이 강하 지점 쪽 가장자리에서 들어온다 (dir·spawn ${dot.toFixed(1)})`);
   }
   void mid;
 
@@ -196,6 +216,8 @@ try {
   await waitSim(0.4);
   const hzFull = await P(() => window.__hz());
   ok(Math.abs(hzFull.progress - 1) < 1e-6, `progress 가 1 에서 멈춘다 (${hzFull.progress})`);
+  const mulFull = await P(() => window.__game.ctx.world.hazard.damageMul);
+  ok(Math.abs(mulFull - DPS_MAX / DPS) < 1e-6, `끝까지 가면 피해 배수 = HAZARD_DPS_MAX / HAZARD_DPS (${mulFull})`);
   const safe = await P(() => window.__safeCount(16, 320));
   /* 2026-09-11 (C-15): 폭풍의 눈도 예외가 아니다 — `STORM_EYE_RADIUS_END` 가 0 이라 눈이 완전히 닫힌다
      (예전 60 m 는 맵의 2.8 % 안전지대가 남는 유일한 예외였다). */
@@ -256,14 +278,15 @@ try {
     `들어가면 hazard:insideChanged {inside:true} (${JSON.stringify(insideEv)})`, JSON.stringify(hzDbg));
   const atmo = await P(() => window.__ev['atmo:override']);
   const last = atmo[atmo.length - 1];
-  const fogCap = FOG_MUL[h0.kind] ?? 7;
+  const fogCap = 1 + ((FOG_MUL[h0.kind] ?? 7) - 1) * FOG_RAMP_END;   // 2026-09-13: 진행도 1 의 램프 배율까지
   ok(!!last && last.blend > 0 && last.fogMul > 1 && last.fogMul <= fogCap + 1e-6 && last.color !== null,
     `atmo:override 로만 시야를 좁힌다 (${h0.kind} 상한 ${fogCap}, ${JSON.stringify(last)})`);
   ok(atmo.length <= 40, `atmo:override 를 프레임마다 쏘지 않는다 (0.6초에 ${atmo.length}회)`);
   await waitSim(3.4);
   const dmg = await P(() => ({ hp: window.__game.ctx.player.hp, hp0: window.__hp0 }));
   const lost = dmg.hp0 - dmg.hp;
-  ok(lost >= DPS * 2 && lost <= DPS * 6, `HAZARD_TICK_S(${TICK_S}s) 마다 ${DPS} 씩 깎인다 (4초에 ${lost.toFixed(1)})`);
+  // 2026-09-13: 맵을 다 덮은 시점이라 초당 HAZARD_DPS_MAX 다
+  ok(lost >= DPS_MAX * 2 && lost <= DPS_MAX * 6, `HAZARD_TICK_S(${TICK_S}s) 마다 ${DPS_MAX} 씩 깎인다 — 진행도 1 (4초에 ${lost.toFixed(1)})`);
 
   /* 2026-09-11 (C-14 · X-7): **끊긴 분대원의 몸(고스트)도 재해를 맞는다.** 권위(싱글 = 이 페이지)가 `HAZARD_TICK_S`
      마다 구역 안의 `suspended` 분대원에게 `ghost:damage` 를 낸다. 가짜 분대원(`remotePlayers.debugSpawn`)은
@@ -294,7 +317,7 @@ try {
   ok(ghost0.created && ghost0.inside, '구역 안에 끊긴 분대원 몸(고스트)을 세웠다', JSON.stringify(ghost0));
   ok(ghost1.events.length >= 2 && ghost1.events.every((e) => e.id === 'hz-ghost' && e.amount > 0),
     `HAZARD_TICK_S 마다 ghost:damage 가 나간다 (3.3초에 ${ghost1.events.length}회)`, JSON.stringify(ghost1.events));
-  ok(gLost >= DPS * 2 && gLost <= DPS * 5, `고스트 체력이 초당 ${DPS} 씩 깎인다 (${ghost0.hp} → ${ghost1.hp})`, JSON.stringify(ghost1));
+  ok(gLost >= DPS_MAX * 2 && gLost <= DPS_MAX * 5, `고스트 체력이 초당 ${DPS_MAX} 씩 깎인다 — 로컬과 같은 램프 (${ghost0.hp} → ${ghost1.hp})`, JSON.stringify(ghost1));
 
   console.log('구역 밖으로');
   await P(() => {
@@ -351,13 +374,26 @@ try {
       // 2026-09-11 (연구실): 씨앗 · 표본 노드가 군락 곁에 서도 "채집 버섯이 심어졌다" 로 세지 않는다
       const near = src.map((s) => nodes.filter((n) => n.kind === 'herb'
         && Math.hypot(n.position.x - s.position.x, n.position.z - s.position.z) < 16).length);
+      const spawn = window.__game.ctx.world.getPlayerSpawn();
       return {
         kind: h.kind, startsAt: h.startsAt,
         sources: src.map((s) => ({ id: s.id, x: s.position.x, z: s.position.z, r: s.radius, erupted: s.erupted, discovered: s.discovered })),
         near,
+        spawn: { x: spawn.x, z: spawn.z },
+        pads: window.__game.ctx.world.getExtractionPoints().map((e) => ({ x: e.position.x, z: e.position.z })),
       };
     });
     ok(sp.startsAt === SPORE_START, `독성 포자만 시작 시각이 ${SPORE_START}s 고정이다 (${sp.startsAt})`);
+    /* 2026-09-13: 독성 포자 레이드는 중앙 강하 · 중앙 군락 · 외곽 탈출 패드 2~3개 (포자가 중앙에서 외곽으로 퍼진다) */
+    const spawnR = Math.hypot(sp.spawn.x, sp.spawn.z);
+    ok(spawnR < 130, `독성 포자 레이드는 맵 중앙에 강하한다 (중심에서 ${spawnR.toFixed(0)} m)`);
+    ok(sp.pads.length >= 2 && sp.pads.length <= 3, `독성 포자 레이드의 탈출 패드는 2~3개 (${sp.pads.length})`);
+    const outer = sp.pads.map((e) => Math.max(Math.abs(e.x), Math.abs(e.z)));
+    ok(outer.every((d) => d >= OUTER_MIN * 0.8), `탈출 패드가 맵 외곽에 선다 (중심에서 x·z 최대 ${outer.map((d) => d.toFixed(0)).join(', ')} m)`);
+    const srcR = sp.sources.map((s) => Math.hypot(s.x, s.z));
+    ok(srcR.every((d) => d <= SPORE_CENTER_R * 1.8 + 1), `거대 버섯 군락이 맵 중앙부에 선다 (${srcR.map((d) => d.toFixed(0)).join(', ')} m)`);
+    const srcGap = sp.sources.map((s) => Math.hypot(s.x - sp.spawn.x, s.z - sp.spawn.z));
+    ok(srcGap.every((d) => d >= SPORE_GROVE_SPAWN_GAP - 1), `군락이 강하 지점에서 ${SPORE_GROVE_SPAWN_GAP} m 이상 떨어져 있다 (${srcGap.map((d) => d.toFixed(0)).join(', ')} m)`);
     ok(sp.sources.length >= 1 && sp.sources.length <= SPORE_MAX, `발생지가 1~${SPORE_MAX}개 (${sp.sources.length})`);
     ok(sp.sources.every((s) => !s.erupted), '시작 전에는 아무 발생지도 피어오르지 않았다');
     ok(sp.near.every((n) => n >= 1), `군락마다 채집 가능한 버섯이 심어져 있다 (${JSON.stringify(sp.near)})`);
@@ -397,6 +433,14 @@ try {
     ok(groveEv.length >= 1, `군락이 안개 밖으로 나오면 fog:discovered {kind:'grove'} (${groveEv.length} / ${disc})`);
     ok(await P(() => window.__game.ctx.world.hazard.getSources().every((s) => s.discovered)),
       '군락을 다 발견하면 발생지가 전부 discovered 다 (= 어디서 시작될지 미리 안다)');
+  }
+
+  /* ── 7b. 탈출 패드 수 (2026-09-13 — 행성 threat 2 = 2 · threat 3 = 1~2) ───── */
+  console.log('탈출 패드 수 (행성 threat)');
+  for (const [planet, lo, hi] of [['tundra', 2, 2], ['ashen', 1, 2]]) {
+    await newMission(41, planet);
+    const n = await P(() => window.__game.ctx.world.getExtractionPoints().length);
+    ok(n >= lo && n <= hi, `${planet}: 탈출 패드 ${lo}~${hi}개 (${n})`);
   }
 
   /* ── 8. 훈련장 · 미션 리셋 ─────────────────────────────────────────────── */

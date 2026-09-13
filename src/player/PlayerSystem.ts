@@ -269,7 +269,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get isReloading(): boolean { return this.weaponState.reloading; }
   get isFiring(): boolean { return this.weaponState.firing; }
   get isDropping(): boolean { return this.hellpod.isActive && this.hellpod.state !== 'exiting'; }
-  get isInShip(): boolean { return this.shipBounds !== null; }
+  /**
+   * 2026-09-13 (탈출 개편): also true while standing in the **landed** dropship's bay — boarding no longer puts the body on
+   * the `shipBounds` box until it rides off (the bay is walked in world mode against the hull colliders), and the readers
+   * (`IN_SHIP` snapshot flag, tram-hit and hazard-damage exemptions) mean "in the extraction ship".
+   */
+  get isInShip(): boolean {
+    return this.shipBounds !== null || (this.spawned && (this.ctx.extraction?.isInShipBay(this.controller.position) ?? false));
+  }
   get stridePhase(): number { return this.controller.stridePhase; }
   /** Same value the pose uses (0 idle … 1 walk … 1.2 sprint). */
   get moveBlend(): number { return Math.min(1.2, this.controller.speed / PLAYER_WALK_SPEED); }

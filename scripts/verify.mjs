@@ -96,6 +96,9 @@ const SMOKES = {
      흔들림 속 퍼짐 0 사격이 화면 중심 선 위 · 반동 · aimSwayMul 0.5 · 앉기 / 엎드리기 / 걷기 배수 · 어깨 전환 · 연출 카메라 · 해제. */
   'smoke-aim-sway':     { file: 'scripts/smoke-aim-sway.mjs',     folders: ['player', 'weapons'] },
   'smoke-raidflow':     { file: 'scripts/smoke-raidflow.mjs',     folders: ['game', 'extraction', 'player', 'inventory', 'world'] },
+  /* 2026-09-13 (탈출 개편): 20초 호출 · 착륙 외피 콜라이더 8개 · 적 전용 입구 차단 · 스위치 → 10초 유예(취소 불가 · 유예 중 탑승) →
+     탑승 이륙(연출 카메라 · `.hud.cinematic` · 결과 extracted) · 대기 초과 자동 출발에 남겨짐 → reset → 다시 호출 · 화물칸 시체가 함께 떠난다. */
+  'smoke-extraction':   { file: 'scripts/smoke-extraction.mjs',   folders: ['extraction', 'game'] },
   'smoke-library':      { file: 'scripts/smoke-library.mjs',      folders: ['housing', 'items', 'hub', 'inventory'] },
   /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
      HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */

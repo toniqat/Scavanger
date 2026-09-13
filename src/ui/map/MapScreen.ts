@@ -113,6 +113,9 @@ export class MapScreen {
   private fogEdgeRevision = -1;
   /** 재해 위험 구역에 까는 빗금 무늬. 캔버스 컨텍스트가 생긴 뒤 한 번만 만든다. */
   private hazardHatch: CanvasPattern | null = null;
+  /** 2026-09-13: 독성 포자 원 합집합 — 이번 프레임의 원 `[cx, cy, r, …]` (px) 과 호 구간 스크래치. 재사용한다. */
+  private readonly sporeCircles: number[] = [];
+  private readonly arcScratch: number[] = [];
   private exploredEl: HTMLElement;
   private staticSeed = NaN;
 
@@ -297,6 +300,8 @@ export class MapScreen {
       b.on('extraction:activated', ({ pointId }) => { this.activePadId = pointId; }),
       b.on('extraction:shipLanded', ({ position }) => { this.shipPos = position.clone(); }),
       b.on('extraction:liftoff', () => { this.shipPos = null; }),
+      // 2026-09-13: 남겨진 사람의 흐름이 리셋되면 떠난 패드 강조를 지운다 (다른 콘솔로 다시 부를 수 있다)
+      b.on('extraction:reset', () => { this.activePadId = null; this.shipPos = null; }),
       b.on('ping:placed', ({ id, position, kind, expires }) => { this.pings.set(id, { id, kind, position, expires }); }),
       b.on('ping:removed', ({ id }) => { this.pings.delete(id); }),
       b.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase()) this.close(false); }),
@@ -966,6 +971,12 @@ export class MapScreen {
 
     c.save();
     c.beginPath(); c.rect(0, 0, C, C); c.clip();
+    /* 2026-09-13: **맵 사각형 밖은 그리지 않는다** (사용자 요구). 폭풍의 눈이 이제 맵 네 꼭짓점을 품는 원으로 시작해
+     * 원의 대부분이 맵 밖에 있고, 확대 · 이동한 지도에서는 캔버스가 맵보다 넓을 수 있다. 캔버스 클립과 겹쳐 건다. */
+    const mapX = this.toX(-this.size / 2), mapY = this.toY(-this.size / 2), mapW = this.size * s;
+    c.beginPath(); c.rect(mapX, mapY, mapW, mapW); c.clip();
+    const union = this.sporeCircles;
+    union.length = 0;
     for (const z of hz.getZones()) {
       if (z.shape === 'front') {
         const px = -z.dirZ, pz = z.dirX;                       // 전선 방향 (법선에 수직)
@@ -1003,12 +1014,14 @@ export class MapScreen {
         c.moveTo(cx + rr, cy);
         c.arc(cx, cy, rr, 0, Math.PI * 2);
         paint('evenodd');
+        edge(() => c.arc(cx, cy, rr, 0, Math.PI * 2));
       } else {
-        c.arc(cx, cy, rr, 0, Math.PI * 2);
-        paint();
+        /* 2026-09-13: 안이 위험한 원(독성 포자)은 여기서 그리지 않고 모아 뒀다가 **합집합 한 도형**으로 그린다 —
+         * 원마다 채우면 겹친 곳이 두 번 칠해지고 테두리가 서로의 안쪽을 가로질러 벤다이어그램이 됐다. */
+        union.push(cx, cy, rr);
       }
-      edge(() => c.arc(cx, cy, rr, 0, Math.PI * 2));
     }
+    if (union.length > 0) this.drawCircleUnion(union, paint, edge);
     c.restore();
 
     if (hz.kind) {
@@ -1017,6 +1030,68 @@ export class MapScreen {
       c.textAlign = 'left'; c.textBaseline = 'top';
       c.fillText(`${HAZARD_LABEL_KO[hz.kind]} · 안전지대 ${Math.max(0, Math.round((1 - hz.progress) * 100))}%`, 8, C - 16);
     }
+  }
+
+  /**
+   * 2026-09-13 — 원 여럿의 **합집합**을 한 도형으로 그린다. `circles` = 캔버스 px 의 `[cx, cy, r, …]`.
+   *   - 채움: 원을 한 경로에 모두 넣고 nonzero 로 한 번 채운다 (같은 방향으로 도는 원이라 겹친 곳도 한 번만 칠해진다).
+   *   - 테두리: 원마다 **다른 원에 덮이지 않은 호**만 긋는다 — 겹친 원의 안쪽 호가 사라져 바깥 윤곽 하나만 남는다.
+   *     다른 원에 통째로 들어간 원(같은 원이 둘이면 뒤의 것)은 테두리가 없다.
+   */
+  private drawCircleUnion(
+    circles: readonly number[], paint: () => void, edge: (draw: () => void) => void,
+  ): void {
+    const c = this.c2d;
+    const n = circles.length / 3;
+    const TAU = Math.PI * 2;
+    c.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = circles[i * 3], y = circles[i * 3 + 1], r = circles[i * 3 + 2];
+      c.moveTo(x + r, y);
+      c.arc(x, y, r, 0, TAU);
+    }
+    paint();
+    const iv = this.arcScratch;
+    edge(() => {
+      for (let i = 0; i < n; i++) {
+        const xi = circles[i * 3], yi = circles[i * 3 + 1], ri = circles[i * 3 + 2];
+        iv.length = 0;
+        let hidden = false;
+        for (let j = 0; j < n && !hidden; j++) {
+          if (j === i) continue;
+          const dx = circles[j * 3] - xi, dy = circles[j * 3 + 1] - yi, rj = circles[j * 3 + 2];
+          const d = Math.hypot(dx, dy);
+          if (d >= ri + rj) continue;                                   // 떨어져 있다
+          if (d + ri <= rj) {                                           // i 가 j 안에 통째로
+            const same = d < 1e-6 && Math.abs(ri - rj) < 1e-6;
+            if (!same || j < i) hidden = true;
+            continue;
+          }
+          if (d + rj <= ri) continue;                                   // j 가 i 안 — i 의 둘레를 덮지 않는다
+          const cosA = (ri * ri + d * d - rj * rj) / (2 * ri * d);
+          const a = Math.acos(cosA < -1 ? -1 : cosA > 1 ? 1 : cosA);
+          const phi = Math.atan2(dy, dx);
+          // [phi − a, phi + a] 를 [0, TAU) 로 접어 넣는다 (넘치면 둘로 쪼갠다)
+          const s0 = ((phi - a) % TAU + TAU) % TAU;
+          const e0 = s0 + 2 * a;
+          if (e0 > TAU) { iv.push(s0, TAU, 0, e0 - TAU); } else iv.push(s0, e0);
+        }
+        if (hidden) continue;
+        // 시작각으로 정렬 (쌍 단위 삽입 정렬 — 원이 몇 개뿐이다)
+        for (let k = 2; k < iv.length; k += 2) {
+          const s = iv[k], e = iv[k + 1];
+          let m = k - 2;
+          while (m >= 0 && iv[m] > s) { iv[m + 2] = iv[m]; iv[m + 3] = iv[m + 1]; m -= 2; }
+          iv[m + 2] = s; iv[m + 3] = e;
+        }
+        let cur = 0;
+        for (let k = 0; k < iv.length; k += 2) {
+          if (iv[k] > cur) { c.moveTo(xi + ri * Math.cos(cur), yi + ri * Math.sin(cur)); c.arc(xi, yi, ri, cur, iv[k]); }
+          if (iv[k + 1] > cur) cur = iv[k + 1];
+        }
+        if (cur < TAU) { c.moveTo(xi + ri * Math.cos(cur), yi + ri * Math.sin(cur)); c.arc(xi, yi, ri, cur, TAU); }
+      }
+    });
   }
 
   /** 선로 중심선 + 플랫폼 + 전차. 발견한 것만 (전차는 자기 현재 위치로 판정하므로 지도에서 움직인다). */

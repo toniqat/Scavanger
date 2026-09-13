@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { MAP_SIZE, RAIL_CHANCE, Random, type RailKind, type StructureKind } from '@/shared';
+import {
+  EXTRACTION_OUTER_MIN_M, EXTRACTION_PADS_MAX_BY_THREAT, EXTRACTION_PADS_MIN_BY_THREAT, EXTRACTION_PADS_SPORES_MAX,
+  EXTRACTION_PADS_SPORES_MIN, MAP_SIZE, RAIL_CHANCE, Random, SPORE_SPAWN_CENTER_M, type RailKind, type StructureKind,
+} from '@/shared';
 import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';
 
 /**
@@ -106,8 +109,37 @@ export function railClearance(layout: WorldLayout, x: number, z: number): number
   return railDistance(layout.rail, x, z) - RAIL_CLEARANCE_M;
 }
 
+/**
+ * 2026-09-13 — 매크로 레이아웃이 **재해 종류 · 행성 threat** 를 안다. 둘 다 레이아웃보다 먼저 시드에서 정해진다
+ * (`WorldSystem.generate` — 재해 종류는 `hazard/parts/Plan.drawHazardKind` 의 자기 fork, 패드 수는 `extractionPadCount`
+ * 의 자기 fork) 그래서 멀티 결정성은 그대로다.
+ */
+export interface LayoutOptions {
+  /** 탈출 패드 수 (`extractionPadCount`). 없으면 옛 3. */
+  extractionCount?: number;
+  /**
+   * 이번 레이드의 재해가 **독성 포자**인가. 포자는 맵 중앙에서 외곽으로 퍼지므로 강하 지점은 맵 중앙
+   * (`SPORE_SPAWN_CENTER_M`), 탈출 패드는 외곽(`EXTRACTION_OUTER_MIN_M`) 에 선다 — 다른 재해의 반대다.
+   */
+  sporeLayout?: boolean;
+}
+
+/**
+ * 2026-09-13 (사용자 결정) — 탈출 패드 수. 행성 threat 1 = 2–3 · 2 = 2 · 3 = 1–2 (`tables.csv` 의
+ * `EXTRACTION_PADS_MIN/MAX_BY_THREAT`), 독성 포자 레이드는 threat 와 무관하게 2–3 (`EXTRACTION_PADS_SPORES_*`).
+ * `rng` 는 호출자가 넘기는 **전용 fork** 다 — 한 번만 뽑으므로 레이아웃 스트림을 밀지 않는다.
+ */
+export function extractionPadCount(rng: Random, threat: number, spores: boolean): number {
+  const i = Math.max(0, Math.min(2, Math.round(threat) - 1));
+  const lo0 = spores ? EXTRACTION_PADS_SPORES_MIN : (EXTRACTION_PADS_MIN_BY_THREAT[i] ?? 3);
+  const hi0 = spores ? EXTRACTION_PADS_SPORES_MAX : (EXTRACTION_PADS_MAX_BY_THREAT[i] ?? lo0);
+  const lo = Math.max(1, Math.round(lo0));
+  const hi = Math.max(lo, Math.round(hi0));
+  return rng.int(lo, hi);
+}
+
 /** Place the macro layout: spawn, extraction pads, nests, POIs, craters, basins. Deterministic per rng. */
-export function generateLayout(rng: Random): WorldLayout {
+export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayout {
   const margin = 56; // keep pads away from the cliff wall
   const inner = HALF - margin;
 
@@ -143,32 +175,51 @@ export function generateLayout(rng: Random): WorldLayout {
     return true;
   };
 
-  // Spawn near one edge (선로 회랑에 걸리면 가장자리를 따라 다시 뽑는다)
-  const side = rng.int(0, 3);
-  let along = rng.range(-inner * 0.6, inner * 0.6);
-  const edgeDist = HALF - 64;
-  const edgePoint = (a: number): { x: number; z: number } => (
-    side === 0 ? { x: -edgeDist, z: a }
-      : side === 1 ? { x: edgeDist, z: a }
-        : side === 2 ? { x: a, z: -edgeDist }
-          : { x: a, z: edgeDist });
-  for (let a = 0; a < 60; a++) {
-    const p = edgePoint(along);
-    if (railFree(p.x, p.z, 18)) break;
-    along = rng.range(-inner * 0.6, inner * 0.6);
+  let spawn: Pad;
+  if (opts.sporeLayout) {
+    /* 2026-09-13 — 독성 포자 레이드는 맵 **중앙**에 강하한다 (포자가 중앙에서 외곽으로 퍼진다). `line` 선로는 원점을 지나고
+     * 가운데 플랫폼이 원점에 설 수도 있어서, 회랑에 걸리면 반경을 조금씩 넓혀 다시 뽑는다. */
+    let sx = 0, sz = 0;
+    for (let a = 0; a < 240; a++) {
+      const reach = SPORE_SPAWN_CENTER_M + a * 0.75;
+      const ang = rng.range(0, Math.PI * 2);
+      const r = reach * Math.sqrt(rng.next());
+      sx = Math.cos(ang) * r; sz = Math.sin(ang) * r;
+      if (railFree(sx, sz, 18)) break;
+    }
+    spawn = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: rng.range(-Math.PI, Math.PI), height: 0 };
+  } else {
+    // Spawn near one edge (선로 회랑에 걸리면 가장자리를 따라 다시 뽑는다)
+    const side = rng.int(0, 3);
+    let along = rng.range(-inner * 0.6, inner * 0.6);
+    const edgeDist = HALF - 64;
+    const edgePoint = (a: number): { x: number; z: number } => (
+      side === 0 ? { x: -edgeDist, z: a }
+        : side === 1 ? { x: edgeDist, z: a }
+          : side === 2 ? { x: a, z: -edgeDist }
+            : { x: a, z: edgeDist });
+    for (let a = 0; a < 60; a++) {
+      const p = edgePoint(along);
+      if (railFree(p.x, p.z, 18)) break;
+      along = rng.range(-inner * 0.6, inner * 0.6);
+    }
+    const { x: sx, z: sz } = edgePoint(along);
+    spawn = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: Math.atan2(-sx, -sz), height: 0 };
   }
-  const { x: sx, z: sz } = edgePoint(along);
-  const spawn: Pad = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: Math.atan2(-sx, -sz), height: 0 };
 
-  // Extraction pads: 3, pairwise >= 180 m, >= 150 m from spawn
+  /* Extraction pads: `opts.extractionCount` (2026-09-13 — 옛 3 고정), pairwise >= 180 m, >= 150 m from spawn.
+   * 독성 포자 레이드는 맵 **외곽**(x · z 중 큰 쪽이 `EXTRACTION_OUTER_MIN_M` 이상)에만 — 포자가 마지막에 닿는 곳이다. */
   const extraction: Pad[] = [];
   {
+    const want = Math.max(1, Math.round(opts.extractionCount ?? 3));
     let minPair = 180, minSpawn = 150;
+    let outer = opts.sporeLayout ? Math.min(EXTRACTION_OUTER_MIN_M, inner - 4) : 0;
     let attempts = 0;
-    while (extraction.length < 3) {
+    while (extraction.length < want) {
       attempts++;
-      if (attempts % 400 === 0) { minPair *= 0.92; minSpawn *= 0.92; } // relax slowly if unlucky
+      if (attempts % 400 === 0) { minPair *= 0.92; minSpawn *= 0.92; outer *= 0.96; } // relax slowly if unlucky
       const x = rng.range(-inner, inner), z = rng.range(-inner, inner);
+      if (outer > 0 && Math.max(Math.abs(x), Math.abs(z)) < outer) continue;
       if (dist(x, z, spawn.x, spawn.z) < minSpawn) continue;
       if (!farFromAll(x, z, extraction, minPair)) continue;
       if (!railFree(x, z, 20)) continue;

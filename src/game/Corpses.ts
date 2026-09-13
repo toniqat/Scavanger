@@ -23,6 +23,8 @@ import {
 type CorpseRideWire = NonNullable<PlayerCorpseWire['ride']>;
 
 const _rideScratch = new THREE.Vector3();
+const _shipQ = new THREE.Quaternion();
+const _shipE = new THREE.Euler(0, 0, 0, 'YXZ');
 
 /**
  * C-63: 탑승 중인 발판(`Obstacle`)이 어느 전차의 부품인가. 전차 부품은 전부 `TramDef.yaw` 와 **같은 값**을
@@ -75,6 +77,12 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   private rideCarrierYaw0 = 0;
   private rideYaw0 = 0;
   private yawNow: number;
+  /**
+   * 2026-09-13 (탈출 개편): 탈출 함선 데크에 실린 시체 — 메시 그룹이 함선 `root` 의 **자식**이라 기울기까지 같이 움직이고,
+   * 매 프레임 그 월드 자리가 곧 상호작용 위치다. 전차(`carrier`)와 달리 발판 질의가 없다(함선 데크는 월드 발판이 아니다).
+   * 함선과 함께 떠나면 extraction 이 `removeCorpse` 로 치운다.
+   */
+  private shipParent: THREE.Object3D | null = null;
 
   constructor(
     private readonly ctx: GameContext,
@@ -171,8 +179,40 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     };
   }
 
+  /** 2026-09-13: true = 탈출 함선 데크에 실려 있다 (스모크 · 디버그용). */
+  get onShip(): boolean { return this.shipParent !== null; }
+
+  /**
+   * 2026-09-13 (`CorpsesRef.attachCorpse`): `parent` 로컬 `local`(생략 = 지금 월드 자리)에 눕히고 그 변환을 따라간다.
+   * null = 지금 월드 자리에 내려놓는다. 전차 탑승은 풀린다 (한 번에 한 탈것).
+   */
+  attachToParent(parent: THREE.Object3D | null, local?: THREE.Vector3): void {
+    if (parent) {
+      this.carrier = null;
+      parent.updateWorldMatrix(true, false);
+      if (local) this.group.position.copy(local).applyMatrix4(parent.matrixWorld);
+      this.group.rotation.set(0, this.yawNow, 0);
+      this.group.updateMatrixWorld(true);
+      parent.attach(this.group);   // keeps the world transform, then rides the parent
+      this.shipParent = parent;
+      this.group.getWorldPosition(this.position);
+      return;
+    }
+    if (!this.shipParent) return;
+    this.shipParent = null;
+    this.ctx.scene.attach(this.group);
+    this.group.getWorldPosition(this.position);
+  }
+
   /** 매 프레임: 탄 차량의 **지금** 변환으로 자리(= 상호작용 위치)와 방향을 다시 푼다. 안 탔으면 아무것도 안 한다. */
   followCarrier(): void {
+    if (this.shipParent) {
+      // 2026-09-13: the mesh hangs off the ship — read back where that put it
+      this.group.getWorldPosition(this.position);
+      this.group.getWorldQuaternion(_shipQ);
+      this.yawNow = _shipE.setFromQuaternion(_shipQ, 'YXZ').y;
+      return;
+    }
     const c = this.carrier;
     if (!c) return;
     restoreRideLocal(c, this.rideLocal, this.position);
@@ -323,6 +363,28 @@ export class PlayerCorpseManager implements CorpsesRef {
     if (!c || c.emptied) return false;
     c.emptied = true;
     this.ctx.bus.emit('corpse:playerEmptied', { id, ownerId: c.ownerId });
+    return true;
+  }
+
+  /** 2026-09-13 (`CorpsesRef.attachCorpse`, caller: extraction): 시체를 탈출 함선에 싣는다 / 내린다. */
+  attachCorpse(id: string, parent: THREE.Object3D | null, local?: THREE.Vector3): boolean {
+    const c = this.corpses.get(id);
+    if (!c) return false;
+    c.attachToParent(parent, local);
+    return true;
+  }
+
+  /**
+   * 2026-09-13 (`CorpsesRef.removeCorpse`, caller: extraction): 함선과 함께 떠난 시체를 레이드에서 치운다. 안의 아이템도
+   * 사라진다 — 인벤토리의 컨테이너 캐시에 남은 같은 id 는 더 이상 열 길이 없다(상호작용이 사라졌다).
+   */
+  removeCorpse(id: string): boolean {
+    const c = this.corpses.get(id);
+    if (!c) return false;
+    this.ctx.interactables.unregister(id);
+    c.dispose();
+    this.corpses.delete(id);
+    this.pendingRide.delete(id);
     return true;
   }
 

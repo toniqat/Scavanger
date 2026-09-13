@@ -948,6 +948,14 @@ attack phase 4  0.25 s 회복 → chase
 
 ## 변경 이력
 
+- **2026-09-13 (탈출 디펜스 웨이브 트리거 제거, 사용자 결정)** — `EnemySystem` 이 `extraction:activated` 에 `startExtractionWaves` 를, 이륙에
+  `stopExtractionWaves` 를, 호스트 승격에 `waves.prime` 을 더 이상 부르지 않는다. `WaveDirector` · `startExtractionWaves` 는 계약처럼 남았고 부르는 곳이 없다.
+
+- **2026-09-13 (탈출 함선 출입 금지, extraction 에이전트)** — `ai/EnemyAI.integrate` 가 `world.resolveCollision` · `host.resolveBarrier` 뒤에,
+  헌터 도약 가지가 `resolveCollision` 뒤에 `host.ctx.extraction?.keepEnemyOut(pos, radius)` 한 줄씩을 부른다. 착륙한 함선 외피는 월드 콜라이더라 누구에게나
+  벽이지만 뒤쪽 램프 입구는 사람이 드나드는 구멍이라 **적에게만** 닫는다 — 화물칸에 든 몸은 입구 밖으로 밀려나고, 돌진은 벽에 부딪힌 것처럼 넘어진다.
+  로그 · 네임드 · 조사 AI 가 전부 `integrate` 를 지나므로 이 두 곳이 전부다. 리플리카는 호스트 위치를 따른다. (탈출 웨이브 제거는 이 폴더 소유자의 작업이다.)
+
 - **2026-09-12 (아이템 회수 계약 — 레이드 루팅 표식)** — `Corpses.Corpse.interact` 가 굴린 시체 내용물(네임드 확정 드롭 포함)에
   `shared/raidFound.markRaidFound(items, raidFoundSeed(ctx))` 로 「이번 레이드에서 얻은」 표식을 찍은 뒤 `openContainerItems` 로 넘긴다.
   훈련장이면 시드가 null 이라 찍지 않는다. `corpseLootRandom` 스트림은 그대로(표식은 rng 를 안 쓴다) — 드론 스캔 미리보기와 같은 내용물이다.

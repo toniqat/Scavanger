@@ -94,6 +94,8 @@ export class Compass {
       b.on('extraction:shipIncoming', ({ position }) => this.setShip(position)),
       b.on('extraction:shipLanded', ({ position }) => this.setShip(position)),
       b.on('extraction:liftoff', () => this.removeShip()),
+      // 2026-09-13: the ship left without us — no pad is active any more, any console can call the next one
+      b.on('extraction:reset', () => { this.activeId = null; this.refreshActive(); this.removeShip(); }),
       // world:ready fires synchronously inside game:newMission (before our handler would) → rebuild there only.
       b.on('game:abort', () => this.clear()),
       b.on('hub:entered', () => this.clearEnemies()),

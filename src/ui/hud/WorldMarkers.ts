@@ -46,6 +46,13 @@ export class WorldMarkers {
         this.add('__ship', this.shipPos, '탈출 함선', 'wmarker ship');
       }),
       b.on('extraction:liftoff', () => this.remove('__ship')),
+      // 2026-09-13: the ship left without us — back to plain (fog-gated) pad markers
+      b.on('extraction:reset', () => {
+        this.activeId = null;
+        this.shipPos = null;
+        this.remove('__ship');
+        for (const m of this.markers.values()) toggleClass(m.el, 'active', false);
+      }),
       b.on('game:abort', () => this.clear()),
     );
   }

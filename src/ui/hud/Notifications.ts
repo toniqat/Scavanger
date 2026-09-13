@@ -1,6 +1,8 @@
 import type { GameContext } from '@/shared';
 import { CONTRACT_DEFS, Keys, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
+/* 2026-09-13 (탈출 개편): 자동 출발 · 출발 유예 문구 */
+import { EXTRACTION_AUTO_DEPART_IDLE_S, EXTRACTION_DEPART_GRACE_S } from '@/shared';
 /* 2026-09-11 (B-3): 초대 결과 토스트 */
 import type { SocialErrorCode } from '@/shared';
 import { SOCIAL_ERROR_MESSAGE_KO, SOCIAL_INVITE_OUTCOME_KO } from '@/shared';
@@ -64,11 +66,20 @@ export class Notifications {
         if (dropped.length > 0) this.push(`가방이 작아져 아이템 <b>${dropped.length}</b>개를 떨어뜨렸습니다`, 'warning', '인벤토리', 4);
       }),
       b.on('enemy:waveStarted', ({ index, count }) => this.push(`적 증원 감지! <span style="color:var(--c-text-dim)">${index + 1}차 · ${count}마리</span>`, 'danger', '경고', 4)),
-      b.on('extraction:activated', () => this.push('탈출 신호 전송 완료. 함선이 출발했습니다.', 'success', '탈출', 4)),
+      b.on('extraction:activated', ({ duration }) => this.push(`탈출 신호 전송 완료. 함선 도착까지 ${Math.round(duration)}초.`, 'success', '탈출', 4)),
       b.on('extraction:shipIncoming', ({ eta }) => this.push(`함선 접근 중 — ${Math.round(eta)}초`, 'warning', '탈출', 4)),
-      b.on('extraction:shipLanded', () => this.push('함선 착륙. 탑승하세요.', 'success', '탈출', 4)),
-      b.on('extraction:boarded', () => this.push('탑승 확인. 내부 스위치를 작동하세요.', 'success', '탈출', 4)),
-      b.on('extraction:liftoff', () => this.push('이륙 시퀀스 개시.', 'success', '탈출', 4)),
+      // 2026-09-13 (탈출 개편): 착륙 → 자동 출발 대기 → 출발 유예 → 이륙 / 남겨짐 → 다시 호출 가능
+      b.on('extraction:shipLanded', () => this.push(`함선 착륙. 탑승하세요 — ${Math.round(EXTRACTION_AUTO_DEPART_IDLE_S)}초 뒤 자동 출발`, 'success', '탈출', 4)),
+      b.on('extraction:boarded', () => this.push(`탑승 확인. 내부 스위치를 작동하면 ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 출발합니다.`, 'success', '탈출', 4)),
+      b.on('extraction:departureStarted', ({ duration, auto }) => this.push(
+        auto ? `대기 시간 초과 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다` : `출발 시퀀스 개시 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다`,
+        'warning', '탈출', 5)),
+      b.on('extraction:liftoff', ({ aboard, squadDone }) => {
+        if (aboard ?? true) this.push('이륙 — 탈출 성공', 'success', '탈출', 4);
+        else if (squadDone ?? true) this.push('함선 이륙', 'info', '탈출', 4);
+        else this.push('함선이 출발했습니다 — 탑승하지 못했습니다', 'danger', '탈출', 5);
+      }),
+      b.on('extraction:reset', () => this.push('함선이 떠났습니다 — 탈출 신호소를 다시 작동할 수 있습니다', 'info', '탈출', 5)),
       b.on('crate:looted', () => this.push('상자를 모두 비웠습니다.', 'info', '보급', 2.5)),
       // Phase 12: the 회복 스프레이 calls `applyHeal` (→ `player:stimUsed`) ten times a second while it is held; the
       // channel line below stands in for all of them, so this toast is muted while a channel is active.

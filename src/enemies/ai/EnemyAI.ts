@@ -459,6 +459,7 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
     e.position.y += e.vy * dt;
     const world = host.ctx.world!;
     world.resolveCollision(e.position, s.radius);
+    host.ctx.extraction?.keepEnemyOut(e.position, s.radius);   // 2026-09-13: a leap never lands inside the dropship bay
     // 2026-09-09: a leap can land **on** a low rock — the surface below the falling body, not the terrain
     const ground = world.getSurfaceY(e.position.x, e.position.z, e.position.y);
     a.crouch = -0.3; // stretched
@@ -572,6 +573,10 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   // Phase 12: a raised 배리어 is a wall for every grounded enemy (pushed out here; a charge that hits it stumbles below
   // exactly like one that hit a rock). The host retargets a bumping enemy onto the carrier.
   host.resolveBarrier(e);
+  // 2026-09-13 (extraction 탈출 개편): enemies never enter the landed dropship — its walls are world colliders, but the rear
+  // ramp opening is open for players, so it is closed to enemies only here (pushed back out through the doorway). A charge
+  // that hits it stumbles below like any wall.
+  host.ctx.extraction?.keepEnemyOut(pos, s.radius);
   if (charging) {
     // hitting a rock / wall or leaving the map interrupts the charge
     const intendedX = _prev.x + e.velocity.x * dt, intendedZ = _prev.z + e.velocity.z * dt;

@@ -711,6 +711,28 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-13 (탈출 개편 — 출발 유예 타이머 · 이륙 연출 HUD 페이드, 사용자 결정)** — 흐름은 `src/extraction/README.md`.
+  - **`HudSystem`**: `ui:cinematic {active}` → 오버레이 · 게임플레이 · 소셜 레이어에 `.cinematic` (`setCinematic`, 스모크 훅 `isCinematic`). `game:abort` ·
+    `game:newMission` · 페이즈가 게임플레이를 벗어나면(`applyVisibility`) 스스로 내린다. `#ui-root` 에 `--cine-fade` = `EXTRACTION_HUD_FADE_S`.
+    `extraction:departureStarted` → 목표 `departing`, `extraction:reset` → 목표 `find`.
+  - **`styles/raidHud.css`**: `.hud.cinematic:not(.social):not(.housing)` 통째로 페이드, 소셜 레이어는 `.vitals` · `.prompt` · `.hold` · `.hub-dot` 만
+    (채팅 · 알림 · 분대 목록은 남는다). 사라질 때만 긴 전이.
+  - **`hud/Objective`**: 큰 타이머가 모드를 가진다 — `함선 도착까지`(급함 ≤ 10 s, 옛 30 s 는 20 s 카운트다운에서 처음부터 빨갛다) → `도착` 2.5 s →
+    `자동 출발까지`(`departureTick waiting`) → `함선 출발까지`(`departing`, 늘 급함) → 이륙 · 리셋에서 숨김. 탑승 여부와 무관하게 분대 전원이 본다.
+    `OBJECTIVE_TEXT` 문구 갱신 + `departing` 추가.
+  - **`hud/Notifications`**: 활성화(도착까지 n초) · 착륙(자동 출발 n초) · 탑승 · `departureStarted`(수동 / 대기 시간 초과) · `liftoff`(탈출 성공 / 함선 이륙 /
+    탑승하지 못했습니다) · `extraction:reset`(다시 작동할 수 있습니다).
+  - **`hud/Compass` · `hud/WorldMarkers`**: `extraction:reset` 에 활성 신호소 · 함선 마커를 지운다.
+  - **`map/MapScreen`**: `extraction:reset` 에 `activePadId` · 함선 위치를 지운다 (리드가 이어 붙였다 — 떠난 신호소가 지도에 활성으로 남던 것).
+
+- **2026-09-13 (환경 재해 표시 — 「폭풍」 통일 · 지도 포자 합집합 · 맵 밖 클립)** — 사용자 결정.
+  - **`shared/types.HAZARD_LABEL_KO`** 의 값이 모래 폭풍 · 눈보라 · 폭풍의 눈 → 전부 `폭풍` (키 · `HazardKind` 는 그대로, 독성 포자는 `독성 포자`).
+  - **`hud/HazardHud.ts`** — 예고 토스트 · 배너 `<이름> 접근 — n초` → `폭풍이 다가온다 — n초` / `독성 포자가 다가온다 — n초` (`approachText`, 조사 이/가는
+    끝 글자 받침으로 고른다). 시작은 `폭풍 시작`.
+  - **`map/MapScreen.ts`** `drawHazard` — 캔버스 클립에 **맵 사각형 클립**을 겹쳤다 (폭풍의 눈이 이제 맵 네 꼭짓점을 품는 원으로 시작해 원 대부분이 맵
+    밖이다 — 월드맵에는 맵 밖이 안 보인다). 안이 위험한 원(독성 포자)은 모아 뒀다가 `drawCircleUnion` 이 **한 도형**으로 그린다: 한 경로 nonzero
+    한 번 채움(겹친 곳이 두 번 칠해지지 않는다) + 원마다 **다른 원에 덮이지 않은 호만** 테두리 (벤다이어그램 안쪽 호가 사라진다, 스크래치 배열 재사용).
+    좌하단 라벨은 `폭풍 · 안전지대 n%`.
 - **2026-09-13 (일시정지 메뉴 `함선으로 귀환` 확정 팝업, 사용자 결정)** — `menus/PauseMenu` 의 `함선으로 귀환` 이 파티 떠나기 · 타이틀로와 같은
   경고 팝업(1초 홀드 · Enter 무시 · Escape 취소)을 거친다. 글은 `returnAsk()` 가 그때그때 고른다 — 분대: 「그 자리에서 사망하며, 장비 · 가방 ·
   장착 임플란트는 시체에 남아 분대원이 회수할 수 있습니다」, 솔로: 「… 모두 잃습니다」, 훈련장: 「시뮬레이션 훈련장을 나가 함선으로 돌아갑니다」.

@@ -639,6 +639,14 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-13 (탈출 개편 — extraction 에이전트, 추가만)** — 새 파일 **`extraction.ts`**: `ExtractionStage` · `ExtractionRef`(`stage` · `departRemaining` ·
+  `idleRemaining` · `riding` · `isInShipBay(p)` · `keepEnemyOut(p, r)` — 적 전용 함선 입구 차단), `GameContext.extraction`(게시: extraction), `index.ts` 재수출.
+  `constants.ts` 끝 블록: `EXTRACTION_DEPART_GRACE_S` · `EXTRACTION_AUTO_DEPART_IDLE_S` · `EXTRACTION_LIFTOFF_TO_COMPLETE_S` · `EXTRACTION_CINEMATIC_BLEND_S` ·
+  `EXTRACTION_HUD_FADE_S` (csv `EXTRACTION_COUNTDOWN` 60 → 20). `events.ts`: `extraction:liftoff` 에 선택 필드 `aboard?` · `squadDone?`, 끝 블록에
+  `extraction:departureTick` · `extraction:departureStarted` · `extraction:reset` · `ui:cinematic`. `net.ts`: `ex liftoff` 에 선택 `riders?` · `squadDone?`,
+  새 `ex depart {remaining, auto}` · `ex wait {remaining}`, `ExtractionSyncState.stage` += `'departing'` + 선택 `idleRemaining` · `departRemaining` ·
+  `departAuto` · `sinceLiftoff` · `squadDone`. `types.ts` `CorpsesRef` += 선택 `attachCorpse(id, parent, local?)` · `removeCorpse(id)`.
+
 - **2026-09-13 (자발적 귀환 — 추가만)** — `events.ts` 에 명령 `game:returnToShip`(일시정지 메뉴의 `함선으로 귀환` 확정 → game/ 이 사망 · 함선 복귀를
   정한다), `types.ts` Phase 7 `PlayerRef` 블록 끝에 `die?(): void`(즉시 완전 사망 — 구현은 이미 있던 `PlayerSystem.die`). 이름 변경 · 삭제 없음.
 - **2026-09-12 (리드 통합 — 루팅 굴림 시드 식 `lootRolls.ts`)** — 새 파일 `lootRolls.ts`(`index.ts` 가 다시 내보낸다):

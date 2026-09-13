@@ -183,7 +183,8 @@ export function updateHazardDot(sys: EnemySystem, dt: number): void {
   sys.hazardTick += dt;
   if (sys.hazardTick < HAZARD_TICK_S) return;
   sys.hazardTick = Math.min(sys.hazardTick - HAZARD_TICK_S, HAZARD_TICK_S);   // a long frame never stacks ticks
-  const dmg = HAZARD_ENEMY_DPS * HAZARD_TICK_S;
+  // 2026-09-13: 재해는 시간에 따라 강해진다 — 플레이어와 같은 비율(`HazardRef.damageMul`, 1 → HAZARD_DPS_MAX / HAZARD_DPS)
+  const dmg = HAZARD_ENEMY_DPS * HAZARD_TICK_S * hz.damageMul;
   if (!(dmg > 0)) return;
   for (let i = sys.active.length - 1; i >= 0; i--) {
     const e = sys.active[i];

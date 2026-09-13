@@ -11,7 +11,9 @@
  *
  * 배열 하나를 재사용한다 (계약: "읽고 바로 쓴다"). 도형 객체도 재사용하므로 프레임당 할당이 0이다.
  */
-import { HAZARD_EDGE_M, HAZARD_FULL_S, MAP_SIZE, STORM_EYE_RADIUS_END, STORM_EYE_RADIUS_START, type HazardZone } from '@/shared';
+import {
+  HAZARD_EDGE_M, HAZARD_FULL_S, MAP_SIZE, STORM_EYE_RADIUS_END, STORM_EYE_RADIUS_START, STORM_EYE_START_MARGIN_M, type HazardZone,
+} from '@/shared';
 import { type HazardPlan, isFrontKind } from '../model';
 
 const HALF = MAP_SIZE / 2;
@@ -28,6 +30,17 @@ export function progressAt(plan: HazardPlan, missionTime: number): number {
   if (HAZARD_FULL_S <= 0) return 1;
   const t = (missionTime - plan.startsAt) / HAZARD_FULL_S;
   return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+/**
+ * 2026-09-13 (사용자 결정) — 폭풍의 눈의 **처음 반경 = 눈 중심에서 가장 먼 맵 꼭짓점까지의 거리**(+`STORM_EYE_START_MARGIN_M`).
+ * 그래서 시작 순간에는 맵 사각형 전체가 원 안(안전)이고, 거기서 `HAZARD_FULL_S` 에 걸쳐 서서히 좁아진다. 예전의 고정 300 m 는
+ * 시작하자마자 맵의 평균 43 % 를 한꺼번에 삼켰다 (강하 지점이 그 안에 들어 있을 확률 47 %). `STORM_EYE_RADIUS_START` 는 하한으로만
+ * 남는다. 계획(`HazardPlan`)에 필드를 더하지 않고 눈 중심에서 매번 계산하므로 옛 호스트의 `hz sync` 도 같은 답을 낸다.
+ */
+export function stormEyeStartRadius(plan: Pick<HazardPlan, 'eyeX' | 'eyeZ'>): number {
+  const far = Math.hypot(HALF + Math.abs(plan.eyeX), HALF + Math.abs(plan.eyeZ)) + STORM_EYE_START_MARGIN_M;
+  return far > STORM_EYE_RADIUS_START ? far : STORM_EYE_RADIUS_START;
 }
 
 /** 빈 도형 하나 (풀에서 꺼내 쓴다). */
@@ -75,7 +88,8 @@ export function buildZones(plan: HazardPlan, missionTime: number, pool: HazardZo
     z.shape = 'circle';
     z.center.x = plan.eyeX;
     z.center.z = plan.eyeZ;
-    z.radius = STORM_EYE_RADIUS_START + (STORM_EYE_RADIUS_END - STORM_EYE_RADIUS_START) * progress;
+    const r0 = stormEyeStartRadius(plan);
+    z.radius = r0 + (STORM_EYE_RADIUS_END - r0) * progress;
     z.dirX = 0;
     z.dirZ = 0;
     z.safeInside = true;

@@ -137,6 +137,7 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.lastThreat = -1;
   sys.boarded = false;
+  sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편
   sys.allDeadCheckTimer = -1;
   sys.disconnectAbortTimer = -1;
   sys.autoReturnTimer = -1;
@@ -257,6 +258,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.completeTimer = -1;
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.boarded = false;
+  sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편
   sys.allDeadCheckTimer = -1;
   sys.disconnectAbortTimer = -1;
   sys.autoReturnTimer = -1;

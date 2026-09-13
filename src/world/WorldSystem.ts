@@ -28,7 +28,8 @@ import { type BuildCtx, PLAY_LIMIT } from './build';
 import { Crates } from './Crates';
 import { Gather } from './Gather';
 import { Hazard } from './Hazard';
-import { generateLayout, padClearance, type WorldLayout } from './layout';
+import { drawHazardKind } from './hazard/parts/Plan';
+import { extractionPadCount, generateLayout, padClearance, type WorldLayout } from './layout';
 import { Nests } from './Nests';
 import { Noise } from './noise';
 import { Outposts } from './Outposts';
@@ -220,7 +221,15 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.noise = noise;
     // 행성이 있으면 팔레트는 데이터로 정해진다; 없으면 시드 추첨 (core 의 하늘 추첨과 짝이 맞는 기존 동작)
     this.biome = biomeById(def?.biome) ?? pickBiome(this.seed);
-    this.layout = generateLayout(rng.fork('layout'));
+    /* 2026-09-13 — **재해 종류를 레이아웃보다 먼저** 뽑는다 (`Plan.drawHazardKind` — 루트의 `'hazard'` fork 첫 draw, `Hazard.build`
+     * 가 같은 값을 다시 뽑는다). 독성 포자 레이드는 중앙 강하 · 외곽 탈출 패드라서다. 탈출 패드 수(행성 threat · 포자)도 자기 fork
+     * 에서 한 번 뽑는다. fork 는 부모를 전진시키지 않으므로 둘 다 다른 스트림을 밀지 않고, 모든 클라이언트가 같은 답을 낸다. */
+    const hazardKind = drawHazardKind(rng, def?.hazards ?? [], this.biome.id);
+    const sporeLayout = hazardKind === 'spores';
+    this.layout = generateLayout(rng.fork('layout'), {
+      extractionCount: extractionPadCount(rng.fork('extractionPads'), getPlanet(this.planet)?.threat ?? 1, sporeLayout),
+      sporeLayout,
+    });
     this.spawnRng = rng.fork('spawns');
     lap('layout');
 
@@ -845,6 +854,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   /** Phase 3: runtime obstacle (dropped cover / supply crate). Lives in the same hash as the props; `clear()` drops it with the world. */
   addObstacle(obstacle: Obstacle): () => void {
     const entry = { position: obstacle.position, radius: obstacle.radius, height: obstacle.height, stamp: 0, kind: 'dynamic', destructible: obstacle.destructible } as Obstacle & { stamp: number; kind: string };
+    // 2026-09-13 (extraction 탈출 개편): 사각 콜라이더도 싣는다 — 착륙한 탈출 함선의 외피가 `Obstacle.box` 로 들어온다.
+    // `radius` 는 호출부가 외접원(`hypot(halfX, halfZ)`)으로 채운다 (SpatialHash.addBox 와 같은 규약). 원기둥 호출부는 그대로다.
+    if (obstacle.box) entry.box = obstacle.box;
     this.hash.insert(entry);
     let removed = false;
     return () => { if (removed) return; removed = true; this.hash.remove(entry); };

@@ -63,3 +63,5 @@ export * from './charBuffs';
 export * from './lootRolls';
 /* appended (2026-09-12): 「이번 레이드에서 얻은 아이템」 표식 — 아이템 회수 계약의 개수 · 스택 분리 · 사선 띠 (docs/plans/consumables-keys-favorites.md §5-2) */
 export * from './raidFound';
+/* appended (2026-09-13): 탈출 개편 — `ctx.extraction` (적 출입 금지 영역 · 출발 유예 상태) */
+export * from './extraction';

@@ -1,20 +1,37 @@
 import * as THREE from 'three';
 import type {
   GameContext, GameSystem, Interactable, ExtractionPointDef, PeerId, ExtractionMessage, ExtractionRequest, ExtractionSyncState,
+  ExtractionRef, ExtractionStage,
 } from '@/shared';
-import { EXTRACTION_COUNTDOWN, PlayerFlags } from '@/shared';
+import {
+  EXTRACTION_AUTO_DEPART_IDLE_S, EXTRACTION_COUNTDOWN, EXTRACTION_DEPART_GRACE_S, EXTRACTION_LIFTOFF_TO_COMPLETE_S, PlayerFlags,
+} from '@/shared';
 import { ExtractionConsole } from './Console';
-import { Dropship } from './Ship';
+import { BAY_HALF_W, BAY_Z_MAX, BAY_Z_MIN, Dropship, LIFTOFF_SPOOL_S } from './Ship';
 import { FlareColumn, DustRing } from './Particles';
+import { ShipHull } from './Hull';
+import { DepartureCinematic } from './Cinematic';
 
 const SHIP_INCOMING_AT = 12;      // seconds remaining when the ship starts its approach
 const APPROACH_DURATION = 8;      // approach phase; descent (4.2 s) follows → touchdown ≈ 0 s
-/** Host → clients countdown resync interval (seconds). Clients decrement locally in between. */
+/** Host → clients countdown / departure resync interval (seconds). Clients decrement locally in between. */
 const NET_TICK_INTERVAL = 0.5;
+/** Host → clients auto-departure idle timer resync interval (seconds). */
+const NET_WAIT_INTERVAL = 1.0;
 /** Client: after the host reports touchdown, force-place the ship if it has not landed locally within this time. */
 const NET_LAND_FALLBACK = 1.0;
 /** Id used for the local player in the boarded set when there is no network id. */
 const LOCAL_ID = 'local';
+/**
+ * 2026-09-13: seconds after the liftoff when the flow resets for everyone the ship left behind. **Later than the riders'
+ * result screen** (`EXTRACTION_LIFTOFF_TO_COMPLETE_S`): an extracted host leaves the mission there, so by the time the
+ * remaining squad resets, the host role has already moved to one of them and a console press reaches a host that can act.
+ */
+const LEFT_BEHIND_RESET_S = EXTRACTION_LIFTOFF_TO_COMPLETE_S + 1;
+/** Client: extra wait over the host's reset before resetting on its own (the host may be the one who left). */
+const CLIENT_RESET_SLACK_S = 0.5;
+
+const _v = new THREE.Vector3();
 
 interface PadEntry {
   def: ExtractionPointDef;
@@ -23,16 +40,25 @@ interface PadEntry {
 }
 
 /**
- * Extraction flow: pad consoles → countdown + flare → ship flight-in / landing → boarding → interior switch → liftoff.
+ * Extraction flow: pad consoles → countdown + flare → ship flight-in / landing → boarding → **departure grace** → liftoff.
  * Emits the `extraction:*` events; GameFlowSystem owns the phase transitions.
  *
+ * 2026-09-13 (탈출 개편, 사용자 결정):
+ *   - No defense. `EXTRACTION_COUNTDOWN` (20 s) is just the wait for the ship.
+ *   - Touchdown → `EXTRACTION_AUTO_DEPART_IDLE_S` (60 s). Any living boarded player holding the interior switch — or that
+ *     timer running out — starts an uncancellable `EXTRACTION_DEPART_GRACE_S` (10 s) grace. People may still board.
+ *     At 0 the ship leaves with **whoever is aboard and alive** (possibly nobody).
+ *   - Riders: controls off, attached to the ship, `DepartureCinematic` takes the camera, `ui:cinematic` fades the HUD.
+ *   - Everyone else keeps playing. `LEFT_BEHIND_RESET_S` after the liftoff their flow resets (`extraction:reset`) and any
+ *     console can call a new ship. When nobody alive stays behind (`squadDone`) the raid ends for all, as before.
+ *   - The landed hull is a set of world colliders (`Hull.ts`) and the bay is closed to enemies only (`ctx.extraction`).
+ *   - A corpse lying in the bay rides with the ship and is gone with it (`CorpsesRef.attachCorpse` / `removeCorpse`).
+ *
  * Multiplayer (all gated on `ctx.isMultiplayer`, so single-player is untouched):
- *   - Authority (host): runs the flow exactly as single-player and mirrors every step to the others with
- *     `ExtractionMessage`s ('ex'); accepts `ExtractionRequest`s ('exq') from clients (activate / board / liftoff).
- *   - Client: builds the same pads (deterministic world), forwards console / switch interactions as requests,
- *     and applies the host's 'ex' messages (countdown resync every 0.5 s, ship approach, landing, boarding, liftoff).
- *   - Liftoff gate: every *required* player must be boarded — required = local player if alive + every remote
- *     player that is `connected && !stale && !isDead`.
+ *   - Authority (host): runs the flow and mirrors every step with `ExtractionMessage`s ('ex'); accepts `ExtractionRequest`s
+ *     ('exq') from clients (activate / board / liftoff = start the departure grace / sync).
+ *   - Client: builds the same pads (deterministic world), forwards console / switch interactions as requests, and applies
+ *     the host's messages (countdown / grace / idle resync, ship approach, landing, boarding, liftoff, reset).
  */
 export class ExtractionSystem implements GameSystem {
   readonly name = 'extraction';
@@ -53,6 +79,7 @@ export class ExtractionSystem implements GameSystem {
   private landed = false;
   /** Local player is inside the bay. */
   private boarded = false;
+  /** The ship has left (liftoff issued). */
   private lifting = false;
   private doorsClosedEmitted = false;
   private lastBeepSecond = -1;
@@ -65,8 +92,27 @@ export class ExtractionSystem implements GameSystem {
    * (2026-09-10: a snapshot taken at boarding left the player standing on thin air the moment the ship climbed).
    */
   private shipBounds = { center: new THREE.Vector3(), halfExtents: new THREE.Vector3() };
-  /** Local player is attached to the ship for the climb (`rideAlong` in `liftoff`). */
+  /** Local player is attached to the ship for the climb (`liftoff`). */
   private riding = false;
+
+  /* ── 2026-09-13: departure grace / auto departure / left behind ── */
+  /** Seconds until the idle timer starts the grace by itself (-1 = not counting: not landed, departing or gone). */
+  private idleRemaining = -1;
+  private departing = false;
+  private departRemaining = -1;
+  private departAuto = false;
+  private lastDepartSecond = -1;
+  /** Seconds since the liftoff (drives the left-behind reset). */
+  private liftoffElapsed = 0;
+  /** The liftoff left nobody alive outside — the raid is over for everyone (GameFlow completes all). */
+  private squadDone = false;
+  /** Peers that left aboard (host's list / the `liftoff` message) — a corpse of theirs made mid-climb belongs on the deck. */
+  private riderIds = new Set<string>();
+  private readonly hull = new ShipHull();
+  private readonly cinematic = new DepartureCinematic();
+  /** Corpses lying in the bay (they leave with the ship). */
+  private shipCorpses: string[] = [];
+  private waitSendAccum = 0;
 
   /* ── multiplayer state ── */
   /** Host: every peer (incl. local) currently inside the bay. */
@@ -75,7 +121,6 @@ export class ExtractionSystem implements GameSystem {
   /** Client: latest `boarding` message from the host. */
   private clientBoardedCount = 0;
   private clientRequiredCount = 0;
-  private clientReady = false;
   /** Client: > 0 while waiting for the local ship to touch down after the host's `shipLanded`. */
   private landFallbackTimer = -1;
   /** Scratch for required-player counting (host). */
@@ -89,6 +134,7 @@ export class ExtractionSystem implements GameSystem {
     this.flare = new FlareColumn();
     this.dust = new DustRing();
     ctx.scene.add(this.ship.root, this.flare.group, this.dust.pool.points);
+    ctx.extraction = this.createRef();
 
     this.unsubs.push(
       ctx.bus.on('world:ready', () => { this.buildPads(); this.ensureNetHooks(); }),
@@ -102,7 +148,7 @@ export class ExtractionSystem implements GameSystem {
       ctx.bus.on('net:peerLeft', ({ id }) => {
         if (!this.isHost()) return;
         this.boardedPeers.delete(id);
-        if (this.landed) this.broadcastBoarding();
+        if (this.landed && !this.lifting) this.broadcastBoarding();
       }),
       // Client: once the hellpod has landed (deploying → playing) ask the host for the current extraction stage.
       // Harmless on a normal start (host answers `idle`); on a rejoin it rebuilds countdown / ship / boarding state.
@@ -115,24 +161,52 @@ export class ExtractionSystem implements GameSystem {
       ctx.bus.on('net:peerSuspended', ({ id, suspended }) => {
         if (!this.isHost()) return;
         if (suspended) this.boardedPeers.delete(id);
-        if (this.landed) this.broadcastBoarding();
+        if (this.landed && !this.lifting) this.broadcastBoarding();
       }),
+      // 2026-09-13: someone died in the bay → the corpse lies on the deck and rides with the ship (every client decides locally)
+      ctx.bus.on('corpse:playerSpawned', ({ id, ownerId, position }) => this.onCorpseSpawned(id, ownerId, position)),
     );
   }
 
+  /** `ctx.extraction` — live getters over this system (no copies to keep in sync). */
+  private createRef(): ExtractionRef {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const sys = this;
+    return {
+      get stage(): ExtractionStage { return sys.stage; },
+      get departRemaining(): number { return sys.departing ? sys.departRemaining : -1; },
+      get idleRemaining(): number { return sys.landed && !sys.departing && !sys.lifting ? sys.idleRemaining : -1; },
+      get riding(): boolean { return sys.riding; },
+      isInShipBay: (p) => !!sys.ship && (sys.landed || sys.lifting) && sys.ship.containsWorldPoint(p),
+      keepEnemyOut: (p, r) => !!sys.ship && (sys.landed || sys.lifting) && ShipHull.keepEnemyOut(sys.ship, p, r),
+    };
+  }
+
+  get stage(): ExtractionStage {
+    return this.lifting ? 'liftoff'
+      : this.departing ? 'departing'
+      : this.landed ? 'landed'
+      : this.shipCalled ? 'shipIncoming'
+      : this.activePad ? 'countdown'
+      : 'idle';
+  }
+
   /**
-   * Phase 7 host migration. New host: the client mirror (activePad / countdown / ship / landed / lifting) already holds
-   * the last `ex` state, so it simply becomes authoritative — the countdown keeps ticking (now broadcast), the ship
-   * continues its flight and `boardedPeers` starts from the last `boarding` list. Demoted / other clients: ask the
+   * Phase 7 host migration. New host: the client mirror (activePad / countdown / ship / landed / grace / lifting) already
+   * holds the last `ex` state, so it simply becomes authoritative — the countdown and the grace keep ticking (now broadcast),
+   * the ship continues its flight and `boardedPeers` starts from the last `boarding` list. Demoted / other clients: ask the
    * new host for a fresh `sync` (numbers only when a flow is already active locally).
+   * 2026-09-13: a rider (on its way out, or already on the result screen) takes no part.
    */
   private onHostChanged(isLocalHost: boolean): void {
     const ctx = this.ctx;
     if (!ctx.isMultiplayer || !ctx.net) return;
+    if (this.riding) return;
     if (!(ctx.isGameplayPhase() || ctx.phase === 'deploying')) return;
     if (isLocalHost) {
       this.landFallbackTimer = -1;
       this.netTickAccum = 0;
+      this.waitSendAccum = 0;
       this.boardedPeers.clear();
       for (const id of this.lastBoarded) this.boardedPeers.add(id);
       if (this.boarded) this.boardedPeers.add(this.localId()); else this.boardedPeers.delete(this.localId());
@@ -142,10 +216,12 @@ export class ExtractionSystem implements GameSystem {
         const r = ctx.net.getRemotePlayer(id);
         if (!r || !r.connected || r.suspended) this.boardedPeers.delete(id);
       }
-      if (this.activePad) {
+      if (this.activePad && !this.lifting) {
         // mirror the current stage once so every client (and the late-joining ones) is on the same numbers
-        this.sendEx({ t: 'ex', ev: 'tick', remaining: this.countdown });
+        if (this.counting) this.sendEx({ t: 'ex', ev: 'tick', remaining: this.countdown });
         if (this.landed) this.broadcastBoarding(false);
+        if (this.departing) this.sendEx({ t: 'ex', ev: 'depart', remaining: this.departRemaining, auto: this.departAuto });
+        else if (this.landed && this.idleRemaining >= 0) this.sendEx({ t: 'ex', ev: 'wait', remaining: this.idleRemaining });
       }
     } else {
       this.lastBoarded = [];
@@ -190,6 +266,7 @@ export class ExtractionSystem implements GameSystem {
         break;
       }
       case 'board': {
+        if (this.lifting) return;
         const had = this.boardedPeers.has(from);
         if (msg.inside === had) return;
         if (msg.inside) this.boardedPeers.add(from); else this.boardedPeers.delete(from);
@@ -197,7 +274,10 @@ export class ExtractionSystem implements GameSystem {
         break;
       }
       case 'liftoff': {
-        if (this.ctx.phase === 'shipLanded' && !this.lifting && this.landed && this.allRequiredBoarded()) this.liftoff();
+        // 2026-09-13: the switch no longer lifts off — it starts the grace, and only from someone who is actually aboard.
+        if (!this.ctx.isGameplayPhase() || !this.landed || this.lifting || this.departing) return;
+        if (!this.boardedPeers.has(from)) return;
+        this.startDeparture(false);
         break;
       }
       case 'sync':
@@ -210,29 +290,53 @@ export class ExtractionSystem implements GameSystem {
   /** Host: snapshot of the current flow for a late / rejoining client. */
   private buildSyncState(): ExtractionSyncState {
     const stage: ExtractionSyncState['stage'] = this.lifting ? 'liftoff'
+      : this.departing ? 'departing'
       : this.landed ? 'shipLanded'
       : this.shipCalled ? 'shipIncoming'
       : this.activePad ? 'countdown'
       : 'idle';
-    return {
+    const state: ExtractionSyncState = {
       stage,
       padId: this.activePad ? this.activePad.def.id : null,
       remaining: this.countdown,
       boarded: Array.from(this.boardedPeers),
       required: this.collectRequired(this.requiredIds).slice(),
     };
+    if (this.landed && !this.departing && !this.lifting) state.idleRemaining = this.idleRemaining;
+    if (this.departing) { state.departRemaining = this.departRemaining; state.departAuto = this.departAuto; }
+    if (this.lifting) { state.sinceLiftoff = this.liftoffElapsed; state.squadDone = this.squadDone; }
+    return state;
   }
 
   /**
    * Client: apply the host's full state (reply to `exq sync`). Runs each stage's normal entry path in order so
-   * GameFlow sees the same `extraction:*` events (activated → shipLanded → liftoff) it would have seen live.
+   * GameFlow sees the same `extraction:*` events (activated → shipLanded → departureStarted → liftoff) it would have seen live.
    */
   private applySyncState(state: ExtractionSyncState): void {
-    if (state.stage === 'idle') return;
+    if (state.stage === 'idle') {
+      // 2026-09-13: our flow outlived the host's (it already reset after a departure we were left behind by) → follow it.
+      if ((this.activePad || this.landed || this.lifting) && !this.riding) this.departedReset();
+      return;
+    }
     if (this.activePad) {
-      // Already following the live stream → only refresh the countdown / boarding numbers.
+      // Already following the live stream → refresh the numbers and catch up on a stage we missed.
       if (this.counting) this.countdown = Math.max(0, state.remaining);
       this.applyBoarding(state.boarded, state.required);
+      if (state.stage === 'shipLanded' || state.stage === 'departing' || state.stage === 'liftoff') {
+        if (!this.landed && !this.lifting) this.forceLandNow();
+      }
+      if (this.landed && !this.departing && !this.lifting && typeof state.idleRemaining === 'number') {
+        this.idleRemaining = Math.max(0, state.idleRemaining);
+      }
+      if (state.stage === 'departing' && this.landed && !this.lifting) {
+        const rem = typeof state.departRemaining === 'number' ? Math.max(0, state.departRemaining) : EXTRACTION_DEPART_GRACE_S;
+        if (!this.departing) this.startDeparture(state.departAuto === true, rem);
+        else this.departRemaining = rem;
+      }
+      if (state.stage === 'liftoff' && !this.lifting) {
+        this.liftoff(state.squadDone ?? true);
+        if (typeof state.sinceLiftoff === 'number') this.liftoffElapsed = Math.max(0, state.sinceLiftoff);
+      }
       return;
     }
     const pad = this.pads.find((p) => p.def.id === state.padId);
@@ -241,10 +345,19 @@ export class ExtractionSystem implements GameSystem {
     this.countdown = Math.max(0, state.remaining);
     if (state.stage === 'shipIncoming') {
       this.callShip();
-    } else if (state.stage === 'shipLanded' || state.stage === 'liftoff') {
+    } else if (state.stage === 'shipLanded' || state.stage === 'departing' || state.stage === 'liftoff') {
       this.forceLandNow();
       this.applyBoarding(state.boarded, state.required);
-      if (state.stage === 'liftoff') this.liftoff(); // ship already leaving: we watch it go (not boarded → controls kept)
+      if (typeof state.idleRemaining === 'number') this.idleRemaining = Math.max(0, state.idleRemaining);
+      if (state.stage === 'departing') {
+        this.startDeparture(state.departAuto === true,
+          typeof state.departRemaining === 'number' ? Math.max(0, state.departRemaining) : EXTRACTION_DEPART_GRACE_S);
+      }
+      if (state.stage === 'liftoff') {
+        // ship already leaving: we watch it go (not boarded → controls kept) and reset with the rest of the squad
+        this.liftoff(state.squadDone ?? true);
+        if (typeof state.sinceLiftoff === 'number') this.liftoffElapsed = Math.max(0, state.sinceLiftoff);
+      }
     }
     this.ctx.bus.emit('ui:notify', { text: '탈출 진행 상황 동기화됨', kind: 'info', duration: 2.5 });
   }
@@ -257,7 +370,6 @@ export class ExtractionSystem implements GameSystem {
     const changed = n !== this.clientBoardedCount || required.length !== this.clientRequiredCount;
     this.clientBoardedCount = n;
     this.clientRequiredCount = required.length;
-    this.clientReady = required.length > 0 && n === required.length;
     return changed;
   }
 
@@ -268,6 +380,8 @@ export class ExtractionSystem implements GameSystem {
     if (hostId && from !== hostId) return;
     const ship = this.ship;
     if (!ship) return;
+    // 2026-09-13: a rider is on its way out — whatever the squad does next (a reset, a new ship) is not its flow any more.
+    if (this.riding) return;
     switch (msg.ev) {
       case 'activated': {
         if (this.activePad) return;
@@ -286,7 +400,20 @@ export class ExtractionSystem implements GameSystem {
         break;
       case 'boarding': {
         const changed = this.applyBoarding(msg.boarded, msg.required);
-        if (changed && this.landed) this.ctx.bus.emit('ui:notify', { text: `${this.clientBoardedCount}/${this.clientRequiredCount} 탑승`, kind: this.clientReady ? 'success' : 'info', duration: 2 });
+        if (changed && this.landed && !this.lifting) {
+          this.ctx.bus.emit('ui:notify', { text: `탑승 ${this.clientBoardedCount}/${this.clientRequiredCount}`, kind: 'info', duration: 2 });
+        }
+        break;
+      }
+      case 'wait':
+        if (this.landed && !this.departing && !this.lifting) this.idleRemaining = Math.max(0, msg.remaining);
+        break;
+      case 'depart': {
+        if (!this.activePad || this.lifting) return;
+        if (!this.landed) this.forceLandNow();
+        if (!this.landed) return;
+        if (!this.departing) this.startDeparture(msg.auto === true, Math.max(0, msg.remaining));
+        else this.departRemaining = Math.max(0, msg.remaining);
         break;
       }
       case 'sync':
@@ -298,11 +425,13 @@ export class ExtractionSystem implements GameSystem {
         if (this.activePad && !this.lifting) {
           // The host may have landed the ship before we did (message loss / late join) — never miss the ride visuals.
           if (!this.landed) this.forceLandNow();
-          this.liftoff();
+          if (Array.isArray(msg.riders)) for (const id of msg.riders) if (typeof id === 'string') this.riderIds.add(id);
+          this.liftoff(msg.squadDone ?? true);
         }
         break;
       case 'reset':
-        this.resetMission(false);
+        // after a departure that left us behind this is the host's reset; otherwise (abort / new mission) `flow` follows
+        if (this.activePad || this.landed || this.lifting) this.departedReset();
         break;
     }
   }
@@ -314,10 +443,10 @@ export class ExtractionSystem implements GameSystem {
     // Downed (전투불능) players cannot board either: they neither block nor count toward the liftoff (Phase 2).
     if (!(ctx.player?.isDead ?? false) && !(ctx.player?.isDowned ?? false)) out.push(this.localId());
     const net = ctx.net;
-    if (net) {
+    if (net && ctx.isMultiplayer) {
       for (const r of net.getRemotePlayers()) {
-        // Peers walking the shared ship (IN_HUB) are not in this mission and never block the liftoff.
-        // Phase 7: a suspended member (socket down, host-simulated ghost) cannot board either → not required, not extracted.
+        // Peers walking the shared ship (IN_HUB) are not in this mission and never count.
+        // Phase 7: a suspended member (socket down, host-simulated ghost) cannot board either → not counted, not extracted.
         if (r.suspended) continue;
         if (r.connected && !r.stale && !r.isDead && (r.flags & (PlayerFlags.IN_HUB | PlayerFlags.DOWNED)) === 0) out.push(r.id);
       }
@@ -325,37 +454,21 @@ export class ExtractionSystem implements GameSystem {
     return out;
   }
 
-  private allRequiredBoarded(): boolean {
-    const req = this.collectRequired(this.requiredIds);
-    if (req.length === 0) return false;
-    for (const id of req) if (!this.boardedPeers.has(id)) return false;
-    return true;
-  }
-
   private broadcastBoarding(notify = true): void {
     const required = this.collectRequired(this.requiredIds).slice();
     let n = 0;
     for (const id of required) if (this.boardedPeers.has(id)) n++;
     this.sendEx({ t: 'ex', ev: 'boarding', boarded: Array.from(this.boardedPeers), required });
-    if (notify && this.landed) {
-      this.ctx.bus.emit('ui:notify', { text: `${n}/${required.length} 탑승`, kind: n === required.length && n > 0 ? 'success' : 'info', duration: 2 });
+    if (notify && this.landed && !this.lifting) {
+      this.ctx.bus.emit('ui:notify', { text: `탑승 ${n}/${required.length}`, kind: 'info', duration: 2 });
     }
   }
 
-  /** Liftoff switch readiness (single-player: local boarded; multiplayer: everyone required is boarded). */
-  private liftoffReady(): boolean {
-    if (!this.boarded || this.ctx.phase !== 'shipLanded' || this.lifting) return false;
-    if (this.isClient()) return this.clientReady;
-    if (this.isHost()) return this.allRequiredBoarded();
-    return true;
-  }
-
-  private waitingPrompt(): string {
-    if (this.isClient()) return `탑승 대기 중 (${this.clientBoardedCount}/${this.clientRequiredCount})`;
-    const req = this.collectRequired(this.requiredIds);
-    let n = 0;
-    for (const id of req) if (this.boardedPeers.has(id)) n++;
-    return `탑승 대기 중 (${n}/${req.length})`;
+  /** The interior switch can start the grace: the local player is aboard and alive, the ship waits on the pad. */
+  private switchReady(): boolean {
+    const p = this.ctx.player;
+    if (!this.boarded || !this.landed || this.departing || this.lifting || !this.ctx.isGameplayPhase()) return false;
+    return !!p && !p.isDead && !(p.isDowned ?? false);
   }
 
   /* ── Pads / consoles ─────────────────────────────────────────────────── */
@@ -434,7 +547,6 @@ export class ExtractionSystem implements GameSystem {
     // Flare rises from the pad center (between console and ship landing spot).
     this.flare!.start(center.clone().addScaledVector(this.dir, 2.5));
 
-    // EnemySystem subscribes to extraction:activated / extraction:liftoff itself (start/stop waves).
     this.ctx.bus.emit('extraction:activated', { pointId: pad.def.id, position: center, duration });
     this.ctx.bus.emit('audio:play', { id: 'extract_activate', position: pad.console.interactPoint });
   }
@@ -459,16 +571,23 @@ export class ExtractionSystem implements GameSystem {
     this.landed = true;
     this.counting = false;
     this.landFallbackTimer = -1;
+    this.idleRemaining = EXTRACTION_AUTO_DEPART_IDLE_S;
+    this.waitSendAccum = 0;
     this.flare!.stop();
+    const ship = this.ship!;
+    // 2026-09-13: the hull is solid from now on — enemies, bullets and grenades stop at it (`Hull.ts`)
+    this.hull.register(this.ctx.world, ship);
     const pos = this.shipLandPos.clone();
     this.ctx.bus.emit('camera:shake', { intensity: 0.9, duration: 0.7 });
     this.ctx.bus.emit('audio:play', { id: 'ship_land', position: pos });
     this.ctx.bus.emit('extraction:shipLanded', { position: pos });
     this.sendEx({ t: 'ex', ev: 'shipLanded' });
-    // Seed the clients' n/m display right away (no toast for this one).
-    if (this.isHost()) this.broadcastBoarding(false);
+    // Seed the clients' n/m display and the idle timer right away (no toast for this one).
+    if (this.isHost()) {
+      this.broadcastBoarding(false);
+      this.sendEx({ t: 'ex', ev: 'wait', remaining: this.idleRemaining });
+    }
 
-    const ship = this.ship!;
     const sw: Interactable = {
       id: 'ship_liftoff_switch',
       position: ship.interiorSwitchWorld,
@@ -476,41 +595,120 @@ export class ExtractionSystem implements GameSystem {
       holdTime: 1.0,
       hidePillar: true,   // 2026-09-10: 함선 안 출발 버튼에도 감지 빛기둥을 세우지 않는다
       getPrompt: () => {
-        if (!this.boarded || this.ctx.phase !== 'shipLanded') return null;
-        if (this.liftoffReady()) return '이륙 스위치 작동 (E 길게)';
-        return this.ctx.isMultiplayer ? this.waitingPrompt() : null;
+        if (!this.switchReady()) return null;
+        return `출발 시퀀스 시작 (E 길게) · ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 이륙`;
       },
-      canInteract: () => this.liftoffReady(),
+      canInteract: () => this.switchReady(),
       interact: () => {
         if (this.isClient()) this.sendReq({ t: 'exq', ev: 'liftoff' });
-        else this.liftoff();
+        else this.startDeparture(false);
       },
     };
     this.ctx.interactables.register(sw);
   }
 
-  private liftoff(): void {
+  /**
+   * 2026-09-13: the uncancellable departure grace. `auto` = the idle timer ran out (nobody pressed the switch).
+   * Authority: also broadcast. Clients only ever enter here from the host's `depart` / `sync`.
+   */
+  private startDeparture(auto: boolean, remaining: number = EXTRACTION_DEPART_GRACE_S): void {
+    if (this.departing || this.lifting || !this.landed) return;
+    this.departing = true;
+    this.departAuto = auto;
+    this.departRemaining = Math.max(0, remaining);
+    this.idleRemaining = -1;
+    this.lastDepartSecond = -1;
+    this.netTickAccum = 0;
+    this.ctx.bus.emit('extraction:departureStarted', { duration: EXTRACTION_DEPART_GRACE_S, auto });
+    this.ctx.bus.emit('audio:play', { id: 'extract_activate', position: this.ship!.interiorSwitchWorld });
+    this.sendEx({ t: 'ex', ev: 'depart', remaining: this.departRemaining, auto });
+  }
+
+  /**
+   * The ship leaves (end of the grace — or called directly by a smoke). Whoever is aboard and alive right now rides along;
+   * everyone else keeps their controls. `squadDoneFromHost` is the host's verdict on a client.
+   */
+  private liftoff(squadDoneFromHost?: boolean): void {
     if (this.lifting) return;
+    const ctx = this.ctx;
     this.lifting = true;
+    this.departing = false;
+    this.departRemaining = -1;
+    this.idleRemaining = -1;
+    this.liftoffElapsed = 0;
     this.doorsClosedEmitted = false;
     const ship = this.ship!;
-    const player = this.ctx.player;
+    const player = ctx.player;
+    const alive = !!player && !player.isDead && !(player.isDowned ?? false);
     ship.beginLiftoff();
-    this.ctx.interactables.unregister('ship_liftoff_switch');
-    // Multiplayer: only a boarded, living local player rides along — anyone left outside keeps their controls.
-    const rideAlong = !this.ctx.isMultiplayer || (this.boarded && !(player?.isDead ?? false));
-    this.riding = !!player && rideAlong;
+    ctx.interactables.unregister('ship_liftoff_switch');
+
+    let squadDone: boolean;
+    const riders: PeerId[] = [];
+    if (this.isClient()) {
+      squadDone = squadDoneFromHost ?? true;
+    } else {
+      // Authority: riders = the required (alive, connected, in the mission) who are in the bay right now. The raid is over
+      // for everyone only when nobody alive is left outside — and somebody actually left (an empty ship ends nothing).
+      const req = this.collectRequired(this.requiredIds);
+      const me = this.localId();
+      for (const id of req) {
+        const aboard = id === me ? this.boarded : this.boardedPeers.has(id);
+        if (aboard) riders.push(id);
+      }
+      squadDone = riders.length > 0 && riders.length === req.length;
+    }
+    this.squadDone = squadDone;
+    for (const id of riders) this.riderIds.add(id);
+
+    this.riding = !!player && this.boarded && alive;
     if (this.riding && player) {
+      const net = ctx.net;
+      if (net?.localId) this.riderIds.add(net.localId);
+      // 2026-09-13: only now does the body switch to the moving bay box — while landed the bay is walked in world mode
+      // against the hull colliders, so people can step in and out through the ramp (the box clamp never let them out).
+      ship.writeInteriorBounds(this.shipBounds, player.position);
+      player.setShipInterior(this.shipBounds);
       player.setControlsEnabled(false);
       player.attachTo(ship.root);
-    } else if (player && this.boarded) {
-      // Standing in the bay but not riding (dead in multiplayer): let go of the deck rather than be dragged up
-      // by a box that is now climbing away.
-      player.setShipInterior(null);
+      this.cinematic.start(ctx, ship);
     }
-    this.ctx.bus.emit('extraction:liftoff', { position: ship.position.clone() });
-    this.ctx.bus.emit('audio:play', { id: 'ship_liftoff', position: ship.position });
-    this.sendEx({ t: 'ex', ev: 'liftoff' });
+    // A body standing in the bay but not riding (dead / downed) was never on the box — it stays on the pad.
+    ctx.bus.emit('extraction:liftoff', { position: ship.position.clone(), aboard: this.riding, squadDone });
+    ctx.bus.emit('audio:play', { id: 'ship_liftoff', position: ship.position });
+    this.sendEx({ t: 'ex', ev: 'liftoff', riders, squadDone });
+  }
+
+  /**
+   * 2026-09-13: the ship left without us → back to square one while the raid goes on. Corpses that flew off in the bay are
+   * gone (their gear with them). The player itself is not touched — it may be dead and spectating.
+   */
+  private departedReset(): void {
+    if (this.riding) return;
+    const had = !!(this.activePad || this.landed || this.lifting);
+    const corpses = this.ctx.corpses;
+    for (const id of this.shipCorpses) corpses?.removeCorpse?.(id);
+    this.shipCorpses.length = 0;
+    this.resetMission(false, true);
+    if (had) this.ctx.bus.emit('extraction:reset', {});
+  }
+
+  /** 2026-09-13: a corpse spawned in the bay lies on the deck and rides with the ship. */
+  private onCorpseSpawned(id: string, ownerId: string, position: THREE.Vector3): void {
+    const ship = this.ship, corpses = this.ctx.corpses;
+    if (!ship || !corpses || typeof corpses.attachCorpse !== 'function') return;
+    if (!(this.landed || this.lifting)) return;
+    const l = ship.bayLocal(position, _v);
+    if (ship.nearGround) {
+      if (!ShipHull.inBay(ship, position, 0.3)) return;
+    } else {
+      // Climbing: the corpse's height came from a surface query far below (and a remote wire lags the ship by metres at
+      // this speed) — only somebody who left aboard can have died in the bay.
+      if (!this.riderIds.has(ownerId)) return;
+    }
+    const lx = THREE.MathUtils.clamp(l.x, -BAY_HALF_W + 0.35, BAY_HALF_W - 0.35);
+    const lz = THREE.MathUtils.clamp(l.z, BAY_Z_MIN + 0.5, BAY_Z_MAX - 0.4);
+    if (corpses.attachCorpse(id, ship.root, _v.set(lx, 0, lz)) && !this.shipCorpses.includes(id)) this.shipCorpses.push(id);
   }
 
   /* ── Frame update ────────────────────────────────────────────────────── */
@@ -543,6 +741,38 @@ export class ExtractionSystem implements GameSystem {
       }
     }
 
+    // 2026-09-13: waiting on the pad → the idle timer; then the grace → liftoff (authority decides both ends).
+    if (this.landed && !this.lifting && ctx.isGameplayPhase()) {
+      if (this.departing) {
+        this.departRemaining = Math.max(0, this.departRemaining - dt);
+        ctx.bus.emit('extraction:departureTick', { stage: 'departing', remaining: this.departRemaining, total: EXTRACTION_DEPART_GRACE_S });
+        const sec = Math.ceil(this.departRemaining);
+        if (sec > 0 && sec !== this.lastDepartSecond) {
+          this.lastDepartSecond = sec;
+          ctx.bus.emit('audio:play', { id: 'countdown_beep', volume: sec <= 3 ? 1 : 0.7, pitch: sec <= 3 ? 1.25 : 1 });
+        }
+        if (this.isHost()) {
+          this.netTickAccum += dt;
+          if (this.netTickAccum >= NET_TICK_INTERVAL) {
+            this.netTickAccum = 0;
+            this.sendEx({ t: 'ex', ev: 'depart', remaining: this.departRemaining, auto: this.departAuto });
+          }
+        }
+        if (ctx.isAuthority && this.departRemaining <= 0) this.liftoff();
+      } else if (this.idleRemaining >= 0) {
+        this.idleRemaining = Math.max(0, this.idleRemaining - dt);
+        ctx.bus.emit('extraction:departureTick', { stage: 'waiting', remaining: this.idleRemaining, total: EXTRACTION_AUTO_DEPART_IDLE_S });
+        if (this.isHost()) {
+          this.waitSendAccum += dt;
+          if (this.waitSendAccum >= NET_WAIT_INTERVAL) {
+            this.waitSendAccum = 0;
+            this.sendEx({ t: 'ex', ev: 'wait', remaining: this.idleRemaining });
+          }
+        }
+        if (ctx.isAuthority && this.idleRemaining <= 0) this.startDeparture(true);
+      }
+    }
+
     // Client: the host reported touchdown but our ship is still in the air → snap it down after a grace period.
     if (this.landFallbackTimer >= 0) {
       this.landFallbackTimer -= dt;
@@ -553,13 +783,26 @@ export class ExtractionSystem implements GameSystem {
     // The bay moves — while landed it only bobs, but during liftoff it climbs away. `PlayerSystem` reads the box
     // (floor + XZ clamp) and derives the rider's world position from `ship.root`; both come from the matrix
     // `ship.update` just wrote, so refresh the box here and the two never disagree by more than a frame.
-    if (ctx.player && this.boarded && (this.riding || !this.lifting)) {
+    if (ctx.player && this.riding) {
       ship.writeInteriorBounds(this.shipBounds, ctx.player.position);
     }
     if (ev.touchdown && !this.landed) this.onShipLanded();
     if (ev.rampClosed && this.lifting && !this.doorsClosedEmitted) {
       this.doorsClosedEmitted = true;
       ctx.bus.emit('extraction:doorsClosed', {});
+    }
+
+    if (this.lifting) {
+      this.liftoffElapsed += dt;
+      // The hull colliders stay while the ship sits on the pad closing its ramp, and go the moment it starts to climb
+      // (a rising roof slab would shove riders sideways — see `Hull.ts`).
+      if (this.hull.registered && ship.liftoffTime >= LIFTOFF_SPOOL_S) this.hull.unregister();
+      if (this.riding) {
+        this.cinematic.update(dt, ctx, ship);
+      } else if (!this.squadDone && ctx.isGameplayPhase()) {
+        const due = LEFT_BEHIND_RESET_S + (ctx.isAuthority ? 0 : CLIENT_RESET_SLACK_S);
+        if (this.liftoffElapsed >= due) this.departedReset();
+      }
     }
 
     // Dust while descending near the ground and during the first seconds of liftoff.
@@ -572,22 +815,20 @@ export class ExtractionSystem implements GameSystem {
       const t = ship.liftoffTime;
       const h = ship.position.y - ship.getGroundY();
       if (t > 1.0 && h < 20) this.dust!.emit(this.shipLandPos, ship.getGroundY(), THREE.MathUtils.clamp(1 - h / 20, 0, 1), dt);
-      if (t > 1.2) ctx.bus.emit('camera:shake', { intensity: 0.12, duration: 0.1 });
+      if (t > 1.2 && !this.riding) ctx.bus.emit('camera:shake', { intensity: 0.12, duration: 0.1 });
     }
 
-    // Boarding volume (local player)
+    // Boarding volume (local player) — open during the grace too. 2026-09-13: a plain volume test; the body keeps walking in
+    // world mode (hull colliders = walls, belly = floor, ramp open) until it rides off (`liftoff`).
     const player = ctx.player;
-    if (player && this.landed && !this.lifting && ctx.phase === 'shipLanded') {
+    if (player && this.landed && !this.lifting && ctx.isGameplayPhase()) {
       const inside = ship.containsWorldPoint(player.position);
       if (inside && !this.boarded) {
         this.boarded = true;
-        ship.writeInteriorBounds(this.shipBounds, player.position);
-        player.setShipInterior(this.shipBounds);
         ctx.bus.emit('extraction:boarded', {});
         this.onLocalBoardingChanged(true);
       } else if (!inside && this.boarded) {
         this.boarded = false;
-        player.setShipInterior(null);
         this.onLocalBoardingChanged(false);
       }
     }
@@ -603,14 +844,21 @@ export class ExtractionSystem implements GameSystem {
   }
 
   /* ── Reset ───────────────────────────────────────────────────────────── */
-  private resetMission(clearPads: boolean): void {
+  /**
+   * `clearPads` — drop the consoles too (abort). `keepPlayer` (2026-09-13, the left-behind reset mid-raid) — do not touch the
+   * local body's attachment / controls: it was never attached, and it may be dead with its controls off on purpose.
+   */
+  private resetMission(clearPads: boolean, keepPlayer = false): void {
     // Tell clients first (no-op outside a hosted session).
     if (this.activePad || this.landed || this.lifting) this.sendEx({ t: 'ex', ev: 'reset' });
+    const wasRiding = this.riding;
     const world = this.ctx.world;
     const padsAreCurrent = !!world && world.ready && this.padsSeed === world.seed;
     if (clearPads || !padsAreCurrent) this.clearPads();
     else for (const p of this.pads) p.console.setState('idle');
     this.ctx.interactables.unregister('ship_liftoff_switch');
+    this.hull.unregister();
+    this.cinematic.stop(this.ctx);
     this.ship?.reset();
     this.flare?.reset();
     this.dust?.reset();
@@ -621,19 +869,28 @@ export class ExtractionSystem implements GameSystem {
     this.landed = false;
     this.lifting = false;
     this.riding = false;
+    this.departing = false;
+    this.departRemaining = -1;
+    this.departAuto = false;
+    this.idleRemaining = -1;
+    this.lastDepartSecond = -1;
+    this.liftoffElapsed = 0;
+    this.squadDone = false;
+    this.riderIds.clear();
+    this.shipCorpses.length = 0;
+    this.waitSendAccum = 0;
     this.doorsClosedEmitted = false;
     this.lastBeepSecond = -1;
     this.boardedPeers.clear();
     this.netTickAccum = 0;
     this.clientBoardedCount = 0;
     this.clientRequiredCount = 0;
-    this.clientReady = false;
     this.lastBoarded = [];
     this.landFallbackTimer = -1;
-    if (this.boarded) {
-      this.ctx.player?.setShipInterior(null);
-      this.boarded = false;
-    }
+    // only a rider was ever put on the bay box (2026-09-13)
+    if (wasRiding) this.ctx.player?.setShipInterior(null);
+    this.boarded = false;
+    if (keepPlayer) return;
     // Player detachment / control re-enable is handled by PlayerSystem on respawn; be defensive anyway.
     this.ctx.player?.attachTo(null);
     this.ctx.player?.setControlsEnabled(true);
@@ -644,6 +901,9 @@ export class ExtractionSystem implements GameSystem {
     this.unhookNet();
     this.clearPads();
     this.ctx.interactables.unregister('ship_liftoff_switch');
+    this.hull.unregister();
+    this.cinematic.stop(this.ctx);
+    if (this.ctx.extraction) this.ctx.extraction = null;
     this.ship?.dispose(); this.ship = null;
     this.flare?.dispose(); this.flare = null;
     this.dust?.dispose(); this.dust = null;

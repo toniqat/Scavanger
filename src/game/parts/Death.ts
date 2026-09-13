@@ -229,9 +229,13 @@ export function checkAllDead(sys: GameFlowSystem): void {
 export function complete(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
-  // Multiplayer: a dead, downed or left-behind player still sees the result screen, but did not extract.
+  // A dead, downed or left-behind player still sees the result screen (the squad was done), but did not extract.
+  // 2026-09-13 (탈출 개편): only the liftoff's `aboard` counts — solo too, since a solo player can now miss the ship.
   const outOfAction = (ctx.player?.isDead ?? false) || (ctx.player?.isDowned ?? false);
-  ctx.stats.extracted = ctx.isMultiplayer ? (sys.boarded && !outOfAction) : true;
+  ctx.stats.extracted = sys.aboardAtLiftoff && !outOfAction;
+  // 2026-09-13: riders who leave while squadmates play on step out of the mission at their result screen (below) — the
+  // raid is not over for the others, so no `flow complete` and no lobby reset.
+  const leaveAlone = ctx.isMultiplayer && sys.aboardAtLiftoff && !sys.squadExtraction;
   ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
   ctx.stats.timeSeconds = ctx.missionTime;
   ctx.stats.mode = ctx.missionMode;
@@ -243,10 +247,17 @@ export function complete(sys: GameFlowSystem): void {
   clearSoloRaid();          // the run is over — nothing left to resume
   ctx.progression?.clearActivePreps();   // A-13: 탈출 — 이번 레이드분 준비물은 여기서 비운다 (사망만으로는 비우지 않는다)
   sys.awardMissionXp();
-  // Host: make sure every client (even one that missed the liftoff message) reaches the result screen.
-  if (ctx.isMultiplayer && ctx.net?.isHost) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
+  // Host: make sure every client (even one that missed the liftoff message) reaches the result screen — only when the raid
+  // really ended for the squad (2026-09-13).
+  if (ctx.isMultiplayer && ctx.net?.isHost && !leaveAlone) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
   sys.setPhase('complete');
   ctx.bus.emit('game:complete', { stats: { ...ctx.stats } });
+  /*
+   * 2026-09-13: `lobby:mission false` — the server hands the host role to a squadmate still in the raid (same path as
+   * `finishReturnToShip`). Done after the settlement above so nothing of ours is uploaded into a raid we left, and after the
+   * result screen is up; the extraction flow of the ones left behind resets a second later (`LEFT_BEHIND_RESET_S`).
+   */
+  if (leaveAlone && typeof ctx.net?.leaveMission === 'function') ctx.net.leaveMission();
   }
 
 /** 레이드 실패: solo death (after DEATH_TO_SCREEN) or a squad wipe (host decision, mirrored by `flow over`). */

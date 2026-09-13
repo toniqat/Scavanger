@@ -151,6 +151,17 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
 
+### 2026-09-13 — 환경 재해 세기 · 독성 포자 배치 · 탈출 패드 수 (`constants.csv` · `tables.csv` · `hazards.csv`)
+
+- **`constants.csv`** 재해 절 끝에 14줄 (owner `world/Hazard` · `world/layout`): `HAZARD_DPS_MAX`(5 — 진행도 1 의 초당 피해, `HAZARD_DPS` 에서
+  선형), `HAZARD_FOG_RAMP_START/END`(0.5 / 1.25 — `hazards.csv` fogMul 의 (fogMul − 1) 에 곱한다), `HAZARD_PARTICLE_RAMP_START/END`(0.35 / 1 —
+  particleCount 에 곱한다), `HAZARD_FRONT_SPAWN_JITTER_RAD`(0.6 — 전선이 강하 지점 쪽 가장자리에서 들어오는 각도 흔들림), `STORM_EYE_START_MARGIN_M`(0 —
+  폭풍의 눈 처음 반경 = 가장 먼 맵 꼭짓점까지 + 이 값), 독성 포자 레이드 배치 `SPORE_SPAWN_CENTER_M`(36) · `SPORE_CENTER_RADIUS_M`(170) ·
+  `SPORE_GROVE_SPAWN_GAP_M`(80) · `SPORE_CENTER_GROVE_GAP_M`(80) · `EXTRACTION_OUTER_MIN_M`(200) · `EXTRACTION_PADS_SPORES_MIN/MAX`(2 / 3).
+  `STORM_EYE_RADIUS_START` 는 이제 **하한**이다 (설명 갱신).
+- **`tables.csv`** 배열 표 둘 신규 — `EXTRACTION_PADS_MIN_BY_THREAT` · `EXTRACTION_PADS_MAX_BY_THREAT` (key 0..2 = 행성 threat 1..3 → 2–3 · 2 · 1–2).
+- **`hazards.csv`** — 모래 폭풍 · 눈보라 `wallOpacity` 0.34 / 0.30 → 0.5 / 0.46, `wallHeight` 72 → 110 (전선 벽이 멀리서 안 보였다 — 이제 포그도 받지 않는다).
+
 ### 2026-09-12 — 특정 아이템 회수 계약: `contracts.csv` 의 `itemDefId` 열 + 8줄 (에이전트 E2)
 
 - 새 목표 **`extract_with_items`** — `itemDefId` 아이템을 `target` 개 **몸에 지니고**(가방 격자 + 퀵슬롯 + 주머니, 창고 제외) 탈출하면

@@ -47,6 +47,23 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-13 (35차-1) 탈출 개편 · 환경 재해 개편 (`src/shared/{extraction(신규),events,net,types,constants,GameContext,index}.ts` **추가만** · `data/{constants,tables,hazards}.csv` ·
+  `src/{extraction,game}` · `src/world/{layout,Hazard,WorldSystem,hazard/parts/*}` · `src/ui/{HudSystem,map/MapScreen,hud/*,styles/raidHud.css}` · `src/enemies/{EnemySystem,ai/EnemyAI,parts/Status}.ts` ·
+  스모크 `smoke-extraction`(신규) · `smoke-hazard` 확장 · `smoke-phase4` 스텁 보정, **에이전트 3개 병렬 + 리드**. 같은 트리에서 다른 세션이 동시 작업해 **이 커밋은 HEAD 위의 별도 워크트리에서
+  에이전트 편집을 재생해 만들었다** — 버그 굴착 스폰 · 지하벌레는 적 팩션 코드 위에 얹혀 분리하지 못해 다음 통합 커밋으로 넘겼다(사용자 결정)):
+
+  ① 재해 추첨 조사(재해 에이전트, vite SSR 로 실제 `planHazard` · 레이아웃 · 도형 코드): 행성당 20 000 시드 — 후보별 49.5–50.5 %. 2 000 시드 노출 측정 — 옛 폭풍의 눈은
+  시작 순간 맵 43 % · 강하 지점 47 % 위험, 옛 전선은 시작 1분에 강하 지점 2.7 % → 새 전선 16 % / 2분 91 %. 독성 포자 레이아웃 1 500 시드 × 5행성 두 번 생성 불일치 0.
+  ② 워크트리(`HEAD` + 재생): typecheck ok · typecheck-server ok · net-selftest 480/480 · data-check ok. 재생 중 한 곳 보정 — 재해 에이전트가 쓴 `planetThreat` 는 동시 세션이 추가한
+  헬퍼라 `getPlanet(id)?.threat ?? 1` 로 풀었다.
+  ③ `node scripts/verify.mjs --folders extraction,game,world,ui --url http://127.0.0.1:5390/ --keep-relay --no-typecheck --no-e2e --jobs 3 --log-dir scripts/logs/lead-35`(워크트리 전용 vite)
+  → **1 red, 7분 16초**: `smoke-phase4` C-14 가 `ctx.world.hazard` 를 `damageMul` 없는 스텁으로 갈아 끼워 피해가 NaN → `!(dmg > 0)` 로 건너뛰었다(**스모크 결함** — 새 계약 필드를
+  스텁이 몰랐다) → 스텁에 `damageMul: 1` → `--only smoke-phase4` **60/60**.
+  `docs line: 2026-09-13: typecheck ok, typecheck-server ok, net-selftest 480/480, data-check ok, smoke-quickslots 101/101, smoke-phase2 57/57, smoke-phase3 41/41, smoke-stratagems 75/75, smoke-phase4 60/60 (rerun), smoke-housing 284/284, smoke-tactical 115/115, smoke-controls-hub 153/153, smoke-ui-p6 91/91, smoke-ui-p5 142/142, smoke-resume-gate 62/62, smoke-rogue-drop 30/30, smoke-meta 198/198, smoke-favorite-chips 52/52, smoke-uniques 72/72, smoke-recovery-contract 43/43, smoke-training 108/108, smoke-ghost 86/86, smoke-buffs 41/41, smoke-planets 86/86, smoke-extraction 36/36, smoke-social 209/209, smoke-raidflow 89/89, smoke-ecology 109/109, smoke-props-collision 53/53, smoke-structure-reach 353/353, smoke-tutorial 86/86, smoke-structures 144/144, smoke-hazard 57/57, smoke-tram-ride 26/26, smoke-netlink 48/48, smoke-lights 30/30`
+
+  ⚠ `src/shared` 를 건드렸는데 `build` · `e2e:mp` 는 돌리지 않았다. 멀티 경로(남겨진 사람 재호출 · 분대장 이관)는 스모크의 단일 페이지 흉내까지만 봤고 **브라우저에서 손으로 해 본 것은
+  없다**(이륙 카메라 연출 · HUD 페이드의 실제 느낌 포함).
+
 - 2026-09-13 (33차) 실내에서 바깥벽 · 정문에 못 다가가던 문제 · 자발적 귀환 = 사망 (`src/shared/{events,types}.ts` **추가만** · `src/player/PlayerController.ts` · `src/game/{GameFlowSystem.ts,parts/Death.ts,parts/Phases.ts}` · `src/ui/menus/PauseMenu.ts` · 스모크 2종, 리드 단독):
 
   ① 재현 먼저(스크래치, 개인 vite 5299): 진짜 `PlayerController.update` 로 방 가운데 → 바깥벽 4방향 · 정문 밖(시드 5, 112회) — 1.8 m 넘게 떨어져 멈춤 **27**, 정문 나가기 실패 **4**(전부 지하실 전진기지),

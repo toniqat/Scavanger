@@ -25,6 +25,8 @@ import type { CorpsesRef } from './types';
 import type { OutlineRef, ShaderWarmupRef } from './render';
 /* appended (2026-09-11): 드론 */
 import type { DronesRef } from './drones';
+/* appended (2026-09-13): 탈출 개편 */
+import type { ExtractionRef } from './extraction';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -121,6 +123,9 @@ export class GameContext {
   /* appended (2026-09-11) */
   /** 지상 · 공중 드론 (`shared/drones`). Published by gadgets/drones/DroneSystem. */
   drones: DronesRef | null = null;
+  /* appended (2026-09-13) */
+  /** 탈출 흐름 질의 — 적 출입 금지 영역 · 출발 유예 상태 (`shared/extraction`). Published by extraction/ExtractionSystem. */
+  extraction: ExtractionRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

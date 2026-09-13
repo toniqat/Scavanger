@@ -357,7 +357,7 @@ try {
     if (!e) return null;
     e.wanderTimer = 1e9;
     const ex = e.position.x, ez = e.position.z;
-    Object.defineProperty(w, 'hazard', { configurable: true, get: () => ({ kind: 'spores', active: true, startsAt: 0, announced: true, progress: 0.5, isInside: (x, z) => Math.hypot(x - ex, z - ez) < 4, getZones: () => [], getSources: () => [], serialize: () => '', applySerialized() {} }) });
+    Object.defineProperty(w, 'hazard', { configurable: true, get: () => ({ kind: 'spores', active: true, startsAt: 0, announced: true, progress: 0.5, damageMul: 1, isInside: (x, z) => Math.hypot(x - ex, z - ez) < 4, getZones: () => [], getSources: () => [], serialize: () => '', applySerialized() {} }) });
     window.__hzDamaged = 0; window.__hzAudio = 0;
     window.__hzOff = [
       ctx.bus.on('enemy:damaged', (d) => { if (d.id === e.id) window.__hzDamaged++; }),

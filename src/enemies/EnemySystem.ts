@@ -212,9 +212,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('weapon:fired', ({ origin }) => this.onGunshot(origin, 55)),
       bus.on('net:remoteFired', ({ origin }) => this.onGunshot(origin, 55)),
       bus.on('grenade:exploded', ({ position }) => this.onGunshot(position, 80)),
-      bus.on('extraction:activated', ({ position }) => this.startExtractionWaves(position)),
+      // 2026-09-13: 탈출 디펜스 웨이브 제거 (사용자 결정) — `extraction:activated` 는 더 이상 웨이브를 부르지 않는다
       bus.on('extraction:liftoff', ({ position }) => {
-        this.stopExtractionWaves();
         if (this.authority) this.fleeFrom(position, 18);
       }),
       bus.on('enemy:waveStarted', ({ index, count }) => {
@@ -577,7 +576,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.snapTimer = 0;
     this.spawner.resume();
     this.waves.reset();
-    this.waves.prime(this.wavesSeen);                     // extraction/ re-requests `startExtractionWaves` on the new host
+    // 2026-09-13: 탈출 디펜스 웨이브 제거 — 승격된 호스트도 웨이브를 다시 이어 붙이지 않는다 (`waves.prime` 을 부르지 않는다)
     this.targets.refresh(ctx);
   }
 

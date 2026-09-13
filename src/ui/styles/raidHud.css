@@ -102,3 +102,20 @@
 /* '생명력' 라벨은 사라졌다 — 라벨 자리는 전투불능 문구 전용이다. */
 .hud .vitals > .ui-label { display: none; }
 .hud .vitals.downed > .ui-label { display: block; }
+
+/* ── 이륙 연출 (2026-09-13 탈출 개편, `ui:cinematic` → HudSystem 이 `.cinematic` 을 건다) ─────────────────────────
+   카메라가 함선 외부로 넘어가는 동안 전투 HUD 가 스르륵 사라진다. 오버레이 · 게임플레이 레이어는 통째로, 소셜 레이어는
+   PC 체력 블록 · 상호작용 캡션 · 홀드 링 · 점 크로스헤어만 (채팅 · 알림 · 분대 목록은 전투 HUD 가 아니다).
+   사라질 때만 `--cine-fade`(= EXTRACTION_HUD_FADE_S, HudSystem 이 #ui-root 에 적는다)이고 돌아올 때는 `.hud` 기본 전이다.
+   `!important` 는 `.hud.spectating` 규칙과 같은 이유 — 위젯이 인라인 opacity 를 쓴다. */
+.hud.cinematic:not(.social):not(.housing) {
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--cine-fade, 0.9s) var(--ease), visibility 0s linear var(--cine-fade, 0.9s);
+}
+.hud.social.cinematic .vitals,
+.hud.social.cinematic .prompt,
+.hud.social.cinematic .hold,
+.hud.social.cinematic .hub-dot {
+  opacity: 0 !important; visibility: hidden;
+  transition: opacity var(--cine-fade, 0.9s) var(--ease), visibility 0s linear var(--cine-fade, 0.9s);
+}
