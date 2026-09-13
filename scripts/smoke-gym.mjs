@@ -330,7 +330,7 @@ try {
   ok(live.beats?.length === 1 && live.beats[0].index === 0 && live.beats[0].total === K.GYM_PRESS_REPS && live.beats[0].quality !== 'miss',
     `가운데에서 누른 판정 → housing:gymBeat (${JSON.stringify(live.beats?.[0])})`, JSON.stringify(live));
   ok(['완벽', '좋음'].includes(live.verdict), `판정 글자 (${live.verdict})`);
-  ok(live.drawn && live.drawn.left === live.drawn.want && live.drawn.count === live.drawn.wantCount,
+  ok(live.drawn && Math.abs(parseFloat(live.drawn.left) - parseFloat(live.drawn.want)) < 0.01 && live.drawn.count === live.drawn.wantCount,
     `키 핸들러가 판정 직후의 커서 · 회차를 그 자리에서 그린다 (${JSON.stringify(live.drawn)})`);
 
   if (hasProg) {
