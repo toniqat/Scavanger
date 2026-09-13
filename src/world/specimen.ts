@@ -13,6 +13,10 @@
  * 이 파일은 그것을 읽기만 하면 된다. 홀드 시간 · 반경은 계약(`shared/constants.ts`)에 있고 여기서 재수출만 한다.
  *
  * THREE 를 쓰지 않는다 — 수치를 타입으로 옮기기만 하는 자리다.
+ *
+ * 2026-09-13 (요리 재료 티어 — 표본 3종 통합): 새 표 값은 `spec_cell` · `spec_mineral` 위주다. 이 파일은 csv 를 **그대로** 옮기고
+ * (아이템 def 를 모르는 자리다), 은퇴한 옛 표본(`ItemDef.retired`)을 거르는 안전핀은 def 를 아는 `Gather.resolveNodeWeights` 가
+ * 건다 — 표에 옛 id 가 남아 있어도 채집지가 서지 않는다. 미확인 광물은 여기 말고 고철 더미 부가 결과(`gather_mineral`)로도 나온다.
  */
 import { csvRows } from '@/shared';
 /* 홀드 시간 · 반경의 정식 자리는 계약(`shared/constants.ts`)이다 — 여기서는 이름만 다시 내보낸다. */

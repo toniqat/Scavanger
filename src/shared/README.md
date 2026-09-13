@@ -24,6 +24,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `saveSlot.ts` | **캐릭터 세이브 슬롯** (2026-09-09) — `slotKey('scav.profile')` → `scav.s2.profile`. `activeSlot` · `setActiveSlot` · `ensureMigrated`(옛 단일 키 → 슬롯 1) · `readSlotCards` · `deleteSlot` · `markAutoStart`/`takeAutoStart`. 공용 저장(`SHARED_KEYS`: 키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 접두사를 받지 않는다 |
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
 | `net.ts` (서버 주소 절) | **2026-09-10** — `RELAY_STORAGE_KEY`(`scav.relay`, 슬롯 공용) · `relayUrlFrom(raw)` (맨 주소 → `ws://host:8787/ws`) · `RelayProbe` · `lanAddresses(networkInterfaces())`. 클라이언트 · 설정 UI · 데스크톱 셸 · 배포 서버 배너가 **같은** 두 함수를 부른다 — 각자 정규화하면 설정에서 초록불인 주소로 앱이 다른 데 붙는다 |
+| `holdAsk.ts` | **공용 경고 · 1초 홀드 확인 팝업** (2026-09-13, `openHoldAsk(ctx, spec) → HoldAskHandle`) — 제목 · 본문 · 버튼(`kind` danger/primary/default · `hold` · `cancel` · `run`), Escape = 취소(`ctx.escape`) · Enter 삼킴 · 최초 포커스 취소 · 자기 `uiBlockers` 토큰 + 커서. `.sh-ask*` 스타일을 스스로 넣는다. 첫 사용처는 캐릭터 시트(떠나기 경고 · 초기화); `ui/menus/askPopup` · `meta/ui/HoldAsk` 사본은 아직 옮기지 않았다. 같은 날 계약 추가: `EmbeddedView.requestLeave?(proceed)` · `ProgressionRef.spendStatPoints?(alloc)` |
 | `escape.ts` | **ESC 닫기 스택** (2026-09-09) — 열린 화면들의 Escape 동작을 열린 순서로 (`EscapeStack`: `push`/`remove`/`closeTop`). `ctx.escape` 로 게시되고 정책은 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비면 일시정지 메뉴) |
 | `ballistics.ts` | **포탄 궤적 닫힌 식** (2026-09-10) — `shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`. `enemies/fx/ShellProjectile`(실제 포탄)와 `ui/hud` 의 HUD 마커가 **같은 자리**를 그려야 하는데 폴더끼리 import 하지 않으므로 수식을 여기 한 곳에 둔다 — 예전에는 양쪽이 각자 베껴 두고 있어 한쪽만 고치면 마커가 포탄에서 떨어졌다. 중력은 `GRAVITY` 가 아니라 **`SHELL_ARC_GRAVITY`** 다 |
 | `index.ts` | Barrel export — import via `@/shared` |
@@ -468,6 +469,10 @@ Two **appended** additions only — nothing was renamed or removed.
 - `types.ts`: `TradeGridsViewOptions.cell` — the grid cell edge in px (default 54). The 기업 거래 desk passes 40 so
   its 가방 / 함선 창고 match the 5-column 구매 / 판매 tray beside them. `inventory/ui/GridView` takes the same number
   at construction; it is fixed for the life of the view.
+- `types.ts` (appended 2026-09-13): `TradeGridsViewOptions.takeLabel` · `layout` (`'wrap'` | `'split'` — every block scrolls
+  itself) · `chips` (`'shared'` | `'block'` | `'none'`), and `TradeGridsView extends EmbeddedView` (`cell`, `setCell(px)` —
+  rebuilds the grids at a new edge, `mountFilterChips(host)`). `createTradeGrids` still returns `EmbeddedView`; narrow with
+  `typeof v.setCell === 'function'`. Usage: `inventory/README.md` → `2026-09-13 — 카드마다 격자 하나`.
 
 Not a contract change but worth knowing (**superseded 2026-09-07**): the Phase 10 software cursor hid the native one
 with `body.soft-cursor-on * { cursor: none !important }`, which any `cursor` rule could beat on specificity. Both the
@@ -647,6 +652,19 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   새 `ex depart {remaining, auto}` · `ex wait {remaining}`, `ExtractionSyncState.stage` += `'departing'` + 선택 `idleRemaining` · `departRemaining` ·
   `departAuto` · `sinceLiftoff` · `squadDone`. `types.ts` `CorpsesRef` += 선택 `attachCorpse(id, parent, local?)` · `removeCorpse(id)`.
 
+- **2026-09-13 (요리 재료 티어 — 리드 계약, 추가만 · 설계안 `docs/plans/food-tiers.md`)** —
+  `types.ts`: `ItemCategory` += `'socket'` · `MealDef.tier` 를 `1 | 2 | 3 | 4` 로 **넓혔다**(유일한 비추가 변경 — 값의 범위만 늘었다) · 파일 끝 블록에
+  `SampleFamily` / `SAMPLE_FAMILIES` · `SampleDef.family` · `GrowSocketTarget` / `GrowSocketEffect` / `GrowSocketDef`(+ 목록 상수) · `SoilDef.durability` ·
+  `MediumDef.durability` · `StrainDef.scaffoldOutputDefId/Qty/Hours` · `MealEffect` · `MealDef.effects` · `ItemDef.growSocket` / `scaffold` / `retired`.
+  `labels.ts`: 카테고리 `socket` 세 표 · `MEAL_TIER_LABEL_KO` · `SAMPLE_FAMILY_LABEL_KO/COLOR/ICON` · `GROW_SOCKET_TARGET_LABEL_KO` · `GROW_SOCKET_EFFECT_LABEL_KO`.
+  `housing.ts` 끝 블록: 분석 레벨(`ANALYSIS_LEVEL_MAX` = `ANALYSIS_LEVEL_XP` 표 줄 수 · `analysisXpForLevel` · `analysisLevelForXp` · `analysisTimeMul`) ·
+  `ANALYSIS_XP_BY_RARITY` · `ANALYSIS_RESULTS`(← 신규 `data/analysis_results.csv`) · `AnalysisLevelInfo` · `AnalysisResultInfo` · `AnalysisSlot.family/resultDefId/resultQty` ·
+  `AnalysisSlotInfo.family/resultDefId/resultQty` · `GrowSlot.soilDurability/sockets` · `GrowSlotInfo` 5필드 · `CultureSlot.mediumDurability/sockets/scaffoldDefId` ·
+  `CultureSlotInfo` 6필드 · `ShipState.analysisXp/analysisFound` · `HousingRef` 9개(`getAnalysisLevel` · `getAnalysisResults` · `getAnalysisFound` · `insertGrowSocket` ·
+  `insertCultureSocket` · `insertScaffold` · `takeScaffold` · `getOwnedSockets`) · `SOIL_WEAR_PER_HARVEST` · `MEDIUM_WEAR_PER_HARVEST` · `GROW_SOCKET_TIME_FLOOR` ·
+  `GROW_WEAR_MUL_FLOOR` · `GROW_SOCKETS_BY_RARITY` · `growSocketSlotsFor` · `GROW_SOCKET_SLOTS_MAX`. `events.ts`: `housing:analysisFound` · `housing:analysisLevelUp` ·
+  `housing:socketInserted`. `constants.ts`: `SHIP_STATE_VERSION` 11 · `GATHER_SALVAGE_MINERAL_CHANCE/QTY`. 옛 `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` ·
+  `housing:sampleDexAdded` 는 지우지 않았고 더 쓰이지 않는다.
 - **2026-09-13 (자발적 귀환 — 추가만)** — `events.ts` 에 명령 `game:returnToShip`(일시정지 메뉴의 `함선으로 귀환` 확정 → game/ 이 사망 · 함선 복귀를
   정한다), `types.ts` Phase 7 `PlayerRef` 블록 끝에 `die?(): void`(즉시 완전 사망 — 구현은 이미 있던 `PlayerSystem.die`). 이름 변경 · 삭제 없음.
 - **2026-09-12 (리드 통합 — 루팅 굴림 시드 식 `lootRolls.ts`)** — 새 파일 `lootRolls.ts`(`index.ts` 가 다시 내보낸다):
@@ -1116,3 +1134,23 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
   `markRaidFound(items, seed)` · `stripRaidFound` · `copyRaidFoundMark` · `mergeRaidFoundMark`(표식이 다르면 결과는 표식 없음) ·
   `raidFoundScopeOf(ctx)` → `RaidFoundScope {seed, defId}`(활성 `extract_with_items`) · `countsForRecovery` · `raidFoundStackKey` ·
   `sameRaidFoundScope`. 개수(meta) · 스택 분리와 사선 띠(inventory) · 찍기(inventory · world · enemies)가 전부 이 파일을 부른다.
+
+### 2026-09-13 — 요리 미니게임 · 요리 품질 · 자동 조리 가구 (사용자 결정, 추가만 — `docs/plans/cooking-minigames.md`)
+- 새 **`cooking.ts`** (index 재수출): 미니게임 6종 `CookGame`(`chop` · `mince` · `grill` · `stirfry` · `stir` · `pour`) + 라벨 · 글리프, `CookJudge`,
+  `CookBeatAction`(연출 입력), `CookLiquid` + 라벨 · 색, **단계표 `COOK_STEPS` · `cookStepsOf(요리 def id)`**(← `data/cook_steps.csv`), `cookGrillSeconds`
+  (← `data/cook_grill.csv`), 판정 수치 `COOK_*` 40개(← `constants.csv`), **자동 조리 가구** `COOK_APPLIANCE_GAMES`(interaction → 대신하는 게임) ·
+  `cookGamesOfAppliance` · `cookApplianceOf` · `COOK_AUTO_SCORE_BY_LEVEL` · `cookAutoScore` · `CookAutoInfo`, **요리 품질** `MEAL_QUALITY_SCORE_MIN` ·
+  `MEAL_QUALITY_BONUS` · `MEAL_QUALITY_MAX`(5) · `normalizeMealQuality` · `mealQualityForScore` · `mealQualityBonus` · `mealQualityStars` · `cookScoreOf`(평균),
+  세션 `CookSessionInfo` · `CookResult`.
+- `types.ts`: `FurniturePoseKind += 'cook'`(조리대 앞에 서는 자세). 끝 블록: **`ItemInstance.quality?`**(요리 품질 0–5, 생략 = 0 — 품질이 다르면 합쳐지지 않고,
+  `raidFound` 와 달리 창고 · 로드아웃 문서에도 실린다) · `InventoryRef.countDefQualityAll?` · `consumeDefQualityAll?` · `getMealStacks?` · `cookBlock?` · `completeCook?`.
+- `housing.ts`: `FurnitureModelKind += food_processor · auto_grill · auto_stirrer · pour_dispenser`, `FurnitureInteraction += cook_processor · cook_grill ·
+  cook_stirrer · cook_dispenser` (**`workbench_cook` 의 E 가 이날부터 인벤토리 제작 창이 아니라 조리대 화면**). 끝 블록 `HousingRef.openCookStation?` · `cookSession?` ·
+  `cookBlock?` · `startCook?` · `cancelCook?` · `getCookAuto?`.
+- `progression.ts`: `useMeal(defId, quality?)` · `serveMeal(defId, quality?)` (선택 인자 추가). 끝 블록 `PlayerProfile.mealQuality?` · `mealActiveQuality?` ·
+  `ProgressionRef.getMealQuality?` · `getActiveMealQuality?`.
+- `events.ts`: `progress:mealChanged += mealQuality? · activeQuality?`, `housing:mealServed += quality?` (선택 필드 추가). 끝 블록 `ui:cookStationToggled` ·
+  `housing:cookSession` · `housing:cookStep` · `housing:cookBeat` · `housing:cookResult`.
+- `net.ts`: `FURNITURE_POSE_WIRE` 끝에 `'cook'`(인덱스 4 — 순서 유지). 끝 블록 `PickupWire.q?` · `CorpseItemWire.q?` · `MealMessage.q?`.
+- `charBuffs.ts`: `CharBuffKind += 'cooking'`(조리 중, KINDS · ORDER(운동 중 다음) · 라벨 · 글리프 · 색 · 제목), **`CharBuff.quality?`**(식사 품질 — `sanitizeCharBuffs`
+  가 `meal` 에만 받고 `sameCharBuffs` 가 비교하며 `charBuffTitle` 이 별을 붙인다).

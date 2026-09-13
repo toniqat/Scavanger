@@ -72,8 +72,12 @@ const SMOKES = {
   'smoke-ui-p5':        { file: 'scripts/smoke-ui-p5.mjs',        folders: ['ui', 'meta', 'game'] },
   'smoke-uniques':      { file: 'scripts/smoke-uniques.mjs',      folders: ['weapons', 'items', 'enemies', 'player', 'ui'] },
   'smoke-rogue-v2':     { file: 'scripts/smoke-rogue-v2.mjs',     folders: ['enemies'] },
+  'smoke-humanoid-ai':  { file: 'scripts/smoke-humanoid-ai.mjs',  folders: ['enemies'] },
   'smoke-enemy-alert':  { file: 'scripts/smoke-enemy-alert.mjs',  folders: ['enemies', 'implants', 'weapons'] },
   'smoke-rogue-drop':   { file: 'scripts/smoke-rogue-drop.mjs',   folders: ['enemies', 'world'] },
+  /* 2026-09-13 (행성별 적 팩션 · spawn-director): threat 1/2/3 × 시드 — 거점 그룹 팩션 · 그룹 수 · 인원 · 실내 · 분대장 ≤ 1 ·
+     레이더 우회조 한 명 · 상자 경비 없음 · 같은 시드 = 같은 배치 · 네임드 확률 · 팩션. world 의 getSiteSpawnPoints 도 탄다. */
+  'smoke-faction-sites': { file: 'scripts/smoke-faction-sites.mjs', folders: ['enemies', 'world'] },
   'smoke-resume-gate':  { file: 'scripts/smoke-resume-gate.mjs',  folders: ['game', 'ui'] },
   'smoke-meta':         { file: 'scripts/smoke-meta.mjs',         folders: ['meta', 'inventory', 'hub', 'ui', 'game'] },
   /* 2026-09-12 (E2): 즐겨찾기 칩 우클릭 메뉴(위임 · 띠 · 이벤트 재도색 · Escape) · 기업 상점 타일 옵트인 · 즐겨찾기 판매 한 번 더 확인
@@ -103,6 +107,10 @@ const SMOKES = {
   /* 2026-09-12: 가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁의 공통 틀 · 업그레이드 모달(1초 홀드) ·
      HH:MM:SS · 우클릭 · 더블클릭 / 끌기 수확, 그리고 드롭 한 번 = refresh 한 번. 격자는 inventory 의 TradeGrids 다. */
   'smoke-stations':     { file: 'scripts/smoke-stations.mjs',     folders: ['housing', 'inventory', 'items'] },
+  /* 2026-09-13 (요리 재료 티어 · agent B): 순수 규칙(기본값 = 옛 식 · 비율 · 마모 · 결과표 추첨) · 분석 결과를 넣는 순간 굴린다 · 회수 →
+     경험치 · 레벨업 · 분석 도감 · 흙 / 배지 내구도(0 이어도 칸 유지 · 비율 보너스) · 소켓 끼우기 / 가득 참 / 교체 · 스캐폴드 → 종별 고기 ·
+     은퇴 세포주 거절 · 세이브 왕복 · 요리 effects → derived(마지막, 너그럽게). */
+  'smoke-food-chain':   { file: 'scripts/smoke-food-chain.mjs',   folders: ['housing', 'items', 'progression'] },
   /* 2026-09-12 (E1): 아이템 즐겨찾기 — API · 이벤트 · 우클릭 = 모든 아이템에 메뉴(격자 · 장비칸 · 휠 · 시체 창) · 더블클릭 빠른 이동 ·
      파란 사선 띠(가방 · 창고 · 장비칸 · TradeGrids · buildItemTile, 필요한 탄약이면 노란 띠와 둘 다) · 정렬 앞쪽 · 「즐겨찾기」 칩 ·
      분해 확인 1초 홀드 · 시체 창 글로우 · 로드아웃 `fav` 저장 / 새로고침 / 서버 문서 교체 + 올리지 못한 토글 보호. */
@@ -110,6 +118,10 @@ const SMOKES = {
   /* 2026-09-12 (A-3a): 헬스장 — gymBlock 사유 · 미니게임 판정 3종(화면 없이) · 세션 흐름(블로커 · ESC · 키 가이드 ·
      Space 가 Input 에 안 닿는다) · applyGymSession 결과 + 근육통 · 근육통 중 경험치 0 · 취소 · 새로고침 보존. */
   'smoke-gym':          { file: 'scripts/smoke-gym.mjs',          folders: ['housing', 'progression', 'hub', 'player'] },
+  /* 2026-09-13 (요리 미니게임): 판정 6종(화면 없이) · cookBlock 사유 · 조리대 레벨 잠김 · 조리대 화면(레일 · 단계 칩) · 세션(블로커 · ESC ·
+     실제 pointerdown 칼질) · 결과 = 품질 요리가 창고에 · 재료는 끝에서 · 품질 다른 요리 둘 · 취소 = 재료 그대로 · 자동 가구 Lv.1/2/3 ·
+     식탁 품질 줄 · 새로고침 보존 · 출격 식사의 derived 보너스. */
+  'smoke-cooking':      { file: 'scripts/smoke-cooking.mjs',      folders: ['housing', 'inventory', 'progression', 'hub', 'player'] },
   /* 2026-09-12 (캐릭터 버프): PC 체력 블록이 함선에서도 보인다 · 체력바 아래 버프 썸네일 줄(흐림 · 디버프 테두리 · 시간 게이지 ·
      키로 DOM 재사용) · 분대원 행의 미니 줄(디버그 원격 ref) · 옛 배지 셋이 없다 · 레이드 자리 / 드론 시점 축소. */
   'smoke-buffs':        { file: 'scripts/smoke-buffs.mjs',        folders: ['ui', 'player', 'net'] },
@@ -130,6 +142,9 @@ const SMOKES = {
   /* 2026-09-12: 구조물 **도달성** — 콜라이더가 그린 것 안에 있어도 사람이 못 지나가는 자리(계단 입구 0.8 m 틈 · 난간이
      막은 문 · 바깥으로만 열린 계단)를 몸 반지름 flood fill(진짜 `getSurfaceY` + `resolveCollision`)로 여러 시드에서 잰다. */
   'smoke-structure-reach': { file: 'scripts/smoke-structure-reach.mjs', folders: ['world'] },
+  /* 2026-09-13 (행성별 적 팩션 · world-sites): 거점 스폰 자리 — `getSiteSpawnPoints` 실내(층 바닥 · 벽 안 · 잠긴 방 밖 · 정문에서 걸어서
+     닿는다) · 실외(발자국 밖 · 선로 회랑 밖 · 충돌 없음) · 플랫폼 · 폐허 · 결정성 · minGap · 훈련장 빈 답. */
+  'smoke-site-spawns':  { file: 'scripts/smoke-site-spawns.mjs',  folders: ['world', 'enemies'] },
   /* 2026-09-09: 환경 재해 — 종류 · 시작 시각이 시드의 함수라 와이어가 없다. 시드 결정성 · 도형 규약 ·
      끝까지 갔을 때의 맵 봉쇄 · 초당 피해 · atmo:override · 거대 버섯 군락을 브라우저 안에서 잰다. */
   'smoke-hazard':       { file: 'scripts/smoke-hazard.mjs',       folders: ['world'] },
@@ -157,6 +172,11 @@ const SMOKES = {
   /* 2026-09-11 (C 배치): 네임드 로그 판정 (엎드린 로든 눕힌 캡슐 · 소염기 매몰 · 승격 시 스캔 드론 입양 · 리플리카 헤비
      트레이서 · 리플리카 훅 host) 과 전차 위 적 · 적 시체 탑승 (+ 리플리카 예측 · 강하 목표 플랫폼). 둘 다 릴레이 없이 돈다. */
   'smoke-named':        { file: 'scripts/smoke-named.mjs',        folders: ['enemies', 'weapons'] },
+  /* 2026-09-13: 버그 굴착 스폰(첫 배치 제외 · 순찰 · 공격/이동 금지 · 흔들림 중복 없음 · 리플리카 em · 뱉어진 몸 포물선)과
+     지하벌레 이벤트(threat 굴림 · 전조 흔들림 증가 · 분출 피해/넉백 · 뱉기 · 독극물 · 처치 시체 · 리플리카 → 승격 · 탈출 웨이브 제거).
+     둘 다 릴레이 없이 돈다. */
+  'smoke-burrow':       { file: 'scripts/smoke-burrow.mjs',       folders: ['enemies', 'audio'] },
+  'smoke-sandworm':     { file: 'scripts/smoke-sandworm.mjs',     folders: ['enemies', 'audio', 'console'] },
   'smoke-tram-ride':    { file: 'scripts/smoke-tram-ride.mjs',    folders: ['enemies', 'world'] },
   /* 2026-09-11 (E-4 + C-57 · X-6): 신뢰 경로 — 두 클라이언트 · **코드로 만든 비공개 로비**(빠른 매칭 아님)로 레이드에 들어가
      위조 strat call / stratq call · 버프 상한 · 벽 뒤 스프레이 · 계약 킬 파생 · meta sync rid · crate opened 거리 · 넉백 기하 ·

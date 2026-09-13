@@ -1,4 +1,4 @@
-import type { EnvKind, ItemCategory, MealBuff, Rarity, SoilTag, WeaponGrade } from './types';
+import type { EnvKind, GrowSocketEffect, GrowSocketTarget, ItemCategory, MealBuff, MealDef, Rarity, SampleFamily, SoilTag, WeaponGrade } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Item rarity / category labels and palette (Phase 7, 2026-09-06).
@@ -42,6 +42,7 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   key: '열쇠',
   disc: '디스크',
   record: '레코드',
+  socket: '소켓',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -62,6 +63,7 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   key: '#c8ccd2',
   disc: '#9fd0ff',
   record: '#e8a0d0',
+  socket: '#8fe0b0',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -82,6 +84,7 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   key: '⚿',
   disc: '◉',
   record: '⊚',
+  socket: '⧈',
 };
 
 /**
@@ -128,4 +131,26 @@ export const MEAL_BUFF_UNIT: Readonly<Record<MealBuff, '%' | 'kg' | 'm' | ''>> =
   healPowerMul: '%', gritChance: '%', skillGainMul: '%',
   gatherYieldMul: '%', searchSpeedMul: '%', detectRadius: 'm',
   useSpeedMul: '%', interactSpeedMul: '%', durabilityLossMul: '%',
+};
+
+/**
+ * appended (2026-09-13, 요리 재료 티어): 요리 티어 이름. 식탁 · 요리 툴팁 · 제작 카드가 이 표 하나를 읽는다.
+ */
+export const MEAL_TIER_LABEL_KO: Readonly<Record<MealDef['tier'], string>> = {
+  1: '채소 요리', 2: '페이스트 요리', 3: '고기 요리', 4: '유제품 요리',
+};
+
+/**
+ * appended (2026-09-13, 요리 재료 티어): 미확인 표본 계열의 이름 · 색 · 글리프. 분석 화면 · 분석 도감 · 표본 툴팁 ·
+ * 레벨업 토스트가 **이 표 하나**를 읽는다.
+ */
+export const SAMPLE_FAMILY_LABEL_KO: Readonly<Record<SampleFamily, string>> = { cell: '세포', mineral: '광물', dna: 'DNA' };
+export const SAMPLE_FAMILY_COLOR: Readonly<Record<SampleFamily, string>> = { cell: '#ff9fb0', mineral: '#d8c49a', dna: '#9fd0ff' };
+export const SAMPLE_FAMILY_ICON: Readonly<Record<SampleFamily, string>> = { cell: '⬮', mineral: '◈', dna: '⧬' };
+
+/** appended (2026-09-13): 소켓이 끼워지는 곳 · 효과의 이름. 소켓 툴팁 · 재배/배양 화면의 소켓 줄이 읽는다. */
+export const GROW_SOCKET_TARGET_LABEL_KO: Readonly<Record<GrowSocketTarget, string>> = { soil: '토양 소켓', medium: '배지 소켓' };
+export const GROW_SOCKET_EFFECT_LABEL_KO: Readonly<Record<GrowSocketTarget, Readonly<Record<GrowSocketEffect, string>>>> = {
+  soil: { speed: '성장 속도', yield: '추가 수확', wear: '토양 마모 감소' },
+  medium: { speed: '배양 속도', yield: '추가 산물', wear: '배지 마모 감소' },
 };

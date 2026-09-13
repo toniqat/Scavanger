@@ -95,11 +95,17 @@ export const FURN_BLEND_RATE = 5;
 /** 자세 중 몸이 향하는 방향으로 도는 감쇠 계수. */
 export const FURN_YAW_RATE = 10;
 /** 카메라 피벗(눈) 높이 — **anchor 위**로 잰다. 흔들의자는 자유 시점이라 이 값이 곧 궤도 중심이다. */
-export const FURN_EYE: Readonly<Record<FurniturePoseKind, number>> = { sit: 0.85, bench: 0.45, run: EYE_STAND, cycle: 0.8 };
+export const FURN_EYE: Readonly<Record<FurniturePoseKind, number>> = {
+  sit: 0.85, bench: 0.45, run: EYE_STAND, cycle: 0.8,
+  /* 2026-09-13 요리: anchor = 바닥이고 조리대 쪽으로 약 0.3 rad 숙여 서 있다 — 선 눈높이보다 조금 낮다 (`SoldierModel.FURN_COOK`). */
+  cook: 1.42,
+};
 /** 부른 쪽이 위상을 한 번도 안 주면 스스로 도는 속도: 벤치 한 회 (초) · 달리기 걸음 / 초 · 페달 바퀴 / 초. */
 export const FURN_BENCH_REP_S = 2.6;
 export const FURN_RUN_STEPS_PER_S = 2.8;
 export const FURN_CYCLE_REV_PER_S = 1.2;
+/** 2026-09-13 요리: `cook` 을 부른 쪽이 위상을 한 번도 안 주면 손 동작이 스스로 도는 속도 (주기 / 초) — 느린 칼질 · 젓기. */
+export const FURN_COOK_CYCLE_PER_S = 0.9;
 /** `run` 은 보행 주기를 그대로 쓴다 — 그때 넣는 moveBlend · sprint 블렌드. */
 export const FURN_RUN_MOVE = 1.15;
 export const FURN_RUN_SPRINT = 0.7;
@@ -124,7 +130,8 @@ export function lerpFurnitureRoot(out: THREE.Vector3, anchor: THREE.Vector3, ble
 }
 /**
  * `SoldierPose` 의 가구 자세 필드. `cumPhase` 는 **누적 위상**(`FurniturePoseState.phase` 와이어 규약 — bench 0…1 · run 걸음 수 ·
- * cycle 바퀴 수 · sit 0). `run` 은 보행 주기(`stridePhase = π × 걸음`)를 타고, 나머지 셋은 `SoldierModel.poseFurniture` 가 뼈대를 맡는다.
+ * cycle 바퀴 수 · cook 손 동작 주기 수 · sit 0). `run` 은 보행 주기(`stridePhase = π × 걸음`)를 타고, 나머지는 `SoldierModel.poseFurniture` 가
+ * 뼈대를 맡는다 (`cook` 은 소수부 = 한 주기 안의 위치).
  * 호출 전에 평소 자세 값(moveBlend · sprint …)이 이미 쓰여 있어야 한다 — `run` 은 그 위에 블렌드한다.
  */
 export function writeFurniturePose(p: SoldierPose, kind: FurniturePoseKind | null, blend: number, cumPhase: number): void {

@@ -11,6 +11,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
+  ENEMY_GRENADE_KINDS, type CorpseLootOpts,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -41,7 +42,7 @@ import { namedBodyCenterY } from '../models/named';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_KNOCKBACK, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 // 2026-09-11 (E-8): 요청 가드의 상한 — 전부 `data/constants.csv` 에서 온다 (`../model` 이 읽는 자리)
 import { ENEMY_STATUS_BITS_ALL, EXPLODE_SOURCE_REACH, STATUS_REQUEST_BURST_S, STATUS_REQUEST_RATE_MAX, STATUS_SOURCE_REACH } from '../model';
-import { hurtSound, meleeHitSound } from '../model';
+import { goreKindOf, humanoidDeathSound, hurtSound, meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 import {
   HIT_KNOCKBACK_RANGE_SLACK, HIT_REQUEST_BURST_S, HIT_REQUEST_DPS_MAX, IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_WIDTH,
@@ -509,6 +510,11 @@ export function resolveBarrier(sys: EnemySystem, e: Enemy): void {
   }
   }
 
+/** 2026-09-13: 피격 · 사망 파편의 종류 — 안드로이드는 기계라 피 대신 불꽃이 튄다 (스캔 드론은 사망 경로가 따로 불꽃을 낸다). */
+export function goreKind(e: Enemy): 'blood' | 'spark' {
+  return goreKindOf(e.type);
+}
+
 /** Replica: optimistic gore/audio for a local shot, then ask the host to apply it. */
 export function requestHit(sys: EnemySystem, e: Enemy, amount: number, part: HitPart, hitPoint: THREE.Vector3 | undefined, hitDir: THREE.Vector3 | undefined): void {
   const ctx = sys.ctx;
@@ -516,8 +522,9 @@ export function requestHit(sys: EnemySystem, e: Enemy, amount: number, part: Hit
   if (hitPoint) _v.copy(hitPoint); else _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
   if (sys.fx) {
     const count = part === 'head' ? 14 : 8;
-    if (hitDir) { _v2.copy(hitDir); sys.fx.burst(_v, count, 'blood', 4.5, _v2, 0.9); }
-    else sys.fx.burst(_v, count, 'blood', 4);
+    const kind = goreKind(e);
+    if (hitDir) { _v2.copy(hitDir); sys.fx.burst(_v, count, kind, 4.5, _v2, 0.9); }
+    else sys.fx.burst(_v, count, kind, 4);
   }
   sys.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
   ctx.net?.send({ t: 'hit', id: e.id, dmg: round(amount, 2), p: tuple(_v, 2), d: tuple(hitDir ?? _zero, 3) }, 'host');
@@ -529,8 +536,9 @@ export function onEnemyDamaged(sys: EnemySystem, e: Enemy, amount: number, part:
   if (hitPoint) _v.copy(hitPoint); else _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
   if (sys.fx) {
     const count = part === 'head' ? 14 : 8;
-    if (hitDir) { _v2.copy(hitDir); sys.fx.burst(_v, count, 'blood', 4.5, _v2, 0.9); }
-    else sys.fx.burst(_v, count, 'blood', 4);
+    const kind = goreKind(e);
+    if (hitDir) { _v2.copy(hitDir); sys.fx.burst(_v, count, kind, 4.5, _v2, 0.9); }
+    else sys.fx.burst(_v, count, kind, 4);
   }
   sys.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
   if (sys.hosting) {
@@ -557,15 +565,17 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
       _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
       sys.fx.burst(_v, 26, 'spark', 4);
     }
-  } else if (e.isRogue) sys.playAudio('player_death', e.position, 0.8, e.type === 'rogue_boss' ? 0.7 : 1);
-  else sys.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
+  } else if (e.isHumanoid) { const dv = humanoidDeathSound(e.type); sys.playAudio(dv.id, e.position, 0.8, dv.pitch); }   // 2026-09-13: 안드로이드 = 전원 차단음
+  else if (e.type !== 'sandworm') sys.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
   if (sys.fx && e.type !== 'rogue_scan_drone') {
     _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
-    sys.fx.burst(_v, 18 + Math.round(Math.min(2, e.stats.radius) * 22), 'blood', 3 + Math.min(2, e.stats.radius) * 2);
-    sys.fx.splat(e.position, Math.min(3.5, e.stats.radius * 1.6), 'blood', ctx.world);
+    const kind = goreKind(e);
+    sys.fx.burst(_v, 18 + Math.round(Math.min(2, e.stats.radius) * 22), kind, 3 + Math.min(2, e.stats.radius) * 2);
+    if (kind === 'blood') sys.fx.splat(e.position, Math.min(3.5, e.stats.radius * 1.6), 'blood', ctx.world);   // 2026-09-13: 안드로이드는 핏자국이 없다
   }
   if (e.type === 'spewer') sys.acidBurst(e);
   if (e.type === 'toxic' && sys.authority) sys.toxicBurst(e);
+  if (e.type === 'sandworm') sys.sandworm.onWormKilled(e);   // 2026-09-13: 굴로 가라앉는 굉음 · 분진 · 토스트 (모든 클라이언트)
   // lootable corpse (authority registers; replicas mirror the `corpse` event).
   // Phase 10: a body that died in the air registers **after it lands** — `GameContext.findBest` measures a 3-D
   // distance, so a corpse pinned at the mid-air kill position was both floating and unreachable.
@@ -606,7 +616,11 @@ export function registerCorpse(sys: EnemySystem, e: Enemy): void {
   if (!ctx.world) return;
   const lootable = rollCorpseLootable(ctx.world.seed, e.id, e.type);
   e.lootable = lootable;
-  const opts: CorpseWireOpts = { lootable, deathDir: e.deathDir };
+  // 2026-09-13: 시체 전리품의 입력 — 스폰 거점 + 던지지 못한 수류탄 (벌레는 둘 다 없다 = 옛 굴림 그대로)
+  const loot: CorpseLootOpts | undefined = e.site || e.grenadeCount > 0
+    ? { site: e.site, grenades: e.grenadeCount > 0 ? { kind: e.grenadeKind, count: e.grenadeCount } : null }
+    : undefined;
+  const opts: CorpseWireOpts = { lootable, deathDir: e.deathDir, loot };
   sys.corpses.add(e.id, e.type, e.position, e.weaponId || undefined, ctx.world.seed, opts);
   if (sys.hosting) {
     const msg: Extract<EnemyEvent, { ev: 'corpse' }> = { t: 'ee', ev: 'corpse', id: e.id, ty: e.type, p: tuple(e.position, 2) };
@@ -614,6 +628,12 @@ export function registerCorpse(sys: EnemySystem, e: Enemy): void {
     const dd = deathDirIndex(e.deathDir);
     if (dd > 0) msg.dd = dd;
     if (!lootable) msg.lt = 0;
+    if (e.site) msg.si = e.site;
+    if (e.grenadeCount > 0) {
+      msg.gc = e.grenadeCount;
+      const gk = ENEMY_GRENADE_KINDS.indexOf(e.grenadeKind);
+      if (gk > 0) msg.gk = gk;
+    }
     ctx.net!.send(msg, 'others');
   }
   }

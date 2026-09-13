@@ -1,10 +1,11 @@
-import type { DerivedStats, GymStat, MealDef, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
+import type { DerivedStats, GymStat, MealDef, MealEffect, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
 import {
   GYM_STATS, GYM_TRAINED_MAX,
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
   PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, STAT_MAX, STAT_MIN, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
   XP_BASE, XP_EXPONENT,
   GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
+  mealQualityBonus,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
 
@@ -40,7 +41,13 @@ export function throwRangeMetres(throwRangeMul: number): number {
 }
 const STAMINA_PER_END = 5;          // flat max stamina
 const STAMINA_REGEN_PER_END = 0.04;
-const SKILL_GAIN_PER_INT = 0.06;    // ×1.9 at 지능 20
+/** 지능 1 pt 당 모든 숙련 상승 배율 (exported 2026-09-13 — 캐릭터 시트 툴팁이 `모든 숙련 성장 +N%/pt` 로 그대로 읽는다). */
+export const SKILL_GAIN_PER_INT = 0.06;    // ×1.9 at 지능 20
+/**
+ * How strongly a skill's own stats speed up its training (per point above STAT_BASE, base stats only). Moved here from
+ * `ProgressionSystem` on 2026-09-13 so the sheet tooltip (`관련 숙련 · 성장 +N%/pt`) reads the same number `statFactor` uses.
+ */
+export const SKILL_STAT_FACTOR = 0.04;
 const USE_SPEED_PER_DEX = 0.035;
 const INTERACT_SPEED_PER_DEX = 0.035;
 
@@ -181,14 +188,35 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
  * `shared/labels.MEAL_BUFF_UNIT` 이다). `durabilityLossMul` 만 `amount` 가 음수이므로 **0 이 하한**이다:
  * 어떤 배수도 음수가 되면 안 된다 (손상이 −20 % 면 내구도가 도로 차오른다).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
-/** `d` 를 제자리에서 고친다 — `computeDerived` 의 결과(매번 새 객체)에 `ProgressionSystem.recompute` 가 얹는다. */
-export function applyMealBuff(d: DerivedStats, meal: MealDef): void {
-  const amount = typeof meal?.amount === 'number' && Number.isFinite(meal.amount) ? meal.amount : 0;
-  if (amount === 0) return;
-  const buff = meal.buff;
-  const cur = d[buff];
-  if (typeof cur !== 'number') return;                 // 계약 밖의 이름이 csv 에서 새어 들어온 경우
-  d[buff] = Math.max(0, cur + amount);
+/**
+ * `d` 를 제자리에서 고친다 — `computeDerived` 의 결과(매번 새 객체)에 `ProgressionSystem.recompute` 가 얹는다.
+ *
+ * 2026-09-13 (요리 재료 티어, 사용자 결정 「버프는 하나, 거기 붙는 능력치 줄이 늘어난다」): **`meal.effects` 전부**를 접는다.
+ * `effects` 가 없거나 비어 있는 옛 def(아직 로더가 새 열을 모르는 빌드)는 `[{buff, amount}]` 로 읽는다 — 결과가 예전과 같다.
+ * 줄마다 규칙은 그대로다: 가산 하나 + **0 이 하한** (같은 버프가 두 줄에 나오면 차례로 더해진다).
+ *
+ * 2026-09-13 (요리 품질, docs/plans/cooking-minigames.md): `quality`(별 0 … 5)가 줄마다 `amount × (1 + mealQualityBonus(quality))` 로
+ * 수치를 키운 **뒤에** 위 규칙(가산 + 0 하한)을 적용한다 — 음수 줄(`durabilityLossMul`)은 더 크게 깎이고 하한은 그대로다.
+ * 생략 = 0 = 원래 수치 100 %.
+ */
+export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void {
+  const mul = 1 + mealQualityBonus(quality);
+  for (const e of mealEffectsOf(meal)) {
+    const amount = (typeof e?.amount === 'number' && Number.isFinite(e.amount) ? e.amount : 0) * mul;
+    if (amount === 0) continue;
+    const buff = e.buff;
+    const cur = d[buff];
+    if (typeof cur !== 'number') continue;             // 계약 밖의 이름이 csv 에서 새어 들어온 경우
+    d[buff] = Math.max(0, cur + amount);
+  }
+}
+
+/** 요리의 능력치 줄 전부 — `effects` 가 있으면 그것, 없으면 옛 `buff` · `amount` 한 줄 (없으면 빈 목록). */
+export function mealEffectsOf(meal: MealDef | null | undefined): readonly MealEffect[] {
+  if (!meal) return [];
+  const list = (meal as Partial<MealDef>).effects;
+  if (Array.isArray(list) && list.length > 0) return list;
+  return meal.buff ? [{ buff: meal.buff, amount: meal.amount }] : [];
 }
 
 /** Neutral values for a level-1 character — used as the fallback before the system inits. */

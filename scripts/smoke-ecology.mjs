@@ -1,8 +1,9 @@
 // Single-player smoke test for Phase 11 §3-5 (world + enemies): 행성 생태계.
 // Per planet: `ctx.world.planet` / `world:ready.planet`, the biome named by `PlanetDef.biome` (no longer the seeded
 // draw), 채집 herb weights + `gatherDensity` node count, the ambient / wave compositions drawn from `eco.bugs` with
-// every pre-Phase-11 threat gate intact, `pressure` on the population cap, `maxArtillery` / `maxBehemoth`, rogue-guard
-// density + `eco.boss`, and determinism (same seed + same planet = the same world and the same guard placement).
+// every pre-Phase-11 threat gate intact, `pressure` on the population cap, `maxArtillery` / `maxBehemoth`, the humanoid
+// site-group factions by planet threat (2026-09-13: crate guards and eco.rogues / eco.boss are retired), and determinism
+// (same seed + same planet = the same world and the same site-group placement).
 // 2026-09-11 (온실 개편): 행성별 **토양 더미** (`planets.csv` 의 soils · soilNodes) — 개수 · 종류 · 시드 결정성.
 // No planet (and a training) must behave exactly as before. Drives `window.__game` only — no console, no relay.
 // Usage: node scripts/smoke-ecology.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
@@ -40,11 +41,11 @@ const capBase = (threat) => 12 + 24 * threat;
 /* 2026-09-09: `hazards` 도 planets.csv 를 그대로 옮긴 것이다 — 독성 포자가 후보인 행성에만 거대 버섯 군락이 선다.
    2026-09-11 (품종 확장 A-11): `soils` 에 염류 · 포자 토양이 늘었다. planets.csv 의 soils 열을 고치면 여기도 같이 고친다. */
 const PLANETS = [
-  { id: 'amber', biome: 'amber', bugs: { scavenger: 4, hunter: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7, soils: { soil_humus: 2, soil_ash: 1, soil_saline: 1 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
-  { id: 'tundra', biome: 'tundra', bugs: { scavenger: 3, hunter: 4, charger: 2, warrior: 2 }, pressure: 1, rogues: 0.8, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 2, herb_ashleaf: 2, herb_glowcap: 1 }, gatherDensity: 0.9, soils: { soil_frost: 4, soil_humus: 1 }, soilNodes: 6, hazards: ['blizzard','storm_eye'] },
-  { id: 'mossy', biome: 'mossy', bugs: { scavenger: 4, spewer: 3, toxic: 3, warrior: 2, hunter: 1 }, pressure: 1.15, rogues: 0.6, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 3, herb_glowcap: 3, herb_ashleaf: 1 }, gatherDensity: 1.5, soils: { soil_humus: 1, soil_spore: 2 }, soilNodes: 8, hazards: ['spores','storm_eye'] },
-  { id: 'ashen', biome: 'ashen', bugs: { scavenger: 3, warrior: 3, charger: 3, behemoth: 1, artillery: 2 }, pressure: 1.2, rogues: 1, boss: true, maxArtillery: 3, maxBehemoth: 2, herbs: { herb_ashleaf: 3, herb_glowcap: 1 }, gatherDensity: 0.6, soils: { soil_ash: 4, soil_mineral: 1, soil_saline: 2 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
-  { id: 'crimson', biome: 'crimson', bugs: { scavenger: 2, hunter: 3, spewer: 2, warrior: 2, artillery: 2 }, pressure: 0.9, rogues: 1.6, boss: true, maxArtillery: 2, maxBehemoth: 1, herbs: { herb_glowcap: 4, herb_bloodroot: 2 }, gatherDensity: 1, soils: { soil_mineral: 3, soil_ash: 1, soil_saline: 1 }, soilNodes: 4, hazards: ['spores','sandstorm'] },
+  { id: 'amber', threat: 1, biome: 'amber', bugs: { scavenger: 4, hunter: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7, soils: { soil_humus: 2, soil_ash: 1, soil_saline: 1 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
+  { id: 'tundra', threat: 2, biome: 'tundra', bugs: { scavenger: 3, hunter: 4, charger: 2, warrior: 2 }, pressure: 1, rogues: 0.8, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 2, herb_ashleaf: 2, herb_glowcap: 1 }, gatherDensity: 0.9, soils: { soil_frost: 4, soil_humus: 1 }, soilNodes: 6, hazards: ['blizzard','storm_eye'] },
+  { id: 'mossy', threat: 2, biome: 'mossy', bugs: { scavenger: 4, spewer: 3, toxic: 3, warrior: 2, hunter: 1 }, pressure: 1.15, rogues: 0.6, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 3, herb_glowcap: 3, herb_ashleaf: 1 }, gatherDensity: 1.5, soils: { soil_humus: 1, soil_spore: 2 }, soilNodes: 8, hazards: ['spores','storm_eye'] },
+  { id: 'ashen', threat: 3, biome: 'ashen', bugs: { scavenger: 3, warrior: 3, charger: 3, behemoth: 1, artillery: 2 }, pressure: 1.2, rogues: 1, boss: true, maxArtillery: 3, maxBehemoth: 2, herbs: { herb_ashleaf: 3, herb_glowcap: 1 }, gatherDensity: 0.6, soils: { soil_ash: 4, soil_mineral: 1, soil_saline: 2 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
+  { id: 'crimson', threat: 3, biome: 'crimson', bugs: { scavenger: 2, hunter: 3, spewer: 2, warrior: 2, artillery: 2 }, pressure: 0.9, rogues: 1.6, boss: true, maxArtillery: 2, maxBehemoth: 1, herbs: { herb_glowcap: 4, herb_bloodroot: 2 }, gatherDensity: 1, soils: { soil_mineral: 3, soil_ash: 1, soil_saline: 1 }, soilNodes: 4, hazards: ['spores','sandstorm'] },
 ];
 /** Types a patrol / wave can be composed of (artillery digs in alone, rogues are guards). */
 const GROUP_TYPES = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'toxic', 'behemoth'];
@@ -128,6 +129,11 @@ try {
         herbBonus: all.filter((n) => n.kind !== 'salvage' && window.__worldSys.gather.debugBonusOf(n.id)).length,
         eco: window.__sys.debugEcology,
         guards: window.__sys.debugGuardCount(),
+        // 2026-09-13: 상자 경비 → 행성 threat 별 거점 그룹 (자세한 검사는 smoke-faction-sites). 여기서는 threat · 결정성만 본다.
+        sites: (() => {
+          const d = window.__sys.debugSites();
+          return d ? { threat: d.threat, sig: JSON.stringify(d.sites.map((x) => [x.siteId, x.faction, x.groups.map((g) => g.members.map((m) => `${m.type}:${m.x.toFixed(2)},${m.z.toFixed(2)}`))])) } : null;
+        })(),
         ready: window.__ready[window.__ready.length - 1] ?? null,
       };
     };
@@ -184,7 +190,9 @@ try {
     `ambient patrols keep the old type set, no behemoth (${baseAmbient.join(',')})`);
   ok((baseComp.wave[3].behemoth ?? 0) > 0 && (baseComp.wave[0].behemoth ?? 0) === 0 && (baseComp.wave[1].toxic ?? 0) === 0,
     'wave gates unchanged: behemoth from wave 3, no toxic before wave 2', JSON.stringify({ w0: baseComp.wave[0], w1: baseComp.wave[1], w3: baseComp.wave[3] }));
-  ok(base.guards.rogues > 0 && base.guards.boss, `rogue guards + boss placed with no planet (${base.guards.rogues} rogues)`);
+  // 2026-09-13: 상자 경비 폐지 — 행성이 없으면 threat 1 = 거점은 안드로이드뿐이다 (로그 · 레이더 · 분대장 없음)
+  ok(base.sites && base.sites.threat === 1 && base.guards.rogues === 0 && base.guards.raiders === 0 && !base.guards.boss,
+    `no planet = threat 1: androids only at the sites (${base.guards.androids} androids, ${base.guards.rogues} rogues, ${base.guards.raiders} raiders)`);
 
   /* ── per planet ────────────────────────────────────────────────────────── */
   const perPlanet = {};
@@ -240,14 +248,14 @@ try {
     const behemoths = comp.wave[7].behemoth ?? 0;
     ok(def.maxBehemoth > 0 && def.bugs.behemoth > 0 ? behemoths > 0 : behemoths === 0,
       `${def.id}: behemoths in late waves ${def.bugs.behemoth > 0 && def.maxBehemoth > 0 ? 'appear' : 'never appear'} (${behemoths})`);
-    const expectRogues = def.rogues > 0;
-    ok(expectRogues === (s.guards.rogues > 0), `${def.id}: rogue density ${def.rogues} → ${s.guards.rogues} guards`);
-    ok(def.boss ? s.guards.boss : true, `${def.id}: ${def.boss ? 'the boss squad is guaranteed' : 'the boss squad is a seed roll'} (boss ${s.guards.boss})`);
+    // 2026-09-13: eco.rogues · eco.boss 는 은퇴했다 (계약 필드라 위에서 값만 비교). 인간형 팩션은 행성 threat 가 정한다.
+    const g = s.guards;
+    const factionOk = def.threat === 1 ? g.rogues === 0 && g.raiders === 0
+      : def.threat === 2 ? g.androids === 0 && g.rogues + g.raiders > 0
+      : g.androids === 0 && g.rogues === 0 && g.raiders > 0;
+    ok(s.sites && s.sites.threat === def.threat && factionOk,
+      `${def.id}: threat ${def.threat} → site factions (androids ${g.androids} · rogues ${g.rogues} · raiders ${g.raiders} · boss ${g.boss})`);
   }
-  const guardOrder = PLANETS.map((p) => ({ id: p.id, rogues: p.rogues, got: perPlanet[p.id].guards.rogues }));
-  const dense = guardOrder.find((g) => g.id === 'crimson');
-  const sparse = guardOrder.find((g) => g.id === 'mossy');
-  ok(dense.got > sparse.got, `guard density follows eco.rogues (crimson ${dense.got} > mossy ${sparse.got})`, JSON.stringify(guardOrder));
 
   /* ── herb weights over several seeds (the weighted draw, not just the id set) ── */
   console.log('herb weights (amber over 3 seeds)');
@@ -275,7 +283,7 @@ try {
   ok(d1.nodeSig === d2.nodeSig && d1.nodeSig.length > 0, 'same seed + planet → identical herb ids and positions');
   // 온실 개편 (2026-09-11): 흙더미도 시드 결정적이다 (와이어가 없으므로 모두가 같은 자리를 봐야 한다)
   ok(d1.soilSig === d2.soilSig && d1.soilSig.length > 0, 'same seed + planet → identical 토양 더미 ids and positions', `${d1.soilSig} vs ${d2.soilSig}`);
-  ok(d1.guards.rogues === d2.guards.rogues && d1.guards.boss === d2.guards.boss, `same seed + planet → identical guard placement (${d1.guards.rogues} rogues, boss ${d1.guards.boss})`);
+  ok(d1.sites && d2.sites && d1.sites.sig === d2.sites.sig && d1.sites.sig.length > 2, `same seed + planet → identical site-group placement (${d1.guards.raiders} raiders, boss ${d1.guards.boss})`);
   const other = await gen(404, 'mossy');
   ok(other.nodeSig !== d1.nodeSig, 'a different planet on the same seed gives a different herb mix');
 

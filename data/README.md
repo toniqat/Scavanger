@@ -27,12 +27,19 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | 탄약 · 가방(격자 · 퀵슬롯 · **내구도**) · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
 | 일반 아이템 — 수류탄 · 회복 소모품 · **전투 소모품(`boostEffect`·`boostUseTime`)** · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · 가젯 | [`items.csv`](items.csv) |
 | 씨앗 · 서적 | [`seeds.csv`](seeds.csv) · [`books.csv`](books.csv) |
-| **미확인 표본** — 해석 시간 · 해석 보상 · 첫 해석 보너스 (연구실 분석기가 읽는다) | [`samples.csv`](samples.csv) |
+| **미확인 표본** — 계열(세포 · 광물 · DNA) · 해석 시간 · 대체 산출물 · 은퇴 (연구실 분석기가 읽는다) | [`samples.csv`](samples.csv) |
+| **분석기 결과표** — 계열 × 최소 분석 레벨 × 산출물 × 개수 × 가중치 | [`analysis_results.csv`](analysis_results.csv) |
+| **소켓** — 흙 · 배지에 끼우는 영구 강화 (대상 · 효과 · 수치) | [`sockets.csv`](sockets.csv) |
+| **요리** — 티어 · 능력치 줄(`effects`) · 은퇴 | [`meals.csv`](meals.csv) |
+| **요리 미니게임** — 요리마다 단계(썰기 · 다지기 · 굽기 · 볶기 · 젓기 · 붓기) 순서 · 재료 · 붓는 양 / 굽기 조각이 익는 시간 | [`cook_steps.csv`](cook_steps.csv) · [`cook_grill.csv`](cook_grill.csv) |
 | 임플란트 아이템 — 등급별 가격 · 수리 재료 · 전설 퍽 | [`implants_repair.csv`](implants_repair.csv) · [`implants_perks.csv`](implants_perks.csv) |
-| **적** 10종 기본 스탯 | [`enemies.csv`](enemies.csv) |
-| 적 특수 능력 — 도약 · 산성 침 · 돌진 · 로그 AI · 포병 · 베헤모스 | [`enemy_abilities.csv`](enemy_abilities.csv) |
+| **적** 기본 스탯 (벌레 · 로그 · **안드로이드 · 레이더** · 네임드 — `faction` 열) | [`enemies.csv`](enemies.csv) |
+| **버그 굴착 스폰 · 지하벌레 이벤트** (2026-09-13) — 파고 나오는 시간 · 흔들림, 등장 확률(행성 threat) · 전조 · 분출 · 뱉기 · 독극물 | [`constants.csv`](constants.csv) 의 `BURROW_*` · `SANDWORM_*`, [`tables.csv`](tables.csv) 의 `SANDWORM_*` |
+| 적 특수 능력 — 도약 · 산성 침 · 돌진 · 로그 AI · 포병 · 베헤모스 · **인간형 팩션별 AI · 총 계열(`HUMANOID_WEAPONS`)** | [`enemy_abilities.csv`](enemy_abilities.csv) |
+| **행성 threat 별 인간형 적 배치** — 거점 점거 확률 · 그룹 수 · 그룹 크기 · 로그 분대장 · 레이더 강하 확률 · 파도 인원 · 네임드 확률 (`SITE_*` · `RAIDER_DROP_*` · `NAMED_ROGUE_CHANCE_BY_THREAT`) | [`tables.csv`](tables.csv) · [`constants.csv`](constants.csv) |
 | **상자 루팅** — 티어 규칙 · 카테고리 가중치 · 확정 픽 · 아이템별 배수 | [`loot_tiers.csv`](loot_tiers.csv) · [`loot_category_weights.csv`](loot_category_weights.csv) · [`loot_guaranteed.csv`](loot_guaranteed.csv) · [`loot_item_weights.csv`](loot_item_weights.csv) |
 | **시체 루팅** | [`loot_corpses.csv`](loot_corpses.csv) · [`loot_corpse_rolls.csv`](loot_corpse_rolls.csv) |
+| **팩션 시체 루팅** — 안드로이드 · 로그 · 레이더의 총 등급 분포 · 방탄복 · 가방 · 회복 1회 굴림 · 스폰 거점 보너스(연구소 = 씨앗 · 미확인 표본, 전진기지 = 총 등급 교체) | [`loot_factions.csv`](loot_factions.csv) · [`loot_faction_sites.csv`](loot_faction_sites.csv) |
 | **네임드 로그 확정 드롭** — 로든 저격소총 · 타길라 방탄복 · 헤비 미니건의 확률 · 등급 분포 | [`loot_named.csv`](loot_named.csv) |
 | 제작 레시피 | [`recipes.csv`](recipes.csv) |
 | **분해** — 무엇을 뜯으면 무엇이 나오나 (장비는 여기 없다 — 제작 재료에서 자동으로 만든다) | [`salvage.csv`](salvage.csv) |
@@ -151,6 +158,42 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
 
+### 2026-09-13 — 요리 미니게임 · 요리 품질 (`cook_steps.csv` · `cook_grill.csv` 신규 · `constants.csv` `COOK_*` · `tables.csv` 3표 · `furniture.csv` 4줄)
+
+설계안 `docs/plans/cooking-minigames.md` (사용자 결정). 로더는 `src/shared/cooking.ts` 하나다.
+- **`cook_steps.csv`**: `meal,order,game,items,liquid,targetMl` — 조리대 요리 17종의 미니게임 순서(간단한 음식 1 · 일반 2 · 상위 티어 3단계).
+  `items` 는 도마 · 그릴 · 팬에 오르는 재료(굽기 = 조각 2–3개), 붓기만 `liquid`(water · oil · milk · egg) · `targetMl`. 로더가 게임별 칸 규칙을,
+  `data:check` 가 요리 · 재료 참조 · **조리대 레시피 산출물마다 단계가 있는지** · 순서가 1 부터 이어지는지를 본다.
+- **`cook_grill.csv`**: `defId,seconds` — 굽기 조각이 0 → 100 % 익는 시간. 없으면 `COOK_GRILL_DEFAULT_S`. 한 판에 속도가 다른 조각이 섞여야 타이밍이 엇갈린다.
+- **`constants.csv`** 끝 블록 `COOK_*` 40줄 — 여섯 게임의 판정 창 · 박자 · 채움량 · 온도 · 붓기 램프(사용자 명세 0.3 초) · 완벽/0점 경계.
+- **`tables.csv`**: `COOK_AUTO_SCORE_BY_LEVEL`(자동 조리 가구 레벨 → 자동 점수, Lv.1 0 · Lv.2 0.6 · Lv.3 1) · `MEAL_QUALITY_SCORE_MIN`(별 0–5 에 필요한 요리 점수
+  0 · .2 · .4 · .6 · .8 · .95) · `MEAL_QUALITY_BONUS`(별별 능력치 수치 보너스 0 … +25 %) — 셋 다 사용자 결정 값이다.
+- **`furniture.csv`** · **`furniture_upgrades.csv`**: 주방 자동 조리 가구 4종 `furn_food_processor` · `furn_auto_grill` · `furn_auto_stirrer` · `furn_pour_dispenser`
+  (maxLevel 3, 강화비 8줄). 판매가 · 경제 표는 바뀌지 않았다 (품질은 판매가와 무관) — `server/economy.gen.json` 재생성 불필요.
+
+### 2026-09-13 — 행성별 적 팩션: 안드로이드 · 로그 · 레이더 (`enemies.csv` · `tables.csv` · `constants.csv` · `loot_factions.csv` · `loot_faction_sites.csv` 신규)
+
+설계안 `docs/plans/enemy-factions.md`. 어떤 인간형 팩션이 나오는지는 **행성 threat**(`planets.csv`)가 정한다 — 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만.
+
+- **`enemies.csv`** — `android`(hp 280) · `raider`(hp 840) 줄, `rogue` hp 280 → 560, 네임드 3종 + 스캔 드론 `faction` = `raider`.
+- **`enemy_abilities.csv`** — `HUMANOID_WEAPONS`(팩션별 총 계열: android `ar|smg` · rogue `ar|smg|sg|dmr` · raider `ar|dmr|smg|sg`) + 팩션별 AI 블록.
+- **`tables.csv`** 신규 절 — key 0..2 = threat 1..3: `SITE_OCCUPY_CHANCE_STRUCTURE` 1/1/1 · `SITE_OCCUPY_CHANCE_PLATFORM` 0/0.6/0.6 · `SITE_OCCUPY_CHANCE_RUIN` 0/0.2/0.2 (첫 구현 0.5 — 인원 39–44명이 나와 후속 결정으로 내렸다) ·
+  `SITE_RAIDER_SHARE_STRUCTURE` 0/0.35/1 · `SITE_RAIDER_SHARE_OUTLYING` 0/0/1 · `SITE_INDOOR_GROUPS` 1/1/1 · `SITE_OUTDOOR_GROUPS_MIN/MAX` 1/1/1 · 2/1/1 ·
+  `SITE_GROUP_SIZE_MIN/MAX` 1/3/3 · 2/4/4 (연구소 · 전진기지) · `SITE_OUTLYING_GROUP_SIZE_MIN/MAX` 1/2/2 · 2/3/3 (플랫폼 · 폐허) · `SITE_BOSS_CHANCE` 0/0.4/0 · `RAIDER_DROP_CHANCE_BY_THREAT` 0/0.45/0.45 · `NAMED_ROGUE_CHANCE_BY_THREAT` 0/0.25/0.5.
+  key 0..3 = 분대 인원 1..4: `RAIDER_DROP_WAVE1_MIN/MAX` 3,3,3,4 · `RAIDER_DROP_WAVE2_MIN/MAX` 0,2,3,3 / 0,2,3,4.
+- **`constants.csv`** 신규 절 — `SITE_BOSS_MAX_PER_RAID` 1 · `SITE_GROUP_MIN_GAP_M` 2.2 · `SITE_GROUP_LEASH_INDOOR_M` 4 · `SITE_GROUP_LEASH_OUTDOOR_M` 30 ·
+  `RAIDER_DROP_WAVE_GAP_S` 10 · `RAIDER_DROP_WAVE_MAX` 4.
+- **은퇴(줄은 남긴다 — `shared/constants.ts` 가 아직 읽는다)**: `ROGUE_DROP_CHANCE` · `ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE` · `NAMED_ROGUE_CHANCE_BY_RANK`,
+  `planets.csv` 의 `rogues` · `boss` 열(계약 필드라 로더는 읽지만 효과 없음).
+- **`loot_factions.csv`** (신규) — `type,weaponGrades,armorChance,armorPool,armorRarity,bagChance,bagPool,bagRarity,gearDurMin,gearDurMax,healChance,healPool,healRarity`.
+  안드로이드 총 I 95 · II 5, 회복 = 실드 충전기만 35 % · 방탄복 · 가방 없음 / 로그 85 · 14 · 1, 방탄복 5 % · 가방 3 % (최대 고급), 회복 1회 40 % / 레이더 50 · 45 · 4.5 · 0.5,
+  방탄복 90 · 9.5 · 0.5. 방탄복 · 가방 내구도 5–15 %. 희귀도 굴림은 chance → `*Rarity`(행성 희귀도 배수) → `*Pool` 에서 균등, 총 등급은 행성 상한을 그대로 받는다.
+- **`loot_faction_sites.csv`** (신규) — `type,site,kind(grades|item|seed),target,grades,qtyMin,qtyMax,chance`. 레이더 연구소 = 씨앗(그 행성 `seeds`) · 미확인 세포/광물/DNA,
+  레이더 전진기지 = 총 등급 표 교체(30 · 55 · 13 · 2).
+- **`loot_corpses.csv`** — 로그의 독립 붕대 · 충전기 · 전투 소모품 · 고폭 수류탄 줄 삭제(수류탄은 **던지지 못하고 남은 것**이 굴림 없이 그대로 들어간다), android 4 · raider 5줄.
+  `loot_corpse_rolls.csv` 에 android · raider. 벌레 · 로그 분대장 · 네임드 출력은 비트 동일.
+- **`contracts.csv`** — 바스티온 킬 계약 설명 「인간형 적 n명을 처치한다」 (`kill_rogues` 가 인간형 팩션 전부를 센다).
+
 ### 2026-09-13 — 환경 재해 세기 · 독성 포자 배치 · 탈출 패드 수 (`constants.csv` · `tables.csv` · `hazards.csv`)
 
 - **`constants.csv`** 재해 절 끝에 14줄 (owner `world/Hazard` · `world/layout`): `HAZARD_DPS_MAX`(5 — 진행도 1 의 초당 피해, `HAZARD_DPS` 에서
@@ -161,6 +204,65 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
   `STORM_EYE_RADIUS_START` 는 이제 **하한**이다 (설명 갱신).
 - **`tables.csv`** 배열 표 둘 신규 — `EXTRACTION_PADS_MIN_BY_THREAT` · `EXTRACTION_PADS_MAX_BY_THREAT` (key 0..2 = 행성 threat 1..3 → 2–3 · 2 · 1–2).
 - **`hazards.csv`** — 모래 폭풍 · 눈보라 `wallOpacity` 0.34 / 0.30 → 0.5 / 0.46, `wallHeight` 72 → 110 (전선 벽이 멀리서 안 보였다 — 이제 포그도 받지 않는다).
+
+### 2026-09-13 — 버그 굴착 스폰 · 지하벌레: `enemies.csv` 1줄 · `loot_corpses.csv` 1블록 · `constants.csv` `BURROW_*` · `SANDWORM_*` · `tables.csv` 2표
+
+읽는 곳은 `src/shared/constants.ts` 의 같은 이름 export → `src/enemies` (`Pool.spawn` · `parts/Burrow` · `sandworm/Director`). 규칙은 `src/enemies/README.md` 의
+`## 굴착 스폰 · 지하벌레`.
+
+- **`enemies.csv`** `sandworm` (팩션 bug) — speed · accel 0 (움직이지 않는다), 반지름 2.2 · 높이 10 = 땅 위 몸통 캡슐, 머리(입) 구 1.5 · `headMul` 1.5,
+  `mass` 1000 (다른 벌레가 늘 밀려난다), `staggerFraction` 99 (경직 없음). **`hp` 2500 은 자리표시자다** — 실제 최대 체력은 분출 순간 호스트가
+  `SANDWORM_HP_MIN..MAX`(2000–3000, 사용자 결정)에서 굴려 분대에 보낸다.
+- **`loot_corpses.csv`** `sandworm` 블록 — 보스급: 생체 조직 6–10 · 분비선 2–4 · 미확인 세포 2–4 (확정) · 광물 1–3 (0.8) · DNA 1–2 (0.6) · 생체 추출물 ·
+  외계 유물 · 발광버섯 씨앗. 은퇴 아이템 없음. 경제 표(`server/economy.gen.json`)는 루팅을 보지 않아 다시 굽지 않았다 (`data:check` ok).
+- **`constants.csv`** `BURROW_*` 5줄 — 파고 나오는 시간(1 s) · 묻힌 여분 깊이 · 흔들림 반경 · 세기 · **최소 간격**(겹치지 않게). `SANDWORM_*` 27줄 — 시각 창
+  (150–420 s, 발동 시각은 앞쪽 절반) · 검사 간격 · 무리 반경(16 m) · 전조 5 s · 흔들림 반경 · 최대 세기 · 분출 반경 12 m · 피해 55 · 넉백 15 m/s · 체력 범위 ·
+  솟는 시간 · 분출 무리 링 · 뱉기 단계 30 s · 간격 · 수 · 비행 시간 · 착지 거리 · 생존 상한 · 독극물 사거리 · 간격 · 연발 수.
+- **`tables.csv`** `SANDWORM_CHANCE_BY_THREAT` (key = 행성 threat − 1: 0 · 0.25 · 0.7 — threat 1 은 없다) · `SANDWORM_BURST_BY_SQUAD` (분대 1–4명: 4 · 6 · 7 · 8).
+
+### 2026-09-13 — 요리 재료 티어: `samples.csv` 계열 · `sockets.csv` (신규) · `items.csv` 7열 · `meals.csv` `effects` (에이전트 A)
+
+설계안 `docs/plans/food-tiers.md` §3 (사용자 결정). 분석기 결과표 `analysis_results.csv` · `tables.csv` · `tuning.csv` 의 흙/배지 마모 줄 ·
+`constants.csv` 의 고철 광물 줄은 리드가 넣었다 — 아래는 그 표가 가리키는 **아이템 쪽**이다.
+
+- **은퇴(`retired`)** 라는 개념이 생겼다 — `samples.csv` · `items.csv` · `meals.csv` 의 선택 bool 열. 은퇴한 아이템은 **정의만 남고**(이미 가진 것은
+  사라지지 않는다) 모든 출처에서 빠진다. 상자 · 보급 추첨은 코드의 안전핀(`src/items/LootTables` 의 `isLootableDef`)이 csv 와 상관없이 막고,
+  표끼리의 참조는 `npm run data:check` 가 잡는다: **`analysis_results.csv` 의 defId · 레시피 inputs / outputDefId / extraOutputs · `loot_corpses.csv` ·
+  `planets.csv` 의 samples · 표본 rewardDefId · 세포주 strainOut / strainScaffoldOut** 이 없는 id 거나 은퇴한 id 면 실패한다.
+- **`samples.csv`**: 새 필수 열 `family`(`cell` | `mineral` | `dna`) · 선택 `retired`. `first*` 열은 전부 비웠다 — 첫 해석 보너스가 없어졌고, 채우면
+  로더가 잡는다. `analyzeHours` 는 이제 **분석 레벨 1 기준** 시간이다 (`ANALYSIS_TIME_MUL_BY_LEVEL` 이 깎는다), `rewardDefId`/`rewardQty` 는 결과표가
+  비었을 때의 대체 산출물. 새 3종 `spec_cell` 미확인 세포(고급, ₩120, 2 h) · `spec_mineral` 미확인 광물(고급, ₩110, 1.5 h) · `spec_dna` 미확인 DNA
+  (희귀, ₩260, 4 h). 옛 11종은 `retired 1` + 계열(조직 · 키틴 · 생체막 · 지방조직 · 근조직 = 세포 → 생체 조직 ×3 / 포자낭 · 유전자 시료 · 분비선 · 난포
+  = DNA → 생체 추출물 ×1 / 결정 · 수지 = 광물 → 광물 추출물 ×1).
+- **`sockets.csv`** (신규, owner items): `id,name,rarity,target,effect,amount,value,description` 14줄 — 토양 · 배지 × 촉진(speed I–III) · 결실/분열(yield
+  I–II) · 안정(wear I–II). 분석기 DNA 결과로만 나온다. **`tuning.csv`** 에 `SOCKET_STACK_MAX` 5 · `SOCKET_WEIGHT` 0.05.
+- **`items.csv`**: `boostUseTime` 뒤에 7열 — `soilDurability`(토양 필수: 부엽토 100 · 화산재토/동토 이탄/포자 부식토 150 · 광물토/염류 결정토 250) ·
+  `mediumDurability`(배지 필수: 기본 100 · 강화 200) · `strainScaffoldOut`/`Qty`/`Hours`(스캐폴드가 든 칸의 산출 — 셋이 함께 있거나 함께 없다) ·
+  `scaffold` · `retired`. 토양 설명의 「(수확 n회)」, 배지 설명의 횟수 · 퍼센트를 뺐다. 새 재료 **24줄**(세포주 8 · 고기 페이스트 · 종별 고기 4 · 동물기름 ·
+  셀룰로스 · 배양 스캐폴드 · 암염 결정 · 소금 · 난백 단백질 · 카제인 · 유청 · 달걀 · 우유 · 치즈 — 전부 material 1×1). 옛 세포주 5종(`strain_*`)은
+  `retired 1` + **strain 칸을 비웠다**(배양조가 받지 않는다), 배양 산물 5종(`cult_*`)도 `retired 1`. 필라멘트 설명을 새 재료에 맞췄다.
+- **`meals.csv`**: `buff,amount` → **`effects`**(`버프:수치` 를 `|` 로) + `retired`. `tier` 1–4 이고 **티어 n = 능력치 n 줄**(로더가 검사, 은퇴 요리 제외).
+  새 11종 — 페이스트 요리 3(티어 2) · 고기 요리 5(티어 3) · 유제품 요리 3(티어 4). 옛 특선 4종은 `retired 1`(티어 2 · 한 줄 그대로).
+- **`recipes.csv`** 141 → 155줄: 옛 특선 조리 4줄 삭제 · `extract_medium_algae`(→ 셀룰로스 3) · 필라멘트 3줄 재료 교체 · 18줄 추가(추출기 소금 · 난백 단백질 ·
+  유단백, 조합대 스캐폴드 · 달걀 · 우유 · 치즈, 조리대 11).
+- **루팅**: `loot_corpses.csv` 벌레 8종의 표본 줄을 새 셋으로 (세포 대부분 · DNA 드물게 · 광물은 돌격 벌레 · 포병 · 베헤모스) — 줄 수가 바뀐 적은
+  `rollCorpse` rng 소비가 밀린다(고정 굴림을 세는 테스트는 벌레 표를 쓰지 않는다). `loot_item_weights.csv` 표본 티어 3–5 = DNA 1 · 광물 0.3 · 세포 0.15
+  (옛 표본 줄 삭제), 새 재료 24종 × 티어 1–5 = **0**. `planets.csv` 의 `samples` 는 세포 · 광물만. 상점 규칙(`corp_stock.csv`)은 새 아이템 · 은퇴 아이템
+  어느 것도 팔지 않는다 (세레스 `material` 줄은 임플란트 수리 재료만).
+- **`furniture.csv`** 설명만: 분석기 · 추출기 · 조합대 · 조리대 · 배양조. `server/economy.gen.json` 재생성 (새 아이템 가치).
+
+### 2026-09-13 — 캐릭터 시트 연관 열 · 조종석 전용 가구 · 재배 속도 · 배지 레시피 · 책장 8칸
+
+- **`stats.csv` · `skills.csv`**: 새 열 `derived` — 그 능력치 · 숙련이 바꾸는 **캐릭터 시트 파생 행의 키**(`|` 구분). 캐릭터 시트 툴팁의
+  하이라이트가 이것을 읽고 `progression/defs.ts` 가 `DERIVED_PANEL_KEYS` 로 검사한다(능력치 행이 비면 오류). 총기 숙련은 일부러 비운다 —
+  계열별 반동 · 장전은 파생 패널에 행이 없다. `derive.ts` 에 효과를 더하면 이 열도 같이 고친다.
+- **`furniture.csv`**: `room` 에 **`cockpit`** 값이 생겼다 — `furn_implant_bay` · `furn_corp_computer` 가 조종석 전용이다(회수 불가).
+  신규 `furn_drawer` 서랍장(꾸밈, 2×1, 폐금속 4 + 합금 1). 책장 설명에서 칸 수 「(6권)」 을 뺐다(툴팁이 보여 주는 숫자). 재배 스테이션 설명은
+  「층이 늘어난다」 → 성장 속도.
+- **`tuning.csv`**: `GROW_STATION_SPEED_PER_LEVEL`(0.15) — 재배 시간 ÷ (1 + 0.15 × (레벨 − 1)). 층은 이제 Lv.1 부터 3개다.
+- **`recipes.csv`**: `extract_medium_basic` · `extract_medium_rich` 삭제. 추출기 배지 15줄 — 작물 8종 각 3개 → 기본 배지 1(Lv.1) · 약초 6종 각 3개 →
+  기본 배지 2(Lv.1) · `cult_algae` 3개 → 고급 배지 1(Lv.2).
+- **`constants.csv`**: `BOOKS_PER_SHELF` 6 → 8 (4층 × 2). 서재 배율 상한(`SHELF_GAIN_MAX`)은 그대로.
 
 ### 2026-09-12 — 특정 아이템 회수 계약: `contracts.csv` 의 `itemDefId` 열 + 8줄 (에이전트 E2)
 

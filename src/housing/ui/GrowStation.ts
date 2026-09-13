@@ -1,20 +1,20 @@
 import type {
-  EmbeddedView, GameContext, GrowSlotInfo, GrowTier, HarvestDestination, ItemInstance, PlacedFurniture,
+  EmbeddedView, GameContext, GrowSlotInfo, GrowTier, HarvestDestination, ItemDef, ItemInstance, PlacedFurniture,
 } from '@/shared';
 import {
-  GROW_TIER_DRAW_ORDER, GROW_TIER_LABEL_KO, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
-  growTiersForLevel,
+  GROW_TIER_DRAW_ORDER, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
 } from '@/shared';
 import type { SoilTag } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
-import { furnitureMaxLevel, nextFurnitureCost } from '../Rules';
+import { furnitureMaxLevel, growStationSpeedPct, nextFurnitureCost } from '../Rules';
 import { HousingPanel } from './Panel';
 import { ProductDrag } from './ProductDrag';
 import type { Product } from './ProductDrag';
+import { SocketAsk, paintSocketDots, socketTipRows } from './SocketFlow';
 import { StationMenu } from './StationMenu';
 import { StationTip } from './StationTip';
 import type { TipRow, TipSpec } from './StationTip';
-import { buildStationShell, mountStationGrids, paintStationLevel } from './StationShell';
+import { buildStationShell, mountStationGrids, paintStationLevel, paintStationMeta } from './StationShell';
 import type { StationShell } from './StationShell';
 import { UpgradeModal } from './UpgradeModal';
 import type { UpgradeSpec } from './UpgradeModal';
@@ -25,6 +25,12 @@ const TICK_MS = 1000;
 const pct = (v: number): number => Math.round(v * 100);
 const keyOf = (tier: GrowTier, slot: number): string => `${tier}:${slot}`;
 const tagLabel = (t: SoilTag | null): string => (t ? SOIL_TAG_LABEL_KO[t] : '알 수 없는');
+/** 「성장 속도 +15%」 — 스테이션 레벨이 주는 속도 (`Rules.growStationSpeedPct`, 2026-09-13). */
+const speedText = (level: number): string => `성장 속도 +${growStationSpeedPct(level)}%`;
+/** 흙의 보너스 비율 (0 … 1). 계약 필드가 아직 없는 옛 빌드면 1 로 읽는다. */
+const soilRatio = (info: GrowSlotInfo): number =>
+  (typeof info.soilBonusRatio === 'number' && Number.isFinite(info.soilBonusRatio) ? Math.max(0, Math.min(1, info.soilBonusRatio)) : 1);
+const fin = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0);
 
 /**
  * 호버한 **영역** (2026-09-12, 사용자 결정): 흙구멍(`.gs-pot`) 위면 토양 카드, 그 위의 식물 영역 · 시계 · 나머지
@@ -38,6 +44,8 @@ interface SlotCard {
   key: string;
   wrap: HTMLElement;
   soil: HTMLElement;
+  /** 흙구멍 안의 소켓 점 (2026-09-13). */
+  socks: HTMLElement;
   leaf: HTMLElement;
   time: HTMLElement;
 }
@@ -53,8 +61,11 @@ interface RailItem {
 /**
  * **재배 화면** (온실 개편 2026-09-11 · 화면 개편 2026-09-12 — `openGrowStation(uid)` ← E on a 재배 스테이션).
  *
- * 틀은 `StationShell` 공통이다: 머리줄 = 「재배 스테이션」 + `Lv. n` · 오른쪽 「업그레이드」(→ `UpgradeModal`, 1초 홀드),
- * 좌 패널 = 재배층, 우 패널 = 가방 · 함선 창고 격자 (`createTradeGrids`). 라벨 · 안내문은 없다.
+ * 틀은 `StationShell` 공통이다: 스테이션 카드 = 「재배 스테이션」 + `Lv. n` + 성장 속도(`meta`) · 카드 우상단
+ * 「업그레이드」(→ `UpgradeModal`, 1초 홀드) · 재배층, 그 옆에 함선 창고 카드 · 가방 카드 (2026-09-13 카드 배치).
+ *
+ * **2026-09-13 (사용자 결정)**: 세 층이 Lv.1 부터 모두 열려 있고, 강화는 **성장 속도**를 올린다 (+15 % / 레벨,
+ * `data/tuning.csv` 의 `GROW_STATION_SPEED_PER_LEVEL`). 강화하면 자라던 작물의 남은 시간도 그 자리에서 줄어든다.
  *
  * 한 층은 **하얀 바** 하나이고, 그 위에 **흙구멍**(위가 잘린 작은 원)이 `GROW_SLOTS_PER_TIER` 개 박혀 있다 — 바의 윗변이
  * 흙구멍의 윗변과 같은 높이다. 심은 작물은 구멍 위로 자란다(`--g` = 진행도, 줄기 `scaleY` + 잎 `translateY` · `scale`,
@@ -64,7 +75,14 @@ interface RailItem {
  * 흙만 부었으면 `00:00`(딤드), 자라는 중이면 `HH:MM:SS`, 다 자랐으면 「수확 가능」(초록). 글자 크기 · 줄 높이 ·
  * 상자 높이를 CSS 가 못 박고 `:SS` 도 `HH:MM` 과 같은 크기라, 상태가 바뀌어도 칸이 한 픽셀도 흔들리지 않는다.
  *
- * 나머지 정보는 **영역별 호버 카드**다 (`StationTip`) — 흙구멍 위면 토양(종류 · 속성 · 남은 수확 횟수), 그 위의
+ * **2026-09-13 (요리 재료 티어)**: 부어 둔 흙은 **내구도**와 **소켓**을 들고 있고 수확해도 칸이 비지 않는다.
+ * 소켓은 **흙구멍 안의 작은 점**(칸 수만큼, 끼운 것은 채움 — `SocketFlow.paintSocketDots`)으로 보이고, 내구도 · 보너스 비율 ·
+ * 소켓 목록은 흙구멍 호버 카드에 있다 (구멍 아래 시계 줄은 그대로다). 흙이 다 닳으면(`soilBonusRatio` 0) 흙이 바랜다(`.is-worn`).
+ * 토양 소켓을 흙구멍에 떨어뜨리면 끼우고(`insertGrowSocket`), 칸이 가득이면 교체할 소켓을 고른 뒤 1초 홀드 경고로 묻는다
+ * (`SocketAsk`). 배지 소켓 · 흙 없는 칸 같은 거절은 housing 의 한국어 사유를 토스트로 띄운다. 「흙 비우기」는 소켓이 있으면
+ * 「소켓도 함께 사라집니다」 1초 홀드를 거친다.
+ *
+ * 나머지 정보는 **영역별 호버 카드**다 (`StationTip`) — 흙구멍 위면 토양(종류 · 속성 · 내구도 · 보너스 · 소켓), 그 위의
  * 식물 공간이면 작물(씨앗 · 남은 시간 · 궁합 · 수확물). 우클릭 메뉴(`StationMenu`)는 흙 비우기, 다 자란 작물은
  * **더블클릭 = 함선 창고 먼저**, **끌어서 격자에 놓기 = 그 격자**다 (`ProductDrag`).
  *
@@ -84,6 +102,7 @@ export class GrowStation extends HousingPanel {
   private readonly modal: UpgradeModal;
   private readonly tip: StationTip;
   private readonly menu: StationMenu;
+  private readonly sockAsk: SocketAsk;
   private readonly drag: ProductDrag;
   private grids: EmbeddedView | null = null;
   private cards: SlotCard[] = [];
@@ -116,7 +135,9 @@ export class GrowStation extends HousingPanel {
     this.modal = new UpgradeModal(ctx, this.root, housing);
     this.tip = new StationTip(this.root);
     this.menu = new StationMenu(this.root);
-    this.overlays.push(this.modal, this.menu);
+    this.sockAsk = new SocketAsk(ctx, this.menu);
+    // 순서 = 아래 → 위: 경고 팝업은 메뉴 위에 뜨므로 E · Tab 이 그것부터 닫는다
+    this.overlays.push(this.modal, this.menu, this.sockAsk);
     this.drag = new ProductDrag(this.tiersEl, {
       productAt: (t) => this.productAt(t),
       collect: (key, dest) => this.collect(key, dest),
@@ -165,7 +186,7 @@ export class GrowStation extends HousingPanel {
   /* ── actions ───────────────────────────────────────────────────────────── */
   /** A tile was dragged out of the 가방 / 창고 onto a 흙구멍 (or double-clicked, `target` null). */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
-    if (!target) { this.showMsg('토양 · 씨앗을 흙구멍으로 끌어다 놓으세요', 'info'); return; }
+    if (!target) { this.showMsg('토양 · 씨앗 · 토양 소켓을 흙구멍으로 끌어다 놓으세요', 'info'); return; }
     const tier = Number(target.dataset.tier);
     const slot = Number(target.dataset.slot);
     if (!Number.isInteger(tier) || !Number.isInteger(slot)) { this.showMsg('없는 재배 칸입니다', 'warning'); return; }
@@ -180,13 +201,46 @@ export class GrowStation extends HousingPanel {
     } else if (def.seed) {
       reason = this.housing.plantSeedAt(this.uid, t, slot, item.defId);
       done = `${def.name}을(를) 심었습니다`;
+    } else if (def.growSocket) {
+      this.dropSocket(t, slot, def, target);
+      return;
     } else {
-      this.showMsg('토양이나 씨앗만 놓을 수 있습니다', 'warning');
+      this.showMsg('토양 · 씨앗 · 토양 소켓만 놓을 수 있습니다', 'warning');
       return;
     }
     if (reason) this.showMsg(reason, 'warning');
     else this.showMsg(done, 'success');
     // 성공하면 housing:changed 가 이미 한 번의 refresh 를 예약했다 — 여기서 또 부르지 않는다
+  }
+
+  /**
+   * 토양 소켓 드롭 (2026-09-13). 빈 소켓 칸이 있거나 끼울 수 없는 경우(배지 소켓 · 흙 없음 …)는 곧장 housing 에 묻고,
+   * **흙이 있고 칸이 가득**일 때만 교체 흐름(고르기 → 1초 홀드)으로 간다 — 규칙 · 사유는 전부 `insertGrowSocket` 안이다.
+   */
+  private dropSocket(tier: GrowTier, slot: number, def: ItemDef, anchor: HTMLElement): void {
+    const info = this.infoOf(keyOf(tier, slot));
+    const sockets = info?.sockets ?? [];
+    const slots = fin(info?.socketSlots);
+    const full = !!info && !!info.soilDefId && def.growSocket?.target === 'soil' && slots > 0 && sockets.length >= slots;
+    if (!full) { this.insertSocket(tier, slot, def); return; }
+    this.hideTip();
+    this.sockAsk.askReplace({
+      anchor,
+      target: 'soil',
+      newDef: def,
+      sockets: sockets.slice(),
+      ratio: soilRatio(info),
+      defOf: (id) => this.housing.defOf(id),
+      nameOf: (id) => this.housing.nameOf(id),
+      run: (i) => this.insertSocket(tier, slot, def, i),
+    });
+  }
+
+  private insertSocket(tier: GrowTier, slot: number, def: ItemDef, replaceIndex?: number): void {
+    const old = replaceIndex !== undefined ? this.infoOf(keyOf(tier, slot))?.sockets?.[replaceIndex] ?? null : null;
+    const reason = this.housing.insertGrowSocket(this.uid, tier, slot, def.id, replaceIndex);
+    if (reason) { this.deny(reason); return; }
+    this.showMsg(old ? `${this.housing.nameOf(old)} 파괴 · ${def.name}을(를) 끼웠습니다` : `${def.name}을(를) 끼웠습니다`, 'success');
   }
 
   private infoOf(key: string): GrowSlotInfo | null {
@@ -204,17 +258,22 @@ export class GrowStation extends HousingPanel {
   private collect(key: string, dest: HarvestDestination): void {
     const info = this.infoOf(key);
     if (!info) return;
+    const id = info.yieldDefId;
+    const before = id ? this.housing.countDef(id) : 0;
     const reason = this.housing.harvestAt(this.uid, info.tier, info.slot, dest);
     if (reason) { this.deny(reason); return; }
-    const name = info.yieldDefId ? this.housing.nameOf(info.yieldDefId) : '수확물';
-    this.showMsg(`${name} ×${info.yieldQty} 수확`, 'success');
+    // 2026-09-13: 소켓 `yield` 가 +1 을 붙일 수 있다 — 받은 개수는 가방 + 창고의 차이로 읽는다 (못 읽으면 기본 개수)
+    const got = id ? this.housing.countDef(id) - before : 0;
+    const qty = got > 0 ? got : info.yieldQty;
+    const bonus = got > info.yieldQty ? ` (추가 +${got - info.yieldQty})` : '';
+    this.showMsg(`${id ? this.housing.nameOf(id) : '수확물'} ×${qty} 수확${bonus}`, 'success');
     this.hideTip();
   }
 
   private clearSoil(tier: GrowTier, slot: number, discardCrop: boolean): void {
     const reason = this.housing.clearSoil(this.uid, tier, slot, discardCrop);
     if (reason) { this.deny(reason); return; }
-    this.showMsg(discardCrop ? '작물을 버리고 흙을 비웠습니다' : '흙을 비웠습니다 (남은 횟수는 돌려받지 않습니다)', 'info');
+    this.showMsg(discardCrop ? '작물을 버리고 흙을 비웠습니다' : '흙을 비웠습니다 (흙 · 소켓은 돌려받지 않습니다)', 'info');
   }
 
   /* ── 업그레이드 (모달) ─────────────────────────────────────────────────── */
@@ -224,19 +283,21 @@ export class GrowStation extends HousingPanel {
     this.modal.open(() => this.upgradeSpec(), () => this.upgrade());
   }
 
-  /** 다음 레벨이 여는 층은 계약 `growTiersForLevel` 에서 유도한다 (코드에 층 번호를 적지 않는다). */
+  /** 다음 레벨의 성장 속도는 `Rules.growStationSpeedPct` 에서 유도한다 (2026-09-13 — 강화는 층이 아니라 속도다). */
   private upgradeSpec(): UpgradeSpec | null {
     const h = this.housing;
     const station = h.getPlacedByUid(this.uid);
     const def = station ? h.getFurnitureDef(station.defId) : undefined;
     if (!station || !def) return null;
     const level = station.level;
-    const opened = growTiersForLevel(level + 1).filter((t) => !growTiersForLevel(level).includes(t));
+    const maxLevel = furnitureMaxLevel(def);
     return {
       name: def.name,
       level,
-      maxLevel: furnitureMaxLevel(def),
-      gain: opened.length ? `${opened.map((t) => GROW_TIER_LABEL_KO[t]).join(' · ')} 개방` : '',
+      maxLevel,
+      gain: level < maxLevel
+        ? `성장 속도 +${growStationSpeedPct(level)}% → +${growStationSpeedPct(level + 1)}% · 자라는 작물에도 바로 적용`
+        : '',
       cost: nextFurnitureCost(def, level),
       reason: h.furnitureUpgradeBlock(this.uid),
       requirements: h.furnitureUpgradeRequirements(this.uid),
@@ -249,9 +310,7 @@ export class GrowStation extends HousingPanel {
     if (reason) { this.deny(reason); return; }
     const before = this.housing.getPlacedByUid(this.uid)?.level ?? 0;
     if (this.housing.upgradeFurniture(this.uid)) {
-      const opened = growTiersForLevel(before + 1).filter((t) => !growTiersForLevel(before).includes(t));
-      const what = opened.map((t) => GROW_TIER_LABEL_KO[t]).join(' · ');
-      this.showMsg(`재배 스테이션 Lv.${before + 1}${what ? ` — ${what} 개방` : ''}`, 'success');
+      this.showMsg(`재배 스테이션 Lv.${before + 1} — ${speedText(before + 1)}`, 'success');
     } else {
       this.showMsg('강화에 실패했습니다', 'danger');
     }
@@ -283,18 +342,31 @@ export class GrowStation extends HousingPanel {
     return region === 'soil' ? this.soilTip(info) : this.plantTip(info);
   }
 
-  /** 아래 흙 부분 — 토양 종류 · 속성 태그 · 남은 수확 횟수. */
+  /** 아래 흙 부분 — 토양 종류 · 속성 태그 · 내구도 · 보너스 비율 · 소켓 (2026-09-13: 「남은 수확 n회」 대신). */
   private soilTip(info: GrowSlotInfo): TipSpec {
     if (!info.soilDefId) return { name: '빈 흙구멍', sub: '비어 있음', rows: [], foot: '토양을 끌어다 놓으세요' };
+    const h = this.housing;
+    const ratio = soilRatio(info);
+    const dur = fin(info.soilDurability), max = fin(info.soilDurabilityMax);
+    const slots = fin(info.socketSlots);
+    const rows: TipRow[] = [
+      { k: '속성', v: `${tagLabel(info.soilTag)} 토양` },
+      { k: '내구도', v: max > 0 ? `${dur} / ${max}` : '—', tone: max > 0 && dur <= 0 ? 'bad' : undefined },
+      {
+        k: '보너스',
+        v: ratio <= 0 ? '0 % — 흙이 다 닳았습니다' : `${pct(ratio)} % 적용 (내구도 비율)`,
+        tone: ratio <= 0 ? 'bad' : ratio >= 1 ? 'good' : undefined,
+      },
+      ...socketTipRows((id) => h.defOf(id), (id) => h.nameOf(id), 'soil', info.sockets, slots, ratio),
+    ];
+    const foot = ['우클릭: 흙 비우기'];
+    if (slots > 0) foot.push(info.sockets && info.sockets.length >= slots ? '토양 소켓을 놓으면 교체 (옛 소켓 파괴)' : '토양 소켓을 끌어다 놓아 끼웁니다');
     return {
-      name: this.housing.nameOf(info.soilDefId),
+      name: h.nameOf(info.soilDefId),
       sub: '토양',
       color: info.soilTag ? SOIL_TAG_COLOR[info.soilTag] : undefined,
-      rows: [
-        { k: '속성', v: `${tagLabel(info.soilTag)} 토양` },
-        { k: '남은 수확', v: `${info.soilUsesLeft}회` },
-      ],
-      foot: '우클릭: 흙 비우기',
+      rows,
+      foot: foot.join('\n'),
     };
   }
 
@@ -312,11 +384,15 @@ export class GrowStation extends HousingPanel {
     const rows: TipRow[] = [
       { k: '씨앗', v: `${h.nameOf(info.seedDefId)} · ${tagLabel(info.seedTag)} 토양을 좋아함` },
       { k: '남은 시간', v: info.ready ? '수확 가능' : clockText(info.remainingS), tone: info.ready ? 'good' : undefined },
-      // 수치는 심는 순간 이미 `readyAt` 에 확정됐다 — 여기서는 그 배율을 말로 되읽는다 (csv 값)
+      // 수치는 심는 순간 이미 `readyAt` 에 확정됐다 — 여기서는 그 배율을 말로 되읽는다 (csv 값).
+      // 2026-09-13: 궁합 보너스는 흙 내구도 비율만큼만 듣는다. 내구도는 수확 때만 닳으므로(= 작물이 없어진 뒤) 지금 비율이 곧 심을 때의 비율이다.
       info.matched
-        ? { k: '궁합', v: `맞음 · 성장 시간 −${pct(SOIL_MATCH_SPEEDUP)} %`, tone: 'good' }
+        ? { k: '궁합', v: `맞음 · 성장 시간 −${pct(SOIL_MATCH_SPEEDUP * soilRatio(info))} %`, tone: 'good' }
         : { k: '궁합', v: `어긋남 · 성장 시간 +${pct(SOIL_MISMATCH_PENALTY)} %`, tone: 'bad' },
     ];
+    // 2026-09-13: 스테이션 레벨의 성장 속도 — 강화하면 자라는 작물에도 바로 적용된다
+    const station = h.getPlacedByUid(this.uid);
+    if (station) rows.push({ k: '스테이션', v: `Lv.${station.level} · ${speedText(station.level)}`, tone: station.level > 1 ? 'good' : undefined });
     if (info.yieldDefId) rows.push({ k: '수확물', v: `${h.nameOf(info.yieldDefId)} ×${info.yieldQty}` });
     return {
       name: h.nameOf(info.seedDefId),
@@ -335,10 +411,22 @@ export class GrowStation extends HousingPanel {
     if (!info || info.locked || !info.soilDefId) return;
     this.hideTip();
     const planted = !!info.seedDefId;
+    const socketCount = info.sockets?.length ?? 0;
+    const label = planted ? '작물 버리고 흙 비우기' : '흙 비우기';
     this.menu.show(e.clientX, e.clientY, [{
-      label: planted ? '작물 버리고 흙 비우기' : '흙 비우기',
-      danger: planted,
-      run: () => this.clearSoil(info.tier, info.slot, planted),
+      label,
+      danger: planted || socketCount > 0,
+      run: () => {
+        if (!socketCount) { this.clearSoil(info.tier, info.slot, planted); return; }
+        // 2026-09-13 (사용자 결정 「칸을 비우면 흙 · 소켓이 함께 사라진다」): 영구 소켓을 잃는 비우기는 1초 홀드로 묻는다
+        this.sockAsk.confirm({
+          id: 'hs-soil-clear',
+          title: label,
+          body: `소켓도 함께 사라집니다 — 끼운 소켓 ${socketCount}개와 흙은 돌려받지 않습니다.${planted ? '\n자라는 작물도 버립니다.' : ''}`,
+          label: '비우기',
+          run: () => this.clearSoil(info.tier, info.slot, planted),
+        });
+      },
     }]);
   }
 
@@ -392,6 +480,7 @@ export class GrowStation extends HousingPanel {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.hideTip();
     this.drag.end();
+    this.sockAsk.close();
     this.uid = uid;                       // `builtKey` 가 uid 를 담고 있어 `refresh()` 가 층을 다시 짓는다
     this.refresh();
     this.ctx.bus.emit('ui:growToggled', { open: true, uid });
@@ -407,6 +496,7 @@ export class GrowStation extends HousingPanel {
     const def = station ? h.getFurnitureDef(station.defId) : undefined;
     setText(this.shell.title, def?.name ?? '재배 스테이션');
     paintStationLevel(this.shell, station && def ? station.level : null, def ? furnitureMaxLevel(def) : 0);
+    paintStationMeta(this.shell, station ? speedText(station.level) : '');
     const infos = station ? h.getGrowSlots(this.uid) : [];
     const key = station ? `${this.uid}:${station.level}` : '';
     if (key !== this.builtKey) {
@@ -447,11 +537,14 @@ export class GrowStation extends HousingPanel {
     const leaf = el('span', { cls: 'gs-leaf', text: '', parent: plant });
     const pot = el('div', { cls: 'gs-pot', attrs: { 'data-tier': String(info.tier), 'data-slot': String(info.slot) }, parent: wrap });
     const soil = el('i', { cls: 'gs-soil', parent: pot });
+    // 소켓 점은 흙 위에 떠 있다 (흙구멍 **안** — 구멍 아래 시계 줄의 높이는 건드리지 않는다)
+    const socks = el('span', { cls: 'gs-socks', parent: pot });
+    socks.hidden = true;
     const time = el('div', { cls: 'gs-time hs-clock', text: '', parent: wrap });
-    return { key, wrap, soil, leaf, time };
+    return { key, wrap, soil, socks, leaf, time };
   }
 
-  /** Cheap repaint (open · every change · 1 s tick): classes, soil colour, growth `--g`, the clock. */
+  /** Cheap repaint (open · every change · 1 s tick): classes, soil colour, growth `--g`, socket dots, the clock. */
   private paint(infos: readonly GrowSlotInfo[] = this.housing.getGrowSlots(this.uid)): void {
     this.debug.paints++;
     this.paintRail();
@@ -465,9 +558,12 @@ export class GrowStation extends HousingPanel {
       toggleClass(card.wrap, 'has-soil', hasSoil);
       toggleClass(card.wrap, 'is-planted', planted);
       toggleClass(card.wrap, 'is-ready', info.ready);
+      // 2026-09-13: 흙이 다 닳으면(보너스 비율 0) 흙이 바랜다 — 여전히 쓸 수 있다
+      toggleClass(card.wrap, 'is-worn', hasSoil && soilRatio(info) <= 0);
 
       const color = info.soilTag ? SOIL_TAG_COLOR[info.soilTag] : '';
       if (card.soil.dataset.c !== color) { card.soil.dataset.c = color; card.soil.style.background = color; }
+      paintSocketDots(card.socks, hasSoil ? info.socketSlots : 0, info.sockets?.length ?? 0);
 
       const g = planted ? (info.ready ? 1 : Math.max(0, Math.min(1, info.progress))) : 0;
       const gs = g.toFixed(3);
@@ -495,6 +591,7 @@ export class GrowStation extends HousingPanel {
     this.stopTicking();
     this.drag.dispose();
     this.modal.dispose();
+    this.sockAsk.close();
     this.grids?.dispose();
     this.grids = null;
     super.dispose();

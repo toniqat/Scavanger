@@ -26,6 +26,8 @@ import type { InventoryUI } from '../InventoryUI';
 
 export function onTab(sys: InventoryUI, tab: ScreenTab): void {
   if (tab === sys.activeTab) return;
+  // 2026-09-13: the screen being left may ask first (캐릭터 탭의 확정 전 포인트 — `EmbeddedView.requestLeave`) and switch later
+  if (sys.screenView?.requestLeave?.(() => onTab(sys, tab))) return;
   sys.setTab(tab);
   sys.sys.sfx(sys.activeTab === tab ? 'ui_pickup' : 'ui_error');
   }
@@ -187,9 +189,18 @@ export function refreshCraft(sys: InventoryUI): void {
   if (sys.disassemble.isOpen) sys.disassemble.tick();
   }
 
-/** Show / hide the catalog panel (system state lives in `InventorySystem.isCatalogOpen`). */
+/**
+ * Show / hide the catalog panel (system state lives in `InventorySystem.isCatalogOpen`).
+ *
+ * **2026-09-13 (사용자 결정)**: 카탈로그가 열려 있는 동안 창에는 **무한 상자 · 함선 창고(함선) · 가방**만 남는다 —
+ * `.is-catalog` 가 장착 장비 열(주무기 · 방탄복 · 가방 칸 · 전술 임플란트 · 주머니 칸) · 퀵슬롯 로즈 · 주머니 격자를
+ * 감춘다 (`inventory.css`). 감춘 칸은 드롭 대상도 아니다 — `Drag.updateDragTarget` / `updateCatalogTarget` 이 장비칸 ·
+ * 퀵슬롯을 건너뛰고 `activeViews()` 가 주머니 격자를 뺀다. 닫으면 클래스가 빠져 평소 배치로 돌아온다.
+ */
 export function setCatalog(sys: InventoryUI, open: boolean): void {
   sys.catalogView.setOpen(open);
+  sys.root?.classList.toggle('is-catalog', open);
+  sys.layout?.classList.toggle('is-catalog', open);
   if (!open && sys.drag?.catalog) sys.cancelDrag();
   if (!open) sys.tooltip.hide();
   }
@@ -238,7 +249,8 @@ export function beginCatalogPress(sys: InventoryUI, def: ItemDef, sample: ItemIn
 
 /** Drag targets of a catalog instance: equipment slots, then the active grids (never the wheel / sockets / world). */
 export function updateCatalogTarget(sys: InventoryUI, d: DragState, px: number, py: number): void {
-  for (const sv of sys.slots.values()) {
+  // 2026-09-13: while the catalog is open the equipment column is hidden (`.is-catalog`) — its slots are no target
+  for (const sv of sys.catalogView.isOpen ? [] : sys.slots.values()) {
     const r = sv.body.getBoundingClientRect();
     if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
       d.target = { kind: 'slot', slot: sv.slot };

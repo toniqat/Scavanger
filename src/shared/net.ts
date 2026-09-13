@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
+import type { EnemySpawnSite } from './types';
 import type { DeployableKind, GadgetId } from './gadgets';
 /* appended (2026-09-11): 드론 (owner: gadgets/drones) */
 import type { DroneMessage, DroneRequest } from './drones';
@@ -565,7 +566,9 @@ export interface EnemySnapshot { t: 'es'; time: number; seq: number; full: boole
 
 /** Host → all: discrete enemy events (spawn/kill/attack) for FX, audio and stats. Owner: enemies. */
 export type EnemyEvent =
-  | { t: 'ee'; ev: 'spawn'; id: number; ty: EnemyType; p: Vec3Tuple; yaw: number }
+  | { t: 'ee'; ev: 'spawn'; id: number; ty: EnemyType; p: Vec3Tuple; yaw: number;
+      /* appended (2026-09-13): 굴착 스폰 — 땅을 파고 올라오는 시간(초). 생략 = 그 자리에 바로 선다 (첫 배치 · 인간형 · 뱉어진 버그). */
+      em?: number }
   /** `dd` (appended Phase 10) = index into `ENEMY_DEATH_DIRS`; omitted = 0 (`'left'`). */
   | { t: 'ee'; ev: 'kill'; id: number; ty: EnemyType; p: Vec3Tuple; killer: PeerId | null; dd?: number }
   | { t: 'ee'; ev: 'despawn'; id: number }
@@ -581,17 +584,26 @@ export type EnemyEvent =
   | { t: 'ee'; ev: 'charge'; id: number; target: Vec3Tuple }
   | { t: 'ee'; ev: 'toxic'; id: number; p: Vec3Tuple }
   /** `dd` / `lt` appended (Phase 10): death-direction index, and 0 = this corpse rolled un-searchable (omitted = lootable). */
-  | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string; dd?: number; lt?: 0 | 1 }
+  | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string; dd?: number; lt?: 0 | 1;
+      /* appended (2026-09-13): 시체 전리품의 입력 — `si` 스폰 거점(`EnemySpawnSite`), `gc` 남은 수류탄 수, `gk` 그 종류
+         (`ENEMY_GRENADE_KINDS` 인덱스, 생략 = 0 = frag). 생략 = 없음. 리플리카도 호스트와 같은 목록을 굴린다. */
+      si?: EnemySpawnSite; gc?: number; gk?: number }
   | { t: 'ee'; ev: 'corpseGone'; id: number }
   /* appended (Phase 7): rogue AI v2 */
   /** A rogue threw a grenade (replicas fly a visual one; the host resolves damage: own player directly, remotes via `dmg`). */
-  | { t: 'ee'; ev: 'grenade'; id: number; p: Vec3Tuple; v: Vec3Tuple; fuse: number }
+  | { t: 'ee'; ev: 'grenade'; id: number; p: Vec3Tuple; v: Vec3Tuple; fuse: number;
+      /** appended (2026-09-13): 수류탄 종류 = `ENEMY_GRENADE_KINDS` 인덱스 (생략 = 0 = frag). 리플리카가 같은 모양 · 폭발 연출을 고른다. */
+      k?: number }
   /** The rogue grenade exploded (FX on replicas). */
-  | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple }
+  | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple;
+      /** appended (2026-09-13): 종류 = `ENEMY_GRENADE_KINDS` 인덱스 (생략 = 날아가던 복제본의 종류, 없으면 frag). 소이면 리플리카도 화염 지대 연출을 켠다 (피해는 호스트). */
+      k?: number }
   /* appended (2026-09-08): 배리어 정면 흡수 — see the last section */
   | EnemyEventAppended2026_09_08
   /* appended (2026-09-11): 네임드 로그 · 스캔 드론 — see EnemyEventAppended2026_09_11 */
-  | EnemyEventAppended2026_09_11;
+  | EnemyEventAppended2026_09_11
+  /* appended (2026-09-13): 지하벌레 이벤트 — see EnemyEventAppended2026_09_13 */
+  | EnemyEventAppended2026_09_13;
 /** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
 export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
 
@@ -832,7 +844,7 @@ import type { FurniturePoseKind } from './types';
 import type { CharBuff } from './charBuffs';
 
 /** 가구 자세 번호 — `PlayerSnapshot.fp[0]` 이 이 배열의 인덱스다. 순서를 바꾸지 않는다 (추가만). */
-export const FURNITURE_POSE_WIRE: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle'];
+export const FURNITURE_POSE_WIRE: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle', /* 2026-09-13 요리 미니게임 */ 'cook'];
 
 /** 보낸 사람의 버프 목록 전부. `rev` = `PlayerRef.buffsRevision`. */
 export interface CharBuffMessage { t: 'cbuf'; ev: 'state'; rev: number; buffs: CharBuff[] }
@@ -1283,6 +1295,25 @@ export type EnemyEventAppended2026_09_11 =
    * deployable, the smoke counter-spit (`fireAcidAt`). Replicas fly the same projectile; damage stays on the host.
    */
   | { t: 'ee'; ev: 'acidAt'; id: number; from: Vec3Tuple; to: Vec3Tuple };
+
+/* ══ appended (2026-09-13): 지하벌레 이벤트 (owner: enemies — `enemies/sandworm/Director`) ══════════════════════════
+ * 호스트 권한이고 받는 쪽은 로비 호스트가 보낸 것만 받는다 (`ee` 공통 규칙). 지하벌레 자신 · 무리 · 뱉어진 버그는 기존
+ * `ee spawn`(굴착은 `em`) · `es` 스냅샷으로 오고, 산성은 기존 `ee acid` · `ee acidAt` 이다. 지하벌레의 와이어 애니메이션
+ * 힌트(`EnemyWire.a`)는 21 = 버그를 뱉는 중(입 벌림), 22 = 독극물 연발 준비 · 발사.
+ */
+export type EnemyEventAppended2026_09_13 =
+  /** Host → all: 전조 — `p`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `r`. 늦은 합류자에게는 남은 `eta` 로 다시 보낸다. */
+  | { t: 'ee'; ev: 'wormWarn'; p: Vec3Tuple; eta: number; r: number }
+  /**
+   * Host → all: 지하벌레 `id` 가 `p` 에서 분출했다 (분진 · 흔들림 · 소리). `hp` = 굴린 최대 체력, `spit` = 버그 뱉기 단계가
+   * 남은 초 (솟아오르는 시간 포함). `sy` 1 = 늦은 합류 · 재접속 동기화 — 연출 없이 최대 체력 · 단계만 맞춘다.
+   */
+  | { t: 'ee'; ev: 'wormErupt'; id: number; p: Vec3Tuple; r: number; hp: number; spit: number; sy?: 1 }
+  /**
+   * Host → all: 지하벌레 `id` 가 입 `from` 에서 버그를 뱉었다. `b` = `[버그 id, 착지 x, y, z]` 목록, `T` = 비행 시간(초).
+   * 버그는 같은 프레임의 `ee spawn` 이 먼저 만들고, 리플리카는 이 이벤트로 같은 포물선을 스스로 그린다 (착지 뒤는 스냅샷).
+   */
+  | { t: 'ee'; ev: 'wormSpit'; id: number; from: Vec3Tuple; b: [number, number, number, number][]; T: number };
 
 /** Wire form of a gather node. */
 export interface GatherWire { id: string; defId: string; p: Vec3Tuple; harvested: boolean }
@@ -1785,3 +1816,19 @@ export interface CorpseItemWire {
   /** 플레이어 시체 안 아이템의 `ItemInstance.raidFound`. */
   rf?: number;
 }
+
+/* ══ appended: 2026-09-13 — 요리 품질이 와이어를 건넌다 (`ItemInstance.quality`, docs/plans/cooking-minigames.md) ══
+ * `rf` 와 같은 자리에 싣는다. 생략 = 품질 0 (옛 피어 · 요리가 아닌 아이템). 받는 쪽은 `normalizeMealQuality` 로 자른다. */
+export interface PickupWire {
+  /** 바닥에 떨어진 요리의 `ItemInstance.quality`. */
+  q?: number;
+}
+export interface CorpseItemWire {
+  /** 플레이어 시체 안 요리의 `ItemInstance.quality`. */
+  q?: number;
+}
+export interface MealMessage {
+  /** 공유 함선 식탁에서 차린 요리의 품질 (`req` · `serve` 모두). */
+  q?: number;
+}
+/* ══ end 2026-09-13 요리 품질 ══ */

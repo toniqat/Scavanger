@@ -291,6 +291,29 @@
   border-radius: 2px;
 }
 
+/* 2026-09-13 (요리 품질): 품질이 붙은 요리의 `★n` — 좌하단. 수량 배지(우하단) · 휠 방향 배지(좌상단) · 사선 띠(우상단)와
+   모서리가 겹치지 않는다. 1×1 타일이라도 수량 배지와 가로로 나란히 들어가도록 작게. 포인터를 먹지 않는다. */
+.inv-tile-quality {
+  position: absolute;
+  left: 3px; bottom: 3px;
+  z-index: 1;
+  padding: 0 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  letter-spacing: 0;
+  color: #ffd66b;
+  background: rgba(0, 0, 0, 0.66);
+  border: 1px solid rgba(255, 214, 107, 0.45);
+  border-radius: 2px;
+  text-shadow: 0 0 4px rgba(255, 190, 60, 0.55);
+  pointer-events: none;
+}
+.inv-tile-quality[data-quality="5"] { color: #fff1b8; border-color: rgba(255, 230, 150, 0.8); box-shadow: 0 0 6px rgba(255, 200, 80, 0.45); }
+/* 격자 툴팁의 `품질  ★★★☆☆ +15 %` 줄 — 배지와 같은 별 색 */
+.inv-tooltip .inv-tt-stats .v.is-quality { color: #ffd66b; letter-spacing: 0.02em; }
+
 /* weapon tiles: socket pips (top-right) + durability bar (bottom edge) */
 .inv-tile-sockets {
   position: absolute;
@@ -1345,7 +1368,8 @@ kbd {
 .inv-col-right { display: contents; }
 .inv-layout.is-craft .inv-col-right {
   order: 2;
-  display: flex; flex-direction: row; align-items: flex-start; gap: 24px;
+  /* 2026-09-13 (사용자 결정): 창고 · 가방 패널은 **같은 높이**다 — `stretch` 로 짧은 쪽이 긴 쪽에 맞춘다 */
+  display: flex; flex-direction: row; align-items: stretch; gap: 24px;
   min-width: 0;
 }
 /* 가로 배치에서는 창고가 왼쪽 · 가방이 오른쪽 (기본 `order` 를 다시 적는다) */
@@ -1354,7 +1378,9 @@ kbd {
 .inv-layout.is-craft .inv-panel-craft { order: -1; }
 .inv-layout.is-craft .inv-panel-catalog { order: -2; }
 /* 나란히 서므로 두 격자 모두 평소 창고 높이를 그대로 쓴다 (예전에는 위아래로 쌓느라 둘 다 잘라야 했다) */
-.inv-layout.is-craft .inv-stash-scroll { max-height: min(560px, calc(100vh - 330px)); }
+/* 2026-09-13: 창고 격자는 평소 창고 높이를 **바닥**으로 두고(`min-height`) 가방 패널이 더 길면 남는 자리를 채운다
+   (`flex: 1 1 0px` — 격자 24행이 패널 높이를 밀어 올리지 않는다). 가방이 짧으면 가방 패널이 창고에 맞춰 늘어난다. */
+.inv-layout.is-craft .inv-stash-scroll { flex: 1 1 0px; min-height: min(560px, calc(100vh - 330px)); max-height: none; }
 /* 2026-09-12: 제작 중에는 가방 틀의 빈 여백 줄을 쓰지 않는다 (`parts/Screens.setCraftOpen` → `setFrameRows(null)`).
    긴 가방은 이 높이 안에서 스크롤한다. */
 .inv-layout.is-craft .inv-bag-scroll { max-height: min(560px, calc(100vh - 330px)); }
@@ -1577,6 +1603,44 @@ kbd {
 /* dragging out of the catalog: no world drop, no wheel targets */
 .inv-root.is-catalog-drag .inv-dropzone { display: none !important; }
 .inv-root.is-catalog-drag .inv-hints { display: flex; }
+
+/* ── 2026-09-13 (사용자 결정): 창고 패널 = 가방 패널 높이 (함선 인벤토리 탭) ─────────────────────────────────
+   `.inv-col-right` 가 `display: contents` 라 창고 · 장비 · 가방이 `.inv-layout` 의 한 줄에 선다. 셋 다 `stretch` 로
+   그 줄 높이(= 가방, 좁은 창에서 장비 열이 더 길면 그 높이)를 받고, 창고 격자 스크롤러는 `flex: 1 1 0px` 이라 자기 24행으로
+   줄을 밀어 올리지 않은 채 남는 높이를 채운다. 레이드에는 창고가 없으므로 `.is-hub` 로만 건다. */
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-stash,
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-bag,
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-equip { align-self: stretch; }
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll { flex: 1 1 0px; min-height: 0; max-height: none; }
+
+/* ── 2026-09-13 (사용자 결정): 무한 상자 배치 — 무한 상자 · 함선 창고(함선) · 가방만 ─────────────────────────
+   장착 장비 열(주무기 · 방탄복 · 가방 칸 · 전술 임플란트 · 주머니 칸) · 퀵슬롯 로즈 · 주머니 격자를 감춘다
+   (`parts/Screens.setCatalog` 가 `.is-catalog` 를 건다). 감춘 칸은 드롭 대상에서도 빠진다 (`Drag.updateDragTarget`).
+   무한 상자 패널도 가방 높이에 맞춰 늘고 목록 스크롤러가 남는 높이를 채운다. */
+.inv-root .inv-layout.is-catalog .inv-equip,
+.inv-root .inv-layout.is-catalog .inv-quick,
+.inv-root .inv-layout.is-catalog .inv-pouch { display: none; }
+/* 장비 열과 이어 붙이느라 깎았던 가방 패널의 왼쪽 모서리를 되돌린다 */
+.inv-root .inv-layout.is-catalog .inv-panel-bag { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-catalog,
+.inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-bag { align-self: stretch; }
+.inv-root .inv-layout.is-catalog:not(.is-craft) .inv-cat-scroll { flex: 1 1 0px; min-height: 240px; max-height: none; }
+/* 퀵슬롯 로즈 · 주머니가 가방 아래에서 빠졌으므로 가방 격자는 넓은 배치의 높이 예산을 그대로 쓴다 */
+.inv-root .inv-layout.is-catalog:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
+/* 가로 스크롤 없음 (1920 · 1600 · 1440): 무한 상자 486 + 창고 610 + 가방 353 + 간격이 1440 급에서 85 px 넘쳤다 —
+   좁은 창에서는 무한 상자 격자를 3열(→ 1280 급은 2열)로 줄이고 패널 간격을 16 px 로 좁힌다. 격자 · 창고 · 가방은
+   찌그러뜨리지 않는다. 패널 폭은 「격자 + 스크롤러 여백 · 스크롤바 + 패널 안쪽 여백」이다 — 예전 486 px 는 4열 격자의
+   마지막 열을 잘랐다. */
+.inv-panel-catalog { width: 528px; }
+@media (max-width: 1560px) {
+  .inv-panel-catalog { width: 412px; }
+  .inv-cat-grid { grid-template-columns: repeat(3, calc(2 * var(--inv-cell) + var(--inv-gap))); }
+  .inv-root .inv-layout.is-catalog { gap: 16px; }
+}
+@media (max-width: 1360px) {
+  .inv-panel-catalog { width: 296px; }
+  .inv-cat-grid { grid-template-columns: repeat(2, calc(2 * var(--inv-cell) + var(--inv-gap))); }
+}
 
 /* ── bench mode of the craft panel ─────────────────────────────────────── */
 .inv-craft-discount { color: var(--inv-ok); font-size: 11px; }
@@ -1842,6 +1906,46 @@ kbd {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
 }
 .tg-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }
+/* ── 2026-09-13: `layout: 'split'` — 블록마다 자기 스크롤 (기업 화면: 함선 창고 카드 · 가방 카드에 격자 하나씩) ──
+   `.tg-scroll` 은 틀 · 스크롤이 없는 한 줄(`nowrap`)이 되고, 블록은 뷰 높이까지 늘어나며 `.tg-gridwrap` 이 스크롤한다.
+   `flex-wrap: nowrap` 이 요점이다 — 여러 줄 flex 의 `stretch` 는 상자가 아니라 *그 줄* 높이까지만 늘린다. 스크롤바는
+   격자가 아니라 감싸는 상자에 걸고 `scrollbar-gutter: stable` 로 자리를 예약한다(격자는 폭이 px 로 못박혀 마지막 열을 잃는다).
+   머리줄 · 칩 줄은 `width: 0; min-width: 100%` 라 **블록 폭을 넓히지 않는다** — 블록 폭 = 격자 폭 + 스크롤바 자리.
+   바깥 틀(배경 · 테두리)은 호출자의 카드가 갖는다. */
+.trade-grids.is-split { gap: 8px; }
+.trade-grids.is-split > .tg-scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow: hidden; flex-wrap: nowrap; align-items: stretch; gap: 12px;
+  padding: 0; border: 0; background: none;
+}
+.trade-grids.is-split .tg-block { flex: none; min-height: 0; }
+.trade-grids.is-split .tg-block > .tg-head,
+.trade-grids.is-split .tg-block > .tg-tools { width: 0; min-width: 100%; }
+.trade-grids.is-split .tg-gridwrap {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
+}
+.tg-head .tg-label { white-space: nowrap; }
+.tg-head .tg-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 좁은 블록(가방 5칸 · 40 px 칸 = 208 px)의 칩 줄은 **고른 두 줄** — 한 줄이면 칩이 15 px 까지 좁아진다.
+   한 줄 칸 수 `--tg-chip-cols` = 칩 수의 절반(올림)을 `TradeGrids` 가 넣는다 (11개 → 6 + 5, 외톨이 줄이 없다) */
+.tg-block.is-narrow .inv-filters { grid-template-columns: repeat(var(--tg-chip-cols, 5), minmax(0, 1fr)); }
+/* ── 2026-09-13: 칸이 기본(54)보다 작은 뷰(`.tg-compact`) — 타일 내용이 칸 크기를 따라 줄어든다 (54 에서의 값과 같은 비율).
+   드래그 고스트는 <body> 에 붙으므로 자기 `--inv-cell` · `.tg-compact` 를 달고 다닌다. */
+.trade-grids.tg-compact .inv-tile-icon, .tg-ghost.tg-compact .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.41); }
+.trade-grids.tg-compact .inv-tile.is-wide .inv-tile-icon, .trade-grids.tg-compact .inv-tile.is-tall .inv-tile-icon,
+.tg-ghost.tg-compact.is-wide .inv-tile-icon, .tg-ghost.tg-compact.is-tall .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.48); }
+.trade-grids.tg-compact .inv-tile-name, .tg-ghost.tg-compact .inv-tile-name {
+  left: 4px; right: 4px; top: 3px; font-size: 9px; letter-spacing: 0;
+}
+.trade-grids.tg-compact .inv-tile-qty, .tg-ghost.tg-compact .inv-tile-qty {
+  right: 2px; bottom: 2px; min-width: 13px; padding: 0 2px;
+  font-size: max(9px, calc(var(--inv-cell) * 0.24)); line-height: max(12px, calc(var(--inv-cell) * 0.32));
+}
+.trade-grids.tg-compact .inv-tile-sockets, .tg-ghost.tg-compact .inv-tile-sockets { right: 3px; top: 3px; gap: 2px; }
+.trade-grids.tg-compact .inv-pip, .tg-ghost.tg-compact .inv-pip { width: 5px; height: 5px; }
+.trade-grids.tg-compact .inv-tile.is-weapon .inv-tile-name { right: 36px; }
 /* 2026-09-12: `buildItemTile` — a grid-look tile placed by another folder (no absolute cell position) */
 .inv-tile.is-standalone {
   --inv-ok: #4fd17e; --inv-accent: #f0c46a; --inv-bad: #ff5c5c; --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);

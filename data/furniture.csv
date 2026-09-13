@@ -1,5 +1,5 @@
 # 함선 가구. id · room · model · interaction 은 코드가 찾는 값이므로 바꾸지 않는다.
-# room: any = 어느 방이든, 그 외에는 그 용도의 방에만 놓을 수 있다.
+# room: any = 어느 방이든, 그 외에는 그 용도의 방에만 놓을 수 있다. cockpit = 조종석 전용 (2026-09-13).
 # cols × rows 는 바닥 격자 칸수 (0.5 m 격자), height 는 표시 높이(m).
 # craft 는 "아이템id:수량" 을 | 로 이어 쓴다. 비우면 제작 불가.
 # maxLevel 2 이상이면 강화 비용은 data/furniture_upgrades.csv 에 적는다.
@@ -16,11 +16,11 @@ furn_target_lane,표적 레인,range,2,6,1.8,target_lane,none,mat_scrap:6|mat_al
 furn_sim_hub,시뮬레이션 허브,range,2,2,1.5,sim_hub,sim_hub,mat_scrap:8|mat_cable:2|mat_circuit:2,5,,1,#9fe8ff,시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다. 강화할수록 사격 숙련 상승량이 늘어납니다.
 furn_repair_bench,정비 벤치,workshop,4,2,1,repair_bench,repair_bench,mat_scrap:6|mat_alloy:1,1,,1,#d7c39a,무기 내구도를 재료로 수리합니다. 조종석에서 작업실로 옮겨졌습니다.
 furn_grow_rack,재배층,greenhouse,4,2,0.8,grow_rack,grow_rack,mat_scrap:5|mat_cable:1|mat_bio_sample:2,1,4,1,#7ee08a,씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.
-furn_grow_station,재배 스테이션,greenhouse,4,2,2.2,grow_station,grow_station,mat_scrap:8|mat_cable:2|mat_bio_sample:3,3,,,#7ee08a,재배층에 토양을 채우고 씨앗을 심습니다. 강화하면 재배층이 1 → 2 → 3 층으로 늘어나며 층마다 3칸입니다.
-furn_analyzer,분석기,lab,4,2,1.8,analyzer,analyzer,mat_scrap:10|mat_circuit:2|mat_cable:3|mat_bio_sample:4,3,,,#c79fff,미확인 표본을 현실 시간에 맞춰 해석합니다. 강화하면 해석 칸이 1 → 2 → 3 개로 늘어나고 해석 도감이 찰수록 빨라집니다.
-furn_bench_extract,추출기,lab,4,2,1.2,bench_extract,workbench_extract,mat_scrap:10|mat_alloy:2|mat_cable:2,3,,,#9fe0c8,작물 · 약재 · 광물에서 성분을 뽑아냅니다. 연구실에 설치하세요.
-furn_bench_mixer,조합대,lab,4,2,1,bench_mixer,workbench_mixer,mat_scrap:8|mat_alloy:2|mat_circuit:1,3,,,#ffd08a,성분을 조합해 행성 환경을 막는 준비물을 만듭니다. 연구실에 설치하세요.
-furn_bookshelf,책장,library,2,1,2,bookshelf,bookshelf,mat_scrap:6|mat_alloy:1,1,,,#c9a77a,레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다 (6권).
+furn_grow_station,재배 스테이션,greenhouse,4,2,2.2,grow_station,grow_station,mat_scrap:8|mat_cable:2|mat_bio_sample:3,3,,,#7ee08a,재배층 3층(층마다 3칸)에 토양을 채우고 씨앗을 심습니다. 강화할 때마다 성장 속도가 오릅니다.
+furn_analyzer,분석기,lab,4,2,1.8,analyzer,analyzer,mat_scrap:10|mat_circuit:2|mat_cable:3|mat_bio_sample:4,3,,,#c79fff,미확인 표본을 계열별로 해석해 요리 재료와 소켓으로 바꿉니다. 같은 계열을 해석할수록 분석 레벨이 올라 빨라지고 새 결과가 열립니다. 강화하면 해석 칸이 늘어납니다.
+furn_bench_extract,추출기,lab,4,2,1.2,bench_extract,workbench_extract,mat_scrap:10|mat_alloy:2|mat_cable:2,3,,,#9fe0c8,작물 · 약재 · 광물 · 세포에서 성분을 뽑아냅니다. 영양 배지 · 소금 · 난백 단백질 · 카제인도 여기서 나옵니다. 연구실에 설치하세요.
+furn_bench_mixer,조합대,lab,4,2,1,bench_mixer,workbench_mixer,mat_scrap:8|mat_alloy:2|mat_circuit:1,3,,,#ffd08a,성분을 조합해 준비물과 요리 재료를 만듭니다. 배양 스캐폴드 · 달걀 · 우유 · 치즈가 여기서 나옵니다. 연구실에 설치하세요.
+furn_bookshelf,책장,library,2,1,2,bookshelf,bookshelf,mat_scrap:6|mat_alloy:1,1,,,#c9a77a,레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다.
 furn_locker,사물함,any,1,2,2,locker,none,mat_scrap:4,1,,,#b0b8c4,강철 사물함.
 furn_table,작업 테이블,any,3,2,0.85,table,none,mat_scrap:5,1,,,#b0a58c,넓은 강철 테이블.
 furn_shelf,선반,any,2,1,1.6,shelf,none,mat_scrap:3,1,,,#b0a58c,벽 선반.
@@ -29,16 +29,21 @@ furn_lamp,스탠드 조명,any,1,1,1.7,lamp,none,mat_scrap:2|mat_cable:1,1,,,#ff
 furn_plant,화분,any,1,1,1.1,plant,none,mat_scrap:1|herb_bloodroot:1,1,,,#7ee08a,작은 관엽 식물.
 furn_chair,의자,any,1,1,0.9,chair,none,mat_scrap:2,1,,,#b0b8c4,강철 의자.
 furn_bunk,침상,any,2,3,1.6,bunk,none,mat_scrap:6|mat_alloy:1,1,,,#9fb4ff,2단 침상.
-furn_bench_cook,조리대,kitchen,4,2,1.1,bench_cook,workbench_cook,mat_scrap:8|mat_alloy:2|mat_cable:2,3,,,#ffb0a0,작물과 배양 산물을 요리합니다. 강화하면 특선 요리가 열립니다.
+furn_bench_cook,조리대,kitchen,4,2,1.1,bench_cook,workbench_cook,mat_scrap:8|mat_alloy:2|mat_cable:2,3,,,#ffb0a0,작물 · 배양 고기 · 유제품으로 요리합니다. 강화하면 고기 요리와 유제품 요리가 열립니다.
 furn_dining_table,식탁,kitchen,4,3,0.9,dining_table,dining_table,mat_scrap:6|mat_cloth:6|mat_cable:1,1,,,#ffc8a0,만든 요리를 먹어 다음 레이드 1회분 버프를 싣습니다. 공유 함선의 식탁에서는 분대 전원에게 차릴 수 있습니다.
-furn_culture_tank,배양조,greenhouse,4,2,2.0,culture_tank,culture_tank,mat_scrap:10|mat_circuit:3|mat_cable:3|mat_bio_sample:6,3,,,#8fe8ff,영양 배지를 채우고 세포주를 넣어 현실 시간에 맞춰 배양합니다. 강화하면 배양 칸이 1 → 2 → 3 개로 늘어납니다.
+furn_culture_tank,배양조,greenhouse,4,2,2.0,culture_tank,culture_tank,mat_scrap:10|mat_circuit:3|mat_cable:3|mat_bio_sample:6,3,,,#8fe8ff,영양 배지를 채우고 배양 스캐폴드를 얹은 뒤 세포주를 넣어 현실 시간에 맞춰 배양합니다. 스캐폴드가 있으면 종별 고기가 자랍니다. 강화하면 배양 칸이 늘어납니다.
 furn_bench_print,3D 프린터,lab,4,2,1.6,bench_print,workbench_print,mat_scrap:12|mat_circuit:4|mat_alloy:4|mat_control_module:1,3,,,#d0c4ff,필라멘트로 상급 가방과 주머니를 찍어 냅니다. 연구실에 설치하세요.
 # ── 2026-09-12 (사용자 결정): 조종석의 고정 설비였던 둘이 **공용 시설 가구**(room any)가 됐다 ──
 # 모든 함선이 처음부터 조종석에 한 대씩 갖는다 (housing/ShipState 가 새 함선 · 옛 세이브 모두 채운다 — 좌표는
 # shared/housing 의 COCKPIT_DEFAULT_FURNITURE). craft 가 비어 있어 제작할 수 없고, 회수하면 가구 창고에서 다시 놓는다.
 # 같은 날 시뮬레이션실이 없어지면서 관물대 · 표적 레인 · 시뮬레이션 허브가 은퇴했다 (위의 retired 1).
-furn_implant_bay,전술 임플란트 시술대,any,3,4,1.7,implant_bay,implant_bay,,1,,,#8fe8ff,전술 임플란트를 장착하고 교체합니다. 어느 방에나 옮겨 놓을 수 있습니다.
-furn_corp_computer,기업 네트워크 컴퓨터,any,3,3,1.3,corp_computer,corp_computer,,1,,,#7cf07a,기업 네트워크에 접속해 거래 · 계약 · 퀘스트를 확인합니다. 어느 방에나 옮겨 놓을 수 있습니다.
+# ── 2026-09-13 (사용자 결정): 둘은 **조종석 전용 시설**(room cockpit)이다. 조종석 안에서 옮기고 돌릴 수만 있고 회수 · 제거할 수 없으며,
+# 함선마다 정확히 한 대씩이다 (다른 방 · 가구 창고에 있던 것은 로드할 때 조종석으로 돌아온다 — housing/ShipState 의 v10 절).
+furn_implant_bay,전술 임플란트 시술대,cockpit,3,4,1.7,implant_bay,implant_bay,,1,,,#8fe8ff,전술 임플란트를 장착하고 교체합니다. 조종석 전용 시설입니다.
+furn_corp_computer,기업 네트워크 컴퓨터,cockpit,3,3,1.3,corp_computer,corp_computer,,1,,,#7cf07a,기업 네트워크에 접속해 거래 · 계약 · 퀘스트를 확인합니다. 조종석 전용 시설입니다.
+# ── 2026-09-13 (사용자 결정): 조종석의 고정 소품이던 서랍장이 꾸밈 가구가 됐다 (침상 · 사물함은 위의 furn_bunk · furn_locker 가 받는다).
+# 새 함선과 v10 이전 세이브의 조종석에 한 번만 놓이고(shared/housing 의 COCKPIT_DECOR_FURNITURE), 회수하면 다시 채우지 않는다.
+furn_drawer,서랍장,any,2,1,2.2,drawer,none,mat_scrap:4|mat_alloy:1,1,,,#b0b8c4,서랍이 세 칸 달린 강철 수납장.
 # ── 2026-09-12 (A-3e, 사용자 결정): 서재 매체 — 보관함 2종 + 보조 가구 5종. 전부 서재(library)에만 놓인다 ──
 # 보조 가구는 배치만으로 그 매체의 몫을 올린다 (constants.csv 의 SHELF_AUX_BONUS_*). 축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할이라 여러 대여도 한 번만 적용된다.
 furn_disc_stand,디스크 전시대,library,3,1,1.8,disc_stand,disc_stand,mat_scrap:6|mat_alloy:1|mat_circuit:1,1,,,#9fd0ff,레이드에서 주운 디스크를 꽂습니다. 꽂힌 디스크는 그 숙련의 상승량을 올리고 도감에 기록됩니다.
@@ -53,3 +58,9 @@ furn_bench_rack,벤치 랙,gym,3,5,1.6,bench_rack,gym_bench_press,mat_scrap:10|m
 furn_smith_machine,스미스 머신,gym,4,5,2.2,smith_machine,gym_smith,mat_scrap:12|mat_alloy:4|mat_cable:2,1,,,#ffc08a,레일에 고정된 바벨로 벤치프레스를 해 근력을 단련합니다.
 furn_treadmill,트레드밀,gym,2,4,1.4,treadmill,gym_treadmill,mat_scrap:8|mat_circuit:2|mat_cable:2,1,,,#8fe8c8,호흡을 맞춰 달리며 지구력을 단련합니다.
 furn_exercise_bike,사이클,gym,2,3,1.2,exercise_bike,gym_cycle,mat_scrap:8|mat_alloy:2|mat_cable:1,1,,,#9fe0a0,박자에 맞춰 페달을 밟으며 지구력을 단련합니다.
+# ── 2026-09-13 (요리 미니게임, 사용자 결정): 주방의 자동 조리 가구 4종 — 배치돼 있으면 조리 단계에서 「자동」 을 고를 수 있다 ──
+# 자동 처리 점수는 가구 레벨이 정한다 (tables.csv 의 COOK_AUTO_SCORE_BY_LEVEL). 대신하는 게임은 shared/cooking 의 COOK_APPLIANCE_GAMES.
+furn_food_processor,푸드 프로세서,kitchen,2,2,1.2,food_processor,cook_processor,mat_scrap:6|mat_alloy:2|mat_circuit:1,3,,,#ffc8a0,썰기와 다지기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.
+furn_auto_grill,자동 그릴,kitchen,3,2,1.0,auto_grill,cook_grill,mat_scrap:8|mat_alloy:2|mat_cable:2,3,,,#ff9f7a,굽기와 볶기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.
+furn_auto_stirrer,자동 교반기,kitchen,2,2,1.3,auto_stirrer,cook_stirrer,mat_scrap:6|mat_cable:2|mat_circuit:1,3,,,#9fe0c8,젓기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.
+furn_pour_dispenser,계량 디스펜서,kitchen,2,2,1.6,pour_dispenser,cook_dispenser,mat_scrap:6|mat_alloy:1|mat_cable:2,3,,,#8fd0ff,붓기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.

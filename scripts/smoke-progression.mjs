@@ -11,7 +11,7 @@
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -74,7 +74,7 @@ try {
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       window.__ev = {};
       const bus = window.__game.ctx.bus;
-      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained', 'progress:implantsChanged', 'progress:trainedChanged', 'progress:gymFatigue']) {
+      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained', 'progress:implantsChanged', 'progress:trainedChanged', 'progress:gymFatigue', 'progress:mealChanged']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p))); });
       }
@@ -387,6 +387,197 @@ try {
   const toggled = await lastEv('ui:statsToggled');
   ok(toggled && toggled.open === false, 'ui:statsToggled {open:false}');
 
+  /* ── 2026-09-13: ＋/－ pend → 1 s hold confirm, derived preview, tooltips + linked rows, leave warning, reset popup ── */
+  console.log('캐릭터 시트 (2026-09-13): 배분 확정 · 툴팁 · 떠나기 경고 · 초기화 팝업');
+  const P = (fn, arg) => page.evaluate(fn, arg);
+  const clickSel = (sel) => P((s) => { const b = document.querySelector(s); if (b) b.click(); return !!b; }, sel);
+  const holdSel = (sel) => P((s) => { const b = document.querySelector(s); b?.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, cancelable: true })); return !!b; }, sel);
+  const levelUp = (n) => P((k) => { const p = window.__game.ctx.progression; for (let i = 0; i < k; i++) p.addXp(Math.max(1, p.xpToNext - p.xp)); return p.statPoints; }, n);
+  await P(() => window.__game.ctx.progression.resetProfile());
+  await levelUp(3);
+  await P(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
+  await sleep(200);
+  const S0 = await P(() => {
+    const p = window.__game.ctx.progression, root = document.querySelector('.char-sheet');
+    return { pts: p.statPoints, str: p.getStat('strength'), dex: p.getStat('dexterity'), end: p.getStat('endurance'), per: p.getStat('perception'), carry: p.derived.carryCapacity,
+      desc: root.querySelectorAll('.cs-stat .d').length, hint: root.querySelectorAll('.cs-col > .hint').length,
+      titles: [...root.querySelectorAll('.cs-skill')].filter((r) => r.hasAttribute('title')).length,
+      confirmDisabled: root.querySelector('.pg-confirm').disabled, revertDisabled: root.querySelector('.pg-revert').disabled, imps: !!root.querySelector('.pg-imps'),
+      empty: !root.querySelector('.pg-imps-empty').hidden, slots: root.querySelector('.pg-imps-slots').textContent };
+  });
+  ok(S0.pts === 3 && S0.desc === 0 && S0.hint === 0 && S0.titles === 0, 'sheet: no stat description text, no hint label under the panels, no native title on skills', JSON.stringify(S0));
+  ok(S0.confirmDisabled && S0.revertDisabled && S0.imps && S0.empty && S0.slots === '0 / 4 슬롯', 'nothing pending → 되돌리기 / 포인트 투자 확정 dimmed; implant block empty `0 / 4 슬롯`', JSON.stringify(S0));
+
+  const readPend = () => P(() => {
+    const p = window.__game.ctx.progression, root = document.querySelector('.char-sheet');
+    const row = (id) => root.querySelector(`.cs-stat[data-stat="${id}"]`);
+    const cell = root.querySelector('.cs-derived .cell[data-key="carryCapacity"]');
+    return { str: p.getStat('strength'), pts: p.statPoints, carry: p.derived.carryCapacity,
+      pa: row('strength').querySelector('.pa').textContent, paHidden: row('strength').querySelector('.pa').hidden,
+      minusDisabled: row('strength').querySelector('.minus').disabled, plusDisabled: row('strength').querySelector('.plus').disabled,
+      tag: root.querySelector('.cs-level .pts').textContent, preview: cell.classList.contains('pg-preview'),
+      cur: cell.querySelector('.pg-cur')?.textContent ?? null, next: cell.querySelector('.pg-next')?.textContent ?? null,
+      want: `${p.previewDerived({ strength: 2 }).carryCapacity.toFixed(1)} kg`, now: `${p.derived.carryCapacity.toFixed(1)} kg`,
+      previews: root.querySelectorAll('.cs-derived .cell.pg-preview').length,
+      confirmDisabled: root.querySelector('.pg-confirm').disabled };
+  });
+  await clickSel('.char-sheet .cs-stat[data-stat="strength"] .plus');
+  await clickSel('.char-sheet .cs-stat[data-stat="strength"] .plus');
+  let pd = await readPend();
+  ok(pd.str === S0.str && pd.pts === 3 && pd.carry === S0.carry && pd.pa === '+2' && !pd.paHidden && pd.tag === '잔여 포인트 1' && !pd.minusDisabled && !pd.confirmDisabled,
+    '＋ ×2 only pends: stat / points / derived unchanged, `+2` shown, 잔여 포인트 1, － and 확정 enabled', JSON.stringify(pd));
+  ok(pd.preview && pd.cur === pd.now && pd.next === pd.want && pd.next !== pd.cur && pd.previews === 3,
+    'derived preview `현재 → 확정 후` on the 근력 rows only (carry · melee · throw), computed by previewDerived', JSON.stringify(pd));
+  await P(() => window.__game.ctx.progression.addSkillXpRaw('carry', 1.5));   // level change → full refreshSheets
+  pd = await readPend();
+  ok(pd.pa === '+2' && pd.tag === '잔여 포인트 1', 'pending survives a sheet refresh (skill level-up repaint)', JSON.stringify(pd));
+  await clickSel('.char-sheet .cs-stat[data-stat="strength"] .minus');
+  pd = await readPend();
+  ok(pd.pa === '+1' && pd.tag === '잔여 포인트 2' && pd.str === S0.str, '－ takes back one pending point', JSON.stringify(pd));
+  await clickSel('.char-sheet .pg-revert');
+  pd = await readPend();
+  ok(pd.paHidden && pd.previews === 0 && pd.confirmDisabled && pd.tag === '잔여 포인트 3' && pd.minusDisabled, '되돌리기 clears every pending point', JSON.stringify(pd));
+
+  await clickSel('.char-sheet .cs-stat[data-stat="strength"] .plus');
+  await clickSel('.char-sheet .cs-stat[data-stat="strength"] .plus');
+  await clickSel('.char-sheet .cs-stat[data-stat="dexterity"] .plus');
+  await clickSel('.char-sheet .pg-confirm');                                   // a click never confirms
+  await holdSel('.char-sheet .pg-confirm');
+  await sleep(350);
+  const holding = await P(() => document.querySelector('.char-sheet .pg-confirm').classList.contains('is-holding'));
+  await P(() => window.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true })));   // early release
+  await sleep(1100);
+  pd = await readPend();
+  ok(holding && pd.str === S0.str && pd.pts === 3 && pd.pa === '+2', 'click and an early release do not invest (gauge was running)', JSON.stringify({ holding, pd }));
+  const sc0 = await P(() => window.__ev['progress:statChanged'].length);
+  await holdSel('.char-sheet .pg-confirm');
+  await sleep(1600);
+  const done = await P((n0) => {
+    const p = window.__game.ctx.progression, root = document.querySelector('.char-sheet');
+    return { str: p.getStat('strength'), dex: p.getStat('dexterity'), pts: p.statPoints, ev: window.__ev['progress:statChanged'].slice(n0).map((e) => e.id),
+      stored: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.stats, pending: root.querySelectorAll('.cs-stat.has-pending').length,
+      previews: root.querySelectorAll('.cs-derived .cell.pg-preview').length, tagHidden: root.querySelector('.cs-level .pts').hidden };
+  }, sc0);
+  ok(done.str === S0.str + 2 && done.dex === S0.dex + 1 && done.pts === 0 && done.pending === 0 && done.previews === 0 && done.tagHidden,
+    'holding 포인트 투자 확정 1 s invests everything at once (근력 +2, 재주 +1, points 0)', JSON.stringify(done));
+  ok(JSON.stringify(done.ev.sort()) === '["dexterity","strength"]' && done.stored?.strength === S0.str + 2 && done.stored?.dexterity === S0.dex + 1,
+    'one progress:statChanged per changed stat, saved immediately', JSON.stringify(done));
+
+  const tips = await P(() => {
+    const over = (sel) => {
+      const n = document.querySelector(sel); const r = n.getBoundingClientRect();
+      n.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 4, clientY: r.top + 4 }));
+      const tip = document.querySelector('.pg-tip[data-variant="overlay"]');
+      const out = { shown: !!tip && !tip.hidden, text: tip?.textContent ?? '',
+        skills: [...document.querySelectorAll('.char-sheet .cs-skill.pg-linked')].map((e) => e.dataset.skill),
+        derived: [...document.querySelectorAll('.char-sheet .cs-derived .cell.pg-linked')].map((e) => e.dataset.key) };
+      n.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+      out.hiddenAfter = !tip || tip.hidden;
+      out.linkedAfter = document.querySelectorAll('.char-sheet .pg-linked').length;
+      return out;
+    };
+    return { int: over('.char-sheet .cs-stat[data-stat="intelligence"] .n'), gun: over('.char-sheet .cs-skill[data-skill="gun_AR"] .n'), carry: over('.char-sheet .cs-skill[data-skill="carry"] .n') };
+  });
+  ok(tips.int.shown && /모든 숙련 성장 \+6%\/pt/.test(tips.int.text) && tips.int.text.includes('관련 숙련') && tips.int.skills.includes('medicine') && tips.int.skills.includes('gardening')
+    && !tips.int.skills.includes('carry') && JSON.stringify(tips.int.derived) === '["skillGainMul"]', '지능 name tooltip: effect, 관련 숙련, `모든 숙련 성장 +6%/pt`; links its skills + 숙련 상승', JSON.stringify(tips.int));
+  ok(tips.int.hiddenAfter && tips.int.linkedAfter === 0, 'pointerout hides the tooltip and clears the outline');
+  ok(tips.gun.shown && /반동 −\d+% · 장전 \+\d+%/.test(tips.gun.text) && tips.gun.text.includes('관련 능력치') && tips.gun.derived.length === 0,
+    'gun_AR tooltip shows recoil / reload numbers and highlights no derived row', JSON.stringify(tips.gun));
+  ok(tips.carry.shown && JSON.stringify(tips.carry.derived) === '["carryReliefFactor"]', '운반 tooltip links 운반 부담 경감', JSON.stringify(tips.carry));
+
+  const api = await P(() => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    p.addXp(Math.max(1, p.xpToNext - p.xp));
+    const pts = p.statPoints, s = p.getStat('strength');
+    const r = { none: p.spendStatPoints({}), frac: p.spendStatPoints({ strength: 0.5 }), neg: p.spendStatPoints({ strength: -1 }), unknown: p.spendStatPoints({ luck: 1 }),
+      over: p.spendStatPoints({ strength: pts + 1 }) };
+    const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
+    try { r.raid = p.spendStatPoints({ strength: 1 }); } finally { ctx.isRaidActive = real; }
+    r.unchanged = p.statPoints === pts && p.getStat('strength') === s;
+    r.pts = pts;
+    return r;
+  });
+  ok(api.pts === 1 && !api.none && !api.frac && !api.neg && !api.unknown && !api.over && !api.raid && api.unchanged, 'spendStatPoints refuses empty / fractional / negative / unknown / over-budget / raid — nothing changes', JSON.stringify(api));
+
+  // leave warning on the overlay: Tab / Escape ask, Escape = 돌아가기, 버리고 이동 closes and keeps the points
+  await clickSel('.char-sheet .cs-stat[data-stat="endurance"] .plus');
+  await tap('Tab');
+  await sleep(150);
+  const readLeave = () => P(() => ({ open: !document.querySelector('.char-sheet').hidden, ask: !!document.querySelector('.sh-ask[data-ask="character-leave"]'),
+    anyAsk: document.querySelectorAll('.sh-ask').length, pa: document.querySelector('.char-sheet .cs-stat[data-stat="endurance"] .pa').textContent,
+    pts: window.__game.ctx.progression.statPoints, end: window.__game.ctx.progression.getStat('endurance'), stats: window.__game.ctx.uiBlockers.has('stats'),
+    cancelFocused: document.activeElement?.hasAttribute?.('data-cancel') ?? false }));
+  let lv = await readLeave();
+  ok(lv.open && lv.ask && lv.cancelFocused, 'overlay: Tab with pending points → 떠나기 경고, sheet stays open, focus on 돌아가기', JSON.stringify(lv));
+  await tap('Escape');
+  await sleep(300);
+  lv = await readLeave();
+  ok(lv.open && lv.anyAsk === 0 && lv.pa === '+1', 'Escape = 돌아가기: popup closes, sheet + pending stay', JSON.stringify(lv));
+  await tap('Escape');
+  await sleep(300);
+  lv = await readLeave();
+  ok(lv.open && lv.ask, 'Escape on the sheet with pending → the warning again', JSON.stringify(lv));
+  await clickSel('.sh-ask[data-ask="character-leave"] .sh-ask-btn.danger');
+  await sleep(150);
+  lv = await readLeave();
+  ok(!lv.open && lv.anyAsk === 0 && lv.pts === 1 && lv.end === S0.end && !lv.stats, '버리고 이동 → sheet closed, pending discarded, the point is still unspent', JSON.stringify(lv));
+
+  // 캐릭터 초기화: warning popup, a click does nothing, a 1 s hold resets
+  await P(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
+  await sleep(150);
+  await clickSel('.char-sheet .cs-foot .ui-btn.danger');
+  await sleep(100);
+  const rp0 = await P(() => { const a = document.querySelector('.sh-ask[data-ask="character-reset"]'); return { ask: !!a, danger: a?.classList.contains('is-danger'), hint: a?.querySelector('.sh-ask-hint')?.textContent ?? '', level: window.__game.ctx.progression.level }; });
+  ok(rp0.ask && rp0.danger && /1초 동안 누르고/.test(rp0.hint), '캐릭터 초기화 → danger warning popup with the hold hint (no two-click arm)', JSON.stringify(rp0));
+  await clickSel('.sh-ask[data-ask="character-reset"] [data-hold]');
+  await sleep(100);
+  ok(await P(() => !!document.querySelector('.sh-ask[data-ask="character-reset"]') && window.__game.ctx.progression.level > 1), 'a click on 초기화 does not reset');
+  await holdSel('.sh-ask[data-ask="character-reset"] [data-hold]');
+  await sleep(1600);
+  const rp1 = await P(() => ({ ask: document.querySelectorAll('.sh-ask').length, level: window.__game.ctx.progression.level, pts: window.__game.ctx.progression.statPoints, open: !document.querySelector('.char-sheet').hidden }));
+  ok(rp1.ask === 0 && rp1.level === 1 && rp1.pts === 0 && rp1.open, 'holding 초기화 1 s resets the character (popup gone, sheet stays)', JSON.stringify(rp1));
+  await tap('Tab');
+  await sleep(150);
+  ok(await P(() => document.querySelector('.char-sheet').hidden), 'Tab closes the sheet at once when nothing is pending');
+
+  // embedded 캐릭터 tab: screen-tab click / Tab / Escape ask; forced close discards silently
+  await levelUp(1);
+  await P(() => window.__game.ctx.inventory.openScreen('character'));
+  await sleep(250);
+  const readEmbed = () => P(() => ({ ask: !!document.querySelector('.sh-ask[data-ask="character-leave"]'), anyAsk: document.querySelectorAll('.sh-ask').length,
+    tab: window.__game.ctx.inventory.screenTab, open: window.__game.ctx.inventory.isOpen, embed: !!document.querySelector('.cs-embed'),
+    pa: document.querySelector('.cs-embed .cs-stat[data-stat="perception"] .pa')?.textContent ?? null, pts: window.__game.ctx.progression.statPoints, per: window.__game.ctx.progression.getStat('perception') }));
+  await clickSel('.cs-embed .cs-stat[data-stat="perception"] .plus');
+  await P(() => [...document.querySelectorAll('.scr-tab')].find((b) => !b.closest('.char-sheet') && b.textContent.includes('인벤토리'))?.click());
+  await sleep(100);
+  let em = await readEmbed();
+  ok(em.ask && em.tab === 'character' && em.embed && em.pa === '+1', 'embedded: 인벤토리 screen tab with pending → warning, stays on 캐릭터', JSON.stringify(em));
+  await clickSel('.sh-ask[data-ask="character-leave"] [data-cancel]');
+  await sleep(100);
+  em = await readEmbed();
+  ok(!em.ask && em.tab === 'character' && em.pa === '+1', '돌아가기 keeps the tab and the pending point', JSON.stringify(em));
+  await tap('Tab');
+  await sleep(300);
+  em = await readEmbed();
+  ok(em.ask && em.open, 'embedded: Tab with pending → warning, window stays open', JSON.stringify(em));
+  await tap('Tab');
+  await sleep(300);
+  em = await readEmbed();
+  ok(em.anyAsk === 0 && em.open && em.pa === '+1', 'Tab again = 돌아가기', JSON.stringify(em));
+  await tap('Escape');
+  await sleep(300);
+  em = await readEmbed();
+  ok(em.ask && em.open, 'embedded: Escape with pending → warning, window stays open', JSON.stringify(em));
+  await clickSel('.sh-ask[data-ask="character-leave"] .sh-ask-btn.danger');
+  await sleep(300);
+  em = await readEmbed();
+  ok(!em.open && em.anyAsk === 0 && em.pts === 1 && em.per === S0.per, '버리고 이동 → window closed, the point is still unspent', JSON.stringify(em));
+  await P(() => window.__game.ctx.inventory.openScreen('character'));
+  await sleep(250);
+  await clickSel('.cs-embed .cs-stat[data-stat="perception"] .plus');
+  const forced = await P(() => { const ctx = window.__game.ctx; ctx.inventory.closeAll(); return { open: ctx.inventory.isOpen, ask: document.querySelectorAll('.sh-ask').length, pts: ctx.progression.statPoints, per: ctx.progression.getStat('perception') }; });
+  ok(!forced.open && forced.ask === 0 && forced.pts === 1 && forced.per === S0.per, 'forced close (closeAll) discards silently — no popup, nothing spent', JSON.stringify(forced));
+
   console.log('임플란트 items (Phase 12): slots by level');
   const levelTo = (lv) => page.evaluate((target) => {
     const p = window.__game.ctx.progression;
@@ -531,6 +722,29 @@ try {
   });
   ok(sheet.stray === 0 && sheet.strayPop === 0 && sheet.cols === 2, '캐릭터 시트에서 임플란트 UI 가 사라지고 2열만 남았다', JSON.stringify(sheet));
   ok(/\(\+1\)/.test(sheet.dexV) && sheet.dexBonus === ' (+1)' && !/\(/.test(sheet.strV), '재주 row shows `base (+1)`, 근력 row shows the base only', JSON.stringify({ dex: sheet.dexV, str: sheet.strV }));
+  // 2026-09-13: read-only implant thumbnails under 숙련도 — item card via data-def-id, hover outlines the implant's stat, its skills, its derived rows
+  const impThumbs = await page.evaluate(() => {
+    const root = document.querySelector('.char-sheet');
+    const p = window.__game.ctx.progression;
+    const cells = [...root.querySelectorAll('.pg-imps .pg-imp')];
+    const out = { n: cells.length, eq: p.getEquippedImplants().length, slots: root.querySelector('.pg-imps-slots').textContent, used: p.implantSlotsUsed, total: p.implantSlots,
+      chip: cells[0]?.querySelector('.item-chip')?.dataset.defId ?? null, emptyHidden: root.querySelector('.pg-imps-empty').hidden, buttons: root.querySelectorAll('.pg-imps button').length };
+    const c = cells[0];
+    if (c) {
+      c.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 10, clientY: 10 }));
+      out.stats = [...root.querySelectorAll('.cs-stat.pg-linked')].map((e) => e.dataset.stat);
+      out.skills = [...root.querySelectorAll('.cs-skill.pg-linked')].map((e) => e.dataset.skill).sort();
+      out.derived = [...root.querySelectorAll('.cs-derived .cell.pg-linked')].map((e) => e.dataset.key).sort();
+      c.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+      out.after = root.querySelectorAll('.pg-linked').length;
+    }
+    return out;
+  });
+  ok(impThumbs.n === 1 && impThumbs.eq === 1 && impThumbs.chip === 'imp_perk_quick_heal' && impThumbs.emptyHidden && impThumbs.buttons === 0
+    && impThumbs.slots === `${impThumbs.used} / ${impThumbs.total} 슬롯`, 'sheet: equipped implant as a read-only chip thumbnail + `n / m 슬롯`', JSON.stringify(impThumbs));
+  ok(JSON.stringify(impThumbs.stats) === '["dexterity"]' && JSON.stringify(impThumbs.skills) === '["crafting","equipment","gardening"]'
+    && JSON.stringify(impThumbs.derived) === '["interactSpeedMul","useSpeedMul"]' && impThumbs.after === 0,
+    'hovering 가속 대사 (재주 +1) outlines 재주, its skills and 사용 · 상호작용 속도; pointerout clears', JSON.stringify(impThumbs));
   await tap('Escape');
   await sleep(150);
 
@@ -926,6 +1140,148 @@ try {
     "clearGymFatigue('strength') clears only strength, emits gymFatigue {strength, until 0}, saved", JSON.stringify(cf.one));
   ok(cf.both.str === 0 && cf.both.end === 0 && cf.both.map === '{}' && JSON.stringify(cf.both.stored) === '{}' && cf.both.fev.length === 1 && cf.both.fev[0].id === 'endurance' && cf.again === 0,
     'clearGymFatigue() clears the rest (one event per cleared stat, none when nothing is left)', JSON.stringify({ both: cf.both, again: cf.again }));
+
+  /* ── 요리 품질 (2026-09-13, docs/plans/cooking-minigames.md §6-3) ─────────────────────────────────────── */
+  console.log('요리 품질 (2026-09-13): 보너스 수치 · 교체 규칙 · 출격/종료 · 새로고침 · migrate · 서버 문서');
+  const QB = [];
+  for (const m of readFileSync(new URL('../data/tables.csv', import.meta.url), 'utf8').matchAll(/^MEAL_QUALITY_BONUS,(\d+),([\d.]+)/gm)) QB[Number(m[1])] = Number(m[2]);
+  ok(QB.length === 6 && QB[0] === 0 && QB[5] > QB[1] && QB[1] > 0, 'tables.csv MEAL_QUALITY_BONUS read (quality 0 … 5)', JSON.stringify(QB));
+  await page.evaluate(() => { const ctx = window.__game.ctx; ctx.setPhase('hub'); ctx.progression.resetProfile(); });
+  const MEAL_FX = `(id) => { const m = window.__game.ctx.loot.getItemDef(id)?.meal; return m ? (Array.isArray(m.effects) && m.effects.length ? m.effects : [{ buff: m.buff, amount: m.amount }]).map((e) => ({ buff: e.buff, amount: e.amount })) : null; }`;
+  await page.evaluate((src) => { window.__mealFx = eval(src); window.__pickFx = (d, fx) => Object.fromEntries(fx.map((e) => [e.buff, d[e.buff]])); }, MEAL_FX);
+
+  const qm = await page.evaluate(() => {
+    const p = window.__game.ctx.progression, sys = window.__game.getSystem('progression');
+    const fx = window.__mealFx('meal_sausage'), lard = window.__mealFx('meal_lard_rice');
+    const base = window.__pickFx(p.derived, fx), baseDur = p.derived.durabilityLossMul;
+    const byQ = [];
+    for (let q = 0; q <= 5; q++) {
+      sys._profile.mealActive = 'meal_sausage'; sys._profile.mealActiveQuality = q;
+      sys.recompute();
+      byQ.push({ q, aq: p.getActiveMealQuality(), got: window.__pickFx(p.derived, fx), preview: window.__pickFx(p.previewDerived({}), fx) });
+    }
+    sys._profile.mealActive = 'meal_lard_rice'; sys._profile.mealActiveQuality = 5; sys.recompute();
+    const lardDur = p.derived.durabilityLossMul;
+    sys._profile.mealActive = null; sys._profile.mealActiveQuality = 0; sys.recompute();
+    return { fx, lard, base, baseDur, byQ, lardDur, after: window.__pickFx(p.derived, fx), aqNone: p.getActiveMealQuality() };
+  });
+  ok(Array.isArray(qm.fx) && qm.fx.length === 2, 'meal_sausage has two stat lines', JSON.stringify(qm.fx));
+  for (const r of qm.byQ) {
+    ok(r.aq === r.q && qm.fx.every((e) => Math.abs(r.got[e.buff] - (qm.base[e.buff] + e.amount * (1 + QB[r.q]))) < 1e-9),
+      `quality ${r.q}: every line × (1 + ${QB[r.q]}) folded into derived`, JSON.stringify({ r, base: qm.base }));
+    ok(qm.fx.every((e) => Math.abs(r.preview[e.buff] - r.got[e.buff]) < 1e-9), `quality ${r.q}: character-sheet preview uses the same quality`, JSON.stringify(r));
+  }
+  const lardLine = (qm.lard ?? []).find((e) => e.buff === 'durabilityLossMul');
+  ok(lardLine && lardLine.amount < 0 && Math.abs(qm.lardDur - Math.max(0, qm.baseDur + lardLine.amount * (1 + QB[5]))) < 1e-9,
+    'negative line (durabilityLossMul) scales by the bonus too, floor 0 kept', JSON.stringify({ lardLine, baseDur: qm.baseDur, lardDur: qm.lardDur }));
+  ok(qm.fx.every((e) => Math.abs(qm.after[e.buff] - qm.base[e.buff]) < 1e-9) && qm.aqNone === 0, 'no active meal → base values, active quality 0');
+
+  const qu = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    const evs = window.__ev['progress:mealChanged'];
+    const r = {};
+    r.first = p.useMeal('meal_sausage', 3); r.firstQ = [p.getMeal(), p.getMealQuality()];
+    r.firstEv = evs[evs.length - 1];
+    r.sameQ = p.useMeal('meal_sausage', 3);
+    r.upQ = p.useMeal('meal_sausage', 5); r.upQv = p.getMealQuality();
+    r.omit = p.useMeal('meal_sausage'); r.omitQ = p.getMealQuality();
+    r.zeroAgain = p.useMeal('meal_sausage', 0);
+    r.frac = p.useMeal('meal_sausage', 4.7); r.fracQ = p.getMealQuality();
+    r.clamp = p.useMeal('meal_sausage', 99); r.clampQ = p.getMealQuality();
+    r.clampSame = p.useMeal('meal_sausage', 5);
+    r.nan = p.useMeal('meal_sausage', NaN); r.nanQ = p.getMealQuality();
+    r.other = p.useMeal('meal_dumpling', 0); r.otherQ = [p.getMeal(), p.getMealQuality()];
+    const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
+    try { r.raid = p.useMeal('meal_dumpling', 4); } finally { ctx.isRaidActive = real; }
+    r.afterRaid = [p.getMeal(), p.getMealQuality()];
+    const s0 = evs.length;
+    p.serveMeal('meal_dumpling', 0); r.serveSameEv = evs.length - s0;
+    p.serveMeal('meal_dumpling', 4); r.serveUp = [p.getMeal(), p.getMealQuality(), evs.length - s0];
+    r.lastEv = evs[evs.length - 1];
+    r.stored = JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null');
+    r.activeQ = p.getActiveMealQuality();
+    return r;
+  });
+  ok(qu.first === null && qu.firstQ[0] === 'meal_sausage' && qu.firstQ[1] === 3, 'useMeal(sausage, 3) → loaded with quality 3', JSON.stringify(qu.firstQ));
+  ok(qu.firstEv && qu.firstEv.meal === 'meal_sausage' && qu.firstEv.mealQuality === 3 && qu.firstEv.activeQuality === 0, 'progress:mealChanged carries mealQuality · activeQuality', JSON.stringify(qu.firstEv));
+  ok(qu.sameQ === '이미 같은 요리를 먹었습니다', 'same meal + same quality → refused', String(qu.sameQ));
+  ok(qu.upQ === null && qu.upQv === 5 && qu.omit === null && qu.omitQ === 0 && qu.zeroAgain === '이미 같은 요리를 먹었습니다',
+    'same meal, different quality → replaced (3 → 5 → omitted 0); omitted = quality 0 for the same-check', JSON.stringify(qu));
+  ok(qu.frac === null && qu.fracQ === 4 && qu.clamp === null && qu.clampQ === 5 && qu.clampSame === '이미 같은 요리를 먹었습니다' && qu.nan === null && qu.nanQ === 0,
+    'quality normalised: 4.7 → 4, 99 → 5 (then 5 is the same), NaN → 0', JSON.stringify(qu));
+  ok(qu.other === null && qu.otherQ[0] === 'meal_dumpling' && qu.otherQ[1] === 0 && qu.raid === '레이드 중에는 먹을 수 없습니다' && qu.afterRaid[1] === 0,
+    'a different meal replaces; raid refusal leaves the quality untouched', JSON.stringify(qu));
+  ok(qu.serveSameEv === 0 && qu.serveUp[0] === 'meal_dumpling' && qu.serveUp[1] === 4 && qu.serveUp[2] === 1, 'serveMeal: same meal + quality = no-op, different quality = replace (one event)', JSON.stringify(qu));
+  ok(qu.stored?.meal === 'meal_dumpling' && qu.stored?.mealQuality === 4 && qu.activeQ === 0 && qu.lastEv?.mealQuality === 4, 'saved immediately with mealQuality 4, nothing active yet', JSON.stringify({ s: qu.stored && { meal: qu.stored.meal, q: qu.stored.mealQuality }, ev: qu.lastEv }));
+
+  const qa = await page.evaluate(() => {
+    const p = window.__game.ctx.progression, evs = window.__ev['progress:mealChanged'];
+    const fx = window.__mealFx('meal_dumpling');
+    const base = window.__pickFx(p.derived, fx);
+    p.armPreps();
+    const stored = JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null');
+    return { fx, base, meal: p.getMeal(), q: p.getMealQuality(), active: p.getActiveMeal(), aq: p.getActiveMealQuality(), got: window.__pickFx(p.derived, fx),
+      ev: evs[evs.length - 1], stored: stored && { meal: stored.meal, mq: stored.mealQuality, active: stored.mealActive, aq: stored.mealActiveQuality } };
+  });
+  ok(qa.meal === null && qa.q === 0 && qa.active === 'meal_dumpling' && qa.aq === 4, 'armPreps moves the quality with the meal (pending → active)', JSON.stringify(qa));
+  ok(qa.fx.every((e) => Math.abs(qa.got[e.buff] - (qa.base[e.buff] + e.amount * (1 + QB[4]))) < 1e-9), 'armed meal buff × (1 + bonus[4]) in derived', JSON.stringify(qa));
+  ok(qa.ev && qa.ev.active === 'meal_dumpling' && qa.ev.activeQuality === 4 && qa.ev.mealQuality === 0 && qa.stored?.aq === 4 && qa.stored?.mq === 0 && qa.stored?.meal === null,
+    'mealChanged + storage after arming', JSON.stringify({ ev: qa.ev, stored: qa.stored }));
+
+  await page.reload({ waitUntil: 'load' });
+  await boot();
+  const qr = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    return { active: p.getActiveMeal(), aq: p.getActiveMealQuality(), regen: p.derived.staminaRegenMul, heal: p.derived.healPowerMul };
+  });
+  ok(qr.active === 'meal_dumpling' && qr.aq === 4, 'reload keeps the active meal and its quality', JSON.stringify(qr));
+  ok(Math.abs(qr.regen - (qa.base.staminaRegenMul + qa.fx.find((e) => e.buff === 'staminaRegenMul').amount * (1 + QB[4]))) < 1e-9
+    && Math.abs(qr.heal - (qa.base.healPowerMul + qa.fx.find((e) => e.buff === 'healPowerMul').amount * (1 + QB[4]))) < 1e-9,
+    'derived after reload includes the quality bonus', JSON.stringify({ qr, base: qa.base }));
+  const qc = await page.evaluate(() => {
+    const p = window.__game.ctx.progression, evs = window.__ev['progress:mealChanged'];
+    p.clearActivePreps();
+    const stored = JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null');
+    return { active: p.getActiveMeal(), aq: p.getActiveMealQuality(), regen: p.derived.staminaRegenMul, heal: p.derived.healPowerMul, ev: evs[evs.length - 1], storedAq: stored?.mealActiveQuality, storedActive: stored?.mealActive };
+  });
+  ok(qc.active === null && qc.aq === 0 && Math.abs(qc.regen - qa.base.staminaRegenMul) < 1e-9 && Math.abs(qc.heal - qa.base.healPowerMul) < 1e-9
+    && qc.ev?.activeQuality === 0 && qc.storedAq === 0 && qc.storedActive === null, 'clearActivePreps clears the active meal quality (derived back to base, saved)', JSON.stringify(qc));
+
+  await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
+    raw.meal = null; raw.mealQuality = 3;
+    raw.mealActive = 'meal_dumpling'; raw.mealActiveQuality = 9.6;
+    localStorage.setItem('scav.s1.profile', JSON.stringify(raw));
+  });
+  await page.reload({ waitUntil: 'load' });
+  await boot();
+  const qg = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    return { mq: p.profile.mealQuality, aq: p.profile.mealActiveQuality, getQ: p.getMealQuality(), getAq: p.getActiveMealQuality() };
+  });
+  ok(qg.mq === 0 && qg.getQ === 0 && qg.aq === 5 && qg.getAq === 5, 'migrate: a quality without its meal id → 0, 9.6 → clamped 5', JSON.stringify(qg));
+
+  const qs = await page.evaluate(() => {
+    const ctx = window.__game.ctx, net = ctx.net, p = ctx.progression;
+    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    const desc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+    try {
+      p.save();
+      const up = fake.docs.progression && { active: fake.docs.progression.mealActive, aq: fake.docs.progression.mealActiveQuality };
+      const doc = JSON.parse(JSON.stringify(fake.docs.progression));
+      doc.meal = 'meal_sausage'; doc.mealQuality = 2; doc.mealActive = null; doc.mealActiveQuality = 0;
+      fake.docs = { progression: doc };
+      const e0 = window.__ev['progress:mealChanged'].length;
+      ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: fake.docs, updatedAt: 0 }, migrated: false });
+      return { up, meal: p.getMeal(), q: p.getMealQuality(), active: p.getActiveMeal(), aq: p.getActiveMealQuality(), evs: window.__ev['progress:mealChanged'].slice(e0) };
+    } finally { if (desc) Object.defineProperty(net, 'profile', desc); else delete net.profile; }
+  });
+  ok(qs.up && qs.up.active === 'meal_dumpling' && qs.up.aq === 5, "save → profile.set('progression') carries mealActiveQuality", JSON.stringify(qs.up));
+  ok(qs.meal === 'meal_sausage' && qs.q === 2 && qs.active === null && qs.aq === 0, 'net:profileLoaded → the server meal quality replaces the local one', JSON.stringify(qs));
+  ok(qs.evs.length === 1 && qs.evs[0].mealQuality === 2 && qs.evs[0].activeQuality === 0, 'server document re-emits mealChanged with the qualities', JSON.stringify(qs.evs));
+  const qz = await page.evaluate(() => { const p = window.__game.ctx.progression; p.resetProfile(); return { q: p.getMealQuality(), mq: p.profile.mealQuality, aq: p.profile.mealActiveQuality }; });
+  ok(qz.q === 0 && qz.mq === 0 && qz.aq === 0, 'resetProfile clears both qualities', JSON.stringify(qz));
 
   // Clean up so the next script starts from a fresh character.
   await page.evaluate(() => window.__game.ctx.progression.resetProfile());

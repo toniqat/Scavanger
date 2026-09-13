@@ -12,6 +12,9 @@
  * | `gym_fatigue` | `fatigue:<stat>` | `getGymFatigueUntil(stat) > now` | `active`, `startedAt = until − GYM_FATIGUE_HOURS h` · `endsAt = until` |
  * | `rest` | `pose` | 가구 자세 `sit` | `active` |
  * | `exercise` | `pose` | 가구 자세 `bench` · `run` · `cycle` (+ `housing.gymSession` 의 `stat` · `minigame`) | `active` |
+ * | `cooking` | `pose` | 가구 자세 `cook` (+ `housing.cookSession.mealDefId` → `defId`) — 2026-09-13 | `active` |
+ *
+ * 2026-09-13 (요리 품질): `meal` 에 `quality` — 함선 `getMealQuality()` · 레이드 `getActiveMealQuality()`, 0 이면 싣지 않는다.
  * | `adrenaline` · `stimulant` | `boost` | `parts/Boosts` (`boostKind` · `boostDefId` · 버프 시계로 찍은 시작 / 끝) | `active` |
  *
  * 함선 / 레이드는 `ctx.isRaidActive()` 가 가른다 (progression 이 준비물 사용을 거절하는 기준과 같다). 시각은
@@ -37,6 +40,8 @@ import type { PlayerSystem } from '../PlayerSystem';
 interface ProgressionView {
   getMeal?(): string | null;
   getActiveMeal?(): string | null;
+  getMealQuality?(): number;
+  getActiveMealQuality?(): number;
   getPreps?(): readonly string[];
   getActivePreps?(): readonly string[];
   getGymFatigueUntil?(id: string): number;
@@ -53,6 +58,7 @@ export function bindBuffs(sys: PlayerSystem, ctx: GameContext): void {
   bus.on('progress:gymFatigue', dirty);
   bus.on('player:envChanged', dirty);
   bus.on('housing:gymSession', dirty);
+  bus.on('housing:cookSession', dirty);   // 2026-09-13: 조리 중 버프의 요리 (`cookSession.mealDefId`)
   bus.on('game:newMission', dirty);
   bus.on('game:abort', dirty);
   bus.on('game:phaseChanged', dirty);
@@ -96,7 +102,14 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
     const meal = raid
       ? (typeof prog.getActiveMeal === 'function' ? prog.getActiveMeal() : null)
       : (typeof prog.getMeal === 'function' ? prog.getMeal() : null);
-    if (typeof meal === 'string' && meal) take(sys, 'meal', 'meal', state).defId = meal;
+    if (typeof meal === 'string' && meal) {
+      const b = take(sys, 'meal', 'meal', state);
+      b.defId = meal;
+      // 2026-09-13 요리 품질 — 대기분과 이번 레이드분이 각자 품질을 든다 (0 = 생략)
+      const qf = raid ? prog.getActiveMealQuality : prog.getMealQuality;
+      const q = typeof qf === 'function' ? qf.call(prog) : 0;
+      if (typeof q === 'number' && Number.isFinite(q) && q >= 1) b.quality = Math.floor(q);
+    }
 
     const preps = raid
       ? (typeof prog.getActivePreps === 'function' ? prog.getActivePreps() : null)
@@ -140,13 +153,17 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
     if (e >= s) { b.startedAt = s; b.endsAt = e; }
   }
 
-  // ── 가구 자세 (휴식 중 · 운동 중)
+  // ── 가구 자세 (휴식 중 · 운동 중 · 2026-09-13 조리 중)
   const f = sys.furn;
   if (f.kind !== null) {
-    const b = take(sys, f.kind === 'sit' ? 'rest' : 'exercise', 'pose', 'active');
+    const b = take(sys, f.kind === 'sit' ? 'rest' : f.kind === 'cook' ? 'cooking' : 'exercise', 'pose', 'active');
     b.pose = f.kind;
     if (f.furnitureUid) b.furnitureUid = f.furnitureUid;
-    if (f.kind !== 'sit') {
+    if (f.kind === 'cook') {
+      // 만드는 요리 — 조리대 세션이 있고 uid 가 같거나 자세에 uid 가 없을 때 (운동 세션과 같은 규칙). 타이머는 없다.
+      const cook = ctx.housing?.cookSession ?? null;
+      if (cook && (!f.furnitureUid || cook.uid === f.furnitureUid) && typeof cook.mealDefId === 'string' && cook.mealDefId) b.defId = cook.mealDefId;
+    } else if (f.kind !== 'sit') {
       const session = ctx.housing?.gymSession ?? null;
       if (session && (!f.furnitureUid || session.uid === f.furnitureUid)) {
         b.stat = session.stat;
@@ -173,7 +190,7 @@ function take(sys: PlayerSystem, kind: CharBuffKind, key: string, state: CharBuf
   if (!b) { b = { kind, key, debuff: false, state }; pool.push(b); }
   b.kind = kind; b.key = key; b.debuff = isDebuffKind(kind); b.state = state;
   b.defId = undefined; b.env = undefined; b.stat = undefined; b.minigame = undefined;
-  b.pose = undefined; b.furnitureUid = undefined; b.startedAt = undefined; b.endsAt = undefined;
+  b.pose = undefined; b.furnitureUid = undefined; b.startedAt = undefined; b.endsAt = undefined; b.quality = undefined;
   list.push(b);
   return b;
 }
@@ -194,5 +211,6 @@ function cleanCopy(b: CharBuff): CharBuff {
   if (b.furnitureUid !== undefined) o.furnitureUid = b.furnitureUid;
   if (b.startedAt !== undefined) o.startedAt = b.startedAt;
   if (b.endsAt !== undefined) o.endsAt = b.endsAt;
+  if (b.quality !== undefined) o.quality = b.quality;
   return o;
 }

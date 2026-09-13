@@ -10,7 +10,7 @@ import type {
   ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
   ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive, normalizeMealQuality } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
@@ -113,7 +113,8 @@ export function useMealItem(sys: InventorySystem, uid: string, from?: ItemLocati
   if (from?.kind === 'grid' && from.grid === 'container') return '가방이나 창고로 옮긴 뒤 사용하세요';
   const prog = ctx.progression;
   if (!prog || typeof prog.useMeal !== 'function') return '요리를 먹을 수 없습니다';
-  const refusal = prog.useMeal(def.id);
+  // 2026-09-13 (요리 품질): 그 스택의 품질을 함께 넘긴다 — 우클릭 `먹기` 로 먹은 ★★★ 요리가 기본 수치로 실리면 안 된다
+  const refusal = prog.useMeal(def.id, normalizeMealQuality(item.quality));
   if (refusal) return refusal;
   if (sys.takeItem(uid, 1) !== 1) {
     console.error('[inventory] 요리를 실었지만 아이템을 빼지 못했다', uid, def.id);

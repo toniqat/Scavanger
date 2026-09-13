@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { MealMessage, PeerId } from '@/shared';
-import { BUFF_RANGE_SLACK, MEAL_SERVE_RANGE, META_HIT_RATE } from '@/shared';
+import { BUFF_RANGE_SLACK, MEAL_SERVE_RANGE, META_HIT_RATE, normalizeMealQuality } from '@/shared';
 import type { NetSystem } from '../NetSystem';
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -24,6 +24,10 @@ import type { NetSystem } from '../NetSystem';
  * 와이어는 계약이다 — `shared/net.ts` 의 `MealMessage` (`GameMessage` union 의 `DroneRequest` 다음 줄).
  * `req` = 비호스트 → 호스트(차렸다), `serve` = 호스트 → 사거리 안의 분대원(받아라, `who` = 차린 사람).
  * 서버는 한 줄도 바뀌지 않는다 — 기존 `relay` 봉투를 그대로 탄다.
+ *
+ * 2026-09-13 (요리 품질, docs/plans/cooking-minigames.md §3): 차린 요리의 **품질 그대로** 분대원이 받는다. `req` · `serve` 둘 다
+ * `q`(별 1 … 5, 0 이면 생략)를 싣고, 받는 쪽은 `normalizeMealQuality` 로 자른 값을 `serveMeal(def, q)` 와 `housing:mealServed {quality}`
+ * 에 넘긴다. 품질은 효과 배수뿐이라(최대 +25 %) 호스트가 따로 검사할 권위가 없다 — 모양 검사(정수 0 … `MEAL_QUALITY_MAX`)만 한다.
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 interface Bucket { tokens: number; at: number }
@@ -49,7 +53,7 @@ export class MealRelay {
     this.sys = sys;
     const bus = sys.ctx.bus;
     this.offs.push(
-      bus.on('housing:mealServed', ({ defId }) => this.onLocalServed(defId)),
+      bus.on('housing:mealServed', ({ defId, quality }) => this.onLocalServed(defId, normalizeMealQuality(quality))),
       // 로비를 떠나면 호스트 시절의 버킷은 의미가 없다.
       bus.on('net:lobbyLeft', () => this.buckets.clear()),
       sys.onMessage('meal', (m, from) => this.onWire(m, from)),
@@ -68,7 +72,7 @@ export class MealRelay {
    * 내가 식탁에서 분대에 차렸다. **공유 함선의 데크에서만** 나간다 — 개인 함선 · 격납고에 정박한 남의 함선
    * 안(`hubSite !== null`) · 레이드 중에는 아무것도 보내지 않는다.
    */
-  private onLocalServed(defId: string): void {
+  private onLocalServed(defId: string, quality: number): void {
     const sys = this.sys;
     if (!sys || this.applying) return;
     if (typeof defId !== 'string' || !defId) return;
@@ -76,10 +80,12 @@ export class MealRelay {
     const me = sys.localId;
     if (!me) return;
     if (sys.isHost) {
-      this.fanOut(defId, me, this.localPosition(this.vFrom));
+      this.fanOut(defId, me, this.localPosition(this.vFrom), quality);
       return;
     }
-    sys.send({ t: 'meal', ev: 'req', def: defId }, 'host');
+    const msg: MealMessage = { t: 'meal', ev: 'req', def: defId };
+    if (quality > 0) msg.q = quality;
+    sys.send(msg, 'host');
   }
 
   /* ── 받는 쪽 ───────────────────────────────────────────────────────────── */
@@ -89,6 +95,7 @@ export class MealRelay {
     const def = typeof m.def === 'string' ? m.def : '';
     if (!def || def.length > 64) return;
     if (!this.onSharedDeck()) return;
+    const q = normalizeMealQuality(m.q);                                 // 2026-09-13 요리 품질 (없음 · 이상한 값 = 0)
 
     if (m.ev === 'req') {
       if (!sys.isHost) return;                                           // 요청은 호스트만 처리한다
@@ -96,7 +103,7 @@ export class MealRelay {
       const at = this.peerPosition(from);
       if (!at) return;                                                   // ③ 자리 (공유 데크 + 스냅샷)
       if (!this.allow(from)) return;                                     // ④ 요율
-      this.fanOut(def, from, at);
+      this.fanOut(def, from, at, q);
       return;
     }
 
@@ -105,7 +112,7 @@ export class MealRelay {
       const hostId = sys.lobby?.hostId ?? null;
       if (!hostId || from !== hostId || from === sys.localId) return;
       const who = typeof m.who === 'string' && m.who ? m.who : from;
-      this.apply(def, who);
+      this.apply(def, who, q);
     }
   }
 
@@ -114,7 +121,7 @@ export class MealRelay {
    * 보낸다 (`MEAL_SERVE_RANGE` 의 계약 주석: 「호스트가 스냅샷 거리로 검사한다」). 차린 본인은 건너뛴다 —
    * 자기 몫은 housing 이 이미 로컬에서 처리했다.
    */
-  private fanOut(defId: string, who: PeerId, at: THREE.Vector3 | null): void {
+  private fanOut(defId: string, who: PeerId, at: THREE.Vector3 | null, quality: number): void {
     const sys = this.sys;
     if (!sys || !at) return;
     const me = sys.localId;
@@ -123,12 +130,14 @@ export class MealRelay {
       if (p.id === me) {
         // 호스트 자신도 사거리 안이면 받는다.
         const mine = this.localPosition(this.vMe);
-        if (mine && mine.distanceTo(at) <= SERVE_RANGE) this.apply(defId, who);
+        if (mine && mine.distanceTo(at) <= SERVE_RANGE) this.apply(defId, who, quality);
         continue;
       }
       const pos = this.peerPosition(p.id);
       if (!pos || pos.distanceTo(at) > SERVE_RANGE) continue;
-      sys.send({ t: 'meal', ev: 'serve', def: defId, who }, p.id);
+      const msg: MealMessage = { t: 'meal', ev: 'serve', def: defId, who };
+      if (quality > 0) msg.q = quality;
+      sys.send(msg, p.id);
     }
   }
 
@@ -137,13 +146,13 @@ export class MealRelay {
    * `housing:mealServed` 를 **차린 사람의 표시 이름**과 함께 다시 낸다 (`by` 의 계약이 그렇다).
    * 그 이벤트가 다시 릴레이되지 않도록 `applying` 으로 감싼다.
    */
-  private apply(defId: string, who: PeerId): void {
+  private apply(defId: string, who: PeerId, quality: number): void {
     const sys = this.sys;
     if (!sys) return;
-    try { sys.ctx.progression?.serveMeal(defId); } catch { /* progression 미준비 */ }
+    try { sys.ctx.progression?.serveMeal(defId, quality); } catch { /* progression 미준비 */ }
     const by = sys.getLobbyPlayer(who)?.name ?? sys.getRemotePlayer(who)?.name ?? '대원';
     this.applying = true;
-    try { sys.ctx.bus.emit('housing:mealServed', { defId, by }); } finally { this.applying = false; }
+    try { sys.ctx.bus.emit('housing:mealServed', { defId, by, quality }); } finally { this.applying = false; }
   }
 
   /* ── 질의 ──────────────────────────────────────────────────────────────── */

@@ -1,18 +1,21 @@
 import * as THREE from 'three';
 import {
-  BURNOUT_DURATION, ENEMY_DEATH_DIRS, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWire, type EnemyWireState, type GameContext,
+  BURNOUT_DURATION, ENEMY_DEATH_DIRS, ENEMY_GRENADE_KINDS, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemyGrenadeKind, type EnemySnapshot, type EnemyType, type EnemyWire, type EnemyWireState, type GameContext,
 } from '@/shared';
 import type { Enemy } from '../Enemy';
 import type { CorpseWireOpts } from '../Corpses';
 import type { CombatTarget, TargetList } from '../Targets';
 import { applySlope, footfall, integrateDeathFall } from '../ai/EnemyAI';
-import { hurtSound, meleeHitSound } from '../model';
+import { goreKindOf, hurtSound, meleeHitSound } from '../model';
 import { replicaRidePredict } from '../ai/Ride';
 import { lookAtTarget } from '../ai/Common';
 /* 2026-09-11: 네임드 로그 · 스캔 드론 */
 import { isNamedAiType } from '../ai/named';
 import { afterNamedReplica, beforeNamedReplica, onNamedEvent } from '../ai/named/remote';
 import type { NamedRogueDirector } from '../named/Director';
+/* 2026-09-13: 굴착 스폰 · 지하벌레 */
+import { stepSpatFlight } from '../ai/Burrow';
+import { applyWormHint } from '../sandworm/Pose';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Client-side enemy replicas (joined multiplayer clients, `!ctx.isAuthority`).
@@ -170,7 +173,7 @@ export interface ReplicaHost {
   readonly named: Pick<NamedRogueDirector, 'onReplicaCreated'>;
   /** Deactivate back to the pool (no network side effects). */
   release(e: Enemy): void;
-  bloodBurst(point: THREE.Vector3, count: number, dir: THREE.Vector3 | null): void;
+  bloodBurst(point: THREE.Vector3, count: number, dir: THREE.Vector3 | null, kind?: 'blood' | 'spark'): void;
   playAudio(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void;
   /** Visual-only acid glob from `from` toward the target's current feet position. */
   acidVisual(from: THREE.Vector3, target: CombatTarget, shooterId: number): void;
@@ -187,13 +190,25 @@ export interface ReplicaHost {
   corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined, opts?: CorpseWireOpts): void;
   corpseGoneRemote(id: number): void;
   /* ── Phase 7 (rogue AI v2) ── */
-  /** Visual rogue grenade from `ee grenade` (position / velocity / fuse as thrown on the host). */
-  grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number): void;
-  /** Host's `grenadeHit`: pop the local copy (or just the FX) at `p`. */
-  grenadeHitRemote(p: THREE.Vector3): void;
+  /** Visual rogue grenade from `ee grenade` (position / velocity / fuse as thrown on the host). 2026-09-13: `kind` = `ee grenade.k`. */
+  grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number, kind?: EnemyGrenadeKind): void;
+  /** Host's `grenadeHit`: pop the local copy (or just the FX) at `p`. 2026-09-13: `kind` = `ee grenadeHit.k` (an incendiary lights the visual fire zone). */
+  grenadeHitRemote(p: THREE.Vector3, kind?: EnemyGrenadeKind): void;
   /* ── Phase 12 (배리어 정면 흡수) ── */
   /** Host says enemy `id`'s melee landed on **my** raised shield at `p`: deduct `amount` from it + the bite FX. */
   barrierHitRemote(id: number, p: THREE.Vector3, amount: number): void;
+  /* ── 2026-09-13 (굴착 스폰 · 지하벌레) ── */
+  /** `ee spawn.em` 으로 파고 나오기 시작한 몸의 연출 · 흔들림 · 소리 (`parts/Burrow.emergeFx`). */
+  emergeSpawned(e: Enemy): void;
+  /** 뱉어져 날던 몸이 착지했다 (`parts/Burrow.spatLandedFx`). */
+  burrowLanded(e: Enemy): void;
+  /** `ee wormWarn` · `wormErupt` · `wormSpit` → `sandworm/Director.onWire`. */
+  onSandwormEvent(msg: EnemyEvent): void;
+}
+
+/** 2026-09-13: wire grenade kind index (`ENEMY_GRENADE_KINDS`) → kind; omitted / unknown = undefined. */
+function grenadeKindOf(k: number | undefined): EnemyGrenadeKind | undefined {
+  return typeof k === 'number' && Number.isInteger(k) && k >= 0 && k < ENEMY_GRENADE_KINDS.length ? ENEMY_GRENADE_KINDS[k] : undefined;
 }
 
 const _pose: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
@@ -290,10 +305,13 @@ export class EnemyReplica {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         let e = host.find(msg.id);
         if (e && e.type !== msg.ty) { host.release(e); e = undefined; }
-        if (!e) e = host.acquire(msg.id, msg.ty, _p, msg.yaw) ?? undefined;
+        let created = false;
+        if (!e) { e = host.acquire(msg.id, msg.ty, _p, msg.yaw) ?? undefined; created = !!e; }
         if (!e) return;
         const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
         if (buf.count === 0) buf.push(ctx.time, _p.x, _p.y, _p.z, msg.yaw, e.maxHp, 'idle', 0);
+        // 2026-09-13: 굴착 스폰 — 호스트와 같은 시간 동안 땅에서 올라온다 (연출 · 흔들림 · 소리는 `parts/Burrow`)
+        if (created && typeof msg.em === 'number' && msg.em > 0) { e.startEmerge(Math.min(msg.em, 5)); host.emergeSpawned(e); }
         ctx.bus.emit('enemy:spawned', { id: e.id, type: e.type, position: e.position });
         return;
       }
@@ -337,8 +355,8 @@ export class EnemyReplica {
             const s = Math.sin(e.yaw), c = Math.cos(e.yaw);
             a.flinchX = -(_d.x * c - _d.z * s);
             a.flinchZ = (_d.x * s + _d.z * c);
-            host.bloodBurst(_p, 8, _d);
-          } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; host.bloodBurst(_p, 8, null); }
+            host.bloodBurst(_p, 8, _d, goreKindOf(e.type));
+          } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; host.bloodBurst(_p, 8, null, goreKindOf(e.type)); }
           // 2026-09-11 (C-51): 호스트와 같은 표 — 로그는 `hit_flesh` (예전엔 리플리카만 로그도 `bug_hit` 이었다)
           host.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
         }
@@ -415,6 +433,10 @@ export class EnemyReplica {
         host.corpseSpawnedRemote(msg.id, msg.ty, _p, msg.w, {
           lootable: msg.lt === undefined ? undefined : msg.lt !== 0,
           deathDir: msg.dd !== undefined ? ENEMY_DEATH_DIRS[msg.dd] : undefined,
+          // 2026-09-13: 호스트와 같은 전리품 입력 (스폰 거점 · 남은 수류탄)
+          loot: msg.si || msg.gc
+            ? { site: msg.si ?? null, grenades: msg.gc ? { kind: ENEMY_GRENADE_KINDS[msg.gk ?? 0] ?? 'frag', count: msg.gc } : null }
+            : undefined,
         });
         return;
       }
@@ -425,12 +447,12 @@ export class EnemyReplica {
       case 'grenade': {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         _p2.set(msg.v[0], msg.v[1], msg.v[2]);
-        host.grenadeVisual(msg.id, _p, _p2, msg.fuse);
+        host.grenadeVisual(msg.id, _p, _p2, msg.fuse, grenadeKindOf(msg.k) ?? 'frag');
         return;
       }
       case 'grenadeHit':
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
-        host.grenadeHitRemote(_p);
+        host.grenadeHitRemote(_p, grenadeKindOf(msg.k));
         return;
       /* ── Phase 12 ── */
       case 'barrierHit':
@@ -444,6 +466,12 @@ export class EnemyReplica {
       case 'hammer':
       case 'spray':
         onNamedEvent(host, msg);
+        return;
+      /* ── 2026-09-13: 지하벌레 (sandworm/Director) ── */
+      case 'wormWarn':
+      case 'wormErupt':
+      case 'wormSpit':
+        host.onSandwormEvent(msg);
         return;
     }
   }
@@ -477,6 +505,8 @@ export class EnemyReplica {
       // Phase 10: a body killed in the air falls here too — the host stops sending it after 1.5 s, so the replica
       // runs the same deterministic fall (`integrateDeathFall`) instead of freezing the corpse mid-air.
       if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); continue; }
+      // 2026-09-13: 지하벌레가 뱉은 몸은 `ee wormSpit` 의 포물선을 스스로 그린다 (착지 뒤는 스냅샷)
+      if (e.spatT > 0) { if (stepSpatFlight(e, dt, world)) this.host.burrowLanded(e); continue; }
       const buf = e.netBuf;
       if (!buf) continue;
       const latest = buf.latest();
@@ -492,7 +522,7 @@ export class EnemyReplica {
     const s = e.stats;
     const px = e.position.x, pz = e.position.z;
     const hint = latest.a;
-    const rogue = e.isRogue;
+    const rogue = e.isHumanoid;
 
     e.airborne = hint === 4;
     e.leaping = e.airborne;
@@ -571,6 +601,7 @@ export class EnemyReplica {
     a.mandible += (mandT - a.mandible) * Math.min(1, dt * 10);
     a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
     if (isNamedAiType(e.type)) afterNamedReplica(e, hint, dt, this.host);
+    if (e.type === 'sandworm') applyWormHint(e, hint, dt);   // 2026-09-13: 입 벌림 · 꿀렁임 · 숙임 (호스트와 같은 함수)
 
     // head: track the nearest player while aware, idle sway otherwise
     const look = e.aware && hint !== 2 && hint !== 11 ? this.host.targets.nearestAlive(e.position) : null;

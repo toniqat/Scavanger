@@ -21,11 +21,11 @@ if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
 /* Phase 9 constants (src/shared/constants.ts) — asserted as literals so a silent retune is caught here. */
-const BOOKS_PER_SHELF = 6;
+const BOOKS_PER_SHELF = 8;   // 2026-09-13: 4 선반 × 2칸 (was 6)
 const BOOK_XP_PER_BOOK = 0.05;
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다
    (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`, 6 = 배양조의 `cultures`, 7 = 방 시설 레벨 제거). */
-const SHIP_STATE_VERSION = 9;   // 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구, v9 = 서재 매체 (media · mediaDex · toggled)
+const SHIP_STATE_VERSION = 11;  // 2026-09-13: v11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 스캐폴드 · 분석 결과). v10 = 조종석 전용 시설 · 꾸밈 가구 (cockpit 작업). 2026-09-12: v8 = 방 8개 · 시뮬레이션실/휴식 공간 제거 + 환불 · 조종석 공용 가구, v9 = 서재 매체 (media · mediaDex · toggled)
 /* A-3e (2026-09-12) 서재 매체 — data/constants.csv 의 DISC_* · RECORD_* · SHELF_AUX_BONUS_* (리터럴로 적어 조용한 재조정을 잡는다) */
 const DISC_SLOTS = 6, RECORD_SLOTS = 4;
 const DISC_XP = 0.06, RECORD_XP = 0.07;
@@ -51,12 +51,14 @@ const browser = await puppeteer.launch({
   executablePath: CHROME, headless: true,
   args: ['--use-gl=angle', ...GL_ARGS, '--ignore-gpu-blocklist',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
-    '--window-size=960,540', '--no-sandbox'],
+    '--window-size=1440,900', '--no-sandbox'],
 });
 const errors = [];
 try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
-  await page.setViewport({ width: 960, height: 540 });
+  // 2026-09-13: the 보관함 screen is a station card + 함선 창고 card + 가방 card and is dragged with a real pointer — it needs
+  // the same viewport as smoke-stations (at 960×540 the cards stack and the grids fall outside the window).
+  await page.setViewport({ width: 1440, height: 900 });
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
@@ -244,7 +246,7 @@ try {
   ok(nonBook === '서적이 아닙니다', `a non-book def is refused (${nonBook})`);
   const noStock = await H((u) => window.__game.ctx.housing.placeBook(u, 1, 'book_medicine'), shelfA);
   ok(typeof noStock === 'string' && /없습니다/.test(noStock), `a book the player does not own is refused (${noStock})`);
-  const badSlot = await H((u) => window.__game.ctx.housing.placeBook(u, 6, 'book_gun_AR'), shelfA);
+  const badSlot = await H(({ u, n }) => window.__game.ctx.housing.placeBook(u, n, 'book_gun_AR'), { u: shelfA, n: BOOKS_PER_SHELF });
   ok(badSlot === '없는 책장 칸입니다', `slot ${BOOKS_PER_SHELF} is out of range (${badSlot})`);
   const notShelf = await H(() => window.__game.ctx.housing.placeBook('f-999', 0, 'book_gun_AR'));
   ok(notShelf === '책장이 아닙니다', `placeBook on a missing uid refused (${notShelf})`);
@@ -276,8 +278,8 @@ try {
   ok(near(gm.ar, 1 + BOOK_XP_PER_BOOK * 2), `getSkillGainMul(gun_AR) = 서재 1.10 alone — no 시뮬레이션 허브 term (${gm.ar})`);
   ok(near(gm.med, 1 + BOOK_XP_PER_BOOK * BOOK_RARITY_MUL.rare), `getSkillGainMul(medicine) is the book bonus alone (${gm.med})`);
   ok(gm.carry === 1, 'getSkillGainMul(carry) = 1 (no range bonus, no book)');
-  // cap: 6 epic books (Σ 24 → 1 + 1.2 = 2.2) is clamped to BOOK_GAIN_MAX
-  ok(await giveStash('book_cryptography', 6) === 6, '6× 『암호 해독 원론』 (epic) into the 창고');
+  // cap: a full shelf of epic books (Σ 4 × BOOKS_PER_SHELF → well past +100 %) is clamped to BOOK_GAIN_MAX
+  ok(await giveStash('book_cryptography', BOOKS_PER_SHELF) === BOOKS_PER_SHELF, `${BOOKS_PER_SHELF}× 『암호 해독 원론』 (epic) into the 창고`);
   const capSteps = [];
   for (let slot = 0; slot < BOOKS_PER_SHELF; slot++) {
     const r = await H(({ u, slot }) => window.__game.ctx.housing.placeBook(u, slot, 'book_cryptography'), { u: shelfB, slot });
@@ -396,18 +398,29 @@ try {
   const tog = await lastEv('ui:bookshelfToggled');
   ok(tog && tog.open === true && tog.uid === shelfA, `ui:bookshelfToggled {open, uid} (${JSON.stringify(tog)})`);
   ok((await lastEv('ui:housingToggled'))?.page === null, 'ui:housingToggled reports page null for the 책장 panel');
+  // 2026-09-13: the screen is StationShell cards — [책장 card: rail 선반 / 도감 + drawn shelf] [함선 창고] [가방]
+  await waitFor(page, () => document.querySelectorAll('.menu.bookshelf-menu [data-tg-grid]').length >= 2, 'embedded 창고 / 가방 grids', 5000).catch(() => null);
   const dom = await H(() => {
     const root = document.querySelector('.menu.housing-menu.bookshelf-menu');
     if (!root) return null;
+    const slots = [...root.querySelectorAll('.lib-case .lib-slot[data-slot]')];
+    const filled = slots.filter((s) => s.classList.contains('is-filled'));
     return {
       hidden: root.hidden,
       title: root.querySelector('.hs-head .title')?.textContent ?? '',
-      subtitle: root.querySelector('.hs-head .subtitle')?.textContent ?? '',
-      cards: root.querySelectorAll('.hs-book').length,
-      empty: root.querySelectorAll('.hs-book.empty').length,
-      filledState: [...root.querySelectorAll('.hs-book:not(.empty) .state')].map((n) => n.textContent),
-      lines: [...root.querySelectorAll('.hs-book:not(.empty) .line')].map((n) => n.textContent),
-      picks: [...root.querySelectorAll('.hs-bookpick')].length,
+      count: root.querySelector('.lib-count')?.textContent ?? '',
+      caseMedium: root.querySelector('.lib-case')?.dataset.medium ?? null,
+      tiers: [...root.querySelectorAll('.lib-tier')].map((t) => [...t.querySelectorAll('.lib-slot[data-slot]')].map((s) => s.dataset.slot).join('')).join('|'),
+      cards: slots.length,
+      empty: slots.length - filled.length,
+      filledTip: filled.map((s) => { const it = s.querySelector('.lib-item'); return `${s.dataset.slot}:${it.dataset.defId}:${it.hasAttribute('data-item-tip')}`; }),
+      filledLabel: filled.map((s) => s.querySelector('.lib-label').textContent),
+      lines: filled.map((s) => s.dataset.line ?? ''),
+      emptyTip: slots.filter((s) => !s.classList.contains('is-filled') && s.querySelector('.lib-item').hasAttribute('data-item-tip')).length,
+      tabs: [...root.querySelectorAll('.hs-rail .hs-tab')].map((n) => n.textContent).join('|'),
+      oldUi: root.querySelectorAll('.hs-bookpick, .hs-book, .hs-shelf, .hs-books').length,
+      gridOrder: [...root.querySelectorAll('[data-tg-grid]')].map((n) => n.dataset.tgGrid).join(','),
+      dexHidden: root.querySelector('.lib-page[data-page="dex"]')?.hidden ?? null,
       dexRows: root.querySelectorAll('.hs-dex-row').length,
       dexOwned: root.querySelectorAll('.hs-dex-row.owned').length,
       dexBoosted: [...root.querySelectorAll('.hs-dex-row.boosted')].map((r) => r.dataset.skill),
@@ -417,26 +430,90 @@ try {
   });
   ok(dom && !dom.hidden, '.bookshelf-menu is shown');
   ok(/책장/.test(dom.title) && /방 4/.test(dom.title), `title names the room (${dom.title})`);
-  ok(/1 \/ 6권/.test(dom.subtitle), `subtitle counts the shelved books (${dom.subtitle})`);
-  ok(dom.cards === BOOKS_PER_SHELF && dom.empty === BOOKS_PER_SHELF - 1, `${BOOKS_PER_SHELF} slot cards, 5 empty (${dom.cards}/${dom.empty})`);
-  ok(dom.filledState[0] === '사격' || /[가-힣]/.test(dom.filledState[0] ?? ''), `the filled card names its 숙련 in 한국어 (${dom.filledState[0]})`);
-  ok(/가중치 ×1/.test(dom.lines[0] ?? '') && /×1\.05/.test(dom.lines[0] ?? ''), `the filled card shows weight and multiplier (${dom.lines[0]})`);
-  // owned right now: 돌격소총 1 (bag) + 암호 해독 6 + 버티는 법 2 (stash) → three defs, grouped
-  ok(dom.picks === 3, `보유 서적 picker lists the owned book defs, bag + stash (${dom.picks})`);
+  ok(dom.count.includes(`1 / ${BOOKS_PER_SHELF}권`), `count line counts the shelved books (${dom.count})`);
+  ok(dom.caseMedium === 'book' && dom.tiers === '01|23|45|67', `drawn 책장: 4 선반 × 2칸, slot order top → bottom, left → right (${dom.tiers})`);
+  ok(dom.cards === BOOKS_PER_SHELF && dom.empty === BOOKS_PER_SHELF - 1, `${BOOKS_PER_SHELF} drawn slots, ${BOOKS_PER_SHELF - 1} empty (${dom.cards}/${dom.empty})`);
+  ok(dom.filledTip.length === 1 && dom.filledTip[0] === '0:book_gun_AR:true' && dom.emptyTip === 0, `the filled spine carries data-item-tip + data-def-id, empty outlines do not (${dom.filledTip.join(',')})`);
+  ok(/[가-힣]/.test(dom.filledLabel[0] ?? ''), `the spine names its 숙련 in 한국어 (${dom.filledLabel[0]})`);
+  ok(/가중치 ×1/.test(dom.lines[0] ?? '') && /×1\.05/.test(dom.lines[0] ?? ''), `the filled slot's info line shows weight and multiplier (${dom.lines[0]})`);
+  ok(dom.tabs === '선반|도감' && dom.dexHidden === true && dom.oldUi === 0, `rail tabs 선반 / 도감, 도감 page hidden, no chip picker / 꽂기 buttons (${dom.tabs} · ${dom.oldUi})`);
+  ok(dom.gridOrder === 'stash,bag', `함선 창고 card left of the 가방 card (${dom.gridOrder})`);
   ok(dom.dexRows === 14, `도감 renders one row per skill (${dom.dexRows})`);
   // the corrupt-save round trip above left `book_gun_AR` as the only 도감 entry that still resolves to a real def
   ok(dom.dexOwned === 1, `도감 marks only the books that were really shelved 보유 (${dom.dexOwned})`);
   ok(dom.dexBoosted.length === 1 && dom.dexBoosted[0] === 'gun_AR', `only gun_AR is boosted right now (${dom.dexBoosted.join(',')})`);
   ok(dom.dexMuls.gun_AR === '×1.05' && dom.dexMuls.carry === '×1.00', `도감 rows carry the current multiplier (${dom.dexMuls.gun_AR} / ${dom.dexMuls.carry})`);
   ok(/1 \/ 14/.test(dom.dexSummary), `도감 summary counts the collection (${dom.dexSummary})`);
-  // pick a book in the panel and shelve it through the DOM
-  await H(() => document.querySelector('.menu.bookshelf-menu .hs-bookpick').click());
-  await sleep(80);
-  await H(() => document.querySelector('.menu.bookshelf-menu .hs-book.empty .actions .ui-btn.primary').click());
+  await H(() => document.querySelector('.menu.bookshelf-menu .hs-tab[data-tab="dex"]').click());
+  const tabDex = await H(() => ({ shelf: document.querySelector('.menu.bookshelf-menu .lib-page[data-page="shelf"]').hidden, dex: document.querySelector('.menu.bookshelf-menu .lib-page[data-page="dex"]').hidden }));
+  await H(() => document.querySelector('.menu.bookshelf-menu .hs-tab[data-tab="shelf"]').click());
+  ok(tabDex.shelf === true && tabDex.dex === false && await H(() => !document.querySelector('.menu.bookshelf-menu .lib-page[data-page="shelf"]').hidden), '도감 tab swaps the page inside the card, 선반 tab swaps back');
+
+  const bookState = () => H((u) => ({ slots: window.__game.ctx.housing.getBooks(u).map((s) => s.defId), msg: document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '' }), shelfA);
+  const stashTile = async (defId) => {
+    const uid = await H((d) => window.__game.ctx.inventory.getStashItems().find((i) => i.defId === d)?.uid ?? null, defId);
+    const sel = `.menu.bookshelf-menu [data-tg-grid="stash"] .inv-tile[data-uid="${uid}"]`;
+    await waitFor(page, (s) => !!document.querySelector(s), `${defId} tile in the 창고 grid`, 5000, sel).catch(() => null);
+    return sel;
+  };
+  // real pointer drag from `fromSel` to `toSel` (TradeGrids / ProductDrag both judge the drop on pointerup coordinates)
+  const dragTo = async (fromSel, toSel) => {
+    const geo = await H(({ fromSel, toSel }) => {
+      const a0 = document.querySelector(fromSel), b0 = document.querySelector(toSel);
+      if (!a0 || !b0) return null;
+      a0.scrollIntoView({ block: 'center' });
+      b0.scrollIntoView({ block: 'nearest' });
+      const a = a0.getBoundingClientRect(), b = b0.getBoundingClientRect();
+      return { x: a.left + Math.min(18, a.width / 2), y: a.top + Math.min(18, a.height / 2), tx: b.left + b.width / 2, ty: b.top + b.height * 0.6 };
+    }, { fromSel, toSel });
+    if (!geo) return { geo: null };
+    await page.mouse.move(geo.x, geo.y);
+    await page.mouse.down();
+    await page.mouse.move(geo.x - 30, geo.y, { steps: 4 });
+    await page.mouse.move(geo.tx, geo.ty, { steps: 12 });
+    await sleep(60);
+    const under = await H((t) => { const u = document.elementFromPoint(t.tx, t.ty); return u ? `${u.tagName}.${u.className}` : null; }, geo);
+    await page.mouse.up();
+    await sleep(160);
+    return { geo, under };
+  };
+
+  // ① double-click a 창고 tile → the first empty slot
+  const gritSel = await stashTile('book_grit');
+  await H((s) => document.querySelector(s)?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })), gritSel);
+  await sleep(140);
+  const s1 = await bookState();
+  ok(s1.slots[1] === 'book_grit' && s1.slots.filter(Boolean).length === 2 && /꽂기 완료/.test(s1.msg), `double-click a 창고 book → first empty slot 2 (${JSON.stringify(s1)})`);
+  // ② a non-book is refused with a 한국어 message
+  await giveStash('mat_scrap', 1);
+  const scrapSel = await stashTile('mat_scrap');
+  await H((s) => document.querySelector(s)?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })), scrapSel);
   await sleep(120);
-  const afterClick = await H((u) => ({ filled: window.__game.ctx.housing.getBooks(u).filter((s) => s.defId).length, msg: document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '' }), shelfA);
-  ok(afterClick.filled === 2, `꽂기 button shelves the picked book (${afterClick.filled})`);
-  ok(/꽂기 완료/.test(afterClick.msg), `the panel confirms in 한국어 (${afterClick.msg})`);
+  const s2 = await bookState();
+  ok(s2.slots.filter(Boolean).length === 2 && /책장에는 서적만 꽂을 수 있습니다/.test(s2.msg), `a non-book is refused (${s2.msg})`);
+  // ③ real drag: the second 버티는 법 onto slot 6
+  const d3 = await dragTo(await stashTile('book_grit'), '.menu.bookshelf-menu .lib-slot[data-slot="5"]');
+  const s3 = await bookState();
+  ok(s3.slots[5] === 'book_grit' && /6번 칸에 .* 꽂기 완료/.test(s3.msg), `drag a 창고 book onto slot 6 (${JSON.stringify(s3)})`, JSON.stringify(d3));
+  // ④ drop onto an occupied slot = swap (the old book goes back to the bag first)
+  const gunBag0 = await countBag('book_gun_AR'), gunAll0 = await countAll('book_gun_AR'), cryAll0 = await countAll('book_cryptography');
+  const d4 = await dragTo(await stashTile('book_cryptography'), '.menu.bookshelf-menu .lib-slot[data-slot="0"]');
+  const s4 = await bookState();
+  ok(s4.slots[0] === 'book_cryptography' && /교체 완료/.test(s4.msg), `drop onto a filled slot swaps the books (${JSON.stringify(s4)})`, JSON.stringify(d4));
+  ok((await countBag('book_gun_AR')) === gunBag0 + 1 && (await countAll('book_gun_AR')) === gunAll0 + 1 && (await countAll('book_cryptography')) === cryAll0 - 1,
+    'the swapped-out book came back to the bag, the new one left the 창고');
+  // ⑤ drag a shelved book out onto the 가방 grid → taken back (bag first)
+  const gritAll0 = await countAll('book_grit');
+  const d5 = await dragTo('.menu.bookshelf-menu .lib-slot[data-slot="5"] .lib-item', '.menu.bookshelf-menu [data-tg-grid="bag"]');
+  const s5 = await bookState();
+  ok(s5.slots[5] === null && (await countAll('book_grit')) === gritAll0 + 1 && /책을 뺐습니다/.test(s5.msg), `drag a spine onto the 가방 grid takes it out (${JSON.stringify(s5)})`, JSON.stringify(d5));
+  // ⑥ double-click a shelved book → taken back
+  await H(() => document.querySelector('.menu.bookshelf-menu .lib-slot[data-slot="1"] .lib-item').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+  await sleep(140);
+  const s6 = await bookState();
+  ok(s6.slots[1] === null && s6.slots.filter(Boolean).length === 1 && (await countAll('book_grit')) === gritAll0 + 2, `double-click a spine takes it out (${JSON.stringify(s6)})`);
+  ok(await H(() => !document.querySelector('.menu.bookshelf-menu .lib-slot[data-slot="1"]').classList.contains('is-filled')
+    && document.querySelector('.menu.bookshelf-menu .lib-slot[data-slot="0"] .lib-item').dataset.defId === 'book_cryptography'), 'the drawing follows the shelf (slot 1 empty, slot 0 = 암호 해독)');
   // 2026-09-08: a housing panel closes on E, the key that opened it from the furniture
   await tap('KeyE');
   await sleep(140);
@@ -470,7 +547,7 @@ try {
     const s = await import('/src/shared/index.ts');
     return { slots: s.SHELF_SLOTS, xp: s.SHELF_XP_PER_ITEM, max: s.SHELF_GAIN_MAX, aux: s.SHELF_AUX_BONUS };
   });
-  ok(K.slots.disc === DISC_SLOTS && K.slots.record === RECORD_SLOTS && K.slots.book === BOOKS_PER_SHELF, `SHELF_SLOTS 6 / 6 / 4 (${JSON.stringify(K.slots)})`);
+  ok(K.slots.disc === DISC_SLOTS && K.slots.record === RECORD_SLOTS && K.slots.book === BOOKS_PER_SHELF, `SHELF_SLOTS ${BOOKS_PER_SHELF} / ${DISC_SLOTS} / ${RECORD_SLOTS} (${JSON.stringify(K.slots)})`);
   ok(near(K.xp.book, BOOK_XP_PER_BOOK) && near(K.xp.disc, DISC_XP) && near(K.xp.record, RECORD_XP), `SHELF_XP_PER_ITEM 0.05 / 0.06 / 0.07 (${JSON.stringify(K.xp)})`);
   ok(near(K.max.disc, MEDIA_GAIN_MAX) && near(K.max.record, MEDIA_GAIN_MAX) && near(K.aux.book, AUX_BONUS) && near(K.aux.disc, AUX_BONUS) && near(K.aux.record, AUX_BONUS),
     `SHELF_GAIN_MAX 2.0 · SHELF_AUX_BONUS 0.25 (${JSON.stringify({ max: K.max, aux: K.aux })})`);
@@ -623,16 +700,18 @@ try {
     await sleep(140);
     const pD = await hs(() => {
       const root = document.querySelector('.menu.housing-menu.bookshelf-menu');
-      return { hidden: root.hidden, medium: root.dataset.medium, cards: root.querySelectorAll('.hs-book').length, filled: root.querySelectorAll('.hs-book:not(.empty)').length,
-        title: root.querySelector('.hs-head .title').textContent, sub: root.querySelector('.hs-head .subtitle').textContent,
+      return { hidden: root.hidden, medium: root.dataset.medium, cards: root.querySelectorAll('.lib-slot[data-slot]').length, filled: root.querySelectorAll('.lib-slot.is-filled').length,
+        tiers: root.querySelectorAll('.lib-tier').length, caseMedium: root.querySelector('.lib-case')?.dataset.medium ?? null,
+        title: root.querySelector('.hs-head .title').textContent, sub: root.querySelector('.lib-count').textContent,
         aux: root.querySelector('.hs-shelf-aux').textContent, auxOn: root.querySelector('.hs-shelf-aux').classList.contains('on'),
         dexMedium: root.querySelector('.hs-dex').dataset.medium, dexOwned: root.querySelectorAll('.hs-dex-row.owned').length,
-        picks: root.querySelectorAll('.hs-bookpick').length, blocker: window.__game.ctx.uiBlockers.has('housing') };
+        tip: root.querySelector('.lib-slot.is-filled .lib-item')?.dataset.defId ?? null, blocker: window.__game.ctx.uiBlockers.has('housing') };
     });
-    ok(!pD.hidden && pD.blocker && pD.medium === 'disc' && pD.cards === DISC_SLOTS && pD.filled === DISC_SLOTS - 1, `openShelf(전시대) → disc panel, ${DISC_SLOTS} cards (${JSON.stringify(pD)})`);
-    ok(/디스크 전시대/.test(pD.title) && /5 \/ 6장/.test(pD.sub), `title / subtitle name the stand (${pD.title} · ${pD.sub})`);
+    ok(!pD.hidden && pD.blocker && pD.medium === 'disc' && pD.cards === DISC_SLOTS && pD.filled === DISC_SLOTS - 1, `openShelf(전시대) → disc panel, ${DISC_SLOTS} slots (${JSON.stringify(pD)})`);
+    ok(pD.caseMedium === 'disc' && pD.tiers === DISC_SLOTS / 2 && pD.tip === 'disc_cryptography', `drawn 디스크 전시대: ${DISC_SLOTS / 2} tiers × 2, filled cases carry the item card hook (${pD.tiers} · ${pD.tip})`);
+    ok(/디스크 전시대/.test(pD.title) && /5 \/ 6장/.test(pD.sub), `title / count line name the stand (${pD.title} · ${pD.sub})`);
     ok(pD.auxOn && /TV/.test(pD.aux) && pD.aux.includes(`+${Math.round(AUX_BONUS * 100)} %`) && /디스크 몫/.test(pD.aux), `aux line from SHELF_AUX_BONUS (${pD.aux})`);
-    ok(pD.dexMedium === 'disc' && pD.dexOwned === 2 && pD.picks === 2, `도감 · picker switched to discs (owned ${pD.dexOwned}, picks ${pD.picks})`);
+    ok(pD.dexMedium === 'disc' && pD.dexOwned === 2, `도감 switched to discs (owned ${pD.dexOwned})`);
     const stD = await lastEv('ui:shelfToggled');
     ok(stD && stD.open === true && stD.uid === stand && stD.medium === 'disc', `ui:shelfToggled {open, uid, disc} (${JSON.stringify(stD)})`);
     const nBookTog = (await ev('ui:bookshelfToggled')).length;
@@ -640,24 +719,25 @@ try {
     await sleep(140);
     const pR = await hs(() => {
       const root = document.querySelector('.menu.housing-menu.bookshelf-menu');
-      return { medium: root.dataset.medium, cards: root.querySelectorAll('.hs-book').length, sub: root.querySelector('.hs-head .subtitle').textContent, aux: root.querySelector('.hs-shelf-aux').textContent };
+      return { medium: root.dataset.medium, cards: root.querySelectorAll('.lib-slot[data-slot]').length, tiers: root.querySelectorAll('.lib-tier').length,
+        sub: root.querySelector('.lib-count').textContent, aux: root.querySelector('.hs-shelf-aux').textContent };
     });
     const togs = (await ev('ui:shelfToggled')).slice(-2);
-    ok(pR.medium === 'record' && pR.cards === RECORD_SLOTS && /4 \/ 4장/.test(pR.sub) && /축음기/.test(pR.aux), `openShelf(레코드랙) redraws for records (${JSON.stringify(pR)})`);
+    ok(pR.medium === 'record' && pR.cards === RECORD_SLOTS && pR.tiers === RECORD_SLOTS / 2 && /4 \/ 4장/.test(pR.sub) && /축음기/.test(pR.aux), `openShelf(레코드랙) redraws for records (${JSON.stringify(pR)})`);
     ok(togs[0]?.open === false && togs[1]?.open === true && togs[1]?.medium === 'record' && (await ev('ui:bookshelfToggled')).length === nBookTog,
       `switching 보관함 closes the disc panel first; no ui:bookshelfToggled (${JSON.stringify(togs)})`);
-    // pick a record in the panel? all 4 are shelved — take one out through the DOM instead
-    await hs(() => document.querySelector('.menu.bookshelf-menu .hs-book:not(.empty) .actions .ui-btn:not(.primary)').click());
+    // all 4 are shelved — take one out through the DOM: 2026-09-13 double-click on the drawn sleeve (the 빼기 button is gone)
+    await hs(() => document.querySelector('.menu.bookshelf-menu .lib-slot.is-filled .lib-item').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
     await sleep(120);
     ok((await hs(({ rack }) => window.__game.ctx.housing.getShelfSlots(rack).filter((s) => s.defId).length, { rack })) === RECORD_SLOTS - 1
-      && /레코드를 뺐습니다/.test(await hs(() => document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '')), '빼기 button on a record card');
+      && /레코드를 뺐습니다/.test(await hs(() => document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '')), 'double-click on a drawn record sleeve takes it out');
     await tap('KeyE');
     await sleep(140);
     ok(await hs(() => document.querySelector('.menu.bookshelf-menu').hidden && !window.__game.ctx.uiBlockers.has('housing')) && (await lastEv('ui:shelfToggled'))?.open === false,
       'E closes the record panel (ui:shelfToggled {open:false})');
     await hs(({ shelfA }) => window.__game.ctx.housing.openShelf(shelfA), { shelfA });
     await sleep(140);
-    const pB = await hs(() => { const root = document.querySelector('.menu.bookshelf-menu'); return { medium: root.dataset.medium, cards: root.querySelectorAll('.hs-book').length, aux: root.querySelector('.hs-shelf-aux').textContent }; });
+    const pB = await hs(() => { const root = document.querySelector('.menu.bookshelf-menu'); return { medium: root.dataset.medium, cards: root.querySelectorAll('.lib-slot[data-slot]').length, aux: root.querySelector('.hs-shelf-aux').textContent }; });
     ok(pB.medium === 'book' && pB.cards === BOOKS_PER_SHELF && /흔들의자 배치됨/.test(pB.aux) && (await lastEv('ui:bookshelfToggled'))?.open === true,
       `openShelf(책장) = the book panel + ui:bookshelfToggled (${JSON.stringify(pB)})`);
     await tap('KeyE');

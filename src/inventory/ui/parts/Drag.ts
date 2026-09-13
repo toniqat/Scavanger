@@ -333,8 +333,11 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
 
   if (d.catalog) { sys.updateCatalogTarget(d, px, py); return; }
 
+  // 2026-09-13: the 무한 상자 layout hides 장착 장비 · 퀵슬롯 · 주머니 (`.is-catalog`) — none of them is a target then
+  const catalogLayout = sys.catalogView.isOpen;
+
   // quick-use wheel cells (any drag: non-usable items light red)
-  const cell = sys.quickCellAt(px, py);
+  const cell = catalogLayout ? null : sys.quickCellAt(px, py);
   if (cell) {
     d.target = { kind: 'quick', index: cell.index };
     const pv = sys.preview(d, d.target);
@@ -356,7 +359,7 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
   }
 
   // equipment slots first
-  for (const sv of sys.slots.values()) {
+  for (const sv of catalogLayout ? [] : sys.slots.values()) {
     const r = sv.body.getBoundingClientRect();
     if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
       d.target = { kind: 'slot', slot: sv.slot };

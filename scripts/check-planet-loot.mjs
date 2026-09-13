@@ -298,6 +298,48 @@ console.log('열쇠 (key_basement · keycard_lab) — 희귀 드롭');
   check(corpseRate.rogue_boss > 0 && corpseRate.rogue_boss < 0.1, `로그 보스 시체: 0 초과 · 10 % 미만 — ${pct(corpseRate.rogue_boss).trim()}`);
 }
 
+/* ── 인간형 팩션 시체 (2026-09-13) — data/loot_factions.csv · loot_faction_sites.csv ─────────────
+ * 명세(docs/plans/enemy-factions.md 1절): 안드로이드 총 95/5 · 방탄복 · 가방 없음 / 로그 85/14/1 · 방탄복 5 % · 가방 3 % 최대 고급 /
+ * 레이더 50/45/4.5/0.5 · 방탄복 5 %(90/9.5/0.5) · 가방 3 % 최대 고급 · 회복 1회 굴림. 행성 최대 등급 상한은 그대로.
+ * 여기서는 행성별 **실측 표**를 찍고, 상한 · 봉인 · 최대 희귀도처럼 어기면 안 되는 것만 검사한다 (분포 자체는 csv 가 원본이다). */
+console.log('');
+console.log('인간형 팩션 시체 (rollCorpseOn) — 총 등급 I/II/III/IV/V · 방탄복 · 가방 · 회복 1구당');
+{
+  const FACTION_ROLLS = Number(process.env.FACTION_ROLLS ?? 5000);
+  const FAMILIES = { android: ['ar', 'smg'], rogue: ['ar', 'smg', 'sg', 'dmr'], raider: ['ar', 'dmr', 'smg', 'sg'] };
+  const RANK_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  for (const [type, site] of [['android', null], ['rogue', null], ['raider', null], ['raider', 'outpost']]) {
+    for (const planet of PLANET_IDS) {
+      const rank = planetTier(planet);
+      const curve = PLANET_GRADE_CURVES.find((c) => c.rank === rank);
+      const grades = [0, 0, 0, 0, 0, 0];
+      let armor = 0, bag = 0, heal = 0, maxArmorRank = -1, maxBagRank = -1;
+      for (let i = 0; i < FACTION_ROLLS; i++) {
+        const out = loot.rollCorpseOn(type, new Random((i * 2246822519 + 13) >>> 0), FAMILIES[type][i % FAMILIES[type].length], planet, site ? { site } : undefined);
+        let healed = false;
+        for (const it of out) {
+          const def = ITEM_DEF_MAP.get(it.defId);
+          const w = def?.weaponId ? WEAPON_DEF_MAP.get(def.weaponId) : undefined;
+          if (w && !isUniqueWeapon(w)) grades[gradeOf(w)]++;
+          else if (def?.category === 'armor') { armor++; maxArmorRank = Math.max(maxArmorRank, RANK_ORDER.indexOf(def.rarity)); }
+          else if (def?.category === 'bag') { bag++; maxBagRank = Math.max(maxBagRank, RANK_ORDER.indexOf(def.rarity)); }
+          else if (def?.category === 'stim') healed = true;
+        }
+        if (healed) heal++;
+      }
+      const g = (n) => pct(grades[n] / FACTION_ROLLS).trim();
+      console.log(`  ${`${type}${site ? `@${site}` : ''}`.padEnd(15)} ${rank}번 ${planetLabel(planet).padEnd(10)} | ${[1, 2, 3, 4, 5].map(g).join(' / ')} | 방탄복 ${pct(armor / FACTION_ROLLS).trim()} · 가방 ${pct(bag / FACTION_ROLLS).trim()} · 회복 ${pct(heal / FACTION_ROLLS).trim()}`);
+      const overCap = [1, 2, 3, 4, 5].filter((n) => n > (curve?.maxGrade ?? 5)).reduce((s, n) => s + grades[n], 0);
+      check(overCap === 0, `${type}${site ? `@${site}` : ''} ${rank}번 행성: 총 등급이 행성 최대 등급 ${curve?.maxGrade} 을 넘지 않는다`);
+      if (type === 'android') check(armor === 0 && bag === 0, `android ${rank}번 행성: 방탄복 · 가방 없음`);
+      else {
+        check(maxBagRank <= 1, `${type} ${rank}번 행성: 가방 최대 고급`);
+        check(maxArmorRank <= (type === 'rogue' ? 1 : 2), `${type} ${rank}번 행성: 방탄복 최대 ${type === 'rogue' ? '고급' : '희귀'}`);
+      }
+    }
+  }
+}
+
 if (failed) {
   console.log(`\ncheck-planet-loot 실패 — ${failed}건. data/planet_loot.csv 의 가중치를 고친다.`);
   process.exit(1);

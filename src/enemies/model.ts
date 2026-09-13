@@ -187,8 +187,11 @@ export const queryBuf: Enemy[] = [];
  * 밑값은 "소리 그 자체" 라 코드에 둔다 (발소리 피치와 같은 규약). 재질별 크기 · 거리 곡선은 audio/ 가 갖는다.
  */
 
-/** 한 걸음의 목소리 — id 는 밟은 재질이 정한다(`footstep_<SurfaceMaterial>`), 여기는 피치(무게)와 밑값만. */
-export interface EnemyStepVoice { readonly pitch: number; readonly gain: number }
+/**
+ * 한 걸음의 목소리 — id 는 밟은 재질이 정한다(`footstep_<SurfaceMaterial>`), 여기는 피치(무게)와 밑값만.
+ * `layer` (2026-09-13) = 재질 발소리 위에 같은 크기로 겹치는 소리 id (안드로이드의 서보음 `android_step`).
+ */
+export interface EnemyStepVoice { readonly pitch: number; readonly gain: number; readonly layer?: string }
 const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
   warrior: { pitch: 0.82, gain: 0.55 },
   artillery: { pitch: 0.78, gain: 0.55 },
@@ -198,6 +201,9 @@ const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
   rogue_boss: { pitch: 0.86, gain: 0.7 },
   rogue_hammer: { pitch: 0.74, gain: 0.85 },
   rogue_heavy: { pitch: 0.8, gain: 0.8 },
+  // 2026-09-13: 안드로이드 = 가볍고 딱딱한 발 + 서보 한 번, 레이더 = 로그보다 무거운 군화
+  android: { pitch: 1.18, gain: 0.42, layer: 'android_step' },
+  raider: { pitch: 0.8, gain: 0.68 },
 };
 const STEP_VOICE_DEFAULT: EnemyStepVoice = { pitch: 0.9, gain: 0.5 };
 
@@ -220,16 +226,48 @@ const MELEE_VOICES: Readonly<Partial<Record<EnemyType, EnemySoundVoice | null>>>
   rogue_sniper: { id: 'melee_hit', pitch: 0.95 },
   rogue_heavy: { id: 'melee_hit', pitch: 0.85 },
   rogue_scan_drone: null,
+  android: { id: 'melee_hit', pitch: 1.15 },        // 2026-09-13: 가벼운 금속 주먹
+  raider: { id: 'melee_hit', pitch: 0.88 },
 };
 export function meleeHitSound(type: EnemyType): EnemySoundVoice | null {
   const v = MELEE_VOICES[type];
   return v === undefined ? BITE_DEFAULT : v;
 }
 
-/** 피격음 — 벌레 `bug_hit`, 사람(로그) `hit_flesh`, 기계(스캔 드론) `drone_hit`. 호스트 · 리플리카가 같은 답을 낸다. */
+/**
+ * 피격음 — 벌레 `bug_hit`, 사람(로그 · 레이더) `hit_flesh`, 기계(스캔 드론) `drone_hit`, 안드로이드 `android_hit`(금속 외피).
+ * 호스트 · 리플리카가 같은 답을 낸다.
+ */
+/** 2026-09-13: 피격 · 사망 파편 — 안드로이드는 기계라 피 대신 불꽃. 호스트(`parts/Damage`) · 리플리카(`ee damaged`)가 같은 답을 낸다. */
+export function goreKindOf(type: EnemyType): 'blood' | 'spark' {
+  return type === 'android' ? 'spark' : 'blood';
+}
+
 export function hurtSound(type: EnemyType): string {
   if (type === 'rogue_scan_drone') return 'drone_hit';
-  return ENEMY_STATS[type]?.faction === 'rogue' ? 'hit_flesh' : 'bug_hit';
+  const f = ENEMY_STATS[type]?.faction;
+  if (f === 'android') return 'android_hit';
+  return f && f !== 'bug' ? 'hit_flesh' : 'bug_hit';
+}
+
+/* ── appended (2026-09-13): 인간형 사망 · 전소 비명 — `parts/Damage.onEnemyKilled` · `parts/Status.incinerate` 가 본다 ── */
+const HUMANOID_DEATH_DEFAULT: EnemySoundVoice = { id: 'player_death', pitch: 1 };
+const HUMANOID_DEATH: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
+  rogue_boss: { id: 'player_death', pitch: 0.7 },
+  raider: { id: 'player_death', pitch: 0.9 },
+  android: { id: 'android_death', pitch: 1 },       // 전원이 꺼지는 소리 (비명이 아니다)
+};
+/** 인간형 적(벌레 · 스캔 드론 아닌 것)이 쓰러질 때의 소리. */
+export function humanoidDeathSound(type: EnemyType): EnemySoundVoice {
+  return HUMANOID_DEATH[type] ?? HUMANOID_DEATH_DEFAULT;
+}
+const HUMANOID_PAIN_DEFAULT: EnemySoundVoice = { id: 'player_hurt', pitch: 0.9 };
+const HUMANOID_PAIN: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
+  android: { id: 'android_glitch', pitch: 1 },       // 불타는 안드로이드는 비명 대신 오작동 경고음
+};
+/** 인간형 적이 전소(불타며 몸부림)에 들어갈 때의 소리. */
+export function humanoidPainSound(type: EnemyType): EnemySoundVoice {
+  return HUMANOID_PAIN[type] ?? HUMANOID_PAIN_DEFAULT;
 }
 
 /**
@@ -265,6 +303,7 @@ export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul 
   const m = w && w.ready ? w.getSurfaceMaterial?.(p.x, p.z, p.y) : undefined;
   const id = (m && STEP_ID[m]) || STEP_ID.dirt;
   ctx.bus.emit('audio:play', { id, position: p, volume: v.gain * gainMul, pitch: v.pitch * pitchMul * (0.95 + Math.random() * 0.1) });
+  if (v.layer) ctx.bus.emit('audio:play', { id: v.layer, position: p, volume: v.gain * gainMul, pitch: pitchMul * (0.92 + Math.random() * 0.16) });
   return true;
 }
 

@@ -54,6 +54,67 @@ try {
   for (const c of shared.CONTRACT_DEFS) {
     if (c.itemDefId && !items.ITEM_DEF_MAP.has(c.itemDefId)) refProblems.push(`data/contracts.csv [itemDefId] — ${c.id}: 모르는 아이템 '${c.itemDefId}'`);
   }
+
+  /* 2026-09-13 (요리 재료 티어): 은퇴한 아이템(`ItemDef.retired`)은 정의만 남고 **모든 출처**에서 빠진다. 로더는 자기 표만 보므로
+   * 표끼리의 참조 — 없는 id · 은퇴한 id — 는 여기서 아이템 표와 맞춰 본다. (상자 · 보급 추첨은 `LootTables` 의 안전핀이 코드에서 막는다.) */
+  const recipes = await server.ssrLoadModule('/src/items/Recipes.ts');
+  const lootTables = await server.ssrLoadModule('/src/items/LootTables.ts');
+  const ref = (where, id) => {
+    const d = items.ITEM_DEF_MAP.get(id);
+    if (!d) refProblems.push(`${where}: 모르는 아이템 '${id}'`);
+    else if (d.retired) refProblems.push(`${where}: 은퇴한 아이템 '${id}' (retired — 출처에 쓰지 않는다)`);
+  };
+  for (const a of shared.ANALYSIS_RESULTS) ref(`data/analysis_results.csv [defId] — ${a.family} Lv.${a.minLevel}`, a.defId);
+  /* 2026-09-13 (요리 미니게임): 단계표의 요리 · 재료가 실제 아이템인가, 조리대 레시피의 산출물마다 단계가 있고 순서가 1 부터 이어지는가,
+   * 단계가 있는 요리마다 조리대 레시피가 있는가, 굽기 시간표의 재료가 실제 아이템인가. */
+  {
+    const cookOutputs = new Set(recipes.CRAFT_RECIPES.filter((r) => r.bench === 'cook').map((r) => r.outputDefId));
+    for (const s of shared.COOK_STEPS) {
+      const where = `data/cook_steps.csv — ${s.meal} #${s.order}`;
+      ref(`${where} [meal]`, s.meal);
+      if (!items.ITEM_DEF_MAP.get(s.meal)?.meal) refProblems.push(`${where} [meal]: 요리가 아니다`);
+      for (const id of s.items) ref(`${where} [items]`, id);
+      if (!cookOutputs.has(s.meal)) refProblems.push(`${where} [meal]: 이 요리를 만드는 조리대 레시피(bench cook)가 없다`);
+    }
+    for (const meal of cookOutputs) {
+      const steps = shared.cookStepsOf(meal);
+      if (steps.length === 0) { refProblems.push(`data/recipes.csv — 조리대 레시피의 산출물 '${meal}' 에 data/cook_steps.csv 단계가 없다`); continue; }
+      steps.forEach((s, i) => { if (s.order !== i + 1) refProblems.push(`data/cook_steps.csv — ${meal}: order 가 1 부터 빠짐없이 이어지지 않는다 (${steps.map((x) => x.order).join(', ')})`); });
+    }
+  }
+  for (const r of recipes.CRAFT_RECIPES) {
+    ref(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);
+    for (const i of r.inputs) ref(`data/recipes.csv [inputs] — ${r.id}`, i.defId);
+    for (const x of r.extraOutputs ?? []) ref(`data/recipes.csv [extraOutputs] — ${r.id}`, x.defId);
+  }
+  for (const t of lootTables.CORPSE_TABLES) for (const d of t.drops) ref(`data/loot_corpses.csv [defId] — ${t.type}`, d.defId);
+  // 2026-09-13 (행성별 적 팩션): 팩션 시체의 방탄복 · 가방 · 회복 후보, 거점 보너스 아이템, 그리고 연구소 레이더가 고르는 행성 씨앗 표
+  for (const f of lootTables.FACTION_LOOT ?? []) {
+    for (const [col, pick] of [['armorPool', f.armor], ['bagPool', f.bag], ['healPool', f.heal]]) {
+      for (const id of pick?.poolIds ?? []) ref(`data/loot_factions.csv [${col}] — ${f.type}`, id);
+    }
+  }
+  for (const b of lootTables.FACTION_SITE_BONUSES ?? []) {
+    for (const it of b.items) if (it.kind === 'item' && it.defId) ref(`data/loot_faction_sites.csv [target] — ${b.type} @ ${b.site}`, it.defId);
+  }
+  for (const row of shared.csvRows('planets.csv')) {
+    for (const part of row.list('seeds')) ref(`data/planets.csv [seeds] — ${row.raw('id')}`, part.slice(0, part.lastIndexOf(':') > 0 ? part.lastIndexOf(':') : part.length).trim());
+  }
+  // 퀘스트 납품 · 보상 아이템도 출처다 (리드 — cl1 이 은퇴한 spec_tissue 를 요구하고 cl2 가 spec_genome 을 주고 있었다)
+  for (const q of shared.QUEST_DEFS ?? []) {
+    for (const d of q.deliver ?? []) ref(`data/quests.csv [deliver] — ${q.id}`, d.defId);
+    for (const d of q.rewards?.items ?? []) ref(`data/quests.csv [rewardItems] — ${q.id}`, d.defId);
+  }
+  for (const row of shared.csvRows('planets.csv')) {
+    for (const c of row.costList('samples')) ref(`data/planets.csv [samples] — ${row.raw('id')}`, c.defId);
+  }
+  for (const d of items.ITEM_DEFS) {
+    if (d.sample) ref(`data/samples.csv [rewardDefId] — ${d.id}`, d.sample.rewardDefId);
+    if (d.strain) {
+      ref(`data/items.csv [strainOut] — ${d.id}`, d.strain.outputDefId);
+      if (d.strain.scaffoldOutputDefId) ref(`data/items.csv [strainScaffoldOut] — ${d.id}`, d.strain.scaffoldOutputDefId);
+    }
+  }
 } catch (e) {
   loadFailed = true;
   console.error(`\n[data:check] 계약 아이템 참조를 못 봤다:\n  ${String(e?.message ?? e).split('\n')[0]}`);

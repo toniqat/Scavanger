@@ -11,8 +11,9 @@ import type {
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf, isUtilityFurniture,
+  benchKindOf, isCockpitOnlyFurniture, isUtilityFurniture,
 } from '@/shared';
+import { COCKPIT_ONLY_RECOVER_REASON } from '@/shared';
 import type { FacilityRequirement } from '@/shared';
 import {
   autoPlaceSpot,
@@ -23,7 +24,8 @@ import {
   stashSizeFor,
 } from '../Rules';
 import type { FurniturePlacement } from '../Rules';
-import { ShipStore, freshRoom, isAnalyzerDefId, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
+import { ShipStore, freshRoom, isAnalyzerDefId, isBookshelfDefId, isGrowRackDefId, isGrowStationDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
+import { rescaleGrowsForUpgrade } from './Garden';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
 import { formatRemaining } from '../ui/dom';
@@ -225,6 +227,8 @@ export function move(sys: HousingSystem, uid: string, x: number, y: number, yaw:
 export function recoverBlock(sys: HousingSystem, uid: string): string | null {
   const item = sys.getPlacedByUid(uid);
   if (!item) return '설치되지 않은 가구입니다';
+  // 2026-09-13 (사용자 결정): 조종석 전용 시설(시술대 · 컴퓨터)은 가구 창고로 돌아가지 않는다 — 조종석 안에서 옮기기만 한다
+  if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) return COCKPIT_ONLY_RECOVER_REASON;
   // A-3e (2026-09-12): 디스크 전시대 · 레코드랙도 책장처럼 — 담긴 것이 창고에 안 들어가면 `…를 먼저 빼세요`
   return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid);
   }
@@ -233,6 +237,8 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   const i = sys.state.furniture.findIndex((f) => f.uid === uid);
   if (i < 0) return false;
   const item = sys.state.furniture[i];
+  // 2026-09-13: 조종석 전용 시설은 회수할 수 없다 (시설 관리는 `recoverBlock` 을 먼저 보고 자기 토스트를 띄운다 — 여기는 그 밖의 호출자용)
+  if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) { sys.notify(COCKPIT_ONLY_RECOVER_REASON, 'warning'); return false; }
   if (recoverBlockReason(sys.state, item)) return false;
   // a 책장 hands its books to the stash first; when they do not all fit nothing moves
   const hadBooks = sys.booksOf(uid).length;
@@ -288,6 +294,8 @@ export function upgradeFurniture(sys: HousingSystem, uid: string): boolean {
   const cost = nextFurnitureCost(def, item.level);
   if (!cost || !sys.consume(cost)) return false;
   item.level += 1;
+  // 2026-09-13: 재배 스테이션의 강화는 성장 속도다 — 자라던 작물의 남은 시간을 그 자리에서 줄인다 (Garden 이 규칙을 갖는다)
+  if (isGrowStationDefId(item.defId)) rescaleGrowsForUpgrade(sys, uid, item.level - 1, item.level);
   sys.ctx.bus.emit('housing:furnitureUpgraded', { item });
   sys.changed('furnitureUpgrade');
   // 강화는 분석기의 해석 칸을 하나 더 여는 것이기도 하다 — 계약의 `housing:analysisChanged` 가 「강화」를 포함한다

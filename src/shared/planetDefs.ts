@@ -124,5 +124,14 @@ export function planetTier(id: PlanetId | null | undefined): number {
   return i < 0 ? 1 : i + 1;
 }
 
+/**
+ * appended (2026-09-13): **적 난이도 = 행성 threat 1..3** (사용자 결정). 어떤 인간형 팩션이 나오는지를 정한다 —
+ * 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만 (`enemies/` 의 거점 배치 · 레이더 강하 · 네임드).
+ * 행성을 고르지 않았거나 모르는 id 면 1.
+ */
+export function planetThreat(id: PlanetId | null | undefined): 1 | 2 | 3 {
+  return getPlanet(id)?.threat ?? 1;
+}
+
 /** 위협 등급 badge text, indexed by `PlanetDef.threat`. */
 export const PLANET_THREAT_LABELS: readonly string[] = ['', '위협 낮음', '위협 보통', '위협 높음'];

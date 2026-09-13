@@ -1,0 +1,14 @@
+# 굽기 미니게임: 재료 조각이 0 → 100 % 익는 시간(초) (2026-09-13 요리 미니게임). 로더 = src/shared/cooking.ts.
+# 조각은 50 % 부근에서 뒤집고 100 % 부근에서 꺼낸다. 여기 없는 재료는 constants.csv 의 COOK_GRILL_DEFAULT_S.
+# 한 판에 속도가 다른 조각이 섞여야 타이밍이 엇갈린다 — cook_steps.csv 의 grill 줄을 고칠 때 같이 본다.
+defId,seconds
+food_beef,8
+food_pork,8
+food_chicken,7
+food_lamb,6
+food_meat_paste,5
+crop_tuber,6.5
+crop_ashgrain,5.5
+crop_capfungus,4
+crop_frostberry,3.5
+food_cheese,3.5

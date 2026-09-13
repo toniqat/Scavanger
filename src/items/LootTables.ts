@@ -1,4 +1,6 @@
-import type { EnemyType, ItemCategory, Rarity, WeaponGrade } from '@/shared';
+import type { EnemyType, ItemCategory, ItemDef, Rarity, WeaponGrade } from '@/shared';
+/* appended (2026-09-13): 인간형 팩션 전리품 — 스폰 거점 보너스 · 행성 씨앗 표 */
+import type { EnemySpawnSite, PlanetId } from '@/shared';
 import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
 
 /*
@@ -40,6 +42,19 @@ function expandWeightTarget(target: string): readonly string[] {
     return IMPLANT_BROKEN_DEFS.filter((d) => d.rarity === rarity).map((d) => d.id);
   }
   return [];
+}
+
+/* ── 은퇴한 아이템 (2026-09-13, 요리 재료 티어) ─────────────────────────────
+ * `ItemDef.retired` — 옛 표본 11종 · 옛 세포주 5 · 배양 산물 5 · 특선 요리 4. 정의는 남지만 **상자 · 보급 추첨에 절대 안
+ * 들어간다**: csv(`loot_item_weights.csv`)에 줄을 남기든 지우든, 누가 그 카테고리를 다른 티어에 더하든 상관없이 여기서 막는다.
+ * 두 겹이다 — 티어 표의 `itemWeightMul` 을 0 으로 덮고(표를 읽는 도구도 같은 답을 본다), `Loot.pickDef` 가 후보에서 뺀다
+ * (가중치가 전부 0 일 때 확정 픽이 균등 추첨으로 떨어지는 `relaxRarity` 경로까지). 표끼리의 참조(레시피 · 시체 표 · 행성 ·
+ * 분석 결과)는 `npm run data:check` 가 잡는다. */
+export const RETIRED_ITEM_IDS: ReadonlySet<string> = new Set([...ITEM_DEF_MAP.values()].filter((d) => d.retired).map((d) => d.id));
+
+/** 상자 · 보급 추첨의 후보가 될 수 있는 아이템인가 (은퇴한 것은 아니다). */
+export function isLootableDef(d: ItemDef): boolean {
+  return !d.retired;
 }
 
 /**
@@ -101,6 +116,8 @@ export const LOOT_TABLES: readonly TierTable[] = csvRows('loot_tiers.csv').map((
     if (!ids.length) w.report('target', `'${target}' 이 가리키는 아이템이 없다`);
     Object.assign(itemWeightMul, record(ids, mul));
   }
+  /* 2026-09-13 안전핀: 은퇴한 아이템은 csv 에 어떤 줄이 있든 **모든 티어에서 배수 0** 이다. */
+  for (const id of RETIRED_ITEM_IDS) itemWeightMul[id] = 0;
 
   return {
     tier,
@@ -331,7 +348,9 @@ export interface CorpseTable {
  */
 const CORPSE_DROPS_BY_TYPE = csvGroups('loot_corpses.csv', 'type');
 
-export const CORPSE_TABLES: readonly CorpseTable[] = [...CORPSE_DROPS_BY_TYPE.keys()]
+/* 2026-09-13: 표의 종류 = 아이템 드롭 줄 ∪ 따로 굴리는 줄 — 들고 있던 총만 있는 적도 시체 표를 갖는다.
+   먼저 나온 순서 그대로라 기존 적의 표 · 굴림은 한 톨도 안 바뀐다. */
+export const CORPSE_TABLES: readonly CorpseTable[] = [...new Set([...CORPSE_DROPS_BY_TYPE.keys(), ...CORPSE_ROLLS.keys()])]
   .filter((type) => !!type)
   .map((type) => {
     const drops: CorpseDrop[] = (CORPSE_DROPS_BY_TYPE.get(type) ?? []).map((d) => ({
@@ -437,4 +456,225 @@ export const NAMED_DROP_MAP: ReadonlyMap<EnemyType, NamedDrop> = new Map(NAMED_D
 /** 등급 n 의 번호 방탄복 아이템 id (`armor_n`, 유니크 tier 0 은 제외). 없으면 null. */
 export function numberedArmorIdForTier(tier: number): string | null {
   return tier > 0 ? (ARMOR_DEFS.find((a) => a.tier === tier)?.id ?? null) : null;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 2026-09-13: 인간형 팩션(안드로이드 · 로그 · 레이더)의 시체 — docs/plans/enemy-factions.md 1절 「전리품」
+ *   `data/loot_factions.csv`       총 등급 분포 · 방탄복 · 가방 · 회복 (희귀도 굴림)
+ *   `data/loot_faction_sites.csv`  스폰 거점 보너스 (연구소 = 씨앗 · 미확인 표본, 전진기지 = 총 등급 분포 교체)
+ *
+ * 두 표에 줄이 없는 적(벌레 · rogue_boss · 네임드)은 `Loot.rollCorpseWithMax` 의 새 분기에 들어오지 않으므로 rng 벡터가
+ * 한 톨도 안 움직인다. 남은 수류탄은 표가 아니라 `CorpseLootOpts.grenades` 그대로 들어간다 (굴림 없음).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+type LootRow = ReturnType<typeof csvRows>[number];
+
+/** 등급 가중치 한 벌 ("등급:가중치" | …). 가중치가 양수인 등급만 `grades` 에 있다. */
+export interface GradeWeights {
+  grades: readonly WeaponGrade[];
+  weightOf: Readonly<Partial<Record<WeaponGrade, number>>>;
+}
+
+function parseGradeWeights(r: LootRow, column: string): GradeWeights {
+  const weightOf: Partial<Record<WeaponGrade, number>> = {};
+  for (const c of r.costList(column)) {
+    const g = Number(c.defId);
+    if (!(WEAPON_GRADES as readonly number[]).includes(g)) { r.report(column, `'${c.defId}' 는 등급(1..5)이 아니다`); continue; }
+    if (c.qty < 0) { r.report(column, `등급 ${g} 의 가중치 ${c.qty} 가 음수다`); continue; }
+    if (c.qty > 0) weightOf[g as WeaponGrade] = c.qty;
+  }
+  const grades = WEAPON_GRADES.filter((g) => (weightOf[g] ?? 0) > 0);
+  if (!grades.length) r.report(column, '등급 가중치가 없다');
+  return { grades, weightOf };
+}
+
+/**
+ * 시체의 희귀도 굴림 하나 (방탄복 · 가방 · 회복): `chance` → 희귀도(`weights` — 행성의 희귀도 배수는 굴릴 때
+ * `planetRarityWeights` 로 건다) → 그 희귀도인 후보(`byRarity`) 중 **균등**.
+ */
+export interface CorpseRarityPick {
+  chance: number;
+  weights: Readonly<Partial<Record<Rarity, number>>>;
+  /** 가중치가 있고 후보도 있는 희귀도 (common → legendary 순 — 이 순서가 `rng.weighted` 의 순서다). */
+  rarities: readonly Rarity[];
+  /** 희귀도 → 후보 아이템 id (csv 순서). 은퇴한 아이템은 빠져 있다. */
+  byRarity: ReadonlyMap<Rarity, readonly string[]>;
+  /** csv 에 적힌 후보 id 그대로 — `data:check` 의 은퇴 아이템 참조 검사용. 굴림은 `byRarity` 만 본다. */
+  poolIds: readonly string[];
+}
+
+function parseRarityPick(
+  r: LootRow, prefix: 'armor' | 'bag' | 'heal', accepts: (d: ItemDef) => boolean, notLabel: string,
+): CorpseRarityPick | undefined {
+  const cChance = `${prefix}Chance`, cPool = `${prefix}Pool`, cRarity = `${prefix}Rarity`;
+  if (!r.has(cChance)) {
+    if (r.has(cPool) || r.has(cRarity)) r.report(cChance, `${cPool} · ${cRarity} 가 있는데 확률이 비었다`);
+    return undefined;
+  }
+  const chance = r.num(cChance, { min: 0, max: 1 });
+  const poolIds = r.list(cPool);
+  if (!poolIds.length) r.report(cPool, '후보 아이템이 없다');
+  const byRarity = new Map<Rarity, string[]>();
+  for (const id of poolIds) {
+    const d = ITEM_DEF_MAP.get(id);
+    if (!d) { r.report(cPool, `'${id}' 아이템이 없다`); continue; }
+    if (!accepts(d)) { r.report(cPool, `'${id}' 는 ${notLabel} 아니다`); continue; }
+    if (d.retired) continue;   // 안전핀 — 보고는 data:check 의 참조 검사(poolIds)가 한다
+    const list = byRarity.get(d.rarity);
+    if (list) list.push(id); else byRarity.set(d.rarity, [id]);
+  }
+  const weights: Partial<Record<Rarity, number>> = {};
+  for (const c of r.costList(cRarity)) {
+    const rarity = c.defId as Rarity;
+    if (!RARITY_ORDER_5.includes(rarity)) { r.report(cRarity, `'${c.defId}' 는 희귀도가 아니다`); continue; }
+    if (c.qty < 0) { r.report(cRarity, `'${rarity}' 의 가중치 ${c.qty} 가 음수다`); continue; }
+    if (c.qty === 0) continue;
+    weights[rarity] = c.qty;
+    if (!byRarity.has(rarity)) r.report(cRarity, `'${rarity}' 인 아이템이 ${cPool} 에 없다`);
+  }
+  const rarities = RARITY_ORDER_5.filter((q) => (weights[q] ?? 0) > 0 && byRarity.has(q));
+  if (!rarities.length) r.report(cRarity, '뽑을 수 있는 희귀도가 없다');
+  return { chance, weights, rarities, byRarity, poolIds };
+}
+
+/** 한 팩션 적 종류의 팩션 굴림 (`data/loot_factions.csv` 한 줄). */
+export interface FactionLoot {
+  type: EnemyType;
+  /** 들고 있던 총의 등급 분포. 없으면 `loot_corpse_rolls.csv` 의 규칙 그대로. */
+  weaponGrades?: GradeWeights;
+  armor?: CorpseRarityPick;
+  bag?: CorpseRarityPick;
+  heal?: CorpseRarityPick;
+  /** 방탄복 · 가방 내구도 = 최대치 × [min, max] (총처럼 낡았다). 둘 다 없으면 [0, 0]. */
+  gearDurability: readonly [number, number];
+}
+
+export const FACTION_LOOT: readonly FactionLoot[] = csvRows('loot_factions.csv').map((r) => {
+  const type = r.str('type') as EnemyType;
+  const corpse = CORPSE_TABLE_MAP.get(type);
+  if (!corpse) r.report('type', `'${type}' 의 시체 표가 없다 (loot_corpses.csv 또는 loot_corpse_rolls.csv 에 줄이 있어야 한다)`);
+  let weaponGrades: GradeWeights | undefined;
+  if (r.has('weaponGrades')) {
+    weaponGrades = parseGradeWeights(r, 'weaponGrades');
+    if (corpse && !corpse.weapon) r.report('weaponGrades', `'${type}' 는 들고 있던 총 굴림이 없다 (loot_corpse_rolls.csv 의 weaponDurMin/Max)`);
+    if (corpse?.weapon?.grades?.length) r.report('weaponGrades', 'loot_corpse_rolls.csv 의 weaponGrades(균등 목록)와 같이 쓰지 않는다');
+  }
+  const armor = parseRarityPick(r, 'armor', (d) => d.category === 'armor', '방탄복이');
+  const bag = parseRarityPick(r, 'bag', (d) => d.category === 'bag', '가방이');
+  const heal = parseRarityPick(r, 'heal', (d) => d.category === 'stim', '회복 소모품(stim)이');
+  const gearDurability: readonly [number, number] = armor || bag
+    ? [r.num('gearDurMin', { min: 0, max: 1 }), r.num('gearDurMax', { min: 0, max: 1 })]
+    : [0, 0];
+  if (gearDurability[0] > gearDurability[1]) r.report('gearDurMax', `gearDurMin ${gearDurability[0]} 이 gearDurMax ${gearDurability[1]} 보다 크다`);
+  return {
+    type, gearDurability,
+    ...(weaponGrades ? { weaponGrades } : {}), ...(armor ? { armor } : {}), ...(bag ? { bag } : {}), ...(heal ? { heal } : {}),
+  };
+});
+
+export const FACTION_LOOT_MAP: ReadonlyMap<EnemyType, FactionLoot> = new Map(FACTION_LOOT.map((f) => [f.type, f]));
+if (FACTION_LOOT_MAP.size !== FACTION_LOOT.length) {
+  const seen = new Set<string>();
+  for (const [i, r] of csvRows('loot_factions.csv').entries()) {
+    if (seen.has(r.raw('type'))) r.report('type', `'${r.raw('type')}' 줄이 둘이다 (${i + 1}번째 줄은 무시된다)`);
+    seen.add(r.raw('type'));
+  }
+}
+
+/** 거점 보너스 줄이 알아듣는 거점 — `EnemySpawnSite` 전부. */
+const SPAWN_SITES: readonly EnemySpawnSite[] = ['lab', 'outpost', 'wreck', 'platform', 'ruin', 'drop'];
+
+/** 거점 보너스의 아이템 한 줄. */
+export interface FactionSiteItem {
+  /** item = `defId` 하나 · seed = 그 레이드 행성의 야생 씨앗 표(`planetSeedPool`)에서 하나. */
+  kind: 'item' | 'seed';
+  /** item 의 아이템 id (seed 면 ''). */
+  defId: string;
+  qty: readonly [number, number];
+  chance: number;
+}
+
+/** 한 적 종류 × 스폰 거점의 보너스 (`data/loot_faction_sites.csv` 의 같은 type · site 줄 전부). */
+export interface FactionSiteBonus {
+  type: EnemyType;
+  site: EnemySpawnSite;
+  /** 있으면 그 거점에서 스폰한 적의 총 등급 분포를 **통째로** 바꾼다. */
+  weaponGrades?: GradeWeights;
+  /** csv 순서 = 굴림 순서. */
+  items: readonly FactionSiteItem[];
+}
+
+const siteKey = (type: string, site: string): string => `${type}@${site}`;
+
+const FACTION_SITE_MAP: ReadonlyMap<string, FactionSiteBonus> = (() => {
+  const map = new Map<string, { type: EnemyType; site: EnemySpawnSite; weaponGrades?: GradeWeights; items: FactionSiteItem[] }>();
+  for (const r of csvRows('loot_faction_sites.csv')) {
+    const type = r.str('type') as EnemyType;
+    const site = r.enum('site', SPAWN_SITES);
+    const kind = r.enum('kind', ['grades', 'item', 'seed'] as const);
+    const corpse = CORPSE_TABLE_MAP.get(type);
+    if (!corpse) r.report('type', `'${type}' 의 시체 표가 없다`);
+    const key = siteKey(type, site);
+    let bonus = map.get(key);
+    if (!bonus) { bonus = { type, site, items: [] }; map.set(key, bonus); }
+    if (kind === 'grades') {
+      if (bonus.weaponGrades) r.report('kind', `'${type}' @ ${site} 에 grades 줄이 둘이다`);
+      bonus.weaponGrades = parseGradeWeights(r, 'grades');
+      if (corpse && !corpse.weapon) r.report('grades', `'${type}' 는 들고 있던 총 굴림이 없다 (loot_corpse_rolls.csv 의 weaponDurMin/Max)`);
+      continue;
+    }
+    let defId = '';
+    if (kind === 'item') {
+      defId = r.str('target');
+      if (defId && !ITEM_DEF_MAP.has(defId)) r.report('target', `'${defId}' 아이템이 없다`);
+    } else if (r.has('target')) {
+      r.report('target', 'seed 줄은 target 을 비운다 (그 행성의 씨앗 표에서 고른다)');
+    }
+    const qty: readonly [number, number] = [r.int('qtyMin', { min: 1 }), r.int('qtyMax', { min: 1 })];
+    if (qty[0] > qty[1]) r.report('qtyMax', `qtyMin ${qty[0]} 이 qtyMax ${qty[1]} 보다 크다`);
+    bonus.items.push({ kind, defId, qty, chance: r.num('chance', { min: 0, max: 1 }) });
+  }
+  return map;
+})();
+
+export const FACTION_SITE_BONUSES: readonly FactionSiteBonus[] = [...FACTION_SITE_MAP.values()];
+
+/** 그 적 종류가 그 거점에서 스폰했을 때의 보너스. 거점이 없거나 줄이 없으면 undefined. */
+export function getFactionSiteBonus(type: EnemyType, site: EnemySpawnSite | null | undefined): FactionSiteBonus | undefined {
+  return site ? FACTION_SITE_MAP.get(siteKey(type, site)) : undefined;
+}
+
+/** 가중치가 붙은 아이템 id. */
+export interface WeightedItemId {
+  defId: string;
+  weight: number;
+}
+
+/*
+ * 행성 id → 그 행성의 **야생 씨앗 군락 표** (`data/planets.csv` 의 `seeds` 열, 가중치 그대로). 모르는 id · 씨앗이 아닌 것 ·
+ * 은퇴한 것은 뺀다. 칸의 문법 검사는 그 열의 주인(world)이 하므로 여기서는 조용히 읽는다 — 같은 오류를 두 번 보고하지 않게.
+ */
+const PLANET_SEED_POOLS: ReadonlyMap<string, readonly WeightedItemId[]> = new Map(csvRows('planets.csv').map((row) => {
+  const pool: WeightedItemId[] = [];
+  for (const part of row.list('seeds')) {
+    const at = part.lastIndexOf(':');
+    const defId = (at > 0 ? part.slice(0, at) : part).trim();
+    const weight = at > 0 ? Number(part.slice(at + 1)) : 1;
+    const d = ITEM_DEF_MAP.get(defId);
+    if (d?.seed && !d.retired && Number.isFinite(weight) && weight > 0) pool.push({ defId, weight });
+  }
+  return [row.raw('id'), pool] as const;
+}));
+
+/** 다섯 행성의 씨앗 표를 합친 것 (같은 씨앗은 가중치를 더한다, 처음 나온 순서). */
+const ALL_PLANET_SEED_POOL: readonly WeightedItemId[] = (() => {
+  const sum = new Map<string, number>();
+  for (const pool of PLANET_SEED_POOLS.values()) for (const s of pool) sum.set(s.defId, (sum.get(s.defId) ?? 0) + s.weight);
+  return [...sum].map(([defId, weight]) => ({ defId, weight }));
+})();
+
+/** 거점 보너스의 `seed` 줄이 고르는 씨앗 표 — 그 행성의 것, 행성이 없거나 표가 비었으면 다섯 행성을 합친 것. */
+export function planetSeedPool(planet: PlanetId | null | undefined): readonly WeightedItemId[] {
+  const own = planet == null ? undefined : PLANET_SEED_POOLS.get(planet);
+  return own && own.length > 0 ? own : ALL_PLANET_SEED_POOL;
 }

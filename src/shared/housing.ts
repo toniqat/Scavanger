@@ -176,7 +176,11 @@ export type FurnitureModelKind =
   /* appended (2026-09-12, A-3e): 서재 매체 보관함 2종 + 보조 가구 5종 (축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할) */
   | 'disc_stand' | 'record_rack' | 'rocking_chair' | 'tv' | 'gramophone' | 'jukebox' | 'turntable'
   /* appended (2026-09-12, A-3a): 헬스장 운동 기구 4종 */
-  | 'bench_rack' | 'smith_machine' | 'treadmill' | 'exercise_bike';
+  | 'bench_rack' | 'smith_machine' | 'treadmill' | 'exercise_bike'
+  /* appended (2026-09-13): 조종석의 고정 소품이던 서랍장(창고 캐비닛)이 꾸밈 가구 `furn_drawer` 가 됐다 */
+  | 'drawer'
+  /* appended (2026-09-13, 요리 미니게임): 주방의 자동 조리 가구 4종 — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (`level` 만큼 표시등) */
+  | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
@@ -207,13 +211,19 @@ export type FurnitureInteraction =
   | 'rocking_chair'                                                               // → ctx.player.setFurniturePose({kind:'sit', releaseOnInteract:true}) — 앉기 토글. 배치만으로 책 몫 보너스
   | 'tv' | 'record_player'                                                        // → ctx.housing.toggleFurniture(uid): 화면 · 조명 켜기/끄기 (광원 없음). 배치만으로 디스크 · 레코드 몫 보너스
   /* appended (2026-09-12, A-3a) — 헬스장 (`GYM_EQUIPMENT`) */
-  | 'gym_bench_press' | 'gym_smith' | 'gym_treadmill' | 'gym_cycle';            // → ctx.housing.startGymSession(uid): 미니게임
+  | 'gym_bench_press' | 'gym_smith' | 'gym_treadmill' | 'gym_cycle'             // → ctx.housing.startGymSession(uid): 미니게임
+  /*
+   * appended (2026-09-13, 요리 미니게임 — `shared/cooking`): 자동 조리 가구 4종 (`COOK_APPLIANCE_GAMES`). 배치만으로 조리 단계의 「자동」 을 연다.
+   * E → `ctx.housing.openCookStation(<함선의 조리대 uid>)` (조리대가 없으면 토스트). ⚠ 같은 날부터 **`workbench_cook` 의 E 도 인벤토리 제작 창이 아니라
+   * `ctx.housing.openCookStation(uid)`** 다 (`benchKindOf` 는 그대로 'cook' 을 돌려준다 — 레벨 · 레시피 게이트가 그 이름을 쓴다).
+   */
+  | 'cook_processor' | 'cook_grill' | 'cook_stirrer' | 'cook_dispenser';
 
 export interface FurnitureDef {
   id: string;
   name: string;
   description: string;
-  /** Room purpose it may be placed in; 'any' = every room. */
+  /** Room purpose it may be placed in; 'any' = every room. 2026-09-13: `'cockpit'` = 조종석 전용 시설 (`isCockpitOnlyFurniture`). */
   room: RoomPurpose | 'any';
   /** Footprint in grid cells before rotation (yaw 1 / 3 swap them). */
   cols: number;
@@ -297,9 +307,9 @@ export interface GrowPlotInfo {
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 온실 개편 — 재배 스테이션 (2026-09-11, 사용자 결정). The stackable 재배층 (`furn_grow_rack`, 4층 × 4칸) is retired;
- * one **재배 스테이션** (`furn_grow_station`) is an ordinary upgradeable piece whose level opens 재배층:
- *
- *   Lv.1 → 중앙 한 층      Lv.2 → 아래층이 열린다      Lv.3 → 윗층이 열린다
+ * one **재배 스테이션** (`furn_grow_station`) is an ordinary upgradeable piece. ~~Its level opens 재배층~~ —
+ * **2026-09-13 (사용자 결정)**: all three 재배층 are open from Lv.1 and each level adds `GROW_STATION_SPEED_PER_LEVEL`
+ * growth speed instead (Lv.2 +15 % · Lv.3 +30 %).
  *
  * A 층 has `GROW_SLOTS_PER_TIER` (3) 칸. **Tier ids are stable across upgrades** — 0 = 중앙, 1 = 아래, 2 = 위 — so
  * an upgrade never renumbers a growing crop. `GROW_TIER_DRAW_ORDER` is the order the panel draws them (위 → 중앙 → 아래).
@@ -319,12 +329,21 @@ export type GrowTier = 0 | 1 | 2;
 /** 칸 수 per 재배층. */
 export const GROW_SLOTS_PER_TIER = T.num('GROW_SLOTS_PER_TIER');
 
-/** Tiers a 재배 스테이션 of `level` has opened. Level is clamped to the def's `maxLevel` by the caller. */
-export function growTiersForLevel(level: number): readonly GrowTier[] {
-  if (level >= 3) return [0, 1, 2];
-  if (level === 2) return [0, 1];
-  return [0];
+/**
+ * Tiers a 재배 스테이션 of `level` has opened. **2026-09-13 (사용자 결정): every tier is open from Lv.1** — an upgrade
+ * no longer opens tiers, it raises the growth speed (`GROW_STATION_SPEED_PER_LEVEL`). The signature stays (hub draws
+ * its shelves from it, `ShipState.sanitize` validates `grows` with it); `level` no longer changes the answer.
+ */
+export function growTiersForLevel(_level: number): readonly GrowTier[] {
+  return [0, 1, 2];
 }
+
+/**
+ * appended (2026-09-13): 재배 스테이션 레벨 1단계마다 오르는 성장 속도. 성장 시간 = 기본 ÷ (1 + 이 값 × (레벨 − 1)),
+ * 토양 궁합 · 원예 항과 곱해진다. 강화하는 순간 자라던 작물의 **남은 시간**도 그 속도 비율로 줄어든다
+ * (`housing/parts/Garden.rescaleGrowsForUpgrade` — 「readyAt 은 심는 순간 확정」의 유일한 예외).
+ */
+export const GROW_STATION_SPEED_PER_LEVEL = T.num('GROW_STATION_SPEED_PER_LEVEL');
 
 /** The order the 재배 화면 draws tiers, top row first: 위 · 중앙 · 아래. */
 export const GROW_TIER_DRAW_ORDER: readonly GrowTier[] = [2, 0, 1];
@@ -1018,6 +1037,7 @@ export interface HousingRef {
  *    `COCKPIT_ROOM_INDEX` 를 쓴다 — `getRoom(COCKPIT_ROOM_INDEX).purpose === 'cockpit'`, `getPlaced(COCKPIT_ROOM_INDEX)`,
  *    `canPlace / place / move / recover`, `setManageRoom(COCKPIT_ROOM_INDEX)` 가 모두 그 번호를 받는다.
  *    `setRoomPurpose` · `removeRoomFacility` 는 거절한다. 조종석에는 `room: 'any'`(공용) 가구만 놓인다.
+ *    2026-09-13: 그리고 `room: 'cockpit'`(조종석 전용 시설 — 시술대 · 컴퓨터, `isCockpitOnlyFurniture`)도.
  *    번호가 `SHIP_ROOM_COUNT` 가 아니라 **고정값**인 이유: 방 수가 나중에 늘어도 저장된 조종석 가구가 다른 방으로 옮겨 가면 안 된다.
  *    `-1` 이 아닌 이유: hub 의 `HousingMode.room = -1` 이 「모드 꺼짐」이다.
  * 2. **조종석의 격자는 방보다 크고 구멍이 있다.** `roomGridSize(room)` 이 방마다 격자 크기를, `roomCellBlocked` 가 고정 소품
@@ -1047,10 +1067,38 @@ export interface GridRect { x: number; y: number; cols: number; rows: number }
 export const COCKPIT_BLOCKED_RECTS: readonly GridRect[] = [
   { x: 3, y: 0, cols: 14, rows: 3 },    // 계기판(x ±3.3, z −6 … −5.3) + 앞 0.8 m (x −3.5 … 3.5, z −6 … −4.5)
   { x: 7, y: 3, cols: 6, rows: 9 },     // 조종석 두 개 · 터미널 자리 · 복도 아치까지의 통로 (x −1.5 … 1.5, z −4.5 … 0)
-  { x: 18, y: 1, cols: 2, rows: 3 },    // +X 벽 사물함 두 칸 (x 4.48 … 4.98, z −5.32 … −4.08)
-  { x: 13, y: 7, cols: 7, rows: 5 },    // 발사 포드 소켓(x 3 … 5, z −2.2 … −0.2) + 문 앞 탑승 동선 + 창고 캐비닛 (x 1.5 … 5, z −2.5 … 0)
-  { x: 0, y: 6, cols: 2, rows: 5 },     // −X 벽 침상 (x −5 … −4, z −2.8 … −0.7)
+  /* 2026-09-13 (사용자 결정): 사물함 두 칸 · 침상 · 창고 캐비닛은 꾸밈 가구가 됐다(`COCKPIT_DECOR_FURNITURE`) — 그 칸들은 풀렸다.
+     발사 포드는 소켓과 문 앞 탑승 동선만 막는다. 옛 표: {18,1,2,3} 사물함 · {13,7,7,5} 포드 + 캐비닛 · {0,6,2,5} 침상. */
+  { x: 13, y: 7, cols: 7, rows: 4 },    // 발사 포드 소켓(x 3 … 5, z −2.2 … −0.5) + 문(−X) 앞 탑승 동선 (x 1.5 … 5, z −2.5 … −0.5)
+  { x: 16, y: 11, cols: 4, rows: 1 },   // 포드 소켓 뒤 끝 · 뒷벽 기둥 (x 3 … 5, z −0.5 … 0)
 ];
+
+/**
+ * appended (2026-09-13, 사용자 결정): 조종석의 **꾸밈 가구** — 예전 고정 소품(침상 · 사물함 두 칸 · 창고 캐비닛)이 서 있던 자리.
+ * 새 함선(`housing/ShipState.freshState`)과 v10 이전 세이브(`sanitize` 의 v10 절)에 **한 번만** 놓이고, 플레이어가 회수하면
+ * 다시 채우지 않는다 (`COCKPIT_DEFAULT_FURNITURE` 와 다르다). 자리가 막혀 있으면 가구 창고로 간다.
+ * 칸 좌표는 옛 소품 좌표에서 잡았다 (칸 x = (월드 x + 5) / 0.5, 칸 y = (월드 z + 6) / 0.5).
+ */
+export const COCKPIT_DECOR_FURNITURE: readonly { defId: string; x: number; y: number; yaw: 0 | 1 | 2 | 3 }[] = [
+  /* 침상(2단): −X 벽에 붙어 z 로 길다 — 2 × 3 칸 = x −5 … −4, z −2.5 … −1.0 (옛 1인 침상의 중심 z −1.75) */
+  { defId: 'furn_bunk', x: 0, y: 7, yaw: 0 },
+  /* 사물함 두 칸: +X 벽 — 1 × 2 칸씩 = x 4.5 … 5, z −5.5 … −3.5 (옛 줄의 중심 z −4.7), 문이 ±X 면이라 한쪽 문이 조종석을 본다 */
+  { defId: 'furn_locker', x: 19, y: 1, yaw: 0 },
+  { defId: 'furn_locker', x: 19, y: 3, yaw: 0 },
+  /* 서랍장(옛 창고 캐비닛): 뒷벽 우현 절반, 서랍이 −Z — 2 × 1 칸 = x 2 … 3, z −0.5 … 0 (옛 중심 x 2.4) */
+  { defId: 'furn_drawer', x: 14, y: 11, yaw: 0 },
+];
+
+/**
+ * appended (2026-09-13): 조종석 전용 시설인가 (`FurnitureDef.room === 'cockpit'` — 시술대 · 컴퓨터). 조종석에만 놓이고, 회수 · 제거할
+ * 수 없고, 함선마다 정확히 하나다 (`housing/ShipState.ensureCockpitFurniture`).
+ */
+export function isCockpitOnlyFurniture(def: FurnitureDef | undefined | null): boolean {
+  return !!def && def.room === 'cockpit';
+}
+
+/** appended (2026-09-13): 조종석 전용 시설의 회수 · 제거 거절 문장 — housing 의 규칙과 hub 의 시설 관리 토스트가 같은 글을 쓴다. */
+export const COCKPIT_ONLY_RECOVER_REASON = '조종석 전용 시설은 회수할 수 없습니다';
 
 /** appended: 공용 시설 가구 두 점의 def id. */
 export const IMPLANT_BAY_DEF_ID = 'furn_implant_bay';
@@ -1285,3 +1333,247 @@ export interface HousingRef {
   /** 진행 중인 세션을 보상 · 디버프 없이 끝낸다 (`housing:gymSession {active:false, completed:false}`). 없으면 no-op. */
   cancelGymSession?(): void;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-13 — 요리 재료 티어 (docs/plans/food-tiers.md, 사용자 결정)
+ *
+ * 1. **분석기는 결과표를 굴린다.** 표본은 계열(`SampleFamily`)로 해석되고, 결과는 `data/analysis_results.csv` 에서
+ *    **넣는 순간** 그 계열의 분석 레벨로 가중 추첨해 칸에 적는다 (`AnalysisSlot.resultDefId` — 회수에 실패해도 다시 굴리지 않는다).
+ *    회수하면 그 계열 경험치가 오르고(`ANALYSIS_XP_BY_RARITY`) 처음 받은 산출물은 분석 도감(`analysisFound`)에 적힌다.
+ *    분석 레벨은 해석 시간을 줄이고(`ANALYSIS_TIME_MUL_BY_LEVEL`) 결과를 해금한다(`AnalysisResultDef.minLevel`).
+ *    옛 「도감 진척률 · 기지식 → 시간 단축」(`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)과 첫 해석 보너스는 이것으로 대체됐다.
+ * 2. **흙 · 배지에는 내구도와 소켓이 있다.** 부으면 아이템은 소모되고(그대로) 내구도 · 소켓은 **칸이** 들고 있다.
+ *    수확마다 닳고 0 이어도 계속 쓰며 **칸이 저절로 비지 않는다** — 대신 보너스(흙 궁합 · 배지 속도 · 소켓 speed/yield)가
+ *    내구도 비율로 줄어든다. 소켓은 등급별 칸 수(`GROW_SOCKETS_BY_RARITY`)만큼 영구 장착이고, 가득 찬 칸에 끼우려면
+ *    `replaceIndex` 로 옛 것을 파괴해야 한다 (화면이 1초 홀드 경고로 묻는다). 칸을 비우면 흙 · 배지와 소켓이 함께 사라진다.
+ * 3. **배양 칸에는 배양 스캐폴드가 들어간다** — 배지 → (스캐폴드) → 세포주. 스캐폴드가 있으면 세포주의
+ *    `StrainDef.scaffoldOutputDefId`(종별 고기)를 만들고 수확할 때 스캐폴드가 소모된다. 세포주가 들어가기 전이면 뺄 수 있다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import { numberMap } from './data/tables';
+import type { GrowSocketTarget, Rarity, SampleFamily } from './types';
+import { SAMPLE_FAMILIES } from './types';
+
+const ANALYSIS_LEVEL_XP_TABLE = numberMap<string>('tables.csv', 'ANALYSIS_LEVEL_XP');
+const ANALYSIS_TIME_MUL_TABLE = numberMap<string>('tables.csv', 'ANALYSIS_TIME_MUL_BY_LEVEL');
+/** 표본 등급별로 해석 하나를 회수할 때 그 계열에 쌓이는 경험치 (`data/tables.csv`). */
+export const ANALYSIS_XP_BY_RARITY: Readonly<Record<Rarity, number>> = numberMap<Rarity>('tables.csv', 'ANALYSIS_XP_BY_RARITY');
+/** 흙 · 배지 등급별 소켓 칸 수 (`data/tables.csv`). 읽을 때는 `growSocketSlotsFor`. */
+export const GROW_SOCKETS_BY_RARITY: Readonly<Record<Rarity, number>> = numberMap<Rarity>('tables.csv', 'GROW_SOCKETS_BY_RARITY');
+
+/** 분석 레벨 상한 — `ANALYSIS_LEVEL_XP` 표의 줄 수 (코드에 5 를 적지 않는다). */
+export const ANALYSIS_LEVEL_MAX: number = Math.max(1, Object.keys(ANALYSIS_LEVEL_XP_TABLE).length);
+
+/** `level` 에 도달하는 누적 경험치 (Lv.1 = 0). 범위 밖이면 잘라 읽는다. */
+export function analysisXpForLevel(level: number): number {
+  const lv = Math.max(1, Math.min(ANALYSIS_LEVEL_MAX, Math.floor(level)));
+  const v = ANALYSIS_LEVEL_XP_TABLE[String(lv)];
+  return Number.isFinite(v) ? v : 0;
+}
+
+/** 누적 경험치 → 분석 레벨 (1 … `ANALYSIS_LEVEL_MAX`). */
+export function analysisLevelForXp(xp: number): number {
+  const x = Number.isFinite(xp) ? xp : 0;
+  let lv = 1;
+  for (let l = 2; l <= ANALYSIS_LEVEL_MAX; l++) if (x >= analysisXpForLevel(l)) lv = l;
+  return lv;
+}
+
+/** 분석 레벨의 해석 시간 배수 (Lv.1 = 1). 표본의 `analyzeHours` 에 곱해진다 — 넣는 순간 확정. */
+export function analysisTimeMul(level: number): number {
+  const lv = Math.max(1, Math.min(ANALYSIS_LEVEL_MAX, Math.floor(level)));
+  const v = ANALYSIS_TIME_MUL_TABLE[String(lv)];
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+/** 분석 결과표 한 줄 (`data/analysis_results.csv`). */
+export interface AnalysisResultDef {
+  family: SampleFamily;
+  /** 이 줄이 추첨에 들어가는 최소 분석 레벨. */
+  minLevel: number;
+  defId: string;
+  qtyMin: number;
+  qtyMax: number;
+  /** 같은 계열 · 해금된 줄끼리의 가중치. */
+  weight: number;
+}
+
+export const ANALYSIS_RESULTS: readonly AnalysisResultDef[] = csvRows('analysis_results.csv').map((r) => {
+  const qtyMin = r.int('qtyMin', { min: 1 });
+  return {
+    family: r.enum('family', SAMPLE_FAMILIES),
+    minLevel: r.int('minLevel', { min: 1 }),
+    defId: r.str('defId'),
+    qtyMin,
+    qtyMax: Math.max(qtyMin, r.int('qtyMax', { min: 1 })),
+    weight: r.num('weight', { min: 0 }),
+  };
+});
+
+/** 한 계열의 분석 레벨 (분석 도감 머리줄 · 분석 화면). */
+export interface AnalysisLevelInfo {
+  family: SampleFamily;
+  level: number;
+  /** 누적 경험치. */
+  xp: number;
+  /** 지금 레벨에 도달한 누적 경험치. */
+  levelXp: number;
+  /** 다음 레벨의 누적 경험치; 최대 레벨이면 null. */
+  nextLevelXp: number | null;
+  /** 지금 레벨의 해석 시간 배수 (`analysisTimeMul`). */
+  timeMul: number;
+}
+
+/** 분석 도감의 결과 한 줄. */
+export interface AnalysisResultInfo {
+  defId: string;
+  qtyMin: number;
+  qtyMax: number;
+  minLevel: number;
+  /** 지금 레벨에서 해금됐는가. */
+  unlocked: boolean;
+  /** 지금 레벨에서 해석 한 번이 이것을 낼 확률 (0 … 1); 잠겼으면 0. */
+  chance: number;
+  /** 한 번이라도 회수해 본 산출물인가 (`ShipState.analysisFound`). */
+  found: boolean;
+}
+
+export interface AnalysisSlot {
+  /* ── appended (2026-09-13) ── */
+  /** 넣은 표본의 계열 (넣는 순간 적는다). 없으면 옛 세이브 — 표본 def 에서 읽는다. */
+  family?: SampleFamily;
+  /** 넣는 순간 굴린 결과. 없으면 옛 세이브 — **회수할 때** 그때 레벨로 굴린다. */
+  resultDefId?: string;
+  resultQty?: number;
+}
+
+export interface AnalysisSlotInfo {
+  /* ── appended (2026-09-13) ── */
+  /** 칸에 든 표본의 계열; 빈 칸이면 null. */
+  family: SampleFamily | null;
+  /**
+   * 해석 결과 — **끝난 칸에서만** 채워진다 (해석 중에는 null, 화면은 「?」). 끝난 칸에서는 `rewardDefId` · `rewardQty` 도 같은 값이고
+   * `firstTime` 은 「이 결과가 분석 도감에 없다」로 읽는다. 옛 세이브의 칸(결과를 안 굴린 칸)은 끝나도 null 이고 회수하는 순간 굴린다.
+   */
+  resultDefId: string | null;
+  resultQty: number;
+}
+
+export interface GrowSlot {
+  /* ── appended (2026-09-13) ── */
+  /** 부어 둔 흙의 남은 내구도 (0 … `SoilDef.durability`). 없으면 옛 세이브 — 처음 읽을 때 `soilUsesLeft / uses × durability` 로 옮긴다. */
+  soilDurability?: number;
+  /** 끼운 소켓 def id (끼운 순서). 영구 — 흙을 비우면 함께 사라진다. */
+  sockets?: string[];
+}
+
+export interface GrowSlotInfo {
+  /* ── appended (2026-09-13) ── */
+  soilDurability: number;
+  soilDurabilityMax: number;
+  /** 보너스가 듣는 비율 = 내구도 / 최대 (0 … 1). 흙이 없으면 0. */
+  soilBonusRatio: number;
+  /** 끼운 소켓 def id. */
+  sockets: readonly string[];
+  /** 이 흙의 소켓 칸 수 (`growSocketSlotsFor(흙 등급)`); 흙이 없으면 0. */
+  socketSlots: number;
+}
+
+export interface CultureSlot {
+  /* ── appended (2026-09-13) ── */
+  /** 부어 둔 배지의 남은 내구도. 없으면 옛 세이브 — 처음 읽을 때 `mediumUsesLeft / uses × durability` 로 옮긴다. */
+  mediumDurability?: number;
+  /** 끼운 소켓 def id (끼운 순서). 영구 — 배지를 비우면 함께 사라진다. */
+  sockets?: string[];
+  /** 들어 있는 배양 스캐폴드 def id (`ItemDef.scaffold`). 수확할 때 소모된다. */
+  scaffoldDefId?: string;
+}
+
+export interface CultureSlotInfo {
+  /* ── appended (2026-09-13) ── */
+  mediumDurability: number;
+  mediumDurabilityMax: number;
+  /** 보너스가 듣는 비율 = 내구도 / 최대 (0 … 1). 배지가 없으면 0. */
+  mediumBonusRatio: number;
+  sockets: readonly string[];
+  socketSlots: number;
+  /** null = 스캐폴드 없음. 있고 세포주가 들어 있으면 `yieldDefId` 는 종별 고기다. */
+  scaffoldDefId: string | null;
+}
+
+export interface ShipState {
+  /* ── appended (2026-09-13, version 11) ── */
+  /** 계열별 분석 누적 경험치 (없으면 0). */
+  analysisXp?: Partial<Record<SampleFamily, number>>;
+  /** 분석 도감: 분석기에서 한 번이라도 회수한 산출물 def id (append-only). */
+  analysisFound?: string[];
+}
+
+export interface HousingRef {
+  /* ══ appended: 2026-09-13 — 요리 재료 티어 ══ */
+  /** 한 계열의 분석 레벨 · 경험치 · 시간 배수. */
+  getAnalysisLevel(family: SampleFamily): AnalysisLevelInfo;
+  /** 한 계열의 결과표 전부 (최소 레벨 순), 지금 레벨의 확률 · 해금 · 도감 여부와 함께. */
+  getAnalysisResults(family: SampleFamily): AnalysisResultInfo[];
+  /** 분석 도감 (`ShipState.analysisFound`). */
+  getAnalysisFound(): readonly string[];
+  /**
+   * 부어 둔 흙에 소켓 하나를 (가방 → 창고) 끼운다. 소켓의 `target` 이 `'soil'` 이어야 한다. 빈 소켓 칸이 없으면
+   * `replaceIndex` 를 줘야 하고 그 자리의 옛 소켓은 **파괴된다** (화면이 먼저 1초 홀드로 묻는다). 이미 자라는 작물에는
+   * 소급하지 않는다 — 다음에 심는 작물부터 듣는다. 한국어 사유 / null.
+   */
+  insertGrowSocket(uid: string, tier: GrowTier, slot: number, socketDefId: string, replaceIndex?: number): string | null;
+  /** 배지가 든 배양 칸에 소켓을 끼운다 (`target: 'medium'`). 규칙은 `insertGrowSocket` 과 같다. */
+  insertCultureSocket(uid: string, slot: number, socketDefId: string, replaceIndex?: number): string | null;
+  /** 배지가 있고 세포주 · 스캐폴드가 없는 칸에 배양 스캐폴드 하나를 (가방 → 창고) 넣는다. 한국어 사유 / null. */
+  insertScaffold(uid: string, slot: number, scaffoldDefId: string): string | null;
+  /** 세포주가 들어가기 전의 스캐폴드를 되돌려받는다 (`dest` 기본 `'bag-first'`). 한국어 사유 / null. */
+  takeScaffold(uid: string, slot: number, dest?: HarvestDestination): string | null;
+  /** 지금 가진 소켓 (가방 + 창고). `target` 을 주면 그쪽만. */
+  getOwnedSockets(target?: GrowSocketTarget): { defId: string; qty: number }[];
+}
+
+/** 수확 한 번에 부어 둔 흙 · 배지가 잃는 내구도 (`data/tuning.csv`). */
+export const SOIL_WEAR_PER_HARVEST = T.num('SOIL_WEAR_PER_HARVEST');
+export const MEDIUM_WEAR_PER_HARVEST = T.num('MEDIUM_WEAR_PER_HARVEST');
+/** 소켓 `speed` 를 합산한 성장 · 배양 시간 배수의 바닥. */
+export const GROW_SOCKET_TIME_FLOOR = T.num('GROW_SOCKET_TIME_FLOOR');
+/** 소켓 `wear` 를 합산한 마모 배수의 바닥. */
+export const GROW_WEAR_MUL_FLOOR = T.num('GROW_WEAR_MUL_FLOOR');
+
+/** 흙 · 배지 등급의 소켓 칸 수. 표에 없는 등급이면 0. */
+export function growSocketSlotsFor(rarity: Rarity): number {
+  const v = GROW_SOCKETS_BY_RARITY[rarity];
+  return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+}
+/** 어떤 등급이든 가질 수 있는 소켓 칸의 최대 (세이브 검증의 상한). */
+export const GROW_SOCKET_SLOTS_MAX: number = Math.max(0, ...Object.values(GROW_SOCKETS_BY_RARITY).map((v) => (Number.isFinite(v) ? Math.floor(v) : 0)));
+/* ══ end 2026-09-13 요리 재료 티어 ══ */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-13 — 요리 미니게임 (docs/plans/cooking-minigames.md, 사용자 결정 — 규칙 · 표는 `shared/cooking.ts`)
+ *
+ * 조리대 E → **조리대 화면**(`openCookStation`) — 요리 목록 · 재료 · 미니게임 순서 · 자동 가구 · 함선 창고 / 가방 카드.
+ * 「조리 시작」(`startCook`) → 조리대 앞 자세 + 고정 카메라(hub, `housing:cookSession`) + 미니게임 오버레이 → 단계마다
+ * 「직접 하기 / 자동」 → 끝나면 재료를 빼고 품질 붙은 요리 1개(`InventoryRef.completeCook`) → 결과 → `housing:cookResult`.
+ * 중간에 닫으면(`cancelCook` · Esc · Tab · 페이즈 변경) 아무것도 소모되지 않는다. 함선 전용 · 내 함선 전용 · 한 번에 한 개.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import type { CookAutoInfo, CookGame, CookSessionInfo } from './cooking';
+
+export interface HousingRef {
+  /** 조리대 화면을 연다 (`uid` = 조리대 가구). 조리대가 아니거나 레이드 · 남의 함선이면 토스트만. */
+  openCookStation?(uid: string): void;
+  /** 진행 중인 조리 (미니게임 오버레이가 열려 있는 동안), 없으면 null. */
+  readonly cookSession?: CookSessionInfo | null;
+  /**
+   * 지금 조리대 `uid` 에서 `recipeId` 를 시작할 수 없는 한국어 사유, null = 시작할 수 있다.
+   * 순서: 조리대가 아니다 → 함선 · 내 함선이 아니다 → 이미 조리 중 → 요리 레시피가 아니다 / 단계가 없다 → `InventoryRef.cookBlock`(작업대 레벨 · 숙련 · 재료 · 자리).
+   */
+  cookBlock?(uid: string, recipeId: string): string | null;
+  /** 조리를 시작한다 — 오버레이를 열고 `housing:cookSession {active:true}`. 한국어 사유 / null. 재료는 **끝날 때** 뺀다. */
+  startCook?(uid: string, recipeId: string): string | null;
+  /** 진행 중인 조리를 소모 없이 끝낸다 (`housing:cookSession {active:false, completed:false}`). 없으면 no-op. */
+  cancelCook?(): void;
+  /** 그 게임을 대신하는 자동 조리 가구 중 함선에 배치된 가장 높은 레벨의 것, 없으면 null. */
+  getCookAuto?(game: CookGame): CookAutoInfo | null;
+}
+/* ══ end 2026-09-13 요리 미니게임 ══ */

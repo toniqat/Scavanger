@@ -448,8 +448,27 @@ try {
     }));
     ok(mng.manage && mng.ctrl && mng.blocker && mng.screen, 'M opens 시설 관리 (screen up, shipmanage blocker taken)');
     ok(!mng.hint && mng.hintText === '시설 관리', `the corner hint reads 시설 관리 and hides while the screen is up (${mng.hintText})`);
+    /* 2026-09-13 (사용자 결정): 시설 관리 동안 조종석 천장(천장판 · 보 셋 · 조명 띠)이 약 0.4 초에 걸쳐 사라진다 — 자기 그룹
+       `cockpit-ceiling` + 늘 transparent 인 자기 재질이라 불투명도만 옮기고, 다 지워지면 그룹 `visible` 만 끈다. 광원 수는 그대로. */
+    await waitSim(0.3);
+    const ceilOn = await page.evaluate(() => {
+      const ctx = window.__game.ctx;
+      const g = ctx.scene.getObjectByName('cockpit-ceiling');
+      let lights = 0; ctx.scene.getObjectByName('PersonalShip').traverse((o) => { if (o.isPointLight) lights++; });
+      const mats = []; g?.traverse((o) => { if (o.isMesh) mats.push(o.material); });
+      return { has: !!g, meshes: mats.length, visible: g?.visible, fade: window.__game.getSystem('hub').interior?.cockpitCeilingFade, transparent: mats.every((m) => m.transparent), lights };
+    });
+    ok(ceilOn.has && ceilOn.meshes >= 3 && ceilOn.fade === 1 && ceilOn.visible === false && ceilOn.transparent,
+      `시설 관리 fades the cockpit ceiling out (${JSON.stringify(ceilOn)})`);
+    ok(ceilOn.lights === ship.lights, `…without touching the point lights (${ceilOn.lights} / ${ship.lights})`);
     await tap('KeyM');
     await waitSim(0.5);
+    const ceilOff = await page.evaluate(() => {
+      const g = window.__game.ctx.scene.getObjectByName('cockpit-ceiling');
+      const mats = []; g?.traverse((o) => { if (o.isMesh) mats.push(o.material); });
+      return { visible: g?.visible, fade: window.__game.getSystem('hub').interior?.cockpitCeilingFade, opaque: mats.every((m) => m.opacity === 1 && m.depthWrite) };
+    });
+    ok(ceilOff.fade === 0 && ceilOff.visible === true && ceilOff.opaque, `leaving 시설 관리 fades the cockpit ceiling back in (${JSON.stringify(ceilOff)})`);
     const left = await page.evaluate(() => ({
       manage: window.__game.ctx.housing.shipManageMode, blockers: [...window.__game.ctx.uiBlockers],
       controls: window.__game.ctx.player.controlsEnabled,

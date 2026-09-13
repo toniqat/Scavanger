@@ -1,41 +1,65 @@
 import * as THREE from 'three';
 import {
-  ROGUE_AIM_ERROR, ROGUE_AIM_ERROR_SETTLED, ROGUE_BURST, ROGUE_GRENADE_COOLDOWN, ROGUE_GRENADE_HOLD_S, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_RANGE,
-  ROGUE_GRENADE_WINDUP, ROGUE_MAG_ROUNDS, ROGUE_REACTION, ROGUE_RELOAD_TIME, ROGUE_RUSH_CHANCE,
+  ROGUE_GRENADE_COOLDOWN, ROGUE_GRENADE_HOLD_S, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_WINDUP, ROGUE_MAG_ROUNDS, ROGUE_RELOAD_TIME,
 } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
-import { ROGUE_AI } from '../EnemyTypes';
+import { HUMANOID_ANDROID, ROGUE_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { lookAtTarget } from './Common';
 import { integrate } from './EnemyAI';
 import { hasFireLine, fireLineStrafe } from './FireLine';
+import { humanoidAimError, humanoidProfile, rollBurst, rollBurstPause, type HumanoidProfile } from './HumanoidProfile';
 import { pickCover } from './RogueCover';
+import { isSquadFlanker, updateSquadFlank } from './SquadFlank';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Rogue gunner AI (Phase 4, v2 in Phase 7). Guards idle / patrol around `guardPos` (a crate, or the boss it escorts),
- * react after ROGUE_REACTION, then loop a cover cycle: move to cover → crouch-hold 2–4 s → pop out and fire a burst →
- * (rush with ROGUE_RUSH_CHANCE) → next cover. Shots are resolved by `host.fireGun` (hitscan, occlusion, damage, FX,
- * events). Uses the shared EnemyState machine: idle / wander (patrol), alert (reaction), chase (cover cycle via
- * `roguePhase`), stagger, dead. Movement goes through EnemyAI.integrate like every other enemy.
+ * Humanoid gunner AI (Phase 4, v2 in Phase 7, faction profiles 2026-09-13). Guards idle / patrol around `guardPos`
+ * (a site, or the boss it escorts), react after the faction's `reaction`, then fight. Shots are resolved by
+ * `host.fireGun` (hitscan, occlusion, damage, FX, events). Uses the shared EnemyState machine: idle / wander (patrol),
+ * alert (reaction), chase (the fight), stagger, dead. Movement goes through EnemyAI.integrate like every other enemy.
  *
- * v2 (Phase 7):
+ * 2026-09-13 — one state machine, three factions (`ai/HumanoidProfile`, csv `HUMANOID_*`):
+ * - **rogue / raider**: the cover cycle — move to cover → crouch-hold (`ROGUE_AI.coverMin..Max × coverMul`) → pop out
+ *   and fire `burstsPerPop` bursts of `burstMin..burstMax` → (rush with `rushChance`) → next cover. Aim error follows the
+ *   faction's **distance curve** (`humanoidAimError`) and settles while standing. A **bug** target is not worth hiding
+ *   from: the gunner stands and fires, backing off inside `bugBackoff` (`fightBug`), with `enemyDamageMul`.
+ *   A raider with `squadRole 'flanker'` breaks off on a wide arc while its squad trades fire (`ai/SquadFlank`).
+ * - **android**: never takes cover (`roguePhase` only 0 / 3), never throws, never rushes — stands in its
+ *   `engageMin..engageMax` band, walks slowly toward a target it cannot see or that is too far, slow short bursts
+ *   (`androidCycle`).
+ *
+ * v2 (Phase 7), unchanged:
  * - cover must block the line of sight and is scored with a flank preference (`RogueCover.ts`);
  * - a magazine of ROGUE_MAG_ROUNDS: every shot spends one round, an empty mag forces a ROGUE_RELOAD_TIME crouched reload
  *   (no shots, hint 12, the `reload` sound at the rogue) regardless of the cover phase;
- * - a grenade toss when the target has been out of sight for ROGUE_GRENADE_HOLD_S within ROGUE_GRENADE_RANGE and the
- *   per-rogue cooldown is over: ROGUE_GRENADE_WINDUP standing throw pose (hint 13, grenade sphere in the off hand), then
- *   `host.throwGrenade` (the boss and its escorts use it too).
+ * - a grenade toss when the target has been out of sight for ROGUE_GRENADE_HOLD_S within the faction's `grenadeRange`
+ *   and the per-rogue cooldown is over: ROGUE_GRENADE_WINDUP standing throw pose (hint 13, grenade sphere in the off
+ *   hand), then `host.throwGrenade`. 2026-09-13: **only while `grenadeCount > 0`** — the host spends one per toss and the
+ *   rest stay on the body (`ee corpse.gc`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const TWO_PI = Math.PI * 2;
 /** Never toss a grenade at something inside its own blast (plus a margin). */
 const GRENADE_MIN_DIST = ROGUE_GRENADE_RADIUS + 1.5;
+/** Snap shots while relocating / hip fire while rushing are this much worse than the curve's unsettled error (kept from v2). */
+const SNAP_AIM_MUL = 1.5;
+const RUSH_AIM_MUL = 1.6;
+/** Android backing off / walking a step (m): the steering goal only, not a balance number. */
+const STEP_M = 4;
+/**
+ * Idle patrol stays this far inside the leash (m) — an indoor site group's leash is site radius + 4 (`SiteGroups`), so the
+ * patrol ends ~1 m inside the building's footprint. Below `WANDER_MIN_RADIUS` of room the guard does not wander at all.
+ * Geometry for the patrol, not balance.
+ */
+const WANDER_LEASH_MARGIN = 5;
+const WANDER_MIN_RADIUS = 1.5;
 
 export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null, targetAlive: boolean): void {
   const ctx = host.ctx;
   const world = ctx.world!;
   const s = e.stats;
   const a = e.anim;
+  const prof = humanoidProfile(e);
 
   // escorts follow the boss (leash to it); a dead boss frees them where they stand
   if (e.escortOf) {
@@ -44,6 +68,7 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
   }
   if (e.hitCrouchTimer > 0) e.hitCrouchTimer -= dt;
   if (e.grenadeCd > 0) e.grenadeCd -= dt;
+  if (e.flankCd > 0 && e.state === 'chase') e.flankCd -= dt;   // the squad flank waits for an engagement, not for wall time
   // reload runs in every state (a staggered / relocating rogue keeps working the magazine)
   if (e.reloadTimer > 0) {
     e.reloadTimer -= dt;
@@ -56,6 +81,7 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
   // nobody left to fight → stand down
   if (!targetAlive && e.aware && (e.state === 'chase' || e.state === 'alert')) {
     e.aware = false; e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1.5; e.roguePhase = 0; e.burstLeft = 0; e.throwTimer = 0;
+    e.popBursts = 0; e.flankPhase = 0;
   }
 
   let speed = 0;
@@ -71,7 +97,14 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
       a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0, dt * 3);
       if (e.wanderTimer <= 0) {
         const ang = Math.random() * TWO_PI;
-        const rad = e.escortOf ? 3 + Math.random() * 3 : 6 + Math.random() * 6;
+        let rad = e.escortOf ? 3 + Math.random() * 3 : 6 + Math.random() * 6;
+        // 2026-09-13: an indoor site group's leash is the site radius + a few m — keep the patrol well inside it so a
+        // guard with nobody to fight never strolls out through the door; too small a leash = stand the post, just look around
+        if (!e.escortOf) {
+          const maxRad = e.leash - WANDER_LEASH_MARGIN;
+          if (maxRad < WANDER_MIN_RADIUS) { e.wanderTimer = 2 + Math.random() * 3; break; }
+          rad = Math.min(rad, maxRad);
+        }
         e.moveTarget.set(e.guardPos.x + Math.cos(ang) * rad, 0, e.guardPos.z + Math.sin(ang) * rad);
         if (!world.isInsideBounds(e.moveTarget.x, e.moveTarget.z)) e.moveTarget.copy(e.guardPos);
         e.state = 'wander'; e.stateTime = 0;
@@ -89,12 +122,12 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
       // reaction delay: turn toward the threat, raise the rifle
       if (targetAlive) { e.facePoint.copy(t!.position); e.hasFacePoint = true; lookAtTarget(e, t!, dt); }
       aimT = 0.8;
-      if (e.stateTime >= ROGUE_REACTION) { e.state = 'chase'; e.stateTime = 0; e.roguePhase = 0; }
+      if (e.stateTime >= prof.reaction) { e.state = 'chase'; e.stateTime = 0; e.roguePhase = 0; }
       break;
     }
     case 'chase': {
       if (!targetAlive) { e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1; e.roguePhase = 0; break; }
-      const r = coverCycle(e, dt, host, t!);
+      const r = e.faction === 'android' ? androidCycle(e, dt, host, t!, prof) : coverCycle(e, dt, host, t!, prof);
       speed = r.speed; aimT = r.aim; crouchT = r.crouch;
       break;
     }
@@ -137,9 +170,20 @@ function canShoot(e: Enemy, host: EnemyHost, t: CombatTarget): boolean {
   return e.reloadTimer <= 0 && e.magRounds > 0 && e.throwTimer <= 0 && hasFireLine(e, host, t);
 }
 
-/** One rifle shot: spends a round; an empty magazine starts the reload right away (crouch, no shots, `reload` audio). */
-function shoot(e: Enemy, host: EnemyHost, t: CombatTarget, aimError: number, boss: boolean): void {
-  host.fireGun(e, t, aimError, boss ? ROGUE_AI.bossDamageMul : 1);
+/** Aim error for the next shot: the faction's distance curve, settled by the time spent standing (× `mul`). */
+function aimError(e: Enemy, prof: HumanoidProfile, settled: boolean, mul = 1): number {
+  const settle = settled ? THREE.MathUtils.clamp(e.standTime / ROGUE_AI.settleTime, 0, 1) : 0;
+  return humanoidAimError(prof, e.distToTarget, settle) * mul;
+}
+
+/**
+ * One rifle shot: spends a round; an empty magazine starts the reload right away (crouch, no shots, `reload` audio).
+ * 2026-09-13: damage = the faction's `damageMul` against players / drones, `enemyDamageMul` against another faction's
+ * enemy (rogues and raiders mow bugs down), × the boss multiplier.
+ */
+function shoot(e: Enemy, host: EnemyHost, t: CombatTarget, err: number, prof: HumanoidProfile, boss: boolean): void {
+  const mul = (t.enemy ? prof.enemyDamageMul : prof.damageMul) * (boss ? ROGUE_AI.bossDamageMul : 1);
+  host.fireGun(e, t, err, mul);
   e.anim.recoil = 1;
   e.magRounds = Math.max(0, e.magRounds - 1);
   if (e.magRounds === 0) startReload(e, host);
@@ -151,15 +195,22 @@ function startReload(e: Enemy, host: EnemyHost): void {
   host.playAudio('reload', e.position, 0.7, e.type === 'rogue_boss' ? 0.85 : 1);
 }
 
+/** Rounds in one burst (the boss keeps its long `bossRounds` burst). */
+function burstSize(e: Enemy, prof: HumanoidProfile, boss: boolean): number {
+  const n = rollBurst(prof);
+  return Math.min(e.magRounds, boss ? Math.max(ROGUE_AI.bossRounds, n) : n);
+}
+
 /**
- * Grenade trigger: the target has been hidden for ROGUE_GRENADE_HOLD_S, is within range but outside our own blast,
- * the cooldown is over and nothing else (reload, stagger) is going on. Starts the wind-up (hint 13).
+ * Grenade trigger: the target has been hidden for ROGUE_GRENADE_HOLD_S, is within the faction's range but outside our own
+ * blast, we still **carry** a grenade, the cooldown is over and nothing else (reload, stagger) is going on. Starts the
+ * wind-up (hint 13). Androids carry none (`grenadeMax` 0), so this never fires for them.
  */
-function maybeStartThrow(e: Enemy, t: CombatTarget): boolean {
-  if (e.throwTimer > 0 || e.grenadeCd > 0 || e.reloadTimer > 0 || e.hasLOS) return false;
+function maybeStartThrow(e: Enemy, t: CombatTarget, prof: HumanoidProfile): boolean {
+  if (e.grenadeCount <= 0 || e.throwTimer > 0 || e.grenadeCd > 0 || e.reloadTimer > 0 || e.hasLOS) return false;
   if (e.noLosHold < ROGUE_GRENADE_HOLD_S) return false;
   const d = e.distToTarget;
-  if (d > ROGUE_GRENADE_RANGE || d < GRENADE_MIN_DIST) return false;
+  if (d > prof.grenadeRange || d < GRENADE_MIN_DIST) return false;
   e.throwTimer = ROGUE_GRENADE_WINDUP;
   e.grenadeTarget.copy(t.position);
   e.burstLeft = 0;
@@ -170,8 +221,8 @@ function maybeStartThrow(e: Enemy, t: CombatTarget): boolean {
 interface CycleResult { speed: number; aim: number; crouch: number }
 const cycle: CycleResult = { speed: 0, aim: 0, crouch: 0 };
 
-/** One tick of the cover cycle while a live target exists. */
-function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): CycleResult {
+/** One tick of the cover cycle (rogue / raider) while a live target exists. */
+function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget, prof: HumanoidProfile): CycleResult {
   const s = e.stats;
   const r = cycle;
   const d = e.distToTarget;
@@ -195,7 +246,7 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
     e.throwTimer -= dt;
     if (e.throwTimer <= 0) {
       e.throwTimer = 0;
-      if (host.throwGrenade(e, e.grenadeTarget)) {
+      if (host.throwGrenade(e, e.grenadeTarget)) {  // spends one of `grenadeCount` (parts/Attacks.throwGrenade)
         e.grenadeCd = ROGUE_GRENADE_COOLDOWN * (boss ? 0.7 : 1) * (0.9 + Math.random() * 0.2);
         e.noLosHold = 0;
       } else {
@@ -209,7 +260,10 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
     return r;
   }
 
-  // leash: never wander off the crate / boss unless rushing or the fight is right here
+  // 2026-09-13: a raider squad's flanker breaks off on a wide arc while the others trade fire (ai/SquadFlank)
+  if (updateSquadFlank(e, dt, host, t, r)) return r;
+
+  // leash: never wander off the site / boss unless rushing or the fight is right here
   const leashD = Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z);
   if (e.roguePhase !== 4 && leashD > e.leash && !(e.hasLOS && d < 30)) {
     e.moveTarget.copy(e.guardPos); e.hasMoveTarget = true;
@@ -219,8 +273,11 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
     return r;
   }
 
+  // 2026-09-13: bugs rush — hiding behind a rock from a scavenger only gets you bitten. Stand and shoot.
+  if (e.roguePhase !== 4 && t.enemy !== null && !t.enemy.isHumanoid) return fightBug(e, dt, host, t, prof, boss);
+
   // a hidden target inside grenade range gets a grenade instead of another cover shuffle (not while rushing)
-  if (e.roguePhase !== 4 && maybeStartThrow(e, t)) { r.aim = 0.2; return r; }
+  if (e.roguePhase !== 4 && maybeStartThrow(e, t, prof)) { r.aim = 0.2; return r; }
 
   if (e.roguePhase === 0) {
     pickCover(e, host, t);
@@ -235,15 +292,15 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
         e.moveTarget.copy(e.coverPos); e.hasMoveTarget = true;
         r.speed = s.speed;
         const dx = e.coverPos.x - e.position.x, dz = e.coverPos.z - e.position.z;
-        if (dx * dx + dz * dz < 0.8 || e.stateTime > 6) enterCover(e, boss);
+        if (dx * dx + dz * dz < 0.8 || e.stateTime > 6) enterCover(e, boss, prof);
         // (Math.random() 를 먼저 본다 — 사선 검사는 캐시돼 있어도 총구 월드 행렬을 갱신하므로 공짜는 아니다)
         else if (e.hasLOS && e.burstTimer <= 0 && d < 45 && Math.random() < dt * 0.6 && canShoot(e, host, t)) {
           // an occasional snap shot while relocating
-          shoot(e, host, t, ROGUE_AIM_ERROR * 1.5, boss);
+          shoot(e, host, t, aimError(e, prof, false, SNAP_AIM_MUL), prof, boss);
           e.burstTimer = 0.6;
         }
         e.burstTimer -= dt;
-      } else enterCover(e, boss);
+      } else enterCover(e, boss, prof);
       break;
     }
     case 2: {
@@ -252,11 +309,11 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
       e.facePoint.copy(t.position); e.hasFacePoint = true;
       e.coverTimer -= dt;
       if (e.reloadTimer > 0) break;
-      if (e.coverTimer <= 0 || d < 6) popOut(e, boss);
+      if (e.coverTimer <= 0 || d < 6) popOut(e, boss, prof);
       break;
     }
     case 3: {
-      // popped out: step out beside the rock (`popPos`, v2) and fire the burst standing (hint 5)
+      // popped out: step out beside the rock (`popPos`, v2) and fire the bursts standing (hint 5)
       e.facePoint.copy(t.position); e.hasFacePoint = true;
       r.crouch = e.hitCrouchTimer > 0 ? 0.7 : 0;
       let stepping = false;
@@ -296,19 +353,25 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
       }
       if (e.burstLeft > 0) {
         if (e.burstTimer <= 0 && e.hitCrouchTimer <= 0 && canShoot(e, host, t)) {
-          const err = THREE.MathUtils.lerp(ROGUE_AIM_ERROR, ROGUE_AIM_ERROR_SETTLED, THREE.MathUtils.clamp(e.standTime / ROGUE_AI.settleTime, 0, 1));
-          shoot(e, host, t, err, boss);
+          shoot(e, host, t, aimError(e, prof, true), prof, boss);
           e.burstLeft--;
-          e.burstTimer = e.burstLeft > 0 ? ROGUE_AI.shotGap : 0.5;
+          if (e.burstLeft > 0) e.burstTimer = prof.shotGap;
+          else if (e.popBursts > 1 && e.magRounds > 0) {
+            // 2026-09-13: the next burst of this pop-out after a short pause (rogues press the fight)
+            e.popBursts--;
+            e.burstLeft = burstSize(e, prof, boss);
+            e.burstTimer = rollBurstPause(prof);
+          } else { e.popBursts = 0; e.burstTimer = rollBurstPause(prof); }
         }
       } else if (e.burstTimer <= 0) {
-        if (Math.random() < ROGUE_RUSH_CHANCE && d > ROGUE_AI.rushDist + 3) { e.roguePhase = 4; e.rushTimer = 0; e.burstTimer = 0.2; }
+        // (a squad flanker's push is the end of its arc — it never rushes on its own, see `ai/SquadFlank.isSquadFlanker`)
+        if (!isSquadFlanker(e) && Math.random() < prof.rushChance && d > ROGUE_AI.rushDist + 3) { e.roguePhase = 4; e.rushTimer = 0; e.burstTimer = 0.2; }
         else { e.roguePhase = 0; e.stateTime = 0; }
       }
       break;
     }
     case 4: {
-      // rushing: close to ~8 m while firing from the hip (hint 7)
+      // rushing (also the raider flanker's push): close to ~8 m while firing from the hip (hint 7)
       e.moveTarget.copy(t.position); e.hasMoveTarget = true;
       e.facePoint.copy(t.position); e.hasFacePoint = true;
       r.speed = s.speed * 1.1;
@@ -316,7 +379,7 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
       e.burstTimer -= dt;
       // 돌격 중에는 **사격만** 보류한다 — 사선이 막혀도 계속 달린다(이동을 막지 않는다).
       if (e.burstTimer <= 0 && e.hasLOS && canShoot(e, host, t)) {
-        shoot(e, host, t, ROGUE_AIM_ERROR * 1.6, boss);
+        shoot(e, host, t, aimError(e, prof, false, RUSH_AIM_MUL), prof, boss);
         e.burstTimer = 0.28;
       }
       if (d <= ROGUE_AI.rushDist || e.rushTimer > ROGUE_AI.rushMax) { e.roguePhase = 0; e.stateTime = 0; }
@@ -326,16 +389,115 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
   return r;
 }
 
-function enterCover(e: Enemy, boss: boolean): void {
+/**
+ * 2026-09-13: a bug (another faction's non-humanoid) is the target — no cover, no grenade. Stand and fire bursts
+ * (hint 5), backing off inside `bugBackoff`; a blocked muzzle strafes as usual.
+ */
+function fightBug(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget, prof: HumanoidProfile, boss: boolean): CycleResult {
+  const s = e.stats;
+  const r = cycle;
+  const d = e.distToTarget;
+  e.facePoint.copy(t.position); e.hasFacePoint = true;
+  e.hasPop = false;
+  e.roguePhase = 3;
+  r.aim = 1; r.crouch = 0;
+  if (d < prof.bugBackoff && backOff(e, host, t)) { r.speed = s.speed * 0.85; e.standTime = 0; }
+  else e.standTime += dt;
+  e.burstTimer -= dt;
+  if (!e.hasLOS || e.reloadTimer > 0) return r;
+  if (!hasFireLine(e, host, t)) {
+    if (!e.hasMoveTarget) { fireLineStrafe(e, host, t, dt); r.speed = s.speed * 0.85; }
+    return r;
+  }
+  if (e.burstLeft <= 0) {
+    if (e.burstTimer <= 0) { e.burstLeft = burstSize(e, prof, boss); e.burstTimer = 0; }
+    return r;
+  }
+  if (e.burstTimer <= 0 && canShoot(e, host, t)) {
+    shoot(e, host, t, aimError(e, prof, true), prof, boss);
+    e.burstLeft--;
+    e.burstTimer = e.burstLeft > 0 ? prof.shotGap : rollBurstPause(prof);
+  }
+  return r;
+}
+
+/** Steer a step straight away from the target. False when that step leaves the map. */
+function backOff(e: Enemy, host: EnemyHost, t: CombatTarget): boolean {
+  const dx = e.position.x - t.position.x, dz = e.position.z - t.position.z;
+  const l = Math.hypot(dx, dz);
+  if (l < 1e-3) return false;
+  const x = e.position.x + (dx / l) * STEP_M, z = e.position.z + (dz / l) * STEP_M;
+  if (!host.ctx.world!.isInsideBounds(x, z)) return false;
+  e.moveTarget.set(x, 0, z);
+  e.hasMoveTarget = true;
+  return true;
+}
+
+/**
+ * 2026-09-13: the android fight — **no cover, no grenades, no rush** (`roguePhase` stays 0 or 3). Inside the
+ * `engageMin..engageMax` band with a line it stands (hint 5) and fires slow short bursts; a target it cannot see or that
+ * stands too far is approached at `advanceMul` × speed (never past the leash), one too close is backed away from.
+ * A blocked muzzle strafes like everybody else's. Aim error is the android curve — it is not meant to kill.
+ */
+function androidCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget, prof: HumanoidProfile): CycleResult {
+  const s = e.stats;
+  const r = cycle;
+  const d = e.distToTarget;
+  const slow = s.speed * HUMANOID_ANDROID.advanceMul;
+  r.speed = 0; r.aim = 1; r.crouch = 0;
+  lookAtTarget(e, t, dt);
+  e.facePoint.copy(t.position); e.hasFacePoint = true;
+  e.hasPop = false; e.hasCover = false;
+  e.popBursts = 0;
+
+  // leash: walk back to the post unless the target is in plain sight inside the band
+  const leashD = Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z);
+  if (leashD > e.leash && !(e.hasLOS && d < HUMANOID_ANDROID.engageMax)) {
+    e.moveTarget.copy(e.guardPos); e.hasMoveTarget = true;
+    e.roguePhase = 0; e.burstLeft = 0;
+    r.speed = slow; r.aim = 0.6;
+    return r;
+  }
+
+  let moving = false;
+  if (!e.hasLOS || d > HUMANOID_ANDROID.engageMax) {
+    e.moveTarget.copy(t.position); e.hasMoveTarget = true;
+    r.speed = slow; moving = true;
+  } else if (d < HUMANOID_ANDROID.engageMin && backOff(e, host, t)) {
+    r.speed = slow; moving = true;
+  }
+  if (moving) e.standTime = 0; else e.standTime += dt;
+  e.burstTimer -= dt;
+  if (!e.hasLOS) { e.roguePhase = 0; e.burstLeft = 0; r.aim = 0.6; return r; }
+  e.roguePhase = 3;   // rifle up on the target (hint 5) — never the cover phases
+  if (e.reloadTimer > 0) return r;
+  if (!hasFireLine(e, host, t)) {
+    if (!moving) { fireLineStrafe(e, host, t, dt); r.speed = slow; }
+    return r;
+  }
+  if (e.burstLeft <= 0) {
+    if (e.burstTimer <= 0) { e.burstLeft = Math.min(e.magRounds, rollBurst(prof)); e.burstTimer = 0; }
+    return r;
+  }
+  if (e.burstTimer <= 0 && canShoot(e, host, t)) {
+    shoot(e, host, t, aimError(e, prof, true), prof, false);
+    e.burstLeft--;
+    e.burstTimer = e.burstLeft > 0 ? prof.shotGap : rollBurstPause(prof);
+  }
+  return r;
+}
+
+function enterCover(e: Enemy, boss: boolean, prof: HumanoidProfile): void {
   e.roguePhase = 2;
-  e.coverTimer = e.hasCover ? ROGUE_AI.coverMin + Math.random() * (ROGUE_AI.coverMax - ROGUE_AI.coverMin) : 0.8 + Math.random() * 1.2;
+  e.coverTimer = e.hasCover ? (ROGUE_AI.coverMin + Math.random() * (ROGUE_AI.coverMax - ROGUE_AI.coverMin)) * prof.coverMul : 0.8 + Math.random() * 1.2;
   if (boss) e.coverTimer *= 0.6;
   e.stateTime = 0;
 }
 
-function popOut(e: Enemy, boss: boolean): void {
+function popOut(e: Enemy, boss: boolean, prof: HumanoidProfile): void {
   e.roguePhase = 3;
-  e.burstLeft = Math.min(e.magRounds, boss ? ROGUE_AI.bossRounds : ROGUE_BURST);
+  e.burstLeft = burstSize(e, prof, boss);
+  e.popBursts = Math.max(1, Math.round(prof.burstsPerPop));
   e.burstTimer = 0.15;
   e.standTime = 0;
   e.noLosTimer = 0;

@@ -135,15 +135,69 @@ export function runInventorySelfTest(): boolean {
   const c2 = loot.rollCorpse('warrior', new Random(5)).map((i) => `${i.defId}x${i.qty}`).join(',');
   check(c1 === c2 && c1.includes('mat_bio_sample'), 'rollCorpse deterministic, bugs drop bio samples');
   const rogue = loot.rollCorpse('rogue', new Random(11), 'smg');
-  const rogueWeapon = rogue.find((i) => i.defId === 'wpn_smg');
+  // 2026-09-13 팩션 전리품: 로그의 총은 같은 계열(smg)이고 등급만 I 85 / II 14 / III 1 로 굴린다 (`data/loot_factions.csv`)
+  const rogueWeapon = rogue.find((i) => /^wpn_smg(_g[23])?$/.test(i.defId));
   const rogueStats = rogueWeapon && loot.getEffectiveStats(rogueWeapon);
-  check(!!rogueWeapon && !!rogueStats && (rogueWeapon.durability ?? 0) <= rogueStats.maxDurability * 0.15 + 1, 'rogue corpse carries its weapon at ≤ 15 % durability');
+  check(!!rogueWeapon && !!rogueStats && (rogueWeapon.durability ?? 0) <= rogueStats.maxDurability * 0.15 + 1, 'rogue corpse carries its weapon (same family, grade I–III) at ≤ 15 % durability');
   const lightStack = getDef('ammo_light')!.stackMax;
   check(rogue.some((i) => i.defId === 'ammo_light' && i.qty >= lightStack * 0.3 && i.qty <= lightStack * 0.6), 'rogue corpse drops 30–60 % of the light stack');
+  check(!rogue.some((i) => getDef(i.defId)!.category === 'grenade'), 'rogue corpse has no grenade roll of its own (only leftovers via opts.grenades)');
   const boss = loot.rollCorpse('rogue_boss', new Random(3), 'dmr');
   check(boss.some((i) => i.defId === 'wpn_dmr_g3' || i.defId === 'wpn_dmr_g4'), 'boss corpse weapon is grade III/IV of the same family');
   check(boss.some((i) => getDef(i.defId)!.category === 'attachment') && boss.some((i) => getDef(i.defId)!.category === 'stim'), 'boss corpse has an attachment and stims');
   check(loot.rollCorpse('nope' as never, new Random(1)).length === 1, 'unknown corpse type → single bio sample');
+
+  // 2026-09-13 인간형 팩션 전리품 (안드로이드 · 로그 · 레이더 — `loot_factions.csv` · `loot_faction_sites.csv`)
+  {
+    const sig = (xs: readonly ItemInstance[]): string => xs.filter((i) => getDef(i.defId)!.category !== 'grenade')
+      .map((i) => `${i.defId}x${i.qty}:${i.durability ?? ''}:${i.ammoInMag ?? ''}`).sort().join(',');
+    const gradeOfItem = (i: ItemInstance): number => { const w = getDef(i.defId)?.weaponId; return w ? (loot.getWeaponDef(w)?.grade ?? 0) : 0; };
+
+    // 남은 수류탄: 종류 × 개수 그대로, 다른 굴림은 한 톨도 안 움직인다 (rng 를 안 쓴다)
+    const withNades = loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'incendiary', count: 2 } });
+    check(withNades.some((i) => i.defId === 'grenade_incendiary' && i.qty === 2) && sig(withNades) === sig(rogue), 'leftover grenades go into the corpse as-is (kind × count) without moving other rolls');
+    check(!loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'frag', count: 0 } }).some((i) => getDef(i.defId)!.category === 'grenade'), 'zero leftover grenades → no grenade item');
+    const bossNades = loot.rollCorpseOn('rogue_boss', new Random(3), 'dmr', null, { site: 'lab', grenades: { kind: 'frag', count: 3 } });
+    check(bossNades.some((i) => i.defId === 'grenade_frag' && i.qty === 3) && sig(bossNades) === sig(boss), 'a type without faction rows ignores the site; its leftovers still land in the corpse');
+
+    let androidBad = 0, androidG2 = 0, androidG1 = 0;
+    let rogueGearTooRare = 0, raiderGearTooRare = 0, gear = 0, gearDurBad = 0;
+    let labNoSite = 0, labItems = 0, amberOver3 = 0, baseHigh = 0, outpostHigh = 0;
+    for (let s = 0; s < 600; s++) {
+      const a = loot.rollCorpse('android', new Random(s), s % 2 ? 'ar' : 'smg');
+      const aw = a.filter((i) => !!getDef(i.defId)!.weaponId);
+      if (aw.length !== 1 || !/^wpn_(ar|smg)(_g2)?$/.test(aw[0].defId)) androidBad++;
+      else if (gradeOfItem(aw[0]) === 2) androidG2++; else androidG1++;
+      for (const i of a) {
+        const d = getDef(i.defId)!;
+        if (d.category === 'armor' || d.category === 'bag' || d.category === 'grenade' || (d.category === 'stim' && !d.id.startsWith('shield_charger'))) androidBad++;
+      }
+      for (const type of ['rogue', 'raider'] as const) {
+        for (const i of loot.rollCorpse(type, new Random(s), 'ar')) {
+          const d = getDef(i.defId)!;
+          if (d.category === 'seed' || d.id.startsWith('spec_')) labNoSite++;
+          if (d.category !== 'armor' && d.category !== 'bag') continue;
+          gear++;
+          if (d.durabilityMax === undefined || (i.durability ?? 0) < 1 || (i.durability ?? 0) > Math.round(d.durabilityMax * 0.15)) gearDurBad++;
+          if (type === 'rogue' && d.rarity !== 'common' && d.rarity !== 'uncommon') rogueGearTooRare++;
+          if (type === 'raider' && (d.category === 'bag' ? d.rarity !== 'common' && d.rarity !== 'uncommon' : d.rarity === 'epic' || d.rarity === 'legendary')) raiderGearTooRare++;
+        }
+      }
+      for (const i of loot.rollCorpseOn('raider', new Random(s), 'ar', null, { site: 'lab' })) {
+        const d = getDef(i.defId)!;
+        if (d.category === 'seed' || d.id.startsWith('spec_')) { labItems++; if (d.retired) labNoSite++; }
+      }
+      if (loot.rollCorpseOn('raider', new Random(s), 'ar', 'amber', { site: 'outpost' }).some((i) => gradeOfItem(i) > 3)) amberOver3++;
+      if (loot.rollCorpse('raider', new Random(s), 'ar').some((i) => gradeOfItem(i) >= 2)) baseHigh++;
+      if (loot.rollCorpseOn('raider', new Random(s), 'ar', null, { site: 'outpost' }).some((i) => gradeOfItem(i) >= 2)) outpostHigh++;
+    }
+    check(androidBad === 0 && androidG1 > androidG2 && androidG2 > 0, `android corpse: one ar/smg weapon at grade I (mostly) / II, only shield chargers, no armor · bag · grenades (bad ${androidBad}, I ${androidG1}, II ${androidG2})`);
+    check(gear > 0 && gearDurBad === 0, `rogue / raider armor & bags drop at ≤ 15 % durability (${gear} pieces, bad ${gearDurBad})`);
+    check(rogueGearTooRare === 0 && raiderGearTooRare === 0, 'rogue armor · bag max uncommon; raider armor max rare, bag max uncommon');
+    check(labNoSite === 0 && labItems > 0, `lab items (seeds · unidentified samples, never retired) only when the raider spawned at a lab (${labItems})`);
+    check(outpostHigh > baseHigh, `outpost raiders carry higher-grade guns (grade ≥ II ${outpostHigh} vs ${baseHigh} of 600)`);
+    check(amberOver3 === 0, 'planet max grade still caps faction corpse weapons (아켈론 II ≤ III)');
+  }
 
   // starter ids exist (weapon package shape: primary / primary2 / secondary / bag / items[{id, qty}])
   check(!!getDef(STARTER_LOADOUT.primary), 'starter weapon def exists');   // 2026-09-10: 보조무기 제거 → 주무기

@@ -18,8 +18,9 @@ const DISCOVER_TEXT: Readonly<Record<'structure' | 'rail' | 'grove', string>> = 
  *     `StructureKind` 를 찾아 `STRUCTURE_LABEL_KO`(버려진 전진기지 · 버려진 연구실 · 불시착한 함선)로 이름을
  *     붙이고, 못 찾으면 일반 문구로 떨어진다. **world/Fog 의 `TOAST` 에 이 세 종류를 넣으면 토스트가 두 번
  *     뜬다** — 넣지 않기로 한 자리다.
- *   - **로그 강하 예고** (`rogueDrop:incoming`). `적 n명 강하 감지 — n초` 위험 토스트; 보스가 섞였으면 문구에
- *     `(분대장 포함)` 이 붙는다. **2026-09-10 부터 소리는 여기서 내지 않는다** — `wave_alarm`(벌레 웨이브와
+ *   - **레이더 강하 예고** (`rogueDrop:incoming`). `레이더 n명 강하 감지 — n초` 위험 토스트. 2026-09-13 부터 강하는
+ *     레이더만 내리고 분대장(보스)이 섞이지 않으므로 `(분대장 포함)` 문구는 없어졌다 (이벤트 · 필드 이름은 계약이라
+ *     `rogueDrop:*` · `boss` 그대로다). **2026-09-10 부터 소리는 여기서 내지 않는다** — `wave_alarm`(벌레 웨이브와
  *     같은 소리였다)을 걷어내고 `audio/AudioSystem` 이 같은 이벤트로 `rogue_drop_alarm` 을 울린다. 거리 감쇠가
  *     붙은 소리라 크기를 정할 수 있는 곳이 거기뿐이고, 한 사건에 두 폴더가 경보를 울리면 겹쳐 난다.
  *     화면 표시(화면 안 머리 마커 · 밖 방향 호)는 `hud/DangerIndicators` 가 `ctx.enemies.getRogueDrops()` 를
@@ -45,11 +46,10 @@ export class RaidAlerts {
         }
         b.emit('ui:notify', { text, kind: 'info', duration: 2.6 });
       }),
-      b.on('rogueDrop:incoming', ({ dropId, count, boss, eta }) => {
+      b.on('rogueDrop:incoming', ({ dropId, count, eta }) => {
         if (this.announced.has(dropId)) return;
         this.announced.add(dropId);
-        const who = boss ? `적 ${count}명 강하 감지 (분대장 포함)` : `적 ${count}명 강하 감지`;
-        b.emit('ui:notify', { text: `${who} — ${Math.max(0, Math.ceil(eta))}초`, kind: 'danger', duration: 4 });
+        b.emit('ui:notify', { text: `레이더 ${count}명 강하 감지 — ${Math.max(0, Math.ceil(eta))}초`, kind: 'danger', duration: 4 });
       }),
       b.on('game:newMission', () => this.announced.clear()),
       b.on('game:abort', () => this.announced.clear()),

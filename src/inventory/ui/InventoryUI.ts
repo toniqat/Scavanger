@@ -563,7 +563,7 @@ export class InventoryUI {
     this.stashView.setGrid(hub ? this.sys.getStash() : null);
     this.bagView.setGrid(this.sys.getGrid('bag'));
     this.refreshPouch();
-    this.catalogView.setOpen(this.sys.isCatalogOpen);
+    this.setCatalog(this.sys.isCatalogOpen);   // 2026-09-13: also syncs the `.is-catalog` layout class
     this.root.hidden = false;
     this.visible = true;
     this.refresh();
@@ -920,7 +920,8 @@ export class InventoryUI {
     const out: GridView[] = [];
     if (this.container) out.push(this.containerView);
     if (this.hub) out.push(this.stashView);
-    if (!this.pouchPanel.hidden) out.push(this.pouchView);
+    // 2026-09-13: the 무한 상자 layout hides the pouch block with CSS (`.is-catalog`), not `hidden` — check both
+    if (!this.pouchPanel.hidden && !this.catalogView.isOpen) out.push(this.pouchView);
     out.push(this.bagView);
     return out;
   }

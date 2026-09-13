@@ -1,5 +1,5 @@
 import type { ItemInstance, LootRef, SocketSlot } from '@/shared';
-import { SOCKET_SLOTS, slotKey } from '@/shared';
+import { SOCKET_SLOTS, normalizeMealQuality, slotKey } from '@/shared';
 import type { DefLookup, Placement } from './Grid';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -20,6 +20,11 @@ export interface SavedExtras {
    * 가 붙인다 — `serializeExtras` 는 쓰지 않으므로 창고 · 로드아웃 문서에는 없다). 생략 = 표식 없음.
    */
   rf?: number;
+  /**
+   * 2026-09-13 (요리 품질): `ItemInstance.quality` (별 1 … `MEAL_QUALITY_MAX`). `rf` 와 달리 `serializeExtras` 가 직접 싣는다 —
+   * **창고 · 로드아웃 문서 · 레이드 blob 모두**. 생략 = 품질 0. `reviveItem` 이 `normalizeMealQuality` 로 자른다.
+   */
+  q?: number;
 }
 
 /** One item placed on a grid. */
@@ -63,6 +68,8 @@ export function serializeExtras(item: ItemInstance): SavedExtras {
   const out: SavedExtras = { defId: item.defId, qty: item.qty };
   if (item.durability !== undefined) out.durability = item.durability;
   if (item.ammoInMag !== undefined) out.ammoInMag = item.ammoInMag;
+  const q = normalizeMealQuality(item.quality);   // 2026-09-13: 요리 품질 (0 = 필드 없음)
+  if (q > 0) out.q = q;
   if (item.sockets) {
     const sockets: SavedExtras['sockets'] = {};
     let any = false;
@@ -95,6 +102,8 @@ export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup
   if (typeof sv.durability === 'number' && Number.isFinite(sv.durability)) item.durability = Math.max(0, sv.durability);
   if (typeof sv.ammoInMag === 'number' && Number.isFinite(sv.ammoInMag)) item.ammoInMag = Math.max(0, Math.floor(sv.ammoInMag));
   if (typeof sv.rf === 'number' && Number.isFinite(sv.rf)) item.raidFound = sv.rf >>> 0;   // 2026-09-12: raid blob only
+  const q = normalizeMealQuality(sv.q);   // 2026-09-13: 요리 품질 — 창고 · 로드아웃 · 레이드 blob
+  if (q > 0) item.quality = q;
   if (sv.sockets && typeof sv.sockets === 'object') {
     for (const slot of SOCKET_SLOTS) {
       const att = sv.sockets[slot];

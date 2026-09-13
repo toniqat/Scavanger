@@ -1,6 +1,6 @@
 import './tutorial.css';
 import type { GameContext, GameSystem, TutorialGate, TutorialRef, TutorialSave, TutorialStepId } from '@/shared';
-import { COCKPIT_DEFAULT_FURNITURE, SHIP_ROOM_COUNT, TUTORIAL_STEPS, slotKey } from '@/shared';
+import { COCKPIT_DECOR_FURNITURE, COCKPIT_DEFAULT_FURNITURE, COCKPIT_ROOM_INDEX, SHIP_ROOM_COUNT, TUTORIAL_STEPS, slotKey } from '@/shared';
 import {
   SKIP_HOLD_TIME, TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
@@ -203,7 +203,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (h) {
       try {
         // 2026-09-12: 조종석의 기본 공용 가구(시술대 · 컴퓨터)는 모든 함선에 늘 놓여 있다 — 그것만으로는 「꾸민 함선」이 아니다
-        if (h.getPlaced().some((f) => !COCKPIT_DEFAULT_FURNITURE.some((d) => d.defId === f.defId))) return false;
+        // 2026-09-13: 조종석 꾸밈 가구(침상 · 사물함 · 서랍장 — `COCKPIT_DECOR_FURNITURE`)도 새 함선에 처음부터 놓여 있다
+        if (h.getPlaced().some((f) => !COCKPIT_DEFAULT_FURNITURE.some((d) => d.defId === f.defId)
+          && !(f.room === COCKPIT_ROOM_INDEX && COCKPIT_DECOR_FURNITURE.some((d) => d.defId === f.defId)))) return false;
         for (let i = 0; i < SHIP_ROOM_COUNT; i++) if (h.getRoom(i).purpose !== 'empty') return false;
       } catch { /* housing not ready — fall through to the level check */ }
     }

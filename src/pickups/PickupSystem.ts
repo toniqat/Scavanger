@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   PROP_STEP_UP_MAX,
-  GRAVITY, PICKUP_LIFETIME, PICKUP_MAX,
+  GRAVITY, PICKUP_LIFETIME, PICKUP_MAX, normalizeMealQuality,
   type GameContext, type GameSystem, type Interactable, type ItemDef, type ItemInstance, type PickupRef, type PickupsRef,
   type ItemMessage, type ItemRequest, type FlowMessage, type PickupWire, type PeerId, type Vec3Tuple, type ItemInstanceExtras,
 } from '@/shared';
@@ -307,6 +307,8 @@ export class PickupSystem implements GameSystem, PickupsRef {
     const ex = extrasOf(p.item);
     if (ex) w.ex = ex;
     if (typeof p.item.raidFound === 'number') w.rf = p.item.raidFound;   // 2026-09-12: 아이템 회수 계약 표식
+    const q = normalizeMealQuality(p.item.quality);   // 2026-09-13: 요리 품질 (0 = 생략)
+    if (q > 0) w.q = q;
     return w;
   }
 
@@ -317,6 +319,9 @@ export class PickupSystem implements GameSystem, PickupsRef {
       : { uid: `pk-${w.id}`, defId: w.defId, qty: w.qty, rotated: false, ...(w.ex ?? {}) };
     // 2026-09-12: the raid-found mark travels with the item (omitted = not raid-found — an older peer, a brought item)
     if (typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;
+    // 2026-09-13: the meal quality travels with it too (omitted = 0 — an older peer, not a meal)
+    const q = normalizeMealQuality(w.q);
+    if (q > 0) item.quality = q;
     return item;
   }
 

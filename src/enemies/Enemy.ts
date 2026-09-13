@@ -2,11 +2,16 @@ import * as THREE from 'three';
 import {
   CORPSE_FALL_MAX_SPEED, CORPSE_LIFETIME, DEATH_FALL_TIME, ENEMY_DEATH_DIRS, Random, ROGUE_GRENADE_COOLDOWN, ROGUE_MAG_ROUNDS, recordRideLocal,
   type DeployableRef, type EnemyDeathDir, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle,
+  type EnemyGrenadeKind, type EnemySpawnSite, type EnemySquadRole,
 } from '@/shared';
-import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
+import { ENEMY_STATS, HUMANOID_RAIDER, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
 import { animateNamedRig, namedBodyNearest } from './models/named';
+/* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
+import { BURROW_SINK_EXTRA_M, GRAVITY } from '@/shared';
+import { isWormType } from './EnemyTypes';
+import { animateWorm, createWormRig, disposeWormRig, type WormRig } from './models/WormModel';
 import { nearestOnStandingCapsule } from './RayTests';
 import type { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, type TargetId, type TargetList } from './Targets';
@@ -15,7 +20,9 @@ import type { ReplicaBuffer } from './net/Replica';
 export type EnemyState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'stagger' | 'dead' | 'flee';
 export type HitPart = 'head' | 'body' | 'rear' | 'front';
 /** Bug rig (six legs) or humanoid rogue rig — both expose `params.head` / `params.strideLength` / `root` / `baseScale`. */
-export type EnemyRig = BugRig | RogueRig;
+export type EnemyRig = BugRig | RogueRig
+  /* appended (2026-09-13): 지하벌레 (`models/WormModel`) */
+  | WormRig;
 
 /**
  * 2026-09-11 (네임드 로그): `EnemyHost.fireGun` 의 선택 인자. **생략하면 예전 로그 사격과 한 치도 다르지 않다.**
@@ -93,6 +100,9 @@ export interface EnemyHost {
    * and, on contact, retarget it onto the carrier + throttled `implant:barrierBumped`.
    */
   resolveBarrier(e: Enemy): void;
+  /* ── appended: 2026-09-13 (굴착 스폰 · 지하벌레) ── */
+  /** A body the sandworm spat out has landed (`ai/Burrow`) — dust puff + thud on this client. */
+  burrowLanded?(e: Enemy): void;
 }
 
 const _v = new THREE.Vector3();
@@ -362,8 +372,48 @@ export class Enemy implements EnemyRef {
   /** Per-type scratch object owned by that type's AI file (null after `reset`). */
   namedData: unknown = null;
 
+  /* ── appended: 행성별 인간형 팩션 (2026-09-13 계약) ─────────────────── */
+  /** 배치된 거점 (전리품 입력 — `CorpseLootOpts.site`). null = 거점 밖 (디버그 · 네임드 · 벌레). */
+  site: EnemySpawnSite | null = null;
+  /** 그룹 id (-1 = 없음) · 그룹 안 역할. 스폰 디렉터가 `spawnRogue(…, opts)` 로 준다. */
+  squadId = -1;
+  squadRole: EnemySquadRole = 'member';
+  /** 들고 있는 수류탄 종류 · 남은 수 (0 = 없음). 인간형 AI 담당이 스폰 때 굴리고 던질 때 줄인다 — 남은 것은 시체에. */
+  grenadeKind: EnemyGrenadeKind = 'frag';
+  grenadeCount = 0;
+
+  /* ── appended: 굴착 스폰 · 지하벌레 (2026-09-13 — `ai/Burrow` · `parts/Burrow` · `sandworm/Director`) ─────────── */
+  /** 땅을 파고 올라오는 중: 남은 초 (0 = 다 나왔다). 권위 · 리플리카 모두 `animate` 가 줄인다 — 그림과 판정이 같은 시계. */
+  emergeT = 0;
+  /** 이번 굴착의 전체 시간(초). 0 = 굴착이 없었거나 끝났다. */
+  emergeDur = 0;
+  /** 굴착 시작 때 묻혀 있던 깊이(m) = 몸 높이 + `BURROW_SINK_EXTRA_M`. */
+  emergeDepth = 0;
+  /** 지하벌레가 뱉어 날아가는 중: 남은 초 · 전체 시간 (0 = 아니다). */
+  spatT = 0;
+  spatDur = 0;
+  readonly spatFrom = new THREE.Vector3();
+  readonly spatTo = new THREE.Vector3();
+  /** 뱉어진 순간의 속도 (`GRAVITY` 포물선이 `spatTo` 에 `spatDur` 에 닿게 푼 값). */
+  readonly spatVel = new THREE.Vector3();
+  /** 지하벌레: 버그 뱉기 단계가 끝나는 `ctx.time` (그 뒤는 독극물). 리플리카도 `ee wormErupt` 로 채워 둔다 (승격 대비). */
+  wormSpitUntil = 0;
+  /** 지하벌레: 다음 뱉기 · 독극물까지 남은 초 (권위). */
+  wormTimer = 0;
+  /* ── appended: 인간형 팩션 AI (2026-09-13 — `ai/RogueAI` · `ai/SquadFlank`) ─────────────── */
+  /** rogue / raider: bursts still to fire in the current pop-out (`HUMANOID_*.burstsPerPop`). */
+  popBursts = 0;
+  /** raider flanker: 0 = with the squad, 1 = moving on the flank arc (the push itself is `roguePhase` 4). */
+  flankPhase: 0 | 1 = 0;
+  /** raider flanker: seconds of engagement (chase) before the next flank may start — `flankDelay` at spawn, `flankCooldown` after one. */
+  flankCd = 0;
+  /** raider flanker: which side of the target the arc goes to (+1 = the target's left of its forward… see `SquadFlank`). */
+  flankSide: 1 | -1 = 1;
+  /** raider flanker: seconds on the current arc (`flankMaxTime` → push anyway). */
+  flankClock = 0;
+
   constructor(type: EnemyType) {
-    this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
+    this.rig = isWormType(type) ? createWormRig() : isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
     this.type = type;
     this.stats = ENEMY_STATS[type];
     this.rig.root.visible = false;
@@ -376,6 +426,11 @@ export class Enemy implements EnemyRef {
   get object(): THREE.Object3D { return this.rig.root; }
   get faction(): EnemyFaction { return this.stats.faction; }
   get isRogue(): boolean { return this.stats.faction === 'rogue'; }
+  /**
+   * 2026-09-13: 벌레가 아닌 **인간형 AI** (로그 · 레이더 · 안드로이드 · 네임드 · 스캔 드론). 2026-09-13 전까지 `isRogue` 가
+   * 이 뜻으로 쓰였다 — 팩션이 넷이 되어 갈라졌다. AI 분기 · 재활용 제외 · 사람 소리는 전부 이것을 본다.
+   */
+  get isHumanoid(): boolean { return this.stats.faction !== 'bug'; }
   /** 전소 (incinerated): writhing on the spot — no movement / attacks, still damageable (a kill mid-writhe works). */
   get isIncapacitated(): boolean { return this.active && this.state !== 'dead' && this.incapTimer > 0; }
   /** Alive and fighting (not dead / fleeing / inactive / 전소). Incapacitated enemies are non-combatants: the other faction stops hunting them. */
@@ -425,6 +480,11 @@ export class Enemy implements EnemyRef {
     this.toxicPhase = 0; this.swellTimer = 0;
     this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0; this.chargeDrones.length = 0;
     this.corpseLife = CORPSE_LIFETIME;
+    // 2026-09-13: 거점 · 분대 · 수류탄 (스폰 경로가 다시 채운다)
+    this.site = null; this.squadId = -1; this.squadRole = 'member'; this.grenadeKind = 'frag'; this.grenadeCount = 0;
+    // 2026-09-13: 굴착 · 뱉어짐 · 지하벌레 (스폰 경로가 다시 채운다)
+    this.emergeT = 0; this.emergeDur = 0; this.emergeDepth = 0; this.spatT = 0; this.spatDur = 0; this.wormSpitUntil = 0; this.wormTimer = 0;
+    this.popBursts = 0; this.flankPhase = 0; this.flankCd = HUMANOID_RAIDER.flankDelay; this.flankSide = 1; this.flankClock = 0;
     // Phase 7: full magazine, grenade cooldown staggered so a squad never volleys at once
     this.magRounds = ROGUE_MAG_ROUNDS; this.reloadTimer = 0;
     this.grenadeCd = ROGUE_GRENADE_COOLDOWN * (0.25 + Math.random() * 0.5); this.noLosHold = 0; this.throwTimer = 0;
@@ -471,8 +531,50 @@ export class Enemy implements EnemyRef {
     this.asTarget.isDead = true;
   }
 
+  /* ── appended: 2026-09-13 (굴착 스폰 · 지하벌레) ── */
+  /**
+   * `duration` 초 동안 땅을 파고 올라온다 — 몸 높이 + `BURROW_SINK_EXTRA_M` 깊이에서 시작해 ease-out 으로 솟는다. **그림만** 내린다:
+   * 판정 위치(`position`)는 땅 위 그대로라 그동안에도 맞는다. 공격 · 이동 금지는 `ai/Burrow.updateBurrowGate`. 0 이하는 무시.
+   */
+  startEmerge(duration: number): void {
+    if (!(duration > 0)) return;
+    this.emergeDur = duration;
+    this.emergeT = duration;
+    this.emergeDepth = this.stats.height * this.rig.baseScale + BURROW_SINK_EXTRA_M;
+    if (this.rig.kind !== 'worm') this.rig.root.position.y = this.position.y - this.emergeDepth;
+  }
+
+  /** 굴착 중 아직 땅속에 있는 깊이(m). 굴착이 없으면 0. 죽으면 그 자리에서 멈춘다 (파다 죽은 몸). */
+  get burrowSink(): number {
+    if (!(this.emergeDur > 0)) return 0;
+    const k = 1 - Math.max(0, this.emergeT) / this.emergeDur;
+    const ease = 1 - (1 - k) * (1 - k) * (1 - k);
+    return this.emergeDepth * (1 - ease);
+  }
+
+  /**
+   * `from`(지하벌레 입) 에서 `to`(착지 표면) 까지 `T` 초 포물선으로 뱉어진다. 날아가는 동안 `airborne` — 공중에서 죽으면 기존 사망
+   * 낙하가 이어받는다. 한 걸음은 `ai/Burrow.stepSpatFlight` (권위 · 리플리카 공용).
+   */
+  startSpat(from: THREE.Vector3, to: THREE.Vector3, T: number): void {
+    const t = Math.max(0.2, T);
+    this.spatFrom.copy(from);
+    this.spatTo.copy(to);
+    this.spatVel.set((to.x - from.x) / t, (to.y - from.y) / t + 0.5 * GRAVITY * t, (to.z - from.z) / t);
+    this.spatDur = t;
+    this.spatT = t;
+    this.position.copy(from);
+    this.airborne = true;
+    this.leaping = false;
+    this.vy = this.spatVel.y;
+    this.emergeT = 0;
+    this.emergeDur = 0;
+  }
+
   dispose(): void {
-    if (this.rig.kind === 'bug') disposeBugRig(this.rig); else disposeRogueRig(this.rig);
+    if (this.rig.kind === 'bug') disposeBugRig(this.rig);
+    else if (this.rig.kind === 'worm') disposeWormRig(this.rig);
+    else disposeRogueRig(this.rig);
   }
 
   /** Horizontal facing direction (unit). */
@@ -602,7 +704,8 @@ export class Enemy implements EnemyRef {
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
       this.host?.alertNear(this.position, 14, this);
     }
-    if (this.isRogue && this.roguePhase === 3) this.hitCrouchTimer = ROGUE_AI.hitCrouch;   // duck when hit while popped out
+    // duck when hit while popped out — 2026-09-13: not an android (it never takes cover; hint 6 would crouch it on replicas)
+    if (this.isHumanoid && this.roguePhase === 3 && this.faction !== 'android') this.hitCrouchTimer = ROGUE_AI.hitCrouch;
     this.host?.onEnemyDamaged(this, dmg, part, hitPoint, hitDir);
     if (this.hp <= 0) {
       this.hp = 0;
@@ -695,6 +798,7 @@ export class Enemy implements EnemyRef {
     this.deathTimer = 0;
     this.airborne = false;
     this.leaping = false;
+    this.spatT = 0;   // 2026-09-13: 뱉어져 날던 몸은 여기서부터 사망 낙하가 맡는다 (`deathVy` 는 위에서 잡았다)
     this.deathDir = dir ?? this.rollDeathDir();
     this.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(this.deathDir));
     this.anim.deathFall = 0;
@@ -737,7 +841,7 @@ export class Enemy implements EnemyRef {
     a.flinch = Math.max(0, a.flinch - dt * 4.5);
     a.recoil = Math.max(0, a.recoil - dt * 6);
     // Phase 7 rogue poses: reload (rifle down, hands at the magazine) / throw (grenade arm raised) blend in from the timers
-    if (this.isRogue) {
+    if (this.isHumanoid) {
       const alive = this.state !== 'dead';
       const reloadT = alive && this.reloadTimer > 0 ? 1 : 0;
       const throwT = alive && this.throwTimer > 0 ? 1 : 0;
@@ -767,10 +871,17 @@ export class Enemy implements EnemyRef {
     }
     this.rig.root.position.copy(this.position);
     this.rig.root.rotation.y = this.yaw;
+    // 2026-09-13 (굴착): 땅속에서 올라오는 몸 — 그림만 내린다 (지하벌레는 리그가 몸통만 내린다). 죽으면 그 깊이에서 멈춘다.
+    if (this.emergeDur > 0) {
+      if (this.emergeT > 0 && this.state !== 'dead') this.emergeT = Math.max(0, this.emergeT - dt);
+      if (this.rig.kind !== 'worm') this.rig.root.position.y -= this.burrowSink;
+      if (this.emergeT <= 0 && this.state !== 'dead') this.emergeDur = 0;
+    }
     this.animateRig(dt);
   }
 
   private animateRig(dt = 0): void {
+    if (this.rig.kind === 'worm') { animateWorm(this.rig, this.anim, this.burrowSink); return; }   // 2026-09-13
     if (this.rig.kind === 'bug') animateBug(this.rig, this.anim);
     else {
       animateRogue(this.rig, this.anim);

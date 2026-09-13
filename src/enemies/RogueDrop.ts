@@ -1,59 +1,71 @@
 /**
- * src/enemies/RogueDrop.ts — **로그 강하** (2026-09-09).
+ * src/enemies/RogueDrop.ts — **레이더 강하** (2026-09-09 로그 강하 → 2026-09-13 레이더 파도).
  *
  * 이 파일이 답하는 질문: *버려진 전진기지 · 연구실 · 선로 플랫폼을 뒤지면 무슨 일이 벌어지는가.*
  *
  * world/ 가 그 구역의 컨테이너를 **처음** 조사할 때 `structure:investigated {zoneId, kind, position}` 를 낸다.
- * 호스트가 그 구역에 대해 딱 한 번 `ROGUE_DROP_CHANCE` 를 굴리고, 성공하면 로그 분대가 하늘에서 내려온다:
+ * 호스트가 그 구역에 대해 딱 한 번 **행성 threat 별 확률**(`RAIDER_DROP_CHANCE_BY_THREAT`, threat 1 = 0 → 굴리지도 않는다)을
+ * 굴리고, 성공하면 **레이더** 분대가 하늘에서 내려온다:
  *
  *   예고(`rogueDrop:incoming` + `rdrop incoming`) → `ROGUE_DROP_ETA_S` 초 낙하 →
- *   착지(`rogueDrop:landed` + `rdrop landed`) → 로그 스폰 → **트리거 지점(구조물)으로 진격**
+ *   착지(`rogueDrop:landed` + `rdrop landed`) → 레이더 스폰 → **트리거 지점(구조물)으로 진격**
+ *
+ * 이름(`rogueDrop:*` · `rdrop` · `callRogueDrop` · `getRogueDrops` · `ROGUE_DROP_ETA_S` · `ROGUE_DROP_RADIUS`)은 계약이라
+ * 그대로다. 사람에게 보이는 문구("레이더 강하")는 ui/ 의 몫이다.
+ *
+ * ## 파도 (2026-09-13, 사용자 결정)
+ * 한 강하는 **최대 두 파도**이고 파도마다 인원은 분대 인원이 정한다 — `data/tables.csv` 의 `RAIDER_DROP_WAVE1_*` ·
+ * `RAIDER_DROP_WAVE2_*` (index 0 = 분대 1명): 1인 3 · 2인 3 → 2 · 3인 3 → 3 · 4인 4 → 3–4. 한 파도는
+ * `RAIDER_DROP_WAVE_MAX`(4)명을 넘지 않는다. 두 번째 파도는 첫 예고 `RAIDER_DROP_WAVE_GAP_S`(10) 초 뒤에 **따로 예고되는
+ * 독립된 강하**다 — dropId `${zoneId}#2`, 자기 `rdrop incoming` / `landed`, 자기 포드 · 자기 착지 지점(시드 = 그 dropId).
+ * 리플리카는 파도를 모른다: 받은 `rdrop` 하나하나가 강하 하나다. 파도마다 분대 하나(`allocSquadId`)이고
+ * 정확히 한 명이 `flanker`, 거점은 `'drop'`. 분대장(`rogue_boss`)은 없다 (`RogueDropView.boss` 는 늘 false).
+ * 두 번째 파도는 **호스트가 들고 있는 예약**이다 — 그 10 초 사이 호스트가 바뀌면 그 파도는 오지 않는다 (알려진 한계).
  *
  * ## 알린다 (2026-09-10)
  * 강하는 조용히 일어나면 안 된다. 이 파일이 내는 것은 **포드 착지 충격음(`rogue_pod_impact`)뿐**이고,
  * 무전 경보(`rogue_drop_alarm`)와 대기를 찢는 낙하 굉음(`rogue_pod_fall`)은 `audio/AudioSystem` 이
  * `rogueDrop:incoming` 을 받아 낸다 — 둘 다 인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 로
  * 게이트하고 그 안에서 거리에 따라 줄어든다. 화면 표시는 `ui/hud/RaidAlerts`(토스트)와
- * `ui/hud/DangerIndicators`(화면 안 = 머리 마커 · 밖 = 방향 호)의 몫이다.
- *
- * ## 규모는 분대 인원이 정한다
- * `ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE` 는 `data/tables.csv` 의 배열 표이고 **index 0 = 분대 1명**
- * 이다 (1명 2–3 · 2명 4–5 · 3명 5–6 · 4명 6–8, 보스 확률 0 / 0.5 / 1 / 1). 인원은 `ctx.net` 의 연결된 원격
- * 플레이어 수 + 1 에서 세고 0..3 으로 클램프한다 — 호출자가 인원을 정하지 않는 것이 계약이다.
+ * `ui/hud/DangerIndicators`(화면 안 = 머리 마커 · 밖 = 방향 호)의 몫이다. 파도마다 한 번씩 울린다.
  *
  * ## 호스트 권한 · 구역당 1회
  * 굴리는 것은 **호스트뿐**이고 결과는 `rdrop` 으로 흐른다. "이 구역은 이미 썼다"는 기록은 두 곳에서 온다:
- *  1. `used` — 이 클라이언트가 본 모든 `dropId` (호스트가 굴린 것 + **리플리카가 받은 `rdrop incoming`**).
- *     리플리카도 기록하므로 호스트 이관으로 승격된 사람이 같은 구역을 다시 굴리지 않는다.
+ *  1. `used` — 이 클라이언트가 본 모든 구역 (호스트가 굴린 것 + **리플리카가 받은 `rdrop incoming`** 의 구역 —
+ *     `#2` 를 뗀 zoneId 로도 적는다). 리플리카도 기록하므로 호스트 이관으로 승격된 사람이 같은 구역을 다시 굴리지 않는다.
  *  2. `ctx.world.getStructures()` 의 `StructureDef.rogueDropUsed` — world/ 가 `struct sync` 로 채워 주는
  *     구조물별 플래그. 레이드 도중에 합류해 `rdrop` 을 한 번도 못 본 사람이 호스트가 되는 경우를 덮는다.
- * 둘 중 하나라도 참이면 굴리지 않는다. `dropId` 는 `structure:investigated.zoneId` 를 그대로 쓴다 —
+ * 둘 중 하나라도 참이면 굴리지 않는다. 첫 파도의 `dropId` 는 `structure:investigated.zoneId` 를 그대로 쓴다 —
  * 그래야 두 기록이 같은 열쇠를 쓴다. **실패한 굴림도 "굴렸다"로 친다** (사용자 규칙: 구역당 1회만 발생).
  * 굴림 자체는 `worldSeed ^ hash(zoneId)` 의 시드 스트림이라 누가 호스트든 같은 답이 나온다.
  *
  * ## 개체수 상한
  * 강하 병력은 `AmbientSpawner` 의 `ensureCapacity` 를 **거치지 않는다** — `host.spawnRogue` 를 직접 부르므로
- * 상한이 인원을 깎지 못한다 (상한에 눌려 8명이 2명으로 줄면 연출도 규칙도 무너진다). 반대로 조용히 사라지는
- * 일도 없다: `ensureCapacity` 의 재활용 패스는 `e.isRogue` 를 건너뛰므로 로그는 회수 대상이 아니다.
- * 다만 `aliveCount()` 에는 그대로 잡혀 **상시 벌레 순찰이 그만큼 줄어든다** — 의도한 것이다. 로그 분대와
- * 벌레 압박이 같은 자리에서 겹치면 감당이 안 되고, 강하가 끝나면 저절로 원래 압박으로 돌아온다.
+ * 상한이 인원을 깎지 못한다. 반대로 조용히 사라지는 일도 없다: 재활용 패스는 `e.isHumanoid` 를 건너뛴다.
+ * 다만 `aliveCount()` 에는 그대로 잡혀 **상시 벌레 순찰이 그만큼 줄어든다** — 의도한 것이다.
  *
  * ## 포드
  * 외부 에셋 없이 이 파일에서 절차 생성한다 (`player/Hellpod` · `stratagems` 의 구조 포드를 **참고만** 했고
- * import 하지 않는다 — 로그의 포드는 붉은 육각 캡슐로 아군 헬포드와 실루엣이 다르다). 지오메트리 ·
+ * import 하지 않는다 — 적 포드는 붉은 육각 캡슐로 아군 헬포드와 실루엣이 다르다). 지오메트리 ·
  * 머티리얼은 모듈 단위로 공유하고 `disposeRogueDropAssets()` 가 미션 리셋에서 정리한다.
  */
 import * as THREE from 'three';
 import {
-  ROGUE_DROP_BOSS_CHANCE, ROGUE_DROP_CHANCE, ROGUE_DROP_COUNT_MAX, ROGUE_DROP_COUNT_MIN, ROGUE_DROP_ETA_S, ROGUE_DROP_RADIUS,
-  Random, type EnemyType, type RogueDropView, type Vec3Tuple,
+  ROGUE_DROP_ETA_S, ROGUE_DROP_RADIUS, Random,
+  type EnemySquadRole, type RogueDropView, type Vec3Tuple,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import type { Enemy } from './Enemy';
-import { ROGUE_AI } from './EnemyTypes';
+import { HUMANOID_WEAPONS, ROGUE_AI } from './EnemyTypes';
 import { beginInvestigation } from './ai/Investigate';
 import { tuple } from './net/HostSync';
 import type { RogueSpawnHost } from './RogueGuards';
+/* ── 표 · 상수 (data/tables.csv · data/constants.csv → factionTables.ts) ─────────────────────────────── */
+import {
+  RAIDER_DROP_CHANCE_BY_THREAT as DROP_CHANCE_BY_THREAT, RAIDER_DROP_WAVE1_MAX as WAVE1_MAX, RAIDER_DROP_WAVE1_MIN as WAVE1_MIN,
+  RAIDER_DROP_WAVE2_MAX as WAVE2_MAX, RAIDER_DROP_WAVE2_MIN as WAVE2_MIN, RAIDER_DROP_WAVE_GAP_S as WAVE_GAP_S,
+  RAIDER_DROP_WAVE_MAX as WAVE_MAX,
+} from './factionTables';
 
 /* ── 연출 상수 (수치가 아니라 타이밍이므로 csv 가 아니다) ────────────────────────────────────────────── */
 /** 포드가 나타나는 고도(m). 예고 순간 하늘의 점으로 보이고 착지 직전에 급격히 커진다. */
@@ -72,9 +84,19 @@ const SMOKE_MAX_ALT = 140;
 const IMPACT_SHAKE_DIST = 45;
 /** 강하 인원 표의 색인 범위 (분대 1..4명). */
 const MAX_SQUAD = 4;
+/** 두 번째 파도의 dropId 접미사 (`${zoneId}#2`). */
+const WAVE2_SUFFIX = '#2';
+/** 착지 지점 시드 · 슬롯 시드 소금. */
+const POINT_SALT = 0x5bf03635;
+const SLOT_SALT = 0x2545f491;
 
-/** 착지 지점 하나에 실려 오는 것. */
-interface Slot { type: EnemyType; weaponId: string }
+/** `zone#2` → `zone` (첫 파도 id 는 그대로). */
+export function dropZoneOf(dropId: string): string {
+  return dropId.endsWith(WAVE2_SUFFIX) ? dropId.slice(0, -WAVE2_SUFFIX.length) : dropId;
+}
+
+/** 착지 지점 하나에 실려 오는 것 (종류는 늘 `raider`). */
+interface Slot { weaponId: string; role: EnemySquadRole }
 
 /* ══ 절차 포드 ═══════════════════════════════════════════════════════════════════════════════════════ */
 
@@ -127,7 +149,7 @@ function resetPodBurn(): void {
 const _fxDir = new THREE.Vector3(0, 1, 0);
 
 /**
- * 로그 강하 포드 하나. 하늘에서 `fallTime` 초에 걸쳐 가속하며 내려와 `landing` 에 꽂힌다.
+ * 강하 포드 하나. 하늘에서 `fallTime` 초에 걸쳐 가속하며 내려와 `landing` 에 꽂힌다.
  * 상태를 바꾸지 않는 순수 연출이다 — 적 스폰은 `RogueDropDirector` 가 착지 시각에 따로 한다.
  */
 class RogueDropPod {
@@ -225,11 +247,11 @@ class RogueDropPod {
 /* ══ 진행 중인 강하 ═══════════════════════════════════════════════════════════════════════════════════ */
 
 interface Drop {
+  /** 이 파도의 dropId (`zone` 또는 `zone#2`). */
   id: string;
-  /** 트리거 지점 = 구조물 중심. 로그들이 진격하는 목표이자 포드가 흩어지는 중심이다. */
+  /** 트리거 지점 = 구조물 중심. 레이더가 진격하는 목표이자 포드가 흩어지는 중심이다. */
   readonly position: THREE.Vector3;
   count: number;
-  boss: boolean;
   landsAt: number;
   points: THREE.Vector3[];
   slots: Slot[];
@@ -241,6 +263,9 @@ interface Drop {
   retireAt: number;
 }
 
+/** 호스트가 예약해 둔 두 번째 파도. */
+interface PendingWave { id: string; position: THREE.Vector3; count: number; at: number }
+
 /** RogueDrop 이 EnemySystem 에 요구하는 것. */
 export interface RogueDropHost extends RogueSpawnHost {
   /** 이 클라이언트가 적을 시뮬레이션하는가 (싱글 또는 호스트). */
@@ -249,37 +274,44 @@ export interface RogueDropHost extends RogueSpawnHost {
   readonly hosting: boolean;
   /** 시뮬레이션 훈련장인가. */
   readonly training: boolean;
-  /** 디버그 · HUD 용 현재 보스 id. */
-  bossId: number;
-  /** 살아 있는 적 조회 (보스 id 를 덮어쓸지 판단하는 데만 쓴다). */
-  readonly byId: ReadonlyMap<number, Enemy>;
+  /** 2026-09-13: 이번 레이드 목표 행성의 threat (1..3, `world:ready` 에서 정한다 — 행성 없음 = 1). */
+  readonly planetThreatLevel: 1 | 2 | 3;
   playAudio(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void;
 }
 
 const _p = new THREE.Vector3();
 const _spawn = new THREE.Vector3();
 
+function dropSeed(worldSeed: number, dropId: string): number {
+  return (((worldSeed >>> 0) ^ Random.hash(dropId) ^ POINT_SALT) >>> 0);
+}
+
 /**
- * 로그 강하 전체를 소유한다. 호스트에서는 굴림 · 스폰 · 방송을, 모든 클라이언트에서는 포드 연출을 한다.
+ * 레이더 강하 전체를 소유한다. 호스트에서는 굴림 · 파도 예약 · 스폰 · 방송을, 모든 클라이언트에서는 포드 연출을 한다.
  */
 export class RogueDropDirector {
   private host!: RogueDropHost;
   private readonly drops: Drop[] = [];
+  /** 호스트가 예약한 두 번째 파도. */
+  private readonly pending: PendingWave[] = [];
   /** 이미 굴린 구역 (성공 · 실패 무관). 리플리카도 `rdrop incoming` 으로 채운다. */
   private readonly used = new Set<string>();
   private readonly podPool: RogueDropPod[] = [];
   private readonly viewBuf: RogueDropView[] = [];
   private viewsDirty = true;
-  /** 디버그 · 스모크: 이번 레이드에서 굴린 횟수 / 실제로 부른 강하 수. */
+  /** 디버그 · 스모크: 이번 레이드에서 굴린 횟수 / 실제로 부른 강하(구역) 수 / 떨어뜨린 파도 수. */
   rolls = 0;
   calls = 0;
+  waves = 0;
+  /** 디버그 · 스모크: 분대 인원을 이 값(1..4)으로 친다 (null = 실제 인원). 미션 리셋이 지운다. */
+  squadOverride: number | null = null;
 
   bind(host: RogueDropHost): void { this.host = host; }
 
   /* ── 트리거 ──────────────────────────────────────────────────────────── */
   /**
    * `structure:investigated` — 그 구역을 처음 조사했다. **호스트만** 굴리고, 굴린 사실 자체를 기록한다
-   * (실패도 기록: 구역당 한 번만 일어난다).
+   * (실패도 기록: 구역당 한 번만 일어난다). 강하가 없는 행성(threat 1)이면 굴리지도 기록하지도 않는다.
    */
   onInvestigated(zoneId: string, position: THREE.Vector3): void {
     const host = this.host;
@@ -287,12 +319,21 @@ export class RogueDropDirector {
     const ctx = host.ctx;
     if (ctx.isTraining() || !ctx.world?.ready) return;
     if (this.hasRolled(zoneId)) return;
+    const chance = this.dropChance();
+    if (chance <= 0) return;
     this.used.add(zoneId);
     this.rolls++;
     // 시드 굴림: 누가 호스트든(이관 뒤에도) 같은 구역은 같은 답을 낸다
     const rng = new Random((((ctx.world.seed >>> 0) ^ Random.hash(zoneId)) >>> 0));
-    if (!rng.chance(Number.isFinite(ROGUE_DROP_CHANCE) ? ROGUE_DROP_CHANCE : 0)) return;
+    if (!rng.chance(chance)) return;
     this.call(zoneId, this.dropTargetFor(ctx.world, zoneId, position));
+  }
+
+  /** 이번 행성의 강하 확률 (`RAIDER_DROP_CHANCE_BY_THREAT[threat − 1]`, 0..1). */
+  private dropChance(): number {
+    const t = this.host.planetThreatLevel ?? 1;
+    const raw = DROP_CHANCE_BY_THREAT[Math.max(0, Math.min(DROP_CHANCE_BY_THREAT.length - 1, t - 1))];
+    return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
   }
 
   /**
@@ -330,8 +371,9 @@ export class RogueDropDirector {
 
   /* ── EnemyManagerRef.callRogueDrop ───────────────────────────────────── */
   /**
-   * 호스트 전용. `position` 주위에 로그 분대를 강하시킨다. 인원 · 보스는 분대 인원이 정한다.
-   * 같은 `dropId` 가 진행 중이거나 호스트가 아니거나 자리가 없으면 false.
+   * 호스트 전용. `position` 주위에 레이더 첫 파도를 떨어뜨리고, 분대 인원표가 두 번째 파도를 주면
+   * `RAIDER_DROP_WAVE_GAP_S` 뒤로 예약한다 (dropId `${dropId}#2`). 행성 threat 는 보지 않는다 — 조사 트리거만 본다.
+   * 같은 `dropId` 가 진행 · 예약 중이거나 호스트가 아니거나 자리가 없으면 false.
    */
   call(dropId: string, position: THREE.Vector3): boolean {
     const host = this.host;
@@ -339,60 +381,73 @@ export class RogueDropDirector {
     const ctx = host.ctx;
     const world = ctx.world;
     if (!world?.ready || ctx.isTraining()) return false;
-    if (this.find(dropId)) return false;
+    const wave2 = dropId + WAVE2_SUFFIX;
+    if (this.find(dropId) || this.find(wave2) || this.pending.some((w) => w.id === wave2)) return false;
 
     const idx = Math.max(0, Math.min(MAX_SQUAD - 1, this.squadSize() - 1));
-    const seed = (((world.seed >>> 0) ^ Random.hash(dropId) ^ 0x5bf03635) >>> 0);
-    const rng = new Random(seed);
-    const lo = Math.max(1, Math.round(ROGUE_DROP_COUNT_MIN[idx] ?? 2));
-    const hi = Math.max(lo, Math.round(ROGUE_DROP_COUNT_MAX[idx] ?? lo));
-    let count = rng.int(lo, hi);
-    const boss = rng.chance(ROGUE_DROP_BOSS_CHANCE[idx] ?? 0);
-
-    const points = world.scatterPoints(position, ROGUE_DROP_RADIUS, count, POD_MIN_GAP, seed);
-    if (points.length === 0) return false;
-    count = points.length;                       // 자리가 모자라면 그만큼만 내려온다
-
-    const drop = this.begin(dropId, position, count, boss, ROGUE_DROP_ETA_S, points, rng);
+    const rng = new Random(dropSeed(world.seed, dropId));
+    const n1 = waveCount(rng, WAVE1_MIN, WAVE1_MAX, idx);
+    const n2 = waveCount(rng, WAVE2_MIN, WAVE2_MAX, idx);   // 늘 굴린다 — 스트림이 인원표에 따라 밀리지 않게
+    if (n1 <= 0 || !this.launch(dropId, position, n1)) return false;
     this.calls++;
-    ctx.bus.emit('rogueDrop:incoming', { dropId, position: drop.position.clone(), count, boss, eta: ROGUE_DROP_ETA_S });
+    if (n2 > 0) this.pending.push({ id: wave2, position: position.clone(), count: n2, at: ctx.time + Math.max(0, WAVE_GAP_S) });
+    return true;
+  }
+
+  /** 파도 하나를 예고한다 (호스트): 착지 지점 · 포드 · 이벤트 · `rdrop incoming`. 자리가 없으면 false. */
+  private launch(id: string, position: THREE.Vector3, count: number): boolean {
+    const host = this.host;
+    const ctx = host.ctx;
+    const world = ctx.world!;
+    const seed = dropSeed(world.seed, id);
+    const points = world.scatterPoints(position, ROGUE_DROP_RADIUS, count, POD_MIN_GAP, seed);
+    if (points.length === 0) return false;       // 자리가 모자라면 그만큼만 내려온다
+    const drop = this.begin(id, position, points.length, ROGUE_DROP_ETA_S, points, seed);
+    this.waves++;
+    ctx.bus.emit('rogueDrop:incoming', { dropId: id, position: drop.position.clone(), count: drop.count, boss: false, eta: ROGUE_DROP_ETA_S });
     if (host.hosting) {
-      ctx.net!.send({ t: 'rdrop', ev: 'incoming', dropId, p: tuple(drop.position, 2), eta: ROGUE_DROP_ETA_S, count, boss }, 'others');
+      ctx.net!.send({ t: 'rdrop', ev: 'incoming', dropId: id, p: tuple(drop.position, 2), eta: ROGUE_DROP_ETA_S, count: drop.count, boss: false }, 'others');
     }
     return true;
   }
 
-  /** 진행 중인 강하 (예고 ~ 착지). ui/ 의 HUD 경고 · 화면 밖 화살표가 읽는다. */
+  /** 진행 중인 강하 (예고 ~ 착지, 파도마다 한 줄). ui/ 의 HUD 경고 · 화면 밖 화살표가 읽는다. */
   views(): readonly RogueDropView[] {
     if (this.viewsDirty) {
       this.viewBuf.length = 0;
       for (const d of this.drops) {
         if (d.landed) continue;
-        this.viewBuf.push({ id: d.id, position: d.position, count: d.count, boss: d.boss, landsAt: d.landsAt });
+        this.viewBuf.push({ id: d.id, position: d.position, count: d.count, boss: false, landsAt: d.landsAt });
       }
       this.viewsDirty = false;
     }
     return this.viewBuf;
   }
 
+  /** 디버그 · 스모크: 예약된 두 번째 파도 (복사본). */
+  pendingWaves(): Array<{ id: string; count: number; at: number }> {
+    return this.pending.map((w) => ({ id: w.id, count: w.count, at: w.at }));
+  }
+
   /* ── 와이어 (비호스트) ───────────────────────────────────────────────── */
-  /** `rdrop incoming` — 호스트가 강하를 예고했다. 적은 여기서 만들지 않는다 (기존 `es` / `ee` 경로). */
-  onIncomingWire(dropId: string, p: Vec3Tuple, eta: number, count: number, boss: boolean): void {
+  /** `rdrop incoming` — 호스트가 강하(파도 하나)를 예고했다. 적은 여기서 만들지 않는다 (기존 `es` / `ee` 경로). */
+  onIncomingWire(dropId: string, p: Vec3Tuple, eta: number, count: number, _boss: boolean): void {
     const host = this.host;
     if (!host || host.authority) return;                  // 호스트는 자기 방송을 되받지 않는다
-    this.used.add(dropId);                                // 승격되더라도 이 구역은 다시 굴리지 않는다
+    this.used.add(dropId);
+    this.used.add(dropZoneOf(dropId));                    // 승격되더라도 이 구역은 다시 굴리지 않는다
     if (this.find(dropId)) return;
     const ctx = host.ctx;
     if (!ctx.world?.ready) return;
     _p.set(p[0], p[1], p[2]);
     const n = Math.max(0, Math.min(16, Math.round(count)));
     if (n === 0) return;
-    const seed = (((ctx.world.seed >>> 0) ^ Random.hash(dropId) ^ 0x5bf03635) >>> 0);
-    // 호스트와 같은 시드 · 같은 인자 → 같은 착지 지점. 포드가 실제로 로그가 서는 자리에 꽂힌다.
+    const seed = dropSeed(ctx.world.seed, dropId);
+    // 호스트와 같은 시드 · 같은 인자 → 같은 착지 지점. 포드가 실제로 레이더가 서는 자리에 꽂힌다.
     const points = ctx.world.scatterPoints(_p, ROGUE_DROP_RADIUS, n, POD_MIN_GAP, seed);
     if (points.length === 0) return;
-    const drop = this.begin(dropId, _p, points.length, boss, Math.max(0.5, eta), points, new Random(seed));
-    ctx.bus.emit('rogueDrop:incoming', { dropId, position: drop.position.clone(), count: drop.count, boss, eta: Math.max(0.5, eta) });
+    const drop = this.begin(dropId, _p, points.length, Math.max(0.5, eta), points, seed);
+    ctx.bus.emit('rogueDrop:incoming', { dropId, position: drop.position.clone(), count: drop.count, boss: false, eta: Math.max(0.5, eta) });
   }
 
   /** `rdrop landed` — 호스트가 착지를 확정했다. 로컬 타이머가 아직이면 지금 내려앉힌다. */
@@ -407,7 +462,9 @@ export class RogueDropDirector {
   /* ── 틱 ──────────────────────────────────────────────────────────────── */
   update(dt: number): void {
     const host = this.host;
-    if (!host || this.drops.length === 0) return;
+    if (!host) return;
+    if (this.pending.length > 0) this.launchDueWaves();
+    if (this.drops.length === 0) return;
     const ctx = host.ctx;
     const now = ctx.time;
     const fx = FxManager.get();
@@ -426,15 +483,31 @@ export class RogueDropDirector {
     }
   }
 
-  /** 미션 리셋: 굴림 기록 · 진행 중인 강하 · 포드를 전부 버린다. */
+  /** 예약 시각이 된 두 번째 파도를 띄운다. 그 사이 권한을 잃었으면(호스트 이관) 버린다. */
+  private launchDueWaves(): void {
+    const host = this.host;
+    const ctx = host.ctx;
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const w = this.pending[i];
+      if (ctx.time < w.at) continue;
+      this.pending.splice(i, 1);
+      if (!host.authority || host.training || ctx.isTraining() || !ctx.world?.ready || this.find(w.id)) continue;
+      this.launch(w.id, w.position, w.count);
+    }
+  }
+
+  /** 미션 리셋: 굴림 기록 · 진행 중인 강하 · 예약 · 포드를 전부 버린다. */
   reset(): void {
     for (const drop of this.drops) for (const pod of drop.pods) { pod.retire(); this.podPool.push(pod); }
     this.drops.length = 0;
+    this.pending.length = 0;
     this.used.clear();
     this.viewBuf.length = 0;
     this.viewsDirty = true;
     this.rolls = 0;
     this.calls = 0;
+    this.waves = 0;
+    this.squadOverride = null;
   }
 
   /** dispose: 씬에서 포드를 떼고 지오메트리를 반납한다. */
@@ -452,25 +525,31 @@ export class RogueDropDirector {
 
   /** 분대 인원 (1..4). 싱글은 1. */
   private squadSize(): number {
+    if (this.squadOverride != null && Number.isFinite(this.squadOverride)) return Math.max(1, Math.min(MAX_SQUAD, Math.round(this.squadOverride)));
     const net = this.host.ctx.net;
     let n = 1;
     if (net) for (const r of net.getRemotePlayers()) if (r.connected) n++;
     return Math.max(1, Math.min(MAX_SQUAD, n));
   }
 
-  /** 예고 상태를 만든다 (호스트 · 리플리카 공통): 슬롯 구성 + 포드 낙하 시작. 소리는 audio/ 가 낸다. */
-  private begin(id: string, position: THREE.Vector3, count: number, boss: boolean, eta: number, points: THREE.Vector3[], rng: Random): Drop {
+  /**
+   * 예고 상태를 만든다 (호스트 · 리플리카 공통): 슬롯 구성 + 포드 낙하 시작. 소리는 audio/ 가 낸다.
+   * 슬롯(무기 · 우회조)은 `seed` 에서 굴린다 — 호스트와 리플리카가 같은 구성을 본다 (리플리카는 쓰지 않을 뿐이다).
+   */
+  private begin(id: string, position: THREE.Vector3, count: number, eta: number, points: THREE.Vector3[], seed: number): Drop {
     const ctx = this.host.ctx;
+    const rng = new Random((seed ^ SLOT_SALT) >>> 0);
+    const weapons = HUMANOID_WEAPONS.raider;
+    const flanker = rng.int(0, Math.max(0, count - 1));
     const slots: Slot[] = [];
     for (let i = 0; i < count; i++) {
-      const isBoss = boss && i === 0;
       slots.push({
-        type: isBoss ? 'rogue_boss' : 'rogue',
-        weaponId: isBoss ? ROGUE_AI.bossWeapon : ROGUE_AI.weapons[rng.int(0, ROGUE_AI.weapons.length - 1)],
+        weaponId: weapons.length > 0 ? weapons[rng.int(0, weapons.length - 1)] : 'ar',
+        role: i === flanker ? 'flanker' : 'member',
       });
     }
     const drop: Drop = {
-      id, position: position.clone(), count, boss,
+      id, position: position.clone(), count,
       landsAt: ctx.time + eta, points, slots, pods: [],
       landed: false, spawned: false, retireAt: Infinity,
     };
@@ -511,38 +590,36 @@ export class RogueDropDirector {
     drop.retireAt = ctx.time + POD_LINGER_S;
     this.viewsDirty = true;
     for (const pod of drop.pods) if (pod.falling) { pod.snapDown(); this.impactFx(pod.position); }
-    ctx.bus.emit('rogueDrop:landed', { dropId: drop.id, position: drop.position.clone(), count: drop.count, boss: drop.boss });
+    ctx.bus.emit('rogueDrop:landed', { dropId: drop.id, position: drop.position.clone(), count: drop.count, boss: false });
     if (host.hosting) ctx.net!.send({ t: 'rdrop', ev: 'landed', dropId: drop.id, p: tuple(drop.position, 2) }, 'others');
     if (!host.authority || drop.spawned) return;
     drop.spawned = true;
     this.spawnSquad(drop);
   }
 
-  /** 호스트: 착지 지점마다 로그를 세우고 트리거 지점으로 진격시킨다. */
+  /** 호스트: 착지 지점마다 레이더를 세우고 트리거 지점으로 진격시킨다. 파도 하나 = 분대 하나 (우회조 정확히 한 명). */
   private spawnSquad(drop: Drop): void {
     const host = this.host;
     const world = host.ctx.world;
     if (!world?.ready) return;
-    let boss: Enemy | null = null;
+    const squadId = host.allocSquadId();
+    const spawned: Enemy[] = [];
     for (let i = 0; i < drop.points.length && i < drop.slots.length; i++) {
       const slot = drop.slots[i];
       _spawn.copy(drop.points[i]);
       world.resolveCollision(_spawn, 1.0);
       _spawn.y = world.getHeightAt(_spawn.x, _spawn.z);
       const yaw = Math.atan2(drop.position.x - _spawn.x, drop.position.z - _spawn.z);
-      // guardPos = 구조물: 진격이 끝나면 그 자리를 지키며 순찰한다 (기존 로그 가드 AI 그대로)
-      const e = host.spawnRogue(slot.type, _spawn, yaw, drop.position, slot.weaponId, null);
+      // guardPos = 구조물: 진격이 끝나면 그 자리를 지키며 순찰한다 (기존 인간형 가드 AI 그대로)
+      const e = host.spawnRogue('raider', _spawn, yaw, drop.position, slot.weaponId, null, { site: 'drop', squadId, role: slot.role });
       if (!e) continue;
       e.leash = ROGUE_AI.leash;
       // 기존 investigate/advance 경로로 구조물까지 전진한다 — 도중에 누군가를 보면 그대로 교전에 들어간다
       beginInvestigation(e, drop.position);
-      if (slot.type === 'rogue_boss') boss = e;
+      spawned.push(e);
     }
-    if (boss) {
-      const cur = host.byId.get(host.bossId);
-      if (!cur || !cur.isCombatant) host.bossId = boss.id;
-      host.ctx.bus.emit('enemy:bossSpawned', { id: boss.id, type: boss.type, position: boss.position });
-    }
+    // 우회조 슬롯이 스폰에 실패했으면 첫 멤버가 맡는다
+    if (spawned.length > 0 && !spawned.some((e) => e.squadRole === 'flanker')) spawned[0].squadRole = 'flanker';
   }
 
   private impactFx(p: THREE.Vector3): void {
@@ -562,4 +639,12 @@ export class RogueDropDirector {
       if (d < IMPACT_SHAKE_DIST) ctx.bus.emit('camera:shake', { intensity: 0.55 * (1 - d / IMPACT_SHAKE_DIST), duration: 0.3 });
     }
   }
+}
+
+/** 파도 인원 한 번 굴림 — `[lo, hi]` 표 칸(없으면 0) → `RAIDER_DROP_WAVE_MAX` 로 자른다. */
+function waveCount(rng: Random, minTable: readonly number[], maxTable: readonly number[], idx: number): number {
+  const lo = Math.max(0, Math.round(Number.isFinite(minTable[idx]) ? minTable[idx] : 0));
+  const hi = Math.max(lo, Math.round(Number.isFinite(maxTable[idx]) ? maxTable[idx] : lo));
+  const n = rng.int(lo, hi);
+  return Math.min(n, Math.max(1, Math.round(Number.isFinite(WAVE_MAX) ? WAVE_MAX : 4)));
 }

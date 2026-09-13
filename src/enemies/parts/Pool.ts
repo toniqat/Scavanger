@@ -11,7 +11,7 @@ import {
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
+  type HumanoidSpawnOpts, type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
@@ -34,11 +34,16 @@ import { disposeRogueAssets } from '../models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from '../net/Replica';
 import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from '../net/HostSync';
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corpses';
-import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
+import type { RogueSpawnHost } from '../RogueGuards';
 import { disposeRogueDropAssets } from '../RogueDrop';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
+import { rollGrenadeLoadout } from '../ai/HumanoidProfile';
+import { isNamedAiType } from '../ai/named';
+/* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
+import { emergeFx } from './Burrow';
+import { disposeWormAssets } from '../models/WormModel';
 
 export function killAll(sys: EnemySystem): void {
   for (let i = 0; i < sys.active.length; i++) {
@@ -60,6 +65,9 @@ export function reset(sys: EnemySystem): void {
   sys.targets.clear();
   sys.corpses.clear();
   sys.rogueDrops.reset();     // 2026-09-09: 굴림 기록(구역당 1회)도 레이드마다 새로 시작한다
+  sys.sandworm.reset();       // 2026-09-13: 지하벌레 굴림 · 전조 · 받아 둔 메타도 레이드마다
+  sys.burrowFx?.clear();
+  sys.burrowShakeAt = -Infinity;
   sys.named.reset();          // 2026-09-11: 네임드 굴림 결과 · 알림 기록도 레이드마다 (네임드 · 호위는 로그라 `ensureCapacity` 재활용 대상이 아니다)
   sys.fx?.clear();
   sys.acid?.clear();
@@ -70,6 +78,8 @@ export function reset(sys: EnemySystem): void {
   sys.hazardTick = 0;
   sys.snapCache.reset();
   sys.bossId = 0;
+  sys.nextSquadId = 1;        // 2026-09-13: 분대 id 는 레이드 안에서만 유일하다 (거점 그룹 · 강하 파도 · 헤비 분대)
+  sys.sitePlacement = null;   // 2026-09-13: 거점 점거 기록 (디버그 · 스모크)
   sys.lastClash = -Infinity;
   sys.training = false;
   sys.wavesSeen = 0;
@@ -97,7 +107,7 @@ export function ensureCapacity(sys: EnemySystem, n: number, cap: number): number
   if (alive + n > cap && sys.targets.all.length > 0) {
     for (let i = sys.active.length - 1; i >= 0 && alive + n > cap; i--) {
       const e = sys.active[i];
-      if (!e.active || e.state === 'dead' || e.aware || e.relentless || e.isRogue) continue;
+      if (!e.active || e.state === 'dead' || e.aware || e.relentless || e.isHumanoid) continue;
       if (sys.targets.minDist(e.position) > RECYCLE_DISTANCE) { sys.despawn(e); alive--; }
     }
   }
@@ -117,25 +127,38 @@ export function ensureCapacity(sys: EnemySystem, n: number, cap: number): number
   return Math.max(0, Math.min(n, cap - alive));
   }
 
-export function spawn(sys: EnemySystem, type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean): Enemy | null {
+/** `emerge` (2026-09-13) > 0 = 벌레가 그 초 동안 땅을 파고 올라온다 (`Enemy.startEmerge` + 연출 + `ee spawn.em`). 인간형은 무시. */
+export function spawn(sys: EnemySystem, type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge = 0): Enemy | null {
   const ctx = sys.ctx;
   const e = sys.acquire(sys.nextId++, type, position, yaw);
   if (!e) return null;
   e.relentless = relentless;
   if (chase) { e.aware = true; e.state = 'chase'; e.perceptionTimer = 0.3 + Math.random() * 0.3; }
+  const em = emerge > 0 && e.faction === 'bug' ? emerge : 0;
+  if (em > 0) { e.startEmerge(em); emergeFx(sys, e); }
   ctx.bus.emit('enemy:spawned', { id: e.id, type, position: e.position });
-  if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'spawn', id: e.id, ty: type, p: tuple(e.position, 2), yaw: round(yaw, 3) }, 'others');
+  if (sys.hosting) {
+    const msg: Extract<EnemyEvent, { ev: 'spawn' }> = { t: 'ee', ev: 'spawn', id: e.id, ty: type, p: tuple(e.position, 2), yaw: round(yaw, 3) };
+    if (em > 0) msg.em = round(em, 2);
+    ctx.net!.send(msg, 'others');
+  }
   return e;
   }
 
 /* ── RogueSpawnHost ────────────────────────────────────────────────────── */
-export function spawnRogue(sys: EnemySystem, type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null): Enemy | null {
+export function spawnRogue(sys: EnemySystem, type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null, opts?: HumanoidSpawnOpts): Enemy | null {
   const e = sys.spawn(type, position, yaw, false, false);
   if (!e) return null;
   e.guardPos.copy(guardPos);
   e.weaponId = weaponId;
   e.escortOf = escortOf;
   if (escortOf) e.leash = ROGUE_AI.escortLeash;
+  // 2026-09-13 (계약): 거점 · 분대 · 역할. 수류탄 보유(`grenadeKind` / `grenadeCount`)는 인간형 AI 담당이 여기서 굴린다.
+  e.site = opts?.site ?? null;
+  e.squadId = opts?.squadId ?? -1;
+  e.squadRole = opts?.role ?? 'member';
+  // 팩션 표(`HUMANOID_*.grenadeMin/Max · incendiaryChance`)로 1–3개 · 종류. 안드로이드 0, 네임드 · 스캔 드론은 던지는 AI 가 없어 0.
+  rollGrenadeLoadout(e, isNamedAiType(type));
   return e;
   }
 
@@ -187,4 +210,5 @@ export function disposePools(sys: EnemySystem): void {
   disposeBugAssets();
   disposeRogueAssets();
   disposeRogueDropAssets();
+  disposeWormAssets();        // 2026-09-13: 지하벌레 공유 지오메트리 (리그는 위 풀 dispose 에서 먼저 빠졌다)
   }

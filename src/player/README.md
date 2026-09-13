@@ -478,7 +478,7 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 | E | 상호작용 대상을 찾지 않는다(`updatePosePrompt` 가 `updateInteraction` 대신). `releaseOnInteract` 면 캡션 `일어나기` 하나, E = `releaseFurniturePose('interact')` — 키를 `consume` 하고 `interactCooldown` 0.35 s 를 걸어 **같은 누름이 가구 프롬프트를 다시 치지 않는다**. 아니면 E 는 아무것도 안 한다 |
 | 카메라 | `camera` 없음(흔들의자) = 평소 리그 · 마우스 자유 시점, 피벗 = 발 + `FURN_EYE[kind]`(anchor 위). `camera` 있음 = `rig.setOverride(pos, look)` **블렌드**(감쇠 12), 마우스 시점 · 근접 페이드 끔. 풀 때 `CameraRig.overrideMatches(camPos)` 가 참일 때만(= 그사이 다른 연출이 안 걸었을 때) `setOverride(null)` 블렌드 아웃 |
 | 몸 | 자세 = `stand` 로 두고 직전 자세를 적는다. 몸 방향은 `yaw`(벤치는 `yaw + π`)로 감쇠 10. 모델 루트는 직전 자리에서 `anchor` 로 블렌드(`FURN_BLEND_RATE` 5, 약 0.6 s) |
-| 위상 | `setFurniturePoseDrive(p)` 한 번이면 그 뒤로는 부른 값만 쓴다. 안 부르면 스스로: 벤치 한 회 2.6 s · 달리기 초당 2.8 걸음 · 페달 초당 1.2 바퀴. `bench` 는 0..1 로 자르고 `run` · `cycle` 은 감는다. **`run` 의 0 → 1 은 한 걸음**(보행 주기의 π)이고 1 → 0 으로 감길 때 걸음 수가 +1 이라 좌우 발이 번갈아 나온다 |
+| 위상 | `setFurniturePoseDrive(p)` 한 번이면 그 뒤로는 부른 값만 쓴다. 안 부르면 스스로: 벤치 한 회 2.6 s · 달리기 초당 2.8 걸음 · 페달 초당 1.2 바퀴 · 조리 초당 0.9 주기(`FURN_COOK_CYCLE_PER_S`, 2026-09-13). `bench` 는 0..1 로 자르고 `run` · `cycle` 은 감는다. **`run` 의 0 → 1 은 한 걸음**(보행 주기의 π)이고 1 → 0 으로 감길 때 걸음 수가 +1 이라 좌우 발이 번갈아 나온다 |
 
 **풀기**: 발은 **첫 자세 직전의 자리 그대로**(다른 기구로 바로 갈아타도 처음 자리), 자세도 직전 값으로 즉시. `interact` · `caller` 는
 몸 방향 · 모델이 블렌드로 돌아오고, `reset` 은 즉시(`model.resetPose`). `reset` 을 내는 곳: `game:phaseChanged`(모든 전이),
@@ -489,7 +489,7 @@ true 이고 이벤트는 없다.
 
 ### 몸의 기하 — hub 가 가구 모델 · anchor 를 여기에 맞춘다
 
-값의 원본은 `SoldierModel.ts` 의 `FURN_SIT` · `FURN_BENCH` · `FURN_CYCLE`. **모두 anchor 기준 m**, "앞" = 계약의 `yaw` 방향
+값의 원본은 `SoldierModel.ts` 의 `FURN_SIT` · `FURN_BENCH` · `FURN_CYCLE` · `FURN_COOK`(2026-09-13). **모두 anchor 기준 m**, "앞" = 계약의 `yaw` 방향
 `(−sin yaw, 0, −cos yaw)`, x = 몸의 오른쪽(+) / 왼쪽(−). 손 · 발은 두 마디 IK 라 아래 점에 정확히 닿는다(스모크가 잰다).
 
 | kind | anchor | 루트 방향 | 몸 | 위상 |
@@ -498,8 +498,11 @@ true 이고 이벤트는 없다.
 | `bench` | 패드 윗면의 **견갑골** 자리 | `yaw + π` (머리 = `yaw`) | 반듯이 누움. 등(배낭)이 anchor 높이에 닿는다(배낭은 약 0.08 가라앉고 골반은 약 0.08 뜬다 — 배낭 두께). 골반은 발 쪽 0.42. **발바닥 (±0.36, −0.40, 발 쪽 0.78) → 패드 높이 ≈ 0.40 m**, 무릎은 위로 | 바벨 = 주먹 중심, 그립 x ±0.42. 위상 0 = anchor 위 **0.50** · 머리 쪽 −0.03(가슴), 1 = **0.81** · 머리 쪽 +0.06(팔 폄), 사이는 선형 |
 | `run` | 벨트 윗면 중앙 | `yaw` | 그 자리 달리기(보행 주기, moveBlend 1.15 · sprint 0.7). 발 = anchor 높이 | 걸음 |
 | `cycle` | 안장 윗면 | `yaw` | 골반 위 0.11, 앞으로 약 0.48 rad 숙임. **크랭크 축 (0, −0.60, 앞 0.25), 반지름 0.16, 페달 x ±0.13**(왼발 = −x). 발바닥은 페달 윗면 +0.02. 손잡이 (±0.22, +0.14, 앞 0.50) | 크랭크: 0 = 왼 페달 맨 위, 0.5 = 오른 페달 맨 위, 위에서 **앞으로** 돈다(왼 페달 = 축 + (−0.13, 0.16·cos 2πφ, 앞 0.16·sin 2πφ)) |
+| `cook` (2026-09-13) | 조리대 앞 **바닥**(서는 자리) | `yaw` (조리대를 본다) | 똑바로 서서 골반 −0.06 + 몸통 −0.24 ≈ 0.3 rad 앞으로 숙임, 골반 0.92 · 등 쪽 0.04. 발바닥 (±0.13, 0, 뒤 0.02). **상판 앞 가장자리 = 앞 0.30 (`edgeZ`) · 상판 윗면 1.08 (`topY`)**. 칼 쥔 오른손 작업점 = 앞 **0.52** (`workZ`, 가장자리 안쪽 0.22) · 높이 **1.13** (`handY`) · x +0.10. 왼손은 재료를 누른다 (−0.16, 1.12, 앞 0.48). 도구(도마 · 냄비 · 팬) 중앙을 작업점에 두면 손이 닿는다 — 가장자리에서 0.3 m 넘게 안쪽은 팔이 안 닿는다 | 손 동작 한 주기 = 1 (누적): 오른손 = 작업점 + (0.03·sin 2πφ, 0.12·smoothstep(½+½cos 2πφ), −0.05·cos 2πφ) — φ 0 = 칼이 위 · 앞, 0.5 = 도마 · 몸 쪽. 왼손은 0.5 에서 1.5 cm 눌린다 |
 
-`SoldierModel.poseFurniture` 는 `update` 의 전투불능 가지처럼 뼈대를 통째로 가져간다(`sit` · `bench` · `cycle`; `run` 은 보행 주기 그대로).
+`SoldierModel.poseFurniture` 는 `update` 의 전투불능 가지처럼 뼈대를 통째로 가져간다(`sit` · `bench` · `cycle` · `cook`; `run` 은 보행 주기 그대로).
+**hub 는 이 표를 원본으로 anchor · 가구 모델을 짓는다** (폴더끼리 import 하지 않으므로 값을 옮겨 적는다) — `cook` 이면 anchor = 조리대 상판 앞 가장자리 점 − 앞 방향 × 0.30, y = 바닥,
+yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 명판은 그 + 0.15.
 몸통 관절은 블렌드만큼 중립에서 자세로, 벤치의 눕기(`bodyGroup` 회전 · 이동)는 블렌드에서 바로, 손발은 **자세가 다 됐을 때의 부모
 좌표계**(루트 → bodyGroup → hips → torso)에서 푼 IK(`solveTwoBone` — 팔꿈치는 −Z, 무릎은 +Z 로만 접혀 판 · 부츠 방향이 뒤집히지 않는다)를
 블렌드만큼 적용한다. 흔들의자가 흔들려도 발은 바닥에, 페달이 돌아도 발바닥은 페달에 붙는다. 자세를 벗으면 `update` 가 모든 관절과
@@ -517,15 +520,16 @@ true 이고 이벤트는 없다.
 
 | kind | key | 원본 | state | 타이머 |
 |---|---|---|---|---|
-| `meal` | `meal` | 함선 `progression.getMeal()` · 레이드 `getActiveMeal()` | 함선 `pending` · 레이드 `active` | 없음 |
+| `meal` | `meal` | 함선 `progression.getMeal()` · 레이드 `getActiveMeal()` (+ 2026-09-13 `quality` = 함선 `getMealQuality()` · 레이드 `getActiveMealQuality()`, 0 이면 싣지 않는다) | 함선 `pending` · 레이드 `active` | 없음 |
 | `prep` | `prep:<env>` | 함선 `getPreps()` · 레이드 `getActivePreps()` 각각, env = `ctx.loot.getItemDef(id).prep.env` (def 에 env 가 없으면 `prep:<defId>`) | 같다 | 없음 |
 | `env_exposed` | `env` | `parts/Statuses.updateEnv` 의 판정 `envKind !== null && !envProtected` (레이드에서만 선다) | `active` · 디버프 | 없음 |
 | `gym_fatigue` | `fatigue:<stat>` | `getGymFatigueUntil(stat) > now` (함선 · 레이드 어디서든) | `active` · 디버프 | `startedAt = until − GYM_FATIGUE_HOURS h` · `endsAt = until` |
 | `rest` | `pose` | `furn.kind === 'sit'` (+ `furnitureUid`) | `active` | 없음 |
 | `exercise` | `pose` | `furn.kind` = `bench` · `run` · `cycle` (+ `furnitureUid`, `ctx.housing.gymSession` 이 있고 uid 가 같거나 자세에 uid 가 없으면 `stat` · `minigame`) | `active` | 없음 |
+| `cooking` (2026-09-13) | `pose` | `furn.kind === 'cook'` (+ `pose` · `furnitureUid`, `ctx.housing.cookSession` 이 있고 uid 가 같거나 자세에 uid 가 없으면 `defId` = `mealDefId`) | `active` | 없음 |
 
 - **함선 / 레이드**는 `ctx.isRaidActive()` 가 가른다 (progression 이 준비물 · 식사 사용을 거절하는 기준과 같다). 시각은 `ctx.net.serverNow()` → 없으면 `Date.now()`.
-- **언제**: `progress:mealChanged` · `progress:prepChanged` · `progress:gymFatigue` · `player:envChanged` · `housing:gymSession` · `game:newMission` ·
+- **언제**: `progress:mealChanged` · `progress:prepChanged` · `progress:gymFatigue` · `player:envChanged` · `housing:gymSession` · `housing:cookSession`(2026-09-13) · `game:newMission` ·
   `game:abort` · `game:phaseChanged` · `hub:entered` 와 자세 시작/끝(`setFurniturePose` · `releaseFurniturePose`)은 **`buffsDirty` 만** 세운다.
   `update` 맨 끝의 `updateBuffs` 가 프레임당 한 번 모으므로 같은 프레임의 여러 변경은 리비전 하나다. 그리고 **1 초 틱**(`BUFF_TICK_S`, `model.ts`)이
   디버프 만료처럼 이벤트가 없는 변화를 잡는다.
@@ -536,7 +540,7 @@ true 이고 이벤트는 없다.
 ### 와이어 자세 (`furniturePoseState`)
 
 자세 중에만 재사용 객체 `{kind, anchor, yaw, phase, furnitureUid}` (자세가 없으면 null). `anchor` 는 `furn.anchor` 그 Vector3 이다. **`phase` 는 누적**이다 —
-`bench` 0 … 1 · `run` 걸음 수 + 위상 · `cycle` 바퀴 수 + 위상 · `sit` 0. 로컬 구동은 그대로이고, `writePhase` 가 `run` 과 함께 **`cycle` 도 감길 때 `steps` 를 센다**
+`bench` 0 … 1 · `run` 걸음 수 + 위상 · `cycle` 바퀴 수 + 위상 · `cook` 손 동작 주기 수 + 위상(2026-09-13) · `sit` 0. 로컬 구동은 그대로이고, `writePhase` 가 `run` 과 함께 **`cycle` 도 감길 때 `steps` 를 센다**
 (좌우 발 홀짝을 쓰는 곳은 여전히 `run` 뿐이라 로컬 동작은 같다). 기구를 바로 갈아타면 `steps` 가 0 으로 돌아가므로 누적값도 새로 시작한다(kind 도 함께 바뀐다).
 `furnitureUid` 는 `FurniturePose.furnitureUid` 가 `[A-Za-z0-9_:\-.]{1,64}` 일 때만 받아 둔다(`sanitizeCharBuffs` 와 같은 문자 집합, housing uid 는 `f-N`).
 
@@ -620,6 +624,14 @@ true 이고 이벤트는 없다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (요리 미니게임 — 조리 자세 · `cooking` 버프 · 식사 품질, 에이전트 cook-progression-player — `docs/plans/cooking-minigames.md` §6-3)** — 계약은 읽기만 했다
+  (`FurniturePoseKind 'cook'` · `CharBuffKind 'cooking'` · `CharBuff.quality` · `HousingRef.cookSession` · `housing:cookSession` · `ProgressionRef.getMealQuality` / `getActiveMealQuality`).
+  - `SoldierModel.ts` — **`FURN_COOK`**(조리대 앞 기하의 원본, 위 *몸의 기하* 표) + `poseFurniture` 의 `cook` 가지: 선 채로 숙이고 오른팔은 칼질 / 젓기 고리, 왼손은 재료를 누른다(두 마디 IK 그대로).
+  - `model.ts` — `FURN_EYE.cook` 1.42 (리드 임시값 `EYE_STAND` 정리) · `FURN_COOK_CYCLE_PER_S` 0.9.
+  - `parts/FurniturePose.ts` — `KINDS` 에 `cook`, 위상이 감기며 주기를 센다(`run` · `cycle` 과 같은 누적 규약), 부른 쪽이 안 몰면 스스로 느리게 돈다. 거절 · 풀기 · 카메라 규칙은 다른 자세와 같다.
+  - `parts/Buffs.ts` — `meal` 에 `quality`, 자세 `cook` → `cooking`(key `pose`, `defId` = `housing.cookSession.mealDefId`, 타이머 없음), `housing:cookSession` 에 dirty.
+  - `RemoteAvatar.ts` — 무변경. `validFurniturePose` 가 `FURN_EYE` 의 키로 종류를 받으므로 `cook` 이 저절로 들어오고 같은 `writeFurniturePose` → `poseFurniture` 로 그린다(스모크가 잰다).
+  - `scripts/smoke-pose.mjs` — §10(거절 6종 · 바닥 anchor · 고정 카메라 · 자기 구동 속도 · 위상 0 / 0.5 의 칼 손 · 누르는 손 · 발바닥 · 누적 위상 · `cooking` 버프 · 다른 조리대 세션 · 식사 품질 교체 · 풀기 · dirty · 원격 cook) + 7 / 7b 에 품질. **144 / 144** (개인 vite 5313).
 - **2026-09-13 (탈출 개편 — `isInShip`)** — `PlayerSystem.isInShip` 이 `shipBounds !== null` **또는** `ctx.extraction.isInShipBay(발)` 이다. extraction 이 착륙한
   함선의 화물칸을 월드 콜라이더로 만들면서 탑승은 더 이상 `setShipInterior` 상자 모드가 아니고(상자 클램프는 입구를 넘지 못해 한번 타면 못 내렸다),
   상자는 **이륙하는 탑승자에게만** 걸린다. 읽는 쪽(`IN_SHIP` 스냅샷 플래그 · 전차 치임 면제 · 재해 피해 면제)의 뜻 「탈출 함선 안」 을 그대로 두려고

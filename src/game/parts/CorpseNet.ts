@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import type { CorpseMessage, ItemInstance, PeerId, PlayerCorpseWire } from '@/shared';
+import { normalizeMealQuality } from '@/shared';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 /** 싱글 플레이의 `PeerId` 대역 (계약: 솔로는 `'sp'`). */
@@ -77,6 +78,8 @@ function itemsFromWire(sys: GameFlowSystem, wire: PlayerCorpseWire['items']): It
     if (!w || typeof w.defId !== 'string') continue;
     const item = loot.createItem(w.defId, Math.max(1, Math.floor(w.qty || 1)), w.ex);
     if (item && typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;   // 2026-09-12: 생략 = 표식 없음
+    const q = normalizeMealQuality(w.q);   // 2026-09-13: 요리 품질 (생략 = 0)
+    if (item && q > 0) item.quality = q;
     if (item) out.push(item);
   }
   return out;

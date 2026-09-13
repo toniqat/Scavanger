@@ -15,6 +15,8 @@ import { RUN_STRIDE_LENGTH, UNRACK_S, poseBelt, poseBenchBar, poseCrank, poseRoc
  *                  그 프레임은 벨트를 안 민다 — 자세가 다시 시작돼 위상이 0 으로 돌아가도 벨트가 거꾸로 감기지 않는다)
  *   cycle          크랭크 · 페달 · 플라이휠 = 누적 바퀴 수 (절대 위치라 되감겨도 순간 이동일 뿐 헛돌지 않는다)
  *   sit            흔들의자 흔들림 (위상은 늘 0 — 시각으로 흔든다)
+ *   cook           (2026-09-13) 돌릴 것이 없다 — 조리대 모델은 `rig` 가 아니라 `cook` 을 들고, 어느 도구가 나와 있는지(단계 게임)는
+ *                  와이어에 없다. 아래 `rig` 확인에서 항목을 만들지 않고 조용히 넘어간다 (몸의 칼질은 player 의 `RemoteAvatar` 가 그린다).
  *
  * 자세가 끝나면(ref 의 `furniturePose` null · 목록에서 사라짐 · 끊김 · stale · 다른 함선) 그 조각을 쉬는 모습으로 되돌린다
  * (`restRig` — 원반 숨김 · 바는 거치대 · 의자 멈춤). **로컬 연출 중인 조각**(`GymStaging.uid` · 앉아 있는 흔들의자)은 절대 건드리지

@@ -4,9 +4,11 @@
  * 이 파일이 답하는 질문: *이번 레이드에 네임드가 나오는가, 누가, 어디에 서는가.*
  *
  * ## 굴림 (호스트 · 레이드당 1회)
- * `EnemySystem` 의 `world:ready` 권한 분기가 로그 가드 배치 **뒤에** `roll()` 을 한 번 부른다. 훈련장은 no-op.
- * 시드 스트림은 `worldSeed ^ hash('named')` 하나이고, 그 스트림에서 차례로
- *   ① 등장 여부 `NAMED_ROGUE_CHANCE_BY_RANK[planetTier(행성) − 1]` (행성 없음 = 난이도 1),
+ * `EnemySystem` 의 `world:ready` 권한 분기가 거점 그룹 배치(`SiteGroups`) **뒤에** `roll()` 을 한 번 부른다. 훈련장은 no-op.
+ * 시드 스트림은 `hash('named@<worldSeed>')` 하나이고 (2026-09-13 전에는 `worldSeed ^ hash('named')` — 가까운 시드끼리 첫 굴림이
+ * 비슷해 바꿨다), 그 스트림에서 차례로
+ *   ① 등장 여부 `NAMED_ROGUE_CHANCE_BY_THREAT[planetThreat(행성) − 1]` (2026-09-13 — threat 1 = 0 · 2 = 25 % · 3 = 50 %,
+ *      행성 없음 = threat 1). 네임드 셋 · 스캔 드론은 팩션 `raider` 다 (`data/enemies.csv`),
  *   ② 셋 중 누구인지 (균등),
  *   ③ 자리 · 헤비 호위의 자리
  * 를 뽑는다 — 같은 시드 + 같은 행성 = 같은 답이다. 굴림은 `world:ready` 에서만 일어나므로 호스트 이관으로
@@ -33,10 +35,15 @@
  */
 import * as THREE from 'three';
 import {
-  ENEMY_SPAWN_BLOCK_RATIO, ENEMY_SPAWN_CLEARANCE_MUL, NAMED_HEAVY_ESCORTS_BY_SQUAD, NAMED_ROGUE_CHANCE_BY_RANK, NAMED_ROGUE_MIN_SPAWN_DIST,
-  NAMED_ROGUE_TYPES, RAIL_CLEARANCE_M, Random, isNamedRogueType, planetTier,
+  ENEMY_SPAWN_BLOCK_RATIO, ENEMY_SPAWN_CLEARANCE_MUL, NAMED_HEAVY_ESCORTS_BY_SQUAD, NAMED_ROGUE_MIN_SPAWN_DIST,
+  NAMED_ROGUE_TYPES, RAIL_CLEARANCE_M, Random, isNamedRogueType, planetThreat, planetTier,
   type EnemyType, type NamedRogueType, type PlanetId, type WorldRef,
 } from '@/shared';
+/**
+ * 2026-09-13: 등장 확률 — index 0 = 행성 threat 1 … 2 = threat 3 (`data/tables.csv`). 옛 `NAMED_ROGUE_CHANCE_BY_RANK`
+ * (행성 순번 5칸)는 은퇴했다 — 네임드는 레이더 팩션이라 레이더가 나오는 행성(threat 2–3)에만 선다.
+ */
+import { NAMED_ROGUE_CHANCE_BY_THREAT as NAMED_CHANCE_BY_THREAT } from '../factionTables';
 import type { Enemy } from '../Enemy';
 import { ENEMY_STATS, NAMED_HAMMER, NAMED_HEAVY } from '../EnemyTypes';
 import type { RogueSpawnHost } from '../RogueGuards';
@@ -100,8 +107,10 @@ export interface NamedRollResult {
   /** 이 클라이언트가 이번 레이드에 굴렸는가 (리플리카 · 훈련장 · 굴림 전이면 false). */
   rolled: boolean;
   planet: PlanetId | null;
-  /** `planetTier` (1..5). */
+  /** `planetTier` (1..5) — 2026-09-13 부터 확률에 쓰지 않는다 (디버그 표시만). */
   tier: number;
+  /** 2026-09-13: `planetThreat` (1..3) — 확률 `NAMED_ROGUE_CHANCE_BY_THREAT[threat − 1]` 의 색인. */
+  threat: number;
   /** 등장 확률. */
   chance: number;
   /** 굴린 값 (0..1, `< chance` 면 등장). */
@@ -130,7 +139,7 @@ export interface NamedDirectorHost extends RogueSpawnHost {
 }
 
 function emptyResult(): NamedRollResult {
-  return { rolled: false, planet: null, tier: 1, chance: 0, roll: 1, type: null, placed: false, id: null, position: null, anchor: null, escorts: 0 };
+  return { rolled: false, planet: null, tier: 1, threat: 1, chance: 0, roll: 1, type: null, placed: false, id: null, position: null, anchor: null, escorts: 0 };
 }
 
 export class NamedRogueDirector {
@@ -159,13 +168,15 @@ export class NamedRogueDirector {
     const world = ctx?.world;
     if (!host || !host.authority || host.training || ctx.isTraining() || !world?.ready) return this.result;
     const tier = planetTier(planet);
-    const idx = Math.max(0, Math.min(NAMED_ROGUE_CHANCE_BY_RANK.length - 1, tier - 1));
-    const raw = NAMED_ROGUE_CHANCE_BY_RANK[idx];
+    const threat = planetThreat(planet);
+    const idx = Math.max(0, Math.min(NAMED_CHANCE_BY_THREAT.length - 1, threat - 1));
+    const raw = NAMED_CHANCE_BY_THREAT[idx];
     const chance = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
-    const rng = new Random(((world.seed >>> 0) ^ Random.hash('named')) >>> 0);
+    // 2026-09-13: 월드 시드를 해시 **안에** 넣는다 — `seed ^ hash('named')` 는 낮은 비트만 다른 시드끼리 첫 굴림이 비슷했다
+    const rng = new Random(Random.hash(`named@${world.seed >>> 0}`));
     const r = rng.next();
     const res = emptyResult();
-    res.rolled = true; res.planet = planet; res.tier = tier; res.chance = chance; res.roll = r;
+    res.rolled = true; res.planet = planet; res.tier = tier; res.threat = threat; res.chance = chance; res.roll = r;
     this.result = res;
     if (!(r < chance)) return res;
 
@@ -257,10 +268,12 @@ export class NamedRogueDirector {
   private spawnNamed(type: NamedRogueType, pos: THREE.Vector3, yaw: number, guard: THREE.Vector3, rng: Random, res: NamedRollResult | null): Enemy | null {
     const host = this.host;
     const weapon = type === 'rogue_sniper' ? SNIPER_WEAPON : type === 'rogue_heavy' ? HEAVY_WEAPON : '';
-    const e = host.spawnRogue(type, pos, yaw, guard, weapon, null);
+    // 2026-09-13: 헤비는 호위와 한 분대 (`leader`) — 거점(`site`)은 없다 (네임드 전리품은 확정 드롭 표가 따로 정한다)
+    const squadId = type === 'rogue_heavy' ? host.allocSquadId() : -1;
+    const e = host.spawnRogue(type, pos, yaw, guard, weapon, null, squadId >= 0 ? { squadId, role: 'leader' } : undefined);
     if (!e) return null;
     let escorts = 0;
-    if (type === 'rogue_heavy') escorts = this.placeEscorts(e, rng);
+    if (type === 'rogue_heavy') escorts = this.placeEscorts(e, rng, squadId);
     if (res) {
       res.placed = true;
       res.id = e.id;
@@ -271,15 +284,15 @@ export class NamedRogueDirector {
     return e;
   }
 
-  /** 헤비 둘레 `escortRadius` 안에 SMG 로그 호위를 세운다. 세운 수를 돌려준다. */
-  private placeEscorts(heavy: Enemy, rng: Random): number {
+  /** 헤비 둘레 `escortRadius` 안에 SMG **레이더** 호위를 세운다 (헤비와 같은 분대). 세운 수를 돌려준다. */
+  private placeEscorts(heavy: Enemy, rng: Random, squadId: number): number {
     const host = this.host;
     const world = host.ctx.world!;
     const idx = Math.max(0, Math.min(MAX_SQUAD - 1, squadSize(host) - 1));
     const count = Math.max(0, Math.round(NAMED_HEAVY_ESCORTS_BY_SQUAD[idx] ?? 0));
     if (count <= 0) return 0;
     const radius = Math.max(2, NAMED_HEAVY.escortRadius);
-    const escortRadius = ENEMY_STATS.rogue.radius;
+    const escortRadius = ENEMY_STATS.raider.radius;
     const base = rng.range(0, Math.PI * 2);
     let placed = 0;
     for (let i = 0; i < count; i++) {
@@ -294,8 +307,9 @@ export class NamedRogueDirector {
       if (!ok) continue;
       settle(world, _p, escortRadius);
       const yaw = outwardYaw(_p, heavy.position);
-      // escortOf = 헤비 → `spawnRogue` 가 리시를 `ROGUE_AI.escortLeash` 로, RogueAI 가 guardPos 를 헤비에 붙인다
-      if (host.spawnRogue('rogue', _p, yaw, heavy.position, ESCORT_WEAPON, heavy)) placed++;
+      // escortOf = 헤비 → `spawnRogue` 가 리시를 `ROGUE_AI.escortLeash` 로, RogueAI 가 guardPos 를 헤비에 붙인다.
+      // 2026-09-13: 호위는 레이더 (헤비와 같은 분대). 헤비를 따라다니므로 우회조는 두지 않는다.
+      if (host.spawnRogue('raider', _p, yaw, heavy.position, ESCORT_WEAPON, heavy, { squadId, role: 'member' })) placed++;
     }
     return placed;
   }

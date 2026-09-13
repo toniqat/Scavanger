@@ -362,7 +362,7 @@ ROOM_STRIP_LIT,2.2,
 JUMP_PAD_RETRIGGER_S,2.5,A player who was just launched by a pad cannot be launched by the same pad again for this long (was a 0.7 s per-pad literal).
 
 # ── 서재 책장 (owner: housing rules, hub geometry, items book data) ──
-BOOKS_PER_SHELF,6,Book slots per 책장.
+BOOKS_PER_SHELF,8,Book slots per 책장 (2026-09-13: 4 shelves × 2 — old 6-slot saves keep slots 0–5 and gain two empty ones).
 BOOK_XP_PER_BOOK,0.05,"Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight."
 BOOK_GAIN_MAX,2.0,Cap of the 서재 multiplier for one skill.
 
@@ -598,7 +598,7 @@ TRAM_ACCEL_S,3,움직이기 시작한 뒤 최고 속도(TRAM_SPEED)에 닿을 �
 TRAM_DOCK_S,8,전차가 플랫폼에 정차해 있는 시간(초).
 
 # ── 2026-09-09: 로그 강하 (owner: enemies/RogueDrop) ──
-ROGUE_DROP_CHANCE,0.45,구조물 · 플랫폼을 조사할 때 로그 강하가 트리거될 확률. 구역당 1회만 굴린다.
+ROGUE_DROP_CHANCE,0.45,"2026-09-13 은퇴 — 강하 확률은 행성 threat 표 RAIDER_DROP_CHANCE_BY_THREAT(tables.csv)가 정한다. 계약 export 만 읽는다. (옛 뜻: 구조물 · 플랫폼을 조사할 때 로그 강하가 트리거될 확률.)"
 ROGUE_DROP_ETA_S,8,예고에서 착지까지의 시간(초).
 ROGUE_DROP_RADIUS,26,착지 지점이 흩어지는 반경(m).
 
@@ -838,9 +838,92 @@ DRONE_SCAN_SHARE_SLACK,4,"분대원이 보낸 스캔 결과를 믿는 여유(m).
 # ── end [E2] ──
 # ── [F] 헬스 미니게임 ──
 # ── end [F] ──
+# ── 2026-09-13: 요리 재료 티어 — 고철 더미 부가 미확인 광물 (owner: world/Gather) ──
+GATHER_SALVAGE_MINERAL_CHANCE,0.12,"고철 더미가 폐금속과 함께 미확인 광물(spec_mineral)을 더 주는 확률. 생성 때 자기 fork(gather_mineral)로 시드 결정 — gather · gather_core 스트림을 밀지 않는다."
+GATHER_SALVAGE_MINERAL_QTY,1,"고철 더미의 부가 미확인 광물 개수."
+# ── 2026-09-13: 행성별 거점 점거 · 레이더 강하 (owner: enemies/SiteGroups · RogueDrop — 확률 · 인원 표는 tables.csv 의 SITE_* · RAIDER_DROP_*) ──
+SITE_BOSS_MAX_PER_RAID,1,"한 레이드에 거점 로그 그룹을 이끄는 로그 분대장(rogue_boss)의 최대 수. 확률은 SITE_BOSS_CHANCE (사용자 결정: 최대 1명 · threat 2 에서 40 %)."
+SITE_GROUP_MIN_GAP_M,2.2,"한 거점 그룹 안 인간형끼리의 최소 간격(m) — WorldRef.getSiteSpawnPoints 의 minGap. 실내에서도 서로 겹쳐 서지 않는 폭이다."
+SITE_GROUP_LEASH_INDOOR_M,4,"실내 그룹의 리시(m) = 거점 반경 + 이 값. guardPos 는 거점 중심이라 건물 밖으로 멀리 끌려 나가지 않는다."
+SITE_GROUP_LEASH_OUTDOOR_M,30,"실외 그룹의 리시(m) = 거점 반경 + 이 값. 거점 둘레를 지키되 옛 상자 경비 리시(ROGUE_AI.leash 45)와 비슷하게 교전을 따라간다."
+RAIDER_DROP_WAVE_GAP_S,10,"레이더 강하의 두 번째 파도가 첫 파도 예고 뒤 몇 초에 따로 예고되는가. 두 번째 파도도 ROGUE_DROP_ETA_S 동안 떨어진다."
+RAIDER_DROP_WAVE_MAX,4,"레이더 강하 한 파도의 최대 인원 (사용자 결정: 한 번에 4명 초과 금지). RAIDER_DROP_WAVE*_MAX 가 이보다 커도 여기서 자른다."
 # ── 2026-09-13: 탈출 개편 — 출발 유예 · 자동 출발 · 이륙 연출 (owner: extraction · game) ──
 EXTRACTION_DEPART_GRACE_S,10,"함선 안 출발 스위치를 누른 뒤(또는 자동 출발이 걸린 뒤) 실제로 이륙하기까지의 유예(초). 취소할 수 없고, 그동안에도 탑승할 수 있다 — 0 이 되는 순간 함선 안에 살아 있는 사람만 떠난다 (사용자 결정)."
 EXTRACTION_AUTO_DEPART_IDLE_S,60,"함선 착륙 뒤 아무도 출발 스위치를 누르지 않으면 이 시간(초) 뒤 자동으로 출발 유예가 시작된다. 아무도 타지 않았어도 함선은 혼자 떠나고, 남은 사람은 신호소를 다시 작동할 수 있다."
 EXTRACTION_LIFTOFF_TO_COMPLETE_S,10,"이륙(유예 종료)부터 탑승자의 결과 화면까지(초). 카메라가 함선 외부로 넘어가 날아가는 함선을 따라가는 연출이 이 안에 끝난다 (옛 game/model.ts 의 LIFTOFF_TO_COMPLETE 6.5)."
 EXTRACTION_CINEMATIC_BLEND_S,2.2,"이륙 연출: 캐릭터 카메라에서 함선 외부 카메라로 부드럽게 넘어가는 시간(초)."
 EXTRACTION_HUD_FADE_S,0.9,"이륙 연출: 전투 HUD 가 스르륵 사라지는 시간(초)."
+# ── 2026-09-13: 버그 굴착 스폰 · 지하벌레 이벤트 (owner: enemies — Pool.spawn · fx/BurrowFx · sandworm/Director) ──
+BURROW_EMERGE_S,1.0,"플레이 중 스폰되는 버그(상시 순찰 · 포병 · 지하벌레 분출 무리)가 땅을 파고 올라오는 시간(초). 이 동안 맞기는 하지만 공격 · 이동하지 않는다. 월드 생성 때의 첫 배치는 파고 나오지 않는다."
+BURROW_SINK_EXTRA_M,0.35,"굴착 시작 때 몸 높이보다 더 깊이 묻혀 있는 깊이(m) — 첫 프레임에 등이 땅 위로 보이지 않게."
+BURROW_SHAKE_RADIUS,24,"로컬 플레이어가 이 거리(m) 안이면 굴착 스폰에 약한 화면 흔들림이 난다 (거리에 따라 줄어든다)."
+BURROW_SHAKE_INTENSITY,0.16,"굴착 흔들림 세기 (camera:shake intensity, 가장 가까울 때)."
+BURROW_SHAKE_GAP_S,0.9,"굴착 흔들림 사이 최소 간격(초). 여러 마리가 한꺼번에 올라와도 흔들림은 한 번이다 (겹치지 않는다)."
+SANDWORM_WINDOW_START_S,150,"지하벌레 이벤트가 일어날 수 있는 레이드 시각 창의 시작(초, ctx.missionTime). 시드로 뽑은 발동 시각은 창의 앞쪽 절반 안이다."
+SANDWORM_WINDOW_END_S,420,"지하벌레 창의 끝(초). 이때까지 조건(멀티 = 2명 이상이 모여 있다)이 안 맞으면 이번 레이드에는 없다. 환경 재해(6–8분) 전에 끝난다."
+SANDWORM_CHECK_S,2,"발동 시각이 지난 뒤 조건을 다시 보는 간격(초)."
+SANDWORM_GROUP_RADIUS,16,"멀티에서 「같이 다닌다」 로 보는 반경(m). 살아 있는 플레이어 둘 이상이 서로 이 안에 있으면 그 무리의 한가운데 발밑에서 일어난다."
+SANDWORM_WARN_S,5,"전조(분진 · 흙 파임 · 점점 강해지는 흔들림 · 토스트) 시작부터 분출까지(초)."
+SANDWORM_ALERT_RADIUS,180,"전조 흔들림 · 분출 흔들림이 느껴지는 반경(m). 밖이면 흔들림이 없다 (토스트는 분대 전원)."
+SANDWORM_SHAKE_MAX,0.18,"전조 흔들림: 0.2 초마다 더하는 camera:shake 세기의 최댓값 (분출 직전 · 한가운데). 시작은 이 값의 12 % 이고 진행도² 로 오른다."
+SANDWORM_ERUPT_RADIUS,12,"분출 판정 반경(m) — 이 안의 플레이어는 피해 + 넉백, 다른 팩션 적도 맞는다. 전조 링이 이 반경을 그린다."
+SANDWORM_ERUPT_DAMAGE,55,"분출 피해 (한가운데). 가장자리에서 30 % 까지 줄어든다. 실드부터 깎인다."
+SANDWORM_ERUPT_KNOCKBACK,15,"분출 넉백 속도(m/s, 한가운데). 베헤모스 돌진(BEHEMOTH_KNOCKBACK 12)보다 세다."
+SANDWORM_HP_MIN,2000,"지하벌레 최대 체력의 하한 — 호스트가 분출 순간 MIN..MAX 에서 굴려 분대 전원에 보낸다 (사용자 결정 2000–3000)."
+SANDWORM_HP_MAX,3000,"지하벌레 최대 체력의 상한."
+SANDWORM_RISE_S,1.4,"분출한 지하벌레의 몸통이 땅에서 다 솟아오르는 시간(초). 버그 뱉기는 그 뒤부터 센다."
+SANDWORM_BURST_RING_MIN,6,"분출과 함께 파고 나오는 버그 무리가 서는 링의 안쪽 반경(m)."
+SANDWORM_BURST_RING_MAX,14,"그 링의 바깥 반경(m)."
+SANDWORM_SPIT_PHASE_S,30,"다 솟은 뒤 입에서 버그를 뱉는 단계의 길이(초, 사용자 결정 30). 먼저 처치하면 더 뱉지 않는다. 끝나면 땅에 박힌 채 독극물을 뱉는다."
+SANDWORM_SPIT_INTERVAL_S,4.5,"버그를 뱉는 간격(초)."
+SANDWORM_SPIT_COUNT,2,"한 번에 뱉는 버그 수 (SANDWORM_ALIVE_CAP 이 남은 만큼만)."
+SANDWORM_SPIT_FLIGHT_S,1.1,"뱉어진 버그가 입에서 착지까지 날아가는 시간(초). 날아가는 동안은 공격하지 않는다."
+SANDWORM_SPIT_MIN_M,7,"뱉어진 버그의 착지 거리 하한(m, 지하벌레 밑동 기준, 가까운 플레이어 쪽으로 치우친다)."
+SANDWORM_SPIT_MAX_M,16,"착지 거리 상한(m)."
+SANDWORM_ALIVE_CAP,48,"지하벌레가 버그를 뱉을 때의 전체 적 생존 상한 — 넘으면 멀리 있는 한가한 벌레부터 재활용하고, 그래도 모자라면 덜 뱉는다."
+SANDWORM_ACID_RANGE,48,"독극물 단계: 이 거리(m) 안의 가장 가까운 살아 있는 플레이어에게 뱉는다."
+SANDWORM_ACID_INTERVAL_S,2.4,"독극물 한 번(연발)의 간격(초)."
+SANDWORM_ACID_VOLLEY,3,"독극물 한 번에 뱉는 산성 덩어리 수 (첫 발은 표적 예측 조준, 나머지는 주변에 흩뿌린다). 한 덩어리의 피해는 스퓨어 산성(SPEWER_SPIT)과 같다."
+# ── end 2026-09-13 굴착 스폰 · 지하벌레 ──
+# ── 2026-09-13 요리 미니게임 (docs/plans/cooking-minigames.md, 로더 = src/shared/cooking.ts) ──
+COOK_SCORE_PERFECT,1,"조리 판정 한 번이 단계 점수(판정들의 평균)에 넣는 값 — 완벽."
+COOK_SCORE_GOOD,0.6,"조리 판정 한 번이 넣는 값 — 좋음. 실패는 0."
+COOK_LEAD_BEATS,3,"박자 게임(썰기 · 볶기)의 예비 박자 수 — 첫 표식이 판정선까지 걸어오는 동안의 입력은 무시한다."
+COOK_CHOP_CUTS,5,"썰기 한 번의 칼질 수 (사용자 명세 「좌클 5번 탁탁탁」)."
+COOK_CHOP_BEAT_S,0.5,"썰기 박자 간격(초)."
+COOK_CHOP_WINDOW_S,0.15,"썰기 판정 창(±초). 이 값의 1/3 안이면 완벽. 창 밖 헛클릭은 다음 표식의 실패다 (연타 방지)."
+COOK_MINCE_FILL,0.08,"다지기: 클릭 한 번에 그 게이지(좌클릭 = 좌우 · 우클릭 = 상하)가 차는 양 (0 … 1)."
+COOK_MINCE_DRAIN,0.05,"다지기: 같은 버튼을 연달아 누를 때마다 반대쪽 게이지가 줄어드는 양 — 번갈아 눌러야 빠르다."
+COOK_MINCE_PERFECT_S,4.5,"다지기: 두 게이지를 다 채운 시간이 이 안이면 단계 점수 1."
+COOK_MINCE_ZERO_S,10,"다지기: 이 시간 이상이면 단계 점수 0 (사이는 선형)."
+COOK_MINCE_MAX_S,14,"다지기: 이 시간이 지나면 채운 만큼으로 강제로 끝낸다 (점수 0)."
+COOK_GRILL_DEFAULT_S,6,"굽기: cook_grill.csv 에 없는 재료 조각이 0 → 100 % 익는 시간(초)."
+COOK_GRILL_STAGGER_S,0.8,"굽기: 조각이 차례로 이만큼 늦게 불에 닿는다(초) — 같은 재료끼리도 타이밍이 겹치지 않게."
+COOK_GRILL_FLIP_PERFECT,0.05,"굽기: 뒤집기 완벽 폭 — 진행도가 50 % ± 이 값 안에서 뒤집으면 완벽."
+COOK_GRILL_FLIP_GOOD,0.15,"굽기: 뒤집기 좋음 폭 (50 % ± 이 값). 밖이면 실패(그래도 뒤집힌다). 안 뒤집고 꺼내면 뒤집기 실패."
+COOK_GRILL_DONE_PERFECT,0.05,"굽기: 꺼내기 완벽 폭 — 100 % ± 이 값."
+COOK_GRILL_DONE_GOOD,0.15,"굽기: 꺼내기 좋음 폭 (100 % ± 이 값). 밖이면 실패."
+COOK_GRILL_EARLY_REMOVE,0.8,"굽기: 안 뒤집은 조각을 클릭했을 때 진행도가 이 값 이상이면 뒤집지 않고 곧장 꺼낸다 (뒤집기 실패로 친다)."
+COOK_GRILL_BURN_AT,1.5,"굽기: 진행도가 이 값에 닿으면 조각이 타서 저절로 내려간다 (남은 판정 전부 실패)."
+COOK_STIRFRY_BEAT_S,0.7,"볶기 박자 간격(초)."
+COOK_STIRFRY_WINDOW_S,0.25,"볶기 판정 창(±초, 사용자 명세 「매우 널널」). 1/3 안이면 완벽. 한 박자에 한 번만 판정한다."
+COOK_STIRFRY_FILL_PERFECT,0.2,"볶기: 완벽 판정 한 번에 바가 차는 양 (0 … 1)."
+COOK_STIRFRY_FILL_GOOD,0.14,"볶기: 좋음 한 번에 차는 양."
+COOK_STIRFRY_FILL_MISS,0.07,"볶기: 타이밍이 안 맞아도 차는 양 (사용자 명세 「안 맞아도 채워진다」)."
+COOK_STIR_TIME_S,5,"젓기: 좌클릭을 누르고 있어야 하는 누적 시간(초) — 이만큼 저으면 끝난다."
+COOK_STIR_HEAT_RISE,0.28,"젓기: 손을 뗐을 때 온도가 오르는 속도(/초, 온도 0 … 1)."
+COOK_STIR_HEAT_FALL,0.22,"젓기: 누르고 있을 때 온도가 내려가는 속도(/초)."
+COOK_STIR_SURGE,0.5,"젓기: 끓어오름 파동 — 오르는 속도에 곱하는 (1 + 이 값 × sin) 의 세기."
+COOK_STIR_SURGE_S,2.2,"젓기: 끓어오름 파동의 주기(초)."
+COOK_STIR_BAND_LOW,0.35,"젓기: 초록 구간 아래 끝 (시작 온도는 구간 한가운데)."
+COOK_STIR_BAND_HIGH,0.65,"젓기: 초록 구간 위 끝."
+COOK_STIR_PERFECT_RATIO,0.9,"젓기: 초록 구간에 머문 시간 비율이 이 이상이면 단계 점수 1."
+COOK_STIR_ZERO_RATIO,0.4,"젓기: 비율이 이 이하면 단계 점수 0 (사이는 선형)."
+COOK_POUR_RAMP_S,0.3,"붓기: 누르기 시작하면 흐름이 0 → 100 % 로, 떼면 100 → 0 % 로 가는 시간(초) (사용자 명세 「0.3초쯤」)."
+COOK_POUR_RATE_ML_S,200,"붓기: 흐름 100 % 일 때 비커에 들어가는 양(ml/초)."
+COOK_POUR_SETTLE_S,0.8,"붓기: 흐름이 0 이 된 뒤 이만큼 다시 누르지 않으면 판정한다(초). 그 전에는 더 부을 수 있다."
+COOK_POUR_PERFECT_ERR,0.04,"붓기: 목표량과의 오차 비율이 이 안이면 단계 점수 1."
+COOK_POUR_ZERO_ERR,0.3,"붓기: 오차 비율이 이 이상이면 단계 점수 0 (사이는 선형)."
+COOK_POUR_BEAKER_MUL,1.6,"붓기: 비커 용량 = 목표량 × 이 값. 넘치면 곧장 판정한다."
+# ── end 2026-09-13 요리 미니게임 ──

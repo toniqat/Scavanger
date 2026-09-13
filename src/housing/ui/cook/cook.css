@@ -1,0 +1,328 @@
+/* ============================================================================
+ * SCAVANGER — 조리대 화면 · 조리 오버레이 (2026-09-13; housing/ui/cook). 접두사 `.cook-` 전용.
+ *
+ * 오버레이(`.cook`)는 **화면 전체를 덮지 않는다** — hub 가 비추는 조리대 앞 자세가 위쪽에 보여야 한다. 루트는 투명한 막
+ * (`pointer-events: none`)이고 패널(`.cook-panel`)만 화면 아래 가운데에서 입력을 받는다. 결은 `ui/gym/gym.css` 와 같다
+ * (반투명 판 · 호박색 모서리 · 모노 숫자). 판정 색: 완벽 = 강조색 · 좋음 = 본문색 · 실패 = 위험색.
+ * 조리대 화면(`.cook-station`)은 `StationShell` 카드 배치 위에 레일 · 좌 패널 내용만 더한다.
+ * ========================================================================== */
+
+.cook { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
+.cook[hidden] { display: none; }
+
+.cook-panel {
+  position: absolute; left: 50%; bottom: 12vh; transform: translateX(-50%);
+  width: min(780px, calc(100vw - 48px));
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 12px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border); color: var(--c-text);
+  pointer-events: auto; user-select: none;
+}
+.cook-panel.is-in { animation: cookIn 260ms var(--ease); }
+@keyframes cookIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+.cook-panel::before, .cook-panel::after {
+  content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--c-accent); pointer-events: none;
+}
+.cook-panel::before { left: -1px; top: -1px; border-right: none; border-bottom: none; }
+.cook-panel::after { right: -1px; bottom: -1px; border-left: none; border-top: none; }
+
+.cook-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.cook-name { font-size: 13px; font-weight: 700; letter-spacing: 0.14em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cook-steps { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; justify-content: flex-end; font-size: 12px; }
+.cook-steps-item { color: var(--c-text-faint); letter-spacing: 0.06em; white-space: nowrap; }
+.cook-steps-item.is-now { color: var(--c-accent); font-weight: 700; }
+.cook-steps-item.is-done { color: var(--c-success); }
+.cook-steps-arrow { color: var(--c-text-faint); font-size: 10px; }
+.cook-body { position: relative; min-height: 190px; display: flex; flex-direction: column; justify-content: center; }
+.cook-hint { font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; color: var(--c-text-faint); min-height: 16px; }
+
+.cook-verdict {
+  position: absolute; left: 50%; top: -18px; transform: translate(-50%, -100%);
+  font-size: 30px; font-weight: 800; letter-spacing: 0.22em; margin-right: -0.22em;
+  opacity: 0; pointer-events: none; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+.cook-verdict.is-perfect { color: var(--c-accent); }
+.cook-verdict.is-good { color: var(--c-text); }
+.cook-verdict.is-miss { color: var(--c-danger); }
+.cook-verdict.show { animation: cookVerdict 560ms var(--ease) forwards; }
+@keyframes cookVerdict {
+  0% { opacity: 0; transform: translate(-50%, -80%) scale(1.25); }
+  18% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -125%) scale(1); }
+}
+.cook-stepscore {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 8px 18px; font-family: var(--ui-mono); font-size: 26px; font-weight: 800; letter-spacing: 0.06em;
+  color: #111; background: var(--c-accent); opacity: 0; pointer-events: none; white-space: nowrap;
+}
+.cook-stepscore.show { animation: cookStepScore 700ms var(--ease) forwards; }
+@keyframes cookStepScore {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 공용 조각 — 가로 바 · 옆 칸 */
+.cook-hbar { --f: 0; position: relative; height: 10px; background: var(--c-fill); border: 1px solid var(--c-border); overflow: hidden; }
+.cook-hbar-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform-origin: left; transform: scaleX(var(--f)); background: var(--c-accent); }
+.cook-hbar.hit-perfect { animation: cookHitPerfect 320ms var(--ease); }
+.cook-hbar.hit-miss { animation: cookHitMiss 320ms var(--ease); }
+@keyframes cookHitPerfect { from { border-color: var(--c-accent); box-shadow: 0 0 12px color-mix(in srgb, var(--c-accent) 70%, transparent); } }
+@keyframes cookHitMiss { from { border-color: var(--c-danger); background: rgba(255, 77, 77, 0.14); } }
+.cook-side { display: flex; flex-direction: column; gap: 8px; min-width: 170px; }
+.cook-side-label { font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.cook-side-num { font-family: var(--ui-mono); font-size: 16px; font-weight: 700; }
+
+.cook-stage { display: flex; align-items: center; justify-content: center; gap: 22px; min-height: 180px; cursor: pointer; }
+
+/* 도마 · 칼 (썰기 · 다지기) */
+.cook-board {
+  position: relative; flex: none; width: 190px; height: 130px; border-radius: 10px;
+  background: linear-gradient(160deg, #6b4a2f, #4a321f); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35), 0 6px 14px rgba(0, 0, 0, 0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.cook-food { position: relative; z-index: 1; pointer-events: none; }
+.cook-knife {
+  position: absolute; z-index: 2; right: 26px; top: 8px; width: 12px; height: 74px; border-radius: 2px 2px 6px 6px;
+  background: linear-gradient(90deg, #d7dde3, #8e98a2); transform-origin: 50% 100%; transform: rotate(-24deg); pointer-events: none;
+}
+.cook-knife::after { content: ""; position: absolute; left: 1px; right: 1px; top: -22px; height: 24px; border-radius: 3px; background: #2b2b2b; }
+.cook-knife.is-cut { animation: cookCut 170ms ease-out; }
+@keyframes cookCut { 40% { transform: rotate(4deg) translateY(10px); } }
+.cook-cleaver { width: 26px; right: 22px; }
+.cook-knife.is-chop-h { animation: cookChopH 150ms ease-out; }
+.cook-knife.is-chop-v { animation: cookChopV 150ms ease-out; }
+@keyframes cookChopH { 50% { transform: rotate(-24deg) translateX(-40px) translateY(10px); } }
+@keyframes cookChopV { 50% { transform: rotate(-4deg) translateY(16px); } }
+.cook-slices { position: absolute; left: 12px; right: 12px; bottom: 10px; display: flex; gap: 4px; justify-content: center; pointer-events: none; }
+.cook-slice { width: 7px; height: 18px; border-radius: 2px; background: #e9d7a8; box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4); }
+.cook-slice.is-perfect { background: #ffe39a; }
+.cook-bits { position: absolute; inset: 0; pointer-events: none; }
+.cook-bit {
+  position: absolute; left: var(--bx); top: var(--by); width: 7px; height: 5px; border-radius: 2px;
+  background: #e4cf9c; transform: rotate(var(--br)); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+.cook-clock {
+  position: absolute; left: 8px; top: 6px; z-index: 2; font-family: var(--ui-mono); font-size: 12px; font-weight: 700;
+  color: #fff; text-shadow: 0 1px 3px #000; pointer-events: none;
+}
+.cook-clock.is-slow { color: var(--c-accent); }
+.cook-clock.is-late { color: var(--c-danger); }
+
+/* 썰기 — 흘러오는 박자 표식 */
+.cook-track { flex: 1; min-width: 0; }
+.cook-lane {
+  --judge: 10%;
+  position: relative; height: 46px; overflow: hidden; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
+}
+.cook-judge { position: absolute; top: 0; bottom: 0; left: var(--judge); width: 2px; margin-left: -1px; background: var(--c-accent); box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 60%, transparent); }
+.cook-lane.hit-perfect { animation: cookHitPerfect 300ms var(--ease); }
+.cook-lane.hit-miss { animation: cookHitMiss 300ms var(--ease); }
+.cook-note {
+  --x: 2;
+  position: absolute; top: 50%; left: calc(var(--judge) + var(--x) * (100% - var(--judge)));
+  width: 26px; height: 26px; transform: translate(-50%, -50%); border-radius: 50%;
+  border: 2px solid rgba(232, 230, 225, 0.7); background: rgba(8, 9, 11, 0.85);
+}
+.cook-note::after { content: "⫽"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-dim); }
+.cook-note.is-off { display: none; }
+.cook-note.is-next { border-color: var(--c-text); }
+.cook-note.is-perfect { border-color: var(--c-accent); background: color-mix(in srgb, var(--c-accent) 30%, rgba(8, 9, 11, 0.85)); }
+.cook-note.is-good { border-color: var(--c-text); background: rgba(232, 230, 225, 0.18); }
+.cook-note.is-miss { border-color: var(--c-danger); opacity: 0.55; }
+
+/* 다지기 — 좌 · 우 세로 게이지 */
+.cook-gauge { --f: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.cook-gauge-bar { position: relative; width: 22px; height: 130px; background: var(--c-fill); border: 1px solid var(--c-border-strong); overflow: hidden; }
+.cook-gauge-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; transform-origin: bottom; transform: scaleY(var(--f)); background: var(--c-accent); }
+.cook-gauge.is-full .cook-gauge-fill { background: var(--c-success); }
+.cook-gauge.is-hit .cook-gauge-bar { animation: cookHitPerfect 200ms var(--ease); }
+.cook-gauge-cap { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-dim); }
+.cook-gauge-key { min-width: 38px; height: 22px; font-size: 11px; }
+.cook-gauge.is-down .cook-gauge-key { background: var(--c-accent); border-color: var(--c-accent); color: #111; }
+
+/* 굽기 — 그릴 위 조각 · 진행 링 */
+.cook-grillplate {
+  display: flex; gap: 26px; padding: 18px 26px 26px; border-radius: 8px;
+  background: repeating-linear-gradient(90deg, #2a2d31 0 10px, #1a1c1f 10px 16px); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 110, 40, 0.15);
+}
+.cook-piece { --p: 0; --cook: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+.cook-ring {
+  position: relative; width: 84px; height: 84px; border-radius: 50%;
+  background: conic-gradient(color-mix(in srgb, #ff9f4a calc(100% - var(--cook) * 40%), #7a3a12) calc(var(--p) * 1turn), rgba(255, 255, 255, 0.08) 0);
+  display: flex; align-items: center; justify-content: center;
+}
+.cook-ring::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #16181b; }
+.cook-tick { position: absolute; left: 50%; top: 0; width: 2px; height: 50%; margin-left: -1px; transform-origin: 50% 100%; transform: rotate(var(--a)); pointer-events: none; }
+.cook-tick::before { content: ""; position: absolute; left: -1px; top: -2px; width: 4px; height: 12px; background: #fff; }
+.cook-tick.is-flip::before { background: var(--c-accent); }
+.cook-tick.is-done::before { background: var(--c-success); }
+.cook-piece-food { position: relative; z-index: 1; pointer-events: none; filter: brightness(calc(1 - var(--cook) * 0.35)) sepia(calc(var(--cook) * 0.6)); }
+.cook-flipmark { position: absolute; right: -4px; top: -4px; z-index: 2; font-size: 16px; font-style: normal; color: var(--c-accent); opacity: 0; pointer-events: none; }
+.cook-piece.is-flipped .cook-flipmark { opacity: 1; }
+.cook-piece.is-flipped .cook-piece-food { transform: scaleX(-1); }
+.cook-piece.is-waiting { opacity: 0.45; }
+.cook-piece.is-hot .cook-ring { box-shadow: 0 0 14px rgba(255, 70, 30, 0.8); }
+.cook-piece.is-burned .cook-piece-food { filter: brightness(0.25) grayscale(1); }
+.cook-piece.is-removed { opacity: 0.55; cursor: default; }
+.cook-piece.is-removed .cook-ring { background: rgba(255, 255, 255, 0.05); }
+.cook-piece-pct { font-family: var(--ui-mono); font-size: 12px; font-weight: 700; }
+.cook-piece.is-removed .cook-piece-pct { visibility: hidden; }
+.cook-piece-label { min-height: 14px; font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-dim); white-space: nowrap; }
+.cook-piece-label.is-perfect { color: var(--c-accent); }
+.cook-piece-label.is-miss { color: var(--c-danger); }
+
+/* 볶기 — 팬 · 박자 링 */
+.cook-stove { position: relative; width: 170px; height: 170px; display: flex; align-items: center; justify-content: center; }
+.cook-pan {
+  position: relative; z-index: 1; width: 132px; height: 132px; border-radius: 50%;
+  background: radial-gradient(circle at 45% 40%, #3b3f45, #17191c 70%); box-shadow: inset 0 0 0 6px #0e0f11, 0 8px 18px rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.cook-pan.is-toss { animation: cookToss 240ms ease-out; }
+@keyframes cookToss { 40% { transform: translateY(-10px) rotate(-6deg); } }
+.cook-pan-foods { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-width: 100px; pointer-events: none; }
+.cook-pan-handle { position: absolute; right: -44px; top: 50%; width: 60px; height: 12px; margin-top: -6px; border-radius: 6px; background: #22252a; }
+.cook-beatring {
+  --s: 2;
+  position: absolute; z-index: 2; width: 132px; height: 132px; border-radius: 50%; border: 3px solid var(--c-accent);
+  transform: scale(var(--s)); opacity: calc(1.6 - var(--s) * 0.7); pointer-events: none;
+}
+.cook-beatring.is-lead { border-color: rgba(255, 255, 255, 0.35); }
+.cook-beatring.is-used { border-color: rgba(255, 255, 255, 0.2); }
+
+/* 젓기 — 냄비 · 온도계 */
+.cook-pot {
+  --boil: 0;
+  position: relative; width: 170px; height: 120px; border-radius: 0 0 40px 40px;
+  background: linear-gradient(180deg, #4a4f56, #25282c); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); overflow: hidden;
+}
+.cook-soup { position: absolute; left: 8px; right: 8px; top: 10px; height: 36px; border-radius: 50%; background: #c88a4a; overflow: hidden; }
+.cook-bubble {
+  position: absolute; bottom: 2px; left: calc(10% + var(--i) * 14%); width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(255, 240, 210, 0.7); opacity: var(--boil); animation: cookBubble 900ms calc(var(--i) * 140ms) infinite ease-in;
+}
+@keyframes cookBubble { from { transform: translateY(0) scale(0.5); } to { transform: translateY(-26px) scale(1.1); opacity: 0; } }
+.cook-ladle {
+  position: absolute; left: 50%; top: -30px; width: 8px; height: 76px; margin-left: -4px; border-radius: 4px;
+  background: #b7bec6; transform-origin: 50% 90%; pointer-events: none; animation: cookLadle 900ms linear infinite; animation-play-state: paused;
+}
+.cook-pot.is-stirring .cook-ladle { animation-play-state: running; }
+@keyframes cookLadle { 0% { transform: translateX(-30px) rotate(-14deg); } 50% { transform: translateX(30px) rotate(14deg); } 100% { transform: translateX(-30px) rotate(-14deg); } }
+.cook-thermo { --t: 0.5; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.cook-thermo-tube { position: relative; width: 26px; height: 150px; border-radius: 13px; background: var(--c-fill); border: 1px solid var(--c-border-strong); overflow: hidden; }
+.cook-band {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--lo) * 100%); height: calc((var(--hi) - var(--lo)) * 100%);
+  background: color-mix(in srgb, var(--c-success) 35%, transparent); border-top: 1px solid var(--c-success); border-bottom: 1px solid var(--c-success);
+}
+.cook-mercury { position: absolute; left: 6px; right: 6px; bottom: 0; height: calc(var(--t) * 100%); border-radius: 7px 7px 0 0; background: var(--c-accent); }
+.cook-thermo.in-band .cook-mercury { background: var(--c-success); }
+.cook-thermo.is-hot .cook-mercury { background: var(--c-danger); }
+.cook-thermo.is-cold .cook-mercury { background: #7fb8ff; }
+.cook-thermo-label { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+
+/* 붓기 — 계량 비커 · 붓는 비커 · 줄기 */
+.cook-pour { --flow: 0; --lc: #8fd0ff; }
+.cook-pourscene { position: relative; width: 250px; height: 180px; }
+.cook-beaker { --lvl: 0; position: absolute; left: 50%; bottom: 0; width: 96px; height: 128px; margin-left: -48px; }
+.cook-beaker-glass {
+  position: absolute; inset: 0; border: 2px solid rgba(220, 235, 245, 0.55); border-top: 0; border-radius: 0 0 8px 8px;
+  background: rgba(200, 225, 240, 0.06); overflow: hidden;
+}
+.cook-beaker-liquid { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; transform-origin: bottom; transform: scaleY(var(--lvl)); background: var(--lc); opacity: 0.85; }
+.cook-beaker.is-over .cook-beaker-glass { border-color: var(--c-danger); }
+.cook-target { position: absolute; left: -2px; right: -2px; bottom: calc(var(--tg) * 100%); height: 2px; background: var(--c-accent); box-shadow: 0 0 6px var(--c-accent); }
+.cook-grad { position: absolute; left: 0; width: 10px; bottom: calc(var(--gy) * 100%); height: 1px; background: rgba(220, 235, 245, 0.45); }
+.cook-jug {
+  position: absolute; right: 0; top: 0; width: 60px; height: 70px; border: 2px solid rgba(220, 235, 245, 0.55); border-top: 0;
+  border-radius: 0 0 8px 8px; transform-origin: 0% 0%; transform: rotate(calc(var(--flow) * -58deg)); overflow: hidden;
+}
+.cook-jug-liquid { position: absolute; left: 0; right: 0; bottom: 0; height: 70%; background: var(--lc); opacity: 0.85; }
+.cook-jug.is-down { border-color: var(--c-accent); }
+.cook-stream {
+  position: absolute; left: calc(50% + 12px); top: 16px; width: 10px; height: 118px; border-radius: 5px;
+  background: var(--lc); opacity: 0; transform-origin: 50% 0; transform: scaleX(var(--flow));
+}
+.cook-stream.is-on { opacity: 0.85; }
+.cook-amount.is-over { color: var(--c-danger); }
+
+/* 선택 카드 · 자동 연출 */
+.cook-choose, .cook-auto { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0; }
+.cook-choose-title { font-size: 22px; font-weight: 700; letter-spacing: 0.14em; }
+.cook-choose-sub { font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.04em; }
+.cook-choose-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; padding-top: 6px; }
+.cook-choose-row .ui-btn { min-width: 150px; padding: 0 18px; }
+.cook-auto-glyph { font-size: 34px; color: var(--c-accent); animation: cookSpin 900ms linear infinite; }
+@keyframes cookSpin { to { transform: rotate(360deg); } }
+.cook-auto-name { font-size: 13px; letter-spacing: 0.06em; }
+.cook-auto-bar { width: min(360px, 80%); }
+.cook-auto-score { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); }
+
+/* 결과 */
+.cook-result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 10px 22px; align-items: start; }
+.cook-result-main { display: flex; flex-direction: column; gap: 6px; }
+.cook-stars { font-size: 30px; letter-spacing: 0.08em; color: var(--c-accent); line-height: 1; }
+.cook-stars.q-0 { color: var(--c-text-faint); }
+.cook-score { display: flex; align-items: baseline; gap: 4px; font-family: var(--ui-mono); line-height: 1; }
+.cook-score-num { font-size: 44px; font-weight: 700; }
+.cook-score-unit { font-size: 18px; color: var(--c-text-dim); }
+.cook-bonus { font-family: var(--ui-mono); font-size: 12px; color: var(--c-success); }
+.cook-result-steps { display: flex; flex-direction: column; gap: 3px; padding-top: 4px; }
+.cook-result-step { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--c-text-dim); }
+.cook-result-step b { font-family: var(--ui-mono); color: var(--c-text); }
+.cook-result-meal { display: flex; gap: 12px; align-items: flex-start; }
+.cook-result-chip { position: relative; flex: none; }
+.cook-qbadge, .cook-dt-q {
+  position: absolute; left: -4px; bottom: -4px; z-index: 2; padding: 0 4px; font-family: var(--ui-mono); font-size: 11px; font-weight: 700;
+  color: #111; background: var(--c-accent); border-radius: 2px; pointer-events: none;
+}
+.cook-result-text { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.cook-result-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; }
+.cook-result-effects { font-family: var(--ui-mono); font-size: 12px; line-height: 1.6; color: #ffb0a0; white-space: pre-line; }
+.cook-landed { font-size: 12px; color: var(--c-success); letter-spacing: 0.06em; }
+.cook-warn {
+  font-size: 12px; line-height: 1.5; color: var(--c-danger); padding: 6px 10px; border-left: 2px solid var(--c-danger); background: rgba(255, 77, 77, 0.08);
+}
+.cook-result-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+.cook-result-foot .ui-btn { min-width: 120px; padding: 0 18px; }
+.cook-again.is-blocked { opacity: 0.45; }
+.cook-again-reason { margin-right: auto; font-size: 11px; color: var(--c-text-faint); }
+
+/* ── 조리대 화면 (`CookStation`) ─────────────────────────────────────────── */
+.cook-rail { width: 176px; }
+.cook-rail-tier { flex: none; padding: 8px 2px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-faint); }
+.cook-rail-tier:first-child { padding-top: 0; }
+.cook-rail-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #05070a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
+.cook-rail-dot.on { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
+.cook-rail-lv { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
+.cook-rail-item.is-locked { opacity: 0.5; }
+
+.cook-sel-head { display: flex; gap: 12px; align-items: center; }
+.cook-sel-chip { flex: none; }
+.cook-sel-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cook-sel-name { font-size: 18px; font-weight: 700; letter-spacing: 0.08em; }
+.cook-sel-sub { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; }
+.cook-sel-effects { display: flex; flex-direction: column; gap: 3px; }
+.cook-eff-head { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.cook-eff-line { display: flex; gap: 8px; align-items: baseline; font-family: var(--ui-mono); font-size: 12px; }
+.cook-eff-base { color: #ffb0a0; }
+.cook-eff-arrow { color: var(--c-text-faint); }
+.cook-eff-max { color: var(--c-accent); font-weight: 700; }
+.cook-sel-cost { display: flex; flex-wrap: wrap; gap: 6px; }
+.cook-sel-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cook-stepchip { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); }
+.cook-stepchip-main { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; white-space: nowrap; }
+.cook-stepchip-auto { font-family: var(--ui-mono); font-size: 10px; color: var(--c-success); white-space: nowrap; }
+.cook-stepchip-arrow { color: var(--c-text-faint); }
+.cook-sel-start { display: flex; align-items: center; gap: 12px; padding-top: 4px; }
+.cook-start { min-width: 150px; height: 38px; padding: 0 22px; }
+.cook-start.is-blocked { opacity: 0.45; }
+.cook-sel-reason { font-size: 12px; color: var(--c-danger); letter-spacing: 0.03em; }
+.cook-sel-reason[hidden] { display: none; }
+.cook-sel-note { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.03em; line-height: 1.5; }
+
+/* 식탁 — 품질 별 (DiningTable) */
+.dt-row .cook-dt-chip { position: relative; flex: none; }
+.cook-dt-stars { color: var(--c-accent); letter-spacing: 0.04em; }
+.cook-dt-stars.q-0 { color: var(--c-text-faint); }

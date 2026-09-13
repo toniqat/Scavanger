@@ -39,6 +39,8 @@ export * from './character';
 export * from './currency';
 /* appended (2026-09-09): Escape 닫기 스택 — 열린 화면 중 가장 위 하나를 ESC 로 닫는다 */
 export * from './escape';
+/* appended (2026-09-13): 공용 경고 · 1초 홀드 확인 팝업 (`openHoldAsk`) — 첫 사용처는 캐릭터 시트 */
+export * from './holdAsk';
 /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 계약 */
 export * from './comms';
 /* appended (2026-09-10): 포탄 궤적 닫힌 식 — enemies 와 ui 가 같은 자리를 그린다 */
@@ -65,3 +67,5 @@ export * from './lootRolls';
 export * from './raidFound';
 /* appended (2026-09-13): 탈출 개편 — `ctx.extraction` (적 출입 금지 영역 · 출발 유예 상태) */
 export * from './extraction';
+/* appended (2026-09-13): 요리 미니게임 · 요리 품질 — 조리대 단계표 · 자동 조리 가구 · 품질 별 (docs/plans/cooking-minigames.md) */
+export * from './cooking';

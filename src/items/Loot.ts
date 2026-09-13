@@ -1,6 +1,6 @@
 import type { ArmorDef, CraftIngredient, CraftRecipe, DurabilityBucketInfo, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
 /* appended (2026-09-09): 행성별 무기 등급 곡선 */
-import type { PlanetId, WeaponGrade } from '@/shared';
+import type { CorpseLootOpts, PlanetId, WeaponGrade } from '@/shared';
 import { Random, planetTier } from '@/shared';
 import { UNIQUE_WEAPON_IDS } from '@/shared';
 import { AMMO_TYPES_V2, ATTACHMENT_ITEM_DEFS, BOOK_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
@@ -12,9 +12,14 @@ import { craftCostOf } from './Recipes';
 import { ALL_CRAFT_RECIPES, durabilityBucketInfo, durabilityBucketOf, repairCostFor, salvageFor } from './Salvage';
 import { IMPLANT_BROKEN_DEFS } from './ImplantDefs';
 import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getPlanetGradeCurve, getTierTable, planetRarityWeights, type PlanetGradeCurve, type TierTable } from './LootTables';
+/* appended (2026-09-13): 은퇴한 아이템은 상자 · 보급 추첨 후보가 아니다 (csv 와 별개의 안전핀) */
+import { isLootableDef } from './LootTables';
 /* appended (2026-09-11): 네임드 로그 확정 드롭 (`data/loot_named.csv`) */
 import { NAMED_LOOT_DURABILITY_MAX, NAMED_LOOT_DURABILITY_MIN } from '@/shared';
 import { NAMED_DROP_MAP, numberedArmorIdForTier, type NamedDrop } from './LootTables';
+/* appended (2026-09-13): 인간형 팩션 전리품 — 총 등급 분포 · 방탄복 · 가방 · 회복 · 거점 보너스 · 남은 수류탄 */
+import { ENEMY_GRENADE_ITEM } from '@/shared';
+import { FACTION_LOOT_MAP, getFactionSiteBonus, planetSeedPool, type CorpseRarityPick, type FactionLoot, type FactionSiteBonus } from './LootTables';
 
 /**
  * 유니크 전용 탄종의 아이템 id (`ammo_fuel` … `ammo_belt`) 와 등급 무기가 쓰는 평범한 탄종의 id.
@@ -185,17 +190,25 @@ export class LootService implements LootRef {
    * `rollCrate`. Unknown types yield a single bio sample.
    */
   rollCorpse(type: EnemyType, rng: Random = this.fallbackRng, rogueWeaponId?: string): ItemInstance[] {
-    return this.rollCorpseWithMax(type, rng, rogueWeaponId, null);
+    return this.rollCorpseWithMax(type, rng, rogueWeaponId, null, null);
   }
 
-  /** `rollCorpse` 본체. `maxGrade` 는 행성의 등급 상한이고 null 이면 상한 없음 — rng 소모는 어느 쪽이든 같다. */
+  /**
+   * `rollCorpse` 본체. `maxGrade` 는 행성의 등급 상한이고 null 이면 상한 없음 — rng 소모는 어느 쪽이든 같다.
+   * 2026-09-13: `planet` (거점 보너스의 씨앗 표) · `opts` (스폰 거점 · 남은 수류탄) — 둘 다 팩션 표가 있는 적만 쓴다.
+   * 결과는 (type, rng, weaponId, planet, opts) 의 순수 함수다 — 호스트 · 리플리카 · 드론 스캔 미리보기가 같은 값을 넘긴다.
+   */
   private rollCorpseWithMax(
     type: EnemyType, rng: Random, rogueWeaponId: string | undefined, curve: PlanetGradeCurve | null,
+    planet: PlanetId | null, opts?: CorpseLootOpts,
   ): ItemInstance[] {
     const maxGrade: WeaponGrade | null = curve?.maxGrade ?? null;
     const table = CORPSE_TABLE_MAP.get(type);
     if (!table) return [this.createItem('mat_bio_sample', 1)];
     const out: ItemInstance[] = [];
+    /* 2026-09-13: 인간형 팩션 — 표에 줄이 없는 적(벌레 · rogue_boss · 네임드)은 둘 다 undefined 라 아래 분기에 안 들어간다. */
+    const faction = FACTION_LOOT_MAP.get(type);
+    const siteBonus = getFactionSiteBonus(type, opts?.site);
 
     for (const drop of table.drops) {
       if (drop.chance < 1 && !rng.chance(drop.chance)) continue;
@@ -208,7 +221,13 @@ export class LootService implements LootRef {
       const base = WEAPON_DEF_MAP.get(rogueWeaponId ?? DEFAULT_ROGUE_WEAPON_ID) ?? WEAPON_DEF_MAP.get(DEFAULT_ROGUE_WEAPON_ID);
       if (base) {
         let weapon = base;
-        if (table.weapon.grades && table.weapon.grades.length > 0) {
+        /* 2026-09-13: 인간형 팩션은 등급을 **가중치**로 뽑는다 (`loot_factions.csv` 의 weaponGrades). 그 거점의 grades 줄이
+           있으면 그 표가 통째로 대신한다 (전진기지 레이더). 보스의 균등 목록과는 같이 쓰지 않는다 (로더가 잡는다). */
+        const factionGrades = siteBonus?.weaponGrades ?? faction?.weaponGrades;
+        if (factionGrades && factionGrades.grades.length > 0) {
+          const grade = rng.weighted(factionGrades.grades, (g) => factionGrades.weightOf[g] ?? 0);
+          weapon = WEAPON_DEF_MAP.get(weaponIdForGrade(weaponFamilyOf(base), grade)) ?? base;
+        } else if (table.weapon.grades && table.weapon.grades.length > 0) {
           weapon = WEAPON_DEF_MAP.get(weaponIdForGrade(weaponFamilyOf(base), rng.pick(table.weapon.grades))) ?? base;
         }
         // 2026-09-09: 앞쪽 행성에서는 보스가 떨구는 총도 그 행성의 최대 등급을 넘지 못한다 (rng 소모는 그대로).
@@ -274,6 +293,12 @@ export class LootService implements LootRef {
       const pool = IMPLANT_BROKEN_DEFS.filter((d) => (w[d.rarity] ?? 0) > 0);
       if (pool.length > 0) out.push(this.createItem(rng.weighted(pool, (d) => w[d.rarity] ?? 0).id, 1));
     }
+
+    /* 2026-09-13: 인간형 팩션 — 방탄복 → 가방 → 회복 (희귀도 굴림) → 거점 보너스 → 남은 수류탄(굴림 없음).
+       임플란트 뒤라 앞의 추첨은 안 움직이고, 표가 없는 적은 여기서 rng 를 한 번도 안 쓴다. */
+    if (faction) this.rollFactionGear(faction, rng, curve, out);
+    if (siteBonus) this.rollSiteBonusItems(siteBonus, rng, planet, out);
+    this.addCarriedGrenades(opts, out);
 
     /* 2026-09-11: 네임드 로그의 확정 드롭 — **맨 마지막**이라 앞의 추첨이 안 움직이고, 네임드가 아닌 적은
        이 분기에 들어오지도 않는다 (`warrior` / `rogue` / `rogue_boss` 의 고정 벡터 그대로).
@@ -354,8 +379,66 @@ export class LootService implements LootRef {
    * 아이템별 확률이지 희귀도 추첨이 아니고, 보스 부착물은 `maxRarity` 로 자른 뒤 **균등**하게 뽑는다 —
    * 둘 다 배수를 걸 자리가 없다 (csv 에서 확률을 직접 고치는 쪽이 맞다).
    */
-  rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null): ItemInstance[] {
-    return this.rollCorpseWithMax(type, rng, rogueWeaponId, this.curveFor(planet));
+  rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null, opts?: CorpseLootOpts): ItemInstance[] {
+    // 2026-09-13: `opts` = 스폰 거점(거점 보너스) · 남은 수류탄(그대로 시체에). 생략하면 거점 보너스 · 수류탄만 없다.
+    return this.rollCorpseWithMax(type, rng, rogueWeaponId, this.curveFor(planet), planet, opts);
+  }
+
+  /* ── appended (2026-09-13): 인간형 팩션 전리품 (`data/loot_factions.csv` · `loot_faction_sites.csv`) ───────── */
+
+  /**
+   * 방탄복 → 가방 → 회복. 방탄복 · 가방은 총처럼 낡은 것만 떨어진다 (`gearDurability` × 최대치, 최소 1).
+   * 희귀도 가중치에는 그 행성의 `rareMul` · `epicMul` · `legMul` 이 걸린다 (상자 · 망가진 임플란트와 같은 규칙).
+   */
+  private rollFactionGear(faction: FactionLoot, rng: Random, curve: PlanetGradeCurve | null, out: ItemInstance[]): void {
+    const [dLo, dHi] = faction.gearDurability;
+    for (const pick of [faction.armor, faction.bag]) {
+      const id = pick ? this.rollRarityPick(pick, rng, curve) : null;
+      const def = id ? ITEM_DEF_MAP.get(id) : undefined;
+      if (!def) continue;
+      const max = def.durabilityMax;
+      out.push(this.createItem(def.id, 1, max !== undefined ? { durability: Math.max(1, Math.round(max * rng.range(dLo, dHi))) } : undefined));
+    }
+    const heal = faction.heal ? this.rollRarityPick(faction.heal, rng, curve) : null;
+    if (heal && ITEM_DEF_MAP.has(heal)) out.push(this.createItem(heal, 1));
+  }
+
+  /** `chance` → 희귀도(가중, 행성 배수) → 그 희귀도의 후보 중 균등. 안 들고 있으면 null. */
+  private rollRarityPick(pick: CorpseRarityPick, rng: Random, curve: PlanetGradeCurve | null): string | null {
+    if (!rng.chance(pick.chance)) return null;
+    const w = planetRarityWeights(pick.weights, curve);
+    const rarities = pick.rarities.filter((q) => (w[q] ?? 0) > 0);
+    if (rarities.length === 0) return null;
+    const ids = pick.byRarity.get(rng.weighted(rarities, (q) => w[q] ?? 0));
+    return ids && ids.length > 0 ? rng.pick(ids) : null;
+  }
+
+  /** 거점 보너스의 아이템 줄 (csv 순서). `seed` 는 그 레이드 행성의 야생 씨앗 표에서 고른다. 은퇴한 아이템은 건너뛴다. */
+  private rollSiteBonusItems(bonus: FactionSiteBonus, rng: Random, planet: PlanetId | null, out: ItemInstance[]): void {
+    for (const it of bonus.items) {
+      if (it.chance < 1 && !rng.chance(it.chance)) continue;
+      let defId = it.defId;
+      if (it.kind === 'seed') {
+        const pool = planetSeedPool(planet);
+        if (pool.length === 0) continue;
+        defId = rng.weighted(pool, (s) => s.weight).defId;
+      }
+      const qty = it.qty[0] >= it.qty[1] ? it.qty[0] : rng.int(it.qty[0], it.qty[1]);
+      const def = ITEM_DEF_MAP.get(defId);
+      if (!def || def.retired) continue;
+      out.push(this.createItem(def.id, qty));
+    }
+  }
+
+  /**
+   * 던지지 못하고 남은 수류탄 — 종류 · 개수 그대로 (굴림 없음, rng 를 안 쓴다). 개수는 한 스택(`stackMax`)으로 자른다
+   * (`createItem` 이 자른다 — 와이어에서 온 값이 커도 시체가 수류탄 창고가 되지 않는다). 모르는 종류는 버린다.
+   */
+  private addCarriedGrenades(opts: CorpseLootOpts | undefined, out: ItemInstance[]): void {
+    const g = opts?.grenades;
+    if (!g || !Number.isFinite(g.count) || g.count < 1) return;
+    const id = Object.prototype.hasOwnProperty.call(ENEMY_GRENADE_ITEM, g.kind) ? ENEMY_GRENADE_ITEM[g.kind] : undefined;
+    if (id && ITEM_DEF_MAP.has(id)) out.push(this.createItem(id, g.count));
   }
 
   /** 행성 id → 난이도 순번(`planetTier`) → 등급 곡선. 행성이 없으면 null (예전 동작). */
@@ -428,7 +511,8 @@ export class LootService implements LootRef {
     table: TierTable, rng: Random, filter: (d: ItemDef) => boolean, relaxRarity: boolean,
     curve: PlanetGradeCurve | null = null,
   ): ItemDef | null {
-    const all = ITEM_DEFS.filter(filter);
+    /* 2026-09-13: 은퇴한 아이템은 어떤 굴림(확정 · 무기 · 카테고리 · relaxRarity 폴백)에서도 후보가 아니다. */
+    const all = ITEM_DEFS.filter((d) => isLootableDef(d) && filter(d));
     /* 유니크가 봉인된 행성에서는 후보에서 아예 뺀다 — 가중치만 0 으로 두면 `relaxRarity` 폴백이 도로 집어 온다
        (티어 5 처럼 등급 무기가 전부 0 인 표에서 실제로 일어난다). curve 가 null 이면 후보가 그대로다. */
     const candidates = curve ? all.filter((d) => this.curveMul(curve, d) > 0) : all;

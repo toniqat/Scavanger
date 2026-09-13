@@ -16,6 +16,17 @@ import { TextPlane } from '../Labels';
 import { AIRLOCK, CEIL, COCKPIT, COCKPIT_ROOM_BOX, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOM_DEPTH, ROOM_GAP, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
 import type { EditAreaDef, PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
+/** 2026-09-13: how long the cockpit ceiling takes to fade out / back in around 시설 관리 (UI timing, not balance). */
+const COCKPIT_CEILING_FADE_S = 0.4;
+
+/** An own, always-transparent copy of a shared palette material (opacity 1 = looks exactly like the original). */
+function fadeMat(src: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  const m = src.clone();
+  m.transparent = true;
+  m.opacity = 1;
+  return m;
+}
+
 /**
  * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → `SHIP_ROOM_COUNT` (8 since
  * 2026-09-12, was 10) `ROOM_SIZE × ROOM_DEPTH` housing rooms (half per side, doors on the corridor) → airlock. Every
@@ -73,6 +84,19 @@ export class PersonalShip implements ShipInterior {
   readonly doors = new ShipDoors(this.root);
 
   private meshes: THREE.Mesh[] = [];
+  /**
+   * 2026-09-13 (사용자 결정): 조종석 천장 — 천장판 · 천장 조명 띠 · 천장 보 셋 · 계기판 위 천장 띠. 함선 전체 병합 배치에서 떼어 낸
+   * 자기 그룹 + **자기 재질**(공용 `HUB_MATS` 의 복제, 처음부터 `transparent`)이라 시설 관리 동안 이것만 흐려진다.
+   * `transparent` 를 도중에 켜고 끄면 프로그램 키(`OPAQUE`)가 바뀌어 셰이더를 다시 컴파일하므로 늘 켜 둔 채 `opacity` 만 옮긴다.
+   */
+  private readonly cockpitCeiling = new THREE.Group();
+  private readonly ceilMeshes: THREE.Mesh[] = [];
+  private readonly ceilMats = {
+    plate: fadeMat(M.hullDark), beam: fadeMat(M.hullLight), strip: fadeMat(M.stripWhite), bar: fadeMat(M.stripCyan),
+  };
+  /** Fade progress 0 (shown) … 1 (hidden) and where it is heading. */
+  private ceilFade = 0;
+  private ceilTarget = 0;
   /** 2026-09-12: 방 · 조종석 바닥 격자선 — 시설 관리 중에만 보인다 (`setGridVisible`). 광원 없음. */
   private readonly gridGroup = new THREE.Group();
   private gridMeshes: THREE.Mesh[] = [];
@@ -125,13 +149,17 @@ export class PersonalShip implements ShipInterior {
 
     /* ── cockpit ── */
     const C = COCKPIT;
-    P.deck(C, false);
+    // 2026-09-13 (사용자 결정): the cockpit **ceiling** (plane + light channels + the three full-depth beams + the bar over the
+    // dashboard) is its own batch with its own always-transparent material instances, so 시설 관리 can fade it out
+    // (`setCockpitCeilingHidden`). The launch pod's top frame stays in the ship-wide batch on purpose.
+    const ceil = { b: new GeoBatch(), plate: this.ceilMats.plate, beam: this.ceilMats.beam, strip: this.ceilMats.strip };
+    P.deck(C, false, ceil);
     P.walls(C, WALL, {
       n: { lo: -3.2, hi: 3.2, y0: 1.0, y1: 2.7 },                              // viewport
       s: { lo: CORRIDOR.minX, hi: CORRIDOR.maxX, y0: 0, y1: 2.6 },              // corridor arch
     });
     P.glass(r, 6.4, 1.7, 0, 1.85, C.minZ - WALL / 2, 0, this.meshes);
-    for (const x of [-3.3, 0, 3.3]) { P.rib(x, C.minZ + 0.16); P.beam(C.maxZ - C.minZ, x, C.minZ + (C.maxZ - C.minZ) / 2, Math.PI / 2); }
+    for (const x of [-3.3, 0, 3.3]) { P.rib(x, C.minZ + 0.16); P.beam(C.maxZ - C.minZ, x, C.minZ + (C.maxZ - C.minZ) / 2, Math.PI / 2, ceil); }
     // rear ribs: only the starboard one survives — the port rear corner is the 함선 컴퓨터 desk now, and the rib
     // stood inside it (it hid the 기업 네트워크 monitor).
     P.rib(3.3, C.maxZ - 0.16);
@@ -170,21 +198,19 @@ export class PersonalShip implements ShipInterior {
     screen.mesh.rotation.x = TILT;
     r.add(screen.mesh);
     this.terminal = { position: new THREE.Vector3(0, 0, C.minZ + 1.5), yaw: yawFromForward(0, -1), screen };
-    P.signStrip(0, CEIL - 0.07, C.minZ + 0.9, 1.8, M.stripCyan, 0);      // ceiling bar over the dashboard
+    ceil.b.box(1.8, 0.08, 0.04, 0, CEIL - 0.07, C.minZ + 0.9, this.ceilMats.bar);   // ceiling bar over the dashboard (was `P.signStrip`)
 
-    // −X wall: bunk. The bunk sits flush against the wall (x −5.0 … −4.0), z −2.8 … −0.7. 2026-09-12: the implant bay
-    // that stood in front of it (x −4.05, z −4.9) is the `furn_implant_bay` furniture now — housing seats it at
-    // `COCKPIT_DEFAULT_FURNITURE`, and `COCKPIT_BLOCKED_RECTS` (shared/housing) keeps every prop below off the grid.
-    const bunkX = C.minX + 0.5, bunkZ = -1.75;
-    b.boxB(1.0, 0.5, 2.1, bunkX, 0, bunkZ, M.hullDark);
-    b.box(0.94, 0.14, 2.0, bunkX, 0.57, bunkZ, M.fabric);
-    b.box(0.5, 0.1, 0.4, bunkX, 0.7, bunkZ - 0.85, M.padding);
-    col.addBox(bunkX, 0, bunkZ, 1.0, 0.7, 2.1);
+    /*
+     * 2026-09-13 (사용자 결정): the cockpit's remaining fixed props are **decor furniture** now — the −X wall bunk
+     * (x −5 … −4, z −2.8 … −0.7) → `furn_bunk`, the two +X wall lockers (x 4.48 … 4.98 around z −4.7) → two `furn_locker`,
+     * the stash cabinet on the rear wall (x 2.4) → `furn_drawer`. housing seats them once on their old spots
+     * (`COCKPIT_DECOR_FURNITURE`) and their geometry + colliders left this file; `COCKPIT_BLOCKED_RECTS` freed the cells.
+     * 2026-09-12: the implant bay (x −4.05, z −4.9) is the `furn_implant_bay` furniture (`COCKPIT_DEFAULT_FURNITURE`).
+     */
 
-    // +X wall (front → back): storage lockers (the workbench moved to the 작업실), launch pod. The 함선 컴퓨터 used to
-    // stand here and its 기업 네트워크 prompt overlapped the pod's boarding prompt — it moved to the rear wall.
+    // +X wall: launch pod (the lockers in front of it are furniture now). The 함선 컴퓨터 used to stand here and its
+    // 기업 네트워크 prompt overlapped the pod's boarding prompt — it moved to the rear wall.
     const faceNegX = yawFromForward(-1, 0);
-    P.lockers(C.maxX - 0.27, -4.7, 2, faceNegX);
     // pod socket: floor plate, rear frame, side lips + toggleable door blocker (cell stays walkable, see README)
     const px = C.maxX - 1.0, pz = -1.2;
     b.box(2.0, 0.06, 2.0, px, 0.03, pz, M.hullDark);
@@ -200,8 +226,10 @@ export class PersonalShip implements ShipInterior {
 
     // +Z (rear) wall, port side: the **함선 컴퓨터** desk stood here (x −3.15) until 2026-09-12 — it is the
     // `furn_corp_computer` furniture now and housing seats it on the same spot (`COCKPIT_DEFAULT_FURNITURE`).
-    // stash cabinet on the starboard half of the rear wall (clear of the arch and the pod socket)
-    this.stashCabinet(b, col, 2.4, C.maxZ - 0.3);
+    // (the stash cabinet on the starboard half is the `furn_drawer` furniture since 2026-09-13 — see above)
+    ceil.b.build(this.cockpitCeiling, this.ceilMeshes);
+    this.cockpitCeiling.name = 'cockpit-ceiling';
+    r.add(this.cockpitCeiling);
     // 자동문 on the cockpit arch (x −1.5 … 1.5, the wall slab at z 0 … 0.3)
     this.doors.add(0, C.maxZ + WALL / 2, CORRIDOR.maxX - CORRIDOR.minX, 2.55, 0.12, 'x');
 
@@ -318,16 +346,33 @@ export class PersonalShip implements ShipInterior {
     this.warp = new ViewportWarp(r, this.stars, this.planet, HUB_TRAVEL_WARP_STRETCH, { forward: new THREE.Vector3(0, 0, -1), rMin: 26, rMax: 240, span: 900 });
   }
 
-  /** 창고 cabinet (stash prop, decorative — the stash grid lives on the Tab ship screen). */
-  private stashCabinet(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number): void {
-    b.boxB(0.9, 2.2, 0.55, x, 0, z, M.hullDark);
-    b.box(0.94, 0.05, 0.58, x, 2.22, z, M.trimDark);
-    for (let k = 0; k < 3; k++) {
-      b.box(0.8, 0.5, 0.03, x, 0.4 + k * 0.62, z - 0.29, M.hullLight);
-      b.box(0.3, 0.04, 0.03, x, 0.4 + k * 0.62, z - 0.31, M.trim);
+  /*
+   * `stashCabinet(b, col, x, z)` (창고 cabinet prop) lived here until 2026-09-13 — it is the `furn_drawer` decor furniture
+   * now and its look moved to the `drawer` builder in `interiors/Furniture.ts`.
+   */
+
+  /**
+   * 2026-09-13 (사용자 결정): 시설 관리 동안 조종석 천장을 지운다 (`hidden` true) / 되살린다. 목표만 적고 `update` 가
+   * `COCKPIT_CEILING_FADE_S` 에 걸쳐 불투명도를 옮긴다. 재질은 처음부터 `transparent` 라 프로그램이 바뀌지 않고, 다 지워지면
+   * 그룹 `visible` 만 끈다 (광원은 건드리지 않는다).
+   */
+  setCockpitCeilingHidden(hidden: boolean): void { this.ceilTarget = hidden ? 1 : 0; }
+  /** 0 = ceiling fully shown … 1 = fully faded out (debug / smoke). */
+  get cockpitCeilingFade(): number { return this.ceilFade; }
+
+  private tickCeiling(dt: number): void {
+    if (this.ceilFade === this.ceilTarget) return;
+    const step = Math.max(0, dt) / COCKPIT_CEILING_FADE_S;
+    this.ceilFade = this.ceilTarget > this.ceilFade
+      ? Math.min(this.ceilTarget, this.ceilFade + step)
+      : Math.max(this.ceilTarget, this.ceilFade - step);
+    const t = this.ceilFade;
+    const opacity = 1 - t * t * (3 - 2 * t);                 // smoothstep
+    for (const m of Object.values(this.ceilMats)) {
+      m.opacity = opacity;
+      m.depthWrite = opacity >= 0.999;                       // a see-through ceiling must not hide what is under it
     }
-    b.box(0.7, 0.05, 0.04, x, 2.05, z - 0.3, M.stripAmber);
-    col.addBox(x, 0, z, 0.9, 2.2, 0.55);
+    this.cockpitCeiling.visible = opacity > 0.001;
   }
 
   /**
@@ -507,12 +552,16 @@ export class PersonalShip implements ShipInterior {
     this.stars.update(dt);
     this.planet.update(dt);
     this.warp.update(dt);
+    this.tickCeiling(dt);
     this.beaconMat.opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(time * 4));
   }
 
   dispose(): void {
     this.doors.dispose();
     disposeMeshes(this.meshes);
+    disposeMeshes(this.ceilMeshes);
+    this.cockpitCeiling.removeFromParent();
+    for (const m of Object.values(this.ceilMats)) m.dispose();   // own clones, not the shared palette
     disposeMeshes(this.gridMeshes);
     this.gridGroup.removeFromParent();
     this.cockpit.furnitureGroup.removeFromParent();

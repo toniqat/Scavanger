@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import {
   NET_SLOT_COLORS, PLAYER_CORPSE_COLS, PLAYER_CORPSE_LOOT_RANGE, PLAYER_CORPSE_ROWS,
-  recordRideLocal, restoreRideLocal,
+  recordRideLocal, restoreRideLocal, normalizeMealQuality,
   type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
   type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
@@ -269,6 +269,8 @@ export function itemsToWire(items: readonly ItemInstance[]): CorpseItemWire[] {
       : undefined;
     const w: CorpseItemWire = ex ? { defId: it.defId, qty: it.qty, ex } : { defId: it.defId, qty: it.qty };
     if (typeof it.raidFound === 'number') w.rf = it.raidFound;   // 2026-09-12: 아이템 회수 계약 표식은 아이템과 함께 간다
+    const q = normalizeMealQuality(it.quality);   // 2026-09-13: 요리 품질도 (0 = 생략)
+    if (q > 0) w.q = q;
     out.push(w);
   }
   return out;

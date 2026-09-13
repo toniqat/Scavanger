@@ -6,9 +6,9 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 |---|---|
 | `WeaponDefs.ts` | 6 weapon **families** (one per class, 2026-09-07) × 5 grades = 30 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
-| `ItemDefs.ts` | `ItemDef` 전부 (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (**10**, Phase 8 + 2026-09-11 온실 개편 — `SeedDef.soilTag` 포함), **`SAMPLE_ITEM_DEFS` (6, 2026-09-11 연구실 — `data/samples.csv`, `ItemDef.sample`)**, `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), **`DISC_ITEM_DEFS` · `RECORD_ITEM_DEFS` (14 + 14, 2026-09-12 A-3e — `data/discs.csv` · `data/records.csv`, `discItemIdFor` · `recordItemIdFor` · `DISC_DEF_BY_SKILL` · `RECORD_DEF_BY_SKILL`, 책 바로 뒤)**, `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials, **약초 6 · 작물 8 · 토양 6 · 준비물 2 (2026-09-11, `ItemDef.soil = {tag, uses}` 는 `items.csv` 의 `soilTag` · `soilUses` 선택 열에서, `ItemDef.prep = {env, short}` 는 `prepEnv` · `prepShort` 선택 열에서 온다)**, **`MEAL_ITEM_DEFS` (10, 2026-09-11 주방 A-3c — `data/meals.csv`, `ItemDef.meal`)**, **주머니 4 · 세포주 5 · 배지 2 · 배양 산물 5 · 필라멘트 3 · 열쇠 1 (2026-09-11 A-14 · A-15 — `items.csv` 의 선택 열 `pouchCols`/`pouchRows`/`pouchAccepts` → `ItemDef.pouch`, `strainOut`/`strainQty`/`strainHours` → `ItemDef.strain`, `mediumUses`/`mediumSpeed` → `ItemDef.medium`)**, `ITEM_CATEGORIES` (`CATEGORY_LABEL_KO` 의 키 — csv 카테고리 목록 칸 검증용); rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
+| `ItemDefs.ts` | `ItemDef` 전부 (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (**10**, Phase 8 + 2026-09-11 온실 개편 — `SeedDef.soilTag` 포함), **`SAMPLE_ITEM_DEFS` (14 = 새 3 + 은퇴 11, 2026-09-11 연구실 · 2026-09-13 요리 재료 티어 — `data/samples.csv`, `ItemDef.sample` 의 `family`) · `SOCKET_ITEM_DEFS` (14, 2026-09-13 — `data/sockets.csv`, `ItemDef.growSocket`, 표본 바로 뒤) · 은퇴 `ItemDef.retired`**, `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), **`DISC_ITEM_DEFS` · `RECORD_ITEM_DEFS` (14 + 14, 2026-09-12 A-3e — `data/discs.csv` · `data/records.csv`, `discItemIdFor` · `recordItemIdFor` · `DISC_DEF_BY_SKILL` · `RECORD_DEF_BY_SKILL`, 책 바로 뒤)**, `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials, **약초 6 · 작물 8 · 토양 6 · 준비물 2 (2026-09-11, `ItemDef.soil = {tag, uses}` 는 `items.csv` 의 `soilTag` · `soilUses` 선택 열에서, `ItemDef.prep = {env, short}` 는 `prepEnv` · `prepShort` 선택 열에서 온다)**, **`MEAL_ITEM_DEFS` (10, 2026-09-11 주방 A-3c — `data/meals.csv`, `ItemDef.meal`)**, **주머니 4 · 세포주 5 · 배지 2 · 배양 산물 5 · 필라멘트 3 · 열쇠 1 (2026-09-11 A-14 · A-15 — `items.csv` 의 선택 열 `pouchCols`/`pouchRows`/`pouchAccepts` → `ItemDef.pouch`, `strainOut`/`strainQty`/`strainHours` → `ItemDef.strain`, `mediumUses`/`mediumSpeed` → `ItemDef.medium`)**, `ITEM_CATEGORIES` (`CATEGORY_LABEL_KO` 의 키 — csv 카테고리 목록 칸 검증용); rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5). **2026-09-10: `repairCost` 는 여기서 사라졌다** — 수리비는 제작 재료 × 내구도 구간 배수이고 구현은 `Salvage.repairCostFor` 다 |
-| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*) |
+| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*); **2026-09-13** `RETIRED_ITEM_IDS` · `isLootableDef` — 은퇴한 아이템은 모든 티어 배수 0 + `Loot.pickDef` 후보 제외 (아래 *요리 재료 티어*) |
 | `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*; **2026-09-10** 부터 총기가 아닌 것들에는 행성 희귀도 배수도 걸린다 — 아래 *행성별 희귀도 배수*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
@@ -197,7 +197,9 @@ Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul
 | `toxic` | `mat_bio_sample` ×1–2 | 35 % `terminid_gland` |
 | `artillery` | `mat_bio_sample` ×2–3 | 50 % `mat_power_cell` |
 | `behemoth` | `mat_alloy` ×2–4, `terminid_gland` ×1–2 | 30 % `alien_artifact` |
-| `rogue` | calibre rounds + **its weapon** (see below) | 30 % `stim`, 20 % `grenade_frag` |
+| `rogue` | calibre rounds + **its weapon** (등급 I 85 / II 14 / III 1 — 2026-09-13) | 회복 1회 40 % · 방탄복 5 % · 가방 3 % · 남은 수류탄 그대로 (아래 *인간형 팩션 시체*), 기계 부품 12 % · 구동 코어 30 % · 열쇠 각 0.8 % |
+| `android` (2026-09-13) | calibre rounds + **its weapon** (I 95 / II 5) | 실드 충전기 35 % (일반 88 · 고급 11 · 희귀 1) · 구동 코어 45 % · 케이블 30 % · 파워 셀 12 % · 회로 기판 8 % — 방탄복 · 가방 · 수류탄 · 서적 · 임플란트 없음 |
+| `raider` (2026-09-13) | calibre rounds + **its weapon** (I 50 / II 45 / III 4.5 / IV 0.5) | 회복 1회 40 % · 방탄복 5 % · 가방 3 % · 남은 수류탄 · 연구소 / 전진기지 보너스, 기계 부품 18 % · 코어 35 % · 화약 15 % · 열쇠 각 1 % · 서적 3 % · 임플란트 7 % |
 | `rogue_boss` | calibre rounds + **graded weapon** + one `att_*` (rarity ≤ epic, fitting the weapon when any does), `stim` ×1–2 | 20 % one **unique** (`wpn_u_*`, durability 50–80 %, random `ammoInMag`) + a 30–60 % stack of its calibre (Phase 6, rolled last) |
 | `rogue_sniper` 로든 (2026-09-11) | 붕대 1–2 | 보스 수준 충전기 · 재료 · 서적 20 % · 임플란트 45 %, 공중 드론 20 % — **+ 확정 드롭**(아래 *네임드 로그 확정 드롭*) |
 | `rogue_hammer` 타길라 (2026-09-11) | 붕대 1–2 | 보스 수준 + 회복주사 35 % · 고폭 수류탄 50 % · 합금 판 50 % · 원격 지뢰 35 % — **+ 확정 드롭** |
@@ -522,6 +524,129 @@ items 는 `ItemDef.pouch: PouchDef { cols, rows, accepts }` 만 준다. `accepts
 함선 전용 재료 15종(배지 2 · 세포주 5 · 배양 산물 5 · 필라멘트 3)은 `material` 카테고리라 줄만으로는 못 막아
 `loot_item_weights.csv` 에 **티어 1–5 × 15줄 = 75줄이 `mul 0`** 으로 들어가 있다. 새 표본 5종은
 `loot_corpses.csv`(벌레 8종) · `loot_category_weights.csv` 의 기존 `sample` 줄이 그대로 처리한다.
+
+## 요리 재료 티어 (2026-09-13 — `docs/plans/food-tiers.md` §3, 사용자 결정)
+
+> 위 두 절(*미확인 표본 · 준비물* · *요리 · 주머니 · 배양 재료 · 열쇠*)의 표본 11종 · 세포주 5 · 배양 산물 5 · 특선 요리 4 는 **은퇴했다**.
+> 그 절들은 기록으로 남기고, 지금 사실은 이 절이다.
+
+```
+T1  씨앗 · 토양 ─재배─▶ 작물 ─조리대 Lv.1─▶ 채소 요리 (능력치 1)
+T2  미확인 세포 ─분석기─▶ 소 · 돼지 · 닭 · 양 세포주 + 배지 ─배양조─▶ 고기 페이스트 ┐
+    미확인 광물 ─분석기─▶ 암염 결정 ─추출기─▶ 소금 ─────────────────────────────┴ 조리대 Lv.2 ▶ 페이스트 요리 (2)
+T3  미세조류 세포주 ─배양조─▶ 셀룰로스 ─조합대─▶ 배양 스캐폴드 → 배지 + 스캐폴드 + 세포주 ─▶ 종별 고기
+    배양지방 세포주 ─배양조─▶ 동물기름 ─────────────────────────────────── 조리대 Lv.3 ▶ 고기 요리 (3)
+T4  미확인 DNA ─분석기─▶ 난백 · 유단백 세포 ─추출기─▶ 난백 단백질 · 카제인 · 유청 ─조합대─▶ 달걀 · 우유 · 치즈 ─▶ 유제품 요리 (4)
+소켓 미확인 DNA ─분석기─▶ 토양 · 배지 소켓 ─▶ 부어 둔 흙 · 배지에 영구 장착
+```
+
+items/ 는 사슬의 **정의만** 갖는다 — 분석 결과표(`data/analysis_results.csv` → `shared/housing.ANALYSIS_RESULTS`) · 분석 레벨 · 흙/배지 마모 ·
+소켓 끼우기 · 스캐폴드 배양은 `housing` 몫이고, 요리 `effects` 를 파생 수치에 접는 것은 `progression` 몫이다.
+
+### 은퇴 `ItemDef.retired`
+
+정의는 남고(가진 것이 사라지지 않는다) **모든 출처**에서 빠진다. 세 겹으로 지킨다:
+
+1. **상자 · 보급 추첨** — `LootTables.RETIRED_ITEM_IDS` 가 모든 티어의 `itemWeightMul` 을 0 으로 덮고, `Loot.pickDef` 가 `isLootableDef` 로
+   후보에서 뺀다 (가중치가 전부 0 일 때의 `relaxRarity` 균등 폴백까지). csv 줄과 무관한 안전핀이다.
+2. **표끼리의 참조** — `scripts/data-check.mjs` 가 `analysis_results.csv` defId · 레시피 inputs / outputDefId / extraOutputs · `loot_corpses.csv` ·
+   `planets.csv` samples · 표본 `rewardDefId` · 세포주 `strainOut` / `strainScaffoldOut` 이 **없는 id · 은퇴한 id** 면 실패한다.
+3. **은퇴한 세포주는 `strain` 이 없다** — csv 에서 strain 칸을 비웠고(남아 있으면 로더가 신고), 그래서 배양조가 받지 않는다.
+
+은퇴 목록: 표본 11(`spec_tissue` · `_spore` · `_chitin` · `_resin` · `_crystal` · `_genome` · `_biofilm` · `_adipose` · `_gland` · `_ovule` · `_muscle`) ·
+세포주 5(`strain_*`) · 배양 산물 5(`cult_*`) · 특선 요리 4(`meal_cultured_steak` · `_protein_omelet` · `_algae_broth` · `_field_ration`).
+
+### 표본 3종 — `data/samples.csv`
+
+새 필수 열 `family`(`SAMPLE_FAMILIES` — `cell` | `mineral` | `dna`) → `SampleDef.family`, 선택 `retired`. **`first*` 는 더 읽지 않는다** —
+칸이 채워져 있으면 `r.report` (첫 해석 보너스는 없어졌다). `analyzeHours` 는 분석 레벨 1 기준 시간, `rewardDefId`/`rewardQty` 는 결과표가 비었을 때의
+대체 산출물이다. `rarity` 는 이제 `r.enum` 으로 읽는다.
+
+| id | 이름 | rarity | ₩ | family | 해석 | 대체 산출물 |
+|---|---|---|---|---|---|---|
+| `spec_cell` | 미확인 세포 | uncommon | 120 | cell | 2 h | `mat_bio_sample` ×3 |
+| `spec_mineral` | 미확인 광물 | uncommon | 110 | mineral | 1.5 h | `mat_extract_min` ×1 |
+| `spec_dna` | 미확인 DNA | rare | 260 | dna | 4 h | `mat_extract_bio` ×1 |
+
+옛 11종: 조직 · 키틴 · 생체막 · 지방조직 · 근조직 = **cell** (→ 생체 조직 ×3) · 포자낭 · 유전자 시료 · 분비선 · 난포 = **dna** (→ 생체 추출물 ×1) ·
+결정 · 수지 = **mineral** (→ 광물 추출물 ×1). 값 · 등급 · 해석 시간은 그대로다.
+
+### 소켓 14종 — `data/sockets.csv` → `SOCKET_ITEM_DEFS`
+
+`category: 'socket'`, 1×1, 스택 `SOCKET_STACK_MAX`(5) · 무게 `SOCKET_WEIGHT`(0.05 kg) — 둘 다 `tuning.csv`. 아이콘 `CATEGORY_ICON.socket`(`⧈`),
+**색은 등급색**(I · II · III 이 색으로 갈린다). `ItemDef.growSocket: GrowSocketDef {target, effect, amount}` — `target` ∈ `GROW_SOCKET_TARGETS`,
+`effect` ∈ `GROW_SOCKET_EFFECTS`, `amount` 0 … 1 (0 이면 신고). `ITEM_DEFS` 에서 **표본 바로 뒤**다. 분석기 DNA 결과로만 나온다 (루팅 · 상점 · 제작 없음).
+
+| 대상 | speed I · II · III | yield I · II | wear I · II |
+|---|---|---|---|
+| `soil` 토양 | 뿌리 촉진 인자 0.08 · 0.14 · 0.2 (₩180 · 420 · 900) | 결실 인자 0.3 · 0.6 (₩200 · 460) | 토양 안정 인자 0.2 · 0.4 (₩160 · 380) |
+| `medium` 배지 | 증식 촉진 인자 (같은 수치 · 가격) | 분열 인자 | 배지 안정 인자 |
+
+id 는 `sock_<target>_<effect>_<n>`. 등급은 I 고급 · II 희귀 · III 서사.
+
+### `items.csv` 새 열 7칸 — 흙 · 배지 내구도 · 스캐폴드 · 은퇴
+
+- `soilDurability` → `SoilDef.durability` — **`soilTag` 가 있으면 필수**, 없는 줄에 있으면 신고. 부엽토 100 · 화산재토 · 동토 이탄 · 포자 부식토 150 ·
+  광물토 · 염류 결정토 250. (`uses` 는 옛 세이브 이관용으로 남는다.)
+- `mediumDurability` → `MediumDef.durability` — **`mediumUses` 가 있으면 필수**. 기본 배지 100 · 강화 배지 200.
+- `strainScaffoldOut` · `strainScaffoldQty` · `strainScaffoldHours` → `StrainDef.scaffoldOutputDefId/Qty/scaffoldHours` — 셋이 **함께 있거나 함께 없다**
+  (반만 채우거나 세포주가 아닌 줄에 있으면 신고).
+- `scaffold` → `ItemDef.scaffold` · `retired` → `ItemDef.retired`.
+
+새 재료 24종 (전부 `category: material`, 1×1, 퀵슬롯 없음, 모든 상자 티어 배수 0):
+
+| id | 이름 | rarity | 스택 | ₩ | kg | 배양 (기본 / 스캐폴드) |
+|---|---|---|---|---|---|---|
+| `cell_cow` · `cell_pig` · `cell_chicken` · `cell_sheep` | 소 · 돼지 · 닭 · 양 세포주 | rare | 5 | 240 · 230 · 220 · 250 | 0.1 | 고기 페이스트 ×2 · 3 / 3 / 2.5 / 3.5 h ─ 종별 고기 ×2 · 6 / 6 / 5 / 7 h |
+| `cell_algae` | 미세조류 세포주 | uncommon | 5 | 150 | 0.1 | 셀룰로스 ×3 · 3 h / — |
+| `cell_fat` | 배양지방 세포주 | rare | 5 | 260 | 0.1 | 동물기름 ×2 · 5 h / — |
+| `cell_albumen` · `cell_casein` | 난백 세포 · 유단백 세포 | rare | 5 | 280 | 0.1 | 배양 안 함 — 추출기 재료 |
+| `food_meat_paste` | 고기 페이스트 | uncommon | 10 | 80 | 0.25 | |
+| `food_beef` · `food_pork` · `food_chicken` · `food_lamb` | 배양 소 · 돼지 · 닭 · 양고기 | rare | 8 | 200 · 190 · 180 · 210 | 0.3 · 0.3 · 0.28 · 0.3 | |
+| `food_animal_fat` | 동물기름 | rare | 8 | 140 | 0.25 | |
+| `food_cellulose` | 셀룰로스 | uncommon | 10 | 60 | 0.12 | |
+| `food_scaffold` | 배양 스캐폴드 | rare | 5 | 170 | 0.15 | `scaffold: true` |
+| `min_rocksalt` · `food_salt` | 암염 결정 · 소금 | common | 10 · 20 | 35 · 25 | 0.4 · 0.05 | |
+| `comp_albumen` · `comp_casein` · `comp_whey` | 난백 단백질 · 카제인 · 유청 | rare · rare · uncommon | 10 | 110 · 110 · 70 | 0.1 | |
+| `food_egg` · `food_milk` · `food_cheese` | 배양 달걀 · 우유 · 치즈 | rare · rare · epic | 8 · 8 · 6 | 150 · 140 · 320 | 0.2 · 0.3 · 0.25 | |
+
+`items.csv` 에서 배지 줄 바로 뒤 · 은퇴한 `strain_*`/`cult_*` 앞에 있어 목록도 그 순서다 (`itemGroupAfterPrep('material')`).
+
+### 요리 `effects` — `data/meals.csv`
+
+`buff,amount` 두 칸이 **`effects`**(`버프:수치` 를 `|` 로)가 됐고 `retired` 가 붙었다. 로더는 `costList` 로 가른 뒤 버프 이름을 `MEAL_BUFFS` 로 검사하고
+(같은 버프 두 번 · 수치 0 · 빈 칸도 신고) `MealDef.effects` 를 채운다. **`buff`/`amount` = `effects[0]`** (옛 호출부 호환). `tier` 는 1–4 이고
+**은퇴하지 않은 티어 n 요리는 정확히 n 줄**이어야 한다 (`r.report`). 색은 여전히 등급색 — 등급이 곧 티어다.
+
+| id | 이름 | rarity | tier | effects | ₩ · kg |
+|---|---|---|---|---|---|
+| `meal_sausage` | 소시지 | rare | 2 | `maxStamina` 20 · `carryCapacity` 5 | 270 · 0.3 |
+| `meal_dumpling` | 만두 | rare | 2 | `staminaRegenMul` 0.2 · `healPowerMul` 0.15 | 280 · 0.3 |
+| `meal_meatball` | 미트볼 | rare | 2 | `carryCapacity` 8 · `searchSpeedMul` 0.2 | 280 · 0.35 |
+| `meal_beef_steak` | 소고기 스테이크 | epic | 3 | `gritChance` 0.1 · `maxStamina` 25 · `carryCapacity` 8 | 540 · 0.4 |
+| `meal_pork_roast` | 돼지고기 수육 | epic | 3 | `healPowerMul` 0.25 · `staminaRegenMul` 0.25 · `interactSpeedMul` 0.15 | 520 · 0.4 |
+| `meal_chicken_roast` | 닭고기 구이 | epic | 3 | `useSpeedMul` 0.2 · `maxStamina` 20 · `staminaRegenMul` 0.2 | 500 · 0.35 |
+| `meal_lamb_skewer` | 양고기 꼬치 | epic | 3 | `detectRadius` 6 · `gatherYieldMul` 0.25 · `searchSpeedMul` 0.25 | 560 · 0.35 |
+| `meal_lard_rice` | 기름 볶음곡 | epic | 3 | `durabilityLossMul` −0.2 · `carryCapacity` 10 · `maxStamina` 15 | 480 · 0.4 |
+| `meal_cream_stew` | 크림 스튜 | legendary | 4 | `maxStamina` 35 · `staminaRegenMul` 0.3 · `healPowerMul` 0.3 · `carryCapacity` 10 | 980 · 0.45 |
+| `meal_omelet` | 치즈 오믈렛 | legendary | 4 | `skillGainMul` 0.2 · `gatherYieldMul` 0.3 · `searchSpeedMul` 0.3 · `interactSpeedMul` 0.2 | 1000 · 0.35 |
+| `meal_cheese_gratin` | 치즈 그라탕 | legendary | 4 | `gritChance` 0.15 · `durabilityLossMul` −0.25 · `detectRadius` 8 · `useSpeedMul` 0.25 | 1020 · 0.45 |
+
+### 레시피 · 루팅 · 출처
+
+- **`recipes.csv`** 141 → 155줄: 옛 특선 조리 4줄 삭제. 교체 — `extract_medium_algae` = 셀룰로스 3 → 강화 배지 1 · `extract_filament_1` = 셀룰로스 4 + 동물기름 2 ·
+  `_2` = 필라멘트 I 3 + 카제인 2 + 강화 직조포 1 · `_3` = 필라멘트 II 3 + 스캐폴드 2 + 난백 단백질 2. 추가 18 — 추출기 `extract_salt`(Lv.1) ·
+  `extract_albumen` · `extract_casein`(Lv.2, 유청 부산물), 조합대 `mix_scaffold`(Lv.1) · `mix_egg` · `mix_milk`(Lv.2) · `mix_cheese`(Lv.3), 조리대 11(페이스트 Lv.2 ·
+  고기 · 유제품 Lv.3). **`Recipes.ts` 무변경** — 새 작업대가 없다. 재료 전부 내구도 장비가 아니라 `checkSalvageEconomy()` 에 안 걸린다.
+- **`loot_corpses.csv`** 벌레 8종의 표본 줄 → scavenger 세포 .10 · hunter 세포 .10 + DNA .01 · warrior 세포 .12 + DNA .015 · spewer 세포 .10 + DNA .03 ·
+  charger 세포 .10 + 광물 .04 · toxic 세포 .10 + DNA .03 · artillery 광물 .08 + DNA .03 · behemoth 광물 1–2 .5 + 세포 1–2 .4 + DNA 1 .15.
+  scavenger(2→1) · spewer · toxic(3→2) · behemoth(4→3) 은 줄 수가 줄어 `rollCorpse` rng 소비가 밀린다 — `inventory/__selftest__` 의 고정 굴림은 warrior
+  (줄 수 그대로)에서 결정성만 보고, 나머지 고정 시드 검사는 로그 계열뿐이다.
+- **`loot_item_weights.csv`** 표본 티어 3–5 = `spec_dna` 1 · `spec_mineral` 0.3 · `spec_cell` 0.15 (옛 표본 줄 삭제 — 「DNA 는 구조물 컨테이너 위주」),
+  새 재료 24 × 티어 1–5 = 0 (120줄). 옛 `strain_*`/`cult_*` 0 줄은 남겼다.
+- **`planets.csv`** `samples` = 세포 · 광물만 (아켈론 세포 3 · 광물 1 · 보레아스 2 · 2 · 베르단트 4 · 1 · 피로스 광물 3 · 세포 1 · 카민 광물 3 · 세포 2).
+- **상점**: `corp_stock.csv` 의 어느 규칙도 새 재료 · 소켓 · 요리 · 은퇴 아이템을 팔지 않는다 (세레스 `material` 은 임플란트 수리 재료만). `server/economy.gen.json`
+  에는 새 아이템 가치가 들어간다 (판매 사유 검증용).
 
 ## 서적 (Phase 9, 2026-09-06)
 
@@ -923,9 +1048,73 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 시체 표는 아이템 id 를 직접 적으므로 애초에 후보가 아니고, 기업 상점에는 `valuable` 을 파는 줄이 없다.
 **구조물이 자기 컨테이너에 직접 넣는다** — 그 배치는 `src/world` 담당이고 items/ 는 정의만 갖는다.
 
+## 인간형 팩션 시체 (2026-09-13 — `data/loot_factions.csv` · `data/loot_faction_sites.csv`)
+
+계획서 `docs/plans/enemy-factions.md` 1절 「전리품」. 행성 threat 가 안드로이드(1) · 로그(2) · 레이더(2–3)를 정하고, 시체는
+`LootRef.rollCorpseOn(type, rng, weaponId, planet, opts?: CorpseLootOpts)` 로 굴린다. `opts` = 스폰 거점(`site`) · 던지지 못한 수류탄(`grenades`) —
+호스트(`Enemy.site` · `grenadeCount`) · 리플리카(`ee corpse.si/gc/gk`) · 드론 스캔 미리보기가 **같은 값**을 넘기므로 결과는
+(type, rng, weaponId, planet, opts) 의 순수 함수다. `weaponId` 는 `HUMANOID_WEAPONS` 의 **계열 id**(등급 I id)이고 등급은 여기서 굴린다.
+
+| 팩션 | 총 등급 I/II/III/IV | 방탄복 | 가방 | 회복 (1회 굴림) | 수류탄 | 그 밖 |
+|---|---|---|---|---|---|---|
+| android | 95 / 5 | 없음 | 없음 | 35 %, **실드 충전기 3종만** (일반 88 · 고급 11 · 희귀 1) | 없음 | 전자 잡템 (`loot_corpses.csv`) |
+| rogue | 85 / 14 / 1 | 5 % `armor_1` · `armor_2` (85 : 14) | 3 % `bag_common` · `bag_uncommon` (85 : 14) | 40 %, 붕대 · 약초 붕대 · 회복주사 · 충전기 3종 · 전투 소모품 3종 (일반 85 · 고급 14 · 희귀 1) | 남은 보유분 | 서적 3 % · 임플란트 6 % · 잡템 · 열쇠 |
+| raider | 50 / 45 / 4.5 / 0.5 | 5 % `armor_1` – `armor_3` (90 / 9.5 / 0.5) | 3 % 최대 고급 (50 : 45) | 40 %, 로그 목록 + 회복 스프레이 (일반 50 · 고급 45 · 희귀 4.5 · 서사 0.5) | 남은 보유분 | 서적 3 % · 임플란트 7 % · 잡템 · 화약 · 열쇠 |
+| raider @ `lab` | ← | ← | ← | ← | ← | + 씨앗 50 % ×1–2 (그 행성 `planets.csv` `seeds` 표) · `spec_cell` 35 % · `spec_mineral` 20 % · `spec_dna` 10 % |
+| raider @ `outpost` | **30 / 55 / 13 / 2** (표 교체) | ← | ← | ← | ← | ← |
+
+**굴림 순서** (`Loot.rollCorpseWithMax`) — `loot_corpses.csv` 아이템 → 들고 있던 총(팩션 `weaponGrades` 가중치 · 거점 `grades` 가 있으면 그 표 →
+행성 최대 등급 상한) + 탄약 → 보스 유니크 → 서적 → 망가진 임플란트 → **방탄복 → 가방 → 회복**(`rollFactionGear`) → **거점 보너스 아이템**
+(`rollSiteBonusItems`) → **남은 수류탄**(`addCarriedGrenades`, rng 안 씀) → 네임드 확정 드롭. 팩션 표 · 거점 줄이 없는 적(벌레 8종 · `rogue_boss` ·
+네임드 3종 · 스캔 드론)은 새 분기에서 rng 를 한 번도 안 써서 **출력이 비트 단위로 그대로**다 (13종 × 행성 6가지 × 400 시드 해시로 확인).
+남은 수류탄은 **팩션과 무관하게** `opts.grenades` 가 있으면 들어간다 (보스 · 네임드가 수류탄을 들게 돼도 그대로 산다).
+
+**희귀도 굴림** (`CorpseRarityPick`): `chance` → 희귀도(`*Rarity`, 그 행성의 `rareMul` · `epicMul` · `legMul` 을 `planetRarityWeights` 로 건다) → 그
+희귀도인 `*Pool` 후보 중 **균등**. 방탄복 · 가방의 내구도는 `gearDurMin..Max`(5–15 %) × 최대치, 최소 1 — 총처럼 낡았다. 옛 로그의 독립 줄
+(붕대 30 · 충전기 26 · 고출력 6 · 아드레날린 10 · 각성제 5 %, 고폭 수류탄 20 %)은 지웠다 — 기대 회복 개수 0.77 → 0.40.
+
+**로더 검사** (`LootTables.ts`, `npm run data:check`): 등급 · 희귀도 토큰, pool 의 카테고리(`armor` · `bag` · `stim`), `*Rarity` 에 적은 희귀도의 후보가
+pool 에 있는가, `weaponGrades` 와 `loot_corpse_rolls.csv` 의 균등 `weaponGrades` 중복, 거점 `site` · `kind` 열거값, type × site 당 grades 한 줄,
+seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 빠지고(안전핀) `data-check.mjs` 의 참조 검사가 `poolIds` · 거점 아이템 · `planets.csv` `seeds`
+를 보고한다. 표의 종류 = `loot_corpses.csv` ∪ `loot_corpse_rolls.csv` (들고 있던 총만 있는 적도 시체 표를 갖는다).
+
+**공개 API** (`LootTables.ts`): `FACTION_LOOT` · `FACTION_LOOT_MAP` · `FactionLoot` · `CorpseRarityPick` · `GradeWeights`, `FACTION_SITE_BONUSES` ·
+`getFactionSiteBonus(type, site)` · `FactionSiteBonus` · `FactionSiteItem`, `planetSeedPool(planet)` · `WeightedItemId`.
+
+**실측** (행성 없음 · 5000구씩): 안드로이드 I 94.96 / II 5.04, 충전기 34.8 %. 로그 85.64 / 13.68 / 0.68, 방탄복 5.06 % · 가방 3.18 % · 회복 41.6 %
+(85.8 / 13.5 / 0.7). 레이더 51.02 / 44.42 / 4.06 / 0.50, 방탄복 5.40 % (I 91.5 %) · 가방 3.12 % · 회복 39.7 % (49.7 / 44.7 / 5.1 / 0.45). 전진기지
+30.3 / 55.3 / 12.8 / 1.6. 연구소 씨앗 50.2 · 세포 34.2 · 광물 20.5 · DNA 9.9 %. 1 · 2번 행성은 IV 가 III 으로 내려온다.
+`node scripts/check-planet-loot.mjs` 가 행성 × 팩션 표를 찍고 상한 · 최대 희귀도를 검사한다 (`FACTION_ROLLS=`).
+
 ---
 
 ## 변경 이력
+
+- **2026-09-13 (행성별 적 팩션 — faction-loot 에이전트, `docs/plans/enemy-factions.md` 1절)** — 위 *인간형 팩션 시체* 절이 표다. 데이터: **`loot_factions.csv` 신규**
+  (android · rogue · raider 3줄) · **`loot_faction_sites.csv` 신규**(raider @ lab 아이템 4줄 · @ outpost 등급 1줄) · `loot_corpses.csv`(로그 회복 · 수류탄 6줄 삭제,
+  android 4줄 · raider 5줄) · `loot_corpse_rolls.csv`(android · raider). 코드: `LootTables.ts`(두 표 로더 · 행성 씨앗 표 · 시체 표 종류 = 두 csv 합집합) ·
+  `Loot.ts`(`rollCorpseOn` 이 `opts` 를 쓴다 — 팩션 등급 가중치 · `rollFactionGear` · `rollSiteBonusItems` · `addCarriedGrenades`) · `scripts/data-check.mjs`(참조 검사
+  3종) · `scripts/data-owners.mjs`(두 csv → items · enemies) · `scripts/check-planet-loot.mjs`(팩션 절) · `inventory/__selftest__.ts`(로그 총 = 같은 계열 I–III,
+  수류탄 · 안드로이드 · 레이더 · 거점 · 낡은 방탄복/가방 · 행성 상한 단언). 벌레 · 보스 · 네임드 출력은 그대로. 아이템 가치 불변 → `economy.gen.json` 재생성 불필요.
+
+- **2026-09-13 (요리 재료 티어 — 에이전트 A, `docs/plans/food-tiers.md` §3)** — 위 *요리 재료 티어* 절이 표다. 데이터: `samples.csv`(`family` · `retired`,
+  `first*` 비움, 새 3 · 은퇴 11) · **`sockets.csv` 신규 14줄** · `items.csv` 7열(`soilDurability` · `mediumDurability` · `strainScaffold*` 3 · `scaffold` · `retired`,
+  새 재료 24 · 은퇴 10) · `meals.csv`(`effects` · `retired`, 새 11 · 은퇴 4) · `recipes.csv` 141 → 155 · `loot_corpses.csv` 벌레 표본 줄 · `loot_item_weights.csv`
+  (표본 3종 + 새 재료 120줄) · `planets.csv` samples · `furniture.csv` 설명 5 · `tuning.csv` `SOCKET_STACK_MAX` · `SOCKET_WEIGHT`. 코드: `ItemDefs.ts`
+  (`SAMPLE_ITEM_DEFS` 계열 · 은퇴 · first 신고, `SOCKET_ITEM_DEFS` 표본 뒤, 토양 · 배지 내구도 필수, 스캐폴드 3칸 전부-아니면-전무, 요리 `effects` + 줄 수 검사,
+  `tier` 1–4, 표본 · 요리 · 소켓 `rarity` 를 `r.enum`) · `LootTables.ts`(`RETIRED_ITEM_IDS` · `isLootableDef` — 티어 배수 0 덮기) · `Loot.ts`(`pickDef`
+  후보에서 은퇴 제외) · `scripts/data-check.mjs`(참조 검사: 분석 결과 · 레시피 · 시체 표 · 행성 표본 · 표본 대체 산출 · 세포주 산출이 없는 id / 은퇴한 id 면 실패).
+  `server/economy.gen.json` 재생성.
+
+- **2026-09-13 (추출기 배지 레시피 — 종마다 한 줄, 사용자 결정, housing 스테이션 에이전트)** — `data/recipes.csv` 의
+  `extract_medium_basic`(생체 추출물 + 잎채소) · `extract_medium_rich`(추출물 2종 + 혈근초)를 **지우고** 재료 **한 종류당 한 줄**
+  15줄을 넣었다 (bench `extract`, 이름 `배지 추출 · <재료>`, 옛 줄과 같은 시간 · 숙련 열): **작물 8종**(`crop_tuber` ·
+  `crop_beanpod` · `crop_leafgreen` · `crop_capfungus` · `crop_ashgrain` · `crop_saltmelon` · `crop_sporecap` · `crop_frostberry`)
+  각 3 → `mat_medium_basic` ×1 (Lv.1, 6 s, 제작 15) · **약초 6종**(`herb_bloodroot` · `herb_ashleaf` · `herb_glowcap` ·
+  `herb_frostmoss` · `herb_emberpod` · `herb_ironleaf`) 각 3 → `mat_medium_basic` ×2 (Lv.1, 6 s, 제작 15) · **`cult_algae`** 3 →
+  `mat_medium_rich` ×1 (추출기 Lv.2, 8 s, 제작 30). 레시피 id 는 `extract_medium_<재료 id 의 뒷부분>`. 제작 레시피는 97 → 110줄.
+  옛 id 를 참조하던 곳(튜토리얼 · 퀘스트 · 스모크 · 문서)은 없었다. `npm run data:check` 통과 (`economy.gen.json` 재생성 불필요 —
+  배지는 내구도 장비가 아니라 수리비 · 분해 표에 안 걸린다).
 
 - **2026-09-12 (소모형 만능 열쇠 — 에이전트 C, items/ 몫은 데이터뿐)** — 위 *소모형 만능 열쇠* 절. `items.csv`: `key_basement` 이름 ·
   등급 · 가치 · 무게 · 아이콘 · 설명 변경, `keycard_lab` 추가. `loot_category_weights.csv` 에 `key` 2줄(티어 3 · 4), `loot_item_weights.csv`

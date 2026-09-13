@@ -24,7 +24,7 @@ import {
   DRONE_SCAN_AIM_RADIUS, DRONE_SCAN_HINT_RANGE, DRONE_SCAN_HOLD_S, DRONE_SCAN_RANGE, DRONE_SCAN_SHARE_SLACK,
   DRONE_SCAN_TARGET_NAME, MouseButtons, PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS, RARITY_LABEL_KO, RARITY_ORDER, corpseLootRandom,
   SUPPLY_CRATE_TIER, droneScanKindOf, rarityRank,
-  type DroneMessage, type DroneScanAim, type DroneScanResult, type DroneScanTargetKind, type EnemyType, type Interactable,
+  type CorpseLootOpts, type DroneMessage, type DroneScanAim, type DroneScanResult, type DroneScanTargetKind, type EnemyType, type Interactable,
   type ItemInstance, type PeerId, type Rarity,
 } from '@/shared';
 import type { DroneSystem } from '../DroneSystem';
@@ -50,7 +50,7 @@ export interface MutableScanAim { id: string; kind: DroneScanTargetKind; name: s
 interface AimHit { it: Interactable; kind: DroneScanTargetKind; distance: number }
 
 /** 적 시체(`enemies/Corpses.Corpse`)의 공개 필드 — 계약(`Interactable`) 밖이라 모양만 기대한다. */
-interface EnemyCorpseLike { enemyId?: unknown; type?: unknown; weaponId?: unknown; seed?: unknown }
+interface EnemyCorpseLike { enemyId?: unknown; type?: unknown; weaponId?: unknown; seed?: unknown; /** 2026-09-13: 스폰 거점 · 남은 수류탄 */ lootOpts?: unknown }
 /** `WorldRef.previewContainerItems`(owner: world, 설계안 §3) — 아직 없는 빌드에서도 컴파일되게 모양으로 읽는다. */
 interface WorldContainerPreview { previewContainerItems?: (containerId: string) => readonly ItemInstance[] | null }
 
@@ -197,7 +197,7 @@ export function previewItems(sys: DroneSystem, id: string): readonly ItemInstanc
       const rng = corpseLootRandom(seed, it.enemyId);   // `Corpse.interact` 와 같은 `shared/lootRolls` 식
       const weaponId = typeof it.weaponId === 'string' ? it.weaponId : undefined;
       const items = typeof loot.rollCorpseOn === 'function'
-        ? loot.rollCorpseOn(it.type as EnemyType, rng, weaponId, ctx.missionPlanet)
+        ? loot.rollCorpseOn(it.type as EnemyType, rng, weaponId, ctx.missionPlanet, (it.lootOpts ?? undefined) as CorpseLootOpts | undefined)
         : [];
       return typeof inv.peekSuppliedItems === 'function' ? inv.peekSuppliedItems(id, items) : items;
     }

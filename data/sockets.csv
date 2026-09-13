@@ -1,0 +1,26 @@
+# 소켓 — 재배 칸에 부어 둔 흙 · 배양 칸에 부어 둔 배지에 끼우는 **영구 강화** (2026-09-13 요리 재료 티어). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 분석기가 미확인 DNA 를 해석해서만 나온다 (data/analysis_results.csv 의 dna 줄) — 제작 · 상점 · 루팅 어디에도 없다.
+# target = soil(재배 스테이션의 흙) | medium(배양조의 배지). 반대 대상에는 끼워지지 않는다.
+# effect / amount:
+#   speed = 성장 · 배양 시간 −amount (0.1 = 10 %). 여러 개를 합산한 배수의 바닥은 data/tuning.csv 의 GROW_SOCKET_TIME_FLOOR.
+#   yield = 수확할 때 소켓마다 amount 확률로 +1 개 (0 … 1).
+#   wear  = 수확마다 닳는 내구도 −amount. 합산 배수의 바닥은 GROW_WEAR_MUL_FLOOR.
+#   speed · yield 는 그 흙 · 배지의 **내구도 비율**만큼만 듣는다 (0 이면 사라진다). wear 는 내구도 자체를 지키므로 그대로 듣는다.
+# 한 칸에 끼울 수 있는 소켓 수는 흙 · 배지의 등급이 정한다 (data/tables.csv 의 GROW_SOCKETS_BY_RARITY).
+# 한 번 끼우면 빠지지 않는다. 가득 찬 칸에 덮어 끼우면 옛 소켓이 파괴되고, 흙 · 배지를 비우면 함께 사라진다.
+# 1×1 · 스택 SOCKET_STACK_MAX · 무게 SOCKET_WEIGHT (data/tuning.csv). description 에는 숫자를 적지 않는다 — 툴팁이 보여 준다.
+id,name,rarity,target,effect,amount,value,description
+sock_soil_speed_1,뿌리 촉진 인자 I,uncommon,soil,speed,0.08,180,뿌리 세포의 분열을 앞당기는 유전 인자. 흙에 끼우면 작물이 빨리 자란다.
+sock_soil_speed_2,뿌리 촉진 인자 II,rare,soil,speed,0.14,420,정제를 거쳐 효과가 짙어진 뿌리 촉진 인자. 흙에 끼우면 작물이 한층 빨리 자란다.
+sock_soil_speed_3,뿌리 촉진 인자 III,epic,soil,speed,0.2,900,순도가 극에 달한 뿌리 촉진 인자. 흙에 끼우면 작물이 눈에 띄게 빨리 자란다.
+sock_soil_yield_1,결실 인자 I,uncommon,soil,yield,0.3,200,열매를 한 알 더 맺게 하는 유전 인자. 흙에 끼우면 수확할 때 가끔 하나를 더 거둔다.
+sock_soil_yield_2,결실 인자 II,rare,soil,yield,0.6,460,효과가 짙어진 결실 인자. 흙에 끼우면 수확할 때 자주 하나를 더 거둔다.
+sock_soil_wear_1,토양 안정 인자 I,uncommon,soil,wear,0.2,160,흙 속 미생물을 붙잡아 두는 유전 인자. 흙에 끼우면 수확할 때 덜 닳는다.
+sock_soil_wear_2,토양 안정 인자 II,rare,soil,wear,0.4,380,효과가 짙어진 토양 안정 인자. 흙에 끼우면 수확할 때 훨씬 덜 닳는다.
+sock_medium_speed_1,증식 촉진 인자 I,uncommon,medium,speed,0.08,180,세포 분열을 앞당기는 유전 인자. 배지에 끼우면 배양이 빨리 끝난다.
+sock_medium_speed_2,증식 촉진 인자 II,rare,medium,speed,0.14,420,정제를 거쳐 효과가 짙어진 증식 촉진 인자. 배지에 끼우면 배양이 한층 빨리 끝난다.
+sock_medium_speed_3,증식 촉진 인자 III,epic,medium,speed,0.2,900,순도가 극에 달한 증식 촉진 인자. 배지에 끼우면 배양이 눈에 띄게 빨리 끝난다.
+sock_medium_yield_1,분열 인자 I,uncommon,medium,yield,0.3,200,세포를 한 번 더 갈라지게 하는 유전 인자. 배지에 끼우면 수확할 때 가끔 하나를 더 거둔다.
+sock_medium_yield_2,분열 인자 II,rare,medium,yield,0.6,460,효과가 짙어진 분열 인자. 배지에 끼우면 수확할 때 자주 하나를 더 거둔다.
+sock_medium_wear_1,배지 안정 인자 I,uncommon,medium,wear,0.2,160,배지의 영양이 새지 않게 붙잡는 유전 인자. 배지에 끼우면 수확할 때 덜 닳는다.
+sock_medium_wear_2,배지 안정 인자 II,rare,medium,wear,0.4,380,효과가 짙어진 배지 안정 인자. 배지에 끼우면 수확할 때 훨씬 덜 닳는다.

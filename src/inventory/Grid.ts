@@ -1,7 +1,13 @@
 import type { ItemDef, ItemInstance, RaidFoundItem } from '@/shared';
-import { mergeRaidFoundMark } from '@/shared';
+import { mergeRaidFoundMark, normalizeMealQuality } from '@/shared';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
+
+/**
+ * 2026-09-13 (요리 품질): 스택 열쇠가 읽는 인스턴스 필드 — 회수 계약 표식(`raidFound`) + 요리 품질(`quality`).
+ * `RaidFoundItem` 을 넓힌 것이라 기존 호출부(`{ defId }` 탐침 포함)는 그대로 들어온다.
+ */
+export type StackItem = RaidFoundItem & Pick<ItemInstance, 'quality'>;
 
 /* ── 2026-09-12 (아이템 회수 계약, 사용자 결정): 스택 분류 열쇠 ─────────────────────────────────────────────────────────
  * 같은 def 의 두 스택은 **열쇠가 같을 때만** 합친다. 기본은 모두 `''` 라 예전과 똑같다. `InventorySystem` 이 활성 회수 계약
@@ -12,10 +18,18 @@ export type StackKeyRule = (item: RaidFoundItem) => string;
 let stackKeyRule: StackKeyRule | null = null;
 /** 스택 분류 규칙을 꽂는다 (null = 전부 한 분류). `InventorySystem.init` 만 부른다. */
 export function setStackKeyRule(rule: StackKeyRule | null): void { stackKeyRule = rule; }
-/** 이 스택의 분류 열쇠. */
-export function stackKeyOf(item: RaidFoundItem): string { return stackKeyRule ? stackKeyRule(item) : ''; }
+/**
+ * 이 스택의 분류 열쇠. 2026-09-13 (요리 품질, 사용자 결정 「품질이 다르면 다른 칸에 쌓인다」): 꽂힌 규칙(회수 계약)의 열쇠에
+ * **요리 품질**이 늘 덧붙는다 — 규칙을 갈아 끼우는 것이 아니라 합친다. 품질 0(필드 없음)은 예전 열쇠 그대로다.
+ * 모든 합치기 경로(격자 · 휠 · 정렬 · 넘친 수량 들기 · 상자/시체 격자)가 이 함수 하나를 본다.
+ */
+export function stackKeyOf(item: StackItem): string {
+  const base = stackKeyRule ? stackKeyRule(item) : '';
+  const q = normalizeMealQuality(item.quality);
+  return q > 0 ? `${base}|q${q}` : base;
+}
 /** 두 스택이 합쳐질 수 있는 사이인가 (같은 def + 같은 분류). 수량 여유는 따로 본다. */
-export function canStackTogether(a: RaidFoundItem, b: RaidFoundItem): boolean {
+export function canStackTogether(a: StackItem, b: StackItem): boolean {
   return a.defId === b.defId && stackKeyOf(a) === stackKeyOf(b);
 }
 
@@ -140,10 +154,10 @@ export class Grid {
    * How many more units of `defId` existing stacks can absorb. `incoming` (2026-09-12) = the stack that would merge —
    * only stacks it may join count (`canStackTogether`); omitted = a fresh, unmarked stack of `defId` (crafting · purchases).
    */
-  mergeCapacity(defId: string, incoming?: RaidFoundItem): number {
+  mergeCapacity(defId: string, incoming?: StackItem): number {
     const def = this.getDef(defId);
     if (!def || def.stackMax <= 1) return 0;
-    const probe: RaidFoundItem = incoming ?? { defId };
+    const probe: StackItem = incoming ?? { defId };
     let cap = 0;
     for (const p of this.placements.values()) if (canStackTogether(p.item, probe)) cap += def.stackMax - p.item.qty;
     return cap;

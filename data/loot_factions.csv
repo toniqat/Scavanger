@@ -1,0 +1,26 @@
+# 인간형 팩션(안드로이드 · 로그 · 레이더) 시체의 **팩션 굴림** — 2026-09-13 (docs/plans/enemy-factions.md 1절 「전리품」).
+# src/items/LootTables.ts 가 읽고 Loot.rollCorpseOn 이 쓴다. 이 표에 줄이 없는 적(벌레 · rogue_boss · 네임드)은 예전 굴림 그대로다.
+# 아이템별 드롭(잡템 · 열쇠)은 loot_corpses.csv · 들고 있던 총의 탄약과 내구도 · 서적 · 임플란트는 loot_corpse_rolls.csv 에 그대로 있다.
+#
+# weaponGrades = 들고 있던 총(스폰이 쥐여 준 계열 — enemy_abilities.csv 의 HUMANOID_WEAPONS)의 등급 분포. "등급:가중치" 를 | 로 이어 쓴다.
+#   가중치 합은 상관없다 (비율만 쓴다). 그 행성의 최대 등급(planet_loot.csv)을 넘으면 상한으로 내려온다.
+#   loot_corpse_rolls.csv 의 weaponGrades(보스의 균등 목록)와 한 적에 같이 쓰지 않는다 — data:check 가 잡는다.
+#   loot_faction_sites.csv 의 grades 줄이 있으면 그 거점에서 스폰한 적은 그 표를 쓴다.
+#
+# armor* · bag* · heal* = 희귀도 굴림 셋. 순서는 방탄복 → 가방 → 회복이고 각각:
+#   *Chance = 들고 있나 (0..1)
+#   *Rarity = 들고 있으면 희귀도를 뽑는 가중치 "희귀도:가중치" (common · uncommon · rare · epic · legendary)
+#   *Pool   = 후보 아이템 id 를 | 로. 뽑힌 희귀도인 후보 중 하나를 **균등하게** 고른다.
+#             *Rarity 에 적은 희귀도인 아이템이 pool 에 하나도 없으면 로더가 잡는다.
+#   행성의 희귀도 배수(planet_loot.csv 의 rareMul · epicMul · legMul)가 *Rarity 에 걸린다 (상자와 같은 규칙). 총기 등급은 안 탄다.
+#   *Chance 칸을 비우면 그 굴림은 없다.
+# gearDurMin/Max = 방탄복 · 가방의 내구도 (최대치 대비 비율) — 총처럼 낡은 것만 떨어진다. armor · bag 굴림이 있으면 필수.
+# 수류탄은 여기 없다 — 던지지 못하고 남은 보유분(스폰 때 1–3개 · 종류 고폭/소이)이 종류 · 개수 그대로 들어간다 (굴림 없음).
+type,weaponGrades,armorChance,armorPool,armorRarity,bagChance,bagPool,bagRarity,gearDurMin,gearDurMax,healChance,healPool,healRarity
+# android — 총은 거의 I. 회복은 실드 충전기뿐 (대부분 일반). 방탄복 · 가방 · 수류탄 없음.
+android,1:95|2:5,,,,,,,,,0.35,shield_charger|shield_charger_hi|shield_charger_full,common:88|uncommon:11|rare:1
+# rogue — 사용자 명세 80/14/1 은 합이 95 라 모자란 5 를 I 에 더했다. 방탄복 5 % · 가방 3 % 는 최대 고급.
+#   회복은 의약품 + 실드 충전기 + 전투 소모품 중 하나이고 희귀도는 총 분포와 같다 (일반 85 · 고급 14 · 희귀 1).
+rogue,1:85|2:14|3:1,0.05,armor_1|armor_2,common:85|uncommon:14,0.03,bag_common|bag_uncommon,common:85|uncommon:14,0.05,0.15,0.4,heal_bandage|heal_bandage_herb|heal_syringe|shield_charger|shield_charger_hi|shield_charger_full|boost_adrenaline|boost_stimulant|boost_stabilizer,common:85|uncommon:14|rare:1
+# raider — 방탄복은 명세 90/9.5/0.5. 가방은 최대 고급이라 총 분포에서 50/45 만 남는다. 회복 희귀도도 총 분포 (서사 0.5 = 회복 스프레이).
+raider,1:50|2:45|3:4.5|4:0.5,0.05,armor_1|armor_2|armor_3,common:90|uncommon:9.5|rare:0.5,0.03,bag_common|bag_uncommon,common:50|uncommon:45,0.05,0.15,0.4,heal_bandage|heal_bandage_herb|heal_syringe|heal_spray|shield_charger|shield_charger_hi|shield_charger_full|boost_adrenaline|boost_stimulant|boost_stabilizer,common:50|uncommon:45|rare:4.5|epic:0.5

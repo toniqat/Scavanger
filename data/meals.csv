@@ -1,20 +1,39 @@
-# 요리 — 주방의 조리대(bench cook)가 만들고 식탁에서 먹는다 (2026-09-11 A-3c). id 는 코드가 찾는 값이므로 바꾸지 않는다.
-# 한 요리는 **버프 하나**만 올린다 (사용자 결정: 요리마다 한 가지씩, 생존계 · 보상계를 섞어서).
-# buff 는 src/shared/types.ts 의 MealBuff — 전부 DerivedStats 에 이미 있는 필드 이름이다. 그래서 소비자가
-#   한 줄도 안 바뀐다 (player · weapons · world · inventory 는 이미 ctx.progression.derived 를 읽는다).
-# amount 는 이름이 *Mul 로 끝나는 버프(와 gritChance)면 **배수에 가산**되고(0.2 = +20 %), 나머지는 단위 그대로다:
+# 요리 — 주방의 조리대(bench cook)가 만들고 식탁에서 먹는다 (2026-09-11 A-3c · 2026-09-13 요리 재료 티어). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 한 요리는 **버프 하나**를 올리고, 그 버프에 능력치 상승이 여러 줄 붙는다 (2026-09-13 사용자 결정: 티어 n 요리 = 능력치 n 줄).
+# effects = "버프:수치" 를 | 로 잇는다. 버프는 src/shared/types.ts 의 MealBuff — 전부 DerivedStats 에 이미 있는 필드 이름이라
+#   소비자가 한 줄도 안 바뀐다 (player · weapons · world · inventory 는 이미 ctx.progression.derived 를 읽는다). 한 요리에 같은 버프를 두 번 쓰지 않는다.
+# 수치는 이름이 *Mul 로 끝나는 버프(와 gritChance)면 **배수에 가산**되고(0.2 = +20 %), 나머지는 단위 그대로다:
 #   carryCapacity kg · maxStamina 포인트 · detectRadius m. durabilityLossMul 만 음수다(손상이 줄어든다).
-# tier 1 = 일반 요리(작물만, 조리대 Lv.1) · tier 2 = 특선 요리(배양조 산물이 필요, Lv.2–3).
+# tier 1 = 채소 요리(작물만, 조리대 Lv.1, 능력치 1) · 2 = 페이스트 요리(고기 페이스트 · 소금, Lv.2, 능력치 2) ·
+#   3 = 고기 요리(종별 고기 · 동물기름, Lv.3, 능력치 3) · 4 = 유제품 요리(달걀 · 우유 · 치즈, Lv.3, 능력치 4). 로더가 줄 수를 검사한다.
+# retired = 1 이면 은퇴한 옛 특선 요리 — 가진 사람은 먹을 수 있지만 레시피 · 루팅 어디에도 없다 (tier 2 · 능력치 1 그대로, 줄 수 검사 제외).
+# description 에는 숫자를 적지 않는다 — 툴팁이 effects 를 보여 준다.
 # ⚠ 크레딧 · 판매가를 올리는 버프는 **일부러 없다** — 서버가 크레딧을 사유별로 검증하므로(E-4) 클라이언트 배수는
 #   그대로 credits:tx 거절이 된다. 보상계는 숙련 XP · 채집량 · 감정 속도로 낸다.
-id,name,rarity,buff,amount,tier,stackMax,value,weight,icon,description
-meal_tuber_stew,덩이줄기 스튜,common,maxStamina,15,1,3,90,0.35,♨,걸쭉하게 끓인 덩이줄기 스튜. 배가 든든하면 더 오래 달린다.
-meal_bean_porridge,콩죽,common,carryCapacity,6,1,3,95,0.35,♨,콩을 갈아 쑨 죽. 어깨에 힘이 붙어 조금 더 들고 나갈 수 있다.
-meal_green_salad,잎채소 샐러드,common,staminaRegenMul,0.2,1,3,90,0.3,♨,물기 많은 잎채소를 버무린 샐러드. 숨이 빨리 돌아온다.
-meal_mushroom_soup,갓버섯 수프,uncommon,healPowerMul,0.2,1,3,150,0.35,♨,갓버섯을 우려낸 수프. 약이 몸에 잘 듣는다.
-meal_ash_bread,잿빛 빵,common,searchSpeedMul,0.25,1,3,95,0.3,♨,잿빛 곡물로 구운 단단한 빵. 손이 급하지 않으니 상자를 빨리 뒤진다.
-meal_berry_compote,서리열매 조림,uncommon,gatherYieldMul,0.25,1,3,160,0.3,♨,서리열매를 졸여 만든 조림. 단맛이 도는 만큼 눈도 밝아진다.
-meal_cultured_steak,배양육 스테이크,rare,gritChance,0.1,2,3,380,0.4,♨,배양육을 두껍게 구운 스테이크. 한 방 맞아도 버티게 해 준다.
-meal_protein_omelet,유단백 오믈렛,rare,skillGainMul,0.15,2,3,360,0.35,♨,난백과 유단백으로 부친 오믈렛. 머리가 맑아 배우는 것이 빠르다.
-meal_algae_broth,미세조류 육수,epic,detectRadius,6,2,3,620,0.3,♨,미세조류를 오래 우린 맑은 육수. 감각이 예민해진다.
-meal_field_ration,특제 전투식량,epic,durabilityLossMul,-0.2,2,3,640,0.4,♨,함선 주방에서 직접 눌러 만든 전투식량. 잘 먹고 다니면 장비도 덜 상한다.
+id,name,rarity,effects,tier,stackMax,value,weight,icon,retired,description
+# ── 채소 요리 (tier 1) ──
+meal_tuber_stew,덩이줄기 스튜,common,maxStamina:15,1,3,90,0.35,♨,,걸쭉하게 끓인 덩이줄기 스튜. 배가 든든하면 더 오래 달린다.
+meal_bean_porridge,콩죽,common,carryCapacity:6,1,3,95,0.35,♨,,콩을 갈아 쑨 죽. 어깨에 힘이 붙어 조금 더 들고 나갈 수 있다.
+meal_green_salad,잎채소 샐러드,common,staminaRegenMul:0.2,1,3,90,0.3,♨,,물기 많은 잎채소를 버무린 샐러드. 숨이 빨리 돌아온다.
+meal_mushroom_soup,갓버섯 수프,uncommon,healPowerMul:0.2,1,3,150,0.35,♨,,갓버섯을 우려낸 수프. 약이 몸에 잘 듣는다.
+meal_ash_bread,잿빛 빵,common,searchSpeedMul:0.25,1,3,95,0.3,♨,,잿빛 곡물로 구운 단단한 빵. 손이 급하지 않으니 상자를 빨리 뒤진다.
+meal_berry_compote,서리열매 조림,uncommon,gatherYieldMul:0.25,1,3,160,0.3,♨,,서리열매를 졸여 만든 조림. 단맛이 도는 만큼 눈도 밝아진다.
+# ── 페이스트 요리 (tier 2) ──
+meal_sausage,소시지,rare,maxStamina:20|carryCapacity:5,2,3,270,0.3,♨,,고기 페이스트에 소금과 곡물을 채워 훈연한 소시지. 오래 달리고 짐도 조금 더 든다.
+meal_dumpling,만두,rare,staminaRegenMul:0.2|healPowerMul:0.15,2,3,280,0.3,♨,,고기 페이스트와 잎채소를 곡물 피로 싼 만두. 숨이 빨리 돌아오고 약이 잘 듣는다.
+meal_meatball,미트볼,rare,carryCapacity:8|searchSpeedMul:0.2,2,3,280,0.35,♨,,고기 페이스트를 덩이줄기와 뭉쳐 구운 미트볼. 어깨에 힘이 붙고 상자를 빨리 뒤진다.
+# ── 고기 요리 (tier 3) ──
+meal_beef_steak,소고기 스테이크,epic,gritChance:0.1|maxStamina:25|carryCapacity:8,3,3,540,0.4,♨,,결이 살아 있는 소고기를 기름에 두껍게 구운 스테이크. 한 방 맞아도 버티고 오래 달리며 더 들고 나간다.
+meal_pork_roast,돼지고기 수육,epic,healPowerMul:0.25|staminaRegenMul:0.25|interactSpeedMul:0.15,3,3,520,0.4,♨,,돼지고기를 잎채소와 함께 삶아 낸 수육. 약이 잘 듣고 숨이 빨리 돌아오며 손놀림이 빨라진다.
+meal_chicken_roast,닭고기 구이,epic,useSpeedMul:0.2|maxStamina:20|staminaRegenMul:0.2,3,3,500,0.35,♨,,서리열매를 곁들여 기름에 구운 닭고기. 소모품을 빨리 쓰고 오래 달리며 숨이 빨리 돌아온다.
+meal_lamb_skewer,양고기 꼬치,epic,detectRadius:6|gatherYieldMul:0.25|searchSpeedMul:0.25,3,3,560,0.35,♨,,염수박을 곁들여 구운 양고기 꼬치. 감각이 예민해지고 채집이 넉넉해지며 상자를 빨리 뒤진다.
+meal_lard_rice,기름 볶음곡,epic,durabilityLossMul:-0.2|carryCapacity:10|maxStamina:15,3,3,480,0.4,♨,,동물기름에 잿빛 곡물을 볶아 낸 한 그릇. 장비가 덜 상하고 짐을 더 들며 오래 달린다.
+# ── 유제품 요리 (tier 4) ──
+meal_cream_stew,크림 스튜,legendary,maxStamina:35|staminaRegenMul:0.3|healPowerMul:0.3|carryCapacity:10,4,3,980,0.45,♨,,배양 우유로 진하게 끓인 크림 스튜. 오래 달리고 숨이 빨리 돌아오며 약이 잘 듣고 짐도 더 든다.
+meal_omelet,치즈 오믈렛,legendary,skillGainMul:0.2|gatherYieldMul:0.3|searchSpeedMul:0.3|interactSpeedMul:0.2,4,3,1000,0.35,♨,,배양 달걀에 치즈와 갓버섯을 넣어 부친 오믈렛. 배우는 것이 빠르고 채집이 넉넉하며 상자와 장치를 빨리 다룬다.
+meal_cheese_gratin,치즈 그라탕,legendary,gritChance:0.15|durabilityLossMul:-0.25|detectRadius:8|useSpeedMul:0.25,4,3,1020,0.45,♨,,치즈와 우유를 덩이줄기 위에 녹여 구운 그라탕. 한 방을 버티고 장비가 덜 상하며 감각이 예민해지고 소모품을 빨리 쓴다.
+# ── 은퇴한 옛 특선 요리 4종 (2026-09-13): 가진 사람은 먹을 수 있다 ──
+meal_cultured_steak,배양육 스테이크,rare,gritChance:0.1,2,3,380,0.4,♨,1,배양육을 두껍게 구운 옛 특선 요리. 더 이상 만들 수 없다.
+meal_protein_omelet,유단백 오믈렛,rare,skillGainMul:0.15,2,3,360,0.35,♨,1,난백과 유단백으로 부친 옛 특선 요리. 더 이상 만들 수 없다.
+meal_algae_broth,미세조류 육수,epic,detectRadius:6,2,3,620,0.3,♨,1,미세조류를 오래 우린 옛 특선 요리. 더 이상 만들 수 없다.
+meal_field_ration,특제 전투식량,epic,durabilityLossMul:-0.2,2,3,640,0.4,♨,1,함선 주방에서 눌러 만든 옛 전투식량. 더 이상 만들 수 없다.

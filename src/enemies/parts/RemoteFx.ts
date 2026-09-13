@@ -37,11 +37,13 @@ import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
+import type { EnemyGrenadeKind } from '@/shared';
 
-export function bloodBurst(sys: EnemySystem, point: THREE.Vector3, count: number, dir: THREE.Vector3 | null): void {
+/** `kind` (2026-09-13): 안드로이드는 `'spark'` (`model.goreKindOf`). */
+export function bloodBurst(sys: EnemySystem, point: THREE.Vector3, count: number, dir: THREE.Vector3 | null, kind: 'blood' | 'spark' = 'blood'): void {
   if (!sys.fx) return;
-  if (dir) sys.fx.burst(point, count, 'blood', 4.5, dir, 0.9);
-  else sys.fx.burst(point, count, 'blood', 4);
+  if (dir) sys.fx.burst(point, count, kind, 4.5, dir, 0.9);
+  else sys.fx.burst(point, count, kind, 4);
   }
 
 export function acidVisual(sys: EnemySystem, from: THREE.Vector3, target: CombatTarget, shooterId: number): void {
@@ -101,15 +103,17 @@ export function corpseSpawnedRemote(sys: EnemySystem, id: number, type: EnemyTyp
 
 export function corpseGoneRemote(sys: EnemySystem, id: number): void { sys.corpses.remove(id); }
 
-export function grenadeVisual(sys: EnemySystem, id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number): void {
+/** 2026-09-13: `kind` from `ee grenade.k` (the body / blast / fire zone the copy shows), the thrower's faction if we know it. */
+export function grenadeVisual(sys: EnemySystem, id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number, kind: EnemyGrenadeKind = 'frag'): void {
   if (!sys.grenades) return;
-  sys.grenades.throw(id, p, v, fuse, false);
-  sys.grenadesThrown++;
   const e = sys.byId.get(id);
+  sys.grenades.throw(id, p, v, fuse, false, kind, e?.faction ?? 'rogue');
+  sys.grenadesThrown++;
   sys.playAudio('grenade_throw', e ? e.position : p, 0.7, 0.95);
   }
 
-export function grenadeHitRemote(sys: EnemySystem, p: THREE.Vector3): void { sys.grenades?.explodeNear(p); }
+/** 2026-09-13: `kind` from `ee grenadeHit.k` (undefined = keep the flying copy's, frag when there is none). */
+export function grenadeHitRemote(sys: EnemySystem, p: THREE.Vector3, kind?: EnemyGrenadeKind): void { sys.grenades?.explodeNear(p, kind); }
 
 export function onChargeStarted(sys: EnemySystem, e: Enemy, target: THREE.Vector3): void {
   const ctx = sys.ctx;

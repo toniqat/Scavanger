@@ -9,6 +9,8 @@ import {
   ROGUE_DROP_ALARM_VOLUME, ROGUE_DROP_ALERT_FALLOFF_EXP, ROGUE_DROP_ALERT_RADIUS,
   ROGUE_DROP_FALL_LEAD_S, ROGUE_DROP_FALL_VOLUME, ROGUE_DROP_MIN_VOLUME,
 } from '@/shared';
+/* 2026-09-13 (요리 미니게임): 조리대 요리의 제작 완료음 겹침 방지 */
+import { cookStepsOf } from '@/shared';
 import { Synth, SOUNDS } from './Synth';
 
 const RATE_WINDOW = 0.1;       // seconds
@@ -124,8 +126,17 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   minigun_spinup: { range: 90, exp: 1.2 },
   minigun_fire: { range: 220, exp: 1.0, floor: 0.1 },
   minigun_spindown: { range: 90, exp: 1.2 },
+  // 2026-09-13: 버그 굴착 스폰 · 지하벌레 (enemies/). 전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정하다 — floor.
+  burrow_emerge: { range: 40, exp: 1.5 },
+  sandworm_rumble: { range: 200, exp: 1.0, floor: 0.3 },
+  sandworm_erupt: { range: 260, exp: 0.9, floor: 0.3 },
+  sandworm_roar: { range: 220, exp: 1.0, floor: 0.2 },
+  sandworm_spit: { range: 90, exp: 1.2 },
+  sandworm_death: { range: 200, exp: 1.0, floor: 0.15 },
   // 2026-09-11 (C-23): 적 발소리 — 재질별 id 11개가 같은 곡선 (위 `ENEMY_STEP_RANGE`)
   ...Object.fromEntries(Object.values(FOOTSTEP_ID).map((id) => [id, ENEMY_STEP_RANGE])),
+  // 2026-09-13: 안드로이드 서보음은 재질 발소리 위에 겹쳐 나므로 같은 곡선이어야 발소리보다 멀리 들리지 않는다
+  android_step: ENEMY_STEP_RANGE,
 };
 /** `floor` 가 사거리 끝 이 비율 구간에서 선형으로 0 이 된다. */
 const RANGED_FLOOR_EDGE = 0.15;
@@ -407,7 +418,8 @@ export class AudioSystem implements GameSystem, AudioRef {
       // gear upkeep, gathering, crafting, weight
       b.on('gather:collected', () => auto('gather', undefined, 0.8)),
       b.on('craft:started', () => auto('craft_start', undefined, 0.7)),
-      b.on('craft:completed', () => auto('craft_done', undefined, 0.8)),
+      // 2026-09-13 (요리 미니게임): 조리대 요리(`cookStepsOf` 가 있는 산출물)는 housing 이 `cook_finish` 를 이미 냈다 — 제작 딸깍을 겹치지 않는다
+      b.on('craft:completed', ({ item }) => { if (cookStepsOf(item?.defId ?? '').length === 0) auto('craft_done', undefined, 0.8); }),
       b.on('craft:failed', ({ reason }) => { if (reason !== 'cancelled') auto('ui_error', undefined, 0.7); }),
       b.on('repair:completed', () => auto('repair_done', undefined, 0.8)),
       b.on('durability:broken', () => auto('durability_break', undefined, 0.9)),

@@ -1,111 +1,40 @@
-import * as THREE from 'three';
-import { ROGUE_BOSS_ESCORTS, Random, type EnemyType, type PlanetEcosystem } from '@/shared';
+import type * as THREE from 'three';
+import type { EnemyType, HumanoidSpawnOpts } from '@/shared';
 import type { Enemy } from './Enemy';
-import { ROGUE_AI } from './EnemyTypes';
 import type { SpawnHost } from './Spawner';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Rogue guard placement (Phase 4, authority only, on `world:ready`). Squads of 2–4 gunners stand 6–12 m around
- * tier ≥ 2 crates (30 % of tier-2, every tier-3/4 crate), ≤ MAX_GUARDS in total; one random tier-3/4 crate gets the
- * boss with ROGUE_BOSS_ESCORTS escorts that follow it. Seeded by the world seed so a host reproduces the same layout
- * for the same mission (guards are not part of waves or the ambient bug cap).
+ * 인간형 스폰 서비스 계약 (Phase 4 부터 이 파일 이름이다).
  *
- * Phase 11: the 목표 행성's `PlanetEcosystem` scales the density (`eco.rogues`; 0 = a planet with no raiders at all)
- * and decides whether the boss squad is guaranteed (`eco.boss`) or only appears when the seed rolls it. Every draw
- * still comes from the world-seeded `Random`, so **same seed + same planet = same placement**; a mission without a
- * planet consumes exactly the draws it consumed before Phase 11.
+ * 2026-09-13: **상자 경비(`placeRogueGuards`)는 폐지됐다.** 레이드 시작 배치는 행성 threat 에 따른 **거점 그룹**이고
+ * `SiteGroups.ts` 가 갖는다 (연구소 · 전진기지 · 선로 플랫폼 · 폐허 전초). 이 파일에는 거점 그룹 · 레이더 강하
+ * (`RogueDrop.ts`) · 네임드(`named/Director.ts`)가 함께 쓰는 `RogueSpawnHost` 만 남았다 — 이름은 계약이라 그대로다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const MAX_GUARDS = 16;
-/** Chance the seed places the boss squad anyway on a planet whose `eco.boss` is false. */
-export const ECO_BOSS_CHANCE = 0.35;
-/** Base share of tier-2 crates that get a squad (scaled by `eco.rogues`). */
-const MID_CRATE_CHANCE = 0.3;
-
-/** Guard ceiling for this planet: `MAX_GUARDS × eco.rogues`, 0 when the planet has no raiders. */
-export function guardCap(eco: PlanetEcosystem | null): number {
-  const d = rogueDensity(eco);
-  return d <= 0 ? 0 : Math.max(1, Math.round(MAX_GUARDS * d));
-}
-
-function rogueDensity(eco: PlanetEcosystem | null): number {
-  if (!eco || !Number.isFinite(eco.rogues)) return 1;
-  return Math.max(0, eco.rogues);
-}
-
-/** Extra spawn service for rogues (implemented by EnemySystem). */
+/** Extra spawn service for humanoids (implemented by EnemySystem). */
 export interface RogueSpawnHost extends SpawnHost {
-  /** Spawn a rogue guarding `guardPos` (leash centre) with rifle `weaponId`; `escortOf` makes it follow the boss. */
-  spawnRogue(type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null): Enemy | null;
+  /**
+   * Spawn a humanoid (rogue · android · raider · named) guarding `guardPos` (leash centre) with weapon family `weaponId`;
+   * `escortOf` makes it follow that leader. `opts` = 거점 · 분대 · 역할 (생략 = 거점 없음 · 분대 없음 · member).
+   */
+  spawnRogue(type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null, opts?: HumanoidSpawnOpts): Enemy | null;
+  /** 2026-09-13: 이번 레이드에서 유일한 새 분대 id (1 부터, `Pool.reset` 이 되돌린다). 거점 그룹 · 강하 파도 · 헤비 분대가 쓴다. */
+  allocSquadId(): number;
 }
 
-const _p = new THREE.Vector3();
-
+/* ── 은퇴한 이름 (2026-09-13) ─────────────────────────────────────────────────────────────────────────────
+ * 폴더 안 여러 파일(`model.ts` · `parts/*` 의 공용 import 줄)과 `index.ts` 가 옛 이름을 가져온다. 그 파일들을 한꺼번에
+ * 고치지 않으려고 이름만 남긴다 — **아무도 호출하지 않고, 불러도 아무것도 세우지 않는다.** 배치는 `SiteGroups.placeSiteGroups`.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
+/** @deprecated 2026-09-13 — 상자 경비 폐지. 0. */
+export const MAX_GUARDS = 0;
+/** @deprecated 2026-09-13 — 상자 경비 폐지. 0. */
+export const ECO_BOSS_CHANCE = 0;
+/** @deprecated 2026-09-13 — 상자 경비 폐지. */
 export interface GuardPlacement { squads: number; rogues: number; boss: Enemy | null }
-
-/**
- * `eco` (Phase 11): ecosystem of the 목표 행성, or null for the pre-Phase-11 placement (density 1, boss guaranteed).
- */
-export function placeRogueGuards(host: RogueSpawnHost, seed: number, eco: PlanetEcosystem | null = null): GuardPlacement {
-  const result: GuardPlacement = { squads: 0, rogues: 0, boss: null };
-  const world = host.ctx.world;
-  if (!world) return result;
-  const density = rogueDensity(eco);
-  if (density <= 0) return result;                 // 약탈자가 없는 행성 — no rng draw, nothing placed
-  const cap = guardCap(eco);
-  const midChance = Math.min(1, MID_CRATE_CHANCE * density);
-  const rng = new Random((seed ^ 0x9e3779b9) >>> 0);
-  const crates = world.getCrates();
-  const spawn = world.getPlayerSpawn();
-  const high = crates.filter((c) => c.tier >= 3 && Math.hypot(c.position.x - spawn.x, c.position.z - spawn.z) > 45);
-  const mid = crates.filter((c) => c.tier === 2 && Math.hypot(c.position.x - spawn.x, c.position.z - spawn.z) > 45);
-
-  // boss at one random tier-3/4 crate; on an `eco.boss === false` planet only when the seed rolls it
-  let bossCrate = high.length > 0 ? high[rng.int(0, high.length - 1)] : null;
-  if (bossCrate && eco && !eco.boss && !rng.chance(ECO_BOSS_CHANCE)) bossCrate = null;
-  if (bossCrate) {
-    const boss = placeAround(host, 'rogue_boss', bossCrate.position, rng, 5, 7, ROGUE_AI.bossWeapon, null);
-    if (boss) {
-      boss.leash = ROGUE_AI.leash;
-      result.boss = boss;
-      result.rogues++;
-      for (let i = 0; i < ROGUE_BOSS_ESCORTS && result.rogues < cap; i++) {
-        const w = ROGUE_AI.weapons[rng.int(0, ROGUE_AI.weapons.length - 1)];
-        const esc = placeAround(host, 'rogue', boss.position, rng, 3, 6, w, boss);
-        if (esc) { esc.leash = ROGUE_AI.escortLeash; result.rogues++; }
-      }
-      result.squads++;
-    } else bossCrate = null;
-  }
-
-  // squads at the remaining high crates, then 30 % of the tier-2 crates
-  const targets = high.filter((c) => c !== bossCrate);
-  for (const c of mid) if (rng.chance(midChance)) targets.push(c);
-  for (const crate of targets) {
-    if (result.rogues >= cap) break;
-    const n = Math.min(rng.int(2, 4), cap - result.rogues);
-    let placed = 0;
-    for (let i = 0; i < n; i++) {
-      const w = ROGUE_AI.weapons[rng.int(0, ROGUE_AI.weapons.length - 1)];
-      const e = placeAround(host, 'rogue', crate.position, rng, 6, 12, w, null);
-      if (e) { placed++; result.rogues++; }
-    }
-    if (placed > 0) result.squads++;
-  }
-  return result;
-}
-
-function placeAround(host: RogueSpawnHost, type: EnemyType, center: THREE.Vector3, rng: Random, minR: number, maxR: number, weaponId: string, escortOf: Enemy | null): Enemy | null {
-  const world = host.ctx.world!;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const ang = rng.range(0, Math.PI * 2);
-    const rad = rng.range(minR, maxR);
-    _p.set(center.x + Math.cos(ang) * rad, 0, center.z + Math.sin(ang) * rad);
-    if (!world.isInsideBounds(_p.x, _p.z)) continue;
-    world.resolveCollision(_p, 1.0);
-    _p.y = world.getHeightAt(_p.x, _p.z);
-    const yaw = Math.atan2(center.x - _p.x, center.z - _p.z) + Math.PI;   // face outward from the crate
-    return host.spawnRogue(type, _p, yaw, center, weaponId, escortOf);
-  }
-  return null;
+/** @deprecated 2026-09-13 — 상자 경비 폐지. 늘 0. */
+export function guardCap(_eco?: unknown): number { return 0; }
+/** @deprecated 2026-09-13 — 상자 경비 폐지. 아무것도 세우지 않는다 (`SiteGroups.placeSiteGroups` 를 쓴다). */
+export function placeRogueGuards(_host?: RogueSpawnHost, _seed?: number, _eco?: unknown): GuardPlacement {
+  return { squads: 0, rogues: 0, boss: null };
 }

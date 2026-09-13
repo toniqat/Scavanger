@@ -362,13 +362,13 @@ export interface ProgressionRef {
    * **먼저 묻고 성공할 때만** 뺀다). 이미 차려 둔 요리가 있으면 **조용히 교체**한다: 식사는 칸이 하나뿐이고
    * 「바꿔 먹는다」가 자연스럽다. 레이드 중이거나 요리가 아니면 한국어 사유, 성공하면 null.
    */
-  useMeal(defId: string): string | null;
+  useMeal(defId: string, quality?: number): string | null;   // 2026-09-13: `quality` = 요리 품질 (생략 = 0). 같은 요리 · **같은 품질**만 거절한다
   /**
    * 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다 (사용자 결정: 한 명이 차리면 분대 전원).
    * 이미 먹은 사람은 교체된다. 받는 쪽 가드는 net 이 한다 — **로비 호스트가 보낸 것만** 여기까지 온다
    * (「남에게 영향 주는 메시지는 권위에서만 받는다」 E-4).
    */
-  serveMeal(defId: string): void;
+  serveMeal(defId: string, quality?: number): void;   // 2026-09-13: `quality` = 차린 요리의 품질 (생략 = 0)
 }
 
 /* ══ appended (2026-09-12, A-3a): 헬스장 — 단련 보너스 · 운동 디버프 (사용자 결정: 스탯 포인트와 따로 센다) ═══════════════
@@ -446,3 +446,33 @@ export interface ProgressionRef {
   /** appended (2026-09-12, 개발자 콘솔 `gym clear` 전용): 운동 디버프를 지운다 (`id` 생략 = 둘 다). 저장. */
   clearGymFatigue?(id?: GymStat): void;
 }
+
+/* ══ appended (2026-09-13): 능력치 포인트 일괄 투자 (사용자 결정 — 캐릭터 시트는 ＋/－ 로 배분해 두고 1초 홀드로 확정한다) ══ */
+export interface ProgressionRef {
+  /**
+   * 함선 전용. `alloc` 의 포인트를 **한 번에** 투자한다 — 전부 되거나 아무것도 안 된다. 검사: 레이드 중이 아님 · 키가 전부
+   * `StatId` · 값이 0 이상의 정수 · 합이 1 이상이고 `statPoints` 이하 · 투자 뒤 어느 능력치도 `STAT_MAX` 를 넘지 않음.
+   * 통과하면 `derived` 를 한 번 다시 계산하고 한 번 저장하며, 값이 바뀐 능력치마다 `progress:statChanged` 를 한 번씩 낸다.
+   * 거절이면 false 이고 아무것도 바뀌지 않는다. 한 포인트씩은 여전히 `spendStatPoint`.
+   */
+  spendStatPoints?(alloc: Partial<Record<StatId, number>>): boolean;
+}
+
+/* ══ appended (2026-09-13): 요리 품질 (docs/plans/cooking-minigames.md — 사용자 결정: 품질 별 0 … 5 = 능력치 수치 +0 … +25 %) ══
+ * 식사 칸은 여전히 하나이고 수명 규칙도 그대로다 — 품질은 요리 id 옆에 붙어 다닌다 (`meal` ↔ `mealQuality`, `mealActive` ↔ `mealActiveQuality`).
+ * `armPreps` 가 id 와 함께 품질을 옮기고 `clearActivePreps` 가 함께 비운다. `derive.applyMealBuff` 는 줄마다 `amount × (1 + mealQualityBonus(품질))`.
+ * 두 필드 모두 `Profile.migrate` 가 옮겨 담아야 새로고침을 견딘다 (2026-09-09 `accent` 사고와 같은 자리). */
+export interface PlayerProfile {
+  /** 대기 중인 식사(`meal`)의 품질 0 … `MEAL_QUALITY_MAX`. 생략 = 0. */
+  mealQuality?: number;
+  /** 이번 레이드에 실린 식사(`mealActive`)의 품질. 생략 = 0. */
+  mealActiveQuality?: number;
+}
+
+export interface ProgressionRef {
+  /** 대기 중인 식사의 품질 (없으면 0). */
+  getMealQuality?(): number;
+  /** 이번 레이드에 실린 식사의 품질 (없으면 0). */
+  getActiveMealQuality?(): number;
+}
+/* ══ end 2026-09-13 요리 품질 ══ */

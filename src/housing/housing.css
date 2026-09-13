@@ -90,93 +90,110 @@
 .hs-preset .actions { display: flex; gap: 6px; }
 .hs-preset .actions .ui-btn { flex: 1; padding: 0 8px; }
 
-/* ── 가구 화면 공통 틀 (2026-09-12) ──────────────────────────────────────────
- * 재배 스테이션 · 분석기 · 배양조 · 식탁이 같은 틀을 쓴다 (`ui/StationShell.ts`): 머리줄 = 제목 + `Lv. n` (좌) ·
- * 업그레이드 (우, `ui/UpgradeModal.ts`), 몸통 = **맨 왼쪽 레일(`.hs-rail`, 선택) + 좌 패널(가구 내용) + 우 패널**
- * (가방 · 함선 창고, `createTradeGrids`). 방 번호 · 설명 줄 · 「가방 · 함선 창고」 라벨 · 안내문은 없다 (사용자 결정).
+/* ── 가구 화면 공통 틀 — 카드 배치 (2026-09-12 · 2026-09-13) ─────────────────
+ * 재배 스테이션 · 분석기 · 배양조 · 식탁(· 서재)이 같은 틀을 쓴다 (`ui/StationShell.ts`).
+ * 2026-09-13 (사용자 결정 「작업대 제작 화면처럼」): **바깥 틀이 없다** — `.frame` 은 투명한 세로 줄이고 그 안에
+ * 따로 떨어진 카드 셋이 한 줄로 선다: **[스테이션 카드] [함선 창고 카드] [가방 카드]**. 스테이션 카드는 제목 +
+ * `Lv. n` + 부가 글(`.hs-meta`)과 **카드 우상단의** 업그레이드 버튼, 그리고 레일(`.hs-rail`, 선택) + 좌 패널을 든다.
+ * 격자 카드는 카드마다 자기 머리와 **자기 세로 스크롤**을 갖는다 — 두 격자를 한 스크롤에 이어 붙이지 않는다.
+ * 카드의 결(그라데이션 · 1px 선 · 반경 6 · 큰 그림자 · 윗변 하이라이트)은 인벤토리 `.inv-panel` 과 같은 값이다 —
+ * 클래스를 빌리지 않는 이유는 그 팔레트 변수(`--inv-bg*`)가 `.inv-root` 에만 선언돼 있어서다.
  * 모든 이름은 이 폴더 전용 접두사다 — 옛 `.ct-*`(배양조)가 기업 화면의 `.ct-*` 와 겹쳐 거래 칸을 배양관 모양으로
  * 만들었으므로 배양조는 `.cult-*` 로 옮겼다 (2026-09-10 `.hold` 사고와 같은 뿌리).
+ * 폭 계산 (격자 칸 `stationGridCell` — 1760 px 이상 54, 아니면 46): 창고 카드 = 10칸 + 스크롤바 자리 + `.tg-scroll`
+ * 여백 16 + 카드 여백 38 ≈ 545 (46) / 625 (54), 가방 카드 ≈ 305 / 345, 카드 사이 20 × 2 — 1440 에서 스테이션 카드에
+ * 500 px 남짓이 남는다. 그보다 좁으면(< 1280) 스테이션 카드를 위로, 격자 카드 둘을 아래로 쌓는다.
  * ────────────────────────────────────────────────────────────────────────── */
-.menu.housing-menu.hs-station {
-  /* 우 패널 폭 = 가방 5칸 + 함선 창고 10칸이 **가로로 나란히** 서는 너비 (`inventory/ui/TradeGrids` 2026-09-12 가로 2열).
-     칸 한 변 54 + 격자 간격 2 = 56 이 한 칸의 피치다 — 값의 원본은 inventory 쪽이고 여기서는 자리만 잡는다. */
-  --hs-inv-w: calc(15 * 56px + 96px);
-}
-/* 레일 176 + 좌 패널 300 + 우 패널 936 + gap 32 + `.menu .frame` 좌우 여백 80 = 1524 — 그것을 담는 폭이다 */
+/* 바깥 틀이 투명해진 만큼 **화면 아래 띠를 비워 둔다** — 함선 HUD 의 PC 체력바(좌하단)와 키 가이드(우하단)가 그 자리에
+   있고, 틀이 거기까지 내려오면 발의 안내 · 닫기 버튼이 그 위에 겹쳐 읽히지 않는다 (`margin-bottom` 이 가운데 정렬의 기준을
+   그만큼 올린다). */
 .menu.housing-menu.hs-station .frame {
-  min-width: 0; max-width: none; width: min(1540px, calc(100vw - 48px));
-  height: min(780px, calc(100vh - 48px));
-  display: flex; flex-direction: column;
+  min-width: 0; max-width: none; width: min(1860px, calc(100vw - 32px));
+  height: min(860px, calc(100vh - 108px)); margin-bottom: 84px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 0; background: none; border: 0;
 }
-.hs-station-head { align-items: center; }
-.hs-station-head .hl { flex-direction: row; align-items: baseline; gap: 14px; }
-.hs-lv { font-family: var(--ui-mono); font-size: 15px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-accent); white-space: nowrap; }
+.menu.housing-menu.hs-station .frame::before, .menu.housing-menu.hs-station .frame::after { content: none; }
+.hs-cards { display: flex; gap: 20px; flex: 1; min-height: 0; justify-content: center; align-items: stretch; }
+.hs-card {
+  position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0;
+  padding: 16px 18px 14px;
+  background: linear-gradient(180deg, rgba(16, 19, 25, 0.96), rgba(9, 11, 15, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.hs-card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+}
+.hs-card-station { flex: 1 1 620px; min-width: 420px; max-width: 800px; }
+.hs-station-head { align-items: center; min-height: 34px; }
+/* 좁은 카드(1440)에서는 제목을 자르지 않고 `Lv` · 부가 글이 아랫줄로 내려간다 */
+.hs-station-head .hl { flex: 1 1 auto; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.hs-card-station .hs-station-head .title { font-size: 20px; letter-spacing: 0.14em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hs-lv { font-family: var(--ui-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-accent); white-space: nowrap; }
 .hs-lv[hidden] { display: none; }
-.hs-up-open { flex: none; min-width: 132px; height: 36px; padding: 0 18px; }
+/* Lv 옆 작은 글 — 재배 스테이션의 성장 속도 같은 「이 레벨이 주는 것」 한 줄 (`paintStationMeta`) */
+.hs-meta { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.04em; color: var(--c-success); white-space: nowrap; }
+.hs-meta[hidden] { display: none; }
+.hs-up-open { flex: none; min-width: 120px; height: 34px; padding: 0 16px; }
 .hs-up-open.is-max { opacity: 0.55; }
-/* 레일(선택) · 좌 패널 · 우 패널. 레일은 쓰지 않는 화면에서 `hidden` 이고, flex 라 그때 gap 까지 함께 사라진다. */
-.hs-station-body { display: flex; gap: 16px; flex: 1; min-height: 0; }
-.hs-pane {
-  display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
-  padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
-  user-select: none;
-}
-.hs-pane-left { flex: 1 1 340px; min-width: 300px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-/* 우 패널은 `auto` 가 아니라 **격자가 필요한 만큼**이고 (예전 `auto` 는 창 폭에 아랑곳없이 늘어났다), 자리가
-   모자라면 줄어든다 — 가로 2열 격자의 폭은 위 `--hs-inv-w` 하나가 정한다. */
-.hs-pane-right { flex: 0 1 auto; min-width: 0; max-width: var(--hs-inv-w); }
+/* 스테이션 카드의 몸통 = 레일(선택) + 좌 패널. 레일은 쓰지 않는 화면에서 `hidden` 이고, flex 라 gap 까지 함께 사라진다. */
+.hs-station-body { display: flex; gap: 14px; flex: 1; min-height: 0; }
+.hs-pane { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; user-select: none; }
+.hs-pane-left { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
 .hs-pane .ui-label { display: flex; align-items: center; gap: 10px; }
+/* 함선 창고 · 가방 카드 — 폭은 격자가 정하고(늘지도 줄지도 않는다) 높이는 카드 줄 높이 그대로 */
+.hs-inv-cards { display: flex; gap: 20px; flex: none; min-width: 0; min-height: 0; }
+.hs-inv-cards[hidden] { display: none; }
+.hs-card-inv { flex: none; user-select: none; }
+.hs-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 34px; }
+.hs-card-title { font-size: 16px; font-weight: 600; letter-spacing: 0.12em; color: var(--c-text); white-space: nowrap; }
 /* 2026-09-12: `--inv-*` 팔레트를 여기서 **다시 선언하지 않는다** — `.trade-grids`(inventory/inventory.css) 가 자기
-   뿌리에 그 목록을 이미 갖고 있고, 여기 있던 사본에만 `--inv-bg` · `--inv-bg-2` · `--inv-swap` 이 더 있어서
-   같은 격자가 기업 화면과 스테이션 화면에서 다르게 보였다. 값의 원본은 inventory 쪽 하나다. */
+   뿌리에 그 목록을 이미 갖고 있다. 값의 원본은 inventory 쪽 하나다. */
 .hs-inv { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .hs-inv .trade-grids { flex: 1; min-width: 0; min-height: 0; }
+/* 카드 머리가 이름을 들므로 격자 블록의 이름표는 숨긴다 (개수 · 정렬 버튼은 남는다) */
+.hs-inv .tg-label { display: none; }
 /* 다 된 산물을 끌어 격자 위에 올렸을 때 (`ui/ProductDrag` 가 `[data-tg-grid]` 블록에 붙인다) */
 [data-tg-grid].hs-drop-over { outline: 2px solid var(--c-accent); outline-offset: -2px; }
 
-/* 2026-09-12 (회귀 수정 — 두 격자 중 **하나가 늘 화면 밖으로 나갔다**):
- * ① 두 격자가 가로로 나란히 서려면 우 패널에 910 px 이 필요하고(창고 10칸 558 + 가방 5칸 278 + 스크롤바 자리
- *    10 씩 + 사이 간격 14 + `.tg-scroll` 안팎 여백 · 테두리 16 + `.hs-pane` 안여백 24), 그 앞에 레일 176 +
- *    gap 16 + 좌 패널 최소 300 + gap 16 이 선다. `.menu .frame` 좌우 여백 80 과 `.menu` 여백 48 을 더하면
- *    **뷰포트 1550 px 남짓**부터 들어간다 — 여유를 두고 1600 을 경계로 삼는다 (실측: 1596 세로 · 1600 가로).
- * ② 그런데 예전처럼 **한 스크롤에 세로로 이어 붙이면** 어느 쪽을 위에 올려도 다른 쪽이 화면 밖이었다: 창고
- *    격자는 24행 = 1381 px, 가방 틀은 12행 = 709 px 인데 스크롤 창은 600 px 남짓이다. 창고가 위면 가방이
- *    y≈1574, 가방이 위면 창고가 y≈900 에서 시작해 화면(900) 밖으로 밀렸다. **끌고 있는 동안에는 스크롤할 수
- *    없으므로** 그때마다 「창고 → 흙구멍」이나 「수확물 → 가방」 중 한 쪽 길이 통째로 막혔다.
- * 그래서 스테이션 화면에서는 **블록마다 자기 스크롤**이다 — 두 블록이 스크롤 창의 높이를 나눠 갖고, 넘치는
- * 행은 각자 자기 상자 안에서 스크롤한다. 그러면 폭이 어떻든 **드래그를 시작하기 전에 둘 다 화면 안에 있다**
- * (실측 1200 · 1280 · 1366 · 1440 · 1536 · 1600 · 1920 · 2560 전부).
- * (`.tg-scroll` 은 그대로 남지만 이제 넘칠 일이 없다. 값 · 기본 배치의 원본은 여전히 `.trade-grids` 이고,
- *  이 규칙은 `.hs-inv` 안에서만 산다 — 같은 뷰를 쓰는 기업 거래 화면(`meta`)은 한 줄도 바뀌지 않는다.)
- * 세로로 쌓을 때의 순서는 **창고 위 · 가방 아래**다 — 「창고 왼쪽 · 가방 오른쪽」(2026-09-12 사용자 결정)을
- * 읽는 순서 그대로 내린 것이고, 이제는 둘 다 보이므로 순서가 닿고 못 닿고를 정하지 않는다.
- * ⚠ 아래 `@media (max-width: 1180px)` 의 세로 몸통(레일 · 좌 · 우가 위아래로)은 이 배치 **밖**이다 — 거기서는
- *   우 패널이 좌 패널 아래로 내려가므로 한 화면에 둘이 같이 있지 않다 (이 배치 이전부터 그랬다). */
-/* `flex-wrap: nowrap` 이 요점이다 — **여러 줄** flex 상자에서 `stretch` 는 상자가 아니라 *그 줄*의 높이(= 제일 큰
-   블록 1381 px)까지만 늘리므로 블록이 스크롤 창을 넘어선다. 한 줄로 못박아야 블록이 창 높이에 맞는다. */
-.hs-inv .tg-scroll { flex-wrap: nowrap; align-items: stretch; }
-.hs-inv .tg-block { min-height: 0; }
+/* 2026-09-12 (회귀 수정 — 두 격자 중 **하나가 늘 화면 밖으로 나갔다**): 한 스크롤에 세로로 이어 붙이면 창고 격자
+ * 24행 = 1381 px · 가방 틀 12행 = 709 px 이 스크롤 창 600 px 남짓을 넘어 어느 쪽을 위에 올려도 다른 쪽이 화면
+ * 밖이었고, **끌고 있는 동안에는 스크롤할 수 없어** 「창고 → 흙구멍」이나 「수확물 → 가방」 중 한 쪽 길이 막혔다.
+ * 2026-09-13 부터는 격자마다 **자기 카드**라 둘이 한 스크롤에 설 일이 아예 없다 — 아래 규칙은 카드 안의 한 블록이
+ * 카드 높이에 맞고, 넘치는 행은 자기 상자 안에서 스크롤하게 할 뿐이다 (기업 거래 화면 `meta` 는 한 줄도 안 바뀐다). */
+/* `flex-wrap: nowrap` 이 요점이다 — **여러 줄** flex 상자에서 `stretch` 는 상자가 아니라 *그 줄*의 높이(= 격자 높이)
+   까지만 늘리므로 블록이 스크롤 창을 넘어선다. 한 줄로 못박아야 블록이 창 높이에 맞는다. */
+/* 2026-09-13: 스테이션 카드는 inventory 의 `layout: 'split'`(`.trade-grids.is-split`)을 쓰므로 아래 세 줄은 **옛 호스트**
+   (카드 없이 두 격자를 한 뷰로 받는 `mountStationGrids` 의 옛 경로)에만 걸린다 — split 규칙과 다투지 않게 범위를 좁혔다. */
+.hs-inv .trade-grids:not(.is-split) .tg-scroll { flex-wrap: nowrap; align-items: stretch; overflow: hidden; }
+.hs-inv .trade-grids:not(.is-split) .tg-block { min-height: 0; }
 /* 스크롤은 격자 자신이 아니라 **감싸는 상자**(`.tg-gridwrap`)가 맡는다 — 격자는 폭이 px 로 못박혀 있어 스크롤바가
    마지막 열을 갉아먹지만, 이 상자는 폭이 내용에서 나오므로 브라우저가 스크롤바 자리를 폭에 더해 준다.
    `flex: 0 1 auto` = 늘지 않고 줄기만 한다 (남는 자리를 빈 격자로 채우지 않는다).
    `scrollbar-gutter: stable` 은 그 자리를 **늘** 잡아 둔다 — 행이 늘어 스크롤바가 생기는 순간 격자가 흔들리지
    않고, 헤드리스(오버레이 스크롤바 · 자리 0)와 실제 창(클래식 스크롤바)의 폭 계산이 갈라지지 않는다.
    모양은 `ui/styles/base.css` 가 `#ui-root` 아래 모든 스크롤러에 이미 입힌다 (`--sb-thumb` · `scrollbar-width: thin`). */
-.hs-inv .tg-gridwrap { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
-@media (max-width: 1599px) {
-  /* 세로 스택 — `align-items: flex-start` 라 블록 폭은 격자 폭 그대로이고, 높이만 `flex: 1 1 0` 으로 반씩 나눈다.
-     반씩인 이유: 비례로 나누면 큰 창고가 대부분을 가져가 가방이 3행밖에 안 보인다 (6행짜리 기본 가방이 잘린다). */
-  .hs-inv .tg-scroll { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; }
-  .hs-inv .tg-block { flex: 1 1 0; }
-}
+.hs-inv .trade-grids:not(.is-split) .tg-gridwrap { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+/* 스테이션 화면의 발 — 카드 줄 아래의 얇은 띠 (메시지 줄 · 안내 · 닫기) */
+.menu.housing-menu.hs-station .hs-msg { margin: 0 4px; }
+.menu.housing-menu.hs-station .hs-foot { border-top: 0; padding: 2px 4px 0; }
 
-@media (max-width: 1180px) {
-  .menu.housing-menu.hs-station .frame { height: calc(100vh - 48px); }
-  .hs-station-body { flex-direction: column; overflow-y: auto; }
+/* 좁은 창: 스테이션 카드를 위(높이 절반까지 · 안에서 스크롤), 격자 카드 둘을 아래(나머지 높이 · 각자 스크롤)로 쌓는다.
+   드래그를 시작하기 전에 세 카드가 전부 화면 안에 있다 — 페이지 전체가 스크롤하지 않는다. */
+@media (max-width: 1279px) {
+  .menu.housing-menu.hs-station .frame { height: calc(100vh - 108px); }
+  .hs-cards { flex-direction: column; justify-content: flex-start; }
+  .hs-card-station { flex: 0 1 auto; min-width: 0; max-width: none; max-height: 46%; }
+  .hs-inv-cards { flex: 1 1 0; justify-content: center; }
+}
+@media (max-width: 919px) {
+  .hs-station-body { flex-direction: column; }
   .hs-rail { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; }
   .hs-rail-item { flex: 1 1 160px; }
-  .hs-pane-left { flex: none; min-width: 0; }
-  .hs-pane-right { flex: none; max-width: none; min-height: 300px; }
+  .hs-inv-cards { flex-direction: column; align-items: center; }
+  .hs-card-inv { flex: 1 1 0; }
 }
 
 /* 남은 시간 `HH:MM:SS` (`dom.renderClock`).
@@ -239,7 +256,7 @@
  * **탭**(해석 · 해석 도감). 쓰지 않는 화면에서는 `hidden` 이라 flex gap 까지 사라진다.
  * ────────────────────────────────────────────────────────────────────────── */
 .hs-rail {
-  flex: none; width: 176px; display: flex; flex-direction: column; gap: 6px;
+  flex: none; width: 156px; display: flex; flex-direction: column; gap: 6px;
   min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
 }
 .hs-rail[hidden] { display: none; }
@@ -331,6 +348,14 @@
 .gs-slot:not(.has-soil) .gs-time { font-family: inherit; font-weight: 600; letter-spacing: 0.06em; color: var(--c-danger); }
 .gs-slot.has-soil:not(.is-planted) .gs-time { color: var(--c-text-faint); }
 .gs-slot.is-ready .gs-time { font-family: inherit; font-weight: 700; letter-spacing: 0.06em; color: var(--c-success); }
+/* 2026-09-13 (요리 재료 티어): 흙구멍 **안**의 소켓 점 — 흙 위에 떠 있고 칸 수만큼, 끼운 것은 채움 (`SocketFlow.paintSocketDots`).
+ * 구멍 아래 시계 줄의 높이 규칙과 무관하다 (구멍 안에 절대 배치). 드롭 대상(`.gs-pot`)을 가리지 않게 `pointer-events: none`. */
+.gs-socks { position: absolute; left: 0; right: 0; bottom: 6px; z-index: 1; display: flex; justify-content: center; gap: 3px; pointer-events: none; }
+.gs-socks[hidden] { display: none; }
+.gs-socks i { width: 5px; height: 5px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.55); background: rgba(0, 0, 0, 0.45); }
+.gs-socks i.on { background: #8fe0b0; border-color: #d6f7e3; box-shadow: 0 0 5px rgba(143, 224, 176, 0.9); }
+/* 흙이 다 닳았다(보너스 비율 0) — 여전히 쓰지만 바랜 색 */
+.gs-slot.is-worn .gs-soil { filter: saturate(0.25) brightness(0.7); }
 
 /* ── 연구실 분석기 (A-12 2026-09-11 · 화면 개편 2026-09-12) ─────────────────
  * 탭(해석 · 해석 도감)은 화면 맨 왼쪽 레일(`.hs-rail`)로 나갔고 좌 패널에는 페이지만 남는다.
@@ -340,7 +365,7 @@
 .az-slots { display: flex; flex-direction: column; gap: 10px; }
 .az-slots[hidden], .az-dexhost[hidden] { display: none; }
 .az-slot {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 12px; align-items: center;
   min-height: 92px; padding: 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
 }
 .az-slot.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.14); }
@@ -358,7 +383,25 @@
 .az-slot:not(.is-running) .az-glyph { color: var(--c-text-faint); text-shadow: none; }
 .az-slot.is-ready .az-glyph { color: var(--c-success); }
 .az-slot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.az-name { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.az-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; min-width: 0; }
+.az-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 계열 칩 (2026-09-13) — 색 `--fc` = `SAMPLE_FAMILY_COLOR` */
+.az-fam {
+  flex: none; padding: 1px 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap;
+  color: var(--fc, #c79fff); border: 1px solid color-mix(in srgb, var(--fc, #c79fff) 60%, transparent);
+  background: color-mix(in srgb, var(--fc, #c79fff) 12%, transparent);
+}
+.az-fam[hidden] { display: none; }
+.az-slot.is-running:not(.is-ready) .az-cell { border-color: color-mix(in srgb, var(--fc, #c79fff) 70%, transparent); }
+/* 결과 자리 (2026-09-13): 해석 중 「?」(점선 칸) · 끝나면 산출물 칩 + 「새 발견」 배지. 비어 있어도 폭은 차지한다 (열이 흔들리지 않게) */
+.az-result { position: relative; width: 52px; height: 52px; flex: none; display: flex; align-items: center; justify-content: center; }
+.az-result.is-pending { border: 1px dashed rgba(255, 255, 255, 0.22); background: rgba(0, 0, 0, 0.25); }
+.az-result-q { font-size: 22px; font-weight: 700; line-height: 1; color: var(--c-text-faint); pointer-events: none; }
+.az-new {
+  position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); z-index: 1; pointer-events: none;
+  padding: 1px 5px; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; white-space: nowrap;
+  color: #0b120d; background: var(--c-success); box-shadow: 0 0 8px rgba(126, 224, 138, 0.6);
+}
 .az-time { font-size: 12px; color: var(--c-text-dim); min-height: 15px; }
 .az-slot.is-ready .az-time { font-family: inherit; font-weight: 700; letter-spacing: 0.08em; color: var(--c-success); }
 .az-prog { width: 100%; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
@@ -372,43 +415,146 @@
 .az-acts .ui-btn[hidden] { display: none; }
 .az-dexhost { flex: 1; min-height: 0; }
 
-/* 해석 도감 — `.hs-dex*` 의 뼈대를 그대로 쓰고 두 줄짜리 본문만 얹는다 */
-.az-dex-row { align-items: center; }
-.az-dex-row .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.az-dex-row .body .title { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.az-dex-row .body .sub { font-size: 10px; color: var(--c-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 분석 도감 (2026-09-13 재작성, `ui/SampleDex.ts`) — 계열 3구획: 머리줄(계열 칩 · Lv · 경험치 막대 · 해석 시간 배수) + 결과 행
+ * (발견 = 아이템 칩 · 미발견 = 검은 실루엣 + 「???」 · 잠김 = 흐린 실루엣 + 「Lv.n 해금」 | 개수 범위 | 확률). 색 `--fc` = 계열 색. */
+.az-dex-fam {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px;
+  border: 1px solid color-mix(in srgb, var(--fc, #c79fff) 32%, var(--c-border)); background: rgba(255, 255, 255, 0.02);
+}
+.az-dex-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.az-dex-chip {
+  flex: none; padding: 2px 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap;
+  color: var(--fc, #c79fff); border: 1px solid color-mix(in srgb, var(--fc, #c79fff) 60%, transparent);
+  background: color-mix(in srgb, var(--fc, #c79fff) 12%, transparent);
+}
+.az-dex-lv { flex: none; font-family: var(--ui-mono); font-size: 12px; font-weight: 700; color: var(--c-text); white-space: nowrap; }
+.az-dex-xp { flex: 1 1 120px; min-width: 100px; display: flex; align-items: center; gap: 6px; }
+.az-dex-xpbar { flex: 1; height: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.az-dex-xpbar i { display: block; height: 100%; width: 0%; background: var(--fc, #c79fff); }
+.az-dex-xptext { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); white-space: nowrap; }
+.az-dex-mul { flex: none; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); white-space: nowrap; }
+.az-dex-mul.boosted { color: var(--c-accent); }
+.az-dex-list { display: flex; flex-direction: column; gap: 3px; }
+.az-dex-row {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 44px; gap: 10px; align-items: center;
+  min-height: 32px; padding: 3px 8px; font-size: 12px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.025);
+}
+.az-dex-row.owned { border-color: color-mix(in srgb, var(--fc, #c79fff) 45%, transparent); }
+.az-dex-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; }
+.az-dex-sil {
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1;
+  color: #05070a; text-shadow: 0 0 1px rgba(255, 255, 255, 0.4); background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.12);
+  pointer-events: none; user-select: none;
+}
+.az-dex-row.is-locked .az-dex-sil { opacity: 0.35; }
+.az-dex-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text); }
+.az-dex-row.is-unknown .az-dex-title { color: var(--c-text-faint); letter-spacing: 0.2em; }
+.az-dex-row.is-locked .az-dex-title { color: var(--c-text-faint); font-size: 11px; letter-spacing: 0.04em; }
+.az-dex-qty { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); white-space: nowrap; }
+.az-dex-chance { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text); text-align: right; white-space: nowrap; }
+.az-dex-row.is-locked .az-dex-qty, .az-dex-row.is-locked .az-dex-chance { color: var(--c-text-faint); }
 
-/* ── 온실 배양조 (A-14 2026-09-11 · 화면 개편 2026-09-12) ───────────────────
- * 분석기와 같은 한 줄 — 배양관(배지 색으로 차오른다) + 위 이름 · 아래 시간. 버튼은 없다 (우클릭 · 더블클릭 · 끌기).
+/* ── 온실 배양조 (A-14 2026-09-11 · 화면 개편 2026-09-12 · 배양관 2026-09-13) ─────────
+ * 2026-09-13 (사용자 결정): **세로로 긴 유리 배양관 3개가 나란히** — 늘 3열, 잠긴 관은 점선 + `Lv.N 필요`.
+ * 한 관 = 뚜껑 `.cult-cap` · 유리 `.cult-glass`(열린 관은 `.cult-cell[data-slot]` = 드롭 대상) · 받침 `.cult-base`,
+ * 그 아래 이름 · 시간 · 진행바. 액체 `.cult-fluid` 의 높이 = `--lvl`(남은 수확 ÷ 배지 최대 횟수), 색 = `--mc`(배지 색).
+ * 드래그 렉 규약: 액체는 **transform(scaleY)** 로만 높이를 바꾸고, 차오르는 연출(`.is-filling`)과 떠 있는 세포주
+ * (`.cult-glyph`)도 transform 애니메이션이다 — 드롭 대상의 강조는 전환 없는 테두리 · 배경색뿐이다.
+ * 버튼은 없다 (우클릭 · 더블클릭 · 끌기).
  * ────────────────────────────────────────────────────────────────────────── */
-.cult-slots { display: flex; flex-direction: column; gap: 10px; }
+.cult-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; padding-top: 4px; }
 .cult-slot {
-  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center;
-  min-height: 98px; padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0;
+  padding: 12px 6px 10px; border: 1px solid var(--c-border); border-radius: 4px; background: rgba(255, 255, 255, 0.025);
 }
-.cult-slot.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.14); }
+.cult-slot.is-locked { background: none; border-style: dashed; border-color: rgba(255, 255, 255, 0.12); }
 .cult-slot.is-ready { cursor: grab; }
-/* 배양관: 아래가 둥근 세로 관 하나. 배지는 `.cult-fluid` 가 안에서 차오른다 */
-.cult-cell {
-  position: relative; width: 54px; height: 76px; flex: none; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(143, 232, 255, 0.35); border-radius: 10px 10px 22px 22px;
-  background: linear-gradient(180deg, rgba(143, 232, 255, 0.10), rgba(0, 0, 0, 0.55));
+.cult-tube { --cult-w: 64px; display: flex; flex-direction: column; align-items: center; }
+/* 뚜껑 · 받침 — 금속 결 그라데이션 */
+.cult-cap {
+  width: calc(var(--cult-w) + 14px); height: 12px; border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, #d5dce3, #7b858f 55%, #4a525b);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
-.cult-cell.is-over { border-color: var(--c-accent); background: linear-gradient(180deg, rgba(255, 179, 71, 0.4), rgba(0, 0, 0, 0.55)); }
+.cult-base {
+  width: calc(var(--cult-w) + 22px); height: 16px; border-radius: 2px 2px 5px 5px;
+  background: linear-gradient(180deg, #8a939d, #444b53 60%, #2b3036);
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.55);
+}
+/* 유리: 세로로 긴 관. 왼쪽의 하얀 결(`::after`)과 눈금이 유리처럼 보이게 한다 */
+.cult-glass {
+  position: relative; width: var(--cult-w); height: 196px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(143, 232, 255, 0.38); border-top: 0; border-bottom: 0;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 23px, rgba(255, 255, 255, 0.07) 23px 24px),
+    linear-gradient(90deg, rgba(143, 232, 255, 0.10), rgba(0, 0, 0, 0.35) 40%, rgba(143, 232, 255, 0.08));
+}
+.cult-glass::after {
+  content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 5px; border-radius: 3px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.06));
+}
+.cult-slot.is-locked .cult-glass { border: 1px dashed rgba(255, 255, 255, 0.2); border-top: 0; border-bottom: 0; background: rgba(255, 255, 255, 0.015); }
+.cult-slot.is-locked .cult-glass::after, .cult-slot.is-locked .cult-cap, .cult-slot.is-locked .cult-base { opacity: 0.35; }
+.cult-lock { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--c-text-faint); writing-mode: horizontal-tb; }
+.cult-cell.is-over { border-color: var(--c-accent); background: linear-gradient(180deg, rgba(255, 179, 71, 0.3), rgba(0, 0, 0, 0.45)); }
 .cult-slot.is-running .cult-cell { border-color: rgba(143, 232, 255, 0.75); }
-.cult-slot.is-ready .cult-cell { border-color: rgba(126, 224, 138, 0.85); }
-.cult-fluid { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(143, 232, 255, 0.5); opacity: 0.55; }
-.cult-slot.has-medium .cult-fluid { height: 78%; }
-.cult-glyph { position: relative; font-size: 24px; line-height: 1; color: #cdf3ff; text-shadow: 0 0 10px rgba(143, 232, 255, 0.5); pointer-events: none; }
-.cult-slot.is-ready .cult-glyph { color: var(--c-success); }
-.cult-slot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.cult-name { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cult-time { font-size: 12px; color: var(--c-text-dim); min-height: 15px; }
+.cult-slot.is-ready .cult-cell { border-color: rgba(126, 224, 138, 0.9); box-shadow: 0 0 14px rgba(126, 224, 138, 0.35); }
+/* 액체 — 늘 관 전체 높이이고 `scaleY(--lvl)` 로 줄인다. 윗면(`::before`)은 밝은 띠 */
+.cult-fluid {
+  --mc: #8fe8ff; --lvl: 0;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 100%;
+  transform-origin: 50% 100%; transform: scaleY(var(--lvl));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mc) 78%, white), color-mix(in srgb, var(--mc) 55%, black));
+  opacity: 0.72;
+}
+.cult-fluid::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: color-mix(in srgb, var(--mc) 40%, white); opacity: 0.9; }
+.cult-fluid.is-filling { animation: cult-rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes cult-rise { from { transform: scaleY(0); } to { transform: scaleY(var(--lvl)); } }
+/* 세포주 — 액체 속에 떠 있는 **세포**(CSS 로 그린다: 막 + 핵 + 작은 소기관). 색 `--oc` = 배양 산물 아이템의 색.
+   세포주 아이템 아이콘(`▫`)은 너무 작아 관 안에서 읽히지 않는다. */
+.cult-glyph {
+  --oc: #cdf3ff;
+  position: relative; z-index: 1; width: 30px; height: 26px; border-radius: 50% 46% 52% 48%; pointer-events: none; display: none;
+  background: radial-gradient(circle at 36% 34%, color-mix(in srgb, var(--oc) 35%, white) 0 18%, transparent 19%),
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--oc) 55%, transparent), color-mix(in srgb, var(--oc) 22%, transparent) 70%);
+  border: 1px solid color-mix(in srgb, var(--oc) 80%, white);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--oc) 60%, transparent);
+}
+.cult-glyph::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -4px 0 0 -3px; border-radius: 50%;
+  background: color-mix(in srgb, var(--oc) 70%, black); box-shadow: 9px 6px 0 -3px color-mix(in srgb, var(--oc) 60%, black);
+}
+.cult-slot.is-running .cult-glyph { display: block; animation: cult-float 3.2s ease-in-out infinite; }
+.cult-slot.is-ready .cult-glyph { --oc: var(--c-success); }
+@keyframes cult-float { 0%, 100% { transform: translateY(6px); } 50% { transform: translateY(-8px); } }
+.cult-slot-body { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.cult-name { max-width: 100%; font-size: 13px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cult-slot:not(.has-medium) .cult-name { color: var(--c-text-faint); }
+.cult-time { height: 16px; line-height: 16px; font-size: 12px; color: var(--c-text-dim); text-align: center; }
+.cult-slot:not(.is-running) .cult-time { font-family: inherit; letter-spacing: 0.04em; color: var(--c-text-faint); }
 .cult-slot.is-ready .cult-time { font-family: inherit; font-weight: 700; letter-spacing: 0.08em; color: var(--c-success); }
-.cult-prog { width: 100%; max-width: 220px; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.cult-prog[hidden] { display: none; }
+.cult-prog { width: 80%; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.cult-prog.is-idle { background: transparent; }
 .cult-prog i { display: block; height: 100%; width: 0%; background: #8fe8ff; }
+/* 2026-09-13 (요리 재료 티어): 배양 스캐폴드 = 액체 속에 선 **격자** (들어 있을 때만) · 배지 소켓 = 유리 아래쪽의 점.
+ * 둘 다 `pointer-events: none` 이라 유리(드롭 대상)를 가리지 않는다. 색 `--sc` = 스캐폴드 아이템 색. */
+.cult-scaffold {
+  --sc: #e9e1c4;
+  position: absolute; left: 10px; right: 10px; top: 20px; bottom: 26px; pointer-events: none; opacity: 0;
+  border: 1px solid color-mix(in srgb, var(--sc) 55%, transparent);
+  background:
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--sc) 60%, transparent) 0 1px, transparent 1px 11px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--sc) 60%, transparent) 0 1px, transparent 1px 11px);
+}
+.cult-slot.has-scaffold .cult-scaffold { opacity: 0.8; }
+.cult-socks { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 2; display: flex; justify-content: center; gap: 4px; pointer-events: none; }
+.cult-socks[hidden] { display: none; }
+.cult-socks i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.6); background: rgba(0, 0, 0, 0.4); }
+.cult-socks i.on { background: #8fe0b0; border-color: #d6f7e3; box-shadow: 0 0 6px rgba(143, 224, 176, 0.85); }
+/* 배지가 다 닳았다 — 칸은 남고(계속 쓴다) 유리 테두리만 경고색 */
+.cult-slot.is-worn:not(.is-ready) .cult-cell { border-color: rgba(255, 90, 74, 0.45); }
 
 /* ── 주방 식탁 (A-3c 2026-09-11 · 화면 개편 2026-09-12) ──────────────────────
  * 좌 패널 = 접시(지금 실린 식사 + 버프 한 줄, 드롭 대상) + 가진 요리 목록, 우 패널 = 가방 · 함선 창고 격자.
@@ -425,7 +571,7 @@
 .dt-plate-chip { display: flex; align-items: center; justify-content: center; }
 .dt-plate-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .dt-plate-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); }
-.dt-plate-buff { font-size: 12px; font-family: var(--ui-mono); letter-spacing: 0.04em; color: #ffb0a0; }
+.dt-plate-buff { font-size: 12px; line-height: 1.6; font-family: var(--ui-mono); letter-spacing: 0.04em; color: #ffb0a0; white-space: pre-line; }
 .dt-plate.is-empty .dt-plate-buff { color: var(--c-text-faint); }
 .dt-plate-note { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.03em; }
 
@@ -438,38 +584,128 @@
 .dt-row .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dt-row .body .title { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dt-row .body .sub { font-size: 10px; color: var(--c-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 2026-09-13: 요리 하나에 능력치가 여러 줄 — 자르지 않고 줄바꿈한다 */
+.dt-row .body .sub.dt-effects { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.5; color: color-mix(in srgb, #ffb0a0 75%, var(--c-text-faint)); }
 .dt-acts { display: flex; gap: 6px; }
 
-/* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
-.hs-shelf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.hs-book {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
-}
-.hs-book.empty { border-style: dashed; }
-.hs-book:not(.empty) { border-color: rgba(201, 167, 122, 0.45); background: rgba(201, 167, 122, 0.06); }
-.hs-book .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.hs-book .idx { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.08em; }
-.hs-book .state { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hs-book:not(.empty) .state { color: #c9a77a; }
-.hs-book .chipwrap { display: flex; align-items: center; gap: 8px; min-height: 34px; }
-.hs-book .line { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; font-family: var(--ui-mono); }
-.hs-book .actions { display: flex; gap: 6px; }
-.hs-book .actions .ui-btn { flex: 1; }
-.hs-book .actions .ui-btn[hidden] { display: none; }
+/* ── 서재 보관함 (Phase 9 책장 → A-3e 매체 → 2026-09-13 그려진 선반 `ui/ShelfDrawing.ts`) ───────────────
+ * 가구를 닮은 2D 선반: 틀(좌우 기둥 · 윗판) + 단(`.lib-tier`, 아래 테두리 = 선반 판, 가운데 칸막이) × 2칸 + 받침.
+ * 칸 순서는 위 → 아래 · 왼 → 오른쪽 (3D 책장 모델과 같다). 매체는 `.lib-case[data-medium]` 의 변수 몇 개와
+ * `.lib-item` 모양만 바꾼다 — 책등 · 디스크 케이스 · 레코드 슬리브. 색 `--rc` = 꽂힌 아이템의 희귀도 색.
+ * 빈 칸 = 같은 모양의 흐린 점선 윤곽. 드롭 강조 `.is-over` 는 TradeGrids 가 붙인다. 접두사 `.lib-`. */
+.lib-pages { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
+.lib-page { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lib-page[hidden] { display: none; }
+.lib-count { font-size: 12px; letter-spacing: 0.05em; color: var(--c-text-dim); }
+.lib-casehost { display: flex; justify-content: center; padding: 4px 0 2px; }
+.lib-info { min-height: 34px; font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; font-family: var(--ui-mono); color: var(--c-text-faint); text-align: center; }
+.lib-info.is-slot { color: var(--c-text); }
 
-.hs-books { display: flex; flex-wrap: wrap; gap: 8px; }
-.hs-books .hs-empty { flex: 1; }
-.hs-bookpick { cursor: pointer; padding: 4px; border: 1px solid transparent; background: none; }
-.hs-bookpick:hover { border-color: rgba(255, 255, 255, 0.4); }
-.hs-bookpick.sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
-/* A-3e (2026-09-12): 서재 매체 — 같은 카드를 매체별 색으로 (색은 `data/furniture.csv` 의 보관함 색), 보조 가구 한 줄 */
-.bookshelf-menu[data-medium="disc"] .hs-book:not(.empty) { border-color: rgba(159, 208, 255, 0.45); background: rgba(159, 208, 255, 0.06); }
-.bookshelf-menu[data-medium="disc"] .hs-book:not(.empty) .state { color: #9fd0ff; }
-.bookshelf-menu[data-medium="record"] .hs-book:not(.empty) { border-color: rgba(232, 160, 208, 0.45); background: rgba(232, 160, 208, 0.06); }
-.bookshelf-menu[data-medium="record"] .hs-book:not(.empty) .state { color: #e8a0d0; }
-.bookshelf-menu[data-medium="record"] .hs-shelf { grid-template-columns: repeat(2, 1fr); }
-.hs-shelf-aux { margin-top: 8px; font-size: 11px; letter-spacing: 0.04em; font-family: var(--ui-mono); color: var(--c-text-faint); }
+.lib-case {
+  --lib-frame: #5b3d27; --lib-frame-hi: #7d5638; --lib-back: #22170f; --lib-grain: rgba(255, 220, 170, 0.04);
+  --lib-board: #8a6240; --lib-board-edge: #b0875c;
+  --lib-tier-h: 110px; --lib-item-w: 50px; --lib-item-h: 90px;
+  position: relative; flex: none; width: min(100%, 300px);
+  border: 12px solid var(--lib-frame); border-top-width: 16px; border-top-color: var(--lib-frame-hi); border-bottom-width: 0;
+  background: repeating-linear-gradient(90deg, var(--lib-grain) 0 2px, transparent 2px 9px), var(--lib-back);
+  box-shadow: inset 0 12px 20px rgba(0, 0, 0, 0.55), 0 16px 30px rgba(0, 0, 0, 0.45);
+  user-select: none;
+}
+.lib-tier {
+  position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: var(--lib-tier-h); padding: 6px 8px 0;
+  border-bottom: 9px solid var(--lib-board);
+  box-shadow: 0 1px 0 var(--lib-board-edge), inset 0 -10px 14px rgba(0, 0, 0, 0.35);
+}
+.lib-tier::before {   /* 가운데 칸막이 */
+  content: ''; position: absolute; left: calc(50% - 2px); top: 0; bottom: 0; width: 4px; pointer-events: none;
+  background: var(--lib-frame); box-shadow: 1px 0 0 rgba(0, 0, 0, 0.45);
+}
+.lib-plinth { height: 14px; margin: 0 -12px; background: var(--lib-frame); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.35); }
+.lib-slot { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 0; padding-bottom: 1px; }
+.lib-slot.is-filled { cursor: grab; }
+.lib-num { position: absolute; left: 3px; top: 1px; font-family: var(--ui-mono); font-size: 9px; letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.24); pointer-events: none; }
+.lib-item {
+  --rc: #9aa3ad;
+  position: relative; flex: none; width: var(--lib-item-w); height: var(--lib-item-h);
+  border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.015);
+}
+.lib-slot:not(.is-filled) .lib-item > * { display: none; }
+.lib-slot:not(.is-filled) .lib-item::after {
+  content: '+'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: rgba(255, 255, 255, 0.14); pointer-events: none;
+}
+.lib-slot.is-over .lib-item { border: 1px solid var(--c-accent); background-color: rgba(255, 179, 71, 0.18); box-shadow: 0 0 14px rgba(255, 179, 71, 0.45); }
+.lib-slot.is-filled:hover .lib-item { filter: brightness(1.14); }
+.lib-deco { display: none; }
+.lib-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.lib-glyph { line-height: 1; }
+.lib-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 책장 — 세운 책등: 희귀도 색 원통 그라데이션 + 금박 띠 두 줄, 글리프 위 · 숙련 이름 세로쓰기 */
+.lib-case[data-medium="book"] .lib-slot.is-filled .lib-item {
+  border: 0; border-radius: 3px 3px 1px 1px;
+  background:
+    linear-gradient(180deg, transparent 9px, rgba(255, 214, 150, 0.8) 9px 11px, transparent 11px calc(100% - 13px), rgba(255, 214, 150, 0.8) calc(100% - 13px) calc(100% - 11px), transparent calc(100% - 11px)),
+    linear-gradient(90deg, color-mix(in srgb, var(--rc) 45%, #000) 0, var(--rc) 24%, color-mix(in srgb, var(--rc) 72%, #fff) 42%, var(--rc) 62%, color-mix(in srgb, var(--rc) 40%, #000) 100%);
+  box-shadow: 3px 0 6px rgba(0, 0, 0, 0.55);
+}
+.lib-case[data-medium="book"] .lib-face { padding: 14px 0 14px; gap: 4px; }
+.lib-case[data-medium="book"] .lib-glyph { font-size: 13px; color: rgba(8, 10, 14, 0.85); }
+.lib-case[data-medium="book"] .lib-label {
+  writing-mode: vertical-rl; max-height: 100%; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  color: #0b0d11; text-shadow: 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+/* 디스크 전시대 — 금속 틀 + 아크릴 턱, 케이스 = 희귀도 색 옆띠 + 투명 뚜껑 안의 디스크 */
+.lib-case[data-medium="disc"] {
+  --lib-frame: #3a424c; --lib-frame-hi: #56616d; --lib-back: #10161d; --lib-grain: rgba(159, 208, 255, 0.03);
+  --lib-board: rgba(159, 208, 255, 0.3); --lib-board-edge: rgba(200, 230, 255, 0.6);
+  --lib-tier-h: 104px; --lib-item-w: 76px; --lib-item-h: 76px;
+  width: min(100%, 320px);
+}
+.lib-case[data-medium="disc"] .lib-tier { border-bottom-width: 6px; }
+.lib-case[data-medium="disc"] .lib-slot.is-filled .lib-item {
+  border: 1px solid rgba(220, 236, 255, 0.55); border-left: 7px solid var(--rc);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 46%), #0b1016;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);
+}
+.lib-case[data-medium="disc"] .lib-deco {
+  display: block; position: absolute; left: 50%; top: 45%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
+  background: radial-gradient(circle, #0b0e12 0 5px, #d6dde6 5px 7px, color-mix(in srgb, var(--rc) 65%, #fff) 7px 12px, var(--rc) 12px 21px, color-mix(in srgb, var(--rc) 50%, #000) 21px 26px, #c9d3de 26px 27px);
+}
+
+/* 레코드랙 — 검은 랙, 슬리브 = 희귀도 색 인쇄면 + 위로 삐져나온 LP */
+.lib-case[data-medium="record"] {
+  --lib-frame: #2f2a30; --lib-frame-hi: #4a424b; --lib-back: #161217; --lib-grain: rgba(232, 160, 208, 0.03);
+  --lib-board: #3d353e; --lib-board-edge: #5d535f;
+  --lib-tier-h: 138px; --lib-item-w: 100px; --lib-item-h: 100px;
+  width: min(100%, 330px);
+}
+.lib-case[data-medium="record"] .lib-slot.is-filled .lib-item { border: 0; background: transparent; }
+.lib-case[data-medium="record"] .lib-deco {
+  display: block; position: absolute; left: 9px; top: -24px; width: 82px; height: 82px; border-radius: 50%;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--rc) 80%, #fff) 0 9px, #0a0a0c 9px 11px, transparent 11px),
+    repeating-radial-gradient(circle, #101013 0 2px, #1d1d22 2px 3px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.lib-case[data-medium="record"] .lib-slot.is-filled .lib-face {
+  background:
+    radial-gradient(circle at 72% 30%, rgba(255, 255, 255, 0.28) 0 13px, transparent 14px),
+    linear-gradient(135deg, var(--rc), color-mix(in srgb, var(--rc) 35%, #000));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 6px 12px rgba(0, 0, 0, 0.55);
+}
+
+/* 디스크 · 레코드: 글리프는 오른쪽 위, 이름은 아래 띠 */
+.lib-case:not([data-medium="book"]) .lib-face { justify-content: space-between; align-items: flex-end; }
+.lib-case:not([data-medium="book"]) .lib-glyph { margin: 4px 5px 0 0; font-size: 13px; color: #fff; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95); }
+.lib-case:not([data-medium="book"]) .lib-label {
+  align-self: stretch; padding: 2px 3px; text-align: center; font-size: 10px; letter-spacing: 0.04em;
+  color: #f2f4f7; background: rgba(6, 8, 11, 0.74);
+}
+
+.hs-shelf-aux { font-size: 11px; letter-spacing: 0.04em; font-family: var(--ui-mono); color: var(--c-text-faint); text-align: center; }
 .hs-shelf-aux.on { color: var(--c-success); }
 
 /* 도감: one row per skill (shared by the 책장 panel and the 함선 tab) */
@@ -590,7 +826,6 @@
   .menu.housing-menu .frame { min-width: 0; padding: 26px 22px; }
   .hs-purposes { grid-template-columns: repeat(3, 1fr); }
   .hs-list.presets, .hs-summary { grid-template-columns: 1fr; }
-  .hs-shelf { grid-template-columns: repeat(2, 1fr); }
   .hs-row { flex-wrap: wrap; }
 }
 

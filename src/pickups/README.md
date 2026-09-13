@@ -73,6 +73,10 @@ Audio: emits `audio:play {id:'pickup'}` on a local take — the audio module nee
 
 ## 변경 이력
 
+- **2026-09-13 (요리 품질이 바닥을 건넌다)** — `PickupSystem.wireOf` 가 `ItemInstance.quality`(> 0 일 때만)를 `PickupWire.q` 로 싣고
+  `itemFromWire` 가 `normalizeMealQuality` 로 되살린다 (생략 = 품질 0 — 옛 피어 · 요리가 아닌 아이템). 버린 ★ 요리를 분대원이 주워도 품질이 산다.
+  나머지 경로(월드 오브젝트 · 줍기)는 인스턴스를 그대로 넘기므로 손대지 않았다. 규칙은 `shared/cooking.ts`, 스택 열쇠는 `inventory/Grid.stackKeyOf`.
+
 - **2026-09-12 (아이템 회수 계약 — 표식이 바닥을 건넌다)** — `PickupSystem.wireOf` 가 `ItemInstance.raidFound` 를 `PickupWire.rf` 로 싣고
   `itemFromWire` 가 되살린다(생략 = 표식 없음 — 옛 피어 · 가져온 아이템). 싱글 플레이는 인스턴스가 그대로 오가므로 원래 보존됐다.
   분대원이 떨어뜨린 「이번 레이드에서 얻은」 계약 아이템을 주워도 그대로 센다.

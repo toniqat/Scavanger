@@ -1,6 +1,6 @@
 import type {
   ContractInfo, CorpId, CurrencyReward, EmbeddedView, GameContext, ItemDef, ItemFavoriteApi, ItemInstance, QuestInfo, QuestState,
-  ShopItem, TradeGridsViewOptions,
+  ShopItem, TradeGridsView, TradeGridsViewOptions,
 } from '@/shared';
 import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, ITEM_FAVORITE_MENU_ATTR, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
@@ -18,36 +18,39 @@ import { TileGrid, type TileSpec } from './TileGrid';
  * 기업 tab. The ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one 기업 네트워크
  * screen in the game and the window owns the blocker, the cursor and Escape.
  *
- * Screen shape (**2026-09-12**) — **기업 목록은 트리이고, 메인 패널과 분리된 카드다**:
+ * Screen shape (**2026-09-13, 사용자 결정 — 한 줄로 늘어선 독립 카드들**):
  *
- *   좌 `.corp-rail`  기업 목록. `.corp-shell` **밖**의 독립 패널이고(호스트의 직접 자식) 자기 배경 · 테두리를 가지며
- *                    화면 **세로 중앙 · 메인 패널 왼쪽**에 고정된다 (2026-09-12 2차, `.menu.pause` 와 같은 결).
- *                    선택한 기업 버튼 **바로 아래**에 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지,
- *                    그 아래 거래 / 계약 / 퀘스트 / 임플란트 탭. 가지는 한 번에 하나. 제목 줄도 크레딧도 없다.
- *   우 `.corp-shell` → `.corp-page`  그 페이지의 열들: 목록 → 거래칸 / 납품 (가운데) → **가방 + 함선 창고**
- *                    (또는 진행 중인 계약). 세 페이지 모두 우측 가방 / 창고 블록의 폭은 `--cv-inv-w` 하나다.
+ *   `.corp-rail`  기업 목록 카드 — 화면 맨 왼쪽, 호스트 격자의 첫 칸(세로 전부). 트리다: 선택한 기업 버튼 **바로 아래**에
+ *                 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 퀘스트 / 임플란트 탭.
+ *   `.corp-shell` → `.corp-page` → 페이지 루트(`.cv` / `.cq` / `.ci` / `.cc`) — **카드가 가로 한 줄**로 선다:
+ *     • 거래     [판매 물품] [거래 테이블(구매 · 판매 트레이 · 크레딧 변화 · 1초 홀드)] [함선 창고] [가방]
+ *     • 퀘스트   [퀘스트 목록] [상세 / 납품 + 보상] [함선 창고] [가방]
+ *     • 임플란트 [망가진 임플란트 + 수리 카드] [함선 창고] [가방]
+ *     • 계약     기업 목록만 분리됐고 나머지(계약 목록 | 진행 중인 계약)는 한 카드 그대로.
+ *   함선 창고 · 가방은 **서로 다른 카드**이고 각자 머리(이름 · 개수 · 정렬 · 필터)와 자기 세로 스크롤을 갖는다 —
+ *   `InventoryRef.createTradeGrids(card, { grids: [id], layout: 'split' })` 를 카드마다 하나씩.
+ *
+ * **칸 크기 = 40 px, 창이 좁으면 32 px 까지 스스로 줄어든다 (2026-09-13).** `fitLayout` 이 지금 페이지의 카드들을
+ * **실측**한다 — 격자 칸 수에 비례하지 않는 몫(카드 안여백 · 테두리 · 스크롤바 자리 · 간격 · 유동 카드의 최소 폭)을 재서
+ * `floor((가용 폭 − 고정 몫) / 칸 수) − 간격` 을 [32, 40] 으로 자른다. 32 px 로도 안 들어가면 그때만 함선 창고 · 가방
+ * 카드를 숨기고(`.is-inv-hidden`) 남은 카드로 다시 계산한다. 호스트의 `ResizeObserver`(디바운스)와 페이지 전환이
+ * 다시 맞춘다 — 창 리스너는 없다. CSS 는 `--cv-cell` / `--cv-step` 을 읽고, 수치는 CSS 에만 있다(여기서 베끼지 않는다).
  *
  * **거래칸의 모든 칸은 인벤토리 타일이다 (2026-09-12).** 기업 판매 물품 · 구매 / 판매 트레이 · 임플란트 데스크가
  * `InventoryRef.buildItemTile` 로 만든 `.inv-tile` 을 `TileGrid` 가 `.inv-cells` 위에 발자국대로 채운다 — 가방 /
- * 창고와 **같은 모양**이고 `data-item-tip` 으로 공용 호버 카드가 뜬다. 예전 `.ct-*` 클래스는 housing.css 의 배양조
- * `.ct-cell`(54×76, 아래가 둥근 관)과 이름이 겹쳐 판매 물품이 관 모양이 됐고, 칩의 `pointer-events: none` 때문에
- * 호버 카드도 뜨지 않았다 — 이 폴더의 접두사는 이제 `.cv-` 다.
+ * 창고와 **같은 모양**이고 `data-item-tip` 으로 공용 호버 카드가 뜬다. 클래스 접두사는 `.cv-` 다.
  *
  * **거래 성사는 1초 홀드다 (2026-09-12)** (`UI_HOLD_CONFIRM_S`, 제작 · 분해와 같은 게이지). 클릭 · Enter 로는
  * 확정되지 않는다. 구매 트레이 우측 상단의 오른쪽 셰브런 셋은 "이 물건이 내 쪽으로 온다", 판매 트레이 좌측 상단의
  * 왼쪽 셰브런 셋은 "기업 쪽으로 간다" 이고, 가운데 한 줄이 거래 후 크레딧 변화(+ 초록 ▲ 오른쪽 / − 빨강 ▼ 왼쪽)다.
  *
  * Pages:
- *   • **거래**: stock on the left, the two trays in the middle, the player's **real 가방 + 함선 창고 grids** on the right
- *     (`InventoryRef.createTradeGrids`). Items are staged into a tray (click, or drag a stock tile / an inventory tile
- *     onto it) and the basket settles at once;
- *   • **계약**: the corp's contract list and **진행 중인 계약** in the right-hand column, drawn in **that contract's
- *     corp colour** (2026-09-12) — not the selected corp's;
- *   • **퀘스트**: the quest list (이름 + 상태 배지, **완료는 딤드 + 맨 아래**, 우측 상단 `완료된 항목 보기` 체크박스로
- *     숨길 수 있다 — 기본 켜짐, 화면이 열려 있는 동안만 기억한다), the 납품 table with the selected quest's **보상이
- *     그 아래 붙어** 있고 (2026-09-12 2차 — 예전에는 목록 열 아래였다), the inventory grids;
- *   • **임플란트** (세레스 바이오 only): 좌에 망가진 임플란트 타일 + 수리 카드가 한 열로 쌓이고, 우는 거래 · 퀘스트와
- *     같은 **가방 + 함선 창고** 격자다 (2026-09-12 2차, 사용자 결정).
+ *   • **거래**: items are staged into a tray (click, or drag a stock tile / an inventory tile onto it) and the basket
+ *     settles at once;
+ *   • **계약**: the corp's contract list and **진행 중인 계약** drawn in **that contract's corp colour** (2026-09-12);
+ *   • **퀘스트**: the quest list (이름 + 상태 배지, **완료는 딤드 + 맨 아래**, `완료된 항목 보기` 체크박스), the 납품 table
+ *     with the selected quest's 보상 under it, the inventory cards;
+ *   • **임플란트** (세레스 바이오 only): 망가진 임플란트 타일 + 수리 카드, the inventory cards (read-only there).
  *
  * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use looks locked (`.is-locked`) but stays clickable so
  * the click can say why, and the view opens on **퀘스트** instead (`resolvePage`).
@@ -69,19 +72,44 @@ const pagesFor = (corp: CorpId): CorpPage[] => PAGES.filter((p) => !p.corp || p.
 const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', available: '가능', accepted: '진행', complete: '완료' };
 
 /**
- * Cell edge / gap of every item grid on this screen, in px — the Tab 인벤토리's own (`inventory/ui/labels.CELL / GAP`)
- * so the desk's tiles and the 가방 / 창고 beside them are the same size. Mirrors `--cv-cell` / `--cv-gap` in `meta.css`.
+ * Cell edge of every item grid on this screen, in px (2026-09-13, 사용자 결정): **40**, shrunk to fit the window down to
+ * **32** (`fitLayout`). The gap is the Tab 인벤토리's own (`inventory/ui/labels.GAP`). CSS reads the live value from
+ * `--cv-cell` / `--cv-step` on the host (`applyCellVars`).
  */
-const CV_CELL = 54;
+const CV_CELL_MAX = 40;
+const CV_CELL_MIN = 32;
 const CV_GAP = 2;
 /** Columns of a 구매 / 판매 tray — an item is at most five cells wide. */
 const TRAY_COLS = 5;
 /** Below this fraction of the hold a release reads as a click — say how the button works instead of failing silently. */
 const HOLD_TAP_HINT = 0.35;
+/** A window resize re-fits the cell size once it has settled for this long. */
+const FIT_DEBOUNCE_MS = 120;
 
 /** One staged purchase (a shop line, `qty` copies) / one staged sale (a whole stack by uid). */
 interface BuyLine { defId: string; qty: number }
 interface SellLine { uid: string; qty: number }
+
+/** One 함선 창고 / 가방 card and the embedded single-grid view inside it. */
+interface InvCard {
+  id: 'stash' | 'bag';
+  card: HTMLElement;
+  view: EmbeddedView | null;
+  /** Drop target selector of this page (undefined = read-only grids, the 임플란트 desk). */
+  drop?: string;
+}
+
+/** `createTradeGrids` returns an `EmbeddedView` by contract; the real view can also change its cell edge. */
+const isTradeGridsView = (v: EmbeddedView): v is TradeGridsView => typeof (v as Partial<TradeGridsView>).setCell === 'function';
+
+/** Widest item grid inside a card, in cells (the 거래 테이블's two trays are stacked, so the widest — not the sum). */
+function widestGridCols(card: HTMLElement, step: number): number {
+  let n = 0;
+  for (const g of Array.from(card.querySelectorAll<HTMLElement>('.inv-grid'))) {
+    n = Math.max(n, Math.round((g.offsetWidth + CV_GAP) / step));
+  }
+  return n;
+}
 
 export interface CorpViewOptions {
   /** Embedded (inventory tab) instead of the standalone overlay: no subtitle line. */
@@ -109,6 +137,18 @@ export class CorpView {
   private msgTimer = 0;
   private disposed = false;
 
+  /* ── 2026-09-13: 칸 크기 맞춤 ── */
+  /** Cell edge in px right now (`CV_CELL_MIN … CV_CELL_MAX`). */
+  private cell = CV_CELL_MAX;
+  /** 함선 창고 · 가방 cards hidden because even `CV_CELL_MIN` does not fit. */
+  private invHidden = false;
+  /** Width those two cards need beyond their grid columns (chrome + gaps) and their column count — measured while shown. */
+  private invChrome: { px: number; cols: number } | null = null;
+  private fitTimer = 0;
+  /** Page the last fit was scheduled for — a page switch re-fits. */
+  private fittedPage: CorpPage | null = null;
+  private resizeObs: ResizeObserver | null = null;
+
   /* ── page bodies (built once) ── */
   private tradeEl: HTMLElement | null = null;
   private shopGrid!: TileGrid;
@@ -120,7 +160,7 @@ export class CorpView {
   private netValEl!: HTMLElement;
   private confirmBtn!: HTMLButtonElement;
   private confirmFill!: HTMLElement;
-  private tradeGrids: EmbeddedView | null = null;
+  private tradeInv: InvCard[] = [];
   /** 거래 성사 hold in progress (`UI_HOLD_CONFIRM_S`). */
   private hold: { t0: number; raf: number; timer: number } | null = null;
 
@@ -134,7 +174,7 @@ export class CorpView {
   /** 선택한 퀘스트의 보상 — **납품 패널 하단**의 한 줄 (재화 칩 + 아이템 칩), 2026-09-12 2차. */
   private questRewardEl!: HTMLElement;
   private questDetailEl!: HTMLElement;
-  private questGrids: EmbeddedView | null = null;
+  private questInv: InvCard[] = [];
   private selectedQuest: string | null = null;
   /** 퀘스트 목록에 완료 항목을 그릴까 (기본 켜짐). 화면이 열려 있는 동안만 산다 — 영속화하지 않는다. */
   private showDoneQuests = true;
@@ -143,7 +183,7 @@ export class CorpView {
   private implantsEl: HTMLElement | null = null;
   private implantGrid!: TileGrid;
   private implantDetailEl!: HTMLElement;
-  private implantGrids: EmbeddedView | null = null;
+  private implantInv: InvCard[] = [];
   private selectedImplant: string | null = null;
 
   /* ── staged basket ── */
@@ -166,16 +206,16 @@ export class CorpView {
   ) {
     host.classList.add('corp-view');
     if (opts.embedded) host.classList.add('is-embedded');
+    this.applyCellVars();
     const add = <K extends keyof HTMLElementTagNameMap>(e: HTMLElementTagNameMap[K]): HTMLElementTagNameMap[K] => {
       this.nodes.push(e as unknown as HTMLElement);
       return e;
     };
 
     /*
-     * 2026-09-12 (2차): 기업 목록은 **메인 패널과 분리된 독립 카드**다 — 호스트의 직접 자식이고 `.corp-shell` 밖이다.
-     * 자리는 CSS 가 못 박는다: 화면 세로 중앙 · 메인 패널 왼쪽 (`.menu.pause` 와 같은 결 — 매번 다른 자리보다 늘 같은 자리).
-     * 좌 열은 그대로 **트리**다 — 기업 버튼들 사이에, 선택한 기업 바로 아래로 가지 하나가 옮겨 다닌다.
-     * `기업` 제목 줄은 없다 (2026-09-12, 사용자 결정 — 기업 이름 넷이 곧 그 설명이다).
+     * 기업 목록은 **독립 카드**다 — 호스트의 직접 자식이고 `.corp-shell` 밖이다 (2026-09-12 2차). 2026-09-13 부터는
+     * 페이지의 카드들과 **한 줄**로 서서 세로를 다 쓴다. 좌 열은 그대로 **트리**다 — 기업 버튼들 사이에, 선택한 기업
+     * 바로 아래로 가지 하나가 옮겨 다닌다. `기업` 제목 줄은 없다 (2026-09-12, 사용자 결정).
      */
     const rail = add(el('div', { cls: 'corp-rail', parent: host }));
     const tabs = el('div', { cls: 'corp-tabs', parent: rail, attrs: { role: 'tree' } });
@@ -215,6 +255,12 @@ export class CorpView {
     this.msg.hidden = true;
     this.ask = new HoldAsk(ctx, ctx.uiRoot);
 
+    // 2026-09-13: the window (and so the host) changed size → fit the cell size again once it settles
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObs = new ResizeObserver(() => this.scheduleFit(FIT_DEBOUNCE_MS));
+      this.resizeObs.observe(host);
+    }
+
     const b = ctx.bus;
     const refresh = (): void => this.refreshIfVisible();
     this.unsubs.push(
@@ -249,6 +295,8 @@ export class CorpView {
   get currentPage(): CorpPage { return this.current; }
   /** Staged basket (debug / smoke). */
   get staged(): { buy: readonly BuyLine[]; sell: readonly SellLine[] } { return { buy: this.buyLines, sell: this.sellLines }; }
+  /** 2026-09-13: fitted cell edge in px and whether the 함선 창고 · 가방 cards are hidden (debug / smoke). */
+  get layoutFit(): { cell: number; invHidden: boolean } { return { cell: this.cell, invHidden: this.invHidden }; }
   private get visible(): boolean {
     return !this.disposed && this.host.isConnected;
   }
@@ -376,6 +424,86 @@ export class CorpView {
     else if (this.current === 'contracts') this.renderContracts();
     else if (this.current === 'quests') this.renderQuests();
     else this.renderImplants();
+    // 2026-09-13: every page has its own cards — a page switch (and the first paint) fits the cell size to them
+    if (this.fittedPage !== this.current) { this.fittedPage = this.current; this.scheduleFit(0); }
+  }
+
+  /* ── 2026-09-13: 칸 크기 맞춤 (40 → 32 px, 그래도 모자라면 창고 · 가방 카드 숨김) ─────────────────────────── */
+
+  private applyCellVars(): void {
+    this.host.style.setProperty('--cv-cell', `${this.cell}px`);
+    this.host.style.setProperty('--cv-step', `${this.cell + CV_GAP}px`);
+    this.host.dataset.cvCell = String(this.cell);
+  }
+
+  private scheduleFit(delay: number): void {
+    if (this.disposed) return;
+    if (this.fitTimer) clearTimeout(this.fitTimer);
+    this.fitTimer = window.setTimeout(() => { this.fitTimer = 0; this.fitLayout(); }, delay);
+  }
+
+  private pageRoot(): HTMLElement | null {
+    return this.current === 'trade' ? this.tradeEl : this.current === 'quests' ? this.questsEl : this.current === 'implants' ? this.implantsEl : null;
+  }
+
+  /**
+   * Fit the cell edge to the width the current page's card row has. Every card is measured: a content-sized card's
+   * width minus its widest grid (`n × step − gap`), a fluid card's (`.is-fluid`, `data-cv-cols`) CSS `min-width` minus
+   * the same, plus the gaps — the rest of the row is `columns × step`, so one measurement gives the answer. The 함선 창고 ·
+   * 가방 cards' share is remembered while they are shown, so a wider window can bring them back. A change re-measures
+   * (at most twice — the model is linear, the second pass only confirms). Public for the smoke scripts.
+   */
+  fitLayout(depth = 0): void {
+    const root = this.pageRoot();
+    if (this.disposed || !root || !root.isConnected) return;
+    const avail = root.clientWidth;
+    if (avail <= 0) return;           // not laid out (hidden host) — the observer fires again once it shows
+    const gap = parseFloat(getComputedStyle(root).columnGap) || 0;
+    const step = this.cell + CV_GAP;
+    let px = 0, cols = 0, cards = 0, invPx = 0, invCols = 0;
+    for (const card of Array.from(root.children) as HTMLElement[]) {
+      const isInv = card.classList.contains('cv-inv');
+      if (isInv && this.invHidden) continue;
+      const fluid = card.classList.contains('is-fluid');
+      const n = fluid ? Number(card.dataset.cvCols ?? 0) || 0 : widestGridCols(card, step);
+      const w = fluid ? parseFloat(getComputedStyle(card).minWidth) || 0 : card.getBoundingClientRect().width;
+      const chrome = w - (n > 0 ? n * step - CV_GAP : 0);
+      if (isInv) { invPx += chrome + gap; invCols += n; } else { px += chrome; cols += n; cards++; }
+    }
+    px += Math.max(0, cards - 1) * gap;
+    if (!this.invHidden && invCols > 0) this.invChrome = { px: invPx, cols: invCols };
+    const inv = this.invChrome;
+    // largest cell that fits: (avail − fixed) / columns − gap, 1 px of slack for sub-pixel card widths
+    const fit = (fixed: number, n: number): number => (n > 0 ? Math.floor((avail - fixed - 1) / n) - CV_GAP : CV_CELL_MAX);
+    const clamp = (c: number): number => Math.max(CV_CELL_MIN, Math.min(CV_CELL_MAX, c));
+    const withInv = inv ? fit(px + inv.px, cols + inv.cols) : fit(px, cols);
+    let cell: number;
+    let hide = false;
+    if (withInv >= CV_CELL_MIN || !inv) cell = clamp(withInv);
+    else { hide = true; cell = clamp(fit(px, cols)); }
+    const changed = hide !== this.invHidden || cell !== this.cell;
+    if (hide !== this.invHidden) this.setInvHidden(hide);
+    if (cell !== this.cell) this.applyCell(cell);
+    if (changed && depth < 2) this.fitLayout(depth + 1);
+  }
+
+  private setInvHidden(hide: boolean): void {
+    this.invHidden = hide;
+    for (const r of [this.tradeEl, this.questsEl, this.implantsEl]) if (r) toggleClass(r, 'is-inv-hidden', hide);
+  }
+
+  /** New cell edge: CSS vars, every tile grid built so far, every inventory card, then a repaint (tiles bake their size). */
+  private applyCell(cell: number): void {
+    this.cell = cell;
+    this.applyCellVars();
+    if (this.tradeEl) { this.shopGrid.setCell(cell); this.buyGrid.setCell(cell); this.sellGrid.setCell(cell); }
+    if (this.implantsEl) this.implantGrid.setCell(cell);
+    for (const c of [...this.tradeInv, ...this.questInv, ...this.implantInv]) {
+      if (!c.view) continue;
+      if (isTradeGridsView(c.view)) c.view.setCell(cell);
+      else { c.view.dispose(); c.view = this.createInv(c.card, c.id, c.drop); }   // an inventory without `setCell`: rebuild
+    }
+    this.refresh();
   }
 
   private itemDef(defId: string): ItemDef | undefined { return this.ctx.loot?.getItemDef(defId) ?? this.ctx.inventory?.getDef(defId); }
@@ -393,11 +521,11 @@ export class CorpView {
     const inv = this.ctx.inventory;
     let tile: HTMLElement;
     if (inv && typeof inv.buildItemTile === 'function') {
-      tile = inv.buildItemTile(defId, qty, durability === undefined ? { cell: CV_CELL } : { cell: CV_CELL, durability });
+      tile = inv.buildItemTile(defId, qty, durability === undefined ? { cell: this.cell } : { cell: this.cell, durability });
     } else {
       tile = document.createElement('div');
       tile.className = 'inv-tile';
-      tile.appendChild(buildItemChip(def, { size: 34 }));
+      tile.appendChild(buildItemChip(def, { size: 28 }));
     }
     tile.classList.add('cv-tile', ...cls.split(' ').filter(Boolean));
     // 2026-09-12 (E2): every desk tile (stock the player does not own included) takes the 즐겨찾기 right-click menu —
@@ -411,14 +539,16 @@ export class CorpView {
   private buildTrade(): HTMLElement {
     if (this.tradeEl) return this.tradeEl;
     const root = el('div', { cls: 'cv' });
-    const grid = { cell: CV_CELL, gap: CV_GAP };
+    toggleClass(root, 'is-inv-hidden', this.invHidden);
+    const grid = { cell: this.cell, gap: CV_GAP };
 
-    const shop = el('div', { cls: 'cv-col shop', parent: root });
+    // 판매 물품 — the one fluid card: at least five columns (`data-cv-cols`), it takes whatever width the row leaves
+    const shop = el('div', { cls: 'cv-col shop cv-card is-fluid', parent: root, attrs: { 'data-cv-cols': String(TRAY_COLS) } });
     el('div', { cls: 'cv-title', text: '기업 판매 물품', parent: shop });
     this.shopGrid = new TileGrid(shop, { ...grid, minCols: TRAY_COLS, className: 'cv-shop' });
 
-    // the two trays are **stacked** (구매 over 판매) so each is a real five-column item grid
-    const deal = el('div', { cls: 'cv-col deal', parent: root });
+    // 거래 테이블 — the two trays are **stacked** (구매 over 판매) so each is a real five-column item grid
+    const deal = el('div', { cls: 'cv-col deal cv-card', parent: root });
     const trays = el('div', { cls: 'cv-trays', parent: deal });
     const mkTray = (kind: 'buy' | 'sell', label: string): { tray: HTMLElement; grid: TileGrid; total: HTMLElement } => {
       const tray = el('div', { cls: `cv-tray ${kind}`, parent: trays });
@@ -447,8 +577,8 @@ export class CorpView {
     el('span', { cls: 'cv-confirm-label', text: '거래 성사', parent: this.confirmBtn });
     this.bindHold(this.confirmBtn);
 
-    const inv = el('div', { cls: 'cv-col inv', parent: root });
-    this.tradeGrids = this.makeGrids(inv, '.cv-tray.sell');
+    // 함선 창고 | 가방 — two cards, each its own header + scroll
+    this.tradeInv = this.makeInvCards(root, 'cv-col', '.cv-tray.sell');
 
     this.tradeEl = root;
     this.nodes.push(root);
@@ -509,24 +639,40 @@ export class CorpView {
   }
 
   /**
-   * Embedded 가방 + 함선 창고 grids — the **same block in the same place** on 거래 · 퀘스트 · 임플란트 (the column is
-   * `--cv-inv-w` wide everywhere). With a `dropSelector` a tile dropped on it (or double-clicked) is staged for sale;
-   * **without one the grids are read-only** — the 임플란트 desk has nothing to drop onto, and handing it `onTake`
-   * would make a double-click stage a sale on a page that has no 거래칸 (2026-09-12 2차).
+   * **함선 창고 card + 가방 card** (2026-09-13) — the same pair on 거래 · 퀘스트 · 임플란트, appended to the page row.
+   * `colCls` keeps each page's column class (`cv-col` / `cq-col` / `ci-col` + `inv`) so older selectors still find them.
    */
-  private makeGrids(host: HTMLElement, dropSelector?: string): EmbeddedView | null {
-    const inv = this.ctx.inventory;
-    if (!inv || typeof inv.createTradeGrids !== 'function') {
-      this.empty(host, '인벤토리를 사용할 수 없습니다');
-      return null;
+  private makeInvCards(root: HTMLElement, colCls: string, drop?: string): InvCard[] {
+    const out: InvCard[] = [];
+    for (const id of ['stash', 'bag'] as const) {
+      const card = el('div', { cls: `${colCls} inv cv-card cv-inv ${id}`, parent: root, attrs: { 'data-cv-grid': id } });
+      const view = this.createInv(card, id, drop);
+      if (!view) this.empty(card, '인벤토리를 사용할 수 없습니다');
+      out.push({ id, card, view, drop });
     }
-    const opts: TradeGridsViewOptions = { cell: CV_CELL };
-    if (dropSelector) {
-      opts.dropSelector = dropSelector;
+    return out;
+  }
+
+  /**
+   * One embedded single-grid view (`createTradeGrids`, `layout: 'split'` — its own header, chip row and scroll).
+   * With a `drop` selector a tile dropped on it (or double-clicked) is staged for sale; **without one the grid is
+   * read-only** — the 임플란트 desk has nothing to drop onto, and handing it `onTake` would make a double-click stage a
+   * sale on a page that has no 거래칸 (2026-09-12 2차).
+   */
+  private createInv(card: HTMLElement, id: 'stash' | 'bag', drop?: string): EmbeddedView | null {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.createTradeGrids !== 'function') return null;
+    const opts: TradeGridsViewOptions = { grids: [id], layout: 'split', chips: 'block', cell: this.cell, className: 'cv-tg' };
+    if (drop) {
+      opts.dropSelector = drop;
       opts.isStaged = (uid) => this.sellLines.some((s) => s.uid === uid);
       opts.onTake = (item) => this.stageSell(item);
     }
-    return inv.createTradeGrids(host, opts);
+    return inv.createTradeGrids(card, opts);
+  }
+
+  private refreshInv(cards: readonly InvCard[]): void {
+    for (const c of cards) c.view?.refresh();
   }
 
   private renderTrade(): void {
@@ -576,7 +722,7 @@ export class CorpView {
     if (blocked) this.cancelHold();
     if (this.btnStageValuables) this.btnStageValuables.disabled = this.meta.getSellable().length === 0;
 
-    this.tradeGrids?.refresh();
+    this.refreshInv(this.tradeInv);
   }
 
   /** 한국어 reason the basket cannot settle right now; null = go ahead. */
@@ -633,8 +779,9 @@ export class CorpView {
       let raf = 0;
       let last: PointerEvent | null = null;
       let over: HTMLElement | null = null;
-      const gw = (def.width ?? 1) * (CV_CELL + CV_GAP) - CV_GAP;
-      const gh = (def.height ?? 1) * (CV_CELL + CV_GAP) - CV_GAP;
+      const step = this.cell + CV_GAP;
+      const gw = (def.width ?? 1) * step - CV_GAP;
+      const gh = (def.height ?? 1) * step - CV_GAP;
       const setOver = (t: HTMLElement | null): void => {
         if (over === t) return;
         over?.classList.remove('is-over');
@@ -655,6 +802,8 @@ export class CorpView {
         moved = true;
         if (!ghost) {
           ghost = this.makeTile(def.id, 1, 'cv-ghost').tile;
+          // the ghost lives on <body>, outside the view — carry the cell edge its content scales with
+          ghost.style.setProperty('--inv-cell', `${this.cell}px`);
           document.body.appendChild(ghost);
         }
         last = ev;
@@ -844,6 +993,7 @@ export class CorpView {
 
   private buildContracts(): HTMLElement {
     if (this.contractsEl) return this.contractsEl;
+    // one card, as before — only the corp list moved out into its own card (2026-09-13)
     const root = el('div', { cls: 'cc' });
     const list = el('div', { cls: 'cc-col list', parent: root });
     el('div', { cls: 'cv-title', text: '계약 목록', parent: list });
@@ -944,7 +1094,8 @@ export class CorpView {
   private buildQuests(): HTMLElement {
     if (this.questsEl) return this.questsEl;
     const root = el('div', { cls: 'cq' });
-    const list = el('div', { cls: 'cq-col list', parent: root });
+    toggleClass(root, 'is-inv-hidden', this.invHidden);
+    const list = el('div', { cls: 'cq-col list cv-card is-fluid', parent: root });
     /* 목록 머리: 제목 왼쪽, **완료된 항목 보기** 체크박스 오른쪽 (2026-09-12 2차, 기본 켜짐). */
     const head = el('div', { cls: 'cq-head', parent: list });
     el('div', { cls: 'cv-title', text: '퀘스트 목록', parent: head });
@@ -960,15 +1111,14 @@ export class CorpView {
       this.refresh();
     });
     this.questListEl = el('div', { cls: 'cq-list', parent: list });
-    const detail = el('div', { cls: 'cq-col detail', parent: root });
+    const detail = el('div', { cls: 'cq-col detail cv-card is-fluid', parent: root });
     el('div', { cls: 'cv-title', text: '납품', parent: detail });
     this.questDetailEl = el('div', { cls: 'cq-deliver', parent: detail });
     /* 선택한 퀘스트의 보상은 **그 퀘스트의 납품 내용 바로 아래**에 붙는다 (2026-09-12 2차 — 예전에는 목록 열 아래였다). */
     const rewards = el('div', { cls: 'cq-rewards', parent: detail });
     el('div', { cls: 'cv-title', text: '보상', parent: rewards });
     this.questRewardEl = el('div', { cls: 'cq-reward-line item-chips', parent: rewards });
-    const inv = el('div', { cls: 'cq-col inv', parent: root });
-    this.questGrids = this.makeGrids(inv, '.cq-deliver');
+    this.questInv = this.makeInvCards(root, 'cq-col', '.cq-deliver');
     this.questsEl = root;
     this.nodes.push(root);
     return root;
@@ -996,7 +1146,7 @@ export class CorpView {
     if (!sel) this.empty(this.questDetailEl, '퀘스트를 선택하세요');
     else this.questDetail(sel);
     this.renderQuestRewards(sel);
-    this.questGrids?.refresh();
+    this.refreshInv(this.questInv);
   }
 
   /** One quest row: **이름 + 상태 배지뿐이다** (2026-09-09). 설명은 상세 패널에 있다. */
@@ -1089,19 +1239,18 @@ export class CorpView {
   private buildImplants(): HTMLElement {
     if (this.implantsEl) return this.implantsEl;
     /*
-     * 2026-09-12 (2차, 사용자 결정): 왼쪽 한 열에 **망가진 임플란트 목록 + 수리 카드**가 쌓이고(퀘스트 탭의 목록 열과
-     * 같은 자리), 오른쪽은 거래 · 퀘스트와 **똑같은 가방 + 함선 창고** 격자다. 예전에는 좌 목록 / 우 수리 카드 2열이라
-     * 이 화면에만 가방 · 창고가 없었다. 수리 대상 수집은 `parts/ImplantDesk.getRepairableImplants()` 그대로 —
-     * 그 함수가 이미 가방과 창고 양쪽을 본다.
+     * 2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 목록 + 수리 카드**가 쌓이고, 그 오른쪽은 거래 · 퀘스트와
+     * **똑같은 함선 창고 · 가방** 카드다 (2026-09-13 — 둘이 서로 다른 카드). 수리 대상 수집은
+     * `parts/ImplantDesk.getRepairableImplants()` 그대로 — 그 함수가 이미 가방과 창고 양쪽을 본다.
      */
     const root = el('div', { cls: 'ci' });
-    const desk = el('div', { cls: 'ci-col desk', parent: root });
+    toggleClass(root, 'is-inv-hidden', this.invHidden);
+    const desk = el('div', { cls: 'ci-col desk cv-card is-fluid', parent: root });
     el('div', { cls: 'cv-title', text: '망가진 임플란트 (가방 + 함선 창고)', parent: desk });
-    this.implantGrid = new TileGrid(desk, { cell: CV_CELL, gap: CV_GAP, minCols: TRAY_COLS, className: 'ci-list' });
+    this.implantGrid = new TileGrid(desk, { cell: this.cell, gap: CV_GAP, minCols: TRAY_COLS, className: 'ci-list' });
     el('div', { cls: 'cv-title', text: '수리', parent: desk });
     this.implantDetailEl = el('div', { cls: 'ci-repair', parent: desk });
-    const inv = el('div', { cls: 'ci-col inv', parent: root });
-    this.implantGrids = this.makeGrids(inv);      // read-only: this page has no 거래칸 to drop onto
+    this.implantInv = this.makeInvCards(root, 'ci-col');      // read-only: this page has no 거래칸 to drop onto
     this.implantsEl = root;
     this.nodes.push(root);
     return root;
@@ -1119,7 +1268,7 @@ export class CorpView {
     const sel = list.find((r) => r.inst.uid === this.selectedImplant) ?? null;
     if (!sel) this.empty(this.implantDetailEl, list.length === 0 ? '수리할 임플란트를 가져오세요' : '임플란트를 선택하세요');
     else this.implantDetail(sel);
-    this.implantGrids?.refresh();
+    this.refreshInv(this.implantInv);
   }
 
   /** One broken implant as a tile of the desk's grid (click selects it). */
@@ -1199,16 +1348,21 @@ export class CorpView {
     this.disposed = true;
     this.cancelHold();
     this.ask.dispose();
+    this.resizeObs?.disconnect();
+    this.resizeObs = null;
+    if (this.fitTimer) { clearTimeout(this.fitTimer); this.fitTimer = 0; }
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.tradeGrids?.dispose(); this.tradeGrids = null;
-    this.questGrids?.dispose(); this.questGrids = null;
-    this.implantGrids?.dispose(); this.implantGrids = null;
+    for (const c of [...this.tradeInv, ...this.questInv, ...this.implantInv]) { c.view?.dispose(); c.view = null; }
+    this.tradeInv = []; this.questInv = []; this.implantInv = [];
     if (this.tradeEl) { this.shopGrid.dispose(); this.buyGrid.dispose(); this.sellGrid.dispose(); }
     if (this.implantsEl) this.implantGrid.dispose();
     for (const n of this.nodes) n.remove();
     this.nodes.length = 0;
     this.host.classList.remove('corp-view', 'is-embedded');
     this.host.style.removeProperty('--cc');
+    this.host.style.removeProperty('--cv-cell');
+    this.host.style.removeProperty('--cv-step');
+    delete this.host.dataset.cvCell;
   }
 }

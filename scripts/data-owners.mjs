@@ -18,12 +18,13 @@
 /** csv 를 읽는 모듈 전부 (vite 경로). */
 export const DATA_OWNERS = [
   '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs
-  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · books · discs · records · armor · implants
+  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · meals · books · discs · records · armor · implants
   '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
   '/src/items/LootTables.ts',    // loot_*
   '/src/items/Recipes.ts',       // recipes
   '/src/items/Salvage.ts',       // salvage (분해 표) + 내구도 구간 배수
   '/src/enemies/EnemyTypes.ts',  // enemies · enemy_abilities
+  '/src/enemies/factionTables.ts', // tables · constants (2026-09-13 거점 점거 SITE_* · 레이더 강하 RAIDER_DROP_* · 네임드 확률)
   '/src/progression/defs.ts',    // stats · skills
   '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
   '/src/world/structures/model.ts', // structures (버려진 구조물 · 선로 플랫폼 · 전차)
@@ -53,8 +54,14 @@ export const CSV_FOLDERS = {
   'bags.csv':                ['items', 'inventory'],
   'seeds.csv':               ['items', 'housing'],
   'samples.csv':             ['items', 'housing'],
+  // 2026-09-13 (요리 재료 티어): 분석기 결과표는 shared/housing 이 읽고 housing/(분석기) 이 굴린다 · 소켓은 items/ 가 정의하고 housing/ 이 끼운다
+  'analysis_results.csv':    ['housing'],
+  'sockets.csv':             ['items', 'housing'],
   // 2026-09-11 (A-3c): 요리는 items/ 가 정의하고 housing/(식탁) · progression/(식사 버프) 이 소비한다
   'meals.csv':               ['items', 'housing', 'progression'],
+  // 2026-09-13 (요리 미니게임): 단계표 · 굽기 시간은 shared/cooking 이 읽고 housing/(조리대 화면 · 판정) 이 쓴다 · 툴팁의 단계 줄은 ui/
+  'cook_steps.csv':          ['housing', 'ui'],
+  'cook_grill.csv':          ['housing'],
   'books.csv':               ['items', 'housing'],
   // 2026-09-12 (A-3e): 서재 매체 — items/ 가 정의하고 housing/(디스크 전시대 · 레코드랙 · 서재 배율) 이 소비한다
   'discs.csv':               ['items', 'housing'],
@@ -69,17 +76,21 @@ export const CSV_FOLDERS = {
   'loot_guaranteed.csv':     ['items'],
   'loot_item_weights.csv':   ['items'],
   'loot_named.csv':          ['items', 'enemies'],
+  // 2026-09-13 (행성별 적 팩션): 안드로이드 · 로그 · 레이더 시체의 팩션 굴림 · 스폰 거점 보너스 — items/ 가 굴리고 enemies/ 가 넘긴다
+  'loot_factions.csv':       ['items', 'enemies'],
+  'loot_faction_sites.csv':  ['items', 'enemies'],
   'loot_tiers.csv':          ['items'],
   'planet_loot.csv':         ['items', 'world'],
   // enemies/ · progression/ · world/ 로더
-  'enemies.csv':             ['enemies'],
+  'enemies.csv':             ['enemies', 'meta'],   // 2026-09-13: meta/Rules.killGoalOf 가 faction 열을 읽는다
   'enemy_abilities.csv':     ['enemies'],
   'skills.csv':              ['progression'],
   'stats.csv':               ['progression'],
   'structures.csv':          ['world'],
   'hazards.csv':             ['world'],
   // shared/ 로더지만 값이 움직이는 곳은 기능 폴더다
-  'planets.csv':             ['hub', 'world', 'game'],
+  // 2026-09-13: threat 열이 인간형 팩션(거점 점거 · 레이더 강하 · 네임드)을 정한다 → enemies/
+  'planets.csv':             ['hub', 'world', 'game', 'enemies'],
   'stratagems.csv':          ['stratagems'],
   'currencies.csv':          ['meta', 'ui'],
   'corps.csv':               ['meta'],

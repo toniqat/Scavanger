@@ -117,7 +117,7 @@ export type ContractGoalKind = 'kill_bugs' | 'kill_rogues' | 'open_crates' | 'lo
   /* appended 2026-09-12 (E2): 특정 아이템 회수 — `ContractDef.itemDefId` 를 `target` 개 몸에 지니고 탈출한다 */
   | 'extract_with_items';
 export const CONTRACT_GOAL_LABEL_KO: Readonly<Record<ContractGoalKind, string>> = {
-  kill_bugs: '터미니드 처치', kill_rogues: '로그 처치', open_crates: '상자 개봉', loot_corpses: '시체 수색',
+  kill_bugs: '터미니드 처치', kill_rogues: '인간형 적 처치', open_crates: '상자 개봉', loot_corpses: '시체 수색',
   extract_with_value: '전리품 가치와 함께 탈출', use_stratagems: '함선 호출 사용',
   extract_with_items: '아이템 회수',
 };

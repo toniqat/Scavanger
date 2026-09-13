@@ -289,6 +289,9 @@ try {
     window.__rc = world.raycast;
     world.raycast = function (o, d, max) { if (max > 3) return { point: new V(o.x + d.x, o.y + d.y, o.z + d.z), normal: new V(-d.x, -d.y, -d.z), distance: 1 }; return window.__rc.call(world, o, d, max); };
     e.grenadeCd = 0; e.noLosHold = 0; e.aware = true; e.state = 'chase'; e.roguePhase = 0; e.stateTime = 0; e.reloadTimer = 0; e.magRounds = 12; e.throwTimer = 0;
+    // 2026-09-13: grenades are real inventory (1–3 rolled at spawn, one spent per toss, kind frag / incendiary) —
+    // this scenario asserts the frag blast over up to 3 throws, so hand it enough frags. `smoke-humanoid-ai` covers the pouch itself.
+    e.grenadeCount = 9; e.grenadeKind = 'frag';
     ctx.player.hp = ctx.player.maxHp;
     window.__ev['enemy:attacked'].length = 0; window.__ev['camera:shake'].length = 0; window.__ev['audio:play'].length = 0;
     const pp = ctx.player.position;
@@ -313,6 +316,7 @@ try {
         const e = sys.active.find((x) => x.id === id);
         if (!e) return null;
         e.grenadeCd = 0; e.noLosHold = 0; e.throwTimer = 0; e.aware = true; e.state = 'chase'; e.roguePhase = 0; e.stateTime = 0; e.reloadTimer = 0; e.magRounds = 12;
+        e.grenadeCount = Math.max(e.grenadeCount, 3); e.grenadeKind = 'frag';
         ctx.player.hp = ctx.player.maxHp;
         window.__ev['enemy:attacked'].length = 0; window.__ev['camera:shake'].length = 0; window.__ev['audio:play'].length = 0;
         return true;

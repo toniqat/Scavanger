@@ -1,5 +1,5 @@
-import type { AnalysisSlotInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance } from '@/shared';
-import { analyzerSlotsForLevel } from '@/shared';
+import type { AnalysisSlotInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance, SampleFamily } from '@/shared';
+import { SAMPLE_FAMILY_COLOR, SAMPLE_FAMILY_ICON, SAMPLE_FAMILY_LABEL_KO, analyzerSlotsForLevel, buildItemChip } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../Rules';
 import { HousingPanel } from './Panel';
@@ -15,6 +15,8 @@ import { clear, el, renderClock, renderClockText, setText, toggleClass } from '.
 
 /** How often the countdowns / progress bars are refreshed while the panel is open (ms). */
 const TICK_MS = 1000;
+/** Result chip edge (px) in the slot's result column. */
+const RESULT_CHIP_PX = 44;
 
 type AnalyzerTab = 'slots' | 'dex';
 
@@ -24,25 +26,30 @@ interface SlotCard {
   cell: HTMLElement;
   glyph: HTMLElement;
   name: HTMLElement;
+  /** 계열 칩 (2026-09-13) — 표본이 들어 있을 때만 보인다. */
+  fam: HTMLElement;
   time: HTMLElement;
   prog: HTMLElement;
   fill: HTMLElement;
+  /** 결과 자리 (2026-09-13): 해석 중 「?」, 끝나면 산출물 칩 + 「새 발견」. */
+  result: HTMLElement;
+  resultKey: string;
   collect: HTMLButtonElement;
   cancel: HTMLButtonElement;
 }
 
 /**
- * **분석 화면** (연구실 A-12, 2026-09-11 · 화면 개편 2026-09-12 — `openAnalyzer(uid)` ← E on a 분석기).
+ * **분석 화면** (연구실 A-12, 2026-09-11 · 화면 개편 2026-09-12 · 결과표 2026-09-13 — `openAnalyzer(uid)` ← E on a 분석기).
  *
  * 틀은 `StationShell` 공통이다 (제목 + `Lv. n` · 우상단 업그레이드 모달 · 좌 패널 / 우 가방 · 함선 창고).
- * **세로 탭**(「해석」 · 「해석 도감」)은 2026-09-12 에 좌 패널 안에서 **화면 맨 왼쪽 레일**(`StationShell.rail`)로
- * 나갔다 — 재배 스테이션 목록과 같은 자리 · 같은 결이다. 좌 패널에는 그 페이지만 남는다.
+ * **세로 탭**(「해석」 · 「분석 도감」)은 화면 맨 왼쪽 레일(`StationShell.rail`)이다 — 재배 스테이션 목록과 같은 자리 · 같은 결.
  *
- * 해석 칸 한 줄 = **칸(표본 글리프, 드롭 대상) | 본문(이름 · `HH:MM:SS` · 진행바) | 버튼(「회수」 · 「중단」)** 의
- * 세 열이다. 버튼은 2026-09-12 에 `position: absolute` 를 버리고 자기 열로 들어왔다 — 좌 패널이 좁아져도 남은
- * 시간 게이지와 겹치지 않는다. 잠긴 칸은 썸네일도 글자도 없는 **빈 칸**이다. 「처음 해석」 같은 부연 · 「모두 회수」는
- * 걷어냈다. 끝난 칸은 재배 스테이션처럼 **더블클릭 = 함선 창고 먼저**, 끌어서 격자에 놓으면 그 격자로 회수된다
- * (`ProductDrag`).
+ * 해석 칸 한 줄 = **칸(표본 글리프, 드롭 대상) | 본문(이름 + 계열 칩 · `HH:MM:SS` · 진행바) | 결과 | 버튼(「회수」 · 「중단」)** 의
+ * 네 열이다. **2026-09-13 (요리 재료 티어)**: 표본은 계열(세포 · 광물 · DNA)로 해석되고 결과는 **넣는 순간** 굴려져 있다 —
+ * 결과 자리는 해석 중에 「?」, 끝나면 산출물 칩(`resultDefId ×resultQty`, 호버 = 아이템 카드)과, 분석 도감에 없던 산출물이면
+ * 「새 발견」 배지(`firstTime`). 옛 세이브의 칸(결과를 안 굴린 칸)은 끝나도 「?」 이고 회수하는 순간 굴린다.
+ * 잠긴 칸은 썸네일도 글자도 없는 **빈 칸**이다. 끝난 칸은 **더블클릭 = 함선 창고 먼저**, 끌어서 격자에 놓으면 그 격자로
+ * 회수된다 (`ProductDrag`). 분석 도감(`createSampleDex`)은 도감 탭일 때만 갱신한다.
  */
 export class Analyzer extends HousingPanel {
   private uid = '';
@@ -75,7 +82,7 @@ export class Analyzer extends HousingPanel {
     // 같은 결이라 두 화면의 좌측이 일관된다. 좌 패널에는 페이지만 남는다.
     const tabs = this.shell.rail;
     tabs.hidden = false;
-    this.tabBtns = { slots: this.tabButton(tabs, '해석', 'slots'), dex: this.tabButton(tabs, '해석 도감', 'dex') };
+    this.tabBtns = { slots: this.tabButton(tabs, '해석', 'slots'), dex: this.tabButton(tabs, '분석 도감', 'dex') };
     const pages = el('div', { cls: 'az-pages', parent: this.shell.left });
     this.slotsEl = el('div', { cls: 'az-slots', parent: pages });
     this.dexHost = el('div', { cls: 'az-dexhost', parent: pages });
@@ -93,6 +100,12 @@ export class Analyzer extends HousingPanel {
       collect: (key, dest) => this.collect(Number(key), dest),
       defOf: (id) => housing.defOf(id),
     });
+    // 2026-09-13: 회수가 도감 · 분석 레벨을 바꾼다 — 머리줄(Lv · 경험치)과 결과 행이 따라오게 (refresh 는 한 번으로 합쳐진다)
+    this.unsubs.push(
+      ctx.bus.on('housing:analysisChanged', () => this.refreshIfOpen()),
+      ctx.bus.on('housing:analysisFound', () => this.refreshIfOpen()),
+      ctx.bus.on('housing:analysisLevelUp', () => this.refreshIfOpen()),
+    );
   }
 
   private tabButton(parent: HTMLElement, label: string, id: AnalyzerTab): HTMLButtonElement {
@@ -146,10 +159,10 @@ export class Analyzer extends HousingPanel {
     if (this.timer) { clearInterval(this.timer); this.timer = 0; }
   }
 
-  /** The 해석 도감 is mounted lazily for the same reason the grids are (`ctx.loot` may not exist at construction). */
+  /** The 분석 도감 is mounted lazily for the same reason the grids are (`ctx.loot` may not exist at construction). */
   private mountDex(): void {
     if (this.dex) return;
-    if (!this.ctx.loot || typeof this.ctx.loot.getAllItemDefs !== 'function') return;
+    if (!this.ctx.loot || typeof this.ctx.loot.getItemDef !== 'function') return;
     this.dex = createSampleDex(this.ctx, this.housing, this.dexHost);
   }
 
@@ -163,19 +176,23 @@ export class Analyzer extends HousingPanel {
     if (!def) { this.showMsg('알 수 없는 아이템입니다', 'warning'); return; }
     if (!def.sample) { this.showMsg('미확인 표본만 넣을 수 있습니다', 'warning'); return; }
     const reason = this.housing.startAnalysis(this.uid, slot, item.defId);
-    this.showMsg(reason ?? `${def.name} 해석을 시작했습니다`, reason ? 'warning' : 'success');
+    const fam = def.sample.family ? SAMPLE_FAMILY_LABEL_KO[def.sample.family] : null;
+    this.showMsg(reason ?? `${def.name} 해석을 시작했습니다${fam ? ` (${fam} 분석)` : ''}`, reason ? 'warning' : 'success');
   }
 
   private infoOf(slot: number): AnalysisSlotInfo | null {
     return this.housing.getAnalyses(this.uid).find((i) => i.slot === slot) ?? null;
   }
 
+  /** 끝난 칸의 산출물 — 결과가 굴려져 있으면 그것, 옛 칸이면(회수할 때 굴린다) 대체 산출물 · 표본 글리프로 끈다. */
   private productAt(target: Element): Product | null {
     if (target.closest('.az-acts')) return null;              // the buttons have their own click
     const slot = Number(target.closest<HTMLElement>('.az-slot[data-slot]')?.dataset.slot);
     const info = Number.isInteger(slot) ? this.infoOf(slot) : null;
-    if (!info || !info.ready || !info.rewardDefId) return null;
-    return { key: String(slot), defId: info.rewardDefId, qty: info.rewardQty };
+    if (!info || !info.ready || !info.sampleDefId) return null;
+    const defId = info.resultDefId ?? info.rewardDefId ?? info.sampleDefId;
+    const qty = info.resultDefId ? info.resultQty : info.rewardDefId ? info.rewardQty : 1;
+    return { key: String(slot), defId, qty: Math.max(1, qty || 1) };
   }
 
   /** 끝난 해석을 회수한다 — 버튼 · 더블클릭은 함선 창고 먼저, 격자에 끌어다 놓으면 그 격자. */
@@ -184,8 +201,11 @@ export class Analyzer extends HousingPanel {
     if (!info) return;
     const reason = this.housing.collectAnalysis(this.uid, slot, dest);
     if (reason) { this.deny(reason); return; }
-    const reward = info.rewardDefId ? this.housing.nameOf(info.rewardDefId) : '산출물';
-    this.showMsg(`${reward} ×${info.rewardQty} 회수${info.firstTime ? ' · 해석 도감에 기록했습니다' : ''}`, 'success');
+    const id = info.resultDefId ?? info.rewardDefId;
+    const qty = info.resultDefId ? info.resultQty : info.rewardQty;
+    this.showMsg(id
+      ? `${this.housing.nameOf(id)} ×${qty} 회수${info.firstTime ? ' · 분석 도감에 새로 기록했습니다' : ''}`
+      : '해석 산출물을 회수했습니다', 'success');
   }
 
   private cancel(slot: number): void {
@@ -269,17 +289,53 @@ export class Analyzer extends HousingPanel {
     const cell = el('div', { cls: 'az-cell', attrs: { 'data-slot': s }, parent: wrap });
     const glyph = el('span', { cls: 'az-glyph', text: '', parent: cell });
     const body = el('div', { cls: 'az-slot-body', parent: wrap });
-    const name = el('div', { cls: 'az-name', text: '', parent: body });
+    const head = el('div', { cls: 'az-name', parent: body });
+    const name = el('span', { cls: 'az-name-text', text: '', parent: head });
+    const fam = el('span', { cls: 'az-fam', text: '', parent: head });
+    fam.hidden = true;
     const time = el('div', { cls: 'az-time hs-clock', text: '', parent: body });
     const prog = el('div', { cls: 'az-prog', parent: body });
     const fill = el('i', { parent: prog });
+    const result = el('div', { cls: 'az-result', parent: wrap });
     const acts = el('div', { cls: 'az-acts', parent: wrap });
     const collect = this.button(acts, '회수', () => this.collect(info.slot, 'stash-first'), 'small primary');
     const cancel = this.button(acts, '중단', () => this.cancel(info.slot), 'small');
-    return { slot: info.slot, wrap, cell, glyph, name, time, prog, fill, collect, cancel };
+    return { slot: info.slot, wrap, cell, glyph, name, fam, time, prog, fill, result, resultKey: '', collect, cancel };
   }
 
-  /** Cheap repaint: glyph, name, clock, progress and button states only. */
+  /** 계열 칩: 글리프 + 이름, 계열 색 (`SAMPLE_FAMILY_*`). */
+  private paintFamily(card: SlotCard, family: SampleFamily | null): void {
+    const key = family ?? '';
+    if (card.fam.dataset.f === key) return;
+    card.fam.dataset.f = key;
+    card.fam.hidden = !family;
+    if (!family) { card.fam.textContent = ''; return; }
+    card.fam.textContent = `${SAMPLE_FAMILY_ICON[family]} ${SAMPLE_FAMILY_LABEL_KO[family]}`;
+    card.fam.style.setProperty('--fc', SAMPLE_FAMILY_COLOR[family]);
+  }
+
+  /** 결과 자리: 빈 칸 = 비움 · 해석 중(또는 결과를 아직 안 굴린 옛 칸) = 「?」 · 끝남 = 산출물 칩 (+ 「새 발견」). 바뀔 때만 짓는다. */
+  private paintResult(card: SlotCard, info: AnalysisSlotInfo, running: boolean): void {
+    const done = running && info.ready && !!info.resultDefId;
+    const key = !running ? '' : done ? `r:${info.resultDefId}:${info.resultQty}:${info.firstTime ? 1 : 0}` : '?';
+    if (card.resultKey === key) return;
+    card.resultKey = key;
+    clear(card.result);
+    toggleClass(card.result, 'is-pending', key === '?');
+    toggleClass(card.result, 'is-done', done);
+    if (!running) return;
+    if (!done) {
+      el('span', { cls: 'az-result-q', text: '?', parent: card.result });
+      card.result.title = info.ready ? '회수하면 결과가 정해집니다' : '해석이 끝나면 결과가 보입니다';
+      return;
+    }
+    card.result.removeAttribute('title');
+    // `buildItemChip` 이 `data-def-id` 를 달아 호버 = 그 산출물의 아이템 카드 (`ui/hud/ItemTip`)
+    card.result.appendChild(buildItemChip(this.housing.defOf(info.resultDefId!), { size: RESULT_CHIP_PX, have: Math.max(1, info.resultQty) }));
+    if (info.firstTime) el('span', { cls: 'az-new', text: '새 발견', parent: card.result });
+  }
+
+  /** Cheap repaint: glyph, name, family, clock, progress, result and button states only. */
   private paint(infos: readonly AnalysisSlotInfo[] = this.housing.getAnalyses(this.uid)): void {
     this.debug.paints++;
     const bySlot = new Map<number, AnalysisSlotInfo>();
@@ -289,20 +345,24 @@ export class Analyzer extends HousingPanel {
       if (!info) continue;
       const running = !!info.sampleDefId;
       const sampleDef = running ? this.housing.defOf(info.sampleDefId!) : undefined;
+      const family: SampleFamily | null = running ? (info.family ?? sampleDef?.sample?.family ?? null) : null;
       toggleClass(card.wrap, 'is-running', running);
       toggleClass(card.wrap, 'is-ready', info.ready);
-      setText(card.glyph, running ? (sampleDef?.icon || '◍') : '+');
+      setText(card.glyph, running ? (sampleDef?.icon || (family ? SAMPLE_FAMILY_ICON[family] : '◍')) : '+');
+      if (family) card.cell.style.setProperty('--fc', SAMPLE_FAMILY_COLOR[family]); else card.cell.style.removeProperty('--fc');
       // 표본 칸 호버 = 그 표본의 아이템 카드 (`ui/hud/ItemTip` 이 `[data-item-tip][data-def-id]` 를 본다)
       if (sampleDef) { card.cell.dataset.itemTip = ''; card.cell.dataset.defId = sampleDef.id; }
       else { delete card.cell.dataset.itemTip; delete card.cell.dataset.defId; }
 
       setText(card.name, running ? (sampleDef?.name ?? '표본') : '');
+      this.paintFamily(card, family);
       if (!running) renderClockText(card.time, '');
       else if (info.ready) renderClockText(card.time, '해석 완료');
       else renderClock(card.time, info.remainingS);
 
       card.prog.hidden = !running || info.ready;
       card.fill.style.width = running ? `${Math.round(Math.max(0, info.progress) * 100)}%` : '0%';
+      this.paintResult(card, info, running);
       card.collect.hidden = !running;
       card.collect.disabled = !info.ready;
       card.cancel.hidden = !running || info.ready;

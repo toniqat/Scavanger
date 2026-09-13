@@ -83,6 +83,12 @@ export interface ShipInterior {
    */
   setGridVisible?(on: boolean): void;
   /**
+   * 2026-09-13 (사용자 결정, personal ship only): 시설 관리가 열려 있는 동안 조종석 천장(천장판 · 천장 보 셋 · 천장 조명 띠)을 부드럽게
+   * 지우고 닫으면 되살린다. hub/HousingMode 가 매 프레임 원하는 상태를 넘기고 인테리어의 `update` 가 불투명도를 몬다 — 재질을 새로
+   * 만들거나 transparent 를 켜고 끄지 않으므로 셰이더를 다시 컴파일하지 않고, 광원도 건드리지 않는다.
+   */
+  setCockpitCeilingHidden?(hidden: boolean): void;
+  /**
    * 목표 행성 (Phase 11): re-tint the decorative planet outside the viewports to the selected planet's
    * `PlanetDef.hologram` / `hologramAtmo`. Called on build and when a warp ends — the interior itself is
    * never rebuilt for a planet change, only the view outside it.

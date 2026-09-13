@@ -1,0 +1,41 @@
+# 분석기 결과표 (2026-09-13, 요리 재료 티어 — docs/plans/food-tiers.md). 읽는 곳은 src/shared/housing.ts 의 ANALYSIS_RESULTS 하나다.
+# 표본을 분석기에 **넣는 순간** 그 표본 계열(data/samples.csv 의 family)의 **지금 분석 레벨**로 이 표를 가중 추첨해 칸에 적는다
+#   (회수에 실패해도 다시 굴리지 않는다). 회수하면 그 계열 경험치가 오른다 — data/tables.csv 의 ANALYSIS_LEVEL_XP · ANALYSIS_XP_BY_RARITY.
+#   family   = cell | mineral | dna
+#   minLevel = 이 줄이 추첨에 들어가는 최소 분석 레벨 (사용자 결정: 레벨은 시간 단축 + 결과 해금)
+#   qtyMin~qtyMax = 산출 개수 (정수 균등)
+#   weight   = 같은 계열 · 해금된 줄끼리의 가중치 — 새 줄이 열리면 기존 줄의 확률이 그만큼 줄어든다
+# defId 는 아이템 id 다. 없는 id · 은퇴한 아이템(retired)은 npm run data:check 가 잡는다.
+family,minLevel,defId,qtyMin,qtyMax,weight
+# ── 세포: T2 세포주 4종(Lv.1) · T3 미세조류 · 배양지방 세포주(Lv.3) ──
+cell,1,cell_cow,1,2,22
+cell,1,cell_pig,1,2,22
+cell,1,cell_chicken,1,2,22
+cell,1,cell_sheep,1,2,22
+cell,1,mat_bio_sample,3,5,12
+cell,3,cell_algae,1,2,25
+cell,3,cell_fat,1,2,25
+# ── 광물: 암염 결정(→ 추출기 → 소금) · 광물 추출물 · 석영 · 개량종 씨앗 · 청옥 ──
+mineral,1,min_rocksalt,2,3,50
+mineral,1,mat_extract_min,1,1,30
+mineral,1,gem_quartz,1,1,20
+mineral,3,seed_deeproot,1,1,10
+mineral,4,gem_sapphire,1,1,5
+# ── DNA: 소켓 I(Lv.1) · 소켓 II(Lv.2) · T4 난백 · 유단백 세포(Lv.3) · 소켓 III · 광휘 꼬투리 씨앗(Lv.4) ──
+dna,1,sock_soil_speed_1,1,1,10
+dna,1,sock_soil_yield_1,1,1,10
+dna,1,sock_soil_wear_1,1,1,10
+dna,1,sock_medium_speed_1,1,1,10
+dna,1,sock_medium_yield_1,1,1,10
+dna,1,sock_medium_wear_1,1,1,10
+dna,2,sock_soil_speed_2,1,1,6
+dna,2,sock_soil_yield_2,1,1,6
+dna,2,sock_soil_wear_2,1,1,6
+dna,2,sock_medium_speed_2,1,1,6
+dna,2,sock_medium_yield_2,1,1,6
+dna,2,sock_medium_wear_2,1,1,6
+dna,3,cell_albumen,1,2,30
+dna,3,cell_casein,1,2,30
+dna,4,sock_soil_speed_3,1,1,5
+dna,4,sock_medium_speed_3,1,1,5
+dna,4,seed_lumenpod,1,1,6

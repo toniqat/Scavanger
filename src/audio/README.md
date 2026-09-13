@@ -36,7 +36,9 @@ Player: `stim` `player_hurt` `player_death` `footstep` `ladder_step` `player_lan
 World (structures): `glass_break`
 선로 · 전차 (2026-09-11, C-39 · C-18): `tram_call` `tram_deny` `tram_hit` (+ 기존 `tram_start` `tram_dock`)
 Bugs: `bug_screech` `bug_attack` `bug_death` `bug_step` `bug_hit` `acid_splash` `wave_alarm`
-로그 강하: `rogue_drop_alarm` `rogue_pod_fall` `rogue_pod_impact`
+레이더 강하 (옛 로그 강하 — id 는 그대로): `rogue_drop_alarm` `rogue_pod_fall` `rogue_pod_impact`
+안드로이드 (2026-09-13): `android_hit` (외피 금속 피격) `android_death` (전원 차단) `android_step` (걸음 서보 — 재질 발소리 위에 겹친다) `android_glitch` (전소 오작동음)
+굴착 스폰 · 지하벌레 (2026-09-13): `burrow_emerge` `sandworm_rumble` `sandworm_erupt` `sandworm_roar` `sandworm_spit` `sandworm_death`
 Extraction: `extract_activate` `countdown_beep` `ship_approach` `ship_land` `ship_liftoff` `door_close`
 Ship hub: `hub_dock_thrusters` `hub_dock_clamp` `pod_door` `launch_rumble`
 Chat: `chat_blip` `chat_request` `chat_open` `chat_close`
@@ -52,6 +54,7 @@ Tactical kit — upkeep/progression: `gather` `craft_start` `craft_done` `repair
 드론 (2026-09-11): `drone_deploy` `drone_link_on` `drone_link_off` `drone_static` `drone_move` `drone_sprint` `drone_jump` `drone_land` `drone_rotor` `drone_hit` `drone_destroyed` `drone_recover`
 원격 지뢰 (2026-09-11): `c4_place` `c4_arm` `c4_beep` `c4_detonator_click`
 네임드 로그 (2026-09-11): `scan_drone_hum` `scan_pulse`(기존 id, 길어짐) `sniper_glint` `sniper_shot` `hammer_swing` `hammer_impact` `minigun_spinup` `minigun_fire` `minigun_spindown`
+요리 미니게임 (2026-09-13, housing/ 이 `audio:play` 로 부른다 · 거리 감쇠 없음): `cook_start` `cook_chop` `cook_mince` `cook_sizzle` `cook_flip` `cook_remove` `cook_burn` `cook_toss` `cook_stir` `cook_pour` `cook_perfect` `cook_good` `cook_miss` `cook_step` `cook_auto` `cook_finish`
 
 Notes on the newer ids:
 - `shot_smg` — snappy, lighter than `shot_rifle`, ~0.09 s tail (built for ~14 rounds/s).
@@ -229,7 +232,7 @@ Appended (tactical kit):
 - Ship calls (2026-09-12): `stratagem:ready {refunded:false}`→stratagem_ready (0.7). `refunded: true`(호스트 거절 환불로 0 이 된 순간)는 **무음**.
 - Gadgets: `gadget:used`→defib (defib) | cloak_on (cloakVeil) | grenade_throw (everything else) · `gadget:deployed`→mine_arm | dome_deploy | smoke_hiss | fire_ignite | lure_beep | gadget_place by `kind` (positional) ·
   `gadget:removed {reason:'destroyed'}`→mine_explode (mines) | gadget_break, `'recovered'`→ui_equip · `gadget:throwModeChanged`→ui_click.
-- Gear / crafting / weight: `gather:collected`→gather · `craft:started`→craft_start · `craft:completed`→craft_done · `craft:failed` (not cancelled)→ui_error ·
+- Gear / crafting / weight: `gather:collected`→gather · `craft:started`→craft_start · `craft:completed`→craft_done (**2026-09-13: 산출물에 `cookStepsOf` 단계가 있는 조리대 요리면 무음** — housing 이 `cook_finish` 를 이미 냈다) · `craft:failed` (not cancelled)→ui_error ·
   `repair:completed`→repair_done · `durability:broken`→durability_break · `inventory:overloaded` (heavy/over)→ui_deny · `quickbar:used`→ui_click · `equip:changed`→ui_equip.
 - Progression: `progress:skillUp`→skill_up. `level_up` is no longer auto-played on `progress:levelUp` (Phase 7) — the result screen's `RewardsBlock` emits `audio:play {id:'level_up'}` when its XP bar crosses the level, so the fanfare plays exactly once at the visible moment.
 `turret_shot` is provided for `gadgets/` to send via `audio:play` (turret fire is not auto-hooked — there is no per-shot event).
@@ -240,6 +243,32 @@ Appended (tactical kit):
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (요리 미니게임 — 에이전트 cook-misc, docs/plans/cooking-minigames.md §6-5)** — `Synth.SOUNDS` 에 16종. 전부 절차 합성이고
+  **housing/ 의 조리대 오버레이 · `parts/Cooking` 이 `audio:play {id}` 로만 부른다** (자동 구독 없음 — `housing:cookBeat` 를 여기서 들으면 두 번 운다).
+  조리대 앞 UI 소리라 `RANGED_SOUNDS` 에 넣지 않았다(헬스장 `gym_*` 와 같은 규약). 입력마다 · 누르는 동안 불리는 것은 짧고 작고 피치가 흔들린다.
+  `cook_start`(점화 딸깍 두 번 + 불꽃 훅 + 오르는 두 음, ≈0.56 s) · `cook_chop`(나무 도마 탁 — 중역 노크 + 나무 몸통 + 칼날 틱, ≈0.09 s) ·
+  `cook_mince`(더 짧고 높은 탁, ≈0.05 s) · `cook_sizzle`(치익 → 1.15 s 지글 밴드패스 + 기름 튀는 틱 14개, ≈1.2 s) · `cook_flip`(뒤집개 긁힘 + 철썩 + 다시 치익,
+  ≈0.42 s) · `cook_remove`(들어 올리는 긁힘 + 접시 딸깍, ≈0.3 s) · `cook_burn`(꺼지는 연기 + 낮게 꺾이는 음, ≈0.6 s) · `cook_toss`(팬 금속 덜컹 + 지글, ≈0.3 s) ·
+  `cook_stir`(국자가 바닥을 긁는 작은 소리, ≈0.22 s) · `cook_pour`(졸졸 — 위로 휘는 짧은 사인 물방울 12개 + 흐름 잡음, ≈0.7 s) · `cook_perfect`(주방 타이머 벨 두 음) ·
+  `cook_good`(나무 블록 톡) · `cook_miss`(낮게 꺾이는 둔한 음) · `cook_step`(세 음 계단) · `cook_auto`(기계 스핀업 → 유지 → 스핀다운 + 모터 잡음 + 딸깍, ≈1.1 s) ·
+  `cook_finish`(접시 딸깍 + 벨 + 오르는 네 음, ≈1.0 s). `AudioSystem` 은 `craft:completed` 의 자동 `craft_done` 을 조리대 요리(`cookStepsOf(item.defId)` 가 비지
+  않음)에만 뺐다 — 조리 완료가 `cook_finish` 와 제작 딸깍 두 번 울리지 않게. 소리는 스모크로 듣지 않았다(헤드리스 무음).
+
+- **2026-09-13 (버그 굴착 스폰 · 지하벌레)** — `Synth.SOUNDS` 에 6종, 전부 `enemies/` 가 **위치와 함께** `audio:play` 로 부른다 (자동 구독 없음).
+  `burrow_emerge`(흙 무너짐 알갱이 5개 + 낮은 쿵 + 긁는 소리, ≈0.55 s — 일부러 작고, 여러 마리가 한꺼번에 올라와도 `enemies` 의 id 스로틀이 한 번으로
+  묶는다) · `sandworm_rumble`(5 s 동안 부푸는 서브 저음 26 → 42 Hz + 갈리는 흙 + 점점 잦아지는 암반 균열 — 전조 길이 `SANDWORM_WARN_S` 에 맞췄다) ·
+  `sandworm_erupt`(대지가 찢어지는 서브 충격 + 흙 폭발 + 파편 클릭 12 + 긴 꼬리) · `sandworm_roar`(디튠 saw 둘이 내려앉는 목울림 + 거친 대역 잡음, 분출
+  0.18 s 뒤) · `sandworm_spit`(목구멍 꿀렁임 → 퍽, 독극물은 피치 1.3 으로 부른다) · `sandworm_death`(꺼지는 목울림 + 굴로 무너지는 흙더미).
+  `RANGED_SOUNDS` 에 6줄: `burrow_emerge` 40 m · `sandworm_spit` 90 m, 그리고 **멀리서도 들려야 공정한** 셋은 floor — `sandworm_rumble` 200 m / 0.3 ·
+  `sandworm_erupt` 260 m / 0.3 · `sandworm_roar` 220 m / 0.2 · `sandworm_death` 200 m / 0.15.
+
+- **2026-09-13 (안드로이드 소리 — 행성별 적 난이도, faction-presentation, docs/plans/enemy-factions.md)** — `Synth.SOUNDS` 에 4종.
+  `android_hit` — 속이 빈 외피를 친 금속음(클릭 + 어긋난 두 배음 920 · 1370 Hz 공명 + 둔한 저음 + 스파크 틱, ≈0.26 s). `enemies/model.hurtSound`
+  가 안드로이드 팩션에 `hit_flesh` 대신 돌려준다. `android_death` — 전원 차단(지직 → 1 kHz 에서 40 Hz 로 가라앉는 서보 톱니파 + 꺼지는 험 +
+  몸이 떨어지는 금속 쿵 두 번, ≈1.3 s) — `enemies/model.humanoidDeathSound`. `android_step` — 한 걸음의 서보 윙 + 금속 틱(≈0.1 s),
+  `EnemyStepVoice.layer` 로 재질 발소리 위에 같은 크기로 겹친다 → `RANGED_SOUNDS` 에 **`ENEMY_STEP_RANGE` 와 같은 곡선**으로 넣었다(다른
+  곡선이면 서보만 멀리서 들린다). `android_glitch` — 전소 비명 대신 끊기는 사각파 경고음 3개 + 전기 잡음(≈0.5 s) — `humanoidPainSound`.
+  피격 · 사망 · 오작동은 `hit_flesh` · `player_death` 처럼 기본 패너다. 로그 강하 경보 3종은 id 그대로 **레이더 강하** 소리가 됐다.
 - **2026-09-12 (준비 소리 2종 — 사용자 결정, 에이전트 B, docs/plans/consumables-keys-favorites.md §2)** — `Synth.SOUNDS` 에 2종.
   `implant_ready` — implants/ 가 오래전부터 `audio:play` 로 보내던 id 인데 **정의가 없어 한 번도 울리지 않았다**(자동 경로가 아니라 콘솔
   경고만 남았다). 짧고 높은 전자음: 위로 튕기는 사각파 칩 + 맑은 2.6 kHz 사인 핑 + 옅은 배음, ≈0.17 s. `stratagem_ready` — 무전 톤 두 음

@@ -1,7 +1,7 @@
 # 손으로 적는 **제작** 레시피. id 는 코드가 찾는 값이므로 바꾸지 않는다.
 # 분해(break_*)는 여기 없다 — 2026-09-10 부터 data/salvage.csv 가 그 표다.
 # station: field = 현장·함선 둘 다 · ship = 함선에서만.
-# bench = 이 레시피가 **속한 작업대** (gun|gear|gadget|medical|refine|extract|mixer).
+# bench = 이 레시피가 **속한 작업대** (gun|gear|gadget|medical|refine|extract|mixer|cook|print).
 #   station ship 이면 그 작업대가 benchLevel 이상이어야 만들 수 있다는 뜻이고,
 #   station field 이면 **어디서든 만들 수 있되 그 작업대 창에 뜬다**는 뜻이다 (2026-09-10 사용자 결정:
 #   작업대를 열면 그 작업대의 레시피만 보인다 — 그래서 현장 레시피도 자기 작업대를 밝혀야 한다).
@@ -134,24 +134,54 @@ extract_min_core,코어 추출,ship,extract,2,mat_core:3|mat_alloy:2,mat_extract
 mix_prep_respirator,여과 호흡기 조합,ship,mixer,1,mat_extract_bio:2|mat_cloth:4|mat_circuit:1,prep_respirator,1,,7,crafting,20,"생체 추출물 2 + 천조각 4 + 회로 기판 1 → 여과 호흡기. 유독 행성 1회분. 조합대, 제작 20 필요."
 mix_prep_coolant,내열 냉각재 조합,ship,mixer,1,mat_extract_min:2|mat_alloy:3|mat_cable:2,prep_coolant,1,,7,crafting,20,"광물 추출물 2 + 합금 판 3 + 전력 케이블 2 → 내열 냉각재. 고온 행성 1회분. 조합대, 제작 20 필요."
 
-# ── 2026-09-11 (A-3c 주방): 조리대 — 일반 요리 6 (작물만) · 특선 요리 4 (배양조 산물) ──
+# ── 2026-09-11 (A-3c 주방): 조리대 — 채소 요리 6 (작물만). 옛 특선 요리 4줄은 2026-09-13 에 지웠다 (요리는 은퇴) ──
 cook_tuber_stew,덩이줄기 스튜 조리,ship,cook,1,crop_tuber:3|crop_leafgreen:2,meal_tuber_stew,1,,6,crafting,0,회색 덩이줄기 3 + 온실 잎채소 2 → 덩이줄기 스튜. 조리대.
 cook_bean_porridge,콩죽 조리,ship,cook,1,crop_beanpod:3|crop_tuber:2,meal_bean_porridge,1,,6,crafting,0,단백 콩깍지 3 + 회색 덩이줄기 2 → 콩죽. 조리대.
 cook_green_salad,잎채소 샐러드 조리,ship,cook,1,crop_leafgreen:4|crop_frostberry:1,meal_green_salad,1,,6,crafting,0,온실 잎채소 4 + 서리열매 1 → 잎채소 샐러드. 조리대.
 cook_mushroom_soup,갓버섯 수프 조리,ship,cook,1,crop_capfungus:3|crop_sporecap:1,meal_mushroom_soup,1,,7,crafting,10,"식용 갓버섯 3 + 포자 갓 1 → 갓버섯 수프. 조리대, 제작 10 필요."
 cook_ash_bread,잿빛 빵 굽기,ship,cook,1,crop_ashgrain:4|crop_saltmelon:1,meal_ash_bread,1,,7,crafting,10,"잿빛 곡물 4 + 염수박 1 → 잿빛 빵. 조리대, 제작 10 필요."
 cook_berry_compote,서리열매 조림 조리,ship,cook,1,crop_frostberry:3|crop_ashgrain:2,meal_berry_compote,1,,7,crafting,10,"서리열매 3 + 잿빛 곡물 2 → 서리열매 조림. 조리대, 제작 10 필요."
-cook_cultured_steak,배양육 스테이크 조리,ship,cook,2,cult_meat:2|cult_fat:1|crop_tuber:2,meal_cultured_steak,1,,9,crafting,25,"배양육 2 + 배양 지방 1 + 회색 덩이줄기 2 → 배양육 스테이크. 조리대 Lv.2, 제작 25 필요."
-cook_protein_omelet,유단백 오믈렛 조리,ship,cook,2,cult_albumen:2|cult_casein:1|crop_leafgreen:2,meal_protein_omelet,1,,9,crafting,25,"난백 2 + 유단백 1 + 온실 잎채소 2 → 유단백 오믈렛. 조리대 Lv.2, 제작 25 필요."
-cook_algae_broth,미세조류 육수 조리,ship,cook,3,cult_algae:3|crop_sporecap:2,meal_algae_broth,1,,11,crafting,40,"미세조류 3 + 포자 갓 2 → 미세조류 육수. 조리대 Lv.3, 제작 40 필요."
-cook_field_ration,특제 전투식량 조리,ship,cook,3,cult_fat:2|cult_algae:2|crop_ashgrain:3,meal_field_ration,1,,11,crafting,40,"배양 지방 2 + 미세조류 2 + 잿빛 곡물 3 → 특제 전투식량. 조리대 Lv.3, 제작 40 필요."
+# ── 2026-09-13 (요리 재료 티어): 페이스트 요리 3 (Lv.2) · 고기 요리 5 (Lv.3) · 유제품 요리 3 (Lv.3) ──
+cook_sausage,소시지 조리,ship,cook,2,food_meat_paste:2|food_salt:1|crop_ashgrain:1,meal_sausage,1,,8,crafting,20,"고기 페이스트 2 + 소금 1 + 잿빛 곡물 1 → 소시지. 조리대 Lv.2, 제작 20 필요."
+cook_dumpling,만두 빚기,ship,cook,2,food_meat_paste:2|crop_leafgreen:2|crop_ashgrain:2,meal_dumpling,1,,8,crafting,20,"고기 페이스트 2 + 온실 잎채소 2 + 잿빛 곡물 2 → 만두. 조리대 Lv.2, 제작 20 필요."
+cook_meatball,미트볼 조리,ship,cook,2,food_meat_paste:3|crop_tuber:1|food_salt:1,meal_meatball,1,,8,crafting,20,"고기 페이스트 3 + 회색 덩이줄기 1 + 소금 1 → 미트볼. 조리대 Lv.2, 제작 20 필요."
+cook_beef_steak,소고기 스테이크 굽기,ship,cook,3,food_beef:2|food_animal_fat:1|food_salt:1,meal_beef_steak,1,,10,crafting,30,"배양 소고기 2 + 동물기름 1 + 소금 1 → 소고기 스테이크. 조리대 Lv.3, 제작 30 필요."
+cook_pork_roast,돼지고기 수육 조리,ship,cook,3,food_pork:2|crop_leafgreen:2|food_salt:1,meal_pork_roast,1,,10,crafting,30,"배양 돼지고기 2 + 온실 잎채소 2 + 소금 1 → 돼지고기 수육. 조리대 Lv.3, 제작 30 필요."
+cook_chicken_roast,닭고기 구이 조리,ship,cook,3,food_chicken:2|food_animal_fat:1|crop_frostberry:1,meal_chicken_roast,1,,10,crafting,30,"배양 닭고기 2 + 동물기름 1 + 서리열매 1 → 닭고기 구이. 조리대 Lv.3, 제작 30 필요."
+cook_lamb_skewer,양고기 꼬치 굽기,ship,cook,3,food_lamb:2|food_animal_fat:1|crop_saltmelon:1,meal_lamb_skewer,1,,10,crafting,30,"배양 양고기 2 + 동물기름 1 + 염수박 1 → 양고기 꼬치. 조리대 Lv.3, 제작 30 필요."
+cook_lard_rice,기름 볶음곡 조리,ship,cook,3,food_animal_fat:2|crop_ashgrain:3|food_salt:1,meal_lard_rice,1,,10,crafting,30,"동물기름 2 + 잿빛 곡물 3 + 소금 1 → 기름 볶음곡. 조리대 Lv.3, 제작 30 필요."
+cook_cream_stew,크림 스튜 조리,ship,cook,3,food_milk:2|crop_tuber:2|food_salt:1,meal_cream_stew,1,,12,crafting,40,"배양 우유 2 + 회색 덩이줄기 2 + 소금 1 → 크림 스튜. 조리대 Lv.3, 제작 40 필요."
+cook_omelet,치즈 오믈렛 조리,ship,cook,3,food_egg:2|food_cheese:1|crop_capfungus:1,meal_omelet,1,,12,crafting,40,"배양 달걀 2 + 배양 치즈 1 + 식용 갓버섯 1 → 치즈 오믈렛. 조리대 Lv.3, 제작 40 필요."
+cook_cheese_gratin,치즈 그라탕 굽기,ship,cook,3,food_cheese:1|food_milk:1|crop_tuber:2|food_animal_fat:1,meal_cheese_gratin,1,,12,crafting,40,"배양 치즈 1 + 배양 우유 1 + 회색 덩이줄기 2 + 동물기름 1 → 치즈 그라탕. 조리대 Lv.3, 제작 40 필요."
 
 # ── 2026-09-11 (A-14 · A-15): 추출기 — 영양 배지 2 · 필라멘트 3등급 ──
-extract_medium_basic,기본 배지 배양,ship,extract,1,mat_extract_bio:1|crop_leafgreen:3,mat_medium_basic,2,,6,crafting,15,"생체 추출물 1 + 온실 잎채소 3 → 기본 영양 배지 2. 추출기, 제작 15 필요."
-extract_medium_rich,강화 배지 배양,ship,extract,2,mat_extract_bio:2|mat_extract_min:1|herb_bloodroot:3,mat_medium_rich,2,,8,crafting,30,"생체 추출물 2 + 광물 추출물 1 + 혈근초 3 → 강화 영양 배지 2. 추출기 Lv.2, 제작 30 필요."
-extract_filament_1,기본 필라멘트 방사,ship,extract,1,cult_algae:4|cult_fat:2,mat_filament_1,2,,8,crafting,25,"미세조류 4 + 배양 지방 2 → 기본 필라멘트 2. 추출기, 제작 25 필요."
-extract_filament_2,고강도 필라멘트 방사,ship,extract,2,mat_filament_1:3|cult_casein:2|mat_weave:1,mat_filament_2,2,,10,crafting,35,"기본 필라멘트 3 + 유단백 2 + 강화 직조포 1 → 고강도 필라멘트 2. 추출기 Lv.2, 제작 35 필요."
-extract_filament_3,복합 필라멘트 방사,ship,extract,3,mat_filament_2:3|cult_meat:2|cult_albumen:2,mat_filament_3,1,,12,crafting,45,"고강도 필라멘트 3 + 배양육 2 + 난백 2 → 복합 필라멘트 1. 추출기 Lv.3, 제작 45 필요."
+extract_medium_tuber,배지 추출 · 회색 덩이줄기,ship,extract,1,crop_tuber:3,mat_medium_basic,1,,6,crafting,15,"회색 덩이줄기 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_beanpod,배지 추출 · 단백 콩깍지,ship,extract,1,crop_beanpod:3,mat_medium_basic,1,,6,crafting,15,"단백 콩깍지 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_leafgreen,배지 추출 · 온실 잎채소,ship,extract,1,crop_leafgreen:3,mat_medium_basic,1,,6,crafting,15,"온실 잎채소 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_capfungus,배지 추출 · 식용 갓버섯,ship,extract,1,crop_capfungus:3,mat_medium_basic,1,,6,crafting,15,"식용 갓버섯 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_ashgrain,배지 추출 · 잿빛 곡물,ship,extract,1,crop_ashgrain:3,mat_medium_basic,1,,6,crafting,15,"잿빛 곡물 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_saltmelon,배지 추출 · 염수박,ship,extract,1,crop_saltmelon:3,mat_medium_basic,1,,6,crafting,15,"염수박 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_sporecap,배지 추출 · 포자 갓,ship,extract,1,crop_sporecap:3,mat_medium_basic,1,,6,crafting,15,"포자 갓 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_frostberry,배지 추출 · 서리열매,ship,extract,1,crop_frostberry:3,mat_medium_basic,1,,6,crafting,15,"서리열매 3 → 기본 영양 배지 1. 추출기, 제작 15 필요."
+extract_medium_bloodroot,배지 추출 · 혈근초,ship,extract,1,herb_bloodroot:3,mat_medium_basic,2,,6,crafting,15,"혈근초 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
+extract_medium_ashleaf,배지 추출 · 잿빛잎,ship,extract,1,herb_ashleaf:3,mat_medium_basic,2,,6,crafting,15,"잿빛잎 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
+extract_medium_glowcap,배지 추출 · 발광버섯,ship,extract,1,herb_glowcap:3,mat_medium_basic,2,,6,crafting,15,"발광버섯 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
+extract_medium_frostmoss,배지 추출 · 서리이끼,ship,extract,1,herb_frostmoss:3,mat_medium_basic,2,,6,crafting,15,"서리이끼 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
+extract_medium_emberpod,배지 추출 · 불씨꼬투리,ship,extract,1,herb_emberpod:3,mat_medium_basic,2,,6,crafting,15,"불씨꼬투리 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
+extract_medium_ironleaf,배지 추출 · 철엽초,ship,extract,1,herb_ironleaf:3,mat_medium_basic,2,,6,crafting,15,"철엽초 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
+extract_medium_algae,배지 추출 · 셀룰로스,ship,extract,2,food_cellulose:3,mat_medium_rich,1,,8,crafting,30,"셀룰로스 3 → 강화 영양 배지 1. 추출기 Lv.2, 제작 30 필요."
+extract_filament_1,기본 필라멘트 방사,ship,extract,1,food_cellulose:4|food_animal_fat:2,mat_filament_1,2,,8,crafting,25,"셀룰로스 4 + 동물기름 2 → 기본 필라멘트 2. 추출기, 제작 25 필요."
+extract_filament_2,고강도 필라멘트 방사,ship,extract,2,mat_filament_1:3|comp_casein:2|mat_weave:1,mat_filament_2,2,,10,crafting,35,"기본 필라멘트 3 + 카제인 2 + 강화 직조포 1 → 고강도 필라멘트 2. 추출기 Lv.2, 제작 35 필요."
+extract_filament_3,복합 필라멘트 방사,ship,extract,3,mat_filament_2:3|food_scaffold:2|comp_albumen:2,mat_filament_3,1,,12,crafting,45,"고강도 필라멘트 3 + 배양 스캐폴드 2 + 난백 단백질 2 → 복합 필라멘트 1. 추출기 Lv.3, 제작 45 필요."
+
+# ── 2026-09-13 (요리 재료 티어): 추출기 — 소금 · 성분 2 / 조합대 — 배양 스캐폴드 · 달걀 · 우유 · 치즈 ──
+extract_salt,소금 추출,ship,extract,1,min_rocksalt:2,food_salt,3,,5,crafting,5,"암염 결정 2 → 소금 3. 추출기, 제작 5 필요."
+extract_albumen,난백 단백질 추출,ship,extract,2,cell_albumen:1,comp_albumen,3,,8,crafting,30,"난백 세포 1 → 난백 단백질 3. 추출기 Lv.2, 제작 30 필요."
+extract_casein,유단백 추출,ship,extract,2,cell_casein:1,comp_casein,2,comp_whey:2,8,crafting,30,"유단백 세포 1 → 카제인 2 + 유청 2. 추출기 Lv.2, 제작 30 필요."
+mix_scaffold,배양 스캐폴드 조합,ship,mixer,1,food_cellulose:3,food_scaffold,1,,7,crafting,25,"셀룰로스 3 → 배양 스캐폴드 1. 조합대, 제작 25 필요."
+mix_egg,배양 달걀 조합,ship,mixer,2,comp_albumen:2|food_animal_fat:1,food_egg,2,,8,crafting,35,"난백 단백질 2 + 동물기름 1 → 배양 달걀 2. 조합대 Lv.2, 제작 35 필요."
+mix_milk,배양 우유 조합,ship,mixer,2,comp_casein:2|comp_whey:2,food_milk,2,,8,crafting,35,"카제인 2 + 유청 2 → 배양 우유 2. 조합대 Lv.2, 제작 35 필요."
+mix_cheese,배양 치즈 숙성,ship,mixer,3,food_milk:2|food_salt:1,food_cheese,1,,10,crafting,40,"배양 우유 2 + 소금 1 → 배양 치즈 1. 조합대 Lv.3, 제작 40 필요."
 
 # ── 2026-09-11 (A-15 프린터): 주머니 4종 (가방 6종은 위 make_bag_* 가 bench print 로 옮겨 갔다) ──
 print_pouch_gather,채집 주머니 출력,ship,print,1,mat_filament_1:2|mat_cloth:4,pouch_gather,1,,10,crafting,25,"기본 필라멘트 2 + 천조각 4 → 채집 주머니 (2×2). 3D 프린터, 제작 25 필요."

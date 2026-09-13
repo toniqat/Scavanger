@@ -43,6 +43,9 @@ const SHOTS = process.argv.includes('--shots');
 const SIT_SOLE_Y = -0.36;
 const BENCH_BAR_Y0 = 0.5, BENCH_BAR_Y1 = 0.81;
 const CYCLE_CRANK_Y = -0.6, CYCLE_R = 0.16;
+/* 2026-09-13 조리대 앞 — src/player/SoldierModel.ts 의 FURN_COOK (anchor = 바닥) · model.ts 의 FURN_EYE.cook */
+const COOK = { edgeZ: -0.3, topY: 1.08, workZ: -0.52, handY: 1.13, knifeX: 0.1, pressX: -0.16, pressY: 1.12, pressZ: -0.48, chopLift: 0.12, stirR: 0.05 };
+const COOK_EYE = 1.42;
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
@@ -346,7 +349,7 @@ try {
   await waitSim(page, 0.1);
   let B = await buffs();
   const mealB = B.list.find((b) => b.key === 'meal'), prepB = B.list.find((b) => b.key === 'prep:toxin');
-  ok(mealB && mealB.kind === 'meal' && mealB.state === 'pending' && mealB.defId === 'meal_tuber_stew' && mealB.debuff === false && mealB.endsAt === undefined,
+  ok(mealB && mealB.kind === 'meal' && mealB.state === 'pending' && mealB.defId === 'meal_tuber_stew' && mealB.debuff === false && mealB.endsAt === undefined && mealB.quality === undefined,
     `meal pending in the ship (${JSON.stringify(mealB)})`);
   ok(prepB && prepB.kind === 'prep' && prepB.state === 'pending' && prepB.env === 'toxin' && prepB.defId === 'prep_respirator', `prep:toxin pending in the ship (${JSON.stringify(prepB)})`);
   ok(B.rev === b0.rev + 1 && B.ev === b0.ev + 1, `two changes in one frame → one revision / one event (${b0.rev} → ${B.rev}, events ${b0.ev} → ${B.ev})`);
@@ -538,6 +541,153 @@ try {
   await waitSim(page, 0.12);
   R = await remote(rem2.id);
   ok(R.shown === true && R.kind === 'sit' && R.blend === 1, 'shown again: snaps back into the pose');
+
+  /* ── 10. 조리 자세 (2026-09-13, 요리 미니게임 — `cook` · `cooking` 버프 · 식사 품질) ─────────────────────────── */
+  console.log('cook pose (counter, fixed camera) · cooking buff · meal quality');
+  const alongOf = (pt, a, yaw) => (pt.x - a.ax) * -Math.sin(yaw) + (pt.z - a.az) * -Math.cos(yaw);
+  const sideOf = (pt, a, yaw) => (pt.x - a.ax) * Math.cos(yaw) + (pt.z - a.az) * -Math.sin(yaw);
+  const cookRef = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.player, sys = window.__game.getSystem('player');
+    const V3 = ctx.camera.position.constructor;
+    const a = new V3(p.position.x + 0.7, p.position.y, p.position.z);
+    const pose = () => ({ kind: 'cook', anchor: a, yaw: 0, furnitureUid: 'f-910' });
+    const x0 = p.position.x, y0 = p.position.y, z0 = p.position.z;
+    const same = () => p.position.x === x0 && p.position.y === y0 && p.position.z === z0 && p.furniturePose === null;
+    const out = {};
+    sys._droneControl = true; out.drone = p.setFurniturePose(pose()) === false && same(); sys._droneControl = false;
+    sys._downed = true; out.downed = p.setFurniturePose(pose()) === false && same(); sys._downed = false;
+    p.setInPod(true); out.pod = p.setFurniturePose(pose()) === false && same(); p.setInPod(false);
+    const ph = ctx.phase; ctx.phase = 'playing'; out.phase = p.setFurniturePose(pose()) === false && same(); ctx.phase = ph;
+    out.nan = p.setFurniturePose({ kind: 'cook', anchor: new V3(a.x, Number.NaN, a.z), yaw: 0 }) === false && same();
+    out.badCam = p.setFurniturePose({ kind: 'cook', anchor: a, yaw: 0, camera: { position: new V3(Number.NaN, 0, 0), lookAt: a } }) === false && same();
+    out.noEvents = window.__poseEv.length === 0 || window.__poseEv[window.__poseEv.length - 1].kind !== 'cook';
+    return out;
+  });
+  for (const [k, v] of Object.entries(cookRef)) ok(v === true, `cook refused / untouched: ${k}`);
+
+  const CK_YAW = -0.4;
+  const cookA = await page.evaluate((yaw) => {
+    const ctx = window.__game.ctx, p = ctx.player, V3 = ctx.camera.position.constructor, sys = window.__game.getSystem('player');
+    // a bare session record — only `cookSession.uid` / `mealDefId` are read by the buff list (no overlay, no furniture, no bus event)
+    window.__cookSess = { uid: 'f-910', recipeId: 'smoke_cook', mealDefId: 'meal_omelet', steps: [] };
+    Object.defineProperty(ctx.housing, 'cookSession', { get: () => window.__cookSess, configurable: true });
+    const a = new V3(p.position.x + 0.6, p.position.y, p.position.z - 0.4);
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const cam = { position: new V3(a.x + 1.4, a.y + 1.9, a.z + 1.2), lookAt: new V3(a.x + fx * 0.5, a.y + 1.1, a.z + fz * 0.5) };
+    const res = p.setFurniturePose({ kind: 'cook', anchor: a, yaw, camera: cam, furnitureUid: 'f-910' });
+    const rp = sys.furn.restorePos;
+    return { res, ax: a.x, ay: a.y, az: a.z, x: p.position.x, y: p.position.y, z: p.position.z, kind: p.furniturePose, sx: rp.x, sy: rp.y, sz: rp.z };
+  }, CK_YAW);
+  ok(cookA.res === true && cookA.kind === 'cook', 'setFurniturePose(cook, camera) → true');
+  ok(cookA.x === cookA.ax && cookA.z === cookA.az && cookA.y === cookA.ay, 'feet pinned on the floor anchor in front of the counter');
+  const c0 = await state();
+  await waitSim(page, 1.2);
+  s = await state();
+  const cycles = (s.steps + s.phase) - (c0.steps + c0.phase);
+  ok(s.blend > 0.95 && s.vis === 'cook', `cook blend settles (${s.blend.toFixed(2)})`);
+  ok(Math.hypot(s.rx - cookA.ax, s.ry - cookA.ay, s.rz - cookA.az) < 0.02, 'model root on the anchor (floor)');
+  ok(Math.abs(wrap(s.bodyYaw - CK_YAW)) < 0.05, `body faces the counter (yaw ${s.bodyYaw.toFixed(2)})`);
+  ok(s.canUse === false && s.over === true && s.stance === 'stand' && Math.abs(s.lie) < 0.2, `no weapons · fixed camera · standing, not lying (bodyGroup.x ${s.lie.toFixed(2)})`);
+  ok(s.driven === false && cycles > 0.5 && cycles < 2.5, `self-driven hand cycle runs slowly (${cycles.toFixed(2)} cycles over ~1.2 s)`);
+  await page.evaluate(() => window.__game.ctx.player.setFurniturePoseDrive(0));
+  await waitSim(page, 0.8);
+  L = await limbs();
+  const kUp = { y: L.handR.y - cookA.ay, f: alongOf(L.handR, cookA, CK_YAW), x: sideOf(L.handR, cookA, CK_YAW) };
+  const pr0 = { y: L.handL.y - cookA.ay, f: alongOf(L.handL, cookA, CK_YAW), x: sideOf(L.handL, cookA, CK_YAW) };
+  ok(Math.abs(kUp.y - (COOK.handY + COOK.chopLift)) < 0.07 && Math.abs(kUp.f - (-COOK.workZ + COOK.stirR)) < 0.07 && Math.abs(kUp.x - COOK.knifeX) < 0.07,
+    `phase 0: knife hand raised over the work point (${JSON.stringify(kUp, (k, v) => typeof v === 'number' ? +v.toFixed(3) : v)})`);
+  ok(Math.abs(pr0.y - COOK.pressY) < 0.07 && Math.abs(pr0.f - (-COOK.pressZ)) < 0.07 && Math.abs(pr0.x - COOK.pressX) < 0.07,
+    `left hand presses the ingredient (${JSON.stringify(pr0, (k, v) => typeof v === 'number' ? +v.toFixed(3) : v)})`);
+  ok(kUp.y > COOK.topY && pr0.y > COOK.topY && kUp.f > -COOK.edgeZ && pr0.f > -COOK.edgeZ, 'both hands above the counter top and past its front edge');
+  ok(Math.abs(L.footR.y - cookA.ay) < 0.07 && Math.abs(L.footL.y - cookA.ay) < 0.07, `soles on the floor (${(L.footR.y - cookA.ay).toFixed(3)} / ${(L.footL.y - cookA.ay).toFixed(3)})`);
+  await shot('cook0');
+  await page.evaluate(() => window.__game.ctx.player.setFurniturePoseDrive(0.5));
+  await waitSim(page, 0.6);
+  L = await limbs();
+  const kDn = { y: L.handR.y - cookA.ay, f: alongOf(L.handR, cookA, CK_YAW) };
+  ok(Math.abs(kDn.y - COOK.handY) < 0.07 && Math.abs(kDn.f - (-COOK.workZ - COOK.stirR)) < 0.07 && kUp.y - kDn.y > 0.08,
+    `phase 0.5: knife down on the board, pulled toward the body (y ${kDn.y.toFixed(3)}, fwd ${kDn.f.toFixed(3)})`);
+  ok(Math.abs((L.handL.y - cookA.ay) - (COOK.pressY - 0.015)) < 0.07 && Math.abs((L.handL.y - cookA.ay) - pr0.y) < 0.05, 'left hand stays on the ingredient');
+  await shot('cook05');
+  const ccum = await page.evaluate(() => {
+    const p = window.__game.ctx.player;
+    p.setFurniturePoseDrive(0.5); const a = p.furniturePoseState.phase;
+    p.setFurniturePoseDrive(0.9); const b = p.furniturePoseState.phase;
+    p.setFurniturePoseDrive(0.2); const c = p.furniturePoseState.phase;
+    const w = p.furniturePoseState;
+    return { a, b, c, kind: w.kind, uid: w.furnitureUid };
+  });
+  ok(ccum.kind === 'cook' && Math.abs(ccum.b - ccum.a - 0.4) < 1e-9 && Math.abs(ccum.c - ccum.b - 0.3) < 1e-9 && ccum.uid === 'f-910',
+    `cook drive 0.5 → 0.9 → 0.2 is one monotonic cumulative phase (${[ccum.a, ccum.b, ccum.c].map((v) => v.toFixed(2)).join(' → ')})`);
+
+  await waitSim(page, 0.1);
+  B = await buffs();
+  const ckB = B.list.find((b) => b.key === 'pose');
+  ok(ckB && ckB.kind === 'cooking' && ckB.pose === 'cook' && ckB.defId === 'meal_omelet' && ckB.furnitureUid === 'f-910' && ckB.state === 'active'
+    && ckB.debuff === false && ckB.endsAt === undefined && ckB.startedAt === undefined, `cooking buff with the meal being made (${JSON.stringify(ckB)})`);
+  ok(B.list.map((b) => b.kind).join() === 'gym_fatigue,cooking,meal,prep', `order: debuff → cooking → meal → prep (${B.list.map((b) => b.key).join()})`);
+  const mism = await page.evaluate(() => {
+    window.__cookSess = { ...window.__cookSess, uid: 'f-999' };
+    window.__game.getSystem('player').recomputeBuffs();
+    const b = window.__game.ctx.player.buffs.find((x) => x.key === 'pose');
+    window.__cookSess = { ...window.__cookSess, uid: 'f-910' };
+    return b && { kind: b.kind, defId: b.defId ?? null };
+  });
+  ok(mism && mism.kind === 'cooking' && mism.defId === null, `a cook session on another counter does not name this buff (${JSON.stringify(mism)})`);
+  const mq = await page.evaluate(() => {
+    const prog = window.__game.ctx.progression;
+    return { up: prog.useMeal('meal_tuber_stew', 2), again: prog.useMeal('meal_tuber_stew', 2), q: prog.getMealQuality() };
+  });
+  ok(mq.up === null && mq.again === '이미 같은 요리를 먹었습니다' && mq.q === 2, `useMeal(same meal, quality 2) replaces · repeat refused (${JSON.stringify(mq)})`);
+  await waitSim(page, 0.1);
+  B = await buffs();
+  const mqB = B.list.find((b) => b.key === 'meal');
+  ok(mqB && mqB.defId === 'meal_tuber_stew' && mqB.state === 'pending' && mqB.quality === 2, `meal buff carries quality 2 in the ship (${JSON.stringify(mqB)})`);
+
+  await page.evaluate(() => window.__game.ctx.player.setFurniturePose(null));
+  s = await state();
+  const evC = await page.evaluate(() => window.__poseEv[window.__poseEv.length - 1]);
+  ok(evC.kind === 'cook' && evC.reason === 'caller' && s.kind === null && s.x === cookA.sx && s.y === cookA.sy && s.z === cookA.sz,
+    `release: furniturePoseEnded {cook, caller}, feet back on the spot held before (${JSON.stringify(evC)})`);
+  await waitSim(page, 0.1);
+  B = await buffs();
+  ok(!B.list.some((b) => b.key === 'pose'), 'released: cooking buff gone');
+  const dirtyOk = await page.evaluate(() => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('player');
+    sys.buffsDirty = false;
+    ctx.bus.emit('housing:cookSession', { uid: 'f-910', recipeId: 'smoke_cook', mealDefId: 'meal_omelet', active: false, completed: false });
+    return sys.buffsDirty === true;
+  });
+  ok(dirtyOk, 'housing:cookSession marks the buff list dirty');
+  await page.evaluate(() => { delete window.__game.ctx.housing.cookSession; });
+  await waitSim(page, 1.0);
+  ok((await state()).vis === null, 'cook pose blended out');
+
+  // remote avatar draws `cook` through the same pose function
+  const remC = await page.evaluate(() => {
+    const ctx = window.__game.ctx, rs = window.__game.getSystem('remotePlayers');
+    const r = rs.debugSpawn({ slot: 3, id: 'pose-remote-cook' });
+    r.hubSite = ctx.hub?.hubSite ?? null;
+    window.__remCook = r;
+    return { id: r.id, x: r.position.x, y: r.position.y, z: r.position.z };
+  });
+  await waitFor(page, (id) => { const av = window.__game.getSystem('remotePlayers').getAvatar(id); return !!av && av.isShown; }, 'remote cook avatar shown', 10000, remC.id);
+  await waitSim(page, 0.2);
+  const RC_YAW = 0.3;
+  await page.evaluate(([yaw, ay]) => { window.__remCook.furniturePose = { kind: 'cook', anchorY: ay, yaw, phase: 4.0, furnitureUid: 'f-911' }; }, [RC_YAW, remC.y]);
+  await waitSim(page, 1.4);
+  R = await remote(remC.id);
+  ok(R.kind === 'cook' && R.blend > 0.95 && Math.abs(R.rx - remC.x) < 1e-6 && Math.abs(R.rz - remC.z) < 1e-6 && Math.abs(R.ry - remC.y) < 0.02 && R.fPhase === 0,
+    `remote cook: root on (ref.x, anchorY, ref.z), phase 4.0 → 0 (blend ${R.blend.toFixed(2)})`);
+  ok(Math.abs(wrap(R.yaw - RC_YAW)) < 0.05 && Math.abs(R.lie) < 0.2, `remote cook body faces yaw, standing (${wrap(R.yaw).toFixed(2)})`);
+  const rUp = R.handR.y - remC.y;
+  ok(Math.abs(rUp - (COOK.handY + COOK.chopLift)) < 0.07, `remote phase 4.0: knife hand up (${rUp.toFixed(3)})`);
+  ok(Math.abs(R.headY - (remC.y + COOK_EYE + 0.15)) < 0.06, `remote nameplate at the leaning head (${(R.headY - remC.y).toFixed(2)})`);
+  await page.evaluate(() => { window.__remCook.furniturePose = { ...window.__remCook.furniturePose, phase: 4.5 }; });
+  await waitSim(page, 0.6);
+  R = await remote(remC.id);
+  ok(Math.abs(R.fPhase - 0.5) < 1e-9 && rUp - (R.handR.y - remC.y) > 0.08, `remote phase 4.5: knife down (${(R.handR.y - remC.y).toFixed(3)})`);
+
   await page.evaluate(() => window.__game.getSystem('remotePlayers').debugClear());
   await page.evaluate((n) => { window.__poseEv.length = n; }, poseEvBase);
   await waitSim(page, 0.3);
@@ -580,7 +730,7 @@ try {
   await waitSim(page, 0.2);
   B = await buffs();
   const rMeal = B.list.find((b) => b.key === 'meal'), rPrep = B.list.find((b) => b.key === 'prep:toxin'), rFat = B.list.find((b) => b.key === 'fatigue:strength');
-  ok(rMeal && rMeal.state === 'active' && rMeal.defId === 'meal_tuber_stew', `meal active in the raid (${JSON.stringify(rMeal)})`);
+  ok(rMeal && rMeal.state === 'active' && rMeal.defId === 'meal_tuber_stew' && rMeal.quality === 2, `meal active in the raid with its quality ★★ (${JSON.stringify(rMeal)})`);
   ok(rPrep && rPrep.state === 'active' && rPrep.env === 'toxin', `prep:toxin active in the raid (${JSON.stringify(rPrep)})`);
   ok(rFat && rFat.state === 'active', 'fatigue carries into the raid');
   ok(!B.list.some((b) => b.key === 'pose' || b.state === 'pending'), `no pending / pose buffs in the raid (${B.list.map((b) => `${b.key}:${b.state}`).join()})`);

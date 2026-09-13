@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import type { FurnitureDef, FurnitureModelKind, FurniturePose, GameContext, GrowTier, Interactable, PeerId, PlacedFurniture, Rarity, RemotePlayerRef, ShelfMedium, WorkbenchKind } from '@/shared';
-import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, GYM_MINIGAME_LABEL_KO, HOUSING_CELL_SIZE, RARITY_COLORS, SHELF_SLOTS, analyzerSlotsForLevel, benchKindOf, cultureSlotsForLevel, furnitureFootprint, growTiersForLevel, gymEquipmentOf, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
+import type { CookGame, FurnitureDef, FurnitureModelKind, FurniturePose, GameContext, GrowTier, Interactable, PeerId, PlacedFurniture, Rarity, RemotePlayerRef, ShelfMedium, WorkbenchKind } from '@/shared';
+import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, GYM_MINIGAME_LABEL_KO, HOUSING_CELL_SIZE, RARITY_COLORS, SHELF_SLOTS, analyzerSlotsForLevel, benchKindOf, cookGamesOfAppliance, cultureSlotsForLevel, furnitureFootprint, growTiersForLevel, gymEquipmentOf, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import { LEISURE_BUILDERS, isLeisureKind, type FurnitureRig, type LeisureKind } from './FurnitureLeisure';
+import { KITCHEN_APPLIANCE_BUILDERS, cookBenchTools, type CookRig } from './FurnitureKitchen';
+import { CookStaging, cookPoseOf } from './CookStaging';
 import { GymStaging, gymPoseOf, poseRock, sitPoseOf, type FootBox } from './GymStaging';
 import { RemoteFurnitureStaging } from './RemoteFurnitureStaging';
 import type { BoxInteriorCollider } from './InteriorCollider';
@@ -40,8 +42,8 @@ function spine(css: string): THREE.MeshStandardMaterial {
   }
   return m;
 }
-/** 책장 shelves (BOOKS_PER_SHELF slots spread over them, top shelf first). */
-const BOOK_SHELF_ROWS = 3;
+/** 책장 shelves (BOOKS_PER_SHELF slots spread over them, top shelf first). 2026-09-13: 4 × 2 (was 3 × 2). */
+const BOOK_SHELF_ROWS = 4;
 const LAMP_GLOW = new THREE.MeshStandardMaterial({ color: 0xffe3a0, roughness: 0.3, metalness: 0, emissive: 0xffc060, emissiveIntensity: 2.4 });
 const LEAF = new THREE.MeshStandardMaterial({ color: 0x4f9a4a, roughness: 0.85, metalness: 0 });
 const POT = new THREE.MeshStandardMaterial({ color: 0x8a5a3c, roughness: 0.9, metalness: 0.05 });
@@ -75,6 +77,8 @@ export interface FurnitureModel {
   spinRate?: number;
   /** 흔들의자 · 운동 기구의 자세 기하 + 움직이는 부분 (가구 로컬 좌표, `FurnitureLeisure`). A-3e · A-3a, 2026-09-12. */
   rig?: FurnitureRig;
+  /** 조리대(`bench_cook`)의 도구 rig — 도마 · 냄비 · 웍 · 그릴 팬 · 비커와 서는 자리 (`FurnitureKitchen.cookBenchTools`, 2026-09-13). */
+  cook?: CookRig;
 }
 
 /** Per-piece data a builder may read (Phase 9): the 책장's shelved books by slot (rarity, null = empty). */
@@ -102,6 +106,11 @@ export interface BuildExtra {
   on?: boolean;
   /** 벤치 랙 · 스미스 머신 (A-3a): 이 조각으로 운동 세션이 진행 중이다 — 바벨에 원반이 끼워진 채로 짓는다. */
   gymActive?: boolean;
+  /**
+   * 조리대 (2026-09-13, 요리 미니게임): 이 조리대로 조리 중인 단계의 게임 (`housing:cookStep`) — 그 게임의 도구를 작업 자리에 둔 채로
+   * 짓는다 (조리 중에 방이 다시 지어져도 도구가 제자리로 튀지 않는다). null · 생략 = 조리 중 아님.
+   */
+  cookGame?: CookGame | null;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -119,6 +128,8 @@ export function buildFurniture(def: FurnitureDef, level = 1, extra?: BuildExtra)
   else BUILDERS[kind](b, w, d, h, accent, level, extra);
   b.build(g, meshes);
   if (kind === 'sim_hub') simHubRings(model, Math.min(w, d) / 2, h);
+  // 2026-09-13 요리 미니게임: 조리대의 도구(도마 · 냄비 · 웍 · 그릴 팬 · 비커)는 조리 중에 움직이므로 병합하지 않고 하위 그룹으로 붙인다
+  if (kind === 'bench_cook') cookBenchTools(model, w, d, h, accent, extra);
   return model;
 }
 
@@ -149,7 +160,7 @@ function simHubRings(model: FurnitureModel, r: number, h: number): void {
 }
 
 /* ── builders ─────────────────────────────────────────────────────────────── */
-type Builder = (b: GeoBatch, w: number, d: number, h: number, accent: THREE.Material, level: number, extra?: BuildExtra) => void;
+export type Builder = (b: GeoBatch, w: number, d: number, h: number, accent: THREE.Material, level: number, extra?: BuildExtra) => void;
 
 /** Shared workbench body: legs, top, drawer block, back tool board, accent strip. `deco` adds the per-kind top items. */
 function benchBody(b: GeoBatch, w: number, d: number, h: number, accent: THREE.Material, level: number, deco: (b: GeoBatch) => void): void {
@@ -175,6 +186,8 @@ function benchBody(b: GeoBatch, w: number, d: number, h: number, accent: THREE.M
  * records the type still demands **every** `FurnitureModelKind`.
  */
 const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
+  /* 2026-09-13 요리 미니게임: 자동 조리 가구 4종 (푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서) — `FurnitureKitchen.ts` */
+  ...KITCHEN_APPLIANCE_BUILDERS,
   bench_gun: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
     const top = h - 0.02;
     b.boxB(0.26, 0.16, 0.2, -w * 0.3, top, 0.05, M.hullDark);                                   // vise
@@ -374,6 +387,10 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
    * 멀리서도 "여기가 주방" 으로 읽히는 실루엣은 상판 위로 내려온 후드 캐노피다. 달아오른 화구 링과 후드
    * 조명은 emissive 재질뿐이고 **광원은 하나도 만들지 않는다** (CLAUDE.md 「씬의 광원 개수를 플레이 중에
    * 바꾸지 않는다」 · `smoke-lights`).
+   *
+   * 2026-09-13 (요리 미니게임): 냄비 · 도마는 여기서 병합하지 않는다 — 조리 중에 작업 자리로 나와 움직이므로 `buildFurniture` 가 병합 뒤
+   * `FurnitureKitchen.cookBenchTools` 로 도마(+칼) · 냄비(+국자) · 웍 · 그릴 팬 · 계량 비커를 하위 그룹으로 붙인다. 화구 판 자리(hx · hz ·
+   * 링 ±0.17 · ±0.14)는 그 함수가 도구의 쉬는 자리로 쓴다 — 여기를 옮기면 그쪽도 같이 고친다.
    */
   bench_cook: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
     const top = h - 0.02;
@@ -381,15 +398,10 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     b.box(w * 0.44, 0.03, d * 0.6, hx, top + 0.015, hz, M.hullDark);                             // 화구 판
     for (const ox of [-0.17, 0.17]) for (const oz of [-0.14, 0.14])
       b.cyl(0.08, 0.08, 0.016, 14, hx + ox, top + 0.035, hz + oz, M.stripRed);                   // 달아오른 링
-    b.cyl(0.13, 0.115, 0.17, 14, hx - 0.17, top + 0.13, hz - 0.14, M.gunmetal);                  // 냄비
-    b.cyl(0.135, 0.135, 0.025, 14, hx - 0.17, top + 0.23, hz - 0.14, M.hullLight);               // 뚜껑
-    b.cyl(0.025, 0.025, 0.04, 8, hx - 0.17, top + 0.26, hz - 0.14, M.trim);                      // 손잡이
     b.box(w * 0.44, 0.16, d * 0.6, hx, top + 0.66, hz, M.hullDark);                              // 후드 몸체
     b.box(w * 0.5, 0.08, d * 0.76, hx, top + 0.57, hz, M.hullLight);                             // 후드 캐노피
     b.box(w * 0.4, 0.02, d * 0.5, hx, top + 0.52, hz, M.stripWhite);                             // 후드 조명 (emissive)
     b.box(0.2, 0.34, 0.2, hx, top + 0.91, hz + d * 0.18, M.gunmetal);                            // 덕트
-    b.boxB(0.42, 0.04, 0.3, w * 0.2, top, 0.04, M.padding);                                      // 도마
-    for (let k = 0; k < 3; k++) b.cyl(0.045, 0.045, 0.05, 10, w * 0.2 - 0.1 + k * 0.1, top + 0.07, 0.04, k === 1 ? a : M.crate);
     b.boxB(0.26, 0.14, 0.24, w * 0.36, top, -0.1, M.crateDark);                                  // 재료 상자
     for (let k = 0; k < 3; k++) b.cyl(0.03, 0.035, 0.14, 8, w * 0.1 + k * 0.09, top + 0.07, d / 2 - 0.14, k % 2 ? M.glassDark : a);   // 조미료 병
   }),
@@ -551,19 +563,24 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     b.box(w, 0.05, d, 0, h - 0.025, 0, M.hullLight);                                        // top
     b.box(w - 0.1, 0.05, d - 0.02, 0, 0.06, 0, M.gunmetal);                                 // plinth
     b.box(w - 0.14, 0.03, 0.04, 0, h - 0.06, -(d / 2 - 0.02), a);                           // accent lip under the top
+    // 2026-09-13: 4 shelves × 2 slots (BOOKS_PER_SHELF 8) — slot 0 = top-left, row-major, same order as the 2D panel
     const rows = BOOK_SHELF_ROWS, perRow = Math.ceil(BOOKS_PER_SHELF / rows);
     const y0 = 0.1, rowH = (h - 0.2) / rows;
     const books = extra?.books ?? [];
+    const slotW = (w - 0.1) / perRow;
     for (let r = 0; r < rows; r++) {
       const y = y0 + r * rowH;
       b.box(w - 0.1, 0.04, d - 0.06, 0, y, 0.01, M.gunmetal);                              // shelf board
       b.box(w - 0.12, 0.02, 0.03, 0, y + 0.015, -(d / 2 - 0.05), M.trim);                    // front edge
+      for (let k = 1; k < perRow; k++) {
+        b.boxB(0.02, Math.min(0.36, rowH - 0.08), d - 0.1, -(w - 0.1) / 2 + k * slotW, y + 0.02, 0.01, M.gunmetal);   // slot divider
+      }
       for (let k = 0; k < perRow; k++) {
         const slot = (rows - 1 - r) * perRow + k;                                          // slot 0 = top-left
         const rarity = books[slot] ?? null;
         if (!rarity) continue;
-        const bx = -(w / 2 - 0.16) + k * ((w - 0.32) / Math.max(1, perRow - 1));
-        const bh = 0.22 + ((slot * 7) % 3) * 0.03, bt = 0.06 + ((slot * 5) % 2) * 0.02;
+        const bx = -(w - 0.1) / 2 + (k + 0.5) * slotW;                                     // centred in its slot
+        const bh = Math.min(rowH - 0.1, 0.24 + ((slot * 7) % 3) * 0.03), bt = 0.1 + ((slot * 5) % 2) * 0.02;
         b.boxB(bt, bh, d - 0.18, bx, y + 0.02, 0.02, spine(RARITY_COLORS[rarity]));        // spine (the book stands upright)
         b.box(bt + 0.01, 0.015, d - 0.2, bx, y + 0.02 + bh * 0.72, 0.02, M.trim);           // title band
       }
@@ -660,6 +677,23 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
   corp_computer: (b, _w, d) => {
     shipComputerBody(b, 0, d / 2 - 0.4, 0);
   },
+  /**
+   * 서랍장 (2026-09-13, 꾸밈 가구 `furn_drawer`): 조종석 뒷벽에 붙박이였던 창고 캐비닛(`PersonalShip.stashCabinet`)과 같은 모습 —
+   * 어두운 몸체 · 윗판 · 서랍 세 칸(밝은 판 + 손잡이) · 호박색 띠. 옛 치수(0.9 × 2.2 × 0.55 m)를 발자국(2 × 1 칸 = 1.0 × 0.5 m)에
+   * 맞춰 깊이만 줄였고, 서랍 높이는 `h` 에 비례한다 (h 2.2 이면 옛 값 그대로). 서랍이 앞(−Z)을 본다. 광원 없음.
+   */
+  drawer: (b, w, d, h) => {
+    const bw = Math.min(0.9, w - 0.1), bd = d - 0.04, front = -bd / 2;
+    const k = h / 2.2;
+    b.boxB(bw, h, bd, 0, 0, 0, M.hullDark);
+    b.box(bw + 0.04, 0.05, bd + 0.03, 0, h + 0.02, 0, M.trimDark);
+    for (let i = 0; i < 3; i++) {
+      const y = (0.4 + i * 0.62) * k;
+      b.box(bw - 0.1, 0.5 * k, 0.03, 0, y, front - 0.01, M.hullLight);
+      b.box(0.3, 0.04, 0.03, 0, y, front - 0.03, M.trim);
+    }
+    b.box(bw - 0.2, 0.05, 0.04, 0, h - 0.15 * k, front - 0.01, M.stripAmber);
+  },
 };
 
 /** 기업 네트워크 컴퓨터 모델의 왼쪽 모니터 자리 (가구 로컬 좌표) — `corp_computer` 빌더와 같은 책상 오프셋이다. */
@@ -708,6 +742,11 @@ export interface FurnitureCallbacks {
    * and is registered by `parts/Interior.buildStations` instead of this layer.
    */
   onDiningTable(uid: string): void;
+  /**
+   * 조리대 화면 (2026-09-13, 요리 미니게임): `ctx.housing.openCookStation(uid)`. 조리대는 자기 uid, 자동 조리 가구는 함선의 조리대 uid
+   * (`FurnitureLayer.cookBenchUid`) — 조리대가 없으면 **null** (토스트 `조리대가 없습니다`). 조리대는 더 이상 `onBench` 로 가지 않는다.
+   */
+  onCookStation(uid: string | null): void;
   /* ── A-3e · A-3a (2026-09-12) ── */
   /** 디스크 전시대 · 레코드랙: 그 보관함의 화면 (`ctx.housing.openShelf(uid)`). */
   onShelf(uid: string): void;
@@ -807,6 +846,8 @@ export class FurnitureLayer {
    * **방문 중인 함선의 layer 에도** 있다 (방문자가 주인의 운동을 보는 것이 이 기능의 본래 쓰임이다).
    */
   private remote: RemoteFurnitureStaging | null = null;
+  /** 조리 연출 (2026-09-13, 요리 미니게임) — 우리 함선에서만 (방문 중인 함선은 null). */
+  private cook: CookStaging | null = null;
   private lastTime = -1;
 
   /**
@@ -841,10 +882,11 @@ export class FurnitureLayer {
         b.on('housing:furnitureToggled', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
       );
       this.staging = new GymStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
+      this.cook = new CookStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
     }
     this.remote = new RemoteFurnitureStaging({
       find: (uid) => this.pieces.get(uid) ?? null,
-      isLocal: (uid) => this.staging?.uid === uid || this.sitUid === uid,
+      isLocal: (uid) => this.staging?.uid === uid || this.sitUid === uid || this.cook?.uid === uid,
     });
     this.rebuildAll();
   }
@@ -861,7 +903,12 @@ export class FurnitureLayer {
   poseFor(uid: string): FurniturePose | null {
     const p = this.pieces.get(uid);
     if (!p) return null;
-    return sitPoseOf(p) ?? gymPoseOf(p, this.blockersFor(uid));
+    return sitPoseOf(p) ?? gymPoseOf(p, this.blockersFor(uid)) ?? cookPoseOf(p, this.blockersFor(uid));
+  }
+
+  /** 디버그 · 스모크 (2026-09-13): 조리 연출 중인 조리대 · 게임 · 손 위상 · 작업 자리에 나온 도구, 없으면 null. */
+  get cookStage(): CookStaging['stage'] {
+    return this.cook?.stage ?? null;
   }
 
   /** 같은 방의 다른 조각들의 월드 상자 (운동 카메라의 가림 판정). */
@@ -920,6 +967,7 @@ export class FurnitureLayer {
       }
     }
     this.staging?.update(dt);
+    this.cook?.update(dt);
     // 원격 분대원의 가구 자세 — 로컬 연출 뒤에 돌아야 이번 프레임에 로컬이 잡은 조각을 건너뛴다
     if (this.remote) {
       const cb = this.cb;
@@ -1008,7 +1056,12 @@ export class FurnitureLayer {
       const shelf = kind === 'disc_stand' || kind === 'record_rack';
       const toggle = isToggleInteraction(kind);
       const gym = gymEquipmentOf(kind);
+      // 2026-09-13 요리 미니게임: 조리대 · 자동 조리 가구 — 둘 다 조리대 화면을 연다 (조리대는 `bench` 이기도 하므로 그보다 먼저 잡는다)
+      const cookBench = kind === 'workbench_cook';
+      const cookAppliance = cookGamesOfAppliance(kind).length > 0;
       const prompt = fixture ? fixture.prompt
+        : cookBench ? `${def.name} · 요리하기`
+        : cookAppliance ? `${def.name} · 조리대 열기`
         : bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
         : stack > 1 ? `${def.name} ${layer + 1}층`
         : kind === 'rocking_chair' ? `${def.name} · 앉기`
@@ -1039,7 +1092,9 @@ export class FurnitureLayer {
         getPrompt: () => (cb.canUse() ? (toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : prompt) : null),
         canInteract: () => cb.canUse(),
         interact: () => {
-          if (bench) cb.onBench(bench, level);
+          if (cookBench) cb.onCookStation(uid);
+          else if (cookAppliance) cb.onCookStation(this.cookBenchUid(uid));
+          else if (bench) cb.onBench(bench, level);
           else if (kind === 'implant_bay') cb.onImplantBay();
           else if (kind === 'corp_computer') cb.onCorpComputer();
           else if (kind === 'grow_rack') cb.onGrowRack(uid);
@@ -1065,6 +1120,21 @@ export class FurnitureLayer {
     this.pieces.set(item.uid, { item, model, blocker, sign, screen, interactable, box });
   }
 
+  /**
+   * 자동 조리 가구가 여는 조리대 (2026-09-13): 함선에 배치된 조리대 중 **그 가구와 같은 방** → 레벨이 높은 것. 없으면 null.
+   * 방 용도는 함선당 하나라 주방도 하나지만, 조리대가 다른 방으로 옮겨질 일은 없어도 옛 세이브를 믿지 않는다.
+   */
+  private cookBenchUid(fromUid: string): string | null {
+    const room = this.pieces.get(fromUid)?.item.room ?? null;
+    let best: PlacedFurniture | null = null, bestScore = -Infinity;
+    for (const p of this.pieces.values()) {
+      if (FURNITURE_DEF_MAP.get(p.item.defId)?.interaction !== 'workbench_cook') continue;
+      const score = (p.item.room === room ? 1000 : 0) + p.item.level;
+      if (score > bestScore) { bestScore = score; best = p.item; }
+    }
+    return best?.uid ?? null;
+  }
+
   /** Per-piece state a builder reads: 책장 = shelved books, 분석기 / 배양조 = how many 칸 wait to be collected. */
   private buildExtra(def: FurnitureDef, uid: string): BuildExtra | undefined {
     if (def.model === 'bookshelf') return { books: this.shelfBooks(uid) };
@@ -1074,6 +1144,8 @@ export class FurnitureLayer {
     const medium = shelfMediumOfInteraction(def.interaction);
     if (medium && medium !== 'book') return { media: this.shelfMedia(uid, medium) };
     if (isToggleInteraction(def.interaction)) return { on: this.isOn(uid) };
+    // 2026-09-13: 조리 중인 조리대는 지금 단계의 도구를 작업 자리에 둔 채로 짓는다
+    if (def.model === 'bench_cook') return { cookGame: this.cook?.gameFor(uid) ?? null };
     // 2026-09-12: 원격 분대원이 쓰고 있는 기구도 원반을 낀 채로 짓는다 (재빌드 한 프레임 동안 원반이 사라지지 않게)
     if (gymEquipmentOf(def.interaction)) return { gymActive: this.staging?.uid === uid || this.remote?.drives(uid) === true };
     return undefined;
@@ -1174,6 +1246,7 @@ export class FurnitureLayer {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.staging?.dispose(); this.staging = null;
+    this.cook?.dispose(); this.cook = null;
     this.remote?.dispose(); this.remote = null;
     for (const p of this.pieces.values()) this.removePiece(p);
     this.pieces.clear();

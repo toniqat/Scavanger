@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import type { CorpseItemWire, GameContext, ItemInstance, PlayerCorpseWire } from '@/shared';
-import { PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS } from '@/shared';
+import { PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS, normalizeMealQuality } from '@/shared';
 import { ITEM_DEF_MAP } from '@/items';
 import { Grid } from '../Grid';
 import { LOADOUT_SLOTS } from '../model';
@@ -124,6 +124,8 @@ export function corpseItemsFromWire(sys: InventorySystem, wire: readonly CorpseI
     if (!w || typeof w.defId !== 'string') continue;
     const item = sys.loot.createItem(w.defId, Math.max(1, Math.floor(w.qty || 1)), w.ex);
     if (item && typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;   // 2026-09-12: 생략 = 표식 없음
+    const q = normalizeMealQuality(w.q);   // 2026-09-13: 요리 품질 (생략 = 0)
+    if (item && q > 0) item.quality = q;
     if (item) out.push(item);
   }
   return out;

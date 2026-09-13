@@ -2,7 +2,7 @@ import type { GameContext } from '@/shared';
 import { Keys, MENU_BLOCKER } from '@/shared';
 import { el, section } from './dom';
 
-export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer' | 'culture' | 'dining';
+export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer' | 'culture' | 'dining' | 'cook';
 const BLOCKER = 'housing';
 
 /**

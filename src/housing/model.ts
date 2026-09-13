@@ -35,6 +35,9 @@ export function shelfAuxNames(medium: ShelfMedium): string {
   return ACTIVE_FURNITURE_DEFS.filter((d) => d.interaction === SHELF_AUX_INTERACTION[medium]).map((d) => d.name).join(' · ');
 }
 
+/** 2026-09-13 (사용자 결정): 조종석 전용 시설(시술대 · 컴퓨터)을 회수 · 제거하려 할 때의 거절 — 문장의 원본은 `shared/housing` (hub 도 쓴다). */
+export { COCKPIT_ONLY_RECOVER_REASON } from '@/shared';
+
 /** 한국어 answer of the retired 재배층 API (`plantSeed` · `harvestPlot`). 온실 개편, 2026-09-11. */
 export const RETIRED_RACK_REASON = '재배층은 재배 스테이션으로 교체되었습니다';
 

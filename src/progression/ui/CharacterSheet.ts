@@ -39,7 +39,7 @@ export class CharacterSheet {
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
     e.preventDefault();
     e.stopPropagation();
-    this.close();
+    this.requestClose();
   };
 
   constructor(private readonly ctx: GameContext, host: CharacterSheetHost) {
@@ -52,15 +52,15 @@ export class CharacterSheet {
     tabInv.addEventListener('click', (e) => {
       e.stopPropagation();
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-      this.close(false);
-      this.ctx.inventory?.toggleBag();
+      const go = (): void => { this.close(false); this.ctx.inventory?.toggleBag(); };
+      if (!this.body.requestLeave(go)) go();          // 2026-09-13: unconfirmed ＋ points ask first
     });
     el('button', { cls: 'scr-tab is-on', text: '캐릭터', parent: tabs });
     const tabCorp = el('button', { cls: 'scr-tab is-disabled', text: '기업', parent: tabs, attrs: { disabled: '', title: '기업 · 계약 · 퀘스트는 준비 중입니다' } });
     tabCorp.disabled = true;
     const f = this.frame = el('div', { cls: 'frame', parent: root });
 
-    this.body = new SheetBody(ctx, host, f, { hint: 'Tab 으로 닫기', onClose: () => this.close(), variant: 'overlay' });
+    this.body = new SheetBody(ctx, host, f, { hint: 'Tab 으로 닫기', onClose: () => this.requestClose(), variant: 'overlay' });
 
     root.addEventListener('mousedown', (e) => e.stopPropagation());
     window.addEventListener('keydown', this.escHandler, true);
@@ -68,14 +68,28 @@ export class CharacterSheet {
 
   get isOpen(): boolean { return this._open; }
 
+  /**
+   * 2026-09-13: the player's own close (Tab · Escape · 닫기). Returns true when the body intercepted it — unconfirmed ＋ points
+   * raised the 버리고 이동 / 돌아가기 warning (or a popup of the body was up and this press was its 돌아가기).
+   */
+  requestClose(): boolean {
+    if (this.body.requestLeave(() => this.close())) return true;
+    this.close();
+    return false;
+  }
+
+  /** Forced exit (ProgressionSystem): drop unconfirmed points and the body's popups without asking. */
+  discardPending(): void { this.body.discardPending(); }
+
   /* ── open / close ─────────────────────────────────────────────────────── */
   open(): void {
     if (this._open) return;
     this._open = true;
-    this.body.disarmReset();
+    this.body.discardPending();
     // Blocker first, then the in-game cursor — the pointer lock is kept, so GameFlow never sees an exit at all.
     this.ctx.uiBlockers.add(BLOCKER);
-    this.ctx.escape.push(BLOCKER, () => this.close());
+    // an intercepted close keeps the entry on the stack (`false`); the warning popup sits above it with its own entry
+    this.ctx.escape.push(BLOCKER, () => (this.requestClose() ? false : undefined));
     this.ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.frame.style.animation = 'none';
@@ -92,7 +106,7 @@ export class CharacterSheet {
   close(_relock = true): void {
     if (!this._open) return;
     this._open = false;
-    this.body.disarmReset();
+    this.body.discardPending();                        // every path that gets here already asked (or is a forced close)
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);

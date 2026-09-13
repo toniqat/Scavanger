@@ -621,7 +621,7 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
  * 방 시설 레벨 제거 (2026-09-12): **7** — 모양은 같다. `RoomState.level` 이 늘 1 이 되고, v6 이하 세이브의 작업실 ·
  * 사격장 레벨은 관물대 · 시뮬레이션 허브 레벨로 옮겨지거나 재료로 환불된다 (`housing/ShipState.sanitize`, 한 번만).
  */
-export const SHIP_STATE_VERSION = 9;   // 2026-09-12: 9 = 서재 매체 (`media` · `mediaDex` · `toggled`, A-3e)
+export const SHIP_STATE_VERSION = 11;  // 2026-09-12: 9 = 서재 매체 (`media` · `mediaDex` · `toggled`, A-3e) · 2026-09-13: 10 = 조종석 전용 시설 + 조종석 꾸밈 가구 (모양은 같다 — 한 번만 옮기려고 올렸다) · 11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 배양 스캐폴드 · 분석 결과 · 계열 경험치 · 분석 도감)
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
@@ -1492,6 +1492,9 @@ export const GATHER_SALVAGE_QTY2_CHANCE = K.num('GATHER_SALVAGE_QTY2_CHANCE');
 export const GATHER_HERB_QTY2_CHANCE = K.num('GATHER_HERB_QTY2_CHANCE');
 export const GATHER_SALVAGE_CORE_CHANCE = K.num('GATHER_SALVAGE_CORE_CHANCE');
 export const GATHER_SALVAGE_CORE_QTY = K.num('GATHER_SALVAGE_CORE_QTY');
+/** 2026-09-13 (owner: world/Gather): 고철 더미의 부가 미확인 광물(`spec_mineral`) 확률 · 개수 — 코어와 같은 규약, 자기 fork `gather_mineral`. */
+export const GATHER_SALVAGE_MINERAL_CHANCE = K.num('GATHER_SALVAGE_MINERAL_CHANCE');
+export const GATHER_SALVAGE_MINERAL_QTY = K.num('GATHER_SALVAGE_MINERAL_QTY');
 /** 장착 가방이 레이드 1회마다 잃는 내구도 (C-36, owner: inventory). */
 export const BAG_DURABILITY_PER_RAID = K.num('BAG_DURABILITY_PER_RAID');
 
@@ -1682,3 +1685,60 @@ export const EXTRACTION_CINEMATIC_BLEND_S = K.num('EXTRACTION_CINEMATIC_BLEND_S'
 /** 이륙 연출: 전투 HUD 가 사라지는 시간(초). */
 export const EXTRACTION_HUD_FADE_S = K.num('EXTRACTION_HUD_FADE_S');
 /* ── end [2026-09-13] 탈출 개편 ── */
+
+/* ══ appended (2026-09-13): 버그 굴착 스폰 · 지하벌레 이벤트 (owner: enemies) ═════════════════════════════════════
+ * 값은 전부 `data/constants.csv` 의 `BURROW_*` · `SANDWORM_*` 와 `data/tables.csv` 의 `SANDWORM_*` 표. 규칙은 `src/enemies/README.md`.
+ */
+/** 플레이 중 스폰되는 버그가 땅을 파고 올라오는 시간(초). */
+export const BURROW_EMERGE_S = K.num('BURROW_EMERGE_S');
+/** 굴착 시작 때 몸 높이보다 더 묻혀 있는 깊이(m). */
+export const BURROW_SINK_EXTRA_M = K.num('BURROW_SINK_EXTRA_M');
+/** 굴착 흔들림이 나는 로컬 플레이어 거리(m). */
+export const BURROW_SHAKE_RADIUS = K.num('BURROW_SHAKE_RADIUS');
+/** 굴착 흔들림 세기. */
+export const BURROW_SHAKE_INTENSITY = K.num('BURROW_SHAKE_INTENSITY');
+/** 굴착 흔들림 사이 최소 간격(초) — 겹치지 않는다. */
+export const BURROW_SHAKE_GAP_S = K.num('BURROW_SHAKE_GAP_S');
+/** 지하벌레가 일어날 수 있는 레이드 시각 창(초, `ctx.missionTime`). */
+export const SANDWORM_WINDOW_START_S = K.num('SANDWORM_WINDOW_START_S');
+export const SANDWORM_WINDOW_END_S = K.num('SANDWORM_WINDOW_END_S');
+/** 발동 시각 뒤 조건을 다시 보는 간격(초). */
+export const SANDWORM_CHECK_S = K.num('SANDWORM_CHECK_S');
+/** 멀티에서 「같이 다닌다」 반경(m). */
+export const SANDWORM_GROUP_RADIUS = K.num('SANDWORM_GROUP_RADIUS');
+/** 전조 → 분출(초). */
+export const SANDWORM_WARN_S = K.num('SANDWORM_WARN_S');
+/** 전조 · 분출 흔들림이 느껴지는 반경(m). */
+export const SANDWORM_ALERT_RADIUS = K.num('SANDWORM_ALERT_RADIUS');
+/** 전조 흔들림 한 번의 최대 세기. */
+export const SANDWORM_SHAKE_MAX = K.num('SANDWORM_SHAKE_MAX');
+/** 분출 판정 반경(m) · 피해 · 넉백(m/s). */
+export const SANDWORM_ERUPT_RADIUS = K.num('SANDWORM_ERUPT_RADIUS');
+export const SANDWORM_ERUPT_DAMAGE = K.num('SANDWORM_ERUPT_DAMAGE');
+export const SANDWORM_ERUPT_KNOCKBACK = K.num('SANDWORM_ERUPT_KNOCKBACK');
+/** 지하벌레 최대 체력 범위 (호스트가 굴린다). */
+export const SANDWORM_HP_MIN = K.num('SANDWORM_HP_MIN');
+export const SANDWORM_HP_MAX = K.num('SANDWORM_HP_MAX');
+/** 몸통이 다 솟는 시간(초). */
+export const SANDWORM_RISE_S = K.num('SANDWORM_RISE_S');
+/** 분출 버그 무리의 링 반경(m). */
+export const SANDWORM_BURST_RING_MIN = K.num('SANDWORM_BURST_RING_MIN');
+export const SANDWORM_BURST_RING_MAX = K.num('SANDWORM_BURST_RING_MAX');
+/** 버그 뱉기 단계의 길이 · 간격(초) · 한 번의 수 · 비행 시간(초) · 착지 거리(m). */
+export const SANDWORM_SPIT_PHASE_S = K.num('SANDWORM_SPIT_PHASE_S');
+export const SANDWORM_SPIT_INTERVAL_S = K.num('SANDWORM_SPIT_INTERVAL_S');
+export const SANDWORM_SPIT_COUNT = K.num('SANDWORM_SPIT_COUNT');
+export const SANDWORM_SPIT_FLIGHT_S = K.num('SANDWORM_SPIT_FLIGHT_S');
+export const SANDWORM_SPIT_MIN_M = K.num('SANDWORM_SPIT_MIN_M');
+export const SANDWORM_SPIT_MAX_M = K.num('SANDWORM_SPIT_MAX_M');
+/** 버그를 뱉을 때의 전체 적 생존 상한. */
+export const SANDWORM_ALIVE_CAP = K.num('SANDWORM_ALIVE_CAP');
+/** 독극물 단계: 사거리(m) · 간격(초) · 한 번의 덩어리 수. */
+export const SANDWORM_ACID_RANGE = K.num('SANDWORM_ACID_RANGE');
+export const SANDWORM_ACID_INTERVAL_S = K.num('SANDWORM_ACID_INTERVAL_S');
+export const SANDWORM_ACID_VOLLEY = K.num('SANDWORM_ACID_VOLLEY');
+/** 레이드당 이벤트 확률 — index 0 = 행성 threat 1 (`data/tables.csv`). */
+export const SANDWORM_CHANCE_BY_THREAT = numberList('tables.csv', 'SANDWORM_CHANCE_BY_THREAT');
+/** 분출 버그 무리 수 — index 0 = 분대 1명. */
+export const SANDWORM_BURST_BY_SQUAD = numberList('tables.csv', 'SANDWORM_BURST_BY_SQUAD');
+/* ── end 2026-09-13 굴착 스폰 · 지하벌레 ── */

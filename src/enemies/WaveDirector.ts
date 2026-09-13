@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WAVE_SQUAD_SCALE, type EnemyType, type PlanetEcosystem } from '@/shared';
+import { BURROW_EMERGE_S, WAVE_SQUAD_SCALE, type EnemyType, type PlanetEcosystem } from '@/shared';
 import { findSpawnCenter, maxBehemothOf, spawnGroup, waveGroup, type SpawnHost } from './Spawner';
 
 export const WAVE_ALIVE_CAP = 60;
@@ -10,6 +10,9 @@ const MAX_SQUAD = 4;
 const MIN_WAVE = 2;
 
 /**
+ * **2026-09-13 — 아무도 부르지 않는다** (탈출 디펜스 제거, 사용자 결정). `EnemySystem` 이 `extraction:activated` 구독을 걷어냈고
+ * 호스트 승격도 웨이브를 다시 켜지 않는다. 클래스 · 내보내기는 계약처럼 남겨 둔다 (`EnemyManagerRef.startExtractionWaves`).
+ *
  * Extraction pressure: escalating waves every 14 s → 9 s until stopped.
  * Bugs spawn 45–90 m from the extraction target, out of every player's view, and hunt relentlessly.
  * Runs only on the authority (host / single-player); waves pause while no player is alive.
@@ -110,7 +113,7 @@ export class WaveDirector {
         if (!near || !findSpawnCenter(host, near.position, 45, 90, false, 30, this.center)) continue;
       }
       const face = host.targets.nearestAlive(this.center);
-      spawned += spawnGroup(host, slice, this.center, true, true, face ? face.position : undefined);
+      spawned += spawnGroup(host, slice, this.center, true, true, face ? face.position : undefined, BURROW_EMERGE_S);
     }
     if (spawned > 0) ctx.bus.emit('audio:play', { id: 'bug_screech', position: this.center, volume: 1, pitch: 0.8 });
     this.index++;

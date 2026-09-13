@@ -13,6 +13,7 @@ import type {
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 /* appended (2026-09-12): 아이템 회수 계약 — 스택 분류 열쇠 · 표식 병합 / 나누기 */
 import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
+import { copyMealQuality } from './MealQuality';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
 import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
@@ -89,6 +90,7 @@ export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLoc
   if (blockers.length === 0) {
     const created = sys.loot.createItem(item.defId, qty);
     copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
+    copyMealQuality(created, item);     // 2026-09-13: …and the meal quality
     if (!grid.place(created, target.x, target.y, target.rotated)) return 'fail';
     item.qty -= qty;
     srcGrid.version++;

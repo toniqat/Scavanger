@@ -1,5 +1,30 @@
-import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
+import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, MealBuff, MealDef, MealEffect, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
+/* 2026-09-13 (요리 품질 · 조리 단계): `ui/hud/ItemTip` 과 같은 요리 줄 — 그 폴더의 `hud/mealText` 는 import 할 수 없어 아래에 작게 한 벌 */
+import {
+  COOK_GAME_LABEL_KO, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, normalizeMealQuality,
+} from '@/shared';
+
+/* ── 2026-09-13: 요리 줄 포맷 (원본 규칙은 `ui/hud/mealText` — 같은 문장이어야 한다) ───────────────────────────────── */
+/** `+15 %` · `+6 kg` · `+20` — 단위는 `MEAL_BUFF_UNIT` 하나가 정한다 (`'%'` 만 100 배). */
+function mealAmountText(buff: MealBuff, amount: number): string {
+  const unit = MEAL_BUFF_UNIT[buff] ?? '';
+  const n = Math.round((unit === '%' ? amount * 100 : amount) * 10) / 10;
+  const mag = Math.abs(n);
+  return `${n < 0 ? '−' : '+'}${Number.isInteger(mag) ? String(mag) : mag.toFixed(1)}${unit ? ` ${unit}` : ''}`;
+}
+/** 요리의 능력치 줄 전부 × `(1 + mealQualityBonus(quality))` — `effects` 가 없는 옛 def 는 `buff` · `amount` 한 줄. */
+function mealEffectsFor(meal: MealDef, quality: number): MealEffect[] {
+  const list = (meal as Partial<MealDef>).effects;
+  const base: readonly MealEffect[] = Array.isArray(list) && list.length > 0 ? list : meal.buff ? [{ buff: meal.buff, amount: meal.amount }] : [];
+  const mul = 1 + mealQualityBonus(quality);
+  return base.map((e) => ({ buff: e.buff, amount: e.amount * mul }));
+}
+const COOK_STEP_MARK = ['①', '②', '③', '④', '⑤'];
+/** `① 썰기 → ② 젓기` — 조리대 요리가 아니면 빈 문자열. */
+function cookStepsLine(defId: string): string {
+  return cookStepsOf(defId).map((s, i) => `${COOK_STEP_MARK[i] ?? `${i + 1}.`} ${COOK_GAME_LABEL_KO[s.game] ?? s.game}`).join(' → ');
+}
 import {
   BOOST_ADRENALINE_DURATION_S, BOOST_STIMULANT_ADS_SPEED_MUL, BOOST_STIMULANT_AIM_SWAY_MUL, BOOST_STIMULANT_DURATION_S,
   BOOST_STIMULANT_RELOAD_SPEED_MUL, BOOST_STIMULANT_STAMINA_COST_MUL,
@@ -251,6 +276,19 @@ export class Tooltip {
           rows.push([label, `${v > 0 ? '+' : '−'}${Math.abs(v)}`, v > 0 ? 'is-bonus' : 'is-broken']);
         }
       }
+    }
+    /* 2026-09-13 (요리 품질 · 조리 단계): `ui/hud/ItemTip` 의 요리 블록과 같은 줄 — 구분 · 품질(인스턴스 품질 > 0 일 때만) · 사용 ·
+       능력치(품질 보너스 반영) · 조리 순서(조리대 요리만). 이 카드는 언제나 인스턴스를 들고 있으므로 품질은 `item.quality` 다. */
+    const meal = def.meal;
+    if (meal) {
+      const tier = def.retired ? '' : (MEAL_TIER_LABEL_KO[meal.tier] ?? '');
+      if (tier) rows.push(['구분', tier]);
+      const quality = normalizeMealQuality(item.quality);
+      if (quality > 0) rows.push(['품질', `${mealQualityStars(quality)} +${Math.round(mealQualityBonus(quality) * 100)} %`, 'is-quality']);
+      rows.push(['사용', '다음 레이드 1회분']);
+      for (const e of mealEffectsFor(meal, quality)) rows.push([MEAL_BUFF_LABEL_KO[e.buff] ?? '효과', mealAmountText(e.buff, e.amount), 'is-bonus']);
+      const steps = cookStepsLine(def.id);
+      if (steps) rows.push(['조리', steps]);
     }
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);

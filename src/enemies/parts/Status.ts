@@ -37,7 +37,7 @@ import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corps
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
-import { hurtSound } from '../model';
+import { humanoidPainSound, hurtSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
 /**
@@ -124,7 +124,7 @@ export function incinerate(sys: EnemySystem, e: Enemy, duration: number): void {
   if (!e.isIncapacitated) return;
   if (fresh) {
     sys.ctx.bus.emit('enemy:incinerated', { id: e.id, position: e.position, duration });
-    if (e.isRogue) sys.playAudio('player_hurt', e.position, 0.8, 0.9);
+    if (e.isHumanoid) { const pv = humanoidPainSound(e.type); sys.playAudio(pv.id, e.position, 0.8, pv.pitch); }   // 2026-09-13: 안드로이드 = 오작동음
     else sys.playAudio('bug_screech', e.position, 0.9, e.type === 'behemoth' ? 0.5 : e.type === 'charger' ? 0.7 : 1.35);
     _v.set(e.position.x, e.position.y + e.stats.height * 0.6, e.position.z);
     sys.emberBurst(_v, 14);

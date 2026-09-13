@@ -1,6 +1,9 @@
-import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, SocketSlot, WeaponDef, WeightState } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, RoomPurpose, SocketSlot, WeaponDef, WeightState } from '@/shared';
 import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
+
+/** 2026-09-13: English eyebrow word of the facility a bench belongs to (`TEXT.bench.eyebrow`). Wording only — no numbers. */
+const FACILITY_EYEBROW: Partial<Record<RoomPurpose, string>> = { workshop: 'WORKSHOP', lab: 'LAB', kitchen: 'KITCHEN' };
 
 export const CELL = 54;   // px — default grid cell edge (the Tab window / container grids)
 export const GAP = 2;     // px
@@ -240,7 +243,7 @@ export const TEXT = {
     title: '무한 상자',
     search: '이름으로 검색…',
     count: (n: number): string => `${n}종`,
-    hint: '드래그 → 가방 · 창고 · 슬롯에 새 아이템 생성 · 더블클릭 → 가방에 넣기',
+    /* 2026-09-13 (사용자 결정): 하단 안내 줄(`hint`)은 없앴다 — 드래그 · 더블클릭은 다른 격자와 같은 동작이다. */
     empty: '일치하는 아이템이 없습니다',
     close: '닫기',
     bagFull: '가방에 공간이 없습니다',
@@ -309,18 +312,22 @@ export const TEXT = {
    * **작업대 고르기** (2026-09-10 가로 탭 → 2026-09-12 왼쪽 세로 리스트, 사용자 결정). 작업대 **이름**의 원본은
    * `WORKBENCH_LABEL_KO`(`@/shared`) 하나이고 여기 있는 것은 `빠른제작` 라벨과 **글리프뿐**이다.
    * (같은 글리프를 `ui/hud/ShipManage` 의 시설 관리 화면도 쓴다 — 작업대를 알아보는 눈이 같아야 한다.)
-   * `all` (`전체`) 은 리스트에서 빠졌다 — 94 줄을 한 목록에 쏟는 것이 애초에 읽히지 않아 가르기 시작한 이유다.
+   * `all` (`전체`) 은 리스트에서 빠졌고 2026-09-13 에 라벨 · 글리프도 지웠다 — 94 줄을 한 목록에 쏟는 것이 애초에
+   * 읽히지 않아 가르기 시작한 이유다.
    */
   craftTabs: {
-    all: '전체',
-    /** `bench` 가 없는 레시피 = 현장 빠른제작 (함선에서도 만들 수 있다). */
+    /** `bench` 가 없는 레시피 = 현장 빠른제작 (함선에서도 만들 수 있다). 작업실 묶음의 맨 위다 (2026-09-13). */
     field: '빠른제작',
     /** 작업대 글리프의 원본은 `shared` 의 `WORKBENCH_ICON` 이다 — 가구 카드(`ui/hud/ShipManage`)와 같은 글자여야 한다. */
-    icon: { all: '▦', field: '✥', ...WORKBENCH_ICON } as Readonly<Record<string, string>>,
+    icon: { field: '✥', ...WORKBENCH_ICON } as Readonly<Record<string, string>>,
   },
   /* Phase 6: 작업실 bench crafting */
   bench: {
-    eyebrow: 'WORKSHOP BENCH',
+    /**
+     * 2026-09-13: 머리의 영문 줄은 작업대가 속한 **시설**이다 (`ui/CraftPanel.benchFacility` — `data/furniture.csv` 의
+     * `room`). 예전에는 어느 작업대든 `WORKSHOP BENCH` 였다. 모르는 시설은 방 용도 id 를 그대로 대문자로 쓴다.
+     */
+    eyebrow: (facility: RoomPurpose): string => `${FACILITY_EYEBROW[facility] ?? facility.toUpperCase()} BENCH`,
     level: (n: number): string => `Lv.${n}`,
     lockedLevel: (n: number): string => `작업대 Lv.${n} 필요`,
     discount: (pct: number): string => `작업실 할인 −${pct} %`,

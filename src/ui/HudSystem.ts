@@ -161,7 +161,7 @@ export class HudSystem implements GameSystem {
   private comms!: CommsWheel;
   /** 2026-09-09: 환경 재해 경고 (배너 · 안전지대 게이지 · 화면 가장자리). */
   private hazard!: HazardHud;
-  /** 2026-09-09: 새 랜드마크 발견 · 로그 강하 예고 토스트 (DOM 없음 — `ui:notify` 로만 나간다). */
+  /** 2026-09-09: 새 랜드마크 발견 · 레이더 강하(옛 로그 강하) 예고 토스트 (DOM 없음 — `ui:notify` 로만 나간다). */
   private raidAlerts = new RaidAlerts();
   private strat!: StratagemPanel;
   /** 2026-09-09: 구조선 대상 선택 화면 (자기 스스로 `ctx.stratagems` 를 보고 뜬다). */

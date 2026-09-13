@@ -727,9 +727,14 @@ try {
       stage: !!document.querySelector('.cv-tray.sell .cv-stage'),
       // 구매 / 판매 트레이는 5칸 격자, 칸 크기는 가방 / 창고와 같다 (인벤토리의 `.inv-cells` 를 그대로 쓴다)
       trayCols: getComputedStyle(document.querySelector('.cv-tray.buy .inv-cells')).gridTemplateColumns.split(' ').length,
-      cellPx: cw('.cv-shop .inv-cell'), bagCell: getComputedStyle(document.querySelector('.cv-col.inv .trade-grids')).getPropertyValue('--inv-cell').trim(),
-      // 재고 타일은 아이템 발자국 크기다 (w × 56 − 2)
-      sizes: tiles.slice(0, 6).map((t) => { const d = window.__game.ctx.loot.getItemDef(t.dataset.defId); return { w: Math.round(t.getBoundingClientRect().width), want: d.width * 56 - 2 }; }),
+      // 2026-09-13: 칸 크기는 창 폭에 맞춘 값(40 px, 좁으면 32 px 까지 — 호스트의 `data-cv-cell`)이고 재고 · 트레이 · 창고 · 가방이 모두 그 값이다
+      fit: Number(document.querySelector('.inv-screen.corp-view')?.dataset.cvCell ?? 0),
+      cellPx: cw('.cv-shop .inv-cell'), bagCell: getComputedStyle(document.querySelector('.cv-inv.bag .trade-grids')).getPropertyValue('--inv-cell').trim(),
+      stashCell: getComputedStyle(document.querySelector('.cv-inv.stash .trade-grids')).getPropertyValue('--inv-cell').trim(),
+      // 함선 창고 · 가방은 서로 다른 카드이고 카드마다 격자 하나 (좌 → 우: 창고 · 가방)
+      invCards: [...document.querySelectorAll('.cv > .cv-card.cv-inv')].map((c) => `${c.dataset.cvGrid}:${c.querySelectorAll('[data-tg-grid]').length}`).join(','),
+      // 재고 타일은 아이템 발자국 크기다 (w × (칸 + 2) − 2)
+      sizes: tiles.slice(0, 6).map((t) => { const d = window.__game.ctx.loot.getItemDef(t.dataset.defId); const c = Number(document.querySelector('.inv-screen.corp-view')?.dataset.cvCell ?? 0); return { w: Math.round(t.getBoundingClientRect().width), want: d.width * (c + 2) - 2 }; }),
       // 배양조 관 모양(54×76 · 아래가 둥글다)이 아니다 — housing.css 의 `.ct-cell` 과 더 이상 이름이 겹치지 않는다
       tube: !!document.querySelector('.corp-view .ct-cell'), radius: first ? getComputedStyle(first).borderBottomLeftRadius : null,
       // 셰브런: 구매 트레이 머리 끝 = 오른쪽 셋, 판매 트레이 머리 처음 = 왼쪽 셋. 거래 후 크레딧 라벨은 없다
@@ -743,8 +748,9 @@ try {
   ok(shopDom.tips === shopDom.rows, `모든 재고 타일이 인벤토리 타일 + 호버 카드 갈고리 (${shopDom.tips}/${shopDom.rows})`);
   ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+$/.test(t ?? '')),
     `재고 타일 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
-  ok(shopDom.trayCols === 5 && shopDom.cellPx === 54 && shopDom.bagCell === '54px',
-    `구매/판매 트레이가 5칸, 재고·가방·창고가 같은 칸 크기 (${shopDom.trayCols}칸 / ${shopDom.cellPx}px / ${shopDom.bagCell})`);
+  ok(shopDom.trayCols === 5 && shopDom.fit >= 32 && shopDom.fit <= 40 && shopDom.cellPx === shopDom.fit
+    && shopDom.bagCell === `${shopDom.fit}px` && shopDom.stashCell === `${shopDom.fit}px` && shopDom.invCards === 'stash:1,bag:1',
+    `구매/판매 트레이가 5칸, 재고·창고·가방이 창 폭에 맞춘 같은 칸 크기, 함선 창고 · 가방은 따로인 카드 (${shopDom.trayCols}칸 / ${shopDom.fit} → ${shopDom.cellPx}px / ${shopDom.stashCell} / ${shopDom.bagCell} / ${shopDom.invCards})`);
   ok(shopDom.sizes.length > 0 && shopDom.sizes.every((s) => s.w === s.want) && !shopDom.tube && shopDom.radius === '3px',
     '재고 타일이 발자국 크기의 인벤토리 타일이다 (배양조 관 모양 아님)', JSON.stringify({ sizes: shopDom.sizes, tube: shopDom.tube, radius: shopDom.radius }));
   ok(shopDom.buyChev === 3 && shopDom.sellChev === 3 && !/거래 후 크레딧/.test(shopDom.totalLabel) && !shopDom.hints,

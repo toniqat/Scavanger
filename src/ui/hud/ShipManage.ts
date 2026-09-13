@@ -2,7 +2,7 @@ import type { CraftIngredient, FacilityRequirement, FurnitureDef, FurnitureModel
 import {
   COCKPIT_ROOM_INDEX, FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, Keys, renderItemCost, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSES_ASSIGNABLE,
   ROOM_PURPOSE_BUILD_GENERATOR_LEVEL, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, UI_HOLD_CONFIRM_S,
-  WORKBENCH_ICON, buildFacilityChip, buildItemChip, isUtilityFurniture,
+  WORKBENCH_ICON, buildFacilityChip, buildItemChip, isCockpitOnlyFurniture, isUtilityFurniture,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
@@ -53,6 +53,11 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
      배양조 `⚗`(증류기 — 「무언가가 안에서 자란다」). 둘 다 위의 어떤 글자와도 겹치지 않는 유니코드 한 글자다. */
   bench_cook: WORKBENCH_ICON.cook, bench_print: WORKBENCH_ICON.print,
   dining_table: '⊞', culture_tank: '⚗',
+  /* 2026-09-13 (요리 미니게임): 자동 조리 가구 4종. 리드 임시 글자는 넷 다 바꿨다 — `⊚` 는 레코드랙과 겹쳤고, `▦` · `⩡` 는 조리대 화면의
+     단계 칩 글리프(`COOK_GAME_ICON` 굽기 · 붓기)와 같아 「가구」 와 「단계」 가 한 글자로 읽혔다(자동 그릴은 볶기도 한다). `⊗` 는 「닫힘」 으로 읽혔다.
+     푸드 프로세서 `⌽`(칼날 축이 선 둥근 볼) · 자동 그릴 `≋`(달아오른 열선) · 자동 교반기 `⚲`(아래로 내린 교반 날개) · 계량 디스펜서 `⛛`(깔때기).
+     넷 다 위 · 아래의 어떤 글자와도 겹치지 않는 유니코드 한 글자다 (외부 에셋 금지). */
+  food_processor: '⌽', auto_grill: '≋', auto_stirrer: '⚲', pour_dispenser: '⛛',
   /* 2026-09-12 (사용자 결정): 조종석의 고정 설비였던 둘이 공용 시설 가구가 됐다 — 시술대 `⚕`(의료) · 컴퓨터 `⌨`(키보드),
      둘 다 위의 어떤 글자와도 겹치지 않는다. */
   implant_bay: '⚕', corp_computer: '⌨',
@@ -63,6 +68,8 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
      `═` 은 아무것으로도 안 읽혔고 `⊘` 는 「금지」로 읽혔다. 벤치 랙 `╤`(기둥 위 바벨) · 스미스 머신 `╫`(두 레일을 가로지르는
      바) · 트레드밀 `▱`(기울어진 벨트 판) · 사이클 `⚯`(프레임으로 이어진 두 바퀴). 넷 다 위의 어떤 글자와도 겹치지 않는다. */
   bench_rack: '╤', smith_machine: '╫', treadmill: '▱', exercise_bike: '⚯',
+  /* 2026-09-13: 조종석의 고정 소품이던 서랍장 — `☷`(서랍 세 칸). 위의 어떤 글자와도 겹치지 않는다. */
+  drawer: '☷',
 };
 
 /**
@@ -218,6 +225,8 @@ export class ShipManage {
   private inspectName: HTMLElement;
   private inspectLv: HTMLElement;
   private inspectDesc: HTMLElement;
+  /** 2026-09-13: the 조종석 전용 시설 line (shown only for `isCockpitOnlyFurniture` pieces). */
+  private inspectLock: HTMLElement;
   /* 2026-09-12: 하단 업그레이드 구역 — `업그레이드 비용` · 재료 + 시설 레벨 칩 · `업그레이드` */
   private inspectCost: HTMLElement;
   private inspectBtn: HTMLButtonElement;
@@ -341,6 +350,9 @@ export class ShipManage {
     ix.title = '닫기';
     ix.addEventListener('click', (e) => { e.stopPropagation(); this.setInspect(null, true); });
     this.inspectDesc = el('div', { cls: 'sm-ins-desc', text: '', parent: this.inspectEl });
+    /* 2026-09-13 (사용자 결정): 조종석 전용 시설(시술대 · 컴퓨터)에는 회수 · 제거가 없다 — 카드가 그렇다고 한 줄로 말한다 */
+    this.inspectLock = el('div', { cls: 'sm-ins-desc sm-ins-lock', text: '조종석 전용 시설 — 조종석 안에서만 옮길 수 있고, 회수 · 제거할 수 없습니다.', parent: this.inspectEl });
+    this.inspectLock.hidden = true;
     /* 2026-09-12 (사용자 결정): `위치 이동` 버튼은 없어졌고(E · LMB 꾹 누르기가 한다) 카드 하단이 **업그레이드 구역**이다 —
        맨 좌측 `업그레이드 비용` · 재료 칩 + 시설 레벨 칩 · 맨 우측 `업그레이드`. */
     const upsec = el('div', { cls: 'sm-ins-upsec', parent: this.inspectEl });
@@ -740,6 +752,7 @@ export class ShipManage {
     setText(this.inspectName, def.name);
     setText(this.inspectLv, `Lv.${piece.level} / ${def.maxLevel}`);
     setText(this.inspectDesc, def.description);
+    this.inspectLock.hidden = !isCockpitOnlyFurniture(def);
 
     // 2026-09-12 (사용자 결정): 하단 업그레이드 구역 — 재료 칩 + 채워지지 않은 시설 레벨 칩, 우측 `업그레이드`.
     // 막혀 있어도 버튼은 눌린다(딤드 + `aria-disabled`) — 누르면 인스펙터 위 토스트가 이유를 말한다.

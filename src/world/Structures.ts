@@ -158,6 +158,14 @@ export class Structures {
     return this.navs;
   }
 
+  /**
+   * 2026-09-13: 구조물 `id` 의 건물 안내, 없으면 null. **거점 스폰 자리**(`SiteSpawns` — `WorldRef.getSiteSpawnPoints`)가
+   * 정문 안쪽 · 층 높이 · 잠긴 방 사각형을 읽는다. 월드의 충돌 · 표면 판정은 여전히 이것을 보지 않는다.
+   */
+  navOf(id: string): StructureNav | null {
+    return this.navs.find((n) => n.id === id)?.nav ?? null;
+  }
+
   /** 2026-09-12 (C): 이 묶음의 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
   previewContainerItems(id: string): ItemInstance[] | null { return this.containers.preview(id); }
 

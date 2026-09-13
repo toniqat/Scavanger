@@ -62,6 +62,18 @@
 }
 .bfs-t:empty, .bfs.is-mini .bfs-t { display: none; }
 
+/* 2026-09-13 (요리 품질): 요리 썸네일 좌상단의 작은 별 배지 — `data-q` = `★3`. 미니(분대원 행)는 숫자 없이 별 하나.
+   DOM 을 늘리지 않으려고 `::after` 로 그린다 (시간 글자 `.bfs-t` 는 우하단이라 겹치지 않는다). */
+.bfs-cell[data-q]::after {
+  content: attr(data-q);
+  position: absolute; left: 1px; top: 0;
+  font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -0.5px;
+  color: #ffd24a;
+  text-shadow: 0 0 3px #000, 0 1px 1px #000;
+  pointer-events: none;
+}
+.bfs.is-mini .bfs-cell[data-q]::after { content: '★'; font-size: 6px; left: 0; }
+
 /* 함선에서 다음 레이드에 실어 둔 것 — 흐리게, 출격하면 선명해진다 */
 .bfs-cell.is-pending { opacity: 0.42; }
 .bfs-cell.is-pending .bfs-face.lit { filter: saturate(0.35); }

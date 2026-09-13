@@ -3,6 +3,7 @@ import type { GameContext, KeyGuideEntry } from '@/shared';
 import {
   FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, HOUSING_MOVE_HOLD_S, Keys, MouseButtons, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel, roomGridSize,
 } from '@/shared';
+import { COCKPIT_ONLY_RECOVER_REASON, isCockpitOnlyFurniture } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_DEPTH, roomBox, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
@@ -311,11 +312,13 @@ export class HousingMode {
   private guideKeys(): KeyGuideEntry[] {
     if (this.manage) {
       if (this.moving) {
-        return [
+        const keys: KeyGuideEntry[] = [
           { key: keyLabel(Keys.FIRE), label: '설치' },
           { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
-          { key: keyLabel(Keys.DROP_ITEM), label: '회수' },
         ];
+        // 2026-09-13: 조종석 전용 시설(시술대 · 컴퓨터)은 회수할 수 없다 — 키 가이드에도 `회수` 가 없다
+        if (!this.carry || !isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(this.carry.defId))) keys.push({ key: keyLabel(Keys.DROP_ITEM), label: '회수' });
+        return keys;
       }
       // 2026-09-12: 위치 이동 = E **또는** LMB 꾹 (키 가이드가 두 키캡 사이에 `또는` 을 그린다)
       return this.selectedUid ? [{ key: keyLabel(Keys.INTERACT), label: '위치 이동', alt: [{ key: keyLabel(Keys.FIRE), hold: true }] }] : [];
@@ -332,7 +335,8 @@ export class HousingMode {
   /** Emit the guide when its content changed (`force` = re-send anyway, e.g. after a rebind). */
   private emitGuide(force = false): void {
     const keys = this.guideKeys();
-    const key = keys.map((k) => `${k.key}:${k.label}:${(k.alt ?? []).map((a) => `${a.key}${a.hold ? '⌄' : ''}`).join('/')}`).join('|');
+    const key = keys.map((k) => `${k.key}:${k.label}:${(k.alt ?? []).map((a) => `${a.key}${a.hold ? '⌄' : ''}`).join('/')}`).join('|')
+      + (this.carry ? `#${this.carry.defId}` : '');
     if (!force && key === this.guideKey) return;
     this.guideKey = key;
     this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys });
@@ -394,6 +398,7 @@ export class HousingMode {
       this.disposeGhost();
       this.frame.visible = false;
       this.ship?.setGridVisible(false);        // 2026-09-12: the floor grid is a 시설 관리 overlay
+      this.ship?.setCockpitCeilingHidden(false);   // 2026-09-13: the cockpit ceiling fades back in
       this.guideKey = '';
       this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: null });
       const p = this.ctx.player;
@@ -445,6 +450,8 @@ export class HousingMode {
     const ctx = this.ctx, input = ctx.input;
     const housing = ctx.housing;
     if (ctx.phase !== 'hub' || !this.ship) { this.clearSoftInput(); this.exit(); return; }
+    // 2026-09-13 (사용자 결정): 시설 관리가 열려 있는 내내(어느 방을 골랐든) 조종석 천장이 흐려진다 — `deactivate` 가 되돌린다
+    this.ship.setCockpitCeilingHidden(this.manage);
     this.glideCamera(dt);
     if (this.blockedByPanel()) { this.clearSoftInput(); return; }   // a DOM panel (console / housing menu) has the input
 
@@ -730,7 +737,9 @@ export class HousingMode {
     const defId = this.selection().defId;
     const def = defId ? FURNITURE_DEF_MAP.get(defId) : undefined;
     const purpose = this.ctx.housing?.getRoom(this.room)?.purpose;
-    if (def && purpose && def.room !== 'any' && def.room !== purpose) return `${ROOM_PURPOSE_LABEL_KO[def.room]} 전용 가구입니다`;
+    if (def && purpose && def.room !== 'any' && def.room !== purpose) {
+      return isCockpitOnlyFurniture(def) ? '조종석 전용 시설입니다' : `${ROOM_PURPOSE_LABEL_KO[def.room]} 전용 가구입니다`;
+    }
     return '설치할 수 없는 곳입니다';
   }
 
@@ -797,6 +806,14 @@ export class HousingMode {
     if (this.manage && !this.carry) { this.cancelSelection(); return; }
     const uid = this.carry?.uid ?? this.layer?.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null;
     if (!uid) return;
+    // 2026-09-13 (사용자 결정): 조종석 전용 시설은 가구 창고로 돌아가지 않는다 — 들고 있던 것은 그대로 들고, 이유는 인스펙터 위 토스트
+    const piece = typeof housing.getPlacedByUid === 'function' ? housing.getPlacedByUid(uid) : null;
+    if (piece && isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(piece.defId))) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      if (this.manage) this.ctx.bus.emit('housing:placeRefused', { reason: COCKPIT_ONLY_RECOVER_REASON });
+      else this.ctx.bus.emit('ui:notify', { text: COCKPIT_ONLY_RECOVER_REASON, kind: 'warning' });
+      return;
+    }
     const ok = housing.recover(uid);
     if (ok && this.carry) { this.carry = null; this.announceSelection(); }
     this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });

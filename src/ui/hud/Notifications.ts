@@ -1,8 +1,12 @@
 import type { GameContext } from '@/shared';
 import { CONTRACT_DEFS, Keys, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
-import { el, escapeHtml, rarityColor } from '../dom';
+/* 2026-09-13 (요리 재료 티어): 분석 도감 · 분석 레벨업 토스트 */
+import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/shared';
+/* 2026-09-13 (요리 미니게임): 조리 결과 · 식탁 품질 토스트 */
+import { cookStepsOf, mealQualityStars, normalizeMealQuality } from '@/shared';
 /* 2026-09-13 (탈출 개편): 자동 출발 · 출발 유예 문구 */
 import { EXTRACTION_AUTO_DEPART_IDLE_S, EXTRACTION_DEPART_GRACE_S } from '@/shared';
+import { el, escapeHtml, rarityColor } from '../dom';
 /* 2026-09-11 (B-3): 초대 결과 토스트 */
 import type { SocialErrorCode } from '@/shared';
 import { SOCIAL_ERROR_MESSAGE_KO, SOCIAL_INVITE_OUTCOME_KO } from '@/shared';
@@ -24,6 +28,14 @@ function inviteFailWhy(code: SocialErrorCode | undefined): string {
   return text ? ` <span style="color:var(--c-text-dim)">(${escapeHtml(text)})</span>` : '';
 }
 import { stratagemDef } from './stratagemGlyphs';
+
+/** 2026-09-13 (요리 품질): 별 글자 색 — 툴팁 품질 줄 · 버프 썸네일 별 배지와 같은 금색. */
+const STAR_COLOR = '#ffd24a';
+/** ` ★★★☆☆` (앞 공백 포함, 금색 span). 품질 0 이면 빈 문자열. */
+function starsHtml(quality: unknown): string {
+  const q = normalizeMealQuality(quality);
+  return q > 0 ? ` <span style="color:${STAR_COLOR}">${mealQualityStars(q)}</span>` : '';
+}
 
 type Kind = 'info' | 'warning' | 'danger' | 'success';
 const MAX_VISIBLE = 6;
@@ -104,13 +116,59 @@ export class Notifications {
        * 토스트와 같은 규약(2026-09-11 B-12: 「토스트의 유일한 주인은 ui/」). housing · net 은 이벤트만 낸다.
        * 게이트가 없는 것은 일부러다: 차려 준 사람은 공유 함선에 있고 받는 사람도 그 함선에 있다.
        */
-      b.on('housing:mealServed', ({ defId, by }) => {
+      b.on('housing:mealServed', ({ defId, by, quality }) => {
         const def = ctx.loot?.getItemDef(defId);
         const name = def?.name ?? defId;
+        // 2026-09-13 (요리 품질): 차린 요리의 별 (0 이면 생략)
         this.push(
-          `<b>${escapeHtml(by || '분대원')}</b> 님이 <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(name)}</b> 을(를) 차렸습니다`,
+          `<b>${escapeHtml(by || '분대원')}</b> 님이 <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(name)}</b>${starsHtml(quality)} 을(를) 차렸습니다`,
           'success', '식탁', 4,
         );
+      }),
+      /*
+       * 2026-09-13 (요리 미니게임, `docs/plans/cooking-minigames.md` §6-5): 조리 한 번의 결과. housing 은 이벤트만 내고 토스트는 여기 하나다
+       * (위 식탁 줄과 같은 규약). 성공 = `<요리> ★★★★☆ → 함선 창고|가방`, 실패 = `result.reason` 경고. 같은 순간의 `craft:completed` 는
+       * 아래에서 조리대 요리면 토스트를 내지 않는다 — 이 줄이 대신한다 (`inventory:itemAdded` 획득 티커는 일반 제작과 같이 그대로 뜬다).
+       */
+      b.on('housing:cookResult', ({ result }) => {
+        if (!result) return;
+        const def = ctx.loot?.getItemDef(result.mealDefId);
+        const name = `<b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? result.mealDefId)}</b>`;
+        if (result.itemUid && result.landed && !result.reason) {
+          const where = result.landed === 'stash' ? '함선 창고' : '가방';
+          const stars = `<span style="color:${STAR_COLOR}">${mealQualityStars(result.quality)}</span>`;
+          this.push(`${name} ${stars} <span style="color:var(--c-text-dim)">→ ${where}</span>`, 'success', '요리', 4);
+        } else {
+          this.push(`${name} — ${escapeHtml(result.reason || '요리를 만들지 못했습니다')}`, 'warning', '요리', 4);
+        }
+      }),
+      /*
+       * 2026-09-13 (요리 재료 티어, `docs/plans/food-tiers.md` §6): 분석기의 두 알림. housing 은 이벤트만 내고 토스트는 여기 하나다
+       * (위 식탁 줄과 같은 규약). 옛 `housing:sampleDexAdded`(표본 도감) 는 더 나지 않고 ui 에 소비자도 없었다.
+       *  - `analysisFound` — 분석 도감에 **처음** 적힌 산출물.
+       *  - `analysisLevelUp` — 계열 레벨이 오른 순간: 그 레벨의 해석 시간 배수(`analysisTimeMul`) + 이번 레벨에서 **새로 풀린** 결과
+       *    (`ANALYSIS_RESULTS` 중 같은 계열 · `minLevel === level` · 가중치 > 0 · 은퇴 아닌 것, 이름은 `ctx.loot.getItemDef`).
+       */
+      b.on('housing:analysisFound', ({ defId }) => {
+        const def = ctx.loot?.getItemDef(defId);
+        this.push(
+          `분석 도감 — <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b> 발견`,
+          'success', '분석', 4,
+        );
+      }),
+      b.on('housing:analysisLevelUp', ({ family, level }) => {
+        const fam = SAMPLE_FAMILY_LABEL_KO[family] ?? family;
+        const mul = Math.round(analysisTimeMul(level) * 100) / 100;
+        const names: string[] = [];
+        for (const r of ANALYSIS_RESULTS) {
+          if (r.family !== family || r.minLevel !== level || !(r.weight > 0)) continue;
+          const def = ctx.loot?.getItemDef(r.defId);
+          if (def?.retired) continue;
+          const name = def?.name ?? r.defId;
+          if (!names.includes(name)) names.push(name);
+        }
+        const fresh = names.length > 0 ? ` · 새 결과: <b>${names.map((n) => escapeHtml(n)).join(', ')}</b>` : '';
+        this.push(`<b>${escapeHtml(fam)} 분석 Lv.${level}</b> — 해석 시간 ×${mul}${fresh}`, 'success', '분석', 5);
       }),
       b.on('pickup:taken', ({ item, byLocal, byName }) => {
         if (byLocal) return;
@@ -235,6 +293,9 @@ export class Notifications {
       /* ── Phase 12: continuous-use item (회복 스프레이) — ONE line for the whole channel, updated in place ── */
       b.on('item:channelChanged', ({ defId, active, gauge }) => this.setChannel(ctx, defId, active, gauge)),
       b.on('craft:completed', ({ item }) => {
+        // 2026-09-13 (요리 미니게임): 조리대 요리는 `housing:cookResult` 토스트가 대신한다 — 조리대 레시피는 일반 제작 경로에서 빠졌으므로
+        // 산출물에 조리 단계가 있으면 곧 `completeCook` 이 낸 이벤트다
+        if (cookStepsOf(item.defId).length > 0) return;
         const def = ctx.loot?.getItemDef(item.defId);
         const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
         this.push(`제작 완료: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? item.defId)}</b>${qty}`, 'success', '제작', 3);

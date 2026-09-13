@@ -15,7 +15,9 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart, type RogueShotOpts } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
+import { ENEMY_INCENDIARY, ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
+import { ENEMY_GRENADE_KINDS, type EnemyGrenadeKind } from '@/shared';
+import { humanoidProfile } from '../ai/HumanoidProfile';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -60,16 +62,22 @@ export function emberBurst(sys: EnemySystem, position: THREE.Vector3, count: num
 const _acidTo = new THREE.Vector3();
 
 /* ── Phase 7: rogue grenades ───────────────────────────────────────────── */
-/** Authority: lob a grenade from the rogue's off hand onto `target` (feet), `ee grenade` to the others. */
+/**
+ * Authority: lob a grenade from the rogue's off hand onto `target` (feet), `ee grenade` to the others.
+ * 2026-09-13: the grenade is **real inventory** — refused while `e.grenadeCount` is 0, and a successful toss spends one
+ * (what is left goes to the corpse, `ee corpse.gc`). The kind is `e.grenadeKind` (`ee grenade.k`, omitted = frag) and the
+ * landing scatter is the faction's `grenadeScatter` (±m; raiders throw tighter than rogues).
+ */
 export function throwGrenade(sys: EnemySystem, e: Enemy, target: THREE.Vector3): boolean {
   const ctx = sys.ctx;
   const world = ctx.world;
-  if (!world || !sys.grenades || !sys.authority) return false;
+  if (!world || !sys.grenades || !sys.authority || e.grenadeCount <= 0) return false;
   // launch point: off-hand height, a little ahead of the body
   e.facing(_m).multiplyScalar(e.stats.radius * 0.8);
   _m.add(e.position); _m.y += e.stats.height * 0.78;
+  const scatter = humanoidProfile(e).grenadeScatter;
   _aim.copy(target);
-  _aim.x += (Math.random() - 0.5) * 2; _aim.z += (Math.random() - 0.5) * 2;
+  _aim.x += (Math.random() - 0.5) * 2 * scatter; _aim.z += (Math.random() - 0.5) * 2 * scatter;
   if (!world.isInsideBounds(_aim.x, _aim.z)) _aim.copy(target);
   _aim.y = world.getHeightAt(_aim.x, _aim.z);
   const dist = Math.hypot(_aim.x - _m.x, _aim.z - _m.z);
@@ -78,10 +86,18 @@ export function throwGrenade(sys: EnemySystem, e: Enemy, target: THREE.Vector3):
   // a rock right in front of the hand would bounce the grenade back onto the thrower: refuse (the AI retries elsewhere)
   _v.copy(_dir).normalize();
   if (world.raycast(_m, _v, 2.5) !== null) return false;
-  if (!sys.grenades.throw(e.id, _m, _dir, ROGUE_GRENADE_FUSE, true)) return false;
+  const kind = e.grenadeKind;
+  if (!sys.grenades.throw(e.id, _m, _dir, ROGUE_GRENADE_FUSE, true, kind, e.faction)) return false;
+  e.grenadeCount = Math.max(0, e.grenadeCount - 1);
   sys.grenadesThrown++;
   sys.playAudio('grenade_throw', e.position, 0.7, 0.95);
-  if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'grenade', id: e.id, p: tuple(_m, 2), v: tuple(_dir, 2), fuse: ROGUE_GRENADE_FUSE }, 'others');
+  if (sys.hosting) {
+    const k = Math.max(0, ENEMY_GRENADE_KINDS.indexOf(kind));
+    const msg: EnemyEvent = k > 0
+      ? { t: 'ee', ev: 'grenade', id: e.id, p: tuple(_m, 2), v: tuple(_dir, 2), fuse: ROGUE_GRENADE_FUSE, k }
+      : { t: 'ee', ev: 'grenade', id: e.id, p: tuple(_m, 2), v: tuple(_dir, 2), fuse: ROGUE_GRENADE_FUSE };
+    ctx.net!.send(msg, 'others');
+  }
   return true;
   }
 
@@ -90,34 +106,87 @@ export function throwGrenade(sys: EnemySystem, e: Enemy, target: THREE.Vector3):
  * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with linear falloff over ROGUE_GRENADE_RADIUS to every alive player
  * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
  * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
+ * 2026-09-13: `kind` — an incendiary is a small blast (`ENEMY_INCENDIARY.blastDamage` / `blastRadius`, no knockback);
+ * its fire zone was lit by `RogueGrenades` and burns through `onFireZoneTick`. The spared faction is the **thrower's**
+ * (was hard-coded `'rogue'`, so a raider's grenade would have hurt raiders). `ee grenadeHit.k` carries the kind.
  */
-export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority: boolean, owner: number): void {
+export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority: boolean, owner: number, kind: EnemyGrenadeKind = 'frag'): void {
   const ctx = sys.ctx;
   sys.grenadesExploded++;
   sys.lastGrenadeBlast.copy(p);
+  const fire = kind === 'incendiary';
+  const radius = fire ? ENEMY_INCENDIARY.blastRadius : ROGUE_GRENADE_RADIUS;
+  const damage = fire ? ENEMY_INCENDIARY.blastDamage : ROGUE_GRENADE_DAMAGE;
   if (authority && sys.authority) {
     const thrower = sys.byId.get(owner);
     const type: EnemyType = thrower?.type ?? 'rogue';
     const players = sys.targets.alive;
-    const reach = ROGUE_GRENADE_RADIUS + PLAYER_RADIUS;
+    const reach = radius + PLAYER_RADIUS;
     for (let i = 0; i < players.length; i++) {
       const t = players[i];
       _c.set(t.position.x, t.position.y + PLAYER_HEIGHT * 0.5, t.position.z);
       const d = _c.distanceTo(p);
       if (d >= reach) continue;
-      const falloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / ROGUE_GRENADE_RADIUS, 0.1, 1);
+      const falloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / radius, 0.1, 1);
+      if (fire) { sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.5 * falloff, false); continue; }
       _kb.subVectors(_c, p); _kb.y = Math.max(_kb.y, 0) + 0.35;
       if (_kb.lengthSq() < 1e-4) _kb.set(0, 1, 0); else _kb.normalize();
-      sys.applyDamage(t, ROGUE_GRENADE_DAMAGE * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
+      sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
     }
-    sys.explode(p, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_DAMAGE, 'ai', null, null, 'rogue');
-    ctx.drones?.applyExplosion(p, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_DAMAGE);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
+    sys.explode(p, radius, damage, 'ai', null, null, thrower?.faction ?? 'rogue');
+    ctx.drones?.applyExplosion(p, radius, damage);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
     sys.alertHearing(p, GRENADE_NOISE);
-    if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'grenadeHit', p: tuple(p, 2) }, 'others');
+    if (sys.hosting) {
+      const k = Math.max(0, ENEMY_GRENADE_KINDS.indexOf(kind));
+      ctx.net!.send(k > 0 ? { t: 'ee', ev: 'grenadeHit', p: tuple(p, 2), k } : { t: 'ee', ev: 'grenadeHit', p: tuple(p, 2) }, 'others');
+    }
   }
-  sys.playAudio('explosion', p, 0.9, 1.15);
+  sys.playAudio('explosion', p, fire ? 0.7 : 0.9, fire ? 1.35 : 1.15);
   const dl = sys.targets.distToLocal(p);
-  if (dl < 30) ctx.bus.emit('camera:shake', { intensity: 0.7 * (1 - dl / 30), duration: 0.35 });
+  const shake = fire ? 0.4 : 0.7;
+  if (dl < 30) ctx.bus.emit('camera:shake', { intensity: shake * (1 - dl / 30), duration: 0.35 });
+  }
+
+/** A body this far above / below a fire zone's centre is on another floor and does not burn (m, geometry — not balance). */
+const FIRE_ZONE_HEIGHT = 2.5;
+
+/**
+ * 2026-09-13 (`GrenadeHost.onFireZoneTick`, authority only): an enemy incendiary's fire zone burns for `tick` seconds.
+ * - **players** inside `radius` (+ body): the local one gets `PlayerRef.setBurning(ENEMY_INCENDIARY.dps, afterburn)` —
+ *   the same DoT a player-made fire zone uses (grit save suppressed, `player:burning`); a remote one a quiet `dmg` tick
+ *   through `applyDamage` (no `ee attack`), a suspended one `ghost:damage` — the same routing as every other enemy hit.
+ * - **enemies not of `faction`**: the burning status (`burnDps` / `burnTimer`), credited to `'ai'` unless a player
+ *   already lit it — so an enemy's fire never hands a player a kill.
+ * Drones are not touched (a fire on the ground does not reach a flying body; a ground drone is not aggroable anyway).
+ */
+export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: number, owner: number, faction: EnemyFaction, tick: number): void {
+  if (!sys.authority) return;
+  const dps = ENEMY_INCENDIARY.dps;
+  if (!(dps > 0) || !(tick > 0)) return;
+  const ctx = sys.ctx;
+  const type: EnemyType = sys.byId.get(owner)?.type ?? 'rogue';
+  const players = sys.targets.alive;
+  for (let i = 0; i < players.length; i++) {
+    const t = players[i];
+    const dx = t.position.x - p.x, dz = t.position.z - p.z;
+    const reach = radius + PLAYER_RADIUS;
+    if (dx * dx + dz * dz > reach * reach || Math.abs(t.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
+    if (t.isLocal) {
+      const pl = ctx.player;
+      if (pl && !pl.isDead && typeof pl.setBurning === 'function') pl.setBurning(dps, ENEMY_INCENDIARY.afterburn);
+    } else sys.applyDamage(t, dps * tick, p, owner, type, null, 0, false);
+  }
+  for (let i = 0; i < sys.active.length; i++) {
+    const e = sys.active[i];
+    if (!e.isCombatant || e.faction === faction) continue;
+    const dx = e.position.x - p.x, dz = e.position.z - p.z;
+    const reach = radius + e.stats.radius;
+    if (dx * dx + dz * dz > reach * reach || Math.abs(e.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
+    e.burnDps = Math.max(e.burnDps, dps);
+    e.burnTimer = Math.max(e.burnTimer, ENEMY_INCENDIARY.afterburn);
+    if (e.burnTick <= 0) e.burnTick = BURN_TICK;
+    if (e.burnAttacker === null) e.burnAttacker = 'ai';
+  }
   }
 
 export function fireAcid(sys: EnemySystem, from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void {

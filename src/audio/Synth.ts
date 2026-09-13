@@ -1588,6 +1588,260 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.48, dur: 0.06, gain: 0.035, filter: { type: 'bandpass', f0: 2000 * p, q: 1.5 } });
     return 0.56;
   },
+
+  /* ── 안드로이드 (2026-09-13) — 연구소 · 전진기지의 백색 로봇. 살이 아니라 외피 · 서보 · 전원이다 ────────── */
+  /**
+   * 피격: 속이 빈 외피를 친 금속음 — 날카로운 클릭 + 900 Hz 대의 짧은 공명(두 배음이 살짝 어긋나 "통" 소리) +
+   * 둔한 저음 한 번 + 튀는 스파크 틱. `hit_flesh` 자리에 온다(`enemies/model.hurtSound`). ≈0.26 s.
+   */
+  android_hit: (s, d, t, p) => {
+    const q = p * r(0.93, 1.07);
+    s.click(d, t, 2300 * q, 0.2, 0.025);
+    s.tone(d, { type: 'triangle', f0: 920 * q, f1: 860 * q, t0: t, dur: 0.24, gain: 0.09 });
+    s.tone(d, { type: 'sine', f0: 1370 * q, f1: 1310 * q, t0: t, dur: 0.16, gain: 0.05 });
+    s.tone(d, { type: 'sine', f0: 190 * q, f1: 90, t0: t, dur: 0.08, gain: 0.3 });
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.22, filter: { type: 'bandpass', f0: 2600 * q, f1: 1400 * q, q: 1.2 } });
+    for (let i = 0; i < 2; i++) {
+      s.noise(d, { t0: t + r(0.03, 0.14), dur: r(0.006, 0.014), gain: r(0.05, 0.09), filter: { type: 'highpass', f0: r(3500, 6500) } });
+    }
+    return 0.26;
+  },
+  /**
+   * 사망 = 전원 차단: 전기 지직 한 번 → 서보 모터가 느려지며 1 kHz 에서 40 Hz 로 가라앉는 톱니파(로우패스) +
+   * 꺼져 가는 사인 험 + 몸이 땅에 부딪는 금속 쿵 두 번(외피 · 팔다리). ≈1.3 s.
+   */
+  android_death: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.12, gain: 0.28, filter: { type: 'bandpass', f0: 3200 * p, q: 2 } });
+    s.tone(d, { type: 'sawtooth', f0: 1000 * p, f1: 40 * p, t0: t + 0.02, dur: 1.05, gain: 0.1, lp: 1800, vibratoHz: 22, vibratoDepth: 30 });
+    s.tone(d, { type: 'sine', f0: 240 * p, f1: 55 * p, t0: t, dur: 0.95, gain: 0.22 });
+    for (let i = 0; i < 4; i++) s.click(d, t + 0.05 + i * 0.07 + r(0, 0.03), r(1800, 3600) * p, 0.07 * (1 - i / 5), 0.015);
+    s.tone(d, { type: 'sine', f0: 150 * p, f1: 50, t0: t + 0.78, dur: 0.18, gain: 0.5 });
+    s.noise(d, { t0: t + 0.78, dur: 0.14, gain: 0.3, filter: { type: 'lowpass', f0: 1400 * p, f1: 200, q: 0.7 } });
+    s.tone(d, { type: 'triangle', f0: 640 * p, f1: 600 * p, t0: t + 0.78, dur: 0.3, gain: 0.05 });
+    s.click(d, t + 0.97, 1200 * p, 0.12, 0.03);
+    return 1.3;
+  },
+  /** 한 걸음의 서보: 좁은 대역의 짧은 모터 윙(위로 살짝 휜다) + 작은 금속 틱. 재질 발소리 위에 겹친다. ≈0.1 s. */
+  android_step: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.tone(d, { type: 'sawtooth', f0: 520 * q, f1: 700 * q, t0: t, dur: 0.08, gain: 0.03, attack: 0.01, lp: 1600 });
+    s.noise(d, { t0: t, dur: 0.07, gain: 0.04, filter: { type: 'bandpass', f0: 1800 * q, f1: 2400 * q, q: 4 } });
+    s.click(d, t + 0.05, 2600 * q, 0.05, 0.012);
+    return 0.1;
+  },
+  /** 전소(불타며 몸부림) = 비명 대신 오작동: 끊기는 사각파 경고음 3개 + 전기 잡음. ≈0.5 s. */
+  android_glitch: (s, d, t, p) => {
+    for (let i = 0; i < 3; i++) {
+      const f = [1480, 1110, 1660][i] * p;
+      s.tone(d, { type: 'square', f0: f, f1: f * 0.94, t0: t + i * 0.12 + r(0, 0.02), dur: 0.07, gain: 0.05, lp: 3200 });
+    }
+    s.noise(d, { t0: t, dur: 0.45, gain: 0.12, filter: { type: 'bandpass', f0: 2800 * p, f1: 1200 * p, q: 1.5 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 90 * p, t0: t, dur: 0.4, gain: 0.05, lp: 700, vibratoHz: 40, vibratoDepth: 20 });
+    return 0.5;
+  },
+
+  /* ══ appended (2026-09-13): 버그 굴착 스폰 · 지하벌레 — `enemies/` 가 위치와 함께 `audio:play` 로 부른다 ══════════════
+   * 거리 곡선은 `AudioSystem.RANGED_SOUNDS` (전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정해서 floor 를 갖는다).
+   */
+  /** 버그 한 마리가 흙을 헤치고 올라온다: 짧은 흙 무너짐 알갱이 + 낮은 쿵 + 긁는 소리. 일부러 작다. ≈0.55 s. */
+  burrow_emerge: (s, d, t, p) => {
+    const q = p * r(0.92, 1.08);
+    s.tone(d, { type: 'sine', f0: 95 * q, f1: 42 * q, t0: t, dur: 0.28, gain: 0.3 });
+    for (let i = 0; i < 5; i++) {
+      s.noise(d, { t0: t + i * 0.06 + r(0, 0.03), dur: 0.09, gain: 0.07, attack: 0.006, filter: { type: 'bandpass', f0: r(380, 900) * q, q: 1.4 } });
+    }
+    s.noise(d, { t0: t + 0.05, dur: 0.45, gain: 0.08, attack: 0.05, filter: { type: 'lowpass', f0: 700 * q, f1: 180, q: 0.7 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.12, dur: 0.3, gain: 0.03, attack: 0.08, filter: { type: 'bandpass', f0: 1600 * q, f1: 2600 * q, q: 3 } });
+    return 0.58;
+  },
+  /** 지하벌레 전조 땅울림: 서브 저음이 5초 동안 부풀고, 갈리는 흙 · 암반 균열이 점점 잦아진다. ≈5.3 s. */
+  sandworm_rumble: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 26 * p, f1: 42 * p, t0: t, dur: 5.3, gain: 0.55, attack: 4.2, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 38 * p, f1: 55 * p, t0: t + 0.5, dur: 4.8, gain: 0.08, attack: 3.8, lp: 160, vibratoHz: 7, vibratoDepth: 30, decayCurve: 'lin' });
+    s.noise(d, { t0: t, dur: 5.3, gain: 0.35, attack: 4.4, filter: { type: 'lowpass', f0: 110, f1: 420, q: 0.8 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 1.2, dur: 4.1, gain: 0.08, attack: 3.2, filter: { type: 'bandpass', f0: 700 * p, f1: 1300 * p, q: 1.2 }, decayCurve: 'lin' });
+    for (let i = 0; i < 9; i++) {
+      const at = t + 1 + 4 * Math.sqrt((i + r(0, 0.6)) / 9);
+      s.noise(d, { t0: at, dur: 0.12, gain: 0.05 + 0.05 * (i / 9), filter: { type: 'bandpass', f0: r(900, 2200) * p, q: 2 } });
+      s.tone(d, { type: 'sine', f0: r(60, 90) * p, f1: 35 * p, t0: at, dur: 0.2, gain: 0.08 + 0.1 * (i / 9) });
+    }
+    return 5.4;
+  },
+  /** 분출: 대지가 찢어지는 서브 충격 + 흙 · 암반 폭발 + 쏟아지는 파편 + 긴 꼬리. ≈2.4 s. */
+  sandworm_erupt: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 72 * p, f1: 18, t0: t, dur: 1.6, gain: 1.2 });
+    s.noise(d, { t0: t, dur: 1.1, gain: 1.0, filter: { type: 'lowpass', f0: 2400, f1: 90, q: 0.6 } });
+    s.noise(d, { t0: t + 0.02, dur: 0.35, gain: 0.35, filter: { type: 'bandpass', f0: 1400 * p, f1: 300, q: 0.9 } });
+    for (let i = 0; i < 12; i++) s.click(d, t + 0.15 + r(0, 1.2), r(700, 2400) * p, r(0.06, 0.16), r(0.03, 0.07));
+    s.tail(d, t + 0.1, 2.3, 0.22, 900, 60);
+    return 2.5;
+  },
+  /** 지하벌레 포효: 디튠 saw 둘이 내려앉는 목울림 + 거친 대역 잡음 + 쉭쉭대는 고역. ≈2.4 s. */
+  sandworm_roar: (s, d, t, p) => {
+    const t0 = t + 0.18;
+    s.tone(d, { type: 'sawtooth', f0: 110 * p, f1: 58 * p, t0, dur: 2.2, gain: 0.16, attack: 0.25, lp: 900, vibratoHz: 11, vibratoDepth: 45, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 116 * p, f1: 61 * p, t0, dur: 2.1, gain: 0.12, attack: 0.3, lp: 700, detune: 18, vibratoHz: 6, vibratoDepth: 30, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 55 * p, f1: 30 * p, t0, dur: 2.2, gain: 0.35, attack: 0.3, decayCurve: 'lin' });
+    s.noise(d, { t0, dur: 2.1, gain: 0.22, attack: 0.3, filter: { type: 'bandpass', f0: 480 * p, f1: 260 * p, q: 1.1 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t0 + 0.1, dur: 1.6, gain: 0.06, attack: 0.4, filter: { type: 'highpass', f0: 3200, q: 0.7 }, decayCurve: 'lin' });
+    return 2.5;
+  },
+  /** 입에서 무언가를 뱉는다: 목구멍이 꿀렁이는 젖은 소리 → 퍽 하고 튀어나감. 독극물은 피치를 올려 부른다. ≈0.7 s. */
+  sandworm_spit: (s, d, t, p) => {
+    for (let i = 0; i < 4; i++) {
+      s.noise(d, { t0: t + i * 0.07, dur: 0.1, gain: 0.12, attack: 0.02, filter: { type: 'bandpass', f0: (320 + i * 110) * p, q: 3.5 } });
+    }
+    s.tone(d, { type: 'sine', f0: 160 * p, f1: 60 * p, t0: t + 0.3, dur: 0.22, gain: 0.45 });
+    s.noise(d, { t0: t + 0.3, dur: 0.35, gain: 0.3, filter: { type: 'bandpass', f0: 900 * p, f1: 2400 * p, q: 1.1 } });
+    s.noise(d, { t0: t + 0.34, dur: 0.3, gain: 0.08, filter: { type: 'highpass', f0: 2600, q: 0.6 }, decayCurve: 'lin' });
+    return 0.72;
+  },
+  /** 지하벌레 사망: 길게 꺼지는 목울림 + 굴로 무너져 내리는 흙더미. ≈3.2 s. */
+  sandworm_death: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 96 * p, f1: 32 * p, t0: t, dur: 2.4, gain: 0.14, attack: 0.1, lp: 650, vibratoHz: 5, vibratoDepth: 60, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 48 * p, f1: 20, t0: t + 0.2, dur: 2.8, gain: 0.5, attack: 0.3, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.6, dur: 2.4, gain: 0.45, attack: 0.5, filter: { type: 'lowpass', f0: 900, f1: 90, q: 0.7 }, decayCurve: 'lin' });
+    for (let i = 0; i < 8; i++) s.click(d, t + 0.8 + r(0, 1.8), r(500, 1500) * p, r(0.05, 0.12), 0.05);
+    return 3.3;
+  },
+
+  /* ══ appended (2026-09-13): 요리 미니게임 — `housing/ui/cook/CookScreen` · `parts/Cooking` 이 `audio:play {id}` 로 부른다 ════════
+   * 조리대 앞 UI 소리라 `RANGED_SOUNDS` 에 넣지 않는다 (위치 없이 오면 늘 같은 크기 — 헬스장 `gym_*` 와 같은 규약). 입력마다 · 누르는 동안
+   * 주기적으로 불리는 것(`cook_chop` · `cook_mince` · `cook_stir` · `cook_toss`)은 짧고 작게, 무작위 피치로 반복감이 덜하게 만들었다. */
+
+  /** 조리 시작 — 가스레인지 점화 딸깍 두 번 + 불꽃이 붙는 부드러운 훅 + 오르는 두 음. ≈0.55 s. */
+  cook_start: (s, d, t, p) => {
+    s.click(d, t, 2400 * p, 0.07, 0.015);
+    s.click(d, t + 0.07, 2600 * p, 0.06, 0.015);
+    s.noise(d, { t0: t + 0.1, dur: 0.32, gain: 0.07, attack: 0.03, filter: { type: 'bandpass', f0: 500 * p, f1: 900 * p, q: 0.8 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'triangle', f0: 523 * p, t0: t + 0.14, dur: 0.14, gain: 0.1, lp: 2800 });
+    s.tone(d, { type: 'triangle', f0: 784 * p, t0: t + 0.27, dur: 0.26, gain: 0.11, lp: 3000 });
+    return 0.56;
+  },
+  /** 썰기 — 나무 도마에 칼이 닿는 탁: 짧은 중역 노크 + 나무 몸통 + 칼날의 아주 짧은 고역. ≈0.09 s. */
+  cook_chop: (s, d, t, p) => {
+    const q = p * r(0.93, 1.07);
+    s.noise(d, { t0: t, dur: 0.035, gain: 0.2, filter: { type: 'bandpass', f0: 1150 * q, f1: 700 * q, q: 1.6 } });
+    s.tone(d, { type: 'sine', f0: 240 * q, f1: 150 * q, t0: t, dur: 0.07, gain: 0.16 });
+    s.tone(d, { type: 'triangle', f0: 620 * q, f1: 560 * q, t0: t, dur: 0.04, gain: 0.03 });
+    s.noise(d, { t0: t, dur: 0.008, gain: 0.05, filter: { type: 'highpass', f0: 5200 * q } });
+    return 0.09;
+  },
+  /** 다지기 — 썰기보다 더 짧고 가볍고 높은 탁 (연타해도 뭉개지지 않게). ≈0.05 s. */
+  cook_mince: (s, d, t, p) => {
+    const q = p * r(0.9, 1.12);
+    s.noise(d, { t0: t, dur: 0.022, gain: 0.15, filter: { type: 'bandpass', f0: 1500 * q, f1: 1000 * q, q: 1.8 } });
+    s.tone(d, { type: 'sine', f0: 300 * q, f1: 200 * q, t0: t, dur: 0.04, gain: 0.1 });
+    return 0.05;
+  },
+  /** 굽기 시작 — 재료가 달군 철판에 닿는 치익 → 지글지글 (밴드패스 노이즈 + 무작위 기름 튀는 틱). ≈1.2 s. */
+  cook_sizzle: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.18, gain: 0.16, attack: 0.004, filter: { type: 'highpass', f0: 2600 * p, q: 0.6 } });
+    s.noise(d, { t0: t + 0.05, dur: 1.15, gain: 0.08, attack: 0.05, filter: { type: 'bandpass', f0: 4200 * p, f1: 3000 * p, q: 0.7 }, decayCurve: 'lin' });
+    for (let i = 0; i < 14; i++) {
+      s.noise(d, { t0: t + 0.08 + r(0, 1.05), dur: r(0.004, 0.01), gain: r(0.03, 0.08), filter: { type: 'bandpass', f0: r(3000, 7000) * p, q: 3 } });
+    }
+    return 1.22;
+  },
+  /** 뒤집기 — 뒤집개가 철판을 긁는 짧은 쇳소리 + 조각이 떨어지는 작은 철썩 + 다시 치익. ≈0.4 s. */
+  cook_flip: (s, d, t, p) => {
+    const q = p * r(0.95, 1.05);
+    s.noise(d, { t0: t, dur: 0.07, gain: 0.08, filter: { type: 'bandpass', f0: 2200 * q, f1: 3200 * q, q: 3 } });
+    s.tone(d, { type: 'triangle', f0: 1480 * q, f1: 1380 * q, t0: t, dur: 0.06, gain: 0.025 });
+    s.tone(d, { type: 'sine', f0: 170 * q, f1: 90, t0: t + 0.12, dur: 0.06, gain: 0.12 });
+    s.noise(d, { t0: t + 0.12, dur: 0.05, gain: 0.1, filter: { type: 'lowpass', f0: 1400 * q, q: 0.7 } });
+    s.noise(d, { t0: t + 0.14, dur: 0.26, gain: 0.07, attack: 0.01, filter: { type: 'highpass', f0: 3000 * q, q: 0.6 }, decayCurve: 'lin' });
+    return 0.42;
+  },
+  /** 꺼내기 — 조각을 들어 올리는 짧은 긁힘 + 접시에 놓는 도자기 딸깍. ≈0.3 s. */
+  cook_remove: (s, d, t, p) => {
+    const q = p * r(0.95, 1.05);
+    s.noise(d, { t0: t, dur: 0.06, gain: 0.06, filter: { type: 'bandpass', f0: 2600 * q, f1: 1800 * q, q: 2.5 } });
+    s.click(d, t + 0.14, 3200 * q, 0.06, 0.012);
+    s.tone(d, { type: 'sine', f0: 2100 * q, t0: t + 0.14, dur: 0.12, gain: 0.03 });
+    s.tone(d, { type: 'sine', f0: 3150 * q, t0: t + 0.14, dur: 0.08, gain: 0.015 });
+    return 0.3;
+  },
+  /** 탔다 — 치익 하고 꺼지는 연기 + 낮게 꺾이는 둔한 음 (실패음보다 불쾌하지 않게). ≈0.6 s. */
+  cook_burn: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.5, gain: 0.1, attack: 0.02, filter: { type: 'bandpass', f0: 1800 * p, f1: 500 * p, q: 0.8 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'triangle', f0: 233 * p, f1: 147 * p, t0: t + 0.05, dur: 0.4, gain: 0.1, lp: 1000 });
+    s.tone(d, { type: 'sine', f0: 90 * p, f1: 55, t0: t + 0.05, dur: 0.2, gain: 0.1 });
+    return 0.6;
+  },
+  /** 볶기 — 팬을 튕기는 금속 덜컹 + 재료가 떨어지며 지글. ≈0.3 s. */
+  cook_toss: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.click(d, t, 1700 * q, 0.07, 0.02);
+    s.tone(d, { type: 'triangle', f0: 880 * q, f1: 820 * q, t0: t, dur: 0.12, gain: 0.03 });
+    s.tone(d, { type: 'sine', f0: 140 * q, f1: 80, t0: t, dur: 0.05, gain: 0.1 });
+    s.noise(d, { t0: t + 0.08, dur: 0.22, gain: 0.07, attack: 0.01, filter: { type: 'bandpass', f0: 3800 * q, f1: 2800 * q, q: 0.7 }, decayCurve: 'lin' });
+    return 0.3;
+  },
+  /** 젓기 — 국자가 냄비 바닥을 긁는 짧은 소리 (누르는 동안 주기적으로 불린다 — 일부러 작다). ≈0.22 s. */
+  cook_stir: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    s.noise(d, { t0: t, dur: 0.2, gain: 0.05, attack: 0.04, filter: { type: 'bandpass', f0: 900 * q, f1: 1400 * q, q: 2.2 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 180 * q, f1: 150 * q, t0: t + 0.02, dur: 0.16, gain: 0.03, attack: 0.03, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.06, dur: 0.012, gain: 0.02, filter: { type: 'bandpass', f0: 600 * q, q: 4 } });
+    return 0.22;
+  },
+  /** 붓기 — 졸졸: 좁은 밴드패스 알갱이(물방울 공명)가 흔들리며 이어지고 그 밑에 부드러운 흐름 잡음. ≈0.7 s. */
+  cook_pour: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.66, gain: 0.05, attack: 0.06, filter: { type: 'bandpass', f0: 1100 * p, f1: 800 * p, q: 1.2 }, decayCurve: 'lin' });
+    for (let i = 0; i < 12; i++) {
+      const at = t + 0.03 + i * 0.05 + r(0, 0.02);
+      const f = r(500, 1100) * p;
+      s.tone(d, { type: 'sine', f0: f, f1: f * r(1.3, 1.8), t0: at, dur: 0.035, gain: r(0.02, 0.045), attack: 0.004 });
+    }
+    return 0.7;
+  },
+  /** 판정 완벽 — 주방 타이머 같은 맑은 벨 두 음 (헬스장 `gym_perfect` 보다 둥글다). ≈0.36 s. */
+  cook_perfect: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1568 * p, t0: t, dur: 0.2, gain: 0.12, attack: 0.003 });
+    s.tone(d, { type: 'sine', f0: 2349 * p, t0: t + 0.06, dur: 0.3, gain: 0.1, attack: 0.003 });
+    s.tone(d, { type: 'sine', f0: 4698 * p, t0: t + 0.06, dur: 0.1, gain: 0.015 });
+    return 0.36;
+  },
+  /** 판정 좋음 — 가운데 높이의 짧은 나무 블록 톡. ≈0.16 s. */
+  cook_good: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 988 * p, t0: t, dur: 0.12, gain: 0.1, lp: 2600 });
+    s.noise(d, { t0: t, dur: 0.02, gain: 0.05, filter: { type: 'bandpass', f0: 2000 * p, q: 3 } });
+    return 0.16;
+  },
+  /** 판정 실패 — 낮게 꺾이는 둔한 음 (버저가 아니라 「앗」). ≈0.26 s. */
+  cook_miss: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 247 * p, f1: 165 * p, t0: t, dur: 0.22, gain: 0.11, lp: 1100 });
+    s.noise(d, { t0: t, dur: 0.08, gain: 0.05, filter: { type: 'lowpass', f0: 600 * p, f1: 200, q: 0.7 } });
+    return 0.26;
+  },
+  /** 단계 끝 — 다음 단계로 넘어가는 가벼운 세 음 계단. ≈0.42 s. */
+  cook_step: (s, d, t, p) => {
+    [659, 784, 988].forEach((f, i) => {
+      s.tone(d, { type: 'triangle', f0: f * p, t0: t + i * 0.08, dur: i === 2 ? 0.22 : 0.1, gain: 0.09, lp: 3000 });
+    });
+    return 0.42;
+  },
+  /** 자동 처리 — 기계가 도는 윙: 스핀업 → 유지 → 스핀다운하는 톱니파 + 모터 잡음 + 끝의 딸깍. ≈1.1 s. */
+  cook_auto: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 90 * p, f1: 240 * p, t0: t, dur: 0.35, gain: 0.04, attack: 0.08, lp: 1200 });
+    s.tone(d, { type: 'sawtooth', f0: 240 * p, t0: t + 0.3, dur: 0.5, gain: 0.04, lp: 1400, vibratoHz: 18, vibratoDepth: 12, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 240 * p, f1: 80 * p, t0: t + 0.75, dur: 0.3, gain: 0.03, lp: 1000 });
+    s.noise(d, { t0: t + 0.05, dur: 0.95, gain: 0.04, attack: 0.1, filter: { type: 'bandpass', f0: 1600 * p, q: 1.1 }, decayCurve: 'lin' });
+    s.click(d, t + 1.02, 2000 * p, 0.06, 0.015);
+    return 1.1;
+  },
+  /** 요리 완성 — 접시를 내려놓는 도자기 딸깍 + 벨 + 오르는 네 음 아르페지오. ≈1.0 s. */
+  cook_finish: (s, d, t, p) => {
+    s.click(d, t, 3000 * p, 0.07, 0.015);
+    s.tone(d, { type: 'sine', f0: 2093 * p, t0: t, dur: 0.18, gain: 0.04 });
+    const notes = [587, 740, 880, 1175];
+    notes.forEach((f, i) => {
+      s.tone(d, { type: 'sine', f0: f * p, t0: t + 0.14 + i * 0.1, dur: i === 3 ? 0.6 : 0.2, gain: 0.1 });
+      s.tone(d, { type: 'triangle', f0: f * 2 * p, t0: t + 0.14 + i * 0.1, dur: 0.1, gain: 0.018 });
+    });
+    return 1.0;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

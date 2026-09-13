@@ -1,19 +1,29 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Layers, ROGUE_BOSS_SCALE } from '@/shared';
 import { statusEmissive, type BugAnim } from './BugModel';
 import { decorateNamedRig, disposeNamedRig } from './named';
+import {
+  HIP_Y, SHIN, THIGH, box, colorize, eyeMaterial, grenadeGeometry, grenadeMaterial, limb, merge,
+  type GlowPart, type HumanoidAssets,
+} from './HumanoidParts';
+import { buildAndroid, buildRaider } from './FactionLooks';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Procedural humanoid rig for the rogue gunners (Phase 4). Root at the feet, +Z = facing, 1.8 m tall at scale 1.
  * The boss shares every geometry and is scaled by ROGUE_BOSS_SCALE through `root.scale` (see `baseScale`), with a
  * left shoulder pauldron and a red visor. Vertex-coloured like the bugs; one cloned `chitin` material per rig for the
  * hit flash, one `eyeMat` for the visor glow.
+ *
+ * 2026-09-13: 안드로이드 · 레이더는 **같은 리그**에 다른 외피를 매단다 (`FactionLooks`). 부품 도구와 자산 모양은
+ * `HumanoidParts` 에 있다. 외피가 발광 부품(관절 링 · 안테나 끝)을 더 가지면 `HumanoidAssets.glow` 로 오고,
+ * 여기서 그 그룹에 `eyeMat` 메시로 붙는다 — 사망 때 바이저와 함께 꺼진다. 광원은 없다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type RogueType = 'rogue' | 'rogue_boss'
   /* appended (2026-09-11): 네임드 3종 + 스캔 드론(임시 — 자기 리그가 생기면 빠진다) */
-  | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone';
+  | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone'
+  /* appended (2026-09-13): 안드로이드 · 레이더 — 같은 휴머노이드 리그, 외피만 다르다 */
+  | 'android' | 'raider';
 
 export interface RogueRigParams {
   head: { r: number; y: number; z: number };
@@ -41,11 +51,9 @@ export interface RogueRig {
   eyeMat: THREE.MeshStandardMaterial;
   /** 2026-09-11: 네임드 로그 · 스캔 드론의 부품과 그 상태 (`models/named/*` 가 종류별 객체를 건다). 일반 로그는 undefined. */
   named?: unknown;
+  /** 2026-09-13: 살아 있는 동안의 `eyeMat.emissiveIntensity` (외피마다 다르다 — 로그 2.2). */
+  eyeGlow?: number;
 }
-
-const HIP_Y = 0.95;
-const THIGH = 0.45;
-const SHIN = 0.5;
 
 export const ROGUE_RIG_PARAMS: Record<RogueType, RogueRigParams> = {
   rogue: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.5 },
@@ -55,10 +63,14 @@ export const ROGUE_RIG_PARAMS: Record<RogueType, RogueRigParams> = {
   rogue_hammer: { head: { r: 0.18, y: 1.86, z: 0.02 }, strideLength: 1.7 },
   rogue_heavy: { head: { r: 0.18, y: 1.78, z: 0.02 }, strideLength: 1.6 },
   rogue_scan_drone: { head: { r: 0.2, y: 0.2, z: 0 }, strideLength: 1 },
+  /* 2026-09-13: 머리 판정은 로그와 같다(히트박스는 `data/enemies.csv` 가 같은 치수). 안드로이드는 보폭이 짧고 반듯하다. */
+  android: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.4 },
+  raider: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.55 },
 };
 
 interface Palette { armor: number; cloth: number; accent: number; metal: number; visor: number; skin: number }
-const PALETTES: Record<RogueType, Palette> = {
+/** 로그 계열(로그 · 그룹장 · 네임드)의 팔레트. 안드로이드 · 레이더는 `FactionLooks` 가 자기 색을 갖는다. */
+const PALETTES: Record<Exclude<RogueType, 'android' | 'raider'>, Palette> = {
   rogue: { armor: 0x3b3f36, cloth: 0x26262a, accent: 0xc8641e, metal: 0x55575a, visor: 0x40d0ff, skin: 0x8a6a52 },
   rogue_boss: { armor: 0x2e2a30, cloth: 0x1e1c22, accent: 0xb02020, metal: 0x4a4650, visor: 0xff3030, skin: 0x7a5a48 },
   rogue_sniper: { armor: 0x4a4636, cloth: 0x2e2c22, accent: 0x9a8a50, metal: 0x3e3e3a, visor: 0xffb040, skin: 0x7a5e48 },
@@ -67,58 +79,10 @@ const PALETTES: Record<RogueType, Palette> = {
   rogue_scan_drone: { armor: 0x3a3e44, cloth: 0x22262a, accent: 0xff3030, metal: 0x5a5e64, visor: 0xff3030, skin: 0x3a3e44 },
 };
 
-interface Assets {
-  pelvis: THREE.BufferGeometry;
-  chest: THREE.BufferGeometry;
-  head: THREE.BufferGeometry;
-  visor: THREE.BufferGeometry;
-  gunArms: THREE.BufferGeometry;
-  thigh: THREE.BufferGeometry;
-  shin: THREE.BufferGeometry;
-  grenade: THREE.BufferGeometry;
-  chitin: THREE.MeshStandardMaterial;
-  eye: THREE.MeshStandardMaterial;
-  grenadeMat: THREE.MeshStandardMaterial;
-}
-const assets = new Map<RogueType, Assets>();
-const tmpColor = new THREE.Color();
-const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
+const ROGUE_EYE_GLOW = 2.2;
+const assets = new Map<RogueType, HumanoidAssets>();
 
-function colorize(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
-  tmpColor.setHex(hex);
-  const n = geo.attributes.position.count;
-  const arr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { arr[i * 3] = tmpColor.r; arr[i * 3 + 1] = tmpColor.g; arr[i * 3 + 2] = tmpColor.b; }
-  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
-  return geo;
-}
-function box(w: number, h: number, d: number, x: number, y: number, z: number, hex: number): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
-  g.translate(x, y, z);
-  return colorize(g, hex);
-}
-/** Cylinder from `a` to `b`. */
-function limb(ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number, hex: number): THREE.BufferGeometry {
-  _a.set(ax, ay, az); _b.set(bx, by, bz);
-  const len = _a.distanceTo(_b);
-  const g = new THREE.CylinderGeometry(r * 0.85, r, len, 7, 1);
-  g.translate(0, len / 2, 0);
-  const dir = _b.clone().sub(_a).normalize();
-  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  g.applyQuaternion(q);
-  g.translate(ax, ay, az);
-  return colorize(g, hex);
-}
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const m = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
-  if (!m) throw new Error('[enemies] rogue mergeGeometries failed');
-  m.computeBoundingSphere();
-  return m;
-}
-
-function build(type: RogueType): Assets {
+function buildRogue(type: Exclude<RogueType, 'android' | 'raider'>): HumanoidAssets {
   const c = PALETTES[type];
   const boss = type === 'rogue_boss';
   // pelvis + belt (relative to the hip pivot)
@@ -167,16 +131,23 @@ function build(type: RogueType): Assets {
   ]);
   const thigh = merge([limb(0, 0, 0, 0, -THIGH, 0, 0.075, c.cloth), box(0.14, 0.2, 0.08, 0, -0.2, 0.06, c.armor)]);
   const shin = merge([limb(0, 0, 0, 0, -SHIN, 0, 0.06, c.cloth), box(0.12, 0.14, 0.12, 0, -SHIN + 0.07, 0.03, c.armor), box(0.13, 0.08, 0.26, 0, -SHIN + 0.04, 0.05, c.metal)]);
-  const grenade = new THREE.SphereGeometry(0.075, 10, 8);
   return {
-    pelvis, chest, head, visor, gunArms, thigh, shin, grenade,
+    pelvis, chest, head, visor, gunArms, thigh, shin, grenade: grenadeGeometry(),
+    glow: {},
     chitin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.15, emissive: 0x000000 }),
-    eye: new THREE.MeshStandardMaterial({ color: 0x050505, emissive: c.visor, emissiveIntensity: 2.2, roughness: 0.2 }),
-    grenadeMat: new THREE.MeshStandardMaterial({ color: 0x2a2e26, emissive: 0xc83a1a, emissiveIntensity: 0.8, roughness: 0.5, metalness: 0.4 }),
+    eye: eyeMaterial(c.visor, ROGUE_EYE_GLOW),
+    grenadeMat: grenadeMaterial(),
+    eyeGlow: ROGUE_EYE_GLOW,
   };
 }
 
-function getAssets(type: RogueType): Assets {
+function build(type: RogueType): HumanoidAssets {
+  if (type === 'android') return buildAndroid();
+  if (type === 'raider') return buildRaider();
+  return buildRogue(type);
+}
+
+function getAssets(type: RogueType): HumanoidAssets {
   let a = assets.get(type);
   if (!a) { a = build(type); assets.set(type, a); }
   return a;
@@ -185,6 +156,7 @@ function getAssets(type: RogueType): Assets {
 export function disposeRogueAssets(): void {
   for (const a of assets.values()) {
     a.pelvis.dispose(); a.chest.dispose(); a.head.dispose(); a.visor.dispose(); a.gunArms.dispose(); a.thigh.dispose(); a.shin.dispose(); a.grenade.dispose();
+    for (const g of Object.values(a.glow)) g?.dispose();
     a.chitin.dispose(); a.eye.dispose(); a.grenadeMat.dispose();
   }
   assets.clear();
@@ -200,6 +172,14 @@ export function createRogueRig(type: RogueType): RogueRig {
     x.layers.enable(Layers.ENEMY);
     return x;
   };
+  /** 외피의 발광 부품 (있을 때만) — 작아서 그림자를 떨구지 않는다. */
+  const glow = (part: GlowPart, parent: THREE.Object3D): void => {
+    const g = a.glow[part];
+    if (!g) return;
+    const x = mesh(g, eyeMat);
+    x.castShadow = false;
+    parent.add(x);
+  };
 
   const root = new THREE.Group();
   root.name = `rogue_${type}`;
@@ -207,11 +187,13 @@ export function createRogueRig(type: RogueType): RogueRig {
   body.position.y = HIP_Y;
   root.add(body);
   body.add(mesh(a.pelvis));
+  glow('pelvis', body);
 
   const torso = new THREE.Group();
   torso.position.y = 0.1;
   body.add(torso);
   torso.add(mesh(a.chest));
+  glow('chest', torso);
 
   const head = new THREE.Group();
   head.position.set(0, 0.61 + 0.14, 0.02);
@@ -222,6 +204,7 @@ export function createRogueRig(type: RogueType): RogueRig {
   gun.position.set(0.23, 0.5, 0.06);
   gun.rotation.x = 0.6;
   gun.add(mesh(a.gunArms));
+  glow('gunArms', gun);
   const muzzle = new THREE.Object3D();
   muzzle.position.set(-0.1, -0.13, 1.1);
   gun.add(muzzle);
@@ -239,9 +222,11 @@ export function createRogueRig(type: RogueType): RogueRig {
     const hip = new THREE.Group();
     hip.position.set(side * 0.13, -0.08, 0);
     hip.add(mesh(a.thigh));
+    glow('thigh', hip);
     const knee = new THREE.Group();
     knee.position.y = -THIGH;
     knee.add(mesh(a.shin));
+    glow('shin', knee);
     hip.add(knee);
     body.add(hip);
     legs.push({ hip, knee, side });
@@ -249,7 +234,10 @@ export function createRogueRig(type: RogueType): RogueRig {
 
   const baseScale = type === 'rogue_boss' ? ROGUE_BOSS_SCALE : 1;
   root.scale.setScalar(baseScale);
-  const rig: RogueRig = { kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, grenade, legs, chitin, eyeMat };
+  const rig: RogueRig = {
+    kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, grenade, legs, chitin, eyeMat,
+    eyeGlow: a.eyeGlow,
+  };
   decorateNamedRig(rig);   // 2026-09-11: 네임드 로그 · 스캔 드론 부품 (일반 로그 · 보스는 아무것도 붙지 않는다)
   return rig;
 }
@@ -340,8 +328,9 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
     g.scale.setScalar(s);
   } else if (g.visible) g.visible = false;
 
-  // hit flash / 전소 glow / shock spark / visor
+  // hit flash / 전소 glow / shock spark / visor (+ 외피의 발광 부품 — 같은 eyeMat)
   statusEmissive(rig.chitin, a, 1, 0.6, 0.35, 1.1);
-  if (dying) rig.eyeMat.emissiveIntensity = 2.2 * (1 - smooth(Math.min(1, a.death / 0.4)));
-  else if (rig.eyeMat.emissiveIntensity !== 2.2) rig.eyeMat.emissiveIntensity = 2.2;
+  const eyeGlow = rig.eyeGlow ?? ROGUE_EYE_GLOW;
+  if (dying) rig.eyeMat.emissiveIntensity = eyeGlow * (1 - smooth(Math.min(1, a.death / 0.4)));
+  else if (rig.eyeMat.emissiveIntensity !== eyeGlow) rig.eyeMat.emissiveIntensity = eyeGlow;
 }

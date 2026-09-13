@@ -82,7 +82,10 @@ export interface SoldierPose {
    */
   furniture?: number;
   furnitureKind?: FurniturePoseKind | null;
-  /** `bench`: 0 = bar on the chest … 1 = arms locked out; `cycle`: crank turn 0..1 (0 = left pedal on top). */
+  /**
+   * `bench`: 0 = bar on the chest … 1 = arms locked out; `cycle`: crank turn 0..1 (0 = left pedal on top);
+   * `cook` (2026-09-13): hand-motion cycle 0..1 (0 = knife up / away, 0.5 = on the board / toward the body).
+   */
   furniturePhase?: number;
 }
 
@@ -138,6 +141,22 @@ export const FURN_BENCH = {
 export const FURN_CYCLE = {
   hipsY: 0.11, hipPitch: -0.12, torsoLean: -0.36,
   crankY: -0.6, crankZ: -0.25, crankR: 0.16, pedalX: 0.13, gripX: 0.22, gripY: 0.14, gripZ: -0.5,
+} as const;
+/**
+ * 조리대 앞 (2026-09-13, 요리 미니게임): anchor = 조리대 앞 **바닥**(서는 자리 — 발바닥이 anchor 높이), 루트 앞(−Z) = 조리대 쪽.
+ * 몸은 똑바로 서서 골반 −0.06 + 몸통 −0.24 ≈ 0.3 rad 조리대 쪽으로 숙인다. **hub 는 anchor · 도구를 이 값에 맞춘다**:
+ *   • `edgeZ` −0.30 — 조리대 상판의 **앞 가장자리**가 anchor 앞 0.30 m 에 온다. anchor = 앞 가장자리 점 − 앞 방향 × 0.30, y = 바닥.
+ *   • `topY` 1.08 — 상판 윗면 높이(바닥 기준). `bench_cook` 모델(h 1.1 → 상판 1.07–1.09)과 같다.
+ *   • `workZ` −0.52 · `handY` 1.13 — 칼을 쥔 오른손의 기본 작업점 = 앞 가장자리 안쪽 0.22 m, 상판 + 0.05(도마 윗면). 도마 · 냄비 · 팬의
+ *     중앙을 여기(x = `knifeX` 부근)에 둔다. 그보다 안쪽(가장자리에서 0.3 m 넘게)은 팔이 닿지 않는다.
+ *   • `pressX` −0.16 · `pressY` 1.12 · `pressZ` −0.48 — 재료를 누르는 왼손 (위상에 따라 1.5 cm 눌린다).
+ *   • 위상 φ (한 주기 = 1, 누적 위상의 소수부): 오른손 = (knifeX + stirR·0.6·sin 2πφ, handY + chopLift·smoothstep(½ + ½cos 2πφ),
+ *     workZ − stirR·cos 2πφ) — φ 0 = 칼이 위(+0.12) · 앞, 0.5 = 도마에 닿음 · 몸 쪽. 위아래로 보면 칼질, 위에서 보면 국자 원운동이다.
+ */
+export const FURN_COOK = {
+  edgeZ: -0.3, topY: 1.08, workZ: -0.52, handY: 1.13, knifeX: 0.1, pressX: -0.16, pressY: 1.12, pressZ: -0.48,
+  chopLift: 0.12, stirR: 0.05,
+  hipsY: 0.92, bodyZ: 0.04, hipPitch: -0.06, torsoLean: -0.24, footX: 0.13, footZ: 0.02,
 } as const;
 /** 팔 · 다리 마디 길이와 관절 자리 — `makeArm` · `makeLeg` 의 치수 그대로 (손 = 장갑 중심, 발 = 발바닥 접점). */
 const ARM_U = 0.3, ARM_F = 0.29, SHOULDER_X = 0.29, SHOULDER_Y = 0.5;
@@ -963,6 +982,25 @@ export class SoldierModel {
         T.foot[i].set(sg * B.footX, B.footY, B.footZ); T.kneePole[i].set(sg * 0.35, 1, -0.3);
         T.hand[i].set(sg * B.barX, barY, barZ); T.elbowPole[i].set(sg, -0.7, -0.2);
       }
+    } else if (kind === 'cook') {
+      // 2026-09-13 조리대 앞: 선 채로 숙이고, 오른손은 칼질 / 젓기 고리 (`FURN_COOK` 주석), 왼손은 재료를 누른다
+      const K = FURN_COOK;
+      const th = Math.PI * 2 * (ph - Math.floor(ph));
+      const up = 0.5 + 0.5 * Math.cos(th);                 // 1 = 칼이 위 (φ 0) … 0 = 도마 (φ 0.5)
+      const lift = up * up * (3 - 2 * up);
+      T.bodyZ = K.bodyZ;
+      T.hipsY = K.hipsY; T.hipX = K.hipPitch;
+      T.torsoX = K.torsoLean - 0.02 * (1 - lift) + breathe * 0.006;   // 내려칠 때 어깨가 조금 따라 내려간다
+      T.torsoY = -0.05 + 0.03 * Math.sin(th);
+      T.headX = -0.12; T.headY = -0.08;                     // 도마를 내려다본다 (칼 쪽으로 살짝)
+      T.cape0 = 0.06; T.cape1 = 0.1; T.limbL = 26;          // 입력마다 반 주기씩 튕겨도 손이 따라온다
+      for (let i = 0; i < 2; i++) {
+        const sg = i === 0 ? 1 : -1;
+        T.foot[i].set(sg * K.footX, 0, K.footZ); T.kneePole[i].set(sg * 0.1, 0.2, -1);
+        T.elbowPole[i].set(sg * 0.6, -1, 0.3);
+      }
+      T.hand[0].set(K.knifeX + K.stirR * 0.6 * Math.sin(th), K.handY + K.chopLift * lift, K.workZ - K.stirR * Math.cos(th));
+      T.hand[1].set(K.pressX, K.pressY - 0.015 * (1 - lift), K.pressZ);
     } else {
       const C = FURN_CYCLE;
       const th = Math.PI * 2 * ph;

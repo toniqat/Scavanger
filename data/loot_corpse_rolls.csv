@@ -6,6 +6,10 @@
 type,ammoFracMin,ammoFracMax,weaponDurMin,weaponDurMax,weaponGrades,weaponAttachMaxRarity,uniqueChance,uniqueDurMin,uniqueDurMax,bookChance,implantChance,implantWeights
 rogue,0.3,0.6,0.05,0.15,,,,,,0.03,0.06,common:55|uncommon:30|rare:12|epic:3
 rogue_boss,0.3,0.6,0.4,0.7,3|4,epic,0.2,0.5,0.8,0.2,0.45,common:10|uncommon:25|rare:30|epic:25|legendary:10
+# 2026-09-13 인간형 팩션 — 탄약 · 총 내구도는 로그와 같다. 총의 **등급**은 여기(weaponGrades)가 아니라 loot_factions.csv 의 weaponGrades 가 정한다.
+# 안드로이드는 서적 · 임플란트를 안 들고, 레이더는 로그보다 임플란트가 조금 잦고 좋다.
+android,0.3,0.6,0.05,0.15,,,,,,,,
+raider,0.3,0.6,0.05,0.15,,,,,,0.03,0.07,common:45|uncommon:33|rare:17|epic:5
 # 2026-09-11 네임드 로그 — 서적 · 망가진 임플란트만 rogue_boss 와 같게. 들고 있던 총 · 보스 유니크 굴림은 없다
 # (총은 loot_named.csv 의 확정 드롭이 대신한다 — 여기서도 굴리면 저격소총이 두 자루가 된다).
 rogue_sniper,,,,,,,,,,0.2,0.45,common:10|uncommon:25|rare:30|epic:25|legendary:10

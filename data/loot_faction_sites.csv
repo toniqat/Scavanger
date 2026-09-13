@@ -1,0 +1,17 @@
+# 인간형 팩션 시체의 **스폰 거점 보너스** — 2026-09-13. src/items/LootTables.ts 가 읽고 Loot.rollCorpseOn 이 쓴다.
+# 시체의 스폰 거점(CorpseLootOpts.site — 호스트는 Enemy.site · 리플리카는 ee corpse.si)이 이 줄의 site 와 같을 때만 굴린다.
+# site = lab · outpost · wreck · platform · ruin · drop (shared 의 EnemySpawnSite).
+# kind grades = 그 거점에서 스폰한 적의 총 등급 분포를 **통째로 바꾼다**. grades 칸 = "등급:가중치" | … (loot_factions.csv 의 weaponGrades 와 같은 꼴).
+#               target · qty · chance 는 비운다. 한 type × site 에 한 줄만.
+# kind item   = 아이템 하나. target = 아이템 id · chance 로 들고 있나 → qtyMin..qtyMax 개.
+# kind seed   = 씨앗 하나. 그 레이드 행성의 야생 씨앗 군락 표(planets.csv 의 seeds 열 · 가중치 그대로)에서 고른다.
+#               행성이 없거나(훈련장) 그 행성 표가 비었으면 다섯 행성의 표를 합친 것에서 고른다. target 은 비운다.
+# 은퇴한 아이템(retired)은 쓰지 않는다 — npm run data:check 가 잡는다. 줄 순서가 굴림 순서다 (팩션 굴림 뒤 · 남은 수류탄 앞).
+type,site,kind,target,grades,qtyMin,qtyMax,chance
+# 레이더가 연구소를 뒤지던 중이었다 → 연구소 물품 (씨앗 · 미확인 세포 · 광물 · DNA). 넷 다 빈손일 확률 ≈ 23 %.
+raider,lab,seed,,,1,2,0.5
+raider,lab,item,spec_cell,,1,1,0.35
+raider,lab,item,spec_mineral,,1,1,0.2
+raider,lab,item,spec_dna,,1,1,0.1
+# 전진기지 무기고를 턴 레이더 → 총 등급이 한 칸 위로 기운다 (기본 50 / 45 / 4.5 / 0.5).
+raider,outpost,grades,,1:30|2:55|3:13|4:2,,,

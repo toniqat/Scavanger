@@ -16,7 +16,8 @@ frame already has real numbers; `NetSystem` still goes first).
 | `defs.ts` | The 5 `StatDef` / 14 `SkillDef` (한국어 이름·설명), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
 | `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. A-3a: `trainedBonusOf` — the effective stat is base + implant bonus + 헬스장 단련 보너스. |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. **2026-09-07**: `DEFAULT_IMPLANT` (`'grapple'`) — a fresh profile starts with 갈고리 in the 전술 임플란트 slot instead of an empty one (all six implants are owned from level 1, so an empty slot was just a missed default). Existing saves are untouched. |
-| `ui/SheetBody.ts` | **공용 렌더러** (Phase 8): `CharacterSheetHost` 인터페이스 + `SheetBody` — 헤더 / XP 바 / 능력치 · 숙련도 2단 / 파생 능력치 그리드 / 푸터(캐릭터 초기화)를 넘겨받은 부모 요소 안에 만든다. blocker · 포인터 락 · Esc · `.scr-tabs` 는 **모른다** (껍데기의 몫). `el()` 헬퍼도 여기서 export. |
+| `ui/SheetBody.ts` | **공용 렌더러** (Phase 8): `CharacterSheetHost` 인터페이스 + `SheetBody` — 헤더 / XP 바 / 능력치 · 숙련도 2단 / 파생 능력치 그리드 / 푸터(캐릭터 초기화)를 넘겨받은 부모 요소 안에 만든다. blocker · 포인터 락 · Esc · `.scr-tabs` 는 **모른다** (껍데기의 몫). `el()` 헬퍼도 여기서 export. **2026-09-13**: 확정 전 배분(`pending`) · `되돌리기` / `포인트 투자 확정`(1초 홀드) · 파생 미리보기 · 이름 툴팁 + 연결 강조(`.pg-linked`) · 임플란트 썸네일 · `requestLeave` / `discardPending` · 초기화 경고 팝업 — 아래 *배분 확정 · 툴팁 · 떠나기 경고* 절. |
+| `ui/SheetTip.ts` | **2026-09-13** 능력치 · 숙련도 이름 툴팁 (`.pg-tip`, `ctx.uiRoot` 아래) — 네이티브 `title` 대신. `housing/ui/StationTip` 과 같은 방식(좌표만 적고 rAF 로 옮긴다). 겉모습은 `.item-tip` 과 같지만 **클래스는 빌리지 않는다** — 이 카드가 HUD 아이템 카드보다 먼저 `#ui-root` 에 붙어 `.item-tip` 을 찾는 스모크(`smoke-controls-hub` · `smoke-housing`)가 이것을 집었다. |
 | `ui/CharacterSheet.ts` | 단독 오버레이 (`.menu.char-sheet`): `.scr-tabs` + `.frame` + `SheetBody`. Blocker token `'stats'`, 포인터 락, capture-phase **Tab** 닫기 (2026-09-08). 2026-09-09: 키 가이드 owner `'character'` (`keys: []`). |
 | `ui/SheetView.ts` | 인벤토리 Tab 화면의 **캐릭터 탭** (`EmbeddedView`): `host` 안에 `.cs-embed` + 같은 `SheetBody`. blocker / 락 / Esc / 탭 pill 없음. |
 | `ui/character.css` | Its styles (imported from `CharacterSheet.ts` / `SheetView.ts`); reuses `.menu` / `.ui-*` from `ui/styles/base.css`. |
@@ -25,6 +26,7 @@ frame already has real numbers; `NetSystem` still goes first).
 ## 스탯 (5종)
 `STAT_BASE` 5 로 시작, `STAT_MAX` 20, 레벨업마다 `STAT_POINTS_PER_LEVEL`(1, Phase 5 부터 — 이전 2) 포인트.
 `spendStatPoint(id)` 는 **함선에서만** — `ctx.isRaidActive()` 이면 `false` 를 돌려주고 아무것도 바꾸지 않는다.
+2026-09-13: 캐릭터 시트는 한 포인트씩 쓰지 않고 **`spendStatPoints(alloc)`** 로 한 번에 투자한다(전부 또는 전무 — 아래 *배분 확정 · 툴팁 · 떠나기 경고* 절).
 
 | id | 이름 | 파생 |
 |---|---|---|
@@ -129,8 +131,10 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
   (**Phase 10**: 포인터 락은 그대로 유지한다 — `exitPointerLock()` 도, 닫을 때의 재잠금 마이크로태스크도 없다).
   닫을 때는 토큰을 지우고 `setCursorMode(false, 'stats')`. `close(relock)` 의 인자는 호출 시그니처 유지용으로만 남아 있다.
 - **2026-09-08**: 시트를 닫는 키는 **Tab**(`Keys.INVENTORY`)이다 — capture-phase 리스너가 잡되 `MENU_BLOCKER` 가 떠 있거나 포커스가 텍스트 입력에 있으면 넘긴다. Escape 는 더 이상 여기서 처리하지 않고 game/ 의 일시정지 메뉴로 간다(시트 위에 쌓인다).
-- 내용: 레벨 + XP 바, 스탯 5종(설명 · 값 · `＋` 버튼 — 레이드 중 비활성) + 잔여 포인트, 스킬 14종 진행도 바,
-  파생 능력치 18개 readout, 2단계 확인식 **캐릭터 초기화** 버튼(함선에서만). 이 본문 전체는 `ui/SheetBody.ts` 하나가 그린다.
+- 내용: 레벨 + XP 바, 스탯 5종(이름 툴팁 · 값 · `－` / `＋` 확정 전 배분 — 레이드 중 비활성) + 잔여 포인트 + `되돌리기` / `포인트 투자 확정`(1초 홀드),
+  스킬 14종 진행도 바(이름 툴팁) + 장착 임플란트 썸네일, 파생 능력치 18개 readout(배분 중 `현재 → 확정 후`), **캐릭터 초기화** 버튼(함선에서만 —
+  2026-09-13 부터 경고 팝업 + 1초 홀드). 이 본문 전체는 `ui/SheetBody.ts` 하나가 그린다.
+- 2026-09-13: Tab · Escape(스택 항목) · 닫기 · 인벤토리 탭은 `requestClose()` 를 지난다 — 확정 전 포인트가 있으면 떠나기 경고가 먼저 뜬다.
 
 ### 임베드 뷰 `createSheetView(host)` (Phase 8)
 인벤토리 Tab 화면의 **캐릭터 탭**이 부르는 진입점. 같은 `SheetBody` 를 `host` 안의 `.cs-embed` 래퍼에 만들고
@@ -139,7 +143,8 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
   `.scr-tabs` pill 도 그리지 않는다 — 전부 인벤토리 창의 몫 (`src/shared/types.ts` `EmbeddedView` 계약).
 - `ProgressionSystem` 은 넘겨준 뷰를 `views` 셋에 담아 스탯 · 스킬 · `derived` 가 바뀔 때마다 오버레이와 함께 갱신한다
   (`refreshSheets` / `refreshSheetSkill(id)` / `refreshSheetStat(id)`). `dispose()` 하면 셋에서 빠진다.
-- `refresh()` 는 **캐릭터 초기화** 확인 단계를 항상 풀어 둔다 (탭을 다시 열었을 때 위험한 버튼이 눌린 채로 남지 않도록).
+- ~~`refresh()` 는 **캐릭터 초기화** 확인 단계를 항상 풀어 둔다~~ — 2026-09-13: 두 번 누르기가 경고 팝업으로 바뀌어 풀 것이 없다. `refresh()` 는
+  이제 **확정 전 배분을 지키며** 다시 그린다. 핸들에는 `requestLeave(proceed)` 가 붙었다 (인벤토리 창이 탭 전환 · Tab · Escape 전에 묻는다).
 
 ### 스크롤바 (Phase 8 수정)
 `.menu .frame::before/::after` 코너 브래킷이 `-1px` 에 있어 `overflow-y: auto` 프레임에 가로·세로 1px 오버플로가
@@ -285,6 +290,7 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 |---|---|
 | `PlayerProfile.meal` | **다음** 레이드에 실릴 요리 def id. **고정 1칸이라 배열이 아니다.** 없으면 `null` |
 | `PlayerProfile.mealActive` | **이번** 레이드에 실려 있는 요리. 함선에서는 `null` |
+| `PlayerProfile.mealQuality` · `mealActiveQuality` | 2026-09-13 — 두 칸 각각의 **요리 품질**(별 0 … `MEAL_QUALITY_MAX`). id 옆에 붙어 다니고, id 가 없으면 0 |
 
 - `useMeal(defId)` — **함선에서만** (`ctx.phase === 'hub'` + `!isRaidActive()`). 요리가 아니면 한국어 사유를
   돌려주고 아무것도 바꾸지 않는다 (아이템을 빼는 쪽이 **먼저 묻고** 성공할 때만 뺀다 — `usePrep` 과 같은 규약).
@@ -307,9 +313,22 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
   하나이고(`isMealBuffMultiplier` 는 「+15 %」 인지 「+6 kg」 인지를 정하는 **표시**용 —
   `shared/labels.MEAL_BUFF_UNIT`), `durabilityLossMul` 만 `amount` 가 음수이므로 **0 이 하한**이다.
   그래서 player · weapons · world · inventory 는 **한 줄도 바뀌지 않는다** — 이미 `derived` 를 읽고 있다.
+- **능력치 줄이 여러 개다** (2026-09-13 요리 재료 티어, 사용자 결정 「버프는 하나, 거기 붙는 능력치 줄 수와 수치가 늘어난다」).
+  `MealDef.effects`(T1 1 · T2 2 · T3 3 · T4 4 줄)를 `applyMealBuff` 가 **전부 차례로** 접는다 — 줄마다 규칙은 위와 같다(가산 + 0 하한,
+  같은 버프가 두 줄이면 두 번 더해진다). `effects` 가 없거나 빈 옛 def 는 `derive.mealEffectsOf` 가 `[{buff, amount}]` 로 읽어 결과가
+  예전과 같다. 식사 칸 · 수명 규칙 · `deriveFor`(캐릭터 시트 미리보기 포함)는 그대로다.
 - **재접속에도 사는 이유**는 준비물과 같다: 두 필드가 프로필에 살고 **`Profile.migrate` 가 옮겨 담으며**
   (migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다 — 2026-09-09 `accent` 사고와 같은 자리), 서버 문서
   왕복도 그 길을 탄다.
+- **요리 품질** (2026-09-13, `docs/plans/cooking-minigames.md` — 조리대 미니게임 점수가 정한 별 0 … 5):
+  - `useMeal(defId, quality = 0)` · `serveMeal(defId, quality = 0)` — 품질은 `normalizeMealQuality`(0 … 5 정수, 숫자가 아니면 0)로 자른다.
+    **「같은 요리」 = 같은 id · 같은 품질**만 거절(`serveMeal` 은 no-op)이고 품질이 다르면 교체다 — 수치가 바뀌기 때문이다. 생략한 품질은 0 으로 비교한다.
+  - `armPreps` 가 id 와 함께 품질을 `mealActiveQuality` 로 옮기고 `mealQuality` 를 0 으로, `clearActivePreps` · `pruneMeal` 이 id 와 함께 0 으로 비운다.
+  - 질의 `getMealQuality()` · `getActiveMealQuality()` (식사가 없으면 0). `progress:mealChanged` 에 `mealQuality` · `activeQuality`.
+  - **버프**: `derive.applyMealBuff(d, meal, quality)` 가 줄마다 `amount × (1 + mealQualityBonus(quality))` 로 키운 **뒤에** 가산 + 0 하한 규칙을 적용한다
+    (음수 줄 `durabilityLossMul` 도 같은 배율로 커진다). `deriveFor` 는 넘겨받은 프로필의 `mealActive` · `mealActiveQuality` 를 읽으므로 `recompute` 와
+    캐릭터 시트 미리보기(`previewDerived`)가 같은 품질을 쓴다.
+  - `Profile.migrate` 가 두 품질을 옮겨 담는다(짝 id 가 없으면 0) — 옮기지 않으면 새로고침 한 번에 ★ 가 사라진다. `freshProfile` 은 둘 다 0.
 
 ## 단련 보너스 · 운동 디버프 (A-3a, 2026-09-12)
 
@@ -366,11 +385,69 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
   (`addTrainedXp` 한 번에 세 단계 이월 · 음수로 한 단계 내려가기 · 바닥 · 상한에서 빼기 · 게이트 무시 · 무시되는 입력, `clearGymFatigue` 하나 / 둘 다).
   한 **세션**의 최대 XP(100)는 가장 싼 단계(150)보다 작아 세션으로는 두 단계를 한 번에 넘지 못한다 — 여러 단계 이월은 `addTrainedXp` 로 검사한다.
 
+## 배분 확정 · 툴팁 · 떠나기 경고 (2026-09-13, 사용자 결정)
+
+두 셸(오버레이 · 임베드 탭)이 같은 `ui/SheetBody` 를 쓰므로 아래는 둘 다에 적용된다.
+
+- **확정 전 배분**: `＋` 는 포인트를 **걸어 두기만** 한다(`SheetBody.pending`), `－` 는 걸어 둔 것만 되돌린다(확정한 값 아래로는 못 간다).
+  헤더의 `잔여 포인트` 는 걸어 둔 만큼 뺀 값이고, 값 칸에 `+n`(`.pa`, 강조색)이 붙는다. 능력치 패널 오른쪽 아래의 `되돌리기` 가
+  전부 지우고, `포인트 투자 확정` 은 **`UI_HOLD_CONFIRM_S` 홀드**로만 실행된다(게이지 `.pg-fill`, 클릭 · Enter 는 아무것도 안 한다,
+  떼거나 벗어나면 0). 걸어 둔 것이 없으면 둘 다 딤드. 레이드 중에는 ＋ / － 가 잠기고 걸어 둔 것은 사라진다.
+- **일괄 투자 `spendStatPoints(alloc)`** (계약 추가): 전부 되거나 아무것도 안 된다 — 레이드 · 모르는 키 · 정수가 아닌 값 · 음수 ·
+  합 0 · `statPoints` 초과 · `STAT_MAX` 초과면 false. 통과하면 `recompute` 한 번 · 즉시 저장 한 번 · 바뀐 능력치마다
+  `progress:statChanged` 한 번. 시트는 부르기 **전에** 걸어 둔 것을 비우고(그 자리의 refresh 가 새 포인트로 다시 자르지 않게), 거절되면 되돌린다.
+- **미리보기 `previewDerived(alloc)`** (`CharacterSheetHost` 전용, 계약 아님): 프로필 얕은 사본에 배분을 더해 **`recompute` 와 같은
+  `deriveFor`** (임플란트 · 단련 · 특수 가방 · 식사 버프)로 계산한다. 바뀌는 파생 줄만 `현재 → 확정 후`(`.pg-preview`, 초록). 진짜 `derived` 는 확정 때만 바뀐다.
+- **걸어 둔 것은 `refresh()` 를 견딘다** — ProgressionSystem 이 스탯 · 스킬 · `derived` 가 바뀔 때마다 다시 그리므로 그 상태는 본문
+  인스턴스에 산다. 그리기 전마다 `reconcilePending` 이 지금 프로필 기준으로 자른다(서버 문서 · 스탯 XP 로 `STAT_MAX` 도달).
+- **이름 툴팁** (`ui/SheetTip`, 네이티브 `title` 제거): 능력치 = 설명(`stats.csv`) + `관련 숙련 · 성장 속도`(그 능력치를 `stats` 칸에 가진 숙련,
+  `SKILL_STAT_FACTOR / 관련 능력치 수` per pt) + 지능만 `모든 숙련 성장 +N%/pt`(`SKILL_GAIN_PER_INT`). 숙련 = 레벨 · 진행도 + 설명 +
+  `현재 효과`(`derived` 칸의 줄 값, 사격 숙련은 무기 종류별 `반동 −n% · 장전 +n%` 숫자만) + `관련 능력치 · 성장 속도` + 시설 보너스.
+  두 상수는 `derive.ts` 에서 export 한다 (`SKILL_STAT_FACTOR` 는 `ProgressionSystem` 에서 옮겨 왔다).
+- **연결 강조 `.pg-linked`** (옅은 강조색 바탕 + 안쪽 테두리, 페이드): 능력치 툴팁 = 관련 숙련 행 + 그 능력치의 파생 줄, 숙련 툴팁 = 그 숙련의 파생 줄
+  (사격 숙련은 없음), 임플란트 썸네일 = 그 임플란트의 능력치 행 + 그 능력치들의 숙련 행 + 파생 줄.
+- **매핑 데이터**: `stats.csv` · `skills.csv` 의 `derived` 칸(`|` 목록) — 값은 `defs.DERIVED_PANEL_KEYS`(패널 18줄의 키, `DerivedStats` 필드 이름)
+  중 하나여야 하고 로더(`enumList`)가 검사하므로 `npm run data:check` 가 잡는다. 능력치 줄의 빈 칸도 문제로 잡는다(숙련은 사격이 비어 있는 게 정상).
+  읽기는 `derivedKeysOfStat(id)` · `derivedKeysOfSkill(id)`. 패널에 없는 효과(도약력 · 스태미나 회복 · 반동 · 장전)는 적지 않는다.
+- **임플란트 썸네일** (숙련도 아래 `.pg-imps`): 장착한 임플란트 아이템(전술 임플란트 제외)을 `buildItemChip` 으로 — `data-def-id` 라
+  `ui/hud/ItemTip` 카드가 뜬다. `n / m 슬롯`, 없으면 흐린 한 줄. 장착 · 해제는 없다(인벤토리의 몫). DOM 은 장착 목록이 바뀔 때만 다시 만든다.
+- **떠나기 경고** (`EmbeddedView.requestLeave?(proceed)`, 계약 추가): 걸어 둔 포인트가 있는데 플레이어가 떠나려 하면(인벤토리 창의 다른
+  화면 탭 · Tab · Escape, 오버레이의 Tab · Escape · 닫기 · 인벤토리 탭) `shared/openHoldAsk` 경고 — `돌아가기`(취소 · Escape · 최초 포커스)
+  / `버리고 이동`(걸어 둔 것을 지우고 원래 동작을 이어 간다). 경고가 이미 떠 있으면 같은 요청(Tab)은 그 경고의 `돌아가기` 다. 배선:
+  `inventory/ui/parts/Screens.onTab` · `InventorySystem.update` 의 Tab · `setOpen` 의 Escape 항목(가로챘으면 `false` 로 항목 유지),
+  오버레이는 `CharacterSheet.requestClose`. **강제 종료는 묻지 않고 버린다**: `game:phaseChanged` · `game:newMission` · `player:died` ·
+  `net:profileLoaded` · `resetProfile`(→ `discardSheetPending`), 창의 `closeAll` · `openScreen` 점프(뷰 `dispose`), 오버레이의 `close()` · `open()`.
+- **캐릭터 초기화**: 두 번 누르기(`resetArmed`)를 없애고 붉은 경고 팝업의 `초기화` **1초 홀드**로 바꿨다 (`취소` 가 최초 포커스 · Escape).
+- 스모크: `smoke-progression` 에 배분 · 홀드 확정 · 미리보기 · 툴팁 · 연결 강조 · 계약 거절 · 오버레이/임베드 떠나기 경고 · 강제 종료 · 초기화 팝업 ·
+  임플란트 썸네일 검사.
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-13 (요리 품질, 에이전트 cook-progression-player — `docs/plans/cooking-minigames.md` §6-3)** — 계약은 읽기만 했다
+  (`PlayerProfile.mealQuality` · `mealActiveQuality`, `useMeal` / `serveMeal` 의 `quality`, `getMealQuality` · `getActiveMealQuality`, `progress:mealChanged` 의 두 품질,
+  `shared/cooking` 의 `normalizeMealQuality` · `mealQualityBonus`). 위 *식사* 절의 **요리 품질** 항목이 전부다.
+  - `Profile.ts` — `freshProfile` 에 두 품질 0, `migrate` 가 옮겨 담는다(짝 id 가 없으면 0).
+  - `derive.ts` — `applyMealBuff(d, meal, quality = 0)`.
+  - `ProgressionSystem.ts` — `useMeal` / `serveMeal` 의 품질 · 같은 요리 판정, `armMeal` · `clearActiveMeal` · `pruneMeal` 이 품질을 옮기고 비움, `getMealQuality` ·
+    `getActiveMealQuality`, `emitMealChanged` 에 두 품질, `deriveFor` 가 넘겨받은 프로필의 식사 · 품질을 읽는다.
+  - `scripts/smoke-progression.mjs` — 요리 품질 절(품질 0 … 5 보너스 수치 · 시트 미리보기 · 음수 줄 · 교체 규칙 · 정규화 · 레이드 거절 · `serveMeal` · 즉시 저장 ·
+    출격 / 종료 이동 · 새로고침 · migrate · 서버 문서 · 초기화). **237 / 237** (개인 vite 5313).
+
+- **2026-09-13 (요리 재료 티어, 에이전트 D — `docs/plans/food-tiers.md` §6)** — `derive.ts` 만: `applyMealBuff` 가 `meal.effects` 전부를 접고
+  `mealEffectsOf(meal)` 를 export 한다 (위 *식사* 절의 마지막 항목). `ProgressionSystem` 은 한 줄도 안 바뀌었다 — `deriveFor` 가 부르는 함수가 같다.
+
+- **2026-09-13 (캐릭터 시트 — 배분 확정 · 툴팁 · 떠나기 경고, 에이전트 character)** — 위 *배분 확정 · 툴팁 · 떠나기 경고* 절이 전부다.
+  - 계약(조율된 추가만): `shared/holdAsk.ts`(새 파일, `openHoldAsk`) · `EmbeddedView.requestLeave?` · `ProgressionRef.spendStatPoints?`.
+  - 데이터: `stats.csv` · `skills.csv` 에 `derived` 칸. `defs.ts` — `DERIVED_PANEL_KEYS` · `DerivedPanelKey` · `derivedKeysOfStat` · `derivedKeysOfSkill` + 로더 검사.
+  - `derive.ts` — `SKILL_GAIN_PER_INT` export, `SKILL_STAT_FACTOR` 이관. `ProgressionSystem.ts` — `spendStatPoints` · `previewDerived` · `deriveFor`
+    (`recompute` 가 같이 쓴다) · `discardSheetPending` · `createSheetView` 의 `requestLeave`.
+  - `ui/SheetBody.ts` 재작성(설명 문구 · 힌트 줄 · 두 번 누르기 · 스킬 `title` 제거), 새 `ui/SheetTip.ts`, `ui/SheetView.ts`(`refresh` 가 더 이상 아무것도 풀지 않는다 ·
+    `requestLeave` · `discardPending`), `ui/CharacterSheet.ts`(`requestClose` · `discardPending`), `ui/character.css` 의 `.pg-*`.
+  - 인벤토리 훅(작은 교체만): `ui/parts/Screens.onTab`, `InventorySystem` 의 Tab 닫기 · Escape 항목.
 
 - **2026-09-12 (A-3a 헬스장, 에이전트 progression)** — 계약은 읽기만 했다 (`GymStat` · `GYM_STATS` · `GYM_FATIGUE_LABEL_KO`,
   `PlayerProfile.trained` · `trainedProgress` · `gymFatigueUntil`, `GymSessionResult`, `ProgressionRef` 의 optional 5종,

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
   ENEMY_BIG_RADIUS, ENEMY_SPAWN_BLOCK_RATIO, ENEMY_SPAWN_CLEARANCE_MUL, ENEMY_SPAWN_RETRIES,
+  /* appended (2026-09-13): 굴착 스폰 */
+  BURROW_EMERGE_S,
   type EnemyType, type GameContext, type PlanetEcosystem, type WorldRef,
 } from '@/shared';
 import type { Enemy } from './Enemy';
@@ -15,7 +17,8 @@ export interface SpawnHost {
   aliveCount(): number;
   /** Make room for `n` more bugs (despawns corpses first, then far idle bugs). Returns how many may be spawned. */
   ensureCapacity(n: number, cap: number): number;
-  spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean): Enemy | null;
+  /** `emerge` (2026-09-13) > 0 = 땅을 파고 올라온다 (그 초 동안 공격 · 이동 없음, `ee spawn.em`). 생략 = 그 자리에 바로 선다. */
+  spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
   /** Alive (not dead / fleeing) enemies of one type — per-type caps (artillery, behemoth). */
   countAlive(type: EnemyType): number;
 }
@@ -79,6 +82,23 @@ function weightOf(eco: PlanetEcosystem, t: EnemyType): number {
 /** true when this planet has the type at all (any positive weight). `null` eco = everything lives everywhere. */
 export function ecoAllows(eco: PlanetEcosystem | null, t: EnemyType): boolean {
   return !eco || weightOf(eco, t) > 0;
+}
+
+/**
+ * 2026-09-13 (지하벌레 · 분출 무리): `from` 중 이 행성에 사는 종류 하나를 행성 가중치로 뽑는다. `eco` 가 null(행성 없음)이면
+ * `fallback` 가중치(같은 순서)로 뽑는다. 뽑을 게 없으면 null. 구성은 늘 그랬듯 시드 없는 `Math.random()` 이다.
+ */
+export function pickEcoType(eco: PlanetEcosystem | null, from: readonly EnemyType[], fallback: readonly number[]): EnemyType | null {
+  if (eco) return weightedPick(eco, from, () => true);
+  let total = 0;
+  for (let i = 0; i < from.length; i++) total += Math.max(0, fallback[i] ?? 0);
+  if (total <= 0) return from[0] ?? null;
+  let r = Math.random() * total;
+  for (let i = 0; i < from.length; i++) {
+    r -= Math.max(0, fallback[i] ?? 0);
+    if (r <= 0) return from[i];
+  }
+  return from[from.length - 1] ?? null;
 }
 
 export function maxArtilleryOf(eco: PlanetEcosystem | null): number {
@@ -247,14 +267,15 @@ function placeMember(world: WorldRef, type: EnemyType, center: THREE.Vector3, i:
 }
 
 /** Spawn a group scattered around `center`. Returns spawned count. */
-export function spawnGroup(host: SpawnHost, types: readonly EnemyType[], center: THREE.Vector3, chase: boolean, relentless: boolean, faceTarget?: THREE.Vector3): number {
+/** `emerge` (2026-09-13): 무리 전원이 그 초 동안 땅을 파고 올라온다 (0 = 그 자리에 바로 선다 — 월드 생성 때의 첫 배치). */
+export function spawnGroup(host: SpawnHost, types: readonly EnemyType[], center: THREE.Vector3, chase: boolean, relentless: boolean, faceTarget?: THREE.Vector3, emerge = 0): number {
   const world = host.ctx.world;
   if (!world) return 0;
   let n = 0;
   for (let i = 0; i < types.length; i++) {
     if (!placeMember(world, types[i], center, i, types.length, _p)) continue;   // no room for this one → skip it
     const yaw = faceTarget ? Math.atan2(faceTarget.x - _p.x, faceTarget.z - _p.z) : Math.random() * Math.PI * 2;
-    if (host.spawn(types[i], _p, yaw, chase, relentless)) n++;
+    if (host.spawn(types[i], _p, yaw, chase, relentless, emerge)) n++;
   }
   return n;
 }
@@ -370,7 +391,8 @@ export class AmbientSpawner {
     if (!findSpawnCenter(host, around.position, 60, 140, true, 30, this.center)) return;
     // patrols that spawn because pressure is high come in already hunting
     const hunting = Math.random() < this.threat * 0.5;
-    spawnGroup(host, types.slice(0, allowed), this.center, hunting, false, hunting ? around.position : undefined);
+    // 2026-09-13: 레이드 중에 오는 순찰은 땅을 파고 올라온다 (첫 배치 `initialPopulate` 는 그대로 서 있다)
+    spawnGroup(host, types.slice(0, allowed), this.center, hunting, false, hunting ? around.position : undefined, BURROW_EMERGE_S);
     this.maybeArtillery(host, around.position);
   }
 
@@ -392,7 +414,7 @@ export class AmbientSpawner {
       if (!findSpawnCenter(host, around, ARTILLERY_AI.spawnMin, ARTILLERY_AI.spawnMax, false, 60, this.center)) return;
       if (spawnBlocked(world, 'artillery', this.center.x, this.center.z)) continue;
       const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
-      host.spawn('artillery', this.center, yaw, true, false);
+      host.spawn('artillery', this.center, yaw, true, false, BURROW_EMERGE_S);   // 2026-09-13: 파고 나와 자리를 잡는다
       return;
     }
   }

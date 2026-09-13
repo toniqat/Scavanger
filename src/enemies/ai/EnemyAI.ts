@@ -13,6 +13,8 @@ import { updateRogue } from './RogueAI';
 import { isNamedAiType, updateNamed } from './named';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
 import { endInvestigation, updateInvestigate } from './Investigate';
+/* appended (2026-09-13): 굴착 스폰 · 뱉어진 버그 */
+import { updateBurrowGate } from './Burrow';
 
 export { lookAtTarget } from './Common';
 import { biteStructure, refreshStructureTarget } from './Structures';
@@ -57,6 +59,9 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   const targetAlive = !!t && !t.isDeadOrDowned;
 
   if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); return; }
+  // 2026-09-13: 지하벌레는 땅에 박혀 있고 `sandworm/Director` 가 돌린다. 파고 나오는 중 · 뱉어져 나는 중인 버그는 싸우지 않는다.
+  if (e.type === 'sandworm') return;
+  if (updateBurrowGate(e, dt, host)) return;
 
   if (e.state === 'flee') {
     e.fleeTimer += dt;
@@ -95,7 +100,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   // 2026-09-11: 네임드 로그 (로든 · 타길라 · 헤비) 와 스캔 드론은 각자 파일의 상태 기계를 탄다 (`ai/named/*`).
   if (isNamedAiType(e.type)) { updateNamed(e, dt, host, t, targetAlive); return; }
   // Phase 4: humanoid gunners run their own state machine (cover cycle) on top of the shared movement integration.
-  if (e.isRogue) { updateRogue(e, dt, host, t, targetAlive); return; }
+  if (e.isHumanoid) { updateRogue(e, dt, host, t, targetAlive); return; }
 
   // Nobody left to hunt: everything calms down.
   if (!targetAlive && e.aware && !e.airborne && e.chargePhase !== 2 && e.toxicPhase === 0 && (e.state === 'chase' || e.state === 'alert' || e.state === 'attack')) {

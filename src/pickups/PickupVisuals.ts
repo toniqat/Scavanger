@@ -57,6 +57,8 @@ const REST_Y: Record<ItemCategory, number> = {
   meal: 0.06,
   pouch: 0.12,
   key: 0.05,
+  /* appended: 2026-09-13 요리 재료 티어 — 소켓은 작은 캡슐이라 임플란트처럼 선다 */
+  socket: 0.08,
 };
 
 /**

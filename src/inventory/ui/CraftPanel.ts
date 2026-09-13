@@ -1,5 +1,5 @@
-import type { CraftRecipe, ItemDef, WorkbenchKind } from '@/shared';
-import { WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
+import type { CraftRecipe, ItemDef, RoomPurpose, WorkbenchKind } from '@/shared';
+import { FURNITURE_DEFS, WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, benchKindOf, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
 import { buildTileContent, favoritesRevision } from './GridView';
 import { CELL, TEXT } from './labels';
@@ -14,6 +14,26 @@ type BenchPick = WorkbenchKind | null;
 /* 현장 레시피는 자기 작업대 태그가 있어도 빠른제작이다 — 그 목록의 뜻이 "작업대 없이도 되는 것" 이다.
  * (2026-09-10 부터 탄약 · 붕대 · 연막에도 `bench` 가 붙었다. 그것은 작업대 창에 뜨라는 표시일 뿐이다.) */
 const isFieldRecipe = (r: CraftRecipe): boolean => r.station === 'field';
+
+/**
+ * **작업대가 속한 시설** (2026-09-13, 사용자 결정). 원본은 `data/furniture.csv` 의 `room` 열이다 — 인터랙션이
+ * `workbench_<kind>` 인 가구(`benchKindOf`)의 방 용도를 그대로 읽는다. 여기에 두 번째 표를 적지 않는다:
+ * 작업대를 다른 방으로 옮기려면 csv 한 칸만 고치면 된다. 은퇴 가구 · `any` 는 건너뛰고, 모르는 kind 는 작업실이다.
+ */
+const BENCH_FACILITY: ReadonlyMap<WorkbenchKind, RoomPurpose> = (() => {
+  const m = new Map<WorkbenchKind, RoomPurpose>();
+  for (const d of FURNITURE_DEFS) {
+    if (d.retired || d.room === 'any') continue;
+    const kind = benchKindOf(d.interaction);
+    if (kind && !m.has(kind)) m.set(kind, d.room);
+  }
+  return m;
+})();
+
+/** 이 작업대(`null` = 빠른제작)가 속한 시설. 빠른제작은 작업실 소속이다 (사용자 결정). */
+export function benchFacility(kind: WorkbenchKind | null): RoomPurpose {
+  return kind ? BENCH_FACILITY.get(kind) ?? 'workshop' : 'workshop';
+}
 
 interface RowView {
   recipe: CraftRecipe;
@@ -214,7 +234,8 @@ export class CraftPanel {
     this.frozen = running?.recipeId ?? null;
     const bench = this.sys.getBench();
     if (bench) {
-      this.stationEl.textContent = TEXT.bench.eyebrow;
+      // 2026-09-13: 머리의 영문 줄은 작업대가 속한 **시설**을 말한다 (WORKSHOP / LAB / KITCHEN BENCH)
+      this.stationEl.textContent = TEXT.bench.eyebrow(benchFacility(bench.kind));
       this.titleEl.textContent = `${WORKBENCH_LABEL_KO[bench.kind]} ${TEXT.bench.level(bench.level)}`;
     } else {
       const station = this.sys.currentStation();
@@ -259,6 +280,13 @@ export class CraftPanel {
    * 작업대 제목 · 여기가 같은 이름으로 부른다. 고를 것이 하나뿐이면(레이드의 야전 제작) 열 자체가 숨는다.
    *
    * 재료 상태를 보지 않으므로 구성이 그대로면 `is-on` 만 옮긴다.
+   *
+   * **2026-09-13 (사용자 결정) — 같은 시설의 작업대만.** 리스트는 지금 작업대(`active`, 없으면 빠른제작)가 속한
+   * **시설**(`benchFacility` — `data/furniture.csv` 의 `room`)의 작업대만 보여 준다: 작업실 = 총기 · 장비 · 가젯 ·
+   * 의학 · 가공, 연구실 = 추출기 · 조합대 · 3D 프린터, 주방 = 조리대. `빠른제작` 은 **작업실 소속**이라 작업실
+   * 묶음의 맨 위에만 선다 — 가방의 `제작` 버튼(작업대 없이 연 제작 열)도 작업실 묶음이다. 리스트 안에서 고를 수
+   * 있는 것은 같은 시설뿐이므로 한 번 열린 묶음은 창을 닫을 때까지 바뀌지 않는다. 항목이 하나뿐인 시설(주방)도
+   * **리스트를 그대로 보여 준다**(사용자 결정) — 숨는 것은 레이드(빠른제작 하나)뿐이다.
    */
   private buildBenches(active: BenchPick): void {
     const housing = this.sys.ctx.housing;
@@ -274,9 +302,15 @@ export class CraftPanel {
       try { lv = Math.max(0, housing?.getBenchLevel(kind) ?? 0); } catch { lv = 0; }
       return bench && bench.kind === kind ? Math.max(lv, bench.level) : lv;
     };
-    const placed = this.sys.ctx.isHubPhase() ? WORKBENCH_KINDS.filter((k) => k === active || levelOf(k) > 0) : [];
-    const picks: BenchPick[] = [null, ...placed];
-    this.benchesEl.hidden = picks.length <= 1;
+    const hub = this.sys.ctx.isHubPhase();
+    const facility = benchFacility(active);
+    const placed = hub
+      // 2026-09-13 (요리 미니게임): 조리대는 제작 창의 작업대가 아니다 — 조리대 화면(housing)에서만 요리한다
+      ? WORKBENCH_KINDS.filter((k) => k !== 'cook' && benchFacility(k) === facility && (k === active || levelOf(k) > 0))
+      : [];
+    const picks: BenchPick[] = facility === 'workshop' ? [null, ...placed] : placed;
+    this.benchesEl.hidden = !hub || picks.length === 0;
+    this.benchesEl.dataset.facility = facility;
     const sig = picks.map((p) => (p === null ? '-' : `${p}:${levelOf(p)}`)).join('|');
     if (sig !== this.benchSig) {
       this.benchSig = sig;

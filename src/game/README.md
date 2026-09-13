@@ -330,6 +330,10 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (요리 품질 — 시체 와이어)** — `Corpses.itemsToWire` 가 `ItemInstance.quality`(> 0 일 때만)를 `CorpseItemWire.q` 로 싣고
+  `parts/CorpseNet.itemsFromWire` 가 `normalizeMealQuality` 로 되살린다 (생략 = 품질 0). 인벤토리 쪽 시체 컨테이너(`inventory/parts/CorpseLoot`)도
+  같은 필드를 읽는다. `rf` 와 같은 자리 · 같은 규약이다.
+
 - **2026-09-13 (탈출 개편 — 탑승한 사람만 탈출 · 남겨진 사람은 계속 · 화물칸 시체, 사용자 결정)** — 흐름 자체는 `src/extraction/README.md` 의
   같은 날 항목이다. 이 폴더에서 바뀐 것:
   - `model.LIFTOFF_TO_COMPLETE` 6.5 → `EXTRACTION_LIFTOFF_TO_COMPLETE_S`(csv 10) — 외부 카메라 이륙 연출이 결과 화면 전에 끝나야 한다.

@@ -222,6 +222,18 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (h && typeof h.openCultureTank === 'function') h.openCultureTank(uid);
       else ctx.bus.emit('ui:notify', { text: '배양조를 사용할 수 없습니다', kind: 'warning' });
     },
+    /*
+     * 조리대 화면 (2026-09-13, 요리 미니게임): 조리대(`workbench_cook`)는 그 조각의 uid, 자동 조리 가구(`cook_*`)는 layer 가 찾은
+     * 함선의 조리대 uid 를 넘긴다 (없으면 null). **인벤토리 제작 창(`openBenchCraft`)으로 떨어지지 않는다** — 조리대 레시피는
+     * 품질 없이 만드는 뒷문을 막으려고 그 경로에서 빠졌다.
+     */
+    onCookStation: (uid) => {
+      if (uid === null) { ctx.bus.emit('ui:notify', { text: '조리대가 없습니다', kind: 'warning' }); return; }
+      const h = ctx.housing;
+      if (h && typeof h.openCookStation === 'function') {
+        try { h.openCookStation(uid); } catch (err) { console.warn('[hub] openCookStation failed', err); }
+      } else ctx.bus.emit('ui:notify', { text: '조리대를 사용할 수 없습니다', kind: 'warning' });
+    },
     // 주방 식탁 (A-3c, 2026-09-11): 개인 함선의 **가구** 식탁이므로 그 조각의 uid 로 연다
     // (공유 함선의 고정 식탁은 가구가 아니라 `buildStations` 의 `hub_dining_table` 이고 `null` 로 연다)
     onDiningTable: (uid) => openDiningTable(ctx, uid),

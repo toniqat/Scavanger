@@ -1,6 +1,7 @@
 import type { AmmoType, EffectiveWeaponStats, ItemDef, ItemInstance, Loadout, RaidFoundScope } from '@/shared';
 import { CONTAINER_TAKE_ANIM_S, CONTAINER_TAKE_END_SCALE, CONTAINER_TAKE_RISE_PX, SOCKET_SLOTS } from '@/shared';
 import { countsForRecovery, sameRaidFoundScope } from '@/shared';
+import { mealQualityStars, normalizeMealQuality } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
 import { WEAPON_SLOT_IDS } from '../model';
@@ -234,6 +235,18 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   qty.hidden = def.stackMax <= 1;
   el.appendChild(qty);
 
+  // 2026-09-13 (요리 품질): 품질이 붙은 요리에만 좌하단 작은 `★n` — 수량(우하단) · 휠 방향(좌상단) · 사선 띠(우상단)와 모서리가 다르다
+  const quality = def.meal ? normalizeMealQuality(item.quality) : 0;
+  if (quality > 0) {
+    el.classList.add('has-quality');
+    const star = document.createElement('div');
+    star.className = 'inv-tile-quality';
+    star.dataset.quality = String(quality);
+    star.textContent = `★${quality}`;
+    star.title = mealQualityStars(quality);
+    el.appendChild(star);
+  }
+
   if (stats) {
     el.classList.add('is-weapon');
     const pips = document.createElement('div');
@@ -281,7 +294,7 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
 function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean, favorite: boolean, recovery = false): string {
   let sockets = '';
   if (item.sockets) for (const s of SOCKET_SLOTS) sockets += `${item.sockets[s]?.defId ?? ''},`;
-  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}|${favorite ? 1 : 0}|${recovery ? 1 : 0}`;
+  return `${item.defId}|${item.qty}|${item.rotated ? 1 : 0}|${w}x${h}|${item.durability ?? ''}|${item.ammoInMag ?? ''}|${sockets}|${item.searched === false ? 0 : 1}|${badge ?? ''}|${needAmmo ? 1 : 0}|${favorite ? 1 : 0}|${recovery ? 1 : 0}|${item.quality ?? ''}`;
 }
 
 /** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */

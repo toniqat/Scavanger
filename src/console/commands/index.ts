@@ -11,11 +11,13 @@ import { skill } from './skill';
 import { pos } from './pos';
 import { colliders } from './colliders';
 import { gym } from './gym';
+import { cook } from './cook';
+import { worm } from './worm';
 
 export type { BuiltinHost } from './types';
 export { parseSeedArg } from './seed';
 
 /** Every built-in command, in `help` order. */
 export function builtinCommands(host: BuiltinHost): ConsoleCommand[] {
-  return [help, clear, seed, move, movecheat, items, stat, skill, gym, pos, colliders].map((f) => f(host));
+  return [help, clear, seed, move, movecheat, items, stat, skill, gym, cook, worm, pos, colliders].map((f) => f(host));
 }

@@ -16,7 +16,7 @@ const TIMEOUT_PAD_S = 2.5;
 /** |NDC| beyond this counts as off-screen (the projected point is at / past the viewport edge). */
 const EDGE_NDC = 0.94;
 
-type Cat = 'shell' | 'grenade' | 'call' | 'drop';
+type Cat = 'shell' | 'grenade' | 'call' | 'drop' | 'worm';
 
 interface Shell {
   sid: number;
@@ -42,8 +42,15 @@ interface Item {
 }
 interface Slot { el: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey: string }
 
-const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물', drop: '적 강하' };
-const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣', drop: '⬇' };
+const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물', drop: '레이더 강하', worm: '지상이변' };
+const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣', drop: '⬇', worm: '◎' };
+/**
+ * 지하벌레 분출 전조 (2026-09-13) — `sandworm:warning {position, radius, eta}` 한 번을 받아 분출 시각까지 붙들고,
+ * `sandworm:erupted` 에 지운다(놓치면 분출 시각 + `WORM_TIMEOUT_S`). 레이드당 최대 1회라 칸 하나로 충분하다.
+ * 게이트 없음 — 전조는 무리 한가운데서 일어나므로 늘 가깝다.
+ */
+const WORM_COLOR = '#ff4d4d';
+const WORM_TIMEOUT_S = 1.5;
 /** Hoisted so sorting the candidates allocates nothing (it runs only when more than `MAX` are live). */
 const byNear = (a: Item, b: Item): number => a.d2 - b.d2;
 /*
@@ -56,9 +63,8 @@ const GRENADE_COLOR = '#ffb347';
 const GRENADE_HOT_COLOR = '#ff8c1a';
 const GRENADE_HOSTILE_COLOR = '#ff4d4d';
 const GRENADE_HOSTILE_HOT_COLOR = '#ff2020';
-/** 로그 강하 포드 — 적의 것이므로 포탄과 같은 빨강. 분대장이 섞였으면 한 단계 더 진하다. */
+/** 레이더 강하 포드 — 적의 것이므로 포탄과 같은 빨강. (2026-09-13: 강하에 분대장이 섞이지 않아 진한 빨강 갈래를 걷어냈다.) */
 const DROP_COLOR = '#ff4d4d';
-const DROP_BOSS_COLOR = '#ff2020';
 
 /**
  * 위험 인디케이터 (`.dgr`, 게임플레이 레이어, 2026-09-10).
@@ -77,9 +83,9 @@ const DROP_BOSS_COLOR = '#ff2020';
  *     `ctx.enemies.getEnemyGrenades()` (적 — 로그가 던진 것) 둘 다. 라벨은 남은 신관이고, **색이 누구 것인지를
  *     말한다** (아군 호박 · 적 빨강; `hot` 은 임박만 나타낸다).
  *   - **함선 호출 낙하물** — `stratagem:called` → `landed` / `ended`. 궤도 폭격 · 보급품 · 트라이포드 · 구조선.
- *   - **로그 강하 포드** (2026-09-10 추가) — `ctx.enemies.getRogueDrops()`. 하늘에서 적이 내려오는 것도
+ *   - **레이더 강하 포드** (2026-09-10 추가, 2026-09-13 로그 → 레이더) — `ctx.enemies.getRogueDrops()`. 하늘에서 적이 내려오는 것도
  *     "지금 떨어지고 있는 것" 이라 함선 호출 낙하물과 같은 언어로 그린다. 색은 **적의 것**이므로 빨강
- *     (분대장이 섞이면 한 단계 진하게), 라벨은 착지까지 남은 초 → 착지 직후 `로그 n` / `로그 분대장`.
+ *     라벨은 착지까지 남은 초 → 착지 직후 `레이더 n` (2026-09-13 부터 강하에 분대장이 없다 — `boss` 는 계약 필드라 남았을 뿐).
  *     2026-09-09 에 `hud/OffscreenIndicators` 가 그리던 `.oarrow.drop` 화살표는 **여기로 옮겨 왔다** —
  *     한 목표가 두 언어로 그려지면 안 되고, 화면 안에서는 아무 표시도 없었다(강하가 조용했던 이유 중 하나).
  *
@@ -87,7 +93,7 @@ const DROP_BOSS_COLOR = '#ff2020';
  * **인지력 반경 게이트 (결정, 2026-09-10).** 포탄에 걸려 있던 `derived.enemyDetectRadius` 게이트는 유지하되
  * **착탄 지점이 `DANGER_NEAR_RADIUS` 안이면 무조건** 보여 준다 — 인디케이터의 목적이 "날아오는 줄도 모르는
  * 것" 을 알리는 것이라, 내 머리 위로 떨어지는 포탄이 인지력 부족으로 안 보이면 그 목적이 무너진다. 수류탄과
- * 낙하물에는 게이트가 없다: 둘 다 분대가 방금 만든 사건이고 이미 눈앞에 있다. **로그 강하만은 인지력을
+ * 낙하물에는 게이트가 없다: 둘 다 분대가 방금 만든 사건이고 이미 눈앞에 있다. **레이더 강하만은 인지력을
  * 아예 보지 않고 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(인지력의 10배) 하나를 본다** — 대기를 찢고 떨어지는
  * 굉음이라 인지력이 좁아도 알아야 하고, `audio/AudioSystem` 의 강하음이 쓰는 반경과 정확히 같다.
  *
@@ -105,6 +111,7 @@ export class DangerIndicators {
   private arcs: Slot[] = [];
   private shells: Shell[] = [];
   private calls: Call[] = [];
+  private readonly worm = { pos: new THREE.Vector3(), eruptAt: 0, active: false };
   private pool: Item[] = [];
   private items: Item[] = [];
   private readonly p = new THREE.Vector3();
@@ -158,6 +165,12 @@ export class DangerIndicators {
         else this.calls = this.calls.filter((c) => c.id !== callId);
       }),
       b.on('stratagem:ended', ({ callId }) => { this.calls = this.calls.filter((c) => c.id !== callId); }),
+      b.on('sandworm:warning', ({ position, eta }) => {
+        this.worm.pos.copy(position);
+        this.worm.eruptAt = ctx.time + Math.max(0, eta);
+        this.worm.active = true;
+      }),
+      b.on('sandworm:erupted', () => { this.worm.active = false; }),
       b.on('game:abort', () => this.clear()),
       b.on('game:newMission', () => this.clear()),
       b.on('hub:entered', () => this.clear()),
@@ -187,6 +200,7 @@ export class DangerIndicators {
   private clear(): void {
     for (const s of this.shells) s.active = false;
     this.calls.length = 0;
+    this.worm.active = false;
     this.hideAll();
   }
 
@@ -253,7 +267,7 @@ export class DangerIndicators {
     // (b) 수류탄 — 아군(내 것 + 원격 분대원의 복제본)과 **적(로그)** 것 모두. 게이트 없음: 이미 발치에 있다.
     this.pushGrenades(ctx.weapons?.getGrenades?.(), from, false);
     this.pushGrenades(ctx.enemies?.getEnemyGrenades?.(), from, true);
-    // (c) 로그 강하 포드 (2026-09-10) — 예고에서 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게
+    // (c) 레이더 강하 포드 (2026-09-10) — 예고에서 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게
     //     직접 묻는다 (`getRogueDrops()` 는 `EnemyManagerRef` 계약이고, 없으면 빈 배열이다).
     //     게이트는 **인지력이 아니라** 강하 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 다 — 대기를 찢고 떨어지는
     //     굉음이라 인지력이 좁아도 보여야 하고, 그렇다고 맵 반대편까지 뜨면 안 된다 (같은 반경으로 소리도 난다).
@@ -265,8 +279,18 @@ export class DangerIndicators {
         const dd2 = dx * dx + dz * dz;
         if (dd2 > alert2) continue;
         const eta = d.landsAt - t;
-        const label = eta > 0.05 ? this.etaLabel(eta, 'drop', '') : (d.boss ? '로그 분대장' : `로그 ${d.count}`);
-        this.push('drop', d.position, d.boss ? DROP_BOSS_COLOR : DROP_COLOR, CAT_ICON.drop, label, eta > 0 && eta < HOT_S, dd2);
+        const label = eta > 0.05 ? this.etaLabel(eta, 'drop', '') : `레이더 ${d.count}`;
+        this.push('drop', d.position, DROP_COLOR, CAT_ICON.drop, label, eta > 0 && eta < HOT_S, dd2);
+      }
+    }
+    // (c2) 지하벌레 분출 전조 (2026-09-13) — 무리 발밑이라 게이트 없음. 분출 이벤트를 놓쳐도 시간이 지나면 걷힌다.
+    const w = this.worm;
+    if (w.active) {
+      const eta = w.eruptAt - t;
+      if (eta < -WORM_TIMEOUT_S) w.active = false;
+      else {
+        const dx = w.pos.x - from.x, dz = w.pos.z - from.z;
+        this.push('worm', w.pos, WORM_COLOR, CAT_ICON.worm, this.etaLabel(Math.max(0, eta), 'worm', ''), eta < HOT_S, dx * dx + dz * dz);
       }
     }
     // (d) 함선 호출 낙하물 — somebody in the squad called it, so no gate either

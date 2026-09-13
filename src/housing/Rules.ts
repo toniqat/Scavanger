@@ -6,13 +6,16 @@ import {
   COCKPIT_ROOM_INDEX, ROOM_PURPOSES_ASSIGNABLE, roomGridSize, roomRectBlocked,
   ANALYZE_DEX_SPEEDUP, ANALYZE_KNOWN_SPEEDUP,
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
-  GROW_SKILL_SPEEDUP, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
+  GROW_SKILL_SPEEDUP, GROW_STATION_SPEED_PER_LEVEL, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
   RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
   SHIP_ROOM_COUNT,
   STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST,
   WORKSHOP_UPGRADE_COST, benchKindOf, furnitureFootprint,
 } from '@/shared';
+/* 2026-09-13 (요리 재료 티어) */
+import type { AnalysisResultDef, SampleFamily } from '@/shared';
+import { ANALYSIS_RESULTS, GROW_SOCKET_TIME_FLOOR, GROW_WEAR_MUL_FLOOR, analysisTimeMul } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Pure housing rules: placement, costs, prerequisites. No ctx, no DOM — every function takes the state (or the piece
@@ -339,15 +342,53 @@ export function soilMatches(soilTag: SoilTag | null | undefined, seedTag: SoilTa
 }
 
 /**
- * 심는 순간 확정되는 성장 시간(ms): `growHours × 3600e3 × 원예 단축 × 토양 궁합`.
- * 궁합이 맞으면 `1 − SOIL_MATCH_SPEEDUP`, 아니면 `1 + SOIL_MISMATCH_PENALTY` 다 (토양 없이 심는 경우는 없다).
- * 1초 미만으로는 내려가지 않는다.
+ * 재배 스테이션 레벨의 **성장 속도 배율** (2026-09-13, 사용자 결정): `1 + GROW_STATION_SPEED_PER_LEVEL × (레벨 − 1)` —
+ * Lv.1 = 1 · Lv.2 = 1.15 · Lv.3 = 1.3. 성장 시간은 이 값으로 **나눈다**. 레벨 1 미만은 1 로 본다.
  */
-export function growDurationMs(growHours: number, matched: boolean, gardening: number): number {
+export function growStationSpeedMul(level: number): number {
+  const lv = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+  return 1 + Math.max(0, GROW_STATION_SPEED_PER_LEVEL) * (lv - 1);
+}
+
+/** 화면용 「+15%」 — 레벨이 올려 준 성장 속도(%), 반올림. Lv.1 = 0. */
+export function growStationSpeedPct(level: number): number {
+  return Math.round((growStationSpeedMul(level) - 1) * 100);
+}
+
+/**
+ * 심는 순간 확정되는 성장 시간(ms): `growHours × 3600e3 × 원예 단축 × 토양 궁합 ÷ 스테이션 속도`.
+ * 궁합이 맞으면 `1 − SOIL_MATCH_SPEEDUP`, 아니면 `1 + SOIL_MISMATCH_PENALTY` 다 (토양 없이 심는 경우는 없다).
+ * 스테이션 속도는 `growStationSpeedMul(stationLevel)` (2026-09-13 — 생략하면 Lv.1 = 1). 1초 미만으로는 내려가지 않는다.
+ */
+export function growDurationMs(
+  growHours: number, matched: boolean, gardening: number, stationLevel = 1, bonusRatio = 1, socketSpeed = 0,
+): number {
   const skill = Math.max(0, Math.min(SKILL_LEVEL_MAX, gardening));
   const speed = 1 - GROW_SKILL_SPEEDUP * (skill / SKILL_LEVEL_MAX);
-  const soil = matched ? 1 - SOIL_MATCH_SPEEDUP : 1 + SOIL_MISMATCH_PENALTY;
-  return Math.max(1000, Math.round(Math.max(0, growHours) * 3600e3 * speed * soil));
+  /* 2026-09-13 (요리 재료 티어): 궁합 **보너스**만 흙 내구도 비율로 준다 — 패널티는 그대로다. 비율 1 이면 옛 식과 같은 값. */
+  const ratio = clamp01(bonusRatio);
+  const soil = matched ? (ratio >= 1 ? 1 - SOIL_MATCH_SPEEDUP : 1 - SOIL_MATCH_SPEEDUP * ratio) : 1 + SOIL_MISMATCH_PENALTY;
+  const station = growStationSpeedMul(stationLevel);
+  return Math.max(1000, Math.round((Math.max(0, growHours) * 3600e3 * speed * soil * socketTimeMul(socketSpeed, ratio)) / station));
+}
+
+/**
+ * **강화 순간의 재배 시간 재조정** (2026-09-13, 사용자 결정 — 「readyAt 은 심는 순간 확정」의 **유일한 예외**).
+ * 스테이션 속도가 `oldMul` → `newMul` 로 오르면 자라던 작물의 타임라인을 **지금(`now`)을 축으로** `oldMul / newMul`
+ * 만큼 압축한다: 남은 시간이 그 비율로 줄고, 이미 지난 구간도 같은 비율로 줄여 **진행도(%)가 그대로** 이어진다
+ * (`plantedAt` 만 두면 막대가 한 번에 튄다). 이미 여문 작물(`now ≥ readyAt`)과 속도가 오르지 않은 경우는 그대로 돌려준다.
+ * `readyAt` 은 `now` 보다 앞당겨지지 않고, `plantedAt` 은 늘 `readyAt` 보다 이르다.
+ */
+export function rescaleGrowTimes(
+  now: number, plantedAt: number, readyAt: number, oldMul: number, newMul: number,
+): { plantedAt: number; readyAt: number } {
+  if (!(oldMul > 0) || !(newMul > 0) || newMul <= oldMul || now >= readyAt) return { plantedAt, readyAt };
+  const ratio = oldMul / newMul;
+  const remaining = Math.max(0, readyAt - now);
+  const elapsed = Math.max(0, now - plantedAt);
+  const nextReady = now + Math.max(0, Math.round(remaining * ratio));
+  const nextPlanted = Math.min(nextReady - 1, now - Math.round(elapsed * ratio));
+  return { plantedAt: nextPlanted, readyAt: nextReady };
 }
 
 /** 0…1 진행도 (심은 적이 없으면 −1). 미래 시각으로 심힌 저장(시계가 틀린 클라이언트)도 클램프된다. */
@@ -374,6 +415,7 @@ export function growRemainingS(now: number, readyAt: number | undefined): number
  * `analyzeHours × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (아는 표본이면 1 − ANALYZE_KNOWN_SPEEDUP)`.
  * 「도감을 채울수록 빨라진다」가 첫 항, 「아는 것을 다시 보는 건 빠르다」가 둘째 항이다. 1초 미만은 없다.
  */
+/** @deprecated 2026-09-13 (요리 재료 티어) — 도감 진척 · 기지식 단축은 분석 레벨로 대체됐다. `analysisDurationMs` 를 쓴다. */
 export function analyzeDurationMs(analyzeHours: number, dexRatio: number, known: boolean): number {
   const ratio = Math.max(0, Math.min(1, Number.isFinite(dexRatio) ? dexRatio : 0));
   const dex = 1 - ANALYZE_DEX_SPEEDUP * ratio;
@@ -393,11 +435,115 @@ export function analyzeDurationMs(analyzeHours: number, dexRatio: number, known:
  * 원예 항은 `growDurationMs` 가 쓰는 것과 **같은 항**이다 (온실 가구이므로 같은 숙련이 일한다 — 수치를 새로
  * 적지 않는다). 토양의 태그 매칭에 해당하는 축은 없다: 배지는 등급 하나다. 1초 미만은 없다.
  */
-export function cultureDurationMs(cultureHours: number, mediumSpeedMul: number, gardening: number): number {
+export function cultureDurationMs(cultureHours: number, mediumSpeedMul: number, gardening: number, bonusRatio = 1, socketSpeed = 0): number {
   const skill = Math.max(0, Math.min(SKILL_LEVEL_MAX, gardening));
   const speed = 1 - GROW_SKILL_SPEEDUP * (skill / SKILL_LEVEL_MAX);
-  const medium = Number.isFinite(mediumSpeedMul) && mediumSpeedMul > 0 ? mediumSpeedMul : 1;
-  return Math.max(1000, Math.round(Math.max(0, cultureHours) * 3600e3 * medium * speed));
+  const m = Number.isFinite(mediumSpeedMul) && mediumSpeedMul > 0 ? mediumSpeedMul : 1;
+  /* 2026-09-13 (요리 재료 티어): 배지 속도 보너스(`1 − speedMul`)를 배지 내구도 비율로 준다. 비율 1 이면 옛 식과 같은 값. */
+  const ratio = clamp01(bonusRatio);
+  const medium = ratio >= 1 ? m : 1 - (1 - m) * ratio;
+  return Math.max(1000, Math.round(Math.max(0, cultureHours) * 3600e3 * medium * speed * socketTimeMul(socketSpeed, ratio)));
+}
+
+/* ── 요리 재료 티어 (2026-09-13, docs/plans/food-tiers.md §4.1) ─────────────────────────────────────────────
+ * 흙 · 배지 내구도와 소켓, 분석기 결과표. 전부 순수 함수이고 수치는 계약(`@/shared` = `data/*.csv`)에서 온다.
+ * 난수는 **주입한다**(`rng01`) — 부르는 쪽은 `Math.random` 을, 스모크는 고정 수열을 넘긴다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+function clamp01(v: number): number {
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+}
+
+/** 소켓 `speed` 합이 주는 시간 배수: `max(GROW_SOCKET_TIME_FLOOR, 1 − speed × 비율)`. 소켓이 없으면 정확히 1. */
+function socketTimeMul(socketSpeed: number, ratio: number): number {
+  const s = Number.isFinite(socketSpeed) ? Math.max(0, socketSpeed) : 0;
+  if (s <= 0) return 1;
+  return Math.max(GROW_SOCKET_TIME_FLOOR, 1 - s * ratio);
+}
+
+/** 흙 · 배지의 보너스 비율 = 내구도 / 최대 (0 … 1). 최대가 0 이하이면 0. */
+export function durabilityRatio(cur: number, max: number): number {
+  if (!(max > 0)) return 0;
+  return clamp01(cur / max);
+}
+
+/**
+ * 수확 한 번 뒤의 내구도: `max(0, cur − wear × max(GROW_WEAR_MUL_FLOOR, 1 − wearSum))`. `wearSum` = 끼운 `wear` 소켓 합
+ * (내구도 비율을 타지 않는다 — 내구도 자체를 지키는 소켓이다). 부동소수 찌꺼기는 소수 둘째 자리에서 자른다.
+ */
+export function wearAfterHarvest(cur: number, wearPerHarvest: number, wearSum: number): number {
+  const c = Number.isFinite(cur) ? Math.max(0, cur) : 0;
+  return Math.max(0, Math.round((c - effectiveWear(wearPerHarvest, wearSum)) * 100) / 100);
+}
+
+/** 수확 한 번에 실제로 닳는 양 (`wearAfterHarvest` 와 같은 항). */
+export function effectiveWear(wearPerHarvest: number, wearSum: number): number {
+  const w = Number.isFinite(wearPerHarvest) ? Math.max(0, wearPerHarvest) : 0;
+  const s = Number.isFinite(wearSum) ? Math.max(0, wearSum) : 0;
+  return w * Math.max(GROW_WEAR_MUL_FLOOR, 1 - s);
+}
+
+/**
+ * 내구도가 0 이 될 때까지 남은 수확 횟수 `ceil(cur / 실제 마모)` — 옛 `soilUsesLeft` · `mediumUsesLeft` 칸이 이제 이 뜻이다
+ * (칸은 0 이 돼도 비지 않는다). 마모가 0 이면 내구도가 남아 있는 한 1 로 본다(무한을 적지 않는다).
+ */
+export function harvestsUntilWorn(cur: number, wearPerHarvest: number, wearSum: number): number {
+  const c = Number.isFinite(cur) ? Math.max(0, cur) : 0;
+  if (c <= 0) return 0;
+  const w = effectiveWear(wearPerHarvest, wearSum);
+  return w > 0 ? Math.ceil(c / w - 1e-9) : 1;
+}
+
+/**
+ * 옛 세이브의 「남은 수확 횟수」를 내구도로 옮긴다: `round(최대 × clamp(usesLeft / uses))`. `uses` 가 없으면 최대 그대로.
+ */
+export function durabilityFromUses(max: number, usesLeft: number, uses: number): number {
+  const m = Number.isFinite(max) ? Math.max(0, max) : 0;
+  if (!(uses > 0)) return m;
+  return Math.round(m * clamp01(usesLeft / uses));
+}
+
+/** 결과표에서 `family` · `minLevel ≤ level` · `weight > 0` · `defOk(defId)` 인 줄 (추첨 대상). */
+function analysisPool(family: SampleFamily, level: number, defOk: (defId: string) => boolean): AnalysisResultDef[] {
+  const lv = Math.floor(Number.isFinite(level) ? level : 1);
+  return ANALYSIS_RESULTS.filter((r) => r.family === family && r.minLevel <= lv && r.weight > 0 && defOk(r.defId));
+}
+
+/**
+ * 분석 결과 한 번 굴리기 — 해금된 줄끼리 가중 추첨하고 개수는 `qtyMin … qtyMax` 정수 균등. `rng01` 은 **두 번** 부른다
+ * (줄 · 개수). 추첨할 줄이 없으면 null (부르는 쪽이 표본의 대체 산출물 `rewardDefId` 로 떨어진다).
+ */
+export function rollAnalysisResult(
+  family: SampleFamily, level: number, rng01: () => number, defOk: (defId: string) => boolean,
+): { defId: string; qty: number } | null {
+  const pool = analysisPool(family, level, defOk);
+  if (!pool.length) return null;
+  const total = pool.reduce((a, r) => a + r.weight, 0);
+  let pick = clamp01(rng01()) * total;
+  let row = pool[pool.length - 1];
+  for (const r of pool) {
+    if (pick < r.weight) { row = r; break; }
+    pick -= r.weight;
+  }
+  const span = Math.max(0, row.qtyMax - row.qtyMin);
+  const qty = row.qtyMin + Math.min(span, Math.floor(clamp01(rng01()) * (span + 1)));
+  return { defId: row.defId, qty: Math.max(1, qty) };
+}
+
+/** 지금 레벨에서 해석 한 번이 각 산출물을 낼 확률 (`rollAnalysisResult` 와 같은 식 — 같은 defId 의 줄은 합친다). */
+export function analysisChances(family: SampleFamily, level: number, defOk: (defId: string) => boolean): Record<string, number> {
+  const pool = analysisPool(family, level, defOk);
+  const total = pool.reduce((a, r) => a + r.weight, 0);
+  const out: Record<string, number> = {};
+  if (total <= 0) return out;
+  for (const r of pool) out[r.defId] = (out[r.defId] ?? 0) + r.weight / total;
+  return out;
+}
+
+/** 해석에 걸리는 시간(ms), 넣는 순간 확정: `analyzeHours × 3600e3 × analysisTimeMul(분석 레벨)`, 최소 1000 ms. */
+export function analysisDurationMs(analyzeHours: number, level: number): number {
+  const h = Number.isFinite(analyzeHours) ? Math.max(0, analyzeHours) : 0;
+  return Math.max(1000, Math.round(h * 3600e3 * analysisTimeMul(level)));
 }
 
 /* ── 은퇴 가구 환불 (온실 개편, 2026-09-11) ───────────────────────────────── */

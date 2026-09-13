@@ -408,6 +408,12 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 - 와이어는 **계약**이다: `shared/net.ts` 의 `MealMessage`
   (`{ t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }`, `GameMessage` union 의 `DroneRequest` 다음 줄).
   `send` · `onMessage('meal', …)` 를 **타입 그대로** 쓴다 — 캐스트는 없다.
+- **요리 품질 (2026-09-13, `docs/plans/cooking-minigames.md` §3)**: 차린 요리의 **품질 그대로** 분대원이 받는다. `housing:mealServed {quality}` 를
+  읽어 `req` · `serve` 둘 다 `q`(별 1 … 5, 0 이면 생략 — 옛 클라이언트와 같은 모양)를 싣는다. 받는 쪽은 `normalizeMealQuality(m.q)`(숫자가 아니거나
+  범위 밖 = 0)를 `serveMeal(def, q)` 와 다시 내는 `housing:mealServed {defId, by, quality}` 에 넘긴다. 호스트의 네 겹은 그대로다 — 품질은 효과 배수뿐이라
+  (최대 +25 %) 거리 · 요율 말고 따로 볼 권위가 없고 모양만 자른다. 옛 클라이언트가 보낸 `req`(q 없음)는 품질 0 으로 퍼진다.
+- **캐릭터 버프 · 자세 확인 (같은 날, 코드 변경 없음)**: `sanitizeCharBuffs` 가 `cooking` 종류와 `meal` 의 `quality` 를 이미 받고(계약), 스냅샷 자세는
+  `Snapshotter` 가 `FURNITURE_POSE_WIRE.indexOf(kind)` · `RemotePlayer` 가 `FURNITURE_POSE_WIRE.length` 경계로 읽으므로 끝에 붙은 `cook`(인덱스 4)이 저절로 산다.
 
 ---
 
@@ -458,6 +464,11 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-13 (요리 품질 식탁 와이어, 에이전트 cook-misc — docs/plans/cooking-minigames.md §6-5)** — `parts/Meal.ts` 만. `housing:mealServed.quality` →
+  `meal req` · `serve` 의 `q`(0 이면 생략) → 받는 쪽 `normalizeMealQuality` → `serveMeal(def, q)` + `housing:mealServed {quality}` (위 `공유 함선 식탁` 절의 새 두 줄).
+  `onLocalServed` · `fanOut` · `apply` 가 품질 인자를 하나씩 더 받는다. 계약(`MealMessage.q` · `serveMeal(defId, quality?)` · `housing:mealServed.quality`)은 읽기만 했다.
+  캐릭터 버프(`cooking` · 식사 품질)와 스냅샷 자세 `cook` 은 확인만 했고 코드는 안 바뀌었다. 서버 무변경. ⚠ e2e 로는 돌려 보지 않았다(`e2e-multiplayer` 의 식탁 묶음이 품질을 싣지 않는다).
 
 - **2026-09-12 (캐릭터 버프 · 가구 자세 동기화, net 에이전트)** — 위 `캐릭터 버프 · 가구 자세` 절이 전부다. 새 파일 `parts/CharBuffs.ts`
   (`CharBuffRelay`), `Snapshotter` 의 `bfr` · `fp` · `fu`, `RemotePlayer` 의 `buffs` · `buffsRevision` · `furniturePose`(위상 보간) ·

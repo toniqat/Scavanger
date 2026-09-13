@@ -4,6 +4,9 @@ import {
   charBuffRemainingRatio, charBuffRemainingS, charBuffTitle,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import { cookStepsText, mealEffectLines } from './mealText';
+/* 2026-09-13 (요리 미니게임): 식사 품질 별 배지 */
+import { normalizeMealQuality } from '@/shared';
 import '../styles/buffs.css';
 
 /** 시간 글자 · 게이지를 다시 쓰는 주기 (UI 타이밍, 밸런스 아님). 타이머가 있는 썸네일이 보일 때만 돈다. */
@@ -24,6 +27,8 @@ export interface BuffCellState {
   /** `23h` / `42m` / `35s`, empty without a timer. */
   time: string;
   title: string;
+  /** appended (2026-09-13, 요리 품질): `meal` 의 품질 별 수 (배지), 없으면 0. */
+  quality: number;
 }
 
 interface Cell {
@@ -39,6 +44,8 @@ interface Cell {
   /** `--r` as last written (rounded). */
   rs: string;
   time: string;
+  /** `charBuffTitle` 그대로 (state · 스모크가 읽는다). DOM `title` 은 요리면 여기에 능력치 줄이 붙는다. */
+  title: string;
 }
 
 /**
@@ -53,7 +60,12 @@ interface Cell {
  *   - 타이머(`startedAt` · `endsAt`)가 있으면 **시간 게이지** — 임플란트 썸네일(`styles/implant.css`)과 같은 두 얼굴 기법이다:
  *     흐린 바탕 얼굴 위에 밝은 사본을 밑에서부터 `charBuffRemainingRatio` 만큼만 드러내므로 남은 시간이 줄수록 빛이
  *     **위에서 아래로 빠진다**. 우하단에 아주 작은 남은 시간(`23h` · `42m` · `35s`).
- *   - `title` = `charBuffTitle` (요리 · 준비물 이름은 아이템 def 에서).
+ *   - `title` = `charBuffTitle` (요리 · 준비물 이름은 아이템 def 에서). 2026-09-13 (요리 재료 티어): **요리**면 DOM `title` 아래에
+ *     능력치 줄 전부가 한 줄씩 붙는다 (`hud/mealText.mealEffectLines` — 상위 요리는 2–4 줄). `state[].title` 은 `charBuffTitle` 그대로다.
+ *   - 2026-09-13 (요리 미니게임): **요리 품질** — `meal` 의 `quality` 가 있으면 좌상단 작은 금색 별 배지(`data-q` = `★3`, 미니는 별 하나 —
+ *     `styles/buffs.css` 의 `::after`)이고 DOM `title` 의 능력치 줄이 **보너스 반영 수치**다 (이름 뒤 별은 `charBuffTitle` 이 붙인다).
+ *     **`cooking`**(조리 중) 은 계약의 `CHAR_BUFF_GLYPH` · `CHAR_BUFF_COLOR` 그대로이고(만드는 요리의 글리프를 쓰면 식사 버프와 헷갈린다),
+ *     `title` 이 `조리 중 · <요리>` 아래에 그 요리의 단계 줄 `① 썰기 → ② 젓기`(`cookStepsText`)를 붙인다.
  *
  * `set(list)` 은 **참조로** 비교한다 (`PlayerRef.buffs` · `RemotePlayerRef.buffs` 는 바뀔 때만 새 배열이다) — 같은 배열이면 아무것도
  * 안 한다. 썸네일 DOM 은 `key` 로 재사용하고, 사라진 키만 떼어 낸다. `update()` 는 매 프레임(또는 분대 목록의 10 Hz) 불려도 되고,
@@ -120,7 +132,8 @@ export class BuffStrip {
       out.push({
         key: c.buff.key, kind: c.buff.kind, glyph: c.glyph, color: c.color,
         dim: c.root.classList.contains('is-pending'), debuff: c.root.classList.contains('is-debuff'),
-        ratio: c.ratio, time: c.time, title: c.root.title,
+        ratio: c.ratio, time: c.time, title: c.title,
+        quality: c.buff.kind === 'meal' ? normalizeMealQuality(c.buff.quality) : 0,
       });
     }
     return out;
@@ -137,7 +150,7 @@ export class BuffStrip {
     const reveal = el('span', { cls: 'bfs-reveal', parent: root });
     const lit = el('span', { cls: 'bfs-face lit', parent: reveal });
     const timeEl = el('span', { cls: 'bfs-t ui-mono', text: '', parent: root });
-    const cell: Cell = { root, base, lit, reveal, timeEl, buff: { kind: 'rest', key, debuff: false, state: 'active' }, glyph: '', color: '', ratio: null, rs: '', time: '' };
+    const cell: Cell = { root, base, lit, reveal, timeEl, buff: { kind: 'rest', key, debuff: false, state: 'active' }, glyph: '', color: '', ratio: null, rs: '', time: '', title: '' };
     this.cells.set(key, cell);
     return cell;
   }
@@ -159,7 +172,17 @@ export class BuffStrip {
     toggleClass(cell.root, 'is-timed', hasTimer);
     let title = '';
     try { title = charBuffTitle(b, (id) => defOf(ctx, id)); } catch { title = b.key; }
-    if (cell.root.title !== title) cell.root.title = title;
+    cell.title = title;
+    // 2026-09-13: 요리는 버프 하나에 능력치 줄이 여러 개다 — 마우스를 올리면 전부 보이게 한 줄씩 붙인다 (요리 품질이 있으면 보너스 반영)
+    const quality = b.kind === 'meal' ? normalizeMealQuality(b.quality) : 0;
+    let lines: string[] = [];
+    if (b.kind === 'meal' && def?.meal) lines = mealEffectLines(def.meal, quality);
+    else if (b.kind === 'cooking' && b.defId) { const steps = cookStepsText(b.defId); if (steps) lines = [steps]; }
+    const domTitle = lines.length > 0 ? `${title}\n${lines.join('\n')}` : title;
+    if (cell.root.title !== domTitle) cell.root.title = domTitle;
+    // 2026-09-13 (요리 품질): 좌상단 별 배지 — 글자는 CSS `::after { content: attr(data-q) }`
+    const q = quality > 0 ? `★${quality}` : '';
+    if ((cell.root.dataset.q ?? '') !== q) { if (q) cell.root.dataset.q = q; else delete cell.root.dataset.q; }
     cell.root.dataset.kind = b.kind;
     if (!hasTimer) this.writeGauge(cell, null, '');
   }

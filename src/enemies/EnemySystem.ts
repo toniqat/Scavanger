@@ -3,7 +3,7 @@ import type { RogueShotOpts } from './Enemy';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
+  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   /* appended (2026-09-09): 로그 강하 계약 */
@@ -12,10 +12,12 @@ import {
   type GrenadeView,
   /* appended (2026-09-11): 네임드 로그 디버그 훅 */
   type NamedRogueType,
+  /* appended (2026-09-13): 행성별 인간형 팩션 계약 */
+  type HumanoidSpawnOpts,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
+import { HUMANOID_WEAPONS, ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
 import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
 import { SUSPICION_TIME, updateEnemyAI } from './ai/EnemyAI';
@@ -34,9 +36,15 @@ import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
 import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/HostSync';
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
-import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
+import type { RogueSpawnHost } from './RogueGuards';
+import { placeSiteGroups, type SitePlacement } from './SiteGroups';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
+/* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
+import { BURROW_EMERGE_S } from '@/shared';
+import { SandwormDirector } from './sandworm/Director';
+import { BurrowFx } from './fx/BurrowFx';
+import * as Burrow from './parts/Burrow';
 import { raySphere, rayCapsule, rayStandingCapsule, standingTopY } from './RayTests';
 import { carryCorpse } from './ai/Ride';
 import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
@@ -80,6 +88,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   readonly rogueDrops = new RogueDropDirector();
   /** 2026-09-11: 네임드 로그 — 레이드당 1회 굴림 · 자리 · 스폰 · `enemy:namedSpawned` (`named/Director.ts`). */
   readonly named = new NamedRogueDirector();
+  /** 2026-09-13: 지하벌레 — 레이드당 굴림 · 전조 · 분출 · 뱉기 · 독극물 · 동기화 (`sandworm/Director.ts`). */
+  readonly sandworm = new SandwormDirector();
+  /** 2026-09-13: 굴착 분진 · 흙덩이 · 전조 링 (`fx/BurrowFx.ts`). */
+  burrowFx: BurrowFx | null = null;
+  /** 2026-09-13: ctx.time of the last burrow camera shake (`parts/Burrow.burrowShake` dedupe) · how many went out (debug). */
+  burrowShakeAt = -Infinity;
+  burrowShakes = 0;
   /** Phase 12: through-wall silhouettes (`setXray`). */
   readonly xray = new EnemyXray();
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
@@ -117,6 +132,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   lastClash = -Infinity;
   /** Current boss (authority) for debugging / HUD. */
   bossId = 0;
+  /* ── 2026-09-13: 행성별 인간형 팩션 (`SiteGroups.ts` · `RogueDrop.ts` · `named/Director.ts`) ── */
+  /** 이번 레이드 목표 행성의 threat (1..3, `world:ready` 에서 — 행성 없음 · 훈련장 = 1). 거점 팩션 · 강하 확률 · 네임드 확률의 색인. */
+  planetThreatLevel: 1 | 2 | 3 = 1;
+  /** 다음 분대 id (`allocSquadId`, `Pool.reset` 이 1 로). */
+  nextSquadId = 1;
+  /** 레이드 시작 거점 점거 기록 (권한만, 디버그 · 스모크 — `debugSites()`). */
+  sitePlacement: SitePlacement | null = null;
+  /** `RogueSpawnHost.allocSquadId` — 레이드 안에서 유일한 새 분대 id. */
+  allocSquadId(): number { return this.nextSquadId++; }
   /* ── Phase 7 ── */
   /** 시뮬레이션 훈련장: no spawner / waves / guards / initial population (set at `world:ready`). */
   training = false;
@@ -183,20 +207,25 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.training = ctx.isTraining() || ctx.missionMode === 'training' || (ctx.world as Partial<WorldRef> | null)?.mode === 'training';
         // Phase 11: 목표 행성 생태계 → spawner / waves / guards. Training keeps it null; so does a mission without a planet
         // (the ecosystem is host-side composition only — the `es` / `ee` wire and replica behaviour are untouched).
-        this.eco = this.training ? null : (getPlanet(planet ?? ctx.world?.planet ?? ctx.missionPlanet)?.eco ?? null);
+        const planetId = this.training ? null : (planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
+        this.eco = this.training ? null : (getPlanet(planetId)?.eco ?? null);
         this.spawner.eco = this.eco;
         this.waves.eco = this.eco;
+        // 2026-09-13: 행성 threat → 거점 팩션 · 레이더 강하 확률 · 네임드 확률. 모든 클라이언트가 정해 둔다 (승격된 호스트의 강하 굴림)
+        this.planetThreatLevel = planetThreat(planetId);
         if (this.training) return;
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
           this.spawner.initialPopulate(this, playerSpawn);
-          const guards = placeRogueGuards(this, seed, this.eco);
-          if (guards.boss) {
-            this.bossId = guards.boss.id;
-            ctx.bus.emit('enemy:bossSpawned', { id: guards.boss.id, type: guards.boss.type, position: guards.boss.position });
+          // 2026-09-13: 상자 경비 폐지 → 행성 threat 별 거점 그룹 (안드로이드 · 로그 · 레이더)
+          const sites = placeSiteGroups(this, seed, this.planetThreatLevel);
+          this.sitePlacement = sites;
+          if (sites.boss) {
+            this.bossId = sites.boss.id;
+            ctx.bus.emit('enemy:bossSpawned', { id: sites.boss.id, type: sites.boss.type, position: sites.boss.position });
           }
-          // 2026-09-11: 네임드 로그 — 가드 배치 뒤 레이드당 한 번 (world:ready 에서만 굴리므로 승격된 호스트는 다시 굴리지 않는다)
-          this.named.roll(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
+          // 2026-09-11: 네임드 — 거점 배치 뒤 레이드당 한 번 (world:ready 에서만 굴리므로 승격된 호스트는 다시 굴리지 않는다)
+          this.named.roll(planetId);
         }
       }),
       // WorldSystem (registered earlier) generates synchronously inside ITS game:newMission handler and emits
@@ -229,6 +258,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('structure:investigated', ({ zoneId, position }) => this.rogueDrops.onInvestigated(zoneId, position)),
       // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
       bus.on('net:hostChanged', ({ isLocalHost }) => this.setAuthority(isLocalHost)),
+    );
+    // 2026-09-13: 지하벌레 · 굴착 — 위 `world:ready` 구독 **뒤에** 등록해 리셋 · 생태계 계산이 끝난 뒤에 굴린다
+    this.burrowFx = new BurrowFx(ctx.scene);
+    this.sandworm.bind(this);
+    this.unsub.push(
+      bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.eco, this.training)),
+      bus.on('cheat:sandworm', ({ spitS }) => { this.sandworm.debugForce(spitS === undefined ? {} : { spitS }); }),
     );
     this.refreshMode();
     this.ensureNet();
@@ -263,6 +299,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       // Phase 9: a member that (re)joined the mission or a takeover needs a full picture — the next `es` is a keyframe
       net.onMessage('flow', (msg) => {
         if ((msg.ev === 'rejoined' || msg.ev === 'takeover') && this.hosting) this.snapCache.forceFull = true;
+        if (msg.ev === 'rejoined' && this.hosting) this.sandworm.resync();   // 2026-09-13: 전조 · 지하벌레 최대 체력 · 뱉기 시간
       }),
       net.onMessage('intq', (msg) => {
         // a client's bullet hit shell `sid`: validate it still exists, pop it here and broadcast
@@ -299,6 +336,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (ctx.isGameplayPhase()) this.updateStatuses(dt);
     // 로그 강하: 포드 낙하 연출은 어디서나, 착지 스폰은 호스트에서만 (안쪽에서 갈린다)
     if (!this.training) this.rogueDrops.update(dt);
+    if (!this.training) this.sandworm.update(dt);   // 2026-09-13: 전조 흔들림은 어디서나, 발동 · 분출 · 지하벌레 틱은 권위만
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
@@ -344,6 +382,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.xray.tick(ctx.time);
     this.corpses.update(dt);
     this.fx?.update(dt, world);
+    this.burrowFx?.update(ctx.time, dt);   // 2026-09-13
   }
 
   dispose(): void {
@@ -357,6 +396,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.acid?.dispose(); this.acid = null;
     this.shells?.dispose(); this.shells = null;
     this.grenades?.dispose(); this.grenades = null;
+    this.burrowFx?.dispose(); this.burrowFx = null;   // 2026-09-13
     if (this.ctx && this.ctx.enemies === this) this.ctx.enemies = null;
   }
 
@@ -618,13 +658,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   /* ── debug hooks (window.__game.getSystem('enemies')) ─────────────────── */
   /** Spawn one enemy at `position` (authority only). `chase` makes it hunt immediately. Returns the entity or null. */
-  debugSpawn(type: EnemyType, position: THREE.Vector3 | { x: number; y?: number; z: number }, chase = false): Enemy | null {
+  debugSpawn(type: EnemyType, position: THREE.Vector3 | { x: number; y?: number; z: number }, chase = false, opts?: HumanoidSpawnOpts): Enemy | null {
     if (!this.authority || !this.ctx.world?.ready) return null;
     const world = this.ctx.world;
     _v.set(position.x, 0, position.z);
     _v.y = world.getHeightAt(_v.x, _v.z);
     if (type === 'rogue' || type === 'rogue_boss') {
-      return this.spawnRogue(type, _v, 0, _v, type === 'rogue_boss' ? ROGUE_AI.bossWeapon : ROGUE_AI.weapons[0], null);
+      return this.spawnRogue(type, _v, 0, _v, type === 'rogue_boss' ? ROGUE_AI.bossWeapon : ROGUE_AI.weapons[0], null, opts);
+    }
+    // 2026-09-13: 안드로이드 · 레이더도 인간형 스폰 경로 (총 = 그 팩션 목록의 첫 계열, `opts` = 거점 · 분대 · 역할)
+    if (type === 'android' || type === 'raider') {
+      return this.spawnRogue(type, _v, 0, _v, HUMANOID_WEAPONS[type][0] ?? 'ar', null, opts);
     }
     return this.spawn(type, _v, 0, chase, false);
   }
@@ -694,15 +738,39 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   debugSpawnNamed(type: NamedRogueType, at?: { x: number; z: number }): Enemy | null { return this.named.debugSpawn(type, at); }
   /** 2026-09-11 (debug / smoke): 이번 레이드의 네임드 굴림 — 확률 · 굴린 값 · 뽑힌 종류 · 자리 · 호위 수. */
   debugNamedRoll(): NamedRollResult { return this.named.debugRoll(); }
-  /** Phase 11 (debug / smoke): rogues placed as crate guards right now (boss included). */
-  debugGuardCount(): { rogues: number; boss: boolean } {
-    let rogues = 0; let boss = false;
+  /**
+   * Phase 11 (debug / smoke): living humanoids right now. `rogues` counts `rogue` + `rogue_boss` (boss included) as before;
+   * 2026-09-13 adds `androids` / `raiders` (named rogues and their escorts are counted by type — a heavy's escort is a raider).
+   */
+  debugGuardCount(): { rogues: number; boss: boolean; androids: number; raiders: number } {
+    let rogues = 0; let boss = false; let androids = 0; let raiders = 0;
     for (const e of this.active) {
       if (!e.active || e.state === 'dead') continue;
       if (e.type === 'rogue') rogues++;
       else if (e.type === 'rogue_boss') { rogues++; boss = true; }
+      else if (e.type === 'android') androids++;
+      else if (e.type === 'raider') raiders++;
     }
-    return { rogues, boss };
+    return { rogues, boss, androids, raiders };
+  }
+  /**
+   * 2026-09-13 (debug / smoke): 이번 레이드 시작의 거점 점거 — threat · 거점별 점거 여부 · 팩션 · 그룹(분대 id · 실내/실외 ·
+   * 분대장 여부 · 멤버 id / 종류 / 역할 / 무기 / 스폰 자리) · 분대장 id · 자리 출처(`world` = getSiteSpawnPoints, `fallback`).
+   * JSON 으로 옮길 수 있는 복사본. 권한이 아니거나 굴리기 전이면 null.
+   */
+  debugSites(): { threat: number; source: string; bossId: number | null; humanoids: number; sites: Array<{ siteId: string; site: string; occupied: boolean; faction: string | null; groups: Array<{ squadId: number; place: string; faction: string; leader: boolean; planned: number; members: Array<{ id: number; type: EnemyType; role: string; weapon: string; x: number; y: number; z: number }> }> }> } | null {
+    const p = this.sitePlacement;
+    if (!p) return null;
+    return {
+      threat: p.threat, source: p.source, bossId: p.boss ? p.boss.id : null, humanoids: p.humanoids,
+      sites: p.sites.map((s) => ({ ...s, groups: s.groups.map((g) => ({ ...g, members: g.members.map((m) => ({ ...m })) })) })),
+    };
+  }
+  /** 2026-09-13 (debug / smoke): 레이더 강하가 분대 인원을 `n`(1..4)으로 치게 한다 (null = 실제 인원). 미션 리셋이 지운다. */
+  debugSetDropSquad(n: number | null): void { this.rogueDrops.squadOverride = n; }
+  /** 2026-09-13 (debug / smoke): 예약된 레이더 강하 두 번째 파도 · 이번 레이드에 떨어뜨린 파도 수. */
+  get debugDropWaves(): { pending: Array<{ id: string; count: number; at: number }>; waves: number } {
+    return { pending: this.rogueDrops.pendingWaves(), waves: this.rogueDrops.waves };
   }
 
   /* ── client → host requests (authority only) ───────────────────────────── */
@@ -718,10 +786,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   ensureCapacity(n: number, cap: number): number { return Pool.ensureCapacity(this, n, cap); }
 
-  spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean): Enemy | null { return Pool.spawn(this, type, position, yaw, chase, relentless); }
+  /** `emerge` (2026-09-13) > 0 = 벌레가 그 초 동안 땅을 파고 올라온다. */
+  spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge = 0): Enemy | null { return Pool.spawn(this, type, position, yaw, chase, relentless, emerge); }
 
   /* ── RogueSpawnHost ────────────────────────────────────────────────────── */
-  spawnRogue(type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null): Enemy | null { return Pool.spawnRogue(this, type, position, yaw, guardPos, weaponId, escortOf); }
+  spawnRogue(type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null, opts?: HumanoidSpawnOpts): Enemy | null { return Pool.spawnRogue(this, type, position, yaw, guardPos, weaponId, escortOf, opts); }
 
   /* ── ReplicaHost ───────────────────────────────────────────────────────── */
   find(id: number): Enemy | undefined { return Pool.find(this, id); }
@@ -731,7 +800,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   release(e: Enemy): void { return Pool.release(this, e); }
 
-  bloodBurst(point: THREE.Vector3, count: number, dir: THREE.Vector3 | null): void { return RFx.bloodBurst(this, point, count, dir); }
+  bloodBurst(point: THREE.Vector3, count: number, dir: THREE.Vector3 | null, kind?: 'blood' | 'spark'): void { return RFx.bloodBurst(this, point, count, dir, kind); }
 
   acidVisual(from: THREE.Vector3, target: CombatTarget, shooterId: number): void { return RFx.acidVisual(this, from, target, shooterId); }
 
@@ -753,11 +822,32 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   corpseGoneRemote(id: number): void { return RFx.corpseGoneRemote(this, id); }
 
-  grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number): void { return RFx.grenadeVisual(this, id, p, v, fuse); }
+  grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number, kind?: import('@/shared').EnemyGrenadeKind): void { return RFx.grenadeVisual(this, id, p, v, fuse, kind); }
 
-  grenadeHitRemote(p: THREE.Vector3): void { return RFx.grenadeHitRemote(this, p); }
+  grenadeHitRemote(p: THREE.Vector3, kind?: import('@/shared').EnemyGrenadeKind): void { return RFx.grenadeHitRemote(this, p, kind); }
 
   despawn(e: Enemy): void { return Pool.despawn(this, e); }
+
+  /* ── 2026-09-13: 굴착 스폰 · 지하벌레 (ReplicaHost / EnemyHost + debug) ─────────────── */
+  emergeSpawned(e: Enemy): void { Burrow.emergeFx(this, e); }
+
+  burrowLanded(e: Enemy): void { Burrow.spatLandedFx(this, e); }
+
+  onSandwormEvent(msg: EnemyEvent): void { this.sandworm.onWire(msg); }
+
+  /** Debug / smoke: spawn `type` digging out of the ground for `seconds` (default `BURROW_EMERGE_S`). Authority only. */
+  debugSpawnBurrow(type: EnemyType, position: { x: number; z: number }, seconds = BURROW_EMERGE_S): Enemy | null {
+    const world = this.ctx.world;
+    if (!this.authority || !world?.ready) return null;
+    _v.set(position.x, world.getHeightAt(position.x, position.z), position.z);
+    return this.spawn(type, _v, 0, false, false, seconds);
+  }
+
+  /** Debug / smoke / console: start the sandworm warning now (see `SandwormDirector.debugForce`). */
+  debugSandworm(opts: { at?: { x: number; z: number }; spitS?: number } = {}): boolean { return this.sandworm.debugForce(opts); }
+
+  /** Debug / smoke: sandworm plan · warning · live worms · volley counters. */
+  get debugSandwormState(): ReturnType<SandwormDirector['debugState']> { return this.sandworm.debugState(); }
 
   private disposePools(): void { return Pool.disposePools(this); }
 
@@ -782,7 +872,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
    * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
    */
-  onGrenadeExploded(p: THREE.Vector3, authority: boolean, owner: number): void { return Atk.onGrenadeExploded(this, p, authority, owner); }
+  onGrenadeExploded(p: THREE.Vector3, authority: boolean, owner: number, kind: import('@/shared').EnemyGrenadeKind = 'frag'): void { return Atk.onGrenadeExploded(this, p, authority, owner, kind); }
+  /** 2026-09-13 (`GrenadeHost`): an authority enemy fire zone burns for `tick` s — `parts/Attacks.onFireZoneTick`. */
+  onFireZoneTick(p: THREE.Vector3, radius: number, owner: number, faction: EnemyFaction, tick: number): void { return Atk.onFireZoneTick(this, p, radius, owner, faction, tick); }
 
   /* ── status effects (burning / slow / 전소 / shocked) ──────────────────── */
   private updateStatuses(dt: number): void { return Status.updateStatuses(this, dt); }

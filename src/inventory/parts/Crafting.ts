@@ -22,7 +22,8 @@ import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemId
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
 /* 2026-09-10: 수리 재료를 정하는 곳은 하나다 (`getRepairCost` → 없으면 회복 스프레이). */
 import { repairMaterials } from './Durability';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
+import { Grid, OOB, stackKeyOf, type Placement, type PriorityPlacement, type StackItem } from '../Grid';
+import { normalizeMealQuality } from '@/shared';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
 import { setStarterGrantState, starterGrantState } from '../Stash';
@@ -36,6 +37,20 @@ import {
   type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
+
+/** 2026-09-13 (요리 미니게임): 조리대 kind 와 그 한국어 사유들 (`cookBlock` · `completeCook` · `openBenchCraft`). */
+const COOK_BENCH: WorkbenchKind = 'cook';
+const COOK_USE_STATION = '조리대에서 요리하세요';
+const COOK_REASON = {
+  notCook: '조리대 레시피가 아닙니다',
+  shipOnly: '조리대는 함선에서만 사용할 수 있습니다',
+  level: (n: number): string => `조리대 Lv.${n} 이 필요합니다`,
+  skill: (label: string, n: number): string => `${label} 숙련 ${n} 이 필요합니다`,
+  missing: '재료가 부족합니다',
+  noRoom: '넣을 자리가 없습니다',
+} as const;
+/** 숙련 이름 (조리대 레시피는 전부 `crafting` 이다 — 표에 없는 숙련은 id 그대로). */
+const SKILL_WORD: Partial<Record<CraftRecipe['skill'], string>> = { crafting: '제작' };
 
 /** 산출물이 갈 데가 없을 때의 안내 — 함선에서는 창고까지 본 뒤라 두 곳을 다 말한다 (2026-09-09). */
 const NO_ROOM_SHIP = '가방과 함선 창고에 공간이 없습니다';
@@ -52,6 +67,11 @@ export function currentStation(sys: InventorySystem): CraftStation {
  */
 export function openBenchCraft(sys: InventorySystem, bench: WorkbenchKind, level: number): void {
   const ctx = sys.ctx;
+  // 2026-09-13 (요리 미니게임): 조리대는 제작 창을 열지 않는다 — 품질 없이 요리를 만드는 뒷문이 된다 (조리대 화면은 housing)
+  if (bench === COOK_BENCH) {
+    ctx.bus.emit('ui:notify', { text: COOK_USE_STATION, kind: 'warning', duration: 2 });
+    return;
+  }
   if (!ctx.isHubPhase()) {
     ctx.bus.emit('ui:notify', { text: '작업대는 함선에서만 사용할 수 있습니다', kind: 'warning', duration: 2 });
     return;
@@ -81,6 +101,7 @@ export function getBench(sys: InventorySystem): ActiveBench | null { return sys.
  */
 export function switchBench(sys: InventorySystem, bench: WorkbenchKind | null, level = 0): void {
   if (bench && !sys.ctx.isHubPhase()) return;   // 작업대는 함선에서만 (openBenchCraft 와 같은 규칙)
+  if (bench === COOK_BENCH) return;              // 2026-09-13: 조리대는 제작 창의 작업대가 아니다 (openBenchCraft 와 같은 규칙)
   sys.cancelCraft();
   sys.bench = bench ? { kind: bench, level: Math.max(0, Math.floor(level)) } : null;
   }
@@ -162,6 +183,10 @@ export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: 
     housing && typeof housing.getBenchLevel === 'function' ? Math.max(0, housing.getBenchLevel(kind) || 0) : 0;
   return sys.loot.getAllRecipes().filter((r) => {
     if (skillOf(r.skill) < r.skillRequired) return false;
+    /* 2026-09-13 (요리 미니게임): 조리대 레시피는 일반 제작 목록(가방의 `제작` · 빠른제작 · 다른 작업대)에 뜨지 않는다.
+       **조리대를 이름으로 물을 때만**(`getRecipes('ship', 'cook', lv)` — housing 조리대 화면의 요리 목록) 돌려준다.
+       만드는 길은 `completeCook` 하나다 — `canCraft` · `craft` 는 조리대 레시피를 받지 않는다. */
+    if (r.bench === COOK_BENCH && bench !== COOK_BENCH) return false;
     if (station === 'field') return r.station === 'field';
     const need = r.benchLevel ?? 1;
     /* 2026-09-10 (사용자 결정) — **작업대를 열면 그 작업대의 레시피만 보인다.** 예전에는 `bench` 가 없는
@@ -237,6 +262,7 @@ export function craftCost(sys: InventorySystem, recipe: CraftRecipe): CraftIngre
 export function canCraft(sys: InventorySystem, recipeId: string, count = 1): boolean {
   const r = getRecipe(recipeId);
   if (!r) return false;
+  if (r.bench === COOK_BENCH) return false;   // 2026-09-13: 조리대 레시피는 `completeCook` 으로만 (품질 없는 뒷문 금지)
   const n = normCount(count);
   // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계의 레시피만 (꺼져 있으면 언제나 null)
   if (sys.ctx.tutorial?.blockReason('craft', recipeId)) return false;
@@ -487,3 +513,129 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   sys.ui?.refreshCraft();
   job.resolve(first);
   }
+
+/* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `completeCook`, docs/plans/cooking-minigames.md §6-2) ══════
+ * housing 의 조리대 화면이 미니게임을 끝낸 뒤 **품질**을 들고 부른다. 규칙은 함선 작업대 제작과 같다:
+ *   게이트 — 조리대 레시피 · 함선 · 작업대 레벨 · 숙련 · 튜토리얼 · 재료(`craftCost`, 작업실 할인 포함) · 산출물 자리.
+ *   재료   — **가방 먼저**(작은 스택부터 → 주머니 → 휠 = `consumeWhere` 순서) → **함선 창고** (`consumeDefAll`). 이 파일 머리의
+ *            「함선에서는 가방 + 함선 창고」 그대로다 — 조리대 화면은 창고 · 가방 카드를 나란히 보여 주고 수확물은 창고로 들어온다.
+ *   산출   — 1회분(`outputQty`, 품질 `quality`) + `extraOutputs`(품질 없음), **창고 먼저 → 가방** (재배 · 배양 수확과 같은 쪽).
+ *   실패   — 아무것도 빼지 않는다 (`cookBlock` 을 다시 보고, 자리는 소모 전에 dry-run 으로 확인한다).
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 조리대 레시피를 **지금** 1회 만들 수 없는 한국어 사유, null = 가능. */
+export function cookBlock(sys: InventorySystem, recipeId: string, benchLevel: number): string | null {
+  const r = getRecipe(recipeId);
+  if (!r || r.bench !== COOK_BENCH || isDisassembleRecipe(r) || !ITEM_DEF_MAP.has(r.outputDefId)) return COOK_REASON.notCook;
+  const ctx = sys.ctx;
+  if (!ctx.isHubPhase() || ctx.isRaidActive()) return COOK_REASON.shipOnly;
+  const need = r.benchLevel ?? 1;
+  const lv = Number.isFinite(benchLevel) ? Math.floor(benchLevel) : 0;
+  if (lv < need) return COOK_REASON.level(need);
+  const skill = ctx.progression?.getSkill(r.skill) ?? 0;
+  if (skill < r.skillRequired) return COOK_REASON.skill(SKILL_WORD[r.skill] ?? r.skill, r.skillRequired);
+  const tut = ctx.tutorial?.blockReason('craft', recipeId);
+  if (tut) return tut;
+  if (!sys.craftCost(r).every((i) => sys.countDefAll(i.defId) >= i.qty)) return COOK_REASON.missing;
+  // 시작 전에는 품질을 모른다 → 어느 스택과도 합쳐지지 않는다고 보고(새 칸이 필요) 잰다. `completeCook` 은 실제 품질로 다시 잰다.
+  if (!roomForCook(sys, r, null)) return COOK_REASON.noRoom;
+  return null;
+  }
+
+/** 같은 분류 열쇠(요리 품질 포함)의 스택만 합치는 dry-run 합치기 예산 — `dryMerge` 의 품질판. */
+function dryMergeKeyed(g: DryGrid, def: ItemDef, probe: StackItem, want: number): number {
+  if (def.stackMax <= 1 || want <= 0) return 0;
+  const key = `${def.id}|${stackKeyOf(probe)}`;
+  const cap = g.merge.get(key) ?? g.grid.mergeCapacity(def.id, probe);
+  const used = Math.min(cap, want);
+  g.merge.set(key, cap - used);
+  return used;
+}
+
+/**
+ * 조리 1회의 산출물(품질 `quality` 인 본 산출물 + 품질 없는 `extraOutputs`)이 **창고 → 가방** 순서로 전부 들어가는가.
+ * 덩어리(`stackMax` 이하)마다 `Grid.autoPlace` 와 같은 판정 — 그 격자의 같은 열쇠 스택이 다 받으면 합치기, 아니면 빈칸이 있을 때
+ * 합칠 만큼 합치고 나머지를 한 칸에. 그 격자에서 안 되면(아무것도 쓰지 않고) 다음 격자.
+ */
+function roomForCook(sys: InventorySystem, recipe: CraftRecipe, quality: number | null): boolean {
+  const order: DryGrid[] = [];
+  if (sys.ctx.isHubPhase()) order.push(dryGrid(sys.getStash()));
+  order.push(dryGrid(sys.bag));
+  /** `quality === null` = 품질을 아직 모른다: 본 산출물은 기존 스택에 합치지 않는다고 본다 (보수적). */
+  const unknown = quality === null;
+  const q = normalizeMealQuality(quality ?? 0);
+  const outputs = [{ defId: recipe.outputDefId, qty: recipe.outputQty, quality: q, noMerge: unknown },
+    ...(recipe.extraOutputs ?? []).map((e) => ({ defId: e.defId, qty: e.qty, quality: 0, noMerge: false }))];
+  for (const o of outputs) {
+    const def = ITEM_DEF_MAP.get(o.defId);
+    if (!def) return false;
+    const probe: StackItem = o.quality > 0 ? { defId: o.defId, quality: o.quality } : { defId: o.defId };
+    let left = Math.max(0, Math.floor(o.qty));
+    while (left > 0) {
+      const chunk = Math.min(def.stackMax, left);
+      left -= chunk;
+      let placed = false;
+      for (const g of order) {
+        const key = `${def.id}|${stackKeyOf(probe)}`;
+        const cap = def.stackMax > 1 && !o.noMerge ? (g.merge.get(key) ?? g.grid.mergeCapacity(def.id, probe)) : 0;
+        if (chunk <= cap) { dryMergeKeyed(g, def, probe, chunk); placed = true; break; }
+        if (dryPlace(g, def)) { dryMergeKeyed(g, def, probe, cap); placed = true; break; }
+      }
+      if (!placed) return false;
+    }
+  }
+  return true;
+}
+
+/** 조리 1회를 마무리한다 — 게이트를 다시 보고, 재료를 빼고, 품질 붙은 산출물을 창고 먼저 → 가방에. */
+export function completeCook(sys: InventorySystem, recipeId: string, benchLevel: number, quality: number):
+  { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null } {
+  const blocked = cookBlock(sys, recipeId, benchLevel);
+  const q = normalizeMealQuality(quality);
+  const r = getRecipe(recipeId);
+  const outDef = r ? ITEM_DEF_MAP.get(r.outputDefId) : undefined;
+  if (blocked || !r || !outDef) return { item: null, landed: null, reason: blocked ?? COOK_REASON.notCook };
+  // `cookBlock` 은 품질 없는 자리를 봤다 — 품질이 붙으면 합칠 수 있는 스택이 달라지므로 그 품질로 한 번 더 본다
+  if (!roomForCook(sys, r, q)) return { item: null, landed: null, reason: COOK_REASON.noRoom };
+  for (const i of sys.craftCost(r)) {
+    if (!sys.consumeDefAll(i.defId, i.qty)) {
+      // `cookBlock` 이 방금 확인했으므로 오지 않는 가지다 (같은 def 가 재료에 두 번 적힌 레시피가 아닌 한)
+      console.error('[inventory] 조리 재료를 빼지 못했다', recipeId, i.defId, i.qty);
+      sys.afterChange();
+      return { item: null, landed: null, reason: COOK_REASON.missing };
+    }
+  }
+  const stash = sys.ctx.isHubPhase() ? sys.getStash() : null;
+  const place = (defId: string, qty: number, withQuality: number): { item: ItemInstance; landed: 'bag' | 'stash' | null }[] => {
+    const def = ITEM_DEF_MAP.get(defId);
+    const out: { item: ItemInstance; landed: 'bag' | 'stash' | null }[] = [];
+    if (!def) return out;
+    let left = Math.max(0, Math.floor(qty));
+    while (left > 0) {
+      const chunk = Math.min(def.stackMax, left);
+      left -= chunk;
+      const item = sys.loot.createItem(defId, chunk);
+      if (withQuality > 0) item.quality = withQuality; else delete item.quality;
+      const probe: StackItem = { defId, quality: item.quality };
+      if (stash && stash.autoPlace(item)) out.push({ item: heldStack(stash, item, probe), landed: 'stash' });
+      else if (sys.bag.autoPlace(item)) out.push({ item: heldStack(sys.bag, item, probe), landed: 'bag' });
+      else { sys.throwToWorld(item, false); out.push({ item, landed: null }); }   // dry-run 이 막았으므로 사실상 오지 않는다
+    }
+    return out;
+  };
+  const main = place(r.outputDefId, r.outputQty, q);
+  for (const e of r.extraOutputs ?? []) place(e.defId, e.qty, 0);
+  const first = main[0] ?? { item: sys.loot.createItem(r.outputDefId, Math.max(1, r.outputQty)), landed: null };
+  if (q > 0 && first.landed === null) first.item.quality = q;
+  sys.ctx.bus.emit('inventory:itemAdded', { item: first.item, name: outDef.name, rarity: outDef.rarity });
+  sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first.item, count: 1 });
+  sys.afterChange();
+  return { item: first.item, landed: first.landed, reason: null };
+  }
+
+/** `autoPlace` 뒤에 그 덩어리를 실제로 들고 있는 스택 — 합쳐져 사라졌으면 같은 열쇠의 스택. */
+function heldStack(grid: Grid, item: ItemInstance, probe: StackItem): ItemInstance {
+  if (grid.has(item.uid)) return item;
+  const key = stackKeyOf(probe);
+  return grid.items().find((p) => p.item.defId === probe.defId && stackKeyOf(p.item) === key)?.item ?? item;
+}

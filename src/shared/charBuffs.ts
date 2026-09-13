@@ -19,6 +19,7 @@ import { GYM_FATIGUE_LABEL_KO, GYM_STATS } from './progression';
 import { GYM_MINIGAME_LABEL_KO } from './housing';
 import { FURNITURE_POSE_WIRE } from './net';
 import { CHAR_BUFF_WIRE_MAX } from './constants';
+import { mealQualityStars, normalizeMealQuality } from './cooking';
 
 /** 버프 종류. 추가만 한다 (옛 클라이언트는 모르는 종류를 `sanitizeCharBuffs` 에서 버린다). */
 export type CharBuffKind =
@@ -30,9 +31,11 @@ export type CharBuffKind =
   | 'exercise'      // 운동 중 — 운동 기구 세션
   /* appended (2026-09-12, 소모품 3종 — docs/plans/consumables-keys-favorites.md §1) */
   | 'adrenaline'    // 아드레날린 주사 — 레이드 시간제 (sim 시간), 아이템 썸네일 + 시간 게이지
-  | 'stimulant';    // 각성제 — 같다
+  | 'stimulant'     // 각성제 — 같다
+  /* appended (2026-09-13, 요리 미니게임 — docs/plans/cooking-minigames.md) */
+  | 'cooking';      // 조리 중 — 조리대 앞 자세 (`defId` = 만드는 요리)
 
-export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant'];
+export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant', 'cooking'];
 
 /** `pending` = 함선에서 다음 레이드에 실어 둔 것 (썸네일이 흐리다) · `active` = 지금 몸에 걸려 있는 것. */
 export type CharBuffState = 'pending' | 'active';
@@ -63,14 +66,16 @@ export interface CharBuff {
   startedAt?: number;
   /** 타이머 끝 (epoch ms) — 게이지가 빈다. 없으면 타이머가 없다 (식사 · 준비물 · 자세). */
   endsAt?: number;
+  /** appended (2026-09-13, 요리 품질): `meal` 의 품질 1 … `MEAL_QUALITY_MAX` (0 이면 생략). 썸네일 · 이름에 별로 붙는다. */
+  quality?: number;
 }
 
 /** 썸네일 순서 — 디버프가 먼저, 그다음 지금 하고 있는 것, 그다음 실어 둔 것. */
-export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'adrenaline', 'stimulant', 'exercise', 'rest', 'meal', 'prep'];
+export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'adrenaline', 'stimulant', 'exercise', 'cooking', 'rest', 'meal', 'prep'];
 
 export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
   meal: '식사', prep: '준비물', env_exposed: '환경 노출', gym_fatigue: '운동 피로', rest: '휴식 중', exercise: '운동 중',
-  adrenaline: '아드레날린', stimulant: '각성제',
+  adrenaline: '아드레날린', stimulant: '각성제', cooking: '조리 중',
 };
 
 /**
@@ -79,11 +84,11 @@ export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
  */
 export const CHAR_BUFF_GLYPH: Readonly<Record<CharBuffKind, string>> = {
   meal: '♨', prep: '⌾', env_exposed: '☣', gym_fatigue: '✱', rest: '☕', exercise: '⚖',
-  adrenaline: '↯', stimulant: '◎',
+  adrenaline: '↯', stimulant: '◎', cooking: '⊛',
 };
 export const CHAR_BUFF_COLOR: Readonly<Record<CharBuffKind, string>> = {
   meal: '#ffb0a0', prep: '#ffd08a', env_exposed: '#ff6b6b', gym_fatigue: '#ff8a6b', rest: '#e8a0d0', exercise: '#ff9f7a',
-  adrenaline: '#ffd24a', stimulant: '#7ad7ff',
+  adrenaline: '#ffd24a', stimulant: '#7ad7ff', cooking: '#ffc890',
 };
 
 export const isDebuffKind = (kind: CharBuffKind): boolean => kind === 'env_exposed' || kind === 'gym_fatigue';
@@ -95,7 +100,12 @@ export function charBuffTitle(b: CharBuff, defOf?: (defId: string) => ItemDef | 
     case 'prep': {
       let name: string = CHAR_BUFF_LABEL_KO[b.kind];
       if (b.defId && defOf) { try { name = defOf(b.defId)?.name ?? name; } catch { /* keep the label */ } }
+      if (b.kind === 'meal' && (b.quality ?? 0) > 0) name = `${name} ${mealQualityStars(b.quality ?? 0)}`;   // 2026-09-13 요리 품질
       return b.state === 'pending' ? `${name} · 다음 레이드` : name;
+    }
+    case 'cooking': {
+      if (b.defId && defOf) { try { const n = defOf(b.defId)?.name; if (n) return `${CHAR_BUFF_LABEL_KO.cooking} · ${n}`; } catch { /* keep the label */ } }
+      return CHAR_BUFF_LABEL_KO.cooking;
     }
     case 'env_exposed': return b.env ? `${ENV_LABEL_KO[b.env]} 노출` : CHAR_BUFF_LABEL_KO.env_exposed;
     case 'gym_fatigue': return b.stat ? GYM_FATIGUE_LABEL_KO[b.stat] : CHAR_BUFF_LABEL_KO.gym_fatigue;
@@ -137,7 +147,8 @@ export function sameCharBuffs(a: readonly CharBuff[], b: readonly CharBuff[]): b
     const x = a[i], y = b[i];
     if (x.kind !== y.kind || x.key !== y.key || x.debuff !== y.debuff || x.state !== y.state || x.defId !== y.defId
       || x.env !== y.env || x.stat !== y.stat || x.minigame !== y.minigame || x.pose !== y.pose
-      || x.furnitureUid !== y.furnitureUid || x.startedAt !== y.startedAt || x.endsAt !== y.endsAt) return false;
+      || x.furnitureUid !== y.furnitureUid || x.startedAt !== y.startedAt || x.endsAt !== y.endsAt
+      || x.quality !== y.quality) return false;
   }
   return true;
 }
@@ -170,6 +181,7 @@ export function sanitizeCharBuffs(raw: unknown): CharBuff[] {
     if (typeof o.pose === 'string' && (FURNITURE_POSE_WIRE as readonly string[]).includes(o.pose)) b.pose = o.pose as FurniturePoseKind;
     if (isStr(o.furnitureUid)) b.furnitureUid = o.furnitureUid;
     if (isTime(o.startedAt) && isTime(o.endsAt) && o.endsAt >= o.startedAt) { b.startedAt = o.startedAt; b.endsAt = o.endsAt; }
+    if (kind === 'meal') { const q = normalizeMealQuality(o.quality); if (q > 0) b.quality = q; }   // 2026-09-13 요리 품질
     keys.add(b.key);
     out.push(b);
   }

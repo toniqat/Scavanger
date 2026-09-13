@@ -1,12 +1,15 @@
 import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, BoostKind, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
+/* appended (2026-09-13, 요리 재료 티어): 표본 계열 · 소켓 · 요리 능력치 줄 */
+import type { GrowSocketDef, MealBuff, MealEffect } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
+import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
 
 /*
  * 아이템 수치의 원본은 `data/` 의 csv 다 — `items.csv`(수류탄 · 회복 · 귀중품 · 재료 · 약초 · 가젯),
- * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `books.csv` · `samples.csv` · `meals.csv`,
+ * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `books.csv` · `samples.csv` · `sockets.csv` · `meals.csv`,
  * 무기는 `weapons.csv` / `weapons_unique.csv`, 방탄복은 `armor.csv`.
  * 이 파일에는 표가 없고 그 줄들을 `ItemDef` 로 옮기는 코드만 있다.
  *
@@ -193,58 +196,102 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = csvRows('seeds.csv').map((r) =
   };
 });
 
-/* ── 미확인 표본 (A-12, 2026-09-11) — data/samples.csv ────────────────────────
- * 연구실 **분석기**가 해석하는 재료. `SampleDef.analyzeHours` 는 도감이 텅 빈 상태에서의 **실제 시간**이고
- * (씨앗의 `growHours` 와 같은 wall-clock 규약), 도감 진척 · 기지식으로 깎는 계산은 `housing/Rules` 가 한다.
- * 제작도 상점도 없다 — 벌레 시체 · 표본 채집지 · 티어 3+ 컨테이너 셋뿐이다 (로그는 표본에 관심이 없다).
+/* ── 미확인 표본 (A-12, 2026-09-11 · 요리 재료 티어 2026-09-13) — data/samples.csv ──────────
+ * 연구실 **분석기**가 해석하는 재료. `SampleDef.analyzeHours` 는 분석 레벨 1 에서의 **실제 시간**이고
+ * (씨앗의 `growHours` 와 같은 wall-clock 규약), 레벨 배수로 깎는 계산은 `housing/Rules` 가 한다.
+ * 제작도 상점도 없다 — 벌레 시체 · 표본 채집지 · 티어 3+ 컨테이너 · 고철 더미 부가 광물뿐이다 (로그는 표본에 관심이 없다).
  *
- * `first*` 는 **처음** 해석했을 때만 얹어 주는 보너스라 선택 열이다 (`optStr` / `optNum` 규약 — 칸이 비어
- * 있으면 필드 자체가 안 붙는다). `analyzeHours` · `rewardDefId` · `rewardQty` 는 필수다. */
+ * 2026-09-13 (사용자 결정: 표본 3종 통합): `family`(cell | mineral | dna)가 필수다 — 분석기는 표본이 아니라 **계열**의
+ * 결과표(`shared/housing` 의 `ANALYSIS_RESULTS`)를 굴린다. `rewardDefId` · `rewardQty` 는 그 표가 비었을 때의 대체 산출물이다.
+ * 옛 11종은 `retired` 로 정의만 남는다 (분석기에 넣으면 자기 계열로 해석된다). **첫 해석 보너스(`first*`)는 없어졌다** —
+ * 로더가 더 붙이지 않고, 칸이 채워져 있으면 조용히 무시하지 않고 신고한다. */
 /** 표본은 카테고리 글리프 · 색을 공유한다 — 격자에서 「아직 해석 안 한 것」이 한눈에 읽힌다. */
 const SAMPLE_ICON = CATEGORY_ICON.sample;
 const SAMPLE_COLOR = CATEGORY_COLOR.sample;
 
 export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((r) => {
-  const firstDefId = r.optStr('firstDefId');
+  if (r.has('firstDefId') || r.has('firstQty')) r.report('firstDefId', '첫 해석 보너스(first*)는 2026-09-13 부터 없다 — 칸을 비운다');
   const sample: SampleDef = {
     analyzeHours: r.num('analyzeHours', { min: 0 }),
     rewardDefId: r.str('rewardDefId'),
     rewardQty: r.int('rewardQty', { min: 1 }),
-    ...(firstDefId ? { firstDefId, firstQty: r.int('firstQty', { min: 1 }) } : {}),
+    family: r.enum('family', SAMPLE_FAMILIES),
   };
+  const retired = r.has('retired') && r.bool('retired');
   return {
     ...def({
-      id: r.str('id'), name: r.str('name'), category: 'sample', rarity: r.str('rarity') as Rarity,
+      id: r.str('id'), name: r.str('name'), category: 'sample', rarity: r.enum('rarity', RARITY_ORDER),
       width: 1, height: 1, stackMax: T.num('SAMPLE_STACK_MAX'),
       value: r.int('value', { min: 0 }), icon: SAMPLE_ICON, description: r.str('description'),
       sample, weight: T.num('SAMPLE_WEIGHT'),
+      ...(retired ? { retired: true } : {}),
     }),
     color: SAMPLE_COLOR,
   };
+});
+
+/* ── 소켓 (요리 재료 티어, 2026-09-13) — data/sockets.csv ─────────────────────────
+ * 재배 칸에 부어 둔 흙(`target: 'soil'`) · 배양 칸에 부어 둔 배지(`'medium'`)에 끼우는 **영구 강화**. 분석기가 미확인 DNA 를
+ * 해석해서만 나온다 (`data/analysis_results.csv`) — 제작 · 상점 · 루팅 어디에도 줄이 없다. 끼우기 · 효과 계산은 `housing/`
+ * (`parts/Sockets`) 몫이고 items 는 표만 옮긴다.
+ *
+ * 1×1 · 스택 `SOCKET_STACK_MAX` · 무게 `SOCKET_WEIGHT` (tuning). 아이콘은 카테고리 글리프지만 **색은 등급색**이다 —
+ * 같은 인자의 I · II · III 가 격자에서 색으로 갈려야 한다 (요리와 같은 이유). `amount` 는 speed · wear 면 비율, yield 면
+ * +1 개 확률이라 셋 다 0 … 1 이다. */
+const SOCKET_ICON = CATEGORY_ICON.socket;
+
+export const SOCKET_ITEM_DEFS: readonly ItemDef[] = csvRows('sockets.csv').map((r) => {
+  const growSocket: GrowSocketDef = {
+    target: r.enum('target', GROW_SOCKET_TARGETS),
+    effect: r.enum('effect', GROW_SOCKET_EFFECTS),
+    amount: r.num('amount', { min: 0, max: 1 }),
+  };
+  if (growSocket.amount <= 0) r.report('amount', '수치가 0 인 소켓은 아무 효과가 없다');
+  return def({
+    id: r.str('id'), name: r.str('name'), category: 'socket', rarity: r.enum('rarity', RARITY_ORDER),
+    width: 1, height: 1, stackMax: T.num('SOCKET_STACK_MAX'),
+    value: r.int('value', { min: 0 }), icon: SOCKET_ICON, description: r.str('description'),
+    growSocket, weight: T.num('SOCKET_WEIGHT'),
+  });
 });
 
 /* ── 요리 (A-3c, 2026-09-11) — data/meals.csv ─────────────────────────────────
  * 주방 **조리대**(`WorkbenchKind 'cook'`)가 만들고 **식탁**에서 먹는다. 먹으면 다음 레이드 1회분으로 실리고
  * (`PlayerProfile.meal` → `mealActive`), 수명 규칙은 준비물과 완전히 같다 — 사망해도 그 레이드는 유지된다.
  *
- * 한 요리는 **버프 하나**만 올린다 (사용자 결정). `MealDef.buff` 는 `DerivedStats` 에 이미 있는 필드 이름이라
- * 소비자가 한 줄도 안 바뀐다 — 접어 넣는 곳은 `progression/recomputeDerived` 하나다. `amount` 는
+ * 한 요리는 **버프 하나**를 올리고 (사용자 결정), 2026-09-13 부터 그 버프에 **능력치가 여러 줄** 붙는다 — 티어 n 요리 = n 줄
+ * (`MealDef.effects`, csv 의 `effects` 칸 = `버프:수치` 를 `|` 로). 버프 이름은 `DerivedStats` 에 이미 있는 필드 이름이라
+ * 소비자가 한 줄도 안 바뀐다 — 접어 넣는 곳은 `progression/derive.applyMealBuff` 하나다. 수치는
  * `isMealBuffMultiplier` 인 버프면 배수에 가산되고(0.2 = +20 %), 나머지는 단위 그대로다 (`durabilityLossMul` 만 음수).
+ * 옛 호출부 호환으로 `buff` · `amount` 는 `effects[0]` 과 같다 — 새 코드는 `effects` 를 읽는다.
+ * `retired` 요리(옛 특선 4종)는 줄 수 검사에서 빠진다 (tier 2 · 한 줄 그대로 — 가진 사람은 먹을 수 있다).
  *
- * 씨앗 · 표본과 달리 **색은 등급색 그대로**다 (`def()` 기본값): 요리는 일반 → 서사가 곧 tier 1 → 2 이라
- * 격자에서 「특선인가」가 색으로 읽혀야 한다. 아이콘은 csv 의 `icon` 칸이고 격자 크기는 1×1 고정이다. */
+ * 씨앗 · 표본과 달리 **색은 등급색 그대로**다 (`def()` 기본값): 요리는 등급이 곧 티어라(일반 · 고급 → 희귀 → 서사 → 전설)
+ * 격자에서 「몇 티어 요리인가」가 색으로 읽혀야 한다. 아이콘은 csv 의 `icon` 칸이고 격자 크기는 1×1 고정이다. */
 export const MEAL_ITEM_DEFS: readonly ItemDef[] = csvRows('meals.csv').map((r) => {
-  const meal: MealDef = {
-    buff: r.enum('buff', MEAL_BUFFS),
-    /* 음수를 허용한다 — `durabilityLossMul` 은 "손상이 줄어든다" 라 −0.2 다. */
-    amount: r.num('amount'),
-    tier: r.int('tier', { min: 1, max: 2 }) as MealDef['tier'],
-  };
+  const retired = r.has('retired') && r.bool('retired');
+  const tier = r.int('tier', { min: 1, max: 4 }) as MealDef['tier'];
+  const effects: MealEffect[] = [];
+  /* `costList` 가 `버프:수치` 를 가른다 (수치는 음수 · `=식` 허용 — `durabilityLossMul` 은 −0.2 다). 버프 이름은 여기서 검사한다. */
+  for (const c of r.costList('effects')) {
+    if (!(MEAL_BUFFS as readonly string[]).includes(c.defId)) {
+      r.report('effects', `'${c.defId}' 는 ${MEAL_BUFFS.join(' | ')} 중 하나여야 한다`);
+      continue;
+    }
+    if (effects.some((e) => e.buff === c.defId)) { r.report('effects', `'${c.defId}' 가 두 번 나온다 — 한 요리에 같은 능력치는 한 줄이다`); continue; }
+    if (c.qty === 0) r.report('effects', `'${c.defId}' 의 수치가 0 이다`);
+    effects.push({ buff: c.defId as MealBuff, amount: c.qty });
+  }
+  if (effects.length === 0) r.report('effects', '능력치가 하나도 없다 — "버프:수치" 를 | 로 잇는다');
+  else if (!retired && effects.length !== tier) r.report('effects', `티어 ${tier} 요리는 능력치가 ${tier} 줄이어야 한다 (지금 ${effects.length} 줄)`);
+  const first: MealEffect = effects[0] ?? { buff: MEAL_BUFFS[0], amount: 0 };
+  const meal: MealDef = { buff: first.buff, amount: first.amount, tier, effects };
   return def({
-    id: r.str('id'), name: r.str('name'), category: 'meal', rarity: r.str('rarity') as Rarity,
+    id: r.str('id'), name: r.str('name'), category: 'meal', rarity: r.enum('rarity', RARITY_ORDER),
     width: 1, height: 1, stackMax: r.int('stackMax', { min: 1 }),
     value: r.int('value', { min: 0 }), weight: r.num('weight', { min: 0 }),
     icon: r.str('icon'), description: r.str('description'), meal,
+    ...(retired ? { retired: true } : {}),
   });
 });
 
@@ -384,9 +431,12 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
   /* 2026-09-11 (온실 개편): `category: 'soil'` 줄만 `soilTag` · `soilUses` 를 채운다 — `heal*` · `gadgetId` 와 같은
    * 선택 열 규약이다 (칸이 비어 있으면 필드 자체가 안 붙는다). `uses` 는 한 번 부은 토양이 견디는 수확 횟수이고
    * 그 등급 곡선은 `SOIL_USES_BY_RARITY`(data/tables.csv) 다 — csv 의 값이 실제로 쓰이는 숫자다. */
+  /* 2026-09-13 (요리 재료 티어): 토양은 **최대 내구도**(`soilDurability`)가 필수다 — 부어 둔 흙은 수확마다 닳고 0 이어도 쓰지만
+   * 보너스가 내구도 비율로 준다 (`housing/`). `uses` 는 옛 세이브의 남은 횟수를 내구도로 옮기는 데만 남았다. */
   const soil: SoilDef | undefined = r.has('soilTag')
-    ? { tag: r.enum('soilTag', SOIL_TAGS) as SoilTag, uses: r.int('soilUses', { min: 1 }) }
+    ? { tag: r.enum('soilTag', SOIL_TAGS) as SoilTag, uses: r.int('soilUses', { min: 1 }), durability: r.int('soilDurability', { min: 1 }) }
     : undefined;
+  if (!soil && r.has('soilDurability')) r.report('soilDurability', '토양(soilTag)이 아닌 줄에 토양 내구도가 있다');
   /* 2026-09-11 (A-13): `category: 'prep'` 줄만 `prepEnv` · `prepShort` 를 채운다 — `soil` 과 같은 선택 열 규약이다.
    * `env` 는 이 준비물이 **완전히** 막아 주는 행성 환경이고, `short` 는 HUD 배지에 찍는 짧은 이름(「방독」 · 「내열」)이다.
    * 쓰는 곳은 `progression`(다음 레이드 1회분) · `player`(피해 면제) · `ui`(배지 · 툴팁) 이고 items 는 표만 옮긴다. */
@@ -405,13 +455,34 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
    * 둘 다 `category: 'material'` 줄에 붙는 선택 열이고, 그 산출물 · 시간을 쓰는 곳은 `housing/` 의 배양조다.
    * `outputDefId` 가 가리키는 아이템이 있는지는 여기서 보지 않는다 — `SampleDef.rewardDefId` 와 같은 규약이다
    * (`ITEM_DEF_MAP` 이 아직 없다; 이름 검사는 `npm run data:check` 의 몫). */
+  /* 2026-09-13 (요리 재료 티어 T3): 배양 칸에 **배양 스캐폴드**가 있으면 세포주는 `strainScaffold*` 3칸의 산출(종별 고기)을 만든다.
+   * 셋은 함께 채우거나 함께 비운다 — 반만 채운 줄은 조용히 버리지 않고 신고한다. 산출 id 가 실제 아이템인지는 `data:check` 몫이다. */
   const strainOut = r.optStr('strainOut');
+  const SCAFFOLD_COLS = ['strainScaffoldOut', 'strainScaffoldQty', 'strainScaffoldHours'] as const;
+  const scaffoldCols = SCAFFOLD_COLS.filter((c) => r.has(c)).length;
+  if (scaffoldCols > 0 && scaffoldCols < SCAFFOLD_COLS.length) {
+    r.report('strainScaffoldOut', '스캐폴드 산출 3칸(strainScaffoldOut · strainScaffoldQty · strainScaffoldHours)은 함께 채우거나 함께 비운다');
+  }
+  if (!strainOut && scaffoldCols > 0) r.report('strainScaffoldOut', '세포주(strainOut)가 아닌 줄에 스캐폴드 산출이 있다');
   const strain: StrainDef | undefined = strainOut
-    ? { outputDefId: strainOut, outputQty: r.int('strainQty', { min: 1 }), cultureHours: r.num('strainHours', { min: 0 }) }
+    ? {
+      outputDefId: strainOut, outputQty: r.int('strainQty', { min: 1 }), cultureHours: r.num('strainHours', { min: 0 }),
+      ...(scaffoldCols === SCAFFOLD_COLS.length ? {
+        scaffoldOutputDefId: r.str('strainScaffoldOut'),
+        scaffoldOutputQty: r.int('strainScaffoldQty', { min: 1 }),
+        scaffoldHours: r.num('strainScaffoldHours', { min: 0 }),
+      } : {}),
+    }
     : undefined;
+  /* 2026-09-13: 배지도 토양과 같은 내구도 규칙이다 (사용자 결정) — `mediumDurability` 가 필수, `uses` 는 옛 세이브 이관용. */
   const medium: MediumDef | undefined = r.has('mediumUses')
-    ? { uses: r.int('mediumUses', { min: 1 }), speedMul: r.num('mediumSpeed', { min: 0 }) }
+    ? { uses: r.int('mediumUses', { min: 1 }), speedMul: r.num('mediumSpeed', { min: 0 }), durability: r.int('mediumDurability', { min: 1 }) }
     : undefined;
+  if (!medium && r.has('mediumDurability')) r.report('mediumDurability', '영양 배지(mediumUses)가 아닌 줄에 배지 내구도가 있다');
+  /* 2026-09-13: 배양 스캐폴드 · 은퇴. 은퇴한 세포주는 strain 칸을 비워야 배양조가 받지 않는다 — 남아 있으면 신고한다. */
+  const scaffold = r.has('scaffold') && r.bool('scaffold');
+  const retired = r.has('retired') && r.bool('retired');
+  if (retired && strain) r.report('strainOut', '은퇴한 세포주는 strain* 칸을 비운다 (배양조가 받지 않게)');
   return def({
     id: r.str('id'), name: r.str('name'), category: r.str('category') as ItemCategory,
     rarity: r.str('rarity') as Rarity,
@@ -429,6 +500,8 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
     ...(pouch ? { pouch } : {}),
     ...(strain ? { strain } : {}),
     ...(medium ? { medium } : {}),
+    ...(scaffold ? { scaffold: true } : {}),
+    ...(retired ? { retired: true } : {}),
   });
 });
 
@@ -533,6 +606,8 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   /* 2026-09-11 연구실(A-12 · A-13): 표본(분석기가 해석한다 — `samples.csv`) · 준비물(함선에서 써서 다음 레이드
      1회분으로 싣는다). 밭에서 나온 것 바로 뒤가 연구실에서 쓰는 것이다. */
   ...SAMPLE_ITEM_DEFS,
+  /* 2026-09-13 요리 재료 티어: 소켓(분석기가 미확인 DNA 에서 뽑는다 — 흙 · 배지에 끼운다)은 표본 바로 뒤. */
+  ...SOCKET_ITEM_DEFS,
   ...itemGroup('prep'),
   /* 2026-09-11 배양조 · 프린터(A-14 · A-15): 영양 배지 · 세포주 · 배양 산물 · 필라멘트(전부 `material`) →
      그 필라멘트로 찍는 주머니 → 주머니가 나르는 열쇠. 사슬 순서 그대로 읽힌다. */

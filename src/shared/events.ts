@@ -28,6 +28,8 @@ import type { FurniturePoseKind } from './types';
 import type { CharBuff } from './charBuffs';
 /* appended (2026-09-08): 튜토리얼 */
 import type { TutorialStepId } from './tutorial';
+/* appended (2026-09-13): 요리 재료 티어 */
+import type { GrowSocketTarget, SampleFamily } from './types';
 
 /**
  * Every cross-module message goes through the typed EventBus with these payloads.
@@ -1128,7 +1130,7 @@ export interface GameEvents {
    * A-3c (owner: progression): 식사 대기분 / 이번 레이드분이 바뀌었다 (먹기 · 차려 받기 · 출격 · 레이드 종료).
    * `null` = 안 먹었다. ui/ 의 식사 배지와 식탁 화면이 다시 그린다.
    */
-  'progress:mealChanged': { meal: string | null; active: string | null };
+  'progress:mealChanged': { meal: string | null; active: string | null; /* 2026-09-13 요리 품질 (생략 = 0) */ mealQuality?: number; activeQuality?: number };
   /**
    * A-14 (owner: housing): 한 배양조의 상태가 바뀌었다 (배지 · 세포주 · 수확 · 강화).
    * `ready` = 지금 수확할 수 있는 칸 수 — `housing:growChanged` · `housing:analysisChanged` 와 같은 모양이다.
@@ -1139,7 +1141,7 @@ export interface GameEvents {
    * `meal serve` 를 띄우고, **로비 호스트가 재방송한 것만** 받는 쪽의 `progression.serveMeal` 로 간다
    * (「남에게 영향 주는 메시지는 권위에서만 받는다」 E-4). `by` = 차린 사람의 표시 이름 (토스트용).
    */
-  'housing:mealServed': { defId: string; by: string };
+  'housing:mealServed': { defId: string; by: string; /* 2026-09-13 요리 품질 (생략 = 0) */ quality?: number };
   /** A-15 (owner: inventory): 주머니 장착 · 내용물이 바뀌었다. ui/ 가 퀵슬롯 아래 격자를 다시 그린다. */
   'inventory:pouchChanged': Record<string, never>;
 }
@@ -1275,6 +1277,20 @@ export interface GameEvents {
 /* ── [F] 헬스 미니게임 ── */
 /* ── end [F] ── */
 
+/* ── [2026-09-13] 요리 재료 티어 (docs/plans/food-tiers.md) ── */
+export interface GameEvents {
+  /**
+   * (owner: housing) 분석기에서 **처음** 받은 산출물이 분석 도감(`ShipState.analysisFound`)에 적혔다. ui/ 가 토스트 하나를 띄운다.
+   * 옛 `housing:sampleDexAdded` 는 더 나지 않는다 (표본 도감 대신 산출물 도감이다).
+   */
+  'housing:analysisFound': { family: SampleFamily; defId: string };
+  /** (owner: housing) 한 계열의 분석 레벨이 올랐다 — ui/ 가 토스트(이 레벨에서 새로 열린 결과 포함)를 띄운다. */
+  'housing:analysisLevelUp': { family: SampleFamily; level: number };
+  /** (owner: housing) 흙 · 배지에 소켓을 끼웠다. `replaced` = 덮어 끼워 **파괴된** 옛 소켓 def id (없으면 null). */
+  'housing:socketInserted': { uid: string; target: GrowSocketTarget; defId: string; replaced: string | null };
+}
+/* ── end [2026-09-13] ── */
+
 /* ── [2026-09-13] 탈출 개편 (owner: extraction/ExtractionSystem — `ui:cinematic` 도 extraction 이 낸다) ── */
 export interface GameEvents {
   /**
@@ -1296,3 +1312,42 @@ export interface GameEvents {
   'ui:cinematic': { active: boolean };
 }
 /* ── end [2026-09-13] 탈출 개편 ── */
+
+/* ── [2026-09-13] 굴착 스폰 · 지하벌레 (owner: enemies) ── */
+export interface GameEvents {
+  /**
+   * Fact (every client): 지하벌레 전조가 시작됐다 — `position`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `radius`.
+   * 호스트는 굴림 직후, 리플리카는 `ee wormWarn` 에서 낸다. HUD 위험 표시가 붙을 자리다 (지금은 토스트 · 흔들림 · 지면 링).
+   */
+  'sandworm:warning': { position: THREE.Vector3; radius: number; eta: number };
+  /** Fact (every client): 지하벌레 `id`(적 id) 가 `position` 에서 분출했다. 늦은 합류자의 동기화(`sy`)에서는 나지 않는다. */
+  'sandworm:erupted': { id: number; position: THREE.Vector3; radius: number };
+  /**
+   * Command (console `worm`): 지하벌레 이벤트를 **지금** 로컬 플레이어 발밑에서 시작한다 (권한만, 굴림 · 창 · 레이드당 1회 무시).
+   * `spitS` = 버그 뱉기 단계 길이를 이 초로 바꾼다 (0 = 곧장 독극물 단계, 생략 = csv).
+   */
+  'cheat:sandworm': { spitS?: number };
+}
+/* ── end [2026-09-13] 굴착 스폰 · 지하벌레 ── */
+
+/* ── [2026-09-13] 요리 미니게임 (owner: housing — docs/plans/cooking-minigames.md) ── */
+import type { CookBeatAction, CookGame, CookJudge, CookResult } from './cooking';
+export interface GameEvents {
+  /** 조리대 화면이 열렸다 / 닫혔다 (미니게임 오버레이는 `housing:cookSession`). */
+  'ui:cookStationToggled': { open: boolean; uid: string | null };
+  /**
+   * 조리가 시작됐다(`active: true`) / 끝났다(`false`). `completed` = 끝까지 해서 요리가 나왔다 (취소 · 실패면 false).
+   * hub 가 이것을 보고 조리대 앞 자세 · 고정 카메라를 건다 / 푼다 (`setFurniturePose` 가 거절하면 `ctx.housing.cancelCook()`).
+   */
+  'housing:cookSession': { uid: string; recipeId: string; mealDefId: string; active: boolean; completed: boolean };
+  /**
+   * 단계 하나의 흐름 — `choose` = 「직접 하기 / 자동」 을 묻는 중(자동 가구가 없으면 곧장 `play`), `play` = 미니게임 중,
+   * `done` = 끝났다(`score` 채워짐, `auto` = 자동으로 처리했다). `index` 0 부터, `total` = 단계 수.
+   */
+  'housing:cookStep': { uid: string; index: number; total: number; game: CookGame; phase: 'choose' | 'play' | 'done'; auto: boolean; score: number | null };
+  /** 연출용 입력 · 판정 하나 — hub 가 손 · 도구를, audio 가 소리를 맞춘다. `quality` = 그 입력이 판정이면 결과, 아니면 null. */
+  'housing:cookBeat': { uid: string; game: CookGame; action: CookBeatAction; quality: CookJudge | null };
+  /** 조리 결과 (성공 · 실패 모두 — 실패면 `result.reason`). */
+  'housing:cookResult': { uid: string; result: CookResult };
+}
+/* ── end [2026-09-13] 요리 미니게임 ── */

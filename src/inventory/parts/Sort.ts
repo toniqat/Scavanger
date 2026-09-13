@@ -9,7 +9,7 @@
  * 더 채워 보고, 그것도 안 되면 `snapshot()` 으로 **정렬 전 그대로** 되돌린 뒤 'fail' 이다 (합친 수량까지 복원된다).
  */
 import type { ItemDef, ItemInstance } from '@/shared';
-import { rarityRank } from '@/shared';
+import { normalizeMealQuality, rarityRank } from '@/shared';
 import { ITEM_DEF_MAP } from '@/items';
 import { stackKeyOf, type Grid } from '../Grid';
 import { SORT_CATEGORY_ORDER, type OpResult } from '../model';
@@ -34,6 +34,8 @@ export function compareForSort(a: ItemInstance, b: ItemInstance, isFavorite?: (d
     || ((db ? rarityRank(db.rarity) : -1) - (da ? rarityRank(da.rarity) : -1))
     || (area(db) - area(da))
     || (da?.name ?? a.defId).localeCompare(db?.name ?? b.defId, 'ko')
+    // 2026-09-13 (요리 품질): 같은 요리면 별이 많은 스택이 앞 (품질이 다르면 합쳐지지 않으므로 나란히 선다)
+    || (normalizeMealQuality(b.quality) - normalizeMealQuality(a.quality))
     || (b.qty - a.qty)
     || a.uid.localeCompare(b.uid);
 }

@@ -167,7 +167,7 @@ const DRONE_PREFER_MUL = 0.6;
 /** 근접으로만 싸우는 적 — 공중 드론이 공격 사거리 위에 떠 있으면 노리지 않는다 (밑에서 영원히 맴돈다). */
 function isMeleeOnly(e: Enemy): boolean {
   if (e.type === 'spewer' || e.type === 'artillery') return false;
-  return !e.isRogue || e.type === 'rogue_hammer';
+  return !e.isHumanoid || e.type === 'rogue_hammer';
 }
 
 /**
@@ -229,7 +229,7 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   }
   const player = sys.targets.nearestAlive(e.position);
   const pd = player ? player.dist2D(e.position) : Infinity;
-  const range = e.isRogue ? ROGUE_AI.bugRange : e.stats.sightRadius;
+  const range = e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius;
   let foe: Enemy | null = null;
   let fd = range;
   for (let i = 0; i < sys.active.length; i++) {
@@ -241,7 +241,7 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   }
   const drone = pickDroneTarget(sys, e, player ? pd * DRONE_PREFER_MUL : Infinity);
   if (drone && (!foe || drone.dist2D(e.position) <= fd)) return drone;
-  if (e.isRogue) {
+  if (e.isHumanoid) {
     if (player && pd < ROGUE_RANGE && (!foe || fd > pd * 0.5)) return player;
     return foe ? foe.asTarget : player;
   }
@@ -325,6 +325,7 @@ export function fleeFrom(sys: EnemySystem, position: THREE.Vector3, radius: numb
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+    if (e.type === 'sandworm') continue;   // 2026-09-13: 땅에 박혀 있다 — 달아나지 않는다 (도주는 FLEE_DURATION 뒤 사라지게 한다)
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
     if (dx * dx + dz * dz > r2) continue;
     e.state = 'flee'; e.stateTime = 0; e.fleeTimer = 0;

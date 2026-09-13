@@ -1,0 +1,51 @@
+# 요리 미니게임 순서 (2026-09-13 사용자 결정 — docs/plans/cooking-minigames.md). 로더 = src/shared/cooking.ts.
+# meal = 요리 item def id (조리대 레시피의 산출물). order = 1 부터 빠짐없이. 간단한 음식 1단계 · 일반 2단계 · 상위 티어 3단계.
+# game: chop 썰기 · mince 다지기 · grill 굽기 · stirfry 볶기 · stir 젓기 · pour 붓기.
+# items = 도마 · 그릴 · 팬에 오르는 재료 id 를 | 로. 썰기 · 다지기 = 1개, 굽기 = 조각 2–3개(재료마다 익는 시간은 cook_grill.csv),
+#   볶기 = 1–3개, 젓기 · 붓기 = 비운다. 붓기만 liquid(water|oil|milk|egg) · targetMl(목표량 ml) 을 적는다.
+# 조리대 레시피(recipes.csv 의 bench cook)의 산출물은 전부 여기 단계가 있어야 한다 — data:check 가 잡는다.
+meal,order,game,items,liquid,targetMl
+# ── 채소 요리 (tier 1) ──
+meal_tuber_stew,1,chop,crop_tuber,,
+meal_tuber_stew,2,stir,,,
+meal_bean_porridge,1,mince,crop_beanpod,,
+meal_bean_porridge,2,stir,,,
+meal_green_salad,1,chop,crop_leafgreen,,
+meal_mushroom_soup,1,chop,crop_capfungus,,
+meal_mushroom_soup,2,stir,,,
+meal_ash_bread,1,pour,,water,250
+meal_ash_bread,2,grill,crop_ashgrain|crop_ashgrain,,
+meal_berry_compote,1,stir,,,
+# ── 페이스트 요리 (tier 2) ──
+meal_sausage,1,mince,food_meat_paste,,
+meal_sausage,2,grill,food_meat_paste|food_meat_paste|food_meat_paste,,
+meal_dumpling,1,mince,crop_leafgreen,,
+meal_dumpling,2,stir,,,
+meal_meatball,1,mince,food_meat_paste,,
+meal_meatball,2,grill,food_meat_paste|crop_tuber|food_meat_paste,,
+# ── 고기 요리 (tier 3) ──
+meal_beef_steak,1,chop,food_beef,,
+meal_beef_steak,2,pour,,oil,150
+meal_beef_steak,3,grill,food_beef|food_beef,,
+meal_pork_roast,1,chop,crop_leafgreen,,
+meal_pork_roast,2,pour,,water,400
+meal_pork_roast,3,stir,,,
+meal_chicken_roast,1,chop,food_chicken,,
+meal_chicken_roast,2,grill,food_chicken|crop_frostberry|food_chicken,,
+meal_chicken_roast,3,stirfry,crop_frostberry,,
+meal_lamb_skewer,1,mince,crop_saltmelon,,
+meal_lamb_skewer,2,chop,food_lamb,,
+meal_lamb_skewer,3,grill,food_lamb|food_lamb|food_lamb,,
+meal_lard_rice,1,mince,crop_ashgrain,,
+meal_lard_rice,2,pour,,oil,200
+meal_lard_rice,3,stirfry,crop_ashgrain|food_animal_fat,,
+# ── 유제품 요리 (tier 4) ──
+meal_cream_stew,1,chop,crop_tuber,,
+meal_cream_stew,2,pour,,milk,300
+meal_cream_stew,3,stir,,,
+meal_omelet,1,mince,crop_capfungus,,
+meal_omelet,2,pour,,egg,200
+meal_omelet,3,stirfry,food_egg|crop_capfungus|food_cheese,,
+meal_cheese_gratin,1,chop,crop_tuber,,
+meal_cheese_gratin,2,pour,,milk,250
+meal_cheese_gratin,3,grill,crop_tuber|food_cheese|crop_tuber,,

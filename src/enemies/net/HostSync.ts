@@ -25,8 +25,9 @@ export function tuple(v: THREE.Vector3, dp = 2): Vec3Tuple {
  * 2026-09-11: 14..20 belong to the named rogues and are set directly by `ai/named/*` on `Enemy.namedHint`.
  */
 export function animHint(e: Enemy): number {
+  if (e.spatT > 0 && e.state !== 'dead') return 4;   // 2026-09-13: 지하벌레가 뱉은 몸은 날고 있다 (종류 분기보다 먼저 — 독성 · 포병도)
   if (e.namedHint > 0 && e.state !== 'dead') return e.namedHint;   // 죽은 몸은 마지막 힌트(연사 19 등)를 싣지 않는다
-  if (e.isRogue) {
+  if (e.isHumanoid) {
     if (e.incapTimer > 0) return 0;      // 전소: the replica writhes from the status bit, not the cover pose
     if (e.state === 'stagger') return 6;
     if (e.throwTimer > 0) return 13;     // Phase 7: grenade wind-up

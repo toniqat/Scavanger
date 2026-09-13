@@ -8,12 +8,13 @@ import {
   IMPLANT_SLOTS_BASE, IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_PER_LEVELS,
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
   STAT_XP_BASE, STAT_XP_EXPONENT, TRAINING_SKILL_GAIN_MUL,
+  normalizeMealQuality,
 } from '@/shared';
 import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
-import { applyMealBuff, computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
+import { applyMealBuff, computeDerived, DEFAULT_DERIVED, SKILL_STAT_FACTOR, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
 import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 import { SheetView } from './ui/SheetView';
@@ -24,8 +25,7 @@ const AUTOSAVE_INTERVAL = 15;
 const PROGRESS_EMIT_STEP = 0.01;
 /** Raw skill XP is divided by `1 + level * SKILL_COST_SLOPE` — later levels take longer. */
 const SKILL_COST_SLOPE = 0.06;
-/** How strongly the skill's own stats speed up training (per point above STAT_BASE). */
-const SKILL_STAT_FACTOR = 0.04;
+/* `SKILL_STAT_FACTOR` (how strongly a skill's own stats speed up training) lives in derive.ts since 2026-09-13 — the sheet tooltip reads it too. */
 /*
  * Phase 11 (2026-09-07): the undocumented `P` convenience toggle is **retired**. 캐릭터 is a Tab-screen tab since
  * Phase 8 (`ui:statsToggled` still opens the overlay for anyone who emits it), and P now belongs to `Keys.INVITE`
@@ -313,7 +313,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     const waiting = this.mealId();
     if (!waiting) return;
     this._profile.mealActive = waiting;
+    this._profile.mealActiveQuality = this.getMealQuality();   // 2026-09-13: 품질은 id 와 함께 옮긴다
     this._profile.meal = null;
+    this._profile.mealQuality = 0;
     this.recompute();                                   // 버프가 `derived` 에 실리는 자리
     this.afterMealChanged();
   }
@@ -321,6 +323,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private clearActiveMeal(): void {
     if (!this.activeMealId()) return;
     this._profile.mealActive = null;
+    this._profile.mealActiveQuality = 0;                // 2026-09-13: 품질도 함께 비운다
     this.recompute();
     this.afterMealChanged();
   }
@@ -383,16 +386,19 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    * housing 의 식탁)의 몫이고, 여기는 거절이면 아무것도 바꾸지 않는다 — 그래서 부르는 쪽이 **먼저 묻고**
    * 성공할 때만 뺀다 (`usePrep` 과 같은 규약). null = 실렸다, 문자열 = 한국어 거절 사유.
    */
-  useMeal(defId: string): string | null {
+  useMeal(defId: string, quality = 0): string | null {
     const ctx = this.ctx;
     if (typeof defId !== 'string' || !defId) return '알 수 없는 요리입니다';
     if (ctx?.isRaidActive()) return '레이드 중에는 먹을 수 없습니다';
     if (ctx && ctx.phase !== 'hub') return '함선에서만 먹을 수 있습니다';
     if (!this.mealDefOf(defId)) return '알 수 없는 요리입니다';
+    const q = normalizeMealQuality(quality);
     /* 같은 요리를 한 번 더 먹는 것만은 거절한다 — 바뀌는 것이 하나도 없는데 null 을 돌려주면 부르는 쪽이
-     * 아이템을 **그냥 버린다**. 「교체」 결정은 *다른* 요리에 대한 것이다. */
-    if (this._profile.meal === defId) return '이미 같은 요리를 먹었습니다';
+     * 아이템을 **그냥 버린다**. 「교체」 결정은 *다른* 요리에 대한 것이다.
+     * 2026-09-13 (요리 품질): 「같은 요리」 는 **같은 id · 같은 품질**이다 — 품질이 다르면 버프 수치가 바뀌므로 교체다. */
+    if (this._profile.meal === defId && this.getMealQuality() === q) return '이미 같은 요리를 먹었습니다';
     this._profile.meal = defId;                          // 다른 요리를 이미 차려 뒀으면 **조용히 교체**한다
+    this._profile.mealQuality = q;
     this.afterMealChanged();
     return null;
   }
@@ -402,14 +408,26 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    * 받는 쪽 가드(로비 멤버 · 같은 공유 함선 · `MEAL_SERVE_RANGE` · 요율 · **호스트가 보낸 것만**)는 net 이
    * 이미 통과시켰다 — 여기서는 레이드 중이 아니고 실제 요리일 때만 싣는다.
    */
-  serveMeal(defId: string): void {
+  serveMeal(defId: string, quality = 0): void {
     const ctx = this.ctx;
     if (typeof defId !== 'string' || !defId) return;
     if (ctx?.isRaidActive()) return;                     // 레이드 중인 사람에게는 차릴 수 없다 (net 이 이미 막지만 이중으로)
     if (!this.mealDefOf(defId)) return;
-    if (this._profile.meal === defId) return;
+    const q = normalizeMealQuality(quality);             // 2026-09-13: 차린 요리의 품질 그대로 (리드 기본값)
+    if (this._profile.meal === defId && this.getMealQuality() === q) return;
     this._profile.meal = defId;
+    this._profile.mealQuality = q;
     this.afterMealChanged();
+  }
+
+  /** 2026-09-13 (요리 품질): 대기 중인 식사의 품질 0 … `MEAL_QUALITY_MAX` (식사가 없으면 0). */
+  getMealQuality(): number {
+    return this.mealId() ? normalizeMealQuality(this._profile.mealQuality) : 0;
+  }
+
+  /** 2026-09-13 (요리 품질): 이번 레이드에 실린 식사의 품질 (없으면 0). */
+  getActiveMealQuality(): number {
+    return this.activeMealId() ? normalizeMealQuality(this._profile.mealActiveQuality) : 0;
   }
 
   /** 프로필의 대기 식사 id (없으면 null). */
@@ -439,7 +457,11 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     let changed = false;
     for (const key of ['meal', 'mealActive'] as const) {
       const id = key === 'meal' ? this.mealId() : this.activeMealId();
-      if (id && !this.mealDefOf(id)) { this._profile[key] = null; changed = true; }
+      if (id && !this.mealDefOf(id)) {
+        this._profile[key] = null;
+        this._profile[key === 'meal' ? 'mealQuality' : 'mealActiveQuality'] = 0;   // 2026-09-13: 품질도 함께
+        changed = true;
+      }
     }
     return changed;
   }
@@ -451,7 +473,10 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   private emitMealChanged(): void {
-    this.ctx?.bus.emit('progress:mealChanged', { meal: this.mealId(), active: this.activeMealId() });
+    this.ctx?.bus.emit('progress:mealChanged', {
+      meal: this.mealId(), active: this.activeMealId(),
+      mealQuality: this.getMealQuality(), activeQuality: this.getActiveMealQuality(),   // 2026-09-13 요리 품질
+    });
   }
 
   /* ══ 헬스장 — 단련 보너스 · 운동 디버프 (A-3a, 2026-09-12 — 사용자 결정: 스탯 포인트와 따로 센다) ══════════════════════
@@ -738,8 +763,10 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('equip:changed', () => this.recompute()),
       b.on('loadout:changed', () => this.recompute()),
       /* ── stat points may not be spent mid-raid; refresh the sheet on every phase change ── */
-      b.on('game:phaseChanged', () => this.refreshSheets()),
-      b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; this.cratesAppraised.clear(); }),
+      /* 2026-09-13: a phase change / raid launch / death is a forced exit — unconfirmed ＋ points are dropped silently */
+      b.on('game:phaseChanged', () => { this.discardSheetPending(); this.refreshSheets(); }),
+      b.on('player:died', () => this.discardSheetPending()),
+      b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; this.cratesAppraised.clear(); this.discardSheetPending(); }),
       b.on('world:ready', () => this.cratesAppraised.clear()),
       b.on('game:abort', () => { this.hasLastPos = false; this.flush(); }),
       /* ── character sheet ── */
@@ -802,6 +829,51 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     ctx?.bus.emit('progress:statChanged', { id, value: this._profile.stats[id], pointsLeft: this._profile.statPoints });
     this.refreshSheets();
     return true;
+  }
+
+  /**
+   * 2026-09-13 (계약 `spendStatPoints`, 사용자 결정 — 시트는 ＋/－ 로 배분해 두고 1초 홀드로 확정한다): all-or-nothing batch.
+   * Refused (false, nothing changes) during a raid, for an unknown key, a non-integer / negative amount, a total of 0 or above
+   * `statPoints`, or a stat that would pass `STAT_MAX`. On success: one `recompute`, one immediate save, and one
+   * `progress:statChanged` per stat whose value moved.
+   */
+  spendStatPoints(alloc: Partial<Record<StatId, number>>): boolean {
+    const ctx = this.ctx;
+    if (!alloc || typeof alloc !== 'object') return false;
+    try { if (ctx?.isRaidActive()) return false; } catch { /* treat as not in a raid */ }
+    const add: Array<[StatId, number]> = [];
+    let total = 0;
+    for (const [key, n] of Object.entries(alloc)) {
+      if (!(STAT_IDS as readonly string[]).includes(key)) return false;
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) return false;
+      if (n === 0) continue;
+      const id = key as StatId;
+      if (this.getStat(id) + n > STAT_MAX) return false;
+      add.push([id, n]);
+      total += n;
+    }
+    if (total <= 0 || total > this._profile.statPoints) return false;
+    for (const [id, n] of add) this._profile.stats[id] = this.getStat(id) + n;
+    this._profile.statPoints -= total;
+    this.recompute();
+    this.markDirty(true);
+    for (const [id] of add) ctx?.bus.emit('progress:statChanged', { id, value: this._profile.stats[id], pointsLeft: this._profile.statPoints });
+    this.refreshSheets();
+    return true;
+  }
+
+  /**
+   * 캐릭터 시트의 확정 전 미리보기 (2026-09-13): `derived` as it would be with `alloc` invested — the **same** path as `recompute`
+   * (implants · 단련 · 특수 가방 · meal buff) on a shallow copy of the profile. Nothing is written; amounts are clamped to `STAT_MAX`.
+   */
+  previewDerived(alloc: Partial<Record<StatId, number>>): DerivedStats {
+    const p = this._profile;
+    const stats = { ...p.stats };
+    for (const id of STAT_IDS) {
+      const n = alloc?.[id];
+      if (typeof n === 'number' && Number.isFinite(n) && n > 0) stats[id] = Math.min(STAT_MAX, (stats[id] ?? STAT_BASE) + Math.floor(n));
+    }
+    return this.deriveFor({ ...p, stats });
   }
 
   /* ── skills ────────────────────────────────────────────────────────────── */
@@ -1010,6 +1082,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     return {
       refresh: () => view.refresh(),
       dispose: () => { this.views.delete(view); view.dispose(); },
+      // 2026-09-13: unconfirmed ＋ points → the view raises the 버리고 이동 / 돌아가기 warning instead of letting the window leave
+      requestLeave: (proceed) => view.requestLeave(proceed),
     };
   }
 
@@ -1017,6 +1091,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private refreshSheets(): void {
     this.sheet?.refresh();
     for (const v of this.views) v.refresh();
+  }
+
+  /** Forced exit (server document, reset, phase change, death): drop unconfirmed ＋ points and any sheet popup, no warning. */
+  private discardSheetPending(): void {
+    this.sheet?.discardPending();
+    for (const v of this.views) v.discardPending();
   }
 
   private refreshSheetSkill(id: SkillId): void {
@@ -1073,6 +1153,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.emitPrepChanged();                     // A-13: 준비물도 문서와 함께 왔다 (재접속 복귀가 여기를 지난다)
     this.emitMealChanged();                     // A-3c: 식사도 마찬가지 (`mealActive` 가 살아서 돌아온다)
     this.emitGymState();                        // A-3a: 단련 보너스 · 운동 디버프도 문서와 함께 왔다
+    this.discardSheetPending();                 // 2026-09-13: the pending ＋ points were planned against the replaced profile
     this.refreshSheets();
   }
 
@@ -1102,6 +1183,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.emitPrepChanged();
     this.emitMealChanged();
     this.emitGymState();                        // A-3a: freshProfile 이 단련 · 디버프를 비웠다
+    this.discardSheetPending();                 // 2026-09-13: nothing left to invest into
     this.refreshSheets();
   }
 
@@ -1111,12 +1193,21 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     if (this.pruneImplants()) this.markDirty(false);     // a removed def id in an old save — drop it silently
     if (this.prunePreps()) this.markDirty(false);        // A-13: same treatment for a 준비물 def that no longer exists
     if (this.pruneMeal()) this.markDirty(false);         // A-3c: ditto for a 요리 def that no longer exists
-    this._derived = computeDerived(this._profile, this.hasSpecialBackpack(), this.implantContribution());
+    this._derived = this.deriveFor(this._profile);
+    this.refreshSheets();
+  }
+
+  /** The one derive path — `recompute` and the sheet's pending preview (`previewDerived`) both go through it. */
+  private deriveFor(profile: PlayerProfile): DerivedStats {
+    const d = computeDerived(profile, this.hasSpecialBackpack(), this.implantContribution());
     /* A-3c: 이번 레이드에 실린 요리를 **맨 끝에** 파생 수치로 접는다 (`MealBuff` = `DerivedStats` 의 필드 이름).
      * 소비하는 폴더는 한 줄도 안 바뀐다 — 이미 `derived` 를 읽고 있다. */
-    const meal = this.mealDefOf(this.activeMealId());
-    if (meal) applyMealBuff(this._derived, meal);
-    this.refreshSheets();
+    /* 2026-09-13 (요리 품질): 넘겨받은 프로필의 식사 · 품질을 읽는다 — `recompute` 는 진짜 프로필, 시트 미리보기는 그 얕은 사본이라
+     * 둘이 같은 값을 보고, 줄마다 `× (1 + mealQualityBonus(품질))` 가 `applyMealBuff` 안에서 곱해진다. */
+    const activeId = typeof profile.mealActive === 'string' && profile.mealActive ? profile.mealActive : null;
+    const meal = this.mealDefOf(activeId);
+    if (meal) applyMealBuff(d, meal, normalizeMealQuality(profile.mealActiveQuality));
+    return d;
   }
 
   /**

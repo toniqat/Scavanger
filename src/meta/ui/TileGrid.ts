@@ -62,13 +62,15 @@ export class TileGrid {
   private readonly cellsEl: HTMLElement;
   private readonly tilesEl: HTMLElement;
   private readonly emptyEl: HTMLElement;
-  private readonly step: number;
+  private cell: number;
+  private step: number;
   private specs: readonly TileSpec[] = [];
   private cols = 0;
   private rows = 0;
   private observer: ResizeObserver | null = null;
 
   constructor(parent: HTMLElement, private readonly opts: TileGridOptions) {
+    this.cell = opts.cell;
     this.step = opts.cell + opts.gap;
     this.el = document.createElement('div');
     this.el.className = `cv-scroll${opts.className ? ` ${opts.className}` : ''}`;
@@ -138,6 +140,19 @@ export class TileGrid {
       const p = pos[i];
       s.tile.style.transform = `translate(${p.x * this.step}px, ${p.y * this.step}px)`;
     });
+  }
+
+  /**
+   * 2026-09-13: change the cell edge (the 기업 화면 fits its grids to the window). Re-lays the cells and moves the current
+   * tiles; the tiles' own size is baked in by `buildItemTile`, so the caller re-renders them right after.
+   */
+  setCell(cell: number): void {
+    if (cell === this.cell) return;
+    this.cell = cell;
+    this.step = cell + this.opts.gap;
+    this.cols = 0;          // force the cell layer + box size to be rebuilt at the new pitch
+    this.rows = 0;
+    this.layout();
   }
 
   dispose(): void {

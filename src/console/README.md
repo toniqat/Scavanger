@@ -11,7 +11,7 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `console.css` | Bottom bar styling (z-index 90, mono font, line colours by `ConsoleLineKind`) |
 | `commands/index.ts` | `builtinCommands(host)` — the list below, in `help` order; `BuiltinHost` = what commands need beyond `ConsoleRef` (`clearLog`, `setMoveCheat`, `moveCheat`) |
 | `commands/types.ts` | `BuiltinHost`, `CommandFactory`, helpers `err`, `parseNumber`, `fmt` |
-| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `gym.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
+| `commands/help.ts` `clear.ts` `seed.ts` `move.ts` `movecheat.ts` `items.ts` `stat.ts` `skill.ts` `gym.ts` `cook.ts` `pos.ts` `colliders.ts` | One built-in each (see table) |
 | `ColliderOverlay.ts` | (2026-09-12) `colliders` 명령의 와이어프레임 — `ctx.world.getObstacles()` 중 플레이어(없으면 카메라) 둘레 30 m 를 `LineSegments` 하나에 0.25 초마다 다시 채운다 (원기둥 노랑 · 상자 하늘 · 경사 초록 · 볼록 윤곽 주황 + 총알 층 어두운 주황). 깊이 검사 끔 · 광원 없음 · 게임플레이 페이즈에서만 보인다 · 끄면 dispose |
 | `index.ts` | exports `ConsoleSystem` |
 
@@ -27,7 +27,9 @@ On any other host no DOM is built, no key listener is installed and `run/print/o
 | `stat <id\|이름> <±xp>` | anywhere | `ctx.progression.addStatXp(id, n)`; id = `str/end/per/int/dex`, full id, or 한국어 (근력 …). Prints `근력 7 (312/1852)` from `getStat` / `getStatProgress` / `statXpToNext`. `complete` = aliases + ids + names |
 | `skill <id\|이름> <±xp>` | anywhere | `ctx.progression.addSkillXpRaw(id, n)`; 14 ids (`gun_AR` …, case-insensitive) or 한국어 names (the name may contain spaces — the last token is the xp). Prints `사격 · 돌격소총 Lv.3 (40 %)`. `complete` = ids + names |
 | `gym [clear [str\|end] \| <str\|end> <±xp>]` | anywhere | (2026-09-12, A-3a) **공개 `ProgressionRef` API 만** 쓴다 (`profile.trained` · `gymFatigueUntil` 를 직접 만지지 않는다). 인자 없음 → 두 운동 능력치의 `근력 단련 +2 (40/120) · 근육통 23:12:05` (`getTrainedBonus` · `getTrainedProgress` · `trainedXpToNext` · `getGymFatigueUntil`). `<str\|end> <±xp>` → dev 전용 `addTrainedXp(stat, xp)`(디버프 · 함선 게이트 · 세션 상한 없음, 음수는 뺀다) 뒤 `단련 경험치 +50 · 근력 단련 +1` + 상태 줄. `clear [str\|end]` → `clearGymFatigue(stat?)`(생략 = 둘 다) 뒤 상태 줄. 두 dev 메서드는 optional 이라 없으면 `진행 시스템에 addTrainedXp 가 아직 없습니다` 빨간 줄. 스탯 이름은 `stat` 의 `resolveStatId`(str/end · 전체 id · 한국어). `complete` = `clear` / `str` / `end`, `clear ` 뒤에는 `str` / `end` |
+| `cook [give <요리 id\|이름> [품질 0-5] [수량]]` | anywhere | (2026-09-13, 요리 미니게임) **공개 ref 만** 쓴다. 인자 없음 → `조리 중: <요리> (단계 n개)`(`ctx.housing.cookSession`) 또는 `조리 중이 아닙니다` + 사용법. `give` → 요리 def(`ItemDef.meal` 이 있는 것 — id 대소문자 무시 · 한국어 이름 · 띄어쓰기를 뺀 이름)를 `ctx.loot.createItem(id, n)` 으로 만들고 `quality`(0 이면 안 붙인다)를 붙여 `ctx.inventory.tryAddItem` — 수량은 `stackMax` 묶음으로 나눠 넣고 자리가 없으면 넣은 만큼만(빨간 줄 `가방에 자리가 모자랍니다: <요리> ★★★☆☆ ×2 / 5`). 이름에 띄어쓰기가 있을 수 있어 **끝의 숫자 토큰**(최대 둘)을 품질 · 수량으로 읽는다. 품질은 0 … `MEAL_QUALITY_MAX` 정수, 수량은 1 … 99. 조리대 요리가 아니면(`cookStepsOf` 빈 배열) 줄 끝에 `· 조리대 요리 아님`. 오류: `알 수 없는 요리` · `요리가 아닙니다`(아이템은 있는데 요리가 아님) · 품질 · 수량 범위. `complete` = `give`, 그 뒤 은퇴하지 않은 요리 id / 이름 |
 | `pos` | anywhere | Phase (+ 멀티플레이 / ship / room), feet position, yaw, world seed |
+| `worm [뱉기초]` | gameplay phases, authority (not the 훈련장) | (2026-09-13) 지하벌레 이벤트를 **지금** 내 발밑에서 시작한다 — 굴림 · 시각 창 · 레이드당 1회를 무시. `뱉기초` = 이번 분출의 버그 뱉기 단계 길이(초, 0 = 곧장 독극물). enemies/ 를 import 하지 않고 `cheat:sandworm {spitS?}` 버스 명령만 낸다 (`EnemySystem` → `sandworm/Director.debugForce`). `commands/worm.ts` |
 | `colliders [0\|1]` | anywhere (draws in gameplay phases) | (2026-09-12) Toggle (no arg = flip) the collider wireframe around the player (`ColliderOverlay`). Prints `콜라이더 표시 켜짐 (n개)`. For hunting "보이지 않는 벽" — the colliders buried inside walls show because depth test is off. `complete` = `0` / `1` |
 
 Other folders add commands with `ctx.console.register({ name, usage, description, run, complete? })` (returns the unregister
@@ -84,6 +86,12 @@ events at its virtual position, so the suggestion list's mouse wiring and the in
 polls neither `input.mouseX / mouseY` nor `document.elementFromPoint`, so nothing else needed migrating. The console
 is still dev-client only (`isDevHost()`), so this path never runs for a player.
 
+- **2026-09-13 (지하벌레)** — 명령 `worm [뱉기초]` + `commands/worm.ts` (위 표). 콘솔은 `cheat:sandworm` 을 낼 뿐이고(새 이벤트, `shared/events.ts`
+  끝에 추가) 검사는 게임플레이 페이즈 · 권위 · 훈련장 아님까지만 — 전조가 이미 돌고 있으면 enemies/ 가 조용히 무시한다. 스모크는 같은 경로의
+  `EnemySystem.debugSandworm` 을 직접 부른다 (`scripts/smoke-sandworm.mjs`).
+- **2026-09-13 (요리 미니게임, 에이전트 cook-misc — docs/plans/cooking-minigames.md §6-5)** — 명령 `cook [give <요리 id|이름> [품질 0-5] [수량]]` +
+  `commands/cook.ts` (위 표), `commands/index.ts` 의 `help` 순서에서 `gym` 다음. 품질 붙은 요리를 가방에 넣어 툴팁 별 · 품질 스택 분리 · 식탁 · 버프 별을
+  조리 미니게임 없이 확인하려고 만들었다. `ItemInstanceExtras` 에 `quality` 가 없어(계약은 `ItemInstance.quality?` 만 더했다) `createItem` 뒤 인스턴스에 직접 적는다.
 - **2026-09-12 (헬스장 A-3a)** — 명령 `gym [clear [str|end] | <str|end> <±xp>]` + `commands/gym.ts` (위 표). **공개 `ProgressionRef` API 만**
   쓴다: 상태는 단련 · 디버프 질의 넷, 경험치는 리드가 계약 끝에 더한 dev 전용 `addTrainedXp?(id, xp)`, 지우기는 `clearGymFatigue?(id?)`
   (둘 다 optional 이라 `typeof` — 없으면 무엇이 없는지 빨간 줄). `applyGymSession` 은 부르지 않는다(세션 상한 · 디버프가 붙는다).

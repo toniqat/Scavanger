@@ -141,3 +141,117 @@ NAMED_HEAVY,creepMul,0.5
 NAMED_HEAVY,spinMoveMul,0.45
 NAMED_HEAVY,linger,1
 
+# HUMANOID_WEAPONS — 2026-09-13 행성별 인간형 팩션: 스폰이 쥐여 주는 총 계열 (items/WeaponDefs 의 계열 id, | 로 여러 개).
+# 등급은 여기서 정하지 않는다 — 시체 전리품이 팩션 등급 분포로 굴린다 (loot 표). rogue_boss 는 ROGUE_AI_TEXT.bossWeapon 그대로.
+HUMANOID_WEAPONS,android,ar|smg
+HUMANOID_WEAPONS,rogue,ar|smg|sg|dmr
+HUMANOID_WEAPONS,raider,ar|dmr|smg|sg
+
+# ── 2026-09-13 행성별 인간형 팩션 AI 프로필 (enemies/ai/HumanoidProfile.ts) ──
+# 세 블록은 같은 키를 갖는다 (안드로이드 · 레이더는 뒤에 자기 키가 더 있다). 인간형 엄폐 AI(ai/RogueAI)는 이 표를 읽고
+# constants.csv 의 ROGUE_AIM_ERROR · ROGUE_AIM_ERROR_SETTLED · ROGUE_BURST · ROGUE_RUSH_CHANCE · ROGUE_GRENADE_RANGE 는 더 이상 읽지 않는다
+# (ROGUE_REACTION 은 네임드 타길라 · 헤비가 아직 읽는다).
+# reaction = 발견 → 첫 사격까지 s
+# aimNear / aimFar = 조준 오차(rad, 삼각 분포의 반폭) — aimNearDist(m) 안은 aimNear, aimFarDist(m) 밖은 aimFar, 그 사이는 smoothstep
+# settleMul = 서서 settleTime(ROGUE_AI) 동안 쏘면 오차가 이 배수까지 줄어든다
+# burstMin/burstMax = 점사 한 번의 탄 수 · shotGap = 점사 안의 간격 s · burstPause = 점사 사이 쉼 s (±30 %)
+# burstsPerPop = 엄폐에서 나와 쏘는 점사 수 · coverMul = ROGUE_AI coverMin/Max 엄폐 유지에 곱한다 · rushChance = 한 번 나와 쏜 뒤 돌격 확률
+# damageMul = 플레이어 · 드론에게 ROGUE_DAMAGE 배수 · enemyDamageMul = 다른 팩션 적에게 (로그 · 레이더가 벌레를 쉽게 정리한다)
+# bugBackoff = 표적이 벌레면 엄폐하지 않고 서서 쏘며, 이 거리(m) 안으로 오면 뒤로 물러난다
+# grenadeMin/grenadeMax = 스폰 때 쥐는 수류탄 수 (정수) · incendiaryChance = 그 수류탄이 소이일 확률 · grenadeRange = 투척 최대 거리 m · grenadeScatter = 착탄 흩어짐 ±m
+HUMANOID_ANDROID,reaction,1.8
+HUMANOID_ANDROID,aimNear,0.1
+HUMANOID_ANDROID,aimFar,0.18
+HUMANOID_ANDROID,aimNearDist,10
+HUMANOID_ANDROID,aimFarDist,50
+HUMANOID_ANDROID,settleMul,0.8
+HUMANOID_ANDROID,burstMin,2
+HUMANOID_ANDROID,burstMax,3
+HUMANOID_ANDROID,shotGap,0.24
+HUMANOID_ANDROID,burstPause,1.8
+HUMANOID_ANDROID,burstsPerPop,1
+HUMANOID_ANDROID,coverMul,1
+HUMANOID_ANDROID,rushChance,0
+HUMANOID_ANDROID,damageMul,0.6
+HUMANOID_ANDROID,enemyDamageMul,1
+HUMANOID_ANDROID,bugBackoff,5
+HUMANOID_ANDROID,grenadeMin,0
+HUMANOID_ANDROID,grenadeMax,0
+HUMANOID_ANDROID,incendiaryChance,0
+HUMANOID_ANDROID,grenadeRange,0
+HUMANOID_ANDROID,grenadeScatter,0
+# 안드로이드 전용: 엄폐하지 않는다. engageMin~engageMax(m) 띠 안에서는 서서 쏘고, 밖이면 advanceMul × 이동 속도로 천천히 다가가거나 물러난다
+HUMANOID_ANDROID,engageMin,12
+HUMANOID_ANDROID,engageMax,30
+HUMANOID_ANDROID,advanceMul,0.45
+
+HUMANOID_ROGUE,reaction,0.9
+HUMANOID_ROGUE,aimNear,0.055
+HUMANOID_ROGUE,aimFar,0.15
+HUMANOID_ROGUE,aimNearDist,15
+HUMANOID_ROGUE,aimFarDist,70
+HUMANOID_ROGUE,settleMul,0.6
+HUMANOID_ROGUE,burstMin,5
+HUMANOID_ROGUE,burstMax,8
+HUMANOID_ROGUE,shotGap,0.1
+HUMANOID_ROGUE,burstPause,0.35
+HUMANOID_ROGUE,burstsPerPop,2
+HUMANOID_ROGUE,coverMul,0.6
+HUMANOID_ROGUE,rushChance,0.25
+HUMANOID_ROGUE,damageMul,1
+HUMANOID_ROGUE,enemyDamageMul,3
+HUMANOID_ROGUE,bugBackoff,6
+HUMANOID_ROGUE,grenadeMin,1
+HUMANOID_ROGUE,grenadeMax,3
+HUMANOID_ROGUE,incendiaryChance,0.3
+HUMANOID_ROGUE,grenadeRange,28
+HUMANOID_ROGUE,grenadeScatter,1
+
+HUMANOID_RAIDER,reaction,0.7
+HUMANOID_RAIDER,aimNear,0.04
+HUMANOID_RAIDER,aimFar,0.06
+HUMANOID_RAIDER,aimNearDist,20
+HUMANOID_RAIDER,aimFarDist,90
+HUMANOID_RAIDER,settleMul,0.6
+HUMANOID_RAIDER,burstMin,4
+HUMANOID_RAIDER,burstMax,6
+HUMANOID_RAIDER,shotGap,0.11
+HUMANOID_RAIDER,burstPause,0.4
+HUMANOID_RAIDER,burstsPerPop,2
+HUMANOID_RAIDER,coverMul,0.8
+HUMANOID_RAIDER,rushChance,0.12
+HUMANOID_RAIDER,damageMul,1.1
+HUMANOID_RAIDER,enemyDamageMul,3
+HUMANOID_RAIDER,bugBackoff,6
+HUMANOID_RAIDER,grenadeMin,1
+HUMANOID_RAIDER,grenadeMax,3
+HUMANOID_RAIDER,incendiaryChance,0.4
+HUMANOID_RAIDER,grenadeRange,40
+HUMANOID_RAIDER,grenadeScatter,0.4
+# 레이더 전용: 우회조 (squadRole 'flanker', 같은 squadId 의 분대원이 교전 중일 때만)
+# flankDelay = 교전(chase) 이 이만큼 이어져야 첫 우회를 시작한다 s · flankCooldown = 우회 사이 s (±15 %)
+# flankMinDist/flankMaxDist = 표적이 이 거리(m) 띠 안일 때만 시작 · flankRadius = 우회 끝에 표적에서 떨어진 거리 m
+# flankBehind = 목표 방위: 0 = 표적의 정측면, 1 = 정후방 · flankArcStep = 한 번에 잡는 호의 각 (도) · flankArrive = 이 각(도) 안에 들면 도착
+# flankSpeedMul = 우회 중 이동 속도 배수 · flankMaxTime = 우회가 이보다 길면 그 자리에서 푸시로 넘어간다 s
+HUMANOID_RAIDER,flankDelay,4
+HUMANOID_RAIDER,flankCooldown,20
+HUMANOID_RAIDER,flankMinDist,6
+HUMANOID_RAIDER,flankMaxDist,60
+HUMANOID_RAIDER,flankRadius,16
+HUMANOID_RAIDER,flankBehind,0.35
+HUMANOID_RAIDER,flankArcStep,35
+HUMANOID_RAIDER,flankArrive,20
+HUMANOID_RAIDER,flankSpeedMul,1.3
+HUMANOID_RAIDER,flankMaxTime,14
+
+# ENEMY_INCENDIARY — 인간형 적의 소이 수류탄 (fx/RogueGrenade 의 화염 지대). 고폭은 constants.csv 의 ROGUE_GRENADE_* 그대로.
+# blastDamage / blastRadius = 터지는 순간의 작은 폭발 (m) · radius = 화염 지대 반경 m · duration = 지속 s
+# dps = 안에 선 플레이어 · 다른 팩션 적의 초당 화상 피해 · tick = 피해 판정 주기 s · afterburn = 벗어난 뒤에도 타는 s
+ENEMY_INCENDIARY,blastDamage,12
+ENEMY_INCENDIARY,blastRadius,3
+ENEMY_INCENDIARY,radius,4.5
+ENEMY_INCENDIARY,duration,8
+ENEMY_INCENDIARY,dps,16
+ENEMY_INCENDIARY,tick,0.5
+ENEMY_INCENDIARY,afterburn,1.2
+

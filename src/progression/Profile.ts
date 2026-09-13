@@ -2,7 +2,7 @@ import type { EquippedImplant, GymStat, ImplantId, PlayerProfile, SkillId, StatI
 import {
   GYM_STATS, GYM_TRAINED_MAX,
   IMPLANT_IDS, PROFILE_STORAGE_KEY, PROFILE_VERSION, SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN,
-  slotKey,
+  normalizeMealQuality, slotKey,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -80,6 +80,9 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     // A-3c (2026-09-11): 식사 — 고정 1칸이라 배열이 아니다. 안 먹었으면 null.
     meal: null,
     mealActive: null,
+    // 2026-09-13 (요리 품질): 식사 id 옆에 붙어 다니는 별 수 0 … MEAL_QUALITY_MAX. 안 먹었으면 0.
+    mealQuality: 0,
+    mealActiveQuality: 0,
     // A-3a (2026-09-12): 헬스장 — 단련 보너스 · 진행도 · 운동 디버프. 새 캐릭터는 셋 다 비어 있다 (= 0 · 없음).
     trained: {},
     trainedProgress: {},
@@ -231,6 +234,10 @@ export function migrate(raw: unknown): PlayerProfile | null {
    * 사고와 같은 자리). `mealActive` 는 레이드 도중 끊긴 사람이 돌아와도 살아 있어야 하는 값이다. */
   p.meal = sanitizeMeal(r.meal);
   p.mealActive = sanitizeMeal(r.mealActive);
+  /* 2026-09-13 (요리 품질): 품질은 요리 id 옆에 붙어 다닌다 — 같은 자리의 같은 교훈이라 여기서 옮기지 않으면 ★★★★★ 요리가
+   * 새로고침 한 번에 ☆ 가 된다. 0 … MEAL_QUALITY_MAX 정수로 자르고, 짝이 되는 id 가 없으면 0 이다. */
+  p.mealQuality = p.meal ? normalizeMealQuality(r.mealQuality) : 0;
+  p.mealActiveQuality = p.mealActive ? normalizeMealQuality(r.mealActiveQuality) : 0;
 
   /* A-3a (2026-09-12): 헬스장 — 단련 보너스 · 진행도 · 운동 디버프. 같은 자리의 같은 교훈이다: migrate 의 결과가 곧 다음
    * `saveProfile` (그리고 서버 `progression` 문서) 의 내용이라, 여기서 옮기지 않으면 운동으로 얻은 보너스와 24시간 디버프가

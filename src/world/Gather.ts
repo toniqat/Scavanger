@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   CATEGORY_COLOR,
   GATHER_HERB_QTY2_CHANCE, GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, GATHER_SALVAGE_CORE_CHANCE,
-  GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_QTY2_CHANCE, Layers,
+  GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_MINERAL_CHANCE, GATHER_SALVAGE_MINERAL_QTY, GATHER_SALVAGE_QTY2_CHANCE, Layers,
   SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION, SOIL_TAG_COLOR,
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemCategory, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
@@ -52,6 +52,14 @@ const SALVAGE_SPACING = 12;
  * `GATHER_SALVAGE_CORE_*`, 아이템 id 는 계약 주석(`shared/constants.ts`)이 정한 구동 코어다.
  */
 const SALVAGE_CORE_DEF_ID = 'mat_core';
+/**
+ * 2026-09-13 (요리 재료 티어 — 사용자 결정 「광물 = 표본 채집지 · 고철 더미 부가 · 베헤모스」): 고철 더미가 확률로 더 주는
+ * **미확인 광물**. 확률 · 개수는 `data/constants.csv` 의 `GATHER_SALVAGE_MINERAL_*`. 코어와 **따로** 굴리므로 한 더미가 둘 다 줄 수 있다.
+ */
+const SALVAGE_MINERAL_DEF_ID = 'spec_mineral';
+
+/** 채집물 하나가 수확 때 **아이템만** 하나 더 넣는 부가 결과. */
+interface NodeBonus { defId: string; qty: number }
 
 /* ── 토양 더미 (온실 개편, 2026-09-11) ──────────────────────────────────────────
  * 온실의 재배 스테이션은 흙을 먼저 붓고 그 위에 씨앗을 심는다. 그 흙은 **레이드 채집으로만** 나오고 속성은
@@ -151,10 +159,12 @@ interface Node {
   pendingAt: number;
   interactable: Interactable;
   /**
-   * 2026-09-11 (C-20): 고철 더미의 **부가 코어** — 생성 때 미션 시드로 정해진다(와이어 없음, 모두가 같은 답).
-   * world 내부 값이라 `GatherNodeDef` 에는 없다. null = 부가 결과 없음 (약초는 늘 null).
+   * 2026-09-11 (C-20): 고철 더미의 **부가 결과** — 생성 때 미션 시드로 정해진다(와이어 없음, 모두가 같은 답).
+   * world 내부 값이라 `GatherNodeDef` 에는 없다. 빈 목록 = 부가 결과 없음 (약초는 늘 비어 있다).
+   * 2026-09-13: 하나(코어)에서 **목록**으로 — 코어(`gather_core`)와 미확인 광물(`gather_mineral`)이 각자 굴려 둘 다 붙을 수 있다.
+   * 순서는 코어 → 광물 고정이다.
    */
-  bonus: { defId: string; qty: number } | null;
+  bonus: readonly NodeBonus[];
 }
 
 /**
@@ -484,6 +494,11 @@ export class Gather {
     /* 2026-09-11 (C-20): 부가 코어는 **자기 fork** 로 굴린다 — `rng`(gather) 에서 뽑으면 그 뒤의 yaw · scale ·
      * 수량 추첨이 한 칸씩 밀려 같은 시드의 채집물 모습이 달라진다. `Random.fork` 는 부모를 전진시키지 않는다. */
     const coreRng = ctx.rng.fork('gather_core');
+    /* 2026-09-13: 부가 미확인 광물도 **자기 fork** 다 — `gather_core` 에서 뽑으면 두 번째 더미부터 코어 굴림이 한 칸씩 밀려
+     * 같은 시드의 코어 더미가 달라진다. fork 는 부모(`ctx.rng`)를 전진시키지 않으므로 이 줄이 다른 스트림을 건드리지 않는다. */
+    const mineralRng = ctx.rng.fork('gather_mineral');
+    const coreQty = Math.max(0, Math.round(GATHER_SALVAGE_CORE_QTY));
+    const mineralQty = Math.max(0, Math.round(GATHER_SALVAGE_MINERAL_QTY));
     let id = 0;
     for (const s of spots) {
       const v = this.variants[s.variant];
@@ -524,13 +539,18 @@ export class Gather {
         harvested: false,
         kind: s.kind,
       };
-      const coreQty = Math.max(0, Math.round(GATHER_SALVAGE_CORE_QTY));
+      /* 고철 더미마다 코어 한 번 · 광물 한 번, 각자의 fork 에서 **늘** 굴린다 (개수가 0 이어도 굴림은 소비한다 — 옛 코어 식
+         `chance(...) && qty > 0` 과 같은 소비라 `gather_core` 스트림이 바이트 단위로 그대로다). */
+      const bonus: NodeBonus[] = [];
+      if (salvage) {
+        if (coreRng.chance(GATHER_SALVAGE_CORE_CHANCE) && coreQty > 0) bonus.push({ defId: SALVAGE_CORE_DEF_ID, qty: coreQty });
+        if (mineralRng.chance(GATHER_SALVAGE_MINERAL_CHANCE) && mineralQty > 0) bonus.push({ defId: SALVAGE_MINERAL_DEF_ID, qty: mineralQty });
+      }
       const node: Node = {
         def, variant: s.variant, kind: s.kind, slot: v.count,
         x: s.x, y, z: s.z, yaw, scale, anim: -1, pending: false, pendingAt: -Infinity,
         interactable: null as unknown as Interactable,
-        bonus: salvage && coreRng.chance(GATHER_SALVAGE_CORE_CHANCE) && coreQty > 0
-          ? { defId: SALVAGE_CORE_DEF_ID, qty: coreQty } : null,
+        bonus,
       };
       node.interactable = this.makeInteractable(node);
       this.writeMatrix(node, 1);
@@ -683,18 +703,27 @@ export class Gather {
     const seed = raidFoundSeed(ctx);   // 2026-09-12: 아이템 회수 계약 표식 (훈련장 · 함선이면 null)
     markRaidFound(item, seed);
     if (item) ctx.inventory?.tryAddItem(item);
-    /* 2026-09-11 (C-20): 부가 코어는 **아이템만 하나 더** 넣는다 — `gather:collected` · 소리 · 제작 XP 는 위의 1회뿐.
-     * 채집 수율(원예)을 곱하지 않는 것은 폐금속과 같다. */
-    if (node.bonus) {
-      const extra = this.makeItem(node.bonus.defId, node.bonus.qty);
+    /* 2026-09-11 (C-20): 부가 결과는 **아이템만 하나씩 더** 넣는다 — `gather:collected` · 소리 · 제작 XP 는 위의 1회뿐.
+     * 채집 수율(원예)을 곱하지 않는 것은 폐금속과 같다. 2026-09-13: 코어 · 미확인 광물 둘 다일 수 있다 (items/ 가 모르는 def 는
+     * `makeItem` 이 null 을 돌려 조용히 빠진다). 표식(`raidFound`)은 본 산출물과 같다. */
+    for (const b of node.bonus) {
+      const extra = this.makeItem(b.defId, b.qty);
       markRaidFound(extra, seed);
       if (extra) ctx.inventory?.tryAddItem(extra);
     }
   }
 
-  /** 2026-09-11 (C-20) 스모크: 노드 id → 부가 결과 (없으면 null). */
+  /**
+   * 2026-09-11 (C-20) 스모크: 노드 id → 부가 **코어** (없으면 null). 2026-09-13 에 부가 결과가 목록이 된 뒤에도 뜻을 바꾸지 않았다 —
+   * `smoke-ecology` 의 코어 서명이 이것을 읽는다. 광물까지 보려면 `debugBonusesOf`.
+   */
   debugBonusOf(id: string): { defId: string; qty: number } | null {
-    return this.byId.get(id)?.bonus ?? null;
+    return this.byId.get(id)?.bonus.find((b) => b.defId === SALVAGE_CORE_DEF_ID) ?? null;
+  }
+
+  /** 2026-09-13 스모크: 노드 id → 부가 결과 전부 (코어 → 광물 순, 없으면 빈 목록). */
+  debugBonusesOf(id: string): Array<{ defId: string; qty: number }> {
+    return (this.byId.get(id)?.bonus ?? []).map((b) => ({ ...b }));
   }
 
   private makeItem(defId: string, qty: number): ItemInstance | null {
@@ -826,6 +855,8 @@ export class Gather {
       if (!(w > 0)) continue;
       const def = loot?.getItemDef(id);
       if (def && def.category !== category) continue;   // 이름이 겹친 다른 아이템이다
+      // 2026-09-13 (요리 재료 티어): 은퇴 아이템(옛 표본 11종 등)은 csv 에 남아 있어도 채집지에 서지 않는다 — data:check 와 별개의 안전핀
+      if (def?.retired) continue;
       if (!def && !id.startsWith(prefix)) continue;     // items/ 가 모르고 이름 규약도 아니면 버린다
       total += w;
       ids.push(id);

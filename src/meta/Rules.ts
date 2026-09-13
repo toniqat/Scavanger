@@ -7,7 +7,7 @@ import {
   SHOP_UNLOCK_REP_LEVEL, buyPriceOf, repLevelOf, rarityRank as sharedRarityRank,
 } from '@/shared';
 /* 임플란트 수리 수수료는 `data/tuning.csv` 에 있다. */
-import { keyTable } from '@/shared';
+import { csvRows, keyTable } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Pure rules (no ctx, no DOM): shop filter + prices, reputation, contract acceptance / settlement, quest availability.
@@ -189,8 +189,17 @@ export function canRepairImplant(c: ImplantRepairCheck): string | null {
 }
 
 /* ── contracts ── */
+/**
+ * 2026-09-13: `kill_rogues` 는 **인간형 적 전부**를 센다 — 로그 · 로그 그룹장 · 안드로이드 · 레이더 · 네임드(로든 · 타길라 · 헤비).
+ * 예전에는 `rogue` · `rogue_boss` 만 셌고 네임드는 벌레(`kill_bugs`)로 잘못 들어갔다. 팩션의 원본은 `data/enemies.csv` 의
+ * `faction` 열이고(벌레가 아니면 인간형), 스캔 드론은 팩션이 레이더여도 사람이 아니라 뺀다. 타입 검증은 enemies/ 의 로더가 한다.
+ */
+const NON_HUMANOID_KILL_TYPES: ReadonlySet<string> = new Set(['rogue_scan_drone']);
+const HUMANOID_KILL_TYPES: ReadonlySet<string> = new Set(
+  csvRows('enemies.csv').filter((r) => r.str('faction') !== 'bug' && !NON_HUMANOID_KILL_TYPES.has(r.str('type'))).map((r) => r.str('type')),
+);
 export function killGoalOf(type: EnemyType): 'kill_bugs' | 'kill_rogues' {
-  return type === 'rogue' || type === 'rogue_boss' ? 'kill_rogues' : 'kill_bugs';
+  return HUMANOID_KILL_TYPES.has(type) ? 'kill_rogues' : 'kill_bugs';
 }
 
 /** Why `def` cannot be accepted now (null = acceptable). */

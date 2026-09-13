@@ -1,11 +1,24 @@
-import type { CurrencyDef, GameContext, ItemDef, ItemInstance, ShelfMedium, SkillId, StatId } from '@/shared';
+import type { CurrencyDef, GameContext, GrowSocketDef, ItemDef, ItemInstance, ShelfMedium, SkillId, StatId } from '@/shared';
 import {
-  CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, MEAL_BUFF_LABEL_KO, PERK_DEFS,
-  RARITY_COLORS, RARITY_LABEL_KO, SHELF_INTERACTION, SHELF_MEDIUM_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
-  currencyDef, formatCredits, itemCreditValue, shelfItemOf,
+  CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, GROW_SOCKET_EFFECT_LABEL_KO,
+  GROW_SOCKET_TARGET_LABEL_KO, MEAL_BUFF_LABEL_KO, PERK_DEFS,
+  RARITY_COLORS, RARITY_LABEL_KO, SAMPLE_FAMILY_COLOR, SAMPLE_FAMILY_ICON, SAMPLE_FAMILY_LABEL_KO,
+  SHELF_INTERACTION, SHELF_MEDIUM_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
+  currencyDef, formatCredits, growSocketSlotsFor, itemCreditValue, shelfItemOf,
 } from '@/shared';
 import { el, setText } from '../dom';
-import { mealBuffAmountText } from './mealText';
+import { cookStepsText, mealBuffAmountText, mealEffects, mealQualityText, mealTierLabel } from './mealText';
+/* 2026-09-13 (요리 미니게임): 품질 줄 */
+import { normalizeMealQuality } from '@/shared';
+
+/** `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (아래 주석). */
+type TipRow = [string, string, string?];
+
+/** 2026-09-13 (요리 품질): 품질 줄의 별 색 — 버프 썸네일의 별 배지(`styles/buffs.css` `.bfs-cell[data-q]`)와 같은 금색. */
+const MEAL_QUALITY_STAR_COLOR = '#ffd24a';
+
+/** 유한한 양수인가 (옛 csv 로 비어 온 내구도 · 시간 칸을 거른다). */
+const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
 /**
  * 재료 요구 칩 hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
@@ -55,6 +68,20 @@ import { mealBuffAmountText } from './mealText';
  * 같은 크기의 칩(`shared/currency.buildCurrencyChip`)으로 선다. 그 칩은 `data-def-id` 대신
  * **`data-currency-id`** 를 달고, 이 카드는 그것도 받아 `.is-currency` 로 그린다 — 헤더에 `재화` 배지가 붙고
  * 아이템의 분류 · 등급 · 무게 · 가치 줄은 나오지 않는다. 아이템과 구분되는 틀이 필요하다는 요구가 여기서 끝난다.
+ *
+ * **요리 재료 티어 (2026-09-13, `docs/plans/food-tiers.md` §6)**: 요리는 `구분 — <티어 이름>`(`MEAL_TIER_LABEL_KO`, 은퇴 요리는 생략) ·
+ * `사용` 아래에 **능력치 줄 전부**(`hud/mealText.mealEffects` — `effects` 가 없는 옛 def 는 한 줄)를 얻는다 (옛 `구분 — 특선 요리` 는 없다).
+ * 토양은 `수확 n 회` 대신 **`내구도 최대 n`** · **`소켓 칸 n 칸`**(`growSocketSlotsFor(등급)`), 배지는 `배양 n 회` 대신 같은 두 줄 + `배양 속도`,
+ * 세포주는 스캐폴드 산출이 있으면 **`스캐폴드 배양 n 시간`** · **`스캐폴드 산출`** 두 줄을 더 얻고, 배양 스캐폴드(`def.scaffold`)는 `사용` 한 줄
+ * 설명, 소켓(`def.growSocket`)은 `종류`(`GROW_SOCKET_TARGET_LABEL_KO` · 끼우는 곳) · `<효과 이름>`(`GROW_SOCKET_EFFECT_LABEL_KO`: speed = `시간 −n %`,
+ * wear = `마모 −n %`, yield = `n % 확률로 +1 개`, 값은 인라인 `CATEGORY_COLOR.socket`) · `장착` 을 얻는다. 표본은 **`계열`**(글리프 + 이름, 인라인
+ * `SAMPLE_FAMILY_COLOR`) · `분석기 해석 n 시간`(표의 기준 시간) · `결과 — <계열> 결과표` 이고 옛 `산출물` · `최초 해석` 줄은 계열이 없는 옛 def 에만 남는다.
+ * 은퇴 아이템(`def.retired`)은 맨 위에 **`상태 — 더 이상 쓰이지 않는 아이템`**(흐린 글자) 한 줄.
+ *
+ * **요리 미니게임 (2026-09-13, `docs/plans/cooking-minigames.md` §6-5)**: 요리는 호버한 요소가 `data-uid` 를 달고 그 인스턴스의 품질이
+ * 0 보다 크면 `구분` 아래에 **`품질 — ★★★☆☆ +15 %`**(`hud/mealText.mealQualityText`) 한 줄을 얻고, 능력치 줄이 **보너스 반영 수치**가 된다
+ * (`mealEffects(meal, quality)` — 먹었을 때 `derive.applyMealBuff` 가 더하는 값과 같은 식). 인스턴스가 없는 칩(재료 · 보상 칩)은 품질 0 기준값이다.
+ * 조리대 요리(`cookStepsOf` 가 비지 않은 것)는 능력치 줄 아래에 **`조리 — ① 썰기 → ② 젓기`**(`cookStepsText`) 한 줄 — 단계가 없으면 줄도 없다.
  */
 export class ItemTip {
   readonly root: HTMLElement;
@@ -198,8 +225,9 @@ export class ItemTip {
     setText(this.subEl, `${CATEGORY_LABEL_KO[def.category] ?? def.category} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
     setText(this.descEl, def.description);
 
-    /** `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (위 주석). */
-    const rows: Array<[string, string, string?]> = [];
+    const rows: TipRow[] = [];
+    // 2026-09-13: 은퇴 아이템은 맨 위에 한 줄 — 정의는 남았지만 어느 출처 · 소비처에서도 빠졌다
+    if (def.retired) rows.push(['상태', '더 이상 쓰이지 않는 아이템', 'var(--c-text-dim)']);
     const have = this.owned(defId);
     if (have >= 0) rows.push(['보유', `${have} 개`]);
     if (def.seed) rows.push(['재배 시간', `${def.seed.growHours} 시간`]);
@@ -210,7 +238,9 @@ export class ItemTip {
     const soil = def.soil;
     if (soil) {
       if (SOIL_TAG_LABEL_KO[soil.tag]) rows.push(['속성', SOIL_TAG_LABEL_KO[soil.tag], SOIL_TAG_COLOR[soil.tag]]);
-      rows.push(['수확', `${soil.uses} 회`]);
+      // 2026-09-13: 「수확 n 회」 → 최대 내구도 + 소켓 칸 (가방의 토양은 늘 새것이라 `최대` 다 — 닳은 흙은 재배 화면이 말한다)
+      if (positive(soil.durability)) rows.push(['내구도', `최대 ${Math.round(soil.durability)}`]);
+      rows.push(['소켓 칸', `${growSocketSlotsFor(def.rarity)} 칸`]);
     }
     /* 연구실 (A-12 · A-13, 2026-09-11): 표본은 **분석기에 넣었을 때 무엇이 얼마나 걸려 나오는가**, 준비물은
        **어떤 환경을 몇 번 막아 주는가** 가 카드에서 끝나야 한다. 씨앗 · 토양 줄과 같은 자리 · 같은 인라인 색 규약이다
@@ -218,12 +248,22 @@ export class ItemTip {
        줄어들지만 그것은 분석 화면이 말한다: 여기 적는 것은 **표에 있는 기준 시간**이다. */
     const sample = def.sample;
     if (sample) {
-      const reward = this.defOf(sample.rewardDefId);
-      rows.push(['분석기 해석', `${sample.analyzeHours} 시간`]);
-      rows.push(['산출물', `${reward?.name ?? sample.rewardDefId} ×${sample.rewardQty}`]);
-      if (sample.firstDefId) {
-        const first = this.defOf(sample.firstDefId);
-        rows.push(['최초 해석', `${first?.name ?? sample.firstDefId} ×${sample.firstQty ?? 1}`]);
+      /* 2026-09-13 (요리 재료 티어): 결과는 계열 결과표(`ANALYSIS_RESULTS`)에서 분석 레벨로 해금 · 추첨된다 — 카드는 **계열**을
+         말하고, 무엇이 얼마의 확률로 나오는지는 분석 도감이 말한다. `rewardDefId` 는 결과표가 비었을 때의 대체일 뿐이라 적지 않는다.
+         계열이 없는 def(새 열을 모르는 옛 로더)만 옛 두 줄을 그대로 쓴다. */
+      const fam = (sample as Partial<typeof sample>).family;
+      if (fam && SAMPLE_FAMILY_LABEL_KO[fam]) {
+        rows.push(['계열', `${SAMPLE_FAMILY_ICON[fam] ?? ''} ${SAMPLE_FAMILY_LABEL_KO[fam]}`.trim(), SAMPLE_FAMILY_COLOR[fam]]);
+        rows.push(['분석기 해석', `${sample.analyzeHours} 시간`]);
+        rows.push(['결과', `${SAMPLE_FAMILY_LABEL_KO[fam]} 결과표 — 분석 도감`]);
+      } else {
+        const reward = this.defOf(sample.rewardDefId);
+        rows.push(['분석기 해석', `${sample.analyzeHours} 시간`]);
+        rows.push(['산출물', `${reward?.name ?? sample.rewardDefId} ×${sample.rewardQty}`]);
+        if (sample.firstDefId) {
+          const first = this.defOf(sample.firstDefId);
+          rows.push(['최초 해석', `${first?.name ?? sample.firstDefId} ×${sample.firstQty ?? 1}`]);
+        }
       }
     }
     const prep = def.prep;
@@ -246,9 +286,20 @@ export class ItemTip {
        색은 위 토양 · 환경 줄과 같은 이유로 **인라인**이다 (`.it-stats .v` 에 modifier 클래스를 만들지 않는다). */
     const meal = def.meal;
     if (meal) {
+      // 2026-09-13: 티어 이름 + 능력치 줄 전부. 은퇴한 옛 특선 요리(tier 2)는 「페이스트 요리」 가 아니므로 구분 줄을 뺀다.
+      const tier = def.retired ? '' : mealTierLabel(meal);
+      if (tier) rows.push(['구분', tier]);
+      // 2026-09-13 (요리 품질): 인스턴스가 있을 때만 — 칩(재료 · 보상)은 품질이 없다
+      const quality = normalizeMealQuality(this.instanceOf(uid, defId)?.quality);
+      const qText = mealQualityText(quality);
+      if (qText) rows.push(['품질', qText, MEAL_QUALITY_STAR_COLOR]);
       rows.push(['사용', '다음 레이드 1회분']);
-      rows.push([MEAL_BUFF_LABEL_KO[meal.buff] ?? '효과', mealBuffAmountText(meal.buff, meal.amount), CATEGORY_COLOR.meal]);
-      if (meal.tier === 2) rows.push(['구분', '특선 요리']);
+      for (const e of mealEffects(meal, quality)) {
+        rows.push([MEAL_BUFF_LABEL_KO[e.buff] ?? '효과', mealBuffAmountText(e.buff, e.amount), CATEGORY_COLOR.meal]);
+      }
+      // 2026-09-13 (요리 미니게임): 조리대에서 하는 미니게임 순서
+      const steps = cookStepsText(defId);
+      if (steps) rows.push(['조리', steps]);
     }
     const pouch = def.pouch;
     if (pouch) {
@@ -261,14 +312,24 @@ export class ItemTip {
       const out = this.defOf(strain.outputDefId);
       rows.push(['배양조', `${strain.cultureHours} 시간`]);
       rows.push(['산출물', `${out?.name ?? strain.outputDefId} ×${strain.outputQty}`]);
+      // 2026-09-13 (T3): 스캐폴드가 든 칸에서는 종별 고기를 만든다 — 그 산출이 있는 세포주만 두 줄 더
+      if (strain.scaffoldOutputDefId) {
+        const sc = this.defOf(strain.scaffoldOutputDefId);
+        if (positive(strain.scaffoldHours)) rows.push(['스캐폴드 배양', `${strain.scaffoldHours} 시간`]);
+        rows.push(['스캐폴드 산출', `${sc?.name ?? strain.scaffoldOutputDefId} ×${strain.scaffoldOutputQty ?? 1}`]);
+      }
     }
+    if (def.scaffold) rows.push(['사용', '배양조 — 배지 다음 · 세포주 전에 넣으면 종별 고기 (수확 때 소모)']);
     const medium = def.medium;
     if (medium) {
-      rows.push(['배양', `${medium.uses} 회`]);
+      // 2026-09-13: 「배양 n 회」 → 최대 내구도 (토양과 같은 규칙 — 0 이어도 쓰고 속도 · 소켓 효과가 비율로 준다) + 소켓 칸
+      if (positive(medium.durability)) rows.push(['내구도', `최대 ${Math.round(medium.durability)}`]);
       // speedMul 0.7 = 「30 % 빠름」. 1 보다 큰 배지(느린 배지)가 생겨도 부호가 그대로 뒤집힌다.
       const faster = Math.round((1 - medium.speedMul) * 100);
       if (faster !== 0) rows.push(['배양 속도', `${faster > 0 ? '+' : '−'}${Math.abs(faster)} %`]);
+      rows.push(['소켓 칸', `${growSocketSlotsFor(def.rarity)} 칸`]);
     }
+    if (def.growSocket) this.socketRows(rows, def.growSocket);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);
     // 2026-09-11 (C-36 후속): 가방 내구도 — 인스턴스가 있으면 `cur / max`, 칩뿐이면 새 가방의 `최대 max`.
@@ -325,6 +386,22 @@ export class ItemTip {
     this.valueEl.hidden = true;
     this.root.hidden = false;
     this.visible = true;
+  }
+
+  /**
+   * 2026-09-13: 흙 · 배지 소켓 세 줄 — `종류`(토양 소켓 · 끼우는 곳), `<효과 이름> <값>`, `장착`. 값은 `amount` 를 %로
+   * (speed = 시간이 줄어드는 비율, wear = 마모가 줄어드는 비율, yield = 수확마다 +1 개가 붙을 확률). speed · yield 는 흙 · 배지
+   * 내구도 비율만큼만 듣는다는 계약(`GrowSocketEffect`)을 `장착` 줄이 말한다.
+   */
+  private socketRows(rows: TipRow[], s: GrowSocketDef): void {
+    const kind = GROW_SOCKET_TARGET_LABEL_KO[s.target];
+    if (!kind) return;
+    rows.push(['종류', `${kind} · ${s.target === 'soil' ? '재배 스테이션의 흙' : '배양조의 배지'}`]);
+    const pct = Math.round((Number.isFinite(s.amount) ? s.amount : 0) * 1000) / 10;
+    const num = Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
+    const value = s.effect === 'yield' ? `${num} % 확률로 +1 개` : s.effect === 'speed' ? `시간 −${num} %` : `마모 −${num} %`;
+    rows.push([GROW_SOCKET_EFFECT_LABEL_KO[s.target]?.[s.effect] ?? '효과', value, CATEGORY_COLOR.socket]);
+    rows.push(['장착', s.effect === 'wear' ? '영구 — 교체하면 파괴' : '영구 — 내구도 비율만큼 적용 · 교체하면 파괴']);
   }
 
   /** 숙련의 한국어 이름 (`getSkillDef`), progression 이 없으면 id. */

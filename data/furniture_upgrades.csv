@@ -25,6 +25,15 @@ furn_culture_tank,1,mat_alloy:6|mat_circuit:2|mat_bio_sample:8
 furn_culture_tank,2,mat_alloy:10|mat_circuit:4|mat_capacitor:1
 furn_bench_print,1,mat_alloy:8|mat_circuit:3|mat_power_cell:2
 furn_bench_print,2,mat_ingot:4|mat_control_module:1|mat_capacitor:1
+# 2026-09-13 (요리 미니게임): 자동 조리 가구 4종 — Lv.2 = 자동 점수 60 %, Lv.3 = 100 % (tables.csv 의 COOK_AUTO_SCORE_BY_LEVEL)
+furn_food_processor,1,mat_alloy:4|mat_circuit:2|mat_cable:2
+furn_food_processor,2,mat_alloy:8|mat_circuit:3|mat_power_cell:1
+furn_auto_grill,1,mat_alloy:5|mat_cable:3|mat_circuit:1
+furn_auto_grill,2,mat_alloy:9|mat_circuit:3|mat_power_cell:1
+furn_auto_stirrer,1,mat_alloy:4|mat_cable:2|mat_circuit:2
+furn_auto_stirrer,2,mat_alloy:8|mat_circuit:3|mat_power_cell:1
+furn_pour_dispenser,1,mat_alloy:4|mat_cable:3|mat_circuit:1
+furn_pour_dispenser,2,mat_alloy:8|mat_circuit:3|mat_power_cell:1
 # 2026-09-12 (방 시설 레벨 제거): 옛 사격장 Lv.1 → 5 강화비가 시설 안의 두 가구로 옮겨 왔다 — 관물대 레벨 = 프리셋
 # 슬롯(tables.csv 의 PRESETS_BY_RANGE_LEVEL), 시뮬레이션 허브 레벨 = 사격 숙련 상승(constants.csv 의 RANGE_SKILL_GAIN_PER_LEVEL).
 furn_range_console,1,mat_scrap:8

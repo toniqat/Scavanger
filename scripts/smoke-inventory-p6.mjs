@@ -136,6 +136,22 @@ try {
   ok(cat.onTab === '전체' && cat.search, '전체 tab active, search box present');
   ok(cat.weaponGrades >= 5, `every weapon grade is its own tile (돌격소총 ×${cat.weaponGrades})`);
   ok(cat.hub && cat.leftOfStash, 'catalog sits left of the stash in the ship screen');
+  /* 2026-09-13 (사용자 결정): 무한 상자가 열린 동안에는 무한 상자 · 창고 · 가방만 — 장비 열 · 퀵슬롯 · 주머니는 숨고
+     드롭 대상도 아니며, 하단 안내 줄은 없고, 창은 가로로 스크롤되지 않는다. */
+  const catLayout = await page.evaluate(() => {
+    const root = document.querySelector('.inv-root');
+    const shown = (sel) => { const el = root.querySelector(sel); return !!el && !el.hidden && getComputedStyle(el).display !== 'none'; };
+    const layout = root.querySelector('.inv-layout');
+    const views = window.__game.getSystem('inventory')['ui'].activeViews().map((v) => v.id);
+    return {
+      equip: shown('.inv-equip'), quick: shown('.inv-quick'), pouch: shown('.inv-pouch'), stash: shown('.inv-panel-stash'), bag: shown('.inv-panel-bag'),
+      hint: !!root.querySelector('.inv-panel-catalog .inv-stash-hint'), views,
+      hscroll: layout.scrollWidth - layout.clientWidth,
+    };
+  });
+  ok(!catLayout.equip && !catLayout.quick && !catLayout.pouch && catLayout.stash && catLayout.bag && !catLayout.hint && !catLayout.views.includes('pouch'),
+    '무한 상자 배치 — 장비 열 · 퀵슬롯 · 주머니 숨김, 창고 · 가방만, 하단 안내 줄 없음', JSON.stringify(catLayout));
+  ok(catLayout.hscroll <= 1, `무한 상자 배치에서 가로 스크롤 없음 (1680 px, 넘침 ${catLayout.hscroll} px)`);
 
   // tabs: 무기 shows only primary defs (2026-09-10: 보조무기 카테고리 제거)
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
@@ -210,13 +226,21 @@ try {
   const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.filter((i) => i.defId === 'mat_alloy').reduce((n, i) => n + i.qty, 0) }; });
   // 2026-09-07: the 기본 지급품 already put 합금 판 in the 창고, so the drag merges into that stack instead of adding a tile
   ok(stashAfter.n === stashBefore + 1 && stashAfter.alloy > alloyBefore, `mouse drag into the stash created a 합금 판 stack (${alloyBefore} → ${stashAfter.alloy})`);
-  // drag a weapon onto the 주무기 II slot equips a fresh instance
+  /* 2026-09-13 (사용자 결정): 무한 상자가 열린 동안 장비 열은 숨고 드롭 대상도 아니다 — 예전의 「카탈로그 타일을
+     주무기 II 칸에 끌어다 놓기」는 화면에서 할 수 없다. 칸이 숨었는지 보고, 카탈로그 → 장비칸 규칙 자체는 시스템 경로
+     (`dropFromCatalog`, 드롭 판정과 같은 함수)로 검증한다 — 아래 프리셋 검사가 이 AR III 를 주무기 II 로 기대한다. */
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
-  const gunTile = await centre('.inv-cat-item[data-def="wpn_ar_g3"] .inv-tile');
-  const slot2 = await centre('.inv-slot-primary2 .inv-slot-body');
-  await dragMouse(gunTile, slot2);
-  const p2 = await page.evaluate(() => { const l = window.__game.ctx.inventory.getLoadout(); return l.primary2 ? { id: l.primary2.defId, dur: l.primary2.durability, mag: l.primary2.ammoInMag } : null; });
-  ok(p2 && p2.id === 'wpn_ar_g3' && p2.dur > 0 && p2.mag > 0, `drag onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
+  const equipHidden = await page.evaluate(() => getComputedStyle(document.querySelector('.inv-equip')).display === 'none'
+    && document.querySelector('.inv-slot-primary2 .inv-slot-body').getBoundingClientRect().width === 0);
+  ok(equipHidden, '무한 상자가 열린 동안 주무기 II 칸은 화면에 없다 (드롭 대상 아님)');
+  const p2 = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory');
+    const item = window.__game.ctx.loot.createItem('wpn_ar_g3', 1);
+    const r = sys.dropFromCatalog(item, { kind: 'slot', slot: 'primary2' });
+    const l = window.__game.ctx.inventory.getLoadout();
+    return l.primary2 ? { r, id: l.primary2.defId, dur: l.primary2.durability, mag: l.primary2.ammoInMag } : { r };
+  });
+  ok(p2 && p2.id === 'wpn_ar_g3' && p2.dur > 0 && p2.mag > 0, `dropFromCatalog onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
   // double-click → into the bag
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '소모품').click());
   const stimTile = await centre('.inv-cat-item[data-def="heal_bandage"] .inv-tile');
@@ -544,13 +568,44 @@ try {
     const benchOnEntry = document.querySelector('.inv-craft-bench[data-bench="refine"]')?.classList.contains('is-on') ?? false;
     const refineRecipes = ctx.loot.getAllRecipes().filter((r) => r.bench === 'refine').map((r) => r.outputDefId);
     i.closeBench();
-    // 함선에 작업대가 다 깔린 상태를 흉내낸다 → 리스트에 빠른제작 + 작업대 9종
+    // 함선에 작업대가 다 깔린 상태를 흉내낸다 → 가방의 `제작`(작업대 없음) = 작업실 묶음: 빠른제작 + 작업실 작업대 5종
     const origBench = ctx.housing.getBenchLevel, origSkill = ctx.progression.getSkill;
     ctx.housing.getBenchLevel = () => 3;
     ctx.progression.getSkill = () => 99;
     sys['ui'].setCraftOpen(true);
     sys['ui'].craftPanel.refresh();
-    const tabs = [...document.querySelectorAll('.inv-craft-bench')].map((b) => ({ id: b.dataset.bench, text: b.textContent, on: b.classList.contains('is-on') }));
+    const benchList = () => [...document.querySelectorAll('.inv-craft-bench')].map((b) => ({ id: b.dataset.bench, text: b.textContent, on: b.classList.contains('is-on') }));
+    const tabs = benchList();
+    const eyebrowField = document.querySelector('.inv-panel-craft .inv-eyebrow').textContent;
+    // 2026-09-13 (사용자 결정): 작업대를 열면 **그 작업대가 속한 시설**의 작업대만 — 연구실 · 주방
+    i.openBenchCraft('extract', 3);
+    sys['ui'].refreshCraft();
+    const labList = benchList();
+    const labEyebrow = document.querySelector('.inv-panel-craft .inv-eyebrow').textContent;
+    const labListHidden = document.querySelector('.inv-craft-benches').hidden;
+    document.querySelector('.inv-craft-bench[data-bench="print"]')?.click();
+    const labAfterClick = benchList();
+    i.closeBench();
+    /* 2026-09-13 (요리 미니게임): 조리대는 제작 창을 열지 않는다 — 토스트 `조리대에서 요리하세요` 로 끝나고, 조리대 레시피는
+       일반 제작 목록 어디에도 없다 (작업대가 다 깔리고 숙련 99 인 지금도). 조리대를 이름으로 물을 때만 목록이 나온다. */
+    const cookToasts = [];
+    const offCookToast = ctx.bus.on('ui:notify', (p) => cookToasts.push(p.text));
+    i.openBenchCraft('cook', 2);
+    offCookToast();
+    sys['ui'].refreshCraft();
+    const kitchenBench = sys.getBench();
+    const kitchenBenchItem = !!document.querySelector('.inv-craft-bench[data-bench="cook"]');
+    const cookInLists = i.getRecipes('ship').some((r) => r.bench === 'cook') || i.getRecipes('field').some((r) => r.bench === 'cook')
+      || i.getRecipes('ship', 'gun', 3).some((r) => r.bench === 'cook');
+    const cookNamed = i.getRecipes('ship', 'cook', 99).filter((r) => r.bench === 'cook').length;
+    i.closeBench();
+    i.openBenchCraft('gun', 3);
+    sys['ui'].refreshCraft();
+    const gunEyebrow = document.querySelector('.inv-panel-craft .inv-eyebrow').textContent;
+    const gunList = benchList();
+    i.closeBench();
+    sys['ui'].setCraftOpen(true);
+    sys['ui'].craftPanel.refresh();
     const rowsAll = document.querySelectorAll('.inv-craft-row').length;
     document.querySelector('.inv-craft-bench[data-bench="refine"]')?.click();
     const rowsRefine = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe);
@@ -570,16 +625,31 @@ try {
     ctx.housing.getBenchLevel = origBench;
     ctx.progression.getSkill = origSkill;
     sys['ui'].setCraftOpen(false);
-    return { title, benchOnEntry, refineRecipes, tabs, rowsAll, rowsRefine, ready, orderKept, holdRecipe: first };
+    return {
+      title, benchOnEntry, refineRecipes, tabs, rowsAll, rowsRefine, ready, orderKept, holdRecipe: first,
+      eyebrowField, labList, labEyebrow, labListHidden, labAfterClick, kitchenBench, kitchenBenchItem, cookToasts, cookInLists, cookNamed, gunEyebrow, gunList,
+    };
   });
   ok(refine.title === '가공 작업대 Lv.3', `가공 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
   ok(refine.refineRecipes.length === 7, `가공 레시피 7종 (${refine.refineRecipes.join(', ')})`);
   ok(refine.benchOnEntry, '작업대를 열고 들어오면 리스트에서 그 작업대가 선택된 채다');
   /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 7 → 9 종.
-     2026-09-12 (사용자 결정): `전체` 탭이 없어져 **10 개**다 (빠른제작 + 작업대 9종), 그리고 맨 위가 빠른제작이다. */
-  ok(refine.tabs.length === 10 && refine.tabs[0].id === 'field' && refine.tabs.some((t) => t.id === 'refine' && /가공 작업대/.test(t.text))
-    && refine.tabs.some((t) => t.id === 'extract') && refine.tabs.some((t) => t.id === 'mixer') && !refine.tabs.some((t) => t.id === 'all'),
-    `제작 패널 작업대 목록 ${refine.tabs.length}개 — 맨 위 빠른제작, 가공 작업대 포함, 전체 없음 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
+     2026-09-12 (사용자 결정): `전체` 탭이 없어져 **10 개**다 (빠른제작 + 작업대 9종), 그리고 맨 위가 빠른제작이다.
+     2026-09-13 (사용자 결정): 리스트는 **같은 시설**의 작업대만이다 (`data/furniture.csv` 의 room). 가방의 `제작` 은
+     작업실 묶음 = 빠른제작 + 총기 · 장비 · 가젯 · 의학 · 가공 = **6 개**. */
+  const ids = (list) => list.map((t) => t.id).join(',');
+  ok(ids(refine.tabs) === 'field,gun,gear,gadget,medical,refine' && refine.tabs.some((t) => t.id === 'refine' && /가공 작업대/.test(t.text)),
+    `제작 패널 작업대 목록 = 작업실 묶음 ${refine.tabs.length}개 — 맨 위 빠른제작, 연구실 · 주방 작업대 없음 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
+  ok(ids(refine.gunList) === 'field,gun,gear,gadget,medical,refine' && /^WORKSHOP BENCH/.test(refine.gunEyebrow),
+    `총기 작업대 = 작업실 묶음 + 머리 '${refine.gunEyebrow}'`, ids(refine.gunList));
+  ok(ids(refine.labList) === 'extract,mixer,print' && !refine.labListHidden && /^LAB BENCH/.test(refine.labEyebrow),
+    `추출기 = 연구실 묶음 (빠른제작 없음) + 머리 '${refine.labEyebrow}'`, ids(refine.labList));
+  ok(ids(refine.labAfterClick) === 'extract,mixer,print' && refine.labAfterClick.find((t) => t.id === 'print')?.on,
+    '연구실 안에서 3D 프린터를 골라도 묶음은 연구실 그대로', JSON.stringify(refine.labAfterClick));
+  ok(refine.kitchenBench === null && !refine.kitchenBenchItem && refine.cookToasts.includes('조리대에서 요리하세요'),
+    `조리대는 제작 창을 열지 않는다 — 토스트 「조리대에서 요리하세요」 (${JSON.stringify(refine.cookToasts)})`, JSON.stringify(refine.kitchenBench));
+  ok(!refine.cookInLists && refine.cookNamed > 0 && !refine.tabs.some((t) => t.id === 'cook'),
+    `조리대 레시피는 일반 제작 목록에 없다 — 조리대를 이름으로 물을 때만 ${refine.cookNamed}종`);
   ok(refine.rowsRefine.length === 7 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
     `작업대를 고르면 그 작업대 레시피만 — 가공 ${refine.rowsRefine.length}줄`, JSON.stringify(refine.rowsRefine));
   ok(refine.ready.length > 1 && /^1*0*$/.test(refine.ready.join('')),
@@ -1004,6 +1074,12 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.closeCatalog());
   const partial = await page.evaluate(() => ({ open: window.__game.ctx.inventory.isOpen, catalog: window.__game.ctx.inventory.isCatalogOpen, panel: !document.querySelector('.inv-panel-catalog').hidden }));
   ok(partial.open && !partial.catalog && !partial.panel, 'closeCatalog hides only the catalog panel');
+  // 2026-09-13: closing the catalog brings the equipment column + quick rose back
+  const restored = await page.evaluate(() => {
+    const root = document.querySelector('.inv-root');
+    return { cls: root.classList.contains('is-catalog'), equip: getComputedStyle(root.querySelector('.inv-equip')).display !== 'none', quick: getComputedStyle(root.querySelector('.inv-quick')).display !== 'none' };
+  });
+  ok(!restored.cls && restored.equip && restored.quick, 'closeCatalog restores the normal layout (장비 열 · 퀵슬롯)', JSON.stringify(restored));
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 
@@ -1139,6 +1215,196 @@ try {
       `튜토리얼이 막는 창고 아이템은 그려지지 않는다 — 격자 데이터는 그대로 (${stashHide.defId})`, JSON.stringify(stashHide));
     ok(stashHide.back, '튜토리얼이 끝나면 그 자리에 다시 나타난다');
   }
+
+  /* ── 9. 2026-09-13 요리 품질: 스택 열쇠 · 나누기 · 저장 · 와이어 · 조리 API (docs/plans/cooking-minigames.md §6-2) ── */
+  console.log('요리 품질');
+  if (await page.evaluate(() => window.__game.ctx.phase !== 'hub')) {
+    await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+    await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (meal quality)');
+  }
+  const MEAL = 'meal_tuber_stew';
+  const quality = await page.evaluate((mealId) => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory'), loot = ctx.loot;
+    const def = loot.getItemDef(mealId);
+    // clean slate for this def (bag · wheel · stash)
+    for (const it of [...i.getAllItems(), ...i.getStashItems()]) if (it.defId === mealId) i.takeItem(it.uid);
+    const mk = (q, n = 1) => { const it = loot.createItem(mealId, n); if (q > 0) it.quality = q; return it; };
+    const stacks = () => sys.bag.items().filter((p) => p.item.defId === mealId).map((p) => ({ uid: p.item.uid, q: p.item.quality ?? 0, qty: p.item.qty, x: p.x, y: p.y }));
+    const a3 = mk(3), b5 = mk(5), c3 = mk(3), d0 = mk(0);
+    const added = [a3, b5, c3, d0].map((it) => i.tryAddItem(it));
+    const afterAdd = stacks();
+    // split keeps quality
+    const q3 = afterAdd.find((s) => s.q === 3);
+    const splitOk = q3 && q3.qty >= 2 ? sys.splitItem(q3.uid, 1) : false;
+    const afterSplit = stacks();
+    const counts = { q3: i.countDefQualityAll(mealId, 3), q5: i.countDefQualityAll(mealId, 5), q0: i.countDefQualityAll(mealId, 0), q4: i.countDefQualityAll(mealId, 4) };
+    const mealStacks = i.getMealStacks().filter((m) => m.defId === mealId);
+    // auto-sort: the two ★3 stacks fold back together, ★5 before ★3 before ☆
+    sys.sortGrid('bag');
+    const afterSort = stacks().sort((p, q) => p.y - q.y || p.x - q.x);
+    // consume by exact quality (all or nothing)
+    const tooMany = i.consumeDefQualityAll(mealId, 5, 2);
+    const q5Left = i.countDefQualityAll(mealId, 5);
+    const consumed = i.consumeDefQualityAll(mealId, 3, 1);
+    const q3Left = i.countDefQualityAll(mealId, 3);
+    // stash save → JSON → reload keeps quality
+    const s4 = mk(4);
+    const stashed = i.tryAddToStash(s4);
+    i.flushSaves();
+    let rawQ = null;
+    try { rawQ = (JSON.parse(localStorage.getItem('scav.s1.stash')).items || []).find((e) => e.defId === mealId)?.q ?? null; } catch { rawQ = 'err'; }
+    const file = JSON.parse(JSON.stringify(sys.stash.saveFile()));
+    const fileQ = (file.items || []).find((e) => e.defId === mealId)?.q ?? null;
+    sys.stash.loadFrom(file);
+    const reloaded = sys.stash.items().find((it) => it.defId === mealId);
+    // loadout save → revive (bag + raid blob share `serializeExtras`)
+    const save = JSON.parse(JSON.stringify(sys.captureLoadoutSave()));
+    const saveQs = save.bag.filter((e) => e.defId === mealId).map((e) => e.q ?? 0).sort();
+    sys.applyLoadoutSave(save);
+    const revivedQs = sys.bag.items().filter((p) => p.item.defId === mealId).map((p) => p.item.quality ?? 0).sort();
+    const blob = JSON.parse(JSON.stringify(sys.captureRaidState()));
+    const blobQs = blob.bag.filter((e) => e.defId === mealId).map((e) => e.q ?? 0).sort();
+    // pickups wire
+    const pk = window.__game.getSystem('pickups');
+    let wire = null, wireBack = null;
+    if (pk && typeof pk['wireOf'] === 'function') {
+      wire = pk['wireOf']({ id: 'smk-q', item: mk(5), position: { x: 0, y: 0, z: 0 } });
+      wireBack = pk['itemFromWire'](wire)?.quality ?? 0;
+    }
+    return {
+      stackMax: def?.stackMax ?? 0, added, afterAdd, splitOk, afterSplit, counts, mealStacks, afterSort, tooMany, q5Left, consumed, q3Left,
+      stashed, rawQ, fileQ, reloadedQ: reloaded?.quality ?? 0, saveQs, revivedQs, blobQs, wireQ: wire?.q ?? null, wireBack,
+      q5uid: sys.bag.items().find((p) => p.item.defId === mealId && p.item.quality === 5)?.item.uid ?? null,
+    };
+  }, MEAL);
+  if (quality.stackMax <= 1) ok(true, `${MEAL} 은 겹치지 않는 아이템이라 합치기 검사는 건너뛴다`);
+  else {
+    ok(quality.added.every(Boolean) && quality.afterAdd.length === 3
+      && quality.afterAdd.some((s) => s.q === 3 && s.qty === 2) && quality.afterAdd.some((s) => s.q === 5 && s.qty === 1) && quality.afterAdd.some((s) => s.q === 0 && s.qty === 1),
+      '품질이 다른 요리는 합쳐지지 않는다 (★3 ×2 · ★5 ×1 · ☆ ×1 = 세 스택)', JSON.stringify(quality.afterAdd));
+    ok(quality.splitOk && quality.afterSplit.filter((s) => s.q === 3).length === 2 && quality.afterSplit.filter((s) => s.q === 3).every((s) => s.qty === 1),
+      '나누기가 품질을 옮긴다 (★3 ×2 → ★3 ×1 + ★3 ×1)', JSON.stringify(quality.afterSplit));
+    ok(quality.afterSort.length === 3 && quality.afterSort.map((s) => s.q).join(',') === '5,3,0',
+      `자동 정렬: 같은 요리는 별이 많은 스택이 앞 + 같은 품질은 다시 합친다 (${quality.afterSort.map((s) => `★${s.q}×${s.qty}`).join(' ')})`);
+  }
+  ok(quality.counts.q3 === 2 && quality.counts.q5 === 1 && quality.counts.q0 === 1 && quality.counts.q4 === 0,
+    `countDefQualityAll 은 품질을 정확히 가른다 (${JSON.stringify(quality.counts)})`);
+  ok(quality.mealStacks.map((m) => `${m.quality}:${m.qty}`).join(',') === '5:1,3:2,0:1',
+    `getMealStacks = (def, 품질)별 합, 품질 높은 순 (${JSON.stringify(quality.mealStacks)})`);
+  ok(!quality.tooMany && quality.q5Left === 1 && quality.consumed && quality.q3Left === 1,
+    'consumeDefQualityAll 은 그 품질만 · 전부 또는 전무', JSON.stringify({ tooMany: quality.tooMany, q5Left: quality.q5Left, q3Left: quality.q3Left }));
+  ok(quality.stashed && quality.rawQ === 4 && quality.fileQ === 4 && quality.reloadedQ === 4,
+    `창고 저장 → 다시 읽기가 품질을 지킨다 (localStorage q=${quality.rawQ}, 되살린 ★${quality.reloadedQ})`);
+  ok(quality.saveQs.join(',') === quality.revivedQs.join(',') && quality.saveQs.includes(5) && quality.blobQs.join(',') === quality.saveQs.join(','),
+    `로드아웃 저장 · 레이드 blob 도 품질을 싣고 되살린다 (${quality.saveQs.join(',')} → ${quality.revivedQs.join(',')})`);
+  if (quality.wireQ === null) ok(true, '픽업 시스템을 찾지 못해 와이어 검사는 건너뛴다');
+  else ok(quality.wireQ === 5 && quality.wireBack === 5, `픽업 와이어 q 싣기 · 받기 (q=${quality.wireQ} → ★${quality.wireBack})`);
+
+  // ★ badge on the tile (bottom-left `★n`)
+  await page.evaluate(() => window.__game.ctx.inventory.openScreen('inventory'));
+  await sleep(350);
+  const badge = await page.evaluate((uid) => {
+    const tile = uid ? document.querySelector(`.inv-tile[data-uid="${uid}"]`) : null;
+    const star = tile?.querySelector('.inv-tile-quality');
+    const plain = [...document.querySelectorAll('.inv-tile')].filter((t) => !t.classList.contains('is-standalone') && !t.querySelector('.inv-tile-quality')).length;
+    return { found: !!tile, text: star?.textContent ?? null, plain };
+  }, quality.q5uid);
+  ok(badge.found && badge.text === '★5' && badge.plain > 0, `품질 요리 타일에만 ★ 배지 ('${badge.text}')`, JSON.stringify(badge));
+  // grid tooltip (`ui/Tooltip`): 품질 줄 · 보너스 반영 수치 · 조리 줄 — `ui/hud/ItemTip` 과 같은 줄
+  const tip = await page.evaluate((mealId) => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory'), ui = sys['ui'], def = ctx.loot.getItemDef(mealId);
+    const read = (q) => {
+      const it = ctx.loot.createItem(mealId, 1);
+      if (q > 0) it.quality = q;
+      ui.tooltip.show(it, def, 200, 200);
+      const pairs = [...ui.tooltip.el.querySelectorAll('.inv-tt-stats .k')].map((k) => [k.textContent, k.nextElementSibling?.textContent ?? '']);
+      ui.tooltip.hide();
+      return pairs;
+    };
+    const effectVals = (pairs) => pairs.filter(([, v]) => /^[+−]/.test(v) && !/★/.test(v)).map(([, v]) => v);
+    const q0 = read(0), q5 = read(5);
+    return {
+      q5Quality: q5.find(([k]) => k === '품질')?.[1] ?? null, q0Quality: q0.find(([k]) => k === '품질')?.[1] ?? null,
+      q0Fx: effectVals(q0), q5Fx: effectVals(q5), steps: q5.find(([k]) => k === '조리')?.[1] ?? null,
+    };
+  }, MEAL);
+  ok(tip.q5Quality === '★★★★★ +25 %' && tip.q0Quality === null, `격자 툴팁 품질 줄 ('${tip.q5Quality}', ☆ 요리는 줄 없음)`, JSON.stringify(tip));
+  ok(tip.q5Fx.length > 0 && tip.q5Fx.length === tip.q0Fx.length && tip.q5Fx.some((v, n) => v !== tip.q0Fx[n]),
+    `격자 툴팁 능력치는 품질 보너스 반영 (${tip.q0Fx.join(' · ')} → ${tip.q5Fx.join(' · ')})`);
+  ok(tip.steps === '① 썰기 → ② 젓기' || (typeof tip.steps === 'string' && /^① /.test(tip.steps)), `격자 툴팁 조리 줄 ('${tip.steps}')`);
+  await page.evaluate(() => window.__game.ctx.inventory.closeAll());
+  await sleep(120);
+
+  // completeCook: gates, bag-first-then-stash consumption, stash-first output, nothing consumed on failure
+  const cook = await page.evaluate(async () => {
+    const ctx = window.__game.ctx, i = ctx.inventory, loot = ctx.loot, sys = window.__game.getSystem('inventory');
+    const RID = 'cook_tuber_stew';
+    const recipe = loot.getAllRecipes().find((r) => r.id === RID);
+    const cost = Object.fromEntries(i.craftCost(recipe).map((c) => [c.defId, c.qty]));
+    const clear = (id) => { const n = i.countDefAll(id); if (n > 0) i.consumeDefAll(id, n); };
+    for (const id of Object.keys(cost)) clear(id);
+    const addBag = (id, n) => (n > 0 ? i.tryAddItem(loot.createItem(id, n)) : true);
+    const addStash = (id, n) => (n > 0 ? i.tryAddToStash(loot.createItem(id, n)) : true);
+    const bagCount = (id) => i.countDef(id), stashCount = (id) => i.stashCountDef(id);
+    const out = recipe.outputDefId;
+    const r = {};
+    r.notCook = i.cookBlock('make_bandage', 3);
+    r.level = i.cookBlock('cook_sausage', 1);
+    const origSkill = ctx.progression.getSkill;
+    ctx.progression.getSkill = () => 0;
+    r.skill = i.cookBlock('cook_mushroom_soup', 3);
+    ctx.progression.getSkill = origSkill;
+    r.missing = i.cookBlock(RID, 1);
+    // partial materials: failure consumes nothing
+    const [first, second] = Object.keys(cost);
+    addBag(first, cost[first]);
+    const failed = i.completeCook(RID, 1, 4);
+    r.failed = { item: failed.item, landed: failed.landed, reason: failed.reason, firstLeft: i.countDefAll(first) };
+    clear(first);
+    // bag + stash split: first = bag cost + stash 2, second = bag 1 + stash (cost − 1 + 1)
+    addBag(first, cost[first]); addStash(first, 2);
+    addBag(second, 1); addStash(second, cost[second]);
+    r.ready = i.cookBlock(RID, 1);
+    r.canCraft = i.canCraft(RID);
+    const failedCraft = [];
+    const offFail = ctx.bus.on('craft:failed', (p) => failedCraft.push(p));
+    r.crafted = await i.craft(RID);
+    offFail();
+    r.craftFailed = failedCraft.map((p) => p.reason);
+    const events = { completed: [], added: [] };
+    const offs = [ctx.bus.on('craft:completed', (p) => events.completed.push({ recipeId: p.recipeId, count: p.count, q: p.item?.quality ?? 0 })),
+      ctx.bus.on('inventory:itemAdded', (p) => events.added.push({ defId: p.item?.defId, q: p.item?.quality ?? 0 }))];
+    const q4Before = i.countDefQualityAll(out, 4);
+    const stashOutBefore = sys.stash.items().filter((it) => it.defId === out && it.quality === 4).reduce((s, it) => s + it.qty, 0);
+    const done = i.completeCook(RID, 1, 4);
+    offs.forEach((o) => o());
+    r.done = { landed: done.landed, reason: done.reason, q: done.item?.quality ?? 0, defId: done.item?.defId, inStash: !!sys.stash.grid.get(done.item?.uid ?? '') };
+    r.after = { firstBag: bagCount(first), firstStash: stashCount(first), secondBag: bagCount(second), secondStash: stashCount(second) };
+    r.expect = { firstStash: 2, secondStash: 1 };
+    r.q4Gain = i.countDefQualityAll(out, 4) - q4Before;
+    r.stashOutGain = sys.stash.items().filter((it) => it.defId === out && it.quality === 4).reduce((s, it) => s + it.qty, 0) - stashOutBefore;
+    r.outputQty = recipe.outputQty;
+    r.events = events;
+    r.cost = cost;
+    for (const id of Object.keys(cost)) clear(id);
+    return r;
+  });
+  ok(cook.notCook === '조리대 레시피가 아닙니다', `cookBlock: 조리대 레시피가 아니면 ('${cook.notCook}')`);
+  ok(cook.level === '조리대 Lv.2 이 필요합니다', `cookBlock: 조리대 레벨 ('${cook.level}')`);
+  ok(cook.skill === '제작 숙련 10 이 필요합니다', `cookBlock: 숙련 ('${cook.skill}')`);
+  ok(cook.missing === '재료가 부족합니다', `cookBlock: 재료 ('${cook.missing}')`);
+  ok(cook.failed.item === null && cook.failed.landed === null && cook.failed.reason === '재료가 부족합니다' && cook.failed.firstLeft === cook.cost[Object.keys(cook.cost)[0]],
+    '재료가 모자라면 completeCook 은 아무것도 빼지 않는다', JSON.stringify(cook.failed));
+  ok(cook.ready === null, `가방 + 창고 재료로 조리할 수 있다 (${cook.ready})`);
+  ok(cook.canCraft === false && cook.crafted === null && cook.craftFailed.includes('missing'),
+    '조리대 레시피는 일반 제작(canCraft · craft)으로 만들 수 없다', JSON.stringify({ canCraft: cook.canCraft, craftFailed: cook.craftFailed }));
+  ok(cook.done.reason === null && cook.done.landed === 'stash' && cook.done.inStash && cook.done.q === 4 && cook.q4Gain === cook.outputQty && cook.stashOutGain === cook.outputQty,
+    `completeCook: 품질 ★4 산출물이 창고 먼저 (${JSON.stringify(cook.done)})`);
+  ok(cook.after.firstBag === 0 && cook.after.firstStash === cook.expect.firstStash && cook.after.secondBag === 0 && cook.after.secondStash === cook.expect.secondStash,
+    `재료는 가방 먼저 → 창고 (${JSON.stringify(cook.after)})`);
+  ok(cook.events.completed.length === 1 && cook.events.completed[0].count === 1 && cook.events.completed[0].recipeId === 'cook_tuber_stew' && cook.events.completed[0].q === 4
+    && cook.events.added.some((a) => a.q === 4),
+    `craft:completed {count:1} · inventory:itemAdded 가 품질 요리를 싣는다 (${JSON.stringify(cook.events)})`);
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);

@@ -23,14 +23,17 @@ import { Keys, type FurniturePose, type FurniturePoseKind, type FurniturePoseSta
 import { dampAngle } from '@/core/util/MathUtil';
 import type { SoldierPose } from '../SoldierModel';
 import {
-  FURN_BENCH_REP_S, FURN_CYCLE_REV_PER_S, FURN_EYE, FURN_RUN_STEPS_PER_S, FURN_STAND_PROMPT, FURN_YAW_RATE, _up,
+  FURN_BENCH_REP_S, FURN_COOK_CYCLE_PER_S, FURN_CYCLE_REV_PER_S, FURN_EYE, FURN_RUN_STEPS_PER_S, FURN_STAND_PROMPT, FURN_YAW_RATE, _up,
   furnitureBodyYaw, lerpFurnitureRoot, stepFurnitureBlend, writeFurniturePose,
 } from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
 
 export type FurniturePoseEndReason = 'interact' | 'caller' | 'reset';
 
-const KINDS: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle'];
+/** 2026-09-13: `cook` = 조리대 앞에 서서 손을 놀리는 자세 (anchor = 바닥, 몸의 기하는 `SoldierModel.FURN_COOK`). */
+const KINDS: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle', 'cook'];
+/** 위상이 감기며 주기 수를 세는 자세 — 와이어의 누적 위상이 `steps + phase` 다. */
+const isCountingKind = (k: FurniturePoseKind | null): boolean => k === 'run' || k === 'cycle' || k === 'cook';
 const TAU = Math.PI * 2;
 /** 조각 uid 로 받아 두는 모양 — 버프 · 와이어 검증(`sanitizeCharBuffs`)과 같은 문자 집합. */
 const UID_RE = /^[A-Za-z0-9_:\-.]{1,64}$/;
@@ -125,7 +128,7 @@ export function releaseFurniturePose(sys: PlayerSystem, reason: FurniturePoseEnd
   sys.ctx.bus.emit('player:furniturePoseEnded', { kind, reason });
 }
 
-/** 위상 0 … 1 (`bench` 는 자르고, `run` · `cycle` 은 감는다). 자세가 없으면 무시. */
+/** 위상 0 … 1 (`bench` 는 자르고, `run` · `cycle` · `cook` 은 감는다). 자세가 없으면 무시. */
 export function setFurniturePoseDrive(sys: PlayerSystem, phase: number): void {
   const f = sys.furn;
   if (f.kind === null || !Number.isFinite(phase)) return;
@@ -143,11 +146,11 @@ function writePhase(f: PlayerSystem['furn'], phase: number): void {
   f.phase = p;
 }
 
-/** 누적 위상 (와이어 규약): bench 0 … 1 · run 걸음 수 · cycle 바퀴 수 · sit 0. 자세가 없으면 0. */
+/** 누적 위상 (와이어 규약): bench 0 … 1 · run 걸음 수 · cycle 바퀴 수 · cook 손 동작 주기 수 · sit 0. 자세가 없으면 0. */
 export function cumulativePhase(sys: PlayerSystem): number {
   const f = sys.furn;
   if (f.kind === 'bench') return f.phase;
-  if (f.kind === 'run' || f.kind === 'cycle') return f.steps + f.phase;
+  if (isCountingKind(f.kind)) return f.steps + f.phase;
   return 0;
 }
 
@@ -193,6 +196,7 @@ export function updateFurniturePose(sys: PlayerSystem, dt: number, active: boole
     if (f.kind === 'bench') f.phase = 0.5 - 0.5 * Math.cos(TAU * f.clock / FURN_BENCH_REP_S);
     else if (f.kind === 'run') writePhase(f, f.phase + dt * FURN_RUN_STEPS_PER_S);
     else if (f.kind === 'cycle') writePhase(f, f.phase + dt * FURN_CYCLE_REV_PER_S);
+    else if (f.kind === 'cook') writePhase(f, f.phase + dt * FURN_COOK_CYCLE_PER_S);   // 2026-09-13: 부른 쪽이 안 몰면 느린 칼질
   }
   pinBody(sys);
   const input = sys.ctx.input;
@@ -251,7 +255,7 @@ export function applyPoseToSoldier(sys: PlayerSystem, p: SoldierPose): void {
   const f = sys.furn;
   const kind = f.visKind;
   // 풀린 뒤(블렌드 아웃)에도 마지막 위상을 그대로 그린다 — kind 가 null 이면 visKind 로 계산한다
-  const cum = kind === 'run' || kind === 'cycle' ? f.steps + f.phase : kind === 'bench' ? f.phase : 0;
+  const cum = isCountingKind(kind) ? f.steps + f.phase : kind === 'bench' ? f.phase : 0;
   writeFurniturePose(p, kind, kind !== null ? f.blend : 0, cum);
 }
 

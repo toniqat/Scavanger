@@ -43,8 +43,8 @@ export const UNRACK_S = 0.6;
 /** 흔들의자: 앉아 있는 동안의 흔들림 (rad · rad/s). */
 const ROCK_AMPLITUDE = 0.04;
 const ROCK_RATE = 1.6;
-/** 옆 카메라가 방 벽에서 떨어져야 하는 거리 (m). */
-const CAMERA_WALL_MARGIN = 0.45;
+/** 옆 카메라가 방 벽에서 떨어져야 하는 거리 (m). 2026-09-13: 조리대 카메라(`CookStaging`)도 같은 값을 쓴다. */
+export const CAMERA_WALL_MARGIN = 0.45;
 
 /** 조각의 자세 기준점을 월드로: anchor 와 플레이어 yaw 규약(앞 = (−sin, −cos))의 yaw. */
 export function worldPoseOf(piece: StagedPiece, rig: FurnitureRig): { anchor: THREE.Vector3; yaw: number } {
@@ -67,8 +67,8 @@ export function sitPoseOf(piece: StagedPiece): FurniturePose | null {
 /** 같은 방의 다른 가구 한 점이 차지하는 월드 상자 (콜라이더 blocker 와 같은 치수). 카메라 가림 판정에 쓴다. */
 export interface FootBox { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }
 
-/** 선분 p → q 가 상자를 지나는가 (슬랩 판정). 세션 시작에 한 번 도는 코드라 할당은 신경 쓰지 않는다. */
-function segmentHits(p: THREE.Vector3, q: THREE.Vector3, b: FootBox): boolean {
+/** 선분 p → q 가 상자를 지나는가 (슬랩 판정). 세션 시작에 한 번 도는 코드라 할당은 신경 쓰지 않는다. 2026-09-13: 조리대 카메라도 쓴다. */
+export function segmentHits(p: THREE.Vector3, q: THREE.Vector3, b: FootBox): boolean {
   let t0 = 0, t1 = 1;
   const axes: ReadonlyArray<readonly [number, number, number, number]> = [
     [p.x, q.x - p.x, b.minX, b.maxX], [p.y, q.y - p.y, b.minY, b.maxY], [p.z, q.z - p.z, b.minZ, b.maxZ],

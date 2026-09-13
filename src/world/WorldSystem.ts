@@ -3,7 +3,7 @@ import type { PlanetId } from '@/shared';
 import type { MissionMode, TrainingRef } from '@/shared';
 import { CRATE_OPEN_RANGE_SLACK, PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE } from '@/shared';
 import {
-  FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
+  FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId, planetThreat,
   type CrateDef, type ExtractionPointDef, type FogRef, type GameContext, type GameSystem, type GatherNodeDef,
   type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
   /* appended (2026-09-09): 레이드 플레이 개선 계약 */
@@ -14,7 +14,10 @@ import {
   type SurfaceMaterial,
   /* appended (2026-09-11, A-13): 행성 상시 환경 */
   type EnvKind,
+  /* appended (2026-09-13): 거점 스폰 자리 */
+  type RuinSiteDef, type SiteSpawnPlace,
 } from '@/shared';
+import { SiteSpawns } from './SiteSpawns';
 import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
 import { Ambience } from './Ambience';
 import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rampTopAt, rayBox, rayRamp } from './obb';
@@ -62,6 +65,8 @@ const NONE_STRUCTURES: readonly StructureDef[] = [];
 const NONE_RAILS: readonly RailLineDef[] = [];
 const NONE_TRAMS: readonly TramDef[] = [];
 const NONE_LADDERS: readonly LadderDef[] = [];
+/* appended (2026-09-13) */
+const NONE_RUINS: readonly RuinSiteDef[] = [];
 
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
@@ -114,6 +119,25 @@ export class WorldSystem implements GameSystem, WorldRef {
    * `isDiscovered` 로 게이트되므로 null 이면 예전처럼 전부 보인다.
    */
   private fogMask: Fog | null = null;
+
+  /**
+   * 2026-09-13: 거점 스폰 자리 (`getSiteSpawnPoints`) — 구조물 실내 후보를 거점마다 처음 물을 때 한 번 계산해 레이드 내내
+   * 들고 있다 (`clear()` 가 비운다). 월드 생성 rng 를 쓰지 않는다.
+   */
+  private readonly siteSpawns = new SiteSpawns({
+    getHeightAt: (x, z) => this.getHeightAt(x, z),
+    getSurfaceY: (x, z, feetY) => this.getSurfaceY(x, z, feetY),
+    resolveCollision: (p, r) => this.resolveCollision(p, r),
+    raycast: (o, d, m) => this.raycast(o, d, m),
+    structureAt: (x, z) => this.structures.structureAt(x, z),
+    slopeAt: (x, z) => this.terrain.getSlopeAt(x, z),
+    layout: () => this.layout,
+    hash: () => this.hash,
+    structureDefs: () => this.structures.getDefs(),
+    structureNav: (id) => this.structures.navOf(id),
+    platforms: () => this.rails.getLines()[0]?.platforms ?? [],
+    ruins: () => this.outposts.getSites(),
+  });
 
   /**
    * 2026-09-11 (C-40): 마지막 행성 생성의 단계별 소요(ms) — `layout` · `terrain`(+ `terrain.*` 세부) · `structures` ·
@@ -227,7 +251,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     const hazardKind = drawHazardKind(rng, def?.hazards ?? [], this.biome.id);
     const sporeLayout = hazardKind === 'spores';
     this.layout = generateLayout(rng.fork('layout'), {
-      extractionCount: extractionPadCount(rng.fork('extractionPads'), getPlanet(this.planet)?.threat ?? 1, sporeLayout),
+      extractionCount: extractionPadCount(rng.fork('extractionPads'), planetThreat(this.planet), sporeLayout),
       sporeLayout,
     });
     this.spawnRng = rng.fork('spawns');
@@ -341,6 +365,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (!this.generated) return;
     this.ready = false;
     this.openedIds.clear();
+    this.siteSpawns.reset();
     this.fogMask?.dispose();
     this.fogMask = null;
     if (this.mode === 'training') {
@@ -902,6 +927,20 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
   /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
   getLadders(): readonly LadderDef[] { return this.mode === 'training' ? NONE_LADDERS : this.structures.getLadders(); }
+
+  /* ── appended (2026-09-13): 행성별 적 팩션 — 거점 스폰 자리 (`SiteSpawns.ts`) ── */
+  /** 이번 맵의 폐허 전초 (`Outposts.getSites()` 그대로 — 들어가는 전진기지 `struct_outpost_*` 와 다르다). 훈련장 · 준비 전 = 빈 배열. */
+  getRuinSites(): readonly RuinSiteDef[] {
+    return this.mode === 'training' || !this.ready ? NONE_RUINS : this.outposts.getSites();
+  }
+  /**
+   * 거점 `siteId`(`struct_*` · 플랫폼 id · `outpost_<i>`)에 인간형 그룹이 설 자리 `count` 개 — 서로 `minGap` 이상, 시드 결정적.
+   * 규칙은 `SiteSpawns.ts` 머리 주석. 모르는 id · 훈련장 · 준비 전 = 빈 배열.
+   */
+  getSiteSpawnPoints(siteId: string, place: SiteSpawnPlace, count: number, minGap: number, seed: number): THREE.Vector3[] {
+    if (this.mode === 'training' || !this.ready) return [];
+    return this.siteSpawns.points(siteId, place, count, minGap, seed);
+  }
 
   /**
    * 2026-09-12 (C) — `WorldRef.previewContainerItems`: world 가 가진 컨테이너를 **처음 열면 나올** 내용물. 구조물 ·

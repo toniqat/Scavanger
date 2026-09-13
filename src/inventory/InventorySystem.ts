@@ -64,6 +64,8 @@ import type { RaidFoundScope } from '@/shared';
 import { canStackTogether } from './Grid';
 import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { setRecoveryScope } from './ui/GridView';
+/* appended (2026-09-13): 요리 품질 — 스택 · 나누기 · 식탁 질의 (규칙은 `shared/cooking.ts`) */
+import * as Meal from './parts/MealQuality';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
@@ -294,7 +296,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
       // 2026-09-09 (Tab 은 모든 화면을 닫는다): like Escape, Tab cancels the **innermost popup** first — 수량 지정 ·
       // 우클릭 메뉴 · 분해 · 수리 · 임플란트 피커 — and closes the window only when nothing is stacked over it. The
       // 제작 열 is a column of the window, not a popup, so it goes with the window.
-      if (!(this._open && this.ui?.closePopups())) this.toggleBag();
+      if (!(this._open && this.ui?.closePopups())) {
+        // 2026-09-13: an embedded screen with unsaved work (캐릭터 탭의 확정 전 포인트) may intercept the close and ask first
+        if (!(this._open && this.ui?.screenView?.requestLeave?.(() => this.closeAll()))) this.toggleBag();
+      }
     }
     this.updateCraft(dt);
     if (!this._open) return;
@@ -616,6 +621,21 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * 「먹는 행위」의 제자리는 주방의 식탁이고 이것은 우클릭 편의 경로다 — 규칙은 progression 한 군데에만 있다.
    */
   useMealItem(uid: string, from?: ItemLocation): string | null { return StashOps.useMealItem(this, uid, from); }
+
+  /* ── 2026-09-13: 요리 품질 · 조리 (InventoryRef, `parts/MealQuality.ts` · `parts/Crafting.ts`) ─────────── */
+
+  /** 가방 + 창고의 `defId` 중 품질이 정확히 `quality` 인 수량 (0 = 품질 필드 없음 포함). */
+  countDefQualityAll(defId: string, quality: number): number { return Meal.countDefQualityAll(this, defId, quality); }
+  /** 품질이 정확히 `quality` 인 `defId` 를 가방 먼저 → 창고에서 `qty` 개. 전부 또는 전무. */
+  consumeDefQualityAll(defId: string, quality: number, qty: number): boolean { return Meal.consumeDefQualityAll(this, defId, quality, qty); }
+  /** 가진 요리를 (def, 품질)별로 — 식탁 화면. 티어 → 이름 → 품질 높은 순. */
+  getMealStacks(): { defId: string; quality: number; qty: number }[] { return Meal.getMealStacks(this); }
+  /** 조리대 레시피를 지금 1회 만들 수 없는 한국어 사유 (null = 가능). 함선 작업대 제작과 같은 게이트. */
+  cookBlock(recipeId: string, benchLevel: number): string | null { return Craft.cookBlock(this, recipeId, benchLevel); }
+  /** 조리 1회 마무리 — 재료를 빼고 품질 `quality` 인 산출물을 창고 먼저 → 가방에. 실패면 아무것도 빼지 않는다. */
+  completeCook(recipeId: string, benchLevel: number, quality: number): { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null } {
+    return Craft.completeCook(this, recipeId, benchLevel, quality);
+  }
 
   /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
 
@@ -946,6 +966,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (pv === 'ok') {
       const created = this.loot.createItem(item.defId, n);
       copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
+      Meal.copyMealQuality(created, item);   // 2026-09-13: …and the meal quality
       item.qty -= n;
       src.version++;
       this.quickSlots[index] = created;
@@ -1128,6 +1149,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     } else {
       dropped = this.loot.createItem(item.defId, n);
       copyRaidFoundMark(dropped, item);   // 2026-09-12: the dropped part keeps the raid-found mark
+      Meal.copyMealQuality(dropped, item);   // 2026-09-13: …and the meal quality
       item.qty -= n;
       if (from.kind === 'grid') { const g = this.getGrid(from.grid); if (g) g.version++; }
     }
@@ -1153,6 +1175,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (!def || def.stackMax <= 1 || !Number.isFinite(n) || n < 1 || n >= item.qty) return false;
     const created = this.loot.createItem(item.defId, n);
     copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
+    Meal.copyMealQuality(created, item);   // 2026-09-13: …and the meal quality
     const slot = grid.findFreeSlot(created, item.rotated);
     if (!slot || !grid.place(created, slot.x, slot.y, slot.rotated)) return false;
     item.qty -= n;
@@ -1773,7 +1796,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       this.ctx.uiBlockers.add(BLOCKER_TOKEN);
       // 2026-09-09: ESC 도 이 창을 닫는다 (`shared/escape` — 열린 순서의 역순으로 맨 위 하나). 팝업이 떠 있는
       // 동안은 `escHandler` 가 Escape 를 먼저 삼키므로 여기까지 오지 않는다.
-      this.ctx.escape.push(BLOCKER_TOKEN, () => this.closeAll());
+      // 2026-09-13: an intercepted leave (`EmbeddedView.requestLeave` raised its warning) keeps the entry (`false`)
+      this.ctx.escape.push(BLOCKER_TOKEN, () => (this.ui?.screenView?.requestLeave?.(() => this.closeAll()) ? false : this.closeAll()));
       this.ctx.input.setCursorMode(true, BLOCKER_TOKEN);
     } else {
       this.ctx.uiBlockers.delete(BLOCKER_TOKEN);

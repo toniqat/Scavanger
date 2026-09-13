@@ -6,50 +6,69 @@
  * **2026-09-12 — 이 폴더의 클래스 접두사는 `.cv-` 다.** 예전 `.ct-*` 는 housing.css 의 배양조(`.ct-cell` · `.ct-slots`)와
  * 이름이 겹쳐 기업 판매 물품 칸이 배양조 관(54×76, 아래가 둥글다) 모양이 됐다.
  *
- * Layout (**2026-09-12 2차 — 기업 목록은 메인 패널과 분리된 카드다**):
- *   상단  the window's own screen tabs (owned by inventory/)
- *   좌    `.corp-rail`  — **트리**: 기업 버튼들, 선택한 기업 바로 아래에 `.corp-branch`(신뢰도 게이지 + 페이지 탭).
- *                        `.corp-shell` 밖의 **독립 패널**이다: 자기 배경 · 테두리를 갖고, 호스트 격자의 첫 칸에서
- *                        **세로 중앙**(`align-self: center`)에 뜨며 메인 패널과는 `--corp-rail-gap` 만큼 떨어져 있다.
- *                        자리를 CSS 로 못 박는 결정은 `.menu.pause`(세로 중앙 · 가로 왼쪽)와 같다 — 늘 같은 자리.
- *   우    `.corp-shell` → `.corp-page`  — 그 페이지의 열들, 남은 폭과 세로 전부. 메인 패널도 자기 배경 · 테두리.
+ * Layout (**2026-09-13, 사용자 결정 — 한 줄로 늘어선 독립 카드들**):
+ *   호스트(`.inv-screen.corp-view`)는 틀이 없다 — 배경 · 테두리 · 안여백을 걷어 카드들이 Tab 인벤토리의 `.inv-panel`
+ *   처럼 블러 위에 따로 뜬다. 호스트 격자: 좌 `.corp-rail`(기업 목록 카드) | 우 `.corp-shell` → `.corp-page` → 페이지 루트,
+ *   아래 전 폭 `.corp-msg-slot`. 페이지 루트는 **가로 flex 한 줄**이고 그 자식 하나하나가 카드(`.cv-card`)다:
+ *     거래     `.cv`  [판매 물품 .is-fluid] [거래 테이블] [함선 창고 .cv-inv] [가방 .cv-inv]
+ *     퀘스트   `.cq`  [목록 .is-fluid] [상세 · 납품 .is-fluid] [함선 창고] [가방]
+ *     임플란트 `.ci`  [데스크 .is-fluid] [함선 창고] [가방]
+ *     계약     `.cc`  한 카드(계약 목록 | 진행 중인 계약) — 기업 목록만 분리됐다.
+ *   `.is-fluid` 카드만 남는 폭을 나눠 갖고(최소 폭은 여기 `min-width`), 나머지는 내용(격자) 폭 그대로다. 카드 머리줄 ·
+ *   버튼 같은 비격자 내용은 `width: 0; min-width: 100%` 라 카드를 넓히지 않는다 — 카드 폭 = 격자 폭 + 안여백.
  *
- * `.inv-screen.corp-view` takes a **definite** height (bottom of this file), so `.corp-page` is a grid cell and the
- * columns inside stretch to the window. `--corp-page-min` is only a floor for a very short viewport.
+ * **칸 크기**: `--cv-cell` / `--cv-step` 은 `CorpView.applyCellVars` 가 호스트에 인라인으로 쓴다 (40 px, 창이 좁으면 32 px 까지).
+ * `CorpView.fitLayout` 은 이 파일의 수치(안여백 · 간격 · 최소 폭)를 **실측**하므로 값을 여기서만 고치면 된다.
+ * 32 px 로도 안 들어가면 페이지 루트에 `.is-inv-hidden` 이 붙어 창고 · 가방 카드가 빠진다.
  *
- * `--cv-cell` / `--cv-gap` / `--cv-step` mirror `CV_CELL` / `CV_GAP` in CorpView.ts — the Tab 인벤토리's own cell (54),
- * so the stock, the trays and the embedded 가방 / 함선 창고 are the same grid at the same size.
- * `--cv-inv-w` is the **one** width of the 가방 + 함선 창고 column, so 거래 · 퀘스트 · 임플란트 put that block in the
- * same place at the same size (창고 10칸 + 스크롤바). */
+ * `.inv-screen.corp-view` takes a **definite** height (bottom of this file), so every card stretches to the window
+ * and each list / grid scrolls inside its own card. `--corp-page-min` is only a floor for a very short viewport. */
 .corp-view {
-  --corp-page-min: 420px; --corp-rail-w: 216px; --corp-rail-gap: 18px;
-  --cv-cell: 54px; --cv-gap: 2px; --cv-step: 56px;
-  --cv-inv-w: calc(10 * var(--cv-step) - var(--cv-gap) + 22px);
+  --corp-page-min: 420px; --corp-rail-w: 176px;
+  --cv-card-gap: 10px; --cv-card-pad: 10px;
+  /* the room a vertical scroll box keeps for its bar (a real thin bar ≈ 11 px, headless 0) — only the fluid 판매 물품
+     card's floor adds it by hand; content-sized cards get the real gutter from `scrollbar-gutter: stable` */
+  --cv-sb: 12px;
+  --cv-cell: 40px; --cv-gap: 2px; --cv-step: 42px;
+  /* standalone desk tiles (`buildItemTile`) scale their content with `--inv-cell` */
+  --inv-cell: var(--cv-cell);
 }
-/* 호스트 격자: 좌 기업 카드 | 우 메인 패널, 그 아래 전 폭 메시지 슬롯 */
+/* 호스트 격자: 좌 기업 카드 | 우 페이지 카드 줄, 그 아래 전 폭 메시지 슬롯 */
 .corp-view, .corp-view.is-embedded {
   display: grid;
   grid-template-columns: var(--corp-rail-w) minmax(0, 1fr);
   grid-template-rows: minmax(var(--corp-page-min), 1fr) auto;
-  column-gap: var(--corp-rail-gap); row-gap: 10px;
+  column-gap: var(--cv-card-gap); row-gap: 8px;
   align-items: stretch; min-width: 0;
 }
+
+/* ── 카드 틀 — Tab 인벤토리 `.inv-panel` 과 같은 결 (그 이름은 inventory 의 것이라 쓰지 않는다) ── */
+.corp-rail, .cv-card, .cc {
+  position: relative;
+  padding: var(--cv-card-pad);
+  background: linear-gradient(180deg, var(--inv-bg-2, rgba(16, 19, 25, 0.82)), var(--inv-bg, rgba(9, 11, 15, 0.78)));
+  border: 1px solid var(--inv-line, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.corp-rail::before, .cv-card::before, .cc::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  pointer-events: none;
+}
+
 .corp-rail {
   grid-column: 1; grid-row: 1;
-  align-self: center; max-height: 100%;     /* 세로 중앙에 떠 있는 카드 — 길어지면 스스로 스크롤한다 */
   display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0;
   overflow-y: auto; scrollbar-width: thin;
   padding: 12px 10px;
-  border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.3);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 .corp-rail .ui-btn { width: 100%; justify-content: center; }
 
-/* 메인 패널 — 이제 `.corp-page` 하나만 담는다 */
+/* 페이지 자리 — 틀은 없다 (카드가 각자 갖는다) */
 .corp-shell {
   grid-column: 2; grid-row: 1;
   display: flex; min-width: 0; min-height: 0;
-  padding: 12px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.18);
 }
 .corp-shell > .corp-page { flex: 1; min-width: 0; }
 
@@ -58,7 +77,7 @@
 .corp-tab {
   appearance: none; cursor: pointer; font: inherit;
   display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px 9px 8px;
+  padding: 9px 10px 9px 6px;
   border: 1px solid var(--c-border); border-left: 3px solid var(--cc);
   background: rgba(255, 255, 255, 0.03); color: var(--c-text-dim);
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
@@ -69,7 +88,7 @@
   transform: rotate(-45deg); opacity: 0.55;
   transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
 }
-.corp-tab .name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.corp-tab .name { flex: 1; min-width: 0; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .corp-tab .lv { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-faint); }
 .corp-tab:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.07); }
 .corp-tab.is-on { color: var(--c-text); border-color: var(--cc); background: color-mix(in srgb, var(--cc) 14%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 30%, transparent); }
@@ -103,9 +122,10 @@
 .corp-subtabs .scr-tab.is-locked::after { content: '🔒'; margin-left: 6px; font-size: 10px; opacity: 0.85; }
 .corp-subtabs .scr-tab.is-locked:hover { background: none; }
 
+/* the page is only a slot — no overflow clipping, so the cards' shadows are not cut at its edges (the fit keeps the
+   row inside the width; every list / grid scrolls inside its own card) */
 .corp-page {
   min-height: 0; min-width: 0; height: 100%;
-  overflow: hidden;
   display: flex; flex-direction: column;
 }
 .corp-page > * { flex: 1; min-height: 0; }
@@ -194,7 +214,7 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(var(--corp-page-min), 1fr) auto;
   }
-  .corp-rail { grid-column: 1; grid-row: 1; align-self: stretch; max-height: none; }
+  .corp-rail { grid-column: 1; grid-row: 1; max-height: none; }
   .corp-shell { grid-column: 1; grid-row: 2; }
   .corp-msg-slot { grid-row: 3; }
   .corp-rail .corp-subtabs { flex-direction: row; flex-wrap: wrap; }
@@ -225,20 +245,37 @@
 /* a stock / tray tile is one unit of a line: the inventory qty badge would read "1" — the desk draws its own */
 .cv-tile.shop .inv-tile-qty, .cv-tile.buy .inv-tile-qty, .cv-tile.broken .inv-tile-qty { display: none; }
 .cv-tile { cursor: pointer; }
+
+/* ── 2026-09-13: 32–40 px 칸의 타일 — 글리프 · 이름 · 수량 · 소켓이 칸 크기를 따라 줄어든다 (`--inv-cell` = `--cv-cell`,
+   드래그 고스트는 <body> 에 붙어 자기 `--inv-cell` 을 인라인으로 단다). 비율은 54 px 칸에서의 inventory 값과 같다. */
+.corp-view .cv-tile .inv-tile-icon, .inv-tile.cv-ghost .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.41); }
+.corp-view .cv-tile.is-wide .inv-tile-icon, .corp-view .cv-tile.is-tall .inv-tile-icon,
+.inv-tile.cv-ghost.is-wide .inv-tile-icon, .inv-tile.cv-ghost.is-tall .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.48); }
+.corp-view .cv-tile .inv-tile-name, .inv-tile.cv-ghost .inv-tile-name { left: 4px; right: 4px; top: 3px; font-size: 9px; letter-spacing: 0; }
+.corp-view .cv-tile.is-weapon .inv-tile-name { right: 36px; }
+.corp-view .cv-tile .inv-tile-qty { right: 2px; bottom: 2px; min-width: 13px; padding: 0 2px; font-size: 9px; line-height: 12px; }
+.corp-view .cv-tile .inv-tile-sockets { right: 3px; top: 3px; gap: 2px; }
+.corp-view .cv-tile .inv-pip { width: 5px; height: 5px; }
+/* a 1×1 stock / implant tile carries its price badge along the bottom — lift the glyph clear of it */
+.cv-tile.shop:not(.is-wide):not(.is-tall) .inv-tile-icon,
+.cv-tile.broken:not(.is-wide):not(.is-tall) .inv-tile-icon { translate: 0 -4px; }
+
 .cv-tile .cv-price {
-  position: absolute; left: 4px; bottom: 5px; z-index: 2;
-  padding: 0 3px; font-family: var(--ui-mono); font-size: 9px; line-height: 13px; color: var(--c-accent);
+  position: absolute; left: 2px; bottom: 2px; z-index: 2;
+  padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; line-height: 12px; color: var(--c-accent);
   background: rgba(0, 0, 0, 0.62); border-radius: 2px; pointer-events: none;
 }
+/* a sale tile also shows the stack's qty bottom-right — its price goes top-left so the two never collide on a 1×1 */
+.cv-tile.sell .cv-price { bottom: auto; top: 2px; }
 .cv-tile .cv-count {
-  position: absolute; right: 4px; bottom: 3px; z-index: 2;
-  min-width: 16px; padding: 0 4px; font-family: var(--ui-mono); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center;
+  position: absolute; right: 2px; bottom: 2px; z-index: 2;
+  min-width: 13px; padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; font-weight: 700; line-height: 12px; text-align: center;
   color: #fff; background: rgba(0, 0, 0, 0.62); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 2px; pointer-events: none;
 }
 /* bottom-right: a stock tile hides the inventory qty badge there, and the top-right belongs to a weapon's socket pips */
 .cv-tile .cv-staged {
-  position: absolute; right: 4px; bottom: 5px; z-index: 3;
-  padding: 0 4px; font-family: var(--ui-mono); font-size: 11px; line-height: 15px; color: var(--c-success);
+  position: absolute; right: 2px; bottom: 2px; z-index: 3;
+  padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; line-height: 12px; color: var(--c-success);
   border: 1px solid color-mix(in srgb, var(--c-success) 55%, transparent); background: rgba(6, 8, 10, 0.88); pointer-events: none;
 }
 .cv-tile.blocked { opacity: 0.45; filter: grayscale(0.55); border-style: dashed; }
@@ -250,38 +287,39 @@
 }
 .inv-tile.cv-ghost.is-ok { outline: 2px solid var(--c-success); outline-offset: 2px; }
 
-/* ══ 거래 — 기업 판매 물품 | 거래칸 | 내 가방 + 함선 창고 ══════════════════════════════════════════════════════ */
+/* ══ 카드 줄 (2026-09-13) — 거래 `.cv` · 퀘스트 `.cq` · 임플란트 `.ci` ═══════════════════════════════════════════
+   가로 flex 한 줄. 내용 폭 카드는 줄어들지 않고(`flex: none`), `.is-fluid` 만 남는 폭을 나눈다. 폭이 모자라는 일은
+   `CorpView.fitLayout` 이 칸 크기를 줄여(→ 32 px) 막고, 그래도 모자라면 `.is-inv-hidden` 이 창고 · 가방 카드를 뺀다. */
+.cv, .cq, .ci { display: flex; flex-direction: row; align-items: stretch; gap: var(--cv-card-gap); min-width: 0; min-height: 0; }
+.cv-col, .cq-col, .ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; flex: none; }
+.cv > .is-fluid, .cq > .is-fluid, .ci > .is-fluid { flex: 1 1 0; }
+.is-inv-hidden > .cv-inv { display: none; }
 
-/* 2026-09-12: 우측 열은 함선 창고 10칸이 들어가는 폭이다 (가방 5칸 · 창고 10칸 — Tab 인벤토리와 같다).
-   폭 자체(`--cv-inv-w`)는 `.corp-view` 가 갖는다 — 거래 · 퀘스트 · 임플란트가 같은 값을 쓴다. */
-.cv {
-  --cv-tray-w: calc(5 * var(--cv-step) - var(--cv-gap) + 26px);
-  display: grid;
-  grid-template-columns: minmax(calc(5 * var(--cv-step) + 8px), 1fr) var(--cv-tray-w) var(--cv-inv-w);
-  grid-template-areas: 'shop deal inv';
-  gap: 14px; min-height: 0; align-items: stretch;
-}
-.cv-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
-.cv-col.shop { grid-area: shop; }
-.cv-col.deal { grid-area: deal; justify-content: flex-start; }
-.cv-col.inv { grid-area: inv; min-height: 0; height: 100%; }
-.cv-col.inv .trade-grids { flex: 1; min-height: 0; height: 100%; }
+/* 함선 창고 · 가방 카드 — `createTradeGrids({ grids: [id], layout: 'split' })` 하나씩. 카드 폭 = 격자 폭 + 스크롤바 자리 + 안여백 */
+.cv-inv > .trade-grids { flex: 1 1 auto; min-height: 0; }
+.cv-inv > .corp-empty { width: 180px; }
+
+/* ── 거래 — 판매 물품 | 거래 테이블 | 함선 창고 | 가방 ── */
+/* 판매 물품의 바닥 = 다섯 칸 + 안여백 · 테두리 + 스크롤바 자리 (`data-cv-cols="5"` 와 짝; `fitLayout` 이 이 값을 읽는다) */
+.cv-col.shop { min-width: calc(5 * var(--cv-step) - var(--cv-gap) + 2 * var(--cv-card-pad) + 2px + var(--cv-sb)); }
+.cv-col.deal { justify-content: flex-start; }
+/* 거래 테이블의 폭은 트레이 격자가 정한다 — 머리줄 · 버튼 · 크레딧 줄은 그 폭을 따라갈 뿐 넓히지 않는다 */
+.cv-col.deal .cv-tray-head, .cv-col.deal .cv-stage, .cv-col.deal > .cv-total, .cv-col.deal > .cv-confirm { width: 0; min-width: 100%; }
 
 /* 거래칸 — 구매 over 판매, each a five-column grid */
-.cv-trays { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; flex: 1; min-height: 0; }
+.cv-trays { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
 .cv-tray {
-  display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0;
-  padding: 8px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.28);
+  display: flex; flex-direction: column; gap: 6px; flex: 1 1 0; min-width: 0; min-height: 0;
+  padding: 6px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.28);
   transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 .cv-tray.is-over { border-color: var(--c-success); box-shadow: inset 0 0 18px rgba(79, 209, 126, 0.18); }
-.cv-tray-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 16px; }
-.cv-tray-head .k { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); }
-.cv-tray-head .v { font-family: var(--ui-mono); font-size: 12px; }
+.cv-tray-head { display: flex; align-items: center; gap: 6px; flex: none; min-height: 16px; overflow: hidden; }
+.cv-tray-head .k { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); white-space: nowrap; }
+.cv-tray-head .v { font-family: var(--ui-mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cv-tray.buy .cv-tray-head .v { color: var(--c-danger); margin-left: auto; }
 .cv-tray.sell .cv-tray-head .v { color: var(--c-success); margin-left: auto; }
-.cv-slots { overflow-x: auto; }
-.cv-stage { flex: none; width: 100%; min-width: 0; height: 30px; justify-content: center; font-size: 11px; }
+.cv-stage { flex: none; min-width: 0; height: 28px; padding: 0 6px; justify-content: center; font-size: 10px; letter-spacing: 0.08em; }
 
 /* 셰브런 — 물건이 흐르는 쪽을 가리키는 **정적** 표식.
    2026-09-12 (2차, 사용자 결정): 흐름 애니메이션(`cv-chev-flow`)과 스태거를 걷어냈다 — 거래칸에서 쉬지 않고
@@ -292,14 +330,14 @@
 .cv-chev.dir-left svg { transform: scaleX(-1); }
 .cv-chev.dir-up svg { transform: scaleY(-1); }
 .cv-chev.flow polyline { opacity: 0.65; }
-.cv-tray.buy .cv-chev.flow { margin-left: 4px; }
+.cv-tray.buy .cv-chev.flow { margin-left: 2px; }
 
 /* 거래 후 크레딧 변화 — 라벨 없이 가운데. + 는 초록 ▲ 오른쪽, − 는 빨강 ▼ 왼쪽, 0 은 화살표 없음 */
 .cv-total {
-  display: flex; align-items: center; justify-content: center; gap: 8px; flex: none;
+  display: flex; align-items: center; justify-content: center; gap: 6px; flex: none;
   padding-top: 8px; border-top: 1px solid var(--c-border);
 }
-.cv-total .v { font-family: var(--ui-mono); font-size: 20px; font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.cv-total .v { font-family: var(--ui-mono); font-size: 18px; font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cv-total .cv-chev { display: none; }
 .cv-total.plus .v { color: var(--c-success); }
 .cv-total.minus .v { color: var(--c-danger); }
@@ -308,18 +346,18 @@
 
 /* 거래 성사 — 1초 홀드 (UI_HOLD_CONFIRM_S). 게이지가 왼쪽에서 차오른다 */
 .cv-confirm {
-  position: relative; overflow: hidden; flex: none; width: 100%; min-width: 0; height: 42px;
-  justify-content: center; font-size: 13px; letter-spacing: 0.2em; user-select: none; touch-action: none;
+  position: relative; overflow: hidden; flex: none; min-width: 0; height: 40px; padding: 0 8px;
+  justify-content: center; font-size: 12px; letter-spacing: 0.16em; user-select: none; touch-action: none;
 }
 .cv-confirm-fill {
   position: absolute; inset: 0; transform: scaleX(0); transform-origin: left;
   background: color-mix(in srgb, var(--c-success) 42%, transparent); pointer-events: none;
 }
-.cv-confirm-label { position: relative; }
+.cv-confirm-label { position: relative; white-space: nowrap; }
 .cv-confirm.is-holding { border-color: var(--c-success); }
 
-/* ── 계약: 계약 목록(가운데) | 진행 중인 계약(우측 열, 그 계약 기업의 색) ── */
-.cc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr); gap: 14px; min-height: 0; }
+/* ── 계약: 한 카드 — 계약 목록 | 진행 중인 계약(그 계약 기업의 색) ── */
+.cc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr); gap: 14px; min-height: 0; padding: 12px; }
 .cc-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .cc-list, .cc-active {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
@@ -334,13 +372,9 @@
 .corp-row.contract.is-detail { grid-template-columns: minmax(0, 1fr); }
 .corp-row.contract.is-detail .reward { justify-content: flex-start; }
 
-/* ── 퀘스트: 목록 | 납품 테이블 + 보상 | 내 가방 + 함선 창고 ── */
-.cq {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 1fr) var(--cv-inv-w);
-  gap: 14px; min-height: 0;
-}
-.cq-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+/* ── 퀘스트: 목록 | 상세 · 납품 + 보상 | 함선 창고 | 가방 ── */
+.cq-col.list { flex: 1.1 1 0; min-width: 200px; }
+.cq-col.detail { flex: 1 1 0; min-width: 230px; }
 .cq-list, .cq-deliver {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 6px; padding-right: 4px;
@@ -370,18 +404,16 @@
 .cq-line.short .qty { color: var(--c-danger); }
 .cq-none { font-size: 11px; color: var(--c-text-faint); }
 .cq-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 8px; }
-.cq-acts .ui-btn { min-width: 120px; justify-content: center; }
-.cq-col.inv .trade-grids { flex: 1; min-height: 0; }
+.cq-acts .ui-btn { min-width: 110px; justify-content: center; }
 
 /* ── 임플란트 수리 (Phase 12, 세레스 바이오) ──
-   2026-09-12 (2차, 사용자 결정): 좌 한 열에 **망가진 임플란트 격자 + 수리 카드**, 우는 거래 · 퀘스트와 같은
-   **가방 + 함선 창고**(`--cv-inv-w`). 좌 열은 flex 가 아니라 격자다 — `.cv-scroll` 과 `.ci-repair` 가 둘 다
+   2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 격자 + 수리 카드**, 그 오른쪽은 거래 · 퀘스트와 같은
+   **함선 창고 · 가방** 카드. 데스크 카드는 flex 가 아니라 격자다 — `.cv-scroll` 과 `.ci-repair` 가 둘 다
    `flex: 1` 이라 서로 밀어내면 TileGrid 의 채움 줄 수가 흔들린다. 행 높이를 여기서 못 박는다. */
-.ci { display: grid; grid-template-columns: minmax(0, 1fr) var(--cv-inv-w); gap: 14px; min-height: 0; }
-.ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
-.ci-col.desk { display: grid; grid-template-rows: auto minmax(120px, 0.85fr) auto minmax(0, 1.15fr); }
-.ci-col.inv { min-height: 0; height: 100%; }
-.ci-col.inv .trade-grids { flex: 1; min-height: 0; height: 100%; }
+.ci-col.desk {
+  display: grid; grid-template-rows: auto minmax(120px, 0.85fr) auto minmax(0, 1.15fr);
+  flex: 1 1 0; min-width: 280px;
+}
 .ci-repair {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24);
@@ -402,38 +434,14 @@
 .ci-block { font-size: 11px; color: var(--c-danger); text-align: right; }
 .ci-repair-btn { width: 100%; min-width: 0; height: 42px; justify-content: center; font-size: 13px; letter-spacing: 0.2em; }
 
-/* 폭이 모자라면: 판매 물품 위 · 거래칸 아래로 접고 (트레이는 나란히), 가방 + 창고 열은 끝까지 지킨다 */
-/* Two five-column trays side by side need 2 × (5 × 56 − 2 + 8 + 2) + 6 = 582 px, so the fold also gives the frame back
-   its margins (the window is 1424 px wide at a 1440 px screen), trims the rail and the gaps — at 1440 px that leaves
-   the left column ~610 px. Narrower than that the tray grids scroll sideways instead of clipping a column. */
-@media (max-width: 1500px) {
-  .inv-screen.corp-view { width: calc(100vw - 16px); padding-left: 16px; padding-right: 16px; }
-  .corp-view { --corp-rail-w: 172px; --corp-rail-gap: 12px; }
-  .corp-rail { padding: 10px 8px; }
-  .corp-shell { padding: 10px; }
-  .cv {
-    grid-template-columns: minmax(0, 1fr) var(--cv-inv-w);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: 'shop inv' 'deal inv';
-    gap: 10px;
-  }
-  .cv-trays { grid-template-rows: minmax(0, 1fr); grid-template-columns: 1fr 1fr; gap: 6px; }
-  .cv-tray { padding: 4px; }
-  .cv-tray .cv-scroll { scrollbar-gutter: auto; scrollbar-width: none; overflow-x: auto; }
-  .cv-tray .cv-scroll::-webkit-scrollbar { display: none; }
-}
-@media (max-width: 1240px) {
-  .cv { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'shop' 'deal'; }
-  .cv-col.inv { display: none; }
-  .cq { grid-template-columns: minmax(0, 1fr) minmax(240px, 1fr); }
-  .cq-col.inv { display: none; }
-  .ci { grid-template-columns: minmax(0, 1fr); }
-  .ci-col.inv { display: none; }
-}
-
-/* The 기업 tab is wider than the Tab window's default frame and **as tall as the window allows**: pinning the same
-   number as `.inv-screen`'s `max-height` as a real `height` gives the flex chain a definite length. */
-.inv-screen.corp-view {
-  width: min(1760px, calc(100vw - 40px));
+/* The 기업 tab is **frameless** (2026-09-13): the cards carry the chrome, so the Tab window's `.inv-screen` background,
+   border, padding and scroll are taken off here. It is as wide as the window allows (the fit shrinks the cells, nothing
+   folds) and **as tall as the window allows**: pinning the same number as `.inv-screen`'s `max-height` as a real
+   `height` gives the flex chain a definite length. Three classes so this wins over `.inv-screen` whatever the order the
+   two stylesheets load in. */
+.inv-screen.corp-view.is-embedded {
+  width: min(1760px, calc(100vw - 32px));
   height: calc(100vh - 130px);   /* == .inv-screen's own max-height, so nothing is clipped */
+  padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none;
+  overflow: visible;
 }

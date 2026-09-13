@@ -135,11 +135,8 @@ export class CatalogView {
     this.emptyEl.hidden = true;
     scroll.append(this.listEl, this.emptyEl);
 
-    const hint = document.createElement('div');
-    hint.className = 'inv-stash-hint';
-    hint.textContent = TEXT.catalog.hint;
-
-    this.el.append(head, this.tabsEl, this.searchEl, scroll, hint);
+    // 2026-09-13 (사용자 결정): 하단 안내 줄(`드래그 → 가방 · 창고 · 슬롯에 …`)은 없앴다
+    this.el.append(head, this.tabsEl, this.searchEl, scroll);
   }
 
   get isOpen(): boolean { return !this.el.hidden; }

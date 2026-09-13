@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, CORPSE_LOOT_CHANCE, Random, corpseLootRandom,
-  type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type InteractableKind, type ItemInstance,
+  type CorpseLootOpts, type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type InteractableKind, type ItemInstance,
 } from '@/shared';
 /* appended (2026-09-12): 아이템 회수 계약 — 레이드 루팅 표식 */
 import { markRaidFound, raidFoundSeed } from '@/shared';
@@ -25,6 +25,8 @@ export interface CorpseWireOpts {
   /** undefined = decide locally from the seeded stream (same result); the wire value always wins when present. */
   lootable?: boolean | undefined;
   deathDir?: EnemyDeathDir | undefined;
+  /** 2026-09-13: 전리품 입력 (스폰 거점 · 남은 수류탄) — 호스트는 `Enemy` 에서, 리플리카는 `ee corpse.si/gc/gk` 에서. */
+  loot?: CorpseLootOpts | undefined;
 }
 
 /**
@@ -55,7 +57,11 @@ export class Corpse implements Interactable {
   life = CORPSE_LIFETIME;
   private items: ItemInstance[] | null = null;
 
-  constructor(private readonly ctx: GameContext, readonly enemyId: number, readonly type: EnemyType, position: THREE.Vector3, readonly weaponId: string | undefined, private readonly seed: number) {
+  /**
+   * `lootOpts` (2026-09-13): 스폰 거점 · 남은 수류탄 — `rollCorpseOn` 의 부가 인자. 지상 드론 스캔 미리보기
+   * (`gadgets/drones/parts/Scan`)가 같은 값으로 굴리므로 공개 필드다.
+   */
+  constructor(private readonly ctx: GameContext, readonly enemyId: number, readonly type: EnemyType, position: THREE.Vector3, readonly weaponId: string | undefined, private readonly seed: number, readonly lootOpts: CorpseLootOpts | null = null) {
     this.id = `corpse:${enemyId}`;
     this.position.copy(position);
   }
@@ -81,7 +87,7 @@ export class Corpse implements Interactable {
       // 2026-09-12: 시드 식은 `shared/lootRolls` 한 곳 — 지상 드론 스캔(`gadgets/drones/parts/Scan`)이 같은 식으로 미리 굴린다
       const rng = corpseLootRandom(this.seed, this.enemyId);
       // 2026-09-09: 행성의 등급 상한을 적용한다 (`rollCorpseOn`; 행성이 null 이면 `rollCorpse` 와 완전히 같다).
-      this.items = ctx.loot && typeof ctx.loot.rollCorpseOn === 'function' ? ctx.loot.rollCorpseOn(this.type, rng, this.weaponId, ctx.missionPlanet) : [];
+      this.items = ctx.loot && typeof ctx.loot.rollCorpseOn === 'function' ? ctx.loot.rollCorpseOn(this.type, rng, this.weaponId, ctx.missionPlanet, this.lootOpts ?? undefined) : [];
       // 2026-09-12: raid loot (named drops included) carries the raid-found mark — null outside a real raid (훈련장)
       markRaidFound(this.items, raidFoundSeed(ctx));
     }
@@ -117,7 +123,7 @@ export class CorpseManager {
       ctx.bus.emit('corpse:spawned', { enemyId, type, position: position.clone(), lootable: false, deathDir });
       return null;
     }
-    const c = new Corpse(ctx, enemyId, type, position, weaponId, seed);
+    const c = new Corpse(ctx, enemyId, type, position, weaponId, seed, opts?.loot ?? null);
     this.corpses.set(enemyId, c);
     ctx.interactables.register(c);
     ctx.bus.emit('corpse:spawned', { enemyId, type, position: c.position, lootable: true, deathDir });

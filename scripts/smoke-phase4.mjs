@@ -86,23 +86,28 @@ try {
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 10000);
   await waitSim(0.3);
 
-  console.log('rogue guards');
+  /* 2026-09-13 (행성별 적 팩션): 상자 경비는 폐지됐다 — 레이드 시작 인간형은 행성 threat 별 거점 그룹이다
+     (자세한 검사는 scripts/smoke-faction-sites.mjs). 행성 없는 이 레이드는 threat 1 = 안드로이드뿐이라,
+     아래 로그 사격 절을 위해 스폰에서 먼 개활지에 로그 하나를 직접 세운다. */
+  console.log('site groups (no planet = threat 1) + one rogue for the fire test');
   const guards = await P(() => {
     const sys = window.__sys; const world = window.__game.ctx.world;
-    const crates = world.getCrates();
-    const rogues = sys.active.filter((e) => e.type === 'rogue' || e.type === 'rogue_boss');
-    const nearCrate = rogues.map((r) => {
-      const g = r.guardPos; const c = crates.find((c) => c.position.distanceTo(g) < 0.5 || c.position.distanceTo(g) < 14);
-      return { type: r.type, faction: r.faction, weapon: r.weaponId, crateTier: c ? c.tier : null, dGuard: Math.hypot(r.position.x - g.x, r.position.z - g.z), escort: !!r.escortOf };
-    });
-    return { n: rogues.length, boss: rogues.filter((r) => r.type === 'rogue_boss').length, nearCrate, tiers: crates.map((c) => c.tier), bossId: sys.bossId };
+    const sites = sys.debugSites();
+    const humanoids = sys.active.filter((e) => e.active && e.isHumanoid && e.state !== 'dead');
+    const sp = world.getPlayerSpawn();
+    let rogue = null;
+    for (let k = 0; k < 80 && !rogue; k++) {
+      const ang = k * 0.7, rad = 70 + (k % 5) * 8;
+      const x = sp.x + Math.cos(ang) * rad, z = sp.z + Math.sin(ang) * rad;
+      if (!world.isInsideBounds(x, z) || world.structureAt(x, z) || world.obstacleCoverage(x, z, 3) > 0.05) continue;
+      rogue = sys.debugSpawn('rogue', { x, z }, false);
+    }
+    return { threat: sites && sites.threat, types: [...new Set(humanoids.map((e) => e.type))], rogue: rogue ? { faction: rogue.faction, weapon: rogue.weaponId } : null, bossId: sys.bossId };
   });
-  ok(guards.n > 0 && guards.n <= 16, `rogue guards placed (${guards.n}, crates tiers ${JSON.stringify(guards.tiers)})`, JSON.stringify(guards.nearCrate.slice(0, 3)));
-  ok(guards.nearCrate.filter((r) => !r.escort).every((r) => r.crateTier >= 2 && r.dGuard <= 15.5), 'every non-escort guard stands 6–12 m (+ collision push-out) from a tier ≥ 2 crate', JSON.stringify(guards.nearCrate));
-  ok(guards.nearCrate.every((r) => r.faction === 'rogue' && r.weapon.length > 0), 'rogues carry faction=rogue + a weapon id');
+  ok(guards.threat === 1 && guards.types.every((t) => t === 'android'), `no planet = threat 1: site groups are androids only, no crate guards (${guards.types.join(',')})`);
+  ok(guards.rogue && guards.rogue.faction === 'rogue' && guards.rogue.weapon.length > 0, 'a debug-spawned rogue carries faction=rogue + a weapon id', JSON.stringify(guards.rogue));
   const bossEv = await ev('enemy:bossSpawned');
-  ok((guards.tiers.some((t) => t >= 3) ? guards.boss === 1 && bossEv.length === 1 : true), `boss spawned once when a tier-3/4 crate exists (boss=${guards.boss}, ev=${bossEv.length})`);
-  ok(guards.nearCrate.filter((r) => r.escort).length === (guards.boss ? Math.min(3, guards.n - 1) : 0) || guards.nearCrate.filter((r) => r.escort).length > 0, 'escorts follow the boss', `${guards.nearCrate.filter((r) => r.escort).length}`);
+  ok(bossEv.length === 0 && guards.bossId === 0, `threat 1 places no rogue boss (ev ${bossEv.length})`);
 
   console.log('rogue fires at the player');
   const placed = await P(() => {
@@ -528,7 +533,8 @@ try {
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   console.log('corpse loot tables / knockback (lead checks)');
   const rolled = await P(() => window.__game.ctx.loot.rollCorpse('rogue', undefined, 'smg').map((i) => ({ d: i.defId, q: i.qty, dur: i.durability })));
-  ok(rolled.some((i) => i.d === 'wpn_smg' && i.dur !== undefined && i.dur <= 90) && rolled.some((i) => i.d === 'ammo_light'), 'rollCorpse(rogue): low-durability weapon + matching calibre ammo', JSON.stringify(rolled));
+  // 2026-09-13: 로그 총은 팩션 등급 분포(I 85 · II 14 · III 1 %)로 다시 매겨진다 — 같은 계열이면 된다
+  ok(rolled.some((i) => /^wpn_smg(_g[23])?$/.test(i.d) && i.dur !== undefined && i.dur <= 90) && rolled.some((i) => i.d === 'ammo_light'), 'rollCorpse(rogue): low-durability weapon + matching calibre ammo', JSON.stringify(rolled));
   const bossRoll = await P(() => window.__game.ctx.loot.rollCorpse('rogue_boss', undefined, 'ar').map((i) => i.defId));
   ok(bossRoll.some((d) => /^wpn_ar_g[34]$/.test(d)) && bossRoll.some((d) => d.startsWith('att_')), 'rollCorpse(rogue_boss): grade III/IV weapon + attachment', JSON.stringify(bossRoll));
   const kb = await P(() => { const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const v0 = ctx.player.velocity.length(); ctx.player.applyKnockback(new V(1, 0.4, 0), 12); return { v0, v1: ctx.player.velocity.length() }; });

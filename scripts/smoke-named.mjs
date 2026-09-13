@@ -87,6 +87,9 @@ try {
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 10000);
   await waitSim(0.3);
   ok(await P(() => window.__sys.isAuthority && !window.__sys.replica), 'single-player: enemies run as the authority');
+  // 2026-09-13: 네임드 확률은 행성 threat 표 (NAMED_ROGUE_CHANCE_BY_THREAT 0 / 0.25 / 0.5) — 행성 없음 = threat 1 = 0
+  const roll = await P(() => window.__sys.debugNamedRoll());
+  ok(roll.rolled && roll.threat === 1 && roll.chance === 0 && !roll.placed, `no planet = threat 1 → named chance 0, nobody placed (${JSON.stringify({ threat: roll.threat, chance: roll.chance, placed: roll.placed })})`);
 
   /* ── C-55: prone sniper hitbox ───────────────────────────────────────── */
   console.log('C-55 prone sniper body capsule');
@@ -384,6 +387,29 @@ try {
   await P(() => window.__sys.setAuthority(true));
   await waitSim(0.2);
   ok(await P(() => window.__sys.isAuthority), 'authority restored');
+
+  /* ── 2026-09-13: 네임드 팩션 = 레이더 · 헤비 호위 = 레이더 분대 ───────── */
+  console.log('2026-09-13 named faction raider · heavy escorts are raiders');
+  const fac = await P(() => {
+    const sys = window.__sys;
+    sys.killAll();
+    const sniperFaction = window.__sn ? window.__sn.faction : null;
+    const h = sys.debugSpawnNamed('rogue_heavy');
+    if (!h) return { sniperFaction, heavy: null };
+    const escorts = sys.active.filter((e) => e.active && e.state !== 'dead' && e.escortOf === h);
+    const hammer = sys.debugSpawnNamed('rogue_hammer', { x: h.position.x + 30, z: h.position.z + 30 });
+    return {
+      sniperFaction, hammerFaction: hammer ? hammer.faction : null,
+      heavy: { faction: h.faction, squadId: h.squadId, role: h.squadRole, site: h.site },
+      escorts: escorts.map((e) => ({ type: e.type, faction: e.faction, squadId: e.squadId, role: e.squadRole, weapon: e.weaponId })),
+    };
+  });
+  ok(fac.sniperFaction === 'raider' && fac.hammerFaction === 'raider', `로든 · 타길라 팩션 = raider (${fac.sniperFaction} / ${fac.hammerFaction})`);
+  ok(fac.heavy && fac.heavy.faction === 'raider' && fac.heavy.squadId > 0 && fac.heavy.role === 'leader' && fac.heavy.site === null,
+    `헤비 = raider · 분대장 역할 · 분대 id · 거점 없음 (${JSON.stringify(fac.heavy)})`);
+  ok(fac.escorts && fac.escorts.length === 3, `1인 분대 헤비 호위 3명 (NAMED_HEAVY_ESCORTS_BY_SQUAD[0]; ${fac.escorts && fac.escorts.length})`);
+  ok(fac.escorts && fac.escorts.every((e) => e.type === 'raider' && e.faction === 'raider' && e.squadId === fac.heavy.squadId && e.role === 'member' && e.weapon === 'smg'),
+    `호위는 SMG 레이더 · 헤비와 같은 분대 · 우회조 없음`, JSON.stringify(fac.escorts));
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));
   ok(gameErrors.length === 0, `no console errors (${gameErrors.length}; ${errors.length - gameErrors.length} relay socket errors ignored)`, gameErrors.slice(0, 5).join(' | '));

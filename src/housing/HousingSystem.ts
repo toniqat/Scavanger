@@ -1,4 +1,5 @@
 import type {
+  AnalysisLevelInfo, AnalysisResultInfo, GrowSocketTarget, SampleFamily,
   AnalysisSlot, AnalysisSlotInfo,
   BookSlotInfo, CraftIngredient, CultureSlot, CultureSlotInfo, EmbeddedView, FacilityId, FacilityInfo, FacilityRequirement, FurnitureDef,
   GameContext, GameSystem, GrowPlotInfo,
@@ -27,11 +28,17 @@ import * as Garden from './parts/Garden';
 import * as Lab from './parts/Lab';
 import * as Culture from './parts/Culture';
 import * as Dining from './parts/Dining';
+import * as Sockets from './parts/Sockets';                  // 요리 재료 티어 (2026-09-13)
 import * as Lib from './parts/Library';
 import * as Preset from './parts/Presets';
 import * as Gym from './parts/Gym';                          // 헬스장 (A-3a)
 import type { GymState } from './parts/Gym';
 import { GymScreen } from './ui/gym/GymScreen';
+import * as Cooking from './parts/Cooking';                  // 요리 미니게임 (2026-09-13)
+import type { CookState } from './parts/Cooking';
+import { CookScreen } from './ui/cook/CookScreen';
+import { CookStation } from './ui/cook/CookStation';
+import type { CookAutoInfo, CookGame, CookSessionInfo, CraftRecipe } from '@/shared';
 
 export class HousingSystem implements GameSystem, HousingRef {
   readonly name = 'housing';
@@ -111,6 +118,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.bookshelfMenu = new BookshelfMenu(ctx, this);
     this.gymScreen = new GymScreen(ctx, this);                 // 헬스장 (A-3a)
     this.unsubs.push(...Gym.bindGym(this));
+    this.cookStation = new CookStation(ctx, this);             // 요리 미니게임 (2026-09-13)
+    this.cookScreen = new CookScreen(ctx, this);
+    this.unsubs.push(...Cooking.bindCooking(this));
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -138,6 +148,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.growStation = null; this.analyzerPanel = null;
     this.cultureTank = null; this.diningTable = null; this.bookshelfMenu = null;
     this.gymScreen?.dispose(); this.gymScreen = null;          // 헬스장 (A-3a)
+    this.cookScreen?.dispose(); this.cookScreen = null;        // 요리 미니게임 (2026-09-13)
+    this.cookStation?.dispose(); this.cookStation = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -208,7 +220,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
     // …unless the server copy itself was a pre-v8 document `sanitize` just migrated (room levels · 방 9 · 10 · 시뮬레이션실 /
     // 휴식 공간) or one missing a 공용 시설 가구 it had to put back: upload it once
-    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit) this.store?.markDirty();
+    // (2026-09-13: or a pre-v10 document that just got the 조종석 꾸밈 가구)
+    if (out.migratedRoomLevels || out.migratedRooms || out.grantedCockpit || out.migratedCockpit) this.store?.markDirty();
     const b = this.ctx.bus;
     b.emit('housing:loaded', { state: this.state });
     b.emit('housing:changed', { reason: 'profile' });
@@ -445,6 +458,17 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   openAnalyzer(uid: string): void { return Lab.openAnalyzer(this, uid); }
 
+  /* ══ 요리 재료 티어 (2026-09-13) ══ — 분석 레벨 · 결과표 (`parts/Lab`) · 흙 / 배지 소켓 (`parts/Sockets`) · 배양 스캐폴드 (`parts/Culture`) */
+  getAnalysisLevel(family: SampleFamily): AnalysisLevelInfo { return Lab.getAnalysisLevel(this, family); }
+  getAnalysisResults(family: SampleFamily): AnalysisResultInfo[] { return Lab.getAnalysisResults(this, family); }
+  getAnalysisFound(): readonly string[] { return Lab.getAnalysisFound(this); }
+  insertGrowSocket(uid: string, tier: GrowTier, slot: number, socketDefId: string, replaceIndex?: number): string | null { return Garden.insertGrowSocket(this, uid, tier, slot, socketDefId, replaceIndex); }
+  insertCultureSocket(uid: string, slot: number, socketDefId: string, replaceIndex?: number): string | null { return Culture.insertCultureSocket(this, uid, slot, socketDefId, replaceIndex); }
+  insertScaffold(uid: string, slot: number, scaffoldDefId: string): string | null { return Culture.insertScaffold(this, uid, slot, scaffoldDefId); }
+  takeScaffold(uid: string, slot: number, dest?: HarvestDestination): string | null { return Culture.takeScaffold(this, uid, slot, dest); }
+  getOwnedSockets(target?: GrowSocketTarget): { defId: string; qty: number }[] { return Sockets.getOwnedSockets(this, target); }
+  /* ══ 요리 재료 티어 끝 ══ */
+
   /* ── 온실 배양조 (A-14, 2026-09-11) ────────────────────────────────────── */
   /** 배양 칸 (`ShipState.cultures`); prunes ids `ctx.loot` no longer knows on first access. */
   cultures(): CultureSlot[] { return Culture.cultures(this); }
@@ -499,11 +523,14 @@ export class HousingSystem implements GameSystem, HousingRef {
   /** 지금 갖고 있는 요리 (가방 + 함선 창고), 일반 → 특선 순서. */
   getOwnedMeals(): { defId: string; qty: number }[] { return Dining.getOwnedMeals(this); }
 
-  /** 요리 하나를 먹는다 — `progression.useMeal` 에 **먼저 묻고** 성공할 때만 아이템을 뺀다. */
-  eatMeal(uid: string | null, defId: string): string | null { return Dining.eatMeal(this, uid, defId); }
+  /** 2026-09-13: 가진 요리를 (요리, 품질) 한 줄씩 — 식탁 목록. */
+  getMealStacks(): { defId: string; quality: number; qty: number }[] { return Dining.getMealStacks(this); }
 
-  /** 공유 함선 식탁에서 분대 전원에게 차린다 (요리 1개 소모 + `housing:mealServed`; 전파는 net 이 한다). */
-  serveMealToSquad(uid: string | null, defId: string): string | null { return Dining.serveMealToSquad(this, uid, defId); }
+  /** 요리 하나를 먹는다 — `progression.useMeal` 에 **먼저 묻고** 성공할 때만 아이템을 뺀다. `quality` = 그 요리의 품질 (2026-09-13). */
+  eatMeal(uid: string | null, defId: string, quality = 0): string | null { return Dining.eatMeal(this, uid, defId, quality); }
+
+  /** 공유 함선 식탁에서 분대 전원에게 차린다 (요리 1개 소모 + `housing:mealServed {quality}`; 전파는 net 이 한다). */
+  serveMealToSquad(uid: string | null, defId: string, quality = 0): string | null { return Dining.serveMealToSquad(this, uid, defId, quality); }
 
   openDiningTable(uid: string | null): void { return Dining.openDiningTable(this, uid); }
 
@@ -670,6 +697,25 @@ export class HousingSystem implements GameSystem, HousingRef {
   /** 스모크 훅 — 화면 상태 · 판정 객체 · 결과 · 건너뛰기. */
   get gymDebug(): Gym.GymDebug { return Gym.gymDebug(this); }
   /* ══ 헬스장 (A-3a) 끝 ══ */
+
+  /* ══ 요리 미니게임 (2026-09-13) ══ — 조리대 화면 · 조리 세션 (`parts/Cooking.ts` · 판정 `parts/CookGames.ts` · 화면 `ui/cook/`). */
+  /** 조리대 화면 (요리 목록 · 재료 · 단계 · 창고 / 가방). */
+  cookStation: CookStation | null = null;
+  /** 조리 오버레이 (선택 카드 · 미니게임 · 결과). */
+  cookScreen: CookScreen | null = null;
+  /** 진행 중인 조리 — `cookSession` 이 이것의 `info` 다. */
+  cookState: CookState | null = null;
+  openCookStation(uid: string): void { return Cooking.openCookStation(this, uid); }
+  get cookSession(): CookSessionInfo | null { return Cooking.cookSession(this); }
+  cookBlock(uid: string, recipeId: string): string | null { return Cooking.cookBlock(this, uid, recipeId); }
+  startCook(uid: string, recipeId: string): string | null { return Cooking.startCook(this, uid, recipeId); }
+  cancelCook(): void { return Cooking.cancelCook(this); }
+  getCookAuto(game: CookGame): CookAutoInfo | null { return Cooking.getCookAuto(this, game); }
+  /** 조리대 레시피 (조리 단계가 있는 `bench cook`). */
+  cookRecipes(): CraftRecipe[] { return Cooking.cookRecipes(this); }
+  /** 스모크 훅 — 화면 상태 · 판정 객체 · 결과 · 선택 · 건너뛰기. */
+  get cookDebug(): Cooking.CookDebug { return Cooking.cookDebug(this); }
+  /* ══ 요리 미니게임 끝 ══ */
 
   /* ── loadout presets (은퇴 — 2026-09-12 사용자 결정 「프리셋 기능 제거」: 전부 「슬롯 없음」으로 답한다, `parts/Presets.ts`) ── */
   getPresetCount(): number { return Preset.getPresetCount(this); }

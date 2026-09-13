@@ -127,7 +127,7 @@ export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
   }
   if (!wasAware && loud) {
     host.ctx.bus.emit('enemy:alerted', { id: e.id, type: e.type, position: e.position });
-    if (e.isRogue) { /* humans do not screech; the reaction delay + rifle raise reads as the alert */ }
+    if (e.isHumanoid) { /* humans do not screech; the reaction delay + rifle raise reads as the alert */ }
     else if (e.type === 'scavenger' || e.type === 'hunter' || e.type === 'toxic') host.playAudio('bug_screech', e.position, 0.9, e.type === 'hunter' ? 0.9 : 1.15);
     else host.playAudio('bug_screech', e.position, 0.7, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.55 : 0.75);
     host.alertNear(e.position, 20, e);
@@ -176,7 +176,7 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
     const trackRange = Math.min(90 * clarity, Math.max(range * 2.2, CLOAK_REVEAL_DISTANCE));
     e.hasLOS = !blinded && dist < trackRange && hasLineOfSight(e, host, t);
     // artillery fights from ARTILLERY_RANGE without LOS; rogues keep hunting inside their leash while the target is within range
-    if (!e.relentless && e.type !== 'artillery' && !(e.isRogue && dist < 80)) {
+    if (!e.relentless && e.type !== 'artillery' && !(e.isHumanoid && dist < 80)) {
       // cloaked / smoked targets are lost faster: any range beyond the (reduced) tracking range counts
       const lost = !e.hasLOS && (dist > 60 || dist > trackRange);
       if (lost) {

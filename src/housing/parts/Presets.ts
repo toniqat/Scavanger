@@ -49,6 +49,7 @@ export function panels(sys: HousingSystem): HousingPanel[] {
   if (sys.cultureTank) out.push(sys.cultureTank);
   if (sys.diningTable) out.push(sys.diningTable);
   if (sys.bookshelfMenu) out.push(sys.bookshelfMenu);
+  if (sys.cookStation) out.push(sys.cookStation);          // 조리대 화면 (2026-09-13) — 조리 오버레이는 패널이 아니다 (`cookScreen`)
   return out;
 }
 

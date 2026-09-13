@@ -5,6 +5,7 @@ import { CombatTarget } from '../Targets';
 import { lookAtTarget } from './Common';
 import { integrate } from './EnemyAI';
 import { pickApproachCover } from './RogueCover';
+import { HUMANOID_ANDROID } from '../EnemyTypes';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Phase 12: 총알 추적 — an enemy that could not perceive a shooter reacts to the **bullet** (`EnemySystem.reportShot`).
@@ -88,7 +89,7 @@ export function updateInvestigate(e: Enemy, dt: number, host: EnemyHost): void {
   _proxy.present = true; _proxy.isDead = false;
   const dO = Math.hypot(o.x - e.position.x, o.z - e.position.z);
   const r = pose;
-  r.speed = 0; r.aim = 0.8; r.crouch = e.isRogue ? 0 : 0.25;
+  r.speed = 0; r.aim = 0.8; r.crouch = e.isHumanoid ? 0 : 0.25;
   e.hasMoveTarget = false;
   e.hasFacePoint = true; e.facePoint.copy(o);
 
@@ -101,9 +102,14 @@ export function updateInvestigate(e: Enemy, dt: number, host: EnemyHost): void {
       break;
     }
     case 1: {
-      const leashed = e.isRogue && Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z) > e.leash;
+      const leashed = e.isHumanoid && Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z) > e.leash;
       if (dO <= SHOT_ALERT_ARRIVE || leashed) { e.shotPhase = 2; e.shotHold = 0; e.roguePhase = 0; break; }
-      if (e.isRogue) advanceRogue(e, dt, host, dO, r);
+      if (e.faction === 'android') {
+        // 2026-09-13: an android never takes cover — it walks straight at the origin, rifle up, at its slow advance pace
+        e.moveTarget.copy(o); e.hasMoveTarget = true;
+        e.roguePhase = 0;
+        r.speed = s.speed * HUMANOID_ANDROID.advanceMul; r.aim = 0.8;
+      } else if (e.isHumanoid) advanceRogue(e, dt, host, dO, r);
       else {
         e.moveTarget.copy(o); e.hasMoveTarget = true;
         e.hasFacePoint = false;                     // bugs run the way they go
@@ -121,7 +127,7 @@ export function updateInvestigate(e: Enemy, dt: number, host: EnemyHost): void {
 
   // pose: head on the origin, rifle raised / mandibles working, the rest as the phase says
   lookAtTarget(e, _proxy, dt);
-  if (e.isRogue) {
+  if (e.isHumanoid) {
     a.aim += (r.aim - a.aim) * Math.min(1, dt * (r.aim > a.aim ? 7 : 3));
     a.crouch += (r.crouch - a.crouch) * Math.min(1, dt * 7);
   } else {

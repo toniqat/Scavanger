@@ -2,8 +2,12 @@ import type {
   AnalysisSlot, CraftIngredient, CultureSlot, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose,
   RoomState, ShipState, StoredFurniture,
 } from '@/shared';
+/* 요리 재료 티어 (v11, 2026-09-13) */
+import type { SampleFamily } from '@/shared';
+import { GROW_SOCKET_SLOTS_MAX, SAMPLE_FAMILIES } from '@/shared';
 import {
-  BOOKS_PER_SHELF, COCKPIT_DEFAULT_FURNITURE, COCKPIT_ROOM_INDEX, FURNITURE_DEF_MAP, GROW_SLOTS_PER_TIER, IMPLANT_IDS,
+  BOOKS_PER_SHELF, COCKPIT_DECOR_FURNITURE, COCKPIT_DEFAULT_FURNITURE, COCKPIT_ROOM_INDEX, FURNITURE_DEF_MAP, GROW_SLOTS_PER_TIER, IMPLANT_IDS,
+  isCockpitOnlyFurniture,
   ROOM_PURPOSES_ASSIGNABLE, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
   analyzerSlotsForLevel, cultureSlotsForLevel, slotKey,
 } from '@/shared';
@@ -52,9 +56,25 @@ import {
  * (디스크 · 레코드 도감) · `toggled` (켜 둔 TV · 레코드 플레이어). 없던 필드가 생기는 것뿐이라 v8 세이브는 빈 값으로 열리고
  * 마이그레이션이 없다. v8 의 「사라진 방의 보관함 → 함선 창고」 환불은 디스크 · 레코드에도 똑같이 적용된다.
  */
+/*
+ * 조종석 전용 시설 · 조종석 꾸밈 가구 (2026-09-13, 사용자 결정): state **version 10** — 모양은 그대로다.
+ *  · 시술대 · 컴퓨터가 `room: 'cockpit'`(조종석 전용)이 됐다. 다른 방에 놓여 있던 것은 가구 규칙이 먼저 가구 창고로 빼고,
+ *    `ensureCockpitFurniture` 가 가구 창고에서 꺼내 조종석(기본 자리 → 자동 배치 자리)에 다시 놓는다 — 함선마다 정확히 한 대.
+ *    이 규칙은 버전과 상관없이 **모든 로드**가 지난다 (v10 세이브를 손으로 고쳐도 같은 답이다).
+ *  · 조종석의 고정 소품(침상 · 사물함 두 칸 · 창고 캐비닛)이 꾸밈 가구(`furn_bunk` · `furn_locker` ×2 · `furn_drawer`)가 됐다.
+ *    `version < 10` 세이브에만 한 번 옛 소품 자리에 놓는다(`placeCockpitDecor`, 자리가 막혀 있으면 가구 창고로) — 그 칸들은 v9 까지
+ *    `COCKPIT_BLOCKED_RECTS` 가 막고 있었으므로 옛 세이브에서는 늘 비어 있다. v10 으로 저장된 뒤에는 회수해도 다시 채우지 않는다.
+ */
+/*
+ * 요리 재료 티어 (2026-09-13, docs/plans/food-tiers.md §4.6): state **version 11** — 없던 필드가 생기는 것뿐이다:
+ * `grows[].soilDurability` · `sockets`, `cultures[].mediumDurability` · `sockets` · `scaffoldDefId`, `analyses[].family` · `resultDefId` ·
+ * `resultQty`, `analysisXp` · `analysisFound`. 환불 · 마이그레이션 경로가 없다 — 옛 `soilUsesLeft` · `mediumUsesLeft` 를 내구도로 옮기는 일은
+ * 아이템 표가 있어야 해서 런타임 정리(`parts/Garden.grows()` · `parts/Culture.cultures()`)가 한다. ⚠ 여기서 **새 필드를 버리지 않는 것**이
+ * 요점이다 (칸을 필드별로 다시 짓기 때문에 적지 않은 필드는 조용히 사라진다). `soilUsesLeft` · `mediumUsesLeft` 는 이제 0 도 된다.
+ */
 const SAVE_DELAY_MS = 350;
-/** Current on-disk version (9 since the 서재 매체; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(9, SHIP_STATE_VERSION);
+/** Current on-disk version (11 since 요리 재료 티어; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(11, SHIP_STATE_VERSION);
 /** 옛 세이브에서 읽어 볼 방의 최대 개수 (방 수가 10 이던 세이브 + 손으로 고친 파일에 대한 여유). */
 const MAX_SAVED_ROOMS = 32;
 /**
@@ -104,9 +124,34 @@ export function freshState(): ShipState {
     media: [],                                // 서재 매체 (v9, A-3e, 2026-09-12)
     mediaDex: [],
     toggled: [],
+    analysisXp: {},                           // 요리 재료 티어 (v11, 2026-09-13)
+    analysisFound: [],
   };
-  ensureCockpitFurniture(state);              // 2026-09-12: 조종석의 공용 시설 가구 두 점 (f-1 시술대 · f-2 컴퓨터)
+  ensureCockpitFurniture(state);             // 2026-09-12: 조종석의 공용 시설 가구 두 점 (f-1 시술대 · f-2 컴퓨터)
+  placeCockpitDecor(state);                   // 2026-09-13: 조종석 꾸밈 가구 (f-3 침상 · f-4 / f-5 사물함 · f-6 서랍장)
   return state;
+}
+
+/**
+ * 2026-09-13 (사용자 결정): 조종석 꾸밈 가구(`COCKPIT_DECOR_FURNITURE` — 옛 고정 소품 자리의 침상 · 사물함 두 칸 · 서랍장)를 **한 번**
+ * 놓는다. 새 함선(`freshState`)과 v10 이전 세이브(`sanitize` 의 v10 절)만 부른다 — 회수된 꾸밈 가구를 다시 채우지 않기 위해서다.
+ * 자리가 막혀 있으면(손으로 고친 세이브) 버리지 않고 가구 창고에 넣는다. 무엇이든 넣었으면 true.
+ */
+export function placeCockpitDecor(state: ShipState): boolean {
+  let changed = false;
+  for (const spot of COCKPIT_DECOR_FURNITURE) {
+    const def = FURNITURE_DEF_MAP.get(spot.defId);
+    if (!def || def.retired) continue;
+    changed = true;
+    if (canPlaceAt(state, COCKPIT_ROOM_INDEX, def, spot.x, spot.y, spot.yaw)) {
+      state.furniture.push({ uid: `f-${maxUidIndex(state.furniture) + 1}`, defId: def.id, room: COCKPIT_ROOM_INDEX, x: spot.x, y: spot.y, yaw: spot.yaw, level: 1 });
+    } else {
+      console.warn(`[housing] cockpit decor '${def.id}' does not fit at (${spot.x}, ${spot.y}) — put into furniture storage`);
+      const e = state.furnitureStorage.find((s) => s.defId === def.id && s.level === 1);
+      if (e) e.qty += 1; else state.furnitureStorage.push({ defId: def.id, level: 1, qty: 1 });
+    }
+  }
+  return changed;
 }
 
 /**
@@ -120,17 +165,42 @@ export function ensureCockpitFurniture(state: ShipState): boolean {
   for (const spot of COCKPIT_DEFAULT_FURNITURE) {
     const def = FURNITURE_DEF_MAP.get(spot.defId);
     if (!def || def.retired) continue;
-    const owned = state.furniture.some((f) => f.defId === def.id) || state.furnitureStorage.some((s) => s.defId === def.id && s.qty > 0);
-    if (owned) continue;
+    let level = 1;
+    if (isCockpitOnlyFurniture(def)) {
+      /* 2026-09-13 (사용자 결정): 조종석 전용 시설은 **조종석에 정확히 한 대**다. 조종석에 놓인 첫 한 대만 남기고, 그 밖의 배치(다른
+         방 · 두 번째 조각)와 가구 창고의 사본은 걷어 낸다 — 제작할 수 없는 가구라 돌려줄 재료가 없다. 조종석에 한 대도 없으면
+         가구 창고에 있던 것을 꺼내 아래에서 조종석에 놓는다 (레벨은 가장 높던 것). */
+      const keep = state.furniture.find((f) => f.defId === def.id && f.room === COCKPIT_ROOM_INDEX) ?? null;
+      for (let i = state.furniture.length - 1; i >= 0; i--) {
+        const f = state.furniture[i];
+        if (f.defId !== def.id || f === keep) continue;
+        level = Math.max(level, f.level);
+        state.furniture.splice(i, 1);
+        changed = true;
+      }
+      for (let i = state.furnitureStorage.length - 1; i >= 0; i--) {
+        const s = state.furnitureStorage[i];
+        if (s.defId !== def.id) continue;
+        if (s.qty > 0) level = Math.max(level, s.level);
+        state.furnitureStorage.splice(i, 1);
+        changed = true;
+      }
+      if (keep) continue;
+    } else {
+      // (csv 로 되돌린 공용 가구라면 예전 규칙: 어디에든 — 가구 창고 포함 — 있으면 된다)
+      const owned = state.furniture.some((f) => f.defId === def.id) || state.furnitureStorage.some((s) => s.defId === def.id && s.qty > 0);
+      if (owned) continue;
+    }
     changed = true;
+    level = Math.min(level, Math.max(1, def.maxLevel));
     const at = canPlaceAt(state, COCKPIT_ROOM_INDEX, def, spot.x, spot.y, spot.yaw)
       ? { x: spot.x, y: spot.y, yaw: spot.yaw }
       : autoPlaceSpot(state, COCKPIT_ROOM_INDEX, def);
     if (at) {
-      state.furniture.push({ uid: `f-${maxUidIndex(state.furniture) + 1}`, defId: def.id, room: COCKPIT_ROOM_INDEX, x: at.x, y: at.y, yaw: at.yaw, level: 1 });
+      state.furniture.push({ uid: `f-${maxUidIndex(state.furniture) + 1}`, defId: def.id, room: COCKPIT_ROOM_INDEX, x: at.x, y: at.y, yaw: at.yaw, level });
     } else {
       console.warn(`[housing] no cockpit spot for '${def.id}' — put into furniture storage`);
-      state.furnitureStorage.push({ defId: def.id, level: 1, qty: 1 });
+      state.furnitureStorage.push({ defId: def.id, level, qty: 1 });
     }
   }
   return changed;
@@ -181,6 +251,18 @@ const isSampleDefIdShape = (v: unknown): v is string => typeof v === 'string' &&
  */
 const isItemDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^[a-z][A-Za-z0-9_]{1,48}$/.test(v);
 
+/** v11: a finite, non-negative number from a save (else null — `null` / strings are not numbers here). */
+const nonNegNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+
+/**
+ * v11: 소켓 id 목록 — 아이템 id 모양만, 최대 `GROW_SOCKET_SLOTS_MAX` 개 (같은 소켓 두 개는 된다). 진짜 소켓인지 · 대상이 맞는지 ·
+ * 흙 · 배지 등급의 칸 수 안인지는 런타임 정리(`parts/Sockets.sanitizeSocketIds`)가 본다. 배열이 아니면 undefined(필드 없음).
+ */
+function socketIdsOf(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.filter(isItemDefIdShape).slice(0, GROW_SOCKET_SLOTS_MAX);
+}
+
 /** Shape check of a soil def id in a save (`soil_<tag>`); whether it is a real 토양 is a runtime check via `ctx.loot`. */
 const isSoilDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^soil_[A-Za-z0-9_]{1,40}$/.test(v);
 
@@ -206,6 +288,11 @@ export interface SanitizeOutcome {
    * the result but does not treat it as an edit newer than the server copy (the server copy gets the same grant).
    */
   grantedCockpit?: boolean;
+  /**
+   * 2026-09-13 (v10): a pre-v10 save got the 조종석 꾸밈 가구 (`placeCockpitDecor`). Written back soon, like `migratedRooms` —
+   * once stored as v10 the decor is never placed again, so a piece the player recovers stays recovered.
+   */
+  migratedCockpit?: boolean;
 }
 
 /** A 책장 (Phase 9: any furniture whose E opens the bookshelf panel). */
@@ -471,8 +558,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     takenGrowSlots.add(key);
     const entry: GrowSlot = {
       uid: g.uid, tier, slot, soilDefId: g.soilDefId,
-      soilUsesLeft: Math.max(1, int(g.soilUsesLeft, 1, 1)),
+      // v11: 「0 까지 남은 수확」이라 0 도 된다 (옛 세이브는 ≥ 1 이었다)
+      soilUsesLeft: int(g.soilUsesLeft, 1, 0),
     };
+    // v11 (2026-09-13): 흙 내구도 · 소켓 — 버리지 않는다 (최대 · 칸 수는 런타임 정리가 자른다)
+    const soilDur = nonNegNum(g.soilDurability);
+    if (soilDur !== null) entry.soilDurability = soilDur;
+    const soilSockets = socketIdsOf(g.sockets);
+    if (soilSockets) entry.sockets = soilSockets;
     // planting fields come and go together: a half-written seed leaves plain soil behind
     const plantedAt = int(g.plantedAt, 0, 0);
     if (typeof g.seedDefId === 'string' && g.seedDefId && plantedAt > 0) {
@@ -526,7 +619,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const startedAt = int(a.startedAt, 0, 0);
     if (startedAt <= 0) continue;                       // 시작 시각이 없는 칸은 타이머를 되살릴 수 없다
     takenAnalysisSlots.add(key);
-    analyses.push({ uid: a.uid, slot, sampleDefId: a.sampleDefId, startedAt, readyAt: int(a.readyAt, startedAt, startedAt) });
+    const entry: AnalysisSlot = { uid: a.uid, slot, sampleDefId: a.sampleDefId, startedAt, readyAt: int(a.readyAt, startedAt, startedAt) };
+    // v11 (2026-09-13): 넣는 순간 굴린 결과 · 계열 — 버리지 않는다 (없으면 회수할 때 굴린다)
+    if (typeof a.family === 'string' && (SAMPLE_FAMILIES as readonly string[]).includes(a.family)) entry.family = a.family as SampleFamily;
+    if (isItemDefIdShape(a.resultDefId)) {
+      entry.resultDefId = a.resultDefId;
+      entry.resultQty = int(a.resultQty, 1, 1);
+    }
+    analyses.push(entry);
   }
   // 해석 도감: `spec_*` 모양의 유일한 id 목록 (append-only — 한 번 회수한 표본은 지워지지 않는다)
   const sampleDex: string[] = [];
@@ -553,8 +653,15 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     takenCultureSlots.add(key);
     const entry: CultureSlot = {
       uid: c.uid, slot, mediumDefId: c.mediumDefId,
-      mediumUsesLeft: Math.max(1, int(c.mediumUsesLeft, 1, 1)),
+      // v11: 「0 까지 남은 수확」이라 0 도 된다
+      mediumUsesLeft: int(c.mediumUsesLeft, 1, 0),
     };
+    // v11 (2026-09-13): 배지 내구도 · 소켓 · 스캐폴드 — 버리지 않는다 (진짜 스캐폴드인지는 런타임 정리가 본다)
+    const mediumDur = nonNegNum(c.mediumDurability);
+    if (mediumDur !== null) entry.mediumDurability = mediumDur;
+    const mediumSockets = socketIdsOf(c.sockets);
+    if (mediumSockets) entry.sockets = mediumSockets;
+    if (isItemDefIdShape(c.scaffoldDefId)) entry.scaffoldDefId = c.scaffoldDefId;
     const startedAt = int(c.startedAt, 0, 0);
     if (isItemDefIdShape(c.strainDefId) && startedAt > 0) {
       entry.strainDefId = c.strainDefId;
@@ -605,20 +712,43 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (typeof uid === 'string' && toggleUids.has(uid) && !toggled.includes(uid)) toggled.push(uid);
   }
 
+  /* 요리 재료 티어 (v11, 2026-09-13): 계열별 분석 경험치(유한 ≥ 0 인 계열만) · 분석 도감(아이템 id 모양, 중복 없이). */
+  const analysisXp: Partial<Record<SampleFamily, number>> = {};
+  const rawXp = r.analysisXp && typeof r.analysisXp === 'object' && !Array.isArray(r.analysisXp) ? (r.analysisXp as Record<string, unknown>) : {};
+  for (const fam of SAMPLE_FAMILIES) {
+    const v = nonNegNum(rawXp[fam]);
+    if (v !== null) analysisXp[fam] = v;
+  }
+  const analysisFound: string[] = [];
+  for (const id of Array.isArray(r.analysisFound) ? r.analysisFound : []) {
+    if (isItemDefIdShape(id) && !analysisFound.includes(id)) analysisFound.push(id);
+  }
+
   const state: ShipState = {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots: [],
     nameLocked: r.nameLocked === true,
     books, bookDex, grows, analyses, sampleDex, cultures,
     media, mediaDex, toggled,
+    analysisXp, analysisFound,
   };
+  /* v9 → v10 (2026-09-13, 사용자 결정 — 조종석 고정 소품 → 꾸밈 가구): 옛 소품 자리에 침상 · 사물함 두 칸 · 서랍장을 **한 번** 놓는다.
+     그 칸들은 v9 까지 `COCKPIT_BLOCKED_RECTS` 였으므로 옛 세이브에는 늘 비어 있다 — 그래서 조종석 전용 시설(아래)보다 **먼저** 놓는다
+     (시설이 기본 자리를 잃었을 때 자동 배치가 옛 소품 자리를 먼저 차지하지 않게). uid 를 다 매긴 뒤라 새 uid 가 겹치지 않는다. */
+  let migratedCockpit = false;
+  if (version < 10) {
+    migratedCockpit = placeCockpitDecor(state);
+    if (migratedCockpit) console.warn(`[housing] v${version} cockpit props → decor furniture (침상 · 사물함 ×2 · 서랍장)`);
+  }
   // 2026-09-12: 공용 시설 가구 두 점은 잃을 수 없다 — uid 를 다 매긴 뒤라야 새 uid 가 겹치지 않는다
+  // 2026-09-13: 조종석 전용 시설이다 — 다른 방 · 가구 창고에 있던 것도 조종석으로 돌아오고, 사본은 걷힌다 (모든 로드)
   const grantedCockpit = ensureCockpitFurniture(state);
   if (out) {
     out.refund = refund;
     out.migratedRoomLevels = migratedRoomLevels;
     out.migratedRooms = removedRooms.size > 0;
     out.grantedCockpit = grantedCockpit;
+    out.migratedCockpit = migratedCockpit;
   }
   return state;
 }
@@ -641,7 +771,7 @@ export function loadState(): { state: ShipState; fresh: boolean; refund: CraftIn
   const state = sanitize(raw, out);
   return {
     state, fresh: false, refund: out.refund,
-    migrated: out.migratedRoomLevels === true || out.migratedRooms === true,
+    migrated: out.migratedRoomLevels === true || out.migratedRooms === true || out.migratedCockpit === true,
     granted: out.grantedCockpit === true,
   };
 }

@@ -88,6 +88,8 @@ export type ItemCategory =
   | 'key'         // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
   /* appended: 서재 매체 (A-3e, 2026-09-12) */
   | 'disc'        // 디스크 (see `ItemDef.disc`): 서재 디스크 전시대에 꽂는다 — 책과 같은 역할이고 책보다 조금 세다. loot + corp shop, never craftable
+  /* appended: 요리 재료 티어 (2026-09-13) — 소켓 (see `ItemDef.growSocket`): 부어 둔 흙 · 배지에 끼우는 영구 강화. 분석기가 미확인 DNA 를 해석해서만 나온다 */
+  | 'socket'
   | 'record';     // 레코드 (see `ItemDef.record`): 서재 레코드랙에 꽂는다 — 디스크보다 조금 세다. loot + corp shop, never craftable
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
@@ -951,9 +953,16 @@ export interface PlayerRef {
  */
 export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger' | 'rogue' | 'rogue_boss' | 'artillery' | 'toxic' | 'behemoth'
   /* appended (2026-09-11): 네임드 로그 3종 (`shared/named`) + 로든의 스캔 드론. 전부 팩션 rogue. */
-  | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone';
-/** Factions fight each other on sight (Phase 4). */
-export type EnemyFaction = 'bug' | 'rogue';
+  | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone'
+  /* appended (2026-09-13): 행성 threat 별 인간형 팩션 — 안드로이드(threat 1) · 레이더(threat 2–3). 로그는 `rogue` 그대로. */
+  | 'android' | 'raider'
+  /* appended (2026-09-13): 지하벌레 — 땅에 박힌 채 버그를 뱉고 독극물을 뱉는 이벤트 보스 (팩션 bug, `enemies/sandworm`). */
+  | 'sandworm';
+/**
+ * Factions fight each other on sight (Phase 4). **Every pair of different factions is hostile** (2026-09-13) —
+ * `android` · `raider` appended; the named rogues and the scan drone moved to `raider` (type ids unchanged).
+ */
+export type EnemyFaction = 'bug' | 'rogue' | 'android' | 'raider';
 
 export interface EnemyRef {
   readonly id: number;
@@ -1220,6 +1229,32 @@ export interface TradeGridsViewOptions {
    * 가방 / 함선 창고 grids must match the 5-column 구매 / 판매 tray beside them.
    */
   cell?: number;
+  /* ── appended 2026-09-13 (기업 화면 카드 분리 — `inventory/ui/TradeGrids`) ── */
+  /** Label of the right-click menu's first entry (what `onTake` does on this screen). Default `빠른 이동`. */
+  takeLabel?: string;
+  /**
+   * `'wrap'` (default): one scroll box, blocks side by side, wrapping when narrow. `'split'`: every block scrolls itself
+   * and stretches to the view's height; a block is exactly as wide as its grid — mount **one** grid per caller card.
+   */
+  layout?: 'wrap' | 'split';
+  /**
+   * Filter chips: `'shared'` (one row over all blocks — the `'wrap'` default), `'block'` (each block's own row under its
+   * header — the `'split'` default), `'none'` (place a shared row yourself with `TradeGridsView.mountFilterChips`).
+   */
+  chips?: 'shared' | 'block' | 'none';
+}
+
+/**
+ * appended 2026-09-13: what `InventoryRef.createTradeGrids` really returns. The ref's signature still says
+ * `EmbeddedView` (add-only contract), so narrow first: `typeof (v as Partial<TradeGridsView>).setCell === 'function'`.
+ */
+export interface TradeGridsView extends EmbeddedView {
+  /** Current cell edge in px. */
+  readonly cell: number;
+  /** Rebuild the grids at a new cell edge (keeps each block's filter and scrolled row). Same edge = no-op. */
+  setCell(px: number): void;
+  /** Append one chip row that filters every block of the view into `host` (created on first call); returns it. */
+  mountFilterChips(host: HTMLElement): HTMLElement;
 }
 
 /* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════════ */
@@ -1345,6 +1380,13 @@ export interface EmbeddedView {
   refresh(): void;
   /** Remove every element and listener the view added to the host. */
   dispose(): void;
+  /**
+   * appended (2026-09-13, owner: progression — 캐릭터 탭의 확정 전 능력치 포인트): the host is about to leave this view **because
+   * the player asked** (another screen tab, Tab / Escape close). A view with unsaved work returns **true** — it intercepted, the host
+   * must stop there — and calls `proceed()` later if the player chooses to go on anyway (e.g. `버리고 이동`). false / omitted = leave
+   * now. Forced exits (phase change, death, `openScreen`, …) do not ask: they just `dispose()`, which discards silently.
+   */
+  requestLeave?(proceed: () => void): boolean;
 }
 
 /** Volume channels the settings menu exposes. `sfx` scales gameplay one-shots; `master` scales everything. */
@@ -1420,6 +1462,10 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   behemoth: 1, rogue: 1, rogue_boss: 1,
   /* appended (2026-09-11): 네임드는 늘 수색된다, 스캔 드론은 잔해뿐이다 */
   rogue_sniper: 1, rogue_hammer: 1, rogue_heavy: 1, rogue_scan_drone: 0,
+  /* appended (2026-09-13): 안드로이드 · 레이더도 늘 수색된다 */
+  android: 1, raider: 1,
+  /* appended (2026-09-13): 지하벌레는 늘 수색된다 (보스급 전리품 — data/loot_corpses.csv) */
+  sandworm: 1,
 };
 
 export interface EnemyRef {
@@ -2076,7 +2122,69 @@ export interface LootRef {
    * appended (2026-09-09): 시체(로그 · 보스)가 떨구는 무기의 등급도 같은 곡선으로 **상한**을 받는다.
    * `planet` 이 null 이면 `rollCorpse` 와 완전히 같다.
    */
-  rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null): ItemInstance[];
+  rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null,
+    /** appended (2026-09-13): 팩션 전리품의 입력 — 스폰 거점 · 던지지 못한 수류탄. 생략 = 예전 굴림. */
+    opts?: CorpseLootOpts): ItemInstance[];
+}
+
+/* ══ appended (2026-09-13): 행성별 적 팩션 — 안드로이드 · 로그 · 레이더 (owner: enemies · items · world) ═══════════
+ * 어떤 팩션이 나오는지는 행성 threat 가 정한다 (`planetThreat`): 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만.
+ * 서로 다른 팩션은 전부 적대다. 계획서: docs/plans/enemy-factions.md
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════ */
+/** 게임 안 팩션 이름. */
+export const ENEMY_FACTION_LABEL_KO: Readonly<Record<EnemyFaction, string>> = { bug: '벌레', rogue: '로그', android: '안드로이드', raider: '레이더' };
+/**
+ * 인간형 적이 배치된 **거점** — 시체 전리품의 입력이다 (연구소 = 연구 물품, 전진기지 = 총기 등급 보너스).
+ * `platform` = 선로 플랫폼, `ruin` = 폐허 전초(`WorldRef.getRuinSites`), `drop` = 레이더 강하, 나머지는 `StructureKind`.
+ */
+export type EnemySpawnSite = StructureKind | 'platform' | 'ruin' | 'drop';
+/** 한 그룹 안의 역할. `flanker` = 레이더 그룹에서 떨어져 우회하는 한 명, `leader` = 로그 그룹장(rogue_boss). */
+export type EnemySquadRole = 'member' | 'leader' | 'flanker';
+/** 적이 들고 다니는 수류탄 종류. **순서가 와이어 인덱스다** (`ee grenade.k` · `ee corpse.gk`) — 재정렬 금지. */
+export type EnemyGrenadeKind = 'frag' | 'incendiary';
+export const ENEMY_GRENADE_KINDS: readonly EnemyGrenadeKind[] = ['frag', 'incendiary'];
+/** 그 종류의 아이템 id (시체에 남는 것 — `data/items.csv`). */
+export const ENEMY_GRENADE_ITEM: Readonly<Record<EnemyGrenadeKind, string>> = { frag: 'grenade_frag', incendiary: 'grenade_incendiary' };
+
+/** `RogueSpawnHost.spawnRogue` 의 부가 인자 (전부 생략 가능 — 생략 = 예전 스폰). */
+export interface HumanoidSpawnOpts {
+  site?: EnemySpawnSite | null;
+  /** 같은 그룹이면 같은 값 (레이드 안에서만 유일). 생략 = -1 = 그룹 없음. */
+  squadId?: number;
+  role?: EnemySquadRole;
+}
+
+/** `LootRef.rollCorpseOn` 의 부가 인자. 호스트는 `Enemy` 에서, 리플리카는 `ee corpse.si/gc/gk` 에서 만든다. */
+export interface CorpseLootOpts {
+  site?: EnemySpawnSite | null;
+  /** 던지지 못하고 남은 수류탄 — 그 종류 그대로 시체에 들어간다 (별도 수류탄 드롭 굴림은 없다). */
+  grenades?: { kind: EnemyGrenadeKind; count: number } | null;
+}
+
+/** 폐허 전초 한 곳 (world `Outposts` 의 POI 패드 — 들어가는 전진기지 `StructureKind 'outpost'` 와 **다르다**). */
+export interface RuinSiteDef {
+  /** `outpost_<i>` (`fog:discovered {kind:'outpost'}` 와 같은 id). */
+  readonly id: string;
+  readonly position: THREE.Vector3;
+  readonly yaw: number;
+  readonly radius: number;
+}
+
+/** 거점 그룹을 세울 자리의 종류. */
+export type SiteSpawnPlace = 'indoor' | 'outdoor';
+
+export interface WorldRef {
+  /** appended (2026-09-13, owner: world): 이번 맵의 폐허 전초 (훈련장 · 없는 맵 = 빈 배열). */
+  getRuinSites?(): readonly RuinSiteDef[];
+  /**
+   * appended (2026-09-13, owner: world): 거점 `siteId` 에 인간형 그룹을 세울 자리 `count` 개 — 서로 `minGap` 이상, 시드 결정적.
+   * `siteId` = 구조물 id(`struct_*`) · 선로 플랫폼 id · 폐허 id(`outpost_<i>`).
+   *  - `indoor`: 구조물 = 실내의 걸을 수 있는 바닥(지상층, 2층이 있으면 2층도) — 벽 · 컨테이너 · 계단 구멍 · 잠긴 방 · 지하실 밖.
+   *    플랫폼 = 데크 위, 폐허 = 바닥판 위 벽 안쪽.
+   *  - `outdoor`: 발자국 바깥 둘레, 막히지 않았고 선로 회랑 밖.
+   * y 는 발이 닿는 높이. 자리가 모자라면 찾은 만큼만 돌려준다 (모르는 id · 훈련장 = 빈 배열).
+   */
+  getSiteSpawnPoints?(siteId: string, place: SiteSpawnPlace, count: number, minGap: number, seed: number): THREE.Vector3[];
 }
 
 /* ── 로그 강하 (owner: enemies/RogueDrop) ──────────────────────────────────────────────────────────────── */
@@ -2086,7 +2194,7 @@ export interface RogueDropView {
   readonly position: THREE.Vector3;
   /** 몇 명이 내리는가. */
   readonly count: number;
-  /** 보스(로그 분대장)가 섞여 있는가. */
+  /** 보스(옛 로그 분대장)가 섞여 있는가. 2026-09-13 레이더 강하에는 분대장이 없어 늘 false 다. */
   readonly boss: boolean;
   /** `ctx.time` 기준 착지 시각. */
   readonly landsAt: number;
@@ -2287,7 +2395,12 @@ export interface ItemDef {
 }
 
 /** 가구에 몸을 맡기는 자세 (owner: player; caller: hub). `sit` = 흔들의자, 나머지 셋 = 헬스장 운동 기구. */
-export type FurniturePoseKind = 'sit' | 'bench' | 'run' | 'cycle';
+export type FurniturePoseKind = 'sit' | 'bench' | 'run' | 'cycle'
+  /**
+   * appended (2026-09-13, 요리 미니게임): 조리대 앞에 서서 손을 놀리는 자세. anchor = 조리대 앞 **바닥**(서는 자리), yaw = 조리대를 본다.
+   * 드라이브 위상 = 손 동작 누적 주기 (썰기 · 다지기 = 칼질 한 번, 젓기 = 국자 한 바퀴, 볶기 = 팬 한 번 튕김, 굽기 · 붓기 = 느린 흔들림).
+   */
+  | 'cook';
 
 export interface FurniturePose {
   kind: FurniturePoseKind;
@@ -2525,8 +2638,11 @@ export interface MealDef {
   buff: MealBuff;
   /** 가산값. `isMealBuffMultiplier` 인 버프는 배수에 더해지고, 나머지는 단위 그대로. `durabilityLossMul` 만 음수다. */
   amount: number;
-  /** 1 = 일반 요리(작물만), 2 = 특선 요리(배양조 산물 필요). 툴팁 · 정렬용. */
-  tier: 1 | 2;
+  /**
+   * 1 = 채소 요리(작물만) · 2 = 고기 페이스트 요리 · 3 = 고기 · 동물기름 요리 · 4 = 난백 · 유단백 요리. 툴팁 · 정렬용.
+   * (2026-09-13 요리 재료 티어로 넓혔다 — 옛 「2 = 특선 요리」는 은퇴한 네 요리뿐이다. 이름표는 `MEAL_TIER_LABEL_KO`.)
+   */
+  tier: 1 | 2 | 3 | 4;
 }
 
 /**
@@ -2713,3 +2829,144 @@ export interface ItemInstance {
   raidFound?: number;
 }
 /* ══ end 2026-09-12 아이템 회수 표식 ══ */
+
+/* ══ appended: 2026-09-13 — 요리 재료 티어 (docs/plans/food-tiers.md, 사용자 결정) ═══════════════════════════════
+ *
+ *   T1  행성 씨앗 · 토양 ──온실 재배 스테이션──▶ 채소 · 버섯 ──조리대──▶ 채소 요리 (능력치 1)
+ *   T2  미확인 세포 ──분석기──▶ 소 · 돼지 · 닭 · 양 세포주 ─┐
+ *       작물 ──추출기──▶ 영양 배지 ─────────────────────────┴─배양조──▶ 고기 페이스트 ─┐
+ *       미확인 광물 ──분석기──▶ 암염 결정 ──추출기──▶ 소금 ────────────────────────────┴─조리대──▶ 페이스트 요리 (능력치 2)
+ *   T3  미확인 세포 ──분석기 Lv.3──▶ 미세조류 세포주 ──배양조──▶ 셀룰로스 ──조합대──▶ 배양 스캐폴드
+ *       배지 + 스캐폴드 + 세포주 ──배양조──▶ 종별 고기 · 배양지방 세포주 ──배양조──▶ 동물기름 ──조리대──▶ 고기 요리 (능력치 3)
+ *   T4  미확인 DNA ──분석기 Lv.3──▶ 난백 · 유단백 세포 ──추출기──▶ 성분 ──조합대(+ 동물기름 · 소금)──▶ 달걀 · 우유 · 치즈
+ *       ──조리대──▶ 유제품 요리 (능력치 4)
+ *   소켓 미확인 DNA ──분석기──▶ 토양 · 배지 소켓 ──▶ 재배 칸의 흙 · 배양 칸의 배지에 영구 장착
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 미확인 표본의 **계열** (사용자 결정: 표본을 3종으로 통합). 분석기의 결과표 · 분석 레벨이 계열 단위다.
+ * 새 드롭은 `spec_cell` · `spec_mineral` · `spec_dna` 셋뿐이고, 옛 표본 11종은 정의가 남은 채(`ItemDef.retired`)
+ * 자기 계열의 표본으로 해석된다 — 이미 가진 것이 사라지지 않는다.
+ */
+export type SampleFamily = 'dna' | 'mineral' | 'cell';
+/** 계열의 표시 순서 (분석 도감 · 레일). */
+export const SAMPLE_FAMILIES: readonly SampleFamily[] = ['cell', 'mineral', 'dna'];
+
+export interface SampleDef {
+  /**
+   * appended (2026-09-13): 이 표본이 해석되는 계열. 결과는 계열 결과표(`shared/housing` 의 `ANALYSIS_RESULTS`)에서 뽑힌다 —
+   * `rewardDefId` · `rewardQty` 는 이제 **결과표가 비었을 때의 대체 산출물**일 뿐이고 `first*` 보너스는 더 주지 않는다.
+   */
+  family: SampleFamily;
+}
+
+/** 소켓이 끼워지는 곳 — 재배 칸에 부어 둔 흙(`soil`) · 배양 칸에 부어 둔 배지(`medium`). */
+export type GrowSocketTarget = 'soil' | 'medium';
+export const GROW_SOCKET_TARGETS: readonly GrowSocketTarget[] = ['soil', 'medium'];
+
+/**
+ * 소켓 효과. `speed` · `yield` 는 **그 칸의 흙 · 배지 내구도 비율**만큼만 듣는다 (`wear` 는 내구도 자체를 지키므로 예외):
+ *  - `speed` — 성장 · 배양 시간 −amount (심는 · 넣는 순간 `readyAt` 에 확정, 합산한 배수의 바닥은 `GROW_SOCKET_TIME_FLOOR`)
+ *  - `yield` — 수확할 때 소켓마다 amount 확률로 +1 개
+ *  - `wear`  — 수확마다 닳는 내구도 −amount (합산한 배수의 바닥은 `GROW_WEAR_MUL_FLOOR`)
+ */
+export type GrowSocketEffect = 'speed' | 'yield' | 'wear';
+export const GROW_SOCKET_EFFECTS: readonly GrowSocketEffect[] = ['speed', 'yield', 'wear'];
+
+/** 소켓 data (owner: items — `data/sockets.csv`). 한 번 끼우면 빠지지 않는다 (사용자 결정: 덮어 끼우면 옛 것은 파괴). */
+export interface GrowSocketDef {
+  target: GrowSocketTarget;
+  effect: GrowSocketEffect;
+  /** `speed` · `wear` = 비율(0.1 = 10 %), `yield` = +1 개 확률(0 … 1). */
+  amount: number;
+}
+
+export interface SoilDef {
+  /**
+   * appended (2026-09-13): 최대 내구도. 부어 둔 흙은 수확마다 `SOIL_WEAR_PER_HARVEST` 만큼 닳고 **0 이어도 계속 쓴다** —
+   * 다만 궁합 보너스(`SOIL_MATCH_SPEEDUP`)와 소켓 효과가 `내구도 / 최대` 비율로 줄어 0 에서는 사라진다. 궁합 패널티는 그대로다.
+   * `uses` 는 옛 세이브의 `soilUsesLeft` 를 내구도로 옮기는 데만 쓴다.
+   */
+  durability: number;
+}
+
+export interface MediumDef {
+  /**
+   * appended (2026-09-13, 사용자 결정: 토양과 같은 내구도 규칙): 최대 내구도. 수확마다 `MEDIUM_WEAR_PER_HARVEST` 만큼 닳고
+   * 0 이어도 계속 쓴다 — 배지 속도 보너스(`1 − speedMul`)와 소켓 효과가 내구도 비율로 줄어든다. `uses` 는 옛 세이브 이관용.
+   */
+  durability: number;
+}
+
+export interface StrainDef {
+  /**
+   * appended (2026-09-13, T3): 배양 칸에 **배양 스캐폴드**가 들어 있으면 `outputDefId` 대신 이것을 만든다 (종별 고기).
+   * 셋은 함께 있거나 함께 없다 — 없는 세포주(미세조류 · 배양지방)는 스캐폴드가 든 칸에 넣을 수 없다.
+   */
+  scaffoldOutputDefId?: string;
+  scaffoldOutputQty?: number;
+  /** 기본 배지 기준 배양 시간(시간) — 스캐폴드가 있을 때. */
+  scaffoldHours?: number;
+}
+
+/** 요리 버프에 붙는 능력치 상승 하나. */
+export interface MealEffect {
+  buff: MealBuff;
+  /** `isMealBuffMultiplier` 면 배수에 가산, 아니면 단위 그대로 (`durabilityLossMul` 은 음수). */
+  amount: number;
+}
+
+export interface MealDef {
+  /**
+   * appended (2026-09-13, 사용자 결정: 「버프 자체는 1개이고 그 1개의 버프에 여러 능력치 상승이 붙는다」). 이 요리가 올리는
+   * 능력치 전부 — 티어가 오를수록 수치도 커지고 줄도 는다 (T1 1 · T2 2 · T3 3 · T4 4). **소비자는 이것을 읽는다.**
+   * `buff` · `amount` 는 `effects[0]` 과 같다 (옛 호출부 호환 — 새 코드는 쓰지 않는다).
+   */
+  effects: readonly MealEffect[];
+}
+
+export interface ItemDef {
+  /* ── appended (2026-09-13, 요리 재료 티어; owner: items) ── */
+  /** category 'socket': 부어 둔 흙 · 배지에 끼우는 영구 강화. */
+  growSocket?: GrowSocketDef;
+  /** 배양 스캐폴드 (category 'material'): 배양 칸에 배지 다음 · 세포주 전에 넣으면 그 칸이 종별 고기를 만든다. 수확할 때 소모된다. */
+  scaffold?: boolean;
+  /**
+   * 은퇴한 아이템 (옛 표본 11종 · 옛 세포주 5 · 배양 산물 5 · 특선 요리 4). 정의는 남고(가진 것이 사라지지 않는다)
+   * **모든 출처**(루팅 · 상점 · 레시피 산출 · 분석 결과 · 채집지 · 배양)에서 빠진다. `npm run data:check` 가 참조를 잡는다.
+   */
+  retired?: boolean;
+}
+/* ══ end 2026-09-13 요리 재료 티어 ══ */
+
+/* ══ appended: 2026-09-13 — 요리 미니게임 · 요리 품질 (docs/plans/cooking-minigames.md, 규칙은 `shared/cooking.ts`) ══ */
+export interface ItemInstance {
+  /**
+   * 요리(`ItemDef.meal`)의 품질 — 별 수 0 … `MEAL_QUALITY_MAX`. 조리대 미니게임 점수가 정한다 (`mealQualityForScore`).
+   * 생략 = 0 (옛 요리 · 루팅 · 요리가 아닌 아이템). **품질이 다르면 같은 def 라도 합쳐지지 않는다** (inventory 의 스택 열쇠).
+   * `raidFound` 와 달리 **창고 · 로드아웃 문서에도 실린다** (`SavedExtras.q`) — 그리고 픽업 · 시체 와이어(`PickupWire.q` · `CorpseItemWire.q`) ·
+   * 레이드 blob 모두. 스택을 나누거나 복사하는 경로는 이 필드를 옮긴다 (생략 = 품질 0 으로 떨어진다).
+   */
+  quality?: number;
+}
+
+export interface InventoryRef {
+  /* ── appended (2026-09-13, 요리 미니게임 · 요리 품질; owner: inventory) ── */
+  /** 가방 + 창고의 `defId` 중 품질이 정확히 `quality` 인 수량 (`quality` 0 = 품질 필드 없음 포함). */
+  countDefQualityAll?(defId: string, quality: number): number;
+  /** 품질이 정확히 `quality` 인 `defId` 를 가방 먼저 → 창고에서 `qty` 개 뺀다. 전부 또는 전무; 모자라면 false. */
+  consumeDefQualityAll?(defId: string, quality: number, qty: number): boolean;
+  /** 가진 요리(`ItemDef.meal`)를 (def, 품질)별로 합친 목록 (가방 + 창고) — 식탁 화면. 티어 → def → 품질 높은 순. */
+  getMealStacks?(): { defId: string; quality: number; qty: number }[];
+  /**
+   * 조리대 레시피 `recipeId` 를 **지금** 1회 만들 수 없는 한국어 사유 (null = 가능) — 함선 제작과 같은 게이트: 조리대 레시피인가 ·
+   * `benchLevel` 이 레시피의 작업대 레벨 이상인가 · 숙련 · 재료(`craftCost`) · 산출물 1개가 들어갈 자리(창고 → 가방).
+   */
+  cookBlock?(recipeId: string, benchLevel: number): string | null;
+  /**
+   * 조리 1회를 마무리한다 — `cookBlock` 을 다시 보고 재료를 빼고 품질 `quality` 인 산출물을 **창고 먼저 → 가방**에 넣는다.
+   * `inventory:itemAdded` · `craft:completed {recipeId, item, count:1}` (숙련 XP · 튜토리얼 · 토스트가 그대로 산다). 실패면 아무것도 빼지 않는다.
+   */
+  completeCook?(recipeId: string, benchLevel: number, quality: number): { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null };
+}
+/* ══ end 2026-09-13 요리 미니게임 ══ */

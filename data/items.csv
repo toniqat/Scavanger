@@ -15,14 +15,22 @@
 # pouch* 칸은 주머니(category pouch)만 쓴다 (2026-09-11 A-15, prepShort 뒤에 붙였다):
 #   pouchCols × pouchRows = 장착하면 퀵슬롯 아래에 열리는 격자, pouchAccepts = 받아 주는 카테고리(| 로 잇는다).
 #   장비칸의 주머니 칸은 **하나뿐**이다 (POUCH_SLOTS, 사용자 결정) — 넷 중 하나만 끼운다.
-# strain* 칸은 세포주 · 균주(category material)만 쓴다 (A-14): 배양조가 무엇을 얼마나 오래 만드는가.
-# medium* 칸은 영양 배지(category material)만 쓴다 (A-14): 버티는 수확 횟수와 배양 시간 배수.
+# strain* 칸은 세포주 · 균주(category material)만 쓴다 (A-14): 배양조가 무엇을 얼마나 오래 만드는가 (strainHours = 기본 배지 기준 시간).
+# medium* 칸은 영양 배지(category material)만 쓴다 (A-14): mediumUses = 옛 세이브 이관용 수확 횟수, mediumSpeed = 배양 시간 배수.
 # 요리(category meal)는 여기가 아니라 data/meals.csv 에 있다.
 # boost* 칸은 전투 소모품 3종(category stim)만 쓴다 (2026-09-12, mediumSpeed 뒤에 붙였다 — 나머지 줄은 그냥 비어 있다):
 #   boostEffect = adrenaline(스태미나 전량 + 지속 소모 0) | stimulant(장전 · 정조준 · 흔들림 / 스태미나 소모 증가) | implant_refill(전술 임플란트 전부 충전),
 #   boostUseTime = 좌클릭 홀드 시간(초). 효과 시간 · 배수는 data/constants.csv 의 BOOST_* 가 정한다.
 #   회복약과 달리 체력이 가득해도 쓸 수 있다 (안정제는 임플란트가 가득이거나 없어도 소모된다 — 사용자 결정).
-id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp,soilTag,soilUses,prepEnv,prepShort,pouchCols,pouchRows,pouchAccepts,strainOut,strainQty,strainHours,mediumUses,mediumSpeed,boostEffect,boostUseTime
+# 2026-09-13 (요리 재료 티어) — boostUseTime 뒤에 7칸을 붙였다 (나머지 줄은 그냥 비어 있다):
+#   soilDurability = 토양(soilTag 가 있는 줄)의 **최대 내구도** — 필수. 부어 둔 흙은 수확마다 tuning.csv 의 SOIL_WEAR_PER_HARVEST 만큼 닳고
+#     0 이어도 계속 쓰지만 궁합 보너스 · 소켓 효과가 내구도 비율로 줄어든다. soilUses 는 옛 세이브의 남은 횟수를 내구도로 옮기는 데만 쓴다.
+#   mediumDurability = 영양 배지(mediumUses 가 있는 줄)의 최대 내구도 — 필수. 규칙은 토양과 같다 (MEDIUM_WEAR_PER_HARVEST).
+#   strainScaffoldOut · strainScaffoldQty · strainScaffoldHours = 배양 칸에 **배양 스캐폴드**가 들어 있을 때의 산출물 · 개수 · 시간(종별 고기).
+#     셋은 함께 채우거나 함께 비운다. 비어 있는 세포주는 스캐폴드가 든 칸에 넣을 수 없다.
+#   scaffold = 1 이면 배양 스캐폴드 (배지 다음 · 세포주 전에 넣고, 수확할 때 소모된다).
+#   retired = 1 이면 은퇴한 아이템 — 정의만 남고 모든 출처(루팅 · 상점 · 레시피 · 분석 결과 · 배양)에서 빠진다. 은퇴한 세포주는 strain* 칸도 비운다.
+id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp,soilTag,soilUses,prepEnv,prepShort,pouchCols,pouchRows,pouchAccepts,strainOut,strainQty,strainHours,mediumUses,mediumSpeed,boostEffect,boostUseTime,soilDurability,mediumDurability,strainScaffoldOut,strainScaffoldQty,strainScaffoldHours,scaffold,retired
 grenade_frag,G-12 고폭 수류탄,grenade,common,1,1,3,40,0.45,●,true,,,,,,,,,,,파편 수류탄. 반경 6 m 광역 피해.
 grenade_incendiary,G-10 소이 수류탄,grenade,uncommon,1,1,3,70,0.5,◉,true,,,,,,,,,,,소이 수류탄. 넓은 반경에 화염 피해.
 heal_bandage,붕대,stim,common,1,1,5,45,0.15,▭,true,,,20,5,20,5,,,,,"천을 감아 지혈한다. 사용 5초, 5초에 걸쳐 체력 20 회복. 사용 중 이동 속도 50 %."
@@ -85,12 +93,12 @@ crop_ashgrain,잿빛 곡물,crop,common,1,1,8,32,0.10,⁙,,,,,,,,,,,,온실에�
 crop_saltmelon,염수박,crop,uncommon,1,1,6,60,0.26,◒,,,,,,,,,,,,소금기를 머금어 단맛이 도는 박. 주방의 조리대에서 요리 재료로 쓴다.
 crop_sporecap,포자 갓,crop,uncommon,1,1,6,58,0.10,☁,,,,,,,,,,,,포자를 품은 채 갓을 편 식용 균류. 주방의 조리대에서 요리 재료로 쓴다.
 crop_frostberry,서리열매,crop,uncommon,1,1,6,62,0.08,❅,,,,,,,,,,,,서리를 맞아야 단맛이 오르는 열매. 주방의 조리대에서 요리 재료로 쓴다.
-soil_humus,부엽토,soil,common,1,1,5,35,0.30,▩,,,,,,,,,,,,"습지 바닥에서 퍼 올린 검은 흙. 부엽토 속성 씨앗을 빨리 키운다 (수확 2회).",,,humus,2
-soil_ash,화산재토,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"화산재가 굳어 삭은 흙. 화산재 속성 씨앗을 빨리 키운다 (수확 3회).",,,ash,3
-soil_frost,동토 이탄,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"얼었다 녹기를 반복한 이탄. 동토 속성 씨앗을 빨리 키운다 (수확 3회).",,,frost,3
-soil_mineral,광물토,soil,rare,1,1,5,120,0.35,▩,,,,,,,,,,,,"금속 가루가 섞인 붉은 흙. 광물 속성 씨앗을 빨리 키운다 (수확 5회).",,,mineral,5
-soil_saline,염류 결정토,soil,rare,1,1,5,120,0.35,▩,,,,,,,,,,,,"소금기가 굳어 반짝이는 흙. 염류 속성 씨앗을 빨리 키운다 (수확 5회).",,,saline,5
-soil_spore,포자 부식토,soil,uncommon,1,1,5,65,0.32,▩,,,,,,,,,,,,"포자가 삭아 내려앉은 흙. 포자 속성 씨앗을 빨리 키운다 (수확 3회).",,,spore,3
+soil_humus,부엽토,soil,common,1,1,5,35,0.30,▩,,,,,,,,,,,,"습지 바닥에서 퍼 올린 검은 흙. 부엽토 속성 씨앗을 빨리 키운다.",,,humus,2,,,,,,,,,,,,,100
+soil_ash,화산재토,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"화산재가 굳어 삭은 흙. 화산재 속성 씨앗을 빨리 키운다.",,,ash,3,,,,,,,,,,,,,150
+soil_frost,동토 이탄,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"얼었다 녹기를 반복한 이탄. 동토 속성 씨앗을 빨리 키운다.",,,frost,3,,,,,,,,,,,,,150
+soil_mineral,광물토,soil,rare,1,1,5,120,0.35,▩,,,,,,,,,,,,"금속 가루가 섞인 붉은 흙. 광물 속성 씨앗을 빨리 키운다.",,,mineral,5,,,,,,,,,,,,,250
+soil_saline,염류 결정토,soil,rare,1,1,5,120,0.35,▩,,,,,,,,,,,,"소금기가 굳어 반짝이는 흙. 염류 속성 씨앗을 빨리 키운다.",,,saline,5,,,,,,,,,,,,,250
+soil_spore,포자 부식토,soil,uncommon,1,1,5,65,0.32,▩,,,,,,,,,,,,"포자가 삭아 내려앉은 흙. 포자 속성 씨앗을 빨리 키운다.",,,spore,3,,,,,,,,,,,,,150
 gad_cloak_veil,은폐 장막,gadget,rare,1,2,2,620,1.1,◌,true,cloakVeil,,,,,,,,,,주변 아군까지 함께 은폐시키는 광학 장막. 12초.
 gad_dome_shield,돔 실드,gadget,epic,2,2,1,1350,5.8,⌓,true,domeShield,,,,,,,,,,던진 자리에 돔형 방어막을 전개한다. 내구도 1000.
 gad_barricade,바리케이드,gadget,rare,2,2,1,700,7.2,▥,true,barricade,,,,,,,,,,정면에 거대한 차폐물을 세운다. 누구나 3초 만에 회수할 수 있다.
@@ -109,23 +117,49 @@ prep_respirator,여과 호흡기,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"�
 prep_coolant,내열 냉각재,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"몸에 두르는 상변화 냉각재. 함선에서 쓰면 다음 레이드 한 번 동안 고온 환경 피해를 완전히 막는다.",,,,,heat,내열
 
 # ── 2026-09-11 (A-14 배양조): 영양 배지 · 세포주 · 배양 산물 ──
-mat_medium_basic,기본 영양 배지,material,uncommon,1,1,10,90,0.2,▫,,,,,,,,,,,,추출기에서 굳힌 기본 배지. 배양조 칸에 부으면 두 번 수확할 때까지 버틴다.,,,,,,,,,,,,,2,1
-mat_medium_rich,강화 영양 배지,material,rare,1,1,10,210,0.22,▫,,,,,,,,,,,,광물 농축액까지 섞어 기른 배지. 네 번을 버티고 배양도 30 % 빠르다.,,,,,,,,,,,,,4,0.7
-strain_algae,조류 배양체,material,uncommon,1,1,5,130,0.1,▫,,,,,,,,,,,,분석기가 갈라 낸 조류 배양체. 배양조에 넣으면 미세조류가 된다.,,,,,,,,,,cult_algae,3,4
-strain_myocyte,근세포주,material,rare,1,1,5,300,0.1,▫,,,,,,,,,,,,해석이 끝난 근세포주. 배양조에서 오래 기르면 배양육이 된다.,,,,,,,,,,cult_meat,2,8
-strain_adipocyte,지방세포주,material,rare,1,1,5,280,0.1,▫,,,,,,,,,,,,해석이 끝난 지방세포주. 배양조에서 배양 지방이 된다.,,,,,,,,,,cult_fat,2,6
-strain_casein,유선세포주,material,rare,1,1,5,290,0.1,▫,,,,,,,,,,,,해석이 끝난 유선세포주. 배양조에서 유단백이 된다.,,,,,,,,,,cult_casein,2,7
-strain_ovum,난세포주,material,rare,1,1,5,290,0.1,▫,,,,,,,,,,,,해석이 끝난 난세포주. 배양조에서 난백이 된다.,,,,,,,,,,cult_albumen,2,7
-cult_algae,미세조류,material,uncommon,1,1,10,70,0.12,▫,,,,,,,,,,,,배양조에서 걷어 낸 진한 조류 덩어리. 요리 재료이자 필라멘트의 바탕이다.
-cult_meat,배양육,material,rare,1,1,8,180,0.3,▫,,,,,,,,,,,,배양조에서 결을 살려 기른 고기. 특선 요리의 주재료다.
-cult_fat,배양 지방,material,rare,1,1,8,150,0.28,▫,,,,,,,,,,,,배양조에서 뽑은 정제 지방. 요리에도 필라멘트에도 들어간다.
-cult_casein,유단백,material,rare,1,1,8,170,0.18,▫,,,,,,,,,,,,배양조가 응고시킨 유단백. 질긴 섬유의 원료이기도 하다.
-cult_albumen,난백,material,rare,1,1,8,165,0.2,▫,,,,,,,,,,,,배양조에서 받아 낸 맑은 난백. 요리와 복합 필라멘트에 쓴다.
+mat_medium_basic,기본 영양 배지,material,uncommon,1,1,10,90,0.2,▫,,,,,,,,,,,,추출기에서 굳힌 기본 배지. 배양조 칸에 부어 두면 수확할 때마다 조금씩 닳는다.,,,,,,,,,,,,,2,1,,,,100
+mat_medium_rich,강화 영양 배지,material,rare,1,1,10,210,0.22,▫,,,,,,,,,,,,광물 농축액까지 섞어 기른 배지. 기본 배지보다 오래 버티고 배양도 빠르다.,,,,,,,,,,,,,4,0.7,,,,200
+# ── 2026-09-13 (요리 재료 티어): 세포주 8 · 고기 · 기름 · 셀룰로스 · 스캐폴드 · 소금 · 성분 · 달걀 · 우유 · 치즈 ──
+cell_cow,소 세포주,material,rare,1,1,5,240,0.1,⊚,,,,,,,,,,,,"분석기가 갈라 낸 소 근세포주. 배양조에서 기르면 고기 페이스트가 되고, 스캐폴드 위에서 기르면 결이 살아 있는 소고기가 된다.",,,,,,,,,,food_meat_paste,2,3,,,,,,,food_beef,2,6
+cell_pig,돼지 세포주,material,rare,1,1,5,230,0.1,⊚,,,,,,,,,,,,"분석기가 갈라 낸 돼지 근세포주. 배양조에서 기르면 고기 페이스트가 되고, 스캐폴드 위에서 기르면 돼지고기가 된다.",,,,,,,,,,food_meat_paste,2,3,,,,,,,food_pork,2,6
+cell_chicken,닭 세포주,material,rare,1,1,5,220,0.1,⊚,,,,,,,,,,,,"분석기가 갈라 낸 닭 근세포주. 배양조에서 기르면 고기 페이스트가 되고, 스캐폴드 위에서 기르면 닭고기가 된다.",,,,,,,,,,food_meat_paste,2,2.5,,,,,,,food_chicken,2,5
+cell_sheep,양 세포주,material,rare,1,1,5,250,0.1,⊚,,,,,,,,,,,,"분석기가 갈라 낸 양 근세포주. 배양조에서 기르면 고기 페이스트가 되고, 스캐폴드 위에서 기르면 양고기가 된다.",,,,,,,,,,food_meat_paste,2,3.5,,,,,,,food_lamb,2,7
+cell_algae,미세조류 세포주,material,uncommon,1,1,5,150,0.1,⊚,,,,,,,,,,,,분석기가 갈라 낸 미세조류 세포주. 배양조에서 기르면 셀룰로스를 걷어 낼 수 있다. 스캐폴드에서는 자라지 않는다.,,,,,,,,,,food_cellulose,3,3
+cell_fat,배양지방 세포주,material,rare,1,1,5,260,0.1,⊚,,,,,,,,,,,,지방세포만 골라 낸 세포주. 배양조에서 기르면 요리에 두르는 동물기름이 된다. 스캐폴드에서는 자라지 않는다.,,,,,,,,,,food_animal_fat,2,5
+cell_albumen,난백 세포,material,rare,1,1,5,280,0.1,⊚,,,,,,,,,,,,달걀흰자 단백질을 만드는 세포. 배양조가 아니라 추출기에서 난백 단백질을 뽑아낸다.
+cell_casein,유단백 세포,material,rare,1,1,5,280,0.1,⊚,,,,,,,,,,,,젖 단백질을 만드는 세포. 배양조가 아니라 추출기에서 카제인과 유청을 함께 뽑아낸다.
+food_meat_paste,고기 페이스트,material,uncommon,1,1,10,80,0.25,◧,,,,,,,,,,,,스캐폴드 없이 배양해 결이 뭉개진 고기. 소시지 · 만두 · 미트볼의 재료다.
+food_beef,배양 소고기,material,rare,1,1,8,200,0.3,◍,,,,,,,,,,,,스캐폴드를 따라 결을 살려 기른 소고기. 조리대에서 스테이크가 된다.
+food_pork,배양 돼지고기,material,rare,1,1,8,190,0.3,◍,,,,,,,,,,,,스캐폴드를 따라 결을 살려 기른 돼지고기. 조리대에서 수육이 된다.
+food_chicken,배양 닭고기,material,rare,1,1,8,180,0.28,◍,,,,,,,,,,,,스캐폴드를 따라 결을 살려 기른 닭고기. 조리대에서 구이가 된다.
+food_lamb,배양 양고기,material,rare,1,1,8,210,0.3,◍,,,,,,,,,,,,스캐폴드를 따라 결을 살려 기른 양고기. 조리대에서 꼬치가 된다.
+food_animal_fat,동물기름,material,rare,1,1,8,140,0.25,⬮,,,,,,,,,,,,"배양지방을 녹여 거른 기름. 라드나 소기름처럼 요리에 두르고, 필라멘트와 달걀에도 들어간다."
+food_cellulose,셀룰로스,material,uncommon,1,1,10,60,0.12,≋,,,,,,,,,,,,"미세조류에서 걷어 낸 섬유질. 조합대에서 배양 스캐폴드가 되고, 강화 배지와 필라멘트의 바탕이 된다."
+food_scaffold,배양 스캐폴드,material,rare,1,1,5,170,0.15,⌗,,,,,,,,,,,,"세포가 타고 자랄 섬유 골격. 배양조 칸에 배지 다음, 세포주보다 먼저 넣으면 종별 고기가 자라고 수확할 때 사라진다.",,,,,,,,,,,,,,,,,,,,,,1
+min_rocksalt,암염 결정,material,common,1,1,10,35,0.4,⬙,,,,,,,,,,,,미확인 광물에서 가려낸 소금 결정. 추출기에서 곱게 녹여 거르면 소금이 된다.
+food_salt,소금,material,common,1,1,20,25,0.05,∴,,,,,,,,,,,,암염을 녹여 다시 굳힌 요리용 소금. 고기 요리와 유제품 요리에 두루 들어간다.
+comp_albumen,난백 단백질,material,rare,1,1,10,110,0.1,◌,,,,,,,,,,,,난백 세포에서 뽑아낸 단백질. 동물기름과 섞으면 배양 달걀이 된다.
+comp_casein,카제인,material,rare,1,1,10,110,0.1,◌,,,,,,,,,,,,유단백 세포에서 뽑아낸 젖 단백질. 유청과 섞으면 배양 우유가 된다.
+comp_whey,유청,material,uncommon,1,1,10,70,0.1,◌,,,,,,,,,,,,카제인을 뽑고 남은 맑은 단백질 액. 배양 우유를 만들 때 함께 들어간다.
+food_egg,배양 달걀,material,rare,1,1,8,150,0.2,⬭,,,,,,,,,,,,난백 단백질과 기름으로 굳혀 낸 달걀. 오믈렛의 재료다.
+food_milk,배양 우유,material,rare,1,1,8,140,0.3,▯,,,,,,,,,,,,"카제인과 유청을 되섞은 우유. 스튜와 그라탕에 쓰고, 소금을 넣어 굳히면 치즈가 된다."
+food_cheese,배양 치즈,material,epic,1,1,6,320,0.25,◭,,,,,,,,,,,,배양 우유를 소금으로 굳혀 숙성한 치즈. 가장 귀한 유제품 요리의 재료다.
+# ── 은퇴 (2026-09-13): 옛 세포주 5 · 배양 산물 5 — 정의만 남는다 (retired 1, 은퇴한 세포주는 배양조가 받지 않는다) ──
+strain_algae,조류 배양체,material,uncommon,1,1,5,130,0.1,▫,,,,,,,,,,,,옛 방식으로 갈라 낸 조류 배양체. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+strain_myocyte,근세포주,material,rare,1,1,5,300,0.1,▫,,,,,,,,,,,,옛 방식으로 갈라 낸 근세포주. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+strain_adipocyte,지방세포주,material,rare,1,1,5,280,0.1,▫,,,,,,,,,,,,옛 방식으로 갈라 낸 지방세포주. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+strain_casein,유선세포주,material,rare,1,1,5,290,0.1,▫,,,,,,,,,,,,옛 방식으로 갈라 낸 유선세포주. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+strain_ovum,난세포주,material,rare,1,1,5,290,0.1,▫,,,,,,,,,,,,옛 방식으로 갈라 낸 난세포주. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+cult_algae,미세조류,material,uncommon,1,1,10,70,0.12,▫,,,,,,,,,,,,배양조에서 걷어 낸 옛 조류 덩어리. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+cult_meat,배양육,material,rare,1,1,8,180,0.3,▫,,,,,,,,,,,,배양조에서 기른 옛 배양육. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+cult_fat,배양 지방,material,rare,1,1,8,150,0.28,▫,,,,,,,,,,,,배양조에서 뽑은 옛 배양 지방. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+cult_casein,유단백,material,rare,1,1,8,170,0.18,▫,,,,,,,,,,,,배양조가 응고시킨 옛 유단백. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
+cult_albumen,난백,material,rare,1,1,8,165,0.2,▫,,,,,,,,,,,,배양조에서 받아 낸 옛 난백. 더 이상 쓰이지 않는다.,,,,,,,,,,,,,,,,,,,,,,,1
 
 # ── 2026-09-11 (A-15 프린터): 필라멘트 3등급 · 주머니 4종 ──
-mat_filament_1,기본 필라멘트,material,rare,1,1,10,320,0.25,▫,,,,,,,,,,,,미세조류와 지방으로 방사한 기본 필라멘트. 3D 프린터의 바탕 재료다.
-mat_filament_2,고강도 필라멘트,material,epic,1,1,10,700,0.28,▫,,,,,,,,,,,,유단백을 꼬아 넣어 강도를 올린 필라멘트. 서사 가방을 찍을 수 있다.
-mat_filament_3,복합 필라멘트,material,legendary,1,1,10,1500,0.3,▫,,,,,,,,,,,,여러 배양 산물을 겹쳐 뽑은 복합 필라멘트. 전설 가방은 이것으로만 나온다.
+mat_filament_1,기본 필라멘트,material,rare,1,1,10,320,0.25,▫,,,,,,,,,,,,셀룰로스와 동물기름으로 방사한 기본 필라멘트. 3D 프린터의 바탕 재료다.
+mat_filament_2,고강도 필라멘트,material,epic,1,1,10,700,0.28,▫,,,,,,,,,,,,카제인을 꼬아 넣어 강도를 올린 필라멘트. 서사 가방을 찍을 수 있다.
+mat_filament_3,복합 필라멘트,material,legendary,1,1,10,1500,0.3,▫,,,,,,,,,,,,스캐폴드 섬유와 난백 단백질을 겹쳐 뽑은 복합 필라멘트. 전설 가방은 이것으로만 나온다.
 pouch_gather,채집 주머니,pouch,rare,2,1,1,420,0.45,◫,,,,,,,,,,,,약초 · 씨앗 · 토양 · 작물 · 표본만 들어가는 주머니. 장착하면 퀵슬롯 아래에 2×2 격자가 열린다.,,,,,,,2,2,herb|seed|soil|crop|sample
 pouch_key,열쇠 주머니,pouch,rare,2,1,1,380,0.35,◫,,,,,,,,,,,,열쇠만 들어가는 납작한 주머니. 장착하면 퀵슬롯 아래에 3×1 격자가 열린다.,,,,,,,3,1,key
 pouch_medical,구급 주머니,pouch,epic,2,1,1,760,0.5,◫,,,,,,,,,,,,회복 물품만 들어가는 구급 주머니. 장착하면 퀵슬롯 아래에 4×1 격자가 열린다.,,,,,,,4,1,stim

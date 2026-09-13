@@ -1,4 +1,4 @@
-import type { SkillDef, SkillId, StatDef, StatId, WeaponClass } from '@/shared';
+import type { DerivedStats, SkillDef, SkillId, StatDef, StatId, WeaponClass } from '@/shared';
 import { SKILL_IDS, STAT_IDS, csvRows, keyTable, numberMap, stringMap } from '@/shared';
 
 /* 수치의 원본: `data/stats.csv` · `data/skills.csv`, 행동당 경험치는 `data/tuning.csv`,
@@ -11,22 +11,49 @@ const T = /* data/tuning.csv */ keyTable('tuning.csv');
  * Owner: progression/. Nothing else defines these.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const STAT_DEFS: readonly StatDef[] = csvRows('stats.csv').map((r) => ({
-  id: r.str('id') as StatId,
-  name: r.str('name'),
-  description: r.str('description'),
-}));
+/**
+ * 캐릭터 시트 「파생 능력치」 패널의 줄 키 (2026-09-13) — 표시 순서 그대로. `stats.csv` · `skills.csv` 의 `derived` 칸은
+ * 이 중에서만 고를 수 있다 (로더가 검사하므로 `npm run data:check` 가 오타를 잡는다). 이름은 `DerivedStats` 의 필드
+ * 이름이고, `throwRangeMul` 줄은 배율이 아니라 `throwRangeM` 를 보여 준다 (`ui/SheetBody.derivedText`).
+ * 사격 숙련의 무기 종류별 반동 · 장전은 패널에 줄이 없다 (사용자 결정 — 툴팁이 숫자만 보여 준다).
+ */
+export const DERIVED_PANEL_KEYS = [
+  'carryCapacity', 'maxStamina', 'detectRadius', 'enemyDetectRadius', 'meleeDamageMul', 'throwRangeMul',
+  'skillGainMul', 'useSpeedMul', 'interactSpeedMul', 'gritChance', 'searchSpeedMul', 'healPowerMul',
+  'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'craftSpeedMul', 'carryReliefFactor',
+] as const satisfies readonly (keyof DerivedStats)[];
+export type DerivedPanelKey = (typeof DERIVED_PANEL_KEYS)[number];
 
-export const SKILL_DEFS: readonly SkillDef[] = csvRows('skills.csv').map((r) => ({
-  id: r.str('id') as SkillId,
-  name: r.str('name'),
-  description: r.str('description'),
-  stats: r.list('stats') as StatId[],
-  ...(r.has('weaponClass') ? { weaponClass: r.str('weaponClass') as WeaponClass } : {}),
-}));
+const statDerived = new Map<StatId, readonly DerivedPanelKey[]>();
+const skillDerived = new Map<SkillId, readonly DerivedPanelKey[]>();
+
+export const STAT_DEFS: readonly StatDef[] = csvRows('stats.csv').map((r) => {
+  const id = r.str('id') as StatId;
+  const derived = r.enumList('derived', DERIVED_PANEL_KEYS);
+  // 능력치는 전부 패널의 무언가를 바꾼다 — 빈 칸은 빠뜨린 것이다 (숙련은 사격이 비어 있는 게 정상이라 검사하지 않는다)
+  if (!r.raw('derived')) r.report('derived', '값이 비었다 — 이 능력치가 바꾸는 파생 능력치 줄 키를 적는다');
+  statDerived.set(id, derived);
+  return { id, name: r.str('name'), description: r.str('description') };
+});
+
+export const SKILL_DEFS: readonly SkillDef[] = csvRows('skills.csv').map((r) => {
+  const id = r.str('id') as SkillId;
+  skillDerived.set(id, r.enumList('derived', DERIVED_PANEL_KEYS));
+  return {
+    id,
+    name: r.str('name'),
+    description: r.str('description'),
+    stats: r.list('stats') as StatId[],
+    ...(r.has('weaponClass') ? { weaponClass: r.str('weaponClass') as WeaponClass } : {}),
+  };
+});
 
 export const STAT_DEF_MAP: ReadonlyMap<StatId, StatDef> = new Map(STAT_DEFS.map((d) => [d.id, d]));
 export const SKILL_DEF_MAP: ReadonlyMap<SkillId, SkillDef> = new Map(SKILL_DEFS.map((d) => [d.id, d]));
+
+/** 능력치 · 숙련 → 그것이 바꾸는 파생 능력치 패널 줄 (`derived` 칸). 모르는 id 는 빈 목록. */
+export function derivedKeysOfStat(id: StatId): readonly DerivedPanelKey[] { return statDerived.get(id) ?? []; }
+export function derivedKeysOfSkill(id: SkillId): readonly DerivedPanelKey[] { return skillDerived.get(id) ?? []; }
 
 /** Every weapon class maps onto one shooting skill (PISTOL trains 기관단총). */
 export const WEAPON_CLASS_SKILL: Readonly<Record<WeaponClass, SkillId>> =

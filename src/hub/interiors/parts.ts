@@ -9,24 +9,33 @@ export const GLASS_MAT = new THREE.MeshStandardMaterial({
 
 export interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number }
 
+/**
+ * 2026-09-13: where a ceiling goes when it must not join the ship-wide merged batch — its own `GeoBatch` and its own
+ * material instances (`plate` = the ceiling plane / beams, `strip` = the recessed light channels). The personal ship's
+ * cockpit ceiling fades out while 시설 관리 is open (`PersonalShip.setCockpitCeilingHidden`).
+ */
+export interface CeilingTarget { b: GeoBatch; plate: THREE.Material; beam: THREE.Material; strip: THREE.Material }
+
 /** Reusable building blocks shared by both ship interiors. */
 export class Parts {
   constructor(readonly b: GeoBatch, readonly col: BoxInteriorCollider, readonly ceilY: number) {}
 
-  /** Deck plate + centre grate strip + ceiling. */
-  deck(room: Box2, grateAlongX: boolean): void {
+  /** Deck plate + centre grate strip + ceiling. `ceil` (2026-09-13) routes the ceiling plane + light channels elsewhere. */
+  deck(room: Box2, grateAlongX: boolean, ceil?: CeilingTarget): void {
     const w = room.maxX - room.minX, d = room.maxZ - room.minZ;
     const cx = (room.minX + room.maxX) / 2, cz = (room.minZ + room.maxZ) / 2;
     this.b.plane(w, d, cx, 0, cz, M.floor);
     if (grateAlongX) this.b.box(w - 1, 0.02, 1.6, cx, 0.011, cz, M.floorGrate);
     else this.b.box(1.6, 0.02, d - 1, cx, 0.011, cz, M.floorGrate);
-    this.b.plane(w, d, cx, this.ceilY, cz, M.hullDark, Math.PI / 2);
+    const cb = ceil?.b ?? this.b;
+    cb.plane(w, d, cx, this.ceilY, cz, ceil?.plate ?? M.hullDark, Math.PI / 2);
     // recessed ceiling light channels
     const n = Math.max(1, Math.round((grateAlongX ? w : d) / 4));
+    const strip = ceil?.strip ?? M.stripWhite;
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
-      if (grateAlongX) this.b.box(0.18, 0.04, d * 0.6, room.minX + w * t, this.ceilY - 0.03, cz, M.stripWhite);
-      else this.b.box(w * 0.6, 0.04, 0.18, cx, this.ceilY - 0.03, room.minZ + d * t, M.stripWhite);
+      if (grateAlongX) cb.box(0.18, 0.04, d * 0.6, room.minX + w * t, this.ceilY - 0.03, cz, strip);
+      else cb.box(w * 0.6, 0.04, 0.18, cx, this.ceilY - 0.03, room.minZ + d * t, strip);
     }
     // amber floor edge strips
     this.b.box(w - 0.4, 0.02, 0.06, cx, 0.012, room.minZ + 0.25, M.stripAmber);
@@ -112,9 +121,9 @@ export class Parts {
     this.b.box(0.28, this.ceilY, 0.28, x, this.ceilY / 2, z, M.hullLight, ry);
     this.b.box(0.34, 0.12, 0.34, x, 0.06, z, M.hullDark, ry);
   }
-  /** Ceiling beam spanning `len` along X (ry=0) or Z (ry=π/2). */
-  beam(len: number, x: number, z: number, ry = 0): void {
-    this.b.box(len, 0.22, 0.28, x, this.ceilY - 0.11, z, M.hullLight, ry);
+  /** Ceiling beam spanning `len` along X (ry=0) or Z (ry=π/2). `ceil` (2026-09-13): into that batch with its `beam` material. */
+  beam(len: number, x: number, z: number, ry = 0, ceil?: CeilingTarget): void {
+    (ceil?.b ?? this.b).box(len, 0.22, 0.28, x, this.ceilY - 0.11, z, ceil?.beam ?? M.hullLight, ry);
   }
 
   /** Stack of supply crates (with blockers). */

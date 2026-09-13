@@ -1,18 +1,20 @@
 # 숙련도 14종. id 는 코드가 찾는 값이므로 바꾸지 않는다.
 # stats = 이 숙련이 올릴 때 경험치를 나눠 주는 능력치 (| 로 여러 개).
 # weaponClass 는 사격 숙련만 — 그 무기 종류로 맞히면 이 숙련이 오른다 (대응표는 tables.csv 의 WEAPON_CLASS_SKILL).
-id,name,stats,weaponClass,description
-carry,운반,strength,,무거운 짐을 지고 이동하면 오른다. 「조금 무거움」 상태의 스태미나 손해를 줄인다.
-appraisal,감정,perception,,상자를 뒤지면 오른다. 아이템 서치 속도가 빨라진다.
-grit,인내,endurance,,치명상을 버텨내면 오른다. 치명타를 체력 1로 버틸 확률이 늘어난다.
-gardening,원예,dexterity|intelligence,,약초를 채집하면 오른다. 채집 수확량이 늘어난다.
-crafting,제작,dexterity|intelligence,,현장 제작을 완료하면 오른다. 제작 속도가 빨라진다.
-medicine,의학,intelligence,,치료 물자를 조제하면 오른다. 회복 아이템의 효과가 커진다.
-cryptography,암호학,intelligence,,탈출 콘솔을 해킹하면 오른다. 탈출선 호출이 빨라진다.
-implant,전술 임플란트,intelligence,,임플란트를 사용하면 오른다. 재사용 대기시간이 줄어든다.
-gun_AR,사격 · 돌격소총,perception,AR,돌격소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.
-gun_SMG,사격 · 기관단총,perception,SMG,기관단총·권총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.
-gun_SR,사격 · 저격소총,perception,SR,저격소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.
-gun_DMR,사격 · 지정사수소총,perception,DMR,지정사수소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.
-gun_SG,사격 · 산탄총,perception,SG,산탄총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.
-equipment,장비 관리,dexterity,,장비를 수리하면 오른다. 장비 내구도 소모가 줄어든다.
+# derived = 이 숙련이 바꾸는 캐릭터 시트 「파생 능력치」 줄의 키 (| 로 여러 개, progression/defs.ts 의 DERIVED_PANEL_KEYS 중 하나).
+#   사격 숙련은 무기 종류별 반동 · 장전이라 패널에 줄이 없다 — 비워 두고 툴팁이 숫자만 보여 준다.
+id,name,stats,weaponClass,description,derived
+carry,운반,strength,,무거운 짐을 지고 이동하면 오른다. 「조금 무거움」 상태의 스태미나 손해를 줄인다.,carryReliefFactor
+appraisal,감정,perception,,상자를 뒤지면 오른다. 아이템 서치 속도가 빨라진다.,searchSpeedMul
+grit,인내,endurance,,치명상을 버텨내면 오른다. 치명타를 체력 1로 버틸 확률이 늘어난다.,gritChance
+gardening,원예,dexterity|intelligence,,약초를 채집하면 오른다. 채집 수확량이 늘어난다.,gatherYieldMul
+crafting,제작,dexterity|intelligence,,현장 제작을 완료하면 오른다. 제작 속도가 빨라진다.,craftSpeedMul
+medicine,의학,intelligence,,치료 물자를 조제하면 오른다. 회복 아이템의 효과가 커진다.,healPowerMul
+cryptography,암호학,intelligence,,탈출 콘솔을 해킹하면 오른다. 탈출선 호출이 빨라진다.,shipCallSpeedMul
+implant,전술 임플란트,intelligence,,임플란트를 사용하면 오른다. 재사용 대기시간이 줄어든다.,implantCooldownMul
+gun_AR,사격 · 돌격소총,perception,AR,돌격소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
+gun_SMG,사격 · 기관단총,perception,SMG,기관단총·권총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
+gun_SR,사격 · 저격소총,perception,SR,저격소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
+gun_DMR,사격 · 지정사수소총,perception,DMR,지정사수소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
+gun_SG,사격 · 산탄총,perception,SG,산탄총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,
+equipment,장비 관리,dexterity,,장비를 수리하면 오른다. 장비 내구도 소모가 줄어든다.,durabilityLossMul
