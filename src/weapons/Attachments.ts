@@ -14,7 +14,8 @@ export function addAttachmentVisual(ctx: GameContext, out: WeaponAttachmentVisua
   const id = defId.toLowerCase();
   const socket: SocketSlot | undefined = def?.attachment?.socket ?? fallbackSocket ?? socketFromId(id);
   switch (socket) {
-    case 'muzzle': out.muzzle = id.includes('comp') ? 'comp' : id.includes('choke') ? 'choke' : 'brake'; break;
+    // 2026-09-14: `att_barrel_ext` (확장 총열) — a longer barrel sleeve that moves the muzzle socket forward
+    case 'muzzle': out.muzzle = id.includes('barrel') ? 'barrel' : id.includes('comp') ? 'comp' : id.includes('choke') ? 'choke' : 'brake'; break;
     case 'grip': out.grip = id.includes('angled') ? 'angled' : 'vertical'; break;
     case 'sight': out.sight = (def?.attachment?.effects.laser || id.includes('laser')) ? 'laser' : 'scope'; break;
     case 'mag': out.mag = true; break;
@@ -24,7 +25,7 @@ export function addAttachmentVisual(ctx: GameContext, out: WeaponAttachmentVisua
 }
 
 function socketFromId(id: string): SocketSlot | undefined {
-  if (id.includes('brake') || id.includes('comp') || id.includes('choke') || id.includes('muzzle') || id.includes('suppress')) return 'muzzle';
+  if (id.includes('brake') || id.includes('comp') || id.includes('choke') || id.includes('muzzle') || id.includes('suppress') || id.includes('barrel')) return 'muzzle';
   if (id.includes('grip')) return 'grip';
   if (id.includes('laser') || id.includes('scope') || id.includes('sight') || id.includes('dot')) return 'sight';
   if (id.includes('mag')) return 'mag';

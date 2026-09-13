@@ -175,6 +175,8 @@ export class ItemTip {
       ctx.bus.on('game:phaseChanged', () => this.hide()),
       ctx.bus.on('inventory:closed', () => this.hide()),
       ctx.bus.on('housing:shipManageChanged', () => this.hide()),
+      // 2026-09-14: a tooltip was pinned (1 s hold on an item tile) — the card that was following the cursor goes
+      ctx.bus.on('ui:tipPinned', ({ uid }) => { if (uid !== null) this.hide(); }),
     );
   }
 
@@ -190,6 +192,8 @@ export class ItemTip {
    * caller hides the card instead of leaving a stale one up.
    */
   private show(chip: HTMLElement): boolean {
+    // 2026-09-14: a tile whose inventory tooltip is pinned (`inventory/ui/TipPin`, `data-tip-pinned`) — the pinned card is its card
+    if (chip.dataset.tipPinned !== undefined) return false;
     const cy = chip.dataset.currencyId ?? null;
     if (cy) {
       if (!this.visible || cy !== this.currencyId) this.renderCurrency(cy);

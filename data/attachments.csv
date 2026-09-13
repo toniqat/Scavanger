@@ -3,18 +3,26 @@
 # 효과는 배수다 — recoilV 0.75 = 수직 반동 25 % 감소, magSize 1.4 = 장탄수 40 % 증가.
 # hipSpread 는 지향 사격에만, spread 는 지향·정조준 둘 다에 곱해진다.
 # adsZoom / scope / laser 는 배수가 아니라 값을 덮어쓴다.
-id,name,rarity,value,weight,icon,socket,classes,ammoTypes,recoilV,recoilH,spread,hipSpread,adsTime,magSize,adsZoom,scope,laser,description
-att_brake,총구 제동기,uncommon,180,0.3,⊏,muzzle,,,0.75,0.75,,,,,,,,총구 가스를 옆으로 분산해 수직·수평 반동을 25 % 줄인다.
-att_comp,보정기,uncommon,180,0.3,⊐,muzzle,,,,,0.85,,,,,,,탄 퍼짐을 15 % 줄이는 총구 보정기.
-att_choke,산탄총 초크,uncommon,200,0.3,⊓,muzzle,SG,,,,0.7,,,,,,,산탄 확산을 30 % 조여 유효 사거리를 늘린다. 산탄총 전용.
-att_grip_angled,앵글 그립,uncommon,160,0.3,⌊,grip,AR|SMG|SG|SR|DMR,,,0.7,,,,,,,,수평 반동을 30 % 줄이는 경사 손잡이. 권총에는 장착 불가.
-att_grip_vertical,수직 그립,uncommon,160,0.3,⌋,grip,AR|SMG|SG|SR|DMR,,0.7,,,,,,,,,수직 반동을 30 % 줄이는 수직 손잡이. 권총에는 장착 불가.
-att_mag_light,확장형 경량 탄창,rare,260,0.3,▯,mag,,light,,,,,,1.4,,,,경량탄 무기의 장탄수 40 % 증가.
-att_mag_medium,확장형 준중량 탄창,rare,280,0.3,▯,mag,,medium,,,,,,1.4,,,,준중량탄 무기의 장탄수 40 % 증가.
-att_mag_heavy,확장형 중량 탄창,rare,320,0.3,▯,mag,,heavy,,,,,,1.4,,,,중량탄 무기의 장탄수 40 % 증가.
-att_mag_shell,확장형 산탄 탄창,rare,300,0.3,▯,mag,,shell,,,,,,1.4,,,,산탄총의 장탄수 40 % 증가.
-att_stock,전술 개머리판,rare,300,0.3,⊂,stock,AR|SMG|SG|SR|DMR,,,,0.9,,0.75,,,,,"탄 퍼짐 10 % 감소, 조준 시간 25 % 단축. 권총에는 장착 불가."
-att_laser,레이저사이트,uncommon,200,0.3,⋅,sight,,,,,,0.7,,,,,true,지향 사격 퍼짐 30 % 감소. 조준점에 레이저 도트 표시.
-att_scope4,4배 조준경,rare,420,0.3,⊙,sight,AR|SMG|SR|DMR,,,,,,,,4,true,,4배율 조준경. 조준 시 스코프 화면 전환. 권총·산탄총에는 장착 불가.
-att_scope6,6배 조준경,epic,700,0.3,⊚,sight,AR|SMG|SR|DMR,,,,,,,,6,true,,6배율 조준경. 조준 시 스코프 화면 전환. 권총·산탄총에는 장착 불가.
-att_scope8,8배 조준경,legendary,1200,0.3,◎,sight,SR|DMR,,,,,,,,8,true,,8배율 장거리 조준경. 저격소총·지정사수소총 전용.
+# ── 2026-09-14 총기 밸런스 ──
+# 무기 계열마다 받는 칸이 다르다 (weapons.csv 의 sockets) — classes 가 맞아도 그 계열에 칸이 없으면 안 붙는다.
+#   산탄총 = 총구(초크만) · 탄창 · 조준경 / 기관단총 = 총구 · 탄창 · 조준경 · 손잡이 / 지정사수 · 저격 = 총구 · 탄창 · 조준경 / 돌격소총 = 전부.
+# sway = 조준 흔들림 배수 (개머리판 0.65 · 손잡이 0.8). 등급 조작감 배수(tables.csv WEAPON_GRADE_HANDLING_MUL) 위에 곱해진다.
+# falloffRange = 거리 감소가 시작 · 끝나는 거리의 배수 (1.35 = 35 % 더 멀리까지 버틴다).
+# falloffLoss  = 끝 거리에서 잃는 피해(1 − falloffMin)의 배수 (0.7 = 잃는 몫 30 % 감소).
+# bulletDrop   = 탄 낙차(bulletGravity)의 배수 (0.6 = 40 % 덜 떨어진다).
+id,name,rarity,value,weight,icon,socket,classes,ammoTypes,recoilV,recoilH,spread,hipSpread,adsTime,magSize,adsZoom,scope,laser,sway,falloffRange,falloffLoss,bulletDrop,description
+att_brake,총구 제동기,uncommon,180,0.3,⊏,muzzle,AR|SMG|DMR|SR,,0.75,0.75,,,,,,,,,,,,총구 가스를 옆으로 분산해 수직·수평 반동을 25 % 줄인다. 산탄총에는 장착 불가.
+att_comp,보정기,uncommon,180,0.3,⊐,muzzle,AR|SMG|DMR|SR,,,,0.85,,,,,,,,,,,탄 퍼짐을 15 % 줄이는 총구 보정기. 산탄총에는 장착 불가.
+att_choke,산탄총 초크,uncommon,200,0.3,⊓,muzzle,SG,,,,0.7,,,,,,,,,,,산탄 확산을 30 % 조여 유효 사거리를 늘린다. 산탄총 전용.
+att_grip_angled,앵글 그립,uncommon,160,0.3,⌊,grip,AR|SMG,,,0.7,,,,,,,,0.8,,,,"수평 반동을 30 %, 조준 흔들림을 20 % 줄이는 경사 손잡이. 돌격소총·기관단총 전용."
+att_grip_vertical,수직 그립,uncommon,160,0.3,⌋,grip,AR|SMG,,0.7,,,,,,,,,0.8,,,,"수직 반동을 30 %, 조준 흔들림을 20 % 줄이는 수직 손잡이. 돌격소총·기관단총 전용."
+att_mag_light,확장형 경량 탄창,rare,260,0.3,▯,mag,,light,,,,,,1.4,,,,,,,,경량탄 무기의 장탄수 40 % 증가.
+att_mag_medium,확장형 준중량 탄창,rare,280,0.3,▯,mag,,medium,,,,,,1.4,,,,,,,,준중량탄 무기의 장탄수 40 % 증가.
+att_mag_heavy,확장형 중량 탄창,rare,320,0.3,▯,mag,,heavy,,,,,,1.4,,,,,,,,중량탄 무기의 장탄수 40 % 증가.
+att_mag_shell,확장형 산탄 탄창,rare,300,0.3,▯,mag,,shell,,,,,,1.4,,,,,,,,산탄총의 장탄수 40 % 증가.
+att_stock,전술 개머리판,rare,300,0.3,⊂,stock,AR,,,,0.9,,0.75,,,,,0.65,,,,"탄 퍼짐 10 % 감소, 조준 시간 25 % 단축, 조준 흔들림 35 % 감소. 돌격소총 전용."
+att_laser,레이저사이트,uncommon,200,0.3,⋅,sight,,,,,,0.7,,,,,true,,,,,지향 사격 퍼짐 30 % 감소. 조준점에 레이저 도트 표시.
+att_scope4,4배 조준경,rare,420,0.3,⊙,sight,AR|SMG|SR|DMR,,,,,,,,4,true,,,,,,4배율 조준경. 조준 시 스코프 화면 전환. 산탄총에는 장착 불가.
+att_scope6,6배 조준경,epic,700,0.3,⊚,sight,AR|SMG|SR|DMR,,,,,,,,6,true,,,,,,6배율 조준경. 조준 시 스코프 화면 전환. 산탄총에는 장착 불가.
+att_scope8,8배 조준경,legendary,1200,0.3,◎,sight,SR|DMR,,,,,,,,8,true,,,,,,8배율 장거리 조준경. 저격소총·지정사수소총 전용.
+att_barrel_ext,확장 총열,rare,340,0.3,⊢,muzzle,AR|SMG|DMR|SR,,,,,,,,,,,,1.35,0.7,0.6,"길어진 총열로 탄속을 살린다 — 탄 낙차 40 % 감소, 피해가 줄기 시작하는 거리 35 % 증가, 먼 거리에서 잃는 피해 30 % 감소. 총구 칸을 쓰고 산탄총에는 장착 불가."

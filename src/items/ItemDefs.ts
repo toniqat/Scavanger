@@ -21,7 +21,7 @@ import { GAME_STATS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, PLANET_IDS, res
  */
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 import type { WeaponItemMeta } from './WeaponDefs';
-import { UNIQUE_WEAPON_ITEM_META, WEAPON_DEFS, WEAPON_FAMILY_ITEM_META, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
+import { UNIQUE_WEAPON_ITEM_META, WEAPON_CLASSES, WEAPON_DEFS, WEAPON_FAMILY_ITEM_META, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
 import { ARMOR_DEFS, ARMOR_ICON, armorItemSize } from './ArmorDefs';
 import { IMPLANT_ITEM_DEFS } from './ImplantDefs';
 
@@ -130,14 +130,16 @@ const ATTACHMENT_WEIGHT = 0.3;
 
 export const ATTACHMENT_ITEM_DEFS: readonly ItemDef[] = csvRows('attachments.csv').map((r) => {
   const effects: AttachmentEffects = {};
-  const mul = (key: 'recoilV' | 'recoilH' | 'spread' | 'hipSpread' | 'adsTime' | 'magSize' | 'adsZoom'): void => {
+  const mul = (key: 'recoilV' | 'recoilH' | 'spread' | 'hipSpread' | 'adsTime' | 'magSize' | 'adsZoom' | 'sway' | 'falloffRange' | 'falloffLoss' | 'bulletDrop'): void => {
     const v = r.optNum(key, { min: 0 });
     if (v !== undefined) effects[key] = v;
   };
   mul('recoilV'); mul('recoilH'); mul('spread'); mul('hipSpread'); mul('adsTime'); mul('magSize'); mul('adsZoom');
+  // 2026-09-14 (총기 밸런스): 조준 흔들림 · 거리 감소 거리 / 손실 · 탄 낙차 배수
+  mul('sway'); mul('falloffRange'); mul('falloffLoss'); mul('bulletDrop');
   if (r.has('scope')) effects.scope = r.bool('scope');
   if (r.has('laser')) effects.laser = r.bool('laser');
-  const classes = r.list('classes') as WeaponClass[];
+  const classes: WeaponClass[] = r.enumList('classes', WEAPON_CLASSES);
   const ammoTypes = r.list('ammoTypes') as AmmoType[];
   const attachment: AttachmentDef = {
     socket: r.enum('socket', ['muzzle', 'grip', 'mag', 'stock', 'sight'] as const),

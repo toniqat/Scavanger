@@ -1,10 +1,15 @@
-import type { EmbeddedView, GameContext, ItemInstance, TradeGridsView } from '@/shared';
+import type { EmbeddedView, GameContext, ItemDef, ItemInstance, TradeGridsView } from '@/shared';
 import type { InventorySystem, GridId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
 import { GridView, buildTileContent, setNeededAmmoFrom } from './GridView';
 import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
 import { CELL, GAP, TEXT, tileSizeAt } from './labels';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
+/* 2026-09-14: 툴팁 고정 · 고정 카드에서 소켓 끌어내기 */
+import type { DetachTarget } from '../model';
+import { Tooltip } from './Tooltip';
+import { TipPin, inventoryTooltipLookups, type DetachAim, type SocketDrag } from './TipPin';
+import { DRAG_THRESHOLD } from './model';
 
 /** Which of the player's grids a trade screen may show, top to bottom. */
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
@@ -145,6 +150,15 @@ export class TradeGrids implements TradeGridsView {
    * `.inv-menu` 는 `position: fixed` 라 transform 이 걸린 화면 안에 두면 자리가 어긋난다.
    */
   private readonly menu: ContextMenu;
+  /**
+   * 2026-09-14 (사용자 결정): 툴팁 고정 — 타일을 움직이지 않고 1초 누르면 **인벤토리 툴팁**(무기 게이지 · 소켓 줄이 있는 인스턴스 카드)이
+   * 누른 자리에 선다 (`ui/TipPin`). 떠다니는 호버 카드는 여전히 `ui/hud/ItemTip` 이고(고정한 타일은 `data-tip-pinned` 로 빠진다),
+   * 고정 카드와 그 소켓 썸네일의 호버 카드(`hoverTip`)는 `ctx.uiRoot` 에 산다 — 화면의 transform 밖이어야 `position: fixed` 가 맞는다.
+   */
+  private readonly pin: TipPin;
+  private readonly hoverTip: Tooltip;
+  /** A LMB press that has not moved past `DRAG_THRESHOLD` yet — the ghost lifts only past it (a hold may pin instead). */
+  private press: { uid: string; gridId: TradeGridId; el: HTMLElement; x: number; y: number } | null = null;
 
   constructor(
     private readonly inv: InventorySystem,
@@ -159,6 +173,22 @@ export class TradeGrids implements TradeGridsView {
     host.appendChild(this.root);
     this.menu = new ContextMenu(ctx.uiRoot);
     this.menu.el.classList.add('tg-menu');
+    const lookups = inventoryTooltipLookups(inv, ctx);
+    this.hoverTip = new Tooltip(lookups);
+    this.hoverTip.el.classList.add('tg-tip');
+    ctx.uiRoot.appendChild(this.hoverTip.el);
+    this.pin = new TipPin(ctx, lookups, {
+      owner: 'tradeGrids',
+      mount: (el) => { el.classList.add('tg-tip'); ctx.uiRoot.insertBefore(el, this.hoverTip.el); },
+      hoverTip: this.hoverTip,
+      buildGhost: (item, def) => this.buildSocketGhost(item, def),
+      ghostParent: document.body,
+      locate: (uid) => inv.locate(uid),
+      canDetach: (uid) => inv.canDetachSockets(uid),
+      aimDetach: (px, py, d) => this.aimDetach(px, py, d),
+      clearDetachAim: () => this.clearDetachAim(),
+      detach: (d, target) => inv.detachSocket(d.weaponUid, d.socket, target),
+    });
 
     this.cellPx = clampCell(opts.cell);
     this.applyCellVars();
@@ -181,6 +211,7 @@ export class TradeGrids implements TradeGridsView {
       b.on('inventory:favoritesChanged', repaint),
       // 2026-09-13 (서재 시리즈): 「아직 꽂지 않은」 띠 — 캐시는 `parts/ShelfWanted` 가 먼저(시스템 init 구독) 비운다
       b.on('housing:libraryChanged', repaint),
+      b.on('ui:tipPinned', repaint),   // 2026-09-14: the pinned tile's `data-tip-pinned` flag
     );
     this.refresh();
   }
@@ -267,8 +298,15 @@ export class TradeGrids implements TradeGridsView {
         if (tile.dataset.itemTip === undefined) tile.dataset.itemTip = '';
         const defId = grid?.get(uid)?.item.defId;
         if (defId && tile.dataset.defId !== defId) tile.dataset.defId = defId;
+        // 2026-09-14: the tile whose tooltip is pinned opts out of the `ItemTip` hover card (the pinned card is its card)
+        const pinnedHere = uid === this.pin.pinnedUid;
+        if (pinnedHere !== (tile.dataset.tipPinned !== undefined)) {
+          if (pinnedHere) tile.dataset.tipPinned = '';
+          else delete tile.dataset.tipPinned;
+        }
       });
     }
+    this.pin.validate();
   }
 
   /* ── 2026-09-13: 칸 크기 · 칩 줄 ───────────────────────────────────────── */
@@ -356,6 +394,11 @@ export class TradeGrids implements TradeGridsView {
   get filterGroup(): FilterGroupId { return this.sharedChips ? this.sharedFilter : this.blocks[0]?.filter ?? 'all'; }
 
   /* ── drag out ─────────────────────────────────────────────────────────── */
+  /**
+   * 2026-09-14: a press no longer lifts the ghost at once. The tile is only **pressed** until the pointer moves past
+   * `DRAG_THRESHOLD` — then the ghost lifts exactly as before (`liftGhost`). Holding still for `UI_HOLD_CONFIRM_S` pins the
+   * item's tooltip instead (`TipPin.beginHold`, whose fire drops the press). A release without moving is a plain click.
+   */
   private startDrag(uid: string, gridId: TradeGridId, e: PointerEvent): void {
     if (e.button !== 0) return;
     const grid = this.inv.getGrid(gridId);
@@ -367,6 +410,23 @@ export class TradeGrids implements TradeGridsView {
     const el = (e.currentTarget as HTMLElement | null) ?? (e.target as HTMLElement).closest<HTMLElement>('.inv-tile');
     if (!el) return;
     this.endDrag();
+    this.press = { uid, gridId, el, x: e.clientX, y: e.clientY };
+    this.moveX = e.clientX;
+    this.moveY = e.clientY;
+    window.addEventListener('pointermove', this.onMove, true);
+    window.addEventListener('pointerup', this.onUp, true);
+    window.addEventListener('pointercancel', this.onCancel, true);
+    this.pin.beginHold(uid, e.clientX, e.clientY, () => this.endDrag());
+  }
+
+  /** The press moved past the threshold: lift the ghost (the pick-up a press did at once before 2026-09-14). */
+  private liftGhost(): boolean {
+    const pr = this.press;
+    this.press = null;
+    const grid = pr ? this.inv.getGrid(pr.gridId) : null;
+    const p = pr ? grid?.get(pr.uid) : undefined;
+    const def = p ? this.inv.getDef(p.item.defId) : undefined;
+    if (!pr || !grid || !p || !def) { this.endDrag(); return false; }
     const fp = grid.footprintOf(p.item);
     const size = tileSizeAt(fp.w, fp.h, this.cellPx);
     const ghost = document.createElement('div');
@@ -376,19 +436,23 @@ export class TradeGrids implements TradeGridsView {
     ghost.style.setProperty('--inv-cell', `${this.cellPx}px`);
     if (this.cellPx < CELL) ghost.classList.add('tg-compact');
     const halfW = size.width / 2, halfH = size.height / 2;
-    ghost.style.transform = `translate3d(${e.clientX - halfW}px, ${e.clientY - halfH}px, 0)`;
+    ghost.style.transform = `translate3d(${this.moveX - halfW}px, ${this.moveY - halfH}px, 0)`;
     document.body.appendChild(ghost);
-    el.classList.add('is-dragging');
-    this.drag = { uid, gridId, ghost, el, halfW, halfH };
-    window.addEventListener('pointermove', this.onMove, true);
-    window.addEventListener('pointerup', this.onUp, true);
-    window.addEventListener('pointercancel', this.onCancel, true);
+    pr.el.classList.add('is-dragging');
+    this.drag = { uid: pr.uid, gridId: pr.gridId, ghost, el: pr.el, halfW, halfH };
+    return true;
   }
 
   private onMove = (e: PointerEvent): void => {
-    if (!this.drag) return;
+    if (!this.drag && !this.press) return;
     this.moveX = e.clientX;
     this.moveY = e.clientY;
+    if (!this.drag) {
+      const pr = this.press;
+      if (!pr || Math.hypot(e.clientX - pr.x, e.clientY - pr.y) < DRAG_THRESHOLD) return;
+      this.pin.cancelHold();
+      if (!this.liftGhost()) return;
+    }
     if (!this.moveRaf) this.moveRaf = requestAnimationFrame(this.moveFrame);
   };
 
@@ -430,6 +494,8 @@ export class TradeGrids implements TradeGridsView {
   private endDrag(): void {
     const d = this.drag;
     this.drag = null;
+    this.press = null;
+    this.pin.cancelHold();
     if (this.moveRaf) { cancelAnimationFrame(this.moveRaf); this.moveRaf = 0; }
     this.setOver(null);
     window.removeEventListener('pointermove', this.onMove, true);
@@ -438,6 +504,50 @@ export class TradeGrids implements TradeGridsView {
     if (!d) return;
     d.ghost.remove();
     d.el.classList.remove('is-dragging');
+  }
+
+  /* ── 2026-09-14: 고정 카드에서 소켓 끌어내기 — `TipPin` 에 이 뷰가 주는 대답 ─────────────────────────────── */
+
+  /** The ghost of an attachment pulled out of a pinned weapon card — the same `.tg-ghost` a tile drag lifts. */
+  private buildSocketGhost(item: ItemInstance, def: ItemDef): { el: HTMLElement; halfW: number; halfH: number } {
+    const w = item.rotated ? def.height : def.width, h = item.rotated ? def.width : def.height;
+    const ghost = document.createElement('div');
+    buildTileContent(ghost, item, def, w, h, null, this.cellPx);
+    ghost.classList.add('tg-ghost');
+    ghost.style.setProperty('--inv-cell', `${this.cellPx}px`);
+    if (this.cellPx < CELL) ghost.classList.add('tg-compact');
+    const size = tileSizeAt(w, h, this.cellPx);
+    return { el: ghost, halfW: size.width / 2, halfH: size.height / 2 };
+  }
+
+  /** A cell of this view's 가방 / 함선 창고 under the pointer (strict containment first, then the half-cell tolerance). */
+  private aimDetach(px: number, py: number, d: SocketDrag): DetachAim | null {
+    this.clearDetachAim();
+    const rotated = d.item.rotated;
+    const w = rotated ? d.def.height : d.def.width, h = rotated ? d.def.width : d.def.height;
+    const size = tileSizeAt(w, h, this.cellPx);
+    const left = px - size.width / 2, top = py - size.height / 2;
+    let hit: { bl: Block; x: number; y: number } | null = null;
+    for (const bl of this.blocks) {
+      if (!bl.view.hitTest(px, py, 0)) continue;
+      const c = bl.view.cellForGhost(left, top, w, h, px, py, 0);
+      if (c) { hit = { bl, x: c.x, y: c.y }; break; }
+    }
+    if (!hit) {
+      for (const bl of this.blocks) {
+        const c = bl.view.cellForGhost(left, top, w, h, px, py);
+        if (c) { hit = { bl, x: c.x, y: c.y }; break; }
+      }
+    }
+    if (!hit) return null;
+    const target: DetachTarget = { kind: 'grid', grid: hit.bl.id, x: hit.x, y: hit.y, rotated };
+    const ok = this.inv.previewDetach(d.weaponUid, d.socket, target) === 'ok';
+    hit.bl.view.showHighlight(hit.x, hit.y, w, h, ok ? 'ok' : 'bad');
+    return { target, ok };
+  }
+
+  private clearDetachAim(): void {
+    for (const bl of this.blocks) bl.view.hideHighlight();
   }
 
   private take(uid: string, gridId: TradeGridId, target: HTMLElement | null): void {
@@ -470,6 +580,8 @@ export class TradeGrids implements TradeGridsView {
     this.disposed = true;
     this.menu.dispose();
     this.endDrag();
+    this.pin.dispose();          // 2026-09-14: the pinned card and its socket hover card go with the view
+    this.hoverTip.dispose();
     if (this.refreshRaf) { cancelAnimationFrame(this.refreshRaf); this.refreshRaf = 0; }
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;

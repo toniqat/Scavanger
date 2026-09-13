@@ -40,6 +40,7 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **버그 굴착 스폰 · 지하벌레 이벤트** (2026-09-13) — 파고 나오는 시간 · 흔들림, 등장 확률(행성 threat) · 전조 · 분출 · 뱉기 · 독극물 | [`constants.csv`](constants.csv) 의 `BURROW_*` · `SANDWORM_*`, [`tables.csv`](tables.csv) 의 `SANDWORM_*` |
 | 적 특수 능력 — 도약 · 산성 침 · 돌진 · 로그 AI · 포병 · 베헤모스 · **인간형 팩션별 AI · 총 계열(`HUMANOID_WEAPONS`)** | [`enemy_abilities.csv`](enemy_abilities.csv) |
 | **행성 threat 별 인간형 적 배치** — 거점 점거 확률 · 그룹 수 · 그룹 크기 · 로그 분대장 · 레이더 강하 확률 · 파도 인원 · 네임드 확률 (`SITE_*` · `RAIDER_DROP_*` · `NAMED_ROGUE_CHANCE_BY_THREAT`) | [`tables.csv`](tables.csv) · [`constants.csv`](constants.csv) |
+| **행성 threat 별 벌레 난이도** (2026-09-14) — 벌레 체력 배수 · 대형(차저 · 베헤모스 · 포병) / 중형(전사 · 스퓨어) 비중 배수 · 순찰 베헤모스 · 포병/베헤모스 상한 보너스 (`BUG_HP_MUL_BY_THREAT` · `BIG_BUG_WEIGHT_MUL_BY_THREAT` · `MID_BUG_WEIGHT_MUL_BY_THREAT` · `PATROL_BEHEMOTH_BY_THREAT` · `ARTILLERY_CAP_BONUS_BY_THREAT` · `BEHEMOTH_CAP_BONUS_BY_THREAT`) | [`tables.csv`](tables.csv) |
 | **상자 루팅** — 티어 규칙 · 카테고리 가중치 · 확정 픽 · 아이템별 배수 | [`loot_tiers.csv`](loot_tiers.csv) · [`loot_category_weights.csv`](loot_category_weights.csv) · [`loot_guaranteed.csv`](loot_guaranteed.csv) · [`loot_item_weights.csv`](loot_item_weights.csv) |
 | **시체 루팅** | [`loot_corpses.csv`](loot_corpses.csv) · [`loot_corpse_rolls.csv`](loot_corpse_rolls.csv) |
 | **팩션 시체 루팅** — 안드로이드 · 로그 · 레이더의 총 등급 분포 · 방탄복 · 가방 · 회복 1회 굴림 · 스폰 거점 보너스(연구소 = 씨앗 · 미확인 표본, 전진기지 = 총 등급 교체) | [`loot_factions.csv`](loot_factions.csv) · [`loot_faction_sites.csv`](loot_faction_sites.csv) |
@@ -160,6 +161,59 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-14 — 총기 밸런스 · 스탯 모델 · 소켓 규칙 · 확장 총열 (`weapons.csv` · `attachments.csv` · `aim_sway.csv` · `tables.csv` · `tuning.csv` · `recipes.csv`)
+
+사용자 결정. 식 · 근거는 각 csv 머리 주석에 있고 여기는 요약과 **킬 시간 검산**이다.
+
+- **`weapons.csv`** 7열 신규: `fireRateGradeStep`(SMG 0.06 · SG 0.12) · `adsTime`(AR 0.3 · SMG 0.18 · SG 0.2 · DMR 0.25 · SR 0.3 — 옛 전역 0.25) ·
+  `bloomPerShot` / `bloomSpread`(옛 전역 0.14 / 1.6 → AR 0.3/1.2 · SMG 0.26/2 · SG 0.6/1 · DMR 0.3/1.6 · SR 0.5/1) · `projectileSpeed` · `bulletGravity` · `sockets`.
+  조작감 칸(퍼짐 · 반동 · 조준 시간 · `aim_sway.csv`)은 이제 **등급 V 기준값**이고 등급 I–V 가 `tables.csv` 의 **`WEAPON_GRADE_HANDLING_MUL`**(×1.6 · 1.45 · 1.3 · 1.15 · 1.0)을 곱한다.
+- 근거리 치명도 ("기본 피해를 올리고 거리 감소를 가파르게"): SMG 32→40 · 10→35 m ×0.3, SG 22→`=27*1.2`(= 27 × 전 거리 +20 % = 32.4 → 32) · 6→22 m ×0.15,
+  DMR 120→130 · 반동 0.9→1.6°, SR 330→360, AR 60 그대로(퍼짐 1.4→1.6 · 정조준 0.3→0.36 · 반동 0.35→0.42 · 40→160 m ×0.45 · 흔들림 0.12→0.16).
+- 탄도 (낙차 = ½ · g · (거리 / 속도)²): SMG 220 m/s · g 5.8 (100 m 0.60 m) · SG 180 · 5.2 (0.80) · AR 320 · 7.2 (0.35) · DMR 480 · 5.5 (0.12) · SR 650 · 5.1 (0.06).
+- **`attachments.csv`** 4열 신규(`sway` · `falloffRange` · `falloffLoss` · `bulletDrop`), `classes` 정리(제동기 · 보정기 = AR|SMG|DMR|SR, 손잡이 = AR|SMG · 흔들림 ×0.8,
+  개머리판 = AR · 흔들림 ×0.65), **`att_barrel_ext` 확장 총열**(희귀 · 총구 · AR|SMG|DMR|SR · 거리 ×1.35 · 손실 ×0.7 · 낙차 ×0.6, 가치 340). `recipes.csv` `make_att_barrel_ext`
+  (폐금속 10 + 합금 판 4 + 기계 부품 2, 총기 Lv.3). 상자 · 보스 시체 · 세레스 상점은 부착물 카테고리 규칙으로 저절로 들어간다.
+- **`tuning.csv`** `WEAPON_BLOOM_PER_SHOT_DEFAULT` · `WEAPON_BLOOM_SPREAD_DEFAULT` (계열 줄이 없는 유니크 무기용 0.14 / 1.6). `server/economy.gen.json` 재생성.
+- 리드 후속: **`weapons.csv` `bloomDecay`** 열(초당 식는 양 — AR · SMG 2.6 · SG 0.45 · DMR 0.8 · SR 0.35, 유니크는 `tuning.csv` `WEAPON_BLOOM_DECAY_DEFAULT` 2.6).
+  전역 2.6 이면 산탄 · 지정사수 · 저격의 연사 퍼짐이 한 발 간격 안에 다 식어 `bloomPerShot` 을 올려도 아무 일이 없었다.
+  **`weapons_unique.csv` `bulletGravity`** 열 — 미니건 340 m/s · 7.2 (일반 사격 경로라 발사체가 된다, 전에는 속도 칸이 비어 히트스캔이었다).
+
+**킬 시간 검산** — 몸통 명중, 거리 감소 전(근거리), 헤드샷 · 약점 배수 없음. 칸 = 필요한 발 수 (첫 발부터 마지막 발까지 초) · 체력 ×1.4(threat 3 행성) 발 수.
+벌레 체력은 `enemies.csv` (스캐빈저 120 · 헌터 360 · 전사 640 · 스퓨어 520 · 차저 1800), threat 배수는 `tables.csv` `BUG_HP_MUL_BY_THREAT`(×1.0 · 1.2 · 1.4).
+
+| 무기 | 한 발 (× 산탄) | rps | 초당 | 스캐빈저 | 헌터 | 전사 | 스퓨어 | 차저 |
+|---|---|---|---|---|---|---|---|---|
+| AR I | 60 | 10 | 600 | 2 (0.1 s) · 3 | 6 (0.5 s) · 9 | 11 (1.0 s) · 15 | 9 (0.8 s) · 13 | 30 (2.9 s) · 42 |
+| AR V | 89 | 10 | 890 | 2 (0.1 s) · 2 | 5 (0.4 s) · 6 | 8 (0.7 s) · 11 | 6 (0.5 s) · 9 | 21 (2.0 s) · 29 |
+| SMG I | 40 | 14 | 560 | 3 (0.14 s) · 5 | 9 (0.57 s) · 13 | 16 (1.07 s) · 23 | 13 (0.86 s) · 19 | 45 (3.1 s, 탄창 40) · 63 |
+| SMG V | 59 | 17.36 | 1024 | 3 (0.12 s) · 3 | 7 (0.35 s) · 9 | 11 (0.58 s) · 16 | 9 (0.46 s) · 13 | 31 (1.7 s) · 43 |
+| SG I | 32 × 8 = 256 | 1.3 | 333 | 1 · 1 | 2 (0.8 s) · 2 | 3 (1.5 s) · 4 | 3 (1.5 s) · 3 | 8 (5.4 s, 탄창 8) · 10 |
+| SG V | 48 × 8 = 384 | 1.92 | 737 | 1 · 1 | 1 · 2 | 2 (0.5 s) · 3 | 2 (0.5 s) · 2 | 5 (2.1 s) · 7 |
+| DMR I | 130 | 3 | 390 | 1 · 2 | 3 (0.7 s) · 4 | 5 (1.3 s) · 7 | 4 (1.0 s) · 6 | 14 (4.3 s) · 20 |
+| DMR V | 192 | 3 | 576 | 1 · 1 | 2 (0.3 s) · 3 | 4 (1.0 s) · 5 | 3 (0.7 s) · 4 | 10 (3.0 s) · 14 |
+| SR I | 360 | 0.9 | 324 | 1 · 1 | 1 · 2 | 2 (1.1 s) · 3 | 2 (1.1 s) · 3 | 5 (4.4 s) · 7 |
+| SR V | 533 | 0.9 | 480 | 1 · 1 | 1 · 1 | 2 (1.1 s) · 2 | 1 · 2 | 4 (3.3 s) · 5 |
+
+읽는 법: 근거리 초당 피해는 SMG V > AR V > SG V 순이지만 SG 는 한 방에 헌터까지 끝낸다(산탄 8알 전부 맞을 때). 거리가 붙으면 SMG 는 35 m, SG 는 22 m 부터 최저치
+(×0.3 · ×0.15)라 AR(160 m ×0.45) · DMR · SR 이 이긴다. SMG I 로 차저를 잡으려면 한 탄창을 넘긴다 — 의도(확장 탄창 · 등급이 답).
+
+### 2026-09-14 — 높은 threat 행성의 벌레 난이도 (`tables.csv` 6표)
+
+사용자 결정: 벌레 체력이 행성 threat 로 오른다(×1.0 / 1.2 / 1.4), 「네임드 버그」 는 없으므로 **대형 벌레 비중 증가**로. 로더 `src/enemies/factionTables.ts` 의 `bugThreatTuning`,
+적용은 `src/enemies/` (자세한 규칙은 `src/enemies/README.md` 의 *벌레 난이도*). key 0..2 = threat 1..3 이고 **threat 1 칸(× 1 · + 0 · 0)이면 예전과 비트 동일**하다 — 행성 없음 · 훈련장이 그 칸이다.
+
+| 표 | 1 / 2 / 3 | 무엇에 곱하나 |
+|---|---|---|
+| `BUG_HP_MUL_BY_THREAT` | 1 · 1.2 · 1.4 | 팩션 bug 최대 체력 (전사 640 → 768 → 896). 지하벌레(`SANDWORM_HP_*`) · 인간형 제외. 경직 문턱(`staggerFraction`)도 늘어난 최대 체력 기준 |
+| `BIG_BUG_WEIGHT_MUL_BY_THREAT` | 1 · 1.4 · 1.9 | `planets.csv` bugs 의 charger · behemoth · artillery 가중치, 순찰 대형 슬롯 확률(ramp 0.7 에서 8 → 11.2 → 15.2 %), 포병 굴착 확률(0.47 → 0.66 → 0.89) |
+| `MID_BUG_WEIGHT_MUL_BY_THREAT` | 1 · 1.15 · 1.3 | warrior · spewer 가중치 — 중형 슬롯에서 헌터보다 조금 더 (지하벌레 뱉기 · 분출 무리도) |
+| `PATROL_BEHEMOTH_BY_THREAT` | 0 · 0 · 1 | 1 = 순찰 대형 슬롯이 베헤모스도 뽑는다 (행성 bugs 에 있을 때만 — 지금은 피로스 VII 뿐, 상한을 넘으면 차저). 탈출 웨이브가 없어진 뒤 베헤모스가 나올 길이 없었다 |
+| `ARTILLERY_CAP_BONUS_BY_THREAT` | 0 · 1 · 1 | `maxArtillery` + (피로스 VII 3 → 4 · 카민 I 2 → 3). +2 는 포병 5마리 동시 포격이라 체력 ×1.4 와 겹치면 과했다 |
+| `BEHEMOTH_CAP_BONUS_BY_THREAT` | 0 · 1 · 1 | `maxBehemoth` + (피로스 VII 2 → 3) |
+
+threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단트 III 에 포병 · 베헤모스 가중치가 없다)에서는 효과가 없다 — 가중치가 없는 종류는 여전히 안 나온다.
 
 ### 2026-09-13 — 전력 할당 폐지 · 발전기 = 상위 시설의 증축 조건 (`room_purposes.csv` · `facility_upgrades.csv` · `furniture.csv` · `tables.csv` · `tuning.csv` · `constants.csv`)
 

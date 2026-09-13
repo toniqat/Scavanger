@@ -1439,3 +1439,20 @@ export interface GameEvents {
   'ui:tvMenuToggled': { open: boolean; uid: string | null };
 }
 /* ── end [2026-09-13] 서재 시리즈 · 비디오게임 ── */
+
+/* ── [2026-09-14] 인벤토리 툴팁 고정 · 공용 커서 홀드 링 ── */
+export interface GameEvents {
+  /**
+   * appended (2026-09-14, owner: 누르고 있는 화면 — 지금은 inventory 의 툴팁 고정 `ui/TipPin`): LMB 를 **꾹 누르는 중**이다.
+   * `progress` 0 … 1 (`UI_HOLD_CONFIRM_S` 동안 차오른다), `null` = 끝났다 · 취소됐다 · 1 에 닿았다. `x` · `y` = 커서의 클라이언트
+   * 좌표 (생략하면 ui 가 `ctx.input.uiX/uiY` 를 읽는다). `owner` = 링을 띄운 쪽 (진단용). ui/hud/CursorHoldGauge 가 `housing:moveHold` 와
+   * **같은 링**으로 그린다 — 다른 폴더 내부를 import 하지 않고 링을 쓰는 길이다.
+   */
+  'ui:cursorHold': { owner: string; progress: number | null; x?: number; y?: number };
+  /**
+   * appended (2026-09-14, owner: inventory `ui/TipPin`): 아이템 툴팁이 고정됐다(`uid`) / 풀렸다(`uid: null`). 고정은 화면 전체에서
+   * 하나뿐이라, 다른 `owner` 의 고정을 들은 쪽은 스스로 푼다. ui/hud/ItemTip 은 고정되는 순간 떠 있던 호버 카드를 내린다.
+   */
+  'ui:tipPinned': { owner: string; uid: string | null };
+}
+/* ── end [2026-09-14] 인벤토리 툴팁 고정 ── */

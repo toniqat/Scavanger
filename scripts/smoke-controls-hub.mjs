@@ -494,11 +494,14 @@ try {
     const sys = window.__game.getSystem('inventory');
     // 2026-09-08: the `.inv-slot-meta` sentence is gone — the numbers live inside the slot card
     const card = document.querySelector('.inv-slot-primary .inv-slot-card');
-    return { uid: w.uid, info: sys.repairInfo(w.uid), name: card.querySelector('.inv-slot-name').textContent, dur: card.querySelector('.inv-slot-durnum').textContent, ammo: card.querySelector('.inv-slot-ammo').textContent };
+    // 2026-09-14: the `100/300` durability number left the card — the gauge's `data-ratio` (and its colour) carries it now
+    const max = inv.getDurability(w.uid)?.max ?? 0;
+    return { uid: w.uid, info: sys.repairInfo(w.uid), name: card.querySelector('.inv-slot-name').textContent, ratio: Number(card.querySelector('.inv-slot-dur')?.dataset.ratio ?? NaN),
+      expect: max > 0 ? 100 / max : NaN, durNum: !!card.querySelector('.inv-slot-durnum'), ammo: card.querySelector('.inv-slot-ammo').textContent };
   });
   ok(repairPrep.info && repairPrep.info.cost.length > 0 && !repairPrep.info.short, `repair cost listed: ${repairPrep.info?.cost.map((c) => `${c.name}×${c.qty}`).join(',')}`);
-  ok(/^100\/\d+$/.test(repairPrep.dur) && !!repairPrep.name && /^\d+\/\d+$/.test(repairPrep.ammo),
-    `slot card shows name / rounds / durability (${repairPrep.name} · ${repairPrep.ammo} · ${repairPrep.dur})`);
+  ok(Math.abs(repairPrep.ratio - repairPrep.expect) < 0.002 && !repairPrep.durNum && !!repairPrep.name && /^\d+\/\d+$/.test(repairPrep.ammo),
+    `slot card shows name / rounds / durability gauge, no durability number (${repairPrep.name} · ${repairPrep.ammo} · ratio ${repairPrep.ratio})`);
   const slotTile = await page.$('.inv-slot-primary .inv-tile');
   await slotTile.click({ button: 'right' });
   const menuItems = await page.evaluate(() => [...document.querySelectorAll('.inv-menu .inv-menu-item')].map((n) => n.textContent));

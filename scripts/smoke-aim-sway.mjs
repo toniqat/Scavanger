@@ -112,8 +112,11 @@ try {
   await tap('Digit1');
   await waitSim(1.2);
   const prof = await swayNow();
-  ok(Math.abs(prof.profile - SWAY.SR.amp * DEG) < 1e-9 && Math.abs(prof.hz - SWAY.SR.hz) < 1e-9,
-    `SR in hand → rig sway profile = aim_sway.csv SR (${SWAY.SR.amp}° @ ${SWAY.SR.hz} Hz)`, JSON.stringify(prof));
+  // 2026-09-14 총기 밸런스: the gun feeds the class amplitude × its handling (`stats.swayMul` — grade I ×1.6 … V ×1.0, stock / grip)
+  const swayMulSR = await page.evaluate(() => { const ws = window.__game.getSystem('weapons'); const m = ws.slots[ws.active]?.stats.swayMul; return Number.isFinite(m) ? m : 1; });
+  const SR_AMP = SWAY.SR.amp * swayMulSR;
+  ok(Math.abs(prof.profile - SR_AMP * DEG) < 1e-9 && Math.abs(prof.hz - SWAY.SR.hz) < 1e-9,
+    `SR in hand → rig sway profile = aim_sway.csv SR × swayMul (${SWAY.SR.amp}° × ${swayMulSR} @ ${SWAY.SR.hz} Hz)`, JSON.stringify(prof));
   const hip = await record(1.5);
   ok(hip.length > 10 && hip.every((s) => s.amp === 0 && s.yaw === 0 && s.pitch === 0), `hip (no RMB): no sway over 1.5 s (${hip.length} samples)`);
 
@@ -122,7 +125,7 @@ try {
   await mDown(2);
   await waitSim(1.5);
   const ads = await record(3.4);   // ≥ one full yaw period at 0.32 Hz
-  const A = SWAY.SR.amp * DEG;
+  const A = SR_AMP * DEG;
   const yaws = ads.map((s) => s.yaw), pitches = ads.map((s) => s.pitch);
   const yawRange = Math.max(...yaws) - Math.min(...yaws), pitchRange = Math.max(...pitches) - Math.min(...pitches);
   const ampMean = ads.reduce((a, s) => a + s.amp, 0) / Math.max(1, ads.length);
@@ -154,15 +157,29 @@ try {
     pl.rig.setAimSway(1.5, 0.32);
     ctx.player.setAimSway = () => {};
     window.__hits = [];
-    ctx.bus.on('weapon:hit', (h) => {
-      // at the moment of the shot the camera still shows the frame the player pulled the trigger on
-      const cam = ctx.camera; const V = cam.position.constructor; const rig = window.__game.getSystem('player').rig;
-      const dir = new V(); cam.getWorldDirection(dir);
+    // 2026-09-14: rounds are projectiles, so the impact arrives frames after the trigger pull (the view has kicked and swayed
+    // on by then). The reference is captured **at the pull** — `fire` runs before the rig moves the camera, so the camera
+    // still shows the frame the player pulled the trigger on.
+    const V0 = ctx.camera.position.constructor;
+    const wsys = window.__game.getSystem('weapons'); const origFire = wsys.fire.bind(wsys);
+    window.__shotCam = null;
+    wsys.fire = (host, w) => {
+      const cam = ctx.camera; const rig = window.__game.getSystem('player').rig;
+      const dir = new V0(); cam.getWorldDirection(dir);
       const e = new cam.rotation.constructor().setFromQuaternion(cam.quaternion, 'YXZ');
-      const pb = e.x - rig.swayPitch, yb = e.y - rig.swayYaw, cp = Math.cos(pb);
+      window.__shotCam = { pos: cam.position.clone(), dir, ex: e.x, ey: e.y, swayYaw: rig.swayYaw, swayPitch: rig.swayPitch, v: w?.stats.projectileSpeed ?? 0, g: w?.stats.bulletGravity ?? 0 };
+      return origFire(host, w);
+    };
+    ctx.bus.on('weapon:hit', (h) => {
+      const c = window.__shotCam; if (!c) return;
+      const V = V0;
+      const pb = c.ex - c.swayPitch, yb = c.ey - c.swayYaw, cp = Math.cos(pb);
       const bare = new V(-Math.sin(yb) * cp, Math.sin(pb), -Math.cos(yb) * cp);
-      const offOf = (d) => { const r = new V().subVectors(h.point, cam.position); return r.sub(d.clone().multiplyScalar(r.dot(d))).length(); };
-      window.__hits.push({ dist: h.point.distanceTo(cam.position), off: offOf(dir), bareOff: offOf(bare), sway: Math.hypot(rig.swayYaw, rig.swayPitch) });
+      const offOf = (d) => { const r = new V().subVectors(h.point, c.pos); return r.sub(d.clone().multiplyScalar(r.dot(d))).length(); };
+      const dist = h.point.distanceTo(c.pos);
+      // the round drops ½·g·t² below the crosshair ray (no drop compensation by design)
+      const drop = c.v > 0 ? 0.5 * c.g * (dist / c.v) ** 2 : 0;
+      window.__hits.push({ dist, off: offOf(c.dir), bareOff: offOf(bare), sway: Math.hypot(c.swayYaw, c.swayPitch), drop });
     });
   });
   // aim the camera centre at the ground ~25 m out (yaw scan + pitch bisection, same as smoke-weapons)
@@ -191,11 +208,11 @@ try {
   await waitSim(0.15);
   const shot = await page.evaluate(() => ({ hits: window.__hits.slice(), pitch: window.__game.getSystem('player').rig.pitch }));
   const h0 = shot.hits[0];
-  ok(shot.hits.length === 1 && h0.off < 0.08, `shot lands on the rendered crosshair ray under sway: ${h0?.off?.toFixed(3)} m off at ${h0?.dist?.toFixed(1)} m`, JSON.stringify(shot.hits));
+  ok(shot.hits.length === 1 && h0.off < 0.08 + h0.drop * 1.3, `shot lands on the rendered crosshair ray under sway: ${h0?.off?.toFixed(3)} m off at ${h0?.dist?.toFixed(1)} m (bullet drop ${h0?.drop?.toFixed(3)} m)`, JSON.stringify(shot.hits));
   if (h0 && h0.sway > 0.4 * DEG) ok(h0.bareOff > 0.12 && h0.bareOff > h0.off * 3, `…and not on the sway-less line (${h0.bareOff.toFixed(3)} m off — sway ${(h0.sway / DEG).toFixed(2)}°)`);
   else console.log(`  note sway at the shot was ${(h0?.sway / DEG).toFixed(2)}° — sway-less comparison skipped`);
   ok(shot.pitch - pitchBefore > 0.05 * DEG, `recoil still kicks the view up (+${((shot.pitch - pitchBefore) / DEG).toFixed(2)}°)`);
-  await page.evaluate((s) => { const p = window.__game.ctx.player; delete p.setAimSway; p.setAimSway(s.amp, s.hz); }, SWAY.SR);
+  await page.evaluate((s) => { const p = window.__game.ctx.player; delete p.setAimSway; p.setAimSway(s.amp, s.hz); }, { amp: SR_AMP, hz: SWAY.SR.hz });
   await waitSim(1.8);   // bolt cycle + the amplitude damps back
 
   console.log('배수: aimSwayMul · 자세 · 이동');

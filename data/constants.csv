@@ -153,9 +153,12 @@ DETECT_ENEMY_COLOR,0xff4d4d,
 # ── tactical implants ──
 IMPLANT_GRAPPLE_RANGE,45,
 IMPLANT_GRAPPLE_SPEED,26,pull speed (m/s)
-IMPLANT_GRAPPLE_COOLDOWN,24,"2026-09-12: 12 → 24 (2배) — 대신 끝날 때 환급한다 (IMPLANT_GRAPPLE_REFUND_* · IMPLANT_GRAPPLE_CANCEL_*). 2026-09-09: 6 → 12."
+IMPLANT_GRAPPLE_COOLDOWN,31.2,"2026-09-14: 24 → 31.2 (+30 % 전구간 하향 — IMPLANT_GRAPPLE_CANCEL_MIN_S 도 같이 ×1.3, 환급 비율은 그대로). 2026-09-12: 12 → 24 (2배) — 대신 끝날 때 환급한다 (IMPLANT_GRAPPLE_REFUND_* · IMPLANT_GRAPPLE_CANCEL_*). 2026-09-09: 6 → 12."
 IMPLANT_DASH_CHARGES,3,
-IMPLANT_DASH_DISTANCE,11.25,"2026-09-12: 7.5 → 11.25 (1.5배). 앞 벽은 여전히 레이캐스트로 자른다."
+IMPLANT_DASH_DISTANCE,11.25,"2026-09-12: 7.5 → 11.25 (1.5배). 2026-09-14: 앞을 레이 하나로 자르지 않는다 — 몸(PLAYER_RADIUS)을 IMPLANT_DASH_SWEEP_STEP 씩 걸음처럼 밀어 보고(표면 먼저 · resolveCollision 나중) 걸어서 닿는 가장 먼 자리에서 멈춘다. 창틀 · 깨진 창 · 개구멍을 뚫고 순간이동하던 것."
+IMPLANT_DASH_SWEEP_STEP,0.15,"2026-09-14: 대시 경로를 몸으로 훑는 한 걸음(m). PLAYER_RADIUS(0.45) 보다 충분히 작아야 얇은 유리판(0.05 m)도 반드시 몸에 겹친다 — 11.25 m 에 75 걸음."
+IMPLANT_DASH_SLIDE_MIN,0.5,"2026-09-14: 한 걸음을 밀어낸 뒤 진행 방향으로 이 비율(걸음 대비) 이상 나아갔으면 벽을 스치며 미끄러진 것으로 보고 계속 간다. 못 미치면 막힌 것 — 그 앞 걸음에서 멈춘다 (벽에 45° 보다 깊게 박히면 멈춘다)."
+IMPLANT_DASH_MAX_SLOPE_DEG,50,"2026-09-14: 지형(발이 지형 위일 때만) 경사가 이 각도보다 가파른 오르막이면 대시가 거기서 멈춘다. player/PlayerController 의 걷기 경사 한계(STEEP_COS 50°)와 같은 값이어야 걸어서 못 가는 비탈을 대시로 오르지 않는다."
 IMPLANT_DASH_COOLDOWN,5,per charge
 IMPLANT_BARRIER_HP,2000,
 IMPLANT_BARRIER_WIDTH,7,
@@ -820,7 +823,7 @@ AIM_SWAY_BLEND_RATE,6,"조준 흔들림 크기가 자세 · 이동 · 무기 교
 IMPLANT_GRAPPLE_REFUND_MAX,0.5,"갈고리가 붙은 뒤 놓았을 때 돌려주는 최대 쿨타임 비율 (실효 쿨타임 대비). 당겨진 거리 0 m 에서 이 값이고 IMPLANT_GRAPPLE_REFUND_DIST 까지 선형으로 0 이 된다 — 짧게 끊어 쓰면 자주 쓸 수 있다 (사용자 결정)."
 IMPLANT_GRAPPLE_REFUND_DIST,15,"이 거리(m) 이상 당겨졌으면 환급이 0 이다. 거리는 붙은 순간 → 놓은 순간의 실제 이동이고 놓은 뒤 관성은 세지 않는다."
 IMPLANT_GRAPPLE_CANCEL_REFUND,0.9,"갈고리가 붙기 전에 끝났을 때(날아가는 중 Q 회수 · 드론 앵커 소실) 돌려주는 쿨타임 비율 (실효 쿨타임 대비)."
-IMPLANT_GRAPPLE_CANCEL_MIN_S,3,"붙기 전 취소로 환급받아도 남는 최소 쿨타임(초). 헛발사를 연타 수단으로 쓰지 못하게 한다."
+IMPLANT_GRAPPLE_CANCEL_MIN_S,3.9,"붙기 전 취소로 환급받아도 남는 최소 쿨타임(초). 헛발사를 연타 수단으로 쓰지 못하게 한다. 2026-09-14: 3 → 3.9 (갈고리 쿨타임 +30 % 와 같이)."
 # ── end [B] ──
 # ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 ──
 # ── end [C] ──

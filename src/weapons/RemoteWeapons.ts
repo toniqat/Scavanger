@@ -11,7 +11,12 @@ import { WeaponModel } from './WeaponModel';
 import { attachmentVisualsFromIds, sameIds } from './Attachments';
 import type { WeaponFx } from './fx/WeaponFx';
 import { GRENADE_FUSE, type GrenadeManager } from './Grenade';
-import { projectileOptsFor, type ProjectilePool, type ProjectileHit } from './Projectile';
+import { projectileOptsFor, type ProjectilePool, type ProjectileHit, type ProjectileOptions } from './Projectile';
+
+/** Reused launch options for replica bullets (the pool copies every field at launch). */
+const _replicaOpts: ProjectileOptions = { style: 'bullet', gravity: 0, report: false, width: 0.032 };
+/** Muzzle velocity / drop per weapon id, from the effective stats (0 speed = the weapon still fires hitscan). */
+interface Ballistics { speed: number; gravity: number }
 import type { UniqueFx } from './unique/UniqueFx';
 
 /** Max replicated shots per second per remote player that produce FX/audio (token bucket, small burst). */
@@ -215,10 +220,16 @@ export class RemoteWeapons {
     const pellets = def.pellets && def.pellets > 1 ? def.pellets : 1;
     const spread = pellets > 1 ? def.spread : 0;
     const fxm = FxManager.get();
+    // 2026-09-14 모든 총알을 발사체로: the replica flies with the same muzzle velocity / drop the shooter's gun has,
+    // derived here from the weapon's effective stats (attachments on the wire are not folded in — visual only)
+    const bal = this.ballisticsOf(def);
     for (let i = 0; i < pellets; i++) {
       randomInCone(_dir, spread, _pd, _tA, _tB);
-      if (def.projectileSpeed) {
-        this.projectiles.fire(_muzzle, _pd, def.projectileSpeed, 0, def.range, def.tracerColor, def.id, true, projectileOptsFor(def));
+      if (bal.speed > 0) {
+        _replicaOpts.style = def.unique === 'bow' ? 'arrow' : 'bullet';
+        _replicaOpts.gravity = bal.gravity;
+        _replicaOpts.width = pellets > 1 ? 0.022 : cls === 'SR' ? 0.04 : 0.032;
+        this.projectiles.fire(_muzzle, _pd, bal.speed, 0, def.range, def.tracerColor, def.id, true, _replicaOpts);
         continue;
       }
       const hit = this.visualRaycast(_muzzle, _pd, def.range, _end, _n);
@@ -425,6 +436,26 @@ export class RemoteWeapons {
   }
 
   /* ─────────────────────────── helpers ─────────────────────────── */
+  private readonly ballistics = new Map<string, Ballistics>();
+
+  /**
+   * 2026-09-14: muzzle velocity + drop of a remote weapon, from `ctx.loot.getEffectiveStats(id)` (grade-level numbers —
+   * the sender's attachments are not folded in), else the def. Cached per weapon id; cleared with the entries.
+   */
+  private ballisticsOf(def: WeaponDef): Ballistics {
+    let b = this.ballistics.get(def.id);
+    if (b) return b;
+    let speed = 0, gravity = 0;
+    const loot = this.ctx.loot;
+    let st: ReturnType<NonNullable<typeof loot>['getEffectiveStats']> = null;
+    if (loot && typeof loot.getEffectiveStats === 'function') { try { st = loot.getEffectiveStats(def.id); } catch { st = null; } }
+    if (st && Number.isFinite(st.projectileSpeed)) { speed = st.projectileSpeed; gravity = Number.isFinite(st.bulletGravity) ? st.bulletGravity : 0; }
+    else { speed = def.projectileSpeed ?? 0; gravity = def.bulletGravity ?? 0; }
+    b = { speed: Math.max(0, speed), gravity: Math.max(0, gravity) };
+    this.ballistics.set(def.id, b);
+    return b;
+  }
+
   private readonly rayResult = { enemy: null as EnemyRef | null, obstacle: false };
 
   /** Nearest of enemy / world raycast → `point`, `normal`; returns hit info or null. Read-only, no damage. */
@@ -466,6 +497,7 @@ export class RemoteWeapons {
   clear(): void {
     for (const e of this.entries.values()) this.disposeEntry(e);
     this.entries.clear();
+    this.ballistics.clear();
   }
 
   private disposeEntry(e: RemoteEntry): void {

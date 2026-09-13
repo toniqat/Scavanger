@@ -641,13 +641,18 @@ try {
     const em = ctx.enemies; const origRep = em.reportShot.bind(em); window.__origRep = origRep;
     em.reportShot = (o, d, r, h) => { window.__shots.rep.push({ o: [o.x, o.y, o.z], d: [d.x, d.y, d.z], r, h: h ? [h.x, h.y, h.z] : null }); return origRep(o, d, r, h); };
     ctx.bus.on('weapon:hit', (p) => {
-      // reference = the crosshair ray from the camera (standing still, the rig moved nothing this frame)
+      // reference = the crosshair ray from the camera **at the trigger pull** (2026-09-14: rounds are projectiles now, so the
+      // impact lands frames later — after the recoil has already kicked the view; `fire` is wrapped below to capture it)
       const cam = ctx.camera; const V = cam.position.constructor; const look = new V(); window.__game.getSystem('player').rig.getLookDir(look);
-      const x = ctx.world.raycast(cam.position, look, 900);
+      const ref = window.__shotRef; const camPos = ref ? ref.pos : cam.position; if (ref) look.copy(ref.look);
+      const x = ctx.world.raycast(camPos, look, 900);
       const right = new V(look.z, 0, -look.x).normalize();
       const lateral = x ? new V().subVectors(p.point, x.point).dot(right) : null;
       window.__shots.hits.push({ p: [p.point.x, p.point.y, p.point.z], x: x ? [x.point.x, x.point.y, x.point.z] : null, dist: x ? x.distance : null, lateral, off: x ? p.point.distanceTo(x.point) : null });
     });
+    // the crosshair ray at the trigger pull (before `fire` adds the recoil to the rig)
+    const wsys = window.__game.getSystem('weapons'); const origFire = wsys.fire.bind(wsys);
+    wsys.fire = (host, w) => { const V = ctx.camera.position.constructor; const look = new V(); window.__game.getSystem('player').rig.getLookDir(look); window.__shotRef = { pos: ctx.camera.position.clone(), look }; return origFire(host, w); };
     return { added, eq };
   });
   ok(srSet.added && srSet.eq, '저격소총 I equipped for the accuracy probe');
@@ -684,7 +689,8 @@ try {
   ok(s30.hits.length === 1 && s30.hits[0].lateral !== null && Math.abs(s30.hits[0].lateral) < 0.05 && s30.hits[0].off < 0.08,
     `SR ADS @ ${s30.hits[0]?.dist?.toFixed(1)} m: hit ${s30.hits[0]?.off?.toFixed(3)} m from the crosshair ray (lateral ${s30.hits[0]?.lateral?.toFixed(3)} m)`, JSON.stringify(s30.hits));
   ok(s30.rep.length === 1 && s30.rep[0].h !== null && s30.rep[0].r === 700, 'one reportShot per SR shot, with the impact point and the weapon range', JSON.stringify(s30.rep));
-  ok(s30.rep.length === 1 && s30.hits.length === 1 && Math.hypot(...s30.rep[0].h.map((v, i) => v - s30.hits[0].p[i])) < 1e-3, 'reportShot hit === weapon:hit point');
+  // 2026-09-14: a projectile round reports the resolved line's end at the pull; the impact lands a drop below it (mm at 30 m)
+  ok(s30.rep.length === 1 && s30.hits.length === 1 && Math.hypot(...s30.rep[0].h.map((v, i) => v - s30.hits[0].p[i])) < 0.05, 'reportShot hit ≈ weapon:hit point (within the bullet drop)', JSON.stringify({ rep: s30.rep[0]?.h, hit: s30.hits[0]?.p }));
   // 150 m: cylinder obstacle down the current look line, camera re-aimed level at its wall
   const far = await page.evaluate(() => {
     const ctx = window.__game.ctx; const rig = window.__game.getSystem('player').rig; const cam = ctx.camera; const V = cam.position.constructor;
@@ -719,15 +725,18 @@ try {
     if (window.__farRemove) window.__farRemove();
     window.__farRemove = ctx.world.addObstacle({ position: c, radius: 6, height: 400 });
     const r = ctx.world.raycast(cam.position, d, 900);
-    return r ? { dist: r.distance, obstacle: !!r.obstacle, want: D } : null;
+    // 2026-09-14: rounds are projectiles — the expected drop at that distance (½·g·t², no drop compensation by design)
+    const ws = window.__game.getSystem('weapons'); const st = ws.slots[ws.active]?.stats;
+    const drop = r && st && st.projectileSpeed > 0 ? 0.5 * (st.bulletGravity || 0) * (r.distance / st.projectileSpeed) ** 2 : 0;
+    return r ? { dist: r.distance, obstacle: !!r.obstacle, want: D, drop } : null;
   });
   ok(!!far && far.obstacle && far.dist > 50 && far.dist < 160, `far probe: camera ray meets the obstacle wall at ${far?.dist?.toFixed(1)} m`, JSON.stringify(far));
   await waitSim(1.5);
   await page.evaluate(() => { window.__shots.rep.length = 0; window.__shots.hits.length = 0; });
   await mDown(0); await waitSim(0.2); await mUp(0);
-  await waitSim(0.4);
+  await waitSim(0.6);
   const s150 = await page.evaluate(() => ({ rep: window.__shots.rep.slice(), hits: window.__shots.hits.slice() }));
-  ok(s150.hits.length === 1 && s150.hits[0].lateral !== null && Math.abs(s150.hits[0].lateral) < 0.1 && s150.hits[0].off < 0.15,
+  ok(s150.hits.length === 1 && s150.hits[0].lateral !== null && Math.abs(s150.hits[0].lateral) < 0.1 && s150.hits[0].off < 0.15 + (far?.drop ?? 0) * 1.3,
     `SR ADS @ ${s150.hits[0]?.dist?.toFixed(1)} m: hit ${s150.hits[0]?.off?.toFixed(3)} m from the crosshair ray (lateral ${s150.hits[0]?.lateral?.toFixed(3)} m)`, JSON.stringify(s150.hits));
   ok(s150.rep.length === 1 && s150.rep[0].h !== null, 'reportShot once with the far impact', JSON.stringify(s150.rep));
   await mUp(2);

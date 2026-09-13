@@ -24,19 +24,23 @@ Ids: grade I keeps the family id (`ar`); grade g ≥ 2 is `${family}_g${g}` (`ar
 
 Per grade above I: damage × (1 + 0.12·(g−1)) rounded, max durability × (1 + 0.25·(g−1)) rounded, item value ×
 (1 + 0.6·(g−1)), rarity = grade (I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설).
+**2026-09-14 (총기 밸런스)**: fire rate × (1 + `fireRateGradeStep`·(g−1)) rounded to 0.01 (SMG 0.06 · SG 0.12, others 0), and
+spread · ADS spread · recoil × **`WEAPON_GRADE_HANDLING_MUL`** (`data/tables.csv`, I ×1.6 · II ×1.45 · III ×1.3 · IV ×1.15 · V ×1.0) —
+the csv handling columns are the grade-V reference. ADS time and `swayMul` take the same multiplier in `baseWeaponStats`.
 
-| family | name | class | ammo | grid | dmg I → V | dur I → V | rps | mag | reload | falloff start→end (×min) | notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| `ar` | 돌격소총 | AR | medium | 4×2 | 60 → 89 | 500 → 1000 | 10 | 45 | 2.4 s | 60→220 (×0.6) | auto |
-| `smg` | 기관단총 | SMG | light | 3×2 | 32 → 47 | 550 → 1100 | 14 | 40 | 1.9 s | 15→45 (×0.4) | auto |
-| `sg` | 산탄총 | SG | shell | 3×2 | 22×8 → 33×8 | 200 → 400 | 1.3 | 8 | 3.0 s | 8→30 (×0.25) | pellets |
-| `dmr` | 지정사수소총 | DMR | heavy | 4×1 | 120 → 178 | 250 → 500 | 3 | 15 | 2.6 s | 120→400 (×0.75) | semi, adsZoom 1.6 |
-| `sr` | 저격소총 | SR | heavy | 5×1 | 330 → 488 | 120 → 240 | 0.9 | 5 | 3.4 s | 300→700 (×0.85) | bolt, adsZoom 4, scope |
-| `hg` | 권총 | PISTOL | light | 2×1 | 45 → 67 | 350 → 700 | 6 | 15 | 1.6 s | 20→70 (×0.5) | semi, secondary slot |
+| family | name | class | ammo | grid | dmg I → V | rps I → V | dur I → V | mag | reload | falloff start→end (×min) | ADS s (V) | m/s · g | sockets | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ar` | 돌격소총 | AR | medium | 4×2 | 60 → 89 | 10 | 500 → 1000 | 45 | 2.4 s | 40→160 (×0.45) | 0.3 | 320 · 7.2 | all five | auto |
+| `smg` | 기관단총 | SMG | light | 3×2 | 40 → 59 | 14 → 17.36 | 550 → 1100 | 40 | 1.9 s | 10→35 (×0.3) | 0.18 | 220 · 5.8 | muzzle · grip · mag · sight | auto |
+| `sg` | 산탄총 | SG | shell | 3×2 | 32×8 → 48×8 | 1.3 → 1.92 | 200 → 400 | 8 | 3.0 s | 6→22 (×0.15) | 0.2 | 180 · 5.2 | muzzle · mag · sight | pellets, csv `=27*1.2` |
+| `dmr` | 지정사수소총 | DMR | heavy | 4×1 | 130 → 192 | 3 | 250 → 500 | 15 | 2.6 s | 120→400 (×0.75) | 0.25 | 480 · 5.5 | muzzle · mag · sight | semi, adsZoom 1.6, recoil 1.6° |
+| `sr` | 저격소총 | SR | heavy | 5×1 | 360 → 533 | 0.9 | 120 → 240 | 5 | 3.4 s | 300→700 (×0.85) | 0.3 | 650 · 5.1 | muzzle · mag · sight | bolt, adsZoom 4, scope |
 
-Base item values (grade I): ar 350 · smg 480 · sg 520 · dmr 780 · sr 950 · hg 140. Hip spreads are deliberately loose
-(AR 1.4°, SMG 1.9°, SR 4°); `src/weapons` scales them by stance/ADS. The energy-weapon path (`kindOf` → `'energy'`,
-`ammoType 'energy'`) is unused by any def now but kept for the uniques / fallbacks.
+Base item values (grade I): ar 350 · smg 480 · sg 520 · dmr 780 · sr 950. The pistol family (`hg`) left the csv on 2026-09-10.
+Hip spreads (grade V) are deliberately loose (AR 1.6°, SMG 1.9°, SR 4°); `src/weapons` scales them by stance/ADS. The
+energy-weapon path (`kindOf` → `'energy'`, `ammoType 'energy'`) is unused by any def now but kept for the uniques / fallbacks.
+Per-family numbers that are not `WeaponDef` fields (`adsTime` · `bloomPerShot` · `bloomSpread` · `fireRateGradeStep`) live in
+`WEAPON_FAMILY_TUNING` / `weaponFamilyTuning(def)`; `weaponHandlingMul(def)` is 1 for uniques. TTK vs bug HP: `data/README.md` 2026-09-14.
 
 ## Unique weapons (Phase 6, 2026-09-06)
 
@@ -74,20 +78,25 @@ The legacy `ammo_rifle/pistol/shotgun/energy` defs are gone; `AMMO_LABEL_KO` sti
 
 ## Attachments
 
-Category `attachment`, 1×1, stack 1, `ItemDef.attachment: { socket, classes?, ammoTypes?, effects }`. `classes`/`ammoTypes` undefined = fits everything. "not PISTOL" = `['AR','SMG','SG','SR','DMR']`.
+Category `attachment`, 1×1, stack 1, `ItemDef.attachment: { socket, classes?, ammoTypes?, effects }`. `classes`/`ammoTypes` undefined = fits everything.
+**2026-09-14**: the weapon class must also *have* the socket (`WeaponDef.sockets` ← `weapons.csv` `sockets`; `canAttach` checks it first) —
+SG muzzle · mag · sight, SMG + grip, DMR / SR muzzle · mag · sight, AR all five. An attachment a weapon no longer accepts has no effect
+(`computeWeaponStats` folds only `fittingAttachments`) and inventory detaches it on load. New effects: `sway` (→ `swayMul`), `falloffRange`
+(× falloff start / end), `falloffLoss` (× the damage lost at the end, `1 − falloffMin`), `bulletDrop` (× `bulletGravity`).
 
 | id | name | socket | rarity | fits | effects |
 |---|---|---|---|---|---|
-| `att_brake` | 총구 제동기 | muzzle | uncommon | all | recoilV ×0.75, recoilH ×0.75 |
-| `att_comp` | 보정기 | muzzle | uncommon | all | spread ×0.85 |
+| `att_brake` | 총구 제동기 | muzzle | uncommon | AR, SMG, DMR, SR | recoilV ×0.75, recoilH ×0.75 |
+| `att_comp` | 보정기 | muzzle | uncommon | AR, SMG, DMR, SR | spread ×0.85 |
+| `att_barrel_ext` | 확장 총열 (2026-09-14) | muzzle | rare | AR, SMG, DMR, SR | falloffRange ×1.35, falloffLoss ×0.7, bulletDrop ×0.6 |
 | `att_choke` | 산탄총 초크 | muzzle | uncommon | SG | spread ×0.7 |
-| `att_grip_angled` | 앵글 그립 | grip | uncommon | not PISTOL | recoilH ×0.7 |
-| `att_grip_vertical` | 수직 그립 | grip | uncommon | not PISTOL | recoilV ×0.7 |
+| `att_grip_angled` | 앵글 그립 | grip | uncommon | AR, SMG | recoilH ×0.7, sway ×0.8 |
+| `att_grip_vertical` | 수직 그립 | grip | uncommon | AR, SMG | recoilV ×0.7, sway ×0.8 |
 | `att_mag_light` | 확장형 경량 탄창 | mag | rare | ammo light | magSize ×1.4 |
 | `att_mag_medium` | 확장형 준중량 탄창 | mag | rare | ammo medium | magSize ×1.4 |
 | `att_mag_heavy` | 확장형 중량 탄창 | mag | rare | ammo heavy | magSize ×1.4 |
 | `att_mag_shell` | 확장형 산탄 탄창 | mag | rare | ammo shell | magSize ×1.4 |
-| `att_stock` | 전술 개머리판 | stock | rare | not PISTOL | spread ×0.9, adsTime ×0.75 |
+| `att_stock` | 전술 개머리판 | stock | rare | AR | spread ×0.9, adsTime ×0.75, sway ×0.65 |
 | `att_laser` | 레이저사이트 | sight | uncommon | all | laser, hipSpread ×0.7 |
 | `att_scope4` | 4배 조준경 | sight | rare | AR, SMG, SR, DMR | adsZoom 4, scope |
 | `att_scope6` | 6배 조준경 | sight | epic | AR, SMG, SR, DMR | adsZoom 6, scope |
@@ -166,9 +175,10 @@ Ammo stack sizes are the 세트 sizes (`AMMO_STACK_ROUNDS`: light 80 / medium 50
 
 ## Stats & helpers (`WeaponStats.ts`, exposed via `LootRef`)
 
-- `computeWeaponStats(def, inst?)`: starts from the def (damage/magSize/spreads/durability already graded), `recoilV = def.recoil`, `recoilH = recoil × 0.7`, `adsTime = WEAPON_ADS_TIME` (× 0.5 for secondaries), `swapTime = WEAPON_SWAP_TIME_PRIMARY | _SECONDARY`, `adsZoom = def.adsZoom ?? 1`, `scope = !!def.scope`, `laser = false`, `maxDurability = def.maxDurability ?? WEAPON_DEFAULT_DURABILITY`; then folds each attachment in `inst.sockets` in `SOCKET_SLOTS` order — multipliers multiply (`spread` hits hip + ADS, `hipSpread` only hip), `magSize` rounded (min 1), `adsZoom`/`scope`/`laser` override.
+- **2026-09-14**: `adsTime = family adsTime × weaponHandlingMul(def)` (× 0.5 for secondaries; uniques `WEAPON_ADS_TIME`), `swayMul = weaponHandlingMul(def)` × socket `sway`, `sockets` = class list (uniques `[]`), `falloffStart/End/Min` always filled (no falloff = start = end = range, min 1) then × `falloffRange` / `falloffLoss`, `projectileSpeed` / `bulletGravity` from the def (× `bulletDrop`), `bloomPerShot` / `bloomSpread` from the family row (uniques `WEAPON_BLOOM_*_DEFAULT`, `tuning.csv`). Only `fittingAttachments(def, inst)` are folded (own socket + `canAttach`). **`damageFalloffStats(stats, distance)`** is the falloff after sockets (weapons/ uses it); `damageFalloff(def, d)` still reads the bare def.
+- `computeWeaponStats(def, inst?)`: starts from the def (damage/magSize/spreads/durability already graded), `recoilV = def.recoil`, `recoilH = recoil × 0.7`, `adsTime = WEAPON_ADS_TIME` (× 0.5 for secondaries — superseded above), `swapTime = WEAPON_SWAP_TIME_PRIMARY | _SECONDARY`, `adsZoom = def.adsZoom ?? 1`, `scope = !!def.scope`, `laser = false`, `maxDurability = def.maxDurability ?? WEAPON_DEFAULT_DURABILITY`; then folds each attachment in `inst.sockets` in `SOCKET_SLOTS` order — multipliers multiply (`spread` hits hip + ADS, `hipSpread` only hip), `magSize` rounded (min 1), `adsZoom`/`scope`/`laser` override.
 - `repairCost(def, inst)`: missing = max − (`inst.durability ?? max`); `ceil(missing / REPAIR_SCRAP_PER)` × `mat_scrap`, plus `ceil(missing / REPAIR_ALLOY_PER)` × `mat_alloy` when grade ≥ III; `[]` when nothing is missing.
-- `canAttach(weaponDef, attachmentDef)`: `classes` (via `weaponClassOf`) and `ammoTypes` (def calibre) checks.
+- `canAttach(weaponDef, attachmentDef)`: socket in `weaponDef.sockets` (2026-09-14), then `classes` (via `weaponClassOf`) and `ammoTypes` (def calibre) checks.
 - `LootService.createItem(defId, qty?, extras?)`: weapons spawn with `durability = maxDurability` and `ammoInMag = magSize` (extended mag in `extras.sockets` counted) unless `extras` overrides; `sockets` copied from `extras`. `getEffectiveStats` accepts an instance, a weapon def id (`ar_g3`) or a weapon item id (`wpn_ar_g3`); returns `null` / `[]` / `false` for non-weapons.
 
 ## Loot tiers
@@ -1203,6 +1213,17 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
 ---
 
 ## 변경 이력
+
+- **2026-09-14 (총기 밸런스 · 스탯 모델 · 소켓 규칙 · 확장 총열 — agent-gunbal, 사용자 결정)** — 위 *Weapon families & grades* · *Attachments* · *Stats & helpers* 가 표다.
+  데이터: `weapons.csv` 7열 신규(`fireRateGradeStep` · `adsTime` · `bloomPerShot` · `bloomSpread` · `projectileSpeed` · `bulletGravity` · `sockets`) + 근거리 치명도 수치
+  (SMG 32→40 · SG 22→`=27*1.2` · DMR 120→130 · SR 330→360, AR 60 그대로 · 퍼짐 / 반동 / 거리 감소 조정 — 식과 낙차 표는 csv 머리 주석) · `attachments.csv` 4열
+  (`sway` · `falloffRange` · `falloffLoss` · `bulletDrop`) + `classes` 정리(제동기 · 보정기 SG 제외, 손잡이 AR|SMG, 개머리판 AR) + **`att_barrel_ext` 확장 총열**(희귀, 총구) ·
+  `tables.csv` `WEAPON_GRADE_HANDLING_MUL` · `tuning.csv` `WEAPON_BLOOM_*_DEFAULT` · `aim_sway.csv` AR 0.12→0.16 · `recipes.csv` `make_att_barrel_ext`(총기 Lv.3).
+  코드: `WeaponDefs.ts`(`WEAPON_FAMILY_TUNING` · `weaponFamilyTuning` · `WEAPON_GRADE_HANDLING_MUL` · `weaponHandlingMul`, `buildGrade` 가 조작감 배수 · 연사 계단을 굽는다,
+  계열 def 에 `sockets` · `projectileSpeed` · `bulletGravity`) · `WeaponStats.ts`(새 스탯 칸 전부 채움, 새 효과 4종, `fittingAttachments` = 규칙 밖 부착물은 효과 없음,
+  `canAttach` 소켓 검사, `damageFalloffStats`) · `ItemDefs.ts`(부착물 새 열, `classes` 를 `enumList` 로 검사). 확장 총열은 상자 · 보스 시체(희귀 부착물 풀) · 세레스 상점
+  (`corp_stock.csv` 의 부착물 줄) · 총기 작업대로 얻는다 — 부착물은 원래 분해 대상이 아니다. `server/economy.gen.json` 재생성.
+  ⚠ 같은 시드의 상자 · 보스 시체에서 부착물 후보가 하나 늘어 결과가 예전과 다를 수 있다. ⚠ 계열 def 에 `projectileSpeed` 가 생겨 weapons/ 의 옛 경로도 발사체로 간다(발사체 전환은 weapons 에이전트 몫).
 
 - **2026-09-13 (서재 시리즈 · 비디오게임 — 에이전트 D, `docs/plans/library-series-games.md`)** — 위 *서재 시리즈 · 비디오게임* 절이 표다.
   `ItemDefs.ts`: 옛 숙련별 서적 · 디스크 · 레코드 로더(`books.csv` · `discs.csv` · `records.csv`, 세 파일 삭제)를 **시리즈 생성**으로 교체 — 책 128 · 비디오 26 · 레코드 10,

@@ -121,6 +121,28 @@ export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup
   return item;
 }
 
+/**
+ * 2026-09-14 (총기 밸런스 — 계열별 소켓, 사용자 결정 "로드할 때 떼어서 돌려주기"): take every socketed attachment off `weapon`
+ * that `loot.canAttach` refuses today (its class lost that socket, the attachment's `classes` narrowed) or that sits in a socket
+ * other than its own. Returns them in `SOCKET_SLOTS` order with the socket they came from. The caller finds each a grid cell and,
+ * when there is none, puts it back (`weapon.sockets[socket] = item` — it has no effect there, `computeWeaponStats` skips it):
+ * an item is never dropped. An emptied `sockets` is deleted. Used by `Stash.load` and `parts/SocketRules`.
+ */
+export function detachForbiddenSockets(weapon: ItemInstance, getDef: DefLookup, loot: LootRef): Array<{ socket: SocketSlot; item: ItemInstance }> {
+  const out: Array<{ socket: SocketSlot; item: ItemInstance }> = [];
+  const sockets = weapon.sockets;
+  if (!sockets) return out;
+  for (const slot of SOCKET_SLOTS) {
+    const att = sockets[slot];
+    if (!att) continue;
+    if (getDef(att.defId)?.attachment?.socket === slot && loot.canAttach(weapon, att)) continue;
+    delete sockets[slot];
+    out.push({ socket: slot, item: att });
+  }
+  if (Object.keys(sockets).length === 0) delete weapon.sockets;
+  return out;
+}
+
 /** Integer grid coordinates of a saved placement, or null when corrupt. */
 export function savedCell(sv: SavedPlacement): { x: number; y: number } | null {
   const x = Number(sv.x), y = Number(sv.y);

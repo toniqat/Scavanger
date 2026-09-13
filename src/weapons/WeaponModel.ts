@@ -9,10 +9,20 @@ const ACCENT = 0xf2b632;
 const DARK = 0x14171c;
 const WOOD = 0x5a3a24;
 const LASER = 0xff2a2a;
+/** Laser beam along the barrel (m) — the resting length. */
+const LASER_BARREL_LEN = 1.6;
+/** Aimed laser: beam length clamp (m) toward the shot line's end, and the blend rate barrel ↔ aim (1/s). */
+const LASER_AIM_MIN = 0.3, LASER_AIM_MAX = 40, LASER_BLEND_RATE = 14;
+/** 확장 총열 sleeve length (m) per silhouette (visual only — ballistics come from the attachment's stats). */
+const BARREL_EXT_LEN: Partial<Record<WeaponKind, number>> = { rifle: 0.18, energy: 0.16, shotgun: 0.18, smg: 0.13, sniper: 0.2, pistol: 0.07 };
+const _lp = new THREE.Vector3(), _ld = new THREE.Vector3(), _ls = new THREE.Vector3();
+const _lq = new THREE.Quaternion(), _laim = new THREE.Quaternion(), _lident = new THREE.Quaternion();
+const _negZ = new THREE.Vector3(0, 0, -1);
 
 /** Procedural attachment visuals derived from a weapon instance's sockets (see `WeaponSystem.attachmentsFor`). */
 export interface WeaponAttachmentVisuals {
-  muzzle?: 'brake' | 'comp' | 'choke';
+  /** `barrel` (2026-09-14) = 확장 총열: a longer sleeve past the muzzle. */
+  muzzle?: 'brake' | 'comp' | 'choke' | 'barrel';
   grip?: 'angled' | 'vertical';
   sight?: 'laser' | 'scope';
   /** Extended magazine (longer mag body). */
@@ -70,6 +80,11 @@ export class WeaponModel {
   private readonly attachMaterials: THREE.Material[] = [];
   private attachMagExt: THREE.Object3D | null = null;
   private muzzleBase = new THREE.Vector3();
+  /** 2026-09-14 laser sight: pivot at the lens (beam = its unit-length child), barrel ↔ aim blend 0..1. */
+  private laserPivot: THREE.Object3D | null = null;
+  private laserBeam: THREE.Mesh | null = null;
+  private laserBlend = 0;
+  private readonly laserTarget = new THREE.Vector3();
   private readonly baseMats: { metal: THREE.Material; steel: THREE.Material; accent: THREE.Material; dark: THREE.Material };
   /** Bolt handle (sniper); animated by `setBolt`. */
   private bolt: THREE.Object3D | null = null;
@@ -147,6 +162,15 @@ export class WeaponModel {
         this.atube(0.019, len, metal, mz.x, mz.y, mz.z - len / 2, g);
         for (let i = 0; i < 4; i++) this.abox(0.008, 0.024, 0.008, dark, mz.x, mz.y + 0.016, mz.z - 0.012 - i * 0.018, g);
         this.abox(0.03, 0.008, len, accent, mz.x, mz.y - 0.018, mz.z - len / 2, g);
+      } else if (cfg.muzzle === 'barrel') {
+        // 2026-09-14 확장 총열: a long sleeve (heat-shield rings + a crown) — the muzzle socket moves to its end
+        len = BARREL_EXT_LEN[this.kind] ?? 0.16;
+        const r = this.kind === 'shotgun' ? 0.021 : this.kind === 'pistol' ? 0.011 : this.kind === 'sniper' ? 0.019 : 0.015;
+        this.atube(r, len, metal, mz.x, mz.y, mz.z - len / 2, g);
+        const rings = Math.max(2, Math.round(len / 0.05));
+        for (let i = 0; i < rings; i++) this.atube(r * 1.3, 0.006, steel, mz.x, mz.y, mz.z - (i + 0.5) * (len / rings), g);
+        this.atube(r * 1.2, 0.012, dark, mz.x, mz.y, mz.z - len + 0.006, g);
+        this.abox(r * 0.9, 0.006, len * 0.8, accent, mz.x, mz.y + r * 1.05, mz.z - len / 2, g);
       } else {
         len = 0.05;
         const t = this.atube(0.024, len, dark, mz.x, mz.y, mz.z - len / 2, g);
@@ -179,8 +203,16 @@ export class WeaponModel {
         this.abox(0.022, 0.02, 0.05, dark, 0.032, a.barrelY, mz.z + 0.12, g);            // emitter right of the barrel
         const lm = this.amat(0x330000, 0, 0.6); lm.emissive.setHex(LASER); lm.emissiveIntensity = 3;
         this.abox(0.006, 0.006, 0.008, lm, 0.032, a.barrelY, mz.z + 0.094, g);           // lens
-        const beamLen = 1.6;
-        this.abox(0.003, 0.003, beamLen, lm, 0.032, a.barrelY, mz.z + 0.09 - beamLen / 2, g); // thin beam
+        // 2026-09-14: the beam is a unit-length box in a pivot at the lens — `setLaserAim` turns / stretches the pivot
+        // (barrel = identity, `LASER_BARREL_LEN` long). Never casts a shadow (it can be tens of metres long).
+        const pivot = new THREE.Object3D();
+        pivot.position.set(0.032, a.barrelY, mz.z + 0.09);
+        pivot.scale.set(1, 1, LASER_BARREL_LEN);
+        g.add(pivot);
+        const beam = this.abox(0.003, 0.003, 1, lm, 0, 0, -0.5, pivot);                   // thin beam
+        beam.name = 'laserBeam';
+        this.laserPivot = pivot; this.laserBeam = beam;
+        this.laserBlend = 0;
         this.abox(0.03, 0.016, 0.03, steel, 0, ry + 0.008, rz, g);                       // rail riser
       } else if (this.kind === 'pistol') {
         this.abox(0.024, 0.02, 0.03, dark, 0, ry + 0.01, rz, g);                         // mini red-dot housing
@@ -223,9 +255,11 @@ export class WeaponModel {
     }
 
     g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+    if (this.laserBeam) this.laserBeam.castShadow = false;   // tens of metres long when aimed — never in the shadow map
   }
 
   private clearAttachments(): void {
+    this.laserPivot = null; this.laserBeam = null; this.laserBlend = 0;
     for (const c of [...this.attachGroup.children]) this.attachGroup.remove(c);
     if (this.attachMagExt) { this.attachMagExt.removeFromParent(); this.attachMagExt = null; }
     for (const g of this.attachGeometries) g.dispose();
@@ -593,6 +627,44 @@ export class WeaponModel {
   setSpin(t: number): void { this.spin = t < 0 ? 0 : t > 1 ? 1 : t; }
   /** Flamethrower pilot / shock core glow 0..1 (spraying / arcing). No-op on other kinds. */
   setHeat(t: number): void { this.heat = t < 0 ? 0 : t > 1 ? 1 : t; }
+
+  /* ─────────── laser sight (2026-09-14) ─────────── */
+  /** A laser sight is mounted (`setAttachments({sight: 'laser'})`). */
+  get hasLaser(): boolean { return this.laserPivot !== null; }
+
+  /** Current barrel ↔ aim blend of the laser beam (0 = along the barrel). */
+  get laserAimBlend(): number { return this.laserBlend; }
+
+  /**
+   * Turn the laser beam toward a world point (`null` = back along the barrel), blended over time. The beam leaves the
+   * emitter lens; aimed, it is stretched to the point's distance (`LASER_AIM_MIN`–`LASER_AIM_MAX`). Call once per
+   * frame after the model's pose is set (the local weapon only — replicas keep the barrel beam). No-op without a laser.
+   */
+  setLaserAim(target: THREE.Vector3 | null, dt: number): void {
+    const pivot = this.laserPivot;
+    if (!pivot) return;
+    if (target) this.laserTarget.copy(target);
+    this.laserBlend = damp(this.laserBlend, target ? 1 : 0, LASER_BLEND_RATE, Math.max(0, dt));
+    if (!target && this.laserBlend < 0.002) this.laserBlend = 0;
+    const t = this.laserBlend;
+    if (t <= 0) { pivot.quaternion.identity(); pivot.scale.z = LASER_BARREL_LEN; return; }
+    const parent = pivot.parent;
+    if (!parent) return;
+    parent.updateWorldMatrix(true, false);
+    _lp.copy(pivot.position).applyMatrix4(parent.matrixWorld);
+    _ld.subVectors(this.laserTarget, _lp);
+    const dist = _ld.length();
+    if (dist < 1e-3) { pivot.quaternion.identity(); pivot.scale.z = LASER_BARREL_LEN; return; }
+    // the aim direction in the pivot's parent space (the body kicks / cants, so this is redone every frame)
+    parent.getWorldQuaternion(_lq).invert();
+    _ld.divideScalar(dist).applyQuaternion(_lq);
+    _laim.setFromUnitVectors(_negZ, _ld);
+    pivot.quaternion.slerpQuaternions(_lident, _laim, t);
+    parent.getWorldScale(_ls);
+    const s = Math.abs(_ls.z) > 1e-6 ? Math.abs(_ls.z) : 1;
+    const aimLen = Math.min(LASER_AIM_MAX, Math.max(LASER_AIM_MIN, dist)) / s;
+    pivot.scale.z = LASER_BARREL_LEN + (aimLen - LASER_BARREL_LEN) * t;
+  }
 
   /* ─────────── animation ─────────── */
   kick(strength = 1): void {

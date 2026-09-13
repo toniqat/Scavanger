@@ -63,6 +63,13 @@ export type DropTarget =
   /** A stim / grenade released over a quick-use wheel cell: assign it (`setQuickSlot`). */
   | { kind: 'quick'; index: number };
 /**
+ * 2026-09-14 (고정 툴팁에서 부착물 끌어내기): 소켓에서 꺼낸 부착물이 갈 곳 — `detachSocket`.
+ * 격자 칸(가방 · 함선 창고 · 주머니 — 가리킨 칸에 **그대로** 들어가야 한다, 옆 칸으로 비켜 놓지 않는다) 또는 바닥(레이드에서만).
+ */
+export type DetachTarget =
+  | { kind: 'grid'; grid: Extract<GridId, 'bag' | 'stash' | 'pouch'>; x: number; y: number; rotated: boolean }
+  | { kind: 'world' };
+/**
  * `ok` mutated, `noop` nothing to do (drop in place), `fail` refused (UI shakes), `pending` (Phase 7, multiplayer client)
  * = the take was sent to the host; the move happens on `cont taken`, a `cont denied` shakes the tile.
  */

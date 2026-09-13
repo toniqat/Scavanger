@@ -159,6 +159,15 @@ export class WeaponSystem implements GameSystem {
   aimMarker!: AimBlockMarker;
   /** Last `weapon:aimBlocked` sent. */
   aimBlocked = false;
+  /** 2026-09-14: `aimLine` was resolved this frame for the weapon in hand (`updateAimBlock`) — the laser sight reads it. */
+  aimLineValid = false;
+  /**
+   * 2026-09-14: projectile hits since the last `flushHitmarker` — merged into one `ui:hitmarker` per pool step, so a
+   * shotgun's pellets that land together still show one marker (the hitscan path merged them per trigger pull).
+   */
+  hitmarkAny = false;
+  hitmarkKill = false;
+  hitmarkHead = false;
   private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false, altFire: false };
   /**
    * Phase 7: what the snapshot builder (net/) reads every tick — one object updated in place at the end of `update`.
@@ -187,9 +196,11 @@ export class WeaponSystem implements GameSystem {
       // Phase 7: per-frame pose / held item / attachment list for the player snapshot (`PlayerSnapshot.h / att`, THROWING… flags)
       remoteState: this.remoteState,
     };
+    // 2026-09-14: every bullet flies through the pool, swept with the very query a hitscan shot used (`raycastAll`)
     this.projectiles = new ProjectilePool(ctx,
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
-      (h, weaponId) => this.remote.onVisualProjectileHit(h, weaponId));
+      (h, weaponId) => this.remote.onVisualProjectileHit(h, weaponId),
+      (o, d, max, out) => this.raycastAll(o, d, max, out));
     this.ufx = new UniqueFx(ctx.scene);
     this.remote = new RemoteWeapons(ctx, this.fx, this.grenades, this.projectiles, this.ufx);
     this.melee = new MeleeController(ctx, this.fx);
@@ -259,6 +270,8 @@ export class WeaponSystem implements GameSystem {
     this.ufx.update(dt);
     this.grenades.update(dt);
     this.projectiles.update(dt);
+    // 2026-09-14: bullet hits of this step → one merged hitmarker (eight pellets landing together are one marker)
+    Fire.flushHitmarker(this);
     this.remote.update(dt);
     // Two frames into the drop: compile shaders for the pooled/hidden FX meshes — **only without `ctx.shaders`**.
     // 2026-09-10: core already compiles the whole scene (hidden meshes included) on `world:ready` and holds the frame
@@ -340,7 +353,8 @@ export class WeaponSystem implements GameSystem {
 
     if (this.cooldown > 0) this.cooldown -= dt;
     if (this.quickCooldown > 0) this.quickCooldown -= dt;
-    this.bloom = Math.max(0, this.bloom - BLOOM_DECAY * dt);
+    // 2026-09-14: per-class recovery (weapons.csv bloomDecay) — pump / bolt guns recover slowly, so rapid follow-ups spread
+    this.bloom = Math.max(0, this.bloom - (weapon?.stats.bloomDecay ?? BLOOM_DECAY) * dt);
     if (this.firingTimer > 0) this.firingTimer -= dt;
     this.updateBolt(dt, weapon);
 
@@ -428,6 +442,21 @@ export class WeaponSystem implements GameSystem {
     this.updateRemoteState(armed ? weapon : null);
     this.updateThrowArc(host);
     this.updateAimBlock(host, weapon, armedAndFree);
+    this.updateLaser(dt, host, armed ? weapon : null);
+  }
+
+  /**
+   * 2026-09-14 레이저 사이트: while aiming or for `FIRING_POSE_HOLD` after a shot the beam turns from the barrel to where
+   * this frame's shot line ends (`aimLine.end` — the crosshair point, or the obstruction the red marker shows); otherwise
+   * it follows the barrel. `WeaponModel.setLaserAim` blends and clamps. Remote replicas never call it (barrel beam).
+   */
+  private updateLaser(dt: number, host: Host, weapon: WeaponInstance | null): void {
+    for (const s of WEAPON_SLOTS) {
+      const w = this.slots[s];
+      if (!w || !w.model.hasLaser) continue;
+      const aimed = w === weapon && this.aimLineValid && (host.isAiming || this.firingTimer > 0);
+      w.model.setLaserAim(aimed ? this.aimLine.end : null, dt);
+    }
   }
 
   /** 2026-09-12 총구 막힘: red ring where the barrel really hits + `weapon:aimBlocked` (`parts/AimLine`, same resolver as `fire()`). */

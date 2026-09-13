@@ -46,6 +46,9 @@ import { SandwormDirector } from './sandworm/Director';
 import { BurrowFx } from './fx/BurrowFx';
 import * as Burrow from './parts/Burrow';
 import { raySphere, rayCapsule, rayStandingCapsule, standingTopY } from './RayTests';
+/* appended (2026-09-14): 벌레 난이도 (행성 threat) */
+import { bugThreatTuning, type BugThreatTuning } from './factionTables';
+import { ambientOptsOf, artilleryDigInChance, maxArtilleryOf, maxBehemothOf, threatEcosystem } from './Spawner';
 import { carryCorpse } from './ai/Ride';
 import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
 
@@ -135,6 +138,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── 2026-09-13: 행성별 인간형 팩션 (`SiteGroups.ts` · `RogueDrop.ts` · `named/Director.ts`) ── */
   /** 이번 레이드 목표 행성의 threat (1..3, `world:ready` 에서 — 행성 없음 · 훈련장 = 1). 거점 팩션 · 강하 확률 · 네임드 확률의 색인. */
   planetThreatLevel: 1 | 2 | 3 = 1;
+  /**
+   * 2026-09-14: 이번 레이드의 벌레 난이도 (`bugThreatTuning(planetThreatLevel)`, 훈련장 = threat 1 칸) — 모든 클라이언트가 `world:ready` 에서 정한다.
+   * `Pool.acquire` 가 팩션 bug 의 최대 체력에 `hpMul` 을 곱한다 (리플리카도 같은 값이라 와이어가 필요 없다).
+   */
+  bugTuning: BugThreatTuning = bugThreatTuning(1);
+  /** 2026-09-14: 실효 생태계 = 행성 eco × 벌레 난이도 (`threatEcosystem`) — 순찰 · 웨이브 · 지하벌레가 읽는다. `eco` 는 행성 원본 그대로. */
+  private spawnEco: PlanetEcosystem | null = null;
   /** 다음 분대 id (`allocSquadId`, `Pool.reset` 이 1 로). */
   nextSquadId = 1;
   /** 레이드 시작 거점 점거 기록 (권한만, 디버그 · 스모크 — `debugSites()`). */
@@ -209,10 +219,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         // (the ecosystem is host-side composition only — the `es` / `ee` wire and replica behaviour are untouched).
         const planetId = this.training ? null : (planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
         this.eco = this.training ? null : (getPlanet(planetId)?.eco ?? null);
-        this.spawner.eco = this.eco;
-        this.waves.eco = this.eco;
         // 2026-09-13: 행성 threat → 거점 팩션 · 레이더 강하 확률 · 네임드 확률. 모든 클라이언트가 정해 둔다 (승격된 호스트의 강하 굴림)
         this.planetThreatLevel = planetThreat(planetId);
+        // 2026-09-14: 벌레 난이도 — 체력 배수(`Pool.acquire`, 리플리카도 같은 값) · 대형 벌레 비중 · 상한(실효 생태계). 훈련장 = threat 1 칸.
+        this.bugTuning = bugThreatTuning(this.training ? 1 : this.planetThreatLevel);
+        this.spawnEco = threatEcosystem(this.eco, this.bugTuning);
+        this.spawner.eco = this.spawnEco;
+        this.spawner.tuning = this.bugTuning;
+        this.waves.eco = this.spawnEco;
         if (this.training) return;
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
@@ -263,7 +277,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.burrowFx = new BurrowFx(ctx.scene);
     this.sandworm.bind(this);
     this.unsub.push(
-      bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.eco, this.training)),
+      // 2026-09-14: 뱉기 · 분출 무리는 실효 생태계(행성 threat 의 중형 가중치)에서 뽑는다 — 등장 여부 판정(`ecoAllows`)은 배수 > 0 이라 같다
+      bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.spawnEco, this.training)),
       bus.on('cheat:sandworm', ({ spitS }) => { this.sandworm.debugForce(spitS === undefined ? {} : { spitS }); }),
     );
     this.refreshMode();
@@ -701,21 +716,41 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Phase 11 (debug / smoke): the 행성 생태계 in force plus the numbers derived from it, or null with no planet.
    * `cap` is the ambient population ceiling at the current threat.
    */
-  get debugEcology(): { bugs: Partial<Record<EnemyType, number>>; pressure: number; rogues: number; boss: boolean; maxArtillery: number; maxBehemoth: number; gatherDensity: number; threat: number; cap: number } | null {
+  get debugEcology(): { bugs: Partial<Record<EnemyType, number>>; pressure: number; rogues: number; boss: boolean; maxArtillery: number; maxBehemoth: number; gatherDensity: number; threat: number; cap: number; planetThreat: number; bugHpMul: number; effBugs: Partial<Record<EnemyType, number>>; effMaxArtillery: number; effMaxBehemoth: number } | null {
     const eco = this.eco;
     if (!eco) return null;
+    // 2026-09-14: 위 필드는 행성 원본(planets.csv) 그대로, `eff*` 는 벌레 난이도가 얹힌 실효 생태계
+    const eff = this.spawnEco ?? eco;
     return {
       bugs: eco.bugs, pressure: eco.pressure, rogues: eco.rogues, boss: eco.boss,
       maxArtillery: eco.maxArtillery, maxBehemoth: eco.maxBehemoth, gatherDensity: eco.gatherDensity,
       threat: this.spawner.threat, cap: this.spawner.cap,
+      planetThreat: this.bugTuning.threat, bugHpMul: this.bugTuning.hpMul,
+      effBugs: { ...eff.bugs }, effMaxArtillery: maxArtilleryOf(eff), effMaxBehemoth: maxBehemothOf(eff),
     };
   }
   /** Phase 11 (debug / smoke): the ambient population ceiling right now (`(12 + 24 × threat) × eco.pressure`). */
   get debugAmbientCap(): number { return this.spawner.cap; }
-  /** Phase 11 (debug / smoke): one ambient patrol composition for `threat` through the live ecosystem. Spawns nothing. */
-  debugAmbientGroup(threat: number): EnemyType[] { return ambientGroup(threat, this.eco).slice(); }
+  /**
+   * Phase 11 (debug / smoke): one ambient patrol composition for `threat` through the live ecosystem. Spawns nothing.
+   * 2026-09-14: `planetThreat` 를 주면 이 행성의 원본 생태계에 **그 threat 의** 벌레 난이도를 얹어 굴린다 (같은 행성으로 threat 만 비교).
+   */
+  debugAmbientGroup(threat: number, planetThreat?: number): EnemyType[] {
+    const tuning = planetThreat === undefined ? this.bugTuning : bugThreatTuning(planetThreat);
+    const eco = planetThreat === undefined ? this.spawnEco : threatEcosystem(this.eco, tuning);
+    return ambientGroup(threat, eco, ambientOptsOf(tuning)).slice();
+  }
   /** Phase 11 (debug / smoke): one extraction-wave composition through the live ecosystem. Spawns nothing. */
-  debugWaveGroup(index: number, count: number): EnemyType[] { return waveGroup(index, count, this.eco).slice(); }
+  debugWaveGroup(index: number, count: number): EnemyType[] { return waveGroup(index, count, this.spawnEco).slice(); }
+  /**
+   * 2026-09-14 (debug / smoke): 벌레 난이도 한 칸 — 배수 · 보너스 + 이 행성에 얹었을 때의 포병 / 베헤모스 상한과 ramp `rampThreat` 에서의
+   * 포병 굴착 확률. `planetThreat` 생략 = 이번 레이드 값.
+   */
+  debugBugTuning(planetThreat?: number, rampThreat = 0.7): BugThreatTuning & { maxArtillery: number; maxBehemoth: number; artilleryChance: number } {
+    const tuning = planetThreat === undefined ? this.bugTuning : bugThreatTuning(planetThreat);
+    const eco = planetThreat === undefined ? this.spawnEco : threatEcosystem(this.eco, tuning);
+    return { ...tuning, maxArtillery: maxArtilleryOf(eco), maxBehemoth: maxBehemothOf(eco), artilleryChance: artilleryDigInChance(rampThreat, tuning.bigMul) };
+  }
   /** Phase 12 (debug / smoke): x-ray overlay state of enemy `id` (built overlay count, visible now, expiry). */
   debugXray(id: number): { overlays: number; visible: boolean; until: number } | null { return Status.debugXray(this, id); }
   /** Phase 12 (debug / smoke): enemies currently drawn through walls. */

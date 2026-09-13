@@ -1,5 +1,5 @@
 import type { WeaponClass, WeaponDef, WeaponSlot, EffectiveWeaponStats, UniqueWeaponKind } from '@/shared';
-import { WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY } from '@/shared';
+import { SOCKET_SLOTS, WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY } from '@/shared';
 import { weaponClassOf, damageFalloff } from '@/items';
 
 export { weaponClassOf, damageFalloff };
@@ -57,6 +57,16 @@ export function statsFromDef(def: WeaponDef): EffectiveWeaponStats {
     maxDurability: def.maxDurability ?? WEAPON_DEFAULT_DURABILITY,
     reloadTime: def.reloadTime,
     fireRate: def.fireRate,
+    sockets: def.sockets ?? SOCKET_SLOTS,
+    swayMul: 1,
+    falloffStart: def.falloffStart ?? def.range,
+    falloffEnd: def.falloffEnd ?? def.range,
+    falloffMin: def.falloffMin ?? 1,
+    projectileSpeed: def.projectileSpeed ?? 0,
+    bulletGravity: def.bulletGravity ?? 0,
+    bloomPerShot: 0.14,
+    bloomSpread: 1.6,
+    bloomDecay: 2.6,
   };
 }
 

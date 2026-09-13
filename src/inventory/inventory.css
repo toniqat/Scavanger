@@ -5,6 +5,9 @@
 /* 2026-09-12 (E1 · E2): 즐겨찾기 파랑 — 타일 띠(`.inv-tile.is-favorite`)와 칩 표식(`shared/itemChip`, ui/ 스타일)이 **같은 변수**를
    읽는다. 창 밖에 끼우는 타일(TradeGrids · 기업 상점 · 크루 카드)도 있어 `.inv-root` 가 아니라 `:root` 에 둔다. */
 :root { --c-favorite: #4a90ff; }
+/* 2026-09-14 (사용자 결정): 내구도 게이지 팔레트 — 가득 초록 → 노랑 → 주황 → 빔 빨강. `ui/GridView.setDurabilityColorVars` 가 남은 비율로
+   이웃한 두 색(`--dur-a` · `--dur-b`)과 그 사이 비율(`--dur-t`)을 고르고, 채움은 `color-mix` 로 칠한다. 색은 여기서만 고친다. */
+:root { --dur-c-full: #4fd17e; --dur-c-mid: #f2d34b; --dur-c-low: #f28a2c; --dur-c-empty: #ff5c5c; }
 
 .inv-root {
   --inv-cell: 54px;
@@ -348,17 +351,23 @@
   overflow: hidden;
   pointer-events: none;
 }
-.inv-tile-dur::after {
-  content: "";
+/* 2026-09-14 (사용자 결정): 내구도가 있는 **모든** 타일의 바닥 게이지. 채움은 자식 `i.inv-dur-fill`(폭 `--p`)이고 색은 남은 비율로
+   초록 → 노랑 → 주황 → 빨강 사이를 잇는다 (`:root` 의 `--dur-c-*` 팔레트, `GridView.setDurabilityColorVars`). 숫자는 타일에 없다.
+   (`is-low` 는 의미로만 남는다 — 색은 연속이다.) 장비칸 카드의 `.inv-slot-dur` 도 같은 채움을 쓴다. */
+.inv-dur > .inv-dur-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  width: var(--p);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--inv-ok) 80%, white 10%), var(--inv-ok));
-  box-shadow: 0 0 6px color-mix(in srgb, var(--inv-ok) 60%, transparent);
+  display: block;
+  width: var(--p, 100%);
+  background: color-mix(in srgb, var(--dur-b, var(--dur-c-full)) var(--dur-t, 100%), var(--dur-a, var(--dur-c-mid)));
+  box-shadow: 0 0 5px color-mix(in srgb, var(--dur-b, var(--dur-c-full)) 55%, transparent);
+  transition: width 140ms var(--inv-ease, ease);
 }
-.inv-tile-dur.is-low::after { background: linear-gradient(90deg, #e0a030, var(--inv-accent)); box-shadow: 0 0 6px color-mix(in srgb, var(--inv-accent) 60%, transparent); }
-.inv-tile-dur.is-broken { background: color-mix(in srgb, var(--inv-bad) 35%, rgba(0, 0, 0, 0.55)); border: 1px solid color-mix(in srgb, var(--inv-bad) 70%, transparent); height: 3px; }
-.inv-tile-dur.is-broken::after { width: 0; }
+.inv-tile-dur.is-broken {
+  background: color-mix(in srgb, var(--dur-c-empty) 35%, rgba(0, 0, 0, 0.55));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dur-c-empty) 70%, transparent), 0 0 8px color-mix(in srgb, var(--dur-c-empty) 55%, transparent);
+}
+.inv-dur.is-broken > .inv-dur-fill { width: 0; }
 .inv-tile.is-broken .inv-tile-icon { color: color-mix(in srgb, var(--inv-bad) 70%, white 20%); text-shadow: 0 0 10px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
 .inv-tile.is-weapon .inv-tile-qty { display: none; }
 
@@ -580,7 +589,7 @@
 .inv-slot-sockets { position: absolute; right: 8px; top: 8px; display: flex; gap: 3px; pointer-events: none; }
 /* nothing in the top-right corner without sockets (방탄복 / 가방) — the name gets the whole width */
 .inv-slot-card:not(.is-weapon) .inv-slot-name { right: 8px; }
-.inv-slot-ammo, .inv-slot-durnum {
+.inv-slot-ammo {
   position: absolute; bottom: 7px;
   font-family: var(--ui-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
@@ -588,22 +597,16 @@
   pointer-events: none;
 }
 .inv-slot-ammo { left: 8px; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
-/* 내구도 is the number you check least often — a step smaller than the round count. */
-.inv-slot-durnum { right: 8px; font-size: 10px; color: var(--inv-muted); }
-.inv-slot.is-worn .inv-slot-durnum { color: var(--inv-accent); }
+/* 2026-09-14 (사용자 결정): the `120/300` durability number (`.inv-slot-durnum`) is gone — the gauge along the bottom edge
+   carries it by colour (`.inv-dur > .inv-dur-fill`, green → yellow → orange → red) and the tooltip keeps the numbers. */
 .inv-slot-dur {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: 3px;
   background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  pointer-events: none;
 }
-.inv-slot-dur::after {
-  content: "";
-  display: block; height: 100%; width: var(--p, 100%);
-  background: var(--inv-ok);
-  transition: width 140ms var(--inv-ease);
-}
-.inv-slot-dur.is-low::after { background: var(--inv-accent); }
-.inv-slot-dur.is-broken::after { background: var(--inv-bad); }
+.inv-slot-dur.is-broken { background: color-mix(in srgb, var(--dur-c-empty) 30%, rgba(255, 255, 255, 0.08)); }
 .inv-slot-bag .inv-slot-body { align-self: flex-start; }
 .inv-slot-bag .inv-slot-empty svg { width: 40px; height: 28px; }
 .inv-slot-empty {
@@ -774,17 +777,21 @@ kbd {
   border-top: 1px solid var(--inv-line);
 }
 .inv-tt-durbar .n { color: rgba(233, 236, 239, 0.75); }
-.inv-tt-durbar .fill { background: linear-gradient(90deg, color-mix(in srgb, var(--inv-ok) 80%, white 10%), var(--inv-ok)); }
+/* 2026-09-14: the fill takes the tile gauge's colour (green → yellow → orange → red by ratio, `setDurabilityColorVars`) */
+.inv-tt-durbar .fill { background: color-mix(in srgb, var(--dur-b, var(--dur-c-full)) var(--dur-t, 100%), var(--dur-a, var(--dur-c-mid))); }
 .inv-tt-durbar.is-low .n { color: var(--inv-accent); }
-.inv-tt-durbar.is-low .fill { background: linear-gradient(90deg, #e0a030, var(--inv-accent)); }
 .inv-tt-durbar.is-broken .n { color: var(--inv-bad); font-weight: 600; }
 .inv-tt-durbar.is-broken .track { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
 .inv-tt-durbar.is-broken .fill { background: var(--inv-bad); }
 
 /* 2026-09-09: the five sockets as a row of small squares — attachment glyph (its colour) with a rarity border,
    or a dashed empty square with the two-letter socket caption. Hover title = `조준경: 없음` / `총구: 소음기`. */
+/* 2026-09-14 (사용자 결정): the row is **centred** and holds only the sockets the weapon accepts; an empty square shows
+   the socket's full Korean name (`개머리판`), so the squares grew to fit four syllables. */
 .inv-tt-sockets {
   display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
@@ -794,13 +801,60 @@ kbd {
   --ic: #9aa3ad;
   --sc: rgba(255, 255, 255, 0.22);
   flex: none;
-  width: 34px; height: 34px;
+  width: 40px; height: 38px;
   display: flex; align-items: center; justify-content: center;
   border: 1px dashed var(--sc);
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.025);
 }
-.inv-tt-sock .cap { font-size: 9px; letter-spacing: 0.04em; color: rgba(233, 236, 239, 0.35); }
+.inv-tt-sock .cap { font-size: 8.5px; letter-spacing: 0; white-space: nowrap; color: rgba(233, 236, 239, 0.4); }
+
+/* ── 2026-09-14 (사용자 결정): 고정한 툴팁 (`ui/TipPin`) ─────────────────────────────────────────────────────────────
+   1초 꾹 눌러 고정한 카드는 커서를 따라가지 않고 포인터를 받는다 — 우상단 모서리에 튀어나온 마름모(`.inv-tt-pin`)를 누르거나
+   카드 바깥을 누르면 풀린다. 떠다니는 호버 카드(70)보다 z 가 한 칸 낮아(69) 고정한 채 다른 아이템에 올린 카드가 그 위에 뜬다 — DOM 순서는
+   떠다니는 카드 **뒤**라 `document.querySelector('.inv-tooltip')` 는 여전히 떠다니는 카드다.
+   고정한 무기 카드의 소켓 썸네일: 올리면 부착물 카드, 끌 수 있으면(`.can-detach`) grab 커서 · 강조 테두리. */
+.inv-tooltip.is-pinned {
+  z-index: 69;
+  pointer-events: auto;
+  animation: none;
+  cursor: default;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px color-mix(in srgb, var(--rc) 35%, transparent), 0 0 24px color-mix(in srgb, var(--rc) 24%, transparent);
+}
+.inv-tt-pin {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 13px; height: 13px;
+  margin: 0; padding: 0;
+  transform: rotate(45deg);
+  background: var(--rc);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 8px color-mix(in srgb, var(--rc) 70%, transparent);
+  cursor: pointer;
+}
+.inv-tt-pin::after { content: ""; position: absolute; inset: -6px; }   /* a finger-sized hit area around the small diamond */
+.inv-tt-pin:hover { filter: brightness(1.3); }
+.inv-tooltip.is-pinned .inv-tt-sock.can-detach { cursor: grab; }
+.inv-tooltip.is-pinned .inv-tt-sock.can-detach:hover {
+  border-color: color-mix(in srgb, var(--inv-accent) 80%, white 10%);
+  box-shadow: inset 0 0 10px color-mix(in srgb, var(--ic) 16%, transparent), 0 0 8px color-mix(in srgb, var(--inv-accent) 45%, transparent);
+}
+.inv-tooltip.is-pinned .inv-tt-sock.is-dragging { opacity: 0.3; }
+.inv-tooltip.is-sock-dragging { cursor: grabbing; }
+/* an attachment dragged out of a pinned card: green over a free cell / the drop zone, red over a blocked one */
+.inv-ghost.inv-sock-ghost { transition: none; }
+.inv-ghost.inv-sock-ghost.is-ok, .tg-ghost.inv-sock-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }
+.inv-ghost.inv-sock-ghost.is-bad, .tg-ghost.inv-sock-ghost.is-bad { outline: 2px solid var(--inv-bad, #ff5c5c); outline-offset: 1px; }
+/* `TradeGrids` (기업 화면 · 함선 스테이션) mounts its pinned card and the socket hover card on `#ui-root`, outside `.inv-root` —
+   so the card carries the palette tokens itself and floats above `ui/hud/ItemTip` (200) and the favourite menu (210). */
+.inv-tooltip.tg-tip {
+  --inv-line: rgba(255, 255, 255, 0.12); --inv-line-strong: rgba(255, 255, 255, 0.26);
+  --inv-text: #e9ecef; --inv-muted: rgba(233, 236, 239, 0.55);
+  --inv-accent: #f0c46a; --inv-ok: #4fd17e; --inv-bad: #ff5c5c; --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  z-index: 212;
+}
+.inv-tooltip.tg-tip.is-pinned { z-index: 211; }
 .inv-tt-sock.is-filled {
   border-style: solid;
   border-color: color-mix(in srgb, var(--sc) 70%, rgba(255, 255, 255, 0.2));
@@ -1130,19 +1184,9 @@ kbd {
 .inv-head-actions { display: flex; align-items: center; gap: 10px; }
 
 /* ── durability bar on a tile ───────────────────────────────────────────── */
-.inv-tile-dur {
-  position: absolute;
-  left: 4px; right: 4px; bottom: 3px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.55);
-  overflow: hidden;
-  pointer-events: none;
-}
-.inv-tile-dur i { display: block; height: 100%; background: var(--inv-ok); transition: width 140ms var(--inv-ease); }
-.inv-tile-dur.is-low i { background: var(--inv-accent); }
-.inv-tile-dur.is-broken i { background: var(--inv-bad); }
-.inv-tile-dur.is-broken { box-shadow: 0 0 8px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
+/* 2026-09-14: the second `.inv-tile-dur` block (an old `i`-child variant that silently overrode `bottom`) is folded into
+   the one rule set near `.inv-tile-sockets` — the gauge now has one definition. */
+.inv-tile-dur { bottom: 3px; }
 
 /* ── crate search (감정) mask (Phase 7) ─────────────────────────────────── */
 /* An unsearched container item shows only its footprint: neutral colour, `?` icon, `???` name, no qty / pips / bar. */

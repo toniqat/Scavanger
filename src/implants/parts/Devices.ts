@@ -11,14 +11,14 @@ import {
   IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
-  IMPLANT_DASH_DISTANCE, IMPLANT_GRAPPLE_RANGE,
+  IMPLANT_DASH_DISTANCE, IMPLANT_DASH_MAX_SLOPE_DEG, IMPLANT_DASH_SLIDE_MIN, IMPLANT_DASH_SWEEP_STEP, IMPLANT_GRAPPLE_RANGE,
   IMPLANT_GRAPPLE_CANCEL_MIN_S, IMPLANT_GRAPPLE_CANCEL_REFUND, IMPLANT_GRAPPLE_REFUND_DIST, IMPLANT_GRAPPLE_REFUND_MAX,
   IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_ENERGY,
   IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_REGEN_TIME, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
   IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
   IMPLANT_SHIELD_BASH_COOLDOWN, IMPLANT_SHIELD_BASH_DAMAGE, IMPLANT_SHIELD_BASH_KNOCKBACK, IMPLANT_SHIELD_BASH_RANGE, IMPLANT_SHIELD_BASH_STAMINA,
   IMPLANT_SHIELD_BASH_SWING_S,
-  Keys, MouseButtons, PLAYER_RADIUS,
+  Keys, MouseButtons, PLAYER_RADIUS, PROP_STEP_UP_MAX,
   type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
   type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
   type Vec3Tuple, type DroneRef,
@@ -48,22 +48,7 @@ export function castDash(sys: ImplantSystem): void {
   _d.normalize();
   _from.copy(p.position);
 
-  let dist = IMPLANT_DASH_DISTANCE;
-  _o.copy(p.position); _o.y += 1.0;
-  const interior = p.interior;
-  const world = ctx.world && ctx.world.ready ? ctx.world : null;
-  const hit = interior ? interior.raycast(_o, _d, dist + PLAYER_RADIUS)
-    : world ? world.raycast(_o, _d, dist + PLAYER_RADIUS) : null;
-  if (hit) dist = Math.max(0, hit.distance - PLAYER_RADIUS - 0.15);
-
-  _t.copy(p.position).addScaledVector(_d, dist);
-  const floor = interior ? interior.getFloorAt(_t.x, _t.z) : world ? world.getHeightAt(_t.x, _t.z) : _t.y;
-  if (_t.y < floor) _t.y = floor;
-  if (interior) interior.resolveCollision(_t, PLAYER_RADIUS);
-  else if (world) {
-    world.resolveCollision(_t, PLAYER_RADIUS);
-    if (!world.isInsideBounds(_t.x, _t.z)) _t.copy(_from);
-  }
+  dashReach(sys, _from, _d, IMPLANT_DASH_DISTANCE, _t);
   // PlayerRef.position is a stable Vector3 instance — teleport by writing into it.
   p.position.copy(_t);
 
@@ -77,6 +62,73 @@ export function castDash(sys: ImplantSystem): void {
   sys.activated('dash', _t);
   _p.subVectors(_t, _from);
   sys.send({ t: 'imp', ev: 'dash', o: tuple(_from), d: tuple(_p) });
+  }
+
+const DASH_STEEP_COS = Math.cos(IMPLANT_DASH_MAX_SLOPE_DEG * Math.PI / 180);
+
+/**
+ * 2026-09-14: **대시가 닿는 자리 = 걸어서 닿는 가장 먼 자리** (사용자 요청 "뛰어서 갈 수 있는지 체크").
+ *
+ * 예전에는 1 m 높이 레이 하나(− 반경 − 0.15)로 거리를 자르고 끝자리만 `resolveCollision` 했다. 창틀 · 깨진 유리
+ * (`passRays`) · 1 m 높이를 비켜 가는 개구멍은 레이가 지나가므로 **벽 너머 자리가 비어 있기만 하면** 거기로
+ * 순간이동했다. 이제 몸(`PLAYER_RADIUS`)을 `IMPLANT_DASH_SWEEP_STEP` 씩 걸음처럼 밀어 본다 — 걷기(`PlayerController`)와
+ * **같은 질의 · 같은 순서**다:
+ *   ① 표면 먼저: `getSurfaceY(x, z, 발)` (실내는 `getFloorAt`) — 발에서 `PROP_STEP_UP_MAX` 안의 윗면이면 올라서고,
+ *      그 아래로 `PROP_STEP_UP_MAX` 안이면 따라 내려가고(계단 · 비탈), 더 깊으면 **공중**이다(턱에서 뛰어내리기 —
+ *      발 높이를 유지하고 대시가 끝나면 떨어진다). 발이 지형 위일 때 그 지형이 `IMPLANT_DASH_MAX_SLOPE_DEG` 보다 가파른
+ *      오르막이면 막힌다 (걷기의 경사 한계).
+ *   ② 밀어내기 나중: `resolveCollision(자리, PLAYER_RADIUS)` — 사람 기준 머리 위 여유(`BOX_HEADROOM`)라 유리(깨졌어도
+ *      `passSmall` 은 작은 몸만) · 창턱 벽 · 개구멍 인방이 몸을 막는다. 밀려난 뒤 진행 방향으로 걸음의
+ *      `IMPLANT_DASH_SLIDE_MIN` 배도 못 나아갔으면 막힌 것이고 **그 앞 걸음**이 끝이다. 그보다 얕게 스치면 걷기처럼
+ *      미끄러지며 계속 간다 (문틀 모서리).
+ * 맵 경계(`isInsideBounds`) 밖으로 나가는 걸음도 끝이다 (예전엔 대시 전체가 취소됐다). 할당 없음 — `out` · `_o` · `_n` 만 쓴다.
+ */
+export function dashReach(sys: ImplantSystem, from: THREE.Vector3, dir: THREE.Vector3, dist: number, out: THREE.Vector3): THREE.Vector3 {
+  const ctx = sys.ctx;
+  out.copy(from);
+  const interior = ctx.player?.interior ?? null;
+  const world = !interior && ctx.world && ctx.world.ready ? ctx.world : null;
+  if (!interior && !world) return out.addScaledVector(dir, dist);   // nothing to collide with (world not built)
+  const steps = Math.max(1, Math.ceil(dist / IMPLANT_DASH_SWEEP_STEP));
+  const step = dist / steps;
+  let feet = from.y;
+  let airborne = false;
+  let onTerrain = world ? world.getHeightAt(from.x, from.z) >= feet - 0.02 : false;
+  for (let i = 0; i < steps; i++) {
+    const x = out.x + dir.x * step, z = out.z + dir.z * step;
+    if (world && !world.isInsideBounds(x, z)) break;
+    // ① surface first
+    let y = feet, nextOnTerrain = false;
+    if (interior) {
+      const floor = interior.getFloorAt(x, z);
+      if (floor >= feet - 1e-4 || (!airborne && feet - floor <= PROP_STEP_UP_MAX)) { y = floor; airborne = false; }
+      else airborne = true;
+    } else {
+      const w = world!;
+      const surf = w.getSurfaceY(x, z, feet);
+      const terrain = w.getHeightAt(x, z);
+      if (surf >= feet - 1e-4) {
+        if (surf - feet > PROP_STEP_UP_MAX) break;            // a terrain wall (obstacle tops above the step are never returned)
+        nextOnTerrain = terrain >= surf - 0.02;
+        if (nextOnTerrain && onTerrain && surf > feet + 1e-3 && w.getNormalAt(x, z, _n).y < DASH_STEEP_COS) break;
+        y = surf; airborne = false;
+      } else if (!airborne && feet - surf <= PROP_STEP_UP_MAX) {
+        y = surf; nextOnTerrain = terrain >= surf - 0.02;
+      } else {
+        airborne = true;
+      }
+    }
+    // ② push out after
+    _o.set(x, y, z);
+    if (interior) interior.resolveCollision(_o, PLAYER_RADIUS);
+    else world!.resolveCollision(_o, PLAYER_RADIUS);
+    const advance = (_o.x - out.x) * dir.x + (_o.z - out.z) * dir.z;
+    if (advance < step * IMPLANT_DASH_SLIDE_MIN) break;
+    out.copy(_o);
+    feet = y;
+    onTerrain = nextOnTerrain;
+  }
+  return out;
   }
 
 /* ═══════════════════════════ 갈고리 (instant) ═══════════════════════════ */

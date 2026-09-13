@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "hash": "1510d054ecd274",
+  "hash": "17c9ee7a839e82",
   "creditsInitial": 500,
   "creditsMax": 9999999,
   "shopPriceBaseMul": 1.6,
@@ -48,6 +48,7 @@
     "armor_optical": {"value":1004,"stack":1},
     "armor_regen": {"value":2162,"stack":1},
     "armor_ultralight": {"value":1136,"stack":1},
+    "att_barrel_ext": {"value":340,"stack":1},
     "att_brake": {"value":180,"stack":1},
     "att_choke": {"value":200,"stack":1},
     "att_comp": {"value":180,"stack":1},

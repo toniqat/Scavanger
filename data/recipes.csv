@@ -77,6 +77,7 @@ make_att_mag_medium,확장형 준중량 탄창 제작,ship,gun,3,mat_scrap:8|mat
 make_att_mag_shell,확장형 산탄 탄창 제작,ship,gun,3,mat_scrap:9|mat_alloy:4,att_mag_shell,1,,9,crafting,30,"폐금속 9 + 합금 판 4 → 확장형 산탄 탄창. 총기 작업대 Lv.3, 제작 30 필요."
 make_att_mag_heavy,확장형 중량 탄창 제작,ship,gun,3,mat_scrap:10|mat_alloy:4,att_mag_heavy,1,,9,crafting,30,"폐금속 10 + 합금 판 4 → 확장형 중량 탄창. 총기 작업대 Lv.3, 제작 30 필요."
 make_att_stock,전술 개머리판 제작,ship,gun,3,mat_scrap:10|mat_alloy:4,att_stock,1,,10,crafting,30,"폐금속 10 + 합금 판 4 → 전술 개머리판. 총기 작업대 Lv.3, 제작 30 필요."
+make_att_barrel_ext,확장 총열 제작,ship,gun,3,mat_scrap:10|mat_alloy:4|mat_machine_parts:2,att_barrel_ext,1,,10,crafting,30,"폐금속 10 + 합금 판 4 + 기계 부품 2 → 확장 총열 (2026-09-14). 총기 작업대 Lv.3, 제작 30 필요."
 make_att_scope4,4배 조준경 제작,ship,gun,3,mat_alloy:3|mat_circuit:2|mat_cable:2,att_scope4,1,,10,crafting,30,"합금 판 3 + 회로 기판 2 + 전력 케이블 2 → 4배 조준경. 총기 작업대 Lv.3, 제작 30 필요."
 make_att_scope6,6배 조준경 제작,ship,gun,3,mat_alloy:4|mat_circuit:4|mat_cable:2,att_scope6,1,,12,crafting,35,"합금 판 4 + 회로 기판 4 + 전력 케이블 2 → 6배 조준경. 총기 작업대 Lv.3, 제작 35 필요."
 make_att_scope8,8배 조준경 제작,ship,gun,3,mat_ingot:2|mat_circuit:6|mat_cable:3,att_scope8,1,,14,crafting,40,"강화합금 잉곳 2 + 회로 기판 6 + 전력 케이블 3 → 8배 조준경. 총기 작업대 Lv.3, 제작 40 필요."

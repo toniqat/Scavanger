@@ -3,6 +3,7 @@ import {
   AMMO_FOR_CLASS, MELEE_STOCK_MUL_DEFAULT, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN,
   UNIQUE_WEAPON_IDS, UNIQUE_WEAPON_LABEL_KO, csvRows,
 } from '@/shared';
+import { SOCKET_SLOTS, numberList } from '@/shared';   // 2026-09-14 (총기 밸런스): 계열별 소켓 · 등급 조작감 표
 
 /*
  * 무기 수치의 원본은 `data/weapons.csv` (6계열 등급 I) 과 `data/weapons_unique.csv` (전설 유니크 6종) 이다.
@@ -104,6 +105,10 @@ const FAMILY_DEFS: readonly FamilyDef[] = WEAPON_ROWS.map((r) => {
     adsZoom: r.optNum('adsZoom', { min: 1 }),
     scope: r.has('scope') ? r.bool('scope') : undefined,
     meleeMul: r.optNum('meleeMul', { min: 0 }),
+    // 2026-09-14 (총기 밸런스): 받는 소켓 (빈 칸 = 전부) · 총구 속도 · 탄 낙차 — weapons/ 의 발사체가 읽는다
+    sockets: r.has('sockets') ? r.enumList('sockets', SOCKET_SLOTS) : undefined,
+    projectileSpeed: r.optNum('projectileSpeed', { min: 0 }),
+    bulletGravity: r.optNum('bulletGravity', { min: 0 }),
   });
 });
 
@@ -112,15 +117,64 @@ export const WEAPON_FAMILIES: readonly string[] = FAMILY_DEFS.map((f) => f.id);
 
 export const WEAPON_GRADES: readonly WeaponGrade[] = [1, 2, 3, 4, 5];
 
+/* ── 2026-09-14 총기 밸런스: 계열별 조작 수치 · 등급 조작감 배수 ─────────────── */
+/** Per-family numbers that are not `WeaponDef` fields (`data/weapons.csv`) — `WeaponStats.baseWeaponStats` reads them. */
+export interface WeaponFamilyTuning {
+  /** ADS time (s) at handling ×1 (grade V); the grade multiplier is applied on top. */
+  readonly adsTime: number;
+  /** Sustained-fire bloom added per shot (bloom is clamped 0..1). */
+  readonly bloomPerShot: number;
+  /** Spread × (1 + bloom × this). */
+  readonly bloomSpread: number;
+  /** Fire rate + this fraction per grade above I (SMG · SG; 0 = flat). */
+  readonly fireRateGradeStep: number;
+  /** Bloom recovered per second. */
+  readonly bloomDecay: number;
+}
+
+/** Family id (`smg`) → its tuning row. */
+export const WEAPON_FAMILY_TUNING: ReadonlyMap<string, WeaponFamilyTuning> = new Map(WEAPON_ROWS.map((r) => [r.str('id'), {
+  adsTime: r.num('adsTime', { min: 0 }),
+  bloomPerShot: r.num('bloomPerShot', { min: 0, max: 1 }),
+  bloomSpread: r.num('bloomSpread', { min: 0 }),
+  fireRateGradeStep: r.num('fireRateGradeStep', { min: 0 }),
+  bloomDecay: r.num('bloomDecay', { min: 0 }),
+}]));
+
+/** Tuning row of a graded def's family (undefined for uniques / unknown families). */
+export function weaponFamilyTuning(def: WeaponDef): WeaponFamilyTuning | undefined {
+  return isUniqueWeapon(def) ? undefined : WEAPON_FAMILY_TUNING.get(weaponFamilyOf(def));
+}
+
+/**
+ * Handling multiplier per grade (`data/tables.csv` `WEAPON_GRADE_HANDLING_MUL`, index 0 = grade I … 4 = V; user decision
+ * ×1.6 · 1.45 · 1.3 · 1.15 · 1.0). `buildGrade` bakes it into spread / ADS spread / recoil; `baseWeaponStats` applies it
+ * to ADS time and `swayMul`. Sockets multiply on top.
+ */
+export const WEAPON_GRADE_HANDLING_MUL: readonly number[] = numberList('tables.csv', 'WEAPON_GRADE_HANDLING_MUL');
+
+/** Handling multiplier of a def (1 for uniques — they are never graded). */
+export function weaponHandlingMul(def: WeaponDef): number {
+  if (isUniqueWeapon(def)) return 1;
+  return WEAPON_GRADE_HANDLING_MUL[gradeOf(def) - 1] ?? 1;
+}
+
 /* ── grade builder ────────────────────────────────────────────────────────── */
 function buildGrade(base: FamilyDef, grade: WeaponGrade): WeaponDef {
   const step = grade - 1;
   const baseDurability = WEAPON_BASE_DURABILITY[base.weaponClass];
+  // 2026-09-14: grade handling (spread · ADS spread · recoil) and the per-family fire-rate step (SMG · SG)
+  const handling = WEAPON_GRADE_HANDLING_MUL[step] ?? 1;
+  const rateStep = WEAPON_FAMILY_TUNING.get(base.id)?.fireRateGradeStep ?? 0;
   return {
     ...base,
     id: weaponIdForGrade(base.id, grade),
     name: `${base.name} ${WEAPON_GRADE_ROMAN[step]}`,
     ammoType: AMMO_FOR_CLASS[base.weaponClass],
+    fireRate: Math.round(base.fireRate * (1 + rateStep * step) * 100) / 100,
+    spread: base.spread * handling,
+    adsSpread: base.adsSpread * handling,
+    recoil: base.recoil * handling,
     damage: Math.round(base.damage * (1 + WEAPON_GRADE_DAMAGE_STEP * step)),
     maxDurability: Math.round(baseDurability * (1 + WEAPON_GRADE_DURABILITY_STEP * step)),
     grade,
@@ -174,6 +228,7 @@ export const UNIQUE_WEAPON_DEFS: readonly WeaponDef[] = UNIQUE_ROWS.map((r) => c
   range: r.num('range', { min: 0 }),
   automatic: r.bool('automatic'),
   projectileSpeed: r.optNum('projectileSpeed', { min: 0 }),
+  bulletGravity: r.optNum('bulletGravity', { min: 0 }),
   recoil: deg(r.num('recoilDeg', { min: 0 })),
   tracerColor: r.num('tracerColor'),
   falloffStart: r.optNum('falloffStart'),

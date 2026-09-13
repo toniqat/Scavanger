@@ -49,6 +49,8 @@ export class CursorHoldGauge {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('housing:moveHold', ({ progress }) => this.set(progress)),
+      // 2026-09-14: 공용 커서 홀드 (지금은 인벤토리 툴팁 고정) — 좌표를 실어 오면 그 자리, 없으면 `uiX/uiY`
+      b.on('ui:cursorHold', ({ progress, x, y }) => this.set(progress, x, y)),
       b.on('housing:shipManageChanged', ({ active }) => { if (!active) this.set(null); }),
       b.on('game:newMission', () => this.set(null)),
       b.on('game:abort', () => this.set(null)),
@@ -60,12 +62,13 @@ export class CursorHoldGauge {
   /** Fill fraction 0..1 while showing, else −1 (debug / smoke). */
   get progress(): number { return this.shown ? this.lastT : -1; }
 
-  private set(progress: number | null): void {
+  private set(progress: number | null, x?: number, y?: number): void {
     const show = progress !== null;
     if (show !== this.shown) { this.shown = show; toggleClass(this.root, 'show', show); }
     if (!show) { this.setFill(0); return; }
     const input = this.ctx?.input;
-    if (input) this.root.style.transform = `translate(${input.uiX.toFixed(1)}px, ${input.uiY.toFixed(1)}px)`;
+    if (Number.isFinite(x) && Number.isFinite(y)) this.root.style.transform = `translate(${(x as number).toFixed(1)}px, ${(y as number).toFixed(1)}px)`;
+    else if (input) this.root.style.transform = `translate(${input.uiX.toFixed(1)}px, ${input.uiY.toFixed(1)}px)`;
     this.setFill(Math.max(0, Math.min(1, progress)));
   }
 

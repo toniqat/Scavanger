@@ -28,6 +28,7 @@ import {
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 import * as RaidMarks from './RaidFound';
+import { returnForbiddenAttachments } from './SocketRules';   // 2026-09-14 (총기 소켓 규칙)
 
 /** Bag + 5 slots + quick slots with every instance field incl. `searched` (raid session blob / training freeze). */
 export function captureRaidState(sys: InventorySystem): unknown {
@@ -58,6 +59,8 @@ export function applyRaidState(sys: InventorySystem, state: unknown): boolean {
   if (!save) return false;
   sys.cancelCraft();
   const revived = sys.applyLoadoutSave(save);
+  // 2026-09-14 (총기 소켓 규칙): mid-raid a detached attachment goes to the bag only (never the 함선 창고); no room → stays on the weapon, inert
+  returnForbiddenAttachments(sys, 'bag');
   save.bag.forEach((sv, i) => {
     const item = revived[i];
     const flag = (sv as { searched?: boolean }).searched;
@@ -198,7 +201,11 @@ export function applyProfileDocs(sys: InventorySystem, profile: ProfileRecord): 
   }
   sys.cancelCraft();
   sys.applyLoadoutSave(save);
+  const returned = returnForbiddenAttachments(sys, 'stash');   // 2026-09-14 (총기 소켓 규칙)
   sys.announcePending = false;
   sys.announceLoaded();
   sys.loadoutStore.saveNow('profile'); // mirror to localStorage without echoing the document back
+  // 2026-09-14: …but a kit whose attachments just moved into the 창고 must go up **with** the 창고 (one `setMany`) — marked after
+  // `saveNow`, which would cancel the pending loadout save
+  if (returned > 0) sys.loadoutStore.markDirty('sockets');
   }

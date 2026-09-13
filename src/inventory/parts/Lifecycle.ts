@@ -31,6 +31,7 @@ import {
 } from '../model';
 import { pouchAcceptsDef } from '../model';
 import * as Pouch from './Pouch';
+import { returnForbiddenAttachments } from './SocketRules';   // 2026-09-14 (총기 소켓 규칙)
 import type { InventorySystem } from '../InventorySystem';
 
 /**
@@ -96,6 +97,8 @@ export function restoreLoadoutSave(sys: InventorySystem): boolean {
   sys.applySavedFavorites(save?.fav, true);
   if (!save || isEmptyLoadoutSave(save)) return false;
   sys.applyLoadoutSave(save);
+  // 2026-09-14 (총기 소켓 규칙): attachments a weapon no longer accepts → 함선 창고 (→ 가방); the kit is saved with the 창고
+  if (returnForbiddenAttachments(sys, 'stash') > 0) sys.loadoutStore.markDirty('sockets');
   sys.announcePending = true;
   return true;
   }

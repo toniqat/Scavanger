@@ -15,7 +15,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT, isWormType } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -178,6 +178,11 @@ export function acquire(sys: EnemySystem, id: number, type: EnemyType, position:
   }
   if (!e.rig.root.parent) ctx.scene.add(e.rig.root);
   e.reset(id, position, yaw, ctx.time);
+  // 2026-09-14: 행성 threat 벌레 체력 (`BUG_HP_MUL_BY_THREAT`). 권위 스폰(`spawn`)도 리플리카(`ee spawn` · 스냅샷이 처음 본 id)도 여기를
+  // 지나고, 배수는 모든 클라이언트가 `world:ready` 에서 같은 행성으로 정해 둔다 — 그래서 와이어 없이 리플리카의 `maxHp`(피격 흔들림 ·
+  // 승격 때 hp 상한)가 호스트와 같다. 인간형 팩션 · 지하벌레(자기 `SANDWORM_HP_*` 굴림) 제외, 훈련장 · 행성 없음은 ×1.
+  const hpMul = sys.bugTuning.hpMul;
+  if (hpMul !== 1 && e.faction === 'bug' && !isWormType(type)) e.hp = e.maxHp = Math.max(1, Math.round(e.stats.hp * hpMul));
   sys.active.push(e);
   sys.byId.set(id, e);
   return e;

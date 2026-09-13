@@ -1,12 +1,44 @@
-# 무기 계열 6종의 등급 I 수치. 등급 II–V 는 constants.csv 의 WEAPON_GRADE_* 계단으로 코드가 만든다.
+# 무기 계열 5종의 기준 수치. 등급 II–V 는 constants.csv 의 WEAPON_GRADE_* 계단과 tables.csv 의 WEAPON_GRADE_HANDLING_MUL 로 코드가 만든다.
 # id · class · slot 은 코드가 찾는 값이므로 바꾸지 않는다. 이름(돌격소총 III …)은 class 라벨에서 만들어진다.
 # 각도는 도(°) 단위 — 코드가 라디안으로 바꾼다. tracerColor 는 0xRRGGBB.
 # falloff: 총구~피격점 거리가 falloffStart 까지는 ×1, falloffEnd 에서 falloffMin 까지 직선으로 준다.
 # pellets 는 산탄만 (빈 칸 = 1발). adsZoom/scope 는 배율 조준경이 붙는 계열만.
 # baseDurability = 등급 I 최대 내구도(발). width/height 는 인벤토리 칸, weight 는 kg, value 는 등급 I 판매가.
-id,class,slot,damage,pellets,fireRate,magSize,reserveMags,reloadTime,spreadDeg,adsSpreadDeg,range,automatic,recoilDeg,tracerColor,falloffStart,falloffEnd,falloffMin,adsZoom,scope,meleeMul,baseDurability,width,height,weight,value,icon,description
-ar,AR,primary,60,,10,45,6,2.4,1.4,0.3,220,true,0.35,0xffd27a,60,220,0.6,,,1.35,500,4,2,4.2,350,⌐╦,균형 잡힌 연사와 안정적인 반동의 표준 돌격소총. 준중량탄.
-smg,SMG,primary,32,,14,40,5,1.9,1.9,0.55,120,true,0.24,0xffe3a0,15,45,0.4,,,1.15,550,3,2,3.1,480,⌐╪,경량 기관단총. 근거리 연사에 특화되었으나 거리가 멀어질수록 위력이 급감. 경량탄.
-sg,SG,primary,22,8,1.3,8,4,3,5,3.5,42,false,1.4,0xffb070,8,30,0.25,,,1.5,200,3,2,4.6,520,⌐═,펌프액션 산탄총. 근거리에서 압도적인 제압력. 산탄.
-dmr,DMR,primary,120,,3,15,5,2.6,1.2,0.08,420,false,0.9,0xa8e6ff,120,400,0.75,1.6,,1.4,250,4,1,4.4,780,⌐──,반자동 지정사수소총. 원거리 정밀 사격에 최적화. 중량탄.
-sr,SR,primary,330,,0.9,5,4,3.4,4,0.03,700,false,2.2,0xd8f4ff,300,700,0.85,4,true,1.6,120,5,1,6.8,950,⌐───,볼트액션 저격소총. 4배율 조준경. 한 발로 대부분의 벌레를 무력화하지만 장전이 느리다. 중량탄.
+#
+# ── 2026-09-14 총기 밸런스 (사용자 결정) ──
+# damage · fireRate 는 **등급 I** 값이다 (피해 +12 %/등급 = constants.csv WEAPON_GRADE_DAMAGE_STEP).
+#   fireRateGradeStep = 등급 1단계마다 연사 +이 비율 (기관단총 · 산탄총만, 나머지 0). 기관단총 V = 14 × 1.24 = 17.36 rps, 산탄총 V = 1.3 × 1.48 = 1.92 rps.
+# 조작감 칸(spreadDeg · adsSpreadDeg · recoilDeg · adsTime, 그리고 aim_sway.csv 의 흔들림)은 **등급 V(×1.0) 기준**이다.
+#   등급 I … V 는 tables.csv 의 WEAPON_GRADE_HANDLING_MUL (×1.6 · 1.45 · 1.3 · 1.15 · 1.0) 을 곱하고, 부착물은 그 위에 곱해진다. 유니크 무기는 해당 없음.
+# adsTime = 정조준 전환 시간(초). 예전에는 전 계열이 constants.csv 의 WEAPON_ADS_TIME 0.25 하나였다 (그 상수는 유니크 · 폴백용으로 남는다).
+# bloomPerShot · bloomSpread = 연사 퍼짐: 한 발마다 bloom += bloomPerShot (0..1 로 자른다), 퍼짐 × (1 + bloom × bloomSpread).
+#   bloomDecay = bloom 이 초당 식는 양 — 한 발 간격 동안 식는 양보다 bloomPerShot 이 커야 쌓인다
+#   (돌격소총 10 rps · 2.6 = 0.26 식음 → 0.3 이면 한 발마다 +0.04, 기관단총 14 rps · 2.6 = 0.19 식음 → 0.26 이면 +0.07 = 약 14발에 최대).
+#   2026-09-14 리드: 펌프 · 볼트 총은 느리게 식는다 — 산탄총 1.3 rps · 0.45 = 0.35 식음 → 0.6 이면 연타마다 +0.25 (가득 찬 퍼짐은 약 2.2 초에 풀린다),
+#   지정사수 3 rps · 0.8 = 0.27 식음 → +0.03, 저격 0.9 rps · 0.35 = 0.39 식음 → +0.11. 전에는 전 계열 2.6 이라 이 셋은 한 발 사이에 다 식었다.
+# sockets = 이 계열이 받는 부착물 칸 (| 로 잇는다: muzzle · grip · mag · stock · sight). 비우면 전부.
+#   산탄총 = 총구(초크) · 탄창 · 조준경 / 기관단총 = 총구 · 탄창 · 조준경 · 손잡이 / 지정사수 · 저격 = 총구 · 탄창 · 조준경 / 돌격소총 = 전부.
+# 근거리 치명도 ("기본 피해를 올리고 거리 감소를 가파르게" — 가까울수록 더 세게 맞는 별도 구간은 없다):
+#   기관단총 32→40 · 거리 감소 15→45 m ×0.4 → 10→35 m ×0.3 · 연사 퍼짐 ↑ · 등급별 연사 ↑
+#   산탄총   22→27 · 거리 감소 8→30 m ×0.25 → 6→22 m ×0.15 · 등급별 연사 ↑, 그리고 전 거리 +20 %:
+#            damage 칸의 =27*1.2 = 27 × 1.2 = 32.4 → 등급 I 32 (코드가 반올림) · 발당 32 × 8 = 256 (예전 176).
+#            22 m 넘어서는 32 × 0.15 = 4.8/알 (예전 30 m 에서 22 × 0.25 = 5.5/알) — 먼 거리는 오히려 약해진다.
+#   돌격소총 60 그대로 (일부러 약한 기본기 — 퍼짐 1.4→1.6° · 정조준 0.3→0.36° · 반동 0.35→0.42° · 조준 0.3 s · 흔들림 ↑,
+#            거리 감소 60→220 m ×0.6 → 40→160 m ×0.45. 부착물 다섯 칸으로 만능이 되는 총이다)
+#   지정사수 120→130 · 반동 0.9→1.6° (크게 ↑)        저격 330→360
+#
+# 탄도 (모든 총알이 발사체다 — weapons/ 가 projectileSpeed · bulletGravity 를 읽는다):
+#   projectileSpeed = 총구 속도(m/s), bulletGravity = 탄에 걸리는 아래 가속(m/s²).
+#   낙차 = ½ · g · (거리 / 속도)²   →   g = 2 · (100 m 낙차) · 속도² / 100²
+#   SMG 220 m/s · g 5.8 → 100 m 0.60 · 200 m 2.40 · 300 m 5.39 m
+#   SG  180 m/s · g 5.2 → 100 m 0.80 · 200 m 3.21 · 300 m 7.22 m
+#   AR  320 m/s · g 7.2 → 100 m 0.35 · 200 m 1.41 · 300 m 3.16 m
+#   DMR 480 m/s · g 5.5 → 100 m 0.12 · 200 m 0.48 · 300 m 1.07 m
+#   SR  650 m/s · g 5.1 → 100 m 0.06 · 200 m 0.24 · 300 m 0.54 m
+#   확장 총열(attachments.csv att_barrel_ext)은 g × 0.6. 벌레별 킬 시간 표는 data/README.md 의 2026-09-14 절.
+id,class,slot,damage,pellets,fireRate,fireRateGradeStep,magSize,reserveMags,reloadTime,spreadDeg,adsSpreadDeg,adsTime,range,automatic,recoilDeg,bloomPerShot,bloomSpread,bloomDecay,tracerColor,falloffStart,falloffEnd,falloffMin,projectileSpeed,bulletGravity,sockets,adsZoom,scope,meleeMul,baseDurability,width,height,weight,value,icon,description
+ar,AR,primary,60,,10,0,45,6,2.4,1.6,0.36,0.3,220,true,0.42,0.3,1.2,2.6,0xffd27a,40,160,0.45,320,7.2,muzzle|grip|mag|stock|sight,,,1.35,500,4,2,4.2,350,⌐╦,기본기는 투박하지만 부착물 다섯 칸을 모두 받아 무엇이든 되는 표준 돌격소총. 준중량탄.
+smg,SMG,primary,40,,14,0.06,40,5,1.9,1.9,0.55,0.18,120,true,0.24,0.26,2,2.6,0xffe3a0,10,35,0.3,220,5.8,muzzle|grip|mag|sight,,,1.15,550,3,2,3.1,480,⌐╪,경량 기관단총. 근거리에서 강력하지만 거리가 멀어질수록 위력이 급감하고 오래 쏠수록 퍼진다. 경량탄.
+sg,SG,primary,=27*1.2,8,1.3,0.12,8,4,3,5,3.5,0.2,42,false,1.4,0.6,1,0.45,0xffb070,6,22,0.15,180,5.2,muzzle|mag|sight,,,1.5,200,3,2,4.6,520,⌐═,펌프액션 산탄총. 근거리에서 압도적인 제압력. 산탄.
+dmr,DMR,primary,130,,3,0,15,5,2.6,1.2,0.08,0.25,420,false,1.6,0.3,1.6,0.8,0xa8e6ff,120,400,0.75,480,5.5,muzzle|mag|sight,1.6,,1.4,250,4,1,4.4,780,⌐──,반자동 지정사수소총. 원거리 정밀 사격에 최적화되었지만 반동이 크다. 중량탄.
+sr,SR,primary,360,,0.9,0,5,4,3.4,4,0.03,0.3,700,false,2.2,0.5,1,0.35,0xd8f4ff,300,700,0.85,650,5.1,muzzle|mag|sight,4,true,1.6,120,5,1,6.8,950,⌐───,볼트액션 저격소총. 4배율 조준경. 한 발로 대부분의 벌레를 무력화하지만 장전이 느리다. 중량탄.

@@ -49,6 +49,10 @@ const isWin = process.platform === 'win32';
 // Keep this in sync with the "Verification" section of CLAUDE.md when a smoke is added.
 const SMOKES = {
   'smoke-weapons':      { file: 'scripts/smoke-weapons.mjs',      folders: ['weapons', 'items', 'inventory', 'hub', 'pickups', 'audio'] },
+  /* 2026-09-14 (모든 총알을 발사체로): 150 m 낙차 ≈ ½·g·t² · 도착 ≈ d/v · 날아간 거리의 거리 감소 · 총구 앞 벽 즉시 명중 · 산탄 펠릿 전부 발사 · 명중 ·
+     트리거당 reportShot 1회 · 650 m/s × 50 ms 스텝 터널링 없음(얇은 기둥 · 적) · 배리어 정지 · 레이저 사이트 조준 / 복귀 · 확장 총열 소켓 ·
+     풀 성장 · 복제 탄 먼저 퇴출 · bloomPerShot / swayMul · 첫 발사에 셰이더 프로그램 증가 없음. 스탯은 인스턴스에 덮어써 csv 수치와 무관하다. */
+  'smoke-ballistics':   { file: 'scripts/smoke-ballistics.mjs',   folders: ['weapons', 'items'] },
   'smoke-phase2':       { file: 'scripts/smoke-phase2.mjs',       folders: ['player', 'weapons', 'inventory', 'game', 'ui'] },
   'smoke-quickslots':   { file: 'scripts/smoke-quickslots.mjs',   folders: ['inventory', 'ui', 'weapons'] },
   'smoke-phase3':       { file: 'scripts/smoke-phase3.mjs',       folders: ['stratagems', 'world', 'ui', 'weapons'] },
@@ -124,6 +128,10 @@ const SMOKES = {
   'smoke-generator':    { file: 'scripts/smoke-generator.mjs',    folders: ['housing', 'ui'] },
   /* 2026-09-13: 암호화폐 채굴 규칙 — 클러스터 주기 · 지갑 · 코어 · 잠긴 코인 · 회수 거절 · 세이브 정리 (housing `parts/Mining` · `MiningRules`, items 프로세서 · 연산 코어) */
   'smoke-mining':       { file: 'scripts/smoke-mining.mjs',       folders: ['housing', 'items', 'meta'] },
+  /* 2026-09-14: 툴팁 고정 — 1초 홀드 링(`ui:cursorHold`) → 고정 카드 + 마름모 · 바깥 누르기 / 마름모 / Escape / 창 닫기 / 아이템 사라짐으로 해제 ·
+     짧은 누르기 = 클릭 · 문턱 넘는 이동 = 드래그 · 고정 무기 카드의 받는 소켓만(가운데) · 소켓 호버 카드 · 가방 / 창고 칸으로 끌어내기(막힌 칸 거절) ·
+     상자 무기는 호버만 · 내구도 게이지(모든 내구도 타일 · 색 · 숫자 없음) · 기업 탭 TradeGrids 고정. */
+  'smoke-tip-pin':      { file: 'scripts/smoke-tip-pin.mjs',      folders: ['inventory', 'ui'] },
   /* 2026-09-12 (E1): 아이템 즐겨찾기 — API · 이벤트 · 우클릭 = 모든 아이템에 메뉴(격자 · 장비칸 · 휠 · 시체 창) · 더블클릭 빠른 이동 ·
      파란 사선 띠(가방 · 창고 · 장비칸 · TradeGrids · buildItemTile, 필요한 탄약이면 노란 띠와 둘 다) · 정렬 앞쪽 · 「즐겨찾기」 칩 ·
      분해 확인 1초 홀드 · 시체 창 글로우 · 로드아웃 `fav` 저장 / 새로고침 / 서버 문서 교체 + 올리지 못한 토글 보호. */

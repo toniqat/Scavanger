@@ -5,11 +5,13 @@
 // site-group factions by planet threat (2026-09-13: crate guards and eco.rogues / eco.boss are retired), and determinism
 // (same seed + same planet = the same world and the same site-group placement).
 // 2026-09-11 (온실 개편): 행성별 **토양 더미** (`planets.csv` 의 soils · soilNodes) — 개수 · 종류 · 시드 결정성.
+// 2026-09-14 (벌레 난이도): 행성 threat 별 벌레 최대 체력 배수(권위 · 리플리카 · 승격 · 인간형/지하벌레/훈련장 제외), 실효 생태계 가중치 ·
+// 상한, 같은 생태계에 threat 1/2/3 을 얹은 순찰 N 개의 대형 벌레 몫 · 순찰 베헤모스 · 중형 몫 (`data/tables.csv` 를 직접 읽는다).
 // No planet (and a training) must behave exactly as before. Drives `window.__game` only — no console, no relay.
 // Usage: node scripts/smoke-ecology.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -52,6 +54,19 @@ const GROUP_TYPES = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'tox
 /** The pre-Phase-11 ambient ladder gates — a weighted draw may never open one. */
 const ambientOpen = { scavenger: () => true, hunter: () => true, warrior: (t) => t > 0.25, spewer: (t) => t > 0.3, toxic: (t) => t >= 0.4, charger: (t) => t > 0.5, behemoth: () => false };
 const waveOpen = { scavenger: () => true, hunter: () => true, warrior: (i) => i >= 2, spewer: (i) => i >= 2, toxic: (i) => i >= 2, charger: (i) => i >= 3, behemoth: (i) => i >= 3 };
+/* 2026-09-14: 벌레 난이도 (행성 threat) — data/tables.csv 를 그대로 읽는다 (index 0 = threat 1 … 2 = threat 3) */
+const csvLines = (file) => readFileSync(new URL(`../data/${file}`, import.meta.url), 'utf8').split(/\r?\n/).filter((l) => l && !l.startsWith('#'));
+const table = (name) => csvLines('tables.csv').map((l) => l.split(',')).filter((c) => c[0] === name).sort((a, b) => Number(a[1]) - Number(b[1])).map((c) => Number(c[2]));
+const BUG_HP_MUL = table('BUG_HP_MUL_BY_THREAT');
+const BIG_MUL = table('BIG_BUG_WEIGHT_MUL_BY_THREAT');
+const MID_MUL = table('MID_BUG_WEIGHT_MUL_BY_THREAT');
+const PATROL_BEHEMOTH = table('PATROL_BEHEMOTH_BY_THREAT');
+const ART_BONUS = table('ARTILLERY_CAP_BONUS_BY_THREAT');
+const BEH_BONUS = table('BEHEMOTH_CAP_BONUS_BY_THREAT');
+/** enemies.csv 의 기본 hp (숫자 칸만 — 식이 들어간 줄은 쓰지 않는다). */
+const BASE_HP = Object.fromEntries(csvLines('enemies.csv').slice(1).map((l) => l.split(',')).filter((c) => /^\d+(\.\d+)?$/.test(c[2] ?? '')).map((c) => [c[0], Number(c[2])]));
+/** 순찰 게이트 — 베헤모스는 `PATROL_BEHEMOTH_BY_THREAT` 가 켜진 행성에서만 차저와 같은 게이트로 열린다. */
+const ambientGateOpen = (t, threat, planetThreat) => (t === 'behemoth' && PATROL_BEHEMOTH[planetThreat - 1] > 0 ? threat > 0.5 : !!ambientOpen[t] && ambientOpen[t](threat));
 
 const browser = await puppeteer.launch({
   executablePath: CHROME, headless: true,
@@ -224,6 +239,15 @@ try {
     ok(s.eco && s.eco.pressure === def.pressure && s.eco.rogues === def.rogues && s.eco.boss === def.boss
       && s.eco.maxArtillery === def.maxArtillery && s.eco.maxBehemoth === def.maxBehemoth && s.eco.gatherDensity === def.gatherDensity,
       `${def.id}: the ecosystem reached enemies/ intact`, JSON.stringify(s.eco));
+    // 2026-09-14: 벌레 난이도 — 행성 threat 칸의 체력 배수 · 대형/중형 가중치 배수 · 포병/베헤모스 상한 보너스가 실효 생태계에 얹혔다
+    {
+      const k = def.threat - 1;
+      const wantW = (t) => (def.bugs[t] ?? 0) * (['charger', 'behemoth', 'artillery'].includes(t) ? BIG_MUL[k] : ['warrior', 'spewer'].includes(t) ? MID_MUL[k] : 1);
+      const weightsOk = s.eco && Object.keys(def.bugs).every((t) => Math.abs((s.eco.effBugs[t] ?? 0) - wantW(t)) < 1e-9);
+      ok(s.eco && s.eco.planetThreat === def.threat && s.eco.bugHpMul === BUG_HP_MUL[k] && weightsOk
+        && s.eco.effMaxArtillery === def.maxArtillery + ART_BONUS[k] && s.eco.effMaxBehemoth === def.maxBehemoth + BEH_BONUS[k],
+        `${def.id}: threat ${def.threat} bug tuning — hp ×${s.eco && s.eco.bugHpMul}, max artillery ${s.eco && s.eco.effMaxArtillery} / behemoth ${s.eco && s.eco.effMaxBehemoth}`, JSON.stringify(s.eco));
+    }
     const caps = await P((t) => window.__caps(t), 0.5);
     ok(caps.cap === Math.max(1, Math.round(capBase(0.5) * def.pressure)), `${def.id}: pressure ${def.pressure} scales the ambient cap (${caps.cap})`);
     const comp = await P((n) => window.__compose(n), 24);
@@ -232,7 +256,7 @@ try {
     for (const threat of [0.3, 0.5, 0.9]) {
       for (const t of Object.keys(comp.byThreat[threat])) {
         if (!(def.bugs[t] > 0)) forbidden.add(`ambient@${threat}:${t}`);
-        if (!ambientOpen[t] || !ambientOpen[t](Number(threat))) gateBroken.add(`ambient@${threat}:${t}`);
+        if (!ambientGateOpen(t, Number(threat), def.threat)) gateBroken.add(`ambient@${threat}:${t}`);
       }
     }
     for (let i = 0; i <= 7; i++) {
@@ -255,6 +279,87 @@ try {
       : g.androids === 0 && g.rogues === 0 && g.raiders > 0;
     ok(s.sites && s.sites.threat === def.threat && factionOk,
       `${def.id}: threat ${def.threat} → site factions (androids ${g.androids} · rogues ${g.rogues} · raiders ${g.raiders} · boss ${g.boss})`);
+  }
+
+  /* ── 2026-09-14: 벌레 난이도 (행성 threat) ───────────────────────────────
+   * ① 팩션 bug 최대 체력 × BUG_HP_MUL_BY_THREAT (지하벌레 · 인간형 제외) — 권위 스폰 · 리플리카(스냅샷 · ee spawn) · 승격 hp 상한이 같은 값
+   * ② 대형 벌레 비중: 같은 행성 원본 생태계에 threat 1 / 2 / 3 을 얹어 순찰 N 개를 굴리면 차저 + 베헤모스 몫이 오르고, 베헤모스는
+   *    PATROL_BEHEMOTH_BY_THREAT 가 켜진 칸에서만 나온다 · 중형 슬롯의 전사 + 스퓨어 몫이 오른다 · 포병 상한 / 굴착 확률이 오른다 */
+  console.log('bug difficulty by planet threat (2026-09-14)');
+  const spawnHp = (types) => P((types) => {
+    const sys = window.__sys; const p = window.__game.ctx.player.position;
+    const out = {};
+    types.forEach((ty, i) => {
+      const e = sys.debugSpawn(ty, { x: p.x + 40 + i * 7, z: p.z + 40 });
+      out[ty] = e ? { maxHp: e.maxHp, hp: e.hp } : null;
+      if (e && e.state !== 'dead') e.kill(false);
+    });
+    return out;
+  }, types);
+  const hpRow = (o) => Object.entries(o).map(([k, v]) => `${k} ${v ? `${v.hp}/${v.maxHp}` : '—'}`).join(' · ');
+  const w = (ty, threat) => Math.max(1, Math.round(BASE_HP[ty] * BUG_HP_MUL[threat - 1]));
+  {
+    await gen(31, 'amber');
+    const t1 = await spawnHp(['warrior', 'scavenger', 'android']);
+    ok(t1.warrior && t1.warrior.maxHp === w('warrior', 1) && t1.warrior.hp === t1.warrior.maxHp && t1.scavenger && t1.scavenger.maxHp === w('scavenger', 1)
+      && t1.android && t1.android.maxHp === BASE_HP.android,
+      `threat 1 (amber): warrior ${w('warrior', 1)} · scavenger ${w('scavenger', 1)} · android ${BASE_HP.android} (${hpRow(t1)})`);
+    await gen(31, 'ashen');
+    const t3 = await spawnHp(['warrior', 'scavenger', 'raider', 'sandworm']);
+    ok(t3.warrior && t3.warrior.maxHp === w('warrior', 3) && t3.warrior.hp === t3.warrior.maxHp && t3.scavenger && t3.scavenger.maxHp === w('scavenger', 3),
+      `threat 3 (ashen): warrior ${BASE_HP.warrior} → ${w('warrior', 3)} · scavenger ${w('scavenger', 3)} (${hpRow(t3)})`);
+    ok(t3.raider && t3.raider.maxHp === BASE_HP.raider && t3.sandworm && t3.sandworm.maxHp === BASE_HP.sandworm,
+      `threat 3: humanoids and the sandworm are not scaled (raider ${t3.raider && t3.raider.maxHp} · sandworm ${t3.sandworm && t3.sandworm.maxHp})`);
+    // 리플리카 시점: 스냅샷이 처음 본 id · `ee spawn` 둘 다 같은 최대 체력 — 승격해도 호스트 hp 가 옛 최대 체력에 잘리지 않는다
+    const rep = await P((hp) => {
+      const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
+      const y = ctx.world.getHeightAt(p.x + 44, p.z + 44);
+      sys.setAuthority(false);
+      const r = { replica: sys.replica };
+      sys.debugApplySnapshot({ t: 'es', time: ctx.time, seq: 7001, full: false, e: [{ id: 91001, ty: 'warrior', p: [p.x + 44, y, p.z + 44], yaw: 0, hp, st: 'chase' }] });
+      const a = sys.find(91001);
+      r.snap = a ? a.maxHp : null;
+      sys.replicaMgr.onEvent({ t: 'ee', ev: 'spawn', id: 91002, ty: 'warrior', p: [p.x + 50, y, p.z + 44], yaw: 0 });
+      const b = sys.find(91002);
+      r.ev = b ? { maxHp: b.maxHp, sample: b.netBuf ? b.netBuf.latest().hp : null } : null;
+      sys.setAuthority(true);
+      const a2 = sys.find(91001);
+      r.promoted = a2 ? { hp: a2.hp, maxHp: a2.maxHp } : null;
+      r.authority = sys.isAuthority;
+      for (const id of [91001, 91002]) { const e = sys.find(id); if (e && e.state !== 'dead') e.kill(false); }
+      return r;
+    }, w('warrior', 3));
+    ok(rep.replica && rep.snap === w('warrior', 3) && rep.ev && rep.ev.maxHp === w('warrior', 3) && rep.ev.sample === w('warrior', 3),
+      `replica view (threat 3): snapshot-created warrior maxHp ${rep.snap} · ee spawn maxHp ${rep.ev && rep.ev.maxHp}`, JSON.stringify(rep));
+    ok(rep.authority && rep.promoted && rep.promoted.hp === w('warrior', 3) && rep.promoted.maxHp === w('warrior', 3),
+      `promotion keeps the host's hp ${w('warrior', 3)} (not clamped to ${BASE_HP.warrior})`, JSON.stringify(rep.promoted));
+
+    // 구성: 같은 원본 생태계(ashen) × threat 1 / 2 / 3, ramp threat 0.7 (8 분 뒤 최대치)
+    const N = 6000;
+    const sample = (n) => P((n) => {
+      const sys = window.__sys; const out = { live: sys.debugBugTuning() };
+      for (const pt of [1, 2, 3]) {
+        const c = {}; let total = 0;
+        for (let i = 0; i < n; i++) for (const t of sys.debugAmbientGroup(0.7, pt)) { c[t] = (c[t] ?? 0) + 1; total++; }
+        out[pt] = { c, total, tuning: sys.debugBugTuning(pt, 0.7) };
+      }
+      return out;
+    }, n);
+    const ash = await sample(N);
+    const big = (r) => ((r.c.charger ?? 0) + (r.c.behemoth ?? 0)) / Math.max(1, r.total);
+    const pct = (x) => `${(x * 100).toFixed(2)} %`;
+    ok(big(ash[1]) < big(ash[2]) && big(ash[2]) < big(ash[3]),
+      `ashen large-bug share rises with threat over ${N} patrols: ${pct(big(ash[1]))} → ${pct(big(ash[2]))} → ${pct(big(ash[3]))}`, JSON.stringify({ 1: ash[1].c, 2: ash[2].c, 3: ash[3].c }));
+    const behOk = [1, 2, 3].every((pt) => (PATROL_BEHEMOTH[pt - 1] > 0) === ((ash[pt].c.behemoth ?? 0) > 0));
+    ok(behOk, `patrol behemoths only where PATROL_BEHEMOTH_BY_THREAT is on (${[1, 2, 3].map((pt) => ash[pt].c.behemoth ?? 0).join(' / ')})`);
+    ok([1, 2, 3].every((pt) => ash[pt].tuning.maxArtillery === 3 + ART_BONUS[pt - 1] && ash[pt].tuning.maxBehemoth === 2 + BEH_BONUS[pt - 1])
+      && ash[1].tuning.artilleryChance < ash[3].tuning.artilleryChance && ash[3].tuning.artilleryChance <= 1,
+      `ashen ceilings artillery ${[1, 2, 3].map((pt) => ash[pt].tuning.maxArtillery).join('/')} · behemoth ${[1, 2, 3].map((pt) => ash[pt].tuning.maxBehemoth).join('/')} · dig-in @0.7 ${[1, 2, 3].map((pt) => ash[pt].tuning.artilleryChance.toFixed(3)).join('/')}`);
+    ok(ash.live.threat === 3 && ash.live.hpMul === BUG_HP_MUL[2] && ash.live.bigMul === BIG_MUL[2], `the live raid on ashen uses the threat 3 row (${JSON.stringify(ash.live)})`);
+    await gen(31, 'crimson');
+    const cri = await sample(N);
+    const mid = (r) => ((r.c.warrior ?? 0) + (r.c.spewer ?? 0)) / Math.max(1, (r.c.warrior ?? 0) + (r.c.spewer ?? 0) + (r.c.hunter ?? 0));
+    ok(mid(cri[1]) < mid(cri[3]), `crimson medium slots lean to warrior + spewer with threat: ${pct(mid(cri[1]))} → ${pct(mid(cri[2]))} → ${pct(mid(cri[3]))}`);
   }
 
   /* ── herb weights over several seeds (the weighted draw, not just the id set) ── */
@@ -336,6 +441,11 @@ try {
   ok(train.nodes === 0, 'the arena still has no gather nodes');
   ok(train.salvage === 0, 'the arena has no 고철 더미 either');
   ok(train.soil === 0, 'the arena has no 토양 더미 either');
+  // 2026-09-14: 훈련장은 행성이 없다 = threat 1 칸 — 벌레 체력 배수 없음 (행성을 ashen 으로 불러도)
+  const trainHp = await spawnHp(['warrior']);
+  const trainTuning = await P(() => window.__sys.debugBugTuning());
+  ok(trainHp.warrior && trainHp.warrior.maxHp === BASE_HP.warrior && trainTuning.threat === 1 && trainTuning.hpMul === 1,
+    `the arena keeps bug hp ×1 (warrior ${trainHp.warrior && trainHp.warrior.maxHp}, tuning threat ${trainTuning.threat})`);
   ok(unknown.soil === 0, `an unknown planet id places no 토양 더미 (${unknown.soil})`);
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitSim(0.2);

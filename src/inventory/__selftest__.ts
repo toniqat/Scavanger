@@ -1,6 +1,8 @@
 import type { ItemInstance } from '@/shared';
 import { INVENTORY_COLS, INVENTORY_ROWS, QUICK_SLOTS, Random } from '@/shared';
 import { ITEM_DEF_MAP, LootService, STARTER_LOADOUT } from '@/items';
+import { WEAPON_GRADE_HANDLING_MUL, damageFalloffStats } from '@/items';   // 2026-09-14 (총기 밸런스)
+import { detachForbiddenSockets } from './Serialize';
 import { Grid } from './Grid';
 import { attachedItems, clearAllSockets, clearSocket, filledSocketCount, findSocketed, setSocket } from './Sockets';
 import {
@@ -266,6 +268,51 @@ export function runInventorySelfTest(): boolean {
     // a weapon created with an extended mag in `extras` spawns with the bigger magazine
     const loaded = loot.createItem('wpn_ar', 1, { sockets: { mag: loot.createItem('att_mag_medium') } });
     check(loaded.ammoInMag === 63 && loaded.durability === 500, 'sockets: createItem honours socketed mag size');
+  }
+
+  // 2026-09-14 (총기 밸런스): per-class sockets · forbidden attachments are inert · load-time detach · handling / sway / barrel math
+  {
+    const mk = (id: string): ItemInstance => loot.createItem(id);
+    const fits = (w: ItemInstance, id: string): boolean => loot.canAttach(w, mk(id));
+    const ar = mk('wpn_ar'), smg = mk('wpn_smg'), sg = mk('wpn_sg'), dmr = mk('wpn_dmr'), sr = mk('wpn_sr');
+    check(fits(sg, 'att_choke') && fits(sg, 'att_mag_shell') && fits(sg, 'att_laser') && !fits(sg, 'att_brake') && !fits(sg, 'att_comp')
+      && !fits(sg, 'att_grip_vertical') && !fits(sg, 'att_stock') && !fits(sg, 'att_barrel_ext'), 'socket rules: SG = choke · mag · sight only');
+    check(fits(smg, 'att_grip_angled') && fits(smg, 'att_barrel_ext') && fits(smg, 'att_mag_light') && !fits(smg, 'att_stock') && !fits(smg, 'att_choke'),
+      'socket rules: SMG takes a grip, no stock');
+    for (const [w, tag] of [[dmr, 'DMR'], [sr, 'SR']] as const) {
+      check(fits(w, 'att_brake') && fits(w, 'att_barrel_ext') && fits(w, 'att_scope8') && fits(w, 'att_mag_heavy') && !fits(w, 'att_grip_vertical') && !fits(w, 'att_stock'),
+        `socket rules: ${tag} = muzzle · mag · sight`);
+    }
+    check(fits(ar, 'att_stock') && fits(ar, 'att_grip_vertical') && fits(ar, 'att_barrel_ext') && fits(ar, 'att_scope6') && !fits(ar, 'att_choke'), 'socket rules: AR takes all five');
+    const sgSt = loot.getEffectiveStats(sg)!;
+    check(sgSt.sockets.join() === 'muzzle,mag,sight' && loot.getEffectiveStats(ar)!.sockets.length === 5 && loot.getEffectiveStats('u_flame')!.sockets.length === 0,
+      'stats.sockets per class (uniques none)');
+    // an old save: brake + stock + laser on the shotgun — the forbidden two do nothing and come off, the laser stays
+    const oldSg = mk('wpn_sg');
+    oldSg.sockets = { stock: mk('att_stock'), muzzle: mk('att_brake'), sight: mk('att_laser') };
+    const oldSt = loot.getEffectiveStats(oldSg)!;
+    check(Math.abs(oldSt.adsTime - sgSt.adsTime) < 1e-9 && Math.abs(oldSt.adsSpread - sgSt.adsSpread) < 1e-9 && oldSt.laser, 'forbidden sockets have no effect, fitting ones still do');
+    const loose = detachForbiddenSockets(oldSg, getDef, loot);
+    check(loose.map((l) => `${l.socket}:${l.item.defId}`).join() === 'muzzle:att_brake,stock:att_stock' && Object.keys(oldSg.sockets ?? {}).join() === 'sight',
+      'detachForbiddenSockets: brake + stock off (socket order), laser stays');
+    check(detachForbiddenSockets(oldSg, getDef, loot).length === 0, 'detachForbiddenSockets: nothing more on a second pass');
+    // grade handling I / V on spread · recoil · ADS time · sway; stock × grip sway; 확장 총열 falloff / drop
+    const h = WEAPON_GRADE_HANDLING_MUL;
+    const near = (x: number, y: number): boolean => Math.abs(x - y) < 1e-6;
+    const a1 = loot.getEffectiveStats('ar')!, a5 = loot.getEffectiveStats('ar_g5')!;
+    check(h.length === 5 && near(a1.spread / a5.spread, h[0] / h[4]) && near(a1.recoilV / a5.recoilV, h[0] / h[4]) && near(a1.adsTime / a5.adsTime, h[0] / h[4])
+      && near(a1.swayMul / a5.swayMul, h[0] / h[4]), 'grade handling multiplier on spread · recoil · ADS time · sway');
+    check(loot.getEffectiveStats('smg_g5')!.fireRate > loot.getEffectiveStats('smg')!.fireRate && a5.fireRate === a1.fireRate, 'fire rate rises with grade for SMG only (AR flat)');
+    const kitted = mk('wpn_ar');
+    kitted.sockets = { stock: mk('att_stock'), grip: mk('att_grip_vertical'), muzzle: mk('att_barrel_ext') };
+    const k = loot.getEffectiveStats(kitted)!;
+    const fx = (id: string) => getDef(id)!.attachment!.effects;
+    check(near(k.swayMul, a1.swayMul * fx('att_stock').sway! * fx('att_grip_vertical').sway!), 'sway: stock × grip on top of the grade multiplier');
+    const barrel = fx('att_barrel_ext');
+    check(near(k.falloffEnd, a1.falloffEnd * barrel.falloffRange!) && near(1 - k.falloffMin, (1 - a1.falloffMin) * barrel.falloffLoss!)
+      && near(k.bulletGravity, a1.bulletGravity * barrel.bulletDrop!), 'barrel ext: falloff range / loss and bullet drop');
+    check(damageFalloffStats(k, 0) === 1 && near(damageFalloffStats(k, k.falloffEnd + 1), k.falloffMin) && a1.projectileSpeed > 0 && a1.bulletGravity > 0,
+      'damageFalloffStats + ballistics filled');
   }
 
   // quick-use wheel: set / move / clear / auto-assign / prune (item left the bag) / consume-to-0 relink

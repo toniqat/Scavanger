@@ -48,6 +48,7 @@ import * as Cat from './parts/Catalog';
 import * as StashOps from './parts/StashOps';
 import * as Drop from './parts/DropResolver';
 import * as Dur from './parts/Durability';
+import * as SockOut from './parts/SocketDetach';   // 2026-09-14: 고정 툴팁에서 소켓 하나 꺼내기
 import * as Launch from './parts/LaunchCheck';
 /* appended (2026-09-09): 사망 → 시체 컨테이너 */
 import * as Corpse from './parts/CorpseLoot';
@@ -1230,6 +1231,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Every attachment of weapon `uid` back into the bag (overflow drops to the ground). False when none / not found. */
   detachAllSockets(uid: string): boolean { return Dur.detachAllSockets(this, uid); }
+
+  /**
+   * 2026-09-14 (고정 툴팁): 무기 `weaponUid` 의 `socket` 하나를 `target`(가방 · 창고 · 주머니 칸, 또는 레이드의 바닥)으로 꺼낸다 —
+   * `attachToWeapon` 의 거울 (`parts/SocketDetach`). 가리킨 칸이 막혔으면 `'fail'` 이고 부착물은 소켓에 남는다.
+   */
+  detachSocket(weaponUid: string, socket: SocketSlot, target: import('./model').DetachTarget): OpResult { return SockOut.detachSocket(this, weaponUid, socket, target); }
+  /** 끄는 동안의 칸 강조 — `detachSocket` 이 지금 성공할까 (아무것도 바꾸지 않는다). */
+  previewDetach(weaponUid: string, socket: SocketSlot, target: import('./model').DetachTarget): 'ok' | 'bad' { return SockOut.previewDetach(this, weaponUid, socket, target); }
+  /** 이 무기의 소켓을 끌어낼 수 있는 자리(가방 · 장비칸 · 함선 창고)에 있나. 상자 · 시체 안의 무기는 false. */
+  canDetachSockets(weaponUid: string): boolean { return SockOut.canDetachSockets(this, weaponUid); }
 
   /** Magazine → bag as ammo of the weapon's calibre (merge into stacks, new stacks, overflow drops). */
   unloadWeapon(uid: string): boolean { return Dur.unloadWeapon(this, uid); }

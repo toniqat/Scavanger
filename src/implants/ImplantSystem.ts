@@ -397,6 +397,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
 
   /* ═══════════════════════════ 대시 ═══════════════════════════ */
   private castDash(): void { return Dev.castDash(this); }
+  /** 2026-09-14: where a dash from `from` along `dir` ends — the furthest point the body reaches walking (smoke-tactical reads it). */
+  dashReach(from: THREE.Vector3, dir: THREE.Vector3, dist: number, out: THREE.Vector3): THREE.Vector3 { return Dev.dashReach(this, from, dir, dist, out); }
 
   /* ═══════════════════════════ 배리어 = 들고 다니는 방패 (Phase 10) ═══════════════════════════ */
   /** Refused while the shield is recharging after a collapse (the lockout doubles as its cooldown). */

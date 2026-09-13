@@ -3,6 +3,8 @@ import { STASH_COLS, STASH_ROWS, STASH_STORAGE_KEY, slotKey } from '@/shared';
 import { resolveItemAlias } from '@/shared';   // 2026-09-13 (서재 시리즈): 옛 매체 id → 새 시리즈 1권 (`reviveItem` 이 바꾸고, 여기서 다시 합친다)
 import { Grid, type DefLookup } from './Grid';
 import { readSaveFile, reviveItem, savedCell, serializePlacement, writeSaveFile, type SavedPlacement } from './Serialize';
+import { detachForbiddenSockets } from './Serialize';   // 2026-09-14 (총기 소켓 규칙): 더는 맞지 않는 부착물을 로드할 때 뗀다
+import type { SocketSlot } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 함선 창고 (ship stash, 2026-09-06): a STASH_COLS × STASH_ROWS grid (default) that persists in localStorage
@@ -155,9 +157,12 @@ export class Stash {
     const pending: ItemInstance[] = [];
     /** 2026-09-13: stacks whose id went through the alias table — placed after everything else so they can re-merge. */
     const converted: Array<{ item: ItemInstance; sv: SavedPlacement }> = [];
+    /** 2026-09-14: attachments taken off a weapon that no longer accepts them — placed after every saved item has its cell. */
+    const loose: Array<{ weapon: ItemInstance; socket: SocketSlot; item: ItemInstance }> = [];
     for (const sv of file.items) {
       const item = reviveItem(sv, this.getDef, this.loot, 'Stash');
       if (!item) continue;
+      for (const d of detachForbiddenSockets(item, this.getDef, this.loot)) loose.push({ weapon: item, ...d });
       if (typeof sv.defId === 'string' && resolveItemAlias(sv.defId) !== sv.defId) { converted.push({ item, sv }); continue; }
       const cell = savedCell(sv);
       if (cell && this.grid.place(item, cell.x, cell.y, !!sv.rotated)) continue;
@@ -173,7 +178,17 @@ export class Stash {
     }
     // anything whose cell was taken (corrupt / overlapping save) is auto-placed; what does not fit is dropped
     for (const item of pending) if (!this.grid.autoPlace(item)) console.warn(`[Stash] no room for '${item.defId}' on load — discarded`);
-    this.savedVersion = this.grid.version;
+    // 2026-09-14 (총기 소켓 규칙, 사용자 결정): a detached attachment goes into this 창고; no room → back on its weapon, where it
+    // has no effect (`computeWeaponStats` skips it) — nothing is lost and the next load tries again
+    let returned = 0;
+    for (const { weapon, socket, item } of loose) {
+      if (this.grid.autoPlace(item)) { returned++; continue; }
+      (weapon.sockets ??= {})[socket] = item;
+      console.warn(`[Stash] no room for '${item.defId}' taken off '${weapon.defId}' — left on the weapon (no effect)`);
+    }
+    if (returned > 0) console.info(`[Stash] ${returned} attachment(s) no longer fit their weapon — moved into the 창고`);
+    // a fixed 창고 stays dirty so the next save writes (and uploads) it; `loadFrom` rewrites the local file itself
+    this.savedVersion = returned > 0 ? -1 : this.grid.version;
   }
 
   dispose(): void {

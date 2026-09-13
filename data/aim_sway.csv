@@ -8,8 +8,10 @@
 #                멀리 쏠수록 빗나가는 거리가 커진다 — 0.3° 는 100 m 에서 약 0.5 m 다.
 # frequencyHz  — 좌우 한 번 왕복하는 빈도(Hz). 작을수록 느리게 흐른다. 0.32 = 약 3.1 초에 한 바퀴.
 # 자세 · 이동 배수(앉기 · 엎드리기 · 걷기)는 constants.csv 의 AIM_SWAY_* 다. 각성제는 PlayerRef.aimSwayMul 로 곱한다.
+# 2026-09-14 (총기 밸런스): 이 표는 **등급 V(×1.0) 기준**이다. 실제 진폭 = 표 × EffectiveWeaponStats.swayMul
+#   (= tables.csv WEAPON_GRADE_HANDLING_MUL 의 등급 배수 ×1.6 … ×1.0 × 개머리판 0.65 × 손잡이 0.8). 돌격소총 0.12 → 0.16 (약한 기본기, 사용자 결정).
 class,amplitudeDeg,frequencyHz
-AR,0.12,0.45
+AR,0.16,0.45
 SMG,0.08,0.6
 SG,0.1,0.5
 DMR,0.2,0.38

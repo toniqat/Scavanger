@@ -182,6 +182,7 @@ export class ShotResolver {
 export function updateAimBlock(sys: WeaponSystem, host: Host, weapon: WeaponInstance | null, armedAndFree: boolean): void {
   const w = weapon;
   if (!w || sys.holstered || !armedAndFree || sys.phase === 'swapping' || (w.def.unique && CONE_UNIQUES.has(w.def.unique))) {
+    sys.aimLineValid = false;
     setAimBlocked(sys, false);
     return;
   }
@@ -191,6 +192,8 @@ export function updateAimBlock(sys: WeaponSystem, host: Host, weapon: WeaponInst
   _am.setFromMatrixPosition(w.model.muzzle.matrixWorld);
   sys.aim.begin(host, _am, _ao, _ad);
   const s = sys.aim.resolve(_ad, w.def.range, sys.aimLine);
+  // 2026-09-14: the laser sight reads this frame's line (`WeaponSystem.updateLaser` → `aimLine.end`)
+  sys.aimLineValid = true;
   const blocked = s.obstructed && s.hit !== null;
   if (blocked && s.hit) sys.aimMarker.show(s.hit.point, s.hit.normal, s.dir, ctx.camera, ctx.time);
   setAimBlocked(sys, blocked);

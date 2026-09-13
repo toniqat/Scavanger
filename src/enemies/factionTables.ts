@@ -7,6 +7,10 @@
  *
  * 표(`data/tables.csv`)의 `SITE_*` · `*_BY_THREAT` 는 index 0 = 행성 threat 1 … 2 = threat 3,
  * `RAIDER_DROP_WAVE*` 는 index 0 = 분대 1명 … 3 = 4명이다.
+ *
+ * 2026-09-14: **벌레 난이도** 표(`BUG_HP_MUL_BY_THREAT` · `BIG_BUG_WEIGHT_MUL_BY_THREAT` · `MID_BUG_WEIGHT_MUL_BY_THREAT` ·
+ * `PATROL_BEHEMOTH_BY_THREAT` · `ARTILLERY_CAP_BONUS_BY_THREAT` · `BEHEMOTH_CAP_BONUS_BY_THREAT`)도 여기서 옮긴다 — 같은 threat 색인이고
+ * 이 파일이 이미 data:check 로더 목록에 있다. 한 칸으로 묶는 것은 `bugThreatTuning(threat)`.
  */
 import { keyTable, numberList } from '@/shared';
 
@@ -54,4 +58,44 @@ export function byThreat(table: readonly number[], threat: number): number {
   if (table.length === 0) return 0;
   const v = table[Math.max(0, Math.min(table.length - 1, Math.round(threat) - 1))];
   return Number.isFinite(v) ? v : 0;
+}
+
+/* ── 2026-09-14: 벌레 난이도 (행성 threat) — `Pool.acquire` 의 체력 배수 · `Spawner.threatEcosystem` 의 구성 배수 ── */
+export const BUG_HP_MUL_BY_THREAT: readonly number[] = numberList('tables.csv', 'BUG_HP_MUL_BY_THREAT');
+export const BIG_BUG_WEIGHT_MUL_BY_THREAT: readonly number[] = numberList('tables.csv', 'BIG_BUG_WEIGHT_MUL_BY_THREAT');
+export const MID_BUG_WEIGHT_MUL_BY_THREAT: readonly number[] = numberList('tables.csv', 'MID_BUG_WEIGHT_MUL_BY_THREAT');
+export const PATROL_BEHEMOTH_BY_THREAT: readonly number[] = numberList('tables.csv', 'PATROL_BEHEMOTH_BY_THREAT');
+export const ARTILLERY_CAP_BONUS_BY_THREAT: readonly number[] = numberList('tables.csv', 'ARTILLERY_CAP_BONUS_BY_THREAT');
+export const BEHEMOTH_CAP_BONUS_BY_THREAT: readonly number[] = numberList('tables.csv', 'BEHEMOTH_CAP_BONUS_BY_THREAT');
+
+/** 한 레이드의 벌레 난이도 (행성 threat 한 칸을 읽어 둔 것 — `EnemySystem` 이 `world:ready` 에서 만든다). */
+export interface BugThreatTuning {
+  /** 행성 threat 1..3 (행성 없음 · 훈련장 = 1). */
+  readonly threat: 1 | 2 | 3;
+  /** 팩션 bug 최대 체력 배수 (지하벌레 제외). */
+  readonly hpMul: number;
+  /** charger · behemoth · artillery 가중치 · 순찰 대형 슬롯 확률 · 포병 굴착 확률 배수. */
+  readonly bigMul: number;
+  /** warrior · spewer 가중치 배수. */
+  readonly midMul: number;
+  /** 순찰의 대형 슬롯이 베헤모스를 뽑을 수 있다. */
+  readonly patrolBehemoth: boolean;
+  readonly artilleryCapBonus: number;
+  readonly behemothCapBonus: number;
+}
+
+/** 표 한 칸 → 난이도 (배수는 0 이상, 상한 보너스는 0 이상 정수). threat 1 칸이 전부 1 / 0 이면 예전과 비트 동일. */
+export function bugThreatTuning(threat: number): BugThreatTuning {
+  const t = (Math.max(1, Math.min(3, Math.round(Number.isFinite(threat) ? threat : 1)))) as 1 | 2 | 3;
+  const mul = (table: readonly number[]): number => Math.max(0, table.length ? byThreat(table, t) : 1);
+  const bonus = (table: readonly number[]): number => Math.max(0, Math.round(byThreat(table, t)));
+  return {
+    threat: t,
+    hpMul: mul(BUG_HP_MUL_BY_THREAT),
+    bigMul: mul(BIG_BUG_WEIGHT_MUL_BY_THREAT),
+    midMul: mul(MID_BUG_WEIGHT_MUL_BY_THREAT),
+    patrolBehemoth: byThreat(PATROL_BEHEMOTH_BY_THREAT, t) > 0,
+    artilleryCapBonus: bonus(ARTILLERY_CAP_BONUS_BY_THREAT),
+    behemothCapBonus: bonus(BEHEMOTH_CAP_BONUS_BY_THREAT),
+  };
 }

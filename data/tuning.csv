@@ -7,6 +7,10 @@ DEFAULT_ITEM_WEIGHT,0.1,weight 를 적지 않은 아이템의 무게(kg)
 WEAPON_GRADE_VALUE_STEP,0.6,무기 등급 1단계마다 판매가 +60 %
 RECOIL_H_RATIO,0.7,수평 반동 = 수직 반동 × 이 값
 SECONDARY_ADS_TIME_MUL,0.5,보조무기 조준 시간 배수 (주무기의 절반)
+# ── 2026-09-14 총기 밸런스 ── owner: items/WeaponStats (등급 무기는 weapons.csv 의 bloomPerShot · bloomSpread 를 쓴다 — 여기는 계열 줄이 없는 유니크 무기용)
+WEAPON_BLOOM_PER_SHOT_DEFAULT,0.14,"연사 퍼짐: 한 발마다 bloom 증가 (0..1) — 유니크 무기"
+WEAPON_BLOOM_SPREAD_DEFAULT,1.6,"연사 퍼짐: 퍼짐 × (1 + bloom × 이 값) — 유니크 무기"
+WEAPON_BLOOM_DECAY_DEFAULT,2.6,"연사 퍼짐: bloom 이 초당 식는 양 — 유니크 무기 (등급 무기는 weapons.csv 의 bloomDecay)"
 
 # items — 씨앗 · 서적 · 임플란트 · 표본 아이템
 SEED_STACK_MAX,5,씨앗 한 칸에 겹치는 최대 수

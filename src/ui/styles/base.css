@@ -2977,9 +2977,11 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .key-guide .kg-plus { font-size: 10px; font-weight: 700; }
 
 /* ── 커서 홀드 링 (hud/CursorHoldGauge, 2026-09-12): 시설 관리에서 가구를 꾹 누르는 동안 커서 중심 ──
-   크로스헤어 홀드 링(`.hold`)과 같은 결 · 작은 크기. `transform` 이 커서 좌표이고 margin 이 중심을 맞춘다. */
+   크로스헤어 홀드 링(`.hold`)과 같은 결 · 작은 크기. `transform` 이 커서 좌표이고 margin 이 중심을 맞춘다.
+   2026-09-14: `ui:cursorHold`(인벤토리 툴팁 고정)도 같은 링이다 — 인벤토리 창(50) · 호버 카드(200) · 즐겨찾기 메뉴(210) 위에
+   떠야 하므로 z 83 → 215 (드래그 고스트 `.hs-ghost` 220 아래). 포인터를 먹지 않는다. */
 .cursor-hold {
-  position: fixed; left: 0; top: 0; z-index: 83;
+  position: fixed; left: 0; top: 0; z-index: 215;
   width: 56px; height: 56px; margin: -28px 0 0 -28px;
   pointer-events: none;
   opacity: 0; transition: opacity 80ms var(--ease);

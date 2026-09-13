@@ -3,7 +3,9 @@
 // 3.2 m shield width, `resolveBarrierCollision` / `absorbFrontalAttack`, the 실드 배쉬 via a synthetic LMB and the
 // one-shot 정찰 in a third mission; 2026-09-11 the explicit 오버차지 flag (C-3) and the bash knockback through the
 // contract `EnemyManagerRef.pushBack` (C-1); 2026-09-12 → 115: ready moments / sounds, dash 11.25 m + wall clamp,
-// `refillAll`, and a fourth mission for the grapple cooldown refund).
+// `refillAll`, and a fourth mission for the grapple cooldown refund; 2026-09-14 → 119: grapple cooldown 31.2 s / cancel floor
+// 3.9 s, and the body-swept dash — a ground-floor window intact + broken stops it inside, a front doorway and a low box step pass,
+// each compared with a real PlayerController walking the same line).
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
 //
@@ -255,6 +257,10 @@ try {
       o.copy(base); o.y += 1.0;
       const end = base.clone().addScaledVector(d, 11.25);
       if (w.raycast(o, d, 12.5) || !w.isInsideBounds(end.x, end.z) || Math.abs(w.getHeightAt(end.x, end.z) - base.y) >= 1.5) continue;
+      // 2026-09-14: the dash now sweeps the body, so a knee-high rock under the 1 m ray also stops it — the line must be empty for a body
+      let bodyClear = true;
+      for (let s = 0.5; s <= 11.75 && bodyClear; s += 0.5) { const q = base.clone().addScaledVector(d, s); if (w.getObstaclesNear(q.x, q.z, 1.0).length) bodyClear = false; }
+      if (!bodyClear) continue;
       p.respawnAt(base, a);
       const f = new V(); p.getForward(f);
       const from = p.position.clone(), c0 = ctx.implants.charges;
@@ -296,6 +302,135 @@ try {
   });
   ok(dWall.found && dWall.yawOk && dWall.used === 1 && dWall.moved < 11 && dWall.moved <= dWall.wallAt - 0.45 + 0.3,
     `wall ${dWall.wallAt?.toFixed(2)} m ahead (${dWall.kind}): the longer dash still stops in front of it (${dWall.moved?.toFixed(2)} m)`, JSON.stringify(dWall));
+
+  /* ── 2026-09-14: the dash sweeps the body like walking — a window (intact or broken) stops it inside, a doorway and a low step pass ── */
+  // Compared against a real PlayerController walking the same straight line (the reach smoke's trick): the dash ends where walking gets.
+  await gameSleep(page, 0.2);
+  const dStruct = await page.evaluate(() => {
+    const ctx = window.__game.ctx, p = ctx.player, w = ctx.world, im = ctx.implants;
+    const sys = window.__game.getSystem('implants'), ws = window.__game.getSystem('world');
+    const V = p.position.constructor;
+    const home = p.position.clone();
+    const R = 0.45;
+    const Ctl = window.__game.getSystem('player').controller.constructor;
+    const walk = (from, dir, dist) => {
+      const ctl = new Ctl(); ctl.reset(from.clone());
+      const mv = { x: 0, z: 1, sprint: false, jump: false, stance: 'stand', aiming: false };
+      const res = { footstep: false, landed: 0, jumped: false, rollEnded: false, rung: false, climbEnded: null };
+      const yaw = Math.atan2(-dir.x, -dir.z);
+      let best = 0;
+      for (let it = 0; it < 600; it++) {
+        ctl.update(1 / 60, mv, yaw, w, res);
+        best = Math.max(best, (ctl.position.x - from.x) * dir.x + (ctl.position.z - from.z) * dir.z);
+        if (best >= dist) break;
+      }
+      return Math.min(best, dist);
+    };
+    const free = (q) => { const c = q.clone(); w.resolveCollision(c, R); return Math.hypot(c.x - q.x, c.z - q.z) < 0.02; };
+    const dashFrom = (from, dir) => {
+      p.respawnAt(from, Math.atan2(-dir.x, -dir.z));
+      sys.chargesLeft = 3; sys.cdRemaining = 0;
+      const c0 = im.charges;
+      im.activate();
+      return { used: c0 - im.charges, along: (p.position.x - from.x) * dir.x + (p.position.z - from.z) * dir.z, y: p.position.y, end: p.position.clone() };
+    };
+    const res = { structures: 0, window: null, broken: null, door: null, step: null };
+    const navs = ws.structures.debugNav(), panes = ws.structures.glassSet.panes;
+    res.structures = navs.length;
+    // ── a ground-floor window: stand 2.5 m inside, face it, dash — then break that pane (rays pass it now) and dash again
+    for (const s of navs) {
+      if (res.window) break;
+      const nav = s.nav, y0 = nav.levels[0];
+      for (const pn of panes) {
+        const sp = pn.spec;
+        if (pn.structureId !== s.id || pn.broken || Math.abs(sp.y - (y0 + 1.0)) > 0.05) continue;
+        const inward = new V(-Math.sin(sp.yaw), 0, Math.cos(sp.yaw));
+        if (inward.x * (nav.cx - sp.x) + inward.z * (nav.cz - sp.z) < 0) inward.negate();
+        const spot = new V(sp.x + inward.x * 2.5, 0, sp.z + inward.z * 2.5);
+        spot.y = w.getSurfaceY(spot.x, spot.z, y0 + 0.3);
+        if (Math.abs(spot.y - y0) > 0.1 || !free(spot)) continue;
+        const dir = inward.clone().negate();
+        const plane = (q) => (q.x - sp.x) * inward.x + (q.z - sp.z) * inward.z;   // > 0 = inside the wall
+        const intact = dashFrom(spot, dir);
+        const walked = walk(spot, dir, 11.25);
+        ws.structures.breakGlass(s.id, pn.index, true);
+        const eye = spot.clone(); eye.y = sp.y + sp.height / 2;
+        const ray = w.raycast(eye, dir, 12.5);
+        const broken = dashFrom(spot, dir);
+        res.window = { id: s.id, pane: pn.index, y0, walked, used: intact.used, along: intact.along, y: intact.y, inside: plane(intact.end) };
+        res.broken = { broken: pn.broken, rayAt: ray ? ray.distance : null, used: broken.used, along: broken.along, y: broken.y, inside: plane(broken.end) };
+        break;
+      }
+    }
+    // ── the front door: 3 m outside the outer step, face in, dash
+    for (const s of navs) {
+      if (s.kind === 'wreck') continue;
+      const nav = s.nav, y0 = nav.levels[0];
+      const c = Math.cos(nav.yaw), sn = Math.sin(nav.yaw);
+      const toW = (lx, lz) => new V(nav.cx + lx * c - lz * sn, 0, nav.cz + lx * sn + lz * c);
+      const di = toW(nav.doorIn[0], nav.doorIn[1]), dout = toW(nav.doorOut[0], nav.doorOut[1]);
+      const dir = di.clone().sub(dout).normalize();
+      const from = dout.clone().addScaledVector(dir, -3);
+      if (!w.isInsideBounds(from.x, from.z)) continue;
+      from.y = w.getSurfaceY(from.x, from.z, y0 + 0.3);
+      if (Math.abs(from.y - y0) > 0.85 || !free(from)) continue;
+      const r = dashFrom(from, dir);
+      const dx = r.end.x - nav.cx, dz = r.end.z - nav.cz;
+      const lx = dx * c + dz * sn, lz = -dx * sn + dz * c;
+      res.door = { id: s.id, used: r.used, along: r.along, walked: walk(from, dir, 11.25), inFootprint: Math.abs(lx) < nav.halfW && Math.abs(lz) < nav.halfD, dy: r.y - y0 };
+      break;
+    }
+    // ── a low box (0.25–0.85 m, e.g. a rail deck plank): approach 2.5 m off a face over empty ground, dash onto it
+    const boxes = w.getObstacles().filter((ob) => ob.box && !ob.ramp && !ob.velocity && !ob.fragile && !ob.destructible)
+      .map((ob) => ({ ob, top: ob.position.y + ob.height }))
+      .sort((a, b) => a.ob.position.distanceToSquared(home) - b.ob.position.distanceToSquared(home));
+    search: for (const q of boxes) {
+      const b = q.ob.box;
+      for (let k = 0; k < 4 && q.top - w.getHeightAt(q.ob.position.x, q.ob.position.z) < 1.2; k++) {
+        const alongX = k % 2 === 0;
+        const face = alongX ? new V(Math.cos(b.yaw), 0, Math.sin(b.yaw)) : new V(-Math.sin(b.yaw), 0, Math.cos(b.yaw));
+        if (k >= 2) face.negate();
+        const half = alongX ? b.halfX : b.halfZ, cross = alongX ? b.halfZ : b.halfX;
+        if (half < 0.6 || cross < 0.6) continue;
+        const spot = q.ob.position.clone().addScaledVector(face, half + 2.5);
+        if (!w.isInsideBounds(spot.x, spot.z)) continue;
+        spot.y = w.getHeightAt(spot.x, spot.z);
+        const rise = q.top - spot.y;
+        if (rise < 0.25 || rise > 0.85 || w.getSurfaceY(spot.x, spot.z, spot.y + 0.1) > spot.y + 0.05 || !free(spot)) continue;
+        const dir = face.clone().negate();
+        // nothing else on the approach but steppable boxes (so the step itself is what is tested)
+        let clear = true;
+        for (let st = 0; st <= 2.5 && clear; st += 0.5) {
+          const qq = spot.clone().addScaledVector(dir, st);
+          for (const o of w.getObstaclesNear(qq.x, qq.z, 0.9)) {
+            if (o === q.ob || (o.box && !o.ramp && !o.velocity && o.position.y + o.height <= spot.y + 0.85)) continue;
+            clear = false; break;
+          }
+          if (Math.abs(w.getHeightAt(qq.x, qq.z) - spot.y) > 0.3) clear = false;
+        }
+        if (!clear) continue;
+        const onTop = sys.dashReach(spot, dir, half + 2.5, new V());
+        const walked = walk(spot, dir, half + 2.5);
+        const r = dashFrom(spot, dir);
+        res.step = { rise, top: q.top, reach: half + 2.5, used: r.used, along: r.along, walked,
+          topY: onTop.y, topGap: Math.hypot(onTop.x - q.ob.position.x, onTop.z - q.ob.position.z) };
+        break search;
+      }
+    }
+    p.respawnAt(home);
+    return res;
+  });
+  {
+    const s = dStruct, wn = s.window, br = s.broken, dr = s.door, st = s.step;
+    ok(!!wn && wn.used === 1 && wn.along < 2.5 && wn.inside >= 0.4 && Math.abs(wn.y - wn.y0) < 0.05 && Math.abs(wn.along - wn.walked) < 0.35,
+      `window 2.5 m ahead (intact glass): the dash stops inside in front of the wall (${wn?.along?.toFixed(2)} m, ${wn?.inside?.toFixed(2)} m off the pane, walking ${wn?.walked?.toFixed(2)} m)`, JSON.stringify(s));
+    ok(!!br && br.broken && br.used === 1 && br.along < 2.5 && br.inside >= 0.4,
+      `the same window broken (ray through the pane: ${br?.rayAt === null ? 'none' : br?.rayAt?.toFixed(2) + ' m'}): the dash still stops inside (${br?.along?.toFixed(2)} m)`, JSON.stringify(br));
+    ok(!!dr && dr.used === 1 && dr.along > 3.5 && dr.inFootprint && Math.abs(dr.along - dr.walked) < 0.4,
+      `front doorway (${dr?.id}): the dash passes into the building (${dr?.along?.toFixed(2)} m, walking ${dr?.walked?.toFixed(2)} m)`, JSON.stringify(dr));
+    ok(!!st && st.used === 1 && Math.abs(st.topY - st.top) < 0.05 && st.topGap < 0.3 && st.along >= st.reach - 0.3 && st.walked >= st.reach - 0.3,
+      `low step ${st?.rise?.toFixed(2)} m: the dash steps up onto it (top ${st?.topY?.toFixed(2)} / ${st?.top?.toFixed(2)}, ${st?.along?.toFixed(2)} m ≥ ${st?.reach?.toFixed(2)})`, JSON.stringify(st));
+  }
 
   /* ── 2026-09-12: ready moments — every dash charge back flashes (intermediate weak, last full) + implant_ready ── */
   await gameSleep(page, 0.2);
@@ -803,11 +938,13 @@ try {
     return { def: im.getDef('grapple').cooldown, mul: mul0, readyAtStart, A, B0, B6, B20, C, D, hud };
   });
   const near = (a, b) => Math.abs(a - b) < 1e-6;
-  ok(g.def === 24 && near(g.A.total, 24 * g.mul), `IMPLANT_GRAPPLE_COOLDOWN 24 (effective ${g.A.total?.toFixed(1)} s)`);
+  // 2026-09-14: 갈고리 +30 % — 24 → 31.2 s, the cancel floor 3 → 3.9 s (refund ratios unchanged)
+  ok(near(g.def, 31.2) && near(g.A.total, 31.2 * g.mul) && near(g.A.before, g.A.total),
+    `IMPLANT_GRAPPLE_COOLDOWN 31.2: right after the fire ${g.A.before?.toFixed(2)} s of ${g.A.total?.toFixed(2)} s (×${g.mul?.toFixed(3)})`);
   ok(g.readyAtStart === 0, `no implant:ready from the ship / the grapple mission start (${g.readyAtStart})`);
-  ok(g.A.flying && g.A.idle && near(g.A.after, Math.max(Math.min(g.A.before, 3), g.A.before - 0.9 * g.A.total)) && g.A.after >= 3 - 1e-6
+  ok(g.A.flying && g.A.idle && near(g.A.after, Math.max(Math.min(g.A.before, 3.9), g.A.before - 0.9 * g.A.total)) && g.A.after >= 3.9 - 1e-6
     && g.A.ev.length === 1 && g.A.ev[0].ratio === 0.9 && near(g.A.ev[0].seconds, g.A.before - g.A.after),
-    `cancel before attaching: 90 % refund floored at 3 s (${g.A.before.toFixed(2)} → ${g.A.after.toFixed(2)} s, −${g.A.ev[0]?.seconds?.toFixed(2)})`);
+    `cancel before attaching: 90 % refund floored at 3.9 s (${g.A.before.toFixed(2)} → ${g.A.after.toFixed(2)} s, −${g.A.ev[0]?.seconds?.toFixed(2)})`);
   ok(near(g.B0.after, g.B0.before - 0.5 * g.B0.total) && g.B0.ev.length === 1 && g.B0.ev[0].ratio === 0.5,
     `attached, no pull: 50 % refund (${g.B0.before.toFixed(2)} → ${g.B0.after.toFixed(2)} s)`);
   ok(near(g.B6.after, g.B6.before - 0.3 * g.B6.total) && g.B6.ev.length === 1 && near(g.B6.ev[0].ratio, 0.3),
@@ -821,8 +958,8 @@ try {
   ok(g.C.flying && g.C.cd === 0 && g.C.charges === 1 && g.C.idle && g.C.after === 0 && g.C.ev === 0, `refillAll with the hook out: keeps flying, cooldown 0, the release refunds nothing (${JSON.stringify(g.C)})`);
   await gameSleep(page, 0.2);
   const gCool = await page.evaluate(() => { const h = document.querySelector('.imp-hud'); return { dim: h.classList.contains('dim'), ready: h.classList.contains('is-ready') }; });
-  ok(near(g.D.cd, 3) && gCool.dim && !gCool.ready, `after a cancel: 3 s left, dimmed, no ready glow (${JSON.stringify(gCool)})`);
-  await gameSleep(page, 3.2);
+  ok(near(g.D.cd, 3.9) && gCool.dim && !gCool.ready, `after a cancel: 3.9 s left, dimmed, no ready glow (${JSON.stringify(gCool)})`);
+  await gameSleep(page, 4.1);
   const gReady = await page.evaluate(() => {
     const h = document.querySelector('.imp-hud');
     return { ev: window.__ready.slice(window.__readyMarkD), major: h.classList.contains('rdy-major'), ready: h.classList.contains('is-ready'), dim: h.classList.contains('dim'), snd: window.__snd.slice(-1)[0] };

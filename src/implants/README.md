@@ -40,8 +40,8 @@
 
 | id | 이름 | 방식 | 동작 | 쿨타임 |
 |---|---|---|---|---|
-| `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손). 쿨타임은 발사에 시작하고 **끝날 때 환급**(2026-09-12 — 붙은 뒤: 당겨진 거리로 `IMPLANT_GRAPPLE_REFUND_*`, 붙기 전: `IMPLANT_GRAPPLE_CANCEL_*`, 아래 변경 이력) | `IMPLANT_GRAPPLE_COOLDOWN` (24) |
-| `dash` | 대시 | instant | 전방 레이캐스트(`IMPLANT_DASH_DISTANCE` 11.25 m + 반경)로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
+| `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손). 쿨타임은 발사에 시작하고 **끝날 때 환급**(2026-09-12 — 붙은 뒤: 당겨진 거리로 `IMPLANT_GRAPPLE_REFUND_*`, 붙기 전: `IMPLANT_GRAPPLE_CANCEL_*`, 아래 변경 이력) | `IMPLANT_GRAPPLE_COOLDOWN` (31.2) |
+| `dash` | 대시 | instant | **걸어서 닿는 가장 먼 자리**(2026-09-14, `parts/Devices.dashReach`): 몸(`PLAYER_RADIUS`)을 `IMPLANT_DASH_SWEEP_STEP` 씩 `IMPLANT_DASH_DISTANCE` 11.25 m 까지 밀어 본다 — 걸음마다 표면 먼저(`getSurfaceY` / 실내 `getFloorAt`, 올라설 수 있는 단 · 계단 · 턱에서 뛰어내리기) · `resolveCollision` 나중, 진행이 걸음의 `IMPLANT_DASH_SLIDE_MIN` 배 미만이면 그 앞 걸음이 끝. 창(깨졌어도) · 창턱 벽 · 개구멍은 막고 문은 지나간다. → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
 
 | `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH`(Phase 12: **3.2 m**) `× _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. **Phase 12**: 벌레가 통과하지 못하고(`resolveBarrierCollision`), 정면 근접공격은 방패가 대신 맞으며(`absorbFrontalAttack`), 든 채로 **좌클릭 / 근접키 = 실드 배쉬**(스태미나 `IMPLANT_SHIELD_BASH_STAMINA`, 방패 폭 × `_RANGE` 상자 안의 적에게 `_DAMAGE × meleeDamageMul`, `_COOLDOWN`, 포즈는 `player.startMelee('heavy')`). 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
 | `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
@@ -260,6 +260,24 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14 (갈고리 +30 % · 대시 = 걸어서 닿는 자리 — 에이전트 implant)** —
+  - **갈고리 하향 (전구간 ×1.3)**: `IMPLANT_GRAPPLE_COOLDOWN` 24 → **31.2**, 붙기 전 취소의 최소 잔여 `IMPLANT_GRAPPLE_CANCEL_MIN_S` 3 → **3.9**. 환급 비율
+    (`_REFUND_MAX` 0.5 · `_CANCEL_REFUND` 0.9)과 거리(`_REFUND_DIST` 15)는 비율이라 그대로다. 다른 갈고리 쿨타임 원천은 없다 — 임플란트 숙련
+    · 특수 가방은 `implantCooldownMul` 배수라 따라온다. HUD 썸네일(`secs` — 10 초 이상 정수)과 `−N초` 는 값만 읽으므로 코드 무변경 (이 항목은 csv 두 줄뿐이다).
+  - **대시 창틀 통과 방지** (사용자: "뛰어서 갈 수 있는지 체크"). 옛 판정은 1 m 높이 레이 하나로 거리를 잘라 끝자리만 밀어냈다 — 깨진 창
+    (`passRays`) · 창틀 · 레이 높이를 비켜 가는 틈을 레이가 지나가면 벽 너머 빈자리로 순간이동했다. `parts/Devices.dashReach` 가 몸을 걸음처럼
+    민다(할당 없음): 걸음 `IMPLANT_DASH_SWEEP_STEP` 0.15 m 마다 ① 표면 먼저 — `getSurfaceY(x, z, 발)`(실내 `getFloorAt`), 올라설 수 있는 단이면
+    올라서고 `PROP_STEP_UP_MAX` 안의 내리막은 따라가고 더 깊으면 발 높이를 유지한 채 공중(끝나면 떨어진다), 발이 지형 위일 때
+    `IMPLANT_DASH_MAX_SLOPE_DEG` 50° 보다 가파른 오르막 · 한 걸음에 `PROP_STEP_UP_MAX` 넘게 솟는 지형은 막힘 ② 밀어내기 나중 —
+    `resolveCollision(자리, PLAYER_RADIUS)` 뒤 진행이 걸음의 `IMPLANT_DASH_SLIDE_MIN` 0.5 배 미만이면 막힘(그 앞 걸음이 끝), 얕게 스치면 미끄러져 계속.
+    유리(깨졌어도 `passSmall` 은 작은 몸만) · 창턱 벽 · 개구멍 인방은 사람 기준 헤드룸이라 막고, 문 · 계단 · 낮은 상자 단은 걷기처럼 지난다.
+    낮은 바위(볼록 윤곽 · 원기둥)에는 올라서지 않는다 — 걷기도 그 옆으로 미끄러질 뿐 올라서지 못한다 (`resolveCollision` 의 올라설 수 있는 단
+    예외는 상자만). 맵 경계 밖 걸음은 거기서 끝이다(예전엔 대시 전체 취소). 위임 메서드 `ImplantSystem.dashReach(from, dir, dist, out)` 는 스모크용 순수 질의.
+    원격 `imp dash {o, d}` · FX · 이벤트는 그대로.
+  - 검증: `smoke-tactical` — 갈고리 발사 직후 31.2 × mul · 취소 3.9 초 · 3.9 초 뒤 준비, 트인 방향 11.25 m(몸이 지나갈 빈 선을 고른다), seed 42 의 1층 창
+    2.5 m 안쪽에서 대시 → 벽 앞 정지(유리 온전 · 깨뜨린 뒤 둘 다), 정문 3 m 밖에서 → 건물 안까지, 낮은 상자(레일 발판 0.75 m) → 윗면에 올라선다 —
+    창 · 문 · 단 모두 같은 선을 걷는 진짜 `PlayerController` 와 비교한다.
 
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `ImplantSystem.piloting` 이 `ctx.player.roverRide` 도 본다 — 탑승 중 Q 와 들고 있는 임플란트의 입력을 무시한다.
 

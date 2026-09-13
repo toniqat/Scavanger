@@ -33,8 +33,10 @@ import { WEAPON_CLASS_LABEL_KO, boostItemOf, shieldChargeOf } from '@/items';
 import { bagCapacityBonus } from '../Gear';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
-  socketAbbr, socketTip,
+  socketTip,
 } from './labels';
+/* 2026-09-14: 받는 소켓만 · 내구도 게이지 색 — 타일과 같은 함수 */
+import { setDurabilityColorVars, shownSockets } from './GridView';
 
 export interface TooltipLookups {
   getWeapon(weaponId: string): WeaponDef | undefined;
@@ -122,6 +124,7 @@ export class Tooltip {
     cell.className = 'inv-tt-gauge inv-tt-durbar';
     if (value <= 0) cell.classList.add('is-broken');
     else if (ratio < DURABILITY_LOW) cell.classList.add('is-low');
+    setDurabilityColorVars(cell, ratio);   // 2026-09-14: 채움 색 = 타일 게이지와 같은 초록 → 노랑 → 주황 → 빨강
     const k = document.createElement('span'); k.className = 'k'; k.textContent = label;
     const n = document.createElement('span'); n.className = 'n';
     n.textContent = value <= 0 && brokenLabel ? `${brokenLabel} · 0 / ${safeMax}` : `${Math.round(value)} / ${safeMax}`;
@@ -332,7 +335,10 @@ export class Tooltip {
       }
     }
 
-    if (weapon) this.el.appendChild(this.buildSocketRow(item));
+    if (weapon && stats) {
+      const row = this.buildSocketRow(item, stats);
+      if (row) this.el.appendChild(row);
+    }
 
     // Phase 10: 가치 is a bottom bar of the card (same shape as `ui/hud/ItemTip`'s). 2026-09-09: 무게 sits at its
     // left end (a stack's total), 가치 at the right — a stack shows `단가 × 수량` next to the total.
@@ -476,16 +482,25 @@ export class Tooltip {
     return thumb;
   }
 
-  /** The five sockets as a row of small squares: attachment glyph + rarity border, or a dashed empty square. */
-  private buildSocketRow(item: ItemInstance): HTMLElement {
+  /**
+   * The weapon's sockets as a **centred** row of small squares: attachment glyph + rarity border, or a dashed empty square
+   * with the socket's Korean name (`SOCKET_LABEL_KO`). 2026-09-14 (사용자 결정): only the sockets the weapon accepts
+   * (`shownSockets` — the same list as the tile's pips); null when it accepts none. Every square carries `data-socket` —
+   * the pinned card (`ui/TipPin`) shows the attachment's own card on hover and drags it out from there.
+   */
+  private buildSocketRow(item: ItemInstance, stats: EffectiveWeaponStats): HTMLElement | null {
+    const socks = shownSockets(item, stats);
+    if (socks.length === 0) return null;
     const row = document.createElement('div');
     row.className = 'inv-tt-sockets';
-    for (const s of SOCKET_SLOTS) {
+    for (const s of socks) {
       const att = item.sockets?.[s];
       const attDef = att ? this.lookups.getDef(att.defId) : undefined;
       const sq = document.createElement('div');
       sq.className = attDef ? 'inv-tt-sock is-filled' : 'inv-tt-sock';
-      sq.title = socketTip(s, attDef?.name);
+      sq.dataset.socket = s;
+      // the pinned card shows the attachment's own card on hover — a native `title` would pop up on top of it
+      if (!attDef) sq.title = socketTip(s);
       if (attDef) {
         sq.style.setProperty('--ic', attDef.color);
         sq.style.setProperty('--sc', rarityColor(attDef));
@@ -496,7 +511,7 @@ export class Tooltip {
       } else {
         const cap = document.createElement('span');
         cap.className = 'cap';
-        cap.textContent = socketAbbr(s);
+        cap.textContent = SOCKET_LABEL_KO[s];   // 2026-09-14: the full name (`개머리판`), not the two-letter abbreviation
         sq.appendChild(cap);
       }
       row.appendChild(sq);

@@ -24,13 +24,19 @@ import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
 import { WeaponFx } from '../fx/WeaponFx';
 import { aimSwayFor } from '../AimSway';
 import { GrenadeManager } from '../Grenade';
-import { ProjectilePool, projectileOptsFor, type ProjectileHit } from '../Projectile';
+import { ProjectilePool, projectileOptsFor, falloffAt, type ProjectileHit, type ProjectileOptions } from '../Projectile';
+import { damageFalloffStats } from '@/items';
 import { RemoteWeapons } from '../RemoteWeapons';
 import { MeleeController } from '../Melee';
 import { raycastBlockers, damageBarrierAt, makeBlockInfo } from '../Blocking';
 import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from '../unique';
 import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
+
+/** 2026-09-14: launch options for gun rounds, rewritten per trigger pull (the pool copies every field at launch). */
+const _bulletOpts: ProjectileOptions = { style: 'bullet', gravity: 0, report: false, falloffStart: 0, falloffEnd: 0, falloffMin: 1, light: false, width: 0.032, visualOffset: null };
+/** Muzzle − launch point of the round being fired (visual streak offset). */
+const _visOff = new THREE.Vector3();
 
 /** Bolt-action cycle after each sniper shot: blocks firing, drives the model's bolt animation and the cycle sound. */
 export function updateBolt(sys: WeaponSystem, dt: number, weapon: WeaponInstance | null): void {
@@ -58,7 +64,9 @@ export function applyAimZoom(sys: WeaponSystem, stats: EffectiveWeaponStats | nu
   // 2026-09-12 조준 흔들림 (A2): the class sway travels with the zoom (null stats = nothing aimable in hand → 0). Two numbers,
   // no de-dup cache needed; the rig damps a change so a swap never jumps the view.
   const sway = aimSwayFor(stats);
-  if (host && typeof host.setAimSway === 'function') host.setAimSway(sway.amplitudeDeg, sway.frequencyHz);
+  // 2026-09-14 총기 밸런스: the class amplitude × the weapon's handling (`stats.swayMul` — grade × stock / grip)
+  const swayMul = stats && Number.isFinite(stats.swayMul) && stats.swayMul >= 0 ? stats.swayMul : 1;
+  if (host && typeof host.setAimSway === 'function') host.setAimSway(sway.amplitudeDeg * swayMul, sway.frequencyHz);
   if (sys.zoomSent.zoom === zoom && sys.zoomSent.scope === scope) return;
   sys.zoomSent.zoom = zoom; sys.zoomSent.scope = scope;
   if (host && typeof host.setAimZoom === 'function') host.setAimZoom(zoom, scope);
@@ -157,8 +165,11 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   const stance = STANCE_ACCURACY[host.stance ?? 'stand'] ?? STANCE_ACCURACY.stand;
   const stanceMul = stance[aim];
   const moveMul = host.isSprinting ? SPRINT_SPREAD_MUL : moving ? MOVING_SPREAD_MUL : 1;
-  const spread = THREE.MathUtils.lerp(st.spread, st.adsSpread, aim) * stanceMul * (1 + sys.bloom * 1.6) * moveMul;
-  sys.bloom = Math.min(1, sys.bloom + BLOOM_PER_SHOT);
+  // 2026-09-14 총기 밸런스: sustained-fire bloom per weapon (`stats.bloomPerShot` / `bloomSpread`; old constants as the fallback)
+  const bloomSpread = Number.isFinite(st.bloomSpread) ? st.bloomSpread : 1.6;
+  const bloomPerShot = Number.isFinite(st.bloomPerShot) ? st.bloomPerShot : BLOOM_PER_SHOT;
+  const spread = THREE.MathUtils.lerp(st.spread, st.adsSpread, aim) * stanceMul * (1 + sys.bloom * bloomSpread) * moveMul;
+  sys.bloom = Math.min(1, Math.max(0, sys.bloom + bloomPerShot));
   // bolt-action: lock the trigger for the cycle and animate the bolt
   if (cls === 'SR') {
     sys.boltDuration = Math.max(0.3, 1 / rate - 0.05);
@@ -191,17 +202,39 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   // direction replicated to other players: muzzle → where this shot ends for single shots, aim centre for pellets
   _netDir.copy(_d);
   _md.copy(_d);
+  /*
+   * 2026-09-14 — **모든 총알을 발사체로** (사용자 결정). `stats.projectileSpeed > 0` → each round (every shotgun pellet too)
+   * is a swept projectile in `ProjectilePool` with `stats.bulletGravity` m/s² of drop. It leaves from where the hybrid
+   * resolver says (`shot.origin`) toward the resolved aim point with **no drop compensation and no target lead** — that is
+   * the player's job. Damage falloff is measured along the distance actually flown, from the effective stats.
+   * Two things stay instant: a `near` result (the barrel / the first `WEAPON_MUZZLE_BLOCK_RANGE` m) lands on the spot the
+   * red marker shows the same frame — a round would cover it inside one step anyway, and this keeps the preview exact —
+   * and a weapon with speed 0 keeps the old hitscan line.
+   */
+  const speed = Number.isFinite(st.projectileSpeed) && st.projectileSpeed > 0 ? st.projectileSpeed : 0;
+  if (speed > 0) {
+    _bulletOpts.style = def.unique === 'bow' ? 'arrow' : 'bullet';
+    _bulletOpts.gravity = Number.isFinite(st.bulletGravity) ? Math.max(0, st.bulletGravity) : 0;
+    _bulletOpts.falloffStart = st.falloffStart; _bulletOpts.falloffEnd = st.falloffEnd; _bulletOpts.falloffMin = st.falloffMin;
+    _bulletOpts.light = pellets > 1;
+    _bulletOpts.ammoType = st.ammoType;
+    _bulletOpts.width = pellets > 1 ? 0.022 : cls === 'SR' ? 0.04 : 0.032;
+  }
   for (let i = 0; i < pellets; i++) {
     randomInCone(_d, spread, _pd, _tA, _tB);
     sys.aim.resolve(_pd, def.range, shot);
     _md.copy(shot.dir);
     if (pellets === 1 && _tmp.subVectors(shot.end, _muzzle).lengthSq() > 1e-6) _netDir.copy(_tmp).normalize();
+    const hit = shot.hit;
+    // the impact the enemies' 총알 추적 hears about: the resolved line's end (a projectile lands a hair below it)
+    if (hit) reportHit = _rep.copy(hit.point);
 
-    if (def.projectileSpeed) {
-      sys.projectiles.fire(shot.origin, shot.dir, def.projectileSpeed, st.damage, def.range, def.tracerColor, st.weaponId, false, projectileOptsFor(def));
+    if (speed > 0 && !(shot.mode === 'near' && hit)) {
+      // the streak starts at the muzzle and slides onto the judged line (scoped: the gun is hidden — ride the line)
+      _bulletOpts.visualOffset = scopedShot ? null : _visOff.subVectors(_muzzle, shot.origin);
+      sys.projectiles.fire(shot.origin, shot.dir, speed, st.damage, def.range, def.tracerColor, st.weaponId, false, _bulletOpts);
       continue;
     }
-    const hit = shot.hit;
     const fx = FxManager.get();
     if (fx) {
       const from = scopedShot ? shot.origin : _muzzle;
@@ -209,19 +242,19 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
       fx.tracers.add(from, shot.end, def.tracerColor, pellets > 1 ? 0.03 : 0.045, len / 420 + 0.045, 420);
     }
     if (hit) {
-      const dmg = st.damage * damageFalloff(def, shot.origin.distanceTo(hit.point));
+      const dmg = st.damage * statsFalloff(st, shot.origin.distanceTo(hit.point));
       const r = sys.applyHit(hit, dmg, shot.dir, pellets > 1, st.ammoType);
       anyHit = true;
-      reportHit = _rep.copy(hit.point);
       if (hit.enemy) { anyEnemy = true; if (hit.headshot) anyHead = true; }
       if (r) anyKill = true;
     }
   }
 
-  // Phase 12 (총알 추적): every local hitscan shot is reported once per trigger pull along the aim ray — an enemy
-  // near the bullet path / impact that could not see us turns toward the origin (enemies/). Projectile weapons are
-  // reported by the pool at launch and by `onProjectileHit` at the impact instead.
-  if (!def.projectileSpeed) ctx.enemies?.reportShot(_o, _d, def.range, reportHit);
+  // Phase 12 (총알 추적): every local shot is reported **once per trigger pull** along the aim ray — an enemy near the
+  // bullet path / impact that could not see us turns toward the origin (enemies/). 2026-09-14: projectile rounds too
+  // (`report: false` on the pool), with the resolved line's end as the impact — eight pellets are still one report and a
+  // joined client still sends one `shotq`.
+  ctx.enemies?.reportShot(_o, _d, def.range, reportHit);
 
   // ── FX & feedback
   sys.fx.muzzleFlash(_muzzle, _md, def.tracerColor, pellets > 1 ? 1.6 : 1);
@@ -345,12 +378,13 @@ export function applyHit(sys: WeaponSystem, h: HitInfo, damage: number, dir: THR
   }
 
 export function onProjectileHit(sys: WeaponSystem, h: ProjectileHit, damage: number, weaponId: string): void {
-  // Phase 12 총알 추적: the launch was reported by the pool with no hit; the impact completes the report
-  if (h.distance > 0.05) sys.ctx.enemies?.reportShot(_rep.copy(h.point).addScaledVector(h.dir, -h.distance), h.dir, h.distance, h.point);
+  // Phase 12 총알 추적: a launch the pool reported (uniques / direct calls) is completed by its impact. Gun rounds are
+  // reported once per trigger pull by `fire()` instead (`reported` false).
+  if (h.reported && h.distance > 0.05) sys.ctx.enemies?.reportShot(_rep.copy(h.point).addScaledVector(h.dir, -h.distance), h.dir, h.distance, h.point);
   sys.gunHit.point.copy(h.point); sys.gunHit.normal.copy(h.normal); sys.gunHit.distance = h.distance;
   sys.gunHit.enemy = h.enemy; sys.gunHit.obstacle = h.obstacle; sys.gunHit.obstacleRef = h.obstacleRef ?? null; sys.gunHit.valid = true; sys.gunHit.headshot = h.part === 'head';
-  sys.gunHit.armored = !!h.armored; sys.gunHit.intercept = null; sys.gunHit.barrierOwner = h.barrierOwner ?? null;
-  let def: WeaponDef | null = null;
+  sys.gunHit.armored = !!h.armored; sys.gunHit.intercept = h.intercept ?? null; sys.gunHit.barrierOwner = h.barrierOwner ?? null;
+  let held: WeaponInstance | null = null;
   for (const s of WEAPON_SLOTS) {
     const w = sys.slots[s];
     if (w && w.stats.weaponId === weaponId) {
@@ -360,10 +394,29 @@ export function onProjectileHit(sys: WeaponSystem, h: ProjectileHit, damage: num
         if (h.barrierOwner) damageBarrierAt(sys.ctx, h.barrierOwner, h.point);
         w.unique.onProjectileHit(h, damage, w); return;
       }
-      def = w.def; break;
+      held = w; break;
     }
   }
-  const dmg = def ? damage * damageFalloff(def, h.distance) : damage;
-  const killed = sys.applyHit(sys.gunHit, dmg, h.dir, false, def?.ammoType);
-  if (h.enemy) sys.ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: sys.gunHit.headshot });
+  // 2026-09-14: gun rounds carry their falloff (effective stats at launch, distance flown); a legacy launch without it
+  // falls back to the weapon still in a slot (a round whose gun was dropped mid-flight keeps its launch damage)
+  const dmg = h.falloffApplied ? damage : held ? damage * statsFalloff(held.stats, h.distance) : damage;
+  const killed = sys.applyHit(sys.gunHit, dmg, h.dir, !!h.light, h.ammoType ?? held?.stats.ammoType);
+  if (h.enemy) {
+    sys.hitmarkAny = true;
+    if (killed) sys.hitmarkKill = true;
+    if (sys.gunHit.headshot) sys.hitmarkHead = true;
+  }
+  }
+
+/** 2026-09-14: one `ui:hitmarker` for the projectile hits of this pool step (called right after `ProjectilePool.update`). */
+export function flushHitmarker(sys: WeaponSystem): void {
+  if (!sys.hitmarkAny) return;
+  sys.ctx.bus.emit('ui:hitmarker', { kill: sys.hitmarkKill, headshot: sys.hitmarkHead });
+  sys.hitmarkAny = sys.hitmarkKill = sys.hitmarkHead = false;
+  }
+
+/** Damage multiplier at `distance` m from the **effective** stats (`falloffStart/End/Min` after sockets — `@/items damageFalloffStats`). */
+export function statsFalloff(st: EffectiveWeaponStats, distance: number): number {
+  if (!Number.isFinite(st.falloffStart) || !Number.isFinite(st.falloffEnd)) return 1;
+  return damageFalloffStats(st, distance);
   }

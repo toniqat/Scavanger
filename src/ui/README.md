@@ -714,6 +714,12 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-14 (인벤토리 툴팁 고정 — ui 쪽, agent-invtip)** — 새 계약 이벤트 둘(`shared/events.ts` 끝 절, 추가만).
+  - **`hud/CursorHoldGauge.ts`** — `housing:moveHold` 에 더해 **`ui:cursorHold {owner, progress, x?, y?}`** 도 같은 링으로 그린다. 좌표를 실어 오면 그 자리,
+    없으면 예전처럼 `ctx.input.uiX/uiY`. 첫 사용자는 inventory 의 툴팁 고정(`inventory/ui/TipPin` — 타일을 움직이지 않고 `UI_HOLD_CONFIRM_S` 누르기).
+    `styles/base.css` `.cursor-hold` 의 z 가 83 → **215** (인벤토리 창 50 · 호버 카드 200 · 즐겨찾기 메뉴 210 위, `.hs-ghost` 220 아래) — 포인터는 여전히 먹지 않는다.
+  - **`hud/ItemTip.ts`** — `ui:tipPinned {uid}` 가 오면 떠 있던 카드를 내리고, `data-tip-pinned` 가 붙은 요소(`inventory/ui/TradeGrids` 가 고정한 타일에 단다)는
+    카드를 띄우지 않는다 — 고정된 인벤토리 카드가 그 타일의 카드다.
 - **2026-09-13 (리드 — 게임 중 버프)** — `hud/BuffStrip.paintCell`: `gaming` 썸네일은 계약 글리프 `⎚` · 색 그대로이고, 툴팁 둘째 줄에 `지능 단련 · 호흡 달리기`
   (능력치 이름 = `ctx.progression.getStatDef`, 방식 = `GYM_MINIGAME_LABEL_KO`). 분대 목록의 분대원 줄에도 같은 썸네일이 선다 (`smoke-buffs`).
 - **2026-09-13 (서재 시리즈 · 비디오게임 — 툴팁 · 칩 띠, 에이전트 C, docs/plans/library-series-games.md §5)** —

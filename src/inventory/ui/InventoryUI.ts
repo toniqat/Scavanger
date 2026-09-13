@@ -15,6 +15,7 @@ import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
 import { GridView, buildSlotCardContent, buildTileContent, setNeededAmmoFrom, setRecoveryScope, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
+import { TipPin, inventoryTooltipLookups } from './TipPin';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
 import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, pouchAcceptsLabel, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
@@ -86,6 +87,8 @@ export class InventoryUI {
   quickKey!: HTMLElement;
   private hintsEl!: HTMLElement;
   tooltip!: Tooltip;
+  /** 2026-09-14: the pinned tooltip (1 s hold on a tile) + its socket drag-out — `ui/TipPin`. */
+  pin!: TipPin;
   ghostLayer!: HTMLElement;
   dropZone!: HTMLElement;
   menu!: ContextMenu;
@@ -403,6 +406,26 @@ export class InventoryUI {
     });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
+    /*
+     * 2026-09-14 (사용자 결정): **툴팁 고정.** 타일(격자 · 장비칸 · 휠 · 주머니 · 상자/시체 창)을 움직이지 않고 1초 누르면 그 툴팁이
+     * 제자리에 선다 (`ui/TipPin` — 누르기는 `Drag.beginPress` 가 건다). 고정 카드는 떠다니는 카드 **뒤** DOM 이고(첫 `.inv-tooltip` 은
+     * 여전히 떠다니는 카드다 — 스모크들이 그렇게 찾는다) z 가 한 칸 낮아, 고정한 채 다른 아이템에 올린 비교 카드가 그 위에 뜬다.
+     * 고정한 무기 카드의 소켓은 가방 · 창고 · 주머니 칸이나 (레이드의) 버리기로 끌어낸다.
+     */
+    this.pin = new TipPin(this.ctx, inventoryTooltipLookups(this.sys, this.ctx), {
+      owner: 'inventory',
+      mount: () => { /* appended with the window below, right before the floating card */ },
+      hoverTip: this.tooltip,
+      pinAnchor: () => (this.tooltip.el.hidden ? null : this.tooltip.el.style.transform || null),
+      buildGhost: (item, def) => Drag.buildSocketGhost(this, item, def),
+      ghostParent: this.ghostLayer,
+      locate: (uid) => this.sys.locate(uid),
+      canDetach: (uid) => this.sys.canDetachSockets(uid),
+      aimDetach: (px, py, d) => Drag.aimDetach(this, px, py, d),
+      clearDetachAim: () => Drag.clearDetachAim(this),
+      detach: (d, target) => this.sys.detachSocket(d.weaponUid, d.socket, target),
+      onSocketDrag: (active) => { this.root?.classList.toggle('is-dragging', active); },
+    });
 
     /*
      * 2026-09-07 UI/UX: hints and the drop zone share one **fixed-height** slot. They used to be two siblings of the
@@ -414,7 +437,7 @@ export class InventoryUI {
     footer.append(this.hintsEl, dropZone);
 
     root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, footer,
-      this.modelessLayer, this.tooltip.el, this.ghostLayer);
+      this.modelessLayer, this.tooltip.el, this.pin.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
     // 2026-09-09: the 수량 지정 dialog is its own 키 가이드 owner (`Enter 확인`) stacked over the window's line
     this.dialog = new SplitDialog(root, (open) => this.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.split', keys: open ? [{ key: 'Enter', label: '확인' }] : null }));
@@ -592,6 +615,8 @@ export class InventoryUI {
     this.closeOverlays();          // the popups / 제작 열 drop their own 키 가이드 owners first …
     this.setTab('inventory');
     this.tooltip.hide();
+    this.pin.cancelHold();   // 2026-09-14: a closing window drops the pinned card (and a hold in progress)
+    this.pin.unpin();
     this.hovered = null;
     this.ctx.bus.emit('ui:keyGuide', { owner: 'inventory', keys: null });   // … then the window's line goes
     this.root.classList.remove('is-visible');
@@ -635,6 +660,7 @@ export class InventoryUI {
     this.disassemble?.dispose();
     this.repair?.dispose();
     this.implantPanel?.dispose();   // the two pickers are `ctx.uiRoot` children — they must go with the window
+    this.pin?.dispose();
     this.tooltip.dispose();
     this.root?.remove();
     this.root = null;
@@ -659,7 +685,10 @@ export class InventoryUI {
    * host and builds that folder's `EmbeddedView` into it. The old view is always disposed first, so exactly one
    * view exists at a time and nothing survives a window close.
    */
-  setTab(tab: ScreenTab): void { return Screens.setTab(this, tab); }
+  setTab(tab: ScreenTab): void {
+    if (tab !== this.activeTab) this.pin?.unpin();   // 2026-09-14: the pinned item's grid leaves the screen with its tab
+    return Screens.setTab(this, tab);
+  }
 
   /** `createSheetView` / `createCorpView` / `createShipView`; null when that system is not present. */
   buildScreenView(tab: ScreenTab): EmbeddedView | null { return Screens.buildScreenView(this, tab); }
@@ -725,6 +754,7 @@ export class InventoryUI {
     if (this.repair.isOpen) this.repair.refresh();
     // Phase 8: an embedded 캐릭터 / 기업 / 함선 view repaints from its own state whenever the window does
     if (this.screenView) { try { this.screenView.refresh(); } catch (e) { console.warn('[inventory] screen refresh failed', e); } }
+    this.pin.validate();   // 2026-09-14: the pinned card follows its item (gone → unpinned, sockets changed → redrawn in place)
   }
 
   /* ── Phase 7: container search (감정) ──────────────────────────────────── */
@@ -969,9 +999,11 @@ export class InventoryUI {
   }
 
   hoverEnter(uid: string, loc: ItemLocation, e: PointerEvent): void {
-    if (this.drag?.started) return;
+    if (this.drag?.started || this.pin.isSocketDragging) return;
     if (this.locked(uid, loc)) { this.hovered = null; this.tooltip.hide(); return; }
     this.hovered = { uid, loc };
+    // 2026-09-14: the pinned item's own tile shows no second copy of its card (other items still get theirs — compare)
+    if (this.pin.pinnedUid === uid) { this.tooltip.hide(); return; }
     const item = this.sys.findItem(uid, loc);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (item && def) this.tooltip.show(item, def, e.clientX, e.clientY);

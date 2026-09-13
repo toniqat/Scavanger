@@ -1,4 +1,4 @@
-import type { AmmoType, EffectiveWeaponStats, ItemDef, ItemInstance, Loadout, RaidFoundScope } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemDef, ItemInstance, Loadout, RaidFoundScope, SocketSlot } from '@/shared';
 import { CONTAINER_TAKE_ANIM_S, CONTAINER_TAKE_END_SCALE, CONTAINER_TAKE_RISE_PX, SOCKET_SLOTS } from '@/shared';
 import { countsForRecovery, sameRaidFoundScope } from '@/shared';
 import { mealQualityStars, normalizeMealQuality } from '@/shared';
@@ -158,6 +158,40 @@ function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, 
   }
 }
 
+/* ── 2026-09-14 (사용자 결정): 내구도 게이지 · 받는 소켓만 ────────────────────────────────────────────────────────────────
+ * **내구도가 있는 모든 타일**(무기 · 방탄복 · 가방 · 회복 스프레이 게이지 …)이 바닥에 얇은 게이지를 단다 — 장착 전(가방 · 창고 ·
+ * 상자 · 시체 · 거래 격자)에도, 장비칸 카드에도. 색은 남은 비율로 **초록(가득) → 노랑 → 주황 → 빨강(빔)** 사이를 잇는다.
+ * 팔레트는 CSS 변수(`--dur-c-full` · `--dur-c-mid` · `--dur-c-low` · `--dur-c-empty`, inventory.css `:root`)이고, 여기서는 비율이
+ * 네 색(같은 간격) 중 **어느 두 색 사이의 몇 %** 인지만 적는다 (`--dur-a` · `--dur-b` · `--dur-t`). 숫자는 타일에서 빠졌다 —
+ * `cur / max` 는 툴팁이 말한다. 무기 타일의 소켓 핍 · 툴팁의 소켓 줄은 **그 무기가 받는 소켓**(`EffectiveWeaponStats.sockets`)만 그린다.
+ */
+const DUR_COLOR_STOPS = ['var(--dur-c-empty)', 'var(--dur-c-low)', 'var(--dur-c-mid)', 'var(--dur-c-full)'] as const;
+
+/** `el` 에 남은 비율 `ratio`(0 … 1)의 게이지 색 변수를 적는다 — CSS 가 `color-mix(in srgb, var(--dur-b) var(--dur-t), var(--dur-a))` 로 칠한다. */
+export function setDurabilityColorVars(el: HTMLElement, ratio: number): void {
+  const segs = DUR_COLOR_STOPS.length - 1;
+  const r = Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 1)) * segs;
+  const i = Math.min(segs - 1, Math.floor(r));
+  el.style.setProperty('--dur-a', DUR_COLOR_STOPS[i]);
+  el.style.setProperty('--dur-b', DUR_COLOR_STOPS[i + 1]);
+  el.style.setProperty('--dur-t', `${Math.round((r - i) * 100)}%`);
+}
+
+/** 타일 아이템의 내구도 최대치 — 무기는 실효 스탯, 그 밖에는 `def.durabilityMax`. 0 = 내구도가 없는 아이템 (게이지 없음). */
+export function durabilityMaxOf(def: ItemDef, stats?: EffectiveWeaponStats | null): number {
+  if (stats) return Math.max(1, stats.maxDurability);
+  return def.durabilityMax !== undefined && def.durabilityMax > 0 ? def.durabilityMax : 0;
+}
+
+/**
+ * 무기 타일의 핍 · 툴팁의 소켓 줄에 그릴 소켓 — 그 무기가 **받는** 소켓(`stats.sockets`) + (옛 세이브로) 받지 않는 소켓에 아직 든 부착물,
+ * `SOCKET_SLOTS` 순서. 계약 필드가 아직 비어 오면(옛 로더) 다섯 칸 전부.
+ */
+export function shownSockets(item: ItemInstance, stats: EffectiveWeaponStats): SocketSlot[] {
+  const accepted: readonly SocketSlot[] = Array.isArray(stats.sockets) ? stats.sockets : SOCKET_SLOTS;
+  return SOCKET_SLOTS.filter((s) => accepted.includes(s) || !!item.sockets?.[s]);
+}
+
 /**
  * The equipped-item card that fills an **equipment slot** box (2026-09-08). Shared by the Tab window
  * (`ui/InventoryUI`) and the read-only 분대원 장비 view (`ui/CrewLoadoutView`) so the two never drift apart.
@@ -165,8 +199,9 @@ function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, 
  * The slot no longer draws the item at its grid footprint: a 4×2 돌격소총 and a 5×1 저격소총 are the same object in
  * the hand and only differ in how they pack a bag, so the box is one size and the card fills it. Everything the old
  * `.inv-slot-meta` sentence carried is laid out in fixed corners instead — name top-left, sockets top-right, rounds
- * bottom-left, durability bottom-right (a step smaller) over the durability bar along the bottom edge — so the same
- * number is always in the same place, 무기 · 방탄복 · 가방 alike.
+ * bottom-left and the durability gauge along the bottom edge — so the same thing is always in the same place, 무기 · 방탄복 ·
+ * 가방 alike. 2026-09-14: the `120/300` durability number is gone (the gauge's colour says it; the tooltip keeps the numbers)
+ * and the socket pips are only the sockets the weapon accepts (`shownSockets`).
  *
  * Keeps the `.inv-tile` (+ `.is-weapon`) contract the drag / socket-drop / tooltip code matches on.
  *
@@ -192,16 +227,19 @@ export function buildSlotCardContent(el: HTMLElement, item: ItemInstance, def: I
 
   if (stats) {
     el.classList.add('is-weapon');
-    const pips = document.createElement('div');
-    pips.className = 'inv-slot-sockets';
-    for (const sk of SOCKET_SLOTS) {
-      const pip = document.createElement('i');
-      pip.className = 'inv-pip';
-      pip.dataset.socket = sk;
-      if (item.sockets?.[sk]) pip.classList.add('is-filled');
-      pips.appendChild(pip);
+    const socks = shownSockets(item, stats);
+    if (socks.length > 0) {
+      const pips = document.createElement('div');
+      pips.className = 'inv-slot-sockets';
+      for (const sk of socks) {
+        const pip = document.createElement('i');
+        pip.className = 'inv-pip';
+        pip.dataset.socket = sk;
+        if (item.sockets?.[sk]) pip.classList.add('is-filled');
+        pips.appendChild(pip);
+      }
+      el.appendChild(pips);
     }
-    el.appendChild(pips);
 
     const ammo = document.createElement('div');
     ammo.className = 'inv-slot-ammo';
@@ -210,21 +248,10 @@ export function buildSlotCardContent(el: HTMLElement, item: ItemInstance, def: I
   }
 
   // 무기 read their durability from the effective stats; 방탄복 / 가방 from the def
-  const max = stats ? Math.max(1, stats.maxDurability) : (def.durabilityMax ?? 0);
+  const max = durabilityMaxOf(def, stats);
   if (max <= 0) return false;
-  const cur = Math.max(0, Math.min(max, item.durability ?? max));
-  const ratio = cur / max;
-  const bar = document.createElement('div');
-  bar.className = 'inv-slot-dur';
-  bar.style.setProperty('--p', `${Math.round(ratio * 100)}%`);
-  if (cur <= 0) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
-  else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
-  el.appendChild(bar);
-
-  const num = document.createElement('div');
-  num.className = 'inv-slot-durnum';
-  num.textContent = `${Math.round(cur)}/${max}`;
-  el.appendChild(num);
+  // 2026-09-14: gauge only — the `cur/max` number (`.inv-slot-durnum`) left the card
+  const { cur } = appendDurabilityBar(el, item, max, 'inv-slot-dur', !def.bag);
   return cur < max;
 }
 
@@ -287,40 +314,56 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
 
   if (stats) {
     el.classList.add('is-weapon');
-    const pips = document.createElement('div');
-    pips.className = 'inv-tile-sockets';
-    for (const s of SOCKET_SLOTS) {
-      const pip = document.createElement('i');
-      pip.className = 'inv-pip';
-      pip.dataset.socket = s;
-      if (item.sockets?.[s]) pip.classList.add('is-filled');
-      pips.appendChild(pip);
+    // 2026-09-14: only the sockets this weapon accepts (a unique that accepts none draws no pip row)
+    const socks = shownSockets(item, stats);
+    if (socks.length > 0) {
+      const pips = document.createElement('div');
+      pips.className = 'inv-tile-sockets';
+      for (const s of socks) {
+        const pip = document.createElement('i');
+        pip.className = 'inv-pip';
+        pip.dataset.socket = s;
+        if (item.sockets?.[s]) pip.classList.add('is-filled');
+        pips.appendChild(pip);
+      }
+      el.appendChild(pips);
     }
-    el.appendChild(pips);
-
-    appendDurabilityBar(el, item, stats.maxDurability);
-  } else if (def.durabilityMax !== undefined && def.durabilityMax > 0 && def.heal?.spray) {
-    // Phase 12: a channelled consumable (회복 스프레이) wears its 게이지 like a durability bar — an empty can (0) stays
-    // a tile, marked broken, until the ship repairs it
-    appendDurabilityBar(el, item, def.durabilityMax);
   }
+  /*
+   * 2026-09-14 (사용자 결정): **every** item with durability wears the gauge — weapons (effective max), 방탄복 · 가방 and a
+   * channelled consumable's 게이지 (회복 스프레이, Phase 12 — an empty can stays a tile, marked broken, until the ship
+   * repairs it). Before this only weapons and the spray had a bar, so a worn 방탄복 looked new until it was equipped.
+   */
+  const durMax = durabilityMaxOf(def, stats);
+  if (durMax > 0) appendDurabilityBar(el, item, durMax, 'inv-tile-dur', !def.bag);
 
   const glow = document.createElement('div');
   glow.className = 'inv-tile-glow';
   el.appendChild(glow);
 }
 
-/** Thin durability bar under the tile (amber < 30 %, red + `is-broken` on the tile at 0). */
-function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability: number): void {
+/**
+ * Thin durability gauge along the tile's bottom edge (`.inv-tile-dur`, the slot card's `.inv-slot-dur`): a track with a
+ * child fill (`i.inv-dur-fill`, width `--p`) coloured by the remaining ratio (`setDurabilityColorVars`); `is-low` under
+ * `DURABILITY_LOW`, `is-broken` on the bar **and** the tile at 0. `data-ratio` carries the ratio (smoke / debug).
+ */
+function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability: number, cls = 'inv-tile-dur', breakable = true): { cur: number; max: number } {
   const max = Math.max(1, maxDurability);
   const cur = Math.max(0, Math.min(max, item.durability ?? max));
   const ratio = cur / max;
   const bar = document.createElement('div');
-  bar.className = 'inv-tile-dur';
+  bar.className = `${cls} inv-dur`;
   bar.style.setProperty('--p', `${Math.round(ratio * 100)}%`);
-  if (cur <= 0) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
+  bar.dataset.ratio = ratio.toFixed(3);
+  setDurabilityColorVars(bar, ratio);
+  const fill = document.createElement('i');
+  fill.className = 'inv-dur-fill';
+  bar.appendChild(fill);
+  // a 가방 at 0 keeps its grid (2026-09-11 C-36: "0 이어도 효과 없음") — an empty gauge, never the red 파손 look
+  if (cur <= 0 && breakable) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
   else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
   el.appendChild(bar);
+  return { cur, max };
 }
 
 /**

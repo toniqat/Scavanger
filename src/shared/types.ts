@@ -150,6 +150,15 @@ export interface AttachmentEffects {
   scope?: boolean;
   /** Laser sight: HUD may show a laser dot; also implies `hipSpread`. */
   laser?: boolean;
+  /* ── appended 2026-09-14: 총기 밸런스 (owner: items) ── */
+  /** ADS sway multiplier (stock · grip). Folds into `EffectiveWeaponStats.swayMul`. */
+  sway?: number;
+  /** Multiplier on `falloffStart` / `falloffEnd` (확장 총열 > 1 = damage holds further). */
+  falloffRange?: number;
+  /** Multiplier on the damage *lost* at `falloffEnd` (`1 − falloffMin`); < 1 = gentler falloff. */
+  falloffLoss?: number;
+  /** Multiplier on `EffectiveWeaponStats.bulletGravity` (확장 총열 < 1 = less drop). */
+  bulletDrop?: number;
 }
 
 /** Attachment item data (`ItemDef.attachment`). `classes` / `ammoTypes` undefined = fits every weapon. */
@@ -198,6 +207,24 @@ export interface EffectiveWeaponStats {
   maxDurability: number;
   reloadTime: number;
   fireRate: number;
+  /* ── appended 2026-09-14: 총기 밸런스 · 발사체 탄도 (owner: items computes, weapons consumes) ── */
+  /** Sockets this weapon accepts, in `SOCKET_SLOTS` order (SG = muzzle · mag · sight …). Pips / tooltips / `canAttach` read it. */
+  sockets: readonly SocketSlot[];
+  /** Multiplier on the class ADS sway amplitude (`data/aim_sway.csv`) — grade handling × stock / grip. 1 = table value. */
+  swayMul: number;
+  /** Effective damage falloff after sockets (m, m, 0..1). `falloffStart >= falloffEnd` with min 1 = no falloff. */
+  falloffStart: number;
+  falloffEnd: number;
+  falloffMin: number;
+  /** Bullet muzzle velocity (m/s). 0 = hitscan (uniques that keep their own path). */
+  projectileSpeed: number;
+  /** Downward acceleration on the bullet (m/s²), after sockets. 0 = dead straight. */
+  bulletGravity: number;
+  /** Sustained-fire bloom: added per shot (bloom clamps to 0..1), and spread × (1 + bloom × bloomSpread). */
+  bloomPerShot: number;
+  bloomSpread: number;
+  /** Bloom recovered per second (per class — slow pump / bolt guns recover slowly so rapid follow-ups spread). */
+  bloomDecay: number;
 }
 
 export interface WeaponDef {
@@ -252,6 +279,11 @@ export interface WeaponDef {
   chargeTime?: number;
   /** Continuous weapons (flame / shock arc): ammo units consumed per second instead of per shot. */
   ammoPerSec?: number;
+  /* ── appended 2026-09-14: 총기 밸런스 (owner: items data) ── */
+  /** Sockets this class accepts; undefined → every `SOCKET_SLOTS` entry. */
+  sockets?: readonly SocketSlot[];
+  /** Bullet drop (m/s²) for the class; undefined → 0. */
+  bulletGravity?: number;
 }
 
 export interface ItemDef {

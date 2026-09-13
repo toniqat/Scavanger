@@ -386,6 +386,13 @@ export const IMPLANT_GRAPPLE_COOLDOWN = K.num('IMPLANT_GRAPPLE_COOLDOWN');
 export const IMPLANT_DASH_CHARGES = K.num('IMPLANT_DASH_CHARGES');
 export const IMPLANT_DASH_DISTANCE = K.num('IMPLANT_DASH_DISTANCE');
 export const IMPLANT_DASH_COOLDOWN = K.num('IMPLANT_DASH_COOLDOWN');        // per charge
+/**
+ * 2026-09-14 (owner: implants/parts/Devices.castDash) 대시는 앞을 레이 하나로 자르지 않고 몸을 걸음처럼 밀어 본다 —
+ * 한 걸음 `SWEEP_STEP` m, 밀려난 뒤 진행이 걸음의 `SLIDE_MIN` 배 미만이면 막힘, 지형 오르막이 `MAX_SLOPE_DEG` 보다 가파르면 막힘.
+ */
+export const IMPLANT_DASH_SWEEP_STEP = K.num('IMPLANT_DASH_SWEEP_STEP');
+export const IMPLANT_DASH_SLIDE_MIN = K.num('IMPLANT_DASH_SLIDE_MIN');
+export const IMPLANT_DASH_MAX_SLOPE_DEG = K.num('IMPLANT_DASH_MAX_SLOPE_DEG');
 export const IMPLANT_BARRIER_HP = K.num('IMPLANT_BARRIER_HP');
 export const IMPLANT_BARRIER_WIDTH = K.num('IMPLANT_BARRIER_WIDTH');
 export const IMPLANT_BARRIER_HEIGHT = K.num('IMPLANT_BARRIER_HEIGHT');

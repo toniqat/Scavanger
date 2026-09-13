@@ -25,6 +25,8 @@ import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, sl
 import { BAG_LOC, CATALOG_DBL_MS, CLICK_SUPPRESS_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
 import { AUTO_SCROLL_EDGE_IN, AUTO_SCROLL_EDGE_OUT, AUTO_SCROLL_MAX_SPEED } from '../model';
 import type { InventoryUI } from '../InventoryUI';
+import type { DetachTarget } from '../../model';
+import type { DetachAim, SocketDrag } from '../TipPin';
 
 /**
  * Grid cell a ghost of `w × h` at (left, top) would land on, resolved **strictly first**: a grid that actually
@@ -123,6 +125,8 @@ export function beginPress(sys: InventoryUI, uid: string, from: ItemLocation, e:
     lastX: e.clientX, lastY: e.clientY,
   };
   addDragListeners(sys, false);
+  // 2026-09-14: holding still for `UI_HOLD_CONFIRM_S` pins the tooltip instead — the press (not a drag yet) is dropped first
+  sys.pin.beginHold(uid, e.clientX, e.clientY, () => sys.cancelDrag());
   }
 
 function addDragListeners(sys: InventoryUI, held: boolean): void {
@@ -249,6 +253,7 @@ export function stopAutoScroll(sys: InventoryUI): void {
 
 export function startDrag(sys: InventoryUI, d: DragState): void {
   d.started = true;
+  sys.pin.cancelHold();   // 2026-09-14: past the threshold = a normal drag, the pin gauge goes
   sys.tooltip.hide();
   sys.root?.classList.add('is-dragging');
   startAutoScroll(sys);   // 2026-09-11 (C-60): idles unless the container viewport overflows and the pointer nears an edge
@@ -289,7 +294,8 @@ export function rebuildGhost(sys: InventoryUI, d: DragState): void {
     sys.ghostLayer.appendChild(d.ghost);
   }
   const ghostItem: ItemInstance = { ...d.item, rotated: d.rotated, qty: d.qty ?? d.item.qty };
-  buildTileContent(d.ghost, ghostItem, d.def, w, h);
+  // 2026-09-14: with the weapon stats, so a weapon ghost keeps its socket pips and its durability gauge like the tile it left
+  buildTileContent(d.ghost, ghostItem, d.def, w, h, sys.sys.getStats(d.item));
   d.ghost.classList.add('inv-ghost');
   d.ghost.classList.toggle('is-partial', d.qty !== null);
   const { width, height } = tileSize(w, h);
@@ -553,3 +559,54 @@ export function cancelDrag(sys: InventoryUI): void {
   sys.drag = null;
   if (d.started) sys.endDragVisuals(d);
   }
+
+/* ── 2026-09-14 (사용자 결정): 고정한 무기 툴팁에서 부착물 끌어내기 — `ui/TipPin` 에 Tab 창이 주는 대답 ────────────────────── */
+
+/** The ghost of an attachment pulled out of a pinned weapon card — the same `.inv-ghost` tile a grid drag lifts. */
+export function buildSocketGhost(sys: InventoryUI, item: ItemInstance, def: ItemDef): { el: HTMLElement; halfW: number; halfH: number } {
+  const w = item.rotated ? def.height : def.width, h = item.rotated ? def.width : def.height;
+  const el = document.createElement('div');
+  buildTileContent(el, item, def, w, h, sys.sys.getStats(item));
+  el.classList.add('inv-ghost');
+  const { width, height } = tileSize(w, h);
+  return { el, halfW: width / 2, halfH: height / 2 };
+}
+
+/**
+ * Where an attachment dragged out of a pinned weapon card would land: a cell of 가방 · 함선 창고 · 주머니 (strict-first, like a
+ * grid drag; never the open crate — putting into someone else's container is not a detach), or — on a mission, over the
+ * backdrop / the 버리기 zone — the world. Paints the cell highlight (green / red from `previewDetach`) and lights the drop zone.
+ * null = over a panel, or the ship's backdrop (no ground in the ship: point at a 창고 cell instead) — releasing there does nothing.
+ */
+export function aimDetach(sys: InventoryUI, px: number, py: number, d: SocketDrag): DetachAim | null {
+  clearDetachAim(sys);
+  const rotated = d.item.rotated;
+  const w = rotated ? d.def.height : d.def.width, h = rotated ? d.def.width : d.def.height;
+  const { width, height } = tileSize(w, h);
+  const views = sys.activeViews().filter((v) => v.id !== 'container');
+  const hit = sys.resolveGridTarget(views, px - width / 2, py - height / 2, w, h, px, py);
+  const gridId = hit?.view.id;
+  if (hit && gridId && gridId !== 'container') {
+    const target: DetachTarget = { kind: 'grid', grid: gridId, x: hit.x, y: hit.y, rotated };
+    const ok = sys.sys.previewDetach(d.weaponUid, d.socket, target) === 'ok';
+    hit.view.showHighlight(hit.x, hit.y, w, h, ok ? 'ok' : 'bad');
+    return { target, ok };
+  }
+  if (sys.hub || sys.isOverPanel(px, py)) return null;
+  const target: DetachTarget = { kind: 'world' };
+  const ok = sys.sys.previewDetach(d.weaponUid, d.socket, target) === 'ok';
+  if (ok) {
+    const r = sys.dropZone.getBoundingClientRect();
+    if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) sys.dropZone.classList.add('is-hot');
+  }
+  return { target, ok };
+}
+
+/** Clear what `aimDetach` painted. */
+export function clearDetachAim(sys: InventoryUI): void {
+  sys.bagView.hideHighlight();
+  sys.stashView.hideHighlight();
+  sys.pouchView.hideHighlight();
+  sys.containerView.hideHighlight();
+  sys.dropZone.classList.remove('is-hot');
+}
