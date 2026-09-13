@@ -5,6 +5,7 @@
 // 2026-09-09: 자동 부활 폐지 — 죽은 몸으로 복귀해도 카운트다운이 없고 `game:respawn` 은 무력하다 (구조선만이 되살린다).
 // 2026-09-11: 사망 시 임플란트의 망가진 짝이 시체로 (`stripImplantsForCorpse` + `spawnLocalCorpse`) · 전차 위 시체가 전차에 실려 간다.
 // 2026-09-11 (E-5): 솔로 레이드 복귀 — 정상 새로고침 · 1 초 역행은 복귀, 미래 savedAt · clockHigh 역행 · 저장 키 삭제(+ 로드아웃 raidSeed)는 레이드 실패.
+// 2026-09-13: 자발적 귀환 — 일시정지 메뉴 `함선으로 귀환` 경고 팝업 → 1초 홀드 → 사망 → 사망 연출 뒤 개인 함선 (소지품 0 · 레이드 실패와 같은 결산).
 // Usage: node scripts/smoke-raidflow.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -636,6 +637,46 @@ try {
   out = { phase: await P(() => window.__game.ctx.phase), ...(await stored()) };
   ok(out.phase === 'menu' && out.kitHasMark && out.raidSeed === null,
     'E-5 (measured hole): without the marker a deleted save key boots to the title with the carried kit — the marker is what closes it (editing the loadout document itself stays possible offline)', JSON.stringify(out));
+
+  // 2026-09-13: 자발적 귀환 — 일시정지 메뉴 `함선으로 귀환` → 경고 팝업 → 1초 홀드 → 그 자리에서 사망 → 사망 연출 뒤 개인 함선 (솔로 = 전부 잃음)
+  console.log('자발적 귀환 (솔로)');
+  await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (return)', 60000);
+  await P(() => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; ctx.bus.emit('game:newMission', { seed: 45 }); });
+  await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (return)', 60000);
+  // E-5 위에서 페이지를 여러 번 다시 띄웠으므로 부팅 때 건 `window.__ev` 는 없다 — 이 절의 기록기를 여기서 건다
+  const ret0 = await P(() => {
+    const ctx = window.__game.ctx;
+    const rec = window.__ret = { died: 0, over: 0, hub: [] };
+    ctx.bus.on('player:died', () => { rec.died++; });
+    ctx.bus.on('game:over', () => { rec.over++; });
+    ctx.bus.on('hub:entered', (e) => { rec.hub.push(e.ship); });
+    ctx.inventory.tryAddItem(ctx.loot.createItem('heal_bandage', 2));
+    return { items: ctx.inventory.countWhere(() => true), raids: ctx.progression.profile.raids };
+  });
+  await P(() => window.__game.ctx.bus.emit('game:paused', { paused: true }));
+  await P(() => [...document.querySelectorAll('.menu.pause .ui-btn')].find((b) => b.textContent === '함선으로 귀환').click());
+  const retAsk = await P(() => ({
+    open: !document.querySelector('.pause-ask').hidden, title: document.querySelector('.pause-ask-title').textContent,
+    body: document.querySelector('.pause-ask-body').textContent, died: window.__ret.died > 0, phase: window.__game.ctx.phase,
+  }));
+  ok(retAsk.open && retAsk.title === '함선으로 귀환' && /사망/.test(retAsk.body) && /모두 잃습니다/.test(retAsk.body) && !retAsk.died && retAsk.phase === 'playing',
+    '귀환: 클릭은 경고 팝업만 연다 (솔로 글 = 사망하며 모두 잃는다, 아직 아무 일도 없다)', JSON.stringify(retAsk));
+  await P(() => document.querySelector('.pause-ask-ok').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })));
+  await waitFor(page, () => window.__ret.died > 0, 'return: died', 8000);
+  const retMid = await P(() => ({ phase: window.__game.ctx.phase, dead: window.__game.ctx.player.isDead,
+    menuHidden: document.querySelector('.menu.pause').classList.contains('hidden'), t: window.__game.ctx.time }));
+  ok(retMid.phase === 'playing' && retMid.dead && retMid.menuHidden, '귀환: 1초 홀드 확정 → PC 사망 · 메뉴 닫힘 · 아직 레이드', JSON.stringify(retMid));
+  await waitFor(page, () => window.__ret.hub.length > 0 && window.__game.ctx.phase === 'hub', 'return: hub', 20000);
+  const ret1 = await P(() => {
+    const ctx = window.__game.ctx;
+    return { t: ctx.time, items: ctx.inventory.countWhere(() => true), raids: ctx.progression.profile.raids, over: window.__ret.over,
+      ship: window.__ret.hub[window.__ret.hub.length - 1], deathScreen: !document.querySelector('.menu.death').classList.contains('hidden') };
+  });
+  ok(ret1.ship === 'personal' && ret1.t - retMid.t >= 2, `귀환: 사망 연출 뒤 개인 함선 (${(ret1.t - retMid.t).toFixed(2)} s)`, JSON.stringify(ret1));
+  ok(ret1.over === 1 && ret1.raids === ret0.raids + 1 && !ret1.deathScreen,
+    '귀환: 솔로 결산은 레이드 실패와 같다 (game:over · 레이드 수 +1) · 결과 화면은 남지 않는다', JSON.stringify({ ret0, ret1 }));
+  ok(ret0.items > 0 && ret1.items === 0, `귀환: 들고 있던 것을 모두 잃었다 (${ret0.items} → ${ret1.items})`);
 
   // cleanly back to the hub
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

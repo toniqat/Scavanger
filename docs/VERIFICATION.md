@@ -47,6 +47,16 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-13 (33차) 실내에서 바깥벽 · 정문에 못 다가가던 문제 · 자발적 귀환 = 사망 (`src/shared/{events,types}.ts` **추가만** · `src/player/PlayerController.ts` · `src/game/{GameFlowSystem.ts,parts/Death.ts,parts/Phases.ts}` · `src/ui/menus/PauseMenu.ts` · 스모크 2종, 리드 단독):
+
+  ① 재현 먼저(스크래치, 개인 vite 5299): 진짜 `PlayerController.update` 로 방 가운데 → 바깥벽 4방향 · 정문 밖(시드 5, 112회) — 1.8 m 넘게 떨어져 멈춤 **27**, 정문 나가기 실패 **4**(전부 지하실 전진기지),
+  멈춘 자리 20곳이 지형 법선 `ny ≈ 0.5`(50° 초과) · 지형이 발보다 3 m 아래 → 경사 처리가 바닥판 밑 지형을 읽었다. 수정 뒤 **10 · 0** — 남은 10은 근처 장애물 kind 로 확인해 전부 계단 경사판(`slab`, 2.13 m) ·
+  지하 구멍 난간(`building`, 4.91 m). ② 귀환 스크래치: 솔로 11/11, 분대 2클라이언트(릴레이 8787) 13/13 — 호스트 귀환 → 클라이언트가 시체 6스택을 보고 분대장을 넘겨받아 `playing` 유지 · `game:abort` 없음.
+  ③ `src/shared` 를 건드렸으므로 `npm run verify:all` → **1 red, 9분 52초** (exit code 0 — `1 failed` 줄로 읽었다): 새로 넣은 `smoke-raidflow` 귀환 절이 부팅 때 건 `window.__ev` 를 읽었는데,
+  그 앞 E-5 절이 페이지를 여러 번 다시 띄워 기록기가 없었다(**스모크 결함, 게임 무관**) → 절 안에서 자기 기록기를 건다 → `--rerun-failed` **smoke-raidflow 89/89**.
+  `docs line: 2026-09-13: typecheck ok, typecheck-server ok, net-selftest 480/480, data-check ok, build 3,301.01 kB JS / 347.44 kB CSS, smoke-quickslots 101/101, smoke-phase2 57/57, smoke-weapons 147/147, smoke-phase3 41/41, smoke-stratagems 75/75, smoke-drone-scan 24/24, smoke-phase4 60/60, smoke-ship-rooms 77/77, smoke-tactical 115/115, smoke-inventory-p6 159/159, smoke-controls-hub 153/153, smoke-console 63/63, smoke-loadout 69/69, smoke-housing 291/291, smoke-search 77/77, smoke-ui-p6 91/91, smoke-progression 202/202, smoke-ui-p5 142/142, smoke-enemy-alert 42/42, smoke-rogue-drop 30/30, smoke-uniques 72/72, smoke-resume-gate 62/62, smoke-favorite-chips 52/52, smoke-meta 198/198, smoke-rogue-v2 52/52, smoke-recovery-contract 43/43, smoke-ladder 38/38, smoke-training 108/108, smoke-ghost 86/86, smoke-pose 109/109, smoke-stations 65/65, smoke-library 205/205, smoke-favorites 45/45, smoke-gym 64/64, smoke-aim-sway 25/25, smoke-buffs 41/41, smoke-enemy-delta 66/66, smoke-consumables 36/36, smoke-planets 86/86, smoke-ecology 109/109, smoke-props-collision 53/53, smoke-social 209/209, smoke-raidflow 89/89 (rerun), smoke-structure-reach 302/302, smoke-server-dist 36/36, smoke-tutorial 86/86, smoke-hazard 47/47, smoke-structures 144/144, smoke-pitch 162/162, smoke-named 39/39, smoke-tram-ride 26/26, smoke-lights 30/30, smoke-netlink 48/48, smoke-trust 66/66, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 175/175`
+
+  ⚠ **브라우저에서 손으로 해 본 것은 아니다.** 실제 WASD 입력으로 실내 벽에 붙어 보기 · 경고 팝업의 실제 모습 · 분대에서 **클라이언트**(비호스트)가 귀환하는 경우는 스크래치로도 돌리지 않았다(호스트 경로가 더 까다로워 그쪽을 쟀다).
 - 2026-09-12 (26차) 조종석 편집 · 시뮬레이션실 제거 · 방 8개 · 시설 관리 UI 3차 (`src/shared/{housing,events,render,itemChip,constants,GameContext}.ts` **추가만** · `data/{constants,furniture,room_purposes}.csv` · `src/{housing,hub,ui,core,inventory,tutorial}` + `src/net/model.ts` · 삭제 `src/housing/ui/PresetMenu.ts` · 스모크 8종, **에이전트 4개 병렬(같은 작업 트리) + 리드**):
 
   ① 계약을 리드가 먼저 쓰고(typecheck 가 새 계약을 아직 구현하지 않은 세 폴더에서만 깨지는 것을 확인) housing · hub · ui · core 4 에이전트 → ② `npm run verify:all` → **6 red, 8분 56초** (exit code 0 — `N failed` 줄로 읽었다).

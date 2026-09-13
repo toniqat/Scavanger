@@ -60,7 +60,9 @@ export function onLocalDied(sys: GameFlowSystem): void {
      */
     sys.raidSaveTimer = -1;
     clearSoloRaid();
-    sys.deathTimer = DEATH_TO_SCREEN;
+    // 2026-09-13: 자발적 귀환이면 레이드 실패 화면 대신 사망 연출 뒤 곧장 함선으로 (`finishReturnToShip` 이 결산한다)
+    if (sys.returnPending) sys.returnTimer = DEATH_TO_SCREEN;
+    else sys.deathTimer = DEATH_TO_SCREEN;
     sys.setPaused(false);
     return;
   }
@@ -81,16 +83,70 @@ export function onLocalDied(sys: GameFlowSystem): void {
    * 페이즈는 사망해도 그대로라 `saveRaid` 의 `isGameplayPhase()` 게이트를 통과하고, `rejoinPending` 가드는 존중한다.
    */
   Session.saveRaid(sys);
-  Leader.onHostDied(sys);
-  const left = ctx.stratagems?.rescueLeft ?? 0;
-  ctx.bus.emit('ui:notify', {
-    text: left > 0 ? `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 ${left})` : '전사 — 남은 구조선이 없습니다',
-    kind: 'danger', duration: 5,
-  });
+  if (sys.returnPending) {
+    // 2026-09-13: 자발적 귀환 — 구조선을 기다리지 않고 나간다. 분대장 기기도 떨어뜨리지 않는다: 나가면서 보내는
+    // `lobby:mission false` 로 서버가 살아 있는 대원에게 분대장을 곧장 넘긴다 (기기는 주인 없는 물건으로 남는다).
+    sys.returnTimer = DEATH_TO_SCREEN;
+  } else {
+    Leader.onHostDied(sys);
+    const left = ctx.stratagems?.rescueLeft ?? 0;
+    ctx.bus.emit('ui:notify', {
+      text: left > 0 ? `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 ${left})` : '전사 — 남은 구조선이 없습니다',
+      kind: 'danger', duration: 5,
+    });
+  }
   if (MISSION_FAILS_WHEN_ALL_DEAD) {
     sys.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
     sys.checkAllDead();
   }
+  }
+
+/**
+ * 2026-09-13 — **자발적 귀환** (일시정지 메뉴 `함선으로 귀환` → 경고 팝업 → 1초 홀드, 사용자 결정).
+ *
+ * 레이드를 버리고 나가는 것은 **그 자리에서 죽는 것과 같다**: `PlayerRef.die()` 가 진짜 `player:died` 를 내므로
+ * `onLocalDied` 가 평소대로 정리한다 — 분대면 시체가 서고 장비 · 가방 · 장착 임플란트의 망가진 짝이 거기 남고(분대원이
+ * 회수한다), 솔로면 전부 잃는다. 다른 점은 둘뿐이다: 구조선 대기(분대) · 레이드 실패 화면(솔로)을 건너뛰고,
+ * `DEATH_TO_SCREEN` 사망 연출 뒤 `finishReturnToShip` 이 곧장 함선으로 보낸다.
+ *
+ * 죽일 몸이 없거나 잃을 것이 없는 곳 — 훈련장 · 강하 중 · 결과 화면 — 은 예전처럼 곧장 `hub:enter` 다.
+ * 이미 죽어 있으면(분대 관전 중) 시체는 이미 섰으므로 기다리지 않는다.
+ */
+export function requestReturnToShip(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  if (sys.returnPending) { finishReturnToShip(sys); return; }   // 사망 연출 중에 한 번 더 — 더 기다리지 않는다
+  const player = ctx.player;
+  const canDie = ctx.isGameplayPhase() && !sys.isTraining() && !!player && typeof player.die === 'function' && !player.isDropping;
+  if (!canDie) { ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' }); return; }
+  sys.returnPending = true;
+  ctx.bus.emit('ui:notify', { text: '함선으로 귀환합니다', kind: 'warning', duration: DEATH_TO_SCREEN });
+  if (sys.isLocalOut()) { finishReturnToShip(sys); return; }
+  player.die!();   // → `player:died` → `onLocalDied` (동기) 가 손실을 정리하고 `returnTimer` 를 건다
+  if (sys.returnTimer < 0) finishReturnToShip(sys);   // 사망이 흐름에 닿지 않았다 (안전망 — 그래도 나간다)
+  }
+
+/** 자발적 귀환의 끝: 이 사람의 레이드를 진짜 사망처럼 결산하고 함선으로. `returnTimer` 가 다 되면 `update` 가 부른다. */
+export function finishReturnToShip(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  sys.returnTimer = -1;
+  if (sys.inLiveMission() && !sys.isTraining()) {
+    if (!ctx.isMultiplayer) {
+      // 솔로: 레이드 실패와 같은 결산(사망 XP · 계약 정산 · 킷 리셋). 결과 화면은 아래 `hub:enter` 가 같은 프레임에 걷는다.
+      sys.deathTimer = -1;
+      sys.gameOver();
+    } else {
+      // 분대: 레이드는 분대원에게 계속된다. 사망자가 레이드 끝에 받던 결산을 지금 받고 이 사람만 빠진다 —
+      // `endSession` 의 `lobby:reset`(호스트 = 분대 전체 종료)이 아니라 `lobby:mission false` 다.
+      ctx.stats.extracted = false;
+      ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
+      ctx.stats.timeSeconds = ctx.missionTime;
+      ctx.stats.mode = ctx.missionMode;
+      sys.awardMissionXp();
+      if (typeof ctx.net?.leaveMission === 'function') ctx.net.leaveMission();
+    }
+  }
+  // 전멸 · 탈출로 결과 화면이 이미 떴어도 같은 길이다. `onAbort` 가 `returnPending` 을 보고 `flow abort` 를 보내지 않는다.
+  ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' });
   }
 
 /**

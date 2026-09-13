@@ -90,7 +90,7 @@ export class PauseMenu extends MenuBase {
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.resumeBtn = this.button(actions, '게임으로 돌아가기 (Tab)', () => this.resume(), 'primary');
     this.button(actions, '설정', () => this.onSettings());
-    this.returnBtn = this.button(actions, '함선으로 귀환', () => this.returnToShip(), 'danger');
+    this.returnBtn = this.button(actions, '함선으로 귀환', () => this.confirm(this.returnAsk()), 'danger');
     this.leaveBtn = this.button(actions, '파티 떠나기', () => this.confirm({
       title: '파티 떠나기',
       body: '분대에서 나갑니다. 공유 함선에서는 개인 함선으로 돌아갑니다.',
@@ -283,8 +283,24 @@ export class PauseMenu extends MenuBase {
     super.dispose();
   }
 
+  /**
+   * 2026-09-13 (사용자 결정): `함선으로 귀환` 도 경고 팝업 + 1초 홀드다. 레이드 중에는 **그 자리에서 사망**하는 것과 같으므로
+   * 글이 무엇을 잃는지 말한다 — 분대면 시체에 남아 분대원이 회수할 수 있고, 솔로면 전부 잃는다.
+   */
+  private returnAsk(): Ask {
+    const ctx = this.ctx;
+    const body = ctx.missionMode === 'training'
+      ? '시뮬레이션 훈련장을 나가 함선으로 돌아갑니다.'
+      : ctx.isMultiplayer
+        ? '임무를 포기하고 함선으로 돌아갑니다. 캐릭터는 그 자리에서 사망하며, 장비 · 가방 · 장착 임플란트는 시체에 남아 분대원이 회수할 수 있습니다.'
+        : '임무를 포기하고 함선으로 돌아갑니다. 캐릭터는 그 자리에서 사망하며, 장비 · 가방 · 장착 임플란트를 모두 잃습니다.';
+    return { title: '함선으로 귀환', body, ok: '귀환', run: () => this.returnToShip() };
+  }
+
+  /** The menu closes first; game/ decides what 귀환 means right now (`game:returnToShip` — die here, then the ship). */
   private returnToShip(): void {
-    this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' });
+    this.resume();
+    this.ctx.bus.emit('game:returnToShip', {});
   }
 
   /**

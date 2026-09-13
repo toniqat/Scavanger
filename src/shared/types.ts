@@ -1261,6 +1261,11 @@ export interface PlayerRef {
   restoreState(state: PlayerRestoreState): void;
   /** true while the 용검 heavy slash pose is playing (`startMelee('heavy')`); MELEE_HEAVY on the wire. */
   readonly isMeleeHeavy: boolean;
+  /**
+   * appended (2026-09-13, owner: player): 즉시 **완전 사망** — 전투불능을 건너뛰고 실드 · 체력과 상관없이 `player:died` 를 낸다.
+   * 이미 죽었으면 no-op. 부르는 곳은 game/ 의 자발적 귀환(`game:returnToShip`) 하나다.
+   */
+  die?(): void;
 }
 
 /**

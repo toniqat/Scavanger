@@ -32,6 +32,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `extraction:boarded` | remembers that the local player boarded (for `stats.extracted` in multiplayer) |
 | `extraction:liftoff` | `liftoff`; after 6.5 s → `complete()`: `stats.extracted = true` (multiplayer: `boarded && !isDead && !isDowned`), `lootValue = inventory.getTotalValue()`, `awardMissionXp()`, `complete`, `game:complete {stats}` |
 | `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). Solo raid: `raidSaveTimer = -1` + **`clearSoloRaid()` 즉시** (2026-09-11 C-70 — 죽는 순간 레이드는 끝났다), 그 뒤 2.5 s → `gameOver()` (레이드 실패). Multiplayer (**2026-09-09**): phase unchanged, **no countdown** — `stripForCorpse()` → 시체(`parts/CorpseNet.spawnLocalCorpse`) → **`Session.saveRaid(sys)` 1회 강제 저장**(2026-09-11 C-70 — 순서가 곧 근거다: 빈 가방을 찍어야 한다), 호스트였다면 분대장 기기(`parts/Leader.onHostDied`), 토스트 `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 n)`, host runs the all-dead check |
+| `game:returnToShip` (2026-09-13) | 일시정지 메뉴 `함선으로 귀환` 확정. 레이드 중(훈련장 · 강하 중 제외): `returnPending` → `PlayerRef.die()` → 위 `player:died` 정리(구조선 토스트 · 분대장 기기 · 솔로 `deathTimer` 대신 `returnTimer = DEATH_TO_SCREEN`) → `finishReturnToShip`: 솔로 `gameOver()` + `hub:enter`, 분대 사망자 결산 + `net.leaveMission()` + `hub:enter shared` (`onAbort` 가 `flow abort` 를 보내지 않는다). 그 밖에는 곧장 `hub:enter` |
 | `rescue:landed` | `target` 이 나면(싱글은 `'sp'`) 죽음 타이머 · 전멸 체크를 내리고 `deploying` 이면 `playing` 으로. 몸을 세우는 것은 `player/` 가 한다 (`rescueRevive` — 헬포드 · `RESCUE_REVIVE_HP` · 빈손) |
 | `crate:looted` (`pcorpse:…`) | 그 시체를 `비어 있음` 으로 바꾸고 `corpse:playerEmptied` + `pcorpse emptied` 를 방송 (메시는 남는다) |
 | `world:cleared` / `game:abort` / `game:newMission` | 시체 · 분대장 기기 전부 정리 + 지오메트리 dispose (`clearCorpses()`) |
@@ -328,6 +329,17 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (자발적 귀환 = 그 자리에서 사망, 사용자 결정)** — 일시정지 메뉴 `함선으로 귀환` 이 경고 팝업 + 1초 홀드를 거쳐
+  `game:returnToShip` 을 낸다(예전엔 클릭 즉시 `hub:enter` → 포기, 시체 없이 킷 소멸). `parts/Death.requestReturnToShip` 이 레이드 중이면
+  `returnPending` 을 세우고 `PlayerRef.die()` — 진짜 `player:died` 라 `onLocalDied` 가 평소대로 손실을 정리한다(분대 = 시체 · 망가진 임플란트 짝,
+  솔로 = 전부 잃음 + 세이브 즉시 삭제). 달라지는 것은 둘뿐이다: 분대는 구조선 대기 토스트 · 분대장 기기를 건너뛰고, 솔로는 `deathTimer` 대신
+  둘 다 `returnTimer = DEATH_TO_SCREEN` 을 건다. 타이머가 끝나면 `finishReturnToShip` — 솔로는 `gameOver()`(레이드 실패와 같은 결산) 뒤
+  `hub:enter`(결과 화면은 같은 프레임에 걷힌다), 분대는 사망자 결산(`awardMissionXp`, `extracted=false`) → **`net.leaveMission()`** →
+  `hub:enter shared`. `endSession` 의 `lobby:reset`(호스트면 분대 전체 종료)이 아니라 `lobby:mission false` 라 서버가 살아 있는 대원에게 분대장을
+  넘기고, `onAbort` 는 `returnPending` 을 보고 `flow abort` 를 보내지 않는다(이때 두 필드를 내린다). 훈련장 · 강하 중 · 결과 화면은 예전처럼 곧장
+  `hub:enter`. 사망 연출 중에 한 번 더 누르면 기다리지 않는다. 검증: 솔로(팝업 · 짧게 떼면 취소 · 사망 → 2.5 s 뒤 개인 함선 · 소지품 0 · 레이드 수 +1 ·
+  결과 화면 없음)와 분대 2클라이언트(호스트 귀환 → 클라이언트가 시체를 보고 분대장을 넘겨받아 계속 레이드, `game:abort` 없음)를 스크래치 스크립트로,
+  솔로 경로는 `smoke-raidflow` 에 상주.
 - **2026-09-12 (아이템 회수 계약 — 시체 와이어의 표식)** — `Corpses.itemsToWire` 가 `ItemInstance.raidFound` 를 `CorpseItemWire.rf` 로 싣고
   `parts/CorpseNet.itemsFromWire` 가 되살린다(생략 = 표식 없음). 사망자가 레이드에서 주운 계약 아이템은 시체에서 꺼낸 분대원에게도 세어지고,
   함선에서 가져간 장비는 표식이 없으니 세어지지 않는다. 정산 순서(`Death.complete` / `gameOver` 의 `awardMissionXp` → `game:complete` /

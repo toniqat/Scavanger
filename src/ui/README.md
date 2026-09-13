@@ -711,6 +711,11 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-13 (일시정지 메뉴 `함선으로 귀환` 확정 팝업, 사용자 결정)** — `menus/PauseMenu` 의 `함선으로 귀환` 이 파티 떠나기 · 타이틀로와 같은
+  경고 팝업(1초 홀드 · Enter 무시 · Escape 취소)을 거친다. 글은 `returnAsk()` 가 그때그때 고른다 — 분대: 「그 자리에서 사망하며, 장비 · 가방 ·
+  장착 임플란트는 시체에 남아 분대원이 회수할 수 있습니다」, 솔로: 「… 모두 잃습니다」, 훈련장: 「시뮬레이션 훈련장을 나가 함선으로 돌아갑니다」.
+  확정하면 메뉴를 먼저 닫고 `game:returnToShip` 만 낸다 — 무엇을 할지(사망 → 사망 연출 → 함선, 또는 곧장 `hub:enter`)는 game/ 이 정한다.
+  함선에서 숨는 규칙 · 버튼 순서는 그대로다(`smoke-social` 의 버튼 목록 검사가 그대로 통과).
 - **2026-09-12 (리드 통합 — 계약 패널)** — `hud/ContractPanel` 의 목표 글자가 「아이템 회수」 계약(`ContractDef.itemDefId`)이면 아이템 이름을
   붙인다 (`아이템 회수 · 데이터 코어`, 이름은 `ctx.loot.getItemDef`). 예전에는 `아이템 회수 n / t` 만 떠서 무엇을 가져가야 하는지 안 보였다.
 - **2026-09-12 (지상 드론 스캔 — 사용자 결정, 에이전트 D, docs/plans/consumables-keys-favorites.md §4)** — 새 `hud/DroneScanLabels.ts`

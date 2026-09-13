@@ -240,9 +240,13 @@ export function onAbort(sys: GameFlowSystem): void {
   // itself; leaving a result screen (complete / dead) is always local — the mission is already over for everyone.
   // A training is personal: leaving it never aborts the others.
   const live = sys.inLiveMission();
-  if (ctx.net && live && !sys.isTraining() && (sys.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost))) {
+  // 2026-09-13: 자발적 귀환(`parts/Death.finishReturnToShip`)은 이 사람만 나간다 — 호스트였어도 분대를 끌고 가지 않는다
+  // (이미 `leaveMission` 이 `lobby:mission false` 를 보냈고 서버가 살아 있는 대원에게 분대장을 넘긴다).
+  if (ctx.net && live && !sys.isTraining() && !sys.returnPending && (sys.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost))) {
     ctx.net.send({ t: 'flow', ev: 'abort' }, 'others');
   }
+  sys.returnPending = false;
+  sys.returnTimer = -1;
   sys.wasMultiplayerHost = false;
   // Lobby mission ended by an abort → regroup in the shared ship. Deferred one microtask: if the abort came from
   // HubSystem's own `hub:enter` the ship is already being built (phase 'hub') and this is a no-op.

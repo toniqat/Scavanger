@@ -25,6 +25,9 @@
 //   8. 미리보기: `world.previewContainerItems(id)` 가 두 번 불러도 같고, 실제로 열었을 때 inventory 가 채운 내용물과
 //      같다 (구조물 지상 · 잠긴 방 · 맵 상자 · 열쇠 부가 굴림이 맞은 컨테이너)
 //
+// 2026-09-13 — 9. **진짜 `PlayerController`** 로 정문 안쪽에서 바깥까지 걸어 나간다. flood fill 은 컨트롤러의 경사 처리를 타지 않아,
+//   지하실 구덩이 위 바닥판에서 지형 법선 때문에 벽 · 정문 앞에서 멈추던 것(실내에서 못 나감)을 못 잡았다.
+//
 // 시드를 돌려 전진기지 · 연구실 · 2층 · 지하실 · 잠긴 방 · 불시착 함선이 각각 몇 채 이상 나올 때까지 (최대 MAX_SEEDS).
 //
 // Usage: node scripts/smoke-structure-reach.mjs [http://localhost:5273]
@@ -176,8 +179,27 @@ function reachAll({ roomMin, after }) {
     }
 
     const outside = bfs(nav.doorOut, y0, false);
+    /* 9. (2026-09-13) **진짜 `PlayerController`** 로 정문 안쪽 → 바깥까지 걸어 나간다. 위 flood fill 은 `getSurfaceY` +
+     * `resolveCollision` 만 흉내 내서, 컨트롤러의 경사 처리가 바닥판 밑 지형(지하실 구덩이)을 읽어 벽 앞에서 멈추던 것을 못 잡았다. */
+    let exitGap = null;
+    if (s.kind !== 'wreck') {
+      const Ctl = window.__game.getSystem('player').controller.constructor;
+      const ctl = new Ctl();
+      const [sx, sz] = toW(nav.doorIn[0], nav.doorIn[1] + 1.5);
+      ctl.reset(new V3(sx, w.getSurfaceY(sx, sz, y0 + 0.3), sz));
+      const [tx, tz] = toW(nav.doorOut[0], nav.doorOut[1]);
+      const mv = { x: 0, z: 1, sprint: false, jump: false, stance: 'stand', aiming: false };
+      const res = { footstep: false, landed: 0, jumped: false, rollEnded: false, rung: false, climbEnded: null };
+      for (let it = 0; it < 900; it++) {
+        const dx = tx - ctl.position.x, dz = tz - ctl.position.z;
+        if (Math.hypot(dx, dz) < 0.3) break;
+        ctl.update(1 / 60, mv, Math.atan2(-dx, -dz), w, res);
+      }
+      exitGap = +Math.hypot(tx - ctl.position.x, tz - ctl.position.z).toFixed(2);
+    }
     const lockedR = nav.locked;
     const row = {
+      exitGap,
       id: s.id, kind: s.kind, floors: nav.levels.length, basement: !!s.basementDoor, lockedRoom: !!s.lockedDoor, breach: nav.breach,
       outBlocked: outside.startBlocked, inBlocked: inside.startBlocked, capped: outside.capped || inside.capped,
       nodes: inside.seen.size,
@@ -388,6 +410,7 @@ try {
       console.log(`  --   ${tag}: 노드 ${r.nodes} · 방 ${r.rooms.map((x) => `${x.k}F ${Math.round(x.cov * 100)}%`).join(' ')} · 컨테이너 ${r.containers.reached}/${r.containers.total}${r.vents.length ? ` · 개구멍 ${r.vents.map((v) => `드론 ${v.drone} / 사람 ${v.person}`).join(' · ')}` : ''} · ${r.ms} ms`);
       ok(!r.outBlocked && !r.inBlocked && !r.capped, `${tag}: flood fill 시작 자리가 비어 있다`, detail);
       ok(r.doorIn.ok, `${tag}: 바깥에서 ${r.kind === 'wreck' ? '후미 램프로' : '정문으로'} 걸어 들어간다`, detail);
+      if (r.kind !== 'wreck') ok(r.exitGap !== null && r.exitGap < 0.5, `${tag}: 진짜 PlayerController 로 안에서 정문 밖까지 걸어 나간다 (남은 ${r.exitGap} m)`, detail);
       if (r.kind !== 'wreck') ok(r.roomsOk, `${tag}: 방마다 서 있을 수 있는 칸의 ${Math.round(ROOM_COVERAGE_MIN * 100)}% 이상에 **안에서** 닿는다`, detail);
       if (r.stairBottom) ok(r.stairBottom.ok, `${tag}: 1층 안에서 계단 층계참에 닿는다`, detail);
       if (r.stairTop) ok(r.stairTop.ok, `${tag}: 실내 계단으로 2층에 올라간다`, detail);

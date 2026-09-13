@@ -52,6 +52,12 @@ export interface GameEvents {
    * (multiplayer — Engine keeps dt > 0 and systems must not stop ticking). Owner: game/GameFlowSystem.
    */
   'game:paused': { paused: boolean; freeze?: boolean };
+  /**
+   * appended (2026-09-13): Command — 일시정지 메뉴의 `함선으로 귀환` 이 경고 팝업의 1초 홀드 확정 뒤에 낸다. 레이드 중이면
+   * 그 자리에서 **완전히 사망**하고(진짜 사망과 같은 손실 — 분대는 시체에 남고 솔로는 전부 잃는다) 사망 연출 뒤 함선으로 간다.
+   * 레이드가 아니면(훈련장 · 강하 중 · 결과 화면) 예전처럼 곧장 `hub:enter`. Owner: game/ (`parts/Death.requestReturnToShip`).
+   */
+  'game:returnToShip': Record<string, never>;
 
   /* ── world (owner: world/WorldSystem) ───────────────────────────────── */
   /** `planet` (appended, Phase 11): what the world was generated for; null = the seeded biome draw. */

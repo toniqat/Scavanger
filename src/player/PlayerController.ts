@@ -515,8 +515,13 @@ export class PlayerController {
     }
 
     // ── slope handling (heightfield only)
+    // 2026-09-13: **발이 지형 위에 있을 때만**이다. 구조물 바닥판 · 전차 데크처럼 장애물 윗면에 서 있으면 그 밑
+    // 지형이 가파르더라도 미끄러지거나 막히면 안 된다 — 지하실 구덩이 위 1층 바닥에서 바깥벽 쪽이 전부 "오르막"으로
+    // 읽혀 벽 1–2 m 앞에서 멈췄고, 정문으로 들어오는 것(내리막)만 되고 나가지는 못했다. 판정은 투척물 ·
+    // 아이템이 이미 쓰는 `surface > terrain + 0.02` 와 같은 식이다.
     let steep = false;
-    if (!this.interior && !this.shipBounds && world && world.ready && this.grounded && !this.rolling) {
+    if (!this.interior && !this.shipBounds && world && world.ready && this.grounded && !this.rolling
+      && world.getHeightAt(pos.x, pos.z) >= pos.y - 0.02) {
       world.getNormalAt(pos.x, pos.z, _n);
       if (_n.y < STEEP_COS) {
         steep = true;

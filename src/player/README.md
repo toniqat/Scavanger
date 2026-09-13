@@ -620,6 +620,16 @@ true 이고 이벤트는 없다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-13 (실내에서 바깥벽 · 정문에 못 다가가던 문제, 사용자 보고)** — `PlayerController` 의 경사 처리(`STEEP_COS` 50° — 미끄러짐 +
+  오르막 성분 차단 + 점프 금지)가 **발밑이 지형인지 보지 않고** `world.getNormalAt`(지형 법선)만 읽었다. 전진기지 지하실 구덩이 위의 1층 바닥판에
+  서 있으면 그 밑 지형이 벽 쪽으로 가파르게 올라가므로, 방 가운데에서 바깥벽 쪽은 전부 "가파른 오르막"이 되어 벽 1–2 m 앞에서 멈췄다 —
+  콜라이더는 보이는 대로인데 붙을 수 없고, 정문으로 들어오는 것(내리막)은 되는데 나가지는 못했다. 이제 **발이 지형 높이일 때만**
+  (`getHeightAt(x, z) >= feet − 0.02`, 투척물 · 아이템의 `surface > terrain + 0.02` 와 같은 식) 경사를 본다. 바위 윗면 · 전차 데크 ·
+  2층 바닥도 같은 이유로 가파른 지형 판정에서 빠진다. 재현(진짜 `PlayerController.update` 로 방 가운데 → 바깥벽 4방향, 시드 5개):
+  1.8 m 넘게 떨어져 멈춘 경우 27 → 10(남은 10은 전부 계단 경사판 · 지하 구멍 난간 앞), 정문으로 나가기 실패 4 → 0.
+  `smoke-structure-reach` 는 `getSurfaceY` + `resolveCollision` 만 흉내 내고 컨트롤러의 경사 처리를 타지 않아 이것을 못 잡았다.
+- **2026-09-13 (자발적 귀환 — 계약 추가)** — `PlayerRef.die?()` 를 계약에 올렸다(`types.ts` Phase 7 블록 끝). 구현은 이미 있던
+  `PlayerSystem.die()`(= `parts/Vitals.die`) 그대로이고, 부르는 곳은 game/ 의 `game:returnToShip` 하나다.
 - **2026-09-12 (리드 통합 — 사다리 도약 스태미나)** — `parts/Climb.readClimbInput` 의 도약 검사가 `STAMINA_JUMP_COST × staminaCostMul` 로 잰다
   (에이전트 A1 보고). 소모는 이미 `spendStamina` 가 ×1.5 로 빼고 있었는데 검사만 옛 값이라, 각성제 중 스태미나가 모자란 채 도약이 받아들여졌다 —
   보통 점프 · 구르기 · 근접과 같은 규칙이 됐다.

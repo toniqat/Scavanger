@@ -66,6 +66,10 @@ export class GameFlowSystem implements GameSystem {
   /* ── Phase 7 ── */
   /** > 0 on the 레이드 실패 screen → automatic `hub:enter` when it expires. */
   autoReturnTimer = -1;
+  /** 2026-09-13: 자발적 귀환 — true 인 동안 `onLocalDied` 가 구조선 대기 · 레이드 실패 화면 대신 `returnTimer` 를 건다. */
+  returnPending = false;
+  /** 2026-09-13: 자발적 귀환으로 죽은 뒤 함선으로 가기까지 남은 초 (`parts/Death.finishReturnToShip`). */
+  returnTimer = -1;
   /** Raid session upload cadence (multiplayer raid only). */
   raidSaveTimer = -1;
   /** Blob the server handed back with `welcome` (resume into a running raid); applied after the rejoin's `world:ready`. */
@@ -141,6 +145,8 @@ export class GameFlowSystem implements GameSystem {
         this.completeTimer = LIFTOFF_TO_COMPLETE;
       }),
       b.on('player:died', () => this.onLocalDied()),
+      // 2026-09-13: 일시정지 메뉴 `함선으로 귀환` (경고 팝업 확정 뒤) — 그 자리에서 사망 → 사망 연출 뒤 함선
+      b.on('game:returnToShip', () => Death.requestReturnToShip(this)),
       // 2026-09-09: `game:respawn` 은 더 이상 구독하지 않는다 (자동 부활 없음 — 구조선뿐).
       b.on('player:spawned', () => { this.respawnTimer = -1; this.respawnLastSec = -1; }),
       /* ── 2026-09-09: 시체 · 구조선 · 분대장 기기 ── */
@@ -419,6 +425,11 @@ export class GameFlowSystem implements GameSystem {
         this.autoReturnTimer = -1;
         if (ctx.phase === 'dead') ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' });
       }
+    }
+    // 2026-09-13: 자발적 귀환 — 사망 연출이 끝나면 결산하고 함선으로 (`parts/Death.finishReturnToShip`)
+    if (this.returnTimer >= 0) {
+      this.returnTimer -= dt;
+      if (this.returnTimer < 0) Death.finishReturnToShip(this);
     }
     if (this.disconnectAbortTimer >= 0) {
       this.disconnectAbortTimer -= dt;
