@@ -1,5 +1,5 @@
 /*
- * src/shared/damageSource.ts — **로컬 플레이어 피해의 출처** (2026-09-14, NPC 퀘스트 kill 목표 · docs/plans/messenger-quests.md).
+ * src/shared/damageSource.ts — **로컬 플레이어 피해의 출처** (2026-09-14, NPC 퀘스트 kill 목표 · docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * 「산탄총으로 레이더 5명 처치」 는 **막타가 그 계열 총기**여야 센다. 그런데 `Enemy.takeDamage` 는 누가 · 무엇으로 때렸는지
  * 모른다(총 · 근접 · 가젯 · 방패 배쉬가 같은 모양으로 부른다). 그래서 weapons/ 가 총알 한 발의 피해를 넣는 **동기 구간**을

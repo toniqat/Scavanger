@@ -1,8 +1,8 @@
 /**
  * src/meta/parts/Intel.ts — **정보상**(레이븐이 파는 「행성 정보」 = 그 레이드의 기믹 고정).
  *
- * 계약은 `src/shared/intel.ts`(선택 · 해석 · 가격 식) + `shared/meta.ts` 의 `IntelRef` 이고, 설계는
- * `docs/plans/intel-broker.md` 다. 여기는 **보유 · 구매 · 폐기 · 소모**만 한다 — 월드에 닿는 길은
+ * 계약은 `src/shared/intel.ts`(선택 · 해석 · 가격 식) + `shared/meta.ts` 의 `IntelRef` 이고, 결정은
+ * `docs/DECISIONS.md` 「2026-09-14 — 정보상」 이다. 여기는 **보유 · 구매 · 폐기 · 소모**만 한다 — 월드에 닿는 길은
  * `ctx.missionIntel` 하나이고 그것을 세팅하는 곳은 출격(`hub/parts/Pods.launch`)과 수신(`net/parts/Lobby.beginSession`),
  * 솔로 이어하기(`game/parts/Session`)다.
  *

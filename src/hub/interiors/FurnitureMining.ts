@@ -4,7 +4,7 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { Builder } from './Furniture';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 채굴 시설 가구 (2026-09-13, 암호화폐 채굴 — docs/plans/power-crypto.md, 에이전트 ④).
+ * 채굴 시설 가구 (2026-09-13, 암호화폐 채굴 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 에이전트 ④).
  *
  *   • `compute_cluster` — 연산 클러스터: 폭 2칸 × 깊이 1칸 × 1.9 m 의 날씬한 서버 랙. **넓은 두 면(로컬 ±Z)이 모두 접근 면**
  *     (`access = sides`)이라 코어 칸 3 × 3 이 앞뒤 양면에 똑같이 달린다. 꽂힌 코어 수(`BuildExtra.cores`)만큼 칸이 켜지고

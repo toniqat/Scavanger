@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type TutorialCheckpointId, type TutorialFallRule } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 튜토리얼 행성 — **맵의 모양 그 자체** (2026-09-14, `docs/plans/tutorial-raid.md` A절).
+ * 튜토리얼 행성 — **맵의 모양 그 자체** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
  * 이 파일은 `world/tutorial/` 의 공용 어휘다 (`CLAUDE.md` 의 `model.ts` + `parts/` 규약): 좌표 · 치수 · 타입 ·
  * 작은 기하 헬퍼만 있고 상태는 없다. **여기 있는 숫자는 csv 로 나가지 않는다** — 밸런스 수치가 아니라 손으로

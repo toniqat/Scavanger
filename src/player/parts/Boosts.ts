@@ -1,5 +1,5 @@
 /**
- * src/player/parts/Boosts.ts — **전투 소모품의 시간제 효과** (2026-09-12, `docs/plans/consumables-keys-favorites.md` §1).
+ * src/player/parts/Boosts.ts — **전투 소모품의 시간제 효과** (2026-09-12, `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」).
  *
  * `PlayerRef.applyBoost` / `boost` / `aimSwayMul` / `boostReloadSpeedMul` / `adsSpeedMul` / `staminaDrainMul` / `staminaCostMul`
  * 의 구현. 부르는 곳은 weapons 의 `parts/Healing.finishHeal`(홀드가 끝나 아이템이 소모된 뒤)뿐이다.

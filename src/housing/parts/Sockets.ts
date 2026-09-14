@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/Sockets.ts — **흙 · 배지 소켓** (요리 재료 티어, 2026-09-13 — docs/plans/food-tiers.md §4.2).
+ * src/housing/parts/Sockets.ts — **흙 · 배지 소켓** (요리 재료 티어, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
  *
  * 「부어 둔 흙 · 배지에 끼우는 영구 강화.」 재배 스테이션(`parts/Garden.ts`)과 배양조(`parts/Culture.ts`)가 **같은 규칙**을
  * 쓰므로 여기 한 벌만 있다. 소켓은 칸(`GrowSlot` · `CultureSlot`)이 id 목록으로 들고 있고, 칸 수는 흙 · 배지 등급이 정한다

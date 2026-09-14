@@ -145,7 +145,7 @@ export interface ImplantsRef {
   readonly bashing: boolean;
 }
 
-/* ══ appended: 2026-09-12 — 안정제 · 준비 연출 (docs/plans/consumables-keys-favorites.md §1 · §2) ═══════════════════════
+/* ══ appended: 2026-09-12 — 안정제 · 준비 연출 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ═══════════════════════
  * 안정제(consumable, owner: weapons/Healing · A1)가 부른다. 장착 임플란트를 **전부** 채운다: 충전 가득 · 쿨타임 0 · 배리어
  * 붕괴 잠금 해제 + 내구도 가득 · 오버차지 에너지 가득 → `implant:cooldownChanged` · `barrierChanged` · `energyChanged` 를
  * 다시 내고 `implant:ready {refill: true}` 로 준비 연출 · 소리가 난다 (이미 가득이어도 — 아이템을 쓴 피드백). 미장착이면

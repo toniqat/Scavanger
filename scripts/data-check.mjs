@@ -100,7 +100,7 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const part of row.list('seeds')) ref(`data/planets.csv [seeds] — ${row.raw('id')}`, part.slice(0, part.lastIndexOf(':') > 0 ? part.lastIndexOf(':') : part.length).trim());
   }
-  /* 2026-09-14 (메신저 · NPC 퀘스트 — docs/plans/messenger-quests.md): 옛 quests.csv 대신. 로더(`shared/npc.ts`)는 열 모양만 보고,
+  /* 2026-09-14 (메신저 · NPC 퀘스트 — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」): 옛 quests.csv 대신. 로더(`shared/npc.ts`)는 열 모양만 보고,
    * 표끼리의 참조 — NPC · 선행 퀘스트 · 아이템 · 적 · 행성 — 와 「그 행성에서 그 적이 나올 수 있나」 는 여기서 본다. */
   {
     const Q = 'data/npc_quests.csv', O = 'data/npc_objectives.csv', N = 'data/npcs.csv';
@@ -164,7 +164,7 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const c of row.costList('samples')) ref(`data/planets.csv [samples] — ${row.raw('id')}`, c.defId);
   }
-  /* 2026-09-13 (서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md): 시리즈 ↔ 아이템 1:1, 숙련마다 책 시리즈, 레시피 책의 대상,
+  /* 2026-09-13 (서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 시리즈 ↔ 아이템 1:1, 숙련마다 책 시리즈, 레시피 책의 대상,
    * 옛 id alias, 행성 threat 규칙 (레코드 · 게임 디스크 · 게임기는 threat 2 이상), 매체별 권 수 · 효과 줄 수. */
   {
     const P = 'data/library_series.csv';

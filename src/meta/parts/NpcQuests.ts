@@ -1,5 +1,5 @@
 /**
- * src/meta/parts/NpcQuests.ts — **`ctx.meta.npc`**: NPC 연락 · 대화 · 퀘스트 (2026-09-14, docs/plans/messenger-quests.md).
+ * src/meta/parts/NpcQuests.ts — **`ctx.meta.npc`**: NPC 연락 · 대화 · 퀘스트 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * 기업 퀘스트를 대신한다. NPC 는 **함선에서만** 연락하고(`evaluate` — 함선 진입 · 프로필 로드 · 레벨 · 신뢰도 · 퀘스트 완료 ·
  * `NPC_OFFER_CHECK_S` 주기), 조건(`npcs.csv` 의 req*)이 맞으면 첫 연락(intro), 그 NPC 에 대기 중인 제안이 없으면 파일 줄
@@ -7,7 +7,7 @@
  *
  *   offered ─[수락]→ active ─(목표 전부)─[완료 보고]→ complete
  *
- * 2026-09-14 3차 (사용자 결정, docs/plans/qol-batch-2026-09-14c.md):
+ * 2026-09-14 3차 (사용자 결정, docs/DECISIONS.md 「2026-09-14 — NPC 첫 연락 3단」):
  *   • **첫 연락은 3단이다** — `intro`(인사) → 선택지(`introChoices`) → `introAfter`(본론). `introAfter` 가 있는 NPC 는
  *     **선택지에 답하기 전에는 퀘스트를 제안하지 않는다**(`evaluate`); 답하면 `chooseIntro` 가 그 자리에서 제안을 부른다.
  *   • **「생각해보지」는 없다** — `defer()` 는 늘 false 이고 `decline` 로그를 새로 만들지 않는다. `deferred` 상태와
@@ -63,7 +63,7 @@ export class NpcQuests implements NpcQuestRef {
     return d.npc ?? (d.npc = freshNpcSave());
   }
 
-  /* ── NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7) ──────────
+  /* ── NPC 개인 신뢰도 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────────
    * 기업 신뢰도와 **별개**이고 같은 `REP_TABLE` 을 쓴다 (사용자 결정 — 표를 하나 더 만들 이유가 없다).
    * 지금은 적립 · 표시까지만이라 이 값으로 잠기는 것은 없다; `NpcRequirement.npcRep` 계약은 이미 있다. */
 
@@ -394,7 +394,7 @@ export class NpcQuests implements NpcQuestRef {
     return n;
   }
 
-  /* ── 대사 선택지 (2026-09-14, `docs/plans/tutorial-raid.md`) ──────────────
+  /* ── 대사 선택지 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────────
    * 2026-09-14 3차부터 **NPC 10명 전부**가 선택지를 갖는다. 고르기 전까지 대화가 그 자리에서 기다리고
    * (본론 `introAfter` 도 퀘스트 제안도 오지 않는다), 고르면 사건 하나(`choice`)가 남아 내 대답 · NPC 의 답 ·
    * 본론이 한꺼번에 붙는다. **분기는 남지 않는다.** */

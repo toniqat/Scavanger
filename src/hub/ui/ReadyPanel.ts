@@ -91,7 +91,7 @@ const GUIDE_OWNER = 'pod';
 
 /**
  * 발사 준비 패널 (Phase 10 · **2026-09-14 대개편**) — four cells across the middle of the ship screen, shown as soon as
- * **any** launch slot is filled. Each cell is 위 55 % 초상 · 아래 45 % 장비 (`docs/plans/intel-broker.md` §4.3).
+ * **any** launch slot is filled. Each cell is 위 55 % 초상 · 아래 45 % 장비 (`docs/DECISIONS.md` 「2026-09-14 — 정보상」).
  *
  * The bodies come from `ctx.player.createPortraits(host, HUB_READY_CELLS)` — **one** canvas with `HUB_READY_CELLS`
  * scissored viewports, owned by `player/` because it needs `SoldierModel`. That code slices the canvas into `n`

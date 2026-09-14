@@ -1,4 +1,4 @@
-# 메신저 NPC (2026-09-14, docs/plans/messenger-quests.md). id 는 세이브 · 퀘스트가 찾는 값이므로 바꾸지 않는다.
+# 메신저 NPC (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」). id 는 세이브 · 퀘스트가 찾는 값이므로 바꾸지 않는다.
 # corp = helix | bastion | nomad | ceres | 비움(무소속). role = executive(임원) | staff(직원) | independent(무소속).
 # glyph = 대화 목록 초상의 글자 1–2개. color = 초상 · 이름 강조색.
 # 첫 연락 조건(모두 만족, 비우면 조건 없음): reqLevel = 캐릭터 레벨, reqRep = "기업:신뢰도 레벨" 을 | 로, reqQuests = 먼저 완료한 NPC 퀘스트 id 를 | 로.

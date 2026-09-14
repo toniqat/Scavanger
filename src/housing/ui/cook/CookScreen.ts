@@ -1,5 +1,5 @@
 /**
- * src/housing/ui/cook/CookScreen.ts — **조리 오버레이** (2026-09-13, `docs/plans/cooking-minigames.md` §6-1). 화면 하단 가운데 패널 하나
+ * src/housing/ui/cook/CookScreen.ts — **조리 오버레이** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). 화면 하단 가운데 패널 하나
  * (`.cook-panel`)가 단계마다 내용을 갈아 끼운다 — 위쪽 3D(조리대 앞 자세 · 고정 카메라, hub)가 보이게 화면을 덮지 않는다:
  *
  *   단계 i ─ 자동 가구가 있으면 선택 카드(`choose`: 「직접 하기」 / 「자동 — 자동 교반기 Lv.2 · 60 %」), 없으면 곧장 ─▶

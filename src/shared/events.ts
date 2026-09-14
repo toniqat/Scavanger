@@ -1099,7 +1099,7 @@ export interface KeyGuideKey {
   hold?: boolean;
 }
 
-/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) ══ */
+/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) ══ */
 import type { InviteOutcome } from './social';
 import type { NetLinkInfo, NetLinkState } from './net';
 import type { ProfileDocKey } from './profile';
@@ -1203,7 +1203,7 @@ export interface GameEvents {
   'housing:moveHold': { progress: number | null };
 }
 
-/* ══ appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). docs/plans/a3a-a3e.md ══ */
+/* ══ appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ══ */
 export interface GameEvents {
   /**
    * (owner: housing) 보관함 `uid` 에 꽂힌 것이 바뀌었다 — 책장 · 디스크 전시대 · 레코드랙 공통 (책장은 `housing:booksChanged` 도
@@ -1237,7 +1237,7 @@ export interface GameEvents {
   'player:furniturePoseEnded': { kind: FurniturePoseKind; reason: 'interact' | 'caller' | 'reset' };
 }
 
-/* ══ appended: 2026-09-12 — 캐릭터 버프. docs/plans/char-buffs.md ══ */
+/* ══ appended: 2026-09-12 — 캐릭터 버프. docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ══ */
 export interface GameEvents {
   /** (owner: player) 내 버프 목록이 바뀌었다 — `PlayerRef.buffs` 와 같은 배열. ui 의 버프 줄과 net 의 `cbuf state` 가 듣는다. */
   'player:buffsChanged': { buffs: readonly CharBuff[]; revision: number };
@@ -1255,7 +1255,7 @@ export interface GameEvents {
   'weapon:aimBlocked': { blocked: boolean };
 }
 
-/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/plans/consumables-keys-favorites.md ══
+/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
  * 병렬 에이전트마다 **자기 블록 안에만** 추가한다 (`export interface GameEvents { … }` 를 그 안에 쓴다). 블록 순서를 바꾸지 않는다. */
 /* ── [A1] 소모품 3종 ── */
 /* ── end [A1] ── */
@@ -1309,7 +1309,7 @@ export interface GameEvents {
 /* ── [F] 헬스 미니게임 ── */
 /* ── end [F] ── */
 
-/* ── [2026-09-13] 요리 재료 티어 (docs/plans/food-tiers.md) ── */
+/* ── [2026-09-13] 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ── */
 export interface GameEvents {
   /**
    * (owner: housing) 분석기에서 **처음** 받은 산출물이 분석 도감(`ShipState.analysisFound`)에 적혔다. ui/ 가 토스트 하나를 띄운다.
@@ -1374,7 +1374,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] 굴착 스폰 · 지하벌레 ── */
 
-/* ── [2026-09-13] 요리 미니게임 (owner: housing — docs/plans/cooking-minigames.md) ── */
+/* ── [2026-09-13] 요리 미니게임 (owner: housing — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ── */
 import type { CookBeatAction, CookGame, CookJudge, CookResult } from './cooking';
 export interface GameEvents {
   /** 조리대 화면이 열렸다 / 닫혔다 (미니게임 오버레이는 `housing:cookSession`). */
@@ -1434,7 +1434,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] 탐사 차량 ── */
 
-/* ── [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 (docs/plans/power-crypto.md — 규칙은 `shared/housing.ts` 의 같은 날 절) ── */
+/* ── [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 규칙은 `shared/housing.ts` 의 같은 날 절) ── */
 import type { CryptoChartRange } from './cryptoMarket';
 export interface GameEvents {
   /**
@@ -1464,7 +1464,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 ── */
 
-/* ── [2026-09-13] 서재 시리즈 · 비디오게임 (docs/plans/library-series-games.md — 규칙은 `shared/library.ts` · `shared/housing.ts` 끝 절) ── */
+/* ── [2026-09-13] 서재 시리즈 · 비디오게임 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — 규칙은 `shared/library.ts` · `shared/housing.ts` 끝 절) ── */
 import type { GameStat } from './library';
 export interface GameEvents {
   /** Fact (housing): 서재 효과 합산이 바뀌었다 (꽂기 · 빼기 · 보관함/보조 가구 배치 · 회수 · 전력). progression 이 `derived` 를 다시 계산하고 띠 · 시트 · 조리대가 다시 그린다. */
@@ -1499,7 +1499,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-14] 인벤토리 툴팁 고정 ── */
 
-/* ── [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 (docs/plans/messenger-quests.md — 계약 본문은 `shared/npc.ts` · `shared/social.ts` 끝 절) ── */
+/* ── [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — 계약 본문은 `shared/npc.ts` · `shared/social.ts` 끝 절) ── */
 import type { WeaponClass as WeaponClassForKill } from './types';
 import type { MessengerTab, NpcInteractKind, NpcLogEntry, NpcQuestState } from './npc';
 import type { RoomErrorCode, RoomId, RoomInvite, RoomLine } from './social';
@@ -1545,7 +1545,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 ── */
 
-/* ── [2026-09-14] 정보상 · NPC 개인 신뢰도 (docs/plans/intel-broker.md) ──────
+/* ── [2026-09-14] 정보상 · NPC 개인 신뢰도 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────
  * 기믹 고정 자체는 이벤트로 흐르지 않는다 — 맵에 닿는 길은 `ctx.missionIntel` 하나이고 (`missionPlanet` 과 같은
  * 규약: `game:newMission` 을 emit 하기 전에 세팅), 여기 있는 둘은 **화면 갱신용 사실**이다. */
 import type { IntelSpec } from './intel';

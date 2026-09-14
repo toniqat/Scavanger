@@ -1,5 +1,5 @@
 /**
- * src/net/parts/Crypto.ts — **`ctx.net.crypto`: 암호화폐 시세 창구** (2026-09-13, docs/plans/power-crypto.md).
+ * src/net/parts/Crypto.ts — **`ctx.net.crypto`: 암호화폐 시세 창구** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」).
  *
  * 시세의 원본은 릴레이다 (`server/CryptoMarket.ts` — 사용자 결정: 서버에 붙어 있어야 차트 · 매매가 된다). 이 파일은 받은 것을
  * 들고 있을 뿐이고 규칙이 없다:

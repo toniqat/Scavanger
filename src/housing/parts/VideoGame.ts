@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/VideoGame.ts — **비디오게임** (2026-09-13, H2 — docs/plans/library-series-games.md §0 · §3).
+ * src/housing/parts/VideoGame.ts — **비디오게임** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
  *
  * TV 에 게임기를 장착하고(`ShipState.tvConsoles`), 게임 디스크 전시대(`game_stand`, 서재 매체 `game`)에 꽂힌 디스크 중 게임기가 맞는 것을
  * TV 앞 좌석에 앉아 플레이한다. 운동 세션(`parts/Gym`)과 **같은 모양**이다:

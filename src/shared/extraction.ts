@@ -30,7 +30,7 @@ export interface ExtractionRef {
    */
   keepEnemyOut(position: THREE.Vector3, radius: number): boolean;
 
-  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`) ── */
+  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
    * **이미 착륙해 있는 탈출선**을 그 자리에 세운다 — 콘솔 · 호출 20초 · 착륙 연출을 전부 건너뛰고 곧장 `landed`.
    * 튜토리얼의 「버려진 함선」이 이것이다: 함선 메시를 따로 만들지 않고 진짜 탈출선을 처음부터 놓아 두므로,

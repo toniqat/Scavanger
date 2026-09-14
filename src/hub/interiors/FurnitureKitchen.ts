@@ -5,7 +5,7 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { BuildExtra, Builder, FurnitureModel } from './Furniture';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 주방 가구 (2026-09-13, 요리 미니게임 — docs/plans/cooking-minigames.md §6-4).
+ * 주방 가구 (2026-09-13, 요리 미니게임 — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」).
  *
  *   • 자동 조리 가구 4종의 절차 모델 `KITCHEN_APPLIANCE_BUILDERS` — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서.
  *     `Furniture.ts` 의 `BUILDERS` 에 그대로 펼쳐 넣는다 (같은 `Builder` 모양 · 가운데 · 바닥 y 0 · 앞 −Z · `GeoBatch`).

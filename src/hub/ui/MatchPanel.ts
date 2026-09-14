@@ -3,7 +3,7 @@ import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, isValidLobbyCode, normalizeLobbyC
 import { el, isolateInput, setText, toggleClass } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 매칭 팝업 (2026-09-14, `docs/plans/intel-broker.md` §4.1 — 사용자 결정).
+ * 매칭 팝업 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 정보상」 — 사용자 결정).
  *
  * 터미널이 3열에서 2열로 줄면서(행성이 중앙에서 넓게 · 우측은 정보상 + 훈련장) **옛 좌측 열이 통째로 여기로
  * 왔다.** 로직은 한 줄도 바뀌지 않았다 — 신호 찾기(자동 매칭) · 코드로 도킹 · 신호 송출 · 공유 함선 코드 ·

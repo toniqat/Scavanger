@@ -557,6 +557,13 @@ Perception rework (`ai/Perception.ts`, merged with the Phase 4 artillery / rogue
 
 ## 로그 강하 (2026-09-09)
 
+> **2026-09-13: 레이더 강하로 바뀌었다** (행성별 적 팩션 — `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」). 트리거 · 구역당 1회 ·
+> 호스트 권한 · 상한 예외 · 진격은 아래 그대로이고, 아래 「규모」 절(인원 · 보스)은 **더 이상 사실이 아니다**. 확률 = 행성 threat 표
+> `RAIDER_DROP_CHANCE_BY_THREAT`(threat 1 은 굴리지 않는다), 병력 = **레이더만 · 분대장 없음**, 규모 = **최대 두 파도** — 파도마다
+> 분대 인원이 정한 수(`RAIDER_DROP_WAVE1_*` · `WAVE2_*`), 한 파도 `RAIDER_DROP_WAVE_MAX` 이하, 두 번째는 `RAIDER_DROP_WAVE_GAP_S` 뒤
+> 따로 예고되는 독립 강하(dropId `${zoneId}#2`)다. 두 번째 파도는 호스트가 들고 있는 예약이라 그사이 호스트가 바뀌면 오지 않는다.
+> 파도마다 분대 하나 · 우회조 한 명. 원본은 `RogueDrop.ts` 머리 주석.
+
 버려진 **전진기지 · 연구실 · 선로 플랫폼**의 컨테이너를 처음 조사하면 로그 분대가 강하할 수 있다.
 구현은 전부 `RogueDrop.ts` 안에 있고, 계약은 `EnemyManagerRef.callRogueDrop` / `getRogueDrops` ·
 `rogueDrop:incoming` / `landed` · `rdrop` · `ROGUE_DROP_*` 다.
@@ -923,7 +930,7 @@ attack phase 4  0.25 s 회복 → chase
 
 ## C 항목 배치 — 적(일반) (2026-09-11, 에이전트 4)
 
-`docs/plans/c-batch.md` §8 의 일반 적 항목. 계약(`EnemyManagerRef.pushBack` · `HitRequest.kb` · `Interactable.kind` ·
+`docs/HISTORY.md` 「2026-09-11 (14차: C 항목 배치)」 의 일반 적 항목. 계약(`EnemyManagerRef.pushBack` · `HitRequest.kb` · `Interactable.kind` ·
 `SurfaceMaterial` · `shared/ride.ts` · `ee acidAt` · `HAZARD_ENEMY_DPS`)은 리드 커밋이다.
 
 - **C-1 · X-6 배쉬 넉백 (비호스트)** — `parts/Damage.pushBack` 이 역할을 가른다: 권위는 예전처럼 `velocity` 에 더하고,
@@ -1099,7 +1106,7 @@ attack phase 4  0.25 s 회복 → chase
 
 ## 튜토리얼 전용 적 (2026-09-14)
 
-`docs/plans/tutorial-raid.md` 의 `D` 절. 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`)는 **고정 자리 · 고정 종류**의 적만 세운다 —
+`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 `D` 절. 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`)는 **고정 자리 · 고정 종류**의 적만 세운다 —
 **굴림 없음 · 웨이브 없음 · 순찰 없음 · 스포너 없음 · 지하벌레 없음 · 네임드 없음 · 레이더 강하 없음 · 총알 추적 없음.**
 훈련장(`training`)이 전부 끄는 것과 **같은 요령이고 같은 자리**이며, 다른 점은 **적이 있다**는 것 하나뿐이다.
 
@@ -1155,7 +1162,7 @@ attack phase 4  0.25 s 회복 → chase
 
 ## 튜토리얼 전용 적 타입 4종 · 구덩이 스폰 · 사격 보류 (2026-09-14 3차)
 
-`docs/plans/qol-batch-2026-09-14c.md` 의 `D` 절. 위 `## 튜토리얼 전용 적`(자리 · `sense` · `leash`)은 **한 줄도 안 바뀌었고**, 그 위에 셋이 얹혔다.
+`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 `D` 절. 위 `## 튜토리얼 전용 적`(자리 · `sense` · `leash`)은 **한 줄도 안 바뀌었고**, 그 위에 셋이 얹혔다.
 
 ### 1. 전용 타입 4종 — 새로 갖는 것은 **고정 드롭 하나**뿐이다
 
@@ -1270,7 +1277,7 @@ attack phase 4  0.25 s 회복 → chase
   (`wormWarn` · `wormErupt` · `wormSpit`) · 이벤트 `sandworm:warning` · `sandworm:erupted` · `cheat:sandworm` · 상수 `BURROW_*` · `SANDWORM_*`. 스모크
   `smoke-burrow` · `smoke-sandworm` (verify 매핑 등록 — 작성 에이전트는 서버를 띄우지 않아 첫 실행은 리드).
 
-- **2026-09-13 (행성별 적 팩션 — 안드로이드 · 로그 · 레이더)** — 설계안 `docs/plans/enemy-factions.md`. 어떤 인간형 팩션이 나오는지는 행성 threat(`planetThreat`)가 정한다.
+- **2026-09-13 (행성별 적 팩션 — 안드로이드 · 로그 · 레이더)** — 결정 `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」. 어떤 인간형 팩션이 나오는지는 행성 threat(`planetThreat`)가 정한다.
   **리드 계약**: `EnemyType` += `android` · `raider`, `EnemyFaction` 넷(서로 다르면 전부 적대), `enemies.csv` 두 줄 · 로그 hp 560 · 네임드 + 스캔 드론 팩션 raider,
   옛 `isRogue` 의 인간형 쓰임을 전부 `Enemy.isHumanoid` 로(AI 분기 · 재활용 제외 · 사람 소리 · HostSync 힌트 · 리플리카), `Enemy.site` · `squadId` · `squadRole` ·
   `grenadeKind` · `grenadeCount`, `spawnRogue(…, opts?: HumanoidSpawnOpts)`, `registerCorpse` → `ee corpse.si/gc/gk` → 리플리카 → `Corpse.lootOpts` →
@@ -1292,15 +1299,15 @@ attack phase 4  0.25 s 회복 → chase
 - **2026-09-12 (리드 통합 — 시체 굴림 시드 식)** — `Corpses.Corpse.interact` 의 rng 가 `shared/lootRolls.corpseLootRandom(seed, enemyId)` 를
   부른다. 식은 그대로(`seed ^ enemyId × 2654435761`, 0 이면 1)이고 지상 드론 스캔(`gadgets/drones/parts/Scan`)이 열지 않고 같은 내용물을
   미리 보려고 같은 함수를 쓴다 — 이 식을 폴더 안에서 다시 적지 않는다.
-- **2026-09-11 (E-8 (a)(b) — `explode` · `st` 요청 가드, 에이전트 ①)** — `docs/plans/net-trust-gaps.md` §1 · §2.
+- **2026-09-11 (E-8 (a)(b) — `explode` · `st` 요청 가드, 에이전트 ①)** — `docs/DECISIONS.md` 「2026-09-11 — 신뢰 경로의 남은 틈」.
   **와이어 계약은 한 칸도 안 바뀐다** (주석만 — 리드가 `shared/net.ts` 에 먼저 적었다).
   ① **`onExplodeRequest`** 가 `hosting` + 상한 둘만 보던 것을 네 겹으로 — **모양**(`isVec3Tuple(p)` · `r`/`dmg` 유한 +
   기존 `MAX_REQUEST_DAMAGE` 500 · `MAX_REQUEST_RADIUS` 20) → **보낸 사람**(`getRemotePlayer(from)` 이 있고 `isDead` 가
   아니다) → **거리**(보낸 사람 스냅샷과 폭심의 **수평** 거리 ≤ `EXPLODE_SOURCE_REACH` = `STRAT_MAX_CALL_RANGE` +
   `EXPLODE_REQUEST_RANGE_SLACK`; 기준이 함선 호출인 이유는 폭발원 중 가장 먼 것이 호출 낙하물이라서다) → **요율**
   (`spendHitBudget` — `hit` 과 **같은** 버킷이다: 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다. 깎이면 깎인
-  값으로 터뜨리고 0 이면 버린다). ⚠ `isDead` 거절은 계약대로이므로 **공중에 있는 동안 주인이 죽은 폭발**(수류탄 퓨즈 ·
-  호출 `eta`)은 적 피해가 0 이다 — 코드 주석에 근거를 남겼다.
+  값으로 터뜨리고 0 이면 버린다). ⚠ **죽은 보낸 사람도 받는다** — 리드 통합에서 계약을 뒤집었다: 수류탄 퓨즈 ·
+  호출 `eta` 안에 던진 사람이 죽는 것은 정상이다. 거리는 시체의 마지막 스냅샷으로 재고, `kb` 만 `isDead` 로 거른다 (`explodeInReach` 주석).
   ② **`HitRequest.st`** 도 같은 순서로 — **비트 마스크**(`ENEMY_STATUS_BITS_ALL` = 알려진 비트 전부의 합, 남은 게 0 이면
   상태이상 부분만 건너뛴다) → **거리**(`STATUS_SOURCE_REACH` = `max(FLAME_RANGE, SHOCK_RANGE)` +
   `STATUS_REQUEST_RANGE_SLACK` **+ 적 반지름** — 두 원뿔 다 몸 표면까지 재기 때문이다: `coneTargets` 의
@@ -1585,7 +1592,7 @@ attack phase 4  0.25 s 회복 → chase
 「체크포인트는 그 구간 적의 감지 범위 밖」(가장 빡빡한 곳 14.3 m)이라는 튜토리얼 규칙은 **그 20 초 동안만**
 느슨해진다. 보호 대상(무기를 잃고 부활해 자기 시체까지 걸어가는 사람)은 총을 쏘지 않으므로 조사를 유발하지
 않고, 사망 → 부활 지연 + `ENEMY_SHOT_ALERT_GIVE_UP_S` 가 지나면 원래대로다. 그래도 걸린다면 규칙이 아니라
-맵(체크포인트 자리)을 고친다 — `docs/plans/tutorial-raid.md` 의 결정 그대로다.
+맵(체크포인트 자리)을 고친다 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 결정 그대로다.
 
 - **2026-09-14 2차 (에이전트 ②)** — `parts/Alerts.reportShot` · `onShotReport` 의 튜토리얼 예외 제거,
   `alertShot` 의 `pathLen` 클램프, `ai/Investigate` 의 `homeLeash` 리시. csv 무변경 · 와이어 무변경.

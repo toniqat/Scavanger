@@ -208,7 +208,7 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 
 ### 2026-09-14 (4차) — NPC 첫 연락 조건 · 대사 3단 · 튜토리얼 전용 적 (`npcs.csv` · `enemies.csv` · `loot_corpses.csv` · `loot_corpse_rolls.csv` · `constants.csv`)
 
-설계안 `docs/plans/qol-batch-2026-09-14c.md` (사용자 결정).
+결정 `docs/DECISIONS.md` 「2026-09-14 — NPC 첫 연락 3단」 (사용자 결정).
 
 - **`npcs.csv`** — 새 열 둘. **`reqFlag`** = `"플래그:횟수"` 를 `|` 로 (`NpcFlag` = `gathered` 채집 · `raidReturned` 레이드 복귀, 계약 `shared/npc.ts`).
   **`introAfter`** = 대사 선택지에 **답한 뒤** 이어지는 말풍선 (`introChoices` 가 있는 줄에만). NPC 10명 전부가 이제
@@ -291,7 +291,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-13 — 서재 시리즈 · 비디오게임 (`library_series.csv` · `item_aliases.csv` · `game_consoles.csv` · `game_discs.csv` 신규, `books.csv` · `discs.csv` · `records.csv` 삭제 — 에이전트 D)
 
-설계안 `docs/plans/library-series-games.md` (사용자 결정). 효과 · 행성 로더는 `src/shared/library.ts`, 아이템 · 행성 드롭은 `src/items/` (자세한 표는 `src/items/README.md` 의 *서재 시리즈 · 비디오게임*).
+결정 `docs/DECISIONS.md` 「2026-09-13 — 서재 시리즈 · 비디오게임」 (사용자 결정). 효과 · 행성 로더는 `src/shared/library.ts`, 아이템 · 행성 드롭은 `src/items/` (자세한 표는 `src/items/README.md` 의 *서재 시리즈 · 비디오게임*).
 
 - **`library_series.csv`** — 65 시리즈 → 아이템 164개. **책 43 시리즈 / 128권**: 숙련 상승량 16 (숙련 16종마다 하나, 단편 … V, 전권 +10 … +15 %) ·
   파생 8 (적재 +2 kg · 스태미나 +5 · 감지 +1.5 m · 배수 +3 % — 꽂는 즉시 적용이라 아주 작게) · 헬스 4 (기구마다 +0.08) · 요리 4 (썰기 · 다지기 · 굽기 · 볶기 +0.08) ·
@@ -329,7 +329,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-13 — 요리 미니게임 · 요리 품질 (`cook_steps.csv` · `cook_grill.csv` 신규 · `constants.csv` `COOK_*` · `tables.csv` 3표 · `furniture.csv` 4줄)
 
-설계안 `docs/plans/cooking-minigames.md` (사용자 결정). 로더는 `src/shared/cooking.ts` 하나다.
+결정 `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 (사용자 결정). 로더는 `src/shared/cooking.ts` 하나다.
 - **`cook_steps.csv`**: `meal,order,game,items,liquid,targetMl` — 조리대 요리 17종의 미니게임 순서(간단한 음식 1 · 일반 2 · 상위 티어 3단계).
   `items` 는 도마 · 그릴 · 팬에 오르는 재료(굽기 = 조각 2–3개), 붓기만 `liquid`(water · oil · milk · egg) · `targetMl`. 로더가 게임별 칸 규칙을,
   `data:check` 가 요리 · 재료 참조 · **조리대 레시피 산출물마다 단계가 있는지** · 순서가 1 부터 이어지는지를 본다.
@@ -342,7 +342,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-13 — 행성별 적 팩션: 안드로이드 · 로그 · 레이더 (`enemies.csv` · `tables.csv` · `constants.csv` · `loot_factions.csv` · `loot_faction_sites.csv` 신규)
 
-설계안 `docs/plans/enemy-factions.md`. 어떤 인간형 팩션이 나오는지는 **행성 threat**(`planets.csv`)가 정한다 — 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만.
+결정 `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」. 어떤 인간형 팩션이 나오는지는 **행성 threat**(`planets.csv`)가 정한다 — 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만.
 
 - **`enemies.csv`** — `android`(hp 280) · `raider`(hp 840) 줄, `rogue` hp 280 → 560, 네임드 3종 + 스캔 드론 `faction` = `raider`.
 - **`enemy_abilities.csv`** — `HUMANOID_WEAPONS`(팩션별 총 계열: android `ar|smg` · rogue `ar|smg|sg|dmr` · raider `ar|dmr|smg|sg`) + 팩션별 AI 블록.
@@ -391,7 +391,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-13 — 요리 재료 티어: `samples.csv` 계열 · `sockets.csv` (신규) · `items.csv` 7열 · `meals.csv` `effects` (에이전트 A)
 
-설계안 `docs/plans/food-tiers.md` §3 (사용자 결정). 분석기 결과표 `analysis_results.csv` · `tables.csv` · `tuning.csv` 의 흙/배지 마모 줄 ·
+결정 `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」 (사용자 결정). 분석기 결과표 `analysis_results.csv` · `tables.csv` · `tuning.csv` 의 흙/배지 마모 줄 ·
 `constants.csv` 의 고철 광물 줄은 리드가 넣었다 — 아래는 그 표가 가리키는 **아이템 쪽**이다.
 
 - **은퇴(`retired`)** 라는 개념이 생겼다 — `samples.csv` · `items.csv` · `meals.csv` 의 선택 bool 열. 은퇴한 아이템은 **정의만 남고**(이미 가진 것은
@@ -480,7 +480,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-12 — 소모형 만능 열쇠 · 연구소 잠긴 방 (`structures.csv` 5열 · 열쇠 줄)
 
-설계안 `docs/plans/consumables-keys-favorites.md` §3 (사용자 결정, 수치는 에이전트 C).
+결정 `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」 (사용자 결정, 수치는 에이전트 C).
 
 - **`structures.csv`** — 끝에 5열: `key`(그 종류의 잠긴 문을 여는 아이템 id 이자 지상 컨테이너의 부가 열쇠) · `keyChance`(지상 컨테이너
   **하나마다** 그 열쇠가 부가로 들어 있을 확률 — 보장 없음) · `lockedMin`~`lockedMax`(2층 잠긴 방 컨테이너 수, 0 = 방 없음) ·
@@ -774,7 +774,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-14 (3차) — 튜토리얼 개편 · 낙하 피해: `constants.csv` 상수 8 · `npcs.csv` 의 대사 선택지 열 둘
 
-설계 원본 `docs/plans/tutorial-raid.md` (리드 계약 커밋 — 수치만 먼저 놓고 구현은 폴더별로 따라온다).
+결정 `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 (리드 계약 커밋 — 수치만 먼저 놓고 구현은 폴더별로 따라온다).
 
 - **`constants.csv` — 낙하 피해 3**: `FALL_DAMAGE_SAFE_M`(5 m 까지 공짜) · `FALL_DAMAGE_PER_M`(넘은 1 m 당 9) ·
   `FALL_DAMAGE_MAX`(260). 이것은 **전역 기능**이다(사용자 결정) — 실드 → 체력 순으로 평소 피해 경로를 그대로 타고 죽을 수 있다.
@@ -799,7 +799,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-14 (2차) — NPC 개인 신뢰도: `npc_quests.csv` 의 `npcTrust` · `npcs.csv` 의 `reqNpcRep` · 레이븐 `reqLevel`
 
-설계 원본 `docs/plans/intel-broker.md` §2.7. 기업 신뢰도(`rewardRep`)와 **별개**인, NPC 한 명 한 명에 대한 개인 신뢰도다.
+결정 `docs/DECISIONS.md` 「2026-09-14 — 정보상」. 기업 신뢰도(`rewardRep`)와 **별개**인, NPC 한 명 한 명에 대한 개인 신뢰도다.
 레벨 표는 기업과 **같은** `tables.csv` 의 `REP_TABLE`(0 / 100 / 300 / 700 / 1500 / 3000 = Lv.0–5) — 표를 하나 더 만들지 않았다(사용자 결정).
 
 - **`npc_quests.csv` 새 열 `npcTrust`** — 이 퀘스트를 **낸 NPC** 의 개인 신뢰도 보상. `rewardRep` 과 **함께** 주고 서로를 대신하지 않으므로,
@@ -813,7 +813,7 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 
 ### 2026-09-14 — 메신저 NPC 퀘스트: `npcs.csv` · `npc_quests.csv` · `npc_objectives.csv` (신규) · `quests.csv` 삭제 · `crypto.csv` · `tuning.csv`
 
-설계 원본 `docs/plans/messenger-quests.md`. 로더 `src/shared/npc.ts`(열 모양 · 열거 · 종류별 필수/불필요 열), 표끼리의 참조는 `npm run data:check`.
+결정 `docs/DECISIONS.md` 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」. 로더 `src/shared/npc.ts`(열 모양 · 열거 · 종류별 필수/불필요 열), 표끼리의 참조는 `npm run data:check`.
 
 - **`npcs.csv`** `id,name,title,corp,role,color,glyph,reqLevel,reqRep,reqQuests,intro,bio` — `corp` 비움 = 무소속, `role` executive | staff | independent.
   첫 연락 조건 = `reqLevel` ∧ `reqRep`(`기업:레벨` | …) ∧ `reqQuests`(완료한 퀘스트 id | …). `intro` 는 `|` 로 말풍선을 나눈다.
@@ -826,6 +826,9 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
   (아래 `2026-09-14 (2차)` 절에 `npcTrust` · `reqNpcRep` 설명이 있다.)
   data:check 가 보는 것: 모르는 NPC · 선행 · 아이템 · 보상 아이템 · 적, **그 행성에 그 적이 나올 수 있나**(안드로이드 threat 1 · 로그 threat 2 · 레이더 · 네임드 threat ≥ 2),
   퀘스트 없는 NPC, 중복 id, 채굴 해금 퀘스트의 `rewardCredits > 0`.
+  **콘텐츠 규약** (초기 콘텐츠에서 정했다): 확률로만 서는 기믹을 요구하는 목표는 드물게 둔다 — 전차 · 연구소 잠긴 방 · 지하실 문은 각 퀘스트
+  하나이고, 그 문을 여는 열쇠 · 키카드는 앞 퀘스트 보상으로 준다. 이런 목표에는 `chain` 을 걸지 않아 레이드를 넘어 누적된다.
+  적 조건은 행성으로 좁힌다 — 안드로이드 = threat 1 · 레이더만 = threat 3 · 네임드 = 행성 조건 없이 후반 퀘스트에만.
 - **`crypto.csv`** — `unlockQuest` 가 NPC 퀘스트 id(`q_hx_permit` · `q_bs_permit` · `q_nm_permit` · `q_ce_permit`)로 바뀌었다. 옛 `hx_crypto` 등의 해금 기록은 이어지지 않는다.
 - **`tuning.csv`** — `NPC_LOG_MAX` 200 (NPC 한 명의 대화 사건 수) · `NPC_OFFER_CHECK_S` 5 (함선에서 연락 · 제안 조건을 다시 보는 간격).
 - ⚠ 퀘스트 크레딧 보상을 고치면 `npm run data:check -- --write` 로 `server/economy.gen.json` 을 다시 굽는다 (릴레이가 `quest:<id>` 금액을 표로 검사한다).

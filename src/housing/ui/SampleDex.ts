@@ -47,7 +47,7 @@ const qtyText = (min: number, max: number): string => (max > min ? `×${min}–$
 const mulText = (m: number): string => `×${(Math.round(m * 100) / 100).toFixed(2).replace(/0$/, '')}`;
 
 /**
- * **분석 도감** (A-12 2026-09-11 해석 도감 → **2026-09-13 재작성**, 요리 재료 티어 — docs/plans/food-tiers.md §5).
+ * **분석 도감** (A-12 2026-09-11 해석 도감 → **2026-09-13 재작성**, 요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
  *
  * 표본 목록이 아니라 **계열 결과표**다 (사용자 결정: 표본 3계열 · 분석 레벨 = 시간 단축 + 결과 해금). 계열
  * (`SAMPLE_FAMILIES` 순서 — 세포 · 광물 · DNA)마다 한 구획:

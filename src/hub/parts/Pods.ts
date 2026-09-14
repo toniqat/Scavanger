@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-/* 2026-09-14: 정보상 — 산 지역 · 산 기믹을 출격에 싣는다 (docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — 산 지역 · 산 기믹을 출격에 싣는다 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelPick } from '@/shared';
 import { resolveIntelEffects } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LaunchWarning, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';

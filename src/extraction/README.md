@@ -87,7 +87,7 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
 
 ## 이미 착륙해 있는 탈출선 — `beginPreLanded` (2026-09-14, 튜토리얼)
 
-튜토리얼의 「버려진 함선」은 새 메시가 아니라 **진짜 탈출선**이다 (`docs/plans/tutorial-raid.md`). `world/tutorial/`
+튜토리얼의 「버려진 함선」은 새 메시가 아니라 **진짜 탈출선**이다 (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」). `world/tutorial/`
 이 첫 프레임에 `ctx.extraction.beginPreLanded(pos, yaw, {autoDepart:false})` 를 부르면 콘솔 · 20초 호출 · 비행 ·
 착륙 연출만 건너뛰고 곧장 `landed` 로 들어간다 — **이 파일에 새 갈래가 생기지 않는다는 것이 설계의 요점**이라
 그 뒤의 스위치 → 취소 불가 10초 유예 → 이륙 → 결과 · 정산이 평소 경로 그대로 흐른다.

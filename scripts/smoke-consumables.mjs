@@ -1,4 +1,4 @@
-// 전투 소모품 3종 smoke (2026-09-12 — docs/plans/consumables-keys-favorites.md §1, agent A1). Single player, relay parked.
+// 전투 소모품 3종 smoke (2026-09-12 — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」, agent A1). Single player, relay parked.
 //   data     boost_adrenaline / _stimulant / _stabilizer: category stim · 1×1 · quick-usable · rarity common / uncommon / rare,
 //            medical-bench recipes (Lv.1 / 2 / 3), rogue_boss corpse table can drop them.
 //   adren.   at full hp the 3 s hold starts (no 회복약 refusal), consumes one, refills stamina, `boost.kind` adrenaline,

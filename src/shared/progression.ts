@@ -24,7 +24,7 @@ export type SkillId =
   | 'implant'       // 전술 임플란트 (지능)
   | 'gun_AR' | 'gun_SMG' | 'gun_SR' | 'gun_DMR' | 'gun_SG'  // 사격 (인지력)
   | 'equipment'     // 장비 관리 (재주)
-  /* appended (2026-09-13, docs/plans/library-series-games.md) */
+  /* appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   | 'cooking'       // 요리 (재주) — 조리 단계 점수 (자동 포함)
   | 'research';     // 연구 (지능) — 분석 시간 · 추출기/조합대/3D 프린터 재료 환급
 
@@ -394,7 +394,7 @@ export interface ProgressionRef {
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 운동으로 단련하는 능력치. appended (2026-09-13, docs/plans/library-series-games.md): **비디오게임**이 지능 · 인지력을 같은 규칙
+ * 운동으로 단련하는 능력치. appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **비디오게임**이 지능 · 인지력을 같은 규칙
  * (`applyGymSession` · 단련 보너스 · 능력치별 24 h 디버프 — 사용자 결정 「헬스와 동일」)으로 단련한다.
  */
 export type GymStat = Extract<StatId, 'strength' | 'endurance' | 'intelligence' | 'perception'>;
@@ -466,7 +466,7 @@ export interface ProgressionRef {
   spendStatPoints?(alloc: Partial<Record<StatId, number>>): boolean;
 }
 
-/* ══ appended (2026-09-13): 요리 품질 (docs/plans/cooking-minigames.md — 사용자 결정: 품질 별 0 … 5 = 능력치 수치 +0 … +25 %) ══
+/* ══ appended (2026-09-13): 요리 품질 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」 — 사용자 결정: 품질 별 0 … 5 = 능력치 수치 +0 … +25 %) ══
  * 식사 칸은 여전히 하나이고 수명 규칙도 그대로다 — 품질은 요리 id 옆에 붙어 다닌다 (`meal` ↔ `mealQuality`, `mealActive` ↔ `mealActiveQuality`).
  * `armPreps` 가 id 와 함께 품질을 옮기고 `clearActivePreps` 가 함께 비운다. `derive.applyMealBuff` 는 줄마다 `amount × (1 + mealQualityBonus(품질))`.
  * 두 필드 모두 `Profile.migrate` 가 옮겨 담아야 새로고침을 견딘다 (2026-09-09 `accent` 사고와 같은 자리). */
@@ -485,7 +485,7 @@ export interface ProgressionRef {
 }
 /* ══ end 2026-09-13 요리 품질 ══ */
 
-/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/plans/library-series-games.md) ══
+/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
  * 새 숙련 둘(`cooking` · `research`)의 파생 수치. 서재의 `derived` 효과는 새 필드가 아니라 `MealBuff` 키에 요리 버프처럼 접힌다
  * (`ProgressionSystem` 이 `ctx.housing.getLibraryEffects().derived` 를 `recompute` 끝에서 더한다 — `housing:libraryChanged` 에 다시 계산).
  * 비디오게임은 헬스와 같은 `applyGymSession` 을 쓴다 — `GymStat` 에 지능 · 인지력이 더해졌다 (단련 · 디버프 규칙 그대로). */

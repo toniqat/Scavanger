@@ -288,7 +288,7 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 - 브라우저에서 ESC 로 화면을 닫으면 재개 게이트가 한 번 뜬다. 조작을 통일하기로 한 대가이고, 셸에는 없다.
 
 
-## 튜토리얼 체크포인트 부활 (2026-09-14, `docs/plans/tutorial-raid.md` B, 사용자 결정)
+## 튜토리얼 체크포인트 부활 (2026-09-14, 사용자 결정)
 
 「완전한 사망에는 자동 부활이 없다」(2026-09-09)는 그대로다. 이것은 그 규칙의 예외가 아니라
 **`ctx.missionMode === 'tutorial'` 안에서만 사는 별도 갈래**이고(훈련장 갈래의 형제), 되살리는 수단도
@@ -366,14 +366,14 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
-- **2026-09-14 (튜토리얼 체크포인트 부활 · 이어 하기, 에이전트 B, docs/plans/tutorial-raid.md)** — `parts/Death` 에 `onTutorialDied` · `tutorialRespawn`,
+- **2026-09-14 (튜토리얼 체크포인트 부활 · 이어 하기, 에이전트 B, docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」)** — `parts/Death` 에 `onTutorialDied` · `tutorialRespawn`,
   `parts/Phases` 에 `isTutorial` · `'playing'` 직행 · 타이머 리셋, `GameFlowSystem` 에 `tutorialRespawnTimer` · `soloCheckpoint` · `isTutorial()`,
   `parts/Session` 의 `isSoloRaid` 가 튜토리얼을 포함(저장 · `pagehide` · 첫 스냅샷 · 주기 저장) · `saveSoloAt` 이 `mode` · `checkpoint` 를 싣고
   `resumeSoloRaid` 가 그대로 되살린다, `SoloRaid.ts` 에 두 선택 필드 + 검증. 위 *튜토리얼 체크포인트 부활* 절.
   **본편 레이드 동작은 바뀌지 않았다**: 새 분기는 전부 `ctx.missionMode === 'tutorial'` 안이고, C-70 의 두 가드(사망 뒤 저장 금지 · 사망 즉시 `clearSoloRaid`)는
   `'raid'` 에서 한 글자도 바뀌지 않았다.
 
-- **2026-09-13 (서재 시리즈 — 레이드 경험치 책, 에이전트 C, docs/plans/library-series-games.md)** — `parts/Death.awardMissionXp` 가 레이드 몫 경험치(처치 · 시간 · 탈출 ·
+- **2026-09-13 (서재 시리즈 — 레이드 경험치 책, 에이전트 C, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」)** — `parts/Death.awardMissionXp` 가 레이드 몫 경험치(처치 · 시간 · 탈출 ·
   전리품)를 `libraryRaidXpMul(ctx)` = `1 + ctx.housing.getLibraryEffects().raidXp`(housing 이 모르면 1, 음수 · NaN = 0)로 곱한 뒤 반올림한다. **계약 보상 XP 에는 곱하지 않는다** —
   `contracts.csv` 의 고정 보상이다. 결과 화면의 `xpEarned` 는 곱한 값이다.
 

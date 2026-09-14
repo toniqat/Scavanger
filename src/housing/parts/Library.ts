@@ -499,7 +499,7 @@ export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null
   return on;
   }
 
-/* ══ 서재 시리즈 — 효과 합산 캐시 · 소스 · 띠 · 레시피 해금 (2026-09-13, docs/plans/library-series-games.md) ══════════════════
+/* ══ 서재 시리즈 — 효과 합산 캐시 · 소스 · 띠 · 레시피 해금 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══════════════════
  * 합산은 `Rules.computeLibraryEffects` (순수) 이고 여기서는 **무엇을 넣을지**(작동 중인 보관함 · 보조 가구)와 **언제 다시 셀지**를 정한다.
  *
  * - 캐시는 시스템마다 하나(`WeakMap`)이고 질의는 전부 `ensureLibrary` 를 지난다 — 더러우면 그 자리에서 다시 센다.

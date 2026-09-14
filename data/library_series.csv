@@ -1,4 +1,4 @@
-# 서재 시리즈 (2026-09-13 사용자 결정 — docs/plans/library-series-games.md). 로더 = src/shared/library.ts (효과 · 행성) + src/items/ItemDefs.ts (아이템).
+# 서재 시리즈 (2026-09-13 사용자 결정 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). 로더 = src/shared/library.ts (효과 · 행성) + src/items/ItemDefs.ts (아이템).
 # id = 시리즈 id (코드가 찾는 값). medium = book · disc(비디오) · record. name = 권 번호 없는 시리즈 이름 (책 『』 · 비디오 〈〉 · 레코드 《》).
 # volumes = 권 수 (1 = 단편). 책 ≤ 5 · 비디오 ≤ 3 · 레코드 = 1.
 # planets = 나오는 행성 id 를 | 로 (data/planets.csv). 책 · 비디오 시리즈는 한 행성. 레코드는 threat 2 이상 행성에서만 (data:check 가 본다).

@@ -1241,7 +1241,7 @@ try {
     ok(stashHide.back, '튜토리얼이 끝나면 그 자리에 다시 나타난다');
   }
 
-  /* ── 9. 2026-09-13 요리 품질: 스택 열쇠 · 나누기 · 저장 · 와이어 · 조리 API (docs/plans/cooking-minigames.md §6-2) ── */
+  /* ── 9. 2026-09-13 요리 품질: 스택 열쇠 · 나누기 · 저장 · 와이어 · 조리 API (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ── */
   console.log('요리 품질');
   if (await page.evaluate(() => window.__game.ctx.phase !== 'hub')) {
     await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

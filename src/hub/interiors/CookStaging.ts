@@ -6,7 +6,7 @@ import { CAMERA_WALL_MARGIN, segmentHits, type FootBox, type StagedPiece } from 
 import { BEAKER_IDLE_LEVEL, COOK_TOOLS, cookToolTarget, liquidMat, poseCookKnife, restCookRig, type CookRig, type CookTool } from './FurnitureKitchen';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 조리 연출 (2026-09-13, 요리 미니게임 — docs/plans/cooking-minigames.md §6-4). `GymStaging` 을 본뜬다.
+ * 조리 연출 (2026-09-13, 요리 미니게임 — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」). `GymStaging` 을 본뜬다.
  *
  *   housing:cookSession {active:true}  → 그 조리대 앞 바닥 anchor · 조리대를 보는 yaw · 어깨 너머 고정 카메라
  *                                         → setFurniturePose({kind:'cook'})

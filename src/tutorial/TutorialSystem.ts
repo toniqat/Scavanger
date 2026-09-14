@@ -411,7 +411,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     return true;
   }
 
-  /* ── 3트랙 (2026-09-14, `docs/plans/tutorial-raid.md` C) ─────────────────
+  /* ── 3트랙 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ─────────────────
    * 트랙마다 자기 목표 패널 · 자기 건너뛰기를 갖고, **건너뛴 트랙만 풀린다** — 조작은 아는데 함선 증축은
    * 처음인 사람이 있기 때문이다 (사용자 결정). 상태는 `save.tracks` 하나이고 돌고 있는 트랙은 늘 하나다. */
 

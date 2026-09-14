@@ -60,7 +60,7 @@ export function isLootableDef(d: ItemDef): boolean {
   return !d.retired;
 }
 
-/* ── 행성 고정 드롭 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md) ─────────────
+/* ── 행성 고정 드롭 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────────────
  * 책 · 비디오 · 레코드는 **시리즈의 행성**(`data/library_series.csv`), 게임기 · 게임 디스크는 `game_*.csv` 의 행성에서만 나온다.
  * 상자 굴림(`Loot.pickDef`)은 후보를 그 레이드 행성으로 거르고, 그 행성에 후보가 하나도 없는 카테고리는 카테고리 추첨에서 뺀다
  * (`planetCategoryAvailable` — 아켈론 II 의 레코드 · 게임 디스크 · 게임기). 고른 아이템의 가중치에는 권 가중치
@@ -527,7 +527,7 @@ export function numberedArmorIdForTier(tier: number): string | null {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-13: 인간형 팩션(안드로이드 · 로그 · 레이더)의 시체 — docs/plans/enemy-factions.md 1절 「전리품」
+ * 2026-09-13: 인간형 팩션(안드로이드 · 로그 · 레이더)의 시체 — docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
  *   `data/loot_factions.csv`       총 등급 분포 · 방탄복 · 가방 · 회복 (희귀도 굴림)
  *   `data/loot_faction_sites.csv`  스폰 거점 보너스 (연구소 = 씨앗 · 미확인 표본, 전진기지 = 총 등급 분포 교체)
  *

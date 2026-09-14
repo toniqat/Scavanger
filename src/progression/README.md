@@ -322,7 +322,7 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 - **재접속에도 사는 이유**는 준비물과 같다: 두 필드가 프로필에 살고 **`Profile.migrate` 가 옮겨 담으며**
   (migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다 — 2026-09-09 `accent` 사고와 같은 자리), 서버 문서
   왕복도 그 길을 탄다.
-- **요리 품질** (2026-09-13, `docs/plans/cooking-minigames.md` — 조리대 미니게임 점수가 정한 별 0 … 5):
+- **요리 품질** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — 조리대 미니게임 점수가 정한 별 0 … 5):
   - `useMeal(defId, quality = 0)` · `serveMeal(defId, quality = 0)` — 품질은 `normalizeMealQuality`(0 … 5 정수, 숫자가 아니면 0)로 자른다.
     **「같은 요리」 = 같은 id · 같은 품질**만 거절(`serveMeal` 은 no-op)이고 품질이 다르면 교체다 — 수치가 바뀌기 때문이다. 생략한 품질은 0 으로 비교한다.
   - `armPreps` 가 id 와 함께 품질을 `mealActiveQuality` 로 옮기고 `mealQuality` 를 0 으로, `clearActivePreps` · `pruneMeal` 이 id 와 함께 0 으로 비운다.
@@ -428,7 +428,7 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
 - 스모크: `smoke-progression` 에 배분 · 홀드 확정 · 미리보기 · 툴팁 · 연결 강조 · 계약 거절 · 오버레이/임베드 떠나기 경고 · 강제 종료 · 초기화 팝업 ·
   임플란트 썸네일 검사.
 
-## 서재 시리즈 · 요리/연구 숙련 · 비디오게임 (2026-09-13, `docs/plans/library-series-games.md`)
+## 서재 시리즈 · 요리/연구 숙련 · 비디오게임 (2026-09-13)
 
 계약은 읽기만 했다 — `SkillId` + `cooking` / `research`, `GymStat` 에 지능 · 인지력, `DerivedStats.cookScoreBonus` · `researchTimeMul` ·
 `researchRefundChance` · `researchRefundFrac`, `HousingRef.getLibraryEffects?` · `getLibrarySources?`, `housing:libraryChanged`, `shared/library.ts`.
@@ -482,7 +482,7 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
   주지 않는다(`recipeSkill` 이 null). 연구실 제작은 inventory 가 주는 연구 경험치(`RESEARCH_XP_CRAFT`, `inventory/parts/Crafting` 의 `RESEARCH_BENCHES` 와 함께 고친다)만,
   요리는 housing `Cooking` 이 주는 요리 경험치(`COOK_SKILL_XP`)만 오른다. `smoke-library-consumers` · `smoke-cooking` 이 제작 경험치 0 을 본다.
 
-- **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련, 에이전트 P — `docs/plans/library-series-games.md`)** — 위 *서재 시리즈 · 요리/연구 숙련 · 비디오게임* 절이 전부다.
+- **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련, 에이전트 P — `docs/DECISIONS.md` 「2026-09-13 — 서재 시리즈 · 비디오게임」)** — 위 *서재 시리즈 · 요리/연구 숙련 · 비디오게임* 절이 전부다.
   - `data/skills.csv` — 헤더 16종, `cooking` · `research` 의 `derived` 칸. `defs.ts` — `DERIVED_PANEL_KEYS` 에 4줄.
   - `derive.ts` — `applyLibraryDerived`. `ProgressionSystem.ts` — `deriveFor` 가 서재 파생을 접는다(`libraryDerived`), `housing:libraryChanged` 구독, `game:phaseChanged` 가 `recompute`.
   - `ui/SheetTip.ts` — 절 제목 생략 · 줄 `note`. `ui/SheetBody.ts` — 새 파생 줄 라벨 · 포맷, 미리보기 한 값(옛 `${cur}\0${next}` 표시 키에 **NUL 문자**가 박혀 있어 파일이
@@ -493,7 +493,7 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
     스모크 페이지는 모든 transition 을 ~0 초로 돌리므로 계산된 색은 클릭 직후가 아니라 잠깐 뒤에 읽는다.
   - 검증: `npm run typecheck` — 이 폴더 에러 0 (다른 에이전트의 진행 중 파일만). `verify --only smoke-progression --log-dir scripts/logs/P` **262 / 262**, data-check ok.
 
-- **2026-09-13 (요리 품질, 에이전트 cook-progression-player — `docs/plans/cooking-minigames.md` §6-3)** — 계약은 읽기만 했다
+- **2026-09-13 (요리 품질, 에이전트 cook-progression-player — `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」)** — 계약은 읽기만 했다
   (`PlayerProfile.mealQuality` · `mealActiveQuality`, `useMeal` / `serveMeal` 의 `quality`, `getMealQuality` · `getActiveMealQuality`, `progress:mealChanged` 의 두 품질,
   `shared/cooking` 의 `normalizeMealQuality` · `mealQualityBonus`). 위 *식사* 절의 **요리 품질** 항목이 전부다.
   - `Profile.ts` — `freshProfile` 에 두 품질 0, `migrate` 가 옮겨 담는다(짝 id 가 없으면 0).
@@ -503,7 +503,7 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
   - `scripts/smoke-progression.mjs` — 요리 품질 절(품질 0 … 5 보너스 수치 · 시트 미리보기 · 음수 줄 · 교체 규칙 · 정규화 · 레이드 거절 · `serveMeal` · 즉시 저장 ·
     출격 / 종료 이동 · 새로고침 · migrate · 서버 문서 · 초기화). **237 / 237** (개인 vite 5313).
 
-- **2026-09-13 (요리 재료 티어, 에이전트 D — `docs/plans/food-tiers.md` §6)** — `derive.ts` 만: `applyMealBuff` 가 `meal.effects` 전부를 접고
+- **2026-09-13 (요리 재료 티어, 에이전트 D — `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」)** — `derive.ts` 만: `applyMealBuff` 가 `meal.effects` 전부를 접고
   `mealEffectsOf(meal)` 를 export 한다 (위 *식사* 절의 마지막 항목). `ProgressionSystem` 은 한 줄도 안 바뀌었다 — `deriveFor` 가 부르는 함수가 같다.
 
 - **2026-09-13 (캐릭터 시트 — 배분 확정 · 툴팁 · 떠나기 경고, 에이전트 character)** — 위 *배분 확정 · 툴팁 · 떠나기 경고* 절이 전부다.

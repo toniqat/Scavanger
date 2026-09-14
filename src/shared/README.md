@@ -671,7 +671,7 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
     `COOK_STEP_TIMEOUT_MUL`. 앞의 둘은 「보이는 것 = 판정」의 짝(좋음 띠 = 완벽 띠 × 이 값)이고, 마지막은 판정
     수치가 아니라 **입력이 오지 않아도 단계가 멈추지 않게 하는 안전핀**의 배수다.
 
-- **2026-09-14 (3차 묶음 — 리드 계약, 추가만, docs/plans/qol-batch-2026-09-14c.md)** — `npc.ts`: **`NPC_FLAGS`**(`gathered` ·
+- **2026-09-14 (3차 묶음 — 리드 계약, 추가만, docs/DECISIONS.md 「2026-09-14 — NPC 첫 연락 3단」)** — `npc.ts`: **`NPC_FLAGS`**(`gathered` ·
   `raidReturned`) · `NpcFlag` · `NpcRequirement.flags`(csv `reqFlag`) · `NpcDef.introAfter`(csv `introAfter` — 대사 선택지에 답한
   **뒤**의 말풍선. 이 줄이 있으면 답하기 전에 퀘스트를 제안하지 않는다) · `NpcSave.flags` · `NpcQuestRef.flagOf` · `bumpFlag`.
   진행 플래그를 프로필이 아니라 **NPC 계약 안에** 둔 이유: 레이드를 넘어 사는 값이지만 읽는 곳이 NPC 첫 연락 조건 하나뿐이라,
@@ -684,7 +684,7 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   적 유니언 추가(D 레인): `EnemyType += tut_bug_loot · tut_bug · tut_android_loot · tut_android` + `CORPSE_LOOT_CHANCE` 4줄
   (`Record<EnemyType, …>` 라 빠짐없어야 하는 표다).
 
-- **2026-09-14 (튜토리얼 개편 — 리드 계약, 추가만, docs/plans/tutorial-raid.md)** — 새 파일 **`tutorialWorld.ts`**:
+- **2026-09-14 (튜토리얼 개편 — 리드 계약, 추가만, docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」)** — 새 파일 **`tutorialWorld.ts`**:
   `TutorialCheckpointId` 10종 · `TUTORIAL_CHECKPOINTS` · `TutorialFallRule`(`normal` · `kill` · `clamp`) · `TutorialWorldRef`
   (`checkpoint` · `respawnPose` · `fallRule` · `gotoCheckpoint`) — `ctx.world.tutorial` 로 게시하며 `ctx.world.training` 과 같은 규약이다
   (튜토리얼 월드가 아니면 null — 호출부는 `?? 'normal'`). 유니언 추가: **`MissionMode += 'tutorial'`**(손으로 지은 튜토리얼 행성 —
@@ -700,7 +700,7 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   `data/constants.csv` 에 있다. **구현은 아직 없다** — `WorldSystem.tutorial` 은 null, `TutorialSystem` 의 트랙 네 메서드는 「build 하나만 돌고 있다」를
   정직하게 답하는 얇은 답변이다 (그래서 진입 흐름이 지금까지와 똑같이 함선으로 간다).
 
-- **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련 — 리드 계약, 추가만, docs/plans/library-series-games.md)** — 새 파일 **`library.ts`**: 시리즈 로더
+- **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련 — 리드 계약, 추가만, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」)** — 새 파일 **`library.ts`**: 시리즈 로더
   `LIBRARY_SERIES_DEFS/MAP`(← `data/library_series.csv`) · `LibraryEffect`(`skillGain` · `derived` · `gymScore` · `cookScore` · `raidXp` · `trustXp` · `recipe`) · `parseLibraryEffect` ·
   `LIBRARY_EFFECT_LINES`(책 1 · 비디오 2 · 레코드 3) · `librarySeriesFraction` · `LibraryEffectsSummary` · `libraryTrustMul` · `LibrarySourceInfo` · `GameStat` · `GymGameTuning` ·
   `GameDiscDef` · `GameConsoleDef` · `GameSessionInfo` · `PlayableGameInfo` · `SEAT_INTERACTIONS` · `ITEM_ALIASES`/`resolveItemAlias`(← `data/item_aliases.csv`).
@@ -718,7 +718,7 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   새 `ex depart {remaining, auto}` · `ex wait {remaining}`, `ExtractionSyncState.stage` += `'departing'` + 선택 `idleRemaining` · `departRemaining` ·
   `departAuto` · `sinceLiftoff` · `squadDone`. `types.ts` `CorpsesRef` += 선택 `attachCorpse(id, parent, local?)` · `removeCorpse(id)`.
 
-- **2026-09-13 (요리 재료 티어 — 리드 계약, 추가만 · 설계안 `docs/plans/food-tiers.md`)** —
+- **2026-09-13 (요리 재료 티어 — 리드 계약, 추가만 · 결정 `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」)** —
   `types.ts`: `ItemCategory` += `'socket'` · `MealDef.tier` 를 `1 | 2 | 3 | 4` 로 **넓혔다**(유일한 비추가 변경 — 값의 범위만 늘었다) · 파일 끝 블록에
   `SampleFamily` / `SAMPLE_FAMILIES` · `SampleDef.family` · `GrowSocketTarget` / `GrowSocketEffect` / `GrowSocketDef`(+ 목록 상수) · `SoilDef.durability` ·
   `MediumDef.durability` · `StrainDef.scaffoldOutputDefId/Qty/Hours` · `MealEffect` · `MealDef.effects` · `ItemDef.growSocket` / `scaffold` / `retired`.
@@ -782,7 +782,7 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   라우트). `net/parts/Socket` 이 임베디드 목표(프로브 금지)를 가르려고 읽는다. 같은 문자열이 `electron/main.ts` 의 `RELAY_ROUTE` 와
   `ui/menus/SettingsMenu` 의 `SHELL_RELAY_ROUTE` 에 따로 적혀 있다 — 둘을 이 상수로 바꾸는 것은 각 폴더 담당(리드 할 일).
 
-- **2026-09-11 (소셜 · 신뢰 · 연결 계약, 추가만 — `docs/plans/net-social-trust.md`)** — `net.ts`: `lobby:left.reason?/to?`(B-6) ·
+- **2026-09-11 (소셜 · 신뢰 · 연결 계약, 추가만 — `docs/HISTORY.md` 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」)** — `net.ts`: `lobby:left.reason?/to?`(B-6) ·
   `social:whisper.nonce?` · `profile:set.baseRev?/writeId?` · `strat call.by?` · `stratq call` · `meta sync.rid?` / `metaq sync.rid?` ·
   `ClientToServerAppended2026_09_11b`(`social:inviteReply` · `social:block` · `profile:setMany`) · `ServerToClientAppended2026_09_11b`
   (`social:inviteResult` · `social:inviteClosed` · `social:whisperAck` · `social:whisperBacklog` · `profile:ack` · `profile:conflict` ·
@@ -1201,7 +1201,7 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
   `raidFoundScopeOf(ctx)` → `RaidFoundScope {seed, defId}`(활성 `extract_with_items`) · `countsForRecovery` · `raidFoundStackKey` ·
   `sameRaidFoundScope`. 개수(meta) · 스택 분리와 사선 띠(inventory) · 찍기(inventory · world · enemies)가 전부 이 파일을 부른다.
 
-### 2026-09-13 — 요리 미니게임 · 요리 품질 · 자동 조리 가구 (사용자 결정, 추가만 — `docs/plans/cooking-minigames.md`)
+### 2026-09-13 — 요리 미니게임 · 요리 품질 · 자동 조리 가구 (사용자 결정, 추가만)
 - 새 **`cooking.ts`** (index 재수출): 미니게임 6종 `CookGame`(`chop` · `mince` · `grill` · `stirfry` · `stir` · `pour`) + 라벨 · 글리프, `CookJudge`,
   `CookBeatAction`(연출 입력), `CookLiquid` + 라벨 · 색, **단계표 `COOK_STEPS` · `cookStepsOf(요리 def id)`**(← `data/cook_steps.csv`), `cookGrillSeconds`
   (← `data/cook_grill.csv`), 판정 수치 `COOK_*` 40개(← `constants.csv`), **자동 조리 가구** `COOK_APPLIANCE_GAMES`(interaction → 대신하는 게임) ·

@@ -68,7 +68,7 @@ function splitKey(key: string | null): { kind: ConvKind; id: string } | null {
 }
 
 /**
- * 메신저 `대화` 탭 (2026-09-14, docs/plans/messenger-quests.md §5).
+ * 메신저 `대화` 탭 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * 좌 목록 = NPC 연락(`ctx.meta.npc`) · 개인 대화 상대(친구 + `whisperPeers`) · 단체방(`ctx.net.rooms`)을 **마지막 메시지가 최근인 순**으로
  * 한 줄에 섞는다 (필터 칩으로 좁힌다). 위에는 받은 방 초대(수락 · 거절)와 「방 만들기」.
@@ -608,7 +608,7 @@ export class ChatTab {
         : pending.from === 'npc' ? pending.text : '';
       this.scheduleTyping(id, Math.min(TYPE_MAX_S, Math.max(TYPE_MIN_S, text.length * TYPE_S_PER_CHAR)));
     }
-    /* 2026-09-14 (튜토리얼 개편 — `docs/plans/tutorial-raid.md` §2.5): 첫 연락의 **대사 선택지**.
+    /* 2026-09-14 (튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 첫 연락의 **대사 선택지**.
      * 아직 대답하지 않았으면 말풍선 아래에 내 대답 버튼 줄이 선다 — 퀘스트 카드의 [수락] 과 같은
      * 문법(`ms-btn`)이다. 고르면 `choice` 사건이 하나 붙어 내 대답 + NPC 의 답 두 줄이 대화에 들어오고
      * `getPendingChoices` 가 빈 배열이 되어 줄이 사라진다. 고르기 전에 닫고 나가도 다시 열면 그대로 있다.

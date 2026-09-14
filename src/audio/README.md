@@ -269,7 +269,7 @@ Appended (tactical kit):
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
-- **2026-09-13 (요리 미니게임 — 에이전트 cook-misc, docs/plans/cooking-minigames.md §6-5)** — `Synth.SOUNDS` 에 16종. 전부 절차 합성이고
+- **2026-09-13 (요리 미니게임 — 에이전트 cook-misc, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」)** — `Synth.SOUNDS` 에 16종. 전부 절차 합성이고
   **housing/ 의 조리대 오버레이 · `parts/Cooking` 이 `audio:play {id}` 로만 부른다** (자동 구독 없음 — `housing:cookBeat` 를 여기서 들으면 두 번 운다).
   조리대 앞 UI 소리라 `RANGED_SOUNDS` 에 넣지 않았다(헬스장 `gym_*` 와 같은 규약). 입력마다 · 누르는 동안 불리는 것은 짧고 작고 피치가 흔들린다.
   `cook_start`(점화 딸깍 두 번 + 불꽃 훅 + 오르는 두 음, ≈0.56 s) · `cook_chop`(나무 도마 탁 — 중역 노크 + 나무 몸통 + 칼날 틱, ≈0.09 s) ·
@@ -288,14 +288,14 @@ Appended (tactical kit):
   `RANGED_SOUNDS` 에 6줄: `burrow_emerge` 40 m · `sandworm_spit` 90 m, 그리고 **멀리서도 들려야 공정한** 셋은 floor — `sandworm_rumble` 200 m / 0.3 ·
   `sandworm_erupt` 260 m / 0.3 · `sandworm_roar` 220 m / 0.2 · `sandworm_death` 200 m / 0.15.
 
-- **2026-09-13 (안드로이드 소리 — 행성별 적 난이도, faction-presentation, docs/plans/enemy-factions.md)** — `Synth.SOUNDS` 에 4종.
+- **2026-09-13 (안드로이드 소리 — 행성별 적 난이도, faction-presentation, docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」)** — `Synth.SOUNDS` 에 4종.
   `android_hit` — 속이 빈 외피를 친 금속음(클릭 + 어긋난 두 배음 920 · 1370 Hz 공명 + 둔한 저음 + 스파크 틱, ≈0.26 s). `enemies/model.hurtSound`
   가 안드로이드 팩션에 `hit_flesh` 대신 돌려준다. `android_death` — 전원 차단(지직 → 1 kHz 에서 40 Hz 로 가라앉는 서보 톱니파 + 꺼지는 험 +
   몸이 떨어지는 금속 쿵 두 번, ≈1.3 s) — `enemies/model.humanoidDeathSound`. `android_step` — 한 걸음의 서보 윙 + 금속 틱(≈0.1 s),
   `EnemyStepVoice.layer` 로 재질 발소리 위에 같은 크기로 겹친다 → `RANGED_SOUNDS` 에 **`ENEMY_STEP_RANGE` 와 같은 곡선**으로 넣었다(다른
   곡선이면 서보만 멀리서 들린다). `android_glitch` — 전소 비명 대신 끊기는 사각파 경고음 3개 + 전기 잡음(≈0.5 s) — `humanoidPainSound`.
   피격 · 사망 · 오작동은 `hit_flesh` · `player_death` 처럼 기본 패너다. 로그 강하 경보 3종은 id 그대로 **레이더 강하** 소리가 됐다.
-- **2026-09-12 (준비 소리 2종 — 사용자 결정, 에이전트 B, docs/plans/consumables-keys-favorites.md §2)** — `Synth.SOUNDS` 에 2종.
+- **2026-09-12 (준비 소리 2종 — 사용자 결정, 에이전트 B, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」)** — `Synth.SOUNDS` 에 2종.
   `implant_ready` — implants/ 가 오래전부터 `audio:play` 로 보내던 id 인데 **정의가 없어 한 번도 울리지 않았다**(자동 경로가 아니라 콘솔
   경고만 남았다). 짧고 높은 전자음: 위로 튕기는 사각파 칩 + 맑은 2.6 kHz 사인 핑 + 옅은 배음, ≈0.17 s. `stratagem_ready` — 무전 톤 두 음
   차임: 스퀠치 열림 잡음 + 딸깍, 좁은 대역(lowpass 3.2 kHz)의 G5 → D6 삼각파 두 음(뒤 음이 길다) + 한 옥타브 아래 사각파 몸통, 스퀠치 닫힘,

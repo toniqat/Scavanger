@@ -1,5 +1,5 @@
 /**
- * src/shared/charBuffs.ts — **캐릭터 버프** (2026-09-12, 사용자 결정). 설계: `docs/plans/char-buffs.md`.
+ * src/shared/charBuffs.ts — **캐릭터 버프** (2026-09-12, 사용자 결정). 결정: `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
  *
  * 한 캐릭터에 지금 걸린 것 — 먹어 둔 요리 · 실어 둔 준비물 · 운동 디버프 · 환경 노출 · 휴식 중 · 운동 중 — 을 **한 목록**으로
  * 모은다. 목록은 **표시와 동기화용**이다 (사용자 결정: 버프 자체에는 게임 효과가 없다). 효과의 원본은 여전히 제자리다 —
@@ -29,12 +29,12 @@ export type CharBuffKind =
   | 'gym_fatigue'   // 디버프: 근육통 · 심폐 피로 (현실 시간 타이머)
   | 'rest'          // 휴식 중 — 흔들의자에 앉아 있다
   | 'exercise'      // 운동 중 — 운동 기구 세션
-  /* appended (2026-09-12, 소모품 3종 — docs/plans/consumables-keys-favorites.md §1) */
+  /* appended (2026-09-12, 소모품 3종 — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) */
   | 'adrenaline'    // 아드레날린 주사 — 레이드 시간제 (sim 시간), 아이템 썸네일 + 시간 게이지
   | 'stimulant'     // 각성제 — 같다
-  /* appended (2026-09-13, 요리 미니게임 — docs/plans/cooking-minigames.md) */
+  /* appended (2026-09-13, 요리 미니게임 — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) */
   | 'cooking'       // 조리 중 — 조리대 앞 자세 (`defId` = 만드는 요리)
-  /* appended (2026-09-13, 비디오게임 — docs/plans/library-series-games.md, 사용자 결정 「헬스처럼 일시적 버프로 분대원에게 보이게」) */
+  /* appended (2026-09-13, 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, 사용자 결정 「헬스처럼 일시적 버프로 분대원에게 보이게」) */
   | 'gaming';       // 게임 중 — TV 앞 좌석에 앉은 게임 세션 (`defId` = 게임 디스크 · `stat` · `minigame`)
 
 export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant', 'cooking', 'gaming'];

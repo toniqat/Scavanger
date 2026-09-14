@@ -16,7 +16,7 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 | `parts/Messages.ts` | **수신 메시지 분배**. 서버 프로토콜 메시지(`handleServerMessage`)와 다른 클라이언트가 보낸 불투명 게임 메시지 (`handleRelay`)를 각 시스템의 `onMessage` 구독자에게 넘긴다. 게임 규칙은 여기 없다 — 스냅샷 적용과 `net:*` 버스 이벤트 번역까지가 이 파일의 범위다. |
 | `parts/CharBuffs.ts` | **분대원의 버프 목록은 어떻게 오고 가는가** (캐릭터 버프, 2026-09-12). `CharBuffRelay` — `player:buffsChanged` → 프레임당 한 번 `cbuf state`(스냅샷 **앞**), 스냅샷 `bfr` 불일치 → `cbufq sync`(피어별 `CHAR_BUFF_SYNC_COOLDOWN_S`), 요청자에게만 답(같은 쿨다운), 받은 목록은 멤버별 `entries` 에 두고 ref 에 미러 → `net:remoteBuffsChanged`. 아래 `캐릭터 버프 · 가구 자세` 절. |
 | `parts/Meal.ts` | **공유 함선 식탁 와이어** (A-3c, 2026-09-11). `housing:mealServed` ↔ `meal` 메시지. 규칙은 progression(`serveMeal`), 토스트는 ui — 이 파일은 **흐름만** 만든다. 아래 `공유 함선 식탁 (A-3c)` 절. |
-| `parts/Crypto.ts` | **`ctx.net.crypto` — 암호화폐 시세 창구** (2026-09-13, docs/plans/power-crypto.md). `CryptoMarketClient implements CryptoMarketRef` — 시세의 원본은 릴레이(`server/CryptoMarket.ts`)이고 여기는 받은 것만 든다. `watch()` = 참조 계수(첫 구독 `crypto:watch {on:true}` · 마지막 해제 off, **welcome 마다** 구독자가 남아 있으면 다시 켠다 — 서버는 연결마다 잊는다). `available` = 연결 중 + **이 연결에서** `crypto:prices` 를 받았다(옛 릴레이 = 영영 false · 끊기면 즉시 false, `prices` 는 남는다). `prices` · `change24h` · `pricesAt`, `requestHistory(coin, range)` → (coin, range)별 마지막 답 캐시 + `net:cryptoHistory`, 시세가 올 때마다 캐시 봉의 마지막 봉에 그 가격을 접어(서버와 같은 방식) 다시 요청하지 않아도 차트가 흐른다 → `net:cryptoPrices {at}`. 받은 프레임은 필드마다 검사(코인 id 문법 · 유한 양수 · 알려진 기간 · 봉 개수 상한). 배선: `NetSystem.cryptoMarket` + `get crypto()`, `Messages` 의 두 메시지 + welcome, `onStatus` 끊김, `NetClient.SERVER_TYPES`. |
+| `parts/Crypto.ts` | **`ctx.net.crypto` — 암호화폐 시세 창구** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). `CryptoMarketClient implements CryptoMarketRef` — 시세의 원본은 릴레이(`server/CryptoMarket.ts`)이고 여기는 받은 것만 든다. `watch()` = 참조 계수(첫 구독 `crypto:watch {on:true}` · 마지막 해제 off, **welcome 마다** 구독자가 남아 있으면 다시 켠다 — 서버는 연결마다 잊는다). `available` = 연결 중 + **이 연결에서** `crypto:prices` 를 받았다(옛 릴레이 = 영영 false · 끊기면 즉시 false, `prices` 는 남는다). `prices` · `change24h` · `pricesAt`, `requestHistory(coin, range)` → (coin, range)별 마지막 답 캐시 + `net:cryptoHistory`, 시세가 올 때마다 캐시 봉의 마지막 봉에 그 가격을 접어(서버와 같은 방식) 다시 요청하지 않아도 차트가 흐른다 → `net:cryptoPrices {at}`. 받은 프레임은 필드마다 검사(코인 id 문법 · 유한 양수 · 알려진 기간 · 봉 개수 상한). 배선: `NetSystem.cryptoMarket` + `get crypto()`, `Messages` 의 두 메시지 + welcome, `onStatus` 끊김, `NetClient.SERVER_TYPES`. |
 | `ProfileSync.ts` | `ProfileRef` implementation behind `ctx.net.profile` (Phase 7): mirrors the server `ProfileRecord` from `welcome.profile` / `profile:docs`, `get(key)`, `set(key, doc, {fresh?})` with a `PROFILE_SYNC_DEBOUNCE_MS` upload queue (`profile:set`), `flush()` (also on `pagehide`, on session end and right after every welcome), `addCredits(delta, reason)` → `credits:tx` matched by `txId` (10 s timeout; rejects only when offline). Emits `net:profileLoaded {profile, migrated}` (`migrated` = server credits still null → meta/ uploads its local balance with reason `'migrate'`). `available=false` + `credits=null` while the socket is down; pending transactions reject on a drop. **Phase 9 (newest wins)**: a `set` is **never dropped any more** — availability is irrelevant, every call lands in the `pending` map as `{doc, at}` where `at = serverNow()` (a `fresh` save carries `at: null`) and only the debounce timer is gated on the connection, so an offline queue simply waits for the next welcome. `flush()` sends `{key, doc, at}` or `{key, doc, fresh:true}` and mirrors the accepted stamp into `docsAt`. `applyRecord` (shared by `onWelcome` / `onDocs`, and where `migrated` is computed for both) mirrors the server record + its `docsAt`, then merges the queue over it: a stamped pending doc survives only while `at >= docsAt[key]` (ties: ours), a `fresh` one only while the server has nothing for that key — a loser is dropped and the server copy wins. `onError('too_large')` evicts the keys of the last flush so a doc the server refuses is never retried forever. `pendingKeys` exposes the queue for diagnostics / smokes. **2026-09-11 (E-6)**: rewritten around **document revisions** — see `문서 리비전 (E-6)` below: persisted queue (`useStorage`), `setMany` transactions, `revOf`, `onAck` / `onConflict` / `onRefused`, `queueState` for smokes; the Phase 9 stamp rules above now apply only to a relay whose welcome has no `docsRev`. **2026-09-11 (C-69)**: 그 리비전 판정에 **전환 1회 폴백** — 보내지 않은 쓰기의 키가 전부 처음 보는 rev(`revs[k]` 없음 · `baseRev 0` · 스탬프 있음)면 시드된 `docsRev = 1` 대신 Phase 9 스탬프로 판정하고, 지면 **조용히** 버린다. |
 | `SocialSync.ts` | `SocialRef` implementation behind `ctx.net.social` (**Phase 11**): client mirror of the relay's social state — my `SocialCard`, 친구 / 받은 요청 / 보낸 요청 / 최근 만난 플레이어, 귓속말 and 분대 초대. Fed by NetSystem (`onWelcome(welcome.social)` / `onState` / `onInvited` / `onWhisper` / `onPlay` / `onError` / `onDisconnected`) with the same injected wiring as `ProfileSync` (`bus` / `send` / `serverNow`, plus `joinLobby` and `squadSize`). **The client never edits the lists**: `requestFriend` / `respondFriend` / `removeFriend` / `playWith` are requests and the server answers with a whole new snapshot (`social:updated {snapshot, first}`). `invites` holds at most `SQUAD_INVITE_MAX` live `SquadInvite`s, each with its own `SQUAD_INVITE_TTL_S` timer off the invite's own `at` (expiry / accept / dismiss / trim → `social:inviteClosed {reason}`; a second invite from the same 아이디 replaces the first); `acceptInvite` drops it and calls the ordinary `net.joinLobby(invite.lobby)`. `whisper(code, text)` trims to `SOCIAL_WHISPER_MAX`, refuses locally for empty text / a row known to be `offline` / a failed send, and emits the sender's own echo (`social:whisper {line.out:true}`); an inbound `social:whisper` becomes the same event with `out:false`. `setLevel` is debounced by `SOCIAL_ME_DEBOUNCE_MS` and a level reported while offline waits for the next snapshot. `playBlock(code)` is the shared `playBlockReason(row, squadSize(), NET_MAX_PLAYERS, isSelf)` (unknown 아이디 → `'offline'`). Everything is inert while `available` is false — `refresh()` excepted, since `social:get` is how a connection becomes available when a welcome carried no snapshot. Inbound frames are sanitized field by field (code validated with `isValidPlayerCode`, name capped, level / squad clamped, presence whitelisted, lists de-duplicated and capped, invite lobby code validated) and **only `PlayerCode`s ever cross the wire**. **2026-09-11 (B-3 · B-4)**: invite ids (`social:inviteReply` accept / decline, `onInviteClosed` · `onInviteResult`, re-sent ids announced once), `blocked` / `isBlocked` / `block`, whisper nonces with `pending → sent / stored / failed` (`onWhisperAck` → `social:whisperUpdated`, old-relay fallbacks), `onWhisperBacklog`, and the one thing it persists — the per-slot 대화 기록 (`whisperHistory` / `whisperPeers` / `lastWhisperPeer`, `slotKey(WHISPER_STORAGE_KEY)`). See 변경 이력. |
 | `RoomSync.ts` | `RoomsRef` implementation behind `ctx.net.rooms` (**2026-09-14 단체 메신저방**): 방 목록 · 초대 · 줄 캐시 거울, `room:*` 프레임 검증 (`sanitizeRoom` · `sanitizeInvite` · `sanitizeLine`), 요청 프레임, pending → ack, history 쪽 합치기, 방별 읽음 표시 (`slotKey(ROOM_READ_STORAGE_KEY)`). `SocialSync` 는 같은 날 개인 대화 읽지 않음 (`whisperUnread` · `markWhisperRead`) 을 얻었다. 아래 `단체 메신저방 · 개인 대화 읽지 않음` 절 |
@@ -221,7 +221,7 @@ transition goes through `parts/Socket.setLink`, which emits **`net:linkChanged {
   which flips the flag back.
 
 ## 문서 리비전 (E-6, 2026-09-11)
-사용자 결정 "리비전 전체 · 충돌은 서버 우선 + 경고". 설계 `docs/plans/net-social-trust.md` §7, 서버 쪽은 `server/README.md` `문서 리비전`.
+사용자 결정 "리비전 전체 · 충돌은 서버 우선 + 경고". 경과 `docs/HISTORY.md` 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」, 서버 쪽은 `server/README.md` `문서 리비전`.
 - **큐가 영속이다.** `NetSystem.init` 이 `profileSync.useStorage(slotKey(PROFILE_QUEUE_STORAGE_KEY))` 를 부른다 — 폴더들이 첫 저장을
   하기 전이다. 파일은 `{v:1, revs, pending, inflight}` 이고, 쓰기는 **ack · refused · 서버 우선 충돌 해소**에서만 빠진다.
   새로고침 · 크래시 · 서버 없이 한 세션 전체가 더는 업로드를 잃지 않는다(예전 큐는 메모리뿐이었다).
@@ -410,7 +410,7 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 - 와이어는 **계약**이다: `shared/net.ts` 의 `MealMessage`
   (`{ t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }`, `GameMessage` union 의 `DroneRequest` 다음 줄).
   `send` · `onMessage('meal', …)` 를 **타입 그대로** 쓴다 — 캐스트는 없다.
-- **요리 품질 (2026-09-13, `docs/plans/cooking-minigames.md` §3)**: 차린 요리의 **품질 그대로** 분대원이 받는다. `housing:mealServed {quality}` 를
+- **요리 품질 (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」)**: 차린 요리의 **품질 그대로** 분대원이 받는다. `housing:mealServed {quality}` 를
   읽어 `req` · `serve` 둘 다 `q`(별 1 … 5, 0 이면 생략 — 옛 클라이언트와 같은 모양)를 싣는다. 받는 쪽은 `normalizeMealQuality(m.q)`(숫자가 아니거나
   범위 밖 = 0)를 `serveMeal(def, q)` 와 다시 내는 `housing:mealServed {defId, by, quality}` 에 넘긴다. 호스트의 네 겹은 그대로다 — 품질은 효과 배수뿐이라
   (최대 +25 %) 거리 · 요율 말고 따로 볼 권위가 없고 모양만 자른다. 옛 클라이언트가 보낸 `req`(q 없음)는 품질 0 으로 퍼진다.
@@ -421,7 +421,7 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 
 ## 캐릭터 버프 · 가구 자세 (2026-09-12) — `parts/CharBuffs.ts` · `Snapshotter` · `RemotePlayer`
 
-설계 `docs/plans/char-buffs.md` §5. 계약: `shared/charBuffs.ts` (`CharBuff` · `sanitizeCharBuffs` · `sameCharBuffs`), `shared/net.ts` 끝
+결정 `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」. 계약: `shared/charBuffs.ts` (`CharBuff` · `sanitizeCharBuffs` · `sameCharBuffs`), `shared/net.ts` 끝
 (`CharBuffMessage` · `CharBuffRequest` · `PlayerSnapshot.bfr / fp / fu` · `RemoteFurniturePose` · `RemotePlayerRef.buffs / buffsRevision /
 furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_WIRE_MAX` · `CHAR_BUFF_SYNC_COOLDOWN_S`.
 
@@ -487,12 +487,12 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
-- **2026-09-14 (단체 메신저방 · 개인 대화 읽지 않음, 에이전트 A — docs/plans/messenger-quests.md)** — 새 파일 `RoomSync.ts` (위 절). `NetSystem`: `roomSync` 필드 ·
+- **2026-09-14 (단체 메신저방 · 개인 대화 읽지 않음, 에이전트 A — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」)** — 새 파일 `RoomSync.ts` (위 절). `NetSystem`: `roomSync` 필드 ·
   `get rooms()` · `init` 배선 · offline/error 에서 `onDisconnected()` · `dispose`. `parts/Messages.ts`: welcome 뒤 `roomSync.onWelcome()`, `room:*` 다섯 분배.
   `NetClient.SERVER_TYPES` 에 다섯 타입. `SocialSync`: `PeerHistory.readAt` (저장 · 옛 기록 = 읽음) · `whisperUnread` · `markWhisperRead` · `whisperUnreadTotal` ·
   `emitUnread`. 주석 명칭 「귓속말」 → 「개인 대화」. 새 스모크 `scripts/smoke-rooms.mjs` (verify 의 `net` 폴더), `e2e-multiplayer` 의 개인 대화 문구.
 
-- **2026-09-13 (암호화폐 시세 창구, 에이전트 ⑤ — docs/plans/power-crypto.md)** — 새 파일 `parts/Crypto.ts`(`CryptoMarketClient`, 위 파일 표).
+- **2026-09-13 (암호화폐 시세 창구, 에이전트 ⑤ — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」)** — 새 파일 `parts/Crypto.ts`(`CryptoMarketClient`, 위 파일 표).
   `NetSystem`: `cryptoMarket` 필드 · `get crypto()`(= `NetRef.crypto`) · `init` / `dispose` · `onStatus` 의 offline/error 에서 `onDisconnected()`.
   `parts/Messages.ts`: `welcome` 뒤 `cryptoMarket.onWelcome()`(구독 재개), `crypto:prices` · `crypto:history` 분배. `NetClient.SERVER_TYPES` 에 두 타입.
   계약(리드): `shared/net.ts` 끝의 `crypto:*` · `CryptoMarketRef`, `shared/events.ts` 의 `net:cryptoPrices` · `net:cryptoHistory`. **쓰는 쪽이 알 것**:
@@ -501,7 +501,7 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
 - **2026-09-13 (탐사 차량 탑승 비트 — 에이전트 D)** — `Snapshotter` 가 `ctx.player.roverRide` 면 `PlayerFlags.IN_ROVER`(레이드만)를 싣는다 —
   원격 아바타 · 이름표 · 입력 중 말풍선이 숨고 적이 노리지 않는다. `RemotePlayer.applyGhost` 는 고스트에서 `IN_ROVER` 를 지운다.
 
-- **2026-09-13 (요리 품질 식탁 와이어, 에이전트 cook-misc — docs/plans/cooking-minigames.md §6-5)** — `parts/Meal.ts` 만. `housing:mealServed.quality` →
+- **2026-09-13 (요리 품질 식탁 와이어, 에이전트 cook-misc — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」)** — `parts/Meal.ts` 만. `housing:mealServed.quality` →
   `meal req` · `serve` 의 `q`(0 이면 생략) → 받는 쪽 `normalizeMealQuality` → `serveMeal(def, q)` + `housing:mealServed {quality}` (위 `공유 함선 식탁` 절의 새 두 줄).
   `onLocalServed` · `fanOut` · `apply` 가 품질 인자를 하나씩 더 받는다. 계약(`MealMessage.q` · `serveMeal(defId, quality?)` · `housing:mealServed.quality`)은 읽기만 했다.
   캐릭터 버프(`cooking` · 식사 품질)와 스냅샷 자세 `cook` 은 확인만 했고 코드는 안 바뀌었다. 서버 무변경. ⚠ e2e 로는 돌려 보지 않았다(`e2e-multiplayer` 의 식탁 묶음이 품질을 싣지 않는다).
@@ -617,7 +617,7 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
 - **2026-09-12 (조종석 가구 · 방 8개, hub 에이전트)** — `model.sanitizeShipVisit` 의 조각 정화가 **조종석 가구**(`room === COCKPIT_ROOM_INDEX`, 방 번호 범위 밖의 고정값)를 받고, 칸 클램프를 방마다의 격자 `roomGridSize(room)` 로 한다(조종석 20 × 12, 방 16 × 16). 방 수는 `SHIP_ROOM_COUNT`(10 → 8)를 그대로 따라오므로 옛 피어가 보낸 방 9 · 10 의 조각은 버려진다.
 
 - **2026-09-11 (B-3 초대 결과 · B-4 차단 / 전송 확인 / 대화 기록 · B-6 moved — 클라이언트 소셜, 에이전트 ②)** —
-  `docs/plans/net-social-trust.md` §1 · §2 · §4 의 net 쪽. 서버 프레임 넷을 `NetClient` 허용 목록 · `parts/Messages` 에
+  `docs/HISTORY.md` 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」 의 net 쪽. 서버 프레임 넷을 `NetClient` 허용 목록 · `parts/Messages` 에
   더했다(`social:inviteResult` · `social:inviteClosed` · `social:whisperAck` · `social:whisperBacklog`).
   - **`lobby:left {reason:'moved', to}`** → `dropLobby('moved', to)` → `net:lobbyLeft {reason:'moved', to}` (그 뒤의 `lobby:state`
     는 평소대로 `applyLobby`). 도킹 연출은 hub/ 가, 임무 중 무시는 game/ 가 한다.
@@ -644,7 +644,7 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
 
 ---
 
-## 정보상 와이어 (2026-09-14, docs/plans/intel-broker.md)
+## 정보상 와이어 (2026-09-14)
 
 행성(`LobbyState.planet`)과 **똑같은 취급**이다 — 서버는 모양만 씻어 그대로 나르고, 레이아웃은 아무도 계산하지 않는다.
 

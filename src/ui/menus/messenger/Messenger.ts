@@ -46,7 +46,7 @@ export function messengerUnreadTotal(ctx: GameContext): number {
 }
 
 /**
- * **메신저** 패널 본체 (2026-09-14, docs/plans/messenger-quests.md) — 옛 커뮤니티 패널을 대체한다.
+ * **메신저** 패널 본체 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 커뮤니티 패널을 대체한다.
  * 창 틀 · blocker · 커서 · Escape · P 토글 · 초대 스택은 여전히 `hud/Community` 가 쥐고, 이 클래스는 틀 안(`.cp-frame`)만 짓는다:
  *
  *   머리  `.cp-head.ms-head` — 제목 `메신저` · 탭 3개(대화 · 친구 · 퀘스트, 배지) · 내 아이디 · `차단 목록 n` · `닫기 (P)`
@@ -124,7 +124,7 @@ export class Messenger {
     this.column.bind(ctx);
     this.quests.bind(ctx);
     /*
-     * NPC 개인 신뢰도 레벨업 토스트 (2026-09-14, docs/plans/intel-broker.md §2.7) — 기업 신뢰도의
+     * NPC 개인 신뢰도 레벨업 토스트 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) — 기업 신뢰도의
      * `meta:repChanged → <기업> 신뢰도 Lv.n`(`hud/MetaToasts`)과 같은 결이다. 패널이 닫혀 있어도 떠야 하므로
      * `bind` 에서 한 번 걸고(메신저는 HUD 초기화 때 지어진다) `dispose` 에서 푼다.
      */

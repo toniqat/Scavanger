@@ -26,7 +26,7 @@ import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profil
 /* Phase 11 */
 import type { PlanetId } from '../src/shared/planets.ts';
 import { isPlanetId } from '../src/shared/planets.ts';
-/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (모양만 씻는다, docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (모양만 씻는다, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '../src/shared/net.ts';
 import { sanitizeIntelPicks } from '../src/shared/intel.ts';
 import type { PlayerCode, PresenceState, SocialErrorCode, SocialPlayer, SocialSnapshot } from '../src/shared/social.ts';

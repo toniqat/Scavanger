@@ -1,5 +1,5 @@
 /**
- * src/meta/NpcRules.ts — NPC 퀘스트의 **순수 규칙** (2026-09-14, docs/plans/messenger-quests.md).
+ * src/meta/NpcRules.ts — NPC 퀘스트의 **순수 규칙** (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * ctx · DOM 없이: 조건 판정(`requirementMet`), 처치 대상 · 아이템 일치(`enemyMatches` · `itemMatches`), 한국어 목표 문구
  * (`objectiveLabel`) · 보상 요약(`rewardSummary`), 저장 모양 정리(`freshNpcSave` · `sanitizeNpcSave`), 옛 `QuestState` 로의 대응.
@@ -81,7 +81,7 @@ export interface NpcReqContext {
   repLevel(corp: CorpId): number;
   questDone(id: string): boolean;
   /**
-   * appended (2026-09-14, docs/plans/intel-broker.md §2.7): **NPC 개인** 신뢰도 레벨 (0–5, 기업과 같은 `REP_TABLE`).
+   * appended (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」): **NPC 개인** 신뢰도 레벨 (0–5, 기업과 같은 `REP_TABLE`).
    * 모르는 NPC 는 0.
    */
   npcTrustLevel(npcId: string): number;

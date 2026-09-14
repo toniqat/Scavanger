@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/Cooking.ts — **조리대 · 조리 세션** (2026-09-13, `docs/plans/cooking-minigames.md` §5 흐름 · §6-1).
+ * src/housing/parts/Cooking.ts — **조리대 · 조리 세션** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」).
  *
  * `parts/Gym.ts` 의 구조를 그대로 본떴다:
  *   ① 조리대 E → hub 가 `openCookStation(uid)` — 조리대 화면(`ui/cook/CookStation`, 요리 목록 · 재료 · 단계 · 자동 가구 · 창고/가방).
@@ -102,7 +102,7 @@ export function cookSession(sys: HousingSystem): CookSessionInfo | null {
   return sys.cookState ? sys.cookState.info : null;
 }
 
-/* ── 2026-09-13 (H3): 요리 숙련 · 서재 보너스 · 레시피 책 (docs/plans/library-series-games.md) ───────────────
+/* ── 2026-09-13 (H3): 요리 숙련 · 서재 보너스 · 레시피 책 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───────────────
  * 단계 점수 = min(1, 미니게임 · 자동 가구 점수 + `derived.cookScoreBonus` + 서재 `cookScore[game]`) — **직접 하기 · 자동 모두** (사용자 결정 ·
  * 리드 결정). 서재 보너스는 썰기 · 다지기 · 굽기 · 볶기(`LIBRARY_COOK_TARGETS`)만 받는다. 레시피 책(`CraftRecipe.unlockSeries`)은
  * `HousingRef.isRecipeUnlocked` 가 false 면 잠김 — 서재 에이전트가 그 메서드를 아직 주지 않으면 책이 필요한 레시피는 잠긴 채다. */

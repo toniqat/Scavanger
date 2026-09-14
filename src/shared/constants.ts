@@ -1507,7 +1507,7 @@ export const NAMED_ROGUE_CHANCE_BY_RANK: readonly number[] = numberList('tables.
 /** 헤비의 SMG 호위 인원 — index 0 = 분대 1명 … 3 = 4명. */
 export const NAMED_HEAVY_ESCORTS_BY_SQUAD: readonly number[] = numberList('tables.csv', 'NAMED_HEAVY_ESCORTS_BY_SQUAD');
 
-/* ── 2026-09-11: C 항목 배치 (docs/plans/c-batch.md §3-2 #14) ── */
+/* ── 2026-09-11: C 항목 배치 (docs/HISTORY.md 「2026-09-11 (14차: C 항목 배치)」) ── */
 /** 재해 구역 안의 적이 받는 조용한 초당 피해 (C-14, owner: enemies — world/Hazard 가 구역을 정한다). */
 export const HAZARD_ENEMY_DPS = K.num('HAZARD_ENEMY_DPS');
 /** 채집 노드 수량 굴림 (C-20, owner: world/Gather) — 고철 2개 · 약초 2개 확률, 고철 부가 코어 확률 · 개수. */
@@ -1521,7 +1521,7 @@ export const GATHER_SALVAGE_MINERAL_QTY = K.num('GATHER_SALVAGE_MINERAL_QTY');
 /** 장착 가방이 레이드 1회마다 잃는 내구도 (C-36, owner: inventory). */
 export const BAG_DURABILITY_PER_RAID = K.num('BAG_DURABILITY_PER_RAID');
 
-/* ── 2026-09-11: 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) ── */
+/* ── 2026-09-11: 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) ── */
 /** E-4 (owner: shared/buffRules — implants · gadgets 가 쓴다): 버프 사거리 여유(m). */
 export const BUFF_RANGE_SLACK = K.num('BUFF_RANGE_SLACK');
 /** E-4: 받는 쪽 치유 토큰 버킷 배수. */
@@ -1542,7 +1542,7 @@ export const HIT_REQUEST_BURST_S = K.num('HIT_REQUEST_BURST_S');
 export const HIT_KNOCKBACK_RANGE_SLACK = K.num('HIT_KNOCKBACK_RANGE_SLACK');
 /** C-57 (owner: world): `crate opened` 거리 검사의 여유(m). */
 export const CRATE_OPEN_RANGE_SLACK = K.num('CRATE_OPEN_RANGE_SLACK');
-/* appended (2026-09-11, E-8 — docs/plans/net-trust-gaps.md §1 · §2 — 추가만) */
+/* appended (2026-09-11, E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」 — 추가만) */
 /** E-8 (owner: enemies): explode 요청의 거리 검사 여유(m). 기준은 `STRAT_MAX_CALL_RANGE` 다. */
 export const EXPLODE_REQUEST_RANGE_SLACK = K.num('EXPLODE_REQUEST_RANGE_SLACK');
 /** E-8 (owner: enemies): 상태이상 요청의 거리 검사 여유(m). 기준은 `max(FLAME_RANGE, SHOCK_RANGE)` 다. */
@@ -1601,7 +1601,7 @@ export const MEAL_SERVE_RANGE = K.num('MEAL_SERVE_RANGE');
  */
 export const WEAPON_MUZZLE_BLOCK_RANGE = K.num('WEAPON_MUZZLE_BLOCK_RANGE');
 
-/* ══ 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 (docs/plans/consumables-keys-favorites.md) ══
+/* ══ 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ══
  * 병렬 에이전트마다 **자기 블록 안에만** 추가한다. 값은 data/constants.csv 의 같은 표식 블록에. */
 /* ── [A1] 소모품 3종 ── */
 /**
@@ -1889,7 +1889,7 @@ export const ROVER_NOTICE_STOPPED_M = K.num('ROVER_NOTICE_STOPPED_M');
 /* ── end [R4] ── */
 /* ── end 2026-09-13 탐사 차량 ── */
 
-/* ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/plans/library-series-games.md) ── */
+/* ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
 /** 서재 시리즈 몫 — 전권이 아니면 꽂힌 서로 다른 권마다 전권 보너스의 이만큼 (`librarySeriesFraction`). */
 export const SHELF_SERIES_VOLUME_SHARE = K.num('SHELF_SERIES_VOLUME_SHARE');
 /** 게임 디스크 전시대 한 대의 칸 수 (`SHELF_SLOTS.game`). */
@@ -1910,7 +1910,7 @@ export const RESEARCH_XP_ANALYSIS = K.num('RESEARCH_XP_ANALYSIS');
 export const RESEARCH_XP_CRAFT = K.num('RESEARCH_XP_CRAFT');
 /* ── end 2026-09-13 서재 시리즈 ── */
 
-/* ── 2026-09-14 튜토리얼 개편 · 낙하 피해 (docs/plans/tutorial-raid.md) ── */
+/* ── 2026-09-14 튜토리얼 개편 · 낙하 피해 (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ── */
 /** 낙하 피해가 시작되는 높이 (m) — 이것까지는 공짜다. */
 export const FALL_DAMAGE_SAFE_M = K.num('FALL_DAMAGE_SAFE_M');
 /** 안전 높이를 넘은 1 m 당 피해 (실드 → 체력 순). */

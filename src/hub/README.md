@@ -435,7 +435,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
   - `parts/Interior` · `interiors/Furniture` 의 채굴 진입 주석을 통합 창 · 「가구마다 제 탭이 기본」 규약으로
     고쳤다(코드 변화 없음 — 여는 곳은 계약 그대로 `openComputeCluster` · `openMiningComputer` 다).
 
-- **2026-09-14 (정보상 화면 · 터미널 재배치 · 매칭 팝업, docs/plans/intel-broker.md §4.1–4.2, 에이전트 E)** —
+- **2026-09-14 (정보상 화면 · 터미널 재배치 · 매칭 팝업, docs/DECISIONS.md 「2026-09-14 — 정보상」, 에이전트 E)** —
   - **터미널이 3열 → 2열** (`ui/HubMenu` · `hub.css` 의 `.hub-grid` / `.hub-col` / `.hub-head` / `.hub-planet` / `.hp-*`).
     좌측 매치메이킹 열이 통째로 **`ui/MatchPanel`**(`.menu.hub-menu.hm-match`, 접두사 `.hm-`)로 갔고 머리 우상단
     `📡 매칭` 버튼이 그것을 연다 — **동작은 한 줄도 바뀌지 않았다**(신호 찾기 · 코드 도킹 · 신호 송출 · 코드 · 공개 전환 ·
@@ -467,7 +467,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
     1초 홀드 → `buy` → 락온 → 요약 · `지역 재배치` 경고 + 홀드 → `discard` → 고르는 화면 · Escape 가 정보상만 닫음 ·
     가로 스크롤 없음. **CSS 접두사 `.hm-` / `.hi-` / `.it-` 은 쓰기 전에 `rg` 로 비어 있음을 확인했다.**
 
-- **2026-09-14 (발사 슬롯 UI 대개편, docs/plans/intel-broker.md §4.3, 에이전트 A)** —
+- **2026-09-14 (발사 슬롯 UI 대개편, docs/DECISIONS.md 「2026-09-14 — 정보상」, 에이전트 A)** —
   - **패널이 화면 한가운데로 · 세로 70 %** (`hub.css` `.hub-ready`: `top: 48%` · `height: 70vh`). 4칸 가로 · `gap: 0` · 균등 4열은
     **그대로 지킨다** — `player/Portraits` 가 캔버스 하나를 `HUB_READY_CELLS` 개 **균등 열**로 잘라 쓰기 때문이다. 초상 캔버스 호스트는
     카드 위 55 %(`bottom: var(--hr-body-h)`)로 잘리고, 아래 45 % 는 불투명한 장비 판(`.hr-body`)이다. 상태 줄을 패널 위로 밀던
@@ -492,7 +492,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
     `HubSystem.launchReady`(`boardedSlot >= 0 && readyLocal`)다. `HubRef` 에 아직 그 필드가 없어 inventory 가 **선택 필드로 읽기만** 한다 —
     계약(`HubRef.launchReady?: boolean`) 추가는 리드에게 보고했다.
 
-- **2026-09-13 (서재 시리즈 · 비디오게임 — 모델 · 상호작용 · 게임 연출, docs/plans/library-series-games.md §3, 에이전트 B)** —
+- **2026-09-13 (서재 시리즈 · 비디오게임 — 모델 · 상호작용 · 게임 연출, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, 에이전트 B)** —
   - **모델** (`interiors/FurnitureLeisure.ts`, 리드의 임시 상자 넷 삭제): `game_stand` · `sofa` · `low_table` · `rug` 절차 모델, `chair` 를 `Furniture.ts` 의 `BUILDERS` 에서
     `LEISURE_BUILDERS` 로 옮기고 앉는 `rig` 를 붙였다(좌판 윗면 0.45 → **0.36** — 앉은 발이 바닥에 닿는다; 옛 의자도 등받이가 +Z 라 앞 −Z 규약은 그대로). 앉는 방향은
     의자 · 흔들의자 · 쇼파 모두 **가구 앞(로컬 −Z)** 이다 — 쇼파 yaw = (TV yaw + 2) % 4 면 TV 를 본다. TV 에 게임기 모양 셋 + 일반 상자 · 숨긴 게임 화면(`model.tv`). 전부 emissive, **점광원 0**.
@@ -512,7 +512,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
     `smoke-ship-rooms` 77/77 · `smoke-hangar` 58/58. `smoke-housing` 298/300 — 남은 둘은 hub 밖이다: 카탈로그 수(`getFurnitureFor` — D 가 더한 `any` 가구 쇼파 · 좌식 테이블 · 러그)와
     옛 책 id alias(`book_gun_AR` → `book_drill_ar_1`)를 스모크가 아직 옛 값으로 기대한다.
 
-- **2026-09-13 (암호화폐 채굴 — 모델 · 상호작용, docs/plans/power-crypto.md, 에이전트 ④)** — 새 파일 `interiors/FurnitureMining.ts`(위 파일 표). `interiors/Furniture.ts`:
+- **2026-09-13 (암호화폐 채굴 — 모델 · 상호작용, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 에이전트 ④)** — 새 파일 `interiors/FurnitureMining.ts`(위 파일 표). `interiors/Furniture.ts`:
   `BUILDERS` 가 `...MINING_BUILDERS` 를 펼친다(리드의 임시 상자 둘 삭제) · `BuildExtra` 에 **`cores`** · **`clusterMining`** · `buildExtra` 가 연산 클러스터에
   `ctx.housing.getComputeCluster(uid)` 의 코어 수 · 채굴 여부를 주고(duck-typed / try-caught, 방문 중인 함선 = 0) 지은 모습의 열쇠(`clusterKeys`)를 적는다 ·
   `housing:clusterChanged` · `operationalChanged` · `powerChanged` 에서 **열쇠가 바뀐 클러스터만** 그 방을 다시 짓는다(`refreshClusterPiece` — 채굴 주기마다 오는
@@ -523,13 +523,13 @@ over the 닫기 (Esc) / 타이틀로 footer.
 - **2026-09-13 (같은 날 후속 — 전력 할당 폐지, 사용자 결정)** — 아래 항목의 `interact()` 전력 검사를 걷어냈다(작업대 · 운동 기구 · TV 가 막히지 않는다) · 연산 클러스터 모델의
   `housing:operationalChanged` · `housing:powerChanged` 구독도 삭제(`housing:clusterChanged` 만 — 메인 컴퓨터를 놓거나 회수하면 같은 채굴 시설 방이 어차피 다시 지어진다).
 
-- **2026-09-13 (발전기 전력, docs/plans/power-crypto.md, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). `interiors/Furniture.addPiece` 의 `interact()` 맨 앞 **한 줄 검사**:
+- **2026-09-13 (발전기 전력, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). `interiors/Furniture.addPiece` 의 `interact()` 맨 앞 **한 줄 검사**:
   작업대(조리대 포함) · 운동 기구 · **꺼져 있는** TV / 레코드 플레이어면 `ctx.housing.furnitureOperationalBlock(uid)` 를 묻고, 사유가 있으면
   `ui_deny` + 토스트 `<가구> — <사유>`(`전력이 부족합니다` · `비활성화된 가구입니다`) 뒤 끝낸다. 스테이션(재배 · 분석기 · 배양조 · 보관함 · 식탁 · 채굴)은
   **그대로 열린다** — 안을 관리할 수 있어야 하고, 멈춘 사유는 그 화면의 배너(`housing/ui/StationShell`)가 말한다. 자동 조리 가구는 조리대 화면을 여므로
   조리대의 게이트(`openCookStation`)를 탄다. 켜진 TV 를 끄는 것은 막지 않는다.
 
-- **2026-09-13 (배치 규칙 — 접근 면, docs/plans/power-crypto.md, 배치 에이전트)** — 규칙은 housing 이 갖고(`Rules.placementBlockOf`) hub 는 둘을 따른다.
+- **2026-09-13 (배치 규칙 — 접근 면, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 배치 에이전트)** — 규칙은 housing 이 갖고(`Rules.placementBlockOf`) hub 는 둘을 따른다.
   ① `interiors/Furniture.addPiece`: 작업대 · 분석기 · 조리대 · 책장류 · TV · 시술대 · 기업 컴퓨터(`front`)는 **앞에서만**, 재배 스테이션 · 배양조 · 식탁(`sides`)은
   **넓은 두 면에서만** E 가 뜬다 — 뒤 · 옆에 서면 `canInteract` 가 false 라 `findBest` 가 건너뛰어 다른 대상을 가리지 않는다. 헬스 기구(`all`)는 예전 그대로.
   ② `HousingMode`: 고스트의 비워야 하는 칸을 바닥 타일로(초록 / 빨강 · 놓인 가구의 칸은 흐린 청록), 설치 거절 토스트가 구체 사유(`앞쪽이 벽에 막힙니다` ·
@@ -551,7 +551,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
   - `HousingMode`: 조종석 전용 시설을 들고 있으면 키 가이드에 `회수` 가 없고, X 는 거부음 + `housing:placeRefused`(`조종석 전용 시설은
     회수할 수 없습니다`)로 끝난다(`housing.recover` 를 부르지 않는다). 방에 놓으려 하면 `조종석 전용 시설입니다`.
   - smoke-ship-rooms 7b: 시설 관리를 열면 `cockpitCeilingFade` 1 · 그룹 숨김 · 재질 transparent · 광원 수 그대로, 닫으면 0 · 불투명 · depthWrite.
-- **2026-09-12 (원격 가구 연출 — 캐릭터 버프 · 가구 자세 동기화 §6-C, hub 에이전트)** — 설계안 `docs/plans/char-buffs.md`.
+- **2026-09-12 (원격 가구 연출 — 캐릭터 버프 · 가구 자세 동기화 §6-C, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
   계약(`FurniturePose.furnitureUid` · `RemoteFurniturePose` · `RemotePlayerRef.furniturePose`)은 리드가 썼고 이 폴더는 `src/shared` 를
   고치지 않았다. 바로 아래 A-3a 항목의 알려진 한계 「자세 · 운동 연출은 네트워크로 보내지 않는다」를 hub 쪽에서 닫는다.
   - **uid**: `sitPoseOf` · `gymPoseOf` 가 `furnitureUid: piece.item.uid` 를 싣는다 — player 가 `furniturePoseState` 로, net 이 스냅샷
@@ -575,7 +575,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
   - **알려진 한계**: 헤드리스 수치 검사뿐이다 — 실제 두 브라우저에서 net 의 보간 위상(`fp`)으로 기구가 부드럽게 도는지, player 의 원격
     아바타 자세와 바 · 페달이 맞는지는 net · player 가 합쳐진 뒤 `e2e-mp` / 눈으로 본다.
 
-- **2026-09-12 (서재 매체 A-3e · 헬스장 A-3a, hub 에이전트)** — 설계안 `docs/plans/a3a-a3e.md` §6-6. 계약(`src/shared/*` ·
+- **2026-09-12 (서재 매체 A-3e · 헬스장 A-3a, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-12 — 헬스장 · 서재 매체」. 계약(`src/shared/*` ·
   `data/furniture.csv`)은 리드가 먼저 커밋했고 이 폴더는 **한 줄도 고치지 않았다**.
 
   **① 절차 모델 11종** (새 파일 `interiors/FurnitureLeisure.ts`, 리드의 임시 `pendingBody` 는 지웠다). 전부 `GeoBatch` 박스 ·
@@ -661,7 +661,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
   방 콘솔 모드는 한 줄도 안 바뀌었다(`smoke-ship-rooms` 의 클릭 집기 · X 회수 · R 회전 그대로). 요청의 「커서를 가구
   중앙으로」는 사용자 결정으로 뺐다.
 
-- **2026-09-11 (주방 · 배양조 · 3D 프린터 — A-3c · A-14 · A-15, hub 에이전트)** — 설계안 `docs/plans/a3c-a14-a15.md` §4.2.
+- **2026-09-11 (주방 · 배양조 · 3D 프린터 — A-3c · A-14 · A-15, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-11 — 주방 · 배양조 · 3D 프린터」.
   계약(`src/shared/*` · `data/*.csv`)은 먼저 커밋돼 있었고 이 폴더는 **한 줄도 고치지 않았다**. 네 가지를 했다.
 
   **① 절차 모델 4종** (`interiors/Furniture.ts` 의 `Record<FurnitureModelKind, Builder>` — 타입 에러가 정확히 그 자리를
@@ -713,7 +713,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
   **`WeaponSlot`** 을 쓴다 — `LoadoutSlot` 에 `'pouch'` 가 생겨 어긋난 자리이고, **주머니는 내구도가 없으므로
   정비 목록에 넣지 않는다**. 타입만 맞췄고 행 구성은 그대로다.
 
-- **2026-09-11 (연구실 A-11 · A-12 · A-13 + B-13, hub 에이전트)** — 설계안 `docs/plans/lab-a11-a13.md` §3.2. 계약
+- **2026-09-11 (연구실 A-11 · A-12 · A-13 + B-13, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-11 — 연구실」. 계약
   (`src/shared/*` · `data/*.csv`)은 먼저 커밋돼 있었고 이 폴더는 **한 줄도 고치지 않았다**. 네 가지를 했다.
 
   **① 절차 모델 3종** (`interiors/Furniture.ts` 의 `Record<FurnitureModelKind, Builder>` — 타입 에러가 정확히 그 자리를
@@ -775,7 +775,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
   레벨이 바뀌면 이미 있던 `housing:furnitureUpgraded` → `rebuildRoom` → `buildFurniture(def, item.level)` 경로가 모델을 다시 짓는다
   (작업대와 같은 길, 새 배선 불필요).
 
-- **2026-09-11 (B-12 — 합류 알림 두 줄을 한 줄로, 에이전트 ⑤)** — 설계안 `docs/plans/net-trust-gaps.md` §6.
+- **2026-09-11 (B-12 — 합류 알림 두 줄을 한 줄로, 에이전트 ⑤)** — 결정 `docs/DECISIONS.md` 「2026-09-11 — 신뢰 경로의 남은 틈」.
   `HubSystem.bind` 의 `net:peerJoined` → `ui:notify '<이름> 함선 합류'` 와 `net:peerLeft` → `'<이름> 함선 이탈'` **두 줄을 지웠다**
   (TODO 에는 합류만 적혀 있었지만 이탈도 대칭으로 같은 겹침이었다). 같은 이벤트에 `ui/hud/Notifications` 가 `<이름> 합류` ·
   `<이름> 이탈`(`'분대'` 라벨, 3 초)을 띄우는데 `ui:notify` 가 **그 토스트 스택으로 되돌아오므로** 함선 · 도킹 중에만 두 줄이
@@ -1057,7 +1057,7 @@ over the 닫기 (Esc) / 타이틀로 footer.
 - 스모크(정적 수정): `smoke-ship-rooms`(방 그룹 8 · `cockpit-furniture` · 격자 숨김 · 컴퓨터 주석), `smoke-training`(개인 함선
   터미널의 `시작` 으로 입장 — 가구로 훈련장에 들어가는 길은 없다), `smoke-hangar`(방문 함선의 조각 수는 조종석 가구 포함 → 총기 작업대 존재로 본다).
 
-### 2026-09-13 — 요리 미니게임: 자동 조리 가구 모델 · 조리대 배선 · 조리 연출 (`docs/plans/cooking-minigames.md` §6-4)
+### 2026-09-13 — 요리 미니게임: 자동 조리 가구 모델 · 조리대 배선 · 조리 연출
 
 - **자동 조리 가구 4종의 절차 모델** (`interiors/FurnitureKitchen.ts` `KITCHEN_APPLIANCE_BUILDERS`) — 리드가 넣어 둔 임시 상자 몸체와
   그 주석을 지웠다. 푸드 프로세서(맑은 유리 볼 + S자 칼날 + 모터 받침) · 자동 그릴(쇠살 사이로 달아오른 열선 + 철판 + 열린 후드) ·

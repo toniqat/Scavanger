@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 정보상 기믹 고정의 **결정성 · 효과** 검사 (2026-09-14, docs/plans/intel-broker.md).
+ * 정보상 기믹 고정의 **결정성 · 효과** 검사 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
  *
  * 브라우저가 필요 없다 — 헤드리스 Vite 로 게임이 실제로 쓰는 모듈(`src/world/preview.ts` · `hazard/parts/Plan.ts`)을
  * 그대로 SSR 로드해 레이아웃을 만든다. 보는 것은 셋이다:

@@ -1,4 +1,4 @@
-# 인간형 팩션(안드로이드 · 로그 · 레이더) 시체의 **팩션 굴림** — 2026-09-13 (docs/plans/enemy-factions.md 1절 「전리품」).
+# 인간형 팩션(안드로이드 · 로그 · 레이더) 시체의 **팩션 굴림** — 2026-09-13 (docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」).
 # src/items/LootTables.ts 가 읽고 Loot.rollCorpseOn 이 쓴다. 이 표에 줄이 없는 적(벌레 · rogue_boss · 네임드)은 예전 굴림 그대로다.
 # 아이템별 드롭(잡템 · 열쇠)은 loot_corpses.csv · 들고 있던 총의 탄약과 내구도 · 서적 · 임플란트는 loot_corpse_rolls.csv 에 그대로 있다.
 #

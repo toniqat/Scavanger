@@ -25,7 +25,7 @@ import { TileGrid, type TileSpec } from './TileGrid';
  *   `.corp-shell` → `.corp-page` → 페이지 루트(`.cv` / `.ci` / `.cc`) — **카드가 가로 한 줄**로 선다:
  *     • 거래     [판매 물품] [거래 테이블(구매 · 판매 트레이 · 크레딧 변화 · 1초 홀드)] [함선 창고] [가방]
  *     • 임플란트 [망가진 임플란트 + 수리 카드] [함선 창고] [가방]
- *   **2026-09-14: 퀘스트 탭 삭제** — 기업 퀘스트가 없어졌다. 퀘스트는 NPC 가 메신저로 준다 (`ctx.meta.npc`, docs/plans/messenger-quests.md).
+ *   **2026-09-14: 퀘스트 탭 삭제** — 기업 퀘스트가 없어졌다. 퀘스트는 NPC 가 메신저로 준다 (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *     • 계약     기업 목록만 분리됐고 나머지(계약 목록 | 진행 중인 계약)는 한 카드 그대로.
  *   함선 창고 · 가방은 **서로 다른 카드**이고 각자 머리(이름 · 개수 · 정렬 · 필터)와 자기 세로 스크롤을 갖는다 —
  *   `InventoryRef.createTradeGrids(card, { grids: [id], layout: 'split' })` 를 카드마다 하나씩.

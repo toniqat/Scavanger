@@ -9,7 +9,7 @@ import { createIntelMapView, type IntelMapLayout, type IntelMapView } from './In
 import type { PlanetHologram } from './PlanetHologram';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 정보상 화면 (2026-09-14, `docs/plans/intel-broker.md` §4.2 — 사용자 결정).
+ * 정보상 화면 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 정보상」 — 사용자 결정).
  *
  * 「행성의 정보를 산다」지만 실제로 하는 일은 **그 레이드의 기믹을 고정하는 것**이다. 화면은 두 국면이다:
  *

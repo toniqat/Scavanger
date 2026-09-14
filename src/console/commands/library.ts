@@ -4,7 +4,7 @@ import type { CommandFactory } from './types';
 import { err } from './types';
 
 /**
- * `library [give <seriesId> [권|all]]` — 서재 시리즈 (2026-09-13, docs/plans/library-series-games.md) 개발용 명령. **공개 ref 만** 쓴다.
+ * `library [give <seriesId> [권|all]]` — 서재 시리즈 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) 개발용 명령. **공개 ref 만** 쓴다.
  *
  *   - `library`                          `HousingRef.getLibraryEffects()` 합산 요약 (대상마다 한 줄 + 열린 레시피 + 리비전).
  *   - `library give <seriesId> [권|all]`  그 시리즈의 매체 아이템(`ItemDef.book` · `disc` · `record` 의 `series` · `volume`)을 만들어

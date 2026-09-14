@@ -1,5 +1,5 @@
 /**
- * src/enemies/models/FactionLooks.ts — **안드로이드 · 레이더 외피** (2026-09-13, docs/plans/enemy-factions.md §1 외형).
+ * src/enemies/models/FactionLooks.ts — **안드로이드 · 레이더 외피** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」).
  *
  * 둘 다 로그의 휴머노이드 리그(`RogueModel.createRogueRig`)를 그대로 쓴다: 같은 그룹 · 같은 피벗 · 같은 총구
  * (`gun` 로컬 (-0.1, -0.13, 1.1)) · 같은 다리 길이라 AI 애니메이션과 피격 캡슐이 한 줄도 바뀌지 않는다. 바뀌는 것은

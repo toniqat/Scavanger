@@ -86,7 +86,7 @@ export type ItemCategory =
   | 'meal'        // 요리 (see `ItemDef.meal`): 함선 식탁에서 먹으면 **다음 레이드 1회분**으로 실린다 (파생 수치 하나를 올린다)
   | 'pouch'       // 주머니 (see `ItemDef.pouch`): 장비칸 `pouch` 한 칸에 끼우면 퀵슬롯 아래에 별도 격자가 열린다
   | 'key'         // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
-  /* appended: 비디오게임 (2026-09-13, docs/plans/library-series-games.md) */
+  /* appended: 비디오게임 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   | 'game_disc'   // 게임 디스크 (see `ItemDef.gameDisc`): 게임 디스크 전시대에 꽂아 두면 TV 로 플레이한다 (지능 · 인지력 단련). 드롭 전용
   | 'console'     // 게임기 (see `ItemDef.gameConsole`): TV 에 장착한다. 3D 프린터 제작 + 드문 드롭
   /* appended: 서재 매체 (A-3e, 2026-09-12) */
@@ -649,7 +649,7 @@ export interface HubRef {
    * Personal-ship room the player is standing in (0..SHIP_ROOM_COUNT−1), or null in the corridor / cockpit / shared ship.
    */
   readonly currentRoom: number | null;
-  /* ── appended (2026-09-14): 발사 슬롯 준비 (docs/plans/intel-broker.md §4.3) ── */
+  /* ── appended (2026-09-14): 발사 슬롯 준비 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
   /**
    * 로컬 플레이어가 발사 슬롯에서 **준비를 확정**했는가 (스페이스 1초 홀드 + 출격 경고 승인까지 끝난 상태).
    * 포드에 **타기만** 한 것은 false 다 — 2026-09-14 부터 탑승과 준비가 갈렸다.
@@ -1312,7 +1312,7 @@ export interface TradeGridsView extends EmbeddedView {
  * (personal ship) or the shared-ship terminal, left through the arena's exit console (`training:exitRequested`).
  * Ammo / durability spent in a training are restored on exit (game/ captures + re-applies `captureRaidState`).
  *
- * appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`): `'tutorial'` = 손으로 지은 튜토리얼 행성
+ * appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): `'tutorial'` = 손으로 지은 튜토리얼 행성
  * (`world/tutorial/`). 절차 생성기를 아예 타지 않고 안개 · 재해 · 상자 · 채집 · 둥지가 없다. 적은 고정 자리에
  * 고정 종류로만 서고, 죽으면 체크포인트에서 다시 선다 (`ctx.world.tutorial` = `TutorialWorldRef`).
  * 훈련장과 달리 **진짜 레이드**다 — 전리품 · XP 가 프로필로 넘어가고 탈출은 평소 경로를 그대로 쓴다.
@@ -2197,7 +2197,7 @@ export interface LootRef {
 
 /* ══ appended (2026-09-13): 행성별 적 팩션 — 안드로이드 · 로그 · 레이더 (owner: enemies · items · world) ═══════════
  * 어떤 팩션이 나오는지는 행성 threat 가 정한다 (`planetThreat`): 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만.
- * 서로 다른 팩션은 전부 적대다. 계획서: docs/plans/enemy-factions.md
+ * 서로 다른 팩션은 전부 적대다. 결정: docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
  * ════════════════════════════════════════════════════════════════════════════════════════════════════ */
 /** 게임 안 팩션 이름. */
 export const ENEMY_FACTION_LABEL_KO: Readonly<Record<EnemyFaction, string>> = { bug: '벌레', rogue: '로그', android: '안드로이드', raider: '레이더' };
@@ -2452,7 +2452,7 @@ export interface PlayerRef {
   setDroneControl?(active: boolean): void;
 }
 
-/* ══ appended (2026-09-12): 서재 매체 (A-3e) · 헬스장 (A-3a) — docs/plans/a3a-a3e.md ═══════════════════════════════ */
+/* ══ appended (2026-09-12): 서재 매체 (A-3e) · 헬스장 (A-3a) — docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ═══════════════════════════════ */
 
 export interface ItemDef {
   /* ── appended (A-3e, owner: items) ── */
@@ -2508,7 +2508,7 @@ export interface PlayerRef {
   setFurniturePoseDrive?(phase: number): void;
 }
 
-/* ══ appended (2026-09-12): 캐릭터 버프 · 가구 자세 동기화 — docs/plans/char-buffs.md ═══════════════════════════ */
+/* ══ appended (2026-09-12): 캐릭터 버프 · 가구 자세 동기화 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ═══════════════════════════ */
 import type { CharBuff } from './charBuffs';
 
 export interface FurniturePose {
@@ -2550,7 +2550,7 @@ export interface PlayerRef {
   readonly buffsRevision?: number;
 }
 
-/* ══ appended (2026-09-11): C 항목 배치 계약 (docs/plans/c-batch.md §3-2) ═══════════════════════════════════ */
+/* ══ appended (2026-09-11): C 항목 배치 계약 (docs/HISTORY.md 「2026-09-11 (14차: C 항목 배치)」) ═══════════════════════════════════ */
 
 export interface EnemyManagerRef {
   /**
@@ -2772,7 +2772,7 @@ export interface InventoryRef {
   getPouchSize?(): { cols: number; rows: number };
 }
 
-/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/plans/consumables-keys-favorites.md ══
+/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
  * 병렬 에이전트마다 **자기 블록 안에만** 추가한다 (인터페이스 병합 — `export interface PlayerRef { … }` 처럼 그 안에 쓴다).
  * 기존 선언은 이름 변경 · 삭제 금지. 블록 순서를 바꾸지 않는다. */
 /* ── [A1] 소모품 3종 (PlayerRef boost · ItemDef) ── */
@@ -2898,7 +2898,7 @@ export interface ItemInstance {
 }
 /* ══ end 2026-09-12 아이템 회수 표식 ══ */
 
-/* ══ appended: 2026-09-13 — 요리 재료 티어 (docs/plans/food-tiers.md, 사용자 결정) ═══════════════════════════════
+/* ══ appended: 2026-09-13 — 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, 사용자 결정) ═══════════════════════════════
  *
  *   T1  행성 씨앗 · 토양 ──온실 재배 스테이션──▶ 채소 · 버섯 ──조리대──▶ 채소 요리 (능력치 1)
  *   T2  미확인 세포 ──분석기──▶ 소 · 돼지 · 닭 · 양 세포주 ─┐
@@ -3007,7 +3007,7 @@ export interface ItemDef {
 }
 /* ══ end 2026-09-13 요리 재료 티어 ══ */
 
-/* ══ appended: 2026-09-13 — 요리 미니게임 · 요리 품질 (docs/plans/cooking-minigames.md, 규칙은 `shared/cooking.ts`) ══ */
+/* ══ appended: 2026-09-13 — 요리 미니게임 · 요리 품질 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, 규칙은 `shared/cooking.ts`) ══ */
 export interface ItemInstance {
   /**
    * 요리(`ItemDef.meal`)의 품질 — 별 수 0 … `MEAL_QUALITY_MAX`. 조리대 미니게임 점수가 정한다 (`mealQualityForScore`).
@@ -3221,7 +3221,7 @@ export interface PlayerRef {
 }
 /* ══ end 2026-09-13 탐사 차량 ══ */
 
-/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md (규칙은 `shared/library.ts`) ══ */
+/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 (규칙은 `shared/library.ts`) ══ */
 import type { GameConsoleDef, GameDiscDef } from './library';
 export interface BookDef {
   /**
@@ -3240,7 +3240,7 @@ export interface ItemDef {
 }
 /* ══ end 2026-09-13 서재 시리즈 ══ */
 
-/* ══ appended (2026-09-14): 정보상 지도 미리보기 — docs/plans/intel-broker.md §4.2 ═════════════════════════════
+/* ══ appended (2026-09-14): 정보상 지도 미리보기 — docs/DECISIONS.md 「2026-09-14 — 정보상」 ═════════════════════════════
  *
  * 정보상 화면은 **살 지역의 실제 레이아웃**을 흐릿한 격자로 보여 준다 (사용자 결정). 그러려면 `hub/` 가 메시를
  * 하나도 만들지 않고 `generateLayout` 의 결과만 받아야 하는데, `WorldLayout` 은 `world/` 내부 타입이고 폴더끼리는

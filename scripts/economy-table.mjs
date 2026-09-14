@@ -42,7 +42,7 @@ export async function buildEconomyTable(server) {
     if (target) repairFees.push([d.id, rules.implantRepairFee(target)]);
   }
   const contracts = shared.CONTRACT_DEFS.map((c) => [c.id, c.creditsReward]);
-  // 2026-09-14: 기업 퀘스트 폐지 — `quest:<id>` 는 NPC 퀘스트의 크레딧 보상이다 (docs/plans/messenger-quests.md)
+  // 2026-09-14: 기업 퀘스트 폐지 — `quest:<id>` 는 NPC 퀘스트의 크레딧 보상이다 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」)
   const quests = shared.NPC_QUEST_DEFS.filter((q) => (q.rewards.credits ?? 0) > 0).map((q) => [q.id, q.rewards.credits]);
 
   const table = {
@@ -69,7 +69,7 @@ export async function buildEconomyTable(server) {
         ? { basePrice: d.basePrice, volatility: d.volatility, unlockQuest: d.unlockQuest }
         : { basePrice: d.basePrice, volatility: d.volatility }])),
     },
-    /* 2026-09-14: 정보상 — `intel:<planet>:<code>` 의 금액을 릴레이가 **같은 `intelCost`** 로 검산한다 (docs/plans/intel-broker.md) */
+    /* 2026-09-14: 정보상 — `intel:<planet>:<code>` 의 금액을 릴레이가 **같은 `intelCost`** 로 검산한다 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
     intel: {
       options: sortedObject(shared.INTEL_OPTION_DEFS.map((d) => [d.id, { baseCost: d.baseCost, maxTier: d.maxTier }])),
       tierMul: shared.INTEL_COST_TABLE.tierMul,

@@ -5,7 +5,7 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
-/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
 import type { NetLinkInfo } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 */
@@ -177,7 +177,7 @@ export class NetSystem implements GameSystem, NetRef {
    * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
    */
   setLobbyPlanet(planet: PlanetId): void { return Lobby.setLobbyPlanet(this, planet); }
-  /* ── 2026-09-14: 정보상 (docs/plans/intel-broker.md) ── */
+  /* ── 2026-09-14: 정보상 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
   /** 분대장이 산 기믹 고정 (`lobby.intel`). 로비가 없거나 아무도 안 샀으면 null — 분대원은 읽기 전용이다. */
   get lobbyIntel(): IntelWire | null { return this._lobby?.intel ?? null; }
   /** 분대장 전용, 시작 전: 산 정보(또는 폐기 = null)를 분대에 알린다 (`setLobbyPlanet` 과 같은 규약). */

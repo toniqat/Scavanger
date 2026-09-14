@@ -7,7 +7,7 @@ import {
   XP_BASE, XP_EXPONENT,
   GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
   mealQualityBonus,
-  /* 2026-09-13 요리 · 연구 숙련 (docs/plans/library-series-games.md) */
+  /* 2026-09-13 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   COOK_SKILL_SCORE_AT_MAX, RESEARCH_REFUND_CHANCE_AT_MAX, RESEARCH_REFUND_FRAC_MAX, RESEARCH_REFUND_FRAC_MIN, RESEARCH_TIME_AT_MAX,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
@@ -176,7 +176,7 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     durabilityLossMul: 1 - DURABILITY_AT_MAX * frac(profile, 'equipment'),
     gatherYieldMul: 1 + GATHER_YIELD_AT_MAX * frac(profile, 'gardening'),
     craftSpeedMul: 1 + CRAFT_SPEED_AT_MAX * frac(profile, 'crafting'),
-    /* 2026-09-13: 요리 · 연구 숙련 (docs/plans/library-series-games.md) */
+    /* 2026-09-13: 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
     cookScoreBonus: COOK_SKILL_SCORE_AT_MAX * frac(profile, 'cooking'),
     researchTimeMul: 1 - RESEARCH_TIME_AT_MAX * frac(profile, 'research'),
     researchRefundChance: RESEARCH_REFUND_CHANCE_AT_MAX * frac(profile, 'research'),
@@ -203,7 +203,7 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
  * `effects` 가 없거나 비어 있는 옛 def(아직 로더가 새 열을 모르는 빌드)는 `[{buff, amount}]` 로 읽는다 — 결과가 예전과 같다.
  * 줄마다 규칙은 그대로다: 가산 하나 + **0 이 하한** (같은 버프가 두 줄에 나오면 차례로 더해진다).
  *
- * 2026-09-13 (요리 품질, docs/plans/cooking-minigames.md): `quality`(별 0 … 5)가 줄마다 `amount × (1 + mealQualityBonus(quality))` 로
+ * 2026-09-13 (요리 품질, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): `quality`(별 0 … 5)가 줄마다 `amount × (1 + mealQualityBonus(quality))` 로
  * 수치를 키운 **뒤에** 위 규칙(가산 + 0 하한)을 적용한다 — 음수 줄(`durabilityLossMul`)은 더 크게 깎이고 하한은 그대로다.
  * 생략 = 0 = 원래 수치 100 %.
  */
@@ -219,7 +219,7 @@ export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void
   }
 }
 
-/* ══ 서재 파생 효과 (2026-09-13, docs/plans/library-series-games.md) ══════════════════════════════════════════════
+/* ══ 서재 파생 효과 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══════════════════════════════════════════════
  * 서재 시리즈의 `derived` 효과 줄은 새 필드가 아니라 **요리 버프와 같은 `MealBuff` 키**다 — housing 이 합산한
  * `LibraryEffectsSummary.derived` 를 `ProgressionSystem.deriveFor` 가 요리 버프 **뒤에** 이 함수로 접는다. 규칙은
  * `applyMealBuff` 한 줄과 똑같다: 가산 하나 + **0 이 하한**. 키는 `MEAL_BUFFS` 로만 돌아서 문서에서 새어 들어온 다른

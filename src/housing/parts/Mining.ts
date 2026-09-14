@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/Mining.ts — **암호화폐 채굴 · 지갑 · 거래소** (2026-09-13, docs/plans/power-crypto.md, 사용자 결정).
+ * src/housing/parts/Mining.ts — **암호화폐 채굴 · 지갑 · 거래소** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정).
  *
  * 연산 클러스터(`furn_compute_cluster`) 한 대가 시계 하나다 — 코어마다 따로 흐르지 않는다. 주기 = `coinCycleMs(coin, cores)`,
  * 한 주기가 끝날 때마다 `yieldUnits` 가 지갑(`ShipState.cryptoWallet`)에 저절로 들어가고 다음 주기가 이어진다. 오프라인 · 레이드 중의

@@ -1,5 +1,5 @@
 /**
- * src/player/parts/Fall.ts — **낙하 피해** (2026-09-14, `docs/plans/tutorial-raid.md` B, 사용자 결정).
+ * src/player/parts/Fall.ts — **낙하 피해** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」, 사용자 결정).
  *
  * 이 파일이 답하는 질문: *떨어져서 착지했을 때 얼마나 아픈가.*
  *

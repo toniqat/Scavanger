@@ -23,10 +23,10 @@ import * as Contract from './parts/Contracts';
 import * as Credits from './parts/Credits';
 import * as Desk from './parts/ImplantDesk';
 import * as Cmd from './parts/Console';
-/* 2026-09-14: 메신저 NPC 퀘스트 — `ctx.meta.npc` (docs/plans/messenger-quests.md) */
+/* 2026-09-14: 메신저 NPC 퀘스트 — `ctx.meta.npc` (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) */
 import type { NpcQuestRef } from '@/shared';
 import { NpcQuests } from './parts/NpcQuests';
-/* 2026-09-14: 정보상 — `ctx.meta.intel` (docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — `ctx.meta.intel` (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelRef } from '@/shared';
 import { Intel } from './parts/Intel';
 
@@ -331,7 +331,7 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   addRep(corp: CorpId, delta: number, reason: string): void { return Credits.addRep(this, corp, delta, reason); }
 
-  /* ── MetaRef: NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7) ──
+  /* ── MetaRef: NPC 개인 신뢰도 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──
    * 기업 신뢰도(`getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다. 저장은 `MetaSave.npc.trust`. */
   npcTrust(npcId: string): number { return this.npcQuests.trustOf(npcId); }
   npcTrustLevel(npcId: string): number { return this.npcQuests.trustLevelOf(npcId); }

@@ -1,4 +1,4 @@
-/* ══ 2026-09-14: 메신저 (menus/messenger — 옛 커뮤니티 패널 대체, docs/plans/messenger-quests.md) ══════════════════════
+/* ══ 2026-09-14: 메신저 (menus/messenger — 옛 커뮤니티 패널 대체, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) ══════════════════════
    Imported by `menus/messenger/Messenger`. Prefix `ms-` (checked free). The panel shell (`.community-panel` · `.cp-frame` ·
    `.cp-head` · the thumbnail `.community`) keeps its base.css rules; this file widens the frame and draws the three tabs.
    Colours come from the base.css tokens; scrollbars inherit the dark `--sb-*` rule on `#ui-root`. */
@@ -189,7 +189,7 @@
 .ms-msg.cont.out .ms-bubble { border-top-right-radius: 12px; }
 .ms-bubble.sys { background: none; border: none; color: var(--c-text-faint); font-size: 11px; }
 .ms-state { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
-/* 대사 선택지 (2026-09-14, docs/plans/tutorial-raid.md §2.5) — 첫 연락 말풍선 아래에 서는 **내 대답** 버튼 줄.
+/* 대사 선택지 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) — 첫 연락 말풍선 아래에 서는 **내 대답** 버튼 줄.
    퀘스트 카드의 [수락] [생각해보지] 와 **같은 버튼**(`.ms-btn`)이고, 내 말풍선처럼 오른쪽에 붙는다.
    대답은 한 줄보다 길 수 있어 `.ms-btn` 의 고정 높이 · nowrap 만 푼다. */
 .ms-msg.choices { max-width: min(460px, 92%); margin-top: 8px; }
@@ -230,7 +230,7 @@
 .ms-note[hidden] { display: none; }
 /* 2026-09-14 3차: NPC 대화의 하단 안내(`NPC 에게는 퀘스트 카드로 답합니다`)는 없어졌다 — 그 자리의 테두리 규칙도 함께 */
 
-/* ── NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7 — `menus/messenger/Trust`) ──
+/* ── NPC 개인 신뢰도 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」 — `menus/messenger/Trust`) ──
    기업 화면의 신뢰도 게이지(`meta.css` 의 `.corp-rep`)와 **같은 계열**: `Lv.n` + 한 줄 게이지 + 누적/다음 숫자.
    다른 것은 색뿐이다 — 기업 색(`--cc`) 대신 그 NPC 색을 `--qc` 로 받아 `.ms-bar i` 가 그대로 쓴다.
    `.compact` = 좁은 자리용(숫자 없음 · 짧은 게이지), `.in-head` = 퀘스트 상세 머리용(이름 아래),

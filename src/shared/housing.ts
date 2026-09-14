@@ -54,7 +54,7 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
-  /* 2026-09-13: 채굴이 들어왔다 (docs/plans/power-crypto.md) */
+  /* 2026-09-13: 채굴이 들어왔다 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
   mining: '연산 클러스터에 연산 코어를 꽂아 암호화폐를 채굴합니다. 메인 컴퓨터에서 클러스터 현황 · 지갑 · 거래소를 확인합니다.',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (서재에 합쳐졌습니다)',
   cockpit: '함선의 조종석입니다. 공용 가구를 놓을 수 있고, 용도를 바꾸거나 제거할 수 없습니다.',
@@ -200,9 +200,9 @@ export type FurnitureModelKind =
   | 'drawer'
   /* appended (2026-09-13, 요리 미니게임): 주방의 자동 조리 가구 4종 — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (`level` 만큼 표시등) */
   | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser'
-  /* appended (2026-09-13, 암호화폐 채굴 — docs/plans/power-crypto.md): 연산 클러스터(코어 칸 9개, 꽂힌 수만큼 점등) · 메인 컴퓨터 */
+  /* appended (2026-09-13, 암호화폐 채굴 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): 연산 클러스터(코어 칸 9개, 꽂힌 수만큼 점등) · 메인 컴퓨터 */
   | 'compute_cluster' | 'mining_computer'
-  /* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
+  /* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
   | 'game_stand' | 'sofa' | 'low_table' | 'rug';
 
 /** What E does on a placed piece. */
@@ -785,11 +785,11 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').
     color: r.str('color'),
     ...(r.has('stackLimit') ? { stackLimit: r.int('stackLimit', { min: 1 }) } : {}),
     ...(r.bool('retired') ? { retired: true } : {}),
-    /* appended (2026-09-13): 배치 접근 면 · 요구 전력 · 여러 대 제작 (docs/plans/power-crypto.md) */
+    /* appended (2026-09-13): 배치 접근 면 · 요구 전력 · 여러 대 제작 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
     ...(r.has('access') ? { access: accessCell(r.str('access'), (m) => r.report('access', m)) } : {}),
     ...(r.has('power') ? { power: r.num('power', { min: 0 }) } : {}),
     ...(r.bool('multi') ? { multi: true } : {}),
-    /* appended (2026-09-13): 시야를 막지 않는 낮은 가구 (docs/plans/library-series-games.md) */
+    /* appended (2026-09-13): 시야를 막지 않는 낮은 가구 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
     ...(r.has('low') && r.bool('low') ? { low: true } : {}),
   };
 });
@@ -1204,7 +1204,7 @@ export interface HousingRef {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). 설계 · 사용자 결정: docs/plans/a3a-a3e.md
+ * appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). 설계 · 사용자 결정: docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」
  *
  * 1. **서재 매체.** 책장(`bookshelf`) 옆에 디스크 전시대(`disc_stand`) · 레코드랙(`record_rack`)이 선다. 셋은 같은 규칙이다 —
  *    칸에 매체를 꽂으면 그 매체가 가르치는 숙련의 상승량 배율이 오르고, 꽂아 본 것은 도감에 남는다. 매체마다 몫을 따로 잘라 더한다:
@@ -1389,7 +1389,7 @@ export interface HousingRef {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 요리 재료 티어 (docs/plans/food-tiers.md, 사용자 결정)
+ * appended: 2026-09-13 — 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, 사용자 결정)
  *
  * 1. **분석기는 결과표를 굴린다.** 표본은 계열(`SampleFamily`)로 해석되고, 결과는 `data/analysis_results.csv` 에서
  *    **넣는 순간** 그 계열의 분석 레벨로 가중 추첨해 칸에 적는다 (`AnalysisSlot.resultDefId` — 회수에 실패해도 다시 굴리지 않는다).
@@ -1604,7 +1604,7 @@ export const GROW_SOCKET_SLOTS_MAX: number = Math.max(0, ...Object.values(GROW_S
 /* ══ end 2026-09-13 요리 재료 티어 ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 요리 미니게임 (docs/plans/cooking-minigames.md, 사용자 결정 — 규칙 · 표는 `shared/cooking.ts`)
+ * appended: 2026-09-13 — 요리 미니게임 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, 사용자 결정 — 규칙 · 표는 `shared/cooking.ts`)
  *
  * 조리대 E → **조리대 화면**(`openCookStation`) — 요리 목록 · 재료 · 미니게임 순서 · 자동 가구 · 함선 창고 / 가방 카드.
  * 「조리 시작」(`startCook`) → 조리대 앞 자세 + 고정 카메라(hub, `housing:cookSession`) + 미니게임 오버레이 → 단계마다
@@ -1633,7 +1633,7 @@ export interface HousingRef {
 /* ══ end 2026-09-13 요리 미니게임 ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 가구 배치 규칙 · 발전기 전력 · 암호화폐 채굴 (docs/plans/power-crypto.md, 사용자 결정)
+ * appended: 2026-09-13 — 가구 배치 규칙 · 발전기 전력 · 암호화폐 채굴 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정)
  *
  * 1. **배치 규칙** (`FurnitureDef.access`). 가구의 앞은 로컬 −Z 다 — 격자로는 yaw 0 = y 감소 · 1 = x 증가 · 2 = y 증가 · 3 = x 감소.
  *    - `front` — 앞 한 줄(가구 폭만큼, 깊이 1칸)에 다른 가구가 없어야 하고 격자 밖(벽)이어도 안 된다. 상호작용은 앞에서만.
@@ -1950,7 +1950,7 @@ export interface HousingRef {
 /* ══ end 2026-09-13 배치 규칙 · 전력 · 암호화폐 채굴 ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 서재 시리즈 · 비디오게임 (docs/plans/library-series-games.md — 효과 · 시리즈 규칙의 원본은 `shared/library.ts`)
+ * appended: 2026-09-13 — 서재 시리즈 · 비디오게임 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — 효과 · 시리즈 규칙의 원본은 `shared/library.ts`)
  *
  * 1. **서재 시리즈.** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대는 **여러 대** 만들 수 있다 (`FurnitureDef.multi`). 꽂힌 매체는
  *    **종류(def)당 한 번** 세고, 시리즈 몫(`librarySeriesFraction`) × 효과 줄(전권 값) × 보조 가구 배율로 합산한다 → `getLibraryEffects()`.

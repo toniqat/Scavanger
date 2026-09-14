@@ -5,7 +5,7 @@
  * 해석 칸은 가구 레벨이 연다 (`analyzerSlotsForLevel`, Lv.1 = 1칸 … Lv.3 = 3칸) 이고 **칸 번호는 강화해도
  * 밀리지 않는다** — 돌아가던 해석이 다른 칸으로 옮겨 가면 안 된다.
  *
- * **2026-09-13 (요리 재료 티어 — docs/plans/food-tiers.md §4.3)**: 표본은 **계열**(`SampleDef.family` — 세포 · 광물 · DNA)로
+ * **2026-09-13 (요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: 표본은 **계열**(`SampleDef.family` — 세포 · 광물 · DNA)로
  * 해석된다. 넣는 순간 ① 그 계열의 **분석 레벨**(`ShipState.analysisXp` → `analysisLevelForXp`)이 시간을 정하고
  * (`Rules.analysisDurationMs`), ② 결과표(`ANALYSIS_RESULTS`)를 그 레벨로 **지금 굴려** 칸에 적는다(`resultDefId` · `resultQty` —
  * 회수에 실패해도 다시 굴리지 않는다; 표가 비면 표본의 `rewardDefId` 가 대체 산출물이다). 회수하면 산출물 하나만 건네고(첫 해석
@@ -129,7 +129,7 @@ function levelOf(sys: HousingSystem, family: SampleFamily): number {
   return analysisLevelForXp(analysisXp(sys)[family] ?? 0);
 }
 
-/* ── 2026-09-13 (H3): 연구 숙련 — 분석 시간 단축 (docs/plans/library-series-games.md) ── */
+/* ── 2026-09-13 (H3): 연구 숙련 — 분석 시간 단축 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
 /** 연구 숙련의 분석 시간 배수 (`derived.researchTimeMul`, 1 = 그대로). progression 이 없거나 값이 이상하면 1. */
 export function researchTimeMul(sys: HousingSystem): number {
   const v = sys.ctx?.progression?.derived?.researchTimeMul;   // 분석 화면이 생성자에서 부를 때 ctx 가 아직 없을 수 있다

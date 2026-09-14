@@ -252,7 +252,7 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 
 - **2026-09-12 (리드 통합)** — `drones/parts/Scan` 의 적 시체 미리보기가 `enemies/Corpses` 에서 **복사해 온 굴림 식** 대신
   `shared/lootRolls.corpseLootRandom` 을 부른다 (enemies 도 같은 함수). 시체 필드(`enemyId` · `type` · `weaponId` · `seed`)를 모양으로 읽는 것은 그대로다.
-- **2026-09-12 (지상 드론 스캔 — 사용자 결정, 에이전트 D, docs/plans/consumables-keys-favorites.md §4)** — 새 `drones/parts/Scan.ts`
+- **2026-09-12 (지상 드론 스캔 — 사용자 결정, 에이전트 D, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」)** — 새 `drones/parts/Scan.ts`
   (위 표). `DroneSystem` 에 스캔 상태(`scanT` · `scanTargetId` · `scanLatch` · `scanAimOn` / `scanAimView` · `scans` / `scanList` ·
   `scanRecvAt` · `scanRefused`)와 `DronesRef` 옵셔널 추가분 `scanHold` · `scanAim` · `getScanResults()`, `update` 끝에
   `Scan.updateScan`(카메라 자세를 받은 뒤), `clear()` 가 `clearScans` 를 먼저 부른다 — `game:newMission/abort` · `hub:entered` ·

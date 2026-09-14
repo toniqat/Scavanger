@@ -1,4 +1,4 @@
-// Single-player smoke test for the **암호화폐 채굴 화면 · 가구 모델** (2026-09-13, docs/plans/power-crypto.md — 에이전트 ④:
+// Single-player smoke test for the **암호화폐 채굴 화면 · 가구 모델** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 에이전트 ④:
 // housing/ui/mining + hub/interiors/FurnitureMining). 채굴 규칙 · 지갑 · 매매 자체는 smoke-mining 류(에이전트 ③)의 몫이고,
 // 여기서는 화면이 계약을 제대로 부르고 그리는지를 본다.
 //  1. 함선 · 채굴 시설에 메인 컴퓨터 1 · 연산 클러스터 2 를 제작 · 배치 → 두 모델이 씬에 서고 **점광원 개수가 그대로**,

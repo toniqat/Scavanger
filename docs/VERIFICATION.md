@@ -68,7 +68,7 @@ in `CLAUDE.md`.
 
   ⚠ **아직 없는 검증**: 튜토리얼 레이드를 끝까지 걸어 보는 스모크가 없다 — `smoke-tutorial` 93/93 은 여전히
   **build 트랙**만이고, 체크포인트 부활 · `kill`/`clamp` · `beginPreLanded` 이륙 · 딸피 유지는 타입과 단위 가정까지만 맞춰
-  둔 상태다 (`docs/plans/tutorial-raid.md` §4 의 `smoke-fall-damage.mjs` 도 미작성). 손으로 한 바퀴 돌려 보는 것이 먼저다.
+  둔 상태다 (전역 낙하 피해 스모크 `smoke-fall-damage.mjs` 도 미작성 — TODO E-12). 손으로 한 바퀴 돌려 보는 것이 먼저다.
 
 - 2026-09-14 (2차) **정보상 · 발사 슬롯 UI · NPC 개인 신뢰도 배치 — `verify:all` 최종**: 스모크 **80종 전부 통과**
   (20 min 35 s). `typecheck-server` ok · `net-selftest` 583/583 · `data-check` ok(csv 57) ·

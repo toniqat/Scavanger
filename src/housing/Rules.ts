@@ -251,7 +251,7 @@ export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], def
 
 /* ── 서재 매체 (A-3e, 2026-09-12) ─────────────────────────────────────────────
  * 책장 · 디스크 전시대 · 레코드랙은 같은 규칙이다 — 매체마다 몫을 **따로 상한으로 자르고**, 그 매체의 보조 가구가 함선
- * 어딘가에 배치돼 있으면 자른 뒤에 `1 + SHELF_AUX_BONUS[m]` 을 곱하고, 셋을 더한다 (docs/plans/a3a-a3e.md §4):
+ * 어딘가에 배치돼 있으면 자른 뒤에 `1 + SHELF_AUX_BONUS[m]` 을 곱하고, 셋을 더한다 (docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」):
  *
  *     몫[m]     = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[등급]) × (보조 가구 ? 1 + SHELF_AUX_BONUS[m] : 1)
  *     서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]
@@ -317,7 +317,7 @@ export function shelfGainFor(
   return { total: 1 + parts.book + parts.disc + parts.record, parts, aux: { book: aux.book, disc: aux.disc, record: aux.record, game: false } };
 }
 
-/* ── 서재 시리즈 (2026-09-13, docs/plans/library-series-games.md — 사용자 결정) ─────────────────────────────────────
+/* ── 서재 시리즈 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — 사용자 결정) ─────────────────────────────────────
  * **옛 공식은 은퇴했다** — 위의 `bookWeightOf` · `bookGainMulFor` · `shelfItemWeightOf` · `shelfPartFor` · `shelfGainFor` 와 계약의
  * `BOOK_RARITY_MUL` · `SHELF_XP_PER_ITEM` · `SHELF_GAIN_MAX` 는 이름만 남는다 (호출자 없음 — 추가만 하는 규약). 새 공식:
  *
@@ -614,7 +614,7 @@ export function cultureDurationMs(cultureHours: number, mediumSpeedMul: number, 
   return Math.max(1000, Math.round(Math.max(0, cultureHours) * 3600e3 * medium * speed * socketTimeMul(socketSpeed, ratio)));
 }
 
-/* ── 요리 재료 티어 (2026-09-13, docs/plans/food-tiers.md §4.1) ─────────────────────────────────────────────
+/* ── 요리 재료 티어 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ─────────────────────────────────────────────
  * 흙 · 배지 내구도와 소켓, 분석기 결과표. 전부 순수 함수이고 수치는 계약(`@/shared` = `data/*.csv`)에서 온다.
  * 난수는 **주입한다**(`rng01`) — 부르는 쪽은 `Math.random` 을, 스모크는 고정 수열을 넘긴다.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -890,7 +890,7 @@ export function topLayer(members: readonly PlacedFurniture[]): number {
   return top;
 }
 
-/* ── 배치 규칙: 접근 면 (2026-09-13, 사용자 결정 — docs/plans/power-crypto.md · 계약 `shared/housing.ts` 끝 절) ──────────
+/* ── 배치 규칙: 접근 면 (2026-09-13, 사용자 결정 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · 계약 `shared/housing.ts` 끝 절) ──────────
  * 가구의 앞은 로컬 −Z 다. `front` 가구는 앞 한 줄(몸체 폭 × 깊이 1칸)에 다른 가구 몸체가 없어야 하고 그 줄이 격자 밖(벽)이어도 안 된다.
  * `sides` 는 넓은 두 면(로컬 ±Z), `all` 은 네 면의 한 줄씩에 몸체가 없어야 하되 벽은 된다. 모서리 칸은 비울 필요가 없다.
  * 규칙은 **양방향**이다 — 새 몸체가 이미 놓인 가구의 비워야 하는 칸에 들어가도 안 된다. 비워야 하는 칸끼리는 겹쳐도 된다
@@ -1230,7 +1230,7 @@ export function purposeRequirementsFor(state: ShipState, purpose: RoomPurpose): 
   return generatorRequirement(state, purposeGeneratorLevel(purpose));
 }
 
-/* ── 비디오게임: TV 좌석 (2026-09-13, H2 — docs/plans/library-series-games.md §3) ───────────────────────────────────
+/* ── 비디오게임: TV 좌석 (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───────────────────────────────────
  * 격자 규약은 위 「배치 규칙: 접근 면」 절과 **같은 것**이다 — 가구의 앞 = 로컬 −Z, 그 격자 방향 = 계약의 `furnitureFaceDir(yaw, 'front')`
  * (yaw 0 → 격자 y 감소 · 1 → x 증가 · 2 → y 증가 · 3 → x 감소). TV 의 접근 면은 `front` 라 앞 한 줄은 늘 비어 있다.
  *

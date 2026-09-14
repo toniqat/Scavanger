@@ -156,7 +156,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── Phase 7 ── */
   /** 시뮬레이션 훈련장: no spawner / waves / guards / initial population (set at `world:ready`). */
   training = false;
-  /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`, `docs/plans/tutorial-raid.md` D 절) ── */
+  /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
    * 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`): **고정 자리 · 고정 종류**의 적만 선다 — 굴림 · 순찰 ·
    * 스포너 · 웨이브 · 거점 그룹 · 레이더 강하 · 네임드 · 지하벌레 · 총알 추적이 전부 훈련장처럼 꺼진다.

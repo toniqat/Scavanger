@@ -3,7 +3,7 @@ import type { FurnitureRig } from './FurnitureLeisure';
 import { RUN_STRIDE_LENGTH, UNRACK_S, poseBelt, poseBenchBar, poseCrank, poseRock, restRig, type StagedPiece } from './GymStaging';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화 — docs/plans/char-buffs.md §6-C).
+ * 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」).
  *
  * 분대원이 가구 자세를 취하면 net 이 스냅샷 `fp` · `fu` 를 보간해 `RemotePlayerRef.furniturePose` 로 준다. 여기서는 그 사람이
  * **같은 함선**(`hubSite`)에 있고 `furnitureUid` 가 지금 그려진 함선의 조각을 가리키면, 그 조각의 움직이는 부분을 그 사람의

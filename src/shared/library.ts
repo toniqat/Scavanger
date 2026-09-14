@@ -1,5 +1,5 @@
 /**
- * src/shared/library.ts — **서재 시리즈 · 매체 효과 · 비디오게임** 계약 (2026-09-13, docs/plans/library-series-games.md).
+ * src/shared/library.ts — **서재 시리즈 · 매체 효과 · 비디오게임** 계약 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
  *
  * 수치 원본: `data/library_series.csv` (시리즈 · 효과 줄 · 등장 행성) · `data/item_aliases.csv` (옛 아이템 id → 새 id).
  * 아이템 자체(권 번호 · 가치 · 무게 · 드롭)는 items/ 가 매체 csv 에서 만든다 (`ItemDef.book` / `disc` / `record` 의 `series` · `volume`,

@@ -558,7 +558,7 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   job.resolve(first);
   }
 
-/* ══ 2026-09-13 — 연구 숙련: 연구실 작업대 제작 (docs/plans/library-series-games.md §0 · §4, 사용자 결정) ═══════════════════════════════
+/* ══ 2026-09-13 — 연구 숙련: 연구실 작업대 제작 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, 사용자 결정) ═══════════════════════════════
  * 「조합대 · 추출기 · 3D 프린터로 제작 시 일부 재료를 돌려받을 확률 및 양」 이 연구 숙련으로 오른다. 수치는 progression 의 파생
  * (`derived.researchRefundChance` · `researchRefundFrac`, 원본 `data/constants.csv`)이고 여기는 굴림과 지급만 한다.
  *   - **굴림 단위 = 제작 1회분(run)**: 제작 수량 스테퍼로 5회를 한 번에 누르면 5번 굴린다 — 한 번씩 다섯 번 누른 것과 기대값이 같아야
@@ -627,7 +627,7 @@ export function researchAfterCraft(sys: InventorySystem, costs: readonly CraftIn
   return out;
 }
 
-/* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `completeCook`, docs/plans/cooking-minigames.md §6-2) ══════
+/* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `completeCook`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══════
  * housing 의 조리대 화면이 미니게임을 끝낸 뒤 **품질**을 들고 부른다. 규칙은 함선 작업대 제작과 같다:
  *   게이트 — 조리대 레시피 · 함선 · 작업대 레벨 · 숙련 · 튜토리얼 · 재료(`craftCost`, 작업실 할인 포함) · 산출물 자리.
  *   재료   — **가방 먼저**(작은 스택부터 → 주머니 → 휠 = `consumeWhere` 순서) → **함선 창고** (`consumeDefAll`). 이 파일 머리의

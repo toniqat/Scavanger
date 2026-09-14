@@ -1,4 +1,4 @@
-# 분석기 결과표 (2026-09-13, 요리 재료 티어 — docs/plans/food-tiers.md). 읽는 곳은 src/shared/housing.ts 의 ANALYSIS_RESULTS 하나다.
+# 분석기 결과표 (2026-09-13, 요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」). 읽는 곳은 src/shared/housing.ts 의 ANALYSIS_RESULTS 하나다.
 # 표본을 분석기에 **넣는 순간** 그 표본 계열(data/samples.csv 의 family)의 **지금 분석 레벨**로 이 표를 가중 추첨해 칸에 적는다
 #   (회수에 실패해도 다시 굴리지 않는다). 회수하면 그 계열 경험치가 오른다 — data/tables.csv 의 ANALYSIS_LEVEL_XP · ANALYSIS_XP_BY_RARITY.
 #   family   = cell | mineral | dna

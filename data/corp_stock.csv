@@ -25,7 +25,7 @@ ceres,stim,,,,,,
 ceres,grenade,,,,,,
 ceres,gadget,,,,,,
 ceres,attachment,,,,2,,
-# 2026-09-13 (서재 시리즈): 책 · 비디오 · 레코드 줄 삭제 — 시리즈는 행성을 돌아 모은다 (docs/plans/library-series-games.md). 게임기 · 게임 디스크도 팔지 않는다.
+# 2026-09-13 (서재 시리즈): 책 · 비디오 · 레코드 줄 삭제 — 시리즈는 행성을 돌아 모은다 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). 게임기 · 게임 디스크도 팔지 않는다.
 ceres,implant,,,,,uncommon,
 ceres,material,,,,,,true
 

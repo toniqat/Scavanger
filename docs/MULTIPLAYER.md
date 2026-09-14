@@ -79,7 +79,7 @@
 
 - **Not synced yet**: pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0); a host promoted mid-mission does not inherit the old host's guard anchors / lures and takes its wave index from the `ee wave` events it saw; a corpse the host never opened validates only the first take per index; `ee grenadeHit` matches replica grenades by proximity.
 
-## 7. 암호화폐 시세 · 매매 (2026-09-13, docs/plans/power-crypto.md)
+## 7. 암호화폐 시세 · 매매 (2026-09-13)
 
 - **시세는 릴레이가 시뮬레이션한다** (`server/CryptoMarket.ts`) — 로비 · 호스트와 무관하고 **익명 연결도** 받는다 (시세는 비밀이 아니다).
   서버에 붙어 있어야 차트 · 매매가 된다 (사용자 결정). 채굴은 함선 상태의 로컬 시계라 서버 없이도 돈다.
@@ -97,7 +97,7 @@
   `credits:result {ok:false, reason: CREDIT_TX_INVALID_KO}`. **지갑을 정말 가졌는지는 보지 않는다** — 함선 문서가 클라이언트
   쓰기라 서버가 비교할 근거가 없다 (아이템 판매와 같은 한계).
 
-## 8. 단체 메신저방 (2026-09-14, docs/plans/messenger-quests.md)
+## 8. 단체 메신저방 (2026-09-14)
 
 - **로비와 무관한 서버 권위 · 영속 채널**이다 (`server/Rooms.ts` → `rooms.json`). 프로필(토큰)이 있어야 하고 게임 메시지(`relay`)를 타지 않는다.
 - 클라 → 서버: `room:get` · `room:create {name, invite?, nonce}` · `room:invite {room, code}` · `room:reply {room, accept}` · `room:leave {room}` ·

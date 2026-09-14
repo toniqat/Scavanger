@@ -61,25 +61,25 @@ export * from './ride';
 /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — 받는 쪽 버프 상한 · 서버 크레딧 사유 문법 / 경제 표 */
 export * from './buffRules';
 export * from './credits';
-/* appended (2026-09-12): 캐릭터 버프 — 식사 · 준비물 · 운동 디버프 · 환경 노출 · 휴식 / 운동 중을 한 목록으로 (docs/plans/char-buffs.md) */
+/* appended (2026-09-12): 캐릭터 버프 — 식사 · 준비물 · 운동 디버프 · 환경 노출 · 휴식 / 운동 중을 한 목록으로 (docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」) */
 export * from './charBuffs';
 /* appended (2026-09-12): 루팅 굴림 시드 식 — 여는 코드와 미리보기(world · 드론 스캔)가 같은 식을 쓴다 */
 export * from './lootRolls';
-/* appended (2026-09-12): 「이번 레이드에서 얻은 아이템」 표식 — 아이템 회수 계약의 개수 · 스택 분리 · 사선 띠 (docs/plans/consumables-keys-favorites.md §5-2) */
+/* appended (2026-09-12): 「이번 레이드에서 얻은 아이템」 표식 — 아이템 회수 계약의 개수 · 스택 분리 · 사선 띠 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) */
 export * from './raidFound';
 /* appended (2026-09-13): 탈출 개편 — `ctx.extraction` (적 출입 금지 영역 · 출발 유예 상태) */
 export * from './extraction';
-/* appended (2026-09-13): 요리 미니게임 · 요리 품질 — 조리대 단계표 · 자동 조리 가구 · 품질 별 (docs/plans/cooking-minigames.md) */
+/* appended (2026-09-13): 요리 미니게임 · 요리 품질 — 조리대 단계표 · 자동 조리 가구 · 품질 별 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) */
 export * from './cooking';
 /* appended (2026-09-13): 암호화폐 채굴 · 거래소 — 코인 표(csv) · 순수 시세 식(릴레이 공용) */
 export * from './crypto';
 export * from './cryptoMarket';
-/* appended (2026-09-13): 서재 시리즈 · 매체 효과 · 비디오게임 (docs/plans/library-series-games.md) */
+/* appended (2026-09-13): 서재 시리즈 · 매체 효과 · 비디오게임 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
 export * from './library';
-/* appended (2026-09-14): 메신저 NPC · NPC 퀘스트 (docs/plans/messenger-quests.md) */
+/* appended (2026-09-14): 메신저 NPC · NPC 퀘스트 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) */
 export * from './npc';
 /* appended (2026-09-14): 로컬 총기 피해 출처 — NPC 퀘스트 「그 계열 총기로 처치」 (weapons 가 감싸고 enemies 가 읽는다) */
 export * from './damageSource';
-/* appended (2026-09-14): 정보상 — 기믹 고정 선택 · 해석본 · 비용 식 (릴레이 공용, docs/plans/intel-broker.md) */
+/* appended (2026-09-14): 정보상 — 기믹 고정 선택 · 해석본 · 비용 식 (릴레이 공용, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 export * from './intel';
 export * from './intelDefs';

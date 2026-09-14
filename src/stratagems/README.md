@@ -183,14 +183,14 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `parts/Targeting` 의 드론 조종 가지가 `ctx.player.roverRide` 에도 걸린다 — 탑승 중 G 무시 · 열린 휠 · 상단 시점 닫기.
 
-- **2026-09-12 — 준비 순간 `stratagem:ready {refunded}` (에이전트 B, docs/plans/consumables-keys-favorites.md §2).** 공유 쿨타임이 0 이
+- **2026-09-12 — 준비 순간 `stratagem:ready {refunded}` (에이전트 B, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」).** 공유 쿨타임이 0 이
   되는 **순간**을 이 폴더가 한 번만 알린다 — 그 전에는 HUD 토스트(`ui/hud/Notifications`)가 `stratagem:cooldown` 의 전이를 스스로 추측했고,
   준비 플래시(`ui/hud/StratagemPanel`)와 준비 소리(`audio/`)가 같은 추측을 또 베끼게 될 참이었다. `tickCooldown` 이 0 에 닿은 틱(그 틱의
   `stratagem:cooldown {0}` **뒤**), `refundCooldown`(돌던 쿨타임이 있었으면 `refunded: true`), `debugCooldownReset`(돌던 게 있었으면) 셋이
   `emitReady` 를 부른다. **게임플레이 페이즈에서만** 나간다 — 쿨타임은 `hub:entered` 에서 초기화되지 않고 함선에서도 계속 줄어드는데,
   거기서 끝나는 것은 알릴 순간이 아니다. 토스트는 손대지 않았다(ui 소유).
 
-- **2026-09-11 — E-8 (c) 거절된 분대원 호출: 통보 + 쿨타임 환불 (docs/plans/net-trust-gaps.md §3).** `Targeting.confirm` 의
+- **2026-09-11 — E-8 (c) 거절된 분대원 호출: 통보 + 쿨타임 환불 (docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」).** `Targeting.confirm` 의
   `startCooldown` 은 요청을 보내기 **전에** 도는 낙관적 값인데 호스트의 거절은 `lastCallRefusal` 기록뿐이라, 분대원은
   쿨타임만 날리고 이유를 몰랐다. ① 호스트 `Wire.onCallRequest` 의 `refuse` 가 `strat deny {callId, reason}` 을 그 사람에게만
   보낸다(`sendCallDeny`). ② 구조선도 같은 경로로 통일 — `Rescue.onRescueMessage` 의 `req` 가 `cooldown` 만 알리던 반쪽을
@@ -204,7 +204,7 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
   `from` 의 것이 아닌 id 를 돌려줘도 아무도 받아들일 수 없다 — 중복 id 는 확실히 그 사람 것이라 답한다.
   디버그: `lastDenySent`(호스트) · `lastCallDeny`(호출자). `src/shared` · `data/` 는 한 줄도 고치지 않았다(계약은 리드가 커밋).
 
-- **2026-09-11 — E-4 함선 호출 호스트 경유 (docs/plans/net-social-trust.md §5 (d)).** 분대원의 확정은 `stratq call` 을 호스트로
+- **2026-09-11 — E-4 함선 호출 호스트 경유 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」 (d)).** 분대원의 확정은 `stratq call` 을 호스트로
   보내고(`parts/Targeting.confirm`) 호스트가 `parts/Wire.onCallRequest` 에서 callId 소유 · 종류 · 호스트 전용 · 페이즈 · 로비 멤버 ·
   생존 · 맵 안 · `STRAT_MAX_CALL_RANGE` · 호출자별 공유 쿨타임(`StratagemSystem.callerReadyAt`, 벽시계 − `STRAT_COOLDOWN_SLACK_S`)을 보고
   `strat call {by}` 로 재방송한다 — 호출자도 그 메아리로 자기 호출(`local`)을 세운다. 받는 쪽은 `strat call` · `strat sync` ·

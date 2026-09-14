@@ -1,5 +1,5 @@
 // Single-player smoke test for the 서재 (src/housing + src/items + src/hub).
-// 2026-09-13 — 서재 시리즈 · 게임 디스크 전시대 (docs/plans/library-series-games.md), rewritten from the Phase 9 / A-3e smoke:
+// 2026-09-13 — 서재 시리즈 · 게임 디스크 전시대 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」), rewritten from the Phase 9 / A-3e smoke:
 //   · 시리즈 몫 = 권당 SHELF_SERIES_VOLUME_SHARE, 전권 = 100 % (서로 다른 권 · 여러 보관함에 걸쳐 · def 한 번만)
 //   · 효과 합산 `getLibraryEffects` · `getLibrarySources` · `getSeriesProgress` · `getBookBonus` / `getSkillGainMul` / `getShelfBonus`
 //   · 보조 가구 배율 · 놓인 보관함은 전부 센다 (2026-09-13 전력 할당 폐지 — 비활성 · 가동 사유 없음) · `housing:libraryChanged` 발행 규칙

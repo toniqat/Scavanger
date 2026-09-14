@@ -1,5 +1,5 @@
 /**
- * src/meta/parts/NpcObjectives.ts — NPC 퀘스트의 **레이드 목표** (2026-09-14, docs/plans/messenger-quests.md §1–§3).
+ * src/meta/parts/NpcObjectives.ts — NPC 퀘스트의 **레이드 목표** (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * 진행 중(`active`) 퀘스트의 레이드 목표(recover · interact · kill · discover · search)만, 진짜 레이드(훈련장 아님)에서만,
  * 행성 조건이 맞을 때만 센다. **채우는 순간 확정**(사용자 결정): 이번 레이드 진행(`NpcQuests.raidProgress`)이 목표치에

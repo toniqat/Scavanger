@@ -41,7 +41,7 @@ function effectValueText(buff: MealBuff, amount: number): string {
 }
 
 /**
- * **조리대 화면** (2026-09-13, `docs/plans/cooking-minigames.md` §6-1 — `openCookStation(uid)` ← E on a 조리대 · 자동 조리 가구).
+ * **조리대 화면** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — `openCookStation(uid)` ← E on a 조리대 · 자동 조리 가구).
  *
  * 틀은 `StationShell` 공통이다: [조리대 카드(우상단 업그레이드 = 조리대 강화)] [함선 창고] [가방].
  *   • 레일 = 요리 목록, 티어 이름(`MEAL_TIER_LABEL_KO`) 아래로 묶는다. 지금 만들 수 있으면 초록 점, 조리대 레벨이 모자라면 `Lv.n` 딤드.

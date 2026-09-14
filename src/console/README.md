@@ -96,7 +96,7 @@ is still dev-client only (`isDevHost()`), so this path never runs for a player.
 - **2026-09-13 (지하벌레)** — 명령 `worm [뱉기초]` + `commands/worm.ts` (위 표). 콘솔은 `cheat:sandworm` 을 낼 뿐이고(새 이벤트, `shared/events.ts`
   끝에 추가) 검사는 게임플레이 페이즈 · 권위 · 훈련장 아님까지만 — 전조가 이미 돌고 있으면 enemies/ 가 조용히 무시한다. 스모크는 같은 경로의
   `EnemySystem.debugSandworm` 을 직접 부른다 (`scripts/smoke-sandworm.mjs`).
-- **2026-09-13 (요리 미니게임, 에이전트 cook-misc — docs/plans/cooking-minigames.md §6-5)** — 명령 `cook [give <요리 id|이름> [품질 0-5] [수량]]` +
+- **2026-09-13 (요리 미니게임, 에이전트 cook-misc — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」)** — 명령 `cook [give <요리 id|이름> [품질 0-5] [수량]]` +
   `commands/cook.ts` (위 표), `commands/index.ts` 의 `help` 순서에서 `gym` 다음. 품질 붙은 요리를 가방에 넣어 툴팁 별 · 품질 스택 분리 · 식탁 · 버프 별을
   조리 미니게임 없이 확인하려고 만들었다. `ItemInstanceExtras` 에 `quality` 가 없어(계약은 `ItemInstance.quality?` 만 더했다) `createItem` 뒤 인스턴스에 직접 적는다.
 - **2026-09-13 (암호화폐 채굴)** — 명령 `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` + `commands/crypto.ts` (위 표), `help` 순서에서 `rover` 다음.

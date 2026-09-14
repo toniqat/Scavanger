@@ -21,7 +21,7 @@ const STALE_KEY = '#';
 /**
  * **메신저** 아이콘 + 패널 호스트 + 분대 초대 stack (`.community`, social layer — the layer that stays visible in the ship).
  * Phase 11 의 커뮤니티 패널이 2026-09-14 **메신저**(`menus/messenger/Messenger` — 대화 · 친구 · 퀘스트)로 바뀌었다
- * (docs/plans/messenger-quests.md). 이 클래스가 쥐는 것은 그대로다: 창 틀, blocker(`COMMUNITY_BLOCKER`), 소프트웨어 커서,
+ * (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」). 이 클래스가 쥐는 것은 그대로다: 창 틀, blocker(`COMMUNITY_BLOCKER`), 소프트웨어 커서,
  * Escape 스택, P 탭 토글 / P 홀드 초대 수락, 키 가이드. 패널 틀 안은 `Messenger` 가 짓는다.
  *
  * Ship only, exactly like `hud/ShipManageHint`: it self-gates on `ctx.isHubPhase()` every frame and never appears in

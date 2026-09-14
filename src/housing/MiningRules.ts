@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * src/housing/MiningRules.ts — **암호화폐 채굴의 순수 규칙** (2026-09-13, docs/plans/power-crypto.md, 사용자 결정).
+ * src/housing/MiningRules.ts — **암호화폐 채굴의 순수 규칙** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정).
  *
  * ctx · DOM 없음. `parts/Mining.ts`(런타임)와 `ShipState.sanitize`(세이브 정리)가 같이 쓴다 — `Rules.ts` 는 배치 규칙 에이전트의
  * 파일이라 채굴 규칙은 여기로 갈라 두었다. 주기 · 진행도 식 자체는 릴레이와 함께 쓰는 `shared/cryptoMarket` 에 있다

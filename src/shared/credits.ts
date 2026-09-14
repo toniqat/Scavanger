@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 서버 크레딧 검증 계약 (2026-09-11, E-4 — docs/plans/net-social-trust.md §5, 사용자 결정 "서버 크레딧 검증까지").
+ * 서버 크레딧 검증 계약 (2026-09-11, E-4 — docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」, 사용자 결정 "서버 크레딧 검증까지").
  *
  * Until now `credits:tx {delta, reason}` was applied blindly: the relay only refused a balance below 0. The relay now
  * **parses `reason`** and checks `delta` against an economy table generated from `data/*.csv`:
@@ -203,7 +203,7 @@ export interface EconomyTable {
   roverFareMax?: number;
 }
 
-/* ══ appended: 2026-09-13 — 암호화폐 매매 검증 (docs/plans/power-crypto.md) ══════════════════════════════════════════════
+/* ══ appended: 2026-09-13 — 암호화폐 매매 검증 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ══════════════════════════════════════════════
  *   cbuy:<coin>:<units>     delta < 0 정수, |delta| ≥ cryptoTradeCredits('buy', 창 안 **최저** 시세, units), 코인이 표에 있고
  *                           `unlockQuest` 가 있으면 원장 `quests` 에 그 id 가 있어야 한다, 1 ≤ units ≤ maxUnits, 한 시간에 `CREDIT_CRYPTO_MAX_PER_HOUR` 회
  *   csell:<coin>:<units>    0 < delta ≤ cryptoTradeCredits('sell', 창 안 **최고** 시세, units), 나머지 조건은 cbuy 와 같다
@@ -233,7 +233,7 @@ export const CREDIT_CRYPTO_MAX_PER_HOUR = 240;
 /** The refusal text of a `credits:tx` the relay's economy rules do not accept (`credits:result {ok:false, reason}`). */
 export const CREDIT_TX_INVALID_KO = '서버가 거래를 확인하지 못했습니다';
 
-/* ══ appended: 2026-09-14 — 정보상 검증 (docs/plans/intel-broker.md) ═══════════════════════════════════════════════════
+/* ══ appended: 2026-09-14 — 정보상 검증 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ═══════════════════════════════════════════════════
  *   intel:<planetId>:<code>   delta < 0 정수, |delta| === intelCost(planetThreat[planetId], parseIntelCode(code), table.intel)
  *                             한 시간에 `CREDIT_INTEL_MAX_PER_HOUR` 회. **환불 불가** (rover 와 같이 원장 debit 없음).
  * 정말 그 정보를 갖고 출격했는지는 보지 않는다 — 맵은 클라이언트가 생성하므로 서버가 증명할 것이 없다 (아이템 소유와 같은 한계).

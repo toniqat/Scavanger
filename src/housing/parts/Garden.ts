@@ -8,7 +8,7 @@
  * **심는 순간 `readyAt` 에 확정**된다 — 단 하나의 예외는 **강화**다: 강화하는 순간 자라던 작물의 타임라인이 속도
  * 비율로 압축된다(`rescaleGrowsForUpgrade`).
  *
- * **2026-09-13 (요리 재료 티어 — docs/plans/food-tiers.md §4.4)**: 부어 둔 흙에는 **내구도**(`soilDurability`)와 **소켓**(`sockets`)이
+ * **2026-09-13 (요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: 부어 둔 흙에는 **내구도**(`soilDurability`)와 **소켓**(`sockets`)이
  * 있다. 수확마다 `SOIL_WEAR_PER_HARVEST` 만큼 닳고(`wear` 소켓이 줄인다) **0 이어도 칸이 비지 않는다** — 대신 궁합 보너스와 소켓
  * `speed` · `yield` 가 `내구도 / 최대` 비율로 줄어 0 에서는 사라진다. `soilUsesLeft` 는 계약상 필드라 남기되 뜻이
  * 「내구도 0 까지 남은 수확 횟수」로 바뀌었다(`Rules.harvestsUntilWorn`). 옛 세이브의 칸은 처음 읽을 때 남은 횟수 비율로 내구도를 옮긴다.

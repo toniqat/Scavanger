@@ -6,7 +6,7 @@ import { CAMERA_WALL_MARGIN, restRig, segmentHits, sitPoseOf, type FootBox, type
 import { SIT_SEAT_TOP, TV_GAME_HUD, TV_GAME_SCREEN } from './FurnitureLeisure';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 비디오게임 연출 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md §3). `GymStaging` · `CookStaging` 을 본뜬다.
+ * 비디오게임 연출 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). `GymStaging` · `CookStaging` 을 본뜬다.
  *
  *   housing:gameSession {active:true}  → 좌석(`seatUid`)의 TV 에 가장 가까운 자리에 `sit` 자세 · TV 화면 쪽 yaw · 어깨 너머 고정 카메라
  *                                         → setFurniturePose (false 면 **그 자리에서** cancelGameSession) · TV 의 게임 화면(`model.tv.overlay`)을 켠다

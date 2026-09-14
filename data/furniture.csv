@@ -47,7 +47,7 @@ furn_corp_computer,기업 네트워크 컴퓨터,cockpit,3,3,1.3,corp_computer,c
 furn_drawer,서랍장,any,2,1,2.2,drawer,none,mat_scrap:4|mat_alloy:1,1,,,#b0b8c4,서랍이 세 칸 달린 강철 수납장.
 # ── 2026-09-12 (A-3e, 사용자 결정): 서재 매체 — 보관함 2종 + 보조 가구 5종. 전부 서재(library)에만 놓인다 ──
 # 보조 가구는 배치만으로 그 매체의 효과를 키운다 (constants.csv 의 SHELF_AUX_BONUS_*). 축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할이라 여러 대여도 한 번만 적용된다.
-# ── 2026-09-13 (서재 시리즈 — docs/plans/library-series-games.md): 보관함(책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대)은 multi 1 = 여러 대.
+# ── 2026-09-13 (서재 시리즈 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 보관함(책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대)은 multi 1 = 여러 대.
 # 효과는 매체 아이템의 시리즈(data/library_series.csv)가 정하고 같은 종류는 몇 권을 꽂아도 한 번만 센다. 게임 디스크 전시대는 효과 없이 게임 목록만 연다.
 furn_disc_stand,디스크 전시대,library,3,1,1.8,disc_stand,disc_stand,mat_scrap:6|mat_alloy:1|mat_circuit:1,1,,,#9fd0ff,레이드에서 주운 비디오 디스크를 꽂습니다. 비디오 한 장은 효과가 두 가지이고 같은 시리즈를 모을수록 커집니다. 여러 대 둘 수 있습니다.,front,1
 furn_record_rack,레코드랙,library,3,2,1.2,record_rack,record_rack,mat_scrap:6|mat_alloy:2|mat_cloth:2,1,,,#e8a0d0,레코드를 꽂습니다. 레코드 한 장은 효과가 세 가지이고 꽂는 즉시 모두 발휘됩니다. 여러 대 둘 수 있습니다.,front,1
@@ -73,7 +73,7 @@ furn_food_processor,푸드 프로세서,kitchen,2,2,1.2,food_processor,cook_proc
 furn_auto_grill,자동 그릴,kitchen,3,2,1.0,auto_grill,cook_grill,mat_scrap:8|mat_alloy:2|mat_cable:2,3,,,#ff9f7a,굽기와 볶기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.,front
 furn_auto_stirrer,자동 교반기,kitchen,2,2,1.3,auto_stirrer,cook_stirrer,mat_scrap:6|mat_cable:2|mat_circuit:1,3,,,#9fe0c8,젓기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.,front
 furn_pour_dispenser,계량 디스펜서,kitchen,2,2,1.6,pour_dispenser,cook_dispenser,mat_scrap:6|mat_alloy:1|mat_cable:2,3,,,#8fd0ff,붓기를 자동으로 처리할 수 있습니다. 강화할수록 자동으로 처리한 단계의 점수가 오릅니다.,front
-# ── 2026-09-13 (사용자 결정 — docs/plans/power-crypto.md): 배치 규칙 · 전력 · 암호화폐 채굴 ──
+# ── 2026-09-13 (사용자 결정 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): 배치 규칙 · 전력 · 암호화폐 채굴 ──
 # access: front = 앞(로컬 −Z) 1칸을 비우고 벽도 안 된다 · 앞에서만 E / sides = 넓은 두 면(로컬 ±Z — cols ≥ rows 로 적는다) 1칸에 가구 불가 · 벽은 된다 · 양쪽에서 E /
 #         all = 네 면 1칸에 가구 불가 · 벽은 된다 · 어느 면이든 E / 비움 · none = 제약 없음. 비워야 하는 칸끼리는 겹쳐도 된다.
 # multi 1 = 실용 가구지만 여러 대 제작할 수 있다 (없으면 「이미 보유 중」 규칙 — housing/parts/Furniture.furnitureCraftBlock).

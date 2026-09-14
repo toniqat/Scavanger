@@ -4,7 +4,7 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `cook [give <요리 id|한국어 이름> [품질 0-5] [수량]]` — 요리 미니게임 (2026-09-13, `docs/plans/cooking-minigames.md` §6-5) 개발용 명령.
+ * `cook [give <요리 id|한국어 이름> [품질 0-5] [수량]]` — 요리 미니게임 (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」) 개발용 명령.
  * **공개 ref 만** 쓴다: `ctx.loot.getAllItemDefs` · `createItem` + 인스턴스의 `quality` · `ctx.inventory.tryAddItem`.
  *
  *   - `cook`                               지금 조리 중인 요리(`ctx.housing.cookSession`) 한 줄 + 사용법.

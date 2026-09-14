@@ -37,7 +37,7 @@ function sameLine(a: RoomLine, b: RoomLine): boolean {
 }
 
 /**
- * `ctx.net.rooms` (2026-09-14, docs/plans/messenger-quests.md §4): client mirror of the relay's **단체 메신저방**. Same shape as
+ * `ctx.net.rooms` (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」): client mirror of the relay's **단체 메신저방**. Same shape as
  * `SocialSync`: NetSystem injects `bus` / `send` / `serverNow` / `me` (my card, from the social mirror) / `isBlocked` and feeds it
  * the socket frames:
  *   - `onWelcome()`        → a new connection; the relay pushes `room:state` right after `welcome` for a token socket, so there is

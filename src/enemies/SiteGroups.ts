@@ -2,7 +2,7 @@
  * src/enemies/SiteGroups.ts — **거점 점거** (2026-09-13, 행성별 적 팩션).
  *
  * 이 파일이 답하는 질문: *레이드가 시작될 때 어느 거점에 어떤 인간형이 몇 그룹 서 있는가.*
- * 계획서: docs/plans/enemy-factions.md §1. 옛 상자 경비(`placeRogueGuards`)를 대신한다.
+ * 결정: docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」. 옛 상자 경비(`placeRogueGuards`)를 대신한다.
  *
  * ## 규칙 (행성 threat = `planetThreat`, 행성 없음 = 1)
  *  - threat 1 — 연구소 · 전진기지마다 **안드로이드** 실내 1 + 실외 1–2 그룹 (그룹당 1–2명). 플랫폼 · 폐허는 비어 있다.

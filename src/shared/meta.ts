@@ -185,7 +185,7 @@ export interface QuestDef {
 }
 
 /*
- * 2026-09-14: 기업 퀘스트 폐지 (docs/plans/messenger-quests.md, 사용자 결정 「전부 삭제」) — 퀘스트는 NPC 가 메신저로 준다
+ * 2026-09-14: 기업 퀘스트 폐지 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, 사용자 결정 「전부 삭제」) — 퀘스트는 NPC 가 메신저로 준다
  * (`shared/npc.ts` 의 `NPC_QUEST_DEFS`). `data/quests.csv` 는 지웠고, 타입 · 이름은 계약이라 남기고 표만 비운다.
  */
 export const QUEST_DEFS: readonly QuestDef[] = [];
@@ -373,7 +373,7 @@ export function itemCreditValue(def: Pick<ItemDef, 'value'> | null | undefined, 
   return Math.max(0, Math.round(def.value * Math.max(1, Math.floor(qty))));
 }
 
-/* ══ appended: 2026-09-13 — 암호화폐 매매 (docs/plans/power-crypto.md) ══ */
+/* ══ appended: 2026-09-13 — 암호화폐 매매 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ══ */
 export interface MetaRef {
   /**
    * 크레딧 트랜잭션을 **끝까지 기다린다** (meta 밖 폴더용 — housing 의 거래소). 릴레이가 있으면 `addCredits` 처럼 낙관적으로 적용하고
@@ -383,7 +383,7 @@ export interface MetaRef {
   creditsTx?(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }>;
 }
 
-/* ══ appended: 2026-09-14 — 메신저 · NPC 퀘스트 (docs/plans/messenger-quests.md · 계약 본문은 `shared/npc.ts`) ══
+/* ══ appended: 2026-09-14 — 메신저 · NPC 퀘스트 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · 계약 본문은 `shared/npc.ts`) ══
  * 기업 퀘스트는 없어졌다. `getQuests(corp)` 는 빈 목록, `acceptQuest` · `completeQuest` 는 false 이고,
  * `getQuestState(id)` 는 **NPC 퀘스트**로 답한다 — complete → 'complete', active → 'accepted', offered/deferred → 'available', 그 밖 → 'locked'
  * (housing 채굴 해금 게이트가 이 한 줄에 기댄다). */
@@ -400,7 +400,7 @@ export interface MetaSave {
 }
 /* ══ end 2026-09-14 메신저 · NPC 퀘스트 ══ */
 
-/* ══ appended: 2026-09-14 — 정보상 · NPC 개인 신뢰도 (docs/plans/intel-broker.md, 계약 본문은 `shared/intel.ts`) ══ */
+/* ══ appended: 2026-09-14 — 정보상 · NPC 개인 신뢰도 (docs/DECISIONS.md 「2026-09-14 — 정보상」, 계약 본문은 `shared/intel.ts`) ══ */
 import type { IntelEffects, IntelGimmick, IntelPick, IntelSpec } from './intel';
 import type { PlanetId } from './planets';
 

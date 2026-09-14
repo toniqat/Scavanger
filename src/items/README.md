@@ -535,7 +535,7 @@ items 는 `ItemDef.pouch: PouchDef { cols, rows, accepts }` 만 준다. `accepts
 `loot_item_weights.csv` 에 **티어 1–5 × 15줄 = 75줄이 `mul 0`** 으로 들어가 있다. 새 표본 5종은
 `loot_corpses.csv`(벌레 8종) · `loot_category_weights.csv` 의 기존 `sample` 줄이 그대로 처리한다.
 
-## 요리 재료 티어 (2026-09-13 — `docs/plans/food-tiers.md` §3, 사용자 결정)
+## 요리 재료 티어 (2026-09-13, 사용자 결정)
 
 > 위 두 절(*미확인 표본 · 준비물* · *요리 · 주머니 · 배양 재료 · 열쇠*)의 표본 11종 · 세포주 5 · 배양 산물 5 · 특선 요리 4 는 **은퇴했다**.
 > 그 절들은 기록으로 남기고, 지금 사실은 이 절이다.
@@ -658,15 +658,15 @@ id 는 `sock_<target>_<effect>_<n>`. 등급은 I 고급 · II 희귀 · III 서�
 - **상점**: `corp_stock.csv` 의 어느 규칙도 새 재료 · 소켓 · 요리 · 은퇴 아이템을 팔지 않는다 (세레스 `material` 은 임플란트 수리 재료만). `server/economy.gen.json`
   에는 새 아이템 가치가 들어간다 (판매 사유 검증용).
 
-## 프로세서 · 연산 코어 (2026-09-13 — 암호화폐 채굴, `docs/plans/power-crypto.md`)
+## 프로세서 · 연산 코어 (2026-09-13 — 암호화폐 채굴)
 
 | id | 이름 | 등급 | 크기 · 스택 | 가치 | 출처 |
 |---|---|---|---|---|---|
 | `mat_processor` | 프로세서 | 전설 | 1×1 · 3 | 3000 | 레이드에서만 — 상자 티어 4 · 5, 안드로이드 시체. 상점 없음 (`corp_stock.csv` 의 어느 규칙도 전설 재료를 팔지 않는다) |
-| `mat_compute_core` | 연산 코어 | 전설 | 1×1 · 9 | 3200 | 가공 작업대 Lv.2 `refine_compute_core` = 회로 기판 2 + 프로세서 1 (제작 30). 모든 상자 티어 0 |
+| `mat_compute_core` | 연산 코어 | 전설 | 2×1 · 9 | 3200 | 가공 작업대 Lv.2 `refine_compute_core` = 회로 기판 2 + 프로세서 1 (제작 30). 모든 상자 티어 0 |
 
 연산 클러스터 한 대가 코어 9개(`COMPUTE_CLUSTER_MAX_CORES`)를 받으므로 스택 9 = 꽉 찬 클러스터 한 대분이다 (`removeClusterCores` 가 한 스택으로 돌려준다).
-발전기 Lv.9 · Lv.10 강화에 프로세서 1 · 2 가 들어간다 (`facility_upgrades.csv`). 내구도 장비가 아니라 `checkSalvageEconomy()` 에는 걸리지 않는다.
+프로세서를 먹던 발전기 Lv.9 · Lv.10 강화는 2026-09-13 전력 폐지로 없어졌다(발전기는 Lv.5 까지) — 지금 프로세서의 소비처는 연산 코어뿐이다. 내구도 장비가 아니라 `checkSalvageEconomy()` 에는 걸리지 않는다.
 
 **드롭률 — 목표 「평균 플레이어 15–25 레이드에 하나」 (타르코프 GPU 급)**. 수치는 `scratchpad` 모의 굴림(`LootService.rollCrateOn` 행성 5곳 × 티어 3–5 × 40 000 상자)으로 맞췄다:
 
@@ -683,7 +683,7 @@ id 는 `sock_<target>_<effect>_<n>`. 등급은 I 고급 · II 희귀 · III 서�
 코어 1개 ≈ 5–8 C/h(거의 없음) → 9개 ≈ ×256. 열린 4종 스크랩 1536 · 볼트 1536 · 펄스 1344 · 보이드 1330, 기업 4종 헬릭스 1997 · 바스티온 1799 · 노마드 1843 · 세레스 1840 C/h
 (기준 시세, 수수료 2 % 전). 2026-09-13 에 펄스 `yieldUnits` 20 → 21 · 보이드 16 → 17 로 올려 열린 코인이 하한 1300 밑으로 내려가지 않게 했다.
 
-## 서재 시리즈 · 비디오게임 (2026-09-13 — `docs/plans/library-series-games.md`, 사용자 결정)
+## 서재 시리즈 · 비디오게임 (2026-09-13, 사용자 결정)
 
 아래 *서적 (Phase 9)* · *서재 매체: 디스크 · 레코드* 절(숙련마다 한 권 · 등급 가중치 · 세레스 상점 · 균등 서적 굴림)은 **더 이상 사실이 아니다** — 기록으로 남긴다.
 효과 계산(시리즈 몫 · 보조 가구 · 합산 · 레시피 해금 · 띠)은 전부 `housing/` 이고 items 는 **아이템 · 드롭**만 갖는다.
@@ -1140,7 +1140,7 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 
 ## 소모형 만능 열쇠 (2026-09-12 — 에이전트 C)
 
-사용자 결정(설계안 `docs/plans/consumables-keys-favorites.md` §3). 둘 다 카테고리 `key` · **서사(epic)** · 1×1 · **스택 1** ·
+사용자 결정(결정 `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」). 둘 다 카테고리 `key` · **서사(epic)** · 1×1 · **스택 1** ·
 ₩1200. 정의는 `data/items.csv` 두 줄뿐이고 items/ 코드는 한 줄도 안 바뀌었다 — 어느 문을 여는지는 `data/structures.csv` 의
 `key` 열이, 소모는 `src/world/Structures` 가 한다.
 
@@ -1174,7 +1174,7 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 
 ## 인간형 팩션 시체 (2026-09-13 — `data/loot_factions.csv` · `data/loot_faction_sites.csv`)
 
-계획서 `docs/plans/enemy-factions.md` 1절 「전리품」. 행성 threat 가 안드로이드(1) · 로그(2) · 레이더(2–3)를 정하고, 시체는
+결정 `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」. 행성 threat 가 안드로이드(1) · 로그(2) · 레이더(2–3)를 정하고, 시체는
 `LootRef.rollCorpseOn(type, rng, weaponId, planet, opts?: CorpseLootOpts)` 로 굴린다. `opts` = 스폰 거점(`site`) · 던지지 못한 수류탄(`grenades`) —
 호스트(`Enemy.site` · `grenadeCount`) · 리플리카(`ee corpse.si/gc/gk`) · 드론 스캔 미리보기가 **같은 값**을 넘기므로 결과는
 (type, rng, weaponId, planet, opts) 의 순수 함수다. `weaponId` 는 `HUMANOID_WEAPONS` 의 **계열 id**(등급 I id)이고 등급은 여기서 굴린다.
@@ -1225,7 +1225,7 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
   (`corp_stock.csv` 의 부착물 줄) · 총기 작업대로 얻는다 — 부착물은 원래 분해 대상이 아니다. `server/economy.gen.json` 재생성.
   ⚠ 같은 시드의 상자 · 보스 시체에서 부착물 후보가 하나 늘어 결과가 예전과 다를 수 있다. ⚠ 계열 def 에 `projectileSpeed` 가 생겨 weapons/ 의 옛 경로도 발사체로 간다(발사체 전환은 weapons 에이전트 몫).
 
-- **2026-09-13 (서재 시리즈 · 비디오게임 — 에이전트 D, `docs/plans/library-series-games.md`)** — 위 *서재 시리즈 · 비디오게임* 절이 표다.
+- **2026-09-13 (서재 시리즈 · 비디오게임 — 에이전트 D, `docs/DECISIONS.md` 「2026-09-13 — 서재 시리즈 · 비디오게임」)** — 위 *서재 시리즈 · 비디오게임* 절이 표다.
   `ItemDefs.ts`: 옛 숙련별 서적 · 디스크 · 레코드 로더(`books.csv` · `discs.csv` · `records.csv`, 세 파일 삭제)를 **시리즈 생성**으로 교체 — 책 128 · 비디오 26 · 레코드 10,
   `libraryItemIdFor` · `libraryItemName` · `libraryItemDefOf` · `libraryShelfOf` · `LIBRARY_ITEMS_BY_SERIES` · `LIBRARY_BOOK_RARITY`; `bookItemIdFor` · `BOOK_DEF_BY_SKILL` · `discItemIdFor` ·
   `recordItemIdFor` · `DISC_DEF_BY_SKILL` · `RECORD_DEF_BY_SKILL` 삭제(items 밖 사용처 없음). 게임기 3 · 게임 디스크 9 (`game_consoles.csv` · `game_discs.csv`, `GAME_ITEM_PLANETS` ·
@@ -1233,18 +1233,18 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
   행성 고정 카테고리 제외, 권 가중치, 시체 서적 = 그 행성 책 시리즈 권 가중, `getItemDef` · `createItem` alias. `Recipes.ts`: `unlockSeries`. 데이터 쪽은 `data/README.md` 의 같은 날 절.
   `server/economy.gen.json` 재생성. ⚠ 같은 시드의 상자에서 서재 매체가 뽑히는 경우 결과가 예전과 다르다 (카테고리 목록 · 후보 · 가중치가 바뀌었다 — 호스트 · 리플리카 · 드론 스캔은 같은 함수라 서로는 같다).
 
-- **2026-09-13 (암호화폐 채굴 데이터 — 에이전트 ③, `docs/plans/power-crypto.md`)** — 위 *프로세서 · 연산 코어* 절이 표다. 데이터만 바뀌었다(코드 0): `items.csv` 2줄
+- **2026-09-13 (암호화폐 채굴 데이터 — 에이전트 ③, `docs/DECISIONS.md` 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」)** — 위 *프로세서 · 연산 코어* 절이 표다. 데이터만 바뀌었다(코드 0): `items.csv` 2줄
   (`mat_processor` · `mat_compute_core`, 제어 모듈 바로 뒤) · `recipes.csv` `refine_compute_core` · `loot_item_weights.csv` 10줄(프로세서 T4 2 · T5 0.5 · 나머지 0, 코어 전부 0) ·
   `loot_corpses.csv` 안드로이드 프로세서 0.2 % · `facility_upgrades.csv` 발전기 Lv.9 · 10 에 프로세서 1 · 2 · `crypto.csv` 펄스 · 보이드 `yieldUnits` +1.
   기업 채굴 인가 퀘스트 4줄(`hx_crypto` …)의 납품은 **그대로 뒀다** — 프로세서 · 코어를 요구하면 15–20 레이드짜리 아이템이 해금 비용이 되어 기업 코인이 사실상 닫힌다.
-- **2026-09-13 (행성별 적 팩션 — faction-loot 에이전트, `docs/plans/enemy-factions.md` 1절)** — 위 *인간형 팩션 시체* 절이 표다. 데이터: **`loot_factions.csv` 신규**
+- **2026-09-13 (행성별 적 팩션 — faction-loot 에이전트, `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」)** — 위 *인간형 팩션 시체* 절이 표다. 데이터: **`loot_factions.csv` 신규**
   (android · rogue · raider 3줄) · **`loot_faction_sites.csv` 신규**(raider @ lab 아이템 4줄 · @ outpost 등급 1줄) · `loot_corpses.csv`(로그 회복 · 수류탄 6줄 삭제,
   android 4줄 · raider 5줄) · `loot_corpse_rolls.csv`(android · raider). 코드: `LootTables.ts`(두 표 로더 · 행성 씨앗 표 · 시체 표 종류 = 두 csv 합집합) ·
   `Loot.ts`(`rollCorpseOn` 이 `opts` 를 쓴다 — 팩션 등급 가중치 · `rollFactionGear` · `rollSiteBonusItems` · `addCarriedGrenades`) · `scripts/data-check.mjs`(참조 검사
   3종) · `scripts/data-owners.mjs`(두 csv → items · enemies) · `scripts/check-planet-loot.mjs`(팩션 절) · `inventory/__selftest__.ts`(로그 총 = 같은 계열 I–III,
   수류탄 · 안드로이드 · 레이더 · 거점 · 낡은 방탄복/가방 · 행성 상한 단언). 벌레 · 보스 · 네임드 출력은 그대로. 아이템 가치 불변 → `economy.gen.json` 재생성 불필요.
 
-- **2026-09-13 (요리 재료 티어 — 에이전트 A, `docs/plans/food-tiers.md` §3)** — 위 *요리 재료 티어* 절이 표다. 데이터: `samples.csv`(`family` · `retired`,
+- **2026-09-13 (요리 재료 티어 — 에이전트 A, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」)** — 위 *요리 재료 티어* 절이 표다. 데이터: `samples.csv`(`family` · `retired`,
   `first*` 비움, 새 3 · 은퇴 11) · **`sockets.csv` 신규 14줄** · `items.csv` 7열(`soilDurability` · `mediumDurability` · `strainScaffold*` 3 · `scaffold` · `retired`,
   새 재료 24 · 은퇴 10) · `meals.csv`(`effects` · `retired`, 새 11 · 은퇴 4) · `recipes.csv` 141 → 155 · `loot_corpses.csv` 벌레 표본 줄 · `loot_item_weights.csv`
   (표본 3종 + 새 재료 120줄) · `planets.csv` samples · `furniture.csv` 설명 5 · `tuning.csv` `SOCKET_STACK_MAX` · `SOCKET_WEIGHT`. 코드: `ItemDefs.ts`
@@ -1266,7 +1266,7 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
 - **2026-09-12 (소모형 만능 열쇠 — 에이전트 C, items/ 몫은 데이터뿐)** — 위 *소모형 만능 열쇠* 절. `items.csv`: `key_basement` 이름 ·
   등급 · 가치 · 무게 · 아이콘 · 설명 변경, `keycard_lab` 추가. `loot_category_weights.csv` 에 `key` 2줄(티어 3 · 4), `loot_item_weights.csv`
   열쇠 줄 10개(티어 3 · 4 = 1, 나머지 0), `loot_corpses.csv` 로그 · 로그 보스 · 네임드 3종에 두 열쇠씩. 코드 변경 없음.
-- **2026-09-12 (전투 소모품 3종, 에이전트 A1 — `docs/plans/consumables-keys-favorites.md` §1)** — `data/items.csv` 에
+- **2026-09-12 (전투 소모품 3종, 에이전트 A1 — `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」)** — `data/items.csv` 에
   `boost_adrenaline` 아드레날린 주사(일반, 스택 3) · `boost_stimulant` 각성제(고급, 스택 3) · `boost_stabilizer` 안정제(희귀, 스택 2),
   전부 `category: 'stim'` · 1×1 · 퀵슬롯. 새 열 `boostEffect`(adrenaline | stimulant | implant_refill) · `boostUseTime`(3 초)을
   `mediumSpeed` 뒤에 붙였고, 실드 충전기와 같은 **옆 표** 규약으로 `ItemDefs.ts` 가 `BOOST_ITEM_MAP` · `boostItemOf(defId)` ·

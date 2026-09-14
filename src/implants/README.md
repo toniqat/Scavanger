@@ -281,7 +281,7 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `ImplantSystem.piloting` 이 `ctx.player.roverRide` 도 본다 — 탑승 중 Q 와 들고 있는 임플란트의 입력을 무시한다.
 
-- **2026-09-12 (갈고리 환급 · 쿨 2배 · 대시 1.5배 · `refillAll` · 준비 순간 — docs/plans/consumables-keys-favorites.md §2, 에이전트 B)** —
+- **2026-09-12 (갈고리 환급 · 쿨 2배 · 대시 1.5배 · `refillAll` · 준비 순간 — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」, 에이전트 B)** —
   계약: `ImplantsRef.refillAll?()` (`shared/implants.ts` 끝 절), `implant:ready {id, charges, maxCharges, full, refill}` ·
   `implant:cooldownRefunded {id, seconds, ratio}` (`events.ts` [B]), `IMPLANT_GRAPPLE_REFUND_MAX` 0.5 · `_REFUND_DIST` 15 ·
   `IMPLANT_GRAPPLE_CANCEL_REFUND` 0.9 · `_CANCEL_MIN_S` 3 (`constants.csv` [B]). 수치 변경: `IMPLANT_GRAPPLE_COOLDOWN` 12 → **24**,

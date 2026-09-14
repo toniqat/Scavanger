@@ -6,7 +6,7 @@ import {
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
-/* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/plans/library-series-games.md) */
+/* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
 import type { BookDef, GameStat, GymGameTuning, GymMinigame, LibraryMedium, PlanetId } from '@/shared';
 import { GAME_STATS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, PLANET_IDS, resolveItemAlias, stringMap } from '@/shared';
 
@@ -301,7 +301,7 @@ export const MEAL_ITEM_DEFS: readonly ItemDef[] = csvRows('meals.csv').map((r) =
   });
 });
 
-/* ── 서재 매체: 책 · 비디오 · 레코드 (2026-09-13 서재 시리즈 — docs/plans/library-series-games.md) ─────────────
+/* ── 서재 매체: 책 · 비디오 · 레코드 (2026-09-13 서재 시리즈 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────────────
  * 아이템은 **시리즈**(`data/library_series.csv`, 효과 · 행성 로더는 `shared/library` 의 `LIBRARY_SERIES_DEFS`)에서 만든다 —
  * 시리즈 한 줄 = 권 수만큼의 아이템. 옛 숙련별 한 권(`book_<skill>` · `disc_<skill>` · `record_<skill>`)은 없어졌고
  * 세이브 · 와이어의 그 id 는 `data/item_aliases.csv` 가 새 시리즈 1권으로 옮긴다 (`resolveItemAlias`).

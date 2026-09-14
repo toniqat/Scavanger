@@ -472,7 +472,7 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 ## 가구 자세 (2026-09-12 — `PlayerRef.setFurniturePose`, 호출자 hub · A-3a 헬스장 · A-3e 흔들의자)
 
 계약은 `shared/types.ts` 끝의 `FurniturePose` · `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive` 와
-`player:furniturePoseEnded`. 설계는 `docs/plans/a3a-a3e.md` §5 · §6-5. 구현은 `parts/FurniturePose.ts` + `SoldierModel.poseFurniture`.
+`player:furniturePoseEnded`. 결정은 `docs/DECISIONS.md` 「2026-09-12 — 헬스장 · 서재 매체」. 구현은 `parts/FurniturePose.ts` + `SoldierModel.poseFurniture`.
 ~~원격 아바타에는 보내지 않는다~~ — **2026-09-12 부터 보낸다**: `furniturePoseState` 가 net 의 스냅샷 `fp` · `fu` 가 되고 `RemoteAvatar` 가
 `ref.furniturePose` 로 같은 자세를 그린다 (아래 *캐릭터 버프 · 원격 가구 자세* 절).
 
@@ -516,7 +516,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 
 ---
 
-## 캐릭터 버프 · 원격 가구 자세 (2026-09-12 — `PlayerRef.buffs` · `furniturePoseState`, 설계 `docs/plans/char-buffs.md` §4 · §6-A)
+## 캐릭터 버프 · 원격 가구 자세 (2026-09-12 — `PlayerRef.buffs` · `furniturePoseState`)
 
 계약은 `shared/charBuffs.ts`(`CharBuff` · 순서 · `sameCharBuffs` · `sortCharBuffs`), `shared/types.ts` 끝(`FurniturePose.furnitureUid` ·
 `FurniturePoseState` · `PlayerRef.furniturePoseState` / `buffs` / `buffsRevision`), `shared/net.ts` 끝(`RemoteFurniturePose` ·
@@ -605,7 +605,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 
 ---
 
-## 조준 흔들림 (2026-09-12 — `CameraRig.advanceSway`, 설계 `docs/plans/consumables-keys-favorites.md` §1-1)
+## 조준 흔들림 (2026-09-12 — `CameraRig.advanceSway`)
 
 정조준 중에만 카메라가 느리게 8자로 떠돈다 (사용자 결정). 총알은 크로스헤어 선(weapons `parts/AimLine`)으로 판정하므로
 **보이는 대로 맞고**, 흔들림은 반동과 같은 **더하는 시점 오프셋**이라 마우스로 보정된다 — 무엇도 잠그지 않는다.
@@ -664,7 +664,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 - **레이드 세이브** — `game/parts/Session.saveSoloAt` 가 탑승 중이면 좌석이 아니라 `roverSafePosition` 을 저장한다(복귀하면 차량 옆에 서 있다).
   멀티 레이드 blob 에는 자세가 없다 — 끊긴 탑승자는 호스트(world/rover)가 내린다.
 
-## 낙하 피해 (2026-09-14 — **게임 전역**, `docs/plans/tutorial-raid.md` B, 사용자 결정)
+## 낙하 피해 (2026-09-14 — **게임 전역**, 사용자 결정)
 
 떨어져서 착지하면 아프다. **튜토리얼 전용이 아니라 본편 레이드 · 훈련장에도 똑같이 걸리는 전역 규칙**이다.
 
@@ -674,7 +674,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 | 높이를 **피해**로 바꾼다 | `parts/Fall.onLanded` — `min(FALL_DAMAGE_MAX, (h − FALL_DAMAGE_SAFE_M) × FALL_DAMAGE_PER_M)`, 수치는 `data/constants.csv` |
 | 피해를 **넣는다** | 새 경로 없음 — `applyDamage(dmg, undefined, false)` 그대로다. 실드 → 체력 · 방탄복 마모 · 피격 연출 · 인내 · 전투불능 규칙이 평소와 같다 |
 | 자리마다 다른 규칙 | `ctx.world.tutorial?.fallRule(착지 자리) ?? 'normal'` — `kill` 즉사 · `clamp` 체력 1 클램프 · `normal` 위 식. 본편은 `ctx.world.tutorial` 이 null 이라 늘 `normal` |
-| 알린다 | 실제로 깎였을 때만 `player:fell {height, damage, rule}` (튜토리얼 단계 · HUD · 오디오가 읽는다) |
+| 알린다 | 실제로 깎였을 때만 `player:fell {height, damage, rule}` (지금 받는 곳은 튜토리얼 `drop` 단계 하나 — 낙하 전용 소리 · 흔들림은 없다, TODO B-14) |
 
 **속도가 아니라 높이로 재는 이유**: `MoveResult.landed`(착지 충격 속도)는 이미 있지만 부양 · 갈고리로 천천히 내려와도
 착지는 착지이고, 반대로 임펄스로 속도가 죽어도 떨어진 높이는 그대로다. 「얼마나 떨어졌나」를 물어야 답이 하나다.
@@ -771,7 +771,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   「각본된 장면이 몸 상태를 정한다」는 쓸 자리가 또 생길 종류의 것이고, 지우면 다음 사람이 `takeDamage` 로 흉내 낸다.
 
 - **2026-09-14 (낮은 통로를 앉아서 지난다 — 리드 마무리)** — 튜토리얼의 「앉아서만 지나갈 수 있는 곳」을 진짜로 만든
-  두 줄이다 (설계안 `docs/plans/tutorial-raid.md` 의 미해결 항목 ①).
+  두 줄이다.
   ① **`PlayerController.bodyClearance`** — 자세가 요구하는 머리 위 공간을 `world.resolveCollision(pos, r, height)` 와
   `clampWorldCeiling` **둘 다에** 넘긴다. 서 있으면 지금까지와 같은 `BOX_HEADROOM`(2.1) 이므로 본편 동선은 한 곳도
   안 바뀐다; 앉거나(1.3) 엎드렸을 때만 낮은 슬래브 밑을 지난다 (`data/constants.csv` 의 `PLAYER_CROUCH_CLEARANCE_M` ·
@@ -782,7 +782,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   (사다리 · 가구 자세 · 드론 조종 해제 · 기상 연출 — 그 자리는 원래 설 수 있던 곳이고, 못 서면 영영 못 빠져나온다).
   함선 실내 · 탈출선 안은 천장이 키보다 높아 검사하지 않는다.
 
-- **2026-09-14 (낙하 피해 · 오프닝 기상 연출, 에이전트 B, `docs/plans/tutorial-raid.md`)** — 새 `parts/Fall.ts` · `parts/IntroWake.ts`.
+- **2026-09-14 (낙하 피해 · 오프닝 기상 연출, 에이전트 B, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)** — 새 `parts/Fall.ts` · `parts/IntroWake.ts`.
   `PlayerController`: `MoveResult.fallHeight` 추가 · 낙하 추적(`fallFromY` · `fallExempt` · `exemptFall()`) · `reset` · `releaseClimb` · `endClimb` 에서 기준점 갱신.
   `PlayerSystem`: `introWakeT` · `introWakeDur` · `introWaking` · `playIntroWake`, 착지 프레임의 `Fall.onLanded`, `implant:dashed` · `game:newMission` 구독,
   `waking` 게이트(`moveFrozen` · 룩 · 어깨 · 흔들림 · 조준 · 들쳐메기 · 상호작용 · `canUseWeapons`), `p.downed` 합성.
@@ -805,7 +805,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   `parts/Vitals` · `Locomotion` · `Statuses` · `Spawn` · `DroneControl` · `Climb`(면제 · 해제 · 거절), `RemoteAvatar`(`IN_ROVER` 숨김).
   계약 추가: `PlayerRef.roverSafePosition?` (types.ts 탐사 차량 절 안). 위 *탐사 차량 탑승* 절.
 
-- **2026-09-13 (요리 미니게임 — 조리 자세 · `cooking` 버프 · 식사 품질, 에이전트 cook-progression-player — `docs/plans/cooking-minigames.md` §6-3)** — 계약은 읽기만 했다
+- **2026-09-13 (요리 미니게임 — 조리 자세 · `cooking` 버프 · 식사 품질, 에이전트 cook-progression-player — `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」)** — 계약은 읽기만 했다
   (`FurniturePoseKind 'cook'` · `CharBuffKind 'cooking'` · `CharBuff.quality` · `HousingRef.cookSession` · `housing:cookSession` · `ProgressionRef.getMealQuality` / `getActiveMealQuality`).
   - `SoldierModel.ts` — **`FURN_COOK`**(조리대 앞 기하의 원본, 위 *몸의 기하* 표) + `poseFurniture` 의 `cook` 가지: 선 채로 숙이고 오른팔은 칼질 / 젓기 고리, 왼손은 재료를 누른다(두 마디 IK 그대로).
   - `model.ts` — `FURN_EYE.cook` 1.42 (리드 임시값 `EYE_STAND` 정리) · `FURN_COOK_CYCLE_PER_S` 0.9.
@@ -831,7 +831,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 - **2026-09-12 (리드 통합 — 사다리 도약 스태미나)** — `parts/Climb.readClimbInput` 의 도약 검사가 `STAMINA_JUMP_COST × staminaCostMul` 로 잰다
   (에이전트 A1 보고). 소모는 이미 `spendStamina` 가 ×1.5 로 빼고 있었는데 검사만 옛 값이라, 각성제 중 스태미나가 모자란 채 도약이 받아들여졌다 —
   보통 점프 · 구르기 · 근접과 같은 규칙이 됐다.
-- **2026-09-12 (전투 소모품 효과, 에이전트 A1 — `docs/plans/consumables-keys-favorites.md` §1)** — 계약 추가(`types.ts` [A1] 블록):
+- **2026-09-12 (전투 소모품 효과, 에이전트 A1 — `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」)** — 계약 추가(`types.ts` [A1] 블록):
   `BoostKind` · `PlayerRef.applyBoost?(kind, defId?)` · `boost?` · `aimSwayMul?` · `boostReloadSpeedMul?` · `adsSpeedMul?` ·
   `staminaDrainMul?` · `staminaCostMul?`. 새 **`parts/Boosts.ts`** 가 전부를 갖고 `PlayerSystem` 에는 필드(`boostKind` · `boostDefId` ·
   `boostDuration` · `boostUntil` · `boostStartedAt` / `boostEndsAt`(버프 시계 epoch ms) · `boostView`)와 위임 getter 만 있다.
@@ -857,7 +857,7 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   곱할 뿐이라 거리 · 충돌 · 예측 원점은 한 줄도 안 바뀌었고, `snapTo` 가 부호를 따르므로 스폰 · 구조선 부활 뒤에도 고른 어깨가 남는다.
   사격 판정은 weapons/ 의 하이브리드 판정(크로스헤어 선)이라 왼쪽 어깨에서도 탄이 크로스헤어대로 간다. 검사: `smoke-weapons` 의 F 절.
 
-- **2026-09-12 (캐릭터 버프 · 가구 자세 동기화, 에이전트 player — `docs/plans/char-buffs.md` §6-A)** — 위 *캐릭터 버프 · 원격 가구 자세* 절.
+- **2026-09-12 (캐릭터 버프 · 가구 자세 동기화, 에이전트 player — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」)** — 위 *캐릭터 버프 · 원격 가구 자세* 절.
   계약은 읽기만 했다 (`shared/charBuffs.ts`, `FurniturePose.furnitureUid`, `FurniturePoseState`, `PlayerRef.furniturePoseState` / `buffs` /
   `buffsRevision`, `RemoteFurniturePose` · `RemotePlayerRef.furniturePose`, `player:buffsChanged`). 새 `parts/Buffs.ts`(모으기 · 리비전 · 이벤트 바인딩 ·
   1 초 틱), `PlayerSystem` 에 `_buffs` · `_buffsRevision` · `buffsDirty` · `buffsTick` · 스크래치 풀 + getter `buffs` / `buffsRevision` /

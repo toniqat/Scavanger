@@ -1,6 +1,6 @@
 import type { MealBuff, MealDef, MealEffect } from '@/shared';
 import { MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO } from '@/shared';
-/* 2026-09-13 (요리 미니게임 — docs/plans/cooking-minigames.md §6-5): 요리 품질 · 조리 단계 */
+/* 2026-09-13 (요리 미니게임 — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): 요리 품질 · 조리 단계 */
 import { COOK_GAME_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, normalizeMealQuality } from '@/shared';
 
 /**

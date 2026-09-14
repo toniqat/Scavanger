@@ -27,7 +27,7 @@ import type { OutlineRef, ShaderWarmupRef } from './render';
 import type { DronesRef } from './drones';
 /* appended (2026-09-13): 탈출 개편 */
 import type { ExtractionRef } from './extraction';
-/* appended (2026-09-14): 정보상 — 산 기믹 고정의 해석본 (docs/plans/intel-broker.md) */
+/* appended (2026-09-14): 정보상 — 산 기믹 고정의 해석본 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelEffects } from './intel';
 
 class InteractableRegistryImpl implements InteractableRegistry {
@@ -143,7 +143,7 @@ export class GameContext {
    * so `world/` and `core/` can read it inside their synchronous handlers. A training always sets it to null.
    */
   missionPlanet: PlanetId | null = null;
-  /* ── appended (2026-09-14): 정보상 (docs/plans/intel-broker.md) ── */
+  /* ── appended (2026-09-14): 정보상 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
   /**
    * 이 레이드에 산 **기믹 고정**의 해석본 (`shared/intel` 의 `IntelEffects`), 아무것도 안 샀으면 null.
    * `missionPlanet` 과 **똑같은 규약**이다 — `game:newMission` 을 emit 하는 쪽이 **emit 전에** 세팅하므로

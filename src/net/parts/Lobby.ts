@@ -12,7 +12,7 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
 import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
 import {

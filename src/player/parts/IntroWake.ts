@@ -1,5 +1,5 @@
 /**
- * src/player/parts/IntroWake.ts — **오프닝 기상 연출** (2026-09-14, `docs/plans/tutorial-raid.md` B).
+ * src/player/parts/IntroWake.ts — **오프닝 기상 연출** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
  * 이 파일이 답하는 질문: *깨어나는 동안 몸과 카메라는 무엇을 하는가.*
  *

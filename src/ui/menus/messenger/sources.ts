@@ -1,7 +1,7 @@
 import type { GameContext, NpcQuestRef, RoomsRef } from '@/shared';
 
 /**
- * 메신저가 읽는 두 창구 (2026-09-14, docs/plans/messenger-quests.md) — `menus/social/socialSource` 와 같은 자리.
+ * 메신저가 읽는 두 창구 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — `menus/social/socialSource` 와 같은 자리.
  *
  *   - `npcOf(ctx)`   = `ctx.meta.npc` (NPC 연락 · 대화 · 퀘스트, owner: meta/) — 없으면 null.
  *   - `roomsOf(ctx)` = `ctx.net.rooms` (단체방, owner: net/) — 없으면 null.

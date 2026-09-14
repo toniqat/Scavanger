@@ -21,7 +21,7 @@ export const DERIVED_PANEL_KEYS = [
   'carryCapacity', 'maxStamina', 'detectRadius', 'enemyDetectRadius', 'meleeDamageMul', 'throwRangeMul',
   'skillGainMul', 'useSpeedMul', 'interactSpeedMul', 'gritChance', 'searchSpeedMul', 'healPowerMul',
   'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'craftSpeedMul', 'carryReliefFactor',
-  /* 2026-09-13 요리 · 연구 숙련 (docs/plans/library-series-games.md) */
+  /* 2026-09-13 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   'cookScoreBonus', 'researchTimeMul', 'researchRefundChance', 'researchRefundFrac',
 ] as const satisfies readonly (keyof DerivedStats)[];
 export type DerivedPanelKey = (typeof DERIVED_PANEL_KEYS)[number];

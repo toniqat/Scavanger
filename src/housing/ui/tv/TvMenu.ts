@@ -1,5 +1,5 @@
 /**
- * src/housing/ui/tv/TvMenu.ts — **TV 화면** (비디오게임, 2026-09-13 · H2 — docs/plans/library-series-games.md §3).
+ * src/housing/ui/tv/TvMenu.ts — **TV 화면** (비디오게임, 2026-09-13 · H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
  *
  * hub 의 TV E 가 `ctx.housing.openTvMenu(uid)` 로 연다 (같은 날부터 TV 의 E 는 켜기/끄기 토글이 아니다). 한 화면에:
  *   • 머리 — TV 이름 · 켜짐 상태 · `켜기` / `끄기` 버튼 (`toggleFurniture`)

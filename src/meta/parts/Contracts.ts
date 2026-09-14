@@ -236,7 +236,7 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   }
 
 /* ── MetaRef: quests ────────────────────────────────────────────────────────
- * 2026-09-14: 기업 퀘스트 폐지 (docs/plans/messenger-quests.md) — 퀘스트는 NPC 가 메신저로 준다 (`parts/NpcQuests.ts`,
+ * 2026-09-14: 기업 퀘스트 폐지 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 퀘스트는 NPC 가 메신저로 준다 (`parts/NpcQuests.ts`,
  * `ctx.meta.npc`). 옛 API 는 계약이라 남기되 기업 퀘스트 표(`QUEST_DEFS`)가 비어 있으므로 빈 목록 · false 다.
  * `getQuestState` 는 `MetaSystem` 이 NPC 퀘스트로 답한다. */
 export function questInfo(sys: MetaSystem, def: typeof QUEST_DEFS[number]): QuestInfo {

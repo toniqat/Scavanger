@@ -4,7 +4,7 @@ import {
   EXTRACTION_PADS_SPORES_MIN, MAP_SIZE, RAIL_CHANCE, Random, SPORE_SPAWN_CENTER_M, type RailKind, type StructureKind,
   /* 2026-09-13: 탐사 차량 */
   ROVER_CHANCE, ROVER_ROUTE_CLEARANCE_M, ROVER_STATION_PAD_BLEND,
-  /* 2026-09-14: 정보상 — 산 기믹의 해석본 (docs/plans/intel-broker.md) */
+  /* 2026-09-14: 정보상 — 산 기믹의 해석본 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
   type IntelEffects, numberList,
 } from '@/shared';
 import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';

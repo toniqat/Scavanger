@@ -100,7 +100,7 @@ export interface DronesRef {
   clear(): void;
 }
 
-/* ══ appended (2026-09-12): 지상 드론 스캔 — docs/plans/consumables-keys-favorites.md §4 ══════════════════════════
+/* ══ appended (2026-09-12): 지상 드론 스캔 — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══════════════════════════
  * 지상 드론 조종 중 렌즈 중심 광선을 상자 · 컨테이너 · 시체 · 보급 상자에 맞추고 좌클릭을 `DRONE_SCAN_HOLD_S` 누르고
  * 있으면 그 안의 **최고 등급**이 대상 위 월드 라벨로 레이드 내내 남는다 (분대 공유 + 채팅 한 줄). 공중 드론은 못 한다.
  * 미리보기는 **여는 것과 같은 굴림**이다 (`InventoryRef.peekContainerItems` · `peekSuppliedItems` ·

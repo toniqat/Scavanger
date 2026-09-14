@@ -2,7 +2,7 @@
  * src/player/parts/FurniturePose.ts — **가구에 몸을 맡기는 동안 몸은 무엇을 하는가** (2026-09-12, A-3a · A-3e).
  *
  * `PlayerRef.setFurniturePose` / `furniturePose` / `setFurniturePoseDrive` 의 구현 (호출자: hub — 흔들의자 앉기 · 운동 기구,
- * 계약: `shared/types.ts` 끝 · `player:furniturePoseEnded`). 설계: `docs/plans/a3a-a3e.md` §5 · §6-5.
+ * 계약: `shared/types.ts` 끝 · `player:furniturePoseEnded`). 결정: `docs/DECISIONS.md` 「2026-09-12 — 헬스장 · 서재 매체」.
  *
  * - **함선에서만.** `ctx.phase !== 'hub'` · 스폰 전 · 사망 · 전투불능 · 드론 조종 · 사다리 · 포드 · 헬포드 · 업힘 · 들쳐메기 ·
  *   부모에 붙음 · 탈출선 박스면 거절하고 아무것도 바꾸지 않는다. UI 블로커(운동 화면)나 `controlsEnabled` 는 보지 않는다 —

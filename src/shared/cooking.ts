@@ -1,5 +1,5 @@
 /**
- * src/shared/cooking.ts — **요리 미니게임 · 요리 품질** 계약 (2026-09-13, `docs/plans/cooking-minigames.md`, 사용자 결정).
+ * src/shared/cooking.ts — **요리 미니게임 · 요리 품질** 계약 (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」, 사용자 결정).
  *
  * 조리대(`workbench_cook`)는 더 이상 인벤토리 제작 창을 열지 않는다 — housing 의 **조리대 화면**이 열린다. 요리 하나를 고르고
  * 「조리 시작」을 누르면 그 요리의 미니게임 1–3개(`data/cook_steps.csv`)를 순서대로 한다. 단계마다 점수(0 … 1)가 나오고

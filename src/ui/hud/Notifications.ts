@@ -143,7 +143,7 @@ export class Notifications {
         );
       }),
       /*
-       * 2026-09-13 (요리 미니게임, `docs/plans/cooking-minigames.md` §6-5): 조리 한 번의 결과. housing 은 이벤트만 내고 토스트는 여기 하나다
+       * 2026-09-13 (요리 미니게임, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」): 조리 한 번의 결과. housing 은 이벤트만 내고 토스트는 여기 하나다
        * (위 식탁 줄과 같은 규약). 성공 = `<요리> ★★★★☆ → 함선 창고|가방`, 실패 = `result.reason` 경고. 같은 순간의 `craft:completed` 는
        * 아래에서 조리대 요리면 토스트를 내지 않는다 — 이 줄이 대신한다 (`inventory:itemAdded` 획득 티커는 일반 제작과 같이 그대로 뜬다).
        */
@@ -160,7 +160,7 @@ export class Notifications {
         }
       }),
       /*
-       * 2026-09-13 (요리 재료 티어, `docs/plans/food-tiers.md` §6): 분석기의 두 알림. housing 은 이벤트만 내고 토스트는 여기 하나다
+       * 2026-09-13 (요리 재료 티어, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」): 분석기의 두 알림. housing 은 이벤트만 내고 토스트는 여기 하나다
        * (위 식탁 줄과 같은 규약). 옛 `housing:sampleDexAdded`(표본 도감) 는 더 나지 않고 ui 에 소비자도 없었다.
        *  - `analysisFound` — 분석 도감에 **처음** 적힌 산출물.
        *  - `analysisLevelUp` — 계열 레벨이 오른 순간: 그 레벨의 해석 시간 배수(`analysisTimeMul`) + 이번 레벨에서 **새로 풀린** 결과
@@ -335,7 +335,7 @@ export class Notifications {
         this.push(`전술 임플란트 장착: <b>${escapeHtml(name)}</b>`, 'info', '임플란트', 3);
       }),
       /* ── Phase 5: corporations (short lines; the credits chip / rep / contract toasts live in MetaToasts) ── */
-      /* ── 2026-09-14: NPC 퀘스트 (docs/plans/messenger-quests.md) — 옛 기업 퀘스트 완료 토스트(`meta:questChanged`)는 기업 퀘스트와 함께
+      /* ── 2026-09-14: NPC 퀘스트 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 기업 퀘스트 완료 토스트(`meta:questChanged`)는 기업 퀘스트와 함께
        * 없어졌다. 새 NPC 메시지(`npc:message`)는 메신저(ui/menus/messenger)가 띄운다. 훈련장에서는 아무것도 띄우지 않는다. ── */
       b.on('npc:objectiveProgress', ({ questId, index, done, raid }) => {
         if (!done || !raid || ctx.isTraining()) return;

@@ -1,6 +1,6 @@
 import type { CorpId, MetaSave, ProfileRef } from '@/shared';
 import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, slotKey } from '@/shared';
-/* 2026-09-14: 정보상 — 보유 중인 「행성 정보」 (docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — 보유 중인 「행성 정보」 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import { sanitizeIntelSpec } from '@/shared';
 import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
 

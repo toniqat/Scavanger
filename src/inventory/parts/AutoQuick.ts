@@ -1,5 +1,5 @@
 /**
- * src/inventory/parts/AutoQuick.ts — **소모품 퀵슬롯 자동 장착** (2026-09-14, 사용자 결정 · `docs/plans/tutorial-raid.md` §3 E).
+ * src/inventory/parts/AutoQuick.ts — **소모품 퀵슬롯 자동 장착** (2026-09-14, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
  * 답하는 질문 하나: *지금 손에 들어온 이 스택을 빈 휠 칸에 앉힐까.*
  *

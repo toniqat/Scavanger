@@ -1,4 +1,4 @@
-// Single-player smoke test for **암호화폐 채굴 — housing 규칙 · 지갑 · 거래소 · 데이터** (2026-09-13, docs/plans/power-crypto.md, agent ③).
+// Single-player smoke test for **암호화폐 채굴 — housing 규칙 · 지갑 · 거래소 · 데이터** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ③).
 // 화면(housing/ui/mining)은 이 스모크의 몫이 아니다 — 여기서는 `ctx.housing` API · `state` · 세이브 · `ctx.meta.creditsTx` · 데이터만 본다:
 //   0. 순수 규칙 — `coinCycleMs` 가 코어마다 절반, `MiningRules.takeCompletedCycles` / `foldProgress` / `sanitizeClusters`(코어 클램프 ·
 //      진행도 [0,1) · 구간 시작 · 코인 id 모양 · 중복 uid · 배치되지 않은 uid 의 코어 = orphanCores) / `sanitizeUnitsMap`.

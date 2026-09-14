@@ -30,7 +30,7 @@
 | `parts/Favorites.ts` | **아이템 즐겨찾기** (2026-09-12, E1, 사용자 결정). 표는 `InventorySystem.favorites`(def id 집합) 하나이고 `isFavorite` · `toggleFavorite(defId, on?)`(새 상태 · 모르는 def 는 false · 실제로 바뀔 때만 `inventory:favoritesChanged`) · `favoriteDefIds`(정렬된 사본)가 계약이다. 저장은 로드아웃 문서의 `fav` — 함선에서는 `markDirty('favorite')`, 함선 밖에서는 `favoritesDirty` 만 세우고 다음 로드아웃 저장(탈출 · 사망 · 실패 · 다음 `hub:entered` 의 `flushDeferred`)이 싣는다(레이드 중에 킷을 파일에 쓰지 않는다). 표를 갈아 끼우는 곳은 부팅 파일(`applySavedFavorites(…, force)`)과 서버 문서뿐이고, 올리지 못한 토글(`favoritesDirty` · 저장 디바운스)이 있으면 들어온 목록은 버린다. 그리는 쪽은 `ui/GridView` 의 모듈 사본(`setFavoriteDefs` · `isFavoriteDef` · `favoritesRevision`) |
 | `parts/RaidFound.ts` | **아이템 회수 계약 — 「이번 레이드에서 얻은 아이템」** (2026-09-12, §5-2). 규칙(시드 · 표식 · 분류 열쇠)은 `shared/raidFound.ts` 에 있고 여기는 **거는 자리**만: `installRaidFoundRules`(모든 격자 · 휠 · 정렬이 보는 `Grid.setStackKeyRule` + 상자 굴림의 `ContainerStore.raidMark`, 둘 다 질의 시점의 ctx) · `raidFoundScope`(진짜 레이드 + 활성 `extract_with_items`) · `stripRaidMarks`(레이드 끝: 장비칸 · 가방 · 휠 · 주머니 · 창고) · `annotateRaidState`(레이드 blob 에만 `rf`) |
 | `parts/MealQuality.ts` | **요리 품질이 붙은 스택** (2026-09-13, 요리 미니게임). 규칙(별 · 보너스)은 `shared/cooking.ts`, 여기는 인벤토리가 품질을 들고 다니는 자리만: `mealQualityOf` · `copyMealQuality`(나누기 · 복사 — `copyRaidFoundMark` 옆에서 부른다, **레이드 끝에도 안 지운다**) · 식탁 · 조리대 질의 `countDefQualityAll` · `consumeDefQualityAll`(가방 먼저 → 창고, 전부 또는 전무) · `getMealStacks`(가방 · 주머니 · 휠 + 창고, 티어 → 이름 → 품질 높은 순). 스택 열쇠 한 줄은 `Grid.stackKeyOf`, 조리 1회(`cookBlock` · `completeCook`)는 `parts/Crafting.ts` |
-| `parts/AutoQuick.ts` | **소모품 퀵슬롯 자동 장착** (2026-09-14, 사용자 결정 · `docs/plans/tutorial-raid.md` §3 E — **튜토리얼 전용이 아니라 게임 전역**). 답하는 질문 하나: *지금 손에 들어온 이 스택을 빈 휠 칸에 앉힐까.* `autoQuickIndexFor(sys, item, def)` = 휠에 올릴 수 있는 종류(`isQuickUsable`) · 감정 전 컨테이너 스택이 아님(`searched !== false`) · 이미 휠에 있지 않음 → `firstFreeQuickSlot`, 아니면 -1. `takeIntoQuick(sys, item, def)` 는 격자에 있는 스택을 `InventorySystem.setQuickSlot` 으로 **옮긴다** (컨테이너 출처의 `searched` 표시 · `emitTransfer` · `afterQuickChange` 를 그 함수가 이미 갖고 있다). **「퀵슬롯은 가방 격자가 아니다」(2026-09-09) 그대로** — 옮기기이지 복사가 아니고, 무게 · `countWhere` · `consumeWhere` · `stripForCorpse` · 레이드 blob 이 휠을 함께 보는 동작은 한 줄도 안 바뀐다. 거는 자리 셋은 아래 `소모품 퀵슬롯 자동 장착` 절 |
+| `parts/AutoQuick.ts` | **소모품 퀵슬롯 자동 장착** (2026-09-14, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 — **튜토리얼 전용이 아니라 게임 전역**). 답하는 질문 하나: *지금 손에 들어온 이 스택을 빈 휠 칸에 앉힐까.* `autoQuickIndexFor(sys, item, def)` = 휠에 올릴 수 있는 종류(`isQuickUsable`) · 감정 전 컨테이너 스택이 아님(`searched !== false`) · 이미 휠에 있지 않음 → `firstFreeQuickSlot`, 아니면 -1. `takeIntoQuick(sys, item, def)` 는 격자에 있는 스택을 `InventorySystem.setQuickSlot` 으로 **옮긴다** (컨테이너 출처의 `searched` 표시 · `emitTransfer` · `afterQuickChange` 를 그 함수가 이미 갖고 있다). **「퀵슬롯은 가방 격자가 아니다」(2026-09-09) 그대로** — 옮기기이지 복사가 아니고, 무게 · `countWhere` · `consumeWhere` · `stripForCorpse` · 레이드 blob 이 휠을 함께 보는 동작은 한 줄도 안 바뀐다. 거는 자리 셋은 아래 `소모품 퀵슬롯 자동 장착` 절 |
 | `parts/ShelfWanted.ts` | **「아직 서재에 꽂지 않은」 띠** (2026-09-13, 서재 시리즈 · 사용자 결정). 규칙은 housing 의 `HousingRef.isShelfItemWanted(defId)`(그 매체의 보관함 보유 + 어느 보관함에도 같은 종류가 없음) 하나이고, 여기는 그 질의를 `ui/GridView` 의 모듈 공급자(`setShelfWantedSource`)로 거는 자리다. 답은 def 당 한 번 캐시되고 `housing:libraryChanged` · `loaded` · `shelfChanged` · `booksChanged` · `furniturePlaced` · `furnitureRecovered` · `net:profileLoaded` 에서 `bumpShelfWanted()` 가 비운 뒤 열린 창을 한 번 다시 칠한다(`InventoryUI.onShelfWantedChanged`). 질의가 없으면 늘 false. 즐겨찾기 표와는 완전히 따로다 |
 | `parts/Peek.ts` | **이 컨테이너를 지금 열면 무엇이 보이나** (2026-09-12, 드론 스캔). `InventoryRef.peekContainerItems(id, tier?)` · `peekSuppliedItems(id, items, cols?, rows?)` 의 구현. 이미 굴린 컨테이너 = 지금 내용물. 아니면 **여는 경로를 그대로 흉내 낸다** — `getOrCreate` 와 같은 `Random(missionSeed ^ hash(id))` → `rollCrateOn(tier, rng, 행성)` (또는 호출자가 댄 목록), `Container.fill` 과 같은 순서로 같은 크기 사본 격자에 `autoPlace`(넘쳐 탈락 · 스택 병합까지 같다; `cols` 를 주면 `openContainerItemsSized` 처럼 `fitCorpseGrid`), 그리고 `pendingTakenOf(id, idx)` 를 롤 순서대로 뺀다(`applyPending`). 사본 인스턴스만 만진다 — 캐시 · `openedIds` · 감정 · 이벤트는 그대로다. 호출자는 `gadgets/drones/parts/Scan`. |
 | `parts/Catalog.ts` | **무한 상자 (개발자 카탈로그, Phase 6).** `/items` 콘솔 명령이 여는 치트 창이다. 다른 그리드와 달리 원본이 줄지 않고 드래그마다 **새 인스턴스**를 만든다 (`dropFromCatalog` / `takeFromCatalog`). 훈련장의 무기 거치대도 카테고리를 지정해 이 창을 연다. |
@@ -264,7 +264,7 @@ re-equips from.
 
 ## 소모품 퀵슬롯 자동 장착 (2026-09-14, 사용자 결정 — **게임 전역**)
 
-`docs/plans/tutorial-raid.md` §3 E. 주운 소모품이 퀵슬롯에 올릴 수 있는 종류이고 **빈 칸이 있으면** 그 칸에 올라간다.
+`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」. 주운 소모품이 퀵슬롯에 올릴 수 있는 종류이고 **빈 칸이 있으면** 그 칸에 올라간다.
 이미 같은 종류가 휠에 있으면 빈 칸을 새로 먹지 않고 **그쪽에 합쳐진다** (합치기는 2026-09-09 부터 `tryAddItem` 안의
 `QuickSlots.mergeIntoQuick` 이 하던 일 그대로다 — 자동 장착은 **합치고 남은 것**만 본다). 빈 칸이 없으면 평소대로 가방.
 
@@ -1049,7 +1049,7 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 요리 품질 · 조리 API (2026-09-13, 요리 미니게임 · 사용자 결정)
 
-규칙 · 표는 `shared/cooking.ts`(`normalizeMealQuality` · `MEAL_QUALITY_MAX` · `mealQualityStars`), 설계는 `docs/plans/cooking-minigames.md` §6-2.
+규칙 · 표는 `shared/cooking.ts`(`normalizeMealQuality` · `MEAL_QUALITY_MAX` · `mealQualityStars`), 결정은 `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」.
 
 - **스택 열쇠** — `Grid.stackKeyOf` 가 꽂힌 규칙(회수 계약 `'rf'`)의 열쇠에 **품질**(`|q<n>`, 0 = 덧붙이지 않음)을 늘 덧붙인다 — 규칙을 갈아 끼우지
   않고 합친다. 그래서 회수 계약 절의 「이 열쇠를 보는 곳」 목록 전부(격자 · 휠 `mergeIntoQuick` · `mergeIntoQuickSlot` · 정렬 · 넘친 수량 들기 ·
@@ -1148,7 +1148,7 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   **남은 것**: 1280×760 작업대 제작 화면은 여전히 `.inv-layout` 이 가로로 91 px 넘친다(예전 231 px) — 폭은 `.inv-panel-craft`
   의 고정값이라 칸 크기로 더 줄일 수 없다. 무한 상자 화면은 1280×760 에서 아직 세로로 꽉 찬다(카탈로그 패널 높이).
 
-- **2026-09-14 (HUD · 인벤토리 소소 개선, 에이전트 B · 사용자 결정, docs/plans/intel-broker.md §1)** — 셋 다 국소 수정이고 새 파일은 없다.
+- **2026-09-14 (HUD · 인벤토리 소소 개선, 에이전트 B · 사용자 결정, docs/DECISIONS.md 「2026-09-14 — 정보상」)** — 셋 다 국소 수정이고 새 파일은 없다.
 
   ① **중앙 하단 안내 알약 바 삭제** (`ui/InventoryUI.ts` · `inventory.css`). `.inv-hints` 는 **레이드에서만** 뜨면서
   우측 하단 키 가이드와 회전 · 더블클릭 · 우클릭 · 버리기 · 휠클릭 **다섯 항목이 그대로** 겹쳤다 (같은 화면에서 같은 말을
@@ -1223,7 +1223,7 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   로드아웃 저장을 취소하기 때문) · `ProfileDocs.applyRaidState`(가방만, 없으면 무기에 남김). `__selftest__.ts`: 계열별 `canAttach` · 규칙 밖 부착물 무효 · 떼기 · 등급 조작감 ·
   흔들림 · 확장 총열 단언. 크루 카드(`ui/CrewLoadoutView`)는 읽기 전용이라 건드리지 않았다 — 규칙 밖 부착물이 핍으로 보일 수 있지만 효과는 없다.
 
-- **2026-09-13 (서재 시리즈 · 연구 숙련 소비자 — 에이전트 C, docs/plans/library-series-games.md)** — 세 가지.
+- **2026-09-13 (서재 시리즈 · 연구 숙련 소비자 — 에이전트 C, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」)** — 세 가지.
   ① **「아직 꽂지 않은」 띠** (사용자 결정): 책 · 비디오 · 레코드 타일에 즐겨찾기와 **똑같은** 파란 사선 띠 — `HousingRef.isShelfItemWanted(defId)` 가 true 일 때.
   새 파일 `parts/ShelfWanted.ts`(위 표) · `ui/GridView`(`isShelfWantedDef` · `shelfWantedRevision` · `setShelfWantedSource` · `bumpShelfWanted`, 서명 · `refresh` 게이트에 리비전,
   `buildTileContent` · `buildSlotCardContent` 가 `.is-shelf-wanted`) · `inventory.css`(`.is-favorite::before` 규칙에 **선택자만 나란히** — 둘 다면 띠 하나, 필요 탄약 노란 띠 규칙도 같이) ·
@@ -1242,7 +1242,7 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 - **2026-09-13 (같은 날 후속 — 전력 할당 폐지, 사용자 결정)** — 아래 항목을 되돌렸다: `parts/Crafting.getRecipes` 는 다시 `getBenchLevel` 만 보고, `ui/CraftPanel.buildBenches` 의
   `powerOf` · `.is-unpowered` · 갈아 끼우기 거절 토스트와 `inventory.css` 의 `.inv-craft-bench.is-unpowered` 를 지웠다. 작업대는 멈추지 않는다.
 
-- **2026-09-13 (발전기 전력, docs/plans/power-crypto.md, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). 멈춘(전력 부족 · 비활성) 작업대는 제작에 쓰이지 않는다.
+- **2026-09-13 (발전기 전력, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). 멈춘(전력 부족 · 비활성) 작업대는 제작에 쓰이지 않는다.
   `parts/Crafting.getRecipes` 의 「배치된 작업대 레벨」이 `HousingRef.getOperationalBenchLevel`(없으면 옛 `getBenchLevel`)을 읽어 가방 제작 목록의 함선 레시피가 빠진다.
   `ui/CraftPanel.buildBenches` 는 놓여 있지만 멈춘 작업대를 리스트에 **흐리게**(`.inv-craft-bench.is-unpowered`, 점선) 남기고 `title` 에 사유,
   누르면 갈아 끼우지 않고 `ui_deny` + 토스트 `<작업대> — <사유>`(`HousingRef.benchOperationalBlock`). 서명에 사유가 들어가 전력이 바뀌면 다시 짓는다.

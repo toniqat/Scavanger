@@ -1,4 +1,4 @@
-// 전술 지도 퀘스트 패널 · 퀘스트 토스트 스모크 (2026-09-14 — src/ui/map/QuestPanels · src/ui/hud/Notifications, docs/plans/messenger-quests.md §5).
+// 전술 지도 퀘스트 패널 · 퀘스트 토스트 스모크 (2026-09-14 — src/ui/map/QuestPanels · src/ui/hud/Notifications, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
 //
 // 왜 있나: 지도 좌측 열이 「머리 → 퀘스트 패널 목록 → 범례(좌측 하단) → 발밑 줄」 로 바뀌었고 패널이 `ctx.meta.npc.getRaidTracks()` 를
 // 그린다. 패널이 늘어도 프레임(= 캔버스 높이)이 자라면 안 되고, 트랙이 없거나 목적지 선택 모드여도 열이 무너지면 안 된다.

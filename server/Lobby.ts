@@ -57,7 +57,7 @@ export class Lobby {
    * a training ignores it. **`reset()` keeps it** — the destination outlives the mission.
    */
   planet: PlanetId | null = null;
-  /* 2026-09-14 — 정보상 (docs/plans/intel-broker.md) */
+  /* 2026-09-14 — 정보상 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
   /**
    * 분대장이 산 **기믹 고정** (`lobby:intel`), 아무도 안 샀으면 null. 서버는 **모양만** 씻어 들고 그대로 방송한다 —
    * 레이아웃은 계산하지 않는다 (`planet` 과 같은 취급). `reset()` 이 **지운다**: 정보는 그 레이드에서 소모되므로

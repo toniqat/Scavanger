@@ -1,5 +1,5 @@
 /**
- * src/inventory/parts/ShelfWanted.ts — **「아직 서재에 꽂지 않은」 띠** (2026-09-13, 서재 시리즈 · 사용자 결정, docs/plans/library-series-games.md §5).
+ * src/inventory/parts/ShelfWanted.ts — **「아직 서재에 꽂지 않은」 띠** (2026-09-13, 서재 시리즈 · 사용자 결정, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
  *
  * 답하는 질문: *이 책 · 비디오 · 레코드 타일에 즐겨찾기와 같은 파란 띠를 그릴까.*
  *

@@ -1,5 +1,5 @@
 /*
- * src/ui/styles/buffs.css — 캐릭터 버프 썸네일 줄 (`hud/BuffStrip`, 2026-09-12, `docs/plans/char-buffs.md` §6-D).
+ * src/ui/styles/buffs.css — 캐릭터 버프 썸네일 줄 (`hud/BuffStrip`, 2026-09-12, `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
  *
  *   `.bfs(.has-items .is-mini)`   썸네일 한 줄. 비어 있으면 `display:none` 이라 자리를 차지하지 않는다.
  *     `.bfs-cell(.is-pending .is-debuff .is-timed)[data-key][data-kind]`   정사각 썸네일 (`--bc` 색 · `--r` 0…1 남은 비율)

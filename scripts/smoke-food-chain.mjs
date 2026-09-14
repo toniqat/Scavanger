@@ -1,4 +1,4 @@
-// Single-player smoke test for **요리 재료 티어 — housing 규칙** (2026-09-13, docs/plans/food-tiers.md §4, agent B).
+// Single-player smoke test for **요리 재료 티어 — housing 규칙** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, agent B).
 // 화면(housing/ui)은 smoke-stations 의 몫이고, 여기서는 `ctx.housing` API · `state` · 세이브만 본다:
 //   0. `Rules.ts` 순수 함수 — 뒤 두 인자의 기본값이 옛 식과 **같은 값**(`growDurationMs` · `cultureDurationMs`), 흙 궁합 보너스만 비율을 탄다
 //      (패널티는 그대로), 소켓 speed 바닥, `durabilityRatio` · `wearAfterHarvest`(wear 소켓 바닥), `analysisDurationMs`, 결과표 가중 추첨(rng 0 →

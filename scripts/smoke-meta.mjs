@@ -523,7 +523,7 @@ try {
   const cab = await lastEv('meta:contractAbandoned');
   ok(cab && cab.id === 'helix_1' && (await P(() => window.__game.ctx.meta.activeContract)) === null, 'meta:contractAbandoned + no active contract', JSON.stringify(cab));
 
-  /* 2026-09-14: 기업 퀘스트 폐지 (docs/plans/messenger-quests.md) — 옛 API 는 빈 목록 · false 이고, NPC 퀘스트는
+  /* 2026-09-14: 기업 퀘스트 폐지 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 API 는 빈 목록 · false 이고, NPC 퀘스트는
      scripts/smoke-npc-quests.mjs 가 본다. 뒤의 검사들이 기대하는 helix 신뢰도(Lv.2 · 310)는 옛 h1 보상 150 을 직접 더해 맞춘다. */
   console.log('corp quests are gone');
   ok(await P(() => window.__game.ctx.meta.getQuests('helix').length) === 0, 'getQuests(helix) → [] (기업 퀘스트 없음)');

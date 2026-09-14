@@ -388,7 +388,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 튜토리얼 행성 (2026-09-14, `docs/plans/tutorial-raid.md`): 손으로 지은 선형 맵. 절차 생성기를 아예 안 타고
+   * 튜토리얼 행성 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 손으로 지은 선형 맵. 절차 생성기를 아예 안 타고
    * 훈련장과 **같은 배선**이다 — 지형 · 소품 · 상자 · 둥지 · 채집 · 선로 · 재해 · 안개가 하나도 없고,
    * 걸어 다니는 땅은 전부 사각 콜라이더(데크)라 절벽이 진짜 수직면이다. 자세한 것은 `tutorial/model.ts`.
    * 하늘은 훈련장과 달리 **space mode 로 바꾸지 않는다** — 행성 위라서 평소 대기 · 태양 그대로다.
@@ -419,7 +419,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   /** `ctx.world.training` (Phase 9): the arena implements `TrainingRef` (modes / score / timed course); null outside a training world. */
   get training(): TrainingRef | null { return this.trainingArena; }
   /**
-   * `ctx.world.tutorial` (2026-09-14, `docs/plans/tutorial-raid.md`): 튜토리얼 월드의 체크포인트 · 낙하 규칙 ·
+   * `ctx.world.tutorial` (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 튜토리얼 월드의 체크포인트 · 낙하 규칙 ·
    * 적 자리. 튜토리얼 월드가 아니면 null 이고, 호출부(`player/` · `game/` · `enemies/`)는 `?.` · `?? 'normal'`
    * 로 이어 쓰므로 본편 동작은 한 글자도 바뀌지 않는다.
    */

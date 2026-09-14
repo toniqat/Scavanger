@@ -1,4 +1,4 @@
-// Single-player smoke test for the **비디오게임** (2026-09-13, H2 — docs/plans/library-series-games.md §3, src/housing — parts/VideoGame ·
+// Single-player smoke test for the **비디오게임** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, src/housing — parts/VideoGame ·
 // Rules.tvSeatFor · parts/GymGames 튜닝 · ui/tv/TvMenu · ui/gym 게임 모드 + progression applyGymSession 지능 · 인지력):
 //   1. 좌석 규칙 매트릭스 (순수 — 가구 목록을 잠깐 바꿔 `videoGameDebug.seatFor`) — 좌석 없음 · 반대로 앉음 · TV 뒤 · 폭 안 겹침 · 다른 방 ·
 //      통로의 높은 가구 = 막힘 · 폭 밖 가구 · low 가구 통과 · 쇼파 · 가까운 좌석 · 막힘 > 보고 있지 않음 · 옆으로 누운 TV

@@ -1,4 +1,4 @@
-// Single-player smoke test for the **가구 배치 규칙 — 접근 면** (2026-09-13, docs/plans/power-crypto.md, housing `Rules.placementBlockOf` ·
+// Single-player smoke test for the **가구 배치 규칙 — 접근 면** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, housing `Rules.placementBlockOf` ·
 // `ShipState.sanitize` · hub `interiors/Furniture` 상호작용 방향 · `HousingMode` 비워야 하는 칸 타일).
 //   0. 옛 배치 → 가구 창고: 규칙을 어기는 조각(앞이 벽인 작업대 · 작업대 앞 줄의 사물함 · 넓은 면이 막힌 재배 스테이션 · 시술대 앞의 사물함)이
 //      로드할 때 가구 창고로 가고, 옮겨진 재배 스테이션의 흙 · 심은 씨앗은 함선 창고로 돌아오며, 조종석 전용 시설 두 점은 그대로 선다.

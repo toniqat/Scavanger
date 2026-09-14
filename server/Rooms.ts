@@ -1,5 +1,5 @@
 /**
- * server/Rooms.ts — 단체 메신저방 저장소 (2026-09-14, docs/plans/messenger-quests.md §4).
+ * server/Rooms.ts — 단체 메신저방 저장소 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * 방은 **서버 권위 · 영속**이다. 이 파일은 데이터와 규칙(멤버 · 방장 · 초대 · 줄 · 한도)만 갖고, 누가 친구인지 · 누가 누구를
  * 차단했는지 · 접속해 있는지는 모른다 — 그건 `RelayServer` 가 `ProfileStore` 로 먼저 보고 여기를 부른다. 그래서 모든 연산은

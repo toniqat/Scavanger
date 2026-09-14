@@ -1,4 +1,4 @@
-// Two-client smoke for the E-4 trust paths (2026-09-11, docs/plans/net-social-trust.md §5 + C-57 · X-6):
+// Two-client smoke for the E-4 trust paths (2026-09-11, docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」 + C-57 · X-6):
 //   (d) 함선 호출 = 호스트 경유 — a non-host `strat call` / `strat sync` is ignored, `stratq call` is validated (kind ·
 //       host-only · range · per-caller cooldown · callId owner) and a real non-host call reaches both clients with `by`.
 //   (a)(b) 버프 — the receiver's `BuffGuard` clamps a forged boost, trims an over-budget heal, refuses a heal / cloak from a
@@ -7,7 +7,7 @@
 //       `enemy:squadKill`, non-kill hits are rate-limited, a `meta sync` nobody asked for is ignored.
 //   C-57 `crate opened` — unknown id / far sender refused, a near sender accepted, the host only re-hands verified ids.
 //   X-6 넉백 — a `HitRequest.kb` from a sender far from the enemy is refused; the per-sender DPS budget trims a flood.
-// Appended 2026-09-11 (E-8, docs/plans/net-trust-gaps.md §1 · §2 · §3 · §9):
+// Appended 2026-09-11 (E-8, docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」):
 //   (a) `explode` — junk `p` / out-of-range `dmg` · `r` dropped on shape, a blast 220 m from the sender refused, a
 //       legitimate one next to the sender still damages the enemy (the guard must not eat real play), a flood shares
 //       the `hit` DPS bucket. Observed through the host's `EnemySystem.hitGuardStats` **deltas** (it never resets).

@@ -105,7 +105,7 @@ export function onLocalDied(sys: GameFlowSystem): void {
   }
   }
 
-/* ═══════════════ 튜토리얼 체크포인트 부활 (2026-09-14, `docs/plans/tutorial-raid.md` B) ═══════════════
+/* ═══════════════ 튜토리얼 체크포인트 부활 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ═══════════════
  *
  * 「완전한 사망에는 자동 부활이 없다」(2026-09-09)는 그대로다 — 이것은 그 규칙을 뚫는 예외가 아니라
  * `ctx.missionMode === 'tutorial'` 안에서만 사는 **별도 갈래**이고, 되살리는 수단도 이미 있는 계약
@@ -349,7 +349,7 @@ export function gameOver(sys: GameFlowSystem): void {
   }
 
 /**
- * 2026-09-13 (서재 시리즈, docs/plans/library-series-games.md): 서재 효과의 레이드 경험치 배율 `1 + raidXp`.
+ * 2026-09-13 (서재 시리즈, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 서재 효과의 레이드 경험치 배율 `1 + raidXp`.
  * housing 이 합산을 모르면(병렬 작업 · 스켈레톤) 1. 음수 · NaN 은 0 으로 본다.
  */
 export function libraryRaidXpMul(ctx: GameContext): number {

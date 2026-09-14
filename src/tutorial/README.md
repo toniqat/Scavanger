@@ -1,7 +1,7 @@
 # src/tutorial — 새 캐릭터 안내
 
 안내는 **세 트랙**이고 각각 따로 건너뛴다 (2026-09-14, 사용자 결정 · 설계 원본
-[`docs/plans/tutorial-raid.md`](../../docs/plans/tutorial-raid.md)):
+[`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」](../../docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」)):
 
 | 트랙 | 어디서 | 무엇을 |
 |---|---|---|
@@ -400,7 +400,7 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
-- **2026-09-14 4차 (오프닝 배선 · 「앞으로 이동」 · 목표 정리 — 사용자 결정, `docs/plans/tutorial-polish-2026-09-14d.md` B)**
+- **2026-09-14 4차 (오프닝 배선 · 「앞으로 이동」 · 목표 정리 — 사용자 결정, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)**
   ① **오프닝이 실제로 돈다.** `PlayerRef.playIntroWake` 를 **`src/` 어디서도 부르지 않아** 2초 페이드도 쓰러진 채
   일어나는 애니메이션도 한 번도 나오지 않았다 (`player:introWakeDone` 이 영영 안 와도 `cliff` 체크포인트가
   `sprintJump` 까지 접어 줘서 진행이 막히지 않아 눈에 안 띄었다). 부르는 자리는 `update()` 의 **다음 프레임**이다 —
@@ -427,7 +427,7 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
   ⑧ **탈출 함선 마커** — `hides('hud','shipMarker')` 가 `extract` 에서 풀리던 한 줄을 **레이드 내내 숨김**으로.
   함선 위에 뜨던 초록 원(`ui/hud/WorldMarkers` 의 `.wmarker.ship`)이 정체 모를 물체로 보였다 (사용자 결정).
 
-- **2026-09-14 3차 (순차 공개 · 조작 가이드 교체 · 목표 세분화 — 사용자 결정, `docs/plans/qol-batch-2026-09-14c.md` C)**
+- **2026-09-14 3차 (순차 공개 · 조작 가이드 교체 · 목표 세분화 — 사용자 결정, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)**
   ① **목표 순차 공개** — `TutorialObjective.reveal`(앞 줄을 달성해야 보인다) · `revealOn`(바깥 사건이 연다).
   고르는 것은 순수 함수 `visibleObjectives` 하나이고 패널은 통과한 줄만 받는다. 뒤 줄을 먼저 해낸 사람의 앞 줄이
   안 켜져 그 뒤가 통째로 숨는 길은 `markObjective` 가 `objectiveChain` 으로 막는다. 위 「순차 공개」 절 참고.
@@ -490,7 +490,7 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
   `LMB 사격 · RMB 정조준`이 **한 줄**이 됐다(`ControlHint.more`). **인벤토리 화면이 열려 있으면 접힌다**.
   자리를 무기 패널 · 퀵슬롯 **위**로 뺐다 (`bottom: 232px`, 위 절 참고).
 
-- **2026-09-14 (3트랙 단계 기계 · 우측 조작 가이드 · HUD 점진 노출 — `docs/plans/tutorial-raid.md` C)** — 같은 날 먼저 들어온 계약 위에
+- **2026-09-14 (3트랙 단계 기계 · 우측 조작 가이드 · HUD 점진 노출 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)** — 같은 날 먼저 들어온 계약 위에
   **진짜 구현**이 올라갔다.
   ① **저장 v2** — `TutorialSave.tracks` 로 트랙별 `{step, done}`. v1(최상위 `step`/`done`)은 `tracks.build` 로 옮겨 붙이고
   그 프로필은 **레이드 · 함선 트랙을 이미 끝낸 것으로** 본다 (안 그러면 하던 사람이 다음 접속에 튜토리얼 레이드로 끌려간다 —
@@ -522,7 +522,7 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
   가득 채워 주므로 그대로 두면 한 번 죽은 뒤부터 긴장이 사라진다). `LOW_HP_DONE_STEPS`(`heal` 부터)에 닿으면 손을 둔다 —
   그 단계가 바로 회복 아이템을 줍고 쓰는 곳이다. 솔로 레이드라 체력 0 은 전투불능이 아니라 **즉사** → 체크포인트다.
 
-- **2026-09-14 (튜토리얼 개편 — 계약만 먼저, `docs/plans/tutorial-raid.md`)** — 사용자 결정으로 안내가 **세 트랙**으로 갈라진다:
+- **2026-09-14 (튜토리얼 개편 — 계약만 먼저, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)** — 사용자 결정으로 안내가 **세 트랙**으로 갈라진다:
   ① `raid`(손으로 지은 튜토리얼 행성에서 깨어나 조작을 배우고 버려진 함선으로 탈출) ② `ship`(레벨업 · 능력치 투자 · 메신저 레이븐)
   ③ `build`(하우징 → 제작 → 출격 — 2026-09-14 3차에 `manageDone` 이 빠져 16단계). 각각 따로 건너뛴 수 있다 — 조작은 아는데 함선 증축은 처음인 사람이 있기 때문이다.
   **이번 커밋은 계약과 자리만 잡았다**: `Steps.ts` 에 두 트랙의 단계 15개가 **빈 자리**로 들어왔고(문구 · 스포트라이트 · 허용 게이트는

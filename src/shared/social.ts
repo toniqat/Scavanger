@@ -409,7 +409,7 @@ export interface SocialRef {
   playBlock(code: PlayerCode): PlayBlock | null;
 }
 
-/* ══ appended: 2026-09-14 — 개인 대화(옛 귓속말) 읽음 · 단체 메신저방 (docs/plans/messenger-quests.md) ══
+/* ══ appended: 2026-09-14 — 개인 대화(옛 귓속말) 읽음 · 단체 메신저방 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) ══
  * 소유: server/ (방 저장소 · 권한 · fan-out), net/ (`ctx.net.rooms` · 읽지 않음), ui/ (메신저).
  * 사용자 결정: 방장형 — 누구나 만들고 **친구를** 초대, 초대 · 강퇴 · 이름 변경은 방장만, 방장이 나가면 가장 먼저 들어온 멤버가 방장,
  * 마지막 멤버가 나가면 방 삭제. 최대 `ROOM_MEMBER_MAX` 명, 서버가 최근 `ROOM_LINES_MAX` 줄 보관. **채팅창과 연동하지 않는다** (메신저 안에서만).

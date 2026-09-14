@@ -118,7 +118,7 @@ export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot'
 
 export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android'];
 
-/* ── 2026-09-14 3차: 튜토리얼 전용 4종 (`docs/plans/qol-batch-2026-09-14c.md` 의 D 절) ──────────────────
+/* ── 2026-09-14 3차: 튜토리얼 전용 4종 (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────────────
  *
  * 이 네 종류가 새로 갖는 것은 **고정 드롭 표** 하나뿐이다 (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`).
  * 리그 · 겉모습 · AI · 소리는 **바탕 종류**의 것을 그대로 쓴다 — 그래서 타입별 표(`BUG_PARAMS` · `ROGUE_RIG_PARAMS` ·

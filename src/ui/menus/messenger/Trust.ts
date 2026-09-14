@@ -3,7 +3,7 @@ import { REP_LEVEL_MAX, REP_TABLE, repLevelOf } from '@/shared';
 import { clamp01, el } from '../../dom';
 
 /**
- * **NPC 개인 신뢰도**의 읽기 · 그리기 (2026-09-14, docs/plans/intel-broker.md §2.7).
+ * **NPC 개인 신뢰도**의 읽기 · 그리기 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
  *
  * 기업 신뢰도(`ctx.meta.getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다 — 값은 `ctx.meta.npcTrust(npcId)` 하나에서만
  * 오고 여기서는 레벨 · 구간 비율만 푼다 (meta/ 를 import 하지 않는다 — 폴더끼리는 `ctx` 의 ref 로만 말한다).

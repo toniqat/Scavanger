@@ -599,7 +599,7 @@ try {
       const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
       const btn = sec?.querySelector('button');
       // 2026-09-14: 승무원 줄은 터미널 좌측 열이 아니라 **매칭 팝업**(`.hm-match`, `ui/MatchPanel`) 안에 산다
-      // — 열려 있어야 갱신되므로 읽기 전에 연다 (`docs/plans/intel-broker.md` §4.1).
+      // — 열려 있어야 갱신되므로 읽기 전에 연다 (`docs/DECISIONS.md` 「2026-09-14 — 정보상」).
       // ⚠ 읽은 뒤 **다시 닫는다** — 열어 둔 채로 두면 아래의 E 가 터미널이 아니라 이 팝업을 닫는다 (ESC · E 사슬은 맨 위 하나다).
       document.querySelector('.menu.hub-menu .ui-btn.hub-matching')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const crew = [...document.querySelectorAll('.menu.hub-menu.hm-match .crew-row .state')].map((n) => n.textContent);

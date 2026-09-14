@@ -12,14 +12,14 @@ import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from '
 import type { MissionMode } from './types';
 /* appended (Phase 11, 2026-09-07): 행성 선택 + 소셜 */
 import type { PlanetId } from './planets';
-/* appended (2026-09-14): 정보상 — 로비 · 레이드 시작에 실리는 기믹 고정 (docs/plans/intel-broker.md) */
+/* appended (2026-09-14): 정보상 — 로비 · 레이드 시작에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelPick } from './intel';
 /* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout rides on `ship state` */
 import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
 import type {
   PlayOutcome, PlayerCode, SocialErrorCode, SocialRef, SocialSnapshot, SquadInvite,
 } from './social';
-/* appended (2026-09-11): 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) */
+/* appended (2026-09-11): 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) */
 import type { InviteOutcome } from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ export interface LobbyState {
    * started from this lobby carries it in `game:start.planet`; a training ignores it.
    */
   planet?: PlanetId;
-  /* appended (2026-09-14): 정보상 — docs/plans/intel-broker.md */
+  /* appended (2026-09-14): 정보상 — docs/DECISIONS.md 「2026-09-14 — 정보상」 */
   /**
    * 분대장이 산 **기믹 고정** (`lobby:intel`), 없으면 안 샀다. 분대원은 함선에서 이것을 읽어 정보상 패널에
    * 요약을 띄운다(읽기 전용 — 사는 것도 버리는 것도 분대장뿐이다). 레이드 시작이 이것을 `game:start.intel`
@@ -864,7 +864,7 @@ export type GameMessage =
  */
 export interface MealMessage { t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }
 
-/* ══ 2026-09-12 wire: 캐릭터 버프 · 가구 자세 (사용자 결정 — docs/plans/char-buffs.md) ══════════════════════════════════
+/* ══ 2026-09-12 wire: 캐릭터 버프 · 가구 자세 (사용자 결정 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」) ══════════════════════════════════
  *
  * 앉기 · 운동 같은 가구 상호작용 상태가 **캐릭터 버프**가 됐고, 식사 · 준비물 · 운동 디버프 · 환경 노출도 같은 목록에 산다.
  * 분대원의 목록은 두 길로 온다:
@@ -1748,7 +1748,7 @@ export interface NetRef {
   reconnectRelay(): Promise<boolean>;
 }
 
-/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/plans/net-social-trust.md) ═════════════════════════════════════
+/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) ═════════════════════════════════════
  * B-3 초대 결과 · B-4 차단 / 전송 확인 / 오프라인 보관 · E-6 문서 리비전 · B-1 링크 상태. 전부 추가만.
  * Owners: server/ (①소셜 · ③저장), net/ (②소셜 · ③ProfileSync · ④Socket), ui/ · hub/ (②④).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -1857,7 +1857,7 @@ export interface CorpseItemWire {
   rf?: number;
 }
 
-/* ══ appended: 2026-09-13 — 요리 품질이 와이어를 건넌다 (`ItemInstance.quality`, docs/plans/cooking-minigames.md) ══
+/* ══ appended: 2026-09-13 — 요리 품질이 와이어를 건넌다 (`ItemInstance.quality`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══
  * `rf` 와 같은 자리에 싣는다. 생략 = 품질 0 (옛 피어 · 요리가 아닌 아이템). 받는 쪽은 `normalizeMealQuality` 로 자른다. */
 export interface PickupWire {
   /** 바닥에 떨어진 요리의 `ItemInstance.quality`. */
@@ -1901,7 +1901,7 @@ export type RoverRequest =
   | { t: 'roverq'; ev: 'sync' };
 /* ══ end 2026-09-13 탐사 차량 ══ */
 
-/* ══ appended: 2026-09-13 — 암호화폐 시세 (docs/plans/power-crypto.md · owner: server/CryptoMarket · net/parts/Crypto) ══
+/* ══ appended: 2026-09-13 — 암호화폐 시세 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · owner: server/CryptoMarket · net/parts/Crypto) ══
  * 릴레이가 코인 시세를 시뮬레이션하고(`CRYPTO_TICK_S`) 봉 이력을 저장한다 — 서버에 붙어 있어야 차트 · 매매가 된다 (사용자 결정).
  * 값의 원본은 `server/economy.gen.json` 의 `crypto` 절(← data/crypto.csv · tuning.csv). 익명 연결도 받는다 (시세는 비밀이 아니다).
  * 매매 자체는 새 메시지가 아니라 `credits:tx` 의 사유 `cbuy:` · `csell:` 이다 (`shared/credits.ts`). */
@@ -1942,7 +1942,7 @@ export interface NetRef {
 }
 /* ══ end 2026-09-13 암호화폐 시세 ══ */
 
-/* ══ appended: 2026-09-14 — 단체 메신저방 (docs/plans/messenger-quests.md · owner: server/ · net/) ══
+/* ══ appended: 2026-09-14 — 단체 메신저방 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · owner: server/ · net/) ══
  * 서버 권위 · 영속. 프로필(토큰)이 있어야 한다 — 익명이면 `room:error {code:'unavailable'}`. 타입 · 상수는 `shared/social.ts` 끝 절.
  * 받는 쪽은 `room:state` 를 통째로 받는다 (방 목록 · 초대가 작다). 줄은 `room:line` 으로 방 멤버 중 접속자에게 퍼진다.
  * A 에이전트(서버 · 넷)가 이 절 **안에서만** 변형을 추가할 수 있다 (기존 필드 변경 금지). */
@@ -1981,7 +1981,7 @@ export interface NetRef {
 }
 /* ══ end 2026-09-14 단체 메신저방 ══ */
 
-/* ══ appended (2026-09-14): 정보상 — NetRef 표면 (docs/plans/intel-broker.md §2.4) ══════════════════════════════
+/* ══ appended (2026-09-14): 정보상 — NetRef 표면 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ══════════════════════════════
  *
  * 와이어(`IntelWire` · `LobbyState.intel` · `lobby:intel` · `lobby:start.intel` · `game:start.intel`)는 이미 위에
  * 있는데 **그것을 보내는 `NetRef` 메서드가 빠져 있었다** — `meta/parts/Intel.ts`(구매 뒤 분대에 알린다)와

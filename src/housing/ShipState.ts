@@ -77,14 +77,14 @@ import { furnitureFootprint } from '@/shared';
  *    `COCKPIT_BLOCKED_RECTS` 가 막고 있었으므로 옛 세이브에서는 늘 비어 있다. v10 으로 저장된 뒤에는 회수해도 다시 채우지 않는다.
  */
 /*
- * 요리 재료 티어 (2026-09-13, docs/plans/food-tiers.md §4.6): state **version 11** — 없던 필드가 생기는 것뿐이다:
+ * 요리 재료 티어 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): state **version 11** — 없던 필드가 생기는 것뿐이다:
  * `grows[].soilDurability` · `sockets`, `cultures[].mediumDurability` · `sockets` · `scaffoldDefId`, `analyses[].family` · `resultDefId` ·
  * `resultQty`, `analysisXp` · `analysisFound`. 환불 · 마이그레이션 경로가 없다 — 옛 `soilUsesLeft` · `mediumUsesLeft` 를 내구도로 옮기는 일은
  * 아이템 표가 있어야 해서 런타임 정리(`parts/Garden.grows()` · `parts/Culture.cultures()`)가 한다. ⚠ 여기서 **새 필드를 버리지 않는 것**이
  * 요점이다 (칸을 필드별로 다시 짓기 때문에 적지 않은 필드는 조용히 사라진다). `soilUsesLeft` · `mediumUsesLeft` 는 이제 0 도 된다.
  */
 /*
- * 서재 시리즈 · 비디오게임 (2026-09-13, docs/plans/library-series-games.md): **버전을 올리지 않았다** (여전히 12). 새 필드는 `tvConsoles` 하나이고
+ * 서재 시리즈 · 비디오게임 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **버전을 올리지 않았다** (여전히 12). 새 필드는 `tvConsoles` 하나이고
  * (없으면 빈 배열), 나머지는 버전과 상관없이 **모든 로드**가 지나는 멱등 규칙이다 — `ensureCockpitFurniture` 와 같은 자리다:
  *  · `books` · `media` · `bookDex` · `mediaDex` · `tvConsoles` 의 옛 아이템 id 를 `resolveItemAlias`(`data/item_aliases.csv`)로 바꾼다 (사용자 결정: 옛 숙련별
  *    책 · 디스크 · 레코드 → 새 시리즈 1권). 바꾼 것만 있으면 `out.aliasedLibrary` (저장만 예약 — 편집 취급 아님).
@@ -95,7 +95,7 @@ import { furnitureFootprint } from '@/shared';
  */
 const SAVE_DELAY_MS = 350;
 /*
- * 발전기 전력 (2026-09-13, docs/plans/power-crypto.md): state **version 12** 가 `powerAlloc` · `disabledFurniture` · `pausedAt` 를 들고 있었다.
+ * 발전기 전력 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): state **version 12** 가 `powerAlloc` · `disabledFurniture` · `pausedAt` 를 들고 있었다.
  */
 /*
  * 발전기 = 증축 조건 (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」): state **version 13**.

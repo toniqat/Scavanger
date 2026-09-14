@@ -1,5 +1,5 @@
 /**
- * 암호화폐 시세 시뮬레이션 · 봉 이력 · 저장 (2026-09-13, docs/plans/power-crypto.md — 계약 `src/shared/cryptoMarket.ts` ·
+ * 암호화폐 시세 시뮬레이션 · 봉 이력 · 저장 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 계약 `src/shared/cryptoMarket.ts` ·
  * `src/shared/credits.ts` 의 `EconomyTable.crypto` · `src/shared/net.ts` 의 `crypto:*`).
  *
  * 릴레이가 코인 시세의 **유일한 원본**이다 (사용자 결정 — 서버에 붙어 있어야 차트 · 매매가 된다). 수치의 원본은
@@ -59,7 +59,7 @@ export function corruptCryptoFileName(now: Date = new Date()): string {
 export const CRYPTO_SAVE_DEBOUNCE_MS = 60_000;
 
 /*
- * 시뮬레이션 모양 (리드 설계 — docs/plans/power-crypto.md 「시세」). 코인별 밸런스(기준가 · 변동성 · 틱)는 csv 에 있고, 여기는 **모델의 모양**만:
+ * 시뮬레이션 모양 (리드 설계 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). 코인별 밸런스(기준가 · 변동성 · 틱)는 csv 에 있고, 여기는 **모델의 모양**만:
  * 반감기 · 점프 빈도 · 점프 크기 · 가격 띠. 이 넷을 csv 로 올리려면 `EconomyTable.crypto` 에 필드를 추가하고 생성기가 싣는다.
  */
 /** Mean-reversion half-life of the log price (days). */

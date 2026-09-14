@@ -4,7 +4,7 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` — 암호화폐 채굴 (2026-09-13, docs/plans/power-crypto.md) 개발용 명령.
+ * `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` — 암호화폐 채굴 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) 개발용 명령.
  * **`HousingRef` 의 공개 API 만** 쓴다 (`state.clusters` · `cryptoWallet` 를 직접 만지지 않는다 — dev 메서드 셋은 계약의 optional 이다).
  *
  *   - `crypto`                       클러스터마다 코인 · 코어 · 주기 · 진행 · 막힌 사유, 그리고 지갑.

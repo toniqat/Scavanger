@@ -1,5 +1,5 @@
 /**
- * src/enemies/Tutorial.ts — **튜토리얼 전용 적** (2026-09-14, `docs/plans/tutorial-raid.md` 의 `D` 절).
+ * src/enemies/Tutorial.ts — **튜토리얼 전용 적** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 `D` 절).
  *
  * 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`)는 **고정 자리 · 고정 종류**의 적만 세운다:
  * 굴림 없음 · 웨이브 없음 · 순찰 없음 · 스포너 없음 · 지하벌레 없음 · 네임드 없음 · 레이더 강하 없음.
@@ -19,7 +19,7 @@
  *
  * 안드로이드의 외피 · 피 대신 불꽃은 **본편 그대로**다.
  *
- * ── 2026-09-14 3차 (`docs/plans/qol-batch-2026-09-14c.md` 의 D 절) ───────────────────────────────────
+ * ── 2026-09-14 3차 (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ───────────────────────────────────
  * 1. **전용 적 타입 4종.** 월드 목록이 `tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android` 를 쓴다.
  *    수치는 `data/enemies.csv` 의 자기 줄(안드로이드는 체력 절반)이고, 리그 · AI · 소리는 바탕 종류
  *    (`EnemyTypes.baseTypeOf`)의 것이며, 다른 것은 **고정 드롭**뿐이다 — `_loot` 둘만 100 % 로 정해진 물건을
@@ -49,7 +49,7 @@ export interface TutorialPlacement {
 /**
  * 2026-09-14 3차 — **땅속에서 기다리는 벌레 한 마리**.
  *
- * 튜토리얼 벌레는 처음부터 서 있지 않고 플레이어가 다가오면 구덩이에서 솟는다 (`docs/plans/qol-batch-2026-09-14c.md` D 절).
+ * 튜토리얼 벌레는 처음부터 서 있지 않고 플레이어가 다가오면 구덩이에서 솟는다 (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  * 새 개념을 만들지 않았다 — 이미 있는 **버그 굴착 스폰**(2026-09-13: `Pool.spawn(…, emerge)` → `Enemy.startEmerge` +
  * `parts/Burrow.emergeFx` + `ee spawn.em`)을 그대로 부른다. 솟는 1 초 동안 맞기는 하지만 공격 · 이동하지 않는 것도 그 규칙 그대로다.
  *

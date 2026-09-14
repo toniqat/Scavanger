@@ -1,5 +1,5 @@
 /**
- * 서버 크레딧 검증 (2026-09-11, E-4 ⑦ — `src/shared/credits.ts` 가 계약, `docs/plans/net-social-trust.md` §5).
+ * 서버 크레딧 검증 (2026-09-11, E-4 ⑦ — `src/shared/credits.ts` 가 계약, `docs/HISTORY.md` 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」).
  *
  * 예전 릴레이는 `credits:tx {delta, reason}` 를 **그대로** 받았다 (잔액이 0 밑으로 가는 것만 거절). 이제 `reason` 을
  * `parseCreditReason` 으로 해석하고 금액을 **경제 표**(`economy.gen.json` — `npm run data:check -- --write` 가 클라이언트와

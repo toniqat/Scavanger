@@ -79,7 +79,7 @@ export const SHOCK_SPARK_TIME = 0.6;
 export const STATUS_REQUEST_INTERVAL = 0.25;
 /** Host clamps a client's requested status duration. */
 export const MAX_STATUS_DURATION = 10;
-/* ── appended 2026-09-11 (E-8 — docs/plans/net-trust-gaps.md §1 · §2): 호스트가 요청을 믿기 전의 상한 ──
+/* ── appended 2026-09-11 (E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」): 호스트가 요청을 믿기 전의 상한 ──
  * 네 csv 수치의 이름은 다른 가드 상수들과 같이 `shared/constants.ts` 가 선언한다 (`HIT_KNOCKBACK_RANGE_SLACK` ·
  * `CRATE_OPEN_RANGE_SLACK` 바로 아래). 여기서는 실제로 비교에 쓰는 두 개의 reach 로 합치기만 한다 —
  * `parts/Damage.ts` 가 소비자 전부다.

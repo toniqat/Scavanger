@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/CookGames.ts — **요리 미니게임 판정** (2026-09-13, `docs/plans/cooking-minigames.md` §4). DOM · ctx 없는 순수 클래스.
+ * src/housing/parts/CookGames.ts — **요리 미니게임 판정** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). DOM · ctx 없는 순수 클래스.
  *
  * `parts/GymGames.ts` 를 그대로 본떴다: 화면(`ui/cook/*`)은 이 객체를 그리기만 하고, 스모크는 화면 없이 이것만 몰아
  * 판정을 검사한다 (`HousingSystem.cookDebug.makeGame`). 시간은 **스스로 들고 있다** — `update(dt)` 가 `time` 을 밀고

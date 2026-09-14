@@ -15,7 +15,7 @@ import {
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
-/* 2026-09-14: 정보상 — 솔로 이어하기가 기믹 고정을 되살린다 (docs/plans/intel-broker.md) */
+/* 2026-09-14: 정보상 — 솔로 이어하기가 기믹 고정을 되살린다 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import { resolveIntelEffects } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';

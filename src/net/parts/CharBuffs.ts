@@ -1,5 +1,5 @@
 /**
- * src/net/parts/CharBuffs.ts — **분대원의 버프 목록은 어떻게 오고 가는가** (캐릭터 버프, 2026-09-12). 설계: `docs/plans/char-buffs.md` §5.
+ * src/net/parts/CharBuffs.ts — **분대원의 버프 목록은 어떻게 오고 가는가** (캐릭터 버프, 2026-09-12). 결정: `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
  *
  *   내 목록 변경 ── `player:buffsChanged` ──▶ dirty ──(NetSystem.update, 스냅샷 **앞**)──▶ `cbuf state {rev, buffs}` → others
  *                                                  (한 프레임의 여러 변경은 한 번으로 — update 한 번에 한 번만 보낸다)

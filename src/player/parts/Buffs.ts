@@ -1,5 +1,5 @@
 /**
- * src/player/parts/Buffs.ts — **이 캐릭터에 지금 무엇이 걸려 있는가** (2026-09-12, 캐릭터 버프 — `docs/plans/char-buffs.md` §4).
+ * src/player/parts/Buffs.ts — **이 캐릭터에 지금 무엇이 걸려 있는가** (2026-09-12, 캐릭터 버프 — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
  *
  * `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged` 의 구현. 목록은 **표시 · 동기화용**이고 효과가 없다 — 효과의 원본은
  * 제자리(요리 `derived` · 준비물 `hasEnvPrep` · 디버프 `applyGymSession` · 자세 `parts/FurniturePose`)이고 여기는 읽기만 한다.

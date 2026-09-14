@@ -1,5 +1,5 @@
 /*
- * src/shared/npc.ts — 메신저 NPC · NPC 퀘스트 계약 (2026-09-14, docs/plans/messenger-quests.md).
+ * src/shared/npc.ts — 메신저 NPC · NPC 퀘스트 계약 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
  * 기업 퀘스트(`data/quests.csv`)는 폐지됐고, 퀘스트는 이제 **NPC 가 메신저로** 준다. 기업 계약은 그대로다.
  * 수치 · 대사의 원본은 `data/npcs.csv` · `data/npc_quests.csv` · `data/npc_objectives.csv` 이고 이 파일은 그 표를 옮기는 로더와
@@ -121,7 +121,7 @@ export interface NpcDef {
   /** 파일 줄 순서. */
   order: number;
 
-  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`) ── */
+  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
    * **대사 선택지** — 첫 연락 말풍선이 끝난 뒤 뜨는 내 대답 버튼들 (`data/npcs.csv` 의 `introChoices`, `|` 구분).
    * 비어 있으면 선택지가 없다 (지금까지의 NPC 전부). 고르면 `NpcLogEntry {e:'choice', c}` 하나가 남는다.

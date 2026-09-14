@@ -3,7 +3,7 @@ import { Keys, keyLabel } from '@/shared';
 import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type ControlSection } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/ui/Controls.ts — **우측 조작 가이드** (2026-09-14, `docs/plans/tutorial-raid.md` C).
+ * src/tutorial/ui/Controls.ts — **우측 조작 가이드** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
  * 우하단 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)와는 주인도 자리도 다르다 — 그쪽은 "지금 열린 **화면**의 키"라
  * 화면이 열리고 닫힐 때마다 갈리고, 이쪽은 "지금 **구간**에서 쓰는 조작"이다.

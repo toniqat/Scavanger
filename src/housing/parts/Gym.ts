@@ -89,7 +89,7 @@ export function completeGymSession(sys: HousingSystem, score: number): GymSessio
   if (st.finished) return st.result;
   st.finished = true;
   st.score = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
-  /* ══ 서재 헬스 보너스 (H3, 2026-09-13 — docs/plans/library-series-games.md) ══
+  /* ══ 서재 헬스 보너스 (H3, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
    * 운동 기구 4종(`LIBRARY_GYM_TARGETS`)의 세션 점수에 `getLibraryEffects().gymScore[기구 interaction]` 을 더해 1 로 자른다.
    * 게임(TV) 세션은 `parts/VideoGame.ts` 의 몫이고 기구 interaction 이 아니라서 여기를 지나도 붙지 않는다. */
   {

@@ -6,7 +6,7 @@ import type { TipRow } from './StationTip';
 import { el } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * **흙 · 배지 소켓 화면 공용** (2026-09-13, 요리 재료 티어 — docs/plans/food-tiers.md §5).
+ * **흙 · 배지 소켓 화면 공용** (2026-09-13, 요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
  *
  * 재배 화면(`GrowStation`)과 배양 화면(`CultureTank`)이 같은 규칙을 같은 모양으로 보여 주려고 뽑은 것:
  *  - `socketEffectText` / `socketTipRows` — 호버 카드의 소켓 줄. `speed` · `yield` 는 **흙 · 배지 내구도 비율**만큼만

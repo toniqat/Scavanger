@@ -1,4 +1,4 @@
-// Single-player smoke test for the **요리 미니게임 · 요리 품질** (2026-09-13, docs/plans/cooking-minigames.md §6-1, src/housing —
+// Single-player smoke test for the **요리 미니게임 · 요리 품질** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, src/housing —
 // parts/CookGames · parts/Cooking · ui/cook · parts/Dining · ui/DiningTable):
 // 판정 6종을 화면 없이 (`cookDebug.makeGame`) — 썰기(예비 박자 무시 · 창 · 헛클릭 = 다음 표식 실패 · 놓침), 다지기(번갈아 채움 · 같은 버튼
 // 연타 = 반대 게이지 감소 · 시간 선형 점수 · 강제 종료 0 점), 굽기(50 % 뒤집기 · 100 % 꺼내기 · 늦은 뒤집기 = 실패 + 꺼내기 · 탐 ·
@@ -518,7 +518,7 @@ try {
   ok(closed.ev.active === false && closed.ev.completed === true && closed.info === null, 'Tab → housing:cookSession {active:false, completed:true}');
   ok(!closed.blocker && !closed.esc && closed.hidden && !closed.inv && closed.guide === null && closed.ticking === false, 'Tab: 블로커 · ESC · 화면 · 키 가이드 · 루프 정리, 인벤토리는 안 열린다');
 
-  /* ══ 5-1. 요리 숙련 · 서재 보너스 (2026-09-13, H3 — docs/plans/library-series-games.md) ═══════════════ */
+  /* ══ 5-1. 요리 숙련 · 서재 보너스 (2026-09-13, H3 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═══════════════ */
   console.log('요리 숙련 · 서재 보너스 (직접 하기)');
   const libApi = await H(() => ({ lib: typeof window.__game.ctx.housing.getLibraryEffects === 'function', unlock: typeof window.__game.ctx.housing.isRecipeUnlocked === 'function' }));
   note(`서재 API — getLibraryEffects ${libApi.lib ? '있음' : '없음'} · isRecipeUnlocked ${libApi.unlock ? '있음' : '없음'} (아래는 housing 인스턴스에 가짜 합산을 덮어 써서 규칙만 본다)`);
