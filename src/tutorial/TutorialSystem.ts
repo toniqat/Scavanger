@@ -12,7 +12,7 @@ import {
   CHECKPOINT_STEP, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
   SKIP_HOLD_TIME, TRACK_LABEL_KO,
   TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
-  TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
+  TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_RAVEN_NPC, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
   SPOT_CRAFT_CLOSE, SPOT_NONE, WAKE_REVEAL_DELAY_S, WAKE_REVEAL_MOVE_M,
   controlHintsFor, objectiveChain, objectivesOf, visibleObjectives,
   type ControlHint, type HudRevealState, type StepDef, type TutorialObjective,
@@ -245,6 +245,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('inventory:opened', () => this.advanceIf('levelUp')),
       b.on('progress:statChanged', () => this.advanceIf('stats')),
       b.on('ui:messengerToggled', ({ open }) => { if (open) this.advanceIf('messenger'); }),
+      /* 2026-09-15 (E-12): 「레이븐의 연락에 대답한다」는 **대답한 순간** 체크된다 — 전에는 이 줄을 적는 곳이 없어
+       * 수락할 때(`completeRequired`) 두 줄이 한꺼번에 그어졌다. 대답은 `ravenQuest` 단계에서만 할 수 있다
+       * (그 전 단계들은 메신저 버튼을 감춘다). */
+      b.on('npc:message', ({ npc, entry }) => { if (npc === TUTORIAL_RAVEN_NPC && entry.e === 'choice') this.markIf('ravenQuest', 'ravenTalk'); }),
       b.on('npc:questChanged', ({ state }) => { if (state === 'active') this.advanceIf('ravenQuest'); }),
 
       // 리바인드하면 조작 가이드의 키캡 글자를 다시 읽는다 (키는 사용 시점에 읽는다 — `docs/CONTROLS.md`)

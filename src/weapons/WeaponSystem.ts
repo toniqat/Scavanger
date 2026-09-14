@@ -215,7 +215,7 @@ export class WeaponSystem implements GameSystem {
     // multiplayer replication (handlers no-op unless ctx.isMultiplayer && ctx.net)
     ctx.bus.on('net:remoteFired', (p) => this.remote.onFired(p.id, p.weaponId, p.origin, p.direction));
     ctx.bus.on('net:remoteReloaded', (p) => this.remote.onReloaded(p.id, p.weaponId));
-    ctx.bus.on('net:remoteGrenade', (p) => this.remote.onGrenade(p.position, p.velocity, p.fuse));
+    ctx.bus.on('net:remoteGrenade', (p) => this.remote.onGrenade(p.position, p.velocity, p.fuse, p.id, p.fire));
     ctx.bus.on('net:remotePlayerRemoved', (p) => this.remote.remove(p.id));
     ctx.bus.on('game:newMission', () => this.remote.clear());
 

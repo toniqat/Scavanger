@@ -16,6 +16,8 @@ import {
   NET_GHOST_RESTORE_TIMEOUT_S,
   /* appended (2026-09-14, 튜토리얼 개편): 체크포인트 부활 */
   TUTORIAL_RESPAWN_DELAY_S,
+  /* appended (2026-09-15, A-17): 튜토리얼 완주 고정 보상 */
+  TUTORIAL_RAID_XP,
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
@@ -376,12 +378,27 @@ export function awardMissionXp(sys: GameFlowSystem): void {
   try {
     const s = ctx.stats;
     const extracted = s.extracted;
-    let xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
-    xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
-    if (extracted) xp += XP_EXTRACT_BONUS + Math.max(0, s.lootValue) * XP_PER_LOOT_VALUE;
-    // 2026-09-13 (서재 시리즈): 레이드 경험치 책 — `raidXp` 는 배율 가산이다 (0.1 = +10 %). 레이드 몫(처치 · 시간 · 탈출 · 전리품)에만
-    // 곱하고 아래 계약 보상 XP 에는 곱하지 않는다 — 계약 보상은 `contracts.csv` 의 고정값이다.
-    xp = Math.round(xp * libraryRaidXpMul(ctx));
+    /*
+     * 2026-09-15 (A-17, 사용자 결정 「고정 지급 · 정확히 Lv.2」): **완주한 튜토리얼 레이드**는 정산식을 타지 않고
+     * `TUTORIAL_RAID_XP` 를 그대로 받는다 (csv — `XP_BASE` 와 같은 값이라 정확히 레벨 2). 처치 · 시간 · 전리품 ·
+     * 서재 `raidXp` 배율이 끼면 사람마다 레벨 3 이 되기도 해 함선 트랙(`levelUp` → `stats`)이 가르칠 포인트 수가
+     * 흔들린다. 튜토리얼에는 기업 계약이 없으므로 `settleMission` 도 부르지 않는다 (옛 계약이 남아 있어도 튜토리얼이
+     * 그것을 정산하면 안 된다).
+     * **탈출하지 않고 끝난 튜토리얼**(ESC `튜토리얼 건너뛰기` 가 함선을 못 태워 `game:returnToShip` → `gameOver()` 로
+     * 내려간 경우)은 「완주」가 아니므로 예전 식 그대로다.
+     */
+    const tutorialClear = sys.isTutorial() && extracted;
+    let xp = 0;
+    if (tutorialClear) {
+      xp = Number.isFinite(TUTORIAL_RAID_XP) ? Math.max(0, Math.round(TUTORIAL_RAID_XP)) : 0;
+    } else {
+      xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
+      xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
+      if (extracted) xp += XP_EXTRACT_BONUS + Math.max(0, s.lootValue) * XP_PER_LOOT_VALUE;
+      // 2026-09-13 (서재 시리즈): 레이드 경험치 책 — `raidXp` 는 배율 가산이다 (0.1 = +10 %). 레이드 몫(처치 · 시간 · 탈출 · 전리품)에만
+      // 곱하고 아래 계약 보상 XP 에는 곱하지 않는다 — 계약 보상은 `contracts.csv` 의 고정값이다.
+      xp = Math.round(xp * libraryRaidXpMul(ctx));
+    }
 
     // `raids` / `extractions` are plain profile counters; ProgressionRef has no setter, so bump + save.
     prog.profile.raids += 1;
@@ -390,7 +407,7 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     // Phase 5: settle the active corp contract first — its XP reward is paid through `addXp` below.
     let contract = null;
     const meta = ctx.meta;
-    if (meta && typeof meta.settleMission === 'function') {
+    if (!tutorialClear && meta && typeof meta.settleMission === 'function') {
       try { contract = meta.settleMission(s); } catch (e) { console.error('[gameflow] contract settlement failed', e); }
     }
     if (contract?.success && contract.xp > 0) xp += contract.xp;

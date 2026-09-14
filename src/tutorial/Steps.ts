@@ -407,7 +407,13 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     hint: '우측 상단에 읽지 않은 연락이 와 있습니다.',
     objectives: [{ id: 'messengerOpen', text: '메신저를 연다' }],
     allow: { community: true },
-    spot: ['.community .cm-btn', '.community'],
+    /*
+     * 2026-09-15 (E-12, smoke-tutorial-ship) — **`.show` 가 붙은 버튼만** 밝힌다. `stats` 는 인벤토리 창 안에서 끝나므로
+     * 이 단계는 대개 창이 열린 채 시작하는데, 그동안 `.community` 는 blocker 때문에 `opacity: 0` 으로만 접혀 사각형이
+     * 그대로 남는다 — `Spotlight.firstShown` 이 그것을 「보인다」로 읽어 **투명한 버튼에 링을 두르고** 창 전체를 딤으로 덮었다.
+     * 창을 닫으면 `.show` 가 붙고 그때 반 박자 뒤에 켜진다.
+     */
+    spot: ['.community.show .cm-btn', '.community.show'],
     spotText: '메신저',
   },
   ravenQuest: {
@@ -418,7 +424,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       { id: 'ravenAccept', text: '퀘스트를 수락한다' },
     ],
     allow: { community: true },
-    spot: ['.ms-qcard', '.ms-page.chats', '.ms-frame'],
+    // 2026-09-15 (E-12): 대화 페이지의 클래스는 `.ms-page.chat` 이다 (탭 id `chat`) — `.chats` 는 아무것도 못 찾아 틀 전체로 흘렀다
+    spot: ['.ms-qcard', '.ms-page.chat', '.ms-frame'],
     spotText: '레이븐의 첫 연락',
   },
 };

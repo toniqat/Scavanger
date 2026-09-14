@@ -411,10 +411,25 @@ export class RemoteWeapons {
    * `GrenadeManager.explode`) but never enemies (the thrower's client → host owns that). `fuse` = seconds left when
    * released (cooked); `0` = it went off in the thrower's hand and pops at `position` on the next update.
    */
-  onGrenade(position: THREE.Vector3, velocity: THREE.Vector3, fuse?: number): void {
+  onGrenade(position: THREE.Vector3, velocity: THREE.Vector3, fuse?: number, from?: PeerId, fire?: boolean): void {
     const ctx = this.ctx;
     if (!ctx.isMultiplayer || !ctx.net) return;
-    this.grenades.throw(position, velocity, true, fuse === undefined ? GRENADE_FUSE : Math.max(0, fuse));
+    // 2026-09-15 (B-16): the thrower states the kind (`GrenadeMessage.fire`); only an older client that omits it falls back to the hand guess
+    const isFire = fire !== undefined ? fire : (from ? this.remoteGrenadeFire(from) : false);
+    this.grenades.throw(position, velocity, true, fuse === undefined ? GRENADE_FUSE : Math.max(0, fuse), isFire);
+  }
+
+  /**
+   * 2026-09-15 (B-16): **fallback only** — was the remote's grenade a G-10 소이 수류탄 when the message didn't say
+   * (`GrenadeMessage.fire` omitted by an older client)? Reads what the thrower's last snapshot had in hand
+   * (`PlayerSnapshot.h` → the concrete ref's `heldItemId`, duck-typed like `attachments`). A dropped snapshot would guess
+   * wrong, which is why current senders set `fire` explicitly.
+   * Only picks the replica's **small blast** (FX + the local player's share); the fire zone itself arrives as `gad spawn`.
+   */
+  private remoteGrenadeFire(from: PeerId): boolean {
+    const ref = this.ctx.net?.getRemotePlayer(from) as (RemotePlayerRef & { heldItemId?: string | null }) | undefined;
+    const held = ref?.heldItemId;
+    return !!held && !!this.ctx.loot?.getItemDef(held)?.grenadeFire;
   }
 
   /** Impact FX for a visual-only projectile replica (ProjectilePool `onVisualHit`). Remote rockets pop (FX only). */

@@ -13,6 +13,9 @@ import {
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
 } from '@/shared';
 import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
+/* 2026-09-15 (B-16): 내부 가젯 (G-10 화염 지대) · id 표식 · 화염 소리 */
+import { deployableIdFor, isInternalGadget } from '../GadgetDefs';
+import { FIRE_ZONE_CRACKLE_S } from '@/shared';
 import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
 import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
@@ -25,7 +28,8 @@ import * as Mount from './Mount';
 export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boolean {
   const ctx = sys.ctx;
   const def = gadgetDef(id);
-  if (!def) return false;
+  // 2026-09-15: 내부 정의(`grenadeFire`)는 아이템이 없어 `consumeItem` 이 소모 없이 통과시킨다 — 쓰는 길은 `igniteGrenadeFire` 하나
+  if (!def || isInternalGadget(id)) return false;
   const player = ctx.player;
   // usable from the quick bar with the inventory open, but never in the hub / menus / while paused
   if (!ctx.isGameplayPhase() || ctx.uiBlockers.has('menu')) return sys.deny(null);
@@ -171,6 +175,17 @@ export function onThrownImpact(sys: GadgetSystem, gid: GadgetId, pos: THREE.Vect
   sys.requestPlace(def, pos, yaw);
   }
 
+/**
+ * 2026-09-15 (B-16): G-10 소이 수류탄(`ItemDef.grenadeFire`)이 `position` 에서 터졌다 — 화염수류탄의 `onThrownImpact` 와 **같은 길**
+ * (`requestPlace`: 권위자는 즉시 스폰 · 클라는 `gadq place {gadget:'grenadeFire'}`)로 로컬 플레이어 소유의 작은 화염 지대를 세운다.
+ * 높이는 스폰이 그 점 아래 표면으로 내린다(`Queries.groundY`) — 공중에서 터져도 바닥에 불이 붙는다. 부르는 곳은 weapons 의 로컬 폭발뿐.
+ */
+export function igniteGrenadeFire(sys: GadgetSystem, position: THREE.Vector3): void {
+  const def = gadgetDef('grenadeFire');
+  if (!def || !sys.ctx.world?.ready) return;
+  sys.requestPlace(def, position, sys.ctx.player?.yaw ?? 0);
+  }
+
 /** Authority spawns straight away; clients ask the host and wait for `gad spawn`. */
 export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null): void {
   const ctx = sys.ctx;
@@ -180,12 +195,13 @@ export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.
     ctx.net.send({ t: 'gadq', ev: 'place', gadget: def.id, p: toTuple(position), yaw, ...(mount ? { mount } : {}) }, 'host');
     return;
   }
-  sys.spawnDeployable(sys.nextId(), def, ctx.net?.localId ?? 'local', position, yaw, null, mount);
+  sys.spawnDeployable(sys.nextId(def.id), def, ctx.net?.localId ?? 'local', position, yaw, null, mount);
   }
 
 /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
-export function nextId(sys: GadgetSystem): string {
-  return `${sys.ctx.net?.localId ?? 'sp'}-g${++sys.seq}`;
+/** 2026-09-15 (B-16): `gadget` 이 G-10 화염 지대면 id 에 `-gf` 표식 (`GadgetDefs.deployableIdFor` — 복제본이 정의를 되찾는 열쇠). */
+export function nextId(sys: GadgetSystem, gadget?: GadgetId): string {
+  return deployableIdFor(sys.ctx.net?.localId ?? 'sp', ++sys.seq, gadget);
   }
 
 /**
@@ -228,7 +244,11 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
   }
   ctx.bus.emit('gadget:deployed', { id, kind, position: d.position, owner: String(owner) });
   // 2026-09-11: 원격 지뢰는 `parts/Remote` 가 첫 프레임에 `c4_place` 를 낸다 — 여기서는 조용히
-  if (kind !== 'remoteMine') ctx.bus.emit('audio:play', { id: kind === 'mine' ? 'mine_place' : 'gadget_deploy', position: d.position, volume: 0.8 });
+  // 2026-09-15 (B-16): 화염 지대는 불붙는 소리 — 이 클라이언트에 생길 때마다 (복제본 포함, 와이어 없음). 지지직은 `Simulate.animate`.
+  if (kind === 'fire') {
+    d.crackleTimer = FIRE_ZONE_CRACKLE_S;
+    ctx.bus.emit('audio:play', { id: 'fire_ignite', position: d.position, volume: 0.9 });
+  } else if (kind !== 'remoteMine') ctx.bus.emit('audio:play', { id: kind === 'mine' ? 'mine_place' : 'gadget_deploy', position: d.position, volume: 0.8 });
   sys.visuals.pulse(d.position, def.color, 0.3, Math.min(def.radius, 4), 0.45);
   if (ctx.isAuthority) sys.broadcast({ t: 'gad', ev: 'spawn', d: sys.wireOf(d) }, 'others');
   return d;

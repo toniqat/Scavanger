@@ -1777,3 +1777,29 @@ smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 11/12, smoke-hangar 57/
 - `smoke-generator` 의 새 검사는 용도 지정 카드를 띄우려고 **같은 `page.evaluate` 안에서** 방 용도를 잠깐 비웠다가
   되돌린다 (카드는 이미 지은 용도를 숨긴다). 가구는 건드리지 않고, 뒤따르는 재배 스테이션 단계도 그대로 통과한다.
 - `npm run verify:all` 의 `build` · `e2e:mp` 는 **돌리지 않았다**.
+
+## 2026-09-15 — TODO 묶음 (E-12 · E-13 · A-17 · B-14 · B-15 · B-16 · D-7 · D-8)
+
+HEAD worktree(`D:/Projects/scav-e12`)에서 `node scripts/verify.mjs --all --log-dir scripts/logs/b0915` — 14 min 24 s, **5 red → 2 는 재실행 초록 · 1 은 검사 오탐 수정 · 2 는 기존/외부 실패**.
+WinNAT 예약이 풀려 있어(8787–8799 관리자 예약) 러너가 릴레이를 직접 띄웠다.
+
+```
+docs line: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, build 4,158.74 kB JS / 434.11 kB CSS, smoke-ballistics 39/39, smoke-quickslots 109/109, smoke-phase2 57/57, smoke-weapons 147/147, smoke-stratagems 75/75, smoke-drone-scan 24/24, smoke-tactical 119/119, smoke-phase3 35/36, smoke-phase4 54/58, smoke-ship-rooms 77/77, smoke-inventory-p6 183/183, smoke-controls-hub 153/153, smoke-loadout 69/69, smoke-console 63/63, smoke-housing 324/324, smoke-search 77/77, smoke-progression 262/262, smoke-ui-p6 91/91, smoke-ui-p5 141/141, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-v2 52/52, smoke-faction-sites 263/263, smoke-resume-gate 62/62, smoke-npc-quests 69/69, smoke-meta 178/178, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-rogue-drop 48/48, smoke-humanoid-ai 49/49, smoke-training 108/108, smoke-ladder 38/38, smoke-ghost 96/96, smoke-pose 144/144, smoke-library 85/85, smoke-tv-games 29/29, smoke-aim-sway 25/25, smoke-furniture-access 49/49, smoke-stations 98/98, smoke-food-chain 83/83, smoke-generator 48/48, smoke-mining 64/64, smoke-favorites 45/45, smoke-library-consumers 38/38, smoke-gym 66/66, smoke-tip-pin 46/46, smoke-video-games 75/75, smoke-extraction 36/36, smoke-cooking 123/123, smoke-mining-ui 70/70, smoke-raidflow 88/89, smoke-buffs 42/42, smoke-enemy-delta 66/66, smoke-consumables 36/36, smoke-rooms 37/37, smoke-planets 92/92, smoke-messenger 70/70, smoke-social 208/208, smoke-ecology 119/119, smoke-props-collision 53/53, smoke-structures 141/141, smoke-site-spawns 517/517, smoke-hazard 57/57, smoke-tutorial 91/91, smoke-structure-reach 1035/1035, smoke-tutorial-ship 54/54, smoke-server-dist 36/36, smoke-fall-damage 101/101, smoke-intel 16/16, smoke-fire-zones 33/33, smoke-pitch 162/162, smoke-tutorial-raid 45/46, smoke-named 44/44, smoke-burrow 22/22, smoke-tram-ride 26/26, smoke-rover 30/30, smoke-map-quests 72/72, smoke-sandworm 41/41, smoke-lights 30/30, smoke-netlink 48/48, smoke-trust 68/68, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 170/178
+rerun (--only, b0915r):  net-selftest 583/583, data-check ok, smoke-phase3 41/41, smoke-phase4 58/58, e2e-mp 170/178
+rerun (--only, b0915r2): net-selftest 583/583, data-check ok, smoke-raidflow 89/89
+```
+
+- **새 스모크 넷이 첫 전체 실행에서 초록** — `smoke-tutorial-ship` 54/54 · `smoke-fall-damage` 101/101 · `smoke-fire-zones` 33/33 · (`smoke-tutorial-raid` 는 아래).
+  검사를 늘린 기존 스모크: `smoke-cooking` 123(숙련 잠김 요리) · `smoke-humanoid-ai` 49(적 화염 지대 · 드론 · 발소리) · `smoke-ghost` 96(낙하 흔들림 · `fall` 와이어 수신 검사).
+- **`smoke-phase3` 35/36(레이저 종료 대기 시간 초과) · `smoke-phase4` 54/58(포병 포탄이 안 날아옴) 은 흔들림이었다** — 이 묶음이 건드리지 않는
+  stratagems · 포병 경로이고, 단독 재실행에서 41/41 · 58/58. 4레인 14분 부하에서 시간 창을 놓쳤다 (`smoke-phase4` 는 전에도 57/58 기록이 있다).
+- **`smoke-raidflow` 88/89 는 검사 오탐이었다 — 고쳤다.** 「뒷문 자리가 뚫려 있다」 가 `ship.body` 자식 메시의 **지오메트리 전체 박스**로 문 평면을 쟀는데,
+  D-8 그리블은 재질별로 병합돼 원점에 붙은 메시라 박스가 선체 전체를 덮어 늘 걸렸다(`["BufferGeometry","BufferGeometry"]`). 검사를 **삼각형마다 자기 박스**
+  (메시 행렬 적용)로 바꿨다 — 작은 그리블 조각은 정확하고 평범한 선체 판은 옛 박스보다 느슨해지지 않는다. 재실행 89/89 = 문 안으로 들어간 삼각형 0.
+- **`smoke-tutorial-raid` 45/46 은 이 묶음 밖의 버그다** — 오프닝 기상 연출이 끝나지 않는다(`IntroWake` 타이머가 음수로 넘어간 프레임에
+  `endIntroWake` 가 되돌아간다, `wakeT -0.0074`). 같은 날 다른 세션이 main 트리에서 같은 원인을 고치고 `smoke-intro-wake` 를 만드는 중이라 겹쳐 고치지
+  않았다 — 그 수정이 들어오면 이 한 줄도 초록이 된다. 스모크는 그 FAIL 을 적은 뒤 연출을 손으로 끝내고 나머지 45 검사를 계속한다.
+- **`e2e-mp` 170/178 은 기존 실패다** — 같은 8건(분대원 이름이 `분대원` 폴백이 아니라 `스캐빈저` 7 + `net:peerSuspended`)이 2026-09-10 베이스라인
+  (`2367a24` worktree)에 이미 기록돼 있다. 재실행도 같은 8건.
+- 아직 안 돌려 본 것: `fall` 와이어 · `GrenadeMessage.fire` 를 **두 클라이언트 릴레이 경로**로 본 검사는 없다(`smoke-ghost` · `smoke-fall-damage` 는 수신 함수를
+  가짜 로비 멤버로 직접 부른다).

@@ -95,6 +95,17 @@ try {
   await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const world = ctx.world;
     sys.training = true;
+    // 2026-09-15 (B-16): audio spy — fire zone sounds (with the spot) and footsteps counted per watched enemy position vector
+    window.__audio = [];
+    window.__stepWatch = new Map();
+    const emit0 = ctx.bus.emit.bind(ctx.bus);
+    ctx.bus.emit = function (ev, payload) {
+      if (ev === 'audio:play' && payload && typeof payload.id === 'string') {
+        if (payload.id.startsWith('fire_')) window.__audio.push({ id: payload.id, t: ctx.time, x: payload.position?.x ?? NaN, z: payload.position?.z ?? NaN });
+        else if (payload.id.startsWith('footstep_') && payload.position) { const c = window.__stepWatch.get(payload.position); if (c) c.n++; }
+      }
+      return emit0(ev, payload);
+    };
     window.__clear = () => { for (const e of [...sys.active]) sys.despawn(e); };
     window.__clear();
     window.__shots = [];
@@ -370,6 +381,17 @@ try {
   await waitFor(page, (n) => window.__sys.grenadesExploded > n, 'incendiary fuse', 20000, inc?.exploded0 ?? 0);
   const zone = await P(() => { const zs = window.__sys.grenades.debugFireZones(); return zs.length ? zs[0] : null; });
   ok(zone && zone.authority === true && zone.faction === 'rogue' && Math.abs(zone.radius - FIRE.radius) < 1e-6 && zone.life > 0, `a fire zone burns where it landed (authority, thrower's faction, radius ${FIRE.radius}) (${JSON.stringify(zone)})`);
+  // 2026-09-15 (B-16): the HUD query and the ignite sound
+  const fzq = zone ? await P((z) => {
+    const sys = window.__sys; const a = sys.getFireZones(); const b = sys.getFireZones(); const f = a[0];
+    return { n: a.length, same: a === b && a[0] === b[0], id: f?.id, hostile: f?.hostile, radius: f?.radius, remaining: f ? +f.remaining.toFixed(2) : null,
+      dxz: f ? +Math.hypot(f.position.x - z.x, f.position.z - z.z).toFixed(3) : null,
+      ignite: window.__audio.filter((s) => s.id === 'fire_ignite' && Math.hypot(s.x - z.x, s.z - z.z) < 0.5).length };
+  }, zone) : null;
+  ok(fzq && fzq.n === 1 && /^e:\d+$/.test(fzq.id) && fzq.hostile === true && Math.abs(fzq.radius - FIRE.radius) < 1e-6 && fzq.remaining > 0 && fzq.remaining <= FIRE.duration && fzq.dxz < 0.01,
+    `getFireZones() lists it (id e:<n>, hostile, radius ${FIRE.radius}, 0 < remaining ≤ ${FIRE.duration}) (${JSON.stringify(fzq)})`);
+  ok(fzq && fzq.same, 'getFireZones() reuses its array and entries between calls (no per-frame allocation)');
+  ok(fzq && fzq.ignite === 1, `fire_ignite played once at the zone (${fzq?.ignite})`);
   const burn = { hp0: 0, hp1: 0, burning: false };
   if (zone) {
     Object.assign(burn, await P((z) => {
@@ -382,6 +404,13 @@ try {
   }
   const expected = FIRE.dps * 2.0;
   ok(zone && burn.burning && burn.hp0 - burn.hp1 >= expected * 0.5, `the player standing in it burns over time (hp+shield ${burn.hp0.toFixed(1)} → ${burn.hp1.toFixed(1)}, ≥ ${(expected * 0.5).toFixed(0)} expected; burning ${burn.burning})`);
+  // 2026-09-15 (B-16): crackle repeats at the zone every ~FIRE_ZONE_CRACKLE_S while it burns
+  const crk = zone ? await P((z) => {
+    const ts = window.__audio.filter((s) => s.id === 'fire_crackle' && Math.hypot(s.x - z.x, s.z - z.z) < 0.5).map((s) => s.t);
+    let minGap = Infinity; for (let i = 1; i < ts.length; i++) minGap = Math.min(minGap, ts[i] - ts[i - 1]);
+    return { n: ts.length, minGap: ts.length > 1 ? +minGap.toFixed(3) : null, span: ts.length ? +(ts[ts.length - 1] - ts[0]).toFixed(2) : 0 };
+  }, zone) : null;
+  ok(crk && crk.n >= 2 && crk.minGap !== null && crk.minGap >= 0.3, `fire_crackle repeats at the zone while it burns (${JSON.stringify(crk)})`);
   // other factions burn, the thrower's does not
   const fac = zone ? await P((z) => {
     const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V; const r = window.__range;
@@ -391,6 +420,19 @@ try {
     const raider = sys.debugSpawn('raider', { x: z.x - 1, z: z.z }, false);
     const rogue = sys.debugSpawn('rogue', { x: z.x, z: z.z + 1 }, false);
     window.__pins = [bug, raider, rogue].filter(Boolean).map((e) => ({ id: e.id, p: [e.position.x, e.position.y, e.position.z], hp0: e.hp, burned: false }));
+    // 2026-09-15 (B-16): a real ground drone parked in the zone (parked = not aggroable, so no enemy shoots it); damageDrone spied, passed through
+    window.__fireDrone = null; window.__droneDmg = [];
+    const dsys = window.__game.getSystem('drones');
+    if (ctx.drones && dsys && ctx.drones.deploy('ground')) {
+      const d = dsys.drones.find((x) => x.isLocal && x.kind === 'ground');
+      if (d) {
+        const dx = z.x, dz = z.z - 1.2;
+        d.body.reset(new V(dx, ctx.world.getSurfaceY(dx, dz, z.y + 0.5), dz), 0, ctx);
+        const dmg0 = ctx.drones.damageDrone.bind(ctx.drones);
+        ctx.drones.damageDrone = (id, amount, from) => { window.__droneDmg.push({ id, amount: +amount.toFixed(3) }); return dmg0(id, amount, from); };
+        window.__fireDrone = { id: d.id, hp0: d.hp, maxHp: d.maxHp };
+      }
+    }
     return window.__pins.length;
   }, zone) : 0;
   if (fac) {
@@ -417,6 +459,21 @@ try {
   // (hp is not asserted for the rogue: the pinned scavenger next to it is hostile and bites it)
   ok(byType.rogue && !byType.rogue.burned && byType.rogue.attacker === null, `a rogue (the thrower's faction) does not burn (${JSON.stringify(byType.rogue)})`);
   ok(pins.filter((x) => x.burned).every((x) => x.attacker === 'ai' || x.attacker === null), `the enemy fire credits nobody (${pins.map((x) => x.attacker).join(', ')})`);
+  // 2026-09-15 (B-16): the parked ground drone burned through damageDrone (dps × tick per hit), then clean up
+  const fd = await P(() => {
+    const ctx = window.__game.ctx; const f = window.__fireDrone;
+    const hits = (window.__droneDmg ?? []).filter((h) => f && h.id === f.id);
+    delete ctx.drones.damageDrone;
+    if (!f) return null;
+    const d = ctx.drones.getDrone(f.id);
+    const out = { ...f, hp1: d ? +d.hp.toFixed(2) : 0, alive: !!d, hits: hits.length, amounts: [...new Set(hits.map((h) => h.amount))], restored: typeof ctx.drones.damageDrone === 'function' };
+    ctx.drones.clear();
+    return out;
+  });
+  const perTick = FIRE.dps * Math.max(0.05, FIRE.tick);
+  ok(fd && fd.hits >= 1 && fd.hp0 - fd.hp1 >= perTick * 0.99 && fd.amounts.every((a) => Math.abs(a - perTick) < 0.01),
+    `a ground drone parked in the zone burns (${perTick.toFixed(2)} per tick) (${JSON.stringify(fd)})`);
+  ok(fd && fd.restored, 'drone damage spy removed');
   await P(() => window.__clear());
   // a replica's visual zone (host `grenadeHit {k: incendiary}`): FX + zone, no damage
   const vis = await P(() => {
@@ -534,6 +591,63 @@ try {
     }
   }
   ok(lone && !(await P(() => window.__lone.seen)), 'a lone raider marked flanker (no squadmates) never flanks');
+
+  /* ── 7. humanoid footsteps (2026-09-15, B-16) ────────────────────────── */
+  console.log('footsteps: walking rogues and raiders are audible (a scavenger stays silent)');
+  const walkers = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const world = ctx.world; const V = window.__V; const r = window.__range;
+    window.__clear();
+    window.__stubGun(true);
+    sys.pickTarget = () => null;          // nobody notices anyone — they just walk their legs
+    ctx.player.spawnStanding(new V(r.x, world.getHeightAt(r.x, r.z), r.z), Math.atan2(-r.dx, -r.dz));
+    ctx.player.hp = ctx.player.maxHp;
+    window.__stepWatch.clear();
+    const out = [];
+    const types = ['rogue', 'raider', 'scavenger'];
+    for (let i = 0; i < types.length; i++) {
+      const hx = r.x + r.dx * 14 - r.dz * (i - 1) * 5, hz = r.z + r.dz * 14 + r.dx * (i - 1) * 5;
+      const e = sys.debugSpawn(types[i], { x: hx, z: hz }, false);
+      if (!e) continue;
+      const c = { n: 0 };
+      window.__stepWatch.set(e.position, c);
+      out.push({ id: e.id, type: types[i], c, home: [hx, hz], leg: 0, d0: e.distTravelled });
+    }
+    window.__walkers = out;
+    return out.map((w) => w.type);
+  });
+  ok(walkers.length === 3, `rogue, raider and scavenger placed 14 m in front of the player (${walkers.join(', ')})`);
+  if (walkers.length) {
+    const t0 = await P(() => window.__game.ctx.time);
+    for (;;) {
+      const t = await P(() => {
+        const ctx = window.__game.ctx; const sys = window.__sys; const r = window.__range;
+        ctx.player.hp = ctx.player.maxHp;
+        for (const w of window.__walkers) {
+          const e = sys.find(w.id);
+          if (!e || e.state === 'dead') continue;
+          const side = w.leg ? 6 : -6;
+          const tx = w.home[0] - r.dz * side, tz = w.home[1] + r.dx * side;
+          if (Math.hypot(e.position.x - tx, e.position.z - tz) < 1.2) w.leg ^= 1;
+          const s2 = w.leg ? 6 : -6;
+          e.aware = false; e.state = 'wander'; e.hasMoveTarget = true;
+          e.moveTarget.set(w.home[0] - r.dz * s2, 0, w.home[1] + r.dx * s2);
+        }
+        return ctx.time;
+      });
+      if (t - t0 > 5) break;
+      await sleep(40);
+    }
+  }
+  const steps = await P(() => {
+    const out = {};
+    for (const w of window.__walkers ?? []) { const e = window.__sys.find(w.id); out[w.type] = { n: w.c.n, moved: e ? +(e.distTravelled - w.d0).toFixed(1) : null }; }
+    delete window.__sys.pickTarget;
+    window.__stepWatch.clear();
+    return out;
+  });
+  ok(steps.rogue && steps.rogue.moved > 3 && steps.rogue.n >= 3, `a walking rogue emits footsteps (${JSON.stringify(steps.rogue)})`);
+  ok(steps.raider && steps.raider.moved > 3 && steps.raider.n >= 3, `a walking raider emits footsteps (${JSON.stringify(steps.raider)})`);
+  ok(steps.scavenger && steps.scavenger.moved > 3 && steps.scavenger.n === 0, `a walking scavenger (stepSound false) stays silent (${JSON.stringify(steps.scavenger)})`);
 
   await P(() => { window.__stubGun(false); window.__clear(); window.__sys.training = false; });
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

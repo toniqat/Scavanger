@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   GRAVITY, Layers, ROGUE_GRENADE_RADIUS, breakFragileAlong,
   type EnemyFaction, type EnemyGrenadeKind, type GameContext, type GrenadeView,
+  /* appended (2026-09-15, B-16): 화염 지대 질의 · 소리 */
+  FIRE_ZONE_CRACKLE_S, type FireZoneInfo,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { ENEMY_INCENDIARY } from '../EnemyTypes';
@@ -89,7 +91,16 @@ interface FireZone {
   seed: number;
   readonly mesh: THREE.Mesh;
   readonly mat: THREE.MeshBasicMaterial;
+  /** 2026-09-15 (B-16): s until the next `fire_crackle` (random phase per zone so several zones don't tick together). */
+  crackle: number;
+  /** 2026-09-15 (B-16): the zone centre on the burning ground — `FireZoneInfo.position` and the sound source. */
+  readonly ground: THREE.Vector3;
+  /** 2026-09-15 (B-16): this slot's reusable `getFireZones()` entry (fields rewritten on ignite / per call). */
+  readonly view: FireZoneView;
 }
+
+/** A pooled, mutable `FireZoneInfo` (the contract is read-only for consumers; this pool rewrites it). */
+interface FireZoneView { id: string; position: THREE.Vector3; radius: number; remaining: number; hostile: boolean }
 
 const _d = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -149,7 +160,11 @@ export class RogueGrenades {
       mesh.renderOrder = 2;
       mesh.layers.enable(Layers.NO_RAYCAST);
       scene.add(mesh);
-      this.zones.push({ active: false, owner: 0, faction: 'rogue', authority: false, position: new THREE.Vector3(), radius: 1, life: 0, age: 0, tick: 0, flame: 0, smoke: 0, ember: 0, seed: 0, mesh, mat });
+      const ground = new THREE.Vector3();
+      this.zones.push({
+        active: false, owner: 0, faction: 'rogue', authority: false, position: new THREE.Vector3(), radius: 1, life: 0, age: 0, tick: 0, flame: 0, smoke: 0, ember: 0, seed: 0, mesh, mat,
+        crackle: 0, ground, view: { id: '', position: ground, radius: 1, remaining: 0, hostile: true },
+      });
     }
   }
 
@@ -207,6 +222,25 @@ export class RogueGrenades {
       this.viewList.push(v);
     }
     return this.viewList;
+  }
+
+  /* 2026-09-15 (B-16): `getFireZones()` 의 재사용 목록 · 불이 붙을 때마다 느는 id 번호 (풀 칸이 재활용돼도 새 지대는 새 id). */
+  private readonly zoneList: FireZoneInfo[] = [];
+  private zoneSerial = 0;
+
+  /**
+   * 2026-09-15 (B-16): 살아 있는 화염 지대 (`EnemyManagerRef.getFireZones`) — 권위 지대와 리플리카의 시각 지대 둘 다.
+   * HUD 가 매 프레임 부르므로 목록 배열 · 칸별 view 객체를 재사용한다 (`getViews` 와 같은 규약). `position` 은 바닥 위 지대 중심이고
+   * 지대가 사는 동안 같은 `Vector3` 인스턴스, `remaining` 은 남은 초, `hostile` 은 늘 true (적이 만든 불).
+   */
+  getFireZones(): readonly FireZoneInfo[] {
+    this.zoneList.length = 0;
+    for (const z of this.zones) {
+      if (!z.active) continue;
+      z.view.remaining = Math.max(0, z.life);
+      this.zoneList.push(z.view);
+    }
+    return this.zoneList;
   }
 
   /** Host migration: grenades in flight and burning zones switch sides (demoted → visual only, promoted → they now hurt). */
@@ -338,6 +372,13 @@ export class RogueGrenades {
     z.mesh.scale.setScalar(z.radius);
     z.mat.opacity = 0;
     z.mesh.visible = true;
+    // 2026-09-15 (B-16): HUD entry + sound. Every client does this for the zones it shows (authority or visual) — no wire.
+    z.ground.set(p.x, ground, p.z);
+    z.view.id = `e:${++this.zoneSerial}`;
+    z.view.radius = z.radius;
+    z.view.remaining = z.life;
+    z.crackle = Math.random() * Math.max(0.1, FIRE_ZONE_CRACKLE_S);
+    this.host?.ctx.bus.emit('audio:play', { id: 'fire_ignite', position: z.ground });
   }
 
   private updateZones(dt: number): void {
@@ -357,6 +398,16 @@ export class RogueGrenades {
         if (z.tick <= 0) {
           z.tick = Math.max(z.tick + tickLen, tickLen * 0.5);
           host.onFireZoneTick(z.position, z.radius, z.owner, z.faction, tickLen);
+        }
+      }
+      // 2026-09-15 (B-16): crackle while it burns — every client, per zone, jittered period (a long frame never stacks clips);
+      // positional attenuation is audio/'s, only the last-second fade-out is ours
+      if (host) {
+        z.crackle -= dt;
+        if (z.crackle <= 0) {
+          const period = Math.max(0.1, FIRE_ZONE_CRACKLE_S);
+          z.crackle = Math.max(z.crackle + period * (0.85 + Math.random() * 0.3), period * 0.5);
+          host.ctx.bus.emit('audio:play', { id: 'fire_crackle', position: z.ground, volume: Math.max(0.3, Math.min(1, z.life / FIRE_FADE_OUT_S)) });
         }
       }
       // visuals: fade in / out, flickering ground glow, flames / smoke / embers from the shared pools

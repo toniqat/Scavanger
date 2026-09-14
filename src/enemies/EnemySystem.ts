@@ -14,6 +14,8 @@ import {
   type NamedRogueType,
   /* appended (2026-09-13): 행성별 인간형 팩션 계약 */
   type HumanoidSpawnOpts,
+  /* appended (2026-09-15, B-16): HUD 가 읽는 적 화염 지대 */
+  type FireZoneInfo,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -38,6 +40,8 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/Hos
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
 import type { RogueSpawnHost } from './RogueGuards';
 import { placeSiteGroups, type SitePlacement } from './SiteGroups';
+/* appended (2026-09-15, B-16): 풀이 없을 때의 빈 화염 지대 목록 */
+import { EMPTY_FIRE_ZONES } from './model';
 /* appended (2026-09-14): 튜토리얼 전용 적 — 고정 자리 · 고정 종류 (`Tutorial.ts`) */
 import { placeTutorialEnemies, updateTutorialAmbush, type TutorialPlacement } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
@@ -89,6 +93,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   getRogueDrops(): readonly RogueDropView[] { return this.rogueDrops.views(); }
   /** 2026-09-10: 날아가는 적 수류탄 — HUD 위험 인디케이터가 아군 수류탄과 나란히 읽는다. */
   getEnemyGrenades(): readonly GrenadeView[] { return this.grenades?.getViews() ?? EMPTY_GRENADES; }
+  /**
+   * 2026-09-15 (B-16): 살아 있는 적 소이 화염 지대 — 권위 지대와 리플리카의 시각 지대(`ee grenadeHit.k`) 둘 다, 전부 `hostile`.
+   * HUD 가 매 프레임 부른다 — `RogueGrenades` 가 배열과 칸별 객체를 재사용한다.
+   */
+  getFireZones(): readonly FireZoneInfo[] { return this.grenades?.getFireZones() ?? EMPTY_FIRE_ZONES; }
   /** 로그 강하 — 굴림 기록 · 포드 연출 · 착지 스폰 (호스트 권한, 훈련장에서는 아무 것도 하지 않는다). */
   readonly rogueDrops = new RogueDropDirector();
   /** 2026-09-11: 네임드 로그 — 레이드당 1회 굴림 · 자리 · 스폰 · `enemy:namedSpawned` (`named/Director.ts`). */

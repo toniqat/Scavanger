@@ -46,6 +46,39 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-15 (12차) (TODO 묶음 — E-12 · E-13 · A-17 · B-14 · B-15 · B-16 · D-7 · D-8, 사용자 결정):
+
+  결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 3라운드 12문항 — [DECISIONS.md](DECISIONS.md) 「2026-09-15 — TODO 묶음」).
+  다른 세션이 main 트리를 편집하고 있어 **HEAD worktree(`D:/Projects/scav-e12`)** 에서 작업 · 커밋했다. 리드가 계약을 먼저 커밋
+  (`player:remoteFell` · `FallMessage` · `FireZoneInfo` · `getFireZones` · `igniteGrenadeFire` · `GadgetId 'grenadeFire'` · csv 13줄 ·
+  `TUTORIAL_RAID_XP` 900 → 120) → **12 에이전트 병렬** → 리드 통합 · 문서.
+
+  - **A-17** — 튜토리얼을 **탈출로** 끝내면 본편 정산식 · 서재 배율 · 계약 정산 대신 `TUTORIAL_RAID_XP` 만 준다(`game/parts/Death`).
+    값 900 은 누적 곡선(Lv.2 120 · Lv.3 426 · Lv.4 955)에서 레벨 3 이었다 → 120 = 정확히 Lv.2. 사망 상태의 ESC 건너뛰기(탈출 아님)는 옛 식.
+  - **B-14 낙하 피드백** — 착지음 `fall_impact` + 발밑 재질 발소리(audio) · `camera:shake`(player, 피해 비례) · 붉은 비네트 `.fall-vignette`
+    (ui, `update(dt)` 로 페이드 — 이 PC 는 reduced-motion) · 분대원에게 `fall` 와이어(모양 · 멤버 · 45 m · 최소 간격 = 피해 나는 최소 낙하 시간).
+  - **B-15** — 조리대 레일이 숙련이 모자란 요리도 딤드 + 숙련 배지로 보인다. 배지는 **`제작 n`** — 요리 레시피의 요구 숙련이 데이터상 전부 `crafting` 이다.
+  - **B-16** — 화염 지대 질의 `getFireZones`(enemies · gadgets) · 점화/지지직 소리(오디오에 동시 보이스 상한 `VOICE_CAP` 신설) ·
+    드론 피해 · HUD 위험 표시 「화염 지대」(적 빨강 · 아군 호박, 날아오는 위험물보다 뒤) · 로그 · 레이더 발소리 켬.
+    **사용자 버그 「소이 수류탄에 불 지대가 안 생긴다」 — 원인 둘**: ① G-10 소이 수류탄은 `weapons/Grenade.ts` 에 화염 갈래가 아예 없어 고폭으로 터졌다
+    → `items.csv` `grenadeFire` 열 + 작은 폭발(40 / 3 m, 리드 기본값) + gadgets 내부 정의 `grenadeFire`(3.5 m · 6 s) ② 화염수류탄은 지대를 **지형 높이**에
+    세워 옥상 · 2층에서 바닥판 밑에 묻혔다 → 착탄 지점 아래 걸을 수 있는 표면. 원격 수류탄 폭발은 받는 쪽 피해라 종류를 `GrenadeMessage.fire` 로 싣는다
+    (옛 클라이언트만 손 스냅샷 추측).
+  - **D-7** — 병사 재질 fresnel 림(`player/SoldierRim`, 프로그램 공유 · 광원 0, 주변광에 비례). 세기는 csv 기본 0.35 로 짰으나
+    이끼 행성 비교 스크린샷에서 거의 안 보여 **0.7** — 가장 밝은 아켈론 II · 보레아스 IX 에서도 흰 테두리가 아니라 옅은 회색 가장자리였다. **D-8** — 드랍쉽 외피 그리블(`extraction/ShipGreebles`,
+    재질별 병합 +4 드로우콜 · +7,620 삼각형, 콜라이더 · 데크 무변경) + 선체에 묻혀 안 보이던 착륙등을 밖으로.
+  - **E-12** — 새 스모크 셋: `smoke-tutorial-raid`(체크포인트 · 낙사 부활 자리 · kill/clamp · 즉시 이륙 → 정산 120 XP → 함선) ·
+    `smoke-tutorial-ship`(levelUp → stats 1초 홀드 → messenger → ravenQuest · 새로고침 복원) · `smoke-fall-damage`. 함선 트랙 주행이 튜토리얼 버그 셋을 잡아 고쳤다
+    (인벤토리가 열린 채 투명한 메신저 버튼에 포커싱 · `.ms-page.chats` 오타 · 「대답한다」 줄이 수락 때 같이 체크).
+    가젯 쪽 스모크 `smoke-fire-zones` 신설 · `smoke-humanoid-ai` · `smoke-cooking` · `smoke-ghost` 에 검사 추가.
+  - **E-13** — 피칭 행성 페이지에 주적 팩션 열 · threat 별 적 구성, 31쪽 전수 점검(레이더 강하 · 인간형 팩션 · 네임드 · 탈출 흐름 20 s / 60 s / 10 s).
+  - **미해결** — ① 오프닝 기상 연출이 끝나지 않는다(`IntroWake` 타이머가 음수로 넘어가 `endIntroWake` 가 되돌아감) — 같은 날 다른 세션이 main 트리에서
+    고치는 중이라 이 묶음은 손대지 않았다(`smoke-tutorial-raid` 의 한 줄이 그 수정 전까지 실패) ② 서버 프로필이 `stats` 단계 도중 도착하면
+    `progress:statChanged` 재방송으로 포인트 없이 넘어갈 수 있다(릴레이에서만) ③ 레이븐 퀘스트 수락 순간 증축 트랙이 시작돼 메신저가 닫힌다
+    ④ `isTrackDone('build')` 가 대기 중인 트랙을 끝났다고 답한다(읽는 곳 없음) ⑤ 지상 드론(30)은 적 화염 지대에서 약 2초
+    ⑥ 복제본의 G-10 지대 크기는 호스트가 붙인 id 꼬리 `-gf` 로 가른다(`DeployableWire` 에 gadget 필드 없음) ⑦ 피칭 `28-status` 배지 · `23-corp` / `25-quest` 의
+    기업 퀘스트 · 옛 강하 스크린샷 ⑧ `fall` 와이어 · 원격 수류탄 종류는 두 클라이언트 릴레이 경로로 돌려 보지 못했다(이 PC 의 릴레이 포트 WinNAT 예약).
+
 - 2026-09-14 (11차) (설계안 폴더 정리 — `docs/plans/` 16개를 DECISIONS 로 합치고 지움, 사용자 결정):
 
   사용자 요청 「`docs/plans` 에서 완료된 것 확인 → 문서마다 정리해 README 또는 DECISIONS 로 옮기고 지운다」. 문서마다 코드와 대조했다

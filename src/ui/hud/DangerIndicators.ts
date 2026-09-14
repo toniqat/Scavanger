@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { GameContext, GrenadeView, StratagemId } from '@/shared';
-import { DANGER_NEAR_RADIUS, DETECT_ENEMY_BASE_RADIUS, ROGUE_DROP_ALERT_RADIUS, shellLaunchVelocity, shellPositionAt } from '@/shared';
+import type { FireZoneInfo, GameContext, GrenadeView, StratagemId } from '@/shared';
+import { DANGER_NEAR_RADIUS, DETECT_ENEMY_BASE_RADIUS, FIRE_ZONE_DANGER_RANGE, ROGUE_DROP_ALERT_RADIUS, shellLaunchVelocity, shellPositionAt } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemDef } from './stratagemGlyphs';
 import '../styles/danger.css';
@@ -16,7 +16,7 @@ const TIMEOUT_PAD_S = 2.5;
 /** |NDC| beyond this counts as off-screen (the projected point is at / past the viewport edge). */
 const EDGE_NDC = 0.94;
 
-type Cat = 'shell' | 'grenade' | 'call' | 'drop' | 'worm';
+type Cat = 'shell' | 'grenade' | 'call' | 'drop' | 'worm' | 'fire';
 
 interface Shell {
   sid: number;
@@ -42,8 +42,19 @@ interface Item {
 }
 interface Slot { el: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey: string }
 
-const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물', drop: '레이더 강하', worm: '지상이변' };
-const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣', drop: '⬇', worm: '◎' };
+const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물', drop: '레이더 강하', worm: '지상이변', fire: '화염 지대' };
+const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣', drop: '⬇', worm: '◎', fire: '▲' };
+/**
+ * 화염 지대 (2026-09-15, B-16). 가장자리에서 이 거리 안(안에 서 있으면 음수)이면 `hot` — 한 발짝이면 불에 든다.
+ * 수치가 아니라 표시 규칙이라 csv 로 옮기지 않았다 (`HOT_S` 와 같은 처리).
+ */
+const FIRE_HOT_EDGE_M = 1.5;
+/**
+ * 화염 지대의 정렬 키에 더하는 값. 지대는 **머무는** 위험이고 나머지 갈래는 **날아오는** 위험이라, 칸이 모자라면
+ * 지대가 늘 뒤로 밀린다 — 발밑의 불이 3 m 옆 수류탄 마커를 밀어내면 안 된다. 지대끼리는 가장자리 거리로 줄 선다.
+ * 후보 칸(`MAX_CANDIDATES`)도 지대를 **맨 마지막에** 모아 먼저 채우지 못하게 한다.
+ */
+const FIRE_RANK_BIAS = 1e12;
 /**
  * 지하벌레 분출 전조 (2026-09-13) — `sandworm:warning {position, radius, eta}` 한 번을 받아 분출 시각까지 붙들고,
  * `sandworm:erupted` 에 지운다(놓치면 분출 시각 + `WORM_TIMEOUT_S`). 레이드당 최대 1회라 칸 하나로 충분하다.
@@ -88,6 +99,10 @@ const DROP_COLOR = '#ff4d4d';
  *     라벨은 착지까지 남은 초 → 착지 직후 `레이더 n` (2026-09-13 부터 강하에 분대장이 없다 — `boss` 는 계약 필드라 남았을 뿐).
  *     2026-09-09 에 `hud/OffscreenIndicators` 가 그리던 `.oarrow.drop` 화살표는 **여기로 옮겨 왔다** —
  *     한 목표가 두 언어로 그려지면 안 되고, 화면 안에서는 아무 표시도 없었다(강하가 조용했던 이유 중 하나).
+ *   - **화염 지대** (2026-09-15, B-16) — `ctx.enemies.getFireZones()`(적 소이, 빨강) + `ctx.gadgets.getFireZones()`(플레이어의
+ *     화염 · 소이 수류탄, 호박). 가장자리 `FIRE_ZONE_DANGER_RANGE` 안만, 머리 마커는 지대 중심 + 남은 초, 안에 있거나 가장자리
+ *     `FIRE_HOT_EDGE_M` 안이면 `hot`. **머무는** 위험이라 칸이 모자라면 늘 날아오는 위험 뒤로 밀린다 (`FIRE_RANK_BIAS`).
+ *   슬롯 요소는 `data-cat` 에 갈래 이름을 단다 (스모크가 `.dgr-head[data-cat="fire"]` 로 고른다).
  *
 
  * **인지력 반경 게이트 (결정, 2026-09-10).** 포탄에 걸려 있던 `derived.enemyDetectRadius` 게이트는 유지하되
@@ -240,6 +255,27 @@ export class DangerIndicators {
     }
   }
 
+  /**
+   * 화염 지대 한 무리 (2026-09-15, B-16). 적 것과 플레이어 것이 **같은 `FireZoneInfo` 모양**이고 색은 수류탄과 같은 규칙 —
+   * `hostile` 이면 적 빨강, 아니면 아군 호박, `hot` 이면 짙게. 게이트는 **가장자리 거리** `FIRE_ZONE_DANGER_RANGE` 하나다
+   * (인지력 · 전장의 안개는 보지 않는다 — 지금 타고 있는 사건이다). 라벨은 꺼질 때까지 남은 초, 마커는 지대 중심.
+   */
+  private pushFires(list: readonly FireZoneInfo[] | undefined, from: THREE.Vector3): void {
+    if (!list || list.length === 0) return;
+    for (const z of list) {
+      if (!(z.remaining > 0)) continue;
+      const dx = z.position.x - from.x, dz = z.position.z - from.z;
+      const edge = Math.sqrt(dx * dx + dz * dz) - Math.max(0, z.radius);
+      if (edge > FIRE_ZONE_DANGER_RANGE) continue;
+      const hot = edge <= FIRE_HOT_EDGE_M;
+      const color = z.hostile
+        ? (hot ? GRENADE_HOSTILE_HOT_COLOR : GRENADE_HOSTILE_COLOR)
+        : (hot ? GRENADE_HOT_COLOR : GRENADE_COLOR);
+      const e = edge > 0 ? edge : 0;
+      this.push('fire', z.position, color, CAT_ICON.fire, this.etaLabel(z.remaining, 'fire', ''), hot, FIRE_RANK_BIAS + e * e);
+    }
+  }
+
   private push(cat: Cat, pos: THREE.Vector3, color: string, icon: string, label: string, hot: boolean, d2: number): void {
     if (this.items.length >= MAX_CANDIDATES) return;
     const it = this.pool[this.items.length];
@@ -301,6 +337,10 @@ export class DangerIndicators {
       this.push('call', c.pos, STRATAGEM_COLOR[c.kind] ?? '#ffb347', STRATAGEM_GLYPH[c.kind] ?? CAT_ICON.call,
         this.etaLabel(eta, 'call', def?.name ?? ''), !c.landed && eta > 0 && eta < HOT_S, dx * dx + dz * dz);
     }
+    // (e) 화염 지대 (2026-09-15, B-16) — 적 소이 수류탄(빨강) + 플레이어의 화염 · 소이 수류탄(호박). **맨 마지막**에 모은다:
+    //     머무는 위험이 날아오는 위험의 후보 칸을 먹지 않게 (`FIRE_RANK_BIAS`). 두 질의 모두 옵셔널 — 없으면 갈래가 비어 있을 뿐.
+    this.pushFires(ctx.enemies?.getFireZones?.(), from);
+    this.pushFires(ctx.gadgets?.getFireZones?.(), from);
     if (this.items.length > MAX) {
       this.items.sort(byNear);   // 가까운 것부터
       this.items.length = MAX;
@@ -355,6 +395,7 @@ export class DangerIndicators {
     if (s.el.hidden) s.el.hidden = false;
     if (key === s.lastKey) return;
     s.lastKey = key;
+    if (s.el.dataset.cat !== it.cat) s.el.dataset.cat = it.cat;   // 2026-09-15: 스모크 · 스타일이 갈래를 고르는 열쇠
     s.el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
     s.el.style.setProperty('--dc', it.color);
     s.el.classList.toggle('hot', it.hot);
@@ -367,6 +408,7 @@ export class DangerIndicators {
     if (s.el.hidden) { s.el.hidden = false; toggleClass(s.el, 'show', true); }
     if (key === s.lastKey) return;
     s.lastKey = key;
+    if (s.el.dataset.cat !== it.cat) s.el.dataset.cat = it.cat;
     s.el.style.setProperty('--rot', `${deg.toFixed(0)}deg`);
     s.el.style.setProperty('--dc', it.color);
     s.el.classList.toggle('hot', it.hot);

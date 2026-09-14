@@ -583,6 +583,10 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
   const scaffold = r.has('scaffold') && r.bool('scaffold');
   const retired = r.has('retired') && r.bool('retired');
   if (retired && strain) r.report('strainOut', '은퇴한 세포주는 strain* 칸을 비운다 (배양조가 받지 않게)');
+  /* 2026-09-15 (B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): `grenadeFire` = 이 수류탄은 고폭 대신 작은 폭발 +
+   * 터진 자리에 화염 지대 (weapons `Grenade` → `ctx.gadgets.igniteGrenadeFire`). 수류탄이 아닌 줄에 있으면 아무도 안 읽으므로 신고한다. */
+  const grenadeFire = r.has('grenadeFire') && r.bool('grenadeFire');
+  if (grenadeFire && r.str('category') !== 'grenade') r.report('grenadeFire', '수류탄(category grenade)이 아닌 줄에 grenadeFire 가 있다');
   return def({
     id: r.str('id'), name: r.str('name'), category: r.str('category') as ItemCategory,
     rarity: r.str('rarity') as Rarity,
@@ -602,6 +606,7 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
     ...(medium ? { medium } : {}),
     ...(scaffold ? { scaffold: true } : {}),
     ...(retired ? { retired: true } : {}),
+    ...(grenadeFire ? { grenadeFire: true } : {}),
   });
 });
 

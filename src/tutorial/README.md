@@ -383,7 +383,12 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 
 `scripts/smoke-tutorial.mjs` — **증축 트랙**(16단계)을 끝까지 몰고, 3트랙 계약(어느 트랙이 도는가 ·
 `isTrackDone` · HUD 게이트가 증축 트랙에서 아무것도 안 감추는가 · 조작 가이드가 안 뜨는가)을 덧붙여 본다.
-트랙 ①(레이드 조작) · ②(함선)의 스모크는 그 트랙을 구현하는 쪽(`world/tutorial` · `meta` + 메신저)이 더한다.
+트랙 ①(레이드 조작)의 스모크는 그 트랙을 구현하는 쪽(`world/tutorial`)이 더한다.
+
+`scripts/smoke-tutorial-ship.mjs` (2026-09-15, E-12) — **함선 트랙**(4단계)을 끝까지 실제 입력으로 몬다: 레이드 트랙의 완주 경로
+(`extract` → `finish(false)` → `pendingShip`) + `TUTORIAL_RAID_XP` 로 Lv.2 → 함선 진입 → Tab(levelUp) · 이미 열린 창의 캐릭터 탭 클릭 →
+보이는 `.cs-col` 구멍 · ＋ 클릭 · `포인트 투자 확정` 1초 포인터 홀드 → 새로고침(v2 저장, `messenger` 에서 이어짐) → 레이븐 첫 연락 ·
+P → 대화 줄 클릭 · 선택지 클릭 → 답 → `introAfter` → 퀘스트 카드(타이핑 연출 순서) → [수락] → `tutorial:finished {ship}` → 증축 트랙 intro.
 
 **다른 스모크는 전부** `evaluateOnNewDocument` 에서 `scav.tutorial` 을 done 으로 심고 시작한다 — 튜토리얼은
 새 프로필에서 자동으로 켜져 그 스크립트들이 드라이브하는 행동을 순서대로 잠그기 때문이다. **2026-09-14 부터
@@ -399,6 +404,14 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-15 (함선 트랙 주행 스모크, E-12)** — `scripts/smoke-tutorial-ship.mjs` 가 처음으로 함선 트랙을 끝까지 몰며 셋을 잡았다.
+  ① `messenger` 포커싱이 **투명한 버튼**을 둘렀다 — `stats` 가 인벤토리 창 안에서 끝나 이 단계는 창이 열린 채 시작하는데,
+  그동안 `.community` 는 `opacity: 0` 으로만 접혀 사각형이 남는다(`Spotlight.firstShown` 은 visibility 만 본다). 선택자를
+  `.community.show .cm-btn` · `.community.show` 로 좁혔다. ② `ravenQuest` 의 `.ms-page.chats` 는 오타였다(페이지 클래스는
+  `.ms-page.chat`) — 구멍이 틀 전체(`.ms-frame`)로 흘렀다. ③ 「레이븐의 연락에 대답한다」를 적는 곳이 없어 수락할 때 두 줄이
+  한꺼번에 그어졌다 — `npc:message {npc: TUTORIAL_RAVEN_NPC, entry.e: 'choice'}` 가 `ravenQuest` 에서 그 줄을 적는다
+  (`model.TUTORIAL_RAVEN_NPC` 신설). `smoke-tutorial` 91 / 0 그대로.
 
 - **2026-09-14 4차 (오프닝 배선 · 「앞으로 이동」 · 목표 정리 — 사용자 결정, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)**
   ① **오프닝이 실제로 돈다.** `PlayerRef.playIntroWake` 를 **`src/` 어디서도 부르지 않아** 2초 페이드도 쓰러진 채

@@ -27,6 +27,8 @@ export const TUTORIAL_ROOM_PURPOSE = 'workshop' as const;
 export const TUTORIAL_BENCH_DEF = 'furn_bench_gun';
 export const TUTORIAL_GUN_RECIPE = 'make_wpn_ar';
 export const TUTORIAL_GUN_DEF = 'wpn_ar';
+/** 함선 트랙 `ravenQuest` 의 상대 — 「레이븐의 연락에 대답한다」 목표가 이 NPC 의 `choice` 사건을 본다 (2026-09-15, E-12). */
+export const TUTORIAL_RAVEN_NPC = 'npc_raven';
 /*
  * 2026-09-10 (제작 대개편) — `bulk_ammo_medium`(대량 제작, 화약 16 · 폐금속 5 → 90발)이 `data/recipes.csv` 에서
  * 사라져 이 단계가 **영영 끝나지 않았다**. 그 자리를 잇는 것은 `make_ammo_medium`(화약 6 · 폐금속 2 → 30발)이다.

@@ -17,8 +17,18 @@
  *   `normal` 위 식 그대로 (`ctx.world.tutorial` 이 null 인 본편은 늘 이쪽이다)
  *
  * 피해가 실제로 들어갔을 때만 `player:fell {height, damage, rule}` 을 낸다 (튜토리얼 단계 · HUD · 오디오가 읽는다).
+ *
+ * 2026-09-15 (TODO B-14, 사용자 결정 「착지음 + 흔들림 + HUD 비네트 + 분대원도 듣는다」) — 같은 자리에서
+ *   ① `camera:shake {min(FALL_SHAKE_MAX, 피해 × FALL_SHAKE_PER_DAMAGE), FALL_SHAKE_S}` (받는 곳은 `PlayerSystem.init` 의
+ *      `rig.addShake` — 드론 시점 · 탐사 차량 궤도 카메라는 늘 그렇듯 무시한다),
+ *   ② 멀티면 `fall {p: 발, d: 피해}` 를 `others` 로 보낸다. 착지음은 audio 가, 비네트는 ui 가 `player:fell` 로 낸다.
+ * 받는 쪽은 `receiveRemoteFall` — 네 겹(모양 · 보낸 사람 · 거리 · 요율)을 지난 것만 `player:remoteFell` 로 다시 낸다.
  */
-import { FALL_DAMAGE_MAX, FALL_DAMAGE_PER_M, FALL_DAMAGE_SAFE_M, type TutorialFallRule } from '@/shared';
+import * as THREE from 'three';
+import {
+  FALL_DAMAGE_MAX, FALL_DAMAGE_PER_M, FALL_DAMAGE_SAFE_M, FALL_REMOTE_SOUND_RANGE, FALL_SHAKE_MAX, FALL_SHAKE_PER_DAMAGE,
+  FALL_SHAKE_S, GRAVITY, type FallMessage, type GameContext, type PeerId, type TutorialFallRule,
+} from '@/shared';
 import type { PlayerSystem } from '../PlayerSystem';
 
 /** 순수 식: `height` m 를 떨어졌을 때의 기본 피해 (안전 높이 이하면 0). 스모크 · 콘솔이 같이 쓴다. */
@@ -80,5 +90,60 @@ export function onLanded(sys: PlayerSystem, height: number): void {
 function emitFell(sys: PlayerSystem, height: number, before: number, rule: TutorialFallRule): void {
   const dealt = Math.max(0, before - (sys.hp + sys.shield));
   if (dealt <= 0) return;
-  sys.ctx.bus.emit('player:fell', { height, damage: dealt, rule });
+  const ctx = sys.ctx;
+  ctx.bus.emit('player:fell', { height, damage: dealt, rule });
+  // 2026-09-15 (B-14): 흔들림 — 피해에 비례, 상한 FALL_SHAKE_MAX (`PlayerSystem` 이 `camera:shake` 를 rig 에 넘긴다)
+  ctx.bus.emit('camera:shake', { intensity: fallShakeFor(dealt), duration: FALL_SHAKE_S });
+  // 2026-09-15 (B-14): 분대원이 착지음을 듣는다 — 소리 전용, 체력 · 실드는 이미 스냅샷이 싣는다
+  if (ctx.isMultiplayer && ctx.net) {
+    const p = sys.controller.position;
+    ctx.net.send({ t: 'fall', p: [p.x, p.y, p.z], d: dealt }, 'others');
+  }
+}
+
+/** 순수 식: 실제로 깎인 `damage` 에 대한 `camera:shake` 세기 (스모크가 같이 쓴다). */
+export function fallShakeFor(damage: number): number {
+  if (!(damage > 0)) return 0;
+  return Math.min(FALL_SHAKE_MAX, damage * FALL_SHAKE_PER_DAMAGE);
+}
+
+/**
+ * 같은 분대원의 두 `fall` 사이 최소 간격(초) — 코드에 적은 수치가 아니라 **데이터에서 유도한다**: 피해를 주는 낙하는
+ * 적어도 `FALL_DAMAGE_SAFE_M` 를 자유낙하해야 하므로 두 번의 착지는 정지 상태에서 그 높이를 떨어지는 시간보다 가까울 수 없다.
+ */
+export const REMOTE_FALL_MIN_INTERVAL_S = Math.sqrt((2 * Math.max(0, FALL_DAMAGE_SAFE_M)) / Math.max(1e-3, GRAVITY));
+
+/** `receiveRemoteFall` 이 거절한 사유 (스모크 · 디버그). `null` = 받아들여 `player:remoteFell` 을 냈다. */
+export type RemoteFallReject = 'shape' | 'self' | 'member' | 'phase' | 'range' | 'damage' | 'rate';
+
+/**
+ * 2026-09-15 (B-14) — 분대원의 `fall` 수신 (`RemotePlayerSystem` 이 `net.onMessage('fall')` 로 부른다).
+ * CLAUDE.md 「호스트가 받는 요청은 모양 · 보낸 사람 · 거리 · 요율 네 겹을 지난다」 순서 그대로:
+ *   모양    `p` 는 유한한 수 셋, `d` 는 유한한 수 → `[0, FALL_DAMAGE_MAX]` 로 자르고 0 이면 버린다(들을 것이 없다)
+ *   보낸 사람 나 자신이 아니고 지금 로비 멤버 (`net.getLobbyPlayer`), 그리고 이 클라이언트가 레이드 게임플레이 중
+ *   거리    로컬 카메라(= 오디오 청취자)에서 `FALL_REMOTE_SOUND_RANGE` 안
+ *   요율    같은 사람의 직전 수락에서 `REMOTE_FALL_MIN_INTERVAL_S` 이상 (`lastAt` 은 호출자가 들고, 실시간 초)
+ * 통과하면 `player:remoteFell {peerId, position, damage}` — 위치 벡터는 메시지마다 하나 새로 만든다(받는 쪽이 들고 있어도 된다).
+ */
+export function receiveRemoteFall(
+  ctx: GameContext, msg: FallMessage, from: PeerId, lastAt: Map<PeerId, number>, nowS: number,
+): RemoteFallReject | null {
+  if (!msg || typeof msg !== 'object' || !Array.isArray(msg.p) || msg.p.length !== 3) return 'shape';
+  const x = msg.p[0], y = msg.p[1], z = msg.p[2];
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || typeof msg.d !== 'number' || !Number.isFinite(msg.d)) return 'shape';
+  const net = ctx.net;
+  if (!net || typeof from !== 'string' || !from) return 'member';
+  if (from === net.localId) return 'self';
+  if (!net.getLobbyPlayer(from)) return 'member';
+  if (!ctx.isGameplayPhase()) return 'phase';
+  const cam = ctx.camera.position;
+  const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
+  if (dx * dx + dy * dy + dz * dz > FALL_REMOTE_SOUND_RANGE * FALL_REMOTE_SOUND_RANGE) return 'range';
+  const damage = Math.min(FALL_DAMAGE_MAX, Math.max(0, msg.d));
+  if (!(damage > 0)) return 'damage';
+  const prev = lastAt.get(from);
+  if (prev !== undefined && nowS - prev < REMOTE_FALL_MIN_INTERVAL_S) return 'rate';
+  lastAt.set(from, nowS);
+  ctx.bus.emit('player:remoteFell', { peerId: from, position: new THREE.Vector3(x, y, z), damage });
+  return null;
 }

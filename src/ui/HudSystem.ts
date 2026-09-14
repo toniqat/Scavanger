@@ -43,6 +43,7 @@ import { ScanTracker } from './hud/ScanTracker';
 import { CutsceneWatch } from './hud/CutsceneWatch';
 import { HubDot } from './hud/HubDot';
 import { DangerIndicators } from './hud/DangerIndicators';
+import { FallVignette } from './hud/FallVignette';
 import { Deployables } from './hud/Deployables';
 import { ProgressToasts } from './hud/ProgressToasts';
 import { ActionFeedback } from './hud/ActionFeedback';
@@ -138,6 +139,8 @@ export class HudSystem implements GameSystem {
   /** 2026-09-14: 화면 전체 검은 페이드 (`ui:screenFade`) — 연출 전용 판, blocker 가 아니다. */
   private screenFade!: HTMLElement;
   private fadeOpacity = 0;
+  /** 2026-09-15 (B-14): 낙하 붉은 비네트 (`player:fell`) — `#ui-root` 직계 z 25, 연출 전용 판. */
+  private fallVignette!: FallVignette;
 
   private reticle!: Reticle;
   private vitals!: Vitals;
@@ -366,6 +369,9 @@ export class HudSystem implements GameSystem {
      * (`pointer-events: none`) `ctx.escape` · `ctx.uiBlockers` 에 올라가지 않는다. 그래서 페이드가 1.0 이어도
      * 입력 · ESC 는 평소 그대로 흐른다. 자리 · 불투명도 전이는 `styles/base.css` 의 `.screen-fade` 가 갖는다. */
     this.screenFade = el('div', { cls: 'screen-fade', parent: ctx.uiRoot });
+    /* 2026-09-15 (B-14): 낙하 붉은 비네트 — 같은 성격(연출 · 포인터 안 먹음)이지만 z 25 라 HUD 레이어 위 · 열린 화면 아래다
+     * (근거는 `styles/fall.css` 머리). 세기와 사라짐은 `update(dt)` 가 인라인으로 쓴다. */
+    this.fallVignette = new FallVignette(ctx.uiRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
@@ -395,6 +401,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.bind(ctx);
     this.musicPlayer.bind(ctx);                                // 음악 재생 창 (2026-09-14)
+    this.fallVignette.bind(ctx);                               // 낙하 붉은 비네트 (2026-09-15)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.bind(ctx);
@@ -485,6 +492,8 @@ export class HudSystem implements GameSystem {
 
   /** Smoke hook: the black plate's target opacity (0 = 화면이 열려 있다). */
   get screenFadeOpacity(): number { return this.fadeOpacity; }
+  /** Smoke hook (2026-09-15, B-14): the fall vignette's current opacity (0 = off). */
+  get fallVignetteOpacity(): number { return this.fallVignette.opacity; }
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
@@ -544,6 +553,8 @@ export class HudSystem implements GameSystem {
     this.actionFx.update(dt, ctx);
     this.scope.update(ctx);
     this.damage.update(dt, ctx);
+    // 낙하 비네트: 꺼져 있으면 비교 하나로 끝난다 (레이어 가시성과 무관 — 사라지는 도중 메뉴가 떠도 제 시간에 꺼진다).
+    this.fallVignette.update(dt);
     this.complete.update(dt);
     this.death.update(dt);
     // 타이틀 흐름: 캐릭터 생성창의 3D 미리보기만 돈다 (닫혀 있으면 즉시 돌아온다).
@@ -826,6 +837,7 @@ export class HudSystem implements GameSystem {
     this.cutscene.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.dispose();
     this.musicPlayer.dispose();                                // 음악 재생 창 (2026-09-14)
+    this.fallVignette.dispose();                               // 낙하 붉은 비네트 (2026-09-15)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.dispose();

@@ -23,6 +23,8 @@ import * as Preview from './parts/Preview';
 import * as Mount from './parts/Mount';
 import { LARGE_DEPLOYABLE_KINDS, MOUNTABLE_DEPLOYABLE_KINDS, type PlacementPreview } from '@/shared';
 import { createBuffGuard, type BuffVerdict } from '@/shared';
+import type { FireZoneInfo } from '@/shared';
+import type { FireZoneView } from './model';
 
 export class GadgetSystem implements GameSystem, GadgetsRef {
   readonly name = 'gadgets';
@@ -156,6 +158,15 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   /** 2026-09-11: 로컬 플레이어 소유로 월드에 있는 원격 지뢰 수 (무장 여부 무관). */
   liveRemoteMineCount(): number { return Remote.liveRemoteMineCount(this); }
 
+  /** 2026-09-15 (B-16): 살아 있는 `fire` 배치물 (전부 `hostile: false`, 모든 클라이언트). 재사용 배열 — `parts/Queries`. */
+  getFireZones(): readonly FireZoneInfo[] { return Q.getFireZones(this); }
+  /** `getFireZones` 의 칸 객체 풀 · 목록 (매 프레임 새로 만들지 않는다). */
+  readonly fireZonePool: FireZoneView[] = [];
+  readonly fireZoneList: FireZoneView[] = [];
+
+  /** 2026-09-15 (B-16): G-10 소이 수류탄이 `position` 에서 터졌다 — 로컬 플레이어 소유의 작은 화염 지대 (`parts/Deploy`). */
+  igniteGrenadeFire(position: THREE.Vector3): void { return Deploy.igniteGrenadeFire(this, position); }
+
   clear(): void { return Deploy.clear(this); }
 
   /* ═══════════════════════════ input ═══════════════════════════ */
@@ -184,7 +195,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   updateMounts(ctx: GameContext): void { return Mount.updateMounts(this, ctx); }
 
   /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
-  nextId(): string { return Deploy.nextId(this); }
+  nextId(gadget?: GadgetId): string { return Deploy.nextId(this, gadget); }
 
   /**
    * @param wire non-null when this is a replica built from a `gad spawn` / `gad sync` broadcast

@@ -53,17 +53,35 @@
   <p class="lede">각 행성은 <strong>고유한 규칙을 가진 절차 생성</strong>이다. 지형 팔레트 · 하늘 · 포그 · 생태(어떤 적이 얼마나 나오는지, 어떤 약초가 자라는지)가 행성마다 정해져 있고, 그 안에서 지형 배치와 전리품은 매번 새 시드로 굴러간다.</p>
 
   <div class="tw"><table>
-    <thead><tr><th style="width:15%">행성</th><th style="width:14%">지형</th><th style="width:11%">위협</th><th>브리핑</th></tr></thead>
+    <thead><tr><th style="width:13%">행성</th><th style="width:12%">지형</th><th style="width:8%">위협</th><th style="width:19%">주적 팩션</th><th>브리핑</th></tr></thead>
     <tbody>
-      <tr><td class="k" style="color:#ffc98a">아켈론 II</td><td>호박빛 사막</td><td><span class="badge ok">낮음</span></td><td>모래에 묻힌 채굴 전초. 벌레는 드물지만 <b>약탈자 거점이 촘촘</b>하다.</td></tr>
-      <tr><td class="k" style="color:#9ad8ff">보레아스 IX</td><td>동토 툰드라</td><td><span class="badge wip">보통</span></td><td>얼어붙은 평원. <b>무리 사냥꾼</b>이 시야 밖에서 달려든다.</td></tr>
-      <tr><td class="k" style="color:#5affb0">베르단트 III</td><td>이끼 습지</td><td><span class="badge wip">보통</span></td><td>포자로 뿌연 습지. <b>산성 개체</b>가 많고 약초가 무성하다.</td></tr>
-      <tr><td class="k" style="color:#ff7a1a">피로스 VII</td><td>잿빛 화산지대</td><td><span class="badge" style="background:rgba(255,122,107,.14);color:var(--rd);border:1px solid rgba(255,122,107,.3)">높음</span></td><td>재가 내리는 용암 지대. <b>중장갑 개체와 포격</b>이 상시 압박한다.</td></tr>
-      <tr><td class="k" style="color:#ff5ad0">카민 I</td><td>적색 외계 평원</td><td><span class="badge" style="background:rgba(255,122,107,.14);color:var(--rd);border:1px solid rgba(255,122,107,.3)">높음</span></td><td>포그 없는 맑은 하늘 — <b>멀리까지 보이고, 저쪽에서도 이쪽이 보인다.</b></td></tr>
+      <tr><td class="k" style="color:#ffc98a">아켈론 II</td><td>호박빛 사막</td><td><span class="badge ok">낮음</span></td><td>벌레 + <b>안드로이드</b></td><td>모래에 묻힌 채굴 전초. 벌레는 드물고, 버려진 시설은 <b>안드로이드</b>가 지킨다.</td></tr>
+      <tr><td class="k" style="color:#9ad8ff">보레아스 IX</td><td>동토 툰드라</td><td><span class="badge wip">보통</span></td><td>벌레 + <b>로그</b> · 레이더</td><td>얼어붙은 평원. <b>무리 사냥꾼</b>이 시야 밖에서 달려든다.</td></tr>
+      <tr><td class="k" style="color:#5affb0">베르단트 III</td><td>이끼 습지</td><td><span class="badge wip">보통</span></td><td>벌레 + <b>로그</b> · 레이더</td><td>포자로 뿌연 습지. <b>산성 개체</b>가 많고 약초가 무성하다.</td></tr>
+      <tr><td class="k" style="color:#ff7a1a">피로스 VII</td><td>잿빛 화산지대</td><td><span class="badge" style="background:rgba(255,122,107,.14);color:var(--rd);border:1px solid rgba(255,122,107,.3)">높음</span></td><td>벌레 + <b>레이더</b></td><td>재가 내리는 용암 지대. <b>중장갑 개체와 포격</b>이 상시 압박하고, 거점마다 레이더가 진을 쳤다.</td></tr>
+      <tr><td class="k" style="color:#ff5ad0">카민 I</td><td>적색 외계 평원</td><td><span class="badge" style="background:rgba(255,122,107,.14);color:var(--rd);border:1px solid rgba(255,122,107,.3)">높음</span></td><td>벌레 + <b>레이더</b></td><td>포그 없는 맑은 하늘 — <b>멀리까지 보이고, 저쪽에서도 이쪽이 보인다.</b> 먼 거리에 강한 레이더의 사냥터.</td></tr>
     </tbody>
   </table></div>
 
-  <div class="note"><b>행성 선택은 곧 빌드 선택이다.</b> 카민 I은 시야가 트여 저격이 산다. 베르단트 III는 안개 때문에 산탄총과 <a class="wl" href="05-tactical.html">정찰</a>이 산다. 아켈론 II는 벌레보다 사람(약탈자)이 주적이라 총싸움이 된다.</div>
+  <p><b>벌레는 모든 행성에 있고, 위협 등급이 인간형 적의 팩션을 정한다.</b> 낮음은 엄폐도 수류탄도 모르는 <a class="wl" href="16-enemies.html#s-rogues">안드로이드</a>, 보통은 로그(거점의 65 %)와 레이더(35 %), 높음은 레이더뿐이다. 위협이 오를수록 벌레도 단단해지고 대형 개체가 늘어난다.</p>
+
+  <details>
+    <summary>세부 수치 — 위협 등급별 적 구성</summary>
+    <div class="dbody"><div class="tw"><table>
+      <thead><tr><th style="width:28%">항목</th><th>낮음</th><th>보통</th><th>높음</th></tr></thead>
+      <tbody>
+        <tr><td class="k">연구소 · 전진기지 점거</td><td>안드로이드</td><td>로그 65 % · 레이더 35 %</td><td>레이더</td></tr>
+        <tr><td class="k">선로 플랫폼 · 폐허 전초</td><td>비어 있음</td><td>로그 (60 % · 20 %)</td><td>레이더 (60 % · 20 %)</td></tr>
+        <tr><td class="k">로그 분대장</td><td>—</td><td>그룹장 40 % · 레이드당 최대 1명</td><td>—</td></tr>
+        <tr><td class="k"><a class="wl" href="12-structures.html#s-drop">레이더 강하</a></td><td>없음</td><td>조사 시 45 %</td><td>조사 시 45 %</td></tr>
+        <tr><td class="k"><a class="wl" href="16-enemies.html#s-named">네임드</a></td><td>없음</td><td>25 %</td><td>50 %</td></tr>
+        <tr><td class="k">지하벌레 이벤트</td><td>없음</td><td>25 %</td><td>70 %</td></tr>
+        <tr><td class="k">벌레 체력</td><td>×1.0</td><td>×1.2</td><td>×1.4</td></tr>
+      </tbody>
+    </table></div></div>
+  </details>
+
+  <div class="note"><b>행성 선택은 곧 빌드 선택이다.</b> 카민 I은 시야가 트여 저격이 산다 — 저쪽 레이더에게도. 베르단트 III는 안개 때문에 산탄총과 <a class="wl" href="05-tactical.html">정찰</a>이 산다. 아켈론 II는 벌레가 드물고 시설을 지키는 안드로이드가 둔해, <b>첫 총싸움을 배우는 행성</b>이다.</div>
 
   <h2 id="s-gimmick"><span class="hn">4.5</span>행성 기믹 <span class="badge ok">구현</span></h2>
 

@@ -644,6 +644,18 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-15 (TODO 묶음 B-14 · B-16 · D-7 · A-17 — 리드 계약, 추가만, docs/DECISIONS.md 「2026-09-15 — TODO 묶음」)** —
+  `events.ts`: **`player:remoteFell {peerId, position, damage}`**(분대원 낙하 착지 — player 가 `fall` 와이어를 거른 뒤 낸다, 소리 전용) ·
+  `net:remoteGrenade` 에 선택 필드 **`fire?`**. `net.ts`: **`FallMessage {t:'fall', p, d}`**(`GameMessage` 합집합 끝) ·
+  **`GrenadeMessage.fire?: 1`**(G-10 소이 수류탄 — 원격 폭발은 받는 쪽 피해라 종류를 추측하지 않고 싣는다, 생략 = 옛 클라이언트).
+  `types.ts` 끝: **`FireZoneInfo {id, position, radius, remaining, hostile}`** · **`EnemyManagerRef.getFireZones?()`** · **`ItemDef.grenadeFire?`**.
+  `gadgets.ts`: **`GadgetId += 'grenadeFire'`**(아이템 없는 내부 정의 — `GADGET_IDS` 에는 넣지 않았다) · **`GadgetsRef.getFireZones?()`** ·
+  **`igniteGrenadeFire?(position)`**. `constants.ts` 끝: `FALL_SHAKE_PER_DAMAGE` · `FALL_SHAKE_MAX` · `FALL_SHAKE_S` · `FALL_VIGNETTE_S` ·
+  `FALL_VIGNETTE_FULL_DAMAGE` · `FALL_REMOTE_SOUND_RANGE` · `GRENADE_INCENDIARY_RADIUS` · `GRENADE_INCENDIARY_DURATION` ·
+  `GRENADE_INCENDIARY_BLAST_DAMAGE` · `GRENADE_INCENDIARY_BLAST_RADIUS`(gadgets 에이전트) · `FIRE_ZONE_CRACKLE_S` · `FIRE_ZONE_DRONE_HEIGHT` ·
+  `FIRE_ZONE_DANGER_RANGE` · `SOLDIER_RIM_STRENGTH` · `SOLDIER_RIM_POWER`. 값은 `data/constants.csv` 에 있고 `TUTORIAL_RAID_XP` 는 900 → 120.
+  ⚠ worktree 체크아웃이 CRLF 라 스크립트로 붙인 계약 블록을 CRLF 로 맞췄다 — 문자열 바늘로 고칠 때는 CRLF 를 쓴다.
+
 - **2026-09-14 (5차 묶음 — UI 2차 개편: 음악 재생 · 보관함 층 · 채굴 탭, 리드 계약, 추가만)**
   - **`housing.ts` — 보관함의 층**: `SHELF_TIERS`(책 4 · 디스크 3 · 레코드 2 · 게임 3) · `SHELF_TIER_COLS`(책 5 · 나머지 4) ·
     `shelfSlotsPerTier(m)`. 칸 수(`SHELF_SLOTS`)는 csv 가 정하고 층은 **그 칸을 어떻게 나눠 그리나**일 뿐이다 —

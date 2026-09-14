@@ -1214,6 +1214,12 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
 
 ## 변경 이력
 
+- **2026-09-15 (B-16 · G-10 소이 수류탄 화염 지대)** — `items.csv` 에 새 선택 열 **`grenadeFire`**(맨 끝, 머리 주석 한 줄)가 생겼고
+  `grenade_incendiary` 만 `true` 다. 로더(`ItemDefs.GENERIC_ITEM_DEFS`)가 `ItemDef.grenadeFire`(계약 `shared/types.ts` 끝)로 옮기며,
+  수류탄(`category grenade`)이 아닌 줄에 있으면 `data:check` 가 신고한다. 쓰는 곳은 weapons `Grenade`(작은 폭발 + `ctx.gadgets.igniteGrenadeFire`).
+  설명문도 실제 동작으로 고쳤다(「넓은 반경에 화염 피해」 → 「작은 폭발과 함께 터진 자리에 화염 지대를 남긴다」). 수치는 `constants.csv` 의
+  `GRENADE_INCENDIARY_*`(지대 3.5 m · 6 초 · 폭발 40 / 3 m) — 이 폴더는 표를 옮기기만 한다.
+
 - **2026-09-14 (총기 밸런스 · 스탯 모델 · 소켓 규칙 · 확장 총열 — agent-gunbal, 사용자 결정)** — 위 *Weapon families & grades* · *Attachments* · *Stats & helpers* 가 표다.
   데이터: `weapons.csv` 7열 신규(`fireRateGradeStep` · `adsTime` · `bloomPerShot` · `bloomSpread` · `projectileSpeed` · `bulletGravity` · `sockets`) + 근거리 치명도 수치
   (SMG 32→40 · SG 22→`=27*1.2` · DMR 120→130 · SR 330→360, AR 60 그대로 · 퍼짐 / 반동 / 거리 감소 조정 — 식과 낙차 표는 csv 머리 주석) · `attachments.csv` 4열

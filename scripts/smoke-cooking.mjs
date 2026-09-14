@@ -425,6 +425,93 @@ try {
   ok(stDom.chips.length === 2 && /① .*썰기/.test(stDom.chips[0]) && /② .*젓기/.test(stDom.chips[1]), `단계 칩 줄 (${JSON.stringify(stDom.chips)})`);
   ok(stDom.cost === 2 && stDom.effects >= 1 && stDom.start === false && stDom.grids === 2, `재료 칩 ${stDom.cost} · 능력치 줄 ${stDom.effects} · 조리 시작 활성 · 창고/가방 카드`);
 
+  /* ── 2026-09-15 (B-15, 사용자 결정 「전부 딤드 + 숙련 배지」): 숙련이 모자란 요리도 레일에 있다 ── */
+  console.log('숙련 잠김 요리 (B-15)');
+  const sk = await H((BENCH) => {
+    const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression;
+    const station = h.cookStation;
+    const root = document.querySelector('.menu.cook-station');
+    const benchLv = h.getPlacedByUid(BENCH).level;
+    const setSkill = (id, level) => { p.addSkillXpRaw(id, -(p.getSkill(id) + 1)); if (level > 0) p.addSkillXpRaw(id, level); return p.getSkill(id); };
+    const listed = new Set(h.cookDebug.recipes().map((r) => r.id));
+    const table = ctx.loot.getAllRecipes().filter((r) => listed.has(r.id));
+    const out = { skillApi: typeof p.addSkillXpRaw === 'function' };
+    if (!out.skillApi) return out;
+    // 숙련을 0 으로 — 조리대 레벨은 되고 숙련만 모자란 요리(skillOnly) · 둘 다 모자란 요리(both)
+    const skillIds = [...new Set(table.map((r) => r.skill))];
+    const before = Object.fromEntries(skillIds.map((id) => [id, p.getSkill(id)]));
+    for (const id of skillIds) setSkill(id, 0);
+    const skillOnly = table.find((r) => !r.unlockSeries && (r.benchLevel ?? 1) <= benchLv && r.skillRequired > 0);
+    const both = table.find((r) => !r.unlockSeries && (r.benchLevel ?? 1) > benchLv && r.skillRequired > 0);
+    out.skillOnly = skillOnly?.id ?? null;
+    out.both = both?.id ?? null;
+    if (!skillOnly) { for (const id of skillIds) setSkill(id, before[id]); return out; }
+    out.label = `${p.getSkillDef(skillOnly.skill).name} ${skillOnly.skillRequired}`;
+    out.need = skillOnly.skillRequired;
+    out.inputs = skillOnly.inputs.length;
+    out.stepsWant = h.cookDebug.recipes().find((r) => r.id === skillOnly.id).steps.length;
+    const s0 = window.__rec.sessions.length;
+    station.select(skillOnly.id);                                     // 동기 refresh
+    const item = root.querySelector(`.cook-rail-item[data-recipe="${skillOnly.id}"]`);
+    out.row = { present: !!item, locked: !!item?.classList.contains('is-locked'), skill: !!item?.classList.contains('is-skill'), book: !!item?.classList.contains('is-book'),
+      badge: item?.querySelector('.cook-rail-skill')?.textContent ?? null, lv: item?.querySelectorAll('.cook-rail-lv:not(.cook-rail-skill)').length ?? -1,
+      dot: !!item?.querySelector('.cook-rail-dot.on'), title: item?.title ?? '' };
+    if (both) {
+      const bi = root.querySelector(`.cook-rail-item[data-recipe="${both.id}"]`);
+      out.bothRow = { locked: !!bi?.classList.contains('is-locked'), lv: bi?.querySelector('.cook-rail-lv:not(.cook-rail-skill)')?.textContent ?? null,
+        badge: bi?.querySelector('.cook-rail-skill')?.textContent ?? null, want: `Lv.${both.benchLevel ?? 1}`, wantSkill: `${p.getSkillDef(both.skill).name} ${both.skillRequired}` };
+    }
+    // 순서: 티어 묶음마다 시작할 수 있음(초록 점) → 막힘 → 잠김
+    const groups = [];
+    for (const c of root.querySelectorAll('.cook-rail > *')) {
+      if (c.classList.contains('cook-rail-tier')) groups.push([]);
+      else if (c.classList.contains('cook-rail-item') && groups.length) {
+        groups.at(-1).push({ id: c.dataset.recipe, rank: c.querySelector('.cook-rail-dot.on') ? 0 : c.classList.contains('is-locked') ? 2 : 1 });
+      }
+    }
+    out.sorted = groups.every((g) => g.every((x, i) => i === 0 || g[i - 1].rank <= x.rank));
+    const g = groups.find((gr) => gr.some((x) => x.id === skillOnly.id)) ?? [];
+    out.startableAbove = g.findIndex((x) => x.rank === 0) >= 0 && g.findIndex((x) => x.rank === 0) < g.findIndex((x) => x.id === skillOnly.id);
+    out.ranks = groups.map((gr) => gr.map((x) => x.rank).join(''));
+    // 고른 잠김 요리: 재료 · 단계는 보이고, 조리 시작만 막힌다 (진짜 사유)
+    out.sel = { picked: h.cookDebug.station.recipeId, cost: root.querySelectorAll('.cook-sel-cost .item-chip').length, steps: root.querySelectorAll('.cook-stepchip').length,
+      dim: !!root.querySelector('.cook-start')?.classList.contains('is-blocked'), reason: root.querySelector('.cook-sel-reason')?.textContent ?? '',
+      sub: root.querySelector('.cook-sel-sub')?.textContent ?? '', startBlock: h.cookDebug.station.startBlock };
+    out.block = h.cookBlock(BENCH, skillOnly.id);
+    out.start = h.startCook(BENCH, skillOnly.id);
+    out.btnStart = station.start();
+    out.noSession = window.__rec.sessions.length === s0 && h.cookSession === null && station.isOpen;
+    // 기본 선택은 여전히 시작할 수 있는 요리
+    station.selectedRecipeId = null;
+    station.refresh();
+    out.defaultPick = { id: h.cookDebug.station.recipeId, block: h.cookDebug.station.startBlock };
+    // 숙련이 차면 숙련 잠김이 풀린다
+    setSkill(skillOnly.skill, skillOnly.skillRequired);
+    station.select(skillOnly.id);
+    const it2 = root.querySelector(`.cook-rail-item[data-recipe="${skillOnly.id}"]`);
+    out.after = { skill: !!it2?.classList.contains('is-skill'), badge: !!it2?.querySelector('.cook-rail-skill'), block: h.cookBlock(BENCH, skillOnly.id) };
+    for (const id of skillIds) setSkill(id, before[id]);
+    station.select('cook_tuber_stew');                                  // 아래 세션 절이 스튜를 조리 시작 버튼으로 연다
+    out.back = h.cookDebug.station.recipeId;
+    return out;
+  }, BENCH);
+  if (!sk.skillApi) note('progression.addSkillXpRaw 없음 — 숙련 잠김 요리 검사는 건너뛴다');
+  else if (!sk.skillOnly) note(`숙련만 모자란 조리대 Lv.1 요리가 표에 없다 — 숙련 잠김 요리 검사 건너뜀 (${JSON.stringify(sk)})`);
+  else {
+    ok(sk.row.present && sk.row.locked && sk.row.skill && !sk.row.book && !sk.row.dot && sk.row.lv === 0 && sk.row.badge === sk.label,
+      `숙련 잠김 ${sk.skillOnly}: 레일에 있다 · 딤드 · 숙련 배지 「${sk.row.badge}」 (조리대 Lv 배지 없음) · 호버 ${sk.row.title}`, JSON.stringify(sk.row));
+    if (sk.both) ok(sk.bothRow.locked && sk.bothRow.lv === sk.bothRow.want && sk.bothRow.badge === sk.bothRow.wantSkill, `조리대 레벨 + 숙련 둘 다 모자란 ${sk.both}: 배지 둘 (${sk.bothRow.lv} · ${sk.bothRow.badge})`, JSON.stringify(sk.bothRow));
+    ok(sk.sorted && sk.startableAbove, `티어마다 시작할 수 있는 요리 → 막힌 요리 → 잠긴 요리 (${JSON.stringify(sk.ranks)})`);
+    ok(sk.sel.picked === sk.skillOnly && sk.sel.cost === sk.inputs && sk.sel.steps === sk.stepsWant && sk.sel.sub.includes(`숙련 ${sk.need}`),
+      `잠긴 요리를 골라도 재료 칩 ${sk.sel.cost} · 단계 칩 ${sk.sel.steps} · 부제 ${sk.sel.sub}`, JSON.stringify(sk.sel));
+    ok(typeof sk.block === 'string' && sk.block.includes(`숙련 ${sk.need}`) && sk.sel.dim && sk.sel.reason === sk.block && sk.sel.startBlock === sk.block,
+      `조리 시작 딤드 + 진짜 사유 (${sk.sel.reason})`);
+    ok(sk.start === sk.block && sk.btnStart === sk.block && sk.noSession, `숙련 잠김 요리는 시작 거절 — startCook · 버튼 모두, 세션 없음 (${sk.start})`);
+    ok(sk.defaultPick.id && sk.defaultPick.block === null, `기본 선택은 시작할 수 있는 요리 (${sk.defaultPick.id})`);
+    ok(!sk.after.skill && !sk.after.badge && !(typeof sk.after.block === 'string' && sk.after.block.includes('숙련')), `숙련이 차면 숙련 잠김이 풀린다 (${sk.after.block})`);
+    ok(sk.back === 'cook_tuber_stew', `스튜로 되돌린다 (${sk.back})`);
+  }
+
   /* ══ 5. 세션 — 스튜 (썰기 → 젓기), 버튼으로 시작 ══════════════════════════ */
   console.log('세션 (덩이줄기 스튜)');
   const before = await H(() => { const inv = window.__game.ctx.inventory; return { tuber: inv.countDefAll('crop_tuber'), leaf: inv.countDefAll('crop_leafgreen') }; });

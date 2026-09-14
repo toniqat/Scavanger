@@ -12,6 +12,8 @@ import {
   GADGET_REMOTE_MINE_ARM_TIME, GADGET_REMOTE_MINE_HP, GADGET_REMOTE_MINE_RADIUS,
   GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_DAMAGE, GADGET_REMOTE_MINE_MAX_LIVE, GADGET_REMOTE_MINE_STACK_MUL,
 } from '@/shared';
+/* 2026-09-15 (B-16): G-10 소이 수류탄 화염 지대 */
+import { GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS } from '@/shared';
 
 /**
  * The ten special gadgets. Owned by `src/gadgets/` — `items/` only references them through
@@ -193,13 +195,57 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   },
 ];
 
-const BY_ID = new Map<GadgetId, GadgetDef>(GADGET_DEFS.map((d) => [d.id, d]));
+/**
+ * 2026-09-15 (B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): **아이템이 없는 내부 정의**. G-10 소이 수류탄
+ * (`ItemDef.grenadeFire`)이 터진 자리의 작은 화염 지대 — weapons 가 `GadgetsRef.igniteGrenadeFire(pos)` 로만 세운다.
+ * `getDefs()` · `GADGET_IDS` · 퀵슬롯 · 콘솔 어디에도 나오지 않고 `use()` 는 거절한다(아이템 매칭이 없으면 소모 없이 통과하는
+ * 옛 병렬 개발 규칙 때문에, 막지 않으면 공짜 화염이 된다). `gadgetForKind('fire')` 는 여전히 화염수류탄이다 —
+ * 복제본은 `defForWire` 가 id 표식으로 이 정의를 되찾는다.
+ */
+export const INTERNAL_GADGET_DEFS: readonly GadgetDef[] = [
+  {
+    id: 'grenadeFire',
+    name: '소이 화염',
+    description: `G-10 소이 수류탄이 터진 자리에 ${GRENADE_INCENDIARY_DURATION}초간 반경 ${GRENADE_INCENDIARY_RADIUS} m 화염 지대를 남긴다. 피아를 구분하지 않고 화상을 입힌다.`,
+    use: 'throw',
+    deployable: 'fire',
+    duration: GRENADE_INCENDIARY_DURATION,
+    hp: 0,
+    radius: GRENADE_INCENDIARY_RADIUS,
+    recoverTime: 0,
+    icon: '◉',
+    color: '#ff7a1a',
+  },
+];
+
+const BY_ID = new Map<GadgetId, GadgetDef>([...GADGET_DEFS, ...INTERNAL_GADGET_DEFS].map((d) => [d.id, d]));
 const BY_KIND = new Map<DeployableKind, GadgetDef>();
 for (const d of GADGET_DEFS) if (d.deployable) BY_KIND.set(d.deployable, d);
+const INTERNAL_IDS = new Set<GadgetId>(INTERNAL_GADGET_DEFS.map((d) => d.id));
 
 export function gadgetDef(id: GadgetId): GadgetDef | undefined { return BY_ID.get(id); }
-/** Every deployable kind is produced by exactly one gadget, so the reverse lookup is unambiguous. */
+/**
+ * Every **public** deployable kind is produced by exactly one gadget, so the reverse lookup is unambiguous.
+ * 2026-09-15: 내부 정의(`grenadeFire`)는 여기 없다 — `fire` 는 화염수류탄. 배치물의 정의가 필요하면 `gadgetDef(d.gadgetId)` 를 먼저 본다.
+ */
 export function gadgetForKind(kind: DeployableKind): GadgetDef | undefined { return BY_KIND.get(kind); }
+/** 2026-09-15: 아이템 없이 코드만 세우는 내부 가젯인가 (`use()` 가 거절한다). */
+export function isInternalGadget(id: GadgetId): boolean { return INTERNAL_IDS.has(id); }
+
+/**
+ * 2026-09-15 (B-16): 배치물 id. `DeployableWire` 에는 가젯 id 칸이 없어서(`kind` 만 있다) 복제본이 G-10 화염 지대(반경 3.5 · 6 초)와
+ * 화염수류탄(5 · 10 초)을 가를 수 없다 — 그래서 id 를 정하는 쪽(권위자 · 호스트)이 **`-gf`** 표식을 넣는다: `${peer}-gf${n}`.
+ * 와이어 모양은 그대로다 (id 는 원래 불투명한 문자열). 계약에 `DeployableWire.gadget` 이 생기면 이 표식은 지워도 된다.
+ */
+const GRENADE_FIRE_ID = /-gf\d+$/;
+export function deployableIdFor(base: string, seq: number, gadget?: GadgetId): string {
+  return `${base}-${gadget === 'grenadeFire' ? 'gf' : 'g'}${seq}`;
+}
+/** 와이어의 배치물 → 그 정의 (`fire` + `-gf` 표식 = G-10 화염 지대, 나머지는 `gadgetForKind`). */
+export function defForWire(w: { id: string; kind: DeployableKind }): GadgetDef | undefined {
+  if (w.kind === 'fire' && GRENADE_FIRE_ID.test(w.id)) return BY_ID.get('grenadeFire');
+  return BY_KIND.get(w.kind);
+}
 
 /** Deployables that hand an item back when someone finishes the recover interaction. */
 export const RECOVERABLE_KINDS: readonly DeployableKind[] = ['barricade', 'turret', 'jumpPad',

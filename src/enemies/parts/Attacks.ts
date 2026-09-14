@@ -17,6 +17,8 @@ import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart, type RogueShotOpts } from '../Enemy';
 import { ENEMY_INCENDIARY, ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
 import { ENEMY_GRENADE_KINDS, type EnemyGrenadeKind } from '@/shared';
+/* appended (2026-09-15, B-16): 적 화염 지대가 드론을 태운다 */
+import { FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 import { humanoidProfile } from '../ai/HumanoidProfile';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, VEHICLE_RAY_MARGIN, type TargetId } from '../Targets';
@@ -159,8 +161,11 @@ const FIRE_ZONE_HEIGHT = 2.5;
  *   through `applyDamage` (no `ee attack`), a suspended one `ghost:damage` — the same routing as every other enemy hit.
  * - **enemies not of `faction`**: the burning status (`burnDps` / `burnTimer`), credited to `'ai'` unless a player
  *   already lit it — so an enemy's fire never hands a player a kill.
- * Drones are not touched (a fire on the ground does not reach a flying body; a ground drone is not aggroable anyway).
  * 2026-09-13: the **탐사 차량** burns too when its footprint overlaps the zone on the same floor (`RoverRef.damage`, dps × tick).
+ * 2026-09-15 (B-16): **drones** burn — horizontal distance ≤ `radius` and below `FIRE_ZONE_DRONE_HEIGHT` over the zone (a ground
+ * drone always, an air drone only while it hovers low; another floor below does not). Drones are the players', so the thrower's
+ * faction never spares them. `damageDrone(dps × tick)` forwards to the owner itself (`droneq damage`) — owner-authoritative.
+ * (Was: "drones are not touched" — the fire zone had no effect on a drone parked in it.)
  */
 export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: number, owner: number, faction: EnemyFaction, tick: number): void {
   if (!sys.authority) return;
@@ -182,6 +187,20 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
   const veh = sys.targets.vehicleTarget();
   if (veh && veh.vehicle && veh.vehicleGap2D(p.x, p.z) <= radius && Math.abs(veh.position.y - p.y) <= FIRE_ZONE_HEIGHT) {
     veh.vehicle.damage(dps * tick, p);
+  }
+  // 2026-09-15 (B-16): drones in the zone (see the doc comment — horizontal radius, low over the fire, not a floor below)
+  const drones = ctx.drones;
+  if (drones) {
+    const list = drones.getDrones();
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i];
+      if (!(d.hp > 0)) continue;
+      const dx = d.position.x - p.x, dz = d.position.z - p.z;
+      if (dx * dx + dz * dz > radius * radius) continue;
+      const dy = d.position.y - p.y;
+      if (dy >= FIRE_ZONE_DRONE_HEIGHT || dy < -FIRE_ZONE_HEIGHT) continue;
+      drones.damageDrone(d.id, dps * tick, p);
+    }
   }
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];

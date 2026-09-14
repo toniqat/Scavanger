@@ -186,6 +186,15 @@ const SMOKES = {
   /* 2026-09-08: 튜토리얼 — 게이트가 housing / hub / inventory / meta 의 거절 사유 함수에 들어가 있으므로
      그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.s1.tutorial` 을 done 으로 심고 시작한다. */
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },
+  /* 2026-09-15 (E-12): 튜토리얼 레이드 트랙을 끝까지 — 체크포인트 부활 · 낙사 부활 자리 · kill/clamp · 즉시 이륙 → 정산(TUTORIAL_RAID_XP) → 함선 획득.
+     smoke-tutorial 은 증축 트랙만 몬다. 구간 사이는 순간이동, 판정이 걸린 행동(낙하 · 스위치)만 실제 입력. */
+  'smoke-tutorial-raid': { file: 'scripts/smoke-tutorial-raid.mjs', folders: ['tutorial', 'world', 'game', 'extraction', 'player', 'enemies'] },
+  /* 2026-09-15 (E-12): 튜토리얼 함선 트랙 — levelUp → stats(＋ · 1초 홀드 확정) → messenger → ravenQuest(대답 → introAfter → 수락) · 새로고침 복원. */
+  'smoke-tutorial-ship': { file: 'scripts/smoke-tutorial-ship.mjs', folders: ['tutorial', 'meta', 'ui', 'progression', 'inventory'] },
+  /* 2026-09-15 (E-12 · B-14): 전역 낙하 피해 — 높이별 피해 식 · 안전 높이 · 실드 먼저 · 치사 · 남이 띄운 몸 면제 + 피드백(착지음 · 흔들림 · 비네트). */
+  'smoke-fall-damage':  { file: 'scripts/smoke-fall-damage.mjs',  folders: ['player', 'audio', 'ui', 'world'] },
+  /* 2026-09-15 (B-16 · 사용자 버그): 화염 지대 — 화염수류탄 · G-10 소이 수류탄이 실제로 불 지대를 세우는가 · 피해 · 드론 피해 · 소리 · 만료. */
+  'smoke-fire-zones':   { file: 'scripts/smoke-fire-zones.mjs',   folders: ['gadgets', 'weapons', 'items', 'enemies', 'audio'] },
   /* 2026-09-08: 공용 함선 격납고 — 두 클라이언트가 필요하다 (개인 함선 방문 · `hs` 동석 규칙). 릴레이를 쓰므로
      e2e 와 같이 exclusive 로 돈다. */
   'smoke-hangar':       { file: 'scripts/smoke-hangar.mjs',       folders: ['hub', 'net', 'housing', 'player'], exclusive: true, freshRelay: true },

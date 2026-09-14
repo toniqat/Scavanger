@@ -5,7 +5,7 @@ import {
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../../Rules';
-import { cookBenchAt, cookRecipeBookBlock, cookRecipes, cookStepBonus } from '../../parts/Cooking';
+import { cookBenchAt, cookRecipeBookBlock, cookRecipeSkillBlock, cookRecipes, cookStepBonus } from '../../parts/Cooking';
 import { mealEffectText, mealEffects, mealTierText } from '../DiningTable';
 import { HousingPanel } from '../Panel';
 import { buildStationShell, mountStationGrids, paintStationLevel, paintStationMeta } from '../StationShell';
@@ -27,8 +27,13 @@ interface RecipeRow {
   block: string | null;
   /** 2026-09-13 (H3): 레시피 책이 꽂혀 있지 않아 잠겼으면 그 사유 (`cookRecipeBookBlock`). */
   book: string | null;
+  /** 2026-09-15 (B-15): 숙련이 모자라 잠겼으면 배지 재료 (`cookRecipeSkillBlock`). */
+  skill: { label: string; need: number; have: number } | null;
   tier: number;
 }
+
+/** 레일 안 순서 — 지금 시작할 수 있음 0 · 잠기지 않았지만 막힘(재료 · 자리) 1 · 잠김(조리대 레벨 · 숙련 · 책) 2. */
+const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.locked || x.skill || x.book ? 2 : 1);
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 100);
 
@@ -204,19 +209,23 @@ export class CookStation extends HousingPanel {
     setText(this.shell.title, bench?.def.name ?? '조리대');
     const level = bench?.item.level ?? 0;
     paintStationLevel(this.shell, bench ? level : null, bench ? furnitureMaxLevel(bench.def) : 0);
+    // 2026-09-15 (B-15): 숙련 잠김 요리도 레일에 있다 — 티어 안에서 시작할 수 있는 것 → 막힌 것 → 잠긴 것 (그 밖의 순서는 표 그대로, 안정 정렬)
     const rows: RecipeRow[] = cookRecipes(h).map((r) => ({
       r,
       locked: (r.benchLevel ?? 1) > level,
       block: bench ? h.cookBlock(this.benchUid, r.id) : '조리대가 없습니다',
       book: cookRecipeBookBlock(h, r),
+      skill: cookRecipeSkillBlock(h, r),
       tier: h.mealDef(r.outputDefId)?.meal?.tier ?? 0,
-    }));
+    })).map((x, i) => ({ x, i }))
+      .sort((a, b) => a.x.tier - b.x.tier || rowRank(a.x) - rowRank(b.x) || a.i - b.i)
+      .map(({ x }) => x);
     if (!this.selectedRecipeId || !rows.some((x) => x.r.id === this.selectedRecipeId)) {
-      this.selectedRecipeId = (rows.find((x) => !x.block) ?? rows.find((x) => !x.locked && !x.book) ?? rows[0])?.r.id ?? null;
+      this.selectedRecipeId = (rows.find((x) => !x.block) ?? rows.find((x) => rowRank(x) < 2) ?? rows[0])?.r.id ?? null;
     }
     const ready = rows.filter((x) => !x.block).length;
     paintStationMeta(this.shell, rows.length ? `지금 만들 수 있는 요리 ${ready}` : '');
-    const key = `${rows.map((x) => `${x.r.id}:${x.locked ? 1 : 0}:${x.book ? 1 : 0}:${x.block ? 0 : 1}`).join('|')}#${this.selectedRecipeId}`;
+    const key = `${rows.map((x) => `${x.r.id}:${x.locked ? 1 : 0}:${x.book ? 1 : 0}:${x.skill ? 1 : 0}:${x.block ? 0 : 1}`).join('|')}#${this.selectedRecipeId}`;
     if (key !== this.railKey) { this.railKey = key; this.buildRail(rows); }
     this.paintSelection(rows.find((x) => x.r.id === this.selectedRecipeId) ?? null);
     this.modal.refresh();
@@ -232,16 +241,30 @@ export class CookStation extends HousingPanel {
       for (const x of rows) {
         if (x.tier !== tier) continue;
         const btn = el('button', {
-          cls: `hs-rail-item cook-rail-item${x.r.id === this.selectedRecipeId ? ' is-active' : ''}${x.locked || x.book ? ' is-locked' : ''}${x.book ? ' is-book' : ''}`,
+          cls: `hs-rail-item cook-rail-item${x.r.id === this.selectedRecipeId ? ' is-active' : ''}${x.locked || x.book || x.skill ? ' is-locked' : ''}${x.book ? ' is-book' : ''}${x.skill ? ' is-skill' : ''}`,
           attrs: { 'data-recipe': x.r.id },
           parent: rail,
         });
         btn.type = 'button';
-        if (x.book) btn.title = x.book;                        // 2026-09-13 (H3): 레시피 책 잠김
         el('i', { cls: `cook-rail-dot${x.block ? '' : ' on'}`, parent: btn });
         el('span', { cls: 'hs-rail-name', text: this.housing.nameOf(x.r.outputDefId), parent: btn });
-        if (x.book) el('span', { cls: 'cook-rail-lv cook-rail-book', text: '책', parent: btn });
-        else if (x.locked) el('span', { cls: 'cook-rail-lv', text: `Lv.${x.r.benchLevel ?? 1}`, parent: btn });
+        if (x.book) {                                          // 2026-09-13 (H3): 레시피 책 잠김 — 그대로
+          btn.title = x.book;
+          el('span', { cls: 'cook-rail-lv cook-rail-book', text: '책', parent: btn });
+        } else if (x.locked || x.skill) {
+          // 2026-09-15 (B-15): 조리대 레벨 · 숙련 — 모자란 것마다 배지 하나 (둘 다면 둘), 호버 = 무엇이 모자란지
+          const locks = el('span', { cls: 'cook-rail-locks', parent: btn });
+          const why: string[] = [];
+          if (x.locked) {
+            el('span', { cls: 'cook-rail-lv', text: `Lv.${x.r.benchLevel ?? 1}`, parent: locks });
+            why.push(`조리대 Lv.${x.r.benchLevel ?? 1} 필요`);
+          }
+          if (x.skill) {
+            el('span', { cls: 'cook-rail-lv cook-rail-skill', text: `${x.skill.label} ${x.skill.need}`, parent: locks });
+            why.push(`${x.skill.label} 숙련 ${x.skill.need} 필요 (지금 ${x.skill.have})`);
+          }
+          btn.title = why.join(' · ');
+        }
       }
     }
   }
@@ -265,7 +288,9 @@ export class CookStation extends HousingPanel {
     const steps = cookStepsOf(r.outputDefId);
     this.selChip.appendChild(buildItemChip(def ?? h.defOf(r.outputDefId), { size: SEL_CHIP }));
     setText(this.selName, h.nameOf(r.outputDefId));
-    setText(this.selSub, [def?.meal ? mealTierText(def.meal) : '', `조리대 Lv.${r.benchLevel ?? 1}`, `미니게임 ${steps.length}단계`].filter(Boolean).join(' · '));
+    // 2026-09-15 (B-15): 숙련이 모자라면 무엇을 올려야 하는지 부제에도
+    const skillNeed = row.skill ? `${row.skill.label} 숙련 ${row.skill.need}` : '';
+    setText(this.selSub, [def?.meal ? mealTierText(def.meal) : '', `조리대 Lv.${r.benchLevel ?? 1}`, skillNeed, `미니게임 ${steps.length}단계`].filter(Boolean).join(' · '));
 
     // 능력치: ☆ 기준값 → ★★★★★ 보너스 반영 (한 줄에 한 능력치)
     const maxBonus = mealQualityBonus(MEAL_QUALITY_MAX);

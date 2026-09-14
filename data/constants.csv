@@ -1059,9 +1059,11 @@ FALL_VIGNETTE_FULL_DAMAGE,80,"이 피해에서 비네트가 가장 진하다 (�
 FALL_REMOTE_SOUND_RANGE,45,"분대원의 낙하 착지음이 들리는 거리 (m). 적 발소리 곡선(ENEMY_STEP_RANGE 45)과 같은 크기."
 GRENADE_INCENDIARY_RADIUS,3.5,"G-10 소이 수류탄 화염 지대 반경 (m) — 화염수류탄(GADGET_INCENDIARY_RADIUS 5)보다 작다. 초당 피해는 GADGET_INCENDIARY_DPS 를 같이 쓴다."
 GRENADE_INCENDIARY_DURATION,6,"G-10 소이 수류탄 화염 지대 지속 (s) — 화염수류탄(GADGET_INCENDIARY_DURATION 10)보다 짧다."
+GRENADE_INCENDIARY_BLAST_DAMAGE,40,"G-10 소이 수류탄 폭발의 중심 피해 — 고폭(250)이 아니라 불을 붙이는 작은 폭발이다. 적은 선형 감쇠 그대로, 플레이어는 고폭과 같은 0.6 배 규칙. 진짜 피해는 화염 지대(GADGET_INCENDIARY_DPS)가 낸다."
+GRENADE_INCENDIARY_BLAST_RADIUS,3,"G-10 소이 수류탄 폭발 반경 (m) — 화염 지대(GRENADE_INCENDIARY_RADIUS 3.5)보다 조금 작다. 고폭은 6."
 FIRE_ZONE_CRACKLE_S,0.7,"화염 지대가 살아 있는 동안 지지직 소리를 내는 간격 (s). 적 · 플레이어 지대 공용."
 FIRE_ZONE_DRONE_HEIGHT,2.5,"화염 지대 바닥에서 이 높이(m) 아래의 드론만 탄다 — 지상 드론은 늘, 공중 드론은 낮게 떴을 때만."
 FIRE_ZONE_DANGER_RANGE,35,"HUD 위험 표시가 화염 지대를 보여 주는 거리 (m, 지대 가장자리 기준)."
-SOLDIER_RIM_STRENGTH,0.35,"병사 재질 가장자리(fresnel) 발광 세기, 0 = 끔 (D-7). 이끼 · 독성 녹색 팔레트에서 어두운 장갑이 배경에 묻히지 않게 한다. 광원이 아니라 셰이더라 점광원 수는 그대로다."
+SOLDIER_RIM_STRENGTH,0.7,"병사 재질 가장자리(fresnel) 발광 세기, 0 = 끔 (D-7). 이끼 · 독성 녹색 팔레트에서 어두운 장갑이 배경에 묻히지 않게 한다. 광원이 아니라 셰이더라 점광원 수는 그대로다."
 SOLDIER_RIM_POWER,2.5,"병사 림 fresnel 지수 — 클수록 가장자리에만 얇게 선다."
 # ── end 2026-09-15 ──

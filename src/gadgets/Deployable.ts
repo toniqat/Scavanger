@@ -55,6 +55,8 @@ export class Deployable implements DeployableRef {
   remoteInit = false;
   /** 원격 지뢰: 다음 `c4_beep` 까지 남은 초 (무장된 동안만 줄어든다). */
   beepTimer = 0;
+  /** 2026-09-15 (B-16): 화염 지대 — 다음 `fire_crackle` 까지 남은 초. 모든 클라이언트가 로컬로 돌린다 (와이어 없음). */
+  crackleTimer = 0;
 
   constructor(
     readonly id: string,

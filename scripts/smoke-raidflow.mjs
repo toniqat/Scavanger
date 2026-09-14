@@ -360,15 +360,28 @@ try {
   const blocked = await P(() => {
     // Nothing of the hull may straddle the doorway plane (ship-local z = 0.45) inside the opening — only the ramp,
     // which lives in its own group, ever closes it.
+    // 2026-09-15 (D-8): judged **per triangle**, not per mesh. The greebles (`ShipGreebles`) are merged per material into
+    // meshes at identity whose geometry box spans the whole hull, so a whole-mesh box always "straddles" the doorway even
+    // though no greeble triangle is in the opening. Each triangle's own box (after the mesh matrix) is tight for small
+    // greeble pieces and never looser than the old whole-mesh box for the plain hull slabs.
     const ship = window.__game.getSystem('extraction').ship;
     const bad = [];
+    const tx = (e, x, y, z) => [e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]];
     for (const o of ship.body.children) {
       if (!o.isMesh || !o.geometry) continue;
-      o.geometry.computeBoundingBox();
-      const bb = o.geometry.boundingBox, p = o.position, s = o.scale;
-      const min = { x: bb.min.x * s.x + p.x, y: bb.min.y * s.y + p.y, z: bb.min.z * s.z + p.z };
-      const max = { x: bb.max.x * s.x + p.x, y: bb.max.y * s.y + p.y, z: bb.max.z * s.z + p.z };
-      if (min.z <= 0.45 && max.z >= 0.45 && min.x < 1.4 && max.x > -1.4 && min.y < 2.4 && max.y > 0.15) bad.push(o.geometry.type);
+      const pos = o.geometry.getAttribute('position');
+      if (!pos) continue;
+      o.updateMatrix();
+      const e = o.matrix.elements, idx = o.geometry.getIndex();
+      const tri = idx ? idx.count / 3 : pos.count / 3;
+      let hits = 0;
+      for (let t = 0; t < tri; t++) {
+        const v = [0, 1, 2].map((k) => { const i = idx ? idx.getX(t * 3 + k) : t * 3 + k; return tx(e, pos.getX(i), pos.getY(i), pos.getZ(i)); });
+        const mn = [0, 1, 2].map((a) => Math.min(v[0][a], v[1][a], v[2][a]));
+        const mx = [0, 1, 2].map((a) => Math.max(v[0][a], v[1][a], v[2][a]));
+        if (mn[2] <= 0.45 && mx[2] >= 0.45 && mn[0] < 1.4 && mx[0] > -1.4 && mn[1] < 2.4 && mx[1] > 0.15) hits++;
+      }
+      if (hits > 0) bad.push(`${o.geometry.type}:${hits}`);
     }
     return bad;
   });

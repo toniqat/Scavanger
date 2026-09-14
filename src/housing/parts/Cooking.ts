@@ -30,7 +30,7 @@ import type { AnyCookGame } from './CookGames';
 /** 조리 오버레이의 `ctx.uiBlockers` 토큰 — 패널들의 `'housing'` 과 따로라, 조리대 화면이 닫히며 지워 가지 않는다. */
 export const COOK_BLOCKER = 'housing.cook';
 
-/** 제작 숙련 이름 (inventory 가 아직 `cookBlock` 을 주지 않을 때의 대체 사유 문구). */
+/** 숙련 이름 대체 표 — progression 이 없을 때만 (`cookSkillLabel`). 원본은 `skills.csv` 의 `name` 이다. */
 const SKILL_LABEL_KO: Readonly<Record<CraftRecipe['skill'], string>> = { crafting: '제작', medicine: '의학', gardening: '원예' };
 
 export interface CookState {
@@ -63,32 +63,41 @@ export function cookBenchAt(sys: HousingSystem, uid: string): { item: PlacedFurn
 }
 
 /**
- * 조리대 레시피 전부 — `ctx.inventory.getRecipes('ship', 'cook', 99)`(조리대를 이름으로 물을 때만 조리대 레시피가 나온다 — 일반 제작
- * 목록 · `canCraft` · `craft` 에서는 빠졌다) 중 산출물에 조리 단계(`cookStepsOf`)가 있는 것. 잠김(조리대 레벨)은 화면이 `benchLevel` 로 가른다.
- * ⚠ 그 경로는 **숙련이 모자란 레시피를 걸러 낸다** — 숙련 잠김 요리는 목록에 없다 (설계안 §6-1 그대로). inventory 가 없을 때만 원본 표로 간다.
+ * 조리대 레시피 **전부** — 원본 표(`ctx.loot.getAllRecipes()`) 중 조리대(`bench cook`) 레시피이고 산출물에 조리 단계(`cookStepsOf`)가 있는 것.
+ * 잠김은 하나도 거르지 않는다 — 조리대 레벨(`benchLevel`) · 숙련(`cookRecipeSkillBlock`) · 레시피 책(`cookRecipeBookBlock`)은 화면이 딤드 + 배지로
+ * 가르고, 시작은 `cookBlock` 이 막는다.
+ * 2026-09-15 (B-15, 사용자 결정 「전부 딤드 + 숙련 배지」): 예전에는 `inventory.getRecipes('ship', 'cook', 99)` 를 읽어 **숙련이 모자란 요리가
+ * 레일에 아예 없었다** — 무엇을 올려야 열리는지 알 수 없었다. 그 경로는 inventory 가 없을 때의 대체로만 남는다(그때는 숙련으로 걸러진다).
  */
 export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
   const inv = sys.ctx.inventory;
   const loot = sys.ctx.loot;
   let all: readonly CraftRecipe[] = [];
-  if (inv && typeof inv.getRecipes === 'function') all = inv.getRecipes('ship', 'cook', 99);
-  else if (loot && typeof loot.getAllRecipes === 'function') all = loot.getAllRecipes();
-  const out = all.filter((r) => r.bench === 'cook' && cookStepsOf(r.outputDefId).length > 0);
-  // 2026-09-13 (H3): 레시피 책 요리는 잠겨 있어도 목록에 보인다 (딤드 + 사유) — inventory 가 책으로 걸러 냈다면 숙련이 되는 것만 되살린다
-  if (inv && typeof inv.getRecipes === 'function' && loot && typeof loot.getAllRecipes === 'function') {
-    const have = new Set(out.map((r) => r.id));
-    const skillOf = (r: CraftRecipe): number => sys.ctx.progression?.getSkill?.(r.skill) ?? 0;
-    for (const r of loot.getAllRecipes()) {
-      if (!r.unlockSeries || have.has(r.id) || r.bench !== 'cook' || !cookStepsOf(r.outputDefId).length) continue;
-      if (skillOf(r) < r.skillRequired) continue;
-      out.push(r);
-    }
-  }
-  return out;
+  if (loot && typeof loot.getAllRecipes === 'function') all = loot.getAllRecipes();
+  else if (inv && typeof inv.getRecipes === 'function') all = inv.getRecipes('ship', 'cook', 99);
+  return all.filter((r) => r.bench === 'cook' && cookStepsOf(r.outputDefId).length > 0);
+}
+
+/** 레시피 숙련 이름 — progression 표(`skills.csv` 의 `name`)가 원본, 없을 때만 아래 대체 표 → id. */
+export function cookSkillLabel(sys: HousingSystem, skill: CraftRecipe['skill']): string {
+  const prog = sys.ctx.progression;
+  const def = prog && typeof prog.getSkillDef === 'function' ? prog.getSkillDef(skill) : null;
+  return def && def.id === skill && def.name ? def.name : (SKILL_LABEL_KO[skill] ?? skill);
 }
 
 /**
- * 레시피 하나 — 목록(`cookRecipes`)과 달리 **숙련으로 거르지 않는다**: 숙련이 모자란 요리를 부른 곳도 「요리 레시피가 아닙니다」 가 아니라
+ * 2026-09-15 (B-15): 숙련이 모자라 잠긴 요리면 `{ label, need, have }` (배지 `제작 20` 의 재료), 아니면 null.
+ * 표시용이다 — 시작을 막는 것은 여전히 `cookBlock`(inventory 의 진짜 사유)이다.
+ */
+export function cookRecipeSkillBlock(sys: HousingSystem, recipe: CraftRecipe): { label: string; need: number; have: number } | null {
+  const need = recipe.skillRequired;
+  if (!(need > 0)) return null;
+  const have = sys.ctx.progression?.getSkill?.(recipe.skill) ?? 0;
+  return have >= need ? null : { label: cookSkillLabel(sys, recipe.skill), need, have };
+}
+
+/**
+ * 레시피 하나 — 원본 표를 읽는다(목록 `cookRecipes` 와 같은 원본): 숙련이 모자란 요리를 부른 곳도 「요리 레시피가 아닙니다」 가 아니라
  * inventory `cookBlock` 의 진짜 사유(`제작 숙련 n 이 필요합니다`)를 받아야 한다.
  */
 export function cookRecipeOf(sys: HousingSystem, recipeId: string): CraftRecipe | null {
@@ -185,8 +194,8 @@ function blockCore(sys: HousingSystem, uid: string, recipeId: string, ignoreActi
 function fallbackBlock(sys: HousingSystem, recipe: CraftRecipe, benchLevel: number): string | null {
   const need = recipe.benchLevel ?? 1;
   if (benchLevel < need) return `조리대 Lv.${need} 이 필요합니다`;
-  const skill = sys.ctx.progression?.getSkill?.(recipe.skill) ?? 0;
-  if (skill < recipe.skillRequired) return `${SKILL_LABEL_KO[recipe.skill] ?? recipe.skill} 숙련 ${recipe.skillRequired} 이 필요합니다`;
+  const skill = cookRecipeSkillBlock(sys, recipe);
+  if (skill) return `${skill.label} 숙련 ${skill.need} 이 필요합니다`;
   if (!sys.canAfford(recipe.inputs)) return '재료가 부족합니다';
   return null;
 }

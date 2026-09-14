@@ -21,6 +21,7 @@ Import via `@/extraction` → `ExtractionSystem`, `ExtractionConsole`, `Dropship
 | `Cinematic.ts` | **2026-09-13.** `DepartureCinematic`: `start` snapshots the camera pose, closes open screens (`inventory.closeAll`) and emits `ui:cinematic {active:true}`; `update` damps a chase point behind-right of the ship (`CAM_OFFSET` in the yaw frame, rate 1.1/s — the accelerating ship pulls away) and blends camera → chase over `EXTRACTION_CINEMATIC_BLEND_S` (smoothstep), handing the **already blended** pose to `setCameraOverride(pos, look, true)` every frame (no jump on the first frame); `stop` = hard cut back + `ui:cinematic {active:false}`. Never below terrain + 1.5 m. |
 | `Console.ts` | `ExtractionConsole`: base plate, pedestal with canvas-generated hazard stripe, slanted panel with emissive screen, big hazard-striped lever (tweens down when activated), status lamp on a mast, 40 m additive holographic beacon shaft, point light. States `idle` (blue pulse) / `active` (amber blink) / `off`. `interactPoint` is the interactable position. **2026-09-09 — the beacon shaft is off while `idle`** (전장의 안개; `ui/map` + `hud/WorldMarkers` + `hud/Compass` gate pads on `FogRef.isDiscovered`); it comes back on in `active`. Only `beacon.visible` changes. |
 | `Ship.ts` | `Dropship`: `forceLand(pos, yaw)` snaps straight to `landed` (multiplayer client fallback). ~14 m "Pelican"-style hull (**shell of four slabs + a front cap — the rear is a real hole**, top deck, spine, wedge nose + cockpit glass, chin, tail fins/plane), wings with two nacelles, flickering additive blue thrust cones + engine lights, 3 retractable landing legs, amber landing lights, hinged rear ramp (1.5 s open/close — **the only thing that closes the rear**), lit interior bay (floor at local y=0, walls/ribs/benches, ceiling light strip, red interior switch console on the far wall). **`root` = transform + the 3 point lights and is always visible; `body` = every mesh and carries the visibility toggle** (see 변경 이력 2026-09-10). States `hidden → approach → descend → landed → liftoff`. `startApproach()` flies a curved, banking, decelerating path from 300 m out / 130 m up, hovers at 24 m then descends with wobble; `beginLiftoff()` closes the ramp, spools for `LIFTOFF_SPOOL_S` (1.6 s), then climbs and accelerates toward the nose. Exports bay constants, `LIFTOFF_SPOOL_S`, `containsWorldPoint()`, `floorYAt(x, z)` (deck plane — the deck tilts), `writeInteriorBounds(out, at?)` / `getInteriorBounds()` (rotation-safe world AABB), `interiorSwitchWorld`, and (2026-09-13) `yaw`, `nearGround`, `bayLocal(p, out)` / `bayToWorld(lx, lz, y, out)` (yaw-only frame). Local −Z is the nose; the ramp faces +Z (toward the console). |
+| `ShipGreebles.ts` | **2026-09-15 (D-8).** `buildShipGreebles(body, {hull, hullDark, accent, glass}, keep)`: outer-skin detail — panel seams, rivet bands, coolant pipes + roof conduits with clamps, louvred vents (sides, upper deck, front shoulders), chin intakes, access hatches, hazard stripes, landing-light housings, nacelle ribs / strakes / top intake, cockpit glass frame, spine bands, blade + whip antennas, nav sensor puck, nose-tip sensor strip + bumper. Built from thin boxes / cylinders (a tilted part's frame via `GreebleBatch.frame`) and **merged into one mesh per existing material** (`mergeGeometries`): ≤ 4 extra draw calls, no new materials / programs, no lights. Nothing enters the bay, the ramp's swing arc or the rear opening; `Hull.ts` and the deck plane are untouched. Merged geometries go to `Dropship.disposables`. |
 | `Particles.ts` | `ParticlePool` — CPU-simulated point sprites in one draw call (custom ShaderMaterial: soft round sprite, life fade, color lerp, gravity/drag/growth). `FlareColumn` — red smoke + amber embers + flickering glow rising from the active pad for the whole countdown; **its `group` is never hidden** (it holds a point light — see 변경 이력 2026-09-10), `shown` gates the work instead. `DustRing` — radial ground dust blown outward during descent and liftoff. |
 | `index.ts` | Barrel. |
 
@@ -161,6 +162,23 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-15 (D-8 드랍쉽 그리블, 사용자 결정 「병합 지오메트리 그리블」)** — 가까이서 각지던 선체에 잔디테일을 붙였다
+  (새 `ShipGreebles.ts`). 패널 이음매 · 리벳 띠 · 옆면 냉각 파이프 + 지붕 도관(고정 띠) · 루버 통풍구(옆면 · 상부 데크 옆면 ·
+  앞 마개 어깨) · 상부 데크 윗면 그릴 · 턱 흡기구 · 점검 해치 둘(손잡이 · 경고판) · 뒤 가장자리 경고 줄무늬 · 착륙등 하우징 ·
+  나셀 리브 4 · 스트레이크 3 · 윗면 흡기구 · 조종석 창틀 · 척추 띠 5 · 블레이드 / 휩 안테나 · 항법 센서 · 기수 끝 센서
+  띠 · 범퍼 · 셰브런 · 꼬리날개 캡 · 배 밑면 이음매.
+  1. **렌더 비용**: 조각은 전부 얇은 상자 · 원기둥이고 `Ship.ts` 가 이미 가진 재질 넷(`hull` · `hullDark` · `accent` · `glass`)
+     별로 `mergeGeometries` 한 메시로 합쳤다 — body 메시 56 → **60**(그림 호출 +4, 그림자 패스 +4), 삼각형 2,262 → **9,882**
+     (+7,620). 새 재질 · 셰이더 프로그램 · 텍스처 · 광원 **없음**. 병합 지오메트리는 `disposables` 에 들어가 `dispose()` 가
+     지우고, 조각 원본은 병합 직후 버린다.
+  2. **바뀌지 않은 것**: `Hull.ts` 외피 콜라이더 여덟 개 · 데크 평면(`floorYAt`) · 화물칸 내장 · 램프 · 뒤쪽 입구. 그리블은
+     바깥 껍질 위에만 서고(두께 수 cm, 파이프 0.11 m · 안테나 제외) 화물칸(x ±1.72, y 0..2.72) · 램프가 도는 부채꼴 · 뒷면에는
+     아무것도 없다. `root`(광원) / `body`(메시 · 표시 토글) 분리도 그대로 — 그리블은 `body` 밑이다.
+  3. **착륙등이 처음으로 보인다**: 호박색 착륙등 상자가 x ±2.0 이라 옆 판(바깥면 x 2.1) **안에 통째로 묻혀** 있었다(외피가
+     상자 하나이던 때부터). x ±2.15 로 내어 하우징 그리블 밖으로 0.125 m 나오게 했다 — emissive 메시일 뿐 광원이 아니다.
+  검증: `npx tsc --noEmit`(이 폴더 깨끗 — 남은 오류 하나는 `src/enemies/EnemySystem.ts` 의 `getFireZones`, 이 작업과 무관),
+  비공개 vite 에서 `smoke-extraction` 36/0 · `smoke-lights` 26/0(세션 내내 광원 개수 불변).
 
 - **2026-09-14 3차 (튜토리얼 탈출선, 사용자 결정)** — 위 절. 바뀐 것은 `createRef()` 의 `holdFire` 한 항목,
   `syncPreLandedPhase` 가 더하는 `extraction:shipLanded` 한 줄, 실내 스위치의 캡션 · `interact` 한 조건,

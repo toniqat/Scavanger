@@ -20,6 +20,8 @@ import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER
 import type { GadgetSystem } from '../GadgetSystem';
 /* 2026-09-11: 원격 지뢰 · 드론 위 지뢰 */
 import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from '@/shared';
+/* 2026-09-15 (B-16): 화염 지대 — 지지직 소리 · 드론 */
+import { FIRE_ZONE_CRACKLE_S, FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 import * as Remote from './Remote';
 
 /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */
@@ -153,6 +155,19 @@ export function updateFireZone(sys: GadgetSystem, d: Deployable, dt: number, ctx
     if (dx * dx + dz * dz > d.radius * d.radius) continue;
     sys.hurtRemote(r.id, GADGET_INCENDIARY_DPS * ZONE_TICK, d.position);
   }
+  // 2026-09-15 (B-16): drones burn too — horizontally inside the zone and within FIRE_ZONE_DRONE_HEIGHT of its floor (a ground drone
+  // always, an air drone only while it hovers low). `damageDrone` routes a squadmate's drone to its owner (`droneq damage`).
+  const drones = ctx.drones;
+  if (drones) {
+    const r2 = d.radius * d.radius;
+    for (const dr of drones.getDrones()) {
+      if (dr.hp <= 0) continue;
+      const dx = dr.position.x - d.position.x, dz = dr.position.z - d.position.z;
+      if (dx * dx + dz * dz > r2) continue;
+      if (Math.abs(dr.position.y - d.position.y) >= FIRE_ZONE_DRONE_HEIGHT) continue;
+      drones.damageDrone(dr.id, GADGET_INCENDIARY_DPS * ZONE_TICK, d.position);
+    }
+  }
   }
 
 export function updateLure(sys: GadgetSystem, d: Deployable, dt: number, ctx: GameContext): void {
@@ -200,10 +215,20 @@ export function animate(sys: GadgetSystem, d: Deployable, t: number, dt: number)
   v.root.position.copy(d.position);
   v.root.rotation.y = d.yaw;
   if (v.head) v.head.rotation.y = d.headYaw - d.yaw;
-  const def = gadgetForKind(d.kind);
+  // 2026-09-15: the deployable's own gadget first — `fire` is produced by two defs (화염수류탄 10 s · G-10 화염 지대 6 s)
+  const def = gadgetDef(d.gadgetId) ?? gadgetForKind(d.kind);
   const life = d.expires > 0 && def && def.duration > 0 ? THREE.MathUtils.clamp((d.expires - t) / def.duration, 0, 1) : 1;
   sys.visuals.animate(v, t, dt, d.armed, d.hpRatio, life);
   if (d.kind === 'remoteMine') Remote.updateBeep(sys, d, dt);
+  // 2026-09-15 (B-16): a burning zone crackles every FIRE_ZONE_CRACKLE_S on every client (local sound, no wire). The first one is
+  // FIRE_ZONE_CRACKLE_S after `fire_ignite` (spawnDeployable seeds the timer).
+  if (d.kind === 'fire' && dt > 0) {
+    d.crackleTimer -= dt;
+    if (d.crackleTimer <= 0) {
+      d.crackleTimer = FIRE_ZONE_CRACKLE_S;
+      sys.ctx.bus.emit('audio:play', { id: 'fire_crackle', position: d.position, volume: 0.55 });
+    }
+  }
   }
 
 /* ═══════════════════════════ damage ═══════════════════════════ */

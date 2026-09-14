@@ -63,6 +63,7 @@ Tactical kit — upkeep/progression: `gather` `craft_start` `craft_done` `repair
 드론 (2026-09-11): `drone_deploy` `drone_link_on` `drone_link_off` `drone_static` `drone_move` `drone_sprint` `drone_jump` `drone_land` `drone_rotor` `drone_hit` `drone_destroyed` `drone_recover`
 원격 지뢰 (2026-09-11): `c4_place` `c4_arm` `c4_beep` `c4_detonator_click`
 네임드 로그 (2026-09-11): `scan_drone_hum` `scan_pulse`(기존 id, 길어짐) `sniper_glint` `sniper_shot` `hammer_swing` `hammer_impact` `minigun_spinup` `minigun_fire` `minigun_spindown`
+낙하 착지 · 화염 지대 (2026-09-15, B-14 · B-16 — 아래 변경 이력): `fall_impact` (본인 `player:fell` = 위치 없음, 분대원 `player:remoteFell` = 45 m 곡선, 발밑 재질 발소리가 겹친다) `fire_crackle` (★ 지대가 0.7 s 마다, 32 m, 동시 8 보이스) · `fire_ignite` 는 기존 id (40 m, 동시 4 보이스)
 요리 미니게임 (2026-09-13, housing/ 이 `audio:play` 로 부른다 · 거리 감쇠 없음): `cook_start` `cook_chop` `cook_mince` `cook_sizzle` `cook_flip` `cook_remove` `cook_burn` `cook_toss` `cook_stir` `cook_pour` `cook_perfect` `cook_good` `cook_miss` `cook_step` `cook_auto` `cook_finish`
 
 Notes on the newer ids:
@@ -86,7 +87,7 @@ Tactical-kit ids in detail:
 - `dash` — saw sweep 260 → 1500 Hz + highpass air. `barrier_deploy` — clack then an energy field settling; `barrier_hit` — bright 1.5 kHz ping + splash (positional); `barrier_break` — descending shatter with debris clicks.
 - `overcharge_beam` — 1 s shimmering tremolo tone (played once when the beam locks on). `scan_pulse` — sonar ping with a long ring; pitch rises 6 % per pulse index.
 - `rocket_fire` — heavy back-blast; `rocket_explode` — bigger/longer than `explosion` with a `Synth.tail` reverb.
-- `gadget_place` — bolt-down clunk + servo (turret / barricade / jump pad); `dome_deploy` — airy swell; `smoke_hiss` — 1.7 s pressurised hiss; `lure_beep` — three beeps; `mine_arm` — two rising beeps + lock click; `mine_explode` — tight sharp blast; `fire_ignite` — fuel whoomph + six random crackles; `turret_shot` — compact mechanical shot (the turret sends this itself); `gadget_break` — metal crunch + debris; `defib` — capacitor whine then discharge thump.
+- `gadget_place` — bolt-down clunk + servo (turret / barricade / jump pad); `dome_deploy` — airy swell; `smoke_hiss` — 1.7 s pressurised hiss; `lure_beep` — three beeps; `mine_arm` — two rising beeps + lock click; `mine_explode` — tight sharp blast; `fire_ignite` — air-suck whoosh + low fuel whump + short flame roar + three crackles (re-voiced 2026-09-15, ≈0.75 s; `RANGED_SOUNDS` 40 m); `fire_crackle` — ★ one 0.95 s burning-ground clip per `FIRE_ZONE_CRACKLE_S` (soft flame bed + 3–5 randomized bandpass crackles, 32 m, max 8 voices); `turret_shot` — compact mechanical shot (the turret sends this itself); `gadget_break` — metal crunch + debris; `defib` — capacitor whine then discharge thump.
 - `downed` — falling groan + two heartbeats; `revive` — warm four-note rising chord; `grit_save` — heartbeat + defiant rise; `cloak_on` / `cloak_off` — phasing shimmer down / up.
 - `gather` — leafy rustle + snap; `craft_start` — three workbench clicks; `craft_done` — clink + two-note confirm; `repair_done` — two clinks + rising confirm; `durability_break` — metal snap + rattle; `level_up` — five-note fanfare (1.3 s); `skill_up` — quiet two-note chime.
 
@@ -211,7 +212,8 @@ holds, and falls with the ramp-down. The speed is forgotten `WARP_HUM_HOLD_S` (0
 The one-shots at the ends of a trip (`hub_dock_thrusters` / `hub_dock_clamp`) are sent by `hub/` itself.
 
 ## Auto-hooked events → id
-`player:damaged`→player_hurt · `player:died`→player_death · `player:footstep` / `remote:footstep`→footstep (see *발소리* below) · `player:stimUsed`→stim ·
+`player:damaged`→player_hurt · `player:died`→player_death · `player:footstep` / `remote:footstep`→footstep (see *발소리* below) ·
+`player:fell`→fall_impact (no position) + surface `footstep_<mat>` · `player:remoteFell`→the same pair positional on the `RANGED_SOUNDS.fall_impact` curve (2026-09-15, see 변경 이력) · `player:stimUsed`→stim ·
 `player:landed`→hellpod_impact · `player:dived`→roll (Phase 7: the legacy `dive` one-shot no longer doubles it) · `player:staminaDepleted`→stamina_depleted · `player:stanceChanged`→stance_change (pitch by stance) ·
 `player:aimChanged`→scope_in|scope_out **only** while the last `weapon:scopeChanged.scope` was `true` (the flag is tracked, no sound on `weapon:scopeChanged` itself; reset on `game:newMission`) ·
 `weapon:reloadStarted/Finished`→reload_start/end · `weapon:dryFire`→dry_fire ·
@@ -240,7 +242,7 @@ Appended (tactical kit):
   `implant:rocketExploded`→rocket_explode (positional) · `implant:wieldChanged`→ui_equip|ui_close · `implant:equipped`→ui_equip ·
   **2026-09-12** `implant:ready`→implant_ready (`full` 0.55 · 피치 1, 충전형의 중간 충전 0.26 · 피치 0.9).
 - Ship calls (2026-09-12): `stratagem:ready {refunded:false}`→stratagem_ready (0.7). `refunded: true`(호스트 거절 환불로 0 이 된 순간)는 **무음**.
-- Gadgets: `gadget:used`→defib (defib) | cloak_on (cloakVeil) | grenade_throw (everything else) · `gadget:deployed`→mine_arm | dome_deploy | smoke_hiss | fire_ignite | lure_beep | gadget_place by `kind` (positional) ·
+- Gadgets: `gadget:used`→defib (defib) | cloak_on (cloakVeil) | grenade_throw (everything else) · `gadget:deployed`→mine_arm | dome_deploy | smoke_hiss | fire_ignite | lure_beep | gadget_place by `kind` (positional; **2026-09-15** `fire` → `fire_ignite` goes through `playRequested(…, auto)` so it takes the same `RANGED_SOUNDS` curve as gadgets' own `audio:play fire_ignite` and the two dedupe to one) ·
   `gadget:removed {reason:'destroyed'}`→mine_explode (mines) | gadget_break, `'recovered'`→ui_equip · `gadget:throwModeChanged`→ui_click.
 - Gear / crafting / weight: `gather:collected`→gather · `craft:started`→craft_start · `craft:completed`→craft_done (**2026-09-13: 산출물에 `cookStepsOf` 단계가 있는 조리대 요리면 무음** — housing 이 `cook_finish` 를 이미 냈다) · `craft:failed` (not cancelled)→ui_error ·
   `repair:completed`→repair_done · `durability:broken`→durability_break · `inventory:overloaded` (heavy/over)→ui_deny · `quickbar:used`→ui_click · `equip:changed`→ui_equip.
@@ -250,6 +252,31 @@ Appended (tactical kit):
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (낙하 착지 B-14 · 화염 지대 B-16)** — `Synth.SOUNDS` 에 2종 + 1종 다시 짬.
+  `fall_impact`(서브 쿵 95 → 30 Hz + 몸통 둔탁음 + 한 박자 늦게 가라앉는 장비 달그락 클릭 5 · 버클 짤랑 + 튀는 자갈 알갱이 ·
+  가라앉는 먼지, 신음 없음, ≈0.5 s — **무게는 피치가 말한다**: 피치가 낮을수록 꼬리가 1/피치 로 길어진다) ·
+  `fire_crackle`(★ 지대가 `FIRE_ZONE_CRACKLE_S` 0.7 s 마다 부르는 0.95 s 조각 — 느린 어택 · 선형 릴리스의 낮은 불꽃 바닥이 앞
+  조각의 꼬리와 겹쳐 이어지고, 밴드패스 크랙 3–5 알 · 가끔 나무 퍽이 조각마다 다른 자리 · 대역이라 반복이 같게 들리지 않는다.
+  크랙은 하이패스가 아니다 — 2026-09-12 `footstep_snow` 교훈) · `fire_ignite` 다시 짬(휙 + 낮은 훅 + 부푸는 포효 + 크랙 셋,
+  0.9 → 0.75 s — 옛 크랙 여섯 알이 곧이어 오는 지지직과 겹쳐 첫 1초가 자글거렸다).
+  **본인 낙하** `player:fell` → 위치 없이(늘 같은 크기) `fall_impact` + 발밑 재질 `footstep_<mat>`(`ctx.player.position` 에서
+  `surfaceAt` — 허브 금속 · 월드 미준비 dirt 규칙 그대로). 무게 k = min(1, 피해 / `FALL_VIGNETTE_FULL_DAMAGE`) — 비네트가 가장
+  진한 피해에서 소리도 가장 무겁다 → 피치 1.15 → 0.8 · 크기 0.55 → 1 · 발소리 층 = `FOOTSTEP_VOL_SPRINT` × 1.3 → 2.2 · 피치 0.92 → 0.78.
+  **분대원 낙하** `player:remoteFell` → `RANGED_SOUNDS.fall_impact` = `FALL_REMOTE_SOUND_RANGE`(45 m) · `FOOTSTEP_FALLOFF_EXP`(1.6)
+  곡선을 **한 번** 재서 쿵과 재질 발소리 둘 다에 곱하고 `panOnly` — 패너의 inverse 감쇠가 겹치지 않는다. 사거리 끝에서 곡선이 0 이라
+  player/ 의 사거리 컷과 맞물린다. 발소리 층은 `footstep()` 과 같은 이유로 중복 제거 · 속도 제한을 타지 않는다.
+  **화염 지대** `RANGED_SOUNDS` 에 `fire_ignite` 40 m / 1.3 · `fire_crackle` 32 m / 1.5 (enemies · gadgets 가 위치와 함께 부른다).
+  `gadget:deployed {kind:'fire'}` 자동 구독도 이제 `playRequested(…, auto)` 로 같은 곡선을 탄다 — gadgets/ 가 같은 순간 내는
+  `audio:play fire_ignite` 와 어느 쪽이 먼저 오든 중복 제거가 **같은 소리**를 남긴다 (`playRequested` 에 `auto` 인자).
+  **동시 보이스 상한 `VOICE_CAP`**(신설, `play()` 한 곳): `fire_crackle` 8 · `fire_ignite` 4. `RATE_MAX_SAME` 은 100 ms 빈도만 자르고
+  겹쳐 쌓이는 수는 못 막는다(지대 스물 = 보이스 스물 이상). 상한에 닿으면 새 소리가 울리는 것 중 가장 작은 것보다 크지 않으면
+  노드를 만들기 전에 버리고(중복 제거 · 속도 제한 자리도 쓰지 않는다), 크면 가장 작은 것을 `VOICE_STEAL_FADE`(0.04 s)로 페이드시켜
+  자리를 넘긴다 — 볼륨이 거리 곡선을 먹은 값이라 「가까운 지대가 이긴다」. 모두 sfx 버스(효과음 슬라이더)다.
+  검증: `npm run typecheck` 통과 · 사설 vite 헤드리스 점검 29/29 (리포지토리 스모크는 만들지 않았다) — 세 소리를 `OfflineAudioContext` 로
+  렌더(NaN 없음 · 무거운 낙하가 더 길다) · `player:fell` 두 세기(피치 1.106 → 0.8 · 크기 0.606 → 1 · 재질 층) · `player:remoteFell` 3 m 곡선
+  값 일치 · 30 m 더 작음 · 46 m 무음 · `fire_crackle` 4 m 곡선 · 33 m 무음 · 상한 8(조용한 6 → 가까운 6 이 가장 작은 4를 빼앗고 페이드 ·
+  더 먼 6 은 노드 0) · `gadget:deployed fire` + `audio:play fire_ignite` 어느 순서든 보이스 1 · 콘솔 오류 0.
 
 - **2026-09-14 5차 (음악 채널 — 사용자 결정)** — `AudioChannel += 'bgm'` · `AudioSettings.bgm` ·
   `AUDIO_DEFAULT_BGM`(0.6) 을 받아 `_settings` · 저장 읽기 · `PREVIEW_SOUND` 세 자리에 한 줄씩 넣었다.

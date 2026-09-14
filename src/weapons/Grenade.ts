@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, PROP_STEP_UP_MAX, breakFragileAlong, type GameContext, type GrenadeView } from '@/shared';
+import {
+  GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS, PROP_STEP_UP_MAX,
+  breakFragileAlong, type GameContext, type GrenadeView,
+} from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 
 /** Alias of the shared contract value (3 s); kept for the barrel export. */
@@ -24,6 +27,11 @@ interface GrenadeBody {
   ledMesh: THREE.Mesh;
   /** Last LED blink state (rising edge → one pooled light pulse). */
   blinkOn: boolean;
+  /**
+   * 2026-09-15 (B-16): G-10 소이 수류탄 (`ItemDef.grenadeFire`) — the blast is the small `GRENADE_INCENDIARY_BLAST_*` one and a
+   * **local** explosion lights a fire zone through `ctx.gadgets.igniteGrenadeFire`. A visual-only replica only takes the small blast.
+   */
+  fire: boolean;
 }
 
 const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _prev = new THREE.Vector3();
@@ -60,7 +68,7 @@ export class GrenadeManager {
       mesh.add(body, band, cap, ledMesh);
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), fuse: 0, active: false, visualOnly: false, led, ledMesh, blinkOn: false });
+      this.pool.push({ mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), fuse: 0, active: false, visualOnly: false, led, ledMesh, blinkOn: false, fire: false });
     }
     ctx.scene.add(this.group);
   }
@@ -73,12 +81,14 @@ export class GrenadeManager {
    *   (enemy damage is the thrower's) and no `grenade:*` events.
    *   Prefers to evict another visual-only replica when the pool is full so a live local grenade never pops early.
    * @param fuse seconds until the explosion (`GRENADE_FUSE` − cook time for a cooked grenade; 0 → explodes on the next update).
+   * @param fire 2026-09-15 (B-16): G-10 소이 수류탄 (`ItemDef.grenadeFire`) — small blast + (local only) a fire zone on explosion.
    */
-  throw(origin: THREE.Vector3, velocity: THREE.Vector3, visualOnly = false, fuse = GRENADE_FUSE): boolean {
+  throw(origin: THREE.Vector3, velocity: THREE.Vector3, visualOnly = false, fuse = GRENADE_FUSE, fire = false): boolean {
     let g = this.pool.find((x) => !x.active);
     if (!g) { g = this.pool.find((x) => x.visualOnly) ?? this.pool[0]; this.explode(g); }
     g.active = true;
     g.visualOnly = visualOnly;
+    g.fire = fire;
     g.pos.copy(origin); g.vel.copy(velocity);
     g.spin.set(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3);
     g.fuse = Math.max(0, fuse);
@@ -145,25 +155,32 @@ export class GrenadeManager {
     const pos = g.pos;
     const visualOnly = g.visualOnly;
     g.visualOnly = false;
+    // 2026-09-15 (B-16): a G-10 소이 수류탄 is not a frag — a small blast lights the fire, the zone does the real damage
+    const fire = g.fire;
+    g.fire = false;
+    const radius = fire ? GRENADE_INCENDIARY_BLAST_RADIUS : GRENADE_RADIUS;
+    const damage = fire ? GRENADE_INCENDIARY_BLAST_DAMAGE : GRENADE_DAMAGE;
     // Visual-only replicas (remote players' grenades) never damage enemies here: the thrower's client resolves
     // that through the host. Phase 7: they DO hurt the local player — same radius / falloff / friendly-fire
     // rule as our own grenades (a squadmate's frag lands on you exactly like your own).
-    const kills = !visualOnly && ctx.enemies ? ctx.enemies.applyExplosion(pos, GRENADE_RADIUS, GRENADE_DAMAGE) : 0;
+    const kills = !visualOnly && ctx.enemies ? ctx.enemies.applyExplosion(pos, radius, damage) : 0;
     if (ctx.player && !ctx.player.isDead) {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
       // self / friendly damage with linear falloff
-      if (d < GRENADE_RADIUS) {
-        const dmg = GRENADE_DAMAGE * (1 - d / GRENADE_RADIUS) * PLAYER_DAMAGE_MUL;
+      if (d < radius) {
+        const dmg = damage * (1 - d / radius) * PLAYER_DAMAGE_MUL;
         if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone());
       }
-      const shake = THREE.MathUtils.clamp(1 - d / 28, 0, 1);
+      const shake = THREE.MathUtils.clamp(1 - d / 28, 0, 1) * (fire ? 0.5 : 1);
       if (shake > 0) ctx.bus.emit('camera:shake', { intensity: 0.25 + shake * 0.75, duration: 0.45 });
     }
-    this.fx.explosion(pos, GRENADE_RADIUS);
-    if (!visualOnly) ctx.bus.emit('grenade:exploded', { position: pos.clone(), radius: GRENADE_RADIUS });
-    ctx.bus.emit('audio:play', { id: 'explosion', position: pos, volume: 1 });
+    this.fx.explosion(pos, radius);
+    if (!visualOnly) ctx.bus.emit('grenade:exploded', { position: pos.clone(), radius });
+    ctx.bus.emit('audio:play', { id: 'explosion', position: pos, volume: fire ? 0.7 : 1 });
     if (kills > 0) ctx.bus.emit('ui:hitmarker', { kill: true });
+    // The fire zone is the thrower's: only a local explosion lights it; replicas get it as `gad spawn` (gadgets is host-authoritative).
+    if (fire && !visualOnly) ctx.gadgets?.igniteGrenadeFire?.(pos);
   }
 
   /** Live grenades for the HUD's off-screen indicators (`ctx.weapons.getGrenades()`). Reuses one view object per pool body. */
@@ -183,7 +200,7 @@ export class GrenadeManager {
   private readonly viewList: GrenadeView[] = [];
 
   clear(): void {
-    for (const g of this.pool) { g.active = false; g.visualOnly = false; g.mesh.visible = false; g.led.emissiveIntensity = 0; g.blinkOn = false; }
+    for (const g of this.pool) { g.active = false; g.visualOnly = false; g.fire = false; g.mesh.visible = false; g.led.emissiveIntensity = 0; g.blinkOn = false; }
   }
 
   dispose(): void {

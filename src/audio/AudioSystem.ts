@@ -8,6 +8,8 @@ import {
   FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
   ROGUE_DROP_ALARM_VOLUME, ROGUE_DROP_ALERT_FALLOFF_EXP, ROGUE_DROP_ALERT_RADIUS,
   ROGUE_DROP_FALL_LEAD_S, ROGUE_DROP_FALL_VOLUME, ROGUE_DROP_MIN_VOLUME,
+  /* 2026-09-15: 낙하 착지 (B-14) */
+  FALL_REMOTE_SOUND_RANGE, FALL_VIGNETTE_FULL_DAMAGE,
   /* 2026-09-13: 탐사 차량 */
   ROVER_CLANG_GAP_S, ROVER_TRIP_SPEED,
 } from '@/shared';
@@ -94,6 +96,21 @@ const ROGUE_DROP_FALL_PITCH = 0.88;
 /** 착지 뒤 이만큼 지나면 추적을 버린다 (착지 방송을 못 받은 강하 대비). */
 const ROGUE_DROP_FORGET_S = 3;
 
+/* ── 낙하 착지 (2026-09-15, B-14) ─────────────────────────────────────────
+ * 피해 → 무게 k = min(1, 피해 / `FALL_VIGNETTE_FULL_DAMAGE`) — HUD 비네트가 가장 진해지는 피해와 같은 기준이라
+ * 「화면이 가장 붉을 때 소리도 가장 무겁다」. 아래는 소리 그 자체(피치 · 층의 비율)라 코드에 둔다 (발소리 피치와 같은 규약).
+ * 분대원 낙하의 사거리 · 지수는 `RANGED_SOUNDS.fall_impact` 한 줄이다.
+ */
+const FALL_PITCH_LIGHT = 1.15;
+const FALL_PITCH_HEAVY = 0.8;
+const FALL_VOL_LIGHT = 0.55;
+const FALL_VOL_HEAVY = 1;
+/** 겹치는 재질 발소리 = 달리기 발소리(`FOOTSTEP_VOL_SPRINT`) × 이 배수 (가벼운 → 무거운). 피치는 조금 눌러 무게를 싣는다. */
+const FALL_STEP_GAIN_LIGHT = 1.3;
+const FALL_STEP_GAIN_HEAVY = 2.2;
+const FALL_STEP_PITCH_LIGHT = 0.92;
+const FALL_STEP_PITCH_HEAVY = 0.78;
+
 /* ── 거리 곡선을 가진 효과음 (2026-09-11) ─────────────────────────────────
  * 드론 · 원격 지뢰 · 네임드 로그의 소리는 기본 패너(inverse, ref 4 m)로는 성격을 못 낸다 — 지상 드론 걷기는
  * 소유자 곁에서만, 저격 한 발은 맵 거의 끝까지 들려야 한다. 그래서 `audio:play` 에 위치가 오면 이 표의 id 는
@@ -149,6 +166,12 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   rover_brake: { range: 60, exp: 1.3 },
   rover_clang: { range: 45, exp: 1.4 },
   rover_explode: { range: 320, exp: 0.9, floor: 0.2 },
+  // 2026-09-15 (B-14): 분대원 낙하 착지 — 원격 발소리와 같은 지수, 사거리는 player 가 `FallMessage` 를 거르는 값 그대로
+  // (사거리 끝에서 곡선이 0 이 되므로 player 의 컷과 맞물려 뚝 끊기지 않는다).
+  fall_impact: { range: FALL_REMOTE_SOUND_RANGE, exp: FOOTSTEP_FALLOFF_EXP },
+  // 2026-09-15 (B-16): 화염 지대 (enemies · gadgets). 붙는 순간은 조금 멀리, 지지직은 곁에서만 — 지대가 여럿이면 `VOICE_CAP` 이 자른다.
+  fire_ignite: { range: 40, exp: 1.3 },
+  fire_crackle: { range: 32, exp: 1.5 },
 };
 /** 탐사 차량 엔진음 한 조각의 간격(초) — `rover_engine` 은 이보다 조금 길어 겹치며 이어진다. */
 const ROVER_ENGINE_STEP_S = 0.5;
@@ -156,6 +179,18 @@ const ROVER_ENGINE_STEP_S = 0.5;
 const RANGED_FLOOR_EDGE = 0.15;
 /** 이보다 조용해질 바에는 보이스를 만들지 않는다. */
 const RANGED_MIN_VOLUME = 0.01;
+/**
+ * 같은 id 의 **동시 보이스** 상한 (2026-09-15, B-16). `RATE_MAX_SAME` 은 100 ms 창의 빈도만 자르므로, 0.7 s 마다 불리는
+ * ≈1 s 짜리 `fire_crackle` 은 지대가 스무 개면 보이스가 스물 넘게 쌓인다. 상한에 닿으면 새 소리가 지금 울리는 것 중 가장
+ * 작은 것보다 작거나 같으면 **만들지 않고**, 크면 가장 작은 것을 `VOICE_STEAL_FADE` 로 짧게 페이드시켜 자리를 넘긴다.
+ * 볼륨은 이미 `RANGED_SOUNDS` 거리 곡선을 먹은 값이므로 「가까운 지대가 이긴다」 와 같다. 지대 하나가 조각 둘을 겹쳐
+ * 쓰므로(0.95 s / 0.7 s) 8 = 가장 가까운 지대 넷.
+ */
+const VOICE_CAP: Readonly<Record<string, number>> = { fire_crackle: 8, fire_ignite: 4 };
+/** 빼앗긴 보이스의 페이드 시간 상수 (s) — 뚝 끊는 클릭이 나지 않을 만큼만. */
+const VOICE_STEAL_FADE = 0.04;
+/** `VOICE_CAP` 을 가진 id 의 살아 있는 보이스 하나. */
+interface CappedVoice { end: number; vol: number; gain: GainNode }
 /** 드론 아이템의 `gadget:used` 는 `drone_deploy` 가 대신한다 (투척 휙 소리를 겹치지 않는다). */
 const DRONE_GADGET_IDS: readonly string[] = Object.values(DRONE_GADGET_OF);
 
@@ -213,6 +248,8 @@ export class AudioSystem implements GameSystem, AudioRef {
   private readonly roverLastPos = new THREE.Vector3();
   private roverHasLast = false;
   private roverLastClang = -Infinity;
+  /** 2026-09-15 (B-16): `VOICE_CAP` id 별 살아 있는 보이스 (끝난 것은 `play` 가 그때그때 걷어낸다). */
+  private cappedVoices = new Map<string, CappedVoice[]>();
 
   private camPos = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -254,6 +291,10 @@ export class AudioSystem implements GameSystem, AudioRef {
       // 발소리 (2026-09-10): 본인은 거리 감쇠 없이 늘 같은 크기, 원격 분대원만 멀 수록 작아진다.
       b.on('player:footstep', ({ position, sprinting }) => this.footstep(null, position, sprinting)),
       b.on('remote:footstep', ({ position, sprinting, peerId }) => this.footstep(peerId, position, sprinting)),
+      // 낙하 착지 (2026-09-15, B-14): 본인은 위치 없이 늘 같은 크기, 분대원은 거리 곡선. 둘 다 발밑 재질 발소리를 겹친다.
+      // (`player:fell` 은 피해가 실제로 들어갔을 때만, `player:remoteFell` 은 player/ 가 멤버 · 사거리를 거른 뒤에만 온다.)
+      b.on('player:fell', ({ damage }) => this.fallImpact(null, damage)),
+      b.on('player:remoteFell', ({ position, damage }) => this.fallImpact(position, damage)),
       b.on('player:stimUsed', () => auto('stim')),
       b.on('player:landed', () => { auto('hellpod_impact', undefined, 1); }),
       // Phase 7: `player:dived` is the roll (the dive was replaced) — only the positional `roll` one-shot below plays now.
@@ -439,7 +480,9 @@ export class AudioSystem implements GameSystem, AudioRef {
           case 'mine': auto('mine_arm', position, 0.7); break;
           case 'domeShield': auto('dome_deploy', position, 0.85); break;
           case 'smoke': auto('smoke_hiss', position, 0.7); break;
-          case 'fire': auto('fire_ignite', position, 0.85); break;
+          // 2026-09-15 (B-16): 지대를 가진 gadgets/ 도 `audio:play fire_ignite` 를 낸다 — 같은 거리 곡선으로 받아야 중복 제거가
+          // 어느 쪽을 먼저 받든 같은 소리를 남긴다 (auto 표시는 그대로라 둘은 한 번으로 묶인다).
+          case 'fire': this.playRequested('fire_ignite', position, 0.85, 1, true); break;
           case 'lure': auto('lure_beep', position, 0.7); break;
           case 'remoteMine': break; // 2026-09-11: gadgets/ plays `c4_place` itself
           default: auto('gadget_place', position, 0.85); break;
@@ -705,6 +748,33 @@ export class AudioSystem implements GameSystem, AudioRef {
     return m && m in FOOTSTEP_ID ? m : 'dirt';
   }
 
+  /* ── 낙하 착지 (2026-09-15, B-14) ────────────────────────────────────── */
+  /**
+   * `player:fell`(position null = 본인) · `player:remoteFell` 의 공통 경로.
+   *
+   * - **본인**: 위치를 주지 않는다 = 패너를 타지 않고 늘 같은 크기 (본인 발소리와 같은 처리). 재질은 `ctx.player.position`(발).
+   * - **분대원**: `RANGED_SOUNDS.fall_impact` 곡선을 **한 번** 재서 `fall_impact` 와 재질 발소리 둘 다에 곱하고 `panOnly` 로
+   *   낸다 — 패너는 방향만, inverse 감쇠가 곡선 위에 겹치지 않는다. 재질은 착지한 발 위치에서 묻는다.
+   * - 재질 발소리 층은 `footstep()` 과 같은 이유로 중복 제거 · 속도 제한을 타지 않는다 (같은 id 를 적 발소리와 나눠 쓴다).
+   */
+  private fallImpact(position: THREE.Vector3 | null, damage: number): void {
+    if (!this.ac || this.ac.state !== 'running') return;
+    const dmg = Number.isFinite(damage) ? damage : 0;
+    const k = Math.max(0, Math.min(1, dmg / Math.max(1, FALL_VIGNETTE_FULL_DAMAGE)));
+    const lerp = (a: number, b: number) => a + (b - a) * k;
+    const dist = position ? this.rangeGain(RANGED_SOUNDS.fall_impact, this.camPos.distanceTo(position)) : 1;
+    const pos = position ?? undefined;
+    const vol = lerp(FALL_VOL_LIGHT, FALL_VOL_HEAVY) * dist;
+    if (vol < RANGED_MIN_VOLUME) return;
+    this.play('fall_impact', pos, vol, lerp(FALL_PITCH_LIGHT, FALL_PITCH_HEAVY), true, !!position);
+
+    const mat = this.surfaceAt(position ?? this.ctx?.player?.position ?? this.camPos);
+    const stepVol = FOOTSTEP_VOL_SPRINT * lerp(FALL_STEP_GAIN_LIGHT, FALL_STEP_GAIN_HEAVY) * (FOOTSTEP_MATERIAL_GAIN[mat] ?? 1) * dist;
+    if (stepVol >= FOOTSTEP_MIN_VOLUME) {
+      this.play(FOOTSTEP_ID[mat], pos, stepVol, lerp(FALL_STEP_PITCH_LIGHT, FALL_STEP_PITCH_HEAVY), true, !!position, false, false);
+    }
+  }
+
   /* ── 로그 강하 (2026-09-10) ──────────────────────────────────────────── */
   /**
    * 강하음의 크기. **인지력 반경(`derived.enemyDetectRadius`)을 보지 않는다** — 대기를 찢고 떨어지는 굉음이라
@@ -795,14 +865,14 @@ export class AudioSystem implements GameSystem, AudioRef {
    * `audio:play` 의 입구. `RANGED_SOUNDS` 에 있는 id 가 위치와 함께 오면 그 곡선을 곱해 **방향 전용** 패너로
    * 낸다 (감쇠가 두 번 걸리지 않게). 나머지는 예전 그대로 기본 패너를 탄다.
    */
-  private playRequested(id: string, position: THREE.Vector3 | undefined, volume: number | undefined, pitch: number | undefined): void {
+  private playRequested(id: string, position: THREE.Vector3 | undefined, volume: number | undefined, pitch: number | undefined, auto = false): void {
     const prof = position ? RANGED_SOUNDS[id] : undefined;
-    if (!position || !prof) { this.play(id, position, volume, pitch, false); return; }
+    if (!position || !prof) { this.play(id, position, volume, pitch, auto); return; }
     if (!this.ac || this.ac.state !== 'running') return;
     // 2026-09-11 (C-22): 적 발소리도 재질 배수를 먹는다 (본인 · 원격은 `footstep()` 이 곱한다)
     const v = (volume ?? 1) * (FOOTSTEP_GAIN_BY_ID[id] ?? 1) * this.rangeGain(prof, this.camPos.distanceTo(position));
     if (v < RANGED_MIN_VOLUME) return;
-    this.play(id, position, v, pitch, false, true);
+    this.play(id, position, v, pitch, auto, true);
   }
 
   /* ── playback ────────────────────────────────────────────────────────── */
@@ -815,6 +885,23 @@ export class AudioSystem implements GameSystem, AudioRef {
     const fn = SOUNDS[id];
     if (!fn) { if (!auto) console.warn(`[Audio] unknown sound id "${id}"`); return; }
     const now = this.ac.currentTime;
+    const vol = Math.max(0, Math.min(2, volume));
+
+    // 2026-09-15 (B-16): 동시 보이스 상한 — 지금 울리는 것 중 가장 작은 것보다 크지 않으면 여기서 버린다
+    // (중복 제거 · 속도 제한의 자리를 쓰기 전에). 빼앗기는 것은 이 소리가 실제로 만들어질 때만이다 (아래).
+    const cap = VOICE_CAP[id];
+    let capped: CappedVoice[] | undefined;
+    let quietest = -1;
+    if (cap !== undefined) {
+      capped = this.cappedVoices.get(id);
+      if (!capped) { capped = []; this.cappedVoices.set(id, capped); }
+      for (let i = capped.length - 1; i >= 0; i--) if (capped[i].end <= now) capped.splice(i, 1);
+      if (capped.length >= cap) {
+        quietest = 0;
+        for (let i = 1; i < capped.length; i++) if (capped[i].vol < capped[quietest].vol) quietest = i;
+        if (capped[quietest].vol >= vol) return;
+      }
+    }
 
     // Dedupe: same id from a different source within a short window → one plays.
     // (2026-09-11: 발소리는 `dedupe` false — 같은 재질 id 를 적과 나눠 쓰므로 검사도 기록도 하지 않는다.)
@@ -833,9 +920,14 @@ export class AudioSystem implements GameSystem, AudioRef {
       arr.push(now);
     }
 
+    if (capped && quietest >= 0) {
+      const stolen = capped.splice(quietest, 1)[0];
+      try { stolen.gain.gain.cancelScheduledValues(now); stolen.gain.gain.setTargetAtTime(0, now, VOICE_STEAL_FADE); } catch { /* already gone */ }
+    }
+
     // Voice: [synth] → gain → (panner) → sfxBus
     const g = this.ac.createGain();
-    g.gain.value = Math.max(0, Math.min(2, volume));
+    g.gain.value = vol;
     let dest: AudioNode = this.sfxBus;
     if (position) {
       const p = this.ac.createPanner();
@@ -857,6 +949,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     }
     g.connect(dest);
     const dur = fn(this.synth, g, now, Math.max(0.25, Math.min(4, pitch)));
+    if (capped) capped.push({ end: now + dur, vol, gain: g });
     // Disconnect after the sound is done so the graph doesn't grow.
     window.setTimeout(() => { try { g.disconnect(); if (dest !== this.sfxBus) dest.disconnect(); } catch { /* ignore */ } }, (dur + 0.3) * 1000);
   }

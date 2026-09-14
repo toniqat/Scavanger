@@ -12,6 +12,9 @@ import type { CarryHost, CarryStatus, CarryTarget } from './Carry';
 /* appended (2026-09-09): 아군의 강하 포드 */
 import { RemotePods } from './RemotePods';
 import { SoldierPool } from './SoldierPool';
+/* appended (2026-09-15, B-14): 분대원 낙하 착지음 */
+import { receiveRemoteFall, type RemoteFallReject } from './parts/Fall';
+import type { FallMessage } from '@/shared';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
 /** 스크래치 — `pod drop` 좌표 (핫 패스는 아니지만 프레임당 할당을 만들지 않는다). */
@@ -151,6 +154,8 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   private pods: RemotePods | null = null;
   /** 2026-09-10: 원격 발소리 — peer 별 마지막 걸음 인덱스와 시각 (`remote:footstep`). */
   private readonly steps = new Map<PeerId, StepState>();
+  /** 2026-09-15 (B-14): peer → 마지막으로 받아들인 `fall` 의 실시간 초 (`parts/Fall.receiveRemoteFall` 의 요율 겹). */
+  private readonly fallHeardAt = new Map<PeerId, number>();
 
   /**
    * 2026-09-10: parked `SoldierModel`s keyed by accent — every `clearAll` / `remove` hands the body back here and the
@@ -168,7 +173,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
       const ref = ctx.net?.getRemotePlayer(id);
       if (ref) this.ensure(ref);
     });
-    ctx.bus.on('net:remotePlayerRemoved', ({ id }) => { this.remove(id); this.dropGhost(id, true); this.parked.delete(id); });
+    ctx.bus.on('net:remotePlayerRemoved', ({ id }) => { this.remove(id); this.dropGhost(id, true); this.parked.delete(id); this.fallHeardAt.delete(id); });
     ctx.bus.on('game:abort', () => this.clearAll());
     ctx.bus.on('game:newMission', () => this.clearAll());
     // entering a ship: drop mission avatars so nobody lingers at a stale planet position; the peers still in
@@ -203,6 +208,8 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
           if (msg.ev !== 'drop' || !msg.who || msg.who === net.localId) return;
           this.pods?.drop(ctx, msg.who, _podPos.set(msg.p[0], msg.p[1], msg.p[2]), msg.yaw, msg.kind);
         }),
+        /* 2026-09-15 (B-14): 분대원이 떨어져 다쳤다 — 검사를 지나면 `player:remoteFell` (audio 가 착지음을 낸다) */
+        net.onMessage('fall', (msg, from) => { this.receiveFall(msg, from); }),
         net.onMessage('ghost', (msg) => {
           // every client remembers the last wire state so a promoted host can rebuild the ghosts
           if (msg.ev === 'state' || msg.ev === 'restore') this.lastGhost.set(msg.g.id, msg.g);
@@ -238,6 +245,14 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     (this.ctx?.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(null);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
+  }
+
+  /**
+   * 2026-09-15 (B-14): `fall` 수신의 유일한 입구 (relay 가 부르고, 스모크가 가짜 메시지로 직접 부른다).
+   * 검사 규칙은 `parts/Fall.receiveRemoteFall` — 돌려주는 값은 거절 사유, `null` = `player:remoteFell` 을 냈다.
+   */
+  receiveFall(msg: FallMessage, from: PeerId): RemoteFallReject | null {
+    return receiveRemoteFall(this.ctx, msg, from, this.fallHeardAt, performance.now() / 1000);
   }
 
   /* ─────────────────────────── queries ─────────────────────────── */

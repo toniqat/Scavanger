@@ -21,7 +21,7 @@ engine.addSystem(new GadgetSystem());
 | `parts/Remote.ts` | **원격 지뢰(C4)는 언제 · 어떻게 터지는가** (2026-09-11). `detonateRemoteMines` / `liveRemoteMineCount`, 호스트의 `gadq detonate` 처리, **중첩 피해**(대상마다 가장 센 한 발 100 % + 나머지 각각 `GADGET_REMOTE_MINE_STACK_MUL`, 합산 1회 적용), 소유자당 상한 `GADGET_REMOTE_MINE_MAX_LIVE`, 설치음 · 무장 중 삑. 근접으로는 절대 안 터진다. |
 | `parts/Preview.ts` | **손에 든 설치형 가젯을 지금 놓으면 어디에 서고, 설 수 있나** (2026-09-11). 판정은 `computePlacement` **하나** — 매 프레임 미리보기(고스트 + `GadgetsRef.placement` + 바뀔 때만 `gadget:placementChanged`)와 좌클릭 설치(`use()` 가 그 순간 다시 돌린다)가 같은 함수를 쓴다. 조준 광선(`getAimRay`)을 발 수평 `GADGET_PLACE_RANGE` 원에서 끊고, 드론 몸체(`ctx.drones.raycast`)가 더 가까우면 드론 위. 사유: 맵 밖 · 움직이는 발판 `설치할 수 없는 곳이다` / 위아래 `PLACE_VERTICAL_REACH` 초과 `너무 멀다` / 법선 `바닥이 너무 기울었다` / 대형 발자국 샘플 높이차 `바닥이 고르지 않다` / 발자국 원 vs 장애물(원기둥 · OBB · 볼록 윤곽, 밟은 바닥과 머리 위 슬래브 제외) `공간이 부족하다` / `PLACE_CLEARANCE` `다른 설치물과 겹친다` / 대형을 드론에 `드론 위에는 올릴 수 없다` / `이미 드론에 설치물이 있다`. 호스트의 `gadq place` 재검증 `resolveRemotePlace`. |
 | `parts/Mount.ts` | **드론 위 설치물은 언제까지, 어떻게 드론을 따라가나** (2026-09-11). `Deployable.mount` 가 있으면 매 프레임 `getMountPoint` 로 옮긴다(각자 로컬 — 드론 복제본이 이미 있다). 드론이 사라지면 아래 표면으로 떨어져 바닥 설치물로 남는다 — 아래 `드론 탑재` 절. |
-| `GadgetDefs.ts` | `GADGET_DEFS` (10 gadgets, 한국어 이름/설명), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. |
+| `GadgetDefs.ts` | `GADGET_DEFS` (10 gadgets, 한국어 이름/설명), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. **2026-09-15**: 아이템 없는 내부 정의 `INTERNAL_GADGET_DEFS`(`grenadeFire` — G-10 소이 수류탄 화염 지대, `gadgetDef` 로만 찾히고 `getDefs()` · `gadgetForKind` 에는 없다) · `isInternalGadget` · 배치물 id `deployableIdFor`(G-10 = `-gf` 표식) · 와이어 → 정의 `defForWire`. |
 | `Deployable.ts` | `Deployable implements DeployableRef` — hp/armed/expires/yaw + per-kind runtime state (`fireTimer`, `targetId`, `headYaw`, `tickTimer`, `padCooldown` = 같은 프레임 가드, `padNext` = 플레이어별 재발동 시각(Phase 9), `netCooldown`) and `takeDamage()` (routes to the authority). Also the physical sizes: `BARRICADE_HALF`, `MINE_TRIGGER_RADIUS`, `JUMPPAD_TRIGGER_RADIUS`, `DOME_UNFOLD_TIME`. |
 | `GadgetVisuals.ts` | `GadgetVisualPool`: pooled procedural meshes per `DeployableKind` + a 12-slot expanding ring-pulse FX pool. Shared geometry, per-visual materials, recoloured on reuse. **No lights anywhere** (constant scene light count → no shader recompiles). `warm()` pre-builds one visual per kind. |
 | `ThrownGadget.ts` | `ThrownGadgetManager`: 8 pooled canisters with a gravity arc + obstacle push-out; deploys on the first ground contact (or after 4 s). **2026-09-11**: 창문 유리를 깨고 지나가고(`shared/fragile`), 땅 = `getSurfaceY`(건물 2층 · 옥상). 설치물의 배치 높이는 아직 지형이다. |
@@ -246,6 +246,28 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (B-16 화염 지대 · 사용자 버그 「플레이어 소이 가젯에도 불 대지가 안 만들어진다」)**
+  - **원인 ①(화염수류탄)**: 투척형 배치물의 높이가 `Queries.groundY` = `getHeightAt`(**지형만**)이었다. 투척체(`ThrownGadget`)는
+    2026-09-11 부터 건물 2층 · 옥상 · 플랫폼 · 전차 데크 **표면에** 떨어지는데 배치물은 그 밑 지형으로 내려가 바닥판 · 지붕판 아래에
+    묻혔다 — 보이지 않고, 위층의 사람은 `fireDamageAt` 높이 창(3.5 m) 밖이라 타지도 않았다(재현: seed 42 전진기지 지붕 18.45 m 에 떨어진
+    통이 지형 14.35 m 에 불을 세웠다). 열린 평지에서는 원래도 섰다. 이제 `groundY` = 그 점 **아래** 걸을 수 있는 표면
+    (`getSurfaceY(x, z, y − PROP_STEP_UP_MAX)`). **원인 ②(G-10 소이 수류탄)**은 weapons 쪽 — 화염 분기 자체가 없었다(weapons README).
+  - **내부 가젯 `grenadeFire`** (`GadgetDefs.INTERNAL_GADGET_DEFS` — throw · fire · 반경 `GRENADE_INCENDIARY_RADIUS` 3.5 · 지속
+    `GRENADE_INCENDIARY_DURATION` 6 · hp 0). `gadgetDef` 로는 찾히지만 `getDefs()` · `GADGET_IDS` · `gadgetForKind('fire')`(= 화염수류탄
+    그대로)에는 없고 `use()` 가 거절한다(`isInternalGadget` — 아이템 매칭이 없으면 소모 없이 통과하는 옛 규칙 때문에 막지 않으면 공짜 불).
+    `igniteGrenadeFire(pos)`(`parts/Deploy`) = `onThrownImpact` 와 같은 `requestPlace` 길 — 권위자 즉시 스폰, 클라 `gadq place {gadget:'grenadeFire'}`
+    (호스트의 place 처리는 아이템을 보지 않으므로 그대로 받는다).
+  - **복제본이 정의를 되찾는 법**: `DeployableWire` 에 가젯 id 칸이 없어(계약은 `kind` 만) id 를 정하는 쪽이 **`-gf` 표식**을 넣는다 —
+    `deployableIdFor(base, seq, gadget)` = `${peer}-gf${n}`(권위자 `nextId(gadget)` · 호스트 `gadq place`), 받는 쪽 `defForWire(w)`. 와이어 모양은
+    그대로다. 계약에 `DeployableWire.gadget` 이 생기면 지워도 된다. `Simulate.animate` 의 수명 비율도 `gadgetDef(d.gadgetId)` 를 먼저 본다.
+  - **`getFireZones()`**(`parts/Queries`) — 살아 있는 `fire` 전부, `hostile: false`, 모든 클라이언트, 칸 풀 `fireZonePool` · 목록 `fireZoneList`
+    재사용(`model.FireZoneView`), `position` 은 배치물의 살아 있는 벡터, 남은 시간 ≤ 0(복제본이 remove 대기) 제외.
+  - **소리**(와이어 없음, 클라이언트마다): `spawnDeployable` 이 `fire` 면 `gadget_deploy` 대신 `fire_ignite` + `Deployable.crackleTimer` 를
+    `FIRE_ZONE_CRACKLE_S` 로, `Simulate.animate` 가 그 간격마다 `fire_crackle`.
+  - **드론 피해**: 권위자 `updateFireZone` 이 틱마다 수평 반경 안 · 바닥에서 `|dy| < FIRE_ZONE_DRONE_HEIGHT` 인 드론에 `damageDrone(id, GADGET_INCENDIARY_DPS × ZONE_TICK)`
+    (남의 드론은 `droneq damage` 로 소유자에게).
+  - 검사: `scripts/smoke-fire-zones.mjs` (새).
 
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `parts/Preview`(설치 고스트) · `drones/parts/Control`(R 꾹 조종) · `drones/parts/Lifecycle`(드론 꺼내기)이
   `droneControl` 옆에 `ctx.player.roverRide` 도 본다 — 탑승 중에는 셋 다 없다.

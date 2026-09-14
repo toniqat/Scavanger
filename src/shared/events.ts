@@ -203,7 +203,8 @@ export interface GameEvents {
   'net:remoteFired': { id: PeerId; weaponId: string; origin: THREE.Vector3; direction: THREE.Vector3 };
   'net:remoteReloaded': { id: PeerId; weaponId: string };
   /** `fuse` (appended, Phase 2) = seconds left on the replica grenade (undefined → GRENADE_FUSE). */
-  'net:remoteGrenade': { id: PeerId; position: THREE.Vector3; velocity: THREE.Vector3; fuse?: number };
+  /** `fire` (appended, 2026-09-15 B-16) = `GrenadeMessage.fire` — true = G-10 소이 수류탄, undefined = 보낸 쪽이 싣지 않았다. */
+  'net:remoteGrenade': { id: PeerId; position: THREE.Vector3; velocity: THREE.Vector3; fuse?: number; fire?: boolean };
   'net:remoteDied': { id: PeerId; name: string; position: THREE.Vector3 };
   /** A remote player placed a ping (from PingMessage). Owner: ui/hud/Pings renders it. */
   'net:remotePing': { id: PeerId; position: THREE.Vector3; kind: PingKind };

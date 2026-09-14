@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Layers, type ArmorDef, type ItemCategory } from '@/shared';
+import { applySoldierRim } from './SoldierRim';
 
 /**
  * Procedural gear looks shared by the local soldier and the remote avatars (Phase 7):
@@ -30,7 +31,8 @@ class Look implements GearLook {
   readonly materials: THREE.Material[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
   mat(color: number, metalness: number, roughness: number, emissive = 0, emissiveIntensity = 0): THREE.MeshStandardMaterial {
-    const m = new THREE.MeshStandardMaterial({ color, metalness, roughness });
+    // 2026-09-15 (D-7): plates / held items sit on the soldier — same fresnel rim program as the body (`SoldierRim`)
+    const m = applySoldierRim(new THREE.MeshStandardMaterial({ color, metalness, roughness }));
     if (emissive) { m.emissive.setHex(emissive); m.emissiveIntensity = emissiveIntensity; }
     this.materials.push(m);
     return m;

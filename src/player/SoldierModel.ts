@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Layers, type ArmorDef, type FurniturePoseKind } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
 import { buildArmorPlate, type GearLook } from './GearLook';
+import { applySoldierRim } from './SoldierRim';
 
 /**
  * Per-frame pose parameters driving the procedural animation. All blends are 0..1 unless noted.
@@ -313,7 +314,8 @@ export class SoldierModel {
     const mAccent = this.mat(accentColor, 0.2, 0.5);
     const mDark = this.mat(DARK, 0.15, 0.75);
     const mCape = this.mat(CAPE, 0.0, 0.9, THREE.DoubleSide);
-    this.visorMat = this.mat(0x102030, 0.6, 0.3) as THREE.MeshStandardMaterial;
+    // 2026-09-15 (D-7): the visor keeps its plain emissive look — no fresnel rim on it (`SoldierRim`)
+    this.visorMat = this.mat(0x102030, 0.6, 0.3, THREE.FrontSide, false);
     this.visorMat.emissive.setHex(VISOR);
     if (accentColor !== ACCENT) this.visorMat.emissive.lerp(new THREE.Color(accentColor), 0.5);
     this.visorMat.emissiveIntensity = 0.9;
@@ -535,8 +537,13 @@ export class SoldierModel {
   }
 
   /* ─────────────── builders ─────────────── */
-  private mat(color: number, metalness: number, roughness: number, side: THREE.Side = THREE.FrontSide): THREE.MeshStandardMaterial {
+  /**
+   * 2026-09-15 (D-7): every body material gets the shared fresnel rim (`SoldierRim.applySoldierRim` — one program, shared
+   * uniforms, no lights) unless `rim` is false (the visor).
+   */
+  private mat(color: number, metalness: number, roughness: number, side: THREE.Side = THREE.FrontSide, rim = true): THREE.MeshStandardMaterial {
     const m = new THREE.MeshStandardMaterial({ color, metalness, roughness, side });
+    if (rim) applySoldierRim(m);
     this.materials.push(m);
     return m;
   }

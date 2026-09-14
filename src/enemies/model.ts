@@ -198,6 +198,8 @@ const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
   charger: { pitch: 0.58, gain: 0.95 },
   behemoth: { pitch: 0.4, gain: 1.7 },
   // 로그 계열: 사람 발소리를 낮은 피치로 (무겁고 장비를 멨다)
+  // 2026-09-15 (B-16, 사용자 「로그 · 레이더 모두 켬다」): 일반 로그 = 레이더보다 가벼운 발
+  rogue: { pitch: 0.86, gain: 0.6 },
   rogue_boss: { pitch: 0.86, gain: 0.7 },
   rogue_hammer: { pitch: 0.74, gain: 0.85 },
   rogue_heavy: { pitch: 0.8, gain: 0.8 },
@@ -311,3 +313,5 @@ export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul 
 /* appended (2026-09-10): 적이 수류탄을 하나도 안 던지고 있을 때 `getEnemyGrenades()` 가 돌려주는 빈 목록.
  * 매번 `[]` 를 만들면 HUD 가 프레임마다 부르므로 쓰레기가 된다. */
 export const EMPTY_GRENADES: readonly import('@/shared').GrenadeView[] = [];
+/* appended (2026-09-15, B-16): 풀이 없을 때(dispose 뒤) `getFireZones()` 가 돌려주는 빈 목록 — 같은 이유로 공유. */
+export const EMPTY_FIRE_ZONES: readonly import('@/shared').FireZoneInfo[] = [];

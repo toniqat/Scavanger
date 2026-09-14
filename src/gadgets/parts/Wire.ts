@@ -13,6 +13,7 @@ import {
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
 } from '@/shared';
 import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
+import { defForWire, deployableIdFor } from '../GadgetDefs';   // 2026-09-15 (B-16): G-10 화염 지대 id 표식
 import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
 import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
@@ -59,7 +60,8 @@ export function wireOf(sys: GadgetSystem, d: Deployable): DeployableWire {
   }
 
 export function spawnFromWire(sys: GadgetSystem, w: DeployableWire): void {
-  const def = gadgetForKind(w.kind);
+  // 2026-09-15 (B-16): `fire` + id 표식 `-gf` = G-10 화염 지대 (반경 · 지속이 화염수류탄과 다르다 — `GadgetDefs.defForWire`)
+  const def = defForWire(w);
   if (!def) return;
   _a.set(w.p[0], w.p[1], w.p[2]);
   sys.spawnDeployable(w.id, def, w.owner, _a, w.yaw, w);
@@ -136,7 +138,8 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
         if (r === false) return;
         mount = r;
       }
-      sys.spawnDeployable(`${from}-g${++sys.seq}`, def, from, _a, m.yaw, null, mount);
+      // 2026-09-15 (B-16): `grenadeFire` 는 아이템이 없는 내부 정의라 여기서도 받는다 (클라의 G-10 폭발) — id 에 `-gf` 표식
+      sys.spawnDeployable(deployableIdFor(from, ++sys.seq, def.id), def, from, _a, m.yaw, null, mount);
       break;
     }
     case 'damage': {

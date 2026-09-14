@@ -19,6 +19,8 @@ import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
+/* 2026-09-15 (B-16): 화염 지대 질의 · 투척형 배치 높이 */
+import { PROP_STEP_UP_MAX, type FireZoneInfo } from '@/shared';
 
 export function findEnemyTarget(sys: GadgetSystem, pos: THREE.Vector3, radius: number): DeployableRef | null {
   let best: Deployable | null = null, bestD = radius * radius;
@@ -189,10 +191,40 @@ export function playerAlongRay(sys: GadgetSystem, from: THREE.Vector3, to: THREE
   return best;
   }
 
+/**
+ * 2026-09-15 (B-16): 살아 있는 `fire` 배치물 — 화염수류탄 · G-10 소이 수류탄 둘 다, 권위자든 복제본이든. 전부 `hostile: false`
+ * (플레이어가 만든 불). **매 프레임** 불리므로 칸 객체(`sys.fireZonePool`)와 목록 배열(`sys.fireZoneList`)을 재사용한다 —
+ * `position` 은 배치물의 살아 있는 벡터를 그대로 가리킨다. 남은 시간이 0 이하인 것(복제본이 호스트의 remove 를 기다리는 중)은 뺀다.
+ */
+export function getFireZones(sys: GadgetSystem): readonly FireZoneInfo[] {
+  const list = sys.fireZoneList;
+  const pool = sys.fireZonePool;
+  list.length = 0;
+  const t = sys.ctx.time;
+  for (const d of sys.deployables) {
+    if (d.removing || d.kind !== 'fire') continue;
+    const remaining = d.expires > 0 ? d.expires - t : Infinity;
+    if (remaining <= 0) continue;
+    let z = pool[list.length];
+    if (!z) { z = { id: d.id, position: d.position, radius: d.radius, remaining, hostile: false }; pool[list.length] = z; }
+    z.id = d.id; z.position = d.position; z.radius = d.radius; z.remaining = remaining; z.hostile = false;
+    list.push(z);
+  }
+  return list;
+  }
+
 /* ═══════════════════════════ placement / items ═══════════════════════════ */
+/**
+ * 투척형 배치물(돔 · 연막 · 화염 · 유인)을 권위자가 처음 세울 높이.
+ * 2026-09-15 (B-16 · 화염 지대가 안 보이던 원인): 예전에는 `getHeightAt`(**지형만**)이었다 — 투척체(`ThrownGadget`)는
+ * 2026-09-11 부터 건물 2층 · 옥상 · 플랫폼 데크 · 전차 위 **표면에** 떨어지는데, 배치물은 그 밑 지형으로 내려가 바닥판 · 지붕판
+ * 아래에 묻혔다 (보이지도 않고, 위층에 선 사람은 `fireDamageAt` 의 높이 창 3.5 m 밖이라 타지도 않았다). 이제 그 점 **아래**의
+ * 걸을 수 있는 표면이다: 윗면이 `position.y` 이하인 것 중 가장 높은 것 (`getSurfaceY` 의 발 높이 규약 — `feetY + PROP_STEP_UP_MAX`
+ * 가 천장이므로 `position.y − PROP_STEP_UP_MAX` 를 넘긴다). 공중에서 터진 G-10 도 발밑 표면으로 떨어진다.
+ */
 export function groundY(sys: GadgetSystem, position: THREE.Vector3): number {
   const world = sys.ctx.world;
-  if (world && world.ready) return world.getHeightAt(position.x, position.z);
+  if (world && world.ready) return world.getSurfaceY(position.x, position.z, position.y - PROP_STEP_UP_MAX);
   const interior = sys.ctx.player?.interior;
   if (interior) return interior.getFloorAt(position.x, position.z);
   return position.y;

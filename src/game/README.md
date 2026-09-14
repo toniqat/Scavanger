@@ -362,6 +362,15 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 ## 변경 이력
 
+- **2026-09-15 (A-17 — 튜토리얼 완주 XP 고정 지급, 사용자 결정 「고정 지급 · 정확히 Lv.2」)** — `parts/Death.awardMissionXp` 에 갈래 하나:
+  `sys.isTutorial() && stats.extracted`(= 버려진 함선을 타고 **완주**)면 정산식(처치 · 시간 · 탈출 보너스 · 전리품 · 서재 `raidXp` 배율)을 건너뛰고
+  **`TUTORIAL_RAID_XP` 를 그대로** 준다 (csv 120 = `XP_BASE` — 레벨 1 에서 정확히 레벨 2). 튜토리얼에는 기업 계약이 없으므로 `settleMission` 도 부르지 않는다
+  (`rewards.contract` = null). `raids` · `extractions` 카운터와 `s.rewards` 모양은 그대로라 결과 화면은 한 줄도 안 바뀌었다. 그 전에는 `TUTORIAL_RAID_XP` 를
+  읽는 곳이 없어 튜토리얼 레이드도 본편 식으로 정산됐다.
+  **탈출하지 않고 끝난 튜토리얼은 예전 식 그대로다** — 튜토리얼 사망은 `onTutorialDied` 가 받아 `gameOver()` 로 가지 않지만, ESC `튜토리얼 건너뛰기` 가
+  함선을 못 태우는 상태(사망 · 전투불능)에서 내려가는 `game:returnToShip` → `finishReturnToShip` → `gameOver()` 는 `extracted: false` 로 정산한다(「완주」가 아니다).
+  검증: `scripts/smoke-tutorial-raid.mjs` 의 마지막 절(즉시 이륙 → 결과 화면 → `rewards.xpEarned === TUTORIAL_RAID_XP` · 레벨 2 → 개인 함선 · 함선 트랙).
+
 - **2026-09-14 (정보상 — 솔로 이어하기, 에이전트 D)** — `SoloRaid.ts` 의 `SoloRaidSave` 에 `intel?: IntelPick[]` 추가(옛 세이브에는 없다 = 안 샀다, `loadSoloRaid` 가 `sanitizeIntelPicks` 를 지난다) · `parts/Session.saveSoloAt` 이 달리는 레이드의 보유 정보를 `planet` 과 같은 규약으로 싣고 (`ctx.meta.intel.get()` 은 레이드가 끝나야 소모되므로 달리는 동안 손에 있다) · `resumeSoloRaid` 가 `ctx.missionIntel` 을 **`game:newMission` emit 전에** 되살린다 — 안 하면 이어한 사람만 시드는 같고 탈출구 · 지하실 · 둥지만 빠진 맵을 만든다. `parts/Phases.onNewMission` 은 훈련장에서 `ctx.missionIntel = null` 한 줄뿐(레이드 값은 emitter 가 이미 세팅했다).
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.

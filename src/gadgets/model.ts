@@ -67,6 +67,15 @@ export function angleDelta(from: number, to: number): number {
 /** Which peer a turret / mine hurt. */
 export type Victim = PeerId | 'local';
 
+/** 2026-09-15 (B-16): `GadgetsRef.getFireZones` 가 재사용하는 칸 — `FireZoneInfo` 의 쓰기 가능한 모양 (`parts/Queries.getFireZones`). */
+export interface FireZoneView {
+  id: string;
+  position: THREE.Vector3;
+  radius: number;
+  remaining: number;
+  hostile: boolean;
+}
+
 /**
  * Special gadgets (특수 가젯). Publishes `ctx.gadgets` and owns `GADGET_DEFS`.
  *

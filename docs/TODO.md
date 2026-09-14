@@ -23,7 +23,7 @@
 ## 묶음 4 — 배포 · 안정화
 
 혼자 놀 때는 안 보이지만, 남에게 주는 순간 드러나는 것들.
-소유 폴더: `electron` · `net` · `server` · `inventory` · `shared/console.ts` (E-12 는 `tutorial` · `scripts`, E-13 은 `docs/pitch`).
+소유 폴더: `electron` · `net` · `server` · `inventory` · `shared/console.ts`.
 
 | ID | 항목 | 근거 |
 |---|---|---|
@@ -32,13 +32,11 @@
 | E-10 | **데스크톱 스모크의 `--release` 를 실제 배포 폴더로 돌린 적이 없다** — 2026-09-11 E-3 는 임시로 뽑은 배포 폴더(`--release-dir`)로만 61/61. `npm run app:dist && node scripts/smoke-desktop.mjs --release` 한 번. 포인터 락 쿨다운 타이밍은 숨긴 창이 락을 못 잡아 여전히 수동 | `scripts/smoke-desktop.mjs` |
 | E-11 | **솔로 레이드 방어의 남은 틈 (E-5 뒤, 사용자 수용 범위)** — 창을 닫고 시계를 되돌려 부팅 없이 5분 안에 켜기 · 오프라인에서 로드아웃 파일의 `raidSeed` 를 지우기 · 온라인에서 로드아웃 파일을 통째로 지우면 서버의 레이드 전 킷이 돌아온다(표식이 로컬 전용). 막으려면 서버 문서 쪽 표식(= 온라인 솔로의 서버 시계 판정)이 필요하다 | `src/game/SoloRaid.ts`, `src/inventory/parts/Lifecycle.ts` |
 | E-7 | **인터넷 너머 플레이 미지원** — 포트포워딩 · VPN 메시 · VPS 가 필요하고, 개발 PC 는 관리형 네트워크라 포트포워딩이 막혀 있을 가능성이 높다 | HISTORY 2026-09-07(배포용 릴레이 주소) |
-| E-12 | **튜토리얼 레이드 · 함선 트랙을 끝까지 주행한 스모크가 없다** — `smoke-tutorial` 은 증축 트랙만 몬다. 체크포인트 부활 · 낙사 부활 자리 · `kill`/`clamp` · 즉시 이륙 → 정산 → 함선 획득 · 함선 트랙 단계가 실행 검증을 거친 적이 없고, 전역 낙하 피해 전용 `smoke-fall-damage.mjs` 도 미작성 | HISTORY 2026-09-14 3차 미해결 · DEC 「2026-09-14 — 튜토리얼 개편」 |
-| E-13 | **피칭 문서 행성 페이지가 옛 적 구성이다** — 행성 소개가 2026-09-13 행성별 적 팩션(threat 1 = 안드로이드 · 3 = 레이더만) 이전 모습 | `docs/pitch/pages/11-planets.html`, DEC 「2026-09-13 — 행성별 적 팩션」 |
 | A-9 | **세이브 마이그레이션 표**. 무기 id 개편(2026-09-07) · 임플란트 id 변경 때 기존 세이브의 아이템이 로드에서 **조용히 사라진다** | `src/inventory/Serialize.ts:80` `reviveItem` 이 모르는 def 를 `null` 로 버린다 (창고 · 로드아웃 · 서버 프로필 공통) |
 
 ## 묶음 5 — 조작 · 편의 · UI 잔손질
 
-소유 폴더: `ui` · `player` · `audio` · `inventory` · `shared/Keybinds.ts` (A-17 은 `tutorial` · `progression`, B-15 는 `housing`, B-16 은 `enemies`).
+소유 폴더: `ui` · `player` · `audio` · `inventory` · `shared/Keybinds.ts`.
 
 | ID | 항목 | 근거 |
 |---|---|---|
@@ -46,19 +44,11 @@
 | A-8 | **게임패드**. 리바인딩은 키보드 + 마우스 버튼만 | `grep -rni "gamepad" src/` → 0 hit |
 | A-7 | **BGM**. 설정의 오디오 채널 자리만 비워 뒀다 | `src/ui/menus/SettingsMenu.ts:26` "Room is left for a future BGM row … there is no BGM" |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | HISTORY Phase 12 |
-| A-17 | **튜토리얼 완주 XP 가 지급되지 않는다** — `TUTORIAL_RAID_XP`(「레벨 2 에 닿는 양」)는 csv · 상수만 있다. 함선 트랙 `levelUp` 은 레벨과 무관하게 인벤토리를 열면 넘어간다 | `grep -rn TUTORIAL_RAID_XP src/` → `shared/constants.ts` 정의뿐 |
-| B-14 | **낙하 피해에 전용 피드백이 없다** — `player:fell` 을 받는 곳이 튜토리얼 단계 하나라 착지 충격음 · 화면 흔들림이 없다 | `grep -rn "player:fell" src/audio src/ui` → 0 hit |
-| B-15 | **조리대 화면이 제작 숙련이 모자란 요리를 목록에서 숨긴다** — 조리대 레벨 잠김만 딤드로 보이고 숙련 잠김 요리는 레일에 아예 없어, 무엇을 올려야 열리는지 알 수 없다 | `src/housing/parts/Cooking.ts` `getRecipes('ship', 'cook', 99)` (HISTORY 2026-09-13 37차 미해결) |
-| B-16 | **적 소이 화염 지대에 피드백이 없다** — 소리 · HUD 표시 · 드론 피해가 없고, 레이더 · 로그 발소리가 꺼져 있다 | HISTORY 2026-09-13 36차 미해결, DEC 「2026-09-13 — 행성별 적 팩션」 |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 
-남은 두 줄은 시각 잔손질이다. 실플레이 뒤에 조정한다 (2026-09-14 에 수치 줄 D-1 … D-6 · D-9 … D-12 는 사용자 결정으로 뺐다).
-
-| ID | 항목 | 출처 |
-|---|---|---|
-| D-7 | **병사 장갑이 이끼/독성 녹색 팔레트에서 어둡게 읽힌다** — env map 또는 림 라이트 검토 | HISTORY |
-| D-8 | **드랍쉽 선체가 가까이서 각지다** — 그리블 · 패널 라인 추가 검토 | HISTORY |
+지금은 비어 있다 — 2026-09-14 에 수치 줄 D-1 … D-6 · D-9 … D-12 는 사용자 결정으로 뺐고, 2026-09-15 에 남은 시각 잔손질
+D-7(병사 림) · D-8(드랍쉽 그리블)을 끝냈다. 실플레이 뒤 튜닝 항목이 생기면 D-13 부터 잇는다.
 
 ---
 

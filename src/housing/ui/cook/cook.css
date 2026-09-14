@@ -328,13 +328,16 @@
 .cook-again-reason { margin-right: auto; font-size: 11px; color: var(--c-text-faint); }
 
 /* ── 조리대 화면 (`CookStation`) ─────────────────────────────────────────── */
-.cook-rail { width: 176px; }
+.cook-rail { width: 196px; }   /* 2026-09-15 (B-15): 176 → 196 — 조리대 레벨 + 숙련 배지 둘이 붙어도 이름이 읽힌다 */
 .cook-rail-tier { flex: none; padding: 8px 2px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-faint); }
 .cook-rail-tier:first-child { padding-top: 0; }
 .cook-rail-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #05070a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
 .cook-rail-dot.on { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
 .cook-rail-lv { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
 .cook-rail-item.is-locked { opacity: 0.5; }
+/* 2026-09-15 (B-15): 잠김 배지 묶음 — 조리대 `Lv.n` · 숙련 `제작 20` (둘 다 모자라면 나란히) */
+.cook-rail-locks { flex: none; display: flex; align-items: center; gap: 5px; }
+.cook-rail-skill { padding: 0 4px; border: 1px solid var(--c-border); white-space: nowrap; }
 /* 2026-09-13 (H3): 레시피 책 잠김 · 요리 숙련 / 서재 보너스 */
 .cook-rail-book { padding: 0 4px; border: 1px solid var(--c-border); color: var(--c-accent); }
 .cook-stepchip-bonus { font-family: var(--ui-mono); font-size: 10px; color: var(--c-accent); white-space: nowrap; }

@@ -314,6 +314,18 @@ still runs at the item's own rate).
 
 ## 변경 이력
 
+- **2026-09-15 (B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」)**: **원인** — `Grenade.ts` 에 화염 분기가 아예 없었다.
+  모든 수류탄 아이템이 같은 `GRENADE_RADIUS 6` / `GRENADE_DAMAGE 250` 으로 터졌으므로 G-10 소이 수류탄은 고폭과 똑같이 터지고 불을
+  남기지 않았다(`grep incendiary src/weapons` → 0). 이제 `GrenadeManager.throw(…, fire)` 가 `GrenadeBody.fire` 를 들고,
+  `parts/Throwing` 의 `throwHeld` · `explodeInHand` 가 손에 든 아이템의 `ItemDef.grenadeFire`(`items.csv` 새 열)를 넘긴다.
+  `fire` 인 폭발은 **작은 폭발**(`GRENADE_INCENDIARY_BLAST_DAMAGE` 40 · `GRENADE_INCENDIARY_BLAST_RADIUS` 3 — 적 `applyExplosion` · 로컬
+  플레이어 0.6 배 · `grenade:exploded.radius` · `fx.explosion` 크기가 전부 이 값, 흔들림 절반 · 폭발음 0.7)이고 **로컬 폭발만**
+  `ctx.gadgets.igniteGrenadeFire(pos)` 를 부른다 — 화염 지대는 gadgets 의 호스트 권위 배치물이라 분대원에게는 `gad spawn` 으로 간다.
+  **복제본**: `GrenadeMessage` 에 아이템 id 가 없어서 `RemoteWeapons.onGrenade(…, from)` 가 던진 사람의 마지막 스냅샷 손(`heldItemId`,
+  `attachments` 처럼 모양으로 읽는다)으로 G-10 인지 고른다 — 수류탄은 LMB 로 던지기 전에 반드시 손에 들리므로 그 스냅샷이 메시지보다
+  먼저 온다. 복제본은 작은 폭발(FX + 로컬 플레이어 몫)만 하고 불은 붙이지 않는다. ⚠ 추정이라 아주 짧은 탭 · 스냅샷 유실이면 고폭
+  모습으로 보일 수 있다 — 계약에 `GrenadeMessage.k`(와 `net:remoteGrenade` 필드)가 생기면 그것으로 바꾼다. 검사: `scripts/smoke-fire-zones.mjs`.
+
 - **2026-09-14 2차 (투척 궤적에서 튕김 계산 제거 — 사용자 결정)**: `fx/ThrowArc.show` 가 더 이상 세계에 아무것도 묻지 않는다.
   빠진 것은 셋이다 — ① 매 스텝의 `world.resolveCollision(_p, BODY_R)`(장애물 밖으로 밀어내기 = 바위 · 벽 · 창틀 · 난간을
   스칠 때 점선이 **꺾이고 미끄러지던** 그것, 사람이 「튕긴다」고 읽은 움직임), ② 바닥 `world.getSurfaceY(...)` 와 그것으로

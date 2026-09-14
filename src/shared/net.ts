@@ -2013,3 +2013,11 @@ export interface NetRef {
  * `[0, FALL_DAMAGE_MAX]` 로 자르고 로컬 카메라에서 `FALL_REMOTE_SOUND_RANGE` 밖이면 버린 뒤 `player:remoteFell` 을 낸다.
  * 소리만을 위한 메시지다 — 체력 · 실드는 이미 스냅샷이 싣는다. 튜토리얼 · 훈련장은 솔로라 보낼 일이 없다. */
 export interface FallMessage { t: 'fall'; p: Vec3Tuple; d: number }
+
+/* ══ appended (2026-09-15, B-16): 수류탄 종류 ════════════════════════════════════════════════════════
+ * 원격 수류탄 폭발은 **받는 쪽의 로컬 플레이어에게 피해를 준다**(`RemoteWeapons.onGrenade`) — 그래서 G-10 소이 수류탄의 작은 폭발을
+ * 손에 든 아이템 스냅샷으로 추측하면, 스냅샷 하나를 놓친 순간 고폭(250 / 6 m)으로 맞는다. 던진 사람이 종류를 직접 싣는다. */
+export interface GrenadeMessage {
+  /** 1 = G-10 소이 수류탄(`ItemDef.grenadeFire`) — 작은 폭발로 재생한다. 생략 = 모른다(옛 클라이언트 → 받는 쪽이 손 스냅샷으로 추측). */
+  fire?: 1;
+}

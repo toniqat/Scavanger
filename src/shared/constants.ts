@@ -1953,6 +1953,9 @@ export const FALL_REMOTE_SOUND_RANGE = K.num('FALL_REMOTE_SOUND_RANGE');
 /** G-10 소이 수류탄 화염 지대 (gadgets `GadgetId 'grenadeFire'`). */
 export const GRENADE_INCENDIARY_RADIUS = K.num('GRENADE_INCENDIARY_RADIUS');
 export const GRENADE_INCENDIARY_DURATION = K.num('GRENADE_INCENDIARY_DURATION');
+/** G-10 소이 수류탄 폭발 (weapons `Grenade`) — 고폭 `GRENADE_DAMAGE` / `GRENADE_RADIUS` 대신 쓰는 작은 폭발. */
+export const GRENADE_INCENDIARY_BLAST_DAMAGE = K.num('GRENADE_INCENDIARY_BLAST_DAMAGE');
+export const GRENADE_INCENDIARY_BLAST_RADIUS = K.num('GRENADE_INCENDIARY_BLAST_RADIUS');
 /** 화염 지대 공용 — 지지직 소리 간격 · 드론이 타는 높이 · HUD 표시 거리 (enemies · gadgets · ui). */
 export const FIRE_ZONE_CRACKLE_S = K.num('FIRE_ZONE_CRACKLE_S');
 export const FIRE_ZONE_DRONE_HEIGHT = K.num('FIRE_ZONE_DRONE_HEIGHT');

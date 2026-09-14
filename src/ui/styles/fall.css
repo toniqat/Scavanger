@@ -1,0 +1,23 @@
+/*
+ * 낙하 붉은 비네트 (hud/FallVignette, 2026-09-15, TODO B-14).
+ *
+ * 떨어져서 실제로 깎였을 때(`player:fell`) 화면 가장자리 · 아래쪽이 붉게 번졌다가 `FALL_VIGNETTE_S` 에 걸쳐 사라진다.
+ * 세기 · 사라짐은 **전부 `update(dt)` 가 인라인 `opacity` 로** 쓴다 — CSS 전이를 쓰지 않는 이유는 둘이다: 시뮬레이션 시간을
+ * 따라야 하고(일시정지 · 셰이더 hold 에 멈춘다), `prefers-reduced-motion` 에서 base.css 가 전이를 0 으로 자른다.
+ * 0 이 되면 `hidden` 이라 합성 레이어도 없다.
+ *
+ * **z-index 25 의 근거**: HUD 레이어(`.hud` — z 없음, 오버레이 · 게임플레이 · 소셜) **위**, 그러나 재개 게이트(30) ·
+ * 지도(40) · 커뮤니티(46) · 인벤토리 창(50 +) · 검은 페이드(82) · 메뉴류(83 +) **아래**다. 낙하는 레이드 한가운데의
+ * 짧은 연출이라 크로스헤어 · 체력 위에 번져야 하지만, 열린 화면을 물들일 이유는 없다. 포인터를 먹지 않는다.
+ * 접두사 `.fall-` 는 `rg "\.fall-" src` 로 비어 있음을 확인했다.
+ */
+.fall-vignette {
+  position: absolute; inset: 0; z-index: 25;
+  pointer-events: none;
+  opacity: 0;
+  transition: none;
+  background:
+    linear-gradient(to top, rgba(150, 0, 0, 0.62) 0%, rgba(150, 0, 0, 0.24) 14%, rgba(150, 0, 0, 0) 34%),
+    radial-gradient(ellipse 115% 95% at 50% 40%, rgba(120, 0, 0, 0) 46%, rgba(165, 12, 12, 0.5) 76%, rgba(110, 0, 0, 0.88) 100%);
+  will-change: opacity;
+}

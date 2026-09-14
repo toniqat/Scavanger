@@ -246,7 +246,8 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       if (typeof d.w === 'string') bus.emit('net:remoteReloaded', { id: from, weaponId: d.w });
       break;
     case 'grenade':
-      if (isVec3(d.p) && isVec3(d.v)) bus.emit('net:remoteGrenade', { id: from, position: vec(d.p), velocity: vec(d.v), fuse: typeof d.fuse === 'number' ? d.fuse : undefined });
+      // 2026-09-15 (B-16): `fire` 1 = G-10 소이 수류탄 — 받는 쪽 피해가 작은 폭발이 된다. 생략이면 undefined (옛 클라이언트)
+      if (isVec3(d.p) && isVec3(d.v)) bus.emit('net:remoteGrenade', { id: from, position: vec(d.p), velocity: vec(d.v), fuse: typeof d.fuse === 'number' ? d.fuse : undefined, fire: d.fire === 1 ? true : undefined });
       break;
     case 'revive': {
       // reviver → us (Phase 2): progress feeds the HUD, done stands us back up

@@ -834,14 +834,20 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'triangle', f0: 260 * p, f1: 60, t0: t, dur: 0.18, gain: 0.4 });
     return 0.8;
   },
-  /** Incendiary ignition: fuel whoomph + crackle. */
+  /**
+   * 불붙음 (2026-09-15 다시 짬, B-16) — 화염 지대가 막 번지는 순간. 공기를 빨아들이는 짧은 휙(밴드패스가 위로 열린다) +
+   * 연료가 한꺼번에 붙는 낮은 훅 + 잠깐 부푸는 불꽃 포효(로우패스 노이즈) + 크랙 셋. 뒤이어 지대를 가진 폴더가
+   * `fire_crackle` 을 `FIRE_ZONE_CRACKLE_S` 마다 잇기 때문에 옛 판의 크랙 여섯 알은 셋으로 줄였다 (첫 1초가 자글거렸다). ≈0.75 s.
+   */
   fire_ignite: (s, d, t, p) => {
-    s.noise(d, { t0: t, dur: 0.5, gain: 0.5, attack: 0.03, filter: { type: 'lowpass', f0: 1800 * p, f1: 400, q: 0.7 }, decayCurve: 'lin' });
-    s.tone(d, { type: 'sine', f0: 120 * p, f1: 60, t0: t, dur: 0.35, gain: 0.4 });
-    for (let i = 0; i < 6; i++) {
-      s.noise(d, { t0: t + 0.15 + i * 0.11 + r(0, 0.05), dur: 0.05, gain: 0.1, filter: { type: 'bandpass', f0: r(1400, 3600), q: 3 } });
+    const q = p * r(0.94, 1.06);
+    s.noise(d, { t0: t, dur: 0.32, gain: 0.34, attack: 0.07, filter: { type: 'bandpass', f0: 380 * q, f1: 2400 * q, q: 0.8 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 110 * q, f1: 42, t0: t + 0.05, dur: 0.34, gain: 0.42, attack: 0.02 });
+    s.noise(d, { t0: t + 0.08, dur: 0.62, gain: 0.3, attack: 0.05, filter: { type: 'lowpass', f0: 1500 * q, f1: 320, q: 0.6 }, decayCurve: 'lin' });
+    for (let i = 0; i < 3; i++) {
+      s.noise(d, { t0: t + 0.22 + i * 0.13 + r(0, 0.05), dur: r(0.018, 0.035), gain: r(0.05, 0.08), attack: 0.003, filter: { type: 'bandpass', f0: r(1500, 3400) * q, q: 3 } });
     }
-    return 0.9;
+    return 0.75;
   },
   /** Turret burst: compact servo-driven shot. */
   turret_shot: (s, d, t, p) => {
@@ -1908,6 +1914,50 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 880 * p, t0: t, dur: 0.12, gain: 0.1 });
     s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.09, dur: 0.2, gain: 0.1 });
     return 0.3;
+  },
+
+  /* ══ appended (2026-09-15): 낙하 착지 (B-14) · 화염 지대 (B-16) ═════════════════════════════════════════════════════
+   * `fall_impact` 은 AudioSystem 이 `player:fell` / `player:remoteFell` 에서 직접 낸다. `fire_crackle` 은 지대를 가진 폴더
+   * (enemies · gadgets)가 위치와 함께 `audio:play` 로 부른다 — 둘 다 `RANGED_SOUNDS` 곡선을 탄다. */
+
+  /**
+   * 낙하 착지 — 몸이 땅에 부딪히는 무거운 쿵. 크기는 호출부 볼륨이, **무게는 피치**가 말한다: AudioSystem 이 피해가
+   * 클수록 피치를 낮춰(1.15 → 0.8) 부르고 여기서는 피치의 역수로 꼬리를 늘인다 — 큰 낙하 = 낮고 · 크고 · 길다.
+   * ① 서브 쿵(사인 95 → 30 Hz) ② 몸통 둔탁음(로우패스 노이즈 + 삼각파) ③ 한 박자 늦게 가라앉는 장비 달그락(금속 클릭 5 +
+   * 버클 짤랑) ④ 튀는 자갈 알갱이 + 가라앉는 먼지. 신음은 없다. 발밑 재질은 AudioSystem 이 `footstep_<mat>` 으로 겹친다.
+   * ≈0.5 s (무거우면 ≈0.65 s).
+   */
+  fall_impact: (s, d, t, p) => {
+    const L = Math.max(0.8, Math.min(1.4, 1 / p));
+    s.tone(d, { type: 'sine', f0: 95 * p, f1: 30, t0: t, dur: 0.34 * L, gain: 0.95, attack: 0.003 });
+    s.tone(d, { type: 'triangle', f0: 170 * p, f1: 62 * p, t0: t, dur: 0.12 * L, gain: 0.26, lp: 700 });
+    s.noise(d, { t0: t, dur: 0.2 * L, gain: 0.62, filter: { type: 'lowpass', f0: 1150 * p, f1: 110, q: 0.7 } });
+    for (let i = 0; i < 5; i++) s.click(d, t + 0.025 + i * 0.038 * L + r(0, 0.02), r(1300, 3000) * p, 0.075 * (1 - i * 0.14), 0.022);
+    s.noise(d, { t0: t + 0.04, dur: 0.12 * L, gain: 0.06, attack: 0.006, filter: { type: 'bandpass', f0: 2600 * p, q: 3 } });
+    for (let i = 0; i < 4; i++) {
+      s.noise(d, { t0: t + 0.06 + r(0, 0.22) * L, dur: r(0.015, 0.03), gain: r(0.03, 0.055), filter: { type: 'bandpass', f0: r(1800, 4200), q: 2 } });
+    }
+    s.noise(d, { t0: t + 0.05, dur: 0.36 * L, gain: 0.12, attack: 0.03, filter: { type: 'lowpass', f0: 900 * p, f1: 180, q: 0.5 }, decayCurve: 'lin' });
+    return 0.45 * L + 0.05;
+  },
+  /**
+   * 화염 지대 지지직 한 조각 — ★ 소리: 지대마다 `FIRE_ZONE_CRACKLE_S`(0.7 s)마다 다시 불린다.
+   * ① 느린 어택 · 유지 · 선형 릴리스의 낮은 불꽃 바닥(로우패스 + 옅은 중역 밴드) — 조각(0.95 s)이 간격보다 길어 앞 조각의
+   *    릴리스와 겹치므로 끊긴 한 방이 아니라 **이어지는 불** 로 들린다. ② 무작위 자리 · 크기 · 대역의 크랙 3–5 알 —
+   *    밴드패스라 위가 닫혀 있다 (하이패스 크랙은 몇 분이면 귀가 아프다 — 2026-09-12 `footstep_snow` 교훈). ③ 가끔(35 %)
+   *    낮은 나무 퍽. 매 조각 필터 중심 · 알 수 · 자리가 달라 반복이 같게 들리지 않고, 전체 크기를 작게 둬 오래 들어도 지치지 않는다.
+   */
+  fire_crackle: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    const dur = 0.95;
+    s.noise(d, { t0: t, dur, gain: 0.075, attack: 0.2, release: 0.35, filter: { type: 'lowpass', f0: r(520, 760) * q, q: 0.5 } });
+    s.noise(d, { t0: t, dur, gain: 0.028, attack: 0.22, release: 0.35, filter: { type: 'bandpass', f0: r(1100, 1500) * q, q: 0.7 } });
+    const n = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      s.noise(d, { t0: t + r(0.05, 0.7), dur: r(0.01, 0.03), gain: r(0.025, 0.06), attack: 0.004, filter: { type: 'bandpass', f0: r(1300, 3600) * q, q: r(2, 4) } });
+    }
+    if (Math.random() < 0.35) s.tone(d, { type: 'sine', f0: r(160, 230) * q, f1: 80, t0: t + r(0.1, 0.6), dur: 0.05, gain: 0.05, attack: 0.004 });
+    return dur;
   },
 };
 

@@ -81,8 +81,9 @@ export function throwHeld(sys: WeaponSystem, host: Host, q: QuickHand, dropAtFee
       _md.y += GRENADE_THROW_LIFT;
     }
   }
-  sys.grenades.throw(_tmp, _md, false, fuse);
-  if (sys.ctx.isMultiplayer && sys.ctx.net) sys.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md), fuse: Math.round(fuse * 100) / 100 });
+  // 2026-09-15 (B-16): `ItemDef.grenadeFire` (G-10 소이 수류탄) = 작은 폭발 + 화염 지대 — 고폭과 같은 비행 · 신관
+  sys.grenades.throw(_tmp, _md, false, fuse, !!q.def.grenadeFire);
+  if (sys.ctx.isMultiplayer && sys.ctx.net) sys.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md), fuse: Math.round(fuse * 100) / 100, ...(q.def.grenadeFire ? { fire: 1 as const } : {}) });
   sys.firingTimer = FIRING_POSE_HOLD;
   sys.quickCooldown = QUICK_USE_COOLDOWN / sys.useSpeedMul();
   sys.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
@@ -95,8 +96,8 @@ export function explodeInHand(sys: WeaponSystem, host: Host, q: QuickHand): void
   const remaining = sys.consumeQuick(q);
   sys.handPosition(host, _tmp);
   _md.set(0, 0, 0);
-  sys.grenades.throw(_tmp, _md, false, 0);
-  if (sys.ctx.isMultiplayer && sys.ctx.net) sys.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: [0, 0, 0], fuse: 0 });
+  sys.grenades.throw(_tmp, _md, false, 0, !!q.def.grenadeFire);
+  if (sys.ctx.isMultiplayer && sys.ctx.net) sys.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: [0, 0, 0], fuse: 0, ...(q.def.grenadeFire ? { fire: 1 as const } : {}) });
   sys.quickCooldown = QUICK_USE_COOLDOWN / sys.useSpeedMul();
   if (remaining >= 0) sys.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
   sys.endHold(true);

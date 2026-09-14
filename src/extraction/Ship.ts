@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildShipGreebles } from './ShipGreebles';
 
 export type ShipState = 'hidden' | 'approach' | 'descend' | 'landed' | 'liftoff';
 
@@ -207,10 +208,12 @@ export class Dropship {
     r.add(this.gear);
 
     // ── Landing lights (amber strips at rear edges) ──
+    // 2026-09-15: x 2.0 → 2.15. At 2.0 the strip (x 1.925..2.075) sat entirely inside the side slab (outer face x 2.1) and was
+    // never visible; it now pokes 0.125 m out of its housing greeble (`ShipGreebles`). Emissive mesh only — no light.
     this.landingLightMat = this.mat(new THREE.MeshStandardMaterial({ color: 0xffb347, emissive: 0xffb347, emissiveIntensity: 0 }));
     for (const sx of [-1, 1]) {
       const l = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.15, 0.15, 0.6)), this.landingLightMat);
-      l.position.set(sx * 2.0, 0.4, 0.1);
+      l.position.set(sx * 2.15, 0.4, 0.1);
       this.landingLights.push(l);
       r.add(l);
     }
@@ -226,6 +229,10 @@ export class Dropship {
     this.ramp.add(rampPlate, rampEdgeL, rampEdgeR);
     this.ramp.rotation.x = -this.rampAngle;  // closed = rotated up
     r.add(this.ramp);
+
+    // ── Greebles (2026-09-15, D-8): panel seams, rivets, pipes, vents, hatches, antennas, nacelle ribs — outer skin only,
+    // merged per existing material (≤ 4 extra draw calls, no new programs, no lights). Merged geometries join `disposables`.
+    buildShipGreebles(r, { hull, hullDark, accent, glass }, (g) => { this.geo(g); });
 
     r.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     for (const c of this.thrustCones) c.castShadow = false;

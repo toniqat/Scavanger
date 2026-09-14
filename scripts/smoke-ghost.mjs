@@ -72,7 +72,8 @@ try {
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['player:spawned', 'player:died', 'player:downed', 'player:downHpChanged', 'player:healthChanged', 'player:landed',
-      'player:launched', 'net:remoteHeldItem', 'net:ghostState', 'world:ready', 'player:carryStarted', 'player:carryEnded']) {
+      'player:launched', 'net:remoteHeldItem', 'net:ghostState', 'world:ready', 'player:carryStarted', 'player:carryEnded',
+      'player:fell', 'camera:shake', 'player:remoteFell']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -502,6 +503,78 @@ try {
   ok(!c7.isCarried && c7.inScene, 'setCarriedBy(null) puts the local body back into the scene', JSON.stringify(c7));
   await P(() => { window.__rp.debugClear(); });
   await waitSim(0.2);
+
+  // 2026-09-15 (B-14): 낙하 착지 피드백 — `parts/Fall` 이 피해와 함께 `camera:shake` 를 내고, 멀티면 `fall` 을 보낸다.
+  // 받는 쪽 `remotePlayers.receiveFall` 의 네 겹(모양 · 보낸 사람 · 거리 · 요율). 릴레이 없이 가짜 로비 멤버로 몬다.
+  console.log('fall feedback (B-14): camera:shake + fall wire + remote guard');
+  await P(() => { const p = window.__game.ctx.player; p.restoreState({ position: p.position.clone(), yaw: 0, hp: 100, downHp: 0, state: 0 }); });
+  await waitSim(0.5);
+  const f1 = await P(async () => {
+    const ctx = window.__game.ctx; const ps = window.__ps;
+    const Fall = await import('/src/player/parts/Fall.ts');
+    const sent = []; const net = ctx.net; const hadSend = Object.prototype.hasOwnProperty.call(net, 'send'); const origSend = net.send;
+    net.send = function (msg, to) { if (msg && msg.t === 'fall') sent.push({ msg, to }); return origSend.call(this, msg, to); };
+    const fell0 = window.__ev['player:fell'].length, shake0 = window.__ev['camera:shake'].length;
+    Fall.onLanded(ps, 12);                                        // solo: no wire
+    const soloFell = window.__ev['player:fell'].slice(fell0); const soloShake = window.__ev['camera:shake'].slice(shake0);
+    const trauma = ps.rig.trauma; const soloSent = sent.length;
+    if (hadSend) net.send = origSend; else delete net.send;
+    return { soloFell, soloShake, trauma, soloSent, hp: ctx.player.hp, minInterval: Fall.REMOTE_FALL_MIN_INTERVAL_S, expect: soloFell[0] ? Fall.fallShakeFor(soloFell[0].damage) : -1 };
+  });
+  ok(f1.soloFell.length === 1 && f1.soloFell[0].damage > 0, 'a damaging landing emits player:fell once', JSON.stringify(f1.soloFell));
+  ok(f1.soloShake.length === 1 && Math.abs(f1.soloShake[0].intensity - Math.min(1.1, f1.soloFell[0].damage * 0.012)) < 1e-6
+    && Math.abs(f1.soloShake[0].intensity - f1.expect) < 1e-9 && Math.abs(f1.soloShake[0].duration - 0.35) < 1e-6,
+  'camera:shake {min(FALL_SHAKE_MAX, damage × FALL_SHAKE_PER_DAMAGE), FALL_SHAKE_S}', JSON.stringify(f1.soloShake));
+  ok(f1.trauma > 0, 'the camera rig took the shake', String(f1.trauma));
+  ok(f1.soloSent === 0, 'solo sends no fall wire', String(f1.soloSent));
+  await P(() => { const p = window.__game.ctx.player; p.restoreState({ position: p.position.clone(), yaw: 0, hp: 100, downHp: 0, state: 0 }); });
+  await waitSim(0.5);
+  const f2 = await P(async () => {
+    const ctx = window.__game.ctx; const ps = window.__ps;
+    const Fall = await import('/src/player/parts/Fall.ts');
+    const sent = []; const net = ctx.net; const origSend = net.send; const hadSend = Object.prototype.hasOwnProperty.call(net, 'send');
+    net.send = function (msg, to) { if (msg && msg.t === 'fall') sent.push({ msg, to }); };
+    Object.defineProperty(ctx, 'isMultiplayer', { get: () => true, configurable: true });
+    const fell0 = window.__ev['player:fell'].length;
+    try { Fall.onLanded(ps, 8); } finally { delete ctx.isMultiplayer; if (hadSend) net.send = origSend; else delete net.send; }
+    const fell = window.__ev['player:fell'].slice(fell0)[0];
+    const pos = ctx.player.position;
+    return { sent, fell, pos: [pos.x, pos.y, pos.z], mpAfter: ctx.isMultiplayer };
+  });
+  ok(f2.sent.length === 1 && f2.sent[0].to === 'others' && f2.sent[0].msg.d === f2.fell?.damage
+    && Math.hypot(f2.sent[0].msg.p[0] - f2.pos[0], f2.sent[0].msg.p[1] - f2.pos[1], f2.sent[0].msg.p[2] - f2.pos[2]) < 1e-6,
+  "multiplayer: {t:'fall', p: feet, d: dealt} → 'others'", JSON.stringify(f2));
+  ok(f2.mpAfter === false, 'isMultiplayer spoof removed', String(f2.mpAfter));
+  const f3 = await P(async (minInterval) => {
+    const ctx = window.__game.ctx; const rp = window.__rp; const net = ctx.net;
+    const hadGlp = Object.prototype.hasOwnProperty.call(net, 'getLobbyPlayer'); const origGlp = net.getLobbyPlayer;
+    net.getLobbyPlayer = (id) => (id === 'peer-fall' || id === 'peer-two' ? { id } : undefined);
+    const cam = ctx.camera.position; const near = [cam.x + 5, cam.y - 2, cam.z + 3];
+    const ev0 = window.__ev['player:remoteFell'].length;
+    const r = {};
+    try {
+      r.nonMember = rp.receiveFall({ t: 'fall', p: near, d: 30 }, 'stranger');
+      r.nan = rp.receiveFall({ t: 'fall', p: [NaN, 0, 0], d: 30 }, 'peer-fall');
+      r.badD = rp.receiveFall({ t: 'fall', p: near, d: Infinity }, 'peer-fall');
+      r.short = rp.receiveFall({ t: 'fall', p: [1, 2], d: 30 }, 'peer-fall');
+      r.far = rp.receiveFall({ t: 'fall', p: [cam.x + 46, cam.y, cam.z], d: 30 }, 'peer-fall');
+      r.zero = rp.receiveFall({ t: 'fall', p: near, d: -5 }, 'peer-fall');
+      r.ok = rp.receiveFall({ t: 'fall', p: near, d: 9999 }, 'peer-fall');
+      r.rate = rp.receiveFall({ t: 'fall', p: near, d: 30 }, 'peer-fall');
+      r.other = rp.receiveFall({ t: 'fall', p: near, d: 12 }, 'peer-two');
+      await new Promise((res) => setTimeout(res, minInterval * 1000 + 80));
+      r.ok2 = rp.receiveFall({ t: 'fall', p: near, d: 40 }, 'peer-fall');
+    } finally { if (hadGlp) net.getLobbyPlayer = origGlp; else delete net.getLobbyPlayer; }
+    r.events = window.__ev['player:remoteFell'].slice(ev0);
+    r.near = near;
+    return r;
+  }, f1.minInterval);
+  ok(f3.nonMember === 'member' && f3.nan === 'shape' && f3.badD === 'shape' && f3.short === 'shape', 'non-member / non-finite / malformed fall rejected', JSON.stringify(f3));
+  ok(f3.far === 'range' && f3.zero === 'damage', `beyond FALL_REMOTE_SOUND_RANGE → range, d ≤ 0 → damage`, JSON.stringify(f3));
+  ok(f3.ok === null && f3.rate === 'rate' && f3.other === null && f3.ok2 === null, `rate: same peer inside ${f1.minInterval.toFixed(3)} s dropped, other peer / later accepted`, JSON.stringify(f3));
+  ok(f3.events.length === 3 && f3.events[0].peerId === 'peer-fall' && f3.events[0].damage === 260 && f3.events[1].damage === 12 && f3.events[2].damage === 40
+    && Math.hypot(f3.events[0].position[0] - f3.near[0], f3.events[0].position[2] - f3.near[2]) < 1e-6,
+  'player:remoteFell {peerId, position, damage clamped to FALL_DAMAGE_MAX}', JSON.stringify(f3.events));
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));
   ok(gameErrors.length === 0, `no console errors (${gameErrors.length}; ${errors.length - gameErrors.length} relay socket errors ignored)`, gameErrors.slice(0, 5).join(' | '));
