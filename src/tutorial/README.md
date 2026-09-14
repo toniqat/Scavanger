@@ -413,6 +413,13 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
   한꺼번에 그어졌다 — `npc:message {npc: TUTORIAL_RAVEN_NPC, entry.e: 'choice'}` 가 `ravenQuest` 에서 그 줄을 적는다
   (`model.TUTORIAL_RAVEN_NPC` 신설). `smoke-tutorial` 91 / 0 그대로.
 
+- **2026-09-14 5차 (오프닝이 끝나지 않던 것 — 이 폴더 코드는 무변경)** — 4차에서 배선한 기상 연출이 `player/parts/IntroWake` 의 **음수 타이머
+  버그**로 끝나지 않았다: 타이머가 0 을 지나친 프레임에 `endIntroWake` 가 「연출 중 아님」 으로 읽고 돌아가 `player:introWakeDone` 이 안 왔고,
+  `wake` 에 머문 채 목표 패널 · 조작 가이드가 안 떴다(`cliff` 체크포인트가 접을 때까지). 페이드도 reduced motion 에서 한 프레임에 끝났다.
+  둘 다 player/ · ui/ 에서 고쳤고(카메라는 일어서며 백뷰로 블렌드 · 나침반은 연출 뒤 페이드인 · Tab 은 연출 끝까지 무시 · 튜토리얼 레이드는
+  시계 · 탈출 타이머 없음 — 사용자 결정), 흐름 전체를 `scripts/smoke-intro-wake.mjs` 가 진짜 생성 → 새로고침 → 기상으로 잰다.
+  이 폴더의 `wake` 단계 조건(`player:introWakeDone`)과 `pendingWake` 예약은 그대로 옳았다.
+
 - **2026-09-14 4차 (오프닝 배선 · 「앞으로 이동」 · 목표 정리 — 사용자 결정, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)**
   ① **오프닝이 실제로 돈다.** `PlayerRef.playIntroWake` 를 **`src/` 어디서도 부르지 않아** 2초 페이드도 쓰러진 채
   일어나는 애니메이션도 한 번도 나오지 않았다 (`player:introWakeDone` 이 영영 안 와도 `cliff` 체크포인트가

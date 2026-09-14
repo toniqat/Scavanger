@@ -656,6 +656,10 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   `FIRE_ZONE_DANGER_RANGE` · `SOLDIER_RIM_STRENGTH` · `SOLDIER_RIM_POWER`. 값은 `data/constants.csv` 에 있고 `TUTORIAL_RAID_XP` 는 900 → 120.
   ⚠ worktree 체크아웃이 CRLF 라 스크립트로 붙인 계약 블록을 CRLF 로 맞췄다 — 문자열 바늘로 고칠 때는 CRLF 를 쓴다.
 
+- **2026-09-14 (튜토리얼 오프닝 수정, 추가만)** — `types.ts` 의 `PlayerRef.introWaking?`(readonly — 오프닝 기상 연출이 아직 돈다 = 카메라가
+  평소 백뷰로 완전히 돌아오기 전; `player:introWakeDone` 프레임에 false. 소비자 `ui/hud/Compass` · inventory Tab — PlayerSystem 에는 getter 가
+  이미 있었다) · `constants.ts` 의 `TUTORIAL_COMPASS_FADE_S`(← `data/constants.csv`, 연출 뒤 나침반이 나타나는 초).
+
 - **2026-09-14 (5차 묶음 — UI 2차 개편: 음악 재생 · 보관함 층 · 채굴 탭, 리드 계약, 추가만)**
   - **`housing.ts` — 보관함의 층**: `SHELF_TIERS`(책 4 · 디스크 3 · 레코드 2 · 게임 3) · `SHELF_TIER_COLS`(책 5 · 나머지 4) ·
     `shelfSlotsPerTier(m)`. 칸 수(`SHELF_SLOTS`)는 csv 가 정하고 층은 **그 칸을 어떻게 나눠 그리나**일 뿐이다 —

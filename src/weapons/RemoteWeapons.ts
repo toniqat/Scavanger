@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   MELEE_RANGE, PlayerFlags, FLAME_RANGE, FLAME_CONE_DEG, FLAME_ALT_RANGE, FLAME_ALT_CONE_DEG, SHOCK_RANGE, SHOCK_CONE_DEG, SHOCK_MAX_TARGETS,
-  SHOCK_CHARGE_RANGE, SHURIKEN_TRIPLE_SPREAD_DEG, BAZOOKA_ALT_FUSE, BAZOOKA_RADIUS, BAZOOKA_ALT_RADIUS,
+  SHOCK_CHARGE_RANGE, SHOCK_CRACKLE_INTERVAL, SHURIKEN_TRIPLE_SPREAD_DEG, BAZOOKA_ALT_FUSE, BAZOOKA_RADIUS, BAZOOKA_ALT_RADIUS,
   type GameContext, type WeaponDef, type PeerId, type RemotePlayerRef, type EnemyRef, type Vec3Tuple, type FireMessage,
 } from '@/shared';
 import { FxManager } from '@/core/fx';
@@ -12,9 +12,14 @@ import { attachmentVisualsFromIds, sameIds } from './Attachments';
 import type { WeaponFx } from './fx/WeaponFx';
 import { GRENADE_FUSE, type GrenadeManager } from './Grenade';
 import { projectileOptsFor, type ProjectilePool, type ProjectileHit, type ProjectileOptions } from './Projectile';
+import { bowBallistics, type BowBallistics } from './unique/Bow';
+import { shockFizzleEnds } from './unique/Shockgun';
 
 /** Reused launch options for replica bullets (the pool copies every field at launch). */
 const _replicaOpts: ProjectileOptions = { style: 'bullet', gravity: 0, report: false, width: 0.032 };
+/** 2026-09-14 활 시위: replica arrows — speed / drop per draw come from `bowBallistics` (the shooter's own mapping). */
+const _bowOpts: ProjectileOptions = { style: 'arrow', gravity: 0, report: false };
+const _bowBal: BowBallistics = { speed: 0, gravity: 0, power: 1 };
 /** Muzzle velocity / drop per weapon id, from the effective stats (0 speed = the weapon still fires hitscan). */
 interface Ballistics { speed: number; gravity: number }
 import type { UniqueFx } from './unique/UniqueFx';
@@ -73,6 +78,8 @@ export class RemoteWeapons {
   private frame = 0;
 
   private readonly arcEnds: THREE.Vector3[] = [];
+  /** 2026-09-14: ctx.time of the next quiet crackle per peer while its shock arc is on (`SHOCK_CRACKLE_INTERVAL`). */
+  private readonly shockCrackleAt = new Map<PeerId, number>();
 
   constructor(
     private readonly ctx: GameContext,
@@ -208,8 +215,8 @@ export class RemoteWeapons {
     const ref = ctx.net.getRemotePlayer(id);
     const def = e.def && e.weaponId === weaponId ? e.def : this.resolveDef(weaponId);
     // Phase 6: flame / arc / shuriken / bazooka replay from the raw `fire` message (needs `m` / `c`); the bus event
-    // drops those fields. Bow / minigun are ordinary shots and stay on this path.
-    if (def.unique && def.unique !== 'bow' && def.unique !== 'minigun') { e.fxBudget += 1; return; }
+    // drops those fields. 2026-09-14: the bow too (its draw rides `c`). The minigun is an ordinary shot and stays here.
+    if (def.unique && def.unique !== 'minigun') { e.fxBudget += 1; return; }
     const cls = weaponClassOf(def);
     const kind = kindOf(def);
 
@@ -226,7 +233,7 @@ export class RemoteWeapons {
     for (let i = 0; i < pellets; i++) {
       randomInCone(_dir, spread, _pd, _tA, _tB);
       if (bal.speed > 0) {
-        _replicaOpts.style = def.unique === 'bow' ? 'arrow' : 'bullet';
+        _replicaOpts.style = 'bullet';   // the bow replays from `onFireMessage` (2026-09-14)
         _replicaOpts.gravity = bal.gravity;
         _replicaOpts.width = pellets > 1 ? 0.022 : cls === 'SR' ? 0.04 : 0.032;
         this.projectiles.fire(_muzzle, _pd, bal.speed, 0, def.range, def.tracerColor, def.id, true, _replicaOpts);
@@ -273,7 +280,7 @@ export class RemoteWeapons {
     const e = this.entryFor(id);
     const def = e.def && e.weaponId === msg.w ? e.def : this.resolveDef(msg.w);
     const u = def.unique;
-    if (!u || u === 'bow' || u === 'minigun') return;
+    if (!u || u === 'minigun') return;
     const m: 0 | 1 = msg.m === 1 ? 1 : 0;
     const c = typeof msg.c === 'number' ? msg.c : 0;
     if (!this.getMuzzleWorld(id, _muzzle)) _muzzle.set(msg.o[0], msg.o[1], msg.o[2]);
@@ -288,11 +295,22 @@ export class RemoteWeapons {
       if (starting) {
         e.model?.setHeat(1);
         ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: 0.35, pitch: u === 'flamethrower' ? 0.5 : 1.3 });
+        if (u === 'shockgun') this.shockCrackleAt.set(e.id, ctx.time + SHOCK_CRACKLE_INTERVAL);
       }
       return;
     }
     if (e.fxBudget < 1) return;
     e.fxBudget -= 1;
+    if (u === 'bow') {
+      // 2026-09-14 활 시위: `c` = the shooter's draw 0..1 → the same speed / drop through the one mapping (`bowBallistics`)
+      const draw = c < 0 ? 0 : c > 1 ? 1 : c;
+      const bal = bowBallistics(draw, _bowBal);
+      _bowOpts.gravity = bal.gravity;
+      this.projectiles.fire(_muzzle, _dir, bal.speed, 0, def.range, def.tracerColor, def.id, true, _bowOpts);
+      e.model?.kick(0.5 + 0.7 * draw);
+      ctx.bus.emit('audio:play', { id: 'melee_swing', position: _muzzle, volume: 0.5 + 0.3 * draw, pitch: 1.35 - 0.4 * draw });
+      return;
+    }
     if (u === 'shockgun') {
       // charged bolt: thick tracer to the first thing in the way
       const hit = this.visualRaycast(_muzzle, _dir, SHOCK_CHARGE_RANGE, _end, _n);
@@ -352,7 +370,18 @@ export class RemoteWeapons {
           this.arcEnds[n++].copy(_to);
         }
       }
-      if (n > 0) this.ufx.setArc(owner, _muzzle, this.arcEnds, n); else this.ufx.release(owner);
+      if (n > 0) this.ufx.setArc(owner, _muzzle, this.arcEnds, n);
+      else {
+        // 2026-09-14: nothing in the cone → the same forked discharge the shooter sees, to the first thing in the way
+        const hit = this.visualRaycast(_muzzle, dir, SHOCK_RANGE, _end, _n);
+        const reach = hit ? Math.min(SHOCK_RANGE, _muzzle.distanceTo(_end)) : SHOCK_RANGE;
+        this.ufx.setArc(owner, _muzzle, this.arcEnds, shockFizzleEnds(_muzzle, dir, reach, this.arcEnds), false);
+      }
+      const crackleAt = this.shockCrackleAt.get(owner) ?? 0;
+      if (ctx.time >= crackleAt) {
+        this.shockCrackleAt.set(owner, ctx.time + SHOCK_CRACKLE_INTERVAL);
+        ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: 0.14, pitch: 1.15 + Math.random() * 0.5 });
+      }
     }
     void ref; void model;
   }
@@ -361,6 +390,7 @@ export class RemoteWeapons {
     if (e.beam < 0) return;
     e.beam = -1;
     e.model?.setHeat(0);
+    this.shockCrackleAt.delete(e.id);
     this.ufx.release(e.id);
   }
 

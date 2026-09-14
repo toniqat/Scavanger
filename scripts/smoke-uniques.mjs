@@ -216,6 +216,36 @@ try {
   ok((await P(() => window.__game.ctx.weapons.remoteState.charging)) === false, 'remoteState.charging clears after the bolt');
   ok(bolt.lo.mag === magBefore - 6, `bolt consumes SHOCK_CHARGE_CELLS (${magBefore} → ${bolt.lo.mag})`);
   ok(bolt.hits >= 1, 'charged bolt hits something (weapon:hit)');
+  // 2026-09-14 (「좌클이 아예 안 나간다」): with nothing in the cone the arc used to draw and sound nothing at all
+  await P(() => window.__killAll());
+  await waitSim(0.3);
+  await P(() => {
+    if (!window.__shockAudio) { window.__shockAudio = []; window.__game.ctx.bus.on('audio:play', (a) => { if (window.__shockRec) window.__shockAudio.push(a.id); }); }
+    window.__shockAudio.length = 0; window.__shockRec = true;
+  });
+  await clearEv();
+  await mouseDown(0);
+  await waitSim(0.5);
+  const fizz = await P(() => {
+    const a = window.__game.getSystem('weapons').ufx.arcs.find((x) => x.owner === 'local');
+    return { visible: !!a && a.glow.visible, count: a?.count ?? 0, sparks: a?.sparks, beam: window.__ev['weapon:beamChanged'][0],
+      crackles: window.__shockAudio.filter((id) => id === 'shot_energy').length, hits: window.__ev['ui:hitmarker'].length };
+  });
+  await mouseUp(0);
+  await P(() => { window.__shockRec = false; });
+  await waitSim(0.2);
+  ok(fizz.beam && fizz.beam.active === true, 'no target: LMB still turns the arc on (weapon:beamChanged)', JSON.stringify(fizz.beam));
+  ok(fizz.visible && fizz.count >= 1 && fizz.sparks === false, `no target: forked discharge drawn toward the crosshair (${fizz.count} forks)`, JSON.stringify(fizz));
+  ok(fizz.crackles >= 2, `the arc crackles while held (shot_energy ×${fizz.crackles} in 0.5 s)`);
+  ok(fizz.hits === 0, 'no hitmarker without a target');
+  // third-person offsets: a warrior farther out and well off the crosshair line is still reached
+  const far = await P(() => window.__spawnAhead('warrior', 11, 2.5));
+  await waitSim(0.2);
+  await clearEv();
+  await mouseSim(0, 0.8);
+  await waitSim(0.2);
+  const farR = await P((id) => ({ e: window.__enemy(id), shocked: window.__ev['enemy:shocked'].length }), far.id);
+  ok(farR.e && farR.e.hp < far.hp && farR.shocked >= 1, `arc reaches a warrior 11 m ahead, 2.5 m aside (${far.hp} → ${farR.e?.hp?.toFixed(0)})`, JSON.stringify(farR));
   await P(() => window.__killAll());
   await waitSim(0.3);
   await P(() => window.__heal());
@@ -285,16 +315,57 @@ try {
   const eqB = await P(() => window.__equip('wpn_u_bow', 'ammo_arrow', 30));
   ok(eqB.ok, 'wpn_u_bow equipped', JSON.stringify(eqB));
   await waitSim(0.6);
+  // 2026-09-14 활 시위: LMB hold draws (BOW_DRAW_TIME 0.8 s), release shoots; RMB cancels; no ADS any more
   sc = await lastEv('weapon:scopeChanged');
-  ok(sc && Math.abs(sc.zoom - 1.6) < 1e-6, 'bow keeps ADS (scopeChanged zoom 1.6)', JSON.stringify(sc));
+  ok(!sc || sc.zoom === 1, 'bow no longer aims (scope zoom 1)', JSON.stringify(sc));
   const bw = await P(() => window.__spawnAhead('warrior', 8));
   await waitSim(0.2);
   await clearEv();
+  // full draw
+  await mouseDown(0);
+  await waitSim(0.4);
+  const drawMid = await P(() => ({ draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw'), rs: { ...window.__game.ctx.weapons.remoteState }, fired: window.__ev['weapon:fired'].length }));
+  const midT = drawMid.draw.slice(-1)[0]?.t;
+  ok(drawMid.draw.length >= 3 && drawMid.draw[0].t === 0 && midT > 0.2 && midT < 0.95, `chargeChanged kind:'draw' rising from 0 while LMB held (t=${midT?.toFixed?.(2)})`, JSON.stringify(drawMid.draw.slice(0, 2)));
+  ok(drawMid.fired === 0 && drawMid.rs.charging === true, 'no arrow while drawing + remoteState.charging', JSON.stringify(drawMid));
+  await waitSim(0.55);
+  await mouseUp(0);
+  await waitSim(0.5);
+  const arrow = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), fired: window.__ev['weapon:fired'].length,
+    draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw'), rs: window.__game.ctx.weapons.remoteState.charging }), bw.id);
+  const fullT = arrow.draw.filter((c) => c.t >= 0).slice(-1)[0]?.t;
+  ok(arrow.fired === 1 && arrow.lo.mag === 11, `release looses one arrow (mag 12 → ${arrow.lo.mag}, fired ${arrow.fired})`);
+  ok(fullT === 1 && arrow.draw.slice(-1)[0].t === -1, `draw reached 1 and closed with t:-1 (last t ${fullT})`);
+  ok(arrow.rs === false, 'remoteState.charging clears after the release');
+  const fullDmg = arrow.e ? bw.hp - arrow.e.hp : 0;
+  ok(arrow.e && fullDmg >= 140, `full-draw arrow hits for BOW_DAMAGE (${bw.hp} → ${arrow.e?.hp?.toFixed(0)})`, JSON.stringify(arrow.e));
+  // tap: weak arrow
+  await P(() => window.__killAll());
+  await waitSim(0.5);
+  const bt = await P(() => window.__spawnAhead('warrior', 8));
+  await waitSim(0.3);
+  await clearEv();
   await click(0);
   await waitSim(0.6);
-  const arrow = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), fired: window.__ev['weapon:fired'].length }), bw.id);
-  ok(arrow.fired === 1 && arrow.lo.mag === 11, `LMB looses one arrow (mag 12 → ${arrow.lo.mag})`);
-  ok(arrow.e && arrow.e.hp <= bw.hp - 100, `arrow hits for BOW_DAMAGE-ish (${bw.hp} → ${arrow.e?.hp?.toFixed(0)})`, JSON.stringify(arrow.e));
+  const tapA = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), fired: window.__ev['weapon:fired'].length,
+    draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw') }), bt.id);
+  const tapDmg = tapA.e ? bt.hp - tapA.e.hp : 0;
+  ok(tapA.fired === 1 && tapA.lo.mag === 10 && tapA.draw.slice(-1)[0]?.t === -1, `tap looses one arrow at once (mag → ${tapA.lo.mag}, draw closed)`, JSON.stringify(tapA.draw));
+  ok(tapDmg > 0 && tapDmg < fullDmg * 0.8, `tap arrow is weaker (${tapDmg.toFixed(0)} vs full ${fullDmg.toFixed(0)})`, JSON.stringify(tapA.e));
+  // RMB during the draw cancels: no arrow, no ammo
+  await waitSim(0.5);
+  await clearEv();
+  await mouseDown(0);
+  await waitSim(0.4);
+  await click(2);
+  await waitSim(0.15);
+  await mouseUp(0);
+  await waitSim(0.4);
+  const cancel = await P(() => ({ lo: window.__loadout(), fired: window.__ev['weapon:fired'].length, draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw'),
+    sc: window.__ev['weapon:scopeChanged'].slice(-1)[0], aiming: window.__game.ctx.player.isAiming }));
+  ok(cancel.fired === 0 && cancel.lo.mag === 10, `RMB cancels the draw: no arrow, no ammo (mag ${cancel.lo.mag}, fired ${cancel.fired})`);
+  ok(cancel.draw.length >= 2 && cancel.draw.slice(-1)[0].t === -1, 'cancel closes the draw with t:-1', JSON.stringify(cancel.draw.slice(-2)));
+  ok(!cancel.aiming && (!cancel.sc || cancel.sc.zoom === 1), 'RMB never enters ADS with the bow', JSON.stringify(cancel));
   await P(() => window.__killAll());
   await waitSim(0.3);
   await P(() => window.__heal());
@@ -318,26 +389,38 @@ try {
   ok(rocket.e && (rocket.e.dead || rocket.e.hp < bz.hp), `blast damages the warrior (${bz.hp} → ${rocket.e?.hp?.toFixed(0)})`, JSON.stringify(rocket.e));
   ok(rocket.e2 && (rocket.e2.dead || rocket.e2.hp < bz2.hp), 'area damage reaches the scavenger 2 m aside');
   ok(rocket.hp === hpBefore, 'no self damage from a far blast');
+  // 2026-09-14: 3-rocket tube at BAZOOKA_FIRE_RATE 2.85 (≈ 0.35 s). One shot leaves 2 and does not reload; the next two
+  // clicks 0.5 s apart both fire (the old 1.25 s interval would have eaten the second one).
+  ok(rocket.lo.mag === 2 && rocket.reload === 0, `one rocket spent, no reload yet (mag 3 → ${rocket.lo.mag})`, JSON.stringify(rocket));
+  await P(() => window.__killAll());
+  await clearEv();
+  await click(0);
+  await waitSim(0.5);
+  await click(0);
+  await waitSim(0.3);
+  const burst = await P(() => ({ fired: window.__ev['weapon:fired'].length, mag: window.__loadout().mag }));
+  ok(burst.fired === 2 && burst.mag === 0, `two more rockets 0.5 s apart both fire (fired ${burst.fired}, mag ${burst.mag})`, JSON.stringify(burst));
   // the auto-reload starts a beat after the shot, so sample the event **after** waiting it out (it used to be read
   // at 1.2 s, which raced under a loaded GPU lane)
   await waitSim(3.5);
   const reloaded = await P(() => ({ mag: window.__loadout().mag, reload: window.__ev['weapon:reloadStarted'].length }));
   ok(reloaded.reload >= 1, 'empty tube reloads itself (weapon:reloadStarted)', JSON.stringify(reloaded));
-  ok(reloaded.mag === 1, 'tube reloaded to 1 rocket');
+  ok(reloaded.mag === 3, `tube reloaded to 3 rockets (${reloaded.mag})`);
   // rocket jump: airborne, aim at the feet, RMB air-burst
+  await P(() => window.__killAll());
   await clearEv();
   await P(() => window.__heal());
   const hpJump = await P(() => window.__game.ctx.player.hp);
   // 2026-09-09: 이 구간은 원래부터 경합이었다 — 7 m/s 점프의 공중 체류가 GRAVITY 24 에서 0.58 초뿐이라
   // `look` · `click` 의 puppeteer 왕복이 조금만 늦어도 로켓이 터지기 전에 착지해 `!isGrounded` 가 깨진다.
-  // 더 세게 뛰면 이번엔 폭발이 BAZOOKA_ALT_RADIUS 밖으로 멀어져 자해도 로켓 점프도 안 난다(높이가 곧 거리다).
+  // 더 세게 뛰면 이번엔 폭발이 BAZOOKA_ALT_RADIUS 밖으로 멀어져 넉백도 로켓 점프도 안 난다(높이가 곧 거리다).
   // 그래서 **점프를 그대로 두고 시간을 늦춘다** — timeScale 0.2 면 같은 왕복이 시뮬 시간을 1/5 만 먹는다.
   await P(() => { window.__game.ctx.timeScale = 0.2; });
   await P(() => window.__game.ctx.player.applyImpulse(new (window.__game.ctx.player.position.constructor)(0, 7, 0)));
   await waitSim(0.15);
   await look(0, 3000);
   await waitSim(0.05);
-  const air = await P(() => ({ grounded: window.__game.ctx.player.isGrounded, vy: window.__game.ctx.player.velocity.y, pitch: window.__game.ctx.player.pitch }));
+  const air = await P(() => ({ grounded: window.__game.ctx.player.isGrounded, vy: window.__game.ctx.player.velocity.y, pitch: window.__game.ctx.player.pitch, hs: Math.hypot(window.__game.ctx.player.velocity.x, window.__game.ctx.player.velocity.z) }));
   // 2026-09-12: where the rocket left (hybrid resolver) and where it went off — printed when the jump check fails
   await P(() => {
     const ws = window.__game.getSystem('weapons'); const r2 = (v) => [v.x, v.y, v.z].map((n) => +n.toFixed(2));
@@ -355,11 +438,25 @@ try {
   ok(!air.grounded && air.pitch < -0.6, `airborne and looking down before the shot (pitch ${air.pitch?.toFixed(2)})`, JSON.stringify(air));
   ok(jump.alt === 1, 'RMB rocket → weapon:altFired');
   ok(!jump.grounded, 'still airborne when the rocket went off (the condition the super jump needs)', JSON.stringify({ vy: jump.vy, grounded: jump.grounded }));
-  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 17, 'player:blastJump with BAZOOKA_SUPER_JUMP', JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
-  ok(jump.hp <= hpJump - 22 + 0.01, `self damage 22 (hp ${hpJump} → ${jump.hp})`);
+  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 26, 'player:blastJump with BAZOOKA_SUPER_JUMP 26 (2026-09-14)', JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
+  // 2026-09-14: horizontal boost = BAZOOKA_JUMP_FORWARD 8 × min(1, speed / PLAYER_WALK_SPEED 4.2) — this jump is straight up
+  const boostH = jump.blast[0] ? Math.hypot(jump.blast[0].impulse[0], jump.blast[0].impulse[2]) : -1;
+  ok(boostH >= 0 && boostH <= 8 * Math.min(1, air.hs / 4.2) + 0.05, `no horizontal boost for a (nearly) standing jump (${boostH.toFixed(2)}, speed ${air.hs.toFixed(2)})`);
+  ok(jump.hp === hpJump, `no self damage from the own blast (2026-09-14, hp ${hpJump} → ${jump.hp})`);
   ok(jump.vy > air.vy + 5, `velocity.y raised by the blast (${air.vy.toFixed(1)} → ${jump.vy.toFixed(1)})`);
   await P(() => { window.__game.ctx.timeScale = 1; });
-  await waitSim(3);
+  await waitFor(page, () => window.__game.ctx.player.isGrounded, 'rocket jump landing', 60000);
+  // 2026-09-14: an impulse's horizontal momentum survives air control until landing (`PlayerController.airCarry`) — with no
+  // input the old AIR_ACCEL 7 pulled 10 m/s down to ~9 in 0.15 s; now it stays
+  await waitSim(0.5);
+  await P(() => { window.__game.ctx.timeScale = 0.2; });
+  await P(() => { const p = window.__game.ctx.player; p.applyImpulse(new p.position.constructor(10, 8, 0)); });
+  await waitSim(0.75);
+  const carry = await P(() => { const p = window.__game.ctx.player; return { hs: Math.hypot(p.velocity.x, p.velocity.z), grounded: p.isGrounded }; });
+  ok(!carry.grounded && carry.hs >= 9.7, `impulse momentum kept in the air (horizontal ${carry.hs.toFixed(2)} m/s)`, JSON.stringify(carry));
+  await P(() => { window.__game.ctx.timeScale = 1; });
+  await waitFor(page, () => window.__game.ctx.player.isGrounded, 'carry landing', 60000);
+  await waitSim(0.5);
   await P((y) => window.__face(y), yaw0);
   await look(0, -3000);
   await P(() => window.__killAll());

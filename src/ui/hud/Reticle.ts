@@ -14,6 +14,18 @@ const SPRINT_GAP = 18;
 const GRAPPLE_GLYPH = '⚓';
 const MOVE_BONUS = 2;
 const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving"
+/**
+ * 활 모드 (2026-09-14): the two static guide bars' offsets below the centre (px, [upper, lower]). The moving draw bar
+ * parks on the **lower** one and rises to 0 (= the centre) at full draw — this array is the one source of those
+ * positions (the CSS only gives widths).
+ */
+const BOW_TIER_Y: readonly [number, number] = [12, 24];
+const BOW_LOW_Y = BOW_TIER_Y[1];
+/** Damp rates for the draw bar: following the live draw `t`, and settling back to the lower tier on release. */
+const BOW_FOLLOW_LAMBDA = 30;
+const BOW_RETURN_LAMBDA = 12;
+/** Smoothed draw above this (with the live `t` at 1) lights the full-draw glow. */
+const BOW_FULL_EPS = 0.985;
 
 /**
  * Minimal 4-tick crosshair. Gap depends on stance / aim / sprint / movement, blooms on fire,
@@ -43,6 +55,13 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
  * **총구 막힘 (2026-09-12):** 총구가 앞 몇 m 안의 벽 · 창틀 · 엄폐물에 걸려 크로스헤어대로 나가지 않을 때 점과 틱이
  * 빨갛게 바뀐다 (`.reticle.blocked`). 근거는 weapons/ 의 **`weapon:aimBlocked {blocked}`** 하나 — 벽의 빨간 원과 실제
  * 사격이 쓰는 같은 판정(`weapons/parts/AimLine`)이다.
+ *
+ * **활 모드 (2026-09-14):** 손에 든 무기가 활(`WeaponDef.unique === 'bow'`, 「롱혼」)이면 네 틱이 숨고 점은 남으며
+ * (`.reticle.bowmode`) 점 **아래**에 짧은 가로 안내선 두 단(`.rbow-tier`)과 움직이는 가로 바(`.rbow-draw`)가 선다.
+ * 바는 평소 아래 단에 흐리게 머물고, 시위를 당기면 weapons/ 의 `weapon:chargeChanged {kind:'draw', t}` 를 따라 올라가
+ * `t = 1`(완전히 당김 = 화살이 크로스헤어대로 날아간다)에서 정확히 **점 위**에 닿아 밝게 빛난다(`.full`). `t = −1`
+ * (놓기 · 취소)이면 아래 단으로 부드럽게 돌아간다. 활인지는 `weapon:equipped` 의 `ctx.loot.getWeaponDef(id).unique` 와,
+ * 놓친 장착 이벤트에 대비해 `draw` 이벤트 자체로 판단한다. 소모품 모드가 이긴다(`quick:equipped {item}` 동안 꺼진다).
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -76,6 +95,18 @@ export class Reticle {
   private commsOpen = false;
   private hitTimer = 0;
   private lastGap = -1;
+  /** 활 모드 (2026-09-14): static guide bars + the moving draw bar. */
+  private bowDrawEl: HTMLElement;
+  /** The weapon in hand is the bow (`WeaponDef.unique === 'bow'`); the mode itself also needs no consumable in hand. */
+  private bowWeapon = false;
+  private bowOn = false;
+  /** LMB draw in progress (`weapon:chargeChanged kind:'draw'` with t ≥ 0). */
+  private bowDrawing = false;
+  /** Live draw `t` (0..1) from weapons/. */
+  private bowTarget = 0;
+  /** Smoothed draw actually drawn (0 = lower tier, 1 = centre). */
+  private bowShown = 0;
+  private lastBowY = -1;
   private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
 
@@ -100,7 +131,15 @@ export class Reticle {
     this.grapKey = el('kbd', { cls: 'keycap', text: keyLabel(Keys.IMPLANT), parent: this.grap });
     // 소모품 readout right of the dot (only rendered in `.consumable` mode).
     this.qinfo = el('span', { cls: 'qinfo ui-mono', text: '', parent: this.root });
+    // 활 모드 guide bars below the dot (only rendered in `.bowmode`); positions come from BOW_TIER_Y, set once.
+    for (let i = 0; i < BOW_TIER_Y.length; i++) {
+      const y = BOW_TIER_Y[i];
+      const tier = el('div', { cls: i === 0 ? 'rbow-tier' : 'rbow-tier rbow-low', parent: this.root });
+      tier.style.transform = `translate(0, ${y}px)`;
+    }
+    this.bowDrawEl = el('div', { cls: 'rbow-draw', parent: this.root });
     this.apply(14);
+    this.applyBow();
   }
 
   bind(ctx: GameContext): void {
@@ -152,9 +191,57 @@ export class Reticle {
       b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
       // 2026-09-12 총구 막힘: weapons/ 가 빨간 원을 띄우는 바로 그 판정 — 여기서는 레이캐스트를 쏘지 않고 색만 바꾼다
       b.on('weapon:aimBlocked', ({ blocked }) => toggleClass(this.root, 'blocked', blocked)),
-      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
-      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
+      // ── 활 모드 (2026-09-14) ──
+      b.on('weapon:equipped', ({ weaponId }) => {
+        this.bowWeapon = ctx.loot?.getWeaponDef(weaponId)?.unique === 'bow';
+        this.resetBowDraw();
+        this.syncBow();
+      }),
+      b.on('weapon:chargeChanged', ({ kind, t }) => {
+        // a live draw (t ≥ 0) is itself proof the bow is in hand (robust to a missed `weapon:equipped`); a release
+        // `t = −1` is not (it may trail a swap away). The other kinds (충전 · 예열 · 용검) belong to other unique weapons.
+        if (kind !== 'draw') { this.bowWeapon = false; this.resetBowDraw(); }
+        else if (t >= 0) { this.bowWeapon = true; this.bowDrawing = true; this.bowTarget = Math.min(1, t); }
+        else this.resetBowDraw();
+        this.syncBow();
+      }),
+      b.on('player:died', () => this.resetBowDraw()),
+      b.on('player:downed', () => this.resetBowDraw()),
+      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.clearBow(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
+      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.clearBow(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
     );
+  }
+
+  /** Release / cancel: the bar heads back to the lower tier (smoothly, via `update`). */
+  private resetBowDraw(): void { this.bowDrawing = false; this.bowTarget = 0; }
+
+  /** Mission reset: no bow in hand, bar snapped to the lower tier. */
+  private clearBow(): void {
+    this.bowWeapon = false;
+    this.resetBowDraw();
+    this.bowShown = 0;
+  }
+
+  /** Enter / leave 활 모드 — the bow in hand and no consumable (소모품 모드 wins). */
+  private syncBow(): void {
+    const on = this.bowWeapon && !this.quickItem;
+    if (on === this.bowOn) return;
+    this.bowOn = on;
+    toggleClass(this.root, 'bowmode', on);
+    if (!on) { this.resetBowDraw(); this.bowShown = 0; }
+    this.lastBowY = -1;
+    this.applyBow();
+  }
+
+  /** Write the draw bar's offset / state classes — only when they change. */
+  private applyBow(): void {
+    const y = BOW_LOW_Y * (1 - this.bowShown);
+    if (Math.abs(y - this.lastBowY) >= 0.05) {
+      this.lastBowY = y;
+      this.bowDrawEl.style.transform = `translate(0, ${y.toFixed(2)}px)`;
+    }
+    toggleClass(this.bowDrawEl, 'drawing', this.bowDrawing);
+    toggleClass(this.bowDrawEl, 'full', this.bowDrawing && this.bowTarget >= 1 && this.bowShown >= BOW_FULL_EPS);
   }
 
   private syncHook(): void {
@@ -205,6 +292,7 @@ export class Reticle {
     toggleClass(this.root, 'consumable', !!item);
     if (item) { this.quickDirty = true; this.syncQuick(); }
     else if (this.lastQuickText !== '') { this.lastQuickText = ''; setText(this.qinfo, ''); }
+    this.syncBow();
   }
 
   /** Re-read the live instance and rewrite the readout (only when an event marked it dirty). */
@@ -238,6 +326,13 @@ export class Reticle {
   /** The readout right of the dot while in 소모품 모드, '' otherwise (debug / smoke). */
   get consumableText(): string { return this.lastQuickText; }
 
+  /** 2026-09-14: 활 모드 is showing (guide bars + draw bar instead of the ticks) (debug / smoke). */
+  get bowMode(): boolean { return this.bowOn; }
+  /** Smoothed draw bar position, 0 = lower tier … 1 = on the centre (debug / smoke). */
+  get bowDraw(): number { return this.bowShown; }
+  /** The draw bar is in its full-draw glow (debug / smoke). */
+  get bowFull(): boolean { return this.bowDrawEl.classList.contains('full'); }
+
   update(dt: number, ctx: GameContext): void {
     const p = ctx.player;
     const sprinting = p?.isSprinting ?? false;
@@ -269,6 +364,15 @@ export class Reticle {
     }
     // 소모품 readout: rewritten only after an event marked it dirty (one boolean per frame otherwise).
     if (this.quickDirty) this.syncQuick();
+    // 활 모드: the draw bar follows the live draw `t` (fast) or settles back to the lower tier (slower).
+    if (this.bowOn) {
+      const target = this.bowDrawing ? this.bowTarget : 0;
+      if (this.bowShown !== target) {
+        this.bowShown = damp(this.bowShown, target, this.bowDrawing ? BOW_FOLLOW_LAMBDA : BOW_RETURN_LAMBDA, dt);
+        if (Math.abs(this.bowShown - target) < 0.002) this.bowShown = target;
+      }
+      this.applyBow();
+    }
 
     const scoped = this.scope && this.aiming;
     // Hidden behind blockers / the scope; dimmed while the quick-use wheel is open.

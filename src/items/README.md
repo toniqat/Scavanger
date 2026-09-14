@@ -51,8 +51,8 @@ Six legendary one-offs (`UNIQUE_WEAPON_DEFS`, ids from `UNIQUE_WEAPON_IDS`, item
 | `u_flame` | 「인페르노」 화염방사기 | flamethrower | AR | `fuel` 연료통 (200) | 120 | 95 /s (LMB cone 32°) | alt 75 /s (RMB jet 7°) · 12 fuel/s | 10 (tick hint) | 5×2 · 9.5 · 6800 | 1500 |
 | `u_shock` | 「테슬라 코일」 전격총 | shockgun | DMR | `cell` 전지 (60) | 48 | 72 /s (LMB arc, ≤ 4 targets) | alt 150 (charged bolt) · charge 1.1 s · 8 cells/s | 1/1.1 | 4×2 · 6.2 · 7200 | 1200 |
 | `u_shuriken` | 「카게」 표창 | shuriken | SMG | `shuriken` 표창 (40) | 10 | 58 (projectile 65 m/s) | RMB fan of 3 (`adsSpread` = 7°) | 3.2 | 3×2 · 2.4 · 5400 | 900 |
-| `u_bow` | 「롱혼」 컴포짓 보우 | bow | DMR | `arrow` 화살 (30) | 12 | 150 (projectile 115 m/s, no drop) | **ADS 1.6×** (`altFire: false`) | 2.4 | 5×2 · 3.6 · 5900 | 700 |
-| `u_bazooka` | 「해머헤드」 바주카 | bazooka | SR | `rocket` 로켓 (6) | 1 | 420 (rocket 48 m/s, impact blast) | alt 260 (air-burst) | 0.8 | 5×2 · 11.8 · 8400 | 320 |
+| `u_bow` | 「롱혼」 컴포짓 보우 | bow | DMR | `arrow` 화살 (30) | 12 | 150 at full draw (2026-09-14: hold LMB `chargeTime` 0.8 s — tap 45 dmg · 45 m/s · 12 m/s² drop → full 150 · 140 m/s · 0.5 m/s², `BOW_*`) | RMB = cancel the draw, no ADS (`altFire: true`) | 4 (release cooldown) | 5×2 · 3.6 · 5900 | 700 |
+| `u_bazooka` | 「해머헤드」 바주카 | bazooka | SR | `rocket` 로켓 (6) | 3 | 420 (rocket 48 m/s, impact blast) | alt 260 (air-burst) | 2.85 | 5×2 · 11.8 · 8400 | 320 |
 | `u_minigun` | 「사이클론」 미니건 | minigun | AR | `belt` 탄띠 (300) | 150 | 24 (hitscan, spread 2.6°) | charge 1.2 s (spin-up) | 24 | 5×2 · 14.5 · 7600 | 3000 |
 
 Continuous weapons (flame / shock arc): `damage` is **per second**, `fireRate` a tick hint, `ammoPerSec` replaces per-shot ammo; for the flamethrower `spread` is the LMB cone half-angle and `adsSpread` the RMB jet half-angle. Item descriptions spell out the LMB / RMB behaviour in Korean.

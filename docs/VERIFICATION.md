@@ -1803,3 +1803,29 @@ rerun (--only, b0915r2): net-selftest 583/583, data-check ok, smoke-raidflow 89/
   (`2367a24` worktree)에 이미 기록돼 있다. 재실행도 같은 8건.
 - 아직 안 돌려 본 것: `fall` 와이어 · `GrenadeMessage.fire` 를 **두 클라이언트 릴레이 경로**로 본 검사는 없다(`smoke-ghost` · `smoke-fall-damage` 는 수신 함수를
   가짜 로비 멤버로 직접 부른다).
+
+## 2026-09-14 (9차 — 전설 총기 개편: 바주카 · 활 · 표창 트레일 · 테슬라 코일)
+
+- `npm run typecheck` · `npm run data:check` 통과.
+- **러너 없이 돌렸다**: 이 PC 는 TCP 8697–8796 이 Windows 예약 범위라 릴레이가 8787 을 못 잡는다(`EACCES`) —
+  `verify.mjs` 는 릴레이 기동에서 멈춘다. 개인 vite(5395)에 `node scripts/<smoke>.mjs http://localhost:5395/` 를 4레인으로.
+- 통과: `smoke-uniques`(90 — 바주카 · 활 · 테슬라 절 새 단정 포함) · `smoke-phase2` · `smoke-phase4` · `smoke-ladder` ·
+  `smoke-lights` · `smoke-quickslots` · `smoke-pose` · `smoke-consumables`.
+- `no console errors` 한 줄만 실패(전부 `ws://…/ws` 핸드셰이크 실패 = 릴레이 없음, 기능 단정은 전부 통과):
+  `smoke-ballistics` 38/39 · `smoke-weapons` 146/147 · `smoke-phase3` 40/41 · `smoke-ui-p6` 90/91 · `smoke-tactical` 118/119 ·
+  `smoke-aim-sway` 24/25.
+- 활 크로스헤어는 스모크가 없다 — 에이전트가 임시 스크립트(18/18)로 바 위치 · 풀충 정렬 · 막힘 색 · 소모품 전환을 봤다.
+- `verify:all` · `build` · `e2e:mp` 는 **돌리지 않았다** (릴레이 필요).
+
+### 2026-09-15 — 캐릭터 확정 팝업 · 튜토리얼 오프닝 수정
+
+릴레이 8787 이 WinNAT 예약이라 `npm run verify` 대신 사설 vite(`127.0.0.1:5291`)에 스모크를 직접 돌렸다.
+
+- `npm run typecheck` · `npm run data:check` (csv 57) 통과.
+- 새 `smoke-intro-wake` **30/0** — 확정 카드(값 / 5 게이지 · 얼굴 썸네일 · 1초 홀드) → 새로고침 → 기상 연출(코드가 칠한 페이드 중간값 ·
+  연출 종료 · 해제 프레임 카메라 이동 < 0.35 m · 나침반 0 → 페이드인 · Tab 막힘 → 열림 · 시계 · 탈출 타이머 숨김).
+  첫 실행 29/1 은 스모크 쪽 문자열 비교(`scaleX(0.2000)` ↔ 브라우저 정규화 `scaleX(0.2)`)였고 숫자 비교로 고쳤다.
+- 수정 전 탐침(같은 흐름): `introWakeT` 가 −0.01 에서 멈춘 채 오버라이드 1 · `wake` 유지, `.screen-fade` 는 `transitionDuration 1e-05s`
+  (`prefers-reduced-motion: reduce` = true) — 1 초 스크린샷에 검정이 이미 없었다.
+- 회귀: `smoke-tutorial` 91/0 · `smoke-loadout` 69/0 · `smoke-ui-p5` 140/141 · `smoke-ui-p6` 90/91 (둘 다 `no console errors` 한 줄 = `/ws` 핸드셰이크 실패, 릴레이 없음).
+- `verify:all` · `build` · `e2e:mp` 는 **돌리지 않았다** (릴레이 필요).

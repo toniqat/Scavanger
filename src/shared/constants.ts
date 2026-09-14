@@ -559,6 +559,10 @@ export const SHOCK_CHARGE_CELLS = K.num('SHOCK_CHARGE_CELLS');
 /** 'shocked' status: slow factor and duration applied by the arc. */
 export const SHOCK_SLOW_FACTOR = K.num('SHOCK_SLOW_FACTOR');
 export const SHOCK_SLOW_DURATION = K.num('SHOCK_SLOW_DURATION');
+/** appended 2026-09-14 (owner: weapons): LMB with nothing to shock still throws forked arcs toward the crosshair point + a crackle. */
+export const SHOCK_FIZZLE_FORKS = K.num('SHOCK_FIZZLE_FORKS');
+export const SHOCK_FIZZLE_SPREAD_DEG = K.num('SHOCK_FIZZLE_SPREAD_DEG');
+export const SHOCK_CRACKLE_INTERVAL = K.num('SHOCK_CRACKLE_INTERVAL');
 
 /* 표창: LMB one, RMB fan of three. Melee: F tap = normal swing, F hold >= SLASH_HOLD_TIME then release = 용검 big slash. */
 export const SHURIKEN_DAMAGE = K.num('SHURIKEN_DAMAGE');
@@ -576,13 +580,26 @@ export const SLASH_ARC_DEG = K.num('SLASH_ARC_DEG');
 export const SLASH_FOV_MUL = K.num('SLASH_FOV_MUL');
 export const SLASH_DURATION = K.num('SLASH_DURATION');
 
-/* 컴포짓 보우: DMR-rate arrows, shorter reach than a legendary SR. */
+/* 컴포짓 보우 (2026-09-14 활 시위): LMB hold draws over BOW_DRAW_TIME, release shoots — damage / speed / drop lerp from a tap to a full draw; RMB cancels. */
+/** Full-draw arrow damage — a tap (no draw) deals BOW_DAMAGE × BOW_TAP_POWER; linear in between. */
 export const BOW_DAMAGE = K.num('BOW_DAMAGE');
 export const BOW_RANGE = K.num('BOW_RANGE');
+/** Cooldown after an arrow leaves = 1 / BOW_FIRE_RATE s (taps can follow each other quickly). */
 export const BOW_FIRE_RATE = K.num('BOW_FIRE_RATE');
+/** Full-draw arrow speed (m/s). */
 export const BOW_PROJECTILE_SPEED = K.num('BOW_PROJECTILE_SPEED');
+/** Seconds of LMB hold from nothing to a full draw (the unique csv chargeTime column). */
+export const BOW_DRAW_TIME = K.num('BOW_DRAW_TIME');
+/** Damage fraction of a tap (draw 0). */
+export const BOW_TAP_POWER = K.num('BOW_TAP_POWER');
+/** Arrow speed (m/s) of a tap; lerps to BOW_PROJECTILE_SPEED with the draw. */
+export const BOW_TAP_SPEED = K.num('BOW_TAP_SPEED');
+/** Arrow drop (m/s²) of a tap — fine at 10–15 m and clearly low past ~25 m; lerps to BOW_FULL_GRAVITY. */
+export const BOW_TAP_GRAVITY = K.num('BOW_TAP_GRAVITY');
+/** Arrow drop (m/s²) at full draw (flies nearly straight to the crosshair). */
+export const BOW_FULL_GRAVITY = K.num('BOW_FULL_GRAVITY');
 
-/* 바주카: LMB impact rocket; RMB air-burst rocket (self damage + knockback when fired at the floor → super jump). */
+/* 바주카: LMB impact rocket; RMB air-burst rocket (knockback when fired at the floor → super jump; no self damage since 2026-09-14). */
 export const BAZOOKA_DAMAGE = K.num('BAZOOKA_DAMAGE');
 export const BAZOOKA_RADIUS = K.num('BAZOOKA_RADIUS');
 export const BAZOOKA_SPEED = K.num('BAZOOKA_SPEED');
@@ -590,11 +607,17 @@ export const BAZOOKA_SPEED = K.num('BAZOOKA_SPEED');
 export const BAZOOKA_ALT_FUSE = K.num('BAZOOKA_ALT_FUSE');
 export const BAZOOKA_ALT_DAMAGE = K.num('BAZOOKA_ALT_DAMAGE');
 export const BAZOOKA_ALT_RADIUS = K.num('BAZOOKA_ALT_RADIUS');
-/** Self damage taken inside the blast (flat, ignores armor DR) and the knockback speed away from the blast. */
+/** 2026-09-14 은퇴 — 바주카는 자해 피해가 없다. 읽는 곳이 없고 계약 export 만 남는다 (옛 뜻: 폭발 반경 안의 고정 자해 피해). */
 export const BAZOOKA_SELF_DAMAGE = K.num('BAZOOKA_SELF_DAMAGE');
+/** Knockback speed away from the blast when the player is inside the radius. */
 export const BAZOOKA_KNOCKBACK = K.num('BAZOOKA_KNOCKBACK');
 /** Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump). */
 export const BAZOOKA_SUPER_JUMP = K.num('BAZOOKA_SUPER_JUMP');
+/**
+ * 2026-09-14: rocket-jump horizontal boost (m/s) along the player's horizontal velocity at the blast, scaled by
+ * `min(1, speed / PLAYER_WALK_SPEED)` — standing still gets none.
+ */
+export const BAZOOKA_JUMP_FORWARD = K.num('BAZOOKA_JUMP_FORWARD');
 export const BAZOOKA_FIRE_RATE = K.num('BAZOOKA_FIRE_RATE');
 
 /* 미니건: LMB hold spins up, fires once spun; movement slowed while spinning. */
@@ -1924,6 +1947,8 @@ export const TUTORIAL_ENEMY_LEASH_M = K.num('TUTORIAL_ENEMY_LEASH_M');
 export const TUTORIAL_RESPAWN_DELAY_S = K.num('TUTORIAL_RESPAWN_DELAY_S');
 /** 오프닝 기상 연출 길이 (초) — `PlayerRef.playIntroWake` 에 넘길 값. */
 export const TUTORIAL_INTRO_WAKE_S = K.num('TUTORIAL_INTRO_WAKE_S');
+/** appended (2026-09-14): 기상 연출이 끝난 뒤 나침반이 나타나는 시간 (초) — `ui/hud/Compass` 가 코드로 opacity 를 올린다. */
+export const TUTORIAL_COMPASS_FADE_S = K.num('TUTORIAL_COMPASS_FADE_S');
 /** 튜토리얼 레이드 완주 보상 XP (레벨 2 에 닿는다). */
 export const TUTORIAL_RAID_XP = K.num('TUTORIAL_RAID_XP');
 /**

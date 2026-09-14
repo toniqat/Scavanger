@@ -197,7 +197,7 @@ const UNIQUE_KINDS = Object.keys(UNIQUE_WEAPON_LABEL_KO) as UniqueWeaponKind[];
 /**
  * The six legendary uniques. `grade: 5` (legendary rarity / repair cost), no `family` (they are their own
  * family, `buildGrades` never touches them), a dedicated `ammoType` (never `AMMO_FOR_CLASS`), `altFire`
- * (RMB = alternative fire, no ADS) on every one except the bow. csv 의 `=FLAME_DPS` 같은 칸은
+ * (RMB = alternative fire, no ADS) on every one (2026-09-14: the bow too — RMB cancels its draw). csv 의 `=FLAME_DPS` 같은 칸은
  * `data/constants.csv` 의 상수를 그대로 가리킨다 — 동작 코드(`src/weapons/unique/*`)도 같은 상수를 보므로
  * 수치가 두 군데로 갈라지지 않는다. `weaponClass` only picks the shooting skill.
  *

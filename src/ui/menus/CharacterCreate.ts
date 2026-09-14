@@ -40,6 +40,10 @@ interface StatRow {
  * **주사위는 사람이 손으로 넣은 것을 말없이 지우지 않는다**: 이름을 직접 쳤거나 능력치를 한 번이라도
  * 조정했다면 먼저 경고 팝업(`menus/askPopup`)을 띄우고 확인해야 덮어쓴다. `확정` 도 요약 팝업을 지난다.
  *
+ * **2026-09-14 (사용자 결정) — 확정 팝업은 요약 카드다** (`buildSummary`): 왼쪽에 이름과 능력치 다섯 개의 가로 게이지
+ * (값 / 5), 오른쪽에 미리보기 병사의 얼굴 정지 이미지. 「정말로 만들겠습니까?」 줄은 없어졌고 `만들기` 는
+ * `UI_HOLD_CONFIRM_S` 홀드다 (`AskSpec.hold` — 붉지 않은 홀드, 채움은 악센트 색).
+ *
  * **점수가 남아 있으면 확정할 수 없다** (2026-09-09): `확정` 버튼은 `statPointsLeft > 0` 인 동안 `disabled`
  * (툴팁 `남은 점수를 모두 배분하세요`)이고, 그래도 눌리면(키보드 등) `능력치 배분 미완료` 안내 팝업만 뜬다.
  * 그래서 옛 "남은 점수 N점은 버려집니다" 줄은 요약에서 사라졌다 — 그런 일이 이제 없다.
@@ -328,13 +332,53 @@ export class CharacterCreate {
       return;
     }
     const name = sanitizeCharacterName(this.nameInput.value);
-    const lines = this.statDefs().map((d) => `${d.name} ${this.stats[d.id]}`).join(' · ');
+    // 2026-09-14 (사용자 결정): 요약은 글이 아니라 카드다 — 「정말로 만들겠습니까?」 줄은 없어졌고 `만들기` 는 1초 홀드다.
     this.ask.open({
       title: '캐릭터 확정',
-      body: `이름  ${name}\n능력치  ${lines}\n\n정말로 만들겠습니까?`,
+      body: '',
+      content: this.buildSummary(name),
+      cardCls: 'cc-confirm-card',
       ok: '만들기',
+      hold: true,
       run: () => this.create(name),
     });
+  }
+
+  /**
+   * 확정 팝업의 요약 카드 (2026-09-14, 사용자 결정).
+   *  - 왼쪽: 이름 한 줄 + 능력치 다섯을 **가로로** 한 칸씩 — 이름 · 값 · 연속 게이지. 게이지는 **값 / 최대값**
+   *    (`CREATE_STAT_MAX` = 5 가 가득, 최소값 1 은 1/5 만큼 찬다 — 생성 화면의 바는 (값 − 최소) / (최대 − 최소) 라 다르다).
+   *  - 오른쪽: 미리보기 병사의 **얼굴 정지 이미지** (`SoldierPreview.snapshotFace`). GL 이 없으면 그 칸 없이 왼쪽만.
+   * 숫자는 여기 없다 — 범위는 `shared/character.ts` 의 상수다.
+   */
+  private buildSummary(name: string): HTMLElement {
+    const root = el('div', { cls: 'cc-confirm' });
+    const main = el('div', { cls: 'cc-cf-main', parent: root });
+    const nameRow = el('div', { cls: 'cc-cf-name', parent: main });
+    el('span', { cls: 'ui-label', text: '이름', parent: nameRow });
+    el('span', { cls: 'v', text: name, parent: nameRow });
+    const stats = el('div', { cls: 'cc-cf-stats', parent: main });
+    const max = Math.max(1, CREATE_STAT_MAX);
+    for (const def of this.statDefs()) {
+      const v = this.stats[def.id] ?? CREATE_STAT_MIN;
+      const cell = el('div', { cls: 'cc-cf-stat', parent: stats });
+      toggleClass(cell, 'maxed', v >= CREATE_STAT_MAX);
+      const head = el('div', { cls: 'h', parent: cell });
+      el('span', { cls: 'n', text: def.name, parent: head });
+      el('span', { cls: 'v', text: String(v), parent: head });
+      const bar = el('div', { cls: 'bar', parent: cell });
+      const fill = el('i', { parent: bar });
+      fill.style.transform = `scaleX(${Math.max(0, Math.min(1, v / max)).toFixed(4)})`;
+    }
+    const url = this.preview?.snapshotFace() ?? null;
+    if (url) {
+      const face = el('div', { cls: 'cc-cf-face', parent: root });
+      const img = el('img', { parent: face }) as HTMLImageElement;
+      img.alt = '';
+      img.draggable = false;
+      img.src = url;
+    }
+    return root;
   }
 
   private create(name: string): void {

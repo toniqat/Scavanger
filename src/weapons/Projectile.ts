@@ -72,6 +72,11 @@ export interface ProjectileOptions {
   visualOffset?: THREE.Vector3 | null;
   /** Streak width (m) at close range. */
   width?: number;
+  /**
+   * 2026-09-14: leave a short white fading trail along the actual (curved) flight path. Default: on for `shuriken` and
+   * `arrow`, off for everything else (bullets already draw a streak, rockets a smoke trail).
+   */
+  trail?: boolean;
 }
 
 /**
@@ -121,6 +126,8 @@ interface Slug {
   hasVisOff: boolean;
   width: number;
   body: StyledBody | null;
+  /** Width (m, close range) of the white flight trail; 0 = no trail. */
+  trailWidth: number;
 }
 
 const DEFAULT_GRAVITY_MUL = 0.15;
@@ -141,11 +148,31 @@ const STREAK_WIDEN_FROM = 18, STREAK_WIDEN_MAX = 6;
 /** A breakable pane is skipped by this much (thicker than `GLASS_T`) before the sweep continues. */
 const PANE_SKIP = 0.08;
 const MAX_PANES_PER_STEP = 3;
+/**
+ * 2026-09-14 flight trail (shuriken stars · arrows): one segment per integration step (`prev → pos`), so the trail bends
+ * with the drop. Ring buffer of `TRAIL_CAP` segments in its own batch — never competes with the core tracer pool (96).
+ * 3 stars × 60 fps × `TRAIL_LIFE` ≈ 45 live segments; the cap only overwrites the oldest (already faint) segment.
+ */
+const TRAIL_CAP = 1024;
+/** Seconds a trail point stays visible (fades to 0 toward the tail). */
+const TRAIL_LIFE = 0.25;
+/** Head brightness of the white trail (additive, not tone-mapped — < 1 reads as slightly transparent white). */
+const TRAIL_GLOW = 0.85;
+/** Close-range trail width per style (m). Tail tapers to `TRAIL_TAPER` × width. */
+const TRAIL_WIDTH_SHURIKEN = 0.07, TRAIL_WIDTH_ARROW = 0.05, TRAIL_TAPER = 0.4;
+/**
+ * Trails widen with camera distance from `TRAIL_WIDEN_FROM` m (× up to `TRAIL_WIDEN_MAX`) — earlier than the streaks: a
+ * 0.07 m ribbon is ~2 px at 20 m (720p) and aliases into dashes; this keeps it ≈ 3–4 px out to ~80 m.
+ */
+const TRAIL_WIDEN_FROM = 10, TRAIL_WIDEN_MAX = 8;
+/** Stride of one segment record in `trailSeg`: ax ay az bx by bz tA tB width. */
+const TRAIL_STRIDE = 9;
 
 const _dir = new THREE.Vector3(), _from = new THREE.Vector3(), _look = new THREE.Vector3();
 const _head = new THREE.Vector3(), _tail = new THREE.Vector3(), _mid = new THREE.Vector3(), _sdir = new THREE.Vector3();
 const _scale = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _col = new THREE.Color();
 const _zAxis = new THREE.Vector3(0, 0, 1);
+const _ta = new THREE.Vector3(), _tb = new THREE.Vector3(), _tdir = new THREE.Vector3(), _tcam = new THREE.Vector3(), _tside = new THREE.Vector3();
 
 /** Nearest of every bullet stopper along a segment (the owner passes `WeaponSystem.raycastAll`). */
 export type ProjectileSweep = (origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: HitInfo) => void;
@@ -190,6 +217,23 @@ export class ProjectilePool {
     color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
   private streaksDrawn = 0;
+  /* 2026-09-14 flight trails: ring buffer of segments + one camera-facing quad batch (same material setup as the core
+     tracer pool → same shader program; in the scene from the start so the warm-up compiles it; no lights) */
+  private readonly trails: THREE.Mesh;
+  private readonly trailGeo = new THREE.BufferGeometry();
+  private readonly trailMat = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+  });
+  private readonly trailSeg = new Float64Array(TRAIL_CAP * TRAIL_STRIDE);
+  private readonly trailPos = new Float32Array(TRAIL_CAP * 4 * 3);
+  private readonly trailCol = new Float32Array(TRAIL_CAP * 4 * 3);
+  /** Next ring slot to write. */
+  private trailWrite = 0;
+  /** Trail clock (s of simulated time since the last `clear`) — segment ages are measured against it. */
+  private trailClock = 0;
+  /** Birth time of the newest segment (−∞ = none): nothing to draw once it is older than `TRAIL_LIFE`. */
+  private trailNewest = -Infinity;
+  private trailsDrawn = 0;
   /* shared unique-body resources (one geometry / material set for the whole pool) */
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mats: THREE.Material[] = [];
@@ -244,6 +288,24 @@ export class ProjectilePool {
     this.streaks.instanceColor!.setUsage(THREE.DynamicDrawUsage);
     this.streaks.count = 0;
     this.group.add(this.streaks);
+    const idx = new Uint16Array(TRAIL_CAP * 6);
+    for (let i = 0; i < TRAIL_CAP; i++) {
+      const v = i * 4, o = i * 6;
+      idx[o] = v; idx[o + 1] = v + 1; idx[o + 2] = v + 2;
+      idx[o + 3] = v; idx[o + 4] = v + 2; idx[o + 5] = v + 3;
+    }
+    this.trailGeo.setAttribute('position', new THREE.BufferAttribute(this.trailPos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.trailGeo.setAttribute('color', new THREE.BufferAttribute(this.trailCol, 3).setUsage(THREE.DynamicDrawUsage));
+    this.trailGeo.setIndex(new THREE.BufferAttribute(idx, 1));
+    this.trailGeo.setDrawRange(0, 0);
+    this.trails = new THREE.Mesh(this.trailGeo, this.trailMat);
+    this.trails.name = 'ProjectileTrails';
+    this.trails.frustumCulled = false;
+    this.trails.castShadow = false; this.trails.receiveShadow = false;
+    this.trails.renderOrder = 24;
+    this.trails.matrixAutoUpdate = false;
+    this.group.add(this.trails);
+    for (let i = 0; i < TRAIL_CAP; i++) this.trailSeg[i * TRAIL_STRIDE + 7] = -Infinity;
     for (let i = 0; i < 64; i++) this.free.push(this.makeSlug());
     ctx.scene.add(this.group);
   }
@@ -260,6 +322,7 @@ export class ProjectilePool {
       slot: -1, seq: 0, pos: new THREE.Vector3(), vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, range: 0, damage: 0, color: 0xffffff,
       weaponId: '', travelled: 0, visualOnly: false, style: 'slug', gravity: 0, fuse: -1, tag: 0, spin: 0, report: true,
       fStart: NaN, fEnd: NaN, fMin: NaN, light: false, ammoType: undefined, visOff: new THREE.Vector3(), hasVisOff: false, width: 0.035, body: null,
+      trailWidth: 0,
     };
   }
 
@@ -360,6 +423,8 @@ export class ProjectilePool {
     s.hasVisOff = !!off && off.lengthSq() > 1e-6;
     if (s.hasVisOff) s.visOff.copy(off!); else s.visOff.set(0, 0, 0);
     s.body = null;
+    const trailStyle = s.style === 'shuriken' || s.style === 'arrow';
+    s.trailWidth = (opts?.trail ?? trailStyle) ? (s.style === 'arrow' ? TRAIL_WIDTH_ARROW : TRAIL_WIDTH_SHURIKEN) : 0;
     if (s.style === 'shuriken' || s.style === 'arrow' || s.style === 'rocket') {
       s.body = this.acquireBody(s.style);
       this.orient(s);
@@ -375,7 +440,8 @@ export class ProjectilePool {
   }
 
   update(dt: number): void {
-    if (dt <= 0) { this.drawStreaks(); return; }
+    if (dt <= 0) { this.drawStreaks(); this.drawTrails(); return; }
+    this.trailClock += dt;
     const ctx = this.ctx;
     const world = ctx.world && ctx.world.ready ? ctx.world : null;
     const fx = FxManager.get();
@@ -434,6 +500,8 @@ export class ProjectilePool {
           _head.copy(h.point);
           fx.tracers.add(_tail, _head, s.color, this.widthFor(s, _head), 0.05, 0);
         }
+        // the trail reaches the impact and keeps fading after the body is gone (segments outlive the slug)
+        if (s.trailWidth > 0) this.pushTrail(s.prev, h.point, dt, s.trailWidth);
         const id = s.weaponId, visual = s.visualOnly;
         this.kill(s);
         if (visual) this.onVisualHit?.(h, id);
@@ -443,12 +511,78 @@ export class ProjectilePool {
       s.travelled += segLen;
       if (s.style === 'rocket') {
         if (fx) { ParticleBurst.thruster(fx.additive, s.prev, s.vel, 2, 1.0); ParticleBurst.smoke(fx.alpha, s.prev, 1, 0.25, 0x6a6a6a); }
-      } else if (s.style === 'shuriken') {
-        if (fx) fx.tracers.add(s.prev, s.pos, s.color, 0.03, 0.05, 0);
       }
+      if (s.trailWidth > 0) this.pushTrail(s.prev, s.pos, dt, s.trailWidth);
       this.place(s, dt);
     }
     this.drawStreaks();
+    this.drawTrails();
+  }
+
+  /** Live (still visible) trail segments — smokes / debug. */
+  get trailSegments(): number {
+    let n = 0;
+    const seg = this.trailSeg, now = this.trailClock;
+    for (let i = 0; i < TRAIL_CAP; i++) if (now - seg[i * TRAIL_STRIDE + 7] < TRAIL_LIFE) n++;
+    return n;
+  }
+
+  /** Record one trail segment `a → b` of this step (`a` was reached `dt` ago, `b` now). Overwrites the oldest slot. */
+  private pushTrail(a: THREE.Vector3, b: THREE.Vector3, dt: number, width: number): void {
+    const o = this.trailWrite * TRAIL_STRIDE, seg = this.trailSeg;
+    seg[o] = a.x; seg[o + 1] = a.y; seg[o + 2] = a.z;
+    seg[o + 3] = b.x; seg[o + 4] = b.y; seg[o + 5] = b.z;
+    seg[o + 6] = this.trailClock - dt; seg[o + 7] = this.trailClock; seg[o + 8] = width;
+    this.trailWrite = (this.trailWrite + 1) % TRAIL_CAP;
+    this.trailNewest = this.trailClock;
+  }
+
+  /**
+   * Rebuild the trail quads: each live segment is a camera-facing ribbon whose ends fade (brightness ∝ (1 − age/LIFE)²)
+   * and taper by their own age, so consecutive steps blend into one smooth tail. Widened with camera distance.
+   */
+  private drawTrails(): void {
+    const cam = this.ctx.camera;
+    const now = this.trailClock;
+    let write = 0;
+    if (cam && now - this.trailNewest < TRAIL_LIFE) {
+      const seg = this.trailSeg, p = this.trailPos, c = this.trailCol, cp = cam.position;
+      for (let i = 0; i < TRAIL_CAP; i++) {
+        const o = i * TRAIL_STRIDE;
+        const fb = 1 - (now - seg[o + 7]) / TRAIL_LIFE;
+        if (fb <= 0) continue;
+        const fa = Math.max(0, 1 - (now - seg[o + 6]) / TRAIL_LIFE);
+        _ta.set(seg[o], seg[o + 1], seg[o + 2]);
+        _tb.set(seg[o + 3], seg[o + 4], seg[o + 5]);
+        _tdir.subVectors(_tb, _ta);
+        if (_tdir.lengthSq() < 1e-8) continue;
+        _tcam.addVectors(_ta, _tb).multiplyScalar(0.5).sub(cp).negate();
+        _tside.crossVectors(_tdir, _tcam);
+        const sl = _tside.length();
+        if (sl < 1e-6) continue;
+        _tside.divideScalar(sl);
+        const w = seg[o + 8];
+        const wa = 0.5 * w * Math.min(TRAIL_WIDEN_MAX, Math.max(1, cp.distanceTo(_ta) / TRAIL_WIDEN_FROM)) * (TRAIL_TAPER + (1 - TRAIL_TAPER) * fa);
+        const wb = 0.5 * w * Math.min(TRAIL_WIDEN_MAX, Math.max(1, cp.distanceTo(_tb) / TRAIL_WIDEN_FROM)) * (TRAIL_TAPER + (1 - TRAIL_TAPER) * fb);
+        const q = write * 12;
+        p[q] = _ta.x - _tside.x * wa; p[q + 1] = _ta.y - _tside.y * wa; p[q + 2] = _ta.z - _tside.z * wa;
+        p[q + 3] = _ta.x + _tside.x * wa; p[q + 4] = _ta.y + _tside.y * wa; p[q + 5] = _ta.z + _tside.z * wa;
+        p[q + 6] = _tb.x + _tside.x * wb; p[q + 7] = _tb.y + _tside.y * wb; p[q + 8] = _tb.z + _tside.z * wb;
+        p[q + 9] = _tb.x - _tside.x * wb; p[q + 10] = _tb.y - _tside.y * wb; p[q + 11] = _tb.z - _tside.z * wb;
+        const ia = TRAIL_GLOW * fa * fa, ib = TRAIL_GLOW * fb * fb;
+        c[q] = c[q + 1] = c[q + 2] = ia;
+        c[q + 3] = c[q + 4] = c[q + 5] = ia;
+        c[q + 6] = c[q + 7] = c[q + 8] = ib;
+        c[q + 9] = c[q + 10] = c[q + 11] = ib;
+        write++;
+      }
+    }
+    this.trailGeo.setDrawRange(0, write * 6);
+    if (write > 0 || this.trailsDrawn > 0) {
+      (this.trailGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      (this.trailGeo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    }
+    this.trailsDrawn = write;
   }
 
   /**
@@ -566,11 +700,15 @@ export class ProjectilePool {
   clear(): void {
     while (this.live.length > 0) this.kill(this.live[this.live.length - 1]);
     this.drawStreaks();
+    for (let i = 0; i < TRAIL_CAP; i++) this.trailSeg[i * TRAIL_STRIDE + 7] = -Infinity;
+    this.trailClock = 0; this.trailNewest = -Infinity; this.trailWrite = 0;
+    this.drawTrails();
   }
 
   dispose(): void {
     this.clear();
     this.streakGeo.dispose(); this.streakMat.dispose(); this.streaks.dispose();
+    this.trailGeo.dispose(); this.trailMat.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     this.group.removeFromParent();

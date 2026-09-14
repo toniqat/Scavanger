@@ -187,6 +187,11 @@ export class PlayerController {
    * 상태가 낙하 중에 한 번이라도 있었으면 서고, 접지하는 순간 내려간다 (사다리를 놓은 낙하도 여기에 든다).
    */
   private fallExempt = false;
+  /**
+   * 2026-09-14: 공중에서 `applyImpulse` 를 받았다 — 착지(또는 `reset` · 갈고리)까지 목표 속도를 넘는 수평 운동량을
+   * 공중 조작이 깎지 않는다 (`update` 의 수평 속도 절). 바주카 로켓 점프의 「더 멀리」 가 여기 기댄다.
+   */
+  private airCarry = false;
 
   get crouching(): boolean { return this.stance === 'crouch'; }
   get prone(): boolean { return this.stance === 'prone'; }
@@ -205,6 +210,7 @@ export class PlayerController {
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
     // 2026-09-14: 스폰 · 부활 · 순간이동(대시 · 콘솔)은 낙하가 아니다 — 새 자리에서 다시 잰다
     this.fallFromY = pos.y; this.fallExempt = false;
+    this.airCarry = false;
   }
 
   /** 지금 차량(전차 데크 등)에 타고 있는가. HUD · 디버그용. */
@@ -364,6 +370,8 @@ export class PlayerController {
   /** Add to the velocity (jump pad, rocket blast, jump backpack). Positive Y also unsticks from the ground. */
   applyImpulse(impulse: THREE.Vector3): void {
     this.velocity.add(impulse);
+    // 2026-09-14: 공중에 뜬 몸의 수평 운동량을 착지까지 지킨다 (`update` 의 공중 조작 절)
+    if (impulse.y > 0.01 || !this.grounded) this.airCarry = true;
     if (impulse.y > 0.01) {
       this.grounded = false; this.coyote = 0; this.position.y += 0.02;
       /*
@@ -557,12 +565,29 @@ export class PlayerController {
     _hv.set(vel.x, 0, vel.z);
     if (!this.rolling) {
       const accel = this.grounded ? (moving ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
+      /*
+       * 2026-09-14 (바주카 로켓 점프): **남이 준 수평 운동량은 착지할 때까지 산다** (`airCarry` ← `applyImpulse`).
+       * 예전에는 공중에서도 목표 속도(달리기 7.2 m/s)로 `AIR_ACCEL` 만큼 끌어당겨, 수평 가속을 줘도 1초 안에
+       * 달리기 속도로 되돌아갔다 — 「더 멀리」 가 성립하지 않았다. 목표 속도보다 빠른 동안에는 공중 조작이 방향만
+       * 틀고(크기는 유지) **반대쪽으로 누를 때만** 그 성분만큼 `AIR_ACCEL` 로 감속한다. 손을 떼도 줄지 않는다.
+       * 목표 속도 이하이거나 제 발로 뛴 점프(임펄스 없음)는 예전 그대로다.
+       */
+      const carried = this.airCarry && !this.grounded ? Math.hypot(_hv.x, _hv.z) : 0;
+      let brake = 0;
+      if (carried > 1e-3 && moving) {
+        const along = (_wish.x * _hv.x + _wish.z * _hv.z) / (wishLen * carried);
+        if (along < 0) brake = -along * AIR_ACCEL * dt;
+      }
       _wish.multiplyScalar(targetSpeed);
       const dx = _wish.x - _hv.x, dz = _wish.z - _hv.z;
       const dl = Math.hypot(dx, dz);
       if (dl > 1e-5) {
         const step = Math.min(dl, accel * dt);
         _hv.x += dx / dl * step; _hv.z += dz / dl * step;
+      }
+      if (carried > targetSpeed) {
+        const nl = Math.hypot(_hv.x, _hv.z), floor = carried - brake;
+        if (nl > 1e-5 && nl < floor) { const k = floor / nl; _hv.x *= k; _hv.z *= k; }
       }
     }
 
@@ -599,6 +624,7 @@ export class PlayerController {
       out.jumped = true;
     }
     if (this.grappleTarget) {
+      this.airCarry = false;   // 2026-09-14: the reel owns the velocity; its release keeps the old air decay
       // reeled in: full control of the velocity vector, no gravity
       _pull.copy(this.grappleTarget).sub(pos);
       _pull.y -= PLAYER_HEIGHT * 0.5;           // aim at the chest, not the feet
@@ -685,6 +711,7 @@ export class PlayerController {
       if (!wasGrounded) out.fallHeight = this.fallExempt ? 0 : Math.max(0, this.fallFromY - pos.y);
       this.fallFromY = pos.y;
       this.fallExempt = false;
+      this.airCarry = false;
     } else if (pos.y > this.fallFromY) {
       this.fallFromY = pos.y;
     }

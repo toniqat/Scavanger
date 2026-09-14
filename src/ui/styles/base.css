@@ -227,6 +227,40 @@ input { font: inherit; color: inherit; }
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.95), 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 .reticle.consumable .qinfo { display: block; }
+/* 2026-09-14 — 활 모드 (hud/Reticle, `.reticle.bowmode` — 손에 든 무기가 활 「롱혼」): 네 틱이 숨고 점은 남는다.
+   점 아래 짧은 가로 안내선 두 단(`.rbow-tier`, 위치는 Reticle.ts 의 BOW_TIER_Y 가 transform 으로 준다 — 여기는 폭만)과
+   움직이는 가로 바(`.rbow-draw`, 가운데가 비어 있어 점 위에 닿아도 점이 보인다). 바는 평소 아래 단에 흐리게 서 있고
+   시위를 당기면(`.drawing`) 밝아지며 올라가 완전히 당긴 순간(`.full`) 점 위에서 흰 글로우를 낸다.
+   소모품 모드가 이기므로 `.consumable` 이면 숨긴다. 총구 막힘(`.blocked`)의 빨강은 안내선 · 바에도 같이 든다. */
+.reticle .rbow-tier, .reticle .rbow-draw { display: none; position: absolute; left: 0; top: 0; }
+.reticle.bowmode .rbow-tier, .reticle.bowmode .rbow-draw { display: block; }
+.reticle.bowmode .tick { opacity: 0; }
+.reticle.consumable .rbow-tier, .reticle.consumable .rbow-draw { display: none; }
+.reticle .rbow-tier {
+  height: 1.5px; margin-top: -0.75px; width: 14px; margin-left: -7px;
+  background: rgba(255, 255, 255, 0.7); box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+  transition: background-color var(--t-fast) var(--ease);
+}
+.reticle .rbow-tier.rbow-low { width: 20px; margin-left: -10px; }
+.reticle .rbow-draw {
+  height: 1.5px; margin-top: -0.75px; width: 26px; margin-left: -13px;
+  opacity: 0.45; will-change: transform;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.reticle .rbow-draw::before, .reticle .rbow-draw::after {
+  content: ''; position: absolute; top: 0; width: 10px; height: 100%;
+  background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+  transition: background-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.reticle .rbow-draw::before { left: 0; }
+.reticle .rbow-draw::after { right: 0; }
+.reticle .rbow-draw.drawing { opacity: 1; }
+.reticle .rbow-draw.full::before, .reticle .rbow-draw.full::after {
+  background: #fff; box-shadow: 0 0 2px rgba(0, 0, 0, 0.8), 0 0 6px rgba(255, 255, 255, 0.9);
+}
+.reticle.blocked .rbow-tier, .reticle.blocked .rbow-draw::before, .reticle.blocked .rbow-draw::after {
+  background: var(--c-danger); box-shadow: 0 0 3px rgba(0, 0, 0, 0.95);
+}
 
 /* 함선 내 점 크로스헤어 (2026-09-09, hud/HubDot, social layer): the gameplay reticle is hidden in the hub, so the ship
    has its own 3 px dot at screen centre. `.show` is toggled by the widget (phase hub · no blocker · no cutscene);
@@ -3002,8 +3036,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-room.is-cockpit { margin-bottom: 4px; border-bottom-color: var(--c-border); }
 
 /* ── 화면 전체 검은 페이드 (2026-09-14, `ui:screenFade` → `ui/HudSystem`) ──────────────────────────────
- * 튜토리얼 오프닝(감은 눈이 떠진다)이 첫 사용자다. `#ui-root` 직계 판 하나이고 불투명도 · 전이 시간만
- * 인라인으로 바뀐다.
+ * 튜토리얼 오프닝(감은 눈이 떠진다)이 첫 사용자다. `#ui-root` 직계 판 하나이고 불투명도만 인라인으로 바뀐다 —
+ * **`HudSystem.update` 가 프레임마다** 쓴다. CSS `transition` 을 걸지 않는 이유는 위의 reduced-motion 규칙이다:
+ * OS 가 애니메이션 효과를 끄면 전이가 0.01 ms 로 잘려 페이드가 한 프레임에 끝났다 (2026-09-14 수정).
  *
  * **연출이지 blocker 가 아니다** — `pointer-events: none` 이고 `ctx.escape` · `uiBlockers` 에 올라가지 않는다.
  *

@@ -306,8 +306,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const onlyReadyBlocked = ctx.uiBlockers.size === 0
       || (ctx.uiBlockers.size === 1 && ctx.uiBlockers.has(HUB_READY_BLOCKER));
     // 2026-09-08: Tab is now also the *close* key, so it must not reach through the 일시정지 메뉴 stacked on top.
+    // 2026-09-14 (튜토리얼 오프닝, 사용자 결정): 기상 연출이 돌고 있는 동안(`PlayerRef.introWaking` — 카메라가 백뷰로
+    // 완전히 돌아오기 전)에는 Tab 이 가방을 **불러오지 않는다**. 이미 열려 있는 창을 닫는 쪽은 막지 않는다.
+    const waking = ctx.player?.introWaking ?? false;
     if (ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)
-      && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || onlyReadyBlocked)) {
+      && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || (onlyReadyBlocked && !waking))) {
       // 2026-09-09 (Tab 은 모든 화면을 닫는다): like Escape, Tab cancels the **innermost popup** first — 수량 지정 ·
       // 우클릭 메뉴 · 분해 · 수리 · 임플란트 피커 — and closes the window only when nothing is stacked over it. The
       // 제작 열 is a column of the window, not a popup, so it goes with the window.

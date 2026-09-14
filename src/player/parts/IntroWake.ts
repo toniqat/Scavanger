@@ -10,13 +10,23 @@
  *     「등을 대고 쓰러진 산 사람」이고, 0 에서 평소 자세로 매끄럽게 넘어간다.
  *   - 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠긴다 (드론 조종 게이트를
  *     보는 곳들과 같은 요령 — `PlayerSystem.update` 의 `moveFrozen` · `canUseWeapons`).
- *   - 카메라는 쓰러진 몸을 옆 낮은 곳에서 비추다가 일어나는 속도에 맞춰 살짝 들어온다.
+ *   - 카메라는 쓰러진 몸을 옆 낮은 곳에서 비추다가, **일어서는 동안 평소 3인칭 백뷰 자리로 스르륵 옮겨 간다**
+ *     (2026-09-14 사용자 결정 — 아래 `updateIntroCamera`). 끝나는 프레임에는 이미 백뷰 자리라 오버라이드를 풀어도
+ *     (`setCameraOverride(null, undefined, true)`) 화면이 튀지 않는다.
  *   - **화면은 검정에서 시작해 밝아진다** (2026-09-14 2차, 사용자 결정 — 아래 *오프닝 페이드*).
- * 끝나면 **하드 컷**으로 평소 3인칭 백뷰로 돌아가고(`setCameraOverride(null, undefined, true)` — 먼 곳에서
- * 블렌드하면 카메라가 지형을 훑는다) `player:introWakeDone` 을 낸다.
+ * 끝나면 `player:introWakeDone` 을 낸다. 그 프레임까지 `PlayerRef.introWaking` 이 true 이고 나침반 · Tab 가방이
+ * 그것을 본다 — 카메라가 완전히 돌아오기 전에는 나타나지 않는다 (사용자 결정).
  *
  * 스스로 푸는 경우: `game:abort` · `game:newMission` · 사망 · 리셋 경로(`resetAll` · `respawnAt` ·
  * `spawnStanding` · `restoreState`). 그때는 `player:introWakeDone` 을 내지 않는다 (연출이 끝난 것이 아니다).
+ *
+ * ## 2026-09-14 — 끝나지 않던 연출
+ *
+ * 타이머를 `introWakeT -= dt` 로 줄여 **0 을 지나 음수**가 된 프레임에 `endIntroWake` 를 불렀는데, 그 함수의 첫 줄이
+ * 「연출 중이 아니다」 표식인 `introWakeT < 0` 에서 되돌아갔다. 그래서 오버라이드가 풀리지 않아 **카메라가 옆자리에
+ * 영영 남았고**, `player:introWakeDone` 이 안 나서 튜토리얼이 `wake` 단계에 갇혔다 (안내가 안 뜬다 — `cliff`
+ * 체크포인트가 접어 줄 때까지). 다음 프레임부터는 `updateIntroWake` 도 같은 표식에서 조용히 돌아갔다.
+ * 타이머를 **0 에서 멈추게**(`Math.max(0, …)`) 해 음수 표식과 섞이지 않게 했다. 회귀는 `scripts/smoke-intro-wake.mjs`.
  *
  * ## 오프닝 페이드 (2026-09-14 2차)
  *
@@ -25,6 +35,8 @@
  * 시작(`playIntroWake`)에 즉시 검정을 깔고, 연출을 끝내거나(`endIntroWake`) 취소하는(`cancelIntroWake`)
  * **모든 경로**가 `{opacity: 0, durationS: 0}` 으로 화면을 되돌린다 — 사망 · 전투불능 · `game:abort` ·
  * `game:newMission` · 리셋이 전부 그 둘 중 하나를 지난다.
+ * (2026-09-14: 밝아지는 전이는 `ui/HudSystem` 이 **코드로** 돌린다 — OS 가 애니메이션 효과를 끄면 CSS 전이가
+ *  0.01 ms 로 잘려 페이드가 한 프레임에 끝났다. 이 파일이 말하는 방식은 그대로다.)
  */
 import * as THREE from 'three';
 import { TUTORIAL_INTRO_WAKE_S } from '@/shared';
@@ -44,6 +56,14 @@ const CAM_YAW_OFFSET = 2.1;
 const CAM_DIST = [3.6, 2.7] as const;
 const CAM_HEIGHT = [0.75, 1.45] as const;
 const CAM_LOOK_Y = [0.35, 1.05] as const;
+/**
+ * 카메라 복귀 (2026-09-14, 사용자 결정 — 「일어나면서 원래 시점으로 돌아온다」). 이 진행도부터 끝(1)까지 옆 카메라가
+ * 리그의 백뷰 자리로 smoothstep 으로 옮겨 간다 — 일어서기(`WAKE_RISE_START` 0.3 → 1)의 뒤쪽 절반쯤이다
+ * (9 초 연출에서 4.95 초부터 4.05 초 동안).
+ */
+const CAM_RETURN_START = 0.55;
+/** 백뷰 시선 위의 한 점 — 리그 자리에서 보는 방향으로 이만큼 앞 (m). `lookAt` 만 쓰므로 거리 자체는 회전을 안 바꾼다. */
+const CAM_RETURN_LOOK_DIST = 10;
 
 /* 페이드도 같은 자리에 둔다 — **밸런스 수치가 아니라 연출 진행도(0..1) 위의 자리**라 바로 위
  * `WAKE_RISE_START` 와 한 묶음이고, 길이는 csv 의 `TUTORIAL_INTRO_WAKE_S` 에 비례해 함께 늘고 준다.
@@ -64,6 +84,7 @@ const FADE_DONE = 0.26;
 
 const _camPos = new THREE.Vector3();
 const _camLook = new THREE.Vector3();
+const _rigLook = new THREE.Vector3();
 
 function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
 
@@ -105,7 +126,7 @@ function fade(sys: PlayerSystem, opacity: number, durationS: number): void {
   sys.ctx?.bus.emit('ui:screenFade', { opacity, durationS });
 }
 
-/** `PlayerSystem.update` 가 매 프레임 부른다. 끝나는 프레임에 하드 컷 + `player:introWakeDone`. */
+/** `PlayerSystem.update` 가 매 프레임 부른다. 끝나는 프레임에 오버라이드 해제 + `player:introWakeDone`. */
 export function updateIntroWake(sys: PlayerSystem, dt: number): void {
   if (sys.introWakeT < 0) return;
   // 몸이 연출을 유지할 수 없게 됐다 (사망 · 전투불능 · 함선) — 조용히 끝낸다
@@ -115,7 +136,8 @@ export function updateIntroWake(sys: PlayerSystem, dt: number): void {
    * 밝아지기 시작한다 (경계를 지나는 프레임은 하나뿐이라 새 플래그가 필요 없다).
    */
   const before = progress(sys);
-  sys.introWakeT -= dt;
+  // ⚠ 0 에서 멈춘다 — 음수는 「연출 중이 아니다」 표식이다 (머리 주석 *끝나지 않던 연출*)
+  sys.introWakeT = Math.max(0, sys.introWakeT - Math.max(0, dt));
   const after = progress(sys);
   if (before < FADE_HOLD && after >= FADE_HOLD) {
     fade(sys, 0, Math.max(0, (FADE_DONE - FADE_HOLD) * sys.introWakeDur));
@@ -124,7 +146,7 @@ export function updateIntroWake(sys: PlayerSystem, dt: number): void {
   endIntroWake(sys);
 }
 
-/** 연출을 정상 종료한다 — 하드 컷 + `player:introWakeDone`. */
+/** 연출을 정상 종료한다 — 오버라이드 해제(이미 백뷰 자리다) + `player:introWakeDone`. */
 export function endIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
   sys.introWakeT = -1; sys.introWakeDur = 0;
@@ -151,7 +173,14 @@ export function wakeBlend(sys: PlayerSystem): number {
   return 1 - smoothstep(WAKE_RISE_START, 1, progress(sys));
 }
 
-/** 쓰러진 몸을 비추는 고정 카메라 (일어나는 만큼 눈높이로 함께 올라온다). */
+/**
+ * 쓰러진 몸을 비추는 카메라 (일어나는 만큼 눈높이로 함께 올라온다) — 뒤쪽 구간에서는 리그의 백뷰 자리로 옮겨 간다.
+ *
+ * 백뷰 자리는 **리그가 오버라이드 밑에서도 매 프레임 계속 계산하고 있는 자기 자리**다 (`CameraRig.position` —
+ * `finishFrame` 은 그 위에 오버라이드를 섞을 뿐이다). 바라보는 방향은 `getLookDir` 이고 roll 이 없으므로
+ * `lookAt(자리 + 방향)` 이 리그의 회전과 같다 — 진행도 1 에서 오버라이드 = 리그라 해제가 보이지 않는다.
+ * 읽는 값은 직전 `lateUpdate` 의 것이지만 몸이 얼어 있어(`scripted`) 프레임 사이에 움직이지 않는다.
+ */
 function updateIntroCamera(sys: PlayerSystem, snap: boolean): void {
   const t = progress(sys);
   const feet = sys.controller.position;
@@ -159,5 +188,12 @@ function updateIntroCamera(sys: PlayerSystem, snap: boolean): void {
   const dist = lerp(CAM_DIST[0], CAM_DIST[1], t);
   _camPos.set(feet.x + Math.sin(a) * dist, feet.y + lerp(CAM_HEIGHT[0], CAM_HEIGHT[1], t), feet.z + Math.cos(a) * dist);
   _camLook.set(feet.x, feet.y + lerp(CAM_LOOK_Y[0], CAM_LOOK_Y[1], t), feet.z);
+  const back = smoothstep(CAM_RETURN_START, 1, t);
+  const rig = sys.rig;
+  if (back > 0 && rig) {
+    rig.getLookDir(_rigLook).multiplyScalar(CAM_RETURN_LOOK_DIST).add(rig.position);
+    _camPos.lerp(rig.position, back);
+    _camLook.lerp(_rigLook, back);
+  }
   sys.setCameraOverride(_camPos, _camLook, snap);
 }

@@ -62,6 +62,33 @@ localStorage(캐릭터 · 창고 · 설정 · `scav.sessionToken`)는 **오리�
 검증(`scripts/_tmp-app-origin.mjs`, 앱을 네 번 띄운다): 오리진이 네 번 모두 `http://127.0.0.1:8790`,
 정상 종료 뒤 세이브 유지 PASS, **강제 종료 뒤에도** 유지 PASS.
 
+## 포트가 Windows 에 예약돼 있을 때 (2026-09-14)
+
+**증상**: 앱을 켜면 `로컬 서버를 시작하지 못했습니다. listen EACCES: permission denied 127.0.0.1:8790`.
+
+코드 결함이 아니다. Hyper-V · WSL · Docker 가 쓰는 WinNAT 서비스가 부팅할 때 100 칸짜리 포트 대역을 무작위로
+예약하고, 그 안의 포트는 관리자라도 `listen` 이 `EACCES` 로 거절된다. 보는 법:
+`netsh int ipv4 show excludedportrange protocol=tcp` — 보고된 PC 는 8697–8996 이 잡혀 창 포트 8790–8799 와 릴레이
+8787 이 전부 그 안이었다.
+
+예전에는 `listenStable` 이 `EADDRINUSE` 만 "다음 칸" 으로 봐서 첫 칸의 `EACCES` 에서 곧바로 실패했다. 이제
+`isPortBlocked` 가 둘을 같이 본다 — 창 포트는 여전히 `8790 → 8799` 순서만(임의 포트로 도망가지 않는다), 임베디드
+릴레이는 빈 포트로 폴백한다(릴레이 포트는 세이브와 무관하고 창의 `/ws` 프록시가 따라간다). 창 포트 열 칸이 전부
+예약이면 오류 창(`startupFailureMessage`)이 원인과 푸는 명령을 적는다:
+
+```
+net stop winnat
+netsh int ipv4 add excludedportrange protocol=tcp startport=8787 numberofports=13
+net start winnat
+```
+
+`winnat` 을 멈추면 동적 예약이 풀리고, 가운데 줄은 8787–8799 를 **사용자 예약**(`*` 표시)으로 먼저 잡아 다음 부팅에
+WinNAT 가 다시 가져가지 못하게 한다. 사용자 예약 포트는 앱이 그대로 연다 (측정: 사용자 예약 50000 → OK,
+WinNAT 예약 8790 → `EACCES`). **포트를 옮기는 것은 답이 아니다** — 창 포트가 곧 세이브 오리진이다.
+
+⚠ `smoke-desktop`(8820–8823) · `smoke-server-dist`(8830–8869)도 같은 대역에 걸릴 수 있다. 그 스모크가 `EACCES` 로
+죽으면 같은 명령으로 대역을 넓혀 잡는다(`startport=8787 numberofports=83`).
+
 ## 배포 폴더 (2026-09-10)
 
 `npm run app:dist` 가 만드는 것은 exe 하나가 아니라 **그대로 압축해 보낼 폴더**다.
@@ -167,8 +194,8 @@ npm run typecheck:app
 
 | 옵션 | 환경변수 | 뜻 |
 |---|---|---|
-| `--port=<n>` | `SCAV_PORT` | **임베디드 릴레이** 포트 (기본 `NET_DEFAULT_PORT` 8787, 사용 중이면 빈 포트로 폴백). 창 포트와는 무관하다 |
-| `--app-port=<n>` | `SCAV_APP_PORT` | 창이 열리는 http 포트 (기본 `APP_PORT` 8790, 막혀 있으면 +9 까지 순서대로). **바꾸면 오리진이 바뀌어 세이브가 새로 시작된다** — 위 "창 포트는 고정이다" 참고 |
+| `--port=<n>` | `SCAV_PORT` | **임베디드 릴레이** 포트 (기본 `NET_DEFAULT_PORT` 8787, 사용 중이거나 Windows 예약이면 빈 포트로 폴백). 창 포트와는 무관하다 |
+| `--app-port=<n>` | `SCAV_APP_PORT` | 창이 열리는 http 포트 (기본 `APP_PORT` 8790, 사용 중이거나 Windows 예약이면 +9 까지 순서대로 — 아래 "포트가 Windows 에 예약돼 있을 때"). **바꾸면 오리진이 바뀌어 세이브가 새로 시작된다** — 위 "창 포트는 고정이다" 참고 |
 | `--lan` | `SCAV_LAN=1` | 자체 릴레이를 `0.0.0.0` 에 바인딩 — 같은 네트워크의 다른 PC 가 이 릴레이를 쓸 수 있다(방화벽 허용 창이 뜬다) |
 | `--relay=<ws url>` | `SCAV_RELAY` | 자체 릴레이를 띄우지 않고 `/ws` 를 원격 릴레이로 프록시 (`--relay=ws://192.168.0.5:8787/ws`) |
 | `--local` | `SCAV_LOCAL=1` | 설정된 주소를 **전부 무시**하고 자체 릴레이로 실행 (혼자 플레이 · 서버가 꺼져 있을 때) |
@@ -290,6 +317,11 @@ Tab → Escape / Tab → Tab)로 비교했다.
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14** — `listen EACCES` 보고(창 포트 8790 이 Windows WinNAT 예약 대역 안). `isPortBlocked` 가 `EACCES` 도
+  막힌 칸으로 본다 — 창 포트는 `8790 → 8799` 순서 그대로, 임베디드 릴레이는 빈 포트 폴백. 창 포트가 전부 막히면
+  `startupFailureMessage` 가 오류 창에 winnat 해제 명령을 적는다 (위 "포트가 Windows 에 예약돼 있을 때").
+  `src/` · `server/` 무변경.
 
 - **2026-09-11 (E-3)** — 테스트 격리 플래그 `--user-data=<dir>`(`SCAV_USER_DATA`, 락 · 저장소보다 먼저 `setPath`) ·
   `--hidden`(`SCAV_HIDDEN`, 창 표시 · 전체화면/최대화 복원 · `second-instance` 포커스 생략) · `--lazy-relay`(`SCAV_LAZY_RELAY`,

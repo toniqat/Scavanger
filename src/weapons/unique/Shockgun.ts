@@ -2,15 +2,37 @@ import * as THREE from 'three';
 import {
   SHOCK_RANGE, SHOCK_CONE_DEG, SHOCK_MAX_TARGETS, SHOCK_DPS, SHOCK_CHARGE_TIME, SHOCK_CHARGE_DAMAGE, SHOCK_CHARGE_MIN_RATIO,
   SHOCK_CHARGE_RANGE, SHOCK_CHARGE_CELLS, SHOCK_SLOW_FACTOR, SHOCK_SLOW_DURATION,
-  type EnemyRef,
+  SHOCK_FIZZLE_FORKS, SHOCK_FIZZLE_SPREAD_DEG, SHOCK_CRACKLE_INTERVAL,
+  type EnemyRef, type Obstacle,
 } from '@/shared';
-import { coneTargets, enemyCentre, type UniqueHandler, type UniqueInput, type UniquePose, type UniqueServices, type UniqueShot, type UniqueWeapon } from './UniqueHandler';
+import { randomInCone } from '@/core/util/MathUtil';
+import {
+  coneTargets, coneDestructibles, enemyCentre, obstacleAimPoint,
+  type UniqueHandler, type UniqueInput, type UniquePose, type UniqueServices, type UniqueShot, type UniqueWeapon,
+} from './UniqueHandler';
 
 const DEG = Math.PI / 180;
 const TICK_RATE = 10;
 const NET_INTERVAL = 0.1;
 
 const _muzzle = new THREE.Vector3(), _o = new THREE.Vector3(), _d = new THREE.Vector3(), _c = new THREE.Vector3();
+const _aim = new THREE.Vector3(), _fd = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
+
+/**
+ * 2026-09-14: the discharge drawn when the arc has nothing to reach — `SHOCK_FIZZLE_FORKS` bolts from `origin` along
+ * `dir` (unit): the first to `dist`, the rest scattered inside `SHOCK_FIZZLE_SPREAD_DEG` and shorter. Writes the end
+ * points into `ends` and returns how many. Shared by the local handler and remote replicas so both draw the same shape.
+ */
+export function shockFizzleEnds(origin: THREE.Vector3, dir: THREE.Vector3, dist: number, ends: THREE.Vector3[]): number {
+  const forks = Math.max(1, Math.min(SHOCK_FIZZLE_FORKS, ends.length));
+  ends[0].copy(origin).addScaledVector(dir, dist);
+  const spread = SHOCK_FIZZLE_SPREAD_DEG * DEG;
+  for (let i = 1; i < forks; i++) {
+    randomInCone(dir, spread, _pd, _tA, _tB);
+    ends[i].copy(origin).addScaledVector(_pd, dist * (0.45 + Math.random() * 0.45));
+  }
+  return forks;
+}
 
 /**
  * 「테슬라 코일」 전격총. LMB = arc to the `SHOCK_MAX_TARGETS` nearest enemies inside the view cone
@@ -18,6 +40,12 @@ const _muzzle = new THREE.Vector3(), _o = new THREE.Vector3(), _d = new THREE.Ve
  * SHOCK_SLOW_DURATION)` every tick, cells drain `ammoPerSec × dt`. RMB hold = charge (`weapon:chargeChanged
  * kind:'charge'`), release = hitscan bolt `altDamage × lerp(SHOCK_CHARGE_MIN_RATIO, 1, t)` over `SHOCK_CHARGE_RANGE`
  * for `SHOCK_CHARGE_CELLS`; the cooldown after a bolt equals the charge time.
+ *
+ * 2026-09-14 (「좌클이 아예 안 나간다」): the arc used to draw and sound **nothing** unless an enemy stood in the cone,
+ * and the 시뮬레이션 훈련장 targets are world obstacles, never enemies — so in the arena (and at anything farther than
+ * 14 m) LMB looked dead while it silently drained cells. Now an empty cone throws a forked discharge at the crosshair
+ * point (`shockFizzleEnds`), the arc crackles (`shot_energy`, `SHOCK_CRACKLE_INTERVAL`) and in a training it also
+ * shocks the pop-up targets (`coneDestructibles`).
  */
 export class Shockgun implements UniqueHandler {
   readonly kind = 'shockgun' as const;
@@ -30,8 +58,11 @@ export class Shockgun implements UniqueHandler {
   private charge = 0;
   private tickT = 0;
   private netT = 0;
+  private crackleT = 0;
+  private crackleStart = false;
   private cur: UniqueWeapon | null = null;
   private readonly targets: EnemyRef[] = [];
+  private readonly obstacles: Obstacle[] = [];
   private readonly ends: THREE.Vector3[] = [];
   private readonly shot: UniqueShot = { hit: false, enemy: false, killed: false, end: new THREE.Vector3() };
 
@@ -77,6 +108,7 @@ export class Shockgun implements UniqueHandler {
       if (this.arcing) this.stopArc(w);
       else {
         this.arcing = true; this.tickT = 0; this.netT = 0;
+        this.crackleT = 0; this.crackleStart = true;
         w.model.setHeat(1);
         s.ctx.bus.emit('weapon:beamChanged', { weaponId: w.def.id, active: true, mode: 'primary' });
       }
@@ -89,9 +121,22 @@ export class Shockgun implements UniqueHandler {
     s.aimRay(_o, _d);
     const n = coneTargets(s, _muzzle, _d, SHOCK_RANGE, half, SHOCK_MAX_TARGETS, this.targets);
     for (let i = 0; i < n; i++) enemyCentre(this.targets[i], this.ends[i]);
-    if (n > 0) s.ufx.setArc('local', _muzzle, this.ends, n);
-    else s.ufx.release('local');
+    // 2026-09-14: the arena's pop-up targets are destructible obstacles, not enemies — arc to them in a training only
+    let m = 0;
+    if (s.ctx.isTraining()) m = coneDestructibles(s, _muzzle, _d, SHOCK_RANGE, half, SHOCK_MAX_TARGETS - n, this.obstacles);
+    else this.obstacles.length = 0;
+    for (let i = 0; i < m; i++) obstacleAimPoint(this.obstacles[i], _muzzle, this.ends[n + i]);
+    if (n + m > 0) s.ufx.setArc('local', _muzzle, this.ends, n + m);
+    else this.fizzle();
     if (Math.random() < 0.4) s.recoil((Math.random() - 0.5) * 0.002, (Math.random() - 0.5) * 0.002);
+
+    // crackle: louder on the press, then quietly every SHOCK_CRACKLE_INTERVAL while the arc stays on
+    this.crackleT -= dt;
+    if (this.crackleT <= 0) {
+      this.crackleT = SHOCK_CRACKLE_INTERVAL;
+      s.ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: this.crackleStart ? 0.35 : 0.14, pitch: this.crackleStart ? 1.3 : 1.15 + Math.random() * 0.5 });
+      this.crackleStart = false;
+    }
 
     this.tickT += dt;
     if (this.tickT >= 1 / TICK_RATE) {
@@ -109,10 +154,22 @@ export class Shockgun implements UniqueHandler {
         if (!wasDead && e.isDead) { anyKill = true; continue; }
         if (mgr && typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'shocked', SHOCK_SLOW_FACTOR, SHOCK_SLOW_DURATION, attacker);
       }
-      if (n > 0) s.ctx.bus.emit('ui:hitmarker', { kill: anyKill });
+      for (let i = 0; i < m; i++) this.obstacles[i].destructible?.onDamage(dps * dtTick, this.ends[n + i]);
+      if (n + m > 0) s.ctx.bus.emit('ui:hitmarker', { kill: anyKill });
     }
     this.netT -= dt;
     if (this.netT <= 0) { this.netT = NET_INTERVAL; s.announceFire(w, _muzzle, _d, 0, 1); }
+  }
+
+  /** Nothing to shock: a forked discharge from the muzzle to the crosshair point (first wall / `SHOCK_RANGE`), no sparks. */
+  private fizzle(): void {
+    const s = this.s;
+    s.aimTarget(SHOCK_RANGE, _aim);
+    _fd.subVectors(_aim, _muzzle);
+    const dist = _fd.length();
+    if (dist < 1e-3) { s.ufx.release('local'); return; }
+    _fd.divideScalar(dist);
+    s.ufx.setArc('local', _muzzle, this.ends, shockFizzleEnds(_muzzle, _fd, Math.min(dist, SHOCK_RANGE), this.ends), false);
   }
 
   private fireBolt(w: UniqueWeapon): void {
@@ -148,6 +205,7 @@ export class Shockgun implements UniqueHandler {
     if (!this.arcing) return;
     this.arcing = false;
     w.model.setHeat(0);
+    this.obstacles.length = 0;
     this.s.ufx.release('local');
     this.s.ctx.bus.emit('weapon:beamChanged', { weaponId: w.def.id, active: false, mode: 'primary' });
     this.s.announceBeamEnd(w, 0);
@@ -157,6 +215,7 @@ export class Shockgun implements UniqueHandler {
   reset(): void {
     if (this.cur) { this.stopArc(this.cur); this.cancelCharge(this.cur); }
     this.arcing = false; this.charging = false; this.charge = 0;
+    this.obstacles.length = 0;
     this.s.ufx.release('local');
     this.pose.charging = this.pose.spraying = this.pose.firing = false;
   }

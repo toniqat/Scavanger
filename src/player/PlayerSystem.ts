@@ -347,11 +347,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   releaseRoverRide(): void { return RoverRide.releaseRoverRide(this); }
 
   /* ── 오프닝 기상 연출 (2026-09-14, appended contract `PlayerRef.playIntroWake`, `parts/IntroWake`) ── */
-  /** true 인 동안 이동 · 자세 · 무기 · 상호작용 · 마우스 룩이 잠기고 카메라는 쓰러진 몸을 비춘다. */
+  /**
+   * true 인 동안 이동 · 자세 · 무기 · 상호작용 · 마우스 룩이 잠기고 카메라는 쓰러진 몸을 비춘다.
+   * 2026-09-14: 계약 `PlayerRef.introWaking` 이기도 하다 — 나침반 · Tab 가방이 이것이 false 가 될 때까지 기다린다.
+   */
   get introWaking(): boolean { return this.introWakeT >= 0; }
   /**
-   * 튜토리얼 오프닝 — 쓰러진 자세로 시작해 `durationS` 에 걸쳐 일어난다 (`TUTORIAL_INTRO_WAKE_S`). 끝나면
-   * 평소 3인칭 백뷰로 **하드 컷**하고 `player:introWakeDone`. `game:abort` · `game:newMission` · 사망은 스스로 푼다.
+   * 튜토리얼 오프닝 — 쓰러진 자세로 시작해 `durationS` 에 걸쳐 일어난다 (`TUTORIAL_INTRO_WAKE_S`). 일어서는 동안
+   * 카메라가 평소 3인칭 백뷰 자리로 옮겨 가고, 끝나면 오버라이드를 풀고 `player:introWakeDone`.
+   * `game:abort` · `game:newMission` · 사망은 스스로 푼다.
    */
   playIntroWake(durationS: number): void { return IntroWake.playIntroWake(this, durationS); }
 

@@ -125,7 +125,7 @@ try {
     ok(m.mv[0] === '넓은 화염' && m.mv[1] === '긴 화염 제트', 'flamethrower lines 좌 넓은 화염 / 우 긴 화염 제트', JSON.stringify(m.mv));
     // Phase 9 UI pass: the tag is the weapon **class** only — the 슬롯 word (주무기) and the calibre (준중량탄 …) are gone
     ok(!m.type.includes('·') && m.type.length > 0 && !m.type.includes(uniq.ammo), `무기 태그는 분류만 남는다 (${m.type})`, m.type);
-    for (const [id, l, r] of [['u_shock', '연쇄 전격', '충전 볼트'], ['u_shuriken', '표창 1개', '표창 3개 (F 길게: 용검)'], ['u_bow', '화살', '정조준'], ['u_bazooka', '착탄 로켓', '공중 폭발 (바닥 우클릭: 로켓 점프)'], ['u_minigun', '예열 후 사격', '—']]) {
+    for (const [id, l, r] of [['u_shock', '연쇄 전격', '충전 볼트'], ['u_shuriken', '표창 1개', '표창 3개 (F 길게: 용검)'], ['u_bow', '당겨 쏘기', '당기기 취소'], ['u_bazooka', '착탄 로켓', '공중 폭발 (바닥 우클릭: 로켓 점프)'], ['u_minigun', '예열 후 사격', '—']]) {
       const has = await P((w) => !!window.__game.ctx.loot.getWeaponDef(w), id);
       if (!has) { ok(false, `${id} weapon def exists`); continue; }
       await emit('weapon:equipped', { ...eq, weaponId: id, name: id });

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type {
-  GameContext, WeaponDef, EffectiveWeaponStats, ItemInstance, PlayerRef, PlayerWeaponHost, EnemyRef, UniqueWeaponKind,
+  GameContext, WeaponDef, EffectiveWeaponStats, ItemInstance, PlayerRef, PlayerWeaponHost, EnemyRef, UniqueWeaponKind, Obstacle,
 } from '@/shared';
 import type { WeaponModel } from '../WeaponModel';
 import type { WeaponFx } from '../fx/WeaponFx';
@@ -100,7 +100,10 @@ export interface UniqueHandler {
   readonly kind: UniqueWeaponKind;
   /** true → the handler reads the melee key itself (shuriken slash); the generic F swing is skipped. */
   readonly handlesMelee: boolean;
-  /** true → the weapon aims like a normal gun (bow). Every `altFire` unique returns false (RMB = alt fire, zoom 1). */
+  /**
+   * true → the weapon aims like a normal gun. Every current unique returns false (RMB = alt fire / the bow's draw cancel,
+   * zoom 1) — the bow stopped aiming on 2026-09-14.
+   */
   readonly allowsAim: boolean;
   readonly pose: UniquePose;
   onEquip(w: UniqueWeapon): void;
@@ -150,6 +153,51 @@ export function coneTargets(s: UniqueServices, origin: THREE.Vector3, dir: THREE
     out.push(e);
     while (k > 0 && out[k - 1].position.distanceToSquared(origin) > dist * dist) { out[k] = out[k - 1]; k--; }
     out[k] = e;
+    if (out.length > max) out.length = max;
+  }
+  return out.length;
+}
+
+const _lp = new THREE.Vector3();
+
+/**
+ * 2026-09-14: where a beam from `from` meets a world obstacle — its axis at the source's height, clamped to the upper
+ * half of the collider (a training target's board rather than its post).
+ */
+export function obstacleAimPoint(o: Obstacle, from: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  const h = o.shotHeight ?? o.height;
+  out.copy(o.position);
+  out.y = THREE.MathUtils.clamp(from.y, o.position.y + h * 0.5, o.position.y + h * 0.9);
+  return out;
+}
+
+/**
+ * 2026-09-14 (테슬라 코일): intact destructible world obstacles (window glass excluded) inside the cone with line of
+ * sight, nearest first, at most `max` — the same range / angle rules as `coneTargets`. The shock gun asks only in the
+ * 시뮬레이션 훈련장, whose pop-up targets are exactly these (in a raid they would be cover structures and windows,
+ * which the arc deliberately leaves alone). Writes into `out` (cleared first) and returns the count.
+ */
+export function coneDestructibles(s: UniqueServices, origin: THREE.Vector3, dir: THREE.Vector3, range: number, halfAngle: number, max: number, out: Obstacle[]): number {
+  out.length = 0;
+  const world = s.ctx.world;
+  if (max <= 0 || !world || !world.ready || typeof world.getObstaclesNear !== 'function') return 0;
+  const near = world.getObstaclesNear(origin.x, origin.z, range + 1.5);
+  for (let i = 0; i < near.length; i++) {
+    const o = near[i];
+    if (!o.destructible || o.destructible.hp <= 0 || o.fragile) continue;
+    obstacleAimPoint(o, origin, _c);
+    _to.subVectors(_c, origin);
+    const dist = _to.length();
+    const r = o.shotRadius ?? o.radius;
+    if (dist > range + r || dist < 1e-4) continue;
+    _to.divideScalar(dist);
+    if (Math.acos(THREE.MathUtils.clamp(_to.dot(dir), -1, 1)) > halfAngle + Math.atan2(r, dist)) continue;
+    // a ray to the axis stops on the obstacle itself — test the line only up to its near face
+    if (dist > r) { _lp.copy(origin).addScaledVector(_to, dist - r); if (!s.lineOfSight(origin, _lp)) continue; }
+    let k = out.length;
+    out.push(o);
+    while (k > 0 && out[k - 1].position.distanceToSquared(origin) > dist * dist) { out[k] = out[k - 1]; k--; }
+    out[k] = o;
     if (out.length > max) out.length = max;
   }
   return out.length;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { EnemyRef, GameContext } from '@/shared';
-import { COMPASS_ENEMY_COLOR, DETECT_ENEMY_BASE_RADIUS } from '@/shared';
+import { COMPASS_ENEMY_COLOR, DETECT_ENEMY_BASE_RADIUS, TUTORIAL_COMPASS_FADE_S } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import type { ScanTracker } from './ScanTracker';
 
@@ -46,6 +46,12 @@ interface EnemyTick { el: HTMLElement; lastKey: string }
  * **2026-09-14 (튜토리얼)**: 이 띠가 계약이 말하는 「화면 마커」다 (`hides('hud','shipScreenMarker')`) — 나침반
  * 눈금이면서, 시야 밖이면 가장자리에 붙는(`clamped`) 방향 표시이기도 하다. 튜토리얼 레이드 내내 탈출 함선
  * 눈금을 그리지 않는다. (화면 밖 화살표 위젯 `hud/OffscreenIndicators` 에는 **함선 갈래가 애초에 없다** — 핑뿐이다.)
+ *
+ * **2026-09-14 (튜토리얼 오프닝, 사용자 결정)**: 기상 연출이 돌고 있는 동안(`PlayerRef.introWaking` — 카메라가 백뷰로
+ * 완전히 돌아오기 전) 띠 전체가 **보이지 않고**, 끝나면 `TUTORIAL_COMPASS_FADE_S` 에 걸쳐 서서히 나타난다. 불투명도는
+ * CSS 전이가 아니라 이 파일이 프레임마다 올린다 — OS 가 애니메이션 효과를 끄면 `base.css` 의 reduced-motion 규칙이
+ * 모든 전이를 0.01 ms 로 자르기 때문이다 (`HudSystem` 의 검은 페이드와 같은 이유). 연출이 없는 레이드에서는
+ * 처음부터 1 이라 한 글자도 안 바뀐다.
  */
 export class Compass {
   readonly root: HTMLElement;
@@ -62,6 +68,9 @@ export class Compass {
   private nearIds = new Set<number>();
   private nextPoll = 0;
   private shownTicks = 0;
+  /** 2026-09-14: 기상 연출 뒤 나타나는 정도 0..1 (연출이 없으면 늘 1) · 마지막으로 쓴 인라인 opacity. */
+  private reveal = 1;
+  private lastRevealStr = '';
 
   constructor(parent: HTMLElement, private scans: ScanTracker | null = null) {
     this.root = el('div', { cls: 'compass', parent });
@@ -249,7 +258,24 @@ export class Compass {
     this.shownTicks = used;
   }
 
-  update(ctx: GameContext): void {
+  /** 기상 연출 뒤 나타나는 정도 0..1 (스모크). */
+  get revealAmount(): number { return this.reveal; }
+
+  /**
+   * 2026-09-14: 기상 연출 동안 0, 끝나면 `TUTORIAL_COMPASS_FADE_S` 에 걸쳐 1 로. true = 지금 보이지 않는다
+   * (나머지 갱신을 건너뛴다). `dt` 는 시뮬레이션 dt 라 일시정지 · 셰이더 hold 동안에는 멈춘다.
+   */
+  private updateReveal(ctx: GameContext, dt: number): boolean {
+    const waking = ctx.player?.introWaking ?? false;
+    if (waking) this.reveal = 0;
+    else if (this.reveal < 1) this.reveal = TUTORIAL_COMPASS_FADE_S > 0 ? Math.min(1, this.reveal + dt / TUTORIAL_COMPASS_FADE_S) : 1;
+    const s = this.reveal >= 1 ? '' : this.reveal.toFixed(3);
+    if (s !== this.lastRevealStr) { this.lastRevealStr = s; this.root.style.opacity = s; }
+    return waking;
+  }
+
+  update(ctx: GameContext, dt = 0): void {
+    if (this.updateReveal(ctx, dt)) return;
     const player = ctx.player;
     if (!player) return;
     const yaw = player.yaw;

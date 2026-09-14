@@ -36,6 +36,8 @@ interface Arc {
   core: THREE.LineSegments;
   count: number;
   sparkT: number;
+  /** Sparks at the bolt ends (false for a shock arc that found nothing and discharges into the air / a wall). */
+  sparks: boolean;
   /** Bolt end points, copied each frame (the enemies' own vectors move on). */
   ends: THREE.Vector3[];
   origin: THREE.Vector3;
@@ -94,7 +96,7 @@ export class UniqueFx {
       this.group.add(glow, core);
       const ends: THREE.Vector3[] = [];
       for (let k = 0; k < ARC_BOLTS; k++) ends.push(new THREE.Vector3());
-      this.arcs.push({ owner: null, touched: -1, geo, positions, attr, glow, core, count: 0, sparkT: 0, ends, origin: new THREE.Vector3() });
+      this.arcs.push({ owner: null, touched: -1, geo, positions, attr, glow, core, count: 0, sparkT: 0, sparks: true, ends, origin: new THREE.Vector3() });
     }
     scene.add(this.group);
   }
@@ -118,10 +120,14 @@ export class UniqueFx {
     c.outer.visible = c.inner.visible = true;
   }
 
-  /** Lightning arcs for `owner` this frame from `origin` to each of `targets[0..count)`. */
-  setArc(owner: string, origin: THREE.Vector3, targets: readonly THREE.Vector3[], count: number): void {
+  /**
+   * Lightning arcs for `owner` this frame from `origin` to each of `targets[0..count)`. `sparks` false = no spark
+   * bursts at the ends (2026-09-14: the shock gun's forked discharge when nothing is in its cone).
+   */
+  setArc(owner: string, origin: THREE.Vector3, targets: readonly THREE.Vector3[], count: number, sparks = true): void {
     const a = this.acquire(this.arcs, owner);
     a.touched = this.frame;
+    a.sparks = sparks;
     a.count = Math.min(count, ARC_BOLTS);
     a.origin.copy(origin);
     for (let i = 0; i < a.count; i++) a.ends[i].copy(targets[i]);
@@ -198,7 +204,7 @@ export class UniqueFx {
       a.geo.setDrawRange(0, w / 3);
       a.attr.needsUpdate = true;
       a.sparkT -= dt;
-      if (fx && a.sparkT <= 0 && a.count > 0) {
+      if (fx && a.sparks && a.sparkT <= 0 && a.count > 0) {
         a.sparkT = 0.09;
         for (let i = 0; i < a.count; i++) ParticleBurst.sparks(fx.additive, a.ends[i], _up, 2, 4, 0x9ff4ff);
       }

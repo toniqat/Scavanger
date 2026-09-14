@@ -99,7 +99,8 @@ export class WeaponModel {
   private barrels: THREE.Object3D | null = null;
   private spin = 0;
   private barrelAngle = 0;
-  /** Bow string + nocked arrow: pulled back on `kick`. */
+  /** Bow string + nocked arrow: pulled back by the draw (`setBowDraw`, 2026-09-14) or, on replicas, the `kick`. */
+  private bowDraw = 0;
   private bowString: THREE.Object3D | null = null;
   private bowArrow: THREE.Object3D | null = null;
   private bowStringBase = new THREE.Vector3();
@@ -627,6 +628,8 @@ export class WeaponModel {
   setSpin(t: number): void { this.spin = t < 0 ? 0 : t > 1 ? 1 : t; }
   /** Flamethrower pilot / shock core glow 0..1 (spraying / arcing). No-op on other kinds. */
   setHeat(t: number): void { this.heat = t < 0 ? 0 : t > 1 ? 1 : t; }
+  /** 2026-09-14: 「롱혼」 string draw 0..1 (0 = at rest) — string + nocked arrow pull back with it. No-op on other kinds. */
+  setBowDraw(t: number): void { this.bowDraw = t < 0 ? 0 : t > 1 ? 1 : t; }
 
   /* ─────────── laser sight (2026-09-14) ─────────── */
   /** A laser sight is mounted (`setAttachments({sight: 'laser'})`). */
@@ -735,8 +738,9 @@ export class WeaponModel {
       this.barrels.rotation.z = this.barrelAngle;
     }
     if (this.bowString && this.bowArrow) {
-      // the recoil kick doubles as the string release: kickZ decays from the draw
-      const pull = Math.min(1, this.kickZ / 0.06) * 0.22;
+      // 2026-09-14: the local bow's draw (`setBowDraw`) pulls the string; the recoil kick still snaps it on release
+      // (and is all a replica has — the draw is not on the wire)
+      const pull = Math.max(this.bowDraw, Math.min(1, this.kickZ / 0.06)) * 0.22;
       this.bowString.position.set(this.bowStringBase.x, this.bowStringBase.y, this.bowStringBase.z + pull);
       if (this.reloadT < 0) this.bowArrow.position.set(this.bowArrowBase.x, this.bowArrowBase.y, this.bowArrowBase.z + pull);
     }

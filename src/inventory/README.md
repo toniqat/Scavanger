@@ -1081,6 +1081,10 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-14 (튜토리얼 오프닝 — Tab 대기, 사용자 결정)** — `InventorySystem.update` 의 Tab 폴링이 `ctx.player.introWaking`(기상 연출이
+  아직 돈다 = 카메라가 백뷰로 완전히 돌아오기 전)인 동안 가방을 **불러오지 않는다**. 이미 열린 창을 닫는 쪽은 그대로다. 연출이 끝나면 평소대로
+  열린다 (회귀 `scripts/smoke-intro-wake.mjs`).
+
 - **2026-09-14 5차 (함선 제작이 창고 재료를 쓴다 · `모두 수리` 이사 — 사용자 결정)** — 새 파일 없음. 자세한 것은
   위 `Materials across bag + stash` 와 `Ammo v2 / unload / repair` 절.
   - **제작이 창고를 못 보고 있었다.** 가구 제작 · 수리는 이미 `countDefAll` 이었는데 작업대의 아이템 제작만

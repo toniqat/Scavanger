@@ -19,6 +19,11 @@ import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from '@/player
  * 하면 같은 셰이더 프로그램을 쥔 머티리얼이 사라진 순간 three.js 가 프로그램을 지우고, 새 모델이 **같은 셰이더를
  * 다시 컴파일**했다 — 색 칸을 누를 때마다 미리보기가 한 번씩 멎었다. 옛 모델은 씬에서 떼기만 하고
  * `pendingDispose` 에 두었다가 `renderer.render` 뒤에 dispose 한다 (`player/Portraits` 와 같은 패턴).
+ *
+ * **2026-09-14 — 얼굴 스냅숏 (`snapshotFace`).** 확정 팝업의 오른쪽 썸네일은 **정지 이미지**다 (사용자 결정 —
+ * 「카메라 쪽 왼쪽 사선을 바라보는 얼굴, 정지된 채로」). 세 번째 GL 컨텍스트를 만들지 않고 이 렌더러로 얼굴 한 장을
+ * 그려 `toDataURL` 로 뽑은 뒤, 같은 태스크 안에서 턴테이블 화면을 다시 그려 캔버스를 돌려놓는다
+ * (`preserveDrawingBuffer` 없이도 같은 태스크의 `toDataURL` 은 방금 그린 버퍼를 읽는다).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 1.8 m 몸을 가슴 높이에서 살짝 위로 잡는 프레이밍 (`player/Portraits` 와 같은 계열의 값). */
@@ -31,11 +36,29 @@ const SPIN = 0.42;
 /** 작은 캔버스라 DPR 은 여기서 끊는다 (`Portraits` / `PlanetHologram` 과 같은 상한). */
 const MAX_DPR = 1.5;
 
+/* 얼굴 스냅숏 프레이밍 (연출 기하 — 밸런스 수치가 아니다). */
+/**
+ * 몸의 yaw. 모델의 정면은 −Z 이고 yaw 만큼 돌면 정면이 `(−sin yaw, 0, −cos yaw)` 가 된다 — π 면 카메라(+Z)를 똑바로
+ * 보고, π 에서 **덜** 돌수록 화면 왼쪽(−X)으로 고개가 간다. 0.7 rad ≈ 40° = 카메라 쪽 왼쪽 사선.
+ */
+const FACE_YAW = Math.PI - 0.7;
+const FACE_FOV = 24;
+/** 썸네일(정사각형으로 잘린다)의 짧은 변이 담을 폭 (m) — 헬멧 + 목 + 어깨 윗선. */
+const FACE_SPAN = 0.62;
+/** 바라보는 점 — `SoldierModel.headPivot`(목 밑동)에서 헬멧 가운데까지 (m). */
+const FACE_LOOK_UP = 0.15;
+/** 카메라를 눈높이보다 이만큼 올린다 (m) — 살짝 내려다보는 초상. */
+const FACE_CAM_UP = 0.04;
+
+const _head = new THREE.Vector3();
+
 class Preview {
   readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  /** 2026-09-14: 얼굴 스냅숏 전용 카메라 (턴테이블 카메라의 프레이밍을 건드리지 않는다). */
+  private readonly faceCamera: THREE.PerspectiveCamera;
   private model: SoldierModel | null = null;
   /** C-42: replaced models, already out of the scene — disposed after the next `renderer.render`. */
   private readonly pendingDispose: SoldierModel[] = [];
@@ -68,6 +91,7 @@ class Preview {
     this.camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.1, 40);
     this.camera.position.set(0, CAM_HEIGHT, CAM_DIST);
     this.camera.lookAt(0, LOOK_Y, 0);
+    this.faceCamera = new THREE.PerspectiveCamera(FACE_FOV, 1, 0.05, 20);
 
     // 키 + 림 + 반구광: 실루엣이 읽히고 갑주가 검게 죽지 않을 만큼만.
     const key = new THREE.DirectionalLight(0xfff3dd, 2.3);
@@ -111,9 +135,8 @@ class Preview {
     this.canvas.style.visibility = visible ? '' : 'hidden';
   }
 
-  /** 한 프레임. 닫혀 있으면 즉시 돌아온다 — 닫힌 생성창은 아무 비용도 쓰지 않는다. */
-  render(dt: number): void {
-    if (!this.visible || this.disposed || !this.model) return;
+  /** 캔버스 크기를 호스트에 맞춘다 (바뀔 때만). */
+  private fit(): void {
     const host = this.canvas.parentElement;
     const w = Math.max(1, Math.round(host?.clientWidth || this.canvas.clientWidth || 1));
     const h = Math.max(1, Math.round(host?.clientHeight || this.canvas.clientHeight || 1));
@@ -123,12 +146,58 @@ class Preview {
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
     }
+  }
+
+  /** 한 프레임. 닫혀 있으면 즉시 돌아온다 — 닫힌 생성창은 아무 비용도 쓰지 않는다. */
+  render(dt: number): void {
+    if (!this.visible || this.disposed || !this.model) return;
+    this.fit();
     this.time += dt;
     this.yaw += dt * SPIN;
     this.model.root.rotation.set(0, this.yaw, 0);
     this.model.update(dt, this.time, this.pose);   // 숨쉬기 / 미세한 흔들림
     this.renderer.render(this.scene, this.camera);
     this.flushPendingDispose();
+  }
+
+  /**
+   * 2026-09-14: 지금 악센트 색 병사의 **얼굴 한 장** — 카메라 쪽 왼쪽 사선을 보는 3/4 초상을 PNG data URL 로 돌려준다.
+   * 이미지는 캔버스 비율 그대로이고 부르는 쪽이 `object-fit: cover` 로 정사각형을 자른다 — 그래서 **짧은 변**이
+   * `FACE_SPAN` 을 담도록 거리를 잡는다. 그린 뒤 턴테이블 화면을 곧바로 다시 그려 미리보기 캔버스를 돌려놓는다.
+   * 모델이 없거나(폐기 · 빌드 실패) 캔버스를 읽지 못하면 null.
+   */
+  snapshotFace(): string | null {
+    const model = this.model;
+    if (this.disposed || !model) return null;
+    this.fit();
+    model.root.rotation.set(0, FACE_YAW, 0);
+    model.update(0, this.time, this.pose);
+    model.root.updateMatrixWorld(true);
+    model.headPivot.getWorldPosition(_head);
+    _head.y += FACE_LOOK_UP;
+
+    const cam = this.faceCamera;
+    const aspect = this.lastW / Math.max(1, this.lastH);
+    cam.aspect = aspect;
+    cam.updateProjectionMatrix();
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(FACE_FOV) / 2) * Math.min(1, aspect);
+    const dist = (FACE_SPAN / 2) / Math.max(1e-3, tanHalf);
+    cam.position.set(_head.x, _head.y + FACE_CAM_UP, _head.z + dist);
+    cam.lookAt(_head);
+
+    let url: string | null = null;
+    try {
+      this.renderer.render(this.scene, cam);
+      url = this.canvas.toDataURL('image/png');
+    } catch (e) {
+      console.warn('[SoldierPreview] face snapshot failed', e);
+      url = null;
+    }
+    // 턴테이블로 돌려놓는다 (같은 태스크 — 얼굴 프레임이 화면에 한 번도 걸리지 않는다)
+    model.root.rotation.set(0, this.yaw, 0);
+    this.renderer.render(this.scene, this.camera);
+    this.flushPendingDispose();
+    return url && url.startsWith('data:image/') ? url : null;
   }
 
   /** C-42: the new body is drawn (programs held) — the replaced ones can be freed now. */

@@ -224,7 +224,7 @@ export function findByModel(sys: WeaponSystem, model: WeaponModel): WeaponInstan
   return null;
   }
 
-/** Stats to aim with: every `altFire` unique aims at zoom 1 (RMB is its alt fire); the bow aims like a DMR. */
+/** Stats to aim with: a unique without `allowsAim` aims at zoom 1 (RMB is its alt fire — since 2026-09-14 the bow's too, RMB cancels the draw). */
 export function zoomStatsFor(sys: WeaponSystem, w: WeaponInstance): EffectiveWeaponStats | null {
   if (w.unique && !w.unique.allowsAim) return null;
   return w.stats;

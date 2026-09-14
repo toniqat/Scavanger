@@ -606,7 +606,7 @@ export class WeaponSystem implements GameSystem {
 
   findByModel(model: WeaponModel): WeaponInstance | null { return Slots.findByModel(this, model); }
 
-  /** Stats to aim with: every `altFire` unique aims at zoom 1 (RMB is its alt fire); the bow aims like a DMR. */
+  /** Stats to aim with: a unique without `allowsAim` aims at zoom 1 (RMB is its alt fire — since 2026-09-14 the bow's too, RMB cancels the draw). */
   zoomStatsFor(w: WeaponInstance): EffectiveWeaponStats | null { return Slots.zoomStatsFor(this, w); }
 
   /** Snapshot of the mouse / melee keys for a unique handler (one shared object, rewritten every frame). */

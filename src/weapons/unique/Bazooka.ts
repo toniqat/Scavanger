@@ -1,23 +1,25 @@
 import * as THREE from 'three';
 import {
   BAZOOKA_DAMAGE, BAZOOKA_RADIUS, BAZOOKA_SPEED, BAZOOKA_ALT_FUSE, BAZOOKA_ALT_DAMAGE, BAZOOKA_ALT_RADIUS,
-  BAZOOKA_SELF_DAMAGE, BAZOOKA_KNOCKBACK, BAZOOKA_SUPER_JUMP, BAZOOKA_FIRE_RATE,
+  BAZOOKA_KNOCKBACK, BAZOOKA_SUPER_JUMP, BAZOOKA_JUMP_FORWARD, BAZOOKA_FIRE_RATE, PLAYER_WALK_SPEED,
 } from '@/shared';
 import type { ProjectileHit } from '../Projectile';
 import type { UniqueHandler, UniqueInput, UniquePose, UniqueServices, UniqueWeapon } from './UniqueHandler';
 
 const _muzzle = new THREE.Vector3(), _launch = new THREE.Vector3(), _d = new THREE.Vector3(), _centre = new THREE.Vector3();
-const _away = new THREE.Vector3(), _imp = new THREE.Vector3(), _blast = new THREE.Vector3();
+const _away = new THREE.Vector3(), _imp = new THREE.Vector3(), _blast = new THREE.Vector3(), _hvel = new THREE.Vector3();
 /** Blast damage falloff floor for destructible cover at the edge of the radius. */
 const COVER_MIN = 0.3;
 
 /**
  * 「해머헤드」 바주카. LMB = impact rocket (`Projectile` style `rocket`, tag 0): `applyExplosion(BAZOOKA_RADIUS,
  * BAZOOKA_DAMAGE)` + destructible cover in the radius. RMB = air-burst rocket (tag 1, fuse `BAZOOKA_ALT_FUSE`,
- * `BAZOOKA_ALT_RADIUS` / `BAZOOKA_ALT_DAMAGE`). **Self damage**: inside the blast the player takes the flat
- * `BAZOOKA_SELF_DAMAGE` (armor ignored — it is passed straight to `takeDamage`) and `applyKnockback` away from the
- * blast; airborne with the blast below the feet → `applyImpulse(0, BAZOOKA_SUPER_JUMP, 0)` + `player:blastJump`.
- * One rocket per tube: an empty tube reloads itself after the shot.
+ * `BAZOOKA_ALT_RADIUS` / `BAZOOKA_ALT_DAMAGE`). **No self damage** (2026-09-14, user decision): inside the blast the
+ * player only gets `applyKnockback` away from it; airborne with the blast below the feet → rocket jump
+ * `applyImpulse(horizontal boost, BAZOOKA_SUPER_JUMP)` + `player:blastJump` (impulse = that vector). The horizontal
+ * boost is `BAZOOKA_JUMP_FORWARD × min(1, speed / PLAYER_WALK_SPEED)` along the horizontal velocity **before** the
+ * knockback (standing still = straight up); the player controller keeps that momentum until landing (`airCarry`).
+ * Magazine 3 (`magSize`) at `BAZOOKA_FIRE_RATE` (≈ 0.35 s apart); an empty tube reloads itself after the last shot.
  */
 export class Bazooka implements UniqueHandler {
   readonly kind = 'bazooka' as const;
@@ -95,22 +97,28 @@ export class Bazooka implements UniqueHandler {
         o.destructible.onDamage(damage * Math.max(COVER_MIN, 1 - d / radius), o.position);
       }
     }
-    // self damage / knockback / rocket jump
+    // knockback / rocket jump (no self damage)
     const host = s.host();
     if (host && !host.isDead) {
       _centre.copy(host.position); _centre.y += 0.9;
       const d = _centre.distanceTo(pos);
       if (d < radius) {
         /*
-         * 2026-09-10: 방탄복이 피해를 깎지 않게 되어(`damageReduction` 은 늘 0) 되돌릴 감쇄가 없다 —
-         * `BAZOOKA_SELF_DAMAGE` 를 그대로 넣는다. 방탄복은 이제 실드로 이 피해를 **대신 맞아 준다**.
+         * 2026-09-14 (사용자 결정): **자해 피해가 없다** — `takeDamage(BAZOOKA_SELF_DAMAGE)` 를 걷어냈다(상수는 계약이라
+         * 남는다). 넉백 · 로켓 점프는 그대로다. 수평 이동 방향은 넉백 **전에** 읽는다: 발밑보다 앞에서 터진 로켓의
+         * 넉백은 몸을 뒤로 밀어, 그 뒤에 읽으면 달리던 방향이 줄거나 뒤집힌다.
          */
-        host.takeDamage(BAZOOKA_SELF_DAMAGE, pos.clone());
+        _hvel.set(host.velocity.x, 0, host.velocity.z);
         _away.subVectors(_centre, pos);
         if (_away.lengthSq() < 1e-4) _away.set(0, 1, 0); else _away.normalize();
         if (typeof host.applyKnockback === 'function') host.applyKnockback(_away, BAZOOKA_KNOCKBACK);
         if (!host.isGrounded && pos.y < host.position.y + 0.4 && typeof host.applyImpulse === 'function') {
           _imp.set(0, BAZOOKA_SUPER_JUMP, 0);
+          const hs = _hvel.length();
+          if (hs > 1e-3) {
+            const k = BAZOOKA_JUMP_FORWARD * Math.min(1, hs / PLAYER_WALK_SPEED) / hs;
+            _imp.x = _hvel.x * k; _imp.z = _hvel.z * k;
+          }
           host.applyImpulse(_imp);
           ctx.bus.emit('player:blastJump', { position: host.position.clone(), impulse: _imp.clone() });
         }

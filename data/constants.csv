@@ -269,6 +269,9 @@ SHOCK_CHARGE_RANGE,200,
 SHOCK_CHARGE_CELLS,6,Cells per charged bolt.
 SHOCK_SLOW_FACTOR,0.55,'shocked' status: slow factor and duration applied by the arc.
 SHOCK_SLOW_DURATION,1.2,
+SHOCK_FIZZLE_FORKS,3,"2026-09-14 테슬라 코일 LMB: 원뿔 안에 전격을 받을 대상이 없을 때 조준점 쪽으로 튀는 전격 가지 수 (시각 전용, SHOCK_MAX_TARGETS 이하). 첫 가지는 늘 조준점(벽 · 사거리 끝)으로 간다 — 그 전에는 대상이 없으면 아무것도 그리지 않아 「전격이 아예 안 나간다」로 보였다."
+SHOCK_FIZZLE_SPREAD_DEG,9,"그 가지들이 총구 → 조준점 선에서 벌어지는 최대 반각(도)."
+SHOCK_CRACKLE_INTERVAL,0.2,"전격이 켜져 있는 동안 지지직 소리(shot_energy 작게)를 다시 내는 간격(초). 켜는 순간에는 한 번 더 크게 난다. 원격 분대원의 전격도 같은 간격."
 SHURIKEN_DAMAGE,58,
 SHURIKEN_SPEED,65,
 SHURIKEN_FIRE_RATE,3.2,
@@ -281,20 +284,26 @@ SLASH_RANGE,3.8,
 SLASH_ARC_DEG,160,
 SLASH_FOV_MUL,1.28,Camera FOV multiplier while `PlayerRef.setViewWiden(true)` (the slash wind-up / swing).
 SLASH_DURATION,0.6,
-BOW_DAMAGE,150,
+BOW_DAMAGE,150,Full-draw arrow damage — a tap (no draw) deals BOW_DAMAGE × BOW_TAP_POWER; linear in between.
 BOW_RANGE,150,
-BOW_FIRE_RATE,2.4,
-BOW_PROJECTILE_SPEED,115,
+BOW_FIRE_RATE,4,Cooldown after an arrow leaves = 1 / BOW_FIRE_RATE s (taps can follow each other quickly).
+BOW_PROJECTILE_SPEED,140,Full-draw arrow speed (m/s).
+BOW_DRAW_TIME,0.8,Seconds of LMB hold from nothing to a full draw (the unique csv chargeTime column).
+BOW_TAP_POWER,0.3,Damage fraction of a tap (draw 0).
+BOW_TAP_SPEED,45,Arrow speed (m/s) of a tap; lerps to BOW_PROJECTILE_SPEED with the draw.
+BOW_TAP_GRAVITY,12,Arrow drop (m/s²) of a tap — fine at 10–15 m and clearly low past ~25 m; lerps to BOW_FULL_GRAVITY.
+BOW_FULL_GRAVITY,0.5,Arrow drop (m/s²) at full draw (flies nearly straight to the crosshair).
 BAZOOKA_DAMAGE,420,
 BAZOOKA_RADIUS,5.5,
 BAZOOKA_SPEED,48,
 BAZOOKA_ALT_FUSE,0.4,Seconds after launch when the RMB rocket detonates on its own.
 BAZOOKA_ALT_DAMAGE,260,
 BAZOOKA_ALT_RADIUS,4.5,
-BAZOOKA_SELF_DAMAGE,22,"Self damage taken inside the blast (flat, ignores armor DR) and the knockback speed away from the blast."
-BAZOOKA_KNOCKBACK,15,
-BAZOOKA_SUPER_JUMP,17,Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump).
-BAZOOKA_FIRE_RATE,0.8,
+BAZOOKA_SELF_DAMAGE,22,"2026-09-14 은퇴 — 바주카는 자해 피해가 없다 (사용하는 곳 없음). 계약 상수라 줄만 남는다. (옛 뜻: 폭발 반경 안에서 받는 고정 자해 피해.)"
+BAZOOKA_KNOCKBACK,15,Knockback speed away from the blast when the player is inside the radius.
+BAZOOKA_SUPER_JUMP,26,"Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump). 2026-09-14: 17 → 26 (사용자 결정 — 더 높이 · 더 멀리, 중력은 그대로)."
+BAZOOKA_JUMP_FORWARD,8,"2026-09-14: 로켓 점프의 수평 가속 (m/s) — 폭발 순간의 수평 이동 방향으로 더한다. 걷기 속도(PLAYER_WALK_SPEED) 보다 느리면 그 비율만큼 줄고 제자리면 0."
+BAZOOKA_FIRE_RATE,2.85,"2026-09-14: 연달아 세 발 — 발 간격 1/2.85 ≈ 0.35 초 (탄창 크기는 weapons_unique.csv 의 magSize)."
 MINIGUN_SPINUP_TIME,1.2,
 MINIGUN_SPINDOWN_TIME,0.8,
 MINIGUN_DAMAGE,24,
@@ -1043,6 +1052,7 @@ TUTORIAL_ENEMY_SENSE_M,12,"튜토리얼 전용 적의 감지 반경 (m). 체크�
 TUTORIAL_ENEMY_LEASH_M,22,"자기 자리에서 이 거리를 벗어나면 돌아간다. 튜토리얼 적은 구간 밖까지 쫓아오지 않는다."
 TUTORIAL_RESPAWN_DELAY_S,2.5,"튜토리얼 사망 → 체크포인트 부활까지 (사망 연출을 보여 주되 기다리게 하지 않는다)."
 TUTORIAL_INTRO_WAKE_S,9,"오프닝 기상 연출 — 쓰러진 몸을 비추다 일어서서 백뷰로 컷할 때까지. 2026-09-14 3차: 4.5 → 9 (일어서는 속도를 절반으로 · 밝아지는 데 약 2초)."
+TUTORIAL_COMPASS_FADE_S,1.2,"기상 연출이 끝나 카메라가 백뷰로 돌아온 뒤 나침반이 서서히 나타나는 시간 (s). CSS 전이가 아니라 코드가 opacity 를 올린다 — OS 가 애니메이션 효과를 끄면(prefers-reduced-motion) CSS 전이는 0.01 ms 로 잘린다."
 TUTORIAL_RAID_XP,120,"튜토리얼 레이드 완주 보상 XP — **본편 정산식(처치 · 시간 · 탈출 보너스)을 대신한다**. 120 = XP_BASE = 정확히 레벨 2 라 함선에서 능력치 포인트 투자를 바로 배운다. 2026-09-15 (A-17): 900 은 누적 곡선(Lv.2 120 · Lv.3 426 · Lv.4 955)에서 레벨 3 이었다. XP_BASE 를 고치면 이 줄도 같이 본다."
 # 자세별 몸 높이 (발 위 클리어런스, m) — 낮은 통로를 앉아서 지나는 판정의 원본.
 # 서 있을 때는 지금까지와 같은 BOX_HEADROOM(2.1) 을 그대로 쓴다 — 본편 동선은 한 곳도 안 바뀐다.

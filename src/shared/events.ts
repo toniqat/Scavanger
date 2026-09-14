@@ -469,8 +469,11 @@ export interface GameEvents {
   'cheat:seed': { seed: number | null };
 
   /* ── unique weapons (owner: weapons unless noted) ── */
-  /** Charge / spin-up / slash wind-up readout 0..1 (−1 = cancelled). ui draws a gauge next to the reticle. */
-  'weapon:chargeChanged': { weaponId: string; kind: 'charge' | 'spinup' | 'slash'; t: number };
+  /**
+   * Charge / spin-up / slash wind-up readout 0..1 (−1 = cancelled). ui draws a gauge next to the reticle.
+   * 2026-09-14: `draw` = 「롱혼」 활 시위 당기기 — the arc gauge ignores it, the reticle's bow bars (한조식) draw it.
+   */
+  'weapon:chargeChanged': { weaponId: string; kind: 'charge' | 'spinup' | 'slash' | 'draw'; t: number };
   /** Continuous fire (flame / shock arc) switched on or off; `mode` = LMB primary or RMB alt. Audio loops on this. */
   'weapon:beamChanged': { weaponId: string; active: boolean; mode: 'primary' | 'alt' };
   /** A unique weapon used its RMB alternative fire (triple shuriken, charged bolt, air-burst rocket, flame jet). */

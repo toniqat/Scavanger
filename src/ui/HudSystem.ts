@@ -141,6 +141,11 @@ export class HudSystem implements GameSystem {
   private fadeOpacity = 0;
   /** 2026-09-15 (B-14): 낙하 붉은 비네트 (`player:fell`) — `#ui-root` 직계 z 25, 연출 전용 판. */
   private fallVignette!: FallVignette;
+  /** 2026-09-14: 지금 판에 칠해진 불투명도 · 전이의 시작값 · 경과 · 길이 — CSS 전이 대신 `update` 가 옮긴다. */
+  private fadeShown = 0;
+  private fadeFrom = 0;
+  private fadeT = 0;
+  private fadeDur = 0;
 
   private reticle!: Reticle;
   private vitals!: Vitals;
@@ -476,8 +481,12 @@ export class HudSystem implements GameSystem {
 
   /**
    * 2026-09-14 — **화면 전체 검은 페이드** (`ui:screenFade {opacity, durationS}`, 첫 사용자는 튜토리얼 오프닝).
-   * `durationS` 에 걸쳐 그 불투명도로 간다; 0 이면 그 프레임에 즉시다 (전이를 `none` 으로 꺼서 남은 전이가
-   * 이어지지 않게 한다 — 둘을 같은 태스크에서 쓰므로 스타일 재계산 때 `none` 이 적용된다).
+   * `durationS` 에 걸쳐 **지금 칠해진 값에서** 그 불투명도로 간다; 0 이면 그 자리에서 즉시다.
+   *
+   * **CSS 전이를 쓰지 않는다** (2026-09-14 수정): OS 가 애니메이션 효과를 끄면 `styles/base.css` 의 reduced-motion
+   * 규칙이 모든 `transition-duration` 을 0.01 ms 로 자르고, 그러면 검정이 한 프레임에 사라져 「페이드가 안 된다」가
+   * 됐다 (이 개발 PC 가 그 설정이었다). 그래서 `update` 가 시뮬레이션 dt 로 선형 보간해 인라인 opacity 를 쓴다 —
+   * 일어나는 연출과 같은 시계라 일시정지 · 셰이더 hold 동안 둘이 함께 멈춘다.
    *
    * 이것은 **연출이지 화면이 아니다**: blocker 도, `ctx.escape` 스택의 항목도 아니고 포인터를 먹지도 않는다.
    * 그래서 부르는 쪽(player/ 의 기상 연출)은 입력 잠금을 자기 폴더에서 따로 건다.
@@ -486,17 +495,36 @@ export class HudSystem implements GameSystem {
     const o = Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 0));
     const d = Math.max(0, Number.isFinite(durationS) ? durationS : 0);
     this.fadeOpacity = o;
-    this.screenFade.style.transition = d > 0 ? `opacity ${d.toFixed(3)}s linear` : 'none';
-    this.screenFade.style.opacity = o.toFixed(3);
+    this.fadeFrom = this.fadeShown;
+    this.fadeT = 0;
+    this.fadeDur = d;
+    if (d <= 0) this.paintScreenFade(o);
+  }
+
+  /** 한 프레임만큼 검은 판을 목표로 옮긴다 (이미 닿았으면 비교 하나로 끝). */
+  private stepScreenFade(dt: number): void {
+    if (this.fadeShown === this.fadeOpacity) return;
+    this.fadeT += Math.max(0, dt);
+    const k = this.fadeDur > 0 ? Math.min(1, this.fadeT / this.fadeDur) : 1;
+    this.paintScreenFade(k >= 1 ? this.fadeOpacity : this.fadeFrom + (this.fadeOpacity - this.fadeFrom) * k);
+  }
+
+  private paintScreenFade(v: number): void {
+    this.fadeShown = v;
+    this.screenFade.style.opacity = v.toFixed(3);
   }
 
   /** Smoke hook: the black plate's target opacity (0 = 화면이 열려 있다). */
   get screenFadeOpacity(): number { return this.fadeOpacity; }
   /** Smoke hook (2026-09-15, B-14): the fall vignette's current opacity (0 = off). */
   get fallVignetteOpacity(): number { return this.fallVignette.opacity; }
+  /** Smoke hook (2026-09-14): the opacity actually painted this frame (moves toward `screenFadeOpacity`). */
+  get screenFadeShown(): number { return this.fadeShown; }
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
+    // 2026-09-14: 검은 페이드는 CSS 전이가 아니라 여기서 옮긴다 (`setScreenFade` 주석 — reduced motion)
+    this.stepScreenFade(dt);
     // Map polls M and draws itself while open (also handles its own blocker token).
     this.map.update(ctx);
     // 2026-09-13: 탐사 차량 탑승 HUD — 레이어 가시성과 무관하게 돈다 (키 가이드 · `rover-view` 를 제때 걷어야 한다)
@@ -508,7 +536,7 @@ export class HudSystem implements GameSystem {
       this.reload.update(dt);
       this.strat.update(ctx);
       this.targeting.update(ctx);
-      this.compass.update(ctx);
+      this.compass.update(ctx, dt);   // 2026-09-14: dt = 기상 연출 뒤 서서히 나타나기
       this.objective.update(ctx);
       this.pings.update(dt, ctx);
       this.spectate.update(dt, ctx);
@@ -637,6 +665,10 @@ export class HudSystem implements GameSystem {
   get isImplantHudDimmed(): boolean { return this.implantWidget.isDimmed; }
   /** 크로스헤어 좌측 갈고리 칩: 'off' | 'dim' | 'ready' (debug / smoke). */
   get grappleChip(): 'off' | 'dim' | 'ready' { return this.reticle.grappleChip; }
+  /** 2026-09-14 크로스헤어 활 모드: `{on, draw (0 = 아래 단 … 1 = 중앙), full}` (debug / smoke). */
+  get bowReticle(): { on: boolean; draw: number; full: boolean } {
+    return { on: this.reticle.bowMode, draw: this.reticle.bowDraw, full: this.reticle.bowFull };
+  }
   /** Unique-weapon charge gauge kind while showing, else null (debug). */
   get weaponChargeKind(): 'charge' | 'spinup' | 'slash' | null { return this.wcharge.activeKind; }
   /** Live 전소 / 감전 world markers (debug). */

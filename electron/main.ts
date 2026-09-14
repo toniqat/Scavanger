@@ -197,14 +197,31 @@ const APP_PORT = Number(value('app-port', 'SCAV_APP_PORT') ?? 8790) || 8790;
 /** 첫 칸이 막혔을 때 훑어볼 칸 수. 임의 포트로는 절대 떨어지지 않는다 — 그게 세이브를 지운다. */
 const APP_PORT_TRIES = 10;
 
-/** Listen on `preferred`, falling back to an OS-chosen free one when it is taken (a second copy, or `npm run server`). */
+/**
+ * 포트를 못 여는 두 가지 — `EADDRINUSE`(누가 쓰는 중: 두 번째 사본 · `npm run server`)와 `EACCES`.
+ *
+ * **2026-09-14 — `EACCES`.** Windows 의 WinNAT(Hyper-V · WSL · Docker 가 쓴다)가 부팅할 때 100 칸짜리 대역을
+ * 무작위로 예약하고, 그 안의 포트는 관리자라도 `listen` 이 `EACCES` 로 거절된다
+ * (`netsh int ipv4 show excludedportrange protocol=tcp`). 예전에는 `EADDRINUSE` 만 "다음 칸" 으로 봐서
+ * 창 포트가 예약에 걸리면 **남은 칸을 보지도 않고** 오류 창을 띄웠다. 둘 다 "다른 칸을 보라" 는 뜻이다.
+ */
+function isPortBlocked(e: unknown): boolean {
+  const code = (e as NodeJS.ErrnoException).code;
+  return code === 'EADDRINUSE' || code === 'EACCES';
+}
+
+function blockedWhy(e: unknown): string {
+  return (e as NodeJS.ErrnoException).code === 'EACCES' ? 'reserved by Windows' : 'busy';
+}
+
+/** Listen on `preferred`, falling back to an OS-chosen free one when it is taken (a second copy, or `npm run server`) or reserved. */
 async function listenWithFallback(preferred: number, start: (port: number) => Promise<number>): Promise<number> {
   if (preferred === 0) return start(0);
   try {
     return await start(preferred);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
-    console.warn(`[desktop] port ${preferred} is busy -> using a free port`);
+    if (!isPortBlocked(e)) throw e;
+    console.warn(`[desktop] port ${preferred} is ${blockedWhy(e)} -> using a free port`);
     return start(0);
   }
 }
@@ -216,12 +233,40 @@ async function listenStable(ports: readonly number[], start: (port: number) => P
     try {
       return await start(p);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
+      if (!isPortBlocked(e)) throw e;
       last = e as Error;
-      console.warn(`[desktop] app port ${p} is busy -> trying the next one`);
+      console.warn(`[desktop] app port ${p} is ${blockedWhy(e)} -> trying the next one`);
     }
   }
   throw last ?? new Error('no free app port');
+}
+
+/**
+ * 부팅 실패 오류 창의 본문. 창 포트가 Windows 예약(`EACCES`)에 걸렸으면 원인과 푸는 명령을 붙인다 —
+ * **포트를 옮기라고는 하지 않는다**(오리진 = 세이브). 가운데 줄은 그 포트들을 사용자 예약(`*`)으로 먼저 잡아
+ * 다음 부팅에 WinNAT 가 다시 가져가지 못하게 한다. 사용자 예약 포트는 앱이 그대로 `listen` 할 수 있다
+ * (2026-09-14 측정: 사용자 예약 50000 → OK, WinNAT 예약 8790 → EACCES). 릴레이 포트가 창 포트 바로 앞이면 같이 잡는다.
+ */
+function startupFailureMessage(e: unknown): string {
+  const lines = ['로컬 서버를 시작하지 못했습니다.', (e as Error).message];
+  if ((e as NodeJS.ErrnoException).code !== 'EACCES') return lines.join('\n');
+  const last = APP_PORT + APP_PORT_TRIES - 1;
+  const first = wantPort < APP_PORT && APP_PORT - wantPort <= 16 ? wantPort : APP_PORT;
+  lines.push(
+    '',
+    `포트 ${APP_PORT}–${last} 가 Windows 에 예약되어 있습니다.`,
+    '(Hyper-V · WSL · Docker 가 쓰는 WinNAT 서비스가 부팅할 때 잡는 대역입니다.)',
+    '',
+    '관리자 PowerShell 에서 아래 세 줄을 실행한 뒤 다시 켜 주세요:',
+    '',
+    '    net stop winnat',
+    `    netsh int ipv4 add excludedportrange protocol=tcp startport=${first} numberofports=${last - first + 1}`,
+    '    net start winnat',
+    '',
+    '가운데 줄이 이 포트들을 먼저 잡아 두어 다음 부팅에도 다시 막히지 않습니다.',
+    '(창 포트를 바꾸면 세이브가 새로 시작되므로 포트를 옮기지 않습니다.)',
+  );
+  return lines.join('\n');
 }
 
 /**
@@ -447,7 +492,7 @@ if (!app.requestSingleInstanceLock()) {
       console.log(`[desktop] http://127.0.0.1:${port}/  (relay ws ${NET_WS_PATH} -> ${routeLabel})`);
       createWindow(port);
     } catch (e) {
-      dialog.showErrorBox('SCAVANGER', `로컬 서버를 시작하지 못했습니다.\n${(e as Error).message}`);
+      dialog.showErrorBox('SCAVANGER', startupFailureMessage(e));
       app.quit();
     }
   });

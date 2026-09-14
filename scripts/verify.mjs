@@ -195,6 +195,10 @@ const SMOKES = {
   'smoke-fall-damage':  { file: 'scripts/smoke-fall-damage.mjs',  folders: ['player', 'audio', 'ui', 'world'] },
   /* 2026-09-15 (B-16 · 사용자 버그): 화염 지대 — 화염수류탄 · G-10 소이 수류탄이 실제로 불 지대를 세우는가 · 피해 · 드론 피해 · 소리 · 만료. */
   'smoke-fire-zones':   { file: 'scripts/smoke-fire-zones.mjs',   folders: ['gadgets', 'weapons', 'items', 'enemies', 'audio'] },
+  /* 2026-09-14: 캐릭터 확정 팝업(요약 카드 · 값/5 게이지 · 얼굴 정지 썸네일 · 1초 홀드) → 새로고침 → 튜토리얼 오프닝 — 검은 페이드가 코드로
+     중간값을 지난다(reduced motion 에서도) · 연출이 **끝난다**(음수 타이머 버그) · 카메라가 백뷰로 이어진다 · 연출 중 나침반 0 / Tab 막힘 →
+     끝나면 나침반 페이드인 · Tab 열림 · 튜토리얼 레이드 내내 시계 · 탈출 타이머 없음. */
+  'smoke-intro-wake':   { file: 'scripts/smoke-intro-wake.mjs',   folders: ['player', 'tutorial', 'ui', 'inventory'] },
   /* 2026-09-08: 공용 함선 격납고 — 두 클라이언트가 필요하다 (개인 함선 방문 · `hs` 동석 규칙). 릴레이를 쓰므로
      e2e 와 같이 exclusive 로 돈다. */
   'smoke-hangar':       { file: 'scripts/smoke-hangar.mjs',       folders: ['hub', 'net', 'housing', 'player'], exclusive: true, freshRelay: true },

@@ -3201,6 +3201,12 @@ export interface PlayerRef {
    */
   playIntroWake?(durationS: number): void;
   /**
+   * appended (2026-09-14, owner: player; callers: ui/hud/Compass · inventory): 오프닝 기상 연출이 **아직 돌고 있다** —
+   * 몸이 일어서며 카메라가 평소 3인칭 백뷰로 **완전히 돌아오기 전**이다. 그 동안 나침반은 그리지 않고(끝나면 서서히
+   * 나타난다) Tab 은 가방을 불러오지 않는다 (사용자 결정). `player:introWakeDone` 이 나는 프레임에 false 가 된다.
+   */
+  readonly introWaking?: boolean;
+  /**
    * 체력을 **그대로 정한다** — 각본된 장면이 몸 상태를 정하는 자리. 지금 쓰는 곳은 튜토리얼 하나다
    * (폐허에서 깨어난 사람은 **딸피**라 벌레에게 한 대 맞으면 죽는다 — 사용자 명세).
    * 피격 연출 · 방향 호 · 소리를 내지 않고 **실드를 건드리지 않는다**; 죽은 · 전투불능 상태에서는 아무것도 안 한다.

@@ -317,6 +317,39 @@
   background: color-mix(in srgb, var(--c-danger) 45%, transparent);
   pointer-events: none;
 }
+/* 2026-09-14: 붉지 않은 홀드 확인 (`AskSpec.hold` — 캐릭터 `만들기`). 채움만 악센트 색이다. */
+.tm-ask:not(.danger) .tm-ask-fill { background: rgba(255, 179, 71, 0.3); }
+.tm-ask-body[hidden], .tm-ask-content[hidden] { display: none; }
+
+/* ── 캐릭터 확정 요약 카드 (2026-09-14, 사용자 결정 — `CharacterCreate.buildSummary`) ─────────────────────
+   왼쪽 = 이름 한 줄 + 능력치 다섯 칸 가로 게이지(값 / 5), 오른쪽 = 얼굴 정지 썸네일(`SoldierPreview.snapshotFace`,
+   캔버스 비율의 이미지를 `object-fit: cover` 로 정사각형으로 자른다). 카드가 두 열이라 폭만 넓힌다. */
+.tm-ask-card.cc-confirm-card { width: min(620px, calc(100vw - 48px)); }
+.cc-confirm { display: flex; align-items: stretch; gap: 18px; }
+.cc-cf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+.cc-cf-name { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.cc-cf-name .v {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 18px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text);
+}
+.cc-cf-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.cc-cf-stat { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cc-cf-stat .h { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; min-width: 0; }
+.cc-cf-stat .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
+.cc-cf-stat .v { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; line-height: 1; }
+.cc-cf-stat .bar { position: relative; height: 5px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.cc-cf-stat .bar i {
+  position: absolute; inset: 0; transform-origin: left; transform: scaleX(0);
+  background: linear-gradient(90deg, var(--c-success), #a6f0c0);
+}
+.cc-cf-stat.maxed .v { color: var(--c-accent); }
+.cc-cf-stat.maxed .bar i { background: var(--c-accent); }
+.cc-cf-face {
+  flex: none; width: 136px; height: 136px; overflow: hidden;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, rgba(16, 20, 27, 0.9), rgba(6, 8, 11, 0.95));
+}
+.cc-cf-face img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
 
 /* 하위 화면(캐릭터 선택 · 생성)이 떠 있는 동안 타이틀 본체는 눈에서만 사라진다 — blocker 와 커서 소유권은
    계속 `MenuBase` 가 쥐고 있어야 하므로 `hide()` 를 부르지 않고 프레임만 지운다. */

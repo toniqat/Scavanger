@@ -33,7 +33,7 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
   flamethrower: { l: '넓은 화염', r: '긴 화염 제트' },
   shockgun: { l: '연쇄 전격', r: '충전 볼트' },
   shuriken: { l: '표창 1개', r: '표창 3개 (F 길게: 용검)' },
-  bow: { l: '화살', r: '정조준' },
+  bow: { l: '당겨 쏘기', r: '당기기 취소' },
   bazooka: { l: '착탄 로켓', r: '공중 폭발 (바닥 우클릭: 로켓 점프)' },
   minigun: { l: '예열 후 사격', r: '—' },
 };
