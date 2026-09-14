@@ -1345,6 +1345,18 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] 탈출 개편 ── */
 
+/* ── [2026-09-14 2차] 화면 페이드 (owner: ui/HudSystem) ── */
+export interface GameEvents {
+  /**
+   * 화면 전체를 덮는 검은 판의 목표 불투명도. `opacity` 1 = 완전한 검정 · 0 = 투명이고 `durationS` 동안 그 값으로
+   * 간다 (0 = 즉시). 판은 `ctx.uiRoot` 맨 위에 있고 **입력을 먹지 않는다** — 연출이지 blocker 가 아니다.
+   * 첫 사용자는 튜토리얼 오프닝(`PlayerRef.playIntroWake`): 검은 화면에서 시작해 쓰러진 몸이 드러나며 밝아진다.
+   * 페이즈가 게임플레이를 벗어나거나 `game:abort` 가 나면 ui 가 스스로 0 으로 되돌린다.
+   */
+  'ui:screenFade': { opacity: number; durationS: number };
+}
+/* ── end [2026-09-14 2차] ── */
+
 /* ── [2026-09-13] 굴착 스폰 · 지하벌레 (owner: enemies) ── */
 export interface GameEvents {
   /**

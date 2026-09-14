@@ -121,8 +121,18 @@ export type TutorialGate =
    */
   | 'hud';
 
-/** `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다. */
-export type TutorialHudPart = 'vitals' | 'weapon' | 'stamina' | 'implant' | 'stratagem';
+/**
+ * `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다.
+ *
+ * appended (2026-09-14 2차, 사용자 결정) — 튜토리얼 레이드의 **탈출 함선 표시**와 **상단 탈출 타이머**:
+ *   • `shipMarker`       지도 마커 · 월드(3D) 마커. `extract` 단계에 들어서면 풀린다 — 그때는 「함선을 찾아가라」가
+ *                        곧 목표라 표시가 안내 역할을 한다.
+ *   • `shipScreenMarker` 화면(나침반 · 화면 밖 화살표) 함선 마커. **튜토리얼 레이드 내내** 뜨지 않는다.
+ *   • `extractionTimer`  상단 중앙의 「자동 출발까지」 · 「도착」 라벨 (튜토리얼 함선은 자동 출발을 걸지 않는다).
+ */
+export type TutorialHudPart =
+  | 'vitals' | 'weapon' | 'stamina' | 'implant' | 'stratagem'
+  | 'shipMarker' | 'shipScreenMarker' | 'extractionTimer';
 
 /** 한 트랙의 상태. */
 export interface TutorialTrackSave {

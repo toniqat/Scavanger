@@ -44,6 +44,14 @@ function hudHidden(step: TutorialStepId, id: string | undefined, st: HudRevealSt
     case 'vitals':
     case 'weapon': return i <= RAID_STEPS.indexOf(HUD_GEAR_STEP);
     case 'stamina': return !st.staminaUsed && i <= RAID_STEPS.indexOf(HUD_STAMINA_STEP);
+    /*
+     * 2026-09-14 2차 (사용자 결정) — 탈출 함선 표시. 지도 · 월드 마커는 **마지막 단계에서 켜진다**
+     * (그때는 「함선을 찾아가라」가 곧 목표라 표시가 안내다). 화면(나침반) 마커와 상단 탈출 타이머는
+     * 레이드 내내 없다 — 튜토리얼 함선은 자동 출발을 걸지 않으므로 「자동 출발까지」가 거짓말이다.
+     */
+    case 'shipMarker': return i < RAID_STEPS.indexOf('extract');
+    case 'shipScreenMarker':
+    case 'extractionTimer': return true;
     default: return false;
   }
 }

@@ -40,4 +40,14 @@ export interface ExtractionRef {
    * `autoDepart: false` 면 무응답 60초 자동 출발을 걸지 않는다 — 튜토리얼은 둘러보는 시간이 필요하다.
    */
   beginPreLanded?(position: THREE.Vector3, yaw: number, opts?: { autoDepart?: boolean }): boolean;
+
+  /* ── appended (2026-09-14 2차, 사용자 결정 — 튜토리얼 건너뛰기 = 즉시 탈출) ── */
+  /**
+   * 걸어가서 타는 것을 건너뛰고 **곧장 이륙시킨다** — 로컬 플레이어를 화물칸에 세운 뒤 유예 없이 `liftoff` 로
+   * 넘어가므로, 그 뒤의 결과 화면 · 정산 · 함선 획득이 **평소 탈출 경로 그대로** 흐른다.
+   *
+   * 튜토리얼 전용이다: `ctx.missionMode !== 'tutorial'` 이거나 함선이 `landed` 가 아니면 false.
+   * 부르는 곳은 `TutorialSystem.skipTrack('raid')` 하나다 (ESC 메뉴의 「튜토리얼 건너뛰기」가 그리로 간다).
+   */
+  skipToLiftoff?(): boolean;
 }
