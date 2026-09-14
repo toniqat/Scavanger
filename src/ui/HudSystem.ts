@@ -134,6 +134,9 @@ export class HudSystem implements GameSystem {
   private hudRoot!: HTMLElement;
   private socialRoot!: HTMLElement;
   private overlayRoot!: HTMLElement;
+  /** 2026-09-14: 화면 전체 검은 페이드 (`ui:screenFade`) — 연출 전용 판, blocker 가 아니다. */
+  private screenFade!: HTMLElement;
+  private fadeOpacity = 0;
 
   private reticle!: Reticle;
   private vitals!: Vitals;
@@ -353,6 +356,12 @@ export class HudSystem implements GameSystem {
     // 인게임 마우스 커서 sprite: same placement rationale as the item card — over every window, layer and menu.
     this.gameCursor = new GameCursor();
 
+    /* ── 화면 전체 검은 페이드 (2026-09-14, `ui:screenFade`) ──────────────────────────────────────────────
+     * 튜토리얼 오프닝(눈을 뜬다)이 첫 사용자다. **연출이지 blocker 가 아니다** — 포인터를 먹지 않고
+     * (`pointer-events: none`) `ctx.escape` · `ctx.uiBlockers` 에 올라가지 않는다. 그래서 페이드가 1.0 이어도
+     * 입력 · ESC 는 평소 그대로 흐른다. 자리 · 불투명도 전이는 `styles/base.css` 의 `.screen-fade` 가 갖는다. */
+    this.screenFade = el('div', { cls: 'screen-fade', parent: ctx.uiRoot });
+
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
     this.map.setPingSource(() => this.pings.getPings());
@@ -416,6 +425,11 @@ export class HudSystem implements GameSystem {
       b.on('ui:cinematic', ({ active }) => this.setCinematic(active)),
       b.on('game:abort', () => this.setCinematic(false)),
       b.on('game:newMission', () => this.setCinematic(false)),
+      /* 2026-09-14: 화면 전체 검은 페이드. `game:newMission` 은 **일부러 듣지 않는다** — `world:ready` 가 그
+       * 이벤트 안에서 동기로 발행되므로(`hud/Compass` 주석), 월드가 뜨자마자 켜는 오프닝 페이드를 우리가 도로
+       * 지워 버린다. 방어는 `game:abort` 와 아래 `applyVisibility` 의 페이즈 가드 둘이면 충분하다. */
+      b.on('ui:screenFade', ({ opacity, durationS }) => this.setScreenFade(opacity, durationS)),
+      b.on('game:abort', () => this.setScreenFade(0, 0)),
       b.on('extraction:tick', ({ remaining }) => {
         if (ctx.phase !== 'extracting') return;
         // Keep the objective in sync with the timer (cheap: text only changes once a second).
@@ -446,6 +460,25 @@ export class HudSystem implements GameSystem {
 
   /** Smoke hook: the departure cinematic currently hides the combat HUD. */
   get isCinematic(): boolean { return this.cinematic; }
+
+  /**
+   * 2026-09-14 — **화면 전체 검은 페이드** (`ui:screenFade {opacity, durationS}`, 첫 사용자는 튜토리얼 오프닝).
+   * `durationS` 에 걸쳐 그 불투명도로 간다; 0 이면 그 프레임에 즉시다 (전이를 `none` 으로 꺼서 남은 전이가
+   * 이어지지 않게 한다 — 둘을 같은 태스크에서 쓰므로 스타일 재계산 때 `none` 이 적용된다).
+   *
+   * 이것은 **연출이지 화면이 아니다**: blocker 도, `ctx.escape` 스택의 항목도 아니고 포인터를 먹지도 않는다.
+   * 그래서 부르는 쪽(player/ 의 기상 연출)은 입력 잠금을 자기 폴더에서 따로 건다.
+   */
+  private setScreenFade(opacity: number, durationS: number): void {
+    const o = Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 0));
+    const d = Math.max(0, Number.isFinite(durationS) ? durationS : 0);
+    this.fadeOpacity = o;
+    this.screenFade.style.transition = d > 0 ? `opacity ${d.toFixed(3)}s linear` : 'none';
+    this.screenFade.style.opacity = o.toFixed(3);
+  }
+
+  /** Smoke hook: the black plate's target opacity (0 = 화면이 열려 있다). */
+  get screenFadeOpacity(): number { return this.fadeOpacity; }
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
@@ -766,6 +799,10 @@ export class HudSystem implements GameSystem {
     toggleClass(this.overlayRoot, 'hidden', !overlayVisible);
     // 2026-09-13: a cinematic never outlives the raid (the result screen / ship bring the HUD back on their own terms)
     if (this.cinematic && !ctx.isGameplayPhase()) this.setCinematic(false);
+    /* 2026-09-14: 검은 페이드도 레이드보다 오래 살지 않는다 — 같은 자리의 같은 방어다. 다만 기준은 `inGame`
+     * (게임플레이 + `deploying`)이다: 오프닝 페이드는 강하 · 월드 준비 구간에 걸쳐 있어, `isGameplayPhase()`
+     * 하나로 자르면 켜자마자 다음 프레임에 지워진다. 결과 화면 · 함선 · 타이틀 · 사망 화면에서는 즉시 걷힌다. */
+    if (this.fadeOpacity > 0 && !inGame) this.setScreenFade(0, 0);
     // Reticle hidden while inventory / any blocker is open (handled in Reticle.update via opacity).
   }
 
@@ -787,5 +824,6 @@ export class HudSystem implements GameSystem {
     this.settings.dispose();
     this.keybinds.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove(); this.housingRoot.remove();
+    this.screenFade.remove();
   }
 }

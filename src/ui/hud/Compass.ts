@@ -42,6 +42,10 @@ interface EnemyTick { el: HTMLElement; lastKey: string }
  * (their position follows the enemy object live). Ticks are pooled (`MAX_ENEMY_TICKS` DOM nodes, created once) and
  * only those whose bearing falls inside the visible ±80° arc are shown — the off-screen edge arrows of `hud/Detection`
  * cover the rest.
+ *
+ * **2026-09-14 (튜토리얼)**: 이 띠가 계약이 말하는 「화면 마커」다 (`hides('hud','shipScreenMarker')`) — 나침반
+ * 눈금이면서, 시야 밖이면 가장자리에 붙는(`clamped`) 방향 표시이기도 하다. 튜토리얼 레이드 내내 탈출 함선
+ * 눈금을 그리지 않는다. (화면 밖 화살표 위젯 `hud/OffscreenIndicators` 에는 **함선 갈래가 애초에 없다** — 핑뿐이다.)
  */
 export class Compass {
   readonly root: HTMLElement;
@@ -259,8 +263,13 @@ export class Compass {
     // 발견 게이트 (2026-09-09): 안개가 아직 안 걷힌 신호소는 나침반에도 뜨지 않는다. 활성 신호소(`activeId`)와
     // 함선은 분대 전원이 이미 아는 사실이라 예외. 안개가 없는 세계(훈련장)에서는 전부 예전처럼 보인다.
     const fog = ctx.world?.fog ?? null;
+    /* 2026-09-14 (튜토리얼, 사용자 결정): **화면에서 탈출 함선을 가리키는 표시는 레이드 내내 없다** —
+     * 나침반 눈금도, 가장자리에 붙는 `clamped` 화살표도. 지도 · 월드 마커는 별개 이름(`shipMarker`)이라
+     * 마지막 단계에 풀리지만 이것은 끝까지 닫혀 있다. 튜토리얼이 아니면 언제나 false 다. */
+    const hideShip = ctx.tutorial?.hides('hud', 'shipScreenMarker') ?? false;
     for (const [id, m] of this.markers) {
-      const gated = fog !== null && id !== '__ship' && id !== this.activeId && !fog.isDiscovered(m.pos);
+      const gated = (id === '__ship' && hideShip)
+        || (fog !== null && id !== '__ship' && id !== this.activeId && !fog.isDiscovered(m.pos));
       if (m.el.hidden !== gated) m.el.hidden = gated;
       if (gated) continue;
       this.tmp.subVectors(m.pos, player.position);

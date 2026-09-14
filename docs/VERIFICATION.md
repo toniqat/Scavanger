@@ -1666,3 +1666,24 @@ smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 11/12, smoke-hangar 57/
   - **원인 (실측)**: 나흘 된 5273 에서 앱은 `/src/shared/library.ts?t=1789354142878` 을 들고 있고 스모크의 `import('/src/shared/library.ts')` 는 도장 없는 경로라 **두 번째 인스턴스**를 만든다 — `sameMapAppLib:false`, 임시 alias 를 넣은 뒤 `ctx.loot.getItemDef('smoke_old_scrap')` · `reviveItem` 모두 null, 반면 csv 에 진짜로 있는 `book_carry → book_carry_manual_1` 은 계속 통과. 같은 서버에서 **배럴을 거친 경로**(`index.ts` → 상대 경로 `./library`)로 부른 `resolveItemAlias` 는 앱과 **같은 인스턴스**를 잡았다(임시 alias 가 안 보임 = 앱의 맵) — 즉 **앱이 실제로 쓰는 경로에서는 맵이 하나**이고 제품에는 회귀가 없다.
   - **고친 것**: `scripts/smoke-library-consumers.mjs` 만. `/src/…` 동적 import 10곳이 `window.__imp`(이 문서가 실제로 받아 온 URL 로 import, 없으면 맨 경로) 를 지나고, `performance.setResourceTimingBufferSize` 를 올려 앱이 받은 항목이 버퍼 밖으로 밀리지 않게 했다. 새 줄 `the alias map the smoke writes to is the one the app reads (one live module instance)` 가 **alias 검사보다 먼저** 실패해 다음에는 오진하지 않는다. `src/` 는 한 줄도 안 바뀌었다 (typecheck 는 다른 세션의 `WorldSystem.tutorial` 4건만, 이 작업 전후 동일).
   - ⚠ `scripts/*.mjs` 25개가 아직 맨 `import('/src/…')` 를 쓴다. 상수 · 순수 함수를 **읽기만** 하면 무해하고(두 인스턴스의 값이 같다), 모듈 상태를 **고치는** 스모크만 같은 처방이 필요하다 — `smoke-library.mjs` 의 `ITEM_ALIASES` 는 읽기만이라 그대로 둔다.
+- 2026-09-14 (43차: 튜토리얼 2차 개편 — 퀘스트형 목표 패널 · ESC 건너뛰기 = 즉시 탈출 · 풀피 시작 · 구간별 통로 폭 · 빗나간 총알 반응(전역) · 더블클릭 빈 칸 자동 장착 · 투척 궤적 순수 포물선 — 계약 선커밋 + 5 에이전트 병렬 + 리드 통합, `npm run verify`, 17 min 31 s, 4 red → **3 은 기존 실패 · 1 은 고쳤다**):
+  typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-tutorial 90/91 → 고침 → **91/91**,
+  smoke-ballistics 39/39, smoke-quickslots 109/109, smoke-weapons 147/147, smoke-inventory-p6 183/183, smoke-loadout 69/69,
+  smoke-tip-pin 46/46, smoke-favorites 45/45, smoke-consumables 36/36, smoke-tactical 119/119, smoke-controls-hub 153/153,
+  smoke-ui-p5 141/141, smoke-ui-p6 91/91, smoke-progression 262/262, smoke-housing 324/324, smoke-meta 178/178,
+  smoke-npc-quests 66/66, smoke-messenger 66/66, smoke-map-quests 72/72, smoke-extraction 36/36, smoke-raidflow 89/89,
+  smoke-enemy-alert 42/42, smoke-humanoid-ai 39/39, smoke-rogue-drop 48/48, smoke-named 44/44, smoke-faction-sites 263/263,
+  smoke-structures 141/141, smoke-structure-reach 1035/1035, smoke-site-spawns 517/517, smoke-planets 92/92,
+  smoke-props-collision 53/53, smoke-hazard 57/57, smoke-intel 16/16, smoke-lights 30/30, smoke-social 208/208,
+  smoke-trust 68/68, smoke-netlink 48/48, smoke-desktop 54/54, smoke-server-dist 36/36, smoke-pitch 162/162,
+  그 밖 전부 초록.
+  - **`smoke-tutorial` 90/91 만 이 변경의 것이었고 스모크 결함이었다** — 목표 패널이 달성 애니메이션을 보여 주려고
+    다음 단계의 **목표 줄만** `TUTORIAL_STEP_DELAY_S`(0.5초) 미루는데 스모크가 `waitStep` 직후에 읽었고, 선택자도
+    없어진 `.tut-title` 이었다. 반 박자를 기다리고 `.tut-obj-txt` 를 읽게 고쳤다 (`.tut-obj-label` 은 취소선용으로
+    같은 글자를 한 겹 더 깔고 있어 텍스트가 **두 번** 나온다). 건너뛰기 검사(5절)는 없어진 `.tut-skip` 버튼 대신
+    **ESC 메뉴 → `.pause-ask` 1초 홀드 → 취소** 경로를 본다. `--only smoke-tutorial` 91/91.
+  - ⚠ **나머지 3건은 기존 실패다 — 베이스라인으로 확인했다.** 작업 전 커밋(`2367a24`)을 **별도 worktree**에
+    체크아웃해(`git stash` 금지 — 메모리 규약) 같은 셋을 돌린 결과가 **한 글자도 같았다**:
+    `smoke-training 105/108, smoke-hangar 57/58, e2e-mp 170/178`. 실패 메시지도 동일하다
+    (`hangar`: 분대원 이름이 `분대원` 폴백이 아니라 `스캐빈저` · `e2e-mp`: 같은 이름 관련 7건 + `net:peerSuspended` ·
+    `smoke-training`: 표적 해시 · 점수 3건). 이 작업과 무관하므로 손대지 않았다.

@@ -46,8 +46,15 @@ import type { EnemySystem } from '../EnemySystem';
  * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the 훈련장.
  */
 export function reportShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null): void {
-  // 2026-09-14: 튜토리얼도 훈련장처럼 no-op — 총알 추적은 「고정 자리 · 순찰 없음」과 정면으로 부딪힌다 (총에 맞으면 `takeDamage` 가 깨운다)
-  if (sys.training || sys.tutorial || !sys.ctx.world?.ready) return;
+  /*
+   * 2026-09-14 2차 (사용자 결정: **모든 적**): 튜토리얼도 이 규칙을 그대로 받는다 — 같은 날 아침에 넣었던
+   * `sys.tutorial` no-op 을 걷어냈다. 「감지 범위가 좁더라도 총알이 날아온 곳을 바라보고 사수를 추적한다」가
+   * 튜토리얼만의 예외여서는 안 되고, 예외를 두면 좁은 감지 반경(12 m)이 곧 「쏴도 모른다」가 된다.
+   * 「고정 자리 · 순찰 없음」과는 **리시**가 화해시킨다: 조사하러 나간 적도 `Enemy.homeLeash` 밖으로는 못 가고
+   * (`ai/Investigate` 의 phase 1 · `Tutorial.tutorialHold`) 자기 자리로 걸어 돌아간다.
+   * 훈련장(`sys.training`)은 적이 한 마리도 없으므로 예전 그대로 둔다.
+   */
+  if (sys.training || !sys.ctx.world?.ready) return;
   if (!sys.authority) {
     if (!sys.multiplayer) return;
     const msg: ShotReport = { t: 'shotq', o: tuple(origin, 2), d: tuple(dir, 3), r: round(range, 1) };
@@ -298,7 +305,7 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
  * `force` (debug / smoke) skips the session gate but keeps the authority one and the validation.
  */
 export function onShotReport(sys: EnemySystem, msg: ShotReport, from: PeerId, force = false): void {
-  if (sys.training || sys.tutorial || !sys.authority || (!force && !sys.hosting)) return;
+  if (sys.training || !sys.authority || (!force && !sys.hosting)) return;   // 2026-09-14 2차: 튜토리얼 예외 제거 (`reportShot` 주석)
   if (!isVec3Tuple(msg.o) || !isVec3Tuple(msg.d) || !(msg.r > 0)) return;
   _so.set(msg.o[0], msg.o[1], msg.o[2]);
   _sd.set(msg.d[0], msg.d[1], msg.d[2]);
@@ -319,10 +326,15 @@ export function onShotReport(sys: EnemySystem, msg: ShotReport, from: PeerId, fo
  * impact, and that could **not** perceive the shooter by the normal rule (`canPerceive`, no cone — it would spot the
  * shooter on its own next tick anyway), starts investigating the origin (`ai/Investigate.ts`) → `enemy:shotAlerted`
  * once. An enemy already investigating only refreshes its origin. The perception test is throttled per enemy.
+ *
+ * 2026-09-14 2차: **총알이 실제로 멈춘 곳까지만** 센다. `range` 는 총의 사거리(최대 300 m)라, 코앞의 벽을 쏴도
+ * 그 방위 300 m 안의 모든 적이 「총알이 스쳤다」로 읽고 있었다 — 저격 · 은신에서 가장 아픈 오판이다.
+ * `hit` 이 있으면 그 거리로 선분을 자른다 (`hit` 은 이 총알이 더 못 간 지점이다).
  */
 export function alertShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null, shooter: TargetId): void {
   if (!sys.ctx.isGameplayPhase()) return;
   const now = sys.ctx.time;
+  const pathLen = hit ? Math.min(range, origin.distanceTo(hit)) : range;
   const sh = shooter === 'ai' ? undefined : sys.targets.get(shooter);
   const shooterUp = !!sh && sh.present && !sh.isDeadOrDowned;
   for (let i = 0; i < sys.active.length; i++) {
@@ -338,7 +350,7 @@ export function alertShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.Ve
     }
     if (!near) {
       const ox = cx - origin.x, oy = cy - origin.y, oz = cz - origin.z;
-      const t = THREE.MathUtils.clamp(ox * dir.x + oy * dir.y + oz * dir.z, 0, range);
+      const t = THREE.MathUtils.clamp(ox * dir.x + oy * dir.y + oz * dir.z, 0, pathLen);
       const px = ox - dir.x * t, py = oy - dir.y * t, pz = oz - dir.z * t;
       const reach = ENEMY_SHOT_ALERT_DIST + r;
       near = px * px + py * py + pz * pz <= reach * reach;

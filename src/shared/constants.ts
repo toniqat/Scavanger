@@ -1928,6 +1928,10 @@ export const TUTORIAL_RAID_XP = K.num('TUTORIAL_RAID_XP');
  */
 export const PLAYER_CROUCH_CLEARANCE_M = K.num('PLAYER_CROUCH_CLEARANCE_M');
 export const PLAYER_PRONE_CLEARANCE_M = K.num('PLAYER_PRONE_CLEARANCE_M');
-/** 튜토리얼에서 깨어날 때의 체력 (회복 안내 전까지 유지 — 벌레 한 대에 죽는다). */
+/**
+ * **은퇴** (2026-09-14 2차, 사용자 결정 — 「처음에 딸피가 아닌 풀피로 시작, 부활할 때에도 풀피」).
+ * 읽는 곳이 없다. 이름은 계약이라 남긴다 (`airstrike` · `secondary` 와 같은 처리 — `src/shared` 는 추가만).
+ * 튜토리얼의 긴장은 이제 **낙하 피해**가 만들고, 깎인 체력은 `heal` 단계의 붕대가 되돌린다.
+ */
 export const TUTORIAL_START_HP = K.num('TUTORIAL_START_HP');
 /* ── end 2026-09-14 튜토리얼 ── */

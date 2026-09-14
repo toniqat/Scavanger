@@ -2990,6 +2990,24 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 /* 조종석 행 (방 목록 맨 위, 2026-09-12): 번호 칸이 없고 아래 방들과 한 줄 띄운다 */
 .sm-room.is-cockpit { margin-bottom: 4px; border-bottom-color: var(--c-border); }
 
+/* ── 화면 전체 검은 페이드 (2026-09-14, `ui:screenFade` → `ui/HudSystem`) ──────────────────────────────
+ * 튜토리얼 오프닝(감은 눈이 떠진다)이 첫 사용자다. `#ui-root` 직계 판 하나이고 불투명도 · 전이 시간만
+ * 인라인으로 바뀐다.
+ *
+ * **연출이지 blocker 가 아니다** — `pointer-events: none` 이고 `ctx.escape` · `uiBlockers` 에 올라가지 않는다.
+ *
+ * **z-index 82 의 근거**: HUD 레이어 · 지도(40) · 커뮤니티(46) · 인벤토리 창(50 과 그 딸림 층 ≤ 80) ·
+ * 허브 팝업(72) **위**, 그러나 메뉴류 — 서버 배지(83) · 타이틀(84) · 키 가이드(84) · 일시정지(85) ·
+ * 설정(86) · 키 설정(88) · 개발자 콘솔(90) — 과 떠다니는 카드(200 +) **아래**다. 페이드는 화면을 가리는
+ * 연출이므로 게임 화면은 전부 덮어야 하지만, 불투명도 1 인 동안 ESC 로 연 화면까지 삼키면 플레이어는
+ * 검은 화면에 갇힌 것으로 읽는다 — 일시정지는 언제나 보여야 한다. */
+.screen-fade {
+  position: absolute; inset: 0; z-index: 82;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* ── 키 가이드의 `또는` · `+` (2026-09-12 사용자 결정): 키캡 사이의 작은 글씨 ── */
 .key-guide .kg-or, .key-guide .kg-plus { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
 .key-guide .kg-plus { font-size: 10px; font-weight: 700; }

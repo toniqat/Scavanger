@@ -471,8 +471,10 @@ export class WeaponSystem implements GameSystem {
    * would make right now and draw it. The release maths is duplicated from `throwHeld` / `GadgetSystem.throwGadget`
    * on purpose: the preview has to use the numbers those two use, 근력 (`derived.throwRangeMul`) included, and the
    * two apply it differently (a grenade's range goes with speed², so it takes the square root; a gadget scales the
-   * speed straight). Anything else — the over/under-hand toggle, the player's own momentum, terrain, a rock in the
-   * way — falls out of `ThrowArc.show` re-integrating the real flight.
+   * speed straight). The over/under-hand toggle and the player's own momentum ride along in the release velocity.
+   *
+   * 2026-09-14 2차 (사용자 결정): `ThrowArc.show` 는 이제 **중력만** 적분한다 — 지형 · 장애물은 미리보기에 없다
+   * (「던질 때 날아가는 방향 궤적만」). 이 함수가 넘기는 값은 한 줄도 안 바뀌었다.
    */
   private updateThrowArc(host: Host): void {
     const q = this.quick;

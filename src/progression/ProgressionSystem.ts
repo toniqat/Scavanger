@@ -15,7 +15,7 @@ import {
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
 import { applyLibraryDerived, applyMealBuff, computeDerived, DEFAULT_DERIVED, SKILL_STAT_FACTOR, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
-import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
+import { DEFAULT_IMPLANT, clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 import { SheetView } from './ui/SheetView';
 
@@ -778,6 +778,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; this.cratesAppraised.clear(); this.discardSheetPending(); }),
       b.on('world:ready', () => this.cratesAppraised.clear()),
       b.on('game:abort', () => { this.hasLastPos = false; this.flush(); }),
+      /* ── 시작 전술 임플란트 (2026-09-14 2차) — 아래 `grantStarterImplant` ── */
+      b.on('hub:entered', () => this.grantStarterImplant()),
       /* ── character sheet ── */
       b.on('ui:statsToggled', ({ open }) => {
         if (!this.sheet || this.sheet.isOpen === open) return;
@@ -808,6 +810,30 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       this.saveTimer -= dt;
       if (this.saveTimer <= 0) this.flush();
     }
+  }
+
+  /* ── 시작 전술 임플란트 (2026-09-14 2차, 사용자 결정) ─────────────────────────────────────────────
+   * 모든 새 캐릭터는 **함선에 처음 들어올 때** 갈고리를 장착한 채 시작한다. 캐릭터 생성창의 「시작
+   * 임플란트」 선택지가 없어졌으므로 고르는 것이 아니라 주어지는 것이고, 주는 자리는 **함선 진입**이다 —
+   * 튜토리얼 레이드 동안에는 임플란트가 없는 것이 전제라 레이드 도중에 손에 쥐어지면 안 된다.
+   * 튜토리얼을 완주했든 건너뛰었든 그 뒤에는 반드시 함선에 들어오므로 `hub:entered` 가 유일한 관문이다.
+   *
+   * **멱등**하다: 이미 무언가 장착돼 있으면(`profile.implant !== null`) 한 글자도 바꾸지 않는다.
+   * 실제로 장착하는 곳은 `ctx.implants.setEquipped` 하나이고(레이드 중 거절 · 런타임 리셋이 거기 있다),
+   * 저장은 그것이 내는 `implant:equipped` 를 위 구독이 받아 `profile.implant` 에 적는 것으로 끝난다 —
+   * `Profile.migrate` 가 그 필드를 옮겨 담으므로 새로고침에도 살아남고 서버 프로필 왕복도 같은 길이다.
+   */
+  private grantStarterImplant(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.phase !== 'hub' || ctx.isRaidActive()) return;
+    if (this._profile.implant !== null) return;   // 이미 갖고 있다 — 다시 주지 않는다
+    const implants = ctx.implants;
+    if (!implants) return;                        // implants/ 가 아직 등록되기 전 — 다음 `hub:entered` 가 준다
+    if (!implants.setEquipped(DEFAULT_IMPLANT)) return;
+    // `setEquipped` 가 `implant:equipped` 를 내고 위 구독이 프로필에 적는다. 그래도 안전하게 한 번 더 못 박는다
+    // (이미 같은 값이면 그 구독이 조용히 빠져나가므로 여기서 dirty 를 놓칠 수 있다).
+    if (this._profile.implant !== DEFAULT_IMPLANT) { this._profile.implant = DEFAULT_IMPLANT; this.markDirty(true); }
+    ctx.bus.emit('ui:notify', { text: '전술 임플란트 「갈고리」를 장착했다', kind: 'info', duration: 4 });
   }
 
   dispose(): void {

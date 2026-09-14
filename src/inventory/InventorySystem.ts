@@ -1838,13 +1838,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
   quickMoveImpl(uid: string, from: ItemLocation): OpResult { return Drop.quickMoveImpl(this, uid, from); }
 
   /**
-   * Double-click. 가방 · 장비 칸: weapons / bags equip (`equipTargetFor`), anything else quick-moves.
-   * 컨테이너(상자 · 시체 · 함선 창고)는 2026-09-10 부터 **언제나 가방이 먼저**이고, 가방이 꽉 찼을 때만
-   * `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 폴백이 돈다 (폴더 README 의 `Equipment slots` 절).
+   * Double-click. **2026-09-14 2차 (사용자 결정) — 격자를 가리지 않고 「빈 자리가 있으면 곧장 그리로」**:
+   * `빈 장비 칸 → 빈 임플란트 칸 → 빈 퀵슬롯`(`Drop.tryAutoPlace`), 하나도 없으면 예전 경로(가방 → `inventory:full`).
+   * **비어 있는 칸에만** 넣으므로 장착한 것은 조용히 밀려나지 않는다 (2026-09-10 결정이 지키려던 것).
+   * 교체는 드래그와 우클릭 메뉴의 「장착」(`equip`) 몫이다 (폴더 README 의 `Equipment slots` 절).
    */
   activate(uid: string, from: ItemLocation): OpResult { return this.readOnlyBlocked() ? 'fail' : Drop.activate(this, uid, from); }
 
   activateImpl(uid: string, from: ItemLocation): OpResult { return Drop.activateImpl(this, uid, from); }
+
+  /**
+   * 지금 더블클릭하면 **빈 장비 칸 · 임플란트 칸 · 휠 칸**으로 갈까 (아무것도 바꾸지 않는다). 우클릭 메뉴가
+   * 「빠른 이동」 줄의 `더블클릭` 힌트를 달지 말지 정할 때만 쓴다 (2026-09-14 2차).
+   */
+  wouldAutoPlace(item: ItemInstance, def: ItemDef, quick = true): boolean { return Drop.wouldAutoPlace(this, item, def, quick); }
 
   rotateItem(uid: string, gridId: GridId): OpResult { return this.readOnlyBlocked() ? 'fail' : Drop.rotateItem(this, uid, gridId); }
 

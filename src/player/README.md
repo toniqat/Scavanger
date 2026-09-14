@@ -697,6 +697,15 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   이유는 마지막 하드 컷이 연출 시작 시점의 yaw 로 돌아가야 하기 때문이다.
 - **카메라**: 몸 옆앞 낮은 곳에서 발을 비추다 일어나는 만큼 눈높이로 함께 올라온다(첫 프레임은 `snap`).
   끝나면 `setCameraOverride(null, undefined, true)` = **하드 컷** (먼 곳에서 블렌드하면 카메라가 지형을 훑는다).
+- **화면 페이드** (2026-09-14 2차, 사용자 결정): 검은 화면에서 시작해 쓰러진 몸이 서서히 드러난다. 그리는 것은
+  `ui/` 이고 여기서는 `ui:screenFade {opacity, durationS}` 로 **언제 · 얼마 동안**만 말한다 (1 = 완전한 검정).
+  `playIntroWake` 가 `{1, 0}`(즉시 검정)을 깔고, 진행도가 `FADE_HOLD`(0.08)를 넘는 프레임에 `{0, (FADE_DONE −
+  FADE_HOLD) × 길이}` 로 밝아지기 시작해 `FADE_DONE`(0.27)에 끝난다 — `WAKE_RISE_START`(0.3, 일어나기 시작) **직전**이라
+  몸이 일어설 때는 이미 다 보인다. 두 수치는 csv 가 아니라 `parts/IntroWake` 의 **연출 진행도(0..1) 위의 자리**라
+  바로 위 `WAKE_RISE_START` · `CAM_*` 와 한 묶음이고, 길이는 csv 의 `TUTORIAL_INTRO_WAKE_S` 에 비례해 함께 움직인다.
+  **검은 화면에 갇히는 길은 없다** — `endIntroWake` · `cancelIntroWake` **둘 다** `{opacity: 0, durationS: 0}` 으로
+  화면을 되돌리고, 사망 · 전투불능 · `game:abort` · `game:newMission` · 리셋 경로가 전부 그 둘 중 하나를 지난다.
+  상태 플래그는 늘리지 않았다: 경계를 지나는 프레임이 하나뿐이라 직전 · 직후 진행도 비교로 한 번만 건다.
 - **끝**: `player:introWakeDone`. `game:abort`(`resetAll`) · `game:newMission` · 사망(`die`) · 부활 · 재접속 복귀는
   `cancelIntroWake` 로 **알리지 않고** 끝낸다 (연출이 끝난 것이 아니다).
 - 튜토리얼 레이드에는 **헬포드가 없다** — `parts/Spawn.usesHellpod(ctx)`(훈련장 · 튜토리얼 제외) 한 곳이
@@ -707,10 +716,19 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-14 2차 (오프닝 페이드 인–아웃, 사용자 결정)** — `parts/IntroWake` 한 파일. `playIntroWake` 가 `ui:screenFade
+  {opacity:1, durationS:0}` 로 검정을 깔고, `updateIntroWake` 가 진행도 `FADE_HOLD` → `FADE_DONE` 구간에 한 번
+  `{opacity:0, durationS}` 을 낸다. `endIntroWake` · `cancelIntroWake` 는 `{0, 0}` 으로 화면을 되돌린다 — **취소 경로가
+  모두 `cancelIntroWake` 를 지나므로 검은 화면에 갇히는 길이 없다**(사망 · 전투불능 · `game:abort` · `game:newMission` ·
+  `resetAll` · `respawnAt` · `spawnStanding` · `restoreState`). 그리는 쪽은 `ui/` 이고 이 폴더는 발행만 한다.
+  위 *오프닝 기상 연출* 절. **튜토리얼도 풀피로 시작하고 풀피로 부활한다** (2026-09-14 2차, 사용자 결정) —
+  `respawnAt` / `spawnStanding` 은 예나 지금이나 `hp = maxHp` 이고, 그것을 4 로 내리던
+  `tutorial/TutorialSystem.applyLowHp` 는 없어졌다. 이 폴더는 한 줄도 바뀌지 않았다.
+
 - **2026-09-14 (`PlayerRef.setHp` — 각본된 장면이 몸 상태를 정한다)** — `parts/Vitals.setHp`. 피격 연출 · 방향 호 ·
   소리 없이, **실드를 건드리지 않고** 체력만 옮긴다 (1 밑으로는 안 내려간다 — 이것으로 사람을 죽이지 않는다).
-  쓰는 곳은 튜토리얼 하나다 — 폐허에서 깨어난 사람은 `TUTORIAL_START_HP`(4) 로 시작해 **벌레에게 한 대 맞으면 죽는다**
-  (사용자 명세). `takeDamage` 로 깎지 않는 이유는 둘 다 「깨어나 보니 이미 다쳐 있었다」와 다른 말을 하기 때문이다.
+  ⚠ **2026-09-14 2차부터 부르는 곳이 없다** (사용자 결정: 튜토리얼도 풀피로 시작 · 부활). 함수와 계약은 그대로 남는다 —
+  「각본된 장면이 몸 상태를 정한다」는 쓸 자리가 또 생길 종류의 것이고, 지우면 다음 사람이 `takeDamage` 로 흉내 낸다.
 
 - **2026-09-14 (낮은 통로를 앉아서 지난다 — 리드 마무리)** — 튜토리얼의 「앉아서만 지나갈 수 있는 곳」을 진짜로 만든
   두 줄이다 (설계안 `docs/plans/tutorial-raid.md` 의 미해결 항목 ①).

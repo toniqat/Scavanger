@@ -12,7 +12,8 @@ import { TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type TutorialCheckpoint
  * ## 좌표 규약
  * **앞 = −Z** 다 (플레이어 yaw 0 의 정면 = `(-sin 0, 0, -cos 0)` = −Z). 그래서 아래의 모든 z 는 **큰 값에서
  * 작은 값으로** 흘러가고 (`z0 > z1`), 구간 순서를 읽는 것이 곧 플레이 순서를 읽는 것이다.
- * x 는 좌우이고 통로는 `±CORRIDOR_HALF_X`, 그 바깥은 통째로 절벽 벽이라 플레이어가 통로를 벗어날 길이 없다.
+ * x 는 좌우이고 통로의 반폭은 **구간마다 다르다**(`CORRIDOR_PROFILE` · `corridorHalfXAt`), 그 바깥은 통째로
+ * 절벽 벽이라 플레이어가 통로를 벗어날 길이 없다.
  *
  * ## 왜 지형(높이장)이 아니라 「데크 상자」인가
  * 절벽 둘이 이 맵의 핵심인데, 높이장은 **수직면을 만들 수 없다**. 1 m 격자에 10 m 를 떨어뜨리면 84° 경사가 되고,
@@ -35,12 +36,71 @@ export const CLIFF_DROP_M = DECK_UPPER_Y - DECK_LOWER_Y;
 
 /* ── 통로 ────────────────────────────────────────────────────────────────── */
 
-/** 걸어 다니는 데크의 반폭. */
-export const CORRIDOR_HALF_X = 22;
-/** 통로 양옆 절벽 벽의 안쪽 면 = `CORRIDOR_HALF_X`, 두께 `WALL_T`. */
+/**
+ * **전투 구역**의 반폭 (2026-09-14 1차의 옛 `CORRIDOR_HALF_X` — 맵 전체가 이 폭이었다).
+ * 엄폐 · 회피 여지를 남겨야 하는 곳만 이 폭을 지킨다 (사용자 결정, 2026-09-14 2차).
+ */
+export const CORRIDOR_MAX_HALF_X = 22;
+/**
+ * **지나가는 구간**의 반폭 — 2026-09-14 2차 사용자 결정(「너무 넓어서 어디로 가야 할지 잘 모르겠다」)으로
+ * 전투가 없는 구간을 절반으로 줄였다. 걷기 · 달려 뛰기 · 포복 · 낙하 · 보급이 전부 이 폭이다.
+ */
+export const CORRIDOR_PASS_HALF_X = CORRIDOR_MAX_HALF_X / 2;
+/** 통로 양옆 절벽 벽의 두께 (안쪽 면은 구간마다 다르다 — `corridorHalfXAt`). */
 export const WALL_T = 3;
+/**
+ * 절벽 벽의 **바깥** 면. 구간 폭과 무관하게 이 x 까지 통째로 바위다 — 좁은 구간에서 벽 두께만큼만 세우면
+ * 그 뒤(넓은 데크가 계속 깔려 있다)가 뚫려 보이고, 깔때기 이음매에 사람이 빠질 구멍이 생긴다.
+ */
+export const CORRIDOR_OUTER_X = CORRIDOR_MAX_HALF_X + WALL_T;
 /** 절벽 벽의 윗면 (위 데크에서 18 m). 하늘은 열려 있고 옆으로는 나갈 수 없다. */
 export const WALL_TOP_Y = 18;
+
+/** 통로 반폭 프로파일의 제어점. */
+export interface CorridorPoint { readonly z: number; readonly halfX: number }
+
+/**
+ * **구간별 통로 반폭** (z 내림차순 = 플레이 순서). 이웃한 두 제어점의 폭이 같으면 곧은 구간, 다르면
+ * 그 사이가 **깔때기**(선형 보간)다. 깔때기는 `parts/Ground` 가 비스듬한 판(회전 OBB) 하나로 세우므로
+ * 계단 턱이 없고 몸이 낄 자리도 없다.
+ *
+ * 전투 구역 셋(= 22 를 지키는 곳)과 그 근거:
+ *   z  62 … 32 — 벌레 두 마리 (스폰 z 46 · 40). 체크포인트 `bugs`(60) ~ `crawl`(27) 구간.
+ *   z   2 … −30 — 안드로이드 두 대 (스폰 z −12 · −18). 체크포인트 `android`(4) ~ `drop`(−38) 구간.
+ *   z −76 … 끝 — 안드로이드 두 대(−88 · −94) + 무너진 벽(−78) + 버려진 함선(−113).
+ *                 함선 외피(`extraction/Hull`)가 로컬 x ±5.2 · z −9.7…+0.6 이라 좁히면 들어가지 않는다.
+ *
+ * ⚠ 데크(`DECKS`)는 **줄이지 않는다** — 늘 `±CORRIDOR_MAX_HALF_X` 다. 좁은 구간에서는 벽이 그 데크 위에
+ * 서는 것이고, 그래야 깔때기 이음매나 벽 두께 계산이 어긋나도 발밑이 사라지지 않는다.
+ */
+export const CORRIDOR_PROFILE: readonly CorridorPoint[] = [
+  { z: 121, halfX: CORRIDOR_PASS_HALF_X },   // 기상 · 폐허 · 절벽 1 · 시체 ①
+  { z: 68, halfX: CORRIDOR_PASS_HALF_X },
+  { z: 62, halfX: CORRIDOR_MAX_HALF_X },     // ↑ 넓어진다 — 벌레 전투장 입구
+  { z: 36, halfX: CORRIDOR_MAX_HALF_X },
+  { z: 24, halfX: CORRIDOR_PASS_HALF_X },    // ↑ 좁아진다 — 무너진 통로(포복) 앞 깔때기 (12 m 에 걸쳐 = 벽 각 42°)
+  { z: 8, halfX: CORRIDOR_PASS_HALF_X },
+  { z: 2, halfX: CORRIDOR_MAX_HALF_X },      // ↑ 넓어진다 — 안드로이드 전투장 입구
+  { z: -30, halfX: CORRIDOR_MAX_HALF_X },
+  { z: -42, halfX: CORRIDOR_PASS_HALF_X },   // ↑ 좁아진다 — 절벽 2 앞 깔때기 (위 · 아래 데크가 같은 폭이어야 착지가 안전하다)
+  { z: -70, halfX: CORRIDOR_PASS_HALF_X },
+  { z: -76, halfX: CORRIDOR_MAX_HALF_X },    // ↑ 넓어진다 — 무너진 벽 · 마지막 전투 · 함선
+  { z: -129, halfX: CORRIDOR_MAX_HALF_X },
+];
+
+/** 그 z 에서의 통로 반폭 (제어점 사이는 선형 보간). 맵 바깥의 z 는 양 끝 값으로 잘린다. */
+export function corridorHalfXAt(z: number): number {
+  const p = CORRIDOR_PROFILE;
+  if (z >= p[0].z) return p[0].halfX;
+  for (let i = 1; i < p.length; i++) {
+    const a = p[i - 1], b = p[i];
+    if (z < b.z) continue;
+    const span = a.z - b.z;
+    if (span <= 0) return b.halfX;
+    return a.halfX + (b.halfX - a.halfX) * ((a.z - z) / span);
+  }
+  return p[p.length - 1].halfX;
+}
 /** 맵의 z 양끝 (막다른 벽 바깥). */
 export const Z_START = 121;
 export const Z_END = -129;
@@ -99,16 +159,16 @@ export interface DeckRect { readonly id: string; readonly rect: Rect; readonly t
  *   `upper_b` 의 끝(z = −46)에서 `lower` 로 = 절벽 2 (뛰어내린다).
  */
 export const DECKS: readonly DeckRect[] = [
-  { id: 'upper_a', rect: { x0: -CORRIDOR_HALF_X, x1: CORRIDOR_HALF_X, z0: 118, z1: 82 }, top: DECK_UPPER_Y },
-  { id: 'upper_b', rect: { x0: -CORRIDOR_HALF_X, x1: CORRIDOR_HALF_X, z0: 78.4, z1: -46 }, top: DECK_UPPER_Y },
-  { id: 'lower', rect: { x0: -CORRIDOR_HALF_X, x1: CORRIDOR_HALF_X, z0: -46, z1: -126 }, top: DECK_LOWER_Y },
+  { id: 'upper_a', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 118, z1: 82 }, top: DECK_UPPER_Y },
+  { id: 'upper_b', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 78.4, z1: -46 }, top: DECK_UPPER_Y },
+  { id: 'lower', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: -46, z1: -126 }, top: DECK_LOWER_Y },
 ];
 
 /**
  * 절벽 1 의 틈 — **3.6 m**. 걸으며 뛰면(4.2 m/s × 0.633 s = 2.66 m) 못 넘고, 달리며 뛰면
  * (7.2 m/s × 0.633 s = 4.56 m) 넘는다. 점프 체공은 `2 × JUMP_SPEED / GRAVITY` = 2 × 7.6 / 24.
  */
-export const CHASM: Rect = { x0: -CORRIDOR_HALF_X, x1: CORRIDOR_HALF_X, z0: 82, z1: 78.4 };
+export const CHASM: Rect = { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 82, z1: 78.4 };
 
 /* ── 체크포인트 ──────────────────────────────────────────────────────────── */
 
@@ -127,7 +187,11 @@ export interface CheckpointSpec {
 
 const UPPER_Y0 = DECK_UPPER_Y - 3, UPPER_Y1 = DECK_UPPER_Y + 6;
 const LOWER_Y0 = DECK_LOWER_Y - 3, LOWER_Y1 = DECK_LOWER_Y + 6;
-const W = CORRIDOR_HALF_X + 1;
+/**
+ * 체크포인트 · 낙하 규칙 볼륨의 반폭. **가장 넓은 구간 기준**이라 좁은 구간에서는 벽 바깥까지 넘치지만
+ * 그쪽은 벽이 막아서 사람이 못 간다 — 넘치는 쪽이 안전하다(구간 폭을 고쳐도 띠가 새지 않는다).
+ */
+const W = CORRIDOR_MAX_HALF_X + 1;
 
 function cp(id: TutorialCheckpointId, x: number, y: number, z: number, z0: number, z1: number): CheckpointSpec {
   const upper = y > (DECK_UPPER_Y + DECK_LOWER_Y) / 2;
@@ -145,6 +209,9 @@ function cp(id: TutorialCheckpointId, x: number, y: number, z: number, z0: numbe
  * ⚠ **배치 규칙**: 모든 체크포인트는 그 구간 적의 감지 반경(`TUTORIAL_ENEMY_SENSE_M` = 12 m) **밖**이다 —
  * 무기를 잃고 부활한 사람이 자기 시체까지 걸어갈 수 있어야 하기 때문이다. 실제 거리는 아래 `ENEMIES` 주석에
  * 계산해 뒀고, 가장 빡빡한 곳도 14 m 다. 좌표를 고치면 그 표를 다시 계산한다.
+ *
+ * 부활 자리는 **전부 x = 0** 이라 `CORRIDOR_PROFILE` 을 어떻게 좁혀도 벽 안이다 (2026-09-14 2차 폭 축소에서
+ * 옮긴 체크포인트는 하나도 없다 — 가장 좁은 구간의 반폭 11 m 안에 원래 다 들어 있었다).
  */
 export const CHECKPOINTS: readonly CheckpointSpec[] = [
   cp('wake', 0, DECK_UPPER_Y, 112, 118, 104),      // 폐허 한가운데 — 여기서 깨어난다
@@ -190,6 +257,9 @@ export interface EnemySpot { readonly type: string; readonly x: number; readonly
  *   `wall`(0,−72)   → (−6,−88) 17.1 · (6,−94) 22.8
  *   `ship`(0,−107)  → (−6,−88) 20.0 · (6,−94) 14.3
  * 가장 빡빡한 곳이 14.3 m 다.
+ *
+ * 여섯 마리 모두 `|x| ≤ 7` 이라 2026-09-14 2차의 폭 축소에서 옮길 것이 없었다 — 세 쌍이 전부
+ * 전투 구역(반폭 22)에 서 있고, 그 세 구간이 `CORRIDOR_PROFILE` 에서 22 를 지키는 이유다.
  */
 export const ENEMIES: readonly EnemySpot[] = [
   { type: 'scavenger', x: -5, y: DECK_UPPER_Y, z: 46, yaw: Math.PI },
@@ -218,6 +288,7 @@ export interface CorpseSpec {
   readonly items: readonly { readonly id: string; readonly qty: number | 'stack' }[];
 }
 
+/** 셋 다 `|x| ≤ 5` 라 가장 좁은 구간(반폭 11)에도 들어간다 — 2026-09-14 2차 폭 축소에서 옮기지 않았다. */
 export const CORPSES: readonly CorpseSpec[] = [
   {
     id: 'corpse:tut_gear', name: '분대원의 시체', x: 2, y: DECK_UPPER_Y, z: 66, yaw: 2.3,
@@ -249,8 +320,12 @@ export const SHIP_YAW = 0;
 /** 무너진 통로 (포복 구간): 통로가 좁아지고 머리 위로 슬래브가 지난다. */
 export const CRAWL = {
   z0: 22, z1: 8,
-  /** 지나갈 수 있는 폭의 절반. */
-  gapHalfX: 3,
+  /**
+   * 지나갈 수 있는 폭의 절반. 2026-09-14 2차 사용자 결정으로 3 → **2.1**(−30 %) — 「좁아서 앉아야 한다」가
+   * 이 구간의 요점이라 더 좁혔지만, 플레이어 지름(`PLAYER_RADIUS` 0.45 × 2 = 0.9 m)의 **4.7 배**라
+   * 앉은 채 좌우로 피할 여유는 남는다 (통과 폭 4.2 m).
+   */
+  gapHalfX: 2.1,
   /**
    * 머리 위 슬래브의 **밑면** (데크 윗면 기준). **선 몸(`BOX_HEADROOM` 2.1)은 막고 앉은 몸
    * (`PLAYER_CROUCH_CLEARANCE_M` 1.3)은 지나는** 사이 값이다 — 2026-09-14 에 `PlayerController` 가 자세 높이를

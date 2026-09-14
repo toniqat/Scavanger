@@ -177,53 +177,89 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
    * ② ship — 함선 첫 진입. 레벨 · 능력치 · 메신저는 전부 기존 화면이라 **스포트라이트로 가리키기만** 한다.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
   /* ── ① raid — 튜토리얼 레이드 ── */
+  /*
+   * 2026-09-14 2차 — 목표 패널이 **체크박스 목록**이 되면서 각 단계가 짧은 목표 문장을 갖는다 (`objectives`).
+   * `hint` 는 그대로 두었다: 스포트라이트 말풍선의 기본 문구이자 `objectives` 가 없는 단계의 목표 문장이다.
+   */
   wake: {
     id: 'wake', title: '정신을 차리세요',
     hint: '강하가 실패했습니다. 몸을 일으키는 중입니다 — 잠시 기다리세요.',
+    objectives: [{ id: 'wakeUp', text: '몸을 일으킨다' }],
   },
   move: {
     id: 'move', title: '주변을 둘러보고 걸어가세요',
     hint: '마우스로 시선을 돌리고, 이동 키로 앞쪽 갈라진 땅까지 걸어갑니다.',
+    objectives: [{ id: 'walkCliff', text: '갈라진 땅까지 걸어간다' }],
   },
   sprintJump: {
     id: 'sprintJump', title: '달려서 뛰어넘으세요',
     hint: '달리기를 누른 채 속도를 붙여 점프해야 건너갑니다. 서서 뛰면 닿지 않습니다.',
+    objectives: [{ id: 'jumpGap', text: '달려서 갈라진 땅을 뛰어넘는다' }],
   },
   corpseLoot: {
     id: 'corpseLoot', title: '쓰러진 대원의 장비를 챙기세요',
     hint: '시체에 상호작용해 무기 · 가방 · 탄약을 꺼내고, 무기를 주무기 칸에 끌어다 놓습니다.',
+    /*
+     * 2026-09-14 2차 (사용자 결정) — **총을 드는 것만이 필수**다. 가방 · 탄약 · 붕대는 선택 목표로 내려
+     * 체크박스로 함께 보이기만 한다 (안 챙겨도 넘어간다). 총을 장착하는 순간 다음 단계이고,
+     * 그 순간 체력 · 무기 HUD 가 나타난다 (`HUD_GEAR_STEP` 이 이 단계라 **지나면** 보인다 — 관계는 그대로).
+     */
+    objectives: [
+      { id: 'corpseGun', text: '시체의 기관단총을 주무기 칸에 장착한다' },
+      { id: 'corpseBag', text: '가방을 장비 칸에 장착한다', optional: true },
+      { id: 'corpseAmmo', text: '탄약을 챙긴다', optional: true },
+      { id: 'corpseStim', text: '회복 아이템을 챙긴다', optional: true },
+    ],
     // 장비 칸 ↔ 시체 격자에 걸친 드래그라 합집합으로 밝힌다 (`equipGun` 과 같은 이유).
-    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-container'],
+    // ⚠ 격자 타일에는 def id 가 없고 `data-uid` 뿐이라(`inventory/ui/GridView`) 총 한 칸만 고르는 선택자가
+    //   없다 — 구멍은 「시체 격자 ~ 주무기 칸」, 즉 드래그 경로 전체다. 드래그를 시작하면 받을 수 있는 칸이
+    //   초록으로 켜지는 것은 인벤토리가 이미 한다 (`.inv-slot.is-target-ok`).
+    spot: ['.inv-panel-container', '.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2'],
     spotUnion: true,
-    spotText: '시체의 무기 → 주무기 칸',
+    // 2026-09-14 2차 (사용자 결정): 이 단계만 **딤이 없다** — 시체 격자 · 장비 칸 말고도 볼 것이 많고,
+    //   어두운 판이 화면 절반을 덮으면 처음 여는 인벤토리 화면을 읽을 수가 없다.
+    spotNoDim: true,
+    spotText: '시체의 기관단총 → 주무기 칸',
   },
   shoot: {
     id: 'shoot', title: '벌레를 처치하세요',
     hint: '정조준하면 탄이 덜 퍼집니다. 둘 다 쓰러뜨리면 다음으로 넘어갑니다.',
+    objectives: [{ id: 'killBugs', text: '벌레 둘을 처치한다' }],
   },
   crouch: {
     id: 'crouch', title: '앉아서 낮은 틈을 지나세요',
     hint: '선 채로는 들어가지 않습니다. 앉기 키로 자세를 낮추세요.',
+    objectives: [{ id: 'crouchGap', text: '앉아서 낮은 틈을 지난다' }],
   },
   crouchAim: {
     id: 'crouchAim', title: '앉은 채로 조준해 안드로이드를 처치하세요',
     hint: '앉으면 조준 흔들림이 크게 줄어듭니다 — 먼 표적일수록 차이가 납니다.',
+    objectives: [{ id: 'killAndroids', text: '안드로이드 둘을 처치한다' }],
   },
   drop: {
     id: 'drop', title: '아래로 뛰어내리세요',
     hint: '높은 곳에서 떨어지면 다칩니다. 여기서는 죽지는 않습니다.',
+    objectives: [{ id: 'dropDown', text: '높은 곳에서 아래로 뛰어내린다' }],
   },
   heal: {
     id: 'heal', title: '보급품을 챙기고 회복하세요',
     hint: '주운 회복 아이템은 빠른 사용 칸에 저절로 올라갑니다. 꺼내서 길게 눌러 쓰세요.',
+    // 2026-09-14 2차 (사용자 결정): 체력이 이미 가득이면 이 단계는 조용히 지나친다 (`TutorialSystem.setStep`).
+    objectives: [{ id: 'useStim', text: '회복 아이템을 사용한다' }],
   },
   grenade: {
-    id: 'grenade', title: '무너진 벽 너머를 정리하세요 (선택)',
+    id: 'grenade', title: '무너진 벽 너머를 정리하세요',
     hint: '엄폐한 적에게는 수류탄이 답입니다. 쓰지 않고 지나가도 됩니다.',
+    // 2026-09-14 2차 (사용자 결정) — 한 단계에 필수 + 선택이 함께 보이는 본보기다.
+    objectives: [
+      { id: 'wallPass', text: '무너진 벽 너머로 나아간다' },
+      { id: 'grenadeKill', text: '수류탄으로 적을 처치한다', optional: true },
+    ],
   },
   extract: {
     id: 'extract', title: '버려진 함선으로 탈출하세요',
     hint: '함선 안의 스위치를 누르면 10초 뒤 이륙합니다. 그 함선이 앞으로 당신의 함선입니다.',
+    objectives: [{ id: 'extractSwitch', text: '버려진 함선의 스위치를 누른다' }],
     // 레이드가 끝나는 단계다 — 아무것도 막지 않는다 (build 트랙의 `raid` 와 같은 처리).
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,

@@ -180,6 +180,7 @@ export class ExtractionSystem implements GameSystem {
       isInShipBay: (p) => !!sys.ship && (sys.landed || sys.lifting) && sys.ship.containsWorldPoint(p),
       keepEnemyOut: (p, r) => !!sys.ship && (sys.landed || sys.lifting) && ShipHull.keepEnemyOut(sys.ship, p, r),
       beginPreLanded: (p, yaw, opts) => sys.beginPreLanded(p, yaw, opts),
+      skipToLiftoff: () => sys.skipToLiftoff(),
     };
   }
 
@@ -227,6 +228,44 @@ export class ExtractionSystem implements GameSystem {
     this.preLandedPhasePending = false;
     ctx.bus.emit('extraction:activated', { pointId: 'tutorial_ship', position: this.shipLandPos.clone(), duration: 0 });
     ctx.bus.emit('extraction:shipLanded', { position: this.shipLandPos.clone() });
+  }
+
+  /* ── 2026-09-14 2차 (튜토리얼 건너뛰기 = 즉시 탈출, 사용자 결정) ──────────────────────────────────
+   * `ExtractionRef.skipToLiftoff`. 걸어가서 타는 것만 건너뛴다 — 몸을 화물칸에 세우고 유예 없이
+   * **평소의 `liftoff()`** 를 부르므로 이륙 연출 · 결과 화면 · 정산 · 함선 획득이 전부 그대로 흐른다.
+   * 새 갈래를 만들지 않는 것이 `beginPreLanded` 와 같은 요점이고, 「함선 출발은 레이드 종료가 아니다」
+   * (2026-09-13)도 그대로다: 솔로라 `squadDone` 이 참이 되어 평소처럼 레이드가 끝날 뿐이다.
+   *
+   * **false 인 경우** — 본편 탈출 흐름에는 문이 없다:
+   *   ① `ctx.missionMode !== 'tutorial'`   ② 함선이 없거나 아직 착륙하지 않았다 · 이미 떠났다
+   *   ③ 태울 몸이 없다 (아직 스폰 전 · 사망 · 전투불능) — 시체를 태워 보낼 수는 없다.
+   * 유예(`departing`) 중에는 받는다 — 이미 착륙해 있는 함선이고, 건너뛰기는 그 10초를 지우는 것이 맞다.
+   */
+  private skipToLiftoff(): boolean {
+    const ctx = this.ctx;
+    const ship = this.ship;
+    if (!ship || !ctx || ctx.missionMode !== 'tutorial') return false;
+    if (!this.landed || this.lifting) return false;
+    const player = ctx.player;
+    if (!player || player.isDead || (player.isDowned ?? false)) return false;
+    // `extraction:liftoff` 는 `extracting` · `shipLanded` 단계에서만 받아들여진다 — 미뤄 둔 단계 전환이
+    // 남아 있으면(강하 직후 같은 프레임) 먼저 흘린다.
+    this.syncPreLandedPhase();
+    if (ctx.phase !== 'shipLanded' && ctx.phase !== 'extracting') return false;
+
+    // 화물칸 한가운데 데크 위에 세우고 기수 쪽(램프 반대)을 보게 한다.
+    const lz = (BAY_Z_MIN + BAY_Z_MAX) / 2;
+    ship.bayToWorld(0, lz, ship.position.y, _v);
+    _v.y = ship.floorYAt(_v.x, _v.z);
+    player.teleport(_v, ship.yaw, false);
+
+    if (!this.boarded) {
+      this.boarded = true;
+      ctx.bus.emit('extraction:boarded', {});
+      this.onLocalBoardingChanged(true);
+    }
+    this.liftoff();
+    return true;
   }
 
   get stage(): ExtractionStage {

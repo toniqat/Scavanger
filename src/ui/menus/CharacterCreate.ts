@@ -1,4 +1,4 @@
-import type { GameContext, ImplantDef, ImplantId, SlotId, StatDef, StatId } from '@/shared';
+import type { GameContext, ImplantId, SlotId, StatDef, StatId } from '@/shared';
 import {
   ACCENT_COLORS, CHARACTER_NAME_MAX, CREATE_IMPLANT_IDS, CREATE_STAT_MAX, CREATE_STAT_MIN, CREATE_STAT_POINTS,
   DEFAULT_ACCENT, STAT_IDS, baseCreateStats, canAdjustStat, createCharacterInSlot, deleteSlot, markAutoStart,
@@ -19,17 +19,19 @@ interface StatRow {
 /**
  * 캐릭터 생성 (2026-09-09) — 캐릭터 선택창의 빈 칸에서 열린다.
  *
- * 화면은 **세 열**(`.cc-body`)이다 (2026-09-09 개편 — 1280×720 에 스크롤 없이 들어가야 한다):
- *  - **왼쪽 · 캐릭터 설정**: 이름(+주사위) · **시작 임플란트 타일**. 임플란트는 목록이 아니라 지금 고른 것
- *    하나를 큰 썸네일(`.cc-imp-tile`, 아이콘 크게 · `--ic` 색 · 이름은 우하단)로 보여 주고, 타일을 누르면
- *    **타일 오른쪽에 컨텍스트 메뉴**(`.cc-imp-menu`, 커뮤니티 우클릭 메뉴 `.sc-menu` 와 같은 껍데기)가 떠서
- *    `CREATE_IMPLANT_IDS` 전부를 아이콘 · 이름 · 설명으로 나열한다. 고르면 닫히고, 바깥 클릭 · Escape 로도
- *    닫힌다 — Escape 는 다른 팝업과 같이 capture 핸들러에서 삼켜 `Input` 이 보지 못하게 한다.
- *  - **가운데 · 캐릭터 스탯**: 능력치 다섯을 **세로 한 줄씩**(`.cc-stat-list`) `◀ ▶` 로 배분한다. 표현은
- *    캐릭터 시트(`progression/ui/SheetBody` 의 `.cs-stat`)를 그대로 옮겼다 — 이름 · 설명 · 얇은 바 · mono 숫자.
+ * 화면은 **두 열**(`.cc-body`)이다 (2026-09-14 개편 — 1280×720 에 스크롤 없이 들어가야 한다):
+ *  - **왼쪽 열 `.cc-main`**: 이름 카드(`.cc-panel` — 이름 + 🎲) 위, 캐릭터 스탯 카드(`.cc-stats-wrap`) 아래.
+ *    능력치 다섯을 **세로 한 줄씩**(`.cc-stat-list`) `◀ ▶` 로 배분한다. 표현은 캐릭터 시트
+ *    (`progression/ui/SheetBody` 의 `.cs-stat`)를 그대로 옮겼다 — 이름 · 설명 · 얇은 바 · mono 숫자.
  *    `◀` 와 `▶` 는 둘 다 악센트(주황) 윤곽이고 못 누르는 쪽만 흐려진다. 남은 점수를 크게 띄운다.
  *  - **오른쪽 · 3D 미리보기**: `menus/SoldierPreview` (자기 WebGL 컨텍스트, `hub/ui/PlanetHologram` 의 규칙).
  *    그 **바로 아래 악센트 스와치**(`.cc-accent`) — 고르면 그 자리에서 다시 칠해진다.
+ *
+ * **2026-09-14 (사용자 결정) — 시작 임플란트 선택지는 화면에서 없어졌다.** 모든 새 캐릭터가 `CREATE_IMPLANT_IDS[0]`
+ * (갈고리)로 **고정**이다. 큰 타일(`.cc-imp-tile`) · 컨텍스트 메뉴(`.cc-imp-menu`) · `시작 임플란트` 라벨 ·
+ * 그 CSS 가 전부 빠졌고, 왼쪽 설정 열은 이름 카드만 남아 가운데 능력치 열과 한 열로 합쳐졌다(세 열 → 두 열).
+ * `createCharacterInSlot` 에 넘기는 `implant` 필드와 `shared/character.ts` 의 `sanitize` 는 **계약이라 그대로**다 —
+ * 값만 언제나 같을 뿐이다. 실제로 갈고리를 아이템으로 지급 · 장착하는 것은 함선 첫 진입 쪽의 일이다.
  *
  * **규칙은 전부 `shared/character.ts`** 에 있다 (`CREATE_STAT_MIN/MAX/POINTS`, `canAdjustStat`,
  * `rollCreateStats`, `rollCallsign`, `sanitizeCharacterName`, `ACCENT_COLORS`, `CREATE_IMPLANT_IDS`).
@@ -55,13 +57,6 @@ export class CharacterCreate {
   private readonly nameInput: HTMLInputElement;
   private readonly slotTag: HTMLElement;
   private readonly swatches: { hex: string; btn: HTMLButtonElement }[] = [];
-  /** 컨텍스트 메뉴의 항목들 (`.cc-imp-mi[data-id]`). */
-  private readonly implantBtns = new Map<ImplantId, HTMLButtonElement>();
-  /** 지금 고른 임플란트를 보여 주는 큰 타일 + 그 안의 아이콘 · 이름. */
-  private readonly implantTile: HTMLButtonElement;
-  private readonly implantIcon: HTMLElement;
-  private readonly implantName: HTMLElement;
-  private readonly implantMenu: HTMLElement;
   private readonly statRows = new Map<StatId, StatRow>();
   private readonly pointsValue: HTMLElement;
   private readonly pointsBox: HTMLElement;
@@ -72,26 +67,17 @@ export class CharacterCreate {
   private preview: SoldierPreview | null = null;
   /** 미리보기는 화면이 처음 열릴 때 만든다 — 타이틀에 서 있는 내내 두 번째 GL 컨텍스트를 쥐고 있지 않게. */
   private previewTried = false;
-  /** 임플란트 · 능력치 목록은 `ctx` 가 있어야 이름을 얻으므로 첫 `open()` 에서 채운다. */
-  private implantHost: HTMLElement | null = null;
+  /** 능력치 목록은 `ctx` 가 있어야 이름을 얻으므로 첫 `open()` 에서 채운다. */
   private statHost: HTMLElement | null = null;
-
-  /** 임플란트 메뉴 바깥을 누르면 닫는다 (커뮤니티 우클릭 메뉴와 같은 규약 — `window` capture). */
-  private readonly onDocDownImp = (e: MouseEvent): void => {
-    if (this.implantMenu.hidden) return;
-    if (e.target instanceof Node && (this.implantMenu.contains(e.target) || this.implantTile.contains(e.target))) return;
-    this.closeImplantMenu();
-  };
-  /** 메뉴가 떠 있는 동안 Escape 는 메뉴만 닫고 아무에게도 가지 않는다 (다른 팝업과 같은 capture 규약). */
-  private readonly onKeyImp = (e: KeyboardEvent): void => {
-    if (this.implantMenu.hidden) return;
-    if (e.code === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeImplantMenu(); }
-  };
 
   private slot: SlotId = 1;
   private stats: Record<StatId, number> = baseCreateStats();
   private accent: string = DEFAULT_ACCENT;
-  private implant: ImplantId = CREATE_IMPLANT_IDS[0];
+  /**
+   * 2026-09-14 (사용자 결정): 시작 임플란트는 **고르지 않는다** — 모든 새 캐릭터가 같은 값이다.
+   * 필드를 남기는 이유는 `createCharacterInSlot` 의 계약(`implant`)을 그대로 채우기 위해서다.
+   */
+  private readonly implant: ImplantId = CREATE_IMPLANT_IDS[0];
   /** 사람이 이름을 직접 쳤는가 / 능력치를 손으로 옮겼는가 — 주사위가 경고를 띄울지 정한다. */
   private nameTouched = false;
   private statsTouched = false;
@@ -107,8 +93,9 @@ export class CharacterCreate {
 
     const body = el('div', { cls: 'cc-body', parent: this.root });
 
-    /* ── 왼쪽: 캐릭터 설정 ── */
-    const form = el('div', { cls: 'cc-panel', parent: body });
+    /* ── 왼쪽 열: 이름 카드 + 능력치 카드 (2026-09-14: 임플란트가 빠지면서 옛 설정 열과 능력치 열이 합쳐졌다) ── */
+    const main = el('div', { cls: 'cc-main', parent: body });
+    const form = el('div', { cls: 'cc-panel', parent: main });
 
     const nameSec = el('div', { cls: 'cc-section', parent: form });
     el('span', { cls: 'ui-label', text: '이름', parent: nameSec });
@@ -132,21 +119,8 @@ export class CharacterCreate {
     const dice = el('button', { cls: 'ui-btn cc-dice', text: '🎲', attrs: { title: '무작위 호출명' }, parent: nameRow });
     dice.addEventListener('click', (e) => { e.stopPropagation(); this.rollName(); });
 
-    const impSec = el('div', { cls: 'cc-section cc-implant-sec', parent: form });
-    el('span', { cls: 'ui-label', text: '시작 임플란트', parent: impSec });
-    this.implantHost = el('div', { cls: 'cc-implants', parent: impSec });
-    // 큰 타일 하나 — 지금 고른 임플란트. 누르면 오른쪽에 메뉴가 뜬다.
-    this.implantTile = el('button', { cls: 'cc-imp-tile', attrs: { title: '시작 임플란트 고르기', 'aria-haspopup': 'menu' }, parent: this.implantHost });
-    this.implantIcon = el('span', { cls: 'ico', text: '', parent: this.implantTile });
-    this.implantName = el('span', { cls: 'nm', text: '', parent: this.implantTile });
-    el('span', { cls: 'caret', text: '▸', parent: this.implantTile });
-    this.implantTile.addEventListener('click', (e) => { e.stopPropagation(); this.toggleImplantMenu(); });
-    this.implantMenu = el('div', { cls: 'sc-menu cc-imp-menu', attrs: { role: 'menu' }, parent: this.root });
-    this.implantMenu.hidden = true;
-    this.implantMenu.addEventListener('mousedown', (e) => e.stopPropagation());
-
-    /* ── 가운데: 캐릭터 스탯 (세로 한 줄씩) ── */
-    const statsWrap = el('div', { cls: 'cc-stats-wrap', parent: body });
+    /* ── 캐릭터 스탯 (같은 열, 세로 한 줄씩) ── */
+    const statsWrap = el('div', { cls: 'cc-stats-wrap', parent: main });
     const statsHead = el('div', { cls: 'cc-stats-head', parent: statsWrap });
     el('span', { cls: 'ui-label', text: '캐릭터 스탯', parent: statsHead });
     const right = el('div', { cls: 'cc-stats-head-right', parent: statsHead });
@@ -193,64 +167,8 @@ export class CharacterCreate {
 
   /* ── build ────────────────────────────────────────────────────────────── */
 
-  private implantDefs(): readonly ImplantDef[] {
-    const all = this.ctxSafe()?.implants?.getAllDefs?.();
-    if (!all) return [];
-    return all.filter((d) => (CREATE_IMPLANT_IDS as readonly string[]).includes(d.id));
-  }
-
   /** `bind` 전에도 안전한 ctx 접근. */
   private ctxSafe(): GameContext | null { return (this.ctx as GameContext | undefined) ?? null; }
-
-  /** 임플란트 메뉴 항목은 `ctx.implants` 가 있어야 이름 · 설명이 나오므로 `bind` 뒤에 채운다. */
-  private fillImplants(): void {
-    const host = this.implantHost;
-    if (!host || this.implantBtns.size > 0) return;
-    const defs = this.implantDefs();
-    if (defs.length === 0) {
-      this.implantTile.disabled = true;
-      setText(this.implantName, '임플란트 정보 없음');
-      return;
-    }
-    const items = el('div', { cls: 'sc-menu-items', parent: this.implantMenu });
-    for (const def of defs) {
-      const btn = el('button', { cls: 'sc-mi cc-imp-mi', attrs: { role: 'menuitemradio', 'data-id': def.id }, parent: items });
-      btn.style.setProperty('--ic', def.color);
-      el('span', { cls: 'ico', text: def.icon, parent: btn });
-      const body = el('span', { cls: 'body', parent: btn });
-      el('span', { cls: 'nm', text: def.name, parent: body });
-      el('span', { cls: 'desc', text: def.description, parent: body });
-      btn.addEventListener('click', (e) => { e.stopPropagation(); this.setImplant(def.id); this.closeImplantMenu(); });
-      this.implantBtns.set(def.id, btn);
-    }
-    if (!this.implantBtns.has(this.implant)) this.implant = defs[0].id;
-  }
-
-  /** 타일 클릭 — 메뉴를 타일 **오른쪽**에 붙여 띄운다 (화면 밖으로 나가면 안쪽으로 밀어 넣는다). */
-  private toggleImplantMenu(): void {
-    if (!this.implantMenu.hidden) { this.closeImplantMenu(); return; }
-    if (this.implantBtns.size === 0) return;
-    this.implantMenu.hidden = false;
-    const tile = this.implantTile.getBoundingClientRect();
-    const w = this.implantMenu.offsetWidth, h = this.implantMenu.offsetHeight;
-    const gap = 8;
-    let x = tile.right + gap;
-    if (x + w > window.innerWidth - gap) x = Math.max(gap, tile.left - gap - w);   // 오른쪽에 자리가 없으면 왼쪽
-    const y = Math.max(gap, Math.min(window.innerHeight - h - gap, tile.top));
-    this.implantMenu.style.left = `${Math.round(x)}px`;
-    this.implantMenu.style.top = `${Math.round(y)}px`;
-    window.addEventListener('mousedown', this.onDocDownImp, true);
-    window.addEventListener('keydown', this.onKeyImp, true);
-    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-    this.implantBtns.get(this.implant)?.focus({ preventScroll: true });
-  }
-
-  private closeImplantMenu(): void {
-    if (this.implantMenu.hidden) return;
-    this.implantMenu.hidden = true;
-    window.removeEventListener('mousedown', this.onDocDownImp, true);
-    window.removeEventListener('keydown', this.onKeyImp, true);
-  }
 
   private statDefs(): readonly StatDef[] {
     const defs = this.ctxSafe()?.progression?.getAllStatDefs?.();
@@ -293,24 +211,20 @@ export class CharacterCreate {
   get draftStats(): Readonly<Record<StatId, number>> { return this.stats; }
   /** 미리보기 캔버스가 살아 있는가 (디버그). */
   get hasPreview(): boolean { return this.preview !== null; }
-  /** 지금 고른 시작 임플란트 (디버그 / 스모크). */
+  /** 저장될 시작 임플란트 (디버그 / 스모크). 2026-09-14 부터 **고정값**이다 — 고르는 곳이 없다. */
   get draftImplant(): ImplantId { return this.implant; }
-  /** 임플란트 컨텍스트 메뉴가 떠 있는가 (디버그 / 스모크). */
-  get isImplantMenuOpen(): boolean { return !this.implantMenu.hidden; }
 
   /** `slot` 칸에 새 캐릭터를 만드는 화면을 연다 (상태는 매번 처음부터). */
   open(slot: SlotId): void {
     this.slot = slot;
     this.stats = baseCreateStats();
     this.accent = DEFAULT_ACCENT;
-    this.implant = CREATE_IMPLANT_IDS[0];
     this.nameTouched = false;
     this.statsTouched = false;
     this.nameInput.value = '';
     this.msg.hidden = true;
     setText(this.slotTag, `슬롯 ${slot}`);
 
-    this.fillImplants();
     this.fillStats();
     this.root.hidden = false;
     this._open = true;
@@ -329,7 +243,6 @@ export class CharacterCreate {
     if (!this._open) return;
     this._open = false;
     this.ask.close();
-    this.closeImplantMenu();
     this.preview?.setVisible(false);
     this.root.hidden = true;
   }
@@ -347,12 +260,6 @@ export class CharacterCreate {
 
   private setAccent(hex: string): void {
     this.accent = hex;
-    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-    this.refresh();
-  }
-
-  private setImplant(id: ImplantId): void {
-    this.implant = id;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh();
   }
@@ -409,7 +316,6 @@ export class CharacterCreate {
   /* ── 확정 ─────────────────────────────────────────────────────────────── */
 
   private askConfirm(): void {
-    this.closeImplantMenu();
     const left = statPointsLeft(this.stats);
     if (left > 0) {
       // 버튼은 이미 disabled 지만 키보드 · 스모크가 우회할 수 있다 — 안내만 하고 아무것도 만들지 않는다.
@@ -455,19 +361,6 @@ export class CharacterCreate {
 
   private refresh(): void {
     for (const s of this.swatches) toggleClass(s.btn, 'is-on', s.hex === this.accent);
-    for (const [id, btn] of this.implantBtns) {
-      const on = id === this.implant;
-      toggleClass(btn, 'is-on', on);
-      btn.setAttribute('aria-checked', on ? 'true' : 'false');
-    }
-    const cur = this.implantDefs().find((d) => d.id === this.implant);
-    if (cur) {
-      this.implantTile.style.setProperty('--ic', cur.color);
-      this.implantTile.dataset.id = cur.id;
-      setText(this.implantIcon, cur.icon);
-      setText(this.implantName, cur.name);
-      this.implantTile.title = cur.description || '시작 임플란트 고르기';
-    }
     this.preview?.setAccent(this.accent);
 
     const left = statPointsLeft(this.stats);
@@ -489,7 +382,6 @@ export class CharacterCreate {
 
   dispose(): void {
     this.close();
-    this.implantMenu.remove();
     this.preview?.dispose();
     this.preview = null;
     this.ask.dispose();

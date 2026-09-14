@@ -193,8 +193,22 @@ export class ImplantPanel {
     return a || b;
   }
 
+  /**
+   * 2026-09-14 2차 (사용자 결정) — **튜토리얼 중에는 전술 임플란트 · 임플란트를 숨긴다.** HUD 위젯
+   * (`ui/hud/ImplantWidget`)이 이미 `hides('hud', 'implant')` 를 보고 접히므로, 인벤토리 화면의 **장착칸**도 같은
+   * 질의를 본다 — 「막히는 것은 곧 감추는 것」(`shared/tutorial`) 이고 `hides('stashItem', …)` 를 묻는
+   * `ui/InventoryUI` 와 같은 요령이다. 이 질의는 **튜토리얼 레이드 트랙 안에서만** true 이고 그 밖에서는 언제나
+   * false 라, 평소 화면은 한 글자도 바뀌지 않는다. (`[hidden]` 은 `ui/styles/base.css` 에서 `display: none !important`
+   * 라 `.inv-implants` 의 `display: flex` 를 이긴다 — 장비칸 그리드의 `implant` 칸이 통째로 빈다.)
+   */
   refresh(): void {
     if (this.disposed) return;
+    const hidden = this.ctx.tutorial?.hides('hud', 'implant') ?? false;
+    if (hidden !== this.root.hidden) {
+      this.root.hidden = hidden;
+      if (hidden) this.closePickers();   // 숨기는 순간 떠 있던 피커도 함께 닫는다 (`ctx.uiRoot` 직속이라 안 따라간다)
+    }
+    if (hidden) return;
     this.refreshTactical();
     this.refreshItems();
     if (this.itemPickerOpen) this.refreshItemOptions();

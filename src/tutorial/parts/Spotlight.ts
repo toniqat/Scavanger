@@ -49,6 +49,12 @@ export class Spotlight {
   private text = '';
   /** 선택자를 "먼저 찾히는 하나"가 아니라 **전부의 합집합**으로 쓴다 (2026-09-08). */
   private union = false;
+  /**
+   * **딤 없는 모드** (2026-09-14 2차, 사용자 결정 — `StepDef.spotNoDim`). 구멍 · 링 · 말풍선은 그대로이고
+   * 네 판만 투명해진다. 그리고 그때는 **클릭도 통과시킨다** (`tutorial.css` 의 `pointer-events: none`) —
+   * 어두운 판이 없는데 손만 묶이면 "왜 안 눌리지"가 되기 때문이다.
+   */
+  private noDim = false;
   private timer = 0;
   private last: Rect | null = null;
   private shown = false;
@@ -85,14 +91,17 @@ export class Spotlight {
   /**
    * 이 선택자들 중 먼저 찾히는 것을 밝힌다. 빈 목록 = 끄기.
    * `union` 이면 대신 **찾히는 것 전부**의 사각형을 합쳐 한 구멍으로 뚫는다.
+   * `noDim` 이면 어두운 판을 투명하게 두고 **클릭도 통과시킨다** (링 · 말풍선만 남는 포커싱).
    */
-  set(selectors: readonly string[] | undefined, text: string, union = false): void {
+  set(selectors: readonly string[] | undefined, text: string, union = false, noDim = false): void {
     const next = selectors ?? [];
-    if (next === this.selectors && text === this.text && union === this.union) return;
+    if (next === this.selectors && text === this.text && union === this.union && noDim === this.noDim) return;
     const retarget = next !== this.selectors;
     this.selectors = next;
     this.text = text;
     this.union = union;
+    this.noDim = noDim;
+    this.root.classList.toggle('is-nodim', noDim);
     this.timer = 0;                       // 다음 update 에서 즉시 다시 찾는다
     // 대상이 바뀌었다(= 단계가 넘어갔다) — 지금 켜진 것은 바로 접고, 새 대상은 나타난 뒤 반 박자 기다려 켠다.
     //   말풍선 문구만 바뀐 것은 재조준으로 취급해 그대로 따라간다.

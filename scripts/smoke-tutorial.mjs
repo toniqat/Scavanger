@@ -257,10 +257,15 @@ try {
   console.log('하우징 → 작업실 → 작업대');
   ok(await clickPopup('시작'), '시작 버튼');
   await waitStep('manage');
+  /* 2026-09-14 2차: 목표 패널은 달성 애니메이션이 보이도록 다음 단계의 **목표 줄만** `TUTORIAL_STEP_DELAY_S`(0.5초)
+     동안 붙잡는다 (진행 바 · 트랙 이름은 즉시). 단계 기계는 이미 넘어가 있으므로 여기서 그 반 박자를 기다린다. */
+  await sleep(700);
   const afterIntro = await P(() => ({
     popup: document.querySelector('.tut-popup').hidden,
     blocker: window.__game.ctx.uiBlockers.has('tutorial'),
-    title: document.querySelector('.tut-panel .tut-title')?.textContent,
+    /* 2026-09-14 2차: `.tut-title` · `.tut-hint` 두 줄이 **체크박스 목표 줄 목록**으로 바뀌었다. 글자는
+       `.tut-obj-txt` 에서 읽는다 — `.tut-obj-label` 은 취소선용으로 같은 글자를 한 겹 더 깔고 있어 두 번 나온다. */
+    title: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent).join(' | '),
   }));
   ok(afterIntro.popup && !afterIntro.blocker && /함선 관리/.test(afterIntro.title ?? ''), '카드가 닫히고 목표가 함선 관리로 바뀐다', JSON.stringify(afterIntro));
   /* 2026-09-08: 이 단계에는 열린 화면이 없다 — 밝힐 것은 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트
@@ -654,43 +659,52 @@ try {
   await sleep(200);
 
   /* ── 5. 건너뛰기 확인 카드 ────────────────────────────────────────────── */
-  console.log('건너뛰기');
-  await P(() => document.querySelector('.tut-panel .tut-skip').click());
-  await sleep(150);
-  const confirm = await P(() => ({
-    open: !document.querySelector('.tut-popup').hidden,
-    title: document.querySelector('.tut-popup-card .title')?.textContent,
-    acts: [...document.querySelectorAll('.tut-popup-card .acts .ui-btn')].map((b) => b.textContent),
-  }));
-  ok(confirm.open && /건너뛸까요/.test(confirm.title ?? '') && confirm.acts.join(',') === '계속하기,건너뛰기',
-    '건너뛰기 버튼이 확인 카드를 띄운다', JSON.stringify(confirm));
-
-  /* 2026-09-09: 본문 없음 + 건너뛰기는 **채워진 빨간 홀드 버튼** — 짧게 눌러서는 끝나지 않는다. */
-  const card = await P(() => {
-    const body = document.querySelector('.tut-popup-card .body');
-    const skip = [...document.querySelectorAll('.tut-popup-card .acts .ui-btn')].find((b) => b.textContent === '건너뛰기');
+  /* 2026-09-14 2차 (사용자 결정): 패널의 `.tut-skip` 버튼이 없어지고 건너뛰기는 **ESC 메뉴**로 옮겨 갔다
+     (`ui/menus/PauseMenu` — 튜토리얼이 돌고 있으면 `함선으로 귀환` 자리가 `튜토리얼 건너뛰기` 가 된다).
+     그래서 그 경로가 실제로 트랙을 끝내는지를 여기서 본다 — 확인은 `.pause-ask` 의 1초 홀드다. */
+  console.log('건너뛰기 (ESC 메뉴)');
+  const pauseSkip = await P(async () => {
+    window.__game.ctx.bus.emit('game:paused', { paused: true, freeze: false });
+    await new Promise((r) => setTimeout(r, 60));
+    const menu = document.querySelector('.menu.pause');
+    const btn = [...(menu?.querySelectorAll('.ui-btn') ?? [])].find((b) => b.textContent === '튜토리얼 건너뛰기');
+    btn?.click();
     return {
-      bodyLines: body ? body.querySelectorAll('p').length : -1,
-      bodyShown: body ? getComputedStyle(body).display !== 'none' : true,
-      danger: !!skip?.classList.contains('danger'), hold: !!skip?.classList.contains('tut-hold'),
-      fill: !!skip?.querySelector('.tut-hold-fill'),
+      open: !!menu && !menu.classList.contains('hidden'),
+      found: !!btn,
+      track: window.__game.ctx.tutorial.track,
     };
   });
-  ok(card.bodyLines === 0 && !card.bodyShown, '확인 카드에 본문이 없다 (빈 칸도 남지 않는다)', JSON.stringify(card));
-  ok(card.danger && card.hold && card.fill, '건너뛰기는 빨간 홀드 버튼이다', JSON.stringify(card));
-
-  // 짧게 누르면 아무 일도 없다
-  const holdOn = (ms) => P(async (t) => {
-    const btn = [...document.querySelectorAll('.tut-popup-card .acts .ui-btn')].find((b) => b.textContent === '건너뛰기');
-    btn.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, pointerId: 1 }));
-    await new Promise((r) => setTimeout(r, t));
-    btn.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true, pointerId: 1 }));
-  }, ms);
-  await holdOn(200);
+  ok(pauseSkip.open && pauseSkip.found, 'ESC 메뉴에 `튜토리얼 건너뛰기` 가 있다', JSON.stringify(pauseSkip));
   await sleep(150);
-  ok(await step() === 'craftGun', '짧게 누르면 건너뛰지 않는다');
-  ok(await clickPopup('계속하기'), '계속하기');
+  const askCard = await P(() => {
+    const ask = document.querySelector('.pause-ask');
+    const okBtn = document.querySelector('.pause-ask-ok');
+    return {
+      open: !!ask && !ask.classList.contains('hidden') && getComputedStyle(ask).display !== 'none',
+      title: document.querySelector('.pause-ask-title')?.textContent,
+      ok: document.querySelector('.pause-ask-ok-t')?.textContent,
+      hold: !!document.querySelector('.pause-ask-fill'),
+      danger: !!okBtn?.classList.contains('danger'),
+    };
+  });
+  ok(askCard.open && /건너뛰기/.test(askCard.title ?? '') && askCard.hold && askCard.danger,
+    '경고 팝업 + 1초 홀드 확인 (Enter 로는 확정되지 않는다)', JSON.stringify(askCard));
+  /* 취소하면 하던 단계 그대로다 — 실제로 건너뛰지는 않는다 (아래 6절이 같은 저장을 계속 쓴다). */
+  const cancelled = await P(async () => {
+    document.querySelector('.pause-ask')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const cancel = [...document.querySelectorAll('.pause-ask-foot .ui-btn')].find((b) => /취소/.test(b.textContent ?? ''));
+    cancel?.click();
+    await new Promise((r) => setTimeout(r, 120));
+    const ask = document.querySelector('.pause-ask');
+    window.__game.ctx.bus.emit('game:paused', { paused: false, freeze: false });
+    return {
+      closed: !ask || ask.classList.contains('hidden') || getComputedStyle(ask).display === 'none',
+      track: window.__game.ctx.tutorial.track,
+    };
+  });
   await sleep(150);
+  ok(cancelled.closed && cancelled.track === 'build', '취소하면 하던 트랙 그대로', JSON.stringify(cancelled));
   ok(await step() === 'craftGun', '취소하면 하던 단계 그대로');
 
   /* ── 6. 진행이 새로고침을 견딘다 ──────────────────────────────────────── */

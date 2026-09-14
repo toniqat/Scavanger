@@ -24,13 +24,13 @@
 | 파일 | 역할 |
 |---|---|
 | `TutorialSystem.ts` | `GameSystem` + `TutorialRef`. **3트랙 단계 기계** · 이벤트 구독 · localStorage 저장(v2) · 재료 지급 · dev 콘솔 `tutorial` 명령. `ctx.tutorial` 을 게시한다. |
-| `model.ts` | 폴더 공용 어휘 — 저장 키 · blocker 토큰 · 트랙 라벨 · 튜토리얼이 만들게 하는 id들(`furn_bench_gun` · `make_wpn_ar` · `make_ammo_medium`) · 지급 재료 표 · 안내선 수치 · **조작 가이드 표**(`TUTORIAL_CONTROL_HINTS`) · **체크포인트 → 단계 표**(`CHECKPOINT_STEP`) · HUD 노출 기준(`HUD_GEAR_STEP` · `HUD_STAMINA_STEP`) · `StepDef` 타입. 상태 없음. |
-| `Steps.ts` | **단계 표** — 각 단계의 제목 · 부제 · `allow`(허용 게이트) · 스포트라이트 선택자 · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). `nextStep` · `stepIndexOf` · `stepCountOf` 는 **자기 트랙 안에서만** 센다 (`trackStepsOf`). |
-| `ui/Controls.ts` | **우측 조작 가이드** — 배운 키가 한 줄씩 쌓이고 사라지지 않는다. 키 라벨은 그릴 때 `Keys` 에서 읽고 `input:bindingsChanged` 에 다시 그린다. |
+| `model.ts` | 폴더 공용 어휘 — 저장 키 · blocker 토큰 · 트랙 라벨 · 튜토리얼이 만들게 하는 id들(`furn_bench_gun` · `make_wpn_ar` · `make_ammo_medium`) · 지급 재료 표 · 안내선 수치 · **목표 줄 타입**(`TutorialObjective` · `objectivesOf`) · **조작 가이드 표**(`TUTORIAL_CONTROL_HINTS` · `CONTROL_SECTIONS` · `hintPairs`) · **체크포인트 → 단계 표**(`CHECKPOINT_STEP`) · HUD 노출 기준(`HUD_GEAR_STEP` · `HUD_STAMINA_STEP`) · `StepDef` 타입. 상태 없음. |
+| `Steps.ts` | **단계 표** — 각 단계의 이름 · **목표 줄**(`objectives`) · `allow`(허용 게이트) · 스포트라이트 선택자(`spot` · `spotUnion` · `spotNoDim`) · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). `nextStep` · `stepIndexOf` · `stepCountOf` 는 **자기 트랙 안에서만** 센다 (`trackStepsOf`). |
+| `ui/Controls.ts` | **우측 조작 가이드** — 배운 키가 한 줄씩 쌓이고 사라지지 않는다. 줄은 **구간**(이동 / 화면 / 전투 / 장비)으로 묶이고 구간 사이에만 얇은 구분선이 있다. 한 줄이 쌍을 여럿 가질 수 있다(`LMB 사격 · RMB 정조준`). 키 라벨은 그릴 때 `Keys` 에서 읽고 `input:bindingsChanged` 에 다시 그린다. |
 | `parts/Gates.ts` | 게이트 판정 순수 함수. `allow` 에 없는 게이트는 전부 막고, 배열이면 그 id 만 허용한다. `hides(gate, id?)` 도 여기 — **막히는 것은 곧 감추는 것**이다. |
 | `parts/Guide.ts` | **바닥 안내선** — 흐르는 점선 띠(셰이더) + 목표 빛기둥 + 링. `Interactable.id` 하나로 목표를 잡는다. |
-| `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. 대상은 사각형이 있고 `visibility` 가 살아 있는 것만 — 닫힌 `.ship-manage` 처럼 접혀도 사각형이 남는 화면을 밝히지 않는다. `set(selectors, text, union)` 의 **합집합 모드**(2026-09-08)는 먼저 찾히는 하나가 아니라 **찾히는 전부**를 감싸는 사각형을 뚫는다 — 두 패널에 걸친 드래그를 안내할 때 쓴다. |
-| `ui/Panel.ts` | 좌측 상단 목표 패널 (`튜토리얼 n / m` · 제목 · 부제 · 진행 바 · **건너뛰기** 버튼). 포커싱 중에는 `is-lifted` 로 어두운 판 위에 올라간다 — 딤 제외 + 건너뛰기는 언제나 눌린다. |
+| `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. 대상은 사각형이 있고 `visibility` 가 살아 있는 것만 — 닫힌 `.ship-manage` 처럼 접혀도 사각형이 남는 화면을 밝히지 않는다. `set(selectors, text, union, noDim)` 의 **합집합 모드**(2026-09-08)는 먼저 찾히는 하나가 아니라 **찾히는 전부**를 감싸는 사각형을 뚫는다 — 두 패널에 걸친 드래그를 안내할 때 쓴다. **딤 없는 모드**(`noDim`, 2026-09-14 2차)는 판을 투명하게 두고 **클릭도 통과시킨다**. |
+| `ui/Panel.ts` | 좌측 상단 목표 패널 — **퀘스트 패널 모양**(2026-09-14 2차): 글리프 + 트랙 이름 / 체크박스 목표 줄 / 트랙 진행 바. 글자 라벨(`n / m`)도 **건너뛰기 버튼도 없다**. 달성 애니메이션(체크 · 취소선이 좌→우)이 보이도록 다음 단계의 목표 줄을 `TUTORIAL_STEP_DELAY_S` 동안 **패널 안에서** 붙잡는다. 포커싱 중에는 `is-lifted` 를 단다 (상태 표시 — z 는 늘 79). |
 | `ui/Popup.ts` | 시작 안내 카드와 건너뛰기 확인 카드 (같은 셸, 버튼만 다름). 모달리스. |
 | `tutorial.css` | 위 셋의 스타일. `.ui-btn` · `.ui-label` 은 `ui/styles/base.css` 것을 쓴다. |
 
@@ -56,14 +56,18 @@
 | 1 | `wake` | 쓰러진 채로 깨어난다 | `player:introWakeDone` |
 | 2 | `move` | 갈라진 땅까지 걸어간다 | 체크포인트 `cliff` |
 | 3 | `sprintJump` | 달려서 뛰어넘는다 | 체크포인트 `corpse` |
-| 4 | `corpseLoot` | 시체에서 무기 · 가방 · 탄약 (**여기서 체력 · 무기 HUD 가 나타난다**) | 체크포인트 `bugs` |
+| 4 | `corpseLoot` | **무기 장착**(필수) + 가방 · 탄약 · 회복(선택) — **지나면 체력 · 무기 HUD 가 나타난다** | `loadout:changed` 에 주무기가 들어옴 · 체크포인트 `bugs` |
 | 5 | `shoot` | 벌레 둘 처치 | `enemy:killed` × `RAID_KILLS_PER_STEP` · 체크포인트 `crawl` |
 | 6 | `crouch` | 기둥 밑을 앉아서 지난다 | `player:stanceChanged`(stand 아님) · 체크포인트 `android` |
 | 7 | `crouchAim` | 앉은 채 안드로이드 둘 | `enemy:killed` × 2 · 체크포인트 `drop` |
 | 8 | `drop` | 높은 곳에서 뛰어내린다 | `player:fell {damage > 0}` · 체크포인트 `supply` |
-| 9 | `heal` | 보급품 → 회복 사용 | `player:stimUsed` · 체크포인트 `wall` |
-| 10 | `grenade` | 무너진 벽 너머 (**선택**) | `grenade:thrown` · 체크포인트 `ship` (안 쓰고 지나가도 된다) |
+| 9 | `heal` | 보급품 → 회복 사용 (**체력이 가득이면 조용히 지나친다**) | `player:stimUsed` · 체크포인트 `wall` |
+| 10 | `grenade` | 무너진 벽 너머로(필수) + **수류탄으로 처치**(선택) | 체크포인트 `ship` (수류탄을 안 써도 넘어간다) |
 | 11 | `extract` | 버려진 함선의 스위치 | `extraction:departureStarted` · `extraction:liftoff` |
+
+각 단계는 **목표 줄**(`StepDef.objectives`)을 하나 이상 갖는다 — 필수는 단계가 넘어가는 순간 전부 달성으로 그어지고,
+선택은 실제로 했을 때만 체크된다 (`TutorialSystem.markObjective`). `objectives` 를 안 적은 단계는 `hint` 한 줄이
+유일한 필수 목표다. 레이드 트랙을 앞으로 접는 길은 `foldRaid` 하나이고 체크포인트 · 탈출 스위치가 그것을 함께 쓴다.
 
 트랙 시작은 `game:newMission {mode:'tutorial'}`, 새로고침 복귀는 `world:ready` + `ctx.missionMode === 'tutorial'`
 (`startRaidTrack` — 둘 다 같은 함수로 모인다). **완주**하면 `pendingShip` 이 남아 다음 함선 진입에서 ② 가 이어지고,
@@ -186,13 +190,23 @@
 
 ---
 
-## 우측 조작 가이드 (2026-09-14)
+## 우측 조작 가이드 (2026-09-14 · 2차)
 
 배운 조작이 **한 줄씩 쌓이고 사라지지 않는다** (`ui/Controls.ts`, CSS `.tut-controls`). 우하단 키
 가이드(`ui/hud/KeyGuide`, `.key-guide` — right 28 / bottom 28 / z 84)와 **주인도 자리도 다르다**: 그쪽은 "지금 열린
-화면의 키"라 매번 갈리고, 이쪽은 누적이라 화면 **우측 세로 가운데**에 선다 (위의 `.community` top 28 과 아래의
-`.weapon` bottom 32 사이의 빈 띠, `max-height: 52vh` 로 1440×900 에서도 그 띠를 넘지 않는다).
+화면의 키"라 매번 갈리고, 이쪽은 누적이다.
 
+**자리 (2026-09-14 2차)**: 우하단 무기 패널(`.weapon` bottom 32 — `.wbox` ≈ 108 + 퀵슬롯 54 + gap → 위 끝이
+바닥에서 약 202 px)과 그 아래 키 가이드를 **가리지 않도록** `bottom: 232px` 를 자기 바닥으로 삼고,
+위로는 `top: 104px`(메신저 버튼 `.community` top 28 + 64 아래)까지의 띠 안에서 세로 가운데에 선다
+(`height: fit-content` + `margin-block: auto`, `max-height: calc(100vh - 336px)`). 1440×900 · 1920×1080 둘 다에서 겹치지 않는다.
+
+- **구간**(`ControlSection` — `move` 이동 / `screen` 화면 / `combat` 전투 / `gear` 장비)으로 묶이고 구간 사이에만
+  얇은 구분선이 있다. 구간 상자는 **첫 줄이 들어올 때 생겨** 제 자리에 끼워지므로 빈 구간은 DOM 에 아예 없다 —
+  그래서 구분선이 `.tut-ctl-sec + .tut-ctl-sec` 한 줄로 끝난다 (`:empty` + 인접 선택자는 숨은 상자를 그대로 세어
+  맨 위에 선을 남긴다). **해금은 여전히 줄마다 따로**다.
+- 한 줄이 **쌍을 여럿** 가질 수 있다 (`ControlHint.more` — `LMB 사격 · RMB 정조준`이 한 줄이다).
+- **인벤토리 화면이 열려 있는 동안에는 접힌다** (`inventory:opened` / `inventory:closed`). 그 화면이 우측을 통째로 쓴다.
 - 표는 `model.TUTORIAL_CONTROL_HINTS` — **단계별로 더해지는 줄**이고, `setStep` 이 그 단계**까지 전부**를 올린다
   (체크포인트로 두세 단계를 건너뛰어도 빠지는 줄이 없다). 이미 있는 줄은 `add` 가 무시하므로 멱등이다.
 - 표가 들고 있는 것은 **키 액션 이름**(`FORWARD` · `SPRINT` …)뿐이다 — 라벨은 그릴 때 `keyLabel(Keys[action])`
@@ -246,8 +260,12 @@
 ```jsonc
 { "version": 2,
   "tracks": { "raid": { "step": null, "done": true }, "ship": …, "build": { "step": "craftGun", "done": false } },
-  "granted": true, "benchUid": "f-7", "pendingShip": false, "learned": ["move", "sprint"], "topped": ["craftGun"] }
+  "granted": true, "benchUid": "f-7", "pendingShip": false, "learned": ["move", "sprint"],
+  "objectives": ["corpseBag"], "topped": ["craftGun"] }
 ```
+
+`objectives` (2026-09-14 2차)는 **지금 단계에서** 달성한 목표 id 다 — 선택 목표를 해 놓고 새로고침했을 때
+체크가 사라지지 않게 하는 것이 전부이고, 단계가 넘어가면 비워진다.
 
 - **v1 → v2 마이그레이션**: v1 의 최상위 `step` · `done` 은 전부 지금의 `build` 트랙 것이었으므로 그리로 옮겨
   붙이고, 그 프로필은 **레이드 · 함선 트랙을 이미 끝낸 것으로 본다**. 안 그러면 하던 사람이 다음 접속에서
@@ -262,7 +280,9 @@
   하던 프로필도 `scav.tutorial` 이 없기는 마찬가지라, 그런 프로필은 조용히 `done` 으로 표시하고 다시는 켜지 않는다.
 - **저장**: `scav.tutorial` (`TutorialSave` + `granted` · `benchUid`). 단계가 바뀔 때마다 쓰므로 새로고침을 견딘다.
   `ui/menus/newCharacter.resetCharacterSaves()` 가 `scav.` 접두 키를 전부 지우므로 **새 캐릭터로 시작**하면 다시 돈다.
-- **끝내기**: 완주(`raid` 6초 뒤) 또는 **건너뛰기**(확인 카드 → `skip()`). 둘 다 `done: true` 로 남고 모든 게이트가 풀린다.
+- **끝내기**: 완주(`raid` 6초 뒤) 또는 **건너뛰기**. 둘 다 `done: true` 로 남고 모든 게이트가 풀린다.
+  **2026-09-14 2차부터 건너뛰기는 ESC 메뉴에서 한다** (`TutorialRef.skipTrack(track)` — 목표 패널의 버튼은 없어졌다).
+  시작 안내 카드의 `건너뛰기` → 확인 카드(1초 홀드) 경로는 그대로다.
 - **다시 보기**: dev 콘솔 `tutorial start` / `tutorial skip` / `tutorial step <id>` / `tutorial status`.
 
 ## 재료 지급
@@ -308,6 +328,34 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-14 2차 (목표 패널 = 퀘스트 패널 · 조작 가이드 구간 · corpseLoot · heal — 사용자 결정)**
+  ① **목표 패널 전면 개편** (`ui/Panel.ts` + css). `조작 안내 n / m` 글자 라벨이 사라지고 그 자리를 **트랙 진행
+  바**가 대신한다. `제목 + 부제` 두 줄은 **체크박스가 달린 목표 줄 목록**이 됐다 (`StepDef.objectives`, 없으면
+  `hint` 한 줄이 유일한 필수 목표). 필수 목표는 **단계가 넘어가는 순간** 전부 달성으로 그어지고(`completeRequired`),
+  선택 목표는 실제로 했을 때만 체크된다(`markObjective`). 달성 연출은 체크가 좌→우(`stroke-dashoffset`)로 그려지고
+  취소선이 좌→우(`clip-path` + line-through 겹침 — `::after` 막대 하나로는 **두 줄로 접힌 목표**의 허공에 줄이
+  그어진다)로 그어지며 글자가 회색이 된다. 그 연출이 보이도록 다음 단계의 목표 줄을 `TUTORIAL_STEP_DELAY_S`
+  (csv, 0.5초 — 스포트라이트 · 안내선이 이미 쓰는 창) 동안 **패널 안에서** 붙잡는다 — **단계 기계의 타이밍은
+  한 글자도 안 바뀌었다**(미루는 것은 그리기뿐이다).
+  ② **패널의 건너뛰기 버튼 삭제** — 건너뛰기는 ESC 메뉴(`skipTrack`)로 갔다. 시작 카드의 `건너뛰기` → 확인
+  카드(1초 홀드)는 그대로다. `setLifted` · `is-lifted` 는 남긴다.
+  ③ **`corpseLoot`** — **딤 없는 포커싱**(`StepDef.spotNoDim` → `Spotlight` 의 `is-nodim`: 판이 투명해지고
+  **클릭도 통과**한다 — 어두운 판이 없는데 손만 묶이면 더 나쁘다). 필수는 **무기 장착 하나**이고 그 순간
+  다음 단계다(`loadout:changed` 에 주무기가 들어오면 — def id 는 `world/tutorial` 이 정하므로 종류를 안 본다).
+  가방 · 탄약 · 회복은 **선택 목표**로 내렸다. `HUD_GEAR_STEP` 관계는 그대로다 (이 단계를 **지나면** 체력 · 무기 HUD).
+  ⚠ 격자 타일에는 def id 가 없고 `data-uid` 뿐이라(`inventory/ui/GridView`) **총 한 칸만 고르는 선택자가 없다** —
+  구멍은 「시체 격자 ~ 주무기 칸」 합집합, 즉 드래그 경로 전체다. 드래그 중 받을 칸이 초록으로 켜지는 것은
+  인벤토리가 이미 한다(`.inv-slot.is-target-ok`).
+  ④ **`grenade`** — 한 단계에 필수 + 선택이 함께 보이는 본보기. 필수 「무너진 벽 너머로 나아간다」(체크포인트
+  `ship`), 선택 「수류탄으로 적을 처치한다」(수류탄이 터진 뒤 `GRENADE_KILL_WINDOW_S` 안의 **비총기** 처치 =
+  `enemy:killed.weaponClass == null`). 그래서 `grenade:thrown` 으로 단계를 넘기지 않는다 — 대신 탈출 스위치도
+  `foldRaid('extract')` 로 앞으로 접어, 체크포인트를 놓쳐도 막히지 않게 했다.
+  ⑤ **`heal`** — 체력이 이미 가득이면 **조용히 지나친다** (`generator` · `bench` 와 같은 요령, `advance(true)` 는
+  달성 표시도 소리도 내지 않는다).
+  ⑥ **우측 조작 가이드** — 줄이 **구간**으로 묶이고(이동 / 화면 / 전투 / 장비) 구간 사이에만 얇은 구분선이 있다.
+  `LMB 사격 · RMB 정조준`이 **한 줄**이 됐다(`ControlHint.more`). **인벤토리 화면이 열려 있으면 접힌다**.
+  자리를 무기 패널 · 퀵슬롯 **위**로 뺐다 (`bottom: 232px`, 위 절 참고).
+
 - **2026-09-14 (3트랙 단계 기계 · 우측 조작 가이드 · HUD 점진 노출 — `docs/plans/tutorial-raid.md` C)** — 같은 날 먼저 들어온 계약 위에
   **진짜 구현**이 올라갔다.
   ① **저장 v2** — `TutorialSave.tracks` 로 트랙별 `{step, done}`. v1(최상위 `step`/`done`)은 `tracks.build` 로 옮겨 붙이고
@@ -328,7 +376,13 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
   ⑥ `community` 가 `ALWAYS_HIDDEN` 에서 빠졌다 (함선 트랙이 메신저를 **써야** 한다). 동작은 같다 — `allow` 가 없는 단계는
   `blockReason` 이 막고 `hides` 가 그것을 그대로 읽는다. 같은 이유로 `stashItem` 흰 목록은 **증축 트랙에서만** 적용된다.
 
-- **2026-09-14 (딸피로 깨어난다 — 리드 마무리)** — 사용자 명세의 「플레이어는 딸피 상태라 벌레에게
+- **2026-09-14 2차 (풀피로 시작 · 풀피로 부활 — 사용자 결정, 리드 마무리)** — 아래 「딸피로 깨어난다」를 **뒤집었다**.
+  `applyLowHp()` · `LOW_HP_DONE_STEPS` 를 지웠고 `player:spawned` · `player:respawn` · `player:introWakeDone` 세 구독도
+  함께 빠졌다 (`TUTORIAL_START_HP` 는 읽는 곳 없는 은퇴 상수로 남는다). 긴장을 만드는 일은 이제 **낙하 피해**가 한다 —
+  `drop` 단계에서 실제로 깎인 체력을 `heal` 단계의 붕대로 되돌리는 것이 「낙뎀 인지 → 회복」의 한 줄이고, 체력이 이미
+  가득이면 `heal` 은 조용히 지나간다.
+
+- ~~**2026-09-14 (딸피로 깨어난다 — 리드 마무리)**~~ *(위 2차에서 뒤집힘)* — 사용자 명세의 「플레이어는 딸피 상태라 벌레에게
   공격당하면 사망」이 빠져 있었다. `applyLowHp()` 가 `player:spawned` · `player:respawn` · `player:introWakeDone` 마다
   `PlayerRef.setHp(TUTORIAL_START_HP)` 를 건다 — **부활할 때마다 다시 건다**는 것이 요점이다(`player:respawn` 은 체력을
   가득 채워 주므로 그대로 두면 한 번 죽은 뒤부터 긴장이 사라진다). `LOW_HP_DONE_STEPS`(`heal` 부터)에 닿으면 손을 둔다 —

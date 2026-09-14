@@ -152,15 +152,22 @@
 .cs-card.busy { pointer-events: none; opacity: 0.5; }
 
 /* ── 캐릭터 생성 ─────────────────────────────────────────────────────────────
-   세 열 (2026-09-09 개편): [설정: 이름 · 임플란트 타일] [능력치 세로 다섯 줄] [미리보기 + 악센트].
-   1280×720 에 스크롤 없이 들어가야 한다 — 가장 높은 열은 가운데(능력치 ~370 px)이고 나머지 두 열은
-   grid 의 stretch 로 같은 높이가 된다 (미리보기 무대가 남는 높이를 채운다). */
+   **두 열** (2026-09-14 개편 — 시작 임플란트 선택지가 화면에서 빠지면서 옛 왼쪽 설정 열에 이름만 남았다.
+   그 카드를 능력치 카드 위에 얹어 한 열 `.cc-main` 으로 합쳤다): [이름 + 능력치] [미리보기 + 악센트].
+   1280×720 에 스크롤 없이 들어가야 한다 — 가장 높은 열은 왼쪽(이름 ~90 px + 능력치 ~370 px)이고 오른쪽
+   열은 grid 의 stretch 로 같은 높이가 된다 (미리보기 무대가 남는 높이를 채운다). */
 .char-create .cc-body {
-  display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr) minmax(270px, 380px); gap: 20px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 380px); gap: 20px;
   align-items: stretch;
-  width: 100%; max-width: 1120px;
+  width: 100%; max-width: 1000px;
 }
 @media (max-width: 980px) { .char-create .cc-body { grid-template-columns: 1fr; } }
+
+/* 왼쪽 열: 이름 카드 + 능력치 카드 (카드 사이 간격은 열 간격보다 좁게).
+   이름 카드는 제 높이만, 능력치 카드가 남는 높이를 먹는다 — 옛 가운데 열이 grid stretch 로 그랬던 그대로라
+   패널 배경이 오른쪽 미리보기 열과 같은 높이로 떨어진다. */
+.cc-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cc-main > .cc-stats-wrap { flex: 1; }
 
 .cc-panel {
   display: flex; flex-direction: column; gap: 14px;
@@ -192,54 +199,9 @@
 .cc-sw.is-on { box-shadow: 0 0 0 2px var(--c-panel-strong), 0 0 0 3px var(--c-text); }
 .cc-sw:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
 
-/* 시작 임플란트 — 지금 고른 것 하나를 큰 타일로. 목록은 타일을 눌러 여는 컨텍스트 메뉴에 있다. */
-.cc-implant-sec { flex: 1; min-height: 0; }
-.cc-implants { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.cc-imp-tile {
-  appearance: none; cursor: pointer; text-align: left; font-family: inherit; color: var(--c-text);
-  --ic: var(--c-info);
-  position: relative; display: flex; align-items: center; justify-content: center;
-  flex: 1; min-height: 104px; max-height: 150px; padding: 12px;
-  border: 1px solid var(--ic);
-  background:
-    radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--ic) 22%, transparent), transparent 72%),
-    rgba(255, 255, 255, 0.03);
-  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
-}
-.cc-imp-tile:hover { box-shadow: 0 0 0 1px var(--ic), 0 0 18px color-mix(in srgb, var(--ic) 35%, transparent); }
-.cc-imp-tile:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
-.cc-imp-tile:disabled { cursor: default; opacity: 0.5; }
-.cc-imp-tile .ico {
-  font-size: 46px; line-height: 1; color: var(--ic);
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--ic) 55%, transparent));
-}
-/* 이름은 타일 **우하단** */
-.cc-imp-tile .nm {
-  position: absolute; right: 10px; bottom: 8px; max-width: calc(100% - 20px);
-  font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--ic);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.cc-imp-tile .caret { position: absolute; right: 10px; top: 6px; font-size: 12px; color: var(--c-text-faint); }
-.cc-imp-tile:hover .caret { color: var(--c-text); }
-
-/* 컨텍스트 메뉴 — 껍데기는 커뮤니티 우클릭 메뉴(`base.css` 의 `.sc-menu` · `.sc-mi`), 항목만 아이콘 + 이름 + 설명. */
-.cc-imp-menu { min-width: 300px; max-width: 360px; }
-.cc-imp-menu[hidden] { display: none; }
-.cc-imp-menu .sc-mi.cc-imp-mi {
-  --ic: var(--c-info);
-  align-items: center; justify-content: flex-start; gap: 11px; padding: 8px 10px;
-  border-left: 2px solid transparent;
-}
-.cc-imp-menu .cc-imp-mi.is-on { border-left-color: var(--ic); background: rgba(255, 255, 255, 0.05); }
-.cc-imp-menu .cc-imp-mi .ico {
-  flex: none; display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border: 1px solid var(--ic); color: var(--ic); font-size: 15px; line-height: 1;
-}
-.cc-imp-menu .cc-imp-mi .body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.cc-imp-menu .cc-imp-mi .nm { font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; }
-.cc-imp-menu .cc-imp-mi.is-on .nm { color: var(--ic); }
-.cc-imp-menu .cc-imp-mi .desc { font-size: 10.5px; line-height: 1.45; color: var(--c-text-faint); }
-.cc-imp-menu .cc-imp-mi:hover .desc { color: var(--c-text-dim); }
+/* 2026-09-14 (사용자 결정): **시작 임플란트 블록은 통째로 없어졌다** — 큰 타일(`.cc-imp-tile`) · 컨텍스트
+   메뉴(`.cc-imp-menu`, `.sc-menu` 껍데기 재사용) · `.cc-implants` 가 전부 여기 있었다. 새 캐릭터의 임플란트는
+   `CREATE_IMPLANT_IDS[0]` 고정이라 고를 화면이 없다. */
 
 /* 오른쪽 열: 미리보기 + 그 아래 악센트 */
 .cc-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }

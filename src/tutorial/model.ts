@@ -88,13 +88,51 @@ export const PILLAR_HEIGHT = 3.0;
 /** 목표에 이만큼 다가서면 안내선을 걷는다 (m). */
 export const GUIDE_ARRIVE = 2.2;
 
+/* ════════════════════════════════════════════════════════════════════════════
+ * 목표 줄 (2026-09-14 2차, 사용자 결정)
+ *
+ * 목표 패널은 이제 **제목 + 부제 두 줄**이 아니라 **체크박스가 달린 목표 줄 목록**이다. 한 단계가 목표를
+ * 여럿 가질 수 있고, 그 중 일부는 **선택**이라 안 해도 다음 단계로 넘어간다 (라벨 앞에 `(선택)`).
+ * 달성하면 체크가 좌→우로 그려지고 라벨에 취소선이 좌→우로 그어진다 (`tutorial.css`).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** 목표 한 줄. `id` 는 달성 표시(`TutorialSystem.markObjective`)와 저장에 남는 이름이다. */
+export interface TutorialObjective {
+  id: string;
+  text: string;
+  /** 안 해도 다음 단계로 넘어간다 — 라벨 앞에 `(선택)` 이 붙고, **실제로 달성했을 때만** 체크된다. */
+  optional?: boolean;
+}
+
+/** 선택 목표의 라벨 접두사. */
+export const OPTIONAL_PREFIX_KO = '(선택) ';
+
+/**
+ * 그 단계의 목표 줄. `objectives` 를 안 적은 단계는 **부제 한 줄**이 곧 유일한 필수 목표다
+ * (예전의 `제목 + 부제` 두 줄 중 부제가 그대로 목표 문장이었다).
+ */
+export const objectivesOf = (def: StepDef): readonly TutorialObjective[] =>
+  def.objectives ?? [{ id: def.id, text: def.hint }];
+
+/**
+ * 수류탄이 터진 뒤 이만큼 안에 들어온 **총기가 아닌** 처치(`enemy:killed.weaponClass == null`)를 수류탄 처치로 본다 (s).
+ * `grenade` 단계의 선택 목표 하나를 판정하는 데만 쓴다 — 게임 수치가 아니라 표시 판정이라 `SKIP_HOLD_TIME` 과
+ * 같은 이유로 csv 가 아니라 여기 있다.
+ */
+export const GRENADE_KILL_WINDOW_S = 2.5;
+
 /** 한 단계의 정의. 진행 조건은 `TutorialSystem` 의 이벤트 스위치가 갖는다 — 여기는 표시와 게이트뿐이다. */
 export interface StepDef {
   id: TutorialStepId;
-  /** 목표 패널의 제목 (한 줄). */
+  /** 단계 이름 (콘솔 · 게이트 사유 문구 `blockedBy`). **목표 패널은 2026-09-14 2차부터 이것을 그리지 않는다.** */
   title: string;
-  /** 목표 패널의 부제 — 무엇을 어떻게 하면 되는지. */
+  /** `objectives` 가 없는 단계의 **유일한 필수 목표 문장**. */
   hint: string;
+  /**
+   * 목표 줄 (2026-09-14 2차). 생략하면 `[{ id, text: hint }]` 하나다.
+   * 필수 목표는 **단계가 넘어가는 순간** 전부 달성으로 표시되고, 선택 목표는 실제로 달성했을 때만 체크된다.
+   */
+  objectives?: readonly TutorialObjective[];
   /**
    * 이 단계에서 **허용**하는 게이트. 여기 없는 게이트는 전부 막힌다.
    * 값이 문자열 배열이면 그 id 만 허용한다 (`roomPurpose: ['workshop']`).
@@ -110,6 +148,11 @@ export interface StepDef {
    * 구멍은 사각형 하나이므로 **서로 맞닿은 것들**을 넘겨야 이어진 도형으로 읽힌다.
    */
   spotUnion?: boolean;
+  /**
+   * **딤 없는 포커싱** (2026-09-14 2차, 사용자 결정 — `corpseLoot`). 구멍 · 링 · 말풍선은 그대로지만 네 판이
+   * 투명해지고 **클릭도 통과시킨다**. 어두운 판이 없는데 클릭만 막히면 "왜 안 눌리지"가 되기 때문이다.
+   */
+  spotNoDim?: boolean;
   /** 스포트라이트 말풍선 문구 (없으면 `hint`). */
   spotText?: string;
   /** 걸어서 가야 하는 목표 — 안내선이 가리킬 `Interactable.id` (`bench` 는 런타임에 정해진다). */
@@ -129,10 +172,18 @@ export const blockedBy = (title: string): string => `튜토리얼 진행 중 —
  * (`docs/CONTROLS.md`: 키는 사용 시점에 읽는다. 리바인드하면 `input:bindingsChanged` 에 다시 그린다).
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/** 조작 한 줄. `id` 는 저장에 남는 안정된 이름이라 문구를 고쳐도 중복되지 않는다. */
-export interface ControlHint {
-  id: string;
-  /** 이 줄이 보여 주는 키 액션들 (`Keys` 의 필드 이름). 여러 개면 나란히 그린다. */
+/**
+ * 조작 **구간** (2026-09-14 2차, 사용자 결정). 줄은 배운 순서가 아니라 이 구간 순서로 쌓이고, 구간과 구간
+ * 사이에만 얇은 구분선이 들어간다. 비어 있는 구간은 아예 그려지지 않으므로 구분선도 생기지 않는다.
+ */
+export type ControlSection = 'move' | 'screen' | 'combat' | 'gear';
+
+/** 구간이 그려지는 순서. */
+export const CONTROL_SECTIONS: readonly ControlSection[] = ['move', 'screen', 'combat', 'gear'];
+
+/** 한 줄 안의 **쌍** — 키캡 묶음 하나 + 그 라벨 하나 (`LMB 사격 / RMB 정조준`). */
+export interface ControlHintPair {
+  /** 이 쌍이 보여 주는 키 액션들 (`Keys` 의 필드 이름). 여러 개면 나란히 그린다. */
   keys: readonly (keyof KeyBindings)[];
   label: string;
   /** 꾹 누르는 키 — 키캡에 chevron 을 단다 (`.keycap.kc-hold`). */
@@ -140,28 +191,49 @@ export interface ControlHint {
 }
 
 /**
+ * 조작 한 줄. `id` 는 저장에 남는 안정된 이름이라 문구를 고쳐도 중복되지 않는다.
+ *
+ * `keys` · `label` · `hold` 는 **첫 쌍**이고 (2026-09-14 의 모양 그대로 — 깨지 않았다), `more` 는 같은 줄에
+ * 이어 붙는 쌍들이다 (`LMB 사격 / RMB 정조준` 을 한 줄에 담으려고 2026-09-14 2차에 더했다).
+ */
+export interface ControlHint extends ControlHintPair {
+  id: string;
+  /** 같은 줄의 나머지 쌍 (2026-09-14 2차). 앞에 얇은 구분자를 두고 이어 그린다. */
+  more?: readonly ControlHintPair[];
+  /** 이 줄이 속한 구간 (생략 = `gear`). */
+  section?: ControlSection;
+}
+
+/** 한 줄이 가진 쌍 전부 (첫 쌍 + `more`). */
+export const hintPairs = (h: ControlHint): readonly ControlHintPair[] =>
+  [{ keys: h.keys, label: h.label, hold: h.hold }, ...(h.more ?? [])];
+
+/**
  * 그 단계에 **들어설 때** 가이드에 더해지는 줄. 없는 단계는 아무것도 더하지 않는다.
  * 한 번 더해진 줄은 트랙이 끝날 때까지 남는다 (`TutorialSave.learned`).
+ *
+ * 2026-09-14 2차 — 구간이 생겼고 사격 · 정조준이 **한 줄**로 합쳐졌다 (`fire` 의 `more`). 옛 저장에 남은
+ * `aim` id 는 이제 어느 표에도 없어 복구할 때 조용히 빠진다 (`restoreControls` 가 표에서 찾으므로).
  */
 export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, readonly ControlHint[]>>> = {
-  move: [{ id: 'move', keys: ['FORWARD', 'LEFT', 'BACK', 'RIGHT'], label: '이동' }],
+  move: [{ id: 'move', keys: ['FORWARD', 'LEFT', 'BACK', 'RIGHT'], label: '이동', section: 'move' }],
   sprintJump: [
-    { id: 'sprint', keys: ['SPRINT'], label: '달리기' },
-    { id: 'jump', keys: ['JUMP'], label: '점프' },
+    { id: 'sprint', keys: ['SPRINT'], label: '달리기', section: 'move' },
+    { id: 'jump', keys: ['JUMP'], label: '점프', section: 'move' },
   ],
   corpseLoot: [
-    { id: 'interact', keys: ['INTERACT'], label: '상호작용 · 루팅' },
-    { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비' },
+    { id: 'interact', keys: ['INTERACT'], label: '상호작용 · 루팅', section: 'screen' },
+    { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비', section: 'screen' },
   ],
   shoot: [
-    { id: 'fire', keys: ['FIRE'], label: '사격' },
-    { id: 'aim', keys: ['AIM'], label: '정조준' },
-    { id: 'reload', keys: ['RELOAD'], label: '재장전' },
+    // 한 줄에 쌍 둘 — 사격과 정조준은 같은 손의 같은 동작이라 따로 읽을 이유가 없다 (2026-09-14 2차)
+    { id: 'fire', keys: ['FIRE'], label: '사격', section: 'combat', more: [{ keys: ['AIM'], label: '정조준' }] },
+    { id: 'reload', keys: ['RELOAD'], label: '재장전', section: 'combat' },
   ],
-  crouch: [{ id: 'crouch', keys: ['CROUCH'], label: '앉기' }],
-  heal: [{ id: 'quick', keys: ['QUICK'], label: '빠른 사용 (회복)' }],
-  grenade: [{ id: 'quickWheel', keys: ['QUICK'], label: '빠른 사용 휠 — 수류탄', hold: true }],
-  extract: [{ id: 'map', keys: ['MAP'], label: '지도' }],
+  crouch: [{ id: 'crouch', keys: ['CROUCH'], label: '앉기', section: 'gear' }],
+  heal: [{ id: 'quick', keys: ['QUICK'], label: '빠른 사용 (회복)', section: 'gear' }],
+  grenade: [{ id: 'quickWheel', keys: ['QUICK'], label: '빠른 사용 휠 — 수류탄', hold: true, section: 'gear' }],
+  extract: [{ id: 'map', keys: ['MAP'], label: '지도', section: 'screen' }],
 };
 
 /** 우측 조작 가이드의 머리 라벨. */

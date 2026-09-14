@@ -407,6 +407,8 @@ export class MapScreen {
         this.pings.clear(); this.shipPos = null; this.activePadId = null; this.outposts.clear();
       }),
       b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
+      // 2026-09-14 (튜토리얼): 단계가 넘어가면 함선 범례 줄이 붙거나 떨어진다 (지도 캔버스는 프레임마다 스스로 본다)
+      b.on('tutorial:changed', () => { if (this._open) this.refreshLegend(); }),
       // 2026-09-14: 퀘스트 패널 — 목표 진행 · 상태가 바뀌면 곧바로 (나머지는 `quests.tick` 의 폴링)
       b.on('npc:objectiveProgress', () => { if (this._open) this.quests.refresh(true); }),
       b.on('npc:questChanged', () => { if (this._open) this.quests.refresh(true); }),
@@ -898,8 +900,8 @@ export class MapScreen {
         drawPad(c, x, y, active);
         labels.add('탈출', x, y + 10, active ? COL.accent : LABEL_COL, PRIO.pad);
       }
-      // landed ship
-      if (this.shipPos) {
+      // landed ship (2026-09-14: 튜토리얼은 마지막 `extract` 단계 전까지 함선을 지도에서 감춘다 — 범례 줄도 같이)
+      if (this.shipPos && !this.hidesShip()) {
         const x = this.toX(this.shipPos.x), y = this.toY(this.shipPos.z);
         if (this.inView(x, y, 20)) {
           drawShip(c, x, y);
@@ -1397,6 +1399,16 @@ export class MapScreen {
     this.close();
   }
 
+  /**
+   * 2026-09-14 (튜토리얼): 착륙해 있는 탈출 함선을 지금 지도에 그리면 안 되는가.
+   * 튜토리얼 레이드는 마지막 `extract` 단계에 들어서야 함선을 알려 준다 — 그때는 「함선을 찾아가라」가 곧
+   * 목표라 표시가 안내 역할을 한다. 규칙은 `tutorial/parts/Gates` 하나가 갖고 여기서는 묻기만 한다;
+   * 튜토리얼이 아니면 언제나 false 라 평소 지도는 한 글자도 바뀌지 않는다.
+   */
+  private hidesShip(): boolean {
+    return this.ctx?.tutorial?.hides('hud', 'shipMarker') ?? false;
+  }
+
   /* ── 범례 ──────────────────────────────────────────────────────────────── */
 
   /**
@@ -1411,8 +1423,9 @@ export class MapScreen {
     const multi = !!ctx?.isMultiplayer;
     let squadCol = NET_SLOT_COLORS_CSS[1];
     if (multi && ctx.net) for (const r of ctx.net.getRemotePlayers()) { if (NET_SLOT_COLORS_CSS[r.slot]) { squadCol = NET_SLOT_COLORS_CSS[r.slot]; break; } }
+    const hideShip = this.hidesShip();
     for (const lr of this.legendRows) {
-      const show = lr.id === 'squad' ? multi : lr.id === 'rail' || lr.id === 'tram' ? hasRail : lr.id === 'rover' || lr.id === 'route' ? hasRover : true;
+      const show = lr.id === 'squad' ? multi : lr.id === 'rail' || lr.id === 'tram' ? hasRail : lr.id === 'rover' || lr.id === 'route' ? hasRover : lr.id === 'ship' ? !hideShip : true;
       lr.row.hidden = !show;
       if (show) this.drawSwatch(lr, squadCol);
     }

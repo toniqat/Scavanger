@@ -169,7 +169,15 @@ export function makeCharacterProfile(c: NewCharacter): PlayerProfile {
     stats: clampCreateStats(c.stats),
     skills: zeroSkills(),
     skillProgress: zeroSkills(),
-    implant: (IMPLANT_IDS as readonly string[]).includes(c.implant) ? c.implant : IMPLANT_IDS[0],
+    /*
+     * 2026-09-14 2차 (사용자 결정) — **새 캐릭터는 전술 임플란트 없이 시작한다.** 튜토리얼 레이드에서
+     * 「임플란트를 숨긴다」가 위젯만 접는 것이었다면 Q 는 여전히 갈고리를 쏜다 — 가진 적 없는 것을 쓰는 셈이다.
+     * 그래서 값 자체를 비우고, **첫 함선 진입**에서 갈고리를 지급 · 장착한다
+     * (`progression/ProgressionSystem.grantStarterImplant`, `hub:entered`). 튜토리얼을 완주하든 건너뛰든
+     * 그 한 곳을 반드시 지난다. `NewCharacter.implant` 는 계약이라 남아 있지만(생성창은 여전히 넘긴다)
+     * 여기서는 읽지 않는다 — `airstrike` · `secondary` 와 같은 처리다.
+     */
+    implant: null,
     raids: 0,
     extractions: 0,
     statProgress: zeroStats(),

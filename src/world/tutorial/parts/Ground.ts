@@ -3,8 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Layers } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  CHASM, CORRIDOR_HALF_X, DECKS, DECK_TILE_M, DECK_UPPER_Y, VOID_Y, WALL_T, WALL_TOP_Y, Z_END, Z_START,
-  box, rectBox, tileRect, type Rect,
+  CHASM, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE, DECKS, DECK_TILE_M, DECK_UPPER_Y, VOID_Y,
+  WALL_T, WALL_TOP_Y, Z_END, Z_START, box, rectBox, tileRect, type Rect,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,9 @@ import {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 협곡 바닥 판이 덮는 반폭 · 반길이 (벽 바깥까지 넉넉히). */
-const FLOOR_HALF_X = CORRIDOR_HALF_X + WALL_T + 6;
+const FLOOR_HALF_X = CORRIDOR_OUTER_X + 6;
+/** 곧은 절벽 벽 한 조각의 z 길이 — 이 간격마다 안쪽 면 · 윗면을 흔들어 복도처럼 보이지 않게 한다. */
+const WALL_SEG_M = 10;
 
 function groundTexture(): THREE.CanvasTexture {
   const S = 256;
@@ -134,49 +136,107 @@ export class Ground {
     this.addMerged(bodies, rockMat, 'tut-deck-body');
 
     /* ── 양옆 절벽 벽 · 막다른 끝 ──
-     * 곧은 판 하나면 복도처럼 보이므로 z 10 m 마다 **구간**으로 끊어 안쪽 면과 높이를 흔든다. 구간마다
-     * 콜라이더를 따로 넣으므로 **그려진 실루엣이 곧 콜라이더**다 (`CLAUDE.md` 의 소품 규약과 같은 판단) —
-     * 안쪽으로만 파고들게 해서 데크(±`CORRIDOR_HALF_X`)와 벽 사이에 틈이 생기지 않는다. */
+     * 2026-09-14 2차: 벽의 안쪽 면은 이제 `CORRIDOR_PROFILE` 이 정한다 — 곧은 구간은 예전처럼 `WALL_SEG_M`
+     * 마다 끊어 안쪽 면 · 윗면을 흔들고, 폭이 바뀌는 구간은 **비스듬한 판**(회전 OBB) 하나로 잇는다.
+     * 구간마다 콜라이더를 따로 넣으므로 **그려진 실루엣이 곧 콜라이더**다 (`CLAUDE.md` 의 소품 규약).
+     * 바깥 면은 구간 폭과 무관하게 늘 `CORRIDOR_OUTER_X` 라 좁은 구간의 벽 뒤가 뚫려 보이지 않는다. */
     const walls: THREE.BufferGeometry[] = [];
-    const SEG = 10;
     for (const sx of [-1, 1]) {
-      for (let i = 0; ; i++) {
-        const z0 = Z_START - i * SEG;
-        const z1 = Math.max(Z_END, z0 - SEG);
-        if (z0 <= Z_END) break;
-        const k = i * 7 + (sx > 0 ? 3 : 0);
-        const bite = (k % 5) * 0.55;                       // 안쪽으로 파고든 깊이 (0 ~ 2.2 m)
-        const top = WALL_TOP_Y - (k % 4) * 1.6;
-        const inner = sx * (CORRIDOR_HALF_X - bite), outer = sx * (CORRIDOR_HALF_X + WALL_T);
-        const rect: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0, z1 };
-        walls.push(rectBox(rect, VOID_Y, top));
-        this.addBox(hash, rect, VOID_Y, top, 'tut_wall');
+      let seg = 0;
+      for (let i = 1; i < CORRIDOR_PROFILE.length; i++) {
+        const a = CORRIDOR_PROFILE[i - 1], b = CORRIDOR_PROFILE[i];
+        if (a.halfX === b.halfX) {
+          const depth = a.z - b.z;
+          const n = Math.max(1, Math.ceil(depth / WALL_SEG_M));
+          for (let j = 0; j < n; j++, seg++) {
+            const z0 = a.z - (depth * j) / n, z1 = a.z - (depth * (j + 1)) / n;
+            const k = seg * 7 + (sx > 0 ? 3 : 0);
+            // 안쪽으로 파고든 깊이 — 좁은 구간에서는 같은 비율로 줄여 통로가 설계보다 좁아지지 않게 한다
+            const bite = (k % 5) * 0.55 * (a.halfX / CORRIDOR_MAX_HALF_X);
+            const top = WALL_TOP_Y - (k % 4) * 1.6;
+            const inner = sx * (a.halfX - bite), outer = sx * CORRIDOR_OUTER_X;
+            const rect: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0, z1 };
+            walls.push(rectBox(rect, VOID_Y, top));
+            this.addBox(hash, rect, VOID_Y, top, 'tut_wall');
+          }
+        } else {
+          seg++;
+          this.addFunnel(hash, walls, sx, a.halfX, a.z, b.halfX, b.z);
+        }
       }
     }
     for (const cap of [
-      { x0: -CORRIDOR_HALF_X - WALL_T, x1: CORRIDOR_HALF_X + WALL_T, z0: Z_START, z1: Z_START - WALL_T },
-      { x0: -CORRIDOR_HALF_X - WALL_T, x1: CORRIDOR_HALF_X + WALL_T, z0: Z_END + WALL_T, z1: Z_END },
+      { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: Z_START, z1: Z_START - WALL_T },
+      { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: Z_END + WALL_T, z1: Z_END },
     ] as Rect[]) {
       walls.push(rectBox(cap, VOID_Y, WALL_TOP_Y));
       for (const t of tileRect(cap, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, WALL_TOP_Y, 'tut_wall');
     }
     this.addMerged(walls, rockMat, 'tut-walls');
 
-    /* ── 절벽 1 의 틈에 부러져 걸린 다리 (그림만 — **데크 윗면보다 아래**라 밟을 수도, 건널 수도 없다) ── */
+    /* ── 절벽 1 의 틈에 부러져 걸린 다리 (그림만 — **데크 윗면보다 아래**라 밟을 수도, 건널 수도 없다) ──
+     * 2026-09-14 2차: 절벽 1 은 반폭 11 구간이라 x 를 12 → 7.6 안쪽으로 옮겼다 (벽 속에 묻히면 안 보인다). */
     const bridge: THREE.BufferGeometry[] = [];
     const zMid = (CHASM.z0 + CHASM.z1) / 2;
     for (const sx of [-1, 1]) {
-      bridge.push(box(1.1, 0.5, 3.0, sx * 12, DECK_UPPER_Y - 1.1, CHASM.z0 - 0.6, sx * 0.22));
-      bridge.push(box(0.9, 0.4, 3.6, sx * 12.8, DECK_UPPER_Y - 2.9, zMid, sx * 0.55));
+      bridge.push(box(1.1, 0.5, 3.0, sx * 7.6, DECK_UPPER_Y - 1.1, CHASM.z0 - 0.6, sx * 0.22));
+      bridge.push(box(0.9, 0.4, 3.6, sx * 8.2, DECK_UPPER_Y - 2.9, zMid, sx * 0.55));
     }
-    bridge.push(box(3.2, 0.4, 1.2, -12.4, DECK_UPPER_Y - 4.4, CHASM.z1 + 0.4, 0.3));
+    bridge.push(box(3.2, 0.4, 1.2, -7.8, DECK_UPPER_Y - 4.4, CHASM.z1 + 0.4, 0.3));
     this.addMerged(bridge, darkMat, 'tut-broken-bridge', true);
+  }
+
+  /**
+   * 폭이 바뀌는 구간을 잇는 **깔때기** 한쪽(`sx`). 계단 턱을 만들지 않으려고 비스듬한 판 하나로 잇는다 —
+   * 좁아지는 쪽에서 턱이 생기면 벽에 붙어 걷던 몸이 z 로 되밀려 「끼었다」로 읽힌다.
+   *
+   * 두 조각이다: ① 넓은 쪽 면부터 바깥 면까지 채우는 곧은 상자, ② 경사면을 따라 바깥으로 `T` 만큼 뻗은
+   * 회전 상자. `T` 는 경사면에서 **(넓은 폭, 좁은 쪽 z)** 모서리까지의 수직 거리 `|Δz·Δw| / L` 에 `WALL_T` 를
+   * 더한 값이라 ①②가 겹치면서 쐐기 영역을 빈틈없이 덮는다 (쐐기는 볼록이고 세 꼭짓점이 전부 이 띠 안이다).
+   */
+  private addFunnel(
+    hash: SpatialHash, walls: THREE.BufferGeometry[], sx: number, wA: number, zA: number, wB: number, zB: number,
+  ): void {
+    const dw = wB - wA, dzv = zB - zA;
+    const L = Math.hypot(dw, dzv);
+    if (L < 1e-3) return;
+    const dx = dw / L, dz = dzv / L;          // +x 쪽 기준 경사 방향 (−x 쪽은 마지막에 되비춘다)
+    const nx = -dz, nz = dx;                  // 통로 **바깥**을 향하는 법선
+    const wHi = Math.max(wA, wB);
+
+    // ① 바깥 채움
+    const inner = sx * wHi, outer = sx * CORRIDOR_OUTER_X;
+    const fill: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0: zA, z1: zB };
+    walls.push(rectBox(fill, VOID_Y, WALL_TOP_Y));
+    this.addBox(hash, fill, VOID_Y, WALL_TOP_Y, 'tut_wall');
+
+    // ② 비스듬한 판
+    const t = Math.abs(dzv * dw) / L + WALL_T;
+    const cx = sx * ((wA + wB) / 2 + (nx * t) / 2);
+    const cz = (zA + zB) / 2 + (nz * t) / 2;
+    const yaw = sx * Math.atan2(dx, dz);      // 메시 rotateY — 로컬 +Z 가 경사 방향 (되비추면 부호가 뒤집힌다)
+    const h = WALL_TOP_Y - VOID_Y;
+    const len = L + 0.2;                      // 이음매에 부동소수 슬리버가 남지 않게 살짝 길게
+    walls.push(box(t, h, len, cx, VOID_Y + h / 2, cz, yaw));
+    this.addObb(hash, cx, cz, t / 2, len / 2, yaw, VOID_Y, WALL_TOP_Y, 'tut_wall');
   }
 
   private addBox(hash: SpatialHash, r: Rect, y0: number, top: number, kind: string): void {
     const hx = (r.x1 - r.x0) / 2, hz = (r.z0 - r.z1) / 2;
     const pos = new THREE.Vector3((r.x0 + r.x1) / 2, y0, (r.z0 + r.z1) / 2);
     this.entries.push(hash.addBox(pos, hx, hz, 0, top - y0, kind));
+  }
+
+  /**
+   * 회전한 사각 콜라이더. ⚠ **`meshYaw` 는 메시의 `rotateY` 값이고 `Obstacle.box.yaw` 는 그 부호를 뒤집은
+   * 값이다** — three.js 의 rotation.y θ 는 로컬 +X 를 `(cos θ, −sin θ)` 로 보내는데 `world/obb.ts` 의 규약은
+   * 수학 관례 `(cos, sin)` 이다 (`extraction/Hull` 이 같은 주석을 달고 같은 일을 한다).
+   */
+  private addObb(
+    hash: SpatialHash, x: number, z: number, halfX: number, halfZ: number, meshYaw: number,
+    y0: number, top: number, kind: string,
+  ): void {
+    this.entries.push(hash.addBox(new THREE.Vector3(x, y0, z), halfX, halfZ, -meshYaw, top - y0, kind));
   }
 
   /** `cast` 는 기본이 false 다 — 데크 · 절벽 벽은 **땅**이라 그림자를 만들 것이 아니라 받는 것이다. */

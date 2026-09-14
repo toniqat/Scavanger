@@ -11,11 +11,20 @@
  *   - 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠긴다 (드론 조종 게이트를
  *     보는 곳들과 같은 요령 — `PlayerSystem.update` 의 `moveFrozen` · `canUseWeapons`).
  *   - 카메라는 쓰러진 몸을 옆 낮은 곳에서 비추다가 일어나는 속도에 맞춰 살짝 들어온다.
+ *   - **화면은 검정에서 시작해 밝아진다** (2026-09-14 2차, 사용자 결정 — 아래 *오프닝 페이드*).
  * 끝나면 **하드 컷**으로 평소 3인칭 백뷰로 돌아가고(`setCameraOverride(null, undefined, true)` — 먼 곳에서
  * 블렌드하면 카메라가 지형을 훑는다) `player:introWakeDone` 을 낸다.
  *
  * 스스로 푸는 경우: `game:abort` · `game:newMission` · 사망 · 리셋 경로(`resetAll` · `respawnAt` ·
  * `spawnStanding` · `restoreState`). 그때는 `player:introWakeDone` 을 내지 않는다 (연출이 끝난 것이 아니다).
+ *
+ * ## 오프닝 페이드 (2026-09-14 2차)
+ *
+ * 그리는 것은 `ui/` 다 — 이 파일은 `ui:screenFade {opacity, durationS}` 로 **언제 · 얼마 동안**만 말한다
+ * (opacity 1 = 완전한 검정, 0 = 투명). 규칙은 하나다: **검은 화면에 갇히지 않는다.**
+ * 시작(`playIntroWake`)에 즉시 검정을 깔고, 연출을 끝내거나(`endIntroWake`) 취소하는(`cancelIntroWake`)
+ * **모든 경로**가 `{opacity: 0, durationS: 0}` 으로 화면을 되돌린다 — 사망 · 전투불능 · `game:abort` ·
+ * `game:newMission` · 리셋이 전부 그 둘 중 하나를 지난다.
  */
 import * as THREE from 'three';
 import { TUTORIAL_INTRO_WAKE_S } from '@/shared';
@@ -31,6 +40,15 @@ const CAM_YAW_OFFSET = 2.1;
 const CAM_DIST = [3.6, 2.7] as const;
 const CAM_HEIGHT = [0.75, 1.45] as const;
 const CAM_LOOK_Y = [0.35, 1.05] as const;
+
+/* 페이드도 같은 자리에 둔다 — **밸런스 수치가 아니라 연출 진행도(0..1) 위의 자리**라 바로 위
+ * `WAKE_RISE_START` 와 한 묶음이고, 길이는 csv 의 `TUTORIAL_INTRO_WAKE_S` 에 비례해 함께 늘고 준다.
+ * (csv 줄로 빼려면 `shared/constants.ts` 의 `K.num` 한 줄이 필요하다 — 그 파일은 이 배치의 소유가
+ *  아니라 지금은 여기 둔다.) */
+/** 이 진행도까지는 완전한 검정 — 아주 짧은 뜸 (4.5 초 연출에서 0.36 초). */
+const FADE_HOLD = 0.08;
+/** 이 진행도에 다 밝아진다. `WAKE_RISE_START`(일어나기 시작) **직전**이라 몸이 일어설 때는 이미 다 보인다. */
+const FADE_DONE = 0.27;
 
 const _camPos = new THREE.Vector3();
 const _camLook = new THREE.Vector3();
@@ -66,6 +84,13 @@ export function playIntroWake(sys: PlayerSystem, durationS: number): void {
   sys.introWakeT = sys.introWakeDur;
   // 첫 프레임부터 그 자리에서 시작한다 (블렌드해 들어가면 백뷰에서 몸으로 카메라가 훑고 지나간다)
   updateIntroCamera(sys, true);
+  // 그리고 그 첫 프레임은 **아무것도 보이지 않는다** — 밝아지는 것은 `updateIntroWake` 가 건다
+  fade(sys, 1, 0);
+}
+
+/** `ui:screenFade` 한 줄 (그리는 것은 `ui/`). */
+function fade(sys: PlayerSystem, opacity: number, durationS: number): void {
+  sys.ctx?.bus.emit('ui:screenFade', { opacity, durationS });
 }
 
 /** `PlayerSystem.update` 가 매 프레임 부른다. 끝나는 프레임에 하드 컷 + `player:introWakeDone`. */
@@ -73,7 +98,16 @@ export function updateIntroWake(sys: PlayerSystem, dt: number): void {
   if (sys.introWakeT < 0) return;
   // 몸이 연출을 유지할 수 없게 됐다 (사망 · 전투불능 · 함선) — 조용히 끝낸다
   if (!sys.spawned || sys.isDead || sys._downed) { cancelIntroWake(sys); return; }
+  /*
+   * 페이드를 **상태 없이** 건다: 이번 프레임에 진행도가 `FADE_HOLD` 를 넘어섰으면 그때 한 번만
+   * 밝아지기 시작한다 (경계를 지나는 프레임은 하나뿐이라 새 플래그가 필요 없다).
+   */
+  const before = progress(sys);
   sys.introWakeT -= dt;
+  const after = progress(sys);
+  if (before < FADE_HOLD && after >= FADE_HOLD) {
+    fade(sys, 0, Math.max(0, (FADE_DONE - FADE_HOLD) * sys.introWakeDur));
+  }
   if (sys.introWakeT > 0) { updateIntroCamera(sys, false); return; }
   endIntroWake(sys);
 }
@@ -83,14 +117,17 @@ export function endIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
   sys.introWakeT = -1; sys.introWakeDur = 0;
   sys.setCameraOverride(null, undefined, true);
+  // 이미 밝아져 있는 것이 정상이지만(페이드는 `FADE_DONE` 에 끝난다) 짧은 연출에서도 확실히 걷는다
+  fade(sys, 0, 0);
   sys.ctx.bus.emit('player:introWakeDone', {});
 }
 
-/** 리셋 · 사망 · 새 미션: 알리지 않고 끝낸다. */
+/** 리셋 · 사망 · 새 미션: 알리지 않고 끝낸다. **화면은 반드시 되돌린다** (검은 화면에 갇히지 않는다). */
 export function cancelIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
   sys.introWakeT = -1; sys.introWakeDur = 0;
   sys.setCameraOverride(null, undefined, true);
+  fade(sys, 0, 0);
 }
 
 /**

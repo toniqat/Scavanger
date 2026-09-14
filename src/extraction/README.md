@@ -9,7 +9,7 @@ everyone else keeps playing and the flow **resets** so a new ship can be called.
 director that used to start on `extraction:activated` is removed on the enemies side). All geometry is procedural (no assets).
 
 Publishes **`ctx.extraction`** (`shared/extraction.ts` → `ExtractionRef`: `stage` · `departRemaining` · `idleRemaining` · `riding` ·
-`isInShipBay(p)` · `keepEnemyOut(p, r)` · **`beginPreLanded(pos, yaw, opts)`** — 2026-09-14, 아래 절).
+`isInShipBay(p)` · `keepEnemyOut(p, r)` · **`beginPreLanded(pos, yaw, opts)`** · **`skipToLiftoff()`** — 2026-09-14, 아래 두 절).
 
 Import via `@/extraction` → `ExtractionSystem`, `ExtractionConsole`, `Dropship`, `ParticlePool`, `FlareColumn`, `DustRing`.
 
@@ -107,6 +107,29 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
   (`preLanded` 플래그). 솔로 튜토리얼에서는 `squadDone` 이 참이라 어차피 닿지 않는 길이지만, 리셋되면
   남은 사람이 영영 못 나간다.
 
+## 튜토리얼 건너뛰기 = 즉시 탈출 — `skipToLiftoff` (2026-09-14 2차, 사용자 결정)
+
+트랙 ① 을 건너뛴 사람도 **함선을 얻어야** 다음 이야기가 있다. 그래서 건너뛰기는 레이드를 잘라 내지 않고
+**탈출을 대신 해 준다**: `TutorialSystem.skipTrack('raid')` 가 `ctx.extraction.skipToLiftoff()` 를 한 번 부르면
+걸어가서 타는 것만 건너뛰고 **평소의 `liftoff()`** 가 돌아간다 — 이륙 연출 · `extraction:liftoff` · 결과 화면 ·
+정산 · 함선 획득이 한 줄도 다르지 않다 (`beginPreLanded` 와 같은 요점: 이 파일에 새 갈래를 만들지 않는다).
+
+1. 몸을 화물칸 한가운데 데크 위에 세운다 — `ship.bayToWorld(0, (BAY_Z_MIN+BAY_Z_MAX)/2, …)` + `ship.floorYAt`,
+   `PlayerRef.teleport(pos, ship.yaw, false)`(기수 쪽, 램프 반대). `snap: false` 라 데크 높이를 지형으로 덮지 않는다.
+2. `boarded = true` + `extraction:boarded` + `onLocalBoardingChanged(true)` (솔로에서는 뒤 둘이 사실상 no-op 이지만
+   같은 경로를 지나는 편이 낫다), 그리고 **유예 없이** `liftoff()`.
+3. 「함선 출발은 레이드 종료가 아니다」(2026-09-13)를 우회하지 않는다 — 튜토리얼은 솔로라 `collectRequired` 가
+   나 하나이고 `riders.length === req.length` 이므로 `squadDone` 이 참이 되어 **평소 규칙대로** 레이드가 끝난다.
+
+**false 인 경우** (본편 탈출 흐름에는 문이 없다):
+- `ctx.missionMode !== 'tutorial'`
+- 함선이 없거나 아직 착륙하지 않았다(`!landed`) · 이미 떠났다(`lifting`). **유예(`departing`) 중에는 받는다** —
+  이미 착륙해 있는 함선이고, 건너뛰기가 그 10초를 지우는 것이 맞다.
+- 태울 몸이 없다: `ctx.player` 가 없거나 **사망 · 전투불능**. 시체를 태워 보낼 수는 없다 (그러면 `riders` 가 비어
+  `squadDone` 이 거짓이 되고, 미리 세워 둔 함선에는 다시 부를 콘솔이 없어 레이드가 끝나지 않는다).
+- 페이즈가 `extracting` · `shipLanded` 가 아니다 — `GameFlowSystem` 이 `extraction:liftoff` 를 그 둘에서만 받는다.
+  미뤄 둔 단계 전환이 남아 있으면 `syncPreLandedPhase()` 를 먼저 흘려 보고 판정한다.
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
@@ -175,6 +198,10 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
   랜드마크다. 바뀐 것은 `beacon.visible` 하나뿐이고 근거리 조명 · 화면 · 레버는 그대로다.
 
 - **Phase 7** — `required` excludes suspended members (a ghost cannot board → 미탈출), no consoles when the world has no extraction points (training), a promoted host continues the countdown / ship / boarding from its mirrored state (unchanged in Phase 9)
+
+- **2026-09-14 2차 (튜토리얼 건너뛰기 = 즉시 탈출, 사용자 결정)** — `ExtractionRef.skipToLiftoff` 구현 (위 절).
+  바뀐 것은 `createRef()` 의 새 항목 하나와 `skipToLiftoff()` 메서드 하나뿐이다 — 기존 메서드는 한 줄도 안 바꿨고
+  평소 탈출 경로(`liftoff` · `onLocalBoardingChanged`)를 그대로 부른다.
 
 - **2026-09-14 (튜토리얼 개편)** — `ExtractionRef.beginPreLanded` 구현 (위 절). 바뀐 것은 `onShipLanded(silent)`
   인자 하나, `update()` 맨 앞의 `syncPreLandedPhase()` 한 줄, 남겨진 사람 리셋의 `!this.preLanded` 한 조건,

@@ -19,7 +19,7 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { firstFreeQuickSlot, isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
+import { isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
 /* appended (2026-09-10): 휠 교체 규칙 — `previewDrop` 과 `setQuickSlot` 이 같은 계획을 본다 */
 import { canQuickSwap } from '../QuickSwap';
 /* appended (2026-09-14): 소모품 퀵슬롯 자동 장착 (전역) — 「주웠다」의 규칙 한 벌 */
@@ -423,10 +423,9 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   }
 
 /**
- * Double-click. **가방 · 장비 칸에서**: weapons / bags equip (`equipTargetFor`), anything else quick-moves.
- * **상자 · 시체에서** (2026-09-10): 언제나 가방이 먼저이고, 가방이 꽉 찼을 때만 `activateFallback` 이
- * `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 을 본다.
- * **함선 창고에서** (2026-09-12): 자리가 비어 있으면 **곧장 그 자리로** — 아래 `activateImpl` 주석.
+ * Double-click. **2026-09-14 2차 (사용자 결정) — 「비어 있는 자리가 있으면 곧장 그리로」가 이제 모든 격자의 규칙이다.**
+ * 상자 · 시체 · 함선 창고 · 가방 · 주머니 어디서 눌러도 `tryAutoPlace` 한 벌(`빈 장비 칸 → 빈 임플란트 칸 →
+ * 빈 퀵슬롯`)을 먼저 보고, 빈 자리가 하나도 없을 때에만 예전 경로(가방 → `inventory:full`)로 내려간다.
  */
 export function activate(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.activateImpl(uid, from));
@@ -437,41 +436,52 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
   const item = sys.findItem(uid, from);
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return 'fail';
+  // 감정 전 상자 스택은 어디로도 못 간다 (UI 가 이미 막지만 — `InventoryUI.locked` — 여기가 마지막 문이다.
+  // 2026-09-14 2차부터 ①장비 칸이 가방보다 먼저 도므로 `dropOnSlot` 앞에 이 줄이 필요하다).
+  if (sys.isItemLocked(uid, from)) return 'fail';
+  // 장비 칸 타일: 이미 제자리다 (예전 `equipTargetFor` 의 slot 가지가 하던 'noop').
+  if (from.kind === 'slot') return 'noop';
+  // 휠 타일: 예전 그대로 빠른 이동 (상자가 열려 있으면 상자, 아니면 가방 — `quickMoveDest`).
+  if (from.kind !== 'grid') return sys.quickMoveImpl(uid, from);
   /*
-   * 2026-09-10 (사용자 결정) — **상자에서 찾은 것은 무조건 가방이 먼저다.** 예전에는 장착 아이템(무기 · 방탄복 ·
-   * 가방)을 상자에서 더블클릭하면 `equipTargetFor` 를 타고 곧장 장비 칸으로 들어갔다. 주우면서 지금 든 총이
-   * 조용히 바뀌는 것이라 레이드 중에는 사고였다.
+   * **2026-09-14 2차 (사용자 결정)** — 「아이템 더블클릭 시, 장착하고 있지 않은 슬롯이 있으면 장착(또는 퀵슬롯)」.
+   * 그래서 격자마다 다르던 세 갈래(창고만 `tryAutoPlace`, 상자는 휠만, 가방은 `equipTargetFor`)가 **한 벌**이 됐다.
    *
-   * **2026-09-12 (사용자 결정) — 함선 창고는 예외다.** 그 결정이 지키려던 것은 *레이드 중에 손에 든 것이 조용히
-   * 바뀌지 않는다* 였고, 출격 전 창고 앞에서 장비를 고르는 동안에는 그 위험이 없다. 그래서 **창고 더블클릭은
-   * 그 종류의 자리가 비어 있으면 곧장 그리로** 간다 (장비칸 · 임플란트 칸 · 빈 퀵슬롯, `tryAutoPlace`).
-   * 이미 차 있으면 예전 그대로 가방으로 회수하고, 가방마저 꽉 찼으면 `activateFallback` 이 마지막으로 훑는다.
-   * 상자 · 시체는 2026-09-10 그대로 — 언제나 가방이 먼저다.
+   * 2026-09-10 (사용자 결정) 의 **「상자에서 찾은 것은 무조건 가방이 먼저다」는 뒤집히지 않았다.** 그 결정이 지키려던
+   * 것은 *주우면서 지금 든 총 · 방탄복이 조용히 바뀌는 것*이고, `tryAutoPlace` 는 **비어 있는 칸에만** 넣는다 —
+   * 장착한 것을 밀어내는 길은 여전히 드래그와 우클릭 메뉴의 「장착」(`ui/parts/ContextMenu` → `equip`)뿐이다.
+   * 2026-09-12 의 창고 예외와 2026-09-14 의 「상자 소모품 → 빈 휠 칸」(`parts/AutoQuick`)은 이 한 벌에 흡수됐다.
+   *
+   * 갈래가 남는 곳은 둘뿐이고 이유가 서로 다르다:
+   *   • **알리는 방법** — 창고는 예전처럼 토스트(`notifySentTo`), 나머지는 그 칸의 플래시(`flashPlaced`). 아래 주석.
+   *   • **가방은 ③(빈 휠 칸)을 보지 않는다** — 가방 타일의 더블클릭에는 이미 자기 휠 몸짓이 있고
+   *     (`ui/InventoryUI.tileHandlers` 가 상자가 닫혀 있을 때 `registerQuick` 으로 가로챈다), 상자를 열어 둔 채의
+   *     가방 더블클릭은 **상자에 넣기**를 뜻한다(우클릭 메뉴의 「빠른 이동 (상자)」가 `더블클릭` 힌트를 단다).
+   *     여기서 휠을 먼저 보면 그 힌트가 거짓말이 된다.
    */
-  if (from.kind === 'grid' && from.grid === 'stash') {
-    const placed = tryAutoPlace(sys, item, def, from, notifySentTo);
-    if (placed) return placed;
-    if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
-    return activateFallback(sys, item, def, from);
-  }
+  const fromBag = from.grid === 'bag';
+  const placed = tryAutoPlace(sys, item, def, from, from.grid === 'stash' ? notifySentTo : flashPlaced, !fromBag);
+  if (placed) return placed;
   /*
-   * 2026-09-14 (사용자 결정 — 소모품 퀵슬롯 자동 장착, **게임 전역**): 상자 · 시체 타일의 더블클릭은 목적지를 고르는
-   * 몸짓이 아니다 (가방 타일의 더블클릭이 이미 「휠에 등록」인 것과 같다 — `ui/InventoryUI.tileHandlers`). 휠에 올릴 수
-   * 있는 소모품이고 **빈 칸**이 있으면 그리로, 아니면 아래 예전 경로(가방 먼저) 그대로. 규칙은 `parts/AutoQuick`.
-   * 2026-09-10 의 「상자에서 찾은 것은 무조건 가방이 먼저다」와 부딪히지 않는다 — 그것은 **장비 칸**(손에 든 총이
-   * 조용히 바뀌는 것)에 대한 결정이고, 여기는 비어 있는 휠 칸만 채운다.
+   * 빈 자리가 없다 → **예전 경로 그대로**.
+   *
+   * ⚠ 가방은 `equipTargetFor`(= 차 있어도 교체)를 **여전히** 탄다. 사용자 요청은 「장착하고 있지 않은 슬롯이
+   * 있으면 장착하도록 **추가**」였지 가방의 교체를 없애 달라는 것이 아니었다 — 여기서 빼면 레이드 중 주무기
+   * 두 칸이 다 찬 흔한 상태에서 가방의 총을 더블클릭하면 `fail` + 거부음이 되어, 있던 조작이 사라진다.
+   * 그래서 순서만 바뀌었다: **빈 칸이 있으면 그리로**(새 규칙), 없으면 예전처럼 교체.
    */
-  if (from.kind === 'grid' && from.grid === 'container' && takeIntoQuick(sys, item, def)) return 'ok';
-  if (from.kind === 'grid' && from.grid !== 'bag') {
-    if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
-    return activateFallback(sys, item, def, from);
+  if (fromBag) {
+    const slot = sys.equipTargetFor(def);
+    if (slot) return sys.dropOnSlot(item, def, from, slot);
+    return sys.quickMoveImpl(uid, from);
   }
-  const slot = sys.equipTargetFor(def);
-  if (slot) {
-    if (from.kind === 'slot') return 'noop';
-    return sys.dropOnSlot(item, def, from, slot);
-  }
-  return sys.quickMoveImpl(uid, from);
+  if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
+  /*
+   * 2026-09-10 의 폴백(`activateFallback`)이 여기 남은 전부다 — `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 을 다시
+   * 훑던 부분은 위에서 **이미** 돌았고 그 사이에 바뀐 것이 없으므로(`bag.canAbsorb` 는 순수 질의) 지웠다.
+   */
+  sys.ctx.bus.emit('inventory:full', { item, name: def.name });
+  return 'fail';
   }
 
 /**
@@ -479,9 +489,13 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
  *
  *  • `notifySentTo` — 창고 더블클릭이 **일부러** 장비칸 · 임플란트 칸 · 퀵슬롯으로 보낸 경우. 의도한 이동이라
  *    예전 그대로 `ui:notify` 한 줄(`{name} → {where}`)이 뜬다.
- *  • `flashPlaced` — 상자 · 시체에서 **가방이 꽉 차 밀려난** 경우. 예전의 `가방이 가득 찼습니다 — …` 토스트를
+ *  • `flashPlaced` — 상자 · 시체 · 가방 · 주머니에서 보낸 경우. 예전의 `가방이 가득 찼습니다 — …` 토스트를
  *    빼고, 실제로 들어간 칸이 그 자리에서 번쩍인다 (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant`).
  *    토스트는 화면 구석이라 눈이 상자에 있는 동안 놓치기 쉬웠다.
+ *
+ * **2026-09-14 2차 — 상자 · 시체에서 빈 칸으로 곧장 간 경우도 `flashPlaced` 다** (같은 근거의 연장): 그 순간
+ * 눈은 상자 격자에 있고, 장비 칸 · 휠은 같은 창 안 바로 옆이라 번쩍임이 시야에 든다. 창고만 토스트를 지키는
+ * 이유는 「창고 → 장비」가 출격 준비의 **의도한 지시**여서다 (2026-09-14 1차 결정을 그대로 둔다).
  *
  * 그래서 `tryAutoPlace` 는 문구가 아니라 **「놓였다」 콜백**을 받는다 — 자리(`slot` · `quick` · `implant`)와
  * 라벨을 함께 넘기므로 부르는 쪽이 토스트를 띄우든 칸을 번쩍이든 고른다.
@@ -507,16 +521,18 @@ const flashPlaced: OnPlaced = (sys, _def, _where, at) => {
  *   ① **빈** 장비 칸 (주무기 I · II · 가방 · 방탄복 · 주머니). 이미 장착한 것을 조용히 밀어내지 않는다 — 빈 칸일 때만.
  *   ② 임플란트 아이템이면 빈 임플란트 장착칸 (`ctx.progression.equipImplant`; 함선에서만이고 그 함수가
  *      가방 · 창고만 보므로 사실상 **함선 창고**에서 누른 경우다. 레이드 상자에서는 조용히 실패한다).
- *   ③ 퀵슬롯에 올릴 수 있는 소모품이면 **빈** 휠 칸.
+ *   ③ 퀵슬롯에 올릴 수 있는 소모품이면 **빈** 휠 칸 (`quick` false 면 건너뛴다 — 가방 갈래, `activateImpl` 주석).
  *
- * 성공하면 **어디로 갔는지** 알린다 — 방법은 부르는 쪽이 정한다 (`onPlaced`: 창고 더블클릭은 의도한 이동이라
- * 토스트, 가방이 꽉 차서 밀려난 것은 그 칸의 플래시).
+ * 세 가지 모두 **비어 있는 칸에만** 넣는다. 그래서 2026-09-10 의 「주우면서 손에 든 것이 조용히 바뀌지 않는다」가
+ * 모든 격자에서 그대로 산다 — 장착한 것을 밀어내는 길은 드래그와 우클릭 메뉴의 「장착」뿐이다.
  *
- * 2026-09-12: `activateFallback`(2026-09-10) 의 ①②③ 을 그대로 떼어낸 것이다. 창고 더블클릭(`activateImpl`)이
- * **같은 순서를 먼저** 쓰기 위해서이고, 규칙은 한 벌뿐이다.
+ * 성공하면 **어디로 갔는지** 알린다 — 방법은 부르는 쪽이 정한다 (`onPlaced`: 창고는 토스트, 나머지는 그 칸의 플래시).
+ *
+ * 2026-09-12: `activateFallback`(2026-09-10) 의 ①②③ 을 그대로 떼어낸 것이다. 2026-09-14 2차부터는 **모든 격자의
+ * 더블클릭이 이것 하나를 먼저 탄다** (`activateImpl`).
  */
 function tryAutoPlace(
-  sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation, onPlaced: OnPlaced,
+  sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation, onPlaced: OnPlaced, quick = true,
 ): OpResult | null {
   const slot = emptyEquipTargetFor(sys, def);
   if (slot) {
@@ -532,8 +548,13 @@ function tryAutoPlace(
     }
   }
 
-  if (isQuickUsable(def)) {
-    const index = firstFreeQuickSlot(sys.quickSlots, sys.getQuickSlotCount());
+  /*
+   * 2026-09-14 2차 — ③ 은 `parts/AutoQuick.autoQuickIndexFor` 로 통일했다 (예전에는 `firstFreeQuickSlot` 만 봤다).
+   * `takeIntoQuick` 의 두 줄을 펼친 것이고, 다른 점은 **라벨에 칸 번호가 필요하다**는 것뿐이다. 그래서 「같은 종류가
+   * 이미 휠에 있으면 빈 칸을 새로 먹지 않는다」(한 칸 = 한 종류)와 감정 전 스택 거부가 창고 · 상자 · 시체에 똑같이 걸린다.
+   */
+  if (quick) {
+    const index = autoQuickIndexFor(sys, item, def);
     if (index >= 0 && sys.setQuickSlot(index, item.uid)) {
       onPlaced(sys, def, `퀵슬롯 ${QUICK_DIR_GLYPH[index] ?? String(index + 1)}`, { kind: 'quick', index });
       return 'ok';
@@ -544,15 +565,21 @@ function tryAutoPlace(
   }
 
 /**
- * 2026-09-10 — 컨테이너 더블클릭이 **가방에 못 들어갔을 때만** 도는 폴백: `빈 장비 칸 → 임플란트 칸 →
- * 빈 퀵슬롯`(`tryAutoPlace`), 셋 다 아니면 `inventory:full` (예전과 똑같은 거부음 + 토스트).
- * 2026-09-14 (사용자 결정): 성공했을 때의 `가방이 가득 찼습니다 — …` 토스트는 빠졌다 — 들어간 칸이 번쩍인다.
+ * **더블클릭이 지금 이 아이템을 빈 자리로 보낼까** — `tryAutoPlace` 와 같은 순서를 **아무것도 바꾸지 않고** 묻는다.
+ * 2026-09-14 2차에 우클릭 메뉴가 「빠른 이동」 줄의 `더블클릭` 힌트를 정확히 달기 위해 생겼다 (`ui/parts/ContextMenu`):
+ * 빈 자리가 있으면 더블클릭은 빠른 이동을 **하지 않으므로** 그 힌트가 거짓말이 된다.
+ *
+ * 임플란트만 근사다 — `equipImplant` 는 시도해 봐야 아는 함수라 여기서는 `implantSlots − implantSlotsUsed` 로
+ * 칸이 남는지만 본다 (함선 게이트는 `equipImplant` 가 들고 있다). 힌트 한 줄의 정확도이므로 이 정도로 충분하다.
  */
-function activateFallback(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation): OpResult {
-  const placed = tryAutoPlace(sys, item, def, from, flashPlaced);
-  if (placed) return placed;
-  sys.ctx.bus.emit('inventory:full', { item, name: def.name });
-  return 'fail';
+export function wouldAutoPlace(sys: InventorySystem, item: ItemInstance, def: ItemDef, quick = true): boolean {
+  if (emptyEquipTargetFor(sys, def)) return true;
+  const imp = def.implant;
+  if (imp && !imp.broken) {
+    const prog = sys.ctx.progression;
+    if (prog && sys.hubMode && prog.implantSlots - prog.implantSlotsUsed >= (imp.slots ?? 1)) return true;
+  }
+  return quick && autoQuickIndexFor(sys, item, def) >= 0;
   }
 
 /** 지금 **비어 있는** 장비 칸 중 이 아이템을 받는 곳. 장착된 것을 밀어내지 않으므로 `equipTargetFor` 와 다르다. */

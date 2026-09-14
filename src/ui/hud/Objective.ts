@@ -20,6 +20,17 @@ export const OBJECTIVE_TEXT = {
 } as const;
 
 /**
+ * 2026-09-14 (튜토리얼, 사용자 결정) — 상단 중앙의 「도착」 · 「자동 출발까지」를 지금 띄우면 안 되는가.
+ *
+ * 튜토리얼의 버려진 함선은 `beginPreLanded(..., {autoDepart:false})` 로 서 있어 **자동 출발을 걸지 않는다** —
+ * 「자동 출발까지 nn초」는 일어나지 않을 일이고, 착륙하지 않은 함선의 「도착」도 사실이 아니다.
+ * 규칙은 `tutorial/parts/Gates` 하나가 갖고 여기서는 묻기만 한다. 튜토리얼이 아니면 언제나 false 다.
+ */
+function hidesTimer(ctx: GameContext): boolean {
+  return ctx.tutorial?.hides('hud', 'extractionTimer') ?? false;
+}
+
+/**
  * 좌측 상단 **임무 시간** + 나침반 아래의 큰 탈출 카운트다운.
  *
  * 2026-09-10: `임무 목표` 라벨 · 목표 문구(`.text`) · 보조 문구(`.sub`) 가 전부 없어졌다. 남은 것은 `.head` 의
@@ -40,6 +51,10 @@ export class Objective {
   /**
    * 2026-09-13 (탈출 개편): which timer the big widget shows. `countdown` 함선 도착까지 → `arrived` 「도착」 (2.5 s) →
    * `waiting` 자동 출발까지 → `departing` 함선 출발까지 (urgent) → hidden on liftoff / reset. Everyone sees it, aboard or not.
+   *
+   * 2026-09-14 (튜토리얼): `hidesTimer` 가 참이면 `arrived` · `waiting` 두 모드에 **아예 들어가지 않는다**.
+   * **`departing` 은 남긴다** — 스위치를 당긴 뒤의 10초 유예는 튜토리얼에서도 진짜로 흐르고 취소할 수 없는
+   * 카운트다운이라, 그것을 숨기면 함선이 말없이 떠난다(설명을 지우는 것이 아니라 사실을 지우는 것이 된다).
    */
   private mode: 'none' | 'countdown' | 'arrived' | 'waiting' | 'departing' = 'none';
   private arrivedTimer = 0;
@@ -70,6 +85,7 @@ export class Objective {
         toggleClass(this.timerRoot, 'urgent', remaining <= 10 && remaining > 0);
       }),
       b.on('extraction:shipLanded', () => {
+        if (hidesTimer(ctx)) return;
         this.setMode('arrived', '함선 도착까지');
         this.timerRoot.classList.add('arrived');
         this.setTime('도착');
@@ -80,6 +96,7 @@ export class Objective {
       // 2026-09-13: the idle timer, then the uncancellable grace
       b.on('extraction:departureTick', ({ stage, remaining }) => {
         if (stage === 'waiting') {
+          if (hidesTimer(ctx)) return;
           if (this.mode === 'arrived') return;   // keep 「도착」 up for its 2.5 s
           if (this.mode !== 'waiting') this.setMode('waiting', '자동 출발까지');
           this.setTime(fmtTime(remaining));

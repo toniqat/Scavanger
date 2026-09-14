@@ -66,9 +66,13 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     stats: baseStats(),
     skills: zeroSkills(),
     skillProgress: zeroSkills(),
-    // 2026-09-07: a fresh character starts with 갈고리 in the tactical implant slot rather than an empty one
-    // (every implant is owned from the start, so an empty slot was just a missed default).
-    implant: DEFAULT_IMPLANT,
+    /*
+     * 2026-09-14 2차 (사용자 결정) — **빈 칸으로 시작한다.** 2026-09-07 의 "빈 칸은 빠뜨린 기본값" 을 뒤집는다:
+     * 튜토리얼 레이드는 임플란트를 아직 갖지 않은 구간이고(위젯을 숨기는 것만으로는 Q 가 여전히 나간다),
+     * 갈고리는 **첫 함선 진입**에서 `ProgressionSystem.grantStarterImplant` 가 지급 · 장착한다.
+     * `shared/character.makeCharacterProfile` 도 같은 자리에서 null 을 쓴다 — 두 생성 경로가 같아야 한다.
+     */
+    implant: null,
     raids: 0,
     extractions: 0,
     statProgress: zeroStatProgress(),

@@ -15,7 +15,7 @@
 | `InventorySystem.ts` | `GameSystem` + `InventoryRef`. **Phase 7** (see the last section): `updateSearch` (per-frame reveal loop), `isItemLocked`, `unsearchedCount`, `guardedTake / requestTake / trackTake / announceTake`, `pendingTakeUids`, `onContainerMessage / onContainerRequest / requestContainerSync / materializeCrate`, `canFit`, `captureRaidState / applyRaidState` (`RaidInventoryState`), `uploadProfileDoc / onProfileLoaded` (Phase 9: `withFreshSave` instead of the removed `offlineDocs` queue), `takeOne`, `checkLootedFor`; `OpResult` gained `'pending'`. Event wiring, Tab/Escape/R/X handling, auto-close (> 6 m from crate, death, phase change), reset policy, and all mutations used by the UI: `drop`, `previewDrop`, `dropPartial`, `previewPartial`, `previewAttach`, `attachFrom`, `quickMove`, `activate` (double-click), `equipTargetFor`, `rotateItem`, `takeAll`, `registerQuick`, `quickIndexOf`, plus the contract methods (`dropItem`, `splitItem`, `getBagSize`, `findItem`, `updateItem`, `attachToWeapon`, `detachAllSockets`, `unloadWeapon`, `repairWeapon`, `equip`, `getQuickSlots`, `setQuickSlot`, `getQuickSlotCount`, `consumeItem`, `openContainerItems`) and the quick-chat `requestItem`. **Phase 6** (see the sections below): `openCatalog / closeCatalog / isCatalogOpen` + `catalogQty / previewCatalog / dropFromCatalog / takeFromCatalog`, `getStashSize / setStashSize`, `countDefAll / consumeDefAll`, `captureLoadout / applyLoadout`, `openBenchCraft / getBench / closeBench / getBenchRecipes / benchRepairRows / benchRepairAll`, `getRecipes(station, bench?, level?)`, `craftCostMul / craftCost`. **2026-09-07**: `nearestFreeSpot(uid, from, gridId, x, y, rotated)` — the free footprint closest to a cell, used by the drag UI for equipment-slot drops that land on an occupied cell. **Phase 5**: loadout persistence (`captureLoadoutSave / restoreLoadoutSave / announceLoaded`, see below), `findItemAnywhere / tryAddToStash / tryAddItemAnywhere / takeItem` (contract, corp shop), `inventory:containerOpened` from `openContainer / openContainerItems`, `relockLater()`. **Phase 8**: `disassembleRecipeFor(uid)` + `openDisassemble(uid)` and the module-level `isDisassembleRecipe(r)` (`break_*` rows are filtered out of `getBenchRecipes()` but still craftable); `openCharacter()` / `openCorp()` are **gone** — the tabs build embedded views inside the window instead. **Phase 10**: `emitItemTaken` (the single `container:itemTaken` emitter, live vs. catch-up), `rem` / `seq` on `cont taken`, `captureCrewLoadout / createCrewLoadoutView`, and `setOpen` running the software cursor instead of releasing the pointer lock (`relockLater` removed). `locate(uid)` finds an item in bag → container → slots. Exports the UI vocabulary (`GridId`, `SlotId` = `LoadoutSlot`, `LOADOUT_SLOTS`, `WEAPON_SLOT_IDS`, `slotAccepts`, `ItemLocation`, `DropTarget` incl. `{kind:'weapon'}` / `{kind:'quick', index}`, `OpResult`, `DropPreview`, `BagSize`, `ActiveBench`, `BenchRecipeRow`, `BenchRepairRow`). **2026-09-14**: `readOnlyReason(): string \| null` — 「왜 지금 장비를 바꿀 수 없는가」 한 곳(발사 슬롯 **준비** 중, `ctx.hub.launchReady`). 모든 변경 진입점의 첫 줄이 `readOnlyBlocked()`(거절 + `READY_LOCK_TOAST_S` 마다 한 번 토스트)이고 미리보기는 조용히 `'bad'` 다. `isItemLocked` 는 **건드리지 않는다** — 읽기(툴팁 · 우클릭 메뉴)는 계속 된다 |
 | `model.ts` | **2026-09-12**: `LOADOUT_SLOTS` 순서가 곧 장비칸 배치다 — `primary · armor · primary2 · bag · pouch` (두 열: 주무기 I ∣ 방탄복 / 주무기 II ∣ 가방 / 전술 임플란트 ∣ 주머니). 폴더 공용 어휘 — `GridId`(2026-09-11: += `'pouch'`) / `ItemLocation` / `DropTarget` / `OpResult` / `slotAccepts` / `isPouchDef` · `pouchAcceptsDef` 등 타입 · 상수 · 순수 술어. 상태도 DOM 도 없다. `InventorySystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 그대로다. **2026-09-10**: `RepairCostRow` · `RepairInfo`(우클릭 `수리` readout, `bucket` 은 제작 재료 규칙으로 값이 나왔을 때만 채워진다) 가 붙었고 `BenchRepairRow` 에 `bucket: DurabilityBucketInfo` 가 추가됐다 |
 | `parts/Lifecycle.ts` | **세이브 · 기본 지급품 · 미션 리셋.** `InventorySystem` 에서 떼어낸 함수들이다. 인스턴스를 첫 인자 `sys` 로 받고, 클래스에는 같은 이름의 한 줄 위임 메서드가 남아 있으므로 **호출부는 전부 그대로**다. 여기가 답하는 질문은 하나다 — *레이드가 시작 · 종료 · 실패할 때 플레이어의 장비에 무슨 일이 일어나는가.* 규칙 전문은 폴더 README 의 `Reset policy` 절에 있다. |
-| `parts/DropResolver.ts` | **2026-09-12 (사용자 결정)**: ① `canSocketAt` — **창고 안 총기에도 부착물이 끼워진다** (`locKind` 의 뜻은 그대로 두고 부착 경로에서만 `'stash'` 를 허용한다. 상자 · 시체는 계속 거부). 소켓이 바뀌면 그 무기가 든 격자의 `version` 을 올리고(`bumpWeaponGrid`), 빠진 부착물은 가방 → 창고 → 바닥 순으로 간다(`stowDetached`). ② **창고 더블클릭 = 빈 자리로 곧장** — `tryAutoPlace`(빈 장비칸 → 임플란트 칸 → 빈 퀵슬롯)를 **가방보다 먼저** 본다. 차 있으면 예전처럼 가방, 가방도 꽉 차면 `activateFallback`(같은 함수, 문구만 다르다). 상자 · 시체는 2026-09-10 그대로. **드래그 앤 드롭 판정.** UI 가 묻는 두 가지 질문에만 답한다 — *여기 놓으면 어떻게 되나* (`preview*`, 타일 하이라이트 색)와 *실제로 놓아라* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). 스왑 · 병합 · 장비칸 · 퀵슬롯 · 소켓 · 부분 수량(Shift/Ctrl 드래그)이 전부 이 파일의 규칙이고, DOM 은 하나도 없다. |
+| `parts/DropResolver.ts` | **2026-09-12 (사용자 결정)**: ① `canSocketAt` — **창고 안 총기에도 부착물이 끼워진다** (`locKind` 의 뜻은 그대로 두고 부착 경로에서만 `'stash'` 를 허용한다. 상자 · 시체는 계속 거부). 소켓이 바뀌면 그 무기가 든 격자의 `version` 을 올리고(`bumpWeaponGrid`), 빠진 부착물은 가방 → 창고 → 바닥 순으로 간다(`stowDetached`). ② **더블클릭 = 빈 자리로 곧장** — `tryAutoPlace`(빈 장비칸 → 빈 임플란트 칸 → 빈 퀵슬롯)를 가방보다 먼저 본다. **2026-09-14 2차 (사용자 결정): 격자를 가리지 않는 한 벌이다** — 상자 · 시체 · 창고 · 가방(③ 제외) · 주머니가 같은 순서를 타고, 빈 자리가 없을 때만 예전 경로로 내려간다 (가방은 `equipTargetFor` 교체가 그 예전 경로다 — 그 조작을 잃지 않는다). `activateFallback` 은 없어졌고, ③ 은 `AutoQuick.autoQuickIndexFor` 로 통일했다. `wouldAutoPlace` 는 우클릭 메뉴 힌트용 비변경 질의. **드래그 앤 드롭 판정.** UI 가 묻는 두 가지 질문에만 답한다 — *여기 놓으면 어떻게 되나* (`preview*`, 타일 하이라이트 색)와 *실제로 놓아라* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). 스왑 · 병합 · 장비칸 · 퀵슬롯 · 소켓 · 부분 수량(Shift/Ctrl 드래그)이 전부 이 파일의 규칙이고, DOM 은 하나도 없다. |
 | `parts/StashOps.ts` | **함선 창고를 함께 보는 연산.** 가방 하나만 보는 연산(`countDef` 등)은 클래스에 남아 있고, 여기 있는 것은 전부 **가방 + 창고**를 하나의 보관 공간으로 취급한다: 재료 집계 · 소모, 로드아웃 프리셋 저장/적용, 창고로 이동, 어디든 넣기, 공간 확인. 창고는 함선에서만 존재하므로 레이드 중에는 이 함수들이 가방만 본다. |
 | `parts/Crafting.ts` | **2026-09-12**: `switchBench(kind \| null, level)` — 열려 있는 제작 열 안에서 작업대만 갈아 끼운다 (창을 열지도 닫지도 않는다; `null` = 빠른제작). `benchRepairRows` 는 **작업대 종류를 보지 않는다** — 정비 벤치가 은퇴해 "함선이면 재료만 갖다 바치면 수리"가 규칙이 됐으므로 무기 · 방탄복 · 가방 전부이고 레이드 중에는 빈 배열이다. **제작 · 분해 · 작업대.** 필드 제작(`제작` 열)과 함선 작업대(`openBenchCraft`)는 같은 규칙을 쓰고 재료 출처만 다르다: 레이드에서는 가방만, 함선에서는 가방 + 함선 창고(`countDefAll` / `consumeDefAll`). 분해(`break_*`)는 제작 목록이 아니라 아이템 우클릭에서 열리며 진행 게이지를 `inventory:disassembleProgress` 로 흘린다. **2026-09-10 (제작 대개편 2단계)**: 분해 산출이 **남은 내구도**를 탄다 — `resolveRecipe(sys, r, targetUid)` 가 `ctx.loot.getSalvageFor(inst)` 로 레시피를 다시 풀고, `disassembleRecipeFor`(미리보기) · `craftHasRoom(id, count, targetUid)`(자리 검사) · `updateCraft`(실제 소비 · 산출) 셋이 **같은 레시피**를 본다. `getAllRecipes()` 에 실린 줄은 구간 4(81~100 %) 기준이라 그대로 쓰면 다 망가진 총도 새 총만큼 뱉는다. id 는 그대로이므로 `craft()` 의 게이트(`availableRecipes` 동일성 · `canCraft`)는 바뀌지 않는다. `benchRepairRows` 의 재료는 `parts/Durability.repairMaterials` 를 지나므로 **방탄복 줄에도 재료가 뜬다** |
 | `parts/Durability.ts` | **2026-09-12**: `detachAllSockets` 의 대상이 `canSocketAt`(`parts/DropResolver`) 로 바뀌어 **함선 창고 총기**도 소켓을 뽑을 수 있고, 넘치는 부착물은 가방 → 창고 → 바닥이다. **내구도 · 수리 · 소켓.** 무기와 방어구가 닳고(`damageDurability`), 재료로 고쳐지고(`repair` / `repairWeapon`), 부착물이 붙고 떨어지는(`attachToWeapon` / `detachAllSockets`) 경로. 회복 스프레이의 게이지 충전도 여기 있다 (`sprayRepairCost` — 남은 게이지 비율만큼만 재료를 받는다). **2026-09-10**: 수리 재료를 정하는 곳이 **`repairMaterials(sys, item, def)` 하나**가 됐다 — `LootRef.getRepairCost` 를 먼저 보고 비었을 때만 `sprayRepairCost` 로 내려간다. 예전 삼항(`getEffectiveStats ? getRepairCost : sprayRepairCost`)은 무기일 때만 `getRepairCost` 를 물어서 **방탄복이 재료 없이 만피로 복구**됐다. `repairInfo` 는 `bucket`(남은 내구도 구간)을 함께 돌려준다. **2026-09-11**: ① `wearBagForRaid` — 장착 가방이 레이드당 한 번 `BAG_DURABILITY_PER_RAID` 닳는다(탈출 성공 `game:complete` · 사망 `stripForCorpse` 중 먼저 온 쪽, `bagWornThisRaid` 는 `world:ready` 에서 내린다, 훈련장 제외, `durability:broken` 없음 — 0 이어도 효과 없음). ② 수리비가 비었는데 `needsRepairCost(def)`(`@/items` — 내구도 + 제작 레시피)면 `repair` · `repairInfo` · 작업대 수리 목록이 **거절**한다 (무료 수리 구멍 차단) |
@@ -51,7 +51,7 @@
 | `ui/RepairPanel.ts` | **2026-09-08 — 장비 수리 모달 팝업.** Opened by the bench header's `모두 수리`. A `Modeless` frame (variant `repair`, centred) **plus a scrim** (`.inv-rep-scrim`) that this file owns, so it reads as a modal while still taking no blocker and no pointer-lock change. Rows come from `sys.benchRepairRows(true)` — **worn gear only** — one wide row each (슬롯 · 이름 + 내구도 막대 + `현재 / 최대` · 재료 칩 · `×`). `×` (`.inv-repair-drop`) excludes that item from the batch (`.is-excluded`, click again to put it back); under the list the **summed** materials of what is left (`.inv-rep-total`, 보유/필요 chips) and the `모두 수리 (n)` button → `sys.benchRepairAll(excluded)`. The exclusion set is cleared on close (user decision: a scratch selection for one batch, not a saved setting). Individual repair stays in the item right-click menu. **2026-09-10**: 수리비가 `제작 재료 × 남은 내구도 구간의 배수` 라서 줄마다 `현재 / 최대` 뒤에 `.inv-repair-bucket`(`61~80 % · 제작 재료의 20 %`)이 붙고, 목록 아래 `.inv-rep-hint` 가 두 줄(개별 수리 위치 + `내구도가 낮을수록 수리 재료가 많이 듭니다`)이 됐다. 방탄복 줄에도 재료 칩이 뜬다 |
 | `ui/Modeless.ts` | **Phase 8** — shell of the **모달리스 팝업** (`.inv-modeless`, variant class `-implant` / `-craft` / `-disassemble`) shared by the implant picker, the craft panel and the 분해 dialog. `withHeader(eyebrow, title)` / `adopt(panel)` / `open(anchor?, centred?)` / `place()` / `close()` / `dispose()`. Adds **no** `ctx.uiBlockers` token and never touches the pointer lock — the window owns both; dismissed by the window's Escape chain (`closeOverlays`) or by a capture-phase `pointerdown` outside the panel *and* its anchor (so a click on the opener toggles). Anchored popups sit to the left of the anchor (clamped into the viewport), anchorless ones get `is-centred` (the craft popup is parked at the right edge by CSS). **Phase 8 UI pass**: `centred` keeps the anchor purely as the "this press is not outside" element while the frame stays in the middle of the screen — that is how the 전술 임플란트 panel is both centred *and* still toggled by a second click on its slot |
 | `ui/DisassemblePanel.ts` | **Phase 8** — the **아이템 분해** dialog: a `Modeless` showing the **expected result** (`재료` input chip with 보유/필요 → `결과물` output chip ×n, both `buildItemChip` from `@/shared`) and a `분해` button that runs the item's `break_*` recipe through `InventorySystem.craft` (a second click cancels). **2026-09-08**: the button **is** the progress bar (`.inv-craft-fill`) — the `1회 분해 · n s` hint line and the separate `.inv-dis-bar` under it are gone — and the bag is checked **before** the hold (`InventorySystem.craftHasRoom`), so a full bag disables the button up front with `가방에 공간이 없습니다` on it instead of failing after 2 s. `open(uid)` / `close()` / `refresh()` / `isOpen` / `itemUid` / `barEl` (now the button) / `progress`; emits `ui:disassembleToggled {open, uid}` on both edges and closes itself when the source stack is gone. **2026-09-10**: 미리보기가 **남은 내구도**를 탄다 — 매 `refresh()` 마다 `sys.disassembleRecipeFor(uid)` 로 레시피를 다시 풀고 자리 검사도 `craftHasRoom(id, 1, uid)` 로 그 아이템 기준으로 묻는다. 미리보기 밑 `.inv-dur-note` 한 줄이 `남은 내구도 / 21~40 % · 제작 재료의 16 % / 내구도가 낮을수록 나오는 재료가 적습니다` 를 말하고, 내구도가 없는 아이템(탄약 · 재료)에서는 숨는다 |
-| `ui/ImplantPanel.ts` | **2026-09-12 (사용자 결정)**: 이 블록(`.inv-implants`)이 **장비칸 그리드의 `implant` 칸**(주무기 II 아래 · 주머니 왼쪽)이고, 전술 임플란트 슬롯은 가로 바가 아니라 **정사각 썸네일**이다 (아이콘 가운데 · 이름 하단 캡션 · 구동 방식 우상단 태그 · 설명은 `title`). **임플란트 칸** (2026-09-08, 캐릭터 시트에서 이사). 장착 장비 격자(`.inv-equip-grid`) 바로 아래 `.inv-implants` 블록 두 개: **전술 임플란트** 슬롯 카드 + 모달리스 피커(`.inv-imp-pop`, 6종 카드, `ctx.implants.setEquipped`)와 **임플란트 아이템** (`임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩(클릭 = 해제), `+ 장착` → `.inv-impi-pop` 이 가방 + 함선 창고의 후보를 나열; 망가짐 / 장착칸 부족은 사유와 함께 비활성). 두 피커 모두 **`ctx.uiRoot` 직속 자식**이다 (`.inv-root` 의 열림 애니메이션이 남기는 `scale:` 이 `position: fixed` 팝업의 컨테이닝 블록이 되므로). 능력치 임플란트는 `ctx.progression`, 전술 임플란트는 `ctx.implants` 로만 오간다 — 상태를 하나도 들고 있지 않다. `closePickers()` 가 `closeOverlays()` 사슬에 들어가 Escape 한 번을 먹는다. |
+| `ui/ImplantPanel.ts` | **2026-09-14 2차 (사용자 결정)**: `refresh()` 가 `ctx.tutorial?.hides('hud', 'implant')` 면 블록 전체를 `hidden` 으로 두고 피커도 닫는다 — **튜토리얼 중 임플란트 숨김**(HUD 위젯과 같은 질의). **2026-09-12 (사용자 결정)**: 이 블록(`.inv-implants`)이 **장비칸 그리드의 `implant` 칸**(주무기 II 아래 · 주머니 왼쪽)이고, 전술 임플란트 슬롯은 가로 바가 아니라 **정사각 썸네일**이다 (아이콘 가운데 · 이름 하단 캡션 · 구동 방식 우상단 태그 · 설명은 `title`). **임플란트 칸** (2026-09-08, 캐릭터 시트에서 이사). 장착 장비 격자(`.inv-equip-grid`) 바로 아래 `.inv-implants` 블록 두 개: **전술 임플란트** 슬롯 카드 + 모달리스 피커(`.inv-imp-pop`, 6종 카드, `ctx.implants.setEquipped`)와 **임플란트 아이템** (`임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩(클릭 = 해제), `+ 장착` → `.inv-impi-pop` 이 가방 + 함선 창고의 후보를 나열; 망가짐 / 장착칸 부족은 사유와 함께 비활성). 두 피커 모두 **`ctx.uiRoot` 직속 자식**이다 (`.inv-root` 의 열림 애니메이션이 남기는 `scale:` 이 `position: fixed` 팝업의 컨테이닝 블록이 되므로). 능력치 임플란트는 `ctx.progression`, 전술 임플란트는 `ctx.implants` 로만 오간다 — 상태를 하나도 들고 있지 않다. `closePickers()` 가 `closeOverlays()` 사슬에 들어가 Escape 한 번을 먹는다. |
 | `ui/CrewLoadoutView.ts` | **Phase 10** — `createCrewLoadoutView(host, loadout, opts)`: a **read-only** 장비 / 가방 / 빠른 사용 view of another member's `captureCrewLoadout()` document (발사 준비 패널 → 우클릭). `sanitizeLoadoutSave` validates, `reviveItem` mints the items onto a throwaway `Grid`, `GridView` + `buildTileContent` draw them with no-op handlers. Blocks `['equip','bag','quick']` (no 함선 창고, no 크레딧), unknown def ids skipped, `EmbeddedView` (no blocker / pointer lock / Escape listener) — see the last section |
 | `ui/TipPin.ts` | **2026-09-14 — 툴팁 고정** (사용자 결정). `TipPin` 한 인스턴스가 누르고 있기 · 고정 카드 · 그 카드의 소켓 호버/끌어내기를 전부 갖고, 격자 모양 · 드롭 대상 · 고스트는 호스트가 `TipPinHost` 로 답한다(Tab 창 `InventoryUI` · `TradeGrids`). `beginHold(uid, x, y, onFire)` — 확정은 `UI_HOLD_CONFIRM_S` 타이머, 링은 rAF 로 `ui:cursorHold {owner, progress, x, y}` · 문턱을 넘게 움직이거나 떼면 `cancelHold`(링 `null`) · 다 차면 `onFire`(호스트가 아직 드래그가 아닌 누름을 버린다) 뒤 `pinAt`. 고정 카드 = 자기 `Tooltip` + `.is-pinned`(포인터를 받는다) + 마름모 `.inv-tt-pin`, 자리는 떠 있던 호버 카드의 `transform`(`pinAnchor`)이고 커서를 따라가지 않는다. 해제 = window capture `pointerdown` 이 카드 밖 · 마름모 · `ctx.escape`(`inventory.tipPin:<owner>`) · `unpin()`(호스트의 창 닫기 · 탭 전환) · `validate()`(아이템을 못 찾으면 — 서명이 바뀌면 같은 자리에 다시 그린다) · 다른 owner 의 `ui:tipPinned`. 소켓: `.inv-tt-sock.is-filled` 호버 = `host.hoverTip` 에 부착물 카드, `.can-detach` 누르고 문턱을 넘으면 `host.buildGhost` 고스트(`.inv-sock-ghost`, 초록/빨강) · `host.aimDetach` · 놓으면 `host.detach` → 효과음. 카드 위에서 놓으면 제자리. `inventoryTooltipLookups(sys, ctx)` = 두 호스트가 쓰는 툴팁 조회. 게터 `isHolding` · `isPinned` · `pinnedUid` · `isSocketDragging` |
 | `ui/Tooltip.ts` | **2026-09-12 (사용자 결정)**: ① **내구도는 게이지 한 줄**(`buildDurabilityBar` → `.inv-tt-durbar`, 무기 2×2 게이지와 같은 `.track` / `.fill` 을 전체 폭으로) — 무기 · 가방 · 방탄복 · 회복 스프레이가 같은 함수를 부르고, 그 아래 있던 `구간` 줄(C-37)과 `TooltipLookups.getDurabilityBucket` / `canSalvage` · `TEXT.durability.tooltip*` · `.is-bucket` 은 **전부 사라졌다**(구간 안내는 수리 · 분해 팝업이 계속 적는다). ② **가방**에 「소지 한계 +N kg」 한 줄(`Gear.bagCapacityBonus` — 무게 계산과 같은 식, 0 이면 생략). ③ **방탄복**의 `특성` 행은 설명 문단과 글자가 같으면 서지 않는다(유니크 description 이 곧 퍽 문장이라 같은 줄이 두 번 나왔다). Hover card (name, category · rarity, description; attachments: socket, 호환, effects; bags: grid + 퀵슬롯 + **내구도 (2026-09-11)**; **서적 (Phase 9)**: 스킬 (한국어 name via the new `TooltipLookups.getSkillName` → `ctx.progression.getSkillDef`, the raw id as fallback) + 용도 `서재 책장에 꽂으면 해당 스킬 XP 증가`; qty). **2026-09-09 무기 카드 재설계**: 대미지 · 연사 · 반동 · 사거리 are a **2×2 게이지 격자** (`.inv-tt-gauges`, bar = value ÷ the **catalog maximum** of that stat, computed lazily once from `TooltipLookups.allWeaponItemDefs()` × `getBaseStats(defId)` = `LootRef.getEffectiveStats(defId)`; damage = `damage × pellets`, range = `effectiveRange(weapon)`; the raw number stays small at the right). Two layers per bar: the bare def value in **white**, a socket surplus as a **green `.bonus`** segment, a socket reduction (muzzle brake on 반동) as a **hollow green `.reduced` outline** over the removed span. The head's right corner holds the **탄종 썸네일** (`.inv-tt-ammo`, `findAmmoDef(type)` → the `ammo` item's glyph in its colour + the calibre name as a caption inside; no ammo def → dashed square with the label alone). The five sockets are a **row of 34 px squares** (`.inv-tt-sock`: attachment glyph + rarity border, or dashed + `socketAbbr`; `title` = `조준경: 없음` / `총구: 소음기`). Kept rows: 장전 `n / max` (that is where the mag size lives now), 발사 모드, 배율, 내구도 (`is-low` / `is-broken`). **Gone for every item**: 크기 and 무게 rows — the bottom bar (`.inv-tt-value`) is two-ended, **무게 left** (stack total, only with `def.weight`) and **가치 right** |
@@ -90,27 +90,63 @@
 언제나 false 를 돌려준다. 타입(`LoadoutSlot` · `Loadout.secondary` · `WeaponSlot`)은 계약이라 남아 있고 값은 늘
 null 이다 — 저장된 프리셋 · 크루 카드 · 로드아웃 세이브가 그 이름을 쓴다.
 
-**2026-09-10 — 상자 · 시체의 더블클릭은 언제나 가방이 먼저다** (사용자 결정). 상자 · 시체에서 더블클릭한 것은
-장착 아이템(무기 · 방탄복 · 가방 · 임플란트)이라도 **무조건 가방 격자로** 들어간다 — 주우면서 지금 든 총이
-조용히 바뀌면 레이드 중에는 사고다. **가방에 자리가 없을 때만** `activateFallback`
-(`parts/DropResolver.ts`)이 `tryAutoPlace` 로 순서대로 시도한다: ① **비어 있는** 장비 칸 (`emptyEquipTargetFor` —
-이미 장착한 것을 밀어내지 않는다), ② 임플란트 아이템이면 `ctx.progression.equipImplant` (함선에서만 ·
-`findItemAnywhere` 가 가방 · 창고만 보므로 사실상 **함선 창고**에서 누른 경우다), ③ 퀵슬롯에 올릴 수 있는
-소모품이면 **빈** 휠 칸, ④ 셋 다 아니면 `inventory:full` (거부음 + 가방 가득 참 토스트). ①②③ 으로 갔을 때는
-**그 칸이 한 번 번쩍인다** (2026-09-14, 사용자 결정 — `.is-flash`, `InventoryUI.flashSlot` / `flashQuick` / `flashImplant`).
-예전의 `가방이 가득 찼습니다 — <이름> → <어디>` 토스트는 뺐다: 눈이 상자에 가 있는 동안 화면 구석의 한 줄은
-놓치기 쉬웠고, 물건이 **어디로 갔는지**는 그 자리가 직접 말하는 편이 빠르다. `tryAutoPlace` 는 그래서 문구가 아니라
-「놓였다」 콜백(`OnPlaced`, 자리 + 라벨)을 받는다 — 창고 더블클릭은 `notifySentTo`(토스트), 폴백은 `flashPlaced`(플래시).
-가방 · 휠 · 장비 칸에서 누른 더블클릭은 예전 그대로다 (거기서는 "장착"이 하려는 일 그 자체다).
+### 더블클릭 = 「빈 자리가 있으면 곧장 그리로」 (2026-09-14 2차, 사용자 결정)
 
-**2026-09-12 — 함선 창고는 그 예외다** (사용자 결정). 2026-09-10 의 결정이 지키려던 것은 *레이드 중에 손에 든
-것이 조용히 바뀌지 않는다* 였고, 출격 전 창고 앞에서 장비를 고르는 동안에는 그 위험이 없다. 그래서 **창고
-더블클릭은 같은 `tryAutoPlace` 를 가방보다 먼저** 본다 — 그 종류의 장비칸(주무기 I · II · 가방 · 방탄복 ·
-주머니) 또는 임플란트 칸이 **비어 있으면 곧장 거기로**, 퀵슬롯에 올라가는 소모품이면 **빈 휠 칸으로**.
-이미 차 있으면 예전처럼 가방으로 회수하고, 가방마저 꽉 차면 `activateFallback` 이 마지막으로 훑는다.
-행선지는 `<이름> → <어디>` 토스트로 알린다 (사고가 아니므로 「가방이 가득」 문구가 아니다).
+**규칙은 격자를 가리지 않고 한 벌이다.** 어느 격자(상자 · 시체 · 함선 창고 · 가방 · 주머니)에서 더블클릭하든
+`parts/DropResolver.activateImpl` 이 먼저 `tryAutoPlace` 를 부르고, 그것이 아무 데도 못 넣었을 때만 예전 경로로
+내려간다:
 
-`slotAccepts(def, slot)` is the single rule. Double-click / `장착` on a primary **in the bag** uses `equipTargetFor`: first empty primary slot, else swap with 주무기 I (the displaced weapon lands in the source cells / auto-place / the bag when the source was a container; refused + shake when nothing fits). `InventoryRef.equip(uid | null, slot)` = the same `dropOnSlot` path (`null` unequips via `quickMove`). Equipped items live in `Loadout`, not in grid cells. Every change emits `loadout:changed {primary, secondary, primary2, bag}`.
+| 순서 | 자리 | 조건 |
+|---|---|---|
+| ① | **비어 있는** 장비 칸 (주무기 I · II · 가방 · 방탄복 · 주머니) | `emptyEquipTargetFor` — `slotAccepts` 가 받고 **그 칸이 비어 있을 때만** |
+| ② | 빈 임플란트 장착칸 | `def.implant && !broken` → `ctx.progression.equipImplant` (함선에서만이라 사실상 **함선 창고**) |
+| ③ | **빈** 휠 칸 | `parts/AutoQuick.autoQuickIndexFor` — **가방 갈래는 건너뛴다**(아래) |
+| ④ | 예전 경로 | **가방 출발**은 `equipTargetFor`(차 있어도 교체) → `quickMoveImpl`. 그 밖은 가방(`quickMoveImpl`) → 그마저 안 되면 `inventory:full` (거부음 + 토스트) |
+
+⚠ **④의 가방 갈래는 손대지 않는다.** 사용자 요청은 「장착하고 있지 않은 슬롯이 있으면 장착하도록 **추가**」였지
+가방의 교체를 없애 달라는 것이 아니었다 — 여기서 `equipTargetFor` 를 빼면 레이드 중 주무기 두 칸이 다 찬 흔한
+상태에서 가방의 총을 더블클릭하면 `fail` + 거부음이 되어, **있던 조작이 사라진다.** 바뀐 것은 순서뿐이다:
+빈 칸이 있으면 그리로(① 새 규칙), 없으면 예전처럼 교체.
+
+**2026-09-10 의 「상자에서 찾은 것은 무조건 가방이 먼저다」는 뒤집히지 않았다.** 그 결정이 지키려던 것은 *주우면서
+지금 든 총 · 방탄복이 조용히 바뀌는 것*이고, ①②③ 은 전부 **비어 있는 칸에만** 넣는다. 장착한 것을 밀어내는 길은
+여전히 **드래그**와 **우클릭 메뉴의 「장착」**(`ui/parts/ContextMenu` → `InventoryRef.equip`)뿐이다.
+2026-09-12 의 창고 예외와 2026-09-14 1차의 「상자 소모품 → 빈 휠 칸」(`takeIntoQuick`)은 이 한 벌에 흡수됐다.
+
+갈래가 남는 곳은 둘뿐이고 이유가 서로 다르다:
+
+- **알리는 방법** — 창고는 `notifySentTo`(`<이름> → <어디>` 토스트, 출격 준비의 *의도한 지시*라 2026-09-14 1차
+  결정을 그대로 둔다), **그 밖의 격자는 `flashPlaced`** (들어간 칸이 한 번 번쩍인다 — `.is-flash`,
+  `InventoryUI.flashSlot` / `flashQuick` / `flashImplant`). 눈이 상자 격자에 가 있는 동안 화면 구석의 토스트 한 줄은
+  놓치기 쉽고, 장비 칸 · 휠은 같은 창 바로 옆이라 번쩍임이 시야에 든다. 그래서 `tryAutoPlace` 는 문구가 아니라
+  「놓였다」 콜백(`OnPlaced`, 자리 + 라벨)을 받는다.
+- **가방은 ③(빈 휠 칸)을 보지 않는다** — 가방 타일의 더블클릭에는 이미 자기 휠 몸짓이 있고
+  (`ui/InventoryUI.tileHandlers` 가 **상자가 닫혀 있을 때** `registerQuick` 으로 가로챈다), 상자를 열어 둔 채의 가방
+  더블클릭은 **상자에 넣기**를 뜻한다(우클릭 메뉴 「빠른 이동 (상자)」의 `더블클릭` 힌트가 그 약속이다).
+
+③ 은 2026-09-14 2차에 `autoQuickIndexFor` 로 통일했다 (예전 `firstFreeQuickSlot`) — 「같은 종류가 이미 휠에 있으면
+빈 칸을 새로 먹지 않는다」(한 칸 = 한 종류)와 감정 전 스택 거부가 창고 · 상자 · 시체에 똑같이 걸린다.
+그리고 `activateFallback`(2026-09-10)은 없어졌다: ①②③ 을 다시 훑던 함수였는데 이제 **위에서 이미** 돌고
+그 사이에 바뀌는 것이 없다(`bag.canAbsorb` 는 순수 질의). 남은 것은 `inventory:full` 한 줄이다.
+
+읽기 전용 게이트(`readOnlyReason()` — 발사 슬롯 준비 중) · 임플란트 함선 전용 · 주머니 `accepts` · 「벗을 때
+내용물이 안 들어가면 이동 자체를 거절」은 전부 그대로 지난다 — 새 경로는 `dropOnSlot` · `setQuickSlot` ·
+`equipImplant` 라는 **기존 함수**만 부른다.
+
+**2026-09-10 — `secondary` 보조무기 칸은 없다**(위) 는 그대로.
+
+`slotAccepts(def, slot)` is the single rule. `equipTargetFor` (first empty primary slot, else **swap** with 주무기 I) is
+now the **menu**'s rule, not the double-click's: 우클릭 메뉴의 「장착」이 `InventoryRef.equip(uid, target)` 으로 그
+자리에 넣는다(밀려난 무기는 출발 칸 / auto-place / 컨테이너에서 왔으면 가방으로, 아무 데도 못 가면 거절 + 흔들림).
+사람이 글자를 읽고 고른 **명시적 지시**라 교체가 맞다. `InventoryRef.equip(uid | null, slot)` = the same `dropOnSlot`
+path (`null` unequips via `quickMove`). Equipped items live in `Loadout`, not in grid cells. Every change emits
+`loadout:changed {primary, secondary, primary2, bag}`.
+
+**튜토리얼 중에는 임플란트 칸이 없다** (2026-09-14 2차, 사용자 결정). `ui/ImplantPanel.refresh` 가
+`ctx.tutorial?.hides('hud', 'implant')` 를 보고 블록(`.inv-implants` — 전술 임플란트 + 임플란트 아이템)을 통째로
+`hidden` 으로 둔다(떠 있던 피커도 함께 닫는다). HUD 위젯(`ui/hud/ImplantWidget`)이 같은 질의로 접히는 것과 짝이고,
+`hides('stashItem', …)` 를 묻는 `ui/InventoryUI` 와 같은 요령이다 — 이 질의는 **튜토리얼 레이드 트랙 안에서만**
+true 라 평소 화면은 한 글자도 바뀌지 않는다.
 
 ## 격자 칸 크기의 원본은 `ui/labels.ts` 하나다 (2026-09-14, 사용자 결정)
 
@@ -238,7 +274,7 @@ re-equips from.
 |---|---|
 | `InventorySystem.tryAddItem` | 인벤토리 **밖에서** 들어오는 아이템의 **유일한 관문**이다 — 월드 픽업(E · 원격 확정, `pickups/PickupSystem.addToBag` 하나가 두 경로를 모은다) · 채집(`world/Gather`) · 보급 탄약(`weapons/parts/Slots`) · 설치물 회수(`gadgets/parts/Deploy`) · 콘솔 지급. 상점 · 제작 · 수확 · 튜토리얼 지급은 `tryAddItemAnywhere`(`parts/StashOps`, 가방 → 함선 창고)라 **여기를 지나지 않는다** — 의도한 것이다: 자동 장착은 「주웠다」의 규칙이지 「받았다」의 규칙이 아니다. 여기 스택은 아직 어느 격자에도 없으므로 칸에 **바로 앉힌다** (그래도 옮기기다) |
 | `DropResolver.takeOne` | 컨테이너(상자 · 시체)의 **「모두 가져가기」**. `takeAll` 의 `bag.canAbsorb` 선검사도 빈 휠 칸이 받아 줄 스택은 통과시킨다 — 가방이 꽉 찼다고 회복제를 상자에 두고 오지 않는다 |
-| `DropResolver.activateImpl` (컨테이너 갈래) | 상자 · 시체 타일 **더블클릭**. 가방 타일의 더블클릭이 이미 「휠에 등록」인 것(`ui/InventoryUI.tileHandlers`)과 같은 몸짓이다 |
+| `DropResolver.tryAutoPlace` ③ | 상자 · 시체 · 함선 창고 · 주머니 타일 **더블클릭**. **2026-09-14 2차**: 컨테이너 전용 `takeIntoQuick` 갈래가 더블클릭 한 벌(`activateImpl` → `tryAutoPlace`)에 흡수됐고, 창고의 ③ 도 `firstFreeQuickSlot` 대신 여기의 `autoQuickIndexFor` 를 쓴다. 가방 타일은 자기 몸짓(`registerQuick`)이 따로 있어 제외 — 위 `Equipment slots` 절 |
 
 **일부러 안 거는 곳**: 드래그(사람이 칸을 찍었다)와 우클릭 메뉴의 「빠른 이동 (가방)」(라벨이 목적지를 약속한다 —
 그 메뉴에는 「빠른 슬롯에 등록」 항목이 따로 있다). 화면이 거짓말을 하지 않게 하려는 것이다.
@@ -1022,6 +1058,32 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   실패면 `{item: null, landed: null, reason}` 이고 아무것도 빠지지 않는다.
 
 ## 변경 이력
+
+- **2026-09-14 2차 (더블클릭 = 빈 칸이면 곧장 그리로 · 튜토리얼 임플란트 칸 숨김 — 사용자 결정)** — 규칙 한 벌,
+  새 파일 없음. 자세한 것은 위 `Equipment slots` 절의 「더블클릭 = 「빈 자리가 있으면 곧장 그리로」」.
+
+  ① **더블클릭 규칙을 한 벌로** (`parts/DropResolver.activateImpl` · `tryAutoPlace`). 격자마다 달랐던 세 갈래 —
+  창고만 `tryAutoPlace`, 상자 · 시체는 `takeIntoQuick`(휠만), 가방은 `equipTargetFor`(**차 있어도 교체**) — 가
+  하나가 됐다: 어느 격자든 `빈 장비 칸 → 빈 임플란트 칸 → 빈 휠 칸`(가방은 ③ 제외) 을 먼저 보고, 없으면 예전
+  경로다. `activateFallback` 은 지웠다 (같은 ①②③ 을 두 번 돌던 함수라 남길 이유가 없다 — `bag.canAbsorb` 는 순수
+  질의다). ③ 은 `firstFreeQuickSlot` → `parts/AutoQuick.autoQuickIndexFor` 로 통일. `from.kind === 'slot'` 은
+  예전처럼 `'noop'`, 휠 타일은 예전처럼 `quickMoveImpl`. **장착한 것은 어느 경로로도 조용히 밀려나지 않는다** —
+  2026-09-10 결정은 그대로 산다.
+
+  ② **우클릭 메뉴의 「장착」은 `equip` 으로** (`ui/parts/ContextMenu.ts`). ① 때문에 `activate` 를 그대로 두면 두 칸이
+  다 찼을 때 「장착」이 창고 · 상자로 **옮기는** 라벨의 거짓말이 된다. 메뉴 항목은 사람이 글자를 읽고 고른 명시적
+  지시라 교체가 맞다 (`equipTargetFor` 는 이제 이 항목만의 규칙이다). 덤으로 상자 · 시체의 「장착」이 처음으로
+  진짜 장착이 됐다(예전에는 조용히 가방으로 갔다). 같은 줄의 `더블클릭` 힌트는 새 질의
+  `InventoryRef`-비공개 `wouldAutoPlace(item, def, quick)`(`DropResolver`, 아무것도 바꾸지 않는다)로 정확해졌다 —
+  빈 자리가 있으면 더블클릭은 빠른 이동을 하지 않으므로 힌트를 달지 않는다.
+
+  ③ **튜토리얼 중 임플란트 칸 숨김** (`ui/ImplantPanel.refresh`). `ctx.tutorial?.hides('hud', 'implant')` 면
+  `.inv-implants` 블록을 `hidden` 으로 두고 떠 있던 피커도 닫는다. HUD 위젯(`ui/hud/ImplantWidget`)과 **같은 질의**라
+  두 화면이 함께 사라지고, 그 밖에서는 언제나 false 라 평소 화면은 무변경.
+
+  검증: `npx tsc --noEmit` — `src/inventory` · `src/weapons` 에러 0 (동시 작업 중인 `src/world/tutorial` 의
+  `CORRIDOR_HALF_X` 에러만 남아 있고 이 작업과 무관하다). 스모크는 리드가 돌린다 (같은 트리에 다른 에이전트가 있어
+  `npm run verify` 를 여기서 돌리지 않았다).
 
 - **2026-09-14 (작은 화면에서 격자 칸 축소 — 마무리 G, 사용자 결정)** — 위 「격자 칸 크기의 원본은 `ui/labels.ts` 하나다」 절 전부.
   칸 크기가 **코드 상수와 CSS 변수 두 곳**에 적혀 있던 것을 `ui/labels.CELL` 하나로 모으고(`let` + `syncGridCell()` +

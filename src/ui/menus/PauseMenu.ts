@@ -1,4 +1,4 @@
-import type { GameContext } from '@/shared';
+import type { GameContext, TutorialTrack } from '@/shared';
 import { UI_HOLD_CONFIRM_S, isDesktopShell } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
@@ -61,6 +61,13 @@ interface Ask {
  * have raced key-repeat and focus-activation against the pointer gauge for no gain. Escape still cancels, the
  * initial focus sits on **취소** (so Space is the safe answer, not the destructive one) and the only way to commit
  * is the deliberate hold. The card says so in a hint line built from `UI_HOLD_CONFIRM_S` itself.
+ *
+ * **2026-09-14 (튜토리얼 3트랙, 사용자 결정)**: 튜토리얼이 돌고 있는 동안 그 빨간 자리는 `함선으로 귀환` 이 아니라
+ * **`튜토리얼 건너뛰기`** 다 (`ctx.tutorial.track !== null` — 어느 트랙이든). 누르면 **지금 도는 트랙 하나만**
+ * 건너뛴다(`skipTrack`): 조작은 아는데 증축은 처음인 사람이 있기 때문이다. 되돌릴 수 없으므로 `함선으로 귀환` 이
+ * 이미 쓰는 규약 그대로 **경고 팝업 + 1초 홀드**를 지난다. 이 버튼은 **함선에서도 보인다** — 함선 · 증축 트랙은
+ * 함선 안에서 도는데, `함선으로 귀환` 의 hub 숨김 규칙을 그대로 물려받으면 그 두 트랙은 건너뛸 길이 없다.
+ * 튜토리얼이 없을 때의 `함선으로 귀환` 은 한 글자도 바뀌지 않는다.
  */
 export class PauseMenu extends MenuBase {
   private returnBtn: HTMLButtonElement;
@@ -68,6 +75,8 @@ export class PauseMenu extends MenuBase {
   private resumeBtn: HTMLButtonElement;
   /** True while the pause was opened from the ship (no mission to abandon). */
   private inHub = false;
+  /** 2026-09-14: 메뉴를 연 순간 돌고 있던 튜토리얼 트랙 (null = 튜토리얼 아님 → 빨간 자리는 `함선으로 귀환`). */
+  private track: TutorialTrack | null = null;
   /** The 경고 팝업 and the action it is guarding (null = closed). */
   private ask: HTMLElement;
   private askTitle: HTMLElement;
@@ -90,7 +99,8 @@ export class PauseMenu extends MenuBase {
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.resumeBtn = this.button(actions, '게임으로 돌아가기 (Tab)', () => this.resume(), 'primary');
     this.button(actions, '설정', () => this.onSettings());
-    this.returnBtn = this.button(actions, '함선으로 귀환', () => this.confirm(this.returnAsk()), 'danger');
+    // 2026-09-14: 한 자리, 두 뜻 — 튜토리얼 중이면 `튜토리얼 건너뛰기`, 아니면 `함선으로 귀환` (`refreshReturnButton`).
+    this.returnBtn = this.button(actions, '함선으로 귀환', () => this.confirm(this.track ? this.skipAsk(this.track) : this.returnAsk()), 'danger');
     this.leaveBtn = this.button(actions, '파티 떠나기', () => this.confirm({
       title: '파티 떠나기',
       body: '분대에서 나갑니다. 공유 함선에서는 개인 함선으로 돌아갑니다.',
@@ -139,8 +149,7 @@ export class PauseMenu extends MenuBase {
         // The ship pause (Phase 8) is menu-only: nothing to abandon, so no 함선으로 귀환.
         const hub = ctx.isHubPhase();
         this.inHub = hub;
-        // `.ui-btn` sets `display`, so the `hidden` attribute would not hide it — drive `display` directly.
-        this.returnBtn.style.display = hub ? 'none' : '';
+        this.refreshReturnButton();
         this.leaveBtn.style.display = ctx.net?.lobby ? '' : 'none';
         this.show();
       }),
@@ -151,8 +160,22 @@ export class PauseMenu extends MenuBase {
     );
   }
 
+  /**
+   * 2026-09-14: 빨간 자리의 뜻을 정한다.
+   *  - 튜토리얼이 돌고 있으면 `튜토리얼 건너뛰기` — **함선에서도 보인다** (함선 · 증축 트랙이 그곳에서 돈다).
+   *  - 아니면 예전 그대로 `함선으로 귀환` 이고 함선에서는 숨는다 (포기할 임무가 없다).
+   * `.ui-btn` 이 `display` 를 세우므로 `hidden` 속성이 아니라 `display` 를 직접 몬다.
+   */
+  private refreshReturnButton(): void {
+    this.track = this.ctx.tutorial?.track ?? null;
+    setText(this.returnBtn, this.track ? '튜토리얼 건너뛰기' : '함선으로 귀환');
+    this.returnBtn.style.display = this.track ? '' : this.inHub ? 'none' : '';
+  }
+
   /** Whether the hub variant is showing (debug). */
   get isHubVariant(): boolean { return this.inHub; }
+  /** 2026-09-14: 빨간 자리가 지금 건너뛰려는 튜토리얼 트랙 (디버그 / 스모크, null = `함선으로 귀환`). */
+  get skipTrackTarget(): TutorialTrack | null { return this.track; }
   /** Whether the 경고 팝업 is up (debug / smoke). */
   get isAskOpen(): boolean { return !this.ask.hidden; }
   /** The 파티 떠나기 button (debug / smoke). */
@@ -295,6 +318,27 @@ export class PauseMenu extends MenuBase {
         ? '임무를 포기하고 함선으로 돌아갑니다. 캐릭터는 그 자리에서 사망하며, 장비 · 가방 · 장착 임플란트는 시체에 남아 분대원이 회수할 수 있습니다.'
         : '임무를 포기하고 함선으로 돌아갑니다. 캐릭터는 그 자리에서 사망하며, 장비 · 가방 · 장착 임플란트를 모두 잃습니다.';
     return { title: '함선으로 귀환', body, ok: '귀환', run: () => this.returnToShip() };
+  }
+
+  /**
+   * 2026-09-14 (사용자 결정): `튜토리얼 건너뛰기` — **지금 도는 트랙 하나만** 끝낸다. 되돌릴 수 없으므로
+   * `함선으로 귀환` 과 같은 경고 팝업 + 1초 홀드를 지난다. 글은 **그 트랙을 건너뛰면 무엇이 일어나는지**를
+   * 말한다 — 레이드 트랙은 그 자리에서 탈출 처리되어 함선으로 가고(그 흐름은 tutorial · extraction 쪽이다),
+   * 나머지 둘은 남은 안내가 사라질 뿐이다. 다른 트랙은 그대로 남아 제 때 시작한다.
+   */
+  private skipAsk(track: TutorialTrack): Ask {
+    const body = track === 'raid'
+      ? '진행 중인 튜토리얼을 건너뛰고 함선으로 갑니다. 남은 안내는 다시 나오지 않으며, 되돌릴 수 없습니다.'
+      : track === 'ship'
+        ? '함선 적응 튜토리얼을 건너뜁니다. 남은 안내는 다시 나오지 않으며, 되돌릴 수 없습니다.'
+        : '시설 증축 · 제작 튜토리얼을 건너뜁니다. 남은 안내는 다시 나오지 않으며, 되돌릴 수 없습니다.';
+    return { title: '튜토리얼 건너뛰기', body, ok: '건너뛰기', run: () => this.skipTutorial(track) };
+  }
+
+  /** 메뉴를 먼저 닫고 튜토리얼에 넘긴다 — 레이드 트랙의 건너뛰기는 그 자리에서 화면을 바꾼다. */
+  private skipTutorial(track: TutorialTrack): void {
+    this.resume();
+    try { this.ctx.tutorial?.skipTrack(track); } catch (e) { console.error('[ui] skipTrack failed', e); }
   }
 
   /** The menu closes first; game/ decides what 귀환 means right now (`game:returnToShip` — die here, then the ship). */

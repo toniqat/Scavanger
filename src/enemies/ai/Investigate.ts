@@ -20,7 +20,8 @@ import { HUMANOID_ANDROID } from '../EnemyTypes';
  *   phase 0  watch   — face the origin for `ENEMY_SHOT_ALERT_WATCH_S`, standing still
  *   phase 1  advance — bugs walk straight at the origin; rogues leg cover-to-cover (`pickApproachCover`), a short
  *                      crouched hold at each rock, straight ahead for a few seconds when no rock qualifies
- *   phase 2  arrived — within `SHOT_ALERT_ARRIVE` of the origin (or a rogue at its leash): one last look, stand down
+ *   phase 2  arrived — within `SHOT_ALERT_ARRIVE` of the origin (or a leashed enemy at its leash — humanoids, and
+ *                      2026-09-14 any enemy with a `homeLeash`, i.e. 튜토리얼 적): one last look, stand down
  *
  * `ENEMY_SHOT_ALERT_GIVE_UP_S` after the start the enemy returns to what it was doing (idle → wander around its own
  * anchor). A later shot while investigating only refreshes the origin (`beginInvestigation` returns false).
@@ -102,7 +103,15 @@ export function updateInvestigate(e: Enemy, dt: number, host: EnemyHost): void {
       break;
     }
     case 1: {
-      const leashed = e.isHumanoid && Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z) > e.leash;
+      /*
+       * 2026-09-14 2차: 리시를 **벌레에도** 건다 — 단, `homeLeash > 0` 인 적(= `Tutorial.placeTutorialEnemies`
+       * 가 세운 튜토리얼 적)에게만. 본편 · 훈련장의 벌레는 `homeLeash` 가 0 이라 예전과 한 글자도 다르지 않다.
+       * 이 한 줄이 「모든 적이 빗나간 총알에 반응한다」와 튜토리얼의 「고정 자리 · 순찰 없음」을 화해시킨다:
+       * 총소리 쪽으로 걸어 나가되 자기 자리에서 `TUTORIAL_ENEMY_LEASH_M` 밖으로는 못 간다.
+       * (`updateInvestigate` 가 도는 동안 `EnemyAI` 는 `tutorialHold` 를 건너뛰므로 여기서 막아야 한다.)
+       */
+      const tethered = e.isHumanoid || e.homeLeash > 0;
+      const leashed = tethered && Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z) > e.leash;
       if (dO <= SHOT_ALERT_ARRIVE || leashed) { e.shotPhase = 2; e.shotHold = 0; e.roguePhase = 0; break; }
       if (e.faction === 'android') {
         // 2026-09-13: an android never takes cover — it walks straight at the origin, rifle up, at its slow advance pace

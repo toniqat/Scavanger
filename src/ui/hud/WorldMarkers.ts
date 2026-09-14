@@ -16,6 +16,11 @@ interface Marker {
  * at `world:ready` as before but stays hidden until `ctx.world.fog.isDiscovered(position)` is true (the fog reveals
  * on the whole squad's positions, so a squadmate finding it counts). The **active** pad is exempt — once the
  * countdown runs everybody knows where to go. No fog (훈련장 / an older world) → everything shows as before.
+ *
+ * **2026-09-14 (튜토리얼)** — 이것이 계약이 말하는 「월드(3D) 마커」다 (`hides('hud','shipMarker')`). 튜토리얼
+ * 레이드에서는 마지막 `extract` 단계 전까지 탈출 함선 마름모를 **아예 그리지 않는다**; 그 단계에 들어서면
+ * 게이트가 풀려 평소처럼 나타난다. 화면 고정 표시(나침반)는 별개 이름(`shipScreenMarker`)이라 레이드 내내 없다.
+ * 튜토리얼이 아니면 질의가 언제나 false 라 평소 화면은 한 글자도 바뀌지 않는다.
  */
 export class WorldMarkers {
   readonly root: HTMLElement;
@@ -80,7 +85,10 @@ export class WorldMarkers {
     const player = ctx.player;
     const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
     const fog = ctx.world?.fog ?? null;
+    const hideShip = ctx.tutorial?.hides('hud', 'shipMarker') ?? false;
     for (const [id, m] of this.markers) {
+      // 2026-09-14 (튜토리얼): 아직 함선을 알려 줄 단계가 아니다 — 발견 게이트와 같은 자리 · 같은 방식으로 그리지 않는다
+      if (id === '__ship' && hideShip) { this.hide(m); continue; }
       // Landed ship marker: only relevant to show until boarded; hide when the pad is active and the ship marker exists.
       if (this.shipPos && id !== '__ship' && id === this.activeId) { this.hide(m); continue; }
       // 발견 게이트 (2026-09-09): 아직 못 본 신호소는 아예 뜨지 않는다 (활성 신호소 · 함선은 예외)

@@ -9,8 +9,8 @@ import { Ground } from './parts/Ground';
 import { Dressing } from './parts/Dressing';
 import { TutorialCorpses } from './parts/Corpses';
 import {
-  CHECKPOINTS, CORRIDOR_HALF_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES, ENEMY_LEASH, ENEMY_SENSE, FALL_RULES,
-  RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, WALL_T, Z_END, Z_START, type Volume,
+  CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES, ENEMY_LEASH, ENEMY_SENSE, FALL_RULES,
+  RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START, type Volume,
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -184,13 +184,16 @@ export class TutorialWorld implements TutorialWorldRef {
   }
 
   isInside(x: number, z: number): boolean {
-    const lim = CORRIDOR_HALF_X + WALL_T;
-    return Math.abs(x) <= lim && z <= Z_START && z >= Z_END;
+    return Math.abs(x) <= CORRIDOR_OUTER_X && z <= Z_START && z >= Z_END;
   }
 
-  /** 마지막 방어선 — 벽 콜라이더가 이미 막지만 밀려난 몸이 맵 밖으로 나가지 않게 한다. */
+  /**
+   * 마지막 방어선 — 벽 콜라이더가 이미 막지만 밀려난 몸이 맵 밖으로 나가지 않게 한다.
+   * 기준은 **가장 넓은 구간**(`CORRIDOR_OUTER_X`)이다: 구간별 폭으로 좁히면 좁은 구간의 벽 속으로 밀려난 몸을
+   * 통로가 아니라 벽 안쪽 어딘가로 되돌려 놓는다 — 실제 되돌리기는 `resolveCollision` 의 몫이다.
+   */
   clampInside(position: THREE.Vector3, radius: number): void {
-    const lim = CORRIDOR_HALF_X + WALL_T - radius;
+    const lim = CORRIDOR_OUTER_X - radius;
     if (position.x > lim) position.x = lim; else if (position.x < -lim) position.x = -lim;
     const z0 = Z_START - radius, z1 = Z_END + radius;
     if (position.z > z0) position.z = z0; else if (position.z < z1) position.z = z1;

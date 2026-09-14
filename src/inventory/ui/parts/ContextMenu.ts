@@ -95,17 +95,29 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   } else {
     const target = sys.sys.equipTargetFor(def);
     if (target) {
+      /*
+       * 2026-09-14 2차 — 「장착」은 **`equip` 으로** 간다 (예전에는 `activate`). 같은 날 더블클릭이 「빈 칸일 때만」으로
+       * 내려갔으므로, 여기서 `activate` 를 그대로 두면 두 칸이 다 찼을 때 「장착」을 눌렀는데 창고 · 상자로 **옮겨지는**
+       * 라벨의 거짓말이 된다. 메뉴 항목은 사람이 글자를 읽고 고른 **명시적 지시**라 교체가 맞다 — 「주우면서 조용히
+       * 바뀌지 않는다」(2026-09-10) 가 막으려던 것은 조용한 교체이지 이것이 아니다.
+       */
       const label = target === 'primary2' ? TEXT.menu.equipPrimary2 : TEXT.menu.equip;
-      entries.push({ label, run: () => sys.result(sys.sys.activate(uid, from), 'ui_equip', from, uid) });
+      entries.push({ label, run: () => sys.result(sys.sys.equip(uid, target) ? 'ok' : 'fail', 'ui_equip', from, uid) });
       if (def.category === 'primary' && target !== 'primary2') {
         entries.push({ label: TEXT.menu.equipPrimary2, run: () => sys.result(sys.sys.equip(uid, 'primary2') ? 'ok' : 'fail', 'ui_equip', from, uid) });
       }
     }
     if (dest) {
-      // `더블클릭` hint only where a double-click makes this very move: not from the 창고 (it tries the empty 장비칸 /
-      // 퀵슬롯 first) and not from the bag when it equips or registers the stack on the wheel
+      /*
+       * `더블클릭` hint only where a double-click makes this very move. 2026-09-14 2차부터 그 조건은 **어느 격자든
+       * 「빈 장비칸 · 임플란트 칸 · 휠 칸이 하나도 없을 때」**다 (`wouldAutoPlace` — 더블클릭과 같은 판정).
+       * 창고는 그것 말고도 토스트를 띄우며 보내므로 예전처럼 통째로 뺀다. 가방은 ③(휠)을 보지 않는 갈래라
+       * `quick: false` 로 묻고, 상자가 닫혀 있을 때의 `registerQuick` 가로채기(`ui/InventoryUI.tileHandlers`)도 뺀다.
+       */
+      const fromBag = from.kind === 'grid' && from.grid === 'bag';
       const dblSame = from.kind === 'grid' && from.grid !== 'stash'
-        && !(from.grid === 'bag' && (!!target || (isQuickUsable(def) && !hasContainer)));
+        && !sys.sys.wouldAutoPlace(item, def, !fromBag)
+        && !(fromBag && isQuickUsable(def) && !hasContainer);
       entries.push({ label: TEXT.menu.quickMove[dest], hint: dblSame ? '더블클릭' : undefined, run: quick });
     }
   }

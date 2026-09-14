@@ -452,9 +452,31 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
 
 ---
 
+## 시작 전술 임플란트 (2026-09-14 2차, 사용자 결정)
+
+캐릭터 생성창의 「시작 임플란트」 선택지가 없어졌다 — 갈고리는 **고르는 것이 아니라 주어지는 것**이고,
+주는 자리는 **함선 첫 진입**(`hub:entered` → `grantStarterImplant()`)이다.
+
+- **왜 함선인가**: 「튜토리얼 레이드 중에는 임플란트가 없다」가 전제라 레이드 도중에 손에 쥐어지면 안 된다.
+  트랙 ① 을 완주했든 건너뛰었든 그 뒤에는 반드시 함선에 들어오므로 `hub:entered` 가 빠짐없는 유일한 관문이다.
+  (`ctx.phase !== 'hub'` · `ctx.isRaidActive()` 이면 아무것도 하지 않는다.)
+- **멱등**: `profile.implant !== null` 이면 한 글자도 바꾸지 않는다. 「이미 갖고 있다」의 판정이 곧 그 필드다 —
+  따로 「지급했다」 표식을 만들지 않았다(`PlayerProfile` 은 `shared` 계약이라 이 배치의 소유가 아니기도 하다).
+- **실제로 장착하는 곳은 하나**: `ctx.implants.setEquipped(DEFAULT_IMPLANT)`. 레이드 중 거절 · 런타임 리셋 ·
+  `implant:equipped` 발행이 전부 거기 있고, 그 이벤트를 이 시스템의 기존 구독이 받아 `profile.implant` 에 적는다
+  (값이 이미 같아 그 구독이 조용히 빠져나가는 경우를 대비해 한 번 더 못 박고 `markDirty(true)`).
+  `ctx.implants` 가 아직 없으면(등록 순서) 아무것도 하지 않는다 — 다음 `hub:entered` 가 준다.
+- **영속**: `Profile.migrate` 가 `implant` 를 옮겨 담으므로(모르는 id 는 null) 새로고침에 사라지지 않고 서버
+  프로필 문서 왕복도 같은 길을 탄다 — 2026-09-09 `accent` 사고와 같은 자리다.
+- `freshProfile` 의 `DEFAULT_IMPLANT`(위 `Profile.ts` 줄)는 **그대로**다. 이 경로는 그 기본값이 어떤 이유로든
+  비어 버린 캐릭터(옛 세이브 · 생성창을 거치지 않은 프로필 · 알 수 없는 id 로 migrate 된 프로필)를 함께 구한다.
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14 2차 (시작 전술 임플란트 — 함선 진입 시 갈고리 자동 장착, 사용자 결정)** — 위 절. `hub:entered` 구독
+  한 줄 + `grantStarterImplant()` 하나이고, 다른 경로는 한 줄도 안 바뀌었다.
 
 - **2026-09-13 (리드 — 연구실 작업대 · 조리대 경험치, 사용자 결정)** — `craft:completed` 의 제작 경험치를 추출기 · 조합대 · 3D 프린터 · **조리대**(`LAB_BENCHES`) 레시피에서는
   주지 않는다(`recipeSkill` 이 null). 연구실 제작은 inventory 가 주는 연구 경험치(`RESEARCH_XP_CRAFT`, `inventory/parts/Crafting` 의 `RESEARCH_BENCHES` 와 함께 고친다)만,
