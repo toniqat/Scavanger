@@ -204,13 +204,17 @@ try {
   ok(near(tune.press.zone, K.GYM_PRESS_ZONE * 0.5) && near(tune.press.perfect, K.GYM_PRESS_PERFECT * 0.5), `windowMul 0.5 → 구역 반폭 ${tune.press.zone} · 완벽 ${tune.press.perfect}`);
   ok(tune.breath.same && tune.breath.dTotal === K.GYM_BREATH_CYCLES * 3, `호흡: 맞지 않는 패턴 토큰(L-R)은 버려져 헬스 기본 (${tune.breath.dTotal}회)`);
   const bBeat = K.GYM_BREATH_BEAT_S / 0.85, bHold = K.GYM_BREATH_HOLD_S / 0.85;
-  ok(tune.breath.tTotal === K.GYM_BREATH_CYCLES * 3 && tune.breath.holds === K.GYM_BREATH_CYCLES && near(tune.breath.beat, bBeat) && near(tune.breath.window, Math.min(K.GYM_BREATH_WINDOW_S * 1.1, bBeat / 2)),
+  /* 2026-09-14 (사용자 결정 「보이는 것 = 판정」): `game.window` 는 이제 **바깥(좋음) 띠**이고 csv 창 × `GYM_GOOD_OF_PERFECT` 다
+     (완벽 띠 = csv 창 그대로 = 화면에 그려지는 표식). 상한(박자의 절반)은 그대로 걸린다. */
+  ok(tune.breath.tTotal === K.GYM_BREATH_CYCLES * 3 && tune.breath.holds === K.GYM_BREATH_CYCLES && near(tune.breath.beat, bBeat)
+    && near(tune.breath.window, Math.min(K.GYM_BREATH_WINDOW_S * 1.1 * K.GYM_GOOD_OF_PERFECT, bBeat / 2)),
     `호흡 t-t-h-r: 판정 ${tune.breath.tTotal} · 꾹 ${tune.breath.holds} · 박자 ${tune.breath.beat.toFixed(3)} s`, JSON.stringify(tune.breath));
   ok(near(tune.breath.gapTap, bBeat, 1e-6) && near(tune.breath.gapAfterHold, bHold + 2 * bBeat, 1e-6), `호흡 쉼 r = 한 박 (꾹 뒤 간격 ${tune.breath.gapAfterHold.toFixed(3)} = 쥐기 + 2 박)`);
   const cBeat = K.GYM_CYCLE_BEAT_S / 1.25;
   ok(tune.cycle.same && tune.cycle.dTotal === K.GYM_CYCLE_STROKES, `사이클: 1 · 빈 패턴 = 헬스 기본 (${tune.cycle.dTotal}회)`);
   ok(tune.cycle.tTotal === Math.round(K.GYM_CYCLE_STROKES * 1.2) && JSON.stringify(tune.cycle.lanes) === JSON.stringify(['left', 'left', 'right', 'left'])
-    && near(tune.cycle.beat, cBeat) && near(tune.cycle.t3, (K.GYM_LEAD_BEATS + 4) * cBeat, 1e-6) && near(tune.cycle.window, K.GYM_CYCLE_WINDOW_S * 0.85),
+    && near(tune.cycle.beat, cBeat) && near(tune.cycle.t3, (K.GYM_LEAD_BEATS + 4) * cBeat, 1e-6)
+    && near(tune.cycle.window, Math.min(K.GYM_CYCLE_WINDOW_S * 0.85 * K.GYM_GOOD_OF_PERFECT, cBeat / 2)),
   `사이클 L-L-R-r: 판정 ${tune.cycle.tTotal} · 발 ${tune.cycle.lanes.join(' ')} · 쉼 뒤 표식 박자 ${K.GYM_LEAD_BEATS + 4}`, JSON.stringify(tune.cycle));
 
   /* ══ 3. 실제 배치 ══════════════════════════════════════════════════════════ */

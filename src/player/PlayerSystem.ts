@@ -218,6 +218,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   introWakeT = -1;
   /** 이번 연출의 전체 길이 (진행도 계산용). */
   introWakeDur = 0;
+  /* ── 각본 잠금 (2026-09-14 3차, `PlayerRef.setSceneLock`) ── */
+  /** true 인 동안 입력이 전부 잠기고 들어오는 피해가 무시된다. 카메라는 부르는 쪽(이륙 연출)이 든다. */
+  _sceneLock = false;
   /* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
   /** Sit / bench / run / cycle on a piece of ship furniture: logical state, restore spot, drive phase, model blend. */
   readonly furn: FurniturePoseState = createFurniturePoseState();
@@ -351,6 +354,25 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * 평소 3인칭 백뷰로 **하드 컷**하고 `player:introWakeDone`. `game:abort` · `game:newMission` · 사망은 스스로 푼다.
    */
   playIntroWake(durationS: number): void { return IntroWake.playIntroWake(this, durationS); }
+
+  /* ── 각본 잠금 (2026-09-14 3차, appended contract `PlayerRef.setSceneLock`) ── */
+  /**
+   * **각본이 몸을 들고 있다** — 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠기고
+   * 들어오는 피해가 전부 무시된다(실드 · 체력 · 전투불능 · 사망 어느 것도 일어나지 않는다).
+   *
+   * 새 잠금 경로를 만들지 않았다 — 기상 연출(`introWaking`) · 드론 조종 · 차량 탑승이 이미 보는 **그 자리들**에
+   * 조건 하나를 더했을 뿐이고(`update` 의 `scripted`, `canUseWeapons`), 피해는 단일 입구(`parts/Vitals.applyDamage`)와
+   * 그것을 우회하는 유일한 갈래(`parts/Statuses.updateEnv`)에서 `_roverRide` 와 같은 줄로 막는다.
+   * **카메라는 건드리지 않는다** (지금 유일한 사용자인 탈출 이륙 연출이 이미 들고 있다).
+   *
+   * 스스로 푸는 곳: `game:abort`(`resetAll`) · `game:newMission` · `spawnStanding` · `respawnAt` — 즉 함선 복귀 ·
+   * 새 미션 · 부활이 전부 지난다. 끄기는 언제나 안전하다(플래그 하나).
+   */
+  setSceneLock(on: boolean): void {
+    const next = !!on;
+    if (this._sceneLock === next) return;
+    this._sceneLock = next;
+  }
 
   /* ── 가구 자세 (2026-09-12, appended contract `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive`) ── */
   get furniturePose(): FurniturePoseKind | null { return this.furn.kind; }
@@ -724,6 +746,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       && this.furn.kind === null     // 2026-09-12: sitting / lying / running on ship furniture
       && this._roverRide === null    // 2026-09-13: inside the 탐사 차량 (no weapons from the hull)
       && this.introWakeT < 0         // 2026-09-14: 오프닝 기상 연출 중에는 손이 비어 있다
+      && !this._sceneLock            // 2026-09-14 3차: 각본 잠금 (`setSceneLock`) — 튜토리얼 이륙
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
@@ -790,7 +813,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     });
     ctx.bus.on('game:abort', () => this.resetAll());
     // 2026-09-14: 새 미션이 시작되면 오프닝 기상 연출은 알리지 않고 끝난다 (`game:abort` 는 `resetAll` 이 푼다)
-    ctx.bus.on('game:newMission', () => IntroWake.cancelIntroWake(this));
+    // 2026-09-14 3차: 각본 잠금도 여기서 풀린다 — 계약이 말하는 「`game:newMission` 이 스스로 푼다」가 이 줄이다
+    ctx.bus.on('game:newMission', () => { IntroWake.cancelIntroWake(this); this.setSceneLock(false); });
     /*
      * 2026-09-14 (전역 낙하 피해): 대시는 **떨어진 것이 아니다** — 몸을 그 높이 그대로 앞으로 옮기므로 턱 너머로
      * 대시하면 그 뒤의 낙하가 대시 전 발 높이에서부터 세어진다. 갈고리 · 가방 부양과 같은 취급으로 이번 낙하를 뺀다.
@@ -882,7 +906,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     IntroWake.updateIntroWake(this, dt);
     const posed = this.furn.kind !== null;
     const riding = this._roverRide !== null;   // 2026-09-13 탐사 차량 (`parts/RoverRide`)
-    const waking = this.introWakeT >= 0;       // 2026-09-14 오프닝 기상 연출 (`parts/IntroWake`)
+    /*
+     * 2026-09-14 오프닝 기상 연출 (`parts/IntroWake`) · 2026-09-14 3차 각본 잠금 (`setSceneLock`).
+     * 둘은 「각본이 몸을 들고 있다」는 같은 뜻이라 **한 이름**으로 합쳤다 (옛 `waking` 이 서 있던 자리
+     * 전부가 곧 `scripted` 다 — 새 잠금 경로를 만들지 않는다). 다른 점은 카메라뿐이다: 기상 연출은
+     * 카메라를 직접 들고, 각본 잠금은 건드리지 않는다(이륙 연출이 이미 들고 있다).
+     */
+    const scripted = this.introWakeT >= 0 || this._sceneLock;
 
     // movement / stances / interaction / camera run in gameplay AND hub phases (no UI blocker)
     const control = ctx.isControlActive();
@@ -894,7 +924,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // Phase 10: the pick-up / put-down animation and being carried both freeze movement (the camera keeps working)
     // 2026-09-12: a furniture pose freezes the controller too (no collision resolve — the feet are pinned under the anchor)
     // 2026-09-14: 기상 연출도 같은 자리에서 얼린다 (몸은 제자리에 누워 있고 입력은 전부 연출의 것이다)
-    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0 || posed || riding || waking;
+    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0 || posed || riding || scripted;
 
     // click-to-relock fallback (also in the hub)
     if (control && !locked && input.wasMousePressed(0)) input.requestPointerLock();
@@ -935,15 +965,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // 2026-09-11: the drone view owns the mouse too — its own flag, so it never releases the quick wheel's `lookLocked`
     // 2026-09-12: a furniture pose with a fixed camera owns the view too (the rocking chair keeps free look)
     // 2026-09-14: 기상 연출 중에는 마우스도 연출의 것이다 — 여기서 yaw 가 돌면 하드 컷이 엉뚱한 쪽을 본다
-    if (active && locked && !this.lookLocked && !this._droneControl && !waking && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    if (active && locked && !this.lookLocked && !this._droneControl && !scripted && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
     // 2026-09-12 어깨 전환 (`Keys.SHOULDER`, 기본 X): 카메라를 반대쪽 어깨로 — 옮기는 것은 CameraRig 의 감쇠다. 커서 화면
     // (인벤토리의 X = 버리기 · 시설 관리의 X = 회수)은 `active` / `locked` 에서 이미 빠진다. 드론 시점 · 고정 카메라 자세는 제외.
-    if (active && locked && !this._droneControl && !riding && !waking && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
+    if (active && locked && !this._droneControl && !riding && !scripted && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
     // 2026-09-12 조준 흔들림 (ADS only): this frame's figure-8 offset is fixed *before* the aim origin / `getAimRay` are read, so
     // the shot and the frame `lateUpdate` renders use the same angle. Off on the ship, ladders, drone / furniture / cutscene views.
     const sw = this.rig.sway;
     sw.aim = this.aimBlend;
-    sw.on = this.spawned && !this.isDead && !downed && !hub && !this._droneControl && !posed && !riding && !waking && !c.climbing && !dropping
+    sw.on = this.spawned && !this.isDead && !downed && !hub && !this._droneControl && !posed && !riding && !scripted && !c.climbing && !dropping
       && !this._inPod && !this._interior && !this.shipBounds && !this.attachedParent && this.carriedSocket === null && !this.rig.isOverridden;
     sw.crouch = this.crouchBlend; sw.prone = this.proneBlend;
     sw.move = Math.min(1, c.speed / PLAYER_WALK_SPEED);
@@ -953,11 +983,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
     // with the real position once the rig has moved.
     this.rig.predictPosition(this.aimOrigin);
-    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && !posed && !riding && !waking && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && !posed && !riding && !scripted && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
 
     // ── carry input (F tap): pick up / put down. Runs before the movement branches so the key is consumed
     //    before WeaponSystem (which updates later) can read it as a melee swing.
-    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl && !posed && !riding && !waking);
+    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl && !posed && !riding && !scripted);
 
     // ── movement input
     const mi = this.moveInput;
@@ -1008,7 +1038,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       // jump is allowed on terrain and inside hub interiors (ceiling-clamped), not in the extraction ship box
       const wantsJump = input.wasPressed(Keys.JUMP) && (!this.shipBounds || !!this._interior);
       const wantsSprint = input.isDown(Keys.SPRINT) && mi.z > 0.2;
-      this.updateStanceInput(wantsJump, wantsSprint, /* allowProne */ !hub);
+      /*
+       * 2026-09-14 3차 (사용자 결정 — 함선에서도 포복): 옛 `allowProne: !hub` 게이트를 뺐다. 머리 위가 막힌
+       * 자리에서 일어서는 것은 `Loco.canStandHere` 가 여전히 막는다 — 다만 함선 실내(`controller.interior`)
+       * 에서는 그 함수가 일찌감치 true 를 돌려준다(함선 천장은 사람 키보다 높고, 못 서면 영영 못 빠져나온다).
+       * 낮은 천장이 실제로 문제가 되는 월드 갈래는 한 줄도 바뀌지 않았다.
+       */
+      this.updateStanceInput(wantsJump, wantsSprint, /* allowProne */ true);
       const transitioning = this.standUpTimer > 0;
       mi.sprint = input.isDown(Keys.SPRINT) && !this.exhausted && this.stamina > 0 && !transitioning && !this.gear.overloaded;
       mi.jump = wantsJump && this._stance === 'stand' && !transitioning && c.grounded && !c.rolling
@@ -1107,7 +1143,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     //    2026-09-12: nor one sitting / lying on furniture — only the `일어나기` caption of a `releaseOnInteract` pose
     if (posed) Pose.updatePosePrompt(this, active && !downed);
     else if (this._roverRide) RoverRide.updateRoverPrompt(this, dt, active && !downed);   // 2026-09-13: E = 하차 홀드 only
-    else this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl && !waking);
+    else this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl && !scripted);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;

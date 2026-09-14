@@ -152,7 +152,8 @@ try {
     mk('q_active', 'npc_raven', '연구소 뒷조사', 'active', [obj('q_active', 0, 'deliver', 2, '회로 기판 2개 납품'), obj('q_active', 1, 'discover', 1, '연구소 발견')], NOW - 3600000);
     Object.assign(Q.q_active.objectives[0], { progress: 1, have: 3, blocked: null });
     Object.assign(Q.q_active.objectives[1], { progress: 1, done: true });
-    mk('q_def', 'npc_raven', '장부 복사', 'deferred', [obj('q_def', 0, 'search', 3, '전진기지 컨테이너 3개 조사')], NOW - 7200000);
+    // 2026-09-14 3차: 「생각해볼게」 은퇴 — 이 줄은 이제 **아직 수락하지 않은 제안**이고 대화창 카드로만 보인다.
+    mk('q_def', 'npc_raven', '장부 복사', 'offered', [obj('q_def', 0, 'search', 3, '전진기지 컨테이너 3개 조사')], NOW - 7200000);
     mk('q_done', 'npc_han_seojin', '첫 거래', 'complete', [obj('q_done', 0, 'deliver', 1, '합금 판 1개 납품')], NOW - 86400000);
     Object.assign(Q.q_done.objectives[0], { progress: 1, done: true, blocked: null });
     const recompute = (q) => {
@@ -171,10 +172,11 @@ try {
         { at: NOW - 10000, from: 'quest', questId: 'q_offer' },
       ],
       npc_raven: [
-        { at: NOW - 7200000, from: 'quest', questId: 'q_def' },
-        { at: NOW - 7199000, from: 'me', text: '생각해보지.' },
-        { at: NOW - 3600000, from: 'npc', text: '레이븐입니다. 조용히 끝낼 일이 있어요.' },
+        { at: NOW - 7200000, from: 'npc', text: '레이븐입니다. 조용히 끝낼 일이 있어요.' },
         { at: NOW - 3600000, from: 'quest', questId: 'q_active' },
+        { at: NOW - 3599000, from: 'me', text: '맡겠습니다.' },
+        // 아직 수락하지 않은 제안 — 2026-09-14 3차부터 이 카드는 **대화창에만** 있다
+        { at: NOW - 60000, from: 'quest', questId: 'q_def' },
       ],
     };
     const unread = { npc_han_seojin: 2, npc_raven: 0 };
@@ -192,7 +194,8 @@ try {
       chooseIntro(id, i) { call('npc.chooseIntro', `${id}:${i}`); if (!CHOICES[id]?.[i]) return false; CHOICES[id] = []; return true; },
       markRead(id) { call('npc.markRead', id); unread[id] = 0; bus.emit('npc:unreadChanged', { total: this.unreadTotal }); },
       get unreadTotal() { return Object.values(unread).reduce((s, n) => s + n, 0); },
-      getQuests() { return Object.values(Q); },
+      /* 2026-09-14 3차 (사용자 결정): 퀘스트 목록에는 **받은 것만** — offered · deferred 는 빠진다. */
+      getQuests() { return Object.values(Q).filter((q) => q.state === 'active' || q.state === 'complete'); },
       getQuest(id) { return Q[id] ?? null; },
       accept(id) {
         call('npc.accept', id);
@@ -206,16 +209,8 @@ try {
         bus.emit('npc:message', { npc: q.def.npc, entry: { at: Date.now(), e: prev === 'deferred' ? 'brief' : 'accept', q: id } });
         return true;
       },
-      defer(id) {
-        call('npc.defer', id);
-        const q = Q[id];
-        if (!q || q.state !== 'offered') return false;
-        q.state = 'deferred'; q.at = Date.now(); recompute(q);
-        MSG[q.def.npc].push({ at: Date.now(), from: 'me', text: '생각해보지.' });
-        emitQ(q, 'offered');
-        bus.emit('npc:message', { npc: q.def.npc, entry: { at: Date.now(), e: 'decline', q: id } });
-        return true;
-      },
+      /* 은퇴 (2026-09-14 3차) — 계약에만 남는 이름이고 아무것도 하지 않는다. */
+      defer(id) { call('npc.defer', id); return false; },
       deliver(id, index) {
         call('npc.deliver', id, index);
         const q = Q[id];
@@ -362,26 +357,26 @@ try {
       title: t.querySelector('.ms-thead-title')?.textContent, sub: t.querySelector('.ms-thead-sub')?.textContent,
       bubbles: [...t.querySelectorAll('.ms-tbody .ms-msg:not(.quest):not(.sys) .ms-bubble')].map((b) => b.textContent),
       cards: [...t.querySelectorAll('.ms-qcard')].map((c) => ({ id: c.dataset.quest, acts: [...c.querySelectorAll('.ms-qfoot [data-act]')].map((b) => b.dataset.act), state: c.querySelector('.ms-qstate').textContent, chips: c.querySelectorAll('.ms-qchips .item-chip').length })),
-      input: document.querySelector('.ms-input-row').hidden, note: t.querySelector('.ms-note').textContent,
+      input: document.querySelector('.ms-input-row').hidden, note: t.querySelector('.ms-note')?.textContent ?? null,
+      bio: t.querySelector('.ms-thead-bio')?.textContent ?? null,
+      ring: t.querySelectorAll('.ms-thead .ms-avwrap').length, lv: t.querySelector('.ms-thead .ms-avlv')?.textContent ?? null,
+      trustRight: t.querySelectorAll('.ms-thead .ms-trust.in-right').length,
     };
   });
   ok(npcView.title === '한서진' && npcView.sub.includes('헬릭스'), 'the head names the NPC, title and corp', JSON.stringify(npcView));
   ok(npcView.bubbles.length === 4, 'NPC and my bubbles are drawn', JSON.stringify(npcView.bubbles));
   const offerCard = npcView.cards.find((c) => c.id === 'q_offer');
-  ok(offerCard && offerCard.acts.join('|') === 'defer|accept' && offerCard.chips === 4, 'the offered quest card carries 생각해보지 / 수락 and its reward chips', JSON.stringify(npcView.cards));
+  // 2026-09-14 3차 (사용자 결정): 「생각해보지」 버튼이 없어졌다 — 카드에는 [수락] 하나뿐이다.
+  ok(offerCard && offerCard.acts.join('|') === 'accept' && offerCard.chips === 4, 'the offered quest card carries 수락 only (생각해보지 retired) and its reward chips', JSON.stringify(npcView.cards));
   ok(npcView.cards.find((c) => c.id === 'q_ready')?.acts.join('|') === 'tab', 'an accepted quest card only links to the 퀘스트 tab', JSON.stringify(npcView.cards));
-  ok(npcView.input && npcView.note.includes('퀘스트 카드'), 'no input box for an NPC', JSON.stringify(npcView));
+  // 2026-09-14 3차: 하단 안내(NPC 에게는 퀘스트 카드로 답합니다)와 머리의 bio 한 줄이 빠졌다
+  ok(npcView.input && !npcView.note && npcView.bio === null, 'no input box, no 퀘스트 카드 note, no bio line', JSON.stringify(npcView));
+  // 2026-09-14 3차: 초상 테두리 radial + 우하단 레벨 배지, 신뢰도 현황은 머리줄 중앙 우측
+  ok(npcView.ring === 1 && npcView.lv !== null && npcView.trustRight === 1, 'the head portrait carries the trust radial + level badge, gauge moved centre-right', JSON.stringify(npcView));
   ok(await hasCall('npc.markRead:npc_han_seojin'), 'opening the conversation marks it read', JSON.stringify(await calls()));
   await waitFor(page, () => window.__hud().messengerUnreadBadge === 5, 'badge 5', 3000).catch(() => {});
   ok(await P(() => window.__hud().messengerUnreadBadge) === 5, 'and the thumbnail badge drops by 2', String(await P(() => window.__hud().messengerUnreadBadge)));
-  await click('.ms-qcard[data-quest="q_offer"] [data-act="defer"]');
-  await waitSim(0.2);
-  let deferred = await P(() => {
-    const c = document.querySelector('.ms-qcard[data-quest="q_offer"]');
-    return { state: c.querySelector('.ms-qstate').textContent, acts: [...c.querySelectorAll('[data-act]')].map((b) => b.dataset.act), last: [...document.querySelectorAll('.ms-tbody .ms-msg.out .ms-bubble')].at(-1)?.textContent };
-  });
-  ok(await hasCall('npc.defer:q_offer'), '생각해보지 → npc.defer');
-  ok(deferred.state === '보류' && !deferred.acts.includes('accept') && deferred.last === '생각해보지.', 'the card turns 보류 and my reply is drawn', JSON.stringify(deferred));
+  ok(await P(() => window.__npc.defer('q_offer')) === false, 'defer() 는 은퇴했다 — 늘 false');
 
   console.log('개인 대화');
   await click('.ms-row[data-key="pc:CDEF2345"]');
@@ -497,8 +492,10 @@ try {
     rows: [...document.querySelectorAll('.ms-qrow')].map((r) => r.dataset.quest), sel: window.__ms().quests.selectedId,
     badge: document.querySelector('.ms-tab[data-tab="quests"] .ms-badge')?.textContent,
   }));
-  ok(qt.groups.join('|') === 'active:진행 중 2|deferred:보류 2|complete:완료 1', 'groups 진행 중 · 보류 · 완료 (새 제안 none after 생각해보지)', JSON.stringify(qt));
-  ok(qt.rows.join('|') === 'q_ready|q_active|q_offer|q_def' && qt.sel === 'q_ready', '보고 가능 first, 완료 collapsed, the first active one selected', JSON.stringify(qt));
+  // 2026-09-14 3차 (사용자 결정): 목록에는 **받은 것만** — 제안(offered) 은 대화창 카드에만 있다.
+  ok(qt.groups.join('|') === 'active:진행 중 2|complete:완료 1', 'groups 진행 중 · 완료 (제안 · 보류 그룹 없음)', JSON.stringify(qt));
+  ok(qt.rows.join('|') === 'q_ready|q_active' && qt.sel === 'q_ready', '보고 가능 first, 완료 collapsed, the first active one selected', JSON.stringify(qt));
+  ok(!qt.rows.includes('q_offer') && !qt.rows.includes('q_def'), '제안 받은 퀘스트는 퀘스트 탭에 뜨지 않는다', JSON.stringify(qt.rows));
   let det = await P(() => { const b = document.querySelector('.ms-qdetail [data-act="report"]'); return { disabled: b?.disabled, head: document.querySelector('.ms-qdetail-head .ms-thead-title')?.textContent }; });
   ok(det.disabled === false && det.head === '한서진', 'a ready quest has an enabled 완료 보고 under its NPC head', JSON.stringify(det));
   await click('.ms-qdetail [data-act="report"]');
@@ -520,13 +517,28 @@ try {
   await waitSim(0.2);
   det = await P(() => ({ report: document.querySelector('.ms-qdetail [data-act="report"]')?.disabled, deliver: document.querySelectorAll('.ms-qdetail [data-act="deliver"]').length }));
   ok(await hasCall('npc.deliver:q_active,0') && det.report === false && det.deliver === 0, '납품 → npc.deliver, the objective fills and 완료 보고 wakes', JSON.stringify(det));
-  await click('.ms-qrow[data-quest="q_def"]');
-  await waitSim(0.15);
-  await click('.ms-qdetail [data-act="accept"]');
+  /* ── 제안 수락은 **대화창 카드**로만 (2026-09-14 3차) + 타이핑 연출 ────────── */
+  await click('.ms-tab[data-tab="chat"]');
+  await waitSim(0.2);
+  await click('.ms-row[data-key="npc:npc_raven"]');
+  await waitSim(0.3);
+  await click('.ms-qcard[data-quest="q_def"] [data-act="accept"]');
+  await waitSim(0.2);
+  ok(await hasCall('npc.accept:q_def'), '대화창 카드의 수락 → npc.accept');
+  // 새 NPC 말풍선은 `...` 를 거쳐 나타난다 (최대 2초) — 글자가 붙을 때까지 기다린다
+  await waitFor(page, () => [...document.querySelectorAll('.ms-tbody .ms-msg.in .ms-bubble')].at(-1)?.textContent === '좋아요, 짧게 설명하죠.', 'typing bubble resolves', 8000).catch(() => {});
+  const acc = await P(() => ({
+    mine: [...document.querySelectorAll('.ms-tbody .ms-msg.out .ms-bubble')].at(-1)?.textContent,
+    last: [...document.querySelectorAll('.ms-tbody .ms-msg.in .ms-bubble')].at(-1)?.textContent,
+    typing: document.querySelectorAll('.ms-bubble.ms-typing').length,
+    acts: [...document.querySelectorAll('.ms-qcard[data-quest="q_def"] [data-act]')].map((b) => b.dataset.act),
+  }));
+  ok(acc.mine === '맡겠습니다.' && acc.acts.join('|') === 'tab', '수락하면 내 대답이 붙고 카드가 퀘스트 탭 링크로 바뀐다', JSON.stringify(acc));
+  ok(acc.last === '좋아요, 짧게 설명하죠.' && acc.typing === 0, '새 NPC 말풍선은 타이핑 연출 뒤에 나타난다', JSON.stringify(acc));
+  await click('.ms-tab[data-tab="quests"]');
   await waitSim(0.25);
-  let acc = await P(() => ({ tab: window.__ms().tab, sel: window.__ms().chat.selectedKey, last: [...document.querySelectorAll('.ms-tbody .ms-msg.in .ms-bubble')].at(-1)?.textContent }));
-  ok(await hasCall('npc.accept:q_def') && acc.tab === 'chat' && acc.sel === 'npc:npc_raven' && acc.last === '좋아요, 짧게 설명하죠.',
-    '보류 수락 → npc.accept, then the 대화 tab on that NPC shows the brief', JSON.stringify(acc));
+  const afterRows = await P(() => [...document.querySelectorAll('.ms-qrow')].map((r) => r.dataset.quest));
+  ok(afterRows.includes('q_def'), '수락한 뒤에야 퀘스트 탭 목록에 들어온다', JSON.stringify(afterRows));
 
   console.log('screenshots');
   for (const [w, h] of [[1280, 720], [1920, 1080]]) {

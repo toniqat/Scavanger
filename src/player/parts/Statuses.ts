@@ -131,6 +131,8 @@ export function updateEnv(sys: PlayerSystem, dt: number, ctx: GameContext): void
   if (env === null || guarded) return;
   // 2026-09-13: 탐사 차량 안은 밀폐돼 있다 — 노출 상태(배지)는 그대로 두고 피해만 없다
   if (sys._roverRide) { sys.envTick = 0; return; }
+  // 2026-09-14 3차: 각본 잠금 — `applyDamage` 를 우회하는 **유일한** 피해라 여기도 같이 막는다 (배지는 그대로)
+  if (sys._sceneLock) { sys.envTick = 0; return; }
   // 전투불능 · 사망 · 강하 포드 안 · 아직 안 내린 몸은 대기를 마시지 않는다.
   if (!sys.spawned || sys.isDead || sys._downed) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;

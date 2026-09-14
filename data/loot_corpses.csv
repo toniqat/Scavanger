@@ -179,3 +179,15 @@ sandworm,mat_extract_bio,1,2,0.4
 sandworm,alien_artifact,1,1,0.5
 sandworm,seed_glowcap,1,1,0.15
 
+# ── 2026-09-14 3차: 튜토리얼 전용 4종 (data/enemies.csv 의 tut_* 줄) ──────────────────────────────────
+# 튜토리얼은 **굴림이 없다** — 가르치려는 물건만 정확히 나온다. 그래서 chance 는 1 아니면 0 뿐이다.
+#   tut_bug_loot     = 생체 조직 1 · 터미니드 분비선 1 (100 %). 씨앗 · 미확인 세포는 일부러 없다.
+#   tut_android_loot = 전력 케이블 1 (100 %) + 들고 있던 **돌격소총**과 준중량탄 한 스택 (loot_corpse_rolls.csv 의 tut_android_loot 줄).
+#   tut_bug · tut_android = 빈 시체. CORPSE_LOOT_CHANCE 0 이라 애초에 수색되지 않지만, 표가 없으면
+#     "모르는 적 = 생체 조직 1" 로 떨어지므로 rogue_scan_drone 과 같은 요령으로 확률 0 한 줄을 못박아 둔다.
+tut_bug_loot,mat_bio_sample,1,1,1
+tut_bug_loot,terminid_gland,1,1,1
+tut_bug,mat_bio_sample,1,1,0
+tut_android_loot,mat_cable,1,1,1
+tut_android,mat_cable,1,1,0
+

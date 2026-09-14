@@ -1,11 +1,11 @@
 import type { GameContext, GameStat, ItemDef, LibraryEffect, LibrarySeriesDef, ShelfMedium, SkillId } from '@/shared';
 import {
-  CORP_DEFS, COOK_GAME_LABEL_KO, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, SHELF_MEDIUM_LABEL_KO,
-  WEAPON_GRADE_ROMAN, getPlanet,
+  CORP_DEFS, COOK_GAME_LABEL_KO, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT,
+  WEAPON_GRADE_ROMAN,
 } from '@/shared';
 import type { CorpId } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
-import { ACTIVE_FURNITURE_DEFS, SHELF_UNIT_KO } from '../model';
+import { ACTIVE_FURNITURE_DEFS, SHELF_GLYPH, SHELF_UNIT_KO } from '../model';
 import { librarySeriesOfItem, shelfHolderMediumOfItem } from '../Rules';
 import { clear, el, setText, toggleClass } from './dom';
 
@@ -96,12 +96,36 @@ const DEX_NOUN: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc: 
 
 interface DexRow { root: HTMLElement; key: string }
 
+/** 도감 썸네일 한 변 (px) — 정사각 상자 안에 아이템 타일이 통째로 들어간다 (`buildItemTile` 의 cell 을 여기서 유도한다). */
+const DEX_THUMB = 48;
+
 /**
- * 도감 (Phase 9 → A-3e 매체 → **2026-09-13 시리즈**). 매체가 서재 효과 매체면 **시리즈마다 한 줄**(`LIBRARY_SERIES_DEFS` 순서):
- * 시리즈 이름 · 권 칸(`.lib-pip` — 도감에 적힌 권 = `is-on`, 지금 작동 중인 보관함에 꽂힌 권 = `is-live`) · `n / N권` · 등장 행성 ·
- * 전권 효과. 게임 디스크면 **디스크마다 한 줄**(이름 · 발견 여부 · 게임기 · 능력치 · 방식). 줄은 `.lib-dexrow[data-series]` /
- * `[data-def]` 이고 `owned`(한 권이라도 발견) · `complete`(전권 발견) · `boosted`(지금 효과가 난다) 를 단다.
- * Pure DOM into `host`: no blocker, no listeners — the owner calls `refresh()` on its own change events.
+ * 시리즈 대표 권(또는 게임 디스크) 하나의 **정사각 썸네일**. 인벤토리 타일(`ctx.inventory.buildItemTile`)을 쓰고, 없으면
+ * 글리프 하나로 대신한다. 어느 쪽이든 `data-item-tip` + `data-def-id` 를 달아 `ui/hud/ItemTip` 이 아이템 카드를 띄운다.
+ */
+function dexThumb(ctx: GameContext, defId: string | null, fallbackGlyph: string): HTMLElement {
+  const box = el('div', { cls: 'lib-dex-thumb' });
+  if (!defId) { el('span', { cls: 'lib-dex-glyph', text: fallbackGlyph, parent: box }); return box; }
+  const inv = ctx.inventory;
+  const def = ctx.loot && typeof ctx.loot.getItemDef === 'function' ? ctx.loot.getItemDef(defId) : undefined;
+  if (inv && typeof inv.buildItemTile === 'function') {
+    const span = Math.max(1, Math.max(def?.width ?? 1, def?.height ?? 1));
+    box.appendChild(inv.buildItemTile(defId, 1, { cell: Math.max(16, Math.floor(DEX_THUMB / span)) }));
+    return box;
+  }
+  el('span', { cls: 'lib-dex-glyph', text: def?.icon || fallbackGlyph, parent: box });
+  box.dataset.itemTip = '';
+  box.dataset.defId = defId;
+  return box;
+}
+
+/**
+ * 도감 (Phase 9 → A-3e 매체 → 2026-09-13 시리즈 → **2026-09-14 단순화**, 사용자 결정).
+ * 한 줄은 **정사각 썸네일 + 이름 + 모은 권 수**뿐이다 — 등장 행성 · 전권 효과 설명 · `미발견` 글자는 걷어냈다
+ * (효과 이야기는 레일의 「서재」 항목이 한 곳에서 한다). 권 칸(`.lib-pip`)은 남는다: 어느 권을 모았는지가 곧 진척이다.
+ * 게임 디스크면 **디스크마다 한 줄**(썸네일 · 이름 · `발견` / `0 / 1장`). 줄은 `.lib-dexrow[data-series]` / `[data-def]`
+ * 이고 `owned`(한 권이라도 발견) · `complete`(전권 발견) · `boosted`(지금 효과가 난다) 를 단다.
+ * 썸네일에 호버하면 그 아이템 툴팁이 뜬다. Pure DOM into `host`: no blocker, no listeners — the owner calls `refresh()`.
  */
 export function createBookDex(ctx: GameContext, housing: HousingSystem, host: HTMLElement, initial: ShelfMedium = 'book'): BookDexView {
   let medium: ShelfMedium = initial;
@@ -160,30 +184,29 @@ export function createBookDex(ctx: GameContext, housing: HousingSystem, host: HT
       allVolumes += s.volumes;
       seenVolumes += seen;
       if (seen > 0) seenSeries++;
-      const planets = s.planets.map((p) => getPlanet(p)?.name ?? p).join(' · ');
-      const effects = s.effects.map((e) => libraryEffectText(ctx, e, e.kind === 'recipe' ? 1 : e.value)).join(' · ');
-      const rowKey = `${pips.join('')}|${planets}|${effects}`;
+      // 대표 권 = 1권 (없으면 표에 있는 가장 앞 권) — 썸네일과 그 아이템 툴팁이 여기서 온다
+      const lead = byVol.get(1) ?? [...byVol.values()][0] ?? null;
+      const rowKey = `${pips.join('')}|${lead?.id ?? ''}`;
       if (row.key !== rowKey) {
         row.key = rowKey;
         clear(row.root);
-        const top = el('div', { cls: 'lib-dex-top', parent: row.root });
-        el('span', { cls: 'lib-dex-name', text: s.name, parent: top });
-        const pipBox = el('span', { cls: 'lib-pips', parent: top });
+        row.root.appendChild(dexThumb(ctx, lead?.id ?? null, SHELF_GLYPH[medium]));
+        const body = el('div', { cls: 'lib-dex-body', parent: row.root });
+        el('div', { cls: 'lib-dex-name', text: s.name, parent: body });
+        const pipBox = el('span', { cls: 'lib-pips', parent: body });
         for (let v = 1; v <= s.volumes; v++) {
           const p = pips[v - 1];
           const pip = el('i', { cls: `lib-pip${p[0] === '1' ? ' is-on' : ''}${p[1] === '1' ? ' is-live' : ''}`, parent: pipBox });
           pip.title = s.volumes > 1 ? `${volumeRoman(v)}권` : '단편';
         }
-        el('span', { cls: 'lib-dex-state', text: seen > 0 ? `${seen} / ${s.volumes}${SHELF_UNIT_KO[medium]}` : '미발견', parent: top });
-        el('div', { cls: 'lib-dex-sub planets', text: `등장 · ${planets || '—'}`, parent: row.root });
-        el('div', { cls: 'lib-dex-sub effects', text: `${s.volumes > 1 ? '전권' : '단편'} · ${effects}`, parent: row.root });
+        el('span', { cls: 'lib-dex-state', text: `${seen} / ${s.volumes}${SHELF_UNIT_KO[medium]}`, parent: row.root });
       }
       toggleClass(row.root, 'owned', seen > 0);
       toggleClass(row.root, 'complete', seen >= s.volumes);
       toggleClass(row.root, 'boosted', live.size > 0);
     });
     setText(summary, seriesList.length
-      ? `발견한 시리즈 ${seenSeries} / ${seriesList.length} · ${SHELF_MEDIUM_LABEL_KO[medium]} ${seenVolumes} / ${allVolumes}${SHELF_UNIT_KO[medium]} · 효과는 전권 기준`
+      ? `${seenSeries} / ${seriesList.length} 시리즈 · ${seenVolumes} / ${allVolumes}${SHELF_UNIT_KO[medium]}`
       : `아직 알려진 ${DEX_NOUN[medium]} 시리즈가 없습니다`);
   }
 
@@ -201,21 +224,20 @@ export function createBookDex(ctx: GameContext, housing: HousingSystem, host: HT
       const row = rows[i];
       const on = dex.has(d.id);
       if (on) seen++;
-      const sub = gameDiscText(ctx, d);
-      const rowKey = `${on}|${sub}`;
+      const rowKey = `${on}`;
       if (row.key !== rowKey) {
         row.key = rowKey;
         clear(row.root);
-        const top = el('div', { cls: 'lib-dex-top', parent: row.root });
-        el('span', { cls: 'lib-dex-name', text: d.name, parent: top });
-        el('span', { cls: 'lib-dex-state', text: on ? '발견' : '미발견', parent: top });
-        el('div', { cls: 'lib-dex-sub effects', text: sub, parent: row.root });
+        row.root.appendChild(dexThumb(ctx, d.id, SHELF_GLYPH.game));
+        const body = el('div', { cls: 'lib-dex-body', parent: row.root });
+        el('div', { cls: 'lib-dex-name', text: d.name, parent: body });
+        el('span', { cls: 'lib-dex-state', text: `${on ? 1 : 0} / 1${SHELF_UNIT_KO.game}`, parent: row.root });
       }
       toggleClass(row.root, 'owned', on);
       toggleClass(row.root, 'complete', on);
       toggleClass(row.root, 'boosted', false);
     });
-    setText(summary, defs.length ? `꽂아 본 게임 디스크 ${seen} / ${defs.length} · 게임 디스크는 서재 효과가 없습니다` : '아직 알려진 게임 디스크가 없습니다');
+    setText(summary, defs.length ? `${seen} / ${defs.length}${SHELF_UNIT_KO.game}` : '아직 알려진 게임 디스크가 없습니다');
   }
 
   function refresh(): void {

@@ -234,7 +234,12 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
         try { h.openCookStation(uid); } catch (err) { console.warn('[hub] openCookStation failed', err); }
       } else ctx.bus.emit('ui:notify', { text: '조리대를 사용할 수 없습니다', kind: 'warning' });
     },
-    // 암호화폐 채굴 (2026-09-13): 연산 클러스터 화면 · 메인 컴퓨터 화면 — duck-typed (병렬로 짓는 폴더가 아직 없을 수 있다)
+    /*
+     * 암호화폐 채굴 (2026-09-13 → 2026-09-14 통합): 두 가구가 **같은 창**을 연다 — 상단 가로 탭 넷(채굴 · 클러스터
+     * 현황 · 지갑 · 거래소)짜리 채굴 화면이고, **기본 탭이 누른 가구의 탭**이다 (사용자 결정): 연산 클러스터 →
+     * 채굴, 메인 컴퓨터 → 클러스터 현황. 그 규약은 `housing` 쪽 `openComputeCluster` / `openMiningComputer` 가
+     * 갖는다 — 여기서는 계약 이름 둘을 그대로 부른다 (duck-typed: 병렬로 짓는 폴더가 아직 없을 수 있다).
+     */
     onComputeCluster: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openComputeCluster === 'function') {

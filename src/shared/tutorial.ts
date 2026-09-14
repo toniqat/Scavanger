@@ -39,9 +39,22 @@ export type TutorialStepId =
   | 'move'         // WASD 이동
   | 'sprintJump'   // 달리기 + 점프로 절벽을 넘는다 (떨어지면 즉사 · 체크포인트)
   | 'corpseLoot'   // 시체에서 무기 · 가방 · 탄약을 꺼내 장착 (여기서 체력 · 무기 HUD 가 나타난다)
+  /*
+   * appended (2026-09-14 4차, 사용자 결정) — **「앞으로 이동」 세 구간.** 전에는 앞 단계가 끝나는 순간
+   * 다음 단계의 안내가 떴다: 벌레를 잡자마자 「앉아서 낮은 틈을 지나세요」, 안드로이드를 잡자마자
+   * 「아래로 뛰어내리세요」 — 그 물건이 30 m 앞에 있는데 안내만 먼저 도착한다. 그래서 **구간과 구간
+   * 사이는 언제나 「앞으로 이동」**이고, 다음 안내는 그 물건 앞에 섰을 때(= 체크포인트) 뜬다.
+   *   advance1 = 시체 루팅 → 벌레 (`bugs` 체크포인트에서 벌레가 솟는다)
+   *   advance2 = 벌레 → 포복 구간 앞 (`crawl`)
+   *   advance3 = 안드로이드 → 절벽 2 앞 (`drop`)
+   * 셋 다 `CHECKPOINT_STEP`(tutorial/model) 이 이미 아는 체크포인트로 끝나므로 월드에 새 트리거는 없다.
+   */
+  | 'advance1'
   | 'shoot'        // 벌레 둘 처치 — 사격 · 정조준
+  | 'advance2'
   | 'crouch'       // 기둥 밑을 앉아서 지난다
   | 'crouchAim'    // 앉은 채 정조준 — 흔들림이 잦아든다. 안드로이드 둘
+  | 'advance3'
   | 'drop'         // 높은 곳에서 뛰어내린다 (낙하 피해, 체력 1 클램프)
   | 'heal'         // 시체에서 회복 아이템 · 수류탄 (퀵슬롯 자동 장착) → 회복 사용
   | 'grenade'      // 무너진 벽 너머의 안드로이드 둘 — **선택 단계** (쓰지 않고 돌아가도 된다)
@@ -72,8 +85,11 @@ export type TutorialStepId =
   | 'raid';        // 레이드 시작 — 탈출구 인디케이터를 강조하고 끝난다
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
-  'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'manageDone',
+  'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace',
   // 2026-09-09: 총기 작업대에서 소총 → 탄약을 **한 번에** 만든다 — `openCraft` 는 순서에서 빠졌다 (id 는 계약이라 남긴다).
+  // 2026-09-14 3차 (사용자 결정 — 「닫기 누르기는 튜토리얼 스텝에서 뺀다」): `manageDone` 도 같은 처리다.
+  //   관리 모드를 언제 닫든 안내가 막히지 않고, 진행 바의 분모도 실제로 할 일의 수와 맞는다.
+  //   id 는 `TutorialStepId` · `Steps.ts` 의 표에 그대로 있고 옛 저장은 `normalizeStep` 이 `craftGun` 으로 옮긴다.
   'craftGun', 'craftAmmo', 'openBag', 'equipGun', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];
@@ -83,9 +99,10 @@ export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
  * 진행률(`stepIndex` / `stepCount`)은 지금 도는 트랙 안에서만 센다.
  */
 export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly TutorialStepId[]>> = {
+  // 2026-09-14 4차: 구간과 구간 사이의 「앞으로 이동」 셋(`advance1`·`2`·`3`)이 들어와 11 → 14 단계다.
   raid: [
-    'wake', 'move', 'sprintJump', 'corpseLoot', 'shoot', 'crouch', 'crouchAim',
-    'drop', 'heal', 'grenade', 'extract',
+    'wake', 'move', 'sprintJump', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim',
+    'advance3', 'drop', 'heal', 'grenade', 'extract',
   ],
   ship: ['levelUp', 'stats', 'messenger', 'ravenQuest'],
   build: TUTORIAL_STEPS,
@@ -125,8 +142,11 @@ export type TutorialGate =
  * `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다.
  *
  * appended (2026-09-14 2차, 사용자 결정) — 튜토리얼 레이드의 **탈출 함선 표시**와 **상단 탈출 타이머**:
- *   • `shipMarker`       지도 마커 · 월드(3D) 마커. `extract` 단계에 들어서면 풀린다 — 그때는 「함선을 찾아가라」가
- *                        곧 목표라 표시가 안내 역할을 한다.
+ *   • `shipMarker`       지도 마커 · 월드 마커. **튜토리얼 레이드 내내** 뜨지 않는다.
+ *                        2026-09-14 4차 (사용자 결정 — 「함선 스위치 단계의 초록색 구체 제거」)에 2차의
+ *                        「`extract` 단계에 들어서면 풀린다」를 뒤집었다: 그 월드 마커는 `--c-success` 초록 원
+ *                        (`ui/styles/base.css` 의 `.wmarker.ship`)이라 마지막 단계에서 화면에 초록 구슬이
+ *                        떠 있었고, 일직선 통로 끝의 함선을 못 찾을 길이 없어 안내 역할도 없었다.
  *   • `shipScreenMarker` 화면(나침반 · 화면 밖 화살표) 함선 마커. **튜토리얼 레이드 내내** 뜨지 않는다.
  *   • `extractionTimer`  상단 중앙의 「자동 출발까지」 · 「도착」 라벨 (튜토리얼 함선은 자동 출발을 걸지 않는다).
  */

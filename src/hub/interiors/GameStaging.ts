@@ -10,29 +10,26 @@ import { SIT_SEAT_TOP, TV_GAME_HUD, TV_GAME_SCREEN } from './FurnitureLeisure';
  *
  *   housing:gameSession {active:true}  → 좌석(`seatUid`)의 TV 에 가장 가까운 자리에 `sit` 자세 · TV 화면 쪽 yaw · 어깨 너머 고정 카메라
  *                                         → setFurniturePose (false 면 **그 자리에서** cancelGameSession) · TV 의 게임 화면(`model.tv.overlay`)을 켠다
- *   housing:gameBeat                   → 화면이 판정 색으로 번쩍인다 (완벽 금색 · 좋음 청록 · 실패 빨강) · 진행 막대 · 표식이 반응한다
+ *   housing:gameBeat                   → 화면 **속** 표식이 튀고 진행 막대가 오른다 (2026-09-14, 사용자 결정: 키를 누를 때마다 화면이 번쩍이지 않는다)
  *   housing:gameSession {active:false} → 자세를 푼다 (reason `caller`) · 게임 화면을 숨기고 재질을 원래 색으로
  *   player:furniturePoseEnded (sit, 우리가 푼 것이 아니면) → cancelGameSession (자세 없이 미니게임만 남지 않게)
  *
- * 화면 연출은 공용 재질 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 **발광 색 · 세기(uniform)** 만 바꾼다 — 재질을 갈아 끼우지도, `needsUpdate` 를
+ * 화면 연출은 공용 재질 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 **발광 색(uniform)** 만 바꾼다 — 재질을 갈아 끼우지도, `needsUpdate` 를
  * 세우지도 않으므로 셰이더 컴파일이 없고 점광원도 없다. 로컬 세션은 한 번에 하나라 공용 재질로 충분하다. 조각은 늘 uid 로 다시 찾는다
  * (방이 다시 지어지면 그룹이 바뀐다) — 재빌드된 TV 는 `BuildExtra.gameActive` 로 게임 화면을 켠 채 지어진다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-const QUALITY_COLOR: Readonly<Record<'perfect' | 'good' | 'miss', THREE.Color>> = {
-  perfect: new THREE.Color(0xffe27a),
-  good: new THREE.Color(0x8fffd8),
-  miss: new THREE.Color(0xff4a3a),
-};
-/** 판정 번쩍임이 사라지는 시간 (초) · 표식이 튀는 반응 시간 (초). */
-const FLASH_S = 0.42;
+/** 표식이 튀는 반응 시간 (초). */
 const KICK_S = 0.25;
-/** 화면 발광 — 기본 세기 · 느린 맥동 폭 · 번쩍일 때 더하는 세기. HUD 기본 세기 · 번쩍일 때 더하는 세기. */
+/**
+ * 화면 발광 — 기본 세기 · 느린 맥동 폭. HUD 기본 세기.
+ * **2026-09-14 (사용자 결정): 키를 누를 때마다 화면이 번쩍이지 않는다.** 판정마다 `emissive` · `emissiveIntensity` 를 판정 색으로
+ * 튀기던 것(`flash` · `SCREEN_FLASH` · `HUD_FLASH`)을 걷어냈다 — 화면은 디스크 테마 색 + 잔잔한 `SCREEN_PULSE` 맥동뿐이고,
+ * 판정 반응은 화면 **속 표식**(`kick`)과 진행 막대가 말한다. 여긴 uniform 만 바꾸는 코드라는 성질은 그대로다 (점광원 0개).
+ */
 const SCREEN_BASE = 1.15;
 const SCREEN_PULSE = 0.18;
-const SCREEN_FLASH = 2.2;
 const HUD_BASE = 1.5;
-const HUD_FLASH = 1.6;
 const HUD_WHITE = new THREE.Color(0xdfefff);
 /** 디스크 색을 모를 때의 화면 색. */
 const DEFAULT_THEME = '#3aa8ff';
@@ -138,13 +135,11 @@ export class GameStaging {
   private releasing = false;
   private readonly unsubs: Array<() => void> = [];
   private clock = 0;
-  private flash = 0;
   private kick = 0;
   private progress = 0;
   private shownProgress = 0;
   private side = 1;
   private readonly theme = new THREE.Color(DEFAULT_THEME);
-  private readonly flashColor = new THREE.Color(0xffffff);
   private readonly screenBase = { color: TV_GAME_SCREEN.emissive.clone(), intensity: TV_GAME_SCREEN.emissiveIntensity };
   private readonly hudBase = { color: TV_GAME_HUD.emissive.clone(), intensity: TV_GAME_HUD.emissiveIntensity };
 
@@ -169,12 +164,15 @@ export class GameStaging {
     return this.tvUid === tvUid;
   }
 
-  /** 디버그 · 스모크: 연출 중인 세션 · 번쩍임 · 진행 막대 · 게임 화면이 보이는가 · 화면 발광 세기. 세션이 없으면 null. */
-  get stage(): { tvUid: string; seatUid: string | null; minigame: GymMinigame; held: boolean; flash: number; progress: number; overlay: boolean; screenIntensity: number } | null {
+  /**
+   * 디버그 · 스모크: 연출 중인 세션 · 판정 반응(`kick`) · 진행 막대 · 게임 화면이 보이는가 · 화면 발광 세기. 세션이 없으면 null.
+   * 2026-09-14: 옛 `flash`(화면 번쩍임)는 없어졌다 — 판정 반응은 `kick` 이 말한다.
+   */
+  get stage(): { tvUid: string; seatUid: string | null; minigame: GymMinigame; held: boolean; kick: number; progress: number; overlay: boolean; screenIntensity: number } | null {
     if (!this.tvUid) return null;
     const rig = this.find(this.tvUid)?.model.tv;
     return {
-      tvUid: this.tvUid, seatUid: this.seatUid, minigame: this.minigame, held: this.held, flash: this.flash, progress: this.progress,
+      tvUid: this.tvUid, seatUid: this.seatUid, minigame: this.minigame, held: this.held, kick: this.kick, progress: this.progress,
       overlay: rig?.overlay.visible === true, screenIntensity: TV_GAME_SCREEN.emissiveIntensity,
     };
   }
@@ -187,7 +185,7 @@ export class GameStaging {
     if (!tv?.model.tv || !seat || seat.model.rig?.pose !== 'sit') { this.cancelHousing(); return; }
     if (!same) {
       this.tvUid = tvUid; this.seatUid = seatUid; this.minigame = minigame;
-      this.clock = 0; this.flash = 0; this.kick = 0; this.progress = 0; this.shownProgress = 0; this.side = 1;
+      this.clock = 0; this.kick = 0; this.progress = 0; this.shownProgress = 0; this.side = 1;
       this.theme.set(this.discColor(discDefId));
     }
     tv.model.tv.overlay.visible = true;
@@ -203,11 +201,10 @@ export class GameStaging {
     this.held = true;
   }
 
-  private onBeat(tvUid: string, quality: 'perfect' | 'good' | 'miss', index: number, total: number): void {
+  /** 판정 하나 — **화면을 번쩍이지 않는다** (2026-09-14). 화면 속 표식이 튀고 진행 막대가 오른다. */
+  private onBeat(tvUid: string, _quality: 'perfect' | 'good' | 'miss', index: number, total: number): void {
     if (tvUid !== this.tvUid) return;
-    this.flash = 1;
     this.kick = 1;
-    this.flashColor.copy(QUALITY_COLOR[quality] ?? QUALITY_COLOR.good);
     this.progress = total > 0 ? THREE.MathUtils.clamp((index + 1) / total, 0, 1) : 0;
     this.side = -this.side;
   }
@@ -221,13 +218,12 @@ export class GameStaging {
     const rig = tv?.model.tv;
     if (!rig || !seat) { this.stop(true); this.cancelHousing(); return; }   // 세션 도중 TV · 좌석이 사라졌다
     rig.overlay.visible = true;
-    this.flash = Math.max(0, this.flash - dt / FLASH_S);
     this.kick = Math.max(0, this.kick - dt / KICK_S);
-    const f = this.flash;
-    TV_GAME_SCREEN.emissive.copy(this.theme).lerp(this.flashColor, f * 0.75);
-    TV_GAME_SCREEN.emissiveIntensity = SCREEN_BASE + SCREEN_PULSE * Math.sin(this.clock * 2.4) + f * SCREEN_FLASH;
-    TV_GAME_HUD.emissive.copy(HUD_WHITE).lerp(this.flashColor, f);
-    TV_GAME_HUD.emissiveIntensity = HUD_BASE + f * HUD_FLASH;
+    // 화면은 늘 같은 밝기다 — 디스크 테마 색 + 잔잔한 맥동만 (2026-09-14, 사용자 결정)
+    TV_GAME_SCREEN.emissive.copy(this.theme);
+    TV_GAME_SCREEN.emissiveIntensity = SCREEN_BASE + SCREEN_PULSE * Math.sin(this.clock * 2.4);
+    TV_GAME_HUD.emissive.copy(HUD_WHITE);
+    TV_GAME_HUD.emissiveIntensity = HUD_BASE;
     // 화면 속 표식 — 미니게임마다 다르게 (벤치프레스 = 좌우로 오가는 커서 · 호흡 = 부풀었다 줄어드는 막대 · 사이클 = 박자마다 좌우로 건너뛴다)
     const half = rig.screenW * 0.4, m = rig.marker;
     if (this.minigame === 'press') {

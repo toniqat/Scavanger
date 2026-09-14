@@ -50,4 +50,12 @@ export interface ExtractionRef {
    * 부르는 곳은 `TutorialSystem.skipTrack('raid')` 하나다 (ESC 메뉴의 「튜토리얼 건너뛰기」가 그리로 간다).
    */
   skipToLiftoff?(): boolean;
+
+  /* ── appended (2026-09-14 3차, 사용자 결정 — 튜토리얼 함선은 스위치를 누르면 즉시 뜬다) ── */
+  /**
+   * true 면 적이 플레이어를 **바라보되 쏘지 않는다**. 튜토리얼 이륙 동안 미처 처치하지 못한 안드로이드가
+   * 화물칸의 플레이어를 쏘는 것을 막는 유일한 문이다 — `keepEnemyOut` 과 같은 이유로 월드 콜라이더가 아니라
+   * 질의다 (`enemies/ai` 가 사격 직전에 부른다). 튜토리얼이 아니면 늘 false.
+   */
+  holdFire?(): boolean;
 }

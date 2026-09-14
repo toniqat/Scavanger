@@ -15,15 +15,7 @@ export function clockText(at: number, now = Date.now()): string {
   return sameDay ? hm : `${two(d.getMonth() + 1)}-${two(d.getDate())} ${hm}`;
 }
 
-/** 목록 한 줄의 시각: 방금 · n분 · n시간 · n일. 0 이하는 ''. */
-export function agoText(at: number, now = Date.now()): string {
-  if (!(at > 0)) return '';
-  const s = Math.max(0, Math.floor((now - at) / 1000));
-  if (s < 60) return '방금';
-  if (s < 3600) return `${Math.floor(s / 60)}분`;
-  if (s < 86400) return `${Math.floor(s / 3600)}시간`;
-  return `${Math.floor(s / 86400)}일`;
-}
+/* 2026-09-14 3차: 목록 한 줄의 `방금 · n분` (`agoText`) 은 없어졌다 — 대화 목록 줄은 이름 + 마지막 대사뿐이다 (사용자 결정). */
 
 /** 한 줄로 자른다 (말줄임표). */
 export function clip(text: string, max: number): string {

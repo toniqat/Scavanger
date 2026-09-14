@@ -50,7 +50,11 @@ Also owns `RemotePlayerSystem` (`name: 'remotePlayers'`, registered right after 
 - `spawnStanding(position, yaw)`: hellpod hidden, detached from any parent, ship box cleared, `isInPod = false`, controller reset at `position` (snapped to the interior deck when within 1.5 m), alive, full hp + stamina, stance stand, aim/blends reset, controls enabled, model visible & un-faded, camera snapped behind the player at `yaw`, `player:healthChanged {delta 0}` + `player:spawned`. Does **not** touch `interior` (either call order works) and does **not** release an active camera override — release it with `setCameraOverride(null)`.
 - `setCameraOverride(pos, lookAt?, snap?)`: cutscene camera; blends to `pos` looking at `lookAt` (damp 12 in, 4 out); `snap` jumps to full weight; `null` releases back to the rig. Same mechanism the hellpod uses.
 - `setInPod(inPod)` / `isInPod`: movement input, sprint and aiming are cut (velocity zeroed) and the local model is hidden; interaction (E) and the camera keep working so a pod can offer an "exit" interactable. Remotes read `PlayerFlags.IN_POD` and hide their avatar. Cleared by `spawnStanding` / `respawnAt` / `game:abort`.
-- Gating: movement, stances, jump, sprint, stamina, stims, interaction and the click-to-relock fallback use `ctx.isControlActive()` (gameplay OR `'hub'`, no blockers). In the hub (`ctx.isHubPhase()`) **prone and dive are disabled** (Z is ignored unless already prone, `Keys.DIVE` — V since 2026-09-07 — does nothing); dive is also disabled whenever an `interior` is set. Weapons stay gated by `canUseWeapons()` / the weapons system's own `isGameplayActive()`.
+- Gating: movement, stances, jump, sprint, stamina, stims, interaction and the click-to-relock fallback use `ctx.isControlActive()` (gameplay OR `'hub'`, no blockers). In the hub (`ctx.isHubPhase()`) **dive is disabled** (`Keys.DIVE` — V since 2026-09-07 — does nothing, `Locomotion.roll`); dive is also disabled whenever an `interior` is set. Weapons stay gated by `canUseWeapons()` / the weapons system's own `isGameplayActive()`.
+  **2026-09-14 3차 (사용자 결정 — 함선에서도 포복)**: 옛 `allowProne: !hub` 게이트는 없어졌다. Z 는 함선 안에서도
+  평소처럼 엎드리고 일어선다. 낮은 천장에서 일어서는 것을 막는 `Locomotion.canStandHere` 는 그대로지만
+  **함선 실내에서는 그 함수가 일찌감치 true 를 돌려준다**(`controller.interior` / `shipBounds` — 함선 천장은
+  사람 키보다 높고, 못 서면 영영 못 빠져나온다). 즉 실제로 천장이 문제인 월드 갈래는 한 줄도 바뀌지 않았다.
 
 ## Downed / revive / respawn (Phase 2, appended `PlayerRef` members)
 - **Entering downed**: `takeDamage` that would bring hp to 0 (and the player is not already downed) sets `hp = 0`, `isDowned = true`, `downHp = PLAYER_DOWN_HP` (100), forces stance `prone`, cancels aiming/sprint, shakes the camera, plays `player_hurt` at pitch 0.6 and emits `player:downed {position}`, `player:downHpChanged {downHp, max}`, `player:healthChanged {hp: 0}`. `isDead` stays **false**. The 0.15 s invulnerability window still applies.
@@ -687,7 +691,8 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 
 ## 오프닝 기상 연출 (2026-09-14 — `PlayerRef.playIntroWake`, 호출자 `tutorial/`)
 
-`playIntroWake(durationS)`(`TUTORIAL_INTRO_WAKE_S` 4.5초) 하나로 시작하고 스스로 끝낸다 (`parts/IntroWake`).
+`playIntroWake(durationS)`(`TUTORIAL_INTRO_WAKE_S` **9초** — 2026-09-14 3차에 4.5 → 9) 하나로 시작하고
+스스로 끝낸다 (`parts/IntroWake`).
 
 - **자세**: 새 자세를 만들지 않았다 — 전투불능 자세(`SoldierPose.downed` → `SoldierModel.poseDowned`, 「등을 대고
   쓰러진 산 사람」)의 진행도를 **1 → 0 으로 되감는다**. 앞 30 % 는 누워 있고 그 뒤 `smoothstep` 으로 일어난다.
@@ -699,8 +704,8 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   끝나면 `setCameraOverride(null, undefined, true)` = **하드 컷** (먼 곳에서 블렌드하면 카메라가 지형을 훑는다).
 - **화면 페이드** (2026-09-14 2차, 사용자 결정): 검은 화면에서 시작해 쓰러진 몸이 서서히 드러난다. 그리는 것은
   `ui/` 이고 여기서는 `ui:screenFade {opacity, durationS}` 로 **언제 · 얼마 동안**만 말한다 (1 = 완전한 검정).
-  `playIntroWake` 가 `{1, 0}`(즉시 검정)을 깔고, 진행도가 `FADE_HOLD`(0.08)를 넘는 프레임에 `{0, (FADE_DONE −
-  FADE_HOLD) × 길이}` 로 밝아지기 시작해 `FADE_DONE`(0.27)에 끝난다 — `WAKE_RISE_START`(0.3, 일어나기 시작) **직전**이라
+  `playIntroWake` 가 `{1, 0}`(즉시 검정)을 깔고, 진행도가 `FADE_HOLD`(**0.04**)를 넘는 프레임에 `{0, (FADE_DONE −
+  FADE_HOLD) × 길이}` 로 밝아지기 시작해 `FADE_DONE`(**0.26**)에 끝난다 — `WAKE_RISE_START`(0.3, 일어나기 시작) **직전**이라
   몸이 일어설 때는 이미 다 보인다. 두 수치는 csv 가 아니라 `parts/IntroWake` 의 **연출 진행도(0..1) 위의 자리**라
   바로 위 `WAKE_RISE_START` · `CAM_*` 와 한 묶음이고, 길이는 csv 의 `TUTORIAL_INTRO_WAKE_S` 에 비례해 함께 움직인다.
   **검은 화면에 갇히는 길은 없다** — `endIntroWake` · `cancelIntroWake` **둘 다** `{opacity: 0, durationS: 0}` 으로
@@ -708,13 +713,48 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   상태 플래그는 늘리지 않았다: 경계를 지나는 프레임이 하나뿐이라 직전 · 직후 진행도 비교로 한 번만 건다.
 - **끝**: `player:introWakeDone`. `game:abort`(`resetAll`) · `game:newMission` · 사망(`die`) · 부활 · 재접속 복귀는
   `cancelIntroWake` 로 **알리지 않고** 끝낸다 (연출이 끝난 것이 아니다).
+- **2026-09-14 3차 (사용자 결정 — 「2초에 걸쳐 밝아지고 일어서기는 평소의 절반 속도」)**: 수치를 두 자리에서
+  다시 잡았다. ① `data/constants.csv` 의 `TUTORIAL_INTRO_WAKE_S` **4.5 → 9** — `WAKE_RISE_START`(0.3)가 진행도
+  위의 자리라 일어서는 구간이 3.15 → **6.3 초**, 즉 정확히 절반 속도가 된다(코드는 한 줄도 안 바뀐다).
+  ② 페이드는 **실시간**으로 잡아야 해서 `FADE_HOLD` 0.08 → **0.04**(검정 0.36 초 = 예전과 같다),
+  `FADE_DONE` 0.27 → **0.26** → 밝아지는 데 `(0.26 − 0.04) × 9 = 1.98 초` ≈ 2 초. 시각으로는
+  0.36 초까지 검정 → 2.34 초에 완전히 밝음 → 2.7 초에 일어나기 시작이라 `FADE_DONE < WAKE_RISE_START`
+  (「몸이 일어설 때는 이미 다 보인다」) 규약도 그대로다.
 - 튜토리얼 레이드에는 **헬포드가 없다** — `parts/Spawn.usesHellpod(ctx)`(훈련장 · 튜토리얼 제외) 한 곳이
   `world:ready` 와 `respawn`(체크포인트 부활)의 강하를 함께 막는다. 함선을 아직 갖지 못한 사람이 그 행성에서
   깨어나는 것이 이야기의 시작이라 떨어질 포드가 없다.
 
+## 각본 잠금 (2026-09-14 3차 — `PlayerRef.setSceneLock`, 호출자 `extraction/`)
+
+「각본이 몸을 들고 있다」를 말하는 **플래그 하나**(`PlayerSystem._sceneLock`)다. 지금 유일한 사용자는
+튜토리얼 함선의 즉시 이륙이다 (스위치를 누르면 곧장 뜨고, 그 동안 함선에서 나갈 수도 죽을 수도 없어야 한다).
+
+- **입력**: 새 잠금 경로를 만들지 않았다 — `update` 가 들고 있던 지역 변수 `waking`(오프닝 기상 연출)을
+  **`scripted = introWakeT >= 0 || _sceneLock`** 한 이름으로 합쳤을 뿐이라, 그 이름이 서 있던 자리가 그대로
+  각본 잠금의 자리다: `moveFrozen`(이동 · 점프 · 자세 · 구르기) · `rig.applyLook`(마우스 룩) · 어깨 전환 ·
+  조준 흔들림 · `setAiming` · 들쳐메기 · `updateInteraction`. 무기는 `canUseWeapons()` 에 조건 한 줄.
+- **피해**: `parts/Vitals.applyDamage` 의 **단일 입구**에서 `_roverRide` 와 같은 줄로 막는다 (총알 · 폭발 ·
+  화상 · 재해 · 산성이 전부 그 길을 지난다). 그 입구를 우회하는 갈래는 **하나뿐**이라 거기도 같이 막았다 —
+  `parts/Statuses.updateEnv`(행성 상시 환경은 실드를 건너뛰고 체력만 깎는다). 넉백(`applyKnockback`)도 같은
+  자리에서 막는다: 각본이 세워 둔 몸을 폭발이 옮기면 안 된다.
+- **카메라는 건드리지 않는다.** 지금 사용자인 이륙 연출(`extraction/Cinematic`)이 이미 들고 있다 —
+  기상 연출이 카메라를 직접 잡는 것과 다른 점이 이것 하나다.
+- **푸는 곳**: `game:abort`(`resetAll`) · `game:newMission` · `spawnStanding` · `respawnAt` · 재접속 복귀
+  (`parts/Spawn`) — 함선 복귀 · 새 미션 · 부활이 전부 지난다. 거는 쪽(`extraction`)도 흐름이 리셋되면 푼다.
+  끄기는 언제나 안전하다(플래그 하나라 되돌릴 상태가 없다).
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14 3차 (오프닝 2배 느리게 · 함선 포복 · 각본 잠금, 사용자 결정)** — 세 가지.
+  ① `TUTORIAL_INTRO_WAKE_S` 4.5 → 9 + `parts/IntroWake` 의 `FADE_HOLD` 0.08 → 0.04 · `FADE_DONE` 0.27 → 0.26
+  (밝아지는 데 약 2 초 · 일어서기 절반 속도, 위 *오프닝 기상 연출* 절).
+  ② `PlayerSystem.update` 의 `allowProne` 게이트에서 `hub` 예외 제거 — 함선에서도 Z 로 엎드린다
+  (위 *Hub & interiors* 의 Gating 줄). 달리기 · 구르기의 hub 규칙은 그대로다.
+  ③ `PlayerRef.setSceneLock` 구현 (위 *각본 잠금* 절) — `_sceneLock` 플래그 · `update` 의 `waking` → `scripted`
+  개명 · `canUseWeapons` 한 줄 · `Vitals.applyDamage` / `Vitals.applyKnockback` / `Statuses.updateEnv` 한 줄씩 ·
+  리셋 경로 4곳. 검증: `npm run typecheck` · `npm run data:check` 통과.
 
 - **2026-09-14 2차 (오프닝 페이드 인–아웃, 사용자 결정)** — `parts/IntroWake` 한 파일. `playIntroWake` 가 `ui:screenFade
   {opacity:1, durationS:0}` 로 검정을 깔고, `updateIntroWake` 가 진행도 `FADE_HOLD` → `FADE_DONE` 구간에 한 번

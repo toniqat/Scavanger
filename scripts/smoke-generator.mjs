@@ -4,7 +4,9 @@
 //      `getOperationalBenchLevel` · `benchOperationalBlock`)이 `ctx.housing` 에 없다 · 남은 질의(`furnitureOperationalBlock` · `stationNow`) ·
 //      새 함선 = v13 · 발전기 Lv.1 · 최대 Lv.5 (= constants.csv) · 전력 필드(`powerAlloc` · `pausedAt` · `disabledFurniture`) 없음.
 //   1. 증축 게이트: 발전기 Lv.1–5 × 지을 수 있는 용도 — `purposeGeneratorLevel` = room_purposes.csv `generator` · `purposeBlock` 에
-//      `발전기 레벨 N 필요 (현재 M)` 가 레벨이 모자랄 때만 · `purposeRequirements` 가 같은 답 · 온실 선행(연구실 · 주방) ·
+//      `발전기 레벨 N 필요 (현재 M)` 가 레벨이 모자랄 때만 · `purposeRequirements` 는 **채워진 요구도** 돌려준다
+//      (2026-09-14 — 재료 칩처럼 `현재/필요`; 빈 배열은 요구가 시작 레벨 이하일 때뿐) · 온실 선행(`Rules.NEEDS_GREENHOUSE`,
+//      2026-09-14 부터 빈 배열이라 검사가 저절로 지나간다) ·
 //      레벨을 올려 가며 실제 `setRoomPurpose` — 열리기 전 거절 · 열린 뒤 성공 + csv 증축 재료 소모 · 함선당 하나.
 //   2. 가구 · 창고 강화는 여전히 발전기 게이트: 총기 작업대 Lv.1 → 2 (발전기 1 막힘 · 2 풀림) · 창고 Lv.2 (발전기 1 막힘 · 2 에서 강화).
 //   3. 발전기 강화 1 → 2 = facility_upgrades.csv `generator,2` 재료를 정확히 소모 · Lv.5 에서 nextCost null · 거절.
@@ -12,7 +14,8 @@
 //      전력 필드) → 온실 유지 · 연구실 · 서재 빈 방 · 가구는 가구 창고 · 환불 = 두 방 증축 재료 + 책 + 표본 · `removedByGenerator` 2 ·
 //      전력 필드 없음 · 한 번 더 읽어도 아무것도 안 바뀐다.
 //   5. `furnitureOperationalBlock`: 메인 컴퓨터 없는 연산 클러스터만 사유, 컴퓨터를 놓으면 null · 작업대는 늘 null · `stationNow` = `nowMs`.
-//   6. 화면: 시설 관리 발전기 행 `.sm-gen-unlock[data-level=2..5]` (`is-open` · `is-next`) · 버튼 `업그레이드` / `최대` · `is-hint` 없음 ·
+//   6. 화면: 시설 관리 발전기 행 — 버튼 `업그레이드` / `최대` · `is-hint` 없음 · **레벨별 해금 목록(`.sm-gen-unlock`)은 없다**
+//      (2026-09-14 — 대신 빈 방의 용도 지정 카드마다 `buildFacilityChip` 발전기 칩이 `현재/필요` · 모자라면 `.is-short`) ·
 //      `.sm-pw*` · `.is-unpowered` 없음 · 재배 스테이션 화면에 `.hpw-toggle` · `.hpw-banner` 없음 · 전력 이벤트가 한 번도 나지 않는다.
 //   7. 진짜 로드 경로: 4번의 v12 세이브를 localStorage 에 쓰고 새로고침 → 토스트 `발전기 레벨이 모자란 시설 2곳을 제거했습니다` ·
 //      환불이 함선 창고에 들어온다 · 가구 창고 · 방 상태.
@@ -216,7 +219,10 @@ try {
     const bad = gate.rows.filter((r) => r.L === L).filter((r) => {
       const need = CSV_PURPOSE[r.p].gen;
       const text = `발전기 레벨 ${need} 필요 (현재 ${L})`;
-      const wantReq = L < need ? [{ facility: 'generator', have: L, need }] : [];
+      // 2026-09-14 (사용자 결정 — 「재료 썸네일에 발전기 레벨 썸네일을 표시」): `purposeRequirements` 는 이제
+      // **채워진 요구도** 돌려준다(재료 칩처럼 `현재/필요` 를 늘 보여 준다). 빈 배열은 「요구가 시작 레벨 이하」
+      // 뿐이다 — 막는지 여부는 예전대로 `purposeBlock` 이 답한다.
+      const wantReq = need <= CSV_CONST.GENERATOR_START_LEVEL ? [] : [{ facility: 'generator', have: L, need }];
       if (!same(r.req, wantReq)) return true;
       return L < need ? r.block !== text : r.block !== null;
     });
@@ -281,7 +287,9 @@ try {
     }, bench.uid);
     ok(fu.lv === 1 && fu.b1 === '발전기 레벨 2 필요 (현재 1)' && same(fu.q1, [{ facility: 'generator', have: 1, need: 2 }]) && fu.u1 === false && fu.lvAfter1 === 1,
       `총기 작업대 Lv.1 · 발전기 1 → 「${fu.b1}」 · 강화 거절`, JSON.stringify(fu));
-    ok(!/발전기/.test(fu.b2 ?? '') && same(fu.q2, []), `발전기 2 → 발전기 사유 없음 (${fu.b2 ?? 'null'})`, JSON.stringify(fu));
+    // 2026-09-14: 채워진 요구도 칩으로 보여 주므로 `q2` 는 `2/2` 다 — 「막히지 않는다」는 사유(`b2`)가 말한다
+    ok(!/발전기/.test(fu.b2 ?? '') && same(fu.q2, [{ facility: 'generator', have: 2, need: 2 }]),
+      `발전기 2 → 발전기 사유 없음 · 요구 칩은 2/2 (${fu.b2 ?? 'null'})`, JSON.stringify(fu));
   } else note(`총기 작업대를 놓지 못했다 — ${JSON.stringify(bench)}`);
 
   const shortS = await giveMats({ mat_scrap: 20, mat_alloy: 4 });
@@ -450,48 +458,76 @@ try {
 
   /* ══ 6. 화면 ══════════════════════════════════════════════════════════════ */
   console.log('화면 — 시설 관리 발전기 행 · 재배 스테이션');
+  /* 2026-09-14 (사용자 결정): 발전기 행의 **레벨별 해금 목록**(`.sm-gen-unlocks` / `.sm-gen-unlock`)은 없어졌다 —
+     다섯 줄짜리 표가 방 목록을 밀어냈다. 같은 정보는 **용도 지정 카드의 발전기 칩**(`buildFacilityChip` —
+     재료 칩과 같은 줄에 `현재/필요`, 모자라면 `.is-short`)이 그 용도를 고르는 자리에서 말한다.
+     그래서 여기서는 ① 목록이 정말 사라졌는지 ② 빈 방의 용도 카드마다 칩이 room_purposes.csv 의 `generator` 를
+     그대로 적는지를 본다. 카드는 **이미 지은 용도를 아예 그리지 않으므로**(`builtElsewhere`) 읽는 동안만
+     방 용도를 비워 두고 원래대로 되돌린다 (가구는 건드리지 않는다). */
   const ui = await H(async ({ room }) => {
     const h = window.__game.ctx.housing;
     const wait = (ms = 80) => new Promise((r) => setTimeout(r, ms));
-    const read = () => {
+    const readGen = () => {
       const g = document.querySelector('.ship-manage .sm-gen');
       return {
         gen: !!g, hint: !!g?.classList.contains('is-hint'),
         btn: g?.querySelector('.sm-gen-btn')?.textContent ?? null,
-        rows: [...(g?.querySelectorAll('.sm-gen-unlocks .sm-gen-unlock') ?? [])].map((x) => ({
-          lv: x.dataset.level, open: x.classList.contains('is-open'), next: x.classList.contains('is-next'), text: x.textContent,
-        })),
+        unlocks: document.querySelectorAll('.ship-manage .sm-gen-unlock, .ship-manage .sm-gen-unlocks').length,
       };
     };
+    const readPurposes = () => [...document.querySelectorAll('.ship-manage .sm-purpose[data-purpose]')].map((b) => ({
+      p: b.dataset.purpose,
+      blocked: b.classList.contains('is-blocked'),
+      chips: [...b.querySelectorAll('.facility-chip')].map((c) => ({
+        have: Number(c.querySelector('.facility-chip-have')?.textContent),
+        need: Number(c.querySelector('.facility-chip-need')?.textContent),
+        short: c.classList.contains('is-short'),
+      })),
+    }));
+    const saved = h.state.rooms.map((r) => ({ purpose: r.purpose, level: r.level }));
+    const r = {};
     h.state.generatorLevel = 3;
     h.changed('smoke');
-    const r = { manage: h.openShipManage(room) };
+    r.manage = h.openShipManage(room);
     await wait();
-    r.at3 = read();
+    r.at3 = readGen();
     r.pw = document.querySelectorAll('[class*="sm-pw"]').length;
     r.unpowered = document.querySelectorAll('.is-unpowered').length;
     h.state.generatorLevel = 5;
     h.changed('smoke');
     await wait();
-    r.at5 = read();
+    r.at5 = readGen();
     h.state.generatorLevel = 1;
     h.changed('smoke');
     await wait();
-    r.at1 = read();
+    r.at1 = readGen();
+    // 빈 방의 용도 지정 카드 — 발전기 Lv.3 에서 칩이 `현재/필요` 를 적는다
+    h.state.rooms.forEach((x) => { x.purpose = 'empty'; x.level = 0; });
+    h.state.generatorLevel = 3;
+    h.changed('smoke');
+    const free = h.state.rooms.findIndex((x) => x.purpose === 'empty');
+    h.openShipManage(free);
+    await wait(120);
+    r.purposes = readPurposes();
     h.closeShipManage();
+    saved.forEach((s, i) => { h.state.rooms[i].purpose = s.purpose; h.state.rooms[i].level = s.level; });
     h.state.generatorLevel = 5;
     h.changed('smoke');
     return r;
   }, { room: ROOM.workshop ?? 0 });
-  const rowsOk = (rows, level) => same(rows.map((x) => x.lv), ['2', '3', '4', '5'])
-    && rows.every((x) => x.open === (Number(x.lv) <= level) && x.next === (Number(x.lv) === level + 1));
   ok(ui.manage && ui.at3.gen && !ui.at3.hint && ui.at3.btn === '업그레이드', `시설 관리 발전기 행 (Lv.3): 버튼 「${ui.at3.btn}」 · is-hint 없음`, JSON.stringify(ui.at3));
-  ok(rowsOk(ui.at3.rows, 3), `Lv.3: .sm-gen-unlock 2·3 = is-open · 4 = is-next · 5 = 잠김 (${ui.at3.rows.map((x) => `${x.lv}:${x.text}`).join(' / ')})`, JSON.stringify(ui.at3.rows));
-  const purposeNames = await H(async () => { const SH = await import('/src/shared/index.ts'); return SH.ROOM_PURPOSE_LABEL_KO; });
-  const namesOk = ui.at3.rows.every((x) => Object.entries(CSV_PURPOSE).filter(([p, d]) => d.gen === Number(x.lv) && gate.assignable.includes(p)).every(([p]) => x.text.includes(purposeNames[p])));
-  ok(namesOk, '각 레벨 줄이 그 레벨에서 열리는 용도 이름을 적는다 (room_purposes.csv generator)');
-  ok(ui.at5.btn === '최대' && rowsOk(ui.at5.rows, 5), `Lv.5: 버튼 「${ui.at5.btn}」 · 네 줄 모두 is-open · is-next 없음`, JSON.stringify(ui.at5));
-  ok(ui.at1.btn === '업그레이드' && rowsOk(ui.at1.rows, 1), `Lv.1: 2 = is-next · 나머지 잠김`, JSON.stringify(ui.at1.rows));
+  ok(ui.at3.unlocks === 0 && ui.at5.unlocks === 0 && ui.at1.unlocks === 0,
+    `발전기 행에 레벨별 해금 목록(.sm-gen-unlock)이 없다 (2026-09-14)`, JSON.stringify({ at1: ui.at1, at3: ui.at3, at5: ui.at5 }));
+  ok(ui.at5.btn === '최대' && ui.at1.btn === '업그레이드', `Lv.5 버튼 「${ui.at5.btn}」 · Lv.1 버튼 「${ui.at1.btn}」`, JSON.stringify(ui));
+  const chipBad = (ui.purposes ?? []).filter((row) => {
+    const need = CSV_PURPOSE[row.p]?.gen;
+    if (!need) return true;
+    const want = need <= CSV_CONST.GENERATOR_START_LEVEL ? [] : [{ have: 3, need, short: 3 < need }];
+    return !same(row.chips, want);
+  });
+  ok((ui.purposes ?? []).length === gate.assignable.length && chipBad.length === 0,
+    `용도 지정 카드마다 발전기 칩이 「현재 3 / 필요 n」 (모자라면 is-short) — ${(ui.purposes ?? []).map((r) => `${r.p}:${r.chips.map((c) => `${c.have}/${c.need}${c.short ? '!' : ''}`).join('') || '없음'}`).join(' ')}`,
+    JSON.stringify(chipBad));
   ok(ui.pw === 0 && ui.unpowered === 0, `전력 패널 흔적 없음 (.sm-pw* ${ui.pw} · .is-unpowered ${ui.unpowered})`);
 
   const gs = ROOM.greenhouse !== undefined ? await placeFurn(ROOM.greenhouse, 'furn_grow_station') : { err: 'no greenhouse room' };

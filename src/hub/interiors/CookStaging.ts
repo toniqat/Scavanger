@@ -9,7 +9,12 @@ import { BEAKER_IDLE_LEVEL, COOK_TOOLS, cookToolTarget, liquidMat, poseCookKnife
  * 조리 연출 (2026-09-13, 요리 미니게임 — docs/plans/cooking-minigames.md §6-4). `GymStaging` 을 본뜬다.
  *
  *   housing:cookSession {active:true}  → 그 조리대 앞 바닥 anchor · 조리대를 보는 yaw · 어깨 너머 고정 카메라
- *                                         → setFurniturePose({kind:'cook'}) (false 면 cancelCook)
+ *                                         → setFurniturePose({kind:'cook'})
+ *
+ * **2026-09-14 (사용자 결정): 연출을 못 걸어도 미니게임은 진행한다.** 예전에는 조리대 조각에 `model.cook` 이 없거나 `setFurniturePose`
+ * 가 false 면 `cancelCook()` 을 같은 호출 스택에서 불러 **세션이 그 자리에서 죽었다** — `startCook` 이 `beginSteps()` 까지 못 가서
+ * 「화면만 뜨고 단계가 시작되지 않는」 것이 그것이다. 이제 연출만 포기하고(`held` false) housing 은 건드리지 않는다. 세션을 거두는 것은
+ * **우리가 실제로 건 자세가 남의 손에 풀렸을 때**뿐이다.
  *   housing:cookStep                   → 지금 단계 게임의 도구(도마 · 그릴 팬 · 웍 · 냄비 · 비커)가 작업 자리로 나온다 (`CookRig`)
  *   housing:cookBeat                   → 손 동작 누적 위상: 썰기 · 다지기 · 볶기 = 입력마다 **한 주기**를 빠르게 (칼이 위 → 도마 → 위,
  *                                         웍은 튕긴다), 젓기 = `stir` 가 오는 동안 연속으로 돈다, 굽기 · 붓기 · 단계 사이 = 느린 흔들림.
@@ -146,6 +151,8 @@ export class CookStaging {
   game: CookGame | null = null;
   /** 조리가 끝나 도구가 제자리로 돌아가는 중인 조리대. */
   private settleUid: string | null = null;
+  /** 우리가 건 조리 자세가 지금 걸려 있다 (2026-09-14 — 못 걸었어도 미니게임은 돈다). */
+  private held = false;
   private releasing = false;
   private readonly unsubs: Array<() => void> = [];
   private clock = 0;
@@ -171,8 +178,8 @@ export class CookStaging {
       b.on('housing:cookStep', (e) => this.onStep(e.uid, e.index, e.game, e.phase, e.auto)),
       b.on('housing:cookBeat', (e) => this.onBeat(e.uid, e.action)),
       b.on('player:furniturePoseEnded', (e) => {
-        // 조리 자세가 우리 손을 거치지 않고 풀렸다 (페이즈 변경 · 스폰 · hub:left 의 reset) → 미니게임도 거둔다
-        if (!this.uid || this.releasing || e.kind !== 'cook') return;
+        // **우리가 건** 조리 자세가 우리 손을 거치지 않고 풀렸다 (페이즈 변경 · 스폰 · hub:left 의 reset) → 미니게임도 거둔다
+        if (!this.uid || !this.held || this.releasing || e.kind !== 'cook') return;
         this.stop(false);
         this.cancelHousing();
       }),
@@ -198,7 +205,8 @@ export class CookStaging {
     if (this.uid && this.uid !== uid) this.stop(true);
     const piece = this.find(uid);
     const rig = piece?.model.cook;
-    if (!piece || !rig) { this.cancelHousing(); return; }
+    // 조리대 조각이 없거나 조리 rig 가 없다 — **연출만 없이** 미니게임은 그대로 돈다 (2026-09-14, 사용자 결정)
+    if (!piece || !rig) { this.held = false; return; }
     const fresh = this.uid !== uid;
     if (fresh) {
       // 다른 조리대가 제자리로 돌아가던 중이면 그 자리에 박고, 같은 조리대면 지금 미끄러지던 자리에서 이어 간다
@@ -213,13 +221,15 @@ export class CookStaging {
     }
     const p = this.ctx.player;
     if (!p || typeof p.setFurniturePose !== 'function') return;   // player 가 아직 자세를 모른다 — 미니게임은 그대로 둔다
-    if (!fresh && p.furniturePose === 'cook') return;              // 같은 세션을 다시 알렸다 — 다시 걸면 풀 때 돌아갈 자리가 조리대 앞이 된다
+    if (!fresh && this.held && p.furniturePose === 'cook') return; // 같은 세션을 다시 알렸다 — 다시 걸면 풀 때 돌아갈 자리가 조리대 앞이 된다
     const pose = cookPoseOf(piece, this.blockers(uid));
     let ok = false;
     // 우리 호출 안에서 나오는 자세 끝 알림(앉아 있던 흔들의자 · 이전 자세)은 우리 것이다
     this.releasing = true;
     try { ok = pose !== null && p.setFurniturePose(pose); } catch (err) { console.warn('[hub] setFurniturePose(cook) failed', err); } finally { this.releasing = false; }
-    if (!ok) { this.stop(false); this.cancelHousing(); }
+    // 자세를 거절당해도 **미니게임은 진행한다** (2026-09-14, 사용자 결정) — 도구 연출만 그대로 돌고 몸은 서 있는다
+    this.held = ok;
+    if (!ok) console.warn('[hub] 조리 자세를 걸지 못했다 — 연출 없이 미니게임만 진행한다');
   }
 
   private onStep(uid: string, index: number, game: CookGame, phase: 'choose' | 'play' | 'done', auto: boolean): void {
@@ -333,7 +343,9 @@ export class CookStaging {
     this.stepIndex = -1; this.stirUntil = -1; this.pouring = false; this.hop = 1;
     this.liquid = null; this.level = BEAKER_IDLE_LEVEL;
     this.settleUid = uid;
-    if (!release) return;
+    const wasHeld = this.held;
+    this.held = false;
+    if (!release || !wasHeld) return;
     const p = this.ctx.player;
     if (!p || typeof p.setFurniturePose !== 'function' || p.furniturePose !== 'cook') return;
     this.releasing = true;

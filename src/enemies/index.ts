@@ -1,6 +1,6 @@
 export { EnemySystem } from './EnemySystem';
 export { Enemy, type EnemyState, type HitPart, type EnemyHost } from './Enemy';
-export { ENEMY_STATS, ALL_ENEMY_TYPES, HUNTER_LEAP, SPEWER_SPIT, CHARGER_CHARGE, ROGUE_AI, ARTILLERY_AI, TOXIC_AI, BEHEMOTH_AI, isRogueType, type EnemyStats, type BugType } from './EnemyTypes';
+export { ENEMY_STATS, ALL_ENEMY_TYPES, HUNTER_LEAP, SPEWER_SPIT, CHARGER_CHARGE, ROGUE_AI, ARTILLERY_AI, TOXIC_AI, BEHEMOTH_AI, isRogueType, baseTypeOf, isTutorialEnemyType, TUTORIAL_ENEMY_BASE, type EnemyStats, type BugType, type TutorialEnemyType } from './EnemyTypes';
 export { BUG_PARAMS, type BugParams } from './models/BugParams';
 export { createBugRig, disposeBugRig, animateBug, createBugAnim, disposeBugAssets, type BugRig, type BugAnim } from './models/BugModel';
 export { createRogueRig, disposeRogueRig, animateRogue, disposeRogueAssets, ROGUE_RIG_PARAMS, type RogueRig, type RogueType } from './models/RogueModel';
@@ -11,7 +11,7 @@ export {
   MAX_ARTILLERY, MAX_BEHEMOTH, ambientCap, ecoAllows, maxArtilleryOf, maxBehemothOf, type SpawnHost,
 } from './Spawner';
 export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
-export { placeTutorialEnemies, tutorialHold, type TutorialPlacement } from './Tutorial';
+export { placeTutorialEnemies, tutorialHold, updateTutorialAmbush, type TutorialAmbush, type TutorialPlacement } from './Tutorial';
 export { RogueDropDirector, disposeRogueDropAssets, type RogueDropHost } from './RogueDrop';
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';

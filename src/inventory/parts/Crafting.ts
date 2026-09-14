@@ -64,6 +64,23 @@ export function currentStation(sys: InventorySystem): CraftStation {
   }
 
 /**
+ * **2026-09-14 (사용자 결정) — 함선에서는 제작 재료를 함선 창고에서도 꺼내 쓴다.**
+ *
+ * 이 파일 머리에 처음부터 적혀 있던 규칙(「레이드에서는 가방만, 함선에서는 가방 + 함선 창고」)이 **아이템 제작에만
+ * 빠져 있었다**: `canCraft` · `maxCraftCount` · 소비 · UI 칩이 전부 `countDef`(= 가방 + 주머니 + 퀵슬롯)만 봐서,
+ * 수확물 · 분해 산출물이 창고에 쌓여 있는데도 작업대가 「재료 부족」이라고 했다. 가구 제작(`housing`)과
+ * 조리(`completeCook`)는 이미 `countDefAll` / `consumeDefAll` 이다 — 그 둘과 같은 범위가 됐다.
+ *
+ * 게이트는 **수리와 같은 「함선인가」 판정 하나**다 (`currentStation` — `benchRepairRows` 가 쓰는 `isRaidActive`).
+ * 레이드 현장의 빠른제작(`station: 'field'`)은 창고에 손댈 수 없으므로 예전처럼 가방만 센다.
+ *
+ * 세는 곳과 빼는 곳이 어긋나면 홀드 끝에서만 실패하므로, **세는 쪽은 여기 하나**이고 빼는 쪽은 `consumeFor` 하나다.
+ */
+export function craftCountDef(sys: InventorySystem, defId: string): number {
+  return sys.currentStation() === 'ship' ? sys.countDefAll(defId) : sys.countDef(defId);
+  }
+
+/**
  * Open the craft panel in bench mode (ship only): recipes of `getRecipes('ship', bench, level)` + locked rows for
  * the bench's higher-level recipes, workshop cost discount, and the repair list of the gear that bench services.
  */
@@ -141,9 +158,13 @@ export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRe
   if (sys.ctx.isRaidActive()) return [];
   const wants = (def: ItemDef): boolean => isWeaponItemDef(def) || def.category === 'armor' || def.category === 'bag';
   const rows: BenchRepairRow[] = [];
+  /** 이미 실은 스택 (같은 아이템이 두 출처에서 두 번 들어오지 않게 — 장비칸 · 가방 · 퀵슬롯 · 주머니). */
+  const seen = new Set<string>();
   const push = (item: ItemInstance, where: LoadoutSlot | null): void => {
+    if (seen.has(item.uid)) return;
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def || !wants(def)) return;
+    seen.add(item.uid);
     const dur = sys.getDurability(item.uid);
     if (!dur || dur.max <= 0) return;
     if (wornOnly && dur.durability >= dur.max) return;
@@ -158,6 +179,14 @@ export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRe
   };
   for (const slot of LOADOUT_SLOTS) { const it = sys.loadout[slot]; if (it) push(it, slot); }
   for (const p of sys.bag.items()) push(p.item, null);
+  /*
+   * 2026-09-14 (사용자 결정): 수리 범위는 **몸에 지닌 것 전부** — 장비칸 + 가방 격자 + **퀵슬롯 + 주머니**다.
+   * `countWhere` 가 재료를 셀 때 보는 범위와 같은 셋이고, 「퀵슬롯은 가방 격자가 아니다」(2026-09-09) ·
+   * 「주머니는 가방 격자가 아니다」(2026-09-11 A-15) 이후로 이 목록만 그 둘을 못 보고 있었다.
+   * **함선 창고는 제외**한다 — 수리는 들고 나갈 장비를 손보는 일이다.
+   */
+  for (const it of sys.pouchItems()) push(it, null);
+  for (const it of sys.quickItems()) push(it, null);
   return rows;
   }
 
@@ -270,7 +299,8 @@ export function canCraft(sys: InventorySystem, recipeId: string, count = 1): boo
   const n = normCount(count);
   // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계의 레시피만 (꺼져 있으면 언제나 null)
   if (sys.ctx.tutorial?.blockReason('craft', recipeId)) return false;
-  return sys.craftCost(r).every((i) => sys.countDef(i.defId) >= i.qty * n);
+  // 2026-09-14: 함선이면 가방 + 함선 창고 (`craftCountDef`) — 레이드 현장의 빠른제작은 그대로 가방만이다
+  return sys.craftCost(r).every((i) => sys.craftCountDef(i.defId) >= i.qty * n);
   }
 
 /** `count` as the job stores it: an integer ≥ 1 (NaN / 0 / negatives read as 1). */
@@ -287,7 +317,8 @@ export function maxCraftCount(sys: InventorySystem, recipeId: string): number {
   const r = getRecipe(recipeId);
   if (!r) return 1;
   let max = Infinity;
-  for (const i of sys.craftCost(r)) max = Math.min(max, Math.floor(sys.countDef(i.defId) / Math.max(1, i.qty)));
+  // 2026-09-14: `canCraft` 와 **같은 범위**로 센다 (함선 = 가방 + 함선 창고) — 어긋나면 ▶ 가 올라가고 홀드가 실패한다
+  for (const i of sys.craftCost(r)) max = Math.min(max, Math.floor(sys.craftCountDef(i.defId) / Math.max(1, i.qty)));
   return Number.isFinite(max) ? Math.max(1, max) : 1;
   }
 
@@ -372,8 +403,9 @@ function dryPlace(g: DryGrid, def: ItemDef): boolean {
  * 물건을 함선에서만 창고로 보내는 규칙 자체는 `InventorySystem.throwToWorld` 가 이미 쓰던 것이고, 여기서는 그것을
  * "누르기 전에" 보는 검사로 옮겼을 뿐이다. 레이드 중에는 창고가 없으므로 예전처럼 가방만 본다.
  *
- * (재료 쪽은 그대로 **가방만** 본다 — `canCraft` → `countDef` → `countWhere`. 가방 + 창고를 함께 쓰는 것은
- * 가구 제작 · 시설 업그레이드(`housing/`, `countDefAll`) 쪽이고, 아이템 레시피는 예전부터 가방이었다.)
+ * (재료 쪽은 **2026-09-14 부터 산출물과 같은 범위**다 — 함선이면 가방 + 함선 창고(`craftCountDef` · `consumeFor`),
+ * 레이드 현장의 빠른제작은 가방만. 그 전까지는 재료만 가방이라, 창고에 재료를 쌓아 두고도 작업대가 「재료 부족」
+ * 이라고 했다. 가구 제작 · 시설 업그레이드(`housing/`)와 조리(`completeCook`)는 처음부터 `countDefAll` 이었다.)
  *
  * 한 덩어리(`stackMax` 이하)가 지나가는 길은 `addUnits` 와 글자 그대로 같다: 가방 스택에 합치기 → 가방 빈칸 →
  * (넘쳤으면) 창고 스택에 합치기 → 창고 빈칸.
@@ -455,6 +487,10 @@ export function craftProgress(sys: InventorySystem): { recipeId: string; progres
 /**
  * Consume `qty` of `defId`, taking the 분해 target stack first when it matches (2026-09-08). Returns false when the
  * bag could not cover the rest — the caller has already checked `canCraft`, so this is a safety net only.
+ *
+ * **2026-09-14 (사용자 결정)**: 함선에서는 남은 몫을 **가방 먼저 → 함선 창고**(`consumeDefAll`)에서 뺀다 —
+ * `craftCountDef` 가 세는 범위와 같아야 하고, 순서는 조리(`completeCook`)가 쓰던 그 헬퍼 그대로다.
+ * 레이드 현장의 빠른제작은 예전처럼 `consumeDef`(가방 · 주머니 · 퀵슬롯)뿐이다.
  */
 function consumeFor(sys: InventorySystem, defId: string, qty: number, targetUid?: string): boolean {
   let left = Math.max(0, Math.floor(qty));
@@ -462,7 +498,8 @@ function consumeFor(sys: InventorySystem, defId: string, qty: number, targetUid?
     const target = sys.findItem(targetUid);
     if (target?.defId === defId) left -= sys.consumeItem(targetUid, left);
   }
-  return left <= 0 || sys.consumeDef(defId, left);
+  if (left <= 0) return true;
+  return sys.currentStation() === 'ship' ? sys.consumeDefAll(defId, left) : sys.consumeDef(defId, left);
 }
 
 export function updateCraft(sys: InventorySystem, dt: number): void {

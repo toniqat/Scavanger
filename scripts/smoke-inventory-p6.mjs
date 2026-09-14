@@ -437,8 +437,11 @@ try {
     return {
       open: i.isOpen, hidden: panel.hidden, blockers: [...ctx.uiBlockers], title: panel.querySelector('.inv-title').textContent,
       rows, expectOpen, expectLocked, lockTags: panel.querySelectorAll('.inv-craft-locktag').length,
-      // 2026-09-08: 수리 목록은 패널 아래가 아니라 헤더의 `모두 수리` 가 여는 모달 팝업이다
-      repairShown: !panel.querySelector('.inv-repair-open').hidden,
+      // 2026-09-08: 수리 목록은 패널 아래가 아니라 `모두 수리` 가 여는 모달 팝업이다.
+      // 2026-09-14 (사용자 결정): 그 버튼이 **작업대 헤더 → 가방 필터 칩 줄 맨 왼쪽**(`.inv-repair-open-btn`,
+      // `.inv-bag-tools` 안)으로 옮겼다 — 그래서 창(document) 기준으로 찾는다. ⚠ `.inv-repair-all` 은
+      // `RepairPanel` 팝업의 실행 버튼이 이미 쓰는 다른 이름이다.
+      repairShown: !document.querySelector('.inv-repair-open-btn').hidden,
       timeChips: panel.querySelectorAll('.inv-craft-chip.is-time').length,
       hold: i.craftDuration(expectOpen[0] ?? 'make_wpn_ar'),
       anyGunRecipes: all.some((r) => r.bench === 'gun'),
@@ -451,7 +454,7 @@ try {
   ok(openIds.length === bench.expectOpen.length && bench.expectOpen.every((id) => openIds.includes(id)), `${openIds.length} craftable rows = getRecipes('ship','gun',2)`);
   ok(lockedIds.length === bench.expectLocked.length && bench.expectLocked.every((id) => lockedIds.includes(id)) && bench.lockTags === lockedIds.length, `${lockedIds.length} locked level-3 rows (${lockedIds.join(', ') || 'none defined yet'})`);
   ok(!openIds.some((id) => bench.expectLocked.includes(id)), 'no level-3 recipe is craftable at level 2');
-  ok(bench.repairShown, '총기 작업대 헤더에 `모두 수리` 버튼이 있다 (하단 수리 목록은 사라졌다)');
+  ok(bench.repairShown, '가방 필터 줄에 `모두 수리` 버튼이 있다 (2026-09-14 — 작업대 헤더에서 옮겨 왔다)');
   // 2026-09-08: 모든 레시피가 같은 1 초 홀드 — 시간 칩은 더 이상 그리지 않는다
   ok(bench.hold === 1 && bench.timeChips === 0, `제작 홀드는 레시피와 무관하게 1 s (${bench.hold} s, 시간 칩 ${bench.timeChips}개)`);
   // cost multiplier: stub a workshop discount and check the chips + consumption
@@ -479,7 +482,7 @@ try {
     i.tryAddItem(ctx.loot.createItem('mat_alloy', 20));
     const l = i.getLoadout();
     if (l.primary2) i.updateItem(l.primary2.uid, { durability: 40 });
-    document.querySelector('.inv-repair-open').click();
+    document.querySelector('.inv-repair-open-btn').click();
     return { p1: l.primary.uid, p2: l.primary2 ? l.primary2.uid : null };
   });
   void dmg;
@@ -532,7 +535,7 @@ try {
     const ui = window.__game.getSystem('inventory')['ui'];
     ui.repair.close();
     const closed = document.querySelector('.inv-modeless-repair').hidden && document.querySelector('.inv-rep-scrim').hidden;
-    document.querySelector('.inv-repair-open').click();
+    document.querySelector('.inv-repair-open-btn').click();
     const excl = document.querySelectorAll('.inv-modeless-repair .inv-repair-row.is-excluded').length;
     ui.repair.close();
     return { closed, excl };
@@ -545,19 +548,18 @@ try {
     window.__game.getSystem('inventory')['ui'].refreshCraft();
     const t1 = document.querySelector('.inv-panel-craft .inv-title').textContent;
     const rows = window.__game.getSystem('inventory').benchRepairRows().map((r) => r.def.name);
-    const gearBtn = !document.querySelector('.inv-repair-open').hidden;
+    const gearBtn = !document.querySelector('.inv-repair-open-btn').hidden;
     i.openBenchCraft('gadget', 1);
     window.__game.getSystem('inventory')['ui'].refreshCraft();
     const t2 = document.querySelector('.inv-panel-craft .inv-title').textContent;
-    return { t1, rows, t2, gearBtn, gadgetBtn: !document.querySelector('.inv-repair-open').hidden };
+    return { t1, rows, t2, gearBtn, gadgetBtn: !document.querySelector('.inv-repair-open-btn').hidden };
   });
   ok(gear.t1 === '장비 작업대 Lv.1' && gear.gearBtn && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repairs no weapons (${gear.rows.join(', ') || 'empty'})`);
   /* 2026-09-12 (정비 벤치 은퇴): 여기는 예전에 `gadget bench has no 수리 button` 이었다. 정비 벤치 가구가
      사라지면서 "어느 작업대냐" 가 수리의 조건이 아니게 됐고(`parts/Crafting.benchRepairRows` — 함선이면
-     무기 · 방탄복 · 가방 전부, 레이드 중에는 빈 목록), `모두 수리` 를 여는 자리는 제작 패널 헤더 **하나뿐**이라
-     가젯 작업대에서만 숨기면 그 창을 연 사람에게는 수리 입구가 통째로 사라진다. 그래서 함선에서는 어느
-     작업대 창에서도 뜨는 것이 맞다 — 검사를 뒤집는다. */
-  ok(gear.t2 === '가젯 작업대 Lv.1' && gear.gadgetBtn, '가젯 작업대에도 `모두 수리` 가 있다 (함선이면 어느 작업대에서든 수리)');
+     무기 · 방탄복 · 가방 전부, 레이드 중에는 빈 목록), 함선에서는 어느 작업대 창에서도 뜨는 것이 맞다.
+     2026-09-14: 버튼이 아예 작업대 헤더를 떠나 **가방 필터 줄**에 산다 — 작업대와 무관하다는 것이 더 분명해졌다. */
+  ok(gear.t2 === '가젯 작업대 Lv.1' && gear.gadgetBtn, '가젯 작업대에서도 `모두 수리` 가 보인다 (버튼은 가방 줄에 있다)');
 
   /* ── 2026-09-10 (제작 대개편 2단계): 가공 작업대 · 작업대 목록 ───────────
      2026-09-12 (사용자 결정): 가로 탭 줄(`.inv-craft-tabs` + `전체` 탭)이 **맨 왼쪽 세로 작업대 리스트**
@@ -686,8 +688,20 @@ try {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     i.consumeWhere((d) => d.id === 'ammo_light', 9999);
     i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
-    const ammo = ctx.loot.createItem('ammo_light', 60);
+    /* 수량은 `data/salvage.csv` 에서 유도한다 (2026-09-14 탄약 밸런스로 한 번에 뜯는 발수가 바뀌었다) —
+       한 번 뜯고도 두 번째 홀드를 시작할 수 있도록 두 번분을 만든다. */
+    const rec = ctx.loot.getAllRecipes().find((r) => r.id === 'break_ammo_light');
+    const need = rec?.inputs?.[0]?.qty ?? 40;
+    const powderOut = (rec?.outputDefId === 'mat_gunpowder' ? rec.outputQty : rec?.extraOutputs?.find((o) => o.defId === 'mat_gunpowder')?.qty) ?? 1;
+    const stackMax = ctx.loot.getItemDef('ammo_light')?.stackMax ?? need;
+    const ammo = ctx.loot.createItem('ammo_light', Math.min(stackMax, need));
     i.tryAddItem(ammo);
+    // 한 스택에 두 번분이 안 들어가면(`stackMax`) 스택을 더 쌓는다 — 재료는 가방 + 창고 합계로 센다
+    while (i.countWhere((d) => d.id === 'ammo_light') < need * 2) {
+      const extra = ctx.loot.createItem('ammo_light', Math.min(stackMax, need));
+      if (!i.tryAddItem(extra)) break;
+    }
+    const gave = i.countWhere((d) => d.id === 'ammo_light');
     const opened = i.openDisassemble(ammo.uid);
     const panel = sys['ui'].disassemblePanel;
     const btn = document.querySelector('.inv-dis-btn');
@@ -696,7 +710,7 @@ try {
     const stripped = !document.querySelector('.inv-dis-bar') && !document.querySelector('.inv-dis-hint');
     const isBtn = panel.barEl === btn;
     btn.click();
-    return { opened, idle, stripped, isBtn, uid: ammo.uid, dur: sys.craftDuration('break_ammo_light'), running: !!sys.craftProgress(), label: btn.querySelector('span').textContent };
+    return { opened, idle, stripped, isBtn, uid: ammo.uid, need, powderOut, gave, dur: sys.craftDuration('break_ammo_light'), running: !!sys.craftProgress(), label: btn.querySelector('span').textContent };
   });
   ok(dis.opened && dis.idle && dis.isBtn, 'openDisassemble: the 분해 button is the gauge and reads empty while idle', JSON.stringify(dis));
   ok(dis.stripped, 'no separate 분해 게이지 bar and no `1회 분해 · n s` hint line');
@@ -732,7 +746,8 @@ try {
   ok(disEv.doneCount === 1 && disEv.doneLast && disEv.doneT === 1 && disEv.sameUid, `inventory:disassembleProgress ends with exactly one {t:1, done:true} (${disEv.n} events)`, JSON.stringify(disEv));
   ok(disEv.n >= 3 && disEv.monotone && disEv.maxT > 0 && disEv.maxT < 1, `progress t rises monotonically before done (max ${disEv.maxT?.toFixed(2)})`);
   ok(disEv.rateOk, `emits throttled to ≤ 30 Hz (${disEv.n - 1} progress events for a ${dis.dur.toFixed(2)} s hold)`);
-  ok(disEv.emptyAfter && disEv.progressAfter === 0 && disEv.ammo === 30 && disEv.powder === 4 && disEv.msg === '분해 완료', `gauge back to empty, 경량탄 60 → ${disEv.ammo}, 화약 ${disEv.powder} (${disEv.msg})`);
+  ok(disEv.emptyAfter && disEv.progressAfter === 0 && disEv.ammo === dis.gave - dis.need && disEv.powder === dis.powderOut && disEv.msg === '분해 완료',
+    `gauge back to empty, 경량탄 ${dis.gave} → ${disEv.ammo} (한 번 = ${dis.need}발), 화약 ${disEv.powder} (${disEv.msg})`);
   // cancel: a second click during the hold resets the bar and reports {t:0, done:false}
   await page.evaluate(() => { window.__ev['inventory:disassembleProgress'].length = 0; document.querySelector('.inv-dis-btn').click(); });
   await waitSim(dis.dur * 0.3);

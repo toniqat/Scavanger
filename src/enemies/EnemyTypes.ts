@@ -48,7 +48,7 @@ export interface EnemyStats {
 }
 
 /** 적 종류를 csv `type` 칸이 받는 순서 — `ALL_ENEMY_TYPES` 와 같은 목록이다. */
-const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm'];
+const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android'];
 const ENEMY_FACTIONS: readonly EnemyFaction[] = ['bug', 'rogue', 'android', 'raider'];
 
 export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
@@ -116,20 +116,49 @@ export const ARTILLERY_AI = ability<'retreatDist' | 'approachDist' | 'fireMin' |
 export const TOXIC_AI = ability<'swell'>('TOXIC_AI');
 export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot' | 'maxDuration' | 'enemyDamage' | 'enemyShove' | 'stumble'>('BEHEMOTH_AI');
 
-export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm'];
+export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android'];
+
+/* ── 2026-09-14 3차: 튜토리얼 전용 4종 (`docs/plans/qol-batch-2026-09-14c.md` 의 D 절) ──────────────────
+ *
+ * 이 네 종류가 새로 갖는 것은 **고정 드롭 표** 하나뿐이다 (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`).
+ * 리그 · 겉모습 · AI · 소리는 **바탕 종류**의 것을 그대로 쓴다 — 그래서 타입별 표(`BUG_PARAMS` · `ROGUE_RIG_PARAMS` ·
+ * `STEP_VOICES` · `MELEE_VOICES` …)에 줄을 더하지 않고, 그 표를 읽는 자리에서 `baseTypeOf` 를 한 번 지난다.
+ * 표에 줄을 더했다면 튜토리얼 벌레만 다른 지오메트리를 새로 굽고(셰이더 예산), 새 종류를 넣을 때마다 표 대여섯 개를
+ * 함께 고쳐야 했을 것이다.
+ *
+ * `data/enemies.csv` 의 수치는 **자기 줄**을 쓴다 (안드로이드 체력 절반이 그 줄에 있다) — 바탕 종류는 "무엇처럼
+ * 생겼고 무엇처럼 움직이나" 만 답한다.
+ */
+export type TutorialEnemyType = 'tut_bug_loot' | 'tut_bug' | 'tut_android_loot' | 'tut_android';
+/** 튜토리얼 종류 → 바탕 종류. 여기 있는 id 가 `world/tutorial` 의 목록이 쓰는 계약 id 다. */
+export const TUTORIAL_ENEMY_BASE: Readonly<Record<TutorialEnemyType, EnemyType>> = {
+  tut_bug_loot: 'scavenger',
+  tut_bug: 'scavenger',
+  tut_android_loot: 'android',
+  tut_android: 'android',
+};
+export const isTutorialEnemyType = (t: EnemyType): t is TutorialEnemyType =>
+  Object.prototype.hasOwnProperty.call(TUTORIAL_ENEMY_BASE, t);
+/**
+ * 리그 · 겉모습 · AI 가지 · 소리를 고를 때 쓰는 종류. 튜토리얼 전용 종류면 바탕 종류, 아니면 자기 자신이다
+ * (본편 · 훈련장의 모든 적은 **첫 줄에서 자기 자신을 그대로** 돌려받는다).
+ */
+export const baseTypeOf = (t: EnemyType): EnemyType => (isTutorialEnemyType(t) ? TUTORIAL_ENEMY_BASE[t] : t);
 /**
  * 2026-09-13: 지하벌레 — 여섯 다리 리그도 인간형 리그도 아닌 **자기 리그**(`models/WormModel`)를 쓴다. 땅에 박힌 채 움직이지 않으며
  * AI 는 `sandworm/Director` 가 돌린다 (`ai/EnemyAI` 는 이 종류를 곧장 돌려보낸다).
  */
 export const isWormType = (t: EnemyType): t is 'sandworm' => t === 'sandworm';
 /** Types rendered with the six-legged bug rig (everything but the humanoid rogues). 2026-09-11: 네임드 3종 + 스캔 드론도 버그 리그가 아니다. 2026-09-13: 안드로이드 · 레이더도. */
-export type BugType = Exclude<EnemyType, 'rogue' | 'rogue_boss' | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone' | 'android' | 'raider' | 'sandworm'>;
+export type BugType = Exclude<EnemyType, 'rogue' | 'rogue_boss' | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone' | 'android' | 'raider' | 'sandworm' | TutorialEnemyType>;
 /**
  * Humanoid rogue rig (`models/RogueModel`). 2026-09-11: 네임드 3종 포함. 스캔 드론은 계약 단계에서 임시로 여기 들어 있다 —
  * 스캔 드론 담당이 자기 리그를 만들면 이 줄에서 뺀다. 2026-09-13: 안드로이드 · 레이더 (같은 리그, 다른 외피).
  * ⚠ 이름과 달리 **리그** 판정이다 — "로그 팩션인가" 는 `Enemy.isRogue`, "벌레가 아닌 인간형 AI 인가" 는 `Enemy.isHumanoid`.
  */
-export const isRogueType = (t: EnemyType): boolean => t === 'rogue' || t === 'rogue_boss' || t === 'rogue_sniper' || t === 'rogue_hammer' || t === 'rogue_heavy' || t === 'rogue_scan_drone' || t === 'android' || t === 'raider';
+export const isRogueType = (t: EnemyType): boolean => t === 'rogue' || t === 'rogue_boss' || t === 'rogue_sniper' || t === 'rogue_hammer' || t === 'rogue_heavy' || t === 'rogue_scan_drone' || t === 'android' || t === 'raider'
+  /* 2026-09-14 3차: 튜토리얼 안드로이드도 같은 인간형 리그다 (`baseTypeOf` 가 외피를 고른다). 튜토리얼 벌레는 그대로 버그 리그. */
+  || t === 'tut_android' || t === 'tut_android_loot';
 
 /* ── 2026-09-11: 네임드 로그 (shared/named.ts) — ai/named/* 가 읽는다. 키를 더할 때는 그 블록의 유니온 한 줄과 csv 블록에 같이 넣는다. ── */
 export const NAMED_SNIPER = ability<'droneRange' | 'detectRange' | 'droneCooldown' | 'droneRetry' | 'scanPulses' | 'exposeNeeded' | 'scannedAccuracy' | 'nearAccuracyMax' | 'nearAccuracyMin' | 'damage' | 'fireInterval' | 'glintTime' | 'range' | 'relocateCooldown' | 'nestLeash' | 'closeThreat' | 'scanWait' | 'proneTurnRate'>('NAMED_SNIPER');

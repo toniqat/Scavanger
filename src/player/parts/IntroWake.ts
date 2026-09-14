@@ -32,7 +32,11 @@ import { smoothstep } from '@/core/util/MathUtil';
 import type { PlayerSystem } from '../PlayerSystem';
 
 /* 연출 기하 — 밸런스 수치가 아니라 카메라 · 자세 프레이밍이라 `model.ts` 의 `EYE_*` · `FADE_*` 와 같은 자리에 둔다. */
-/** 이 진행도까지는 쓰러진 채로 있다가 그 뒤에 일어난다 (0..1). */
+/**
+ * 이 진행도까지는 쓰러진 채로 있다가 그 뒤에 일어난다 (0..1).
+ * 2026-09-14 3차: **값은 그대로**다 — 일어서는 속도를 절반으로 만든 것은 `TUTORIAL_INTRO_WAKE_S`(4.5 → 9)이고,
+ * 여기는 진행도 위의 자리라 그 길이에 비례해 저절로 두 배로 늘어난다 (3.15 → 6.3 초).
+ */
 const WAKE_RISE_START = 0.3;
 /** 카메라가 선 각도 — 몸이 보는 쪽(`bodyYaw`)에서 이만큼 돌아간 옆앞. */
 const CAM_YAW_OFFSET = 2.1;
@@ -45,10 +49,18 @@ const CAM_LOOK_Y = [0.35, 1.05] as const;
  * `WAKE_RISE_START` 와 한 묶음이고, 길이는 csv 의 `TUTORIAL_INTRO_WAKE_S` 에 비례해 함께 늘고 준다.
  * (csv 줄로 빼려면 `shared/constants.ts` 의 `K.num` 한 줄이 필요하다 — 그 파일은 이 배치의 소유가
  *  아니라 지금은 여기 둔다.) */
-/** 이 진행도까지는 완전한 검정 — 아주 짧은 뜸 (4.5 초 연출에서 0.36 초). */
-const FADE_HOLD = 0.08;
-/** 이 진행도에 다 밝아진다. `WAKE_RISE_START`(일어나기 시작) **직전**이라 몸이 일어설 때는 이미 다 보인다. */
-const FADE_DONE = 0.27;
+/** 이 진행도까지는 완전한 검정 — 아주 짧은 뜸 (9 초 연출에서 0.36 초 = 이전 4.5 초 × 0.08 과 같은 실시간). */
+const FADE_HOLD = 0.04;
+/**
+ * 이 진행도에 다 밝아진다. `WAKE_RISE_START`(일어나기 시작) **직전**이라 몸이 일어설 때는 이미 다 보인다.
+ *
+ * 2026-09-14 3차 (사용자 결정 — 「약 2초에 걸쳐 서서히 밝아진다」): 밝아지는 데 걸리는 **실시간**은
+ * `(FADE_DONE − FADE_HOLD) × TUTORIAL_INTRO_WAKE_S` 다 (`updateIntroWake` 가 그 값을 `ui:screenFade.durationS`
+ * 로 넘긴다). 길이가 4.5 → 9 초가 됐으므로 `0.26 − 0.04 = 0.22`, `0.22 × 9 = 1.98 초` ≈ 2 초.
+ * 시각으로 풀면: 0.36 초까지 검정 → 2.34 초에 완전히 밝음 → 2.7 초(`WAKE_RISE_START` × 9)에 일어나기 시작.
+ * `WAKE_RISE_START` 는 **그대로 0.3** 이라 일어서는 구간이 3.15 → 6.3 초, 즉 정확히 절반 속도가 된다.
+ */
+const FADE_DONE = 0.26;
 
 const _camPos = new THREE.Vector3();
 const _camLook = new THREE.Vector3();

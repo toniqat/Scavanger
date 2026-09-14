@@ -286,6 +286,17 @@
 .hs-rail-dots i.growing { background: #8a939e; box-shadow: none; }
 .hs-rail-dots i.ready { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
 
+/* 2026-09-14 (서재 화면 개편): 레일 항목의 글리프 · 오른쪽 칸 수 (`3 / 40`) — 서재 가구 목록이 쓴다 */
+.hs-rail-ico { flex: none; width: 14px; font-style: normal; font-size: 13px; line-height: 1; text-align: center; opacity: 0.85; }
+.hs-rail-cnt { flex: none; font-family: var(--ui-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.02em; color: var(--c-text-faint); }
+.hs-rail-cnt:empty { display: none; }
+.hs-rail-item.is-active .hs-rail-cnt { color: color-mix(in srgb, var(--c-accent) 70%, var(--c-text-dim)); }
+
+/* 2026-09-14: 콘텐츠 영역 **상단 가로 탭** (`StationShell` 의 `tabs: true` — 지금은 서재 보관함 화면만 쓴다) */
+.hs-tabs { display: flex; flex: none; gap: 6px; }   /* 세로 간격은 `.hs-pane` 의 gap 이 준다 */
+.hs-tabs[hidden] { display: none; }
+.hs-tabs .hs-tab { flex: none; padding: 7px 20px; text-align: center; }
+
 /* ── 온실 재배 스테이션 (온실 개편 2026-09-11 · 화면 개편 2026-09-12) ────────────
  * 한 층 = 하얀 바 + 그 바에 박힌 흙구멍 3개(위가 잘린 작은 원). 바의 윗변 = 흙구멍의 윗변. 작물은 구멍 위
  * `--gs-plant-h` 영역에서 자라고(`--g` 0…1), 그 높이가 곧 층 사이 간격이라 다 자라도 윗층을 덮지 않는다.
@@ -588,43 +599,52 @@
 .dt-row .body .sub.dt-effects { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.5; color: color-mix(in srgb, #ffb0a0 75%, var(--c-text-faint)); }
 .dt-acts { display: flex; gap: 6px; }
 
-/* ── 서재 보관함 (Phase 9 책장 → A-3e 매체 → 2026-09-13 그려진 선반 `ui/ShelfDrawing.ts`) ───────────────
- * 가구를 닮은 2D 선반: 틀(좌우 기둥 · 윗판) + 단(`.lib-tier`, 아래 테두리 = 선반 판, 가운데 칸막이) × 2칸 + 받침.
+/* ── 서재 보관함 (Phase 9 책장 → A-3e 매체 → 2026-09-13 그려진 선반 → **2026-09-14 층당 여러 줄**) ───────────────
+ * 가구를 닮은 2D 선반: 틀(좌우 기둥 · 윗판) + 층(`.lib-tier`, 아래 테두리 = 두꺼운 선반 판) + 받침.
+ * **한 층은 `.lib-row` 를 여러 줄 품는다** (책장 = 4층 × 5칸 × 2줄 = 40권) — 줄 사이는 얇은 판이고, 한 줄의 열 수는
+ * `.lib-case` 의 `--lib-cols`(= 계약의 `SHELF_TIER_COLS`)가 정한다. 칸 번호는 0 부터 이어지는 하나뿐이다.
  * 칸 순서는 위 → 아래 · 왼 → 오른쪽 (3D 책장 모델과 같다). 매체는 `.lib-case[data-medium]` 의 변수 몇 개와
- * `.lib-item` 모양만 바꾼다 — 책등 · 디스크 케이스 · 레코드 슬리브. 색 `--rc` = 꽂힌 아이템의 희귀도 색.
+ * `.lib-item` 모양만 바꾼다 — 책등 · 디스크 케이스 · 레코드 슬리브. 색 `--rc` = 시리즈 색 · 게임 테마 색.
  * 빈 칸 = 같은 모양의 흐린 점선 윤곽. 드롭 강조 `.is-over` 는 TradeGrids 가 붙인다. 접두사 `.lib-`. */
 .lib-pages { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
 .lib-page { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .lib-page[hidden] { display: none; }
 .lib-count { font-size: 12px; letter-spacing: 0.05em; color: var(--c-text-dim); }
 .lib-casehost { display: flex; justify-content: center; padding: 4px 0 2px; }
-.lib-info { min-height: 34px; font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; font-family: var(--ui-mono); color: var(--c-text-faint); text-align: center; }
-.lib-info.is-slot { color: var(--c-text); }
+.lib-info { min-height: 30px; font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; font-family: var(--ui-mono); color: var(--c-text); text-align: center; }
+
+/* 2026-09-14: 「서재」 항목 — 효과 이름과 값만 (설명 · 출처는 적지 않는다, 사용자 결정) */
+.lib-eff-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lib-eff {
+  padding: 7px 12px; font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.03em; color: var(--c-text);
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.lib-eff-empty { padding: 10px 0; font-size: 12px; color: var(--c-text-faint); text-align: center; }
 
 .lib-case {
   --lib-frame: #5b3d27; --lib-frame-hi: #7d5638; --lib-back: #22170f; --lib-grain: rgba(255, 220, 170, 0.04);
   --lib-board: #8a6240; --lib-board-edge: #b0875c;
-  --lib-tier-h: 110px; --lib-item-w: 50px; --lib-item-h: 90px;
-  position: relative; flex: none; width: min(100%, 300px);
+  --lib-cols: 2; --lib-row-h: 64px; --lib-item-w: 26px; --lib-item-h: 52px;
+  position: relative; flex: none; width: min(100%, 380px);
   border: 12px solid var(--lib-frame); border-top-width: 16px; border-top-color: var(--lib-frame-hi); border-bottom-width: 0;
   background: repeating-linear-gradient(90deg, var(--lib-grain) 0 2px, transparent 2px 9px), var(--lib-back);
   box-shadow: inset 0 12px 20px rgba(0, 0, 0, 0.55), 0 16px 30px rgba(0, 0, 0, 0.45);
   user-select: none;
 }
 .lib-tier {
-  position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  height: var(--lib-tier-h); padding: 6px 8px 0;
+  position: relative; display: flex; flex-direction: column;
   border-bottom: 9px solid var(--lib-board);
   box-shadow: 0 1px 0 var(--lib-board-edge), inset 0 -10px 14px rgba(0, 0, 0, 0.35);
 }
-.lib-tier::before {   /* 가운데 칸막이 */
-  content: ''; position: absolute; left: calc(50% - 2px); top: 0; bottom: 0; width: 4px; pointer-events: none;
-  background: var(--lib-frame); box-shadow: 1px 0 0 rgba(0, 0, 0, 0.45);
+.lib-row {
+  display: grid; grid-template-columns: repeat(var(--lib-cols, 2), minmax(0, 1fr));
+  height: var(--lib-row-h); padding: 5px 7px 0;
 }
+.lib-row + .lib-row { border-top: 4px solid var(--lib-board); box-shadow: 0 -1px 0 var(--lib-board-edge); }
 .lib-plinth { height: 14px; margin: 0 -12px; background: var(--lib-frame); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.35); }
 .lib-slot { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 0; padding-bottom: 1px; }
 .lib-slot.is-filled { cursor: grab; }
-.lib-num { position: absolute; left: 3px; top: 1px; font-family: var(--ui-mono); font-size: 9px; letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.24); pointer-events: none; }
+.lib-num { position: absolute; left: 1px; top: 0; font-family: var(--ui-mono); font-size: 8px; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.22); pointer-events: none; }
 .lib-item {
   --rc: #9aa3ad;
   position: relative; flex: none; width: var(--lib-item-w); height: var(--lib-item-h);
@@ -650,43 +670,43 @@
     linear-gradient(90deg, color-mix(in srgb, var(--rc) 45%, #000) 0, var(--rc) 24%, color-mix(in srgb, var(--rc) 72%, #fff) 42%, var(--rc) 62%, color-mix(in srgb, var(--rc) 40%, #000) 100%);
   box-shadow: 3px 0 6px rgba(0, 0, 0, 0.55);
 }
-.lib-case[data-medium="book"] .lib-face { padding: 14px 0 14px; gap: 4px; }
-.lib-case[data-medium="book"] .lib-glyph { font-size: 13px; color: rgba(8, 10, 14, 0.85); }
+.lib-case[data-medium="book"] .lib-face { padding: 9px 0 9px; gap: 3px; }
+.lib-case[data-medium="book"] .lib-glyph { font-size: 10px; color: rgba(8, 10, 14, 0.85); }
 .lib-case[data-medium="book"] .lib-label {
-  writing-mode: vertical-rl; max-height: 100%; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  writing-mode: vertical-rl; max-height: 100%; font-size: 8px; font-weight: 700; letter-spacing: 0.04em;
   color: #0b0d11; text-shadow: 0 0 2px rgba(255, 255, 255, 0.35);
 }
 
-/* 디스크 전시대 — 금속 틀 + 아크릴 턱, 케이스 = 희귀도 색 옆띠 + 투명 뚜껑 안의 디스크 */
+/* 디스크 전시대 — 금속 틀 + 아크릴 턱, 케이스 = 시리즈 색 옆띠 + 투명 뚜껑 안의 디스크 */
 .lib-case[data-medium="disc"] {
   --lib-frame: #3a424c; --lib-frame-hi: #56616d; --lib-back: #10161d; --lib-grain: rgba(159, 208, 255, 0.03);
   --lib-board: rgba(159, 208, 255, 0.3); --lib-board-edge: rgba(200, 230, 255, 0.6);
-  --lib-tier-h: 104px; --lib-item-w: 76px; --lib-item-h: 76px;
-  width: min(100%, 320px);
+  --lib-row-h: 78px; --lib-item-w: 58px; --lib-item-h: 58px;
+  width: min(100%, 360px);
 }
 .lib-case[data-medium="disc"] .lib-tier { border-bottom-width: 6px; }
 .lib-case[data-medium="disc"] .lib-slot.is-filled .lib-item {
-  border: 1px solid rgba(220, 236, 255, 0.55); border-left: 7px solid var(--rc);
+  border: 1px solid rgba(220, 236, 255, 0.55); border-left: 5px solid var(--rc);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 46%), #0b1016;
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);
 }
 .lib-case[data-medium="disc"] .lib-deco {
-  display: block; position: absolute; left: 50%; top: 45%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
-  background: radial-gradient(circle, #0b0e12 0 5px, #d6dde6 5px 7px, color-mix(in srgb, var(--rc) 65%, #fff) 7px 12px, var(--rc) 12px 21px, color-mix(in srgb, var(--rc) 50%, #000) 21px 26px, #c9d3de 26px 27px);
+  display: block; position: absolute; left: 50%; top: 45%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%;
+  background: radial-gradient(circle, #0b0e12 0 4px, #d6dde6 4px 5px, color-mix(in srgb, var(--rc) 65%, #fff) 5px 9px, var(--rc) 9px 16px, color-mix(in srgb, var(--rc) 50%, #000) 16px 20px, #c9d3de 20px 21px);
 }
 
-/* 레코드랙 — 검은 랙, 슬리브 = 희귀도 색 인쇄면 + 위로 삐져나온 LP */
+/* 레코드랙 — 검은 랙, 슬리브 = 시리즈 색 인쇄면 + 위로 삐져나온 LP */
 .lib-case[data-medium="record"] {
   --lib-frame: #2f2a30; --lib-frame-hi: #4a424b; --lib-back: #161217; --lib-grain: rgba(232, 160, 208, 0.03);
   --lib-board: #3d353e; --lib-board-edge: #5d535f;
-  --lib-tier-h: 138px; --lib-item-w: 100px; --lib-item-h: 100px;
-  width: min(100%, 330px);
+  --lib-row-h: 96px; --lib-item-w: 70px; --lib-item-h: 70px;
+  width: min(100%, 380px);
 }
 .lib-case[data-medium="record"] .lib-slot.is-filled .lib-item { border: 0; background: transparent; }
 .lib-case[data-medium="record"] .lib-deco {
-  display: block; position: absolute; left: 9px; top: -24px; width: 82px; height: 82px; border-radius: 50%;
+  display: block; position: absolute; left: 7px; top: -17px; width: 58px; height: 58px; border-radius: 50%;
   background:
-    radial-gradient(circle, color-mix(in srgb, var(--rc) 80%, #fff) 0 9px, #0a0a0c 9px 11px, transparent 11px),
+    radial-gradient(circle, color-mix(in srgb, var(--rc) 80%, #fff) 0 6px, #0a0a0c 6px 8px, transparent 8px),
     repeating-radial-gradient(circle, #101013 0 2px, #1d1d22 2px 3px);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
@@ -699,9 +719,9 @@
 
 /* 디스크 · 레코드: 글리프는 오른쪽 위, 이름은 아래 띠 */
 .lib-case:not([data-medium="book"]) .lib-face { justify-content: space-between; align-items: flex-end; }
-.lib-case:not([data-medium="book"]) .lib-glyph { margin: 4px 5px 0 0; font-size: 13px; color: #fff; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95); }
+.lib-case:not([data-medium="book"]) .lib-glyph { margin: 3px 4px 0 0; font-size: 11px; color: #fff; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95); }
 .lib-case:not([data-medium="book"]) .lib-label {
-  align-self: stretch; padding: 2px 3px; text-align: center; font-size: 10px; letter-spacing: 0.04em;
+  align-self: stretch; padding: 1px 2px; text-align: center; font-size: 9px; letter-spacing: 0.02em;
   color: #f2f4f7; background: rgba(6, 8, 11, 0.74);
 }
 
@@ -709,60 +729,56 @@
 .lib-case[data-medium="game"] {
   --lib-frame: #242a3a; --lib-frame-hi: #36405a; --lib-back: #0d1018; --lib-grain: rgba(159, 240, 200, 0.03);
   --lib-board: #2f3850; --lib-board-edge: rgba(159, 240, 200, 0.45);
-  --lib-tier-h: 106px; --lib-item-w: 62px; --lib-item-h: 86px;
-  width: min(100%, 300px);
+  --lib-row-h: 82px; --lib-item-w: 46px; --lib-item-h: 64px;
+  width: min(100%, 340px);
 }
 .lib-case[data-medium="game"] .lib-tier { border-bottom-width: 7px; }
 .lib-case[data-medium="game"] .lib-slot.is-filled .lib-item {
   border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 3px;
-  background: linear-gradient(180deg, var(--rc) 0 15px, rgba(0, 0, 0, 0.55) 15px 16px, #10131b 16px);
+  background: linear-gradient(180deg, var(--rc) 0 12px, rgba(0, 0, 0, 0.55) 12px 13px, #10131b 13px);
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 .lib-case[data-medium="game"] .lib-deco {
-  display: block; position: absolute; left: 50%; top: 54%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; opacity: 0.9;
-  background: radial-gradient(circle, #0b0e12 0 4px, #d6dde6 4px 5px, color-mix(in srgb, var(--rc) 60%, #fff) 5px 10px, var(--rc) 10px 17px, color-mix(in srgb, var(--rc) 45%, #000) 17px 20px);
+  display: block; position: absolute; left: 50%; top: 54%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; opacity: 0.9;
+  background: radial-gradient(circle, #0b0e12 0 3px, #d6dde6 3px 4px, color-mix(in srgb, var(--rc) 60%, #fff) 4px 7px, var(--rc) 7px 13px, color-mix(in srgb, var(--rc) 45%, #000) 13px 15px);
 }
 
 /* 서재 시리즈 (2026-09-13): 권 번호 배지 · 전권 윤곽 */
 .lib-vol {
-  position: absolute; left: 2px; top: 2px; z-index: 2; padding: 0 3px; border-radius: 2px; pointer-events: none;
-  font: 700 9px/13px var(--ui-mono); letter-spacing: 0.04em; color: #0b0d11; background: rgba(255, 226, 170, 0.92);
+  position: absolute; left: 1px; top: 1px; z-index: 2; padding: 0 2px; border-radius: 2px; pointer-events: none;
+  font: 700 8px/11px var(--ui-mono); letter-spacing: 0.02em; color: #0b0d11; background: rgba(255, 226, 170, 0.92);
 }
 .lib-vol[hidden] { display: none; }
 .lib-case[data-medium="book"] .lib-vol { left: 50%; top: auto; bottom: 1px; transform: translateX(-50%); }
 .lib-slot.is-full .lib-item { outline: 1px solid rgba(143, 224, 176, 0.75); outline-offset: 2px; }
 .lib-slot.is-full .lib-vol { background: rgba(143, 224, 176, 0.95); }
 
-.hs-shelf-aux { font-size: 11px; letter-spacing: 0.04em; font-family: var(--ui-mono); color: var(--c-text-faint); text-align: center; }
-.hs-shelf-aux.on { color: var(--c-success); }
-.hs-shelf-aux[hidden] { display: none; }
-
-/* 시리즈 진척 (보관함 화면) · 시리즈 도감 (2026-09-13) — 권 칸 `.lib-pip`: is-on = 작동 중인 보관함에 꽂힘(도감: 발견), is-here = 이 보관함, is-live = 지금 효과 */
-.lib-series { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.lib-series-head { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-faint); }
-.lib-ser, .lib-dexrow {
-  display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 10px;
+/* 시리즈 도감 (2026-09-13 → **2026-09-14 단순화**) — 한 줄 = [정사각 썸네일][이름 + 권 칸][모은 수].
+ * 권 칸 `.lib-pip`: is-on = 도감에 적힌 권, is-live = 지금 작동 중인 보관함에 꽂힌 권.
+ * (옛 「시리즈 진척」 패널 `.lib-ser*` · 보조 가구 줄 `.hs-shelf-aux` 는 2026-09-14 에 사라졌다 — 효과 이야기는 레일의 「서재」 하나가 한다.) */
+.lib-dexrow {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 10px;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); font-size: 12px;
 }
-.lib-ser.is-full, .lib-dexrow.complete { border-color: rgba(143, 224, 176, 0.5); }
-.lib-ser.is-off { opacity: 0.62; }
+.lib-dexrow.complete { border-color: rgba(143, 224, 176, 0.5); }
 .lib-dexrow.owned:not(.complete) { border-color: rgba(201, 167, 122, 0.45); }
-.lib-ser-top, .lib-dex-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.lib-ser-name, .lib-dex-name { flex: 1; min-width: 0; font-weight: 600; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-dex-thumb {
+  flex: none; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.3); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.lib-dexrow:not(.owned) .lib-dex-thumb { opacity: 0.4; filter: grayscale(0.75); }
+.lib-dex-glyph { font-size: 20px; color: var(--c-text-faint); }
+.lib-dex-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.lib-dex-name { min-width: 0; font-weight: 600; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-dexrow:not(.owned) .lib-dex-name { color: var(--c-text-faint); }
-.lib-ser-cnt, .lib-dex-state { flex: none; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); white-space: nowrap; }
-.lib-ser.is-full .lib-ser-cnt, .lib-dexrow.owned .lib-dex-state { color: var(--c-success); }
+.lib-dex-state { flex: none; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); white-space: nowrap; }
+.lib-dexrow.owned .lib-dex-state { color: var(--c-success); }
 .lib-dexrow:not(.owned) .lib-dex-state { color: var(--c-text-faint); }
-.lib-ser-line, .lib-dex-sub { font-family: var(--ui-mono); font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
-.lib-ser-line.is-zero, .lib-dex-sub.planets { color: var(--c-text-faint); }
-.lib-dexrow.boosted .lib-dex-sub.effects { color: color-mix(in srgb, var(--c-accent) 70%, var(--c-text-dim)); }
-.lib-ser-empty { font-size: 11px; color: var(--c-text-faint); text-align: center; padding: 4px 0; }
 .lib-pips { display: inline-flex; gap: 3px; flex: none; }
-.lib-pip { display: block; width: 9px; height: 9px; border: 1px solid rgba(255, 255, 255, 0.28); }
+.lib-pip { display: block; width: 8px; height: 8px; border: 1px solid rgba(255, 255, 255, 0.28); }
 .lib-pip.is-on { background: var(--c-accent); border-color: var(--c-accent); }
-.lib-pip.is-here { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75); }
 .lib-pip.is-live { box-shadow: 0 0 0 1px var(--c-success); }
-.lib-ser.is-full .lib-pip.is-on, .lib-dexrow.complete .lib-pip.is-on { background: var(--c-success); border-color: var(--c-success); }
+.lib-dexrow.complete .lib-pip.is-on { background: var(--c-success); border-color: var(--c-success); }
 
 /* 도감: one row per skill (shared by the 책장 panel and the 함선 tab) */
 .hs-dex { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

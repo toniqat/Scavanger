@@ -644,6 +644,46 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-14 (5차 묶음 — UI 2차 개편: 음악 재생 · 보관함 층 · 채굴 탭, 리드 계약, 추가만)**
+  - **`housing.ts` — 보관함의 층**: `SHELF_TIERS`(책 4 · 디스크 3 · 레코드 2 · 게임 3) · `SHELF_TIER_COLS`(책 5 · 나머지 4) ·
+    `shelfSlotsPerTier(m)`. 칸 수(`SHELF_SLOTS`)는 csv 가 정하고 층은 **그 칸을 어떻게 나눠 그리나**일 뿐이다 —
+    **저장되는 것은 `slot` 인덱스 하나**라 층 수를 바꿔도 꽂힌 것이 옮겨지지 않고, 칸이 늘면 옛 세이브는 앞 칸을
+    그대로 둔 채 빈 칸만 는다(마이그레이션이 필요 없는 이유). 옛 `SHELF_COLS`(2 고정)는 `@deprecated` 로 남는다.
+  - **`housing.ts` — 채굴 탭**: `MiningTab = 'cluster' | MiningComputerTab` · `MINING_TABS` · `MINING_TAB_LABEL_KO`.
+    **부분집합으로 만든 것이 요점**이다 — 옛 `openMiningComputer(uid, tab?)` 의 인자 타입이 한 글자도 안 바뀐다.
+  - **`housing.ts` — 음악 재생**: `MusicTrack` · `MusicMode`(`playlist` · `repeat`) · `MUSIC_MODES` ·
+    `MUSIC_MODE_LABEL_KO` · `MusicPlayerState` · `MUSIC_PLAYER_OFF`(`Object.freeze` — 주인이 변형하지 않고 늘 새 객체를
+    만든다) · `MUSIC_TRACK_MIN_S` / `MAX_S` · `musicArtistOf` · `musicLengthOf`. 아티스트 · 곡 길이가 **csv 에 없고
+    시리즈 id 해시에서 결정적으로 나오는** 이유는 「외부 에셋 금지」와 같다 — 이름표도 코드에서 만든다.
+    상태가 순수 데이터인 이유는 **오디오 노드가 없기 때문**이고, 「곡이 끝났다」는 `startedAt + lengthS × 1000` 과
+    지금 시각의 비교 하나뿐이다.
+  - **`housing.ts` — `HousingRef` 조작 넷**(전부 옵셔널): `getMusicState?`(늦게 붙는 화면이 첫 이벤트를 기다리지
+    않게) · `musicNext?` / `musicPrev?`(**`'repeat'` 이어도 사람이 누르면 넘어간다** — 반복은 자동 진행에만 건다) ·
+    `setMusicMode?` · `musicStop?`(⚠ **그 가구의 `toggled` 도 함께 내린다** — E 로 끈 것과 같아야 한다).
+    표시 이벤트만으로는 `'repeat'` 에 도달할 길이 없어 연 창구다.
+  - **`events.ts`**: `'housing:musicChanged' {state}`. 음악은 **소리가 아니라 상태**라 주인이 `audio/` 가 아니라
+    `housing/` 이고(레코드랙에 꽂힌 것이 목록이다), `ui/` 의 재생 창은 이 사실 하나만 보고 그린다.
+  - **`types.ts`**: `AudioChannel += 'bgm'` · `AudioSettings.bgm`. **소리는 나지 않는다** (사용자 결정 — 외부 에셋
+    금지 · 절차 음악 미구현). `audio/` 는 채널의 GainNode 를 만들어 두기만 하고 그 밑에 아무것도 걸지 않으며,
+    음악을 실제로 넣게 되면 거기 걸면 되고 설정 · 저장 · UI 는 한 줄도 안 바뀐다. 옛 저장에는 `bgm` 이 없으므로
+    읽는 쪽이 `AUDIO_DEFAULT_BGM` 으로 채운다 — **생략은 0 이 아니라 「모른다」** 라는 2026-09-10 규약 그대로다.
+  - **`constants.ts`**: `AUDIO_DEFAULT_BGM` · `GYM_GOOD_OF_PERFECT`. **`cooking.ts`**: `COOK_GOOD_OF_PERFECT` ·
+    `COOK_STEP_TIMEOUT_MUL`. 앞의 둘은 「보이는 것 = 판정」의 짝(좋음 띠 = 완벽 띠 × 이 값)이고, 마지막은 판정
+    수치가 아니라 **입력이 오지 않아도 단계가 멈추지 않게 하는 안전핀**의 배수다.
+
+- **2026-09-14 (3차 묶음 — 리드 계약, 추가만, docs/plans/qol-batch-2026-09-14c.md)** — `npc.ts`: **`NPC_FLAGS`**(`gathered` ·
+  `raidReturned`) · `NpcFlag` · `NpcRequirement.flags`(csv `reqFlag`) · `NpcDef.introAfter`(csv `introAfter` — 대사 선택지에 답한
+  **뒤**의 말풍선. 이 줄이 있으면 답하기 전에 퀘스트를 제안하지 않는다) · `NpcSave.flags` · `NpcQuestRef.flagOf` · `bumpFlag`.
+  진행 플래그를 프로필이 아니라 **NPC 계약 안에** 둔 이유: 레이드를 넘어 사는 값이지만 읽는 곳이 NPC 첫 연락 조건 하나뿐이라,
+  `MetaSave.npc` 가 세는 곳 · 읽는 곳을 함께 갖는 것이 옮겨 다니는 것보다 낫다 (세는 곳은 `gather:collected` · `game:complete`).
+  `extraction.ts`: **`ExtractionRef.holdFire?`** — true 면 적이 **바라보되 쏘지 않는다**(튜토리얼 이륙). `keepEnemyOut` 과 같은 이유로
+  월드 콜라이더가 아니라 질의다 — `resolveCollision` 이 누가 부르는지 모르듯, 사격 보류도 「적에게만」을 콜라이더로 못 쓴다.
+  `types.ts`: **`PlayerRef.setSceneLock?`** — 각본 잠금(입력 전부 + 들어오는 피해 전부 무시, 카메라는 안 건드린다).
+  **은퇴 표시**(이름은 남기고 쓰지 않는다 — `airstrike` · `secondary` 와 같은 처리): `NpcQuestState 'deferred'` · `NpcQuestRef.defer` ·
+  `NPC_REPLY_KO.decline`/`brief` · `NpcQuestDef.lines.decline`/`brief` (사용자 결정 — 「생각해볼게」 선택지 제거).
+  적 유니언 추가(D 레인): `EnemyType += tut_bug_loot · tut_bug · tut_android_loot · tut_android` + `CORPSE_LOOT_CHANCE` 4줄
+  (`Record<EnemyType, …>` 라 빠짐없어야 하는 표다).
+
 - **2026-09-14 (튜토리얼 개편 — 리드 계약, 추가만, docs/plans/tutorial-raid.md)** — 새 파일 **`tutorialWorld.ts`**:
   `TutorialCheckpointId` 10종 · `TUTORIAL_CHECKPOINTS` · `TutorialFallRule`(`normal` · `kill` · `clamp`) · `TutorialWorldRef`
   (`checkpoint` · `respawnPose` · `fallRule` · `gotoCheckpoint`) — `ctx.world.tutorial` 로 게시하며 `ctx.world.training` 과 같은 규약이다

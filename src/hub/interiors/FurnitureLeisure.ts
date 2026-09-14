@@ -712,7 +712,8 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
 
   /**
    * 축음기 (`2 × 2 · 1.3`): 둥근 원목 탁자 위의 나무 상자 · 턴테이블 · 태엽 손잡이 · 톤암, 그리고 뒤에서 솟아 앞으로 벌어지는
-   * 황동 나팔(점점 커지는 원기둥 다섯). `extra.on` 이면 나팔 입구 · 앞 명판 · 레코드 라벨이 따뜻하게 빛나고 레코드가 돈다.
+   * 황동 나팔(점점 커지는 원기둥 다섯). `extra.on` 이면 **앞 명판 · 레코드 라벨**이 따뜻하게 빛나고 레코드가 돈다 —
+   * 소리가 나오는 나팔 입구 · 목구멍은 켜져도 빛나지 않는다 (2026-09-14, 사용자 결정).
    */
   gramophone: (b, model, _w, _d, _h, a, extra) => {
     const on = extra?.on === true;
@@ -750,10 +751,12 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
       const t0 = ts[i], t1 = ts[i + 1], tm = (t0 + t1) / 2;
       b.cyl(rad(t1), rad(t0), t1 - t0 + 0.004, 24, ex + ux * tm, ey + uy * tm, ez + uz * tm, M.trim, rx, ry);   // 종 (위 끝이 넓다)
     }
+    // 2026-09-14 (사용자 결정): **소리가 나오는 곳에서는 빛이 나지 않는다** — 나팔 입구 · 목구멍은 켜짐과 무관하게 어두운 재질이다.
+    // 켜진 것은 앞 명판 · 레코드 라벨의 발광과 도는 음반이 말한다.
     const mt = L + 0.003;
-    b.cyl(0.232, 0.232, 0.004, 28, ex + ux * mt, ey + uy * mt, ez + uz * mt, on ? WARM_GLOW : M.trimDark, rx, ry);   // 나팔 입구
+    b.cyl(0.232, 0.232, 0.004, 28, ex + ux * mt, ey + uy * mt, ez + uz * mt, M.trimDark, rx, ry);   // 나팔 입구
     const tt = L + 0.006;
-    b.cyl(0.06, 0.06, 0.004, 16, ex + ux * tt, ey + uy * tt, ez + uz * tt, on ? M.stripAmber : M.hullDark, rx, ry);   // 목구멍
+    b.cyl(0.06, 0.06, 0.004, 16, ex + ux * tt, ey + uy * tt, ez + uz * tt, M.hullDark, rx, ry);     // 목구멍
     // 레코드 (켜져 있으면 돈다)
     const rec = rigGroup(model, model.group, 'record', -0.03, top + 0.19, 0.02, (rb) => {
       rb.cyl(0.16, 0.16, 0.006, 28, 0, 0, 0, VINYL);

@@ -8,7 +8,7 @@ interface Owner { owner: string; keys: ReadonlyArray<KeyGuideEntry> }
  * 2026-09-13: owners that are **not screens** — nothing closes them with Tab / Esc, so the guide does not append the
  * 닫기 entry. `'rover'` = 탐사 차량 탑승 중 (`hud/RoverHud` — `M 목적지 선택`).
  */
-const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover']);
+const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover', 'pod']);   // `'pod'` (2026-09-14) = 발사 슬롯 탑승 중 (`hub/ui/ReadyPanel` — `E 내리기` · `Space 준비`)
 
 /**
  * 키 가이드 (2026-09-09) — one line in the bottom-right corner, `R 회전 · X 버리기 · Tab 닫기`, for whichever screen or

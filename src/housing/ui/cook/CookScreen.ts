@@ -91,6 +91,10 @@ export class CookScreen {
   private readonly body: HTMLElement;
   private readonly verdict: HTMLElement;
   private readonly stepScoreEl: HTMLElement;
+  /** 단계 진행 바 (2026-09-14, 사용자 결정 「라벨 없이 바만」). */
+  private readonly progBar: HTMLElement;
+  private readonly progFill: HTMLElement;
+  private progF = -1;
   private readonly hint: HTMLElement;
   private view: CookView | null = null;
   private autoInfo: CookAutoInfo | null = null;
@@ -115,11 +119,14 @@ export class CookScreen {
     this.body = el('div', { cls: 'cook-body', parent: this.panel });
     this.verdict = el('div', { cls: 'cook-verdict', parent: this.panel });
     this.stepScoreEl = el('div', { cls: 'cook-stepscore', parent: this.panel });
+    this.progBar = el('div', { cls: 'cook-prog', parent: this.panel });
+    this.progFill = el('i', { cls: 'cook-prog-fill', parent: this.progBar });
     this.hint = el('div', { cls: 'cook-hint', parent: this.panel });
-    this.panel.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
+    // 2026-09-14: 우클릭(다지기)이 브라우저 메뉴를 열지 않아야 하는 범위는 **입력을 받는 범위**와 같다 — 판 전체다
+    this.root.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
     // 패널 안의 클릭이 캔버스의 클릭-락 폴백까지 가지 않게
-    this.panel.addEventListener('mousedown', (e) => e.stopPropagation());
-    this.body.addEventListener('pointerdown', this.onPointerDown);
+    this.root.addEventListener('mousedown', (e) => e.stopPropagation());
+    this.root.addEventListener('pointerdown', this.onPointerDown);
   }
 
   get isOpen(): boolean { return this.opened; }
@@ -182,7 +189,7 @@ export class CookScreen {
   dispose(): void {
     this.close();
     this.stopLoop();
-    this.body.removeEventListener('pointerdown', this.onPointerDown);
+    this.root.removeEventListener('pointerdown', this.onPointerDown);
     this.root.remove();
   }
 
@@ -242,6 +249,7 @@ export class CookScreen {
     this.clearBody();
     this.game = null;
     this.autoInfo = null;
+    this.resetProgress();
     const auto = this.sys.getCookAuto(step.game);
     if (auto) this.showChoose(step, auto);
     else this.play(step);
@@ -477,10 +485,36 @@ export class CookScreen {
 
   private paint(): void {
     if ((this.screen === 'game' || this.screen === 'step') && this.view) this.view.paint();
+    let auto = 0;
     if (this.screen === 'auto' && this.autoBar) {
-      const f = Math.max(0, Math.min(1, (performance.now() - this.autoStart) / AUTO_MS));
-      this.autoBar.style.setProperty('--f', f.toFixed(3));
+      auto = Math.max(0, Math.min(1, (performance.now() - this.autoStart) / AUTO_MS));
+      this.autoBar.style.setProperty('--f', auto.toFixed(3));
     }
+    // 게임 도중에만 판 전체가 입력을 받는다 (선택 카드 · 결과의 버튼을 가리지 않게)
+    toggleClass(this.root, 'is-playing', this.screen === 'game');
+    this.paintProgress(auto);
+  }
+
+  /** 단계 진행 바 — 글자 없이 채움만 (CSS 가 ease-out 으로 따라간다). 선택 카드 · 결과에서는 바 자체를 감춘다. */
+  private paintProgress(auto: number): void {
+    const on = this.screen === 'game' || this.screen === 'auto' || this.screen === 'step';
+    toggleClass(this.progBar, 'is-off', !on);
+    let f = 0;
+    if (this.screen === 'game' && this.game) f = this.game.completion;
+    else if (this.screen === 'auto') f = auto;
+    else if (this.screen === 'step') f = 1;
+    if (Math.abs(f - this.progF) <= 1e-4) return;
+    this.progF = f;
+    this.progFill.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(4)})`;
+  }
+
+  /** 새 단계는 바를 0 에서 다시 시작한다 (되감기는 보이지 않게 전이를 한 프레임 끈다). */
+  private resetProgress(): void {
+    this.progF = 0;
+    this.progFill.style.transition = 'none';
+    this.progFill.style.transform = 'scaleX(0)';
+    void this.progFill.offsetWidth;
+    this.progFill.style.transition = '';
   }
 
   /** 머리줄 단계 진행 — `① 썰기 ✓ → ② 젓기 …`. */
@@ -556,10 +590,15 @@ export class CookScreen {
   }
 
   /* ── 입력 ────────────────────────────────────────────────────────────────── */
+  /**
+   * 2026-09-14 (사용자 결정): 미니게임 입력은 **화면 어디를 눌러도** 먹는다. 예전에는 `.cook-stage`(패널 가운데의 작은 상자) 안만
+   * 받아서 780 px 패널의 여백을 누르면 아무 반응이 없었다 — 헬스장은 키보드라 없던 문제다. 게임 도중에만 루트가 입력을 받으므로
+   * (`.cook.is-playing`) 선택 카드 · 결과 화면의 버튼은 그대로 눌린다.
+   */
   private readonly onPointerDown = (e: PointerEvent): void => {
     if (!this.opened || this.screen !== 'game' || !this.game) return;
     const target = e.target as Element | null;
-    if (!target?.closest?.('.cook-stage')) return;
+    if (target?.closest?.('button')) return;                 // 게임 도중에는 버튼이 없지만, 있으면 버튼이 이긴다
     const button = buttonOf(e.button);
     if (!button) return;
     e.preventDefault();
@@ -568,7 +607,7 @@ export class CookScreen {
     if (this.screen !== 'game' || !this.game) return;
     this.down.add(button);
     this.view?.input(button, true);
-    const piece = target.closest<HTMLElement>('.cook-piece[data-i]');
+    const piece = target?.closest?.<HTMLElement>('.cook-piece[data-i]') ?? null;
     if (piece && button === 'left') this.game.clickPiece(Number(piece.dataset.i));
     else this.game.press(button);
     this.flush();

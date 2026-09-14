@@ -8,12 +8,12 @@ import {
 import { el, setText, toggleClass } from '../../dom';
 import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../social/socialSource';
 import { whisperStateClass, whisperStateText } from '../social/whisperText';
-import { agoText, clip, clockText, initialOf, roomSystemText } from './format';
+import { clip, clockText, initialOf, roomSystemText } from './format';
 import { Popover } from './Popover';
 import { buildQuestCard } from './QuestCard';
 import { npcOf, roomsOf } from './sources';
 import { wireTextInput } from './textInput';
-import { type NpcTrustInfo, buildNpcTrust, npcTrustOf } from './Trust';
+import { buildNpcAvatar, buildNpcTrust, npcTrustOf } from './Trust';
 
 export type ConvKind = 'npc' | 'pc' | 'room';
 export type ConvFilter = 'all' | ConvKind;
@@ -23,15 +23,12 @@ interface ConvRow {
   kind: ConvKind;
   id: string;
   title: string;
-  sub: string;
   at: number;
   unread: number;
   preview: string;
   glyph: string;
   color: string;
   presence?: PresenceState;
-  /** NPC 만: 그 NPC 의 **개인** 신뢰도 (2026-09-14). `ctx.meta` 가 없으면 없다. */
-  trust?: NpcTrustInfo;
 }
 
 /** 초상 색 — NPC 는 `NpcDef.color`, 플레이어 · 단체방은 고정색. */
@@ -39,6 +36,13 @@ const PC_COLOR = '#9fb4cc';
 const ROOM_COLOR = '#b69cff';
 /** 이 간격보다 멀리 떨어진 말풍선 사이에는 시각 구분선을 넣는다. */
 const TIME_GAP_MS = 10 * 60_000;
+/**
+ * 타이핑 연출 (2026-09-14 3차, 사용자 결정) — **새로 도착하는** NPC 말풍선 하나마다 `...` 를 이만큼 띄웠다 지운다.
+ * 게임 밸런스가 아니라 **UI 타이밍**이라 `data/` 가 아니라 메신저 폴더 안에 산다.
+ */
+const TYPE_S_PER_CHAR = 0.028;
+const TYPE_MIN_S = 0.5;
+const TYPE_MAX_S = 2.0;
 const PRESENCE_RANK: Readonly<Record<PresenceState, number>> = { ship: 0, training: 1, raid: 2, offline: 3 };
 
 const FILTERS: readonly { id: ConvFilter; label: string }[] = [
@@ -68,6 +72,7 @@ function splitKey(key: string | null): { kind: ConvKind; id: string } | null {
  *
  * 좌 목록 = NPC 연락(`ctx.meta.npc`) · 개인 대화 상대(친구 + `whisperPeers`) · 단체방(`ctx.net.rooms`)을 **마지막 메시지가 최근인 순**으로
  * 한 줄에 섞는다 (필터 칩으로 좁힌다). 위에는 받은 방 초대(수락 · 거절)와 「방 만들기」.
+ * **줄에는 초상 · 이름 · 마지막 대사만 있다** (2026-09-14 3차, 사용자 결정 — 소속 라벨 · `n분` · 신뢰도 게이지는 없앴다).
  * 가운데 = 고른 대화의 말풍선. NPC 는 입력칸 없이 퀘스트 카드로만 답하고, 개인 대화는 `SocialRef.whisper`(채팅창과 같은 기록),
  * 단체방은 `RoomsRef.say` — 단체방은 **메신저 안에서만** 오간다 (채팅창 연동 없음, 사용자 결정).
  *
@@ -108,6 +113,11 @@ export class ChatTab {
   private autoLoadLen = -1;
   private ask: HoldAskHandle | null = null;
   private acc = 0;
+  /* ── 타이핑 연출 (2026-09-14 3차) ── `typingConv` 의 말풍선 중 앞에서 `typingShown` 개까지만 그린다. */
+  private typingConv: string | null = null;
+  private typingShown = 0;
+  /** `window.setTimeout` 손잡이 (0 = 없음). */
+  private typingTimer = 0;
 
   constructor(parent: HTMLElement, frame: HTMLElement, private readonly host: ChatTabHost) {
     this.root = el('div', { cls: 'ms-chat', parent });
@@ -198,6 +208,7 @@ export class ChatTab {
   select(key: string | null): void {
     const parsed = splitKey(key);
     this.selected = parsed ? key : null;
+    this.flushTyping();
     this.membersOpen = false;
     this.pop.close();
     this.input.value = '';
@@ -225,6 +236,7 @@ export class ChatTab {
     this.ask?.close();
     this.ask = null;
     this.input.blur();
+    this.flushTyping();
   }
 
   /** 보이는 동안 메신저가 매 프레임 부른다 — 4 Hz 로 데이터 키를 비교한다 (이벤트를 안 내는 디버그 ref 도 따라온다). */
@@ -244,11 +256,18 @@ export class ChatTab {
     const npc = npcOf(ctx);
     if (npc) {
       for (const c of npc.getContacts()) {
-        const trust = npcTrustOf(ctx, c.npc.id);
+        /* 2026-09-14 3차 (사용자 결정): 줄에 남는 것은 **마지막 대사**다 — 퀘스트 제안이 마지막 사건이면
+         * `[퀘스트] 이름` 대신 그 퀘스트의 `summary` 를 잘라 쓴다 (「레이븐이 새 거래 상대의 솜씨를…」). */
+        const last = npc.getMessages(c.npc.id).at(-1);
+        let preview = c.preview;
+        if (last?.from === 'quest') {
+          const q = npc.getQuest(last.questId);
+          preview = q?.def.summary || q?.def.name || c.preview;
+        } else if (last?.from === 'npc' || last?.from === 'system') preview = last.text;
+        else if (last?.from === 'me') preview = `나: ${last.text}`;
         out.push({
-          key: `npc:${c.npc.id}`, kind: 'npc', id: c.npc.id, title: c.npc.name, sub: c.npc.title, at: c.at, unread: c.unread,
-          preview: c.preview, glyph: c.npc.glyph || initialOf(c.npc.name), color: c.npc.color,
-          ...(trust ? { trust } : {}),
+          key: `npc:${c.npc.id}`, kind: 'npc', id: c.npc.id, title: c.npc.name, at: c.at, unread: c.unread,
+          preview, glyph: c.npc.glyph || initialOf(c.npc.name), color: c.npc.color,
         });
       }
     }
@@ -262,7 +281,7 @@ export class ChatTab {
         const last = social.whisperHistory(p.code).at(-1);
         const title = p.name || friend?.name || formatPlayerCode(p.code);
         out.push({
-          key: `pc:${p.code}`, kind: 'pc', id: p.code, title, sub: formatPlayerCode(p.code), at: p.at,
+          key: `pc:${p.code}`, kind: 'pc', id: p.code, title, at: p.at,
           unread: social.whisperUnread?.(p.code) ?? 0,
           preview: last ? `${last.out ? '나: ' : ''}${last.text}` : '', glyph: initialOf(title), color: PC_COLOR,
           ...(friend ? { presence: friend.presence } : {}),
@@ -271,7 +290,7 @@ export class ChatTab {
       for (const f of social.friends) {
         if (seen.has(f.code) || social.isBlocked(f.code)) continue;
         out.push({
-          key: `pc:${f.code}`, kind: 'pc', id: f.code, title: f.name || formatPlayerCode(f.code), sub: formatPlayerCode(f.code), at: 0,
+          key: `pc:${f.code}`, kind: 'pc', id: f.code, title: f.name || formatPlayerCode(f.code), at: 0,
           unread: social.whisperUnread?.(f.code) ?? 0, preview: `친구 · ${PRESENCE_LABELS[f.presence]}`,
           glyph: initialOf(f.name), color: PC_COLOR, presence: f.presence,
         });
@@ -281,7 +300,7 @@ export class ChatTab {
     if (rooms?.available) {
       for (const r of rooms.rooms) {
         out.push({
-          key: `room:${r.id}`, kind: 'room', id: r.id, title: r.name, sub: `${r.members.length}명`, at: r.lastAt,
+          key: `room:${r.id}`, kind: 'room', id: r.id, title: r.name, at: r.lastAt,
           unread: rooms.unread(r.id), preview: r.lastText ?? '', glyph: '#', color: ROOM_COLOR,
         });
       }
@@ -299,10 +318,10 @@ export class ChatTab {
     const rooms = roomsOf(ctx);
     const roomsOk = !!rooms?.available;
     const invites = roomsOk ? rooms!.invites : [];
-    const now = Date.now();
+    /* 2026-09-14 3차: 줄에 시각(`n분`)이 없어져 분 단위 재도색도 없앴다 — 키는 그린 것만 본다. */
     const key = [
-      this.filter, this.selected ?? '', roomsOk ? 1 : 0, Math.floor(now / 60_000),
-      rows.map((r) => `${r.key}|${r.title}|${r.at}|${r.unread}|${r.preview}|${r.presence ?? ''}|${r.trust?.trust ?? ''}`).join(','),
+      this.filter, this.selected ?? '', roomsOk ? 1 : 0,
+      rows.map((r) => `${r.key}|${r.title}|${r.at}|${r.unread}|${r.preview}|${r.presence ?? ''}`).join(','),
       invites.map((i) => `${i.room}|${i.at}|${i.name}`).join(','),
     ].join('#');
     if (!force && key === this.listKey) return;
@@ -340,7 +359,7 @@ export class ChatTab {
     } else this.invitesEl.replaceChildren();
 
     const shown = this.filter === 'all' ? rows : rows.filter((r) => r.kind === this.filter);
-    this.rowsEl.replaceChildren(...shown.map((r) => this.rowEl(r, now)));
+    this.rowsEl.replaceChildren(...shown.map((r) => this.rowEl(r)));
     const social = socialOf(ctx);
     const emptyText = this.filter === 'npc' ? '아직 연락해 온 NPC 가 없습니다'
       : this.filter === 'room' ? '들어가 있는 단체방이 없습니다'
@@ -351,7 +370,11 @@ export class ChatTab {
     this.listEmpty.hidden = shown.length > 0;
   }
 
-  private rowEl(r: ConvRow, now: number): HTMLElement {
+  /**
+   * 대화 목록의 한 줄 — **초상 + 이름 + 마지막 대사**뿐이다 (2026-09-14 3차, 사용자 결정).
+   * 소속 라벨 · `n분` 시각 · 신뢰도 레벨 · 신뢰도 게이지는 여기서 전부 빠졌다 (신뢰도는 대화창 머리 초상의 고리가 말한다).
+   */
+  private rowEl(r: ConvRow): HTMLElement {
     const row = el('button', { cls: `ms-row kind-${r.kind}${r.key === this.selected ? ' is-sel' : ''}${r.unread > 0 ? ' has-unread' : ''}${r.presence === 'offline' ? ' is-offline' : ''}` });
     row.type = 'button';
     row.dataset.key = r.key;
@@ -360,15 +383,8 @@ export class ChatTab {
     const main = el('span', { cls: 'ms-row-main', parent: row });
     const top = el('span', { cls: 'ms-row-top', parent: main });
     el('span', { cls: 'ms-row-title', text: r.title, parent: top });
-    el('span', { cls: 'ms-row-sub', text: r.kind === 'npc' ? r.sub : r.kind === 'room' ? `단체방 · ${r.sub}` : r.sub, parent: top });
-    el('span', { cls: 'ms-row-time', text: agoText(r.at, now), parent: top });
     const bot = el('span', { cls: 'ms-row-bot', parent: main });
     el('span', { cls: 'ms-row-prev', text: clip(r.preview, 60), parent: bot });
-    /* 2026-09-14: NPC 줄에는 그 NPC 의 개인 신뢰도 `Lv.n + 짧은 게이지` (미리보기 뒤 · 읽지 않음 배지 앞). */
-    if (r.kind === 'npc' && this.ctx) {
-      const t = buildNpcTrust(this.ctx, r.id, r.title, { compact: true, color: r.color });
-      if (t) bot.appendChild(t);
-    }
     if (r.unread > 0) el('span', { cls: 'ms-unread ui-mono', text: r.unread > 99 ? '99+' : String(r.unread), parent: bot });
     row.addEventListener('click', (e) => { e.stopPropagation(); this.select(r.key); });
     return row;
@@ -413,7 +429,7 @@ export class ChatTab {
   private renderThread(force = false): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    if (!force && !this.host.isVisible()) { this.threadKey = ''; return; }
+    if (!force && !this.host.isVisible()) { this.threadKey = ''; this.flushTyping(); return; }
     const key = this.threadDataKey();
     if (!force && key === this.threadKey) return;
     this.threadKey = key;
@@ -430,9 +446,45 @@ export class ChatTab {
       return;
     }
     this.thread.dataset.kind = sel.kind;
+    if (sel.kind !== 'npc') this.flushTyping();
     if (sel.kind === 'npc') this.renderNpc(sel.id);
     else if (sel.kind === 'pc') this.renderPc(sel.id);
     else this.renderRoom(sel.id);
+  }
+
+  /* ── 타이핑 연출 (2026-09-14 3차, 사용자 결정) ─────────────────────────────
+   * 새로 도착하는 NPC 말풍선만 한 줄씩 `...` 를 거쳐 붙는다 — 대화를 열 때 이미 있던 기록은 즉시 전부.
+   * **갇히는 길을 만들지 않는다**: 대화를 바꾸거나 · 탭을 떠나거나 · 패널이 닫히면 큐를 버리고
+   * 다음 그리기가 남은 말풍선을 전부 보여 준다 (`typingConv = null` → 「이 대화는 처음 그린다」). */
+
+  /** 대기 중인 큐를 버리고 타이머를 정리한다. */
+  private flushTyping(): void {
+    if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
+    this.typingConv = null;
+    this.typingShown = 0;
+  }
+
+  /** 다음 말풍선을 `delay` 초 뒤에 연다 (0 = 다음 프레임 — 내 대답 · 시스템 줄은 기다리지 않는다). */
+  private scheduleTyping(id: string, delay: number): void {
+    if (this.typingTimer) return;
+    this.typingTimer = window.setTimeout(() => {
+      this.typingTimer = 0;
+      if (this.typingConv !== id) return;
+      this.typingShown++;
+      this.renderThread(true);
+    }, Math.round(Math.max(0, delay) * 1000));
+  }
+
+  /** `...` 말풍선 (점 셋이 순차로 커진다 — 애니메이션은 CSS). */
+  private typingBubble(def: NpcDef | undefined, withAvatar: boolean): HTMLElement {
+    const row = el('div', { cls: `ms-msg in typing${withAvatar ? '' : ' cont'}` });
+    if (withAvatar) {
+      const av = el('span', { cls: 'ms-av small', text: def?.glyph || initialOf(def?.name ?? '?'), parent: row });
+      av.style.setProperty('--av', def?.color ?? PC_COLOR);
+    }
+    const bubble = el('div', { cls: 'ms-bubble ms-typing', parent: row });
+    for (let i = 0; i < 3; i++) el('i', { parent: bubble });
+    return row;
   }
 
   /** Swap the body's children, keeping the reader where they were (bottom-pinned, or anchored after an older page). */
@@ -453,6 +505,11 @@ export class ChatTab {
   private threadHead(glyph: string, color: string, title: string, sub: string, presence?: PresenceState): HTMLElement {
     const av = el('span', { cls: `ms-av big${presence ? ` pres-${presence}` : ''}`, text: glyph });
     av.style.setProperty('--av', color);
+    return this.threadHeadWith(av, title, sub);
+  }
+
+  /** 머리줄을 이미 지은 초상으로 (NPC 는 신뢰도 고리를 두른 초상이다 — `Trust.buildNpcAvatar`). */
+  private threadHeadWith(av: HTMLElement, title: string, sub: string): HTMLElement {
     const main = el('div', { cls: 'ms-thead-main' });
     el('div', { cls: 'ms-thead-title', text: title, parent: main });
     el('div', { cls: 'ms-thead-sub', text: sub, parent: main });
@@ -481,14 +538,29 @@ export class ChatTab {
     const contact = npc?.getContacts().find((c) => c.npc.id === id);
     const def: NpcDef | undefined = contact?.npc ?? NPC_DEF_MAP.get(id);
     const corp = def?.corp ? CORP_DEFS[def.corp]?.name ?? '' : '';
-    const main = this.threadHead(def?.glyph || initialOf(def?.name ?? '?'), def?.color ?? PC_COLOR, def?.name ?? id,
+    const name = def?.name ?? id;
+    const color = def?.color ?? PC_COLOR;
+    /* 2026-09-14 3차 (사용자 결정): 초상이 신뢰도 고리 + 레벨 배지를 두르고, `bio` 한 줄은 빠졌다 (소개는 첫 연락 대사가 한다). */
+    this.threadHeadWith(buildNpcAvatar(ctx, id, name, { glyph: def?.glyph || initialOf(name), color }), name,
       def ? [def.title, corp || NPC_ROLE_LABEL_KO[def.role]].filter(Boolean).join(' · ') : '');
-    if (def?.bio) el('div', { cls: 'ms-thead-bio', text: def.bio, parent: main });
-    /* 2026-09-14: 대화창 머리의 개인 신뢰도 게이지 — 기업 화면의 신뢰도 게이지와 같은 계열, 색은 그 NPC 색. */
-    const trustEl = buildNpcTrust(ctx, id, def?.name ?? id, { color: def?.color ?? PC_COLOR });
-    if (trustEl) { trustEl.classList.add('in-head'); main.appendChild(trustEl); }
+    /* 레벨 · 신뢰도 현황은 머리줄의 **중앙 우측**에 선다 (초상 아래가 아니라). */
+    const trustEl = buildNpcTrust(ctx, id, name, { color });
+    if (trustEl) { trustEl.classList.add('in-right'); this.head.appendChild(trustEl); }
 
-    const msgs: readonly NpcMessage[] = npc?.getMessages(id) ?? [];
+    /* 새로 도착한 말풍선은 `...` 를 거쳐 한 줄씩 붙는다 — 대화가 바뀌었으면(= 처음 그린다) 있는 것을 전부 즉시 보여 준다. */
+    const all: readonly NpcMessage[] = npc?.getMessages(id) ?? [];
+    if (this.typingConv !== id) {
+      if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
+      this.typingConv = id;
+      this.typingShown = all.length;
+    } else if (all.length < this.typingShown) this.typingShown = all.length;   // 기록이 줄었다 (초기화 · 다른 캐릭터)
+    /* 내 대답 · 시스템 줄은 기다리지 않는다 — 같은 그리기에서 바로 붙인다 (기다리는 것은 NPC 말풍선 · 퀘스트 카드뿐). */
+    while (this.typingShown < all.length) {
+      const m = all[this.typingShown];
+      if (m.from === 'npc' || m.from === 'quest') break;
+      this.typingShown++;
+    }
+    const msgs = all.slice(0, this.typingShown);
     const now = Date.now();
     const nodes: HTMLElement[] = [];
     let prevAt = 0;
@@ -503,7 +575,6 @@ export class ChatTab {
         if (q) {
           wrap.appendChild(buildQuestCard(ctx, q, 'bubble', {
             accept: (qid) => { if (!npcOf(ctx)?.accept(qid)) this.deny('지금은 수락할 수 없습니다 — 함선에서만 가능합니다'); },
-            defer: (qid) => { if (!npcOf(ctx)?.defer(qid)) this.deny('지금은 답할 수 없습니다 — 함선에서만 가능합니다'); },
             openTab: (qid) => this.host.openQuest(qid),
           }));
         } else {
@@ -528,12 +599,21 @@ export class ChatTab {
       nodes.push(row);
       prevFrom = m.from;
     }
-    if (msgs.length === 0) nodes.push(el('div', { cls: 'ms-msg sys', text: npc ? '아직 받은 메시지가 없습니다' : '퀘스트 정보를 불러올 수 없습니다' }));
+    if (all.length === 0) nodes.push(el('div', { cls: 'ms-msg sys', text: npc ? '아직 받은 메시지가 없습니다' : '퀘스트 정보를 불러올 수 없습니다' }));
+    /* 아직 안 푼 말풍선이 있으면(= NPC 말풍선 · 퀘스트 카드) 그 자리에 `...` 를 세우고 다음 줄을 예약한다. */
+    const pending = all[this.typingShown];
+    if (pending) {
+      nodes.push(this.typingBubble(def, prevFrom !== 'npc' && prevFrom !== 'quest'));
+      const text = pending.from === 'quest' ? npc?.getQuest(pending.questId)?.def.summary ?? ''
+        : pending.from === 'npc' ? pending.text : '';
+      this.scheduleTyping(id, Math.min(TYPE_MAX_S, Math.max(TYPE_MIN_S, text.length * TYPE_S_PER_CHAR)));
+    }
     /* 2026-09-14 (튜토리얼 개편 — `docs/plans/tutorial-raid.md` §2.5): 첫 연락의 **대사 선택지**.
-     * 아직 대답하지 않았으면 말풍선 아래에 내 대답 버튼 줄이 선다 — 퀘스트 카드의 [수락] [생각해보지] 와 같은
+     * 아직 대답하지 않았으면 말풍선 아래에 내 대답 버튼 줄이 선다 — 퀘스트 카드의 [수락] 과 같은
      * 문법(`ms-btn`)이다. 고르면 `choice` 사건이 하나 붙어 내 대답 + NPC 의 답 두 줄이 대화에 들어오고
-     * `getPendingChoices` 가 빈 배열이 되어 줄이 사라진다. 고르기 전에 닫고 나가도 다시 열면 그대로 있다. */
-    const choices = npc?.getPendingChoices(id) ?? [];
+     * `getPendingChoices` 가 빈 배열이 되어 줄이 사라진다. 고르기 전에 닫고 나가도 다시 열면 그대로 있다.
+     * 아직 타이핑 중인 말풍선이 남아 있으면 그것부터 다 붙은 뒤에 보인다. */
+    const choices = pending ? [] : npc?.getPendingChoices(id) ?? [];
     if (choices.length > 0) {
       const row = el('div', { cls: 'ms-msg out choices' });
       const box = el('div', { cls: 'ms-choices', parent: row });
@@ -550,7 +630,8 @@ export class ChatTab {
       nodes.push(row);
     }
     this.paintBody(nodes, msgs[0]?.at ?? 0);
-    this.setInput('none', '', 'NPC 에게는 퀘스트 카드로 답합니다');
+    /* 2026-09-14 3차: 하단 안내(`NPC 에게는 퀘스트 카드로 답합니다`) 제거 — 카드와 선택지가 스스로 말한다. */
+    this.setInput('none', '', '');
     if (npc && contact && contact.unread > 0 && this.host.isVisible()) npc.markRead(id);
   }
 
@@ -895,6 +976,7 @@ export class ChatTab {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs = [];
+    this.flushTyping();
     this.ask?.close();
     this.pop.dispose();
     this.root.remove();

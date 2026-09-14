@@ -39,7 +39,7 @@ import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpse
 import type { RogueSpawnHost } from './RogueGuards';
 import { placeSiteGroups, type SitePlacement } from './SiteGroups';
 /* appended (2026-09-14): 튜토리얼 전용 적 — 고정 자리 · 고정 종류 (`Tutorial.ts`) */
-import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
+import { placeTutorialEnemies, updateTutorialAmbush, type TutorialPlacement } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
 /* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
@@ -165,6 +165,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   tutorial = false;
   /** 이번 튜토리얼 레이드에 세운 적 (권한 1회, 디버그 · 스모크 — `debugTutorial()`). */
   tutorialPlacement: TutorialPlacement | null = null;
+  /**
+   * 2026-09-14 4차 — 이번 레이드의 시체 수명(초). **튜토리얼 레이드에서는 시체가 사라지지 않는다.**
+   * 튜토리얼이 가르치려고 놓아 둔 고정 드롭(왼쪽 벌레 · 오른쪽 안드로이드)은 목표 패널을 읽으며 천천히
+   * 걸어가는 속도에서 45초를 못 버텨, 「드롭이 안 나온다」로 보였다. 수명이 아니라 **규칙**이 다른 것이므로
+   * (플레이어 시체 `ctx.corpses` 와 같이 레이드가 끝날 때까지 남는다) csv 에 새 수치를 만들지 않았다.
+   * 몸(`Enemy.corpseLife` — `Pool.acquire`)과 수색 자리(`CorpseManager.lifetime`) 둘 다 이 값을 쓴다.
+   */
+  get corpseLifetime(): number { return this.tutorial ? Infinity : CORPSE_LIFETIME; }
   /* ── Phase 11 ── */
   /** Ecosystem of the 목표 행성 this mission runs on (`world:ready.planet` → `PLANET_DEFS`), null = the default tables. */
   private eco: PlanetEcosystem | null = null;
@@ -229,6 +237,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         // 2026-09-14: 튜토리얼 월드 — 훈련장과 같은 자리에서, 같은 요령으로 가른다 (`ctx.missionMode` 는 game/ 이 emit 전에 세팅한다)
         this.tutorial = !this.training
           && (ctx.missionMode === 'tutorial' || (ctx.world as Partial<WorldRef> | null)?.mode === 'tutorial');
+        // 2026-09-14 4차: 시체 수명은 레이드마다 정해진다 (튜토리얼 = 사라지지 않는다). `reset()` 이 이미 지난 뒤라 이번 레이드에만 걸린다.
+        this.corpses.lifetime = this.corpseLifetime;
         // Phase 11: 목표 행성 생태계 → spawner / waves / guards. Training keeps it null; so does a mission without a planet
         // (the ecosystem is host-side composition only — the `es` / `ee` wire and replica behaviour are untouched).
         // 2026-09-14: 튜토리얼도 행성이 없다 — 훈련장과 같은 처리라 벌레 난이도 배수는 ×1 이다.
@@ -387,6 +397,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.acid?.update(dt, this);
         this.shells?.update(dt, this);
         this.grenades?.update(dt);
+        // 2026-09-14 3차: 튜토리얼 벌레는 땅속에서 기다린다 — 플레이어가 다가오면 그 자리에서 솟는다 (굴착 스폰 재사용)
+        if (this.tutorial) updateTutorialAmbush(this, this.tutorialPlacement);
         // 2026-09-14: 튜토리얼은 순찰 · 웨이브가 없다 — 목록에 적힌 마리가 전부다
         if (!this.training && !this.tutorial) {
           this.spawner.update(dt, this);
@@ -729,9 +741,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   get isTutorialWorld(): boolean { return this.tutorial; }
   /**
    * 2026-09-14 (debug / smoke): 이번 튜토리얼 레이드에 무엇이 섰는가 — 세운 마리 · 건너뛴 줄 · 마리별 감지 반경 · 리시.
+   * 2026-09-14 3차: `ambush` = 아직 땅속에서 기다리는 벌레 수 (플레이어가 감지 반경에 들어서면 솟아 `spawned` 로 옮겨 간다).
    * 튜토리얼이 아니거나 아직 세우기 전이면 null.
    */
-  debugTutorial(): { spawned: number; skipped: number; enemies: Array<{ id: number; type: EnemyType; alive: boolean; sense: number; leash: number; x: number; y: number; z: number }> } | null {
+  debugTutorial(): { spawned: number; skipped: number; ambush: number; enemies: Array<{ id: number; type: EnemyType; alive: boolean; sense: number; leash: number; x: number; y: number; z: number }> } | null {
     const p = this.tutorialPlacement;
     if (!this.tutorial || !p) return null;
     const enemies = p.ids.map((id) => {
@@ -740,7 +753,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         ? { id, type: e.type, alive: e.isCombatant, sense: e.senseRadius, leash: e.homeLeash, x: e.position.x, y: e.position.y, z: e.position.z }
         : { id, type: 'scavenger' as EnemyType, alive: false, sense: 0, leash: 0, x: 0, y: 0, z: 0 };
     });
-    return { spawned: p.spawned, skipped: p.skipped, enemies };
+    return { spawned: p.spawned, skipped: p.skipped, ambush: p.ambush.length, enemies };
   }
   /**
    * Phase 9 (debug / smoke): encode the next snapshot through the live delta cache exactly as the host send would

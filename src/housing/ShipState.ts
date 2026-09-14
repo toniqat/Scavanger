@@ -494,7 +494,9 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (!fid) continue;
     if (seenFacility.has(fid)) rooms[i] = freshRoom(); else seenFacility.add(fid);
   }
-  // a 연구실 · 주방 without a greenhouse (edited save) falls back to empty (`Rules.NEEDS_GREENHOUSE` 가 원본)
+  // a room without its prerequisite greenhouse (edited save) falls back to empty (`Rules.NEEDS_GREENHOUSE` 가 원본)
+  // 2026-09-14 (사용자 결정): 그 목록이 비었으므로 이 낙오 처리는 아무 방도 건드리지 않는다 — 선행 시설 조건 폐지.
+  // 온실 없이 지어 둔 연구실 · 주방이 로드에서 사라지던 길이 이것이었다.
   if (!rooms.some((x) => x.purpose === 'greenhouse')) {
     for (const x of rooms) if (NEEDS_GREENHOUSE.includes(x.purpose)) { x.purpose = 'empty'; x.level = 0; }
   }

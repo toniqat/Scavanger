@@ -15,3 +15,8 @@ raider,0.3,0.6,0.05,0.15,,,,,,0.03,0.07,common:45|uncommon:33|rare:17|epic:5
 rogue_sniper,,,,,,,,,,0.2,0.45,common:10|uncommon:25|rare:30|epic:25|legendary:10
 rogue_hammer,,,,,,,,,,0.2,0.45,common:10|uncommon:25|rare:30|epic:25|legendary:10
 rogue_heavy,,,,,,,,,,0.2,0.45,common:10|uncommon:25|rare:30|epic:25|legendary:10
+# 2026-09-14 3차 튜토리얼 — 들고 있던 총이 그대로 떨어지는 유일한 줄. 스폰이 쥐여 준 계열은 안드로이드 목록의 첫 항목
+# (enemy_abilities.csv 의 HUMANOID_WEAPONS,android = ar|smg) 이라 **돌격소총**이고, 등급 분포 줄(loot_factions.csv)이 없어
+# 등급 I 그대로 나온다. ammoFrac 1 = 준중량탄 **한 스택 가득**, weaponDur 1 = 내구도 최대 (첫 총이라 낡은 것을 주지 않는다).
+# 서적 · 임플란트 · 유니크 칸은 비운다 — 튜토리얼에 굴림은 없다. tut_bug* · tut_android 는 이 표에 줄이 없다.
+tut_android_loot,1,1,1,1,,,,,,,,

@@ -5,7 +5,7 @@ import type {
 import {
   COCKPIT_ROOM_INDEX, ROOM_PURPOSES_ASSIGNABLE, roomGridSize, roomRectBlocked,
   ANALYZE_DEX_SPEEDUP, ANALYZE_KNOWN_SPEEDUP,
-  BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
+  BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_START_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   GROW_SKILL_SPEEDUP, GROW_STATION_SPEED_PER_LEVEL, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
   RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, purposeGeneratorLevel,
@@ -774,11 +774,16 @@ export function furnitureAllowedIn(def: FurnitureDef, purpose: RoomPurpose): boo
 }
 
 /**
- * 온실이 먼저 있어야 지을 수 있는 용도 — 연구실(표본 · 배지가 온실에서 온다)과 **주방**(A-3c, 2026-09-11:
- * 작물이 유일한 요리 재료다). 한 줄이 세 곳의 원본이다: `purposeChangeReason` · `ShipState.sanitize` 의 낙오
- * 처리 · `Rooms.setRoomPurpose` 의 「마지막 온실이 사라지면 딸린 방도 비운다」.
+ * 온실이 먼저 있어야 지을 수 있는 용도. 한 줄이 세 곳의 원본이다: `purposeChangeReason` ·
+ * `ShipState.sanitize` 의 낙오 처리 · `Rooms.setRoomPurpose` 의 「마지막 온실이 사라지면 딸린 방도 비운다」.
+ *
+ * **2026-09-14 (사용자 결정) — 선행 시설 조건은 없다.** 옛 값은 `['lab', 'kitchen']`(연구실은 표본 · 배지가
+ * 온실에서 오고, 주방은 A-3c 당시 작물이 유일한 요리 재료였다)였다. 증축의 게이트는 이제 **발전기 레벨
+ * 하나**뿐이고(`purposeGeneratorLevel` · `generatorGateReason` — 그것은 그대로다), 방 용도끼리의 선후 관계는
+ * 없앴다. 계약 이름은 **추가만 하고 지우지 않는다**는 규약 그대로 남기고 값만 비웠다 — 빈 배열이면 세 소비처가
+ * 전부 저절로 no-op 이 되므로 그 자리들은 한 줄도 고치지 않았다 (`includes` 가 늘 false).
  */
-export const NEEDS_GREENHOUSE: readonly RoomPurpose[] = ['lab', 'kitchen'];
+export const NEEDS_GREENHOUSE: readonly RoomPurpose[] = [];
 
 /**
  * Why room `index` cannot take `purpose`; null = allowed. 2026-09-07: the 작업실 is an ordinary purpose — any room
@@ -793,7 +798,8 @@ export function purposeChangeReason(state: ShipState, index: number, purpose: Ro
   if (purpose === 'empty') return null;
   // 2026-09-12 (사용자 결정): 시뮬레이션실 · 휴식 공간(서재에 합쳐졌다) · 조종석은 빈 방이 될 수 없다
   if (!isAssignablePurpose(purpose)) return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 더 이상 지을 수 없습니다`;
-  // 온실 선행: 연구실(표본 · 배지)과 **주방**(A-3c — 작물이 유일한 요리 재료다) 둘 다 같은 규칙 한 줄을 탄다
+  // 온실 선행 — **2026-09-14 사용자 결정으로 `NEEDS_GREENHOUSE` 가 비었다**: 이 가지는 더 이상 서지 않는다.
+  // 규칙을 되살리려면 그 배열에 용도를 넣으면 되므로 갈래는 그대로 둔다 (계약은 추가만, 삭제 금지와 같은 결).
   if (NEEDS_GREENHOUSE.includes(purpose) && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
     return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 온실이 먼저 필요합니다`;
   }
@@ -1196,13 +1202,19 @@ export function furnitureUpgradeReason(state: ShipState, item: PlacedFurniture, 
 
 /* ── 시설 레벨 요구 (2026-09-12, 사용자 결정) ────────────────────────────────
  * 「발전기 Lv.n 이 필요하다」를 문장이 아니라 **칩**으로 그리기 위한 질의다 (`HousingRef.furnitureUpgradeRequirements` ·
- * `purposeRequirements` → ui 의 `buildFacilityChip`). 게이트의 식은 `generatorGateReason` 과 **같은 한 줄**이다 — 채워지지
- * 않은 요구만 돌려주므로, 빈 배열 = 시설 레벨은 문제가 없다(재료 · 최대 레벨은 사유 함수가 따로 답한다).
+ * `purposeRequirements` → ui 의 `buildFacilityChip`). 게이트의 식은 `generatorGateReason` 과 **같은 한 줄**이다.
+ *
+ * ⚠ 2026-09-14 (사용자 결정 — 「재료 썸네일에 발전기 레벨 썸네일을 표시」): 이제 **채워진 요구도 돌려준다.**
+ * 재료 칩이 가진 것과 필요한 것을 늘 같이 보여 주듯 발전기도 `현재/필요` 를 늘 보여 줘야 하기 때문이고, 모자랄 때는
+ * 칩이 스스로 `.is-short`(빨강)로 말한다. 그래서 **빈 배열이 더 이상 「문제 없음」을 뜻하지 않는다** — 막는지 여부는
+ * 예전부터 그랬듯 사유 함수(`generatorGateReason` · `furnitureUpgradeReason` · `purposeBuildBlockReason`)가 답한다.
+ * 발전기는 Lv.1 로 시작하므로 요구가 1 이하인 것(작업실 · 첫 강화)은 늘 채워져 있어 칩을 만들지 않는다 — 잡음이다.
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** 발전기가 `targetLevel` 보다 낮으면 그 요구 하나, 아니면 빈 배열. */
+/** 발전기 레벨 요구 하나 (요구가 `GENERATOR_START_LEVEL` 이하면 늘 채워져 있으므로 빈 배열). */
 export function generatorRequirement(state: ShipState, targetLevel: number): FacilityRequirement[] {
-  return state.generatorLevel >= targetLevel ? [] : [{ facility: 'generator', have: state.generatorLevel, need: targetLevel }];
+  if (targetLevel <= GENERATOR_START_LEVEL) return [];
+  return [{ facility: 'generator', have: state.generatorLevel, need: targetLevel }];
 }
 
 /** 놓인 가구의 **다음 강화**를 막는 시설 레벨 요구 (최대 레벨이거나 모르는 가구면 빈 배열). */

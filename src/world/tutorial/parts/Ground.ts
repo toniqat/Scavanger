@@ -3,8 +3,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Layers } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  CHASM, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE, DECKS, DECK_TILE_M, DECK_UPPER_Y, VOID_Y,
-  WALL_T, WALL_TOP_Y, Z_END, Z_START, box, rectBox, tileRect, type Rect,
+  CHASM_EDGE, CHASM_GAP_Z, CHASM_NEAR_Z, CHASM_TILT, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE,
+  DECKS, DECK_TILE_M, DECK_UPPER_Y, VOID_Y, WALL_T, WALL_TOP_Y, Z_END, Z_START, box, chasmFarZAt, chasmNearZAt,
+  rectBox, tileRect, type Rect,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -21,6 +22,15 @@ import {
 const FLOOR_HALF_X = CORRIDOR_OUTER_X + 6;
 /** 곧은 절벽 벽 한 조각의 z 길이 — 이 간격마다 안쪽 면 · 윗면을 흔들어 복도처럼 보이지 않게 한다. */
 const WALL_SEG_M = 10;
+/** 데크 윗면 판을 띄우는 높이 (콜라이더 윗면과 z-fighting 하지 않게). */
+const TOP_LIFT = 0.02;
+/**
+ * 절벽 1 의 **사선 판** 윗면을 띄우는 높이. 사선 판은 축 정렬 데크와 겹치는데(축 정렬 사각형으로 사선을
+ * 담을 수 없어서 — `CHASM_EDGE` 주석), 둘의 윗면 판이 같은 높이면 그 겹친 삼각형에서 z-fighting 이 인다.
+ * 3 cm 만 올려 두면 겹친 데서는 사선 판이 이기고(같은 바닥 텍스처라 이음매가 보이지 않는다) 나머지는
+ * 그대로다. 걸어 다니는 높이는 **양쪽 콜라이더 모두 `DECK_UPPER_Y`** 라 한 치도 안 바뀐다.
+ */
+const CHASM_TOP_LIFT = TOP_LIFT + 0.03;
 
 function groundTexture(): THREE.CanvasTexture {
   const S = 256;
@@ -79,10 +89,15 @@ function cliffTexture(): THREE.CanvasTexture {
 
 /** 윗면 판 하나 (`rect` 크기에 맞춰 텍스처를 반복한다). */
 function topPlane(rect: Rect, y: number, tex: THREE.CanvasTexture): THREE.Mesh {
-  const w = rect.x1 - rect.x0, d = rect.z0 - rect.z1;
+  return topQuad((rect.x0 + rect.x1) / 2, y, (rect.z0 + rect.z1) / 2, rect.x1 - rect.x0, rect.z0 - rect.z1, 0, tex);
+}
+
+/** 윗면 판 하나 — 가운데 · 크기 · `rotateY` 로 (사선 판은 yaw ≠ 0). */
+function topQuad(cx: number, y: number, cz: number, w: number, d: number, yaw: number, tex: THREE.CanvasTexture): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(w, d);
   geo.rotateX(-Math.PI / 2);
-  geo.translate((rect.x0 + rect.x1) / 2, y, (rect.z0 + rect.z1) / 2);
+  if (yaw !== 0) geo.rotateY(yaw);
+  geo.translate(cx, y, cz);
   const map = tex.clone();
   map.needsUpdate = true;
   map.repeat.set(w / 8, d / 8);
@@ -128,11 +143,12 @@ export class Ground {
     const bodies: THREE.BufferGeometry[] = [];
     for (const d of DECKS) {
       bodies.push(rectBox(d.rect, VOID_Y, d.top));
-      const top = topPlane(d.rect, d.top + 0.02, groundTex);
+      const top = topPlane(d.rect, d.top + TOP_LIFT, groundTex);
       this.group.add(top);
       this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
       for (const t of tileRect(d.rect, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, d.top, 'tut_deck');
     }
+    this.buildChasmEdges(hash, bodies, groundTex);
     this.addMerged(bodies, rockMat, 'tut-deck-body');
 
     /* ── 양옆 절벽 벽 · 막다른 끝 ──
@@ -175,15 +191,51 @@ export class Ground {
     this.addMerged(walls, rockMat, 'tut-walls');
 
     /* ── 절벽 1 의 틈에 부러져 걸린 다리 (그림만 — **데크 윗면보다 아래**라 밟을 수도, 건널 수도 없다) ──
-     * 2026-09-14 2차: 절벽 1 은 반폭 11 구간이라 x 를 12 → 7.6 안쪽으로 옮겼다 (벽 속에 묻히면 안 보인다). */
+     * 2026-09-14 2차: 절벽 1 은 좁은 구간이라 x 를 12 → 안쪽으로 옮겼다 (벽 속에 묻히면 안 보인다).
+     * 2026-09-14 3차: 반폭이 7.7 로 더 줄고 가장자리가 **사선**이 됐으므로, x 는 ±5.6 안쪽 · z 는 그 x 에서의
+     * 사선 자리(`chasmNearZAt` · `chasmFarZAt`)에서 뽑는다. */
     const bridge: THREE.BufferGeometry[] = [];
-    const zMid = (CHASM.z0 + CHASM.z1) / 2;
     for (const sx of [-1, 1]) {
-      bridge.push(box(1.1, 0.5, 3.0, sx * 7.6, DECK_UPPER_Y - 1.1, CHASM.z0 - 0.6, sx * 0.22));
-      bridge.push(box(0.9, 0.4, 3.6, sx * 8.2, DECK_UPPER_Y - 2.9, zMid, sx * 0.55));
+      const xa = sx * 5.0, xb = sx * 5.6;
+      bridge.push(box(1.1, 0.5, 3.0, xa, DECK_UPPER_Y - 1.1, chasmNearZAt(xa) - 0.6, sx * 0.22));
+      bridge.push(box(0.9, 0.4, 3.6, xb, DECK_UPPER_Y - 2.9, chasmNearZAt(xb) - CHASM_GAP_Z / 2, sx * 0.55));
     }
-    bridge.push(box(3.2, 0.4, 1.2, -7.8, DECK_UPPER_Y - 4.4, CHASM.z1 + 0.4, 0.3));
+    bridge.push(box(3.2, 0.4, 1.2, -5.2, DECK_UPPER_Y - 4.4, chasmFarZAt(-5.2) + 0.4, 0.3));
     this.addMerged(bridge, darkMat, 'tut-broken-bridge', true);
+  }
+
+  /**
+   * 절벽 1 의 **사선 가장자리** (2026-09-14 3차, 사용자 결정 — 「무너진 절벽」).
+   *
+   * 축 정렬 사각형으로는 사선을 담을 수 없으므로 `DECKS` 의 `upper_a` · `upper_b` 는 **사선에서 가장 물러난
+   * 자리**(85.8 · 74.9)에서 끝내고, 거기서 사선까지의 쐐기를 **회전 OBB 한 장씩**이 마저 채운다. 그래서
+   * 옆면이 완전한 벽이고(높이장이 아니다 — `model.ts` 머리 주석) 가장자리를 넘으면 그대로 떨어진다.
+   *
+   * ⚠ 계단식 타일로 지으면 안 된다: 두 가장자리가 함께 계단을 이루면 **안쪽 모서리**에서 틈이 한 단
+   * 높이만큼 좁아져(3.6 − 단) 거기만 걸어서도 넘을 수 있는 지름길이 된다. 회전 OBB 는 모서리가 없다.
+   *
+   * 판은 데크(윗면 `DECK_UPPER_Y`) 와 겹치지만 **콜라이더 윗면이 같아서** 걷는 데는 아무 차이가 없고,
+   * 그림만 `CHASM_TOP_LIFT` 로 갈라 놓는다.
+   */
+  private buildChasmEdges(hash: SpatialHash, bodies: THREE.BufferGeometry[], tex: THREE.CanvasTexture): void {
+    // 메시 `rotateY` 값: 로컬 +X = 사선의 법선(통로 +z 쪽), 로컬 +Z = 사선 방향.
+    //   rotateY(θ) 는 로컬 +X → (cos θ, −sin θ) · 로컬 +Z → (sin θ, cos θ) 이므로 θ = tilt − π/2 에서
+    //   +X = (sin tilt, cos tilt) = 법선 ✔, +Z = (−cos tilt, sin tilt) = 사선 방향(부호만 반대) ✔
+    const yaw = CHASM_TILT - Math.PI / 2;
+    const nx = Math.sin(CHASM_TILT), nz = Math.cos(CHASM_TILT);
+    const w = CHASM_EDGE.width, len = CHASM_EDGE.halfLen * 2;
+    const h = DECK_UPPER_Y - VOID_Y;
+    for (const side of [1, -1]) {
+      // side +1 = 가까운 쪽(`upper_a`) · −1 = 먼 쪽(`upper_b`). 판은 사선 면에서 데크 쪽으로 `w` 만큼 뻗는다.
+      const edgeZ = side > 0 ? CHASM_NEAR_Z : CHASM_NEAR_Z - CHASM_GAP_Z;
+      const cx = side * nx * (w / 2);
+      const cz = edgeZ + side * nz * (w / 2);
+      bodies.push(box(w, h, len, cx, VOID_Y + h / 2, cz, yaw));
+      this.addObb(hash, cx, cz, w / 2, len / 2, yaw, VOID_Y, DECK_UPPER_Y, 'tut_deck');
+      const top = topQuad(cx, DECK_UPPER_Y + CHASM_TOP_LIFT, cz, w, len, yaw, tex);
+      this.group.add(top);
+      this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
+    }
   }
 
   /**

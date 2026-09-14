@@ -1,10 +1,28 @@
 /* ============================================================================
- * SCAVANGER — 연산 클러스터 화면 · 메인 컴퓨터 (2026-09-13; housing/ui/mining). 접두사 `.mn-` 전용.
+ * SCAVANGER — 채굴 화면 (2026-09-14 통합: 채굴 · 클러스터 현황 · 지갑 · 거래소; housing/ui/mining). 접두사 `.mn-` 전용.
  *
- * 둘 다 `StationShell` 카드 배치 위에 좌 패널 내용만 더한다 (틀 · 레일 · 카드 모양은 housing.css 의 `.hs-*`).
- * 결: 반투명 어두운 판 · 호박색 강조 · 모노 숫자 · 코인 색은 `--cc`. 상승 = 성공색, 하락 = 위험색.
- * 드래그 렉 규약: 진행 막대는 `transform: scaleX` 만, 전이 없음.
+ * 한 창(`.mining-screen`)이 `StationShell` 카드 배치 위에 좌 패널 내용만 갈아 끼운다 (틀 · 레일 · 카드 모양은
+ * housing.css 의 `.hs-*`). 결: 반투명 어두운 판 · 호박색 강조 · 모노 숫자 · 코인 색은 `--cc`.
+ * 상승 = 성공색, 하락 = 위험색. 드래그 렉 규약: 진행 막대는 `transform: scaleX` 만, 전이 없음.
  * ========================================================================== */
+
+/* ── 상단 가로 탭 (2026-09-14) ───────────────────────────────────────────────
+ * 인벤토리 · 캐릭터 Tab 화면의 `nav.scr-tabs > button.scr-tab` 과 **같은 결**이다 (알약 테두리 · 활성은 밝은 판).
+ * 그 클래스를 빌려 쓰지 않고 값을 여기 적는 이유는 자리다 — `.scr-tabs` 는 화면에 절대 배치로 떠 있는 줄이고,
+ * 이 탭은 채굴 창 `.frame` 의 첫 줄이다.
+ * ────────────────────────────────────────────────────────────────────────── */
+.mn-tabs {
+  flex: none; align-self: center; display: flex; gap: 4px; padding: 4px;
+  border: 1px solid var(--c-border); border-radius: 999px; background: rgba(8, 9, 11, 0.7);
+}
+.mn-tab {
+  appearance: none; border: 1px solid transparent; border-radius: 999px;
+  padding: 7px 18px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
+  color: var(--c-text-dim); background: none; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.mn-tab:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.06); }
+.mn-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
 
 /* ── 공용 조각 ─────────────────────────────────────────────────────────────── */
 .mn-glyph {
@@ -28,7 +46,6 @@
 .mn-sec-head { display: flex; align-items: baseline; gap: 10px; min-height: 20px; }
 .mn-sec-title { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-text); }
 .mn-sec-count { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
-.mn-hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.03em; }
 .mn-num { font-family: var(--ui-mono); font-size: 12px; text-align: right; white-space: nowrap; color: var(--c-text); }
 .mn-num.dim, .mn-num .dim { color: var(--c-text-faint); }
 .mn-chg.up, .v.up { color: var(--c-success); }
@@ -50,13 +67,17 @@
 .mn-seg-btn:hover { color: var(--c-text); }
 .mn-seg-btn.is-active { color: #05070a; background: var(--c-accent); }
 
-/* ── 연산 클러스터 화면 ────────────────────────────────────────────────────── */
-.mn-cl { gap: 14px; }
-.mn-cl-top { display: flex; gap: 18px; flex-wrap: wrap; }
-.mn-corebox { flex: none; display: flex; flex-direction: column; gap: 8px; }
+/* ── 채굴 탭 (`ClusterPage`) ─────────────────────────────────────────────────
+ * 위에서 아래로 [코어 9칸(중앙)] → [이번 주기] → [채굴 코인 드롭다운 + 현황 수치] (2026-09-14 사용자 결정).
+ * 코어 아이템이 **2×1** 이 되어 칸도 가로로 길다 — 3열 × 3줄의 가로 칸 아홉이 가운데 선다.
+ * ────────────────────────────────────────────────────────────────────────── */
+.mn-cl { gap: 16px; }
+.mn-corebox { flex: none; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.mn-corebox .mn-sec-head { align-self: stretch; }
 .mn-cores {
   --cc: #8fd0ff;
-  display: grid; grid-template-columns: repeat(3, 62px); grid-auto-rows: 62px; gap: 8px; padding: 10px;
+  display: grid; grid-template-columns: repeat(3, 104px); grid-auto-rows: 52px; gap: 8px; padding: 12px;
+  justify-content: center; margin-inline: auto;
   background: rgba(0, 0, 0, 0.35); border: 1px solid var(--c-border);
 }
 .mn-core {
@@ -66,9 +87,9 @@
 }
 .mn-core.is-closed { opacity: 0.25; }
 .mn-core-chip {
-  width: 34px; height: 34px; opacity: 0; pointer-events: none;
+  width: 66px; height: 30px; opacity: 0; pointer-events: none;
   background:
-    linear-gradient(var(--cc), var(--cc)) center / 14px 14px no-repeat,
+    linear-gradient(var(--cc), var(--cc)) center / 26px 12px no-repeat,
     repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0 2px, transparent 2px 5px),
     linear-gradient(160deg, #3a4452, #1b2129);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
@@ -81,37 +102,73 @@
 .mn-cores.is-mining .mn-core.is-on .mn-core-led { background: var(--c-success); box-shadow: 0 0 6px var(--c-success); }
 .mn-core.hs-drop-over, .mn-core.tg-drop-over { background: rgba(255, 179, 71, 0.18); }
 
-.mn-stats { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; min-width: 200px; }
+.mn-cl-prog { display: flex; flex-direction: column; gap: 6px; }
+.mn-cl-prog .mn-bar { height: 8px; }
+
+.mn-stats { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .mn-stat { display: flex; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
 .mn-stat[hidden] { display: none; }
 .mn-stat .k { flex: none; width: 92px; font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-dim); }
 .mn-stat .v { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-family: var(--ui-mono); font-size: 12px; color: var(--c-text); }
 .mn-stat .v.good { color: var(--c-success); }
 .mn-stat .v.bad { color: var(--c-danger); }
-.mn-cl-prog { display: flex; flex-direction: column; gap: 6px; }
-.mn-cl-prog .mn-bar { height: 8px; }
+/* 첫 줄(채굴 코인)은 값 자리가 드롭다운이다 — 줄 높이가 버튼에 맞게 자란다 */
+.mn-stat-coin { padding-block: 4px; }
+.mn-stat-coin .v { display: block; }
 
-.mn-coinsec { display: flex; flex-direction: column; gap: 8px; }
-.mn-coins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.mn-coin {
-  --cc: var(--c-text-dim);
-  position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 8px; cursor: pointer;
-  font: inherit; text-align: left; color: var(--c-text); background: rgba(255, 255, 255, 0.03); border: 1px solid var(--c-border);
+/* ── 채굴 코인 드롭다운 (2026-09-14, `CoinPicker`) ───────────────────────────
+ * 팝업은 `position: fixed` 다 — 좌 패널(`.hs-pane-left`)이 세로 스크롤 컨테이너라 그 안에 두면 잘린다
+ * (우클릭 메뉴 `.hs-ctx` 와 같은 처리). 자리는 열 때 버튼 사각형에서 잰다.
+ * ────────────────────────────────────────────────────────────────────────── */
+.mn-cp { position: relative; display: block; max-width: 340px; }
+.mn-cp-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; cursor: pointer;
+  font: inherit; font-size: 12px; text-align: left; color: var(--c-text);
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
 }
-.mn-coin:hover { border-color: rgba(255, 255, 255, 0.35); }
-.mn-coin.is-active { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 12%, transparent); box-shadow: inset 0 0 0 1px var(--cc); }
-.mn-coin-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.mn-coin-ticker { font-family: var(--ui-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
-.mn-coin-name { font-size: 10px; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mn-coin-price { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); }
-.mn-coin .mn-lock { display: none; position: absolute; right: 4px; top: 4px; }
-.mn-coin.is-locked { opacity: 0.45; cursor: not-allowed; }
-.mn-coin.is-locked .mn-lock { display: inline-block; }
-.mn-coin.is-locked .mn-coin-price { visibility: hidden; }
+.mn-cp-btn:hover, .mn-cp-btn.is-open { border-color: var(--c-accent); }
+.mn-cp-btn.is-empty .mn-cp-label { color: var(--c-text-faint); }
+.mn-cp-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.04em; }
+.mn-cp-caret {
+  flex: none; width: 0; height: 0; margin-left: 2px;
+  border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--c-text-dim);
+}
+.mn-cp-btn.is-open .mn-cp-caret { border-top-color: var(--c-accent); }
+.mn-cp-pop {
+  position: fixed; left: 0; top: 0; z-index: 212; width: 330px; max-height: 340px;
+  display: flex; flex-direction: column; padding: 6px;
+  background: rgba(14, 17, 21, 0.98); border: 1px solid var(--c-border-strong); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+}
+.mn-cp-pop[hidden] { display: none; }
+.mn-cp-filter { flex: none; display: flex; margin-bottom: 6px; }
+.mn-cp-filter input {
+  flex: 1; min-width: 0; height: 28px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--c-text);
+  background: rgba(0, 0, 0, 0.45); border: 1px solid var(--c-border); outline: none;
+}
+.mn-cp-filter input:focus { border-color: var(--c-accent); }
+.mn-cp-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; scrollbar-width: thin; }
+.mn-cp-empty { padding: 10px 8px; font-size: 11px; color: var(--c-text-faint); text-align: center; }
+.mn-cp-empty[hidden] { display: none; }
+.mn-cpi {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; cursor: pointer;
+  font: inherit; text-align: left; color: var(--c-text); background: none; border: 1px solid transparent;
+}
+.mn-cpi:hover { background: rgba(255, 255, 255, 0.07); }
+.mn-cpi.is-active { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.1); }
+.mn-cpi-clear { justify-content: center; font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim); border-bottom: 1px solid var(--c-border); }
+.mn-cpi-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mn-cpi-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.mn-cpi-name b { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mn-cpi-name small { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
+.mn-cpi-sub { font-size: 10px; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mn-cpi-sub.bad { color: var(--c-danger); }
+.mn-cpi-nums { flex: none; display: flex; flex-direction: column; align-items: flex-end; }
+.mn-cpi-nums .mn-num { font-size: 10px; }
+/* 잠긴 코인은 목록에 남되 딤드 (사용자 결정) — 사유는 부제 · title 툴팁 */
+.mn-cpi.is-locked { opacity: 0.45; cursor: not-allowed; }
 
-/* ── 메인 컴퓨터 ──────────────────────────────────────────────────────────── */
-.mining-computer .hs-card-station { flex: 1 1 1180px; max-width: 1400px; }
-.mn-pc { gap: 12px; }
+/* ── 클러스터 현황 · 지갑 · 거래소 (`ComputerPages`) ─────────────────────────── */
+.mining-screen:not(.is-cluster) .hs-card-station { flex: 1 1 1180px; max-width: 1400px; }
 .mn-page { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .mn-page[hidden] { display: none; }
 .mn-sum { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -253,5 +310,5 @@
   .mn-page-x { grid-template-columns: 1fr; }
   .mn-xlist { flex-direction: row; flex-wrap: wrap; }
   .mn-xrow { flex: 1 1 170px; }
-  .mn-coins { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mn-cores { grid-template-columns: repeat(3, 92px); }
 }

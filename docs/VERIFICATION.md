@@ -1666,6 +1666,26 @@ smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 11/12, smoke-hangar 57/
   - **원인 (실측)**: 나흘 된 5273 에서 앱은 `/src/shared/library.ts?t=1789354142878` 을 들고 있고 스모크의 `import('/src/shared/library.ts')` 는 도장 없는 경로라 **두 번째 인스턴스**를 만든다 — `sameMapAppLib:false`, 임시 alias 를 넣은 뒤 `ctx.loot.getItemDef('smoke_old_scrap')` · `reviveItem` 모두 null, 반면 csv 에 진짜로 있는 `book_carry → book_carry_manual_1` 은 계속 통과. 같은 서버에서 **배럴을 거친 경로**(`index.ts` → 상대 경로 `./library`)로 부른 `resolveItemAlias` 는 앱과 **같은 인스턴스**를 잡았다(임시 alias 가 안 보임 = 앱의 맵) — 즉 **앱이 실제로 쓰는 경로에서는 맵이 하나**이고 제품에는 회귀가 없다.
   - **고친 것**: `scripts/smoke-library-consumers.mjs` 만. `/src/…` 동적 import 10곳이 `window.__imp`(이 문서가 실제로 받아 온 URL 로 import, 없으면 맨 경로) 를 지나고, `performance.setResourceTimingBufferSize` 를 올려 앱이 받은 항목이 버퍼 밖으로 밀리지 않게 했다. 새 줄 `the alias map the smoke writes to is the one the app reads (one live module instance)` 가 **alias 검사보다 먼저** 실패해 다음에는 오진하지 않는다. `src/` 는 한 줄도 안 바뀌었다 (typecheck 는 다른 세션의 `WorldSystem.tutorial` 4건만, 이 작업 전후 동일).
   - ⚠ `scripts/*.mjs` 25개가 아직 맨 `import('/src/…')` 를 쓴다. 상수 · 순수 함수를 **읽기만** 하면 무해하고(두 인스턴스의 값이 같다), 모듈 상태를 **고치는** 스모크만 같은 처방이 필요하다 — `smoke-library.mjs` 의 `ITEM_ALIASES` 는 읽기만이라 그대로 둔다.
+- 2026-09-14 (44차: 퀘스트 대화 3단 · 튜토리얼 레이드 3차 개편 · 메신저 UI — 계약 선커밋 + 6 에이전트 병렬 + 리드 통합, `npm run verify:all`, 5 red → **1 은 진짜 버그(고쳤다) · 2 는 부하 흔들림 · 2 는 기존 실패**):
+  typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, build 4,121.16 kB JS / 425.07 kB CSS,
+  smoke-npc-quests 68/69 → **고침 → 69/69**, smoke-messenger 70/70, smoke-tutorial 91/91, smoke-meta 178/178,
+  smoke-extraction 36/36, smoke-raidflow 89/89, smoke-structure-reach 1035/1035, smoke-site-spawns 517/517,
+  smoke-structures 141/141, smoke-lights 30/30, smoke-cooking 114/114, smoke-progression 262/262, smoke-housing 324/324,
+  smoke-inventory-p6 183/183, smoke-weapons 147/147, smoke-ui-p5 141/141, smoke-social 208/208, smoke-trust 68/68,
+  smoke-faction-sites 263/263, smoke-map-quests 72/72, smoke-pitch 162/162, smoke-desktop 54/54, 그 밖 전부 초록.
+  - **`smoke-npc-quests` 68/69 만 이 변경의 것이었고 제품 버그였다** — 「`introAfter` 가 있는 NPC 는 선택지에 답하기
+    전에 제안하지 않는다」 게이트가 **첫 제안뿐 아니라 그 NPC 의 체인 전체**를 막았다. 스모크가 `q_hx_s1` 을 완료한 뒤
+    `q_hx_s2` 가 안 왔고(`state: null`), 같은 뿌리로 **`introChoices` 가 없던 시절에 연락이 온 옛 세이브**의 체인이
+    통째로 멈춘다 (`intro` 만 있고 `choice` 가 없다). 게이트가 「그 NPC 의 퀘스트가 **하나도 없을 때**」만 걸리도록
+    좁혔다 — 첫 연락의 순간이 지나갔으면(퀘스트가 하나라도 있으면) 통과한다. `--only smoke-npc-quests` 69/69.
+  - **부하 흔들림 2건** — `smoke-rogue-v2` 32/52(재장전 · 수류탄 타이밍, 34차 · 39차에도 같은 자리) · `smoke-pitch`
+    exit 1(1 초 만에 죽었다 = 부팅 실패). `smoke-rover` 29/30(「순환 중 포탑이 곁의 적을 쏜다」, hp 640 → 640) ·
+    `smoke-humanoid-ai` 38/39 도 같은 성격이었다. 넷을 `--only` 로 한 번에 다시 돌려 **30/30 · 162/162 · 52/52 · 39/39**.
+  - ⚠ **`smoke-hangar` 57/58 · `e2e-mp` 170/178 은 기존 실패다** — 43차에 작업 전 커밋을 별도 worktree 에 체크아웃해
+    확인해 둔 그것이고 (`git stash` 금지 — 메모리 규약), 이번 실패 메시지가 **한 글자도 같다** (분대원 이름이 `분대원`
+    폴백이 아니라 `스캐빈저` · 거기서 파생된 채팅 · 친구 · 개인 대화 · `net:peerSuspended` 7건). 이번 작업은
+    `src/net/` 을 한 줄도 건드리지 않았다.
+
 - 2026-09-14 (43차: 튜토리얼 2차 개편 — 퀘스트형 목표 패널 · ESC 건너뛰기 = 즉시 탈출 · 풀피 시작 · 구간별 통로 폭 · 빗나간 총알 반응(전역) · 더블클릭 빈 칸 자동 장착 · 투척 궤적 순수 포물선 — 계약 선커밋 + 5 에이전트 병렬 + 리드 통합, `npm run verify`, 17 min 31 s, 4 red → **3 은 기존 실패 · 1 은 고쳤다**):
   typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-tutorial 90/91 → 고침 → **91/91**,
   smoke-ballistics 39/39, smoke-quickslots 109/109, smoke-weapons 147/147, smoke-inventory-p6 183/183, smoke-loadout 69/69,
@@ -1687,3 +1707,73 @@ smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 11/12, smoke-hangar 57/
     `smoke-training 105/108, smoke-hangar 57/58, e2e-mp 170/178`. 실패 메시지도 동일하다
     (`hangar`: 분대원 이름이 `분대원` 폴백이 아니라 `스캐빈저` · `e2e-mp`: 같은 이름 관련 7건 + `net:peerSuspended` ·
     `smoke-training`: 표적 해시 · 점수 3건). 이 작업과 무관하므로 손대지 않았다.
+
+- 2026-09-14 (45차: 튜토리얼 다듬기 — 오프닝 배선 · 「앞으로 이동」 3단계 · 벌레 구간 −70 % · 포복 천장 반전 ·
+  낙사 부활 자리 · 시체가 사라지던 것 · 함선 메뉴 1탭 — 계약 선랜딩 + 4 에이전트 병렬 + 리드 통합,
+  `npm run verify`, 15 min 15 s, 4 red → **2 는 재실행 초록 · 2 는 기존 실패**):
+
+  typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok (csv 57),
+  **smoke-tutorial 91/91**, smoke-burrow 22/22, smoke-structure-reach 1035/1035, smoke-site-spawns 517/517,
+  smoke-props-collision 53/53, smoke-structures 141/141, smoke-hazard 57/57, smoke-planets 92/92,
+  smoke-raidflow 89/89, smoke-training 108/108, smoke-ghost 86/86, smoke-named 44/44, smoke-rogue-v2 52/52,
+  smoke-rogue-drop 48/48, smoke-enemy-alert 42/42, smoke-enemy-delta 66/66, smoke-faction-sites 263/263,
+  smoke-sandworm 41/41, smoke-extraction 36/36, smoke-progression 262/262, smoke-meta 178/178,
+  smoke-npc-quests 69/69, smoke-messenger 70/70, smoke-map-quests 72/72, smoke-social 208/208,
+  smoke-trust 68/68, smoke-netlink 48/48, smoke-lights 30/30, smoke-desktop 54/54, smoke-pitch 162/162,
+  그 밖 전부 초록.
+  - **`smoke-phase4` 57/58 · `smoke-humanoid-ai` 38/39 는 흔들림이었다** — 둘 다 `--only` 단독 재실행에서
+    **58/58 · 39/39**. `phase4`(벌레 ↔ 인간형 어그로 타이밍)는 수정 K 에 이미 같은 이름으로 적혀 있고,
+    `humanoid-ai` 의 「a rogue in the same spot fires more (1 vs android 14)」는 로그 하나가 그 창 안에 한 발밖에
+    못 쏜 것이라 사선 · 재장전 타이밍 문제다. 이번 변경(`enemies/` 는 시체 수명과 굴착 리그만 건드렸다)과
+    닿는 자리가 없다.
+  - ⚠ **`smoke-hangar` 57/58 · `e2e-mp` 170/178 은 기존 실패다** — 43차 · 44차에 작업 전 커밋을 별도 worktree 에
+    체크아웃해 확인해 둔 그것이고 실패 메시지가 **한 글자도 같다** (분대원 이름이 `분대원` 폴백이 아니라
+    `스캐빈저` · 거기서 파생된 채팅 · 친구 · 개인 대화 · `net:peerSuspended` 7건). 이번 작업은 `src/net/` 을
+    한 줄도 건드리지 않았다.
+    - **정정 (같은 날, UI 5차 세션)**: `smoke-hangar` 는 **기존 실패가 아니라 스모크 결함**이었다 — 로비 합류
+      **전에** `setPlayerName` 을 부르면 `progress:loaded → setPlayerName(profile.name)` 이 덮는다(2026-09-09
+      부터 이름의 원본은 캐릭터 프로필이다). 합류 **뒤** `lobby:name` 으로 바꿔 **58/58**, `src/` 는 무변경.
+      커밋 직전 합친 트리에서 다시 확인했다 (`smoke-hangar 58/58`). `e2e-mp` 의 7건은 같은 뿌리로 보이지만
+      아직 확인하지 않았다. `smoke-training` 105/108 도 같은 세션이 흔들림으로 정리했다(절대값 → 쓰러진
+      표적 집합에서 기대값 유도).
+  - **커밋 직전 재검증** (세 묶음이 한 트리에 합쳐진 뒤): typecheck ok, typecheck-server ok,
+    net-selftest 583/583, data-check ok, smoke-tutorial 91/91, smoke-burrow 22/22, smoke-props-collision 53/53,
+    smoke-raidflow 89/89, smoke-hangar 58/58.
+  - `smoke-tutorial` 은 **증축 트랙**만 몰아 이번 raid 트랙 변경(단계 14개 · 새 목표 id)을 검사하지 않는다.
+    raid 트랙 전용 스모크가 여전히 없다는 것이 이 묶음의 가장 큰 검증 구멍이다 (`docs/TODO.md` 후보).
+
+---
+
+## 2026-09-14 (5차 묶음 — UI 대개편 6갈래)
+
+발사 슬롯 · 제작/수리/발전기 · 서재 · 채굴 통합 · 미니게임 · 음악 재생. 6개 에이전트가 폴더를 나눠 병렬로 만들고,
+**계약(`src/shared`)과 수치(`data/*.csv`)는 리드가 먼저 혼자 확정**해 충돌을 없앴다 (에이전트는 읽기만).
+스모크는 포트 충돌을 피하려고 **에이전트가 아니라 리드 쪽 전담 러너 하나**가 마지막에 몰아서 돌렸다.
+
+```
+2026-09-14: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-generator 48/48, smoke-gym 66/66, smoke-tv-games 29/29, smoke-tutorial 91/91, smoke-inventory-p6 183/183, smoke-housing 324/324, smoke-mining-ui 70/70, smoke-cooking 114/114, smoke-intel 16/16, smoke-library 85/85, smoke-rooms 37/37, smoke-furniture-access 49/49, smoke-planets 92/92, smoke-ship-rooms 77/77, smoke-food-chain 83/83, smoke-stations 98/98, smoke-ui-p6 91/91, smoke-ui-p5 141/141, smoke-controls-hub 153/153, smoke-quickslots 109/109, smoke-consumables 36/36, smoke-meta 178/178, smoke-library-consumers 38/38, smoke-weapons 147/147, smoke-video-games 75/75, smoke-mining 64/64, smoke-loadout 69/69, smoke-lights 30/30, smoke-hangar 58/58
+```
+
+```
+2026-09-14: net-selftest 583/583, data-check ok, smoke-resume-gate 62/62, smoke-phase2 57/57, smoke-favorite-chips 52/52, smoke-phase3 41/41, smoke-uniques 72/72, smoke-buffs 42/42, smoke-favorites 45/45, smoke-map-quests 72/72, smoke-tip-pin 46/46, smoke-messenger 70/70, smoke-console 63/63, smoke-social 207/208, smoke-training 105/108, smoke-netlink 48/48, smoke-search 77/77, smoke-recovery-contract 43/43, smoke-drone-scan 24/24, smoke-npc-quests 69/69, smoke-progression 262/262, smoke-extraction 36/36, smoke-raidflow 89/89
+```
+
+```
+2026-09-14: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-training 108/108, smoke-generator 48/48, smoke-mining-ui 70/70, smoke-social 208/208
+```
+
+- **`src/` 는 검증 때문에 한 줄도 고치지 않았다.** 빨갰던 스모크는 전부 **옛 DOM · 옛 계약을 물고 있던 것**이다 —
+  `.sm-gen-unlock`(삭제한 발전기 해금 목록) · `.inv-repair-open`(작업대 → 가방으로 이사) · `.gym-count`(→ 프로그레스바) ·
+  `stage.flash`(제거한 모니터 발광) · `.menu.mining-cluster`/`.mining-computer`(→ 합쳐진 `.mining-screen`) · 오디오 채널 2 → 3.
+- **`smoke-hangar` 58/58 이 되었다** (2026-09-13 까지 57/58 이던 기존 실패). 원인은 회귀가 아니라 **스모크가 지원되지 않는
+  경로를 쓰고 있던 것**이다 — 로비에 들어가기 전에 `setPlayerName` 을 부르면 `progress:loaded → setPlayerName(profile.name)`
+  이 그것을 덮는다(2026-09-09 부터 이름의 원본은 캐릭터 프로필이다). 합류 **뒤** `lobby:name` 으로 바꾸도록 고쳤다.
+- **`smoke-training` 105/108 은 흔들림이었다.** 절대값(`14` · `격추 1`)을 기대하고 있었는데, 연사 퍼짐 + 스윕 발사체
+  때문에 빗나간 탄이 두 번째 표적을 넘어뜨릴 때가 있다. 쓰러진 표적 **집합**에서 기대값을 유도하도록 바꿨다.
+- **`smoke-inventory-p6` 이 56 → 183 단정으로 늘었다.** 옛 셀렉터가 던지는 바람에 분해 절이 **한 번도 실행되지 않고
+  있었다** — 새 탄약 수치(`break_ammo_light` 40발 → 화약 1)로 고치면서 그 절이 처음으로 돌았다.
+- `smoke-mining-ui` 는 `ctx.housing.miningScreen.cluster.dropOn`(런타임에는 평범한 메서드인 TS `private`)으로 코어를
+  꽂는다 — `smoke-stations` 가 `panel.dropOn` 에 이미 쓰는 수법이다. 진짜 드래그로 바꾸는 것은 열어 둔 판단이다.
+- `smoke-generator` 의 새 검사는 용도 지정 카드를 띄우려고 **같은 `page.evaluate` 안에서** 방 용도를 잠깐 비웠다가
+  되돌린다 (카드는 이미 지은 용도를 숨긴다). 가구는 건드리지 않고, 뒤따르는 재배 스테이션 단계도 그대로 통과한다.
+- `npm run verify:all` 의 `build` · `e2e:mp` 는 **돌리지 않았다**.

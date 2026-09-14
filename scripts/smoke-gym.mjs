@@ -192,11 +192,17 @@ try {
 
   /* ══ 2. 판정 — 화면 없이 ══════════════════════════════════════════════════ */
   console.log('판정 (벤치프레스)');
-  const press = await H(() => {
+  /* 완벽 구역 `GYM_PRESS_PERFECT` 과 성공 구역 `GYM_PRESS_ZONE` 사이 · 그 바깥을 **csv 에서** 잡는다
+     (2026-09-14 판정 완화로 옛 고정 구간 0.075~0.085 가 완벽 구역 안으로 들어왔다). */
+  const pressPlan = [
+    [0, 0.004],
+    [(K.GYM_PRESS_PERFECT + K.GYM_PRESS_ZONE) / 2 - 0.004, (K.GYM_PRESS_PERFECT + K.GYM_PRESS_ZONE) / 2 + 0.004],
+    [K.GYM_PRESS_ZONE + 0.08, K.GYM_PRESS_ZONE + 0.18],
+  ];
+  const press = await H((plan) => {
     const g = window.__game.ctx.housing.gymDebug.makeGame('press');
     const seek = (lo, hi) => { for (let i = 0; i < 200000; i++) { const off = Math.abs(g.pos - 0.5); if (off >= lo && off <= hi) return true; g.update(0.0005); } return false; };
     const speeds = [];
-    const plan = [[0, 0.004], [0.075, 0.085], [0.4, 0.5]];
     for (let i = 0; i < g.total; i++) {
       const [lo, hi] = plan[i] ?? plan[0];
       if (!seek(lo, hi)) return { err: `seek ${i}` };
@@ -206,7 +212,7 @@ try {
     }
     const ev = g.drain();
     return { total: g.total, judgements: [...g.judgements], score: g.score, done: g.done, speeds, judgeEvents: ev.filter((e) => e.type === 'judge').length };
-  });
+  }, pressPlan);
   const pressWant = ['perfect', 'good', 'miss', ...Array(Math.max(0, K.GYM_PRESS_REPS - 3)).fill('perfect')];
   ok(press.total === K.GYM_PRESS_REPS && JSON.stringify(press.judgements) === JSON.stringify(pressWant), `가운데 · 좋음 구역 · 바깥 → 완벽 · 좋음 · 실패, 나머지 완벽 (${JSON.stringify(press.judgements)})`, JSON.stringify(press));
   const pressScore = ((K.GYM_PRESS_REPS - 2) * K.GYM_SCORE_PERFECT + K.GYM_SCORE_GOOD) / K.GYM_PRESS_REPS;
@@ -217,15 +223,18 @@ try {
   console.log('판정 (호흡 달리기)');
   const breath = await H(() => {
     const g = window.__game.ctx.housing.gymDebug.makeGame('breath');
+    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 창이 **두 띠**로 갈렸다 — `bands.perfect`(그려지는 표식) ·
+    // `bands.good`(= `window`). 「좋음」 을 노리려면 두 띠 **사이**를 겨눈다 (옛 `window × 0.6` 은 이제 완벽 안이다).
     const B = g.beat, W = g.window, HS = g.holdS, TOL = g.holdTol;
+    const GOOD = (g.bands.perfect + g.bands.good) / 2;
     const to = (t) => g.update(t - g.time);
     const log = [];
     g.press('jump'); g.release('jump');                           // 예비 박자 동안의 입력은 무시
     log.push({ lead: g.judgements.length });
     const n = g.notes;
-    // note 0 후: 정박 → 완벽 / 1 후: 창의 0.6 → 좋음 / 2 하: 정박에 누르고 정확히 뗀다 → 완벽
+    // note 0 후: 정박 → 완벽 / 1 후: 완벽 띠와 좋음 띠 사이 → 좋음 / 2 하: 정박에 누르고 정확히 뗀다 → 완벽
     to(n[0].t); g.press('jump'); g.release('jump');
-    to(n[1].t + W * 0.6); g.press('jump'); g.release('jump');
+    to(n[1].t + GOOD); g.press('jump'); g.release('jump');
     to(n[2].t); g.press('jump'); to(n[2].t + HS); g.release('jump');
     // 3 후: 안 누른다 → 놓침 / 4 후: 반 박 일찍 → 헛누름 실패 / 5 하: 반만 쥐고 뗀다 → 실패
     to(n[3].t + W + 0.01);
@@ -258,10 +267,12 @@ try {
   const cycle = await H(() => {
     const g = window.__game.ctx.housing.gymDebug.makeGame('cycle');
     const W = g.window, n = g.notes;
+    // 2026-09-14: 완벽 띠(`bands.perfect`) 와 좋음 띠(`bands.good` = `window`) 사이를 겨눠야 「좋음」 이다
+    const GOOD = (g.bands.perfect + g.bands.good) / 2;
     const to = (t) => g.update(t - g.time);
     to(n[0].t); g.press('jump'); g.press(n[0].lane);                  // 점프는 무시, 왼발 정박 → 완벽
     to(n[1].t); g.press('left');                                      // 오른발 차례에 왼발 → 실패
-    to(n[2].t + W * 0.6); g.press(n[2].lane);                         // 좋음
+    to(n[2].t + GOOD); g.press(n[2].lane);                            // 좋음
     to(n[3].t + W + 0.01);                                            // 놓침
     for (let i = 4; i < n.length; i++) { to(n[i].t); g.press(n[i].lane); }
     const ev = g.drain();
@@ -320,8 +331,11 @@ try {
       if (Math.abs(g.pos - 0.5) < 0.012 || performance.now() - t0 > 8000) {
         clearInterval(iv);
         document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+        // 2026-09-14 (사용자 결정): 회차 글자(`.gym-count` 의 `N / M`)는 없어졌다 — 머리줄의 라벨 없는
+        // 진행 바(`.gym-prog > .gym-prog-fill`, `scaleX(판정수 / 총)`)가 그 자리를 대신한다
         const drawn = { left: document.querySelector('.gym-press-cursor')?.style.left ?? null, want: `${(g.pos * 100).toFixed(2)}%`,
-          count: document.querySelector('.gym-count')?.textContent ?? null, wantCount: `${Math.min(g.judgements.length + 1, g.total)} / ${g.total}` };
+          count: parseFloat(/scaleX\(([\d.]+)\)/.exec(document.querySelector('.gym-prog-fill')?.style.transform ?? '')?.[1] ?? 'NaN'),
+          wantCount: g.judgements.length / g.total };
         document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true }));
         res({ beats: window.__rec.beats.map((b) => ({ ...b })), judgements: [...g.judgements], verdict: document.querySelector('.gym-verdict')?.textContent ?? null, drawn });
       }
@@ -330,8 +344,8 @@ try {
   ok(live.beats?.length === 1 && live.beats[0].index === 0 && live.beats[0].total === K.GYM_PRESS_REPS && live.beats[0].quality !== 'miss',
     `가운데에서 누른 판정 → housing:gymBeat (${JSON.stringify(live.beats?.[0])})`, JSON.stringify(live));
   ok(['완벽', '좋음'].includes(live.verdict), `판정 글자 (${live.verdict})`);
-  ok(live.drawn && Math.abs(parseFloat(live.drawn.left) - parseFloat(live.drawn.want)) < 0.01 && live.drawn.count === live.drawn.wantCount,
-    `키 핸들러가 판정 직후의 커서 · 회차를 그 자리에서 그린다 (${JSON.stringify(live.drawn)})`);
+  ok(live.drawn && Math.abs(parseFloat(live.drawn.left) - parseFloat(live.drawn.want)) < 0.01 && Math.abs(live.drawn.count - live.drawn.wantCount) < 1e-4,
+    `키 핸들러가 판정 직후의 커서 · 진행 바를 그 자리에서 그린다 (${JSON.stringify(live.drawn)})`);
 
   if (hasProg) {
     const fin = await H(() => {

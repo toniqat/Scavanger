@@ -8,7 +8,8 @@ import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
-import { diningTable, implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
+// 2026-09-14: `repairBench` 는 더 이상 부르지 않는다 (정비 벤치 제거 — 소품까지) — 함수는 stations.ts 에 그대로 있다
+import { diningTable, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
@@ -170,27 +171,20 @@ export class SharedShip implements ShipInterior {
     }
     P.lockers(4.2, ROOM.maxZ - 0.27, 5, 0);
     /*
-     * 정비 벤치 — **2026-09-12 부터 순수한 소품이다** (사용자 결정: 정비 벤치 제거). 여기서 `this.workbench`
-     * 에 상호작용 앵커를 실어 `parts/Interior` 가 `hub_workbench` 를 등록했는데, 함선에서의 무기 수리는 이제
-     * 인벤토리에서 재료로 한다. 테이블 · 바이스 · 공구판 · `정비` 표지는 병기고 실루엣이라 그대로 두고
-     * 앵커만 버린다 (`P.workbench` 는 앵커 · 표지 변환을 함께 돌려주므로 표지 자리는 계속 쓴다).
+     * 정비 벤치 — **2026-09-14 에 통째로 없앴다** (사용자 결정). 2026-09-12 에 상호작용(`hub_workbench`)만 걷어내고
+     * 테이블 · 바이스 · 공구판 · `정비` 표지는 「병기고 실루엣」으로 남겨 뒀는데, 누를 것이 없는 정비대가 함선에
+     * 서 있는 것 자체가 거짓말이라 소품 · 콜라이더 · 표지를 전부 뺐다. 병기고 후벽은 총기 랙(−Z 쪽)과
+     * 사물함 · 보급 상자(+Z 쪽)만 남는다. `Parts.workbench` · `stations.repairBench` 는 좌표를 잃지 않도록
+     * 파일에 그대로 두었다 (부르는 곳 없음).
      */
-    const wb = P.workbench(-3.7, ROOM.maxZ - 0.62, 0);
-    const wbSign = new TextPlane(0.9, 0.3, 256);
-    wbSign.mesh.position.copy(wb.signPos);
-    wbSign.mesh.rotation.copy(wb.signRot);
-    wbSign.set(['정비'], '#9be8ff', 'rgba(6,8,10,0.85)');
-    r.add(wbSign.mesh);
-    this.screens.push(wbSign);
     P.crates(7.8, ROOM.maxZ - 0.55, 4, 0);
     P.crates(10.8, ROOM.maxZ - 0.55, 2, 0);
     P.crates(ROOM.maxX - 0.6, -4.5, 3, Math.PI / 2);
 
     // ── 함선 시설 (tactical kit) — merged into the same GeoBatch, no extra draw calls ──
-    // 정비대: the existing workbench (board only); 임플란트 시술대: +X wall, +Z half.
-    // (Phase 8: the hydroponics rack is gone — 재배 lives in the personal ship's 온실.)
+    // 임플란트 시술대: +X wall, +Z half. (Phase 8: the hydroponics rack is gone — 재배 lives in the personal ship's 온실.
+    //  2026-09-14: `bench` 도 없다 — 정비 벤치를 소품까지 걷어냈다, 위 병기고 절.)
     this.stations = {
-      bench: repairBench(b, col, -3.7, ROOM.maxZ - 0.7, 0, false),
       implantBay: implantBay(b, col, ROOM.maxX - 1.0, 3.6, yawFromForward(-1, 0)),
       /*
        * 고정 식탁 (주방 A-3c, 2026-09-11): 공유 함선에는 가구가 없으므로 분대가 함께 먹는 자리를 인테리어가

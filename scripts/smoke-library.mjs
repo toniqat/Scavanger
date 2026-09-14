@@ -24,8 +24,10 @@ if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
 /* src/shared/constants.ts — asserted as literals so a silent retune is caught here. */
-const BOOKS_PER_SHELF = 8;   // 2026-09-13: 4 선반 × 2칸
-const GAME_SLOTS = 6;        // GAME_DISC_SLOTS_PER_STAND
+const BOOKS_PER_SHELF = 40;  // 2026-09-14: 4 층 × (5칸 × 2줄)
+const GAME_SLOTS = 12;       // GAME_DISC_SLOTS_PER_STAND (2026-09-14: 6 → 12)
+/* shared/housing 의 `SHELF_TIERS` · `SHELF_TIER_COLS` (2026-09-14 층당 여러 줄) */
+const BOOK_TIERS = 4, BOOK_COLS = 5, GAME_TIERS = 3;
 const VOLUME_SHARE = 0.1;    // SHELF_SERIES_VOLUME_SHARE (사용자 결정: 권당 10 %)
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 서재 시리즈는 버전을 올리지 않았다 (ShipState.ts 머리 주석). 13 = 전력 할당 폐지 (2026-09-13). */
 const SHIP_STATE_VERSION = 13;
@@ -339,30 +341,53 @@ try {
     const root = document.querySelector('.menu.housing-menu.bookshelf-menu');
     const slots = [...root.querySelectorAll('.lib-case .lib-slot[data-slot]')];
     const filled = slots.filter((s) => s.classList.contains('is-filled'));
-    const ser = root.querySelector(`.lib-series .lib-ser[data-series="${mid}"]`);
+    const dexRow = root.querySelector(`.lib-dexrow[data-series="${mid}"]`);
     return {
       hidden: root.hidden, medium: root.dataset.medium, caseMedium: root.querySelector('.lib-case')?.dataset.medium,
-      tiers: [...root.querySelectorAll('.lib-tier')].map((t) => [...t.querySelectorAll('.lib-slot[data-slot]')].map((s) => s.dataset.slot).join('')).join('|'),
+      tiers: root.querySelectorAll('.lib-case .lib-tier').length, rows: root.querySelectorAll('.lib-case .lib-row').length,
+      cols: [...root.querySelectorAll('.lib-case .lib-row')].map((r) => r.children.length).join(','),
+      slots: slots.length, order: slots.map((s) => Number(s.dataset.slot)).join(','),
       filled: filled.length, vols: filled.map((s) => s.querySelector('.lib-vol')?.hidden ? '' : s.querySelector('.lib-vol')?.textContent),
       full: filled.filter((s) => s.classList.contains('is-full')).length, tip: filled.every((s) => s.querySelector('.lib-item').hasAttribute('data-item-tip')),
-      line: filled[0]?.dataset.line ?? '', count: root.querySelector('.lib-count').textContent, aux: root.querySelector('.hs-shelf-aux').textContent,
-      auxOn: root.querySelector('.hs-shelf-aux').classList.contains('on'), serHead: root.querySelector('.lib-series-head')?.textContent,
-      ser: ser ? { pips: ser.querySelectorAll('.lib-pip').length, on: ser.querySelectorAll('.lib-pip.is-on').length, here: ser.querySelectorAll('.lib-pip.is-here').length,
-        full: ser.classList.contains('is-full'), cnt: ser.querySelector('.lib-ser-cnt').textContent, lines: [...ser.querySelectorAll('.lib-ser-line')].map((n) => n.textContent) } : null,
-      dexRows: root.querySelectorAll('.lib-dexrow[data-series]').length, dexOwned: root.querySelector(`.lib-dexrow[data-series="${mid}"]`)?.classList.contains('owned'),
-      dexPips: root.querySelectorAll(`.lib-dexrow[data-series="${mid}"] .lib-pip`).length, dexSum: root.querySelector('.hs-dex-sum')?.textContent ?? '',
-      tabs: [...root.querySelectorAll('.hs-rail .hs-tab')].map((n) => n.textContent).join('|'), grids: [...root.querySelectorAll('[data-tg-grid]')].map((n) => n.dataset.tgGrid).join(','),
+      line: filled[0]?.dataset.line ?? '', emptyLine: slots.find((s) => !s.classList.contains('is-filled'))?.dataset.line ?? null,
+      info: root.querySelector('.lib-info').textContent, count: root.querySelector('.lib-count').textContent,
+      aux: !!root.querySelector('.hs-shelf-aux'), series: !!root.querySelector('.lib-series-head'),
+      dexRows: root.querySelectorAll('.lib-dexrow[data-series]').length, dexOwned: dexRow?.classList.contains('owned'),
+      dexPips: dexRow?.querySelectorAll('.lib-pip').length ?? -1, dexThumb: !!dexRow?.querySelector('.lib-dex-thumb'),
+      dexSub: dexRow?.querySelectorAll('.lib-dex-sub').length ?? -1, dexState: dexRow?.querySelector('.lib-dex-state')?.textContent ?? '',
+      tabs: [...root.querySelectorAll('.hs-tabs .hs-tab')].map((n) => n.textContent).join('|'),
+      railTabs: root.querySelectorAll('.hs-rail .hs-tab').length,
+      rail: [...root.querySelectorAll('.hs-rail .hs-rail-item')].map((n) => `${n.dataset.uid || 'lib'}:${n.querySelector('.hs-rail-name').textContent}`),
+      railActive: root.querySelector('.hs-rail .hs-rail-item.is-active')?.dataset.uid ?? null,
+      grids: [...root.querySelectorAll('[data-tg-grid]')].map((n) => n.dataset.tgGrid).join(','),
     };
   }, M.id);
-  ok(!dom.hidden && dom.medium === 'book' && dom.caseMedium === 'book' && dom.tiers === '01|23|45|67', `책장 panel: 4 × 2 drawn slots (${dom.tiers})`);
-  ok(dom.filled === M.volumes && dom.vols.includes('I') && dom.vols.includes('II') && dom.full === M.volumes && dom.tip, `volume badges + full-set outline on every volume (${dom.vols.join(',')} · full ${dom.full})`);
+  ok(!dom.hidden && dom.medium === 'book' && dom.caseMedium === 'book' && dom.tiers === BOOK_TIERS && dom.rows === BOOK_TIERS * 2 && dom.slots === BOOKS_PER_SHELF,
+    `책장 panel: ${BOOK_TIERS} 층 × 2 줄 = ${BOOKS_PER_SHELF} 칸 (${dom.tiers}/${dom.rows}/${dom.slots})`);
+  ok(dom.cols === Array(BOOK_TIERS * 2).fill(BOOK_COLS).join(',') && dom.order === [...Array(BOOKS_PER_SHELF).keys()].join(','),
+    `한 줄 ${BOOK_COLS} 칸 · 칸 번호는 0 부터 이어진다 (${dom.cols})`);
+  ok(dom.filled === M.volumes && dom.vols.includes('I') && dom.vols.includes('II') && dom.full === M.volumes && dom.tip, `volume badges + full-set outline + item tooltip hook on every volume (${dom.vols.join(',')} · full ${dom.full})`);
   ok(/몫 100 %/.test(dom.line) && dom.line.includes(M.name), `slot info line names the series and its share (${dom.line})`);
-  ok(dom.auxOn && /흔들의자/.test(dom.aux) && /\+25 %/.test(dom.aux), `aux line (${dom.aux})`);
-  ok(dom.serHead === '시리즈 진척' && dom.ser && dom.ser.pips === M.volumes && dom.ser.on === M.volumes && dom.ser.here === M.volumes && dom.ser.full && new RegExp(`${M.volumes} / ${M.volumes}권`).test(dom.ser.cnt),
-    `series progress row: ${M.volumes} pips on · here · full (${JSON.stringify(dom.ser)})`);
-  ok(dom.ser && dom.ser.lines.length === 1 && /상승량 \+/.test(dom.ser.lines[0]), `series effect line with its value (${dom.ser?.lines[0]})`);
-  ok(dom.tabs === '선반|도감' && dom.grids === 'stash,bag', `rail tabs · 창고 card left of 가방 (${dom.tabs} · ${dom.grids})`);
-  ok(dom.dexRows === D.bookSeries && dom.dexOwned && dom.dexPips === M.volumes && /발견한 시리즈/.test(dom.dexSum), `series 도감: one row per book series (${dom.dexRows}/${D.bookSeries}) · ${dom.dexSum}`);
+  // 2026-09-14 (사용자 결정): 빈 칸은 아무 말도 하지 않고, 정보 줄의 기본 문구 · 보조 가구 줄 · 시리즈 진척 패널은 사라졌다
+  ok(dom.emptyLine === '' && dom.info === '' && !dom.aux && !dom.series, `빈 칸 · 기본 정보 줄 · 보조 가구 줄 · 시리즈 진척 제거 (empty '${dom.emptyLine}' · info '${dom.info}')`);
+  ok(dom.tabs === '선반|도감' && dom.railTabs === 0 && dom.grids === 'stash,bag', `선반 / 도감 가 상단 가로 탭 · 창고 card left of 가방 (${dom.tabs} · ${dom.grids})`);
+  ok(dom.rail[0]?.startsWith('lib:서재') && dom.rail.length >= 2 && dom.railActive === shelfA,
+    `레일 = 서재 + 배치된 보관함 목록, 연 가구가 선택돼 있다 (${dom.rail.join(' | ')})`);
+  ok(dom.dexRows === D.bookSeries && dom.dexOwned && dom.dexPips === M.volumes && dom.dexThumb && dom.dexSub === 0 && new RegExp(`${M.volumes} / ${M.volumes}권`).test(dom.dexState),
+    `series 도감 = 썸네일 + 이름 + 모은 수뿐 (${dom.dexRows}/${D.bookSeries} · ${dom.dexState})`);
+
+  // 레일의 「서재」 = 시설 전체 보너스 요약 (효과 이름과 값만)
+  await H(() => document.querySelector('.menu.bookshelf-menu .hs-rail .hs-rail-item[data-uid=""]')?.click());
+  await sleep(160);
+  const libTab = await H(() => {
+    const root = document.querySelector('.menu.bookshelf-menu');
+    return { title: root.querySelector('.hs-station-head .title').textContent, tabsHidden: root.querySelector('.hs-tabs').hidden,
+      shelfHidden: root.querySelector('.lib-page[data-page="shelf"]').hidden, effs: [...root.querySelectorAll('.lib-eff')].map((n) => n.textContent) };
+  });
+  ok(libTab.title === '서재' && libTab.tabsHidden && libTab.shelfHidden && libTab.effs.length > 0 && libTab.effs.some((t) => /상승량 \+/.test(t)),
+    `「서재」 = 효과 요약 (탭 숨김 · ${libTab.effs.length} 줄: ${libTab.effs[0]})`);
+  await H((u) => document.querySelector(`.menu.bookshelf-menu .hs-rail .hs-rail-item[data-uid="${u}"]`)?.click(), shelfA);
+  await sleep(160);
 
   const shelfState = () => H((u) => ({ slots: window.__game.ctx.housing.getShelfSlots(u).map((s) => s.defId), msg: document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '' }), shelfA);
   /** The 창고 tile of `defId`, else its 가방 tile (a taken-out book goes to the bag first). */
@@ -427,10 +452,10 @@ try {
   await sleep(200);
   const s6 = await H((mid) => {
     const root = document.querySelector('.menu.bookshelf-menu');
-    const ser = root.querySelector(`.lib-ser[data-series="${mid}"]`);
-    return { full: root.querySelectorAll('.lib-slot.is-full').length, on: ser?.querySelectorAll('.lib-pip.is-on').length ?? -1, serFull: ser?.classList.contains('is-full') };
+    const row = root.querySelector(`.lib-dexrow[data-series="${mid}"]`);
+    return { full: root.querySelectorAll('.lib-slot.is-full').length, live: row?.querySelectorAll('.lib-pip.is-live').length ?? -1, boosted: row?.classList.contains('boosted') };
   }, M.id);
-  ok((await shelfState()).slots[1] === null && s6.full === 0 && s6.on === M.volumes - 1 && s6.serFull === false, `double-click takes a volume; full outlines + series row update (${JSON.stringify(s6)})`);
+  ok((await shelfState()).slots[1] === null && s6.full === 0 && s6.live === M.volumes - 1 && s6.boosted === true, `double-click takes a volume; full outlines + 도감 권 칸 update (${JSON.stringify(s6)})`);
   await tap('KeyE');
   await sleep(140);
   ok(await H(() => document.querySelector('.menu.bookshelf-menu').hidden && !window.__game.ctx.uiBlockers.has('housing')) && (await lastEv('ui:bookshelfToggled'))?.open === false, 'E closes the 책장 panel');
@@ -440,13 +465,15 @@ try {
     const pG = await H(() => {
       const root = document.querySelector('.menu.bookshelf-menu');
       return { medium: root.dataset.medium, caseMedium: root.querySelector('.lib-case')?.dataset.medium, tiers: root.querySelectorAll('.lib-tier').length,
-        filled: root.querySelectorAll('.lib-slot.is-filled').length, auxHidden: root.querySelector('.hs-shelf-aux').hidden, head: root.querySelector('.lib-series-head')?.textContent,
-        rows: root.querySelectorAll('.lib-series .lib-ser[data-def]').length, dexRows: root.querySelectorAll('.lib-dexrow[data-def]').length, count: root.querySelector('.lib-count').textContent };
+        slots: root.querySelectorAll('.lib-case .lib-slot[data-slot]').length, filled: root.querySelectorAll('.lib-slot.is-filled').length,
+        dexRows: root.querySelectorAll('.lib-dexrow[data-def]').length, dexThumbs: root.querySelectorAll('.lib-dexrow[data-def] .lib-dex-thumb').length,
+        count: root.querySelector('.lib-count').textContent };
     });
     const togG = await lastEv('ui:shelfToggled');
-    ok(pG.medium === 'game' && pG.caseMedium === 'game' && pG.tiers === GAME_SLOTS / 2 && pG.filled === 1 && pG.auxHidden && pG.head === '꽂힌 게임' && pG.rows === 1,
-      `게임 디스크 전시대 panel: drawn 3 × 2 · aux hidden · shelved game list (${JSON.stringify(pG)})`);
-    ok(pG.dexRows === D.games.length && togG?.medium === 'game' && togG.open === true && /1 \/ 6장/.test(pG.count), `game 도감 lists every game disc (${pG.dexRows}) · ui:shelfToggled {game}`);
+    ok(pG.medium === 'game' && pG.caseMedium === 'game' && pG.tiers === GAME_TIERS && pG.slots === GAME_SLOTS && pG.filled === 1,
+      `게임 디스크 전시대 panel: ${GAME_TIERS} 층 × 4 칸 (${JSON.stringify(pG)})`);
+    ok(pG.dexRows === D.games.length && pG.dexThumbs === D.games.length && togG?.medium === 'game' && togG.open === true && new RegExp(`1 / ${GAME_SLOTS}장`).test(pG.count),
+      `game 도감 lists every game disc with a thumbnail (${pG.dexRows}) · ui:shelfToggled {game}`);
     await tap('KeyE');
     await sleep(140);
   }

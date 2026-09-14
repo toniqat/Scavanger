@@ -739,6 +739,8 @@ export const SOIL_USES_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare'
 export const AUDIO_STORAGE_KEY = 'scav.audio';
 export const AUDIO_DEFAULT_MASTER = K.num('AUDIO_DEFAULT_MASTER');
 export const AUDIO_DEFAULT_SFX = K.num('AUDIO_DEFAULT_SFX');
+/** appended (2026-09-14): BGM 채널 기본 음량. 지금은 소리를 내지 않고 음악 재생 창의 볼륨 표시가 이 채널을 읽는다. */
+export const AUDIO_DEFAULT_BGM = K.num('AUDIO_DEFAULT_BGM');
 
 /* ── ship doors + room lighting (owner: hub) ── */
 /** A room / cockpit door slides open when the player is within this many metres of its threshold. */
@@ -820,6 +822,8 @@ export const GYM_BREATH_HOLD_TOL_S = K.num('GYM_BREATH_HOLD_TOL_S');
 /** 사이클링: A · D 를 번갈아 밟는 횟수, 박자 간격(초), 판정 창(±초). */
 export const GYM_CYCLE_STROKES = K.num('GYM_CYCLE_STROKES');
 export const GYM_CYCLE_BEAT_S = K.num('GYM_CYCLE_BEAT_S');
+/** appended (2026-09-14): 「좋음」 띠의 반폭 = 완벽 띠(= 판정 창) × 이 값. 완벽 = 화면에 보이는 표식 크기라는 규약의 짝이다. */
+export const GYM_GOOD_OF_PERFECT = K.num('GYM_GOOD_OF_PERFECT');
 export const GYM_CYCLE_WINDOW_S = K.num('GYM_CYCLE_WINDOW_S');
 
 /* ── appended (2026-09-12): 캐릭터 버프 (owner: player 목록, net 와이어, ui 썸네일) ── */

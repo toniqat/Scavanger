@@ -127,10 +127,13 @@ try {
     const g = window.__game.ctx.housing.cookDebug.makeGame('chop');
     const to = (t) => g.update(t - g.time);
     const n = g.notes, B = g.beatS, W = g.window;
+    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 창이 두 띠로 갈렸다 — `bands.perfect`(그려지는 표식) · `bands.good`(= `window`).
+    // 「좋음」 을 노리려면 두 띠 **사이**를 겨눈다 (옛 `window × 0.6` 은 이제 완벽 띠 안이다).
+    const GOOD = (g.bands.perfect + g.bands.good) / 2;
     g.press('left');                                   // 예비 박자 동안의 클릭은 무시
     const lead = g.judgements.length;
     to(n[0].t); g.press('right'); g.press('left');     // 우클릭은 썰기가 아니다 · 정박 → 완벽
-    to(n[1].t + W * 0.6); g.press('left');             // 좋음
+    to(n[1].t + GOOD); g.press('left');                // 좋음
     to(n[2].t - B / 2); g.press('left');               // 헛클릭 → 다음 표식(2) 실패
     to(n[3].t + W + 0.01);                             // 놓침 (클릭 없음)
     for (let i = 4; i < n.length; i++) { to(n[i].t); g.press('left'); }
@@ -199,7 +202,9 @@ try {
     const ev = g.drain();
     const late = d.makeGame(step);
     const q0 = late.pieces[0];
-    late.update(q0.start + q0.seconds * 0.9 - late.time);        // 안 뒤집고 90 % → 뒤집기 실패 + 곧장 꺼내기(좋음)
+    // 안 뒤집고 완벽 폭 밖 · 좋음 폭 안에서 꺼낸다 → 뒤집기 실패 + 꺼내기 좋음
+    // (2026-09-14 판정 완화로 옛 고정 90 % 는 `COOK_GRILL_DONE_PERFECT` 0.10 안에 들어와 완벽이 됐다)
+    late.update(q0.start + q0.seconds * (1 - (K.COOK_GRILL_DONE_PERFECT + K.COOK_GRILL_DONE_GOOD) / 2) - late.time);
     late.clickPiece(0);
     return { early, seconds: [p0.seconds, p1.seconds], start1: p1.start, judgements: [...g.judgements], score: g.score, done: g.done,
       burned: p1.burned, beats: ev.filter((e) => e.type === 'beat').map((e) => e.action), sizzles: ev.filter((e) => e.type === 'sound').length,
@@ -217,13 +222,14 @@ try {
     const g = window.__game.ctx.housing.cookDebug.makeGame('stirfry');
     const to = (t) => g.update(t - g.time);
     const B = g.beatS, W = g.window;
+    const GOOD = (g.bands.perfect + g.bands.good) / 2;   // 2026-09-14: 완벽 띠와 좋음 띠 사이
     g.press('left');                                   // 예비 박
     const lead = g.judgements.length;
     to(g.beatTime(0)); g.press('left');                // 완벽
     const bar1 = g.bar;
     to(g.beatTime(0) + 0.01); g.press('left');         // 같은 박자 두 번째 → 무시
     const dup = g.judgements.length;
-    to(g.beatTime(1) + W * 0.6); g.press('left');      // 좋음
+    to(g.beatTime(1) + GOOD); g.press('left');         // 좋음
     to(g.beatTime(2) + Math.min(B / 2 - 0.01, W + 0.05)); g.press('left');   // 창 밖이지만 가까운 박자 → 실패(조금 찬다)
     const bars = [bar1, g.bar];
     let k = 3;

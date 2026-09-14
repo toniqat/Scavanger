@@ -363,6 +363,18 @@ re-equips from.
   재료 없이 만피로 복구**됐다. 무기는 여전히 `repairWeapon` 이 맡고(실효 최대 내구도를 쓴다), 나머지는
   `repair()` 가 `def.durabilityMax` 로 채운다. ~~가방은 `durabilityMax` 자체가 없어 수리 목록에 오르지 않는다.~~
   **2026-09-11**: 가방에도 `durabilityMax`(100)가 생겨 방탄복과 같은 경로로 수리 목록에 오르고 재료를 낸다.
+- **2026-09-14 5차 (사용자 결정) — 수리 범위는 「몸에 지닌 것 전부」다.** `parts/Crafting.benchRepairRows` 가
+  장비칸 + 가방 격자에 더해 **주머니 · 퀵슬롯**(`pouchItems()` · `quickItems()` — `countWhere` 가 보는 그 셋)을
+  본다(uid 중복은 `seen` 으로 거른다). **창고는 제외다** — 수리는 들고 나갈 장비를 손보는 일이고, 창고까지 넣으면
+  「모두 수리」가 쓰지도 않는 여벌 장비의 재료를 먹는다. `repair` · `repairWeapon` 은 `findItem` / `locate` 가 이미
+  주머니 · 퀵슬롯을 찾고 `locKind` 가 둘 다 `'player'` 라 **한 줄도 바뀌지 않았다**.
+- **2026-09-14 5차 — `모두 수리` 버튼이 작업대 헤더에서 가방 필터 칩 줄 맨 왼쪽으로 옮겼다.** 수리 게이트는
+  2026-09-12 부터 "어느 작업대냐" 가 아니라 **"함선이냐"** 이므로 제작 창 안에 둘 이유가 없었다. `ui/InventoryUI` 가
+  필터 줄을 `.inv-bag-tools`(flex) 로 감싸 **주황색 `.inv-repair-open-btn`** + 칩 그리드를 한 줄에 세운다(칩 개수
+  변수 `--inv-filter-n` 은 건드리지 않는다 — `TradeGrids` 의 `.tg-tools` 와 같은 결). 레이드 중에는 숨고, 고칠 것이
+  없으면 딤드다. ⚠ 클래스 이름이 `.inv-repair-all` 이 **아닌** 이유는 그 이름을 `RepairPanel` 의 실행 버튼이 이미
+  쓰고 있어서다(스타일시트는 전역이다 — `.ct-cell` 충돌과 같은 뿌리). `RepairPanel` 모달 자체는 그대로 재사용하고
+  `CraftPanel` 의 `onRepair` 인자는 `@deprecated` 로 남는다.
 
 ## Behaviour contract (unchanged parts)
 
@@ -445,6 +457,16 @@ locked with a toast during a raid) · **가방** with the quick-use rose to its 
 - The save file (`scav.stash` v2) carries `cols` / `rows`; v1 saves load at 10×24.
 
 ### Materials across bag + stash
+
+**2026-09-14 5차 (사용자 결정) — 세는 범위의 원본은 `craftCountDef(defId)` 하나다.** `parts/Crafting` 머리에
+처음부터 적혀 있던 「레이드에서는 가방만, 함선에서는 가방 + 함선 창고」가 **아이템 제작에만 빠져 있었다** —
+가구 제작 · 수리는 이미 창고를 보고 있었는데 작업대의 아이템 제작만 가방을 셌다. 새 질의
+**`InventoryRef.craftCountDef(defId)`**(= 함선이면 `countDefAll`, 레이드 현장이면 `countDef`)가 그 답을 갖고
+`canCraft` · `maxCraftCount` · 제작 창의 보유 칩(`ui/CraftPanel.paint`)이 **전부 그것을 본다**. 빼는 곳도 하나다 —
+`consumeFor` 가 함선에서는 `consumeDefAll`(가방 먼저 → 창고, 조리 `completeCook` 이 쓰던 그 헬퍼)로 간다.
+게이트는 **수리와 같은 「함선인가」 판정**(`currentStation()`)이라 레이드 현장의 빠른제작(`station: 'field'`)은
+예전처럼 가방만이고, 분해 패널(`DisassemblePanel`)은 손대지 않았다.
+
 `countDefAll(defId)` = bag units + stash units. `consumeDefAll(defId, qty)` is all-or-nothing: false when the total is short, otherwise the **bag first** (`consumeWhere`, its usual events) then the stash smallest stacks first (empties removed, `inventory:stashChanged` through `afterChange`). Facility upgrades / furniture crafting (`housing/`) use these; recipe crafting and repairs still read the **bag only** (`countDef` / `countWhere`).
 
 ### Loadout presets (사격장)
@@ -1058,6 +1080,25 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   실패면 `{item: null, landed: null, reason}` 이고 아무것도 빠지지 않는다.
 
 ## 변경 이력
+
+- **2026-09-14 5차 (함선 제작이 창고 재료를 쓴다 · `모두 수리` 이사 — 사용자 결정)** — 새 파일 없음. 자세한 것은
+  위 `Materials across bag + stash` 와 `Ammo v2 / unload / repair` 절.
+  - **제작이 창고를 못 보고 있었다.** 가구 제작 · 수리는 이미 `countDefAll` 이었는데 작업대의 아이템 제작만
+    가방을 셌다 — 「함선에서는 가방 + 함선 창고」라는 말이 `parts/Crafting` 머리에 적혀 있었는데도 그랬다.
+    고친 방법은 호출부마다 조건을 다는 것이 아니라 **세는 곳을 하나로** 만든 것이다(`craftCountDef`) — 그래서
+    `canCraft` · `maxCraftCount` · 제작 창 칩이 저절로 같은 답을 본다. 빼는 쪽은 `consumeFor` 하나이고
+    함선에서 `consumeDefAll`(가방 먼저 → 창고)로 간다. 게이트를 **수리와 같은 판정**(`currentStation()`)으로 둔
+    것이 요점이다 — 레이드 현장의 빠른제작은 예전처럼 가방만이라, 창고 재료로 ▶ 가 올라가는 일이 없다.
+  - **수리는 몸에 지닌 것 전부다.** `benchRepairRows` 에 주머니 · 퀵슬롯이 들어왔다(창고는 제외 — 수리는 들고
+    나갈 장비를 손보는 일이다). `repair` · `repairWeapon` 은 `findItem` / `locate` 가 이미 그 둘을 찾고 있어
+    한 줄도 안 바뀌었다.
+  - **`모두 수리` 는 작업대의 기능이 아니다.** 게이트가 2026-09-12 부터 「함선이냐」였으므로 버튼을 가방 필터
+    칩 줄 맨 왼쪽(`.inv-bag-tools` · 주황 `.inv-repair-open-btn`)으로 옮겼다 — 작업대를 열지 않아도 눌린다.
+    이름이 `.inv-repair-all` 이 아닌 것은 그 이름을 `RepairPanel` 의 실행 버튼이 이미 쓰기 때문이다
+    (전역 스타일시트 — 「CSS 클래스 접두사는 폴더마다 달라야 한다」와 같은 뿌리). ⚠ 옛 작업대 헤더의
+    `.inv-repair-open` 을 읽던 스모크(`smoke-inventory-p6` · `smoke-tutorial`)는 셀렉터를 바꿔야 한다.
+  - 필요 아이템 줄(`.inv-craft-costs`)에 `data-tip-anchor="left"` 를 달아 호버 카드를 커서 **좌상단**에 세운다
+    (원본은 `ui/hud/ItemTip` 의 `TIP_ANCHOR_ATTR` — 격자 타일은 우하단 그대로다).
 
 - **2026-09-14 2차 (더블클릭 = 빈 칸이면 곧장 그리로 · 튜토리얼 임플란트 칸 숨김 — 사용자 결정)** — 규칙 한 벌,
   새 파일 없음. 자세한 것은 위 `Equipment slots` 절의 「더블클릭 = 「빈 자리가 있으면 곧장 그리로」」.

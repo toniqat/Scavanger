@@ -17,22 +17,55 @@
  *   - `leash` — 자기 자리(`guardPos`)에서 이만큼 벗어나면 추격을 접고 돌아간다 (`ai/EnemyAI` 의 `homeLeash` 가지).
  * 둘 다 **0 이 기본값**이라 이 파일이 채우지 않은 적 — 본편 레이드 · 훈련장의 모든 적 — 은 한 글자도 바뀌지 않는다.
  *
- * 안드로이드의 외피 · 피 대신 불꽃 · 시체 전리품은 **본편 그대로**다 (튜토리얼에서 얻은 전리품은 진짜 보상이다).
+ * 안드로이드의 외피 · 피 대신 불꽃은 **본편 그대로**다.
+ *
+ * ── 2026-09-14 3차 (`docs/plans/qol-batch-2026-09-14c.md` 의 D 절) ───────────────────────────────────
+ * 1. **전용 적 타입 4종.** 월드 목록이 `tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android` 를 쓴다.
+ *    수치는 `data/enemies.csv` 의 자기 줄(안드로이드는 체력 절반)이고, 리그 · AI · 소리는 바탕 종류
+ *    (`EnemyTypes.baseTypeOf`)의 것이며, 다른 것은 **고정 드롭**뿐이다 — `_loot` 둘만 100 % 로 정해진 물건을
+ *    떨구고 나머지 둘은 빈 시체다 (`data/loot_corpses.csv` · `loot_corpse_rolls.csv` · `CORPSE_LOOT_CHANCE`).
+ *    튜토리얼은 굴림이 없으므로 가르치려는 물건만 정확히 나온다.
+ * 2. **벌레는 땅에서 솟는다.** 벌레 줄은 `world:ready` 에 세우지 않고 `TutorialPlacement.ambush` 에 담아 두었다가
+ *    플레이어가 그 마리의 감지 반경에 들어서면 굴착 스폰으로 꺼낸다 (`updateTutorialAmbush`).
  */
 import type * as THREE from 'three';
-import { TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type EnemyType, type TutorialEnemySpawn } from '@/shared';
+import { BURROW_EMERGE_S, TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type EnemyType, type TutorialEnemySpawn } from '@/shared';
 import type { Enemy } from './Enemy';
 import { ALL_ENEMY_TYPES, ENEMY_STATS, HUMANOID_WEAPONS, isWormType } from './EnemyTypes';
 import type { RogueSpawnHost } from './RogueGuards';
 
 /** 이번 레이드에 세운 튜토리얼 적 (디버그 · 스모크 — `EnemySystem.debugTutorial()`). */
 export interface TutorialPlacement {
-  /** 실제로 선 마리 수. */
+  /** 실제로 선 마리 수 (땅에서 솟은 벌레도 솟은 뒤에는 여기 센다). */
   spawned: number;
-  /** 선 적의 id (선 순서 = 목록 순서). */
+  /** 선 적의 id (선 순서 = 목록 순서, 나중에 솟은 벌레는 뒤에 붙는다). */
   ids: number[];
   /** 목록에 있었지만 세우지 못한 줄 (모르는 종류 · 지하벌레 · 풀 포화). */
   skipped: number;
+  /** 아직 땅속에 있는 벌레 (2026-09-14 3차 — `updateTutorialAmbush` 가 하나씩 꺼낸다). */
+  ambush: TutorialAmbush[];
+}
+
+/**
+ * 2026-09-14 3차 — **땅속에서 기다리는 벌레 한 마리**.
+ *
+ * 튜토리얼 벌레는 처음부터 서 있지 않고 플레이어가 다가오면 구덩이에서 솟는다 (`docs/plans/qol-batch-2026-09-14c.md` D 절).
+ * 새 개념을 만들지 않았다 — 이미 있는 **버그 굴착 스폰**(2026-09-13: `Pool.spawn(…, emerge)` → `Enemy.startEmerge` +
+ * `parts/Burrow.emergeFx` + `ee spawn.em`)을 그대로 부른다. 솟는 1 초 동안 맞기는 하지만 공격 · 이동하지 않는 것도 그 규칙 그대로다.
+ *
+ * **좌표는 여기 없다.** 벌레는 목록이 적어 준 **자기 자리**에서 솟고, 방아쇠는 그 마리의 **자기 감지 반경**
+ * (`TutorialEnemySpawn.sense`, 기본 `TUTORIAL_ENEMY_SENSE_M`)이다 — 월드가 벌레를 옮겨도 · 구간을 늘려도
+ * 이 파일은 한 글자도 안 바뀐다. 체크포인트가 그 반경 **밖**에 놓여 있다는 월드의 규약이 곧 "부활 자리에서는
+ * 아직 솟지 않았다" 는 뜻이기도 하다.
+ */
+export interface TutorialAmbush {
+  readonly spawn: TutorialEnemySpawn;
+  readonly type: EnemyType;
+  /** 솟을 자리 (목록의 값 그대로 — 발밑은 솟는 순간 잡는다). */
+  readonly at: THREE.Vector3;
+  readonly yaw: number;
+  /** 이 거리 안에 플레이어가 들어오면 솟는다 (그 마리의 감지 반경). */
+  readonly sense: number;
 }
 
 const KNOWN_TYPES: ReadonlySet<string> = new Set<string>(ALL_ENEMY_TYPES);
@@ -64,7 +97,7 @@ function positive(v: number, fallback: number): number {
  * 그 위에 이 마리만의 `senseRadius` · `homeLeash` 를 얹는 것이 튜토리얼이 하는 전부다.
  */
 export function placeTutorialEnemies(host: RogueSpawnHost, spawns: readonly TutorialEnemySpawn[]): TutorialPlacement {
-  const out: TutorialPlacement = { spawned: 0, ids: [], skipped: 0 };
+  const out: TutorialPlacement = { spawned: 0, ids: [], skipped: 0, ambush: [] };
   const world = host.ctx.world;
   if (!world?.ready || spawns.length === 0) {
     out.skipped = spawns.length;
@@ -77,15 +110,48 @@ export function placeTutorialEnemies(host: RogueSpawnHost, spawns: readonly Tuto
     const at = s.position.clone();
     // 발밑을 한 번 잡아 준다 (월드가 준 자리를 옮기지는 않는다 — 높이만 그 자리의 표면으로)
     at.y = world.getSurfaceY(at.x, at.z, at.y);
-    const e = ENEMY_STATS[type].faction === 'bug'
-      ? host.spawn(type, at, yaw, false, false)
-      : host.spawnRogue(type, at, yaw, at, weaponFor(type), null, { site: null, squadId: host.allocSquadId(), role: 'member' });
+    /* 2026-09-14 3차: **벌레는 아직 세우지 않는다.** 땅속에서 기다렸다가 플레이어가 감지 반경에 들어서면 솟는다
+       (`updateTutorialAmbush`). 인간형은 예전처럼 그 자리에 선다 — 엄폐물 뒤 · 앉아쏴가 그림의 절반이라 숨길 이유가 없다. */
+    if (ENEMY_STATS[type].faction === 'bug') {
+      out.ambush.push({ spawn: s, type, at, yaw, sense: positive(s.sense, TUTORIAL_ENEMY_SENSE_M) });
+      continue;
+    }
+    const e = host.spawnRogue(type, at, yaw, at, weaponFor(type), null, { site: null, squadId: host.allocSquadId(), role: 'member' });
     if (!e) { out.skipped++; continue; }
     applyTutorialTether(e, s);
     out.spawned++;
     out.ids.push(e.id);
   }
   return out;
+}
+
+/**
+ * 2026-09-14 3차 — **땅속 벌레를 꺼낸다.** 권한 클라이언트가 게임플레이 프레임마다 부른다
+ * (`EnemySystem.update`; 튜토리얼이 아니거나 남은 것이 없으면 첫 줄에서 돌아간다).
+ *
+ * 플레이어(로컬 몸)가 그 마리의 감지 반경 안에 들어오면 **그 자리에서** `BURROW_EMERGE_S` 동안 솟으면서
+ * 곧장 쫓기 시작한다 (`chase`) — 솟는 동안은 공격 · 이동이 없다는 것이 `ai/Burrow` 의 규칙이라, "튀어나오고 → 달려든다"
+ * 가 저절로 된다. 굴착 연출 · 흔들림 · 소리 · `ee spawn.em` 은 전부 `Pool.spawn` 안에서 본편과 같은 코드가 낸다.
+ *
+ * 세로 거리는 보지 않는다 — 튜토리얼 통로는 한 층이고, 데크가 갈리는 곳은 구간 자체가 멀다.
+ */
+export function updateTutorialAmbush(host: RogueSpawnHost, placement: TutorialPlacement | null): void {
+  const list = placement?.ambush;
+  if (!placement || !list || list.length === 0) return;
+  const ctx = host.ctx;
+  const p = ctx.player?.position;
+  if (!ctx.world?.ready || !p) return;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const a = list[i];
+    const dx = p.x - a.at.x, dz = p.z - a.at.z;
+    if (dx * dx + dz * dz > a.sense * a.sense) continue;
+    list.splice(i, 1);
+    const e = host.spawn(a.type, a.at, a.yaw, true, false, BURROW_EMERGE_S);
+    if (!e) { placement.skipped++; continue; }
+    applyTutorialTether(e, a.spawn);
+    placement.spawned++;
+    placement.ids.push(e.id);
+  }
 }
 
 /**

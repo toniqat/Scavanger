@@ -286,17 +286,23 @@ try {
     const from = t0.position.clone(); from.set(t0.position.x, 1.4, t0.position.z + 8);
     const dir = from.clone(); dir.set(0, 0, -1);
     const h = ctx.world.raycast(from, dir, 60);
-    return { down: t0.down, hp: t0.hp, knock: a.knockdowns, boardX: board?.rotation.x ?? 0, through: h ? (h.obstacle?.destructible?.id ?? 'env') : 'none', obstacles: ctx.world.getObstacles().length };
+    /* 넘어진 표적 **전부**를 센다: 연사는 `bloomSpread` 로 퍼지고 총알은 스윕 발사체라(2026-09-14) 옆 레인의
+       표적이 같이 맞는 판이 있다 — 그래도 이 절의 주제는 「진짜 총이 표적 0 을 destructible 경로로 넘어뜨린다」다.
+       그래서 절대 수(14 · 격추 1)가 아니라 **넘어진 수와 맞아떨어지는지**를 본다. */
+    const down = [];
+    for (let i = 0; i < 12; i++) { const s = a.getTargetState(i); if (s?.down) down.push(i); }
+    return { down: t0.down, hp: t0.hp, knock: a.knockdowns, boardX: board?.rotation.x ?? 0, through: h ? (h.obstacle?.destructible?.id ?? 'env') : 'none',
+      obstacles: ctx.world.getObstacles().length, downList: down };
   });
   ok(knocked.down && knocked.hp === 0, `target 0 knocked down (hp ${knocked.hp})`);
   ok(knocked.knock >= 1, `knockdown counted (${knocked.knock})`);
   ok(knocked.boardX < -1.2, `board hinged to the floor (rotation.x ${knocked.boardX.toFixed(2)})`);
   ok(knocked.through !== 'training_target_0', `a fallen target no longer blocks the ray (${knocked.through})`);
-  ok(knocked.obstacles === 14, `obstacle removed from the hash while down (${knocked.obstacles})`);
-  const scored0 = await lastEv('training:scored');
-  ok(scored0 && scored0.index === 0 && scored0.score === 1, `training:scored {index 0, score 1} (${JSON.stringify(scored0)})`);
+  ok(knocked.obstacles === 15 - knocked.downList.length, `넘어진 표적만큼 hash 에서 빠졌다 (${knocked.obstacles} = 15 − ${knocked.downList.length})`, JSON.stringify(knocked.downList));
+  const scored0 = (await ev('training:scored')).find((e) => e.index === 0);
+  ok(scored0 && scored0.score >= 1, `training:scored 에 {index 0} 이 있다 (${JSON.stringify(scored0)})`);
   const objDown = await lastEv('ui:objective');
-  ok(objDown && /격추 1/.test(objDown.subText ?? ''), `objective counter updated "${objDown?.subText}"`);
+  ok(objDown && new RegExp(`격추 ${knocked.downList.length}`).test(objDown.subText ?? ''), `objective counter updated "${objDown?.subText}"`);
   await waitSim(3.6);   // TRAINING_TARGET_RESPAWN_S 3 + raise animation
   const raised = await P(() => {
     const a = window.__game.getSystem('world').trainingArena;

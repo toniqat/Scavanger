@@ -103,17 +103,26 @@ try {
   ok(await P(() => window.__game.getSystem('meta').npcQuests.evaluate()) === true, 'evaluate() in the ship attaches contacts / offers');
   const first = await P(async () => {
     const sh = await import('/src/shared/index.ts');
-    const npc = sh.NPC_DEFS.find((n) => !n.requires.level && !n.requires.rep?.length && !n.requires.quests?.length
-      && (() => { const q = sh.NPC_QUEST_DEFS.find((x) => x.npc === n.id); return q && !q.requires.level && !q.requires.rep?.length && !q.requires.quests?.length; })());
+    const lv = window.__game.ctx.progression?.level ?? 1;
+    const free = (req) => (req.level ?? 1) <= lv && !req.rep?.length && !req.quests?.length && !req.flags?.length;
+    const npc = sh.NPC_DEFS.find((n) => free(n.requires)
+      && (() => { const q = sh.NPC_QUEST_DEFS.find((x) => x.npc === n.id); return q && free(q.requires); })());
     if (!npc) return null;
     const q = sh.NPC_QUEST_DEFS.find((x) => x.npc === npc.id);
     const r = window.__game.ctx.meta.npc;
-    return { npc: npc.id, intro: npc.intro.length, quest: q.id, contacts: r.getContacts().map((c) => c.npc.id), state: r.getQuest(q.id)?.state ?? null,
-      offeredOfNpc: r.getQuests().filter((x) => x.npc.id === npc.id && x.state === 'offered').length, unread: r.unreadTotal, msgs: r.getMessages(npc.id) };
+    /* 2026-09-14 3차: 첫 연락은 인사 → **선택지** → 본론 → 제안이다. 답하기 전에는 제안이 오지 않는다. */
+    const pending = r.getPendingChoices(npc.id);
+    const beforeChoice = r.getQuest(q.id)?.state ?? null;
+    const chose = pending.length ? r.chooseIntro(npc.id, 0) : false;
+    return { npc: npc.id, intro: npc.intro.length, after: npc.introAfter?.length ?? 0, quest: q.id,
+      contacts: r.getContacts().map((c) => c.npc.id), pending: pending.length, beforeChoice, chose,
+      state: r.getQuest(q.id)?.state ?? null, unread: r.unreadTotal, msgs: r.getMessages(npc.id) };
   });
-  if (!first) { ok(false, 'content has an NPC with no requirements and a first quest with none'); throw new Error('no starter NPC'); }
+  if (!first) { ok(false, 'content has an NPC reachable at level 1 with no other requirement, and a first quest with none'); throw new Error('no starter NPC'); }
   const Q0 = first.quest, NPC0 = first.npc;
-  ok(first.contacts.includes(NPC0) && first.state === 'offered' && first.offeredOfNpc === 1, `${NPC0}: contacted, first quest ${Q0} offered (one pending offer)`, JSON.stringify({ c: first.contacts, s: first.state, n: first.offeredOfNpc }));
+  ok(first.contacts.includes(NPC0) && first.pending > 0 && first.beforeChoice === null,
+    `${NPC0}: contacted, intro choices pending, **no offer yet**`, JSON.stringify({ c: first.contacts, p: first.pending, s: first.beforeChoice }));
+  ok(first.chose && first.state === 'offered', `chooseIntro → 본론(introAfter ${first.after}줄) → first quest ${Q0} offered`, JSON.stringify({ chose: first.chose, s: first.state }));
   const introMsgs = first.msgs.slice(0, first.intro);
   const lastMsg = first.msgs[first.msgs.length - 1];
   ok(introMsgs.every((m) => m.from === 'npc') && lastMsg?.from === 'quest' && lastMsg.questId === Q0, 'messages: intro bubbles → offer bubbles → quest card', JSON.stringify(first.msgs.map((m) => m.from)));
@@ -126,19 +135,28 @@ try {
   ok((await ev('npc:unreadChanged')).length > 0, 'npc:unreadChanged emitted');
   ok(await P(() => window.__game.getSystem('meta').npcQuests.evaluate()) === false, 'a second evaluate adds nothing (one pending offer per NPC)');
 
-  /* ── ② 보류 → 수락(brief) ─────────────────────────────────────────────── */
-  console.log('② 보류 · 다시 수주');
-  const defer = await P((q) => { const r = window.__game.ctx.meta.npc; const okD = r.defer(q); const npc = r.getQuest(q).npc.id; const msgs = r.getMessages(npc); return { okD, state: r.getQuest(q).state, tail: msgs.slice(-3) }; }, Q0);
-  ok(defer.okD && defer.state === 'deferred' && defer.tail.some((m) => m.from === 'me' && m.text === '생각해보지.'), 'defer → deferred + 「생각해보지.」 in the conversation', JSON.stringify(defer));
+  /* ── ② 「생각해볼게」 은퇴 · 수락 ─────────────────────────────────────────
+   * 2026-09-14 3차 (사용자 결정): 선택지가 없어져 `defer()` 는 아무것도 하지 않는다 (계약에만 남는 이름).
+   * 퀘스트 목록(`getQuests()`)도 `offered` 를 그리지 않는다 — 대화창 카드가 그 자리다. */
+  console.log('② 「생각해보지」 은퇴 · 수락');
+  const defer = await P((q) => {
+    const r = window.__game.ctx.meta.npc;
+    const okD = r.defer(q);
+    const npc = r.getQuest(q).npc.id;
+    return { okD, state: r.getQuest(q).state, tail: r.getMessages(npc).slice(-3),
+      listed: r.getQuests().some((x) => x.def.id === q) };
+  }, Q0);
+  ok(defer.okD === false && defer.state === 'offered', 'defer() 는 은퇴했다 — 늘 false 이고 상태는 offered 그대로', JSON.stringify(defer));
+  ok(!defer.tail.some((m) => m.from === 'me' && m.text === '생각해보지.'), '대화에 「생각해보지.」 가 붙지 않는다');
+  ok(defer.listed === false, 'getQuests() 는 offered 를 그리지 않는다 (받은 것만 표시)');
   const reacc = await P((q) => {
     const r = window.__game.ctx.meta.npc;
     const okA = r.accept(q);
-    const msgs = r.getMessages(r.getQuest(q).npc.id);
-    return { okA, state: r.getQuest(q).state, brief: msgs.some((m) => m.from === 'me' && m.text === '그 일, 아직 유효합니까?'), again: r.accept(q), deferActive: r.defer(q) };
+    return { okA, state: r.getQuest(q).state, listed: r.getQuests().some((x) => x.def.id === q), again: r.accept(q), deferActive: r.defer(q) };
   }, Q0);
-  ok(reacc.okA && reacc.state === 'active' && reacc.brief, 'accept from deferred → active + brief exchange', JSON.stringify(reacc));
+  ok(reacc.okA && reacc.state === 'active' && reacc.listed, 'accept → active, 그때 비로소 퀘스트 목록에 뜬다', JSON.stringify(reacc));
   ok(reacc.again === false && reacc.deferActive === false, 'accept / defer on an active quest → false (no abandon path)');
-  ok((await ev('npc:questChanged')).some((e) => e.id === Q0 && e.state === 'active' && e.prev === 'deferred'), 'npc:questChanged {active, prev deferred}');
+  ok((await ev('npc:questChanged')).some((e) => e.id === Q0 && e.state === 'active' && e.prev === 'offered'), 'npc:questChanged {active, prev offered}');
 
   /* ── ③ 납품 · 보고 ─────────────────────────────────────────────────────── */
   console.log('③ 나눠 납품 · 완료 보고');
@@ -412,7 +430,8 @@ try {
   console.log('⑦ 저장 · 새로고침');
   const snap = await P((n) => { const r = window.__game.ctx.meta.npc; window.__game.ctx.meta.save(); return { msgs: r.getMessages(n).length, quests: r.getQuests().map((q) => `${q.def.id}:${q.state}`).sort(), unread: r.unreadTotal }; }, NPC0);
   const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.s1.meta')); } catch { return null; } });
-  ok(saved && saved.v === 2 && saved.npc && Object.keys(saved.npc.quests).length === snap.quests.length && Array.isArray(saved.npc.log[NPC0]), 'localStorage meta v2 carries npc contacts / log / quests',
+  // 2026-09-14 3차: `getQuests()` 는 offered 를 빼므로 저장된 퀘스트 수는 그보다 **크거나 같다**
+  ok(saved && saved.v === 2 && saved.npc && Object.keys(saved.npc.quests).length >= snap.quests.length && Array.isArray(saved.npc.log[NPC0]), 'localStorage meta v2 carries npc contacts / log / quests',
     JSON.stringify(saved && { v: saved.v, quests: Object.keys(saved.npc?.quests ?? {}).length }));
   await page.reload({ waitUntil: 'load' });
   await boot();

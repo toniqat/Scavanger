@@ -352,6 +352,7 @@ SOIL_MISMATCH_PENALTY,0.2,"궁합이 맞지 않는 토양에 심었을 때 늘�
 # ── audio settings (owner: audio) ──
 AUDIO_DEFAULT_MASTER,0.8,
 AUDIO_DEFAULT_SFX,1,
+AUDIO_DEFAULT_BGM,0.6,"BGM 채널 기본 음량 (2026-09-14 — 축음기 · 주크박스 · 턴테이블의 음악 재생 창이 이 값을 보여 준다)."
 
 # ── ship doors + room lighting (owner: hub) ──
 DOOR_OPEN_DISTANCE,3.2,A room / cockpit door slides open when the player is within this many metres of its threshold.
@@ -366,14 +367,14 @@ ROOM_STRIP_LIT,2.2,
 JUMP_PAD_RETRIGGER_S,2.5,A player who was just launched by a pad cannot be launched by the same pad again for this long (was a 0.7 s per-pad literal).
 
 # ── 서재 책장 (owner: housing rules, hub geometry, items book data) ──
-BOOKS_PER_SHELF,8,Book slots per 책장 (2026-09-13: 4 shelves × 2 — old 6-slot saves keep slots 0–5 and gain two empty ones).
+BOOKS_PER_SHELF,40,"Book slots per 책장 (2026-09-14: 4 shelves × 10 — 한 층에 5권씩 2줄. 옛 세이브는 앞 칸을 그대로 두고 빈 칸만 늘어난다)."
 BOOK_XP_PER_BOOK,0.05,"Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight."
 BOOK_GAIN_MAX,2.0,Cap of the 서재 multiplier for one skill.
 
 # ── 2026-09-12: 서재 매체 — 디스크 · 레코드 · 보조 가구 (A-3e; owner: housing rules, hub geometry, items data) ──
 # 서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]. 몫[m] = min(GAIN_MAX[m] − 1, XP_PER[m] × Σ BOOK_RARITY_MUL) × (보조 가구가 있으면 1 + SHELF_AUX_BONUS_[m])
-DISC_SLOTS_PER_STAND,6,디스크 전시대 한 대의 칸 수.
-RECORD_SLOTS_PER_RACK,4,레코드랙 한 대의 칸 수.
+DISC_SLOTS_PER_STAND,12,디스크 전시대 한 대의 칸 수 (2026-09-14: 6 → 12).
+RECORD_SLOTS_PER_RACK,8,레코드랙 한 대의 칸 수 (2026-09-14: 4 → 8).
 DISC_XP_PER_ITEM,0.06,"디스크 한 장이 그 숙련의 몫에 더하는 값 (× BOOK_RARITY_MUL[등급]). 책(BOOK_XP_PER_BOOK)보다 약간 높다 — 사용자 명세."
 RECORD_XP_PER_ITEM,0.07,"레코드 한 장이 그 숙련의 몫에 더하는 값. 디스크보다 약간 높다 — 사용자 명세."
 DISC_GAIN_MAX,2.0,"디스크 몫의 상한 (1 + 몫 ≤ 이 값). 책 · 레코드 몫과는 따로 잘린 뒤 더해진다."
@@ -393,17 +394,17 @@ GYM_LEAD_BEATS,4,"박자 게임(호흡 달리기 · 사이클링)의 예비 박�
 GYM_SCORE_PERFECT,1,판정 한 번이 세션 점수(판정들의 평균)에 넣는 값 — 완벽.
 GYM_SCORE_GOOD,0.6,판정 한 번이 세션 점수에 넣는 값 — 성공. 실패는 0.
 GYM_PRESS_REPS,8,벤치프레스 한 세션의 판정 횟수.
-GYM_PRESS_SPEED,0.9,"커서 속도 (바 폭/초) — 첫 회."
-GYM_PRESS_SPEED_STEP,0.12,회차마다 더해지는 커서 속도.
-GYM_PRESS_ZONE,0.12,"성공 구역 반폭 (바 폭 비율, 가운데 기준)."
-GYM_PRESS_PERFECT,0.035,"완벽 구역 반폭 (바 폭 비율)."
-GYM_BREATH_CYCLES,6,"호흡 달리기 한 세션의 후-후-하 묶음 수 (판정 = 묶음 × 3)."
-GYM_BREATH_BEAT_S,0.6,박자 간격(초).
+GYM_PRESS_SPEED,0.75,"커서 속도 (바 폭/초) — 첫 회."
+GYM_PRESS_SPEED_STEP,0.08,회차마다 더해지는 커서 속도.
+GYM_PRESS_ZONE,0.18,"성공 구역 반폭 (바 폭 비율, 가운데 기준)."
+GYM_PRESS_PERFECT,0.1125,"완벽 구역 반폭 (바 폭 비율)."
+GYM_BREATH_CYCLES,5,"호흡 달리기 한 세션의 후-후-하 묶음 수 (판정 = 묶음 × 3)."
+GYM_BREATH_BEAT_S,0.8,박자 간격(초).
 GYM_BREATH_HOLD_S,1.2,「하」 를 누르고 있어야 하는 길이(초).
 GYM_BREATH_WINDOW_S,0.18,"탭 · 「하」 시작의 판정 창(±초). 이 값의 1/3 안이면 완벽."
-GYM_BREATH_HOLD_TOL_S,0.22,"「하」 를 떼는 순간의 판정 창(±초)."
-GYM_CYCLE_STROKES,24,사이클링 한 세션에서 A · D 를 번갈아 밟는 횟수.
-GYM_CYCLE_BEAT_S,0.45,박자 간격(초).
+GYM_BREATH_HOLD_TOL_S,0.26,"「하」 를 떼는 순간의 판정 창(±초)."
+GYM_CYCLE_STROKES,16,사이클링 한 세션에서 A · D 를 번갈아 밟는 횟수.
+GYM_CYCLE_BEAT_S,0.65,박자 간격(초).
 GYM_CYCLE_WINDOW_S,0.15,"판정 창(±초). 이 값의 1/3 안이면 완벽. 틀린 발은 실패."
 
 # ── 2026-09-12: 캐릭터 버프 (owner: player 목록 · net 와이어 · ui 썸네일) ──
@@ -897,40 +898,43 @@ COOK_SCORE_PERFECT,1,"조리 판정 한 번이 단계 점수(판정들의 평균
 COOK_SCORE_GOOD,0.6,"조리 판정 한 번이 넣는 값 — 좋음. 실패는 0."
 COOK_LEAD_BEATS,3,"박자 게임(썰기 · 볶기)의 예비 박자 수 — 첫 표식이 판정선까지 걸어오는 동안의 입력은 무시한다."
 COOK_CHOP_CUTS,5,"썰기 한 번의 칼질 수 (사용자 명세 「좌클 5번 탁탁탁」)."
-COOK_CHOP_BEAT_S,0.5,"썰기 박자 간격(초)."
+COOK_CHOP_BEAT_S,0.75,"썰기 박자 간격(초)."
 COOK_CHOP_WINDOW_S,0.15,"썰기 판정 창(±초). 이 값의 1/3 안이면 완벽. 창 밖 헛클릭은 다음 표식의 실패다 (연타 방지)."
-COOK_MINCE_FILL,0.08,"다지기: 클릭 한 번에 그 게이지(좌클릭 = 좌우 · 우클릭 = 상하)가 차는 양 (0 … 1)."
+COOK_MINCE_FILL,0.1,"다지기: 클릭 한 번에 그 게이지(좌클릭 = 좌우 · 우클릭 = 상하)가 차는 양 (0 … 1)."
 COOK_MINCE_DRAIN,0.05,"다지기: 같은 버튼을 연달아 누를 때마다 반대쪽 게이지가 줄어드는 양 — 번갈아 눌러야 빠르다."
-COOK_MINCE_PERFECT_S,4.5,"다지기: 두 게이지를 다 채운 시간이 이 안이면 단계 점수 1."
-COOK_MINCE_ZERO_S,10,"다지기: 이 시간 이상이면 단계 점수 0 (사이는 선형)."
+COOK_MINCE_PERFECT_S,5,"다지기: 두 게이지를 다 채운 시간이 이 안이면 단계 점수 1."
+COOK_MINCE_ZERO_S,12,"다지기: 이 시간 이상이면 단계 점수 0 (사이는 선형)."
 COOK_MINCE_MAX_S,14,"다지기: 이 시간이 지나면 채운 만큼으로 강제로 끝낸다 (점수 0)."
 COOK_GRILL_DEFAULT_S,6,"굽기: cook_grill.csv 에 없는 재료 조각이 0 → 100 % 익는 시간(초)."
 COOK_GRILL_STAGGER_S,0.8,"굽기: 조각이 차례로 이만큼 늦게 불에 닿는다(초) — 같은 재료끼리도 타이밍이 겹치지 않게."
-COOK_GRILL_FLIP_PERFECT,0.05,"굽기: 뒤집기 완벽 폭 — 진행도가 50 % ± 이 값 안에서 뒤집으면 완벽."
-COOK_GRILL_FLIP_GOOD,0.15,"굽기: 뒤집기 좋음 폭 (50 % ± 이 값). 밖이면 실패(그래도 뒤집힌다). 안 뒤집고 꺼내면 뒤집기 실패."
-COOK_GRILL_DONE_PERFECT,0.05,"굽기: 꺼내기 완벽 폭 — 100 % ± 이 값."
-COOK_GRILL_DONE_GOOD,0.15,"굽기: 꺼내기 좋음 폭 (100 % ± 이 값). 밖이면 실패."
+COOK_GRILL_FLIP_PERFECT,0.10,"굽기: 뒤집기 완벽 폭 — 진행도가 50 % ± 이 값 안에서 뒤집으면 완벽."
+COOK_GRILL_FLIP_GOOD,0.25,"굽기: 뒤집기 좋음 폭 (50 % ± 이 값). 밖이면 실패(그래도 뒤집힌다). 안 뒤집고 꺼내면 뒤집기 실패."
+COOK_GRILL_DONE_PERFECT,0.10,"굽기: 꺼내기 완벽 폭 — 100 % ± 이 값."
+COOK_GRILL_DONE_GOOD,0.25,"굽기: 꺼내기 좋음 폭 (100 % ± 이 값). 밖이면 실패."
 COOK_GRILL_EARLY_REMOVE,0.8,"굽기: 안 뒤집은 조각을 클릭했을 때 진행도가 이 값 이상이면 뒤집지 않고 곧장 꺼낸다 (뒤집기 실패로 친다)."
-COOK_GRILL_BURN_AT,1.5,"굽기: 진행도가 이 값에 닿으면 조각이 타서 저절로 내려간다 (남은 판정 전부 실패)."
-COOK_STIRFRY_BEAT_S,0.7,"볶기 박자 간격(초)."
-COOK_STIRFRY_WINDOW_S,0.25,"볶기 판정 창(±초, 사용자 명세 「매우 널널」). 1/3 안이면 완벽. 한 박자에 한 번만 판정한다."
+COOK_GRILL_BURN_AT,1.7,"굽기: 진행도가 이 값에 닿으면 조각이 타서 저절로 내려간다 (남은 판정 전부 실패)."
+COOK_STIRFRY_BEAT_S,0.9,"볶기 박자 간격(초)."
+COOK_STIRFRY_WINDOW_S,0.2,"볶기 판정 창(±초, 사용자 명세 「매우 널널」). 1/3 안이면 완벽. 한 박자에 한 번만 판정한다."
 COOK_STIRFRY_FILL_PERFECT,0.2,"볶기: 완벽 판정 한 번에 바가 차는 양 (0 … 1)."
 COOK_STIRFRY_FILL_GOOD,0.14,"볶기: 좋음 한 번에 차는 양."
 COOK_STIRFRY_FILL_MISS,0.07,"볶기: 타이밍이 안 맞아도 차는 양 (사용자 명세 「안 맞아도 채워진다」)."
-COOK_STIR_TIME_S,5,"젓기: 좌클릭을 누르고 있어야 하는 누적 시간(초) — 이만큼 저으면 끝난다."
+COOK_STIR_TIME_S,4,"젓기: 좌클릭을 누르고 있어야 하는 누적 시간(초) — 이만큼 저으면 끝난다."
 COOK_STIR_HEAT_RISE,0.28,"젓기: 손을 뗐을 때 온도가 오르는 속도(/초, 온도 0 … 1)."
 COOK_STIR_HEAT_FALL,0.22,"젓기: 누르고 있을 때 온도가 내려가는 속도(/초)."
 COOK_STIR_SURGE,0.5,"젓기: 끓어오름 파동 — 오르는 속도에 곱하는 (1 + 이 값 × sin) 의 세기."
 COOK_STIR_SURGE_S,2.2,"젓기: 끓어오름 파동의 주기(초)."
 COOK_STIR_BAND_LOW,0.35,"젓기: 초록 구간 아래 끝 (시작 온도는 구간 한가운데)."
 COOK_STIR_BAND_HIGH,0.65,"젓기: 초록 구간 위 끝."
-COOK_STIR_PERFECT_RATIO,0.9,"젓기: 초록 구간에 머문 시간 비율이 이 이상이면 단계 점수 1."
-COOK_STIR_ZERO_RATIO,0.4,"젓기: 비율이 이 이하면 단계 점수 0 (사이는 선형)."
+COOK_STIR_PERFECT_RATIO,0.8,"젓기: 초록 구간에 머문 시간 비율이 이 이상이면 단계 점수 1."
+COOK_STIR_ZERO_RATIO,0.25,"젓기: 비율이 이 이하면 단계 점수 0 (사이는 선형)."
 COOK_POUR_RAMP_S,0.3,"붓기: 누르기 시작하면 흐름이 0 → 100 % 로, 떼면 100 → 0 % 로 가는 시간(초) (사용자 명세 「0.3초쯤」)."
 COOK_POUR_RATE_ML_S,200,"붓기: 흐름 100 % 일 때 비커에 들어가는 양(ml/초)."
 COOK_POUR_SETTLE_S,0.8,"붓기: 흐름이 0 이 된 뒤 이만큼 다시 누르지 않으면 판정한다(초). 그 전에는 더 부을 수 있다."
-COOK_POUR_PERFECT_ERR,0.04,"붓기: 목표량과의 오차 비율이 이 안이면 단계 점수 1."
-COOK_POUR_ZERO_ERR,0.3,"붓기: 오차 비율이 이 이상이면 단계 점수 0 (사이는 선형)."
+COOK_POUR_PERFECT_ERR,0.08,"붓기: 목표량과의 오차 비율이 이 안이면 단계 점수 1."
+COOK_POUR_ZERO_ERR,0.45,"붓기: 오차 비율이 이 이상이면 단계 점수 0 (사이는 선형)."
+GYM_GOOD_OF_PERFECT,1.6,"헬스 · 비디오게임: 「좋음」 띠의 반폭 = 완벽 띠(= 판정 창) × 이 값 (2026-09-14 — 완벽 = 보이는 노트 지름)."
+COOK_GOOD_OF_PERFECT,1.6,"요리: 「좋음」 띠의 반폭 = 완벽 띠 × 이 값. 반 박자로 클램프한다."
+COOK_STEP_TIMEOUT_MUL,3,"요리: 입력이 오지 않아도 단계가 멈추지 않게 하는 안전핀 — 제대로 하는 시간 × 이 값이 지나면 그때까지의 점수로 끝낸다."
 COOK_POUR_BEAKER_MUL,1.6,"붓기: 비커 용량 = 목표량 × 이 값. 넘치면 곧장 판정한다."
 # ── end 2026-09-13 요리 미니게임 ──
 # ── 2026-09-13 탐사 차량 — 공용 (규칙은 src/shared/types.ts 의 탐사 차량 절) ──
@@ -1019,7 +1023,7 @@ ROVER_NOTICE_STOPPED_M,14,"정류장에 **서 있는** 차량을 적이 알아�
 # ── end 2026-09-13 탐사 차량 ──
 # ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/plans/library-series-games.md) ──
 SHELF_SERIES_VOLUME_SHARE,0.1,"서재 시리즈 몫 — 전권이 아니면 꽂힌 서로 다른 권마다 원래(전권) 보너스의 이만큼, 전권이면 100 % (사용자 결정: V 시리즈 4권 = 40 %)."
-GAME_DISC_SLOTS_PER_STAND,6,"게임 디스크 전시대 한 대의 칸 수."
+GAME_DISC_SLOTS_PER_STAND,12,"게임 디스크 전시대 한 대의 칸 수 (2026-09-14: 6 → 12)."
 COOK_SKILL_SCORE_AT_MAX,0.15,"요리 숙련 최대치에서 조리 단계 점수에 더하는 값 (직접 하기 · 자동 모두, 단계 점수는 1 로 자른다)."
 COOK_SKILL_XP,0.8,"조리 한 번이 주는 요리 숙련 경험치 — 실제 = 이 값 × max(0.25, 요리 점수). tuning.csv 의 CRAFT_XP(0.5) · CRATE_OPEN_XP(0.4) 와 같은 눈금이다."
 RESEARCH_TIME_AT_MAX,0.3,"연구 숙련 최대치에서 분석 시간이 줄어드는 비율 (0.3 = −30 %). 넣는 순간 확정."
@@ -1038,7 +1042,7 @@ FALL_DAMAGE_MAX,260,"한 번의 낙하로 받는 피해 상한. 맨몸(100) · �
 TUTORIAL_ENEMY_SENSE_M,12,"튜토리얼 전용 적의 감지 반경 (m). 체크포인트는 이 거리 밖에 둔다 — 무기를 잃고 부활한 사람이 자기 시체까지 갈 수 있어야 한다."
 TUTORIAL_ENEMY_LEASH_M,22,"자기 자리에서 이 거리를 벗어나면 돌아간다. 튜토리얼 적은 구간 밖까지 쫓아오지 않는다."
 TUTORIAL_RESPAWN_DELAY_S,2.5,"튜토리얼 사망 → 체크포인트 부활까지 (사망 연출을 보여 주되 기다리게 하지 않는다)."
-TUTORIAL_INTRO_WAKE_S,4.5,"오프닝 기상 연출 — 쓰러진 몸을 비추다 일어서서 백뷰로 컷할 때까지."
+TUTORIAL_INTRO_WAKE_S,9,"오프닝 기상 연출 — 쓰러진 몸을 비추다 일어서서 백뷰로 컷할 때까지. 2026-09-14 3차: 4.5 → 9 (일어서는 속도를 절반으로 · 밝아지는 데 약 2초)."
 TUTORIAL_RAID_XP,900,"튜토리얼 레이드 완주 보상 XP. 레벨 2 에 닿는 양이라 함선에서 능력치 포인트 투자를 바로 배울 수 있다."
 # 자세별 몸 높이 (발 위 클리어런스, m) — 낮은 통로를 앉아서 지나는 판정의 원본.
 # 서 있을 때는 지금까지와 같은 BOX_HEADROOM(2.1) 을 그대로 쓴다 — 본편 동선은 한 곳도 안 바뀐다.

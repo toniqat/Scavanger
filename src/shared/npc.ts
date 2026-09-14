@@ -48,6 +48,20 @@ const PLANETS: readonly string[] = ['amber', 'tundra', 'mossy', 'ashen', 'crimso
 /** `item` 열의 「그 계열 총기 아무거나」 표기: `weapon:SG`. */
 export const NPC_ITEM_WEAPON_PREFIX = 'weapon:';
 
+/**
+ * appended (2026-09-14 3차): **진행 플래그** — NPC 첫 연락 조건이 보는 누적 횟수.
+ *   `gathered`     채집물(약초 · 고철 · 토양 · 표본 …)을 캔 횟수 — 생존 여부와 무관하다 (`gather:collected`).
+ *   `raidReturned` 레이드에서 살아 돌아온 횟수 (`game:complete`).
+ * 추가만 한다 — 옛 세이브는 모르는 플래그를 0 으로 읽는다.
+ */
+export const NPC_FLAGS = ['gathered', 'raidReturned'] as const;
+export type NpcFlag = typeof NPC_FLAGS[number];
+
+/**
+ * ⚠ `'deferred'` 는 **은퇴했다** (2026-09-14 3차, 사용자 결정 — 「생각해볼게」 선택지 제거).
+ * 새 퀘스트는 `offered` → `accept()` → `active` 뿐이고, 이 값은 옛 세이브를 읽기 위해서만 남는다
+ * (`airstrike` · `secondary` 와 같은 처리 — 계약은 추가만 한다).
+ */
 export type NpcQuestState = 'offered' | 'deferred' | 'active' | 'complete';
 export const NPC_QUEST_STATE_LABEL_KO: Readonly<Record<NpcQuestState, string>> = {
   offered: '제안 받음', deferred: '보류', active: '진행 중', complete: '완료',
@@ -57,6 +71,7 @@ export const NPC_QUEST_STATE_LABEL_KO: Readonly<Record<NpcQuestState, string>> =
 export type MessengerTab = 'chat' | 'friends' | 'quests';
 
 /** 퀘스트 카드 버튼에 붙는 플레이어의 정해진 답 (대화 기록에 「나」 말풍선으로 남는다). */
+/** ⚠ `decline` · `brief` 는 은퇴했다 (2026-09-14 3차 — 「생각해볼게」 제거). 옛 기록을 푸는 데만 쓰인다. */
 export const NPC_REPLY_KO = {
   accept: '맡겠습니다.',
   decline: '생각해보지.',
@@ -79,6 +94,13 @@ export interface NpcRequirement {
    * **아무 줄도 이 조건을 쓰지 않는다**(적립 · 표시까지만). 계약만 먼저 두고 해금 요소는 나중에 정한다.
    */
   npcRep?: readonly { npc: string; level: number }[];
+  /**
+   * appended (2026-09-14 3차, 사용자 결정 — 4기업 NPC 는 튜토리얼이 끝나자마자 연락하지 않는다):
+   * **진행 플래그**가 그 수 이상 (전부 만족). csv 열은 `reqFlag` = "플래그:횟수" 를 `|` 로.
+   * 플래그를 세는 곳은 meta/ 하나이고 저장은 `NpcSave.flags` 다 — 레이드를 넘어 사는 값이지만
+   * NPC 연락 조건 말고는 읽는 곳이 없어 프로필이 아니라 NPC 계약 안에 둔다.
+   */
+  flags?: readonly { flag: NpcFlag; count: number }[];
 }
 
 export interface NpcDef {
@@ -110,6 +132,15 @@ export interface NpcDef {
    * **고른 뒤의 대화는 어느 쪽이든 같다** — 분기 상태를 저장하지 않는다 (레이븐은 어느 대답이든 흘려 넘긴다).
    */
   introChoiceReplies?: readonly string[];
+
+  /* ── appended (2026-09-14 3차, 사용자 결정 — 첫 연락은 「짧은 인사 → 선택지 → 본론」) ── */
+  /**
+   * 선택지에 **답한 뒤** 이어지는 NPC 의 말풍선들 (`data/npcs.csv` 의 `introAfter`, `|` 구분).
+   * `intro` 는 이제 선택지 **앞의** 1–3 마디이고, 본론(자기소개 · 용건)은 여기 온다.
+   * 이 줄이 있는 NPC 는 **선택지에 답하기 전에는 퀘스트를 제안하지 않는다** (`NpcQuests.evaluate`).
+   * 비어 있으면 지금까지처럼 `intro` 만 있고 곧장 제안이 온다.
+   */
+  introAfter?: readonly string[];
 }
 
 export interface NpcObjectiveDef {
@@ -203,13 +234,31 @@ function npcPairList(r: Row, col: string): { npc: string; level: number }[] {
   return out;
 }
 
+/** appended (2026-09-14 3차): `reqFlag` = "플래그:횟수" 를 `|` 로. */
+function flagList(r: Row, col: string): { flag: NpcFlag; count: number }[] {
+  if (!r.has(col)) return [];
+  const out: { flag: NpcFlag; count: number }[] = [];
+  for (const part of r.list(col)) {
+    const i = part.lastIndexOf(':');
+    const flag = i > 0 ? part.slice(0, i).trim() : part.trim();
+    const n = i > 0 ? Number(part.slice(i + 1)) : 1;
+    if (!(NPC_FLAGS as readonly string[]).includes(flag) || !Number.isFinite(n) || n < 1) {
+      issue(r, col, `'${part}' — "플래그:횟수" 형식이어야 한다 (플래그 = ${NPC_FLAGS.join(' | ')})`); continue;
+    }
+    out.push({ flag: flag as NpcFlag, count: Math.round(n) });
+  }
+  return out;
+}
+
 function requirementOf(r: Row): NpcRequirement {
   const rep = pairList(r, 'reqRep').map((p) => ({ corp: p.corp, level: p.n }));
   const npcRep = npcPairList(r, 'reqNpcRep');
+  const flags = flagList(r, 'reqFlag');
   return {
     ...(r.has('reqLevel') ? { level: r.int('reqLevel', { min: 1 }) } : {}),
     ...(rep.length ? { rep } : {}),
     ...(npcRep.length ? { npcRep } : {}),
+    ...(flags.length ? { flags } : {}),
     ...(r.has('reqQuests') ? { quests: r.list('reqQuests').map((s) => s.trim()).filter(Boolean) } : {}),
   };
 }
@@ -222,6 +271,8 @@ export const NPC_DEFS: readonly NpcDef[] = csvRows('npcs.csv').map((r, order) =>
   // 2026-09-14: 대사 선택지 — 둘 다 비었거나, 같은 개수여야 한다 (고른 번호로 답을 찾는다).
   const introChoices = lines(r, 'introChoices');
   const introChoiceReplies = lines(r, 'introChoiceReplies');
+  const introAfter = lines(r, 'introAfter');
+  if (introAfter.length && !introChoices.length) issue(r, 'introAfter', 'introAfter 는 introChoices 가 있는 줄에만 쓴다 (선택지에 답한 뒤의 말풍선)');
   if (introChoices.length !== introChoiceReplies.length) {
     issue(r, 'introChoices', `선택지 ${introChoices.length}개인데 답(introChoiceReplies)은 ${introChoiceReplies.length}개 — 개수가 같아야 한다`);
   }
@@ -238,6 +289,7 @@ export const NPC_DEFS: readonly NpcDef[] = csvRows('npcs.csv').map((r, order) =>
     bio: r.optStr('bio') ?? '',
     order,
     ...(introChoices.length ? { introChoices, introChoiceReplies } : {}),
+    ...(introAfter.length ? { introAfter } : {}),
   };
 });
 export const NPC_DEF_MAP: ReadonlyMap<string, NpcDef> = new Map(NPC_DEFS.map((d) => [d.id, d]));
@@ -346,6 +398,11 @@ export interface NpcSave {
    * (`shared/meta.repLevelOf`). 없으면 0 (옛 세이브).
    */
   trust?: Record<string, number>;
+  /**
+   * appended (2026-09-14 3차): 진행 플래그 누적 횟수 (`NpcFlag` → 횟수). 없으면 전부 0 (옛 세이브).
+   * 세는 곳도 읽는 곳도 meta/ 하나다 — `NpcRequirement.flags` 의 유일한 입력.
+   */
+  flags?: Partial<Record<NpcFlag, number>>;
 }
 
 /* ── 조회 모양 · `ctx.meta.npc` ─────────────────────────────────────────── */
@@ -407,7 +464,10 @@ export interface NpcQuestRef {
   getQuest(id: string): NpcQuestInfo | null;
   /** offered | deferred → active (함선). deferred 에서 오면 대화에 brief 가 붙는다. */
   accept(id: string): boolean;
-  /** offered → deferred (함선). */
+  /**
+   * ⚠ **은퇴** (2026-09-14 3차, 사용자 결정 — 「생각해볼게」 선택지 제거). 구현은 늘 false 를 돌려주고
+   * 부르는 곳이 없다. 계약은 추가만 하므로 이름만 남긴다 (`airstrike` 와 같은 처리).
+   */
   defer(id: string): boolean;
   /** deliver 목표에 가진 만큼(남은 수량까지) 넣는다 (함선). 넣은 수량, 0 = 못 넣음. */
   deliver(questId: string, index: number): number;
@@ -427,4 +487,10 @@ export interface NpcQuestRef {
    * 고를 것이 없거나 범위 밖이면 false. **분기는 남지 않는다** — 그 뒤의 대화는 어느 쪽이든 같다.
    */
   chooseIntro(npcId: string, index: number): boolean;
+
+  /* ── appended (2026-09-14 3차): 진행 플래그 (owner: meta) ── */
+  /** 그 플래그의 누적 횟수 (없으면 0). */
+  flagOf(flag: NpcFlag): number;
+  /** 누적 횟수를 더한다 (음수 불가). 바뀌면 연락 조건을 다시 본다. */
+  bumpFlag(flag: NpcFlag, delta?: number): void;
 }

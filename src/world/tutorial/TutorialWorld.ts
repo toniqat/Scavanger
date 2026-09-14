@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  TUTORIAL_CHECKPOINTS,
+  PLAYER_RADIUS, TUTORIAL_CHECKPOINTS,
   type GameContext, type SurfaceMaterial, type TutorialCheckpointId, type TutorialEnemySpawn,
   type TutorialFallRule, type TutorialWorldRef,
 } from '@/shared';
@@ -9,8 +9,9 @@ import { Ground } from './parts/Ground';
 import { Dressing } from './parts/Dressing';
 import { TutorialCorpses } from './parts/Corpses';
 import {
-  CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES, ENEMY_LEASH, ENEMY_SENSE, FALL_RULES,
-  RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START, type Volume,
+  CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES, ENEMY_LEASH, ENEMY_SENSE,
+  FALL_RULES, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START, chasmFarZAt, chasmNearZAt,
+  type Volume,
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -35,6 +36,16 @@ import {
 const OBJECTIVE_TEXT = '버려진 함선을 찾아 이 행성을 벗어난다';
 /** 함선을 세우려고 다시 시도하는 시간 (s). 그 안에 `ctx.extraction` 이 준비되지 않으면 포기하고 경고만 남긴다. */
 const SHIP_PLACE_TIMEOUT_S = 5;
+/**
+ * 「데크 윗면에 서 있다」로 볼 발 높이의 오차. 이 맵에는 경사도 단차도 없고 걸어 다니는 면이 딱 두 높이뿐이라
+ * 좁게 잡을 수 있다 — 넓히면 폐허 벽 · 잔해 더미 **위**에 올라선 자리까지 안전한 자리로 적힌다.
+ */
+const SAFE_DECK_EPS = 0.4;
+/**
+ * 절벽 1 을 **넘은 뒤**(먼 쪽 가장자리보다 −Z) 안전한 자리로 적기까지의 여유. 좁게 잡는다 —
+ * 넘은 사람이 한참을 더 걸어야 기록이 살아나면 그 사이에 죽었을 때 이유 없이 절벽 앞으로 되돌아간다.
+ */
+const SAFE_CHASM_MARGIN = 1.5;
 
 function volumeContains(v: Volume, p: THREE.Vector3): boolean {
   return p.x >= v.x0 && p.x <= v.x1 && p.z <= v.z0 && p.z >= v.z1 && p.y >= v.y0 && p.y <= v.y1;
@@ -55,6 +66,14 @@ export class TutorialWorld implements TutorialWorldRef {
   private readonly corpses = new TutorialCorpses();
   private index = 0;
   private readonly spawns: TutorialEnemySpawn[] = [];
+  /**
+   * **마지막으로 땅에 서 있던 자리** (2026-09-14 4차, 사용자 결정 — 튜토리얼 전체). 떨어져 죽었을 때 체크포인트가
+   * 아니라 여기로 되돌린다: 절벽 하나를 못 넘었다고 구간의 처음으로 돌려보내면 벌레 · 안드로이드를 다시
+   * 지나야 한다. 체크포인트는 **이 기록이 없을 때의 보험**으로 남는다(레이드 시작 · 이어하기 직후 ·
+   * 절벽 1 의 도움닫기 구역 — `pollSafeGround` 의 ②가 그 구역을 통째로 비워 두므로 `cliff` 가 받는다).
+   */
+  private readonly lastSafe = new THREE.Vector3();
+  private hasLastSafe = false;
   /** 버려진 함선을 세웠는가 (첫 `update()` 에서 한 번). */
   private shipPlaced = false;
   private shipTry = 0;
@@ -67,6 +86,7 @@ export class TutorialWorld implements TutorialWorldRef {
     this.ctx = ctx;
     this.hash = hash;
     this.index = 0;
+    this.hasLastSafe = false;
     this.shipPlaced = false;
     this.shipTry = 0;
     root.add(this.group);
@@ -102,6 +122,7 @@ export class TutorialWorld implements TutorialWorldRef {
     if (!this.built) return;
     this.placeShip(dt);
     this.pollCheckpoints();
+    this.pollSafeGround();
   }
 
   /**
@@ -137,6 +158,31 @@ export class TutorialWorld implements TutorialWorldRef {
     }
   }
 
+  /**
+   * 「지금 서 있는 이 자리에서 다시 시작해도 되는가」 — 매 프레임 세 가지를 본다.
+   *   ① **`kill` 볼륨 밖** — 절벽 1 바닥은 「떨어진 자리」라 부활 자리가 아니다. **`clamp`(절벽 2 착지 구역)는
+   *      막지 않는다**: 반드시 살아남는 낙하의 착지 자리이고 아래 데크에 두 발로 선 안전한 땅이라, 거기서
+   *      기록을 막으면 그 구간에서 죽은 사람이 이유 없이 절벽 위로 올라가 뛰어내리기를 다시 한다.
+   *   ② **절벽 1 의 띠 밖 — 이 판정만 비대칭이다.** 접근 쪽(가까운 가장자리보다 +Z)은 `CHASM_RUNUP_M`(12 m)
+   *      만큼 넓게 막고, 건너편(먼 가장자리보다 −Z)은 `SAFE_CHASM_MARGIN`(1.5 m)만 막는다. 대칭 마진
+   *      (`inChasm`)으로는 안 되는 이유가 이 절벽의 규칙 자체다 — **달려야만 넘는다.** 가장자리 코앞에
+   *      되살리면 도움닫기가 없어 「떨어지기 전 자리로 돌려보낸다」가 「다시 떨어지라」가 된다. 반대로 건너편을
+   *      똑같이 12 m 막으면, 넘은 사람이 그만큼 더 걸어야 기록이 살아나 그 사이의 죽음이 절벽 앞으로 되돌아간다.
+   *   ③ **데크 윗면 근처** — 폐허 벽 · 잔해 더미 위에 올라선 자리를 걸러 낸다 (`SAFE_DECK_EPS`).
+   * 접지(`isGrounded`) 자체가 넷째 조건이라 뛰는 · 떨어지는 동안의 좌표는 애초에 적히지 않는다
+   * (그래서 ① 은 ③ 과 겹치는 이중 안전장치다 — `kill` 볼륨 안에서 접지할 수 있는 곳은 협곡 바닥뿐이다).
+   */
+  private pollSafeGround(): void {
+    const player = this.ctx?.player;
+    if (!player || player.isDead || !player.isGrounded) return;
+    const p = player.position;
+    if (Math.abs(p.y - DECK_UPPER_Y) > SAFE_DECK_EPS && Math.abs(p.y - DECK_LOWER_Y) > SAFE_DECK_EPS) return;
+    if (p.z <= chasmNearZAt(p.x) + CHASM_RUNUP_M && p.z >= chasmFarZAt(p.x) - SAFE_CHASM_MARGIN) return;
+    for (const v of FALL_RULES) if (v.rule === 'kill' && volumeContains(v, p)) return;
+    this.lastSafe.copy(p);
+    this.hasLastSafe = true;
+  }
+
   private setIndex(i: number, announce: boolean): void {
     this.index = i;
     const spec = CHECKPOINTS[i];
@@ -148,7 +194,17 @@ export class TutorialWorld implements TutorialWorldRef {
 
   get checkpoint(): TutorialCheckpointId { return CHECKPOINTS[this.index].id; }
 
+  /**
+   * 2026-09-14 4차 — **마지막으로 땅에 서 있던 자리**가 있으면 그리로, 없으면 예전처럼 마지막 체크포인트로.
+   * 밀려난 몸이 벽에 낀 채로 기록됐을 수도 있으므로 돌려주기 전에 `resolveCollision` 을 한 번 통과시킨다.
+   * yaw 는 0(앞) — 죽은 방향을 그대로 물려주면 절벽을 등지고 살아난다.
+   */
   respawnPose(): { position: THREE.Vector3; yaw: number } {
+    if (this.hasLastSafe) {
+      const position = this.lastSafe.clone();
+      this.ctx?.world?.resolveCollision(position, PLAYER_RADIUS);
+      return { position, yaw: 0 };
+    }
     const spec = CHECKPOINTS[this.index];
     return { position: spec.at.clone(), yaw: spec.yaw };
   }
@@ -161,6 +217,9 @@ export class TutorialWorld implements TutorialWorldRef {
   gotoCheckpoint(id: TutorialCheckpointId): boolean {
     const i = CHECKPOINTS.findIndex((c) => c.id === id);
     if (i < 0 || !this.built) return false;
+    // 순간이동이므로 「마지막으로 서 있던 자리」는 무효다 — 안 지우면 이어하기 직후에 죽었을 때
+    // 새로고침 전에 서 있던 자리로 되돌아간다 (이어하기는 **체크포인트**로 간다는 규약이 깨진다).
+    this.hasLastSafe = false;
     this.setIndex(i, true);
     const spec = CHECKPOINTS[i];
     this.ctx?.player?.teleport(spec.at.clone(), spec.yaw, false);
@@ -218,6 +277,7 @@ export class TutorialWorld implements TutorialWorldRef {
     if (hash) { this.dressing.dispose(hash); this.ground.dispose(hash); }
     this.spawns.length = 0;
     this.index = 0;
+    this.hasLastSafe = false;
     this.shipPlaced = false;
     this.group.clear();
     this.group.removeFromParent();

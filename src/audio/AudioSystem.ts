@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem, PeerId, Stance, SurfaceMaterial } from '@/shared';
 import {
   numberMap,
-  AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY,
+  AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_DEFAULT_BGM, AUDIO_STORAGE_KEY,
   DRONE_GADGET_OF, DRONE_NOISE_RADIUS,
   FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP, FOOTSTEP_REMOTE_GAIN,
   FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
@@ -29,6 +29,8 @@ const SETTINGS_SAVE_DEBOUNCE_MS = 250;
 const PREVIEW_SOUND: Record<AudioChannel, { id: string; volume: number }> = {
   master: { id: 'ui_click', volume: 0.8 },
   sfx: { id: 'shot_pistol', volume: 0.7 },
+  // 2026-09-14: bgm 채널에는 아직 아무 소리도 안 걸려 있다 — 미리듣기는 sfx 버스의 중립 블립이다.
+  bgm: { id: 'ui_click', volume: 0.5 },
 };
 /** Dragging a slider must not machine-gun the preview. */
 const PREVIEW_MIN_INTERVAL_MS = 140;
@@ -218,7 +220,7 @@ export class AudioSystem implements GameSystem, AudioRef {
   private tmp = new THREE.Vector3();
 
   /* ── Phase 8: volume settings (`ctx.audio`) ────────────────────────── */
-  private _settings: AudioSettings = { master: AUDIO_DEFAULT_MASTER, sfx: AUDIO_DEFAULT_SFX };
+  private _settings: AudioSettings = { master: AUDIO_DEFAULT_MASTER, sfx: AUDIO_DEFAULT_SFX, bgm: AUDIO_DEFAULT_BGM };
   /** True while `game:paused` — the master gain is the setting × PAUSE_DUCK. */
   private ducked = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -624,13 +626,15 @@ export class AudioSystem implements GameSystem, AudioRef {
     try {
       const raw = localStorage.getItem(AUDIO_STORAGE_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as { master?: unknown; sfx?: unknown };
+      const parsed = JSON.parse(raw) as { master?: unknown; sfx?: unknown; bgm?: unknown };
       if (typeof parsed !== 'object' || parsed === null) return;
       const num = (v: unknown, fallback: number): number =>
         typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback;
       this._settings = {
         master: num(parsed.master, AUDIO_DEFAULT_MASTER),
         sfx: num(parsed.sfx, AUDIO_DEFAULT_SFX),
+        // 2026-09-14 추가 — 옛 저장에는 없다. 생략은 0 이 아니라 「모른다」 이므로 기본값으로 채운다.
+        bgm: num(parsed.bgm, AUDIO_DEFAULT_BGM),
       };
     } catch { /* corrupt or unavailable storage → defaults */ }
   }

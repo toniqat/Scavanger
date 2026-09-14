@@ -17,7 +17,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
-import { ENEMY_STATS, ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
+import { ENEMY_STATS, ROGUE_AI, SPEWER_SPIT, baseTypeOf } from './EnemyTypes';
 import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
 import { SUSPICION_TIME, updateEnemyAI } from './ai/EnemyAI';
@@ -209,8 +209,9 @@ const STEP_VOICE_DEFAULT: EnemyStepVoice = { pitch: 0.9, gain: 0.5 };
 
 /** `type` 의 걸음 소리, 또는 null (`data/enemies.csv` 의 `stepSound` 가 false = 조용히 걷는다). */
 export function stepSound(type: EnemyType): EnemyStepVoice | null {
+  // 2026-09-14 3차: 걷느냐 아니냐는 **자기 csv 줄**(stepSound), 어떤 소리냐는 바탕 종류 (튜토리얼 전용 종류).
   if (!ENEMY_STATS[type]?.stepSound) return null;
-  return STEP_VOICES[type] ?? STEP_VOICE_DEFAULT;
+  return STEP_VOICES[baseTypeOf(type)] ?? STEP_VOICE_DEFAULT;
 }
 
 /** 근접 타격음 — 벌레는 `bug_attack` 을 타입별 피치로, 자기 타격음을 따로 내는 타입(타길라 = `hammer_impact`)은 null. */
@@ -230,7 +231,7 @@ const MELEE_VOICES: Readonly<Partial<Record<EnemyType, EnemySoundVoice | null>>>
   raider: { id: 'melee_hit', pitch: 0.88 },
 };
 export function meleeHitSound(type: EnemyType): EnemySoundVoice | null {
-  const v = MELEE_VOICES[type];
+  const v = MELEE_VOICES[baseTypeOf(type)];
   return v === undefined ? BITE_DEFAULT : v;
 }
 
@@ -240,11 +241,11 @@ export function meleeHitSound(type: EnemyType): EnemySoundVoice | null {
  */
 /** 2026-09-13: 피격 · 사망 파편 — 안드로이드는 기계라 피 대신 불꽃. 호스트(`parts/Damage`) · 리플리카(`ee damaged`)가 같은 답을 낸다. */
 export function goreKindOf(type: EnemyType): 'blood' | 'spark' {
-  return type === 'android' ? 'spark' : 'blood';
+  return baseTypeOf(type) === 'android' ? 'spark' : 'blood';
 }
 
 export function hurtSound(type: EnemyType): string {
-  if (type === 'rogue_scan_drone') return 'drone_hit';
+  if (type === 'rogue_scan_drone') return 'drone_hit';   // 팩션으로 갈리는 나머지는 튜토리얼 종류도 자기 faction 이 맞다
   const f = ENEMY_STATS[type]?.faction;
   if (f === 'android') return 'android_hit';
   return f && f !== 'bug' ? 'hit_flesh' : 'bug_hit';
@@ -259,7 +260,7 @@ const HUMANOID_DEATH: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
 };
 /** 인간형 적(벌레 · 스캔 드론 아닌 것)이 쓰러질 때의 소리. */
 export function humanoidDeathSound(type: EnemyType): EnemySoundVoice {
-  return HUMANOID_DEATH[type] ?? HUMANOID_DEATH_DEFAULT;
+  return HUMANOID_DEATH[baseTypeOf(type)] ?? HUMANOID_DEATH_DEFAULT;
 }
 const HUMANOID_PAIN_DEFAULT: EnemySoundVoice = { id: 'player_hurt', pitch: 0.9 };
 const HUMANOID_PAIN: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
@@ -267,7 +268,7 @@ const HUMANOID_PAIN: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
 };
 /** 인간형 적이 전소(불타며 몸부림)에 들어갈 때의 소리. */
 export function humanoidPainSound(type: EnemyType): EnemySoundVoice {
-  return HUMANOID_PAIN[type] ?? HUMANOID_PAIN_DEFAULT;
+  return HUMANOID_PAIN[baseTypeOf(type)] ?? HUMANOID_PAIN_DEFAULT;
 }
 
 /**

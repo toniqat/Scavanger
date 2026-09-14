@@ -185,6 +185,9 @@ export function acquire(sys: EnemySystem, id: number, type: EnemyType, position:
   // 승격 때 hp 상한)가 호스트와 같다. 인간형 팩션 · 지하벌레(자기 `SANDWORM_HP_*` 굴림) 제외, 훈련장 · 행성 없음은 ×1.
   const hpMul = sys.bugTuning.hpMul;
   if (hpMul !== 1 && e.faction === 'bug' && !isWormType(type)) e.hp = e.maxHp = Math.max(1, Math.round(e.stats.hp * hpMul));
+  // 2026-09-14 4차: 이번 레이드의 시체 수명 (`reset` 이 넣은 `CORPSE_LIFETIME` 을 덮는다). 튜토리얼만 `Infinity` 라
+  // 본편 · 훈련장은 45초 그대로이고, 리플리카도 같은 값을 쓴다 (레이드 종류는 모든 클라이언트가 `world:ready` 에서 같이 정한다).
+  e.corpseLife = sys.corpseLifetime;
   sys.active.push(e);
   sys.byId.set(id, e);
   return e;

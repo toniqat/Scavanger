@@ -78,10 +78,21 @@
   width: min(720px, calc(100vw - 48px));
   gap: 12px; padding: 16px 20px 14px;
 }
-.gym-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.gym-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .gym-name { font-size: 11px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gym-count { font-family: var(--ui-mono); font-size: 14px; font-weight: 700; color: var(--c-text); }
 .gym-hint { font-size: 11px; color: var(--c-text-faint); }
+
+/* 진행 바 (2026-09-14, 사용자 결정 「라벨 없이 바만」) — 채워질 때 처음 빠르고 점점 느려진다 (ease-out). 글자는 없다. */
+.gym-prog {
+  --f: 0;
+  position: relative; flex: 1; min-width: 90px; max-width: 340px; height: 6px;
+  background: var(--c-fill); border: 1px solid var(--c-border); overflow: hidden;
+}
+.gym-prog-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  transform-origin: left; transform: scaleX(var(--f)); background: var(--c-accent);
+  transition: transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 .gym-verdict {
   position: absolute; left: 50%; top: -18px; transform: translate(-50%, -100%);
@@ -136,23 +147,32 @@
 .gym-lane-key { flex: none; min-width: 48px; height: 26px; font-size: 12px; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .gym-lane-key.is-down { background: var(--c-accent); border-color: var(--c-accent); color: #111; }
 .gym-lane {
-  --judge: 10%;
+  --judge: 10%; --half: 0; --good-half: 0;
   position: relative; flex: 1; min-width: 0; height: 44px; overflow: hidden;
   background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
 }
 .gym-cycle .gym-lane { height: 36px; }
+/* 판정 띠 — 폭이 판정 값에서 나온다 (`GymViews`): 표식이 완벽 띠를 덮으면 완벽이다 */
+.gym-window { position: absolute; top: 0; bottom: 0; left: var(--judge); transform: translateX(-50%); pointer-events: none; }
+.gym-window.is-good { width: calc(var(--good-half) * 2 * (100% - var(--judge))); background: rgba(232, 230, 225, 0.07); }
+.gym-window.is-perfect {
+  width: calc(var(--half) * 2 * (100% - var(--judge)));
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--c-accent) 45%, transparent), inset -1px 0 0 color-mix(in srgb, var(--c-accent) 45%, transparent);
+}
 .gym-judge { position: absolute; top: 0; bottom: 0; left: var(--judge); width: 2px; margin-left: -1px; background: var(--c-accent); box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 60%, transparent); }
 .gym-lane.hit-perfect { animation: gymHitPerfect 300ms var(--ease); }
 .gym-lane.hit-miss { animation: gymHitMiss 300ms var(--ease); }
 
+/* 탭 표식의 폭 = 완벽 띠(`--span`)와 같다 — 좁으면 최소 `--nh` 지름의 원으로 남는다 (2026-09-14) */
 .gym-note {
-  --nh: 28px; --x: 2; --f: 0;
+  --nh: 28px; --x: 2; --f: 0; --span: 0;
   position: absolute; top: 50%;
   left: calc(var(--judge) + var(--x) * (100% - var(--judge)));
-  width: var(--nh); height: var(--nh);
+  width: max(var(--nh), calc(var(--span) * 2 * (100% - var(--judge)))); height: var(--nh);
   transform: translate(-50%, -50%);
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid rgba(232, 230, 225, 0.7); border-radius: 50%;
+  border: 2px solid rgba(232, 230, 225, 0.7); border-radius: calc(var(--nh) / 2);
   background: rgba(8, 9, 11, 0.85);
   font-size: 12px; font-weight: 700;
 }

@@ -22,6 +22,11 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  *   ③ **건너뛰기 버튼이 없다** — 건너뛰기는 ESC 메뉴로 옮겼다 (`TutorialRef.skipTrack`). 시작 카드의
  *      `건너뛰기` 는 그대로다. `setLifted` / `is-lifted` 는 상태 표시로 남는다 (스모크가 본다).
  *
+ * **2026-09-14 3차 — 순차 공개.** 아직 안 열린 목표 줄은 **넘어오지도 않는다**: 고르는 것은 순수 함수
+ * `model.visibleObjectives(list, done)` 이고 `TutorialSystem` 이 그것을 통과시킨 목록만 `show()` 에 넘긴다.
+ * 그래서 이 파일은 「받은 줄을 그린다」 하나만 알면 되고, 줄이 하나 열리면 `sameIds` 가 달라져 다시 짓는다 —
+ * 그 타이밍은 아래 `markDone` 의 반 박자가 잡아 준다 (체크 · 취소선이 그려진 **뒤에** 새 줄이 나타난다).
+ *
  * **달성 애니메이션이 보이게 반 박자 잡는다.** 단계가 넘어가면 시스템이 먼저 `markDone()` 으로 그 단계의 필수
  * 목표에 체크 · 취소선을 그리고, 그 직후 도착하는 다음 단계의 `show()` 는 `TUTORIAL_STEP_DELAY_S`(csv, 0.5초)
  * 동안 **패널 안에서** 미뤄진다 — 스포트라이트 · 바닥 안내선이 이미 쓰고 있는 그 창이다. 단계 기계의 타이밍은

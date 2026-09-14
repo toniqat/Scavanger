@@ -5,7 +5,7 @@
  *   ① 조리대 E → hub 가 `openCookStation(uid)` — 조리대 화면(`ui/cook/CookStation`, 요리 목록 · 재료 · 단계 · 자동 가구 · 창고/가방).
  *   ② 「조리 시작」 → `startCook(uid, recipeId)` — `cookBlock`(계약 주석의 순서) → 세션(`sys.cookState`) → 미니게임 오버레이
  *      (`ui/cook/CookScreen`)를 연 뒤 조리대 화면을 닫고 `housing:cookSession {active:true}` — hub 가 조리대 앞 자세 · 고정 카메라를
- *      건다 (자세가 거절되면 hub 가 같은 호출 스택에서 `cancelCook` 을 부른다).
+ *      건다 (2026-09-14, 사용자 결정: **자세가 거절돼도 미니게임은 그대로 진행한다** — 연출만 없다).
  *   ③ 단계마다 「직접 하기 / 자동」 → 판정(`parts/CookGames`) → 단계 점수. 마지막 단계가 끝나면 `completeCookRun` —
  *      요리 점수(평균) → 품질 → `ctx.inventory.completeCook(recipeId, 조리대 레벨, 품질)` → `housing:cookResult`.
  *      **재료는 여기서만 빠진다** — 중간에 닫으면(Esc · Tab · 페이즈 변경 · 자세 리셋) 아무것도 소모되지 않는다.
@@ -221,7 +221,8 @@ export function startCook(sys: HousingSystem, uid: string, recipeId: string): st
   sys.closeMenus(false);
   sys.ctx.bus.emit('audio:play', { id: 'cook_start' });
   sys.ctx.bus.emit('housing:cookSession', { uid, recipeId, mealDefId: info.mealDefId, active: true, completed: false });
-  // hub 가 자세를 걸지 못하면 같은 호출 스택 안에서 `cancelCook` 이 온다 — 그때는 시작하지 못한 것이다
+  // 2026-09-14 (사용자 결정): hub 가 **자세를 못 걸어도 미니게임은 진행한다** — `cancelCook` 은 조리대 조각이 통째로 사라진 것 같은
+  // 진짜 사고에서만 온다. 그래도 같은 호출 스택에서 세션이 사라졌다면 시작하지 못한 것이다.
   if (!sys.cookState) return '조리를 시작할 수 없습니다';
   screen.beginSteps();
   return null;

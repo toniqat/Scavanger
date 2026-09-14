@@ -49,7 +49,7 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **분해** — 무엇을 뜯으면 무엇이 나오나 (장비는 여기 없다 — 제작 재료에서 자동으로 만든다) | [`salvage.csv`](salvage.csv) |
 | 능력치 · 숙련도 | [`stats.csv`](stats.csv) · [`skills.csv`](skills.csv) |
 | 기업 · 판매 목록 · 계약 | [`corps.csv`](corps.csv) · [`corp_stock.csv`](corp_stock.csv) · [`contracts.csv`](contracts.csv) |
-| **메신저 NPC · NPC 퀘스트** (2026-09-14 — 기업 퀘스트 `quests.csv` 대신) | [`npcs.csv`](npcs.csv) · [`npc_quests.csv`](npc_quests.csv) · [`npc_objectives.csv`](npc_objectives.csv) |
+| **메신저 NPC · NPC 퀘스트** (2026-09-14 — 기업 퀘스트 `quests.csv` 대신. 첫 연락은 `intro` → `introChoices` → `introAfter` 3단이고 조건은 `reqLevel` · `reqRep` · `reqQuests` · `reqFlag`) | [`npcs.csv`](npcs.csv) · [`npc_quests.csv`](npc_quests.csv) · [`npc_objectives.csv`](npc_objectives.csv) |
 | 함선 — 방 용도 증축 · 시설 강화 · 가구 | [`room_purposes.csv`](room_purposes.csv) · [`facility_upgrades.csv`](facility_upgrades.csv) · [`furniture.csv`](furniture.csv) · [`furniture_upgrades.csv`](furniture_upgrades.csv) |
 | 행성 5곳 — 위협 · 생태 · 하늘 | [`planets.csv`](planets.csv) |
 | **행성 진행도별 드롭 곡선** — ① 총기 등급(앞쪽 행성에서 III 이상 봉인) ② **총기가 아닌 것들의 희귀도 배수** | [`planet_loot.csv`](planet_loot.csv) |
@@ -162,6 +162,67 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-14 (5차) — UI 2차 개편 수치: 제작 재료 절반 · 탄약 · 미니게임 판정 · 보관함 칸 (`recipes.csv` · `furniture.csv` · `salvage.csv` · `tables.csv` · `constants.csv` · `items.csv`)
+
+사용자 결정. 리드가 직접 넣은 값이고, **코드 쪽은 이 표가 그대로여도 이미 관대해진다** — 미니게임의
+「완벽 = 창의 1/3」 을 「완벽 = 창 그대로」 로 뒤집은 것이 먼저이고(`src/housing/parts/*Games.ts`), 아래 값은
+그 **위에서** 난이도를 마저 내린 것이다.
+
+- **제작 재료 절반** (`recipes.csv` · `furniture.csv` 작업대 9종). **반올림은 올림 · 최소 1**, 다만 **내구도가 있는
+  장비**(무기 · 방탄복 · 가방)는 재료 종류당 **2 미만으로 내리지 않는다** — 수리비와 분해 산출이 같은 제작 재료에서
+  나오므로(2026-09-10 제작 대개편) 1 이 되면 같은 구간의 `ceil(1 × 수리 배수)` 와 분해 최소 보장이 맞물려
+  **재료가 스스로 늘어난다.** 그 불변식은 여전히 `src/items/Salvage.checkSalvageEconomy()` 가 실제 정수로 검산하고
+  `npm run data:check` 가 매번 돌린다.
+- **합금 판이 비싸졌다**: `refine_alloy` 폐금속 3 → **5**(`refine_weave` 는 천조각 6 → 5, `refine_ingot` 은 합금 판 2 → 1).
+  그 대신 **합금 판을 쓰는 모든 레시피의 합금 판 수량이 절반**이다 — 총기 III–V · 부착물 14종 · 가젯 · 방탄복 III ·
+  표창 · 로켓 · 코어 추출 · 내열 냉각재. 한 장의 값어치를 올리고 쓰는 양을 줄인 것이라 **한 번 제작에 드는 폐금속
+  총량은 거의 그대로**이고, 바뀐 것은 「합금 판 한 장이 얼마나 귀한가」다.
+- **탄약** — 재료가 전 계열 **`화약 1 + 폐금속 1`** 로 같아졌다 (중량탄의 합금 판이 폐금속으로 내려왔다).
+  한 칸(`tables.csv` `AMMO_STACK_ROUNDS`) / 한 번 제작량은 경량 **60 / 20** · 준중량 **50 / 25** · 산탄 **20 / 10** ·
+  중량 **20 / 10** — 한 칸이 제작 2–3회분이다. 분해(`salvage.csv`)는 그 짝으로 **「2회분의 절반」**(예: 경량탄 40발 →
+  화약 1)까지 낮췄다. 옛 값(30발 → 화약 4–6)은 새 제작비 아래에서 **뜯을수록 이득**이라 `checkSalvageEconomy()` 가
+  잡는다 — 탄약 수치를 다시 만질 때는 제작 · 분해를 **같이** 움직인다.
+- **작업대 가구 9종의 제작 재료 절반** (`furniture.csv` 의 `craft`): 총기 · 장비 · 가젯 · 의학 · 가공 · 추출기 ·
+  조합대 · 조리대 · 3D 프린터. 시설 가구는 함선의 관문이라 첫 벽이 너무 높았다.
+- **미니게임 판정 창 25개 완화** (`constants.csv` 의 `GYM_*` · `COOK_*`): 벤치프레스 구역 0.12 → 0.18 · 완벽
+  0.035 → 0.1125(= 구역 / 1.6), 커서 속도 0.9 → 0.75(회차 증가 0.12 → 0.08), 호흡 박자 0.6 → 0.8 · 묶음 6 → 5 ·
+  「하」 떼기 0.22 → 0.26, 사이클 박자 0.45 → 0.65 · 횟수 24 → 16, 썰기 박자 0.5 → 0.75, 다지기 0.08 / 4.5 / 10 →
+  0.1 / 5 / 12, 굽기 판정 호 0.05 / 0.15 → **0.10 / 0.25**(타는 지점 1.5 → 1.7 — 좋음 호가 거기 닿지 않게),
+  볶기 박자 0.7 → 0.9, 젓기 5 / 0.9 / 0.4 → 4 / 0.8 / 0.25, 붓기 오차 0.04 / 0.3 → 0.08 / 0.45.
+  ⚠ **볶기 창만 0.25 → 0.2 로 내렸다** — 넓히는 방향이 아니라 **반 박자를 넘지 않게** 하는 값이다
+  (0.25 × 1.6 = 0.4 가 반 박자 0.45 에 닿아 실패 구간이 사라진다). 박자 게임은 창을 넓히는 대신 **박자를 늦춘다**
+  (권장선 `창 × 1.6 ≤ 박자 × 0.32`): 창이 반 박자에 닿으면 좋음이 잘리고 죽은 구간이 0 이 되어 **연타가 최적
+  전략**이 된다.
+- **새 키 4개**: `GYM_GOOD_OF_PERFECT` 1.6 · `COOK_GOOD_OF_PERFECT` 1.6 (좋음 띠 = 완벽 띠 × 이 값 — 「보이는 것 =
+  판정」의 짝) · `COOK_STEP_TIMEOUT_MUL` 3 (판정이 아니라 **멈춤 방지 안전핀**의 배수) · `AUDIO_DEFAULT_BGM` 0.6
+  (음악 채널 기본 음량 — **소리는 나지 않는다**, 재생 창의 볼륨 표시가 이 값을 읽는다).
+- **보관함 칸** — 책장 `BOOKS_PER_SHELF` 8 → **40**(4층 × 5칸 × 2줄) · 디스크 전시대 6 → **12** · 레코드랙 4 → **8** ·
+  게임 디스크 전시대 6 → **12**. 층 수와 한 줄의 칸 수는 코드 계약(`shared/housing` 의 `SHELF_TIERS` ·
+  `SHELF_TIER_COLS`)이고 **저장되는 것은 `slot` 하나**라 옛 세이브는 앞 칸이 그대로 남고 빈 칸만 는다 —
+  마이그레이션이 없다.
+- **실드 충전기 I 이 현장 제작**(`recipes.csv` 의 `make_shield_charger` `station` `ship` → **`field`**) — 레이드 중에
+  구동 코어 1 + 전력 케이블 1 로 만든다. `bench medical` 은 그대로라 의학 작업대 창에도 계속 뜬다
+  (2026-09-10 「`station: 'field'` + `bench` 는 모순이 아니다」 그대로).
+- **연산 코어가 2×1**(`items.csv` 의 `width` 1 → 2) — 통합 채굴 화면의 코어 칸이 가로로 긴 아이템에 맞춰 그려진다.
+
+### 2026-09-14 (4차) — NPC 첫 연락 조건 · 대사 3단 · 튜토리얼 전용 적 (`npcs.csv` · `enemies.csv` · `loot_corpses.csv` · `loot_corpse_rolls.csv` · `constants.csv`)
+
+설계안 `docs/plans/qol-batch-2026-09-14c.md` (사용자 결정).
+
+- **`npcs.csv`** — 새 열 둘. **`reqFlag`** = `"플래그:횟수"` 를 `|` 로 (`NpcFlag` = `gathered` 채집 · `raidReturned` 레이드 복귀, 계약 `shared/npc.ts`).
+  **`introAfter`** = 대사 선택지에 **답한 뒤** 이어지는 말풍선 (`introChoices` 가 있는 줄에만). NPC 10명 전부가 이제
+  `intro`(인사 1–3마디) → `introChoices`/`introChoiceReplies` → `introAfter`(본론) 3단이고, `introAfter` 가 있으면 **답하기 전에는 퀘스트 제안이 오지 않는다**.
+  첫 연락 조건: 민지후 `gathered:1` · 차유나 `raidReturned:1` · 오세라 `q_nm_s1` · 박도윤 `q_rv_1` (넷 다 `reqLevel` 없음) — 튜토리얼 직후 연락 오는 NPC 는 **레이븐 하나**다.
+  `npc_quests.csv` 는 머리 주석만 (`decline` · `brief` 은퇴 표시 — 옛 기록을 풀기 위해 열은 남는다).
+- **`enemies.csv`** 4줄 — 튜토리얼 전용 `tut_bug_loot` · `tut_bug`(scavenger 와 같은 수치, hp 120) · `tut_android_loot` · `tut_android`(android 280 의 **절반** 140).
+  리그 · 겉모습 · AI · 소리는 바탕 종류의 것을 그대로 쓴다 (`EnemyTypes.baseTypeOf()` — 타입별 표에 줄을 더하지 않는다).
+  튜토리얼 행성에는 threat 가 없어 `BUG_HP_MUL_BY_THREAT` 가 곱해지지 않는다 (`hpMul` 1).
+- **`loot_corpses.csv`** 5줄 · **`loot_corpse_rolls.csv`** 1줄 — `tut_bug_loot` = 생체 조직 1 · 터미니드 분비선 1 (확률 1),
+  `tut_android_loot` = 돌격소총 I · 전력 케이블 · 준중량탄 한 스택 (확률 1 · 내구도 최대), `tut_bug` · `tut_android` = **확률 0 안전핀**
+  (표가 없으면 「모르는 적 = 생체 조직 1」 로 떨어진다 — `rogue_scan_drone` 과 같은 요령). 확률이 1 아니면 0 뿐이라 소비하는 draw 가 늘 같고,
+  그래서 드론 스캔 미리보기와 실제로 여는 것이 저절로 같다 (`shared/lootRolls`).
+- **`constants.csv`** 한 줄 — `TUTORIAL_INTRO_WAKE_S` 4.5 → **9** (오프닝 기상을 절반 속도로 · 밝아지는 데 약 2초).
 
 ### 2026-09-14 — 총기 밸런스 · 스탯 모델 · 소켓 규칙 · 확장 총열 (`weapons.csv` · `attachments.csv` · `aim_sway.csv` · `tables.csv` · `tuning.csv` · `recipes.csv`)
 

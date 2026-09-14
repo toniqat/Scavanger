@@ -196,6 +196,11 @@ try {
 
   /* ── 4. bays: one per lobby slot, parked ships, prompts ─────────────── */
   console.log('bays');
+  /* 2026-09-09 부터 **이름의 원본은 캐릭터 프로필**이고 `progress:loaded`(부팅 · 서버 프로필 수신 · 캐릭터 초기화)가
+     `ctx.net.setPlayerName(profile.name)` 으로 net 이름을 덮어쓴다 — 접속 전에 부른 `setPlayerName` 은 서버 프로필이
+     도착하면서 기본 콜사인으로 되돌아간다. 로비에 들어간 **뒤** 다시 지으면 `lobby:name` 으로 분대에 퍼진다. */
+  await B.evaluate(() => window.__game.ctx.net.setPlayerName('분대원'));
+  await waitFor(A, () => window.__game.ctx.net.lobby?.players.some((p) => p.name === '분대원'), 'A sees the renamed squadmate', 15000);
   const bays = await A.evaluate(() => window.__game.ctx.hub.getShipBays().map((b) => ({ slot: b.slot, occupant: b.occupant, x: b.position.x, z: b.position.z, ex: b.entrance.x, ez: b.entrance.z })));
   ok(bays.length === 4, `4 bays reported by ctx.hub.getShipBays() (${bays.length})`);
   ok(bays.every((b) => b.z > 15 && b.z < 30) && bays.every((b) => b.ez < b.z), 'bay markings sit in the hangar with their entrances toward the walkway');

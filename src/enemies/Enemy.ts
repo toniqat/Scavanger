@@ -4,7 +4,7 @@ import {
   type DeployableRef, type EnemyDeathDir, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle,
   type EnemyGrenadeKind, type EnemySpawnSite, type EnemySquadRole,
 } from '@/shared';
-import { ENEMY_STATS, HUMANOID_RAIDER, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
+import { ENEMY_STATS, HUMANOID_RAIDER, ROGUE_AI, baseTypeOf, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
 import { animateNamedRig, namedBodyNearest } from './models/named';
@@ -440,7 +440,10 @@ export class Enemy implements EnemyRef {
   flankClock = 0;
 
   constructor(type: EnemyType) {
-    this.rig = isWormType(type) ? createWormRig() : isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
+    /* 2026-09-14 3차: 튜토리얼 전용 종류는 자기 리그를 갖지 않고 **바탕 종류**의 것을 그대로 쓴다 (`baseTypeOf`) —
+       공유 지오메트리 캐시(`assets` · `BUG_PARAMS`)도 그대로라 튜토리얼이 새 셰이더 · 새 메시를 굽지 않는다. */
+    const look = baseTypeOf(type);
+    this.rig = isWormType(look) ? createWormRig() : isRogueType(look) ? createRogueRig(look as RogueType) : createBugRig(look as BugType);
     this.type = type;
     this.stats = ENEMY_STATS[type];
     this.rig.root.visible = false;
@@ -574,7 +577,11 @@ export class Enemy implements EnemyRef {
     if (this.rig.kind !== 'worm') this.rig.root.position.y = this.position.y - this.emergeDepth;
   }
 
-  /** 굴착 중 아직 땅속에 있는 깊이(m). 굴착이 없으면 0. 죽으면 그 자리에서 멈춘다 (파다 죽은 몸). */
+  /**
+   * 굴착 중 아직 땅속에 있는 깊이(m). 굴착이 없으면 0.
+   * 2026-09-14 4차: 죽어도 계속 줄어 몸이 마저 솟는다 — 시체를 땅속에 묻어 두면 수색할 수 없다 (`animate` 의 주석).
+   * 지하벌레만 죽은 자리에서 멈춘다.
+   */
   get burrowSink(): number {
     if (!(this.emergeDur > 0)) return 0;
     const k = 1 - Math.max(0, this.emergeT) / this.emergeDur;
@@ -933,11 +940,17 @@ export class Enemy implements EnemyRef {
     }
     this.rig.root.position.copy(this.position);
     this.rig.root.rotation.y = this.yaw;
-    // 2026-09-13 (굴착): 땅속에서 올라오는 몸 — 그림만 내린다 (지하벌레는 리그가 몸통만 내린다). 죽으면 그 깊이에서 멈춘다.
+    /* 2026-09-13 (굴착): 땅속에서 올라오는 몸 — 그림만 내린다 (지하벌레는 리그가 몸통만 내린다).
+       2026-09-14 4차: **파다 죽은 몸도 끝까지 올라온다.** 판정 위치(`position`)는 굴착 내내 지표에 있어서
+       시체 수색 자리(`corpse:<id>`)는 땅 위에 서는데, 예전에는 죽는 순간 그림이 그 깊이에서 얼어붙어 —
+       몸 높이 + `BURROW_SINK_EXTRA_M` 만큼 묻힌 채라 갓 솟기 시작한 벌레는 통째로 땅속이었다 — 플레이어에게는
+       「시체가 없다 = 드롭이 없다」로 보였다 (튜토리얼 첫 벌레가 정확히 그 자리다). 남은 굴착 시간 동안
+       마저 솟으므로 사망 연출과 겹쳐 구덩이에서 빠져나오며 쓰러진다. 지하벌레는 뿌리박힌 채 죽는 연출이라 예전대로 멈춘다. */
     if (this.emergeDur > 0) {
-      if (this.emergeT > 0 && this.state !== 'dead') this.emergeT = Math.max(0, this.emergeT - dt);
+      const rising = this.state !== 'dead' || this.rig.kind !== 'worm';
+      if (this.emergeT > 0 && rising) this.emergeT = Math.max(0, this.emergeT - dt);
       if (this.rig.kind !== 'worm') this.rig.root.position.y -= this.burrowSink;
-      if (this.emergeT <= 0 && this.state !== 'dead') this.emergeDur = 0;
+      if (this.emergeT <= 0 && rising) this.emergeDur = 0;
     }
     this.animateRig(dt);
   }

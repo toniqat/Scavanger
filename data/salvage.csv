@@ -18,9 +18,9 @@
 # ⚠ 불변식: 어떤 아이템이든 「수리 재료 + 분해 산출 ≤ 제작 재료」 여야 한다 (제작 → 분해 무한 이득 차단).
 #   src/items/Salvage.ts 의 `checkSalvageEconomy()` 가 실제 숫자로 검사하고 npm run data:check 가 돌린다.
 id,inputDefId,qty,outputs,scaleByDurability,duration,skill,skillRequired,description
-break_ammo_light,ammo_light,30,mat_gunpowder:4,false,2,crafting,0,경량탄 30발을 분해해 화약 4를 얻는다.
-break_ammo_medium,ammo_medium,30,mat_gunpowder:6,false,2,crafting,0,준중량탄 30발을 분해해 화약 6을 얻는다.
-break_ammo_heavy,ammo_heavy,10,mat_gunpowder:5,false,2,crafting,0,중량탄 10발을 분해해 화약 5를 얻는다.
-break_ammo_shell,ammo_shell,8,mat_gunpowder:5,false,2,crafting,0,산탄 8발을 분해해 화약 5를 얻는다.
+break_ammo_light,ammo_light,40,mat_gunpowder:1,false,2,crafting,0,경량탄 40발을 분해해 화약 1을 얻는다 (제작 2회분의 절반).
+break_ammo_medium,ammo_medium,50,mat_gunpowder:1,false,2,crafting,0,준중량탄 50발을 분해해 화약 1을 얻는다 (제작 2회분의 절반).
+break_ammo_heavy,ammo_heavy,20,mat_gunpowder:1,false,2,crafting,0,중량탄 20발을 분해해 화약 1을 얻는다 (제작 2회분의 절반).
+break_ammo_shell,ammo_shell,20,mat_gunpowder:1,false,2,crafting,0,산탄 20발을 분해해 화약 1을 얻는다 (제작 2회분의 절반).
 break_machine_parts,mat_machine_parts,1,mat_scrap:3|mat_cable:1,false,3,crafting,0,기계 부품 1을 분해해 폐금속 3 + 전력 케이블 1을 얻는다.
 break_shield_charger_hi,shield_charger_hi,1,mat_core:1|mat_cable:1,false,3,crafting,0,고출력 실드 충전기 1개를 뜯어 구동 코어 1 + 전력 케이블 1을 되찾는다.

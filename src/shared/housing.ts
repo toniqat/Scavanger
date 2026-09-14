@@ -2027,3 +2027,108 @@ export interface HousingRef {
   cancelGameSession?(): void;
 }
 /* ══ end 2026-09-13 서재 시리즈 · 비디오게임 ══ */
+
+/* ══ [2026-09-14] 음악 재생 조작 (HousingRef 추가 계약) ═══════════════════════════════════════════════
+ * 표시(`housing:musicChanged`)만으로는 `MusicMode 'repeat'` 에 도달할 길이 없어 조작 창구를 연다.
+ * 전부 옵셔널이라 옛 소비자는 한 줄도 안 바뀐다. 성공하면 true 이고 곧바로 `housing:musicChanged` 가 난다.
+ */
+export interface HousingRef {
+  /** 지금 재생 상태 — 늦게 붙는 화면이 첫 이벤트를 기다리지 않아도 되게. 꺼져 있으면 `MUSIC_PLAYER_OFF`. */
+  getMusicState?(): MusicPlayerState;
+  /** 다음 곡 / 이전 곡 (`'repeat'` 이어도 사람이 누르면 넘어간다). 재생 중이 아니거나 목록이 비면 false. */
+  musicNext?(): boolean;
+  musicPrev?(): boolean;
+  /** 재생 방식 전환. 같은 값이면 false. */
+  setMusicMode?(mode: MusicMode): boolean;
+  /** 재생을 멈춘다. ⚠ 그 가구의 `toggled` 도 **함께 내린다** — 상태만 끄면 가구는 켜진 모습으로 남는다 (E 로 끈 것과 같아야 한다). */
+  musicStop?(): boolean;
+}
+/* ══ end 2026-09-14 음악 재생 조작 ══ */
+
+/* ══ [2026-09-14] 서재 · 채굴 · 음악 재생 (UI 2차 개편) ═════════════════════════════════════════════════
+ * 셋 다 **새 규칙이 아니라 화면의 모양**이다 — 칸 수는 늘어났을 뿐 꽂기 · 효과 식은 그대로이고,
+ * 채굴 탭은 두 화면을 한 창으로 합친 것이며, 음악은 재생 목록을 들고 있는 표시 전용 상태다.
+ */
+
+/**
+ * 보관함 한 대가 몇 층인가 (`SHELF_SLOTS[m] / SHELF_TIERS[m]` 이 한 층의 칸 수다).
+ * 2026-09-14 사용자 결정 — 책장은 **4층 × 한 층 10칸(5권씩 2줄)** = 40권. 층 수는 그대로 두고 한 층이 넓어졌다.
+ * ⚠ 층 번호는 칸 번호를 나누는 표시일 뿐이다 — 저장되는 것은 `slot` 인덱스 하나이므로 층을 바꿔도 꽂힌 것이 옮겨지지 않는다.
+ */
+export const SHELF_TIERS: Readonly<Record<ShelfMedium, number>> = { book: 4, disc: 3, record: 2, game: 3 };
+/** 한 층 안에서 한 줄에 몇 칸을 그리나 (책장은 5칸 × 2줄 = 한 층 10칸, 나머지는 4칸 × 1줄). */
+export const SHELF_TIER_COLS: Readonly<Record<ShelfMedium, number>> = { book: 5, disc: 4, record: 4, game: 4 };
+/** 보관함 한 대의 한 층이 받는 칸 수. */
+export function shelfSlotsPerTier(medium: ShelfMedium): number {
+  return Math.max(1, Math.ceil(SHELF_SLOTS[medium] / SHELF_TIERS[medium]));
+}
+
+/**
+ * 통합 채굴 화면의 탭 (2026-09-14 사용자 결정 — 연산 클러스터 화면과 메인 컴퓨터 화면을 한 창으로 합쳤다).
+ * `'cluster'` 가 **새 탭**이고 나머지 셋은 옛 `MiningComputerTab` 그대로다 — 그래서 `openMiningComputer(uid, tab)` 의
+ * 인자 타입이 바뀌지 않는다(`MiningComputerTab ⊂ MiningTab`). 가구 E 가 여는 기본 탭은 **누른 가구의 탭**이다:
+ * 연산 클러스터 → `'cluster'`, 메인 컴퓨터 → `'clusters'`.
+ */
+export type MiningTab = 'cluster' | MiningComputerTab;
+export const MINING_TABS: readonly MiningTab[] = ['cluster', 'clusters', 'wallet', 'exchange'];
+export const MINING_TAB_LABEL_KO: Readonly<Record<MiningTab, string>> = {
+  cluster: '채굴', clusters: '클러스터 현황', wallet: '지갑', exchange: '거래소',
+};
+
+/**
+ * 음악 재생 (2026-09-14 사용자 결정) — **소리는 나지 않는다**. 축음기 · 주크박스 · 턴테이블을 켜면 그 함선의
+ * 레코드랙에 꽂힌 레코드가 재생 목록이 되고, 화면 구석의 재생 창이 제목 · 아티스트 · 볼륨(`AudioChannel 'bgm'`)을 띄운다.
+ * 트랙이 「끝나는」 시각은 `startedAt + lengthS` 뿐이고 오디오 노드가 없으므로 상태는 순수 데이터다.
+ */
+export interface MusicTrack {
+  /** 레코드 아이템 id (`record_<시리즈>`) — 재생 목록의 열쇠. */
+  defId: string;
+  /** 곡 제목 (시리즈 이름, `《…》`). */
+  title: string;
+  /** 아티스트 — `library_series.csv` 에 열이 없으므로 시리즈 id 에서 결정적으로 만든다 (`musicArtistOf`). */
+  artist: string;
+  /** 곡 길이(초). 시리즈 id 에서 결정적으로 뽑는다 — 같은 레코드는 늘 같은 길이다. */
+  lengthS: number;
+}
+/** 재생 방식. `'playlist'` = 전시대에 꽂힌 순서대로 돌고 끝나면 처음으로, `'repeat'` = 지금 한 곡만 무한 반복. */
+export type MusicMode = 'playlist' | 'repeat';
+export const MUSIC_MODES: readonly MusicMode[] = ['playlist', 'repeat'];
+export const MUSIC_MODE_LABEL_KO: Readonly<Record<MusicMode, string>> = { playlist: '재생 목록', repeat: '한 곡 반복' };
+
+export interface MusicPlayerState {
+  /** 소리를 내고 있는 가구 uid (축음기 · 주크박스 · 턴테이블), 꺼져 있으면 null. */
+  furnitureUid: string | null;
+  /** 지금 곡. 재생 목록이 비었으면 null (창은 「꽂힌 레코드가 없습니다」). */
+  track: MusicTrack | null;
+  /** 이 함선의 레코드랙에 꽂힌 레코드 전부 — 재생 목록. */
+  playlist: readonly MusicTrack[];
+  /** `playlist` 안에서 지금 곡의 자리, 없으면 -1. */
+  index: number;
+  mode: MusicMode;
+  /** 지금 곡을 튼 시각(`nowMs()`). 진행 막대는 `(now - startedAt) / (lengthS * 1000)`. */
+  startedAt: number;
+}
+/** 꺼져 있는 상태 (창을 숨긴다). */
+export const MUSIC_PLAYER_OFF: MusicPlayerState = Object.freeze({ furnitureUid: null, track: null, playlist: [], index: -1, mode: 'playlist', startedAt: 0 });
+
+/** 곡 길이의 범위(초) — 시리즈 id 해시로 이 사이의 값을 고른다. */
+export const MUSIC_TRACK_MIN_S = 96;
+export const MUSIC_TRACK_MAX_S = 214;
+/** 아티스트 이름을 만드는 조각 (외부 에셋 금지와 같은 이유로 이름표도 코드에서 만든다). */
+const MUSIC_ARTIST_FIRST: readonly string[] = ['카민', '피로스', '툰드라', '세레스', '노마드', '아셴', '베르단', '헬리오스'];
+const MUSIC_ARTIST_SECOND: readonly string[] = ['사중주단', '관현악단', '무명 악사', '군악대', '합창단', '야전 밴드', '기록 보관소', '순회 악단'];
+function musicHash(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+/** 레코드 시리즈 id → 아티스트 이름 (결정적). */
+export function musicArtistOf(seriesId: string): string {
+  const h = musicHash(seriesId);
+  return `${MUSIC_ARTIST_FIRST[h % MUSIC_ARTIST_FIRST.length]} ${MUSIC_ARTIST_SECOND[(h >>> 8) % MUSIC_ARTIST_SECOND.length]}`;
+}
+/** 레코드 시리즈 id → 곡 길이(초, 결정적). */
+export function musicLengthOf(seriesId: string): number {
+  const h = musicHash(seriesId) >>> 16;
+  return MUSIC_TRACK_MIN_S + (h % (MUSIC_TRACK_MAX_S - MUSIC_TRACK_MIN_S + 1));
+}

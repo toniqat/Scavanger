@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CLOAK_REVEAL_DISTANCE, ENEMY_SHOT_ALERT_CONE_MUL } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { VEHICLE_RAY_MARGIN, type CombatTarget } from '../Targets';
+import { baseTypeOf } from '../EnemyTypes';
 
 const _o = new THREE.Vector3();
 const _t = new THREE.Vector3();
@@ -156,9 +157,11 @@ export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
   }
   if (!wasAware && loud) {
     host.ctx.bus.emit('enemy:alerted', { id: e.id, type: e.type, position: e.position });
+    const look = baseTypeOf(e.type);
     if (e.isHumanoid) { /* humans do not screech; the reaction delay + rifle raise reads as the alert */ }
-    else if (e.type === 'scavenger' || e.type === 'hunter' || e.type === 'toxic') host.playAudio('bug_screech', e.position, 0.9, e.type === 'hunter' ? 0.9 : 1.15);
-    else host.playAudio('bug_screech', e.position, 0.7, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.55 : 0.75);
+    // 2026-09-14 3차: 튜토리얼 전용 종류는 바탕 종류의 비명 (`tut_bug*` = scavenger)
+    else if (look === 'scavenger' || look === 'hunter' || look === 'toxic') host.playAudio('bug_screech', e.position, 0.9, look === 'hunter' ? 0.9 : 1.15);
+    else host.playAudio('bug_screech', e.position, 0.7, look === 'behemoth' ? 0.35 : look === 'charger' ? 0.55 : 0.75);
     host.alertNear(e.position, 20, e);
   }
 }

@@ -17,7 +17,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT, baseTypeOf } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -573,7 +573,8 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
       sys.fx.burst(_v, 26, 'spark', 4);
     }
   } else if (e.isHumanoid) { const dv = humanoidDeathSound(e.type); sys.playAudio(dv.id, e.position, 0.8, dv.pitch); }   // 2026-09-13: 안드로이드 = 전원 차단음
-  else if (e.type !== 'sandworm') sys.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
+  // 2026-09-14 3차: 사망 비명의 피치도 바탕 종류로 (`tut_bug*` = scavenger)
+  else if (e.type !== 'sandworm') { const lk = baseTypeOf(e.type); sys.playAudio('bug_death', e.position, 1, lk === 'behemoth' ? 0.35 : lk === 'charger' ? 0.5 : lk === 'scavenger' || lk === 'toxic' ? 1.2 : 0.85); }
   if (sys.fx && e.type !== 'rogue_scan_drone') {
     _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
     const kind = goreKind(e);

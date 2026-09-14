@@ -3,10 +3,10 @@
 # 배열형 표(ARMOR_DR_BY_TIER 등)의 key 는 0 부터 빠짐없이 이어져야 한다.
 table,key,value
 # AMMO_STACK_ROUNDS — 탄종별 한 스택(=한 세트) 발수
-AMMO_STACK_ROUNDS,light,80
+AMMO_STACK_ROUNDS,light,60
 AMMO_STACK_ROUNDS,medium,50
-AMMO_STACK_ROUNDS,heavy,25
-AMMO_STACK_ROUNDS,shell,25
+AMMO_STACK_ROUNDS,heavy,20
+AMMO_STACK_ROUNDS,shell,20
 AMMO_STACK_ROUNDS,rifle,50
 AMMO_STACK_ROUNDS,pistol,80
 AMMO_STACK_ROUNDS,shotgun,25

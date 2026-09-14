@@ -133,7 +133,13 @@ function onTutorialDied(sys: GameFlowSystem): void {
    * 다시 도는 주기 저장이 체크포인트 진행을 담는다. 세이브 자체를 지우지 않는 것이 이 갈래의 요점이다.
    */
   sys.tutorialRespawnTimer = TUTORIAL_RESPAWN_DELAY_S;
-  ctx.bus.emit('ui:notify', { text: '체크포인트에서 다시 시작합니다', kind: 'warning', duration: TUTORIAL_RESPAWN_DELAY_S });
+  /*
+   * 2026-09-14 4차 — 「체크포인트에서」라고 적지 않는다. 부활 자리를 정하는 것은
+   * `world/tutorial` 의 `respawnPose()` 이고, 그날부터 그것은 대개 **마지막으로 땅에 서 있던 자리**다
+   * (체크포인트는 그 기록이 없을 때의 보험으로 내려갔다 — 사용자 결정). 문구가 자리를 단정하면
+   * 절벽에서 떨어진 사람이 「체크포인트로 갔겠거니」 하고 엉뚱한 곳을 찾는다.
+   */
+  ctx.bus.emit('ui:notify', { text: '마지막으로 서 있던 자리에서 다시 시작합니다', kind: 'warning', duration: TUTORIAL_RESPAWN_DELAY_S });
   }
 
 /**

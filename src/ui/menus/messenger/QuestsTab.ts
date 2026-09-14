@@ -4,7 +4,7 @@ import { clamp01, el, setText, toggleClass } from '../../dom';
 import { initialOf } from './format';
 import { buildQuestCard, questStateText } from './QuestCard';
 import { npcOf } from './sources';
-import { buildNpcTrust, npcTrustOf } from './Trust';
+import { buildNpcAvatar, buildNpcTrust, npcTrustOf } from './Trust';
 
 export interface QuestsTabHost {
   /** 그 NPC 의 대화로 옮긴다 (대화 탭). */
@@ -16,9 +16,11 @@ export interface QuestsTabHost {
 /**
  * 메신저 `퀘스트` 탭 (2026-09-14, docs/plans/messenger-quests.md §5).
  *
- * 좌 목록 = 진행 중(보고 가능이 위) · 새 제안 · 보류 · 완료(접힘). 우 상세 = NPC 머리(이름 · 직함 · **개인 신뢰도 게이지**) + 퀘스트 카드(`detail`):
- * 목표마다 진척 · [납품], [완료 보고](목표가 다 차야 켜진다 — 이유는 카드 아래 한 줄), 보류는 [수락] → 대화 탭의 그 NPC 로 옮겨
- * NPC 의 짧은 설명(brief)을 보여 준다. 포기 버튼은 없다 (사용자 결정). 새 제안은 「대화에서 답하기」 로만 답한다.
+ * 좌 목록 = 진행 중(보고 가능이 위) · 완료(접힘). 우 상세 = NPC 머리(신뢰도 고리를 두른 초상 · 이름 · 직함 · **개인 신뢰도 게이지**) +
+ * 퀘스트 카드(`detail`): 목표마다 진척 · [납품], [완료 보고](목표가 다 차야 켜진다 — 이유는 카드 아래 한 줄). 포기 버튼은 없다 (사용자 결정).
+ *
+ * 2026-09-14 3차 (사용자 결정): 목록을 거르는 곳은 **엔진**이다 (`NpcQuestRef.getQuests` 가 `offered` · `deferred` 를 빼고 답한다) —
+ * 여기서 다시 거르지 않는다. `새 제안` · `보류` 묶음을 그리는 분기는 옛 세이브를 위해 남겨 두었고 평소에는 한 줄도 나오지 않는다.
  */
 export class QuestsTab {
   readonly root: HTMLElement;
@@ -123,8 +125,8 @@ export class QuestsTab {
     this.detail.hidden = !q;
     if (!q) { this.detail.replaceChildren(); return; }
     const head = el('div', { cls: 'ms-qdetail-head' });
-    const av = el('span', { cls: 'ms-av big', text: q.npc.glyph || initialOf(q.npc.name), parent: head });
-    av.style.setProperty('--av', q.npc.color);
+    /* 2026-09-14 3차: 대화창 머리와 **같은 초상** — 신뢰도 radial 고리 + 우하단 레벨 배지. */
+    head.appendChild(buildNpcAvatar(ctx, q.npc.id, q.npc.name, { glyph: q.npc.glyph || initialOf(q.npc.name), color: q.npc.color }));
     const main = el('div', { cls: 'ms-thead-main', parent: head });
     el('div', { cls: 'ms-thead-title', text: q.npc.name, parent: main });
     const corp = q.npc.corp ? CORP_DEFS[q.npc.corp]?.name ?? '' : '';

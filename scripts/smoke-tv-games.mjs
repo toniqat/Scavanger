@@ -315,7 +315,11 @@ try {
   await H((u) => window.__game.ctx.bus.emit('housing:gameBeat', { tvUid: u.tv, quality: 'perfect', index: 0, total: 4 }), U);
   await waitSim(0.05);
   const beat = await H(() => ({ stage: window.__game.getSystem('hub').furnitureLayer.gameStage, lights: window.__count() }));
-  ok(beat.stage && beat.stage.flash > 0.3 && Math.abs(beat.stage.progress - 0.25) < 1e-6 && beat.stage.screenIntensity > 1.6, `gameBeat → screen flash + progress 1/4 (${JSON.stringify(beat.stage)})`);
+  // 2026-09-14 (사용자 결정): 판정마다 화면이 번쩍이던 것(`flash` · `SCREEN_FLASH`)은 없어졌다 — 반응은 화면 **속**
+  // 표식(`kick`)과 진행 막대가 말하고, 화면 발광은 기본 세기 + 잔잔한 맥동(`SCREEN_BASE ± SCREEN_PULSE`)뿐이다.
+  ok(beat.stage && beat.stage.kick > 0.3 && Math.abs(beat.stage.progress - 0.25) < 1e-6
+    && beat.stage.screenIntensity > 0.9 && beat.stage.screenIntensity < 1.4 && !('flash' in beat.stage),
+  `gameBeat → 표식 kick + progress 1/4 · 화면은 번쩍이지 않는다 (${JSON.stringify(beat.stage)})`);
   await session(false);
   const ended = await H((u) => {
     const ctx = window.__game.ctx, layer = window.__game.getSystem('hub').furnitureLayer;

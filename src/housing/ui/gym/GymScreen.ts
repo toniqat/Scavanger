@@ -102,7 +102,9 @@ export class GymScreen {
   private token = GYM_TOKEN;
   private card: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
-  private countEl: HTMLElement | null = null;
+  /** 진행 바의 채움 (2026-09-14 — 옛 `N / M` 글자를 대신한다). */
+  private progFill: HTMLElement | null = null;
+  private progF = -1;
   private verdict: HTMLElement | null = null;
   private view: GymView | null = null;
   private clocks: Clock[] = [];
@@ -182,7 +184,7 @@ export class GymScreen {
     this.consumed.clear();
     this.view?.dispose(); this.view = null;
     clear(this.root);
-    this.card = this.panel = this.countEl = this.verdict = null;
+    this.card = this.panel = this.progFill = this.verdict = null;
     this.clocks = [];
     this.root.hidden = true;
     this.root.style.removeProperty('--c-accent');
@@ -255,7 +257,10 @@ export class GymScreen {
     panel.dataset.minigame = s.minigame;
     const head = el('div', { cls: 'gym-head', parent: panel });
     el('div', { cls: 'gym-name', text: `${s.title} · ${this.minigameLabel(s)}`, parent: head });
-    this.countEl = el('div', { cls: 'gym-count', parent: head });
+    // 2026-09-14 (사용자 결정): 라벨 없는 진행 바 하나 — 회차 글자(`N / M`)는 없앴다
+    const prog = el('div', { cls: 'gym-prog', parent: head });
+    this.progFill = el('i', { cls: 'gym-prog-fill', parent: prog });
+    this.progF = -1;
     this.view = createGymView(this.game, panel, s.mode === 'game' ? { labels: GAME_NOTE_LABELS } : {});
     this.verdict = el('div', { cls: 'gym-verdict', parent: panel });
     el('div', { cls: 'gym-hint', text: this.ruleText(s), parent: panel });
@@ -316,7 +321,10 @@ export class GymScreen {
   private paint(): void {
     if (this.screen === 'game' && this.game) {
       this.view?.paint();
-      if (this.countEl) setText(this.countEl, `${Math.min(this.game.judgements.length + (this.game.done ? 0 : 1), this.game.total)} / ${this.game.total}`);
+      if (this.progFill) {
+        const f = this.game.completion;
+        if (Math.abs(f - this.progF) > 1e-4) { this.progF = f; this.progFill.style.transform = `scaleX(${f.toFixed(4)})`; }
+      }
     }
     if (this.clocks.length) {
       const now = this.sys.nowMs();
@@ -381,7 +389,7 @@ export class GymScreen {
   private clearBody(): void {
     this.view?.dispose(); this.view = null;
     clear(this.root);
-    this.card = this.panel = this.countEl = this.verdict = null;
+    this.card = this.panel = this.progFill = this.verdict = null;
     this.clocks = [];
   }
 

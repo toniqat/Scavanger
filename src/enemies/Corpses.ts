@@ -100,6 +100,14 @@ export class Corpse implements Interactable {
 export class CorpseManager {
   private readonly corpses = new Map<number, Corpse>();
   private ctx: GameContext | null = null;
+  /**
+   * 2026-09-14 4차 — 이번 레이드가 시체를 붙잡아 두는 시간(초). 평소는 `CORPSE_LIFETIME`,
+   * **튜토리얼 레이드는 `Infinity`** (`EnemySystem.corpseLifetime` 이 `world:ready` 에서 넣는다).
+   * 튜토리얼에서 45초는 「수치가 너무 짧다」가 아니라 **규칙이 다른 것**이다 — 가르치려고 놓아 둔 고정 드롭
+   * 두 구는 플레이어가 목표 패널을 읽으며 걸어가는 동안 사라지면 안 되므로, 플레이어 시체(`ctx.corpses`)와
+   * 같이 **레이드가 끝날 때까지** 남는다. 그래서 새 수치를 만들지 않았다.
+   */
+  lifetime = CORPSE_LIFETIME;
 
   bind(ctx: GameContext): void { this.ctx = ctx; }
 
@@ -124,6 +132,7 @@ export class CorpseManager {
       return null;
     }
     const c = new Corpse(ctx, enemyId, type, position, weaponId, seed, opts?.loot ?? null);
+    c.life = this.lifetime;
     this.corpses.set(enemyId, c);
     ctx.interactables.register(c);
     ctx.bus.emit('corpse:spawned', { enemyId, type, position: c.position, lootable: true, deathDir });

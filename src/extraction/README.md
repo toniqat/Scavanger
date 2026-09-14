@@ -9,7 +9,8 @@ everyone else keeps playing and the flow **resets** so a new ship can be called.
 director that used to start on `extraction:activated` is removed on the enemies side). All geometry is procedural (no assets).
 
 Publishes **`ctx.extraction`** (`shared/extraction.ts` → `ExtractionRef`: `stage` · `departRemaining` · `idleRemaining` · `riding` ·
-`isInShipBay(p)` · `keepEnemyOut(p, r)` · **`beginPreLanded(pos, yaw, opts)`** · **`skipToLiftoff()`** — 2026-09-14, 아래 두 절).
+`isInShipBay(p)` · `keepEnemyOut(p, r)` · **`beginPreLanded(pos, yaw, opts)`** · **`skipToLiftoff()`** — 2026-09-14 ·
+**`holdFire()`** — 2026-09-14 3차, 아래 세 절).
 
 Import via `@/extraction` → `ExtractionSystem`, `ExtractionConsole`, `Dropship`, `ParticlePool`, `FlareColumn`, `DustRing`.
 
@@ -100,9 +101,11 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
   스위치만이 유예를 시작한다.
 - ⚠ **단계 맞추기 (`syncPreLandedPhase`)**: `GameFlowSystem` 은 `extraction:liftoff` 를 `extracting` · `shipLanded`
   단계에서만 받는다 (평소에는 콘솔의 `activated` → 착륙의 `shipLanded` 가 차례로 그 단계를 만든다). 튜토리얼
-  함선은 강하보다도 먼저 서 있으므로 그 **두 이벤트를 `playing` 이 되는 첫 프레임에 그대로 흘린다** —
-  「함선이 도착해 있고 탈 수 있다」(`shipLanded`) 는 이 레이드 내내 사실이고, 덤으로 나침반의 함선 표시가
-  곧 튜토리얼의 목표가 된다. `extraction:activated.duration` 은 **0** 이다 (호출이 아니라 이미 와 있는 함선).
+  함선은 강하보다도 먼저 서 있으므로 `extraction:activated` 를 **`playing` 이 되는 첫 프레임에** 흘려 `extracting`
+  을 만든다. `duration` 은 **0** 이다 (호출이 아니라 이미 와 있는 함선 — `ui/hud/Notifications` 가 그 값으로
+  토스트를 스스로 건너뛴다). 같은 프레임에 `extraction:shipLanded` 도 **낸다** — 함선 마커 · 음악이 거기 매달려
+  있기 때문이고, 「도착 토스트 없음」은 `ui/hud/Notifications` 가 `missionMode === 'tutorial'` 을 보고 거른다
+  (아래 *튜토리얼 함선은 스위치를 누르면 즉시 뜬다* 1번).
 - 미리 세워 둔 함선에는 **다시 부를 콘솔이 없으므로** 남겨진 사람의 `departedReset()` 을 걸지 않는다
   (`preLanded` 플래그). 솔로 튜토리얼에서는 `squadDone` 이 참이라 어차피 닿지 않는 길이지만, 리셋되면
   남은 사람이 영영 못 나간다.
@@ -130,9 +133,40 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
 - 페이즈가 `extracting` · `shipLanded` 가 아니다 — `GameFlowSystem` 이 `extraction:liftoff` 를 그 둘에서만 받는다.
   미뤄 둔 단계 전환이 남아 있으면 `syncPreLandedPhase()` 를 먼저 흘려 보고 판정한다.
 
+## 튜토리얼 함선은 스위치를 누르면 즉시 뜬다 (2026-09-14 3차, 사용자 결정)
+
+`ctx.missionMode === 'tutorial'` **이면서** `beginPreLanded` 로 세운 함선일 때만(`tutorialLiftoffNow()`) 달라진다 —
+본편 탈출 흐름의 코드 경로는 한 줄도 바뀌지 않았다.
+
+1. **도착 토스트가 없다 — 이벤트는 그대로 흐른다.** `syncPreLandedPhase` 는 `extraction:activated` 와 함께
+   `extraction:shipLanded` 를 낸다. 거르는 쪽은 **문장을 쓰는 쪽**이다: `ui/hud/Notifications` 가
+   `missionMode === 'tutorial'` 이면 「함선 착륙. 탑승하세요」를 쓰지 않는다 — 처음부터 그 자리에 서 있던 버려진
+   함선에는 「착륙」이 일어난 일이 아니기 때문이고, 바로 옆 `extraction:activated` 가 `duration: 0` 으로 스스로를
+   걸러 내는 것과 **같은 규약**이다.
+   ⚠ 이벤트를 아예 내지 않는 길은 **택하지 않았다**: `__ship` 월드 · 지도 마커(`ui/hud/WorldMarkers` ·
+   `ui/map/MapScreen`)와 음악 전환이 같은 이벤트에 매달려 있어, 내지 않으면 `extract` 단계에서
+   `hides('hud','shipMarker')` 게이트가 풀려도 **그릴 마커가 없다** (`shared/tutorial.ts` 의 `shipMarker` 설명과
+   어긋난다). 토스트 하나를 없애려고 마커를 잃지 않는다.
+2. **스위치 → 즉시 이륙.** 실내 스위치의 `interact` 가 `startDeparture(false)`(취소 불가 10초 유예) 대신
+   **`skipToLiftoff()` 를 그대로 재사용**한다 — 그것이 이미 「몸을 화물칸에 세우고 유예 없이 평소 `liftoff()`」다.
+   실패하면(문이 닫혀 있으면) 평소 유예로 떨어진다. 캡션도 `· 즉시 이륙` 으로 바뀐다.
+3. **이륙 중에는 죽지 않는다.** `liftoff()` 가 탑승자를 태우는 자리에서 `ctx.player.setSceneLock?.(true)` 를 건다
+   (튜토리얼일 때만). `setControlsEnabled(false)` 는 **입력만** 끊어서, 남은 안드로이드의 총알 · 수류탄 · 재해가
+   이륙 연출 중에 들어와 결과 화면이 「미탈출」이 되는 길이 있었다. 카메라는 건드리지 않는다(연출이 들고 있다).
+   푸는 곳은 player/ 의 리셋 경로와 이 파일의 `resetMission`(탑승자였을 때만) 이다.
+4. **`holdFire()`** = `lifting && missionMode === 'tutorial'`. 적이 **바라보되 쏘지 않는다** — 램프가 닫히고 곧
+   외피 콜라이더가 걷히므로 오르는 화물칸이 그대로 사선에 들어온다. `keepEnemyOut` 과 같은 이유로 월드
+   콜라이더가 아니라 질의이고, 부르는 곳은 `enemies/ai` 다. 본편에서는 늘 false.
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14 3차 (튜토리얼 탈출선, 사용자 결정)** — 위 절. 바뀐 것은 `createRef()` 의 `holdFire` 한 항목,
+  `syncPreLandedPhase` 가 더하는 `extraction:shipLanded` 한 줄, 실내 스위치의 캡션 · `interact` 한 조건,
+  `liftoff()` 의 `setSceneLock(true)` 한 줄, `resetMission` 의 `setSceneLock(false)` 한 줄, 그리고 새 private
+  질의 둘(`holdFire` · `tutorialLiftoffNow`)뿐이다. 본편 갈래는 전부 `missionMode === 'tutorial'` 뒤에 있다.
+  검증: `npm run typecheck` · `npm run data:check` 통과.
 
 - **2026-09-13 (탈출 개편, 사용자 결정)** — 디펜스 기믹 제거 · 호출 20초 · 출발 유예 · 자동 출발 · 이륙 연출 · 남겨진 사람의 재호출 ·
   함선 콜라이더 · 화물칸 시체.

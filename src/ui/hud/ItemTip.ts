@@ -43,6 +43,13 @@ function pctText(v: number): string {
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
 /**
+ * 2026-09-14 (사용자 결정): 카드가 설 자리를 칩 쪽에서 정하는 옵트인 속성 (`data-tip-anchor="left"` = 커서 **좌상단**).
+ * 칩 자신에 찍어도 되고 칩을 담은 줄(`.fcard-cost` · `.inv-craft-costs` …)에 한 번 찍어도 된다 — `move()` 가
+ * `closest` 로 읽는다. 다른 폴더는 이 상수를 import 하지 않고 `dataset.tipAnchor = 'left'` 만 쓴다 (폴더 간 import 금지).
+ */
+export const TIP_ANCHOR_ATTR = 'data-tip-anchor';
+
+/**
  * 재료 요구 칩 hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
  * 가구 제작, 필드 · 작업대 제작, 수리, 퀘스트 납품, 씨앗 — is rendered by `src/shared/itemChip.ts`, which stamps the
  * item def on the element as `data-def-id`. This component is the single reader of that hook: one delegated
@@ -126,14 +133,14 @@ export class ItemTip {
   private onOver = (e: PointerEvent): void => {
     const chip = this.chipAt(e.target);
     if (!chip || !this.show(chip)) { this.hide(); return; }
-    this.move(e.clientX, e.clientY);
+    this.move(e.clientX, e.clientY, chip);
   };
   private onMove = (e: PointerEvent): void => {
     const chip = this.chipAt(e.target);
     if (!chip) { this.hide(); return; }
     // also re-show after something hid the card (a room change, a rebuilt panel) while the cursor never left the chip
     this.show(chip);
-    if (this.visible) this.move(e.clientX, e.clientY);
+    if (this.visible) this.move(e.clientX, e.clientY, chip);
   };
   private onOut = (e: PointerEvent): void => {
     if (!this.visible) return;
@@ -570,13 +577,29 @@ export class ItemTip {
     return parts.join(' · ');
   }
 
-  private move(x: number, y: number): void {
+  /**
+   * 커서 옆에 카드를 세운다. 기본은 **커서 우하단**(가방 · 창고 격자 타일이 처음부터 쓰던 자리)이다.
+   *
+   * **2026-09-14 (사용자 결정) — 재료 칩은 커서 좌상단이다.** 시설 관리 · 작업대 제작의 「필요 아이템」 줄은
+   * 화면 아래쪽에 있어서, 우하단 기본 자리에서 카드가 세로로 넘쳐 **위로만** 뒤집혔다 — 결과가 「커서 우상단」
+   * 이라 눌러야 할 칩을 카드가 덮었다. 그 줄들은 자기(또는 자기를 담은 상자의) `data-tip-anchor="left"` 로
+   * 좌상단을 요청하고, 여기서는 그 한 속성만 본다 (`chipAt` 이 집은 칩에서 `closest` 로 읽으므로 칩마다
+   * 찍어도 되고 줄 전체에 한 번 찍어도 된다). 어느 쪽이든 **화면 밖으로 나가면 예전처럼 반대편으로 뒤집는다.**
+   */
+  private move(x: number, y: number, chip?: HTMLElement | null): void {
     const pad = 16;
     const w = this.root.offsetWidth, h = this.root.offsetHeight;
-    let left = x + pad, top = y + pad;
-    if (left + w > window.innerWidth - 8) left = x - w - pad;
-    if (top + h > window.innerHeight - 8) top = Math.max(8, y - h - pad);
-    this.root.style.transform = `translate(${Math.round(Math.max(8, left))}px, ${Math.round(top)}px)`;
+    const anchorLeft = !!chip?.closest(`[${TIP_ANCHOR_ATTR}="left"]`);
+    let left = anchorLeft ? x - w - pad : x + pad;
+    let top = anchorLeft ? y - h - pad : y + pad;
+    if (anchorLeft) {
+      if (left < 8) left = x + pad;
+      if (top < 8) top = Math.min(window.innerHeight - h - 8, y + pad);
+    } else {
+      if (left + w > window.innerWidth - 8) left = x - w - pad;
+      if (top + h > window.innerHeight - 8) top = y - h - pad;
+    }
+    this.root.style.transform = `translate(${Math.round(Math.max(8, left))}px, ${Math.round(Math.max(8, top))}px)`;
   }
 
   hide(): void {

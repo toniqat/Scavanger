@@ -444,7 +444,8 @@ try {
   ok(set.paneScroll === 'auto', 'the right pane scrolls vertically', set.paneScroll);
   ok(set.displayRows.join('|') === '전체화면|화면 효과|그림자|해상도 배율', '화면 설정 rows', JSON.stringify(set.displayRows));
   ok(set.toggles === 3 && set.segs.join('|') === '75%|100%|125%', 'three on/off pills + the 해상도 배율 steps', JSON.stringify([set.toggles, set.segs]));
-  ok(set.vols.join('|') === '전체|효과음' && set.sliders === 2, '오디오 keeps 전체 · 효과음 sliders', JSON.stringify(set.vols));
+  // 2026-09-14 (사용자 결정): 음악 재생 창이 `AudioChannel 'bgm'` 볼륨을 보여 주므로 오디오 설정에 `음악` 줄이 생겼다
+  ok(set.vols.join('|') === '전체|효과음|음악' && set.sliders === 3, '오디오 = 전체 · 효과음 · 음악 sliders', JSON.stringify(set.vols));
   ok(set.keys === 1, '키 설정 holds one real ControlsPanel instance', String(set.keys));
   ok(set.keycaps > 50, 'the keyboard diagram rendered its keys', String(set.keycaps));
   ok(set.bound > 8, 'bound keys are lit in the diagram', String(set.bound));

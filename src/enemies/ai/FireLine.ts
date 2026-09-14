@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ENEMY_FIRE_LOS_S, ENEMY_FIRE_STRAFE_S, ENEMY_WALL_STANDOFF } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { VEHICLE_RAY_MARGIN, type CombatTarget } from '../Targets';
+import { holdingFire } from './Common';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 총구 사선 (2026-09-10) — 적이 벽에 딱 붙은 채로 사격하지 않게.
@@ -45,6 +46,10 @@ export function fireOrigin(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
 export function hasFireLine(e: Enemy, host: EnemyHost, t: CombatTarget): boolean {
   const world = host.ctx.world;
   if (!world) return false;
+  /* 2026-09-14 3차 (튜토리얼 이륙): 사격 보류 중에는 **막힌 것과 똑같이** 답한다 — 조준 · 바라보기 · 이동은 그대로이고
+     호출부는 평소의 "막혔다" 경로(비켜서기)를 탄다. 캐시(`fireLineAt` · `fireLineClear`)는 건드리지 않으므로
+     보류가 풀리면 다음 갱신에서 원래 답으로 돌아온다. */
+  if (holdingFire(host)) return false;
   const now = host.ctx.time;
   if (now - e.fireLineAt < ENEMY_FIRE_LOS_S) return e.fireLineClear;
   e.fireLineAt = now;

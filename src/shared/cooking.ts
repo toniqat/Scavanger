@@ -158,6 +158,10 @@ export const COOK_POUR_RATE_ML_S = K.num('COOK_POUR_RATE_ML_S');
 export const COOK_POUR_SETTLE_S = K.num('COOK_POUR_SETTLE_S');
 export const COOK_POUR_PERFECT_ERR = K.num('COOK_POUR_PERFECT_ERR');
 export const COOK_POUR_ZERO_ERR = K.num('COOK_POUR_ZERO_ERR');
+/** appended (2026-09-14): 「좋음」 띠의 반폭 = 완벽 띠 × 이 값 (반 박자로 클램프). */
+export const COOK_GOOD_OF_PERFECT = K.num('COOK_GOOD_OF_PERFECT');
+/** appended (2026-09-14): 입력이 오지 않아도 단계가 멈추지 않게 하는 안전핀 — 제대로 하는 시간 × 이 값. */
+export const COOK_STEP_TIMEOUT_MUL = K.num('COOK_STEP_TIMEOUT_MUL');
 export const COOK_POUR_BEAKER_MUL = K.num('COOK_POUR_BEAKER_MUL');
 
 export function cookGrillSeconds(defId: string): number {

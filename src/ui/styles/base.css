@@ -2353,9 +2353,11 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard.is-sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .fcard.is-empty .fcard-name { color: var(--c-text-dim); }
 .fcard-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+/* 2026-09-14 (사용자 결정): 썸네일은 **정사각형**이다 (54 × 54, 옛 54 × 44). 두 행에 걸치는 제작 카드에서는
+   아래 `.fcard > .fcard-thumb` 가 `align-self: stretch` 로 두 행을 정확히 채워 **아래 여백을 없앤다**. */
 .fcard-thumb {
   position: relative; flex: none;
-  width: 54px; height: 44px;
+  width: 54px; height: 54px; aspect-ratio: 1 / 1;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--fc);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.45));
@@ -2371,10 +2373,15 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard {
   display: grid; grid-template-columns: 54px minmax(0, 1fr) auto;
   grid-template-areas: "thumb body btn" "thumb cost cost";
-  align-items: center; column-gap: 10px; row-gap: 6px;
+  /* 2026-09-14: row-gap 6 → 4 — 이름 줄(14) + 재료 줄(36)이 썸네일 54 px 와 맞아떨어져 시설 가구 카드가 정사각형이 된다 */
+  align-items: center; column-gap: 10px; row-gap: 4px;
 }
 .fcard.store { grid-template-areas: "thumb body btn"; }
-.fcard > .fcard-thumb { grid-area: thumb; align-self: start; }
+/* 2026-09-14 (사용자 결정): `align-self: stretch` — 썸네일이 **두 행(이름 줄 + 재료 줄)을 정확히 채운다.**
+   `align-self: start` + 고정 높이였던 예전에는 카드가 재료 줄 때문에 썸네일보다 길어져 **썸네일 아래에 빈 칸**이
+   남았다. 칸은 54 px 폭 · 최소 54 px 높이(정사각형)이고, 내용이 더 길어지면 여백 대신 썸네일이 같이 늘어난다.
+   `.fcard.store` 는 한 행짜리라 이 규칙에서도 54 × 54 그대로다. */
+.fcard > .fcard-thumb { grid-area: thumb; align-self: stretch; height: auto; min-height: 54px; aspect-ratio: auto; }
 .fcard > .fcard-body { grid-area: body; }
 .fcard > .fcard-craft, .fcard > .fcard-place { grid-area: btn; align-self: start; }
 .fcard > .fcard-cost {
@@ -2393,6 +2400,14 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   background: rgba(6, 7, 9, 0.88); font-size: 9px; overflow: hidden;
 }
 .fcard-cost .item-chip-icon, .sm-ins-cost .item-chip-icon { transform: translateY(-5px); font-size: calc(var(--chip-size) * 0.44); }
+/* 2026-09-14 (사용자 결정): 시설 레벨 칩(`buildFacilityChip`)이 **한 줄에 안 들어가는 재료 줄**에서는 정사각형이다 —
+   기본 썸네일이 높이의 2배(가로로 긴 칩)라 `nowrap` 인 가구 카드의 재료 줄에서 혼자 튀었다. 이름은 자리가 없으니
+   숨기고(글리프 + `현재/필요` 만 남는다) 시설 이름은 칩의 `title` 이 말한다. 이중 테두리는 그대로 — 그것이 아이템
+   칩과 구분되는 표시다. 넓게 감싸는 줄(`.sm-cost` · `.sm-ins-cost` · 확인 팝업)은 예전 그대로 가로로 긴 칩이다. */
+.fcard-cost .facility-chip-thumb, .inv-craft-costs .facility-chip-thumb { width: var(--chip-size); padding: 1px 2px 0; }
+.fcard-cost .facility-chip-name, .inv-craft-costs .facility-chip-name { display: none; }
+.fcard-cost .facility-chip-icon, .inv-craft-costs .facility-chip-icon { grid-column: 1 / -1; justify-self: center; }
+.fcard-cost .facility-chip-count, .inv-craft-costs .facility-chip-count { margin: 0 -2px; }
 .fcard-own { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-success); }
 .fcard-own.none { color: var(--c-text-faint); }
 
@@ -2853,13 +2868,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-gen-btn:hover { background: rgba(255, 179, 71, 0.22); color: #ffd18a; }
 .sm-gen-btn:disabled { opacity: 0.45; cursor: default; }
 
-/* 시설 관리 — 발전기 행의 레벨별 해금 표 (2026-09-13, 전력 할당 폐지 뒤): `Lv.2 온실 · 주방` 한 줄씩, 이미 연 레벨은 흐리게 · 다음 레벨은 강조 */
-.sm-gen-unlocks { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
-.sm-gen-unlock { display: flex; gap: 6px; font-size: 10px; letter-spacing: 0.03em; color: var(--c-text-dim); }
-.sm-gen-unlock .lv { flex: none; min-width: 30px; font-family: var(--ui-mono); color: var(--c-text-faint); }
-.sm-gen-unlock.is-open { color: var(--c-text-faint); }
-.sm-gen-unlock.is-next { color: var(--c-accent); }
-.sm-gen-unlock.is-next .lv { color: var(--c-accent); }
+/* 2026-09-14 (사용자 결정): 발전기 행의 **레벨별 해금 표**(`.sm-gen-unlocks` · `.sm-gen-unlock`)는 마크업과 함께
+   지웠다 — 다섯 줄짜리 표가 방 목록을 밀어냈고, 같은 정보는 용도 지정 카드의 발전기 레벨 칩이 그 자리에서 말한다. */
 /* the printed block reason under a purpose / the generator (was a tooltip on a disabled button) */
 .sm-block { font-size: 10px; line-height: 1.45; letter-spacing: 0.03em; color: var(--c-danger); }
 /* a blocked purpose row stays clickable (it answers with the reason) — dashed, dimmed, no not-allowed cursor */
@@ -2920,7 +2930,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-inspect[hidden] { display: none; }
 .sm-ins-head { display: flex; align-items: center; gap: 10px; }
-.sm-ins-head .fcard-thumb { width: 46px; height: 40px; }
+/* 2026-09-14 (사용자 결정): 인스펙터 머리의 썸네일도 정사각형 (46 × 46, 옛 46 × 40) */
+.sm-ins-head .fcard-thumb { width: 46px; height: 46px; }
 .sm-ins-title { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .sm-ins-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); }
 .sm-ins-lv { font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); }

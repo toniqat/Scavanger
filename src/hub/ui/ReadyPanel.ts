@@ -1,9 +1,10 @@
 import type {
-  GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance, LoadoutSlot, PeerId, PortraitRef, SocketSlot, WeaponDef,
+  GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance, KeyGuideEntry, LoadoutSlot, PeerId, PortraitRef,
+  SocketSlot, WeaponDef,
 } from '@/shared';
 import {
   CATEGORY_ICON, HUB_READY_BLOCKER, HUB_READY_CELLS, HUB_READY_PORTRAIT_YAW, Keys, MENU_BLOCKER,
-  NET_SLOT_COLORS_CSS, RARITY_COLORS, SOCKET_SLOTS, UI_HOLD_CONFIRM_S, formatCredits, itemCreditValue,
+  NET_SLOT_COLORS_CSS, RARITY_COLORS, SOCKET_SLOTS, UI_HOLD_CONFIRM_S, formatCredits, itemCreditValue, keyLabel,
 } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 import { CrewLoadoutPanel } from './CrewLoadoutPanel';
@@ -77,10 +78,16 @@ interface CellDom {
   gear: HTMLElement;
   slots: Array<{ root: HTMLElement; icon: HTMLElement; pips: HTMLElement; key: HTMLElement }>;
   value: HTMLElement;
+  /** 홀드 줄 전체 (`Space` 키캡 + 게이지) — 보이고 숨는 단위는 이것이다. */
+  holdRow: HTMLElement;
+  holdKey: HTMLElement;
   hold: HTMLElement;
   holdFill: HTMLElement;
   holdLabel: HTMLElement;
 }
+
+/** 우측 하단 키 가이드 owner (2026-09-14 2차). `ui/hud/KeyGuide` 의 `NO_CLOSE_OWNERS` 에 들어 있다 — 닫는 화면이 아니다. */
+const GUIDE_OWNER = 'pod';
 
 /**
  * 발사 준비 패널 (Phase 10 · **2026-09-14 대개편**) — four cells across the middle of the ship screen, shown as soon as
@@ -103,6 +110,11 @@ interface CellDom {
  * 꾹** 눌러야 `net.setReady(true)` 가 나가고, 다시 꾹 누르면 풀린다. 게이지는 크로스헤어 홀드 링이 아니라 **내 카드
  * 하단**이고, 준비 전에는 내 카드가 `needs-ready` 로 펄스한다. 실제 동작은 `parts/Pods.toggleReady` 가 한다 (출격 경고
  * 팝업이 그 앞에 선다) — 여기서는 키를 재고 그림만 그린다.
+ *
+ * **2026-09-14 2차 (사용자 결정).** 게이지 왼쪽에 `Space` 키캡(`.keycap.kc-hold`)이 붙었고, 조작 키는 화면 중앙
+ * 하단(`ui/HubStatus`)이 아니라 **우측 하단 키 가이드**(owner `'pod'` — `E 내리기` · `Space 준비`)에 선다.
+ * 중앙 하단 줄에는 상태 텍스트(`준비 대기 (1/4)`)와 카운트다운만 남는다. 키 가이드를 올리고 내리는 곳은
+ * `syncGuide()` 하나이고, `setInteractive` · `hide()` · `dispose()` · `setLaunching()` 이 전부 그것을 지난다.
  *
  * Interactivity is deliberately narrower than visibility: the panel only takes `HUB_READY_BLOCKER` + the software
  * cursor (`setCursorMode`, **never** `exitPointerLock`) while the **local** player is boarded, i.e. while they are
@@ -129,6 +141,11 @@ export class ReadyPanel {
   private hold = 0;
   /** The current hold already fired — the key must be released before it can fire again. */
   private holdFired = false;
+  /** 마지막으로 키 가이드에 올린 서명 (`''` = 아무것도 안 올라가 있다). */
+  private guideKey = '';
+  /** 카운트다운이 도는 중인가 — `parts/Pods.tickCountdown` 이 밀어 준다 (내릴 수도 준비를 바꿀 수도 없다). */
+  private launching = false;
+  private readonly unsubs: Array<() => void> = [];
 
   constructor(private readonly ctx: GameContext, private readonly host: ReadyPanelHost) {
     this.root = el('div', { cls: 'hub-ready', parent: ctx.uiRoot });
@@ -157,16 +174,25 @@ export class ReadyPanel {
         slots.push({ root: s, icon, pips, key });
       }
       const value = el('div', { cls: 'hr-value', parent: body });
-      const hold = el('div', { cls: 'hr-hold', parent: body });
-      hold.hidden = true;
+      /*
+       * 2026-09-14 2차: 게이지 왼쪽에 **꾹 누르는 키캡**이 선다 (`.keycap.kc-hold` — chevron 은 `ui/styles/base.css`
+       * 한 곳이 그린다). 라벨은 `paintHold` 가 매번 `keyLabel(Keys.JUMP)` 로 다시 읽는다 — 키는 모듈 상수로
+       * 캐시하지 않는다는 규약이라, 리바인드해도 카드가 따라온다.
+       */
+      const holdRow = el('div', { cls: 'hr-holdrow', parent: body });
+      holdRow.hidden = true;
+      const holdKey = el('span', { cls: 'keycap kc-hold', text: '', parent: holdRow });
+      const hold = el('div', { cls: 'hr-hold', parent: holdRow });
       const holdFill = el('i', { cls: 'hr-hold-fill', parent: hold });
       const holdLabel = el('span', { cls: 'hr-hold-label', text: '', parent: hold });
       cell.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); this.openLoadout(i, cell); });
-      this.cells.push({ root: cell, name, lv, state, gear, slots, value, hold, holdFill, holdLabel });
+      this.cells.push({ root: cell, name, lv, state, gear, slots, value, holdRow, holdKey, hold, holdFill, holdLabel });
       this.memberKey.push('');
       this.gearKey.push('');
     }
     this.loadout = new CrewLoadoutPanel(ctx);
+    // 리바인드하면 키 가이드 · 카드의 키캡이 따라와야 한다 (서명을 비워 다음 `syncGuide` 가 반드시 다시 보낸다)
+    this.unsubs.push(ctx.bus.on('input:bindingsChanged', () => { this.guideKey = ''; this.syncGuide(); }));
   }
 
   get isVisible(): boolean { return this._visible; }
@@ -189,6 +215,40 @@ export class ReadyPanel {
     if (visible) this.ensurePortraits();
     this.portraits?.setVisible(visible);
     if (this.loadout.isOpen && !this.cellFor(this.loadout.peerId)) this.loadout.close();
+    this.syncGuide();
+  }
+
+  /**
+   * 카운트다운이 도는 동안에는 우측 하단 키 가이드를 내린다 — 그때는 내릴 수도 준비를 바꿀 수도 없다
+   * (`parts/Pods.tickCountdown` 이 매 프레임 밀어 준다). 발사가 취소되면 그대로 돌아온다.
+   */
+  setLaunching(on: boolean): void {
+    if (on === this.launching) return;
+    this.launching = on;
+    this.syncGuide();
+  }
+
+  /**
+   * 우측 하단 키 가이드 (2026-09-14 2차, 사용자 결정) — `E 내리기` · `Space 준비`(꾹).
+   *
+   * 예전에는 `슬롯에서 내리기` 가 화면 **중앙 하단**(`ui/HubStatus`)에 있었다. 그 줄은 이제 상태 텍스트 ·
+   * 카운트다운만 말하고, 조작 키는 게임의 다른 모든 화면과 같은 자리(`ui/hud/KeyGuide`)로 모였다.
+   * 올리는 조건은 **패널이 `interactive` 일 때** = 내가 실제로 발사 슬롯에 앉아 있을 때뿐이다. `setInteractive` ·
+   * `hide()` · `dispose()` 가 모두 여기를 지나므로(도킹 · 임무 시작 · 함선 허물기 포함) 남는 항목이 없다.
+   */
+  private syncGuide(): void {
+    const info = this._interactive && !this.launching ? this.localCell() : null;
+    const key = info ? (info.confirmed ? 'unready' : 'ready') : '';
+    // 키캡은 서명이 같아도 리바인드로 글자가 바뀔 수 있다 — 그때는 `guideKey` 를 비워 두고 들어온다
+    for (const c of this.cells) if (!c.holdRow.hidden) setText(c.holdKey, keyLabel(Keys.JUMP));
+    if (key === this.guideKey) return;
+    this.guideKey = key;
+    if (!info) { this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys: null }); return; }
+    const keys: KeyGuideEntry[] = [
+      { key: keyLabel(Keys.INTERACT), label: '내리기' },
+      { key: keyLabel(Keys.JUMP), label: info.confirmed ? '준비 해제' : '준비', hold: true },
+    ];
+    this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys });
   }
 
   private cellFor(peerId: PeerId | null): ReadyCellInfo | null {
@@ -381,8 +441,9 @@ export class ReadyPanel {
   private paintHold(i: number, info: ReadyCellInfo | null): void {
     const c = this.cells[i];
     const mine = !!info && info.local && info.ready && this._interactive;
-    c.hold.hidden = !mine;
+    c.holdRow.hidden = !mine;
     if (!mine || !info) return;
+    setText(c.holdKey, keyLabel(Keys.JUMP));
     setText(c.holdLabel, info.confirmed ? '꾹 눌러 준비 해제' : '꾹 눌러 준비');
     toggleClass(c.hold, 'is-confirmed', info.confirmed);
   }
@@ -415,6 +476,7 @@ export class ReadyPanel {
       this.ctx.uiBlockers.delete(HUB_READY_BLOCKER);
       this.ctx.input.setCursorMode(false, HUB_READY_BLOCKER);
     }
+    this.syncGuide();
   }
 
   /** Esc chain (`HubSystem`): true when the popup was open and is now closed. */
@@ -433,9 +495,11 @@ export class ReadyPanel {
       this.portraits?.setMember(i, null);
       this.paint(i, null);
     }
+    this.launching = false;
     this.setInteractive(false);
     this.setVisible(false);
     this.portraits?.setVisible(false);
+    this.syncGuide();     // `setInteractive` 가 이미 지나갔어도(이미 false 였을 수 있다) 확실히 걷는다
   }
 
   update(dt: number, time: number): void {
@@ -501,7 +565,11 @@ export class ReadyPanel {
   }
 
   dispose(): void {
+    for (const u of this.unsubs) u();
+    this.unsubs.length = 0;
+    this.launching = false;
     this.setInteractive(false);
+    this.syncGuide();
     this.loadout.dispose();
     if (this.portraits) { try { this.portraits.dispose(); } catch { /* ignore */ } this.portraits = null; }
     this.root.remove();

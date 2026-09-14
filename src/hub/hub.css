@@ -177,20 +177,35 @@
 .wb-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
 
 /* ── 발사 준비 패널 (Phase 10 · 2026-09-14 대개편) ─────────────────────────────
-   Four cells across the MIDDLE of the ship screen (화면 세로 70 %), shown while any launch slot is filled.
-   Each cell is 위 55 % 초상 · 아래 45 % 장비 (`docs/plans/intel-broker.md` §4.3).
+   Four cells across the MIDDLE of the ship screen (화면 세로 56 % — 2026-09-14 2차, 70 % 에서 줄였다), shown while
+   any launch slot is filled. Each cell is 초상(남는 높이) + 장비 판(`--hr-body-h`) 이다.
 
    ⚠ `grid-template-columns: repeat(4, 1fr)` + `gap: 0` is a **contract with `player/Portraits`**: that renderer
    slices ONE canvas into `HUB_READY_CELLS` equal columns, so an uneven column or a gap would slide every body
-   out of its cell. The canvas host is inset to the cells' portrait half (`bottom: 45%`) — the bodies stand in
-   the top half only and the equipment panel below is an opaque plate.
+   out of its cell. The canvas host is inset to the cells' portrait half (`bottom: var(--hr-body-h)`) — the bodies
+   stand in the top part only and the equipment panel below is an opaque plate.
 
-   The root only becomes `.interactive` while the local player is boarded (see `ui/ReadyPanel`). */
+   The root only becomes `.interactive` while the local player is boarded (see `ui/ReadyPanel`).
+
+   ⚠ 2026-09-14 2차: `--hr-body-h` 는 이제 **퍼센트가 아니라 장비 판 내용의 실제 높이**다 — 인셋 식
+   (`.hr-portraits { bottom: var(--hr-body-h) }` · `.hr-body { flex-basis: var(--hr-body-h) }`)은 그대로이고
+   값만 바뀌었다. 45 % 는 내용보다 한참 커서 홀드 바 **아래에 죽은 여백**이 남았다(그리고 패널이 화면을
+   너무 먹었다). 식은 장비 판을 위에서 아래로 그대로 더한 것이다:
+     패딩 10 + 12 · 썸네일 한 줄 · gap 8 · 가치 줄 14 · gap 8 · 홀드 줄(`--hr-hold-h`).
+   썸네일 한 줄은 정사각(`aspect-ratio: 1/1`)이라 칸 너비에서 나온다 — 칸 = 패널 폭 ÷ 4, 좌우 패딩 24,
+   열 간격 4 × 4 = 16 → `(패널폭 / 4 − 40px) / 5`. 그래서 어느 창 너비에서도 여백이 0 이다.
+   장비 판이 얇아진 만큼 초상 층이 넓어지므로(`bottom` 이 같은 변수를 쓴다) `player/Portraits` 와의 계약
+   (`repeat(4, 1fr)` · `gap: 0`)은 한 줄도 안 바뀐다. */
 .hub-ready {
-  --hr-body-h: 45%;
+  --hr-hold-h: 40px;
+  --hr-gear-h: calc((min(1120px, 100vw - 40px) / 4 - 40px) / 5);
+  --hr-body-h: calc(52px + var(--hr-gear-h) + var(--hr-hold-h));
   position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%);
   width: min(1120px, calc(100vw - 40px));
-  height: 70vh;
+  height: 56vh;
+  /* 출격 준비 경고(`.launch-warn`, z 74)가 이 카드 위로 올라오도록 자리를 명시한다 — 둘 다 `ctx.uiRoot` 의
+     형제이고 ReadyPanel 이 DOM 상 뒤라, z 가 없으면 카드가 팝업을 덮어 버튼이 가려졌다 (2026-09-14 2차) */
+  z-index: 20;
   pointer-events: none;
 }
 .hub-ready .hr-portraits { position: absolute; left: 0; right: 0; top: 0; bottom: var(--hr-body-h); pointer-events: none; }
@@ -271,11 +286,16 @@
 .hr-slot-socks.is-unknown { opacity: 0.45; }
 .hr-pip { width: 4px; height: 4px; border: 1px solid color-mix(in srgb, var(--c-text-dim) 70%, transparent); background: transparent; }
 .hr-pip.is-filled { background: var(--c-accent); border-color: var(--c-accent); }
-/* 착용 장비 가치 합계 */
-.hr-value { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-dim); text-align: right; }
+/* 착용 장비 가치 합계 — `line-height` 는 `--hr-body-h` 식이 세는 14px 이다 (기본 normal 이면 폰트마다 달라진다) */
+.hr-value { font-family: var(--ui-mono); font-size: 10px; line-height: 14px; letter-spacing: 0.06em; color: var(--c-text-dim); text-align: right; }
+/* 준비 홀드 줄 — `Space` 키캡 + 게이지 (2026-09-14 2차). `margin-top: auto` 는 안전핀이다: `--hr-body-h` 식이
+   맞으면 남는 높이가 0 이지만, 어긋나도 여백은 **홀드 바 위**로 가고 아래는 늘 패딩뿐이다. */
+.hr-holdrow { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+.hr-holdrow .keycap { flex: none; min-width: 46px; height: 26px; font-size: 10px; }
 /* 준비 홀드 게이지 — 내 카드 하단 (크로스헤어 홀드 링이 아니다) */
 .hr-hold {
-  position: relative; height: 20px;
+  flex: 1 1 auto; min-width: 0;
+  position: relative; height: var(--hr-hold-h);
   display: flex; align-items: center; justify-content: center;
   border: 1px solid color-mix(in srgb, var(--c-accent) 45%, var(--c-border));
   background: rgba(255, 255, 255, 0.03);
@@ -312,11 +332,13 @@
 .hcl-status { font-size: 12px; letter-spacing: 0.06em; color: var(--c-text-dim); padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
 .hcl-body { display: flex; min-width: 0; }
 
-/* 2026-09-14: the panel moved to the middle of the screen (`top: 48%`, 70vh), so the status line no longer has to
-   step over it — its own `bottom: 14%` already clears the panel's lower edge (48 % + 35 % = 83 %). */
+/* 2026-09-14: the panel moved to the middle of the screen (`top: 48%`), so the status line no longer has to
+   step over it — its own `bottom: 14%` (= 화면 위에서 86 %) clears the panel's lower edge.
+   2026-09-14 2차: 56vh 로 줄었으니 그 모서리는 48 % + 28 % = 76 % 다 (여유가 더 생겼다). */
 
 @media (max-width: 900px) {
-  .hub-ready { height: 78vh; width: calc(100vw - 16px); }
+  /* 폭이 좁아지면 패널도 넓어지므로(`100vw - 16px`) 썸네일 식의 분자가 바뀐다 — `--hr-gear-h` 를 같이 고친다 */
+  .hub-ready { height: 64vh; width: calc(100vw - 16px); --hr-gear-h: calc(((100vw - 16px) / 4 - 40px) / 5); }
   .hr-slot-key { display: none; }
   .hr-slot { max-height: 46px; }
 }
@@ -349,6 +371,11 @@
 /* ── 출격 준비 경고 (2026-09-08, owner: hub/ui/LaunchWarnPanel) ────────────────
    발사 슬롯 탑승 직전에 뜨는 확인 카드. 막지 않는 경고이므로 위험색은 표식과 표제까지만 쓰고
    버튼은 평소의 [취소] / [그래도 출격] 두 개다. */
+/* 2026-09-14 2차: **발사 준비 패널 위에** 뜬다. 둘 다 `ctx.uiRoot` 의 형제인데 ReadyPanel 이 DOM 상 뒤라
+   (`HubSystem.init` 의 등록 순서), z 가 없으면 4칸 카드가 팝업을 덮어 `취소` · `그래도 준비` 가 가려졌고
+   카드가 `.interactive` 일 때는 클릭까지 먹었다. 74 = `.hub-crew-loadout`(72) 바로 위 · `.sm-confirm`(79) 아래.
+   딤은 `.menu` 기본 규칙(radial-gradient … rgba(3,4,6,0.9))이 `inset: 0` 에 깔아 주므로 따로 두지 않는다. */
+.menu.hub-menu.launch-warn { z-index: 74; }
 .menu.hub-menu.launch-warn .frame { min-width: 460px; max-width: 560px; width: min(560px, calc(100vw - 48px)); }
 .menu.hub-menu.launch-warn .hub-head .title { color: var(--c-accent); }
 .lw-list { display: flex; flex-direction: column; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; scrollbar-width: thin; }

@@ -22,6 +22,7 @@ import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, VEHICLE_RAY_MARGIN, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
 import { LureField } from '../ai/Lures';
+import { holdingFire } from '../ai/Common';
 import { becomeAlert, canPerceive } from '../ai/Perception';
 import { beginInvestigation, endInvestigation } from '../ai/Investigate';
 import { BloodFX } from '../fx/BloodFX';
@@ -228,6 +229,9 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
   const ctx = sys.ctx;
   const world = ctx.world;
   if (!world) return false;
+  /* 2026-09-14 3차: 사격 보류(`ExtractionRef.holdFire`) — 사선 게이트(`ai/FireLine`)를 지나지 않는 사격
+     (네임드 저격 · 미니건 스프레이)까지 여기서 한 번 더 막는다. 총구 FX · 소리 · 탄약 소모 전이다. */
+  if (holdingFire(sys)) return false;
   e.muzzle(_m);
   if (opts?.aimAt) _aim.copy(opts.aimAt); else target.getChest(_aim);
   _aim.addScaledVector(target.velocity, 0.06);

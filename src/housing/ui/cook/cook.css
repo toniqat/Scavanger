@@ -9,12 +9,15 @@
 
 .cook { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
 .cook[hidden] { display: none; }
+/* 2026-09-14 (사용자 결정): 미니게임 도중에는 **판 전체**가 입력을 받는다 — 패널 여백을 눌러도 칼질이 먹는다 */
+.cook.is-playing { pointer-events: auto; cursor: pointer; }
 
 .cook-panel {
-  position: absolute; left: 50%; bottom: 12vh; transform: translateX(-50%);
+  position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%);
   width: min(780px, calc(100vw - 48px));
   display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 12px;
   background: var(--c-panel-strong); border: 1px solid var(--c-border); color: var(--c-text);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
   pointer-events: auto; user-select: none;
 }
 .cook-panel.is-in { animation: cookIn 260ms var(--ease); }
@@ -34,6 +37,15 @@
 .cook-steps-arrow { color: var(--c-text-faint); font-size: 10px; }
 .cook-body { position: relative; min-height: 190px; display: flex; flex-direction: column; justify-content: center; }
 .cook-hint { font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; color: var(--c-text-faint); min-height: 16px; }
+
+/* 단계 진행 바 (2026-09-14, 사용자 결정 「라벨 없이 바만」) — 처음 빠르고 점점 느려진다 (ease-out) */
+.cook-prog { position: relative; height: 6px; background: var(--c-fill); border: 1px solid var(--c-border); overflow: hidden; }
+.cook-prog.is-off { visibility: hidden; }
+.cook-prog-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  transform-origin: left; transform: scaleX(0); background: var(--c-accent);
+  transition: transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 .cook-verdict {
   position: absolute; left: 50%; top: -18px; transform: translate(-50%, -100%);
@@ -113,16 +125,25 @@
 /* 썰기 — 흘러오는 박자 표식 */
 .cook-track { flex: 1; min-width: 0; }
 .cook-lane {
-  --judge: 10%;
+  --judge: 10%; --half: 0; --good-half: 0;
   position: relative; height: 46px; overflow: hidden; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
+}
+/* 판정 띠 — 폭이 판정 값에서 나온다 (`CookViews`): 표식이 완벽 띠를 덮으면 완벽이다 (2026-09-14) */
+.cook-window { position: absolute; top: 0; bottom: 0; left: var(--judge); transform: translateX(-50%); pointer-events: none; }
+.cook-window.is-good { width: calc(var(--good-half) * 2 * (100% - var(--judge))); background: rgba(232, 230, 225, 0.07); }
+.cook-window.is-perfect {
+  width: calc(var(--half) * 2 * (100% - var(--judge)));
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--c-accent) 45%, transparent), inset -1px 0 0 color-mix(in srgb, var(--c-accent) 45%, transparent);
 }
 .cook-judge { position: absolute; top: 0; bottom: 0; left: var(--judge); width: 2px; margin-left: -1px; background: var(--c-accent); box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 60%, transparent); }
 .cook-lane.hit-perfect { animation: cookHitPerfect 300ms var(--ease); }
 .cook-lane.hit-miss { animation: cookHitMiss 300ms var(--ease); }
 .cook-note {
-  --x: 2;
+  --x: 2; --nh: 26px; --span: 0;
   position: absolute; top: 50%; left: calc(var(--judge) + var(--x) * (100% - var(--judge)));
-  width: 26px; height: 26px; transform: translate(-50%, -50%); border-radius: 50%;
+  width: max(var(--nh), calc(var(--span) * 2 * (100% - var(--judge)))); height: var(--nh);
+  transform: translate(-50%, -50%); border-radius: calc(var(--nh) / 2);
   border: 2px solid rgba(232, 230, 225, 0.7); background: rgba(8, 9, 11, 0.85);
 }
 .cook-note::after { content: "⫽"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-dim); }
@@ -154,6 +175,15 @@
   display: flex; align-items: center; justify-content: center;
 }
 .cook-ring::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #16181b; }
+/* 판정 호 — 폭이 곧 COOK_GRILL_*_PERFECT · _GOOD (2026-09-14). 링 안쪽 원판은 마스크로 뚫는다 */
+.cook-arc {
+  --a0: 0turn; --a1: 0turn; --ac: rgba(232, 230, 225, 0.22);
+  position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(transparent 0 var(--a0), var(--ac) var(--a0) var(--a1), transparent var(--a1) 1turn);
+  -webkit-mask: radial-gradient(circle at 50% 50%, transparent 0 calc(50% - 7px), #000 calc(50% - 7px));
+  mask: radial-gradient(circle at 50% 50%, transparent 0 calc(50% - 7px), #000 calc(50% - 7px));
+}
+.cook-arc.is-perfect { --ac: color-mix(in srgb, var(--c-accent) 70%, transparent); }
 .cook-tick { position: absolute; left: 50%; top: 0; width: 2px; height: 50%; margin-left: -1px; transform-origin: 50% 100%; transform: rotate(var(--a)); pointer-events: none; }
 .cook-tick::before { content: ""; position: absolute; left: -1px; top: -2px; width: 4px; height: 12px; background: #fff; }
 .cook-tick.is-flip::before { background: var(--c-accent); }
@@ -191,6 +221,14 @@
 }
 .cook-beatring.is-lead { border-color: rgba(255, 255, 255, 0.35); }
 .cook-beatring.is-used { border-color: rgba(255, 255, 255, 0.2); }
+/* 판정 안내원 — 반지름이 판정 띠에서 나온다 (2026-09-14): 박자 링이 이 안으로 들어오면 완벽 */
+.cook-beatguide {
+  --s: 1;
+  position: absolute; z-index: 1; width: 132px; height: 132px; border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--c-accent) 55%, transparent);
+  transform: scale(var(--s)); pointer-events: none;
+}
+.cook-beatguide.is-good { border-color: rgba(232, 230, 225, 0.22); }
 
 /* 젓기 — 냄비 · 온도계 */
 .cook-pot {

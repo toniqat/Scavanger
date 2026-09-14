@@ -9,6 +9,10 @@
  *
  * 2026-09-13 (비디오게임, H2): 벤치프레스 구역 폭은 판정 객체의 `zone` · `perfect`(디스크 튜닝 `windowMul` 이 걸린 값)에서 읽는다 —
  * 튜닝이 없으면 `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT` 그대로다. 호흡형 표식 글자는 `GymViewOptions.labels` 로 바꿀 수 있다 (게임 = 톡 · 꾹).
+ *
+ * 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 박자 줄도 벤치프레스처럼 **판정 값에서 그림을 만든다** — 판정선 위에 완벽 띠
+ * (`bands.perfect`) · 좋음 띠(`bands.good`)를 깔고, 탭 표식의 폭을 완벽 띠와 **같게** 한다 (알약). 그래서 「표식이 띠를 덮는 순간
+ * 완벽」 이 눈으로 보이고, csv 창을 고치면 그림이 저절로 따라온다. 「하」 표식은 쥐는 길이가 폭이라 그대로다.
  */
 import { Keys, keyLabel } from '@/shared';
 import { BreathGame, CycleGame, GYM_LEAD_BEATS, PressGame } from '../../parts/GymGames';
@@ -103,17 +107,26 @@ class BeatView implements GymView {
     const laneDefs: Array<{ id: string; action: GymAction }> = breath
       ? [{ id: 'breath', action: 'jump' }]
       : [{ id: 'left', action: 'left' }, { id: 'right', action: 'right' }];
+    // 2026-09-14: 판정선 위에 **완벽 띠**를 그린다 — 폭이 판정 객체의 `bands.perfect` 에서 나오므로 「표식이 띠를 덮으면 완벽」 이 눈에 보인다
+    const half = (game.bands.perfect / this.look).toFixed(4);
+    const goodHalf = (game.bands.good / this.look).toFixed(4);
     for (const d of laneDefs) {
       const row = el('div', { cls: 'gym-lane-row', parent: track });
       const key = el('span', { cls: 'keycap gym-lane-key', parent: row });
       const lane = el('div', { cls: 'gym-lane', parent: row });
       lane.dataset.lane = d.id;
+      lane.style.setProperty('--half', half);
+      lane.style.setProperty('--good-half', goodHalf);
+      el('i', { cls: 'gym-window is-good', parent: lane });
+      el('i', { cls: 'gym-window is-perfect', parent: lane });
       el('i', { cls: 'gym-judge', parent: lane });
       this.lanes.push({ lane, key, action: d.action });
     }
     for (const n of game.notes) {
       const host = breath ? this.lanes[0].lane : this.lanes[n.lane === 'right' ? 1 : 0].lane;
       const e = el('div', { cls: `gym-note${n.hold ? ' is-hold' : ''}`, parent: host });
+      // 탭 표식은 완벽 띠와 **같은 폭**이다 (알약). 「하」 는 쥐는 길이가 폭이라 그대로 둔다.
+      if (!n.hold) e.style.setProperty('--span', half);
       if (n.hold) { e.style.setProperty('--len', this.holdLen.toFixed(4)); el('i', { cls: 'gym-note-fill', parent: e }); }
       const label = el('span', { cls: 'gym-note-label', parent: e });
       this.notes.push({ note: n, el: e, label, q: null, off: false });

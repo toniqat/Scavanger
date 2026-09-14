@@ -6,12 +6,12 @@
  * 상태를 가진 쪽은 `parts/NpcQuests.ts`(제안 · 대화 · 수락 · 납품 · 보고)와 `parts/NpcObjectives.ts`(레이드 목표)다.
  */
 import type {
-  CorpId, ItemDef, NpcEnemyGroup, NpcInteractKind, NpcLogEntry, NpcLogEvent, NpcObjectiveDef, NpcQuestDef, NpcQuestSave,
+  CorpId, ItemDef, NpcEnemyGroup, NpcFlag, NpcInteractKind, NpcLogEntry, NpcLogEvent, NpcObjectiveDef, NpcQuestDef, NpcQuestSave,
   NpcQuestState, NpcRequirement, NpcSave, QuestState, WeaponClass,
 } from '@/shared';
 import {
-  CORP_DEFS, NAMED_ROGUE_NAME_KO, NAMED_ROGUE_TYPES, NPC_DEF_MAP, NPC_ITEM_WEAPON_PREFIX, NPC_LOG_MAX, NPC_QUEST_MAP, STRUCTURE_LABEL_KO,
-  csvRows, formatCredits, planetLabel,
+  CORP_DEFS, NAMED_ROGUE_NAME_KO, NAMED_ROGUE_TYPES, NPC_DEF_MAP, NPC_FLAGS, NPC_ITEM_WEAPON_PREFIX, NPC_LOG_MAX, NPC_QUEST_MAP,
+  STRUCTURE_LABEL_KO, csvRows, formatCredits, planetLabel,
 } from '@/shared';
 
 /** 한국어 사유 (메신저 버튼 · 콘솔이 그대로 찍는다). */
@@ -85,6 +85,8 @@ export interface NpcReqContext {
    * 모르는 NPC 는 0.
    */
   npcTrustLevel(npcId: string): number;
+  /** appended (2026-09-14 3차): 진행 플래그의 누적 횟수 (모르는 플래그는 0). */
+  flagCount(flag: NpcFlag): number;
 }
 
 export function requirementMet(req: NpcRequirement, c: NpcReqContext): boolean {
@@ -93,6 +95,8 @@ export function requirementMet(req: NpcRequirement, c: NpcReqContext): boolean {
   /* 2026-09-14: 계약 · 판정만 있고 csv 의 어느 줄도 아직 `reqNpcRep` 를 쓰지 않는다 (사용자 결정 — 해금 요소는 나중에). */
   for (const r of req.npcRep ?? []) if (c.npcTrustLevel(r.npc) < r.level) return false;
   for (const q of req.quests ?? []) if (!c.questDone(q)) return false;
+  /* 2026-09-14 3차: 진행 플래그 (채집 1회 · 레이드 복귀 1회 …) — 4기업 NPC 의 첫 연락 조건. */
+  for (const f of req.flags ?? []) if (c.flagCount(f.flag) < f.count) return false;
   return true;
 }
 
@@ -171,13 +175,16 @@ export function npcTrustReason(questId: string): string { return `quest:${questI
 
 /* ── 저장 ─────────────────────────────────────────────────────────────────── */
 
-const LOG_EVENTS: readonly NpcLogEvent[] = ['intro', 'offer', 'accept', 'decline', 'brief', 'complete'];
+/** 2026-09-14 3차: `choice`(첫 연락 선택지의 내 대답)도 저장된다 — 빠지면 새로고침 한 번에 선택지가 되살아난다. */
+const LOG_EVENTS: readonly NpcLogEvent[] = ['intro', 'offer', 'accept', 'decline', 'brief', 'complete', 'choice'];
+/** `q` 를 들고 있어야 하는 사건 (`intro` · `choice` 는 퀘스트가 없다). */
+const QUEST_LOG_EVENTS: ReadonlySet<NpcLogEvent> = new Set<NpcLogEvent>(['offer', 'accept', 'decline', 'brief', 'complete']);
 const QUEST_STATES: readonly NpcQuestState[] = ['offered', 'deferred', 'active', 'complete'];
 
 export function freshNpcSave(): NpcSave {
-  /* `trust` 는 옛 세이브에 없는 선택 필드지만 **새 세이브는 언제나 들고 있는다** — `MetaStorage.snapshot()` 이
+  /* `trust` · `flags` 는 옛 세이브에 없는 선택 필드지만 **새 세이브는 언제나 들고 있는다** — `MetaStorage.snapshot()` 이
    * 이 객체를 그대로 JSON 으로 굽고 `sanitizeNpcSave` 가 되읽으므로, 여기서 빠지면 새로고침 한 번에 사라진다. */
-  return { contacts: {}, log: {}, quests: {}, trust: {} };
+  return { contacts: {}, log: {}, quests: {}, trust: {}, flags: {} };
 }
 
 const whole = (v: unknown): number => {
@@ -190,6 +197,8 @@ const whole = (v: unknown): number => {
  * `NPC_LOG_MAX` 로 자른다. 퀘스트는 있는데 연락이 없으면 연락을 채운다(대화 목록에서 사라지지 않게).
  * 2026-09-14: **개인 신뢰도(`trust`)도 여기서 실려 들어온다** — 옛 문서에는 없으므로 없으면 빈 표다. 연락 · 퀘스트와 달리
  * 「연락이 온 NPC」로 거르지 않는다 (콘솔 · 미래의 다른 적립 경로가 연락보다 먼저 줄 수 있다); 거르는 것은 모르는 id 뿐이다.
+ * 2026-09-14 3차: **`choice` 기록과 진행 플래그(`flags`)도 실려 들어온다** — 둘 다 빠지면 새로고침 한 번에
+ * 답한 선택지가 되살아나고(본론 · 제안이 다시 막힌다) 첫 연락 조건이 0 부터 다시 센다.
  */
 export function sanitizeNpcSave(raw: unknown): NpcSave {
   const out = freshNpcSave();
@@ -214,13 +223,25 @@ export function sanitizeNpcSave(raw: unknown): NpcSave {
   }
   for (const [npc, v] of Object.entries(obj(r.log))) {
     if (!out.contacts[npc] || !Array.isArray(v)) continue;
+    const choiceCount = NPC_DEF_MAP.get(npc)?.introChoices?.length ?? 0;
     const list: NpcLogEntry[] = [];
     for (const e of v) {
       const en = obj(e);
       if (!LOG_EVENTS.includes(en.e as NpcLogEvent)) continue;
       const ev = en.e as NpcLogEvent;
-      if (ev !== 'intro' && !(typeof en.q === 'string' && NPC_QUEST_MAP.get(en.q)?.npc === npc)) continue;
-      list.push(ev === 'intro' ? { at: whole(en.at), e: ev } : { at: whole(en.at), e: ev, q: en.q as string });
+      const at = whole(en.at);
+      /* 2026-09-14 3차: `choice` 는 퀘스트가 아니라 고른 번호(`c`)를 들고 온다 — 지금 표의 선택지 수 밖이면 버린다
+       * (표를 줄이면 풀 라벨이 없어 빈 말풍선이 된다). `intro` 는 예전 그대로 맨몸이다. */
+      if (ev === 'choice') {
+        const c = Math.floor(Number(en.c));
+        if (!Number.isFinite(c) || c < 0 || c >= choiceCount) continue;
+        list.push({ at, e: ev, c });
+        continue;
+      }
+      if (ev === 'intro') { list.push({ at, e: ev }); continue; }
+      if (!QUEST_LOG_EVENTS.has(ev)) continue;
+      if (!(typeof en.q === 'string' && NPC_QUEST_MAP.get(en.q)?.npc === npc)) continue;
+      list.push({ at, e: ev, q: en.q });
     }
     out.log[npc] = list.slice(-Math.max(1, NPC_LOG_MAX));
   }
@@ -229,6 +250,14 @@ export function sanitizeNpcSave(raw: unknown): NpcSave {
     if (!NPC_DEF_MAP.has(id)) continue;
     const n = whole(v);
     if (n > 0) trust[id] = n;
+  }
+  /* 2026-09-14 3차: 진행 플래그 — 첫 연락 조건의 유일한 입력이라 여기서 빠지면 채집 · 레이드 복귀가 매 새로고침마다 0 이 된다.
+   * 모르는 플래그 이름만 버린다 (옛 문서에는 아예 없으므로 빈 표). */
+  const flags = out.flags ?? (out.flags = {});
+  for (const [id, v] of Object.entries(obj(r.flags))) {
+    if (!(NPC_FLAGS as readonly string[]).includes(id)) continue;
+    const n = whole(v);
+    if (n > 0) flags[id as NpcFlag] = n;
   }
   return out;
 }

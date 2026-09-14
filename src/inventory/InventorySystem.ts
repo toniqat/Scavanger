@@ -568,6 +568,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** 'ship' while walking the hub / menus, 'field' on a mission. */
   currentStation(): CraftStation { return Craft.currentStation(this); }
 
+  /**
+   * 2026-09-14 (사용자 결정): **제작 재료를 세는 범위** — 함선이면 가방 + 함선 창고, 레이드 현장의 빠른제작은 가방만.
+   * `canCraft` · `maxCraftCount` · 소비(`consumeFor`) · 제작 창의 보유 칩이 전부 이 하나를 본다.
+   */
+  craftCountDef(defId: string): number { return Craft.craftCountDef(this, defId); }
+
   /* ── Phase 6 (2026-09-06): 무한 상자 catalog ──────────────────────────── */
 
   /**

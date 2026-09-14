@@ -54,6 +54,7 @@ export function revive(sys: PlayerSystem): void {
 export function applyKnockback(sys: PlayerSystem, direction: THREE.Vector3, speed: number): void {
   if (sys.isDead || sys._downed || !sys.spawned) return;
   if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안의 몸은 밀리지 않는다
+  if (sys._sceneLock) return;   // 2026-09-14 3차: 각본 잠금 — 각본이 세워 둔 몸을 폭발이 옮기지 않는다
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
   const len = direction.length();
   if (len < 1e-5 || !(speed > 0)) return;
@@ -101,6 +102,9 @@ export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vecto
 export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean): void {
   if (sys.isDead || !(amount > 0) || !sys.spawned) return;
   if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 차량만 맞는다 (재해 · 화상 · 전차 · 폭발 전부 이 길을 탄다)
+  // 2026-09-14 3차: 각본 잠금 (`PlayerRef.setSceneLock`) — 각본이 몸을 들고 있는 동안은 죽지도 다치지도 않는다.
+  // 위 줄과 같은 자리인 이유는 같다: 화상 · 재해 · 폭발 · 총알이 전부 이 **단일 입구**를 지난다.
+  if (sys._sceneLock) return;
   if (!dot && sys.invuln > 0) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return; // safe inside the pod
   if (!dot) sys.invuln = INVULN_TIME;

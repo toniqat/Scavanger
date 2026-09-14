@@ -8,16 +8,16 @@ import { buildTrustChip } from './Trust';
  * 이름 · 설명 · 목표(문구 · 진척 · [납품]) · 보상(재화 칩 + **NPC 개인 신뢰도 칩** + 아이템 칩) · 버튼. 상태는 매번 `NpcQuestRef.getQuest` 로 새로 읽어
  * 다시 짓는다 (카드는 상태를 들고 있지 않다).
  *
- *   - bubble · offered  → [생각해보지] [수락]
+ *   - bubble · offered  → [수락] **하나뿐**이다 (2026-09-14 3차, 사용자 결정 — 「생각해보지」 는 없앴다)
  *   - bubble · 그 밖    → 상태 배지 + 「퀘스트 탭에서 보기」
  *   - detail · offered  → 「대화에서 답하기」
- *   - detail · deferred → [수락] (호스트가 대화 탭으로 옮긴다)
+ *   - detail · deferred → [수락]. `deferred` 는 **은퇴한 상태**라(`shared/npc`) 엔진이 더 이상 돌려주지 않는다 —
+ *                         옛 세이브가 들고 있을 수 있어 그리는 분기만 조용히 남겨 둔다.
  *   - detail · active   → 목표마다 [납품] (deliver) + [완료 보고] (목표가 다 차야 켜진다). **포기 버튼은 없다** (사용자 결정).
  */
 
 export interface QuestCardActions {
   accept?(id: string): void;
-  defer?(id: string): void;
   deliver?(id: string, index: number): void;
   report?(id: string): void;
   /** 말풍선 카드의 「퀘스트 탭에서 보기」. */
@@ -110,7 +110,6 @@ export function buildQuestCard(ctx: GameContext, q: NpcQuestInfo, mode: QuestCar
   const foot = el('div', { cls: 'ms-qfoot', parent: card });
   if (mode === 'bubble') {
     if (q.state === 'offered') {
-      button(foot, '생각해보지', '', 'defer', () => act.defer?.(id));
       button(foot, '수락', 'primary', 'accept', () => act.accept?.(id));
     } else if (act.openTab) {
       button(foot, '퀘스트 탭에서 보기', 'link', 'tab', () => act.openTab?.(id));

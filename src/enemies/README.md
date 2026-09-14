@@ -35,6 +35,8 @@ Single-player behaviour is unchanged: only the `'local'` target exists and nothi
 | `artillery` | bug | 420 | stand-off mortar at `ARTILLERY_RANGE` | never melees; lobs interceptable shells every 6–9 s; rear ×1.5 |
 | `toxic` | bug | 70 | fast suicide runner | swells 0.6 s within `TOXIC_TRIGGER_DIST`, bursts `TOXIC_DAMAGE` in `TOXIC_RADIUS` (friendly fire); no stagger |
 | `behemoth` | bug | 1400 | `BEHEMOTH_SCALE`× warrior (4.8 m tall / 2.4 m radius since Phase 7's scale 3; every number derives from the constant: `ENEMY_STATS` radius / height / head / attack range, `BugParams.scaled`) | **front plate** = armoured hitbox (`EnemyHit.armored`, front ×0.35), rear ×2; wind-up + line charge with knockback (remote victims get `dmg.kb`) |
+| `tut_bug_loot` · `tut_bug` | bug | 120 (= `scavenger`) | **튜토리얼 전용** (2026-09-14 3차) — `world/tutorial` 의 고정 목록만이 세운다 | 리그 · AI · 소리는 `scavenger` 그대로(`baseTypeOf`). 다른 것은 고정 드롭뿐 — `_loot` 만 생체 조직 · 터미니드 분비선 100 %, 다른 하나는 빈 시체. 땅속에서 기다리다 굴착 스폰으로 솟는다 |
+| `tut_android_loot` · `tut_android` | android | **140** (= `android` 의 절반) | **튜토리얼 전용** (2026-09-14 3차) | 리그 · AI · 소리는 `android` 그대로. `_loot` 만 돌격소총 I · 전력 케이블 · 준중량탄 한 스택 100 %, 다른 하나는 빈 시체 |
 | `sandworm` | bug | 2000–3000 (host roll; csv 2500 = placeholder) | **이벤트 보스 지하벌레** (2026-09-13) — 땅에 박힌 채 30 s 동안 입에서 버그를 뱉고, 그 뒤 독극물을 뱉는다 (`sandworm/Director`) | 입(머리) ×1.5; speed 0 · 넉백 · 경직 · 도주 · 전차 탑승 · 재활용 없음; 자기 리그 `models/WormModel` |
 
 Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`,
@@ -64,8 +66,8 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `WaveDirector.ts` | Extraction waves: first wave 3 s after activation, then every 14 s → 9 s; size 6, 8, 10 … (≤ 22) **× `WAVE_SQUAD_SCALE[분대 인원 − 1]`, 최소 2마리** (2026-09-10 — 표는 4인 분대 기준이고 `squadSize(host)` 가 `RogueDrop` 과 같은 계산으로 인원을 센다), split into 1–3 groups spawned 45–90 m from the target, facing the nearest alive player; pauses while nobody is alive. A behemoth over the cap becomes a warrior (**Phase 11**: the cap is `maxBehemothOf(eco)` — 0 on a planet with none — and the count now includes behemoths rolled earlier in the same wave; `WaveDirector.eco` also feeds `waveGroup`). Emits `enemy:waveStarted`. Alive cap 60. Authority only. Phase 7: `prime(index)` — the next `start` (re-requested by extraction/ after a host promotion) continues the escalation from that wave index with a ≤ 6 s gap instead of restarting at wave 0. |
 | `RogueDrop.ts` | **2026-09-13: 레이더 강하** — 계약 이름(`rogueDrop:*` · `rdrop` · `callRogueDrop` · `getRogueDrops`)은 그대로. 확률 `RAIDER_DROP_CHANCE_BY_THREAT[threat − 1]`(threat 1 = 굴림 자체가 없고 기록도 안 한다), 인원은 분대 인원별 **두 파도** `RAIDER_DROP_WAVE1/2_MIN/MAX`(1인 3 · 2인 3→2 · 3인 3→3 · 4인 4→3–4, 파도당 ≤ `RAIDER_DROP_WAVE_MAX` 4), 두 번째 파도는 호스트가 `RAIDER_DROP_WAVE_GAP_S`(10 s) 뒤 **따로 예고**하는 강하(`dropId` = `${zoneId}#2`, 자기 `rdrop incoming/landed` · 포드 · 착지 시드) — 리플리카는 `zone#2` 와 `zone` 을 둘 다 굴린 것으로 기록한다. 파도마다 레이더 분대 하나 · 우회조 1명 · `site 'drop'` · `boss` false. 호스트 이관 때 10 s 대기 중인 두 번째 파도는 사라진다. 디버그 `debugSetDropSquad(n)` · `debugDropWaves`. 아래는 옛 설명. **로그 강하** (2026-09-09). `RogueDropDirector` — `structure:investigated` 를 받아 **호스트만** 구역당 1회 `ROGUE_DROP_CHANCE` 를 굴리고(`worldSeed ^ hash(zoneId)` 시드 스트림이라 호스트가 바뀌어도 같은 답), 성공하면 `callRogueDrop(dropId, position)` 이 분대 인원표(`ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE`, index 0 = 1명)로 인원 · 보스를 뽑아 `world.scatterPoints(position, ROGUE_DROP_RADIUS, count, 4.5, seed)` 에 포드를 떨어뜨린다. 예고 → `ROGUE_DROP_ETA_S` → 착지: `rogueDrop:incoming` / `landed` + `rdrop incoming` / `landed`. **2026-09-10 — 알림 · 소리는 이 파일이 내지 않는다**: 포드마다의 착지 충격음 `rogue_pod_impact`(아군 `hellpod_impact` 가 아니다)만 `impactFx` 에 남고, 무전 경보(`rogue_drop_alarm`)와 대기를 찢는 낙하 굉음(`rogue_pod_fall`)은 `audio/AudioSystem` 이 `rogueDrop:incoming` 을 받아 낸다 — 둘 다 **인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m)** 로 게이트하고 그 안에서 거리에 따라 줄어들며(원격 발소리와 같은 곡선), 굉음은 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전에 나간다. 화면은 `ui/hud/RaidAlerts` 의 토스트와 `ui/hud/DangerIndicators` 의 위험 표시(화면 안 = 머리 마커 · 밖 = 방향 호, 같은 반경). 착지에서 `host.spawnRogue` 로 `rogue` / `rogue_boss` 를 세우고(`guardPos` = 트리거 지점, `ee spawn` 은 기존 스폰 경로가 낸다) `beginInvestigation(e, 트리거 지점)` 으로 **구조물까지 진격**시킨다 — 도착하면 그 자리를 지키는 기존 가드 순찰로 넘어간다. 구역당 1회 기록은 자체 `used` 집합(리플리카가 받은 `rdrop incoming` 도 넣으므로 승격된 호스트가 다시 굴리지 않는다) ∪ `WorldRef.getStructures()` 의 `StructureDef.rogueDropUsed`; `Pool.reset` 이 레이드마다 비운다. 비호스트는 `rdrop` 을 받아 같은 이벤트를 내고 **포드 연출만** 그린다(적은 기존 `es` / `ee` 리플리카 경로). 포드는 외부 에셋 없이 여기서 절차 생성한 붉은 육각 캡슐(공유 지오메트리 · 머티리얼, `disposeRogueDropAssets`), 낙하 연기 · 착지 `groundBlast` / `dust` / `sparks` 는 `@/core/fx`. `ctx.isTraining()` 훈련장에서는 전부 no-op. |
 | `named/Director.ts` | **2026-09-13**: 네임드 3종은 팩션 `raider`, 확률 `NAMED_ROGUE_CHANCE_BY_THREAT[threat − 1]`(0 · 0.25 · 0.5 — 옛 `…_BY_RANK` 은퇴), 시드 `hash('named@<seed>')`(같은 시드의 네임드가 예전과 다르다), `NamedRollResult.threat`, 헤비 = 역할 `leader` + SMG **레이더** 호위가 같은 `squadId`(우회조 없음). **네임드 로그 스폰 디렉터** (2026-09-11). `NamedRogueDirector` — `world:ready` 권한 분기에서 가드 배치 뒤 `roll(planet)` 한 번: 시드 스트림 `worldSeed ^ hash('named')` 에서 등장(`NAMED_ROGUE_CHANCE_BY_RANK[planetTier − 1]`) → 종류(3종 균등) → 자리를 차례로 뽑는다. 자리는 전부 스폰에서 `NAMED_ROGUE_MIN_SPAWN_DIST` 이상 · 맵 안 · 선로 회랑(`RAIL_CLEARANCE_M` + 4 m) 밖 · 구조물 발자국 밖 · `obstacleCoverage` 로 막히지 않은 곳: 로든 = 개활 · 구조물에서 멀고 둘레보다 높은 후보(스폰을 바라본다), 타길라 = 스폰에서 먼 구조물 둘레 `NAMED_HAMMER.structureRadius` 안 엄폐가 가장 많은 자리(`guardPos` = 구조물), 헤비 = 먼 구조물 · 상자(폐허) 곁 + SMG 호위 `NAMED_HEAVY_ESCORTS_BY_SQUAD[분대 인원 − 1]` 명(`escortOf` = 헤비, `escortRadius` 안). 스폰은 `spawnRogue`(무기 `sr` / `u_minigun` / 없음, 호위 `smg`) → `ee spawn` 그대로. `enemy:namedSpawned` 는 권한이면 스폰 직후, 리플리카면 `enemy:spawned` 에서 id 당 한 번. `reset()` 은 `Pool.reset`. 디버그 `EnemySystem.debugSpawnNamed(type, at?)` · `debugNamedRoll()`. |
-| `Tutorial.ts` | **튜토리얼 전용 적 (2026-09-14)** — `placeTutorialEnemies(host, spawns)` 가 `ctx.world.tutorial.enemySpawns()` 목록을 **그대로** 세운다 (난수 0회 · 굴림 없음 · 웨이브 없음 · 스포너 없음 · 거점 그룹 없음 · 네임드 없음 · 지하벌레 없음 · 레이더 강하 없음 — 훈련장이 전부 끄는 것과 같고, 다른 점은 **적이 있다**는 것뿐이다). 벌레는 `spawn`, 인간형은 `spawnRogue`(자기 자리가 `guardPos` · 총은 `HUMANOID_WEAPONS[팩션]` 첫 항목)라 **몸 · AI · 외피 · 시체 전리품이 본편 그대로**다. 그 위에 마리마다 `Enemy.senseRadius`(csv `TUTORIAL_ENEMY_SENSE_M`) · `Enemy.homeLeash`(csv `TUTORIAL_ENEMY_LEASH_M`)를 얹는 것이 전부. `tutorialHold(e, dt)` = `ai/EnemyAI` 가 매 프레임 부르는 자기 자리 지키기(리시 밖 → 접고 귀환 · 싸움이 끝나고 자리를 벗어나 있으면 귀환 · 자리에 섰으면 `wanderTimer` 를 도로 채워 **순찰하지 않는다**); `homeLeash === 0` 이면 첫 줄에서 그대로 돌아간다. 목록은 `world:ready` 에서 **한 번만** 읽는다 — 처치된 적은 체크포인트 부활로 되살아나지 않는다. |
-| `Corpses.ts` | `Corpse` (`Interactable` `corpse:<enemyId>`, `CORPSE_INTERACT_RADIUS`, `holdTime` 0.6, prompt `시체 수색` → `수색 완료`; `canInteract` = `ctx.isGameplayActive()` && player alive & not downed && `ctx.inventory.openContainerItems` exists; `interact()` rolls once via `ctx.loot.rollCorpse(type, new Random(seed ^ id·φ), weaponId)` and calls `ctx.inventory.openContainerItems(id, items, position, '시체')`; an empty roll counts as searched; **2026-09-08** the first `interact()` also sets the appended `Interactable.hidePillar`, so `ui/hud/Detection` stops drawing this body's 빛기둥 while it stays searchable — deliberately **not** synced, another player looting the same corpse leaves our pillar up and ours never clears theirs) and `CorpseManager` (`add` → `corpse:spawned`, `remove` → `corpse:removed`, `markLooted(containerId)` from `crate:looted`, own `CORPSE_LIFETIME` safety timer, `clear`). Contents are per-client like crates. **Phase 10**: `rollCorpseLootable(seed, enemyId, type)` decides whether a body can be searched at all from `CORPSE_LOOT_CHANCE` on an **independent** seeded stream (`worldSeed ^ (enemyId · 0x9e3779b1)`) — never on the `rng` that feeds `rollCorpse`, whose exact output `src/inventory/__selftest__.ts` pins for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. `add(…, opts?: CorpseWireOpts)` takes the host's `lootable` / `deathDir` (`ee corpse.lt / .dd`) over the local roll, **returns null and registers no interactable** when the roll fails, and emits `corpse:spawned { lootable, deathDir }` either way (so a listener can tell "a body is here" from "loot is here"). |
+| `Tutorial.ts` | **튜토리얼 전용 적 (2026-09-14)** — `placeTutorialEnemies(host, spawns)` 가 `ctx.world.tutorial.enemySpawns()` 목록을 **그대로** 세운다 (난수 0회 · 굴림 없음 · 웨이브 없음 · 스포너 없음 · 거점 그룹 없음 · 네임드 없음 · 지하벌레 없음 · 레이더 강하 없음 — 훈련장이 전부 끄는 것과 같고, 다른 점은 **적이 있다**는 것뿐이다). 벌레는 `spawn`, 인간형은 `spawnRogue`(자기 자리가 `guardPos` · 총은 `HUMANOID_WEAPONS[팩션]` 첫 항목)라 **몸 · AI · 외피 · 시체 전리품이 본편 그대로**다. 그 위에 마리마다 `Enemy.senseRadius`(csv `TUTORIAL_ENEMY_SENSE_M`) · `Enemy.homeLeash`(csv `TUTORIAL_ENEMY_LEASH_M`)를 얹는 것이 전부. `tutorialHold(e, dt)` = `ai/EnemyAI` 가 매 프레임 부르는 자기 자리 지키기(리시 밖 → 접고 귀환 · 싸움이 끝나고 자리를 벗어나 있으면 귀환 · 자리에 섰으면 `wanderTimer` 를 도로 채워 **순찰하지 않는다**); `homeLeash === 0` 이면 첫 줄에서 그대로 돌아간다. 목록은 `world:ready` 에서 **한 번만** 읽는다 — 처치된 적은 체크포인트 부활로 되살아나지 않는다. **2026-09-14 3차**: 전용 타입 4종(`tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android` — 리그 · AI 는 `EnemyTypes.baseTypeOf` 의 바탕 종류, 다른 것은 고정 드롭뿐)과 **구덩이 스폰** — 벌레 줄은 세우지 않고 `TutorialPlacement.ambush` 에 담아 두었다가 `updateTutorialAmbush` 가 플레이어가 그 마리의 감지 반경에 들어설 때 `BURROW_EMERGE_S` 굴착 스폰으로 꺼낸다 (좌표는 코드에 없다 — **계기는 튜토리얼 단계가 아니라 거리다**). |
+| `Corpses.ts` | `Corpse` (`Interactable` `corpse:<enemyId>`, `CORPSE_INTERACT_RADIUS`, `holdTime` 0.6, prompt `시체 수색` → `수색 완료`; `canInteract` = `ctx.isGameplayActive()` && player alive & not downed && `ctx.inventory.openContainerItems` exists; `interact()` rolls once via `ctx.loot.rollCorpse(type, new Random(seed ^ id·φ), weaponId)` and calls `ctx.inventory.openContainerItems(id, items, position, '시체')`; an empty roll counts as searched; **2026-09-08** the first `interact()` also sets the appended `Interactable.hidePillar`, so `ui/hud/Detection` stops drawing this body's 빛기둥 while it stays searchable — deliberately **not** synced, another player looting the same corpse leaves our pillar up and ours never clears theirs) and `CorpseManager` (`add` → `corpse:spawned`, `remove` → `corpse:removed`, `markLooted(containerId)` from `crate:looted`, own `CORPSE_LIFETIME` safety timer, `clear`). Contents are per-client like crates. **Phase 10**: `rollCorpseLootable(seed, enemyId, type)` decides whether a body can be searched at all from `CORPSE_LOOT_CHANCE` on an **independent** seeded stream (`worldSeed ^ (enemyId · 0x9e3779b1)`) — never on the `rng` that feeds `rollCorpse`, whose exact output `src/inventory/__selftest__.ts` pins for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. `add(…, opts?: CorpseWireOpts)` takes the host's `lootable` / `deathDir` (`ee corpse.lt / .dd`) over the local roll, **returns null and registers no interactable** when the roll fails, and emits `corpse:spawned { lootable, deathDir }` either way (so a listener can tell "a body is here" from "loot is here"). **2026-09-14 4차**: `CorpseManager.lifetime`(기본 `CORPSE_LIFETIME`)이 `add` 에서 `Corpse.life` 로 들어간다 — `EnemySystem` 이 `world:ready` 에 넣고 튜토리얼 레이드는 `Infinity` 다. |
 | `ai/EnemyAI.ts` | State machine per bug: `idle` → `wander` → `alert` → `chase` → `attack` → `stagger`, plus `dead`/`flee`. Everything target-relative reads `e.target` (`acquireTarget` each tick). Rogues branch to `RogueAI.updateRogue` after perception; artillery / toxic / behemoth chase & attack dispatch to `GimmickAI`. Charger rush contact and hunter leap landing hit the nearest alive (not downed) player in range; melee / spit fire only while `!e.target.isDeadOrDowned`. **2026-09-10 (총구 사선)**: 스퓨어의 원거리 침(`startSpit`)에 `ai/FireLine.hasFireLine` 가 붙었다 — 눈에는 보여도 **입**(산탄이 나가는 `headCenter + 0.1`) 사선이 막혔으면 뱉지 않고, `d ≤ SPEWER_SPIT.maxDist` 가지에서는 `fireLineStrafe` 로 옆으로 돈다(이 가지만 `hasMoveTarget = false` 로 굳어 있어서 벽에 침을 뱉던 그림이 나왔다). 후퇴 가지(6.5–9 m)는 어차피 자리가 바뀌므로 사격만 막는다. 연막 속 추정 사격(`suspicion`)은 원래 맹목 사격이라 검사하지 않는다. `integrate()` (exported) handles steering, separation, obstacle avoidance (a charging body that deviates → `stumble` with the type's cooldown; behemoth shakes the camera), terrain snapping, gait, footsteps, yaw, slope. **Phase 10**: `integrateDeathFall(e, dt, world)` (exported, called from the `state === 'dead'` early-return here **and** from `net/Replica.update`) integrates `deathVy` under `GRAVITY` and snaps to `world.getHeightAt` → `deathLanded`, so a body killed mid-leap falls instead of freezing in the air. |
 | `ai/HumanoidProfile.ts` | 2026-09-13: 팩션 → 프로필(csv `HUMANOID_ANDROID` · `HUMANOID_ROGUE` · `HUMANOID_RAIDER`), `humanoidAimError`(거리 곡선 × 서서 쏘면 `settleMul`), `rollBurst` · `rollBurstPause`, `rollGrenadeLoadout`(`Pool.spawnRogue` — 1–3개, 소이 확률 로그 30 % · 레이더 40 %, 안드로이드 · 네임드 0). |
 | `ai/SquadFlank.ts` | 2026-09-13: 레이더 우회조 — 분대원이 교전 중이고 우회조가 `flankDelay` 이상 교전했으면 표적 측후방으로 넓은 호를 달려 `roguePhase` 4 로 푸시, `flankCooldown`. 스스로 돌격하지 않고, 분대원이 없으면 보통 레이더. |
@@ -118,6 +120,8 @@ boss always). A kill in the air is registered once the body lands (`CORPSE_LAND_
 direction); `ee corpseGone` / `corpse:removed` when the body despawns (after `CORPSE_LIFETIME` 45 s, or when recycled by
 `ensureCapacity`, `CORPSE_SLACK` 30). Bodies stay visible for the whole lifetime — searchable or not — and sink/fade during
 the last 3 s (`BugAnim.fade`). Toxic bugs leave a corpse too (their loot table is the items folder's call).
+**2026-09-14 4차**: 수명은 레이드마다 `EnemySystem.corpseLifetime` 이 정한다 — 평소 `CORPSE_LIFETIME`,
+**튜토리얼 레이드는 `Infinity`**(사라지지 않는다 · 페이드도 없다). 아래 `## 튜토리얼 시체가 사라지지 않는다`.
 
 ## Audio ids emitted
 `bug_screech`, `bug_attack`, `bug_death`, `bug_step` (hunter leap landing only since 2026-09-11),
@@ -1141,14 +1145,89 @@ attack phase 4  0.25 s 회복 → chase
 
 ### 그대로 둔 것
 
-안드로이드의 **외피 · 피 대신 불꽃 · 금속 피격음 · 시체 전리품**은 본편 그대로다 — 튜토리얼에서 얻은 전리품은 진짜 보상으로 가져간다.
+안드로이드의 **외피 · 피 대신 불꽃 · 금속 피격음**은 본편 그대로다.
+(**전리품만 2026-09-14 3차에 갈렸다** — 아래 `## 튜토리얼 전용 적 타입 4종` 참조.)
 `senseRadius` · `homeLeash` 는 **와이어에 없다**: 튜토리얼 레이드는 솔로 강제(매치메이킹 · 로비 진입 자체가 없다)라 리플리카가 생기지 않는다.
 
-디버그 훅: `EnemySystem.isTutorialWorld` · `debugTutorial()` (세운 마리 · 건너뛴 줄 · 마리별 `sense` / `leash` / 생사 / 자리).
+디버그 훅: `EnemySystem.isTutorialWorld` · `debugTutorial()` (세운 마리 · 건너뛴 줄 · 땅속에서 기다리는 벌레 수 · 마리별 `sense` / `leash` / 생사 / 자리).
+
+---
+
+## 튜토리얼 전용 적 타입 4종 · 구덩이 스폰 · 사격 보류 (2026-09-14 3차)
+
+`docs/plans/qol-batch-2026-09-14c.md` 의 `D` 절. 위 `## 튜토리얼 전용 적`(자리 · `sense` · `leash`)은 **한 줄도 안 바뀌었고**, 그 위에 셋이 얹혔다.
+
+### 1. 전용 타입 4종 — 새로 갖는 것은 **고정 드롭 하나**뿐이다
+
+| id | 바탕 종류 | 수치 (`data/enemies.csv` 자기 줄) | 드롭 |
+|---|---|---|---|
+| `tut_bug_loot` | `scavenger` | scavenger 와 같다 | **100 %** 생체 조직 1 · 터미니드 분비선 1 |
+| `tut_bug` | `scavenger` | scavenger 와 같다 | **0 %** (빈 시체 — 수색되지 않는다) |
+| `tut_android_loot` | `android` | android 의 **체력 절반** (280 → 140) | **100 %** 돌격소총 I 1 · 전력 케이블 1 · 준중량탄 한 스택 |
+| `tut_android` | `android` | android 의 **체력 절반** | **0 %** (빈 시체) |
+
+이 id 는 **계약**이다 — `world/tutorial/model.ts` 의 `ENEMIES` 가 그대로 쓴다.
+
+- **리그 · 겉모습 · AI 가지 · 소리는 바탕 종류의 것**이다. 타입별 표(`BUG_PARAMS` · `ROGUE_RIG_PARAMS` · `STEP_VOICES` · `MELEE_VOICES` ·
+  `HUMANOID_DEATH` · `HUMANOID_PAIN`)에 줄을 **더하지 않고**, 그 표를 읽는 자리에서 `EnemyTypes.baseTypeOf(type)` 을 한 번 지난다
+  (`Enemy` 생성자의 리그 선택 · `model.ts` 의 소리/파편 여섯 함수 · `ai/EnemyAI` 의 `alert` 길이와 추격 `switch` · `ai/Perception` 의 비명 ·
+  `parts/Damage` 의 사망 비명 피치). 표에 줄을 더했다면 튜토리얼 벌레가 **자기 지오메트리를 새로 구웠을** 것이고(셰이더 예산),
+  새 종류를 넣을 때마다 표 예닐곱 개를 함께 고쳐야 했다. `baseTypeOf` 는 튜토리얼 종류가 아니면 **첫 줄에서 자기 자신을 그대로** 돌려준다.
+- **수치는 자기 csv 줄**이다 — 바탕 종류는 "무엇처럼 생겼고 무엇처럼 움직이나" 만 답한다 (안드로이드 체력 절반이 그 줄에 있다).
+- `isRogueType` 에 `tut_android*` 가 들어가 인간형 리그를 타고, `BugType` 은 네 종류를 **빼서** `BUG_PARAMS` 가 예전 그대로 빠짐없다.
+- **벌레 난이도 배수는 곱해지지 않는다** — 튜토리얼은 행성이 없어 `scripted` 가지가 `bugThreatTuning(1)` 을 쓴다 (×1, 훈련장과 같은 처리).
+  `Pool.acquire` 의 배수 줄은 `hpMul !== 1` 에서 먼저 걸린다.
+- 드롭 표가 사는 곳:
+  - `data/loot_corpses.csv` — 아이템 줄 (`tut_bug_loot` 둘 · `tut_android_loot` 의 전력 케이블 · 빈 시체 둘의 **확률 0 안전핀**.
+    표가 없으면 `Loot.rollCorpseWithMax` 가 "모르는 적 = 생체 조직 1" 로 떨어진다 — `rogue_scan_drone` 과 같은 요령).
+  - `data/loot_corpse_rolls.csv` — `tut_android_loot` 한 줄. `ammoFrac 1` = 준중량탄 **한 스택 가득**, `weaponDur 1` = 내구도 최대
+    (첫 총이라 낡은 것을 주지 않는다). 총 **계열**은 스폰이 쥐여 준 것 그대로이고 그것이 `HUMANOID_WEAPONS,android` 의 첫 항목 = `ar` 다.
+    등급 분포 줄(`loot_factions.csv`)이 없어 등급 I 그대로 나온다. 서적 · 임플란트 · 유니크 칸은 비었다.
+  - `shared/types.ts` 의 `CORPSE_LOOT_CHANCE` — `_loot` 둘 1, 나머지 둘 **0**(상호작용이 서지 않는다 — 빈 격자를 여는 것보다 조용하다).
+- **굴림이 결정적이라 미리보기와 여는 것이 저절로 같다** (「열지 않고 미리 보는 것은 여는 것과 같은 함수여야 한다」). 확률이 1 아니면 0 뿐이라
+  `Loot.rollCorpseOn` 이 소비하는 draw 가 늘 같고, 드론 스캔 미리보기(`gadgets/drones/parts/Scan`)와 리플리카가 같은 `shared/lootRolls` 시드로
+  **같은 목록**을 받는다 (튜토리얼에는 드론도 리플리카도 없지만 경로는 확인했다).
+
+### 2. 벌레는 구덩이에서 솟는다 — 새 개념 없이 굴착 스폰 재사용
+
+`world:ready` 에 세우는 것은 **인간형뿐**이다(엄폐 · 앉아쏴가 그림의 절반이라 숨길 이유가 없다). 벌레 줄은 `TutorialPlacement.ambush` 에
+담아 두었다가, `EnemySystem.update` 의 권한 · 게임플레이 가지가 부르는 `Tutorial.updateTutorialAmbush` 가 하나씩 꺼낸다:
+
+- 방아쇠는 **그 마리의 자기 감지 반경**(`TutorialEnemySpawn.sense`, 기본 `TUTORIAL_ENEMY_SENSE_M` 12 m)이고 기준점은 **그 마리의 자기 자리**다 —
+  **좌표가 코드에 없으므로** 월드가 벌레를 옮겨도 · 구간을 늘려도 이 파일은 안 바뀐다. 체크포인트가 그 반경 밖이라는 월드의 규약이 곧
+  "부활 자리에서는 아직 솟지 않았다" 는 뜻이기도 하다.
+- 꺼내는 방법은 2026-09-13 의 **버그 굴착 스폰 그대로**다: `spawn(type, at, yaw, chase=true, relentless=false, BURROW_EMERGE_S)` →
+  `Enemy.startEmerge` + `parts/Burrow.emergeFx`(먼지 · 흔들림 · `burrow_emerge`) + `ee spawn.em`. 솟는 1 초 동안 **맞기는 하지만 공격 · 이동이 없다**는
+  `ai/Burrow` 의 규칙이 그대로라 "튀어나오고 → 달려든다" 가 저절로 된다. 솟자마자 `chase` 라 `tutorialHold` 의 `aware` 가지가 그 뒤를 받는다.
+- 세로 거리는 보지 않는다 (튜토리얼 통로는 한 층이고, 데크가 갈리는 곳은 구간 자체가 멀다).
+
+### 3. `ExtractionRef.holdFire()` — 바라보되 쏘지 않는다
+
+튜토리얼 탈출선이 뜨는 동안 미처 처치하지 못한 안드로이드가 화물칸의 플레이어를 쏘는 것을 막는다. 구현은 E 레인(extraction)에 있고
+여기는 **부르는 쪽**이다 (`?.()` — 없으면 늘 false). 막는 것은 **공격뿐**이고 조준 · 바라보기 · 이동은 그대로다:
+
+| 자리 | 무엇 |
+|---|---|
+| `ai/Common.holdingFire(host)` | 유일한 질의 (`host.ctx.extraction?.holdFire?.() === true`) |
+| `ai/FireLine.hasFireLine` | 첫 줄에서 **막힌 것과 똑같이** false. 호출부는 평소의 "막혔다" 경로(`fireLineStrafe` — 겨눈 채 옆으로 비켜섬)를 그대로 탄다. 캐시(`fireLineAt` · `fireLineClear`)는 건드리지 않으므로 풀리면 다음 갱신에 원래 답으로 돌아온다 |
+| `parts/Attacks.fireGun` | 사선 게이트를 지나지 않는 사격(네임드 저격 · 미니건 스프레이)까지 한 번 더. 총구 FX · 소리 · 탄약 소모 **전**이다 |
+| `ai/Common.startMelee(e, host?)` | 근접도 보류 — 휘두르는 시늉조차 하지 않고 쫓기만 한다. `host` 는 **선택 인자**라 넘기지 않는 호출부(네임드 타길라의 자기 망치)는 예전 그대로다 |
+
+튜토리얼이 아니면 `holdFire` 자체가 늘 false 라 비용은 호출 하나다.
 
 ---
 
 ## 변경 이력
+
+- **2026-09-14 3차 (튜토리얼 전용 적 타입 · 구덩이 스폰 · 사격 보류, 에이전트 D)** — 위 `## 튜토리얼 전용 적 타입 4종 · 구덩이 스폰 · 사격 보류`.
+  `data/enemies.csv`(tut_* 4줄 추가), `data/loot_corpses.csv`(tut_* 5줄), `data/loot_corpse_rolls.csv`(`tut_android_loot` 1줄),
+  `EnemyTypes`(`ENEMY_TYPE_VALUES` · `ALL_ENEMY_TYPES` · `BugType` · `isRogueType` + 새 `TutorialEnemyType` · `TUTORIAL_ENEMY_BASE` ·
+  `isTutorialEnemyType` · `baseTypeOf`), `Enemy`(리그 선택이 `baseTypeOf` 를 지난다), `model.ts`(소리 · 파편 6함수),
+  `ai/EnemyAI`(`alert` 길이 · 추격 `switch` · `startMelee` 에 host), `ai/Perception`(비명), `parts/Damage`(사망 비명 피치),
+  `ai/Common`(새 `holdingFire` · `startMelee(e, host?)`), `ai/FireLine` · `parts/Attacks.fireGun`(사격 보류),
+  `Tutorial.ts`(`TutorialPlacement.ambush` · 새 `updateTutorialAmbush`), `EnemySystem`(ambush 틱 · `debugTutorial().ambush`), `index.ts`.
+  `src/shared/types.ts` 는 **추가만** 했다 — `EnemyType` 유니온 4개와 `CORPSE_LOOT_CHANCE` 네 줄(계약상 빠짐없는 표라 필수).
+  **본편 · 훈련장 무변경** — 새 타입은 `world/tutorial` 의 목록만이 쓰고, `baseTypeOf` 는 그 밖의 종류에 항등이며, `holdFire` 는 튜토리얼 밖에서 늘 false 다.
 
 - **2026-09-14 (튜토리얼 전용 적, 에이전트 D)** — 위 `## 튜토리얼 전용 적`. 새 파일 `Tutorial.ts`(`placeTutorialEnemies` · `tutorialHold`),
   `Enemy`(`senseRadius` · `homeLeash` 두 필드 + `reset` 초기화), `ai/Perception`(`senseRadiusOf` · `hearRadiusOf` · `detectionRange` 기본 반경 · 유인 반경),
@@ -1510,3 +1589,56 @@ attack phase 4  0.25 s 회복 → chase
 
 - **2026-09-14 2차 (에이전트 ②)** — `parts/Alerts.reportShot` · `onShotReport` 의 튜토리얼 예외 제거,
   `alertShot` 의 `pathLen` 클램프, `ai/Investigate` 의 `homeLeash` 리시. csv 무변경 · 와이어 무변경.
+
+## 튜토리얼 시체가 사라지지 않는다 · 파다 죽은 몸도 마저 솟는다 (2026-09-14 4차, 에이전트 D)
+
+> 사용자 보고: 「튜토리얼 몹들의 드롭률이 적용 안 됐다 — 왼쪽 벌레의 생체 조직 · 터미니드 분비선도,
+> 오른쪽 안드로이드의 돌격소총 · 준중량탄 · 전력 케이블도 안 나온다.」
+
+**표도 굴림도 정상이었다.** `CORPSE_TABLE_MAP` · `CORPSE_LOOT_CHANCE`(`tut_bug_loot` · `tut_android_loot` = 1,
+`tut_bug` · `tut_android` = 0) · `rollCorpseOn` 을 실제 로더로 돌려 확인했고 `baseTypeOf` 는 전리품 경로에
+끼어들지 않는다 (리그 · AI · 소리에서만 쓴다 — 구체 타입이 `Corpses.rollCorpseOn(this.type, …)` 까지 그대로 간다).
+문제는 **`Corpse.interact()` 에 닿기 전에 시체가 없어지는 것**이었고 뿌리가 둘이다.
+
+### 1. 45초 — 튜토리얼에는 수명 규칙이 없었다
+
+`CORPSE_LIFETIME`(45 s)은 몸(`Enemy.corpseLife` → `EnemySystem.update` 의 despawn)과 수색 자리
+(`CorpseManager` 의 안전망 `Corpse.life`) 양쪽에 걸려 있고 **튜토리얼 예외가 없었다.** 목표 패널을 읽고
+조작을 익히며 걷는 속도에서는 가르치려고 놓아 둔 고정 드롭 두 구가 도착 전에 사라진다 (빛기둥까지 함께).
+
+이제 **이번 레이드의 시체 수명**을 `EnemySystem.corpseLifetime` 하나가 정한다 —
+평소 `CORPSE_LIFETIME`, **튜토리얼 레이드는 `Infinity`**. `world:ready` 에서 `this.tutorial` 을 정한 직후
+`corpses.lifetime` 에 넣고, 몸 쪽은 `parts/Pool.acquire` 가 `reset` 이 넣은 값을 덮는다 (리플리카도 같은 값 —
+레이드 종류는 모든 클라이언트가 `world:ready` 에서 같이 정한다). `Infinity` 는 despawn 조건
+(`deathTimer >= corpseLife`)과 페이드(`(deathTimer − (corpseLife − 3)) / 3` → 0)를 **둘 다** 자연히 끈다.
+
+**csv 에 새 수치를 만들지 않았다.** 「튜토리얼 시체는 레이드가 끝날 때까지 남는다」는 튜닝값이 아니라 규칙이고
+(플레이어 시체 `ctx.corpses` 와 같다), 99999 같은 센티넬을 `constants.csv` 에 넣으면 고칠 수 있는 수치인 척하는
+거짓말이 된다. **본편 · 훈련장의 45초는 한 글자도 안 바뀐다** — `tutorial === false` 면 getter 가 옛 상수 그대로다.
+
+### 2. 파다 죽은 몸이 땅속에 얼어붙었다
+
+굴착 스폰(2026-09-13)은 **그림만** 내린다 — 판정 위치(`Enemy.position`)는 굴착 내내 지표에 있고
+`ai/Burrow` 가 이동을 막으므로, 솟는 중에 죽어도 `kill()` 의 `getSurfaceY` 스냅이 걸려 `corpse:<id>` 는
+**처음부터 땅 위에 옳게 선다** (리드가 의심한 「데크 아래 y 등록」은 일어나지 않는다 — `parts/Damage.registerCorpse`
+는 한 줄도 안 고쳤다). 진짜 문제는 `Enemy.animate` 가 죽는 순간 `emergeT` 를 얼려 **리그가 그 깊이에 영영
+묻혀 있던 것**이다: 묻힌 깊이는 몸 높이 + `BURROW_SINK_EXTRA_M` 이라 갓 솟기 시작한 벌레는 통째로 지하고,
+플레이어에게는 「시체가 없다 = 드롭이 없다」로 보인다. 튜토리얼 첫 벌레가 정확히 그 자리다.
+
+이제 죽어도 남은 굴착 시간 동안 마저 솟는다 (사망 연출과 겹쳐 구덩이에서 빠져나오며 쓰러진다).
+**지하벌레만 예전대로 그 자리에서 멈춘다** — 뿌리박힌 채 죽는 연출이고 리그가 몸통만 내리기 때문이다.
+**본편 굴착 스폰(순찰 · 포병 · 분출 무리)도 같이 고쳐졌다** — 같은 버그를 갖고 있었다.
+
+### 배치 · 계기 확인 (고치지 않았다)
+
+- `world/tutorial/model.ts` 의 `ENEMIES` 는 **왼쪽 벌레(x −2.5, z 34) = `tut_bug_loot`**,
+  **오른쪽 안드로이드(x +7, z −54) = `tut_android_loot`** 다 — 사용자 기대와 일치한다.
+  `tut_bug` · `tut_android` 는 `CORPSE_LOOT_CHANCE` 0 이라 애초에 수색 자리가 서지 않는다 (빈 시체가 아니라 **없는 시체**다).
+- **벌레가 솟는 계기는 튜토리얼 단계가 아니라 거리다.** `updateTutorialAmbush` 가 권한 프레임마다 돌며 플레이어가
+  그 마리의 감지 반경(`TUTORIAL_ENEMY_SENSE_M` 12 m) 안에 들어오면 꺼낸다 — `shoot` 단계에 걸려 있지 않다.
+  결과는 같다(`bugs` 체크포인트 z 60 에서 가장 가까운 벌레까지 26.1 m 라 그 자리에서는 아직 땅속이고,
+  걸어 들어가는 동안 솟는다). 단계에 묶지 않은 것은 의도다 — 좌표를 옮겨도 이 파일이 안 바뀐다.
+
+- **2026-09-14 4차 (에이전트 D)** — `EnemySystem`(새 getter `corpseLifetime` + `world:ready` 한 줄),
+  `Corpses.CorpseManager`(새 필드 `lifetime`, `add` 가 `c.life` 에 넣는다), `parts/Pool.acquire`(`e.corpseLife`),
+  `Enemy.animate` · `burrowSink` 주석(죽어도 마저 솟는다). csv 무변경 · 와이어 무변경 · 계약 무변경.

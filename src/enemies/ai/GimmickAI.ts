@@ -242,7 +242,7 @@ export function chaseBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatTa
   const meleeRange = s.attackRange + PLAYER_RADIUS;
   lookAtTarget(e, t, dt);
   e.moveTarget.copy(t.position); e.hasMoveTarget = true;
-  if (d < meleeRange && e.attackCd <= 0) { startMelee(e); return 0; }
+  if (d < meleeRange && e.attackCd <= 0) { startMelee(e, host); return 0; }
   // 2026-09-11 (C-47): 떠 있는 공중 드론 **밑으로는** 돌진하지 않는다 — 몸이 닿지 않는 표적을 향한 돌진은 헛돌기만 한다
   if (d <= BEHEMOTH_AI.engageDist + 4 && d > meleeRange * 0.8 && e.chargeCd <= 0 && e.hasLOS && canBodyReach(e, t)) { startCharge(e, host); return 0; }
   if (d > BEHEMOTH_AI.engageDist) return s.speed;

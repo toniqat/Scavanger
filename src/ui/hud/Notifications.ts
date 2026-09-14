@@ -90,7 +90,11 @@ export class Notifications {
       b.on('extraction:shipIncoming', ({ eta }) => this.push(`함선 접근 중 — ${Math.round(eta)}초`, 'warning', '탈출', 4)),
       // 2026-09-13 (탈출 개편): 착륙 → 자동 출발 대기 → 출발 유예 → 이륙 / 남겨짐 → 다시 호출 가능
       b.on('extraction:shipLanded', () => {
-        // 자동 출발을 걸지 않은 함선(튜토리얼)은 그 문장이 거짓이다 — `idleRemaining < 0` 이 그 사실이다.
+        /* 2026-09-14 3차 (사용자 결정): 튜토리얼의 버려진 함선은 처음부터 그 자리에 서 있다 — 「착륙」도
+           「도착」도 일어난 일이 아니라 토스트를 아예 쓰지 않는다. 이벤트 자체는 그대로 흐른다
+           (함선 마커 · 음악이 같은 이벤트에 매달려 있어, 안 내면 마커가 사라진다). */
+        if (ctx.missionMode === 'tutorial') return;
+        // 자동 출발을 걸지 않은 함선은 그 문장이 거짓이다 — `idleRemaining < 0` 이 그 사실이다.
         const auto = (ctx.extraction?.idleRemaining ?? 0) >= 0;
         this.push(auto ? `함선 착륙. 탑승하세요 — ${Math.round(EXTRACTION_AUTO_DEPART_IDLE_S)}초 뒤 자동 출발` : '함선 착륙. 탑승하세요',
           'success', '탈출', 4);

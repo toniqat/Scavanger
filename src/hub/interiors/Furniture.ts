@@ -782,9 +782,9 @@ export interface FurnitureCallbacks {
    */
   onTvMenu?(uid: string): void;
   /* ── 암호화폐 채굴 (2026-09-13) — 둘 다 optional: 없으면 layer 가 `ctx.housing.openComputeCluster` / `openMiningComputer` 를 직접 부른다 ── */
-  /** 연산 클러스터: 그 클러스터의 화면 (`ctx.housing.openComputeCluster(uid)`). */
+  /** 연산 클러스터: 통합 채굴 창을 그 클러스터의 `채굴` 탭으로 (`ctx.housing.openComputeCluster(uid)`). */
   onComputeCluster?(uid: string): void;
-  /** 메인 컴퓨터: 메인 컴퓨터 화면 (`ctx.housing.openMiningComputer(uid)`). */
+  /** 메인 컴퓨터: 같은 창을 `클러스터 현황` 탭으로 (`ctx.housing.openMiningComputer(uid)`). */
   onMiningComputer?(uid: string): void;
   /* ── 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화) — 둘 다 optional, 방문 중인 함선의 layer 도 같은 것을 받는다 ── */
   /** 원격 분대원 목록 (스모크의 디버그 ref 포함). 없으면 `ctx.net.getRemotePlayers()`. */
@@ -1358,7 +1358,11 @@ export class FurnitureLayer {
     return `연산 클러스터 · 코어 ${this.clusterState(uid).cores}/${COMPUTE_CLUSTER_MAX_CORES}`;
   }
 
-  /** 채굴 화면을 연다 — 콜백이 있으면 콜백(hub 가 토스트 규약을 갖는다), 없으면 `ctx.housing` 을 직접. */
+  /**
+   * 채굴 화면을 연다 — 콜백이 있으면 콜백(hub 가 토스트 규약을 갖는다), 없으면 `ctx.housing` 을 직접.
+   * 2026-09-14 통합: 두 길이 **같은 창**으로 가고 다른 것은 기본 탭뿐이다 (`'cluster'` → 채굴, `'computer'` →
+   * 클러스터 현황). 계약 이름 둘(`openComputeCluster` · `openMiningComputer`)은 그대로다.
+   */
   private openMining(uid: string, page: 'cluster' | 'computer'): void {
     const cb = this.cb;
     if (page === 'cluster' && cb.onComputeCluster) { cb.onComputeCluster(uid); return; }

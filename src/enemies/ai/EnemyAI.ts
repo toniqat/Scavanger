@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type GameContext, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
-import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
+import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT, baseTypeOf } from '../EnemyTypes';
 import type { CombatTarget, TargetList } from '../Targets';
 import { emitEnemyStep } from '../model';
 import { rideCarry, rideRecord, rideRelease } from './Ride';
@@ -154,7 +154,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       if (targetAlive) { e.facePoint.copy(t!.position); e.hasFacePoint = true; lookAtTarget(e, t!, dt); }
       mandibleTarget = 0.7;
       a.crouch = THREE.MathUtils.lerp(a.crouch, 0.25, dt * 8);
-      const dur = e.type === 'scavenger' ? 0.4 : e.type === 'hunter' ? 0.5 : 0.75;
+      const look = baseTypeOf(e.type);   // 2026-09-14 3차: 튜토리얼 전용 종류는 바탕 종류의 가지를 탄다
+      const dur = look === 'scavenger' ? 0.4 : look === 'hunter' ? 0.5 : 0.75;
       if (e.stateTime >= dur) { e.state = 'chase'; e.stateTime = 0; a.crouch = 0; }
       break;
     }
@@ -230,7 +231,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
     if (sd <= bite) {
       e.hasFacePoint = true; e.facePoint.copy(st.position);
       e.hasMoveTarget = false;
-      if (e.attackCd <= 0) { startMelee(e); e.structAttack = true; }
+      if (e.attackCd <= 0) { startMelee(e, host); e.structAttack = true; }
       return 0;
     }
     if (e.structBlocking) {
@@ -251,7 +252,8 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
     return 0;
   }
 
-  switch (e.type) {
+  // 2026-09-14 3차: 종류별 추격 가지 — 튜토리얼 전용 종류는 바탕 종류(`tut_bug*` = scavenger)의 가지를 그대로 탄다
+  switch (baseTypeOf(e.type)) {
     case 'scavenger': {
       // weave while approaching so the swarm reads as a churning mass
       if (d > 4) {
@@ -259,7 +261,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
         const dx = tp.x - e.position.x, dz = tp.z - e.position.z;
         e.moveTarget.x += -dz / d * w; e.moveTarget.z += dx / d * w;
       }
-      if (d < meleeRange && e.attackCd <= 0) startMelee(e);
+      if (d < meleeRange && e.attackCd <= 0) startMelee(e, host);
       break;
     }
     case 'hunter': {
@@ -271,11 +273,11 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
         e.moveTarget.x += -dz / d * off; e.moveTarget.z += dx / d * off;
       }
       if (e.hasLOS && e.leapCd <= 0 && e.attackCd <= 0 && d >= HUNTER_LEAP.minDist && d <= HUNTER_LEAP.maxDist) startLeap(e, host);
-      else if (d < meleeRange && e.attackCd <= 0) startMelee(e);
+      else if (d < meleeRange && e.attackCd <= 0) startMelee(e, host);
       break;
     }
     case 'warrior': {
-      if (d < meleeRange && e.attackCd <= 0) startMelee(e);
+      if (d < meleeRange && e.attackCd <= 0) startMelee(e, host);
       break;
     }
     case 'spewer': {
@@ -297,7 +299,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
         }
       }
       if (d < 6.5) {
-        if (d < meleeRange && e.attackCd <= 0) startMelee(e);
+        if (d < meleeRange && e.attackCd <= 0) startMelee(e, host);
       } else if (d < 9) {
         // keep distance: back away while facing the target
         const dx = e.position.x - tp.x, dz = e.position.z - tp.z;
@@ -319,7 +321,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
     }
     case 'charger': {
       if (e.hasLOS && e.chargeCd <= 0 && d >= CHARGER_CHARGE.minDist && d <= CHARGER_CHARGE.maxDist) startCharge(e, host);
-      else if (d < meleeRange && e.attackCd <= 0) startMelee(e);
+      else if (d < meleeRange && e.attackCd <= 0) startMelee(e, host);
       break;
     }
     /* Phase 4 gimmicks */

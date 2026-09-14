@@ -76,6 +76,8 @@ interface RowView {
  *    period before the materials are spent, not a simulation of work — a 돌격소총 was a 6-second press before.
  *  - The **수리 목록 underneath is gone**. `모두 수리` moved into the header (left of 닫기) and opens the modal
  *    `RepairPanel`; a single item is repaired from its right-click menu.
+ *    **2026-09-14 (사용자 결정)**: 그 헤더 버튼도 없앴다 — 수리는 작업대가 아니라 **함선**의 일이므로
+ *    (`benchRepairRows`, 2026-09-12) 가방 패널의 필터 칩 줄 맨 왼쪽(`.inv-repair-all`)으로 옮겼다.
  *  - While the panel is open the window hides 장착 장비 · 퀵슬롯 · 화면 탭 · 가방 헤더의 제작/가치
  *    (`.inv-root.is-craft`, see `parts/Screens.setCraftOpen`) — none of it has anything to do with a recipe list.
  *
@@ -124,8 +126,6 @@ export class CraftPanel {
   private stationEl: HTMLElement;
   private discountEl: HTMLElement;
   private closeBtn: HTMLButtonElement;
-  /** `모두 수리` — 수리를 하는 작업대(화기 · 장비)에서만 보인다. */
-  private repairBtn: HTMLButtonElement;
   /** **만든 순서(= csv 순서) 그대로**의 행 목록. 화면의 줄 순서는 `applySort` 가 DOM 에서만 바꾼다. */
   private rows: RowView[] = [];
   private sig = '';
@@ -152,7 +152,10 @@ export class CraftPanel {
     private readonly getDef: (id: string) => ItemDef | undefined,
     /** Phase 8: the 닫기 button outside bench mode (the window closes the modeless popup). */
     private readonly onClose: () => void = () => {},
-    /** 2026-09-08: the header's `모두 수리` — the window opens the `RepairPanel` popup anchored on that button. */
+    /**
+     * @deprecated 2026-09-14 — 헤더의 `모두 수리` 가 가방 필터 줄로 옮겨 가면서 이 패널은 더 이상 부르지 않는다.
+     * 인자는 호출부를 흔들지 않으려고 남겨 둔다 (계약은 추가만, 삭제 금지와 같은 결).
+     */
     private readonly onRepair: (anchor: HTMLElement) => void = () => {},
   ) {
     this.el = document.createElement('section');
@@ -174,13 +177,6 @@ export class CraftPanel {
     this.discountEl = document.createElement('div');
     this.discountEl.className = 'inv-capacity inv-craft-discount';
     this.discountEl.hidden = true;
-    // 2026-09-08: 수리는 패널 하단의 목록이 아니라 헤더의 이 버튼(닫기 왼쪽) → 모달 팝업
-    this.repairBtn = document.createElement('button');
-    this.repairBtn.type = 'button';
-    this.repairBtn.className = 'inv-btn inv-repair-open';
-    this.repairBtn.textContent = TEXT.bench.repairAll;
-    this.repairBtn.hidden = true;
-    this.repairBtn.addEventListener('click', () => this.onRepair(this.repairBtn));
     this.closeBtn = document.createElement('button');
     this.closeBtn.type = 'button';
     this.closeBtn.className = 'inv-btn inv-craft-close';
@@ -188,7 +184,7 @@ export class CraftPanel {
     this.closeBtn.addEventListener('click', () => {
       if (this.sys.getBench()) this.sys.closeBench(); else this.onClose();
     });
-    actions.append(this.discountEl, this.repairBtn, this.closeBtn);
+    actions.append(this.discountEl, this.closeBtn);
     head.append(titles, actions);
 
     // 2026-09-12: 맨 왼쪽 세로 작업대 리스트 (빠른제작 + 이 함선에 설치된 작업대)
@@ -263,11 +259,11 @@ export class CraftPanel {
     this.emptyEl.hidden = recipes.length > 0;
     this.paint();
     /*
-     * 2026-09-12 (정비 벤치 은퇴): `모두 수리` 는 **함선이면 언제나** 뜬다 — 예전에는 총기 · 장비 작업대를 열고
-     * 들어왔을 때만이었다. "함선에서는 인벤토리에서 재료만 갖다 바치면 수리 가능"이 규칙이 됐고, 무엇을 고칠 수
-     * 있는지는 `benchRepairRows` 가 정한다 (레이드 중에는 빈 목록 → 여기서도 숨긴다).
+     * 2026-09-14 (사용자 결정): `모두 수리` 버튼은 **이 헤더에서 빠졌다.** 수리 게이트는 2026-09-12 부터 "어느
+     * 작업대냐"가 아니라 "함선이냐"(`benchRepairRows`)이므로 제작 창 안에 둘 이유가 없었다 — 버튼은 가방 패널의
+     * 필터 칩 줄 맨 왼쪽으로 옮겨 갔고(`ui/InventoryUI` 의 `.inv-repair-all`), 거기서 작업대와 무관하게 눌린다.
+     * `RepairPanel` 모달 자체는 그대로 재사용한다.
      */
-    this.repairBtn.hidden = this.sys.ctx.isRaidActive();
   }
 
   /**
@@ -412,6 +408,9 @@ export class CraftPanel {
       inputs.className = 'inv-craft-inputs';
       const costs = document.createElement('div');
       costs.className = 'inv-craft-costs';
+      // 2026-09-14 (사용자 결정): 필요 아이템 칩의 호버 카드는 커서 **좌상단**이다 — `ui/hud/ItemTip` 이 이 속성을
+      // `closest` 로 읽는다 (폴더 간 import 금지라 상수를 가져오지 않고 속성 이름만 쓴다).
+      costs.dataset.tipAnchor = 'left';
       inputs.appendChild(costs);
       // 2026-09-09: the `.inv-craft-desc` line is gone — the thumbnail and the title say what this makes.
       info.append(name, inputs);
@@ -558,7 +557,9 @@ export class CraftPanel {
       // Phase 8: thumbnail chips with 보유/필요 at the bottom right (dimmed + red 보유 when short).
       // 2026-09-09: 필요 is the recipe's cost × the 제작 수량, so the chips answer the button that is about to be held.
       const cost = this.sys.craftCost(row.recipe).map((i) => ({ defId: i.defId, qty: i.qty * n }));
-      renderItemCost(row.costsEl, cost, this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 30 });
+      // 2026-09-14 (사용자 결정): 보유 수는 **재료를 실제로 세는 범위**와 같아야 한다 — 함선이면 가방 + 함선 창고,
+      // 레이드 현장의 빠른제작은 가방만. 원본은 `InventoryRef.craftCountDef` 하나다 (`parts/Crafting`).
+      renderItemCost(row.costsEl, cost, this.getDef, (id) => this.sys.craftCountDef(id), { size: 30 });
       // 2026-09-08: the `2.0 s` 시간 칩 is gone — every recipe holds for the same `CRAFT_HOLD_TIME` now, so there was
       //   nothing left to tell apart. The button's own fill is the readout.
 

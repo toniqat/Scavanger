@@ -33,3 +33,13 @@ raider,raider,840,4.6,1.5,0.4,1.8,0.16,0,1,0,0,7.5,26,75,85,2,1,1,2,false,0.3
 # constants.csv 의 SANDWORM_HP_MIN..MAX 에서 호스트가 굴린다. radius/height = 땅 위로 선 몸통 캡슐, headRadius = 입(머리) 구 (headMul 1.5).
 # staggerFraction 99 = 경직에 걸리지 않는다. mass 1000 = 다른 벌레가 늘 밀려난다. 공격은 근접이 아니라 버그 뱉기 · 독극물(SANDWORM_*).
 sandworm,bug,2500,0,0,2.2,10,1.5,0,1,0,0,1.2,0,70,80,1.5,1,1,1000,false,99
+# 2026-09-14 3차 튜토리얼 전용 4종 (world/tutorial 의 고정 목록만 이 줄을 쓴다 — 본편 · 훈련장에는 서지 않는다).
+# 수치는 바탕 종류를 그대로 베낀 것이고(`enemies/EnemyTypes.baseTypeOf` 가 리그 · AI · 소리를 그 종류로 돌린다),
+# 다른 것은 **고정 드롭** 하나뿐이다 (`loot_corpses.csv` · `loot_corpse_rolls.csv` 의 tut_* 줄).
+#   tut_bug_loot · tut_bug       = scavenger 와 같은 수치. `_loot` 만 생체 조직 · 터미니드 분비선을 100 % 떨군다.
+#   tut_android_loot · tut_android = android 의 **체력 절반**(280 → 140), 나머지는 같다. `_loot` 만 돌격소총 · 전력 케이블 · 준중량탄.
+# 벌레 난이도 배수(BUG_HP_MUL_BY_THREAT)는 튜토리얼에 행성이 없어 ×1 이다 (EnemySystem 의 scripted 가지).
+tut_bug_loot,bug,120,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,false,0.25
+tut_bug,bug,120,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,false,0.25
+tut_android_loot,android,140,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4
+tut_android,android,140,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4

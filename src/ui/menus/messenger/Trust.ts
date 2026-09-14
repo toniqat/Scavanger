@@ -9,7 +9,8 @@ import { clamp01, el } from '../../dom';
  * 오고 여기서는 레벨 · 구간 비율만 푼다 (meta/ 를 import 하지 않는다 — 폴더끼리는 `ctx` 의 ref 로만 말한다).
  *
  *   `npcTrustOf`      → `{ trust, level, next, frac }` · `ctx.meta` 가 없으면 null (스모크의 debug NPC ref 도 여기로 온다)
- *   `buildNpcTrust`   → 대화 목록 한 줄 · 대화창 머리 · 퀘스트 상세 머리가 같이 쓰는 `Lv.n + 게이지`
+ *   `buildNpcTrust`   → 대화창 머리 · 퀘스트 상세 머리가 같이 쓰는 `Lv.n + 게이지`
+ *   `buildNpcAvatar`  → 초상 테두리를 도는 **radial 게이지** + 우하단 레벨 배지 (2026-09-14 3차)
  *   `buildTrustChip`  → 퀘스트 카드 보상 줄의 칩. 기업 신뢰도 재화 칩(`buildCurrencyChip`)과 **같은 틀**(`.item-chip.currency-chip`)
  *                       이되 `data-currency-id` 는 붙이지 않는다 — NPC 신뢰도는 `data/currencies.csv` 의 재화가 아니고
  *                       가짜 재화 · 가짜 아이템 정의를 만들지 않는다는 규약 때문이다 (호버 카드 대신 네이티브 title).
@@ -51,7 +52,7 @@ export function npcTrustTitle(name: string, t: NpcTrustInfo): string {
 }
 
 export interface NpcTrustOptions {
-  /** 목록 한 줄용 — 게이지만 짧게, 숫자 없음. */
+  /** 좁은 자리용 — 게이지만 짧게, 숫자 없음. (2026-09-14 3차: 대화 목록 한 줄에서는 신뢰도를 아예 빼서 지금은 부르는 곳이 없다.) */
   compact?: boolean;
   /** 초상 · 이름 강조색 (`NpcDef.color`). 게이지가 이 색으로 찬다. */
   color?: string;
@@ -75,6 +76,36 @@ export function buildNpcTrust(ctx: GameContext, npcId: string, name: string, opt
   if (!opts.compact) {
     el('span', { cls: 'ms-trust-num ui-mono', text: t.next === null ? `${fmt(t.trust)} · 최고 등급` : `${fmt(t.trust)} / ${fmt(t.next)}`, parent: wrap });
   }
+  return wrap;
+}
+
+export interface NpcAvatarOptions {
+  /** 초상 글자 (`NpcDef.glyph` 또는 이름 첫 글자). */
+  glyph: string;
+  /** NPC 색 — 초상 바탕 · radial 게이지 · 레벨 배지가 같이 쓴다. */
+  color: string;
+}
+
+/**
+ * **신뢰도 radial 게이지를 두른 NPC 초상** (2026-09-14 3차, 사용자 결정) — 대화창 머리 · 퀘스트 탭 상세 머리가 같이 쓴다.
+ *
+ * 테두리는 conic-gradient 한 줄이다 (외부 에셋 금지 · SVG 도 필요 없다): `--frac` = **지금 레벨 구간 안의** 진행률이라
+ * 레벨이 오르면 고리가 한 바퀴 돌고 처음부터 다시 찬다. 우하단 배지가 그 레벨 숫자다.
+ * `ctx.meta` 가 없어(부팅 · 스모크) 신뢰도를 못 읽으면 고리는 빈 테두리로만 남고 배지는 없다 — 초상 자체는 늘 그린다.
+ */
+export function buildNpcAvatar(ctx: GameContext, npcId: string, name: string, opts: NpcAvatarOptions): HTMLElement {
+  const t = npcTrustOf(ctx, npcId);
+  const wrap = el('span', { cls: `ms-avwrap${t ? '' : ' no-trust'}` });
+  wrap.style.setProperty('--qc', opts.color);
+  wrap.style.setProperty('--frac', (t?.frac ?? 0).toFixed(3));
+  if (t) {
+    wrap.title = npcTrustTitle(name, t);
+    wrap.dataset.npc = npcId;
+    wrap.dataset.level = String(t.level);
+  }
+  const av = el('span', { cls: 'ms-av big', text: opts.glyph, parent: wrap });
+  av.style.setProperty('--av', opts.color);
+  if (t) el('span', { cls: 'ms-avlv ui-mono', text: String(t.level), parent: wrap });
   return wrap;
 }
 

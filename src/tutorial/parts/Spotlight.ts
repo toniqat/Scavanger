@@ -29,6 +29,32 @@ import { RETARGET_INTERVAL } from '../model';
 
 interface Rect { x: number; y: number; w: number; h: number }
 
+/**
+ * 그 선택자에 맞는 것 중 **실제로 화면에 그려진 첫 요소**.
+ *
+ * ⚠ `querySelector` **하나로는 안 된다** (2026-09-14 4차 — `stats` 단계가 영영 탭 줄만 밝히던 버그). 같은 화면이
+ * DOM 에 **둘** 있을 수 있다: 캐릭터 시트는 `progression` 이 부팅 때 세워 두는 독립 오버레이(`.menu.char-sheet`,
+ * 닫혀 있는 동안 `[hidden]` = `display:none`)와 인벤토리 캐릭터 탭에 끼워 넣는 사본(`SheetView`)이 같은 `SheetBody`
+ * 를 그리고, `progression` 이 `inventory` 보다 먼저 등록되므로 **닫힌 쪽이 문서 순서에서 앞**이다. 그래서
+ * `querySelector('.pg-confirm')` 은 늘 숨은 사본을 집었고, 사각형이 없으니 그 선택자는 통째로 실패한 것으로
+ * 읽혀 뒤의 보험 선택자(`.inv-root .scr-tabs`)까지 흘러내렸다 — 열려 있는 캐릭터 화면을 두고 탭 줄에 구멍이
+ * 뚫린 채, 정작 ＋ 버튼과 확정 버튼은 어두운 판 밑이라 포인트를 투자할 수 없었다.
+ *
+ * 보이는지의 판정은 예전 그대로 둘이다 — `offsetParent` 는 `position: fixed` 조상 아래의 HUD 조각에서 멀쩡히
+ * 보이는데도 null 이라 못 쓰고, 사각형(`getClientRects`)만으로도 모자란다: 닫힌 화면 중에는 `display:none` 이
+ * 아니라 **`visibility:hidden`** 으로 접히는 것이 있어(`.ship-manage`) 사각형이 그대로 남는다 (2026-09-08).
+ */
+function firstShown(sel: string): HTMLElement | null {
+  for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+    if (el.getClientRects().length === 0) continue;
+    if (getComputedStyle(el).visibility === 'hidden') continue;
+    const q = el.getBoundingClientRect();
+    if (q.width <= 0 || q.height <= 0) continue;
+    return el;
+  }
+  return null;
+}
+
 /** 구멍 둘레 여백 (px). */
 const PAD = 6;
 
@@ -137,8 +163,8 @@ export class Spotlight {
   private unionRect(): DOMRect | null {
     let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
     for (const sel of this.selectors) {
-      const el = document.querySelector<HTMLElement>(sel);
-      if (!el || el.getClientRects().length === 0 || getComputedStyle(el).visibility === 'hidden') continue;
+      const el = firstShown(sel);
+      if (!el) continue;
       const q = el.getBoundingClientRect();
       if (q.width <= 0 || q.height <= 0) continue;
       l = Math.min(l, q.left); t = Math.min(t, q.top);
@@ -156,18 +182,11 @@ export class Spotlight {
     return false;
   }
 
-  /**
-   * `offsetParent` 로 보이는지 판정하면 안 된다 — HUD 조각들은 `position: fixed` 조상 아래에 있어서 멀쩡히
-   * 보이는데도 null 이 나온다. 실제로 그려진 사각형이 있는지(`getClientRects`)로 본다.
-   *
-   * 2026-09-08 — 사각형만으로는 모자란다: 닫힌 화면 중에는 `display:none` 이 아니라 **`visibility:hidden`**
-   * 으로 접히는 것이 있어(`.ship-manage`) 사각형이 그대로 남는다. 그 자리를 밝히면 아무것도 없는 허공에
-   * 링이 뜨므로 `visibility` 도 함께 본다 (0.25 초에 한 번이라 비용은 무시할 만하다).
-   */
+  /** 선택자 목록 중 **먼저 찾히는 보이는 것** 하나. */
   private find(): HTMLElement | null {
     for (const sel of this.selectors) {
-      const el = document.querySelector<HTMLElement>(sel);
-      if (el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden') return el;
+      const el = firstShown(sel);
+      if (el) return el;
     }
     return null;
   }

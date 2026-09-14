@@ -5,6 +5,8 @@ import {
   WORKBENCH_ICON, buildFacilityChip, buildItemChip, isCockpitOnlyFurniture, isUtilityFurniture,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+/* 2026-09-14 (사용자 결정): 필요 아이템 줄의 호버 카드는 커서 좌상단 — 그 옵트인 속성의 원본은 `ItemTip` 하나다. */
+import { TIP_ANCHOR_ATTR } from './ItemTip';
 
 interface RoomRow {
   index: number;
@@ -813,6 +815,9 @@ export class ShipManage {
    */
   private renderCostRow(host: HTMLElement, cost: readonly CraftIngredient[], size: number): void {
     renderItemCost(host, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size });
+    // 2026-09-14 (사용자 결정): 필요 아이템 줄의 호버 카드는 커서 **좌상단**이다 (`ui/hud/ItemTip.TIP_ANCHOR_ATTR`) —
+    // 이 줄들은 화면 아래쪽이라 기본 자리(우하단)에서 카드가 넘쳐 위로만 뒤집혀 칩을 덮었다.
+    host.setAttribute(TIP_ANCHOR_ATTR, 'left');
     for (const h of host.querySelectorAll<HTMLElement>('.item-chip-have')) {
       if (Number(h.textContent) > 99) h.textContent = '99+';
     }
@@ -1033,8 +1038,9 @@ export class ShipManage {
    * The 발전기 row under the 방 목록 (2026-09-12 — it used to lead the 용도 지정 picker). Level, next cost chips and
    * 업그레이드 → the confirm popup → `ctx.housing.upgrade('generator')`.
    * 2026-09-13 (사용자 결정 — 전력 할당 폐지): the generator starts at Lv.1, so the 「가동」 hint (`is-hint`) and the power panel under
-   * this row are gone. Instead the row lists **what each level opens** (`purposeGeneratorLevel` — `.sm-gen-unlocks`, one line per level
-   * from Lv.2: levels already reached are dimmed `is-open`, the next one is highlighted `is-next`).
+   * this row are gone.
+   * 2026-09-14 (사용자 결정): 그때 붙였던 **레벨별 해금 목록**(`.sm-gen-unlocks`)도 없앴다 — 행이 다섯 줄짜리 표가 되어
+   * 방 목록을 밀어냈다. 「이 용도는 발전기 Lv.n 이 필요하다」는 용도 지정 카드의 발전기 칩이 그 자리에서 말한다.
    */
   private refreshGenerator(): void {
     const housing = this.ctx.housing;
@@ -1058,18 +1064,11 @@ export class ShipManage {
     gbtn.addEventListener('click', (e) => { e.stopPropagation(); this.pickGenerator(); });
     if (gen.nextCost) {
       const gcost = el('div', { cls: 'sm-cost', parent: g });
-      renderItemCost(gcost, gen.nextCost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 24 });
+      this.renderCostRow(gcost, gen.nextCost, 24);
     }
-    const unlocks = el('div', { cls: 'sm-gen-unlocks', parent: g });
-    for (let lv = 2; lv <= gen.maxLevel; lv++) {
-      const names = ASSIGNABLE.filter((p) => purposeGeneratorLevel(p) === lv).map((p) => ROOM_PURPOSE_LABEL_KO[p]);
-      if (!names.length) continue;
-      const state = lv <= gen.level ? ' is-open' : lv === gen.level + 1 ? ' is-next' : '';
-      const row = el('div', { cls: `sm-gen-unlock${state}`, parent: unlocks });
-      row.dataset.level = String(lv);
-      el('span', { cls: 'lv', text: `Lv.${lv}`, parent: row });
-      el('span', { cls: 'nm', text: names.join(' · '), parent: row });
-    }
+    // 2026-09-14 (사용자 결정): 레벨별 **해금 목록**(`.sm-gen-unlocks`)은 없앴다 — 발전기 행이 다섯 줄짜리 표가 되어
+    // 방 목록을 밀어냈고, 같은 정보는 용도 지정 카드의 **발전기 레벨 칩**(`buildFacilityChip`, `refreshPurposes`)이
+    // 그 용도를 고르는 자리에서 바로 말한다. CSS 도 같이 지웠다.
     const genNote = gen.blocked && gen.nextCost ? gen.blocked : gen.nextCost ? '' : '최대 레벨';
     if (genNote) el('div', { cls: 'sm-block', text: genNote, parent: g });
   }
@@ -1107,7 +1106,7 @@ export class ShipManage {
       el('span', { cls: 'nm', text: ROOM_PURPOSE_LABEL_KO[p], parent: line });
       if (!ROOM_PURPOSES_ACTIVE.includes(p)) el('span', { cls: 'badge', text: '다음 업데이트', parent: line });
       const costEl = el('div', { cls: 'sm-cost', parent: body });
-      renderItemCost(costEl, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 24 });
+      this.renderCostRow(costEl, cost, 24);
       // 2026-09-12 (사용자 결정): 발전기 레벨 요구는 문장이 아니라 재료 칩과 같은 줄의 가로 긴 이중 테두리 칩이다
       for (const r of reqs) costEl.appendChild(this.facilityChip(r, 24));
       // Phase 12: the reason is printed, not tucked into a tooltip, and the row stays clickable (→ toast + flash)
@@ -1137,7 +1136,10 @@ export class ShipManage {
       .filter((d) => !this.tutHides('furniture', d.id) && (kind === 'utility') === isUtilityFurniture(d))
       .map((d) => {
         const utility = isUtilityFurniture(d);
-        const have = utility && (placedIds.has(d.id) || (stored.get(d.id) ?? 0) > 0);
+        // 2026-09-14: **여러 대 만드는 가구(`multi`)는 「이미 보유 중」이 아니다** — 책장 · 의자 · 쇼파 · 디스크 전시대 ·
+        // 레코드랙 · 게임 디스크 전시대 · 연산 클러스터. 규칙 쪽(`housing/parts/Furniture.furnitureCraftBlock`)은
+        // 2026-09-13 부터 `!def.multi` 를 보고 있었는데 이 화면만 안 봐서, 만들 수 있는 가구의 버튼이 잠겨 있었다.
+        const have = utility && !d.multi && (placedIds.has(d.id) || (stored.get(d.id) ?? 0) > 0);
         return { def: d, block: this.craftBlock(d.id), utility, have };
       });
     defs.sort((a, b) => Number(!!a.block) - Number(!!b.block));

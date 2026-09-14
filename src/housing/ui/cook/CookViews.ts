@@ -3,6 +3,10 @@
  *
  * DOM 은 만들 때 한 번 짓고, 매 틱 `paint()` 는 CSS 변수(`--x` · `--f` · `--p` · `--t` · `--lvl` · `--flow`)와 클래스만 고쳐 쓴다.
  * 외부 에셋 없음 — 재료는 공용 아이템 칩(`buildItemChip`), 도마 · 칼 · 그릴 · 팬 · 냄비 · 비커는 CSS 도형이다.
+ * 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 그리는 크기를 **판정 값에서 유도한다** — 썰기 줄의 완벽 · 좋음 띠와 표식 폭은
+ * `ChopGame.bands`, 볶기의 안내원은 `StirfryGame.bands`, 굽기 링의 호는 `COOK_GRILL_*_PERFECT` · `_GOOD` 이다. csv 를 고치면
+ * 그림이 저절로 따라오므로 「보이는 것과 판정이 다르다」 가 생기지 않는다.
+ *
  *   • 썰기   = 도마 위 재료 + 칼(칼질마다 내리친다) + 썬 조각 + 오른쪽에서 흘러와 판정선에 닿는 박자 표식.
  *   • 다지기 = 좌 · 우 세로 게이지(좌우 LMB · 상하 RMB) + 도마 위 다진 조각(클릭마다 하나) + 걸린 시간.
  *   • 굽기   = 그릴 위 조각 2–3개 — 진행 링(0 … `BURN_AT`, 50 % · 100 % 눈금) · 뒤집힘 표시 · 익을수록 짙어지고 타면 검다. 조각이 클릭 대상.
@@ -12,7 +16,8 @@
  */
 import type { CookJudge, CookBeatAction, ItemDef } from '@/shared';
 import {
-  COOK_GRILL_BURN_AT, COOK_LEAD_BEATS, COOK_LIQUID_COLOR, COOK_LIQUID_LABEL_KO, COOK_MINCE_PERFECT_S, COOK_MINCE_ZERO_S,
+  COOK_GRILL_BURN_AT, COOK_GRILL_DONE_GOOD, COOK_GRILL_DONE_PERFECT, COOK_GRILL_FLIP_GOOD, COOK_GRILL_FLIP_PERFECT,
+  COOK_LEAD_BEATS, COOK_LIQUID_COLOR, COOK_LIQUID_LABEL_KO, COOK_MINCE_PERFECT_S, COOK_MINCE_ZERO_S,
   COOK_STIR_BAND_HIGH, COOK_STIR_BAND_LOW, buildItemChip,
 } from '@/shared';
 import { ChopGame, GrillGame, MinceGame, PourGame, StirGame, StirfryGame } from '../../parts/CookGames';
@@ -97,9 +102,19 @@ class ChopView extends BaseView {
     this.knife = el('i', { cls: 'cook-knife', parent: this.board });
     const track = el('div', { cls: 'cook-track', parent: this.root });
     this.lane = el('div', { cls: 'cook-lane', parent: track });
-    el('i', { cls: 'cook-judge', parent: this.lane });
     this.look = g.beatS * (COOK_LEAD_BEATS + 1);
-    for (let i = 0; i < g.notes.length; i++) this.notes.push({ el: el('div', { cls: 'cook-note', parent: this.lane }), q: null, off: false });
+    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 띠 · 표식의 폭이 판정 값(`g.bands`)에서 나온다 — 표식이 완벽 띠를 덮으면 완벽
+    const half = (g.bands.perfect / this.look).toFixed(4);
+    this.lane.style.setProperty('--half', half);
+    this.lane.style.setProperty('--good-half', (g.bands.good / this.look).toFixed(4));
+    el('i', { cls: 'cook-window is-good', parent: this.lane });
+    el('i', { cls: 'cook-window is-perfect', parent: this.lane });
+    el('i', { cls: 'cook-judge', parent: this.lane });
+    for (let i = 0; i < g.notes.length; i++) {
+      const e = el('div', { cls: 'cook-note', parent: this.lane });
+      e.style.setProperty('--span', half);
+      this.notes.push({ el: e, q: null, off: false });
+    }
     this.paint();
   }
 
@@ -187,6 +202,17 @@ class MinceView extends BaseView {
 }
 
 /* ── 굽기 ────────────────────────────────────────────────────────────────── */
+/**
+ * 진행 링 위의 판정 호 (2026-09-14) — 진행도 `at`(0.5 뒤집기 · 1 꺼내기) ± `half` 를 한 바퀴 = `burn` 인 각으로 옮긴다.
+ * 폭이 곧 `COOK_GRILL_*_PERFECT` · `_GOOD` 이라 눈으로 보는 것이 판정이다.
+ */
+function arc(ring: HTMLElement, cls: string, at: number, half: number, burn: number): void {
+  const a0 = Math.max(0, (at - half) / burn), a1 = Math.min(1, (at + half) / burn);
+  const e = el('i', { cls: `cook-arc ${cls}`, parent: ring });
+  e.style.setProperty('--a0', `${a0.toFixed(4)}turn`);
+  e.style.setProperty('--a1', `${a1.toFixed(4)}turn`);
+}
+
 class GrillView extends BaseView {
   private readonly pieces: Array<{ el: HTMLElement; label: HTMLElement; pct: HTMLElement; flipQ: CookJudge | null; doneQ: CookJudge | null }> = [];
 
@@ -198,6 +224,11 @@ class GrillView extends BaseView {
       const ring = el('div', { cls: 'cook-ring', parent: e });
       // 50 % · 100 % 눈금 — 링은 0 … BURN_AT 한 바퀴
       const burn = Math.max(1, COOK_GRILL_BURN_AT);
+      // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 눈금 옆에 **판정 폭 그대로**의 호를 깐다 (좋음 아래 · 완벽 위)
+      arc(ring, 'is-good', 0.5, COOK_GRILL_FLIP_GOOD, burn);
+      arc(ring, 'is-perfect', 0.5, COOK_GRILL_FLIP_PERFECT, burn);
+      arc(ring, 'is-good', 1, COOK_GRILL_DONE_GOOD, burn);
+      arc(ring, 'is-perfect', 1, COOK_GRILL_DONE_PERFECT, burn);
       el('i', { cls: 'cook-tick is-flip', parent: ring }).style.setProperty('--a', `${(0.5 / burn).toFixed(4)}turn`);
       el('i', { cls: 'cook-tick is-done', parent: ring }).style.setProperty('--a', `${(1 / burn).toFixed(4)}turn`);
       chip(ring, defOf(p.defId), GRILL_CHIP, 'cook-piece-food');
@@ -253,6 +284,11 @@ class StirfryView extends BaseView {
   constructor(private readonly g: StirfryGame, parent: HTMLElement, defOf: DefOf) {
     super(parent, 'stirfry');
     const stove = el('div', { cls: 'cook-stove', parent: this.root });
+    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 링이 이 안내원 안으로 들어오면 완벽 — 반지름이 판정 띠에서 나온다
+    const guide = el('i', { cls: 'cook-beatguide', parent: stove });
+    guide.style.setProperty('--s', (1 + g.bands.perfect / Math.max(1e-6, g.beatS)).toFixed(3));
+    const guideGood = el('i', { cls: 'cook-beatguide is-good', parent: stove });
+    guideGood.style.setProperty('--s', (1 + g.bands.good / Math.max(1e-6, g.beatS)).toFixed(3));
     this.ring = el('i', { cls: 'cook-beatring', parent: stove });
     this.pan = el('div', { cls: 'cook-pan', parent: stove });
     const foods = el('div', { cls: 'cook-pan-foods', parent: this.pan });

@@ -181,7 +181,24 @@ export class ExtractionSystem implements GameSystem {
       keepEnemyOut: (p, r) => !!sys.ship && (sys.landed || sys.lifting) && ShipHull.keepEnemyOut(sys.ship, p, r),
       beginPreLanded: (p, yaw, opts) => sys.beginPreLanded(p, yaw, opts),
       skipToLiftoff: () => sys.skipToLiftoff(),
+      holdFire: () => sys.holdFire(),
     };
+  }
+
+  /**
+   * `ExtractionRef.holdFire` (2026-09-14 3차, 사용자 결정 — 「함선 내부에 PC 가 들어가면 안드로이드는 PC 를
+   * **바라보되 사격은 하지 않는다**」). 튜토리얼 함선이 뜨기 시작한 순간부터 참이다: 그때 램프가 닫히고
+   * 곧 외피 콜라이더가 걷히므로, 미처 처치하지 못한 안드로이드가 오르는 화물칸을 그대로 쏠 수 있다.
+   * `keepEnemyOut` 과 같은 이유로 월드 콜라이더가 아니라 **질의**다 (`enemies/ai` 가 사격 직전에 부른다).
+   * 본편에는 문이 없다 — `ctx.missionMode !== 'tutorial'` 이면 늘 false.
+   */
+  private holdFire(): boolean {
+    return this.lifting && this.ctx?.missionMode === 'tutorial';
+  }
+
+  /** 튜토리얼의 미리 세워 둔 함선인가 — 스위치가 유예 없이 곧장 이륙으로 가는 유일한 조건 (본편은 늘 false). */
+  private tutorialLiftoffNow(): boolean {
+    return this.preLanded && this.ctx?.missionMode === 'tutorial';
   }
 
   /* ── 2026-09-14 (튜토리얼 개편, `docs/plans/tutorial-raid.md`): 이미 착륙해 있는 탈출선 ──────────────────
@@ -218,9 +235,15 @@ export class ExtractionSystem implements GameSystem {
   /**
    * `GameFlowSystem` 은 `extraction:liftoff` 를 **`extracting` · `shipLanded` 단계에서만** 받는다 (평소에는
    * 콘솔의 `activated` → 착륙의 `shipLanded` 가 차례로 그 단계를 만든다). 튜토리얼 함선은 강하보다도 먼저
-   * 서 있으므로 그 두 이벤트를 **`playing` 이 되는 첫 프레임에** 그대로 흘려 단계를 맞춘다 — 「함선이 도착해
-   * 있고 탈 수 있다」(`shipLanded`) 는 이 레이드 내내 사실이고, 나침반의 함선 표시가 곧 목표가 된다.
+   * 서 있으므로 `extraction:activated` 를 **`playing` 이 되는 첫 프레임에** 흘려 `extracting` 을 만든다.
    * `duration: 0` = 기다릴 시간이 없다는 뜻이다 (호출이 아니라 이미 와 있는 함선).
+   *
+   * **2026-09-14 3차 (사용자 결정 — 도착 토스트 없음)**: 그래도 `extraction:shipLanded` 는 **낸다.**
+   * 그 이벤트는 토스트만의 것이 아니다 — `ui/hud/WorldMarkers` · `ui/map/MapScreen` 의 함선 마커(`__ship`)와
+   * 음악 전환이 같은 이벤트에서 생기므로, 내지 않으면 `extract` 단계에서 게이트가 풀려도 **그릴 마커가 없다**
+   * (`shared/tutorial.ts` 의 `shipMarker` = 「`extract` 단계에 들어서면 풀린다」와 어긋난다).
+   * 그래서 **토스트만 거른다**: 튜토리얼에서는 `ui/hud/Notifications` 가 「함선 착륙」 줄을 쓰지 않는다
+   * (「그 문장이 사실인가」는 문장을 쓰는 쪽이 판단한다 — `idleRemaining < 0` 갈래가 이미 그 자리에 있다).
    */
   private syncPreLandedPhase(): void {
     const ctx = this.ctx;
@@ -689,10 +712,19 @@ export class ExtractionSystem implements GameSystem {
       hidePillar: true,   // 2026-09-10: 함선 안 출발 버튼에도 감지 빛기둥을 세우지 않는다
       getPrompt: () => {
         if (!this.switchReady()) return null;
+        // 2026-09-14 3차: 튜토리얼 함선은 유예 없이 곧장 뜬다 — 캡션이 그 사실을 그대로 말한다
+        if (this.tutorialLiftoffNow()) return '출발 시퀀스 시작 (E 길게) · 즉시 이륙';
         return `출발 시퀀스 시작 (E 길게) · ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 이륙`;
       },
       canInteract: () => this.switchReady(),
       interact: () => {
+        /*
+         * 2026-09-14 3차 (사용자 결정 — 튜토리얼 함선은 스위치를 누르면 즉시 뜬다): 취소 불가 10초 유예를
+         * 건너뛰고 곧장 이륙한다. 새 갈래를 만들지 않고 **`skipToLiftoff()` 를 그대로 재사용**한다 —
+         * 그것이 이미 「몸을 화물칸에 세우고 유예 없이 평소 `liftoff()`」 이기 때문이다 (이륙 연출 · 결과
+         * 화면 · 정산 · 함선 획득이 평소 경로 그대로). 실패하면(= 문이 닫혀 있으면) 평소 유예로 떨어진다.
+         */
+        if (this.tutorialLiftoffNow() && this.skipToLiftoff()) return;
         if (this.isClient()) this.sendReq({ t: 'exq', ev: 'liftoff' });
         else this.startDeparture(false);
       },
@@ -765,6 +797,14 @@ export class ExtractionSystem implements GameSystem {
       player.setControlsEnabled(false);
       player.attachTo(ship.root);
       this.cinematic.start(ctx, ship);
+      /*
+       * 2026-09-14 3차 (사용자 결정 — 튜토리얼 이륙 동안 함선에서 나갈 수도 죽을 수도 없다): 각본 잠금.
+       * `setControlsEnabled(false)` 는 **입력만** 끊는다 — 남은 안드로이드의 총알 · 수류탄 · 재해는 그대로
+       * 들어오므로, 이륙 연출 중에 죽어 결과 화면이 「미탈출」이 되는 길이 있었다. 카메라는 건드리지 않는다
+       * (바로 위 `cinematic` 이 들고 있다). 푸는 곳은 player/ 의 리셋 경로와 아래 `resetMission` 이다.
+       * 튜토리얼에만 건다 — 본편 이륙에서 무적이 되는 것은 이 결정의 범위가 아니다.
+       */
+      if (ctx.missionMode === 'tutorial') player.setSceneLock?.(true);
     }
     // A body standing in the bay but not riding (dead / downed) was never on the box — it stays on the pad.
     ctx.bus.emit('extraction:liftoff', { position: ship.position.clone(), aboard: this.riding, squadDone });
@@ -986,6 +1026,8 @@ export class ExtractionSystem implements GameSystem {
     this.landFallbackTimer = -1;
     // only a rider was ever put on the bay box (2026-09-13)
     if (wasRiding) this.ctx.player?.setShipInterior(null);
+    // 2026-09-14 3차: 각본 잠금도 탑승자에게만 걸렸다 — 흐름이 리셋되면 함께 푼다 (끄기는 언제나 안전하다)
+    if (wasRiding) this.ctx.player?.setSceneLock?.(false);
     this.boarded = false;
     if (keepPlayer) return;
     // Player detachment / control re-enable is handled by PlayerSystem on respawn; be defensive anyway.

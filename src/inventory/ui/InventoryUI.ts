@@ -51,8 +51,14 @@ export class InventoryUI {
   /** Right-hand column wrapper (`display: contents` normally): while 제작 is open it stacks 가방 over 함선 창고. */
   private rightCol!: HTMLElement;
   disassemble!: DisassemblePanel;
-  /** 2026-09-08: 작업대 헤더의 `모두 수리` 가 여는 모달 팝업 (수리 목록은 더 이상 제작 패널 아래에 없다). */
+  /**
+   * `모두 수리` 모달 팝업 (수리 목록은 제작 패널 아래에 없다).
+   * 2026-09-14 (사용자 결정): 여는 버튼이 **작업대 헤더 → 가방 필터 칩 줄 맨 왼쪽**(`repairAllBtn`)으로 옮겼다 —
+   * 수리 게이트는 "어느 작업대냐"가 아니라 "함선이냐"(`benchRepairRows`)이기 때문이다.
+   */
   repair!: RepairPanel;
+  /** 2026-09-14: 가방 필터 줄 맨 왼쪽의 주황색 `모두 수리` (함선에서만 — 레이드 중에는 숨는다). */
+  private repairAllBtn!: HTMLButtonElement;
   /** 2026-09-08: 전술 임플란트 + 임플란트 아이템, under 장착 장비 (moved here from the 캐릭터 시트). */
   implantPanel!: ImplantPanel;
   creditsEl!: HTMLElement;
@@ -272,6 +278,23 @@ export class InventoryUI {
     bHead.append(bActions);
     const bChips = buildFilterChips((id) => this.setFilterGroup(id));
     this.filterChips.push(bChips);
+    /*
+     * 2026-09-14 (사용자 결정): **`모두 수리` 는 가방 필터 줄의 맨 왼쪽**이다 — 작업대 헤더에서 옮겨 왔다.
+     * 함선에 있으면 어떤 작업대를 열었든(열지 않았든) 눌린다: 수리 게이트는 `benchRepairRows` 의 「함선이냐」
+     * 하나뿐이고, 레이드 중에는 그 목록이 비므로 버튼도 숨는다(`refresh`).
+     * 칩 줄은 `repeat(var(--inv-filter-n), 1fr)` 그리드라 칸 수를 건드리면 안 된다 — 그래서 버튼은 칩 줄
+     * **밖**에 서고 둘을 감싸는 flex 한 줄(`.inv-bag-tools`)이 자리를 나눈다 (`TradeGrids` 의 `.tg-tools` 와 같은 결).
+     */
+    const bTools = document.createElement('div');
+    bTools.className = 'inv-bag-tools';
+    this.repairAllBtn = document.createElement('button');
+    this.repairAllBtn.type = 'button';
+    // ⚠ `.inv-repair-all` 은 이미 `RepairPanel` 의 실행 버튼이다 (전역 스타일시트 — 같은 이름을 쓰면 그쪽 규칙이 온다).
+    this.repairAllBtn.className = 'inv-btn inv-repair-open-btn';
+    this.repairAllBtn.textContent = TEXT.bench.repairAll;
+    this.repairAllBtn.title = TEXT.bench.repairAll;
+    this.repairAllBtn.addEventListener('click', (e) => { e.stopPropagation(); this.repair.open(this.repairAllBtn); });
+    bTools.append(this.repairAllBtn, bChips.el);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     // 2026-09-12 (사용자 결정): the box is always as tall as the longest bag; a smaller bag leaves blank rows below
     this.bagView.setFrameRows(BAG_FRAME_ROWS);
@@ -324,7 +347,8 @@ export class InventoryUI {
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
     // 2026-09-12 (사용자 결정): 필터 줄이 **패널의 맨 위** — 가방 머리(용량 · 정렬 · 제작)보다 위다
-    bPanel.append(bChips.el, bHead, bBody, this.weightEl, bFoot);
+    // 2026-09-14: 그 줄은 이제 `모두 수리` 와 칩을 함께 담는 `.inv-bag-tools` 한 줄이다
+    bPanel.append(bTools, bHead, bBody, this.weightEl, bFoot);
     this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor));
 
     /* equipment column */
@@ -755,6 +779,16 @@ export class InventoryUI {
       else this.stashView.refresh();
       this.stashCount.textContent = `${stash.count} · ${stash.usedCells()} / ${stash.cols * stash.rows}`;
       this.refreshCredits();
+    }
+    /*
+     * 2026-09-14: `모두 수리` 는 **함선에서만** — 레이드 중에는 `benchRepairRows` 가 빈 목록이라 버튼도 숨긴다.
+     * 고칠 것이 하나도 없으면 딤드로 남긴다 (없앴다 나타나면 칩 줄의 자리가 흔들린다).
+     */
+    this.repairAllBtn.hidden = this.ctx.isRaidActive();
+    if (!this.repairAllBtn.hidden) {
+      const worn = this.sys.benchRepairRows(true).length;
+      this.repairAllBtn.disabled = worn === 0;
+      this.repairAllBtn.title = worn === 0 ? TEXT.bench.repairNone : TEXT.bench.repairAll;
     }
     this.refreshSlots();
     this.refreshQuick();

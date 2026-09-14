@@ -43,9 +43,10 @@ import { CookScreen } from './ui/cook/CookScreen';
 import { CookStation } from './ui/cook/CookStation';
 import type { CookAutoInfo, CookGame, CookSessionInfo, CraftRecipe } from '@/shared';
 import type { MiningComputerTab } from '@/shared';
-import { ClusterScreen, openComputeClusterScreen } from './ui/mining/ClusterScreen';    // 암호화폐 채굴 화면 (2026-09-13)
-import { MiningComputer, openMiningComputerScreen } from './ui/mining/MiningComputer';
+// 채굴 화면 (2026-09-13 → 2026-09-14 통합: 채굴 · 클러스터 현황 · 지갑 · 거래소가 한 창이다)
+import { MiningScreen, openComputeClusterScreen, openMiningComputerScreen } from './ui/mining/MiningScreen';
 import * as VideoGame from './parts/VideoGame';              // 비디오게임 (H2, 2026-09-13)
+import * as Music from './parts/Music';                      // 음악 재생 (2026-09-14) — 소리 없는 순수 상태
 import { TvMenu } from './ui/tv/TvMenu';
 
 export class HousingSystem implements GameSystem, HousingRef {
@@ -144,9 +145,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.unsubs.push(...Cooking.bindCooking(this));
     this.unsubs.push(...Lib.bindLibrary(this));                // 서재 시리즈 (H1, 2026-09-13) — 효과 합산 캐시 · housing:libraryChanged
     this.unsubs.push(...Mining.bindMining(this));              // 암호화폐 채굴 (2026-09-13)
-    this.clusterScreen = new ClusterScreen(ctx, this);         // 암호화폐 채굴 화면 (2026-09-13, 에이전트 ④)
-    this.miningComputer = new MiningComputer(ctx, this);
+    this.miningScreen = new MiningScreen(ctx, this);            // 채굴 화면 (2026-09-14 통합 — 탭 넷이 한 창)
     this.tvMenu = new TvMenu(ctx, this); this.unsubs.push(...VideoGame.bindVideoGame(this));   // 비디오게임 (H2, 2026-09-13)
+    this.unsubs.push(...Music.bindMusic(this));                // 음악 재생 (2026-09-14)
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -164,6 +165,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (this.pendingRefund.length) this.flushRetiredRefund();
     Mining.tickMining(this);                                   // 암호화폐 채굴: 끝난 주기를 지갑에 (1 Hz, 2026-09-13)
     Lib.tickLibrary(this);                                     // 서재 시리즈 (H1): loot 없이 센 합산을 loot 가 생긴 첫 프레임에 다시
+    Music.tickMusic(this);                                     // 음악 재생 (2026-09-14): 곡이 끝났는지 시각만 본다 (꺼져 있으면 비교 한 번)
     if (this.evictNotice > 0) {
       this.notify(`배치 규칙에 맞지 않는 가구 ${this.evictNotice}개를 가구 창고로 옮겼습니다`, 'warning');
       this.evictNotice = 0;
@@ -186,8 +188,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.gymScreen?.dispose(); this.gymScreen = null;          // 헬스장 (A-3a)
     this.cookScreen?.dispose(); this.cookScreen = null;        // 요리 미니게임 (2026-09-13)
     this.cookStation?.dispose(); this.cookStation = null;
-    this.clusterScreen?.dispose(); this.clusterScreen = null;  // 암호화폐 채굴 화면 (2026-09-13)
-    this.miningComputer?.dispose(); this.miningComputer = null;
+    this.miningScreen?.dispose(); this.miningScreen = null;    // 채굴 화면 (2026-09-14 통합)
+    Music.stopMusic(this);                                     // 음악 재생 (2026-09-14): 창이 사라진 채 상태만 남지 않게
     this.store?.dispose(); this.store = null;
   }
 
@@ -746,6 +748,22 @@ export class HousingSystem implements GameSystem, HousingRef {
   toggleFurniture(uid: string): boolean | null { return Lib.toggleFurniture(this, uid); }
   /* ══ 서재 매체 (A-3e) 끝 ══ */
 
+  /* ══ 음악 재생 (2026-09-14) ══ — 축음기 · 주크박스 · 턴테이블을 켜면 레코드랙에 꽂힌 레코드가 재생 목록이 된다 (`parts/Music.ts`).
+     **소리는 나지 않는다** — 상태뿐이고 `ui/hud/MusicPlayer` 가 `housing:musicChanged` 하나만 보고 그린다.
+     질의 · 조작은 `HousingRef` 의 2026-09-14 추가 계약(전부 옵셔널)이고 화면은 이벤트만 본다. */
+  /** 지금 재생 상태 — 꺼져 있으면 `MUSIC_PLAYER_OFF`. 바뀔 때마다 `housing:musicChanged`. */
+  musicState: import('@/shared').MusicPlayerState = Music.initialMusicState();
+  /** 지금 재생 상태 (늦게 붙는 화면이 첫 이벤트를 기다리지 않아도 되게). */
+  getMusicState(): import('@/shared').MusicPlayerState { return Music.musicState(this); }
+  /** 다음 / 이전 곡 (`'repeat'` 이어도 사람이 누르면 넘어간다). */
+  musicNext(): boolean { return Music.musicNext(this); }
+  musicPrev(): boolean { return Music.musicPrev(this); }
+  /** 재생 방식 전환 (같은 값이면 false). */
+  setMusicMode(mode: import('@/shared').MusicMode): boolean { return Music.setMusicMode(this, mode); }
+  /** 재생을 멈춘다 — 가구의 `toggled` 도 함께 내린다 (E 로 끈 것과 같다). */
+  musicStop(): boolean { return Music.musicStop(this); }
+  /* ══ 음악 재생 끝 ══ */
+
   /* ══ 헬스장 (A-3a) ══ — 운동 기구 미니게임 세션 (`parts/Gym.ts` · 판정 `parts/GymGames.ts` · 화면 `ui/gym/`, 2026-09-12). */
   /** 운동 화면 (시작 안내 · 게임 · 결과). */
   gymScreen: GymScreen | null = null;
@@ -778,12 +796,17 @@ export class HousingSystem implements GameSystem, HousingRef {
   get cookDebug(): Cooking.CookDebug { return Cooking.cookDebug(this); }
   /* ══ 요리 미니게임 끝 ══ */
 
-  /* ══ 암호화폐 채굴 화면 (2026-09-13, 에이전트 ④) ══ — `ui/mining/` (클러스터 화면 · 메인 컴퓨터). 규칙 · 지갑 · 매매는 `parts/Mining` (에이전트 ③). */
-  /** 연산 클러스터 화면 (코어 칸 3×3 · 코인 지정 · 함선 창고 / 가방). */
-  clusterScreen: ClusterScreen | null = null;
-  /** 메인 컴퓨터 화면 (클러스터 현황 · 지갑 · 거래소). */
-  miningComputer: MiningComputer | null = null;
+  /* ══ 채굴 화면 ══ — `ui/mining/` (2026-09-14 사용자 결정: 연산 클러스터 화면 · 메인 컴퓨터를 **한 창**으로 합쳤다 —
+     상단 가로 탭 `MINING_TABS` = 채굴 · 클러스터 현황 · 지갑 · 거래소). 규칙 · 지갑 · 매매는 `parts/Mining`. */
+  /** 통합 채굴 창 (`ui/mining/MiningScreen`). */
+  miningScreen: MiningScreen | null = null;
+  /** @deprecated 2026-09-14 통합 — 같은 창을 가리킨다 (옛 호출자 · `parts/Presets.panels()`). */
+  get clusterScreen(): MiningScreen | null { return this.miningScreen; }
+  /** @deprecated 2026-09-14 통합 — 같은 창을 가리킨다. */
+  get miningComputer(): MiningScreen | null { return this.miningScreen; }
+  /** 연산 클러스터의 E — 통합 창을 `채굴` 탭으로 연다 (사용자 결정: 가구마다 제 탭이 기본). */
   openComputeCluster(uid: string): void { return openComputeClusterScreen(this, uid); }
+  /** 메인 컴퓨터의 E — 통합 창을 `클러스터 현황`(또는 지정한) 탭으로 연다. */
   openMiningComputer(uid: string | null, tab?: MiningComputerTab): void { return openMiningComputerScreen(this, uid, tab); }
   /* ══ 암호화폐 채굴 화면 끝 ══ */
 

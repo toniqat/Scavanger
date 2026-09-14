@@ -59,6 +59,12 @@ export interface StationShell {
   readonly stashCard: HTMLElement | null;
   /** 가방 card (`.hs-card-bag`), null with `inventory: false`. */
   readonly bagCard: HTMLElement | null;
+  /* appended 2026-09-14 (서재 화면 개편) */
+  /**
+   * 좌 패널 **맨 위의 가로 탭 줄** (`.hs-tabs`), `tabs: true` 일 때만 만들어진다 — 옵션이라 옛 화면(분석기 · 재배 ·
+   * 조리대 · 채굴)은 한 줄도 바뀌지 않는다. 레일(`rail`)이 목록이 되면 탭이 갈 곳이 여기다.
+   */
+  readonly tabsRow: HTMLElement | null;
 }
 
 export interface StationShellOptions {
@@ -70,6 +76,8 @@ export interface StationShellOptions {
   button(parent: HTMLElement, label: string, onClick: () => void, cls: string): HTMLButtonElement;
   /** appended 2026-09-13: false = no 함선 창고 / 가방 cards. Default true. */
   inventory?: boolean;
+  /** appended 2026-09-14: true = a horizontal tab row at the top of the left pane (`shell.tabsRow`). Default false. */
+  tabs?: boolean;
 }
 
 /** Which grid a card holds — `data-hs-grid` on the card, read by `mountStationGrids`. */
@@ -103,13 +111,14 @@ export function buildStationShell(frame: HTMLElement, o: StationShellOptions): S
   const rail = el('div', { cls: 'hs-rail', parent: body });
   rail.hidden = true;                       // `display: none` → the flex gap next to it disappears too
   const left = el('div', { cls: 'hs-pane hs-pane-left', parent: body });
+  const tabsRow = o.tabs ? el('div', { cls: 'hs-tabs', parent: left }) : null;
   const right = el('div', { cls: 'hs-pane-right hs-inv-cards', parent: cards });
   const withInv = o.inventory !== false;
   right.hidden = !withInv;
   // 2026-09-12 (사용자 결정): **함선 창고가 왼쪽, 가방이 오른쪽** — 카드 순서가 곧 그 규칙이다
   const stashCard = withInv ? buildInvCard(right, 'stash') : null;
   const bagCard = withInv ? buildInvCard(right, 'bag') : null;
-  return { head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta, stashCard, bagCard };
+  return { head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta, stashCard, bagCard, tabsRow };
 }
 
 /** `Lv. n` + the 업그레이드 button state (`MAX` and disabled at the last level; disabled when the furniture is gone). */

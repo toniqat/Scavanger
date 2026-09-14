@@ -51,6 +51,7 @@ import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
 import { KeyGuide } from './hud/KeyGuide';
 import { ItemTip } from './hud/ItemTip';
+import { MusicPlayer } from './hud/MusicPlayer';               // 음악 재생 창 (2026-09-14)
 import { ItemFavoriteMenu } from './hud/ItemFavoriteMenu';
 import { GameCursor } from './hud/GameCursor';
 import { ShipManage } from './hud/ShipManage';
@@ -222,6 +223,8 @@ export class HudSystem implements GameSystem {
   /* B-1 (2026-09-11): 서버 연결 배지 (#ui-root 직계, 함선 · 타이틀) */
   private netBadge!: NetBadge;
   private itemTip!: ItemTip;
+  /* 2026-09-14: 음악 재생 창 (#ui-root 직계, 함선 좌측 상단 — `housing:musicChanged` 만 보고 그린다) */
+  private musicPlayer!: MusicPlayer;
   /* 2026-09-12 (E2): 칩 · 옵트인 타일의 즐겨찾기 우클릭 메뉴 (direct child of `ctx.uiRoot`, like `itemTip`) */
   private itemFavMenu!: ItemFavoriteMenu;
   /* Phase 10: the software-cursor sprite (a direct child of `ctx.uiRoot`, like `itemTip`) */
@@ -347,6 +350,8 @@ export class HudSystem implements GameSystem {
     // 재료 요구 칩 hover card: a direct child of `#ui-root` so it floats over the inventory window, the 함선 관리
     // screen and every menu — it delegates on `.item-chip[data-def-id]` wherever a chip is rendered.
     this.itemTip = new ItemTip(ctx.uiRoot);
+    // 음악 재생 창 (2026-09-14): same placement rationale — 함선의 다른 화면(인벤토리 · 지도) 위에 떠 있어야 한다.
+    this.musicPlayer = new MusicPlayer(ctx.uiRoot);
     // 2026-09-12 (E2): 칩 즐겨찾기 우클릭 메뉴 — same delegation on `ctx.uiRoot`, and the chip favorite source it registers.
     this.itemFavMenu = new ItemFavoriteMenu(ctx.uiRoot);
     // 키 가이드 (2026-09-09): same placement rationale — the bottom-right one-liner must sit over every open screen.
@@ -389,6 +394,7 @@ export class HudSystem implements GameSystem {
     this.cutscene.bind(ctx);
     for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.bind(ctx);
+    this.musicPlayer.bind(ctx);                                // 음악 재생 창 (2026-09-14)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.bind(ctx);
@@ -528,6 +534,8 @@ export class HudSystem implements GameSystem {
     this.hazard.update(ctx);
     // 키 가이드: hides under the 일시정지 메뉴 (one blocker lookup per frame).
     this.keyGuide.update();
+    // 음악 재생 창: 꺼져 있으면 비교 둘로 끝난다 (함선 전용 · 메뉴 blocker 아래에서 숨는다 — 키 가이드와 같은 규칙).
+    this.musicPlayer.update(ctx);
     this.contractPanel.update(ctx);
     this.trainingPanel.update(ctx);
     this.metaToasts.update(dt);
@@ -651,6 +659,10 @@ export class HudSystem implements GameSystem {
   get shipManageCardCount(): number { return this.shipManage.cardCount; }
   /** Def id the 재료 요구 칩 hover card is describing, null when it is hidden (debug). */
   get itemTipDefId(): string | null { return this.itemTip.shownDefId; }
+  /** 음악 재생 창 (debug, 2026-09-14): 떠 있는가 · 곡 제목 · 아티스트 · 음량 줄. */
+  get musicPlayerView(): { on: boolean; title: string; artist: string; volume: string } {
+    return { on: this.musicPlayer.isShowing, title: this.musicPlayer.titleText, artist: this.musicPlayer.artistText, volume: this.musicPlayer.volumeText };
+  }
   /** Whether the 함선 관리(M) hint is showing (debug). */
   get isShipHintOn(): boolean { return this.shipHint.isShowing; }
   /** Phase 12 debug: compass enemy ticks / on-screen enemy chevrons / live 정찰 reveals / the channel ticker text. */
@@ -813,6 +825,7 @@ export class HudSystem implements GameSystem {
     this.scanTracker.dispose();
     this.cutscene.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.dispose();
+    this.musicPlayer.dispose();                                // 음악 재생 창 (2026-09-14)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.dispose();

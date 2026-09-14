@@ -1,21 +1,18 @@
 import type { ComputeClusterInfo, CryptoChartRange, CryptoCoinInfo, CryptoTradeSide, GameContext, MiningComputerTab } from '@/shared';
 import {
   COMPUTE_CLUSTER_MAX_CORES, CRYPTO_CHART_RANGES, CRYPTO_CHART_RANGE_LABEL_KO, CRYPTO_QUOTE_WINDOW_S, CRYPTO_TICK_S, CRYPTO_TRADE_FEE, CRYPTO_TRADE_MAX_UNITS,
-  MINING_COMPUTER_DEF_ID, coinToUnits, formatCoinUnits,
+  coinToUnits, formatCoinUnits,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
-import { HousingPanel } from '../Panel';
-import { buildStationShell, paintStationMeta } from '../StationShell';
-import type { StationShell } from '../StationShell';
 import { clear, el, isolateInput, renderClock, renderClockText, setText, toggleClass } from '../dom';
 import { CryptoChart, withLivePrice } from './CryptoChart';
 import type { ChartMode } from './CryptoChart';
+import type { MiningHost } from './MiningScreen';
 import {
   affordableUnits, bindHoldButton, changeTone, clusterList, coinDef, coinGlyph, coinInfos, fmtChange, fmtCredits, fmtPrice,
   livePrice, unitsPerHour, unitsValue, type HoldButton, type MiningHousing,
 } from './common';
 
-const TICK_MS = 1000;
 const MAX_CORES = Math.max(1, Math.floor(COMPUTE_CLUSTER_MAX_CORES));
 const OFFLINE = '서버에 연결되어야 합니다';
 /**
@@ -24,7 +21,6 @@ const OFFLINE = '서버에 연결되어야 합니다';
  */
 const STALE_MS = Math.max(1000, CRYPTO_QUOTE_WINDOW_S * 1000 - (CRYPTO_TICK_S * 1000) / 2);
 const STALE = '시세가 오래되었습니다 — 새 시세를 기다리는 중';
-const TAB_LABEL: Readonly<Record<MiningComputerTab, string>> = { clusters: '클러스터 현황', wallet: '지갑', exchange: '거래소' };
 const TABS: readonly MiningComputerTab[] = ['clusters', 'wallet', 'exchange'];
 const QUICK_PCTS = [0.25, 0.5, 1] as const;
 
@@ -43,26 +39,20 @@ interface WalletRow { id: string; row: HTMLElement; units: HTMLElement; value: H
 interface ListRow { id: string; row: HTMLElement; price: HTMLElement; change: HTMLElement; lock: HTMLElement }
 
 /**
- * **메인 컴퓨터 화면** (2026-09-13, 암호화폐 채굴 — `openMiningComputer(uid | null, tab?)` ← E on a 메인 컴퓨터).
+ * **메인 컴퓨터 세 탭** (`클러스터 현황` · `지갑` · `거래소`) — 2026-09-14 부터 채굴 탭과 **한 창**에 산다
+ * (`MiningScreen`). 옛 `MiningComputer` 패널의 내용 그대로이고, 달라진 것은 셋뿐이다: 탭 줄이 화면 상단으로
+ * 올라갔고(창이 갖는다), 머리줄 · 배너를 `MiningHost` 로 칠하며, 「현황 줄 클릭 → 그 클러스터」가 창을 닫는 대신
+ * **채굴 탭으로 바꾼다**.
  *
- * `StationShell` 카드 하나(`inventory: false`, 업그레이드 없음 — 메인 컴퓨터는 Lv.1 뿐)에 **레일 탭 셋**:
- *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 코어 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유),
- *    줄을 누르면 그 클러스터 화면. 머리 = 채굴 중 n / 전체 · 시간당 예상 크레딧 합(시세를 아는 코인만).
- *  - **지갑** — 코인마다 보유(`formatCoinUnits`) · 평가액(시세 없으면 `—`) · 24시간 변동 · 누적 채굴(`ShipState.cryptoMined`), 총 평가액.
- *    줄을 누르면 그 코인의 거래소.
- *  - **거래소** — 코인 목록(시세 · 24시간 변동 색 · 잠김) + 차트(`CryptoChart` — 1시간/1일/1주/1개월 · 봉/선 · 호버 OHLC) + 매매
- *    (매수/매도 · 코인 수량 입력 + 25/50/100 % · `cryptoQuote` 견적(수수료 포함) · 막는 사유 · **1초 홀드 확정** → `tradeCrypto`).
- *    잠긴 코인은 차트만 보이고 매매는 잠김 사유와 함께 막힌다. 서버에 붙어 있지 않으면 차트 자리에 「서버에 연결되어야 합니다」.
+ *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 코어 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유).
+ *  - **지갑** — 코인마다 보유 · 평가액 · 24시간 변동 · 누적 채굴, 총 평가액. 줄을 누르면 그 코인의 거래소.
+ *  - **거래소** — 코인 목록 + 차트(`CryptoChart`) + 매매(수량 · 25/50/100 % · 견적 · **1초 홀드 확정**).
  *
- * 시세 구독(`ctx.net.crypto.watch()`)은 지갑 · 거래소 탭이 열려 있는 동안만 건다 (탭을 바꾸거나 닫으면 푼다). 봉 이력은 코인 ·
- * 기간을 고를 때마다 `requestHistory` 하고 `net:cryptoHistory` 에서 그린다 — 마지막 봉은 `net:cryptoPrices` 의 지금 시세로 고친다.
+ * 시세 구독(`ctx.net.crypto.watch()`)은 지갑 · 거래소 탭이 열려 있는 동안만 건다.
  */
-export class MiningComputer extends HousingPanel {
+export class ComputerPages {
   private uid: string | null = null;
-  private tab: MiningComputerTab = 'clusters';
-  private readonly shell: StationShell;
-  private readonly tabBtns: Record<MiningComputerTab, HTMLButtonElement>;
-  private readonly banner: HTMLElement;
+  private tab: MiningComputerTab | null = null;
   private readonly pages: Record<MiningComputerTab, HTMLElement>;
   /* 클러스터 현황 */
   private readonly clSummary: HTMLElement;
@@ -100,43 +90,19 @@ export class MiningComputer extends HousingPanel {
   private unwatch: (() => void) | null = null;
   private requested = '';
   private lastAvailable = false;
-  private timer = 0;
-  /** Smoke / perf counters. */
-  readonly debug = { watches: 0, unwatches: 0, requests: 0, trades: 0, paints: 0, chartPaints: 0 };
 
-  constructor(ctx: GameContext, private readonly housing: HousingSystem) {
-    super(ctx, 'computer', 'mining-computer hs-station');
-    this.coalesceRefresh = true;
-    this.shell = buildStationShell(this.frame, {
-      title: '메인 컴퓨터',
-      upgrade: false,
-      inventory: false,
-      button: (p, l, fn, c) => this.button(p, l, fn, c),
-    });
-    const rail = this.shell.rail;
-    rail.hidden = false;
-    const tabBtn = (id: MiningComputerTab): HTMLButtonElement => {
-      const b = el('button', { cls: 'hs-tab', text: TAB_LABEL[id], attrs: { 'data-tab': id }, parent: rail });
-      b.type = 'button';
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (this.tab === id) return;
-        this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-        this.setTab(id);
-      });
-      return b;
-    };
-    this.tabBtns = { clusters: tabBtn('clusters'), wallet: tabBtn('wallet'), exchange: tabBtn('exchange') };
-
-    const left = this.shell.left;
-    left.classList.add('mn-pc');
-    this.banner = el('div', { cls: 'mn-banner', parent: left });
-    this.banner.hidden = true;
+  constructor(
+    private readonly ctx: GameContext,
+    private readonly housing: HousingSystem,
+    private readonly host: MiningHost,
+  ) {
+    const left = host.shell.left;
     this.pages = {
       clusters: el('div', { cls: 'mn-page', attrs: { 'data-page': 'clusters' }, parent: left }),
       wallet: el('div', { cls: 'mn-page', attrs: { 'data-page': 'wallet' }, parent: left }),
       exchange: el('div', { cls: 'mn-page mn-page-x', attrs: { 'data-page': 'exchange' }, parent: left }),
     };
+    for (const k of TABS) this.pages[k].hidden = true;
 
     /* ── 클러스터 현황 ── */
     this.clSummary = el('div', { cls: 'mn-sum', parent: this.pages.clusters });
@@ -146,7 +112,7 @@ export class MiningComputer extends HousingPanel {
       if (!uid) return;
       e.stopPropagation();
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-      this.housing.openComputeCluster(uid);
+      this.host.openCluster(uid);
     });
 
     /* ── 지갑 ── */
@@ -160,7 +126,7 @@ export class MiningComputer extends HousingPanel {
       e.stopPropagation();
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.selectCoin(id);
-      this.setTab('exchange');
+      this.host.setTab('exchange');
     });
 
     /* ── 거래소 ── */
@@ -235,92 +201,71 @@ export class MiningComputer extends HousingPanel {
     this.holdBtn.type = 'button';
     const fill = el('i', { cls: 'mn-hold-fill', parent: this.holdBtn });
     this.holdLabel = el('span', { cls: 'mn-hold-label', text: '매수', parent: this.holdBtn });
-    this.hold = bindHoldButton(this.holdBtn, fill, () => { void this.runTrade(); }, () => this.showMsg('거래 버튼을 1초간 꾹 누르세요', 'info'));
+    this.hold = bindHoldButton(this.holdBtn, fill, () => { void this.runTrade(); }, () => this.host.showMsg('거래 버튼을 1초간 꾹 누르세요', 'info'));
+  }
 
-    this.mountMsg();
-    const foot = el('div', { cls: 'hs-foot', parent: this.frame });
-    el('div', { cls: 'hint', text: '시세 · 차트 · 매매는 서버 시세를 씁니다 — 채굴은 서버 없이도 진행됩니다.', parent: el('div', { cls: 'left', parent: foot }) });
-    this.button(el('div', { cls: 'right', parent: foot }), '닫기', () => this.close());
-
-    const b = ctx.bus;
-    this.unsubs.push(
-      b.on('housing:clusterChanged', () => this.refreshIfOpen()),
-      b.on('housing:cryptoMined', () => this.refreshIfOpen()),
-      b.on('housing:walletChanged', () => this.refreshIfOpen()),
-      b.on('meta:creditsChanged', () => { if (this.isOpen) this.paintTrade(); }),
-      b.on('net:cryptoPrices', () => this.refreshIfOpen()),
-      b.on('net:cryptoHistory', ({ coin, range }) => { if (this.isOpen && coin === this.coin && range === this.range) this.paintChart(); }),
-    );
-    this.setTab('clusters');
+  /** Bus subscriptions the panel owns (pushed into its `unsubs`). */
+  bind(): Array<() => void> {
+    const b = this.ctx.bus;
+    const hit = (): void => { if (this.tab && this.host.isOpen) this.host.refreshLater(); };
+    return [
+      b.on('housing:clusterChanged', hit),
+      b.on('housing:cryptoMined', hit),
+      b.on('housing:walletChanged', hit),
+      b.on('meta:creditsChanged', () => { if (this.tab && this.host.isOpen) this.paintTrade(); }),
+      b.on('net:cryptoPrices', hit),
+      b.on('net:cryptoHistory', ({ coin, range }) => {
+        if (this.tab === 'exchange' && this.host.isOpen && coin === this.coin && range === this.range) this.paintChart();
+      }),
+    ];
   }
 
   private get ref(): MiningHousing { return this.housing; }
 
-  /* ── open / close ──────────────────────────────────────────────────────── */
-  openComputer(uid: string, tab?: MiningComputerTab): void {
-    const was = this.isOpen;
-    this.uid = uid;
-    this.openPanel();
-    this.setTab(tab ?? this.tab);
-    this.startTicking();
-    if (!was) this.ctx.bus.emit('ui:miningToggled', { open: true, uid, page: 'computer' });
-  }
-
-  get currentTab(): MiningComputerTab { return this.tab; }
+  get currentUid(): string | null { return this.uid; }
+  setUid(uid: string): void { this.uid = uid; }
   get selectedCoin(): string { return this.coin; }
 
-  override close(relock = true): void {
-    const was = this.isOpen;
-    this.stopTicking();
-    this.hold.cancel();
-    super.close(relock);
-    this.syncWatch();
-    if (was) this.ctx.bus.emit('ui:miningToggled', { open: false, uid: this.uid, page: 'computer' });
-  }
-
-  private startTicking(): void {
-    this.stopTicking();
-    this.timer = window.setInterval(() => { if (this.isOpen) this.tick(); }, TICK_MS);
-  }
-
-  private stopTicking(): void {
-    if (this.timer) { clearInterval(this.timer); this.timer = 0; }
-  }
-
-  private tick(): void {
-    this.paintHeader();
-    if (this.tab === 'clusters') this.paintClusters();
-    else if (this.tab === 'exchange') this.paintTrade();         // 시세가 오래되면 이벤트 없이도 확정 버튼이 잠겨야 한다
-  }
-
-  setTab(id: MiningComputerTab): void {
-    this.tab = TABS.includes(id) ? id : 'clusters';
-    for (const k of TABS) {
-      toggleClass(this.tabBtns[k], 'is-active', k === this.tab);
-      this.pages[k].hidden = k !== this.tab;
-    }
+  /** `null` = 채굴 탭이 떠 있다 (세 쪽 모두 숨기고 시세 구독을 푼다). */
+  setActive(tab: MiningComputerTab | null): void {
+    this.tab = tab;
+    for (const k of TABS) this.pages[k].hidden = k !== tab;
     this.hold.cancel();
     this.syncWatch();
-    if (!this.isOpen) return;
-    if (this.tab === 'exchange') {
+    if (tab === 'exchange') {
       if (!this.coin) this.selectCoin(this.defaultCoin(), false);
       this.ensureHistory(false);
       this.chart.resize();
     }
-    this.refresh();
+  }
+
+  onClose(): void {
+    this.hold.cancel();
+  }
+
+  dispose(): void {
+    this.hold.dispose();
+    this.chart.dispose();
+    if (this.unwatch) { try { this.unwatch(); } catch { /* net gone */ } this.unwatch = null; }
+  }
+
+  tick(): void {
+    this.paintHeader();
+    if (this.tab === 'clusters') this.paintClusters();
+    else if (this.tab === 'exchange') this.paintTrade();   // 시세가 오래되면 이벤트 없이도 확정 버튼이 잠겨야 한다
   }
 
   /** 시세 구독 — 지갑 · 거래소 탭이 열려 있는 동안만. */
-  private syncWatch(): void {
-    const want = this.isOpen && (this.tab === 'exchange' || this.tab === 'wallet');
+  syncWatch(): void {
+    const want = this.host.isOpen && (this.tab === 'exchange' || this.tab === 'wallet');
     const market = this.ctx.net?.crypto;
     if (want && !this.unwatch && market && typeof market.watch === 'function') {
-      try { this.unwatch = market.watch(); this.debug.watches++; } catch { this.unwatch = null; }
+      try { this.unwatch = market.watch(); this.host.debug.watches++; } catch { this.unwatch = null; }
     } else if (!want && this.unwatch) {
       const u = this.unwatch;
       this.unwatch = null;
       try { u(); } catch { /* net gone */ }
-      this.debug.unwatches++;
+      this.host.debug.unwatches++;
     }
   }
 
@@ -340,7 +285,7 @@ export class MiningComputer extends HousingPanel {
       this.requested = '';
     }
     this.ensureHistory(changed);
-    if (paint && this.isOpen) this.refresh();
+    if (paint && this.tab && this.host.isOpen) this.refresh();
   }
 
   private setRange(r: CryptoChartRange): void {
@@ -369,7 +314,7 @@ export class MiningComputer extends HousingPanel {
 
   /** 봉 이력 요청 — 고를 때마다(`force`), 그리고 서버에 막 붙었는데 이력이 없을 때 한 번. */
   private ensureHistory(force: boolean): void {
-    if (!this.isOpen || this.tab !== 'exchange' || !this.coin) return;
+    if (!this.host.isOpen || this.tab !== 'exchange' || !this.coin) return;
     const market = this.ctx.net?.crypto;
     if (!market || !market.available || typeof market.requestHistory !== 'function') return;
     const key = `${this.coin}:${this.range}`;
@@ -377,7 +322,7 @@ export class MiningComputer extends HousingPanel {
     if (!force && this.requested === key && have) return;
     if (!force && this.requested === key) return;
     this.requested = key;
-    this.debug.requests++;
+    this.host.debug.requests++;
     try { market.requestHistory(this.coin, this.range); } catch { /* net gone */ }
   }
 
@@ -436,13 +381,13 @@ export class MiningComputer extends HousingPanel {
   private async runTrade(): Promise<void> {
     if (this.pending) return;
     const q = this.quote();
-    if (q.block) { this.deny(q.block); return; }
+    if (q.block) { this.host.denyMsg(q.block); return; }
     const fn = this.ref.tradeCrypto;
-    if (typeof fn !== 'function') { this.deny('거래소를 사용할 수 없습니다'); return; }
+    if (typeof fn !== 'function') { this.host.denyMsg('거래소를 사용할 수 없습니다'); return; }
     const coin = this.coin, side = this.side, units = this.units();
     const def = coinDef(coin);
     this.pending = true;
-    this.debug.trades++;
+    this.host.debug.trades++;
     this.paintTrade();
     // 릴레이는 구독 중인 소켓에만 시세를 밀고 그 창으로 거래를 검증한다 — 답이 올 때까지 탭을 바꿔도 구독을 쥐고 있는다 (탭 구독과 별개의 참조)
     const market = this.ctx.net?.crypto;
@@ -453,18 +398,17 @@ export class MiningComputer extends HousingPanel {
       try { release?.(); } catch { /* net gone */ }
     }
     this.pending = false;
-    if (reason) { this.deny(reason); this.paintTrade(); return; }
+    if (reason) { this.host.denyMsg(reason); this.paintTrade(); return; }
     const text = `${def?.name ?? coin} ${formatCoinUnits(units)} ${def?.ticker ?? ''} ${side === 'buy' ? '매수' : '매도'} — ${fmtCredits(q.credits ?? 0)} 크레딧`;
     this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
     this.ctx.bus.emit('ui:notify', { text, kind: 'success' });
-    this.showMsg(text, 'success');
+    this.host.showMsg(text, 'success');
     this.amount.value = '';
-    if (this.isOpen) this.refresh();
+    if (this.tab && this.host.isOpen) this.refresh();
   }
 
   /* ── state → DOM ───────────────────────────────────────────────────────── */
   refresh(): void {
-    this.debug.paints++;
     this.syncWatch();
     const market = this.ctx.net?.crypto;
     const available = !!market?.available;
@@ -473,18 +417,16 @@ export class MiningComputer extends HousingPanel {
     this.paintHeader();
     if (this.tab === 'clusters') this.paintClusters();
     else if (this.tab === 'wallet') this.paintWallet();
-    else { this.ensureHistory(false); this.paintExchange(); }
+    else if (this.tab === 'exchange') { this.ensureHistory(false); this.paintExchange(); }
   }
 
   private paintHeader(): void {
     const list = clusterList(this.ref);
     const mining = list.filter((c) => c.mining).length;
-    paintStationMeta(this.shell, list.length ? `채굴 중 ${mining} / ${list.length}대` : '연산 클러스터 없음');
+    this.host.setTitle('메인 컴퓨터', list.length ? `채굴 중 ${mining} / ${list.length}대` : '연산 클러스터 없음', list.length > 0 && mining === 0);
     // 2026-09-13 (전력 할당 폐지): 메인 컴퓨터는 멈추지 않는다 — 배너는 「메인 컴퓨터가 없다」 하나뿐이다
     const placed = this.uid ? this.housing.getPlacedByUid(this.uid) : null;
-    const text = !placed ? '메인 컴퓨터가 없습니다' : null;
-    this.banner.hidden = !text;
-    setText(this.banner, text ?? '');
+    this.host.setBanner(!placed ? '메인 컴퓨터가 없습니다' : null);
   }
 
   /* 클러스터 현황 */
@@ -680,7 +622,7 @@ export class MiningComputer extends HousingPanel {
   }
 
   private paintChart(): void {
-    this.debug.chartPaints++;
+    this.host.debug.chartPaints++;
     const market = this.ctx.net?.crypto;
     const def = coinDef(this.coin);
     if (!market || !market.available) { this.chart.setMessage(OFFLINE); return; }
@@ -716,30 +658,4 @@ export class MiningComputer extends HousingPanel {
     toggleClass(this.holdBtn, 'primary', this.side === 'buy');
     setText(this.holdLabel, this.pending ? '처리 중…' : this.side === 'buy' ? '매수' : '매도');
   }
-
-  override dispose(): void {
-    this.stopTicking();
-    this.hold.dispose();
-    this.chart.dispose();
-    if (this.unwatch) { try { this.unwatch(); } catch { /* */ } this.unwatch = null; }
-    super.dispose();
-  }
-}
-
-/** `openMiningComputer(uid, tab)` 의 몸통 — `uid` null = 함선의 메인 컴퓨터 (없으면 토스트). */
-export function openMiningComputerScreen(sys: HousingSystem, uid: string | null, tab?: MiningComputerTab): void {
-  const screen = sys.miningComputer;
-  if (!screen) return;
-  const ref: MiningHousing = sys;
-  let id = uid;
-  if (id === null) {
-    try { id = ref.getMiningComputerUid?.() ?? null; } catch { id = null; }
-    if (id === null) id = sys.getPlaced().find((p) => p.defId === MINING_COMPUTER_DEF_ID)?.uid ?? null;
-  }
-  const placed = id ? sys.getPlacedByUid(id) : null;
-  if (!id || !placed || placed.defId !== MINING_COMPUTER_DEF_ID) { sys.notify('메인 컴퓨터가 없습니다', 'warning'); return; }
-  sys.exitHousingMode();
-  if (screen.isOpen) { if (tab) screen.setTab(tab); return; }
-  sys.closeMenus(false);
-  screen.openComputer(id, tab);
 }

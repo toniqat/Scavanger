@@ -1,7 +1,10 @@
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance, ShelfMedium } from '@/shared';
-import { LIBRARY_SERIES_DEFS, LIBRARY_SERIES_MAP, SHELF_AUX_BONUS, SHELF_MEDIUM_LABEL_KO, SHELF_SERIES_VOLUME_SHARE, SHELF_SLOTS } from '@/shared';
+import type {
+  EmbeddedView, GameContext, ItemDef, ItemInstance, LibraryCookTarget, LibraryEffect, LibraryEffectsSummary, LibraryGymTarget,
+  LibraryTrustTarget, MealBuff, PlacedFurniture, ShelfMedium, SkillId,
+} from '@/shared';
+import { LIBRARY_SERIES_MAP, SHELF_MEDIUM_LABEL_KO, SHELF_SLOTS, shelfMediumOfInteraction } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
-import { SHELF_OBJ_KO, SHELF_UNIT_KO, shelfAuxNames, shelfHolderName } from '../model';
+import { LIBRARY_GLYPH, SHELF_GLYPH, SHELF_OBJ_KO, SHELF_UNIT_KO, shelfHolderName } from '../model';
 import { libraryLineValue, librarySeriesOfItem, shelfHolderMediumOfItem } from '../Rules';
 import { HousingPanel } from './Panel';
 import { type BookDexView, createBookDex, gameDiscText, libraryEffectText, seriesTint, volumeRoman } from './BookDex';
@@ -15,28 +18,28 @@ import { clear, el, setText, toggleClass } from './dom';
 type ShelfTab = 'shelf' | 'dex';
 
 const pct = (v: number): string => `${Math.round(v * 100)} %`;
-/** 받침 없는 매체 이름 뒤의 주격 조사 (`책은` · `디스크는` · `레코드는` · `게임 디스크는`). */
-const topicOf = (m: ShelfMedium): string => (m === 'book' ? '은' : '는');
-/** The glyph a slot draws when the item def has none. */
-const FALLBACK_GLYPH: Readonly<Record<ShelfMedium, string>> = { book: '▤', disc: '◎', record: '◉', game: '⊛' };
 /** What a 보관함 accepts, for the wrong-medium refusal (`책장에는 서적만 꽂을 수 있습니다`). */
 const ACCEPTS_KO: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc: '디스크', record: '레코드', game: '게임 디스크' };
 
 /**
- * 보관함 화면 (Phase 9 책장 → A-3e 2026-09-12 매체 공통 → 2026-09-13 그려진 선반 + 드래그 → **2026-09-13 서재 시리즈 · 게임 디스크 전시대**).
+ * 보관함 화면 (Phase 9 책장 → A-3e 2026-09-12 매체 공통 → 2026-09-13 그려진 선반 + 시리즈 → **2026-09-14 서재 화면 개편**).
  * `openShelf(uid)` reads the medium from `housing.getShelfMedium(uid)` and redraws for it.
  *
- * 틀은 `StationShell` 공통이다 (`upgrade: false`): **레일 = 「선반」 · 「도감」 탭, 좌 카드 = 그 페이지, 우 = 함선 창고 · 가방 격자.**
- * 선반 페이지 = `n / 8권` 한 줄 + 가구 그림(`ui/ShelfDrawing` — 칸마다 권 번호 배지 · 전권이면 초록 윤곽) + 칸 정보 한 줄(호버한 칸의
- * `n번 칸 · 이름 · 시리즈 II (2 / 5권 · 몫 20 %) · 효과`, 아니면 사용법) + 보조 가구 한 줄(`.hs-shelf-aux`) + **시리즈 진척**(`.lib-series`
- * — 이 매체의 꽂힌 시리즈마다 이름 · 권 칸(`is-on` 작동 중인 보관함에 꽂힘 · `is-here` 이 보관함에 꽂힘) · `n / N권 · 몫` · 효과 줄의 지금 값).
- * 게임 디스크 전시대는 효과가 없어 보조 가구 줄이 숨고, 시리즈 진척 자리에 꽂힌 게임 디스크 목록(게임기 · 능력치 · 방식)이 선다.
+ * **2026-09-14 (사용자 결정)** — 틀은 `StationShell` 공통이되 레일과 탭의 역할이 바뀌었다:
+ * - **좌측 레일(`.hs-rail`) = 서재 가구 목록**이다 (작업대 제작 창의 `.inv-craft-benches` 와 같은 결). 맨 위가 **「서재」**,
+ *   그 아래로 **함선에 실제로 배치된** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대가 여러 대여도 전부 한 줄씩.
+ *   고르면 창을 닫지 않고 그 자리에서 바뀐다.
+ * - **「서재」** = 서재 시설 전체의 보너스 요약(`getLibraryEffects()`) — 효과 이름과 값만. 흩어져 있던 보조 가구 줄 ·
+ *   시리즈 진척 · 바닥 힌트는 전부 여기로 모으고 선반 페이지에서는 걷어냈다.
+ * - **가구를 고르면** 콘텐츠 **상단 가로 탭**(`StationShell.tabsRow`) `[선반] [도감]` 이 보인다 (옛 좌측 레일 탭).
+ * - 선반 페이지 = `n / 40권` 한 줄 + 가구 그림(`ui/ShelfDrawing` — 층당 여러 줄) + 칸 정보 한 줄.
+ *   **빈 칸 호버는 아무것도 말하지 않고**, 꽂힌 칸은 `data-item-tip` 으로 `ui/hud/ItemTip` 의 아이템 카드가 뜬다.
  *
  * 조작:
  * - **꽂기** = 창고 · 가방 타일을 칸으로 끌어다 놓기 (`mountStationGrids` → `dropOn`). 타일 더블클릭 = 첫 빈 칸.
- *   매체가 맞지 않으면 `책장에는 서적만 꽂을 수 있습니다`. 이미 어느 보관함에든 꽂힌 종류면 `이미 꽂혀 있는 책입니다`(2026-09-13 — 효과가 겹치지 않는다).
- *   **이미 꽂힌 칸에 놓으면 교체**다 — `takeShelfItem`(가방 먼저 · 없으면 창고) 뒤에 `placeShelfItem`; 꽂기가 거절되면 뺀 것을 같은 칸에
- *   다시 꽂아 되돌린다. 같은 아이템이면 아무 일도 없다. 함선 밖에서는 교체를 시도하지 않고 `placeShelfItem` 의 사유를 보인다.
+ *   매체가 맞지 않으면 `책장에는 서적만 꽂을 수 있습니다`. 이미 어느 보관함에든 꽂힌 종류면 `이미 꽂혀 있는 책입니다`.
+ *   **이미 꽂힌 칸에 놓으면 교체**다 — `takeShelfItem`(가방 먼저 · 없으면 창고) 뒤에 `placeShelfItem`; 꽂기가 거절되면 뺀 것을
+ *   같은 칸에 다시 꽂아 되돌린다. 같은 아이템이면 아무 일도 없다.
  * - **빼기** = 꽂힌 칸을 격자로 끌어다 놓기 또는 더블클릭 (`ProductDrag` → `takeShelfItem`, 놓은 격자와 무관하게 가방 먼저).
  *
  * 규칙은 전부 `HousingSystem.placeShelfItem / takeShelfItem`(책장은 옛 `placeBook / takeBook`)이고 패널은 한국어 사유를 옮길 뿐이다.
@@ -46,23 +49,29 @@ const ACCEPTS_KO: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc
 export class BookshelfMenu extends HousingPanel {
   private uid = '';
   private medium: ShelfMedium = 'book';
+  /** false = 레일의 「서재」 항목 (보관함이 아니라 시설 전체 요약). */
+  private onHolder = true;
   private tab: ShelfTab = 'shelf';
   private readonly shell: StationShell;
+  private readonly tabsRow: HTMLElement;
   private readonly tabBtns: Record<ShelfTab, HTMLButtonElement>;
+  private readonly libPage: HTMLElement;
+  private readonly libList: HTMLElement;
   private readonly shelfPage: HTMLElement;
   private readonly dexPage: HTMLElement;
   private readonly countEl: HTMLElement;
   private readonly caseHost: HTMLElement;
   private readonly infoEl: HTMLElement;
-  private readonly aux: HTMLElement;
-  private readonly seriesEl: HTMLElement;
-  private readonly footHint: HTMLElement;
   private readonly dex: BookDexView;
   private readonly drag: ProductDrag;
   private drawing: ShelfDrawing | null = null;
   private grids: EmbeddedView | null = null;
   private hoverSlot: number | null = null;
-  private seriesKey = '';
+  private railKey = '';
+  private libKey = '';
+  /** 마지막으로 `ui:*Toggled {open:true}` 를 낸 보관함 (닫기 이벤트를 한 번만 내기 위해). */
+  private announced: ShelfMedium | null = null;
+  private announcedUid = '';
   /** Smoke / perf counters: how often the shelf drawing was (re)built. */
   readonly debug = { builds: 0 };
 
@@ -70,29 +79,32 @@ export class BookshelfMenu extends HousingPanel {
     super(ctx, 'bookshelf', 'bookshelf-menu hs-station');
     this.coalesceRefresh = true;
     this.shell = buildStationShell(this.frame, {
-      title: '책장',
+      title: '서재',
       upgrade: false,
+      tabs: true,
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
 
-    const rail = this.shell.rail;
-    rail.hidden = false;
-    this.tabBtns = { shelf: this.tabButton(rail, '선반', 'shelf'), dex: this.tabButton(rail, '도감', 'dex') };
+    this.shell.rail.hidden = false;
+    this.shell.rail.addEventListener('click', (e) => this.onRailClick(e));
+
+    this.tabsRow = this.shell.tabsRow!;
+    this.tabBtns = { shelf: this.tabButton(this.tabsRow, '선반', 'shelf'), dex: this.tabButton(this.tabsRow, '도감', 'dex') };
 
     const pages = el('div', { cls: 'lib-pages', parent: this.shell.left });
+    this.libPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'library' }, parent: pages });
+    this.libList = el('div', { cls: 'lib-eff-list', parent: this.libPage });
     this.shelfPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'shelf' }, parent: pages });
     this.countEl = el('div', { cls: 'lib-count', text: '', parent: this.shelfPage });
     this.caseHost = el('div', { cls: 'lib-casehost', parent: this.shelfPage });
     this.infoEl = el('div', { cls: 'lib-info', text: '', parent: this.shelfPage });
-    this.aux = el('div', { cls: 'hs-shelf-aux', text: '', parent: this.shelfPage });
-    this.seriesEl = el('div', { cls: 'lib-series', parent: this.shelfPage });
     this.dexPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'dex' }, parent: pages });
     this.dex = createBookDex(ctx, housing, this.dexPage, 'book');
     this.setTab('shelf');
 
     this.mountMsg();
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
-    this.footHint = el('div', { cls: 'hint', text: '', parent: el('div', { cls: 'left', parent: foot }) });
+    el('div', { cls: 'left', parent: foot });
     this.button(el('div', { cls: 'right', parent: foot }), '닫기', () => this.close());
 
     this.drag = new ProductDrag(this.caseHost, {
@@ -104,7 +116,7 @@ export class BookshelfMenu extends HousingPanel {
     this.caseHost.addEventListener('pointerover', (e) => { if (!this.drag.dragging) this.setHover(this.slotAt(e.target as Element | null)); });
     this.caseHost.addEventListener('pointerleave', () => this.setHover(null));
     this.buildDrawing('book');
-    // 2026-09-13 (서재 시리즈): 합산이 바뀌면(다른 보관함 · 보조 가구 · 전력) 몫 · 효과 숫자가 바뀐다
+    // 2026-09-13 (서재 시리즈): 합산이 바뀌면(다른 보관함 · 보조 가구) 몫 · 효과 숫자가 바뀐다
     this.unsubs.push(ctx.bus.on('housing:libraryChanged', () => this.refreshIfOpen()));
   }
 
@@ -116,6 +128,7 @@ export class BookshelfMenu extends HousingPanel {
       if (this.tab === id) return;
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.setTab(id);
+      this.refreshIfOpen();
     });
     return b;
   }
@@ -123,9 +136,17 @@ export class BookshelfMenu extends HousingPanel {
   private setTab(id: ShelfTab): void {
     this.tab = id;
     for (const k of Object.keys(this.tabBtns) as ShelfTab[]) toggleClass(this.tabBtns[k], 'is-active', k === id);
-    this.shelfPage.hidden = id !== 'shelf';
-    this.dexPage.hidden = id !== 'dex';
-    if (id === 'dex') this.dex.refresh();
+    this.applyPages();
+    if (id === 'dex' && this.onHolder) this.dex.refresh();
+  }
+
+  /** Which of the three pages (서재 요약 · 선반 · 도감) is on screen, and whether the tab row shows at all. */
+  private applyPages(): void {
+    const holder = this.onHolder;
+    this.tabsRow.hidden = !holder;
+    this.libPage.hidden = holder;
+    this.shelfPage.hidden = !holder || this.tab !== 'shelf';
+    this.dexPage.hidden = !holder || this.tab !== 'dex';
   }
 
   /** (Re)build the drawing when the medium on screen changes (the slot count / shape follow it). */
@@ -138,22 +159,56 @@ export class BookshelfMenu extends HousingPanel {
 
   /** The medium on screen (smoke / consumers). */
   get shownMedium(): ShelfMedium { return this.medium; }
+  /** The 보관함 on screen, `''` while the 「서재」 summary is selected (smoke / consumers). */
+  get shownUid(): string { return this.onHolder ? this.uid : ''; }
 
   /** Open the panel for one 보관함 (책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대 — the medium comes from the piece). */
   openShelf(uid: string): void {
     const medium = typeof this.housing.getShelfMedium === 'function' ? this.housing.getShelfMedium(uid) ?? 'book' : 'book';
     if (this.isOpen && (this.uid !== uid || this.medium !== medium)) this.close(false);   // closing emits for the old piece
     if (!this.isOpen) this.setTab('shelf');
-    this.uid = uid;
-    this.medium = medium;
-    this.root.dataset.medium = medium;
-    this.seriesKey = '';
-    this.buildDrawing(medium);
-    this.dex.setMedium(medium);
+    this.railKey = '';
+    this.select(uid, medium, false);
     this.openPanel();
     if (!this.grids) this.grids = mountStationGrids(this.ctx, this.shell.invHost, '.lib-slot[data-slot]', (item, target) => this.dropOn(item, target));
-    if (medium === 'book') this.ctx.bus.emit('ui:bookshelfToggled', { open: true, uid });
-    else this.ctx.bus.emit('ui:shelfToggled', { open: true, uid, medium });
+    this.announce();
+  }
+
+  /** Switch what the left pane shows. `uid` null = the 「서재」 summary. */
+  private select(uid: string | null, medium: ShelfMedium | null, refresh = true): void {
+    this.drag.end();
+    this.setHover(null);
+    if (uid) {
+      this.uid = uid;
+      this.medium = medium ?? this.medium;
+      this.onHolder = true;
+      this.root.dataset.medium = this.medium;
+      this.buildDrawing(this.medium);
+      this.dex.setMedium(this.medium);
+    } else {
+      this.onHolder = false;
+      delete this.root.dataset.medium;
+    }
+    this.applyPages();
+    if (refresh) this.refresh();
+  }
+
+  /** `ui:bookshelfToggled` / `ui:shelfToggled` — one `open: true` per shown 보관함, one `open: false` when it leaves. */
+  private announce(): void {
+    const next = this.onHolder && this.isOpen ? this.medium : null;
+    const nextUid = next ? this.uid : '';
+    if (this.announced === next && this.announcedUid === nextUid) return;
+    if (this.announced !== null) {
+      if (this.announced === 'book') this.ctx.bus.emit('ui:bookshelfToggled', { open: false, uid: null });
+      else this.ctx.bus.emit('ui:shelfToggled', { open: false, uid: null, medium: null });
+      this.announced = null;
+      this.announcedUid = '';
+    }
+    if (!next) return;
+    if (next === 'book') this.ctx.bus.emit('ui:bookshelfToggled', { open: true, uid: nextUid });
+    else this.ctx.bus.emit('ui:shelfToggled', { open: true, uid: nextUid, medium: next });
+    this.announced = next;
+    this.announcedUid = nextUid;
   }
 
   override close(relock = true): void {
@@ -165,13 +220,72 @@ export class BookshelfMenu extends HousingPanel {
     this.grids = null;
     super.close(relock);
     if (!wasOpen) return;
-    if (this.medium === 'book') this.ctx.bus.emit('ui:bookshelfToggled', { open: false, uid: null });
-    else this.ctx.bus.emit('ui:shelfToggled', { open: false, uid: null, medium: null });
+    this.onHolder = false;
+    this.announce();
+  }
+
+  /* ── 좌측 레일 = 서재 가구 목록 ────────────────────────────────────────── */
+  /** 함선에 배치된 보관함 전부 — `interaction` 으로 고른다 (defId 를 코드에 적지 않는다). */
+  private holders(): readonly PlacedFurniture[] {
+    return this.housing.getPlaced().filter((p) => {
+      const def = this.housing.getFurnitureDef(p.defId);
+      return !!def && shelfMediumOfInteraction(def.interaction) !== null;
+    });
+  }
+
+  /** 목록은 가구 구성이 바뀔 때만 짓는다 (작업대 목록과 같은 규약). 맨 위는 늘 「서재」. */
+  private buildRail(list: readonly PlacedFurniture[]): void {
+    const rail = this.shell.rail;
+    clear(rail);
+    const top = el('button', { cls: 'hs-rail-item', attrs: { 'data-uid': '' }, parent: rail });
+    top.type = 'button';
+    el('i', { cls: 'hs-rail-ico', text: LIBRARY_GLYPH, parent: top });
+    el('span', { cls: 'hs-rail-name', text: '서재', parent: top });
+    const seen: Partial<Record<ShelfMedium, number>> = {};
+    for (const p of list) {
+      const def = this.housing.getFurnitureDef(p.defId);
+      const m = def ? shelfMediumOfInteraction(def.interaction) : null;
+      if (!m) continue;
+      const n = (seen[m] = (seen[m] ?? 0) + 1);
+      const btn = el('button', { cls: 'hs-rail-item', attrs: { 'data-uid': p.uid, 'data-medium': m }, parent: rail });
+      btn.type = 'button';
+      el('i', { cls: 'hs-rail-ico', text: SHELF_GLYPH[m], parent: btn });
+      const name = `${def?.name ?? shelfHolderName(m)}${n > 1 ? ` ${n}` : ''}`;
+      el('span', { cls: 'hs-rail-name', text: name, parent: btn });
+      el('span', { cls: 'hs-rail-cnt', text: '', parent: btn });
+      btn.title = name;
+    }
+  }
+
+  /** 선택 표시 + 칸 수만 다시 칠한다. */
+  private paintRail(): void {
+    for (const btn of Array.from(this.shell.rail.children) as HTMLElement[]) {
+      const uid = btn.dataset.uid ?? '';
+      toggleClass(btn, 'is-active', uid ? this.onHolder && uid === this.uid : !this.onHolder);
+      const cnt = btn.querySelector<HTMLElement>('.hs-rail-cnt');
+      if (!cnt || !uid) continue;
+      const m = (btn.dataset.medium ?? 'book') as ShelfMedium;
+      const filled = this.housing.getShelfSlots(uid).filter((i) => i.defId !== null).length;
+      setText(cnt, `${filled} / ${SHELF_SLOTS[m]}`);
+    }
+  }
+
+  private onRailClick(e: MouseEvent): void {
+    const btn = (e.target as Element | null)?.closest<HTMLElement>('.hs-rail-item');
+    if (!btn) return;
+    e.stopPropagation();
+    const uid = btn.dataset.uid ?? '';
+    if (uid ? this.onHolder && uid === this.uid : !this.onHolder) return;
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    const medium = uid && typeof this.housing.getShelfMedium === 'function' ? this.housing.getShelfMedium(uid) : null;
+    this.select(uid || null, medium ?? null);
+    this.announce();
   }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
   /** A tile was dragged out of the 창고 / 가방 onto a slot (`target`), or double-clicked (`target` null → the first empty slot). */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
+    if (!this.onHolder) return;
     const h = this.housing;
     const m = this.medium;
     const def = h.defOf(item.defId);
@@ -214,7 +328,7 @@ export class BookshelfMenu extends HousingPanel {
   }
 
   private take(slot: number): void {
-    if (!Number.isInteger(slot)) return;
+    if (!Number.isInteger(slot) || !this.onHolder) return;
     const reason = this.housing.takeShelfItem(this.uid, slot);
     if (reason) { this.deny(reason); return; }
     this.setHover(null);
@@ -234,7 +348,7 @@ export class BookshelfMenu extends HousingPanel {
 
   private productAt(target: Element): Product | null {
     const slot = this.slotAt(target);
-    if (slot === null) return null;
+    if (slot === null || !this.onHolder) return null;
     const defId = this.housing.getShelfSlots(this.uid)[slot]?.defId ?? null;
     return defId ? { key: String(slot), defId, qty: 1 } : null;
   }
@@ -247,9 +361,21 @@ export class BookshelfMenu extends HousingPanel {
 
   /* ── state → DOM ───────────────────────────────────────────────────────── */
   refresh(): void {
+    const list = this.holders();
+    const railKey = list.map((p) => `${p.uid}:${p.defId}`).join(',');
+    if (railKey !== this.railKey) { this.railKey = railKey; this.buildRail(list); }
+    // 고른 보관함이 사라졌으면(회수 · 이동) 「서재」 로 떨어진다
+    if (this.onHolder && !list.some((p) => p.uid === this.uid)) { this.onHolder = false; this.applyPages(); this.announce(); }
+    this.paintRail();
+    if (!this.onHolder) { this.paintLibrary(); setText(this.shell.title, '서재'); return; }
+    this.paintShelf();
+    this.dex.refresh();   // 도감은 탭 뒤에 있어도 최신으로 둔다 (탭을 눌렀을 때 한 프레임 늦게 그려지지 않도록)
+  }
+
+  /** 선반 페이지 + 제목 + 칸 수. */
+  private paintShelf(): void {
     const h = this.housing;
     const m = this.medium;
-    const label = SHELF_MEDIUM_LABEL_KO[m];
     const holder = shelfHolderName(m);
     const slots = SHELF_SLOTS[m];
     const shelf = h.getPlacedByUid(this.uid);
@@ -257,25 +383,7 @@ export class BookshelfMenu extends HousingPanel {
     const infos = shelf ? h.getShelfSlots(this.uid) : [];
     const filled = infos.filter((i) => i.defId !== null).length;
     setText(this.shell.title, shelf ? `${holder} · 방 ${shelf.room + 1}` : holder);
-    setText(this.countEl, !shelf ? `${holder}이(가) 사라졌습니다`
-      : game ? `${filled} / ${slots}${SHELF_UNIT_KO[m]} · 꽂힌 게임 디스크는 TV 에서 플레이할 수 있습니다`
-        : `${filled} / ${slots}${SHELF_UNIT_KO[m]} · 같은 시리즈의 서로 다른 ${label}${topicOf(m)} 효과가 쌓입니다`);
-    setText(this.footHint, game
-      ? '게임 디스크는 서재 효과가 없습니다 — TV 에 맞는 게임기를 장착하고 TV 정면의 좌석에서 플레이합니다. 같은 게임 디스크는 한 곳에만 꽂힙니다.'
-      : `시리즈의 서로 다른 권마다 전권 효과의 ${pct(SHELF_SERIES_VOLUME_SHARE)}, 전권을 모으면 100 %. 같은 ${label}${topicOf(m)} 한 곳에만 꽂히고 한 번만 셉니다. 꽂아 본 ${label}${topicOf(m)} 도감에 남습니다.`);
-
-    // 보조 가구: 배치 + 작동 중이면 켜진다 — 배율은 계약의 `SHELF_AUX_BONUS` 에서. 게임 디스크는 보조 가구가 없다.
-    this.aux.hidden = game;
-    if (!game) {
-      const placed = h.hasShelfAux(m);
-      const active = h.libraryAuxActive(m);
-      const names = shelfAuxNames(m);
-      setText(this.aux, active
-        ? `${names} 작동 중 — ${label} 효과 +${pct(SHELF_AUX_BONUS[m])}`
-        : placed ? `${names} 이(가) 멈춰 있습니다 — 작동하면 ${label} 효과 +${pct(SHELF_AUX_BONUS[m])}`
-          : `${names} 을(를) 서재에 두면 ${label} 효과 +${pct(SHELF_AUX_BONUS[m])}`);
-      toggleClass(this.aux, 'on', active);
-    }
+    setText(this.countEl, shelf ? `${filled} / ${slots}${SHELF_UNIT_KO[m]}` : `${holder}이(가) 사라졌습니다`);
 
     this.buildDrawing(m);
     const states = h.librarySeriesStates();
@@ -283,21 +391,22 @@ export class BookshelfMenu extends HousingPanel {
       const info = infos[view.slot];
       const def = info?.defId ? h.defOf(info.defId) : undefined;
       if (!info || !info.defId) {
-        paintShelfSlot(view, { defId: null, color: '', glyph: '', label: '', line: `${view.slot + 1}번 칸 · 비어 있음` });
+        // 2026-09-14 (사용자 결정): 빈 칸은 아무 말도 하지 않는다 — 호버해도 정보 줄이 비어 있다
+        paintShelfSlot(view, { defId: null, color: '', glyph: '', label: '', line: '' });
         continue;
       }
       const name = def?.name ?? info.defId;
       if (game) {
         paintShelfSlot(view, {
-          defId: info.defId, color: def?.gameDisc?.color || '#9ff0c8', glyph: def?.icon || FALLBACK_GLYPH[m], label: name,
-          line: `${view.slot + 1}번 칸 · ${name}${def ? ` · ${gameDiscText(this.ctx, def)}` : ''}`,
+          defId: info.defId, color: def?.gameDisc?.color || '#9ff0c8', glyph: def?.icon || SHELF_GLYPH[m], label: name,
+          line: `${name}${def ? ` · ${gameDiscText(this.ctx, def)}` : ''}`,
         });
         continue;
       }
       const s = librarySeriesOfItem(def);
       const series = s ? LIBRARY_SERIES_MAP.get(s.seriesId) : undefined;
       if (!s || !series) {
-        paintShelfSlot(view, { defId: info.defId, color: '#9aa3ad', glyph: def?.icon || FALLBACK_GLYPH[m], label: name, line: `${view.slot + 1}번 칸 · ${name} · 효과 없음` });
+        paintShelfSlot(view, { defId: info.defId, color: '#9aa3ad', glyph: def?.icon || SHELF_GLYPH[m], label: name, line: `${name} · 효과 없음` });
         continue;
       }
       const st = states.get(series.id);
@@ -307,93 +416,46 @@ export class BookshelfMenu extends HousingPanel {
       paintShelfSlot(view, {
         defId: info.defId,
         color: seriesTint(series.id),
-        glyph: def?.icon || FALLBACK_GLYPH[m],
+        glyph: def?.icon || SHELF_GLYPH[m],
         label: series.name,
         volume: series.volumes > 1 ? volumeRoman(s.volume) : '',
         full: fraction >= 1,
-        line: `${view.slot + 1}번 칸 · ${name} · ${series.name}${progress}${st ? ` · ${effects}` : ' · 보관함이 멈춰 효과 없음'}`,
+        line: `${name} · ${series.name}${progress}${st ? ` · ${effects}` : ''}`,
       });
     }
-    this.paintSeries(infos.map((i) => i.defId).filter((d): d is string => d !== null));
     this.paintInfo();
-    this.dex.refresh();
   }
 
-  /** 시리즈 진척 (서재 효과 매체) · 꽂힌 게임 디스크 목록 (게임 디스크 전시대). `here` = 이 보관함에 꽂힌 def. */
-  private paintSeries(here: readonly string[]): void {
+  /**
+   * 「서재」 항목 — 서재 시설 전체의 보너스 요약. `getLibraryEffects()` 한 곳에서 읽고 **효과 이름과 값만** 적는다
+   * (설명 · 출처 · 진척은 여기 넣지 않는다 — 2026-09-14 사용자 결정). 글은 `libraryEffectText` 하나가 만든다.
+   */
+  private paintLibrary(): void {
     const h = this.housing;
-    const m = this.medium;
-    const label = SHELF_MEDIUM_LABEL_KO[m];
-    if (m === 'game') {
-      const key = `g|${here.join(',')}`;
-      if (key === this.seriesKey) return;
-      this.seriesKey = key;
-      clear(this.seriesEl);
-      el('div', { cls: 'lib-series-head', text: '꽂힌 게임', parent: this.seriesEl });
-      if (!here.length) { el('div', { cls: 'lib-ser-empty', text: '꽂힌 게임 디스크가 없습니다', parent: this.seriesEl }); return; }
-      for (const id of here) {
-        const def = h.defOf(id);
-        const row = el('div', { cls: 'lib-ser', attrs: { 'data-def': id }, parent: this.seriesEl });
-        el('span', { cls: 'lib-ser-name', text: def?.name ?? id, parent: el('div', { cls: 'lib-ser-top', parent: row }) });
-        if (def) el('div', { cls: 'lib-ser-line', text: gameDiscText(this.ctx, def), parent: row });
-      }
-      return;
+    const e: LibraryEffectsSummary | null = typeof h.getLibraryEffects === 'function' ? h.getLibraryEffects() : null;
+    const lines: string[] = [];
+    if (e) {
+      const push = (eff: LibraryEffect, v: number): void => { if (v) lines.push(libraryEffectText(this.ctx, eff, v)); };
+      for (const [k, v] of Object.entries(e.skillGain)) push({ kind: 'skillGain', target: k as SkillId, value: v ?? 0 }, v ?? 0);
+      for (const [k, v] of Object.entries(e.derived)) push({ kind: 'derived', target: k as MealBuff, value: v ?? 0 }, v ?? 0);
+      for (const [k, v] of Object.entries(e.gymScore)) push({ kind: 'gymScore', target: k as LibraryGymTarget, value: v ?? 0 }, v ?? 0);
+      for (const [k, v] of Object.entries(e.cookScore)) push({ kind: 'cookScore', target: k as LibraryCookTarget, value: v ?? 0 }, v ?? 0);
+      push({ kind: 'raidXp', target: '', value: e.raidXp }, e.raidXp);
+      for (const [k, v] of Object.entries(e.trustXp)) push({ kind: 'trustXp', target: k as LibraryTrustTarget, value: v ?? 0 }, v ?? 0);
+      if (e.recipes.length) lines.push(`해금된 레시피 ${e.recipes.length}종`);
     }
-    const states = h.librarySeriesStates();
-    /** 이 보관함에 꽂힌 시리즈 → 권 번호. */
-    const hereVolumes = new Map<string, Set<number>>();
-    for (const id of here) {
-      const s = librarySeriesOfItem(h.defOf(id));
-      if (!s) continue;
-      let set = hereVolumes.get(s.seriesId);
-      if (!set) { set = new Set(); hereVolumes.set(s.seriesId, set); }
-      set.add(s.volume);
-    }
-    const list = LIBRARY_SERIES_DEFS.filter((s) => s.medium === m && (states.has(s.id) || hereVolumes.has(s.id)));
-    const rowsData = list.map((s) => {
-      const st = states.get(s.id);
-      const lines = s.effects.map((e) => {
-        const now = st ? libraryLineValue(e, st) : 0;
-        const full = e.kind === 'recipe' ? 1 : e.value;
-        const nowText = libraryEffectText(this.ctx, e, now);
-        const fullText = e.kind === 'recipe' ? (now ? '해금됨' : '전권이면 해금') : `전권 ${libraryEffectText(this.ctx, e, full).replace(/^.* (?=[+−])/, '')}`;
-        return { text: e.kind === 'recipe' ? `${nowText} · ${fullText}` : `${nowText}${st && st.fraction >= 1 && !st.auxApplied ? '' : ` (${fullText})`}`, zero: !now };
-      });
-      return { s, st, lines, here: hereVolumes.get(s.id) ?? new Set<number>() };
-    });
-    const key = `s|${rowsData.map((r) => `${r.s.id}:${r.st?.volumes.join('.') ?? ''}:${[...r.here].sort().join('.')}:${r.lines.map((l) => l.text).join('/')}`).join('|')}`;
-    if (key === this.seriesKey) return;
-    this.seriesKey = key;
-    clear(this.seriesEl);
-    el('div', { cls: 'lib-series-head', text: '시리즈 진척', parent: this.seriesEl });
-    if (!rowsData.length) { el('div', { cls: 'lib-ser-empty', text: `꽂힌 ${label}${topicOf(m)} 아직 없습니다`, parent: this.seriesEl }); return; }
-    for (const { s, st, lines, here: hv } of rowsData) {
-      const row = el('div', { cls: 'lib-ser', attrs: { 'data-series': s.id }, parent: this.seriesEl });
-      toggleClass(row, 'is-full', !!st && st.fraction >= 1);
-      toggleClass(row, 'is-off', !st);
-      const top = el('div', { cls: 'lib-ser-top', parent: row });
-      el('span', { cls: 'lib-ser-name', text: s.name, parent: top });
-      const pips = el('span', { cls: 'lib-pips', parent: top });
-      const live = new Set(st?.volumes ?? []);
-      for (let v = 1; v <= s.volumes; v++) {
-        const pip = el('i', { cls: `lib-pip${live.has(v) ? ' is-on' : ''}${hv.has(v) ? ' is-here' : ''}`, parent: pips });
-        pip.title = s.volumes > 1 ? `${volumeRoman(v)}권` : '단편';
-      }
-      el('span', {
-        cls: 'lib-ser-cnt',
-        text: st ? `${st.have} / ${st.total}${SHELF_UNIT_KO[m]} · 몫 ${pct(st.fraction)}` : '보관함이 멈춤 · 효과 없음',
-        parent: top,
-      });
-      for (const l of lines) el('div', { cls: `lib-ser-line${l.zero ? ' is-zero' : ''}`, text: l.text, parent: row });
-    }
+    const key = lines.join('|');
+    if (key === this.libKey) return;
+    this.libKey = key;
+    clear(this.libList);
+    if (!lines.length) { el('div', { cls: 'lib-eff-empty', text: '효과 없음', parent: this.libList }); return; }
+    for (const text of lines) el('div', { cls: 'lib-eff', text, parent: this.libList });
   }
 
-  /** The line under the shelf: the hovered slot, else how to use the screen. */
+  /** The line under the shelf: the hovered slot only (an empty slot and no hover say nothing). */
   private paintInfo(): void {
-    const view = this.hoverSlot !== null ? this.drawing?.slots[this.hoverSlot] : undefined;
-    toggleClass(this.infoEl, 'is-slot', !!view);
-    setText(this.infoEl, view?.root.dataset.line
-      ?? `창고 · 가방에서 ${SHELF_OBJ_KO[this.medium]} 칸으로 끌어다 놓으면 꽂힙니다 · 꽂힌 칸은 더블클릭하거나 격자로 끌어 뺍니다`);
+    const view = this.hoverSlot !== null ? this.drawing?.slots.find((s) => s.slot === this.hoverSlot) : undefined;
+    setText(this.infoEl, view?.root.dataset.line ?? '');
   }
 
   override dispose(): void {

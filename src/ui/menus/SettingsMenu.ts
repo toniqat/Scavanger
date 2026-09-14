@@ -22,13 +22,14 @@ const SECTIONS: readonly { id: SectionId; label: string }[] = [
   { id: 'network', label: '서버 설정' },
 ];
 
-const CHANNEL_LABEL: Readonly<Record<AudioChannel, string>> = { master: '전체', sfx: '효과음' };
+const CHANNEL_LABEL: Readonly<Record<AudioChannel, string>> = { master: '전체', sfx: '효과음', bgm: '음악' };
 const CHANNEL_DESC: Readonly<Record<AudioChannel, string>> = {
   master: '모든 소리의 기준 볼륨입니다.',
   sfx: '총성 · 타격 · UI 등 효과음 볼륨입니다.',
+  bgm: '축음기 · 주크박스 · 턴테이블의 음악 볼륨입니다.',
 };
-/** Channels the 오디오 section exposes. A BGM row would simply be appended here once music exists. */
-const CHANNELS: readonly AudioChannel[] = ['master', 'sfx'];
+/** Channels the 오디오 section exposes. 2026-09-14: 음악 재생 창이 이 값을 보여 주므로 `bgm` 줄이 생겼다. */
+const CHANNELS: readonly AudioChannel[] = ['master', 'sfx', 'bgm'];
 
 /** C-58: the 화면 효과 pill while the perf guard holds bloom off (the stored choice is still 켬). */
 const BLOOM_AUTO_OFF_LABEL = '꺼짐 (성능 자동)';

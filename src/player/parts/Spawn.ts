@@ -49,6 +49,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14
+  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금 (부활 · 함선 복귀는 스스로 푼다)
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -151,6 +152,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14
+  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금 (부활 · 함선 복귀는 스스로 푼다)
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -229,6 +231,7 @@ export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: numb
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14
+  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금 (부활 · 함선 복귀는 스스로 푼다)
   sys.clearClimbState();
   sys.attachTo(null);
   sys.setInterior(null);
@@ -386,6 +389,7 @@ export function resetAll(sys: PlayerSystem): void {
   sys.releaseDroneControl();   // 2026-09-11: game:abort · 재접속 대기
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14: `game:abort` · 재접속 대기 — 알리지 않고 끝낸다
+  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금도 `game:abort` 가 푼다 (계약)
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);

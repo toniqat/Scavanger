@@ -23,10 +23,10 @@ textures are procedural.
 | `Crates.ts` | 20–40 loot crates: tiered body/lid geometry (beveled frame, stripes), blinking light, tier-4 beacon beam. Registers an `Interactable` per crate (radius 2.8, Korean prompts), lid tween (0.6 s), dust puff, `crate:open`, `audio:play crate_open`, `stats.cratesOpened`. **Placement (2026-09-10): 랜드마크 둘레에만** — 폐허 전초(POI)에 2티어 1 + 1티어 2, 버려진 구조물 벽 바깥에 3티어 1 + 2티어 1–2, 둥지 바깥 고리에 3티어 1. **허허벌판에는 하나도 없고 4티어는 이 파일이 놓지 않는다** (지하실 · 불시착 함선 안에만). Crates are obstacles (r 0.9). **2026-09-11**: 4티어 빛기둥(빔) 제거 (빛기둥은 시체에만), `def.opened` = **누가 열었든 열린 모습**이고 로컬 첫 개봉(통계 · 소리 · 먼지)은 `rolled` 로 가른다 — `setOpenListener` / `markOpened(id)` 로 월드가 `crate opened` 를 주고받는다. |
 | `Gather.ts` | **채집물 (harvestable nodes)** — 약초 plants **and (2026-09-08) 고철 더미**, `GatherNodeDef.kind` telling them apart. `GATHER_NODES_PER_MISSION` (34) procedural herbs in 3 variants, placed in small clusters on gentle, unoccupied ground (`isSpotFree`, ≥ 7 m between clusters, 1.6 m inside one). Two `InstancedMesh` per variant (body + emissive glow part) → 6 draw calls total; the glow material pulses in `update`. Each node registers an `Interactable` (radius 2.2, `holdTime = GATHER_INTERACT_TIME / derived.interactSpeedMul` via a live getter, Korean prompt from the item def name). Harvest → node marked `harvested`, 0.42 s shrink-and-sink instance animation, `gather:collected {nodeId, defId, qty}` (qty × `derived.gatherYieldMul`), `audio:play gather`, then `ctx.inventory.tryAddItem`. Herb def ids are discovered from `ctx.loot.getAllItemDefs()` (`category === 'herb'`); a `FALLBACK_HERB_IDS` list keeps the plants in the world while `items/` has none. **Phase 11**: `build(ctx, game, eco)` takes the planet's ecosystem — the plant **shape** (`variant`) and the **herb it drops** (`defId`) are separate draws now (they used to be bound by `herbIds[variant % len]`), the herb is a weighted draw over `eco.herbs` per cluster (an id `items/` never registered is ignored) and the node count is `GATHER_NODES_PER_MISSION × eco.gatherDensity`; with no planet the old shape-bound pairing is used verbatim and no extra rng is consumed, so the layout is unchanged. **Multiplayer is host-authoritative** (same shape as pickups): clients send `harvq take` / `harvq sync`, the host answers `harv taken {id, by}` / `harv sync {nodes}` and also pushes a sync on `flow rejoined`. Only harvested ids travel — positions are seed-deterministic. A client's pending take expires after 3 s so a lost message never bricks a node. **Phase 9**: a non-host also re-requests the taken set on `net:hostChanged {isLocalHost:false}` (a promoted host never saw the old host's `harv taken` broadcasts as authority). **2026-09-08 — 고철 더미**: `SALVAGE_NODES_PER_MISSION` (7) more nodes of `kind: 'salvage'` in a 4th variant (`SALVAGE_VARIANT`, a crushed drum + bent plates + pipes in metal / rust with amber cut markers — biome colours are deliberately **not** used so a pile reads as metal on any planet). They are drawn **after** the plants from the same `gather` rng fork, so the herb layout for a seed is byte-identical to before; one is tried near each `ctx.layout.pois` (ring 5–14 m) and the rest go in the open, ≥ 12 m apart and ≥ 5 m from any plant. Each yields `mat_scrap` (qty 1, 30 % 2 — ≈ 9 per mission if every pile is stripped), holds for `SALVAGE_INTERACT_TIME` (3 s) inside radius 2.6, prompts `폐금속 해체 (E)`, **ignores `derived.gatherYieldMul`** (that is a 원예 stat) and carries `kind` in `gather:collected` so `progression/` grants 제작 XP instead of 원예. Placement, interaction, the shrink animation and the whole `harv` / `harvq` host authority are the plants' code unchanged. **2026-09-09 — 거대 버섯 군락의 채집 버섯**: `build(ctx, game, eco, groves)` 의 네 번째 인자가 `Hazard.getGroveSpots()` 다. 군락마다 `GROVE_PICKS_MIN`~`MAX` 개의 포자균 갓(변종 1)을 `GROVE_PICK_RING_MIN`~`MAX` 고리에 심는다 — 종류는 약초 무리와 같은 규칙으로 군락당 하나이고, **약초 · 고철 배치가 전부 끝난 뒤에** 뽑으므로 앞의 rng 스트림이 밀리지 않는다 (고철 더미가 쓴 수법 그대로). 변종 1 의 `InstancedMesh` 용량만 `groves.length × GROVE_PICKS_MAX` 만큼 늘어난다. **2026-09-11 (C-20) — 고철 더미 부가 코어**: 수량 확률이 csv 로 옮겨졌고(`GATHER_SALVAGE_QTY2_CHANCE` 0.3 · `GATHER_HERB_QTY2_CHANCE` 0.25 — 같은 값이라 배치 · 수량이 그대로), 고철 더미마다 `GATHER_SALVAGE_CORE_CHANCE`(0.15)로 구동 코어(`mat_core` × `GATHER_SALVAGE_CORE_QTY`)를 **생성 때** 정해 world 내부 `Node.bonus` 에 둔다. 굴림은 **자기 fork `gather_core`** 라 `gather` 스트림(yaw · scale · 수량)을 밀지 않는다. 수확하면 `tryAddItem` 을 한 번 더 할 뿐 `gather:collected` · 소리 · 제작 XP 는 1회다. 와이어 없음 (시드 결정적). 스모크용 `debugBonusOf(id)`. **2026-09-11 (온실 개편) — 토양 더미**: `SOIL_NODES` 가 아니라 **행성**이 개수를 정한다 (`data/planets.csv` 의 `soilNodes`), 종류는 `soils` 가중치 추첨(`world/soil.ts`). 변종 `SOIL_VARIANT`(4) = 파 놓은 흙 무더기 + 흙덩이 + 발광 띠 · 표식 막대이고, 정점 색은 **명암 램프뿐**이라 진짜 흙색은 속성별 `instanceColor`(`SOIL_TAG_COLOR` — 재배 화면과 같은 표)가 곱해져 나온다. 그래서 본체 재질만 `soilMat` 으로 갈라 뒀다 (인스턴스 색이 붙은 메시는 셰이더 프로그램이 다르다 — 약초 · 고철까지 갈리면 선컴파일이 헛돈다). 배치는 **저지대 우선**(`layout.basins` 안을 24번 먼저, 못 잡으면 개활지 120번), 흙더미끼리 `SOIL_SPACING` 14 m · 다른 노드에서 5 m · 최대 경사 0.24 · `isSpotFree` 라 선로 회랑(`RAIL_CLEARANCE_M`)에는 서지 않는다. **지오메트리 · 배치 · yaw · scale · 종류를 전부 자기 fork `gather_soil` 에서 굴린다** — 행성마다 다른 흙더미 개수가 `gather` 스트림을 밀면 같은 시드의 약초 · 고철 배치가 통째로 달라진다 (`gather_core` 와 같은 수법). 프롬프트는 `<이름> 채취 (E)`(약초 채집 · 고철 해체와 한 단어로 갈린다), 집는 시간은 고철과 같은 `SALVAGE_INTERACT_TIME`(전용 상수 없음 — 아래 `변경 이력`), 수량은 한 더미에 1 포대 고정이고 **채집 수율(원예)은 곱해진다**(XP 도 원예 — `progression/` 은 한 줄도 안 바뀌었다). 노드 id 는 `soil_<n>`, 와이어 없음(수확만 기존 `harv`/`harvq`). 행성이 없으면(훈련장 · 모르는 id) 한 더미도 서지 않는다. **2026-09-11 (연구실 A-11 · A-12) — 야생 씨앗 군락 · 미확인 표본 채집지**: 토양과 **판박이**로 두 종류가 더 붙었다 (`kind: 'seed'` 변종 `SEED_VARIANT`(5) · `kind: 'sample'` 변종 `SAMPLE_VARIANT`(6)) — 개수 · 종류가 `data/planets.csv` 의 `seeds`/`seedNodes` · `samples`/`sampleNodes` 에서 오고(`world/flora.ts` · `world/specimen.ts`), 각자 **자기 fork**(`gather_seed` · `gather_sample`)에서 지오메트리 · 배치 · 종류 · yaw · scale 을 굴린다. **씨앗 군락**은 `seedNodes` 가 **군락 수**라 한 군락이 앵커 1 + 곁가지 0~2 (`SEED_PATCH_MIN`~`MAX`)이고 **한 군락은 한 품종**이다 (약초 무리와 같은 규칙); 자리는 **분지 우선**(`layout.basins` 24번 → 개활지 120번), 군락 간격 `SEED_SPACING` 18 m · 다른 채집물에서 5 m · 최대 경사 0.28. 모양은 부챗살 줄기 일곱 + 고개 숙인 이삭(발광) + 떨어진 낟알, 홀드 `SEED_INTERACT_TIME` · 반경 `SEED_NODE_RADIUS`, 프롬프트 `<이름> 채취 (E)`, 수량 1 이고 **채집 수율(원예)이 곱해진다**. **미확인 표본**은 **둥지 바깥 고리**(22–34 m) → **폐허 전초 둘레**(7–17 m) → 개활지 순으로 자리를 잡고(간격 26 m · 다른 채집물에서 6 m), 모양은 반쯤 묻힌 일그러진 덩어리 + 조각 셋 + 뜬 고리/구슬(발광), 홀드 `SAMPLE_INTERACT_TIME` · 반경 `SAMPLE_NODE_RADIUS`, 프롬프트 `<이름> 수습 (E)`, 수량 1 이고 **수율을 곱하지 않는다**(고철과 같은 판단 — 하나짜리 덩어리다). 둘 다 색은 `CATEGORY_COLOR.seed` · `CATEGORY_COLOR.sample` 을 **정점에 구워 넣는다** — 종류당 색이 하나라 흙더미 같은 `instanceColor` 가 필요 없고, 그래서 `bodyMat` 을 약초 · 고철과 그대로 공유한다(셰이더 프로그램이 갈리지 않는다). 노드 id 는 `seed_<n>` · `sample_<n>`, 와이어 없음. 행성이 없거나 그 열이 비면 한 개도 서지 않는다. 아이템 추첨은 `resolveNodeWeights(game, weights, category, prefix)` 하나가 셋(토양 `soil_` · 씨앗 `seed_` · 표본 `spec_`)을 다 본다 — 카테고리가 다르면 버리고, `items/` 가 아직 모르는 id 는 이름 규약으로 한 번 더 거른다. **2026-09-13 (요리 재료 티어) — 고철 더미 부가 미확인 광물**: `Node.bonus` 가 하나(`| null`)에서 **목록**(`NodeBonus[]`, 코어 → 광물 순)이 됐다. 고철 더미마다 코어(`gather_core`)와 **따로** 자기 fork **`gather_mineral`** 에서 `GATHER_SALVAGE_MINERAL_CHANCE`(0.12)로 `spec_mineral × GATHER_SALVAGE_MINERAL_QTY` 를 생성 때 정한다 — 한 더미에 둘 다 붙을 수 있다. 두 굴림 모두 개수와 무관하게 **더미마다 한 번씩** 소비하므로(옛 코어 식 `chance(...) && qty > 0` 과 같은 소비) `gather` · `gather_core` 스트림이 바이트 단위로 그대로다 (`Random.fork` 는 부모 상태를 읽기만 하고 전진시키지 않는다). 수확은 부가 결과마다 `tryAddItem` 한 번(표식 `raidFound` 포함) — 호스트 권한 흐름(`harv`/`harvq`) · `gather:collected` · 소리 · XP 1회는 그대로, 와이어 없음. `debugBonusOf(id)` 는 뜻을 바꾸지 않고 **코어만** 돌려준다(`smoke-ecology` 의 코어 서명), 전부는 `debugBonusesOf(id)`. 그리고 `resolveNodeWeights` 가 **은퇴 def(`ItemDef.retired`)를 거른다** — 행성 표에 옛 표본 id 가 남아도 채집지가 서지 않는다(data:check 와 별개의 안전핀). |
 | `TrainingArena.ts` | **시뮬레이션 훈련장** (Phase 7): the world built for `game:newMission {mode:'training'}` instead of the planet. Flat `TRAINING_ARENA_SIZE` (64 m) deck with a procedural CanvasTexture grid, four walls with ribs + corner pillars, a ceiling at `ARENA_CEILING` 7 m with 15 emissive light panels, cyan wall bands / lane edges, an amber firing line at z +20 and amber distance marks, spawn ring at (0, 0, 26) ("south", the player faces −Z). 3 lanes (x −10 / 0 / +10) × `TRAINING_TARGET_COUNT` / 3 rows of **pop-up targets**: post + hinged board (silhouette + rings CanvasTexture, resting emissive so they read at 40 m), each an `ObstacleEntry {kind:'target', radius 0.42, height 2.1}` in the world hash with a `DestructibleRef` (`training_target_<i>`, hp `TRAINING_TARGET_HP`) — weapons hit them through the ordinary `raycast → obstacle.destructible.onDamage` path (Phase 3 cover). A hit flashes the board + a small additive ring; at 0 hp the board hinges to the floor (0.28 s, the entry leaves the hash so shots pass), `hit_metal` low, and it rises again `TRAINING_TARGET_RESPAWN_S` later (hp reset, entry re-inserted). Counters `hits` / `knockdowns` → `ui:objective {text:'시뮬레이션 훈련장 · 출구 콘솔로 종료', subText:'명중 n · 격추 m'}` on every change. **Three consoles** along the south wall, one pedestal each (`buildConsole(name, x, lines, accent)`: pedestal + tilted emissive screen + floor halo, obstacle r 0.6): **출구** at x −8 (`Interactable 'training_exit'`, prompt `훈련 종료`, one `training:exitRequested` per second), **모드 콘솔** at x +8 (`'training_mode'`, prompt `표적 모드: <라벨>` → cycles 고정 → 이동 → 타임 코스; in 타임 코스 the next E reads `타임 코스 시작` and starts a run, `타임 코스 진행 중 · n초` while one runs; its screen is repainted in place with `redrawScreen`) and the **무기 거치대** at x +14 (`'training_rack'`, prompt `무기 거치대` → `ctx.inventory.openCatalog({category:'primary'})` — the 무한 상자 on its 주무기 tab; game/'s training exit restores the old loadout afterwards) with a merged wall rack of four silhouetted guns behind it as dressing. **Target modes (Phase 9, `TrainingRef`)**: `mode / setMode / score / hits / remaining / bestTime / startCourse / resetScore`, published as `ctx.world.training`. `static` 고정 = the Phase 7 behaviour; `moving` 이동 sweeps each target **±`TRAINING_MOVING_SPAN`** (a **half**-width, 3.2 m either side of the lane centre — 3.2 + the 0.42 m target radius stays inside `LANE_HALF_W` 4) at `TRAINING_MOVING_SPEED` with a `TRAINING_MOVING_PAUSE_S` pause at each end (`setTargetX` moves the mesh **and** the hash entry, re-bucketing only when the entry's cells change, so shots keep hitting the board where it is drawn); `timed` 타임 코스 = knock `TRAINING_COURSE_TARGETS` targets down inside `TRAINING_COURSE_TIME_S` (every knock-down emits `training:scored {score, hits, index}`; finishing or timing out emits `training:courseFinished {time, score, completed, best}`, arms a `TRAINING_COURSE_COOLDOWN_S` cooldown and, on a completion, saves a new best to localStorage `TRAINING_BEST_STORAGE_KEY`). `setMode` is refused while a course runs, emits `training:modeChanged`, resets the score and parks the targets back on their `baseX`. The objective sub-text now reads `<모드> [· n/m · 남은 n초 | · 최고 n.n초] · 명중 n · 격추 m`. Everything here is **client-local** — no wire messages. Queries: `raycastShell` (floor / ceiling / 4 wall planes, writes the normal), `clampInside` (hard wall clamp), `isInside`. No lights: the arena is shown in the atmosphere's **space mode** (black background, no fog, cool key light) plus a little emissive on the deck / hull. `dispose()` unregisters the console, empties the hash entries and disposes every geometry / material / texture. |
-| `tutorial/model.ts` | **튜토리얼 행성의 모양 그 자체** (2026-09-14, `docs/plans/tutorial-raid.md` A절). 폴더 공용 어휘 — 층 높이(`VOID_Y` −34 · `DECK_UPPER_Y` 0 · `DECK_LOWER_Y` −10) · **구간별 통로 반폭**(2026-09-14 2차 — `CORRIDOR_PROFILE` 제어점 + `corridorHalfXAt(z)`, 지나가는 구간 `CORRIDOR_PASS_HALF_X` 11 · 전투 구역 `CORRIDOR_MAX_HALF_X` 22 · 벽 바깥 면 `CORRIDOR_OUTER_X` 25) · 통로(`WALL_TOP_Y` 18 · `Z_START` 121 · `Z_END` −129 · `TUTORIAL_MAP_SIZE` 280) · 데크 사각형 `DECKS` 셋 · 절벽 1 의 틈 `CHASM`(**3.6 m** — 걸어 뛰면 2.66 m 라 못 넘고 달려 뛰면 4.56 m 라 넘는다: `2 × JUMP_SPEED(7.6) / GRAVITY(24)` 체공에 `PLAYER_WALK_SPEED` / `PLAYER_SPRINT_SPEED` 를 곱한 값) · 체크포인트 열 곳 `CHECKPOINTS`(부활 자리 + 통로를 가로지르는 트리거 띠) · 낙하 규칙 볼륨 `FALL_RULES`(절벽 1 바닥 `kill` · 절벽 2 착지 구역 `clamp`) · 적 여섯 `ENEMIES`(`scavenger` 2 + `android` 4) · 시체 세 구 `CORPSES`(고정 아이템 목록) · 함선 자리 `SHIP_POS`/`SHIP_YAW` · 손으로 지은 구조물 치수(`CRAWL` · `BROKEN_WALL` · `RUINS`) · 기하 헬퍼(`box` · `rectBox` · `tileRect`). **여기 숫자는 csv 로 나가지 않는다** — 밸런스가 아니라 형상이고, `TrainingArena` 가 같은 판단을 먼저 했다. 밸런스인 것(`TUTORIAL_ENEMY_SENSE_M` · `TUTORIAL_ENEMY_LEASH_M`)만 `@/shared` 에서 가져온다. **좌표 규약: 앞 = −Z** 라 모든 z 가 큰 값 → 작은 값으로 흐르고, 읽는 순서가 곧 플레이 순서다. |
-| `tutorial/TutorialWorld.ts` | **손으로 지은 튜토리얼 행성** — `game:newMission {mode:'tutorial'}` 이 오면 `WorldSystem` 이 절차 생성기 대신 이것을 세운다 (`TrainingArena` 와 **똑같은 배선**). 안개 · 재해 · 상자 · 채집 · 둥지 · 선로 · 전차 · 탐사 차량이 하나도 없고 `ctx.world.fog === null` 도 훈련장과 같다. `TutorialWorldRef` 구현(`checkpoint` · `respawnPose` · `fallRule` · `gotoCheckpoint` · `enemySpawns`)이자 월드 질의(`heightAt` = `VOID_Y` 상수 · `raycastGround` = 바닥 평면 하나 · `isInside` · `clampInside` · `surfaceMaterial`)다. 체크포인트는 매 프레임 볼륨 판정이고 **번호는 되돌아가도 내려가지 않는다**(`tutorial:checkpoint {id, index}`). 생성할 때 `CHECKPOINTS` 의 순서가 계약 `TUTORIAL_CHECKPOINTS` 와 같은지 검산한다. ⚠ **버려진 함선은 첫 `update()` 에서 세운다** — `generate()` 는 `game:newMission` emit **안에서** 돌고 `ExtractionSystem` 도 같은 이벤트에 `resetMission()` 을 걸어 두었는데 등록 순서가 world(90) → extraction(106) 이라, 생성 중에 세우면 같은 emit 안에서 리셋된다. `ctx.extraction.beginPreLanded(SHIP_POS, SHIP_YAW, {autoDepart:false})` 한 줄이고 실패하면 `SHIP_PLACE_TIMEOUT_S`(5초) 동안 다시 시도한다. |
-| `tutorial/parts/Ground.ts` | 협곡 바닥 · 데크 · 양옆 절벽 벽 · 막다른 끝. **콜라이더와 그림이 갈라져 있다**: 콜라이더는 `DECK_TILE_M`(16 m) 타일(`SpatialHash.addBox`) — 데크를 한 장으로 넣으면 외접원이 85 m 가 되어 `maxRadius` 가 그만큼 커지고 `walkSegment` 가 매번 수백 칸을 훑는다; 그림은 데크마다 상자 하나 + 윗면 판 하나(절차 CanvasTexture 둘 — 돌결 바닥 · 지층 절벽). 벽의 안쪽 면은 `CORRIDOR_PROFILE` 이 정한다 (2026-09-14 2차): 곧은 구간은 `WALL_SEG_M`(10 m) 마다 끊어 안쪽 면과 높이를 흔들고(좁은 구간에서는 파고드는 깊이도 같은 비율로 줄인다), 폭이 바뀌는 구간은 `addFunnel` 이 **회전 OBB 한 장**(+ 바깥 채움)으로 이어 계단 턱을 만들지 않는다 (`addObb` 가 `Obstacle.box.yaw` = −메시 yaw 를 뒤집는 유일한 자리). **구간마다 콜라이더를 따로** 넣으므로 그려진 실루엣이 곧 콜라이더다. 절벽 1 의 틈에 부러진 다리를 걸어 두되 **데크 윗면보다 아래**라 밟을 수 없다. **광원 0개** (전부 emissive). |
-| `tutorial/parts/Dressing.ts` | 시작 폐허(반쯤 남은 벽 다섯 · 넘어진 안테나 · 포드 잔해) · **무너진 통로**(포복 구간 — 양옆 잔해 더미로 `CRAWL.gapHalfX` 만 열어 두고 머리 위 슬래브, 늘어진 철근은 콜라이더 없음) · **무너진 벽**(가운데 `BROKEN_WALL.gapHalfX` 만 뚫려 있다) · 바닥 부스러기. **통로에 닿는 x 는 전부 `corridorHalfXAt(z)` 에서 뽑는다** (2026-09-14 2차 — 상수 반폭을 베끼면 프로파일을 고칠 때마다 소품이 벽에 묻힌다); 반폭 11 구간인 시작 폐허의 벽 다섯 장 · 안테나는 손으로 안쪽으로 옮겼다. 고정 시드(`DRESSING_SEED`)라 미션 시드와 무관하게 늘 같은 모습이다. 규칙: **콜라이더가 있는 것만 큼직하게 그리고, 콜라이더 없는 것은 `PROP_STEP_UP_MAX` 보다 낮게 눕힌다.** |
+| `tutorial/model.ts` | **튜토리얼 행성의 모양 그 자체** (2026-09-14, `docs/plans/tutorial-raid.md` A절). 폴더 공용 어휘 — 층 높이(`VOID_Y` −34 · `DECK_UPPER_Y` 0 · `DECK_LOWER_Y` −10) · **구간별 통로 반폭**(2026-09-14 2차 — `CORRIDOR_PROFILE` 제어점 + `corridorHalfXAt(z)`, 3차에 −30 %: 지나가는 구간 `CORRIDOR_PASS_HALF_X` **7.7** · 전투 구역 `CORRIDOR_MAX_HALF_X` **15.4** · 벽 바깥 면 `CORRIDOR_OUTER_X` 18.4, **4차에 벌레 구간만 `CORRIDOR_BUG_HALF_X` 4.6** — 지나가는 구간보다도 좁아 프로파일이 「좁아졌다 넓어지는」 모양이 된다) · **절벽 2 의 가장자리 `CLIFF2_EDGE_Z`**(2026-09-14 4차 −82 → **−77** — 데크 · `clamp` 볼륨 · 부스러기 높이 판정이 이 한 값을 본다) · 통로(`WALL_TOP_Y` 18 · `Z_START` 121 · `Z_END` **−165** · `TUTORIAL_MAP_SIZE` **340**) · 데크 사각형 `DECKS` 셋 · **사선 절벽 1**(2026-09-14 3차 — `CHASM_TILT` 20° · `CHASM_NEAR_Z` 82 · `CHASM_GAP_Z` **3.6 m** · `CHASM_EDGE`(회전 OBB 치수) · `chasmNearZAt` / `chasmFarZAt` / `inChasm`, 바깥 사각형은 `CHASM`. 통로 축으로 3.6 m · 사선에 수직으로 3.383 m 라 걸어 뛰면 2.66 m 로 못 넘고 달려 뛰면 4.56 m 로 넘는다: `2 × JUMP_SPEED(7.6) / GRAVITY(24)` 체공에 `PLAYER_WALK_SPEED` / `PLAYER_SPRINT_SPEED` 를 곱한 값) · 체크포인트 열 곳 `CHECKPOINTS`(부활 자리 + 통로를 가로지르는 트리거 띠) · 낙하 규칙 볼륨 `FALL_RULES`(절벽 1 바닥 `kill` · 절벽 2 착지 구역 `clamp`) · 적 여섯 `ENEMIES`(튜토리얼 전용 타입 `tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android` ×3) · 시체 세 구 `CORPSES`(고정 아이템 목록) · 함선 자리 `SHIP_POS`/`SHIP_YAW` · 손으로 지은 구조물 치수(`CRAWL`(기울어진 슬래브 `slabSlope` · `crawlClearanceAt`) · `BROKEN_WALL` · `RUINS`) · 기하 헬퍼(`box` · `rectBox` · `tileRect`). **여기 숫자는 csv 로 나가지 않는다** — 밸런스가 아니라 형상이고, `TrainingArena` 가 같은 판단을 먼저 했다. 밸런스인 것(`TUTORIAL_ENEMY_SENSE_M` · `TUTORIAL_ENEMY_LEASH_M`)만 `@/shared` 에서 가져온다. **좌표 규약: 앞 = −Z** 라 모든 z 가 큰 값 → 작은 값으로 흐르고, 읽는 순서가 곧 플레이 순서다. |
+| `tutorial/TutorialWorld.ts` | **손으로 지은 튜토리얼 행성** — `game:newMission {mode:'tutorial'}` 이 오면 `WorldSystem` 이 절차 생성기 대신 이것을 세운다 (`TrainingArena` 와 **똑같은 배선**). 안개 · 재해 · 상자 · 채집 · 둥지 · 선로 · 전차 · 탐사 차량이 하나도 없고 `ctx.world.fog === null` 도 훈련장과 같다. `TutorialWorldRef` 구현(`checkpoint` · `respawnPose` · `fallRule` · `gotoCheckpoint` · `enemySpawns`)이자 월드 질의(`heightAt` = `VOID_Y` 상수 · `raycastGround` = 바닥 평면 하나 · `isInside` · `clampInside` · `surfaceMaterial`)다. 체크포인트는 매 프레임 볼륨 판정이고 **번호는 되돌아가도 내려가지 않는다**(`tutorial:checkpoint {id, index}`). 2026-09-14 4차: 같은 자리에서 `pollSafeGround()` 가 **마지막으로 땅에 서 있던 자리**(`lastSafe`)를 적고 `respawnPose()` 가 그것을 먼저 돌려준다 — 세 조건(**`kill` 볼륨** 밖 · **절벽 1 의 비대칭 띠** 밖 · 데크 윗면에서 `SAFE_DECK_EPS` 0.4 안)에 접지까지 넷을 지난 프레임만 적히고, 돌려주기 전에 `ctx.world.resolveCollision` 을 한 번 통과시킨다(yaw 는 0). ⚠ **`clamp`(절벽 2 착지 구역)는 막지 않는다** — 반드시 살아남는 낙하의 착지 자리라 안전한 땅이고, 막으면 그 구간의 죽음이 절벽 위로 되돌아가 뛰어내리기를 다시 시킨다. ⚠ **절벽 1 의 띠는 비대칭이다**: 접근 쪽은 `CHASM_RUNUP_M`(12 m) · 건너편은 `SAFE_CHASM_MARGIN`(1.5 m). 「달려야만 넘는다」가 이 절벽의 규칙이라 가장자리 코앞에 되살리면 도움닫기가 없고, 반대로 건너편을 똑같이 막으면 넘은 사람의 죽음이 절벽 앞으로 되돌아간다. 기록이 없으면(레이드 시작 · `gotoCheckpoint` 직후) 예전처럼 **체크포인트**가 답한다. 생성할 때 `CHECKPOINTS` 의 순서가 계약 `TUTORIAL_CHECKPOINTS` 와 같은지 검산한다. ⚠ **버려진 함선은 첫 `update()` 에서 세운다** — `generate()` 는 `game:newMission` emit **안에서** 돌고 `ExtractionSystem` 도 같은 이벤트에 `resetMission()` 을 걸어 두었는데 등록 순서가 world(90) → extraction(106) 이라, 생성 중에 세우면 같은 emit 안에서 리셋된다. `ctx.extraction.beginPreLanded(SHIP_POS, SHIP_YAW, {autoDepart:false})` 한 줄이고 실패하면 `SHIP_PLACE_TIMEOUT_S`(5초) 동안 다시 시도한다. |
+| `tutorial/parts/Ground.ts` | 협곡 바닥 · 데크 · 양옆 절벽 벽 · 막다른 끝. **콜라이더와 그림이 갈라져 있다**: 콜라이더는 `DECK_TILE_M`(16 m) 타일(`SpatialHash.addBox`) — 데크를 한 장으로 넣으면 외접원이 85 m 가 되어 `maxRadius` 가 그만큼 커지고 `walkSegment` 가 매번 수백 칸을 훑는다; 그림은 데크마다 상자 하나 + 윗면 판 하나(절차 CanvasTexture 둘 — 돌결 바닥 · 지층 절벽). 벽의 안쪽 면은 `CORRIDOR_PROFILE` 이 정한다 (2026-09-14 2차): 곧은 구간은 `WALL_SEG_M`(10 m) 마다 끊어 안쪽 면과 높이를 흔들고(좁은 구간에서는 파고드는 깊이도 같은 비율로 줄인다), 폭이 바뀌는 구간은 `addFunnel` 이 **회전 OBB 한 장**(+ 바깥 채움)으로 이어 계단 턱을 만들지 않는다 (`addObb` 가 `Obstacle.box.yaw` = −메시 yaw 를 뒤집는 유일한 자리). **구간마다 콜라이더를 따로** 넣으므로 그려진 실루엣이 곧 콜라이더다. 2026-09-14 3차: `buildChasmEdges` 가 **절벽 1 의 사선 가장자리**를 회전 OBB 두 장(+ 같은 자리에 회전 윗면 판)으로 세운다 — 축 정렬 데크는 사선에서 가장 물러난 자리(85.8 · 74.9)에서 끝내고 그 쐐기를 이 두 장이 채운다. ⚠ **계단식 타일로 지으면 안 된다**: 두 가장자리가 함께 계단을 이루면 안쪽 모서리에서 틈이 한 단만큼 좁아져 거기만 걸어서도 넘는 지름길이 된다. 겹치는 윗면 판의 z-fighting 은 사선 판을 `CHASM_TOP_LIFT`(0.05, 데크는 0.02)로 올려 막는다 — 콜라이더 윗면은 양쪽 다 `DECK_UPPER_Y` 라 걷는 높이는 그대로다. 절벽 1 의 틈에 부러진 다리를 걸어 두되 **데크 윗면보다 아래**라 밟을 수 없다. **광원 0개** (전부 emissive). |
+| `tutorial/parts/Dressing.ts` | 시작 폐허(반쯤 남은 벽 다섯 · 넘어진 안테나 · 포드 잔해) · **무너진 통로**(포복 구간 — 양옆 잔해 더미로 `CRAWL.gapHalfX` 만 열어 두고 머리 위 **기울어진** 슬래브: 그림은 `rotateX` 한 상자 한 장, 콜라이더는 `CRAWL.slabSegments` 장으로 쪼갠 축 정렬 상자이고 밑면은 각 조각 한가운데의 `crawlClearanceAt` — 4차부터 기울기가 **입구 1.35 → 출구 1.95** 로 뒤집혔고 조각 7 장 · 두께 2.4 다. 그림의 중심도 콜라이더의 base 도 **밑면 기준**이라 두께를 키워도 통과 높이는 안 바뀐다) · **무너진 벽**(가운데 `BROKEN_WALL.gapHalfX` 만 뚫려 있다) · 바닥 부스러기. **통로에 닿는 x 는 전부 `corridorHalfXAt(z)` 에서 뽑는다** (2026-09-14 2차 — 상수 반폭을 베끼면 프로파일을 고칠 때마다 소품이 벽에 묻힌다); 좁은 구간인 시작 폐허의 벽 다섯 장 · 안테나는 손으로 안쪽으로 옮겼다(3차에 반폭 7.7 에 맞춰 한 번 더 — 전부 `|x| ≤ 6.5`). 2026-09-14 3차: 포복 구간의 **늘어진 철근**(머리를 뚫고 지나갔다)과 **바닥 부스러기**(엎드린 몸이 통과했다)를 없앴고, `scatterRubble` 은 사선 절벽(`inChasm`)과 포복 구간을 건너뛴다. 고정 시드(`DRESSING_SEED`)라 미션 시드와 무관하게 늘 같은 모습이다. 규칙: **콜라이더가 있는 것만 큼직하게 그리고, 콜라이더 없는 것은 `PROP_STEP_UP_MAX` 보다 낮게 눕힌다.** |
 | `tutorial/parts/Corpses.ts` | 손으로 놓은 시체 세 구 — **컨테이너 굴림을 쓰지 않는다**. `ctx.loot.createItem` 으로 고정 목록을 만들어 `ctx.inventory.openContainerItems(id, items, position, title)` 에 넘긴다(적 시체 · 분대원 시체가 이미 쓰는 「내용물을 호출자가 대는 컨테이너」 경로 그대로 — 다시 열면 가져간 것이 빠져 있고, 비면 `crate:looted` 가 온다). id 접두사가 `corpse:` · `kind: 'corpse'` 라 `ui/hud/pillar.pillarAllowed` 가 빛기둥을 세운다. ① `corpse:tut_gear`(SMG · 일반 가방 · 경량탄 한 칸) ② `corpse:tut_supply`(붕대 2 · 고폭 수류탄 2) ③ `corpse:tut_relic`(호박석 · 크레딧 칩 2). |
 | `Ambience.ts` | 900 additive spore points drifting in a box around the camera (wrapping) with a custom `ShaderMaterial` (perspective size clamped to 1–6 px, fade-in 1.5–6 m from camera, far fade, fog-aware, twinkle); 14 slow dust sprites. |
 | `Fog.ts` | **전장의 안개** (2026-09-09, `FogRef`, published as `ctx.world.fog`; **null in a training**). One `MAP_SIZE / FOG_CELL_M` square `Uint8Array` (80² at cell 8 m) is the single source of truth and **a cell once lit stays lit for the whole raid**. Every `FOG_UPDATE_HZ` (5 Hz) it paints `FOG_REVEAL_RADIUS` (55 m) around the local player **and every live remote squadmate** (`ctx.net.getRemotePlayers()`, skipping `!inMission` / dead / gone refs) — the squad's sight is shared, and because everyone already reads the same 20 Hz `ps` snapshots **there is no new wire in normal play**. Only a late joiner asks (`fogq sync` → the host's `fog sync {mask}` = `serialize()`, the mask bit-packed to 800 B and base64'd); `flow rejoined` pushes the same, and a client re-requests on `net:hostChanged {isLocalHost:false}`. `fog:revealed {revision, explored}` fires **only on a tick where the mask actually grew**, never per frame, so the map can cache its layer. The same tick runs the **발견 게이트**: extraction consoles, nest holes, crates, gather nodes and (2026-09-09) **버려진 구조물 · 선로 플랫폼** that fall into a lit cell emit `fog:discovered {kind, id, position}` once, and the two landmark kinds (신호소 · 둥지) also raise a short `ui:notify` — **`structure` · `rail` 은 일부러 토스트를 띄우지 않는다**, 그 둘은 `ui/hud/RaidAlerts` 가 소유하므로 여기서도 띄우면 두 번 뜬다. `WorldSystem` pre-lights `FOG_REVEAL_RADIUS` around the player spawn (the drop point is not a discovery) and disposes the whole thing in `clear()`. **2026-09-11 (C-11)**: **폐허 전초**도 발견한다 — `setOutposts(Outposts.getSites())` 로 받은 목록이 밝혀지면 `fog:discovered {kind:'outpost', id:'outpost_<i>'}` + 토스트 `폐허 전초 발견`(예전 문구 `전초기지 발견` 은 들어가는 전진기지와 헷갈렸다). 지도(`ui/map/MapScreen`)가 그 이벤트를 쌓아 아이콘을 그린다. 늦게 합류한 사람은 `fog sync` 뒤 다음 판정에서 다시 받는다 — 와이어 없음. |
@@ -1397,34 +1397,41 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 
 플레이어 yaw 0 의 정면이 −Z 라, 모든 z 가 큰 값에서 작은 값으로 흐른다. 읽는 순서가 곧 플레이 순서다.
 
+아래는 **2026-09-14 4차** 배치다 (3차 = 반폭 −30 % · 벌레 구간 연장 · 사선 절벽 1 · `crawl` 체크포인트 이동,
+4차 = 벌레 구간 반폭 4.6 · 포복 천장 뒤집기 · 절벽 2 를 5 m 앞으로).
+
 | z | 구간 | 데크 | 반폭 |
 |---|---|---|---|
-| 118 … 96 | 폐허에서 깨어난다 (`wake` 112) | 위 (y 0) | 11 |
-| 96 … 82 | 도움닫기 (`cliff` 94 — 틈까지 12 m) | 위 | 11 |
-| **82 … 78.4** | **절벽 1** — 틈 3.6 m. 못 넘으면 `VOID_Y` 까지 떨어지고 규칙이 `kill` | — | 11 |
-| 78.4 … 68 | 시체 ① 무기 · 가방 · 탄약 (66) · `corpse` 74 | 위 | 11 |
-| 68 … 62 | 깔때기 (넓어진다) | 위 | 11 → 22 |
-| 62 … 36 | **벌레 둘** (−5,46) (6,40) · `bugs` 60 | 위 | **22** |
-| 36 … 24 | 깔때기 (좁아진다 — 12 m 에 걸쳐 벽 각 42°) | 위 | 22 → 11 |
-| 22 … 8 | 무너진 통로 (포복 구간 · 통과 폭 4.2 m) · `crawl` 27 | 위 | 11 |
-| 8 … 2 | 깔때기 (넓어진다) | 위 | 11 → 22 |
-| 2 … −30 | **안드로이드 둘** (−7,−12) (7,−18) · `android` 4 | 위 | **22** |
-| −30 … −42 | 깔때기 (좁아진다 — 절벽 2 앞) | 위 | 22 → 11 |
-| **−46** | **절벽 2** — 10 m 낙하. 착지 구역은 `clamp` (`drop` −38) | 위 → 아래 | 11 |
-| −46 … −70 | 착지 · 시체 ② 회복 · 수류탄 (−64) · `supply` −56 | 아래 (y −10) | 11 |
-| −70 … −76 | 깔때기 (넓어진다) | 아래 | 11 → 22 |
-| −78 | 무너진 벽 (가운데 5 m 만 뚫려 있다) · `wall` −72 | 아래 | **22** |
-| −88 … −94 | **안드로이드 둘** · 시체 ③ 전리품 (5,−82) | 아래 | **22** |
-| −113 | **버려진 함선** (= 착륙해 있는 탈출선) · `ship` −107 | 아래 | **22** |
+| 118 … 96 | 폐허에서 깨어난다 (`wake` 112) | 위 (y 0) | 7.7 |
+| 96 … 85.8 | 도움닫기 (`cliff` 94 — x 0 에서 틈까지 12 m, 가장 짧은 쪽 9.2 m) | 위 | 7.7 |
+| **85.8 … 74.9** | **절벽 1 (사선 20°)** — 틈 3.6 m(축) · 3.383 m(수직). 못 넘으면 `VOID_Y` 까지 떨어지고 규칙이 `kill`. 축 정렬 데크는 85.8 · 74.9 에서 끝나고 그 사이 쐐기는 회전 OBB 두 장이 채운다 (x 0 에서 가장자리는 82 · 78.4) | — | 7.7 |
+| 74.9 … 68 | 시체 ① 무기 · 가방 · 탄약 (2,66) · `corpse` **72** (트리거 띠 75…68 — 사선 틈의 가장 먼 끝 75.60 보다 뒤라야 못 넘고 떨어지는 중에 띠를 지나지 않는다) | 위 | 7.7 |
+| 68 … 62 | 깔때기 (**좁아진다** — 6 m 에 걸쳐 벽 각 27°) | 위 | 7.7 → **4.6** |
+| 62 … 0 | **벌레 둘** (−2.5,34) `tut_bug_loot` · (2.5,28) `tut_bug` · `bugs` 60 | 위 | **4.6** |
+| 0 … −12 | 깔때기 (**넓어진다** — 12 m 에 걸쳐 벽 각 15°) | 위 | 4.6 → 7.7 |
+| −14 … −28 | 무너진 통로 (포복 구간 · 통과 폭 4.2 m · 기울어진 슬래브 **1.35 → 1.95**, 입구가 낮다) · `crawl` **−10** (구간 바로 앞) | 위 | 7.7 |
+| −28 … −34 | 깔때기 (넓어진다) | 위 | 7.7 → 15.4 |
+| −34 … −66 | **안드로이드 둘** (−7,−48) `tut_android` · (7,−54) `tut_android_loot` · `android` −32 | 위 | **15.4** |
+| −66 … −73 | 깔때기 (좁아진다 — 절벽 2 앞) | 위 | 15.4 → 7.7 |
+| **−77** | **절벽 2**(`CLIFF2_EDGE_Z`) — 10 m 낙하. 착지 구역은 `clamp` (`drop` **−71**, 가장자리에서 6 m) | 위 → 아래 | 7.7 |
+| −77 … −106 | 착지 · 시체 ② 회복 · 수류탄 (−3,−100) · `supply` −92 | 아래 (y −10) | 7.7 |
+| −106 … −112 | 깔때기 (넓어진다) | 아래 | 7.7 → 15.4 |
+| −114 | 무너진 벽 (가운데 5 m 만 뚫려 있다) · `wall` −108 | 아래 | **15.4** |
+| −117 | 시체 ③ 전리품 (9,−117) | 아래 | **15.4** |
+| −125 · −128 | **안드로이드 둘** (둘 다 `tut_android`) — 수류탄 하나에 둘이 들어간다 | 아래 | **15.4** |
+| −149 | **버려진 함선** (= 착륙해 있는 탈출선) · `ship` −143 | 아래 | **15.4** |
 
 절벽 1 의 틈은 **3.6 m** 다: 체공 `2 × JUMP_SPEED(7.6) / GRAVITY(24)` = 0.633 s 에 걸어서(4.2 m/s) 2.66 m · 달려서(7.2 m/s)
-4.56 m 이므로 **달려야만** 넘는다. 절벽 2 는 10 m 라 전역 낙하 피해로 `(10−5)×9 = 45` — 아프지만 죽지 않고, 그 위에 `clamp`
-규칙이 체력 1 을 보장한다.
+4.56 m 이므로 **달려야만** 넘는다. 2026-09-14 3차에 가장자리를 통로 축에 대해 20° 기울였지만 두 가장자리가 **평행**이라
+난이도는 그대로다 — 가장 짧게(사선에 수직으로) 건너도 `3.6 × cos 20°` = **3.383 m** 라 걸어 뛰기로는 여전히 못 넘는다.
+절벽 2 는 10 m 라 전역 낙하 피해로 `(10−5)×9 = 45` — 아프지만 죽지 않고, 그 위에 `clamp` 규칙이 체력 1 을 보장한다.
 
 ### 통로 폭은 구간마다 다르다 (2026-09-14 2차, 사용자 결정)
 
 「너무 넓어서 어디로 가야 할지 잘 모르겠다」 — 처음에는 맵 전체가 반폭 22 였다. 이제 **지나가는 구간은 절반**
-(`CORRIDOR_PASS_HALF_X` 11)이고 **전투 구역 셋만** 예전 폭(`CORRIDOR_MAX_HALF_X` 22)을 지킨다 (엄폐 · 회피 여지).
+(`CORRIDOR_PASS_HALF_X` 11)이고 **전투 구역만** 예전 폭(`CORRIDOR_MAX_HALF_X` 22)을 지킨다 (엄폐 · 회피 여지).
+2026-09-14 4차에 벌레 구간이 그 목록에서 빠져 **가장 좁은 구간**(`CORRIDOR_BUG_HALF_X` 4.6)이 됐다 — 처음 총을
+쏴 보는 목이라 엄폐가 아니라 「정면에 서게 하는 것」이 요점이다. 그래서 폭 목록은 이제 세 단계다.
 포복 구간의 통과 폭도 −30 % (`CRAWL.gapHalfX` 3 → **2.1**, 통과 폭 4.2 m = 플레이어 지름의 4.7 배).
 원본은 `tutorial/model.ts` 의 `CORRIDOR_PROFILE`(z 내림차순 제어점) 하나이고 질의는 `corridorHalfXAt(z)` 다.
 
@@ -1452,8 +1459,13 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 ### 「시체가 적 감지 범위 안에 떨어진다」를 맵으로 막는다
 
 체크포인트 열 곳은 전부 그 구간 적의 감지 반경(`TUTORIAL_ENEMY_SENSE_M` 12 m) **밖**이다 — 무기를 잃고 부활한 사람이
-자기 시체까지 걸어갈 수 있어야 하기 때문이다. 실제 거리는 `tutorial/model.ts` 의 `ENEMIES` 주석에 표로 계산해 뒀고 (가장
-빡빡한 곳 14.3 m), 좌표를 고치면 **그 표를 다시 계산한다**. 그래도 막히면 규칙이 아니라 맵을 고친다 (설계안의 규칙).
+자기 시체까지 걸어갈 수 있어야 하기 때문이다. 실제 거리는 `tutorial/model.ts` 의 `ENEMIES` 주석에 표로 계산해 뒀고 (2026-09-14
+3차 재배치 뒤 가장 빡빡한 곳 **15.3 m**), 좌표를 고치면 **그 표를 다시 계산한다**. 그래도 막히면 규칙이 아니라 맵을 고친다 (설계안의 규칙).
+
+2026-09-14 4차부터 **떨어져 죽으면 체크포인트가 아니라 「마지막으로 땅에 서 있던 자리」에서 다시 선다**
+(`TutorialWorld.lastSafe`). 절벽 하나를 못 넘었다고 구간의 처음으로 돌려보내면 벌레 · 안드로이드를 다시 지나야
+하기 때문이다. 체크포인트는 **그 기록이 없을 때의 보험**(레이드 시작 · 이어하기 직후)으로 남고, 위의 감지 반경
+규칙도 그대로다 — 보험이 걸리는 순간이 곧 무기를 잃은 채 걸어야 하는 순간이다.
 
 ### 버려진 함선 = 진짜 탈출선
 
@@ -1466,9 +1478,9 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 ### 알려진 한계 (2026-09-14)
 
 - ~~**포복 구간이 아직 물리적으로 강제되지 않는다.**~~ 2026-09-14 에 `PlayerController` 가 자세 높이를
-  `resolveCollision` 에 넘기게 되면서 해소됐다. 슬래브 밑면 `CRAWL.clearance` 는 **1.6 m** — 선 몸
-  (`BOX_HEADROOM` 2.1)은 막고 앉은 몸(`PLAYER_CROUCH_CLEARANCE_M` 1.3)은 지나는 **사이 값**이라, 두 상수 밖으로
-  나가면 구간이 뜻을 잃는다 (함께 본다). 늘어진 철근은 콜라이더 없이 1.3 m 까지 내려와 눈으로 먼저 말한다.
+  `resolveCollision` 에 넘기게 되면서 해소됐다. 슬래브 밑면 `CRAWL.clearance` 는 구간 한가운데에서 **1.65 m**
+  이고 양 끝이 1.35(입구) · 1.95(출구) — 선 몸(`BOX_HEADROOM` 2.1)은 막고 앉은 몸(`PLAYER_CROUCH_CLEARANCE_M`
+  1.3)은 지나는 **사이 값**이라, 두 상수 밖으로 나가면 구간이 뜻을 잃는다 (조각 일곱 장의 밑면도 함께 본다).
 - **절벽 1 바닥의 `kill` 은 `player/` 가 집행한다.** 협곡 바닥은 걸어 다닐 수 있는 평면이고 사방이 30 m 벽이라,
   낙하 피해 · 낙사 규칙이 아직 없는 상태에서 떨어지면 **나올 길이 없다.** world 는 규칙을 답할 뿐 죽이지 않는다.
 - 지도는 안개가 없어 전부 보이지만 표시할 것이 거의 없다 (상자 · 둥지 · 채집물이 하나도 없다).
@@ -1490,3 +1502,114 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 
 검산: 체크포인트 10 · 적 6 · 시체 3 · 함선 외피 · 폐허 소품 전부 새 벽 안(가장 빡빡한 여유 0.17 m), 깔때기 넷을
 0.05 m 격자로 훑어 **빈틈 0**. `npm run typecheck` 통과. csv 는 한 줄도 안 바뀌었다 (여기 숫자는 밸런스가 아니라 형상이다).
+
+---
+
+## 변경 이력 (2026-09-14 3차): 튜토리얼 통로 −30 % · 벌레 구간 연장 · 사선 절벽 1
+
+원본은 [docs/plans/qol-batch-2026-09-14c.md](../../docs/plans/qol-batch-2026-09-14c.md) 의 **§3 B**.
+
+- `tutorial/model.ts`
+  - `CORRIDOR_MAX_HALF_X` 22 → **15.4**, `CORRIDOR_PASS_HALF_X` = 그 절반 **7.7** (`CORRIDOR_OUTER_X` 18.4).
+    `CRAWL.gapHalfX`(2.1) · `BROKEN_WALL.gapHalfX`(2.5) · 함선 외피는 **그대로**다.
+  - **벌레 구간을 26 → 62 m** 로 늘리고 벌레를 안쪽 깊숙이(46·40 → **34·28**) 세웠다 — 「좀더 멀리서 보이도록」.
+    그 뒤 구간이 통째로 **−36 m** 밀려 `Z_END` −129 → **−165**, `TUTORIAL_MAP_SIZE` 280 → **340**.
+  - **절벽 1 이 사선**이 됐다: `CHASM_TILT`(20°) · `CHASM_NEAR_Z`(82) · `CHASM_GAP_Z`(3.6) · `CHASM_EDGE`
+    (회전 OBB 치수) · `chasmNearZAt` / `chasmFarZAt` / `inChasm`. 옛 `CHASM` 은 **바깥 사각형**으로 남아
+    낙하 규칙 · 꾸밈 제외 구역이 쓴다. `DECKS` 의 `upper_a.z1` 82 → **85.8** · `upper_b.z0` 78.4 → **74.9**
+    (사선에서 가장 물러난 자리).
+  - `crawl` 체크포인트를 27 → **−10**, 즉 포복 구간(`CRAWL.z0` −14) **바로 앞**으로 옮겼다.
+  - `CRAWL` 에 `slabSlope`(0.03) · `slabSegments`(4) · `crawlClearanceAt(z)` 추가 — 슬래브가 기울어졌다.
+  - `ENEMIES` 의 type 을 튜토리얼 전용 id 로 (`tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android`).
+    **+x = 걸어가는 플레이어의 오른쪽**(forward × up = `(0,0,−1) × (0,1,0)` = `(1,0,0)`)이라는 것을 좌표 규약에 적었다.
+  - 무너진 벽 뒤 안드로이드를 벽에서 **11 · 14 m** 뒤로 (옛 10 · 16 m) 옮기고 서로 가깝게 붙였다.
+- `tutorial/parts/Ground.ts` — 새 `buildChasmEdges` 가 사선 가장자리를 **회전 OBB 두 장**(+ 회전 윗면 판)으로
+  세운다. 겹치는 윗면 판은 `CHASM_TOP_LIFT`(0.05 vs 데크 0.02)로 갈라 z-fighting 을 막는다 — 콜라이더 윗면은
+  양쪽 다 `DECK_UPPER_Y` 라 걷는 높이가 안 바뀐다. 부러진 다리도 사선을 따라간다. `topPlane` 이 `topQuad`
+  (가운데 · 크기 · yaw)를 부르는 얇은 껍데기가 됐다.
+- `tutorial/parts/Dressing.ts` — 폐허 소품을 반폭 7.7 안으로(전부 `|x| ≤ 6.5`) · 포복 구간의 **늘어진 철근**과
+  **바닥 부스러기 판**을 없앴고(그래서 `steel` 재질 · `metal` 목록도 사라졌다) `scatterRubble` 이 사선 절벽
+  (`inChasm`)과 포복 구간을 건너뛴다. 슬래브는 그림 한 장(`rotateX`) + 콜라이더 넉 장이다.
+- `tutorial/TutorialWorld.ts` · `tutorial/parts/Corpses.ts` — **한 줄도 안 바뀌었다** (좌표는 전부 `model.ts` 에 있다).
+
+검산 (좌표를 손으로 재고 스크립트로 훑었다):
+
+| 항목 | 값 |
+|---|---|
+| 절벽 1 — 통로 축으로 잰 틈 | 3.600 m (걸어 2.66 못 넘음 · 달려 4.56 넘음) |
+| 절벽 1 — 가장 짧은 크로싱 (사선 수직) | **3.383 m** (사용자 하한 3.0 m 위) |
+| 절벽 1 — 데크 구멍 / 틈을 메운 자리 | 0.05 m 격자로 통로 전체(x ±7.7 · z 68…95)를 훑어 **둘 다 0** |
+| 포복 슬래브 밑면 (가장 높은 곳 z −14) | 1.810 m < `BOX_HEADROOM` 2.1 → 어디서도 못 선다 |
+| 포복 슬래브 밑면 (가장 낮은 곳 z −28) | 1.390 m > `PLAYER_CROUCH_CLEARANCE_M` 1.3 → 앉으면 지난다 |
+| 포복 슬래브 콜라이더 넉 장 | 1.758 · 1.653 · 1.548 · 1.443 (그림과 최대 0.053 m 차) |
+| 수류탄 — 벽 뒤 두 대의 한가운데까지 | 각각 **3.35 m** < `GRENADE_RADIUS` 6 → 하나로 둘을 잡는다 |
+| 수류탄 — 벽 앞(z −112.5)에서 그 한가운데까지 | **14.0 m** < 기본 투척 18.14 m, 동시에 폭발 반경 6 m 밖 |
+| 체크포인트 → 적 최단 | **15.30 m** (`ship` → (3,−128)) > 감지 12 m |
+| 적 6 마리의 벽 여유 | 최소 8.4 m (`|x| ≤ 7`, 셋 다 반폭 15.4 구간) |
+| 시체 세 구의 벽 여유 | 8.27 · 4.70 · 6.40 m |
+| 시체 ③ → 벽 뒤 두 대 | 14.42 · 12.53 m (감지 12 m 밖 — 뒤지다 끌려오지 않는다) |
+| 함선 — 좌우 여유 / 램프 앞 | 15.4 − 5.25(나셀) = **10.15 m** / 램프 발치 −145.75 → `ship` −143 로 2.75 m |
+
+`npm run typecheck` 통과. csv 는 한 줄도 안 바뀌었다 (여기 숫자는 밸런스가 아니라 형상이다).
+
+---
+
+## 변경 이력 (2026-09-14 4차): 벌레 구간 −70 % · 포복 천장 뒤집기 · 절벽 2 를 5 m 앞으로 · 낙사 부활
+
+원본은 [docs/plans/tutorial-polish-2026-09-14d.md](../../docs/plans/tutorial-polish-2026-09-14d.md) 의 **§3 A**.
+넷 다 사용자 결정이고 `src/world/tutorial/**` 안에서 끝난다 (csv 는 한 줄도 안 바뀌었다 — 형상이지 밸런스가 아니다).
+
+- `tutorial/model.ts`
+  - **`CORRIDOR_BUG_HALF_X` 4.6 신설** — 벌레 구간(z 62 … 0)이 15.4 → 4.6(−70 %)으로 **가장 좁은 구간**이 됐다.
+    `CORRIDOR_MAX_HALF_X`(15.4)는 안드로이드 구간 · 마지막 구간 몫으로 남고 데크 · 벽 바깥 면 · 트리거 볼륨의
+    기준도 그대로다. 벌레 둘을 x −5/+6 → **−2.5/+2.5** 로 당겨 세웠다 (z 34 · 28 은 그대로).
+  - **`CHASM_RUNUP_M` 12 신설** — 절벽 1 의 도움닫기. `cliff` 체크포인트 자리(`CHASM_NEAR_Z + CHASM_RUNUP_M`
+    = 94, 전에는 94 를 손으로 적었다)와 「부활 자리를 적지 않는 띠」의 접근 쪽 폭이 **같은 값을 읽는다** —
+    하나만 고치면 못 넘고 떨어진 사람이 도움닫기 없는 자리에 되살아난다.
+  - **`CLIFF2_EDGE_Z` −77 신설** — 절벽 2 가 5 m 앞으로. `DECKS`(`upper_b.z1` · `lower.z0`) · `FALL_RULES` 의
+    `clamp` 볼륨 · `Dressing.scatterRubble` 의 높이 판정이 **이 한 값**을 본다 (전에는 −82 를 세 곳에 베껴 적었다).
+    `CORRIDOR_PROFILE` 의 깔때기 제어점도 −78 → **−73**, `drop` 체크포인트는 (0,−74) → **(0,−71)** · 띠 −68…−75.
+    뒤 구간(`supply` −92 · 벽 −114 · 함선 −149 · `Z_END`)은 안 건드렸으므로 **아래 데크가 5 m 길어질 뿐**이다.
+  - **`CRAWL` 천장을 뒤집었다** — `clearance` 1.6 → **1.65**, `slabSlope` +0.03 → **−0.6/14**(입구 1.35 · 출구 1.95),
+    `slabSegments` 4 → **7**(조각 2 m), `slabThickness` 1.2 → **2.4**(밑면 고정 · 위로만). 출구가 높은 이유는
+    정조준 카메라다 — 앉아서 앞을 겨눌 때 카메라가 슬래브에 박히던 곳이 **출구**였다.
+- `tutorial/parts/Dressing.ts` — `scatterRubble` 이 `CLIFF2_EDGE_Z` 를 본다. 슬래브를 짓는 **식은 한 줄도 안
+  바뀌었다**: 그림의 중심(`clearance + slabThickness / 2`)도 콜라이더의 base 도 밑면 기준이라 두께를 키우면
+  위로만 자라고, 기울기는 `crawlClearanceAt` 이 부호째 답한다. 주석의 검산만 갱신했다.
+- `tutorial/TutorialWorld.ts` — **낙사 부활 = 마지막으로 땅에 서 있던 자리.** `pollSafeGround()` 가 매 프레임
+  네 조건(접지 · **`kill` 볼륨** 밖 · **절벽 1 의 비대칭 띠** 밖 · 데크 윗면에서 `SAFE_DECK_EPS` 0.4 안)을 지난
+  발 위치만 `lastSafe` 에 적고, `respawnPose()` 가 그것을 `resolveCollision` 에 한 번 통과시켜 돌려준다(yaw 0).
+  두 조건은 **왜 그 모양인지가 규약**이다: ① `clamp`(절벽 2 착지 구역)까지 막으면 그 구간에서 죽은 사람이
+  이유 없이 절벽 위로 올라가 뛰어내리기를 다시 하므로 `kill` 만 막는다. ② 절벽 1 의 띠는 접근 쪽만
+  `CHASM_RUNUP_M`(12 m)로 넓다 — 이 절벽의 규칙이 「달려야만 넘는다」라 가장자리 코앞에 되살리면 도움닫기가
+  없어 「다시 떨어지라」가 되고, 건너편까지 넓히면 넘은 사람의 죽음이 절벽 앞으로 되돌아간다(그쪽은 1.5 m).
+  기록이 없으면 예전처럼 체크포인트다. `gotoCheckpoint`(이어하기 · dev 콘솔)는 **기록을 지운다** — 순간이동
+  뒤에 죽었을 때 새로고침 전 자리로 돌아가면 「이어하기는 체크포인트로」 규약이 깨진다. `build` · `dispose`
+  도 지운다. **`player/` · `game/` 은 한 줄도 안 바뀐다** — `game/parts/Death.tutorialRespawn` 은 묻기만 한다.
+- `tutorial/parts/Ground.ts` · `tutorial/parts/Corpses.ts` — **한 줄도 안 바뀌었다** (벽 · 깔때기는 프로파일을,
+  부러진 다리는 사선을 그대로 따라간다).
+
+검산 (손으로 다시 계산해 주석에 적었다):
+
+| 항목 | 값 |
+|---|---|
+| 벌레 구간 통과 폭 | 반폭 4.6 → **9.2 m** (플레이어 지름 0.9 의 10.2 배) |
+| 벌레 둘의 벽 여유 | 반폭 4.6 − (`|x|` 2.5 + `radius` 0.45) = **1.65 m**, 벽 bite 최대 0.66 을 빼도 **0.99 m** |
+| 깔때기 벽 각 (68…62 / 0…−12) | atan(3.1/6) = **27.3°** / atan(3.1/12) = **14.5°** |
+| 포복 슬래브 밑면 — 입구 z −14 | **1.35 m** > `PLAYER_CROUCH_CLEARANCE_M` 1.3 → 앉으면 지난다 |
+| 포복 슬래브 밑면 — 출구 z −28 | **1.95 m** < `BOX_HEADROOM` 2.1 → 어디서도 못 선다 |
+| 포복 슬래브 콜라이더 일곱 장 (z −15 … −27) | 1.393 · 1.479 · 1.564 · 1.650 · 1.736 · 1.821 · 1.907 (전부 1.3 … 2.1) |
+| 그린 밑면 ↔ 조각 밑면 최대 차 | (14/7)/2 × 0.042857 = **0.043 m** (3차의 0.053 보다 좁다) |
+| 슬래브 위쪽 (출구) | 1.95 + 2.4 = **4.35 m** < 양옆 잔해 더미 높이 5.2 → 삐져나오지 않는다 |
+| 절벽 2 — 안드로이드 구간 끝(−66)에서의 거리 | 16 → **11 m** |
+| `drop` 체크포인트 → 적 | (−7,−48) **24.0 m** · (7,−54) **18.4 m** (감지 12 m 밖) |
+| `bugs`(0,60) → 벌레 둘 | (−2.5,34) **26.1 m** · (2.5,28) **32.1 m** |
+| `crawl`(0,−10) → 벌레 둘 | (−2.5,34) **44.1 m** · (2.5,28) **38.1 m** |
+| 체크포인트 → 적 최단 (전체) | **15.30 m** (`ship` → (3,−128)) — 4차에 안 바뀌었다 |
+| 시체 ① (2,66) 의 벽 여유 | 반폭 6.67(깔때기 한복판) − 2 = **4.67 m** |
+| 절벽 1 — 기록을 막는 띠 (x 0) | z **94.00 … 76.90** (접근 쪽 12 m = `cliff` 자리와 정확히 같다 · 건너편 1.5 m) |
+| 절벽 1 — 띠 (x −7.7 / +7.7) | 96.80 … 79.70 / 91.20 … 74.10 (사선과 평행하므로 도움닫기는 어느 x 에서도 **12.0 m**) |
+| 못 넘고 죽었을 때의 부활 자리 | 띠 바로 위(z > 94) = **도움닫기 12 m 이상 보장**, 없으면 `cliff` 체크포인트 |
+| 절벽 2 착지 구역(`clamp`, z −77 … −102) | **기록한다** (`kill` 만 막는다) — 그 구간의 죽음이 절벽 위로 안 올라간다 |
+
+`npm run typecheck` 통과 (`src/world/**` 오류 0 — 남은 오류는 같은 묶음의 `src/tutorial/**` 레인 것이다).

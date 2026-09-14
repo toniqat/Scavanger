@@ -25,7 +25,15 @@ sliders without importing this folder.
 - **Routing**: `sfxBus.gain = settings.sfx`, `master.gain = settings.master × (paused ? 0.25 : 1)`. The `game:paused`
   duck now only flips a `ducked` flag and re-applies (0.1 s ramp), so it composes with a mid-pause slider change.
 - **Ambience** (`ambBus`) is deliberately *not* on the sfx slider — it goes straight to the limiter → master, i.e. it
-  follows 전체 only. There is no BGM and no ambience slider.
+  follows 전체 only. There is no ambience slider.
+- **`bgm` 채널 (2026-09-14, 사용자 결정) — 소리는 나지 않는다.** `AudioChannel 'bgm'` · `AudioSettings.bgm` 이 생겼고
+  설정에 `음악` 줄이 섰지만, **외부 에셋 금지**라 오디오 파일을 넣을 수 없고 절차 음악은 아직 없다. 그래서 이
+  폴더는 채널의 값을 **저장 · 복원 · 이벤트로 알리기만** 하고 그 GainNode 밑에 아무것도 걸지 않는다 — 실제로
+  이 슬라이더가 움직이는 것은 `ui/hud/MusicPlayer` 의 볼륨 표시뿐이고, 재생 상태의 주인도 여기가 아니라
+  `housing/parts/Music` 이다(재생 목록이 레코드랙에 꽂힌 것이므로). `preview('bgm')` 는 걸 소리가 없어 **sfx
+  버스의 중립 블립**(`ui_click` @0.5)이다. 옛 저장에는 `bgm` 이 없으므로 `AUDIO_DEFAULT_BGM` 으로 채운다 —
+  **생략은 0 이 아니라 「모른다」** 라는 2026-09-10 규약 그대로다. 음악을 실제로 넣게 되면 그 노드에 걸면 되고
+  설정 · 저장 · UI 는 한 줄도 안 바뀐다.
 - `masterVolume` survives as a read-only alias of `settings.master` for readability inside this folder.
 
 ## Sound ids (`SOUNDS`)
@@ -242,6 +250,11 @@ Appended (tactical kit):
 ---
 
 ## 변경 이력
+
+- **2026-09-14 5차 (음악 채널 — 사용자 결정)** — `AudioChannel += 'bgm'` · `AudioSettings.bgm` ·
+  `AUDIO_DEFAULT_BGM`(0.6) 을 받아 `_settings` · 저장 읽기 · `PREVIEW_SOUND` 세 자리에 한 줄씩 넣었다.
+  **소리는 나지 않는다** — 위 `볼륨 설정` 절의 `bgm` 항목이 이유와 규약의 원본이다. 라우팅 · 덕킹 · 앰비언스는
+  한 줄도 안 바뀌었다.
 
 - **2026-09-13 (암호화폐 채굴, 에이전트 ④)** — `Synth.SOUNDS.crypto_mined`(짧은 디지털 블립 + 높은 동전 음 + 딸깍, ≈0.26 s) + 자동 구독
   `housing:cryptoMined` → `crypto_mined` (볼륨 0.5, 위치 없음 = 거리 감쇠 없음). **`ctx.phase === 'hub'` 일 때만** 운다 — 채굴은 레이드 · 오프라인

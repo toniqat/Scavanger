@@ -13,6 +13,10 @@
  *   • `cycle` 사이클링 — 박자마다 왼발(A) · 오른발(D) 번갈아. 틀린 발 · 놓침은 실패.
  *
  * 박자 게임(호흡 · 사이클)의 두 가지 공통 규칙 (설계안에 없던 빈칸을 여기서 정했다):
+ *   • **보이는 것 = 판정** (2026-09-14, 사용자 결정): `judgeBands` 가 csv 창을 두 띠로 나눈다 — `perfect` 는 그 창 그대로이고
+ *     **화면에 그려지는 표식 · 판정 띠의 크기가 곧 그 값**이며(`ui/gym/GymViews`), `good` 은 그 바깥으로 `GOOD_OF_PERFECT` 배까지다.
+ *     옛 규칙(완벽 = 창의 1/3)을 뒤집은 것이라 전체가 훨씬 관대하다. 벤치프레스는 처음부터 `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT`
+ *     두 값을 그대로 그렸으므로 한 줄도 바뀌지 않았다.
  *   • **예비 박자** `GYM_LEAD_BEATS` 박 — 첫 표식이 판정선까지 걸어올 시간. 그 사이의 입력은 무시한다.
  *   • **헛누름은 다음 표식의 실패**다 — 다음 표식 창보다 이르지만 직전 창이 닫힌 뒤(`t − (박자 − 창)` 이후)에 누르면
  *     그 표식을 실패로 친다. 그렇지 않으면 Space 를 연타해 모든 창을 줍는 것이 최선의 전략이 된다.
@@ -32,7 +36,7 @@ import {
   GYM_BREATH_BEAT_S, GYM_BREATH_CYCLES, GYM_BREATH_HOLD_S, GYM_BREATH_HOLD_TOL_S, GYM_BREATH_WINDOW_S,
   GYM_CYCLE_BEAT_S, GYM_CYCLE_STROKES, GYM_CYCLE_WINDOW_S,
   GYM_PRESS_PERFECT, GYM_PRESS_REPS, GYM_PRESS_SPEED, GYM_PRESS_SPEED_STEP, GYM_PRESS_ZONE,
-  GYM_LEAD_BEATS, GYM_SCORE_GOOD, GYM_SCORE_PERFECT,
+  GYM_LEAD_BEATS, GYM_SCORE_GOOD, GYM_SCORE_PERFECT, GYM_GOOD_OF_PERFECT,
 } from '@/shared';
 
 export type GymQuality = 'perfect' | 'good' | 'miss';
@@ -62,11 +66,30 @@ export function scoreOf(judgements: readonly GymQuality[], total: number): numbe
   return Math.max(0, Math.min(1, sum / total));
 }
 
-/** 박자 오차 → 판정 (창의 1/3 안 = 완벽, 창 안 = 성공), 창 밖이면 null. */
-function grade(err: number, window: number): GymQuality | null {
+/**
+ * 판정 띠 한 벌 (초) — `perfect` 는 **화면에 그려지는 표식의 반지름**, `good` 은 그 바깥까지 (2026-09-14, 사용자 결정 「보이는 것 = 판정」).
+ */
+export interface JudgeBands {
+  perfect: number;
+  good: number;
+}
+
+/**
+ * csv 창(`GYM_*_WINDOW_S`) → 판정 띠. `perfect` 는 그 창 그대로이고 (이웃 표식과 겹치지 않게 `WINDOW_MAX_OF_BEAT` 안으로 잘린다)
+ * `good` 은 그 바깥으로 `GOOD_OF_PERFECT` 배. 화면(`ui/gym/GymViews`)이 `perfect` 로 표식 · 띠 크기를 만든다.
+ * 옛 규칙(완벽 = 창의 1/3)을 뒤집은 것이라 전체가 훨씬 관대하다.
+ */
+export function judgeBands(window: number, beat: number): JudgeBands {
+  const cap = Math.max(0, beat) * WINDOW_MAX_OF_BEAT;
+  const good = Math.min(Math.max(0, window) * GOOD_OF_PERFECT, cap);
+  return { perfect: good / GOOD_OF_PERFECT, good };
+}
+
+/** 박자 오차 → 판정 (완벽 띠 안 = 완벽, 좋음 띠 안 = 성공), 밖이면 null. */
+function grade(err: number, bands: JudgeBands): GymQuality | null {
   const e = Math.abs(err);
-  if (e <= window / 3) return 'perfect';
-  if (e <= window) return 'good';
+  if (e <= bands.perfect + 1e-9) return 'perfect';
+  if (e <= bands.good + 1e-9) return 'good';
   return null;
 }
 
@@ -74,6 +97,11 @@ function grade(err: number, window: number): GymQuality | null {
 
 /** 박자 게임 판정 창의 상한 = 박자 × 이 값 (구현 값) — 창이 박자의 절반을 넘으면 이웃 표식의 창과 겹쳐 헛누름 규칙이 깨진다. */
 const WINDOW_MAX_OF_BEAT = 0.5;
+/**
+ * 좋음 띠 = 완벽 띠의 이 배수 (구현 값, 2026-09-14). **완벽 띠가 곧 화면에 그려지는 표식**이고 좋음은 그 바깥의 나머지다 —
+ * 1 이면 좋음이 사라지고, `WINDOW_MAX_OF_BEAT` 에 닿으면 헛누름이 실패로 잡히지 않는다.
+ */
+const GOOD_OF_PERFECT = GYM_GOOD_OF_PERFECT;
 
 /** 튜닝 배수 하나 — 유한한 양수만, 아니면 1 (= 헬스 기본). */
 export function tuningMul(v: number | undefined): number {
@@ -115,6 +143,8 @@ export abstract class GymGame {
 
   get done(): boolean { return this.judgements.length >= this.total; }
   get score(): number { return scoreOf(this.judgements, this.total); }
+  /** 진행도 0 … 1 — 화면 머리줄의 프로그레스바가 이것만 읽는다 (2026-09-14, 사용자 결정 「라벨 없이 바만」). */
+  get completion(): number { return this.total > 0 ? Math.max(0, Math.min(1, this.judgements.length / this.total)) : 0; }
   counts(): Record<GymQuality, number> {
     const c = { perfect: 0, good: 0, miss: 0 };
     for (const q of this.judgements) c[q]++;
@@ -211,6 +241,9 @@ export interface BeatNote {
 abstract class BeatGame extends GymGame {
   abstract readonly notes: readonly BeatNote[];
   abstract readonly beat: number;
+  /** 판정 띠 — `perfect` 가 곧 화면 표식의 반지름 (2026-09-14). */
+  abstract readonly bands: JudgeBands;
+  /** 바깥 띠 (= 성공까지). 놓침 · 헛누름 규칙이 쓰는 창이다. */
   abstract readonly window: number;
   /** 첫 미판정 표식. */
   protected next = 0;
@@ -237,8 +270,11 @@ abstract class BeatGame extends GymGame {
 export class BreathGame extends BeatGame {
   readonly minigame = 'breath' as const;
   readonly beat: number;
+  readonly bands: JudgeBands;
   readonly window: number;
   readonly holdS: number;
+  /** 「하」 를 떼는 판정 띠 (`perfect` · `good`) — 표식 끝의 그림이 `perfect` 다. */
+  readonly holdBands: JudgeBands;
   readonly holdTol: number;
   readonly notes: BeatNote[] = [];
 
@@ -247,8 +283,10 @@ export class BreathGame extends BeatGame {
     const speed = tuningMul(tuning?.speedMul), win = tuningMul(tuning?.windowMul);
     this.beat = GYM_BREATH_BEAT_S / speed;
     this.holdS = GYM_BREATH_HOLD_S / speed;
-    this.window = Math.min(GYM_BREATH_WINDOW_S * win, this.beat * WINDOW_MAX_OF_BEAT);
-    this.holdTol = Math.min(GYM_BREATH_HOLD_TOL_S * win, this.holdS * WINDOW_MAX_OF_BEAT);
+    this.bands = judgeBands(GYM_BREATH_WINDOW_S * win, this.beat);
+    this.window = this.bands.good;
+    this.holdBands = judgeBands(GYM_BREATH_HOLD_TOL_S * win, this.holdS);
+    this.holdTol = this.holdBands.good;
     const B = this.beat;
     const cycles = Math.max(1, Math.round(GYM_BREATH_CYCLES));
     const total = tunedCount(cycles * 3, tuning?.countMul);
@@ -283,7 +321,7 @@ export class BreathGame extends BeatGame {
     this.step();
     const n = this.upcoming;
     if (!n || (n.hold && n.start !== null)) return;
-    const q = grade(this.time - n.t, this.window);
+    const q = grade(this.time - n.t, this.bands);
     if (q) {
       this.sound('gym_breath');
       if (n.hold) n.start = q;
@@ -298,7 +336,7 @@ export class BreathGame extends BeatGame {
     if (!n || !n.hold || n.start === null) return;
     const err = Math.abs(this.time - (n.t + this.holdS));
     if (err > this.holdTol) { this.resolve(n, 'miss'); return; }                                // 너무 일찍 뗐다
-    this.resolve(n, n.start === 'perfect' && err <= this.holdTol / 3 ? 'perfect' : 'good');
+    this.resolve(n, n.start === 'perfect' && err <= this.holdBands.perfect ? 'perfect' : 'good');
   }
 }
 
@@ -306,13 +344,15 @@ export class BreathGame extends BeatGame {
 export class CycleGame extends BeatGame {
   readonly minigame = 'cycle' as const;
   readonly beat: number;
+  readonly bands: JudgeBands;
   readonly window: number;
   readonly notes: BeatNote[] = [];
 
   constructor(tuning?: GymGameTuning) {
     super();
     this.beat = GYM_CYCLE_BEAT_S / tuningMul(tuning?.speedMul);
-    this.window = Math.min(GYM_CYCLE_WINDOW_S * tuningMul(tuning?.windowMul), this.beat * WINDOW_MAX_OF_BEAT);
+    this.bands = judgeBands(GYM_CYCLE_WINDOW_S * tuningMul(tuning?.windowMul), this.beat);
+    this.window = this.bands.good;
     const strokes = tunedCount(Math.max(1, Math.round(GYM_CYCLE_STROKES)), tuning?.countMul);
     const custom = parseGymPattern(tuning?.pattern, CYCLE_TOKENS);
     if (!custom.length) {
@@ -340,7 +380,7 @@ export class CycleGame extends BeatGame {
     this.step();
     const n = this.upcoming;
     if (!n) return;
-    const q = grade(this.time - n.t, this.window);
+    const q = grade(this.time - n.t, this.bands);
     if (q) {
       if (action === n.lane) { this.sound('gym_pedal'); this.resolve(n, q); }
       else this.resolve(n, 'miss');                                                                  // 틀린 발

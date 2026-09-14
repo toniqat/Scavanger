@@ -1559,3 +1559,14 @@ export interface GameEvents {
   'meta:npcTrustChanged': { npc: string; trust: number; level: number; delta: number; levelUp: boolean };
 }
 /* ── end [2026-09-14] 정보상 · NPC 개인 신뢰도 ── */
+
+/* ── [2026-09-14] 음악 재생 · 서재 · 채굴 UI 2차 개편 ──────────────────────────────
+ * 음악은 **소리가 아니라 상태**다 (사용자 결정) — 그래서 audio/ 가 아니라 housing/ 이 주인이고
+ * ui/ 의 재생 창이 이 사실 하나만 보고 그린다. */
+import type { MusicPlayerState } from './housing';
+
+export interface GameEvents {
+  /** Fact (housing): 음악 재생 상태가 바뀌었다 — 켜기 · 끄기 · 곡 넘김 · 반복 전환 · 레코드랙의 내용 변화. */
+  'housing:musicChanged': { state: MusicPlayerState };
+}
+/* ── end [2026-09-14] 음악 재생 ── */

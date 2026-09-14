@@ -5,7 +5,9 @@
 # npcTrust (2026-09-14) = 이 퀘스트를 **낸 NPC** 의 개인 신뢰도 보상. 기업 신뢰도(rewardRep)와 함께 주고 서로를 대신하지 않는다 — 무소속 NPC(레이븐 · 케인)는 이것만 받는다.
 #   레벨 표는 기업과 같은 REP_TABLE(data/tables.csv, 0/100/300/700/1500/3000). 체인 초반은 작게 후반은 크게 잡아, 한 NPC 의 체인을 다 깨면 기업 NPC 는 Lv.3 · 무소속은 Lv.4 가 된다.
 #   크레딧이 아니라 서버 검증과 무관하다 (credits:tx 를 타지 않는다).
-# 대사 (| 로 말풍선을 나눈다): offer = 퀘스트 카드 앞 · accept = 수락 뒤 · decline = 「생각해보지」 뒤 · brief = 퀘스트 탭에서 다시 수주할 때의 짧은 설명 · complete = 완료 보고 뒤.
+# 대사 (| 로 말풍선을 나눈다): offer = 퀘스트 카드 앞 · accept = 수락 뒤 · complete = 완료 보고 뒤.
+#   decline · brief 는 **은퇴했다** (2026-09-14 3차 사용자 결정 — 「생각해보지」 선택지 제거). 새로 쓰이지 않고 옛 대화 기록을 푸는 데만 남는다 —
+#   지우면 그 기록이 빈 말풍선이 되므로 그대로 둔다 (계약의 airstrike · secondary 와 같은 처리). 새 퀘스트 줄은 두 칸을 비워도 된다.
 # 채굴 인가 퀘스트 id 는 고정: q_hx_permit · q_bs_permit · q_nm_permit · q_ce_permit. 목표는 data/npc_objectives.csv.
 id,npc,name,summary,reqLevel,reqRep,reqQuests,rewardCredits,rewardXp,rewardRep,rewardItems,npcTrust,offer,accept,decline,brief,complete
 q_hx_s1,npc_park_doyun,탄피 수거 작전,보급 창고가 비었다. 폐금속과 화약을 모아 헬릭스 탄약 라인을 다시 돌린다.,,,,150,200,,shield_charger:2,100,보급관 박도윤이에요! 탄약 라인이 멈췄어요.|폐금속이랑 화약만 있으면 오늘 안에 다시 돌릴 수 있는데… 좀 모아 주실래요?,살았다! 창고 쪽엔 제가 말해 둘게요.,"아, 바쁘시죠. 괜찮아요. 생각나면 퀘스트 탭에서 다시 받아 주세요.","폐금속 12개, 화약 8개요. 함선 창고에 있으면 바로 납품하시면 돼요.",라인 재가동 확인! 한서진 실장님께 당신 이름 올려 둘게요.

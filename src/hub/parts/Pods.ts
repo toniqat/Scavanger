@@ -351,6 +351,12 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     if (sys.countdown >= 0) { sys.countdown = -1; if (lobby) ctx.bus.emit('ui:notify', { text: '발사 취소 — 승무원 대기', kind: 'warning' }); }
   }
 
+  /*
+   * 2026-09-14 2차: 카운트다운이 도는 동안에는 우측 하단 키 가이드(`'pod'`)를 내린다 — 그때는 내릴 수도
+   * 준비를 바꿀 수도 없다. 올리고 내리는 규칙 자체는 `ui/ReadyPanel.syncGuide` 하나가 갖는다.
+   */
+  sys.ready.setLaunching(sys.countdown >= 0);
+
   if (sys.countdown >= 0) {
     sys.countdown -= dt;
     const sec = Math.max(0, Math.ceil(sys.countdown));
@@ -371,10 +377,14 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
   const visit = Hangar.visitStatus(sys);
   if (boarded) {
     if (sys.countdown >= 0) sys.status.set(String(Math.max(0, Math.ceil(sys.countdown))), '발사 준비 완료', { count: true, progress: 1 - sys.countdown / HUB_LAUNCH_COUNTDOWN });
-    // 2026-09-14: 홀드 게이지는 내 카드 하단에 있고, 여기서는 남은 인원과 내리는 키만 말한다
-    else if (sys.readyLocal) sys.status.set(lobby ? `준비 완료 (${ready}/${total})` : '준비 완료', '슬롯에서 내리기', { keycap: 'E' });
-    else if (lobby) sys.status.set(`준비 대기 (${ready}/${total})`, '슬롯에서 내리기', { keycap: 'E' });
-    else sys.status.set('준비 대기', '슬롯에서 내리기', { keycap: 'E' });
+    /*
+     * 2026-09-14 2차 (사용자 결정): 홀드 게이지는 내 카드 하단에, **조작 키는 우측 하단 키 가이드**(owner `'pod'`,
+     * `ui/ReadyPanel.syncGuide`)에 있다. 여기 중앙 하단 줄에는 상태 텍스트와 카운트다운만 남는다 —
+     * 옛 `E 슬롯에서 내리기` 서브 줄은 게임의 다른 화면과 같은 자리로 갔다.
+     */
+    else if (sys.readyLocal) sys.status.set(lobby ? `준비 완료 (${ready}/${total})` : '준비 완료');
+    else if (lobby) sys.status.set(`준비 대기 (${ready}/${total})`);
+    else sys.status.set('준비 대기');
   } else if (lobby && net?.missionInProgress) {
     if (sys.trainingRunning()) sys.status.set(`훈련 진행 중 (${sys.trainingCount()}명)`, '터미널에서 합류할 수 있습니다');
     else sys.status.set('임무 진행 중', '발사 슬롯에 탑승하면 재투입됩니다');

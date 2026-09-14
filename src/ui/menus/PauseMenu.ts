@@ -8,6 +8,12 @@ interface Ask {
   title: string;
   body: string;
   ok: string;
+  /**
+   * 2026-09-14 (사용자 결정): 잃을 것이 없는 확정은 **한 번의 탭**이다 — 홀드 게이지도 안내 줄도 그리지 않는다.
+   * 「되돌릴 수 없는 확정은 1초 홀드」 규약(2026-09-09)의 근거는 *잃는 것*이고, 함선에서의 타이틀로 · 게임 종료는
+   * 포기할 임무도 사라질 전리품도 없다. 생략 = 예전 그대로 홀드.
+   */
+  tap?: boolean;
   run(): void;
 }
 
@@ -68,6 +74,13 @@ interface Ask {
  * 이미 쓰는 규약 그대로 **경고 팝업 + 1초 홀드**를 지난다. 이 버튼은 **함선에서도 보인다** — 함선 · 증축 트랙은
  * 함선 안에서 도는데, `함선으로 귀환` 의 hub 숨김 규칙을 그대로 물려받으면 그 두 트랙은 건너뛸 길이 없다.
  * 튜토리얼이 없을 때의 `함선으로 귀환` 은 한 글자도 바뀌지 않는다.
+ *
+ * **2026-09-14 (함선에서의 타이틀로 · 게임 종료, 사용자 결정)**: 두 팝업의 글과 확정 방식이 **지금 임무 중인가**에 따라
+ * 갈린다. 판정은 새로 만들지 않고 `함선으로 귀환` 을 숨길 때 쓰는 그 값(`this.inHub` ← `ctx.isHubPhase()`)을 그대로 본다.
+ *  - 함선: 「진행 중인 임무를 포기하고 … 전리품은 사라집니다」가 **거짓말**이다 (포기할 임무도 잃을 전리품도 없다) —
+ *    함선용 글로 갈아 끼우고, 잃는 것이 없으므로 **한 번의 탭**으로 확정한다 (`Ask.tap`).
+ *  - 임무 중: 예전 그대로 임무 문구 + 1초 홀드.
+ *  - **`파티 떠나기` 는 함선에서도 홀드다** — 잃는 것은 없어도 분대 다른 사람에게 영향을 주는 행동이라 실수로 눌리면 안 된다.
  */
 export class PauseMenu extends MenuBase {
   private returnBtn: HTMLButtonElement;
@@ -81,6 +94,8 @@ export class PauseMenu extends MenuBase {
   private ask: HTMLElement;
   private askTitle: HTMLElement;
   private askBody: HTMLElement;
+  /** 「1초 누르고 있어야 …」 안내 줄 — 탭 확정 팝업에서는 감춘다. */
+  private askHint: HTMLElement;
   private askNo: HTMLButtonElement;
   private askOk: HTMLButtonElement;
   private askOkLabel: HTMLElement;
@@ -107,18 +122,8 @@ export class PauseMenu extends MenuBase {
       ok: '떠나기',
       run: () => this.leaveParty(),
     }), 'danger');
-    this.button(actions, '타이틀로', () => this.confirm({
-      title: '타이틀로',
-      body: '진행 중인 임무를 포기하고 타이틀 화면으로 돌아갑니다. 회수하지 못한 전리품은 사라집니다.',
-      ok: '타이틀로',
-      run: () => this.toTitle(),
-    }), 'danger');
-    this.button(actions, '게임 종료', () => this.confirm({
-      title: '게임 종료',
-      body: '게임을 종료합니다. 진행 중인 임무는 저장되지 않습니다.',
-      ok: '종료',
-      run: () => this.quit(),
-    }), 'danger');
+    this.button(actions, '타이틀로', () => this.confirm(this.titleAsk()), 'danger');
+    this.button(actions, '게임 종료', () => this.confirm(this.quitAsk()), 'danger');
 
     /* ── 경고 팝업: inside the frame's overlay so it darkens exactly the menu it guards ── */
     this.ask = el('div', { cls: 'pause-ask', parent: this.root });
@@ -127,7 +132,8 @@ export class PauseMenu extends MenuBase {
     this.askTitle = el('div', { cls: 'pause-ask-title', text: '', parent: card });
     this.askBody = el('div', { cls: 'pause-ask-body', text: '', parent: card });
     // The hint is built from the constant, so the screen can never disagree with `data/constants.csv`.
-    el('div', { cls: 'pause-ask-hint', text: `확인 버튼을 ${UI_HOLD_CONFIRM_S}초 누르고 있어야 실행됩니다`, parent: card });
+    // 탭 확정(`Ask.tap`) 팝업에서는 `confirm()` 이 이 줄을 통째로 감춘다 — 홀드하지 않는데 홀드하라고 적으면 안 된다.
+    this.askHint = el('div', { cls: 'pause-ask-hint', text: `확인 버튼을 ${UI_HOLD_CONFIRM_S}초 누르고 있어야 실행됩니다`, parent: card });
     const foot = el('div', { cls: 'pause-ask-foot', parent: card });
     this.askNo = el('button', { cls: 'ui-btn small', text: '취소', parent: foot });
     this.askOk = el('button', { cls: 'ui-btn small danger pause-ask-ok', parent: foot });
@@ -137,8 +143,13 @@ export class PauseMenu extends MenuBase {
     // 홀드 확정: pointerdown starts the sweep, leaving the button cancels, and `onWindowUp` catches every release.
     this.askOk.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.startHold(e); });
     this.askOk.addEventListener('pointerleave', () => this.cancelHold());
-    // A click on the red button is *not* a confirm any more — swallow it so nothing else reads it either.
-    this.askOk.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+    // 홀드 팝업에서 click 은 *확정이 아니다* — 삼켜서 아무도 읽지 못하게 한다.
+    // 탭 확정 팝업에서만 이 click 하나가 곧 확정이다 (`startHold` 는 그때 아무것도 무장하지 않는다).
+    this.askOk.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.pending?.tap) this.runAsk();
+    });
   }
 
   override bind(ctx: GameContext): void {
@@ -178,6 +189,8 @@ export class PauseMenu extends MenuBase {
   get skipTrackTarget(): TutorialTrack | null { return this.track; }
   /** Whether the 경고 팝업 is up (debug / smoke). */
   get isAskOpen(): boolean { return !this.ask.hidden; }
+  /** 2026-09-14: 지금 뜬 팝업이 홀드 없이 탭 한 번으로 확정되는가 (디버그 / 스모크). */
+  get isAskTap(): boolean { return !this.ask.hidden && !!this.pending?.tap; }
   /** The 파티 떠나기 button (debug / smoke). */
   get partyButton(): HTMLButtonElement { return this.leaveBtn; }
   /** The 경고 팝업's red 확정 button (debug / smoke). */
@@ -235,6 +248,7 @@ export class PauseMenu extends MenuBase {
     setText(this.askTitle, ask.title);
     setText(this.askBody, ask.body);
     setText(this.askOkLabel, ask.ok);
+    this.askHint.hidden = !!ask.tap;
     this.ask.hidden = false;
     // Focus the safe button: the destructive one cannot be triggered by a key at all, and a stray Space should
     // cancel rather than look like it is arming something.
@@ -258,8 +272,12 @@ export class PauseMenu extends MenuBase {
 
   /* ── 확정 홀드 (UI_HOLD_CONFIRM_S) ───────────────────────────────────────── */
 
-  /** Left-button press on the red button arms the sweep; every other button is ignored. */
+  /**
+   * Left-button press on the red button arms the sweep; every other button is ignored.
+   * 탭 확정 팝업은 여기서 아무것도 무장하지 않는다 — `preventDefault` 조차 하지 않아야 뒤따르는 click 이 그대로 온다.
+   */
   private startHold(e: PointerEvent): void {
+    if (this.pending?.tap) return;
     if (e.button !== 0 || !this.pending || this.holdStart) return;
     e.preventDefault();
     this.holdStart = performance.now();
@@ -318,6 +336,23 @@ export class PauseMenu extends MenuBase {
         ? '임무를 포기하고 함선으로 돌아갑니다. 캐릭터는 그 자리에서 사망하며, 장비 · 가방 · 장착 임플란트는 시체에 남아 분대원이 회수할 수 있습니다.'
         : '임무를 포기하고 함선으로 돌아갑니다. 캐릭터는 그 자리에서 사망하며, 장비 · 가방 · 장착 임플란트를 모두 잃습니다.';
     return { title: '함선으로 귀환', body, ok: '귀환', run: () => this.returnToShip() };
+  }
+
+  /**
+   * 2026-09-14 (사용자 결정): 함선에서는 포기할 임무도 사라질 전리품도 없다 — 임무 문구를 빼고 **탭 한 번**으로 확정한다.
+   * 임무 중에는 예전 문구 · 예전 홀드 그대로다. (함선의 진행은 프로필 · 함선 문서로 이미 저장돼 있으므로 그렇게 말한다.)
+   */
+  private titleAsk(): Ask {
+    return this.inHub
+      ? { title: '타이틀로', body: '타이틀 화면으로 돌아갑니다. 함선의 진행 상황은 저장되어 있습니다.', ok: '타이틀로', tap: true, run: () => this.toTitle() }
+      : { title: '타이틀로', body: '진행 중인 임무를 포기하고 타이틀 화면으로 돌아갑니다. 회수하지 못한 전리품은 사라집니다.', ok: '타이틀로', run: () => this.toTitle() };
+  }
+
+  /** `titleAsk` 와 같은 갈래 — 함선에서는 잃는 것이 없으므로 임무 문구를 빼고 탭 한 번이다. */
+  private quitAsk(): Ask {
+    return this.inHub
+      ? { title: '게임 종료', body: '게임을 종료합니다. 함선의 진행 상황은 저장되어 있습니다.', ok: '종료', tap: true, run: () => this.quit() }
+      : { title: '게임 종료', body: '게임을 종료합니다. 진행 중인 임무는 저장되지 않습니다.', ok: '종료', run: () => this.quit() };
   }
 
   /**

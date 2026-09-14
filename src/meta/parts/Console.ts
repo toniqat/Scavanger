@@ -21,7 +21,9 @@ import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 import { formatCreditReason } from '@/shared';
-import { NPC_DEFS, NPC_QUEST_DEFS } from '@/shared';
+import { NPC_DEFS, NPC_FLAGS, NPC_QUEST_DEFS } from '@/shared';
+import type { NpcFlag } from '@/shared';
+import { freshNpcSave } from '../NpcRules';
 
 export function registerConsole(sys: MetaSystem): void {
   const con = sys.ctx.console;
@@ -125,32 +127,54 @@ export function registerConsole(sys: MetaSystem): void {
     },
     /* 2026-09-14: 기업 퀘스트(`quest`) 폐지 → NPC 퀘스트(`npc`). 조건 무시 연락 · 제안, 수락 · 보류 · 납품 · 보고, 진행 치트, 초기화. */
     {
-      name: 'npc', usage: 'npc list|contact <npc>|offer <quest>|accept <quest>|defer <quest>|deliver <quest> <i>|report <quest>|progress <quest> <i> <n>|reset',
-      description: 'NPC 연락 · 퀘스트 목록 / 강제 연락 · 제안 / 수락 · 보류 · 납품 · 완료 보고 / 진행 치트',
+      name: 'npc', usage: 'npc list|flags [<플래그> <n>]|contact <npc>|offer <quest>|accept <quest>|deliver <quest> <i>|report <quest>|progress <quest> <i> <n>|reset',
+      description: 'NPC 연락 · 퀘스트 목록 / 진행 플래그 보기 · 올리기 / 강제 연락 · 제안 / 수락 · 납품 · 완료 보고 / 진행 치트',
       run: (args, _ctx, print) => {
         const nq = sys.npcQuests;
         const sub = (args[0] ?? 'list').toLowerCase();
         if (sub === 'list') {
           for (const c of nq.getContacts()) print(`  ${c.npc.id}  ${c.npc.name} (${c.npc.title}) · 안 읽음 ${c.unread}`, 'info');
-          for (const q of nq.getQuests()) {
+          /* 2026-09-14 3차: `getQuests()` 는 이제 받은 것(active · complete)만 준다 — 콘솔은 `offered` 까지 봐야 하므로
+           * 정의를 돌며 `getQuest(id)` 로 묻는다(상태가 없는 것은 null). */
+          let n = 0;
+          for (const def of NPC_QUEST_DEFS) {
+            const q = nq.getQuest(def.id);
+            if (!q) continue;
+            n++;
             const objs = q.objectives.map((o, i) => `#${i} ${o.label} ${o.progress}/${o.target}${o.done ? '✓' : ''}`).join(' · ');
             print(`  ${q.def.id}  [${q.state}] ${q.npc.name} · ${q.def.name} — ${objs}`, q.state === 'complete' ? 'success' : 'info');
           }
-          return `연락 ${nq.getContacts().length} · 퀘스트 ${nq.getQuests().length} (정의 NPC ${NPC_DEFS.length} · 퀘스트 ${NPC_QUEST_DEFS.length})`;
+          return `연락 ${nq.getContacts().length} · 퀘스트 ${n} (정의 NPC ${NPC_DEFS.length} · 퀘스트 ${NPC_QUEST_DEFS.length})`;
+        }
+        /* 2026-09-14 3차: 진행 플래그 — 4기업 NPC 의 첫 연락 조건(`data/npcs.csv` 의 reqFlag). 인자 없이 = 보기. */
+        if (sub === 'flags') {
+          const flag = args[1];
+          if (flag !== undefined) {
+            if (!(NPC_FLAGS as readonly string[]).includes(flag)) return { error: `모르는 플래그: ${flag} (${NPC_FLAGS.join(' | ')})` };
+            const want = args[2] === undefined ? nq.flagOf(flag as NpcFlag) + 1 : num(args[2]);
+            if (Number.isNaN(want)) return { error: '사용법: /npc flags <플래그> <횟수>' };
+            const delta = Math.max(0, Math.floor(want) - nq.flagOf(flag as NpcFlag));
+            if (delta <= 0) return { error: `${flag} 은 이미 ${nq.flagOf(flag as NpcFlag)} 이다 (플래그는 내릴 수 없다 — /npc reset)` };
+            nq.bumpFlag(flag as NpcFlag, delta);
+            return `${flag} = ${nq.flagOf(flag as NpcFlag)}`;
+          }
+          for (const f of NPC_FLAGS) print(`  ${f} = ${nq.flagOf(f)}`, 'info');
+          return `진행 플래그 ${NPC_FLAGS.length}종`;
         }
         if (sub === 'reset') {
-          sys.store.data.npc = { contacts: {}, log: {}, quests: {} };
+          sys.store.data.npc = freshNpcSave();
           sys.store.markDirty();
           nq.reset();
           nq.evaluate();
-          return 'NPC 연락 · 대화 · 퀘스트 초기화';
+          return 'NPC 연락 · 대화 · 퀘스트 · 진행 플래그 초기화';
         }
         const id = args[1];
         if (!id) return { error: `사용법: /npc ${sub} <id>` };
         if (sub === 'contact') return nq.forceContact(id) ? `연락: ${id}` : { error: `이미 연락했거나 모르는 NPC: ${id}` };
         if (sub === 'offer') return nq.forceOffer(id) ? `제안: ${id}` : { error: `이미 상태가 있거나 모르는 퀘스트: ${id}` };
         if (sub === 'accept') return nq.accept(id) ? `수락: ${id}` : { error: `수락 실패 (${nq.getQuest(id)?.state ?? '제안 없음'}${sys.inShip ? '' : ' · 함선에서만'})` };
-        if (sub === 'defer') return nq.defer(id) ? `보류: ${id}` : { error: `보류 실패 (${nq.getQuest(id)?.state ?? '제안 없음'})` };
+        // 2026-09-14 3차: 「생각해보지」 은퇴 — `defer` 는 늘 false 다. 옛 손가락을 위해 사유만 돌려준다.
+        if (sub === 'defer') return { error: '「생각해보지」는 은퇴했습니다 (2026-09-14 3차) — 제안은 수락하거나 그대로 둡니다' };
         if (sub === 'report') return nq.report(id) ? `완료 보고: ${id}` : { error: `보고 실패: ${nq.getQuest(id)?.blocked ?? '진행 중인 퀘스트가 아닙니다'}` };
         const idx = num(args[2]);
         if (sub === 'deliver') {
@@ -163,11 +187,12 @@ export function registerConsole(sys: MetaSystem): void {
           if (Number.isNaN(idx) || Number.isNaN(n)) return { error: '사용법: /npc progress <quest> <목표 번호> <n>' };
           return nq.devProgress(id, idx, n) ? `진행 ${id} #${idx} = ${n}` : { error: '진행 중인 퀘스트 · 목표가 아닙니다' };
         }
-        return { error: '사용법: /npc list|contact|offer|accept|defer|deliver|report|progress|reset' };
+        return { error: '사용법: /npc list|flags|contact|offer|accept|deliver|report|progress|reset' };
       },
       complete: (args) => {
-        const subs = ['list', 'contact', 'offer', 'accept', 'defer', 'deliver', 'report', 'progress', 'reset'];
+        const subs = ['list', 'flags', 'contact', 'offer', 'accept', 'deliver', 'report', 'progress', 'reset'];
         if (args.length <= 1) return subs.filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
+        if (args.length === 2 && args[0] === 'flags') return NPC_FLAGS.filter((s) => s.startsWith(args[1] ?? ''));
         if (args.length === 2 && args[0] === 'contact') return NPC_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
         if (args.length === 2) return NPC_QUEST_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
         return [];

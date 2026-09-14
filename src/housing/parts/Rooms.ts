@@ -108,7 +108,8 @@ export function setRoomPurpose(sys: HousingSystem, index: number, purpose: RoomP
     const inRoom = sys.state.furniture.filter((p) => p.room === index).sort((a, b) => layerOf(b) - layerOf(a));
     for (const f of inRoom) sys.recover(f.uid);
   }
-  // a greenhouse that goes away takes the rooms that need it with it (연구실 · 주방 — `Rules.NEEDS_GREENHOUSE`)
+  // a greenhouse that goes away takes the rooms that need it with it (`Rules.NEEDS_GREENHOUSE`)
+  // 2026-09-14 (사용자 결정): 그 목록이 비었으므로 이 루프는 아무 방도 비우지 않는다 — 선행 시설 조건 폐지.
   if (room.purpose === 'greenhouse' && !sys.state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
     for (let i = 0; i < sys.state.rooms.length; i++) if (NEEDS_GREENHOUSE.includes(sys.state.rooms[i].purpose)) sys.setRoomPurpose(i, 'empty');
   }

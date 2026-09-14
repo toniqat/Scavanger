@@ -1000,7 +1000,12 @@ export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger
   /* appended (2026-09-13): 행성 threat 별 인간형 팩션 — 안드로이드(threat 1) · 레이더(threat 2–3). 로그는 `rogue` 그대로. */
   | 'android' | 'raider'
   /* appended (2026-09-13): 지하벌레 — 땅에 박힌 채 버그를 뱉고 독극물을 뱉는 이벤트 보스 (팩션 bug, `enemies/sandworm`). */
-  | 'sandworm';
+  | 'sandworm'
+  /* appended (2026-09-14 3차): 튜토리얼 전용 4종. 수치 · 리그 · AI 는 **바탕 종류**(`enemies/EnemyTypes.baseTypeOf` —
+     `tut_bug*` = scavenger · `tut_android*` = android 체력 절반) 그대로이고, 다른 것은 **고정 드롭** 하나뿐이다
+     (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`). 본편 레이드 · 훈련장에는 서지 않는다
+     (`world/tutorial` 의 목록만이 이 id 를 쓴다). */
+  | 'tut_bug_loot' | 'tut_bug' | 'tut_android_loot' | 'tut_android';
 /**
  * Factions fight each other on sight (Phase 4). **Every pair of different factions is hostile** (2026-09-13) —
  * `android` · `raider` appended; the named rogues and the scan drone moved to `raider` (type ids unchanged).
@@ -1437,12 +1442,19 @@ export interface EmbeddedView {
   requestLeave?(proceed: () => void): boolean;
 }
 
-/** Volume channels the settings menu exposes. `sfx` scales gameplay one-shots; `master` scales everything. */
-export type AudioChannel = 'master' | 'sfx';
+/**
+ * Volume channels the settings menu exposes. `sfx` scales gameplay one-shots; `master` scales everything.
+ * appended (2026-09-14): `'bgm'` — 축음기 · 주크박스 · 턴테이블의 음악 재생 창이 보여 주는 채널. 사용자 결정으로 **소리는 아직 나지 않는다**
+ * (외부 에셋 금지 · 절차 음악 미구현), 그래서 audio/ 는 이 채널의 GainNode 를 만들어 두기만 하고 아무것도 그 밑에 걸지 않는다.
+ * 음악을 실제로 넣게 되면 그 노드에 걸면 되고 설정 · 저장 · UI 는 한 줄도 안 바뀐다.
+ */
+export type AudioChannel = 'master' | 'sfx' | 'bgm';
 
 export interface AudioSettings {
   master: number;
   sfx: number;
+  /** appended (2026-09-14). 옛 세이브에는 없으므로 읽는 쪽이 `AUDIO_DEFAULT_BGM` 으로 채운다. */
+  bgm: number;
 }
 
 /**
@@ -1519,6 +1531,9 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   android: 1, raider: 1,
   /* appended (2026-09-13): 지하벌레는 늘 수색된다 (보스급 전리품 — data/loot_corpses.csv) */
   sandworm: 1,
+  /* appended (2026-09-14 3차): 튜토리얼 — `_loot` 둘만 늘 수색되고(고정 드롭 100 %), 나머지 둘은 **빈 시체**라
+     아예 열리지 않는다 (0 = 상호작용이 서지 않는다 — 빈 격자를 여는 것보다 조용하다). */
+  tut_bug_loot: 1, tut_android_loot: 1, tut_bug: 0, tut_android: 0,
 };
 
 export interface EnemyRef {
@@ -3192,6 +3207,17 @@ export interface PlayerRef {
    * 1 밑으로는 내려가지 않는다 (이 함수로 사람을 죽이지 않는다 — 죽음은 `takeDamage` 의 일이다).
    */
   setHp?(hp: number): void;
+
+  /* ── appended (2026-09-14 3차, owner: player; caller: extraction) ── */
+  /**
+   * **각본 잠금** — 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠기고, 들어오는 피해가
+   * 전부 무시된다 (실드 · 체력 · 전투불능 · 사망 어느 것도 일어나지 않는다). 카메라는 건드리지 않는다 —
+   * 이륙 연출처럼 카메라를 이미 다른 곳이 들고 있기 때문이다.
+   *
+   * 지금 쓰는 곳은 튜토리얼 함선의 이륙 하나다 (스위치를 누르면 즉시 뜨고, 그 동안 함선에서 나갈 수도
+   * 죽을 수도 없어야 한다 — 사용자 결정). `game:abort` · `game:newMission` · 함선 복귀가 스스로 푼다.
+   */
+  setSceneLock?(on: boolean): void;
 }
 /* ══ end 2026-09-13 탐사 차량 ══ */
 
