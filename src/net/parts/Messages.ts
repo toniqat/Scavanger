@@ -113,7 +113,9 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       if (sys._inSession || (mode === 'training' && !enters)) { sys.applyLobby(msg.lobby); return; }
       // Phase 11: the raid's 목표 행성 — the server echoes it, `lobby.planet` is the fallback for an older relay.
       const planet = mode === 'training' ? null : (isPlanetId(msg.planet) ? msg.planet : (isPlanetId(msg.lobby.planet) ? msg.lobby.planet : null));
-      sys.beginSession(msg.seed, msg.lobby, mode, false, planet);
+      /* 2026-09-14 (정보상): 행성과 같은 규약 — 서버가 에코한 것, 없으면 `lobby.intel` (에코하지 않는 옛 릴레이). */
+      const intel = mode === 'training' ? null : (msg.intel ?? msg.lobby.intel ?? null);
+      sys.beginSession(msg.seed, msg.lobby, mode, false, planet, intel);
       return;
     }
 

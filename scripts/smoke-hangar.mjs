@@ -49,7 +49,7 @@ async function open(tag) {
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
     // the tutorial gates rooms / terminal / boarding in order; this script does not test it (smoke-tutorial does)
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });

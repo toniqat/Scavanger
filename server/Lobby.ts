@@ -5,7 +5,7 @@
  * Reconnection: a member whose socket dropped stays in `players` with `connected=false` until the server's grace
  * timer removes them (`LobbyManager.leave`). Host migration prefers connected members.
  */
-import type { LobbyErrorCode, LobbyPlayer, LobbyState, PeerId } from '../src/shared/net.ts';
+import type { IntelWire, LobbyErrorCode, LobbyPlayer, LobbyState, PeerId } from '../src/shared/net.ts';
 import type { MissionMode } from '../src/shared/types.ts';
 import type { PlanetId } from '../src/shared/planets.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
@@ -57,6 +57,13 @@ export class Lobby {
    * a training ignores it. **`reset()` keeps it** — the destination outlives the mission.
    */
   planet: PlanetId | null = null;
+  /* 2026-09-14 — 정보상 (docs/plans/intel-broker.md) */
+  /**
+   * 분대장이 산 **기믹 고정** (`lobby:intel`), 아무도 안 샀으면 null. 서버는 **모양만** 씻어 들고 그대로 방송한다 —
+   * 레이아웃은 계산하지 않는다 (`planet` 과 같은 취급). `reset()` 이 **지운다**: 정보는 그 레이드에서 소모되므로
+   * 다음 판까지 남아서는 안 된다 (행성은 목적지라 남는 것과 다르다).
+   */
+  intel: IntelWire | null = null;
   /* 2026-09-09 — 분대장 지명 이관 */
   /**
    * 현재 호스트가 이 레이드에서 **완전히 사망**했다고 스스로 알린 상태 (`lobby:hostDown`). 이 표시가 켜져 있는
@@ -226,11 +233,15 @@ export class Lobby {
     }
   }
 
-  /** End the mission and reopen the lobby. Phase 11: `planet` is deliberately **not** cleared. */
+  /**
+   * End the mission and reopen the lobby. Phase 11: `planet` is deliberately **not** cleared.
+   * 2026-09-14: `intel` **is** — the intel was consumed by that raid (the host's profile clears it too).
+   */
   reset(): void {
     this.started = false;
     this.seed = null;
     this.mode = null;
+    this.intel = null;
     this.raid.clear();
     this.hostDown = false;   // 2026-09-09: 미션이 끝나면 분대장 사망 표시도 끝난다
     for (const p of this.players.values()) { p.ready = false; p.inMission = false; }
@@ -269,6 +280,7 @@ export class Lobby {
     const state: LobbyState = { code: this.code, hostId: this.hostId, players, started: this.started, seed: this.seed, isPublic: this.isPublic };
     if (this.started && this.mode) state.mode = this.mode;
     if (this.planet) state.planet = this.planet;
+    if (this.intel) state.intel = this.intel;   // 2026-09-14: 정보상 — 모양만 씻어 그대로 에코한다
     return state;
   }
 }

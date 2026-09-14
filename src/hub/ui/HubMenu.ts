@@ -1,10 +1,12 @@
-import type { GameContext, LobbyState, NetRef, PlanetDef, PlanetId } from '@/shared';
+import type { GameContext, IntelSpec, NetRef, PlanetDef, PlanetId } from '@/shared';
 import {
   ENV_COLOR, ENV_DESC_KO, ENV_ICON, ENV_LABEL_KO,
-  Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS, PLANET_THREAT_LABELS,
-  isValidLobbyCode, normalizeLobbyCode, planetIndex,
+  INTEL_OPTIONS_IN_ORDER, Keys, MENU_BLOCKER, NAMED_ROGUE_NAME_KO, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS,
+  PLANET_THREAT_LABELS, getPlanet, intelEffectText, planetIndex,
 } from '@/shared';
-import { el, isolateInput, setText, toggleClass } from './dom';
+import { el, setText, toggleClass } from './dom';
+import { IntelMenu } from './IntelMenu';
+import { MatchPanel } from './MatchPanel';
 import { createPlanetHologram, type PlanetHologram } from './PlanetHologram';
 
 /** What the menu needs from HubSystem. */
@@ -28,9 +30,17 @@ export interface HubMenuHost {
 const MSG_TTL = 4500;
 
 /**
- * Ship terminal (`.menu.hub-menu.fullscreen`) — **full-screen since Phase 11**, three columns:
+ * Ship terminal (`.menu.hub-menu.fullscreen`) — **full-screen since Phase 11**.
  *
- * - **left**: the matchmaking sections, unchanged in behaviour — `신호` (개인 함선: 신호 찾기 / 코드로 도킹 /
+ * **2026-09-14 (정보상, 사용자 결정 — `docs/plans/intel-broker.md` §4.1): 3열 → 2열.** 좌측 매치메이킹 열이
+ * 통째로 머리 우상단 `📡 매칭` 버튼 뒤의 팝업(`ui/MatchPanel`)으로 갔고, 행성 브리핑이 **중앙에서 넓게**
+ * 자리를 차지한다. 우측 열은 위에서부터 **정보상 패널**(`.hub-intel`, 접두사 `.hi-`) · **시뮬레이션 훈련장**이다.
+ * 정보상 패널은 보유 정보가 없으면 `정보 구매`, 있으면 요약 + `정보 확인` / `지역 재배치` 이고 **멀티에서
+ * 비호스트는 전부 읽기 전용**이다 (탐사 차량 요금의 「결제자 한 명」 규약과 같다). 전체 화면은 `ui/IntelMenu`.
+ *
+ * 아래는 그 전 구조의 설명이고 매치메이킹 · 행성 · 훈련장의 **동작은 한 줄도 바뀌지 않았다**:
+ *
+ * - **left (→ 2026-09-14 매칭 팝업)**: `신호` (개인 함선: 신호 찾기 / 코드로 도킹 /
  *   신호 송출) and `공유 함선` (코드 · 초대 링크 · 공개 전환 · 승무원 4행 · 도킹 해제).
  * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
  *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
@@ -69,21 +79,18 @@ export class HubMenu {
   private subtitle: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  // personal
-  private secSignal: HTMLElement;
-  private btnMatch: HTMLButtonElement;
-  private codeInput: HTMLInputElement;
-  private btnJoin: HTMLButtonElement;
-  private btnCreate: HTMLButtonElement;
-  // shared
-  private secShip: HTMLElement;
-  private codeText: HTMLElement;
-  private visTag: HTMLElement;
-  private btnInvite: HTMLButtonElement;
-  private btnPublic: HTMLButtonElement;
-  private crew: HTMLElement;
-  private crewRows: Array<{ root: HTMLElement; name: HTMLElement; badge: HTMLElement; state: HTMLElement }> = [];
-  private btnLeave: HTMLButtonElement;
+  private btnMatching: HTMLButtonElement;
+  // 매칭 팝업 (2026-09-14) — 옛 좌측 열 전부가 여기 산다
+  private match: MatchPanel;
+  // 정보상 (2026-09-14)
+  private secIntel: HTMLElement;
+  private intelBody: HTMLElement;
+  private intelActions: HTMLElement;
+  private intelNote: HTMLElement;
+  private btnIntelBuy: HTMLButtonElement;
+  private btnIntelView: HTMLButtonElement;
+  private btnIntelMove: HTMLButtonElement;
+  private intelMenu: IntelMenu;
   // training (shared ship)
   private secTrain: HTMLElement;
   private btnTrain: HTMLButtonElement;
@@ -122,47 +129,39 @@ export class HubMenu {
     this.pill = el('div', { cls: 'status-pill offline', parent: head });
     el('i', { parent: this.pill });
     this.pillText = el('span', { text: '오프라인', parent: this.pill });
+    // 2026-09-14 (사용자 결정): 매치메이킹은 머리 우상단 버튼 → 팝업이다 (옛 좌측 열)
+    this.btnMatching = this.button(head, '📡 매칭', () => this.match.open(), 'hub-matching');
 
-    // ── three columns (the terminal is ship-only since the Tab screen took implants / repairs) ──
+    // ── two columns (2026-09-14): centre = 행성 (넓게), right = 정보상 → 시뮬레이션 훈련장 ──
     const grid = el('div', { cls: 'hub-grid', parent: f });
-    const left = el('div', { cls: 'hub-col left', parent: grid });
     const centre = el('div', { cls: 'hub-col centre', parent: grid });
     const right = el('div', { cls: 'hub-col right', parent: grid });
 
-    // ── signal (personal ship) ──
-    this.secSignal = this.section(left, '신호');
-    this.btnMatch = this.button(this.secSignal, '신호 찾기 (자동 매칭)', () => this.connectThen((n) => n.quickMatch()), 'primary wide');
-    const codeRow = el('div', { cls: 'row', parent: this.secSignal });
-    this.codeInput = el('input', { cls: 'ui-input code-input', attrs: { type: 'text', maxlength: '8', placeholder: '함선 코드', spellcheck: 'false', autocomplete: 'off' }, parent: codeRow });
-    isolateInput(this.codeInput);    // 2026-09-08: Escape only blurs the field; the terminal closes on E
-    this.codeInput.addEventListener('input', () => { this.codeInput.value = normalizeLobbyCode(this.codeInput.value); });
-    this.codeInput.addEventListener('keydown', (e) => { if (e.code === 'Enter') this.join(); });
-    this.btnJoin = this.button(codeRow, '코드로 도킹', () => this.join());
-    this.btnCreate = this.button(this.secSignal, '신호 송출 (비공개 함선 생성)', () => this.connectThen((n) => n.createLobby()), 'wide');
-
-    // ── ship (shared) ──
-    this.secShip = this.section(left, '공유 함선');
-    const codeBlock = el('div', { cls: 'hub-code', parent: this.secShip });
-    this.codeText = el('div', { cls: 'code', text: '------', parent: codeBlock });
-    this.visTag = el('div', { cls: 'vis', text: '비공개', parent: codeBlock });
-    const shipRow = el('div', { cls: 'row', parent: this.secShip });
-    this.btnInvite = this.button(shipRow, '초대 링크 복사', () => this.copyInvite());
-    this.btnPublic = this.button(shipRow, '공개 전환', () => {
-      const n = ctx.net; if (!n?.lobby || !n.isHost) return;
-      n.setPublic(!n.lobby.isPublic);
+    this.match = new MatchPanel(ctx, {
+      connectThen: (action) => this.connectThen(action),
+      showMsg: (text, kind, toast) => this.showMsg(text, kind, toast),
+      isBusy: () => this.busy,
+      copyInvite: () => this.copyInvite(),
+      onClosed: () => this.refresh(),
     });
-    this.crew = el('div', { cls: 'hub-crew', parent: this.secShip });
-    for (let i = 0; i < NET_MAX_PLAYERS; i++) {
-      const row = el('div', { cls: 'crew-row empty', parent: this.crew });
-      row.style.setProperty('--sc', NET_SLOT_COLORS_CSS[i]);
-      el('div', { cls: 'bar', parent: row });
-      const name = el('div', { cls: 'name', text: '빈 자리', parent: row });
-      const badge = el('div', { cls: 'badge', text: '호스트', parent: row });
-      badge.hidden = true;
-      const state = el('div', { cls: 'state', text: '', parent: row });
-      this.crewRows.push({ root: row, name, badge, state });
-    }
-    this.btnLeave = this.button(this.secShip, '도킹 해제', () => ctx.net?.leaveLobby(), 'danger wide');
+
+    // ── 정보상 (right column, 2026-09-14) ──
+    this.secIntel = this.section(right, '정보상');
+    this.secIntel.classList.add('hub-intel');
+    this.intelBody = el('div', { cls: 'hi-body', parent: this.secIntel });
+    this.intelNote = el('div', { cls: 'hi-note', text: '', parent: this.secIntel });
+    this.intelNote.hidden = true;
+    this.intelActions = el('div', { cls: 'hi-actions', parent: this.secIntel });
+    this.btnIntelBuy = this.button(this.intelActions, '정보 구매', () => this.openIntel(false), 'primary wide');
+    this.btnIntelView = this.button(this.intelActions, '정보 확인', () => this.openIntel(false), 'wide');
+    this.btnIntelMove = this.button(this.intelActions, '지역 재배치', () => this.openIntel(true), 'wide');
+
+    this.intelMenu = new IntelMenu(ctx, {
+      planet: () => this.host.planet(),
+      borrowHologram: (hostEl) => { this.holo?.attachTo(hostEl); return this.holo; },
+      returnHologram: () => { this.holo?.clearLockOn(); this.holo?.attachTo(this.holoHost); },
+      onClosed: () => { this.refresh(); },
+    });
 
     // ── 목표 행성 (centre column, Phase 11) ──
     const planet = el('div', { cls: 'hub-planet', parent: centre });
@@ -224,6 +223,9 @@ export class HubMenu {
       // 목표 행성: a squad-mate's pick (or our own, once the warp arrived) re-syncs the preview
       b.on('hub:planetChanged', ({ planet: p }) => { this.cursor = planetIndex(p); this.syncPlanet(0); this.refresh(); }),
       b.on('hub:travel', () => this.refresh()),
+      // 정보상 (2026-09-14): 구매 · 폐기 · 소모 · 서버 문서 로드 전부가 패널을 다시 그린다
+      b.on('intel:changed', () => this.refresh()),
+      b.on('meta:creditsChanged', () => { if (this._open) this.refresh(); }),
       // 2026-09-08: 튜토리얼이 감춘 매치메이킹 섹션 · 행성 넘김은 단계가 넘어가거나 건너뛰어지면 돌아온다
       b.on('tutorial:changed', () => { if (this._open) this.refresh(); }),
     );
@@ -236,6 +238,8 @@ export class HubMenu {
   /** `←` / `→` and `A` / `D` step the hologram. Bubble phase, so `isolateInput` fields swallow their own keys. */
   private onKeyDown = (e: KeyboardEvent): void => {
     if (!this._open) return;
+    // 2026-09-14: 위에 뜬 화면(매칭 · 정보상)이 있으면 행성 넘김은 멎는다 — 보이지도 않는 것이 움직이면 안 된다
+    if (this.match.isOpen || this.intelMenu.isOpen) return;
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') { this.step(-1); e.preventDefault(); }
     else if (e.code === 'ArrowRight' || e.code === 'KeyD') { this.step(1); e.preventDefault(); }
   };
@@ -347,9 +351,23 @@ export class HubMenu {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
+  /**
+   * **E 가 닫는 것은 맨 위 하나다** (2026-09-14). 터미널 위에 매칭 팝업 · 정보상 화면이 뜰 수 있으므로
+   * `HubSystem` 의 E 는 이 함수를 지난다 — Escape 스택(`ctx.escape`)과 같은 순서다. 닫을 자식이 있었으면 true.
+   */
+  closeTop(): boolean {
+    if (this.intelMenu.isOpen) { this.intelMenu.close(); return true; }
+    if (this.match.isOpen) { this.match.close(); return true; }
+    this.close();
+    return false;
+  }
+
   close(relock = true): void {
     if (!this._open) return;
     this._open = false;
+    // 터미널이 닫히면 그 위의 화면도 같이 닫힌다 (blocker · escape 토큰이 남지 않게)
+    this.intelMenu.close();
+    this.match.close();
     this.root.hidden = true;
     this.holo?.setVisible(false);              // stop rendering the second WebGL context while it is closed
     (document.activeElement as HTMLElement | null)?.blur?.();
@@ -375,16 +393,16 @@ export class HubMenu {
     setText(this.pillText, status === 'connected' ? `연결됨${net && net.rttMs > 0 ? ` · ${Math.round(net.rttMs)} ms` : ''}` : status === 'connecting' ? '연결 중' : status === 'error' ? '오류' : '오프라인');
 
 
-    // sections — 2026-09-08: 튜토리얼 동안에는 매치메이킹을 통째로 감춘다 (혼자 한 바퀴 돌게 한다)
+    // 2026-09-08: 튜토리얼 동안에는 매치메이킹을 통째로 감춘다 (혼자 한 바퀴 돌게 한다) — 이제 버튼째 사라진다
     const hideNet = ctx.tutorial?.hides('matchmaking') ?? false;
-    this.secSignal.hidden = hideNet || !!lobby;
-    this.secShip.hidden = hideNet || !lobby;
-    const canNet = !!net && !this.busy;
-    this.btnMatch.disabled = !canNet;
-    this.btnJoin.disabled = !canNet;
-    this.btnCreate.disabled = !canNet;
+    this.btnMatching.hidden = hideNet;
+    setText(this.btnMatching, lobby ? `📡 매칭 · ${lobby.code}` : '📡 매칭');
+    toggleClass(this.btnMatching, 'on', !!lobby);
+    if (hideNet && this.match.isOpen) this.match.close();
+    this.match.refresh();
 
     this.refreshTravel();
+    this.refreshIntel();
 
     // 2026-09-12 (사용자 결정): 시뮬레이션실이 없어져 훈련장은 **어느 함선에서든 터미널로** 들어간다 — 섹션은 늘 보인다
     this.secTrain.hidden = false;
@@ -396,42 +414,77 @@ export class HubMenu {
       if (lobby.started && !training) { setText(this.btnTrain, '임무 진행 중'); this.btnTrain.disabled = true; }
       else if (training) { setText(this.btnTrain, `합류 (${n}명 훈련 중)`); this.btnTrain.disabled = !(net?.missionInProgress ?? false); }
       else { setText(this.btnTrain, '시작'); this.btnTrain.disabled = !net; }
-      setText(this.codeText, lobby.code);
-      setText(this.visTag, lobby.isPublic ? '공개' : '비공개');
-      toggleClass(this.visTag, 'public', lobby.isPublic);
-      this.btnPublic.hidden = !isHost;
-      setText(this.btnPublic, lobby.isPublic ? '비공개로 전환' : '공개로 전환');
-      toggleClass(this.btnPublic, 'on', lobby.isPublic);
-      this.renderCrew(lobby, net);
-      this.btnLeave.disabled = false;
     }
+    void isHost;
   }
 
-  private renderCrew(lobby: LobbyState, net: NetRef | null): void {
-    for (let slot = 0; slot < NET_MAX_PLAYERS; slot++) {
-      const row = this.crewRows[slot];
-      const p = lobby.players.find((q) => q.slot === slot);
-      if (!p) {
-        row.root.className = 'crew-row empty';
-        setText(row.name, '빈 자리'); setText(row.state, ''); row.badge.hidden = true;
-        continue;
-      }
-      const me = p.id === net?.localId;
-      const off = !p.connected;
-      row.root.className = `crew-row${p.ready ? ' ready' : ''}${me ? ' me' : ''}${off ? ' off' : ''}`;
-      setText(row.name, p.name);
-      row.badge.hidden = !p.isHost;
-      const training = lobby.started && (net?.missionMode ?? lobby.mode ?? 'raid') === 'training';
-      setText(row.state, off ? '연결 끊김' : training ? (p.inMission ? '훈련장' : '함선') : lobby.started ? (p.ready ? '임무 중' : '함선') : p.ready ? '탑승 완료' : '대기 중');
+  /* ── 정보상 패널 (2026-09-14) ─────────────────────────────────────────────── */
+
+  /**
+   * 보유 정보가 없으면 레이븐 소개 한 줄 + `정보 구매`, 있으면 산 기믹 요약 + 그 정보의 행성 + `정보 확인` /
+   * `지역 재배치`. 보유 정보의 행성이 **지금 목표 행성과 다르면** 경고색으로 그렇게 적는다 (그 행성으로
+   * 출격해야 쓰인다). **멀티에서 비호스트는 전부 읽기 전용** — 버튼이 딤드 + 사유 (사용자 결정).
+   */
+  private refreshIntel(): void {
+    const ctx = this.ctx;
+    const here = this.host.planet();
+    const net = ctx.net;
+    const readOnly = !!net?.lobby && !net.isHost;
+    const available = !!ctx.meta?.intel;
+    /*
+     * 분대장 · 솔로는 자기 프로필(`intel.get()`)을, **분대원은 분대장의 것**(`ctx.net.lobbyIntel`)을 본다 —
+     * `Intel.get()` 은 로컬 프로필만 읽으므로 비호스트에게는 늘 null 이다 (동기화는 호스트가 민다).
+     * `IntelWire` 에는 행성이 없어 로비의 목표 행성을 붙인다 (그 정보는 정의상 그 행성의 것이다).
+     */
+    let spec: IntelSpec | null = ctx.meta?.intel?.get() ?? null;
+    if (!spec) {
+      const wire = net?.lobbyIntel ?? null;
+      if (wire && here && Array.isArray(wire.picks) && wire.picks.length) spec = { planet: here, seed: wire.seed, picks: wire.picks };
     }
+
+    this.intelBody.replaceChildren();
+    if (!spec) {
+      el('div', { cls: 'hi-intro', text: '레이븐 — 행성 정보를 판다. 산 만큼 그 레이드의 기믹이 고정된다.', parent: this.intelBody });
+      el('div', { cls: 'hi-empty', text: '보유한 정보 없음', parent: this.intelBody });
+    } else {
+      const planetDef = getPlanet(spec.planet);
+      const pl = el('div', { cls: 'hi-planet', parent: this.intelBody });
+      el('span', { cls: 'hi-planet-name', text: planetDef?.name ?? spec.planet, parent: pl });
+      const mismatch = !!here && here !== spec.planet;
+      if (mismatch) el('span', { cls: 'hi-warn', text: '다른 행성의 정보', parent: pl });
+      toggleClass(this.secIntel, 'is-mismatch', mismatch);
+      for (const p of spec.picks) {
+        const def = INTEL_OPTIONS_IN_ORDER.find((d) => d.id === p.g);
+        if (!def) continue;
+        const row = el('div', { cls: 'hi-row', parent: this.intelBody });
+        el('span', { cls: 'hi-row-label', text: def.label, parent: row });
+        const named = p.g === 'named' && p.id ? NAMED_ROGUE_NAME_KO[p.id as keyof typeof NAMED_ROGUE_NAME_KO] : null;
+        el('span', { cls: 'hi-row-effect', text: named ? `${intelEffectText(p.g, p.tier)} — ${named}` : intelEffectText(p.g, p.tier), parent: row });
+      }
+    }
+    if (!spec) toggleClass(this.secIntel, 'is-mismatch', false);
+
+    this.btnIntelBuy.hidden = !!spec;
+    this.btnIntelView.hidden = !spec;
+    this.btnIntelMove.hidden = !spec;
+    const blocked = !available ? '정보상을 사용할 수 없습니다'
+      : readOnly ? '분대장만 정보를 살 수 있습니다'
+        : !here ? '목표 행성을 먼저 지정하세요'
+          : null;
+    this.btnIntelBuy.disabled = !!blocked;
+    this.btnIntelMove.disabled = !!blocked;
+    this.btnIntelView.disabled = !available;      // 확인은 비호스트도 할 수 있다 (읽기 전용)
+    this.intelNote.hidden = !blocked;
+    if (blocked) setText(this.intelNote, blocked);
+  }
+
+  /** `정보 구매` · `정보 확인` · `지역 재배치` 의 공통 입구 (`relocate` 면 경고 팝업까지 바로 띄운다). */
+  private openIntel(relocate: boolean): void {
+    if (relocate) this.intelMenu.openRelocate();
+    else this.intelMenu.open();
   }
 
   /* ── actions ──────────────────────────────────────────────────────────── */
-  private join(): void {
-    const code = normalizeLobbyCode(this.codeInput.value);
-    if (!isValidLobbyCode(code)) { this.showMsg('6자리 함선 코드를 입력하세요', 'warning'); return; }
-    this.connectThen((n) => n.joinLobby(code));
-  }
 
   /** Connect (idempotent) then run `action`; shows an inline error when the relay is unreachable. */
   private connectThen(action: (n: NetRef) => void): void {
@@ -516,7 +569,8 @@ export class HubMenu {
     if (!this._open) return;
     if (this.ctx.input.wasPressed(Keys.INVENTORY) && !this.ctx.uiBlockers.has(MENU_BLOCKER)) {
       this.ctx.input.consume(Keys.INVENTORY);
-      this.close();
+      // 2026-09-14: Tab 도 **맨 위 하나**만 닫는다 (터미널 위에 매칭 팝업 · 정보상 화면이 뜬다)
+      if (this.closeTop()) return;
       return;
     }
     this.holo?.render(dt);
@@ -526,6 +580,8 @@ export class HubMenu {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     window.removeEventListener('keydown', this.onKeyDown);
+    this.intelMenu.dispose();
+    this.match.dispose();
     this.holo?.dispose(); this.holo = null;
     this.ctx.uiBlockers.delete('hub');
     this.ctx.escape.remove('hub:terminal');

@@ -200,6 +200,10 @@ const SMOKES = {
      `docs/pitch` 를 정적으로 서빙해 페이지를 전부 열어 본다 (링크 · 사이드바 · nextnav · 카드 넘기기).
      `folders` 로는 안 잡히므로(`src/` 밖이다) 위의 `EXTRA_PATHS` 가 `docs/pitch/` 변경에서 직접 고른다. */
   'smoke-pitch':        { file: 'scripts/smoke-pitch.mjs',        folders: [], standalone: true },
+  /* 2026-09-14 (정보상): 산 기믹 고정이 정말 그만큼 붙는가 · 같은 시드 · 정보로 두 번 계획하면 같은가 ·
+     기믹이 자기보다 **앞에서** 뽑힌 절을 밀지 않는가 · 미리보기(`WorldRef.previewLayout`)가 계획과 같은 것을 말하는가.
+     브라우저를 안 쓴다 — 헤드리스 vite 로 `src/world/preview.ts` 를 SSR 로드해 레이아웃만 만든다 (standalone). */
+  'smoke-intel':        { file: 'scripts/smoke-intel.mjs',        folders: ['world', 'meta', 'enemies', 'hub'], standalone: true },
   /* 2026-09-10: 씬의 광원 개수. 플레이 중에 그 숫자가 바뀌면 씬의 모든 머티리얼이 셰이더를 다시 컴파일해
      한 프레임이 멎는다 — 지금까지 탈출 함선 · 신호탄 · 헬포드 · 분대장 기기가 이 그물에 걸렸다. 광원을
      들고 있는 폴더 전부에 매핑한다. */

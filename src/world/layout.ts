@@ -3,7 +3,9 @@ import {
   EXTRACTION_OUTER_MIN_M, EXTRACTION_PADS_MAX_BY_THREAT, EXTRACTION_PADS_MIN_BY_THREAT, EXTRACTION_PADS_SPORES_MAX,
   EXTRACTION_PADS_SPORES_MIN, MAP_SIZE, RAIL_CHANCE, Random, SPORE_SPAWN_CENTER_M, type RailKind, type StructureKind,
   /* 2026-09-13: 탐사 차량 */
-  ROVER_ROUTE_CLEARANCE_M, ROVER_STATION_PAD_BLEND,
+  ROVER_CHANCE, ROVER_ROUTE_CLEARANCE_M, ROVER_STATION_PAD_BLEND,
+  /* 2026-09-14: 정보상 — 산 기믹의 해석본 (docs/plans/intel-broker.md) */
+  type IntelEffects, numberList,
 } from '@/shared';
 import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';
 import type { RoverPlan } from './rover/model';
@@ -146,7 +148,20 @@ export interface LayoutOptions {
    * (`SPORE_SPAWN_CENTER_M`), 탈출 패드는 외곽(`EXTRACTION_OUTER_MIN_M`) 에 선다 — 다른 재해의 반대다.
    */
   sporeLayout?: boolean;
+  /**
+   * 2026-09-14 (정보상) — 이 레이드에 산 **기믹 고정**의 해석본 (`ctx.missionIntel`). null = 아무것도 안 샀다.
+   *
+   * ⚠ 규칙 하나가 결정적이다: **rng 의 draw 는 그대로 소비하고 결과만 덮어쓴다** (`rng.chance(...)` 를
+   * `if (force) … else rng.chance(...)` 로 쓰면 스트림이 어긋나 「지하실만 다른 맵」 이 아니라 전혀 다른 맵이 된다).
+   * 개수를 늘리는 기믹(탈출 패드 · 둥지 · 플랫폼 · 구조물)은 그 뒤 배치를 필연적으로 밀지만, 미리보기
+   * (`world/preview.planLayoutFor`)가 **같은 값을 넣어 같은 함수**를 돌리므로 화면이 거짓말을 하지는 않는다.
+   */
+  intel?: IntelEffects | null;
 }
+
+/** 벌레 둥지 수 범위 — 2026-09-14 에 코드 상수(4–6)에서 `data/tables.csv` 로 옮겼다. */
+const NEST_COUNT_MIN = numberList('tables.csv', 'NEST_COUNT_MIN')[0] ?? 4;
+const NEST_COUNT_MAX = numberList('tables.csv', 'NEST_COUNT_MAX')[0] ?? 6;
 
 /**
  * 2026-09-13 (사용자 결정) — 탈출 패드 수. 행성 threat 1 = 2–3 · 2 = 2 · 3 = 1–2 (`tables.csv` 의
@@ -175,10 +190,14 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
    * **선로가 먼저 서고 나머지가 전부 피한다** (`railFree`). 2026-09-09 의 "크레이터 다음에 굴린다" 는
    * rng 순서 배려는 여기서 끝난다 — 같은 시드의 매크로 레이아웃이 이 변경 전과 달라진다
    * (멀티 결정성은 그대로: 모두가 같은 코드를 같은 시드로 돌린다). */
+  const intel = opts.intel ?? null;
+  /* 2026-09-14 (정보상 「궤도 운행」): 굴림은 **언제나** 소비하고, 산 사람만 결과를 true 로 덮는다. */
+  const railRoll = rng.chance(RAIL_CHANCE);
+  const railBonus = Math.max(0, Math.round(intel?.railPlatformBonus ?? 0));
   let rail: RailPlan | null = null;
-  if (rng.chance(RAIL_CHANCE)) {
+  if (railRoll || railBonus > 0) {
     const platRow = structureRow('rail_platform');
-    const stopCount = Math.max(2, platRow ? platRow.minCount : 2);
+    const stopCount = Math.max(2, platRow ? platRow.minCount : 2) + railBonus;
     const loop = rng.chance(0.5);
     const extent = loop ? inner * 0.62 : inner * 0.72;
     const angle = loop ? rng.range(0, Math.PI * 2) : (rng.chance(0.5) ? 0 : Math.PI / 2) + rng.range(-0.35, 0.35);
@@ -233,10 +252,21 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
 
   /* ── 2026-09-13: 탐사 차량 흙길 — 선로 · 강하 지점 **바로 다음**, 다른 모든 배치 앞 ────────────────────
    * 선로와 같은 이유로 먼저 선다: 흙길은 맵을 한 바퀴 도는 고리라 나중에 뽑으면 비켜 갈 곳이 없다. 자기 fork 라 부모 스트림을
-   * 밀지 않는다 — 선로 · 강하 지점은 이 변경 전과 같고, 그 뒤 배치는 회랑 검사(`roverFree`) 때문에 달라진다 (사용자 수락). */
-  const rover = planRoverRoute(rng.fork('rover'), {
+   * 밀지 않는다 — 선로 · 강하 지점은 이 변경 전과 같고, 그 뒤 배치는 회랑 검사(`roverFree`) 때문에 달라진다 (사용자 수락).
+   *
+   * 2026-09-14 (사용자 결정): 선로와 같은 **확률 배치**(`ROVER_CHANCE`)다 — 전에는 늘 계획해 실측 100 % 였고
+   * 그러면 정보상의 「탐사 차량 확정」 이 아무것도 사지 못했다. ⚠ 굴림은 **fork 안의 첫 draw** 로 언제나
+   * 소비하고 결과만 덮는다 (`if (force) … else roverRng.chance(…)` 로 쓰면 차량이 서는 레이드와 확정으로
+   * 산 레이드의 정류장 위치가 달라져 미리보기 지도가 거짓말을 한다). */
+  const roverRng = rng.fork('rover');
+  const roverRoll = roverRng.chance(ROVER_CHANCE);
+  const roverForce = intel?.roverForce === true;
+  const rover = (roverRoll || roverForce) ? planRoverRoute(roverRng, {
     railFree, railLoopExtent: rail && rail.kind === 'loop' ? rail.extent : null, spawn,
-  });
+    // 2026-09-14 (정보상 「탐사 차량」): 시도 횟수만 크게 늘린다 — 자기 fork 라 바깥 스트림은 그대로다
+    forcePlan: roverForce,
+  }) : null;
+  if (intel?.roverForce && !rover) console.warn('[world] 정보상 「탐사 차량 확정」 — 시도를 다 써도 흙길을 놓지 못했다 (이 레이드에는 차량이 없다)');
   /** 반지름 `extra` 짜리 자리가 흙길 회랑 · 정류장 부지를 건드리지 않는가. */
   const roverFree = (x: number, z: number, extra: number): boolean => {
     if (!rover) return true;
@@ -271,12 +301,15 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     }
   }
 
-  // Nest clusters: 4–6
+  // Nest clusters: `NEST_COUNT_MIN`–`NEST_COUNT_MAX` (+ 정보상 「벌레 둥지」 — 굴림 결과에 더한다)
   const nests: Pad[] = [];
   {
-    const n = rng.int(4, 6);
+    const bonus = Math.max(0, Math.round(intel?.nestBonus ?? 0));
+    const n = rng.int(NEST_COUNT_MIN, NEST_COUNT_MAX) + bonus;
     let attempts = 0;
-    while (nests.length < n && attempts < 4000) {
+    // 더 놓아야 하면 시도도 같이 늘린다 — 안 그러면 산 둥지가 자리 부족으로 조용히 사라진다 (0 이면 옛 값 그대로)
+    const maxAttempts = 4000 + bonus * 3000;
+    while (nests.length < n && attempts < maxAttempts) {
       attempts++;
       const x = rng.range(-inner + 10, inner - 10), z = rng.range(-inner + 10, inner - 10);
       if (dist(x, z, spawn.x, spawn.z) < 110) continue;
@@ -348,9 +381,24 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
    * 이게 맞다. */
   const structures: StructureSite[] = [];
   {
+    /* 2026-09-14 (정보상 「지하 시설」 +N): **전진기지 = 지하실**, **연구실 = 2층 잠긴 방**이다 (연구실은
+     * `basementChance` 도 `basementDepth` 도 0 — 구덩이를 억지로 파면 깊이 0 · 컨테이너 0 의 빈 구멍이 된다.
+     * `structures.csv` 주석대로 연구실의 「지하 시설」은 2층 잠긴 방으로 대체돼 있으므로 그쪽을 확정한다).
+     *
+     * 「+N 개」는 **정말로 채를 N 개 더 세우는 것**이다 — 이미 놓인 것의 굴림을 덮는 방식이면, 자연 확률이
+     * 이미 높아서(전진기지 지하실 0.65 · 연구실 2층 0.5) 돈을 내고도 개수가 그대로인 시드가 나온다(실측). 그래서
+     * **csv 의 `maxCount` 를 넘어선다**: 그 상한은 자연 배치의 한계이고, 정보상은 그것을 사서 여는 명시적 예외다.
+     * 몫은 두 종류에 나눈다 (N=1 → 전진기지, N=2 → 전진기지 · 연구실 하나씩). 굴림은 그대로 소비하고 결과만 덮는다. */
+    const basementBonus = Math.max(0, Math.round(intel?.basementBonus ?? 0));
+    const basementExtra: Partial<Record<StructureKind, number>> = {
+      outpost: Math.ceil(basementBonus / 2),
+      lab: Math.floor(basementBonus / 2),
+    };
     for (const row of STRUCTURE_ROWS) {
       if (row.kind !== 'outpost' && row.kind !== 'lab' && row.kind !== 'wreck') continue;
-      const want = row.maxCount <= 0 ? 0 : rng.int(row.minCount, row.maxCount);
+      /** 이 줄에서 「정보상이 사서 늘어난」 채 수 — 마지막 `forced` 개는 반드시 지하 시설을 갖는다. */
+      const forced = basementExtra[row.kind] ?? 0;
+      const want = (row.maxCount <= 0 ? 0 : rng.int(row.minCount, row.maxCount)) + forced;
       const reach = Math.hypot(row.halfW, row.halfD);
       let placed = 0;
       for (let a = 0; a < 3000 && placed < want; a++) {
@@ -369,12 +417,16 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
         // 지하실은 전진기지 · 연구실만 (불시착 함선은 밑이 없다). 벽에서 2.2 m 안쪽으로 파낸다.
         // 2026-09-12: 연구실은 `basementChance` 0 이 됐지만 **들어가는 건물 두 종은 이 추첨을 늘 소비한다** — 조건을
         // `basementChance > 0` 로 두면 연구실에서 draw 가 하나 빠져 그 뒤의 부지 · 층수 · 다른 구조물 추첨이 전부 밀린다.
-        const wantPit = (row.kind === 'outpost' || row.kind === 'lab') && rng.chance(row.basementChance);
+        const pitRoll = (row.kind === 'outpost' || row.kind === 'lab') && rng.chance(row.basementChance);
+        // 2026-09-11: 2층 여부. **맨 마지막에** 굴린다 — 앞의 추첨(자리 · 지하실)을 밀지 않는다.
+        const upperRoll = row.upperChance > 0 && rng.chance(row.upperChance);
+        // 2026-09-14: 늘어난 채(마지막 `forced` 개)는 그 종류의 지하 시설을 확정으로 갖는다 (굴림은 이미 소비했다)
+        const isForced = placed >= want - forced;
+        const wantPit = row.basementDepth > 0 && (pitRoll || (isForced && row.kind === 'outpost'));
         const pit = wantPit && row.halfW > 3.4 && row.halfD > 3.4
           ? { halfX: row.halfW - 2.2, halfZ: row.halfD - 2.2, depth: row.basementDepth }
           : null;
-        // 2026-09-11: 2층 여부. **맨 마지막에** 굴린다 — 앞의 추첨(자리 · 지하실)을 밀지 않는다.
-        const floors = row.upperChance > 0 && rng.chance(row.upperChance) ? 2 : 1;
+        const floors = (upperRoll || (isForced && row.kind === 'lab')) ? 2 : 1;
         structures.push({ kind: row.kind, pad, halfW: row.halfW, halfD: row.halfD, wallH: row.wallH, pit, floors });
         placed++;
       }

@@ -18,6 +18,10 @@
  *                          있고 해금 퀘스트가 있으면 원장 `quests` 에 있어야 한다, 1 ≤ units ≤ maxUnits, 한 시간에 `CREDIT_CRYPTO_MAX_PER_HOUR` 회
  *                          (원장 `cryptoAt`), 환불 짝 없음. 시세 창은 주입된 `CryptoQuoteSource`(릴레이의 `CryptoMarket`) — 없으면 전부 거절
  *   csell:<coin>:<units>   (매도) 0 < delta ≤ cryptoTradeCredits('sell', 시세 창 최고가, units), 나머지는 cbuy 와 같다
+ *   intel:<planet>:<code>  (2026-09-14 정보상) delta < 0 정수, 행성이 표의 `planetThreat` 에 있고, `parseIntelCode` 가 풀리고,
+ *                          모든 줄이 표에 있고 단계가 `maxTier` 이내이며, |delta| === intelCost(threat, picks, table.intel).
+ *                          한 시간에 `CREDIT_INTEL_MAX_PER_HOUR` 회 (원장 `intelAt`), 환불 짝 없음. 정말 그 정보로 출격했는지는
+ *                          보지 않는다 — 맵은 클라이언트가 만든다 (아이템 소유와 같은 한계)
  *   migrate                잔액이 null 일 때 1회, [0, CREDITS_MAX] 로 clamp
  *   console · smoke:* · e2e:* · shot   `devEconomy` 릴레이에서만 (`SCAV_DEV_ECONOMY=1` — 스모크 러너가 띄우는 릴레이뿐, dev:all 도 끔)
  *   그 밖                  거절 (`CREDIT_TX_INVALID_KO`)
@@ -38,6 +42,9 @@ import {
 /* 2026-09-13: 암호화폐 매매 `cbuy:` · `csell:` (서버 시세 창) */
 import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import { cryptoTradeCredits } from '../src/shared/cryptoMarket.ts';
+/* 2026-09-14: 정보상 `intel:<planet>:<code>` — 금액 식은 클라와 **같은 함수**다 (표만 다른 출처에서 온다) */
+import { CREDIT_INTEL_MAX_PER_HOUR } from '../src/shared/credits.ts';
+import { intelCost, parseIntelCode } from '../src/shared/intel.ts';
 import generated from './economy.gen.json' with { type: 'json' };
 
 /** Rolling window of the `contract:` hourly cap. */
@@ -72,6 +79,17 @@ export function loadEconomyTable(raw: unknown): EconomyTable {
   // 2026-09-13: optional (an older table has none — every rover fare is then refused), but never junk
   for (const k of ['roverFareMin', 'roverFareMax'] as const) {
     if (raw[k] !== undefined && !finite(raw[k])) throw new Error(`economy table: ${k} is not a number`);
+  }
+  // 2026-09-14: optional `intel` (an older table has none — every intel purchase is refused), but never junk
+  if (raw.intel !== undefined) {
+    const ix = raw.intel;
+    if (!isRecord(ix) || !isRecord(ix.options) || !isRecord(ix.planetThreat)) throw new Error('economy table: intel is malformed');
+    if (!Array.isArray(ix.tierMul) || !Array.isArray(ix.threatMul) || !finite(ix.bundleMul)) throw new Error('economy table: intel multipliers are malformed');
+    for (const n of [...ix.tierMul, ...ix.threatMul]) if (!finite(n)) throw new Error('economy table: intel multiplier is not a number');
+    for (const [id, o] of Object.entries(ix.options)) {
+      if (!isRecord(o) || !finite(o.baseCost) || !finite(o.maxTier) || o.maxTier < 1) throw new Error(`economy table: intel option ${id} is malformed`);
+    }
+    for (const [id, n] of Object.entries(ix.planetThreat)) if (!finite(n)) throw new Error(`economy table: intel planetThreat.${id} is not a number`);
   }
   // 2026-09-13: optional `crypto` (an older table has none — every cbuy / csell is refused and no market runs), but never junk
   if (raw.crypto !== undefined) {
@@ -137,6 +155,11 @@ export function sanitizeLedger(raw: unknown, now: number = Date.now()): CreditLe
     for (const at of raw.cryptoAt) if (finite(at)) cryptoAt.push(Math.min(Math.max(0, Math.floor(at)), now));
     if (cryptoAt.length) out.cryptoAt = cryptoAt;
   }
+  if (Array.isArray(raw.intelAt)) {
+    const intelAt: number[] = [];
+    for (const at of raw.intelAt) if (finite(at)) intelAt.push(Math.min(Math.max(0, Math.floor(at)), now));
+    if (intelAt.length) out.intelAt = intelAt;
+  }
   if (Array.isArray(raw.debits)) {
     for (const d of raw.debits) {
       if (!isRecord(d) || typeof d.reason !== 'string' || d.reason.length > LEDGER_REASON_MAX || !finite(d.amount) || !finite(d.at)) continue;
@@ -147,7 +170,7 @@ export function sanitizeLedger(raw: unknown, now: number = Date.now()): CreditLe
     }
   }
   pruneLedger(out, now);
-  return out.quests.length || out.contractsAt.length || out.debits.length || out.roverAt?.length || out.cryptoAt?.length ? out : null;
+  return out.quests.length || out.contractsAt.length || out.debits.length || out.roverAt?.length || out.cryptoAt?.length || out.intelAt?.length ? out : null;
 }
 
 /** Drop entries no rule reads any more and enforce the caps (oldest first). Mutates. */
@@ -162,6 +185,11 @@ export function pruneLedger(l: CreditLedger, now: number): void {
     l.cryptoAt = l.cryptoAt.filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS);
     if (l.cryptoAt.length > CREDIT_CRYPTO_MAX_PER_HOUR) l.cryptoAt.splice(0, l.cryptoAt.length - CREDIT_CRYPTO_MAX_PER_HOUR);
     if (l.cryptoAt.length === 0) delete l.cryptoAt;
+  }
+  if (l.intelAt) {
+    l.intelAt = l.intelAt.filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS);
+    if (l.intelAt.length > CREDIT_INTEL_MAX_PER_HOUR) l.intelAt.splice(0, l.intelAt.length - CREDIT_INTEL_MAX_PER_HOUR);
+    if (l.intelAt.length === 0) delete l.intelAt;
   }
   l.debits = l.debits.filter((d) => now - d.at <= CREDIT_REFUND_WINDOW_MS && d.refunded < d.amount);
   if (l.debits.length > CREDIT_LEDGER_DEBITS_MAX) l.debits.splice(0, l.debits.length - CREDIT_LEDGER_DEBITS_MAX);
@@ -292,6 +320,27 @@ export class CreditEconomy {
         const recent = (ledger?.roverAt ?? []).filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS).length;
         return recent < CREDIT_ROVER_MAX_PER_HOUR ? okay(d) : { ok: false, why: `rover fare cap ${CREDIT_ROVER_MAX_PER_HOUR}/h reached` };
       }
+      case 'intel': {
+        /* 2026-09-14 정보상: 릴레이는 **금액만** 검산한다 — 정말 그 정보를 갖고 출격했는지는 볼 수 없다 (맵은 클라이언트가
+         * 만든다, 아이템 소유와 같은 한계). 식은 클라와 같은 `intelCost` 이고 표만 `economy.gen.json` 에서 온다. */
+        const ix = t.intel;
+        if (!ix) return { ok: false, why: 'intel purchase but the table has no intel section' };
+        const threat = Object.prototype.hasOwnProperty.call(ix.planetThreat, parsed.id) ? ix.planetThreat[parsed.id] : undefined;
+        if (threat === undefined) return { ok: false, why: `intel for unknown planet ${parsed.id}` };
+        const picks = parseIntelCode(parsed.code ?? '');
+        if (!picks || picks.length === 0) return { ok: false, why: `intel code "${String(parsed.code).slice(0, 32)}" is malformed` };
+        for (const p of picks) {
+          const opt = Object.prototype.hasOwnProperty.call(ix.options, p.g) ? ix.options[p.g] : undefined;
+          if (!opt) return { ok: false, why: `intel gimmick ${p.g} is not sold` };
+          if (p.tier > opt.maxTier) return { ok: false, why: `intel ${p.g} tier ${p.tier} > max ${opt.maxTier}` };
+        }
+        if (!finite(delta) || delta !== d) return { ok: false, why: `intel price ${String(delta)} is not whole credits` };
+        if (d >= 0) return { ok: false, why: `intel with delta ${d} ≥ 0` };
+        const want = intelCost(threat, picks, ix);
+        if (-d !== want) return { ok: false, why: `intel ${parsed.code} @ ${parsed.id} for ${-d} ≠ ${want}` };
+        const recent = (ledger?.intelAt ?? []).filter((at) => now - at < CREDIT_CONTRACT_WINDOW_MS).length;
+        return recent < CREDIT_INTEL_MAX_PER_HOUR ? okay(d) : { ok: false, why: `intel cap ${CREDIT_INTEL_MAX_PER_HOUR}/h reached` };
+      }
       case 'crypto-buy':
       case 'crypto-sell': {
         /* 2026-09-13 암호화폐 매매 (`credits.ts` 의 같은 날 절): the amount must be one a client could have computed from a price the
@@ -351,6 +400,10 @@ export class CreditEconomy {
       case 'crypto-sell':
         // 2026-09-13: the hourly cap only — never a `debits` entry (a trade has no refund; the reverse trade is the undo)
         (ledger.cryptoAt ??= []).push(now);
+        break;
+      case 'intel':
+        // 2026-09-14: the hourly cap only — 정보는 **환불 불가** 라 `debits` 에 남기지 않는다 (rover 와 같다)
+        (ledger.intelAt ??= []).push(now);
         break;
       default:
         break;

@@ -37,7 +37,10 @@ import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const SEED_POOL = [21, 7, 1234, 3, 42, 99, 555, 808, 2026, 31337, 11, 64, 777, 4242, 9001, 123, 5150, 6060];
-const MAX_SEEDS = 16;
+/* 2026-09-14 — 예전에는 `MAX_SEEDS = 16` + 「원하는 건물 종류가 다 나왔으면 그만」(`enough()`)으로 대여섯 시드에서 멈췄다.
+ * 그 조기 종료가 **원래 있던 버그를 숨기고 있었다** (seed 21 의 연구소 2층 · 전진기지 지상 컨테이너). 이제 풀 전체를 끝까지
+ * 돌고 실패는 세어 두었다가 마지막에 한 번에 보고한다 — `ok()` 는 원래 멈추지 않으므로 세는 방식은 그대로다. */
+const MAX_SEEDS = SEED_POOL.length;
 const WANT = { outpost: 4, lab: 4, twoFloor: 4, basement: 4, locked: 3, wreck: 2 };
 /** 방 하나에서 서 있을 수 있는 칸 중 닿아야 하는 비율. 벽 · 컨테이너 사이 몸이 안 들어가는 구석은 애초에 칸이 아니다. */
 const ROOM_COVERAGE_MIN = 0.85;
@@ -374,7 +377,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -393,10 +396,12 @@ try {
 
   const seen = { outpost: 0, lab: 0, twoFloor: 0, basement: 0, locked: 0, wreck: 0 };
   const enough = () => Object.entries(WANT).every(([k, v]) => seen[k] >= v);
+  const failedSeeds = new Map();      // seed → 그 시드에서 난 실패 수 (마지막 요약용)
   let seeds = 0, keyedPreviews = 0;
   for (const seed of SEED_POOL) {
-    if (seeds >= MAX_SEEDS || enough()) break;
+    if (seeds >= MAX_SEEDS) break;
     seeds++;
+    const failBefore = fail;
     await page.evaluate((s) => window.__game.ctx.bus.emit('game:newMission', { seed: s }), seed);
     await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
     await waitFor(page, () => window.__game.ctx.world.ready, 'world ready', 30000);
@@ -467,8 +472,10 @@ try {
       if (r.locked) ok(r.locked.total >= 2 && r.locked.reached === r.locked.total, `${tag}: 잠긴 방 컨테이너 ${r.locked.total}개 모두 손이 닿는다 (2–3개)`, detail);
       if (r.basement) ok(r.basement.reached === r.basement.total, `${tag}: 지하실 컨테이너 ${r.basement.total}개 모두 손이 닿는다`, detail);
     }
+    if (fail > failBefore) failedSeeds.set(seed, fail - failBefore);
   }
   console.log(`seeds ${seeds}: ${JSON.stringify(seen)} · 열쇠 부가 굴림이 맞은 컨테이너 미리보기 ${keyedPreviews}개`);
+  if (failedSeeds.size > 0) console.log(`  --   실패가 난 시드: ${[...failedSeeds].map(([s, n]) => `${s} (${n})`).join(' · ')}`);
   ok(enough(), `건물 종류가 충분히 나왔다 (원하는 수 ${JSON.stringify(WANT)})`, JSON.stringify(seen));
   if (keyedPreviews === 0) console.log('  --   이번 시드들에서는 열쇠 부가 굴림이 맞은 지상 컨테이너가 없었다 (keyChance) — 그 경로의 미리보기 대조는 건너뛰었다');
   ok(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '));

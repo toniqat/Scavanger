@@ -19,7 +19,14 @@
   (사다리 가로대 · 문 위 장식처럼 몸이 닿지 않는 높이).
 - **출입구 앞마당은 비운다.** 새로 막는 것(난간 · 덩어리)을 배치할 때 `OPENING_APPROACH` 사각형과 겹치지 않는지 본다 —
   `node scripts/smoke-structure-reach.mjs` 가 몸 반지름 flood fill 로 확인한다.
+- **비울 자리는 중심이 아니라 덩치로 지킨다** (2026-09-14). 「비울 자리」(`parts/Build` 의 `exclusions`) 밖에 놓는 물건은
+  `clearFor(reach) = reach + PLAYER_RADIUS * 2` 만큼 물러난다 — 자리 밖이어도 그 물건이 **밀어내는 띠**가 자리의 가장자리를
+  먹고, 자리 안쪽이 이미 난간 같은 벽이면 그것만으로 길이 끊긴다 (연구소 2층 도착 자리가 컨테이너 하나에 봉인됐다).
+  컨테이너 덩치는 `parts/Containers` 의 `CONTAINER_REACH` 다. 자리를 거르는 코드를 더할 때는 **rng 를 소비한 뒤에** 거른다
+  (셔플의 draw 수 = 목록 길이라, 미리 거르면 같은 시드의 나머지 추첨이 밀린다).
 - `parts/` 는 `Structures.ts` · `Rails.ts` 에서 **타입만** 가져온다 (값이 필요하면 `model.ts` 로).
 
 ## 변경 이력
+- **2026-09-14** — 위 「비울 자리는 중심이 아니라 덩치로」 규약. `parts/Build` 에 `clearFor`, `parts/Containers` 에 `CONTAINER_REACH`.
+  자세한 실측은 `../README.md` 의 `2026-09-14: 구조물 도달성 2`.
 - **2026-09-12** — 이 README 를 만들었다 (폴더에 README 가 없었다). 같은 날의 구조물 도달성 작업은 `../README.md`.

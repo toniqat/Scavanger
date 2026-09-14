@@ -183,6 +183,8 @@ export class ImplantWidget {
   }
 
   update(_dt: number, ctx: GameContext): void {
+    // 2026-09-14 (튜토리얼 HUD 점진 노출): 튜토리얼 레이드 내내 전술 임플란트는 없다 — 장착한 것이 없다.
+    toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'implant') ?? false);
     const imp = ctx.implants;
     // Late registration: pick the equipped implant up as soon as the system exists.
     if (imp && imp.equipped !== this.equipped) this.setEquipped(imp.equipped);

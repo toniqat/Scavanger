@@ -81,6 +81,13 @@ const STYLE_H = [1.75, 0.85, 1.5];
 const STYLE_R = [0.5, 0.6, 0.55];
 const OPEN_S = 0.45;
 
+/**
+ * 2026-09-14 — 몸통 콜라이더의 **중심 → 모서리** 거리(m, 세 모양 중 가장 큰 것). 자리를 고르는 쪽
+ * (`parts/Build` 의 컨테이너 자리)이 「비울 자리」에서 이만큼 + 몸 지름만큼 물러나는 데 쓴다.
+ * 상자 크기(`STYLE_R` · 아래 `addBox` 의 `0.95r × 0.675r`)를 바꾸면 물러나는 폭이 저절로 따라온다.
+ */
+export const CONTAINER_REACH = Math.max(...STYLE_R.map((r) => Math.hypot(r * 0.95, r * 0.675)));
+
 /** 컨테이너 묶음 — 구조물 하나 · 플랫폼 하나 · 전차 한 대가 각각 하나씩 들고 있어도 되고 공유해도 된다. */
 export class ContainerSet {
   readonly group = new THREE.Group();

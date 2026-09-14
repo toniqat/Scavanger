@@ -17,6 +17,17 @@ import type { GameContext } from '@/shared';
  * 오프라인 개인 함선으로 간다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/* ── appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md` §3 E) ──────────────────────────────────
+ *
+ * **새 캐릭터는 함선을 거치지 않는다.** 튜토리얼 트랙 ①(`raid`)이 아직 안 끝났으면 이 길은 `hub:enter` 대신
+ * **튜토리얼 레이드**로 간다 — 손으로 지은 튜토리얼 행성에서 깨어나 조작을 배우고, 버려진 함선을 타고 탈출하는 것이
+ * 곧 **함선 획득**이다. 탈출 정산이 끝난 뒤의 `hub:enter {ship:'personal'}` 는 결과 화면 · `game/` 의 평소 경로라
+ * 여기에 새 코드가 없다 (트랙 ②는 그 첫 진입에서 `tutorial/` 이 시작한다).
+ *
+ * 갈림길이 여기인 이유는 이 파일 머리 주석 그대로다 — 들어가는 **문**은 둘(카드 클릭 · 슬롯 전환 뒤 자동 시작)이지만
+ * **길**은 하나다. 판정을 `TitleMenu` 에 넣으면 자동 시작으로 들어온 새 캐릭터만 함선에 떨어진다.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
 /** 한 번 실패한 초대는 다시 시도하지 않는다 (예전 `TitleMenu.inviteFailed` 와 같은 뜻, 타이틀 흐름은 하나뿐이라 모듈 상태로 둔다). */
 let inviteFailed = false;
 
@@ -57,5 +68,38 @@ export async function enterShip(ctx: GameContext, hooks: EnterShipHooks = {}): P
     return;
   }
 
+  // 2026-09-14: 초대가 없고 트랙 ① 이 아직 안 끝난 새 캐릭터면 함선 대신 튜토리얼 레이드로 간다.
+  if (startTutorialRaid(ctx)) return;
+
   ctx.bus.emit('hub:enter', { ship: 'personal' });
+}
+
+/**
+ * 튜토리얼 레이드로 갈 차례인가 — 갔으면 true.
+ *
+ * **초대는 튜토리얼보다 앞선다** (위 호출부의 순서). 둘 중 덜 놀라운 쪽을 고른 것이다: 초대는 **사람이 지금 기다리고
+ * 있는 약속**이고, 튜토리얼은 나중에 혼자 들어올 때 그대로 기다린다 (트랙은 건너뛴 것으로 치지 않는다 — `skipTrack`
+ * 을 부르지 않으므로 다음 단독 진입에서 다시 이 갈림길에 선다). 반대로 「튜토리얼 먼저, 초대는 그 뒤에」로 하면
+ * 탈출 정산 뒤의 함선 첫 진입은 `game/` 의 경로라 이 파일이 초대를 이어 줄 자리가 없고, 친구는 그동안 빈 함선을
+ * 보고 있게 된다.
+ *
+ * **솔로 강제**: 튜토리얼 레이드는 매치메이킹 · 로비가 없다. 로비에 이미 들어가 있으면(초대 · 재접속) 아무것도 하지
+ * 않고 평소 경로로 넘긴다 — 여기서 혼자 `game:newMission` 을 내면 분대와 어긋난다.
+ */
+function startTutorialRaid(ctx: GameContext): boolean {
+  const tut = ctx.tutorial;
+  if (!tut || typeof tut.isTrackDone !== 'function' || tut.isTrackDone('raid')) return false;
+  if (ctx.net?.lobby) return false;
+
+  /*
+   * `missionPlanet` · `missionIntel` 과 **똑같은 규약**: `game:newMission` 을 emit 하는 쪽이 **emit 전에** 세팅한다
+   * (`hub/parts/Pods.launch` · `hub/parts/Crew.startTraining` 이 본보기). 튜토리얼 행성은 손으로 지은 월드라
+   * 목표 행성도 정보상 기믹도 없다 — 훈련장과 같은 처리다.
+   */
+  ctx.missionMode = 'tutorial';
+  ctx.missionPlanet = null;
+  ctx.missionIntel = null;
+  // 월드는 시드를 쓰지 않지만(고정 배치) 계약이 숫자를 요구하므로 하나 굴려 넘긴다.
+  ctx.bus.emit('game:newMission', { seed: (Math.random() * 0xffffffff) >>> 0, mode: 'tutorial' });
+  return true;
 }

@@ -26,6 +26,9 @@ import * as Cmd from './parts/Console';
 /* 2026-09-14: 메신저 NPC 퀘스트 — `ctx.meta.npc` (docs/plans/messenger-quests.md) */
 import type { NpcQuestRef } from '@/shared';
 import { NpcQuests } from './parts/NpcQuests';
+/* 2026-09-14: 정보상 — `ctx.meta.intel` (docs/plans/intel-broker.md) */
+import type { IntelRef } from '@/shared';
+import { Intel } from './parts/Intel';
 
 export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
@@ -35,6 +38,10 @@ export class MetaSystem implements GameSystem, MetaRef {
   readonly npcQuests: NpcQuests = new NpcQuests(this);
   /** `MetaRef.npc` */
   get npc(): NpcQuestRef { return this.npcQuests; }
+  /** 2026-09-14: 정보상 — 보유 · 구매 · 폐기 · 소모 (생성자는 ctx 를 건드리지 않는다; `subscribe` 는 `init` 에서). */
+  readonly intelPart: Intel = new Intel(this);
+  /** `MetaRef.intel` */
+  get intel(): IntelRef { return this.intelPart; }
   /** Embedded 기업 tabs handed out by `createCorpView` (their message timers tick with the system). */
   private readonly views = new Set<CorpView>();
   /** Corp the next 기업 tab opens on (`openCorpMenu(corp)`); the tab builds a fresh `CorpView` every time. */
@@ -155,6 +162,8 @@ export class MetaSystem implements GameSystem, MetaRef {
     );
     // 2026-09-14: NPC 퀘스트 — 위의 `net:profileLoaded` 구독 **뒤에** 붙어야 서버 문서를 받은 다음에 제안을 판정한다
     this.unsubs.push(...this.npcQuests.subscribe());
+    // 2026-09-14: 정보상 — `net:profileLoaded` 구독보다 **뒤에** 붙어야 서버 문서를 받아들인 뒤의 보유 정보를 알린다
+    this.unsubs.push(...this.intelPart.subscribe());
     this.subscribeNet();
     b.emit('meta:loaded', { credits: this.store.data.credits });
   }
@@ -321,6 +330,12 @@ export class MetaSystem implements GameSystem, MetaRef {
   creditsTx(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }> { return Credits.creditsTx(this, delta, reason); }
 
   addRep(corp: CorpId, delta: number, reason: string): void { return Credits.addRep(this, corp, delta, reason); }
+
+  /* ── MetaRef: NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7) ──
+   * 기업 신뢰도(`getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다. 저장은 `MetaSave.npc.trust`. */
+  npcTrust(npcId: string): number { return this.npcQuests.trustOf(npcId); }
+  npcTrustLevel(npcId: string): number { return this.npcQuests.trustLevelOf(npcId); }
+  addNpcTrust(npcId: string, delta: number, reason: string): void { this.npcQuests.addTrust(npcId, delta, reason); }
 
   /* ── MetaRef: shop ──────────────────────────────────────────────────────── */
   getShop(corp: CorpId): ShopItem[] { return Trade.getShop(this, corp); }

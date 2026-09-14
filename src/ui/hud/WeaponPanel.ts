@@ -133,7 +133,17 @@ export class WeaponPanel {
 
   bind(ctx: GameContext): void {
     const b = ctx.bus;
+    // 2026-09-14 (튜토리얼 HUD 점진 노출): 시체에서 장비를 얻기 전까지 무기 패널은 없다. 이 패널은 매 프레임
+    //   도는 `update` 가 없으므로(전부 이벤트 구동) 게이트가 바뀔 만한 세 순간에만 다시 묻는다.
+    //   튜토리얼이 꺼져 있으면 언제나 false 라 평소 화면이 한 글자도 바뀌지 않는다.
+    const tutGate = (): void => {
+      toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'weapon') ?? false);
+    };
+    tutGate();
     this.unsubs.push(
+      b.on('tutorial:changed', tutGate),
+      b.on('world:ready', tutGate),          // 새로고침으로 튜토리얼 레이드에 돌아온 경우 (단계가 안 바뀐다)
+      b.on('game:phaseChanged', tutGate),
       b.on('input:bindingsChanged', () => setText(this.consKey, keyLabel(Keys.QUICK))),
       b.on('quick:equipped', ({ item }) => {
         if (item) this.enterConsumable(item, ctx); else this.exitConsumable();

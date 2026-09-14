@@ -5,7 +5,7 @@ import { mealQualityStars, normalizeMealQuality } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
 import { WEAPON_SLOT_IDS } from '../model';
-import { CELL, DURABILITY_LOW, GAP, STEP, TEXT, tileSize, tileSizeAt } from './labels';
+import { CELL, DURABILITY_LOW, GAP, STEP, TEXT, applyGridCellVar, tileSize, tileSizeAt } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
 /** Effective stats for weapon instances (null for anything else); drives socket pips + durability bar. */
@@ -424,8 +424,9 @@ export class GridView {
   private hideItem: ((item: ItemInstance) => boolean) | null = null;
 
   /** Cell edge / cell pitch of this grid in px. Only the 기업 거래 desk passes anything but the default. */
-  private readonly cell: number;
-  private readonly step: number;
+  /** 2026-09-14: `readonly` 이었다 — 창 높이 계단을 넘으면 `setCell` 이 둘을 함께 옮긴다. */
+  private cell: number;
+  private step: number;
   /**
    * 2026-09-12 (가방 틀 고정, 사용자 결정): the box is drawn at least this many rows tall. Rows past the grid's real
    * `rows` are blank space — no cell layer, no drop target — so the 가방 panel keeps the size of the longest bag and a
@@ -449,7 +450,9 @@ export class GridView {
     this.step = cell + GAP;
     this.el = document.createElement('div');
     this.el.className = `inv-grid inv-grid-${id}`;
-    if (cell !== CELL) this.el.style.setProperty('--inv-cell', `${cell}px`);
+    // 2026-09-14: **항상** 적는다. 예전에는 기본 크기일 때 CSS 의 `--inv-cell` 에 맡겼는데, 그 값이 이제
+    // 창 높이를 따라 움직이므로 (`labels.gridCellForHeight`) 한 곳에만 적으면 JS 의 `step` 과 갈라진다.
+    applyGridCellVar(this.el, cell);
     this.cellsEl = document.createElement('div');
     this.cellsEl.className = 'inv-cells';
     this.tilesEl = document.createElement('div');
@@ -476,6 +479,21 @@ export class GridView {
     if (!grid) { this.clearTiles(); return; }
     this.syncDims(grid);
     this.refresh(true);
+  }
+
+  /**
+   * 2026-09-14 (작은 화면 칸 축소): 칸 한 변을 바꾼다. 상자 px · 드래그 보폭 · 하이라이트가 전부 `step` 을 보므로
+   * CSS 변수와 `step` 을 **한 번에** 옮기고 칸 층 · 타일을 다시 그린다. 창 크기가 계단을 넘을 때만 불린다.
+   */
+  setCell(px: number): void {
+    const cell = Math.max(1, Math.round(px));
+    if (cell === this.cell) return;
+    this.cell = cell;
+    this.step = cell + GAP;
+    applyGridCellVar(this.el, cell);
+    this.dims = '';               // 칸 층을 다시 짓게 한다 (`syncDims` 는 가로세로가 같으면 건너뛴다)
+    this.sigs.clear();            // 타일 내용은 칸 크기를 타므로 서명을 버리고 전부 다시 그린다
+    if (this.grid) { this.syncDims(this.grid); this.refresh(true); }
   }
 
   /** 2026-09-12: minimum box height in rows (see `frameRows`); null = exactly the grid. */

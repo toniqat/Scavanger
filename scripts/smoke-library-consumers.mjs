@@ -8,6 +8,9 @@
 //   5. contract trust × `libraryTrustMul` and raid-end XP × `1 + raidXp` with a stubbed `getLibraryEffects`,
 //   6. the dev console `library` command.
 // Usage: node scripts/smoke-library-consumers.mjs [http://localhost:5273/]   (needs a vite dev server)
+// ⚠ Every `/src/…` module this file pulls in goes through `window.__imp` (installed in `boot`) — never through a
+//   bare `import('/src/…')`. On a dev server that has seen an edit, vite stamps the app's own imports and a bare
+//   specifier evaluates a *second* copy of the module; stubbing / mutating that copy changes nothing the app sees.
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
@@ -49,7 +52,9 @@ try {
   await page.setViewport({ width: 1680, height: 900 });
   page.setDefaultTimeout(120000);
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    // `window.__imp` (below) picks the module URL this document actually fetched — it needs every entry.
+    try { performance.setResourceTimingBufferSize(20000); } catch { /* old browser */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -66,6 +71,21 @@ try {
       setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
       const canvas = document.getElementById('game-canvas');
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+      // ⚠ `import('/src/shared/library.ts')` is NOT the app's module (2026-09-14). Once any file has been
+      // edited while the vite dev server was up, vite's importAnalysis rewrites the imports it owns with an
+      // invalidation stamp (`/src/shared/library.ts?t=1789354142878`) and that stamp survives a full page
+      // reload — it lives in the server's module graph, not in the page. A literal, unstamped specifier typed
+      // here is fetched as-is and evaluates a **second instance**: its `ITEM_ALIASES` is a different Map, so
+      // `ITEM_ALIASES.set(…)` below would be invisible to `ctx.loot` / `reviveItem`. (That is exactly what made
+      // the four alias rows red on a 4-day-old dev server while a freshly started one was green.)
+      // So always import the URL this document really fetched for that path; bare path only as a fallback.
+      window.__impUrl = {};
+      window.__imp = (path) => {
+        const hit = performance.getEntriesByType('resource').map((e) => e.name)
+          .find((n) => { try { return new URL(n).pathname === path; } catch { return false; } });
+        window.__impUrl[path] = hit ?? path;
+        return import(hit ?? path);
+      };
       window.__ev = {};
       const bus = window.__game.ctx.bus;
       for (const n of names) {
@@ -164,14 +184,17 @@ try {
   console.log('alias conversion');
   const al = await page.evaluate(async () => {
     const ctx = window.__game.ctx;
-    const lib = await import('/src/shared/library.ts');
-    const ser = await import('/src/inventory/Serialize.ts');
-    const lo = await import('/src/inventory/Loadout.ts');
+    const lib = await window.__imp('/src/shared/library.ts');
+    const ser = await window.__imp('/src/inventory/Serialize.ts');
+    const lo = await window.__imp('/src/inventory/Loadout.ts');
     const inv = window.__game.getSystem('inventory');
     const real = [...lib.ITEM_ALIASES.entries()].find(([, to]) => !!ctx.loot.getItemDef(to)) ?? null;
     lib.ITEM_ALIASES.set('smoke_old_scrap', 'mat_scrap');
     const out = { real };
     try {
+      // the map we just wrote to must be the one the app reads — if this is false every row below is red for
+      // the same reason and it is a module-instance problem, not an alias problem (see `window.__imp`).
+      out.live = { url: window.__impUrl['/src/shared/library.ts'], seen: !!ctx.loot.getItemDef('smoke_old_scrap') };
       out.stackMax = ctx.loot.getItemDef('mat_scrap')?.stackMax ?? 0;
       out.revived = ser.reviveItem({ defId: 'smoke_old_scrap', qty: 2 }, (id) => ctx.loot.getItemDef(id), ctx.loot, 'smoke')?.defId ?? null;
       // stash document
@@ -200,6 +223,7 @@ try {
     }
     return out;
   });
+  ok(al.live?.seen, 'the alias map the smoke writes to is the one the app reads (one live module instance)', JSON.stringify(al.live));
   ok(al.revived === 'mat_scrap', 'reviveItem runs a saved id through the alias table', JSON.stringify(al.revived));
   const scrapStash = (al.stash ?? []).filter((e) => e.def === 'mat_scrap');
   ok(al.stackMax >= 5 && scrapStash.length === 1 && scrapStash[0].qty === 5 && !(al.stash ?? []).some((e) => e.def === 'smoke_old_scrap'),
@@ -213,13 +237,13 @@ try {
   /* ── 3. research refund + XP ────────────────────────────────────────────────────────────────────────────── */
   console.log('research refund');
   const units = await page.evaluate(async () => {
-    const C = await import('/src/inventory/parts/Crafting.ts');
+    const C = await window.__imp('/src/inventory/parts/Crafting.ts');
     return [C.researchRefundQty(1, 0.5), C.researchRefundQty(4, 0.5), C.researchRefundQty(3, 0.1), C.researchRefundQty(2, 1), C.researchRefundQty(6, 0), C.researchRefundQty(0, 0.5)];
   });
   ok(JSON.stringify(units) === '[1,2,1,2,1,0]', 'refund qty per ingredient = min(qty, max(1, round(qty × frac)))', JSON.stringify(units));
   const setup = await page.evaluate(async () => {
     const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;
-    const K = await import('/src/shared/constants.ts');
+    const K = await window.__imp('/src/shared/constants.ts');
     for (let i = 0; i < 60 && (prog.getSkill('crafting') ?? 0) < 12; i++) prog.addSkillXpRaw('crafting', 400);
     const r = ctx.loot.getAllRecipes().find((x) => x.id === 'extract_min');
     if (!r) return { error: 'no extract_min recipe' };
@@ -287,7 +311,7 @@ try {
   console.log('item tooltip');
   const tip = await page.evaluate(async () => {
     const ctx = window.__game.ctx, h = ctx.housing;
-    const lib = await import('/src/shared/library.ts');
+    const lib = await window.__imp('/src/shared/library.ts');
     const defs = ctx.loot.getAllItemDefs();
     const read = (defId) => {
       const chip = document.createElement('span');
@@ -346,9 +370,9 @@ try {
   console.log('trust · raid XP');
   const tr = await page.evaluate(async () => {
     const ctx = window.__game.ctx, h = ctx.housing;
-    const lib = await import('/src/shared/library.ts');
-    const Cm = await import('/src/meta/parts/Contracts.ts');
-    const D = await import('/src/game/parts/Death.ts');
+    const lib = await window.__imp('/src/shared/library.ts');
+    const Cm = await window.__imp('/src/meta/parts/Contracts.ts');
+    const D = await window.__imp('/src/game/parts/Death.ts');
     const meta = window.__game.getSystem('meta');
     const gf = window.__game.getSystem('gameflow');
     const out = {};
@@ -390,7 +414,7 @@ try {
   console.log('console library');
   const con = await page.evaluate(async () => {
     const ctx = window.__game.ctx, h = ctx.housing;
-    const lib = await import('/src/shared/library.ts');
+    const lib = await window.__imp('/src/shared/library.ts');
     if (!ctx.console?.enabled) return null;
     const run = async (line) => {
       const n = window.__ev['console:executed'].length;

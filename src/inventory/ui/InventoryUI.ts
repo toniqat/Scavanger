@@ -18,11 +18,18 @@ import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups } from './TipPin';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, pouchAcceptsLabel, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import { CELL, QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, applyGridCellVar, fmtValue, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
+
+/**
+ * 2026-09-14: 폴백 배치 플래시가 스스로 꺼지는 보험 타이머 (ms). `inventory.css` 의 `inv-slot-flash` ·
+ * `inv-quick-flash` 애니메이션 길이(0.62 s)보다 넉넉히 길다 — 정상 경로는 `animationend` 가 먼저 뗀다.
+ */
+const FLASH_MS = 900;
+
 import * as Drag from './parts/Drag';
 import * as Menu from './parts/ContextMenu';
 import * as QuickUI from './parts/QuickPanel';
@@ -85,7 +92,6 @@ export class InventoryUI {
   quickCells: QuickCell[] = [];
   quickCount!: HTMLElement;
   quickKey!: HTMLElement;
-  private hintsEl!: HTMLElement;
   tooltip!: Tooltip;
   /** 2026-09-14: the pinned tooltip (1 s hold on a tile) + its socket drag-out — `ui/TipPin`. */
   pin!: TipPin;
@@ -120,11 +126,16 @@ export class InventoryUI {
 
   mount(): void {
     if (this.root) return;
+    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`labels.gridCellForHeight`). 격자를 만들기 **전에** 맞춰 두고,
+    // 창 크기가 계단을 넘으면 `onViewportResize` 가 창 · 격자에 새 값을 나눠 준다.
+    syncGridCell();
     const getDef = (id: string) => ITEM_DEF_MAP.get(id);
     const getStats = (item: ItemInstance) => this.sys.getStats(item);
     const root = document.createElement('div');
     root.className = 'inv-root';
+    applyGridCellVar(root);
     root.hidden = true;
+    window.addEventListener('resize', this.onViewportResize);
     root.addEventListener('contextmenu', (e) => e.preventDefault());
     this.root = root;
 
@@ -371,12 +382,12 @@ export class InventoryUI {
     this.repair = new RepairPanel(this.sys, getDef);
     this.modelessLayer.append(this.disassemble.el, this.repair.el);
 
-    /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
-    this.hintsEl = document.createElement('div');
-    this.hintsEl.className = 'inv-hints';
-    this.buildHints();
-
-    /* world-drop zone (visible only while dragging; replaces the hint bar) */
+    /*
+     * 2026-09-14 (사용자 결정): **중앙 하단 안내 알약 바(`.inv-hints`) 는 없앴다.** 우측 하단 키 가이드(`guideKeys`)와
+     * 다섯 항목이 그대로 겹쳤고, 겹치지 않던 마우스 보조 조작(Shift · Ctrl 드래그)은 그 가이드로 옮겼다.
+     * 이 자리(`.inv-footer`)에는 이제 드래그 중에만 뜨는 버리기 영역만 산다.
+     */
+    /* world-drop zone (visible only while dragging) */
     const dropZone = document.createElement('div');
     dropZone.className = 'inv-dropzone';
     const dzTitle = document.createElement('div');
@@ -428,13 +439,13 @@ export class InventoryUI {
     });
 
     /*
-     * 2026-09-07 UI/UX: hints and the drop zone share one **fixed-height** slot. They used to be two siblings of the
-     * centred column, and swapping the 37 px hint bar for the 63 px drop zone at drag start re-centred the whole
-     * window (the panels visibly jumped up). The footer now reserves the taller of the two for good.
+     * 2026-09-07 UI/UX: the footer reserves a **fixed height** so the drop zone appearing at drag start cannot move the
+     * panels above it (it used to be a sibling of the centred column and every panel jumped up ~13 px).
+     * 2026-09-14: the hint pill bar that shared this slot is gone — the footer holds the drop zone alone.
      */
     const footer = document.createElement('div');
     footer.className = 'inv-footer';
-    footer.append(this.hintsEl, dropZone);
+    footer.append(dropZone);
 
     root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, footer,
       this.modelessLayer, this.tooltip.el, this.pin.el, this.ghostLayer);
@@ -483,26 +494,7 @@ export class InventoryUI {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** Bottom hint bar (mission): rotation / drop keys read the live bindings. */
-  private buildHints(): void {
-    this.hintsEl.textContent = '';
-    const hints: Array<[string, string]> = [
-      // 2026-09-12 (E1): 우클릭은 언제나 메뉴, 빠른 이동은 더블클릭
-      [keyLabel(Keys.ROTATE_ITEM), TEXT.hintRotate], ['더블클릭', '빠른 이동'], ['우클릭', '메뉴'], ['Shift+드래그', '절반'], ['Ctrl+드래그', '하나'],
-      ['드래그→무기', '부착'], ['드래그→퀵슬롯', '등록'], [keyLabel(Keys.DROP_ITEM), TEXT.hintDrop], ['휠클릭', '요청'],
-    ];
-    for (const [key, label] of hints) {
-      const h = document.createElement('span');
-      h.className = 'inv-hint';
-      const k = document.createElement('kbd');
-      k.textContent = key;
-      h.append(k, document.createTextNode(label));
-      this.hintsEl.appendChild(h);
-    }
-  }
-
   private refreshKeyLabels(): void {
-    this.buildHints();
     for (const sv of this.slots.values()) if (sv.key) sv.key.textContent = slotKeyLabel(sv.slot);
     this.quickKey.textContent = keyLabel(Keys.QUICK);
     const dz = this.dropZone.querySelector<HTMLElement>('.inv-key-drop');
@@ -516,6 +508,12 @@ export class InventoryUI {
    * `'inventory'`). Labels are read live (`keyLabel`), so this is re-emitted on `input:bindingsChanged` and on every
    * tab change; the guide appends `Tab 닫기` itself, so the close key is never listed here. The embedded 캐릭터 / 기업 /
    * 함선 tabs are mouse-only → `[]` (the guide then shows the close entry alone).
+   *
+   * **2026-09-14 (사용자 결정):** 중앙 하단의 `.inv-hints` 알약 바를 없애면서 그 줄에만 있던 **마우스 보조 조작**이
+   * 여기로 왔다 — `Shift + 드래그 절반` · `Ctrl + 드래그 하나` (`combo` 라 keycap 두 개가 작은 `+` 로 이어진다).
+   * 옛 줄의 `드래그→무기`(부착) · `드래그→퀵슬롯`(등록)은 **일부러 뺐다**: 끌고 가면 그 칸이 초록으로 켜져 스스로
+   * 알려 주는 조작이고, 아홉 항목이면 한 줄이 1280 px 화면의 가로를 넘긴다 (가이드는 `white-space: nowrap` 이다).
+   * 안 보이는 것(수식 키)이 먼저다.
    */
   guideKeys(): KeyGuideEntry[] {
     if (this.activeTab !== 'inventory') return [];
@@ -527,6 +525,8 @@ export class InventoryUI {
       { key: '더블클릭', label: '빠른 이동' },
       { key: '우클릭', label: '메뉴' },
       { key: '휠클릭', label: '요청' },
+      { key: 'Shift', combo: ['드래그'], label: '절반' },
+      { key: 'Ctrl', combo: ['드래그'], label: '하나' },
     ];
   }
 
@@ -578,7 +578,6 @@ export class InventoryUI {
     this.containerPanel.hidden = !container;
     this.stashPanel.hidden = !hub;
     this.creditsEl.hidden = !hub;
-    this.hintsEl.hidden = hub;
     if (container) {
       if (container.title) {
         // caller-supplied contents (corpses etc.): custom title, no tier eyebrow
@@ -643,8 +642,21 @@ export class InventoryUI {
     s.classList.toggle('is-scroll', s.scrollHeight > s.clientHeight + 1);
   }
 
+  /**
+   * 2026-09-14 (작은 화면 칸 축소): 창 높이가 계단을 넘었을 때만 일한다 — `syncGridCell()` 이 `CELL` · `STEP` 을
+   * 옮기고, 창의 `--inv-cell` 과 살아 있는 격자 넷이 같은 값으로 따라간다. 끌고 있는 중이면 보폭이 바뀌므로 취소한다.
+   */
+  private onViewportResize = (): void => {
+    if (!this.root || !syncGridCell()) return;
+    this.cancelDrag();
+    applyGridCellVar(this.root);
+    for (const view of [this.containerView, this.stashView, this.bagView, this.pouchView]) view?.setCell(CELL);
+    this.syncContainerScroll();
+  };
+
   dispose(): void {
     this.cancelDrag();
+    window.removeEventListener('resize', this.onViewportResize);
     this.scrollObserver?.disconnect();
     this.scrollObserver = null;
     this.menu?.dispose();
@@ -783,6 +795,39 @@ export class InventoryUI {
 
   /** Shake a tile from outside the drag flow (a host-denied take). */
   shakeItem(uid: string, loc: ItemLocation): void { this.shake(loc, uid); }
+
+  /* ── 2026-09-14: 폴백 배치 플래시 ──────────────────────────────────────── */
+
+  /**
+   * **어디로 들어갔는지 그 칸이 직접 말한다** (사용자 결정). 상자 · 시체 더블클릭이 가방에 못 넣고 빈 장비칸 ·
+   * 임플란트 칸 · 빈 퀵슬롯으로 밀어 넣었을 때, 예전에는 `가방이 가득 찼습니다 — …` 토스트가 화면 구석에 떴다.
+   * 이제 실제로 들어간 칸이 잠깐 초록으로 번쩍인다 (`.is-flash`, `inventory.css` 의 `inv-slot-flash` 키프레임).
+   *
+   * 드래그 중의 `is-target-ok` 와 **다른 클래스**여야 한다 — 드래그 프리뷰가 매 프레임 그 클래스를 지우므로
+   * 같은 이름을 쓰면 플래시가 첫 프레임에 사라진다. 애니메이션이 끝나면 스스로 뗀다 (`animationend`,
+   * 애니메이션을 못 트는 환경을 위해 타이머 보험도 같이 건다).
+   */
+  private flash(el: HTMLElement | null | undefined): void {
+    if (!el) return;
+    el.classList.remove('is-flash');
+    void el.offsetWidth;   // restart the animation when the same slot flashes twice in a row
+    el.classList.add('is-flash');
+    const off = (): void => { el.classList.remove('is-flash'); el.removeEventListener('animationend', off); };
+    el.addEventListener('animationend', off);
+    window.setTimeout(off, FLASH_MS);
+  }
+
+  /** 장비 칸 (주무기 I · II · 가방 · 방탄복 · 주머니). */
+  flashSlot(slot: SlotId): void { this.flash(this.slots.get(slot)?.el); }
+
+  /** 퀵슬롯 휠 칸. */
+  flashQuick(index: number): void { this.flash(this.quickCell(index)); }
+
+  /** 임플란트 장착칸 — 칸 하나가 아니라 그 블록(`.inv-impitems`)이 번쩍인다 (`equipImplant` 는 자리를 안 알려 준다). */
+  flashImplant(): void {
+    const root = this.implantPanel?.root;
+    this.flash(root?.querySelector<HTMLElement>('.inv-impitems') ?? root);
+  }
 
   /**
    * Phase 10: another member's take was confirmed — let the container tile animate out on the next `refresh()`

@@ -12,6 +12,8 @@ import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from '
 import type { MissionMode } from './types';
 /* appended (Phase 11, 2026-09-07): 행성 선택 + 소셜 */
 import type { PlanetId } from './planets';
+/* appended (2026-09-14): 정보상 — 로비 · 레이드 시작에 실리는 기믹 고정 (docs/plans/intel-broker.md) */
+import type { IntelPick } from './intel';
 /* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout rides on `ship state` */
 import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
 import type {
@@ -146,6 +148,23 @@ export interface LobbyState {
    * started from this lobby carries it in `game:start.planet`; a training ignores it.
    */
   planet?: PlanetId;
+  /* appended (2026-09-14): 정보상 — docs/plans/intel-broker.md */
+  /**
+   * 분대장이 산 **기믹 고정** (`lobby:intel`), 없으면 안 샀다. 분대원은 함선에서 이것을 읽어 정보상 패널에
+   * 요약을 띄운다(읽기 전용 — 사는 것도 버리는 것도 분대장뿐이다). 레이드 시작이 이것을 `game:start.intel`
+   * 로 그대로 실어 보내고, 그때 `seed` 는 `IntelWire.seed` 가 이긴다 (「산 지역으로 간다」).
+   */
+  intel?: IntelWire | null;
+}
+
+/**
+ * 와이어에 실리는 정보상 정보. `IntelSpec` 에서 `planet` 만 뺀 것이다 — 행성은 이미 `LobbyState.planet` ·
+ * `game:start.planet` 에 있고 두 곳에 적으면 어긋날 수 있다. 서버는 **모양만** 씻고 그대로 broadcast 한다
+ * (`planet` 과 같은 취급 — 릴레이는 레이아웃을 계산하지 않는다).
+ */
+export interface IntelWire {
+  seed: number;
+  picks: IntelPick[];
 }
 
 export type LobbyErrorCode =
@@ -183,7 +202,13 @@ export type ClientToServer =
    * while nothing is running — no ready gating, only the sender gets `inMission`, others stay in the hub and join later.
    */
   /** `planet` appended (Phase 11): the raid's 목표 행성. Omitted for a training (the arena has no planet). */
-  | { t: 'lobby:start'; seed: number; mode?: MissionMode; planet?: PlanetId }
+  /** `intel` appended (2026-09-14): 분대장이 산 기믹 고정. 있으면 `seed` 는 그 정보의 시드여야 한다. */
+  | { t: 'lobby:start'; seed: number; mode?: MissionMode; planet?: PlanetId; intel?: IntelWire | null }
+  /**
+   * appended (2026-09-14). Host only, while not started: 산 정보(또는 폐기 = null)를 분대에 알린다 →
+   * `LobbyState.intel`. `lobby:planet` 과 같은 모양이고 서버는 모양만 씻는다.
+   */
+  | { t: 'lobby:intel'; intel: IntelWire | null }
   /** Host only, after a mission ended: started=false, every ready=false, lobby reopened for joins. */
   | { t: 'lobby:reset' }
   /** Relay an opaque game message. 'all' includes the sender; 'others' excludes it. */
@@ -297,7 +322,8 @@ export type ServerToClient =
   | { t: 'lobby:left'; reason?: 'moved'; to?: string }
   /** `mode` (appended, Phase 7): a training start reaches everyone but only members with `inMission` enter it. */
   /** `planet` (appended, Phase 11): the raid's 목표 행성, echoed from `LobbyState.planet` at start time. */
-  | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode; planet?: PlanetId }
+  /** `intel` (appended, 2026-09-14): 분대장이 산 기믹 고정, `LobbyState.intel` 에서 그대로 에코된다. */
+  | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode; planet?: PlanetId; intel?: IntelWire | null }
   /* appended (Phase 7) */
   | { t: 'profile:docs'; profile: ProfileRecord }
   | { t: 'credits:result'; txId: number; ok: boolean; credits: number; reason?: string }
@@ -1954,3 +1980,27 @@ export interface NetRef {
   readonly rooms?: RoomsRef;
 }
 /* ══ end 2026-09-14 단체 메신저방 ══ */
+
+/* ══ appended (2026-09-14): 정보상 — NetRef 표면 (docs/plans/intel-broker.md §2.4) ══════════════════════════════
+ *
+ * 와이어(`IntelWire` · `LobbyState.intel` · `lobby:intel` · `lobby:start.intel` · `game:start.intel`)는 이미 위에
+ * 있는데 **그것을 보내는 `NetRef` 메서드가 빠져 있었다** — `meta/parts/Intel.ts`(구매 뒤 분대에 알린다)와
+ * `hub/parts/Pods.launch`(산 정보를 실어 출격한다)가 부를 자리가 없다. 이름 변경 · 삭제 없이 **추가만** 한다
+ * (기존 `startGame(seed, mode?, planet?)` 은 그대로 오버로드로 남는다 — 인자를 안 주면 옛 동작이다).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+export interface NetRef {
+  /** 분대장이 산 기믹 고정 (`lobby.intel`). 로비가 없거나 아무도 안 샀으면 null. 분대원은 **읽기만** 한다. */
+  readonly lobbyIntel: IntelWire | null;
+  /**
+   * 분대장 전용, 로비가 시작되기 전: 산 정보(또는 폐기 = null)를 분대에 알린다 (`lobby:intel`).
+   * `setLobbyPlanet` 과 같은 규약이다 — 낙관적으로 `lobby.intel` 을 미러링하고 서버의 `lobby:state` 가 확정한다.
+   * 호스트가 아니거나 이미 시작했으면 아무것도 하지 않는다.
+   */
+  setLobbyIntel(intel: IntelWire | null): void;
+  /**
+   * `intel` appended (2026-09-14): 이번 레이드에 실을 기믹 고정. 있으면 `seed` 는 **그 정보의 시드**여야 한다
+   * (「산 지역으로 간다」). 생략하면 `lobby.intel` 이 대신 실린다; 훈련장은 언제나 무시한다.
+   */
+  startGame(seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void;
+}
+/* ══ end 2026-09-14 정보상 ══ */

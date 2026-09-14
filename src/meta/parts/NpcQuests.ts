@@ -9,7 +9,7 @@
  *      └─[생각해보지]→ deferred ─[퀘스트 탭 수락]→ active (+ brief)
  *
  * 포기는 없다(사용자 결정). 납품은 나눠서(`deliver` — 가방 + 창고), 보고는 보상 아이템을 먼저 넣어 보고(`공간 없음` 이면 아무것도
- * 안 바뀐다) 크레딧 `quest:<id>` → 신뢰도 → 경험치 순. 레이드 목표는 `parts/NpcObjectives.ts`.
+ * 안 바뀐다) 크레딧 `quest:<id>` → 신뢰도(기업 + **그 NPC 개인**) → 경험치 순. 레이드 목표는 `parts/NpcObjectives.ts`.
  */
 import type {
   GameContext, ItemDef, ItemInstance, MissionStats, NpcContactInfo, NpcDef, NpcLogEntry, NpcLogEvent, NpcMessage, NpcObjectiveDef,
@@ -18,9 +18,12 @@ import type {
 import {
   NPC_DEFS, NPC_DEF_MAP, NPC_LOG_MAX, NPC_OFFER_CHECK_S, NPC_QUEST_DEFS, NPC_QUEST_MAP, NPC_RAID_OBJECTIVE_KINDS, NPC_REPLY_KO,
   formatCreditReason, isRaidFound, raidFoundSeed,
+  /* 2026-09-14: NPC 개인 신뢰도 — 기업과 같은 REP_TABLE 을 쓴다 */
+  repLevelOf,
 } from '@/shared';
 import {
-  NPC_REASON, type NpcReqContext, freshNpcSave, itemMatches, legacyQuestState, objectiveLabel, requirementMet, rewardSummary, weaponSpecClass,
+  NPC_REASON, type NpcReqContext, freshNpcSave, itemMatches, legacyQuestState, npcTrustReason, objectiveLabel, requirementMet,
+  rewardSummary, weaponSpecClass,
 } from '../NpcRules';
 import type { MetaSystem } from '../MetaSystem';
 import { commitQuestTx } from './Contracts';
@@ -50,6 +53,34 @@ export class NpcQuests implements NpcQuestRef {
   get save(): NpcSave {
     const d = this.sys.store.data;
     return d.npc ?? (d.npc = freshNpcSave());
+  }
+
+  /* ── NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7) ──────────
+   * 기업 신뢰도와 **별개**이고 같은 `REP_TABLE` 을 쓴다 (사용자 결정 — 표를 하나 더 만들 이유가 없다).
+   * 지금은 적립 · 표시까지만이라 이 값으로 잠기는 것은 없다; `NpcRequirement.npcRep` 계약은 이미 있다. */
+
+  /** 누적 신뢰도 점수 (없으면 0). */
+  trustOf(npcId: string): number {
+    const t = this.save.trust;
+    return Math.max(0, Math.round(t?.[npcId] ?? 0));
+  }
+
+  /** 0–5. 기업과 같은 `REP_TABLE`. */
+  trustLevelOf(npcId: string): number { return repLevelOf(this.trustOf(npcId)); }
+
+  /** 더한다 (0 밑으로는 안 내려간다). 레벨이 오르면 `levelUp` 이 실린다 — 토스트는 받는 쪽이 정한다. */
+  addTrust(npcId: string, delta: number, _reason: string): void {
+    const d = Math.round(delta);
+    if (!npcId || !Number.isFinite(d) || d === 0) return;
+    const save = this.save;
+    const trust = save.trust ?? (save.trust = {});
+    const before = Math.max(0, Math.round(trust[npcId] ?? 0));
+    const beforeLv = repLevelOf(before);
+    const after = Math.max(0, before + d);
+    trust[npcId] = after;
+    const level = repLevelOf(after);
+    this.sys.store.markDirty();
+    this.ctx.bus.emit('meta:npcTrustChanged', { npc: npcId, trust: after, level, delta: d, levelUp: level > beforeLv });
   }
 
   /** `MetaSystem.init` 이 부른다 — 반환된 해제 함수들은 시스템의 `unsubs` 에 들어간다. */
@@ -133,7 +164,12 @@ export class NpcQuests implements NpcQuestRef {
   private reqCtx(): NpcReqContext {
     const prog = this.ctx.progression;
     const level = prog && Number.isFinite(prog.level) ? prog.level : 1;
-    return { level, repLevel: (c) => this.sys.level(c), questDone: (id) => this.save.quests[id]?.s === 'complete' };
+    return {
+      level,
+      repLevel: (c) => this.sys.level(c),
+      questDone: (id) => this.save.quests[id]?.s === 'complete',
+      npcTrustLevel: (id) => this.trustLevelOf(id),
+    };
   }
 
   checkReady(def: NpcQuestDef, s: NpcQuestSave): void {
@@ -150,8 +186,10 @@ export class NpcQuests implements NpcQuestRef {
     return this.lastStamp;
   }
 
-  private log(npc: string, e: NpcLogEvent, q?: string): void {
-    const entry: NpcLogEntry = q ? { at: this.stamp(), e, q } : { at: this.stamp(), e };
+  /** `c` 는 `choice` 전용 — 고른 선택지 번호 (2026-09-14). */
+  private log(npc: string, e: NpcLogEvent, q?: string, c?: number): void {
+    const at = this.stamp();
+    const entry: NpcLogEntry = q ? { at, e, q } : c !== undefined ? { at, e, c } : { at, e };
     const list = this.save.log[npc] ?? (this.save.log[npc] = []);
     list.push(entry);
     if (list.length > NPC_LOG_MAX) list.splice(0, list.length - NPC_LOG_MAX);
@@ -293,11 +331,42 @@ export class NpcQuests implements NpcQuestRef {
     return n;
   }
 
+  /* ── 대사 선택지 (2026-09-14, `docs/plans/tutorial-raid.md`) ──────────────
+   * 첫 연락에 선택지가 달린 NPC 는 지금 레이븐 하나다. 고르기 전까지 대화가 그 자리에서 기다리고,
+   * 고르면 사건 하나(`choice`)가 남아 내 대답과 NPC 의 답이 대화에 붙는다. **분기는 남지 않는다.** */
+
+  getPendingChoices(npcId: string): readonly string[] {
+    const npc = NPC_DEF_MAP.get(npcId);
+    if (!npc?.introChoices?.length) return [];
+    const list = this.save.log[npcId] ?? [];
+    if (!list.some((e) => e.e === 'intro')) return [];          // 아직 첫 연락이 오지 않았다
+    if (list.some((e) => e.e === 'choice')) return [];          // 이미 골랐다
+    return npc.introChoices;
+  }
+
+  chooseIntro(npcId: string, index: number): boolean {
+    const choices = this.getPendingChoices(npcId);
+    if (index < 0 || index >= choices.length) return false;
+    this.log(npcId, 'choice', undefined, index);
+    return true;
+  }
+
   private resolve(npc: NpcDef, entries: readonly NpcLogEntry[]): NpcMessage[] {
     const out: NpcMessage[] = [];
     const say = (at: number, lines: readonly string[]): void => { for (const text of lines) out.push({ at, from: 'npc', text }); };
     for (const en of entries) {
       if (en.e === 'intro') { say(en.at, npc.intro); continue; }
+      /* 2026-09-14 (대사 선택지): 퀘스트가 없는 사건이라 `q` 검사 앞에서 푼다. 고른 라벨 한 줄 + NPC 의 답. */
+      if (en.e === 'choice') {
+        const i = en.c ?? -1;
+        const label = npc.introChoices?.[i];
+        if (label) {
+          out.push({ at: en.at, from: 'me', text: label });
+          const reply = npc.introChoiceReplies?.[i];
+          if (reply) say(en.at, [reply]);
+        }
+        continue;
+      }
       const q = en.q ? NPC_QUEST_MAP.get(en.q) : undefined;
       if (!q) continue;
       switch (en.e) {
@@ -470,6 +539,9 @@ export class NpcQuests implements NpcQuestRef {
       data.stats.creditsEarned += def.rewards.credits;
     }
     for (const r of def.rewards.rep) if (r.amount > 0) this.sys.addRep(r.corp, r.amount, `quest:${id}`);
+    /* 2026-09-14: 기업 신뢰도와 **같은 자리**에서 그 NPC 의 개인 신뢰도도 준다 — 서로를 대신하지 않는다.
+     * 크레딧이 아니라 서버 검증과 무관하고 (`credits:tx` 를 타지 않는다), 무소속 NPC 는 이것만 받는다. */
+    if (def.rewards.npcTrust > 0) this.addTrust(def.npc, def.rewards.npcTrust, npcTrustReason(id));
     const prog = this.ctx.progression;
     if (def.rewards.xp > 0 && prog && typeof prog.addXp === 'function') { try { prog.addXp(def.rewards.xp); } catch { /* progression not ready */ } }
     this.log(def.npc, 'complete', id);

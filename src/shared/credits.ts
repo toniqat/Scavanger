@@ -31,7 +31,13 @@ export type CreditReasonKind =
   /* appended (2026-09-13): 탐사 차량 요금 `rover:<fromStationId>:<toStationId>` — delta < 0, |delta| ∈ [roverFareMin, roverFareMax] */
   | 'rover'
   /* appended (2026-09-13): 암호화폐 매매 `cbuy:<coin>:<units>` · `csell:<coin>:<units>` — 서버 시세 창 안의 금액이어야 한다 (`shared/cryptoMarket`) */
-  | 'crypto-buy' | 'crypto-sell';
+  | 'crypto-buy' | 'crypto-sell'
+  /**
+   * appended (2026-09-14): 정보상 `intel:<planetId>:<code>` — delta < 0, 정수,
+   * |delta| === `intelCost(행성 threat, parseIntelCode(code), table.intel)`. 프로필당 시간당
+   * `CREDIT_INTEL_MAX_PER_HOUR` 회. **환불 불가** (rover 와 같이 원장 debit 을 남기지 않는다).
+   */
+  | 'intel';
 
 export interface CreditReason {
   kind: CreditReasonKind;
@@ -43,6 +49,11 @@ export interface CreditReason {
   tag?: string;
   /** appended (2026-09-13) — rover only: the destination station id (`id` = the station the trip starts from). */
   to?: string;
+  /**
+   * appended (2026-09-14) — intel only: 압축한 기믹 고정 코드 (`shared/intel.intelCode`, 예 `x2b1h3`).
+   * `id` 는 행성 id 다. 서버는 이것을 `parseIntelCode` 로 풀어 같은 `intelCost` 로 금액을 검산한다.
+   */
+  code?: string;
 }
 
 /** Wire form. The relay caps `reason` at 64 characters, so ids must stay short (they are csv ids). */
@@ -50,6 +61,7 @@ export function formatCreditReason(r: CreditReason): string {
   switch (r.kind) {
     case 'sell': return `sell:${r.id}:${Math.max(1, Math.floor(r.qty ?? 1))}`;
     case 'rover': return `rover:${r.id}:${r.to ?? ''}`;
+    case 'intel': return `intel:${r.id}:${r.code ?? ''}`;
     case 'crypto-buy': return `cbuy:${r.id}:${Math.max(1, Math.floor(r.qty ?? 1))}`;
     case 'crypto-sell': return `csell:${r.id}:${Math.max(1, Math.floor(r.qty ?? 1))}`;
     case 'refund-repair': return `refund:repair:${r.id}`;
@@ -80,6 +92,10 @@ export function parseCreditReason(raw: string): CreditReason | null {
   }
   if (parts[0] === 'rover' && parts.length === 3 && ID.test(parts[1]) && ID.test(parts[2]) && parts[1] !== parts[2]) {
     return { kind: 'rover', id: parts[1], to: parts[2] };
+  }
+  /* appended (2026-09-14): 정보상 — `code` 는 `shared/intel.intelCode` 가 만든 「글자+숫자」 쌍의 나열 (최대 7쌍) */
+  if (parts[0] === 'intel' && parts.length === 3 && ID.test(parts[1]) && /^(?:[a-z][1-9]){1,7}$/.test(parts[2])) {
+    return { kind: 'intel', id: parts[1], code: parts[2] };
   }
   if (parts.length === 2 && ID.test(parts[1])) {
     const k = parts[0];
@@ -216,6 +232,40 @@ export const CREDIT_CRYPTO_MAX_PER_HOUR = 240;
 
 /** The refusal text of a `credits:tx` the relay's economy rules do not accept (`credits:result {ok:false, reason}`). */
 export const CREDIT_TX_INVALID_KO = '서버가 거래를 확인하지 못했습니다';
+
+/* ══ appended: 2026-09-14 — 정보상 검증 (docs/plans/intel-broker.md) ═══════════════════════════════════════════════════
+ *   intel:<planetId>:<code>   delta < 0 정수, |delta| === intelCost(planetThreat[planetId], parseIntelCode(code), table.intel)
+ *                             한 시간에 `CREDIT_INTEL_MAX_PER_HOUR` 회. **환불 불가** (rover 와 같이 원장 debit 없음).
+ * 정말 그 정보를 갖고 출격했는지는 보지 않는다 — 맵은 클라이언트가 생성하므로 서버가 증명할 것이 없다 (아이템 소유와 같은 한계).
+ * 금액 식은 **클라와 릴레이가 같은 `shared/intel.intelCost`** 를 부른다 — 표만 다른 출처에서 온다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface EconomyTable {
+  /**
+   * appended (2026-09-14): 정보상 — `data/intel_options.csv` 의 기믹별 기본 비용 · 최대 단계, `data/tables.csv` 의
+   * `INTEL_TIER_COST_MUL` · `INTEL_THREAT_COST_MUL` · `data/tuning.csv` 의 `INTEL_BUNDLE_COST_MUL`,
+   * 그리고 `data/planets.csv` 의 행성별 threat. 없으면 모든 `intel:` 거절.
+   */
+  intel?: {
+    options: Record<string, { baseCost: number; maxTier: number }>;
+    tierMul: number[];
+    bundleMul: number;
+    threatMul: number[];
+    /** planetId → threat (1–3). 사유의 행성 id 가 여기 없으면 거절. */
+    planetThreat: Record<string, number>;
+  };
+}
+
+export interface CreditLedger {
+  /** appended (2026-09-14): 최근 `intel:` 구매의 서버 epoch ms (최근 한 시간) — 시간당 상한. */
+  intelAt?: number[];
+}
+
+/**
+ * (2026-09-14) `intel:` purchases accepted per profile per rolling hour. 한 레이드에 한 번 사는 것이고 「지역 재배치」로
+ * 다시 사는 경우를 넉넉히 잡아도 한 시간에 열 번을 넘지 않는다 — 상한은 스크립트가 원장을 돌리는 것만 막는다.
+ */
+export const CREDIT_INTEL_MAX_PER_HOUR = 24;
 
 /** Cheapest price a `buy:` of an item with `value` can legitimately have: the best reputation level's discount. */
 export function tableMinBuyPrice(t: EconomyTable, value: number): number {

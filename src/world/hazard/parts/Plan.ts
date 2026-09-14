@@ -76,16 +76,20 @@ export function planGroveSpots(bctx: BuildCtx, rng: Random, central = false): Ar
  * `spawn` (2026-09-13) = 강하 지점. 주면 모래 폭풍 · 눈보라 전선이 **강하 지점이 붙은 맵 가장자리 쪽에서** 들어온다
  * (± `HAZARD_FRONT_SPAWN_JITTER_RAD`). 없으면(스모크의 `debugPlanFor`) 옛날처럼 완전 무작위 방향이다. 어느 쪽이든
  * draw 수는 같다.
+ *
+ * `delayS` (2026-09-14, 정보상 「기상 예보」) = 시작 시각에 그대로 더하는 초. **굴림 뒤에** 더하므로 draw 수는 같고,
+ * 시작 시각이 고정인 독성 포자(`SPORE_START_S`)에도 똑같이 걸린다 (사용자 결정: 재해 전부).
  */
 export function planHazard(
   rng: Random, candidates: readonly HazardKind[], groveSpots: ReadonlyArray<{ x: number; z: number }>,
-  biomeId: string | null = null, spawn: { x: number; z: number } | null = null,
+  biomeId: string | null = null, spawn: { x: number; z: number } | null = null, delayS = 0,
 ): HazardPlan | null {
   const kind = pickKind(rng, candidates, biomeId);
   if (kind === null) return null;
 
   // 독성 포자만 시작 시각이 고정이다 (사용자 요구: 6분). 나머지는 30초 단위로 6~8분 사이.
-  const startsAt = kind === 'spores' ? SPORE_START_S : pickStartSeconds(rng.next());
+  const rolled = kind === 'spores' ? SPORE_START_S : pickStartSeconds(rng.next());
+  const startsAt = rolled + Math.max(0, Math.round(delayS));
 
   const plan: HazardPlan = {
     kind, startsAt,

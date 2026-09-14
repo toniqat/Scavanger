@@ -10,6 +10,10 @@
 :root { --dur-c-full: #4fd17e; --dur-c-mid: #f2d34b; --dur-c-low: #f28a2c; --dur-c-empty: #ff5c5c; }
 
 .inv-root {
+  /* ⚠ 칸 한 변의 **원본은 이 줄이 아니다** (2026-09-14, 사용자 결정 「작은 화면에서 칸을 줄인다」):
+     `ui/labels.ts` 의 `CELL` 이 원본이고 창 높이(`data/tuning.csv` 의 `INV_CELL_*`)를 탄다. JS 가 격자 상자의
+     px 폭 · 드래그 보폭(`STEP`)을 그 값으로 정하므로 CSS 가 따로 미디어 쿼리를 갖지 못한다 — 두 값이 갈라지면
+     놓은 자리가 커서 밑 칸이 아니게 된다. 여기 54px 은 `applyGridCellVar` 가 인라인으로 덮기 전의 기본값일 뿐이다. */
   --inv-cell: 54px;
   --inv-gap: 2px;
   --inv-bg: rgba(9, 11, 15, 0.78);
@@ -30,11 +34,26 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* 2026-09-12 (사용자 결정): **위 여백을 없애고 창을 위로 붙인다.** 예전 `justify-content: center` + `gap: 22px` 은
-     화면 세로 가운데 정렬이라 위에 큰 빈 띠가 남았다. 위에 남기는 것은 `.scr-tabs`(`src/ui/styles/base.css` 에서
-     `position: absolute; top: 22px`) 가 설 자리뿐이고, 그 줄이 없는 레이드 화면은 8px 만 띄운다 —
-     base.css 는 남의 파일이라 고치지 않고 여기서 자리를 비켜 준다. */
-  justify-content: flex-start;
+  /*
+   * 세로 자리 (2026-09-14, 사용자 결정 — 「가방이 너무 위로 가 있다」).
+   *
+   * 2026-09-12 에 `justify-content: center` 를 `flex-start` + `padding-top` 으로 바꿨는데, 그러면 남는 높이가
+   * **전부 아래로** 간다 — 1920×1080 함선 창은 위 76 px · 아래 112 px, 작업대 제작 창은 위 76 px · 아래 285 px 로
+   * 눈에 띄게 위에 붙었다. 그렇다고 예전 `center` 로 되돌릴 수는 없다: 창이 화면보다 길면 가운데 정렬은 **위쪽도**
+   * 밀어내 `.scr-tabs` 밑으로 들어가고 윗줄을 영영 못 본다 (그것이 2026-09-12 에 `flex-start` 로 간 이유다).
+   *
+   * 그래서 **`safe center`** 다 — 남는 높이가 있으면 가운데, 넘치면 `flex-start` 와 **완전히 같게** 동작한다.
+   * 위아래 여백을 **같은 값**으로 두는 것이 나머지 절반이다: `padding-top` 만 있으면 가운데 정렬이 그 값의 절반만큼
+   * 아래로 치우친다. 그 여백은 위에 절대 배치로 떠 있는 `.scr-tabs`(base.css, `top: 22px`) · 크레딧 알약이
+   * 설 자리이고, 그 줄이 없는 레이드 화면은 8 px 만 띄운다.
+   *
+   * ⚠ **높이 예산(`.inv-bag-scroll` 의 `max-height`)은 손대지 않았다.** 그 식들은 창이 화면 안에 서는지를 정하는
+   *   상한이고, 넘치는 순간 `safe` 가 `flex-start` 로 떨어지므로 2026-09-12 에 재 둔 1280×760 수치가 그대로 산다.
+   * ⚠ 아래 여백을 `padding-bottom` 으로 주면 **안 된다.** padding 은 줄어들지 않아서 자리가 모자라면 flex 가
+   *   `.inv-layout` 을 대신 찌그러뜨린다 — 실측(1280×760 함선)에서 패널이 669 → 596 px 로 눌려 장비 열이 짜부라지고
+   *   창고 줄이 사라졌다. 그래서 **줄어드는 칸**(`.inv-root::after`)을 쓴다. 아래 규칙 참고.
+   */
+  justify-content: safe center;
   padding-top: 8px;
   gap: 12px;
   pointer-events: auto;
@@ -53,6 +72,16 @@
 .inv-root.is-visible { opacity: 1; }
 /* 함선 화면에는 `.scr-tabs`(top 22px · 높이 ~42px)와 크레딧 알약이 절대 배치로 떠 있다 — 그 아래에서 시작한다. */
 .inv-root.is-hub { padding-top: 74px; }
+/*
+ * 2026-09-14: **아래 균형 칸.** `padding-top` 만 있으면 `safe center` 가 그 절반만큼 아래로 치우치므로 같은 높이를
+ * 아래에도 둬야 창이 화면 한가운데 선다. 다만 padding 이 아니라 **줄어드는 flex 칸**이다:
+ *   • `flex-basis` = 위 여백과 같은 값 → 자리가 넉넉하면 위아래가 대칭이다.
+ *   • `flex-shrink: 1000` → 자리가 모자라면 이 칸이 (거의) 전부 줄어들고 `.inv-layout` 은 그대로 선다.
+ *     1280×760 함선처럼 창이 화면을 꽉 채우는 배치에서 패널이 눌리지 않는다 (`.inv-layout` 몫 < 1 px).
+ *   • `margin-top` 이 `.inv-root` 의 `gap: 12px` 을 상쇄한다 — 이것은 항목이 아니라 여백이다.
+ */
+.inv-root::after { content: ''; display: block; flex: 0 1000 8px; min-height: 0; margin-top: -12px; }
+.inv-root.is-hub::after { flex-basis: 74px; }
 /* Fallback only: while the game cursor is applied (`body.cursor-ui`) `ui/hud/GameCursor` paints its own 잡기 art over
    a drag with a more specific rule. This keeps a sane cursor if the canvas art could not be generated. */
 .inv-root.is-dragging, .inv-root.is-dragging * { cursor: grabbing; }
@@ -567,6 +596,16 @@
 }
 .inv-slot.is-target-ok .inv-slot-body { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 14%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 35%, transparent); }
 .inv-slot.is-target-bad .inv-slot-body { border-color: var(--inv-bad); background: color-mix(in srgb, var(--inv-bad) 14%, transparent); }
+/* ── 2026-09-14 (사용자 결정): 폴백 배치 플래시 ───────────────────────────────────────────────────────────────
+   상자 · 시체 더블클릭이 가방 대신 **장비칸 · 임플란트 칸 · 퀵슬롯**으로 밀어 넣었을 때, 토스트 대신 그 칸이
+   한 번 번쩍인다 (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant` 가 `.is-flash` 를 걸고 `animationend` 에 뗀다).
+   드래그 프리뷰의 `is-target-ok` 와 **다른 클래스**여야 한다 — 프리뷰는 매 프레임 그 클래스를 지운다. */
+@keyframes inv-slot-flash {
+  0%   { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 42%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--inv-ok) 70%, transparent); }
+  55%  { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 16%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--inv-ok) 40%, transparent); }
+  100% { border-color: transparent; background: none; box-shadow: none; }
+}
+.inv-slot.is-flash .inv-slot-body { animation: inv-slot-flash 620ms var(--inv-ease) 1; }
 .inv-slot-body .inv-tile { position: relative; transform-origin: center; }
 
 /* ── equipped-item card (2026-09-08): fills the slot box, everything in fixed corners ── */
@@ -622,19 +661,8 @@
 .inv-slot-empty svg { width: 72px; height: 28px; }
 /* 2026-09-08: `.inv-slot-meta` is gone — the card inside the box says all of it (see `.inv-slot-card`). */
 
-/* ── hints ──────────────────────────────────────────────────────────────── */
-.inv-hints {
-  display: flex;
-  gap: 22px;
-  padding: 8px 18px;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--inv-muted);
-  background: rgba(9, 11, 15, 0.6);
-  border: 1px solid var(--inv-line);
-  border-radius: 999px;
-}
-.inv-hint { display: inline-flex; align-items: center; gap: 8px; }
+/* 2026-09-14 (사용자 결정): 중앙 하단 안내 알약 바(`.inv-hints` / `.inv-hint`)는 삭제됐다 — 우측 하단 키 가이드와
+   다섯 항목이 겹쳤고, 겹치지 않던 Shift · Ctrl 드래그는 `InventoryUI.guideKeys` 로 옮겼다. */
 kbd {
   display: inline-block;
   min-width: 18px;
@@ -896,9 +924,10 @@ kbd {
   box-shadow: 0 0 8px color-mix(in srgb, var(--inv-accent) 40%, transparent);
 }
 
-/* ── footer slot: hints ↔ world-drop zone, one fixed height ──────────────
-   Both live in `.inv-footer`, whose height is reserved for the taller (the drop zone). Before this the two were
-   siblings of the centred column and the swap at drag start moved every panel up by ~13 px. */
+/* ── footer slot: world-drop zone, fixed height ──────────────────────────
+   `.inv-footer` reserves the drop zone's height for good, so it appearing at drag start cannot move the panels above
+   it (before this it was a sibling of the centred column and every panel jumped up ~13 px).
+   2026-09-14: the hint pill bar that shared this slot is gone. */
 .inv-footer {
   display: flex;
   align-items: center;
@@ -908,7 +937,6 @@ kbd {
 }
 /* The ship screen has neither bar (nothing to throw away, keys live on the slots) — no reason to reserve the space. */
 .inv-root.is-hub .inv-footer { min-height: 0; }
-.inv-root.is-dragging .inv-hints { display: none; }
 .inv-dropzone {
   display: none;
   flex-direction: column;
@@ -1153,9 +1181,14 @@ kbd {
 .inv-quick-cell.is-target-ok { border-color: var(--inv-ok) !important; background: color-mix(in srgb, var(--inv-ok) 16%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 40%, transparent) !important; opacity: 1; }
 .inv-quick-cell.is-target-swap { border-color: var(--inv-swap) !important; background: color-mix(in srgb, var(--inv-swap) 16%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-swap) 40%, transparent) !important; opacity: 1; }
 .inv-quick-cell.is-target-bad { border-color: var(--inv-bad) !important; background: color-mix(in srgb, var(--inv-bad) 16%, transparent); box-shadow: none !important; }
+/* 2026-09-14: 폴백 배치 플래시 (위 `.inv-slot.is-flash` 와 같은 규약 — 드래그 프리뷰 클래스와 섞이지 않는 자기 클래스). */
+@keyframes inv-quick-flash {
+  0%   { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 44%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--inv-ok) 70%, transparent); opacity: 1; }
+  55%  { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 18%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--inv-ok) 40%, transparent); opacity: 1; }
+}
+.inv-quick-cell.is-flash { animation: inv-quick-flash 620ms var(--inv-ease) 1; }
 /* dragging a cell out: the bag / backdrop mean "unassign", so the drop zone stays hidden */
 .inv-root.is-quick-source .inv-dropzone { display: none; }
-.inv-root.is-quick-source .inv-hints { display: flex; }
 /* 2026-09-08: the rose has no legend any more — no title, no "끌어다 놓기" hint. */
 
 /* direction badge on bag tiles assigned to the wheel (top-left; the qty badge sits bottom-right) */
@@ -1650,7 +1683,6 @@ kbd {
 .inv-cat-count { font-size: 11px; }
 /* dragging out of the catalog: no world drop, no wheel targets */
 .inv-root.is-catalog-drag .inv-dropzone { display: none !important; }
-.inv-root.is-catalog-drag .inv-hints { display: flex; }
 
 /* ── 2026-09-13 (사용자 결정): 창고 패널 = 가방 패널 높이 (함선 인벤토리 탭) ─────────────────────────────────
    `.inv-col-right` 가 `display: contents` 라 창고 · 장비 · 가방이 `.inv-layout` 의 한 줄에 선다. 셋 다 `stretch` 로
@@ -2159,6 +2191,14 @@ kbd {
 
 /* 임플란트 아이템: `임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩, `+ 장착` 이 피커를 띄운다. */
 .inv-impitems { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+/* 2026-09-14: 폴백 배치 플래시 — `equipImplant` 는 어느 칸에 꽂혔는지 안 알려 주므로 블록 전체가 번쩍인다.
+   장비칸 · 퀵슬롯과 달리 테두리를 건드리면 위 `border-top` 이 사라지므로 **배경 · 글로우만** 쓴다. */
+@keyframes inv-implant-flash {
+  0%   { background: color-mix(in srgb, var(--inv-ok) 30%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--inv-ok) 55%, transparent); }
+  55%  { background: color-mix(in srgb, var(--inv-ok) 12%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 30%, transparent); }
+  100% { background: transparent; box-shadow: none; }
+}
+.inv-impitems.is-flash { animation: inv-implant-flash 620ms var(--inv-ease) 1; }
 .inv-impitems .h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .inv-impitems .h .cnt { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--c-text-dim); white-space: nowrap; }
 .inv-impi-pips { display: flex; flex-wrap: wrap; gap: 4px; }

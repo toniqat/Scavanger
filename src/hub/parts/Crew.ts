@@ -79,6 +79,7 @@ export function startTraining(sys: HubSystem): boolean {
   }
   ctx.missionMode = 'training';
   ctx.missionPlanet = null;            // the arena has no planet (Phase 11 contract: a training clears it)
+  ctx.missionIntel = null;             // 2026-09-14 (정보상): 훈련장은 언제나 기믹 고정이 없다 (같은 규약)
   ctx.bus.emit('ui:notify', { text: '시뮬레이션 훈련장 입장', kind: 'info' });
   ctx.bus.emit('game:newMission', { seed, mode: 'training' });
   return true;

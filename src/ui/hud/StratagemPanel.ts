@@ -128,6 +128,8 @@ export class StratagemPanel {
   }
 
   update(ctx: GameContext): void {
+    // 2026-09-14 (튜토리얼 HUD 점진 노출): 튜토리얼 레이드 내내 함선 호출은 없다 — 부를 것이 없다.
+    toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'stratagem') ?? false);
     const s = ctx.stratagems;
     if (s) {
       if (!this.seen) { this.seen = true; this.render(); }

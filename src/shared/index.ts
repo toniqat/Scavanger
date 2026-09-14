@@ -33,6 +33,8 @@ export * from './planetDefs';
 export * from './social';
 /* appended (2026-09-08): 튜토리얼 계약 */
 export * from './tutorial';
+/* appended (2026-09-14): 튜토리얼 월드 질의 — `ctx.world.tutorial` (체크포인트 · 낙하 규칙) */
+export * from './tutorialWorld';
 /* appended (2026-09-09): 캐릭터 세이브 슬롯 · 캐릭터 생성 · 재화(보상) 칩 */
 export * from './saveSlot';
 export * from './character';
@@ -78,3 +80,6 @@ export * from './library';
 export * from './npc';
 /* appended (2026-09-14): 로컬 총기 피해 출처 — NPC 퀘스트 「그 계열 총기로 처치」 (weapons 가 감싸고 enemies 가 읽는다) */
 export * from './damageSource';
+/* appended (2026-09-14): 정보상 — 기믹 고정 선택 · 해석본 · 비용 식 (릴레이 공용, docs/plans/intel-broker.md) */
+export * from './intel';
+export * from './intelDefs';

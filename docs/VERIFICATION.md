@@ -47,6 +47,84 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-14 (3차) **튜토리얼 개편(레이드에서 시작) — `verify:all` × 2 + 부분 검증**:
+  1회차 74/80 (15 min 7 s) → 원인 정리 → 2회차 78/80 (18 min 50 s, 빨간 둘은 재실행 통과) →
+  딸피 상태 추가 뒤 `--folders tutorial,player,inventory` **전부 통과** (12 min 3 s).
+  `typecheck` ok · `data-check` ok(csv 57) · `net-selftest` 583/583 · `e2e-mp` 178/178.
+
+  **1회차의 빨간 6개 — 진짜 회귀 둘, 낙은 스모크 둘, 알려진 흔들림 둘** (기준선은 80종 전부 통과였다):
+  - `smoke-uniques` 63/72 — **바주카 슈퍼점프가 자살 버튼이 됐다.** 새 전역 낙하 피해가 정점 45 m 에서 내려오는 몸을
+    상한으로 잡아, 미니건 절 9개가 통째로 빨개졌다(그 전 절이 슈퍼점프라 이미 죽어 있었다). 고친 곳은
+    `PlayerController.applyImpulse` 한 줄 — **남이 띄운 몸은 다음 착지까지 면제**(점프대 · 슈퍼점프 · 폭발 · 적 덄백).
+  - `smoke-quickslots` 29/32(예외로 중단) — **자동 장착이 한 종류로 휠 칸 둘을 먹었다.** def 단위 검사를 넣고
+    자동 장착 검사 8개를 새로 넣었다 (101 → **109**).
+  - `smoke-messenger` 9/17 · `smoke-loadout` 68/69 — **스모크가 낙았다**(게임 코드 무변경). 전자는 NPC 스텁에
+    새 계약 두 메서드(`getPendingChoices` · `chooseIntro`)가 없어 `ChatTab.threadDataKey` 가 던졌고(대화가 통째로 안 그려졌다),
+    후자는 「주운 것은 가방에 들어간다」를 전제로 삼아 「받은 것」의 경로(`tryAddItemAnywhere`)로 바꿨다.
+  - `smoke-ballistics` 38/39 · `smoke-phase3` 35/36 — 알려진 흔들림, 재실행 39/39 · 41/41.
+
+  **2회차의 빨간 2개** — `smoke-rover` 29/30(포탑 피해 0) · `smoke-training` 105/108(표적 해시 · 점수).
+  둘 다 재실행에서 30/30 · 108/108 — **4레인 병렬 부하 흔들림**이다.
+
+  ⚠ **아직 없는 검증**: 튜토리얼 레이드를 끝까지 걸어 보는 스모크가 없다 — `smoke-tutorial` 93/93 은 여전히
+  **build 트랙**만이고, 체크포인트 부활 · `kill`/`clamp` · `beginPreLanded` 이륙 · 딸피 유지는 타입과 단위 가정까지만 맞춰
+  둔 상태다 (`docs/plans/tutorial-raid.md` §4 의 `smoke-fall-damage.mjs` 도 미작성). 손으로 한 바퀴 돌려 보는 것이 먼저다.
+
+- 2026-09-14 (2차) **정보상 · 발사 슬롯 UI · NPC 개인 신뢰도 배치 — `verify:all` 최종**: 스모크 **80종 전부 통과**
+  (20 min 35 s). `typecheck-server` ok · `net-selftest` 583/583 · `data-check` ok(csv 57) ·
+  `build` 4,056.31 kB JS / 422.87 kB CSS. 큰 것만: `smoke-structure-reach` 1035/1035(6 → **18시드**) ·
+  `smoke-site-spawns` 517/517(5 → **10판**) · `smoke-housing` 324/324 · `smoke-progression` 262/262 ·
+  `smoke-faction-sites` 263/263 · `smoke-social` 208/208 · `e2e-mp` 178/178 · `smoke-trust` 68/68 ·
+  `smoke-buffs` 42/42 · `smoke-library-consumers` 38/38 · `smoke-intel` 16/16(신규) · `smoke-planets` 92/92.
+  ⚠ **`typecheck` 만 exit 1** — `src/world/WorldSystem.ts` 의 `Property 'tutorial' is missing … WorldRef` **4건**이고
+  **이 배치의 것이 아니다**: 같은 작업 트리에서 병행 중이던 **튜토리얼 개편 세션**이 `WorldRef.tutorial` 계약만
+  선언하고 `WorldSystem` 구현을 쓰기 전에 멈춘 상태다. 그 세션이 재개해 구현을 넣으면 사라진다.
+  (앞선 1차 실행의 실패 4건 — `e2e-mp` · `smoke-trust` · `smoke-buffs` · `smoke-library-consumers` — 은
+  전부 **하네스 결함**이었고 아래 세 항목에서 고쳤다. 게임 코드는 한 줄도 안 고쳤다.)
+- 2026-09-14 `smoke-buffs` 의 `.hud-bl` 검사가 **260 ms CSS 전이와 경주**하고 있었다 (`scripts/smoke-buffs.mjs` — **게임 코드 무변경**):
+  두 번 돌릴 때마다 값이 달랐다(142.333 · 144.522 px). 실측 샘플링으로 46 ms=131.9 → 295 ms=**151 px 안정**을 확인했고,
+  151 px 이 옳다는 근거도 쟀다 — 버프 썸네일 6개가 붙으면 `.vitals` 가 정확히 +29 px, `.hud-bl` 도 정확히 +29 px 올라가
+  **열 아래끝 ↔ 체력 블록 위끝 간격이 43.81 px 로 불변**이다(「체력바 아래 22 px」 규약 유지). 같은 파일의 다른 두
+  `.hud-bl` 검사는 앞에 `sleep(700)` 이 있었고 이 한 줄만 없었다. 새 `settledStyle()` 은 **값이 두 번 연속 같아질 때까지**
+  기다렸다 그 값을 그대로 리포트하므로(기대값을 기다리지 않는다) 진짜 회귀를 덮지 않는다. → 42/42.
+- 2026-09-14 `smoke-library-consumers` 의 alias 4건은 **제품 회귀가 아니라 스모크가 모듈을 두 번 평가**한 것이었다
+  (`scripts/smoke-library-consumers.mjs` — **`src/` 무변경**): vite dev 는 서버가 사는 동안 파일이 바뀌면 자기가 고쳐 쓰는
+  import 에 무효화 도장(`?t=…`)을 찍고 그 도장은 서버 모듈 그래프에 남는다. 스모크가 손으로 적은 **도장 없는**
+  `import('/src/shared/library.ts')` 는 사본을 새로 만들어, 스모크가 심은 합성 alias 가 앱에 안 보였다.
+  **합성 alias 4건만 빨갛고 csv 의 진짜 alias 는 내내 초록이었다는 것**이 회귀가 아니라는 증거다. 이제 `/src/…`
+  동적 import 10곳이 **resource timing 에서 이 문서가 실제로 받아 온 URL** 을 찾아 쓰고, 새 진단 줄
+  `the alias map the smoke writes to is the one the app reads` 가 alias 검사보다 **먼저** 실패한다(37 → 38건).
+  나흘 된 5273 · 갓 띄운 vite · 갓 띄운 뒤 `touch` 로 도장을 만든 vite 셋 다 38/38.
+  ⚠ 남은 위험: `scripts/*.mjs` **25개**가 아직 맨 `import('/src/…')` 를 쓴다 — **모듈 상태를 고치는** 스모크만 같은
+  처방이 필요하다(읽기만 하면 무해). 규약은 `scripts/README.md` 에 적었다.
+- 2026-09-14 멀티 하네스 둘을 「탑승 ≠ 준비」에 맞춤 (`scripts/{e2e-multiplayer,smoke-trust}.mjs` — **게임 코드 무변경**):
+  - 같은 날 발사 슬롯 개편으로 포드 E 는 앉기만 하고 준비는 **스페이스 `UI_HOLD_CONFIRM_S` 홀드**가 됐는데
+    (`hub/parts/Pods.{boardPod,toggleReady}` · `hub/ui/ReadyPanel.tickHold`), 두 하네스의 `boardPod` 은 여전히 「타면 곧 ready」를
+    기대해 `timeout waiting for A playing` · `A in pod + ready` 로 멈춰 있었다. 경고 팝업 버튼도 `그래도 출격` → **`그래도 준비`** 로 바뀌었고,
+    이제 그 팝업은 **탑승이 아니라 홀드가 끝난 순간**에 선다 — 옛 `boardPod` 의 팝업 클릭은 영영 안 걸리는 죽은 줄이었다.
+  - 둘 다 `scripts/smoke-planets.mjs` 의 `holdReady` 선례를 그대로 따랐다: `boardPod` 은 앉히기만 하고, 새 `readyUp(page)` 가
+    keydown Space → **`waitSim(1.4)`** → keyup → `그래도 준비` 순으로 간다. 홀드는 `ReadyPanel.tickHold` 가 **시뮬레이션 dt** 로 쌓으므로
+    벽시계 `sleep` 으로는 절대 차지 않는다. `tickHold` 는 `HUB_READY_BLOCKER` 말고 다른 blocker 가 하나라도 있으면 세지 않으므로
+    `readyUp` 은 실패할 때 그때의 blocker 목록 · `readyLocal` · `boardedSlot` 을 함께 돌려준다 (그러지 않으면 위쪽 `waitFor` 의 timeout 으로만 보인다).
+  - 새 단언 5건: e2e 는 「탑승만으로는 준비되지 않는다」(로컬 `readyLocal` + 서버 `LobbyPlayer.ready` 둘 다 false) + A · B 의 홀드 준비,
+    trust 는 A · B 의 홀드 준비. `e2e-mp` 175 → **178**, `smoke-trust` 66 → **68**.
+  - `node scripts/verify.mjs --only smoke-trust --log-dir scripts/logs/fixI` (2 min 0 s) · `--only e2e-mp` (2 min 6 s) — 둘 다 green.
+    두 실행의 `typecheck exit 1` 은 **다른 세션의 미완 작업**이다 (`src/world/WorldSystem.ts` 의 `Property 'tutorial' is missing … WorldRef` 4건, 전부 같은 파일).
+  - docs line: 2026-09-14: typecheck exit 1 (동시 세션 튜토리얼), typecheck-server ok, net-selftest 583/583, data-check ok, smoke-trust 68/68, e2e-mp 178/178
+- 2026-09-14 구조물 도달성 버그 (컨테이너가 계단 도착 자리를 봉인) · 두 스모크의 조기 종료 제거
+  (`src/world/structures/parts/{Build,Containers}.ts` · `scripts/{smoke-structure-reach,smoke-site-spawns}.mjs`):
+  - 원인은 컨테이너 자리를 **중심 한 점**으로만 「비울 자리」와 견준 것이었다 (소품은 이미 덩치를 봤다). 자리 자체는 계단 구멍 밖인데
+    몸통(중심에서 0.70 m) + 사람 반지름(0.45)이 **계단 구멍 난간**이 밀어내는 띠와 맞닿아, 2층 도착 자리에서 나가는 유일한 차선이 −0.05 m 가 됐다.
+    실측(seed 21 `struct_lab_0`): 2층 두 방 `15/1469` · `0/1256`, 사다리 7.99 m · 잠긴 방 문 18.9 m. 고친 뒤 2층 전부 도달.
+  - 두 스모크의 **조기 종료**(`enough()` — 「원하는 건물 종류가 다 나왔으면 그만」)가 이 버그를 여태 숨겼다: structure-reach 는 18개 풀 중 **6개**에서,
+    site-spawns 는 10판 중 **5판**에서 멈췄다. 이제 풀 전체를 돌고 실패는 세었다가 마지막에 시드별로 요약한다 (`ok()` 는 원래 멈추지 않는다).
+    시간: `smoke-structure-reach` 27 s → **72 s** (361 → 1035 검사), `smoke-site-spawns` 23 s → **39 s** (263 → 517). 둘 다 4레인 병렬이라 `--folders world` 는 5 min 2 s.
+  - 같은 뿌리 확인: 임시로 시드 40개(1000, 1097 … )를 돌려 고치기 **전** 6건 실패(`struct_outpost_0` · `_1` 지상 컨테이너 · 2층 방 커버리지 · 사다리 · `struct_lab_1`),
+    고친 **뒤** 0건 (2265/2266, 남은 하나는 릴레이 없이 직접 돌려 난 `no console errors`). 전진기지 건은 연구소 건과 **같은 뿌리**다.
+  - `node scripts/verify.mjs --folders world --log-dir scripts/logs/finishH --keep-relay` (5 min 2 s) — 2 failed:
+    `smoke-phase4` 57/58 · `smoke-training` 105/108, 둘 다 `--only` 재실행에서 58/58 · 108/108 (다른 세션의 러너와 같은 트리를 동시에 돌아 난 부하 흔들림).
+    `net-selftest` 은 같은 이유로 두 번 릴레이 접속에 실패했다 (`server/` 는 건드리지 않았다).
+  - docs line: 2026-09-14: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-phase3 41/41, smoke-stratagems 75/75, smoke-phase4 57/58 (재실행 58/58), smoke-faction-sites 263/263, smoke-tactical 119/119, smoke-recovery-contract 43/43, smoke-npc-quests 66/66, smoke-rogue-drop 48/48, smoke-training 105/108 (재실행 108/108), smoke-ecology 119/119, smoke-props-collision 53/53, smoke-planets 92/92, smoke-site-spawns 517/517, smoke-structures 141/141, smoke-intel 16/16, smoke-structure-reach 1035/1035, smoke-hazard 57/57, smoke-tram-ride 26/26, smoke-raidflow 89/89, smoke-lights 30/30, smoke-rover 30/30
 - 2026-09-14 메신저 · NPC 퀘스트 · 단체방 · 개인 대화 (`src/shared/{npc,damageSource}.ts` 신규 · `src/shared/{meta,social,net,events,crypto,constants,index}.ts` **추가만** ·
   `data/{npcs,npc_quests,npc_objectives}.csv` 신규 · `data/quests.csv` 삭제 · `src/{meta,net,ui,enemies,weapons,world}` · `server/{Rooms.ts,RelayServer.ts,Store.ts,selftest.ts}` ·
   `smoke-npc-quests` · `smoke-messenger` · `smoke-rooms` · `smoke-map-quests` 신규 — 서브 에이전트 5개. 5273 vite · 8787 릴레이가 다른 세션의 워크트리 것이라 전용 vite 5316 + `--keep-relay` 로 돌렸다):
@@ -1573,3 +1651,18 @@ smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 11/12, smoke-hangar 57/
 - 2026-09-12 (31차: 「아이템 회수」 — 이번 레이드에서 얻은 것만 · 계약 아이템 사선 띠, `npm run verify:all`, 9 min 43 s, 55/56 — new `smoke-recovery-contract`, extended `smoke-favorite-chips` (50 → 52). **`smoke-phase3` 36/41** 은 30차에 더한 준비 연출 검사 5개가 한꺼번에 빨간 것이었다 — 그 구간이 궤도 레이저(timeScale 4) **뒤**에 있어, 그 사이 플레이어가 죽어 함선으로 돌아가면 `stratagem:ready`(게임플레이 페이즈 전용)가 하나도 안 나온다. `--rerun-failed` 41/41 로 흔들림을 확인하고, 구간을 보급품 직후(게임플레이 확인 지점)로 옮겨 `--only smoke-phase3` 41/41): typecheck ok, typecheck-server ok, net-selftest 480/480, data-check ok, build 3,261.64 kB JS / 332.33 kB CSS, smoke-quickslots 101/101, smoke-phase2 57/57, smoke-weapons 147/147, smoke-phase3 36/41 → rerun 41/41 → move → 41/41, smoke-stratagems 75/75, smoke-drone-scan 24/24, smoke-phase4 60/60, smoke-ship-rooms 74/74, smoke-tactical 115/115, smoke-inventory-p6 151/151, smoke-controls-hub 153/153, smoke-loadout 69/69, smoke-console 63/63, smoke-housing 284/284, smoke-progression 170/170, smoke-search 77/77, smoke-ui-p6 91/91, smoke-ui-p5 142/142, smoke-enemy-alert 42/42, smoke-rogue-drop 30/30, smoke-uniques 72/72, smoke-resume-gate 62/62, smoke-rogue-v2 52/52, smoke-favorite-chips 52/52, smoke-meta 198/198, smoke-recovery-contract 43/43, smoke-ladder 38/38, smoke-training 108/108, smoke-ghost 86/86, smoke-pose 109/109, smoke-library 194/194, smoke-stations 61/61, smoke-favorites 45/45, smoke-gym 64/64, smoke-aim-sway 25/25, smoke-buffs 41/41, smoke-enemy-delta 66/66, smoke-planets 86/86, smoke-consumables 36/36, smoke-ecology 109/109, smoke-props-collision 53/53, smoke-social 209/209, smoke-raidflow 84/84, smoke-structure-reach 286/286, smoke-tutorial 86/86, smoke-server-dist 36/36, smoke-hazard 47/47, smoke-structures 144/144, smoke-pitch 162/162, smoke-named 39/39, smoke-tram-ride 26/26, smoke-lights 30/30, smoke-netlink 48/48, smoke-trust 66/66, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 175/175
 - 2026-09-13 (34차: 요리 재료 티어 T1–T4 — 분석기 결과표 · 흙/배지 내구도와 소켓 · 배양 스캐폴드 · 능력치 여러 줄 요리, `npm run verify:all`, 10 min 9 s, 62/64 — new `smoke-food-chain`, extended `smoke-housing` (292) · `smoke-stations` (98) · `smoke-library` (v11). The two reds were the known flakes: `smoke-phase3` ("timeout waiting for laser ended") passed 41/41 on `--rerun-failed`; `smoke-rogue-v2` (grenade blast timing) went 31/52 on that rerun because the rogue never saw the player ("no clear+flat spot found"), then 52/52 on `--only smoke-rogue-v2`): typecheck ok, typecheck-server ok, net-selftest 480/480, data-check ok, build 3,358.12 kB JS / 352.05 kB CSS, smoke-quickslots 101/101, smoke-phase2 57/57, smoke-weapons 147/147, smoke-stratagems 75/75, smoke-drone-scan 24/24, smoke-phase4 60/60, smoke-phase3 34/36 → rerun 41/41, smoke-tactical 115/115, smoke-ship-rooms 77/77, smoke-inventory-p6 159/159, smoke-controls-hub 153/153, smoke-loadout 69/69, smoke-console 63/63, smoke-housing 292/292, smoke-search 77/77, smoke-progression 202/202, smoke-ui-p6 91/91, smoke-ui-p5 142/142, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-drop 30/30, smoke-rogue-v2 51/52 → rerun 31/52 → --only 52/52, smoke-resume-gate 62/62, smoke-favorite-chips 52/52, smoke-meta 198/198, smoke-recovery-contract 43/43, smoke-ladder 38/38, smoke-training 108/108, smoke-pose 109/109, smoke-ghost 86/86, smoke-stations 98/98, smoke-library 205/205, smoke-food-chain 79/79, smoke-gym 64/64, smoke-favorites 45/45, smoke-aim-sway 25/25, smoke-buffs 41/41, smoke-enemy-delta 66/66, smoke-consumables 36/36, smoke-planets 86/86, smoke-ecology 109/109, smoke-props-collision 53/53, smoke-social 209/209, smoke-raidflow 89/89, smoke-structure-reach 302/302, smoke-tutorial 86/86, smoke-server-dist 36/36, smoke-hazard 47/47, smoke-structures 144/144, smoke-pitch 162/162, smoke-named 39/39, smoke-tram-ride 26/26, smoke-lights 30/30, smoke-netlink 48/48, smoke-trust 66/66, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 175/175
 - 2026-09-13 (39차: 월드맵 정리 · 탐사 차량 — 포크 6 병렬 + 리드 계약/통합, `npm run verify:all`, 11 min 39 s, 66/69 — new `smoke-rover`, extended `smoke-ui-p5` (지도 힌트 → 키 가이드 닫기 `또는 M`), net-selftest 480 → 487 (탐사 차량 요금). The three reds were all **smoke defects**: `smoke-structures` counted the moving rover box as rail-owned and demanded stair ramps on seed 7 which now has none (1-floor structures · no basement · no rail after the road corridor moved placements); `smoke-structure-reach` counted an outside hillside cell at roof height as "walked onto the roof" (now footprint-only); `smoke-rover` passed `() => page.evaluate(…)` to `waitFor` (ReferenceError `page` in the browser swallowed as loading) and compared an absolute HP after the turret-test enemy had legitimately hit the vehicle. Reruns: smoke-structures 137/137, smoke-structure-reach 331/331, smoke-rover 30/30. A peer session (power · crypto) edited the same tree concurrently: one rerun's `data:check` / boot timeouts and the last run's `typecheck` error (`src/shared/housing.ts:1725 POWER_AUTO_TOPUP`) are theirs, mid-edit.): typecheck ok, typecheck-server ok, net-selftest 487/487, data-check ok, build 3,666.70 kB JS / 371.99 kB CSS, smoke-rover 30/30 (rerun), smoke-structures 137/137 (rerun), smoke-structure-reach 331/331 (rerun), smoke-lights 30/30, smoke-tram-ride 26/26, smoke-hazard 57/57, smoke-named 44/44, smoke-sandworm 41/41, smoke-extraction 36/36, smoke-raidflow 89/89, smoke-ui-p5 142/142, smoke-site-spawns 241/241, smoke-props-collision 53/53, smoke-trust 66/66, e2e-mp 175/175, and every other script in the suite green
+- 2026-09-14 (마무리 F: 탐사 차량 자연 배치 확률 `ROVER_CHANCE`(0.6) · `smoke-planets` 「출격 준비 경고」 복구 · `smoke-training` 승무원 줄, `node scripts/verify.mjs --folders world` + `--only …`, `--log-dir scripts/logs/finishF`, 4 min 46 s, 20/23): typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-intel 16/16 (`note 평소 배치율 — 흙길 309/480 **64.4 %** · 선로 337/480 70.2 %` — 그 전까지 흙길 **100 %** 라 정보상의 「탐사 차량 확정」 이 아무것도 사지 못했다), smoke-planets 65/70+exception → 고침 → **92/92**, smoke-rover 30/30, smoke-map-quests 72/72, smoke-phase3 41/41, smoke-stratagems 75/75, smoke-faction-sites 263/263, smoke-phase4 58/58, smoke-tactical 119/119, smoke-recovery-contract 43/43, smoke-npc-quests 66/66, smoke-rogue-drop 48/48, smoke-ecology 119/119, smoke-props-collision 53/53, smoke-structures 141/141, smoke-hazard 57/57, smoke-tram-ride 26/26, smoke-lights 30/30, smoke-raidflow 89/89, smoke-training 107/108 → 고침 → 108/108.
+  - `smoke-training` 은 **스모크 결함**이었다: 승무원 줄이 2026-09-14 에 터미널 좌측 열에서 **매칭 팝업**(`.hm-match`)으로 옮겨 갔는데 선택자가 옛 자리를 봤다. 팝업을 열어 읽고 **다시 닫는다**(열어 두면 뒤의 E 가 터미널이 아니라 팝업을 닫는다).
+  - ⚠ **미해결 2건 — `smoke-structure-reach` 356/361 · `smoke-site-spawns` 262/263, 둘 다 `seed 21` 의 `struct_lab_0`(lab · 2층 · 잠긴 방 · 틈 동) 한 채다.** 2층 두 방이 **안에서 사실상 닿지 않는다**(`1:15/1469` · `1:0/1256`, 옥상 사다리 7.99 m · 잠긴 방 문 18.9 m · 지상 컨테이너 8 중 6 · 연 뒤 잠긴 방 컨테이너 0/3, `floorsUsed:1`). 결정적으로 `stairBottom`/`stairTop` 은 둘 다 닿는다 — 계단 꼭대기에 도착한 뒤 바로 막힌다(잠긴 방 칸막이가 계단 도착 자리를 가른 것으로 보인다).
+    **내 변경이 만든 버그가 아니라 드러낸 것이다**: 같은 트리에서 흙길 굴림만 끄고(= 옛 「늘 계획한다」) 돌리면 `smoke-structure-reach` 331/331 이지만, 그 상태로도 조기 종료를 풀어 시드 18개를 전부 돌리면 **999/1001**(`struct_outpost_0` · `struct_outpost_1` 의 지상 컨테이너 각 1개 미도달)로 이미 빨갛다 — 「닿지 않는 구조물 굴림」 은 원래 있었고 고정 시드 풀이 조기 종료로 비켜 가고 있었을 뿐이다. 배치가 흔들리면서 seed 21 이 그중 **가장 심한 굴림**(2층 통째)에 앉았다. `world/structures` 쪽 후속 작업이 필요하다 (F 범위 밖).
+- 2026-09-14 (마무리 G: 작은 화면에서 격자 칸 축소 — 칸 크기의 단일 원본을 `inventory/ui/labels.CELL` 로 모으고 창 높이별 사다리를 `data/tuning.csv` 로, `node scripts/verify.mjs --folders inventory` + `--only …`, `--log-dir scripts/logs/finishG`, 6 min 2 s → 2 min 44 s → 1 min 42 s): typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-quickslots 101/101, smoke-inventory-p6 183/183, smoke-tip-pin 46/46, smoke-weapons 147/147, smoke-drone-scan 24/24, smoke-tactical 119/119, smoke-controls-hub 153/153, smoke-structures 141/141, smoke-phase2 57/57, smoke-phase4 58/58, smoke-search 77/77, smoke-console 63/63, smoke-loadout 69/69, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-meta 178/178, smoke-housing 324/324, smoke-stations 98/98, smoke-library 84/84, smoke-favorites 45/45, smoke-cooking 114/114, smoke-tutorial 88/88, smoke-raidflow 89/89, smoke-library-consumers 33/37 → 신선한 vite 에서 37/37.
+  - **실측(헤드리스, 함선 Tab 창 위/아래 여백)**: 1280×760 `76/2 → 76/44`(가방 격자에 숨은 줄 406 → 238 px), 1440×900 `76/2 → 76/26`(숨은 줄 266 → 170, 무한 상자 70 → 0, 레이드 창 `10/3 → 20/18`, 상자 루팅 `10/3 → 20/18`), **1920×1080 은 한 픽셀도 안 바뀌었다**(95/93 · 제작 192/190 · 레이드 62/60). 1280×760 의 위 76 px 은 `.scr-tabs` 자리라 더 줄일 수 없다.
+  - **드래그 히트테스트**: 세 해상도 × (1×1 · 마지막 열 · 3×2 무기) 드롭이 전부 커서 밑 칸에 떨어진다(18/18) + 창을 연 채 1080 ↔ 760 을 오가도 CSS 변수 · JS 칸 · 상자 px 이 함께 움직이고 드래그가 맞는다(4/4).
+  - 세 스모크의 칸 중심 계산에서 `56` · `27` 을 걷어내고 격자의 `--inv-cell` 을 읽게 했다. `smoke-quickslots` 의 C-60 시체는 10행(작은 칸에서는 더 이상 넘치지 않는다) → **196개 = 20행**.
+  - ⚠ `smoke-library-consumers` 4건은 **dev 서버 아티팩트**였다: 이 세션의 편집으로 `?t=` 가 찍힌 `/src/shared/library.ts` 를 앱이 들고 있는데 스모크가 `import('/src/shared/library.ts')` 로 **두 번째 인스턴스**를 만들어 `ITEM_ALIASES` 가 서로 달랐다(`sameMap:false` 확인). 새 vite(5399)에서 37/37.
+    **2026-09-14 후속 — 진단은 맞았고 이제 스모크를 고쳤다.** 그 도장은 **vite 서버의 모듈 그래프**에 살아서 전체 새로고침으로도 안 지워지므로(나흘 된 5273 에서 그대로 재현: 앱 = `library.ts?t=1789354142878` · 스모크 = 도장 없는 경로 · `sameMapAppLib:false` · `ctx.loot.getItemDef('smoke_old_scrap')` null), 「새 vite 를 띄우면 초록」은 회피일 뿐이었다. 같은 서버에서 배럴을 거친 경로(`index.ts` → `./library`)는 **앱과 같은 맵 하나**를 잡는다는 것도 같이 실측했다 — 제품에는 문제가 없다. `smoke-library-consumers.mjs` 의 `/src/…` 동적 import 10곳이 `window.__imp`(이 문서가 실제로 받아 온 URL 로 import)를 지나도록 고쳤고, 「스모크가 쓰는 맵 = 앱이 읽는 맵」을 맨 먼저 확인하는 줄을 더했다(37 → 38). 검증: 나흘 된 5273 38/38 · 갓 띄운 5403 38/38 · 5403 에서 `library.ts` 를 건드려 `?t=` 를 만든 뒤에도 38/38. 규약은 `scripts/README.md` 의 「`import('/src/…')` 로 들여온 모듈은 앱이 쓰는 그 모듈이 아닐 수 있다」 절.
+  - ⚠ 남은 것: 1280×760 작업대 제작 화면은 아직 `.inv-layout` 이 가로로 91 px 넘친다(예전 231 px) — 폭은 `.inv-panel-craft` 고정값이라 칸 크기로 더 줄일 수 없다. 무한 상자 화면은 1280×760 에서 아직 세로로 꽉 찬다.
+- 2026-09-14 (수정 K: `smoke-library-consumers` alias 4건 — **제품 회귀가 아니라 스모크의 모듈 인스턴스 문제**, `node scripts/verify.mjs --folders inventory|housing --url http://localhost:5403/ --no-typecheck`, `--log-dir scripts/logs/fixK` · `fixK-housing`, 6 min 20 s + 3 min 15 s): net-selftest 583/583, data-check ok, **smoke-library-consumers 38/38**(나흘 된 5273 · 갓 띄운 5403 · `?t=` 를 만든 5403 세 조건 모두), smoke-quickslots 101/101, smoke-phase2 57/57, smoke-weapons 147/147, smoke-drone-scan 24/24, smoke-tactical 119/119, smoke-inventory-p6 183/183, smoke-search 77/77, smoke-controls-hub 153/153, smoke-console 63/63, smoke-loadout 69/69, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-meta 178/178, smoke-housing 324/324, smoke-stations 98/98, smoke-library 84/84, smoke-favorites 45/45, smoke-tip-pin 46/46, smoke-cooking 114/114, smoke-tutorial 88/88, smoke-structures 141/141, smoke-raidflow 89/89, smoke-ship-rooms 77/77, smoke-training 108/108, smoke-furniture-access 49/49, smoke-food-chain 83/83, smoke-mining 64/64, smoke-video-games 75/75, smoke-generator 49/49, smoke-gym 66/66, smoke-mining-ui 69/69, smoke-hangar 58/58, smoke-phase4 57/58 → 단독 재실행 58/58(벌레 ↔ 인간형 어그로 타이밍, 이 변경과 무관).
+  - **원인 (실측)**: 나흘 된 5273 에서 앱은 `/src/shared/library.ts?t=1789354142878` 을 들고 있고 스모크의 `import('/src/shared/library.ts')` 는 도장 없는 경로라 **두 번째 인스턴스**를 만든다 — `sameMapAppLib:false`, 임시 alias 를 넣은 뒤 `ctx.loot.getItemDef('smoke_old_scrap')` · `reviveItem` 모두 null, 반면 csv 에 진짜로 있는 `book_carry → book_carry_manual_1` 은 계속 통과. 같은 서버에서 **배럴을 거친 경로**(`index.ts` → 상대 경로 `./library`)로 부른 `resolveItemAlias` 는 앱과 **같은 인스턴스**를 잡았다(임시 alias 가 안 보임 = 앱의 맵) — 즉 **앱이 실제로 쓰는 경로에서는 맵이 하나**이고 제품에는 회귀가 없다.
+  - **고친 것**: `scripts/smoke-library-consumers.mjs` 만. `/src/…` 동적 import 10곳이 `window.__imp`(이 문서가 실제로 받아 온 URL 로 import, 없으면 맨 경로) 를 지나고, `performance.setResourceTimingBufferSize` 를 올려 앱이 받은 항목이 버퍼 밖으로 밀리지 않게 했다. 새 줄 `the alias map the smoke writes to is the one the app reads (one live module instance)` 가 **alias 검사보다 먼저** 실패해 다음에는 오진하지 않는다. `src/` 는 한 줄도 안 바뀌었다 (typecheck 는 다른 세션의 `WorldSystem.tutorial` 4건만, 이 작업 전후 동일).
+  - ⚠ `scripts/*.mjs` 25개가 아직 맨 `import('/src/…')` 를 쓴다. 상수 · 순수 함수를 **읽기만** 하면 무해하고(두 인스턴스의 값이 같다), 모듈 상태를 **고치는** 스모크만 같은 처방이 필요하다 — `smoke-library.mjs` 의 `ITEM_ALIASES` 는 읽기만이라 그대로 둔다.

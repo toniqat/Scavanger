@@ -5,6 +5,8 @@ import '../styles/raidHud.css';
 import { BuffStrip } from './BuffStrip';
 
 const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
+/** 피격 잔상이 깎인 자리에 멈춰 있는 시간 (초) — 체력 · 실드 공용. */
+const GHOST_HOLD = 0.55;
 /** Fallback name when neither the lobby nor the profile has one yet. */
 const FALLBACK_NAME = '스캐빈저';
 
@@ -31,6 +33,9 @@ interface Bar {
  * (칸 수만 다르다 — 방탄복 등급이 낮으면 왼쪽 몇 칸만 있다). 실드 데이터는 `ctx.player.shield / maxShield /
  * shieldRarity` 이고 `player:shieldChanged` 로도 들어온다 (둘 다 본다 — 체력이 그렇듯 폴링이 원본이고 이벤트는 즉시성).
  * **방탄복이 없으면(`maxShield` 0) 실드 줄은 통째로 접힌다** (`hidden`) — 이름과 체력만 남는다.
+ * **2026-09-14 (사용자 결정):** 두 게이지 모두 맞은 자리에 **연한 빨강 잔상**(`.ghost`)이 `GHOST_HOLD` 만큼 남았다가 따라온다
+ * (전에는 체력만이었고 그 색도 흰 `.fill` 과 구분이 안 되는 연한 하양이었다). 색은 `ui/styles/base.css` 한 곳 —
+ * 전투불능(`.vitals.downed .seg .ghost`)이 더 진한 빨강이다.
  * 이름은 `ctx.net.playerName`(= 캐릭터 이름, `progression` 이 `progress:loaded` 에 넣어 준다) → 없으면
  * `ctx.progression.profile.name` → 그래도 없으면 `스캐빈저`. 싱글 플레이에서도 릴레이 없이 나온다.
  *
@@ -73,6 +78,10 @@ export class Vitals {
   private maxShield = 0;
   private shieldRarity: Rarity | null = null;
   private shieldShown = 0;           // damped, like `shown`
+  /** 2026-09-14: 실드도 체력과 같은 잔상 — 깎인 자리가 연한 빨강으로 잠깐 남았다가 따라온다. */
+  private shieldGhost = 0;
+  private shieldGhostDelay = 0;
+  private lastShieldTarget = 0;
   private lastShieldKey = '';
   private lastName = '';
   private staminaShown = 1;          // 0..1, damped
@@ -146,7 +155,7 @@ export class Vitals {
       ctx.bus.on('player:buffsChanged', ({ buffs }) => { if (this.debugBuffs === undefined) this.buffs.set(buffs, ctx); }),
       ctx.bus.on('player:healthChanged', ({ hp, maxHp, delta }) => {
         this.hp = hp; this.maxHp = maxHp;
-        if (delta < 0) this.ghostDelay = 0.55;
+        if (delta < 0) this.ghostDelay = GHOST_HOLD;
         else this.ghost = Math.max(this.ghost, hp);
       }),
       // 실드 (2026-09-10): player/ 가 소유하고 이 이벤트로 알린다. `update` 의 폴링과 같은 값이지만 즉시 반영된다.
@@ -157,6 +166,8 @@ export class Vitals {
         this.setDowned(false);
         this.hp = this.shown = this.ghost = ctx.player?.hp ?? PLAYER_MAX_HP;
         this.shieldShown = this.shield = ctx.player?.shield ?? 0;
+        this.shieldGhost = this.lastShieldTarget = this.shieldShown;
+        this.shieldGhostDelay = 0;
       }),
       ctx.bus.on('player:staminaDepleted', () => {
         this.depletedTimer = STAMINA_PULSE;
@@ -185,6 +196,10 @@ export class Vitals {
   }
 
   update(dt: number, ctx: GameContext): void {
+    // 2026-09-14 (튜토리얼 HUD 점진 노출): 체력 · 실드는 시체에서 장비를 얻기 전까지, 스태미나는 처음 소모되기
+    //   전까지 없다. 튜토리얼이 꺼져 있으면 언제나 false 라 평소 화면이 한 글자도 바뀌지 않는다.
+    toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'vitals') ?? false);
+    toggleClass(this.stamRoot, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'stamina') ?? false);
     // 2026-09-12: the block shows in the ship too, where the body is always full (the squad list's `hub ? 1` rule).
     const hub = ctx.phase === 'hub' || ctx.phase === 'docking';
     if (ctx.player) {
@@ -225,24 +240,46 @@ export class Vitals {
     toggleClass(this.root, 'low', this.downed || target / max < 0.4);
   }
 
-  /** 실드 칸: 방탄복이 없거나 전투불능이면 줄 자체가 접힌다. */
+  /**
+   * 실드 칸: 방탄복이 없거나 전투불능이면 줄 자체가 접힌다.
+   *
+   * **2026-09-14 (사용자 결정) — 실드에도 체력과 똑같은 잔상(`.ghost`)이 있다.** 예전에는 `setCells` 가 칸마다
+   * `.ghost` div 를 만들어 두고도 아무도 그것을 움직이지 않아, 방탄복이 깎인 양이 한눈에 안 보였다. 체력과 같은 식이다 —
+   * 줄어든 프레임에 `GHOST_HOLD` 만큼 멈췄다가 천천히 따라온다. 색은 `ui/styles/base.css` 한 곳(연한 빨강).
+   * 체력은 `player:healthChanged.delta` 로 「깎였다」를 아는데 `player:shieldChanged` 에는 delta 가 없으므로
+   * **직전 목표값과 비교**해서 판정한다 (`update` 의 폴링이 원본이라 이벤트만 봐서는 놓친다).
+   */
   private updateShield(dt: number): void {
     const on = !this.downed && this.maxShield > 0;
     const target = on ? Math.min(this.shield, this.maxShield) : 0;
+    if (target < this.lastShieldTarget - 0.01) this.shieldGhostDelay = GHOST_HOLD;
+    this.lastShieldTarget = target;
     this.shieldShown = Math.abs(target - this.shieldShown) < 0.05 ? target : damp(this.shieldShown, target, 16, dt);
+    if (this.shieldGhostDelay > 0) this.shieldGhostDelay -= dt;
+    else if (this.shieldGhost > this.shieldShown) {
+      // 체력과 같은 damp 지만 마지막 0.05 는 스냅한다 (`shieldShown` 과 같은 규약). 스냅하는 프레임에는 `lastShieldKey` 를
+      // 비워 **반드시 한 번 더 쓴다** — 아래 key 는 `toFixed(1)` 이라 0.04 → 0 은 같은 글자라서, 안 비우면 마지막
+      // transform 이 `scaleX(0.002)` 로 굳는다 (눈에는 0.1 px 이지만 값이 목표와 다른 채로 멈춘다).
+      if (this.shieldGhost - this.shieldShown < 0.05) { this.shieldGhost = this.shieldShown; this.lastShieldKey = ''; }
+      else this.shieldGhost = damp(this.shieldGhost, this.shieldShown, 4, dt);
+    } else this.shieldGhost = this.shieldShown;
+    if (this.shieldGhost < this.shieldShown) this.shieldGhost = this.shieldShown;
+    if (this.shieldGhost > this.maxShield) this.shieldGhost = this.maxShield;   // 방탄복이 바뀌어 칸이 줄면 잔상도 잘린다
     const cells = on ? cellsFor(this.maxShield) : 0;
-    const key = `${on ? 1 : 0}|${cells}|${this.shieldShown.toFixed(1)}|${this.shieldRarity ?? '-'}`;
+    const key = `${on ? 1 : 0}|${cells}|${this.shieldShown.toFixed(1)}|${this.shieldGhost.toFixed(1)}|${this.shieldRarity ?? '-'}`;
     if (key === this.lastShieldKey) return;
     this.lastShieldKey = key;
     if (this.shBar.root.hidden === on) this.shBar.root.hidden = !on;
-    if (!on) return;
+    if (!on) { this.shieldGhost = 0; this.shieldGhostDelay = 0; return; }
     this.setCells(this.shBar, 'sh-seg', cells);
     const rc = rarityColor(this.shieldRarity ?? 'common');
     if (this.shBar.root.style.getPropertyValue('--shc') !== rc) this.shBar.root.style.setProperty('--shc', rc);
     const per = this.maxShield / Math.max(1, cells);
     for (let i = 0; i < cells; i++) {
       const f = Math.min(1, Math.max(0, (this.shieldShown - i * per) / per));
+      const g = Math.min(1, Math.max(0, (this.shieldGhost - i * per) / per));
       this.shBar.fills[i].style.transform = `scaleX(${f.toFixed(3)})`;
+      this.shBar.ghosts[i].style.transform = `scaleX(${g.toFixed(3)})`;
     }
   }
 

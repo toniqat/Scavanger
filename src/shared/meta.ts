@@ -399,3 +399,51 @@ export interface MetaSave {
   npc?: NpcSave;
 }
 /* ══ end 2026-09-14 메신저 · NPC 퀘스트 ══ */
+
+/* ══ appended: 2026-09-14 — 정보상 · NPC 개인 신뢰도 (docs/plans/intel-broker.md, 계약 본문은 `shared/intel.ts`) ══ */
+import type { IntelEffects, IntelGimmick, IntelPick, IntelSpec } from './intel';
+import type { PlanetId } from './planets';
+
+/**
+ * 정보상(레이븐)에서 산 「행성 정보」 = 그 레이드의 기믹 고정. 한 번에 **하나만** 갖고 프로필에 저장되며
+ * 그 행성으로 출격해 레이드가 끝나면 소모된다. 멀티에서 사는 사람은 **분대장뿐**이다 (탐사 차량 요금의
+ * 「결제자 한 명」 규약과 같다) — 비호스트의 `buy` · `discard` 는 조용히 false / no-op 다.
+ */
+export interface IntelRef {
+  /** 지금 보유한 정보 (없으면 null). */
+  get(): IntelSpec | null;
+  /** 보유 정보의 해석본 (`ctx.missionIntel` 에 실릴 값). 없으면 null. */
+  effects(): IntelEffects | null;
+  /** 이 행성에서 이 선택의 총 크레딧 비용 (`shared/intel.intelCost`). */
+  costOf(planet: PlanetId, picks: readonly IntelPick[]): number;
+  /** 이 행성에서 이 기믹의 최대 단계. **0 = 그 행성에서는 잠김** (네임드는 threat 2 이상에서만). */
+  maxTierOf(g: IntelGimmick, planet: PlanetId): number;
+  /**
+   * 구매. 크레딧을 `intel:<planet>:<code>` 사유로 내고 보유 정보를 갈아 끼운다 (이미 있으면 덮어쓴다 — 환불 없음).
+   * 크레딧 부족 · 비호스트 · 빈 선택이면 null. 성공하면 `intel:purchased` + `intel:changed`.
+   */
+  buy(planet: PlanetId, seed: number, picks: readonly IntelPick[]): IntelSpec | null;
+  /** 「지역 재배치」 — 보유 정보를 버린다. **환불 없음** (사용자 결정). `intel:changed {spec:null}`. */
+  discard(): void;
+  /** 레이드가 이 정보를 썼다 (`game:complete` · `game:over` · `game:abort` 정산 뒤). */
+  consume(): void;
+}
+
+export interface MetaRef {
+  /** 정보상 (owner: meta/parts/Intel). 선택 속성 — `ctx.meta?.intel?`. */
+  readonly intel?: IntelRef;
+  /**
+   * NPC 개인 신뢰도 — 기업 신뢰도(`getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다. 2026-09-14 사용자 결정:
+   * 지금은 **적립 · 표시까지만** 하고 이것으로 잠기는 것은 아직 없다.
+   */
+  npcTrust(npcId: string): number;
+  npcTrustLevel(npcId: string): number;
+  /** NPC 신뢰도를 더한다 (음수 가능, 0 밑으로는 안 내려간다). `meta:npcTrustChanged`. */
+  addNpcTrust(npcId: string, delta: number, reason: string): void;
+}
+
+export interface MetaSave {
+  /** 2026-09-14: 보유 중인 정보상 정보 (없으면 안 샀다). 읽을 때 `sanitizeIntelSpec` 를 지난다. */
+  intel?: IntelSpec | null;
+}
+/* ══ end 2026-09-14 정보상 · NPC 신뢰도 ══ */

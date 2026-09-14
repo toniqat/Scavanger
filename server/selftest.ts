@@ -7,7 +7,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ClientToServer, ServerToClient, LobbyState } from '../src/shared/net.ts';
+import type { ClientToServer, IntelWire, ServerToClient, LobbyState } from '../src/shared/net.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH } from '../src/shared/net.ts';
 import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_MAX_BYTES, PROFILE_GC_INACTIVE_MS, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
@@ -32,6 +32,9 @@ import {
 import {
   CREDIT_CONTRACT_WINDOW_MS, CREDIT_LEDGER_DEBITS_MAX, CreditEconomy, ECONOMY_TABLE, devEconomyFromEnv, emptyLedger, sanitizeLedger,
 } from './Economy.ts';
+/* 2026-09-14 (정보상) — part 12 의 `intel:<planet>:<code>` */
+import { CREDIT_INTEL_MAX_PER_HOUR } from '../src/shared/credits.ts';
+import { intelCode, intelCost, parseIntelCode, sanitizeIntelPicks } from '../src/shared/intel.ts';
 /* 2026-09-13 — part 13: 암호화폐 시세 */
 import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
@@ -1271,6 +1274,26 @@ async function main(): Promise<void> {
     const rs8 = await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started)));
     assert(rs8.every((mm) => mm.lobby.planet === 'mossy' && mm.lobby.seed === null),
       'lobby:reset keeps the 목표 행성 (the destination outlives the mission)', rs8[0].lobby);
+
+    /* ── 2026-09-14: 정보상 (`lobby:intel` — 서버는 **모양만** 씻고 그대로 방송한다) ── */
+    const IW: IntelWire = { seed: 99811, picks: [{ g: 'extraction', tier: 2 }, { g: 'nest', tier: 1 }] };
+    p8c.send({ t: 'lobby:intel', intel: IW });
+    err = await p8c.wait('lobby:error');
+    assert(err.code === 'not_host', 'lobby:intel from a non-host → not_host');
+    p8a.sendRaw(JSON.stringify({ t: 'lobby:intel', intel: 7 }));
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'invalid', 'lobby:intel with a non-object intel → invalid (never thrown)');
+    p8a.send({ t: 'lobby:intel', intel: IW });
+    const i8 = await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !!mm.lobby.intel)));
+    assert(i8.every((mm) => mm.lobby.intel!.seed === IW.seed
+      && JSON.stringify(mm.lobby.intel!.picks) === JSON.stringify(sanitizeIntelPicks(IW.picks))),
+      'lobby:intel reaches the squad as LobbyState.intel (shape only, picks in contract order)', i8[0].lobby.intel);
+    p8a.sendRaw(JSON.stringify({ t: 'lobby:intel', intel: { seed: 5, picks: [{ g: 'nope', tier: 9 }] } }));
+    const i8b = await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.intel)));
+    assert(i8b.every((mm) => mm.lobby.intel === undefined), 'an intel whose picks are all unknown folds to null (= 안 샀다 · 지역 재배치)', i8b[0].lobby);
+    p8a.send({ t: 'lobby:intel', intel: IW });
+    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !!mm.lobby.intel)));
+
     p8a.send({ t: 'lobby:start', seed: 813, planet: 'crimson' });
     err = await p8a.wait('lobby:error');
     assert(err.code === 'not_ready', 'the ready gating still comes before the planet gate');
@@ -1279,14 +1302,21 @@ async function main(): Promise<void> {
     p8a.send({ t: 'lobby:start', seed: 813, planet: 'crimson' });
     const r8b = await Promise.all([p8a, p8c].map((cl) => cl.wait('game:start')));
     assert(r8b.every((mm) => mm.planet === 'crimson' && mm.lobby.planet === 'crimson'), 'lobby:start {planet} overrides the stored destination', r8b[0]);
+    assert(r8b.every((mm) => mm.intel?.seed === IW.seed && mm.lobby.intel?.seed === IW.seed),
+      'a raid start carries the lobby intel → game:start {intel} for every member (2026-09-14 정보상)', r8b[0].intel);
     p8a.send({ t: 'lobby:planet', planet: 'amber' });
     err = await p8a.wait('lobby:error');
     assert(err.code === 'started', 'lobby:planet while the mission runs → started');
+    p8a.send({ t: 'lobby:intel', intel: null });
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'started', 'lobby:intel while the mission runs → started');
     p8b.send({ t: 'social:play', code: code1 });
     se = await p8b.wait('social:error');
     assert(se.code === 'in_mission', '같이 하기 with someone inside a running raid → in_mission');
     p8a.send({ t: 'lobby:reset' });
-    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started)));
+    const rs8b = await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started && mm.lobby.planet === 'crimson')));
+    assert(rs8b.every((mm) => mm.lobby.intel === undefined && mm.lobby.planet === 'crimson'),
+      'lobby:reset drops the intel (it was consumed by that raid) but keeps the planet', rs8b[0].lobby);
 
     /* ── 같이 하기 (social:play): the server picks the branch ── */
     p8b.send({ t: 'social:play', code: codeB });
@@ -2554,6 +2584,47 @@ async function part12CreditEconomy(): Promise<void> {
   const keptRover = sanitizeLedger({ roverAt: [NOW - 1_000, 'x', NOW + 99_999_999, NOW - 2 * CREDIT_CONTRACT_WINDOW_MS] }, NOW);
   assert(!!keptRover && keptRover.roverAt?.length === 2 && keptRover.roverAt.every((at) => at <= NOW),
     'rover: sanitizeLedger keeps the rover stamps of the last hour (junk dropped, future clamped to now)', keptRover);
+
+  /* 2026-09-14 정보상 (`intel:<planet>:<code>`, docs/plans/intel-broker.md) */
+  const IX = T.intel;
+  const IPLANET = IX ? Object.keys(IX.planetThreat)[0] : 'x';
+  const IGIMMICK = IX ? Object.keys(IX.options)[0] : 'x';
+  assert(!!IX && Object.keys(IX.options).length > 0 && Object.keys(IX.planetThreat).length > 0 && IX.tierMul.length > 0 && IX.threatMul.length > 0 && IX.bundleMul >= 1,
+    'intel: the economy table carries the intel section (options · tierMul · bundleMul · threatMul · planetThreat)', IX ? { options: Object.keys(IX.options).length, planets: Object.keys(IX.planetThreat).length } : null);
+  if (IX) {
+    const picks = parseIntelCode(intelCode([{ g: IGIMMICK as never, tier: 1 }]))!;
+    const CODE = intelCode(picks);
+    const PRICE = intelCost(IX.planetThreat[IPLANET], picks, IX);
+    const reason = formatCreditReason({ kind: 'intel', id: IPLANET, code: CODE });
+    const back = parseCreditReason(reason);
+    const iJunk = ['intel:', `intel:${IPLANET}`, `intel:${IPLANET}:`, `intel:${IPLANET}:x0`, `intel:${IPLANET}:xx`, `intel:${IPLANET}:x1y`, `intel:bad-id:x1`, `intel:${IPLANET}:x1:2`];
+    assert(!!back && back.kind === 'intel' && back.id === IPLANET && back.code === CODE && iJunk.every((s) => parseCreditReason(s) === null),
+      'intel: intel:<planet>:<code> round-trips; empty / tier 0 / non-digit / odd-length / bad id / extra segment parse to null',
+      { back, parsed: iJunk.filter((s) => parseCreditReason(s) !== null) });
+    assert(PRICE > 0 && chk(-PRICE, reason), 'intel: the exact table price is accepted', { PRICE });
+    assert(!chk(-(PRICE + 1), reason) && !chk(-(PRICE - 1), reason) && !chk(PRICE, reason) && !chk(0, reason) && !chk(-(PRICE + 0.5), reason)
+      && !chk(-PRICE, `intel:no_such_planet_zz:${CODE}`),
+      'intel: refuses one credit off either way, a positive / zero / fractional delta and an unknown planet');
+    const overTier = intelCode([{ g: IGIMMICK as never, tier: 3 }]);
+    const overOk = IX.options[IGIMMICK].maxTier >= 3
+      ? true      // this gimmick really sells tier 3 — nothing to refuse
+      : !chk(-intelCost(IX.planetThreat[IPLANET], parseIntelCode(overTier)!, IX), `intel:${IPLANET}:${overTier}`);
+    assert(overOk, 'intel: a tier above the option’s maxTier is refused', { IGIMMICK, maxTier: IX.options[IGIMMICK].maxTier });
+    const noIntel = new CreditEconomy({ ...T, intel: undefined });
+    assert(!noIntel.check(100_000, undefined, -PRICE, reason, NOW).ok, 'intel: a table without the intel section refuses every purchase');
+    const LI = emptyLedger();
+    let bought = 0;
+    for (let i = 0; i < CREDIT_INTEL_MAX_PER_HOUR + 1; i++) {
+      const ic = eco.check(100_000, LI, -PRICE, reason, NOW + i);
+      if (ic.ok) { eco.commit(LI, ic, NOW + i); bought++; }
+    }
+    assert(bought === CREDIT_INTEL_MAX_PER_HOUR && chk(-PRICE, reason, LI, 100_000, NOW + CREDIT_CONTRACT_WINDOW_MS + CREDIT_INTEL_MAX_PER_HOUR)
+      && LI.debits.length === 0 && !chk(PRICE, `refund:${IPLANET}`, LI, 100_000, NOW + 1_000),
+      `intel: purchases stop at ${CREDIT_INTEL_MAX_PER_HOUR} per rolling hour, open again after it, and never leave a refundable debit`, { bought, LI });
+    const keptIntel = sanitizeLedger({ intelAt: [NOW - 1_000, 'x', NOW + 99_999_999, NOW - 2 * CREDIT_CONTRACT_WINDOW_MS] }, NOW);
+    assert(!!keptIntel && keptIntel.intelAt?.length === 2 && keptIntel.intelAt.every((at) => at <= NOW),
+      'intel: sanitizeLedger keeps the intel stamps of the last hour (junk dropped, future clamped to now)', keptIntel);
+  }
 
   /* migrate, dev */
   const m1 = eco.check(null, undefined, T.creditsMax + 12_345, 'migrate', NOW);

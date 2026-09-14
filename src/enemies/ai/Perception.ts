@@ -53,13 +53,32 @@ export function visionClarity(e: Enemy, host: EnemyHost, target: CombatTarget): 
 }
 
 /**
+ * 2026-09-14 (튜토리얼 전용 적): 이 마리의 기본 감지 반경 — `Enemy.senseRadius` 가 켜져 있으면 그것, 아니면 평소 표.
+ * 값을 넣는 곳은 `Tutorial.placeTutorialEnemies` 하나뿐이라 본편 · 훈련장에서는 **정확히 `stats.sightRadius`** 다.
+ */
+export function senseRadiusOf(e: Enemy): number {
+  return e.senseRadius > 0 ? e.senseRadius : e.stats.sightRadius;
+}
+
+/**
+ * 2026-09-14 (튜토리얼 전용 적): 이 마리가 소리를 들을 수 있는 반경. 튜토리얼 적은 감지 반경이 곧 귀라
+ * (「이 반경 밖의 플레이어는 아예 알아채지 못한다」) 청각 반경도 거기서 잘린다.
+ */
+export function hearRadiusOf(e: Enemy): number {
+  return e.senseRadius > 0 ? Math.min(e.senseRadius, e.stats.hearRadius) : e.stats.hearRadius;
+}
+
+/**
  * Effective detection range for `target`: base sight radius × the target's stealth factor (은폐)
  * × the smoke clarity between the two (`ctx.gadgets.visionFactor`).
  * An alerted bug closer than `CLOAK_REVEAL_DISTANCE` sees a cloaked target regardless.
+ * 2026-09-14: 기본 반경은 `senseRadiusOf` — 튜토리얼 적만 다르다. 그 적은 `CLOAK_REVEAL_DISTANCE` 바닥도 받지 않는다
+ * (12 m 보다 넓은 바닥을 깔면 「감지 반경 밖에서는 못 알아챈다」가 깨진다).
  */
 export function detectionRange(e: Enemy, host: EnemyHost, target: CombatTarget, clarity: number): number {
   const stealth = target.stealth > 0 && target.stealth <= 1 ? target.stealth : 1;
-  const range = e.stats.sightRadius * stealth * clarity;
+  const range = senseRadiusOf(e) * stealth * clarity;
+  if (e.senseRadius > 0) return range;
   return e.aware ? Math.max(range, CLOAK_REVEAL_DISTANCE) : range;
 }
 
@@ -156,6 +175,11 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   // lures (유인 수류탄 / 소음) — cheap, and also pulls bugs that have no target at all
   e.lureWeight = host.lureFor(e.position, e.lurePos);
   e.hasLure = e.lureWeight > 0;
+  // 2026-09-14 (튜토리얼 전용 적): 감지 반경 밖에서 난 소리는 아예 못 듣는다 — 총성 유인도 자기 자리를 뜨게 하지 못한다
+  if (e.hasLure && e.senseRadius > 0) {
+    const lx = e.lurePos.x - e.position.x, lz = e.lurePos.z - e.position.z;
+    if (lx * lx + lz * lz > e.senseRadius * e.senseRadius) { e.hasLure = false; e.lureWeight = 0; }
+  }
 
   // fire zones burn whoever stands in them, even if gadgets/ never calls applyStatus for this bug
   const gadgets = host.ctx.gadgets;
@@ -174,7 +198,7 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
     // Phase 12: an investigating enemy looks harder toward the shot origin (cone × ENEMY_SHOT_ALERT_CONE_MUL)
     const acquire = e.investigating ? range * shotConeFactor(e, t.position) : range;
     // 2026-09-13 (탐사 차량): 달리는 차량은 **들린다** — 청각 반경(차체 가장자리까지) 안이면 사선 없이도 깨어난다 (`hasLOS` 는 그대로 사선)
-    const heard = t.vehicle !== null && t.vehicleMoving && dist < e.stats.hearRadius;
+    const heard = t.vehicle !== null && t.vehicleMoving && dist < hearRadiusOf(e);
     if (dist < acquire) {
       // very close bugs notice you regardless of LOS (but not through a smoke wall)
       const seen = (dist < Math.min(5, acquire) && clarity > SMOKE_BLIND) || hasLineOfSight(e, host, t);

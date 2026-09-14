@@ -178,9 +178,16 @@ export class NamedRogueDirector {
     const res = emptyResult();
     res.rolled = true; res.planet = planet; res.tier = tier; res.threat = threat; res.chance = chance; res.roll = r;
     this.result = res;
-    if (!(r < chance)) return res;
+    /* 2026-09-14 (정보상 「현상 수배」): 산 사람은 **등장 굴림 · 종류 굴림을 건너뛰고** 그 네임드로 확정한다.
+     * 자리 굴림은 그대로다 — 이 rng 는 월드 스트림과 아예 별개(`Random.hash('named@' + seed)`)라 스트림 동일성
+     * 걱정이 없고, 여기서 두 draw 를 아끼면 자리만 달라진다 (그래야 「지정한 네임드가 그 맵의 제자리에 선다」). */
+    const wanted = ctx.missionIntel?.namedId ?? null;
+    const forced: NamedRogueType | null = wanted && isNamedRogueType(wanted) ? wanted : null;
+    if (!forced && !(r < chance)) return res;
 
-    const type = NAMED_ROGUE_TYPES[rng.int(0, NAMED_ROGUE_TYPES.length - 1)];
+    // 종류 굴림은 **언제나 소비한다** — 그래야 뒤따르는 자리 굴림이 산 사람이나 안 산 사람이나 같은 자리에서 시작한다
+    const rolledType = NAMED_ROGUE_TYPES[rng.int(0, NAMED_ROGUE_TYPES.length - 1)];
+    const type = forced ?? rolledType;
     res.type = type;
     const spawn = world.getPlayerSpawn();
     let anchor: string | null = null;

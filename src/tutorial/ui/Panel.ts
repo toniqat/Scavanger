@@ -73,8 +73,12 @@ export class TutorialPanel {
     this.root.classList.toggle('is-lifted', on);
   }
 
-  show(def: StepDef, index: number, count: number): void {
-    this.label.textContent = `튜토리얼 ${index} / ${count}`;
+  /**
+   * @param trackLabel 2026-09-14 — 트랙 이름 (`조작 안내` · `함선 안내` · `증축 안내`). 트랙마다 진행률이 따로라
+   *                   `n / m` 만으로는 어느 안내인지 알 수 없다. 생략하면 예전처럼 `튜토리얼`.
+   */
+  show(def: StepDef, index: number, count: number, trackLabel = '튜토리얼'): void {
+    this.label.textContent = `${trackLabel} ${index} / ${count}`;
     if (this.titleEl.textContent !== def.title) this.titleEl.textContent = def.title;
     if (this.hintEl.textContent !== def.hint) this.hintEl.textContent = def.hint;
     const frac = count > 0 ? Math.max(0, Math.min(1, index / count)) : 0;

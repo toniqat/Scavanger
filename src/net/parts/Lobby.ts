@@ -12,6 +12,9 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
+/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/plans/intel-broker.md) */
+import type { IntelWire } from '@/shared';
+import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -43,6 +46,28 @@ export function setLobbyPlanet(sys: NetSystem, planet: PlanetId): void {
   sys.client.send({ t: 'lobby:planet', planet });
   }
 
+/**
+ * 2026-09-14 (정보상) — 분대장 전용, 시작 전: 산 기믹 고정(또는 폐기 = null)을 분대에 알린다 (`lobby:intel`).
+ * `setLobbyPlanet` 과 **같은 규약**이다: 낙관적 미러링 + 서버의 `lobby:state` 가 확정, 이벤트는 내지 않는다
+ * (분대원은 평소의 `net:lobbyUpdated` 로 알게 된다). 서버는 모양만 씻고 그대로 방송한다 — 레이아웃은 계산하지 않는다.
+ */
+export function setLobbyIntel(sys: NetSystem, intel: IntelWire | null): void {
+  const lobby = sys._lobby;
+  if (!lobby || !sys.isHost || lobby.started) return;
+  const next = sanitizeIntelWire(intel);
+  lobby.intel = next;   // optimistic mirror; the broadcast confirms it
+  sys.client.send({ t: 'lobby:intel', intel: next });
+  }
+
+/** 와이어에 실어도 되는 모양인가 — 빈 선택 · 모르는 기믹은 「안 샀다」(null) 로 본다 (`shared/intel`). */
+export function sanitizeIntelWire(raw: IntelWire | null | undefined): IntelWire | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const seed = Number(raw.seed);
+  if (!Number.isFinite(seed)) return null;
+  const picks = sanitizeIntelPicks(raw.picks);
+  return picks.length ? { seed: Math.floor(seed), picks } : null;
+  }
+
 /* ── lobby ops ──────────────────────────────────────────────────────── */
 export function createLobby(sys: NetSystem): void { sys.pendingQuickMatch = false; sys.client.send({ t: 'lobby:create', name: sys._playerName }); }
 
@@ -71,13 +96,18 @@ export function setReady(sys: NetSystem, ready: boolean): void { sys.client.send
  * Phase 11: `planet` is the raid's 목표 행성 (the server refuses a raid without one — `no_planet`); a training
  * ignores it, and an unknown id is dropped here rather than sent. Falls back to `lobby.planet` when omitted.
  */
-export function startGame(sys: NetSystem, seed: number, mode?: MissionMode, planet?: PlanetId): void {
+export function startGame(sys: NetSystem, seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void {
   const s = Math.floor(seed) >>> 0;
   const training = mode === 'training';
   const p = training ? undefined : (isPlanetId(planet) ? planet : (sys._lobby?.planet ?? undefined));
   const msg: Extract<ClientToServer, { t: 'lobby:start' }> = { t: 'lobby:start', seed: s };
   if (mode) msg.mode = mode;
   if (p !== undefined) msg.planet = p;
+  /* 2026-09-14 (정보상): 인자를 안 주면 `lobby.intel`(이미 `lobby:intel` 로 올라간 것)이 실린다. 훈련장은 언제나 없다. */
+  if (!training) {
+    const w = sanitizeIntelWire(intel !== undefined ? intel : sys._lobby?.intel ?? null);
+    if (w) msg.intel = w;
+  }
   sys.client.send(msg);
   }
 
@@ -133,7 +163,9 @@ export function rejoinMission(sys: NetSystem): void {
   if (me) me.inMission = true; // optimistic; the broadcast confirms it
   // Phase 11: a rejoin takes the 목표 행성 from the lobby (the mission is already running on it).
   const planet = mode === 'training' ? null : (isPlanetId(lobby.planet) ? lobby.planet : null);
-  sys.beginSession(seed, lobby, mode, true, planet);
+  /* 2026-09-14 (정보상): 기믹 고정도 **행성과 똑같이** 로비에서 되찾는다 — 안 그러면 돌아온 사람만 다른 맵을 만든다. */
+  const intel = mode === 'training' ? null : sanitizeIntelWire(lobby.intel ?? null);
+  sys.beginSession(seed, lobby, mode, true, planet, intel);
   sys.send({ t: 'flow', ev: 'rejoined' }, 'all');
   }
 
@@ -184,7 +216,10 @@ export function getLobbyPlayer(sys: NetSystem, id: PeerId): LobbyPlayer | undefi
  * Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`).
  * Phase 11: `planet` is the raid's 목표 행성 (null for a training / an older relay with nothing picked).
  */
-export function beginSession(sys: NetSystem, seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null): void {
+export function beginSession(
+  sys: NetSystem, seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null,
+  intel: IntelWire | null = null,
+): void {
   const bus = sys.ctx.bus;
   sys.applyLobby(lobby);
   sys._inSession = true;
@@ -198,6 +233,10 @@ export function beginSession(sys: NetSystem, seed: number, lobby: LobbyState, mo
   // core/ read them inside their synchronous handlers (the world generates during the emit).
   sys.ctx.missionMode = mode;
   sys.ctx.missionPlanet = mode === 'training' ? null : planet;
+  /* 2026-09-14 (정보상): `missionPlanet` 과 **똑같은 규약** — `game:newMission` 을 emit 하기 **전에** 세팅해야
+   * world/ · enemies/ 가 동기 핸들러 안에서 읽는다 (월드는 emit 안에서 생성된다). 훈련장은 언제나 null. */
+  const iw = mode === 'training' ? null : sanitizeIntelWire(intel);
+  sys.ctx.missionIntel = iw ? resolveIntelEffects(iw.picks) : null;
   const p = sys.ctx.missionPlanet;
   bus.emit('net:gameStarting', p !== null ? { seed, lobby, rejoin, mode, planet: p } : { seed, lobby, rejoin, mode });
   bus.emit('game:newMission', p !== null ? { seed, mode, planet: p } : { seed, mode });

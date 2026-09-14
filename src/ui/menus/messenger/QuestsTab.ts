@@ -4,6 +4,7 @@ import { clamp01, el, setText, toggleClass } from '../../dom';
 import { initialOf } from './format';
 import { buildQuestCard, questStateText } from './QuestCard';
 import { npcOf } from './sources';
+import { buildNpcTrust, npcTrustOf } from './Trust';
 
 export interface QuestsTabHost {
   /** 그 NPC 의 대화로 옮긴다 (대화 탭). */
@@ -15,7 +16,7 @@ export interface QuestsTabHost {
 /**
  * 메신저 `퀘스트` 탭 (2026-09-14, docs/plans/messenger-quests.md §5).
  *
- * 좌 목록 = 진행 중(보고 가능이 위) · 새 제안 · 보류 · 완료(접힘). 우 상세 = NPC 머리 + 퀘스트 카드(`detail`):
+ * 좌 목록 = 진행 중(보고 가능이 위) · 새 제안 · 보류 · 완료(접힘). 우 상세 = NPC 머리(이름 · 직함 · **개인 신뢰도 게이지**) + 퀘스트 카드(`detail`):
  * 목표마다 진척 · [납품], [완료 보고](목표가 다 차야 켜진다 — 이유는 카드 아래 한 줄), 보류는 [수락] → 대화 탭의 그 NPC 로 옮겨
  * NPC 의 짧은 설명(brief)을 보여 준다. 포기 버튼은 없다 (사용자 결정). 새 제안은 「대화에서 답하기」 로만 답한다.
  */
@@ -51,6 +52,7 @@ export class QuestsTab {
       ctx.bus.on('npc:questReady', again),
       ctx.bus.on('inventory:changed', again),
       ctx.bus.on('inventory:stashChanged', again),
+      ctx.bus.on('meta:npcTrustChanged', again),
     );
   }
 
@@ -79,7 +81,8 @@ export class QuestsTab {
     if (!ctx) return;
     const npc = npcOf(ctx);
     const all = this.quests();
-    const key = `${!!npc}|${this.selected}|${this.doneOpen}|` + all.map((q) =>
+    const selNpc = all.find((q) => q.def.id === this.selected)?.npc.id ?? '';
+    const key = `${!!npc}|${this.selected}|${this.doneOpen}|${npcTrustOf(ctx, selNpc)?.trust ?? ''}|` + all.map((q) =>
       `${q.def.id}${q.state}${q.ready ? 1 : 0}${q.blocked ?? ''}${q.objectives.map((o) => `${o.progress}${o.have ?? ''}${o.blocked ?? ''}`).join('.')}`).join(',');
     if (!force && key === this.key) return;
     this.key = key;
@@ -126,6 +129,9 @@ export class QuestsTab {
     el('div', { cls: 'ms-thead-title', text: q.npc.name, parent: main });
     const corp = q.npc.corp ? CORP_DEFS[q.npc.corp]?.name ?? '' : '';
     el('div', { cls: 'ms-thead-sub', text: [q.npc.title, corp || NPC_ROLE_LABEL_KO[q.npc.role]].filter(Boolean).join(' · '), parent: main });
+    /* 2026-09-14: 퀘스트를 낸 NPC 의 개인 신뢰도 게이지 (대화창 머리와 같은 조각). */
+    const trustEl = buildNpcTrust(ctx, q.npc.id, q.npc.name, { color: q.npc.color });
+    if (trustEl) { trustEl.classList.add('in-head'); main.appendChild(trustEl); }
     const card = buildQuestCard(ctx, q, 'detail', {
       accept: (id) => {
         const ref = npcOf(ctx);

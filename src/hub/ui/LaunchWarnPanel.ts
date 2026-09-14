@@ -10,11 +10,13 @@ export interface LaunchWarnHost {
 /**
  * 출격 준비 경고 (`.menu.hub-menu.launch-warn`, 2026-09-08).
  *
- * 발사 슬롯에 타기 직전, `ctx.inventory.getLaunchWarnings()` 가 무언가를 돌려주면 그 목록을 한 장의 카드로 띄운다.
- * 주무기 없음 · 탄약 한 세트 미만 · 가방 없음 · 방탄복 없음 · 전술 임플란트 없음 · 회복 아이템 없음 — 여섯 가지
- * 각각이 표제 한 줄 + 상세 한 줄로 서고, 아래에 **[그래도 출격]** 과 **[취소]** 가 있다.
+ * **2026-09-14: 탑승이 아니라 준비 직전에 뜬다.** 발사 슬롯에 앉은 채 스페이스를 1초 꾹 누른 순간
+ * `ctx.inventory.getLaunchWarnings()` 가 무언가를 돌려주면 그 목록을 한 장의 카드로 띄운다. 주무기 없음 ·
+ * 탄약 한 세트 미만 · 가방 없음 · 방탄복 없음 · 전술 임플란트 없음 · 회복 아이템 없음 — 여섯 가지 각각이
+ * 표제 한 줄 + 상세 한 줄로 서고, 아래에 **[그래도 준비]** 와 **[취소]** 가 있다. 포드 탑승 자체는 이제
+ * 아무것도 묻지 않는다 (앉는 것은 확정이 아니다).
  *
- * **막지 않는다.** 확인하면 그대로 탑승하고, 같은 경고 조합(`signature`)에 대해서는 다시 뜨지 않는다 — 장비를
+ * **막지 않는다.** 확인하면 그대로 준비되고, 같은 경고 조합(`signature`)에 대해서는 다시 뜨지 않는다 — 장비를
  * 하나라도 고치거나 다른 항목이 걸리면 서명이 달라지므로 그때는 새로 뜬다. 취소는 아무것도 기억하지 않는다.
  *
  * 커서 예절은 다른 함선 패널과 같다: `'hub'` blocker 를 먼저 넣고 소프트 커서를 켠다 — 포인터 락은 유지한다
@@ -47,7 +49,7 @@ export class LaunchWarnPanel {
 
     const foot = el('div', { cls: 'hub-foot', parent: f });
     this.button(foot, '취소', () => this.close());
-    this.button(foot, '그래도 출격', () => this.confirm(), 'primary');
+    this.button(foot, '그래도 준비', () => this.confirm(), 'primary');
 
     root.addEventListener('mousedown', (e) => e.stopPropagation());   // keep clicks off the canvas' click-to-lock fallback
   }
@@ -59,7 +61,7 @@ export class LaunchWarnPanel {
     return warnings.map((w) => w.id).join(',');
   }
 
-  /** Raise the panel. `onConfirm` runs on 그래도 출격, after the panel has closed and released its blocker. */
+  /** Raise the panel. `onConfirm` runs on 그래도 준비, after the panel has closed and released its blocker. */
   open(warnings: readonly LaunchWarning[], onConfirm: () => void): void {
     if (this._open || warnings.length === 0) return;
     this._open = true;
@@ -83,7 +85,7 @@ export class LaunchWarnPanel {
     this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
   }
 
-  /** 그래도 출격: close first (the pod gate refuses to board while a blocker is up), then run the callback. */
+  /** 그래도 준비: close first (the ready gate refuses to run while a blocker is up), then run the callback. */
   private confirm(): void {
     const go = this.onConfirm;
     this.close(false);

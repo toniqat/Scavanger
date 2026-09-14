@@ -439,3 +439,20 @@ WEAPON_GRADE_HANDLING_MUL,2,1.3
 WEAPON_GRADE_HANDLING_MUL,3,1.15
 WEAPON_GRADE_HANDLING_MUL,4,1
 # ── end 2026-09-14 총기 밸런스 ──
+# ── 2026-09-14 정보상 (docs/plans/intel-broker.md) ──
+# INTEL_TIER_COST_MUL — 기믹 단계(key 0 = 1단계 … 2 = 3단계)별 비용 배수. 같은 줄을 더 올릴수록 비선형으로 비싸다.
+INTEL_TIER_COST_MUL,0,1
+INTEL_TIER_COST_MUL,1,2.6
+INTEL_TIER_COST_MUL,2,4.8
+# INTEL_THREAT_COST_MUL — 행성 threat(1..3 → key 0..2) 별 비용 배수. 위험한 행성의 정보가 더 비싸다.
+INTEL_THREAT_COST_MUL,0,1
+INTEL_THREAT_COST_MUL,1,1.35
+INTEL_THREAT_COST_MUL,2,1.8
+# NEST_COUNT_MIN / NEST_COUNT_MAX — 한 맵의 벌레 둥지 수 범위 (owner: world/layout). 2026-09-14 에 코드 상수(4–6)에서 옮겨 왔다
+# (정보상 「벌레 둥지 +N」 이 이 결과에 더해진다 — 굴림 자체는 그대로 소비한다). 값 하나짜리 표라 key 는 0 뿐이다.
+NEST_COUNT_MIN,0,4
+NEST_COUNT_MAX,0,6
+# ROVER_PLAN_ATTEMPTS_INTEL — 정보상 「탐사 차량 확정」 을 샀을 때의 경로 계획 재시도 횟수 (owner: world/rover/RoadPlan).
+# 평소 값은 constants.csv 의 ROVER_PLAN_ATTEMPTS(64) 다. 시도를 늘려도 실패할 수 있고, 그러면 그 레이드에는 차량이 없다 (콘솔 경고).
+ROVER_PLAN_ATTEMPTS_INTEL,0,1024
+# ── end 2026-09-14 정보상 ──

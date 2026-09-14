@@ -171,6 +171,17 @@
 .ms-msg.cont.out .ms-bubble { border-top-right-radius: 12px; }
 .ms-bubble.sys { background: none; border: none; color: var(--c-text-faint); font-size: 11px; }
 .ms-state { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+/* 대사 선택지 (2026-09-14, docs/plans/tutorial-raid.md §2.5) — 첫 연락 말풍선 아래에 서는 **내 대답** 버튼 줄.
+   퀘스트 카드의 [수락] [생각해보지] 와 **같은 버튼**(`.ms-btn`)이고, 내 말풍선처럼 오른쪽에 붙는다.
+   대답은 한 줄보다 길 수 있어 `.ms-btn` 의 고정 높이 · nowrap 만 푼다. */
+.ms-msg.choices { max-width: min(460px, 92%); margin-top: 8px; }
+.ms-choices { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
+.ms-btn.ms-choice {
+  height: auto; min-height: 30px; padding: 7px 12px;
+  font-size: 12px; letter-spacing: 0.02em; line-height: 1.45; text-align: right; white-space: normal;
+  border-color: rgba(255, 179, 71, 0.28); background: rgba(255, 179, 71, 0.1);
+}
+.ms-btn.ms-choice:hover:not(:disabled) { background: rgba(255, 179, 71, 0.2); }
 .ms-msg.pending .ms-bubble { opacity: 0.55; }
 .ms-msg.stored .ms-state, .ms-msg.backlog .ms-state { color: var(--c-accent); }
 .ms-msg.failed .ms-bubble { text-decoration: line-through; color: var(--c-text-dim); }
@@ -190,6 +201,19 @@
 .ms-note { font-size: 11px; color: var(--c-text-faint); padding-top: 4px; }
 .ms-note[hidden] { display: none; }
 .ms-thread[data-kind='npc'] .ms-note { border-top: 1px solid var(--c-border); padding-top: 8px; }
+
+/* ── NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7 — `menus/messenger/Trust`) ──
+   기업 화면의 신뢰도 게이지(`meta.css` 의 `.corp-rep`)와 **같은 계열**: `Lv.n` + 한 줄 게이지 + 누적/다음 숫자.
+   다른 것은 색뿐이다 — 기업 색(`--cc`) 대신 그 NPC 색을 `--qc` 로 받아 `.ms-bar i` 가 그대로 쓴다.
+   `.compact` = 대화 목록 한 줄용(숫자 없음 · 짧은 게이지), `.in-head` = 대화창 · 퀘스트 상세 머리용. */
+.ms-trust { display: inline-flex; align-items: center; gap: 6px; flex: none; min-width: 0; }
+.ms-trust.in-head { margin-top: 3px; align-self: flex-start; max-width: 320px; width: 100%; }
+.ms-trust-lv { flex: none; font-size: 10px; letter-spacing: 0.04em; color: var(--qc, var(--c-accent)); }
+.ms-trust-bar { flex: 1; min-width: 0; width: 100%; }
+.ms-trust.compact .ms-trust-bar { flex: none; width: 34px; }
+.ms-trust-num { flex: none; font-size: 10px; color: var(--c-text-faint); }
+/* 보상 칩 — 재화 칩(`base.css` 의 `.currency-chip`)과 같은 틀, 색만 NPC 색이다 */
+.ms-trust-chip { cursor: default; }
 
 /* ── 퀘스트 카드 (말풍선 · 상세 공용) ── */
 .ms-qcard {

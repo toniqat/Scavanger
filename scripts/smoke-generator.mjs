@@ -79,7 +79,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1440, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     // 부팅 직후(첫 프레임 전)의 토스트를 잡는다: main.ts 는 `engine.start()`(init) 뒤 첫 rAF 전에 `window.__game` 을 건다

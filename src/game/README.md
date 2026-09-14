@@ -9,7 +9,7 @@ Import via `@/game` → `GameFlowSystem`.
 |---|---|
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
 | `model.ts` | 폴더 공용 어휘 — `GameFlowSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `GameFlowSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
-| `parts/Death.ts` | **사망 · 구조 · 분대 전멸**. **2026-09-09: 자동 부활은 없다** — 완전히 죽으면 시체가 서고(`Corpses.ts`) 되살아나는 길은 분대원의 구조선(`rescue:landed`)뿐이다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
+| `parts/Death.ts` | **사망 · 구조 · 분대 전멸** (+ 2026-09-14 **튜토리얼 체크포인트 부활** — `onTutorialDied` · `tutorialRespawn`). **2026-09-09: 자동 부활은 없다** — 완전히 죽으면 시체가 서고(`Corpses.ts`) 되살아나는 길은 분대원의 구조선(`rescue:landed`)뿐이다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
 | `Corpses.ts` | **사망한 플레이어의 시체** (`ctx.corpses` = `PlayerCorpseManager`). `PlayerCorpseObject` 는 `Interactable` 이자 `PlayerCorpse` 다 — id `pcorpse:<owner>:<n>`, 프롬프트 `<이름>의 유해 뒤지기`(비면 `비어 있음`), 상호작용 → `inventory.openContainerItemsSized(...)`. 메시는 `SoldierModel` 을 죽은 자세로 **한 번** 굳혀 둔 것이고 (`setGreyed`), **레이드가 끝날 때까지 사라지지 않는다** — 수명도 거리 컬링도 없다 (사용자 결정). **2026-09-11**: `kind: 'playerCorpse'`(C-4 — 빛기둥 · 정찰 분류가 id 접두어 대신 이것을 먼저 본다), 그리고 **전차에 실린다**(C-18) — 생성 직후 `boardCarrier(world)` 가 발밑의 움직이는 발판(`getStandingObstacle(...).velocity`)을 찾아 `@/shared` 의 `recordRideLocal` 로 적어 두고, `PlayerCorpseManager.update()`(`GameFlowSystem.update` 가 매 프레임 부른다)가 `restoreRideLocal` 로 자리(= 상호작용 위치, 같은 벡터) · 메시 · 방향(곡선 구간의 `box.yaw` 변화)을 다시 푼다. 시체는 스스로 움직이지 않으므로 유지 판정 · 하차 관성은 없다. 호스트 · 리플리카 · 늦은 합류자 모두 **자기 월드의 전차**로 푼다. **2026-09-11 (C-63)**: 와이어가 탑승을 나른다 — `rideWire()`/`toWire()` 가 `PlayerCorpseWire.ride {tram, local, yaw}` 를 싣고(지금 탄 전차 · 차량 로컬 좌표), 받는 쪽 `boardFromWire()` 가 지연된 `p` 대신 **내 전차의 지금 변환**으로 그 로컬 좌표를 풀어 자리를 잡는다(모르는 id → 예전 `boardCarrier`). `ride` 는 매니저가 `pcorpse` 를 따로 구독해(`hookNet` · `noteWireRide` · `pendingRide`) `add` 앞뒤 어느 순서에도 붙는다. |
 | `parts/CorpseNet.ts` | **시체의 생성과 동기화** (`pcorpse` / `pcorpseq`). `spawn` 은 죽은 본인이 `'all'` 로 (자기 인벤토리만이 진실), 호스트는 남의 시체도 `items` 채로 들고 있다가 `pcorpseq sync` / `flow rejoined` 에 `pcorpse sync` 로 답한다. 시체 **안의 아이템을 가져가는** 것은 상자와 똑같이 기존 `cont` / `contq` 경로다. `crate:looted` → `pcorpse emptied`. **2026-09-11**: 시체 높이는 지형(`getHeightAt`)이 아니라 **`getSurfaceY(x, z, 발 높이)`** — 전차 데크 · 2층 바닥에서 죽은 시체가 그 밑 땅으로 떨어지지 않게 (로컬 사망 · 받은 와이어 둘 다). `stripForCorpse()` 결과에는 이제 **장착 임플란트의 망가진 짝**이 들어 있다 (C-12 — 합치기는 inventory/, 해제는 progression/). |
 | `parts/Leader.ts` | **분대장 기기**. 멀티에서 호스트가 완전히 사망하면 시체 옆에 절차 생성 오브젝트(아이템 아님)가 떨어지고 죽은 호스트가 `ctx.net.reportHostDown(true)` 를 남긴다. `Interactable` `leader_device` (`LEADER_DEVICE_RANGE`, **`LEADER_DEVICE_HOLD_S` 홀드**, `분대장 기기 회수`) → `transferHost(me, true)` + `lead taken`. **`net:hostChanged` 토스트의 유일한 주인**이다 — 기기 회수든 커뮤니티 우클릭 이관이든 전부 여기로 모인다. **기기의 점광원은 기기 안에 없다** (2026-09-10): 모듈 하나가 `installLeaderLight` 로 `init` 때 씬에 심고(`LeaderDeviceLight`, intensity 0) 기기는 자리와 밝기만 준다 — 광원을 든 오브젝트를 씬에 넣고 빼면 씬의 모든 머티리얼이 셰이더를 다시 컴파일한다. |
@@ -18,7 +18,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `parts/Wire.ts` | **`flow` 메시지**와 호스트 이관 · 로비 이탈의 흐름 처리. |
 | `ResumeGate.ts` | **Phase 12**: the browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), the desktop-shell cursor rule (`syncDesktopCursor`) and the shell's Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). Owns `resume-gate.css`. |
 | `resume-gate.css` | The gate's own styles + `body.desktop-nocursor` (the Electron cursor-hiding class). Imported from `ResumeGate.ts`. |
-| `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. **2026-09-11 (E-5)**: `soloRaidBootStatus` (loadout `raidSeed` marker) · `readClockHigh` / `bumpClockHigh` (`SOLO_CLOCK_HIGH_KEY`), `soloRaidStatus` refuses a far-future save and a clock set back. **2026-09-10**: `SoloRaidPose.shield` (선택) — v1 세이브에는 없고, 없으면 `restoreState` 가 방탄복 최대치로 복구한다. |
+| `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. **2026-09-14**: `SoloRaidSave.mode?` (`'raid'` 기본 · `'tutorial'`) · `checkpoint?` — 튜토리얼도 같은 파일로 이어 한다. **2026-09-11 (E-5)**: `soloRaidBootStatus` (loadout `raidSeed` marker) · `readClockHigh` / `bumpClockHigh` (`SOLO_CLOCK_HIGH_KEY`), `soloRaidStatus` refuses a far-future save and a clock set back. **2026-09-10**: `SoloRaidPose.shield` (선택) — v1 세이브에는 없고, 없으면 `restoreState` 가 방탄복 최대치로 복구한다. |
 | `index.ts` | Barrel. |
 
 ## Transitions
@@ -32,7 +32,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `extraction:boarded` | remembers that the local player boarded (legacy flag — `stats.extracted` reads `aboardAtLiftoff` since 2026-09-13) |
 | `extraction:liftoff {aboard, squadDone}` | **2026-09-13**: `aboard` (this player left aboard, alive) or `squadDone` (nobody alive stayed outside) → `aboardAtLiftoff` · `squadExtraction`, phase `liftoff`, after `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`, 10 s) → `complete()`: `stats.extracted = aboardAtLiftoff && !isDead && !isDowned` (solo too), `lootValue`, `awardMissionXp()`, `complete`, `game:complete {stats}`; the host sends `flow complete` **only for a squad extraction**; a rider who leaves squadmates behind calls `net.leaveMission()` right after `game:complete`. Neither → **left behind**: nothing happens (the raid goes on) |
 | `extraction:reset` (2026-09-13) | the ship left without this player → phase `extracting` / `shipLanded` / `liftoff` back to `playing` (unless a result timer already runs) |
-| `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). Solo raid: `raidSaveTimer = -1` + **`clearSoloRaid()` 즉시** (2026-09-11 C-70 — 죽는 순간 레이드는 끝났다), 그 뒤 2.5 s → `gameOver()` (레이드 실패). Multiplayer (**2026-09-09**): phase unchanged, **no countdown** — `stripForCorpse()` → 시체(`parts/CorpseNet.spawnLocalCorpse`) → **`Session.saveRaid(sys)` 1회 강제 저장**(2026-09-11 C-70 — 순서가 곧 근거다: 빈 가방을 찍어야 한다), 호스트였다면 분대장 기기(`parts/Leader.onHostDied`), 토스트 `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 n)`, host runs the all-dead check |
+| `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). **튜토리얼 (2026-09-14)**: 시체는 평소대로 서고(`spawnLocalCorpse`) `TUTORIAL_RESPAWN_DELAY_S` 뒤 체크포인트 부활 — 레이드 실패 없음 · **세이브를 지우지 않는다** · 사망 직후 저장도 하지 않는다(솔로 가드를 그대로 통과시켜 마지막 생전 스냅샷을 남긴다). Solo raid: `raidSaveTimer = -1` + **`clearSoloRaid()` 즉시** (2026-09-11 C-70 — 죽는 순간 레이드는 끝났다), 그 뒤 2.5 s → `gameOver()` (레이드 실패). Multiplayer (**2026-09-09**): phase unchanged, **no countdown** — `stripForCorpse()` → 시체(`parts/CorpseNet.spawnLocalCorpse`) → **`Session.saveRaid(sys)` 1회 강제 저장**(2026-09-11 C-70 — 순서가 곧 근거다: 빈 가방을 찍어야 한다), 호스트였다면 분대장 기기(`parts/Leader.onHostDied`), 토스트 `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 n)`, host runs the all-dead check |
 | `game:returnToShip` (2026-09-13) | 일시정지 메뉴 `함선으로 귀환` 확정. 레이드 중(훈련장 · 강하 중 제외): `returnPending` → `PlayerRef.die()` → 위 `player:died` 정리(구조선 토스트 · 분대장 기기 · 솔로 `deathTimer` 대신 `returnTimer = DEATH_TO_SCREEN`) → `finishReturnToShip`: 솔로 `gameOver()` + `hub:enter`, 분대 사망자 결산 + `net.leaveMission()` + `hub:enter shared` (`onAbort` 가 `flow abort` 를 보내지 않는다). 그 밖에는 곧장 `hub:enter` |
 | `rescue:landed` | `target` 이 나면(싱글은 `'sp'`) 죽음 타이머 · 전멸 체크를 내리고 `deploying` 이면 `playing` 으로. 몸을 세우는 것은 `player/` 가 한다 (`rescueRevive` — 헬포드 · `RESCUE_REVIVE_HP` · 빈손) |
 | `crate:looted` (`pcorpse:…`) | 그 시체를 `비어 있음` 으로 바꾸고 `corpse:playerEmptied` + `pcorpse emptied` 를 방송 (메시는 남는다) |
@@ -287,6 +287,40 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
   출구여서다. 그 위에서 ESC 는 여전히 일시정지 메뉴를 연다.
 - 브라우저에서 ESC 로 화면을 닫으면 재개 게이트가 한 번 뜬다. 조작을 통일하기로 한 대가이고, 셸에는 없다.
 
+
+## 튜토리얼 체크포인트 부활 (2026-09-14, `docs/plans/tutorial-raid.md` B, 사용자 결정)
+
+「완전한 사망에는 자동 부활이 없다」(2026-09-09)는 그대로다. 이것은 그 규칙의 예외가 아니라
+**`ctx.missionMode === 'tutorial'` 안에서만 사는 별도 갈래**이고(훈련장 갈래의 형제), 되살리는 수단도
+이미 있는 계약 `player:respawn` 이다. 판정은 `Phases.isTutorial` 하나이고 **`isTraining()` 은 넓히지 않았다** —
+훈련장은 보상 · 결과 화면 · 계약 정산이 통째로 없지만 튜토리얼은 평범하게 끝나고 정산한다.
+
+| 무엇 | 어디 |
+|---|---|
+| 사망 | `parts/Death.onTutorialDied` — 시체가 선다(`spawnLocalCorpse` → 장비 · 가방 · 퀵슬롯이 그 안에, 주우러 갈 수 있어야 한다) · 장착 임플란트는 건드리지 않는다 · `gameOver()` 없음 · 페이즈 그대로 |
+| 부활 | `parts/Death.tutorialRespawn` (`GameFlowSystem.tutorialRespawnTimer`) — `ctx.world.tutorial.respawnPose()` 자리에서 `player:respawn`, yaw 는 직후 `teleport(pos, yaw, false)` 로 (이벤트 계약에 yaw 가 없다). 월드가 답을 못 주면 월드 스폰 |
+| 강하 | 없다 — `player/parts/Spawn.usesHellpod` 가 튜토리얼을 뺀다. 그래서 `onWorldReady` 도 `'deploying'` 을 건너뛰고 바로 `'playing'` 이다 (훈련장과 같은 이유: `player:landed` 가 영영 오지 않는다) |
+| 세션 | **지우지 않는다.** 솔로 레이드는 죽는 순간 `clearSoloRaid()` 지만(C-70) 튜토리얼의 사망은 끝이 아니다 |
+
+**사망 직후 강제 저장을 하지 않는 것이 멀티와 정반대인 이유**: 멀티에서 빈 가방을 찍는 것은 「시체에도 있고
+가방에도 있는 복제」를 막기 위해서인데, **솔로 세이브에는 시체가 담기지 않는다** — 여기서 빈 가방을 찍으면
+새로고침한 사람은 시체도 장비도 없이 깨어난다. `parts/Session.saveRaid` 의 솔로 가드(`isDead` → 저장하지
+않는다)를 그대로 통과시켜 마지막 **생전** 스냅샷을 남기고, 부활한 뒤 다시 도는 주기 저장이 진행을 담는다.
+
+### 이어 하기 (새로고침)
+
+`isSoloRaid()` 의 뜻을 「혼자 도는 저장 대상 세션」으로 넓혀 튜토리얼도 localStorage 세션을 쓴다
+(훈련장은 여전히 제외 — 나갈 때 인벤토리를 통째로 되돌린다). 두 필드가 늘었다:
+
+- `SoloRaidSave.mode` — 없으면 `'raid'`. **안 실으면 튜토리얼을 이어할 때 같은 시드로 절차 생성 행성이
+  만들어진다** (손으로 지은 맵이 통째로 사라진다). `resumeSoloRaid` 가 이 값으로 `game:newMission {mode}` 를 낸다.
+- `SoloRaidSave.checkpoint` — 월드는 새로 지어지면서 `'wake'` 로 돌아가므로, 없으면 이어한 사람이 **다음에
+  죽을 때 맨 처음으로** 밀린다. `Phases.onWorldReady` 가 솔로 복귀 직후 `ctx.world.tutorial.gotoCheckpoint(id)`
+  를 불러 체크포인트 자리에서 다시 시작시킨다 (`GameFlowSystem.soloCheckpoint`).
+
+튜토리얼 복귀는 **언제나 살아서** 선다 (`state: 0`, `hp ≥ 1`) — 죽은 채로 닫힌 세이브라도 사망 흐름으로
+들어가지 않는다. 정보상 기믹 · 목표 행성은 튜토리얼에 없으므로 복원하지 않는다.
+
 ## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
 
 `GameFlowSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
@@ -328,7 +362,16 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 ## 변경 이력
 
+- **2026-09-14 (정보상 — 솔로 이어하기, 에이전트 D)** — `SoloRaid.ts` 의 `SoloRaidSave` 에 `intel?: IntelPick[]` 추가(옛 세이브에는 없다 = 안 샀다, `loadSoloRaid` 가 `sanitizeIntelPicks` 를 지난다) · `parts/Session.saveSoloAt` 이 달리는 레이드의 보유 정보를 `planet` 과 같은 규약으로 싣고 (`ctx.meta.intel.get()` 은 레이드가 끝나야 소모되므로 달리는 동안 손에 있다) · `resumeSoloRaid` 가 `ctx.missionIntel` 을 **`game:newMission` emit 전에** 되살린다 — 안 하면 이어한 사람만 시드는 같고 탈출구 · 지하실 · 둥지만 빠진 맵을 만든다. `parts/Phases.onNewMission` 은 훈련장에서 `ctx.missionIntel = null` 한 줄뿐(레이드 값은 emitter 가 이미 세팅했다).
+
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14 (튜토리얼 체크포인트 부활 · 이어 하기, 에이전트 B, docs/plans/tutorial-raid.md)** — `parts/Death` 에 `onTutorialDied` · `tutorialRespawn`,
+  `parts/Phases` 에 `isTutorial` · `'playing'` 직행 · 타이머 리셋, `GameFlowSystem` 에 `tutorialRespawnTimer` · `soloCheckpoint` · `isTutorial()`,
+  `parts/Session` 의 `isSoloRaid` 가 튜토리얼을 포함(저장 · `pagehide` · 첫 스냅샷 · 주기 저장) · `saveSoloAt` 이 `mode` · `checkpoint` 를 싣고
+  `resumeSoloRaid` 가 그대로 되살린다, `SoloRaid.ts` 에 두 선택 필드 + 검증. 위 *튜토리얼 체크포인트 부활* 절.
+  **본편 레이드 동작은 바뀌지 않았다**: 새 분기는 전부 `ctx.missionMode === 'tutorial'` 안이고, C-70 의 두 가드(사망 뒤 저장 금지 · 사망 즉시 `clearSoloRaid`)는
+  `'raid'` 에서 한 글자도 바뀌지 않았다.
 
 - **2026-09-13 (서재 시리즈 — 레이드 경험치 책, 에이전트 C, docs/plans/library-series-games.md)** — `parts/Death.awardMissionXp` 가 레이드 몫 경험치(처치 · 시간 · 탈출 ·
   전리품)를 `libraryRaidXpMul(ctx)` = `1 + ctx.housing.getLibraryEffects().raidXp`(housing 이 모르면 1, 음수 · NaN = 0)로 곱한 뒤 반올림한다. **계약 보상 XP 에는 곱하지 않는다** —

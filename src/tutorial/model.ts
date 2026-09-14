@@ -1,4 +1,4 @@
-import type { TutorialGate, TutorialStepId } from '@/shared';
+import type { KeyBindings, TutorialGate, TutorialStepId, TutorialTrack } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * src/tutorial/model.ts — 폴더 공용 어휘 (상수 · 타입 · 텍스트). 상태는 없다.
@@ -6,7 +6,18 @@ import type { TutorialGate, TutorialStepId } from '@/shared';
 
 /** localStorage key of the tutorial save (`TutorialSave`). */
 export const TUTORIAL_STORAGE_KEY = 'scav.tutorial';
-export const TUTORIAL_SAVE_VERSION = 1;
+/**
+ * **v2 (2026-09-14)** — 트랙별 저장(`TutorialSave.tracks`). v1(`step` · `done` 최상위)은 읽을 때
+ * `tracks.build` 로 옮겨 붙이고 `raid` · `ship` 은 **이미 끝난 것으로** 본다 (하던 사람에게 새 안내가 뜨면 안 된다).
+ */
+export const TUTORIAL_SAVE_VERSION = 2;
+
+/** 트랙 이름 — 목표 패널 라벨 · 건너뛰기 확인 카드 문구. */
+export const TRACK_LABEL_KO: Readonly<Record<TutorialTrack, string>> = {
+  raid: '조작 안내',
+  ship: '함선 안내',
+  build: '증축 안내',
+};
 
 /** UI blocker token the intro / 건너뛰기 팝업 holds (the spotlight holds none — it never takes the cursor itself). */
 export const TUTORIAL_BLOCKER = 'tutorial';
@@ -107,3 +118,94 @@ export interface StepDef {
 
 /** 게이트가 막혔을 때 쓰는 기본 문구 — 단계 제목을 끼워 넣는다. */
 export const blockedBy = (title: string): string => `튜토리얼 진행 중 — 먼저 '${title}'`;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 우측 조작 가이드 (2026-09-14, `docs/plans/tutorial-raid.md` C)
+ *
+ * 배운 조작이 **한 줄씩 쌓이고 사라지지 않는다.** 우하단 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)는 "지금 열린
+ * 화면의 키"라 매번 바뀌지만 이쪽은 누적이라 자리가 아예 다르다 — 화면 **우측 세로 가운데**다 (CSS 참고).
+ *
+ * 표는 **키 액션 이름**만 들고 있다 — 실제 라벨은 그릴 때 `keyLabel(Keys[action])` 로 만든다
+ * (`docs/CONTROLS.md`: 키는 사용 시점에 읽는다. 리바인드하면 `input:bindingsChanged` 에 다시 그린다).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** 조작 한 줄. `id` 는 저장에 남는 안정된 이름이라 문구를 고쳐도 중복되지 않는다. */
+export interface ControlHint {
+  id: string;
+  /** 이 줄이 보여 주는 키 액션들 (`Keys` 의 필드 이름). 여러 개면 나란히 그린다. */
+  keys: readonly (keyof KeyBindings)[];
+  label: string;
+  /** 꾹 누르는 키 — 키캡에 chevron 을 단다 (`.keycap.kc-hold`). */
+  hold?: boolean;
+}
+
+/**
+ * 그 단계에 **들어설 때** 가이드에 더해지는 줄. 없는 단계는 아무것도 더하지 않는다.
+ * 한 번 더해진 줄은 트랙이 끝날 때까지 남는다 (`TutorialSave.learned`).
+ */
+export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, readonly ControlHint[]>>> = {
+  move: [{ id: 'move', keys: ['FORWARD', 'LEFT', 'BACK', 'RIGHT'], label: '이동' }],
+  sprintJump: [
+    { id: 'sprint', keys: ['SPRINT'], label: '달리기' },
+    { id: 'jump', keys: ['JUMP'], label: '점프' },
+  ],
+  corpseLoot: [
+    { id: 'interact', keys: ['INTERACT'], label: '상호작용 · 루팅' },
+    { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비' },
+  ],
+  shoot: [
+    { id: 'fire', keys: ['FIRE'], label: '사격' },
+    { id: 'aim', keys: ['AIM'], label: '정조준' },
+    { id: 'reload', keys: ['RELOAD'], label: '재장전' },
+  ],
+  crouch: [{ id: 'crouch', keys: ['CROUCH'], label: '앉기' }],
+  heal: [{ id: 'quick', keys: ['QUICK'], label: '빠른 사용 (회복)' }],
+  grenade: [{ id: 'quickWheel', keys: ['QUICK'], label: '빠른 사용 휠 — 수류탄', hold: true }],
+  extract: [{ id: 'map', keys: ['MAP'], label: '지도' }],
+};
+
+/** 우측 조작 가이드의 머리 라벨. */
+export const CONTROLS_TITLE_KO = '배운 조작';
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 레이드 트랙의 진행 (2026-09-14)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 체크포인트(`tutorial:checkpoint`, owner: `world/tutorial`) → **그 자리에서 시작되는 단계**.
+ * 체크포인트는 구간의 **입구**라, 지나는 순간 앞 구간의 단계는 끝난 것이다. 그래서 안내는 이 표 하나로
+ * 어디까지 왔는지를 되찾는다 — 선택 단계(`grenade`)를 쓰지 않고 지나가도, 체크포인트 하나를 놓쳐도 막히지 않는다.
+ * `TutorialCheckpointId` 를 그대로 쓰지 않고 문자열 키를 쓰는 이유는 하나다: 이 폴더는 월드의 계약을 **읽기만** 한다.
+ */
+export const CHECKPOINT_STEP: Readonly<Record<string, TutorialStepId>> = {
+  wake: 'wake',
+  cliff: 'sprintJump',
+  corpse: 'corpseLoot',
+  bugs: 'shoot',
+  crawl: 'crouch',
+  android: 'crouchAim',
+  drop: 'drop',
+  supply: 'heal',
+  wall: 'grenade',
+  ship: 'extract',
+};
+
+/** 전투 단계(`shoot` · `crouchAim`)에서 넘어가는 데 필요한 처치 수 — 그 구간에 세워 둔 적 수와 같다. */
+export const RAID_KILLS_PER_STEP = 2;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * HUD 점진 노출 (2026-09-14) — `hides('hud', part)`.
+ *
+ * **레이드 트랙 안에서만 산다.** 함선 트랙 · 증축 트랙에서는 평소 화면 그대로다 (그래서 판정이 트랙을 먼저 본다).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** `hides('hud', …)` 가 참고하는 **관찰 상태** — 표 하나로 못 정하는 것만. */
+export interface HudRevealState {
+  /** 스태미나가 한 번이라도 줄었다 (달리기 · 점프). */
+  staminaUsed: boolean;
+}
+
+/** 체력 · 실드 · 무기 패널이 나타나는 단계 — 시체에서 장비를 얻는 그 단계를 **지나면** 보인다. */
+export const HUD_GEAR_STEP: TutorialStepId = 'corpseLoot';
+/** 스태미나 바는 늦어도 이 단계를 지나면 보인다 (그전에 실제로 소모했으면 그때 바로). */
+export const HUD_STAMINA_STEP: TutorialStepId = 'sprintJump';

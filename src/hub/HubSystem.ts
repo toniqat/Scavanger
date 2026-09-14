@@ -20,6 +20,8 @@ import { HubStatus } from './ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
 import { randomSeed } from './ui/dom';
 import './hub.css';
+/* 2026-09-14 정보상: 매칭 팝업(`.hm-`) · 정보상 패널(`.hi-`) · 정보상 화면(`.it-`). `hub.css` 와 나란히 배선한다. */
+import './intel.css';
 
 import { type DockTransition, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -261,6 +263,12 @@ export class HubSystem implements GameSystem, HubRef {
 
   boardedSlot = -1;
   boardedAt = 0;
+  /**
+   * 2026-09-14 (발사 슬롯 UI 대개편): **로컬 준비 상태의 단일 원본**. 탑승(`boardedSlot`)과 갈라져 있고, 앉은 채
+   * 스페이스를 `UI_HOLD_CONFIRM_S` 동안 꾹 눌러야 켜진다 (`Pods.toggleReady`). 서버의 `LobbyPlayer.ready` 는
+   * 이것의 메아리일 뿐이다 — `syncPods` 가 메아리를 확인하고, 안 오면 이 값을 되돌린다.
+   */
+  readyLocal = false;
   /** `ctx.time` of the last un-board — the pod refuses a new boarding for `REBOARD_GRACE` after it. */
   leftPodAt = -Infinity;
   readySentAt = -Infinity;
@@ -297,7 +305,8 @@ export class HubSystem implements GameSystem, HubRef {
     });
     this.launchWarn = new LaunchWarnPanel(ctx, { onClosed: () => this.relock() });
     // ReadyPanel **before** HubStatus: `hub.css` lifts the status line off the panel with a sibling selector.
-    this.ready = new ReadyPanel(ctx);
+    // 2026-09-14: the panel measures the ready hold (스페이스 1초) and calls back; the rules live in `parts/Pods`.
+    this.ready = new ReadyPanel(ctx, { toggleReady: () => this.toggleReady() });
     this.status = new HubStatus(ctx);
     this.housingMode = new HousingMode(ctx);
     const b = ctx.bus;
@@ -506,6 +515,21 @@ export class HubSystem implements GameSystem, HubRef {
   /** Un-board. `sendReady` false when the lobby state already changed (reset / mission start / leaving the ship). */
   leavePod(sendReady: boolean, placeOutside = true): void { return Pods.leavePod(this, sendReady, placeOutside); }
 
+  /**
+   * 2026-09-14: 준비 / 준비 해제 (발사 슬롯에 앉은 채 스페이스 `UI_HOLD_CONFIRM_S` 홀드 — `ui/ReadyPanel` 이 잰다).
+   * 준비로 갈 때만 출격 준비 경고 팝업이 먼저 선다.
+   */
+  toggleReady(): void { return Pods.toggleReady(this); }
+
+  /** Commit the local ready flag (the launch-warning popup's 그래도 준비 lands here). */
+  setReadyLocal(ready: boolean): void { return Pods.setReadyLocal(this, ready); }
+
+  /**
+   * 2026-09-14: **준비 상태인가** — 다른 폴더가 「지금 장비를 바꿔도 되는가」를 묻는 한 줄
+   * (`inventory/InventorySystem.readOnlyReason`). `HubRef` 의 선택 필드로 읽히도록 이름을 고정한다.
+   */
+  get launchReady(): boolean { return this.boardedSlot >= 0 && this.readyLocal; }
+
   /** Mirror lobby ready flags into pod occupancy / tags; emits `hub:slotChanged` on changes. */
   syncPods(): void { return Pods.syncPods(this); }
 
@@ -513,13 +537,15 @@ export class HubSystem implements GameSystem, HubRef {
    * The socket came back while we sit in a pod: re-send the ready flag (2026-09-09).
    *
    * `NetClient.send` silently drops anything posted while the socket is not OPEN, so the `setReady(true)` from
-   * `boardPod` is lost across a reconnect and the squad would wait for a member the server never marked ready.
+   * the ready hold is lost across a reconnect and the squad would wait for a member the server never marked ready.
    * `readySentAt` is pushed forward with it so `syncPods` gives the fresh echo its full `READY_ECHO_GRACE`.
+   *
+   * 2026-09-14: 탑승과 준비가 갈라졌으므로 **`readyLocal` 을 그대로** 다시 보낸다 (앉아만 있으면 false 를 보낸다).
    */
   resendReady(): void {
     const net = this.ctx.net;
     if (this.boardedSlot < 0 || !net?.lobby || !net.connected) return;
-    net.setReady(true);
+    net.setReady(this.readyLocal);
     this.readySentAt = this.ctx.time;
   }
 
@@ -608,7 +634,8 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.input.wasPressed(Keys.INTERACT) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
       // 출격 준비 경고 (2026-09-08): opened by the pod itself, not by a key — E is its keyboard 취소.
       if (this.launchWarn.isOpen) { this.launchWarn.close(); ctx.input.consume(Keys.INTERACT); }
-      else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.INTERACT); }
+      // 2026-09-14: 터미널 위에 매칭 팝업 · 정보상 화면이 뜰 수 있다 — E 도 **맨 위 하나**만 닫는다 (`closeTop`)
+      else if (this.menu.isOpen) { this.menu.closeTop(); ctx.input.consume(Keys.INTERACT); }
       // 분대원 장비 popup before the pod: it is modeless over the pod view and holds no blocker of its own, so
       // without this step the same E would un-board out from under it (Phase 10 ordering, on the new key).
       else if (this.ready.closePopup()) { ctx.input.consume(Keys.INTERACT); }

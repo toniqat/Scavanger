@@ -38,6 +38,15 @@ export function isTraining(sys: GameFlowSystem): boolean {
   }
 
 /**
+ * 2026-09-14 (튜토리얼 개편): 손으로 지은 튜토리얼 행성을 도는 중인가. **`isTraining()` 을 넓히지 않는다** —
+ * 훈련장은 보상 · 결과 화면 · 계약 정산이 통째로 없는 반면 튜토리얼은 평범한 레이드처럼 끝나고 정산한다.
+ * 여기서 갈리는 것은 「사망이 실패가 아니다」 하나뿐이다 (`parts/Death` 의 체크포인트 갈래).
+ */
+export function isTutorial(sys: GameFlowSystem): boolean {
+  return sys.ctx.missionMode === 'tutorial';
+  }
+
+/**
  * Phase 8: standing in the personal / shared ship. Esc pauses here too (the terminal is opened from the console,
  * not from Escape any more), but the pause is menu-only — `freeze` stays false so the ship keeps animating and
  * nothing mission-related (abort, stats, timers) happens.
@@ -132,9 +141,12 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
    * emit without the field (an older path) keeps whatever the ship last flew to rather than silently rerolling.
    */
   ctx.missionPlanet = sys.isTraining() ? null : (planet ?? ctx.missionPlanet);
+  // 2026-09-14 (정보상): 같은 규약 — 훈련장은 기믹 고정이 없다. 레이드의 값은 emitter 가 이미 세팅했다 (여기서 덮지 않는다).
+  if (sys.isTraining()) ctx.missionIntel = null;
   sys.setPaused(false);
   sys.completeTimer = -1;
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  sys.tutorialRespawnTimer = -1;   // 2026-09-14
   sys.lastThreat = -1;
   sys.boarded = false;
   sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편
@@ -175,9 +187,12 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
 /** World generated: deploy — or, on a rejoin, restore the raid blob and wait for the host's ghost. */
 export function onWorldReady(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
-  // 2026-09-08: 시뮬레이션 훈련장은 강하가 없다 (`player/`도 헬포드를 건너뛴다) — 'deploying' 을 거치면
-  //   `player:landed` 가 영영 오지 않아 화면이 강하 오버레이에 갇힌다. 바로 'playing' 으로 간다.
-  sys.setPhase(sys.isTraining() ? 'playing' : 'deploying');
+  /*
+   * 2026-09-08: 시뮬레이션 훈련장은 강하가 없다 (`player/` 도 헬포드를 건너뛴다) — 'deploying' 을 거치면
+   * `player:landed` 가 영영 오지 않아 화면이 강하 오버레이에 갇힌다.
+   * 2026-09-14: 튜토리얼도 같다 — 함선이 없는 사람이 그 행성에서 깨어난다 (`player/parts/Spawn.usesHellpod`).
+   */
+  sys.setPhase(sys.isTraining() || sys.isTutorial() ? 'playing' : 'deploying');
   if (!sys.rejoining) {
     /*
      * 2026-09-11 (E-5 ③): inventory has just marked the kit as out on this solo raid (`raidSeed`). Write the resumable
@@ -210,6 +225,14 @@ export function onWorldReady(sys: GameFlowSystem): void {
   if (solo) {
     sys.soloRestore = null;
     sys.onGhostRestore(solo);
+    /*
+     * 2026-09-14 (튜토리얼): 새로 지어진 월드의 체크포인트는 `'wake'` 다 — 저장해 둔 곳으로 되돌린다.
+     * `gotoCheckpoint` 은 그 자리로 몸을 옮기기도 하므로, 이어한 사람은 **마지막 체크포인트에서** 다시 시작한다
+     * (「새로고침하면 체크포인트부터 이어 한다」). 모르는 id · 튜토리얼 월드가 아니면 아무 일도 없다.
+     */
+    const cp = sys.soloCheckpoint;
+    sys.soloCheckpoint = null;
+    if (cp) { try { ctx.world?.tutorial?.gotoCheckpoint(cp); } catch (e) { console.error('[gameflow] gotoCheckpoint failed', e); } }
     return;
   }
   // The host answers our `flow rejoined` with `ghost restore`; if it never comes, drop in normally.
@@ -257,6 +280,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.setPaused(false);
   sys.completeTimer = -1;
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  sys.tutorialRespawnTimer = -1;   // 2026-09-14
   sys.boarded = false;
   sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편
   sys.allDeadCheckTimer = -1;
@@ -267,6 +291,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.rejoining = false;
   sys.raidBlob = null;
   sys.soloRestore = null;
+  sys.soloCheckpoint = null;   // 2026-09-14
   clearSoloRaid();          // quitting to the ship / title ends the solo session (the kit resets below)
   ctx.progression?.clearActivePreps();   // A-13: 레이드가 끝났다 — 이번 레이드분은 마신 것으로 친다
   ctx.rejoinPending = false;

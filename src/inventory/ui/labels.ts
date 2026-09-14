@@ -1,13 +1,63 @@
 import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, RoomPurpose, SocketSlot, WeaponDef, WeightState } from '@/shared';
-import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
+import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel, keyTable } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 /** 2026-09-13: English eyebrow word of the facility a bench belongs to (`TEXT.bench.eyebrow`). Wording only — no numbers. */
 const FACILITY_EYEBROW: Partial<Record<RoomPurpose, string>> = { workshop: 'WORKSHOP', lab: 'LAB', kitchen: 'KITCHEN' };
 
-export const CELL = 54;   // px — default grid cell edge (the Tab window / container grids)
+/* ── 격자 칸 크기 — **단일 원본** (2026-09-14, 사용자 결정 「작은 화면에서 칸을 줄여 세로 여유를 만든다」) ──────────
+ *
+ * 칸 한 변은 예전에 두 곳에 적혀 있었다 — 여기의 `CELL = 54` 와 `inventory.css` 의 `--inv-cell: 54px`. JS 는 그
+ * 값으로 격자 상자의 px 폭 · 높이(`GridView.syncDims`) · 드래그 히트테스트(`hitTest` · `cellForGhost`) · 하이라이트
+ * 자리를 정하고 CSS 는 같은 값으로 칸을 그리므로, **한쪽만 줄이면 놓은 자리가 커서 밑 칸이 아니게 된다.**
+ * 그래서 지금은 **JS 가 원본**이고 CSS 의 `--inv-cell` 은 첫 프레임용 기본값일 뿐이다 — 격자 · 창 · 고스트를 만드는
+ * 코드가 전부 `applyGridCellVar` 로 그 변수를 인라인으로 덮어쓴다. CSS 에는 이 값의 미디어 쿼리가 **없다**.
+ *
+ * 사다리(경계 높이 · 칸 크기)의 수치는 `data/tuning.csv` 의 `INV_CELL_*` 다. 기준은 **뷰포트 높이**다: 1280×760 ·
+ * 1440×900 에서는 창이 화면을 세로로 꽉 채워 `.inv-root` 의 `safe center` 가 `flex-start` 로 떨어졌고(= 위로 붙었다),
+ * 칸을 줄여 창을 짧게 만드는 것이 남는 높이를 만드는 유일한 길이었다. 1080 px 이상은 예전 그대로 54 다.
+ */
+const TUNING = /* data/tuning.csv */ keyTable('tuning.csv');
+/** 창 높이 오름차순 계단. 첫 번째로 `maxH` 를 넘지 않는 칸을 쓴다. */
+const CELL_LADDER: readonly { readonly maxH: number; readonly cell: number }[] = [
+  { maxH: TUNING.num('INV_CELL_TINY_MAX_VH'), cell: TUNING.num('INV_CELL_TINY_PX') },
+  { maxH: TUNING.num('INV_CELL_SHORT_MAX_VH'), cell: TUNING.num('INV_CELL_SHORT_PX') },
+];
+const CELL_BASE = TUNING.num('INV_CELL_PX');
+
+/** 이 창 높이에서 쓸 칸 한 변(px). 표를 읽기만 한다 — 경계와 크기는 csv 가 정한다. */
+export const gridCellForHeight = (viewportH: number): number => {
+  for (const step of CELL_LADDER) if (viewportH <= step.maxH) return step.cell;
+  return CELL_BASE;
+};
+
+const viewportHeight = (): number => (typeof window === 'undefined' ? CELL_BASE * 20 : window.innerHeight);
+
+/**
+ * px — 지금 창 높이에서의 격자 칸 한 변. **`let` 이고 `syncGridCell()` 이 바꾼다** (ESM 라이브 바인딩이라 `import`
+ * 한 쪽도 새 값을 본다). 기본 인자(`cell = CELL`)는 호출 시점에 평가되므로 이 값이 그대로 따라간다.
+ */
+export let CELL = gridCellForHeight(viewportHeight());
 export const GAP = 2;     // px
-export const STEP = CELL + GAP;
+/** px — 칸 + 칸 사이. 드래그 · 하이라이트 수학이 쓰는 한 칸의 보폭. `CELL` 과 함께 움직인다. */
+export let STEP = CELL + GAP;
+
+/**
+ * 창 높이가 다른 칸을 요구하면 `CELL` · `STEP` 을 그 값으로 옮기고 true. 부르는 곳은 `InventoryUI`(mount · resize)
+ * 하나이고, true 를 받으면 창의 `--inv-cell` 과 살아 있는 `GridView` 들에게 새 값을 나눠 준다.
+ */
+export function syncGridCell(): boolean {
+  const next = gridCellForHeight(viewportHeight());
+  if (next === CELL) return false;
+  CELL = next;
+  STEP = CELL + GAP;
+  return true;
+}
+
+/** `--inv-cell` 을 이 요소에 적는다 — CSS 의 기본값을 덮어써 JS 와 CSS 가 같은 칸을 본다. */
+export const applyGridCellVar = (el: HTMLElement, cell: number = CELL): void => {
+  el.style.setProperty('--inv-cell', `${cell}px`);
+};
 /**
  * Pixel size of a `w × h` footprint at an arbitrary cell edge (2026-09-07). `GridView` is built with a `cell` so a
  * screen that needs a denser grid — the 기업 거래 desk, whose 구매 / 판매 tray must show five columns inside its

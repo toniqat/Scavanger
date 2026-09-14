@@ -34,6 +34,7 @@ export const DATA_OWNERS = [
   '/src/world/specimen.ts',
   '/src/audio/AudioSystem.ts',   // tables (FOOTSTEP_MATERIAL_GAIN — 2026-09-11 C-22)
   '/src/weapons/AimSway.ts',     // aim_sway (무기 계열별 조준 흔들림 — 2026-09-12 A2)
+  '/src/inventory/ui/labels.ts', // tuning (INV_CELL_* — 창 높이별 격자 칸 크기, 2026-09-14)
 ];
 
 /** 거의 모든 폴더가 읽는 표 — 스모크를 고르지 않는다 (경고만). */
@@ -102,6 +103,8 @@ export const CSV_FOLDERS = {
   'corp_stock.csv':          ['meta'],
   // 2026-09-14 (메신저 · NPC 퀘스트 — 옛 quests.csv 대신): meta/(엔진) · ui/(메신저 · 지도 패널 · 토스트) 가 소비한다
   'npcs.csv':                ['meta', 'ui'],
+  /* 2026-09-14 정보상 — 구매 · 가격은 meta, 화면은 hub, 기믹 적용은 world · enemies */
+  'intel_options.csv':       ['meta', 'hub', 'world', 'enemies'],
   'npc_quests.csv':          ['meta', 'ui'],
   'npc_objectives.csv':      ['meta', 'ui'],
   'facility_upgrades.csv':   ['housing', 'hub'],
@@ -111,5 +114,5 @@ export const CSV_FOLDERS = {
   // 2026-09-13 (암호화폐 채굴): 코인 표 — housing/(채굴 · 지갑) · net/(시세) 이 읽고 서버 경제 표로 구워진다
   'crypto.csv':              ['housing', 'net'],
   // 여러 폴더가 읽지만 목록이 짧다 (items · meta · progression · shared/housing · shared/meta)
-  'tuning.csv':              ['items', 'meta', 'progression', 'housing'],
+  'tuning.csv':              ['items', 'meta', 'progression', 'housing', 'inventory'],
 };

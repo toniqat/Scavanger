@@ -211,6 +211,18 @@ export class Enemy implements EnemyRef {
   readonly guardPos = new THREE.Vector3();
   leash = ROGUE_AI.leash;
   escortOf: Enemy | null = null;
+  /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`) ──────────────────────── */
+  /**
+   * \> 0 이면 이 마리의 감지 반경(m)을 `stats.sightRadius` 대신 쓴다 — **시야 · 소리 · 유인 · 무리 전파 전부**
+   * (`ai/Perception.senseRadiusOf` 와 `parts/Alerts` 의 반경 계산이 읽는다). 0 = 평소 표 그대로.
+   * 값을 넣는 곳은 `Tutorial.placeTutorialEnemies` 하나뿐이라 본편 · 훈련장의 적은 늘 0 이다.
+   */
+  senseRadius = 0;
+  /**
+   * \> 0 이면 `guardPos` 에서 이만큼(m) 벗어났을 때 추격을 접고 자기 자리로 돌아간다 (`ai/EnemyAI` 의 단단한 리시).
+   * 인간형의 `leash` 는 "보이면 조금 더 따라간다" 는 부드러운 리시라 튜토리얼에서는 이것이 위에 얹힌다.
+   */
+  homeLeash = 0;
   readonly coverPos = new THREE.Vector3();
   hasCover = false;
   coverTimer = 0;
@@ -489,6 +501,8 @@ export class Enemy implements EnemyRef {
     this.netBuf?.clear();
     // Phase 4
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
+    // 2026-09-14: 튜토리얼 전용 값은 풀에서 빌려 올 때마다 꺼진다 — `Tutorial.placeTutorialEnemies` 만이 다시 켠다
+    this.senseRadius = 0; this.homeLeash = 0;
     this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
     this.shellTimer = 3 + Math.random() * 3; this.dug = 0; this.shellRefusals = 0;

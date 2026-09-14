@@ -38,6 +38,8 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/Hos
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
 import type { RogueSpawnHost } from './RogueGuards';
 import { placeSiteGroups, type SitePlacement } from './SiteGroups';
+/* appended (2026-09-14): 튜토리얼 전용 적 — 고정 자리 · 고정 종류 (`Tutorial.ts`) */
+import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
 /* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
@@ -154,6 +156,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── Phase 7 ── */
   /** 시뮬레이션 훈련장: no spawner / waves / guards / initial population (set at `world:ready`). */
   training = false;
+  /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`, `docs/plans/tutorial-raid.md` D 절) ── */
+  /**
+   * 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`): **고정 자리 · 고정 종류**의 적만 선다 — 굴림 · 순찰 ·
+   * 스포너 · 웨이브 · 거점 그룹 · 레이더 강하 · 네임드 · 지하벌레 · 총알 추적이 전부 훈련장처럼 꺼진다.
+   * 훈련장과 다른 점은 **적이 있다**는 것 하나뿐이다. `world:ready` 에서 정한다.
+   */
+  tutorial = false;
+  /** 이번 튜토리얼 레이드에 세운 적 (권한 1회, 디버그 · 스모크 — `debugTutorial()`). */
+  tutorialPlacement: TutorialPlacement | null = null;
   /* ── Phase 11 ── */
   /** Ecosystem of the 목표 행성 this mission runs on (`world:ready.planet` → `PLANET_DEFS`), null = the default tables. */
   private eco: PlanetEcosystem | null = null;
@@ -215,19 +226,33 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.ensureNet();
         // Phase 7: the training arena has no enemies at all (world/ reports `mode`, game/ sets `ctx.missionMode` before emitting)
         this.training = ctx.isTraining() || ctx.missionMode === 'training' || (ctx.world as Partial<WorldRef> | null)?.mode === 'training';
+        // 2026-09-14: 튜토리얼 월드 — 훈련장과 같은 자리에서, 같은 요령으로 가른다 (`ctx.missionMode` 는 game/ 이 emit 전에 세팅한다)
+        this.tutorial = !this.training
+          && (ctx.missionMode === 'tutorial' || (ctx.world as Partial<WorldRef> | null)?.mode === 'tutorial');
         // Phase 11: 목표 행성 생태계 → spawner / waves / guards. Training keeps it null; so does a mission without a planet
         // (the ecosystem is host-side composition only — the `es` / `ee` wire and replica behaviour are untouched).
-        const planetId = this.training ? null : (planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
-        this.eco = this.training ? null : (getPlanet(planetId)?.eco ?? null);
+        // 2026-09-14: 튜토리얼도 행성이 없다 — 훈련장과 같은 처리라 벌레 난이도 배수는 ×1 이다.
+        const scripted = this.training || this.tutorial;
+        const planetId = scripted ? null : (planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
+        this.eco = scripted ? null : (getPlanet(planetId)?.eco ?? null);
         // 2026-09-13: 행성 threat → 거점 팩션 · 레이더 강하 확률 · 네임드 확률. 모든 클라이언트가 정해 둔다 (승격된 호스트의 강하 굴림)
         this.planetThreatLevel = planetThreat(planetId);
         // 2026-09-14: 벌레 난이도 — 체력 배수(`Pool.acquire`, 리플리카도 같은 값) · 대형 벌레 비중 · 상한(실효 생태계). 훈련장 = threat 1 칸.
-        this.bugTuning = bugThreatTuning(this.training ? 1 : this.planetThreatLevel);
+        this.bugTuning = bugThreatTuning(scripted ? 1 : this.planetThreatLevel);
         this.spawnEco = threatEcosystem(this.eco, this.bugTuning);
         this.spawner.eco = this.spawnEco;
         this.spawner.tuning = this.bugTuning;
         this.waves.eco = this.spawnEco;
         if (this.training) return;
+        // 2026-09-14: 튜토리얼 — 월드가 정한 목록을 **한 번** 읽어 그대로 세우고 끝낸다. 굴림도, 거점 그룹도, 네임드도 없다.
+        // `ctx.world.tutorial` 이 아직 null 인 스텁이면 목록이 비고, 적 0 마리로 조용히 끝난다.
+        if (this.tutorial) {
+          if (this.authority && ctx.world?.ready) {
+            this.targets.refresh(ctx);
+            this.tutorialPlacement = placeTutorialEnemies(this, ctx.world.tutorial?.enemySpawns() ?? []);
+          }
+          return;
+        }
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
           this.spawner.initialPopulate(this, playerSpawn);
@@ -269,7 +294,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       // 2026-09-11: 리플리카는 `ee spawn` 으로 네임드를 처음 볼 때 `enemy:namedSpawned` 를 낸다 (권한은 스폰 경로가 직접)
       bus.on('enemy:spawned', ({ id, type }) => this.named.onSpawned(id, type)),
       // 2026-09-09: 로그 강하 — world/ 가 구조물 · 플랫폼 컨테이너를 처음 조사할 때 낸다. 호스트만 굴린다 (구역당 1회).
-      bus.on('structure:investigated', ({ zoneId, position }) => this.rogueDrops.onInvestigated(zoneId, position)),
+      // 2026-09-14: 튜토리얼에는 강하가 없다 (구조물을 조사해도 굴리지 않는다 — 훈련장은 `RogueDrop` 자신이 이미 막는다)
+      bus.on('structure:investigated', ({ zoneId, position }) => { if (!this.tutorial) this.rogueDrops.onInvestigated(zoneId, position); }),
       // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
       bus.on('net:hostChanged', ({ isLocalHost }) => this.setAuthority(isLocalHost)),
     );
@@ -278,7 +304,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.sandworm.bind(this);
     this.unsub.push(
       // 2026-09-14: 뱉기 · 분출 무리는 실효 생태계(행성 threat 의 중형 가중치)에서 뽑는다 — 등장 여부 판정(`ecoAllows`)은 배수 > 0 이라 같다
-      bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.spawnEco, this.training)),
+      // 2026-09-14: 튜토리얼도 훈련장처럼 지하벌레를 굴리지 않는다 (`training` 인자 = 「절차 스폰이 없는 월드」)
+      bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.spawnEco, this.training || this.tutorial)),
       bus.on('cheat:sandworm', ({ spitS }) => { this.sandworm.debugForce(spitS === undefined ? {} : { spitS }); }),
     );
     this.refreshMode();
@@ -349,9 +376,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.lures.prune(ctx.time);
     // status effects tick on every client (embers are visual); only the authority applies the damage
     if (ctx.isGameplayPhase()) this.updateStatuses(dt);
-    // 로그 강하: 포드 낙하 연출은 어디서나, 착지 스폰은 호스트에서만 (안쪽에서 갈린다)
-    if (!this.training) this.rogueDrops.update(dt);
-    if (!this.training) this.sandworm.update(dt);   // 2026-09-13: 전조 흔들림은 어디서나, 발동 · 분출 · 지하벌레 틱은 권위만
+    // 로그 강하: 포드 낙하 연출은 어디서나, 착지 스폰은 호스트에서만 (안쪽에서 갈린다). 2026-09-14: 튜토리얼도 훈련장처럼 끈다.
+    if (!this.training && !this.tutorial) this.rogueDrops.update(dt);
+    if (!this.training && !this.tutorial) this.sandworm.update(dt);   // 2026-09-13: 전조 흔들림은 어디서나, 발동 · 분출 · 지하벌레 틱은 권위만
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
@@ -360,7 +387,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.acid?.update(dt, this);
         this.shells?.update(dt, this);
         this.grenades?.update(dt);
-        if (!this.training) {
+        // 2026-09-14: 튜토리얼은 순찰 · 웨이브가 없다 — 목록에 적힌 마리가 전부다
+        if (!this.training && !this.tutorial) {
           this.spawner.update(dt, this);
           this.waves.update(dt, this);
         }
@@ -499,7 +527,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   setThreatLevel(level: number): void { this.spawner.threat = THREE.MathUtils.clamp(level, 0, 1); }
 
-  startExtractionWaves(target: THREE.Vector3): void { if (!this.training) this.waves.start(target); }
+  startExtractionWaves(target: THREE.Vector3): void { if (!this.training && !this.tutorial) this.waves.start(target); }
 
   stopExtractionWaves(): void { this.waves.stop(); }
 
@@ -697,6 +725,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   get isAuthority(): boolean { return this.authority; }
   /** true in a 시뮬레이션 훈련장 world (no spawning). */
   get isTrainingWorld(): boolean { return this.training; }
+  /** 2026-09-14: true in a 튜토리얼 world (고정 자리 적만 — 굴림 · 순찰 · 웨이브 · 강하 · 네임드 · 지하벌레 없음). */
+  get isTutorialWorld(): boolean { return this.tutorial; }
+  /**
+   * 2026-09-14 (debug / smoke): 이번 튜토리얼 레이드에 무엇이 섰는가 — 세운 마리 · 건너뛴 줄 · 마리별 감지 반경 · 리시.
+   * 튜토리얼이 아니거나 아직 세우기 전이면 null.
+   */
+  debugTutorial(): { spawned: number; skipped: number; enemies: Array<{ id: number; type: EnemyType; alive: boolean; sense: number; leash: number; x: number; y: number; z: number }> } | null {
+    const p = this.tutorialPlacement;
+    if (!this.tutorial || !p) return null;
+    const enemies = p.ids.map((id) => {
+      const e = this.byId.get(id);
+      return e
+        ? { id, type: e.type, alive: e.isCombatant, sense: e.senseRadius, leash: e.homeLeash, x: e.position.x, y: e.position.y, z: e.position.z }
+        : { id, type: 'scavenger' as EnemyType, alive: false, sense: 0, leash: 0, x: 0, y: 0, z: 0 };
+    });
+    return { spawned: p.spawned, skipped: p.skipped, enemies };
+  }
   /**
    * Phase 9 (debug / smoke): encode the next snapshot through the live delta cache exactly as the host send would
    * (advances `seq`, updates the cache). `force` = keyframe.

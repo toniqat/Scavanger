@@ -82,6 +82,8 @@ export function reset(sys: EnemySystem): void {
   sys.sitePlacement = null;   // 2026-09-13: 거점 점거 기록 (디버그 · 스모크)
   sys.lastClash = -Infinity;
   sys.training = false;
+  sys.tutorial = false;             // 2026-09-14: `world:ready` 가 매 미션 다시 정한다
+  sys.tutorialPlacement = null;     // 2026-09-14: 튜토리얼 고정 배치 기록 (디버그 · 스모크)
   sys.wavesSeen = 0;
   sys.grenadesThrown = 0;
   sys.grenadesExploded = 0;

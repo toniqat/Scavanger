@@ -43,7 +43,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor traps the OS cursor in the hidden window).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -293,7 +293,10 @@ try {
     for (const g of inv.getAllItems().filter((i) => i.defId === 'gem_amber').slice(0, 2)) inv.takeItem(g.uid); // the bag is full of gems here
     const pre = inv.countDef(DEF);
     const stim = ctx.loot.createItem(DEF, 2);
-    const added = inv.tryAddItem(stim);
+    // 2026-09-14: 주운 소모품은 빈 휠 칸이 있으면 **그리로** 간다 (`parts/AutoQuick`) — 이 검사는 그 다음을,
+    //   즉 「가방에 있는 스택을 setQuickSlot 이 **옮긴다**」 를 보므로 주운 경로가 아닌 `tryAddItemAnywhere`
+    //   (상점 · 제작 · 수확 — 「받았다」의 경로라 자동 장착을 타지 않는다)로 가방에 넣고 시작한다.
+    const added = inv.tryAddItemAnywhere(stim) === 'bag';
     const inBagBefore = inv.getGrid('bag').items().some((p) => p.item.uid === stim.uid);
     const moved = inv.setQuickSlot(4, stim.uid);
     const inBagAfter = inv.getGrid('bag').items().some((p) => p.item.uid === stim.uid);

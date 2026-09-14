@@ -73,6 +73,12 @@ export interface NpcRequirement {
   rep?: readonly { corp: CorpId; level: number }[];
   /** 먼저 **완료**한 NPC 퀘스트 id (전부). */
   quests?: readonly string[];
+  /**
+   * appended (2026-09-14): **NPC 개인** 신뢰도 레벨 이상 (전부 만족). 기업 신뢰도(`rep`)와 별개이고 같은
+   * `REP_TABLE`(0–5) 을 쓴다. csv 열은 `reqNpcRep` = "npcId:레벨" 을 `|` 로. 사용자 결정 2026-09-14 — 지금은
+   * **아무 줄도 이 조건을 쓰지 않는다**(적립 · 표시까지만). 계약만 먼저 두고 해금 요소는 나중에 정한다.
+   */
+  npcRep?: readonly { npc: string; level: number }[];
 }
 
 export interface NpcDef {
@@ -92,6 +98,18 @@ export interface NpcDef {
   bio: string;
   /** 파일 줄 순서. */
   order: number;
+
+  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`) ── */
+  /**
+   * **대사 선택지** — 첫 연락 말풍선이 끝난 뒤 뜨는 내 대답 버튼들 (`data/npcs.csv` 의 `introChoices`, `|` 구분).
+   * 비어 있으면 선택지가 없다 (지금까지의 NPC 전부). 고르면 `NpcLogEntry {e:'choice', c}` 하나가 남는다.
+   */
+  introChoices?: readonly string[];
+  /**
+   * 고른 번호에 대응하는 NPC 의 답 (`introChoiceReplies`, `|` 구분 — `introChoices` 와 같은 길이).
+   * **고른 뒤의 대화는 어느 쪽이든 같다** — 분기 상태를 저장하지 않는다 (레이븐은 어느 대답이든 흘려 넘긴다).
+   */
+  introChoiceReplies?: readonly string[];
 }
 
 export interface NpcObjectiveDef {
@@ -132,6 +150,11 @@ export interface NpcQuestDef {
     xp: number;
     rep: readonly { corp: CorpId; amount: number }[];
     items: readonly { defId: string; qty: number }[];
+    /**
+     * appended (2026-09-14, 사용자 결정): 이 퀘스트를 낸 **그 NPC** 의 개인 신뢰도 보상 (csv 열 `npcTrust`).
+     * 기업 신뢰도(`rep`)와 함께 주고 서로를 대신하지 않는다 — 무소속 NPC(레이븐 · 케인)는 이것만 준다.
+     */
+    npcTrust: number;
   };
   /** 대사 (말풍선 단위). */
   lines: { offer: readonly string[]; accept: readonly string[]; decline: readonly string[]; brief: readonly string[]; complete: readonly string[] };
@@ -166,11 +189,27 @@ function pairList(r: Row, col: string): { corp: CorpId; n: number }[] {
   return out;
 }
 
+/** appended (2026-09-14): `reqNpcRep` = "npcId:레벨" 을 `|` 로. `pairList` 는 기업 전용이라 따로 판다. */
+function npcPairList(r: Row, col: string): { npc: string; level: number }[] {
+  if (!r.has(col)) return [];
+  const out: { npc: string; level: number }[] = [];
+  for (const part of r.list(col)) {
+    const i = part.lastIndexOf(':');
+    const npc = i > 0 ? part.slice(0, i).trim() : '';
+    const n = i > 0 ? Number(part.slice(i + 1)) : NaN;
+    if (!npc || !Number.isFinite(n) || n < 0) { issue(r, col, `'${part}' — "npcId:레벨" 형식이어야 한다`); continue; }
+    out.push({ npc, level: Math.round(n) });
+  }
+  return out;
+}
+
 function requirementOf(r: Row): NpcRequirement {
   const rep = pairList(r, 'reqRep').map((p) => ({ corp: p.corp, level: p.n }));
+  const npcRep = npcPairList(r, 'reqNpcRep');
   return {
     ...(r.has('reqLevel') ? { level: r.int('reqLevel', { min: 1 }) } : {}),
     ...(rep.length ? { rep } : {}),
+    ...(npcRep.length ? { npcRep } : {}),
     ...(r.has('reqQuests') ? { quests: r.list('reqQuests').map((s) => s.trim()).filter(Boolean) } : {}),
   };
 }
@@ -180,6 +219,12 @@ const lines = (r: Row, col: string): string[] => (r.has(col) ? r.list(col).map((
 export const NPC_DEFS: readonly NpcDef[] = csvRows('npcs.csv').map((r, order) => {
   const corp = r.optStr('corp');
   if (corp && !CORPS.includes(corp)) issue(r, 'corp', `'${corp}' — ${CORPS.join(' | ')} 또는 비움(무소속)`);
+  // 2026-09-14: 대사 선택지 — 둘 다 비었거나, 같은 개수여야 한다 (고른 번호로 답을 찾는다).
+  const introChoices = lines(r, 'introChoices');
+  const introChoiceReplies = lines(r, 'introChoiceReplies');
+  if (introChoices.length !== introChoiceReplies.length) {
+    issue(r, 'introChoices', `선택지 ${introChoices.length}개인데 답(introChoiceReplies)은 ${introChoiceReplies.length}개 — 개수가 같아야 한다`);
+  }
   return {
     id: r.str('id'),
     name: r.str('name'),
@@ -192,6 +237,7 @@ export const NPC_DEFS: readonly NpcDef[] = csvRows('npcs.csv').map((r, order) =>
     intro: lines(r, 'intro'),
     bio: r.optStr('bio') ?? '',
     order,
+    ...(introChoices.length ? { introChoices, introChoiceReplies } : {}),
   };
 });
 export const NPC_DEF_MAP: ReadonlyMap<string, NpcDef> = new Map(NPC_DEFS.map((d) => [d.id, d]));
@@ -244,6 +290,8 @@ export const NPC_QUEST_DEFS: readonly NpcQuestDef[] = csvRows('npc_quests.csv').
       xp: r.has('rewardXp') ? r.int('rewardXp', { min: 0 }) : 0,
       rep: pairList(r, 'rewardRep').map((p) => ({ corp: p.corp, amount: p.n })),
       items: r.has('rewardItems') ? r.costList('rewardItems') : [],
+      /* appended (2026-09-14): 이 퀘스트를 낸 NPC 의 개인 신뢰도 */
+      npcTrust: r.has('npcTrust') ? r.int('npcTrust', { min: 0 }) : 0,
     },
     lines: {
       offer: lines(r, 'offer'), accept: lines(r, 'accept'), decline: lines(r, 'decline'),
@@ -263,8 +311,14 @@ export const NPC_QUEST_MAP: ReadonlyMap<string, NpcQuestDef> = new Map(NPC_QUEST
 /* ── 저장 · 대화 기록 ───────────────────────────────────────────────────── */
 
 /** 대화 기록의 사건. 글은 저장하지 않고 표에서 다시 푼다 (`NpcQuestRef.getMessages`). */
-export type NpcLogEvent = 'intro' | 'offer' | 'accept' | 'decline' | 'brief' | 'complete';
-export interface NpcLogEntry { at: number; e: NpcLogEvent; q?: string }
+export type NpcLogEvent = 'intro' | 'offer' | 'accept' | 'decline' | 'brief' | 'complete'
+  /** appended (2026-09-14): 첫 연락의 **대사 선택지**에서 내가 고른 대답. */
+  | 'choice';
+export interface NpcLogEntry {
+  at: number; e: NpcLogEvent; q?: string;
+  /** `choice` 전용: 고른 번호 (0부터 — `NpcDef.introChoices` 의 색인). */
+  c?: number;
+}
 
 /** `getMessages` 가 푼 말풍선 한 줄. `quest` = 퀘스트 카드 (상태는 `getQuest(questId)` 로 읽는다). */
 export type NpcMessage =
@@ -287,6 +341,11 @@ export interface NpcSave {
   /** NPC → 사건 목록 (오래된 것 → 최근). */
   log: Record<string, NpcLogEntry[]>;
   quests: Record<string, NpcQuestSave>;
+  /**
+   * appended (2026-09-14): NPC → 누적 **개인 신뢰도 점수**. 레벨은 기업과 같은 `REP_TABLE` 로 환산한다
+   * (`shared/meta.repLevelOf`). 없으면 0 (옛 세이브).
+   */
+  trust?: Record<string, number>;
 }
 
 /* ── 조회 모양 · `ctx.meta.npc` ─────────────────────────────────────────── */
@@ -356,4 +415,16 @@ export interface NpcQuestRef {
   report(id: string): boolean;
   /** 진행 중이고 지금 레이드에서 셀 수 있는 목표가 하나라도 있는 퀘스트 (지도 패널). 레이드 밖이면 빈 배열. */
   getRaidTracks(): readonly NpcQuestInfo[];
+
+  /* ── appended (2026-09-14): 대사 선택지 ── */
+  /**
+   * 그 NPC 의 첫 연락에 **아직 대답하지 않은** 선택지가 있으면 그 라벨들, 없으면 빈 배열.
+   * (= `NpcDef.introChoices` 가 있고 `choice` 사건이 아직 없다.)
+   */
+  getPendingChoices(npcId: string): readonly string[];
+  /**
+   * 선택지 하나를 고른다 — 대화에 내 대답과 NPC 의 답 두 줄이 붙는다 (`NpcLogEntry {e:'choice', c}`).
+   * 고를 것이 없거나 범위 밖이면 false. **분기는 남지 않는다** — 그 뒤의 대화는 어느 쪽이든 같다.
+   */
+  chooseIntro(npcId: string, index: number): boolean;
 }

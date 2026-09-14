@@ -1,5 +1,5 @@
 import type { GameContext, MessengerTab, PlayerCode, RoomId } from '@/shared';
-import { Keys, formatPlayerCode, keyLabel } from '@/shared';
+import { Keys, NPC_DEF_MAP, formatPlayerCode, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
 import { SocialColumn } from '../social/SocialColumn';
 import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../social/socialSource';
@@ -69,6 +69,7 @@ export class Messenger {
   private readonly tabBtns = new Map<MessengerTab, { btn: HTMLButtonElement; badge: HTMLElement }>();
   private readonly pages = new Map<MessengerTab, HTMLElement>();
   private ctx: GameContext | null = null;
+  private unsubs: Array<() => void> = [];
   private _tab: MessengerTab = 'chat';
   private badgeAcc = 1;
   private lastBadges = '';
@@ -122,6 +123,16 @@ export class Messenger {
     this.chat.bind(ctx);
     this.column.bind(ctx);
     this.quests.bind(ctx);
+    /*
+     * NPC 개인 신뢰도 레벨업 토스트 (2026-09-14, docs/plans/intel-broker.md §2.7) — 기업 신뢰도의
+     * `meta:repChanged → <기업> 신뢰도 Lv.n`(`hud/MetaToasts`)과 같은 결이다. 패널이 닫혀 있어도 떠야 하므로
+     * `bind` 에서 한 번 걸고(메신저는 HUD 초기화 때 지어진다) `dispose` 에서 푼다.
+     */
+    this.unsubs.push(ctx.bus.on('meta:npcTrustChanged', ({ npc, level, levelUp }) => {
+      if (!levelUp) return;
+      const name = NPC_DEF_MAP.get(npc)?.name ?? npc;
+      ctx.bus.emit('ui:notify', { text: `${name} 신뢰도 Lv.${level}`, kind: 'success', duration: 4 });
+    }));
   }
 
   get tab(): MessengerTab { return this._tab; }
@@ -194,6 +205,8 @@ export class Messenger {
   }
 
   dispose(): void {
+    for (const u of this.unsubs) u();
+    this.unsubs = [];
     this.chat.dispose();
     this.quests.dispose();
     this.column.dispose();

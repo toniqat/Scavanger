@@ -489,3 +489,31 @@ CJS 인지 · `ws` 가 안에 들어갔는지 · `--port` / `--data` 가 먹는�
   표시를 지움 · 잘못된 프레임 두 종류. **295/295**.
 
 - **2026-09-07** — `armGrace` — 진행 중인 **레이드** 안에 있던 멤버는 (다른 접속 멤버가 아직 안에 있는 한) 슬롯을 레이드가 끝날 때까지 유지한다(훈련장 제외, 호스트 역할은 예전처럼 첫 만료에 이관)
+
+---
+
+## 정보상 (2026-09-14, docs/plans/intel-broker.md)
+
+릴레이가 하는 일은 **둘뿐**이다 — ① 로비 상태로 나르기, ② 크레딧 금액 검산.
+
+**① `lobby:intel` · `LobbyState.intel` · `game:start.intel`** (`RelayServer.ts` · `Lobby.ts`)
+- `lobby:intel {intel: IntelWire | null}` — **호스트 전용 · 시작 전** (`not_host` · `started` · `not_in_lobby`).
+  `null` 은 「지역 재배치」라 정상값이다. 파서는 `sanitizeIntelWire` 로 **모양만** 씻는다 (빈 선택 · 모르는 기믹 → null);
+  값이 무엇을 뜻하는지는 클라이언트의 월드 생성기가 안다 (`planet` 과 같은 한계).
+- `lobby:start {intel?}` 이 있으면 그것이, 없으면 이미 올라와 있는 `lobby.intel` 이 `game:start.intel` 로 에코된다.
+- **`Lobby.reset()` 은 `intel` 을 지운다** (그 레이드가 썼다). `planet` 은 목적지라 남는 것과 다르다.
+
+**② `credits:tx` 의 `intel:<planetId>:<code>`** (`Economy.ts`)
+- `delta < 0` 정수, 행성이 표의 `planetThreat` 에 있고, `parseIntelCode` 가 풀리고, 모든 줄이 `options` 에 있고
+  단계가 `maxTier` 이내이며, `|delta| === intelCost(threat, picks, table.intel)` — **식은 클라와 같은
+  `src/shared/intel.intelCost`** 이고 표만 `economy.gen.json` 의 `intel` 절에서 온다.
+- 프로필당 시간당 `CREDIT_INTEL_MAX_PER_HOUR` 회 (원장 `intelAt`). **환불 불가** — `debits` 에 남기지 않는다 (rover 와 같다).
+- 정말 그 정보로 출격했는지는 **보지 않는다**: 맵은 클라이언트가 만든다 (아이템 소유와 같은 한계).
+- 표에 `intel` 절이 없는 옛 `economy.gen.json` 이면 모든 정보 구매가 거절된다.
+
+검사: `selftest.ts` part 12 의 정보상 묶음(문법 왕복 · 정확한 금액 · 한 단위 어긋남 · 알 수 없는 행성 · 단계 초과 ·
+절 없는 표 · 시간당 상한 · 원장 위생)과 part 8 의 `lobby:intel` 왕복(비호스트 · 잘못된 모양 · 방송 · 폐기 ·
+`game:start` 에코 · `lobby:reset` 이 지운다). `npm run net:selftest` **583/583**.
+
+- **2026-09-14 (정보상, 에이전트 D)** — `RelayServer.ts`(`sanitizeIntelWire` · `lobby:intel` 파서 · 핸들러 · `lobby:start` 에코),
+  `Lobby.ts`(`intel` 필드 · `reset` · `toState`), `Economy.ts`(`case 'intel'` · `intelAt` · 표 검사), `selftest.ts`.

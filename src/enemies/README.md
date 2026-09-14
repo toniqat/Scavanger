@@ -64,6 +64,7 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `WaveDirector.ts` | Extraction waves: first wave 3 s after activation, then every 14 s → 9 s; size 6, 8, 10 … (≤ 22) **× `WAVE_SQUAD_SCALE[분대 인원 − 1]`, 최소 2마리** (2026-09-10 — 표는 4인 분대 기준이고 `squadSize(host)` 가 `RogueDrop` 과 같은 계산으로 인원을 센다), split into 1–3 groups spawned 45–90 m from the target, facing the nearest alive player; pauses while nobody is alive. A behemoth over the cap becomes a warrior (**Phase 11**: the cap is `maxBehemothOf(eco)` — 0 on a planet with none — and the count now includes behemoths rolled earlier in the same wave; `WaveDirector.eco` also feeds `waveGroup`). Emits `enemy:waveStarted`. Alive cap 60. Authority only. Phase 7: `prime(index)` — the next `start` (re-requested by extraction/ after a host promotion) continues the escalation from that wave index with a ≤ 6 s gap instead of restarting at wave 0. |
 | `RogueDrop.ts` | **2026-09-13: 레이더 강하** — 계약 이름(`rogueDrop:*` · `rdrop` · `callRogueDrop` · `getRogueDrops`)은 그대로. 확률 `RAIDER_DROP_CHANCE_BY_THREAT[threat − 1]`(threat 1 = 굴림 자체가 없고 기록도 안 한다), 인원은 분대 인원별 **두 파도** `RAIDER_DROP_WAVE1/2_MIN/MAX`(1인 3 · 2인 3→2 · 3인 3→3 · 4인 4→3–4, 파도당 ≤ `RAIDER_DROP_WAVE_MAX` 4), 두 번째 파도는 호스트가 `RAIDER_DROP_WAVE_GAP_S`(10 s) 뒤 **따로 예고**하는 강하(`dropId` = `${zoneId}#2`, 자기 `rdrop incoming/landed` · 포드 · 착지 시드) — 리플리카는 `zone#2` 와 `zone` 을 둘 다 굴린 것으로 기록한다. 파도마다 레이더 분대 하나 · 우회조 1명 · `site 'drop'` · `boss` false. 호스트 이관 때 10 s 대기 중인 두 번째 파도는 사라진다. 디버그 `debugSetDropSquad(n)` · `debugDropWaves`. 아래는 옛 설명. **로그 강하** (2026-09-09). `RogueDropDirector` — `structure:investigated` 를 받아 **호스트만** 구역당 1회 `ROGUE_DROP_CHANCE` 를 굴리고(`worldSeed ^ hash(zoneId)` 시드 스트림이라 호스트가 바뀌어도 같은 답), 성공하면 `callRogueDrop(dropId, position)` 이 분대 인원표(`ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE`, index 0 = 1명)로 인원 · 보스를 뽑아 `world.scatterPoints(position, ROGUE_DROP_RADIUS, count, 4.5, seed)` 에 포드를 떨어뜨린다. 예고 → `ROGUE_DROP_ETA_S` → 착지: `rogueDrop:incoming` / `landed` + `rdrop incoming` / `landed`. **2026-09-10 — 알림 · 소리는 이 파일이 내지 않는다**: 포드마다의 착지 충격음 `rogue_pod_impact`(아군 `hellpod_impact` 가 아니다)만 `impactFx` 에 남고, 무전 경보(`rogue_drop_alarm`)와 대기를 찢는 낙하 굉음(`rogue_pod_fall`)은 `audio/AudioSystem` 이 `rogueDrop:incoming` 을 받아 낸다 — 둘 다 **인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m)** 로 게이트하고 그 안에서 거리에 따라 줄어들며(원격 발소리와 같은 곡선), 굉음은 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전에 나간다. 화면은 `ui/hud/RaidAlerts` 의 토스트와 `ui/hud/DangerIndicators` 의 위험 표시(화면 안 = 머리 마커 · 밖 = 방향 호, 같은 반경). 착지에서 `host.spawnRogue` 로 `rogue` / `rogue_boss` 를 세우고(`guardPos` = 트리거 지점, `ee spawn` 은 기존 스폰 경로가 낸다) `beginInvestigation(e, 트리거 지점)` 으로 **구조물까지 진격**시킨다 — 도착하면 그 자리를 지키는 기존 가드 순찰로 넘어간다. 구역당 1회 기록은 자체 `used` 집합(리플리카가 받은 `rdrop incoming` 도 넣으므로 승격된 호스트가 다시 굴리지 않는다) ∪ `WorldRef.getStructures()` 의 `StructureDef.rogueDropUsed`; `Pool.reset` 이 레이드마다 비운다. 비호스트는 `rdrop` 을 받아 같은 이벤트를 내고 **포드 연출만** 그린다(적은 기존 `es` / `ee` 리플리카 경로). 포드는 외부 에셋 없이 여기서 절차 생성한 붉은 육각 캡슐(공유 지오메트리 · 머티리얼, `disposeRogueDropAssets`), 낙하 연기 · 착지 `groundBlast` / `dust` / `sparks` 는 `@/core/fx`. `ctx.isTraining()` 훈련장에서는 전부 no-op. |
 | `named/Director.ts` | **2026-09-13**: 네임드 3종은 팩션 `raider`, 확률 `NAMED_ROGUE_CHANCE_BY_THREAT[threat − 1]`(0 · 0.25 · 0.5 — 옛 `…_BY_RANK` 은퇴), 시드 `hash('named@<seed>')`(같은 시드의 네임드가 예전과 다르다), `NamedRollResult.threat`, 헤비 = 역할 `leader` + SMG **레이더** 호위가 같은 `squadId`(우회조 없음). **네임드 로그 스폰 디렉터** (2026-09-11). `NamedRogueDirector` — `world:ready` 권한 분기에서 가드 배치 뒤 `roll(planet)` 한 번: 시드 스트림 `worldSeed ^ hash('named')` 에서 등장(`NAMED_ROGUE_CHANCE_BY_RANK[planetTier − 1]`) → 종류(3종 균등) → 자리를 차례로 뽑는다. 자리는 전부 스폰에서 `NAMED_ROGUE_MIN_SPAWN_DIST` 이상 · 맵 안 · 선로 회랑(`RAIL_CLEARANCE_M` + 4 m) 밖 · 구조물 발자국 밖 · `obstacleCoverage` 로 막히지 않은 곳: 로든 = 개활 · 구조물에서 멀고 둘레보다 높은 후보(스폰을 바라본다), 타길라 = 스폰에서 먼 구조물 둘레 `NAMED_HAMMER.structureRadius` 안 엄폐가 가장 많은 자리(`guardPos` = 구조물), 헤비 = 먼 구조물 · 상자(폐허) 곁 + SMG 호위 `NAMED_HEAVY_ESCORTS_BY_SQUAD[분대 인원 − 1]` 명(`escortOf` = 헤비, `escortRadius` 안). 스폰은 `spawnRogue`(무기 `sr` / `u_minigun` / 없음, 호위 `smg`) → `ee spawn` 그대로. `enemy:namedSpawned` 는 권한이면 스폰 직후, 리플리카면 `enemy:spawned` 에서 id 당 한 번. `reset()` 은 `Pool.reset`. 디버그 `EnemySystem.debugSpawnNamed(type, at?)` · `debugNamedRoll()`. |
+| `Tutorial.ts` | **튜토리얼 전용 적 (2026-09-14)** — `placeTutorialEnemies(host, spawns)` 가 `ctx.world.tutorial.enemySpawns()` 목록을 **그대로** 세운다 (난수 0회 · 굴림 없음 · 웨이브 없음 · 스포너 없음 · 거점 그룹 없음 · 네임드 없음 · 지하벌레 없음 · 레이더 강하 없음 — 훈련장이 전부 끄는 것과 같고, 다른 점은 **적이 있다**는 것뿐이다). 벌레는 `spawn`, 인간형은 `spawnRogue`(자기 자리가 `guardPos` · 총은 `HUMANOID_WEAPONS[팩션]` 첫 항목)라 **몸 · AI · 외피 · 시체 전리품이 본편 그대로**다. 그 위에 마리마다 `Enemy.senseRadius`(csv `TUTORIAL_ENEMY_SENSE_M`) · `Enemy.homeLeash`(csv `TUTORIAL_ENEMY_LEASH_M`)를 얹는 것이 전부. `tutorialHold(e, dt)` = `ai/EnemyAI` 가 매 프레임 부르는 자기 자리 지키기(리시 밖 → 접고 귀환 · 싸움이 끝나고 자리를 벗어나 있으면 귀환 · 자리에 섰으면 `wanderTimer` 를 도로 채워 **순찰하지 않는다**); `homeLeash === 0` 이면 첫 줄에서 그대로 돌아간다. 목록은 `world:ready` 에서 **한 번만** 읽는다 — 처치된 적은 체크포인트 부활로 되살아나지 않는다. |
 | `Corpses.ts` | `Corpse` (`Interactable` `corpse:<enemyId>`, `CORPSE_INTERACT_RADIUS`, `holdTime` 0.6, prompt `시체 수색` → `수색 완료`; `canInteract` = `ctx.isGameplayActive()` && player alive & not downed && `ctx.inventory.openContainerItems` exists; `interact()` rolls once via `ctx.loot.rollCorpse(type, new Random(seed ^ id·φ), weaponId)` and calls `ctx.inventory.openContainerItems(id, items, position, '시체')`; an empty roll counts as searched; **2026-09-08** the first `interact()` also sets the appended `Interactable.hidePillar`, so `ui/hud/Detection` stops drawing this body's 빛기둥 while it stays searchable — deliberately **not** synced, another player looting the same corpse leaves our pillar up and ours never clears theirs) and `CorpseManager` (`add` → `corpse:spawned`, `remove` → `corpse:removed`, `markLooted(containerId)` from `crate:looted`, own `CORPSE_LIFETIME` safety timer, `clear`). Contents are per-client like crates. **Phase 10**: `rollCorpseLootable(seed, enemyId, type)` decides whether a body can be searched at all from `CORPSE_LOOT_CHANCE` on an **independent** seeded stream (`worldSeed ^ (enemyId · 0x9e3779b1)`) — never on the `rng` that feeds `rollCorpse`, whose exact output `src/inventory/__selftest__.ts` pins for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. `add(…, opts?: CorpseWireOpts)` takes the host's `lootable` / `deathDir` (`ee corpse.lt / .dd`) over the local roll, **returns null and registers no interactable** when the roll fails, and emits `corpse:spawned { lootable, deathDir }` either way (so a listener can tell "a body is here" from "loot is here"). |
 | `ai/EnemyAI.ts` | State machine per bug: `idle` → `wander` → `alert` → `chase` → `attack` → `stagger`, plus `dead`/`flee`. Everything target-relative reads `e.target` (`acquireTarget` each tick). Rogues branch to `RogueAI.updateRogue` after perception; artillery / toxic / behemoth chase & attack dispatch to `GimmickAI`. Charger rush contact and hunter leap landing hit the nearest alive (not downed) player in range; melee / spit fire only while `!e.target.isDeadOrDowned`. **2026-09-10 (총구 사선)**: 스퓨어의 원거리 침(`startSpit`)에 `ai/FireLine.hasFireLine` 가 붙었다 — 눈에는 보여도 **입**(산탄이 나가는 `headCenter + 0.1`) 사선이 막혔으면 뱉지 않고, `d ≤ SPEWER_SPIT.maxDist` 가지에서는 `fireLineStrafe` 로 옆으로 돈다(이 가지만 `hasMoveTarget = false` 로 굳어 있어서 벽에 침을 뱉던 그림이 나왔다). 후퇴 가지(6.5–9 m)는 어차피 자리가 바뀌므로 사격만 막는다. 연막 속 추정 사격(`suspicion`)은 원래 맹목 사격이라 검사하지 않는다. `integrate()` (exported) handles steering, separation, obstacle avoidance (a charging body that deviates → `stumble` with the type's cooldown; behemoth shakes the camera), terrain snapping, gait, footsteps, yaw, slope. **Phase 10**: `integrateDeathFall(e, dt, world)` (exported, called from the `state === 'dead'` early-return here **and** from `net/Replica.update`) integrates `deathVy` under `GRAVITY` and snaps to `world.getHeightAt` → `deathLanded`, so a body killed mid-leap falls instead of freezing in the air. |
 | `ai/HumanoidProfile.ts` | 2026-09-13: 팩션 → 프로필(csv `HUMANOID_ANDROID` · `HUMANOID_ROGUE` · `HUMANOID_RAIDER`), `humanoidAimError`(거리 곡선 × 서서 쏘면 `settleMul`), `rollBurst` · `rollBurstPause`, `rollGrenadeLoadout`(`Pool.spawnRogue` — 1–3개, 소이 확률 로그 30 % · 레이더 40 %, 안드로이드 · 네임드 0). |
@@ -1092,7 +1093,75 @@ attack phase 4  0.25 s 회복 → chase
 
 ---
 
+## 튜토리얼 전용 적 (2026-09-14)
+
+`docs/plans/tutorial-raid.md` 의 `D` 절. 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`)는 **고정 자리 · 고정 종류**의 적만 세운다 —
+**굴림 없음 · 웨이브 없음 · 순찰 없음 · 스포너 없음 · 지하벌레 없음 · 네임드 없음 · 레이더 강하 없음 · 총알 추적 없음.**
+훈련장(`training`)이 전부 끄는 것과 **같은 요령이고 같은 자리**이며, 다른 점은 **적이 있다**는 것 하나뿐이다.
+
+- **월드가 자리를, 여기가 몸을 갖는다.** `EnemySystem` 의 `world:ready` 가 훈련장 갈래 바로 옆에서 `tutorial` 을 정하고
+  (`ctx.missionMode === 'tutorial' || ctx.world.mode === 'tutorial'`), 권한 클라이언트면 `ctx.world.tutorial?.enemySpawns()` 를 **한 번** 읽어
+  `Tutorial.placeTutorialEnemies` 에 넘긴 뒤 `return` 한다 — 거점 그룹 · 네임드 굴림에 닿지 않는다. `ctx.world.tutorial` 이 아직 null 인
+  스텁이면 목록이 비고 **적 0 마리로 조용히 끝난다**. 목록은 다시 읽지 않으므로 **처치된 적은 체크포인트 부활로 되살아나지 않는다.**
+- **행성이 없다** → `planetId`/`eco` 가 null 이고 `bugTuning = bugThreatTuning(1)` — **벌레 난이도 threat 배수는 붙지 않는다**(훈련장과 같은 처리, ×1).
+- **마리마다의 값 둘** (`Enemy.senseRadius` · `Enemy.homeLeash`, 기본값은 csv `TUTORIAL_ENEMY_SENSE_M` 12 · `TUTORIAL_ENEMY_LEASH_M` 22).
+  **둘 다 0 이 기본값**이고 `placeTutorialEnemies` 만이 채우며 `Enemy.reset` 이 풀에서 빌려 올 때마다 0 으로 되돌린다 —
+  그래서 본편 레이드 · 훈련장의 적은 **이 배치로 한 글자도 바뀌지 않는다**(모든 새 가지가 `senseRadius > 0` · `homeLeash > 0` · `sys.tutorial` 뒤에 있다).
+
+### `sense` — 이 반경 밖의 플레이어는 아예 알아채지 못한다
+
+12 m 는 매우 좁다: **플레이어가 먼저 다가가야 싸움이 난다.** 걸리는 자리는 여섯 곳이고 전부 「반경을 정하는 한 줄」이다.
+
+| 경로 | 어디 | 무엇 |
+|---|---|---|
+| 시야 | `ai/Perception.detectionRange` | 기본 반경이 `senseRadiusOf(e)`. 튜토리얼 적은 `CLOAK_REVEAL_DISTANCE` 바닥도 받지 않는다 (그 바닥이 12 m 보다 넓으면 규칙이 깨진다) |
+| 소리 | `parts/Alerts.hearingReach` | 총성 · 수류탄 · 드론 소음 — 평소 식을 그대로 구한 뒤 `hearRadiusOf(e)` 로 **한 번 더 자른다** |
+| 유인 | `ai/Perception.updatePerception` · `parts/Alerts.addDistraction` | 감지 반경 밖에서 난 유인은 `hasLure` 자체가 서지 않는다 (총성 유인이 자기 자리를 뜨게 하지 못한다) |
+| 무리 전파 | `parts/Alerts.alertNear` | 비명이 닿아도 자기 감지 반경 밖이면 안 깨어난다 (옆 구간이 이 구간을 깨우지 않는다) |
+| 다른 팩션 | `parts/Alerts.pickTarget` | 적대 팩션을 찾는 반경도 `min(평소, sense)` — 벌레와 안드로이드가 구간 너머로 서로를 물지 않는다 |
+| 차량 · 드론 | `pickVehicleTarget` · `pickDroneTarget` | 같은 두 헬퍼를 쓴다 (튜토리얼에는 둘 다 없지만 반경 계산을 한 곳으로 모은다) |
+
+총알 추적(`reportShot` · `onShotReport`)과 소음 조사(`onWorldNoise`)는 **훈련장처럼 통째로 no-op** 이다 — 「고정 자리 · 순찰 없음」과 정면으로 부딪힌다.
+총에 맞으면 `Enemy.takeDamage` 가 여전히 깨운다(그 뒤는 아래 리시가 받는다).
+
+### `leash` — 자기 자리를 지키고 구간 밖까지 쫓아오지 않는다
+
+`Tutorial.tutorialHold(e, dt)` 하나가 정하고 `ai/EnemyAI.updateEnemyAI` 가 **인지 갱신 뒤 · 팩션 분기 앞**에서 매 프레임 부른다
+(`homeLeash === 0` 이면 첫 줄에서 그대로 돌아가므로 본편에는 이 가지가 없는 것과 같다):
+
+1. **리시 밖** — 무슨 일이 있어도 추격을 접고 `wander` 로 `guardPos` 를 향한다. 벗어나 있는 동안 매 프레임 `aware` 를 끄므로 **다시 달려들 수 없다.**
+2. **리시 안에서 교전 중** — 평소 AI 그대로 (튜토리얼이 가르치려는 전투가 여기서 벌어진다).
+3. **싸움이 끝났는데 자리를 벗어나 있다** — 걸어서 돌아간다.
+4. **자리에 섰다** — `idle` 이 깎는 만큼 `wanderTimer` 를 도로 채워 **순찰하지 않는다.** 그래야 위험 구역이 목록에 적힌 자리 둘레 `sense` 로
+   **정확히** 고정되고, 월드가 「체크포인트는 그 구간 적의 감지 범위 밖」을 지킬 수 있다.
+
+돌아가는 **걸음 · 애니메이션 · 충돌은 평소 상태 기계**(벌레 `ai/EnemyAI` · 인간형 `ai/RogueAI`)가 그대로 맡는다 — `tutorialHold` 는 상태만 되돌린다.
+공중(도약) · 돌진 중 · 경직 중에는 건드리지 않는다 (이미 날아간 것은 착지해야 끝난다). 인간형은 `ai/RogueAI` 의 **부드러운** 리시(`Enemy.leash`, 보이면
+조금 더 따라간다)도 같은 값으로 채워 두지만, 겹치면 **단단한 쪽이 이긴다.**
+
+### 그대로 둔 것
+
+안드로이드의 **외피 · 피 대신 불꽃 · 금속 피격음 · 시체 전리품**은 본편 그대로다 — 튜토리얼에서 얻은 전리품은 진짜 보상으로 가져간다.
+`senseRadius` · `homeLeash` 는 **와이어에 없다**: 튜토리얼 레이드는 솔로 강제(매치메이킹 · 로비 진입 자체가 없다)라 리플리카가 생기지 않는다.
+
+디버그 훅: `EnemySystem.isTutorialWorld` · `debugTutorial()` (세운 마리 · 건너뛴 줄 · 마리별 `sense` / `leash` / 생사 / 자리).
+
+---
+
 ## 변경 이력
+
+- **2026-09-14 (튜토리얼 전용 적, 에이전트 D)** — 위 `## 튜토리얼 전용 적`. 새 파일 `Tutorial.ts`(`placeTutorialEnemies` · `tutorialHold`),
+  `Enemy`(`senseRadius` · `homeLeash` 두 필드 + `reset` 초기화), `ai/Perception`(`senseRadiusOf` · `hearRadiusOf` · `detectionRange` 기본 반경 · 유인 반경),
+  `parts/Alerts`(`hearingReach` · `alertNear` · `addDistraction` · `pickTarget` · `pickDroneTarget` · `pickVehicleTarget` 의 반경, `reportShot` · `onShotReport` ·
+  `onWorldNoise` 의 튜토리얼 no-op), `ai/EnemyAI`(`tutorialHold` 한 줄), `EnemySystem`(`tutorial` · `tutorialPlacement` · `world:ready` 갈래 · 스포너 · 웨이브 ·
+  강하 · 지하벌레 게이트 · `isTutorialWorld` · `debugTutorial`), `parts/Pool.reset`. **본편 · 훈련장 무변경** — 모든 새 가지가 `senseRadius > 0` ·
+  `homeLeash > 0` · `sys.tutorial` 뒤에 있고 셋 다 그 월드에서는 0 / false 다.
+
+- **2026-09-14 (정보상 「현상 수배」 — 네임드 지정, 에이전트 D)** — `named/Director.roll` 이 `ctx.missionIntel?.namedId` 를 보고
+  **등장 굴림 · 종류 굴림을 건너뛰어** 그 네임드로 확정한다 (`isNamedRogueType` 로 거른다 — 모르는 id 는 평소대로 굴린다).
+  **굴림은 둘 다 그대로 소비한다**: 이 rng 는 월드 스트림과 아예 별개(`Random.hash('named@' + seed)`)지만, 소비해야
+  뒤따르는 **자리 굴림**이 산 사람이나 안 산 사람이나 같은 자리에서 시작한다. 고를 수 있는 id 는 `NAMED_ROGUE_TYPES` 셋 —
+  `rogue_sniper`(로든) · `rogue_hammer`(타길라) · `rogue_heavy`(헤비). 다른 것은 한 줄도 안 바뀌지 않았다.
 
 - **2026-09-14 (벌레 난이도 — 행성 threat)** — 위 `## 벌레 난이도`. `factionTables.ts`(6표 · `BugThreatTuning` · `bugThreatTuning`) · `parts/Pool.acquire`(bug 최대 체력 배수 —
   권위 · 리플리카 공용) · `Spawner.ts`(`threatEcosystem` · `BIG_BUG_TYPES` / `MID_BUG_TYPES` · `AmbientOpts` / `ambientOptsOf` · `ambientGroup(…, opts)` 대형 슬롯 확률 ·

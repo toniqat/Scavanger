@@ -641,3 +641,26 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
     `whisperHistory(code)` · `whisperPeers()` · `lastWhisperPeer` 는 오프라인에서도 동작한다. 서버에는 저장하지 않는다.
   - 검사: `scripts/smoke-social.mjs` (떼어 낸 `SocialSync` 에 프레임을 손으로 먹인다 — 공용 릴레이가 옛 코드라서) ·
     `scripts/smoke-controls-hub.mjs` 3c (moved).
+
+---
+
+## 정보상 와이어 (2026-09-14, docs/plans/intel-broker.md)
+
+행성(`LobbyState.planet`)과 **똑같은 취급**이다 — 서버는 모양만 씻어 그대로 나르고, 레이아웃은 아무도 계산하지 않는다.
+
+| 표면 | 자리 |
+|---|---|
+| `NetRef.lobbyIntel` | `lobby.intel` (분대장이 산 것, 없으면 null). 분대원은 **읽기만** 한다 |
+| `NetRef.setLobbyIntel(intel)` | 분대장 · 시작 전. `setLobbyPlanet` 과 같은 규약(낙관적 미러링 → `lobby:intel` → 서버 `lobby:state` 가 확정, **이벤트는 안 낸다**) |
+| `NetRef.startGame(seed, mode?, planet?, intel?)` | `intel` 을 생략하면 `lobby.intel` 이 실린다. 훈련장은 언제나 없다 |
+| `beginSession(…, intel)` | **`ctx.missionIntel = resolveIntelEffects(intel.picks)` 를 `game:newMission` emit 전에** 세팅한다 — `missionPlanet` 과 한 글자도 다르지 않은 규약이다 (월드는 emit 안에서 생성된다) |
+| `game:start` 수신 (`parts/Messages`) | `msg.intel ?? msg.lobby.intel ?? null` — 에코하지 않는 옛 릴레이도 분대와 같은 맵을 만든다 |
+| `rejoinMission()` | `lobby.intel` 을 되찾는다 — **안 하면 돌아온 사람만 기믹이 빠진 맵을 만든다** (시드가 같아 지형은 같고 탈출구 · 지하실만 사라져 더 나쁘다) |
+
+- `parts/Lobby.sanitizeIntelWire` 가 보내는 쪽의 유일한 관문이다 (빈 선택 · 모르는 기믹 = 「안 샀다」 null).
+  식은 `shared/intel.sanitizeIntelPicks` 하나이고 서버도 같은 것을 부른다.
+- 산 사람(분대장)의 `meta/parts/Intel` 이 `hub:entered` · `net:lobbyUpdated` 마다 `setLobbyIntel` 로 맞추므로
+  늦게 합류한 분대원 · 분대장 이관도 따로 다루지 않는다.
+
+- **2026-09-14 (정보상, 에이전트 D)** — `parts/Lobby.ts`(`setLobbyIntel` · `sanitizeIntelWire` · `startGame` · `beginSession` · `rejoinMission`),
+  `parts/Messages.ts`(`game:start.intel`), `NetSystem.ts`(`lobbyIntel` · `setLobbyIntel` · 위임 시그니처).

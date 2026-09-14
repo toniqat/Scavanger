@@ -45,7 +45,7 @@
  * 3인칭 카메라가 천장에 갇히는 문제는 `player/CameraRig` 가 이미 `world.raycast` 로 당겨 오므로 특례가 없다.
  */
 import * as THREE from 'three';
-import type { LightFixture, Random } from '@/shared';
+import { PLAYER_RADIUS, type LightFixture, type Random } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
 import { propHullOf } from '../../propHull';
 import {
@@ -54,6 +54,7 @@ import {
   STAIR_ARRIVAL, STAIR_LANDING, STAIR_SLOPE, STAIR_W, VENT_H, VENT_MARGIN, VENT_POST, VENT_W,
   WALL_T, WINDOW_SILL, WINDOW_TOP, WINDOW_W,
 } from '../model';
+import { CONTAINER_REACH } from './Containers';
 import type { WindowSpec } from './Glass';
 import { buildStairFlight } from './Stairs';
 
@@ -901,6 +902,12 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     if (k === topK) ex.push(grow(ladderZone, 0.2));
     return ex;
   };
+  /**
+   * 2026-09-14 — 「비울 자리」 밖에 무언가를 놓을 때 **중심**이 물러나야 하는 폭: 자기 덩치(`reach`) + 몸이
+   * **지나갈** 폭(지름). 덩치만 빼면 물건은 자리 밖이어도 그 물건이 **밀어내는 띠**가 자리의 가장자리를 먹는다 —
+   * 계단 구멍 난간처럼 자리 안쪽이 이미 한쪽 벽이면 그것만으로 도착 자리가 통째로 봉인된다 (아래 컨테이너 절).
+   */
+  const clearFor = (reach: number): number => reach + PLAYER_RADIUS * 2;
 
   /* ── 실내 소품 (연구실은 작업대, 전진기지는 탄약 팔레트) ────────────────────
    * 2026-09-12: 콜라이더는 **그린 상자 그대로**다. 예전엔 0.7 m 원기둥이라 긴 작업대의 양 끝은 뚫리고 앞면 30 cm 는
@@ -915,7 +922,8 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       const d = lab ? 0.8 : rng.range(0.9, 1.4);
       const pyaw = yaw + rng.range(-0.4, 0.4);
       const reach = Math.hypot(w, d) / 2;
-      if (ex.some((r) => inRect(grow(r, reach + 0.3), lx, lz))) continue;
+      // 2026-09-14: 예전 여유 0.3 m 는 몸 반지름(0.45)보다 좁아 소품이 밀어내는 띠가 비울 자리를 먹었다 → `clearFor`
+      if (ex.some((r) => inRect(grow(r, clearFor(reach)), lx, lz))) continue;
       if (hasPartition && Math.abs(lz - partZ) < WALL_T / 2 + reach + 0.6) continue;
       const [px, pz] = rot(lx, lz);
       const g = new THREE.BoxGeometry(w, h, d);
@@ -957,7 +965,21 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     const j = rng.int(0, i);
     const t = floorSpots[i]; floorSpots[i] = floorSpots[j]; floorSpots[j] = t;
   }
-  const chosen = floorSpots.slice(0, Math.max(0, plan.containers));
+  /* ── 2026-09-14: 컨테이너도 **덩치로** 거른다 ──────────────────────────────────
+   * 위의 `push` 는 자리의 **중심 한 점**만 `inRect` 로 봤다 (소품은 이미 덩치를 봤다). 그래서 계단 도착 자리
+   * 바로 옆 벽에 컨테이너가 서고, 그 몸통(중심에서 `CONTAINER_REACH`) + 사람 반지름이 계단 구멍 **난간**이
+   * 밀어내는 띠와 맞닿아 2층 도착 자리를 통째로 봉인했다 — seed 21 `struct_lab_0` 에서 2층 두 방이 15/1469 ·
+   * 0/1256 이었고 사다리 · 잠긴 방 문 · 컨테이너가 전부 안 닿았다 (`smoke-structure-reach` · `smoke-site-spawns`).
+   * ⚠ 거르는 것은 **섞은 뒤**다 — 목록 길이가 곧 위 셔플의 draw 수라, 미리 거르면 같은 시드의 나머지 추첨이 밀린다.
+   * 자리가 모자라면 그 건물의 컨테이너가 그만큼 적어진다 (막힌 컨테이너보다 낫다). */
+  const contClear = clearFor(CONTAINER_REACH);
+  const exByFloor = Array.from({ length: floors }, (_, k) => exclusions(k).map((r) => grow(r, contClear)));
+  const chosen: typeof floorSpots = [];
+  for (const c of floorSpots) {
+    if (chosen.length >= Math.max(0, plan.containers)) break;
+    if (exByFloor[c.k].some((r) => inRect(r, c.rx, c.rz))) continue;
+    chosen.push(c);
+  }
 
   /* 컨테이너가 있는 방마다 천장 조명 한 개 (발광 판 + 광원 자리) */
   {

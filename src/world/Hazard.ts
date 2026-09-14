@@ -103,7 +103,9 @@ export class Hazard implements HazardRef {
 
     // 2026-09-10: 지형(biome)을 함께 넘긴다 — 눈 덮인 지형이면 모래 폭풍이 눈보라로 바뀐다 (`Plan.SNOWY_BIOMES`).
     // 2026-09-13: 강하 지점도 넘긴다 — 모래 폭풍 · 눈보라 전선이 그쪽 가장자리에서 들어온다.
-    const plan = planHazard(ctx.rng.fork(HAZARD_FORK), candidates, this.groveSpots, biomeId, ctx.layout.spawn);
+    // 2026-09-14: 정보상 「기상 예보」 — 시작 시각에 초를 더한다 (굴림 뒤의 덧셈이라 draw 수는 그대로다)
+    const plan = planHazard(ctx.rng.fork(HAZARD_FORK), candidates, this.groveSpots, biomeId, ctx.layout.spawn,
+      game.missionIntel?.hazardDelayS ?? 0);
     if (!plan) return false;
     this.plan = plan;
     this.row = hazardRow(plan.kind) ?? null;

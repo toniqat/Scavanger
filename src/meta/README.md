@@ -17,9 +17,10 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `parts/Contracts.ts` | **계약 · 퀘스트**. 계약은 하나만 활성이고 목표 카운터가 버스 이벤트(`enemy:killed` / `crate:open` / …)에서 오른다. 분대원의 진척은 `meta contractHit` 로 공유되고, 레이드가 끝나면 `settleMission` 이 `outcome` 에 따라 정산한다. 퀘스트는 가방 + 창고에서 납품받는 사슬이다. **훈련장에서는 아무것도 세지 않는다.** |
 | `parts/Credits.ts` | **크레딧 · 신뢰도 · 서버 프로필**. 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다. `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다. 분대 중계(`meta` · `metaq`)의 검증 — 로비 멤버 · 킬 목표 무시 · 토큰 버킷 · `rid` 짝맞춤 — 도 여기다 (2026-09-11 E-4). **2026-09-13**: `creditsTx(delta, reason)` — `MetaRef.creditsTx` 구현. `addCredits` 처럼 낙관적으로 적용하되 릴레이 답까지 기다린다: 로컬 잔액 부족 → `{ok:false, reason:'크레딧 부족'}`, 오프라인 · delta 0 → `{ok:true}`, 거절 → `serverTx` 가 되돌리고 `{ok:false, reason}`, 답 없음(`null`) → **로컬 적용을 되돌리고** `{ok:false, reason:'서버 응답이 없습니다'}` (housing 거래소가 「성공했을 때만 지갑을 바꾼다」). |
 | `parts/ImplantDesk.ts` | **세레스 바이오 임플란트 수리 데스크** (Phase 12). 레이드에서는 **망가진 임플란트만** 나온다. 여기서 재료 + 수수료를 내고 고치면 쓸 수 있는 물건이 된다. 크레딧 경로는 구매와 완전히 같고(서버 트랜잭션 / 오프라인 분기), 실패하면 재료까지 전액 되돌린다. |
+| `parts/Intel.ts` | **(2026-09-14, 정보상 — docs/plans/intel-broker.md)** `class Intel implements IntelRef` = **`ctx.meta.intel`** (`MetaSystem.intelPart`, getter `intel`). 보유 정보는 **하나**이고 `MetaSave.intel` 에 산다(=`MetaStorage.snapshot()` 을 타고 서버 프로필로 — 새로고침 · 재접속을 견딘다). `buy(planet, seed, picks)` = ① 행성 · 결제 진행 중 · 레이드 중 · **비호스트**(`canEdit`) · 빈 선택 · 크레딧 로컬 선검사 → ② `clamp`(행성에서 잠긴 줄 버리고 단계를 `intelMaxTier` 로 자름) → ③ `intelCost` → ④ **`MetaRef.creditsTx` 로 릴레이의 답을 기다린다**(암호화폐 매매와 같은 길) → 성공에서만 보유 정보를 덮고 `intel:purchased` + `intel:changed` + `syncLobby`. 동기 답은 「요청이 받아들여졌는가」이고 거절은 `lastRefusal` + `ui:notify` 다(상점 구매 · 임플란트 수리와 같은 규약). `discard()` = 「지역 재배치」(**환불 없음** · 분대장만), `consume()` = 레이드가 썼다 — `game:newMission` 에서 `spec.planet === ctx.missionPlanet` 이면 `armed`, `game:complete` · `game:over` · `game:abort` 에서 그때만 지운다(함선에서 산 정보를 엉뚱한 abort 가 먹지 않는다). `syncLobby()` 는 분대장이고 시작 전일 때 `lobby.intel` 과 다르면 `NetRef.setLobbyIntel` 로 올린다 — `hub:entered` · `net:lobbyUpdated` 마다 불리므로 합류 · 분대장 이관도 저절로 따라온다. |
 | `parts/Console.ts` | 개발자 콘솔 명령 `credits` / `rep` / `contract` / `quest` / `implant`. dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다. |
-| `NpcRules.ts` | **(2026-09-14, 메신저 NPC 퀘스트)** 순수 규칙 — `enemyMatches`(묶음 `humanoid`(스캔 드론 제외) · `rogue` · `raider` · `android` · `bug` · `named`, 또는 적 타입 id — 팩션 원본 `data/enemies.csv`) · `itemMatches`(아이템 id 또는 `weapon:<계열>`) · `requirementMet`(레벨 · 기업 신뢰도 레벨 · 완료 퀘스트) · `objectiveLabel`(한국어 목표 문구: 행성 조건은 앞에 `행성 · `, 예 `기관단총으로 인간형 적 8명 처치` · `버려진 연구실 컨테이너 3개 조사` · `회로 기판 6개 납품`) · `rewardSummary` · `legacyQuestState`(NPC 상태 → 옛 `QuestState`) · `freshNpcSave` / `sanitizeNpcSave`(모르는 NPC · 퀘스트 id 버림, 진행 [0, target], 기록 `NPC_LOG_MAX`, 퀘스트가 있는데 연락이 없으면 채움) · `NPC_REASON`. |
-| `parts/NpcQuests.ts` | **(2026-09-14)** `class NpcQuests implements NpcQuestRef` = **`ctx.meta.npc`** (`MetaSystem.npcQuests`, getter `npc`). 함선에서만 `evaluate`(함선 진입 · 프로필 로드 · 레벨 · 신뢰도 · 수락/보류/완료 뒤 · `NPC_OFFER_CHECK_S` 주기 — 튜토리얼 · 훈련장 제외): 조건 맞은 NPC 첫 연락(intro), NPC 마다 대기 중 제안이 없으면 파일 줄 순서의 다음 퀘스트 제안(offer). 기록은 사건(`NpcLogEntry`)만 저장하고 `getMessages` 가 표에서 말풍선으로 푼다(`NPC_REPLY_KO` · complete 뒤 `보상 — …` 시스템 줄). `accept`(offered/deferred → active, deferred 면 `brief`) · `defer` · `deliver`(가방 + 창고, 나눠 넣기, `commitQuestTx`) · `report`(보상 아이템 먼저 → `quest:<id>` 크레딧 → `rewardRep` 마다 `addRep` → XP, 포기 없음) · `getRaidTracks` · `questState` · 콘솔용 `forceContact` / `forceOffer` / `devProgress` / `reset`. |
+| `NpcRules.ts` | **(2026-09-14, 메신저 NPC 퀘스트)** 순수 규칙 — `enemyMatches`(묶음 `humanoid`(스캔 드론 제외) · `rogue` · `raider` · `android` · `bug` · `named`, 또는 적 타입 id — 팩션 원본 `data/enemies.csv`) · `itemMatches`(아이템 id 또는 `weapon:<계열>`) · `requirementMet`(레벨 · 기업 신뢰도 레벨 · **NPC 개인 신뢰도 레벨**(`npcRep` — `NpcReqContext.npcTrustLevel`, 2026-09-14: 계약 · 판정만이고 csv 의 어느 줄도 아직 안 쓴다) · 완료 퀘스트) · `objectiveLabel`(한국어 목표 문구: 행성 조건은 앞에 `행성 · `, 예 `기관단총으로 인간형 적 8명 처치` · `버려진 연구실 컨테이너 3개 조사` · `회로 기판 6개 납품`) · `rewardSummary`(2026-09-14: 기업 신뢰도 뒤에 `<NPC> 신뢰도 +n` 한 칸 추가) · `npcTrustLabel` · `npcTrustReason`(= `quest:<id>`, 기업 `addRep` 과 같은 문법) · `legacyQuestState`(NPC 상태 → 옛 `QuestState`) · `freshNpcSave` / `sanitizeNpcSave`(모르는 NPC · 퀘스트 id 버림, 진행 [0, target], 기록 `NPC_LOG_MAX`, 퀘스트가 있는데 연락이 없으면 채움, **`trust` 는 모르는 id · 0 이하만 버리고 그대로 실어 나른다** — 없던 옛 문서는 빈 표) · `NPC_REASON`. |
+| `parts/NpcQuests.ts` | **(2026-09-14)** `class NpcQuests implements NpcQuestRef` = **`ctx.meta.npc`** (`MetaSystem.npcQuests`, getter `npc`). 함선에서만 `evaluate`(함선 진입 · 프로필 로드 · 레벨 · 신뢰도 · 수락/보류/완료 뒤 · `NPC_OFFER_CHECK_S` 주기 — 튜토리얼 · 훈련장 제외): 조건 맞은 NPC 첫 연락(intro), NPC 마다 대기 중 제안이 없으면 파일 줄 순서의 다음 퀘스트 제안(offer). 기록은 사건(`NpcLogEntry`)만 저장하고 `getMessages` 가 표에서 말풍선으로 푼다(`NPC_REPLY_KO` · complete 뒤 `보상 — …` 시스템 줄). `accept`(offered/deferred → active, deferred 면 `brief`) · `defer` · `deliver`(가방 + 창고, 나눠 넣기, `commitQuestTx`) · `report`(보상 아이템 먼저 → `quest:<id>` 크레딧 → `rewardRep` 마다 `addRep` → **`rewards.npcTrust` 를 그 NPC 에게 `addTrust`** → XP, 포기 없음) · `getRaidTracks` · `questState` · 콘솔용 `forceContact` / `forceOffer` / `devProgress` / `reset`. **NPC 개인 신뢰도 (2026-09-14, docs/plans/intel-broker.md §2.7)**: `trustOf` · `trustLevelOf`(기업과 같은 `REP_TABLE` 0–5) · `addTrust`(`NpcSave.trust` 에 누적 · `markDirty` · `meta:npcTrustChanged {npc, trust, level, delta, levelUp}`) — `MetaSystem.npcTrust` / `npcTrustLevel` / `addNpcTrust` 가 그대로 위임한다. 기업 신뢰도와 **별개**이고 서로를 대신하지 않는다; 크레딧이 아니라 서버 검증(`credits:tx`)과 무관하다. 지금은 **적립 · 표시까지만** — 이 값으로 잠기는 것은 없다(사용자 결정). |
 | `parts/NpcObjectives.ts` | **(2026-09-14)** 레이드 목표 — 진행 중 퀘스트 · 진짜 레이드(`isRaidActive` ∧ 훈련장 아님) · 행성 조건. `advance` → 이번 레이드 진행(`raidProgress`)이 목표치에 닿으면 **그 순간 확정**(`NpcQuestSave.p`, 사망해도 유지), `chain` 은 같은 값 전부가 닿아야 함께, `recover` 는 `settleRaid`(탈출 정산)에서만. 사건: `enemy:killed`(내 막타 · `weaponClass`) · `fog:discovered kind 'structure'`(분대 공유) · `crate:open.zoneKind`(컨테이너당 1회) · `world:interacted` · 몸의 raidFound 수(`trackRecover`, 표시만). `resetRaid`(새 미션 · `game:complete` · `game:over` · `game:abort` · `hub:entered`)가 확정 전 진행을 0 으로 되돌리며 음수 delta 를 낸다. |
 | `Storage.ts` | **2026-09-14: `MetaSave` v2** — `npc`(`sanitizeNpcSave`) 추가, 옛 `corps[].quests` 는 읽을 때 버린다. `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
 | `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta` (Phase 9: a non-finite `amount` is 0, not `NaN`), `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. **Phase 12**: `ruleMatches` honours `ShopRule.maxRarity`, never sells a broken implant, and resolves an `implantRepairMaterials` rule against `implantRepairMaterialIds(defs)`; `CATEGORY_SORT` gained `implant / seed / book`; pure repair rules `IMPLANT_REPAIR_FEE` (150 × grade, grade = rarity rank + 1 of the **repaired** def), `implantGrade` / `implantRepairFee` / `isRepairableImplantDef` / `implantRepairCost` / `canRepairImplant(ImplantRepairCheck)` (reason order 아이템 → 함선 → 크레딧 → 재료 → 공간), `REASON.notBroken / noTarget / materials`. |
@@ -305,6 +306,24 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 ## 변경 이력
 
+- **2026-09-14 (레이븐의 튜토리얼 첫 연락 · 대사 선택지 콘텐츠, 에이전트 F, docs/plans/tutorial-raid.md §3.F)** — 코드는 한 줄도 안 바뀌었다:
+  `parts/NpcQuests` 의 `getPendingChoices` · `chooseIntro` · `resolve()` 의 `choice` 갈래는 리드의 계약 커밋에 이미 들어와 있고, 이번에 채운 것은 **표**다.
+  ① `data/npcs.csv` 의 `npc_raven` — `intro` 를 **전 함선 주인의 연락책**으로 다시 썼다(통성명 없이 통신 코드로만 거래했으므로 주인이 바뀐 것을 눈치채지 못한다)
+  + `introChoices` · `introChoiceReplies` **2개씩**(부정 / 수긍). 부정을 골라도 레이븐은 **믿지 않고** 통신 보안 걱정으로 흘려 넘기므로 **분기가 남지 않는다** —
+  `choice` 사건 하나만 기록되고 그 뒤의 대화는 어느 쪽이든 같다(계약 그대로). 이 표를 쓰는 NPC 는 지금 레이븐 하나다.
+  ② `data/npc_quests.csv` 에 레이븐의 **첫 의뢰 `q_rv_0`**(「첫 물건」 — 크레딧 200 · XP 250 · `heal_syringe:2` · `npcTrust` 80)을 `q_rv_1` **앞**에 끼워
+  튜토리얼 트랙 ② 의 「레이븐의 의뢰를 받는다」 가 가리킬 대상으로 삼았고, 줄 순서 제안 규약을 따라 `q_rv_1` 에 `reqQuests=q_rv_0` 을 달았다.
+  목표는 레벨 2 가 첫 실전 레이드에서 끝낼 수 있는 둘뿐이다 — `kill 3 bug` + `recover 2 mat_scrap`(행성 조건 없음 · `chain` 없음).
+  `rewardCredits > 0` 이라 **`server/economy.gen.json` 을 다시 구웠다**(`npm run data:check -- --write` — 안 하면 릴레이가 `quest:q_rv_0` 지급을 거절한다).
+- **2026-09-14 (NPC 개인 신뢰도, 에이전트 C, docs/plans/intel-broker.md §2.7)** — 모든 NPC 에 기업과 **별개**인 개인 신뢰도가 생겼다.
+  누적 점수는 `NpcSave.trust`(npcId → 점수), 레벨은 기업과 **같은** `REP_TABLE`(0–5) — 표를 하나 더 만들 이유가 없다는 사용자 결정.
+  `parts/NpcQuests` 의 `trustOf` · `trustLevelOf` · `addTrust` 가 유일한 소유자이고 `MetaSystem.npcTrust` / `npcTrustLevel` / `addNpcTrust` 는
+  한 줄 위임이다. **지급 자리는 기업 신뢰도 바로 옆** — `report()` 가 아이템 → `quest:<id>` 크레딧 → `addRep` → `addTrust(def.npc, rewards.npcTrust)` → XP
+  순으로 준다(`data/npc_quests.csv` 의 새 열 `npcTrust`, 41개 퀘스트 전부). **크레딧이 아니므로 서버 검증과 무관하다** — `credits:tx` 는 한 줄도 안 바뀌었다.
+  조건 쪽은 `NpcRules.requirementMet` 이 `NpcRequirement.npcRep` 를 판정하게 됐고(`NpcReqContext.npcTrustLevel`) **실제 게이트는 하나도 걸지 않았다**
+  (사용자 결정: 신뢰도별 해금 요소는 아직 정하지 않는다). 저장은 `sanitizeNpcSave` 가 `trust` 를 실어 나르고 `freshNpcSave()` 가 빈 표를 들고 나온다 —
+  `MetaStorage.snapshot()` → localStorage · `profile:set meta` → `sanitizeMetaSave` 가 유일한 왕복 경로이고, 여기서 빠지면 새로고침 한 번에 사라진다
+  (2026-09-09 `accent` 사고와 같은 자리). `data/npcs.csv` 의 레이븐 `reqLevel` 4 → **1** (정보상을 1레벨부터 — 무소속이라 기업 조건도 없다).
 - **2026-09-13 (서재 시리즈 — 신뢰도 책, 에이전트 C, docs/plans/library-series-games.md)** — `parts/Contracts.settleMission` 이 성공한 **계약**의 신뢰도를
   `Math.round(rep × libraryTrustMul(ctx.housing.getLibraryEffects(), corp))`(= `1 + trustXp.all + trustXp[corp]`, 새 헬퍼 `libraryTrustMulOf` — housing 이 모르면 1)로 올린 뒤
   `addRep` 한다. **정산 객체의 `rep` 자체를 고치므로** 결과 화면 · `meta:contractSettled` 가 실제로 받은 양을 말한다. 퀘스트 보상 신뢰도에는 곱하지 않는다(사용자 명세 「계약 완료」).
@@ -548,3 +567,22 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
   `smoke-meta` 178 / 0 (퀘스트 부분을 폐지 확인 · 계약 탭 재화 칩 · v2 로 바꿈), `smoke-mining` 64 / 0, `smoke-favorite-chips` 52 / 0, `smoke-ui-p5` 141 / 0.
 
 - **2026-09-14 (메신저 · NPC 퀘스트, 에이전트 B)** — 기업 퀘스트 폐지 · `ctx.meta.npc` 엔진(`NpcRules` · `parts/NpcQuests` · `parts/NpcObjectives`) · `MetaSave` v2(`npc`) · 기업 화면 퀘스트 탭 삭제 · 콘솔 `npc` · `getQuestState` = NPC 퀘스트 · `settleMission` 이 NPC 회수 목표를 먼저 정산.
+
+---
+
+## 정보상 (2026-09-14, docs/plans/intel-broker.md)
+
+`ctx.meta.intel` (`IntelRef`, 구현 `parts/Intel.ts`). 계약 · 가격 식 · 위생은 전부 `src/shared/intel.ts` 이고
+값은 `data/intel_options.csv` · `data/tables.csv` · `data/tuning.csv` 다 — **이 폴더에는 숫자가 없다.**
+
+- **한 번에 하나.** 이미 있는데 또 사면 **환불 없이** 덮어쓴다 (사용자 결정).
+- **멀티는 분대장만** 사고 버린다 (탐사 차량 요금의 「결제자 한 명」 규약). 분대원은 `lobby.intel` 을 읽기만 한다.
+- **크레딧은 릴레이의 답을 기다린다** (`creditsTx`). 거절되면 보유 정보를 **바꾸지 않는다** — 산 것처럼 보였다가
+  서버에서 튕기면 그 시드로 출격해 기믹만 없는 맵이 된다. 사유는 `intel:<planetId>:<code>` (`shared/credits`).
+- **행성이 바뀌어도 버리지 않는다.** `get().planet` 을 그대로 노출해 화면이 「다른 행성의 정보」라고 적을 수 있게 하고,
+  출격에는 **행성이 일치할 때만** 쓴다 (`hub/parts/Pods.usableIntel`). 다시 그 행성으로 가면 유효하다.
+- **저장**: `MetaSave.intel` — `Storage.sanitizeMetaSave` 가 `sanitizeIntelSpec` 로 읽는다. 여기서 빠뜨리면
+  산 정보가 한 번의 새로고침에 사라진다(2026-09-09 `accent` 사고와 같은 자리).
+
+- **2026-09-14 (정보상, 에이전트 D)** — 새 파일 `parts/Intel.ts`, `MetaSystem`(`intelPart` · `intel` getter · `subscribe`),
+  `Storage`(`MetaSave.intel` · fresh · sanitize).

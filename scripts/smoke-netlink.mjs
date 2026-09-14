@@ -113,7 +113,7 @@ try {
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument((relayUrl) => {
     try {
-      localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true }));
+      localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } }));
       // 설정 › 서버 설정 오버라이드 = 아직 아무도 듣지 않는 포트 (슬롯 공용 키).
       localStorage.setItem('scav.relay', relayUrl);
     } catch { /* storage off */ }

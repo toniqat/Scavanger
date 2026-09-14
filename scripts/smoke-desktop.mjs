@@ -400,7 +400,7 @@ try {
   const runId = `run-${Date.now().toString(36)}`;
   await sA.page.evaluate((k, v) => {
     localStorage.setItem(k, v);
-    localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true }));
+    localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } }));
   }, MARK_KEY, runId);
   ok(sA.errors.length === 0, `페이지 오류 0 (boot A)`, sA.errors.slice(0, 3).join(' | '));
   await closeApp('boot A', A, sA);

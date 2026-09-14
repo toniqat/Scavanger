@@ -15,8 +15,43 @@
  * 목표 패널 · 스포트라이트 · 바닥 안내선은 전부 `tutorial/` 이 스스로 그린다 — 다른 폴더는 모른다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/* ── appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`) ──────────────────────────────────
+ *
+ * 안내가 **세 트랙**으로 갈라졌고 각각 따로 건너뛴다 (사용자 결정).
+ *
+ *   ① `raid`  — 튜토리얼 레이드. 캐릭터를 만들면 **함선을 거치지 않고** 손으로 지은 튜토리얼 행성에서 깨어나
+ *               이동 · 달리기 · 점프 · 루팅 · 사격 · 앉기 · 회복 · 수류탄을 배우고 버려진 함선으로 탈출한다.
+ *   ② `ship`  — 함선 첫 진입. 레벨업 · 능력치 포인트 투자 확정 · 메신저에서 레이븐의 첫 연락과 퀘스트.
+ *   ③ `build` — 시설 증축 · 작업대 · 제작 · 출격. **기존 17단계가 그대로 이 트랙이다** (id 도 순서도 불변).
+ *
+ * 트랙이 갈린 것 말고 설계는 그대로다 — 진행은 버스 이벤트 관찰, 순서 강제는 각 폴더의 `blockReason` 한 줄.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** 안내 트랙. 각각 자기 목표 패널 · 자기 건너뛰기를 갖는다. */
+export type TutorialTrack = 'raid' | 'ship' | 'build';
+
+export const TUTORIAL_TRACKS: readonly TutorialTrack[] = ['raid', 'ship', 'build'];
+
 /** 순서대로 진행하는 단계. `intro` 는 시작 팝업, `done` 은 끝난 상태(= 비활성). */
 export type TutorialStepId =
+  /* ── ① raid (2026-09-14): 튜토리얼 레이드 ── */
+  | 'wake'         // 쓰러진 채로 깨어난다 (`PlayerRef.playIntroWake`) — 일어서면 다음으로
+  | 'move'         // WASD 이동
+  | 'sprintJump'   // 달리기 + 점프로 절벽을 넘는다 (떨어지면 즉사 · 체크포인트)
+  | 'corpseLoot'   // 시체에서 무기 · 가방 · 탄약을 꺼내 장착 (여기서 체력 · 무기 HUD 가 나타난다)
+  | 'shoot'        // 벌레 둘 처치 — 사격 · 정조준
+  | 'crouch'       // 기둥 밑을 앉아서 지난다
+  | 'crouchAim'    // 앉은 채 정조준 — 흔들림이 잦아든다. 안드로이드 둘
+  | 'drop'         // 높은 곳에서 뛰어내린다 (낙하 피해, 체력 1 클램프)
+  | 'heal'         // 시체에서 회복 아이템 · 수류탄 (퀵슬롯 자동 장착) → 회복 사용
+  | 'grenade'      // 무너진 벽 너머의 안드로이드 둘 — **선택 단계** (쓰지 않고 돌아가도 된다)
+  | 'extract'      // 버려진 함선 안의 스위치 → 10초 유예 → 이륙
+  /* ── ② ship (2026-09-14): 함선 첫 진입 ── */
+  | 'levelUp'      // 레이드 보상으로 오른 레벨 확인
+  | 'stats'        // 능력치 포인트 투자 → `포인트 투자 확정` (1초 홀드)
+  | 'messenger'    // 메신저 열기 (읽지 않은 연락이 있다)
+  | 'ravenQuest'   // 레이븐의 첫 연락 · 대답 고르기 · 퀘스트 수락
+  /* ── ③ build: 기존 17단계 (id 불변) ── */
   | 'intro'        // 시작 팝업 — 확인을 누르면 다음으로
   | 'manage'       // M 으로 함선 관리 열기
   | 'generator'    // 발전기 가동 (Lv.1) — 시설 증축의 전제 조건
@@ -44,6 +79,25 @@ export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
 ];
 
 /**
+ * 트랙별 순서 (2026-09-14). `TUTORIAL_STEPS` 는 **`build` 트랙과 같은 배열**이라 기존 호출부가 그대로 돈다.
+ * 진행률(`stepIndex` / `stepCount`)은 지금 도는 트랙 안에서만 센다.
+ */
+export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly TutorialStepId[]>> = {
+  raid: [
+    'wake', 'move', 'sprintJump', 'corpseLoot', 'shoot', 'crouch', 'crouchAim',
+    'drop', 'heal', 'grenade', 'extract',
+  ],
+  ship: ['levelUp', 'stats', 'messenger', 'ravenQuest'],
+  build: TUTORIAL_STEPS,
+};
+
+/** 그 단계가 속한 트랙 (모르는 id 면 null). */
+export function tutorialTrackOf(step: TutorialStepId): TutorialTrack | null {
+  for (const t of TUTORIAL_TRACKS) if (TUTORIAL_TRACK_STEPS[t].includes(step)) return t;
+  return null;
+}
+
+/**
  * 게이트 종류. `id` 의 의미는 종류마다 다르다:
  *   `roomPurpose` → `RoomPurpose` · `furniture` → 가구 def id · `craft` → 레시피 id ·
  *   `planet` → `PlanetId` · 나머지는 id 를 쓰지 않는다.
@@ -59,15 +113,42 @@ export type TutorialGate =
   | 'board'         // 발사 슬롯 탑승
   | 'screenTab'     // Tab 화면의 화면 탭 (id = 'character' | 'corp' | 'ship'; 인벤토리는 언제나 열려 있다)
   | 'community'     // 우측 상단 커뮤니티 버튼 (숨김 전용)
-  | 'stashItem';    // 함선 창고 격자의 아이템 (id = 아이템 def id; 숨김 전용, 2026-09-09 — 튜토리얼 재료 · 산출물만 남긴다)
+  | 'stashItem'     // 함선 창고 격자의 아이템 (id = 아이템 def id; 숨김 전용, 2026-09-09 — 튜토리얼 재료 · 산출물만 남긴다)
+  /**
+   * appended (2026-09-14): **HUD 점진 노출** (숨김 전용). id = `TutorialHudPart` —
+   * 배우기 전의 HUD 조각을 아예 그리지 않는다. 체력 · 무기는 시체에서 장비를 얻은 뒤에, 스태미나는 처음
+   * 소모된 뒤에 나타나고, 임플란트 · 함선 호출은 튜토리얼 레이드 내내 없다(가진 것이 없다).
+   */
+  | 'hud';
 
-/** 튜토리얼이 저장하는 것. `step` 이 null 이면 아직 시작하지 않았다. */
-export interface TutorialSave {
-  version: number;
+/** `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다. */
+export type TutorialHudPart = 'vitals' | 'weapon' | 'stamina' | 'implant' | 'stratagem';
+
+/** 한 트랙의 상태. */
+export interface TutorialTrackSave {
   /** 현재 단계. 끝났으면 null. */
   step: TutorialStepId | null;
   /** 끝났다(완주 또는 건너뛰기) — 다시 자동 시작하지 않는다. */
   done: boolean;
+}
+
+/**
+ * 튜토리얼이 저장하는 것.
+ *
+ * **v2 (2026-09-14)**: 트랙별로 갈렸다. `tracks` 에 없는 트랙은 아직 시작 전이다.
+ * v1 세이브(`step` · `done` 이 최상위)는 읽을 때 `tracks.build` 로 옮겨 붙인다 — v1 의 단계는 전부 build 트랙의
+ * 것이었고, 그 프로필은 레이드 · 함선 트랙을 **이미 지난 것으로** 본다(안 그러면 하던 사람에게 튜토리얼이 다시 뜬다).
+ *
+ * ⚠ 스모크가 심는 모양도 v2 다 — `{version:2, tracks:{raid:{step:null,done:true}, ship:…, build:…}}`.
+ */
+export interface TutorialSave {
+  version: number;
+  /** appended (2026-09-14). */
+  tracks?: Partial<Record<TutorialTrack, TutorialTrackSave>>;
+  /** v1 — 읽기 전용 하위 호환 (새로 쓰지 않는다). */
+  step?: TutorialStepId | null;
+  /** v1 — 읽기 전용 하위 호환 (새로 쓰지 않는다). */
+  done?: boolean;
   /** 튜토리얼이 만들어 준 방 번호(있으면). 안내선이 그 방을 가리킨다. */
   room?: number;
 }
@@ -101,4 +182,17 @@ export interface TutorialRef {
   skip(): void;
   /** dev 콘솔 전용: 특정 단계로 건너뛴다. */
   goto(step: TutorialStepId): boolean;
+
+  /* ── appended (2026-09-14): 3트랙 ── */
+  /** 지금 도는 트랙 (비활성이면 null). */
+  readonly track: TutorialTrack | null;
+  /** 그 트랙이 끝났는가 — 완주 · 건너뛰기 둘 다 true. 아직 시작 전이면 false. */
+  isTrackDone(track: TutorialTrack): boolean;
+  /** 그 트랙을 처음부터 시작한다. 이미 끝났거나 다른 트랙이 돌고 있으면 false. */
+  startTrack(track: TutorialTrack): boolean;
+  /**
+   * **그 트랙만** 건너뛴다 (목표 패널의 건너뛰기 버튼 · 1초 홀드). 다른 트랙은 그대로 남아 제 때 시작한다 —
+   * 조작은 아는데 함선 증축은 처음인 사람이 있기 때문이다 (사용자 결정).
+   */
+  skipTrack(track: TutorialTrack): void;
 }

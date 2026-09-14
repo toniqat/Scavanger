@@ -2,7 +2,7 @@ import type { GameContext } from '@/shared';
 import { CONTRACT_DEFS, Keys, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
 /* 2026-09-14 (메신저 · NPC 퀘스트): 목표 달성 · 보고 가능 · 완료 보상 토스트 — 옛 기업 퀘스트(`QUEST_DEFS`) 토스트는 없어졌다 */
 import type { NpcQuestDef } from '@/shared';
-import { CORP_DEFS, NPC_QUEST_MAP } from '@/shared';
+import { CORP_DEFS, NPC_DEF_MAP, NPC_QUEST_MAP } from '@/shared';
 /* 2026-09-13 (요리 재료 티어): 분석 도감 · 분석 레벨업 토스트 */
 import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/shared';
 /* 2026-09-13 (요리 미니게임): 조리 결과 · 식탁 품질 토스트 */
@@ -81,10 +81,20 @@ export class Notifications {
         if (dropped.length > 0) this.push(`가방이 작아져 아이템 <b>${dropped.length}</b>개를 떨어뜨렸습니다`, 'warning', '인벤토리', 4);
       }),
       b.on('enemy:waveStarted', ({ index, count }) => this.push(`적 증원 감지! <span style="color:var(--c-text-dim)">${index + 1}차 · ${count}마리</span>`, 'danger', '경고', 4)),
-      b.on('extraction:activated', ({ duration }) => this.push(`탈출 신호 전송 완료. 함선 도착까지 ${Math.round(duration)}초.`, 'success', '탈출', 4)),
+      /* 2026-09-14 (튜토리얼): 이미 착륙해 있는 함선(`beginPreLanded`)은 이 둘을 `duration: 0` 으로 **재생**해
+         페이즈만 맞춘다 — 「도착까지 0초」는 일어나지 않은 일이므로 띄우지 않는다. 본편은 언제나 duration > 0. */
+      b.on('extraction:activated', ({ duration }) => {
+        if (duration <= 0) return;
+        this.push(`탈출 신호 전송 완료. 함선 도착까지 ${Math.round(duration)}초.`, 'success', '탈출', 4);
+      }),
       b.on('extraction:shipIncoming', ({ eta }) => this.push(`함선 접근 중 — ${Math.round(eta)}초`, 'warning', '탈출', 4)),
       // 2026-09-13 (탈출 개편): 착륙 → 자동 출발 대기 → 출발 유예 → 이륙 / 남겨짐 → 다시 호출 가능
-      b.on('extraction:shipLanded', () => this.push(`함선 착륙. 탑승하세요 — ${Math.round(EXTRACTION_AUTO_DEPART_IDLE_S)}초 뒤 자동 출발`, 'success', '탈출', 4)),
+      b.on('extraction:shipLanded', () => {
+        // 자동 출발을 걸지 않은 함선(튜토리얼)은 그 문장이 거짓이다 — `idleRemaining < 0` 이 그 사실이다.
+        const auto = (ctx.extraction?.idleRemaining ?? 0) >= 0;
+        this.push(auto ? `함선 착륙. 탑승하세요 — ${Math.round(EXTRACTION_AUTO_DEPART_IDLE_S)}초 뒤 자동 출발` : '함선 착륙. 탑승하세요',
+          'success', '탈출', 4);
+      }),
       b.on('extraction:boarded', () => this.push(`탑승 확인. 내부 스위치를 작동하면 ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 출발합니다.`, 'success', '탈출', 4)),
       b.on('extraction:departureStarted', ({ duration, auto }) => this.push(
         auto ? `대기 시간 초과 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다` : `출발 시퀀스 개시 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다`,
@@ -344,6 +354,8 @@ export class Notifications {
           if (r.credits > 0) parts.push(`크레딧 ${formatCredits(r.credits, { sign: true })}`);
           if (r.xp > 0) parts.push(`XP +${r.xp}`);
           for (const rep of r.rep) parts.push(`${escapeHtml(CORP_DEFS[rep.corp]?.name ?? rep.corp)} 신뢰도 +${rep.amount}`);
+          /* 2026-09-14: NPC 개인 신뢰도 — 기업 신뢰도 바로 뒤 (메신저 대화의 `보상 — …` 줄 · 퀘스트 카드 칩과 같은 순서) */
+          if (r.npcTrust > 0 && def) parts.push(`${escapeHtml(NPC_DEF_MAP.get(def.npc)?.name ?? def.npc)} 신뢰도 +${r.npcTrust}`);
           for (const it of r.items) {
             const d = ctx.loot?.getItemDef(it.defId);
             const qty = it.qty > 1 ? ` ×${it.qty}` : '';

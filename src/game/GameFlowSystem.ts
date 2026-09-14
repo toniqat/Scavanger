@@ -3,6 +3,7 @@ import type {
   GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
 } from '@/shared';
 import type { PlanetId } from '@/shared';
+import type { TutorialCheckpointId } from '@/shared';
 import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
@@ -83,6 +84,8 @@ export class GameFlowSystem implements GameSystem {
   returnTimer = -1;
   /** Raid session upload cadence (multiplayer raid only). */
   raidSaveTimer = -1;
+  /** 2026-09-14: 튜토리얼 사망 → 체크포인트 부활까지 남은 초 (-1 = 대기 없음, `parts/Death.tutorialRespawn`). */
+  tutorialRespawnTimer = -1;
   /** Blob the server handed back with `welcome` (resume into a running raid); applied after the rejoin's `world:ready`. */
   raidBlob: RaidSessionBlob | null = null;
   /** true between `net:gameStarting {rejoin:true}` and the restore / fallback. */
@@ -93,6 +96,8 @@ export class GameFlowSystem implements GameSystem {
   soloExpired = false;
   /** Pose to hand `restoreState` once the resumed world is ready (solo counterpart of the host's `ghost restore`). */
   soloRestore: PlayerRestoreState | null = null;
+  /** 2026-09-14: 이어하는 튜토리얼이 마지막으로 지난 체크포인트 (`world:ready` 뒤에 되돌린다, null = 없음). */
+  soloCheckpoint: TutorialCheckpointId | null = null;
   /** > 0 while waiting for the host's `ghost restore` after a rejoin. */
   restoreTimer = -1;
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
@@ -257,6 +262,9 @@ export class GameFlowSystem implements GameSystem {
   inLiveMission(): boolean { return Phases.inLiveMission(this); }
 
   isTraining(): boolean { return Phases.isTraining(this); }
+
+  /** 2026-09-14: 튜토리얼 레이드 중인가 (사망 = 체크포인트 부활, 레이드 실패 없음). */
+  isTutorial(): boolean { return Phases.isTutorial(this); }
 
   /**
    * Phase 8: standing in the personal / shared ship. Esc pauses here too (the terminal is opened from the console,
@@ -446,6 +454,11 @@ export class GameFlowSystem implements GameSystem {
         this.autoReturnTimer = -1;
         if (ctx.phase === 'dead') ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' });
       }
+    }
+    // 2026-09-14: 튜토리얼 — 사망 연출이 끝나면 체크포인트에서 다시 선다 (레이드 실패 없음)
+    if (this.tutorialRespawnTimer >= 0) {
+      this.tutorialRespawnTimer -= dt;
+      if (this.tutorialRespawnTimer < 0) Death.tutorialRespawn(this);
     }
     // 2026-09-13: 자발적 귀환 — 사망 연출이 끝나면 결산하고 함선으로 (`parts/Death.finishReturnToShip`)
     if (this.returnTimer >= 0) {

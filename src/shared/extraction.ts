@@ -29,4 +29,15 @@ export interface ExtractionRef {
    * **적 전용**이다: 플레이어 · 원격 몸 · 투척물은 부르지 않는다. 함선이 땅 가까이 있을 때만 영역이 있다.
    */
   keepEnemyOut(position: THREE.Vector3, radius: number): boolean;
+
+  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`) ── */
+  /**
+   * **이미 착륙해 있는 탈출선**을 그 자리에 세운다 — 콘솔 · 호출 20초 · 착륙 연출을 전부 건너뛰고 곧장 `landed`.
+   * 튜토리얼의 「버려진 함선」이 이것이다: 함선 메시를 따로 만들지 않고 진짜 탈출선을 처음부터 놓아 두므로,
+   * 안의 스위치 → 취소 불가 10초 유예 → 이륙 → 결과 · 정산이 **평소 경로 그대로** 흐른다.
+   *
+   * `ctx.missionMode !== 'tutorial'` 이거나 이미 `idle` 이 아니면 false (본편 탈출 흐름에는 문이 없다).
+   * `autoDepart: false` 면 무응답 60초 자동 출발을 걸지 않는다 — 튜토리얼은 둘러보는 시간이 필요하다.
+   */
+  beginPreLanded?(position: THREE.Vector3, yaw: number, opts?: { autoDepart?: boolean }): boolean;
 }

@@ -51,6 +51,17 @@ BAG_WEIGHT_PER_CELL,0.02,
 #   맨몸 격자가 5 × 3 = 15 칸이므로 일반 가방(5×6) 이 +7.5 kg, 전설 가방(5×12) 이 +22.5 kg 다. 가방 툴팁이 이 줄을 보여 준다.
 BAG_CAPACITY_PER_CELL,0.5,
 
+# inventory — 격자 칸 크기 (2026-09-14, 사용자 결정 「작은 화면에서 칸을 줄여 세로 여유를 만든다」)
+#   칸 한 변의 px. 세로가 짧은 창일수록 작은 칸을 쓴다 — 그 사다리의 **단일 원본**은 이 다섯 줄이고
+#   코드(`inventory/ui/labels.gridCellForHeight`)는 그것을 읽기만 한다. CSS 도 미디어 쿼리를 갖지 않는다:
+#   `--inv-cell` 은 JS 가 인라인으로 적는다 (JS 의 `STEP` 과 CSS 의 칸 폭이 갈라지면 드래그가 어긋난다).
+#   경계는 **뷰포트 높이**다 — 좁아서가 아니라 짧아서 창이 화면을 꽉 채우는 것이 문제였다.
+INV_CELL_PX,54,"기본 칸 한 변(px) — 창 높이가 INV_CELL_SHORT_MAX_VH 보다 크면 이 값(1920×1080 은 예전 그대로다)."
+INV_CELL_SHORT_PX,46,"창 높이 ≤ INV_CELL_SHORT_MAX_VH 일 때의 칸 한 변(px)."
+INV_CELL_TINY_PX,40,"창 높이 ≤ INV_CELL_TINY_MAX_VH 일 때의 칸 한 변(px)."
+INV_CELL_SHORT_MAX_VH,900,"이 높이 이하면 INV_CELL_SHORT_PX (1440×900 노트북)."
+INV_CELL_TINY_MAX_VH,800,"이 높이 이하면 INV_CELL_TINY_PX (1280×760 · 1366×768 창)."
+
 # progression — 행동당 숙련도 경험치 (지능 · 능력치 보정 전)
 GRIT_SAVE_XP,1.2,치명상을 버텨낼 때
 GATHER_XP,0.35,채집 노드 1개당 (수확량으로 배수)
@@ -99,3 +110,4 @@ CRYPTO_TRADE_FEE,0.02,"거래소 수수료 (살 때 얹고 팔 때 뗀다)."
 CRYPTO_TRADE_MAX_UNITS,1000000,"거래 한 번에 사고팔 수 있는 최대 단위 수."
 CRYPTO_QUOTE_WINDOW_S,30,"서버가 거래 금액을 맞춰 보는 시세 창(초) — 이 안의 어느 시세로 계산했어도 받아 준다."
 CRYPTO_TICK_S,10,"서버 시세가 한 번 움직이는 간격(초)."
+INTEL_BUNDLE_COST_MUL,1.22,"정보상 누진 배수 — 고정한 줄이 하나 늘 때마다 총합에 곱한다 (총합 × 이 값^(줄 수−1)). 사용자 결정 「많이 활성화할수록 선형이 아니게 더 많이」."

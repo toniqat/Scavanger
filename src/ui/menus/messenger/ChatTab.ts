@@ -13,6 +13,7 @@ import { Popover } from './Popover';
 import { buildQuestCard } from './QuestCard';
 import { npcOf, roomsOf } from './sources';
 import { wireTextInput } from './textInput';
+import { type NpcTrustInfo, buildNpcTrust, npcTrustOf } from './Trust';
 
 export type ConvKind = 'npc' | 'pc' | 'room';
 export type ConvFilter = 'all' | ConvKind;
@@ -29,6 +30,8 @@ interface ConvRow {
   glyph: string;
   color: string;
   presence?: PresenceState;
+  /** NPC 만: 그 NPC 의 **개인** 신뢰도 (2026-09-14). `ctx.meta` 가 없으면 없다. */
+  trust?: NpcTrustInfo;
 }
 
 /** 초상 색 — NPC 는 `NpcDef.color`, 플레이어 · 단체방은 고정색. */
@@ -241,9 +244,11 @@ export class ChatTab {
     const npc = npcOf(ctx);
     if (npc) {
       for (const c of npc.getContacts()) {
+        const trust = npcTrustOf(ctx, c.npc.id);
         out.push({
           key: `npc:${c.npc.id}`, kind: 'npc', id: c.npc.id, title: c.npc.name, sub: c.npc.title, at: c.at, unread: c.unread,
           preview: c.preview, glyph: c.npc.glyph || initialOf(c.npc.name), color: c.npc.color,
+          ...(trust ? { trust } : {}),
         });
       }
     }
@@ -297,7 +302,7 @@ export class ChatTab {
     const now = Date.now();
     const key = [
       this.filter, this.selected ?? '', roomsOk ? 1 : 0, Math.floor(now / 60_000),
-      rows.map((r) => `${r.key}|${r.title}|${r.at}|${r.unread}|${r.preview}|${r.presence ?? ''}`).join(','),
+      rows.map((r) => `${r.key}|${r.title}|${r.at}|${r.unread}|${r.preview}|${r.presence ?? ''}|${r.trust?.trust ?? ''}`).join(','),
       invites.map((i) => `${i.room}|${i.at}|${i.name}`).join(','),
     ].join('#');
     if (!force && key === this.listKey) return;
@@ -359,6 +364,11 @@ export class ChatTab {
     el('span', { cls: 'ms-row-time', text: agoText(r.at, now), parent: top });
     const bot = el('span', { cls: 'ms-row-bot', parent: main });
     el('span', { cls: 'ms-row-prev', text: clip(r.preview, 60), parent: bot });
+    /* 2026-09-14: NPC 줄에는 그 NPC 의 개인 신뢰도 `Lv.n + 짧은 게이지` (미리보기 뒤 · 읽지 않음 배지 앞). */
+    if (r.kind === 'npc' && this.ctx) {
+      const t = buildNpcTrust(this.ctx, r.id, r.title, { compact: true, color: r.color });
+      if (t) bot.appendChild(t);
+    }
     if (r.unread > 0) el('span', { cls: 'ms-unread ui-mono', text: r.unread > 99 ? '99+' : String(r.unread), parent: bot });
     row.addEventListener('click', (e) => { e.stopPropagation(); this.select(r.key); });
     return row;
@@ -381,7 +391,8 @@ export class ChatTab {
         return q ? `${q.state}${q.ready ? 1 : 0}${q.blocked ?? ''}${q.objectives.map((o) => `${o.progress}${o.have ?? ''}`).join('.')}` : 'x';
       }).join(',');
       const c = npc.getContacts().find((x) => x.npc.id === sel.id);
-      return `npc|${msgs.length}|${msgs.at(-1)?.at ?? 0}|${qs}|${c?.unread ?? 0}`;
+      // 2026-09-14: 머리의 개인 신뢰도 게이지 · 대사 선택지 줄도 다시 그려야 하므로 지문에 넣는다
+      return `npc|${msgs.length}|${msgs.at(-1)?.at ?? 0}|${qs}|${c?.unread ?? 0}|${npcTrustOf(ctx, sel.id)?.trust ?? ''}|${npc.getPendingChoices(sel.id).length}`;
     }
     if (sel.kind === 'pc') {
       const social = socialOf(ctx);
@@ -473,6 +484,9 @@ export class ChatTab {
     const main = this.threadHead(def?.glyph || initialOf(def?.name ?? '?'), def?.color ?? PC_COLOR, def?.name ?? id,
       def ? [def.title, corp || NPC_ROLE_LABEL_KO[def.role]].filter(Boolean).join(' · ') : '');
     if (def?.bio) el('div', { cls: 'ms-thead-bio', text: def.bio, parent: main });
+    /* 2026-09-14: 대화창 머리의 개인 신뢰도 게이지 — 기업 화면의 신뢰도 게이지와 같은 계열, 색은 그 NPC 색. */
+    const trustEl = buildNpcTrust(ctx, id, def?.name ?? id, { color: def?.color ?? PC_COLOR });
+    if (trustEl) { trustEl.classList.add('in-head'); main.appendChild(trustEl); }
 
     const msgs: readonly NpcMessage[] = npc?.getMessages(id) ?? [];
     const now = Date.now();
@@ -515,6 +529,26 @@ export class ChatTab {
       prevFrom = m.from;
     }
     if (msgs.length === 0) nodes.push(el('div', { cls: 'ms-msg sys', text: npc ? '아직 받은 메시지가 없습니다' : '퀘스트 정보를 불러올 수 없습니다' }));
+    /* 2026-09-14 (튜토리얼 개편 — `docs/plans/tutorial-raid.md` §2.5): 첫 연락의 **대사 선택지**.
+     * 아직 대답하지 않았으면 말풍선 아래에 내 대답 버튼 줄이 선다 — 퀘스트 카드의 [수락] [생각해보지] 와 같은
+     * 문법(`ms-btn`)이다. 고르면 `choice` 사건이 하나 붙어 내 대답 + NPC 의 답 두 줄이 대화에 들어오고
+     * `getPendingChoices` 가 빈 배열이 되어 줄이 사라진다. 고르기 전에 닫고 나가도 다시 열면 그대로 있다. */
+    const choices = npc?.getPendingChoices(id) ?? [];
+    if (choices.length > 0) {
+      const row = el('div', { cls: 'ms-msg out choices' });
+      const box = el('div', { cls: 'ms-choices', parent: row });
+      choices.forEach((label, i) => {
+        const b = el('button', { cls: 'ms-btn ms-choice', text: label, parent: box });
+        b.type = 'button';
+        b.dataset.act = 'choice';
+        b.dataset.choice = String(i);
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!npcOf(ctx)?.chooseIntro(id, i)) this.deny('지금은 답할 수 없습니다');
+        });
+      });
+      nodes.push(row);
+    }
     this.paintBody(nodes, msgs[0]?.at ?? 0);
     this.setInput('none', '', 'NPC 에게는 퀘스트 카드로 답합니다');
     if (npc && contact && contact.unread > 0 && this.host.isVisible()) npc.markRead(id);

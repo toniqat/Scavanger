@@ -58,7 +58,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1680, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -360,9 +360,11 @@ try {
     const g = sys.getGrid('bag'); const el = document.querySelector('.inv-grid-bag');
     const spot = item && g.findFreeSlot(item, false);
     if (!spot) return null;
-    el.parentElement.scrollTop = Math.max(0, spot.y * 56 - 40);
+    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 56 · 27 을 적어 두지 않는다
+    const c = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell')), step = c + 2;
+    el.parentElement.scrollTop = Math.max(0, spot.y * step - 40);
     const r = el.getBoundingClientRect();
-    return { x: r.left + spot.x * 56 + 27, y: r.top + spot.y * 56 + 27, spot };
+    return { x: r.left + spot.x * step + c / 2, y: r.top + spot.y * step + c / 2, spot };
   }, S.scrap);
   const sc = await center(tileSel('stash', S.scrap));
   await page.mouse.move(sc.x, sc.y);
@@ -421,7 +423,9 @@ try {
     const card = document.querySelector('.inv-root .inv-tooltip.is-pinned');
     const cr = card && !card.hidden ? card.getBoundingClientRect() : null;
     const w = att.rotated ? def.height : def.width, h = att.rotated ? def.width : def.height;
-    const half = { w: (w * 56 - 2) / 2, h: (h * 56 - 2) / 2 };
+    // 2026-09-14: 보폭은 격자가 실제로 쓰는 칸에서 (창 높이를 탄다 — `labels.gridCellForHeight`)
+    const cell = parseFloat(getComputedStyle(gridEl).getPropertyValue('--inv-cell')), step = cell + 2;
+    const half = { w: (w * step - 2) / 2, h: (h * step - 2) / 2 };
     const cands = [];
     if (a.free) { for (let y = 0; y + h <= g.rows; y++) for (let x = 0; x + w <= g.cols; x++) if (g.canPlace(att, x, y, att.rotated)) cands.push({ x, y }); }
     else for (const p of g.items()) { if (p.item.uid !== a.gun && p.x + w <= g.cols && p.y + h <= g.rows) cands.push({ x: p.x, y: p.y }); }
@@ -429,12 +433,12 @@ try {
     const clear = (px, py) => !cr || px < cr.left - 10 || px > cr.right + 10 || py < cr.top - 10 || py > cr.bottom + 10;
     for (const cand of cands) {
       let r = gridEl.getBoundingClientRect();
-      let px = r.left + cand.x * 56 + half.w, py = r.top + cand.y * 56 + half.h;
+      let px = r.left + cand.x * step + half.w, py = r.top + cand.y * step + half.h;
       if (!vis(px, py)) {
         const v = scroller.getBoundingClientRect();
         scroller.scrollTop += py - (v.top + scroller.clientHeight / 2);
         r = gridEl.getBoundingClientRect();
-        px = r.left + cand.x * 56 + half.w; py = r.top + cand.y * 56 + half.h;
+        px = r.left + cand.x * step + half.w; py = r.top + cand.y * step + half.h;
       }
       if (vis(px, py) && clear(px, py)) return { x: cand.x, y: cand.y, px, py };
     }

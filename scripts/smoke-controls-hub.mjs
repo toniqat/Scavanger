@@ -62,7 +62,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     window.__lockCalls = { req: 0, exit: 0 };
     window.__lockEl = null;
     Element.prototype.requestPointerLock = function () {
@@ -296,7 +296,8 @@ try {
       tabs: [...root.querySelectorAll('.scr-tab')].map((b) => `${b.textContent}${b.disabled ? '(off)' : ''}${b.classList.contains('is-on') ? '*' : ''}`).join(' '),
       implantSlot: !!root.querySelector('.inv-slot-implant'),
       order,
-      hints: root.querySelector('.inv-hints').hidden,
+      // 2026-09-14 (사용자 결정): 중앙 하단 안내 알약 바(`.inv-hints`)는 삭제됐다 — 우측 하단 키 가이드와 겹쳤다.
+      hints: !root.querySelector('.inv-hints'),
       quickRight: (() => { const g = root.querySelector('.inv-grid-bag').getBoundingClientRect(); const q = root.querySelector('.inv-quick').getBoundingClientRect(); return q.left >= g.right - 4; })(),
       equipMid: (() => { const s = root.querySelector('.inv-panel-stash').getBoundingClientRect(); const e = root.querySelector('.inv-equip').getBoundingClientRect(); const b = root.querySelector('.inv-panel-bag').getBoundingClientRect(); return s.right <= e.left + 4 && e.right <= b.left + 4; })(),
     };
@@ -361,7 +362,7 @@ try {
   ok(!hubScreen.implantSlot, '전술 임플란트는 장비칸(`.inv-slot-*`)이 아니다');
   ok(hubScreen.equipMid, 'layout: stash | equipment | bag');
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
-  ok(hubScreen.hints, 'inventory hint bar hidden in the ship');
+  ok(hubScreen.hints, 'inventory hint bar is gone (2026-09-14: 키 가이드로 합쳐졌다)');
   await shot('03-hub-tab-screen');
 
   /* 2026-09-09 — 휠은 또 하나의 가방 공간이다: 시작 키트의 수류탄 · 붕대는 **슬롯 안**에 있고 가방 격자에는

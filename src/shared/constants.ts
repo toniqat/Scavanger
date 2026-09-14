@@ -932,8 +932,12 @@ export const HEAL_SPRAY_RADIUS = K.num('HEAL_SPRAY_RADIUS');
 /* ── 발사 준비 패널 (owner: hub, portraits from player/) ── */
 /** Cells in the READY panel. Kept separate from the lobby size so the panel never resizes. */
 export const HUB_READY_CELLS = K.num('HUB_READY_CELLS');
-/** Body yaw of a portrait: turned diagonally toward the camera's right (the soldier model's front is −Z). */
-export const HUB_READY_PORTRAIT_YAW = -Math.PI / 4;
+/**
+ * Body yaw of a portrait (rad). The soldier model's front is −Z, so yaw θ points the body at
+ * `(−sin θ, 0, −cos θ)`; the portrait camera sits on +Z. 2026-09-14: the value moved to `data/constants.csv`
+ * (「수치는 코드에 적지 않는다」) and became −3π/4 — 카메라 쪽을 보면서 화면 오른쪽으로 튼 3/4 뷰.
+ */
+export const HUB_READY_PORTRAIT_YAW = K.num('HUB_READY_PORTRAIT_YAW');
 /** `ctx.uiBlockers` token the READY panel holds while it is open. */
 export const HUB_READY_BLOCKER = 'ready';
 /** Debounce for re-broadcasting my own `crew card` (seconds). */
@@ -1200,6 +1204,12 @@ export const STRUCTURE_INTERACT_RANGE = K.num('STRUCTURE_INTERACT_RANGE');
 /* ── 선로 · 전차 (owner: world/Rails) ── */
 /** 구역에 선로가 놓일 확률 (0 = 언제나 없음). */
 export const RAIL_CHANCE = K.num('RAIL_CHANCE');
+/**
+ * 구역에 **탐사 차량 흙길**이 놓일 확률 (0 = 언제나 없음). 2026-09-14 (사용자 결정) — 선로와 같은 확률 배치.
+ * 전에는 굴림 없이 늘 계획해 실측 배치율이 100 % 였고, 그러면 정보상의 「탐사 차량 확정」 줄이 아무것도 사지 못한다.
+ * 굴림은 `world/layout.ts` 가 **탐사 차량 전용 fork 의 첫 draw** 로 소비한다 — 정보상으로 확정해도 그 draw 는 그대로다.
+ */
+export const ROVER_CHANCE = K.num('ROVER_CHANCE');
 /** 전차 **최고** 주행 속도(m/s). 2026-09-10: 출발 직후가 아니라 `TRAM_ACCEL_S` 에 걸쳐 여기까지 오른다. */
 export const TRAM_SPEED = K.num('TRAM_SPEED');
 /** 플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초). */
@@ -1895,3 +1905,29 @@ export const RESEARCH_REFUND_FRAC_MAX = K.num('RESEARCH_REFUND_FRAC_MAX');
 export const RESEARCH_XP_ANALYSIS = K.num('RESEARCH_XP_ANALYSIS');
 export const RESEARCH_XP_CRAFT = K.num('RESEARCH_XP_CRAFT');
 /* ── end 2026-09-13 서재 시리즈 ── */
+
+/* ── 2026-09-14 튜토리얼 개편 · 낙하 피해 (docs/plans/tutorial-raid.md) ── */
+/** 낙하 피해가 시작되는 높이 (m) — 이것까지는 공짜다. */
+export const FALL_DAMAGE_SAFE_M = K.num('FALL_DAMAGE_SAFE_M');
+/** 안전 높이를 넘은 1 m 당 피해 (실드 → 체력 순). */
+export const FALL_DAMAGE_PER_M = K.num('FALL_DAMAGE_PER_M');
+/** 한 번의 낙하가 줄 수 있는 피해 상한. */
+export const FALL_DAMAGE_MAX = K.num('FALL_DAMAGE_MAX');
+/** 튜토리얼 전용 적의 감지 반경 · 이탈 거리 (m). */
+export const TUTORIAL_ENEMY_SENSE_M = K.num('TUTORIAL_ENEMY_SENSE_M');
+export const TUTORIAL_ENEMY_LEASH_M = K.num('TUTORIAL_ENEMY_LEASH_M');
+/** 튜토리얼 사망 → 체크포인트 부활까지 (초). */
+export const TUTORIAL_RESPAWN_DELAY_S = K.num('TUTORIAL_RESPAWN_DELAY_S');
+/** 오프닝 기상 연출 길이 (초) — `PlayerRef.playIntroWake` 에 넘길 값. */
+export const TUTORIAL_INTRO_WAKE_S = K.num('TUTORIAL_INTRO_WAKE_S');
+/** 튜토리얼 레이드 완주 보상 XP (레벨 2 에 닿는다). */
+export const TUTORIAL_RAID_XP = K.num('TUTORIAL_RAID_XP');
+/**
+ * 자세별 몸 높이 (발 위 클리어런스, m) — `WorldRef.resolveCollision(pos, r, height?)` 에 넘길 값.
+ * 서 있을 때는 넘기지 않는다 (= `BOX_HEADROOM`), 그래서 본편 동선은 한 곳도 안 바뀐다.
+ */
+export const PLAYER_CROUCH_CLEARANCE_M = K.num('PLAYER_CROUCH_CLEARANCE_M');
+export const PLAYER_PRONE_CLEARANCE_M = K.num('PLAYER_PRONE_CLEARANCE_M');
+/** 튜토리얼에서 깨어날 때의 체력 (회복 안내 전까지 유지 — 벌레 한 대에 죽는다). */
+export const TUTORIAL_START_HP = K.num('TUTORIAL_START_HP');
+/* ── end 2026-09-14 튜토리얼 ── */

@@ -711,20 +711,73 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
 구조물이 자기 컨테이너에 직접 넣는 물건이라 `loot_item_weights.csv` 의 **티어 1~5 전부에 `mul 0`** 을
 걸어 무작위 루팅에서 완전히 막아 뒀다. 그 다섯 줄을 지우면 귀중품 굴림에 섞여 나온다.
 
+### 2026-09-14 (3차) — 튜토리얼 개편 · 낙하 피해: `constants.csv` 상수 8 · `npcs.csv` 의 대사 선택지 열 둘
+
+설계 원본 `docs/plans/tutorial-raid.md` (리드 계약 커밋 — 수치만 먼저 놓고 구현은 폴더별로 따라온다).
+
+- **`constants.csv` — 낙하 피해 3**: `FALL_DAMAGE_SAFE_M`(5 m 까지 공짜) · `FALL_DAMAGE_PER_M`(넘은 1 m 당 9) ·
+  `FALL_DAMAGE_MAX`(260). 이것은 **전역 기능**이다(사용자 결정) — 실드 → 체력 순으로 평소 피해 경로를 그대로 타고 죽을 수 있다.
+  안전 높이 5 m 는 함선 데크 · 2층 바닥 · 낮은 바위에서 뛰어내리는 평소 동선을 전부 덮는다.
+- **`constants.csv` — 튜토리얼 5**: `TUTORIAL_ENEMY_SENSE_M`(12) · `TUTORIAL_ENEMY_LEASH_M`(22) · `TUTORIAL_RESPAWN_DELAY_S`(2.5) ·
+  `TUTORIAL_INTRO_WAKE_S`(4.5) · `TUTORIAL_RAID_XP`(900 — 레벨 2 에 닿는 양). 감지 반경을 짧게 잡는 데는 이유가 있다 —
+  체크포인트를 그 거리 **밖**에 두어야 무기를 잃고 부활한 사람이 자기 시체까지 갈 수 있다.
+- **`constants.csv` — 자세별 몸 높이 2**: `PLAYER_CROUCH_CLEARANCE_M`(1.3) · `PLAYER_PRONE_CLEARANCE_M`(0.7).
+  `WorldRef.resolveCollision(pos, r, height?)` 의 세 번째 인자를 드론만 쓰던 것을 **플레이어도 쓰게** 했다 —
+  서 있을 때는 넘기지 않아(= `BOX_HEADROOM` 2.1) 본편 동선은 한 곳도 안 바뀐다. 그 밑에서 일어서는 것은
+  `player/parts/Locomotion.canStandHere` 가 따로 막는다. 튜토리얼 포복 구간의 슬래브 밑면(1.6)은 **이 둘 사이**여야 한다.
+- **`npcs.csv` — `introChoices` · `introChoiceReplies`**: 첫 연락 말풍선이 끝난 뒤에 뜨는 **내 대답 버튼**과 그 대답에 대한
+  NPC 의 답 (둘 다 `|` 구분, **개수가 같아야 한다** — 로더가 검사한다). 비우면 선택지가 없다 (지금까지의 NPC 10명 전부).
+  고른 뒤의 대화는 **어느 쪽이든 같다** — 분기 상태를 저장하지 않고 사건 하나(`choice`)만 남는다.
+  처음 쓰는 것은 레이븐(`npc_raven`)의 튜토리얼 첫 연락이다 — **그 줄이 채워졌다**(에이전트 F): `intro` 를 **전 함선 주인의 연락책**으로
+  다시 쓰고(통성명 없이 통신 코드로만 거래했으므로 주인이 바뀐 것을 눈치채지 못한다) 대답 **2개**(부정 / 수긍)를 달았다.
+  부정을 골라도 레이븐은 믿지 않고 통신 보안 걱정으로 흘려 넘기므로 두 답이 **같은 자리로 흐른다** — 그래서 분기가 필요 없다.
+  같은 배치에서 `npc_quests.csv` 에 레이븐의 첫 의뢰 `q_rv_0`(「첫 물건」, 크레딧 200 · XP 250 · `heal_syringe:2` · `npcTrust` 80)을
+  `q_rv_1` 앞에 끼웠다 — 목표는 `kill 3 bug` + `recover 2 mat_scrap` 둘뿐이고(행성 조건 없음) 튜토리얼 트랙 ② 의 「레이븐의 의뢰를
+  받는다」 가 이것을 가리킨다. 줄 순서 제안 규약대로 `q_rv_1` 에 `reqQuests=q_rv_0` 을 달았고, 크레딧 보상이 있으므로
+  `npm run data:check -- --write` 로 `server/economy.gen.json` 을 다시 구웠다.
+
+### 2026-09-14 (2차) — NPC 개인 신뢰도: `npc_quests.csv` 의 `npcTrust` · `npcs.csv` 의 `reqNpcRep` · 레이븐 `reqLevel`
+
+설계 원본 `docs/plans/intel-broker.md` §2.7. 기업 신뢰도(`rewardRep`)와 **별개**인, NPC 한 명 한 명에 대한 개인 신뢰도다.
+레벨 표는 기업과 **같은** `tables.csv` 의 `REP_TABLE`(0 / 100 / 300 / 700 / 1500 / 3000 = Lv.0–5) — 표를 하나 더 만들지 않았다(사용자 결정).
+
+- **`npc_quests.csv` 새 열 `npcTrust`** — 이 퀘스트를 **낸 NPC** 의 개인 신뢰도 보상. `rewardRep` 과 **함께** 주고 서로를 대신하지 않으므로,
+  무소속 NPC(레이븐 · 케인)는 기업 신뢰도가 없는 대신 이것을 넉넉히 받는다. **크레딧이 아니라 서버 검증(`credits:tx`)과 무관하다.**
+  값은 체인 초반을 작게 · 후반을 크게 잡아 **그 NPC 의 체인을 다 깨면** 기업 NPC 는 Lv.3(1000–1300), 무소속은 Lv.4(1650)가 되게 했다:
+  직원 체인 `100 · 200 · 300 · 400`, 임원 체인 `150 · 200(채굴 인가) · 300 · 450`(세레스 5줄은 `150 · 200 · 250 · 300 · 400`), 무소속 `250 · 350 · 450 · 600`.
+- **`npcs.csv` · `npc_quests.csv` 의 `reqNpcRep`** = `npcId:레벨` 을 `|` 로 — NPC 개인 신뢰도 조건. 로더 · 판정(`meta/NpcRules.requirementMet`)은 있지만
+  **지금은 어느 줄도 쓰지 않는다**(사용자 결정: 신뢰도별 해금 요소는 아직 정하지 않는다 — 적립 · 표시까지만).
+- **`npcs.csv`** 레이븐(`npc_raven`)의 `reqLevel` 4 → **1**. 정보상을 1레벨부터 쓰기 위해서고, 무소속이라 기업 신뢰도 조건도 없어 사실상 처음부터 연락이 온다.
+  케인(`npc_kane`)의 `reqQuests`(`q_rv_2`)는 그대로다.
+
 ### 2026-09-14 — 메신저 NPC 퀘스트: `npcs.csv` · `npc_quests.csv` · `npc_objectives.csv` (신규) · `quests.csv` 삭제 · `crypto.csv` · `tuning.csv`
 
 설계 원본 `docs/plans/messenger-quests.md`. 로더 `src/shared/npc.ts`(열 모양 · 열거 · 종류별 필수/불필요 열), 표끼리의 참조는 `npm run data:check`.
 
 - **`npcs.csv`** `id,name,title,corp,role,color,glyph,reqLevel,reqRep,reqQuests,intro,bio` — `corp` 비움 = 무소속, `role` executive | staff | independent.
   첫 연락 조건 = `reqLevel` ∧ `reqRep`(`기업:레벨` | …) ∧ `reqQuests`(완료한 퀘스트 id | …). `intro` 는 `|` 로 말풍선을 나눈다.
-- **`npc_quests.csv`** `id,npc,name,summary,reqLevel,reqRep,reqQuests,rewardCredits,rewardXp,rewardRep,rewardItems,offer,accept,decline,brief,complete` —
+- **`npc_quests.csv`** `id,npc,name,summary,reqLevel,reqRep,reqQuests,rewardCredits,rewardXp,rewardRep,rewardItems,npcTrust,offer,accept,decline,brief,complete` —
   같은 NPC 의 퀘스트는 **줄 순서대로 하나씩** 제안된다. `rewardRep` = `기업:양` | …, `rewardItems` = `아이템id:수량` | …. id 는 소문자 · 숫자 · `_`(크레딧 사유 `quest:<id>`).
   대사 5종은 `|` 로 말풍선을 나누고, 기록에는 사건만 남으므로 **대사를 고치면 옛 대화도 바뀐다**.
 - **`npc_objectives.csv`** `quest,kind,target,item,enemy,weapon,site,interact,planet,chain,label` — 줄 순서 = 표시 순서.
   `kind` deliver(item) | recover(item) | interact(interact) | kill(enemy, weapon?) | discover(site) | search(site). `item` = 아이템 id 또는 `weapon:<AR|SMG|SR|DMR|SG>`.
   `enemy` = humanoid | rogue | raider | android | bug | named | 적 타입 id. `planet` · `chain` 은 레이드 목표만 (deliver 에 쓰면 로더가 잡는다).
+  (아래 `2026-09-14 (2차)` 절에 `npcTrust` · `reqNpcRep` 설명이 있다.)
   data:check 가 보는 것: 모르는 NPC · 선행 · 아이템 · 보상 아이템 · 적, **그 행성에 그 적이 나올 수 있나**(안드로이드 threat 1 · 로그 threat 2 · 레이더 · 네임드 threat ≥ 2),
   퀘스트 없는 NPC, 중복 id, 채굴 해금 퀘스트의 `rewardCredits > 0`.
 - **`crypto.csv`** — `unlockQuest` 가 NPC 퀘스트 id(`q_hx_permit` · `q_bs_permit` · `q_nm_permit` · `q_ce_permit`)로 바뀌었다. 옛 `hx_crypto` 등의 해금 기록은 이어지지 않는다.
 - **`tuning.csv`** — `NPC_LOG_MAX` 200 (NPC 한 명의 대화 사건 수) · `NPC_OFFER_CHECK_S` 5 (함선에서 연락 · 제안 조건을 다시 보는 간격).
 - ⚠ 퀘스트 크레딧 보상을 고치면 `npm run data:check -- --write` 로 `server/economy.gen.json` 을 다시 굽는다 (릴레이가 `quest:<id>` 금액을 표로 검사한다).
+
+### 2026-09-14 (3차) — `constants.csv` 의 `ROVER_CHANCE` (신규) · `intel_options.csv` 의 `rover` 줄
+
+**탐사 차량 자연 배치가 확률이 됐다 (사용자 결정).** 전에는 `world/layout.ts` 가 굴림 없이 늘 흙길을 계획해
+실측 배치율이 **100 %** 였고(`scripts/smoke-intel.mjs` 가 시드 480개로 쟀다), 그러면 정보상(레이븐)의
+「탐사 차량 확정」(1000 크레딧)이 아무것도 사지 못한다.
+
+- **`constants.csv` `ROVER_CHANCE` = 0.6** — `RAIL_CHANCE`(0.7) 바로 아래에 둔다. **1.0 이면 정보상의 `rover`
+  줄이 값을 잃는다** — 값을 올릴 때 이것을 먼저 본다. 실측 배치율은 약 64 % 다 (`node scripts/smoke-intel.mjs`
+  가 매번 `note 평소 배치율 — 흙길 … · 선로 …` 로 찍는다).
+- 굴림은 `layout.ts` 가 **탐사 차량 전용 fork 의 첫 draw** 로 언제나 소비하고 결과만 덮는다 (정보상 규약과
+  같다 — 건너뛰면 확정으로 산 맵의 정류장이 자연히 선 맵과 달라져 미리보기 지도가 거짓말을 한다).
+- **`intel_options.csv`** `rover` 줄의 `note` 가 그 사실을 적는다 (`baseCost` · `maxTier` 는 그대로).

@@ -14,6 +14,8 @@ import type { PlanetId } from '@/shared';
 import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
+  /* appended (2026-09-14, 튜토리얼 개편): 체크포인트 부활 */
+  TUTORIAL_RESPAWN_DELAY_S,
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
@@ -42,6 +44,8 @@ export function onLocalDied(sys: GameFlowSystem): void {
     }
     return;
   }
+  // 튜토리얼 (2026-09-14): 레이드 실패가 없다 — 시체는 평소대로 서고 체크포인트에서 다시 선다.
+  if (sys.isTutorial()) { onTutorialDied(sys); return; }
   if (!ctx.isMultiplayer) {
     // Solo: the raid is lost the moment the player dies (Phase 7) — the death screen (레이드 실패) follows the usual delay.
     if (sys.deathTimer >= 0) return;
@@ -98,6 +102,56 @@ export function onLocalDied(sys: GameFlowSystem): void {
   if (MISSION_FAILS_WHEN_ALL_DEAD) {
     sys.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
     sys.checkAllDead();
+  }
+  }
+
+/* ═══════════════ 튜토리얼 체크포인트 부활 (2026-09-14, `docs/plans/tutorial-raid.md` B) ═══════════════
+ *
+ * 「완전한 사망에는 자동 부활이 없다」(2026-09-09)는 그대로다 — 이것은 그 규칙을 뚫는 예외가 아니라
+ * `ctx.missionMode === 'tutorial'` 안에서만 사는 **별도 갈래**이고, 되살리는 수단도 이미 있는 계약
+ * (`player:respawn`)이다. 훈련장 갈래(바로 위)의 형제라고 보면 된다.
+ *
+ * 훈련장과 다른 점 셋:
+ *   ① **시체가 선다** — 장비 · 가방 · 퀵슬롯이 그 안에 남아야 주우러 갈 수 있다 (사용자 결정). 그래서
+ *      체크포인트는 그 구간 적의 감지 범위 밖에 둔다 (`shared/tutorialWorld` 머리 주석의 배치 규칙).
+ *   ② **세이브를 지우지 않는다** — 솔로 레이드는 죽는 순간 세션을 지우지만(C-70, 「죽는 순간 레이드는
+ *      끝났다」) 튜토리얼의 사망은 끝이 아니다. 새로고침하면 체크포인트부터 이어 한다.
+ *   ③ **레이드 실패가 없다** — `gameOver()` 로 가지 않고 페이즈도 그대로다.
+ */
+function onTutorialDied(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  sys.setPaused(false);
+  sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  sys.deathTimer = -1;
+  // 장착 임플란트는 건드리지 않는다 — 튜토리얼 사망으로 영구히 잃는 것은 없다 (솔로 레이드 갈래와 정반대다).
+  Corpse.spawnLocalCorpse(sys);
+  /*
+   * **사망 직후 저장은 하지 않는다** (멀티 사망과 정반대이고, 그것이 옳다). 멀티에서 빈 가방을 강제로 찍는
+   * 이유는 「시체에도 있고 가방에도 있는 복제」를 막기 위해서인데, 솔로 세이브에는 시체가 담기지 않으므로
+   * 여기서 빈 가방을 찍으면 새로고침한 사람은 **시체도 장비도 없이** 깨어난다. `parts/Session.saveRaid` 의
+   * 솔로 가드(`isDead` → 저장하지 않는다)를 그대로 통과시켜 마지막 **생전** 스냅샷을 남기고, 부활한 뒤
+   * 다시 도는 주기 저장이 체크포인트 진행을 담는다. 세이브 자체를 지우지 않는 것이 이 갈래의 요점이다.
+   */
+  sys.tutorialRespawnTimer = TUTORIAL_RESPAWN_DELAY_S;
+  ctx.bus.emit('ui:notify', { text: '체크포인트에서 다시 시작합니다', kind: 'warning', duration: TUTORIAL_RESPAWN_DELAY_S });
+  }
+
+/**
+ * `TUTORIAL_RESPAWN_DELAY_S` 가 지났다 (`GameFlowSystem.update`). 체크포인트 자리에서 다시 선다 —
+ * 자리를 아는 곳은 맵을 지은 `world/tutorial` 하나뿐이라 거기 묻고, 없으면 월드 스폰으로 떨어진다.
+ * `player:respawn` 계약에는 yaw 가 없으므로 바라볼 방향은 부활 **직후** `teleport` 로 한 번 돌려세운다.
+ */
+export function tutorialRespawn(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  sys.tutorialRespawnTimer = -1;
+  if (!sys.isTutorial() || !sys.inLiveMission()) return;
+  let pose: { position: THREE.Vector3; yaw: number } | null = null;
+  try { pose = ctx.world?.tutorial?.respawnPose() ?? null; } catch (e) { console.error('[gameflow] tutorial respawnPose failed', e); }
+  const position = pose ? pose.position : (ctx.world?.getPlayerSpawn()?.clone() ?? null);
+  if (!position) return;
+  ctx.bus.emit('player:respawn', { position });
+  if (pose && ctx.player) {
+    try { ctx.player.teleport(position, pose.yaw, false); } catch { /* 몸이 아직 없다 — 방향만 못 맞출 뿐이다 */ }
   }
   }
 
@@ -244,6 +298,7 @@ export function complete(sys: GameFlowSystem): void {
   sys.completeTimer = -1;
   sys.allDeadCheckTimer = -1;
   sys.raidSaveTimer = -1;
+  sys.tutorialRespawnTimer = -1;   // 2026-09-14
   clearSoloRaid();          // the run is over — nothing left to resume
   ctx.progression?.clearActivePreps();   // A-13: 탈출 — 이번 레이드분 준비물은 여기서 비운다 (사망만으로는 비우지 않는다)
   sys.awardMissionXp();
@@ -272,6 +327,7 @@ export function gameOver(sys: GameFlowSystem): void {
   ctx.uiBlockers.delete('inventory');
   ctx.inventory?.closeAll();
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  sys.tutorialRespawnTimer = -1;   // 2026-09-14
   sys.allDeadCheckTimer = -1;
   sys.raidSaveTimer = -1;
   sys.restoreTimer = -1;

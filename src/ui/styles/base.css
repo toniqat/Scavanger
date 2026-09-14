@@ -285,9 +285,17 @@ input { font: inherit; color: inherit; }
 .vitals .hp-max { font-size: 11px; color: var(--c-text-faint); margin-bottom: 3px; }
 .vitals .hp-bar { position: relative; width: 240px; height: 8px; display: flex; gap: 2px; margin-bottom: 4px; }
 .vitals .seg { flex: 1; position: relative; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.vitals .seg .ghost { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.55); transform-origin: left; will-change: transform; }
+/* 피격 잔상 (2026-09-14, 사용자 결정): **연한 빨강**. 예전 `rgba(255,255,255,0.55)` 는 흰 `.fill` 과 구분이 안 돼
+   얼마나 깎였는지 안 보였다. 체력 · 실드가 같은 변수를 쓰고, 전투불능 잔상(`--vt-ghost-down`, 아래 downed 절)은
+   더 진한 빨강이라 두 상태가 섞이지 않는다. 색은 이 두 줄이 유일한 원본이다 — `styles/raidHud.css` 는 위치 · 폭만 건드린다. */
+.vitals { --vt-ghost: rgba(255, 146, 146, 0.42); --vt-ghost-down: rgba(255, 48, 48, 0.68); }
+.vitals .seg .ghost { position: absolute; inset: 0; background: var(--vt-ghost); transform-origin: left; will-change: transform; }
 .vitals .seg .fill { position: absolute; inset: 0; background: var(--c-text); transform-origin: left; will-change: transform; }
 .vitals.low .seg .fill { background: var(--c-danger); }
+/* 실드 잔상 (2026-09-14): `.sh-seg` 는 `.seg` 와 다른 클래스라 위 규칙이 안 닿는다 — 같은 색으로 따로 적는다.
+   DOM 순서가 ghost → fill 이라 채움이 잔상 위에 그려진다 (`hud/Vitals.setCells`). `overflow: hidden` 은 **걸지 않는다** —
+   `.sh-seg .fill` 의 바깥 글로우(`raidHud.css`)가 잘린다. scaleX 잔상은 칸 밖으로 나가지 않으므로 필요도 없다. */
+.vitals .sh-seg .ghost { position: absolute; inset: 0; background: var(--vt-ghost); transform-origin: left; will-change: transform; }
 .pill {
   display: inline-flex; align-items: center; gap: 8px;
   height: 26px; padding: 0 10px 0 8px;
@@ -1145,7 +1153,8 @@ input { font: inherit; color: inherit; }
 /* Vitals: downed (전투불능) state */
 .vitals .down-sub, .vitals .revive { display: none; }
 .vitals.downed .seg .fill { background: var(--c-danger); }
-.vitals.downed .seg .ghost { background: rgba(255, 77, 77, 0.45); }
+/* 전투불능 잔상은 평상시(`--vt-ghost`, 연한 빨강)보다 **더 진하고 채도가 높다** — 두 상태를 색만 보고 가른다. */
+.vitals.downed .seg .ghost { background: var(--vt-ghost-down); }
 .vitals.downed .hp-num { color: var(--c-danger); animation: downedPulse 1.2s ease-in-out infinite alternate; }
 .vitals.downed .ui-label { color: var(--c-danger); letter-spacing: 0.14em; }
 .vitals.downed .down-sub { display: block; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); }

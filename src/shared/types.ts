@@ -649,6 +649,14 @@ export interface HubRef {
    * Personal-ship room the player is standing in (0..SHIP_ROOM_COUNT−1), or null in the corridor / cockpit / shared ship.
    */
   readonly currentRoom: number | null;
+  /* ── appended (2026-09-14): 발사 슬롯 준비 (docs/plans/intel-broker.md §4.3) ── */
+  /**
+   * 로컬 플레이어가 발사 슬롯에서 **준비를 확정**했는가 (스페이스 1초 홀드 + 출격 경고 승인까지 끝난 상태).
+   * 포드에 **타기만** 한 것은 false 다 — 2026-09-14 부터 탑승과 준비가 갈렸다.
+   * `inventory/` 가 이것을 보고 창고 · 장비 · 가방을 **읽기 전용**으로 잠근다 (사용자 결정: 준비 중 로드아웃 전환 불가).
+   * 선택 속성인 이유는 hub 가 없는 화면(타이틀 · 레이드)에서 `ctx.hub` 자체가 null 이기 때문이다.
+   */
+  readonly launchReady?: boolean;
 }
 
 export interface LootRef {
@@ -1298,8 +1306,13 @@ export interface TradeGridsView extends EmbeddedView {
  * a small enclosed arena with pop-up targets, no enemies / crates / extraction, entered from the 사격장 sim hub
  * (personal ship) or the shared-ship terminal, left through the arena's exit console (`training:exitRequested`).
  * Ammo / durability spent in a training are restored on exit (game/ captures + re-applies `captureRaidState`).
+ *
+ * appended (2026-09-14, 튜토리얼 개편 — `docs/plans/tutorial-raid.md`): `'tutorial'` = 손으로 지은 튜토리얼 행성
+ * (`world/tutorial/`). 절차 생성기를 아예 타지 않고 안개 · 재해 · 상자 · 채집 · 둥지가 없다. 적은 고정 자리에
+ * 고정 종류로만 서고, 죽으면 체크포인트에서 다시 선다 (`ctx.world.tutorial` = `TutorialWorldRef`).
+ * 훈련장과 달리 **진짜 레이드**다 — 전리품 · XP 가 프로필로 넘어가고 탈출은 평소 경로를 그대로 쓴다.
  */
-export type MissionMode = 'raid' | 'training';
+export type MissionMode = 'raid' | 'training' | 'tutorial';
 export interface MissionStats {
   /* appended (Phase 7): mode of the mission the stats belong to (`'raid'` when absent). */
   mode?: MissionMode;
@@ -1477,6 +1490,11 @@ export interface WorldRef {
   /* ── appended: Phase 9 (owner: world) ── */
   /** 시뮬레이션 훈련장 controller; null outside a training world. */
   readonly training: TrainingRef | null;
+  /**
+   * appended (2026-09-14): 튜토리얼 월드의 체크포인트 · 낙하 규칙 (`training` 과 같은 자리 · 같은 규약).
+   * 튜토리얼 월드가 아니면 null — 낙하 피해는 그때 언제나 전역 규칙이다.
+   */
+  readonly tutorial: import('./tutorialWorld').TutorialWorldRef | null;
 }
 
 /* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
@@ -3158,6 +3176,22 @@ export interface PlayerRef {
    * 레이드 세이브(game)가 선체 안 좌석을 저장하지 않게 이 자리를 쓴다 — 사망 · 리셋이 탑승을 풀 때도 같은 자리에 선다.
    */
   roverSafePosition?(out: THREE.Vector3): THREE.Vector3 | null;
+
+  /* ── appended (2026-09-14): 튜토리얼 오프닝 (owner: player; caller: tutorial) ── */
+  /**
+   * 튜토리얼의 첫 장면 — **쓰러진 자세**로 시작해 `durationS` 초에 걸쳐 일어난다. 그 동안 이동 · 자세 · 무기 ·
+   * 상호작용 입력이 잠기고 카메라는 player/ 가 든다(쓰러진 몸을 비추다 일어서면서 평소 3인칭 백뷰로 **하드 컷**).
+   * 끝나면 `player:introWakeDone`. 이미 돌고 있으면 아무것도 하지 않는다.
+   * `game:abort` · `game:newMission` · 사망은 스스로 푼다.
+   */
+  playIntroWake?(durationS: number): void;
+  /**
+   * 체력을 **그대로 정한다** — 각본된 장면이 몸 상태를 정하는 자리. 지금 쓰는 곳은 튜토리얼 하나다
+   * (폐허에서 깨어난 사람은 **딸피**라 벌레에게 한 대 맞으면 죽는다 — 사용자 명세).
+   * 피격 연출 · 방향 호 · 소리를 내지 않고 **실드를 건드리지 않는다**; 죽은 · 전투불능 상태에서는 아무것도 안 한다.
+   * 1 밑으로는 내려가지 않는다 (이 함수로 사람을 죽이지 않는다 — 죽음은 `takeDamage` 의 일이다).
+   */
+  setHp?(hp: number): void;
 }
 /* ══ end 2026-09-13 탐사 차량 ══ */
 
@@ -3179,3 +3213,57 @@ export interface ItemDef {
   gameConsole?: GameConsoleDef;
 }
 /* ══ end 2026-09-13 서재 시리즈 ══ */
+
+/* ══ appended (2026-09-14): 정보상 지도 미리보기 — docs/plans/intel-broker.md §4.2 ═════════════════════════════
+ *
+ * 정보상 화면은 **살 지역의 실제 레이아웃**을 흐릿한 격자로 보여 준다 (사용자 결정). 그러려면 `hub/` 가 메시를
+ * 하나도 만들지 않고 `generateLayout` 의 결과만 받아야 하는데, `WorldLayout` 은 `world/` 내부 타입이고 폴더끼리는
+ * 서로를 import 하지 않는다 (CLAUDE.md). 그래서 **`ctx.world.previewLayout(...)` 한 줄**이 계약이다 —
+ * 실제 생성과 **같은 코드**(`world/preview.planLayoutFor`)를 지나므로 미리보기가 거짓말을 할 수 없다
+ * (「열지 않고 미리 보는 것은 여는 것과 같은 함수여야 한다」와 같은 규칙).
+ *
+ * 값은 전부 **평면 데이터**다 — THREE 객체도, `world/` 타입도 새지 않는다. 좌표계는 월드 XZ (m), 원점이 맵 중앙.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+import type { IntelEffects } from './intel';
+
+/** 미리보기 지도의 원 하나 (월드 XZ, 반지름 m). */
+export interface MapPreviewSpot { x: number; z: number; r: number }
+
+/** `WorldRef.previewLayout` 의 결과. 메시 없이 지도를 그리기에 딱 필요한 만큼만 들어 있다. */
+export interface MapPreviewLayout {
+  /** 이 미리보기가 그린 시드 · 행성 (호출값 그대로 — 화면이 「다른 행성의 정보」를 구분한다). */
+  seed: number;
+  planet: PlanetId | null;
+  /** 맵 한 변(m) — 화면이 좌표를 격자로 옮기는 데 쓴다 (`MAP_SIZE`). */
+  mapSize: number;
+  spawn: MapPreviewSpot;
+  extraction: MapPreviewSpot[];
+  nests: MapPreviewSpot[];
+  /** 폐허 전초. */
+  pois: MapPreviewSpot[];
+  craters: MapPreviewSpot[];
+  structures: Array<MapPreviewSpot & {
+    kind: StructureKind;
+    /** 지하실이 파였는가 (전진기지만 가질 수 있다). */
+    basement: boolean;
+    /** 1 또는 2 — 연구실은 2층일 때만 잠긴 방이 생긴다. */
+    floors: number;
+  }>;
+  /** 선로 (없으면 null). `platforms` 는 플랫폼 부지다. */
+  rail: { kind: RailKind; extent: number; angle: number; platforms: MapPreviewSpot[] } | null;
+  /** 탐사 차량 흙길 (없으면 null). `route` 는 닫힌 고리의 중심선 점열이다. */
+  rover: { stations: MapPreviewSpot[]; route: Array<{ x: number; z: number }> } | null;
+  /** 이번 레이드의 재해 종류 (없는 행성이면 null). 시작 시각은 여기 싣지 않는다 — 지도에 그릴 것이 없다. */
+  hazard: HazardKind | null;
+}
+
+export interface WorldRef {
+  /**
+   * appended (2026-09-14, 정보상): `seed` · `planet` · 산 기믹(`intel`)으로 **레이아웃만** 계산한다 — 지형도 메시도
+   * 만들지 않고 씬을 건드리지 않으므로 **레이드 밖(함선)에서도** 부를 수 있다. 실제 생성이 쓰는 같은 함수를 지나기
+   * 때문에 미리보기와 진짜 맵이 어긋날 수 없다. `intel` 은 `shared/intel.resolveIntelEffects` 의 결과이거나 null.
+   */
+  previewLayout?(seed: number, planet: PlanetId | null, intel?: IntelEffects | null): MapPreviewLayout;
+}
+/* ══ end 2026-09-14 정보상 지도 미리보기 ══ */

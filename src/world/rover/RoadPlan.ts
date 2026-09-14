@@ -18,7 +18,7 @@ import {
   MAP_SIZE, RAIL_CLEARANCE_M, ROVER_MIN_TURN_RADIUS_M, ROVER_PLAN_ATTEMPTS, ROVER_PLAN_STEP_M, ROVER_POLE_OFFSET_M,
   ROVER_RAIL_GAP_M, ROVER_RING_MIN_M, ROVER_ROUTE_BOUND_M, ROVER_ROUTE_CLEARANCE_M, ROVER_ROUTE_WIGGLE_M,
   ROVER_SPAWN_GAP_M, ROVER_STATION_ANGLE_JITTER, ROVER_STATION_COUNT_MAX, ROVER_STATION_COUNT_MIN,
-  ROVER_STATION_MIN_GAP_M, ROVER_STATION_PAD_R, type Random,
+  ROVER_STATION_MIN_GAP_M, ROVER_STATION_PAD_R, numberList, type Random,
 } from '@/shared';
 import type { RoverPlan, RoverRoadIndex } from './model';
 
@@ -43,7 +43,16 @@ export interface RoadPlanInput {
   railLoopExtent: number | null;
   /** 강하 지점 부지. */
   spawn: { x: number; z: number; radius: number };
+  /**
+   * 2026-09-14 (정보상 「탐사 차량 확정」): 시도 횟수를 `ROVER_PLAN_ATTEMPTS_INTEL` 로 크게 늘린다. 굴림은 자기 fork 안에서만
+   * 도므로 바깥 스트림은 그대로이고, 평소 성공하는 시드는 **첫 성공에서 빠져나오므로 결과도 그대로**다. 그래도 실패할 수
+   * 있고(선로 · 강하 지점이 고리를 막는 시드), 그때는 그냥 null 이다 — 호출자가 경고를 찍는다.
+   */
+  forcePlan?: boolean;
 }
+
+/** 정보상 「탐사 차량 확정」의 재시도 횟수 (`data/tables.csv`). */
+const PLAN_ATTEMPTS_INTEL = numberList('tables.csv', 'ROVER_PLAN_ATTEMPTS_INTEL')[0] ?? 1024;
 
 interface Sample { th: number; r: number; fixed: boolean }
 
@@ -58,7 +67,7 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
     : ROVER_RING_MIN_M;
   const spawn = input.spawn;
   const bound = ROVER_ROUTE_BOUND_M;
-  const attempts = Math.max(1, ROVER_PLAN_ATTEMPTS);
+  const attempts = Math.max(1, input.forcePlan ? Math.max(ROVER_PLAN_ATTEMPTS, PLAN_ATTEMPTS_INTEL) : ROVER_PLAN_ATTEMPTS);
   let spawnGapRoute = 0, spawnGapStation = 0;
 
   const routeOk = (th: number, r: number): boolean => {
@@ -75,7 +84,9 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
     /* 강하 지점 여유(`ROVER_SPAWN_GAP_M`)는 **시도의 앞 절반에만** 건다. 가장자리 강하 지점이 왕복 선로 끝 플랫폼과 같은 쪽에 서면
      * 그 사이 틈(약 66 m)에 「플랫폼 + 회랑」 과 「강하 지점 + 회랑 + 여유」 가 동시에 들어가지 못한다 (3000 시드 중 19개가 그랬다).
      * 뒤 절반은 여유를 0 으로 — 회랑 자체는 여전히 강하 지점 부지를 비운다. */
-    const spawnGap = attempt < attempts / 2 ? ROVER_SPAWN_GAP_M : 0;
+    /* 2026-09-14: 문턱은 **평소 시도 수**의 절반이다 — 정보상으로 시도를 늘려도 앞 `ROVER_PLAN_ATTEMPTS` 번은
+     * 굴림도 판정도 평소와 한 글자도 같다 (평소 성공하던 시드가 다른 경로를 내지 않는다). */
+    const spawnGap = attempt < ROVER_PLAN_ATTEMPTS / 2 ? ROVER_SPAWN_GAP_M : 0;
     spawnGapRoute = spawn.radius + C + spawnGap;
     spawnGapStation = spawn.radius + padR + spawnGap;
     const a0 = rng.range(0, TAU);

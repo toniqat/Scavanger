@@ -15,6 +15,8 @@ import {
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
+/* 2026-09-14: 정보상 — 솔로 이어하기가 기믹 고정을 되살린다 (docs/plans/intel-broker.md) */
+import { resolveIntelEffects } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
@@ -59,9 +61,16 @@ export function isRaidSession(sys: GameFlowSystem): boolean {
   return sys.ctx.isMultiplayer && sys.ctx.missionMode === 'raid' && !!sys.ctx.net;
   }
 
-/** Solo raid: no relay to upload to, so the session is mirrored into localStorage instead (`SoloRaid.ts`). */
+/**
+ * 혼자 도는 **저장 대상 세션**: 릴레이에 올릴 곳이 없어 localStorage 로 대신한다 (`SoloRaid.ts`).
+ *
+ * 2026-09-14 (튜토리얼 개편): 튜토리얼도 여기 든다 — 새 캐릭터가 첫 레이드 도중 새로고침해도
+ * 체크포인트부터 이어 해야 하기 때문이다. 훈련장은 여전히 제외다 (나갈 때 인벤토리를 통째로 되돌린다).
+ * 이름은 계약처럼 쓰이고 있어 그대로 두고 뜻만 넓혔다.
+ */
 export function isSoloRaid(sys: GameFlowSystem): boolean {
-  return !sys.ctx.isMultiplayer && sys.ctx.missionMode === 'raid';
+  if (sys.ctx.isMultiplayer) return false;
+  return sys.ctx.missionMode === 'raid' || sys.ctx.missionMode === 'tutorial';
   }
 
 /** Upload my mid-raid state so a reconnect can resume it (`RaidSessionBlob`) — or, solo, write it to localStorage. */
@@ -109,12 +118,22 @@ export function saveSoloAt(sys: GameFlowSystem, at: THREE.Vector3 | null): void 
   if (!p) return;
   // 2026-09-13: 탐사 차량 안이면 선체 안 좌석이 아니라 차량 옆 지면을 저장한다 (복귀하면 걸어서 서 있다)
   const pos = at ?? (p.roverRide ? p.roverSafePosition?.(_roverSafe) ?? p.position : p.position);
+  // 2026-09-14 (튜토리얼): 어떤 미션이었나 · 어디까지 갔나 — 둘 다 없으면 옛 세이브처럼 평범한 레이드다
+  const tutorial = ctx.missionMode === 'tutorial';
+  const checkpoint = tutorial ? ctx.world?.tutorial?.checkpoint ?? null : null;
+  /* 2026-09-14 (정보상): 이 레이드가 쓰고 있는 기믹 고정. 보유 정보는 레이드가 끝나야 소모되므로 (`IntelRef.consume`)
+   * 달리는 동안은 아직 손에 있고, 솔로라 「그 행성의 것」이면 곧 이 레이드의 것이다 — `planet` 과 같은 규약이다. */
+  const held = ctx.meta?.intel?.get?.() ?? null;
+  const picks = held && held.planet === (ctx.missionPlanet ?? null) ? held.picks : null;
   try {
     saveSoloRaid({
       v: 1,
       savedAt: Date.now(),
       seed: ctx.stats.seed,
       planet: ctx.missionPlanet ?? null,
+      ...(picks && picks.length ? { intel: picks } : {}),
+      ...(tutorial ? { mode: 'tutorial' as const } : {}),
+      ...(checkpoint ? { checkpoint } : {}),
       missionTime: ctx.missionTime,
       stats: { ...ctx.stats },
       inventory: ctx.inventory?.captureRaidState() ?? null,
@@ -159,15 +178,30 @@ export function consumeStoredSoloRaid(sys: GameFlowSystem): void {
 /** Re-enter the stored solo raid: same seed / planet, blob restored on `world:ready`, body placed (no hellpod). */
 export function resumeSoloRaid(sys: GameFlowSystem, save: SoloRaidSave): void {
   const ctx = sys.ctx;
+  const tutorial = save.mode === 'tutorial';
   sys.rejoining = true;
   ctx.rejoinPending = true;
-  ctx.missionMode = 'raid';
-  ctx.missionPlanet = save.planet;
+  ctx.missionMode = tutorial ? 'tutorial' : 'raid';
+  ctx.missionPlanet = tutorial ? null : save.planet;
+  /* 2026-09-14 (정보상): `missionPlanet` 과 **똑같이** `game:newMission` emit 전에 세팅한다 — 안 하면 이어한 사람만
+   * 기믹이 빠진 맵을 만든다 (시드가 같아 지형은 같고 탈출구 · 지하실만 사라진다). */
+  ctx.missionIntel = !tutorial && save.intel && save.intel.length ? resolveIntelEffects(save.intel) : null;
   sys.raidBlob = { seed: save.seed, missionTime: save.missionTime, stats: save.stats, inventory: save.inventory, savedAt: save.savedAt };
   sys.soloRestore = {
     position: new THREE.Vector3(save.pose.x, save.pose.y, save.pose.z),
-    yaw: save.pose.yaw, hp: save.pose.hp, downHp: save.pose.downHp, state: save.pose.state, shield: save.pose.shield,
+    yaw: save.pose.yaw,
+    // 튜토리얼에는 사망이 없다 — 죽은 채로 닫힌 세이브라도 살아서 체크포인트에 선다
+    hp: tutorial ? Math.max(1, save.pose.hp) : save.pose.hp,
+    downHp: save.pose.downHp,
+    state: tutorial ? 0 : save.pose.state,
+    shield: save.pose.shield,
   };
-  ctx.bus.emit('ui:notify', { text: '중단된 레이드를 이어서 진행합니다', kind: 'warning', duration: 5 });
-  ctx.bus.emit('game:newMission', { seed: save.seed, mode: 'raid', planet: save.planet ?? undefined });
+  // 2026-09-14: 월드는 새로 지어지면서 체크포인트가 `'wake'` 로 돌아간다 — `world:ready` 뒤에 되돌린다 (`parts/Phases`)
+  sys.soloCheckpoint = tutorial ? save.checkpoint ?? null : null;
+  ctx.bus.emit('ui:notify', {
+    text: tutorial ? '튜토리얼을 이어서 진행합니다' : '중단된 레이드를 이어서 진행합니다', kind: 'warning', duration: 5,
+  });
+  ctx.bus.emit('game:newMission', {
+    seed: save.seed, mode: tutorial ? 'tutorial' : 'raid', planet: tutorial ? undefined : (save.planet ?? undefined),
+  });
   }

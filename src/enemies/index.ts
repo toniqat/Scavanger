@@ -11,6 +11,7 @@ export {
   MAX_ARTILLERY, MAX_BEHEMOTH, ambientCap, ecoAllows, maxArtilleryOf, maxBehemothOf, type SpawnHost,
 } from './Spawner';
 export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
+export { placeTutorialEnemies, tutorialHold, type TutorialPlacement } from './Tutorial';
 export { RogueDropDirector, disposeRogueDropAssets, type RogueDropHost } from './RogueDrop';
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
@@ -22,7 +23,7 @@ export { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
 export { pickCover, coverBlocksLine, flankCost, COVER_SEARCH_RADIUS } from './ai/RogueCover';
 export { LureField, type LureEntry } from './ai/Lures';
 export { refreshStructureTarget, biteStructure, STRUCT_DAMAGE_MUL } from './ai/Structures';
-export { hasLineOfSight, visionClarity, detectionRange, becomeAlert, acquireTarget, updatePerception } from './ai/Perception';
+export { hasLineOfSight, visionClarity, detectionRange, senseRadiusOf, hearRadiusOf, becomeAlert, acquireTarget, updatePerception } from './ai/Perception';
 export { fireOrigin, hasFireLine, fireLineStrafe } from './ai/FireLine';
 export { EnemyReplica, ReplicaBuffer, type ReplicaHost } from './net/Replica';
 export { encodeSnapshot, animHint } from './net/HostSync';

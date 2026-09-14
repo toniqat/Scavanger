@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   BOX_HEADROOM,
-  GRAVITY, IMPLANT_GRAPPLE_SPEED, PLAYER_HEIGHT, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED,
+  GRAVITY, IMPLANT_GRAPPLE_SPEED, PLAYER_CROUCH_CLEARANCE_M, PLAYER_HEIGHT, PLAYER_PRONE_CLEARANCE_M, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED,
   PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED, ROLL_DISTANCE, ROLL_DURATION,
   RIDE_INERTIA_DAMP, RIDE_INERTIA_S, recordRideLocal, restoreRideLocal, rideContains,
   LADDER_CLIMB_SPEED, LADDER_DROP_PUSH, LADDER_JUMP_PUSH, LADDER_JUMP_SPEED, LADDER_MOUNT_S, LADDER_SPRINT_SPEED,
@@ -31,6 +31,13 @@ export interface MoveResult {
   rung: boolean;
   /** 이번 프레임에 사다리를 놓았다면 그 이유. */
   climbEnded: ClimbEnd | null;
+  /* ── appended (2026-09-14): 전역 낙하 피해 ── */
+  /**
+   * 이번 프레임에 착지했다면 **떨어진 높이**(m) — 낙하가 시작된 높이(공중에 있는 동안의 최고점) − 착지 높이.
+   * 착지하지 않았거나 **면제된 낙하**면 0 이다 (`fallExempt` — 갈고리 · 가방 부양 · 차량 발판 · 사다리 놓기 ·
+   * 함선 실내). 높이를 피해로 바꾸는 것은 `player/parts/Fall` 이고 컨트롤러는 **높이만** 잰다.
+   */
+  fallHeight: number;
 }
 
 /** 사다리를 놓는 이유 — 꼭대기에 올라섬 · 발치에 내려섬 · E 로 놓음 · 점프. */
@@ -170,6 +177,16 @@ export class PlayerController {
   private wasGrounded = true;
   private coyote = 0;
   private rollTimer = 0;
+  /**
+   * 전역 낙하 피해 (2026-09-14): 지금 낙하가 **시작된 높이**. 접지해 있는 동안은 발 높이를 계속 따라가고,
+   * 공중에서는 최고점만 올라간다 — 그래서 「점프해서 올라갔다가 떨어진 높이」가 아니라 **실제로 떨어진 높이**다.
+   */
+  private fallFromY = 0;
+  /**
+   * 이번 낙하는 피해를 계산하지 않는다. 갈고리 · 가방 부양 · 차량 발판 · 함선 실내처럼 「떨어진 것이 아닌」
+   * 상태가 낙하 중에 한 번이라도 있었으면 서고, 접지하는 순간 내려간다 (사다리를 놓은 낙하도 여기에 든다).
+   */
+  private fallExempt = false;
 
   get crouching(): boolean { return this.stance === 'crouch'; }
   get prone(): boolean { return this.stance === 'prone'; }
@@ -186,10 +203,18 @@ export class PlayerController {
     this.speed = 0; this.stridePhase = 0; this.lastStep = 0;
     this.carrier = null; this.rideInertia.set(0, 0, 0); this.rideInertiaT = 0;
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
+    // 2026-09-14: 스폰 · 부활 · 순간이동(대시 · 콘솔)은 낙하가 아니다 — 새 자리에서 다시 잰다
+    this.fallFromY = pos.y; this.fallExempt = false;
   }
 
   /** 지금 차량(전차 데크 등)에 타고 있는가. HUD · 디버그용. */
   get riding(): boolean { return this.carrier !== null; }
+
+  /**
+   * 2026-09-14: 지금 진행 중인 낙하를 **낙하 피해에서 뺀다** — 걸어서 떨어진 것이 아닌 이동(대시 같은 순간이동)이
+   * 부른다. 접지하는 순간 저절로 풀리므로 켜 두고 잊어도 된다.
+   */
+  exemptFall(): void { this.fallExempt = true; this.fallFromY = this.position.y; }
 
   /* ── 사다리 (2026-09-11) ─────────────────────────────────────────────────────────────────────────────
    * 상태는 `climbLadder` 하나다. 잡기(`startClimb`)는 몸을 사다리 XZ 에 붙이고, 매달린 동안은
@@ -224,12 +249,14 @@ export class PlayerController {
     if (!this.climbLadder) return;
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
     this.grounded = false; this.wasGrounded = false; this.coyote = 0;
+    // 2026-09-14: 사다리에서 떨어져 나온 몸은 낙하 피해를 받지 않는다 (매달린 동안은 애초에 착지가 없다)
+    this.fallFromY = this.position.y; this.fallExempt = true;
   }
 
   /** 매달린 동안의 한 프레임. `update` 대신 불린다. */
   updateClimb(dt: number, inp: ClimbInput, out: MoveResult): void {
     out.footstep = false; out.landed = 0; out.jumped = false; out.rollEnded = false;
-    out.rung = false; out.climbEnded = null;
+    out.rung = false; out.climbEnded = null; out.fallHeight = 0;
     const l = this.climbLadder;
     if (!l || dt <= 0) return;
     const pos = this.position, vel = this.velocity;
@@ -304,6 +331,8 @@ export class PlayerController {
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
     this.grounded = grounded; this.wasGrounded = grounded; this.coyote = grounded ? 0.1 : 0;
     if (grounded) this.velocity.set(0, 0, 0);
+    // 2026-09-14: 사다리를 놓고(E · 점프) 떨어지는 낙하는 면제다 — 올라선 · 내려선 쪽은 그냥 새 기준점이다
+    this.fallFromY = this.position.y; this.fallExempt = !grounded;
     out.climbEnded = end;
   }
 
@@ -335,7 +364,18 @@ export class PlayerController {
   /** Add to the velocity (jump pad, rocket blast, jump backpack). Positive Y also unsticks from the ground. */
   applyImpulse(impulse: THREE.Vector3): void {
     this.velocity.add(impulse);
-    if (impulse.y > 0.01) { this.grounded = false; this.coyote = 0; this.position.y += 0.02; }
+    if (impulse.y > 0.01) {
+      this.grounded = false; this.coyote = 0; this.position.y += 0.02;
+      /*
+       * 2026-09-14 (전역 낙하 피해): **남이 띄운 몸은 착지로 죽지 않는다.** 점프대 · 바주카 슈퍼점프 ·
+       * 폭발 · 적 넉백이 전부 이 한 줄을 지난다 (`applyKnockback` 도 여기로 온다). 안 그러면 바주카
+       * 슈퍼점프(+29.9 m/s → 정점 45 m)가 착지에서 상한 피해를 받는 **자살 버튼**이 되고, 자기 점프대에
+       * 올라선 사람이 죽는다 — 둘 다 이동 수단으로 만든 것이다.
+       * 면제는 **다음 착지까지**만 산다 (`exemptFall` → 착지 프레임이 되돌린다). 제 발로 뛰어내리는
+       * 평범한 점프는 임펄스가 아니라 속도를 직접 넣으므로 여전히 높이만큼 아프다.
+       */
+      this.exemptFall();
+    }
   }
 
   /**
@@ -413,9 +453,21 @@ export class PlayerController {
    * 월드 천장 (2026-09-11) — 실내 모드의 천장 프로브와 같은 식. 광선은 **적분 전 발 높이**의 엉덩이에서 쏜다:
    * 적분 뒤 자리에서 쏘면 엉덩이가 이미 슬래브 안이라 광선이 슬래브를 못 본다. 올라가는 프레임에만 불린다.
    */
+  /**
+   * 지금 자세가 요구하는 **머리 위 공간** (2026-09-14, 낮은 통로를 앉아서 지나기).
+   * 서 있으면 지금까지와 똑같은 `WORLD_CEIL_HEADROOM`(= `BOX_HEADROOM` 2.1) 이므로 본편 동선은 바뀌지 않는다.
+   * 이 값이 곧 `resolveCollision` 에 넘기는 높이여야 한다 — 천장 클램프와 밀어내기가 다른 높이를 보면
+   * 슬래브 밑에서 위로는 안 막히는데 옆으로는 밀려나는(또는 그 반대의) 모순이 생긴다.
+   */
+  private get bodyClearance(): number {
+    if (this.stance === 'crouch') return PLAYER_CROUCH_CLEARANCE_M;
+    if (this.stance === 'prone') return PLAYER_PRONE_CLEARANCE_M;
+    return Math.max(PLAYER_HEIGHT, WORLD_CEIL_HEADROOM);
+  }
+
   private clampWorldCeiling(world: WorldRef, feetBefore: number): void {
     const pos = this.position;
-    const clearance = Math.max(PLAYER_HEIGHT, WORLD_CEIL_HEADROOM);
+    const clearance = this.bodyClearance;
     _rayO.set(pos.x, feetBefore + CEIL_PROBE_START, pos.z);
     const reach = pos.y + clearance - _rayO.y + 0.05;
     if (reach <= 0) return;
@@ -465,7 +517,7 @@ export class PlayerController {
 
   update(dt: number, inp: MoveInput, yaw: number, world: WorldRef | null, out: MoveResult): void {
     out.footstep = false; out.landed = 0; out.jumped = false; out.rollEnded = false;
-    out.rung = false; out.climbEnded = null;
+    out.rung = false; out.climbEnded = null; out.fallHeight = 0;
     if (dt <= 0) return;
     const pos = this.position, vel = this.velocity;
     this.stance = inp.stance;
@@ -603,7 +655,9 @@ export class PlayerController {
         const step = world.getSurfaceY(pos.x, pos.z, pos.y);
         if (step > pos.y) pos.y = step;
       }
-      world.resolveCollision(pos, PLAYER_RADIUS);
+      // 2026-09-14: 자세 높이를 함께 넘긴다 — 서 있으면 예전과 같은 2.1 이고, 앉거나 엎드렸을 때만 낮은
+      //   슬래브 밑을 지난다. 일어설 수 있는지는 `parts/Locomotion.canStandHere` 가 따로 막는다.
+      world.resolveCollision(pos, PLAYER_RADIUS, this.bodyClearance);
     }
 
     // ── ground contact
@@ -619,6 +673,21 @@ export class PlayerController {
     }
     this.wasGrounded = wasGrounded;
     if (this.grounded) this.hovering = false;
+
+    /*
+     * 낙하 추적 (2026-09-14, 전역 낙하 피해). 접지하면 발 높이가 곧 다음 낙하의 기준점이고, 공중에서는 최고점만
+     * 올라간다 — 「떨어진 높이」이지 「속도」가 아니다 (경사를 타고 내려오면 접지가 이어져 0 이고, 같은 자리에서
+     * 점프해 떨어져도 발 높이 차이만큼뿐이다). 면제는 **낙하 중 한 번이라도** 서면 착지까지 유지된다:
+     * 갈고리로 끌려가는 중 · 가방 부양(자동 catch 포함) · 차량 발판 위 · 함선 실내 · 사다리에서 놓은 몸.
+     */
+    if (this.grappleTarget || this.hovering || this.carrier || this.interior || this.shipBounds) this.fallExempt = true;
+    if (this.grounded) {
+      if (!wasGrounded) out.fallHeight = this.fallExempt ? 0 : Math.max(0, this.fallFromY - pos.y);
+      this.fallFromY = pos.y;
+      this.fallExempt = false;
+    } else if (pos.y > this.fallFromY) {
+      this.fallFromY = pos.y;
+    }
 
     // 이번 프레임의 최종 자리를 **차량 좌표로 다시 적어 둔다** — 다음 프레임에 차량의 새 변환으로 푼다.
     this.recordRide();

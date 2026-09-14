@@ -10,7 +10,7 @@ import type { PlayerRestoreState } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
+  ARMOR_DURABILITY_PER_DAMAGE, BOX_HEADROOM, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
   ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION, LADDER_SPRINT_DRAIN,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
@@ -127,6 +127,33 @@ export function consumeStamina(sys: PlayerSystem, amount: number): boolean {
   return true;
   }
 
+/**
+ * 지금 자리에서 **일어설 수 있나** (2026-09-14, 낮은 통로를 앉아서 지나기).
+ *
+ * 앉은 몸은 `PLAYER_CROUCH_CLEARANCE_M` 만큼의 머리 위 공간만 요구하므로(`PlayerController.bodyClearance`)
+ * 낮은 슬래브 밑을 지날 수 있는데, 그 밑에서 그냥 일어서면 몸이 슬래브 안에 들어가고 다음 프레임의
+ * `resolveCollision` 이 옆으로 밀어낸다. 그래서 **일어서기를 막는다** — 사람이 누르는 경로(C · Z · 달리기 ·
+ * 점프로 자동 기립)에서만 묻고, 사다리 · 가구 자세 · 드론 조종 해제 같은 **각본된 기립은 묻지 않는다**
+ * (그 자리는 원래 설 수 있던 곳이고, 못 서면 영영 못 빠져나온다).
+ *
+ * 월드에서만 검사한다 — 함선 실내 · 탈출선 안은 천장이 사람 키보다 높다.
+ */
+export function canStandHere(sys: PlayerSystem): boolean {
+  const c = sys.controller;
+  if (c.interior || c.shipBounds) return true;
+  const world = sys.ctx?.world;
+  if (!world?.ready) return true;
+  const feet = c.position;
+  _standProbe.set(feet.x, feet.y + STAND_PROBE_START, feet.z);
+  const reach = BOX_HEADROOM - STAND_PROBE_START;
+  return reach <= 0 || !world.raycast(_standProbe, _standUp, reach);
+}
+
+/** 기립 검사용 스크래치 — 엉덩이에서 곧장 위로 (컨트롤러의 천장 프로브와 같은 시작 높이). */
+const _standProbe = new THREE.Vector3();
+const _standUp = new THREE.Vector3(0, 1, 0);
+const STAND_PROBE_START = 0.6;
+
 export function setStance(sys: PlayerSystem, stance: Stance): void {
   const prev = sys._stance;
   if (stance === prev) return;
@@ -144,11 +171,15 @@ export function setStance(sys: PlayerSystem, stance: Stance): void {
 export function updateStanceInput(sys: PlayerSystem, wantsJump: boolean, wantsSprint: boolean, allowProne: boolean): void {
   const c = sys.controller, input = sys.ctx.input;
   if (!c.grounded || c.rolling || sys.standUpTimer > 0) return;
+  // 2026-09-14: 머리 위가 막힌 자리에서는 일어서지 않는다 (`canStandHere`) — 낮은 통로 한가운데의 C · Z ·
+  //   달리기 · 점프가 전부 여기로 모이므로 한 곳만 막으면 된다. 앉기 · 엎드리기는 언제나 된다.
   if (input.wasPressed(Keys.CROUCH)) {
-    sys.setStance(sys._stance === 'crouch' ? 'stand' : 'crouch');
+    if (sys._stance !== 'crouch') sys.setStance('crouch');
+    else if (canStandHere(sys)) sys.setStance('stand');
   } else if (input.wasPressed(Keys.PRONE) && (allowProne || sys._stance === 'prone')) {
-    sys.setStance(sys._stance === 'prone' ? 'stand' : 'prone');
-  } else if (sys._stance !== 'stand' && (wantsJump || wantsSprint)) {
+    if (sys._stance !== 'prone') sys.setStance('prone');
+    else if (canStandHere(sys)) sys.setStance('stand');
+  } else if (sys._stance !== 'stand' && (wantsJump || wantsSprint) && canStandHere(sys)) {
     sys.setStance('stand');
   }
   }

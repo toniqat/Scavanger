@@ -37,6 +37,24 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
   }
   throw new Error(`timeout waiting for ${label}`);
 }
+/**
+ * `.hud-bl { transition: bottom var(--t-med) }` (base.css, 260 ms) — 버프 줄이 생기는 순간 열이 122 → 151 px 로 **미끄러진다**.
+ * 곧바로 읽으면 중간값(142 px 따위)이 잡히므로, 두 번 연속 같은 값이 나올 때까지 기다렸다가 비교한다. 이미 자리를 잡은
+ * 경우(값이 안 변한다)에는 한 번만 더 재고 끝나므로 느려지지 않는다. `sleep(700)` 로 눌러 둔 다른 두 자리(함선 · 빈 목록)와
+ * 같은 뜻인데, 값이 굳는 것을 실제로 확인한다는 점만 다르다.
+ */
+async function settledStyle(page, sel, prop, timeout = 3000) {
+  const read = () => page.evaluate(([s, p]) => getComputedStyle(document.querySelector(s))[p], [sel, prop]);
+  const t0 = Date.now();
+  let prev = await read();
+  while (Date.now() - t0 < timeout) {
+    await sleep(120);
+    const now = await read();
+    if (now === prev) return now;
+    prev = now;
+  }
+  return prev;
+}
 
 const browser = await puppeteer.launch({
   executablePath: CHROME, headless: true,
@@ -51,7 +69,7 @@ try {
   await page.setViewport({ width: 1280, height: 720 });
   // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); `pointerLockElement` is faked below.
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -173,7 +191,8 @@ try {
   ok(C['fatigue:strength'].tDisp !== 'none' && C.meal.tDisp === 'none', 'time label shown only with a timer', JSON.stringify({ t: C['fatigue:strength'].tDisp, m: C.meal.tDisp }));
   ok(K.meal.ratio === null && K.meal.time === '' && near(C.meal.reveal, 1, 0.05) && K.pose.ratio === null, 'no timer → no gauge (whole face lit, no label)', JSON.stringify({ meal: K.meal, c: C.meal }));
 
-  const lifted = await P(() => getComputedStyle(document.querySelector('.hud-bl')).bottom);
+  // 122 px + 줄이 체력 블록에 더하는 29 px = 151 px — 열과 체력 블록 사이 여백이 줄이 있으나 없으나 같다 (실측 43.81 px).
+  const lifted = await settledStyle(page, '.hud-bl', 'bottom');
   ok(lifted === '151px', `.hud-bl lifts over the strip (${lifted})`);
 
   // new array, same keys (minus the pose) and a 35 s timer → same DOM nodes, pose node gone

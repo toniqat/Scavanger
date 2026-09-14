@@ -80,11 +80,18 @@ export interface NpcReqContext {
   level: number;
   repLevel(corp: CorpId): number;
   questDone(id: string): boolean;
+  /**
+   * appended (2026-09-14, docs/plans/intel-broker.md §2.7): **NPC 개인** 신뢰도 레벨 (0–5, 기업과 같은 `REP_TABLE`).
+   * 모르는 NPC 는 0.
+   */
+  npcTrustLevel(npcId: string): number;
 }
 
 export function requirementMet(req: NpcRequirement, c: NpcReqContext): boolean {
   if ((req.level ?? 0) > c.level) return false;
   for (const r of req.rep ?? []) if (c.repLevel(r.corp) < r.level) return false;
+  /* 2026-09-14: 계약 · 판정만 있고 csv 의 어느 줄도 아직 `reqNpcRep` 를 쓰지 않는다 (사용자 결정 — 해금 요소는 나중에). */
+  for (const r of req.npcRep ?? []) if (c.npcTrustLevel(r.npc) < r.level) return false;
   for (const q of req.quests ?? []) if (!c.questDone(q)) return false;
   return true;
 }
@@ -139,16 +146,28 @@ export function objectiveLabel(o: NpcObjectiveDef, itemName: (defId: string) => 
   }
 }
 
-/** 보상 한 줄 — `1,200 C · 경험치 +600 · 헬릭스 방산 신뢰도 +300 · 회로 기판 ×2`. 보상이 없으면 ''. */
+/**
+ * 보상 한 줄 — `1,200 C · 경험치 +600 · 헬릭스 방산 신뢰도 +300 · 박도윤 신뢰도 +200 · 회로 기판 ×2`. 보상이 없으면 ''.
+ * 2026-09-14: 기업 신뢰도 바로 뒤에 **그 NPC 의 개인 신뢰도**가 붙는다 (둘은 서로를 대신하지 않는다).
+ */
 export function rewardSummary(def: NpcQuestDef, itemName: (defId: string) => string): string {
   const r = def.rewards;
   const parts: string[] = [];
   if (r.credits > 0) parts.push(formatCredits(r.credits, { sign: true }));
   if (r.xp > 0) parts.push(`경험치 +${r.xp}`);
   for (const x of r.rep) if (x.amount > 0) parts.push(`${CORP_DEFS[x.corp]?.name ?? x.corp} 신뢰도 +${x.amount}`);
+  if (r.npcTrust > 0) parts.push(`${npcTrustLabel(def.npc)} +${r.npcTrust}`);
   for (const it of r.items) parts.push(`${itemName(it.defId)} ×${it.qty}`);
   return parts.join(' · ');
 }
+
+/** `박도윤 신뢰도` — NPC 개인 신뢰도의 표시 이름 (모르는 id 는 id 그대로). 칩 · 토스트 · 요약이 같이 쓴다. */
+export function npcTrustLabel(npcId: string): string {
+  return `${NPC_DEF_MAP.get(npcId)?.name ?? npcId} 신뢰도`;
+}
+
+/** NPC 퀘스트 보상의 개인 신뢰도 사유 (`addNpcTrust`) — 기업 신뢰도(`addRep`)와 같은 문법이다. */
+export function npcTrustReason(questId: string): string { return `quest:${questId}`; }
 
 /* ── 저장 ─────────────────────────────────────────────────────────────────── */
 
@@ -156,7 +175,9 @@ const LOG_EVENTS: readonly NpcLogEvent[] = ['intro', 'offer', 'accept', 'decline
 const QUEST_STATES: readonly NpcQuestState[] = ['offered', 'deferred', 'active', 'complete'];
 
 export function freshNpcSave(): NpcSave {
-  return { contacts: {}, log: {}, quests: {} };
+  /* `trust` 는 옛 세이브에 없는 선택 필드지만 **새 세이브는 언제나 들고 있는다** — `MetaStorage.snapshot()` 이
+   * 이 객체를 그대로 JSON 으로 굽고 `sanitizeNpcSave` 가 되읽으므로, 여기서 빠지면 새로고침 한 번에 사라진다. */
+  return { contacts: {}, log: {}, quests: {}, trust: {} };
 }
 
 const whole = (v: unknown): number => {
@@ -167,6 +188,8 @@ const whole = (v: unknown): number => {
 /**
  * 저장소 · 서버 문서에서 온 것을 `NpcSave` 로 — 모르는 NPC · 퀘스트 id 는 버리고, 진행은 [0, target] 으로 자르고, 기록은
  * `NPC_LOG_MAX` 로 자른다. 퀘스트는 있는데 연락이 없으면 연락을 채운다(대화 목록에서 사라지지 않게).
+ * 2026-09-14: **개인 신뢰도(`trust`)도 여기서 실려 들어온다** — 옛 문서에는 없으므로 없으면 빈 표다. 연락 · 퀘스트와 달리
+ * 「연락이 온 NPC」로 거르지 않는다 (콘솔 · 미래의 다른 적립 경로가 연락보다 먼저 줄 수 있다); 거르는 것은 모르는 id 뿐이다.
  */
 export function sanitizeNpcSave(raw: unknown): NpcSave {
   const out = freshNpcSave();
@@ -200,6 +223,12 @@ export function sanitizeNpcSave(raw: unknown): NpcSave {
       list.push(ev === 'intro' ? { at: whole(en.at), e: ev } : { at: whole(en.at), e: ev, q: en.q as string });
     }
     out.log[npc] = list.slice(-Math.max(1, NPC_LOG_MAX));
+  }
+  const trust = out.trust ?? (out.trust = {});
+  for (const [id, v] of Object.entries(obj(r.trust))) {
+    if (!NPC_DEF_MAP.has(id)) continue;
+    const n = whole(v);
+    if (n > 0) trust[id] = n;
   }
   return out;
 }

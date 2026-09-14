@@ -179,7 +179,54 @@ export class ExtractionSystem implements GameSystem {
       get riding(): boolean { return sys.riding; },
       isInShipBay: (p) => !!sys.ship && (sys.landed || sys.lifting) && sys.ship.containsWorldPoint(p),
       keepEnemyOut: (p, r) => !!sys.ship && (sys.landed || sys.lifting) && ShipHull.keepEnemyOut(sys.ship, p, r),
+      beginPreLanded: (p, yaw, opts) => sys.beginPreLanded(p, yaw, opts),
     };
+  }
+
+  /* ── 2026-09-14 (튜토리얼 개편, `docs/plans/tutorial-raid.md`): 이미 착륙해 있는 탈출선 ──────────────────
+   * 튜토리얼의 「버려진 함선」은 새 메시가 아니라 **진짜 탈출선**이다. 콘솔 · 20초 호출 · 비행 · 착륙 연출만
+   * 건너뛰고 곧장 `landed` 로 들어가므로, 안의 스위치 → 취소 불가 10초 유예 → 이륙 → 결과 · 정산이 **평소
+   * 경로 그대로** 흐른다 (이 파일에 새 갈래가 생기지 않는다는 것이 이 설계의 요점이다).
+   * 본편 탈출에는 문이 없다: `ctx.missionMode !== 'tutorial'` 이거나 이미 흐름이 시작됐으면 false. */
+
+  /** 착륙 연출을 건너뛰고 세운 함선인가 (`resetMission` 이 지운다). */
+  private preLanded = false;
+  /** `playing` 이 될 때까지 미뤄 둔 단계 전환 (아래 `syncPreLandedPhase`). */
+  private preLandedPhasePending = false;
+
+  private beginPreLanded(position: THREE.Vector3, yaw: number, opts?: { autoDepart?: boolean }): boolean {
+    const ctx = this.ctx;
+    const ship = this.ship;
+    if (!ship || !ctx || ctx.missionMode !== 'tutorial' || this.stage !== 'idle') return false;
+    this.shipYaw = yaw;
+    this.dir.set(Math.sin(yaw), 0, Math.cos(yaw));
+    this.shipLandPos.copy(position);
+    this.counting = false;
+    this.countdown = 0;
+    this.shipCalled = true;
+    if (!ship.forceLand(this.shipLandPos, this.shipYaw)) { this.shipCalled = false; return false; }
+    this.preLanded = true;
+    this.onShipLanded(true);
+    // 둘러볼 시간이 필요하다 — 무응답 자동 출발(60초)을 걸지 않는다. 스위치만이 유예를 시작한다.
+    if (opts?.autoDepart === false) { this.idleRemaining = -1; this.waitSendAccum = 0; }
+    this.preLandedPhasePending = true;
+    this.syncPreLandedPhase();
+    return true;
+  }
+
+  /**
+   * `GameFlowSystem` 은 `extraction:liftoff` 를 **`extracting` · `shipLanded` 단계에서만** 받는다 (평소에는
+   * 콘솔의 `activated` → 착륙의 `shipLanded` 가 차례로 그 단계를 만든다). 튜토리얼 함선은 강하보다도 먼저
+   * 서 있으므로 그 두 이벤트를 **`playing` 이 되는 첫 프레임에** 그대로 흘려 단계를 맞춘다 — 「함선이 도착해
+   * 있고 탈 수 있다」(`shipLanded`) 는 이 레이드 내내 사실이고, 나침반의 함선 표시가 곧 목표가 된다.
+   * `duration: 0` = 기다릴 시간이 없다는 뜻이다 (호출이 아니라 이미 와 있는 함선).
+   */
+  private syncPreLandedPhase(): void {
+    const ctx = this.ctx;
+    if (!this.preLandedPhasePending || !ctx || ctx.phase !== 'playing') return;
+    this.preLandedPhasePending = false;
+    ctx.bus.emit('extraction:activated', { pointId: 'tutorial_ship', position: this.shipLandPos.clone(), duration: 0 });
+    ctx.bus.emit('extraction:shipLanded', { position: this.shipLandPos.clone() });
   }
 
   get stage(): ExtractionStage {
@@ -567,7 +614,12 @@ export class ExtractionSystem implements GameSystem {
     if (this.ship.forceLand(this.shipLandPos, this.shipYaw)) this.onShipLanded();
   }
 
-  private onShipLanded(): void {
+  /**
+   * `silent` (2026-09-14, `beginPreLanded`): 착륙한 **순간**의 연출 · 알림을 건너뛴다 — 튜토리얼의 버려진 함선은
+   * 방금 내려앉은 것이 아니라 처음부터 그 자리에 있었다. 외피 콜라이더 · 실내 스위치 · 대기 타이머는 그대로다.
+   * `extraction:shipLanded` 는 `syncPreLandedPhase` 가 `playing` 이 되는 프레임에 한 번만 낸다.
+   */
+  private onShipLanded(silent = false): void {
     this.landed = true;
     this.counting = false;
     this.landFallbackTimer = -1;
@@ -578,9 +630,11 @@ export class ExtractionSystem implements GameSystem {
     // 2026-09-13: the hull is solid from now on — enemies, bullets and grenades stop at it (`Hull.ts`)
     this.hull.register(this.ctx.world, ship);
     const pos = this.shipLandPos.clone();
-    this.ctx.bus.emit('camera:shake', { intensity: 0.9, duration: 0.7 });
-    this.ctx.bus.emit('audio:play', { id: 'ship_land', position: pos });
-    this.ctx.bus.emit('extraction:shipLanded', { position: pos });
+    if (!silent) {
+      this.ctx.bus.emit('camera:shake', { intensity: 0.9, duration: 0.7 });
+      this.ctx.bus.emit('audio:play', { id: 'ship_land', position: pos });
+      this.ctx.bus.emit('extraction:shipLanded', { position: pos });
+    }
     this.sendEx({ t: 'ex', ev: 'shipLanded' });
     // Seed the clients' n/m display and the idle timer right away (no toast for this one).
     if (this.isHost()) {
@@ -714,6 +768,7 @@ export class ExtractionSystem implements GameSystem {
   /* ── Frame update ────────────────────────────────────────────────────── */
   update(dt: number, ctx: GameContext): void {
     this.ensureNetHooks();
+    if (this.preLandedPhasePending) this.syncPreLandedPhase();
     for (const p of this.pads) p.console.update(dt);
     this.flare?.update(dt);
     this.dust?.update(dt);
@@ -799,7 +854,8 @@ export class ExtractionSystem implements GameSystem {
       if (this.hull.registered && ship.liftoffTime >= LIFTOFF_SPOOL_S) this.hull.unregister();
       if (this.riding) {
         this.cinematic.update(dt, ctx, ship);
-      } else if (!this.squadDone && ctx.isGameplayPhase()) {
+      } else if (!this.squadDone && !this.preLanded && ctx.isGameplayPhase()) {
+        // 2026-09-14: 미리 세워 둔 함선(튜토리얼)에는 다시 부를 콘솔이 없다 — 리셋하면 남은 사람이 영영 못 나간다.
         const due = LEFT_BEHIND_RESET_S + (ctx.isAuthority ? 0 : CLIENT_RESET_SLACK_S);
         if (this.liftoffElapsed >= due) this.departedReset();
       }
@@ -863,6 +919,8 @@ export class ExtractionSystem implements GameSystem {
     this.flare?.reset();
     this.dust?.reset();
     this.activePad = null;
+    this.preLanded = false;
+    this.preLandedPhasePending = false;
     this.counting = false;
     this.countdown = 0;
     this.shipCalled = false;

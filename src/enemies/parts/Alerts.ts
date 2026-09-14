@@ -20,7 +20,7 @@ import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
 import { LureField } from '../ai/Lures';
-import { becomeAlert, canPerceive, hasLineOfSight } from '../ai/Perception';
+import { becomeAlert, canPerceive, hasLineOfSight, hearRadiusOf, senseRadiusOf } from '../ai/Perception';
 import { beginInvestigation, endInvestigation } from '../ai/Investigate';
 import { ROVER_NOTICE_STOPPED_M } from '@/shared';
 import { BloodFX } from '../fx/BloodFX';
@@ -46,7 +46,8 @@ import type { EnemySystem } from '../EnemySystem';
  * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the 훈련장.
  */
 export function reportShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null): void {
-  if (sys.training || !sys.ctx.world?.ready) return;
+  // 2026-09-14: 튜토리얼도 훈련장처럼 no-op — 총알 추적은 「고정 자리 · 순찰 없음」과 정면으로 부딪힌다 (총에 맞으면 `takeDamage` 가 깨운다)
+  if (sys.training || sys.tutorial || !sys.ctx.world?.ready) return;
   if (!sys.authority) {
     if (!sys.multiplayer) return;
     const msg: ShotReport = { t: 'shotq', o: tuple(origin, 2), d: tuple(dir, 3), r: round(range, 1) };
@@ -73,6 +74,8 @@ export function addDistraction(sys: EnemySystem, pos: THREE.Vector3, radius: num
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
     const dx = e.position.x - pos.x, dz = e.position.z - pos.z;
     if (dx * dx + dz * dz > r2) continue;
+    // 2026-09-14 (튜토리얼 전용 적): 자기 감지 반경 밖의 유인은 듣지도 보지도 못한다
+    if (e.senseRadius > 0 && dx * dx + dz * dz > e.senseRadius * e.senseRadius) continue;
     e.lurePos.copy(pos);
     e.lureWeight = Math.max(e.lureWeight, weight);
     e.hasLure = true;
@@ -89,7 +92,10 @@ export function alertNear(sys: EnemySystem, position: THREE.Vector3, radius: num
     if (e === source || !e.active || e.state === 'dead' || e.aware) continue;
     if (source && e.faction !== source.faction) continue;   // a screeching bug does not wake the rogues (they spot it themselves)
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
-    if (dx * dx + dz * dz <= r2) becomeAlert(e, sys, false);
+    const d2 = dx * dx + dz * dz;
+    // 2026-09-14 (튜토리얼 전용 적): 무리 전파도 자기 감지 반경 안에서만 (옆 구간의 비명이 이 구간을 깨우지 않는다)
+    if (e.senseRadius > 0 && d2 > e.senseRadius * e.senseRadius) continue;
+    if (d2 <= r2) becomeAlert(e, sys, false);
   }
   }
 
@@ -154,9 +160,13 @@ export function alertHearing(sys: EnemySystem, position: THREE.Vector3, radius: 
   }
   }
 
-/** 반경 `radius` 의 소리를 `e` 가 들을 수 있는 거리 — 총성에서 쓰던 식 그대로이고 소음원(총성 · 수류탄 · 드론)과 무관하다. */
+/**
+ * 반경 `radius` 의 소리를 `e` 가 들을 수 있는 거리 — 총성에서 쓰던 식 그대로이고 소음원(총성 · 수류탄 · 드론)과 무관하다.
+ * 2026-09-14: 튜토리얼 적은 그 위에서 자기 감지 반경(`hearRadiusOf`)으로 한 번 더 잘린다.
+ */
 function hearingReach(e: Enemy, radius: number): number {
-  return Math.min(radius, e.stats.hearRadius + (radius - 55));
+  const reach = Math.min(radius, e.stats.hearRadius + (radius - 55));
+  return e.senseRadius > 0 ? Math.min(reach, hearRadiusOf(e)) : reach;
 }
 
 /**
@@ -183,7 +193,7 @@ export function pickDroneTarget(sys: EnemySystem, e: Enemy, maxDist: number): Co
   const meleeOnly = isMeleeOnly(e);
   const reachUp = e.stats.height + e.stats.attackRange;
   let best: CombatTarget | null = null;
-  let bestD = Math.min(maxDist, e.stats.sightRadius);
+  let bestD = Math.min(maxDist, senseRadiusOf(e));
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
     if (t.isDeadOrDowned) continue;
@@ -215,7 +225,7 @@ export function pickVehicleTarget(sys: EnemySystem, e: Enemy, playerDist: number
   if (sys.ctx.time < e.vehicleAggroUntil) return t;
   const d = t.dist2D(e.position);
   if (d >= playerDist * DRONE_PREFER_MUL) return null;
-  if (t.vehicleMoving) return d < e.stats.hearRadius || canPerceive(e, sys, t, true) ? t : null;
+  if (t.vehicleMoving) return d < hearRadiusOf(e) || canPerceive(e, sys, t, true) ? t : null;
   return d < ROVER_NOTICE_STOPPED_M && hasLineOfSight(e, sys, t) ? t : null;
 }
 
@@ -227,7 +237,8 @@ export function pickVehicleTarget(sys: EnemySystem, e: Enemy, playerDist: number
  * 건드리지 않고, 이미 조사 중이면 원점만 옮긴다(`beginInvestigation` 이 그렇게 동작한다).
  */
 export function onWorldNoise(sys: EnemySystem, position: THREE.Vector3, radius: number): void {
-  if (sys.training || !sys.authority || !sys.ctx.isGameplayPhase() || !(radius > 0)) return;
+  // 2026-09-14: 튜토리얼도 no-op — 조사(= 자기 자리를 떠나 전진)는 「순찰 없음」과 부딪힌다
+  if (sys.training || sys.tutorial || !sys.authority || !sys.ctx.isGameplayPhase() || !(radius > 0)) return;
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
     if (!e.isCombatant || e.aware || e.relentless || e.state === 'stagger' || e.type === 'rogue_scan_drone') continue;
@@ -256,7 +267,10 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   // 2026-09-13 (탐사 차량): 차량에 맞은 적은 차량부터 — 배리어 캐리어 다음, 다른 모든 규칙 앞
   const vehicle = pickVehicleTarget(sys, e, pd);
   if (vehicle && sys.ctx.time < e.vehicleAggroUntil) return vehicle;
-  const range = e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius;
+  // 2026-09-14 (튜토리얼 전용 적): 다른 팩션을 찾는 반경도 자기 감지 반경 안 — 벌레와 안드로이드가 구간 너머로 서로를 물지 않는다
+  const range = e.senseRadius > 0
+    ? Math.min(e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius, e.senseRadius)
+    : (e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius);
   let foe: Enemy | null = null;
   let fd = range;
   for (let i = 0; i < sys.active.length; i++) {
@@ -284,7 +298,7 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
  * `force` (debug / smoke) skips the session gate but keeps the authority one and the validation.
  */
 export function onShotReport(sys: EnemySystem, msg: ShotReport, from: PeerId, force = false): void {
-  if (sys.training || !sys.authority || (!force && !sys.hosting)) return;
+  if (sys.training || sys.tutorial || !sys.authority || (!force && !sys.hosting)) return;
   if (!isVec3Tuple(msg.o) || !isVec3Tuple(msg.d) || !(msg.r > 0)) return;
   _so.set(msg.o[0], msg.o[1], msg.o[2]);
   _sd.set(msg.d[0], msg.d[1], msg.d[2]);

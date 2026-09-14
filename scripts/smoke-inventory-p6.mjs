@@ -55,7 +55,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -195,9 +195,12 @@ try {
   const freeCell = await page.evaluate(() => {
     const inv = window.__game.getSystem('inventory');
     const g = inv.getGrid('bag');
+    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 56 · 27 을 적어 두지 않는다
+    const el = document.querySelector('.inv-grid-bag');
+    const c = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell')), step = c + 2;
     for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!g.cellUid(x, y)) {
-      const r = document.querySelector('.inv-grid-bag').getBoundingClientRect();
-      return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27, cx: x, cy: y };
+      const r = el.getBoundingClientRect();
+      return { x: r.left + x * step + c / 2, y: r.top + y * step + c / 2, cx: x, cy: y };
     }
     return null;
   });
@@ -218,9 +221,10 @@ try {
   // 2026-09-07: the 기본 지급품 fills the first stash cells — aim at the first free one instead of (0,0)
   const stashCell = await page.evaluate(() => {
     const g = window.__game.getSystem('inventory').getStash();
-    const r = document.querySelector('.inv-grid-stash').getBoundingClientRect();
-    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!g.cellUid(x, y)) return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27 };
-    return { x: r.left + 27, y: r.top + 27 };
+    const el = document.querySelector('.inv-grid-stash'), r = el.getBoundingClientRect();
+    const c = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell')), step = c + 2;
+    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!g.cellUid(x, y)) return { x: r.left + x * step + c / 2, y: r.top + y * step + c / 2 };
+    return { x: r.left + c / 2, y: r.top + c / 2 };
   });
   await dragMouse(alloyTile, stashCell);
   const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.filter((i) => i.defId === 'mat_alloy').reduce((n, i) => n + i.qty, 0) }; });
@@ -299,9 +303,11 @@ try {
     const bagDefs = window.__game.ctx.loot.getAllItemDefs().filter((d) => d.bag);
     const el = document.querySelector('.inv-grid-bag');
     const maxRows = Math.max(...bagDefs.map((d) => d.bag.rows));
-    return { allFive: bagDefs.every((d) => d.bag.cols === 5), cols: g.cols, rows: g.rows, cells: el.querySelectorAll('.inv-cell').length,
+    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 54 를 적어 두지 않는다
+    const cell = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell'));
+    return { allFive: bagDefs.every((d) => d.bag.cols === 5), cols: g.cols, rows: g.rows, cells: el.querySelectorAll('.inv-cell').length, cell,
       // offsetHeight, not the bounding rect: the window's open transition (`.inv-layout` scale 0.985) shrank 670 → 660 mid-tween
-      h: el.offsetHeight, want: maxRows * 56 - 2, maxRows };
+      h: el.offsetHeight, want: maxRows * (cell + 2) - 2, maxRows };
   });
   ok(frame.allFive, 'every bag def is 5 columns wide (data/bags.csv)', JSON.stringify(frame));
   ok(frame.cells === frame.cols * frame.rows && frame.h === frame.want,
@@ -1122,6 +1128,8 @@ try {
       hasTile: !!tile, tipHook: thumb?.dataset.itemTip !== undefined && !!thumb?.dataset.defId,
       w: tile ? parseInt(tile.style.width, 10) : -1, h: tile ? parseInt(tile.style.height, 10) : -1,
       defW: def?.width, defH: def?.height,
+      // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 54 를 적어 두지 않는다
+      cell: tile ? parseFloat(getComputedStyle(tile).getPropertyValue('--inv-cell')) : -1,
       desc: !!row.querySelector('.inv-craft-desc'),
       stepper: !!row.querySelector('.inv-craft-count') && row.querySelectorAll('.inv-craft-step').length === 2,
       count: row.querySelector('.inv-craft-count-v')?.textContent,
@@ -1130,7 +1138,8 @@ try {
   }, RID);
   ok(!rowLook.missing && rowLook.hasTile && rowLook.tipHook,
     '제작 행이 산출물을 인벤토리 타일로 그리고 툴팁 훅(data-item-tip)을 단다', JSON.stringify(rowLook));
-  ok(rowLook.w === rowLook.defW * 54 && rowLook.h === rowLook.defH * 54,
+  const wantTile = (n) => n * (rowLook.cell + 2) - 2;
+  ok(rowLook.w === wantTile(rowLook.defW) && rowLook.h === wantTile(rowLook.defH),
     `썸네일이 격자 칸 크기다 (${rowLook.defW}\u00d7${rowLook.defH} 칸 → ${rowLook.w}\u00d7${rowLook.h} px)`);
   ok(rowLook.name === rowLook.expect, `행 제목이 '산출물 \u00d7n' 이다 ("${rowLook.name}")`);
   ok(!rowLook.desc, '레시피 설명 줄이 사라졌다');

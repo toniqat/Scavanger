@@ -42,7 +42,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -83,6 +83,12 @@ try {
     return [...inv.getAllItems(), ...inv.getQuickSlots()].filter(isStim).reduce((a, i) => a + i.qty, 0);
   });
   const addToBag = (defId, qty = 1) => page.evaluate(([d, n]) => window.__game.ctx.inventory.tryAddItem(window.__game.ctx.loot.createItem(d, n)), [defId, qty]);
+  /*
+   * 2026-09-14: `tryAddItem` 은 **주운 것**의 경로라 빈 휠 칸이 있으면 소모품이 그리로 간다 (`parts/AutoQuick`).
+   * 「가방 격자에 있는 스택」을 전제로 하는 검사는 **받은 것**의 경로(`tryAddItemAnywhere` — 상점 · 제작 · 수확)로
+   * 넣는다. 자동 장착 자체는 바로 아래 절이 따로 검사한다.
+   */
+  const addToBagGrid = (defId, qty = 1) => page.evaluate(([d, n]) => window.__game.ctx.inventory.tryAddItemAnywhere(window.__game.ctx.loot.createItem(d, n)) === 'bag', [defId, qty]);
   /** A quick-usable stim that is **not** the starter 붕대 — since `tryAddItem` merges into matching wheel stacks
    *  first, only a different def is guaranteed to land in the bag grid. */
   const HERB = 'heal_bandage_herb';
@@ -254,8 +260,37 @@ try {
   ok((await ev('inventory:itemRemoved')).length === removedDrop + 1 && (await ev('inventory:quickSlotsChanged')).length > qEvDrop,
     'the wheel drop emits inventory:itemRemoved + inventory:quickSlotsChanged');
   ok((await bagDef('grenade_frag')).length === 0 && (await slots()).every((x) => x === null), 'the 수류탄 is gone from the player entirely');
+  /* ── 2026-09-14 (사용자 결정): 소모품 퀵슬롯 **자동 장착** — 전역 규칙 (`inventory/parts/AutoQuick`).
+   * 주운 소모품은 빈 휠 칸이 있으면 그리로 간다. 이미 같은 종류가 휠에 있으면 빈 칸을 새로 먹지 않고,
+   * 휠에 못 올리는 종류는 평소대로 가방이다. */
+  console.log('auto quick-slot (2026-09-14)');
+  s = await slots();
+  ok(s.every((x) => x === null), '앞 절이 휠을 비워 둔 상태에서 시작한다', JSON.stringify(s));
+  ok(await addToBag(HERB, 1), '약초 붕대 하나를 줍는다 (tryAddItem = 주운 것의 경로)');
+  s = await slots();
+  const autoAt = s.findIndex((x) => x?.defId === HERB);
+  ok(autoAt >= 0 && (await bagDef(HERB)).length === 0,
+    '빈 휠 칸이 있으면 주운 소모품이 곧장 휠에 앉는다 (가방에는 안 남는다)', JSON.stringify({ autoAt, s }));
+  const herbMax2 = await page.evaluate((d) => window.__game.ctx.loot.getItemDef(d).stackMax, HERB);
+  ok(await addToBag(HERB, herbMax2 - 1), '같은 종류를 더 줍는다 (휠 스택이 stackMax 가 된다)');
+  ok(await addToBag(HERB, 1), '가득 찬 휠 스택 위로 하나 더');
+  s = await slots();
+  ok(s.filter((x) => x?.defId === HERB).length === 1 && (await bagDef(HERB))[0]?.qty === 1,
+    '같은 종류는 휠 칸을 둘 먹지 않는다 — 합치고 넘친 것은 가방 스택이다', JSON.stringify({ s, bag: await bagDef(HERB) }));
+  ok(await addToBag('mat_scrap', 1), '휠에 못 올리는 종류(폐금속)를 줍는다');
+  s = await slots();
+  ok(!s.some((x) => x?.defId === 'mat_scrap') && (await bagDef('mat_scrap')).length > 0,
+    '휠에 못 올리는 종류는 평소대로 가방이다', JSON.stringify(s));
+  // 뒤의 검사를 위해 휠 · 가방을 다시 비운다
+  await page.evaluate(() => {
+    const inv = window.__game.ctx.inventory;
+    for (const it of inv.quickItems()) inv.dropItem(it.uid);
+    for (const p of inv.getGrid('bag').items()) inv.dropItem(p.item.uid);
+  });
+  await sleep(80);
+
   // the other route still works: 가방으로 되돌린 뒤 버리기
-  ok(await addToBag('grenade_frag', 1), 'a fresh 수류탄 into the bag (no wheel stack to top up)');
+  ok(await addToBagGrid('grenade_frag', 1), 'a fresh 수류탄 into the bag grid (받은 것의 경로 — 자동 장착을 타지 않는다)');
   const nade2 = (await bagDef('grenade_frag'))[0];
   ok((await page.evaluate((u) => window.__game.ctx.inventory.registerQuick(u), nade2.uid)) === 'ok', 'registerQuick moves it onto the wheel');
   ok((await page.evaluate(() => window.__game.ctx.inventory.unregisterQuick(0))) === 'ok', 'unregisterQuick(0) puts it back in the bag');
@@ -443,8 +478,9 @@ try {
       if (g.cellUid(x, y)) continue;
       const el = cells[y * g.cols + x];
       if (!el) {
-        const r = document.querySelector('.inv-grid-bag').getBoundingClientRect();
-        return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27, cx: x, cy: y, scrolled: false };
+        const gel = document.querySelector('.inv-grid-bag'), r = gel.getBoundingClientRect();
+        const c = parseFloat(getComputedStyle(gel).getPropertyValue('--inv-cell'));   // 2026-09-14: 칸은 창 높이를 탄다
+        return { x: r.left + x * (c + 2) + c / 2, y: r.top + y * (c + 2) + c / 2, cx: x, cy: y, scrolled: false };
       }
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       const b = el.getBoundingClientRect();
@@ -634,13 +670,18 @@ try {
     window.__game.ctx.inventory.closeAll();
     return r;
   });
-  ok(c60plain && !plain.overflow && !plain.gutter && Math.abs(plain.sw - plain.gw) < 0.5 && Math.abs(plain.sh - plain.gh) < 0.5,
-    'C-60: a plain crate does not scroll — its viewport is exactly the grid box', JSON.stringify(plain));
+  // 2026-09-14: the **height** is what this asserts (no vertical scroll, no gutter). The widths matched only while the
+  // grid happened to be wider than the panel header; on a short window the cell shrank (`labels.gridCellForHeight`) and
+  // the header — 제목 + 모두 가져가기 — became the wider of the two, which is not a scroll and not a regression.
+  ok(c60plain && !plain.overflow && !plain.gutter && plain.sw >= plain.gw - 0.5 && Math.abs(plain.sh - plain.gh) < 0.5,
+    'C-60: a plain crate does not scroll — its viewport is exactly as tall as the grid box', JSON.stringify(plain));
   const c60 = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     for (const it of [...inv.getAllItems()]) inv.takeItem(it.uid, it.qty);
     const a = ctx.loot.createItem('mat_alloy', 1); inv.tryAddItem(a);
-    const items = Array.from({ length: 96 }, () => ctx.loot.createItem('imp_broken_strength_1'));
+    // 2026-09-14: 196 in a 10-wide grid = 20 rows with 4 free cells at the end. It used to be 96 (10 rows), which stopped
+    // overflowing `.inv-cont-scroll` once a short window shrank the cell — the row count has to beat the **tallest** cell.
+    const items = Array.from({ length: 196 }, () => ctx.loot.createItem('imp_broken_strength_1'));
     inv.openContainerItemsSized('pcorpse:c60:tall', items, ctx.player.position.clone(), 10, 8, '유해');
     const g = inv.getActiveContainer()?.grid;
     return { a: a.uid, cols: g?.cols ?? 0, rows: g?.rows ?? 0 };
@@ -679,13 +720,20 @@ try {
     await page.mouse.move(x, sc0.bottom + 10, { steps: 4 });
     await sleep(1000);
     const bottom = await scroller();
-    const cell = await page.evaluate(() => { const g = document.querySelector('.inv-grid-container').getBoundingClientRect(); return [g.left + 8 * 56 + 27, g.top + 9 * 56 + 27]; });
+    // 2026-09-14: 보폭은 창 높이를 타는 칸 크기에서 뽑는다 (`labels.gridCellForHeight`) — 56 · 27 을 적어 두지 않는다.
+    //   마지막 줄의 빈 칸(아이템 196개 = 마지막 줄 x 0..5 만 찬다)을 노린다.
+    const drop = [8, c60.rows - 1];
+    const cell = await page.evaluate(([cx, cy]) => {
+      const el = document.querySelector('.inv-grid-container'), g = el.getBoundingClientRect();
+      const c = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell')), step = c + 2;
+      return [g.left + cx * step + c / 2, g.top + cy * step + c / 2];
+    }, drop);
     await page.mouse.move(cell[0], cell[1], { steps: 8 });
     await sleep(120);
     await page.mouse.up();
     await sleep(250);
     const landed = await page.evaluate((uid) => { const p = window.__game.ctx.inventory.getActiveContainer()?.grid.items().find((q) => q.item.uid === uid); return p ? [p.x, p.y] : null; }, c60.a);
-    ok(bottom.st === bottom.max && landed && landed[0] === 8 && landed[1] === 9,
+    ok(bottom.st === bottom.max && landed && landed[0] === drop[0] && landed[1] === drop[1],
       `C-60: after scrolling to the bottom, bag → corpse lands on the cell under the pointer (${JSON.stringify(landed)})`, JSON.stringify({ st: bottom.st, max: bottom.max, landed }));
     await page.mouse.move(cell[0] - 200, cell[1] - 150, { steps: 3 });
     await sleep(100);

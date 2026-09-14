@@ -62,7 +62,7 @@ async function open(tag) {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -100,17 +100,47 @@ function driveFrames(page) {
   });
 }
 const hubShip = (page) => page.evaluate(() => ({ phase: window.__game.ctx.phase, ship: window.__game.ctx.hub?.ship ?? null }));
+/** Sim-time wait (`ctx.time`), not wall clock — the ready hold is fed by the frame dt. */
+const waitSim = async (page, sec) => {
+  const t0 = await page.evaluate(() => window.__game.ctx.time);
+  await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 120000, t0 + sec);
+};
+/**
+ * 2026-09-14: 탑승(E)은 **앉기만** 한다 — 출격 준비 경고도 여기서 뜨지 않는다 (`hub/parts/Pods.boardPod`).
+ * 준비는 `readyUp` 이 하는 스페이스 1초 홀드다.
+ */
 const boardPod = (page) => page.evaluate(() => {
   const ctx = window.__game.ctx;
   const slot = ctx.net.localSlot;
   const pod = ctx.interactables.all().find((i) => i.id === `hub_pod_${slot}`);
   if (!pod || !pod.canInteract()) return `pod ${slot} unavailable (${ctx.interactables.all().map((i) => i.id).join(',')})`;
   pod.interact();
-  // 2026-09-08: 출격 준비 경고 (주무기 · 탄약 · 가방 · 방탄복 · 임플란트 · 회복 아이템). 막지는 않으므로 확인하고 탄다.
-  const warn = document.querySelector('.launch-warn');
-  if (warn && !warn.hidden) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 출격').click();
   return 'ok';
 });
+/**
+ * 준비 (2026-09-14 사용자 결정: 탑승 ≠ 준비). 앉은 채 스페이스를 `UI_HOLD_CONFIRM_S`(1 s) 꾹 눌러야
+ * `net.setReady(true)` 가 나간다. 게이지는 `hub/ui/ReadyPanel.tickHold` 가 **시뮬레이션 dt** 로 쌓으므로
+ * 벽시계 `sleep` 으로는 절대 차지 않는다 — `waitSim` 으로 재고 키는 그동안 눌린 채로 둔다.
+ * 홀드가 끝나는 순간 출격 준비 경고(주무기 · 탄약 · 가방 · 방탄복 · 임플란트 · 회복 아이템)가 서면
+ * `그래도 준비` 로 넘긴다 (막지 않는 경고다). 한 번 넘긴 조합은 두 번째 홀드에서 다시 묻지 않는다.
+ * ⚠ `tickHold` 는 `HUB_READY_BLOCKER` 말고 다른 blocker 가 하나라도 있으면 세지 않으므로, 실패하면
+ * 그때의 blocker 목록을 돌려준다 (그렇지 않으면 저 위 `waitFor` 의 timeout 으로만 보인다).
+ */
+const readyUp = async (page) => {
+  const key = (type) => page.evaluate((t) => document.body.dispatchEvent(new KeyboardEvent(t, { code: 'Space', key: ' ', bubbles: true })), type);
+  await key('keydown');
+  await waitSim(page, 1.4);          // 1 s + 프레임 여유
+  await key('keyup');
+  const out = await page.evaluate(() => {
+    const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
+    const warn = document.querySelector('.launch-warn');
+    const warned = !!warn && !warn.hidden;
+    // 확인은 **읽기 전에** 누른다 — `그래도 준비` 의 콜백이 그 자리에서 `setReadyLocal(true)` 를 부른다
+    if (warned) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 준비')?.click();
+    return { warned, ready: hub.readyLocal, boarded: hub.boardedSlot, blockers: [...ctx.uiBlockers] };
+  });
+  return { ...out, ok: out.ready === true };
+};
 
 /* ── 2026-09-12 캐릭터 버프 · 가구 자세 helpers ─────────────────────────────────────────────────────────────── */
 const readBuffs = (page) => page.evaluate(() => {
@@ -430,6 +460,12 @@ try {
   ok(true, 'seed shared through the lobby');
   const bA = await boardPod(A);
   ok(bA === 'ok', `A boards pod (${bA})`);
+  await waitFor(A, () => window.__game.ctx.player.isInPod, 'A in pod');
+  // 2026-09-14: 앉는 것만으로는 서버에 준비가 나가지 않는다 (전에는 탑승 = `lobby:ready` 였다)
+  const satA = await A.evaluate(() => ({ ready: window.__game.getSystem('hub').readyLocal, wire: window.__game.ctx.net.lobby.players.find((p) => p.isHost).ready }));
+  ok(satA.ready === false && satA.wire === false, '탑승만으로는 준비되지 않는다 (준비 대기)', JSON.stringify(satA));
+  const rA = await readyUp(A);
+  ok(rA.ok, `A 스페이스 1초 홀드 → 준비 (경고 ${rA.warned})`, JSON.stringify(rA));
   await waitFor(A, () => window.__game.ctx.player.isInPod && window.__game.ctx.net.lobby.players.find((p) => p.isHost).ready, 'A in pod + ready');
   ok(true, 'A in pod → ready');
   await waitFor(B, () => { const r = window.__game.ctx.net.getRemotePlayers()[0]; return r && (r.flags & (1 << 11)) !== 0; }, 'B sees A IN_POD', 5000);
@@ -437,6 +473,9 @@ try {
   await B.evaluate(() => { window.__cd = []; window.__game.ctx.bus.on('hub:launchCountdown', (e) => window.__cd.push(e.seconds)); });
   const bB = await boardPod(B);
   ok(bB === 'ok', `B boards pod (${bB})`);
+  await waitFor(B, () => window.__game.ctx.player.isInPod, 'B in pod');
+  const rB = await readyUp(B);
+  ok(rB.ok, `B 스페이스 1초 홀드 → 준비 (경고 ${rB.warned})`, JSON.stringify(rB));
 
   console.log('mission start');
   await waitFor(A, () => window.__game.ctx.phase !== 'hub' && window.__game.ctx.phase !== 'docking', 'A left hub', 60000);

@@ -13,9 +13,13 @@
 .menu.hub-menu .frame::after { right: 0; bottom: 0; }
 .menu.hub-menu .hub-page { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
 .hub-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
-.hub-head .hl { display: flex; flex-direction: column; gap: 8px; }
+.hub-head .hl { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
 .hub-head .title { font-size: 26px; letter-spacing: 0.18em; }
 .hub-head .subtitle { margin-top: 0; }
+/* 2026-09-14 (정보상): 매치메이킹이 머리 우상단 버튼 → 팝업이 됐다. 상태 알약과 나란히 오른쪽에 붙는다. */
+.hub-head .status-pill { margin-left: auto; }
+.hub-head .ui-btn.hub-matching { min-width: 0; height: 34px; padding: 0 18px; font-size: 11px; letter-spacing: 0.12em; }
+.hub-head .ui-btn.hub-matching.on { border-color: rgba(79, 209, 126, 0.5); color: var(--c-success); }
 
 .hub-section { display: flex; flex-direction: column; gap: 10px; }
 .hub-section .ui-label { display: flex; align-items: center; gap: 10px; }
@@ -75,21 +79,25 @@
   padding: 26px 34px 22px; gap: 14px;
   box-sizing: border-box;
 }
+/* 2026-09-14 (정보상, 사용자 결정): 3열 → **2열**. 좌측 매치메이킹 열은 머리 우상단 `📡 매칭` 버튼 뒤의
+   팝업(`hub/ui/MatchPanel`, `.hm-` — `hub/intel.css`)으로 통째로 갔고, 행성 브리핑이 중앙에서 넓게 자리를
+   차지한다. 우측 열은 **위에서부터** 정보상 패널 → 시뮬레이션 훈련장이라 `justify-content` 가 flex-start 다. */
 .menu.hub-menu.fullscreen .hub-grid {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) minmax(280px, 340px); gap: 26px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 30px;
 }
 .hub-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .hub-col.centre { align-items: center; justify-content: center; overflow: hidden; }
-.hub-col.right { justify-content: flex-end; }
+.hub-col.right { justify-content: flex-start; }
 
 /* the planet card: hologram, name / 지형 / 위협 badge / brief, then 행성 이동 */
-.hub-planet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(560px, 100%); }
+/* 2026-09-14: 좌측 열이 사라져 행성 브리핑이 **중앙에서 넓게** 자리를 차지한다 (사용자 결정) */
+.hub-planet { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(760px, 100%); }
 .hp-eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
 .hp-stage { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .hp-holo {
   position: relative;
-  width: 360px; height: 360px; max-width: min(42vh, 42vw); max-height: min(42vh, 42vw);
+  width: 400px; height: 400px; max-width: min(46vh, 34vw); max-height: min(46vh, 34vw);
   border: 1px solid rgba(95, 215, 255, 0.16);
   background: radial-gradient(circle at 50% 55%, rgba(95, 215, 255, 0.1), rgba(4, 10, 16, 0) 68%);
 }
@@ -115,7 +123,7 @@
 .hp-threat[data-threat="2"] { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.5); }
 .hp-threat[data-threat="3"] { color: var(--c-danger); border-color: rgba(255, 90, 70, 0.5); }
 .hp-terrain { font-size: 12px; letter-spacing: 0.16em; color: var(--c-text-dim); }
-.hp-brief { font-size: 12px; line-height: 1.55; color: var(--c-text-dim); text-align: center; max-width: 480px; }
+.hp-brief { font-size: 12.5px; line-height: 1.6; color: var(--c-text-dim); text-align: center; max-width: 620px; }
 /* 행성 상시 환경 (A-13, 2026-09-11). `--env-c` = ENV_COLOR; `.warn` = 준비물이 없다 (막지는 않는다 — 소프트 게이트) */
 .hp-env {
   font-size: 11px; line-height: 1.5; text-align: center; max-width: 480px;
@@ -126,9 +134,11 @@
 .ui-btn.hp-travel { min-width: 240px; margin-top: 6px; }
 .ui-btn.hp-travel.locked { letter-spacing: 0.04em; font-size: 11px; }
 
+/* 좁은 창: 두 열이 세로로 쌓인다 (행성이 위, 정보상 · 훈련장이 아래) — 2026-09-14 */
 @media (max-width: 1180px) {
-  .menu.hub-menu.fullscreen .hub-grid { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); }
-  .menu.hub-menu.fullscreen .hub-col.right { grid-column: 1 / 2; }
+  .menu.hub-menu.fullscreen .hub-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
+  .menu.hub-menu.fullscreen .hub-col.right { flex-direction: row; align-items: flex-start; gap: 16px; overflow-y: auto; }
+  .menu.hub-menu.fullscreen .hub-col.right > * { flex: 1; min-width: 0; }
 }
 
 /* the footer only carries 닫기 / 타이틀로 since Phase 8 (캐릭터 moved to the Tab screen) */
@@ -166,24 +176,28 @@
 .wb-row .ui-btn { min-width: 0; height: 34px; padding: 0 16px; font-size: 11px; }
 .wb-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
 
-/* ── 발사 준비 패널 (Phase 10) ────────────────────────────────────────────────
-   Four horizontal cells along the bottom of the ship screen, shown while any launch slot is filled. One canvas
-   (`player/`'s `PortraitRef`, four scissored viewports) sits behind the row, so the cells are deliberately
-   semi-transparent — their gradient is the vignette over the bodies, not an opaque plate. The root only becomes
-   `.interactive` while the local player is boarded (see `ui/ReadyPanel`). */
+/* ── 발사 준비 패널 (Phase 10 · 2026-09-14 대개편) ─────────────────────────────
+   Four cells across the MIDDLE of the ship screen (화면 세로 70 %), shown while any launch slot is filled.
+   Each cell is 위 55 % 초상 · 아래 45 % 장비 (`docs/plans/intel-broker.md` §4.3).
+
+   ⚠ `grid-template-columns: repeat(4, 1fr)` + `gap: 0` is a **contract with `player/Portraits`**: that renderer
+   slices ONE canvas into `HUB_READY_CELLS` equal columns, so an uneven column or a gap would slide every body
+   out of its cell. The canvas host is inset to the cells' portrait half (`bottom: 45%`) — the bodies stand in
+   the top half only and the equipment panel below is an opaque plate.
+
+   The root only becomes `.interactive` while the local player is boarded (see `ui/ReadyPanel`). */
 .hub-ready {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  --hr-body-h: 45%;
+  position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%);
   width: min(1120px, calc(100vw - 40px));
-  height: 200px;
+  height: 70vh;
   pointer-events: none;
 }
-.hub-ready .hr-portraits { position: absolute; inset: 0; pointer-events: none; }
+.hub-ready .hr-portraits { position: absolute; left: 0; right: 0; top: 0; bottom: var(--hr-body-h); pointer-events: none; }
 .hub-ready .hr-portraits canvas { display: block; width: 100%; height: 100%; }
 /* `ctx.player.createPortraits` returned null (no second WebGL context): name-only cells */
 .hub-ready.no-portraits .hr-portraits { display: none; }
 .hub-ready.no-portraits .hr-cell { background: linear-gradient(180deg, rgba(8, 10, 14, 0.86), rgba(8, 10, 14, 0.68)); }
-/* gap 0 and collapsed borders: each cell is exactly 1/4 of the row, so it lines up with its portrait viewport
-   (`HUB_READY_CELLS` = 4 — keep the column count in step with the constant). */
 .hub-ready .hr-row {
   position: relative; height: 100%;
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
@@ -191,15 +205,14 @@
 .hr-cell {
   --sc: #ffffff;
   position: relative; min-width: 0;
-  display: flex; flex-direction: column; justify-content: space-between;
-  padding: 10px 12px;
+  display: flex; flex-direction: column;
   border: 1px solid var(--c-border);
-  background: linear-gradient(180deg, rgba(8, 10, 14, 0.72) 0%, rgba(8, 10, 14, 0.14) 44%, rgba(8, 10, 14, 0.66) 100%);
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0.72) 0%, rgba(8, 10, 14, 0.1) 34%, rgba(8, 10, 14, 0.42) 55%);
   overflow: hidden;
 }
 .hr-cell + .hr-cell { border-left: 0; }
-/* slot-coloured top edge; a ready cell lights it up */
-.hr-cell .hr-edge { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--sc); opacity: 0.3; }
+/* slot-coloured top edge; a cell with someone in the slot lights it up */
+.hr-cell .hr-edge { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--sc); opacity: 0.3; z-index: 2; }
 .hr-cell.is-ready .hr-edge { opacity: 1; box-shadow: 0 0 12px color-mix(in srgb, var(--sc) 60%, transparent); }
 .hr-cell.is-ready { border-color: color-mix(in srgb, var(--sc) 45%, var(--c-border)); }
 .hr-cell.is-empty { border-style: dashed; background: linear-gradient(180deg, rgba(8, 10, 14, 0.5), rgba(8, 10, 14, 0.35)); }
@@ -207,26 +220,76 @@
 .hr-cell.is-off { opacity: 0.6; }
 .hr-cell.is-off .hr-state { color: var(--c-danger); }
 .hr-cell.is-local .hr-name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; font-size: 10px; }
+/* 준비를 마친 카드는 슬롯 색 테두리가 또렷해진다 */
+.hr-cell.is-confirmed { border-color: color-mix(in srgb, var(--sc) 70%, var(--c-border)); box-shadow: inset 0 0 22px color-mix(in srgb, var(--sc) 14%, transparent); }
+.hr-cell.is-confirmed .hr-state { color: color-mix(in srgb, var(--sc) 75%, #fff); }
+/* 「지금 네 차례」 — 앉았지만 아직 준비하지 않은 내 카드 (2026-09-14) */
+.hr-cell.needs-ready { border-color: var(--c-accent); animation: hrNeedsReady 1.5s ease-in-out infinite; }
+@keyframes hrNeedsReady {
+  0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 30%, transparent), 0 0 12px color-mix(in srgb, var(--c-accent) 22%, transparent); }
+  50% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 72%, transparent), 0 0 28px color-mix(in srgb, var(--c-accent) 48%, transparent); }
+}
 
+/* 위 55 %: 초상이 비쳐 보이는 층 — 이름 · 레벨은 맨 위, 상태 줄은 장비 판 바로 위 */
+.hr-head {
+  position: relative; z-index: 1;
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 10px 12px 8px;
+}
 .hr-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; text-shadow: 0 0 8px rgba(0, 0, 0, 0.85); }
-.hr-name { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-name { font-size: 14px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hr-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); white-space: nowrap; }
 .hr-state { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim); text-shadow: 0 0 8px rgba(0, 0, 0, 0.85); }
 
-/* equipped 전술 임플란트 on the cell's right-hand side (hub-owned DOM; the def comes from ctx.implants) */
-.hr-imp {
-  --ic: #5fd7ff;
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 46px;
+/* 아래 45 %: 장비 판 — 여기부터는 초상이 비치지 않는다 */
+.hr-body {
+  position: relative; z-index: 1;
+  flex: 0 0 var(--hr-body-h);
+  display: flex; flex-direction: column; gap: 8px; justify-content: flex-start;
+  padding: 10px 12px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--sc) 24%, var(--c-border));
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0.86), rgba(6, 8, 11, 0.95));
 }
-.hr-imp-glyph {
+/* 주무기 I · II · 가방 · 방탄복 · 전술 임플란트 — 다섯 칸 균등 */
+.hr-gear { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; pointer-events: auto; }
+.hr-slot {
+  --rc: var(--c-border); --ic: var(--c-text-dim);
+  position: relative; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  aspect-ratio: 1 / 1; max-height: 62px;
+  border: 1px solid color-mix(in srgb, var(--rc) 55%, var(--c-border));
+  background: color-mix(in srgb, var(--rc) 9%, rgba(8, 10, 14, 0.86));
+}
+.hr-slot.is-empty { border-style: dashed; border-color: var(--c-border); background: rgba(255, 255, 255, 0.02); }
+.hr-slot.is-unknown { border-style: dashed; }
+.hr-slot-icon { font-size: 17px; line-height: 1; color: var(--ic); }
+.hr-slot.is-empty .hr-slot-icon, .hr-slot.is-unknown .hr-slot-icon { color: var(--c-text-faint); }
+.hr-slot-key { font-size: 8px; letter-spacing: 0.1em; color: var(--c-text-faint); text-transform: uppercase; white-space: nowrap; }
+/* 소켓 핍 — 인벤토리 무기 카드(`.inv-slot-sockets`)와 같은 읽기: 윤곽 = 빈 칸, 채움 = 부착물 */
+.hr-slot-socks { position: absolute; right: 3px; top: 3px; display: flex; gap: 2px; }
+.hr-slot-socks.is-unknown { opacity: 0.45; }
+.hr-pip { width: 4px; height: 4px; border: 1px solid color-mix(in srgb, var(--c-text-dim) 70%, transparent); background: transparent; }
+.hr-pip.is-filled { background: var(--c-accent); border-color: var(--c-accent); }
+/* 착용 장비 가치 합계 */
+.hr-value { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-dim); text-align: right; }
+/* 준비 홀드 게이지 — 내 카드 하단 (크로스헤어 홀드 링이 아니다) */
+.hr-hold {
+  position: relative; height: 20px;
   display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; font-size: 15px; line-height: 1;
-  color: var(--ic);
-  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent);
-  background: color-mix(in srgb, var(--ic) 12%, rgba(8, 10, 14, 0.8));
+  border: 1px solid color-mix(in srgb, var(--c-accent) 45%, var(--c-border));
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
 }
-.hr-imp-name { font-size: 9px; letter-spacing: 0.02em; color: var(--c-text-dim); text-align: center; line-height: 1.15; text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
+.hr-hold-fill {
+  position: absolute; left: 0; top: 0; height: 100%; width: 100%;
+  transform: scaleX(0); transform-origin: left;
+  background: color-mix(in srgb, var(--c-accent) 45%, transparent);
+}
+.hr-hold-label { position: relative; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-dim); }
+.hr-hold.is-holding .hr-hold-label { color: var(--c-text); }
+.hr-hold.is-confirmed { border-color: color-mix(in srgb, var(--sc) 55%, var(--c-border)); }
+.hr-hold.is-confirmed .hr-hold-fill { background: color-mix(in srgb, var(--sc) 32%, transparent); }
 
 /* ── 분대원 장비 popup (right-click a cell) ──────────────────────────────── */
 .hub-crew-loadout {
@@ -249,13 +312,13 @@
 .hcl-status { font-size: 12px; letter-spacing: 0.06em; color: var(--c-text-dim); padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
 .hcl-body { display: flex; min-width: 0; }
 
-/* the status line steps above the READY panel while it is up (DOM order: .hub-ready → .hub-status) */
-.hub-ready:not([hidden]) ~ .hub-status { bottom: 232px; }
+/* 2026-09-14: the panel moved to the middle of the screen (`top: 48%`, 70vh), so the status line no longer has to
+   step over it — its own `bottom: 14%` already clears the panel's lower edge (48 % + 35 % = 83 %). */
 
 @media (max-width: 900px) {
-  .hub-ready { height: 150px; }
-  .hr-imp { display: none; }
-  .hub-ready:not([hidden]) ~ .hub-status { bottom: 182px; }
+  .hub-ready { height: 78vh; width: calc(100vw - 16px); }
+  .hr-slot-key { display: none; }
+  .hr-slot { max-height: 46px; }
 }
 
 /* bottom-centre status / launch countdown (pointer-events: none, no blocker) */

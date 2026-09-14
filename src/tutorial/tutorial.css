@@ -40,6 +40,50 @@
 }
 @keyframes tut-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 
+/* ── 우측 조작 가이드 (2026-09-14) ───────────────────────────────────────────
+ * 배운 조작이 한 줄씩 쌓이고 사라지지 않는다. **우하단 키 가이드(`.key-guide`, right 28 / bottom 28 / z 84)와
+ * 자리가 겹치면 안 되므로** 세로 가운데에 선다 — 위로는 메신저 버튼(`.community`, top 28), 아래로는 무기
+ * 패널(`.weapon`, bottom 32) 사이의 빈 띠다. 높이를 `52vh` 로 묶어 900 px 화면에서도 그 띠를 넘지 않는다
+ * (11줄 ≈ 280 px 라 실제로는 훨씬 짧다).
+ * z 79 = 목표 패널과 같다 — 스포트라이트의 어두운 판(78) 위라 안내 중에도 읽힌다.
+ * ────────────────────────────────────────────────────────────────────────── */
+.tut-controls {
+  position: absolute; right: 22px; top: 50%; transform: translateY(-50%);
+  z-index: 79;
+  display: flex; flex-direction: column; gap: 7px;
+  width: 202px; max-height: 52vh; padding: 10px 12px;
+  border: 1px solid var(--c-border); border-right: 3px solid var(--c-accent);
+  background: linear-gradient(180deg, rgba(12, 15, 20, 0.82), rgba(8, 10, 14, 0.82));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+  pointer-events: none;              /* 읽기 전용 — 조준을 가로채지 않는다 */
+  animation: tut-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.tut-controls[hidden] { display: none !important; }
+.tut-ctl-head { color: var(--c-accent); }
+.tut-ctl-list { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.tut-ctl { display: flex; align-items: center; gap: 8px; }
+.tut-ctl-keys { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+.tut-ctl-keys .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 10px; }
+.tut-ctl-label {
+  font-size: 11px; line-height: 1.35; letter-spacing: 0.02em; color: var(--c-text-dim);
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* 새로 배운 줄은 한 박자만 밝았다가 평범한 기록이 된다 */
+.tut-ctl.is-new { animation: tut-ctl-in 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.tut-ctl.is-new .tut-ctl-label { color: var(--c-text); }
+@keyframes tut-ctl-in {
+  0% { opacity: 0; transform: translateX(14px); }
+  18% { opacity: 1; transform: none; }
+  100% { opacity: 1; transform: none; }
+}
+/* 1440×900 보다 낮은 창에서는 줄 간격 · 글자를 한 단계 줄여 띠 안에 머문다 */
+@media (max-height: 820px) {
+  .tut-controls { width: 186px; padding: 8px 10px; gap: 6px; }
+  .tut-ctl-list { gap: 5px; }
+  .tut-ctl-label { font-size: 10.5px; }
+}
+
 /* ── 스포트라이트 (네 판이 구멍을 만들고 클릭을 먹는다) ─────────────────────── */
 .tut-spot { position: absolute; inset: 0; z-index: 78; }   /* 인벤토리(50) · 함선 관리 위, 일시정지(85) 아래 */
 .tut-spot[hidden] { display: none !important; }
@@ -103,6 +147,7 @@
   .tut-spot-ring::after { opacity: 0; }
   .tut-spot-pane { transition: none; }
   .tut-panel { animation: none; }
+  .tut-controls, .tut-ctl.is-new { animation: none; }
 }
 
 /* ── 안내 / 건너뛰기 확인 카드 (모달리스 — 뒤 화면은 계속 돈다) ──────────────── */

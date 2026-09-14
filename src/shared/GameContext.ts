@@ -27,6 +27,8 @@ import type { OutlineRef, ShaderWarmupRef } from './render';
 import type { DronesRef } from './drones';
 /* appended (2026-09-13): 탈출 개편 */
 import type { ExtractionRef } from './extraction';
+/* appended (2026-09-14): 정보상 — 산 기믹 고정의 해석본 (docs/plans/intel-broker.md) */
+import type { IntelEffects } from './intel';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -141,6 +143,14 @@ export class GameContext {
    * so `world/` and `core/` can read it inside their synchronous handlers. A training always sets it to null.
    */
   missionPlanet: PlanetId | null = null;
+  /* ── appended (2026-09-14): 정보상 (docs/plans/intel-broker.md) ── */
+  /**
+   * 이 레이드에 산 **기믹 고정**의 해석본 (`shared/intel` 의 `IntelEffects`), 아무것도 안 샀으면 null.
+   * `missionPlanet` 과 **똑같은 규약**이다 — `game:newMission` 을 emit 하는 쪽이 **emit 전에** 세팅하므로
+   * `world/` · `enemies/` 가 동기 핸들러 안에서 읽을 수 있다. 훈련장은 언제나 null.
+   * 소비자는 `IntelPick[]` 를 직접 보지 않는다 — 그 해석은 `resolveIntelEffects` 한 곳이다.
+   */
+  missionIntel: IntelEffects | null = null;
   /* ── appended: Phase 8 (2026-09-06) ── */
   /** Volume settings (전체 / 효과음) for the 설정 menu. Published by audio/AudioSystem. */
   audio: AudioRef | null = null;

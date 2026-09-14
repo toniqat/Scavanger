@@ -1,5 +1,7 @@
 import type { CorpId, MetaSave, ProfileRef } from '@/shared';
 import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, slotKey } from '@/shared';
+/* 2026-09-14: 정보상 — 보유 중인 「행성 정보」 (docs/plans/intel-broker.md) */
+import { sanitizeIntelSpec } from '@/shared';
 import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -43,6 +45,8 @@ export function freshMetaSave(): MetaSave {
     activeContract: null,
     stats: { contractsDone: 0, questsDone: 0, creditsEarned: 0, creditsSpent: 0 },
     npc: freshNpcSave(),
+    // 2026-09-14: 정보상 — 아무것도 안 샀다
+    intel: null,
   };
 }
 
@@ -62,6 +66,9 @@ export function sanitizeMetaSave(raw: unknown): MetaSave {
     // 2026-09-14: 기업 퀘스트 폐지 — 옛 `quests` 상태는 버린다 (NPC 퀘스트는 `npc` 에 산다, 옛 완료 기록은 이어지지 않는다)
   }
   out.npc = sanitizeNpcSave(r.npc);
+  /* 2026-09-14: 정보상 — 모양이 아니면 조용히 「안 샀다」. 이 필드가 `snapshot()` 을 타고 서버 프로필로 가므로
+   * (새로고침 · 재접속을 견딘다) **여기서 빠뜨리면 산 정보가 한 번의 새로고침에 사라진다.** */
+  out.intel = sanitizeIntelSpec(r.intel ?? null);
 
   const ac = r.activeContract;
   if (ac && typeof ac === 'object') {

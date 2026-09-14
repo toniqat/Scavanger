@@ -9,7 +9,7 @@ everyone else keeps playing and the flow **resets** so a new ship can be called.
 director that used to start on `extraction:activated` is removed on the enemies side). All geometry is procedural (no assets).
 
 Publishes **`ctx.extraction`** (`shared/extraction.ts` → `ExtractionRef`: `stage` · `departRemaining` · `idleRemaining` · `riding` ·
-`isInShipBay(p)` · `keepEnemyOut(p, r)`).
+`isInShipBay(p)` · `keepEnemyOut(p, r)` · **`beginPreLanded(pos, yaw, opts)`** — 2026-09-14, 아래 절).
 
 Import via `@/extraction` → `ExtractionSystem`, `ExtractionConsole`, `Dropship`, `ParticlePool`, `FlareColumn`, `DustRing`.
 
@@ -84,6 +84,29 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
 
 ---
 
+## 이미 착륙해 있는 탈출선 — `beginPreLanded` (2026-09-14, 튜토리얼)
+
+튜토리얼의 「버려진 함선」은 새 메시가 아니라 **진짜 탈출선**이다 (`docs/plans/tutorial-raid.md`). `world/tutorial/`
+이 첫 프레임에 `ctx.extraction.beginPreLanded(pos, yaw, {autoDepart:false})` 를 부르면 콘솔 · 20초 호출 · 비행 ·
+착륙 연출만 건너뛰고 곧장 `landed` 로 들어간다 — **이 파일에 새 갈래가 생기지 않는다는 것이 설계의 요점**이라
+그 뒤의 스위치 → 취소 불가 10초 유예 → 이륙 → 결과 · 정산이 평소 경로 그대로 흐른다.
+
+- 문은 튜토리얼에만 열려 있다: `ctx.missionMode !== 'tutorial'` 이거나 `stage !== 'idle'` 이면 false.
+- `ship.forceLand(pos, yaw)`(멀티플레이어 클라이언트 폴백이 쓰던 그것) → `onShipLanded(**silent**)`.
+  `silent` 는 착륙한 **순간**의 연출 · 알림만 건너뛴다 (`camera:shake` · `ship_land` · `extraction:shipLanded`) —
+  이 함선은 방금 내려앉은 것이 아니라 처음부터 그 자리에 있었다. 외피 콜라이더(`ShipHull.register`) · 실내
+  스위치 · 대기 타이머는 **그대로** 등록된다.
+- `autoDepart: false` → `idleRemaining = -1`. 무응답 60초 자동 출발을 걸지 않는다 (둘러볼 시간이 필요하다).
+  스위치만이 유예를 시작한다.
+- ⚠ **단계 맞추기 (`syncPreLandedPhase`)**: `GameFlowSystem` 은 `extraction:liftoff` 를 `extracting` · `shipLanded`
+  단계에서만 받는다 (평소에는 콘솔의 `activated` → 착륙의 `shipLanded` 가 차례로 그 단계를 만든다). 튜토리얼
+  함선은 강하보다도 먼저 서 있으므로 그 **두 이벤트를 `playing` 이 되는 첫 프레임에 그대로 흘린다** —
+  「함선이 도착해 있고 탈 수 있다」(`shipLanded`) 는 이 레이드 내내 사실이고, 덤으로 나침반의 함선 표시가
+  곧 튜토리얼의 목표가 된다. `extraction:activated.duration` 은 **0** 이다 (호출이 아니라 이미 와 있는 함선).
+- 미리 세워 둔 함선에는 **다시 부를 콘솔이 없으므로** 남겨진 사람의 `departedReset()` 을 걸지 않는다
+  (`preLanded` 플래그). 솔로 튜토리얼에서는 `squadDone` 이 참이라 어차피 닿지 않는 길이지만, 리셋되면
+  남은 사람이 영영 못 나간다.
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
@@ -152,3 +175,7 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
   랜드마크다. 바뀐 것은 `beacon.visible` 하나뿐이고 근거리 조명 · 화면 · 레버는 그대로다.
 
 - **Phase 7** — `required` excludes suspended members (a ghost cannot board → 미탈출), no consoles when the world has no extraction points (training), a promoted host continues the countdown / ship / boarding from its mirrored state (unchanged in Phase 9)
+
+- **2026-09-14 (튜토리얼 개편)** — `ExtractionRef.beginPreLanded` 구현 (위 절). 바뀐 것은 `onShipLanded(silent)`
+  인자 하나, `update()` 맨 앞의 `syncPreLandedPhase()` 한 줄, 남겨진 사람 리셋의 `!this.preLanded` 한 조건,
+  그리고 `createRef()` 의 새 항목뿐이다 — 본편 탈출 흐름의 코드 경로는 한 줄도 바뀌지 않았다.

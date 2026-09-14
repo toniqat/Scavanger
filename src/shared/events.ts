@@ -82,6 +82,15 @@ export interface GameEvents {
   'player:sprintChanged': { sprinting: boolean };
   'player:aimChanged': { aiming: boolean };
   'player:landed': { impactSpeed: number };
+  /**
+   * appended (2026-09-14, owner: player): **낙하 피해**가 들어갔다 (전역 기능 — 튜토리얼 전용이 아니다).
+   * `height` = 실제로 떨어진 높이(m), `damage` = 실드 · 체력에서 깎인 합. `rule` 은 `ctx.world.tutorial?.fallRule()`
+   * 의 답이다 — 튜토리얼 절벽에서만 `'kill'`(즉사) · `'clamp'`(체력 1 아래로 안 내려간다)이고 그 밖에는 `'normal'`.
+   * 피해가 0 이면 발행하지 않는다 (안전 높이 안).
+   */
+  'player:fell': { height: number; damage: number; rule: import('./tutorialWorld').TutorialFallRule };
+  /** appended (2026-09-14, owner: player): 튜토리얼 오프닝 기상 연출이 끝나 조작이 돌아왔다. */
+  'player:introWakeDone': Record<string, never>;
   'player:footstep': { position: THREE.Vector3; sprinting: boolean };
   /** 2026-09-09 (additive): `hold` = the current interactable has a `holdTime` — the prompt keycap gets a ⌄ chevron. */
   'interact:promptChanged': { text: string | null; holdProgress: number; hold?: boolean };
@@ -801,9 +810,21 @@ export interface GameEvents {
    * The tutorial started, advanced or ended. `step` is null when it is over; `index` / `count` are 1-based progress
    * for a readout. Every folder that hides or gates something during the tutorial re-reads `ctx.tutorial` here.
    */
-  'tutorial:changed': { active: boolean; step: TutorialStepId | null; index: number; count: number };
-  /** The tutorial is over — completed (`skipped: false`) or waved off from the 건너뛰기 button / console. */
-  'tutorial:finished': { skipped: boolean };
+  'tutorial:changed': {
+    active: boolean; step: TutorialStepId | null; index: number; count: number;
+    /** appended (2026-09-14): 지금 도는 트랙 (`raid` · `ship` · `build`). 비활성이면 없다. */
+    track?: import('./tutorial').TutorialTrack;
+  };
+  /**
+   * The tutorial is over — completed (`skipped: false`) or waved off from the 건너뛰기 button / console.
+   * appended (2026-09-14): `track` = 끝난 트랙. 없으면 (옛 발행) `build`.
+   */
+  'tutorial:finished': { skipped: boolean; track?: import('./tutorial').TutorialTrack };
+  /**
+   * appended (2026-09-14, owner: world/tutorial): 튜토리얼 월드의 체크포인트를 지났다 — 죽으면 여기서 다시 선다.
+   * `index` 는 `TUTORIAL_CHECKPOINTS` 안의 0-based 순번. 지난 곳을 되돌아가도 **번호가 내려가지 않는다**.
+   */
+  'tutorial:checkpoint': { id: import('./tutorialWorld').TutorialCheckpointId; index: number };
 
   /* ── 화면 설정 (2026-09-08, owner: ui/menus/SettingsMenu) ── */
   /**
@@ -1511,3 +1532,18 @@ export interface GameEvents {
   'room:error': { code: RoomErrorCode; message: string };
 }
 /* ── end [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 ── */
+
+/* ── [2026-09-14] 정보상 · NPC 개인 신뢰도 (docs/plans/intel-broker.md) ──────
+ * 기믹 고정 자체는 이벤트로 흐르지 않는다 — 맵에 닿는 길은 `ctx.missionIntel` 하나이고 (`missionPlanet` 과 같은
+ * 규약: `game:newMission` 을 emit 하기 전에 세팅), 여기 있는 둘은 **화면 갱신용 사실**이다. */
+import type { IntelSpec } from './intel';
+
+export interface GameEvents {
+  /** Fact (meta): 보유 중인 정보가 바뀌었다 — 구매 · 폐기(지역 재배치) · 레이드 소모 · 서버 문서 로드. */
+  'intel:changed': { spec: IntelSpec | null };
+  /** Fact (meta): 정보를 샀다 (락온 연출 · 토스트가 듣는다). `cost` 는 실제로 나간 크레딧. */
+  'intel:purchased': { spec: IntelSpec; cost: number };
+  /** Fact (meta): NPC 개인 신뢰도가 바뀌었다. `level` 이 올랐으면 `levelUp` (메신저가 토스트한다). */
+  'meta:npcTrustChanged': { npc: string; trust: number; level: number; delta: number; levelUp: boolean };
+}
+/* ── end [2026-09-14] 정보상 · NPC 개인 신뢰도 ── */

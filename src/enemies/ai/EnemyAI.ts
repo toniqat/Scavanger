@@ -13,6 +13,8 @@ import { updateRogue } from './RogueAI';
 import { isNamedAiType, updateNamed } from './named';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
 import { endInvestigation, updateInvestigate } from './Investigate';
+/* appended (2026-09-14): 튜토리얼 전용 적의 자기 자리 지키기 · 단단한 리시 (`homeLeash > 0` 인 적에게만) */
+import { tutorialHold } from '../Tutorial';
 /* appended (2026-09-13): 굴착 스폰 · 뱉어진 버그 */
 import { updateBurrowGate } from './Burrow';
 
@@ -89,6 +91,14 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     if (e.aware) endInvestigation(e);
     else if (e.state !== 'stagger') { updateInvestigate(e, dt, host); return; }
   }
+
+  /*
+   * 2026-09-14 (튜토리얼 전용 적, `Tutorial.ts`): 자기 자리(`guardPos`)를 지키고 `homeLeash` 밖으로는 쫓아가지 않는다.
+   * `homeLeash` 는 **오직** `Tutorial.placeTutorialEnemies` 가 채우고 다른 모든 적은 0 이라 — `tutorialHold` 의 첫 줄이
+   * 그대로 돌아간다 — 본편 · 훈련장에서는 이 가지가 통째로 없는 것과 같다. 상태만 되돌리고 이동은 아래 평소 상태
+   * 기계(벌레) · `updateRogue`(인간형)가 그대로 맡는다.
+   */
+  tutorialHold(e, dt);
 
   // A lure (유인 수류탄 / 소음) drags a patrolling or idle bug toward the noise.
   if (e.hasLure && e.lureWeight >= 0.35 && (e.state === 'idle' || e.state === 'wander')

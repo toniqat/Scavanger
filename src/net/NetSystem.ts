@@ -5,6 +5,8 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
+/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/plans/intel-broker.md) */
+import type { IntelWire } from '@/shared';
 import type { NetLinkInfo } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 */
 import type { ShipVisitWire } from '@/shared';
@@ -175,6 +177,11 @@ export class NetSystem implements GameSystem, NetRef {
    * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
    */
   setLobbyPlanet(planet: PlanetId): void { return Lobby.setLobbyPlanet(this, planet); }
+  /* ── 2026-09-14: 정보상 (docs/plans/intel-broker.md) ── */
+  /** 분대장이 산 기믹 고정 (`lobby.intel`). 로비가 없거나 아무도 안 샀으면 null — 분대원은 읽기 전용이다. */
+  get lobbyIntel(): IntelWire | null { return this._lobby?.intel ?? null; }
+  /** 분대장 전용, 시작 전: 산 정보(또는 폐기 = null)를 분대에 알린다 (`setLobbyPlanet` 과 같은 규약). */
+  setLobbyIntel(intel: IntelWire | null): void { return Lobby.setLobbyIntel(this, intel); }
   /** 친구 · 요청 · 최근 플레이어 · 개인 대화 · 분대 초대 (always present; `available` is false offline). */
   get social(): SocialRef { return this.socialSync; }
   /** 2026-09-14: 단체 메신저방 (always present; `available` is false offline / anonymous / a relay without rooms). */
@@ -396,7 +403,7 @@ export class NetSystem implements GameSystem, NetRef {
    * Phase 11: `planet` is the raid's 목표 행성 (the server refuses a raid without one — `no_planet`); a training
    * ignores it, and an unknown id is dropped here rather than sent. Falls back to `lobby.planet` when omitted.
    */
-  startGame(seed: number, mode?: MissionMode, planet?: PlanetId): void { return Lobby.startGame(this, seed, mode, planet); }
+  startGame(seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void { return Lobby.startGame(this, seed, mode, planet, intel); }
 
   quickMatch(): void { return Lobby.quickMatch(this); }
   setPublic(isPublic: boolean): void { return Lobby.setPublic(this, isPublic); }
@@ -450,7 +457,7 @@ export class NetSystem implements GameSystem, NetRef {
    * Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`).
    * Phase 11: `planet` is the raid's 목표 행성 (null for a training / an older relay with nothing picked).
    */
-  beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null): void { return Lobby.beginSession(this, seed, lobby, mode, rejoin, planet); }
+  beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null, intel: IntelWire | null = null): void { return Lobby.beginSession(this, seed, lobby, mode, rejoin, planet, intel); }
 
   applyLobby(next: LobbyState): void { return Lobby.applyLobby(this, next); }
 

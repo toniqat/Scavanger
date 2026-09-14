@@ -1,0 +1,167 @@
+/* ============================================================================
+ * SCAVANGER — 정보상 · 매칭 팝업 (2026-09-14, docs/plans/intel-broker.md §4.1 · §4.2).
+ *
+ * 접두사 셋 — 서로 겹치지 않고, `rg "\.hm-|\.hi-|\.it-" src` 가 **비어 있음**을 확인하고 골랐다
+ * (CLAUDE.md 「CSS 클래스 접두사는 폴더마다 달라야 한다」 — `.ct-` 충돌 사고와 같은 뿌리):
+ *
+ *   .hm-   매칭 팝업        (hub/ui/MatchPanel.ts)      — 옛 터미널 좌측 열
+ *   .hi-   정보상 패널      (hub/ui/HubMenu.ts)         — 터미널 우측 열의 첫 칸
+ *   .it-   정보상 화면      (hub/ui/IntelMenu.ts + IntelMap.ts)
+ *
+ * `.menu` · `.frame` · `.ui-btn` · `.ui-label` · `.hub-section` 같은 틀은 `ui/styles/base.css` · `hub.css` 것을
+ * 그대로 쓴다. 색은 전부 `:root` 토큰이고 외부 에셋은 하나도 없다 (지도는 절차 캔버스).
+ * ========================================================================== */
+
+/* ── 매칭 팝업 (.hm-) ─────────────────────────────────────────────────────── */
+.menu.hub-menu.hm-match .frame {
+  min-width: 0; width: min(560px, calc(100vw - 48px)); max-width: 560px;
+  max-height: calc(100vh - 64px); overflow: hidden;
+  gap: 16px;
+}
+.hm-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.hm-head .hl { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.hm-head .title { font-size: 22px; letter-spacing: 0.18em; }
+.hm-head .subtitle { margin-top: 0; }
+.hm-head .ui-btn.hm-close { min-width: 0; height: 32px; padding: 0 16px; font-size: 11px; }
+.hm-body { display: flex; flex-direction: column; gap: 18px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
+.hm-note { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+
+/* ── 정보상 패널 (.hi-), 터미널 우측 열 ───────────────────────────────────── */
+.hub-section.hub-intel { gap: 8px; }
+.hi-body { display: flex; flex-direction: column; gap: 6px; }
+.hi-intro { font-size: 11.5px; line-height: 1.6; color: var(--c-text-dim); }
+.hi-empty { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-faint); padding: 6px 0; }
+.hi-planet { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.hi-planet-name { font-size: 14px; font-weight: 700; letter-spacing: 0.1em; color: var(--c-accent); }
+.hi-warn {
+  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--c-danger); border: 1px solid rgba(255, 90, 70, 0.55); padding: 1px 6px;
+}
+.hi-row { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; line-height: 1.5; }
+.hi-row-label { color: var(--c-text); font-weight: 600; white-space: nowrap; }
+.hi-row-effect { color: var(--c-text-dim); min-width: 0; }
+.hi-actions { display: flex; flex-direction: column; gap: 8px; }
+.hi-actions .ui-btn.wide { min-width: 0; width: 100%; }
+.hi-note { font-size: 11px; color: var(--c-accent); letter-spacing: 0.04em; }
+.hub-section.hub-intel.is-mismatch { border-left: 2px solid rgba(255, 90, 70, 0.5); padding-left: 10px; }
+
+/* ── 정보상 화면 (.it-) ───────────────────────────────────────────────────── */
+/* 전체 화면이므로 뒤의 터미널이 비쳐 보이면 유령 버튼이 읽힌다 — `.menu` 기본보다 훨씬 어둡게 덮는다. */
+.menu.it-menu { background: radial-gradient(ellipse at 50% 40%, rgba(6, 8, 12, 0.94), rgba(2, 3, 5, 0.985)); }
+.menu.it-menu.fullscreen .frame {
+  min-width: 0; max-width: none; width: 100vw; height: 100vh; max-height: 100vh;
+  /* 아래 여백 48px = 우측 하단 키 가이드(`ui/hud/KeyGuide`) 자리 — 요약 줄이 그 밑으로 들어가지 않게 */
+  padding: 24px 32px 62px; gap: 14px;
+  box-sizing: border-box;
+}
+.menu.it-menu .frame::before { left: 0; top: 0; }
+.menu.it-menu .frame::after { right: 0; bottom: 0; }
+
+.it-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.it-head .hl { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.it-head .title { font-size: 24px; letter-spacing: 0.18em; }
+.it-head .subtitle { margin-top: 0; }
+.it-head-right { display: flex; align-items: center; gap: 10px; }
+.it-credits {
+  font-family: var(--ui-mono); font-size: 16px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.35); padding: 5px 12px;
+  background: rgba(255, 179, 71, 0.06);
+}
+.it-head-right .ui-btn { min-width: 0; height: 32px; padding: 0 16px; font-size: 11px; letter-spacing: 0.1em; }
+.it-head-right .ui-btn.it-relocate { border-color: rgba(255, 90, 70, 0.45); color: var(--c-danger); }
+
+.it-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 460px); gap: 26px; }
+.it-pane { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+.it-pane.left { align-items: center; justify-content: center; }
+.it-pane.right { overflow: hidden; }
+.it-eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
+
+/* 지도 — 캔버스 + 범례 한 줄 (색은 IntelMap.INTEL_MAP_LEGEND 가 인라인으로 넣는다) */
+/* 지도는 **정사각형**이다 (맵이 정사각형이라 종횡비를 왜곡하면 거짓말이 된다). 패널을 다 채우면 칸이 커져
+   좌표가 또렷하게 읽히므로 위쪽 크기를 묶어 둔다 — 흐릿함이 이 화면의 요점이다. */
+.it-map { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 0; flex: 1; width: 100%; }
+.it-map-stage { position: relative; width: min(100%, 60vh, 620px); max-width: 100%; aspect-ratio: 1 / 1; border: 1px solid rgba(95, 215, 255, 0.16); }
+.it-map-canvas { display: block; width: 100%; height: 100%; }
+.it-map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; max-width: 100%; font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-dim); }
+.it-map-leg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.it-map-leg i { width: 9px; height: 9px; display: inline-block; opacity: 0.8; }
+
+/* 고르는 국면: 기믹 7줄 */
+.it-rows-wrap { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }
+.it-rows-head { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
+/* 줄 목록이 남은 높이를 먹고 총액 · 확정이 **우측 하단**에 앉는다 (설계안 §4.2) */
+.it-rows { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-gutter: stable; padding-right: 2px; }
+.it-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center;
+  gap: 2px 12px; padding: 8px 12px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.it-row.is-on { border-color: rgba(255, 179, 71, 0.45); background: rgba(255, 179, 71, 0.06); }
+.it-row.is-locked { opacity: 0.42; }
+.it-row.is-locked .ui-btn { pointer-events: none; }
+.it-row-main { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.it-row-label { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; }
+.it-row-effect { font-size: 11px; color: var(--c-accent); line-height: 1.45; }
+.it-row-effect.is-off { color: var(--c-text-faint); }
+.it-row-lock { font-size: 10px; letter-spacing: 0.08em; color: var(--c-danger); }
+.it-row-tier { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
+.it-row-tier .ui-btn.it-step { min-width: 0; width: 26px; height: 26px; padding: 0; font-size: 11px; }
+.it-tier-val { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.08em; min-width: 46px; text-align: center; color: var(--c-text-dim); }
+.it-row-cost { grid-column: 3; grid-row: 1 / span 2; font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.04em; min-width: 84px; text-align: right; color: var(--c-accent); }
+.it-row-cost.is-off { color: var(--c-text-faint); }
+.it-named { grid-column: 1 / -1; grid-row: 3; display: flex; gap: 6px; padding-top: 6px; flex-wrap: wrap; }
+.it-named .ui-btn.it-named-btn { min-width: 0; height: 26px; padding: 0 12px; font-size: 10px; letter-spacing: 0.08em; }
+.it-named .ui-btn.it-named-btn.on { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.1); }
+
+/* 우하단: 총액(큰 폰트) · 사유 · 취소 / 확정(1초 홀드) */
+.it-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.it-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.it-total-label { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--c-text-faint); }
+.it-total-val { font-family: var(--ui-mono); font-size: 34px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-accent); text-shadow: 0 0 18px rgba(255, 179, 71, 0.3); line-height: 1.1; }
+.it-total-note { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.it-reason { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.02em; min-height: 15px; }
+.it-reason.bad { color: var(--c-danger); }
+.it-actions { display: flex; gap: 10px; margin-top: 2px; }
+.it-actions .ui-btn { flex: 1; min-width: 0; height: 40px; }
+.ui-btn.it-confirm { position: relative; overflow: hidden; }
+.it-hold-fill {
+  position: absolute; inset: 0; transform: scaleX(0); transform-origin: left; pointer-events: none;
+  background: color-mix(in srgb, var(--c-accent) 38%, transparent);
+}
+.it-confirm-label { position: relative; }
+
+/* 확정 국면: 좌 홀로그램(락온) · 우 지도 + 요약 */
+.it-holo-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.it-holo {
+  position: relative;
+  width: 420px; height: 420px; max-width: min(52vh, 36vw); max-height: min(52vh, 36vw);
+  border: 1px solid rgba(255, 179, 71, 0.18);
+  background: radial-gradient(circle at 50% 55%, rgba(255, 179, 71, 0.08), rgba(4, 10, 16, 0) 68%);
+}
+.it-holo canvas { display: block; width: 100%; height: 100%; }
+.it-coord {
+  font-family: var(--ui-mono); font-size: 13px; letter-spacing: 0.16em; color: var(--c-accent);
+  border: 1px solid rgba(255, 179, 71, 0.35); padding: 4px 14px; background: rgba(8, 10, 14, 0.7);
+}
+.it-done { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
+.it-map-host { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.it-map-host[hidden] { display: none; }
+.it-summary { display: flex; flex-direction: column; gap: 6px; }
+.it-sum-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px; border: 1px solid var(--c-border); background: rgba(255, 179, 71, 0.05); }
+.it-sum-label { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; }
+.it-sum-effect { font-size: 11px; color: var(--c-accent); min-width: 0; }
+.it-sum-wait { font-size: 12px; letter-spacing: 0.14em; color: var(--c-text-faint); padding: 8px 0; }
+.it-done-note { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+
+.menu.it-menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
+/* 좁은 창 (1440×900 아래): 두 패널이 세로로 쌓인다 — 지도는 줄고 줄 목록이 스크롤한다 */
+@media (max-width: 1180px) {
+  .it-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(160px, 0.9fr) minmax(0, 1.4fr); gap: 14px; }
+  .it-holo { width: 220px; height: 220px; max-width: 30vh; max-height: 30vh; }
+  .it-total-val { font-size: 26px; }
+}
+@media (max-height: 780px) {
+  .it-holo { max-width: min(44vh, 32vw); max-height: min(44vh, 32vw); }
+  .it-total-val { font-size: 28px; }
+}

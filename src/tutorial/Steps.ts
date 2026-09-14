@@ -1,5 +1,5 @@
-import type { TutorialStepId } from '@/shared';
-import { PLANET_IDS, TUTORIAL_STEPS } from '@/shared';
+import type { TutorialStepId, TutorialTrack } from '@/shared';
+import { PLANET_IDS, TUTORIAL_STEPS, TUTORIAL_TRACK_STEPS, tutorialTrackOf } from '@/shared';
 import { TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, type StepDef } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -168,13 +168,118 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       terminal: true, planet: true, board: true, screenTab: true, stashItem: true,
     },
   },
+
+  /* ══ 2026-09-14 튜토리얼 개편 (docs/plans/tutorial-raid.md) ══════════════════════════════════════════════
+   * ① raid — 손으로 지은 튜토리얼 행성. 안내할 것이 **UI 가 아니라 손가락**이라 스포트라이트가 거의 없다:
+   *    배운 키는 우측 조작 가이드(`ui/Controls`, `TUTORIAL_CONTROL_HINTS`)에 한 줄씩 쌓이고, 목표 패널은
+   *    "지금 무엇을 하는가"만 말한다. 문구에 키 글자를 **적지 않는다** — 리바인드하면 거짓말이 되고,
+   *    조작 가이드가 이미 살아 있는 키 라벨을 그린다.
+   * ② ship — 함선 첫 진입. 레벨 · 능력치 · 메신저는 전부 기존 화면이라 **스포트라이트로 가리키기만** 한다.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
+  /* ── ① raid — 튜토리얼 레이드 ── */
+  wake: {
+    id: 'wake', title: '정신을 차리세요',
+    hint: '강하가 실패했습니다. 몸을 일으키는 중입니다 — 잠시 기다리세요.',
+  },
+  move: {
+    id: 'move', title: '주변을 둘러보고 걸어가세요',
+    hint: '마우스로 시선을 돌리고, 이동 키로 앞쪽 갈라진 땅까지 걸어갑니다.',
+  },
+  sprintJump: {
+    id: 'sprintJump', title: '달려서 뛰어넘으세요',
+    hint: '달리기를 누른 채 속도를 붙여 점프해야 건너갑니다. 서서 뛰면 닿지 않습니다.',
+  },
+  corpseLoot: {
+    id: 'corpseLoot', title: '쓰러진 대원의 장비를 챙기세요',
+    hint: '시체에 상호작용해 무기 · 가방 · 탄약을 꺼내고, 무기를 주무기 칸에 끌어다 놓습니다.',
+    // 장비 칸 ↔ 시체 격자에 걸친 드래그라 합집합으로 밝힌다 (`equipGun` 과 같은 이유).
+    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-container'],
+    spotUnion: true,
+    spotText: '시체의 무기 → 주무기 칸',
+  },
+  shoot: {
+    id: 'shoot', title: '벌레를 처치하세요',
+    hint: '정조준하면 탄이 덜 퍼집니다. 둘 다 쓰러뜨리면 다음으로 넘어갑니다.',
+  },
+  crouch: {
+    id: 'crouch', title: '앉아서 낮은 틈을 지나세요',
+    hint: '선 채로는 들어가지 않습니다. 앉기 키로 자세를 낮추세요.',
+  },
+  crouchAim: {
+    id: 'crouchAim', title: '앉은 채로 조준해 안드로이드를 처치하세요',
+    hint: '앉으면 조준 흔들림이 크게 줄어듭니다 — 먼 표적일수록 차이가 납니다.',
+  },
+  drop: {
+    id: 'drop', title: '아래로 뛰어내리세요',
+    hint: '높은 곳에서 떨어지면 다칩니다. 여기서는 죽지는 않습니다.',
+  },
+  heal: {
+    id: 'heal', title: '보급품을 챙기고 회복하세요',
+    hint: '주운 회복 아이템은 빠른 사용 칸에 저절로 올라갑니다. 꺼내서 길게 눌러 쓰세요.',
+  },
+  grenade: {
+    id: 'grenade', title: '무너진 벽 너머를 정리하세요 (선택)',
+    hint: '엄폐한 적에게는 수류탄이 답입니다. 쓰지 않고 지나가도 됩니다.',
+  },
+  extract: {
+    id: 'extract', title: '버려진 함선으로 탈출하세요',
+    hint: '함선 안의 스위치를 누르면 10초 뒤 이륙합니다. 그 함선이 앞으로 당신의 함선입니다.',
+    // 레이드가 끝나는 단계다 — 아무것도 막지 않는다 (build 트랙의 `raid` 와 같은 처리).
+    allow: {
+      roomPurpose: true, furniture: true, manageExit: true, craft: true,
+      terminal: true, planet: true, board: true, screenTab: true, stashItem: true,
+    },
+  },
+  /* ── ② ship — 함선 첫 진입 ── */
+  levelUp: {
+    id: 'levelUp', title: '레벨이 올랐습니다',
+    // 넘어가는 신호는 `inventory:opened` 하나다 — 인벤토리 화면이 열리면 그 안의 캐릭터 탭은 다음 단계가 밝힌다.
+    hint: '임무 보상으로 능력치 포인트가 생겼습니다. 인벤토리 화면을 여세요.',
+    allow: { screenTab: ['character'] },
+    // `.scr-tab` 에는 탭마다의 표식이 없다 — 지금 보이는 탭이 인벤토리 · 캐릭터 둘뿐이라 탭 줄 전체를 밝힌다.
+    spot: ['.inv-root .scr-tabs', '.inv-root'],
+    spotText: '캐릭터 탭',
+  },
+  stats: {
+    id: 'stats', title: '능력치에 포인트를 투자하세요',
+    hint: '＋ 로 나눠 담은 뒤 포인트 투자 확정을 1초간 누릅니다. 확정하기 전에는 되돌릴 수 있습니다.',
+    allow: { screenTab: ['character'] },
+    // 캐릭터 탭이 아직 안 열렸으면 탭 줄을 밝힌다 — 밝힐 것이 없어 안내가 끊기는 자리를 만들지 않는다
+    spot: ['.pg-confirm', '.pg-alloc', '.cs-col', '.inv-root .scr-tabs'],
+    spotText: '포인트 투자 확정 (1초 홀드)',
+  },
+  messenger: {
+    id: 'messenger', title: '메신저를 여세요',
+    hint: '우측 상단에 읽지 않은 연락이 와 있습니다.',
+    allow: { community: true },
+    spot: ['.community .cm-btn', '.community'],
+    spotText: '메신저',
+  },
+  ravenQuest: {
+    id: 'ravenQuest', title: '레이븐의 의뢰를 받으세요',
+    hint: '대답을 고르고 퀘스트 카드의 수락을 누릅니다.',
+    allow: { community: true },
+    spot: ['.ms-qcard', '.ms-page.chats', '.ms-frame'],
+    spotText: '레이븐의 첫 연락',
+  },
 };
 
 /** 단계 정의. 순서에서 빠진 id(`openCraft`)도 표에 있으므로 언제나 정의를 돌려준다. */
 export const stepDef = (id: TutorialStepId): StepDef => STEP_DEFS[id];
 
-/** 순서에 있는 단계인가 (`openCraft` 처럼 계약에만 남은 id 를 거른다). */
-export const isOrderedStep = (id: string): id is TutorialStepId => (TUTORIAL_STEPS as readonly string[]).includes(id);
+/**
+ * 그 단계가 속한 트랙의 순서 배열 (2026-09-14). 진행률 · 다음 단계는 **자기 트랙 안에서만** 센다 —
+ * 트랙마다 목표 패널도 건너뛰기도 따로이기 때문이다. 트랙을 모르는 id(`openCraft`)는 build 로 본다.
+ */
+export const trackStepsOf = (id: TutorialStepId): readonly TutorialStepId[] =>
+  TUTORIAL_TRACK_STEPS[tutorialTrackOf(id) ?? 'build'];
+
+/** 그 단계의 트랙 (모르는 id 는 build — `openCraft` 가 유일하다). */
+export const trackOf = (id: TutorialStepId): TutorialTrack => tutorialTrackOf(id) ?? 'build';
+
+/** 순서에 있는 단계인가 — **세 트랙 전부**를 본다 (`openCraft` 처럼 계약에만 남은 id 를 거른다). */
+export const isOrderedStep = (id: string): id is TutorialStepId =>
+  tutorialTrackOf(id as TutorialStepId) !== null;
 
 /**
  * 저장 · 콘솔에서 들어온 id 를 순서 안의 단계로 고친다 (2026-09-09). 순서에서 빠진 `openCraft` 는 그 자리를 이어받은
@@ -186,12 +291,16 @@ export function normalizeStep(id: string | null | undefined): TutorialStepId | n
   return isOrderedStep(id) ? id : null;
 }
 
-/** 다음 단계 (마지막이면 null = 튜토리얼 종료). */
+/** 같은 트랙의 다음 단계 (그 트랙의 마지막이면 null = 트랙 종료). */
 export function nextStep(id: TutorialStepId): TutorialStepId | null {
-  const i = TUTORIAL_STEPS.indexOf(id);
-  return i < 0 || i + 1 >= TUTORIAL_STEPS.length ? null : TUTORIAL_STEPS[i + 1];
+  const arr = trackStepsOf(id);
+  const i = arr.indexOf(id);
+  return i < 0 || i + 1 >= arr.length ? null : arr[i + 1];
 }
 
-/** 1-based 순번 (없는 단계는 0). */
+/** 자기 트랙 안에서의 1-based 순번 (없는 단계는 0). */
 export const stepIndexOf = (id: TutorialStepId | null): number =>
-  (id ? TUTORIAL_STEPS.indexOf(id) + 1 : 0);
+  (id ? trackStepsOf(id).indexOf(id) + 1 : 0);
+
+/** 자기 트랙의 단계 수 (없는 단계는 0). */
+export const stepCountOf = (id: TutorialStepId | null): number => (id ? trackStepsOf(id).length : 0);

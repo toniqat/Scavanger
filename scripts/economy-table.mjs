@@ -69,6 +69,14 @@ export async function buildEconomyTable(server) {
         ? { basePrice: d.basePrice, volatility: d.volatility, unlockQuest: d.unlockQuest }
         : { basePrice: d.basePrice, volatility: d.volatility }])),
     },
+    /* 2026-09-14: 정보상 — `intel:<planet>:<code>` 의 금액을 릴레이가 **같은 `intelCost`** 로 검산한다 (docs/plans/intel-broker.md) */
+    intel: {
+      options: sortedObject(shared.INTEL_OPTION_DEFS.map((d) => [d.id, { baseCost: d.baseCost, maxTier: d.maxTier }])),
+      tierMul: shared.INTEL_COST_TABLE.tierMul,
+      bundleMul: shared.INTEL_COST_TABLE.bundleMul,
+      threatMul: shared.INTEL_COST_TABLE.threatMul,
+      planetThreat: sortedObject(shared.PLANET_DEFS.map((p) => [p.id, p.threat])),
+    },
     items: sortedObject(items),
     repairFees: sortedObject(repairFees),
     contracts: sortedObject(contracts),
@@ -160,6 +168,55 @@ export async function checkEconomyTable(server, table) {
         if (!back || back.kind !== kind || back.id !== d.id || back.qty !== cx.maxUnits) push(`사유 ${raw} 가 문법을 왕복하지 못한다`);
       }
     }
+  }
+  /* 2026-09-14: 정보상 — 표가 csv 와 같고, 모든 행성이 threat 를 갖고, 가장 긴 사유가 64자 안에서 왕복하고,
+     모든 선택 조합에서 게임과 릴레이의 금액이 **같은 식**으로 같은 값을 낸다 (식은 `shared/intel.intelCost` 하나다). */
+  const ix = table.intel;
+  if (!ix) push('intel 절이 없다 — 릴레이가 모든 정보상 구매를 거절한다');
+  else {
+    const defs = shared.INTEL_OPTION_DEFS;
+    if (Object.keys(ix.options).length !== defs.length) push(`intel 옵션 수 ${Object.keys(ix.options).length} ≠ data/intel_options.csv ${defs.length}`);
+    for (const d of defs) {
+      const o = ix.options[d.id];
+      if (!o || o.baseCost !== d.baseCost || o.maxTier !== d.maxTier) push(`intel ${d.id}: 표가 csv 와 다르다`);
+      if (!Number.isInteger(d.baseCost) || d.baseCost <= 0) push(`intel ${d.id}: baseCost ${d.baseCost} 가 양의 정수가 아니다`);
+    }
+    if (!(ix.tierMul.length >= shared.INTEL_TIER_MAX)) push(`INTEL_TIER_COST_MUL 이 ${shared.INTEL_TIER_MAX} 단계를 다 덮지 않는다 (${ix.tierMul.length}개)`);
+    if (!(ix.bundleMul >= 1)) push(`INTEL_BUNDLE_COST_MUL ${ix.bundleMul} 은 1 이상이어야 한다 (누진 배수)`);
+    for (const p of shared.PLANET_DEFS) {
+      if (ix.planetThreat[p.id] !== p.threat) push(`intel planetThreat ${p.id} 이 csv 와 다르다`);
+      const ti = Math.max(0, Math.min(ix.threatMul.length - 1, Math.round(p.threat) - 1));
+      if (!(ix.threatMul[ti] > 0)) push(`INTEL_THREAT_COST_MUL 에 ${p.id}(threat ${p.threat}) 의 배수가 없다`);
+    }
+    /* 모든 조합(기믹 7종 × 단계 0..max) 중 가장 긴 코드로 사유 왕복 + 게임 ↔ 표 금액 일치. 조합은 3^7 아래라 전수로 돈다. */
+    const all = defs.map((d) => d.id);
+    const worst = defs.map((d) => ({ g: d.id, tier: d.maxTier }));
+    const raw = shared.formatCreditReason({ kind: 'intel', id: shared.PLANET_DEFS[0].id, code: shared.intelCode(worst) });
+    const back = shared.parseCreditReason(raw);
+    if (!back || back.kind !== 'intel' || back.id !== shared.PLANET_DEFS[0].id || back.code !== shared.intelCode(worst)) {
+      push(`사유 ${raw} 가 문법을 왕복하지 못한다 (64자 초과이거나 코드 글자가 문법 밖이다)`);
+    }
+    let combos = 0;
+    const walk = (i, picks) => {
+      if (combos > 4000) return;
+      if (i >= all.length) {
+        if (picks.length === 0) return;
+        combos++;
+        for (const p of shared.PLANET_DEFS) {
+          const code = shared.intelCode(picks);
+          const parsed = shared.parseIntelCode(code);
+          if (!parsed) { push(`정보 코드 ${code} 를 되읽지 못한다`); return; }
+          const game = shared.intelCost(p.threat, picks, shared.INTEL_COST_TABLE);
+          const relay = shared.intelCost(ix.planetThreat[p.id], parsed, ix);
+          if (game !== relay) { push(`intel ${code} @ ${p.id}: 게임 ${game} ≠ 표 ${relay}`); return; }
+          if (!Number.isInteger(game) || game <= 0) { push(`intel ${code} @ ${p.id}: 금액 ${game} 이 양의 정수가 아니다`); return; }
+        }
+        return;
+      }
+      const def = defs[i];
+      for (let t = 0; t <= def.maxTier; t++) walk(i + 1, t === 0 ? picks : [...picks, { g: def.id, tier: t }]);
+    };
+    walk(0, []);
   }
   for (const [id, n] of [...Object.entries(table.contracts), ...Object.entries(table.quests), ...Object.entries(table.repairFees)]) {
     if (!Number.isInteger(n) || n < 0) push(`${id}: 크레딧 ${n} 이 0 이상의 정수가 아니다`);

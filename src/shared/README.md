@@ -644,6 +644,22 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-14 (튜토리얼 개편 — 리드 계약, 추가만, docs/plans/tutorial-raid.md)** — 새 파일 **`tutorialWorld.ts`**:
+  `TutorialCheckpointId` 10종 · `TUTORIAL_CHECKPOINTS` · `TutorialFallRule`(`normal` · `kill` · `clamp`) · `TutorialWorldRef`
+  (`checkpoint` · `respawnPose` · `fallRule` · `gotoCheckpoint`) — `ctx.world.tutorial` 로 게시하며 `ctx.world.training` 과 같은 규약이다
+  (튜토리얼 월드가 아니면 null — 호출부는 `?? 'normal'`). 유니언 추가: **`MissionMode += 'tutorial'`**(손으로 지은 튜토리얼 행성 —
+  훈련장과 달리 진짜 레이드라 전리품 · XP 가 프로필로 넘어간다) · `TutorialGate += 'hud'`(+ `TutorialHudPart` — HUD 점진 노출, 숨김 전용) ·
+  `NpcLogEvent += 'choice'`(+ `NpcLogEntry.c` — 대사 선택지). `TutorialTrack`(`raid` · `ship` · `build`) · `TUTORIAL_TRACKS` · `TUTORIAL_TRACK_STEPS`
+  (`TUTORIAL_STEPS` 는 그대로 **build 트랙**의 배열이다) · `tutorialTrackOf` · `TutorialStepId` 에 두 트랙의 단계 15개 **추가**(기존 17개는 불변) ·
+  `TutorialTrackSave` · `TutorialSave.tracks`(v2; v1 의 `step` · `done` 은 **선택 필드**로 남아 읽기 전용) · `TutorialRef` 에 `track` · `isTrackDone` ·
+  `startTrack` · `skipTrack`. 선택 메서드 둘: `PlayerRef.playIntroWake?`(쓰러진 채 깨어나는 오프닝) ·
+  `ExtractionRef.beginPreLanded?`(**이미 착륙해 있는** 탈출선 — 튜토리얼의 「버려진 함선」이 그것이라 스위치 · 10초 유예 · 이륙 · 정산이 평소 경로다).
+  `NpcDef.introChoices` · `introChoiceReplies`(csv 열 둘, 개수가 같아야 한다) · `NpcQuestRef.getPendingChoices` · `chooseIntro`.
+  새 이벤트 셋: `player:fell`(전역 낙하 피해) · `player:introWakeDone` · `tutorial:checkpoint`, 그리고 `tutorial:changed` · `tutorial:finished` 에
+  선택 필드 `track`. 상수 8개(`FALL_DAMAGE_*` · `TUTORIAL_ENEMY_*` · `TUTORIAL_RESPAWN_DELAY_S` · `TUTORIAL_INTRO_WAKE_S` · `TUTORIAL_RAID_XP`)는
+  `data/constants.csv` 에 있다. **구현은 아직 없다** — `WorldSystem.tutorial` 은 null, `TutorialSystem` 의 트랙 네 메서드는 「build 하나만 돌고 있다」를
+  정직하게 답하는 얇은 답변이다 (그래서 진입 흐름이 지금까지와 똑같이 함선으로 간다).
+
 - **2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련 — 리드 계약, 추가만, docs/plans/library-series-games.md)** — 새 파일 **`library.ts`**: 시리즈 로더
   `LIBRARY_SERIES_DEFS/MAP`(← `data/library_series.csv`) · `LibraryEffect`(`skillGain` · `derived` · `gymScore` · `cookScore` · `raidXp` · `trustXp` · `recipe`) · `parseLibraryEffect` ·
   `LIBRARY_EFFECT_LINES`(책 1 · 비디오 2 · 레코드 3) · `librarySeriesFraction` · `LibraryEffectsSummary` · `libraryTrustMul` · `LibrarySourceInfo` · `GameStat` · `GymGameTuning` ·

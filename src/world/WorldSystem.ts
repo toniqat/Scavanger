@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
-import type { MissionMode, TrainingRef } from '@/shared';
+import type { MissionMode, TrainingRef, TutorialWorldRef } from '@/shared';
 import { CRATE_OPEN_RANGE_SLACK, PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE } from '@/shared';
 import {
-  FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId, planetThreat,
+  FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
   type CrateDef, type ExtractionPointDef, type FogRef, type GameContext, type GameSystem, type GatherNodeDef,
   type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
   /* appended (2026-09-09): 레이드 플레이 개선 계약 */
   type StructureDef, type RailLineDef, type TramDef, type HazardRef,
   /* appended (2026-09-11) */
   type LadderDef, type PeerId,
+  /* appended (2026-09-14): 정보상 지도 미리보기 */
+  type IntelEffects, type MapPreviewLayout,
   /* appended (2026-09-11, C-22) */
   type SurfaceMaterial,
   /* appended (2026-09-11, A-13): 행성 상시 환경 */
@@ -30,13 +32,14 @@ import { SMALL_BODY_R } from './structures/parts/Glass';
 import { rollCrateContents } from './structures/parts/Containers';
 import type { ItemInstance } from '@/shared';
 import { Fog } from './Fog';
-import { type Biome, biomeById, pickBiome } from './biomes';
+import type { Biome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
 import { Crates } from './Crates';
 import { Gather } from './Gather';
 import { Hazard } from './Hazard';
-import { drawHazardKind } from './hazard/parts/Plan';
-import { extractionPadCount, generateLayout, padClearance, type WorldLayout } from './layout';
+import { padClearance, type WorldLayout } from './layout';
+/* 2026-09-14 (정보상): 레이아웃 계획 · 미리보기는 한 함수다 (`WorldRef.previewLayout`). */
+import { planLayoutFor, previewLayoutFor } from './preview';
 import { Nests } from './Nests';
 import { Noise } from './noise';
 import { Outposts } from './Outposts';
@@ -47,6 +50,8 @@ import { Structures } from './Structures';
 import { type ObstacleEntry, SpatialHash } from './SpatialHash';
 import { HALF, Terrain } from './Terrain';
 import { TrainingArena } from './TrainingArena';
+/* 2026-09-14 (튜토리얼 개편): 손으로 지은 튜토리얼 행성 — 훈련장과 같은 자리 · 같은 배선. */
+import { TutorialWorld } from './tutorial/TutorialWorld';
 
 const SOFT_WALL = HALF - 4;
 
@@ -80,10 +85,14 @@ const NONE_RUINS: readonly RuinSiteDef[] = [];
  */
 export class WorldSystem implements GameSystem, WorldRef {
   readonly name = 'world';
-  /** Map side: `MAP_SIZE` for the planet, `TRAINING_ARENA_SIZE` for the arena (map screen / ping clamps read it). */
-  get size(): number { return this.mode === 'training' ? TRAINING_ARENA_SIZE : MAP_SIZE; }
-  /** Mode of the last generated world (`'raid'` until a training was built; kept through `clear()`). */
+  /** Map side: `MAP_SIZE` for the planet, `TRAINING_ARENA_SIZE` for the arena, the corridor's own for the tutorial. */
+  get size(): number {
+    return this.mode === 'training' ? TRAINING_ARENA_SIZE : this.mode === 'tutorial' ? this.tutorialWorld.size : MAP_SIZE;
+  }
+  /** Mode of the last generated world (`'raid'` until a training / tutorial was built; kept through `clear()`). */
   mode: MissionMode = 'raid';
+  /** 2026-09-14: 지금 월드가 행성(절차 생성)인가. 훈련장 · 튜토리얼은 상자 · 둥지 · 채집 · 선로 · 재해가 전부 없다. */
+  private get isPlanet(): boolean { return this.mode === 'raid'; }
   /**
    * Phase 11: 목표 행성 the current world was generated for, or null when it came from the seeded biome draw
    * (an older peer, `MissionComplete`'s 다시 배치 without one, a training). Echoed in `world:ready.planet` and
@@ -110,6 +119,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly hazardSys = new Hazard();
   private readonly ambience = new Ambience();
   private readonly arena = new TrainingArena();
+  /** 2026-09-14: 튜토리얼 행성 (`world/tutorial/`) — `mode === 'tutorial'` 일 때만 세워진다. */
+  private readonly tutorialWorld = new TutorialWorld();
   private readonly hash = new SpatialHash(16);
   private layout: WorldLayout | null = null;
   private biome: Biome | null = null;
@@ -187,7 +198,8 @@ export class WorldSystem implements GameSystem, WorldRef {
       // (the emitter sets both before emitting, per the contract, because generation runs inside this emit)
       ctx.bus.on('game:newMission', ({ seed, mode, planet }) => this.generate(
         seed,
-        mode ?? (ctx.missionMode === 'training' ? 'training' : 'raid'),
+        // 2026-09-14: 모드가 셋이 됐다 — 이벤트에 실려 오지 않으면 `ctx.missionMode` 를 그대로 쓴다 (계약대로 emit 전에 세팅돼 있다)
+        mode ?? ctx.missionMode,
         planet ?? ctx.missionPlanet,
       )),
       ctx.bus.on('game:abort', () => {
@@ -201,6 +213,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (!this.ready) return;
     const t = ctx.time;
     if (this.mode === 'training') { this.arena.update(dt, t); return; }
+    if (this.mode === 'tutorial') { this.tutorialWorld.update(dt); return; }
     this.props.update(t);
     this.nests.update(t);
     this.pads.update(t);
@@ -238,6 +251,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (!ctx) return;
     if (this.generated) this.clear();
     if (mode === 'training') { this.generateTraining(seed); return; }
+    if (mode === 'tutorial') { this.generateTutorial(seed); return; }
     const t0 = performance.now();
     /* 2026-09-11 (C-40): 단계별 ms — 콘솔 한 줄 끝과 `genTimings` (스모크 · 계측 스크립트가 읽는다). */
     const T = this.genTimings;
@@ -253,17 +267,14 @@ export class WorldSystem implements GameSystem, WorldRef {
     const rng = new Random(this.seed);
     const noise = new Noise(rng.fork('terrain'));
     this.noise = noise;
-    // 행성이 있으면 팔레트는 데이터로 정해진다; 없으면 시드 추첨 (core 의 하늘 추첨과 짝이 맞는 기존 동작)
-    this.biome = biomeById(def?.biome) ?? pickBiome(this.seed);
     /* 2026-09-13 — **재해 종류를 레이아웃보다 먼저** 뽑는다 (`Plan.drawHazardKind` — 루트의 `'hazard'` fork 첫 draw, `Hazard.build`
      * 가 같은 값을 다시 뽑는다). 독성 포자 레이드는 중앙 강하 · 외곽 탈출 패드라서다. 탈출 패드 수(행성 threat · 포자)도 자기 fork
-     * 에서 한 번 뽑는다. fork 는 부모를 전진시키지 않으므로 둘 다 다른 스트림을 밀지 않고, 모든 클라이언트가 같은 답을 낸다. */
-    const hazardKind = drawHazardKind(rng, def?.hazards ?? [], this.biome.id);
-    const sporeLayout = hazardKind === 'spores';
-    this.layout = generateLayout(rng.fork('layout'), {
-      extractionCount: extractionPadCount(rng.fork('extractionPads'), planetThreat(this.planet), sporeLayout),
-      sporeLayout,
-    });
+     * 에서 한 번 뽑는다. fork 는 부모를 전진시키지 않으므로 둘 다 다른 스트림을 밀지 않고, 모든 클라이언트가 같은 답을 낸다.
+     * 2026-09-14 (정보상) — 그 세 줄을 `preview.planLayoutFor` 하나로 모았다. 정보상 화면의 미리보기 지도가 **같은 함수**를
+     * 부르므로 두 벌로 갈라질 수 없다. `ctx.missionIntel` 은 `game:newMission` emit 전에 세팅돼 있다 (계약). */
+    const plan = planLayoutFor(this.seed, this.planet, ctx.missionIntel ?? null, rng);
+    this.biome = plan.biome;
+    this.layout = plan.layout;
     this.spawnRng = rng.fork('spawns');
     lap('layout');
 
@@ -340,6 +351,15 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
+   * `WorldRef.previewLayout` (2026-09-14, 정보상) — **레이아웃만** 계산한다. 지형도 메시도 만들지 않고 이 인스턴스의
+   * 상태를 한 줄도 건드리지 않으므로 **함선에서도** 부를 수 있다 (`ctx.world` 는 부팅부터 붙어 있다). 실제 생성이
+   * 쓰는 같은 `preview.planLayoutFor` 를 지나므로 미리보기와 진짜 맵이 어긋날 수 없다.
+   */
+  previewLayout(seed: number, planet: PlanetId | null, intel?: IntelEffects | null): MapPreviewLayout {
+    return previewLayoutFor(seed, planet, intel ?? null);
+  }
+
+  /**
    * 시뮬레이션 훈련장: flat arena, three lanes of pop-up targets, exit console. No terrain / props / crates / nests /
    * gather / ambience; `world:ready` fires like the planet's. The atmosphere is switched to its space mode right after
    * `world:ready` (Engine's handler re-applied the planet palette inside the emit) so the arena reads as an interior lit
@@ -367,10 +387,43 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.arena.announce();
   }
 
+  /**
+   * 튜토리얼 행성 (2026-09-14, `docs/plans/tutorial-raid.md`): 손으로 지은 선형 맵. 절차 생성기를 아예 안 타고
+   * 훈련장과 **같은 배선**이다 — 지형 · 소품 · 상자 · 둥지 · 채집 · 선로 · 재해 · 안개가 하나도 없고,
+   * 걸어 다니는 땅은 전부 사각 콜라이더(데크)라 절벽이 진짜 수직면이다. 자세한 것은 `tutorial/model.ts`.
+   * 하늘은 훈련장과 달리 **space mode 로 바꾸지 않는다** — 행성 위라서 평소 대기 · 태양 그대로다.
+   */
+  private generateTutorial(seed: number): void {
+    const ctx = this.ctx!;
+    const t0 = performance.now();
+    this.mode = 'tutorial';
+    this.seed = seed >>> 0;
+    this.planet = null;              // 튜토리얼 행성은 `data/planets.csv` 의 행성이 아니다 (생태 · 재해 · 상시 환경 없음)
+    const rng = new Random(this.seed);
+    this.layout = null;
+    this.biome = null;
+    this.noise = null;
+    this.spawnRng = rng.fork('spawns');
+    this.tutorialWorld.build(ctx, this.root, this.hash);
+    this.extractionPoints = [];      // 탈출 콘솔이 없다 — 버려진 함선이 처음부터 착륙해 있다
+    this.spawnPos.copy(this.tutorialWorld.spawn);
+    this.generated = true;
+    this.ready = true;
+    const ms = performance.now() - t0;
+    console.info(`[World] tutorial · seed ${this.seed} · ${this.hash.getAll().length} obstacles · ${this.tutorialWorld.enemySpawns().length} enemies · ${ms.toFixed(0)} ms`);
+    ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: null });
+  }
+
   /** Debug / smoke: the arena (targets, counters) while a training world is up. */
   get trainingArena(): TrainingArena | null { return this.mode === 'training' && this.ready ? this.arena : null; }
   /** `ctx.world.training` (Phase 9): the arena implements `TrainingRef` (modes / score / timed course); null outside a training world. */
   get training(): TrainingRef | null { return this.trainingArena; }
+  /**
+   * `ctx.world.tutorial` (2026-09-14, `docs/plans/tutorial-raid.md`): 튜토리얼 월드의 체크포인트 · 낙하 규칙 ·
+   * 적 자리. 튜토리얼 월드가 아니면 null 이고, 호출부(`player/` · `game/` · `enemies/`)는 `?.` · `?? 'normal'`
+   * 로 이어 쓰므로 본편 동작은 한 글자도 바뀌지 않는다.
+   */
+  get tutorial(): TutorialWorldRef | null { return this.mode === 'tutorial' && this.ready ? this.tutorialWorld : null; }
 
   private setSpaceMode(on: boolean): void {
     const atmo = this.ctx?.scene.userData.atmosphere as { setSpaceMode?: (on: boolean) => void } | undefined;
@@ -390,6 +443,13 @@ export class WorldSystem implements GameSystem, WorldRef {
       this.extractionPoints = [];
       this.generated = false;
       this.setSpaceMode(false);
+      return;
+    }
+    if (this.mode === 'tutorial') {
+      this.tutorialWorld.dispose();
+      this.hash.clear();
+      this.extractionPoints = [];
+      this.generated = false;
       return;
     }
     this.ambience.dispose();
@@ -436,7 +496,7 @@ export class WorldSystem implements GameSystem, WorldRef {
    * never hands a late joiner an id it could not verify. Returns whether it was applied.
    */
   private applyOpened(id: string): boolean {
-    if (!this.ready || this.mode === 'training' || typeof id !== 'string') return false;
+    if (!this.ready || !this.isPlanet || typeof id !== 'string') return false;
     if (!this.openablePositionOf(id)) return false;
     this.openedIds.add(id);
     if (this.crates.markOpened(id)) return true;
@@ -512,6 +572,7 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   getHeightAt(x: number, z: number): number {
     if (this.mode === 'training') return 0;
+    if (this.mode === 'tutorial') return this.tutorialWorld.heightAt();
     let h = this.terrain.getHeightAt(x, z);
     const layout = this.layout;
     if (layout) {
@@ -605,6 +666,7 @@ export class WorldSystem implements GameSystem, WorldRef {
    */
   getSurfaceMaterial(x: number, z: number, feetY?: number): SurfaceMaterial {
     if (this.mode === 'training') return 'concrete';
+    if (this.mode === 'tutorial') return this.tutorialWorld.surfaceMaterial(x, z);
     if (!this.ready) return 'dirt';
     if (feetY !== undefined) {
       const o = this.getStandingObstacle(x, z, feetY);
@@ -686,7 +748,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   get fog(): FogRef | null { return this.fogMask; }
 
   getNormalAt(x: number, z: number, out: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
-    if (this.mode === 'training') return out.set(0, 1, 0);
+    if (!this.isPlanet) return out.set(0, 1, 0);   // 훈련장 · 튜토리얼의 바닥은 평평하다
     const e = 0.6;
     const hl = this.getHeightAt(x - e, z), hr = this.getHeightAt(x + e, z);
     const hd = this.getHeightAt(x, z - e), hu = this.getHeightAt(x, z + e);
@@ -696,6 +758,7 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   isInsideBounds(x: number, z: number): boolean {
     if (this.mode === 'training') return this.arena.isInside(x, z);
+    if (this.mode === 'tutorial') return this.tutorialWorld.isInside(x, z);
     return Math.abs(x) <= HALF && Math.abs(z) <= HALF;
   }
 
@@ -756,6 +819,7 @@ export class WorldSystem implements GameSystem, WorldRef {
       position.z += (dz / d) * push;
     }
     if (this.mode === 'training') { this.arena.clampInside(position, radius); out.length = 0; return position; }
+    if (this.mode === 'tutorial') { this.tutorialWorld.clampInside(position, radius); out.length = 0; return position; }
     // soft map wall
     const limit = SOFT_WALL - radius;
     if (position.x > limit) position.x = limit + (position.x - limit) * 0.2;
@@ -776,9 +840,12 @@ export class WorldSystem implements GameSystem, WorldRef {
     dx /= dl; dy /= dl; dz /= dl;
 
     const training = this.mode === 'training';
+    const tutorial = this.mode === 'tutorial';
     let bestT = training
       ? this.arena.raycastShell(ox, oy, oz, dx, dy, dz, maxDist, this.shellN)
-      : this.terrain.raycast(ox, oy, oz, dx, dy, dz, maxDist, this.heightFn);
+      : tutorial
+        ? this.tutorialWorld.raycastGround(oy, dy, maxDist, this.shellN)
+        : this.terrain.raycast(ox, oy, oz, dx, dy, dz, maxDist, this.heightFn);
     let bestObs: ObstacleEntry | null = null;
     const limitT = bestT > 0 ? bestT : maxDist;
 
@@ -804,7 +871,7 @@ export class WorldSystem implements GameSystem, WorldRef {
 
     if (bestT < 0) return null;
     const point = new THREE.Vector3(ox + dx * bestT, oy + dy * bestT, oz + dz * bestT);
-    const normal = bestObs ? this.tmpN.clone() : training ? this.shellN.clone() : this.getNormalAt(point.x, point.z, new THREE.Vector3());
+    const normal = bestObs ? this.tmpN.clone() : training || tutorial ? this.shellN.clone() : this.getNormalAt(point.x, point.z, new THREE.Vector3());
     const hit: TerrainHit = { point, normal, distance: bestT };
     if (bestObs) hit.obstacle = bestObs as Obstacle;
     return hit;
@@ -913,28 +980,28 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   getExtractionPoints(): readonly ExtractionPointDef[] { return this.extractionPoints; }
 
-  getCrates(): readonly CrateDef[] { return this.mode === 'training' ? NONE_CRATES : this.crates.getDefs(); }
+  getCrates(): readonly CrateDef[] { return this.isPlanet ? this.crates.getDefs() : NONE_CRATES; }
 
-  getNestPositions(): readonly THREE.Vector3[] { return this.mode === 'training' ? NONE_VEC : this.nests.getHolePositions(); }
+  getNestPositions(): readonly THREE.Vector3[] { return this.isPlanet ? this.nests.getHolePositions() : NONE_VEC; }
 
   /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
-  getGatherNodes(): readonly GatherNodeDef[] { return this.mode === 'training' ? NONE_GATHER : this.gather.getNodes(); }
+  getGatherNodes(): readonly GatherNodeDef[] { return this.isPlanet ? this.gather.getNodes() : NONE_GATHER; }
 
   /* ── appended (2026-09-09): 레이드 플레이 개선 ── */
   /** 버려진 구조물 (전진기지 · 연구실 · 불시착 함선). 훈련장은 빈 배열. */
-  getStructures(): readonly StructureDef[] { return this.mode === 'training' ? NONE_STRUCTURES : this.structures.getDefs(); }
+  getStructures(): readonly StructureDef[] { return this.isPlanet ? this.structures.getDefs() : NONE_STRUCTURES; }
   /** `(x, z)` 를 품는 구조물, 없으면 null. */
   structureAt(x: number, z: number): StructureDef | null {
-    return this.mode === 'training' ? null : this.structures.structureAt(x, z);
+    return this.isPlanet ? this.structures.structureAt(x, z) : null;
   }
   /** 선로 (구역마다 있을 수도, 없을 수도 있다). */
-  getRailLines(): readonly RailLineDef[] { return this.mode === 'training' ? NONE_RAILS : this.rails.getLines(); }
+  getRailLines(): readonly RailLineDef[] { return this.isPlanet ? this.rails.getLines() : NONE_RAILS; }
   /** 선로 위의 전차. */
-  getTrams(): readonly TramDef[] { return this.mode === 'training' ? NONE_TRAMS : this.rails.getTrams(); }
+  getTrams(): readonly TramDef[] { return this.isPlanet ? this.rails.getTrams() : NONE_TRAMS; }
   /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
-  get hazard(): HazardRef | null { return this.mode === 'training' ? null : this.hazardSys.ref; }
+  get hazard(): HazardRef | null { return this.isPlanet ? this.hazardSys.ref : null; }
   /** 2026-09-13: 이번 레이드의 탐사 차량. 훈련장 · 경로 없음 · 준비 전이면 null. */
-  get rover(): RoverRef | null { return this.mode === 'training' || !this.ready ? null : this.roverSys.ref; }
+  get rover(): RoverRef | null { return this.isPlanet && this.ready ? this.roverSys.ref : null; }
   /**
    * 2026-09-11 (A-13): 이번 레이드 행성의 **상시 환경** (`data/planets.csv` 의 `env`), 없으면 null.
    * `getPlanet(id)?.env` 를 그대로 돌려주는 얇은 질의다 — 행성 id 를 들고 다니지 않아도 되도록 world 가
@@ -942,23 +1009,23 @@ export class WorldSystem implements GameSystem, WorldRef {
    * 훈련장은 행성이 아니므로 늘 null 이다 (`generate` 는 `this.planet` 을 비운다 — 그래도 `mode` 로 한 번 더 막는다).
    */
   get env(): EnvKind | null {
-    if (this.mode === 'training') return null;
+    if (!this.isPlanet) return null;
     return getPlanet(this.planet)?.env ?? null;
   }
   /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
-  getLadders(): readonly LadderDef[] { return this.mode === 'training' ? NONE_LADDERS : this.structures.getLadders(); }
+  getLadders(): readonly LadderDef[] { return this.isPlanet ? this.structures.getLadders() : NONE_LADDERS; }
 
   /* ── appended (2026-09-13): 행성별 적 팩션 — 거점 스폰 자리 (`SiteSpawns.ts`) ── */
   /** 이번 맵의 폐허 전초 (`Outposts.getSites()` 그대로 — 들어가는 전진기지 `struct_outpost_*` 와 다르다). 훈련장 · 준비 전 = 빈 배열. */
   getRuinSites(): readonly RuinSiteDef[] {
-    return this.mode === 'training' || !this.ready ? NONE_RUINS : this.outposts.getSites();
+    return this.isPlanet && this.ready ? this.outposts.getSites() : NONE_RUINS;
   }
   /**
    * 거점 `siteId`(`struct_*` · 플랫폼 id · `outpost_<i>`)에 인간형 그룹이 설 자리 `count` 개 — 서로 `minGap` 이상, 시드 결정적.
    * 규칙은 `SiteSpawns.ts` 머리 주석. 모르는 id · 훈련장 · 준비 전 = 빈 배열.
    */
   getSiteSpawnPoints(siteId: string, place: SiteSpawnPlace, count: number, minGap: number, seed: number): THREE.Vector3[] {
-    if (this.mode === 'training' || !this.ready) return [];
+    if (!this.isPlanet || !this.ready) return [];
     return this.siteSpawns.points(siteId, place, count, minGap, seed);
   }
 
@@ -969,7 +1036,7 @@ export class WorldSystem implements GameSystem, WorldRef {
    */
   previewContainerItems(containerId: string): ItemInstance[] | null {
     const ctx = this.ctx;
-    if (!ctx || !this.ready || this.mode === 'training' || typeof containerId !== 'string') return null;
+    if (!ctx || !this.ready || !this.isPlanet || typeof containerId !== 'string') return null;
     const fromSets = this.structures.previewContainerItems(containerId) ?? this.rails.previewContainerItems(containerId);
     if (fromSets) return fromSets;
     const crate = this.crates.getDefs().find((c) => c.id === containerId);

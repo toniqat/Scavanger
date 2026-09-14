@@ -50,7 +50,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -592,7 +592,12 @@ try {
       const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
       const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
       const btn = sec?.querySelector('button');
-      const crew = [...document.querySelectorAll('.menu.hub-menu .crew-row .state')].map((n) => n.textContent);
+      // 2026-09-14: 승무원 줄은 터미널 좌측 열이 아니라 **매칭 팝업**(`.hm-match`, `ui/MatchPanel`) 안에 산다
+      // — 열려 있어야 갱신되므로 읽기 전에 연다 (`docs/plans/intel-broker.md` §4.1).
+      // ⚠ 읽은 뒤 **다시 닫는다** — 열어 둔 채로 두면 아래의 E 가 터미널이 아니라 이 팝업을 닫는다 (ESC · E 사슬은 맨 위 하나다).
+      document.querySelector('.menu.hub-menu .ui-btn.hub-matching')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const crew = [...document.querySelectorAll('.menu.hub-menu.hm-match .crew-row .state')].map((n) => n.textContent);
+      document.querySelector('.menu.hub-menu.hm-match .ui-btn.hm-close')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       return { has: !!sec && !sec.hidden, label: btn?.textContent ?? null, disabled: btn?.disabled ?? null, crew };
     });
     const m0 = await readMenu();

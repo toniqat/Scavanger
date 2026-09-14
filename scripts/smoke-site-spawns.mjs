@@ -22,7 +22,9 @@ import { existsSync } from 'node:fs';
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 /** [시드, 행성] — 행성마다 한 번 이상, 선로 · 2층 · 잠긴 방 · 불시착 함선이 나올 때까지. */
 const RUNS = [[21, 'amber'], [7, 'tundra'], [1234, 'mossy'], [42, 'ashen'], [99, 'crimson'], [555, 'amber'], [808, 'tundra'], [2026, 'mossy'], [31337, 'ashen'], [11, 'crimson']];
-const MAX_RUNS = 10;
+/* 2026-09-14 — 예전에는 다섯 판을 돈 뒤 「거점 종류가 다 나왔으면 그만」(`enough()`)이었다. 그 조기 종료가 seed 21 의
+ * 연구소 2층 실내 자리 미도달을 숨기고 있었다. 이제 열 판을 끝까지 돌고 실패는 마지막에 한 번에 요약한다. */
+const MAX_RUNS = RUNS.length;
 const WANT = { lab: 3, outpost: 3, platform: 2, ruin: 8, twoFloor: 2, locked: 1, wreck: 1 };
 /** 한 맵의 모든 질의에 걸린 시간 상한(ms) — world:ready 에서 한 번 치르는 비용이다. */
 const MAP_MS_MAX = 4000;
@@ -271,7 +273,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -290,10 +292,12 @@ try {
 
   const seen = { lab: 0, outpost: 0, platform: 0, ruin: 0, twoFloor: 0, locked: 0, wreck: 0 };
   const enough = () => Object.entries(WANT).every(([k, v]) => seen[k] >= v);
+  const failedRuns = new Map();       // seed → 그 판에서 난 실패 수 (마지막 요약용)
   let runs = 0;
   for (const [seed, planet] of RUNS) {
-    if (runs >= MAX_RUNS || (runs >= 5 && enough())) break;   // 행성 다섯은 늘 한 번씩 돈다
+    if (runs >= MAX_RUNS) break;
     runs++;
+    const failBefore = fail;
     await page.evaluate((s, pl) => { const ctx = window.__game.ctx; ctx.missionPlanet = pl; ctx.bus.emit('game:newMission', { seed: s, planet: pl }); }, seed, planet);
     await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
     await waitFor(page, () => window.__game.ctx.world.ready, 'world ready', 30000);
@@ -346,8 +350,10 @@ try {
     ok(res.misc.ruinIds, `seed ${seed}: 폐허 id 는 outpost_<i>`, JSON.stringify(res.misc));
     ok(res.misc.obstaclesSame, `seed ${seed}: 질의가 장애물 목록을 바꾸지 않는다`, JSON.stringify(res.misc));
     ok(res.misc.ms < MAP_MS_MAX, `seed ${seed}: 맵 한 장의 질의 전부 ${res.misc.ms} ms < ${MAP_MS_MAX} ms (검사 flood fill 포함)`, JSON.stringify(res.misc));
+    if (fail > failBefore) failedRuns.set(seed, fail - failBefore);
   }
   console.log(`runs ${runs}: ${JSON.stringify(seen)}`);
+  if (failedRuns.size > 0) console.log(`  --   실패가 난 시드: ${[...failedRuns].map(([s, n]) => `${s} (${n})`).join(' · ')}`);
   ok(enough(), `거점 종류가 충분히 나왔다 (원하는 수 ${JSON.stringify(WANT)})`, JSON.stringify(seen));
 
   // 8. 훈련장 → 빈 답

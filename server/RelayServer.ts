@@ -26,6 +26,9 @@ import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profil
 /* Phase 11 */
 import type { PlanetId } from '../src/shared/planets.ts';
 import { isPlanetId } from '../src/shared/planets.ts';
+/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (모양만 씻는다, docs/plans/intel-broker.md) */
+import type { IntelWire } from '../src/shared/net.ts';
+import { sanitizeIntelPicks } from '../src/shared/intel.ts';
 import type { PlayerCode, PresenceState, SocialErrorCode, SocialPlayer, SocialSnapshot } from '../src/shared/social.ts';
 import {
   SOCIAL_ERROR_MESSAGE_KO, SOCIAL_WHISPER_MAX, normalizePlayerCode, playBlockReason,
@@ -259,6 +262,8 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       const out: ClientToServer = { t: 'lobby:start', seed: m.seed };
       if (m.mode !== undefined) out.mode = m.mode as MissionMode;
       if (m.planet !== undefined) out.planet = m.planet as PlanetId;
+      /* 2026-09-14 (정보상): 모양만 본다 — 값이 뭘 뜻하는지는 클라이언트의 월드 생성기가 안다 (`planet` 과 같은 취급). */
+      if (m.intel !== undefined) out.intel = sanitizeIntelWire(m.intel);
       return out;
     }
     case 'lobby:reset':
@@ -313,6 +318,9 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     /* appended: Phase 11 — 목표 행성 + 소셜. Shapes only; every social rule is the handler's (and the store's). */
     case 'lobby:planet':
       return isPlanetId(m.planet) ? { t: 'lobby:planet', planet: m.planet } : null;
+    /* appended: 2026-09-14 — 정보상. `null` 은 「지역 재배치」(폐기)라 정상값이다. */
+    case 'lobby:intel':
+      return m.intel === null || isRecord(m.intel) ? { t: 'lobby:intel', intel: sanitizeIntelWire(m.intel) } : null;
     case 'social:get':
       return { t: 'social:get' };
     case 'social:me':
@@ -385,6 +393,19 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     default:
       return null;
   }
+}
+
+/**
+ * 2026-09-14 (정보상) — `IntelWire` 의 **모양만** 씻는다. 릴레이는 이 값이 무엇을 뜻하는지 모르고 알 필요도 없다:
+ * 레이아웃은 클라이언트가 만들고(`planet` 과 같은 한계) 서버는 그저 분대에 그대로 전한다. 빈 선택 · 모르는 기믹은
+ * 「안 샀다」(null) 로 접는다 — 식은 `src/shared/intel.ts` 하나다.
+ */
+function sanitizeIntelWire(raw: unknown): IntelWire | null {
+  if (!isRecord(raw)) return null;
+  const seed = raw.seed;
+  if (typeof seed !== 'number' || !Number.isFinite(seed)) return null;
+  const picks = sanitizeIntelPicks(raw.picks);
+  return picks.length ? { seed: Math.floor(seed), picks } : null;
 }
 
 /** A typed-in 아이디 arrives dashed / lower case; only the shape is checked here (`normalizePlayerCode` follows). */
@@ -1158,9 +1179,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const planet: PlanetId | null = m.planet ?? lobby.planet;
         if (planet === null) { sendError(c, 'no_planet'); return; }
         lobby.planet = planet;
+        /* 2026-09-14 (정보상): 시작 메시지의 것이 우선, 없으면 이미 올라와 있는 `lobby:intel`. `lobby.start` 앞에
+         * 세팅해야 `lobbyState(lobby)` 와 `game:start.intel` 이 같은 값을 싣는다. */
+        if (m.intel !== undefined) lobby.intel = m.intel;
+        const intel = lobby.intel;
         lobby.start(m.seed, 'raid', c.id);
-        log(`lobby ${lobby.code}: started seed=${m.seed} planet=${planet} players=${lobby.size} (${lobby.connectedCount()} connected)`);
-        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'raid', planet });
+        log(`lobby ${lobby.code}: started seed=${m.seed} planet=${planet}${intel ? ` intel=${intel.picks.map((p) => `${p.g}${p.tier}`).join(',')}` : ''} players=${lobby.size} (${lobby.connectedCount()} connected)`);
+        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'raid', planet, intel });
         pushLobbyPresence(lobby);
         sweepInvites();   // B-3: a raid closes the ship → its open invites fail (in_mission)
         return;
@@ -1190,6 +1215,18 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         // No travel message exists: every member starts the cutscene off its own copy of `LobbyState.planet`.
         broadcastState(lobby);
         pushLobbyPresence(lobby);
+        return;
+      }
+
+      /* appended: 2026-09-14 — 정보상. 호스트 전용 · 시작 전. 서버는 **모양만** 씻고 그대로 방송한다 (레이아웃은 계산하지 않는다). */
+      case 'lobby:intel': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
+        if (lobby.started) { sendError(c, 'started'); return; }
+        lobby.intel = m.intel;
+        log(`lobby ${lobby.code}: intel=${m.intel ? `${m.intel.seed}/${m.intel.picks.map((p) => `${p.g}${p.tier}`).join(',')}` : '—'} (by ${c.name})`);
+        broadcastState(lobby);
         return;
       }
 

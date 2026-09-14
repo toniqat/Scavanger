@@ -23,6 +23,10 @@
 //     얼마든 가방에 있기만 하면 `terminal` 로 넘어간다.
 // 2026-09-13 (전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 — `generator` 단계는 알려진 즉시(`tutorial:changed`) 조용히 지나가고
 // 시설 관리를 여는 순간 함선 관리 → 작업실이다. 반 박자 포커싱 계측은 그 전환(시설 관리 힌트 → 작업실 행)에서 한다.
+// 2026-09-14 (3트랙): 저장은 **v2** 다 — `{version:2, tracks:{raid,ship,build}}`. 이 스모크가 검사하는 것은 여전히
+// **build 트랙**(기존 17단계)이고, 트랙 ①(레이드 조작) · ②(함선)는 그 트랙을 구현하는 쪽(world/tutorial · meta/messenger)이
+// 자기 스모크를 더한다. 새 프로필이 함선에 들어오면 raid · ship 은 조용히 `done` 으로 적히고 build 가 시작된다
+// (`TutorialSystem.autoStart` — `pendingShip` 이 없으면 함선 트랙은 켜지지 않는다).
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -197,6 +201,25 @@ try {
   ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 17, `tutorial:changed {intro, 1/17} (${JSON.stringify(intro.ev)})`);
   const order = await P(() => window.__game.getSystem('tutorial').constructor && null);
   void order;
+
+  /* 2026-09-14 (3트랙): 새 프로필은 **증축 트랙**부터 돈다 — 레이드 · 함선 트랙은 함선에 들어선 순간 끝난 것으로
+     적히고(`autoStart`), HUD 게이트(`hides('hud', …)`)는 레이드 트랙 밖이라 아무것도 감추지 않는다.
+     우측 조작 가이드도 증축 트랙에는 배울 조작이 없어 뜨지 않는다. */
+  const tracks = await P(() => {
+    const t = window.__game.ctx.tutorial;
+    return {
+      track: t.track,
+      raid: t.isTrackDone('raid'), ship: t.isTrackDone('ship'), build: t.isTrackDone('build'),
+      hud: ['vitals', 'weapon', 'stamina', 'implant', 'stratagem'].map((p) => t.hides('hud', p)),
+      controls: document.querySelector('.tut-controls')?.hidden ?? null,
+      ev: window.__ev['tutorial:changed'].slice(-1)[0]?.track ?? null,
+    };
+  });
+  ok(tracks.track === 'build' && tracks.ev === 'build', `새 프로필은 증축 트랙부터 돈다 (${JSON.stringify(tracks)})`);
+  ok(tracks.raid === true && tracks.ship === true && tracks.build === false,
+    '레이드 · 함선 트랙은 끝난 것으로, 증축 트랙은 도는 중으로 답한다', JSON.stringify(tracks));
+  ok(tracks.hud.every((h) => h === false), '증축 트랙에서는 HUD 를 하나도 감추지 않는다', JSON.stringify(tracks.hud));
+  ok(tracks.controls === true, '우측 조작 가이드는 증축 트랙에서 뜨지 않는다');
 
   /* ── 2. 게이트가 순서를 강제한다 ────────────────────────────────────── */
   console.log('게이트');
@@ -673,7 +696,10 @@ try {
   /* ── 6. 진행이 새로고침을 견딘다 ──────────────────────────────────────── */
   console.log('저장');
   const saved = await P(() => JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'));
-  ok(saved && saved.step === 'craftGun' && saved.granted === true, `저장이 남는다 (${JSON.stringify(saved)})`);
+  ok(saved && saved.version === 2 && saved.tracks?.build?.step === 'craftGun' && saved.granted === true,
+    `저장이 남는다 — v2 트랙별 (${JSON.stringify(saved)})`);
+  ok(saved && saved.tracks?.raid?.done === true && saved.tracks?.ship?.done === true,
+    '레이드 · 함선 트랙은 함선에 들어선 순간 끝난 것으로 적힌다', JSON.stringify(saved.tracks));
   await page.reload({ waitUntil: 'load' });
   await setup();
   await enterShip();
@@ -684,7 +710,7 @@ try {
      저장은 자리를 이어받은 `craftAmmo` 로 이어진다 (`Steps.normalizeStep`). 저장이 깨져 처음부터 돌지 않는다. */
   await P(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
-    s.step = 'openCraft';
+    s.tracks.build.step = 'openCraft';
     localStorage.setItem('scav.s1.tutorial', JSON.stringify(s));
   });
   await page.reload({ waitUntil: 'load' });
@@ -742,7 +768,8 @@ try {
   ok(!after.active && after.step === null && after.fin && after.fin.skipped === true, '건너뛰면 튜토리얼이 끝난다', JSON.stringify(after.fin));
   ok(after.lounge === null && after.corp === null && !after.hides, '모든 게이트가 풀린다', JSON.stringify(after));
   ok(after.panel && after.spot, '목표 패널과 스포트라이트가 사라진다');
-  ok(after.saved && after.saved.done === true && after.saved.step === null, '끝났다는 것이 저장된다', JSON.stringify(after.saved));
+  ok(after.saved && after.saved.tracks?.build?.done === true && after.saved.tracks?.build?.step === null,
+    '끝났다는 것이 저장된다 (그 트랙만)', JSON.stringify(after.saved));
 
   /* ── 9. 이미 하던 프로필에는 켜지지 않는다 ──────────────────────────── */
   console.log('기존 프로필');
@@ -756,8 +783,9 @@ try {
     saved: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
     rooms: (() => { const h = window.__game.ctx.housing; let n = 0; for (let i = 0; i < 10; i++) if (h.getRoom(i).purpose !== 'empty') n++; return n; })(),
   }));
-  ok(existing.rooms > 0 && existing.step === null && existing.saved?.done === true,
-    '이미 함선을 꾸며 놓은 프로필에서는 조용히 끝난 것으로 표시한다', JSON.stringify(existing));
+  ok(existing.rooms > 0 && existing.step === null
+    && ['raid', 'ship', 'build'].every((t) => existing.saved?.tracks?.[t]?.done === true),
+    '이미 함선을 꾸며 놓은 프로필에서는 세 트랙 전부 조용히 끝난 것으로 표시한다', JSON.stringify(existing));
   ok(await P(() => window.__game.ctx.tutorial.start()) === true, 'start() 로는 언제든 다시 켤 수 있다 (콘솔 경로)');
   ok(await step() === 'intro', '다시 intro 부터');
 

@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "hash": "0f44c71aa7bee2",
+  "hash": "0f059c3b292f4d",
   "creditsInitial": 500,
   "creditsMax": 9999999,
   "shopPriceBaseMul": 1.6,
@@ -26,6 +26,13 @@
       "void": {"basePrice":11000,"volatility":0.16},
       "volt": {"basePrice":3200,"volatility":0.07}
     }
+  },
+  "intel": {
+    "options": {"basement":{"baseCost":1400,"maxTier":2},"extraction":{"baseCost":900,"maxTier":2},"hazardDelay":{"baseCost":1100,"maxTier":3},"named":{"baseCost":2600,"maxTier":1},"nest":{"baseCost":700,"maxTier":2},"rail":{"baseCost":800,"maxTier":1},"rover":{"baseCost":1000,"maxTier":1}},
+    "tierMul": [1,2.6,4.8],
+    "bundleMul": 1.22,
+    "threatMul": [1,1.35,1.8],
+    "planetThreat": {"amber":1,"ashen":3,"crimson":3,"mossy":2,"tundra":2}
   },
   "items": {
     "alien_artifact": {"value":3200,"stack":1},
@@ -611,6 +618,7 @@
     "q_nm_s2": 300,
     "q_nm_s3": 450,
     "q_nm_s4": 600,
+    "q_rv_0": 200,
     "q_rv_1": 400,
     "q_rv_2": 700,
     "q_rv_3": 1000,

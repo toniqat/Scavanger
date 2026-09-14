@@ -3,12 +3,20 @@ import { HUB_READY_PORTRAIT_YAW, NET_SLOT_COLORS, type GameContext, type Portrai
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from './SoldierModel';
 import { resolveArmorDef } from './RemoteAvatar';
 
-/** Camera framing: a 1.8 m body centred a little above the hips reads best from slightly above eye height. */
-const CAM_FOV = 28;
-const CAM_DIST = 4.3;
-const CAM_HEIGHT = 1.15;
-const LOOK_Y = 1.0;
-/** Device pixel ratio cap for the portrait canvas (it is small; anti-aliasing does the rest). */
+/**
+ * Camera framing: a 1.8 m body centred a little above the hips reads best from slightly above eye height.
+ *
+ * 2026-09-14 (발사 슬롯 UI 대개편): the panel is 화면 세로 70 % now and the portrait strip owns its **top 55 %**, so a
+ * cell viewport went from landscape (~280 × 200) to portrait (~280 × 415). `render` derives `camera.aspect` from
+ * `cellWidth / height`, i.e. the **vertical** FOV is the fixed one — the visible height at the body is
+ * `2 · CAM_DIST · tan(CAM_FOV/2)` = 2.36 m around `LOOK_Y`, which puts the feet (0 m) and a hand's width of head
+ * room inside the frame. Widening the FOV instead of pulling the camera back keeps the slight looking-down read.
+ */
+const CAM_FOV = 30;
+const CAM_DIST = 4.4;
+const CAM_HEIGHT = 1.05;
+const LOOK_Y = 0.98;
+/** Device pixel ratio cap for the portrait canvas (anti-aliasing does the rest). */
 const MAX_DPR = 1.5;
 
 interface Cell {

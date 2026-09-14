@@ -1,7 +1,16 @@
 # src/tutorial — 새 캐릭터 안내
 
-새 프로필이 개인 함선에 처음 들어오면 자동으로 시작해, **함선 안에서 한 바퀴**(하우징 → 제작 → 출격)를
-돌리고 레이드가 시작되면 끝난다. `ctx.tutorial` (`TutorialRef`, 계약은 [`src/shared/tutorial.ts`](../shared/tutorial.ts)).
+안내는 **세 트랙**이고 각각 따로 건너뛴다 (2026-09-14, 사용자 결정 · 설계 원본
+[`docs/plans/tutorial-raid.md`](../../docs/plans/tutorial-raid.md)):
+
+| 트랙 | 어디서 | 무엇을 |
+|---|---|---|
+| ① `raid` | 손으로 지은 튜토리얼 행성 (`ctx.missionMode === 'tutorial'`) | 깨어나기 · 이동 · 달리기 · 점프 · 루팅 · 사격 · 앉기 · 낙하 · 회복 · 수류탄(선택) · 탈출 |
+| ② `ship` | 개인 함선 (레이드를 **완주**하고 돌아온 그 한 번) | 레벨업 · 능력치 투자 확정 · 메신저 · 레이븐의 첫 의뢰 |
+| ③ `build` | 개인 함선 (손대지 않은 함선) | **기존 17단계 그대로** — 하우징 → 제작 → 출격 |
+
+`ctx.tutorial` (`TutorialRef`, 계약은 [`src/shared/tutorial.ts`](../shared/tutorial.ts)).
+**돌고 있는 트랙은 언제나 하나**이고 진행률(`stepIndex` / `stepCount`)도 그 트랙 안에서만 센다.
 
 **설계 한 줄**: 진행은 **버스 이벤트 관찰**로만 판단하고, 순서 강제는 **각 폴더가 자기 거절 사유 함수에서
 `ctx.tutorial?.blockReason()` 을 한 번 부르는 것**으로 이뤄진다. 튜토리얼은 남의 폴더 안을 들여다보지 않고,
@@ -14,9 +23,10 @@
 
 | 파일 | 역할 |
 |---|---|
-| `TutorialSystem.ts` | `GameSystem` + `TutorialRef`. 단계 기계 · 이벤트 구독 · localStorage 저장 · 재료 지급 · dev 콘솔 `tutorial` 명령. `ctx.tutorial` 을 게시한다. |
-| `model.ts` | 폴더 공용 어휘 — 저장 키 · blocker 토큰 · 튜토리얼이 만들게 하는 id들(`furn_bench_gun` · `make_wpn_ar` · `make_ammo_medium`) · 지급 재료 표 · 안내선 수치 · `StepDef` 타입. 상태 없음. |
-| `Steps.ts` | **단계 표** — 각 단계의 제목 · 부제 · `allow`(허용 게이트) · 스포트라이트 선택자 · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). |
+| `TutorialSystem.ts` | `GameSystem` + `TutorialRef`. **3트랙 단계 기계** · 이벤트 구독 · localStorage 저장(v2) · 재료 지급 · dev 콘솔 `tutorial` 명령. `ctx.tutorial` 을 게시한다. |
+| `model.ts` | 폴더 공용 어휘 — 저장 키 · blocker 토큰 · 트랙 라벨 · 튜토리얼이 만들게 하는 id들(`furn_bench_gun` · `make_wpn_ar` · `make_ammo_medium`) · 지급 재료 표 · 안내선 수치 · **조작 가이드 표**(`TUTORIAL_CONTROL_HINTS`) · **체크포인트 → 단계 표**(`CHECKPOINT_STEP`) · HUD 노출 기준(`HUD_GEAR_STEP` · `HUD_STAMINA_STEP`) · `StepDef` 타입. 상태 없음. |
+| `Steps.ts` | **단계 표** — 각 단계의 제목 · 부제 · `allow`(허용 게이트) · 스포트라이트 선택자 · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). `nextStep` · `stepIndexOf` · `stepCountOf` 는 **자기 트랙 안에서만** 센다 (`trackStepsOf`). |
+| `ui/Controls.ts` | **우측 조작 가이드** — 배운 키가 한 줄씩 쌓이고 사라지지 않는다. 키 라벨은 그릴 때 `Keys` 에서 읽고 `input:bindingsChanged` 에 다시 그린다. |
 | `parts/Gates.ts` | 게이트 판정 순수 함수. `allow` 에 없는 게이트는 전부 막고, 배열이면 그 id 만 허용한다. `hides(gate, id?)` 도 여기 — **막히는 것은 곧 감추는 것**이다. |
 | `parts/Guide.ts` | **바닥 안내선** — 흐르는 점선 띠(셰이더) + 목표 빛기둥 + 링. `Interactable.id` 하나로 목표를 잡는다. |
 | `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. 대상은 사각형이 있고 `visibility` 가 살아 있는 것만 — 닫힌 `.ship-manage` 처럼 접혀도 사각형이 남는 화면을 밝히지 않는다. `set(selectors, text, union)` 의 **합집합 모드**(2026-09-08)는 먼저 찾히는 하나가 아니라 **찾히는 전부**를 감싸는 사각형을 뚫는다 — 두 패널에 걸친 드래그를 안내할 때 쓴다. |
@@ -33,7 +43,45 @@
 
 ---
 
-## 단계 (17)
+## 단계 — ① `raid` (11)
+
+레이드 트랙의 뼈대는 **체크포인트**(`tutorial:checkpoint`, owner: `world/tutorial`)다. 체크포인트는 구간의 *입구*라,
+지나는 순간 앞 구간의 단계가 끝난 것이다 — 표는 `model.CHECKPOINT_STEP` 하나이고 `onCheckpoint` 가 **앞으로만**
+접는다. 행동으로 끝나는 단계는 자기 이벤트를 따로 보므로 대개 체크포인트보다 **먼저** 끝나고, 뒤늦게 온
+체크포인트는 `advanceIf` 가 조용히 무시한다. 그래서 선택 단계(`grenade`)를 건너뛰어도, 체크포인트 하나를
+놓쳐도 안내가 막히지 않는다.
+
+| # | id | 목표 | 다음으로 넘어가는 신호 |
+|---|---|---|---|
+| 1 | `wake` | 쓰러진 채로 깨어난다 | `player:introWakeDone` |
+| 2 | `move` | 갈라진 땅까지 걸어간다 | 체크포인트 `cliff` |
+| 3 | `sprintJump` | 달려서 뛰어넘는다 | 체크포인트 `corpse` |
+| 4 | `corpseLoot` | 시체에서 무기 · 가방 · 탄약 (**여기서 체력 · 무기 HUD 가 나타난다**) | 체크포인트 `bugs` |
+| 5 | `shoot` | 벌레 둘 처치 | `enemy:killed` × `RAID_KILLS_PER_STEP` · 체크포인트 `crawl` |
+| 6 | `crouch` | 기둥 밑을 앉아서 지난다 | `player:stanceChanged`(stand 아님) · 체크포인트 `android` |
+| 7 | `crouchAim` | 앉은 채 안드로이드 둘 | `enemy:killed` × 2 · 체크포인트 `drop` |
+| 8 | `drop` | 높은 곳에서 뛰어내린다 | `player:fell {damage > 0}` · 체크포인트 `supply` |
+| 9 | `heal` | 보급품 → 회복 사용 | `player:stimUsed` · 체크포인트 `wall` |
+| 10 | `grenade` | 무너진 벽 너머 (**선택**) | `grenade:thrown` · 체크포인트 `ship` (안 쓰고 지나가도 된다) |
+| 11 | `extract` | 버려진 함선의 스위치 | `extraction:departureStarted` · `extraction:liftoff` |
+
+트랙 시작은 `game:newMission {mode:'tutorial'}`, 새로고침 복귀는 `world:ready` + `ctx.missionMode === 'tutorial'`
+(`startRaidTrack` — 둘 다 같은 함수로 모인다). **완주**하면 `pendingShip` 이 남아 다음 함선 진입에서 ② 가 이어지고,
+**건너뛰면 남지 않는다** (조작만 아는 사람에게 「레벨이 올랐습니다」를 띄우지 않는다).
+
+## 단계 — ② `ship` (4)
+
+| # | id | 목표 | 다음으로 넘어가는 신호 |
+|---|---|---|---|
+| 1 | `levelUp` | 레벨업 확인 — 인벤토리 화면 열기 | `inventory:opened` |
+| 2 | `stats` | 능력치 투자 → `포인트 투자 확정`(1초 홀드) | `progress:statChanged` |
+| 3 | `messenger` | 메신저 열기 | `ui:messengerToggled {open:true}` |
+| 4 | `ravenQuest` | 대답 고르기 · 퀘스트 수락 | `npc:questChanged {state:'active'}` |
+
+새 UI 는 하나도 없다 — 전부 **기존 화면을 스포트라이트로 가리킨다** (`.scr-tabs` · `.pg-confirm` ·
+`.community .cm-btn` · `.ms-qcard`).
+
+## 단계 — ③ `build` (17)
 
 | # | id | 목표 | 다음으로 넘어가는 신호 |
 |---|---|---|---|
@@ -115,7 +163,43 @@
 | `screenTab` | `inventory/ui/parts/Screens.setTab` · `markTab` | 인벤토리 외 화면 탭 (자물쇠 + 사유 툴팁) |
 | `matchmaking` | `hub/ui/HubMenu.refresh` (`hides`) | 신호 · 공유 함선 섹션 **숨김** |
 | `community` | `ui/hud/Community.update` (`hides`) | 우측 상단 커뮤니티 버튼 **숨김** |
-| `stashItem` | `inventory/ui/InventoryUI` (창고 격자, `hides`) | 흰 목록 밖의 **함선 창고 아이템 전부 숨김** |
+| `stashItem` | `inventory/ui/InventoryUI` (창고 격자, `hides`) | 흰 목록 밖의 **함선 창고 아이템 전부 숨김** — **증축 트랙에서만** (2026-09-14: 레이드에서 돌아온 전리품을 함선 트랙이 감추면 안 된다) |
+| `hud` | `ui/hud/Vitals` · `WeaponPanel` · `ImplantWidget` · `StratagemPanel` (`hides('hud', <part>)`) | **HUD 점진 노출** — 아래 절 |
+
+### HUD 점진 노출 (2026-09-14)
+
+`hides('hud', id)` — id 는 `TutorialHudPart`(`vitals` · `weapon` · `stamina` · `implant` · `stratagem`). **숨김 전용**이라
+`blockReason('hud', …)` 은 언제나 `null` 이고, 판정은 **레이드 트랙 안에서만** 산다 (`parts/Gates.hudHidden`) —
+함선 · 증축 트랙과 평소 플레이에서는 전부 `false` 라 화면이 한 글자도 안 바뀐다.
+
+| 조각 | 언제 나타나나 |
+|---|---|
+| `vitals`(체력 · 실드) · `weapon` | 시체에서 장비를 얻는 단계(`HUD_GEAR_STEP` = `corpseLoot`)를 **지나면** |
+| `stamina` | **처음 소모될 때** (`player:sprintChanged` · `player:staminaDepleted` → `hudState.staminaUsed`). 늦어도 `HUD_STAMINA_STEP`(`sprintJump`)을 지나면 — 새로고침 보험이다 |
+| `implant` · `stratagem` | 튜토리얼 레이드가 끝날 때까지 **안 나타난다** (장착한 것도, 부를 것도 없다) |
+
+호출부는 전부 위젯이 **자기 이름으로 한 줄** 묻는 것이고, 접는 방법은 `.hud-tut-hidden`(`ui/styles/raidHud.css`,
+`display:none !important`) 하나다 — 위젯마다 이미 쓰는 `hidden` · `.show` · `.off` 와 싸우지 않게 클래스를 갈랐다.
+`WeaponPanel` 만 매 프레임 도는 `update` 가 없어(전부 이벤트 구동) `tutorial:changed` · `world:ready` ·
+`game:phaseChanged` 세 순간에 다시 묻는다. 스태미나처럼 **표로 못 정하는 상태**가 바뀌면
+`TutorialSystem.markStaminaUsed` 가 `tutorial:changed` 를 한 번 더 낸다.
+
+---
+
+## 우측 조작 가이드 (2026-09-14)
+
+배운 조작이 **한 줄씩 쌓이고 사라지지 않는다** (`ui/Controls.ts`, CSS `.tut-controls`). 우하단 키
+가이드(`ui/hud/KeyGuide`, `.key-guide` — right 28 / bottom 28 / z 84)와 **주인도 자리도 다르다**: 그쪽은 "지금 열린
+화면의 키"라 매번 갈리고, 이쪽은 누적이라 화면 **우측 세로 가운데**에 선다 (위의 `.community` top 28 과 아래의
+`.weapon` bottom 32 사이의 빈 띠, `max-height: 52vh` 로 1440×900 에서도 그 띠를 넘지 않는다).
+
+- 표는 `model.TUTORIAL_CONTROL_HINTS` — **단계별로 더해지는 줄**이고, `setStep` 이 그 단계**까지 전부**를 올린다
+  (체크포인트로 두세 단계를 건너뛰어도 빠지는 줄이 없다). 이미 있는 줄은 `add` 가 무시하므로 멱등이다.
+- 표가 들고 있는 것은 **키 액션 이름**(`FORWARD` · `SPRINT` …)뿐이다 — 라벨은 그릴 때 `keyLabel(Keys[action])`
+  로 만들고 리바인드하면 `input:bindingsChanged` 에 다시 읽는다 ([docs/CONTROLS.md](../../docs/CONTROLS.md)).
+- 꾹 누르는 줄은 기존 `.keycap.kc-hold` 규약을 **그대로** 쓴다. HUD 위젯과 같은 이름의 modifier 를 새로 만들지
+  않는다 (2026-09-10 `kc-hold` 사고: `.hold` 가 크로스헤어 홀드 링과 겹쳐 키캡이 통째로 사라졌다).
+- 쌓인 줄 id 는 `TutorialSave.learned` 에 남아 새로고침을 견디고, 트랙이 끝나면 비워진다.
 
 ### 잠그지 않고 **감춘다** (2026-09-08)
 
@@ -141,6 +225,35 @@
 ---
 
 ## 시작 · 저장 · 재시작
+
+### 트랙 이어 가기 (2026-09-14)
+
+`hub:entered {ship:'personal'}` 하나가 관문이고 순서는 `autoStart()` 세 줄이다 — 각 줄의 근거가 다르다.
+
+1. **레이드** — *함선 안에 있다는 것 자체가* 그 트랙이 뒤에 있다는 뜻이다 (완주했든 · 건너뛰었든 · 진입 흐름이
+   아직 레이드로 안 보내는 옛 경로든). 조용히 `done` 으로 적는다.
+2. **함선** — 레이드를 **완주하고 막 돌아온 그 한 번**만 (`pendingShip`). 그렇지 않으면 `done` 으로 적는다.
+3. **증축** — 2026-09-08 부터의 규칙 그대로 **손대지 않은 함선**일 때만. ⚠ 여기서 보는 것은
+   `shipUntouched()`(가구 0 · 용도 있는 방 0)이지 `looksFresh()`가 **아니다** — 튜토리얼 레이드를 마치고 온
+   사람은 이미 레벨 2 지만 함선은 여전히 빈 함선이고, 그 사람이야말로 증축 안내를 받아야 할 사람이다.
+   레벨 조건은 「저장이 아예 없는 프로필」을 가르는 데만 쓴다.
+
+함선 트랙이 끝나면 `finish()` 가 그 자리에서 `autoStart()` 를 한 번 더 불러 증축 트랙으로 이어진다.
+`skipTrack(track)` 은 **그 트랙만** 푼다 — 다른 트랙은 그대로 남아 제 때 시작한다 (사용자 결정).
+
+### 저장 — `TutorialSave` **v2**
+
+```jsonc
+{ "version": 2,
+  "tracks": { "raid": { "step": null, "done": true }, "ship": …, "build": { "step": "craftGun", "done": false } },
+  "granted": true, "benchUid": "f-7", "pendingShip": false, "learned": ["move", "sprint"], "topped": ["craftGun"] }
+```
+
+- **v1 → v2 마이그레이션**: v1 의 최상위 `step` · `done` 은 전부 지금의 `build` 트랙 것이었으므로 그리로 옮겨
+  붙이고, 그 프로필은 **레이드 · 함선 트랙을 이미 끝낸 것으로 본다**. 안 그러면 하던 사람이 다음 접속에서
+  튜토리얼 레이드로 끌려간다 — `isTrackDone('raid')` 가 진입 흐름(`ui/menus/enterShip`)을 정하기 때문이다.
+- **저장이 아예 없는 프로필**도 모양이 같다(새 캐릭터든, 튜토리얼이 없던 시절부터 하던 사람이든). 그래서
+  `isTrackDone` 은 그 트랙의 기록이 없으면 `!looksFresh()` 로 답한다 — 이미 하던 사람에게는 전부 `true` 다.
 
 - **자동 시작**: `hub:entered {ship:'personal'}` 에서, 저장이 없고 **정말 새 캐릭터일 때만**.
   "새 캐릭터"는 `looksFresh()` 가 본다 — 놓인 가구 0 · 용도 있는 방 0 · 레벨 1. **2026-09-12**: 조종석의 기본 공용 가구
@@ -176,15 +289,60 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 
 ## 스모크
 
-`scripts/smoke-tutorial.mjs` (86). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
-`scav.tutorial` 을 `done` 으로 심고 시작한다 — 튜토리얼은 새 프로필에서 자동으로 켜져 그 스크립트들이
-드라이브하는 행동을 순서대로 잠그기 때문이다.
+`scripts/smoke-tutorial.mjs` — **증축 트랙**(기존 17단계)을 끝까지 몰고, 3트랙 계약(어느 트랙이 도는가 ·
+`isTrackDone` · HUD 게이트가 증축 트랙에서 아무것도 안 감추는가 · 조작 가이드가 안 뜨는가)을 덧붙여 본다.
+트랙 ①(레이드 조작) · ②(함선)의 스모크는 그 트랙을 구현하는 쪽(`world/tutorial` · `meta` + 메신저)이 더한다.
+
+**다른 스모크는 전부** `evaluateOnNewDocument` 에서 `scav.tutorial` 을 done 으로 심고 시작한다 — 튜토리얼은
+새 프로필에서 자동으로 켜져 그 스크립트들이 드라이브하는 행동을 순서대로 잠그기 때문이다. **2026-09-14 부터
+그 모양은 v2 다** — 세 트랙 **모두** done 이어야 한다:
+
+```js
+localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
+  raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } }));
+```
 
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-14 (3트랙 단계 기계 · 우측 조작 가이드 · HUD 점진 노출 — `docs/plans/tutorial-raid.md` C)** — 같은 날 먼저 들어온 계약 위에
+  **진짜 구현**이 올라갔다.
+  ① **저장 v2** — `TutorialSave.tracks` 로 트랙별 `{step, done}`. v1(최상위 `step`/`done`)은 `tracks.build` 로 옮겨 붙이고
+  그 프로필은 **레이드 · 함선 트랙을 이미 끝낸 것으로** 본다 (안 그러면 하던 사람이 다음 접속에 튜토리얼 레이드로 끌려간다 —
+  `isTrackDone('raid')` 가 진입 흐름을 정한다). 저장이 **아예 없는** 프로필은 새 캐릭터와 모양이 같으므로
+  `isTrackDone` 이 `!looksFresh()` 로 답한다. **다른 스모크 81개가 심는 한 줄도 v2 로 같이 고쳤다.**
+  ② **트랙 기계** — `track` · `isTrackDone` · `startTrack` · `skipTrack` 이 `save.tracks` 를 보는 진짜 구현이 됐고,
+  `nextStep` · `stepIndexOf` · `stepCountOf` 는 **자기 트랙 안에서만** 센다. 돌고 있는 트랙은 늘 하나다. 이어 가기는
+  `autoStart()` 세 줄(위 절) 이고 ⚠ 증축 트랙의 조건은 `looksFresh()` 가 아니라 **`shipUntouched()`** 다 —
+  레이드를 마치고 온 사람은 레벨 2 지만 함선은 비어 있고, 그 사람이 증축 안내를 받아야 한다.
+  ③ **레이드 · 함선 트랙 15단계**를 채웠다 (문구 · 스포트라이트 · 허용 게이트). 진행은 전부 **이미 있는 이벤트의 관찰**이고
+  레이드의 뼈대는 `tutorial:checkpoint` → `CHECKPOINT_STEP` 표 하나다 (앞으로만 접으므로 선택 단계 `grenade` 를 지나쳐도,
+  체크포인트를 하나 놓쳐도 막히지 않는다). 함선 트랙은 새 UI 가 없다 — 기존 화면을 가리키기만 한다.
+  ④ **우측 조작 가이드**(`ui/Controls.ts`) — 배운 키가 쌓이고 사라지지 않는다. 우하단 키 가이드와 자리가 겹치지 않게
+  화면 우측 세로 가운데(`max-height: 52vh`)에 서고, 키 라벨은 그릴 때 `Keys` 에서 읽는다.
+  ⑤ **HUD 점진 노출** — 새 게이트 `hud`. 숨김 전용이고 **레이드 트랙 안에서만** 산다. 호출부는 네 위젯이 자기 이름으로
+  한 줄 묻는 것이고 접는 방법은 `.hud-tut-hidden` 하나다.
+  ⑥ `community` 가 `ALWAYS_HIDDEN` 에서 빠졌다 (함선 트랙이 메신저를 **써야** 한다). 동작은 같다 — `allow` 가 없는 단계는
+  `blockReason` 이 막고 `hides` 가 그것을 그대로 읽는다. 같은 이유로 `stashItem` 흰 목록은 **증축 트랙에서만** 적용된다.
+
+- **2026-09-14 (딸피로 깨어난다 — 리드 마무리)** — 사용자 명세의 「플레이어는 딸피 상태라 벌레에게
+  공격당하면 사망」이 빠져 있었다. `applyLowHp()` 가 `player:spawned` · `player:respawn` · `player:introWakeDone` 마다
+  `PlayerRef.setHp(TUTORIAL_START_HP)` 를 건다 — **부활할 때마다 다시 건다**는 것이 요점이다(`player:respawn` 은 체력을
+  가득 채워 주므로 그대로 두면 한 번 죽은 뒤부터 긴장이 사라진다). `LOW_HP_DONE_STEPS`(`heal` 부터)에 닿으면 손을 둔다 —
+  그 단계가 바로 회복 아이템을 줍고 쓰는 곳이다. 솔로 레이드라 체력 0 은 전투불능이 아니라 **즉사** → 체크포인트다.
+
+- **2026-09-14 (튜토리얼 개편 — 계약만 먼저, `docs/plans/tutorial-raid.md`)** — 사용자 결정으로 안내가 **세 트랙**으로 갈라진다:
+  ① `raid`(손으로 지은 튜토리얼 행성에서 깨어나 조작을 배우고 버려진 함선으로 탈출) ② `ship`(레벨업 · 능력치 투자 · 메신저 레이븐)
+  ③ `build`(**지금의 17단계 그대로** — id 도 순서도 불변). 각각 따로 건너뛴 수 있다 — 조작은 아는데 함선 증축은 처음인 사람이 있기 때문이다.
+  **이번 커밋은 계약과 자리만 잡았다**: `Steps.ts` 에 두 트랙의 단계 15개가 **빈 자리**로 들어왔고(문구 · 스포트라이트 · 허용 게이트는
+  그 트랙을 구현하는 쪽이 채운다), `TutorialRef` 의 `track` · `isTrackDone` · `startTrack` · `skipTrack` 은 「이 폴더는 아직 build 하나만 돌고 있다」를
+  정직하게 답하는 얇은 답변이다. `isTrackDone('raid')` 가 **true** 를 돌려주는 것이 중요하다 — 진입 흐름(`ui/menus/enterShip`)이 그 답을 보고
+  튜토리얼 레이드를 띄우므로, 구현 전에는 지금까지와 똑같이 함선으로 가야 한다. `SaveV1` 은 계약에서 선택 필드가 된 `step` · `done` 을 여기서 다시
+  필수로 좁혀 둔 것이고, 트랙 기계를 구현할 때 `TutorialSave.tracks`(v2)로 옮겨 간다. **그때 스모크가 심는 저장 모양도 v2 로 같이 고친다** —
+  다른 스모크 전부가 `scav.tutorial` 을 `done` 으로 심고 시작하므로 그 한 줄을 안 고치면 전부 빨개진다.
 
 - **2026-09-10 (제작 대개편에 맞춰 탄약 단계 복구)** — 같은 날의 제작 대개편이 `data/recipes.csv` 에서
   **총탄 대량 제작 4줄**(`bulk_ammo_light` · `_medium` · `_heavy` · `_shell`)을 지웠는데 `TUTORIAL_AMMO_RECIPE` 가

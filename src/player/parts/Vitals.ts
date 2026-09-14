@@ -26,6 +26,7 @@ import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER
 import type { CarryHost } from '../Carry';
 import { createPortraits } from '../Portraits';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import * as IntroWake from './IntroWake';
 import type { PlayerSystem } from '../PlayerSystem';
 
 /** Teammate finished the revive hold (net → `ctx.player.revive()`): back up with PLAYER_REVIVE_HP, still prone. */
@@ -190,6 +191,22 @@ export function heal(sys: PlayerSystem, amount: number): void {
   if (delta > 0) sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta });
   }
 
+/**
+ * 체력을 **그대로 정한다** (2026-09-14) — 각본된 장면이 몸 상태를 정하는 자리. 지금 쓰는 곳은
+ * 튜토리얼 하나다 — 폐허에서 깨어난 사람은 **딱피**라 벌레에게 한 대 맞으면 죽는다 (사용자 명세).
+ *
+ * `takeDamage` 로 깎지 **않는** 이유: 피격 연출 · 방향 호 · 소리가 따라붙고 실드를 먼저 깎는다 — 둘 다
+ * 「깨어나 보니 이미 다쳐 있었다」와 다른 말이다. 죽은 · 전투불능 상태에서는 아무것도 하지 않는다.
+ */
+export function setHp(sys: PlayerSystem, hp: number): void {
+  if (sys.isDead || sys._downed || !sys.spawned) return;
+  const next = Math.max(1, Math.min(sys.maxHp, Math.round(hp)));
+  const delta = next - sys.hp;
+  if (delta === 0) return;
+  sys.hp = next;
+  sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta });
+  }
+
 /** hp reached 0: 전투불능 instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
 export function enterDowned(sys: PlayerSystem): void {
   if (sys._downed || sys.isDead) return;
@@ -286,6 +303,7 @@ export function die(sys: PlayerSystem): void {
   sys.clearShield();
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14: 연출 중에 죽으면 카메라를 돌려주고 조용히 끝낸다
   sys.clearCarry('died');
   sys.releaseLadder();   // 2026-09-11
   sys.clearDowned();

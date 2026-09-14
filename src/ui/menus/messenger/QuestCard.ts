@@ -1,10 +1,11 @@
 import type { CurrencyId, GameContext, NpcObjectiveInfo, NpcQuestInfo } from '@/shared';
 import { buildCurrencyChip, buildItemChip } from '@/shared';
 import { clamp01, el } from '../../dom';
+import { buildTrustChip } from './Trust';
 
 /**
  * NPC 퀘스트 카드 (2026-09-14) — 대화 말풍선(`bubble`)과 퀘스트 탭의 상세(`detail`)가 **같은 카드**를 그린다.
- * 이름 · 설명 · 목표(문구 · 진척 · [납품]) · 보상(재화 칩 + 아이템 칩) · 버튼. 상태는 매번 `NpcQuestRef.getQuest` 로 새로 읽어
+ * 이름 · 설명 · 목표(문구 · 진척 · [납품]) · 보상(재화 칩 + **NPC 개인 신뢰도 칩** + 아이템 칩) · 버튼. 상태는 매번 `NpcQuestRef.getQuest` 로 새로 읽어
  * 다시 짓는다 (카드는 상태를 들고 있지 않다).
  *
  *   - bubble · offered  → [생각해보지] [수락]
@@ -100,6 +101,9 @@ export function buildQuestCard(ctx: GameContext, q: NpcQuestInfo, mode: QuestCar
   if (r.credits > 0) chips.appendChild(buildCurrencyChip('credits', { amount: r.credits, signed: true, size: 30 }));
   if (r.xp > 0) chips.appendChild(buildCurrencyChip('xp', { amount: r.xp, signed: true, size: 30 }));
   for (const p of r.rep) if (p.amount > 0) chips.appendChild(buildCurrencyChip(`rep:${p.corp}` as CurrencyId, { amount: p.amount, signed: true, size: 30 }));
+  /* 2026-09-14: 기업 신뢰도 칩 바로 뒤에 **그 NPC 개인** 신뢰도 칩 (같은 육각 틀 · NPC 색). */
+  const trustChip = buildTrustChip(q.npc.name, r.npcTrust, q.npc.color);
+  if (trustChip) chips.appendChild(trustChip);
   for (const it of r.items) chips.appendChild(buildItemChip(ctx.loot?.getItemDef(it.defId), { need: it.qty, size: 30 }));
   if (chips.childElementCount === 0) el('span', { cls: 'ms-qnone', text: '없음', parent: chips });
 

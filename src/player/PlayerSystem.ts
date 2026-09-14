@@ -37,6 +37,8 @@ import * as Pose from './parts/FurniturePose';
 import * as Buffs from './parts/Buffs';
 import * as Boosts from './parts/Boosts';
 import * as RoverRide from './parts/RoverRide';
+import * as Fall from './parts/Fall';
+import * as IntroWake from './parts/IntroWake';
 import type { CharBuff, FurniturePoseState as FurniturePoseWire } from '@/shared';
 
 /**
@@ -211,6 +213,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** 0..1 progress of the E exit hold, and whether a fresh E press may start one. */
   roverHold = 0;
   roverHoldArmed = true;
+  /* ── 오프닝 기상 연출 (2026-09-14, `parts/IntroWake`) ── */
+  /** 남은 초. **-1 = 연출 없음** (0 은 「이번 프레임이 마지막」이라 쓰지 않는다). */
+  introWakeT = -1;
+  /** 이번 연출의 전체 길이 (진행도 계산용). */
+  introWakeDur = 0;
   /* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
   /** Sit / bench / run / cycle on a piece of ship furniture: logical state, restore spot, drive phase, model blend. */
   readonly furn: FurniturePoseState = createFurniturePoseState();
@@ -247,7 +254,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   // scratch
   readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, stance: 'stand', aiming: false };
-  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, rollEnded: false, rung: false, climbEnded: null };
+  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, rollEnded: false, rung: false, climbEnded: null, fallHeight: 0 };
   readonly podEvents: HellpodEvents = { impact: false, opened: false, finished: false };
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
@@ -335,6 +342,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   roverSafePosition(out: THREE.Vector3): THREE.Vector3 | null { return RoverRide.roverSafePosition(this, out); }
   /** Internal release (death · resets · backstop): alight beside the vehicle. No-op when not riding. */
   releaseRoverRide(): void { return RoverRide.releaseRoverRide(this); }
+
+  /* ── 오프닝 기상 연출 (2026-09-14, appended contract `PlayerRef.playIntroWake`, `parts/IntroWake`) ── */
+  /** true 인 동안 이동 · 자세 · 무기 · 상호작용 · 마우스 룩이 잠기고 카메라는 쓰러진 몸을 비춘다. */
+  get introWaking(): boolean { return this.introWakeT >= 0; }
+  /**
+   * 튜토리얼 오프닝 — 쓰러진 자세로 시작해 `durationS` 에 걸쳐 일어난다 (`TUTORIAL_INTRO_WAKE_S`). 끝나면
+   * 평소 3인칭 백뷰로 **하드 컷**하고 `player:introWakeDone`. `game:abort` · `game:newMission` · 사망은 스스로 푼다.
+   */
+  playIntroWake(durationS: number): void { return IntroWake.playIntroWake(this, durationS); }
 
   /* ── 가구 자세 (2026-09-12, appended contract `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive`) ── */
   get furniturePose(): FurniturePoseKind | null { return this.furn.kind; }
@@ -643,6 +659,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   onLethal(dot: boolean): void { return Vitals.onLethal(this, dot); }
 
   heal(amount: number): void { return Vitals.heal(this, amount); }
+  /** 2026-09-14: 각본된 장면이 체력을 그대로 정한다 (튜토리얼 「딱피로 깨어난다」). 피격 연출 · 실드를 타지 않는다. */
+  setHp(hp: number): void { return Vitals.setHp(this, hp); }
 
   /* ── dev console / unique weapons (2026-09-06) ─────────────────────────── */
   /**
@@ -705,6 +723,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       && !this._droneControl         // 2026-09-11: the inputs belong to the drone
       && this.furn.kind === null     // 2026-09-12: sitting / lying / running on ship furniture
       && this._roverRide === null    // 2026-09-13: inside the 탐사 차량 (no weapons from the hull)
+      && this.introWakeT < 0         // 2026-09-14: 오프닝 기상 연출 중에는 손이 비어 있다
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
@@ -766,9 +785,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.respawnAt(this.resolveSpawn(playerSpawn));
       // 2026-09-08: 시뮬레이션 훈련장은 행성이 아니다 — 헬포드로 떨어질 하늘이 없으므로 시작 지점에 그냥
       //   선 채로 시작한다. `game/`(onWorldReady) 도 같은 규칙으로 'deploying' 을 건너뛰고 바로 'playing' 이다.
-      if (ctx.missionMode !== 'training') this.startDrop();
+      // 2026-09-14: 튜토리얼도 같다 — 함선 없이 **그 행성에서 깨어나는** 것이 이야기의 시작이라 포드가 없다.
+      if (Spawn.usesHellpod(ctx)) this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
+    // 2026-09-14: 새 미션이 시작되면 오프닝 기상 연출은 알리지 않고 끝난다 (`game:abort` 는 `resetAll` 이 푼다)
+    ctx.bus.on('game:newMission', () => IntroWake.cancelIntroWake(this));
+    /*
+     * 2026-09-14 (전역 낙하 피해): 대시는 **떨어진 것이 아니다** — 몸을 그 높이 그대로 앞으로 옮기므로 턱 너머로
+     * 대시하면 그 뒤의 낙하가 대시 전 발 높이에서부터 세어진다. 갈고리 · 가방 부양과 같은 취급으로 이번 낙하를 뺀다.
+     */
+    ctx.bus.on('implant:dashed', () => this.controller.exemptFall());
     // game/GameFlowSystem: 훈련장 재시작 · 재접속 복귀 fallback (2026-09-09 이후 자동 부활은 없다)
     ctx.bus.on('player:respawn', ({ position }) => this.respawn(position));
     /*
@@ -851,8 +878,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._droneControl && !Drone.canHoldDroneControl(this)) this.releaseDroneControl();
     // 2026-09-12: same backstop for a furniture pose (left the ship · died · pod …); the explicit reset paths release it too
     if (this.furn.kind !== null && !Pose.canHoldFurniturePose(this)) this.releaseFurniturePose('reset');
+    // 2026-09-14: 오프닝 기상 연출 — 타이머 · 카메라 (몸이 연출을 유지할 수 없으면 스스로 끝낸다)
+    IntroWake.updateIntroWake(this, dt);
     const posed = this.furn.kind !== null;
     const riding = this._roverRide !== null;   // 2026-09-13 탐사 차량 (`parts/RoverRide`)
+    const waking = this.introWakeT >= 0;       // 2026-09-14 오프닝 기상 연출 (`parts/IntroWake`)
 
     // movement / stances / interaction / camera run in gameplay AND hub phases (no UI blocker)
     const control = ctx.isControlActive();
@@ -863,7 +893,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
     // Phase 10: the pick-up / put-down animation and being carried both freeze movement (the camera keeps working)
     // 2026-09-12: a furniture pose freezes the controller too (no collision resolve — the feet are pinned under the anchor)
-    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0 || posed || riding;
+    // 2026-09-14: 기상 연출도 같은 자리에서 얼린다 (몸은 제자리에 누워 있고 입력은 전부 연출의 것이다)
+    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0 || posed || riding || waking;
 
     // click-to-relock fallback (also in the hub)
     if (control && !locked && input.wasMousePressed(0)) input.requestPointerLock();
@@ -903,15 +934,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
     // 2026-09-11: the drone view owns the mouse too — its own flag, so it never releases the quick wheel's `lookLocked`
     // 2026-09-12: a furniture pose with a fixed camera owns the view too (the rocking chair keeps free look)
-    if (active && locked && !this.lookLocked && !this._droneControl && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    // 2026-09-14: 기상 연출 중에는 마우스도 연출의 것이다 — 여기서 yaw 가 돌면 하드 컷이 엉뚱한 쪽을 본다
+    if (active && locked && !this.lookLocked && !this._droneControl && !waking && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
     // 2026-09-12 어깨 전환 (`Keys.SHOULDER`, 기본 X): 카메라를 반대쪽 어깨로 — 옮기는 것은 CameraRig 의 감쇠다. 커서 화면
     // (인벤토리의 X = 버리기 · 시설 관리의 X = 회수)은 `active` / `locked` 에서 이미 빠진다. 드론 시점 · 고정 카메라 자세는 제외.
-    if (active && locked && !this._droneControl && !riding && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
+    if (active && locked && !this._droneControl && !riding && !waking && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
     // 2026-09-12 조준 흔들림 (ADS only): this frame's figure-8 offset is fixed *before* the aim origin / `getAimRay` are read, so
     // the shot and the frame `lateUpdate` renders use the same angle. Off on the ship, ladders, drone / furniture / cutscene views.
     const sw = this.rig.sway;
     sw.aim = this.aimBlend;
-    sw.on = this.spawned && !this.isDead && !downed && !hub && !this._droneControl && !posed && !riding && !c.climbing && !dropping
+    sw.on = this.spawned && !this.isDead && !downed && !hub && !this._droneControl && !posed && !riding && !waking && !c.climbing && !dropping
       && !this._inPod && !this._interior && !this.shipBounds && !this.attachedParent && this.carriedSocket === null && !this.rig.isOverridden;
     sw.crouch = this.crouchBlend; sw.prone = this.proneBlend;
     sw.move = Math.min(1, c.speed / PLAYER_WALK_SPEED);
@@ -921,11 +953,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
     // with the real position once the rig has moved.
     this.rig.predictPosition(this.aimOrigin);
-    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && !posed && !riding && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+    this.setAiming(active && locked && !downed && !this._carrying && !this._droneControl && !posed && !riding && !waking && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
 
     // ── carry input (F tap): pick up / put down. Runs before the movement branches so the key is consumed
     //    before WeaponSystem (which updates later) can read it as a melee swing.
-    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl && !posed && !riding);
+    this.updateCarryInput(active && !dropping && !this._inPod && !this._droneControl && !posed && !riding && !waking);
 
     // ── movement input
     const mi = this.moveInput;
@@ -1002,6 +1034,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     } else {
       this.moveResult.footstep = false; this.moveResult.landed = 0; this.moveResult.jumped = false;
       this.moveResult.rollEnded = false; this.moveResult.rung = false; this.moveResult.climbEnded = null;
+      this.moveResult.fallHeight = 0;
     }
     // top / bottom / E / jump all end inside the controller — one `player:climbChanged {null}` from here
     this.syncClimb();
@@ -1034,6 +1067,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       const fx = FxManager.get();
       if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 5, 0.7);
     }
+    /*
+     * 2026-09-14 (전역 낙하 피해): 떨어진 **높이**로 판정한다 (`MoveResult.fallHeight` — 면제된 낙하는 0).
+     * 착지 연출(`r.landed`)과 따로인 이유는 하나다: 부양 · 갈고리로 천천히 내려와도 착지는 착지이고,
+     * 반대로 깊이 떨어져도 임펄스로 속도가 죽으면 속도만으로는 「얼마나 떨어졌나」를 알 수 없다.
+     */
+    if (r.fallHeight > 0) Fall.onLanded(this, r.fallHeight);
 
     if (c.grounded) { this.autoHoverUsed = false; if (this._hovering) this.setHovering(false); }
 
@@ -1068,7 +1107,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     //    2026-09-12: nor one sitting / lying on furniture — only the `일어나기` caption of a `releaseOnInteract` pose
     if (posed) Pose.updatePosePrompt(this, active && !downed);
     else if (this._roverRide) RoverRide.updateRoverPrompt(this, dt, active && !downed);   // 2026-09-13: E = 하차 홀드 only
-    else this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl);
+    else this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl && !waking);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
@@ -1142,7 +1181,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.hover = this.hoverBlend;
     p.carry = this.carryBlend;
     p.climb = this.climbBlend;
-    p.downed = this.downedBlend;   // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
+    // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
+    // 2026-09-14: 오프닝 기상 연출이 같은 자세를 1 → 0 으로 되감아 「쓰러졌다 일어난다」를 만든다 (`parts/IntroWake`)
+    p.downed = Math.max(this.downedBlend, IntroWake.wakeBlend(this));
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     Pose.applyPoseToSoldier(this, p);   // 2026-09-12: furniture pose blend / kind / phase (`run` rides the walk cycle)
     this.model.update(dt, ctx.time, p);

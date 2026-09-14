@@ -22,6 +22,8 @@ import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets'
 import { firstFreeQuickSlot, isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
 /* appended (2026-09-10): 휠 교체 규칙 — `previewDrop` 과 `setQuickSlot` 이 같은 계획을 본다 */
 import { canQuickSwap } from '../QuickSwap';
+/* appended (2026-09-14): 소모품 퀵슬롯 자동 장착 (전역) — 「주웠다」의 규칙 한 벌 */
+import { autoQuickIndexFor, takeIntoQuick } from './AutoQuick';
 import { QUICK_DIR_GLYPH, SLOT_LABEL } from '../ui/labels';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
@@ -447,11 +449,19 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
    * 상자 · 시체는 2026-09-10 그대로 — 언제나 가방이 먼저다.
    */
   if (from.kind === 'grid' && from.grid === 'stash') {
-    const placed = tryAutoPlace(sys, item, def, from, SENT_TO);
+    const placed = tryAutoPlace(sys, item, def, from, notifySentTo);
     if (placed) return placed;
     if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
     return activateFallback(sys, item, def, from);
   }
+  /*
+   * 2026-09-14 (사용자 결정 — 소모품 퀵슬롯 자동 장착, **게임 전역**): 상자 · 시체 타일의 더블클릭은 목적지를 고르는
+   * 몸짓이 아니다 (가방 타일의 더블클릭이 이미 「휠에 등록」인 것과 같다 — `ui/InventoryUI.tileHandlers`). 휠에 올릴 수
+   * 있는 소모품이고 **빈 칸**이 있으면 그리로, 아니면 아래 예전 경로(가방 먼저) 그대로. 규칙은 `parts/AutoQuick`.
+   * 2026-09-10 의 「상자에서 찾은 것은 무조건 가방이 먼저다」와 부딪히지 않는다 — 그것은 **장비 칸**(손에 든 총이
+   * 조용히 바뀌는 것)에 대한 결정이고, 여기는 비어 있는 휠 칸만 채운다.
+   */
+  if (from.kind === 'grid' && from.grid === 'container' && takeIntoQuick(sys, item, def)) return 'ok';
   if (from.kind === 'grid' && from.grid !== 'bag') {
     if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
     return activateFallback(sys, item, def, from);
@@ -464,10 +474,32 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
   return sys.quickMoveImpl(uid, from);
   }
 
-/** 2026-09-10 — `장착 → 퀵슬롯` 순으로 자리를 찾을 때 쓰는 안내 (어디로 갔는지 사용자가 알아야 한다). */
-const WENT_TO = (name: string, where: string): string => `가방이 가득 찼습니다 — ${name} → ${where}`;
-/** 2026-09-12 — 창고 더블클릭이 **일부러** 장비칸으로 보낸 경우. 사고가 아니므로 「가방이 가득」 이 아니다. */
-const SENT_TO = (name: string, where: string): string => `${name} → ${where}`;
+/**
+ * 2026-09-14 (사용자 결정) — **어디로 갔는지 말하는 방법 두 가지.**
+ *
+ *  • `notifySentTo` — 창고 더블클릭이 **일부러** 장비칸 · 임플란트 칸 · 퀵슬롯으로 보낸 경우. 의도한 이동이라
+ *    예전 그대로 `ui:notify` 한 줄(`{name} → {where}`)이 뜬다.
+ *  • `flashPlaced` — 상자 · 시체에서 **가방이 꽉 차 밀려난** 경우. 예전의 `가방이 가득 찼습니다 — …` 토스트를
+ *    빼고, 실제로 들어간 칸이 그 자리에서 번쩍인다 (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant`).
+ *    토스트는 화면 구석이라 눈이 상자에 있는 동안 놓치기 쉬웠다.
+ *
+ * 그래서 `tryAutoPlace` 는 문구가 아니라 **「놓였다」 콜백**을 받는다 — 자리(`slot` · `quick` · `implant`)와
+ * 라벨을 함께 넘기므로 부르는 쪽이 토스트를 띄우든 칸을 번쩍이든 고른다.
+ */
+type PlacedAt = { kind: 'slot'; slot: LoadoutSlot } | { kind: 'quick'; index: number } | { kind: 'implant' };
+type OnPlaced = (sys: InventorySystem, def: ItemDef, where: string, at: PlacedAt) => void;
+
+const notifySentTo: OnPlaced = (sys, def, where) => {
+  sys.ctx.bus.emit('ui:notify', { text: `${def.name} → ${where}`, kind: 'info', duration: 2.2 });
+};
+
+const flashPlaced: OnPlaced = (sys, _def, _where, at) => {
+  const ui = sys.ui;
+  if (!ui) return;
+  if (at.kind === 'slot') ui.flashSlot(at.slot);
+  else if (at.kind === 'quick') ui.flashQuick(at.index);
+  else ui.flashImplant();
+};
 
 /**
  * **비어 있는 제자리**를 순서대로 훑어 거기로 보낸다. 아무 데도 못 갔으면 null (아이템은 한 칸도 안 움직인다).
@@ -477,30 +509,25 @@ const SENT_TO = (name: string, where: string): string => `${name} → ${where}`;
  *      가방 · 창고만 보므로 사실상 **함선 창고**에서 누른 경우다. 레이드 상자에서는 조용히 실패한다).
  *   ③ 퀵슬롯에 올릴 수 있는 소모품이면 **빈** 휠 칸.
  *
- * 성공하면 `ui:notify` 로 **어디로 갔는지** 말한다 — 문구는 부르는 쪽이 정한다 (창고 더블클릭은 의도한
- * 이동이고, 가방이 꽉 차서 밀려난 것은 사고다).
+ * 성공하면 **어디로 갔는지** 알린다 — 방법은 부르는 쪽이 정한다 (`onPlaced`: 창고 더블클릭은 의도한 이동이라
+ * 토스트, 가방이 꽉 차서 밀려난 것은 그 칸의 플래시).
  *
  * 2026-09-12: `activateFallback`(2026-09-10) 의 ①②③ 을 그대로 떼어낸 것이다. 창고 더블클릭(`activateImpl`)이
  * **같은 순서를 먼저** 쓰기 위해서이고, 규칙은 한 벌뿐이다.
  */
 function tryAutoPlace(
-  sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation,
-  message: (name: string, where: string) => string,
+  sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation, onPlaced: OnPlaced,
 ): OpResult | null {
-  const notify = (where: string): void => {
-    sys.ctx.bus.emit('ui:notify', { text: message(def.name, where), kind: 'info', duration: 2.2 });
-  };
-
   const slot = emptyEquipTargetFor(sys, def);
   if (slot) {
     const r = sys.dropOnSlot(item, def, from, slot);
-    if (r === 'ok') { notify(SLOT_LABEL[slot]); return r; }
+    if (r === 'ok') { onPlaced(sys, def, SLOT_LABEL[slot], { kind: 'slot', slot }); return r; }
   }
 
   if (def.implant && !def.implant.broken) {
     const prog = sys.ctx.progression;
     if (prog && typeof prog.equipImplant === 'function' && prog.equipImplant(item.uid)) {
-      notify('임플란트 칸');
+      onPlaced(sys, def, '임플란트 칸', { kind: 'implant' });
       return 'ok';
     }
   }
@@ -508,7 +535,7 @@ function tryAutoPlace(
   if (isQuickUsable(def)) {
     const index = firstFreeQuickSlot(sys.quickSlots, sys.getQuickSlotCount());
     if (index >= 0 && sys.setQuickSlot(index, item.uid)) {
-      notify(`퀵슬롯 ${QUICK_DIR_GLYPH[index] ?? String(index + 1)}`);
+      onPlaced(sys, def, `퀵슬롯 ${QUICK_DIR_GLYPH[index] ?? String(index + 1)}`, { kind: 'quick', index });
       return 'ok';
     }
   }
@@ -519,9 +546,10 @@ function tryAutoPlace(
 /**
  * 2026-09-10 — 컨테이너 더블클릭이 **가방에 못 들어갔을 때만** 도는 폴백: `빈 장비 칸 → 임플란트 칸 →
  * 빈 퀵슬롯`(`tryAutoPlace`), 셋 다 아니면 `inventory:full` (예전과 똑같은 거부음 + 토스트).
+ * 2026-09-14 (사용자 결정): 성공했을 때의 `가방이 가득 찼습니다 — …` 토스트는 빠졌다 — 들어간 칸이 번쩍인다.
  */
 function activateFallback(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation): OpResult {
-  const placed = tryAutoPlace(sys, item, def, from, WENT_TO);
+  const placed = tryAutoPlace(sys, item, def, from, flashPlaced);
   if (placed) return placed;
   sys.ctx.bus.emit('inventory:full', { item, name: def.name });
   return 'fail';
@@ -563,7 +591,8 @@ export function takeAll(sys: InventorySystem): number {
   for (const item of items) {
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) continue;
-    if (!sys.bag.canAbsorb(item)) {
+    // 2026-09-14: 가방이 꽉 찼어도 **빈 휠 칸**이 받아 줄 소모품은 지나간다 (`takeOne` 이 그리로 옮긴다)
+    if (!sys.bag.canAbsorb(item) && autoQuickIndexFor(sys, item, def) < 0) {
       if (!fullReported) { fullReported = true; sys.ctx.bus.emit('inventory:full', { item, name: def.name }); }
       continue;
     }
@@ -579,6 +608,11 @@ export function takeOne(sys: InventorySystem, uid: string): OpResult {
   const p = c?.grid.get(uid);
   const def = p && ITEM_DEF_MAP.get(p.item.defId);
   if (!c || !p || !def) return 'fail';
+  /*
+   * 2026-09-14 (사용자 결정 — 소모품 퀵슬롯 자동 장착, **게임 전역**): 「모두 가져가기」는 사람이 목적지를 고르지 않는
+   * 줍기다. 휠에 올릴 수 있는 소모품이고 **빈 칸**이 있으면 가방보다 먼저 그 칸으로 (`parts/AutoQuick`).
+   */
+  if (takeIntoQuick(sys, p.item, def)) return 'ok';
   if (!sys.bag.canAbsorb(p.item)) { sys.ctx.bus.emit('inventory:full', { item: p.item, name: def.name }); return 'fail'; }
   c.grid.remove(uid);
   p.item.searched = true;

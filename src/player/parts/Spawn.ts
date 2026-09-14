@@ -28,6 +28,7 @@ import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER
 import type { CarryHost } from '../Carry';
 import { createPortraits } from '../Portraits';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import * as IntroWake from './IntroWake';
 import type { PlayerSystem } from '../PlayerSystem';
 
 /**
@@ -47,6 +48,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   if (sys.ctx.world?.ready) _v.y = Math.max(_v.y, sys.ctx.world.getHeightAt(_v.x, _v.z));
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -54,6 +56,8 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys._inPod = false;
   sys.shipBounds = null; sys.controller.shipBounds = null;
   sys.controller.reset(_v);
+  // 2026-09-14: 저장된 자세가 공중이었다면(점프 중에 끊겼다) 돌아온 사람만 낙하 피해를 받는다 — 복귀의 첫 낙하는 면제다
+  sys.controller.exemptFall();
   sys.slowTimer = 0; sys.slowFactor = 1; sys.controller.speedMultiplier = 1;
   sys.isDead = false; sys.deadTimer = 0; sys.invuln = 0.5; sys.flinch = 0;
   sys.healPool = 0;
@@ -118,12 +122,22 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   }
 
 /**
+ * 이 미션은 **헬포드로 떨어지는가.** 훈련장은 하늘이 없는 시뮬레이션 방이고(2026-09-08), 튜토리얼은
+ * 함선을 아직 갖지 못한 사람이 **그 행성에서 깨어나는** 이야기라 둘 다 포드가 없다 (2026-09-14).
+ * 강하 경로는 셋(`world:ready` · `respawn` · 구조선)이라 판정을 한 곳에 둔다.
+ */
+export function usesHellpod(ctx: GameContext): boolean {
+  return ctx.missionMode !== 'training' && ctx.missionMode !== 'tutorial';
+  }
+
+/**
  * Re-drop at `position` like at mission start (hellpod, full hp, alive, not downed). `player:respawn` → here.
  * 2026-09-08: **훈련장에서는 헬포드가 없다** — 시뮬레이션 방에 하늘이 없는 것은 진입이나 재시작이나 같다.
+ * 2026-09-14: 튜토리얼의 체크포인트 부활도 같은 이유로 포드가 없다 (`usesHellpod`).
  */
 export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
   sys.respawnAt(sys.resolveSpawn(position));
-  if (sys.ctx.missionMode !== 'training') sys.startDrop();
+  if (usesHellpod(sys.ctx)) sys.startDrop();
   }
 
 /**
@@ -136,6 +150,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
   sys.releaseRoverRide();   // 2026-09-13
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -213,6 +228,7 @@ export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: numb
   sys.releaseRoverRide();   // 2026-09-13
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14
   sys.clearClimbState();
   sys.attachTo(null);
   sys.setInterior(null);
@@ -369,6 +385,7 @@ export function resetAll(sys: PlayerSystem): void {
   sys.releaseRoverRide();   // 2026-09-13: game:abort · 재접속 대기
   sys.releaseDroneControl();   // 2026-09-11: game:abort · 재접속 대기
   sys.releaseFurniturePose('reset');   // 2026-09-12
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14: `game:abort` · 재접속 대기 — 알리지 않고 끝낸다
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);

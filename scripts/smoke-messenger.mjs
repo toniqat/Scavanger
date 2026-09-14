@@ -49,7 +49,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1600, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -178,12 +178,18 @@ try {
       ],
     };
     const unread = { npc_han_seojin: 2, npc_raven: 0 };
+    /** NPC → 아직 고르지 않은 대사 선택지 (2026-09-14). 이 스모크는 비워 둔다. */
+    const CHOICES = {};
     const emitQ = (q, prev) => bus.emit('npc:questChanged', { id: q.def.id, npc: q.def.npc, state: q.state, prev });
     window.__npc = {
       getContacts() {
         return Object.keys(NPCS).map((id) => ({ npc: NPCS[id], at: MSG[id].at(-1).at, unread: unread[id], preview: '…' })).sort((a, b) => b.at - a.at);
       },
       getMessages(id) { return MSG[id] ?? []; },
+      /* 2026-09-14 (대사 선택지): `NpcQuestRef` 에 둘이 늘었다 — 스텸에 없으면 `ChatTab.threadDataKey` 가
+         던져 대화가 통째로 안 그려진다. 여기서는 선택지를 쓰지 않으므로 빈 목록이다. */
+      getPendingChoices(id) { return CHOICES[id] ?? []; },
+      chooseIntro(id, i) { call('npc.chooseIntro', `${id}:${i}`); if (!CHOICES[id]?.[i]) return false; CHOICES[id] = []; return true; },
       markRead(id) { call('npc.markRead', id); unread[id] = 0; bus.emit('npc:unreadChanged', { total: this.unreadTotal }); },
       get unreadTotal() { return Object.values(unread).reduce((s, n) => s + n, 0); },
       getQuests() { return Object.values(Q); },

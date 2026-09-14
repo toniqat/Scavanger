@@ -1,5 +1,9 @@
-import type { MissionStats, PlanetId } from '@/shared';
+import type { IntelPick, MissionStats, PlanetId } from '@/shared';
+/* 2026-09-14: 튜토리얼도 같은 파일로 이어 한다 — 어떤 미션이었나 · 어디까지 갔나 */
+import { TUTORIAL_CHECKPOINTS, type TutorialCheckpointId } from '@/shared';
 import { slotKey } from '@/shared';
+/* 2026-09-14: 정보상 — 이어하기가 **행성과 똑같이** 기믹 고정을 되살려야 같은 맵이 나온다 */
+import { sanitizeIntelPicks } from '@/shared';
 import { SOLO_CLOCK_BACK_TOLERANCE_MS, SOLO_CLOCK_HIGH_KEY } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -61,6 +65,23 @@ export interface SoloRaidSave {
    */
   inventory: unknown;
   pose: SoloRaidPose;
+  /**
+   * appended (2026-09-14, 정보상): 이 레이드가 쓰고 있는 **기믹 고정**(`IntelSpec.picks`). 옛 세이브에는 없다 —
+   * 생략 = 아무것도 안 샀다. `planet` 과 똑같이 복원해야 한다: 안 하면 이어한 사람만 기믹이 빠진 맵을 만든다
+   * (시드는 같으니 지형은 같고 탈출구 · 지하실 · 둥지만 사라져 더 나쁘다).
+   */
+  intel?: IntelPick[];
+  /**
+   * appended (2026-09-14, 튜토리얼 개편): 이 세션이 **어떤 미션**이었나. 옛 세이브에는 없다 = `'raid'`.
+   * `resumeSoloRaid` 가 이 값으로 `game:newMission {mode}` 를 낸다 — 안 실으면 튜토리얼을 이어할 때
+   * 같은 시드로 **절차 생성 행성**이 만들어진다 (손으로 지은 맵이 통째로 사라진다).
+   */
+  mode?: 'raid' | 'tutorial';
+  /**
+   * appended (2026-09-14, 튜토리얼 개편): 마지막으로 지난 체크포인트. 월드는 새로 지어지면서 `'wake'` 로
+   * 돌아가므로, 이 값이 없으면 이어한 사람은 **다음에 죽을 때 맨 처음으로** 밀려난다.
+   */
+  checkpoint?: TutorialCheckpointId;
 }
 
 /** How a stored save reads right now. */
@@ -98,11 +119,17 @@ export function loadSoloRaid(): SoloRaidSave | null {
   const p = f.pose;
   if (!p || typeof p !== 'object') return null;
   const state = p.state === 1 || p.state === 2 ? p.state : 0;
+  const intel = sanitizeIntelPicks(f.intel);
+  const mode = f.mode === 'tutorial' ? 'tutorial' : 'raid';
+  const checkpoint = TUTORIAL_CHECKPOINTS.includes(f.checkpoint as TutorialCheckpointId) ? f.checkpoint as TutorialCheckpointId : null;
   return {
     v: SOLO_RAID_SAVE_VERSION,
     savedAt: num(f.savedAt),
     seed: f.seed,
     planet: (typeof f.planet === 'string' ? f.planet : null) as PlanetId | null,
+    ...(intel.length ? { intel } : {}),
+    ...(mode === 'tutorial' ? { mode } : {}),
+    ...(checkpoint ? { checkpoint } : {}),
     missionTime: Math.max(0, num(f.missionTime)),
     stats: f.stats,
     inventory: f.inventory ?? null,
