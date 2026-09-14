@@ -1939,3 +1939,25 @@ export const PLAYER_PRONE_CLEARANCE_M = K.num('PLAYER_PRONE_CLEARANCE_M');
  */
 export const TUTORIAL_START_HP = K.num('TUTORIAL_START_HP');
 /* ── end 2026-09-14 튜토리얼 ── */
+
+/* ── 2026-09-15 낙하 피드백 · 화염 지대 · 병사 림 (docs/TODO.md B-14 · B-16 · D-7) ── */
+/** 낙하 피해 → `camera:shake` (owner: player `parts/Fall`). intensity = min(MAX, damage × PER_DAMAGE). */
+export const FALL_SHAKE_PER_DAMAGE = K.num('FALL_SHAKE_PER_DAMAGE');
+export const FALL_SHAKE_MAX = K.num('FALL_SHAKE_MAX');
+export const FALL_SHAKE_S = K.num('FALL_SHAKE_S');
+/** 낙하 붉은 비네트 (owner: ui). 세기 = min(1, damage / FULL_DAMAGE), `FALL_VIGNETTE_S` 동안 사라진다. */
+export const FALL_VIGNETTE_S = K.num('FALL_VIGNETTE_S');
+export const FALL_VIGNETTE_FULL_DAMAGE = K.num('FALL_VIGNETTE_FULL_DAMAGE');
+/** 분대원 낙하 착지음 사거리 (m) — player 가 `FallMessage` 를 거르고 audio 가 감쇠에 쓴다. */
+export const FALL_REMOTE_SOUND_RANGE = K.num('FALL_REMOTE_SOUND_RANGE');
+/** G-10 소이 수류탄 화염 지대 (gadgets `GadgetId 'grenadeFire'`). */
+export const GRENADE_INCENDIARY_RADIUS = K.num('GRENADE_INCENDIARY_RADIUS');
+export const GRENADE_INCENDIARY_DURATION = K.num('GRENADE_INCENDIARY_DURATION');
+/** 화염 지대 공용 — 지지직 소리 간격 · 드론이 타는 높이 · HUD 표시 거리 (enemies · gadgets · ui). */
+export const FIRE_ZONE_CRACKLE_S = K.num('FIRE_ZONE_CRACKLE_S');
+export const FIRE_ZONE_DRONE_HEIGHT = K.num('FIRE_ZONE_DRONE_HEIGHT');
+export const FIRE_ZONE_DANGER_RANGE = K.num('FIRE_ZONE_DANGER_RANGE');
+/** 병사 림 (owner: player `SoldierModel`). */
+export const SOLDIER_RIM_STRENGTH = K.num('SOLDIER_RIM_STRENGTH');
+export const SOLDIER_RIM_POWER = K.num('SOLDIER_RIM_POWER');
+/* ── end 2026-09-15 ── */

@@ -1570,3 +1570,13 @@ export interface GameEvents {
   'housing:musicChanged': { state: MusicPlayerState };
 }
 /* ── end [2026-09-14] 음악 재생 ── */
+
+/* ── [2026-09-15] 낙하 피드백 (docs/TODO.md B-14) ────────────────────────────────────────────
+ * 로컬 낙하는 기존 `player:fell` 하나로 충분하다 — 착지음(audio `fall_impact`) · 화면 흔들림(player 가 `camera:shake`) ·
+ * 붉은 비네트(ui `.fall-vignette`)가 전부 그것을 듣는다. 분대원의 낙하는 `fall` 와이어(`FallMessage`)를 받은 player/ 가
+ * 아래 사실로 다시 낸다 — audio 가 거리 감쇠로 울린다. HUD 는 분대원 낙하에 반응하지 않는다. */
+export interface GameEvents {
+  /** Fact (player): 분대원 `peerId` 가 `position` 에 떨어져 `damage` 만큼 깎였다 (`FallMessage` 수신, 사거리 · 멤버 검사 뒤). 소리 전용. */
+  'player:remoteFell': { peerId: PeerId; position: THREE.Vector3; damage: number };
+}
+/* ── end [2026-09-15] 낙하 피드백 ── */

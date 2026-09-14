@@ -3293,3 +3293,37 @@ export interface WorldRef {
   previewLayout?(seed: number, planet: PlanetId | null, intel?: IntelEffects | null): MapPreviewLayout;
 }
 /* ══ end 2026-09-14 정보상 지도 미리보기 ══ */
+
+/* ══ appended (2026-09-15, B-16): 화염 지대 질의 · G-10 소이 수류탄 ═══════════════════════════════════
+ * 화염 지대는 두 폴더가 만든다 — 적 소이 수류탄(enemies `fx/RogueGrenade`)과 플레이어의 화염수류탄 · G-10 소이 수류탄
+ * (gadgets 배치물 `fire`). HUD 위험 표시(ui `hud/DangerIndicators`)가 둘을 **같은 모양**으로 읽는다.
+ * 색은 늘 그렇듯 「누구 것인가」 — `hostile`. 소리(`fire_ignite` · `fire_crackle`)와 드론 피해는 지대를 가진 폴더가 낸다. */
+export interface FireZoneInfo {
+  /** 폴더 안에서 고유한 id (HUD 가 풀 칸을 이어 붙이는 열쇠). enemies 는 `e:` 접두어, gadgets 는 배치물 id 그대로. */
+  readonly id: string;
+  /** 지대 중심 (바닥 높이). */
+  readonly position: THREE.Vector3;
+  readonly radius: number;
+  /** 남은 시간 (s). 끝난 지대는 목록에 없다. */
+  readonly remaining: number;
+  /** 적이 만든 지대 = true (빨강). 플레이어가 만든 것은 내 것이든 분대원 것이든 false (호박) — 둘 다 피아 구분 없이 태우지만 색은 주인을 말한다. */
+  readonly hostile: boolean;
+}
+
+export interface EnemyManagerRef {
+  /**
+   * appended (2026-09-15, B-16): 적 소이 수류탄이 만든 살아 있는 화염 지대 (전부 `hostile: true`). 권위 · 리플리카 둘 다 답한다
+   * (리플리카도 `ee grenadeHit.k` 로 시각 지대를 켠다). **매 프레임** 불린다 — 내부 배열을 재사용하고 새 객체를 만들지 않는다.
+   */
+  getFireZones?(): readonly FireZoneInfo[];
+}
+
+export interface ItemDef {
+  /**
+   * appended (2026-09-15, B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): 이 수류탄은 터진 자리에 **화염 지대**를
+   * 세운다 (`items.csv` 의 `grenadeFire` 열 — G-10 소이 수류탄). weapons 의 **로컬** 수류탄 폭발이 `ctx.gadgets.igniteGrenadeFire(pos)`
+   * 를 부른다 (복제본 · 시각 전용 폭발은 부르지 않는다). 없거나 false = 고폭 그대로.
+   */
+  grenadeFire?: boolean;
+}
+/* ══ end 2026-09-15 화염 지대 ══ */

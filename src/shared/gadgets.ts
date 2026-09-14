@@ -23,7 +23,9 @@ export type GadgetId =
   /* appended (2026-09-11) */
   | 'remoteMine'     // 원격 지뢰 — C4. 설치 후 손에 들고 우클릭으로 내 것 전부 기폭
   | 'droneGround'    // 지상 드론 — `ctx.drones` (shared/drones.ts). 아이템은 조종기로 남는다
-  | 'droneAir';      // 공중 드론 — 같은 규칙, 제자리 비행
+  | 'droneAir'       // 공중 드론 — 같은 규칙, 제자리 비행
+  /* appended (2026-09-15, B-16): G-10 소이 수류탄이 터진 자리의 작은 화염 지대 — **아이템이 없는** 내부 정의라 `GADGET_IDS` 에는 넣지 않는다 */
+  | 'grenadeFire';   // `GadgetsRef.igniteGrenadeFire` 전용 (크기 · 지속 = GRENADE_INCENDIARY_*)
 
 export const GADGET_IDS: readonly GadgetId[] = [
   'cloakVeil', 'domeShield', 'barricade', 'lureGrenade', 'smokeGrenade',
@@ -169,3 +171,21 @@ export interface GadgetsRef {
   /** 로컬 플레이어 소유로 월드에 남아 있는 원격 지뢰 수 (기폭기 손 상태 · HUD). */
   liveRemoteMineCount?(): number;
 }
+
+/* ══ appended (2026-09-15, B-16): 화염 지대 질의 · G-10 소이 수류탄 ══════════════════════════════════ */
+import type { FireZoneInfo } from './types';
+
+export interface GadgetsRef {
+  /**
+   * 살아 있는 `fire` 배치물 (전부 `hostile: false`). **모든 클라이언트**가 답한다 (복제본 포함). 매 프레임 불린다 — 재사용 배열.
+   */
+  getFireZones?(): readonly FireZoneInfo[];
+  /**
+   * G-10 소이 수류탄(`ItemDef.grenadeFire`)이 `position` 에서 터졌다 — 로컬 플레이어 소유의 작은 화염 지대를 세운다
+   * (`GadgetId 'grenadeFire'` 정의, `GRENADE_INCENDIARY_RADIUS` · `GRENADE_INCENDIARY_DURATION`, 초당 피해는 `GADGET_INCENDIARY_DPS`).
+   * 화염수류탄의 `onThrownImpact` 와 같은 길이다 — 권위면 즉시 `spawnDeployable`, 아니면 `gadq place` 로 호스트에 요청.
+   * 부르는 곳은 weapons 의 로컬 수류탄 폭발뿐이다.
+   */
+  igniteGrenadeFire?(position: THREE.Vector3): void;
+}
+/* ══ end 2026-09-15 화염 지대 ══ */

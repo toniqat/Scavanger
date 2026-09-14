@@ -850,7 +850,9 @@ export type GameMessage =
   | CharBuffRequest
   /* appended (2026-09-13): 탐사 차량 (owner: world/rover — 아래 `RoverMessage` 절) */
   | RoverMessage
-  | RoverRequest;
+  | RoverRequest
+  /* appended (2026-09-15, B-14): 분대원 낙하 착지 소리 (owner: player) */
+  | FallMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /**
@@ -2004,3 +2006,10 @@ export interface NetRef {
   startGame(seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void;
 }
 /* ══ end 2026-09-14 정보상 ══ */
+
+/* ══ appended (2026-09-15, B-14): 분대원 낙하 착지 ══════════════════════════════════════════════
+ * 떨어져 **실제로 피해를 입은 본인**이 `others` 로 보낸다 (`player/parts/Fall.onLanded`, `player:fell` 을 내는 바로 그 자리).
+ * `p` = 착지한 발 위치, `d` = 실제로 깎인 양(실드 + 체력). 받는 쪽(player)은 **로비 멤버가 보낸 것만**, `d` 를
+ * `[0, FALL_DAMAGE_MAX]` 로 자르고 로컬 카메라에서 `FALL_REMOTE_SOUND_RANGE` 밖이면 버린 뒤 `player:remoteFell` 을 낸다.
+ * 소리만을 위한 메시지다 — 체력 · 실드는 이미 스냅샷이 싣는다. 튜토리얼 · 훈련장은 솔로라 보낼 일이 없다. */
+export interface FallMessage { t: 'fall'; p: Vec3Tuple; d: number }
