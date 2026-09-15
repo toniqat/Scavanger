@@ -21,7 +21,7 @@ import type { CarryEndReason, PortraitRef } from '@/shared';
 import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
 import type { CarryHost } from './Carry';
 import { createPortraits } from './Portraits';
-import { snapshotFace as snapshotFaceImage } from './FaceSnapshot';
+import { snapshotAndroidFace as snapshotAndroidFaceImage, snapshotFace as snapshotFaceImage } from './FaceSnapshot';
 
 import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST, createFurniturePoseState, type FurniturePoseState } from './model';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from './model';
@@ -1470,6 +1470,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Build `cells` character portraits into `host` (its own WebGL context; null when one is unavailable). */
   /** 2026-09-15: 터미널 매칭 탭의 얼굴 초상 (캐릭터 생성 확정 팝업과 같은 프레이밍) — `FaceSnapshot.ts`. */
   snapshotFace(opts: { accent: string; size?: number }): string | null { return snapshotFaceImage(opts); }
+
+  /** 2026-09-15 (안드로이드 분대원): 같은 프레이밍의 안드로이드 얼굴 — `PlayerRef.snapshotAndroidFace`. */
+  snapshotAndroidFace(opts: { accent: string; size?: number }): string | null { return snapshotAndroidFaceImage(opts); }
 
   createPortraits(host: HTMLElement, cells: number): PortraitRef | null {
     return createPortraits(this.ctx, host, cells);

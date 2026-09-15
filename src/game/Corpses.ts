@@ -15,6 +15,8 @@ import * as THREE from 'three';
 import {
   NET_SLOT_COLORS, PLAYER_CORPSE_COLS, PLAYER_CORPSE_LOOT_RANGE, PLAYER_CORPSE_ROWS,
   recordRideLocal, restoreRideLocal, normalizeMealQuality,
+  /* appended (2026-09-15): 안드로이드 분대원 — 시체의 외형 · 문구를 id 하나로 가른다 */
+  isAndroidId,
   type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
   type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
@@ -102,6 +104,14 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     this.group.position.copy(position);
     this.group.rotation.y = yaw;
     this.model = new SoldierModel(NET_SLOT_COLORS[slot] ?? SOLDIER_DEFAULT_ACCENT);
+    /*
+     * 2026-09-15 (안드로이드 분대원): 안드로이드의 잔해는 **id 로** 알아본다 (`pcorpse:android:<scope>:<bay>:<n>`).
+     * 와이어에 칸을 늘리지 않는 이유가 이것이다 — 받는 쪽도 같은 id 를 보므로 같은 외형을 만든다.
+     * `setAndroidLook` 은 player/ 가 붙이는 메서드라 있으면 쓴다 (없으면 평범한 병사 모습으로 남는다).
+     */
+    if (isAndroidId(ownerId)) {
+      (this.model as { setAndroidLook?: (on: boolean) => void }).setAndroidLook?.(true);
+    }
     // 시체는 어둡게 — 살아 있는 분대원과 한눈에 구분된다
     this.model.setGreyed(true);
     for (let i = 0; i < SETTLE_STEPS; i++) this.model.update(SETTLE_DT, 0, DEAD_POSE);
@@ -222,8 +232,13 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     this.group.rotation.y = this.yawNow;
   }
 
+  /** 2026-09-15: 안드로이드의 것인가 (외형 · 문구). */
+  get isAndroid(): boolean { return isAndroidId(this.ownerId); }
+
   getPrompt(): string | null {
-    return this.emptied ? '비어 있음' : `${this.ownerName}의 유해 뒤지기`;
+    if (this.emptied) return '비어 있음';
+    // 2026-09-15: 사람은 「유해」, 안드로이드는 「잔해」다 (같은 컨테이너, 다른 물건)
+    return this.isAndroid ? `${this.ownerName}의 잔해 뒤지기` : `${this.ownerName}의 유해 뒤지기`;
   }
 
   canInteract(): boolean {
@@ -238,7 +253,7 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     const inv = this.ctx.inventory;
     if (this.emptied || !inv || typeof inv.openContainerItemsSized !== 'function') return;
     inv.openContainerItemsSized(this.id, this.items, this.position,
-      PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS, `${this.ownerName}의 유해`);
+      PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS, `${this.ownerName}의 ${this.isAndroid ? '잔해' : '유해'}`);
   }
 
   /** `PlayerCorpseWire` 로 (호스트의 `pcorpse sync` · 사망 본인의 `spawn`). */
@@ -357,6 +372,30 @@ export class PlayerCorpseManager implements CorpsesRef {
       id, ownerId, ownerName, position: c.position.clone(), yaw,
     });
     return c;
+  }
+
+  /**
+   * 2026-09-15 (`CorpsesRef.spawnAllyCorpse`, caller: allies/): 죽은 안드로이드의 잔해를 남긴다.
+   *
+   * 사람의 시체(`parts/CorpseNet.spawnLocalCorpse`)와 **같은 길**이다 — 컨테이너 id `pcorpse:<allyId>:<n>`,
+   * 같은 `pcorpse spawn` 방송, 가져가기는 기존 `cont` / `contq`. 다른 점은 셋뿐이다:
+   *  ① **권위만** 만든다 (안드로이드는 호스트가 굴린다 — 죽은 본인이 말할 수 없다),
+   *  ② `items` 는 부르는 쪽이 고른 **레이드에서 주운 것**뿐이다 (기본 킷은 묶인 물건이라 잔해에 남지 않는다),
+   *  ③ 몸이 안드로이드 외형이다 — 그것은 id 로 갈린다 (`PlayerCorpseObject` 생성자).
+   * 만든 시체 id, 못 만들었으면 null.
+   */
+  spawnAllyCorpse(allyId: string, name: string, slot: number, position: THREE.Vector3, yaw: number,
+    items: readonly ItemInstance[]): string | null {
+    const ctx = this.ctx;
+    if (!ctx.isAuthority || typeof allyId !== 'string' || !allyId) return null;
+    const pos = position.clone();
+    // 사람과 같은 규칙 — 지형이 아니라 밟을 수 있는 표면 (전차 데크 · 2층 바닥)
+    if (ctx.world?.ready) pos.y = ctx.world.getSurfaceY(pos.x, pos.z, pos.y);
+    const id = this.nextId(allyId);
+    const corpse = this.add(id, allyId, name || '안드로이드', pos, Number.isFinite(yaw) ? yaw : 0,
+      ctx.missionTime, items.filter((it) => !!it), Math.max(0, slot | 0));
+    if (ctx.isMultiplayer) ctx.net?.send({ t: 'pcorpse', ev: 'spawn', corpse: corpse.toWire() }, 'all');
+    return id;
   }
 
   /** `crate:looted` / `pcorpse emptied`: 프롬프트만 바뀐다 — 메시는 레이드가 끝날 때까지 남는다. */

@@ -46,6 +46,8 @@ import { meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 /* 2026-09-15 (결과 창 개편): 플레이어 피해의 출처 (개체별 캐시) */
 import { enemyDamageSource, enemyTypeOf } from './Damage';
+/* 2026-09-15 (안드로이드 분대원): 적의 광역 피해 · 화염 지대의 안드로이드 몫 */
+import { allyDamage, damageAlliesAt } from './Damage';
 
 /**
  * 2026-09-15 (결과 창 개편): 날아가는 포탄 → 쏜 포병 개체. 포탄 풀은 주인을 모르므로 권위가 발사 때 적고 착탄 · 요격 때 지운다.
@@ -146,6 +148,8 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
       if (_kb.lengthSq() < 1e-4) _kb.set(0, 1, 0); else _kb.normalize();
       sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
     }
+    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (가슴에서 잰 거리 · 하한 0.1). 넉백은 없다.
+    damageAlliesAt(sys, p, radius, damage, owner, type, 0.1, 'chest');
     sys.explode(p, radius, damage, 'ai', null, null, thrower?.faction ?? 'rogue');
     // 드론 · 탐사 차량 몫은 `explode()` 안이 아니라 **적 폭발 자리마다** 따로 부른다 — `explode()` 는 플레이어 무기 · 가젯 ·
     // 함선 호출 · 리플리카 `explode` 요청도 지나가므로, 거기 넣으면 드론은 두 번 맞고 차량은 플레이어 공격에 깎인다.
@@ -196,6 +200,16 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
       // 2026-09-15 (결과 창 개편): 화상 틱 · 사망 원인 = 불을 지른 적 개체 (캐시된 출처 — 틱마다 할당 없음)
       if (pl && !pl.isDead && typeof pl.setBurning === 'function') pl.setBurning(dps, ENEMY_INCENDIARY.afterburn, enemyDamageSource(owner, type));
     } else sys.applyDamage(t, dps * tick, p, owner, type, null, 0, false);
+  }
+  // 2026-09-15 (안드로이드 분대원): 지대에 서 있으면 사람과 같은 dps × tick (안드로이드는 `setBurning` 같은 자기 화상 상태가 없다)
+  const allies = sys.targets.allies;
+  for (let i = 0; i < allies.length; i++) {
+    const t = allies[i];
+    if (t.isDeadOrDowned || t.allyId === null) continue;
+    const dx = t.position.x - p.x, dz = t.position.z - p.z;
+    const reach = radius + PLAYER_RADIUS;
+    if (dx * dx + dz * dz > reach * reach || Math.abs(t.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
+    allyDamage(sys, t.allyId, dps * tick, enemyDamageSource(owner, type), p);
   }
   const veh = sys.targets.vehicleTarget();
   if (veh && veh.vehicle && veh.vehicleGap2D(p.x, p.z) <= radius && Math.abs(veh.position.y - p.y) <= FIRE_ZONE_HEIGHT) {
@@ -284,6 +298,15 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
   const players = sys.targets.alive;
   for (let i = 0; i < players.length; i++) {
     const t = players[i];
+    const tt = rayStandingCapsule(_m, _dir, t.position, PLAYER_RADIUS, PLAYER_HEIGHT);
+    if (tt >= 0 && tt < hitT) { hitT = tt; victim = t; }
+  }
+  // 2026-09-15 (안드로이드 분대원): 사람과 **같은 캡슐**로 총알을 막는다 — 몸 크기도, 맞는 방식도 같다.
+  // 피해는 `applyDamage` 의 안드로이드 가지 → `ctx.allies.damage` (권위에서만).
+  const allies = sys.targets.allies;
+  for (let i = 0; i < allies.length; i++) {
+    const t = allies[i];
+    if (t.isDeadOrDowned) continue;
     const tt = rayStandingCapsule(_m, _dir, t.position, PLAYER_RADIUS, PLAYER_HEIGHT);
     if (tt >= 0 && tt < hitT) { hitT = tt; victim = t; }
   }
@@ -441,6 +464,8 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
         sys.applyDamage(t, dmg, p, shooter?.id ?? 0, shooter?.type ?? 'artillery', null, 0.9, false);
       }
     }
+    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발에서 잰 거리 · 하한 0.25). 배리어는 사람만 든다.
+    damageAlliesAt(sys, p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, shooter?.id ?? 0, shooter?.type ?? 'artillery', 0.25, 'feet');
     sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 'ai', null, null);   // friendly fire on bugs and rogues alike
     ctx.drones?.applyExplosion(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE);      // 2026-09-11: 드론도 (권한에서 한 번)
     sys.targets.damageVehicleAt(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 0.25); // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
@@ -478,6 +503,8 @@ export function acidBurst(sys: EnemySystem, e: Enemy): void {
         sys.applyDamage(t, dmg, e.position, e.id, e.type, { duration: 1.2, factor: 0.7 }, 0, false);
       }
     }
+    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 폭발. 하한이 없는 것도 같다 (몸 반지름만큼만 후하게 잰다).
+    damageAlliesAt(sys, e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage, e.id, e.type, 0, 'feet');
     ctx.drones?.applyExplosion(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage);   // 2026-09-11
     sys.targets.damageVehicleAt(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage, 0.4);   // 2026-09-13
   }
@@ -503,6 +530,8 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
       sys.applyDamage(t, dmg, _c, e.id, e.type, { duration: 1.5, factor: 0.65 }, 0.5, false);
     }
   }
+  // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발 거리 · 하한 0.2). 둔화는 없다.
+  damageAlliesAt(sys, _c, TOXIC_RADIUS, TOXIC_DAMAGE, e.id, e.type, 0.2, 'feet');
   sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 'ai', null, e);
   ctx.drones?.applyExplosion(_c, TOXIC_RADIUS, TOXIC_DAMAGE);   // 2026-09-11: 자폭은 권한에서만 불린다
   sys.targets.damageVehicleAt(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 0.2);   // 2026-09-13: 탐사 차량

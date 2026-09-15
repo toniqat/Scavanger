@@ -52,6 +52,8 @@ import { turnToward, yawTo } from '../ai/Steering';
 import { round, tuple } from '../net/HostSync';
 import { isVec3Tuple } from '../model';
 import { applyWormHint, WORM_HINT_ACID, WORM_HINT_SPIT } from './Pose';
+/* appended (2026-09-15, 안드로이드 분대원): 분출의 안드로이드 몫 */
+import { damageAlliesAt } from '../parts/Damage';
 import type { EnemySystem } from '../EnemySystem';
 
 /** 뱉기 · 분출 무리의 종류 후보 (행성 생태계 가중치로 뽑는다). 포병 · 차저 · 베헤모스는 뱉기에 너무 크다. */
@@ -347,6 +349,8 @@ export class SandwormDirector {
       _kb.normalize();
       sys.applyDamage(t, SANDWORM_ERUPT_DAMAGE * falloff, p, worm?.id ?? 0, 'sandworm', null, 0, false, _kb, SANDWORM_ERUPT_KNOCKBACK * kbFalloff);
     }
+    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (수평 거리 · 하한 0.3). 넉백은 없다 — 몸은 권위가 굴린다.
+    damageAlliesAt(sys, p, R, SANDWORM_ERUPT_DAMAGE, worm?.id ?? 0, 'sandworm', 0.3, 'feet2d');
     _c.set(p.x, p.y + 1, p.z);
     sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE, 'ai', null, worm, 'bug');   // 다른 팩션 적 (벌레는 제 편)
     ctx.drones?.applyExplosion(p, R, SANDWORM_ERUPT_DAMAGE);

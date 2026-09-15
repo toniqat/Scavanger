@@ -25,7 +25,7 @@ import {
   HAZARD_WARN_S, Random,
   type GameContext, type HazardKind, type HazardRef, type HazardSource, type HazardZone, type PeerId,
 } from '@/shared';
-import type { BuildCtx } from './build';
+import { PLAY_LIMIT, type BuildCtx } from './build';
 import { ATMO_EPS, PROGRESS_EMIT_S, type HazardPlan, type HazardRow, hazardRow } from './hazard/model';
 import { HAZARD_FORK, drawHazardKind, planGroveSpots, planHazard } from './hazard/parts/Plan';
 import { buildZones, maxDepth, progressAt } from './hazard/parts/Zones';
@@ -55,6 +55,14 @@ function hazardDamageOpts(kind: HazardKind): PlayerDamageOptions | undefined {
 const DISCOVER_INTERVAL_S = 0.5;
 /** 구역 안에서 진행도 때문에만 시야 배수가 바뀔 때 `atmo:override` 를 다시 내는 최소 변화폭 (2026-09-13). */
 const FOG_MUL_EPS = 0.1;
+
+/* ── 2026-09-15 (`nearestSafePoint`) — 전부 **기하 여유**이지 밸런스 수치가 아니다 (`ATMO_EPS` 와 같은 자리). ── */
+/** 경계에 정확히 걸치지 않도록 후보를 조금 더 밀어내는 여유(m) — 부동소수 오차로 다시 "안" 이 되는 것을 막는다. */
+const ZONE_SLACK = 0.25;
+/** 겹친 원밭에서 훑는 고리의 간격(m). */
+const SAFE_RING_STEP_M = 8;
+/** 훑는 고리의 최대 개수 (= 반경 `SAFE_RING_STEP_M × 이 수` 까지 본다). */
+const SAFE_RING_STEPS = 40;
 
 /** 2026-09-13 — 진행도 `progress` 에서의 초당 피해: `HAZARD_DPS`(시작) → `HAZARD_DPS_MAX`(맵을 다 덮었을 때) 선형. */
 function dpsAt(progress: number): number {
@@ -201,6 +209,71 @@ export class Hazard implements HazardRef {
   isInside(x: number, z: number): boolean {
     if (!this.active) return false;
     return maxDepth(this.getZones(), x, z) > 0;
+  }
+
+  /**
+   * 2026-09-15 (안드로이드 분대원) — `(x, z)` 에서 **가장 가까운 안전한 자리**. 안전 = 모든 도형의 침투 깊이가
+   * `-margin` 이하 (가장자리에서 `margin` m 안쪽). 맵이 다 덮였거나 재해가 없으면 null.
+   *
+   * 두 단계다. ① 도형마다 「그 하나를 벗어나는 가장 가까운 점」을 만든다 — 반평면(`front`)은 법선 쪽으로 밀고,
+   * 위험이 안쪽인 원은 반지름 밖으로, 위험이 바깥인 원(폭풍의 눈)은 반지름 안으로. 도형이 하나뿐인 재해
+   * (모래 폭풍 · 눈보라 · 폭풍의 눈)는 여기서 **정확한** 답이 나온다. ② 포자처럼 원이 여러 개면 후보가 다른 원에
+   * 걸릴 수 있어, 점점 넓어지는 고리를 훑어 처음 통과한 점을 쓴다 (탈출 방향만 알면 되는 쓰임이라 근사로 충분하다).
+   * `out.y` 는 그 자리의 지형 높이다 (월드가 없으면 0).
+   */
+  nearestSafePoint(x: number, z: number, margin: number, out: THREE.Vector3): THREE.Vector3 | null {
+    const zones = this.active ? this.getZones() : null;
+    const m = Number.isFinite(margin) && margin > 0 ? margin : 0;
+    const limit = PLAY_LIMIT - m;
+    const safe = (px: number, pz: number): boolean =>
+      Math.abs(px) <= limit && Math.abs(pz) <= limit && (!zones || zones.length === 0 || maxDepth(zones, px, pz) <= -m);
+    const write = (px: number, pz: number): THREE.Vector3 => {
+      out.set(px, this.game?.world?.getHeightAt(px, pz) ?? 0, pz);
+      return out;
+    };
+    if (safe(x, z)) return write(x, z);
+    if (!zones || zones.length === 0) return null;
+
+    let bestX = 0, bestZ = 0, bestD = Infinity;
+    const offer = (px: number, pz: number): void => {
+      if (!safe(px, pz)) return;
+      const d = (px - x) * (px - x) + (pz - z) * (pz - z);
+      if (d < bestD) { bestD = d; bestX = px; bestZ = pz; }
+    };
+    for (let i = 0; i < zones.length; i++) {
+      const zn = zones[i];
+      if (zn.shape === 'front') {
+        // 부호거리 = (p − center)·dir. 안전하려면 ≥ m 이어야 하므로 모자란 만큼 법선 쪽으로 민다.
+        const dot = (x - zn.center.x) * zn.dirX + (z - zn.center.z) * zn.dirZ;
+        const need = m + ZONE_SLACK - dot;
+        if (need > 0) offer(x + zn.dirX * need, z + zn.dirZ * need);
+        continue;
+      }
+      const dx = x - zn.center.x, dz = z - zn.center.z;
+      const d = Math.hypot(dx, dz);
+      const ux = d > 1e-4 ? dx / d : 1, uz = d > 1e-4 ? dz / d : 0;
+      if (zn.safeInside) {
+        // 위험이 바깥 (폭풍의 눈): 반지름 − margin 안으로. 그만한 눈이 남아 있지 않으면 후보가 없다.
+        const r = zn.radius - m - ZONE_SLACK;
+        if (r > 0 && d > r) offer(zn.center.x + ux * r, zn.center.z + uz * r);
+      } else {
+        const r = zn.radius + m + ZONE_SLACK;
+        offer(zn.center.x + ux * r, zn.center.z + uz * r);
+      }
+    }
+    if (bestD < Infinity) return write(bestX, bestZ);
+
+    // 후보가 전부 다른 도형에 걸렸다 (원이 겹친 포자밭) — 고리를 넓혀 가며 훑는다
+    for (let step = 1; step <= SAFE_RING_STEPS; step++) {
+      const r = step * SAFE_RING_STEP_M;
+      const n = Math.max(8, Math.min(64, Math.round((2 * Math.PI * r) / SAFE_RING_STEP_M)));
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        offer(x + Math.cos(a) * r, z + Math.sin(a) * r);
+      }
+      if (bestD < Infinity) return write(bestX, bestZ);
+    }
+    return null;
   }
 
   getZones(): readonly HazardZone[] {

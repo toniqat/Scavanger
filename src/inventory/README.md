@@ -43,6 +43,7 @@ inventory only through `InventoryRef` (`src/shared/types.ts`) and bus events.
 | `parts/SocketRules.ts` | `returnForbiddenAttachments` at load |
 | `parts/ShelfWanted.ts` | "Not yet shelved" ribbon source (`HousingRef.isShelfItemWanted`) |
 | `parts/Peek.ts` | `peekContainerItems` / `peekSuppliedItems` |
+| `parts/Allies.ts` | Android hooks: `createAllyBag`, `weightInfoFor`, `takeContainerItemFor`, item-request / container-viewed events, `inventory:allyDeposit` → stash |
 | `parts/Catalog.ts` | Dev infinite-crate catalog (`/items`) |
 | `parts/LaunchCheck.ts` | `getLaunchWarnings()` (drawn by `hub/ui/LaunchWarnPanel`) |
 | `ui/InventoryUI.ts` | Window DOM, panels, drag wiring, pouch block, flashes, hover validation, resize cell sync |
@@ -115,8 +116,17 @@ scroll in `.tg-gridwrap`, so the host needs a height-constrained flex parent.
   `player:respawn`, `hub:entered`, `net:profileLoaded`, `net:hostChanged`, `housing:stashSizeChanged`,
   `housing:libraryChanged`, `tutorial:changed`, `implant:equipped`, `progress:*`, `meta:creditsChanged`,
   `input:bindingsChanged`.
+- Androids (2026-09-15, `parts/Allies.ts`): `createAllyBag(cols, rows)` → `AllyBagRef` (a DOM-less `Grid` with the
+  player's stack rules), `weightInfoFor(carried, bag)` (the player formula with no carry relief, base capacity
+  `DEFAULT_CARRY_CAPACITY`), `takeContainerItemFor(containerId, tier, defId, by)` (authority only; `containerId` is
+  the inventory container id = `WorldRef.getLootContainers()` id — `crate_<n>` or the structure spec id **without**
+  the `container:` prefix). Emits `inventory:itemRequested` (kind `shield` / `ammo` / `heal` / `item`; `defId` is
+  the def of the clicked item, `ammoType` the calibre) next to the old chat line, `inventory:containerViewed` from
+  `showContainer` (the one door every loot window goes through), and `ally:deposited` for `inventory:allyDeposit`.
+  A non-authority client also sends `allyq item` / `allyq viewing` to the host.
 - Wire (`src/shared/net.ts`): `cont` (`taken {rem, seq}` / `denied` / `sync`) host → clients; `contq` (`take` /
-  `sync`) client → host; `flow rejoined` → `cont sync`; `pcorpse` pre-creates corpse containers.
+  `sync`) client → host; `flow rejoined` → `cont sync`; `pcorpse` pre-creates corpse containers;
+  `allyq item` / `allyq viewing` client → host.
 - Storage (via `slotKey`): `scav.stash`, `scav.loadout`, `scav.grant`; profile documents `stash`, `loadout`.
 
 ## Equipment slots
@@ -330,6 +340,8 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 ## Recent changes
 
 Older: `git log -- src/inventory`.
+- 2026-09-15 — Android hooks (`parts/Allies.ts`): ally bag / weight, `takeContainerItemFor` (`ContainerStore.prime`,
+  `announceTake(by)`), `inventory:itemRequested` / `containerViewed` / `allyDeposit`.
 - 2026-09-15 — Requesting the equipped armor while the shield is not full posts `실드 충전 필요` (menu `실드 충전 요청`);
   `wantsShieldRecharge(from)` is the one check for both.
 - 2026-09-15 — Stash + bag as one card everywhere; filter dropdown; craft column = thumbnail grid + detail; ship

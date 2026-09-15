@@ -717,18 +717,29 @@ try {
   ok(dis.opened && dis.idle && dis.isBtn, 'openDisassemble: the 분해 button is the gauge and reads empty while idle', JSON.stringify(dis));
   ok(dis.stripped, 'no separate 분해 게이지 bar and no `1회 분해 · n s` hint line');
   ok(dis.running && dis.label === '분해 중…', `분해 button starts the hold (${dis.dur.toFixed(2)} s)`);
-  const samples = [];
-  for (let k = 0; k < 4; k++) {
-    await waitSim(dis.dur * 0.15);
-    samples.push(await page.evaluate(() => {
-      const p = window.__game.getSystem('inventory')['ui'].disassemblePanel;
-      const f = document.querySelector('.inv-dis-btn .inv-craft-fill');
-      return { w: parseFloat(f.style.width) || 0, t: p.progress };
-    }));
-  }
+  /* 2026-09-15: 표본을 **한 evaluate 안에서** 모은다. 예전에는 `waitSim(dis.dur * 0.15)` 로 네 번 페이지를
+     왕복했는데, `craftDuration()` 은 언제나 `CRAFT_HOLD_TIME`(1.0 s)이고 `waitSim` 은 Node 에서 100 ms 마다
+     폴링하므로 한 걸음이 0.15 s 가 아니라 0.22 s 쯤이었다 — 부하가 걸리면 3·4 번째 표본을 읽기 전에 작업이
+     끝나 게이지가 0 으로 돌아갔고, "자라고 있다" 가 0 % 를 보고 깨졌다. 재는 것은 처음부터 "홀드가 도는
+     동안 채움이 단조 증가한다" 였으니, 작업이 끝나는 순간(`craftProgress()` null) 표집을 멈춘다. */
+  const samples = await page.evaluate(async () => {
+    const sys = window.__game.getSystem('inventory');
+    const p = sys['ui'].disassemblePanel;
+    const fill = () => parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0;
+    const out = [];
+    const t0 = performance.now();
+    while (performance.now() - t0 < 5000) {
+      if (!sys.craftProgress()) break;                 // 끝난 뒤의 0 % 는 표본이 아니다
+      out.push({ w: fill(), t: p.progress });
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    return out;
+  });
   const widths = samples.map((s) => s.w);
-  ok(widths.every((w, k) => k === 0 || w > widths[k - 1]) && widths[0] > 0 && widths[3] < 100, `button fill growing across the hold (${widths.map((w) => w.toFixed(1)).join(' → ')} %)`, JSON.stringify(samples));
-  ok(samples.every((s) => Math.abs(s.w - s.t * 100) < 0.2), 'fill width = job progress', JSON.stringify(samples));
+  // 마지막 표본이 100 % 인 것은 정상이다 (t = 0.9999 에서 아직 도는 중) — 상한을 걸면 그게 또 타이밍 판정이 된다
+  const grew = widths.length >= 3 && widths.every((w, k) => k === 0 || w >= widths[k - 1]) && widths[0] < 20 && widths[widths.length - 1] > widths[0] + 20;
+  ok(grew, `button fill growing across the hold (${widths.length} samples: ${widths.map((w) => w.toFixed(1)).join(' → ')} %)`, JSON.stringify(samples));
+  ok(samples.length > 0 && samples.every((s) => Math.abs(s.w - s.t * 100) < 0.2), 'fill width = job progress', JSON.stringify(samples));
   await waitFor(page, () => window.__ev['inventory:disassembleProgress'].some((e) => e.done), 'disassembleProgress done', 60000);
   await sleep(120);
   const disEv = await page.evaluate((uid) => {

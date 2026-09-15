@@ -13,7 +13,7 @@ import { Notifications } from './hud/Notifications';
 import { DamageOverlay } from './hud/DamageOverlay';
 import { DeployOverlay } from './hud/DeployOverlay';
 import { ScopeOverlay } from './hud/ScopeOverlay';
-import { Pings } from './hud/Pings';
+import { Pings, type PingView } from './hud/Pings';
 import { Squad } from './hud/Squad';
 import { Nameplates } from './hud/Nameplates';
 import { TypingBubbles } from './hud/TypingBubbles';
@@ -76,6 +76,11 @@ import { NamedScanWarning } from './hud/NamedScanWarning';
 import { GadgetHandHint } from './hud/GadgetHandHint';
 /* 2026-09-11 (B-1): 서버 연결 배지 (함선 · 타이틀 우측 상단) */
 import { NetBadge } from './hud/NetBadge';
+/* 2026-09-15 (레이드 진입 로딩): 암전 위에서 도는 우측 하단 원형 게이지 */
+import { LoadingGauge } from './hud/LoadingGauge';
+/* 2026-09-15 (안드로이드 분대원): ui 가 `ctx.allies` 를 읽는 유일한 창구 (스모크가 가짜 ref 를 꽂는다) */
+import type { AlliesRef } from '@/shared';
+import { setDebugAllies } from './hud/allySource';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -141,6 +146,8 @@ export class HudSystem implements GameSystem {
   private fadeOpacity = 0;
   /** 2026-09-15 (B-14): 낙하 붉은 비네트 (`player:fell`) — `#ui-root` 직계 z 25, 연출 전용 판. */
   private fallVignette!: FallVignette;
+  /** 2026-09-15: 레이드 진입 로딩 게이지 — `#ui-root` 직계 z 87 (검은 페이드 82 위에서 돈다). */
+  private loadingGauge!: LoadingGauge;
   /** 2026-09-14: 지금 판에 칠해진 불투명도 · 전이의 시작값 · 경과 · 길이 — CSS 전이 대신 `update` 가 옮긴다. */
   private fadeShown = 0;
   private fadeFrom = 0;
@@ -383,6 +390,9 @@ export class HudSystem implements GameSystem {
     /* 2026-09-15 (B-14): 낙하 붉은 비네트 — 같은 성격(연출 · 포인터 안 먹음)이지만 z 25 라 HUD 레이어 위 · 열린 화면 아래다
      * (근거는 `styles/fall.css` 머리). 세기와 사라짐은 `update(dt)` 가 인라인으로 쓴다. */
     this.fallVignette = new FallVignette(ctx.uiRoot);
+    /* 2026-09-15 (레이드 진입 로딩): 같은 이유로 `#ui-root` 직계다 — 검은 페이드(z 82) **위**에서 돌아야 한다.
+     * 이것도 연출이지 화면이 아니다 (blocker · escape 없음, 포인터를 먹지 않는다). */
+    this.loadingGauge = new LoadingGauge(ctx.uiRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
@@ -413,6 +423,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.cursorHold, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.bind(ctx);
     this.musicPlayer.bind(ctx);                                // 음악 재생 창 (2026-09-14)
     this.fallVignette.bind(ctx);                               // 낙하 붉은 비네트 (2026-09-15)
+    this.loadingGauge.bind(ctx);                               // 레이드 진입 로딩 게이지 (2026-09-15)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.bind(ctx);
@@ -599,6 +610,9 @@ export class HudSystem implements GameSystem {
     this.damage.update(dt, ctx);
     // 낙하 비네트: 꺼져 있으면 비교 하나로 끝난다 (레이어 가시성과 무관 — 사라지는 도중 메뉴가 떠도 제 시간에 꺼진다).
     this.fallVignette.update(dt);
+    /* 2026-09-15: 로딩 게이지는 **dt 를 받지 않는다** — 로딩 게이트가 엔진을 잡고 있는 동안 dt 가 0 이라
+     * 시뮬레이션 시계로는 한 프레임도 움직이지 않는다 (`hud/LoadingGauge` 머리 주석). 꺼져 있으면 비교 하나. */
+    this.loadingGauge.update();
     this.complete.update(dt);
     this.death.update(dt);
     // 타이틀 흐름: 캐릭터 생성창의 3D 미리보기만 돈다 (닫혀 있으면 즉시 돌아온다).
@@ -837,6 +851,31 @@ export class HudSystem implements GameSystem {
   /** 입력 중 말풍선 — who has one showing right now (debug / smoke, 2026-09-11 B-11). */
   get typingBubbleIds(): readonly PeerId[] { return this.typing.visibleIds; }
 
+  /* ── 2026-09-15: 안드로이드 분대원 · 레이드 진입 로딩 (debug / smoke) ────────────────────────────────── */
+
+  /**
+   * Smoke hook: install any `AlliesRef` as `ctx.allies` for every ui reader (분대 목록 · 이름표 · 지도 · 나침반 ·
+   * 범례). `null` hands the UI back to the real `ctx.allies`. Same shape as `debugSocial` / `debugNpc`.
+   */
+  debugAllies(ref: AlliesRef | null): void { setDebugAllies(ref); }
+  /** 분대 목록의 보이는 행들 (사람 + 안드로이드), DOM 순서. */
+  get squadRows(): Array<{ id: string; name: string; badge: string; state: string; hp: string; shield: string; android: boolean }> { return this.squad.rowStates; }
+  /** 안드로이드 이름표 — id · 이름 · 꼬리표 · 체력 · 실드 · 보이는가. */
+  get allyNameplates(): Array<{ id: string; name: string; tag: string; hp: string; shield: string; shown: boolean }> { return this.nameplates.allyPlateStates; }
+  /** 채팅 로그의 줄들 — 클래스 · 이름 · 본문. */
+  get chatLines(): Array<{ cls: string; who: string; text: string }> { return this.chat.lineStates; }
+  /** 지금 떠 있는 토스트의 글자. */
+  get toastTexts(): string[] { return this.notifs.toastTexts; }
+  /** 핑 목록 (주인 · 종류 · 라벨) — 안드로이드 핑은 `owner.android` 가 true. */
+  get pingViews(): readonly PingView[] { return this.pings.getPings(); }
+  /** 레이드 진입 로딩 게이지 — 보이는가 · 채움 0…1 · 대기 인원 · 불투명도 · 도는 각도. */
+  get loadingGaugeState(): { on: boolean; fill: number; waiting: number; opacity: number; spin: number } {
+    return {
+      on: this.loadingGauge.isShowing, fill: this.loadingGauge.fill, waiting: this.loadingGauge.waitingCount,
+      opacity: this.loadingGauge.opacity, spin: this.loadingGauge.spinDeg,
+    };
+  }
+
   private applyVisibility(): void {
     const ctx = this.ctx;
     const inGame = ctx.isGameplayPhase() || ctx.phase === 'deploying';
@@ -889,6 +928,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.dispose();
     this.musicPlayer.dispose();                                // 음악 재생 창 (2026-09-14)
     this.fallVignette.dispose();                               // 낙하 붉은 비네트 (2026-09-15)
+    this.loadingGauge.dispose();                               // 레이드 진입 로딩 게이지 (2026-09-15)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.dispose();

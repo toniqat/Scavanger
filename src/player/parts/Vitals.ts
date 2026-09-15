@@ -15,6 +15,8 @@ import {
   ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
+/* appended (2026-09-15): 안드로이드 분대원 — 봇은 사람 수에 들지 않는다 (`onLethal` 의 혼자 판정) */
+import { humanPlayersOf } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
 import { SoldierModel, type SoldierPose } from '../SoldierModel';
@@ -193,12 +195,18 @@ export function onLethal(sys: PlayerSystem, dot: boolean): void {
   sys.enterDowned();
   }
 
-/** No squad, or a 분대 of one: nobody can run over and revive us. */
+/**
+ * No squad, or a 분대 of one: nobody can run over and revive us.
+ *
+ * 2026-09-15 (안드로이드 분대원): 안드로이드도 쓰러진 PC 를 일으킨다 — 한 기라도 분대에 있으면 **혼자가 아니다**
+ * (서버 없는 치트 명단도 `ctx.allies.roster` 에 들어 있으므로 솔로 레이드에서도 성립한다). 반대로 로비의 봇 멤버는
+ * 사람 수에 넣지 않는다 (`humanPlayersOf`) — 사람 수는 여기서 재는 「누가 달려와 주는가」 와 다른 축이다.
+ */
 function isAloneInSquad(sys: PlayerSystem): boolean {
   const ctx = sys.ctx;
+  if ((ctx.allies?.roster.length ?? 0) > 0) return false;
   if (!ctx.isMultiplayer) return true;
-  const players = ctx.net?.lobby?.players;
-  return !players || players.length <= 1;
+  return humanPlayersOf(ctx.net?.lobby).length <= 1;
   }
 
 /** The 재기동 회로 perk is bought and still unspent this life — it only fires out of the downed state. */

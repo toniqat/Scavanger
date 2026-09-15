@@ -209,6 +209,23 @@ export class ContainerStore {
     return c;
   }
 
+  /**
+   * 2026-09-15 (안드로이드 분대원) — 아직 굴리지 않은 컨테이너를 **호출자가 넘긴 내용물**로 확정한다 (`parts/Allies`).
+   * `getOrCreate` 와 같은 자리에 서지만 굴림만 밖에서 온다: 맵 상자는 상자 코드와 같은 식, 구조물 · 플랫폼 · 전차
+   * 컨테이너는 열쇠 부가 굴림까지 포함한 여는 경로 그대로여야 하는데, 그 굴림을 아는 것은 world 이기 때문이다.
+   * 티어를 그대로 들고 서므로 나중에 사람이 같은 상자를 열면(`getOrCreate`) 캐시의 이 컨테이너를 그대로 본다.
+   */
+  prime(id: string, tier: number, position: THREE.Vector3, items: readonly ItemInstance[]): Container {
+    const known = this.containers.get(id);
+    if (known) return known;
+    const c = new Container(id, tier, position, this.getDef);
+    c.anchor = position;
+    c.fill(items);
+    this.containers.set(id, c);
+    this.applyPending(c);
+    return c;
+  }
+
   /** Takes confirmed before this client opened the container (applied on the first open). */
   private applyPending(c: Container): void {
     const pend = this.pendingTaken.get(c.id);

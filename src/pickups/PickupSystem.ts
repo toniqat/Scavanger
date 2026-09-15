@@ -90,6 +90,24 @@ export class PickupSystem implements GameSystem, PickupsRef {
     return id;
   }
 
+  /**
+   * 2026-09-15 (안드로이드 분대원) — 권위(솔로 · 로비 호스트): 사람이 아닌 몸(`by` = 안드로이드 id)이 바닥 아이템을 줍는다.
+   * 호스트가 남의 `itemq take` 를 심판하는 길(`onItemRequest`)과 **같다** — 지우고 `item take {id, by}` 를 방송한다.
+   * 받는 쪽에서 `by` 는 자기 PeerId 가 아니므로 「남이 주웠다」 경로를 그대로 탄다 (새 갈래가 생기지 않는다).
+   * 권위가 아니거나 없는 id 면 null.
+   */
+  takeBy(id: string, by: string): ItemInstance | null {
+    const ctx = this.ctx;
+    if (ctx.isMultiplayer && !ctx.isAuthority) return null;
+    const p = this.byId.get(id);
+    if (!p) return null;
+    this.remove(p);
+    const byName = ctx.net?.getLobbyPlayer?.(by as PeerId)?.name ?? null;
+    ctx.bus.emit('pickup:taken', { id: p.id, item: p.item, byLocal: false, byName });
+    this.broadcast({ t: 'item', ev: 'take', id: p.id, by: by as PeerId }, 'others');
+    return p.item;
+  }
+
   clear(): void {
     for (let i = this.pickups.length - 1; i >= 0; i--) this.remove(this.pickups[i]);
   }

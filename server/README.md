@@ -15,10 +15,10 @@ in the npm scripts). Files must be erasable TypeScript (no enums / namespaces / 
 
 | File | Responsibility |
 |---|---|
-| `index.ts` | The only entry (`npm run server`, `start-server.bat`): `--port=<n>` / `PORT` (default `NET_DEFAULT_PORT` 8787), `--host=<addr>` / `HOST` (default `0.0.0.0`), `--data=<dir>` / `SCAV_DATA_DIR` (default `server/data/`), `--max=<n>` / `SCAV_MAX_CLIENTS`, `SCAV_DEV_ECONOMY=1` / `--dev-economy`; Korean hint + exit 1 on `EADDRINUSE` / `EACCES`; starts the console; graceful SIGINT / SIGTERM / SIGHUP |
+| `index.ts` | The only entry (`npm run server`, `start-server.bat`): `--port=<n>` / `PORT` (default `NET_DEFAULT_PORT` 8787), `--host=<addr>` / `HOST` (default `0.0.0.0`), `--data=<dir>` / `SCAV_DATA_DIR` (default `server/data/`), `--max=<n>` / `SCAV_MAX_CLIENTS`, `SCAV_DEV_ECONOMY=1` / `--dev-economy`; Korean hint + exit 1 on `EADDRINUSE` / `EACCES`; starts the console; graceful SIGINT / SIGTERM / SIGHUP; **survives losing its console** (stdout / stderr errors are swallowed, the crash reporter never re-enters) |
 | `Console.ts` | Operator console: `startServerConsole(server, input = stdin)` (readline; EOF, ignored or broken stdin just means no console), `runConsoleCommand(server, line)`, `CONSOLE_COMMANDS_LINE` |
 | `RelayServer.ts` | `startRelayServer(opts)`: HTTP `GET /health` + `WebSocketServer` on `NET_WS_PATH`; token → `PeerId`, duplicate replacement, welcome, frame parser / validation, every handler, reconnect grace + host-migration timers, presence / watcher index, invite and room fan-out, 15 s heartbeat, operator API (`listClients`, `kick`, `setMaxClients`), periodic GC |
-| `Lobby.ts` | `Lobby` (players, slots, ready, `start` / `reset`, `mode`, `planet`, `intel`, raid blobs, `hostDown`, `docked`, member `accent`, `canAdd`, `migrateHost`, `transferHostTo`) and `LobbyManager` (codes, peer index, create (`{docked, accent}`) / join / leave / atomic `move`, `findQuickMatch(accept?)`); `LOBBY_ERROR_MESSAGE_KO` |
+| `Lobby.ts` | `Lobby` (players, slots, ready, `start` / `reset`, `mode`, `planet`, `intel`, raid blobs, `hostDown`, `docked`, member `accent`, `canAdd`, `migrateHost`, `transferHostTo`; 2026-09-15 안드로이드 봇 멤버: `humanCount` · `botCount` · `botOnBay` · `latestBot` · `addBot` · `removeBot` · `clearBots` · `takeReturnedBots`) and `LobbyManager` (codes, peer index, create (`{docked, accent}`) / join / leave / atomic `move`, `findQuickMatch(accept?)`); `LOBBY_ERROR_MESSAGE_KO` |
 | `Store.ts` | `ProfileStore`: records keyed by `PeerId`, document writes (revision + legacy stamp paths), credits (`applyCreditsTx` via `Economy.ts`), social record rules (codes, friends, requests, recent, blocks, whisper inbox), `collectGarbage`, `profiles.json` persistence |
 | `Invites.ts` | Memory-only `InviteTable` (one open invite per (from, to), TTL timers) and `PushCoalescer` (batches social pushes per viewer) |
 | `Rooms.ts` | `RoomStore`: group-room rules and limits, returns `RoomOp` (lines + who needs a fresh `room:state`), `rooms.json` persistence. Knows nothing of sockets, friends or blocks |
@@ -30,7 +30,8 @@ in the npm scripts). Files must be erasable TypeScript (no enums / namespaces / 
 | `data/` | Runtime stores (git-ignored): `profiles.json` (+ `.bak`, `profiles.corrupt-<ts>.json`), `rooms.json` (+ same), `crypto.json` (+ same; deleting it only loses chart history — 31 days are re-backfilled deterministically) |
 
 Runtime imports from `src/shared`: `net.ts`, `profile.ts`, `social.ts`, `credits.ts`, `cryptoMarket.ts`, `intel.ts`,
-`planets.ts` (`types.ts` type-only).
+`planets.ts`, `allies.ts` (`androidNameOf` only — every import inside that file is `import type`, so nothing else
+follows it into the relay) (`types.ts` type-only).
 
 ## Connections, sessions, grace
 
@@ -72,6 +73,7 @@ frame is always `lobby:error invalid`. Frame caps: 64 KB (`MAX_MESSAGE_BYTES`), 
 | `lobby:join {code, name}` | `invalid` / `not_found` / `full` / `started` / `in_lobby`; blocks checked first: someone I blocked → `blocked`, someone who blocked me → `not_found` (disguised). Joins whatever the code names (an undocked squad too — an older client accepting an invite) |
 | `lobby:dock {isPublic}` | 터미널 > 매칭. No lobby: private → new docked private lobby; public → the `lobby:quickmatch` path. In a lobby: not host → `not_host`, started → `started`, already docked → `in_lobby`. Host of an undocked lobby: private → `docked`, `isPublic=false`; public + alone → moved (`moveToLobby`) into an open public docked ship (not its own, block filter) when there is one, else docks its own as public; public + 2 or more members → `docked`, `isPublic=true` (squads never merge — only a lone mover is ever moved) → `lobby:state` |
 | `lobby:look {accent}` | `sanitizeAccent`; invalid string ignored (non-string frame → `invalid`). Kept on the socket; in a lobby → `LobbyPlayer.accent` + `lobby:state` when it changed |
+| `lobby:android {bay, recruit}` | 조종실 안드로이드 슬롯. Order: `not_in_lobby` → `not_host` → `not_docked` → `started` → `invalid` (bay outside `[0, ANDROID_BAY_COUNT)`, or already in that state) → `full` (+ `lobby:androidReturned {bay, reason:'full'}` to the sender alone) → `lobby:state`. A dismissal answers with the state only |
 | `lobby:leave` | `lobby:left` to leaver, `peer:left` to others, host migrates. Docked lobbies take out only the sender (도킹 해제) |
 | `lobby:ready {ready}` | Undocked → `not_docked`. → `lobby:state` (no-op on a started lobby, echoed to sender) |
 | `lobby:start {seed, mode?, planet?, intel?}` | Undocked (raid **and** training) → `not_docked`. Raid: host, every connected member ready, planet in message or lobby (`no_planet`) → `game:start {seed, lobby, mode, planet, intel}`. Training: any member |
@@ -152,6 +154,15 @@ whether an intel purchase was really used. Only `index.ts` reads the dev-economy
 ## Social server rules
 
 - Presence is derived, never stored (`offline | ship | raid | training`); a member in reconnect grace reads `offline`.
+- **Android bot members** (2026-09-15, 사용자 결정). A member with `LobbyPlayer.bot` is an android that walked out of a cockpit
+  bay (`bay`, `recruitedAt`, id `androidIdOf(code, bay)`): no socket, always `connected` + `ready`, taking a real slot, put in
+  and out only by the leader's `lobby:android`. **Humans win** — `canAdd()` / `pruneLonely` / presence squad counts /
+  `social:play`'s `my_squad_full` count humans only, and `Lobby.add` evicts the latest-recruited bot to make room, leaving it in
+  `takeReturnedBots()` for the relay to broadcast as `lobby:androidReturned {reason:'human_joined'}` **after** the join (so the
+  newcomer hears it). Quick match counts everyone (`isQuickMatchable`), so an android-filled ship takes no strangers.
+  Bots never become host (`migrateHost` · `transferHostTo` → `invalid`), are never `relay` targets, and are skipped by
+  `recordMet` · `blockRefusal` · `pushLobbyPresence` · `connectedCount` · `inMissionCount` · the grace's "others inside".
+  `reset()` leaves them ready; the moment the **last human** leaves, `LobbyManager.leave` clears them and deletes the lobby.
 - **Squad ≠ shared ship** (2026-09-15). `Lobby.docked` is true for every lobby except the one `social:play` creates for its
   first invite. An undocked lobby is not quick-matchable and refuses `lobby:ready` / `lobby:start` (raid and training) /
   `lobby:mission true` with `not_docked`; planet, intel, host transfer, leave and look work as usual, and host migration
@@ -179,7 +190,7 @@ the window's input lines to the relay child). `index.ts` prints the command line
 `SCAV_CONSOLE=1` from `dev-all`). Relays spawned with ignored or unused stdin (verify runner, smokes) simply have no console.
 
 `list` (connected sockets) · `lobbies` · `kick <id or code> [reason]` (no grace: slot removed, `lobby:error kicked`,
-close `4002`) · `max <n|off>` (new sockets only: `lobby:error server_full`, close `4003`; same-token replacement and current
+close `4002`; an **android id** has no socket — it is just sent back to its bay and the squad gets a fresh `lobby:state`) · `max <n|off>` (new sockets only: `lobby:error server_full`, close `4003`; same-token replacement and current
 lobby members are exempt) · `gc` · `help`. There is no ban — a kicked client stops auto-reconnecting but may connect again
 explicitly.
 
@@ -203,6 +214,8 @@ explicitly.
 - Validation stays pure and injected: `CreditEconomy` knows no sockets or stores; the crypto quote source is set with
   `setCryptoQuotes(market)`. Handlers are synchronous, so check → apply → commit cannot interleave.
 - `Lobby.canAdd()` is the only copy of the join rule; `LobbyManager.move` checks the target before leaving the old lobby.
+  It counts **humans**, so `Lobby.add` is also the only place that evicts an android — a new human-join path needs nothing
+  but an `announceBotReturns(lobby)` right after its `broadcastState`.
 - A new lobby path that creates a lobby leaves `docked` at its default (true) unless it is an invite's squad; a new path
   that can leave an undocked lobby with one member or close an invite must end in `pruneLonely` (`closeInvite` /
   `announceLeave` already do).
@@ -212,8 +225,8 @@ explicitly.
 ## Recent changes
 
 Last 5 only — older: `git log -- server`.
+- 2026-09-15 — A relay whose console pipe lost its reader (a `--keep-relay` runner exiting) no longer spins: `index.ts` swallows stdout / stderr stream errors and the `uncaughtException` reporter cannot re-enter.
+- 2026-09-15 — Android squadmates: `LobbyPlayer.bot` members (`lobby:android`, `lobby:androidReturned`), humans-only caps with latest-bot eviction, bots excluded from host / relay / presence / grace, console `lobbies` marks them, selftest part 15.
 - 2026-09-15 — Builds ship no server: `tool.ts` / exe tooling deleted; console moved to `Console.ts` in `index.ts` (+ `--port` / `--host` / `--max`).
 - 2026-09-15 — Squads / docking: `Lobby.docked`, `lobby:dock`, `lobby:look` + `?a=` accent, invite-only `social:play`, lonely-party prune, `not_docked`.
 - 2026-09-14 — Intel: `lobby:intel`, `LobbyState.intel` / `game:start.intel`, `intel:` credit reason.
-- 2026-09-14 — `Rooms.ts` group rooms (`room:*`, `rooms.json`, room GC).
-- 2026-09-13 — `CryptoMarket.ts`, `crypto:watch` / `crypto:history`, `cbuy` / `csell` validation.

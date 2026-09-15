@@ -28,6 +28,8 @@ import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
 /* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 훈련장이 잠긴다 */
 import { squadLockReason } from './SquadDock';
+/* 2026-09-15: 안드로이드 봇 멤버는 사람이 아니다 — 훈련 인원 · 분대장 넘기기에서 빠진다 */
+import { isBotPlayer } from '@/shared';
 import type { HubSystem } from '../HubSystem';
 
 /* ── 시뮬레이션 훈련장 (Phase 7) ─────────────────────────────────────────── */
@@ -43,10 +45,10 @@ export function raidRunning(sys: HubSystem): boolean {
   return !!lobby?.started && (net?.missionMode ?? lobby?.mode ?? 'raid') !== 'training';
   }
 
-/** Connected members currently inside the training. */
+/** Connected members currently inside the training. 2026-09-15: 안드로이드는 훈련장에 가지 않는다 — 봇은 세지 않는다. */
 export function trainingCount(sys: HubSystem): number {
   const lobby = sys.ctx.net?.lobby;
-  return lobby ? lobby.players.filter((p) => p.connected && p.inMission === true).length : 0;
+  return lobby ? lobby.players.filter((p) => !isBotPlayer(p) && p.connected && p.inMission === true).length : 0;
   }
 
 /**
@@ -178,7 +180,8 @@ export function updateLeaderHandoff(sys: HubSystem): void {
     if (!ref.connected || ref.stale) continue;
     if ((ref.hubSite ?? null) !== site) continue;         // 다른 함선 안에 있는 사람은 보이지도 않는다
     const member = net.lobby?.players.find((p) => p.id === ref.id);
-    if (!member || !member.connected) continue;
+    // 2026-09-15: 봇 멤버는 절대 분대장이 되지 않는다 (릴레이 규칙) — `lead:<id>` 를 세우지 않는다
+    if (!member || !member.connected || isBotPlayer(member)) continue;
     seen.add(ref.id);
     let entry = sys.leaderHandoffs.get(ref.id);
     if (!entry) {

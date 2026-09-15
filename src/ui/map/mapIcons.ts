@@ -87,6 +87,35 @@ export function drawSquadArrow(c: CanvasRenderingContext2D, x: number, y: number
   notchedArrow(c, x, y, ang, color, 7 * k, -5 * k, 4.5 * k, -2.5 * k);
 }
 
+/**
+ * 2026-09-15 (안드로이드 분대원): 안드로이드 화살표 — 분대원 화살표와 **같은 크기, 다른 실루엣**이다. 속이 빈
+ * 삼각형에 가운데 점 하나: 한눈에 「사람이 아닌 분대원」으로 읽히면서 슬롯 색은 그대로 쓴다.
+ */
+export function drawAllyArrow(c: CanvasRenderingContext2D, x: number, y: number, ang: number, color: string): void {
+  const k = MARKER_SCALE;
+  c.save();
+  c.translate(x, y); c.rotate(ang);
+  c.strokeStyle = OUTLINE; c.lineWidth = 2.6;
+  c.beginPath(); c.moveTo(7 * k, 0); c.lineTo(-5 * k, 4.5 * k); c.lineTo(-2.5 * k, 0); c.lineTo(-5 * k, -4.5 * k); c.closePath();
+  c.stroke();
+  c.strokeStyle = color; c.lineWidth = 1.4;
+  c.stroke();
+  c.fillStyle = color;
+  c.beginPath(); c.arc(0, 0, 1.3 * k, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+
+/** 2026-09-15: 쓰러진 · 파괴된 안드로이드 — 빈 사각형 + X. */
+export function drawAllyDown(c: CanvasRenderingContext2D, x: number, y: number, color: string): void {
+  const k = MARKER_SCALE;
+  c.strokeStyle = color; c.lineWidth = 1.6;
+  c.strokeRect(x - 4 * k, y - 4 * k, 8 * k, 8 * k);
+  c.beginPath();
+  c.moveTo(x - 2.5 * k, y - 2.5 * k); c.lineTo(x + 2.5 * k, y + 2.5 * k);
+  c.moveTo(x + 2.5 * k, y - 2.5 * k); c.lineTo(x - 2.5 * k, y + 2.5 * k);
+  c.stroke();
+}
+
 /** 전사한 분대원: 빈 원 + X (배율 적용). */
 export function drawSquadDead(c: CanvasRenderingContext2D, x: number, y: number, color: string): void {
   const k = MARKER_SCALE;

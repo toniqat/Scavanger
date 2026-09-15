@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
-import type { HubShipKind } from '@/shared';
+import type { HubAndroidBay, HubShipKind } from '@/shared';
+import type { AndroidBayState } from './AndroidBays';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import type { ShipStations, StationDef } from './stations';
 import type { HangarBayDef } from './Hangar';
@@ -121,6 +122,13 @@ export interface ShipInterior {
   readonly bays?: readonly HangarBayDef[];
   /** Park the squad's ships in the bays: `names[i]` = crew name in bay `i`, null = empty. Shared ship only. */
   setBayOccupants?(names: readonly (string | null)[]): void;
+  /**
+   * 안드로이드 슬롯 (2026-09-15, shared ship only): the cockpit's `ANDROID_BAY_COUNT` capsules in bay order. Absent /
+   * empty everywhere else. A reused array — read it and use it, never keep it.
+   */
+  readonly androidBays?: readonly HubAndroidBay[];
+  /** Status strip + name tag of one android bay (dormant inside / out with the squad / waiting for the relay). */
+  setAndroidBayState?(bay: number, state: AndroidBayState): void;
   update(dt: number, time: number): void;
   dispose(): void;
 }

@@ -27,6 +27,8 @@ import * as Leader from './parts/Leader';
 import type { LeaderDeviceObject } from './parts/Leader';
 /* appended (2026-09-15): 결과 창 개편 — 최고 소지품 가치 · 원인별 피해 · 막타 */
 import { RaidReport } from './parts/RaidReport';
+/* appended (2026-09-15): 레이드 진입 로딩 게이트 */
+import { LoadGate } from './parts/LoadGate';
 
 export class GameFlowSystem implements GameSystem {
   readonly name = 'gameflow';
@@ -55,6 +57,11 @@ export class GameFlowSystem implements GameSystem {
   lastThreat = -1;
   /** 2026-09-15 (결과 창 개편): 결과 화면이 읽는 `stats.peakLootValue` · `stats.death` 의 재료 (`parts/RaidReport`). */
   readonly report = new RaidReport(this);
+  /**
+   * 2026-09-15 (레이드 진입 로딩): 발사 카운트다운 뒤 분대 전원이 준비될 때까지 화면을 붙잡는 게이트
+   * (`parts/LoadGate`). ui 의 원형 게이지 · 스모크가 `__game.getSystem('gameflow').loadGate` 로 읽는다.
+   */
+  readonly loadGate = new LoadGate(this);
 
   /* ── multiplayer ── */
   /** Local player entered the dropship bay (cleared on death / new mission). */
@@ -143,6 +150,11 @@ export class GameFlowSystem implements GameSystem {
     Leader.installLeaderLight(this);
     // 2026-09-15: 아래 `player:died` → `onLocalDied`(시체로 비우기)보다 **먼저** 구독해야 사망 순간의 소지품 가치를 잰다.
     this.report.bind();
+    /*
+     * 2026-09-15 (레이드 진입 로딩): 게이트도 여기서 붙는다. `game:newMission` 구독이 **아래의 `onNewMission` 보다
+     * 먼저**여야 한다 — 게이트가 hold 를 걸기 전에 페이즈가 굴러가면 첫 프레임이 밝은 채로 지나간다.
+     */
+    this.loadGate.bind(ctx);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', ({ seed, mode, planet }) => this.onNewMission(seed, mode, planet)),
@@ -440,6 +452,8 @@ export class GameFlowSystem implements GameSystem {
     }
 
     this.report.update(dt);   // 2026-09-15: 최고 소지품 가치 저율 폴링 (레이드 중 · 살아 있을 때만)
+    // 2026-09-15: 로딩 게이트는 hold 중에도 돌아야 한다 — 그래서 dt 가 아니라 `ctx.time` 을 쓴다 (게이트가 없으면 비용 없음).
+    this.loadGate.update();
     if (this.completeTimer >= 0) {
       this.completeTimer -= dt;
       if (this.completeTimer < 0) this.complete();
@@ -513,6 +527,7 @@ export class GameFlowSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.report.dispose();
+    this.loadGate.dispose();
     this.netUnsub?.(); this.netUnsub = null;
     Corpse.unhookCorpseNet(this);
     Leader.unhookLeaderNet(this);

@@ -71,6 +71,9 @@ import * as Meal from './parts/MealQuality';
 import * as AutoQuick from './parts/AutoQuick';
 /* appended (2026-09-13): 서재 시리즈 — 아직 꽂지 않은 매체 띠 (규칙은 `HousingRef.isShelfItemWanted`) */
 import * as ShelfWanted from './parts/ShelfWanted';
+/* appended (2026-09-15): 안드로이드 분대원 — 가방 · 무게 · 컨테이너 획득 · 요청 · 창고 입고 (`parts/Allies.ts`) */
+import * as Allies from './parts/Allies';
+import type { AllyBagRef } from '@/shared';
 
 /* ── 2026-09-14 (발사 슬롯 UI 대개편): 준비 상태 = 로드아웃 읽기 전용 ─────────────────────────────────────────
    `readOnlyReason()` 의 사유 문장과 그 거절 토스트의 debounce. 둘 다 밸런스 수치가 아니라 화면 문구 · UI 디바운스라
@@ -271,6 +274,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if (this.stripRaidMarks()) this.afterChange();   // 2026-09-12: no raid-found mark survives into the ship
       }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
+      // 2026-09-15 (안드로이드 분대원): 탈출한 안드로이드의 전리품 → 분대장(= 이 클라이언트)의 창고
+      bus.on('inventory:allyDeposit', ({ id, name, items }) => Allies.onAllyDeposit(this, id, name, items)),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
       // 2026-09-08: the 캐릭터 tab's 능력치 포인트 red dot follows the level-ups / spends that happen behind it
       bus.on('progress:levelUp', () => { if (this._open) this.ui?.markTab(); }),
@@ -1331,6 +1336,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       : this.wantsShieldRecharge(from) ? '실드 충전 필요'
       : `${def.name} 필요`;
     this.ctx.bus.emit('chat:post', { text, kind: 'request' });
+    // 2026-09-15 (안드로이드 분대원): 같은 요청을 안드로이드가 들을 수 있는 사건으로도 낸다 (원격 호스트에는 `allyq item`)
+    Allies.emitItemRequest(this, item, from, stats ? stats.ammoType : null);
     return true;
   }
 
@@ -1402,6 +1409,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.setOpen(true);
     this.ui?.show(c, false);
     this.ctx.bus.emit('inventory:opened', { containerId: c.id });
+    // 2026-09-15 (안드로이드 분대원): 상자 · 구조물 컨테이너 · 시체 — 창을 여는 **유일한 길**이라 여기 한 곳에서 알린다
+    Allies.emitContainerViewed(this, c.id);
     this.checkLooted();
   }
 
@@ -1690,7 +1699,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   trackTake(uid: string, from: ItemLocation, run: () => OpResult): OpResult { return CNet.trackTake(this, uid, from, run); }
 
-  announceTake(c: Container, idx: number, qty: number): void { return CNet.announceTake(this, c, idx, qty); }
+  announceTake(c: Container, idx: number, qty: number, by?: string): void { return CNet.announceTake(this, c, idx, qty, by); }
 
   /**
    * Phase 10 — the one place `container:itemTaken` is emitted. `live` separates a real-time take (someone is looting
@@ -1725,6 +1734,23 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Ask the (new) host for every taken map (host migration, rejoin fallback). */
   private requestContainerSync(): void { return CNet.requestContainerSync(this); }
+
+  /* ── 2026-09-15: 안드로이드 분대원 (`parts/Allies.ts`) ─────────────────── */
+
+  /** DOM 없는 가방 격자 하나 (안드로이드 — 플레이어 가방과 같은 배치 · 스택 규칙). */
+  createAllyBag(cols: number, rows: number): AllyBagRef { return Allies.createAllyBag(cols, rows); }
+
+  /** 사람과 **같은 무게 식** — `carried` = 가방 + 장착 장비, `bag` = 장착 가방 (용량 보너스). 운반 숙련 없음. */
+  weightInfoFor(carried: readonly ItemInstance[], bag: ItemInstance | null): WeightInfo { return Allies.weightInfoFor(this, carried, bag); }
+
+  /**
+   * 권위: 사람이 아닌 몸(`by` = 안드로이드 id)이 컨테이너에서 `defId` 스택 하나를 가져간다. `containerId` 는 인벤토리
+   * 컨테이너 id (= `WorldRef.getLootContainers()` 의 id): 맵 상자는 `crate_<n>`, 구조물 · 플랫폼 · 전차 컨테이너는
+   * 상호작용 id 의 `container:` 를 뗀 명세 id 다.
+   */
+  takeContainerItemFor(containerId: string, tier: number, defId: string, by: string): ItemInstance | null {
+    return Allies.takeContainerItemFor(this, containerId, tier, defId, by);
+  }
 
   /* ── Phase 7: canFit / raid state (InventoryRef) ───────────────────────── */
 

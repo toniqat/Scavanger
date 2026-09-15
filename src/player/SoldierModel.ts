@@ -297,6 +297,15 @@ export class SoldierModel {
   private glowTarget = 0;
   private glow = 0;
   private greyed = false;
+  /* ── 2026-09-15: 안드로이드 외형 (`setAndroidLook`) ── */
+  /**
+   * 안드로이드일 때만 보이는 조각 (얼굴판 · 바이저 띠 · 관절 링 …) 과, 그때 **감추는** 사람 얼굴 조각(볏 · 바이저 · 챙).
+   * 둘 다 생성자에서 한 번 지어 두고 `visible` 만 뒤집는다 — 나중에 지으면 `mat()` 이 `materials` 에 붙는 순서가
+   * `baseColors`(회색 처리의 기준)와 어긋나고, 공유 지오메트리 캐시(`SHARED_GEOS`)도 못 쓴다.
+   */
+  private readonly androidParts: THREE.Object3D[] = [];
+  private readonly faceParts: THREE.Object3D[] = [];
+  private androidOn = false;
 
   private readonly hipsBaseY = 0.98;
 
@@ -354,9 +363,11 @@ export class SoldierModel {
     const helmet = this.sphere(0.145, mArmor, 0, 0.17, 0);
     helmet.scale.set(1, 1.08, 1.05);
     this.headPivot.add(helmet);
-    this.headPivot.add(this.box(0.2, 0.06, 0.1, mAccent, 0, 0.29, -0.04));        // crest
-    this.headPivot.add(this.box(0.22, 0.07, 0.06, this.visorMat, 0, 0.17, -0.12)); // visor
-    this.headPivot.add(this.box(0.26, 0.04, 0.16, mSteel, 0, 0.22, -0.06));       // brim
+    const crest = this.box(0.2, 0.06, 0.1, mAccent, 0, 0.29, -0.04);              // crest
+    const visor = this.box(0.22, 0.07, 0.06, this.visorMat, 0, 0.17, -0.12);      // visor
+    const brim = this.box(0.26, 0.04, 0.16, mSteel, 0, 0.22, -0.06);              // brim
+    this.headPivot.add(crest, visor, brim);
+    this.faceParts.push(crest, visor, brim);
 
     // arms
     this.armR = this.makeArm(1, mArmor, mSteel, mDark);
@@ -364,6 +375,44 @@ export class SoldierModel {
     // legs
     this.legR = this.makeLeg(1, mArmor, mSteel, mDark, mAccent);
     this.legL = this.makeLeg(-1, mArmor, mSteel, mDark, mAccent);
+
+    /*
+     * 2026-09-15 — **안드로이드 외형** (`setAndroidLook`, 사용자 결정 「안드로이드 분대원」). 얼굴이 없는 헬멧 + 빛나는
+     * 바이저 띠 + 악센트 색 관절 · 판 장식이다. 몸 · 팔다리 자체는 그대로라 **모든 자세**(걷기 · 엎드림 · 쓰러짐 · 업힘 ·
+     * 가구)가 그대로 동작한다. 바이저 띠는 사람 바이저와 **같은 머티리얼**(`visorMat`)을 써서 맥동 · 사망 시 꺼짐 ·
+     * 회색 처리(`setGreyed` — 잠든 슬롯 몸)가 저절로 따라온다. 새 광원은 없다 (발광 머티리얼뿐).
+     */
+    const faceplate = this.box(0.23, 0.19, 0.045, mDark, 0, 0.155, -0.115);
+    const band = this.box(0.19, 0.05, 0.03, this.visorMat, 0, 0.19, -0.145);
+    const ridge = this.box(0.04, 0.035, 0.24, mSteel, 0, 0.3, 0);
+    this.headPivot.add(faceplate, band, ridge);
+    this.androidParts.push(faceplate, band, ridge);
+    // 귀 쪽 센서 판 — `resetPose` 가 모든 자식의 회전을 0 으로 되돌리므로 **회전이 필요 없는** 상자로 만든다
+    for (const s of [-1, 1]) {
+      const pod = this.box(0.055, 0.07, 0.09, mAccent, s * 0.145, 0.175, 0);
+      this.headPivot.add(pod);
+      this.androidParts.push(pod);
+    }
+    const core = this.box(0.09, 0.09, 0.03, this.visorMat, 0, 0.3, -0.2);
+    this.torso.add(core);
+    this.androidParts.push(core);
+    for (const s of [-1, 1]) {
+      const bar = this.box(0.05, 0.02, 0.14, mAccent, s * 0.13, 0.55, -0.02);
+      this.torso.add(bar);
+      this.androidParts.push(bar);
+    }
+    // 합성 관절: 팔꿈치 · 무릎의 소매형 링 (마디가 −Y 로 뻗으므로 실린더 축이 그대로 맞는다)
+    for (const limb of [this.armR, this.armL]) {
+      const ring = this.cyl(0.062, 0.062, 0.035, mAccent, 0, -0.02, 0);
+      limb.lower.add(ring);
+      this.androidParts.push(ring);
+    }
+    for (const limb of [this.legR, this.legL]) {
+      const ring = this.cyl(0.078, 0.078, 0.04, mAccent, 0, -0.02, 0);
+      limb.lower.add(ring);
+      this.androidParts.push(ring);
+    }
+    for (const o of this.androidParts) o.visible = false;
 
     // weapon socket in the right hand: weapon -Z aligned with the arm (-Y)
     this.weaponSocket.position.set(0, -0.3, -0.02);
@@ -443,6 +492,19 @@ export class SoldierModel {
   }
   /** Def id of the armor plate currently shown (null = none). */
   get armorId(): string | null { return this.armorLookId; }
+
+  /**
+   * 2026-09-15 — 안드로이드 분대원의 몸(`ctx.allies`)과 그 시체(`game/Corpses` 가 duck-typed 로 부른다). 얼굴 없는
+   * 헬멧 · 빛나는 바이저 띠 · 악센트 관절로 바꾼다. 조각은 생성자에서 이미 지어져 있으므로 여기서는 `visible` 만
+   * 뒤집는다 — 자세 · 풀 재사용(`resetForReuse`)과 무관하게 언제 불러도 된다.
+   */
+  setAndroidLook(on: boolean): void {
+    if (on === this.androidOn) return;
+    this.androidOn = on;
+    for (let i = 0; i < this.androidParts.length; i++) this.androidParts[i].visible = on;
+    for (let i = 0; i < this.faceParts.length; i++) this.faceParts[i].visible = !on;
+  }
+  get isAndroid(): boolean { return this.androidOn; }
 
   /** Overcharge rim: the steel plates glow (emissive, damped in `update`) while on. */
   setGlow(on: boolean): void { this.glowTarget = on ? 1 : 0; }
@@ -1172,6 +1234,7 @@ export class SoldierModel {
    */
   resetForReuse(): void {
     this.setArmor(null);
+    this.setAndroidLook(false);   // 2026-09-15: 안드로이드 몸이 돌아온 자리를 사람이 다시 쓴다
     this.setGreyed(false);
     this.setFade(1);
     this.setSilhouette(false);

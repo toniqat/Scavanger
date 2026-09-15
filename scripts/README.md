@@ -33,6 +33,13 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 |---|---|---|
 | `e2e-multiplayer.mjs` (`e2e-mp`) | net, server, game, extraction, hub, pickups, player, enemies · X R | Two clients: ship → quick match → docking → launch pods (boarding ≠ ready) → mission → pickups → reconnect / ghosts → abort; server profile, credits, social, rooms |
 | `smoke-aim-sway.mjs` | player, weapons | Figure-8 camera sway only while aiming, per class/stance/movement, none in the hub |
+| `smoke-ally-avatars.mjs` | player, allies | Android bodies from injected `AllyBodyView`s: android look, pose mapping, hidden / dead bodies, held gun + armour, pooled reuse, `revive:ally:<id>` → `requestRevive`, carried by an android, `ally:fired` FX keeps the point-light count, android face portrait, downed-not-dead with an android on the roster |
+| `smoke-ally-hooks.mjs` | inventory, pickups, extraction, world, gadgets, stratagems | Android raid hooks: ally bag/weight, container peek == take, item requests, `takeBy`, pads, loot list, hazard safe point, stash deposit |
+| `smoke-allies-core.mjs` | allies | Android core loop: the `/android` cheat roster in the personal ship, solo raid pod drop with the bound base kit and ×`ALLY_HP_MUL` hp, follow back into the harness, the harness halving while the leader keeps one heading, sense → enemy ping → burst → `applyAllyHit`, damage → downed → revive, bleed-out → `spawnAllyCorpse` |
+| `smoke-allies-orders.mjs` | allies | Android orders: leader move / caution pings, first-request-wins + `ALLY_REQUEST_COOLDOWN_S`, the "I have none" chat line, heal delivery (ping → approach → drop while the requester stands still), crate looting that stops when a player opens the box, extract ping → second call → console press |
+| `smoke-ally-ui.mjs` | ui, allies | Android HUD from a fake `ctx.allies` (`hud.debugAllies`) + bus events: squad rows (badge, shield, bots never drawn as human rows), nameplates, compass ticks, map legend, `ally:ping` marker / callout / `ping:placedV3`, `ally:chat` never relayed, the seven toasts, and the raid-entry loading gauge (above the black plate, `squad` fill, spins at dt 0, hides on release) |
+| `smoke-android-bays.mjs` | hub | Cockpit android bays without a relay lobby (`HubSystem.debugSharedShip`): 3 capsules (bridge half, facing the deck, one-step `exit`, solid collider), `hub_android_<bay>` with the 3 s hold, recruit / dismiss prompts and the leader refusal shown as the prompt, a bot pod seated and ready with an `is-bot` ready cell (no crew-loadout popup), `getPodStandPose`, the match tab's android tile and crew counts, and the raid-entry fade (`ui:screenFade {1, hold}` + `raid:loadBegin` → launch only after `RAID_LOAD_FADE_OUT_S`, un-readying no longer cancels) |
+| `smoke-android-lobby.mjs` | net, server · X (own relay on 8896) | Two clients: `setAndroidBay` recruits bot lobby members (bot · bay · ready · own slot), androids are no peers (no `net:peerJoined`, no remote ref), a human joining evicts the latest one (`net:androidReturned human_joined` — the newcomer too), member `not_host`, a full squad `full` + the notice to the requester only, dismissal, human leave |
 | `smoke-ballistics.mjs` | weapons, items | Swept projectiles with drop, no tunnelling, distance falloff, laser sight, extended barrel |
 | `smoke-buffs.mjs` | ui, player, net | Buff strip under PC vitals (ship + raid) and squad rows, dimmed pending buffs, `cbuf` sync |
 | `smoke-burrow.mjs` | enemies, audio | Bug burrow spawns: emerge time, hittable but inert while rising, shake dedupe, replica `ee spawn.em` |
@@ -44,6 +51,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-drone-scan.mjs` | gadgets, inventory | Ground-drone scan aim, 3 s hold gauge, best-grade label matches the real roll |
 | `smoke-ecology.mjs` | world, enemies, items | Per-planet biome, gather weights/density, enemy compositions |
 | `smoke-enemy-alert.mjs` | enemies, implants, weapons | Bullet tracking (`reportShot` → watch → advance), `shotq` forwarding, barrier blocking |
+| `smoke-enemy-allies.mjs` | enemies, allies | Androids as a side target list, humanoid fire, contact / blast / fire zone, `applyAllyHit` (no kill credit), `ally:fired`, `pickCoverSpot` |
 | `smoke-enemy-delta.mjs` | enemies, net | Delta `es` (keyframe / delta / `gone` / seq), replica apply, burn-kill credit |
 | `smoke-extraction.mjs` | extraction, game | 20 s call, hull colliders, enemy-only doorway, uncancellable grace, riders vs left-behind reset |
 | `smoke-faction-sites.mjs` | enemies, world | Site occupation per threat (android / rogue / raider groups), named chance |
@@ -85,6 +93,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-progression.mjs` | progression | Stat XP clamps, skill XP, migration + persistence, character sheet |
 | `smoke-props-collision.mjs` | world | Prop colliders never exceed the visible silhouette (hull vs drawn edge) |
 | `smoke-quickslots.mjs` | inventory, ui, weapons | Quick-slot container model and real-mouse drag with centred ghost |
+| `smoke-raid-loading.mjs` | game, core, hub, ui | Raid-entry loading gate: black hold (mission clock and hellpod frozen), progress to 1, minimum black time, fade-in, `deploying` → `playing`; host waits out an unfinished squadmate (debug hooks); rejoin and training skip it |
 | `smoke-raidflow.mjs` | game, extraction, player, inventory, world | Solo death → raid failed, training enter/exit, rejoin restore, voluntary return to ship |
 | `smoke-recovery-contract.mjs` | meta, inventory, pickups, game, world, enemies | Recovery contract counts only raid-found items; mark follows the item |
 | `smoke-resume-gate.mjs` | game, ui | Browser resume gate (switchable lock stub `window.__lockGrant`), pause-menu layering, ESC close |
@@ -163,6 +172,10 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
 - 2026-09-15 — `e2e-multiplayer.mjs`: player names are set after both clients join the lobby (profile load was resetting them).
+- 2026-09-15 — New `smoke-allies-core` · `smoke-allies-orders` (the android AI itself in allies/).
+- 2026-09-15 — New `smoke-ally-ui` (android squad rows / nameplates / map / pings / chat / toasts and the loading gauge in ui/).
+- 2026-09-15 — New `smoke-ally-avatars` (android bodies, revive prompt, carry, shot FX in player/).
+- 2026-09-15 — New `smoke-ally-hooks` (android raid hooks in inventory / pickups / extraction / world).
 - 2026-09-15 — New `smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-fall-damage` · `smoke-fire-zones`.
 - 2026-09-14 — `smoke-library-consumers.mjs` routes every `/src/…` import through `window.__imp` (module-instance caveat above).
 - 2026-09-14 — New `smoke-intel.mjs` (standalone); `economy-table.mjs` bakes and cross-checks the intel section.

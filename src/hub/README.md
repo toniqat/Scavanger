@@ -21,7 +21,8 @@ forwards interactions.
 | `ui/SquadDockCountdown.ts` | Right-side countdown panel (`.hub-squad-dock`, `.hsd-*`) shown to members after the leader docked; display only, no blocker. |
 | `parts/Interior.ts` | Build / dispose interiors: pods, terminal, shared-ship computer, stations (`hub_implant_bay`, `hub_dining_table`), `FurnitureLayer` + callbacks into `ctx.housing`, hangar exit, room signs / lights, room tracking, `teardown`. |
 | `parts/Transitions.ts` | `enter`, background resume (`tryResume`), docking / undocking cutscene start / finish with destination prebuild, `swapDirect`, bay board / leave, `net:lobbyUpdated` / `net:lobbyLeft` (incl. server `moved`) / `net:resumed`. |
-| `parts/Pods.ts` | Launch slots: prompt / availability / refusal reasons, board, ready toggle (with launch warnings), un-board, lobby echo sync, seed resolution (intel seed first), countdown, launch. |
+| `parts/Pods.ts` | Launch slots: prompt / availability / refusal reasons, board, ready toggle (with launch warnings), un-board, lobby echo sync (bot members seated + ready without an avatar), seed resolution (intel seed first), countdown, and the **raid-entry fade** (`beginRaidLoad` / `tickRaidLaunch` / `clearRaidLaunch`) that launches `RAID_LOAD_FADE_OUT_S` after the countdown. |
+| `parts/Androids.ts` | 조종실 안드로이드 슬롯: `hub_android_<bay>` interactables (`ALLY_BAY_HOLD_S` hold) → `ctx.net.setAndroidBay`, prompts and refusals (leader / mission / offline / pending), capsule status refresh, `getAndroidBays` / `getPodStandPose` / `buildPodStands`. |
 | `parts/Planet.ts` | Target planet: `setPlanet`, `travelBlockReason`, persistence (`PLANET_STORAGE_KEY`), window warp (`startTravel` / `tickTravel` / `finishTravel` / `cancelTravel`, pure `warpSpeedAt`), `applyPlanetLook`. |
 | `parts/Crew.ts` | Crew card sending (`crew` / `crewq`), training arena entry (`startTraining`), squad-leader handoff interactables (`lead:<peerId>`). |
 | `parts/Hangar.ts` | Hangar bays (`hub_ship_bay_<slot>`): prompts / refusals, bay occupants, ship-layout exchange (`ship` / `shipq`), visit wait, `furnitureSource` for a visited ship, visit status line. |
@@ -50,6 +51,7 @@ forwards interactions.
 | `interiors/PersonalShip.ts` | Cockpit (fixed props: viewport + dashboard terminal, pilot seats, launch pod socket; rest is furniture) → corridor → `SHIP_ROOM_COUNT` rooms with doors, strips, signs, grid → airlock. Fading cockpit ceiling group, `LightPool`, `ViewportWarp`. |
 | `interiors/SharedShip.ts` | Shared deck: bridge + terminal + viewport, 4 pod sockets, computer, implant bay, fixed dining table, holo table, airlock; aft door to the hangar; `LightPool` (deck + hangar zones); `ViewportWarp`. |
 | `interiors/Hangar.ts` | Hangar deck merged into the shared ship's batch and collider: gantries, catwalks, 4 bays, parked personal-ship models (`setOccupants`), light fixtures. |
+| `interiors/AndroidBays.ts` | `AndroidBayRack`: the cockpit's `ANDROID_BAY_COUNT` capsules (shell merged into the ship's batch, per-bay emissive status strip + name tag as own meshes, one solid collider each), `bays` (`HubAndroidBay`), `setState('dormant' \| 'out' \| 'pending')`. No lights. |
 | `interiors/Furniture.ts` | `buildFurniture(def, level, extra?)` builders for every non-leisure `FurnitureModelKind` (merges kitchen and mining builders); `FurnitureLayer`: per-room pieces, collider blockers, `Lv.n` signs, interactables `hub_furn_<uid>` with access-face checks, rebuild on `housing:*` events, owns `GymStaging` / `CookStaging` / `GameStaging` / `RemoteFurnitureStaging`. |
 | `interiors/FurnitureLeisure.ts` | `LEISURE_BUILDERS` (`isLeisureKind`): library media stands, TV with console + hidden game screen rig, record players, gym machines, sofa, chair, low table, rug; moving sub-groups and pose geometry (`FurnitureRig`). |
 | `interiors/FurnitureKitchen.ts` | Auto-cooking appliance builders (`KITCHEN_APPLIANCE_BUILDERS`) and the cook-bench tool rig (`cookBenchTools` → `CookRig`, `COOK_TOOL_OF`, `poseCookKnife`, `restCookRig`). |
@@ -74,8 +76,11 @@ forwards interactions.
 - **`ctx.hub: HubRef`** (`src/shared/types.ts`, three `interface HubRef` blocks): `ship`, `active`, `collider`,
   `getLaunchSlots()`, `missionSeed`, `setMissionSeed(seed)` (console `/seed`; lobby host pushes `setLobbySeed`, non-host
   refused), `currentRoom`, `launchReady?` (boarded ∧ ready — `inventory` read-only gate), `planet`, `setPlanet(id)`,
-  `travelling`, `hubSite`, `visitingPeer`, `visitReadOnly`, `getShipBays()`, `enterShipBay(slot)`, `returnToHangar()`.
-- **Emits**: `hub:entered {ship, spawn}`, `hub:left`, `hub:docking {stage, direction}`, `hub:travel {stage, planet}`,
+  `travelling`, `hubSite`, `visitingPeer`, `visitReadOnly`, `getShipBays()`, `enterShipBay(slot)`, `returnToHangar()`,
+  `getAndroidBays()` (2026-09-15 — the cockpit capsules, a **reused** array, empty outside the shared ship),
+  `getPodStandPose(slot)` (where a recruited android stands ready in front of its launch pod, null elsewhere).
+- **Emits**: `raid:loadBegin {}` (2026-09-15 — every client, at the end of the launch countdown, with
+  `ui:screenFade {1, RAID_LOAD_FADE_OUT_S, hold}`), `hub:entered {ship, spawn}`, `hub:left`, `hub:docking {stage, direction}`, `hub:travel {stage, planet}`,
   `hub:warpProgress {planet, t, speed}`, `hub:planetChanged {planet, by}`, `hub:slotChanged`, `hub:launchCountdown`,
   `hub:readyPanelToggled`, `hub:crewLoadoutToggled`, `hub:terminalToggled` (+ legacy `ui:hubMenuToggled`),
   `hub:roomEntered {room, purpose}`, `hub:shipVisit {peerId, readOnly}`, `leader:transferRequested {peerId}`,
@@ -84,7 +89,7 @@ forwards interactions.
   `game:newMission` (solo launch / training), `game:abort` (entering the hub from a mission phase), `camera:shake`,
   `ui:keyGuide`, `ui:notify`, `audio:play`.
 - **Consumes**: `hub:enter`, `game:newMission`, `game:abort`, `net:lobbyUpdated`, `net:lobbyLeft`, `net:resumed`,
-  `net:statusChanged`, `net:crewCard`, `meta:creditsChanged`, `meta:loaded`, crew-card triggers (`progress:levelUp`,
+  `net:androidReturned`, `net:error` (both only to clear a pending `lobby:android` request), `net:statusChanged`, `net:crewCard`, `meta:creditsChanged`, `meta:loaded`, crew-card triggers (`progress:levelUp`,
   `implant:equipped`, `equip:changed`, `loadout:changed`, `inventory:loadoutSaved`), ship-state triggers
   (`housing:changed` / `loaded` / `booksChanged` / `shelfChanged` / `furnitureToggled`), `housing:roomPurposeChanged`,
   `housing:modeChanged`, `housing:shipManageChanged`, `housing:moveRequested`, `housing:furniture*`,
@@ -96,9 +101,11 @@ forwards interactions.
   `ship state` (`ShipVisitWire`, debounced `SHIP_VISIT_MIN_INTERVAL_S`), answers `shipq state` (`SHIP_VISIT_COOLDOWN_S`).
   Receiving and storing is `net/`'s. Planet travel has no message: every client warps off its own `lobby:state`.
 - **Debug**: `getSystem('hub')` → `.housing` (`HousingMode`), `.furnitureLayer`, `.openShipManage()`,
-  `.debugRemoteFurniture(refs)`; interactables `hub_terminal`, `hub_computer`, `hub_implant_bay`, `hub_dining_table`,
-  `hub_pod_<slot>`, `hub_ship_bay_<slot>`, `hub_hangar_exit`, `hub_furn_<uid>`, `lead:<peerId>`. Scene names:
-  `PersonalShip`, `room-<i>`, `furn-<defId>`, `HubPlanet` / `HubPlanetBody`, `cockpit-ceiling`.
+  `.debugRemoteFurniture(refs)`, `.debugSharedShip(lobby)` (2026-09-15 — stand in the shared ship of a made-up docked
+  lobby with no relay; `squadLobby()` answers with it), `.androidPrompt(bay)`, `.androidCanInteract(bay)`,
+  `.raidLaunching`; interactables `hub_terminal`, `hub_computer`, `hub_implant_bay`, `hub_dining_table`,
+  `hub_pod_<slot>`, `hub_ship_bay_<slot>`, `hub_android_<bay>`, `hub_hangar_exit`, `hub_furn_<uid>`, `lead:<peerId>`.
+  Scene names: `PersonalShip`, `room-<i>`, `furn-<defId>`, `HubPlanet` / `HubPlanetBody`, `cockpit-ceiling`.
 
 ## Flow
 
@@ -136,12 +143,35 @@ forwards interactions.
 - `podCanInteract` = availability only (phase, cutscene, travel, boarded, `REBOARD_GRACE`, menus, slot free);
   `podBlockReason` = refusals shown as the prompt (tutorial gate, training running, no target planet).
 - A running lobby mission turns the pod into a rejoin entrance (`임무 진행 중 — 재투입`).
-- Countdown: all connected members ready (and `!lobby.started`) → `HUB_LAUNCH_COUNTDOWN`; authority (solo / host)
-  launches. Host: `net.startGame(seed, 'raid', planet, intel)`. Solo: sets `missionMode`, `missionPlanet`,
-  `missionIntel` then emits `game:newMission`. Seed = held intel for this planet → lobby seed → `missionSeed` → random.
+- Countdown: all connected members ready (and `!lobby.started`) → `HUB_LAUNCH_COUNTDOWN`. At 0 **every** client (host,
+  member, solo) fades to black — `ui:screenFade {1, RAID_LOAD_FADE_OUT_S, hold}` + `raid:loadBegin` — and the
+  **authority launches `RAID_LOAD_FADE_OUT_S` later** (`parts/Pods.beginRaidLoad`). Host: `net.startGame(seed, 'raid',
+  planet, intel)`. Solo: sets `missionMode`, `missionPlanet`, `missionIntel` then emits `game:newMission`. Seed = held
+  intel for this planet → lobby seed → `missionSeed` → random. Rejoin and training skip all of this (no countdown).
+- 안드로이드 봇 멤버 (2026-09-15): a `LobbyPlayer.bot` occupies the pod of its lobby slot and is **always ready** — the
+  pod closes and the ready cell is confirmed with no remote avatar (the body stands in front of the pod, drawn by
+  `allies/` at `getPodStandPose(slot)`). Its cell shows `snapshotAndroidFace` instead of a 3D body, the `ANDROID_KIT`
+  gear board (or `ctx.allies.getLoadout(id)` once that exists) and refuses the right-click crew-loadout popup.
+  Bots are filtered out of hangar bays, ship visits, leader handoff, training counts and crew counts.
 - Ready panel: portraits come from `ctx.player.createPortraits(host, HUB_READY_CELLS)` at `HUB_READY_PORTRAIT_YAW`;
   members not seated draw no body. Local gear thumbnails use real instances (attachment pips); squadmates use the crew
   card (outline pips only, bag unknown `?`). Key guide owner `pod` (`E 내리기`, `Space 준비`), hidden during countdown.
+
+## 조종실 안드로이드 슬롯 (2026-09-15)
+
+- Three capsules stand in the **port corner of the shared ship's bridge** (a row along Z at x ≈ −11.45, z 3.2 / 4.25 /
+  5.3, facing +X onto the deck) — clear of the helm console, the pilot seats, the ship computer, the launch pods and
+  the armoury, and clear of the x ≈ −8 line `smoke-hangar` walks. Shell geometry is merged into the ship's `GeoBatch`;
+  only the per-bay emissive status strip and name tag are own meshes, and **no light is ever created**.
+- `hub_android_<bay>` (radius 2.2, `holdTime: ALLY_BAY_HOLD_S`) sits one step in front of each capsule and is
+  registered only in the shared ship. The hold sends `ctx.net.setAndroidBay(bay, !recruited)`; the relay decides
+  everything else. Recruited = `androidOnBay(squadLobby(), bay)`.
+- Prompts: `<이름> — 분대원으로 들이기` / `<이름> — 슬롯으로 돌려보내기`. **Refusals are the prompt** and the bay stays
+  interactable (the launch-pod rule): `요청 처리 중…` → `서버에 연결되어 있지 않습니다` → `분대장만 안드로이드를 들일 수
+  있습니다` → `임무 진행 중`. A pending request clears on the next `net:lobbyUpdated` / `net:androidReturned` /
+  `net:error` / `net:lobbyLeft` / `net:statusChanged` — no timer, so no number in code.
+- Strip colours: cyan = an android is dormant inside, dark = it is out with the squad, amber pulse = waiting for the
+  relay. A full squad is the relay's call (`net:androidReturned {reason:'full'}`); ui/ owns that toast.
 
 ## Terminal, intel, matchmaking
 
@@ -253,6 +283,14 @@ doorway is an open shared edge.
   a collider rebuild. — `interiors/InteriorCollider.ts`
 - New screen tilt: a box frame with `rx = +tilt` and a `TextPlane` with `Euler(−tilt, ry + π, 0, 'YXZ')` lean the same
   way; `consolePedestal` tilts its housing opposite its screen — do not copy that pair.
+- The raid-entry fade runs on the **wall clock** (`performance.now()`), not the hub's dt: `game/parts/LoadGate` holds
+  the engine from `raid:loadBegin` on and every system then gets dt 0, so a dt countdown would never launch. A backup
+  `setTimeout` fires the same step in case the hold skips `update` entirely. — `parts/Pods.ts` (`RaidLaunchState`)
+- Once the fade started the launch is **committed**: `toggleReady`, the E un-board and the android bays all refuse
+  while `HubSystem.raidLaunch` is set. Nothing launching within `RAID_LOAD_FADE_OUT_S + RAID_LOAD_START_GRACE_S`
+  (host gone, server refusal) fades back in instead of leaving a black screen. — `parts/Pods.ts` (`tickRaidLaunch`)
+- Bot members are lobby members without a socket: never a hangar occupant, a `ship state` target, a leader-handoff
+  target, a training head or a 승무원 count. Read `isBotPlayer` / `humanPlayersOf`, never `players.length`.
 - `parts/` import only types from `HubSystem.ts`; values go to `model.ts`.
 
 ## Notes
@@ -270,8 +308,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩: cockpit bays (`interiors/AndroidBays.ts`, `parts/Androids.ts`, `hub_android_<bay>`, `getAndroidBays` / `getPodStandPose`), bots in pods / ready cells / match tab and filtered out of hangar · handoff · counts, and the countdown-end fade + delayed launch (`beginRaidLoad`); `scripts/smoke-android-bays.mjs`.
 - 2026-09-15 — Terminal rebuilt: top tabs 행성 / 매칭, centred planet, bottom-right training button + `TrainingConfirm`, `MatchTab` (face tiles, private / public dock, undock) + `InviteModal`; `MatchPanel` deleted.
 - 2026-09-15 — Squads vs shared ship: `parts/SquadDock.ts` (own dock fade / member countdown / undock rule, cancel everything, pod + training locks), `ui/SquadDockCountdown.ts` (`.hsd-`), `shipLobbyCode` / `squadLobby()`.
 - 2026-09-15 — Intel `확정` button: label `확정` + left-click hold keycap (`createHoldButtonCap`); `.it-reason` shows block reasons only.
 - 2026-09-15 — Ready hold `Space` keycap built with `shared/keycap.createKeycap` / `paintKeycap`.
-- 2026-09-15 — Ship management no longer passes the standing room to `openShipManage` (housing remembers the last room).

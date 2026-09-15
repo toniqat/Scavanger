@@ -80,23 +80,44 @@ try {
     }
     window.__sys = window.__game.getSystem('enemies');
     window.__V = window.__game.ctx.camera.position.constructor;
-    /** 플레이어에게서 멀리(시야 밖) · 거점(구조물 · 플랫폼 · 폐허)에서도 멀리 떨어진 맵 안 지점 하나. */
-    window.__farPoint = (minD) => {
+    /** 그 지점에서 가장 가까운 살아 있는 적까지의 거리 (없으면 Infinity). */
+    window.__enemyClearance = (x, z) => {
+      let best = Infinity;
+      for (const e of window.__sys.active) {
+        if (!e.active || e.state === 'dead') continue;
+        const d = Math.hypot(e.position.x - x, e.position.z - z);
+        if (d < best) best = d;
+      }
+      return best;
+    };
+    /** 플레이어에게서 멀리(시야 밖) · 거점(구조물 · 플랫폼 · 폐허)에서도 멀리 · **살아 있는 적에게서도 멀리** 떨어진 맵 안 지점 하나. */
+    /* 2026-09-15: 적 이격(`ENEMY_CLEAR`)이 없으면 시드에 따라 강하 분대(`ROGUE_DROP_RADIUS` 26 m 로 흩어진다)가
+       살아 있는 벌레 바로 옆에 내린다 — 내리자마자 `aware` 가 되어 `EnemyAI` 가 investigate 를 풀고,
+       「전원이 진격 상태로 내린다」가 0/3 으로 빨개졌다 (제품은 정상: `RogueDrop` 은 전원에게 `beginInvestigation` 을
+       부른다). 800 번을 다 굴려도 조건을 못 채우면 그중 **가장 한산한** 후보를 쓴다 — 예전처럼 아무 곳이나
+       받아들이지 않는다. */
+    window.__farPoint = (minD, ENEMY_CLEAR = 45) => {
       const ctx = window.__game.ctx; const V = window.__V; const world = ctx.world; const pp = ctx.player.position;
       const sites = [...world.getStructures().map((s) => s.position), ...world.getRailLines().flatMap((l) => l.platforms.map((p) => p.position)),
         ...(typeof world.getRuinSites === 'function' ? world.getRuinSites().map((r) => r.position) : [])];
+      let best = null, bestScore = -1;
       for (let k = 0; k < 800; k++) {
         const x = pp.x + (Math.random() - 0.5) * 420, z = pp.z + (Math.random() - 0.5) * 420;
         if (!world.isInsideBounds(x, z) || Math.hypot(x - pp.x, z - pp.z) < minD) continue;
-        if (k < 600 && sites.some((s) => Math.hypot(s.x - x, s.z - z) < 75)) continue;
-        return new V(x, world.getHeightAt(x, z), z);
+        const nearSite = sites.some((s) => Math.hypot(s.x - x, s.z - z) < 75);
+        const clear = window.__enemyClearance(x, z);
+        if (!nearSite && clear >= ENEMY_CLEAR) return new V(x, world.getHeightAt(x, z), z);
+        const score = (nearSite ? 0 : 1000) + Math.min(clear, 500);
+        if (score > bestScore) { bestScore = score; best = new V(x, world.getHeightAt(x, z), z); }
       }
-      return null;
+      return best;
     };
     /** 거점 그룹을 치운다 — threat 2 행성은 거점마다 로그 · 레이더가 서 있어 강하 병력이 진격 대신 교전에 들어간다. */
     window.__clearHumanoids = () => { for (const e of window.__sys.active) if (e.active && e.isHumanoid && e.state !== 'dead') e.kill(false); };
   });
   const waitSim = async (sec) => { const t0 = await page.evaluate(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 240000, t0 + sec); };
+  /** 절대 시각(`ctx.time`)까지 기다린다 — 착지처럼 "예고 때 정해진 순간" 을 기준으로 재야 할 때. */
+  const waitTime = (t, label) => waitFor(page, (want) => window.__game.ctx.time >= want, label, 240000, t);
   const P = (fn, arg) => page.evaluate(fn, arg);
   const startMission = async (seed, planet) => {
     await P((a) => { const ctx = window.__game.ctx; ctx.missionPlanet = a.planet; ctx.missionMode = 'raid'; ctx.bus.emit('game:newMission', { seed: a.seed, planet: a.planet }); }, { seed, planet });
@@ -116,9 +137,11 @@ try {
   /* ── 1. 예고 ───────────────────────────────────────────────────────────── */
   console.log('예고 (callRogueDrop)');
   const call = await P(() => {
-    const ctx = window.__game.ctx; const p = window.__farPoint(130);
-    if (!p) return null;
+    // 거점 그룹을 **먼저** 치운 다음 지점을 고른다 — 그래야 `__farPoint` 의 적 이격이 실제 상황을 잰다
+    const ctx = window.__game.ctx;
     window.__clearHumanoids();
+    const p = window.__farPoint(130);
+    if (!p) return null;
     window.__drop = { x: p.x, y: p.y, z: p.z };
     const before = window.__sys.active.filter((e) => e.active && e.isHumanoid).map((e) => e.id);
     const okCall = ctx.enemies.callRogueDrop('smoke_zone', p);
@@ -155,11 +178,28 @@ try {
 
   /* ── 2. 착지 ───────────────────────────────────────────────────────────── */
   console.log(`착지 (+${ETA}s)`);
-  await waitSim(ETA + 1.0);
+  /* 2026-09-15: 호출 때 한 번 치우는 것만으로는 모자랐다 — `__clearHumanoids()` 는 예고보다 8 초 앞서 돌고
+     벌레는 건드리지 않아서, 그 8 초 동안 강하 지점으로 흘러든 개체가 「전원이 진격 상태로 내린다」를 깨뜨렸다.
+     착지 **직전에** 강하 지점 둘레를 한 번 더 비운다. 이미 내린 뒤라면 손대지 않는다 — 그러면 갓 내린
+     레이더를 죽여 버린다. */
+  await waitTime(view.landsAt - 1.0, 'landing −1 s');
+  const swept = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const d = window.__drop;
+    if (!ctx.enemies.getRogueDrops().some((v) => v.id === 'smoke_zone')) return null;   // 이미 착지 — 건드리지 않는다
+    let n = 0;
+    for (const e of sys.active) {
+      if (!e.active || e.state === 'dead') continue;
+      if (e.isHumanoid || Math.hypot(e.position.x - d.x, e.position.z - d.z) < 90) { e.kill(false); n++; }
+    }
+    return n;
+  });
+  if (swept === null) console.log('  note  강하가 이미 착지한 뒤라 착지 전 정리를 건너뛰었다');
+  await waitTime(view.landsAt + 0.6, 'landed');
   const landed = await P((a) => {
     const ctx = window.__game.ctx; const sys = window.__sys;
     const d = window.__drop;
-    const fresh = sys.active.filter((e) => e.active && e.isHumanoid && !a.before.includes(e.id));
+    // 죽은 개체는 세지 않는다 — 착지 직전 정리가 남긴 시체가 `active` 인 채 잠깐 남아 "예고보다 많이 내렸다" 가 된다
+    const fresh = sys.active.filter((e) => e.active && e.isHumanoid && e.state !== 'dead' && !a.before.includes(e.id));
     return {
       ev: window.__ev['rogueDrop:landed'],
       pending: ctx.enemies.getRogueDrops().length,
@@ -171,6 +211,16 @@ try {
       dist: fresh.map((e) => Math.hypot(e.position.x - d.x, e.position.z - d.z)),
       guard: fresh.map((e) => Math.hypot(e.guardPos.x - d.x, e.guardPos.z - d.z)),
       investigating: fresh.filter((e) => e.investigating).length,
+      // 진격이 풀린 이유를 바로 읽을 수 있게 (교전 시작? 피해? 근처에 뭐가 있나)
+      why: fresh.map((e) => {
+        let nd = Infinity, nt = '';
+        for (const o of sys.active) {
+          if (!o.active || o.state === 'dead' || fresh.includes(o)) continue;
+          const dd = Math.hypot(o.position.x - e.position.x, o.position.z - e.position.z);
+          if (dd < nd) { nd = dd; nt = o.type; }
+        }
+        return { inv: e.investigating, aware: e.aware, st: e.state, hp: Math.round(e.hp), near: `${nt}@${nd === Infinity ? '-' : nd.toFixed(0)}` };
+      }),
       origin: fresh.map((e) => Math.hypot(e.shotOrigin.x - d.x, e.shotOrigin.z - d.z)),
       ids: fresh.map((e) => e.id),
       impact: window.__ev['audio:play'].filter((x) => x.id === 'rogue_pod_impact').length,
@@ -187,7 +237,7 @@ try {
   ok(landed.boss === 0, 'enemy:bossSpawned 없음');
   ok(landed.dist.length > 0 && landed.dist.every((d) => d <= RADIUS + 3), `착지 지점이 ROGUE_DROP_RADIUS(${RADIUS} m) 안이다 (${landed.dist.map((d) => d.toFixed(1)).join(', ')})`);
   ok(landed.guard.every((d) => d < 0.01), 'guardPos = 트리거 지점 (진격이 끝나면 구조물을 지킨다)', JSON.stringify(landed.guard));
-  ok(landed.investigating === landed.spawned, `전원이 진격(investigate) 상태로 내린다 (${landed.investigating} / ${landed.spawned})`);
+  ok(landed.investigating === landed.spawned, `전원이 진격(investigate) 상태로 내린다 (${landed.investigating} / ${landed.spawned})`, JSON.stringify(landed.why));
   ok(landed.origin.every((d) => d < 0.01), '진격 목표 = 트리거 지점', JSON.stringify(landed.origin));
   ok(landed.impact > 0, `착지 충격음 (rogue_pod_impact ×${landed.impact})`);
 

@@ -4,6 +4,8 @@ import { countVisiblePointLights, type LightBudget } from './LightBudget';
 
 interface Job {
   pending: THREE.Material[];
+  /** 2026-09-15: 기다리기 시작할 때의 머티리얼 수 — `compileProgress` 의 분모 (0 이 되지 않는다). */
+  initial: number;
   deadline: number;
   resolve: (ok: boolean) => void;
 }
@@ -49,6 +51,23 @@ export class ShaderWarmup implements ShaderWarmupRef {
   /** Debug / smoke: warm-up jobs still waiting on the driver. */
   get pendingJobs(): number { return this.jobs.length; }
 
+  /**
+   * 2026-09-15 (레이드 진입 로딩): 지금 걸린 컴파일의 진행도 0..1 — 준비된 머티리얼 / 처음 기다리던 머티리얼.
+   * 기다리는 것이 없으면 1 이고, 씬 컴파일이 **예약만 된 상태**(`holdForScene` 직후 · 아직 `beforeRender` 전)는 0 이다:
+   * 그 프레임에 1 을 돌려주면 로딩 게이지가 「다 됐다」로 시작했다가 도로 내려간다.
+   */
+  get compileProgress(): number {
+    if (this.sceneWaiters.length > 0) return 0;
+    if (this.jobs.length === 0) return 1;
+    let initial = 0, ready = 0;
+    for (const job of this.jobs) {
+      initial += job.initial;
+      ready += job.initial - job.pending.length;
+    }
+    if (initial <= 0) return 1;
+    return Math.max(0, Math.min(1, ready / initial));
+  }
+
   warm(root: THREE.Object3D, replaces: THREE.Object3D | null = null): Promise<boolean> {
     let materials: Set<THREE.Material>;
     try {
@@ -65,6 +84,18 @@ export class ShaderWarmup implements ShaderWarmupRef {
   }
 
   hold(ready: Promise<unknown>): void {
+    this.holdWith(ready, SHADER_WARMUP_TIMEOUT_S);
+  }
+
+  /**
+   * 2026-09-15 (레이드 진입 로딩): 상한을 직접 받는 `hold`. 분대원 로딩 대기(`RAID_LOAD_TIMEOUT_S`, 60초)는
+   * 셰이더 컴파일 상한(`SHADER_WARMUP_TIMEOUT_S`)보다 길어서, 그 상한으로 잡으면 아무도 기다려 주지 않는다.
+   */
+  holdFor(ready: Promise<unknown>, timeoutS: number): void {
+    this.holdWith(ready, Number.isFinite(timeoutS) && timeoutS > 0 ? timeoutS : SHADER_WARMUP_TIMEOUT_S);
+  }
+
+  private holdWith(ready: Promise<unknown>, timeoutS: number): void {
     this.holds++;
     let released = false;
     const release = (): void => {
@@ -73,7 +104,7 @@ export class ShaderWarmup implements ShaderWarmupRef {
       this.holds--;
     };
     ready.then(release, release);
-    setTimeout(release, SHADER_WARMUP_TIMEOUT_S * 1000);   // never trust a promise to hold the game hostage
+    setTimeout(release, timeoutS * 1000);   // never trust a promise to hold the game hostage
   }
 
   /** Engine: once per frame, before `beforeRender`. Resolves jobs whose programs finished linking. */
@@ -136,7 +167,7 @@ export class ShaderWarmup implements ShaderWarmupRef {
     for (const m of materials) if (!this.isReady(m)) pending.push(m);
     if (pending.length === 0) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
-      this.jobs.push({ pending, deadline: performance.now() + SHADER_WARMUP_TIMEOUT_S * 1000, resolve });
+      this.jobs.push({ pending, initial: pending.length, deadline: performance.now() + SHADER_WARMUP_TIMEOUT_S * 1000, resolve });
     });
   }
 

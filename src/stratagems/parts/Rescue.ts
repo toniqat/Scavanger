@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import {
   RESCUE_DROPS_PER_RAID, RESCUE_POD_MIN_GAP, RESCUE_SCATTER_RADIUS, STRATAGEM_HOST_ONLY,
+  isAndroidId, isBotPlayer,
   type PeerId, type RescueCandidate, type RescueMessage, type StratagemId,
 } from '@/shared';
 import { dustBurst } from '../Visuals';
@@ -55,6 +56,8 @@ export function getRescueCandidates(sys: StratagemSystem): readonly RescueCandid
   const members = net?.lobby?.players ?? null;
   if (members && members.length > 0) {
     for (const m of members) {
+      // 2026-09-15 (사용자 결정): 안드로이드는 **구조 드롭 대상이 아니다** — 쓰러지면 사람이 일으키고, 죽으면 그걸로 끝이다
+      if (isBotPlayer(m)) continue;
       if (m.id === me) { pushLocal(m.name || '나', m.slot); continue; }
       const ref = net?.getRemotePlayer(m.id) ?? null;
       const corpse = corpseOf(m.id);
@@ -137,6 +140,8 @@ export function confirmRescue(sys: StratagemSystem, target: string, position: TH
 export function grant(sys: StratagemSystem, target: string, position: THREE.Vector3, by: string): void {
   const ctx = sys.ctx;
   if (sys._rescueLeft <= 0) { deny(sys, by, 'empty'); return; }
+  // 2026-09-15 (사용자 결정): 안드로이드는 구조 드롭 대상이 아니다 — 후보 목록에도 없지만 위조된 요청까지 여기서 막는다
+  if (isAndroidId(target)) { deny(sys, by, 'alive'); return; }
   const cand = getRescueCandidates(sys).find((c) => c.peerId === target);
   if (cand && !cand.selectable) { deny(sys, by, 'alive'); return; }
 

@@ -78,6 +78,10 @@ const SMOKES = {
   'smoke-rogue-v2':     { file: 'scripts/smoke-rogue-v2.mjs',     folders: ['enemies'] },
   'smoke-humanoid-ai':  { file: 'scripts/smoke-humanoid-ai.mjs',  folders: ['enemies'] },
   'smoke-enemy-alert':  { file: 'scripts/smoke-enemy-alert.mjs',  folders: ['enemies', 'implants', 'weapons'] },
+  /* 2026-09-15 (안드로이드 분대원, 적 쪽): 주입한 안드로이드 몸이 곁가지 표적이 되고(`all`/`alive` 밖) 인간형이 노려 쏘고,
+     접촉 · 폭발 · 화염 지대가 닿고, `applyAllyHit` 이 킬 크레딧 없이 적을 깨우고, `ally:fired` 가 총성처럼 들리고,
+     `shared/cover.pickCoverSpot` 이 진짜 장애물 뒤를 고른다. allies/ 없이 도는 디버그 주입만 쓴다. */
+  'smoke-enemy-allies': { file: 'scripts/smoke-enemy-allies.mjs', folders: ['enemies', 'allies'] },
   'smoke-rogue-drop':   { file: 'scripts/smoke-rogue-drop.mjs',   folders: ['enemies', 'world'] },
   /* 2026-09-13 (행성별 적 팩션 · spawn-director): threat 1/2/3 × 시드 — 거점 그룹 팩션 · 그룹 수 · 인원 · 실내 · 분대장 ≤ 1 ·
      레이더 우회조 한 명 · 상자 경비 없음 · 같은 시드 = 같은 배치 · 네임드 확률 · 팩션. world 의 getSiteSpawnPoints 도 탄다. */
@@ -195,6 +199,11 @@ const SMOKES = {
   'smoke-fall-damage':  { file: 'scripts/smoke-fall-damage.mjs',  folders: ['player', 'audio', 'ui', 'world'] },
   /* 2026-09-15 (B-16 · 사용자 버그): 화염 지대 — 화염수류탄 · G-10 소이 수류탄이 실제로 불 지대를 세우는가 · 피해 · 드론 피해 · 소리 · 만료. */
   'smoke-fire-zones':   { file: 'scripts/smoke-fire-zones.mjs',   folders: ['gadgets', 'weapons', 'items', 'enemies', 'audio'] },
+  /* 2026-09-15 (안드로이드 분대원 — 레이드 갈고리): 안드로이드 가방(배치 · 병합 · resize 넘침) · 사람과 같은 무게 식 ·
+     컨테이너 미리보기 ≡ 안드로이드 획득(가져간 상태 · 열린 모습 · `container:itemTaken.by`) · 아이템 요청 4종 payload ·
+     컨테이너 창 열기 사건 · 바닥 아이템 `takeBy` · 탈출 패드 목록 / 콘솔 누르기 / 탑승 지점 · 루팅 컨테이너 목록 ·
+     재해 도형별 `nearestSafePoint` · 창고 입고. `ctx.allies` 없이 계약만 직접 부른다. */
+  'smoke-ally-hooks':   { file: 'scripts/smoke-ally-hooks.mjs',   folders: ['inventory', 'pickups', 'extraction', 'world', 'gadgets', 'stratagems'] },
   /* 2026-09-14: 캐릭터 확정 팝업(요약 카드 · 값/5 게이지 · 얼굴 정지 썸네일 · 1초 홀드) → 새로고침 → 튜토리얼 오프닝 — 검은 페이드가 코드로
      중간값을 지난다(reduced motion 에서도) · 연출이 **끝난다**(음수 타이머 버그) · 카메라가 백뷰로 이어진다 · 연출 중 나침반 0 / Tab 막힘 →
      끝나면 나침반 페이드인 · Tab 열림 · 튜토리얼 레이드 내내 시계 · 탈출 타이머 없음. */
@@ -207,6 +216,22 @@ const SMOKES = {
      도킹 해제는 나만 · 도킹된 분대로 초대 수락 = 카운트다운 · 혼자 비공개 매칭. 릴레이는 **스스로** 8894 에 띄운다(작업 트리의
      server/index.ts) — 공용 8787 을 재시작하지 않으므로 freshRelay 가 아니다. 브라우저 3개라 exclusive. */
   'smoke-squad-dock':   { file: 'scripts/smoke-squad-dock.mjs',   folders: ['net', 'hub', 'server'], exclusive: true },
+  /* 2026-09-15 (안드로이드 분대원): 봇 로비 멤버의 계약 — `setAndroidBay` 로 3기 들이기(bot·bay·ready·자기 슬롯) · 봇은 사람이 아니다
+     (`net:peerJoined` · 원격 아바타 없음) · 사람이 합류하면 가장 늦게 들어온 기가 슬롯으로(새로 온 사람까지 `net:androidReturned`) ·
+     분대원 not_host · 가득 차면 full + 요청자에게만 되돌림 · 돌려보내기 · 사람 이탈. 릴레이는 **스스로** 8896 에 띄운다. 브라우저 2개라 exclusive. */
+  'smoke-android-lobby': { file: 'scripts/smoke-android-lobby.mjs', folders: ['net', 'server'], exclusive: true },
+  /* 2026-09-15 (안드로이드 분대원 — hub): 조종실 슬롯 3칸(위치 · 갑판을 보는 yaw · `exit` · 캡슐 콜라이더 · `hub_android_<bay>` 3 s 홀드) ·
+     프롬프트(들이기 / 돌려보내기 / 분대장 아님은 프롬프트로 거절) · 봇 발사 슬롯(아바타 없이 준비 완료 · `is-bot` 카드 · 우클릭 거절) ·
+     `getPodStandPose` · 매칭 탭 봇 칸 · 레이드 진입 암전(카운트다운 → 페이드 hold + `raid:loadBegin` → 지연 발사, 준비 해제 무효).
+     릴레이 로비 없이 `HubSystem.debugSharedShip` 으로 공용 함선에 선다 — 브라우저 하나. */
+  'smoke-android-bays': { file: 'scripts/smoke-android-bays.mjs', folders: ['hub'] },
+  /* 2026-09-15 (안드로이드 분대원 — allies): 치트 명단(`/android 1`) · 개인 함선의 몸 · 솔로 레이드 강하 포드 · 묶인 기본 킷 ·
+     체력 ×ALLY_HP_MUL · 하네스 복귀와 한 방향 이동 시 절반으로 줄기 · 감지 → 적 핑 → 연사 → `applyAllyHit` ·
+     피해 → 쓰러짐 → 소생 → 출혈 사망 → `spawnAllyCorpse`. 다른 폴더의 계약 멤버가 없으면 그 검사만 skip 한다. */
+  'smoke-allies-core':  { file: 'scripts/smoke-allies-core.mjs',  folders: ['allies'] },
+  /* 2026-09-15 (안드로이드 분대원 — allies 명령): 분대장 이동 / 주의 핑 · 선착순 요청과 쿨다운 · 없는 물건의 채팅 한 줄 ·
+     회복 요청 → 핑 → 접근 → 떨구기 · 상자 루팅과 사람이 열면 중단 · 탈출 핑 → 재확인 → 콘솔 누르기. */
+  'smoke-allies-orders': { file: 'scripts/smoke-allies-orders.mjs', folders: ['allies'] },
   /* 2026-09-10: 피칭 위키(`docs/pitch/`) — 빌드가 없어서 깨져도 조용한 문서다. vite 도 게임도 쓰지 않고
      `docs/pitch` 를 정적으로 서빙해 페이지를 전부 열어 본다 (링크 · 사이드바 · nextnav · 카드 넘기기).
      `folders` 로는 안 잡히므로(`src/` 밖이다) 위의 `EXTRA_PATHS` 가 `docs/pitch/` 변경에서 직접 고른다. */
@@ -247,6 +272,17 @@ const SMOKES = {
      스모크 릴레이 8823 · 디버깅 9340 · 메인 인스펙터 9341; 2026-09-15 셸에 서버가 없다 — 번들 · asar · 포트로 확인).
      vite 도 공용 릴레이도 안 쓰지만 GPU · 포트를 잡고 `dist/` 가 오래됐으면
      vite build 를 돌리므로 혼자 돈다. `folders` 로는 안 잡힌다 — `EXTRA_PATHS` 가 `electron/` · `pack-release` · 자기 자신에서 고른다. */
+  /* 2026-09-15 (레이드 진입 로딩): 발사 → 암전 hold (임무 시계 · 강하 포드 정지) · 진행도 1 · 최소 암전 시간 · 페이드인 · deploying → playing ·
+     끝나지 않는 가짜 분대원이면 호스트가 상한까지 기다린다(디버그 훅) · 재접속 · 훈련장은 게이트를 타지 않는다. */
+  'smoke-raid-loading': { file: 'scripts/smoke-raid-loading.mjs', folders: ['game', 'core', 'hub', 'ui'] },
+  /* 2026-09-15 (안드로이드 분대원 — player 쪽): 주입한 `AllyBodyView` 로 몸을 검사한다 — 안드로이드 외형(머리 조각 교체) · 자세 매핑 ·
+     감춰진 / 죽은 몸 · 손에 든 총 · 방탄복 판 · 몸 풀 재사용 · `revive:ally:<id>` 상호작용 → `requestRevive` · 안드로이드가 업은 PC ·
+     `ally:fired` 연출의 점광원 개수 불변 · 안드로이드 얼굴 초상 · 안드로이드가 있으면 솔로 PC 도 쓰러진다. allies/ 없이 돈다. */
+  'smoke-ally-avatars': { file: 'scripts/smoke-ally-avatars.mjs', folders: ['player', 'allies'] },
+  /* 2026-09-15 (안드로이드 분대원 — ui 쪽): 가짜 `ctx.allies`(`hud.debugAllies`) + 버스 이벤트만으로 — 분대 행(배지 · 실드 ·
+     봇이 사람 행으로 안 그려진다) · 이름표 · 나침반 눈금 · 지도 범례 · `ally:ping` 마커 / 콜아웃 / `ping:placedV3` ·
+     `ally:chat` 이 relay 되지 않음 · 토스트 7종 · 로딩 게이지(암전 위 · squad 진행도 · dt 0 에서도 돈다 · 사라짐). */
+  'smoke-ally-ui':      { file: 'scripts/smoke-ally-ui.mjs',      folders: ['ui', 'allies'] },
   'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, exclusive: true },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };

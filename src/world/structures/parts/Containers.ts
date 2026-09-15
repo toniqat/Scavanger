@@ -126,6 +126,17 @@ export class ContainerSet {
   /** 열린 모습인가 (디버그 · 스모크). */
   isOpened(id: string): boolean { return this.byId.get(id)?.opened ?? false; }
 
+  /**
+   * 2026-09-15 (안드로이드 분대원) — 이 묶음의 컨테이너를 하나씩 넘긴다 (`WorldRef.getLootContainers`).
+   * 콜백이라 배열을 새로 만들지 않는다. `position` 은 **살아 있는** 벡터다 (전차 안의 것은 매 프레임 움직인다).
+   */
+  collect(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void {
+    for (let i = 0; i < this.insts.length; i++) {
+      const c = this.insts[i];
+      push(c.spec.id, c.spec.position, c.spec.tier, c.opened);
+    }
+  }
+
   build(ctx: BuildCtx, game: GameContext, specs: readonly ContainerSpec[]): void {
     this.game = game;
     const rng = ctx.rng.fork('structContainers');

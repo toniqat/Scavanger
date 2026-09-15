@@ -15,6 +15,9 @@ import { SoldierPool } from './SoldierPool';
 /* appended (2026-09-15, B-14): 분대원 낙하 착지음 */
 import { receiveRemoteFall, type RemoteFallReject } from './parts/Fall';
 import type { FallMessage } from '@/shared';
+/* appended (2026-09-15): 안드로이드 분대원의 몸 (`ctx.allies` → `SoldierModel`) */
+import { AllyAvatars, type DebugAllyBody } from './AllyAvatars';
+import { ALLY_LOCAL_PEER, type AllyId, type AllyMessage } from '@/shared';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
 /** 스크래치 — `pod drop` 좌표 (핫 패스는 아니지만 프레임당 할당을 만들지 않는다). */
@@ -163,10 +166,17 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
    */
   private readonly soldierPool = new SoldierPool();
 
+  /**
+   * 2026-09-15: 안드로이드 분대원의 몸 (`AllyAvatars`). 원격 분대원과 **같은 몸 풀**을 쓴다 — 안드로이드가 슬롯으로
+   * 돌아가면 그 몸을 사람 아바타가 그대로 받는다.
+   */
+  private allies: AllyAvatars | null = null;
+
   init(ctx: GameContext): void {
     this.ctx = ctx;
     // 2026-09-10: the three remote pods (and their thruster lights) enter the scene here, once, and never leave it
     this.pods = new RemotePods(ctx.scene);
+    this.allies = new AllyAvatars(ctx.scene, this.soldierPool);
     // the player owns the carry rules but not the avatars / refs — hand it this system as its carry host
     (ctx.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(this);
     ctx.bus.on('net:remotePlayerAdded', ({ id }) => {
@@ -179,6 +189,13 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     // entering a ship: drop mission avatars so nobody lingers at a stale planet position; the peers still in
     // the shared ship re-avatar from their next hub snapshot
     ctx.bus.on('hub:entered', () => this.clearAll());
+
+    /* ── 2026-09-15: 안드로이드 분대원 — 총구 연출 · 강하 포드 (모든 클라이언트가 받는다) ── */
+    ctx.bus.on('ally:fired', ({ id, from, to, weaponDefId }) => this.allies?.onFired(ctx, id, from, to, weaponDefId));
+    ctx.bus.on('ally:podDrop', ({ id, position, yaw }) => {
+      // 안드로이드도 사람과 같은 헬포드를 쓴다 (미리 지어 둔 포드 — 광원 개수가 바뀌지 않는다)
+      this.pods?.drop(ctx, id, position, yaw, 0);
+    });
 
     /* ── Phase 7: ghosts ── */
     ctx.bus.on('net:peerSuspended', ({ id, suspended }) => this.onPeerSuspended(id, suspended));
@@ -210,6 +227,8 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
         }),
         /* 2026-09-15 (B-14): 분대원이 떨어져 다쳤다 — 검사를 지나면 `player:remoteFell` (audio 가 착지음을 낸다) */
         net.onMessage('fall', (msg, from) => { this.receiveFall(msg, from); }),
+        /* 2026-09-15: 안드로이드가 나를 일으켰다 (`ally revive`) — 호스트의 자기 플레이어는 allies/ 가 직접 부른다 */
+        net.onMessage('ally', (msg, from) => { this.onAllyMessage(msg, from); }),
         net.onMessage('ghost', (msg) => {
           // every client remembers the last wire state so a promoted host can rebuild the ghosts
           if (msg.ev === 'state' || msg.ev === 'restore') this.lastGhost.set(msg.g.id, msg.g);
@@ -236,11 +255,20 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     if (this.ghosts.size > 0 || this.parked.size > 0) this.updateGhosts(dt, ctx);
   }
 
+  /**
+   * 2026-09-15: 안드로이드의 몸은 **`lateUpdate`** 에서 그린다. `AllySystem` 은 이 시스템보다 **뒤에** 등록돼 있어
+   * (`main.ts`), `update` 에서 `getBodies()` 를 읽으면 늘 한 프레임 늦은 자리를 그리게 된다.
+   */
+  lateUpdate(dt: number, ctx: GameContext): void {
+    this.allies?.update(dt, ctx);
+  }
+
   dispose(): void {
     this.clearAll();
     // final teardown only: `clearAll` merely hides the pods and parks the bodies
     this.pods?.dispose();
     this.pods = null;
+    this.allies = null;
     this.soldierPool.dispose();
     (this.ctx?.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(null);
     for (const u of this.unsubs) u();
@@ -345,6 +373,16 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     return wire;
   }
 
+  /* ── 2026-09-15: 안드로이드 몸 (질의 · 스모크 주입) ── */
+  /** 안드로이드 몸 관리자 (`ctx.allies` 를 읽어 그린다). */
+  getAllyAvatars(): AllyAvatars | null { return this.allies; }
+  /** 스모크 전용: `ctx.allies.getBodies()` 를 이 목록으로 갈아끼운다 (`null` = 원래대로). */
+  debugAllyBodies(views: DebugAllyBody[] | null): void { this.allies?.debugAllyBodies(views); }
+  /** 스모크 전용: 기본값이 채워진 몸 하나를 주입하고 그 객체를 돌려준다 (그 자리에서 고쳐 쓴다). */
+  debugAllyBody(opts: Partial<DebugAllyBody> & { id: string }): DebugAllyBody | null { return this.allies?.debugAllyBody(opts) ?? null; }
+  /** 스모크 전용: 주입한 몸 하나 / 전부를 뺀다. */
+  debugAllyClear(id?: AllyId): void { this.allies?.debugAllyClear(id); }
+
   /** Smoke-test helper: make a parked ghost expire on the next frame instead of after `NET_GHOST_PARK_S`. */
   debugExpireParked(id: PeerId): boolean {
     const e = this.parked.get(id);
@@ -439,6 +477,28 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     this.lastGhost.clear();
     this.parked.clear();
     this.pods?.clear();
+    this.allies?.clear();   // 2026-09-15: 안드로이드 몸도 풀로 돌아간다 (다음 프레임에 명단에서 다시 선다)
+  }
+
+  /**
+   * `ally revive` 수신 (2026-09-15): **로비 호스트**가 보낸, 나를 가리키는 것만 받는다. 호스트 자신의 플레이어는
+   * allies/ 가 `ctx.player.revive()` 를 직접 부르므로 여기로 오지 않는다 (두 번 적용될 일이 없다).
+   * `defib` = 제세동기 — 사람의 제세동기와 **같은 회복**(`revive` 뒤 `applyStim(maxHp)`, `gadgets/parts/Wire.onBuff`).
+   */
+  private onAllyMessage(msg: AllyMessage, from: PeerId): void {
+    if (msg.ev !== 'revive') return;
+    const ctx = this.ctx;
+    const net = ctx.net;
+    const hostId = net?.lobby?.hostId ?? null;
+    if (!net || !hostId || from !== hostId) return;
+    if (!net.localId || msg.target !== net.localId) return;
+    const me = ctx.player;
+    if (!me || me.isDead || !me.isDowned) return;
+    me.revive();
+    if (msg.defib === 1) me.applyStim(me.maxHp);
+    const name = ctx.allies?.getBody(msg.id)?.name ?? '안드로이드';
+    ctx.bus.emit('ui:notify', { text: `${name} 이(가) 일으켜 세웠다`, kind: 'success', duration: 2.5 });
+    ctx.bus.emit('audio:play', { id: msg.defib === 1 ? 'gadget_defib' : 'stim', position: me.position, volume: 0.9 });
   }
 
   /* ─────────────────────────── revive interactable ─────────────────────────── */
@@ -637,6 +697,24 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
         av.carried = false;
         if (av.root.parent !== ctx.scene) { av.root.updateWorldMatrix(true, false); ctx.scene.attach(av.root); }
       }
+    }
+    /*
+     * 2026-09-15 — **안드로이드가 나를 업고 있나.** 로컬 id 가 없어도(서버 없는 치트 솔로 — `ALLY_LOCAL_PEER`) 성립하므로
+     * 아래의 `if (!localId) return` 보다 **먼저** 본다. 사람의 업기와는 배타적이다: 안드로이드가 업고 있으면 그것이 이긴다.
+     */
+    const myPeer: PeerId = localId ?? ALLY_LOCAL_PEER;
+    const allyCarrier = this.allies?.carrierOf(ctx, myPeer) ?? null;
+    if (allyCarrier) {
+      if (this.myCarrier !== allyCarrier) {
+        const socket = this.allies?.socketOf(allyCarrier) ?? null;
+        if (socket) { this.myCarrier = allyCarrier; ctx.player?.setCarriedBy(socket); }   // 아바타가 아직 없으면 다음 프레임에
+      }
+      return;
+    }
+    if (this.myCarrier !== null && this.allies?.has(this.myCarrier)) {
+      // 안드로이드가 내려놓았다
+      this.myCarrier = null;
+      ctx.player?.setCarriedBy(null);
     }
     // our own body: whoever's `cr` points at us owns it (the carried side of `attachTo`)
     if (!localId) return;   // no session: only `debugCarryLocal` drives the local body

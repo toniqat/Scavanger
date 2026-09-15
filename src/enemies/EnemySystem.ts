@@ -71,6 +71,22 @@ import * as Pool from './parts/Pool';
 import * as RFx from './parts/RemoteFx';
 /* appended (2026-09-15, 결과 창 개편): 사망 원인 썸네일 · 적 이름 */
 import { enemyDisplayNameOf, renderEnemyPortrait } from './models/Portrait';
+/* appended (2026-09-15, 안드로이드 분대원): 표적 · 피해 · 엄폐 질의 */
+import type { AllyBodyView, CoverSpot } from '@/shared';
+import { pickCoverSpot, type CoverQuery } from '@/shared';
+import { COVER_EYE, COVER_MAX_RANGE_FRAC, COVER_MIN_TARGET_DIST, COVER_SEARCH_RADIUS, STAND_EYE } from './ai/RogueCover';
+import { ENEMY_WALL_STANDOFF } from '@/shared';
+
+/**
+ * 총성이 들리는 반경 (m). 사람(`weapon:fired` · `net:remoteFired`)과 안드로이드(`ally:fired`)가 **같은 값**이다 —
+ * 안드로이드는 사람과 같은 총을 쏘므로 적이 다르게 들을 이유가 없다. 알고리즘 상수라 csv 대상이 아니다.
+ */
+const GUNSHOT_NOISE_R = 55;
+const _allyDir = new THREE.Vector3();
+const _allyHit = new THREE.Vector3();
+const _coverFrom = new THREE.Vector3();
+const _coverThreat = new THREE.Vector3();
+const _debugSpot: CoverSpot = { cover: new THREE.Vector3(), pop: new THREE.Vector3(), hasPop: false, score: 0 };
 
 export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, RogueDropHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
@@ -304,9 +320,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('game:abort', () => { this.reset(); this.disposePools(); this.refreshMode(); }),
       // multiplayer pause menus keep simulating (freeze === false)
       bus.on('game:paused', ({ paused, freeze }) => { this.paused = paused && freeze !== false; }),
-      bus.on('weapon:fired', ({ origin }) => this.onGunshot(origin, 55)),
-      bus.on('net:remoteFired', ({ origin }) => this.onGunshot(origin, 55)),
+      bus.on('weapon:fired', ({ origin }) => this.onGunshot(origin, GUNSHOT_NOISE_R)),
+      bus.on('net:remoteFired', ({ origin }) => this.onGunshot(origin, GUNSHOT_NOISE_R)),
       bus.on('grenade:exploded', ({ position }) => this.onGunshot(position, 80)),
+      /* 2026-09-15 (안드로이드 분대원): 안드로이드의 한 발도 **사람의 총성과 똑같이** 들린다 — 같은 소음 반경 +
+         총알 추적(`alertShot`). 이벤트는 모든 클라이언트에서 나므로 권위에서만 반응한다 (`onGunshot` · `alertShot`
+         은 그 자체로도 권위 검사를 하지만, 벡터 계산까지 리플리카에서 돌 이유가 없다). 쏜 쪽은 사람 id 가
+         아니므로 `'ai'` — 「사수를 이미 볼 수 있다」 예외가 없어 근처의 모르는 적은 전부 조사에 들어간다. */
+      bus.on('ally:fired', ({ from, to }) => {
+        if (!this.authority || this.training || !this.ctx.world?.ready) return;
+        this.onGunshot(from, GUNSHOT_NOISE_R);
+        _allyDir.subVectors(to, from);
+        const range = _allyDir.length();
+        if (range < 1e-3) return;
+        _allyDir.multiplyScalar(1 / range);
+        _allyHit.copy(to);
+        this.alertShot(from, _allyDir, range, _allyHit, 'ai');
+      }),
       // 2026-09-13: 탈출 디펜스 웨이브 제거 (사용자 결정) — `extraction:activated` 는 더 이상 웨이브를 부르지 않는다
       bus.on('extraction:liftoff', ({ position }) => {
         if (!this.authority) return;
@@ -1014,6 +1044,55 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** 2026-09-11 (debug / smoke): 적이 지금 노릴 수 있는 드론 프록시 — id · 밑면 고도(m). */
   get debugDroneTargets(): Array<{ id: string; altitude: number }> {
     return this.targets.drones.map((t) => ({ id: t.droneId ?? '', altitude: t.droneAltitude }));
+  }
+
+  /* ══ appended (2026-09-15): 안드로이드 분대원 ══════════════════════════════════════════════════════════ */
+  /**
+   * `EnemyManagerRef.applyAllyHit` — 안드로이드의 한 발이 적 `enemyId` 를 맞혔다 (권위 전용, 킬 크레딧 없음).
+   * 적용했으면 true (`parts/Damage.applyAllyHit`).
+   */
+  applyAllyHit(enemyId: number, damage: number, point: THREE.Vector3, from: THREE.Vector3): boolean { return Dmg.applyAllyHit(this, enemyId, damage, point, from); }
+
+  /** 디버그 주입 피해 수신자 — null 이면 진짜 `ctx.allies.damage` 로 간다 (`debugAllyTargets`). */
+  debugAllySink: Dmg.AllyDamageSink | null = null;
+
+  /**
+   * debug / smoke 전용: `ctx.allies` 없이 안드로이드 몸을 주입한다. `bodies` 는 `AllyBodyView` 그대로(위치 · 체력 ·
+   * `hidden` 을 스모크가 직접 채운다)이고, `onDamage` 는 적이 그 몸을 때릴 때마다 불린다. `null` 로 부르면 걷어낸다.
+   * allies/ 가 아직 없어도 적 쪽(표적 · 사격 · 광역 · 접촉)을 그대로 검사할 수 있게 하는 유일한 통로다.
+   */
+  debugAllyTargets(bodies: readonly AllyBodyView[] | null, onDamage?: Dmg.AllyDamageSink | null): void {
+    this.targets.allyOverride = bodies;
+    this.debugAllySink = onDamage ?? null;
+    this.targets.refresh(this.ctx);
+  }
+
+  /** debug / smoke 전용: 지금 적이 노릴 수 있는 안드로이드 프록시 — id · 거리 기준 위치. */
+  get debugAllyTargetList(): Array<{ id: string; x: number; z: number }> {
+    return this.targets.allies.map((t) => ({ id: t.allyId ?? '', x: t.position.x, z: t.position.z }));
+  }
+
+  /**
+   * debug / smoke 전용: 공용 엄폐 고르기(`shared/cover.pickCoverSpot`)를 인간형 수치로 한 번 돌린다.
+   * 적 개체 없이 「이 자리에서 저 위협을 피하면 어디에 숨는가」만 물어본다.
+   */
+  debugCoverSpot(from: readonly number[], threat: readonly number[], anchorRadius = Infinity): { cover: number[]; pop: number[]; score: number } | null {
+    const world = this.ctx.world;
+    if (!world?.ready || from.length < 3 || threat.length < 3) return null;
+    _coverFrom.set(from[0], from[1], from[2]);
+    _coverThreat.set(threat[0], threat[1], threat[2]);
+    const q: CoverQuery = {
+      from: _coverFrom, threat: _coverThreat, anchor: _coverFrom, anchorRadius,
+      minThreatDist: COVER_MIN_TARGET_DIST, maxThreatDist: ROGUE_AI.range * COVER_MAX_RANGE_FRAC,
+      bodyRadius: ENEMY_WALL_STANDOFF, chestHeight: COVER_EYE, threatEyeHeight: PLAYER_HEIGHT * 0.65,
+      searchRadius: COVER_SEARCH_RADIUS, popEyeHeight: STAND_EYE,
+    };
+    if (!pickCoverSpot(world, q, _debugSpot)) return null;
+    return {
+      cover: [_debugSpot.cover.x, _debugSpot.cover.y, _debugSpot.cover.z],
+      pop: [_debugSpot.pop.x, _debugSpot.pop.y, _debugSpot.pop.z],
+      score: _debugSpot.score,
+    };
   }
 
   /**

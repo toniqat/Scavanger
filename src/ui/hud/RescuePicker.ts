@@ -1,5 +1,5 @@
 import type { GameContext, RescueCandidate } from '@/shared';
-import { Keys, MouseButtons, NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, RESCUE_DROPS_PER_RAID, keyLabel } from '@/shared';
+import { Keys, MouseButtons, NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, RESCUE_DROPS_PER_RAID, isAndroidId, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import './rescuePicker.css';
 
@@ -129,7 +129,9 @@ export class RescuePicker {
   private render(): void {
     const s = this.ctx.stratagems;
     if (!s) return;
-    const cands: readonly RescueCandidate[] = s.getRescueCandidates();
+    /* 2026-09-15 (사용자 결정): 안드로이드는 **구조 드롭 대상이 아니다** (플레이어가 일으키거나 제세동기를 쓴다).
+     * stratagems 가 이미 봇을 빼지만, 이 화면이 4칸의 뜻을 말하는 곳이라 여기서도 한 번 더 거른다. */
+    const cands: readonly RescueCandidate[] = s.getRescueCandidates().filter((c) => !isAndroidId(c.peerId));
     const left = s.rescueLeft;
     const key = `${left}|${cands.map((c) => `${c.peerId}:${c.slot}:${c.name}:${c.selectable ? 1 : 0}`).join(',')}`;
     if (key === this.lastKey) return;

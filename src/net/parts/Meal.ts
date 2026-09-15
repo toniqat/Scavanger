@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { MealMessage, PeerId } from '@/shared';
 import { BUFF_RANGE_SLACK, MEAL_SERVE_RANGE, META_HIT_RATE, normalizeMealQuality } from '@/shared';
+/* 2026-09-15: 안드로이드 분대원 — 봇 멤버는 식탁의 대상도 발신자도 아니다 */
+import { isBotPlayer } from '@/shared';
 import type { NetSystem } from '../NetSystem';
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -126,7 +128,8 @@ export class MealRelay {
     if (!sys || !at) return;
     const me = sys.localId;
     for (const p of sys.lobby?.players ?? []) {
-      if (p.id === who || p.connected === false) continue;
+      // 2026-09-15: 안드로이드는 먹지 않는다 — 봇 멤버는 식사 대상이 아니다 (보낼 소켓도 없다).
+      if (p.id === who || p.connected === false || isBotPlayer(p)) continue;
       if (p.id === me) {
         // 호스트 자신도 사거리 안이면 받는다.
         const mine = this.localPosition(this.vMe);
@@ -173,7 +176,8 @@ export class MealRelay {
     const sys = this.sys;
     if (!sys || from === sys.localId) return false;
     const m = sys.lobby?.players.find((p) => p.id === from);
-    return !!m && m.connected !== false;
+    // 2026-09-15: 봇 멤버 id 로는 아무것도 오지 않는다 (릴레이가 relay 대상에서 지운다) — 계약을 코드로도 못 박아 둔다.
+    return !!m && m.connected !== false && !isBotPlayer(m);
   }
 
   /** 그 피어의 마지막 스냅샷 위치 — **같은 공유 데크에 있을 때만**. */

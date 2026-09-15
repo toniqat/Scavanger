@@ -20,6 +20,8 @@ import {
   type RuinSiteDef, type SiteSpawnPlace,
   /* appended (2026-09-13): 탐사 차량 */
   type RoverRef,
+  /* appended (2026-09-15): 안드로이드 분대원 — 루팅 컨테이너 목록 */
+  type LootContainerInfo,
 } from '@/shared';
 import { Rover } from './rover/Rover';
 import { RoverRoad } from './rover/RoverRoad';
@@ -54,6 +56,9 @@ import { TrainingArena } from './TrainingArena';
 import { TutorialWorld } from './tutorial/TutorialWorld';
 
 const SOFT_WALL = HALF - 4;
+
+/** 2026-09-15: `getLootContainers()` 가 돌려 쓰는 항목 (계약의 `LootContainerInfo` 는 읽기 전용이라 안쪽 형만 쓰기 가능하다). */
+type LootContainerEntry = { -readonly [K in keyof LootContainerInfo]: LootContainerInfo[K] };
 
 /** Exact area shared by two circles (`obstacleCoverage`). 0 when they miss, the smaller disc when nested. */
 function circleOverlap(d: number, r1: number, r2: number): number {
@@ -519,6 +524,10 @@ export class WorldSystem implements GameSystem, WorldRef {
     const net = this.ctx?.net;
     const at = typeof id === 'string' ? this.openablePositionOf(id) : null;
     if (!net || !at || from === net.localId) return false;
+    /* 2026-09-15 (안드로이드 분대원): **로비 호스트가 보낸 것은 거리를 재지 않는다.** 호스트는 안드로이드를 대신해
+     * 상자를 열므로(`InventoryRef.takeContainerItemFor` → `markContainerOpened`) 호스트 자신의 몸은 맵 반대편에 있을
+     * 수 있다. 호스트를 권위로 믿는 것은 `crate sync` · `cont taken` 과 같은 규칙이다 (CLAUDE.md §4.3). */
+    if (from === net.lobby?.hostId) return true;
     const ref = net.getRemotePlayer(from);
     if (!ref || ref.connected === false) return false;
     const reach = Math.max(PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE) + CRATE_OPEN_RANGE_SLACK;
@@ -1042,6 +1051,46 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (fromSets) return fromSets;
     const crate = this.crates.getDefs().find((c) => c.id === containerId);
     return crate ? rollCrateContents(ctx, crate.id, crate.tier) : null;
+  }
+
+  /* ── 2026-09-15 (안드로이드 분대원, `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──────── */
+
+  /** `getLootContainers()` 가 돌려주는 배열과 그 항목 풀 (호출당 할당 0 — 안드로이드가 자주 묻는다). */
+  private readonly lootList: LootContainerEntry[] = [];
+  private readonly lootPool: LootContainerEntry[] = [];
+
+  /**
+   * 이번 맵의 루팅 컨테이너 전부 — 맵 상자 + 구조물 · 플랫폼 · 전차 컨테이너. `id` 는 **인벤토리 컨테이너 id** 다
+   * (상자는 `CrateDef.id`, 컨테이너는 상호작용 id 의 `container:` 를 뗀 명세 id) — `crate:open` · `peekContainerItems` ·
+   * `InventoryRef.takeContainerItemFor` 가 쓰는 그 id 다. 배열도 항목도 **재사용**한다: 읽고 바로 쓰고 보관하지 않는다.
+   * `position` 은 살아 있는 벡터라 전차 안의 컨테이너는 저절로 따라간다. 훈련장 · 준비 전은 빈 배열.
+   */
+  getLootContainers(): readonly LootContainerInfo[] {
+    this.lootList.length = 0;
+    if (!this.ready || !this.isPlanet) return this.lootList;
+    let n = 0;
+    const push = (id: string, position: THREE.Vector3, tier: number, opened: boolean, kind: 'crate' | 'structure'): void => {
+      while (this.lootPool.length <= n) this.lootPool.push({ id: '', position, tier: 0, opened: false, kind: 'crate' });
+      const e = this.lootPool[n++];
+      e.id = id; e.position = position; e.tier = tier; e.opened = opened; e.kind = kind;
+      this.lootList.push(e);
+    };
+    for (const c of this.crates.getDefs()) push(c.id, c.position, c.tier, c.opened, 'crate');
+    this.structures.collectContainers((id, p, tier, opened) => push(id, p, tier, opened, 'structure'));
+    this.rails.collectContainers((id, p, tier, opened) => push(id, p, tier, opened, 'structure'));
+    return this.lootList;
+  }
+
+  /**
+   * 안드로이드가 연 상자 · 컨테이너를 **열린 모습**으로 만들고 분대에 알린다 (`crate opened`). 사람의 상호작용과 달리
+   * 이벤트 · 통계 · 감정 XP 는 내지 않는다 — 그것들은 사람이 E 를 눌렀을 때만 오른다. 부르는 곳은 권위의
+   * `InventoryRef.takeContainerItemFor` 하나다. 이 맵에 없는 id 면 false.
+   */
+  markContainerOpened(id: string): boolean {
+    if (this.openedIds.has(id)) return true;   // 이미 열린 모습이다 — `crate opened` 를 또 보내지 않는다
+    if (!this.applyOpened(id)) return false;
+    this.onLocalOpened(id);
+    return true;
   }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {

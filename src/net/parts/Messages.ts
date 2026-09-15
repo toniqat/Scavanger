@@ -13,6 +13,8 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
+/* 2026-09-15: 안드로이드 분대원 — `lobby:androidReturned` 의 bay 범위 · 봇 멤버 판정 */
+import { ANDROID_BAY_COUNT, humanPlayersOf } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -105,7 +107,8 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       sys.applyLobby(msg.lobby);
       if (matched) {
         sys.pendingQuickMatch = false;
-        bus.emit('net:matched', { lobby: msg.lobby, created: msg.lobby.players.length === 1 });
+        // 2026-09-15: 「새로 열었다」는 **사람**이 나 하나라는 뜻이다 (안드로이드가 찬 분대는 애초에 매칭되지 않는다).
+        bus.emit('net:matched', { lobby: msg.lobby, created: humanPlayersOf(msg.lobby).length === 1 });
       }
       return;
     }
@@ -119,6 +122,19 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       sys._dockPending = false;   // 2026-09-15: a refused `lobby:dock` (not_host · in_lobby · started …) is not a dock of mine any more
       bus.emit('net:error', { code: msg.code, message: msg.message });
       return;
+
+    /*
+     * 2026-09-15 (안드로이드 분대원): 릴레이가 한 기를 조종실 슬롯으로 돌려보냈다. 명단 자체는 `lobby:state` 가 싣는다 —
+     * 이 사실은 **왜** 빠졌는지(사람 합류 · 정원 초과)를 알려 줄 뿐이라 명단을 손대지 않고 그대로 버스에 옮긴다.
+     * 모르는 모양은 조용히 버린다 (알림 하나가 못 뜰 뿐, 로비 상태는 멀쩡하다).
+     */
+    case 'lobby:androidReturned': {
+      const bay = msg.bay;
+      if (!isNum(bay) || !Number.isInteger(bay) || bay < 0 || bay >= ANDROID_BAY_COUNT) return;
+      if (msg.reason !== 'human_joined' && msg.reason !== 'full') return;
+      bus.emit('net:androidReturned', { bay, reason: msg.reason });
+      return;
+    }
 
     case 'lobby:left':
       // 2026-09-11 (B-6): `reason:'moved'` = the server moved me into lobby `to`; its `lobby:state` follows at once.

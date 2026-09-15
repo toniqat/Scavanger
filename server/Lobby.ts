@@ -10,6 +10,10 @@ import type { MissionMode } from '../src/shared/types.ts';
 import type { PlanetId } from '../src/shared/planets.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_LOBBY_ALPHABET, NET_LOBBY_CODE_LENGTH, NET_MAX_PLAYERS } from '../src/shared/net.ts';
+/* 2026-09-15: 안드로이드 분대원 — 봇 멤버 (소켓 없는 분대원). 계약은 `src/shared/net.ts` 파일 끝 절. */
+import { ANDROID_BAY_COUNT, androidIdOf, isBotPlayer } from '../src/shared/net.ts';
+/* 표시 이름 하나만 쓴다. `src/shared/allies.ts` 의 다른 import 는 전부 `import type` 이라 타입 스트리핑 뒤 남는 게 없다. */
+import { androidNameOf } from '../src/shared/allies.ts';
 
 export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   not_found: '해당 코드의 로비를 찾을 수 없습니다.',
@@ -94,11 +98,93 @@ export class Lobby {
   has(id: PeerId): boolean { return this.players.has(id); }
   get(id: PeerId): LobbyPlayer | undefined { return this.players.get(id); }
 
-  /** Members whose socket is currently attached. */
+  /**
+   * 2026-09-15: 안드로이드 봇 멤버가 사람이 들어올 자리를 비우며 슬롯으로 돌아간 기록 (`add` 가 채운다).
+   * 릴레이가 합류 **뒤에** 비우며 `lobby:androidReturned` 를 방송한다 — 새로 들어온 사람도 같은 소식을 받아야
+   * 분대 목록이 맞는다. `Lobby` 는 소켓을 모르므로 여기에 적어 두는 것 말고는 알릴 길이 없다.
+   */
+  private readonly returnedBots: LobbyPlayer[] = [];
+
+  /** Members whose socket is currently attached. 2026-09-15: 봇은 소켓이 없다 — 사람만 센다. */
   connectedCount(): number {
     let n = 0;
-    for (const p of this.players.values()) if (p.connected) n++;
+    for (const p of this.players.values()) if (p.connected && !isBotPlayer(p)) n++;
     return n;
+  }
+
+  /* ── 2026-09-15: 안드로이드 봇 멤버 ──────────────────────────────────── */
+  /** 사람 멤버 수 (연결 여부와 무관). 분대 정원 · 해산 · presence 는 전부 이 수를 쓴다. */
+  humanCount(): number {
+    let n = 0;
+    for (const p of this.players.values()) if (!isBotPlayer(p)) n++;
+    return n;
+  }
+
+  /** 안드로이드 봇 멤버 수. */
+  botCount(): number {
+    let n = 0;
+    for (const p of this.players.values()) if (isBotPlayer(p)) n++;
+    return n;
+  }
+
+  /** 조종실 슬롯 `bay` 에서 나온 봇, 없으면 null. */
+  botOnBay(bay: number): LobbyPlayer | null {
+    for (const p of this.players.values()) if (isBotPlayer(p) && p.bay === bay) return p;
+    return null;
+  }
+
+  /** 가장 늦게 들어온 봇 (같은 시각이면 높은 bay) — 사람이 합류하면 이 기가 슬롯으로 돌아간다. */
+  latestBot(): LobbyPlayer | null {
+    let best: LobbyPlayer | null = null;
+    for (const p of this.players.values()) {
+      if (!isBotPlayer(p)) continue;
+      if (!best) { best = p; continue; }
+      const a = p.recruitedAt ?? 0, b = best.recruitedAt ?? 0;
+      if (a > b || (a === b && (p.bay ?? 0) > (best.bay ?? 0))) best = p;
+    }
+    return best;
+  }
+
+  /**
+   * 분대장이 조종실 슬롯 `bay` 의 안드로이드를 분대원으로 들인다. 봇도 **진짜 슬롯**을 하나 먹는다 (발사 포드 ·
+   * 색 · 스폰 간격이 슬롯을 따라간다). 빈 슬롯이 없으면 `'full'`, 이미 나와 있거나 bay 가 범위 밖이면 `'invalid'`.
+   */
+  addBot(bay: number, now: number = Date.now()): LobbyPlayer | LobbyErrorCode {
+    if (!Number.isInteger(bay) || bay < 0 || bay >= ANDROID_BAY_COUNT) return 'invalid';
+    if (this.botOnBay(bay)) return 'invalid';
+    const slot = this.freeSlot();
+    if (slot < 0) return 'full';
+    const id = androidIdOf(this.code, bay);
+    if (this.players.has(id)) return 'invalid';
+    const bot: LobbyPlayer = {
+      id, name: androidNameOf(bay), slot, ready: true, isHost: false, connected: true,
+      /* 레이드가 돌고 있으면 바로 안에 있는 셈이다 — 들이기는 시작 전에만 되므로 실제로는 늘 false 다. */
+      inMission: this.started && this.mode !== 'training',
+      bot: true, bay, recruitedAt: now,
+    };
+    this.players.set(id, bot);
+    return bot;
+  }
+
+  /** 슬롯 `bay` 의 봇을 분대에서 빼 슬롯으로 돌려보낸다. 없으면 null. */
+  removeBot(bay: number): LobbyPlayer | null {
+    const bot = this.botOnBay(bay);
+    if (!bot) return null;
+    this.players.delete(bot.id);
+    return bot;
+  }
+
+  /** 사람이 전부 나갔다 — 봇은 로비를 살려 두지 못한다 (`LobbyManager.leave`). */
+  clearBots(): LobbyPlayer[] {
+    const out: LobbyPlayer[] = [];
+    for (const p of Array.from(this.players.values())) if (isBotPlayer(p)) { this.players.delete(p.id); out.push(p); }
+    return out;
+  }
+
+  /** `add` 가 사람 자리를 만드느라 뺀 봇들을 가져간다 (한 번만). 릴레이가 합류 뒤에 방송한다. */
+  takeReturnedBots(): LobbyPlayer[] {
+    if (this.returnedBots.length === 0) return [];
+    return this.returnedBots.splice(0, this.returnedBots.length);
   }
 
   /** Lowest slot index not currently in use, or -1 when full. */
@@ -111,10 +197,14 @@ export class Lobby {
     return -1;
   }
 
-  /** Members currently inside the running mission (`inMission`). */
+  /**
+   * Members currently inside the running mission (`inMission`).
+   * 2026-09-15: **사람만** 센다 — 「아무도 안에 없는 미션은 끝난 것」(`remove` · `autoResetMission`)이라는 판정에서
+   * 봇이 레이드를 영원히 살려 두면 안 된다.
+   */
   inMissionCount(): number {
     let n = 0;
-    for (const p of this.players.values()) if (p.inMission) n++;
+    for (const p of this.players.values()) if (p.inMission && !isBotPlayer(p)) n++;
     return n;
   }
 
@@ -127,10 +217,13 @@ export class Lobby {
    * 2026-09-11 (B-6): why a newcomer cannot be added right now, or null. **The only copy of the join rule** — `add`
    * calls it, and `LobbyManager.move` asks it *before* taking the mover out of their own lobby, so the two can never
    * disagree (a check written twice is how 같이 하기 would one day leave someone with no ship).
+   *
+   * 2026-09-15 (안드로이드 분대원): **사람만** 센다 — 사람은 봇을 이긴다. 봇으로 찬 분대에 사람이 오면
+   * `add` 가 가장 늦게 들어온 봇을 슬롯으로 돌려보내고 그 자리를 준다 (사용자 결정).
    */
   canAdd(): LobbyErrorCode | null {
     if (!this.isJoinable()) return 'started';
-    if (this.freeSlot() < 0 || this.players.size >= NET_MAX_PLAYERS) return 'full';
+    if (this.humanCount() >= NET_MAX_PLAYERS) return 'full';
     return null;
   }
 
@@ -138,7 +231,18 @@ export class Lobby {
   add(id: PeerId, name: string, accent?: string | null): LobbyPlayer | LobbyErrorCode {
     const refused = this.canAdd();
     if (refused !== null) return refused;
+    /*
+     * 2026-09-15: 사람은 봇을 이긴다. `canAdd` 를 지났는데 빈 슬롯이 없다면 남은 자리는 전부 봇의 것이다 —
+     * 가장 늦게 들어온 기부터 돌려보낸다 (`returnedBots` 를 릴레이가 합류 뒤에 방송한다).
+     */
+    while (this.freeSlot() < 0) {
+      const bot = this.latestBot();
+      if (!bot) break;
+      this.players.delete(bot.id);
+      this.returnedBots.push(bot);
+    }
     const slot = this.freeSlot();
+    if (slot < 0) return 'full';   // 사람으로만 가득 찼다 (canAdd 와 어긋날 수 없지만 계약을 코드로 못 박아 둔다)
     const player: LobbyPlayer = { id, name, slot, ready: false, isHost: id === this.hostId, connected: true, inMission: false };
     if (accent) player.accent = accent;
     this.players.set(id, player);
@@ -165,8 +269,10 @@ export class Lobby {
     if (cur && cur.connected && !force) return false;
     let next: LobbyPlayer | null = null;
     let anyConnected = false;
-    for (const p of this.players.values()) if (p.connected) anyConnected = true;
+    for (const p of this.players.values()) if (p.connected && !isBotPlayer(p)) anyConnected = true;
     for (const p of this.players.values()) {
+      /* 2026-09-15: 봇은 절대 분대장이 되지 않는다 — 시뮬레이션을 돌릴 클라이언트가 없다. */
+      if (isBotPlayer(p)) continue;
       if (this.started) { if (!p.connected || !p.inMission) continue; }
       else if (anyConnected && !p.connected) continue;
       if (!next || p.slot < next.slot) next = p;
@@ -185,7 +291,8 @@ export class Lobby {
    */
   transferHostTo(targetId: PeerId): boolean {
     const p = this.players.get(targetId);
-    if (!p || !p.connected) return false;
+    /* 2026-09-15: 봇은 분대장이 될 수 없다 (`migrateHost` 와 같은 이유) — 릴레이는 이것을 `invalid` 로 답한다. */
+    if (!p || !p.connected || isBotPlayer(p)) return false;
     this.hostId = targetId;
     for (const q of this.players.values()) q.isHost = q.id === this.hostId;
     this.hostDown = false;
@@ -265,7 +372,8 @@ export class Lobby {
     this.intel = null;
     this.raid.clear();
     this.hostDown = false;   // 2026-09-09: 미션이 끝나면 분대장 사망 표시도 끝난다
-    for (const p of this.players.values()) { p.ready = false; p.inMission = false; }
+    /* 2026-09-15: 봇은 늘 준비된 상태다 — 리셋 뒤에도 `ready` 를 내리면 분대가 영영 출격하지 못한다. */
+    for (const p of this.players.values()) { p.ready = isBotPlayer(p); p.inMission = false; }
   }
 
   /** Update a member's mission membership. Returns the player or undefined when not a member. */
@@ -293,6 +401,8 @@ export class Lobby {
    * Open to newcomers via quick match (a not-started lobby, or one whose members are only training).
    * 2026-09-15: only a **docked** lobby — an undocked squad is still spread over personal ships, and a stranger quick-matched
    * into it would have no shared ship to arrive in.
+   * 2026-09-15 (안드로이드 분대원): 여기서는 봇도 **센다** — 안드로이드로 채운 분대에는 더 이상 낯선 사람이 매칭되지
+   * 않는다 (사용자 명세). 초대는 그대로 통한다 (`canAdd` 는 사람만 센다) — 아는 사람은 봇을 밀어내고 들어온다.
    */
   isQuickMatchable(): boolean {
     return this.docked && this.isPublic && this.isJoinable() && this.players.size < NET_MAX_PLAYERS && this.freeSlot() >= 0;
@@ -439,6 +549,8 @@ export class LobbyManager {
     if (!lobby) return null;
     this.byPeer.delete(id);
     const hostMigrated = lobby.remove(id);
+    /* 2026-09-15: 안드로이드는 로비를 살려 두지 못한다 — 사람이 전부 나가면 봇도 함께 사라지고 로비가 지워진다. */
+    if (lobby.humanCount() === 0) lobby.clearBots();
     let deleted = false;
     if (lobby.size === 0) { this.lobbies.delete(lobby.code); deleted = true; }
     return { lobby, hostMigrated, deleted };

@@ -1,5 +1,8 @@
 import type { GameContext } from '@/shared';
+import { isAndroidId } from '@/shared';
 import { el, setText, setVisible, toggleClass } from '../dom';
+/* 2026-09-15 (안드로이드 분대원): 남은 「분대원」은 사람만 센다 — 안드로이드는 별도 줄 */
+import { allyBodies } from './allySource';
 
 const REFRESH = 0.25;
 
@@ -67,10 +70,19 @@ export class SpectateOverlay {
     toggleClass(this.rescue, 'none', left <= 0);
   }
 
+  /**
+   * 2026-09-15 (안드로이드 분대원, 사용자 결정 「사람이 전원 사망하면 레이드 실패」): 「남은 분대원」은 **사람만**
+   * 센다 — 안드로이드가 살아 있어도 레이드는 끝나기 때문이다. 살아 있는 안드로이드는 뒤에 따로 적는다
+   * (일으켜 줄 수 있는 것은 사람뿐이지만, 적을 막고 있는 기가 몇인지는 알아야 한다).
+   */
   private refreshCount(ctx: GameContext): void {
     let n = 0;
-    for (const r of ctx.net?.getRemotePlayers() ?? []) if (r.connected && !r.isDead) n++;
-    setText(this.count, n > 0 ? `남은 분대원 ${n}` : '분대 전원 전사');
+    for (const r of ctx.net?.getRemotePlayers() ?? []) if (r.connected && !r.isDead && !isAndroidId(r.id)) n++;
+    let allies = 0;
+    for (const b of allyBodies(ctx)) if (b.mode === 'raid' && !b.dead) allies++;
+    const tail = allies > 0 ? ` <span>· 안드로이드 ${allies}</span>` : '';
+    const main = n > 0 ? `남은 분대원 ${n}` : '분대 전원 전사';
+    this.count.innerHTML = `${main}${tail}`;
   }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }

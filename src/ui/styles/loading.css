@@ -1,0 +1,46 @@
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 레이드 진입 로딩 게이지 (2026-09-15, `hud/LoadingGauge.ts`) — 우측 하단의 원형 게이지.
+ *
+ * z 87: **검은 페이드(`.screen-fade` 82) 위**에 그려야 한다 — 발사 카운트다운이 끝나면 화면이 암전되고, 그 암전
+ * 위에서 이 게이지만 돌기 때문이다 (사용자 결정 「암전된 상태에서 화면 우측 하단에 로딩 표시용 돌아가는 Radial
+ * 게이지」). 일시정지 메뉴(85)보다도 위인 것은 일부러다 — 로딩 중에 무엇이 떠도 진행도는 보여야 한다.
+ *
+ * 링의 채움은 `--p` (0…1) 의 conic-gradient 이고, 도는 호는 `.ldg-spin` 의 인라인 transform 이다. 둘 다 JS 가
+ * **실시간(`performance.now()`)으로** 쓴다 — 로딩 게이트 동안 시뮬레이션 dt 가 0 이라 CSS 애니메이션도, dt 기반
+ * 보간도 멈추기 때문이다. OS 가 애니메이션 효과를 끄면(`prefers-reduced-motion`) 도는 호만 숨고 채움은 남는다.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+.ldg {
+  position: fixed; right: 42px; bottom: 42px; z-index: 87;
+  display: flex; align-items: center; gap: 12px;
+  pointer-events: none;
+  opacity: 0;
+}
+.ldg[hidden] { display: none !important; }
+
+.ldg-ring {
+  --p: 0;
+  position: relative; flex: none;
+  width: 58px; height: 58px; border-radius: 50%;
+  background: conic-gradient(var(--c-accent) calc(var(--p) * 360deg), rgba(232, 230, 225, 0.14) 0);
+  -webkit-mask: radial-gradient(circle, transparent 0 21px, #000 22px);
+  mask: radial-gradient(circle, transparent 0 21px, #000 22px);
+}
+
+/* 도는 호 — 링과 같은 지름의 얇은 테두리에서 한 변만 남긴 고전적인 스피너 */
+.ldg-spin {
+  position: absolute; inset: -5px;
+  border: 2px solid transparent;
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  opacity: 0.85;
+}
+
+.ldg-body { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.ldg-label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text); text-shadow: 0 1px 4px #000; }
+.ldg-wait { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); text-shadow: 0 1px 4px #000; }
+.ldg-pct { font-size: 12px; color: var(--c-accent); text-shadow: 0 1px 4px #000; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ldg-spin { display: none; }
+}

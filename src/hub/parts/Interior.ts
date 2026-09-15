@@ -29,6 +29,9 @@ import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_G
 /* 공용 함선 격납고 (2026-09-08) */
 import * as Hangar from './Hangar';
 import * as SquadDock from './SquadDock';
+/* 2026-09-15: 조종실 안드로이드 슬롯 · 발사 포드 앞 대기 자리 · 레이드 진입 암전 정리 */
+import * as Androids from './Androids';
+import * as Pods from './Pods';
 import type { HubSystem } from '../HubSystem';
 
 /**
@@ -45,7 +48,7 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   sys.collider = interior.collider;
   // 2026-09-15 (분대 · 도킹 매칭): which squad's shared ship this is — first, `sys.planet` below already reads it.
   // A bay's personal ship keeps the squad it hangs off; the ordinary personal ship belongs to nobody's squad.
-  sys.shipLobbyCode = ship === 'shared' ? (ctx.net?.lobby?.code ?? null) : (sys.visit ? sys.shipLobbyCode : null);
+  sys.shipLobbyCode = ship === 'shared' ? (sys.debugLobby?.code ?? ctx.net?.lobby?.code ?? null) : (sys.visit ? sys.shipLobbyCode : null);
   /*
    * 격납고 (2026-09-08): a personal ship entered from a bay carries **no launch pod**. Its slot-0 pod is the solo
    * launch route, and the squad launches from the shared deck — offering it here would drop a member out of the
@@ -78,7 +81,12 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   sys.computer = ro || !interior.computer ? null : new Computer(ctx, interior.computer, () => sys.openCorpMenu(), canUseConsole);
   sys.buildStations(interior);
   sys.buildHousing(interior);
-  if (ship === 'shared') Hangar.buildBays(sys);
+  /*
+   * 2026-09-15 (안드로이드 분대원): 공용 함선에만 조종실 슬롯 세 칸과 발사 포드 앞 대기 자리가 있다. 방문 중인
+   * 함선(`visit`)에는 아무것도 서지 않는다 — `getAndroidBays` 가 이미 빈 배열을 돌려주므로 등록도 비어 있다.
+   */
+  Androids.buildPodStands(sys);
+  if (ship === 'shared') { Hangar.buildBays(sys); Androids.buildAndroidBays(sys); }
   if (ship === 'personal' && sys.visit) buildHangarExit(sys, interior);
 
   /*
@@ -103,6 +111,7 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   }
   sys.setSpaceMode(true);
   sys.countdown = -1; sys.launched = false; sys.lastCountdownSecond = -1;
+  Pods.clearRaidLaunch(sys);   // 2026-09-15: 레이드 진입 암전의 벽시계 타이머는 인테리어보다 오래 살지 않는다
   sys.knownLobbyPlanet = ctx.net && sys.squadLobby() ? (ctx.net.lobbyPlanet ?? null) : null;
   sys.applyPlanetLook();
   sys.syncPods();
@@ -387,6 +396,7 @@ export function disposeInterior(sys: HubSystem): void {
   // a ship prebuilt for a transition that never finished (a new transition, a re-entry, the mission) goes with it
   if (sys.pendingInterior) { sys.pendingInterior.interior.dispose(); sys.pendingInterior = null; }
   Hangar.clearBays(sys);
+  Androids.clearAndroidBays(sys);   // 2026-09-15: 조종실 슬롯 상호작용 · 포드 앞 대기 자리도 인테리어와 함께 걷는다
   sys.clearLeaderHandoff();   // 2026-09-09: 분대장 넘기기 상호작용도 인테리어와 함께 걷는다
   sys.housingMode.setShip(null, null);
   sys.furniture?.dispose(); sys.furniture = null;
@@ -413,6 +423,9 @@ export function teardown(sys: HubSystem, reason: 'mission' | 'menu'): void {
   SquadDock.clearDockState(sys);
   sys.dockMine = null;
   sys.shipLobbyCode = null;
+  // 2026-09-15: 레이드 진입 암전 · 안드로이드 요청 대기도 함선과 함께 끝난다 (암전 자체는 game/LoadGate 가 이어받는다)
+  Pods.clearRaidLaunch(sys);
+  sys.androidPending = null;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.menu.close(false);
   sys.status.hide();

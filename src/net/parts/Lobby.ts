@@ -16,6 +16,8 @@ import { isPlanetId } from '@/shared';
 import type { IntelWire } from '@/shared';
 import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
 import { isDockedLobby } from '@/shared';
+/* 2026-09-15: 안드로이드 분대원 — 봇 멤버는 사람 취급을 받지 않는다 (`src/shared/net.ts` 파일 끝 절) */
+import { ANDROID_BAY_COUNT, isBotPlayer } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -133,6 +135,29 @@ export function quickMatch(sys: NetSystem): void {
   }
 
 export function setPublic(sys: NetSystem, isPublic: boolean): void { sys.client.send({ t: 'lobby:setPublic', isPublic }); }
+
+/**
+ * 2026-09-15 (안드로이드 분대원): 공용 함선 조종실의 슬롯 `bay` 를 분대장이 3초 꾹 누른 결과 — 들이기(`recruit`) /
+ * 돌려보내기. 결과는 서버의 `lobby:state`(`net:lobbyUpdated`) 하나다 — `setLobbyPlanet` 처럼 낙관적으로 미리 그리지
+ * 않는다: 정원은 릴레이만 알고(사람이 봇을 이긴다), 슬롯 자리도 릴레이가 정한다.
+ * 보낼 수 없는 상황은 `net:error` 로 이유를 돌려준다 (`requestDock` 과 같은 규약).
+ */
+export function setAndroidBay(sys: NetSystem, bay: number, recruit: boolean): void {
+  if (!Number.isInteger(bay) || bay < 0 || bay >= ANDROID_BAY_COUNT) return;
+  if (!sys.client.connected) {
+    sys.ctx.bus.emit('net:error', { code: 'server', message: '서버에 연결되어 있지 않습니다.' });
+    return;
+  }
+  if (!sys._lobby) {
+    sys.ctx.bus.emit('net:error', { code: 'not_in_lobby', message: '공용 함선에 도킹한 뒤에 할 수 있습니다.' });
+    return;
+  }
+  if (!sys.isHost) {
+    sys.ctx.bus.emit('net:error', { code: 'not_host', message: '분대장만 안드로이드를 배치할 수 있습니다.' });
+    return;
+  }
+  sys.client.send({ t: 'lobby:android', bay, recruit });
+  }
 
 /**
  * 2026-09-15 (분대 · 도킹 매칭): 터미널 > 매칭의 `비공개 매칭` / `공개 매칭`. `dockPending` 은 도킹된 로비가 오거나
@@ -276,12 +301,15 @@ export function applyLobby(sys: NetSystem, next: LobbyState): void {
     const me = sys.localId;
     for (const p of next.players) {
       if (p.id === me) continue;
+      /* 2026-09-15: 안드로이드 봇 멤버는 **사람이 아니다** — 합류/이탈 알림도 원격 아바타도 만들지 않는다.
+       * 명단 변화는 allies/ 가 `ally:rosterChanged` 로 알린다 (`androidPlayersOf(lobby)` 를 읽는다). */
+      if (isBotPlayer(p)) continue;
       const was = prev.players.find((q) => q.id === p.id);
       if (!was) bus.emit('net:peerJoined', { id: p.id, name: p.name, slot: p.slot });
       else if (!was.connected && p.connected) sys.remotes.get(p.id)?.resetStream(); // came back → fresh seq
     }
     for (const q of prev.players) {
-      if (q.id === me) continue;
+      if (q.id === me || isBotPlayer(q)) continue;
       if (!next.players.some((p) => p.id === q.id)) {
         bus.emit('net:peerLeft', { id: q.id, name: q.name });
         const r = sys.remotes.get(q.id);

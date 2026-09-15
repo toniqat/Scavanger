@@ -23,6 +23,8 @@ import { FREE_CURSOR_BLOCKER } from '@/shared';
 /* appended (2026-09-15): 튜토리얼 부활 연출 */
 import { TUTORIAL_RESPAWN_WAKE_S } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
+/* appended (2026-09-15): 안드로이드 분대원 — 봇 멤버는 전멸 판정에서 빠진다 */
+import { isAndroidId } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
 import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from '../model';
@@ -299,6 +301,12 @@ export function isLocalOut(sys: GameFlowSystem): boolean {
  *   - otherwise alive unless dead-and-not-downed (a downed peer can still be revived).
  */
 export function isRemoteAlive(sys: GameFlowSystem, r: RemotePlayerRef): boolean {
+  /*
+   * 2026-09-15 (안드로이드 분대원, 사용자 결정 「사람이 전부 죽으면 레이드 실패」): 봇 멤버는 **전멸 판정에 들어가지
+   * 않는다**. net/ 이 봇을 원격 플레이어로 만들지 않기로 했지만(A1), 판정이 한 폴더의 약속에 매달리면 안드로이드 하나가
+   * 서 있다는 이유로 전멸이 영영 성립하지 않는다 — 여기서 id 로 한 번 더 거른다.
+   */
+  if (isAndroidId(r.id)) return false;
   if (!r.connected || !r.inMission || (r.flags & PlayerFlags.IN_HUB) !== 0) return false;
   const downed = (r.isDowned ?? false) || (r.flags & PlayerFlags.DOWNED) !== 0;
   if (r.suspended) {

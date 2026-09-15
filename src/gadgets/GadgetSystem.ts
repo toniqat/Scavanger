@@ -184,7 +184,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   /* ═══════════════════════════ use paths ═══════════════════════════ */
   useCloakVeil(def: GadgetDef): void { return Deploy.useCloakVeil(this, def); }
 
-  useDefib(def: GadgetDef, target: { id: PeerId; position: THREE.Vector3; name: string }): void { return Deploy.useDefib(this, def, target); }
+  useDefib(def: GadgetDef, target: Deploy.DefibTarget): void { return Deploy.useDefib(this, def, target); }
 
   throwGadget(def: GadgetDef, underhand: boolean, startHp?: number): void { return Deploy.throwGadget(this, def, underhand, startHp); }
 
@@ -286,7 +286,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
    */
   consumeItem(def: GadgetDef): boolean { return Deploy.consumeItem(this, def); }
 
-  findDownedAlly(radius: number): { id: PeerId; position: THREE.Vector3; name: string } | null { return Deploy.findDownedAlly(this, radius); }
+  findDownedAlly(radius: number): Deploy.DefibTarget | null { return Deploy.findDownedAlly(this, radius); }
 
   derived(key: 'useSpeedMul' | 'interactSpeedMul' | 'throwRangeMul', fallback: number): number { return Q.derived(this, key, fallback); }
 

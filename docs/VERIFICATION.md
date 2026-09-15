@@ -38,7 +38,7 @@ Read the log first when something fails — a check that fell out of a timing wi
 |---|---|---|
 | `smoke-phase3` | `timeout waiting for laser ended` | While the orbital-laser window runs at `timeScale 4`, a newly spawned bug can kill the player; the raid ends and the call list is cleared |
 | `smoke-rogue-v2` | grenade explosion timing · `no clear+flat spot found` | On rolls with no open, flat spot the rogue never sees the player — re-run alone (`--only`) |
-| `smoke-phase4` | corpse durability `≤ 90` · bug↔rogue damage exchange | A different assertion fails on each re-run. The durability assertion is an **assertion defect**: a grade II SMG can legally roll up to 103 |
+| `smoke-phase4` | bug↔rogue damage exchange | Faction-clash timing — the exchange does not always happen inside the watched window |
 | `smoke-humanoid-ai` | C-24 left/right · raider accuracy · rogue vs android shot count | AI timing — a different assertion fails on each serial re-run |
 | `smoke-library-consumers` and similar | A module-state value set by the smoke is not visible to the app | A long-lived vite's `?t=` stamp makes the module evaluate twice — see the `import('/src/…')` section in [scripts/README.md](../scripts/README.md) |
 

@@ -36,6 +36,10 @@ Corpses in the bay attach to the deck (`CorpsesRef.attachCorpse`) and leave with
 ## Public API
 - `ctx.extraction`: `stage`, `departRemaining`, `idleRemaining`, `riding`, `isInShipBay(p)`, `keepEnemyOut(p, r)`;
   tutorial-only `beginPreLanded(pos, yaw, {autoDepart})`, `skipToLiftoff()`, `skipToComplete()`; `holdFire()` (always false).
+- Androids (2026-09-15): `getPads()` → `{id, position}` per pad (reused array; `position` = the standing spot
+  `PAD_STAND_BACK` m in front of the console), `requestActivate(padId)` (authority only, same gate as a console
+  press — `playing` and no pad active yet), `boardingPoint(out)` (bay centre on the deck, null unless the ship is
+  `landed`). No new flow: `requestActivate` calls the very `activate` a human press does.
 - Emits `extraction:activated|tick|shipIncoming|shipLanded|boarded|departureStarted|departureTick|liftoff|doorsClosed|reset`,
   `ui:cinematic`, `camera:shake`, `audio:play`, `ui:notify` (`탑승 n/m`).
 - Listens `world:ready`, `game:abort` (full reset), `game:newMission`, `game:phaseChanged`, `player:died`,
@@ -77,6 +81,7 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
 
 ## Recent changes
 Last 5 only — older: `git log -- src/extraction`.
+- 2026-09-15 — Android hooks: `getPads` / `requestActivate` / `boardingPoint` on `ctx.extraction`.
 - 2026-09-15 — `Ship.ts` coplanar budget fixes floor / side wall / ceiling z-fighting.
 - 2026-09-15 — Tutorial liftoff: riders hit but clamped at 1 hp, hull removed at once, `holdFire` false; `skipToComplete`.
 - 2026-09-15 — `ShipGreebles.ts` merged hull detail; landing lights moved outside the side slabs.

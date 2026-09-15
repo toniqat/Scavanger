@@ -1,5 +1,7 @@
 import type { GameContext, LobbyPlayer, NetRef } from '@/shared';
 import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, activeSlot, isDockedLobby, readSlotCard, sanitizeAccent } from '@/shared';
+/* 2026-09-15: 안드로이드 봇 멤버 — 초대는 사람 수로 판정하고, 봇 칸은 얼굴 + `안드로이드` 꼬리표만 그린다 */
+import { androidNameOf, humanPlayersOf, isBotPlayer } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -55,6 +57,16 @@ interface Entry {
   connected: boolean;
   me: boolean;
   slot: number;
+  /** 2026-09-15: 안드로이드 봇 멤버 (초대도 메뉴도 없다). */
+  bot: boolean;
+  /** 봇의 조종실 슬롯 번호 (이름). */
+  bay: number;
+  /**
+   * 2026-09-15: 이 봇이 **사람에게 자리를 내줄 차례**다 (가장 늦게 들어온 안드로이드). 네 칸이 사람 + 안드로이드로
+   * 가득 차면 빈 칸이 없어 `초대` 버튼이 사라지는데, 릴레이는 그때도 사람을 받아 이 기를 슬롯으로 돌려보낸다
+   * (`lobby:androidReturned {human_joined}`) — 그래서 초대 버튼을 이 칸에 얹는다.
+   */
+  swap: boolean;
 }
 
 export class MatchTab {
@@ -114,12 +126,19 @@ export class MatchTab {
     const docked = isDockedLobby(lobby);
     const isHost = !!lobby && !!net?.isHost;
 
-    setText(this.status, !lobby ? '개인 함선' : docked ? `공유 함선 도킹됨 · ${lobby.players.length}/${NET_MAX_PLAYERS}` : `분대 대기 중 · ${lobby.players.length}/${NET_MAX_PLAYERS}`);
+    /* 2026-09-15 (안드로이드 분대원): 인원은 **사람 수**로 적고, 안드로이드는 따로 센다 — 승무원 2/4 뒤에 안드로이드 2 가 붙는다 */
+    const humans = humanPlayersOf(lobby).length;
+    const bots = lobby ? lobby.players.length - humans : 0;
+    const botLine = bots > 0 ? ` · 안드로이드 ${bots}` : '';
+    setText(this.status, !lobby ? '개인 함선' : docked ? `공유 함선 도킹됨 · ${humans}/${NET_MAX_PLAYERS}${botLine}` : `분대 대기 중 · ${humans}/${NET_MAX_PLAYERS}${botLine}`);
 
     // ── 초상 4칸: 나 → 다른 분대원(슬롯 순) → 빈 칸 ──
     const entries = this.entries(net, lobby?.players ?? []);
-    const canInvite = !lobby || (isHost && !lobby.started && lobby.players.length < NET_MAX_PLAYERS);
-    for (let i = 0; i < this.tiles.length; i++) this.paintTile(this.tiles[i], entries[i] ?? null, canInvite);
+    // 초대는 **사람** 자리로 판정한다 — 릴레이가 사람을 들이려고 가장 늦게 들어온 안드로이드를 슬롯으로 돌려보낸다
+    const canInvite = !lobby || (isHost && !lobby.started && humans < NET_MAX_PLAYERS);
+    // 빈 칸이 하나도 없으면 (사람 + 안드로이드로 가득) `swap` 봇 칸이 초대 버튼을 대신 든다
+    const swapInvite = canInvite && entries.length >= this.tiles.length;
+    for (let i = 0; i < this.tiles.length; i++) this.paintTile(this.tiles[i], entries[i] ?? null, canInvite, swapInvite);
 
     // ── 매칭 버튼 ──
     this.btnPrivate.hidden = docked;
@@ -164,23 +183,38 @@ export class MatchTab {
       connected: true,
       me: true,
       slot: mySlot,
+      bot: false,
+      bay: 0,
+      swap: false,
     });
     const others = players.filter((p) => p !== mine).slice().sort((a, b) => a.slot - b.slot);
+    // 가장 늦게 들어온 안드로이드 — 사람이 합류하면 릴레이가 이 기를 먼저 슬롯으로 돌려보낸다 (서버 규칙과 같은 순서)
+    let swapId: string | null = null;
+    let swapAt = -Infinity;
+    for (const p of players) {
+      if (!isBotPlayer(p)) continue;
+      const at = p.recruitedAt ?? 0;
+      if (at >= swapAt) { swapAt = at; swapId = p.id; }
+    }
     for (const p of others) {
+      const bot = isBotPlayer(p);
       out.push({
-        name: p.name || '—',
-        level: typeof p.level === 'number' && p.level > 0 ? p.level : null,
+        name: bot ? androidNameOf(p.bay ?? 0) : (p.name || '—'),
+        level: !bot && typeof p.level === 'number' && p.level > 0 ? p.level : null,
         accent: sanitizeAccent(p.accent) ?? NET_SLOT_COLORS_CSS[p.slot] ?? NET_SLOT_COLORS_CSS[0],
-        isHost: p.isHost,
-        connected: p.connected !== false,
+        isHost: !bot && p.isHost,
+        connected: bot || p.connected !== false,
         me: false,
         slot: p.slot,
+        bot,
+        bay: p.bay ?? 0,
+        swap: bot && p.id === swapId,
       });
     }
     return out;
   }
 
-  private paintTile(t: Tile, e: Entry | null, canInvite: boolean): void {
+  private paintTile(t: Tile, e: Entry | null, canInvite: boolean, swapInvite: boolean): void {
     if (!e) {
       t.root.className = 'hmt-tile is-empty';
       t.root.style.removeProperty('--sc');
@@ -191,23 +225,41 @@ export class MatchTab {
       setText(t.initial, '');
       t.img.hidden = true;
       if (t.faceKey) { t.img.removeAttribute('src'); t.faceKey = ''; }
+      t.invite.className = 'ui-btn hmt-invite';
+      t.invite.removeAttribute('title');
       t.invite.hidden = false;
       t.invite.disabled = !canInvite;
       return;
     }
-    t.invite.hidden = true;
-    t.root.className = `hmt-tile${e.me ? ' is-me' : ''}${e.connected ? '' : ' is-off'}${e.isHost ? ' is-host' : ''}`;
+    /*
+     * 2026-09-15: 봇 칸에는 초대도 메뉴도 없다 — 단 **빈 칸이 하나도 없을 때**의 `swap` 칸만 예외다. 네 칸이 사람 +
+     * 안드로이드로 가득 차면 초대할 자리가 화면에서 사라지는데, 릴레이는 그때도 사람을 받고 이 기를 슬롯으로
+     * 돌려보낸다. 버튼을 없애면 「초대할 방법이 없다」는 거짓말이 된다.
+     */
+    if (e.bot && e.swap && swapInvite) {
+      t.invite.className = 'ui-btn hmt-invite hmt-swap';
+      t.invite.title = `${e.name}이(가) 슬롯으로 돌아가고 그 자리에 들어옵니다`;
+      t.invite.hidden = false;
+      t.invite.disabled = false;
+    } else {
+      t.invite.hidden = true;
+    }
+    t.root.className = `hmt-tile${e.me ? ' is-me' : ''}${e.connected ? '' : ' is-off'}${e.isHost ? ' is-host' : ''}${e.bot ? ' is-bot' : ''}`;
     t.root.style.setProperty('--sc', e.accent);
     t.badge.hidden = !e.isHost;
-    t.state.hidden = e.connected;
-    setText(t.state, e.connected ? '' : '연결 끊김');
+    // 봇 칸의 우상단 꼬리표는 `연결 끊김` 자리에 `안드로이드` — 봇은 끊기지 않는다
+    t.state.hidden = e.connected && !e.bot;
+    setText(t.state, e.bot ? '안드로이드' : e.connected ? '' : '연결 끊김');
     setText(t.name, e.name);
     setText(t.lv, e.level !== null ? `Lv.${e.level}` : '');
     setText(t.initial, e.name.slice(0, 1));
-    if (t.faceKey !== e.accent) {
-      t.faceKey = e.accent;
+    const faceKey = `${e.bot ? 'a' : 'h'}${e.accent}`;
+    if (t.faceKey !== faceKey) {
+      t.faceKey = faceKey;
       let url: string | null = null;
-      try { url = this.ctx.player?.snapshotFace?.({ accent: e.accent }) ?? null; } catch { url = null; }
+      const p = this.ctx.player;
+      // 안드로이드는 안드로이드 얼굴 (`snapshotAndroidFace`, player/ 소유) — 아직 없으면 이름과 머리글자만 남는다
+      try { url = (e.bot ? p?.snapshotAndroidFace?.({ accent: e.accent }) : p?.snapshotFace?.({ accent: e.accent })) ?? null; } catch { url = null; }
       if (url) { t.img.src = url; t.img.hidden = false; }
       else { t.img.removeAttribute('src'); t.img.hidden = true; }
     }

@@ -390,6 +390,7 @@ function remoteAimPoint(e: Enemy, host: ReplicaHost, out: THREE.Vector3): boolea
   aim.out = out;
   const targets = host.targets;
   considerTargets(targets.alive);
+  considerTargets(targets.allies);      // 2026-09-15: 안드로이드 분대원 (사람과 같은 가슴 높이 — `getChest`)
   considerTargets(targets.drones);
   considerTargets(targets.vehicles);   // 2026-09-13: 탐사 차량 (리플리카의 프록시도 `ctx.world.rover` 로 갱신된다)
   const active = host.active;

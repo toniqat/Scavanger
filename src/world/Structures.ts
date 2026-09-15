@@ -185,6 +185,8 @@ export class Structures {
   markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
   /** 2026-09-11 (C-57): 컨테이너 위치 (없으면 null). */
   containerPositionOf(id: string): THREE.Vector3 | null { return this.containers.positionOf(id); }
+  /** 2026-09-15 (안드로이드): 이 묶음의 컨테이너를 하나씩 넘긴다 (`WorldRef.getLootContainers`). */
+  collectContainers(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void { this.containers.collect(push); }
 
   build(ctx: BuildCtx, game: GameContext): void {
     this.game = game;

@@ -2968,6 +2968,41 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .compass .etick.scanned { top: 22px; height: 11px; width: 2px; box-shadow: 0 0 8px rgba(255, 77, 77, 0.95); }
 .compass .etick[hidden] { display: none; }
 
+/* ═══ 2026-09-15 — 안드로이드 분대원 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ═══
+ * 사람 분대원과 **같은 언어, 다른 모양**: 슬롯 색은 그대로 쓰되 나침반 눈금은 마름모, 분대 행 · 이름표 · 핑 ·
+ * 채팅에는 각자의 표식이 붙는다. 봇 멤버에게는 소켓이 없어 `RemotePlayerRef` 가 없으므로, 모든 값은
+ * `ctx.allies` 의 몸에서 온다 (`ui/hud/allySource`). */
+
+/* 나침반 안드로이드 눈금 — 슬롯 색 마름모 (인라인 transform 이 회전까지 쓴다) */
+.compass .atick {
+  position: absolute; left: 0; top: 24px; width: 7px; height: 7px;
+  background: #fff; border-radius: 1px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  will-change: transform;
+}
+.compass .atick.downed { opacity: 0.55; }
+.compass .atick[hidden] { display: none; }
+
+/* 분대 목록의 안드로이드 행 — `안드로이드` 배지 + 체력 바 위의 얇은 실드 바 */
+.srow .sh { display: none; position: relative; height: 2px; margin-bottom: 2px; background: rgba(255, 255, 255, 0.10); overflow: hidden; }
+.srow .sh .fill { position: absolute; inset: 0; background: var(--r-uncommon); transform-origin: left; will-change: transform; }
+.srow.has-shield .sh { display: block; }
+/* 실드 바가 붙으면 행이 4 px 만큼 늘어난다 — 버프 줄과 같은 규칙 (`styles/buffs.css`: 고정 30 px 대신 min-height) */
+.squad .srow.has-shield { height: auto; min-height: 30px; }
+.srow .badge.android { color: var(--c-info); border-color: rgba(127, 183, 230, 0.45); letter-spacing: 0.1em; }
+.srow.android .name { font-style: italic; }
+
+/* 안드로이드 이름표 — 사람 판과 같은 판에 기울어진 이름 · 푸른 꼬리표 */
+.nameplate.ally .name { font-style: italic; }
+.nameplate.ally .tag { color: var(--c-info); border-color: rgba(127, 183, 230, 0.55); }
+
+/* 안드로이드가 찍은 핑 — 원격 핑과 같은 슬롯 색, 점선 테두리로 사람과 구별한다 */
+.pmarker.android .ico { border-style: dashed; }
+.pmarker.android .lbl { font-style: italic; }
+
+/* 안드로이드 채팅 한 줄 — 이름만 그 기의 슬롯 색 (`--sc` 는 줄에 인라인으로 쓴다) */
+.chat-line.ally .who { color: var(--sc, var(--c-info)); font-style: italic; }
+
 /* on-screen detected-enemy chevron (hud/Detection): a small red ▼ floating above the body */
 .detect-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform, opacity; }
 .detect-mark i {

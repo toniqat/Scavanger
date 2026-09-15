@@ -25,6 +25,17 @@ import { droneKindOfGadget } from '@/shared';
 import * as Preview from './Preview';
 import * as Mount from './Mount';
 
+/**
+ * 제세동기가 일으킬 대상. 2026-09-15 (안드로이드 분대원): `ally` 가 붙었다 — true 면 쓰러진 **안드로이드**라
+ * `buff revive` 가 아니라 `AlliesRef.requestRevive` 로 간다. 생략 · false 는 지금까지와 똑같은 사람 분대원이다.
+ */
+export interface DefibTarget {
+  id: PeerId;
+  position: THREE.Vector3;
+  name: string;
+  ally?: boolean;
+}
+
 export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boolean {
   const ctx = sys.ctx;
   const def = gadgetDef(id);
@@ -47,7 +58,7 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
   }
 
   // validate before consuming the item
-  let target: { id: PeerId; position: THREE.Vector3; name: string } | null = null;
+  let target: DefibTarget | null = null;
   // 2026-09-11: 설치형은 미리보기와 **같은 판정**을 그 순간 다시 돌린다 (parts/Preview) — 빨강이면 같은 사유로 거부
   if (def.use === 'place') {
     // 기폭기 손(마지막 C4 를 놓은 뒤)에서는 설치하지 않는다 — 우클릭 기폭만 (weapons 의 `remoteState.detonator`)
@@ -137,16 +148,21 @@ export function useCloakVeil(sys: GadgetSystem, def: GadgetDef): void {
   }
   }
 
-export function useDefib(sys: GadgetSystem, def: GadgetDef, target: { id: PeerId; position: THREE.Vector3; name: string }): void {
+export function useDefib(sys: GadgetSystem, def: GadgetDef, target: DefibTarget): void {
   const ctx = sys.ctx;
   const net = ctx.net;
-  const msg: BuffMessage = {
-    t: 'buff', kind: 'revive',
-    amount: ctx.player?.maxHp ?? 100,
-    duration: 0,
-    by: net?.playerName ?? '아군',
-  };
-  net?.send(msg, target.id);
+  if (target.ally) {
+    // 안드로이드는 allies/ 가 굴린다 — 권위면 바로 세우고, 아니면 `allyq revive {defib}` 로 호스트에게 간다
+    ctx.allies?.requestRevive?.(target.id, { defib: true });
+  } else {
+    const msg: BuffMessage = {
+      t: 'buff', kind: 'revive',
+      amount: ctx.player?.maxHp ?? 100,
+      duration: 0,
+      by: net?.playerName ?? '아군',
+    };
+    net?.send(msg, target.id);
+  }
   sys.visuals.pulse(target.position, def.color, 0.4, 3.2, 0.6);
   ctx.bus.emit('audio:play', { id: 'gadget_defib', position: target.position, volume: 0.9 });
   ctx.bus.emit('ui:notify', { text: `${target.name} 부활`, kind: 'success', duration: 2 });
@@ -400,27 +416,37 @@ export function itemDurabilityMaxFor(sys: GadgetSystem, def: GadgetDef): number 
  * 거짓말이 된다. **견눴는지**(반각 `DEFIB_AIM_CONE_DEG`)는 `weapons/parts/Defib` 이 크로스헤어에서 판정하고, 여기서는
  * 「어느 아군인가」만 정한다 — 그래서 두 곳이 같은 아군을 가리킨다. 조준 광선이 없으면(구식 호출) 옛 최근접 규칙.
  */
-export function findDownedAlly(sys: GadgetSystem, radius: number): { id: PeerId; position: THREE.Vector3; name: string } | null {
+export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget | null {
   const ctx = sys.ctx;
   const p = ctx.player;
   if (!p) return null;
   const host = p as unknown as Partial<PlayerWeaponHost>;
   const aimed = typeof host.getAimRay === 'function';
   if (aimed) { host.getAimRay!(_a, _b); _b.normalize(); }
-  let best: { id: PeerId; position: THREE.Vector3; name: string } | null = null;
+  let best: DefibTarget | null = null;
   let bestScore = Infinity;
   const r2 = radius * radius;
-  for (const r of ctx.net?.getRemotePlayers() ?? []) {
-    if (!r.isDowned || r.stale) continue;
-    const dist = r.position.distanceToSquared(p.position);
-    if (dist > r2) continue;
+  const consider = (id: PeerId, position: THREE.Vector3, name: string, ally: boolean): void => {
+    const dist = position.distanceToSquared(p.position);
+    if (dist > r2) return;
     let score = dist;
     if (aimed) {
-      _c.copy(r.position); _c.y += DEFIB_CHEST_Y; _c.sub(_a);
+      _c.copy(position); _c.y += DEFIB_CHEST_Y; _c.sub(_a);
       const len = _c.length();
       score = len < 1e-3 ? -1 : -(_c.dot(_b) / len);   // 각이 작을수록(코사인이 클수록) 작은 점수
     }
-    if (score < bestScore) { bestScore = score; best = { id: r.id, position: r.position, name: r.name }; }
+    if (score < bestScore) { bestScore = score; best = { id, position, name, ally }; }
+  };
+  for (const r of ctx.net?.getRemotePlayers() ?? []) {
+    if (!r.isDowned || r.stale) continue;
+    consider(r.id, r.position, r.name, false);
+  }
+  /* 2026-09-15 (안드로이드 분대원, 사용자 결정 「제세동기가 있으면 안전상태가 아니어도 시도한다」의 역방향):
+   * 쓰러진 **안드로이드**도 사람과 같은 사거리 · 같은 조준 점수로 겨눠진다. 일으키는 길만 다르다 —
+   * 사람은 `buff revive`, 안드로이드는 `AlliesRef.requestRevive(id, {defib:true})` (`useDefib`). */
+  for (const b of ctx.allies?.getBodies?.() ?? []) {
+    if (!b.downed || b.dead || b.hidden || b.mode !== 'raid') continue;
+    consider(b.id, b.position, b.name, true);
   }
   return best;
   }

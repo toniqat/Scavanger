@@ -14,6 +14,8 @@ import type { PlanetId, SocialRef } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 */
 import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
+/* 2026-09-15: 안드로이드 분대원 — 봇 멤버는 원격 플레이어가 아니다 */
+import { isBotPlayer } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -50,6 +52,12 @@ export function syncRemoteIdentities(sys: NetSystem): void {
   const me = sys.localId;
   const seen = new Set<PeerId>();
   for (const p of lobby.players) {
+    /*
+     * 2026-09-15 (안드로이드 분대원): 봇 멤버는 원격 플레이어가 아니다 — `RemotePlayerRef` 도, `net:missionMembership`
+     * 도 만들지 않는다 (몸은 allies/ 가 `AllyBodyView` 로 내놓고 player/ 가 그린다). `seen` 에도 넣지 않으므로
+     * 크루 카드 · 함선 방문 · 버프 목록 정리에서도 그냥 빠진다 (봇은 애초에 그런 것을 보내지 않는다).
+     */
+    if (isBotPlayer(p)) continue;
     seen.add(p.id);
     const inM = sys.playerInMission(p, lobby);
     if (sys.membership.get(p.id) !== inM) {

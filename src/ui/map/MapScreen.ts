@@ -8,9 +8,12 @@ import { el, fmtInt, setText, toggleClass } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
 import {
-  FONT_LABEL, MAP_COL, MARKER_SCALE, MapLabels, drawDiamond, drawGatherCross, drawHazardSwatch, drawLabel, drawPad, drawPlatform,
-  drawPlayerArrow, drawPlayerCone, drawRover, drawShip, drawSquadArrow, drawSquadDead, drawStation, drawTram, strokeRail, strokeRoute,
+  FONT_LABEL, MAP_COL, MARKER_SCALE, MapLabels, drawAllyArrow, drawAllyDown, drawDiamond, drawGatherCross, drawHazardSwatch, drawLabel,
+  drawPad, drawPlatform, drawPlayerArrow, drawPlayerCone, drawRover, drawShip, drawSquadArrow, drawSquadDead, drawStation, drawTram,
+  strokeRail, strokeRoute,
 } from './mapIcons';
+/* 2026-09-15 (안드로이드 분대원): 안드로이드 마커 · 범례 줄 */
+import { allyBodies } from '../hud/allySource';
 import '../styles/rover.css';
 /* 2026-09-14 (메신저 · NPC 퀘스트): 좌측 열의 퀘스트 패널 목록 + 호버 툴팁 */
 import { MapQuestPanels } from './QuestPanels';
@@ -43,7 +46,7 @@ const CLICK_SLOP_PX = 5;
 /** 범례 견본 캔버스 크기(CSS px) — 1.6배 플레이어 화살표가 들어가는 크기. */
 const SW_W = 28, SW_H = 20;
 
-type LegendId = 'player' | 'squad' | 'pad' | 'ship' | 'gather' | 'rail' | 'tram' | 'rover' | 'route' | 'hazard';
+type LegendId = 'player' | 'squad' | 'ally' | 'pad' | 'ship' | 'gather' | 'rail' | 'tram' | 'rover' | 'route' | 'hazard';
 interface LegendRow { id: LegendId; row: HTMLElement; cv: HTMLCanvasElement }
 /**
  * 재해 구역 채움 · 경계선. 안개 위에 얹는 붉은 층이라 지형이 비쳐야 하지만, 2026-09-09 의 값
@@ -260,6 +263,8 @@ export class MapScreen {
     const entries: Array<[LegendId, string]> = [
       ['player', '플레이어'],
       ['squad', '분대원'],
+      /* 2026-09-15: 안드로이드 분대원 — 명단에 한 기라도 있을 때만 줄이 뜬다 (`refreshLegend`) */
+      ['ally', '안드로이드'],
       ['pad', '탈출 지점'],
       ['ship', '탈출 함선'],
       ['gather', '채집물'],
@@ -985,6 +990,20 @@ export class MapScreen {
         c.globalAlpha = 1;
       }
     }
+    /* 2026-09-15 (안드로이드 분대원): 분대원 마커와 같은 자리 · 같은 슬롯 색, **다른 모양** (`drawAllyArrow` —
+     * 속 빈 삼각형 + 가운데 점). 멀티 게이트가 없는 것은 일부러다: 치트 한 기는 솔로 레이드에도 따라온다.
+     * 숨은 몸(강하 포드 · 이륙선)은 빼고, 쓰러졌거나 죽었으면 사각형 + X 로 그린다. */
+    for (const b of allyBodies(ctx)) {
+      if (b.hidden || b.mode !== 'raid') continue;
+      const x = this.toX(b.position.x), y = this.toY(b.position.z);
+      if (!this.inView(x, y, 30)) continue;
+      const col = NET_SLOT_COLORS_CSS[b.slot] ?? '#fff';
+      c.globalAlpha = b.dead ? 0.55 : 1;
+      if (b.dead || b.downed) drawAllyDown(c, x, y, col);
+      else drawAllyArrow(c, x, y, Math.atan2(-Math.cos(b.yaw), -Math.sin(b.yaw)), col);
+      drawLabel(c, b.dead ? `${b.name} · 파괴됨` : b.downed ? `${b.name} · 쓰러짐` : b.name, x, y + 9 * MARKER_SCALE, col);
+      c.globalAlpha = 1;
+    }
     // player — forward = (-sin yaw, -cos yaw) in world XZ; canvas y = +Z
     const player = ctx.player;
     if (player) {
@@ -1439,10 +1458,15 @@ export class MapScreen {
     let squadCol = NET_SLOT_COLORS_CSS[1];
     if (multi && ctx.net) for (const r of ctx.net.getRemotePlayers()) { if (NET_SLOT_COLORS_CSS[r.slot]) { squadCol = NET_SLOT_COLORS_CSS[r.slot]; break; } }
     const hideShip = this.hidesShip();
+    // 2026-09-15: 안드로이드 줄은 몸이 하나라도 있을 때만 (치트 한 기든, 분대의 세 기든)
+    const allies = ctx ? allyBodies(ctx) : null;
+    const hasAlly = !!allies && allies.length > 0;
+    const allyCol = hasAlly ? (NET_SLOT_COLORS_CSS[allies[0].slot] ?? '#fff') : NET_SLOT_COLORS_CSS[3];
     for (const lr of this.legendRows) {
-      const show = lr.id === 'squad' ? multi : lr.id === 'rail' || lr.id === 'tram' ? hasRail : lr.id === 'rover' || lr.id === 'route' ? hasRover : lr.id === 'ship' ? !hideShip : true;
+      const show = lr.id === 'squad' ? multi : lr.id === 'ally' ? hasAlly
+        : lr.id === 'rail' || lr.id === 'tram' ? hasRail : lr.id === 'rover' || lr.id === 'route' ? hasRover : lr.id === 'ship' ? !hideShip : true;
       lr.row.hidden = !show;
-      if (show) this.drawSwatch(lr, squadCol);
+      if (show) this.drawSwatch(lr, lr.id === 'ally' ? allyCol : squadCol);
     }
   }
 
@@ -1462,6 +1486,7 @@ export class MapScreen {
       // 화살표는 앞 끝과 뒤 끝의 가운데가 견본 가운데에 오게 민다
       case 'player': drawPlayerArrow(c, cx - 1.5 * k, cy, 0); break;
       case 'squad': drawSquadArrow(c, cx - 1 * k, cy, 0, squadCol); break;
+      case 'ally': drawAllyArrow(c, cx - 1 * k, cy, 0, squadCol); break;
       case 'pad': drawPad(c, cx, cy); break;
       case 'ship': drawShip(c, cx, cy); break;
       case 'gather': drawGatherCross(c, cx, cy); break;

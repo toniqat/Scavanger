@@ -1,5 +1,5 @@
 import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
-import { Keys, CHAT_MAX_LINES, PRIVATE_CHAT_LABEL_KO, SOCIAL_WHISPER_MAX, createKeycap, formatPlayerCode, paintKeycap } from '@/shared';
+import { Keys, CHAT_MAX_LINES, NET_SLOT_COLORS_CSS, PRIVATE_CHAT_LABEL_KO, SOCIAL_WHISPER_MAX, createKeycap, formatPlayerCode, paintKeycap } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { isPeerBlocked, socialOf } from '../menus/social/socialSource';
 import { whisperStateClass, whisperStateText } from '../menus/social/whisperText';
@@ -200,6 +200,10 @@ export class ChatLog {
         if (k === 'text' && this.isBlockedPeer(id)) return;
         this.add(id, name, text, k, false);
       }),
+      /* 2026-09-15 (안드로이드 분대원): allies/ 와 `hud/Pings` 가 내는 한 줄. **절대 relay 하지 않는다** —
+       * `ally:chat` 은 이미 모든 클라이언트에서 발행되고(호스트는 `ally chat` 와이어로 보낸다), 여기서 다시
+       * `chat:post` 로 돌리면 같은 줄이 두 번 보인다. 이름 앞의 색은 그 기의 로비 슬롯 색이다. */
+      b.on('ally:chat', ({ name, slot, text }) => this.addAlly(name, slot, text)),
       b.on('net:peerJoined', ({ name }) => this.system(`${name} 합류`)),
       b.on('net:peerLeft', ({ name }) => this.system(`${name} 이탈`)),
       b.on('pickup:taken', ({ item, byLocal, byName }) => {
@@ -265,6 +269,14 @@ export class ChatLog {
 
   private system(text: string): void { this.add(null, '시스템', text, 'system', false); }
 
+  /** 2026-09-15: 안드로이드 한 줄 — `<이름>: 텍스트`, 이름은 그 기의 슬롯 색 (`.chat-line.ally`, `--sc`). */
+  private addAlly(name: string, slot: number, text: string): void {
+    const t = String(text ?? '').trim().slice(0, MAX_TEXT);
+    if (!t) return;
+    const row = this.add(null, name || '안드로이드', t, 'text', false, 'ally');
+    row.style.setProperty('--sc', NET_SLOT_COLORS_CSS[slot] ?? '#fff');
+  }
+
   /**
    * One whisper, either direction (`line.out` = I sent it). Drawn as a `kind:'whisper'` line; B-4 adds the delivery
    * state as a modifier class + a `.wst` tag, and keeps a still-changing row by nonce for `updateWhisper`.
@@ -315,6 +327,15 @@ export class ChatLog {
 
   /** Whether the input is aimed at a 귓속말 target (debug). */
   get whisperTarget(): PlayerCode | null { return this.target?.code ?? null; }
+
+  /** 2026-09-15 (debug / smoke): 그려진 줄 — 클래스 · 이름 · 본문 (오래된 것부터). */
+  get lineStates(): Array<{ cls: string; who: string; text: string }> {
+    return this.lines.map((l) => ({
+      cls: l.el.className,
+      who: l.el.querySelector('.who')?.textContent ?? '',
+      text: l.el.querySelector('.txt')?.textContent ?? '',
+    }));
+  }
 
   /** Display name of a peer id (lobby list → remote ref → own name when it is us). */
   private peerName(id: PeerId, isLocal: boolean): string {

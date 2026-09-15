@@ -30,13 +30,14 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 | `PlayerController.ts` | Kinematic controller: acceleration, jump, roll, slopes, surface + collision, interior / ship-box modes, world ceiling clamp, tram ride state, ladder state machine, fall height, `airCarry` |
 | `PlayerGear.ts` | Cached armour / backpack / weight view from inventory + loot (shield max, perks, weight state) |
 | `CameraRig.ts` | Over-the-shoulder rig: shoulder swap, collision, aim sway, shake / recoil, cutscene override, drone view, rover orbit mode, `predictPosition` |
-| `SoldierModel.ts` | Procedural trooper: pose blends (walk, stances, downed, carry, climb, throw, uniques, furniture IK), armour / glow / grey / fade, occlusion silhouette, `FURN_*` pose geometry, shared geometry cache, `resetForReuse` |
+| `SoldierModel.ts` | Procedural trooper: pose blends (walk, stances, downed, carry, climb, throw, uniques, furniture IK), armour / glow / grey / fade, `setAndroidLook`, occlusion silhouette, `FURN_*` pose geometry, shared geometry cache, `resetForReuse` |
 | `SoldierRim.ts` | Shared fresnel rim for soldier materials (`applySoldierRim`, one program, no lights) |
 | `SoldierPool.ts` | Parked `SoldierModel`s per accent colour for remote avatars |
-| `GearLook.ts` | Procedural armour plates and held-item looks shared by local and remote soldiers |
+| `GearLook.ts` | Procedural armour plates, held-item looks and the android's stand-in gun (`buildHeldWeapon`), shared by local, remote and ally soldiers |
 | `Hellpod.ts` | Procedural drop pod + drop choreography; `group` holds the light, `body` holds the meshes |
 | `RemotePods.ts` | Three pre-built pods that replay squadmates' `pod drop` |
-| `RemotePlayerSystem.ts` | Remote avatars lifecycle, remote footsteps, revive interactables, carry host, ghosts (host), remote falls, debug hooks |
+| `RemotePlayerSystem.ts` | Remote avatars lifecycle, remote footsteps, revive interactables, carry host, ghosts (host), remote falls, ally avatars + `ally revive` receipt + ally pod drops, debug hooks |
+| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armour, footsteps, `revive:ally:<id>`, shot FX, carry socket, smoke injection hooks |
 | `RemoteAvatar.ts` | `RemoteAvatarRef`: pose from snapshot flags, held item, armour, suspended grey look, climb / furniture / rover visibility, per-avatar `weaponSocket` |
 | `Carry.ts` | `CarryHost` seam between the two systems (`PlayerSystem.setCarryHost`) |
 | `Portraits.ts` | `createPortraits` — separate WebGL canvas for the launch-slot panel portraits (null when no context) |
@@ -62,11 +63,19 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
   `setSceneLock(on, {allowDamage?, minHp?})`, `consumeStamina`, `startMelee(kind)`, `setViewWiden`, `setGrappleTarget`, `setHovering`.
 - **Weapon host**: `getWeaponSocket`, `getShoulderSocket`, `getAimRay`, `addRecoil`, `setWeaponState`, `canUseWeapons`,
   `setAimZoom`, `setAdsTime`, `setLookLocked`, `setAimSway`. **UI**: `createPortraits(host, cells)`,
-  `snapshotFace({accent, size?})` (square PNG data URL, same framing as character creation; null without a GL context).
+  `snapshotFace({accent, size?})` (square PNG data URL, same framing as character creation; null without a GL context),
+  `snapshotAndroidFace({accent, size?})` (the same, with the android look; its own cache).
+
+**`PortraitRef`** (`Portraits.ts`): `setMember` / `setYaw` / `setAndroid(index, on)` / `render` / `setVisible` / `dispose`.
 
 **`RemotePlayerSystem`** (via `getSystem('remotePlayers')`): `getAvatar(id)`, `getAvatars()`, `getReviveTargets()`,
-`getGhosts()` / `getGhost(id)` / `getParkedGhosts()` / `getLastGhostStates()`; debug `debugSpawn`, `debugClear`,
-`debugSuspend`, `debugRejoin`, `debugExpireParked`, `debugCarryLocal`.
+`getGhosts()` / `getGhost(id)` / `getParkedGhosts()` / `getLastGhostStates()`, `getAllyAvatars()`; debug `debugSpawn`,
+`debugClear`, `debugSuspend`, `debugRejoin`, `debugExpireParked`, `debugCarryLocal`, `debugAllyBodies(views|null)` /
+`debugAllyBody(opts)` / `debugAllyClear(id?)`.
+
+**`AllyAvatars`** (via `getSystem('remotePlayers').getAllyAvatars()`): `getAvatar(id)` / `getAvatars()` / `size` /
+`getReviveTargets()` / `socketOf(id)` / `carrierOf(ctx, peer)`; `AllyAvatar` exposes `isShown`, `isGreyed`, `poseView`,
+`heldWeaponId`, `shoulderSocket`, `weaponSocket`, `muzzleWorld(out)`, `getHeadPosition(out)`.
 
 **Emits**: `player:*` (`spawned`, `landed`, `damaged`, `healthChanged`, `shieldChanged`, `downed`, `downHpChanged`,
 `giveUpProgress`, `revived`, `died`, `gritSaved`, `stimUsed`, `stanceChanged`, `aimChanged`, `sprintChanged`, `dived`,
@@ -105,8 +114,9 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
   first (`absorbShield`, wears armour) unless `bypassShield` → hp → grit → downed / death. Shield max = worn armour's
   `ArmorDef.shield` (0 when broken); it refills every frame on the ship and in raids only via shield chargers.
 - hp 0 → downed (crawl, `downHp` bleeds `PLAYER_DOWN_BLEED_PER_SEC`, give-up hold); `downHp` 0 → `die`. A solo
-  player (no lobby or a one-player squad) dies at once unless `auto_revive` is unspent (`Vitals.onLethal`). Revive →
-  `PLAYER_REVIVE_HP`; perk `auto_revive` once per raid.
+  player dies at once unless `auto_revive` is unspent (`Vitals.onLethal`). "Solo" = **no android on `ctx.allies.roster`**
+  and at most one *human* in the lobby (`humanPlayersOf` — bot members are not counted): an android revives a downed
+  player, so one on the roster is enough to go down instead. Revive → `PLAYER_REVIVE_HP`; perk `auto_revive` once per raid.
 - The lethal source is kept (`_deathSource`) and sent as `player:died.source`; environment = `{kind:'env'}`, fall =
   `{kind:'fall'}`, burning keeps the strongest fire's source.
 - `restoreState` restores alive / downed / dead from a rejoin without a hellpod; an omitted `shield` means full, applied
@@ -127,6 +137,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 | Intro wake (`introWaking`) | tutorial → `playIntroWake(TUTORIAL_INTRO_WAKE_S)`; respawn variant from game/ | Movement, look, aim, weapons, interaction | Ends itself → `player:introWakeDone` (opening only); death / resets cancel silently and clear the fade |
 | Scene lock | extraction → `setSceneLock(true, opts)` | Same input as intro wake; damage ignored, or clamped at `minHp` with `allowDamage`; no knockback | `setSceneLock(false)`, abort / new mission / spawns |
 | Carry / carried | F tap / peer carries us | Carrier: WASD + sprint only; carried: frozen, follows socket | Any other action (`dropCarried('action')`), revive / death / reset |
+| Carried by an android | `ctx.allies.carrierOf(myPeer)` returns a body (`RemotePlayerSystem.updateCarries`) | Same as being carried by a peer; checked **before** the peer path so it works without a `localId` (`ALLY_LOCAL_PEER`) | The body stops carrying us, or its avatar disappears |
 | In pod | hub → `setInPod(true)` | Movement / sprint / aim; model hidden | `setInPod(false)`, spawns, abort |
 
 Fall damage (`parts/Fall`): the controller measures fall **height** (`MoveResult.fallHeight`), damage =
@@ -198,12 +209,17 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 - Each `RemoteAvatar` hands out a fresh `weaponSocket` object (pooled bodies), because weapons / implants key their hand models on socket identity. — `RemoteAvatar.ts`
 - Changing `FURN_*` requires matching the hub furniture models. — `SoldierModel.ts`
 - `parts/*` import only types from `PlayerSystem.ts`; shared values go in `model.ts`.
+- Ally bodies are drawn in `RemotePlayerSystem.lateUpdate`, not `update`: `AllySystem` is registered **after** this system, so reading `ctx.allies.getBodies()` in `update` would always be one frame behind. — `RemotePlayerSystem.ts`
+- The android look is built in the `SoldierModel` constructor and only toggled by `setAndroidLook`; nothing is added later, because a material created after the constructor breaks the `materials` / `baseColors` pairing that `setGreyed` relies on, and misses the shared geometry cache. Parts that need no rotation are boxes — `resetPose` zeroes every child's rotation. — `SoldierModel.ts`
+- Ally bodies and remote avatars share one `SoldierPool`; `resetForReuse` turns the android look off, so a parked body can come back as either. — `AllyAvatars.ts`
+- `ally:fired` FX borrows the fixed-size `core/fx` flash pool — never a new light. — `AllyAvatars.ts`
+- `AllyBodyView` objects and their vectors are reused by allies/: read them in the same frame, never store them. — `AllyAvatars.ts`
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-15 — Android squadmates: `AllyAvatars.ts`, `SoldierModel.setAndroidLook`, `buildHeldWeapon`, `snapshotAndroidFace`, `PortraitRef.setAndroid`, ally revive prompt / carry / pod drops / shot FX, downed-not-dead with an android on the roster.
 - 2026-09-15 — `snapshotFace` (`FaceSnapshot.ts`, terminal match-tab portraits) + face helpers shared with character creation.
 - 2026-09-15 — `takeDamage` option `bypassShield` (used by spore hazard).
 - 2026-09-15 — `playIntroWake(d, {respawn})` for tutorial respawns; `setSceneLock` options `allowDamage` / `minHp`.
 - 2026-09-15 — Damage sources on `player:damaged` / `player:died` (`_deathSource`, env / fall / burning sources).
-- 2026-09-15 — Fall feedback (shake, `fall` wire, `player:remoteFell`); soldier fresnel rim (`SoldierRim.ts`).

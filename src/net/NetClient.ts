@@ -16,6 +16,8 @@ const SERVER_TYPES: ReadonlySet<string> = new Set([
   'crypto:prices', 'crypto:history',
   /* 2026-09-14: 단체 메신저방 (`RoomSync`) — a history page ≤ ROOM_HISTORY_PAGE lines */
   'room:state', 'room:line', 'room:ack', 'room:history', 'room:error',
+  /* 2026-09-15: 안드로이드 분대원 — 한 기가 조종실 슬롯으로 돌아갔다 (`net:androidReturned`) */
+  'lobby:androidReturned',
 ]);
 const PING_INTERVAL_MS = 2000;
 /** `welcome` may carry every profile document (5 × PROFILE_DOC_MAX_BYTES) plus a raid blob. */

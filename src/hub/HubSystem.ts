@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RemotePlayerRef, RoomPurpose, ShipVisitWire } from '@/shared';
+import type { CrewCardWire, GameContext, GameSystem, HubAndroidBay, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RemotePlayerRef, RoomPurpose, ShipVisitWire } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, MENU_BLOCKER, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
@@ -23,9 +23,11 @@ import './hub.css';
 /* 2026-09-14 정보상: 매칭 팝업(`.hm-`) · 정보상 패널(`.hi-`) · 정보상 화면(`.it-`). `hub.css` 와 나란히 배선한다. */
 import './intel.css';
 
-import { type DockTransition, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
+import { type AndroidPending, type DockTransition, type RaidLaunchState, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
 /* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대 · 분대장 도킹 카운트다운 · 페이드 */
 import { isDockedLobby } from '@/shared';
+/* 2026-09-15: 안드로이드 봇 멤버는 승무원 수에 들어가지 않는다 */
+import { humanPlayersOf } from '@/shared';
 import * as SquadDock from './parts/SquadDock';
 import { SquadDockCountdown } from './ui/SquadDockCountdown';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -37,6 +39,8 @@ import * as Trans from './parts/Transitions';
 import * as Crew from './parts/Crew';
 /* 공용 함선 격납고 (2026-09-08) */
 import * as Hangar from './parts/Hangar';
+/* 2026-09-15: 조종실 안드로이드 슬롯 · 발사 포드 앞 대기 자리 */
+import * as Androids from './parts/Androids';
 
 const NO_REMOTES: readonly RemotePlayerRef[] = [];
 
@@ -90,6 +94,19 @@ export class HubSystem implements GameSystem, HubRef {
   dockCountdown!: SquadDockCountdown;
   /** The lobby whose shared ship we stand in, or null (personal ship · undocked squad · docked but not arrived). */
   squadLobby(): LobbyState | null { return SquadDock.squadLobby(this); }
+  /**
+   * Smoke / debug only (2026-09-15): stand in the shared ship of a **made-up docked lobby**, with no relay at all —
+   * `squadLobby()` answers with this one and `parts/Interior.build` writes its code as `shipLobbyCode`. `null` takes
+   * the pretence away again. Never set outside `scripts/smoke-*`; a real `ctx.net.lobby` is untouched by it.
+   */
+  debugLobby: LobbyState | null = null;
+  /** Smoke / debug: install `lobby` (or clear it) and swap the interior to the matching ship. */
+  debugSharedShip(lobby: LobbyState | null): boolean {
+    if (this.ctx.phase !== 'hub' || this.cutscene || this.ctx.net?.lobby) return false;
+    this.debugLobby = lobby;
+    this.swapDirect(lobby ? 'shared' : 'personal');
+    return true;
+  }
   /** Debug / smoke: whole seconds left on the squad-dock countdown panel, −1 while it is not shown. */
   get squadDockSeconds(): number { return this.dockCountdown?.seconds ?? -1; }
   /** Debug / smoke: the fade-out before the docking cutscene is running. */
@@ -277,6 +294,24 @@ export class HubSystem implements GameSystem, HubRef {
   /** Answer `shipq state`; also called on `hub:entered` when `ctx.net` was missing at init. */
   bindShipRequests(): void { return Hangar.bindShipRequests(this); }
 
+  /* ── 조종실 안드로이드 슬롯 (2026-09-15, `parts/Androids`) ────────────────── */
+  /** Interactable ids of the cockpit's android bays (shared ship only). */
+  androidBayIds: string[] = [];
+  /** A `lobby:android` request waiting for the relay's answer, null at rest. */
+  androidPending: AndroidPending | null = null;
+  /** 발사 포드 앞 대기 자리, 슬롯 순 (`getPodStandPose` 의 원본; 함선을 지을 때 한 번 계산한다). */
+  podStands: Array<{ position: THREE.Vector3; yaw: number } | undefined> = [];
+  /** 공용 함선 조종실의 안드로이드 슬롯 (bay 순). 공용 함선이 아니면 빈 배열. 재사용 배열 — 읽고 바로 쓴다. */
+  getAndroidBays(): readonly HubAndroidBay[] { return Androids.getAndroidBays(this); }
+  /** 로비 슬롯 `slot` 의 발사 포드 앞 대기 자리 (분대원이 된 안드로이드가 준비된 채 서 있는 곳), 없으면 null. */
+  getPodStandPose(slot: number): { position: THREE.Vector3; yaw: number } | null { return Androids.getPodStandPose(this, slot); }
+  /** 캡슐 표시등 · 이름표를 로비 상태에 맞춘다. */
+  refreshAndroidBays(): void { return Androids.refreshAndroidBays(this); }
+  /** 슬롯 프롬프트 (거절 사유를 그대로 보여 준다 — 발사 포드 규칙). Debug / smoke. */
+  androidPrompt(bay: number): string | null { return Androids.androidPrompt(this, bay); }
+  /** 지금 이 슬롯에 다가갈 수 있는가 (거절 사유와 무관). Debug / smoke. */
+  androidCanInteract(bay: number): boolean { return Androids.androidCanInteract(this, bay); }
+
   /* ── 분대장 넘기기 (2026-09-09) ─────────────────────────────────────────── */
   /**
    * 공용 함선 안의 원격 분대원마다 `lead:<peerId>` `Interactable` 을 세운다 (내가 호스트일 때만).
@@ -300,6 +335,14 @@ export class HubSystem implements GameSystem, HubRef {
   countdown = -1;
   lastCountdownSecond = -1;
   launched = false;
+  /**
+   * 레이드 진입 로딩 (2026-09-15): the countdown reached 0, the screen is fading to black and the authority launches
+   * `RAID_LOAD_FADE_OUT_S` later. Non-null = the launch is **committed** (E, the ready hold and un-readying no longer
+   * cancel it) — `parts/Pods.beginRaidLoad` / `tickRaidLaunch`.
+   */
+  raidLaunch: RaidLaunchState | null = null;
+  /** Debug / smoke: the raid-entry fade is running (the launch is committed). */
+  get raidLaunching(): boolean { return this.raidLaunch !== null; }
 
   /**
    * A lost pointer lock only leaves the *room-console* housing mode (browser Esc while decorating). Since Phase 8
@@ -359,16 +402,22 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('housing:loaded', () => this.refreshRoomSigns()),
       b.on('game:newMission', () => this.teardown('mission')),
       b.on('game:abort', () => { if (this.interior || this.cutscene) this.teardown('menu'); }),
-      b.on('net:lobbyUpdated', ({ lobby }) => this.onLobbyUpdated(lobby)),
-      b.on('net:lobbyLeft', ({ reason, to }) => this.onLobbyLeft(reason, to)),
+      b.on('net:lobbyUpdated', ({ lobby }) => { Androids.androidAnswered(this); this.onLobbyUpdated(lobby); }),
+      b.on('net:lobbyLeft', ({ reason, to }) => { Androids.androidAnswered(this); this.onLobbyLeft(reason, to); }),
       b.on('net:resumed', ({ inProgress }) => this.onResumed(inProgress)),
+      /*
+       * 조종실 안드로이드 슬롯 (2026-09-15): 릴레이의 답이 오면 요청 대기를 푼다 — `lobby:state` 든 거절이든.
+       * 토스트(`full` · `human_joined`)는 ui/ 의 몫이다.
+       */
+      b.on('net:androidReturned', () => Androids.androidAnswered(this)),
+      b.on('net:error', () => Androids.androidAnswered(this)),
       /*
        * 2026-09-11 (B-12): `net:peerJoined` / `net:peerLeft` 의 `<이름> 함선 합류 · 이탈` 토스트를 걷어냈다 — 같은
        * 이벤트에 `ui/hud/Notifications` 가 `<이름> 합류` · `<이름> 이탈`(`'분대'` 라벨)을 이미 띄우고, 그것이
        * `ui:notify` 와 **같은 토스트 스택**이라 함선에서는 두 줄이 나란히 떴다. 잃는 것은 `함선` 이라는 낱말 하나이고
        * (지금 함선에 있다는 상황과 `'분대'` 라벨이 그 문맥을 준다) 토스트의 주인은 `Notifications` 하나가 됐다.
        */
-      b.on('net:statusChanged', () => { this.resendReady(); this.updateTerminalScreen(); }),
+      b.on('net:statusChanged', () => { this.resendReady(); this.updateTerminalScreen(); Androids.androidAnswered(this); }),
       b.on('meta:creditsChanged', () => this.updateTerminalScreen()),
       b.on('meta:loaded', () => this.updateTerminalScreen()),
     );
@@ -589,9 +638,13 @@ export class HubSystem implements GameSystem, HubRef {
     const seedText = seed === null ? '시드 무작위' : `시드 ${seed}`;
     const status = net?.status === 'connected' ? '네트워크 연결됨' : net?.status === 'connecting' ? '연결 중…' : '오프라인';
     const planetLine = `목표 ${this.travelling ? `${planetLabel(this.planet)} 이동 중` : (getPlanet(this.planet)?.name ?? PLANET_NONE_LABEL)}`;
+    /* 2026-09-15 (안드로이드 분대원): 승무원 수는 **사람**이다 — 안드로이드는 별도 줄로 센다 (봇은 슬롯을 차지하지만 승무원이 아니다) */
+    const crew = humanPlayersOf(lobby ?? squad).length;
+    const bots = (lobby ?? squad) ? ((lobby ?? squad)!.players.length - crew) : 0;
     const lines = lobby
-      ? [`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, planetLine, seedText]
-      : ['개인 함선', squad ? `분대 ${squad.players.length}/4 · ${isDockedLobby(squad) ? '도킹 중' : '도킹 대기'}` : status, planetLine, seedText];
+      ? [`함선 ${lobby.code}`, `승무원 ${crew}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, planetLine, seedText]
+      : ['개인 함선', squad ? `분대 ${crew}/4 · ${isDockedLobby(squad) ? '도킹 중' : '도킹 대기'}` : status, planetLine, seedText];
+    if (bots > 0) lines.push(`안드로이드 ${bots}기`);
     if (lobby && this.trainingRunning()) lines.push(`훈련장 ${this.trainingCount()}명`);
     const credits = this.credits();
     if (credits !== null) lines.push(`크레딧 ${credits.toLocaleString('ko-KR')}`);
@@ -670,7 +723,8 @@ export class HubSystem implements GameSystem, HubRef {
       // 분대원 장비 popup before the pod: it is modeless over the pod view and holds no blocker of its own, so
       // without this step the same E would un-board out from under it (Phase 10 ordering, on the new key).
       else if (this.ready.closePopup()) { ctx.input.consume(Keys.INTERACT); }
-      else if (this.boardedSlot >= 0 && !this.uiBlocked() && ctx.time - this.boardedAt > UNBOARD_GRACE) {
+      // 2026-09-15 (레이드 진입 로딩): 암전이 시작된 뒤로 발사는 **확정**이다 — 내리는 것도 취소가 되지 않는다
+      else if (this.boardedSlot >= 0 && !this.raidLaunch && !this.uiBlocked() && ctx.time - this.boardedAt > UNBOARD_GRACE) {
         this.leavePod(true);
       }
     }

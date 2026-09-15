@@ -91,12 +91,16 @@ export function trackTake(sys: InventorySystem, uid: string, from: ItemLocation,
   return r;
   }
 
-export function announceTake(sys: InventorySystem, c: Container, idx: number, qty: number): void {
+/**
+ * `by` (2026-09-15, 안드로이드 분대원): 가져간 몸의 id — 생략하면 지금까지처럼 **나**다. 안드로이드가 가져가면 그 기의
+ * id 가 실린다 (받는 쪽은 `msg.by !== localId` 이므로 「남이 가져갔다」 경로를 그대로 탄다 — 새 갈래가 생기지 않는다).
+ */
+export function announceTake(sys: InventorySystem, c: Container, idx: number, qty: number, by?: string): void {
   const net = sys.ctx.net;
   if (!net || !net.localId) return;
   c.recordTaken(idx, qty);
   net.send({
-    t: 'cont', ev: 'taken', id: c.id, idx, qty, by: net.localId,
+    t: 'cont', ev: 'taken', id: c.id, idx, qty, by: by ?? net.localId,
     rem: c.remainingAt(idx), seq: sys.containers.nextTakeSeq(c.id),
   }, 'others');
   }

@@ -2,6 +2,8 @@ import type { GameContext, PlayerCode, SocialPlayer, SocialRef } from '@/shared'
 import {
   NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, SOCIAL_CARDS_PER_ROW, SOCIAL_FRIEND_ROWS, SOCIAL_RECENT_ROWS,
   SOCIAL_RECENT_MAX, SQUAD_VOICE_DEFAULT, formatPlayerCode,
+  /* 2026-09-15 (안드로이드 분대원): 봇 멤버는 사람 계정 열에 서지 않는다 */
+  isBotPlayer,
 } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
 import { buildProfileCard, inviteBadgeText } from './ProfileCard';
@@ -219,7 +221,7 @@ export class SocialColumn {
   private buildKey(s: SocialRef): string {
     const row = (p: SocialPlayer): string => `${p.code}|${p.name}|${p.level}|${p.presence}|${p.squad}|${p.inviteAt ?? ''}`;
     const lobby = this.opts.squad
-      ? (this.ctx.net?.lobby?.players ?? []).map((p) => `${p.id}:${p.slot}:${p.name}`).join(',')
+      ? (this.ctx.net?.lobby?.players ?? []).filter((p) => !isBotPlayer(p)).map((p) => `${p.id}:${p.slot}:${p.name}`).join(',')
       : '';
     return [
       s.me?.code ?? '', s.friends.map(row).join(','), s.incoming.map(row).join(','), s.recent.map(row).join(','), lobby,
@@ -241,7 +243,9 @@ export class SocialColumn {
 
     /* 분대원 — the lobby is the truth for who is aboard; the snapshot supplies 아이디 / 레벨 where it knows them. */
     if (this.opts.squad) {
-      const players = ctx.net?.lobby?.players ?? [];
+      /* 2026-09-15 (안드로이드 분대원): 봇 멤버는 이 열에 서지 않는다 — 아이디 · 레벨 · 친구 · 개인 대화 ·
+       * 분대장 넘기기가 전부 사람 계정을 전제로 한다. 안드로이드는 HUD 분대 목록이 보여 준다. */
+      const players = (ctx.net?.lobby?.players ?? []).filter((p) => !isBotPlayer(p));
       this.squadSection.hidden = players.length === 0;
       if (players.length > 0) {
         // One cell per lobby slot: a player sits in their own slot (that is what `--sc` colours), anyone the slot

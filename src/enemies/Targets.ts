@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, explosionFalloff, type DroneRef, type GameContext, type PeerId, type PlayerRef, type RoverRef } from '@/shared';
+import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, explosionFalloff, type AllyBodyView, type DroneRef, type GameContext, type PeerId, type PlayerRef, type RoverRef } from '@/shared';
 import type { Enemy } from './Enemy';
 
 /** `'local'` is the player on this machine; `'ai'` is another enemy (faction warfare, Phase 4); anything else is a remote peer id. */
@@ -85,6 +85,17 @@ export class CombatTarget {
   vehicleMoving = false;
   readonly vehiclePrev = new THREE.Vector3();
   vehiclePrevAt = -Infinity;
+  /* ── appended (2026-09-15): 안드로이드 분대원 ─────────────────────────────── */
+  /**
+   * 이 표적이 안드로이드 분대원의 프록시면 그 몸(`TargetList.allies`), 아니면 null. 프록시 `id` 는 드론 · 차량과 같은
+   * 이유로 `'ai'` 다 — 플레이어 id 체계(`'local'` / PeerId)에 섞이면 `applyDamage` 의 원격 가지가 존재하지 않는
+   * 상대에게 `dmg` 를 보내게 된다. 개체 식별은 `allyId` (`AllyBodyView.id`)로 하고, 피해는 `ctx.allies.damage` 로 간다.
+   * 안드로이드가 사라져도 참조는 지우지 않고 `present` / `isDead` 만 내린다 (드론과 같은 이유).
+   */
+  ally: AllyBodyView | null = null;
+  allyId: string | null = null;
+  /** `TargetList` 가 이번 갱신에서 이 안드로이드를 봤는가 (프레임 번호). */
+  allyStamp = 0;
 
   constructor(readonly id: TargetId) {}
 
@@ -92,6 +103,8 @@ export class CombatTarget {
   get isEnemy(): boolean { return this.enemy !== null; }
   get isDrone(): boolean { return this.drone !== null; }
   get isVehicle(): boolean { return this.vehicle !== null; }
+  /** 2026-09-15: 안드로이드 분대원 — 몸 크기 · 사선 · 조준은 사람과 같고, 피해만 `ctx.allies.damage` 로 간다. */
+  get isAlly(): boolean { return this.ally !== null; }
 
   /** True when bugs must neither hunt nor hurt this player (dead, or downed and waiting for a revive — or 2026-09-13 riding inside the 탐사 차량). */
   get isDeadOrDowned(): boolean { return this.isDead || this.downed || this.riding; }
@@ -262,10 +275,27 @@ export class TargetList {
    */
   readonly vehicles: CombatTarget[] = [];
   private readonly vehicleProxy = new CombatTarget('ai');
+  /* ── appended (2026-09-15): 안드로이드 분대원 ── */
+  /**
+   * 적이 노려도 되는 안드로이드 분대원(`AlliesRef.getCombatBodies`)의 프록시. **`all` / `alive` 에는 넣지 않는다** —
+   * 드론 · 차량과 같은 이유이자, 「사람이 전원 사망하면 레이드 실패」(사용자 결정)를 세는 곳들이 안드로이드를
+   * 사람으로 세면 안 되기 때문이다. 스포너 앵커 · 웨이브 방향 · `nearestAlive` 는 사람만 본다.
+   * 표적 선택 · 사격 · 산성 · 몸통 접촉 · 광역 피해만 이 목록을 따로 본다.
+   */
+  readonly allies: CombatTarget[] = [];
+  private readonly allyById = new Map<string, CombatTarget>();
+  private readonly allyAll: CombatTarget[] = [];
+  private allyFrame = 0;
+  /**
+   * 디버그 주입(`EnemySystem.debugAllyTargets`) — null 이 아니면 `ctx.allies` 대신 이 목록을 쓴다.
+   * `scripts/smoke-enemy-allies.mjs` 가 allies/ 없이 적 쪽만 검사할 수 있게 하는 유일한 통로다.
+   */
+  allyOverride: readonly AllyBodyView[] | null = null;
 
   refresh(ctx: GameContext): void {
     this.refreshDrones(ctx);
     this.refreshVehicle(ctx);
+    this.refreshAllies(ctx);
     for (const t of this.byId.values()) t.present = false;
 
     const player = ctx.player;
@@ -423,6 +453,72 @@ export class TargetList {
     this.vehicles.push(t);
   }
 
+  /**
+   * 2026-09-15 (안드로이드 분대원): `ctx.allies.getCombatBodies()` → `allies`. 계약상 그 목록은 이미 「레이드 · 쓰러지지도
+   * 죽지도 않음 · 보인다」로 걸러져 있지만, 한 프레임 늦은 목록이 와도 안전하도록 여기서 한 번 더 본다.
+   * 프록시는 안드로이드 id 당 하나이고 그 기가 목록에 있는 동안 유지된다 — 할당은 처음 볼 때 한 번.
+   */
+  private refreshAllies(ctx: GameContext): void {
+    const frame = ++this.allyFrame;
+    this.allies.length = 0;
+    const list = this.allyOverride ?? ctx.allies?.getCombatBodies();
+    if (list && list.length > 0) {
+      for (let i = 0; i < list.length; i++) {
+        const b = list[i];
+        let t = this.allyById.get(b.id);
+        if (!t) {
+          t = new CombatTarget('ai');
+          t.allyId = b.id;
+          this.allyById.set(b.id, t);
+          this.allyAll.push(t);
+        }
+        t.ally = b;
+        t.allyStamp = frame;
+        t.position.copy(b.position);
+        t.velocity.copy(b.velocity);
+        t.yaw = b.yaw;
+        t.player = null;
+        t.suspended = false;
+        t.stealth = 1;
+        t.riding = false;
+        t.downed = b.downed;
+        t.isDead = b.dead;
+        t.eyeHeight = b.pose === 'crouch' ? EYE_CROUCH : EYE_STAND;
+        t.present = !b.hidden && !b.dead && !b.downed;
+        if (!t.present) continue;
+        this.allies.push(t);
+      }
+    }
+    // 목록에서 사라진 안드로이드: 프록시를 버린다 (표적으로 들고 있던 적은 `present` false 를 보고 다시 고른다)
+    for (let i = this.allyAll.length - 1; i >= 0; i--) {
+      const t = this.allyAll[i];
+      if (t.allyStamp === frame) continue;
+      t.present = false;
+      t.isDead = true;
+      if (t.allyId !== null) this.allyById.delete(t.allyId);
+      this.allyAll.splice(i, 1);
+    }
+  }
+
+  /** 2026-09-15: `p` 에서 가장 가까운, 지금 노릴 수 있는 안드로이드 프록시 (없으면 null). */
+  nearestAllyAlive(p: THREE.Vector3): CombatTarget | null {
+    let best: CombatTarget | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < this.allies.length; i++) {
+      const t = this.allies[i];
+      if (t.isDeadOrDowned) continue;
+      const d = t.dist2D(p);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best;
+  }
+
+  /** 2026-09-15: `p` 의 `maxDist` 안에서 가장 가까운 안드로이드 프록시 — `applyAllyHit` 의 재표적. */
+  allyNear(p: THREE.Vector3, maxDist: number): CombatTarget | null {
+    const t = this.nearestAllyAlive(p);
+    return t && t.dist2D(p) <= maxDist ? t : null;
+  }
+
   /** 2026-09-13: 지금 노릴 수 있는 탐사 차량 프록시, 없으면 null. */
   vehicleTarget(): CombatTarget | null {
     return this.vehicles.length > 0 ? this.vehicles[0] : null;
@@ -455,6 +551,11 @@ export class TargetList {
     this.droneAll.length = 0;
     this.droneById.clear();
     this.drones.length = 0;
+    // 2026-09-15: 안드로이드 프록시 (디버그 주입은 레이드가 끝나도 남겨 둔다 — 지우는 것은 `debugAllyTargets(null)`)
+    for (let i = 0; i < this.allyAll.length; i++) { const t = this.allyAll[i]; t.present = false; t.isDead = true; }
+    this.allyAll.length = 0;
+    this.allyById.clear();
+    this.allies.length = 0;
   }
 
   get(id: TargetId): CombatTarget | undefined { return this.byId.get(id); }
@@ -490,6 +591,13 @@ export class TargetList {
       if (dd >= bestD) continue;
       if (d.position.y - p.y > radius || d.position.y + d.droneHeight < p.y - radius) continue;
       best = d; bestD = dd;
+    }
+    // 2026-09-15: 안드로이드 분대원 — 사람과 같은 몸이라 사람과 같은 규칙 (수평 거리만)
+    for (let i = 0; i < this.allies.length; i++) {
+      const a = this.allies[i];
+      if (a.isDeadOrDowned) continue;
+      const dd = a.dist2D(p);
+      if (dd < bestD) { best = a; bestD = dd; }
     }
     // 2026-09-13: 탐사 차량 — 차체 **가장자리**까지의 수평 거리 (`dist2D`), 수직으로도 겹칠 때만
     for (let i = 0; i < this.vehicles.length; i++) {

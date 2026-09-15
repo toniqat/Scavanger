@@ -306,15 +306,19 @@ try {
     window.__game.ctx.housing.openShipManage(0);                       // manage → (generator) → workshop
     const acted = window.__game.ctx.housing.shipManageMode === true && window.__game.ctx.tutorial.step === 'workshop';
     const immediate = lit();
-    let midway = null, ms = -1;
+    let midway = null, ms = -1, sawPending = false;
     while (performance.now() - t0 < 15000) {
-      // 반 박자(0.5 s)의 절반쯤에서 한 번 들여다본다 — `Spotlight.pending` 이 "대상은 보이는데 아직 세고 있다"
+      /* `Spotlight.pending` 은 **대상이 화면에서 찾힌 뒤에야** 세기 시작한다 (`update` 의 `timer` 가 다음
+         `RETARGET_INTERVAL` 에 걸려야 찾는다) — 그래서 0.3 s 한 점에서 `pending` 을 읽던 옛 판정은 그 첫
+         확인이 늦어지면 `wait -1`(아직 안 셈)을 보고 빨개졌다. 반 박자가 실제로 돌았는지는 **한 번이라도
+         세는 중이 보였는가**로 본다 — 8 ms 마다 보므로 0.5 s 짜리 카운트다운을 놓칠 수 없다. */
+      if (sp().pending) sawPending = true;
       if (!midway && performance.now() - t0 >= 300) midway = { lit: lit(), pending: sp().pending, wait: Math.round(sp().wait * 1000) };
       if (lit()) { ms = performance.now() - t0; break; }
       await new Promise((r) => setTimeout(r, 8));
     }
     return {
-      acted, before, immediate, midway, ms,
+      acted, before, immediate, midway, ms, sawPending,
       tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
       fade: getComputedStyle(spot()).getPropertyValue('--tut-dim-fade').trim(),
     };
@@ -322,8 +326,8 @@ try {
   ok(relight.acted === true, '시설 관리를 열자마자 작업실 단계다 (발전기 단계는 그 사이에 지나갔다)', JSON.stringify(relight));
   ok(relight.before === true && relight.immediate === false,
     '단계가 넘어가는 순간 포커싱이 곧바로 접힌다 (다음 대상이 이미 화면에 있어도)', JSON.stringify(relight));
-  ok(relight.midway && relight.midway.lit === false && relight.midway.pending === true && relight.midway.wait > 0,
-    `0.3 s 뒤에도 아직 어둡고 반 박자를 세고 있다 (남은 ${relight.midway?.wait} ms)`, JSON.stringify(relight));
+  ok(relight.midway && relight.midway.lit === false && relight.sawPending === true,
+    `0.3 s 뒤에도 아직 어둡고, 켜지기 전에 반 박자를 세는 구간이 있었다 (0.3 s 시점 남은 ${relight.midway?.wait} ms)`, JSON.stringify(relight));
   /* 위아래를 모두 못 박는다. 아래는 "곧바로 켜지지 않는다"(≥ 0.3 s), 위는 "언젠가가 아니라 반 박자"(< 2 s —
      카운터가 0 을 지나쳐 0.5 초를 다시 세던 2026-09-09 의 버그가 돌아오면 여기서 실패한다). */
   ok(relight.ms >= 300 && relight.ms < 2000 && /작업실/.test(relight.tip),
@@ -410,7 +414,23 @@ try {
     '창고 카드 클릭은 카드를 강조만 한다 — 커서에 가구가 올라오지 않는다', JSON.stringify(picked));
   ok(picked.btn && picked.enabled === true && picked.note === '배치 가능',
     "카드 오른쪽에 활성 '배치' 버튼(.fcard-place) + '배치 가능' 표시", JSON.stringify(picked));
-  await P(() => document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"] .fcard-place').click());
+  /* 2026-09-15: 바닥 안내선의 반 박자(`TUTORIAL_STEP_DELAY_S`)는 **단계가 바뀌는 순간** 무장된다
+     (`TutorialSystem.refreshVisuals` → `Guide.setTarget`, 그 뒤로는 화면과 무관하게 매 프레임 줄어든다).
+     관리 모드를 닫는 것은 무장시키지 않는다 — `setTarget` 은 목표가 같으면 곧바로 반환한다. 예전 판정은
+     배치 뒤 네 번의 페이지 왕복이 끝난 다음 `closeShipManage()` 를 기준으로 쟀기 때문에, 왕복 합이 0.5 s 를
+     넘기면 이미 깔린 선을 보고 "직후엔 아직 없다" 가 깨졌다 — 판정이 아니라 경주였다. 그래서 반 박자를
+     실제로 무장시키는 조작(배치 버튼 = benchPlace → craftGun)에 붙여 한 evaluate 안에서 잰다. */
+  await P(() => {
+    window.__tutAct = () => {
+      document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"] .fcard-place').click();
+      return window.__game.ctx.tutorial.step;   // 이 조작이 단계를 넘겼다는 증거
+    };
+  });
+  const guideDelay = await measureGuide();
+  ok(guideDelay.acted === 'craftGun' && guideDelay.before === false && guideDelay.immediate === false,
+    '단계가 craftGun 으로 넘어간 직후에는 바닥 안내선이 아직 없다', JSON.stringify(guideDelay));
+  ok(guideDelay.ms >= 300 && guideDelay.ms < 2000,
+    `바닥 안내선은 스포트라이트와 같은 반 박자 뒤에 깔린다 (${Math.round(guideDelay.ms)} ms)`, JSON.stringify(guideDelay));
   await sleep(150);
   const placed = await P(() => ({
     placed: window.__game.ctx.housing.getPlaced(1).filter((f) => f.defId === 'furn_bench_gun').length,
@@ -424,14 +444,8 @@ try {
 
   /* ── 4. 재료 지급 + 제작 게이트 ───────────────────────────────────────── */
   console.log('제작');
-  /* 2026-09-09: `craftGun` 에서는 **바닥 안내선**이 작업대를 가리킨다 — 그 안내선도 스포트라이트와 같은
-     반 박자(`TUTORIAL_STEP_DELAY_S`)를 세고 나서야 씬에 깔린다 (`parts/Guide.wait`). */
-  await P(() => { window.__tutAct = () => { window.__game.ctx.housing.closeShipManage(); return true; }; });
-  const guideDelay = await measureGuide();
-  ok(guideDelay.before === false && guideDelay.immediate === false,
-    '관리 모드를 닫은 직후에는 바닥 안내선이 아직 없다', JSON.stringify(guideDelay));
-  ok(guideDelay.ms >= 300 && guideDelay.ms < 2000,
-    `바닥 안내선도 같은 반 박자 뒤에 깔린다 (${Math.round(guideDelay.ms)} ms)`, JSON.stringify(guideDelay));
+  // 2026-09-09: `craftGun` 에서는 바닥 안내선이 작업대를 가리킨다 (반 박자 측정은 배치 버튼 쪽으로 옮겼다 — 위 주석)
+  await P(() => { window.__game.ctx.housing.closeShipManage(); });
   await waitStep('craftGun');
   const grant = await P(() => ({
     powder: window.__game.ctx.inventory.countDefAll('mat_gunpowder'),

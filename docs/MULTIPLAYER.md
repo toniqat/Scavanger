@@ -55,6 +55,8 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 | `struct` · `structq` · `tram` · `tramq` · `hz` · `hzq` · `rdrop` · `rover` · `roverq` | host ↔ clients | world / enemies |
 | `meta` · `metaq` | peer ↔ peer | meta |
 | `crew` · `crewq` · `ship` · `shipq` · `carry` · `meal` · `cbuf` · `cbufq` | peer ↔ peer / host | net / hub / player |
+| `ally` (host → all) · `allyq` (member → host) | host ↔ clients | allies |
+| `load` (`p` progress → others, `go` from the host) | peers ↔ host | game |
 
 ## 2. Ship hub & reconnection
 
@@ -190,7 +192,37 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
   and the chat window and messenger share one history.
 - Unread state is client-side (`slotKey(ROOM_READ_STORAGE_KEY)` · the conversation log's `readAt`).
 
-## 9. Not synced yet
+## 9. Android squadmates (bot lobby members)
+
+2026-09-15 user decision — contract in `src/shared/allies.ts` and the last section of `src/shared/net.ts`; simulation is
+`src/allies/` (see [src/allies/README.md](../src/allies/README.md)). The relay owns only **membership**.
+
+- An android that walked out of a cockpit bay is an ordinary lobby member with `LobbyPlayer.bot === true`, `bay`
+  (`0 … ANDROID_BAY_COUNT`), `recruitedAt`, no socket, always `connected` and `ready`, `inMission` from the raid start like
+  anyone else. Its id is `androidIdOf(lobby.code, bay)` (`android:<code>:<bay>`) — a prefix a profile `PeerId` can never carry.
+  It takes a **real lobby slot** (launch pod, colour, spawn offset), so a squad is still at most `NET_MAX_PLAYERS` bodies.
+- `lobby:android {bay, recruit}` — **leader only**, **docked** lobby only, before the start. Refusals in order:
+  `not_in_lobby` → `not_host` → `not_docked` → `started` → `invalid` (bay out of range, or already in that state) →
+  `full`. A `full` refusal also sends `lobby:androidReturned {bay, reason:'full'}` to the requester alone. Success is one
+  `lobby:state`; a deliberate dismissal sends no `androidReturned` (the roster is in the state).
+- **Humans win.** `Lobby.canAdd()` counts humans only, so an android-filled squad still accepts a join / invite / move;
+  `Lobby.add` then evicts the bot with the latest `recruitedAt` and the relay broadcasts
+  `lobby:androidReturned {bay, reason:'human_joined'}` to the lobby **after** the join, so the newcomer hears it too.
+  Quick match counts **everyone** (`isQuickMatchable`), so androids do close a ship to strangers — invites still get in.
+- Androids are left out of everything that is about people: host migration and `lobby:transferHost` (→ `invalid`),
+  `relay {to}` (dropped silently), presence squad counts, 최근 만난 플레이어, block checks, `pruneLonely`, the reconnect
+  grace's "others still inside", `inMissionCount` / `autoResetMission`, raid blobs, `net:peerJoined` / `peerLeft`,
+  `RemotePlayerRef`s and `net:missionMembership`, meal serving. `Lobby.reset()` keeps them `ready`, and when the **last
+  human** leaves the lobby is deleted with its androids (they never keep a ship alive).
+- Client: `NetRef.setAndroidBay(bay, recruit)` (leader only; otherwise `net:error`) and `net:androidReturned {bay, reason}`.
+  Squad size is humans-only where the question is social (invite gates, crew rows); folders that ask "how many fighters"
+  (enemy scaling) read the lobby themselves and count androids. Operator console: `lobbies` marks them, `kick <androidId>`
+  returns one to its bay.
+- **Raid-entry loading** (`load`): after the launch countdown everyone fades to black, reports progress with
+  `load p {seed, v}` to `others`, and the host releases with `load go {seed, to?}` when every **human** in the mission is
+  done or `RAID_LOAD_TIMEOUT_S` passes (a late player releases itself). Owner: `src/game/parts/LoadGate`.
+
+## 10. Not synced yet
 
 - Pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0).
 - A host promoted mid-mission does not inherit the old host's guard anchors / lures.

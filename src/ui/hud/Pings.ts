@@ -44,7 +44,11 @@ const ACK_RING_WIDTH = 0.12;
 const ACK_RING_STEP = 0.22;
 
 /** Owner info for pings placed by squad members (null/undefined for local pings). */
-export interface PingOwner { id: PeerId; name: string; slot: number; color: string }
+export interface PingOwner {
+  id: PeerId; name: string; slot: number; color: string;
+  /** 2026-09-15: true = 안드로이드 분대원이 찍었다 (`ally:ping`) — 마커에 `.android` 가 붙고 확인(ack) 대상이 아니다. */
+  android?: boolean;
+}
 
 /** One 알겠다 on a ping: who, and the slot colour their ring is drawn in. */
 export interface PingAck { id: PeerId; slot: number }
@@ -142,6 +146,12 @@ interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vec
  * incoming pings / acks are read through `ctx.net.onMessage('ping' | 'pingack')` (`net:remotePing` only without a net
  * module). `placeAtWorld(position, kind?)` (and `ping:requestAt`) ping a world point directly for surfaces with no aim
  * ray — the tactical map's middle-click; it skips the pointer-lock gate but keeps the cap, cooldown and snapping.
+ *
+ * **2026-09-15 (안드로이드 분대원).** `ally:ping` (allies/, every client) 은 `placeAlly` 로 들어와 안드로이드 이름 · 슬롯
+ * 색의 원격 핑(`.pmarker.remote.android`)이 되고, 콜아웃 한 줄은 `ally:chat` 으로 나간다 (ChatLog 가 그리고 **relay 하지
+ * 않는다**). 확인(ack) 대상이 아니다 (`seq === null` → 조준 보정 후보에서 빠진다). 이 클라이언트가 세우는 모든 핑은
+ * 이제 `ping:placedV3 {owner, label?, enemyId?}` 도 낸다 — `owner` 는 로컬 null · 분대원 PeerId · 안드로이드 id 이고,
+ * allies/ 가 **명령**을 이 하나로 읽는다 (자기가 찍은 핑을 무시할 수 있어야 한다).
  */
 export class Pings {
   readonly root: HTMLElement;
@@ -197,6 +207,9 @@ export class Pings {
       ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.removeOwnedBy(id)),
       // Phase 10: a surface with no aim ray (the tactical map's middle-click) asks for a ping at a world point.
       ctx.bus.on('ping:requestAt', ({ position, kind }) => this.placeAtWorld(position, kind)),
+      /* 2026-09-15 (안드로이드 분대원): allies/ 가 **모든 클라이언트에서** 낸다 (호스트는 로컬 + `ally ping` 와이어).
+       * 우리는 그리기만 한다 — 다시 relay 하지 않고, 콜아웃 한 줄은 `ally:chat` 로 내보내 ChatLog 가 그린다. */
+      ctx.bus.on('ally:ping', ({ id, name, slot, kind, position, label, enemyId }) => this.placeAlly(id, name, slot, kind, position, label, enemyId)),
     );
     // Full PingMessage (label / enemyId / seq) through the net module; the bus event only carries position + kind.
     if (ctx.net) {
@@ -647,6 +660,7 @@ export class Pings {
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
     ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: null });
+    this.emitV3(ctx, ping, null, label, enemy?.id);
 
     // chat line — every ping (v3)
     const player = ctx.player;
@@ -776,11 +790,62 @@ export class Pings {
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
     ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: owner.id });
+    this.emitV3(ctx, ping, owner.id, label, enemy?.id ?? enemyId);
     // no local chat line: the sender's own callout arrives through the chat relay
   }
 
+  /**
+   * 2026-09-15 (안드로이드 분대원): 안드로이드가 찍은 핑. 사람의 원격 핑과 같은 그림(슬롯 색 마커 · 화면 밖 화살표 ·
+   * 주인별 상한)이지만 주인이 안드로이드 id 라 `evictFor` 도 기마다 따로 센다. 콜아웃은 `ally:chat` 한 줄로 나가고
+   * (ChatLog 가 안드로이드 색으로 그리며 절대 relay 하지 않는다), `ping:placedV3` 의 `owner` 는 그 기의 id 다 —
+   * allies/ 가 자기 핑을 명령으로 잘못 읽지 않게 하는 유일한 표식이다.
+   */
+  placeAlly(id: PeerId, name: string, slot: number, kind: PingKind, position: THREE.Vector3, label?: string, enemyId?: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const k: PingKind = typeof kind === 'string' && kind in PING_LABEL ? kind : 'ground';
+    if (!ctx.isGameplayPhase() && !this.inShip(ctx)) return;
+    const owner: PingOwner = { id, name: name || '안드로이드', slot, color: NET_SLOT_COLORS_CSS[slot] ?? '#ffffff', android: true };
+
+    this.evictFor(id);
+
+    const pos = position.clone();
+    let enemy: EnemyRef | null = null;
+    if (k === 'enemy' && ctx.isGameplayPhase() && ctx.enemies && enemyId !== undefined) {
+      for (const e of ctx.enemies.getEnemies()) if (e.id === enemyId && !e.isDead) { enemy = e; break; }
+      if (enemy) pos.copy(enemy.position);
+    }
+
+    const pid = this.nextId++;
+    const expires = ctx.time + PING_LIFETIME;
+    const text = label && label.length ? label : PING_LABEL[k];
+    // 안드로이드 핑은 확인(ack) 대상이 아니다 — `seq` 가 null 이면 조준 보정 후보에서 빠진다.
+    const ping = this.build(pid, k, pos, expires, enemy, owner, text, null);
+    this.pings.push(ping);
+    ctx.bus.emit('ping:placed', { id: pid, position: ping.position, kind: k, expires });
+    ctx.bus.emit('ping:placedV2', { id: pid, position: ping.position, kind: k, expires, owner: id });
+    this.emitV3(ctx, ping, id, label, enemy?.id ?? enemyId);
+
+    const player = ctx.player;
+    const dist = player ? Math.round(Math.hypot(pos.x - player.position.x, pos.z - player.position.z)) : 0;
+    ctx.bus.emit('ally:chat', { id, name: owner.name, slot, text: this.chatLine(k, text, dist) });
+  }
+
+  /**
+   * 2026-09-15: `ping:placedV3` — 이 클라이언트가 세운 **모든** 핑 (로컬 `owner: null` · 원격 PeerId · 안드로이드 id)에
+   * 대상 정보(`label` · `enemyId`)까지 실어 보낸다. allies/ 가 명령(가자 · 조심 · 아이템 · 상자 …)을 이것 하나로 읽는다.
+   */
+  private emitV3(ctx: GameContext, ping: Ping, owner: PeerId | null, label: string | undefined, enemyId: number | undefined): void {
+    const payload: { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number } = {
+      id: ping.id, position: ping.position, kind: ping.kind, expires: ping.expires, owner,
+    };
+    if (label && label.length) payload.label = label;
+    if (enemyId !== undefined) payload.enemyId = enemyId;
+    ctx.bus.emit('ping:placedV3', payload);
+  }
+
   private build(id: number, kind: PingKind, pos: THREE.Vector3, expires: number, enemy: EnemyRef | null, owner: PingOwner | null, label: string, seq: number | null): Ping {
-    const m = el('div', { cls: `pmarker ${kind}${owner ? ' remote' : ''}`, parent: this.root });
+    const m = el('div', { cls: `pmarker ${kind}${owner ? ' remote' : ''}${owner?.android ? ' android' : ''}`, parent: this.root });
     if (owner) m.style.setProperty('--pc', owner.color);
     el('i', { cls: 'ico', parent: m });
     const lbl = el('span', { cls: 'lbl', text: owner ? `${owner.name} · ${label}` : label, parent: m });

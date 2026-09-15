@@ -1,7 +1,7 @@
 import type { GameContext, SquadInvite } from '@/shared';
 import {
   COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, NPC_DEF_MAP, NPC_QUEST_MAP, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX,
-  formatPlayerCode, keyLabel,
+  formatPlayerCode, isBotPlayer, keyLabel,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { AskPopup } from '../menus/askPopup';
@@ -114,7 +114,8 @@ export class Community {
       const net = ctx.net;
       if (!peerId || !net?.lobby || !net.isHost || peerId === net.localId) { this.closeLeadMenu(); return; }
       const member = net.lobby.players.find((p) => p.id === peerId);
-      if (!member || !member.connected) { this.closeLeadMenu(); return; }
+      // 2026-09-15 (안드로이드 분대원): 봇은 절대 호스트가 되지 않는다 (릴레이 규칙) — 넘기기 메뉴를 열지 않는다.
+      if (!member || !member.connected || isBotPlayer(member)) { this.closeLeadMenu(); return; }
       this.openLeadMenu(peerId, member.name || '분대원', e.clientX + 4, e.clientY + 4);
     });
     /* 메뉴 · 팝업은 패널이 아니라 `#ui-root` 아래에 산다 — 패널의 overflow 에 잘리지 않게. */

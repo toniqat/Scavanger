@@ -13,6 +13,8 @@ import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
 /* 2026-09-15: 분대 · 도킹 매칭 — 공용 함선 판정 · 접속 URL 의 강조색 (`?a=`) */
 import { NET_ACCENT_PARAM, activeSlot, isDockedLobby, readSlotCard, sanitizeAccent } from '@/shared';
+/* 2026-09-15: 안드로이드 분대원 — 봇 멤버를 사람과 가른다 (`src/shared/net.ts` 파일 끝 절) */
+import { humanPlayersOf } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -222,7 +224,12 @@ export class NetSystem implements GameSystem, NetRef {
     this.socialSync.send = (m) => this.client.send(m);
     this.socialSync.serverNow = () => this.serverNow();
     this.socialSync.joinLobby = (code) => this.joinLobby(code);
-    this.socialSync.squadSize = () => this._lobby?.players.length ?? 0;
+    /*
+     * 2026-09-15 (안드로이드 분대원): 소셜 게이트가 쓰는 분대 인원은 **사람만** 센다 — 릴레이의 `presenceOf` ·
+     * `canAdd` 와 같은 규칙이다 (사람이 봇을 이기므로 안드로이드로 찬 분대에도 아는 사람은 들어올 수 있다).
+     * 난이도 · 적 배분처럼 「전투원이 몇인가」를 묻는 곳은 안드로이드를 **센다** — 그쪽은 enemies/ 가 로비를 직접 읽는다.
+     */
+    this.socialSync.squadSize = () => humanPlayersOf(this._lobby).length;
     /* 2026-09-15 (분대 · 도킹 매칭): 분대 초대 게이트 — 이미 내 분대인 아이디, 그리고 「내가 이끌지 않는 분대에 있다」 */
     this.socialSync.squadCodes = () => {
       const me = this.localId;
@@ -440,6 +447,12 @@ export class NetSystem implements GameSystem, NetRef {
   setPublic(isPublic: boolean): void { return Lobby.setPublic(this, isPublic); }
   requestDock(isPublic: boolean): void { return Lobby.requestDock(this, isPublic); }
   get dockPending(): boolean { return this._dockPending; }
+  /**
+   * 2026-09-15 (안드로이드 분대원): 분대장 전용 — 조종실 슬롯 `bay` 의 안드로이드를 분대원으로 들이거나(`recruit`)
+   * 슬롯으로 돌려보낸다. 결과는 새 `lobby:state`(`net:lobbyUpdated`), 거절은 `net:error`. 사람이 합류해 밀려난 기는
+   * `net:androidReturned {bay, reason}` 로 따로 온다.
+   */
+  setAndroidBay(bay: number, recruit: boolean): void { return Lobby.setAndroidBay(this, bay, recruit); }
   setLobbySeed(seed: number): void { return Lobby.setLobbySeed(this, seed); }
 
   /* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═════════════════════════════ */

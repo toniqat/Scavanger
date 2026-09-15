@@ -15,4 +15,9 @@ export type { GearLook } from './GearLook';
 export type { CarryHost, CarryStatus, CarryTarget } from './Carry';
 export { createPortraits } from './Portraits';
 /* appended (2026-09-15): 얼굴 초상 — 터미널 매칭 탭(`PlayerRef.snapshotFace`)과 캐릭터 생성 미리보기가 같은 절차를 쓴다 */
-export { addFaceLights, aimFaceCamera, poseFaceModel, releaseFaceSnapshots, snapshotFace } from './FaceSnapshot';
+export { addFaceLights, aimFaceCamera, poseFaceModel, releaseFaceSnapshots, snapshotAndroidFace, snapshotFace } from './FaceSnapshot';
+/* appended (2026-09-15): 안드로이드 분대원의 몸 — `ctx.allies` 의 `AllyBodyView` 를 `SoldierModel` 로 그린다 */
+export { AllyAvatar, AllyAvatars } from './AllyAvatars';
+export type { DebugAllyBody } from './AllyAvatars';
+export { buildHeldWeapon } from './GearLook';
+export type { WeaponLook } from './GearLook';

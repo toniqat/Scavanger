@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Layers, type ArmorDef, type ItemCategory } from '@/shared';
+import { Layers, type ArmorDef, type ItemCategory, type WeaponClass } from '@/shared';
 import { applySoldierRim } from './SoldierRim';
 
 /**
@@ -111,6 +111,38 @@ export function buildArmorPlate(def: ArmorDef): GearLook {
  * 고르는 열쇠를 이 파일 안에서만 한 칸 넓혔다 — 부르는 쪽이 `def.grenade ? 'grenade' : def.category` 를 넘긴다.
  */
 export type HeldItemLook = ItemCategory | 'grenade';
+
+/** 총 대역 + 총구 자리 (`buildHeldWeapon`). */
+export interface WeaponLook extends GearLook {
+  /** 총구 끝 — 안드로이드의 총구 섬광 · 예광탄이 여기서 출발한다. */
+  readonly muzzle: THREE.Object3D;
+}
+
+/**
+ * 2026-09-15 (안드로이드 분대원): 손에 든 **총의 대역**. 사람의 총은 `weapons/WeaponModel` 이 그리지만 그것은 다른 폴더의
+ * 내부라 여기서 쓸 수 없다 (CLAUDE.md §4.1) — 안드로이드는 무기 등급 · 부착물 없이 실루엣만 맞으면 되므로 등급별 길이만
+ * 다른 상자 몇 개로 만든다. 아이템 축 규약은 손에 든 물건과 같다: **−Z 가 팔을 따라 앞으로** 나간다.
+ */
+export function buildHeldWeapon(cls: WeaponClass): WeaponLook {
+  const look = new Look();
+  look.group.name = `HeldWeapon:${cls}`;
+  const short = cls === 'PISTOL';
+  const long = cls === 'SR' || cls === 'DMR';
+  const bodyLen = short ? 0.16 : long ? 0.44 : 0.32;
+  const barrel = short ? 0.1 : long ? 0.4 : 0.24;
+  const mBody = look.mat(0x2a2f38, 0.45, 0.5);
+  const mSteel = look.mat(0x7c8796, 0.6, 0.4);
+  look.box(0.06, 0.09, bodyLen, mBody, 0, 0, -bodyLen / 2 - 0.02);                       // 기관부
+  look.box(0.034, 0.034, barrel, mSteel, 0, 0.015, -bodyLen - barrel / 2 - 0.02);        // 총열
+  look.box(0.042, 0.09, 0.05, mBody, 0, -0.07, -0.05);                                   // 손잡이
+  if (!short) look.box(0.05, 0.07, 0.14, mBody, 0, -0.005, 0.06);                        // 개머리판
+  if (cls === 'SG') look.box(0.03, 0.03, bodyLen * 0.8, mSteel, 0, -0.045, -bodyLen / 2); // 튜브 탄창
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'muzzle';
+  muzzle.position.set(0, 0.015, -(bodyLen + barrel + 0.02));
+  look.group.add(muzzle);
+  return { group: look.group, materials: look.materials, muzzle, dispose: () => look.dispose() };
+}
 
 export function buildHeldItem(category: HeldItemLook | null | undefined): GearLook {
   const look = new Look();

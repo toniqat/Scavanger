@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { EnemyRef, GameContext } from '@/shared';
 import { COMPASS_ENEMY_COLOR, DETECT_ENEMY_BASE_RADIUS, TUTORIAL_COMPASS_FADE_S } from '@/shared';
+/* 2026-09-15 (안드로이드 분대원): 안드로이드 눈금 — 적 눈금과 같은 방식, 슬롯 색 */
+import { ANDROID_BAY_COUNT, NET_SLOT_COLORS_CSS } from '@/shared';
+import { allyBodies } from './allySource';
 import { el, setText, toggleClass } from '../dom';
 import type { ScanTracker } from './ScanTracker';
 
@@ -63,6 +66,9 @@ export class Compass {
   private tmp = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
   private ticks: EnemyTick[] = [];
+  /** 2026-09-15: 안드로이드 분대원 눈금 (bay 수만큼 미리 만든다). */
+  private allyTicks: EnemyTick[] = [];
+  private shownAllyTicks = 0;
   private tickLayer: HTMLElement;
   private near: EnemyRef[] = [];
   private nearIds = new Set<number>();
@@ -81,6 +87,13 @@ export class Compass {
       t.style.background = COMPASS_ENEMY_COLOR;
       t.hidden = true;
       this.ticks.push({ el: t, lastKey: '' });
+    }
+    /* 2026-09-15 (안드로이드 분대원): 같은 층의 눈금이지만 **모양이 다르다** (`.atick` — 슬롯 색의 작은 마름모).
+     * 적 눈금과 한눈에 구별되어야 하고, 안개 · 감지 반경 게이트는 걸지 않는다 (내 분대원이다). */
+    for (let i = 0; i < ANDROID_BAY_COUNT; i++) {
+      const t = el('div', { cls: 'atick', parent: this.tickLayer });
+      t.hidden = true;
+      this.allyTicks.push({ el: t, lastKey: '' });
     }
     // Build 3 copies (−360°, 0°, +360°) so the strip wraps seamlessly.
     for (let rep = -1; rep <= 1; rep++) {
@@ -174,6 +187,9 @@ export class Compass {
     this.nextPoll = 0;
     this.hideTicksFrom(0);
     this.shownTicks = 0;
+    // 2026-09-15: 안드로이드 눈금도 같이 걷는다 (함선 입장 · 레이드 중단)
+    for (const t of this.allyTicks) if (!t.el.hidden) { t.el.hidden = true; t.lastKey = ''; }
+    this.shownAllyTicks = 0;
   }
 
   private hideTicksFrom(index: number): void {
@@ -315,8 +331,50 @@ export class Compass {
       if (d !== m.lastDist) { m.lastDist = d; setText(m.dist, `${d}m`); }
     }
     this.updateEnemies(ctx, player.position, heading, STRIP_WIDTH / 2 - 6);
+    this.updateAllies(ctx, player.position, heading, STRIP_WIDTH / 2 - 6);
     void yaw;
   }
+
+  /**
+   * 2026-09-15 (안드로이드 분대원): 레이드에서 보이는 안드로이드의 방위 눈금. 거리로 흐려지지 않고(내 분대원이다)
+   * 안개 게이트도 없다 — 죽었거나 숨은 기(강하 포드 · 이륙선)만 빠진다. 색은 그 기의 로비 슬롯 색이다.
+   */
+  private updateAllies(ctx: GameContext, from: THREE.Vector3, heading: number, half: number): void {
+    const bodies = ctx.isGameplayPhase() ? allyBodies(ctx) : null;
+    if (!bodies || bodies.length === 0) {
+      if (this.shownAllyTicks) { for (const t of this.allyTicks) if (!t.el.hidden) { t.el.hidden = true; t.lastKey = ''; } this.shownAllyTicks = 0; }
+      return;
+    }
+    let used = 0;
+    for (const b of bodies) {
+      if (used >= this.allyTicks.length) break;
+      if (b.hidden || b.dead || b.mode !== 'raid') continue;
+      this.tmp.subVectors(b.position, from);
+      const bearing = Math.atan2(this.tmp.x, -this.tmp.z);
+      let rel = bearing - heading;
+      rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+      const x = rel * PX_PER_RAD;
+      if (Math.abs(x) > half) continue;  // 뒤쪽 · 시야 밖
+      const t = this.allyTicks[used++];
+      const col = NET_SLOT_COLORS_CSS[b.slot] ?? '#fff';
+      const key = `${x.toFixed(0)}|${col}|${b.downed ? 1 : 0}`;
+      if (t.el.hidden) t.el.hidden = false;
+      if (key !== t.lastKey) {
+        t.lastKey = key;
+        t.el.style.transform = `translateX(calc(-50% + ${x.toFixed(1)}px)) rotate(45deg)`;
+        t.el.style.background = col;
+        toggleClass(t.el, 'downed', b.downed);
+      }
+    }
+    for (let i = used; i < this.allyTicks.length; i++) {
+      const t = this.allyTicks[i];
+      if (!t.el.hidden) { t.el.hidden = true; t.lastKey = ''; }
+    }
+    this.shownAllyTicks = used;
+  }
+
+  /** 2026-09-15 (debug / smoke): 지금 보이는 안드로이드 눈금 수. */
+  get allyTickCount(): number { return this.shownAllyTicks; }
 
   /** Heading in radians where 0 = north (−Z), increasing clockwise (toward +X). */
   private headingFromYaw(ctx: GameContext): number {

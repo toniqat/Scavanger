@@ -37,7 +37,12 @@ interface PadEntry {
   def: ExtractionPointDef;
   console: ExtractionConsole;
   interactableId: string;
+  /** 2026-09-15 (안드로이드): 콘솔 앞 **발** 자리 — 안드로이드가 걸어가 누르는 곳 (`ExtractionRef.getPads`). */
+  stand: THREE.Vector3;
 }
+
+/** 2026-09-15: 콘솔 중심에서 패드 쪽으로 물러선 거리(m) — 콘솔 몸통 안에 서지 않을 만큼만. */
+const PAD_STAND_BACK = 1.4;
 
 /**
  * Extraction flow: pad consoles → countdown + flare → ship flight-in / landing → boarding → **departure grace** → liftoff.
@@ -183,7 +188,48 @@ export class ExtractionSystem implements GameSystem {
       skipToLiftoff: () => sys.skipToLiftoff(),
       holdFire: () => sys.holdFire(),
       skipToComplete: () => sys.skipToComplete(),
+      /* 2026-09-15 (안드로이드 분대원) — 아래 세 질의의 전문은 `shared/extraction.ts` 의 2026-09-15 절. */
+      getPads: () => sys.getPads(),
+      requestActivate: (padId) => sys.requestActivate(padId),
+      boardingPoint: (out) => sys.boardingPoint(out),
     };
+  }
+
+  /* ── 2026-09-15: 안드로이드 분대원 (탈출 패드 · 콘솔 누르기 · 탑승 지점) ───────────────────────────────
+   * 안드로이드는 사람과 **같은 흐름**을 탄다 — 새 탈출 경로를 만들지 않는다. 다른 점은 입력이 상호작용이 아니라
+   * 질의라는 것뿐이고, 판정(`playing` 이고 아직 아무 패드도 안 눌렸을 때만)은 `onRequest('activate')` 와 같다. */
+
+  /** 재사용 배열 — `getPads` 는 매 프레임 불릴 수 있다 (탈출구 탐색). */
+  private readonly padViews: Array<{ id: string; position: THREE.Vector3 }> = [];
+
+  private getPads(): readonly { readonly id: string; readonly position: THREE.Vector3 }[] {
+    this.padViews.length = 0;
+    for (const p of this.pads) this.padViews.push({ id: p.def.id, position: p.stand });
+    return this.padViews;
+  }
+
+  /** 권위: 안드로이드가 패드 `padId` 의 콘솔을 눌렀다 — 사람이 누른 것과 같은 `activate`. */
+  private requestActivate(padId: string): boolean {
+    const ctx = this.ctx;
+    if (!ctx || (ctx.isMultiplayer && !ctx.isAuthority)) return false;
+    if (ctx.phase !== 'playing' || this.activePad) return false;
+    const pad = this.pads.find((p) => p.def.id === padId);
+    if (!pad) return false;
+    this.activate(pad);
+    return true;
+  }
+
+  /**
+   * 착륙해 있는 함선 화물칸 안의 탑승 지점 (화물칸 가운데, 발은 갑판 위). 함선이 착륙해 있지 않으면 null —
+   * 이륙 중(`liftoff`)에는 이미 늦었으므로 자리를 알려 주지 않는다.
+   */
+  private boardingPoint(out: THREE.Vector3): THREE.Vector3 | null {
+    const ship = this.ship;
+    if (!ship || !this.landed || this.lifting) return null;
+    const lz = (BAY_Z_MIN + BAY_Z_MAX) / 2;
+    ship.bayToWorld(0, lz, 0, out);
+    out.y = ship.floorYAt(out.x, out.z);
+    return out;
   }
 
   /* ── 2026-09-15 (사용자 결정 — 튜토리얼 건너뛰기 = 암전 → 보상 창 → 함선) ──────────────────────────────
@@ -655,7 +701,7 @@ export class ExtractionSystem implements GameSystem {
           else this.activate(entry);
         },
       };
-      const entry: PadEntry = { def, console, interactableId: id };
+      const entry: PadEntry = { def, console, interactableId: id, stand: pos.clone().addScaledVector(dir, -PAD_STAND_BACK) };
       this.ctx.interactables.register(interactable);
       this.pads.push(entry);
     }

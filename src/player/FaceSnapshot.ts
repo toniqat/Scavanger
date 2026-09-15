@@ -83,11 +83,12 @@ class FaceSnapshotter {
   private readonly cache = new Map<string, string>();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  snapshot(opts: { accent: string; size?: number }): string | null {
+  snapshot(opts: { accent: string; size?: number }, android = false): string | null {
     const accent = sanitizeAccent(opts?.accent) ?? `#${SOLDIER_DEFAULT_ACCENT.toString(16).padStart(6, '0')}`;
     const rawSize = Math.round(Number(opts?.size ?? FACE_SNAPSHOT_SIZE));
     const size = Math.max(FACE_SNAPSHOT_SIZE_MIN, Math.min(FACE_SNAPSHOT_SIZE_MAX, Number.isFinite(rawSize) ? rawSize : FACE_SNAPSHOT_SIZE));
-    const key = `${accent}|${size}`;
+    // 2026-09-15: 안드로이드는 같은 색이라도 다른 그림이다 — 캐시 열쇠를 나눈다
+    const key = `${android ? 'android|' : ''}${accent}|${size}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
     if (!this.ensure()) return null;
@@ -98,6 +99,7 @@ class FaceSnapshotter {
     try {
       renderer.setSize(size, size, false);
       model = new SoldierModel(Number.parseInt(accent.slice(1), 16));
+      if (android) model.setAndroidLook(true);
       model.setSilhouette(false);            // 가려질 월드가 없다
       model.resetPose();
       model.setVisible(true);
@@ -182,6 +184,14 @@ const snapper = new FaceSnapshotter();
  */
 export function snapshotFace(opts: { accent: string; size?: number }): string | null {
   return snapper.snapshot(opts);
+}
+
+/**
+ * `PlayerRef.snapshotAndroidFace` 의 구현 (2026-09-15, 안드로이드 분대원): `snapshotFace` 와 **같은 프레이밍 · 자세 ·
+ * 조명**에 `SoldierModel.setAndroidLook(true)` 만 켠 얼굴 한 장. 색 · 크기별 캐시는 사람 얼굴과 따로 잡는다.
+ */
+export function snapshotAndroidFace(opts: { accent: string; size?: number }): string | null {
+  return snapper.snapshot(opts, true);
 }
 
 /** 오프스크린 렌더러를 지금 놓는다 (캐시는 남는다). 보통은 유휴 타이머가 알아서 부른다. */

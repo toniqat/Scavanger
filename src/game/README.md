@@ -19,6 +19,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | `parts/CorpseNet.ts` | Player corpse creation and sync (`pcorpse` / `pcorpseq`), `spawnLocalCorpse`, `crate:looted` → `emptied`. |
 | `parts/Leader.ts` | Squad-leader device (`leader_device` interactable, `lead` / `leadq` wire), its scene-resident point light, the single host-changed toast. |
 | `parts/RaidReport.ts` | Result-screen data (`GameFlowSystem.report`): peak carried value, damage tallies per source, killing blow → `stats.peakLootValue` / `stats.death`. |
+| `parts/LoadGate.ts` | Raid-entry loading gate (`GameFlowSystem.loadGate`): render hold from `game:newMission` to squad-wide readiness, `load` wire, `raid:loadProgress` / `raid:loadReleased`, fade-in. Debug hooks `debugAddMember` / `debugClearMembers` / `debugSetTimeout`. |
 | `Corpses.ts` | `PlayerCorpseManager` (= `ctx.corpses`, implements `CorpsesRef`) and `PlayerCorpseObject` (interactable container + frozen `SoldierModel` mesh, tram riding). |
 | `SoloRaid.ts` | Pure localStorage store for solo sessions: `SoloRaidSave` / `SoloRaidPose`, `load/save/clearSoloRaid`, `soloRaidStatus`, `soloRaidBootStatus`, clock record `readClockHigh` / `bumpClockHigh`. No context, no listeners. |
 | `ResumeGate.ts` | Browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), desktop-shell cursor hiding (`syncDesktopCursor`), shell Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). |
@@ -27,23 +28,24 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 
 ## Public API
 
-- **ctx**: `ctx.phase` (via `setPhase`), `ctx.corpses: CorpsesRef` (`src/shared/types.ts`). Also writes `ctx.stats`,
+- **ctx**: `ctx.phase` (via `setPhase`), `ctx.corpses: CorpsesRef` (`src/shared/types.ts`, incl. `spawnAllyCorpse`). Also writes `ctx.stats`,
   `ctx.missionTime` (reset only — `Engine.frame()` advances it), `ctx.missionMode`, `ctx.missionPlanet`,
   `ctx.missionIntel` (cleared for training), `ctx.rejoinPending`.
 - **Emits**: `game:phaseChanged`, `game:paused {paused, freeze:false}`, `game:complete {stats}`,
   `game:raidFailed {stats}`, `game:over {stats}`, `game:abort`, `game:newMission` (solo resume), `hub:enter`,
   `player:respawn` (training / tutorial), `input:pointerLockLost` (focus loss), `corpse:playerSpawned`,
-  `corpse:playerEmptied`, `leader:deviceDropped`, `leader:deviceTaken`, `ui:resumeGate {shown}`, `ui:notify`.
+  `corpse:playerEmptied`, `leader:deviceDropped`, `leader:deviceTaken`, `ui:resumeGate {shown}`, `ui:notify`,
+  `raid:loadProgress` / `raid:loadReleased`, `ui:screenFade` (loading gate only).
 - **Consumes**: `game:newMission`, `world:ready`, `world:cleared`, `player:landed`, `player:died`, `player:downed`,
   `player:revived`, `player:spawned`, `extraction:activated` / `shipLanded` / `boarded` / `liftoff {aboard, squadDone}` /
   `reset`, `rescue:landed`, `crate:looted`, `game:returnToShip`, `game:abort`, `game:paused`, `training:exitRequested`,
   `inventory:itemAdded`, `inventory:loadoutSaved`, `hub:entered`, `tutorial:changed`, `tutorial:checkpoint`,
   `input:pointerLockLost`, `net:remoteDied` / `peerLeft` / `peerSuspended` / `lobbyLeft` / `reconnecting` / `resumed` /
-  `raidLoaded` / `gameStarting` / `ghostRestore` / `hostChanged`. `RaidReport` also listens to `player:damaged`,
-  `inventory:changed`, `inventory:quickSlotsChanged`, `inventory:pouchChanged`, `loadout:changed`.
+  `raidLoaded` / `gameStarting` / `ghostRestore` / `hostChanged`, `raid:loadBegin`. `RaidReport` also listens to
+  `player:damaged`, `inventory:changed`, `inventory:quickSlotsChanged`, `inventory:pouchChanged`, `loadout:changed`.
 - **Wire** (`src/shared/net.ts`): `flow` (`over` · `complete` · `abort` from the host; `rejoined` from a rejoiner),
-  `pcorpse` (`spawn` · `sync` · `emptied`) / `pcorpseq sync`, `lead` (`drop` · `taken`) / `leadq sync`.
-  Clients drop `flow` not sent by `lobby.hostId`.
+  `pcorpse` (`spawn` · `sync` · `emptied`) / `pcorpseq sync`, `lead` (`drop` · `taken`) / `leadq sync`,
+  `load` (`p` from everyone, `go` from the host). Clients drop `flow` / `load go` not sent by `lobby.hostId`.
 - **Calls out**: `InventoryRef.stripForCorpse` / `captureRaidState` / `applyRaidState`, `PlayerRef.die` /
   `restoreState` / `teleport` / `playIntroWake`, `ProgressionRef.addXp` / `armPreps` / `clearActivePreps` /
   `stripImplantsForCorpse`, `MetaRef.settleMission`, `NetRef.saveRaid` / `leaveMission` / `transferHost` /
@@ -57,6 +59,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | Trigger | Action |
 |---|---|
 | `game:newMission {seed, mode?, planet?}` | Reset timers and stats (`freshStats`), confirm `missionMode` / `missionPlanet`, `armPreps()` (not training), training inventory snapshot, then `onWorldReady` once `world:ready` has fired (also checked synchronously — `WorldSystem` generates inside the same emit). |
+| `game:newMission` (raid, not a rejoin) | `parts/LoadGate` takes a render hold (see **Raid-entry loading**): the phase flow below still runs, but with sim dt 0 behind a black screen. |
 | `world:ready` | Phase `deploying` (or `playing` for training / tutorial). Rejoin: apply blob with matching seed, then host `ghost restore` (timeout `NET_GHOST_RESTORE_TIMEOUT_S` → hellpod fallback) or the solo pose + tutorial checkpoint directly. |
 | `player:landed` | `deploying` → `playing`; solo raid saves the real pose. |
 | `extraction:activated` / `shipLanded` | `playing` → `extracting` → `shipLanded`. |
@@ -68,6 +71,29 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | `game:abort` | `onAbort`: host in a live, non-training mission sends `flow abort` (not on voluntary return); clears timers, solo save, active preps; closes inventory; phase `menu`; docked-lobby mission (`isDockedLobby`) → `hub:enter shared` one microtask later. |
 | `net:resumed {seamless:false}` / `net:lobbyLeft` | Abort and regroup (`shared`), or toast + abort after `DISCONNECT_ABORT_DELAY` → personal ship. `net:reconnecting` never aborts. |
 
+## Raid-entry loading (`parts/LoadGate`)
+
+The gate is a **render hold** (`ctx.shaders.holdFor`): sim dt is 0 and nothing is drawn, so the mission clock, enemy
+spawning, the hellpod drop and the phase flow all wait without any per-system gate. Every timer inside the gate
+therefore uses `ctx.time`, never `dt`.
+
+1. `hub/` ends the launch countdown with `ui:screenFade {1, RAID_LOAD_FADE_OUT_S, hold:true}` + `raid:loadBegin`, and the
+   authority launches `RAID_LOAD_FADE_OUT_S` later. Without that `raid:loadBegin` the gate blacks the screen itself
+   (`{1, 0, hold:true}`), so a cheat / legacy launch never starts bright.
+2. `begin()` on `game:newMission` for `missionMode === 'raid'` only, and never for a rejoin (`ctx.rejoinPending` /
+   `rejoining`). Hold cap = `RAID_LOAD_TIMEOUT_S + RAID_LOAD_HOLD_MARGIN_S`.
+3. Local progress = `RAID_LOAD_WORLD_SHARE` (world generated) + the rest × `ctx.shaders.compileProgress`; local **done**
+   = the scene warm-up resolved (the gate's `holdForScene()` coalesces with the one `core/Engine` already queued) and
+   `RAID_LOAD_MIN_BLACK_S` of black has passed.
+4. Multiplayer: `load {ev:'p', seed, v}` to `others` every `RAID_LOAD_REPORT_S` and once at 1. The host counts the
+   lobby's **humans** only (`humanPlayersOf`, connected, `inMission !== false`) and sends `load {ev:'go', seed, to?}`
+   when everyone reported 1 or at `RAID_LOAD_TIMEOUT_S`. A client releases on `go` **and** its own done (a late one the
+   moment it finishes); `go` is accepted only from `lobby.hostId`, and a client whose `go` never arrives releases itself
+   at timeout + `RAID_LOAD_HOLD_MARGIN_S`. A promoted host continues the same timeout (host is read per frame).
+5. `raid:loadProgress {local, squad, waiting, remainingS}` a few times per second (`ui/` draws the radial gauge).
+   Release: resolve the hold → `ui:screenFade {0, RAID_LOAD_FADE_IN_S}` → `raid:loadReleased {timedOut}`.
+   `game:abort` or a new `game:newMission` during the gate releases it quietly (no fade, no event).
+
 ## Death, rescue, wipe
 
 - **Solo raid**: implants stripped with no broken pair, periodic save off, `clearSoloRaid()` immediately, `gameOver()`
@@ -76,9 +102,14 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
   squad-leader device if host, toast with remaining rescues. The only way back is a squadmate's rescue drop
   (`rescue:landed` → `onRescueLanded`; `player/` rebuilds the body).
 - **All-dead check** (host only, never training): local player out (`isDead && !isDowned`) and no remote alive per
-  `isRemoteAlive` (ignores `!connected`, `!inMission`, `IN_HUB`; suspended ghosts count by `ghostState !== 2`; downed
-  counts alive). Runs on death / downed / peer events, every `ALL_DEAD_CHECK_INTERVAL` while out, and on becoming host.
-  True → `flow over` + `gameOver()`.
+  `isRemoteAlive` (ignores androids by `isAndroidId`, `!connected`, `!inMission`, `IN_HUB`; suspended ghosts count by
+  `ghostState !== 2`; downed counts alive). Runs on death / downed / peer events, every `ALL_DEAD_CHECK_INTERVAL` while
+  out, and on becoming host. True → `flow over` + `gameOver()`.
+- **Androids** (2026-09-15): bot members are never humans — a leader who dies with only androids left is still a squad
+  wipe. A dead android leaves its own corpse through `CorpsesRef.spawnAllyCorpse` (authority only): container
+  `pcorpse:<allyId>:<n>` with the items `allies/` hands over (raid-found only — the base kit is bound), broadcast as a
+  normal `pcorpse spawn`. The body's android look and the `잔해` prompt are decided by the owner id, so receivers build
+  the same thing with no extra wire field.
 - **Training**: death → immediate `player:respawn` at the arena spawn; no XP, settlement, threat or result screens.
   `training:exitRequested` → abort, restore inventory snapshot, `leaveMission`, back to the ship.
 - **Tutorial** (`missionMode === 'tutorial'`): corpse still spawns, implants untouched, no forced save, save kept,
@@ -148,6 +179,9 @@ slots, pouch + equipped loadout and attachments) during the raid; `stats.death` 
 - `net:hostChanged` toast is shown only by `parts/Leader.ts` (`onHostChangedToast`).
 - Corpse height uses `getSurfaceY` (tram decks, upper floors), and corpses stay until the raid ends (no lifetime or
   culling). — `parts/CorpseNet.ts`, `Corpses.ts`
+- The loading gate must never read `dt`: the hold it takes makes sim dt 0, so its own timers would stop. Use `ctx.time`.
+  For the same reason `LoadGate.bind()` subscribes before `onNewMission` — the hold has to exist before the phase moves.
+  — `parts/LoadGate.ts`
 - `parts/` import only types from `GameFlowSystem.ts`; values go to `model.ts`.
 - `PLAYER_RESPAWN_DELAY`, `game:respawn`, `game:respawnAvailable`, `tickRespawn`, `onRespawnRequest` are kept contract
   stubs; nothing emits or handles automatic respawn.
@@ -163,9 +197,9 @@ slots, pouch + equipped loadout and attachments) during the raid; `stats.death` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-15 — `parts/LoadGate.ts`: raid-entry loading gate (`load` wire, `raid:load*`); androids excluded from the wipe check; `CorpsesRef.spawnAllyCorpse`.
 - 2026-09-15 — Squads vs shared ship: training exit and `onAbort` regroup in the shared ship only for a **docked** lobby (`isDockedLobby`).
 - 2026-09-15 — Tutorial resume: tutorial saves ignore grace / clock defence; forced save per step and per checkpoint.
 - 2026-09-15 — Tutorial respawn plays a wake animation; tutorial skip-extraction completes immediately.
 - 2026-09-15 — Tutorial payout: `TUTORIAL_RAID_XP` on extraction, otherwise 0; no contract settlement.
 - 2026-09-15 — `parts/RaidReport.ts`: peak carried value and cause of death for result screens.
-- 2026-09-15 — `ResumeGate` keycap drawn by `shared/keycap.paintKeycap`.

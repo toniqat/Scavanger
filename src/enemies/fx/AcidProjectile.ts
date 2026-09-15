@@ -128,6 +128,18 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
+      // 2026-09-15 (안드로이드 분대원): 사람과 **같은 캡슐** — 산성이 안드로이드를 그냥 지나가지 않는다 (권위에서만 피해).
+      const allies = host.targets.allies;
+      for (let i = 0; i < allies.length && !splashed; i++) {
+        const t = allies[i];
+        if (t.isDeadOrDowned) continue;
+        _p.copy(t.position);
+        _p.y = THREE.MathUtils.clamp(g.mesh.position.y, _p.y + PLAYER_RADIUS, _p.y + PLAYER_HEIGHT - PLAYER_RADIUS);
+        if (_p.distanceToSquared(g.mesh.position) <= (PLAYER_RADIUS + GLOB_RADIUS) ** 2) {
+          host.damageTargetAcid(t, SPEWER_SPIT.damage, g.prev, g.shooterId, { duration: SPEWER_SPIT.slowDuration, factor: 0.55 });
+          splashed = true;
+        }
+      }
       // 2026-09-11 (C-48 · X-5): 다른 팩션 적(= 로그)의 몸통 캡슐도 막는다 — 예전엔 벌레 산성이 로그를 그냥 지나갔다.
       // 피해는 권한에서만(`damageTargetAcid` → `applyDamage` 의 적 가지, 킬 크레딧 없음). 리플리카는 그림만 멈춘다.
       if (!splashed) {
@@ -188,6 +200,14 @@ export class AcidProjectiles {
     const players = host.targets.alive;
     for (let i = 0; i < players.length; i++) {
       const t = players[i];
+      const d = t.position.distanceTo(p);
+      if (d < 2.4 && d > 0.6) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
+    }
+    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발 거리 2.4 m, 직격 거리 밖).
+    const allies = host.targets.allies;
+    for (let i = 0; i < allies.length; i++) {
+      const t = allies[i];
+      if (t.isDeadOrDowned) continue;
       const d = t.position.distanceTo(p);
       if (d < 2.4 && d > 0.6) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }

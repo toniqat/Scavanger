@@ -27,6 +27,17 @@ const maxClients = Number(arg('max') ?? process.env.SCAV_MAX_CLIENTS ?? 0) || nu
    Only the relay scripts/verify.mjs starts itself sets it; `npm run dev:all` · start-server.bat · `npm run server` leave it off. */
 const devEconomy = devEconomyFromEnv();
 
+/*
+ * 2026-09-15: **콘솔이 끊겨도 릴레이는 계속 돈다.** `npm run verify … --keep-relay` 가 남긴 릴레이는 러너가 끝나는
+ * 순간 표준 출력 파이프의 *읽는 쪽*을 잃는다. 그 뒤 로그 한 줄이 EPIPE 를 던지고, 처리되지 않은 스트림 오류는
+ * uncaughtException 으로 올라오며, 파일 끝의 핸들러가 그것을 다시 `console.error` 로 찍으려다 같은 EPIPE 를
+ * 던진다 — 이벤트 루프가 그 고리에 갇혀 한 코어를 100 % 먹고, 버려진 쓰기가 쌓이면서 응답이 점점 늦어진다
+ * (한 시간쯤 지나면 ping 왕복이 1 초 — 중계가 늦는 만큼 두 클라이언트 스모크가 통째로 무너진다).
+ * 리스너를 달아 두면 스트림 오류가 uncaughtException 이 되지 않는다 — 로그만 잃고 중계는 멀쩡히 이어진다.
+ */
+process.stdout.on('error', () => { /* 콘솔이 사라졌다 — 이 줄은 버리고 계속 서비스한다 */ });
+process.stderr.on('error', () => { /* 같다 */ });
+
 let server: RelayServer;
 try {
   server = await startRelayServer({
@@ -64,5 +75,16 @@ const shutdown = (signal: string): void => {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGHUP', () => shutdown('SIGHUP'));
-process.on('uncaughtException', (e) => { console.error('[relay] uncaughtException', e); });
-process.on('unhandledRejection', (e) => { console.error('[relay] unhandledRejection', e); });
+/**
+ * 잡지 못한 오류를 한 줄 적고 **계속 돈다** (릴레이가 통째로 죽는 것보다 낫다).
+ * 보고하다가 또 터지면 그대로 끝낸다 — 위 주석의 고리(EPIPE → uncaughtException → EPIPE)를 두 겹으로 막는다.
+ */
+let reporting = false;
+const report = (label: string, e: unknown): void => {
+  if (reporting) return;
+  reporting = true;
+  try { console.error(`[relay] ${label}`, e); } catch { /* 적을 곳이 없다 */ }
+  reporting = false;
+};
+process.on('uncaughtException', (e) => report('uncaughtException', e));
+process.on('unhandledRejection', (e) => report('unhandledRejection', e));

@@ -50,7 +50,8 @@ export function androidNameOf(bay: number): string {
  * 나가지 않는다 (`raidFound` 가 없는 것 = 킷). 갈아낀 뒤 벗은 킷 장비는 그 자리에서 사라진다.
  */
 export const ANDROID_KIT: Readonly<{ primary: string; armor: string; bag: string }> = {
-  primary: 'ar',
+  /** 아이템 def id 다 — 무기는 계열 id(`ar`)가 아니라 그 계열의 아이템(`wpn_ar`, `items/itemIdForWeapon`). */
+  primary: 'wpn_ar',
   armor: 'armor_2',
   bag: 'bag_common',
 };

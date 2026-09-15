@@ -2096,4 +2096,8 @@ export const RAID_LOAD_TIMEOUT_S = K.num('RAID_LOAD_TIMEOUT_S');
 export const RAID_LOAD_REPORT_S = K.num('RAID_LOAD_REPORT_S');
 export const RAID_LOAD_WORLD_SHARE = K.num('RAID_LOAD_WORLD_SHARE');
 export const RAID_LOAD_MIN_BLACK_S = K.num('RAID_LOAD_MIN_BLACK_S');
+/** 대기 상한 위의 여유 (s) — 엔진 hold 상한 · 호스트의 `go` 가 오지 않은 클라이언트의 자가 해제 시점. */
+export const RAID_LOAD_HOLD_MARGIN_S = K.num('RAID_LOAD_HOLD_MARGIN_S');
+/** 암전이 끝난 뒤 권위의 발사를 기다리는 여유 (s, owner: hub) — 넘기면 암전을 풀고 함선으로 돌아온다. */
+export const RAID_LOAD_START_GRACE_S = K.num('RAID_LOAD_START_GRACE_S');
 /* ── end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ── */

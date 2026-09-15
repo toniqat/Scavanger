@@ -73,6 +73,41 @@ export interface SquadDockState {
   left: number;
 }
 
+/**
+ * 레이드 진입 로딩 (2026-09-15, `parts/Pods.beginRaidLoad`): the launch countdown reached 0, every client faded to
+ * black (`ui:screenFade {1, hold}` + `raid:loadBegin`) and the **authority** launches `RAID_LOAD_FADE_OUT_S` later.
+ *
+ * Once this exists the launch is **committed** — un-readying, E and the ready hold no longer cancel it (the squad is
+ * already looking at a black screen). `authority` = solo or lobby host. A member whose host never launched by
+ * `RAID_LOAD_FADE_OUT_S + RAID_LOAD_START_GRACE_S` fades back in and stays in the ship.
+ *
+ * ⚠ `dueMs` is **wall clock** (`performance.now()`), not the hub's dt: `game/parts/LoadGate` holds the engine from
+ * `raid:loadBegin` onward and every system then gets dt 0, so a dt-driven countdown here would never reach the launch.
+ */
+export interface RaidLaunchState {
+  /** `performance.now()` the next step is due at (end of the fade, then the grace). */
+  dueMs: number;
+  authority: boolean;
+  /** true once the authority's `launch()` ran — from here on we only wait for `game:newMission`. */
+  launched: boolean;
+  /**
+   * Wall-clock backup for the same step. The frame tick is the normal driver, but `LoadGate` may hold the engine from
+   * `raid:loadBegin`, and a hold that also skips `update` would strand the launch — so the timer fires it regardless.
+   * Idempotent with the frame tick (`dueMs` / `launched` decide, not who called).
+   */
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * 안드로이드 슬롯 (2026-09-15, `parts/Androids`): a `lobby:android` request sent to the relay, waiting for the answer.
+ * Cleared by the next `net:lobbyUpdated` / `net:androidReturned` / `net:error` / `net:lobbyLeft` / `net:statusChanged`
+ * — the relay always answers with one of them, so no timer is needed (and no number in code).
+ */
+export interface AndroidPending {
+  bay: number;
+  recruit: boolean;
+}
+
 export const _camPos = new THREE.Vector3();
 export const _camLook = new THREE.Vector3();
 export const _front = new THREE.Vector3();

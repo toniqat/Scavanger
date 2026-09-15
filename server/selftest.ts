@@ -48,6 +48,10 @@ import {
 import { ROOM_FILE, RoomStore } from './Rooms.ts';
 /* 2026-09-15 — part 8d: 분대 · 도킹 매칭 */
 import { NET_ACCENT_PARAM } from '../src/shared/net.ts';
+/* 2026-09-15 — part 15: 안드로이드 분대원 (봇 멤버) */
+import { ANDROID_BAY_COUNT, NET_MAX_PLAYERS, androidIdOf, androidPlayersOf, humanPlayersOf } from '../src/shared/net.ts';
+import { androidNameOf } from '../src/shared/allies.ts';
+import type { RelayServer } from './RelayServer.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -2571,6 +2575,9 @@ async function main(): Promise<void> {
 
     /* ══════════════════════ part 14 (2026-09-14): 단체 메신저방 — 저장소 규칙 · 릴레이 흐름 · 재시작 · GC ══════════════════════ */
     await part14Rooms();
+
+    /* ══════════════════════ part 15 (2026-09-15): 안드로이드 분대원 — 봇 멤버 ══════════════════════ */
+    await part15AndroidBots(url, server);
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {
@@ -3630,6 +3637,155 @@ async function part13CryptoMarket(): Promise<void> {
   } finally {
     await srv.close();
   }
+}
+
+/**
+ * part 15 (2026-09-15): **안드로이드 분대원** — 릴레이의 봇 멤버 (`LobbyPlayer.bot`).
+ * 들이기 / 돌려보내기(`lobby:android`)와 거절 코드 전부, 「사람이 봇을 이긴다」(합류 · 초대 수락 시 가장 늦게 들어온
+ * 기가 슬롯으로 돌아간다), 봇이 빠지는 자리들(분대장 · relay · 빠른 매칭 · presence · 재접속 유예)과 봇이 채우는
+ * 자리들(`allReady` · `reset` 뒤에도 준비 완료), 그리고 사람이 전부 나가면 로비가 봇과 함께 사라진다는 것.
+ * 자기 함수로 둔 이유는 part 11 과 같다 — 다른 사람이 덧붙이는 part 와 부딪히지 않는다.
+ */
+async function part15AndroidBots(url: string, server: RelayServer): Promise<void> {
+  const { c: a, welcome: wa } = await connect('A15', url, { token: makeToken('a'), name: '분대장A' });
+  const { c: b, welcome: wb } = await connect('B15', url, { token: makeToken('b'), name: '대원B' });
+  const codeA = wa.social?.me.code ?? '';
+  const codeB = wb.social?.me.code ?? '';
+  assert(isValidPlayerCode(codeA) && isValidPlayerCode(codeB), 'part 15 precondition: both sockets have a profile 아이디');
+
+  /* ① 로비 밖 → not_in_lobby */
+  a.send({ t: 'lobby:android', bay: 0, recruit: true });
+  assert((await a.wait('lobby:error')).code === 'not_in_lobby', 'lobby:android outside a lobby → not_in_lobby');
+
+  /* ② 미도킹 분대(초대가 만든 로비) → not_docked: 안드로이드 슬롯은 공용 함선 조종실에만 있다 */
+  a.send({ t: 'social:play', code: codeB });
+  const inv0 = await b.wait('social:invited');
+  await a.wait('lobby:state', (mm) => mm.lobby.docked === false);
+  a.send({ t: 'lobby:android', bay: 0, recruit: true });
+  assert((await a.wait('lobby:error')).code === 'not_docked', 'lobby:android in an undocked squad → not_docked');
+  b.send({ t: 'social:inviteReply', id: inv0.invite.id ?? '', accept: false });
+  await a.wait('lobby:left');   // 초대가 닫히며 외로운 분대가 해산된다
+  a.flush(); b.flush();
+
+  /* ③ 들이기 · 돌려보내기 (도킹된 로비) */
+  a.send({ t: 'lobby:create', name: '분대장A' });
+  const l1 = (await a.wait('lobby:state')).lobby;
+  a.send({ t: 'lobby:android', bay: 0, recruit: true });
+  const s1 = await a.wait('lobby:state', (mm) => mm.lobby.players.length === 2);
+  const bot0 = s1.lobby.players.find((p) => p.bot === true);
+  assert(!!bot0 && bot0.id === androidIdOf(l1.code, 0) && bot0.bay === 0 && bot0.name === androidNameOf(0)
+    && bot0.ready === true && bot0.connected === true && bot0.isHost === false && typeof bot0.recruitedAt === 'number'
+    && bot0.slot !== s1.lobby.players.find((p) => p.id === a.id)?.slot,
+  'lobby:android {recruit} adds a bot member (id · bay · name · ready · connected · own slot · recruitedAt)', bot0);
+  assert(androidPlayersOf(s1.lobby).length === 1 && humanPlayersOf(s1.lobby).length === 1,
+    'androidPlayersOf / humanPlayersOf split the roster', s1.lobby.players.map((p) => p.id));
+  assert(s1.lobby.players.find((p) => p.id === a.id)?.isHost === true && s1.lobby.hostId === a.id,
+    'the recruiting leader stays host');
+
+  /* ④ 같은 상태로 다시 · 범위 밖 · 없는 기 돌려보내기 · 모양 오류 → invalid */
+  a.send({ t: 'lobby:android', bay: 0, recruit: true });
+  assert((await a.wait('lobby:error')).code === 'invalid', 'recruiting an already recruited bay → invalid');
+  a.send({ t: 'lobby:android', bay: 1, recruit: false });
+  assert((await a.wait('lobby:error')).code === 'invalid', 'dismissing an empty bay → invalid');
+  a.send({ t: 'lobby:android', bay: ANDROID_BAY_COUNT, recruit: true });
+  assert((await a.wait('lobby:error')).code === 'invalid', 'a bay outside [0, ANDROID_BAY_COUNT) → invalid');
+  a.sendRaw(JSON.stringify({ t: 'lobby:android', bay: '0', recruit: true }));
+  assert((await a.wait('lobby:error')).code === 'invalid', 'a non-integer bay is refused by the frame parser → invalid');
+  a.send({ t: 'lobby:android', bay: 0, recruit: false });
+  const s2 = await a.wait('lobby:state', (mm) => mm.lobby.players.length === 1);
+  assert(androidPlayersOf(s2.lobby).length === 0, 'lobby:android {recruit:false} sends the android back to its slot', s2.lobby.players);
+
+  /* ⑤ 조종실 슬롯 전부 (3기) — 봇은 분대장도, relay 대상도 되지 않는다 */
+  for (let bay = 0; bay < ANDROID_BAY_COUNT; bay++) a.send({ t: 'lobby:android', bay, recruit: true });
+  const s3 = await a.wait('lobby:state', (mm) => mm.lobby.players.length === 1 + ANDROID_BAY_COUNT);
+  assert(androidPlayersOf(s3.lobby).map((p) => p.bay).join(',') === '0,1,2', 'all three bays can be recruited (bay order)', s3.lobby.players);
+  const botId2 = androidIdOf(l1.code, 2);
+  a.send({ t: 'lobby:transferHost', targetId: botId2 });
+  assert((await a.wait('lobby:error')).code === 'invalid', 'lobby:transferHost to an android → invalid (a bot can never be the leader)');
+  a.send({ t: 'relay', to: botId2, d: { t: 'chat', text: '안드로이드에게' } });
+  assert(await a.expectNone('lobby:error', 200), 'relay addressed to an android id is dropped silently (no error, nobody to send to)');
+
+  /* ⑥ 빠른 매칭은 봇으로 찬 분대를 건너뛴다 (「더 이상 다른 플레이어가 매칭되지 않음」) */
+  a.send({ t: 'lobby:setPublic', isPublic: true });
+  await a.wait('lobby:state', (mm) => mm.lobby.isPublic);
+  b.send({ t: 'lobby:quickmatch', name: '대원B' });
+  const lb = (await b.wait('lobby:state')).lobby;
+  assert(lb.code !== l1.code && lb.players.length === 1,
+    'quick match skips a public lobby filled by androids and opens a new one', { mine: lb.code, filled: l1.code });
+  b.send({ t: 'lobby:leave' });
+  await b.wait('lobby:left');
+  b.flush();
+
+  /* ⑦ 초대는 여전히 통하고, 사람이 들어오면 **가장 늦게 들어온** 기가 슬롯으로 돌아간다 — 새로 온 사람도 그 소식을 받는다 */
+  a.send({ t: 'social:play', code: codeB });
+  const outcome1 = await Promise.race([
+    a.wait('social:play').then((mm) => `outcome:${mm.outcome}`).catch(() => 'none'),
+    a.wait('social:error').then((mm) => `error:${mm.code}`).catch(() => 'none'),
+  ]);
+  assert(outcome1 === 'outcome:invited', 'a squad filled by androids can still invite people (humans only count toward the cap)', outcome1);
+  const inv1 = await b.wait('social:invited');
+  assert(inv1.invite.lobby === l1.code, 'the invite points at the android-filled ship', inv1.invite);
+  b.send({ t: 'social:inviteReply', id: inv1.invite.id ?? '', accept: true });
+  const [ra, rb] = await Promise.all([
+    a.wait('lobby:androidReturned'),
+    b.wait('lobby:androidReturned'),
+  ]);
+  assert(ra.bay === ANDROID_BAY_COUNT - 1 && ra.reason === 'human_joined', 'a human joining evicts the latest recruited android (lobby:androidReturned human_joined)', ra);
+  assert(rb.bay === ra.bay && rb.reason === 'human_joined', 'the newcomer receives the same notice (it joined after the eviction)', rb);
+  const s4 = (await b.wait('lobby:state', (mm) => mm.lobby.code === l1.code && mm.lobby.players.length === NET_MAX_PLAYERS)).lobby;
+  assert(humanPlayersOf(s4).length === 2 && androidPlayersOf(s4).map((p) => p.bay).join(',') === '0,1',
+    'the lobby now holds 2 humans + the 2 older androids', s4.players.map((p) => `${p.id}:${p.bay ?? '-'}`));
+
+  /* ⑧ 분대장이 나가면 봇이 아니라 사람에게 넘어간다 */
+  a.send({ t: 'lobby:leave' });
+  await a.wait('lobby:left');
+  const s5 = (await b.wait('peer:left', (mm) => mm.id === a.id)).lobby;
+  assert(s5.hostId === b.id && s5.players.find((p) => p.id === b.id)?.isHost === true
+    && !s5.players.some((p) => p.bot === true && p.isHost), 'after the host leaves the role goes to the human, never to an android', s5);
+
+  /* ⑨ 봇은 늘 준비 완료다 — 출격 판정에 들어가고 `reset()` 뒤에도 그대로 */
+  await pickPlanet(b, 'mossy');
+  b.send({ t: 'lobby:ready', ready: true });
+  await b.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready));
+  b.send({ t: 'lobby:start', seed: 1515 });
+  const gs = await b.wait('game:start');
+  assert(gs.lobby.players.filter((p) => p.bot === true).every((p) => p.inMission === true),
+    'a raid start takes the androids into the mission (inMission)', gs.lobby.players);
+  b.send({ t: 'lobby:reset' });
+  const s6 = (await b.wait('lobby:state', (mm) => !mm.lobby.started)).lobby;
+  assert(androidPlayersOf(s6).every((p) => p.ready === true && p.inMission === false)
+    && s6.players.find((p) => p.id === b.id)?.ready === false,
+    'lobby:reset clears every human ready flag but leaves the androids ready', s6.players);
+
+  /* ⑩ 사람이 전부 나가면 로비는 봇과 함께 사라진다 */
+  b.send({ t: 'lobby:leave' });
+  await b.wait('lobby:left');
+  await sleep(30);
+  assert(server.lobbies.byCode(l1.code) === undefined && server.lobbies.lobbyOf(b.id) === undefined,
+    'the last human leaving deletes the lobby — androids never keep it alive', { lobby: l1.code });
+
+  /* ⑪ 사람으로 가득 찬 분대 → 들이기는 full, 그리고 요청자에게만 androidReturned {full} */
+  const { c: cc } = await connect('C15', url, { token: makeToken('c'), name: '대원C' });
+  const { c: dd } = await connect('D15', url, { token: makeToken('d'), name: '대원D' });
+  a.flush(); b.flush();   // 앞 절의 묵은 `lobby:state` 가 새 로비 코드로 읽히지 않게
+  a.send({ t: 'lobby:create', name: '분대장A' });
+  const l2 = (await a.wait('lobby:state')).lobby;
+  for (const cl of [b, cc, dd]) {
+    cl.send({ t: 'lobby:join', code: l2.code, name: cl.label });
+    await cl.wait('lobby:state', (mm) => mm.lobby.code === l2.code);
+  }
+  await a.wait('lobby:state', (mm) => mm.lobby.players.length === NET_MAX_PLAYERS);
+  a.flush(); b.flush();
+  a.send({ t: 'lobby:android', bay: 0, recruit: true });
+  const efull = await a.wait('lobby:error');
+  const rfull = await a.wait('lobby:androidReturned');
+  assert(efull.code === 'full' && efull.message === LOBBY_ERROR_MESSAGE_KO.full, 'recruiting into a squad of 4 humans → lobby:error full', efull);
+  assert(rfull.bay === 0 && rfull.reason === 'full', 'and lobby:androidReturned {reason:"full"} tells the requester its bay stays closed', rfull);
+  assert(await b.expectNone('lobby:androidReturned', 200), 'the "full" notice goes to the requester only');
+
+  for (const cl of [a, b, cc, dd]) cl.close();
+  await sleep(GRACE_MS + 400);
+  assert(server.lobbies.byCode(l2.code) === undefined, 'part 15 cleanup: the last lobby is gone', { lobby: l2.code });
 }
 
 main().catch((e) => { console.error('selftest crashed', e); process.exit(1); });

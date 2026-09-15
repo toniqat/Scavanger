@@ -12,7 +12,7 @@ settings reach the engine through `main.ts` (`ui:displayChanged`).
 |---|---|
 | `Engine.ts` | `Engine(canvas, uiRoot)`: renderer (sRGB, ACES, PCFSoft shadows, pixel ratio capped), scene, camera, `GameContext`, input binding, `addSystem()` / `start()`. Post chain RenderPass → UnrealBloomPass → outline passes → OutputPass. Display knobs `setPostProcessing` · `setShadows` · `setResolutionScale`, bloom perf guard, `debugForcePerfGuard()`. Palette on `world:ready`; clears FX + atmosphere override on `game:abort`. |
 | `LightBudget.ts` | Keeps the visible point-light count constant: `SCENE_POINT_LIGHT_BUDGET` padding lights (intensity 0) switched on to fill the gap each frame. `countVisiblePointLights(root)`, `contentCount()`, `padsShown`. Engine field `lights`. |
-| `ShaderWarmup.ts` | `ctx.shaders` (`ShaderWarmupRef`, `src/shared/render.ts`): `warm(root, replaces?)`, `holdForScene()`, `hold(promise)`, `holding`, `pendingJobs`; `update()` / `beforeRender()` called by Engine. Times out after `SHADER_WARMUP_TIMEOUT_S`. |
+| `ShaderWarmup.ts` | `ctx.shaders` (`ShaderWarmupRef`, `src/shared/render.ts`): `warm(root, replaces?)`, `holdForScene()`, `hold(promise)`, `holdFor(promise, timeoutS)`, `holding`, `pendingJobs`, `compileProgress`; `update()` / `beforeRender()` called by Engine. Times out after `SHADER_WARMUP_TIMEOUT_S` (or the caller's own cap). |
 | `Outline.ts` | `ctx.outline` (`OutlineRef`, `src/shared/render.ts`): screen-space outline channels `hover` (white) and `selected` (green) via one `OutlinePass` per channel. Empty channel = pass disabled = zero cost. `renderDirect` draws on the canvas path when bloom is off; `warm()` pre-links its programs. |
 | `Atmosphere.ts` | Sun (shadow frustum follows the player on a snapped grid), hemisphere fill, `FogExp2`, sky dome. `applySeed(seed)`, `setSpaceMode(on)` (hub look), `setOverride(fogMul, color, blend)` (hazard visibility). Exposed as `scene.userData.atmosphere` so `hub/` can call it without importing `core/`. |
 | `Sky.ts` | Gradient sky dome shader (horizon haze, sun disc, stars); `SKY_PALETTES`, `SkyPalette`. |
@@ -47,6 +47,11 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
   comes from the bound render target; compiling while the canvas is bound builds variants that are never used. — `ShaderWarmup.warm`
 - A shader hold freezes simulation exactly like `game:paused {freeze}` (systems run with dt 0, `ctx.time` still flows);
   `freeze: false` (multiplayer pause) keeps dt flowing. — `Engine.frame`
+- A hold that is not a shader compile brings its own cap: `hold()` uses `SHADER_WARMUP_TIMEOUT_S`, which is shorter than
+  the raid-entry loading wait, so `game/parts/LoadGate` takes `holdFor(ready, RAID_LOAD_TIMEOUT_S + RAID_LOAD_HOLD_MARGIN_S)`.
+  Anything that holds the frame on something other than the driver must pass its own timeout. — `ShaderWarmup.holdFor`
+- `compileProgress` is 0 while a scene compile is only **queued** (`holdForScene` before the frame's `beforeRender`), then
+  ready/initial materials, then 1. Returning 1 for the queued frame makes a loading gauge start full and fall back. — `ShaderWarmup.compileProgress`
 - Display toggles act only on a changed value, and a change holds the frame: both shadows (`shadowMapEnabled` program
   key) and bloom (render target switch) recompile every lit material. `requestedPost` is the last requested bloom value;
   a repeat is a no-op, so a guard-disabled bloom is not re-enabled by an unrelated fullscreen/resolution publish. — `Engine.setPostProcessing` / `setShadows`
@@ -59,8 +64,8 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
+- 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
 - 2026-09-12 — `outline.warm` runs even while a shader hold is active.
 - 2026-09-12 — `Outline.ts` / `ctx.outline`: hover/selected screen-space outlines for ship management.
 - 2026-09-11 — Perf guard emits `render:autoAdjusted` once per boot; `debugForcePerfGuard()` hook (C-58).
 - 2026-09-11 — Display toggles act only on changed values and hold for recompile; perf guard revived (C-44).
-- 2026-09-10 — `LightBudget` + `ShaderWarmup` / `ctx.shaders`: constant point-light count, compile-before-draw.

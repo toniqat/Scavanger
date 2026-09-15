@@ -16,8 +16,9 @@ local drops arrive via `inventory:itemDropped`.
 ## Public API
 
 - `ctx.pickups` — `getPickups()`, `findNear(pos, radius)` (pings snap to it, `PingKind 'item'`), `spawn(item, pos, vel?)`
-  (local authority / host only — clients drop via `ctx.inventory.dropItem`), `clear()`. Types: `src/shared/types.ts`
-  (`PickupsRef`, `PickupRef`).
+  (local authority / host only — clients drop via `ctx.inventory.dropItem`), `takeBy(id, by)` (2026-09-15: authority
+  only — a non-human body, i.e. an android id, picks the item up; removes it, broadcasts `item take {id, by}` and
+  returns the instance), `clear()`. Types: `src/shared/types.ts` (`PickupsRef`, `PickupRef`).
 - Emits:
   - `pickup:spawned {id, item, position}` — `position` is the pickup's live `Vector3` (moves while airborne).
   - `pickup:taken {id, item, byLocal, byName}` — `byName` = lobby name of a remote taker, `null` for local.
@@ -79,6 +80,7 @@ Host validation is existence only: an unknown / already-taken id is dropped sile
 ## Recent changes
 
 Older: `git log -- src/pickups`.
+- 2026-09-15 — `takeBy(id, by)`: an android picks a ground item up on the authority (same broadcast as a peer's take).
 - 2026-09-15 — `ItemCategory 'grenade'` retired; visuals key on `VisualKind` (`def.grenade` → grenade silhouette).
 - 2026-09-13 — meal quality crosses the wire (`PickupWire.q`).
 - 2026-09-12 — `raidFound` mark crosses the wire (`PickupWire.rf`).

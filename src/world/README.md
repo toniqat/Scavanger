@@ -68,7 +68,10 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
   `raycast`, `isInsideBounds`, `obstacleCoverage`, `scatterPoints`, `getObstaclesNear`, `addObstacle` (dynamic cover; returns remover),
   `getSurfaceMaterial(x, z, feetY?)`, `size`, `mode`, `planet`, `seed`, `getBiome()`.
 - **Objects**: `getPlayerSpawn`, `getExtractionPoints`, `getEnemySpawnPoints`, `getCrates`, `getNestPositions`, `getGatherNodes`,
-  `getStructures`, `structureAt`, `getLadders`, `getRailLines`, `getTrams`, `getRuinSites`, `getSiteSpawnPoints`, `previewContainerItems`.
+  `getStructures`, `structureAt`, `getLadders`, `getRailLines`, `getTrams`, `getRuinSites`, `getSiteSpawnPoints`, `previewContainerItems`,
+  `getLootContainers()` (2026-09-15: crates + structure / platform / tram containers as `LootContainerInfo` — id, live
+  position, tier, opened, kind; **reused array and reused entries**), `markContainerOpened(id)` (2026-09-15: open the
+  lid / door for an android take and tell the squad with `crate opened`; no event, no stats, no 감정 XP).
 - **Sub-refs**: `fog` (`FogRef`), `hazard` (`HazardRef`), `rover` (`RoverRef`), `env` (planet `env` column), `training` (`TrainingRef`),
   `tutorial` (`TutorialWorldRef`). Each is null when the mode / planet does not have it.
 - **`previewLayout(seed, planet, intel?)`** — pure; callable from the hub (no meshes, no state touched).
@@ -252,6 +255,10 @@ over fog (orbital observation).
   Fogless planets narrow sight by particles only.
 - Groves stand on any planet whose candidates include `spores`, whatever the drawn kind; grove mushrooms are harvestable
   (`Gather`). `applySerialized` does not move groves (safety net for mismatched seeds only).
+- `nearestSafePoint(x, z, margin, out)` (2026-09-15, androids carrying a downed PC out): exact for a single zone — the
+  half-plane is pushed along `+dir`, a danger-inside circle outward, the storm eye inward — then an expanding ring scan
+  (`SAFE_RING_STEP_M`) for overlapping spore blooms. Already-safe answers itself; `null` when the map is fully covered
+  or the eye is smaller than `margin`. `out.y` is the terrain height.
 
 ## Fog of war
 
@@ -312,6 +319,8 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-15 — Android hooks: `getLootContainers`, `markContainerOpened`, `HazardRef.nearestSafePoint`; a `crate opened`
+  from the lobby host is trusted without the distance check (the host opens for an android).
 - 2026-09-15 — Spore hazard damage bypasses the player shield (`hazardDamageOpts`, `HAZARD_SPORES_BYPASS_SHIELD`).
 - 2026-09-15 — Tutorial: half-height blind fence with ghost collider band; android pit with ship-side ramp.
 - 2026-09-15 — Training arena: ceiling and wall meshes removed; invisible walls via `clampInside`, floor + apron only.

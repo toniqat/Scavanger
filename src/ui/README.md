@@ -18,6 +18,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `index.ts` | Barrel |
 | **hud/** | |
 | `hud/ActionFeedback.ts` | Pooled CSS screen feedback: melee swipe/hit, dive, dash, barrier hit, grit save, burning, cloak |
+| `hud/allySource.ts` | The one reader of `ctx.allies` for this folder (`alliesOf`, `allyRoster`, `allyBodies`, `allyBody`) + the `setDebugAllies` smoke hook |
 | `hud/BuffStrip.ts` | Character buff thumbnails (`CharBuff[]`) under the PC vitals (22 px) and each squad row (mini 14 px); pending dim, debuff red border, time gauge |
 | `hud/ChargeGauge.ts` | Ship-call LMB charge ring at the crosshair (`stratagem:chargeChanged`) |
 | `hud/ChatLog.ts` | Squad chat log + input (Enter opens, sends and stays open; Tab/Esc closes), `/r` reply to the last private chat, hides lines from blocked peers, relays `chat:post` |
@@ -48,11 +49,12 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ItemFavoriteMenu.ts` | Right-click favorite menu on any `.item-chip[data-def-id]` or opted-in tile; registers the chip favorite source |
 | `hud/ItemTip.ts` | Hover card for item chips / `data-item-tip` tiles / currency chips (def data, series, meal quality, sockets…); exports `TIP_ANCHOR_ATTR` |
 | `hud/KeyGuide.ts` | Bottom-right key line for the topmost `ui:keyGuide` owner; appends the `Tab · Esc 닫기` entry itself |
+| `hud/LoadingGauge.ts` (+ `styles/loading.css`) | Raid-entry loading gauge: bottom-right radial ring over the black plate, `squad` fill, `n명 대기 중`; driven by `performance.now()` because the load gate hands every system `dt 0` |
 | `hud/mealText.ts` | Meal buff / quality / cook-step text helpers shared by ItemTip, BuffStrip, Notifications |
 | `hud/MetaToasts.ts` | Top-centre credits chip (coalesced), reputation level, contract settlement toasts |
 | `hud/MusicPlayer.ts` | Ship-only music player window (`housing:musicChanged`): title, artist, volume, progress, prev/next, mode, stop — no sound |
 | `hud/NamedScanWarning.ts` | Named sniper warnings: scan exposure banner, exposure sweep, scope glint head/arc (`named:*`) |
-| `hud/Nameplates.ts` | Remote player name / shield / hp plates (projected, distance fade) |
+| `hud/Nameplates.ts` | Remote player name / shield / hp plates (projected, distance fade); android bodies in a raid get the same plate (`.ally`, `쓰러짐` tag) |
 | `hud/NetBadge.ts` | Server link badge in ship and title (hidden in raids); owns link-transition toasts |
 | `hud/Notifications.ts` | Right-centre toast stack: draws `ui:notify` and converts squad / inventory / extraction / NPC quest / housing / social events into toasts; channel ticker |
 | `hud/Objective.ts` | Top-left mission clock + big extraction timer (arrive / idle / depart); both hidden in the tutorial raid. `OBJECTIVE_TEXT` (emitted, not drawn) |
@@ -75,7 +77,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ShipManage.ts` | Facility management (`시설 관리`) screen: room list, purpose picker, furniture craft/storage tabs (last tab remembered per slot), inspector with upgrade/remove, confirm popups |
 | `hud/ShipManageHint.ts` | `시설 관리` + `Keys.MAP` keycap hint on the personal ship |
 | `hud/SpectateOverlay.ts` | Multiplayer death banner with remaining squad and rescue drops |
-| `hud/Squad.ts` | Bottom-left squad list: slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip. Shown in the hub whenever a lobby exists; an **undocked** squad's rows read `개인 함선` |
+| `hud/Squad.ts` | Bottom-left squad list: slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip. Shown in the hub whenever a lobby exists; an **undocked** squad's rows read `개인 함선`. Bot lobby members are never human rows — androids come last from `ctx.allies.roster` (`안드로이드` badge, shield bar, `쓰러짐` / `사망`), and one android alone puts the list up with no lobby |
 | `hud/StatusMarkers.ts` | World markers for burned / shocked enemies |
 | `hud/stratagemGlyphs.ts` | Ship-call glyph, colour, def lookup, arm/target hints |
 | `hud/StratagemPanel.ts` | Ship-call square thumbnail left of the implant: shared cooldown fill, armed colour, rescue count, ready flash |
@@ -133,6 +135,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `styles/gadgetHint.css` | `.ghh-*` (GadgetHandHint) |
 | `styles/hazard.css` | `.hz-*` (HazardHud) |
 | `styles/implant.css` | Bottom-centre row geometry `:root { --imp-th, --imp-tw, --imp-bottom, --imp-gap }`, `.imp-*` (ImplantWidget, Reticle grapple chip) |
+| `styles/loading.css` | `.ldg-*` (LoadingGauge) |
 | `styles/mapquests.css` | `.mq-*` (QuestPanels) |
 | `styles/messenger.css` | `.ms-*` (Messenger) |
 | `styles/music.css` | `.mus-*` (MusicPlayer) |
@@ -179,6 +182,7 @@ Stacking (CSS `z-index`; `.hud` layers and plain `.menu` have none and follow DO
 | 81 | `.mus-` music player |
 | 82 | `.screen-fade` |
 | 83 | `.net-badge` |
+| 87 | `.ldg` loading gauge (must draw **over** `.screen-fade`, and over the pause menu while the load gate holds) |
 | 84 | `.key-guide`, `.title-screen`, `.menu.complete`, `.menu.death` |
 | 85 / 86 / 88 | `.menu.pause` / `.menu.settings-menu` / `.menu.keybind-menu` |
 | 200 / 210 / 215 | `.item-tip` / `.icm` favorite menu / `.cursor-hold` |
@@ -201,7 +205,8 @@ Stacking (CSS `z-index`; `.hud` layers and plain `.menu` have none and follow DO
 | `hub:enter {ship}` | DeathScreen, MissionComplete, `enterShip` |
 | `game:newMission {mode:'tutorial'}` | `enterShip` (sets `missionMode` / `missionPlanet` / `missionIntel` first) |
 | `game:paused {paused:false}` · `game:returnToShip` · `game:abort` | PauseMenu |
-| `ping:placed` · `ping:placedV2` · `ping:removed` · `ping:acked` · `ping:wheelChanged` | Pings |
+| `ping:placed` · `ping:placedV2` · **`ping:placedV3 {owner, label?, enemyId?}`** · `ping:removed` · `ping:acked` · `ping:wheelChanged` | Pings — V3 is emitted for **every** ping this client places or receives (local `owner: null`, squadmate PeerId, android id); `allies/` reads its commands from it |
+| `ally:chat` | Pings (the android's own ping callout — ChatLog draws it and never relays it) |
 | `comms:sent` · `comms:wheelChanged` | CommsWheel |
 | `chat:post` · `chat:message` | Pings/CommsWheel callouts · ChatLog (every line) |
 | `rescue:selectTarget {peerId}` | RescuePicker |
@@ -217,7 +222,9 @@ over/raidFailed/abort/newMission; `ui:notify`, `ui:hitmarker`, `ui:damageIndicat
 `sandworm:*`, `enemy:shell*`; `drone:*`, `scan:cast`, `detect:*`; `inventory:*`, `durability:*`, `craft:*`,
 `meta:*`, `npc:*`, `progress:*`, `housing:*`; `hub:*`; `net:*` (lobby, peers, link, remote downed/died/buffs);
 `social:*`, `room:*`; `training:*`; `tutorial:changed`; `input:bindingsChanged`, `input:cursorModeChanged`;
-`render:autoAdjusted`; `audio:volumeChanged`; `cheat:moveCheat`.
+`render:autoAdjusted`; `audio:volumeChanged`; `cheat:moveCheat`; **`ally:*`** (`rosterChanged`, `downed`, `died`,
+`deposited` → toasts; `ping` → Pings; `chat` → ChatLog) and `net:androidReturned`; **`raid:loadBegin` /
+`raid:loadProgress` / `raid:loadReleased`** (LoadingGauge).
 
 **Wire messages** (via `ctx.net`): `ping`, `pingack` (Pings), `comm` (CommsWheel) — sent to `'others'` and received
 with `onMessage`; `chat` sent by ChatLog while in a lobby.
@@ -246,8 +253,8 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 **Smoke / debug hooks** (`window.__game.getSystem('hud')`): read-only getters named after the widget state
 (`isMapOpen`, `isChatOpen`, `keyGuideOwner`, `keyGuideEntries`, `screenFadeOpacity` / `screenFadeShown` /
 `screenFadeHeld`, `fallVignetteOpacity`, `bowReticle`, `dangerIndicatorCount`, `musicPlayerView`, `netBadgeState`,
-`messenger`, …) and injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRooms`,
-`debugLocalBuffs`.
+`messenger`, `squadRows`, `allyNameplates`, `chatLines`, `toastTexts`, `pingViews`, `loadingGaugeState`, …) and
+injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRooms`, `debugLocalBuffs`, `debugAllies`.
 
 ## Rules
 
@@ -299,6 +306,14 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
   toast only, otherwise the line appears twice. — `hud/CommsWheel.ts` (`announce`)
 - Social UI shows `PlayerCode` only — a `PeerId` never reaches it. Read social data only through
   `menus/social/socialSource` (and messenger data through `menus/messenger/sources`) so smoke debug refs work.
+- Read androids only through `hud/allySource` (same reason). **Bot lobby members are not people**: every
+  `lobby.players` reader in this folder filters them with `isBotPlayer` — a bot has no socket, so no
+  `RemotePlayerRef`, no 아이디 / level, and it never becomes host. They are drawn from `ctx.allies` instead.
+  — `hud/Squad.ts`, `menus/social/SocialColumn.ts`, `hud/Community.ts`, `hud/RescuePicker.ts`
+- The loading gauge and anything else that must animate **while the raid-entry load gate holds the engine** reads
+  `performance.now()`, never `dt` or `ctx.time`: every system gets `dt 0` during the hold. — `hud/LoadingGauge.ts`
+- `ally:chat` (and the android's ping callout) is drawn but **never relayed** — allies/ already emits it on every
+  client. Posting it through `chat:post` would double every line. — `hud/ChatLog.ts`
 - ui must not import `core/`; display settings reach the Engine through `ui:displayChanged` → `main.ts`. Cross-folder
   imports are `@/shared` plus the `@/items` barrel (`hud/ItemTip`, `hud/WeaponPanel`) and `@/player` barrel
   (`menus/SoldierPreview`).
@@ -312,8 +327,8 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 
 Last 5 only — older: `git log -- src/ui`.
 
+- 2026-09-15 — Android squadmates + raid-entry loading: `hud/allySource` (the one `ctx.allies` reader, `debugAllies`); squad rows / nameplates / compass ticks / map markers + `안드로이드` legend row for androids, bots never drawn as human rows (Squad, SocialColumn, Community, RescuePicker, SpectateOverlay); `ally:ping` → android-owned ping + `ally:chat` callout, `ping:placedV3` on every ping; `ally:chat` line; seven android toasts (Korean particle picked by the final syllable); new `hud/LoadingGauge` + `styles/loading.css` (z 87, real-time driven).
 - 2026-09-15 — Squads vs shared ship: squad list `개인 함선` for undocked squads; `같이 하기` → `분대 초대` (invite only, `in_other_squad` / `not_leader` / `in_squad` reasons); hub pings / acks relay only while `ctx.net.inHubSession`. `menus/SettingsMenu` closes on `game:paused {paused:false}` and on any phase change (it has no blocker / escape entry and used to outlive the pause menu); `SocialMenu.closeAll()` (menu + confirm card) runs when the messenger closes.
 - 2026-09-15 — `SoldierPreview.snapshotFace` framing moved to `shared/faceFraming` + `@/player` face helpers (same image as the terminal match tab).
 - 2026-09-15 — Holding the ping button locks the camera like the H / T wheels (released on release, timeout, cancel, dispose). — `hud/Pings.ts`
 - 2026-09-15 — `ui:screenFade.hold`: tutorial skip keeps the screen black into the result screen; `.menu.complete` / `.menu.death` got z 84.
-- 2026-09-15 — Result header: extraction subtitle removed, planet line split into label + name (`ResultReport.buildPlanetLine`) on both result screens.

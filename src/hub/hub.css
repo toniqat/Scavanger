@@ -217,6 +217,16 @@
   50% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 72%, transparent), 0 0 28px color-mix(in srgb, var(--c-accent) 48%, transparent); }
 }
 
+/* 안드로이드 분대원 (2026-09-15): 3D 몸 대신 얼굴 한 장이 초상 자리(위 55 %)를 채운다 */
+.hr-cell .hr-face {
+  position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  height: calc(100% - var(--hr-body-h)); width: auto; max-width: 100%;
+  object-fit: contain; object-position: center top;
+  pointer-events: none; z-index: 0; opacity: 0.95;
+}
+.hr-cell .hr-face[hidden] { display: none; }
+.hr-cell.is-bot .hr-name { color: #9be8ff; }
+
 /* 위 55 %: 초상이 비쳐 보이는 층 — 이름 · 레벨은 맨 위, 상태 줄은 장비 판 바로 위 */
 .hr-head {
   position: relative; z-index: 1;

@@ -180,13 +180,23 @@ function walkFor(e: Enemy, dist: number): void {
   e.fireBlockTimer = Math.min(8, Math.max(ENEMY_FIRE_STRAFE_S, dist / Math.max(0.5, e.stats.speed * 0.9) + 0.4));
 }
 
-/** Nearest alive player other than `cur` within `ARTILLERY_AI.maxRange` (the refusal cap's new target), or null. */
+/**
+ * Nearest alive player other than `cur` within `ARTILLERY_AI.maxRange` (the refusal cap's new target), or null.
+ * 2026-09-15 (안드로이드 분대원): 안드로이드도 후보다 — 포병이 사람 하나만 붙잡고 영영 쏘지 못하는 일이 없게.
+ */
 function otherTargetInRange(e: Enemy, host: EnemyHost, cur: CombatTarget): CombatTarget | null {
-  const list = host.targets.alive;
   let best: CombatTarget | null = null, bestD = ARTILLERY_AI.maxRange;
+  const list = host.targets.alive;
   for (let i = 0; i < list.length; i++) {
     const c = list[i];
     if (c === cur) continue;
+    const dd = c.dist2D(e.position);
+    if (dd < bestD) { bestD = dd; best = c; }
+  }
+  const allies = host.targets.allies;
+  for (let i = 0; i < allies.length; i++) {
+    const c = allies[i];
+    if (c === cur || c.isDeadOrDowned) continue;
     const dd = c.dist2D(e.position);
     if (dd < bestD) { bestD = dd; best = c; }
   }
@@ -262,6 +272,8 @@ function startCharge(e: Enemy, host: EnemyHost): void {
 const _tp = new THREE.Vector3();
 /** 2026-09-13: `Enemy.chargeDrones` 에 넣는 탐사 차량 표식 — 드론 id 는 `#` 으로 시작하지 않는다. */
 const VEHICLE_CHARGE_MARK = '#rover';
+/** 2026-09-15: 같은 목록에 넣는 안드로이드 표식 접두사 (드론 id · 차량 표식과 겹치지 않는다). */
+const ALLY_CHARGE_MARK = '#ally:';
 
 /**
  * 2026-09-11 (C-47): can the charging body touch `t` at all? A target whose underside floats above the behemoth's height
@@ -330,6 +342,20 @@ export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     e.chargeDrones.push(dr.droneId);
     _knock.copy(e.chargeDir);
     host.chargeHit(e, dr, BEHEMOTH_CHARGE_DAMAGE, _knock);
+  }
+  // 2026-09-15 (안드로이드 분대원): 사람과 같은 규칙으로 들이받는다. 프록시 id 는 전부 'ai' 라 한 돌진에 한 번은
+  // 안드로이드 id 로 가린다 — `chargeVictims`(TargetId) 와 섞이지 않게 `chargeDrones` 쪽에 접두사를 붙여 넣는다.
+  const chargeAllies = host.targets.allies;
+  for (let i = 0; i < chargeAllies.length; i++) {
+    const a = chargeAllies[i];
+    if (a.isDeadOrDowned || a.allyId === null) continue;
+    const mark = ALLY_CHARGE_MARK + a.allyId;
+    if (e.chargeDrones.indexOf(mark) >= 0) continue;
+    if (a.dist2D(pos) >= hitR) continue;
+    e.chargeDrones.push(mark);
+    const side = Math.sign(e.chargeDir.z * (a.position.x - pos.x) - e.chargeDir.x * (a.position.z - pos.z)) || 1;
+    _knock.set(e.chargeDir.z * side, 0.35, -e.chargeDir.x * side).addScaledVector(e.chargeDir, 0.45).normalize();
+    host.chargeHit(e, a, BEHEMOTH_CHARGE_DAMAGE, _knock);
   }
   // 2026-09-13 (탐사 차량): 차체 발자국에 닿으면 한 돌진에 한 번 (`chargeDrones` 에 드론 id 와 겹치지 않는 표식). 피해는 `applyDamage` 의 차량 가지.
   const vehicles = host.targets.vehicles;

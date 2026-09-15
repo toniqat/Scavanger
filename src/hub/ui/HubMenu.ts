@@ -2,7 +2,7 @@ import type { GameContext, IntelSpec, NetRef, PlanetDef, PlanetId } from '@/shar
 import {
   ENV_COLOR, ENV_DESC_KO, ENV_ICON, ENV_LABEL_KO,
   INTEL_OPTIONS_IN_ORDER, Keys, MENU_BLOCKER, NAMED_ROGUE_NAME_KO, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS,
-  PLANET_THREAT_LABELS, getPlanet, intelEffectText, isDockedLobby, planetIndex,
+  PLANET_THREAT_LABELS, getPlanet, humanPlayersOf, intelEffectText, isBotPlayer, isDockedLobby, planetIndex,
 } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 import { IntelMenu } from './IntelMenu';
@@ -441,8 +441,12 @@ export class HubMenu {
     const docked = isDockedLobby(lobby);
 
     // header — 2026-09-15: 분대가 있어도 도킹 전이면 여전히 개인 함선이다
-    setText(this.subtitle, docked && lobby ? `공유 함선 · ${lobby.players.length}/${NET_MAX_PLAYERS} 승무원`
-      : lobby ? `개인 함선 · 분대 ${lobby.players.length}/${NET_MAX_PLAYERS}` : '개인 함선');
+    // 2026-09-15 (안드로이드 분대원): 승무원 수는 **사람**이고, 안드로이드는 뒤에 따로 붙인다
+    const humans = humanPlayersOf(lobby).length;
+    const bots = lobby ? lobby.players.length - humans : 0;
+    const botLine = bots > 0 ? ` · 안드로이드 ${bots}` : '';
+    setText(this.subtitle, docked && lobby ? `공유 함선 · ${humans}/${NET_MAX_PLAYERS} 승무원${botLine}`
+      : lobby ? `개인 함선 · 분대 ${humans}/${NET_MAX_PLAYERS}${botLine}` : '개인 함선');
     this.pill.className = `status-pill ${status}`;
     setText(this.pillText, status === 'connected' ? `연결됨${net && net.rttMs > 0 ? ` · ${Math.round(net.rttMs)} ms` : ''}` : status === 'connecting' ? '연결 중' : status === 'error' ? '오류' : '오프라인');
 
@@ -470,7 +474,8 @@ export class HubMenu {
     if (!isDockedLobby(lobby)) { setText(this.trainState, '분대 대기 중'); this.btnTrain.disabled = true; return; }
     const mode = net?.missionMode ?? lobby.mode ?? 'raid';
     const training = lobby.started && mode === 'training';
-    const n = lobby.players.filter((p) => p.connected && p.inMission === true).length;
+    // 2026-09-15: 안드로이드는 훈련장에 가지 않는다 — 훈련 중 인원은 사람만 센다 (`parts/Crew.trainingCount` 과 같은 규칙)
+    const n = lobby.players.filter((p) => !isBotPlayer(p) && p.connected && p.inMission === true).length;
     if (lobby.started && !training) { setText(this.trainState, '임무 진행 중'); this.btnTrain.disabled = true; }
     else if (training) { setText(this.trainState, `합류 (${n}명 훈련 중)`); this.btnTrain.disabled = !(net?.missionInProgress ?? false); }
     else { setText(this.trainState, '시작'); this.btnTrain.disabled = !net; }

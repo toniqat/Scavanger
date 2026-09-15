@@ -57,6 +57,9 @@
 .hmt-badge { left: 8px; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.55); }
 .hmt-state { right: 8px; color: var(--c-danger); border: 1px solid rgba(255, 90, 70, 0.5); }
 .hmt-badge[hidden], .hmt-state[hidden] { display: none; }
+/* 안드로이드 분대원 (2026-09-15): 꼬리표는 `연결 끊김` 자리를 쓰지만 경고가 아니다 — 시안색으로 갈라 둔다 */
+.hmt-tile.is-bot .hmt-state { color: #9be8ff; border-color: rgba(155, 232, 255, 0.5); }
+.hmt-tile.is-bot .hmt-name { color: #9be8ff; }
 .hmt-info {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
   display: flex; align-items: baseline; gap: 8px; padding: 20px 10px 8px;
@@ -72,6 +75,8 @@
   min-width: 0; height: 36px; padding: 0 20px; font-size: 11px; letter-spacing: 0.14em;
 }
 .ui-btn.hmt-invite[hidden] { display: none; }
+/* 2026-09-15: 네 칸이 가득 찼을 때 `swap` 안드로이드 칸이 드는 초대 버튼 — 얼굴을 가리지 않게 아래로 내린다 */
+.ui-btn.hmt-invite.hmt-swap { top: auto; bottom: 10px; translate: -50% 0; height: 26px; padding: 0 12px; font-size: 10px; }
 
 .hmt-actions {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;

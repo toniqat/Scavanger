@@ -447,6 +447,12 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
     if (sys.authority && target.present && target.vehicle.targetable) target.vehicle.damage(amount, from);
     return;
   }
+  // 2026-09-15 (안드로이드 분대원): 권위에서만 `ctx.allies.damage` 하나로 끝난다 — 넉백 · 둔화 · `dmg` 와이어 ·
+  // `enemy:attacked` · 배리어 흡수는 없다 (안드로이드는 사람이 아니고, 몸은 권위가 굴려 `ally state` 로 나간다).
+  if (target.ally) {
+    if (sys.authority && target.present && target.allyId !== null) allyDamage(sys, target.allyId, amount, enemyDamageSource(id, type), from);
+    return;
+  }
   if (target.enemy) {
     const victim = target.enemy;
     if (!victim.isCombatant) return;
@@ -678,4 +684,75 @@ export function registerCorpse(sys: EnemySystem, e: Enemy): void {
     }
     ctx.net!.send(msg, 'others');
   }
+  }
+
+/* ══ appended (2026-09-15): 안드로이드 분대원 — 적이 주는 피해 · 안드로이드가 주는 피해 ═══════════════════
+ * 규칙은 계약(`shared/allies.ts`)과 같다: **권위만** 안드로이드를 때리고, 리플리카는 아무것도 하지 않는다
+ * (몸과 체력은 호스트가 굴려 `ally state` 로 내려온다 — 리플리카가 또 깎으면 두 번 아프다).
+ */
+
+/** 디버그 주입 전용 피해 수신자 (`EnemySystem.debugAllyTargets`). null 이면 진짜 `ctx.allies` 로 간다. */
+export type AllyDamageSink = (id: string, amount: number, source: PlayerDamageSource, from: THREE.Vector3) => void;
+
+/** 안드로이드 한 기에 피해를 넣는다 — 디버그 주입이 있으면 그쪽, 없으면 `ctx.allies.damage`. */
+export function allyDamage(sys: EnemySystem, id: string, amount: number, source: PlayerDamageSource, from: THREE.Vector3): void {
+  if (!(amount > 0)) return;
+  const sink = sys.debugAllySink;
+  if (sink) { sink(id, amount, source, from); return; }
+  sys.ctx.allies?.damage(id, amount, source, from);
+}
+
+/** 거리를 어디서 재는가 — 각 폭발이 **플레이어에게** 쓰던 식을 그대로 쓴다 (사람과 안드로이드가 같은 값을 받게). */
+export type AllyBlastMeasure = 'feet' | 'chest' | 'feet2d';
+
+/**
+ * 폭발 · 분출 한 번의 **안드로이드 몫** (권위만). 감쇠는 공용 2단 계단(`shared/explosion`) + 부르는 쪽의 하한 `min`,
+ * 몸 크기는 사람과 같다 (`PLAYER_RADIUS`). 플레이어 루프 바로 옆에서 부른다.
+ */
+export function damageAlliesAt(sys: EnemySystem, center: THREE.Vector3, radius: number, damage: number, id: number, type: EnemyType, min: number, measure: AllyBlastMeasure): void {
+  if (!sys.authority || !(radius > 0) || !(damage > 0)) return;
+  const list = sys.targets.allies;
+  const reach = radius + PLAYER_RADIUS;
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    if (t.isDeadOrDowned || t.allyId === null) continue;
+    let d: number;
+    if (measure === 'chest') { _c.set(t.position.x, t.position.y + PLAYER_HEIGHT * 0.5, t.position.z); d = _c.distanceTo(center); }
+    else if (measure === 'feet2d') d = Math.hypot(t.position.x - center.x, t.position.z - center.z);
+    else d = t.position.distanceTo(center);
+    if (d >= reach) continue;
+    const falloff = Math.max(min, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), radius));
+    allyDamage(sys, t.allyId, damage * falloff, enemyDamageSource(id, type), center);
+  }
+  }
+
+/** `applyAllyHit` 이 발사점 둘레에서 쏜 안드로이드를 찾는 반경 (m) — 총구는 몸 안에 있다. 판정 상수라 csv 대상이 아니다. */
+const ALLY_HIT_RETARGET_R = 3;
+
+/**
+ * `EnemyManagerRef.applyAllyHit` — 안드로이드의 한 발이 적을 맞혔다 (권위만). 사람의 총알과 다른 점은 셋이다:
+ * ① 킬 크레딧이 없다 (`'ai'` — `enemy:killed` 도 `ctx.stats.kills` 도 없다), ② 넉백 · 상태이상이 없다,
+ * ③ 맞은 적은 **쏜 안드로이드**를 노린다 (사람을 노리던 적이 계속 사람만 보면 안드로이드가 방패가 되지 못한다).
+ * `takeDamage` 가 이미 피격 섬광 · 깨우기 · 무리 전파(`alertNear` 14 m — 총성과 같은 팩션 소음)를 한다.
+ */
+export function applyAllyHit(sys: EnemySystem, enemyId: number, damage: number, point: THREE.Vector3, from: THREE.Vector3): boolean {
+  if (!sys.authority || !(damage > 0)) return false;
+  const e = sys.byId.get(enemyId);
+  if (!e || !e.active || e.state === 'dead') return false;
+  _hd.subVectors(e.position, from); _hd.y = 0;
+  const dir = _hd.lengthSq() > 1e-4 ? _hd.normalize() : undefined;
+  e.takeDamage(damage, point, dir, 'ai');
+  if (e.isDead) return true;
+  if (!e.aware) becomeAlert(e, sys, true);
+  // 쏜 안드로이드로 돌아선다 — 프록시는 `from` 근처의 것 (한 발의 출발점이 곧 그 몸이다)
+  const shooter = sys.targets.allyNear(from, ALLY_HIT_RETARGET_R);
+  if (shooter && shooter.present && !shooter.isDeadOrDowned && e.target !== shooter) {
+    e.target = shooter;
+    e.hasLOS = false;
+    e.perceptionTimer = 0;
+    e.fireLineAt = -Infinity; e.fireLineClear = true; e.fireBlockTimer = 0;
+    e.distToTarget = shooter.dist2D(e.position);
+    if (e.investigating) endInvestigation(e);
+  }
+  return true;
   }

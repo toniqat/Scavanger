@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ENEMY_WALL_STANDOFF, ROGUE_COVER_FLANK_WEIGHT, type WorldRef } from '@/shared';
+import { ENEMY_WALL_STANDOFF, ROGUE_COVER_FLANK_WEIGHT, coverLineBlocked, pickCoverSpot, type CoverQuery, type CoverSpot, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { ROGUE_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
@@ -8,19 +8,28 @@ import type { CombatTarget } from '../Targets';
  * Rogue cover selection (Phase 7, rogue AI v2).
  * A candidate is the far side of an obstacle (radius ≥ 0.5, height ≥ 0.8) within COVER_SEARCH_RADIUS that is not behind
  * the rogue, inside the map, 4 m … 90 % of the rifle range from the target and inside the leash — the Phase 4 filters —
- * and, new, the obstacle must actually **block the line of sight** from a crouched rogue at that point to the target's
- * chest (`world.raycast`). Candidates are scored by `distance + ROGUE_COVER_FLANK_WEIGHT × (1 − |sin θ|)` where θ is the
- * angle between the target's facing and the target → candidate direction: a point on the target's flank (θ ≈ ±90°) costs
- * nothing extra, one straight ahead of (or behind) the target costs the full weight, so squads spread around the player
- * instead of stacking up in front of them.
+ * and the obstacle must actually **block the line of sight** from a crouched rogue at that point to the target's chest.
+ * Candidates are scored by `distance + ROGUE_COVER_FLANK_WEIGHT × (1 − |sin θ|)` where θ is the angle between the
+ * target's facing and the target → candidate direction: a point on the target's flank (θ ≈ ±90°) costs nothing extra,
+ * one straight ahead of (or behind) the target costs the full weight, so squads spread around the player instead of
+ * stacking up in front of them.
+ *
+ * 2026-09-15 (안드로이드 분대원): the **world-only** half — candidate generation, the map / distance / anchor filters,
+ * the crouched-eye LOS ray and the pop-out spot — now lives in `shared/cover.ts` (`pickCoverSpot`), because the
+ * androids of `allies/` pick cover by exactly the same rule. What stays here is what only an `Enemy` knows: which
+ * numbers to hand over, and the scoring (flank spread, "not the rock we are already at", the approach bonus).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Obstacles farther than this from the rogue are not considered (kept from Phase 4). */
 export const COVER_SEARCH_RADIUS = 16;
 /** Height above the ground the LOS test starts from at the candidate: a crouched rogue's eyes. */
-const COVER_EYE = 0.9;
+export const COVER_EYE = 0.9;
 /** Standing eye height for the pop-out spot (must see the target). */
-const STAND_EYE = 1.45;
+export const STAND_EYE = 1.45;
+/** Cover closer than this to the target is refused (Phase 4 filter). */
+export const COVER_MIN_TARGET_DIST = 4;
+/** …and farther than this fraction of the rifle range, from which it could not answer fire. */
+export const COVER_MAX_RANGE_FRAC = 0.9;
 /*
  * How far past the obstacle's blocking cylinder the rogue stands (hiding spot · pop-out spot): `ENEMY_WALL_STANDOFF`.
  * 2026-09-11 (C-25): the private `COVER_STANDOFF` 0.7 is gone — `ai/FireLine` pulls its muzzle test back by
@@ -28,47 +37,16 @@ const STAND_EYE = 1.45;
  * cover selection had just validated. One number now decides both.
  */
 
-/**
- * The radius the rogue must clear when it steps behind or beside a prop.
- *
- * 2026-09-08: this is **not** `o.radius`. Since the 바위 엄폐 fix a prop can declare `shotRadius` — the cylinder
- * *bullets* stop at, sized to the visible silhouette — while `radius` stays the deliberately narrower movement
- * collider. Offsetting by the collider alone put the pop-out spot inside the rock as far as every raycast was
- * concerned, so `findPopSpot` saw both flanks as "still hidden" and rejected every candidate: the rogue took no
- * cover at all near rocks with a wide `shotRadius`.
- */
-function blockRadius(o: { radius: number; shotRadius?: number }): number {
-  return o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
-}
-
-/**
- * The height a ray actually stops at — `shotHeight` when the prop declares one, else the collider's. The same fix
- * made shot cylinders **shorter** as well as wider (the collider used to stand ~0.4 m above the real rock), so a
- * prop that passes the old `height ≥ 0.8` filter can now be ducked under by the crouched-eye LOS test. Filtering on
- * this instead keeps such a rock out of the candidate list rather than letting it lose the raycast later.
- */
-function blockHeight(o: { height: number; shotHeight?: number }): number {
-  return o.shotHeight !== undefined && o.shotHeight > 0 ? o.shotHeight : o.height;
-}
-
-const _d = new THREE.Vector3();
-const _c = new THREE.Vector3();
-const _eye = new THREE.Vector3();
 const _chest = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
-const _best = new THREE.Vector3();
 
 /**
  * True when the world (terrain / obstacles) blocks the line from a crouched eye at `(x, groundY + COVER_EYE, z)` to
- * `chest`. Exported for the smoke test, which re-validates the chosen cover the same way.
+ * `chest`. Exported for the smoke test, which re-validates the chosen cover the same way. The ray itself is
+ * `shared/cover.coverLineBlocked` — one formula for enemies and androids.
  */
 export function coverBlocksLine(world: WorldRef, x: number, groundY: number, z: number, chest: THREE.Vector3, eyeHeight = COVER_EYE): boolean {
-  _eye.set(x, groundY + eyeHeight, z);
-  _d.subVectors(chest, _eye);
-  const dist = _d.length();
-  if (dist < 1e-3) return false;
-  _d.multiplyScalar(1 / dist);
-  return world.raycast(_eye, _d, dist - 0.3) !== null;
+  return coverLineBlocked(world, x, groundY + eyeHeight, z, chest);
 }
 
 /** Flank term: 0 on the target's flank, `ROGUE_COVER_FLANK_WEIGHT` straight ahead of / behind it. */
@@ -106,80 +84,62 @@ export function pickApproachCover(e: Enemy, host: EnemyHost, t: CombatTarget): v
 /** A cover leg toward a shot origin must gain at least this many metres on it. */
 const APPROACH_GAIN = 3;
 
-function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boolean): void {
-  const world = host.ctx.world!;
-  const obstacles = world.getObstaclesNear(e.position.x, e.position.z, COVER_SEARCH_RADIUS);
-  const tp = t.position;
-  t.getChest(_chest);
-  _d.set(tp.x - e.position.x, 0, tp.z - e.position.z);
-  const dist = _d.length();
-  if (dist > 1e-3) _d.multiplyScalar(1 / dist);
-  let best = Infinity;
-  const hadCover = e.hasCover;
-  const prevX = e.coverPos.x, prevZ = e.coverPos.z;
-  e.hasCover = false;
-  e.hasPop = false;
-  for (let i = 0; i < obstacles.length; i++) {
-    const o = obstacles[i];
-    if (blockRadius(o) < 0.5 || blockHeight(o) < 0.8) continue;
-    const ox = o.position.x - e.position.x, oz = o.position.z - e.position.z;
-    const along = ox * _d.x + oz * _d.z;
-    if (along < -2) continue;                                    // behind us
-    // cover point: behind the obstacle relative to the target
-    _c.set(o.position.x - tp.x, 0, o.position.z - tp.z);
-    const l = _c.length();
-    if (l < 1e-3) continue;
-    _c.multiplyScalar(1 / l);
-    const br = blockRadius(o);
-    const px = o.position.x + _c.x * (br + ENEMY_WALL_STANDOFF), pz = o.position.z + _c.z * (br + ENEMY_WALL_STANDOFF);
-    if (!world.isInsideBounds(px, pz)) continue;
-    const toTarget = Math.hypot(tp.x - px, tp.z - pz);
-    if (toTarget < 4 || toTarget > ROGUE_AI.range * 0.9) continue;
-    if (approach && toTarget > dist - APPROACH_GAIN) continue;   // Phase 12: the leg must actually close in
-    if (!e.escortOf && Math.hypot(px - e.guardPos.x, pz - e.guardPos.z) > e.leash) continue;
-    // cheap terms first, the raycast last: skip candidates that cannot beat the current best anyway
-    const walk = Math.hypot(px - e.position.x, pz - e.position.z);
-    let score = approach ? toTarget + walk * 0.5 : walk;
-    if (walk < 1.5) score += 6;                                   // prefer a different rock than the one we are at
-    if (hadCover && Math.hypot(px - prevX, pz - prevZ) < 2.5) score += 6;   // …or the one we just left
-    if (!approach) {
-      score += Math.max(0, toTarget - 35) * 0.5;
-      score += flankCost(t, px, pz);
-    }
-    if (score >= best) continue;
-    const py = world.getHeightAt(px, pz);
-    if (!coverBlocksLine(world, px, py, pz, _chest)) continue;    // the rock must actually hide us
-    // …and we must be able to step out beside it and see the target, otherwise we would hide forever
-    if (!findPopSpot(world, o, tp, e.position, _chest, _best)) continue;
-    best = score;
-    e.coverPos.set(px, py, pz);
-    e.popPos.copy(_best);
-    e.hasCover = true;
-    e.hasPop = true;
+/* ── 점수: `pickCoverSpot` 에 넘기는 **모듈 수준** 함수 하나 (매 프레임 클로저를 만들지 않는다) ─────────
+ * 부르기 직전에 `pickCoverImpl` 이 아래 상태를 채운다. `pickCoverSpot` 은 한 번의 호출 안에서 동기적으로만
+ * 이 함수를 부르므로 재진입이 없다.
+ */
+let _sTarget: CombatTarget | null = null;
+let _sApproach = false;
+let _sHadCover = false;
+let _sPrevX = 0, _sPrevZ = 0;
+let _sDist = 0;
+
+function enemyCoverScore(x: number, z: number, walk: number, toTarget: number): number {
+  if (_sApproach && toTarget > _sDist - APPROACH_GAIN) return Infinity;   // Phase 12: the leg must actually close in
+  let score = _sApproach ? toTarget + walk * 0.5 : walk;
+  if (walk < 1.5) score += 6;                                             // prefer a different rock than the one we are at
+  if (_sHadCover && Math.hypot(x - _sPrevX, z - _sPrevZ) < 2.5) score += 6;   // …or the one we just left
+  if (!_sApproach) {
+    score += Math.max(0, toTarget - 35) * 0.5;
+    score += flankCost(_sTarget!, x, z);
   }
+  return score;
 }
 
-/**
- * Pop-out spot for obstacle `o`: either flank (perpendicular to the target line, `radius + standoff` out, pulled a
- * little back toward the cover side), the nearer one from which a standing eye sees `chest`. Writes `out`; false when
- * neither flank has a line.
- */
-function findPopSpot(world: WorldRef, o: { position: THREE.Vector3; radius: number; shotRadius?: number }, tp: THREE.Vector3, from: THREE.Vector3, chest: THREE.Vector3, out: THREE.Vector3): boolean {
-  _c.set(o.position.x - tp.x, 0, o.position.z - tp.z);
-  const l = _c.length();
-  if (l < 1e-3) return false;
-  _c.multiplyScalar(1 / l);
-  const br = blockRadius(o);
-  const reach = br + ENEMY_WALL_STANDOFF + 0.2;
-  let bestD = Infinity;
-  for (let side = -1; side <= 1; side += 2) {
-    const px = o.position.x + (-_c.z * side) * reach + _c.x * br * 0.35;
-    const pz = o.position.z + (_c.x * side) * reach + _c.z * br * 0.35;
-    if (!world.isInsideBounds(px, pz)) continue;
-    const py = world.getHeightAt(px, pz);
-    if (coverBlocksLine(world, px, py, pz, chest, STAND_EYE)) continue;   // still hidden: useless as a firing spot
-    const d = Math.hypot(px - from.x, pz - from.z);
-    if (d < bestD) { bestD = d; out.set(px, py, pz); }
+/** 한 벌만 만들어 돌려 쓰는 질의 · 결과 (할당 없음). */
+type MutableCoverQuery = { -readonly [K in keyof CoverQuery]: CoverQuery[K] };
+const _query: MutableCoverQuery = {
+  from: new THREE.Vector3(), threat: new THREE.Vector3(), anchor: new THREE.Vector3(),
+  anchorRadius: Infinity, minThreatDist: COVER_MIN_TARGET_DIST, maxThreatDist: 0,
+  bodyRadius: ENEMY_WALL_STANDOFF, chestHeight: COVER_EYE, threatEyeHeight: 0,
+  searchRadius: COVER_SEARCH_RADIUS, popEyeHeight: STAND_EYE, score: enemyCoverScore,
+};
+const _spot: CoverSpot = { cover: new THREE.Vector3(), pop: new THREE.Vector3(), hasPop: false, score: 0 };
+
+function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boolean): void {
+  const world = host.ctx.world!;
+  t.getChest(_chest);
+  _sTarget = t;
+  _sApproach = approach;
+  _sHadCover = e.hasCover;
+  _sPrevX = e.coverPos.x; _sPrevZ = e.coverPos.z;
+  _sDist = Math.hypot(t.position.x - e.position.x, t.position.z - e.position.z);
+  const q = _query;
+  q.from = e.position;
+  q.threat = t.position;
+  // 호위병(`escortOf`)은 리시가 없다 — 대장을 따라다니므로 경계 지점에 묶으면 아예 엄폐하지 못한다
+  q.anchor = e.escortOf ? e.position : e.guardPos;
+  q.anchorRadius = e.escortOf ? Infinity : e.leash;
+  q.maxThreatDist = ROGUE_AI.range * COVER_MAX_RANGE_FRAC;
+  // 표적의 가슴 = 종류마다 다르다 (사람 · 적 · 드론 · 차량) — `getChest` 가 답한 높이를 그대로 넘긴다
+  q.threatEyeHeight = _chest.y - t.position.y;
+  e.hasCover = false;
+  e.hasPop = false;
+  if (pickCoverSpot(world, q, _spot)) {
+    e.coverPos.copy(_spot.cover);
+    e.popPos.copy(_spot.pop);
+    e.hasCover = true;
+    e.hasPop = _spot.hasPop;
   }
-  return bestD < Infinity;
+  _sTarget = null;
 }

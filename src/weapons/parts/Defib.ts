@@ -48,21 +48,28 @@ function chargeTime(sys: WeaponSystem, def: ItemDef): number {
  */
 function hasAimedAlly(sys: WeaponSystem, host: Host): boolean {
   const ctx = sys.ctx;
-  const net = ctx.net;
   const me = ctx.player;
-  if (!net || !me) return false;
+  if (!me) return false;
   host.getAimRay(_o, _dir);
   _dir.normalize();
   const cos = Math.cos((DEFIB_AIM_CONE_DEG * Math.PI) / 180);
   const rangeSq = GADGET_DEFIB_RANGE * GADGET_DEFIB_RANGE;
-  for (const r of net.getRemotePlayers()) {
-    if (!r.isDowned || r.stale) continue;
-    if (r.position.distanceToSquared(me.position) > rangeSq) continue;
-    _to.copy(r.position); _to.y += CHEST_Y;
+  const aimed = (at: THREE.Vector3): boolean => {
+    if (at.distanceToSquared(me.position) > rangeSq) return false;
+    _to.copy(at); _to.y += CHEST_Y;
     _to.sub(_o);
     const len = _to.length();
-    if (len < 1e-3) return true;
-    if (_to.dot(_dir) / len >= cos) return true;
+    return len < 1e-3 || _to.dot(_dir) / len >= cos;
+  };
+  for (const r of ctx.net?.getRemotePlayers() ?? []) {
+    if (!r.isDowned || r.stale) continue;
+    if (aimed(r.position)) return true;
+  }
+  /* 2026-09-15 (안드로이드 분대원): 쓰러진 **안드로이드**도 같은 대상이다 — 여기가 「떼면 발동한다」 의 문이므로
+   * (`releaseDefib` 의 `fire = armed && target`) gadgets 의 `findDownedAlly` 와 **같은 범위**를 봐야 한다. */
+  for (const b of ctx.allies?.getBodies?.() ?? []) {
+    if (!b.downed || b.dead || b.hidden || b.mode !== 'raid') continue;
+    if (aimed(b.position)) return true;
   }
   return false;
 }

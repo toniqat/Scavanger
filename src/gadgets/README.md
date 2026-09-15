@@ -35,7 +35,10 @@ meta, `DroneSystem` right after `GadgetSystem` (`src/main.ts`). No lights anywhe
 ## Gadgets
 
 Items: `cloakVeil` (self), `domeShield` (throw), `barricade` · `mine` · `remoteMine` · `turret` · `jumpPad` (place),
-`lureGrenade` · `smokeGrenade` (throw), `defib` (target), `droneGround` · `droneAir` (drone). The fire zone
+`lureGrenade` · `smokeGrenade` (throw), `defib` (target), `droneGround` · `droneAir` (drone).
+2026-09-15 — the defib also raises a **downed android** (`findDownedAlly` scans `ctx.allies.getBodies()` with the same
+range and the same aim-ray score as the human squad; `DefibTarget.ally` sends `AlliesRef.requestRevive(id, {defib:true})`
+instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasAimedAlly` and scans the same set. The fire zone
 (`incendiary`, kind `fire`) has no item: weapons lights it where an incendiary grenade explodes
 (`GadgetsRef.igniteGrenadeFire`). Numbers are `GADGET_*` / `GRENADE_INCENDIARY_*` / `DRONE_*` keys in `data/constants.csv`.
 
@@ -76,6 +79,7 @@ Items: `cloakVeil` (self), `domeShield` (throw), `barricade` · `mine` · `remot
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.
+- 2026-09-15 — Defib works on downed androids (`DefibTarget.ally` → `AlliesRef.requestRevive({defib:true})`).
 - 2026-09-15 — Dome shield recover; dome / barricade carry item durability; fire gadget merged into internal `incendiary`; defib picks the ally nearest the aim ray.
 - 2026-09-15 — Explosion damage uses the shared two-step falloff (`shared/explosion`).
 - 2026-09-15 — Player damage from deployables carries a `self` / `ally` source.

@@ -15,7 +15,7 @@ import type {
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEF_MAP, NET_MAX_PLAYERS, SHELF_SLOTS, SHIP_ROOM_COUNT, SHIP_VISIT_COOLDOWN_S, SHIP_VISIT_MAX_FURNITURE,
-  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S, shelfMediumOfInteraction,
+  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S, isBotPlayer, shelfMediumOfInteraction,
 } from '@/shared';
 import type { FurnitureSource } from '../interiors/Furniture';
 import type { HubSystem } from '../HubSystem';
@@ -128,7 +128,8 @@ export function announceShip(sys: HubSystem): void {
   const known = typeof net.getShipVisit === 'function' ? net.getShipVisit(me ?? '') : null;
   if (!known) sendShipState(sys, true);          // first arrival in this squad — nobody has our layout
   for (const p of lobby.players) {
-    if (p.id === me || typeof net.requestShipVisit !== 'function') continue;
+    // 2026-09-15: 봇 멤버에게는 물어볼 함선이 없다 (소켓도 없다)
+    if (p.id === me || isBotPlayer(p) || typeof net.requestShipVisit !== 'function') continue;
     if (!net.getShipVisit(p.id)) net.requestShipVisit(p.id);
   }
   }
@@ -187,13 +188,18 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
   }
 
 /* ── bays ──────────────────────────────────────────────────────────────── */
-/** Crew name parked in bay `slot`, or null when the slot is empty (no lobby → only our own bay 0 is filled). */
+/**
+ * Crew name parked in bay `slot`, or null when the slot is empty (no lobby → only our own bay 0 is filled).
+ *
+ * 2026-09-15 (안드로이드 분대원): 봇 멤버는 개인 함선이 없다 — 그 슬롯의 정박 구역은 **비어 있다**
+ * (`비어 있는 정박 구역`), 함선도 세우지 않고 `ship state` 를 물어보지도 않는다.
+ */
 function occupantOf(sys: HubSystem, slot: number): { id: PeerId; name: string } | null {
   const net = sys.ctx.net;
   const lobby = sys.squadLobby();
   if (!lobby) return slot === 0 ? { id: net?.localId ?? 'local', name: '내 함선' } : null;
   const p = lobby.players.find((q) => q.slot === slot) ?? null;
-  return p ? { id: p.id, name: p.name } : null;
+  return p && !isBotPlayer(p) ? { id: p.id, name: p.name } : null;
   }
 
 /** The hangar's four bays with their current occupants (empty outside the shared ship). */

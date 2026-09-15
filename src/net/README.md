@@ -39,6 +39,7 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 | `connect(url?)` / `ensureConnected()` / `disconnect()` | `ensureConnected` never rejects (false = offline ship) |
 | `relayUrl`, `relayOverride`, `setRelayOverride(raw)`, `probeRelay(raw?)`, `reconnectRelay()` | Override = settings `서버 설정` (`RELAY_STORAGE_KEY`); probe is tokenless |
 | `lobby`, `isHost`, `isAuthority`, `inSession`, `inHubSession`, `missionInProgress`, `missionMode`, `tookOver`, `localSlot` | `inHubSession` = **docked** lobby (`isDockedLobby`) && !inSession && phase `hub` && standing in the shared ship (`hub.ship === 'shared'` or a bay's ship, `hubSite !== null`) |
+| `setAndroidBay(bay, recruit)` | 2026-09-15 — leader only: put the cockpit bay's android into / out of the squad (`lobby:android`). Result is the relay's `lobby:state`; never mirrored optimistically (the relay owns the cap and the slot). Not connected / no lobby / not the leader → `net:error` (`server` · `not_in_lobby` · `not_host`) |
 | `requestDock(isPublic)`, `dockPending` | 터미널 매칭 → `lobby:dock`. `dockPending` is true from the request (and from `createLobby` / `joinLobby` / `quickMatch`) until a docked lobby's `net:lobbyUpdated` **has been emitted**, a `lobby:error`, or leaving (kept through `moved`) — hub/ reads it inside that event to tell its own dock from the leader's |
 | `createLobby` / `joinLobby` / `leaveLobby` / `quickMatch` / `setPublic` / `setLobbySeed` / `setReady` | Only `leaveLobby()` leaves a lobby; mission end keeps it |
 | `startGame(seed, mode?, planet?, intel?)` | Raid: host, all ready; planet / intel default to the lobby's. Training: any member, no planet |
@@ -56,6 +57,7 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 `net:resumed`, `net:matched`, `net:lobbyUpdated`, `net:lobbyLeft`, `net:peerJoined` / `peerLeft`, `net:gameStarting`
 (+ `game:newMission`), `net:hostChanged`, `net:peerSuspended`, `net:missionMembership`, `net:remotePlayerAdded` / `Removed`,
 `net:remoteFired` / `Reloaded` / `Grenade` / `Died` / `Downed` / `Revived` / `Ping` / `CarryChanged` / `BuffsChanged`,
+`net:androidReturned`,
 `net:chat`, `net:ghostState`, `net:ghostRestore`, `net:crewCard`, `net:crewLoadout`, `net:shipVisit`, `net:profileLoaded`,
 `net:profileConflict`, `net:raidLoaded`, `net:cryptoPrices`, `net:cryptoHistory`, `social:*`, `room:*`,
 `player:reviveProgress`, `player:applySlow`, `housing:mealServed` (re-emitted for received meals).
@@ -177,14 +179,24 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
   re-entry guard (`applying`). Quality `q` is omitted when 0 — `parts/Meal.ts`.
 - `dmg.src` is checked with `damageSourceFromWire`; a malformed source becomes `undefined` (unknown) and never rejects
   the damage — `parts/Messages.ts`.
+- **Android bot members are not peers** (2026-09-15). A `LobbyPlayer` with `bot` is an android the relay put in the squad
+  (`src/shared/net.ts` last section); it has no socket, so nothing here ever addresses it. `applyLobby` emits no
+  `net:peerJoined` / `peerLeft` for it (allies/ announces roster changes from `androidPlayersOf(lobby)`),
+  `syncRemoteIdentities` skips it (no `RemotePlayerRef`, no `net:missionMembership`, and it never enters the crew-card /
+  ship-visit / buff-list pruning sets), squad codes skip it (a bot has no `code`) and `parts/Meal` neither serves nor
+  accepts one. **Squad size is humans-only where the question is social** — `SocialSync.squadSize` feeds
+  `playBlockReason` (invite gates), matching the relay's own humans-only cap; folders asking "how many fighters" (enemy /
+  difficulty scaling) read `ctx.net.lobby` themselves and count androids.
+- `lobby:androidReturned` only explains a roster change the `lobby:state` already carried, so it is translated straight to
+  `net:androidReturned` and touches no local state; a malformed frame is dropped (one missing toast, never a wrong roster).
 - `parts/` import rule: parts take the instance as first argument `sys`, import `NetSystem.ts` **types only**, and put
   shared values in `model.ts`. Members made non-private for `parts/` are still folder-internal.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-15 — Android squadmates: `setAndroidBay(bay, recruit)` → `lobby:android`, `lobby:androidReturned` → `net:androidReturned`, bot members excluded from peers / remote refs / meal targets, `squadSize` humans-only.
 - 2026-09-15 — Squads vs shared ship: `inHubSession` needs a docked lobby + standing in its shared ship (hub `ps` from anywhere else dropped); `withSession` adds `&a=<accent>`; `dockPending` also set by create / join / quick match, cleared after the docked `net:lobbyUpdated`, on `lobby:error`, kept through `moved`; `SocialSync.playBlock` → `in_squad` / `not_leader`.
 - 2026-09-15 — `dmg.src` damage source decoded and passed as the third `takeDamage` argument.
 - 2026-09-14 — Intel wire: `lobbyIntel` / `setLobbyIntel`, `startGame(…, intel)`, `ctx.missionIntel` set in `beginSession`, restored on rejoin.
 - 2026-09-14 — `RoomSync.ts` (group rooms); private-chat unread in `SocialSync`.
-- 2026-09-13 — `parts/Crypto.ts` (`ctx.net.crypto`); `PlayerFlags.IN_ROVER`; meal quality `q` on `meal req|serve`.

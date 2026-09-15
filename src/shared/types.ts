@@ -3527,6 +3527,12 @@ export interface LootContainerInfo {
 export interface WorldRef {
   /** 이번 맵의 루팅 컨테이너 전부 (월드 상자 + 구조물 보관함). 재사용 배열 — 읽고 바로 쓴다. 훈련장은 빈 배열. */
   getLootContainers?(): readonly LootContainerInfo[];
+  /**
+   * appended (2026-09-15, A6): 안드로이드가 연 상자 · 컨테이너를 **열린 모습**(뚜껑 · 문)으로 만들고 분대에 알린다
+   * (`crate opened`). 사람이 E 로 연 것과 같은 자리를 부르지만 이벤트 · 통계 · 감정 XP 는 내지 않는다 —
+   * 그것들은 사람의 상호작용에만 걸린다. 이 맵에 없는 id 면 false. 부르는 곳은 `InventoryRef.takeContainerItemFor` 뿐이다.
+   */
+  markContainerOpened?(containerId: string): boolean;
 }
 
 export interface HazardRef {
@@ -3545,6 +3551,14 @@ export interface EnemyManagerRef {
 export interface PlayerRef {
   /** `snapshotFace` 의 안드로이드판 — 같은 프레이밍, 안드로이드 헬멧 · 바이저. 매칭 탭 · 발사 슬롯 · 분대 목록 초상. */
   snapshotAndroidFace?(opts: { accent: string; size?: number }): string | null;
+}
+
+export interface PortraitRef {
+  /**
+   * appended (2026-09-15, A4): 발사 슬롯 초상 칸 `index` 를 안드로이드 외형으로 그린다 (`SoldierModel.setAndroidLook`).
+   * `setMember` 와 순서 무관 — 칸이 기억하므로 몸이 새로 지어져도 유지된다. owner: player `Portraits.ts`.
+   */
+  setAndroid?(index: number, on: boolean): void;
 }
 
 export interface CorpsesRef {

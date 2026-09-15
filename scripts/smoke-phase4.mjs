@@ -532,9 +532,19 @@ try {
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   console.log('corpse loot tables / knockback (lead checks)');
-  const rolled = await P(() => window.__game.ctx.loot.rollCorpse('rogue', undefined, 'smg').map((i) => ({ d: i.defId, q: i.qty, dur: i.durability })));
+  const rolled = await P(() => window.__game.ctx.loot.rollCorpse('rogue', undefined, 'smg').map((i) => {
+    const st = window.__game.ctx.loot.getEffectiveStats(i);
+    return { d: i.defId, q: i.qty, dur: i.durability, max: st ? st.maxDurability : 0 };
+  }));
   // 2026-09-13: 로그 총은 팩션 등급 분포(I 85 · II 14 · III 1 %)로 다시 매겨진다 — 같은 계열이면 된다
-  ok(rolled.some((i) => /^wpn_smg(_g[23])?$/.test(i.d) && i.dur !== undefined && i.dur <= 90) && rolled.some((i) => i.d === 'ammo_light'), 'rollCorpse(rogue): low-durability weapon + matching calibre ammo', JSON.stringify(rolled));
+  /* 2026-09-15: 절대값(`dur <= 90`)으로 재지 않는다 — `data/loot_corpse_rolls.csv` 는 **그 총의 최대 내구도 대비**
+     0.05~0.15 를 굴리고 최대치는 등급마다 `WEAPON_GRADE_DURABILITY_STEP` 만큼 커진다. 등급 II SMG 는 정상적으로
+     100 을 넘겨 굴러 3 % 쯤 빨갛게 떴다 (제품 결함이 아니라 판정 결함). 정말 보려는 것은 "시체 총은 낡아서
+     나온다" = 자기 최대치 대비 비율이 낮다는 것뿐이다. 반올림 여유로 상한은 0.15 가 아니라 0.16 을 쓴다. */
+  const wornGun = rolled.find((i) => /^wpn_smg(_g[23])?$/.test(i.d));
+  const wornRatio = wornGun && wornGun.max > 0 && wornGun.dur !== undefined ? wornGun.dur / wornGun.max : -1;
+  ok(wornRatio > 0 && wornRatio <= 0.16 && rolled.some((i) => i.d === 'ammo_light'),
+    `rollCorpse(rogue): low-durability weapon (${wornGun?.dur} / ${wornGun?.max} = ${(wornRatio * 100).toFixed(1)} % of its own max) + matching calibre ammo`, JSON.stringify(rolled));
   const bossRoll = await P(() => window.__game.ctx.loot.rollCorpse('rogue_boss', undefined, 'ar').map((i) => i.defId));
   ok(bossRoll.some((d) => /^wpn_ar_g[34]$/.test(d)) && bossRoll.some((d) => d.startsWith('att_')), 'rollCorpse(rogue_boss): grade III/IV weapon + attachment', JSON.stringify(bossRoll));
   const kb = await P(() => { const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const v0 = ctx.player.velocity.length(); ctx.player.applyKnockback(new V(1, 0.4, 0), 12); return { v0, v1: ctx.player.velocity.length() }; });

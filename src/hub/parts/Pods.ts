@@ -20,6 +20,8 @@ import type { IntelPick } from '@/shared';
 import { resolveIntelEffects } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LaunchWarning, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+/* 2026-09-15: 안드로이드 봇 멤버 (발사 슬롯) · 레이드 진입 로딩 암전 */
+import { RAID_LOAD_FADE_OUT_S, RAID_LOAD_START_GRACE_S, androidNameOf, isBotPlayer } from '@/shared';
 import { PersonalShip } from '../interiors/PersonalShip';
 import { SharedShip } from '../interiors/SharedShip';
 import type { StationDef } from '../interiors/stations';
@@ -162,6 +164,7 @@ export function toggleReady(sys: HubSystem): void {
   const ctx = sys.ctx;
   if (sys.boardedSlot < 0 || ctx.phase !== 'hub' || sys.cutscene) return;
   if (sys.launchWarn.isOpen) return;
+  if (sys.raidLaunch) return;   // 2026-09-15: 암전이 시작된 뒤로는 준비를 바꿀 수 없다 (발사 확정)
   if (sys.readyLocal) {
     sys.readyLocal = false;
     if (ctx.net && sys.squadLobby()) { ctx.net.setReady(false); sys.readySentAt = ctx.time; }
@@ -262,6 +265,8 @@ export function syncPods(sys: HubSystem): void {
      * 로컬은 둘이 갈라지고(탑승 → 홀드), 원격은 와이어에 탑승이 없어 `LobbyPlayer.ready` 하나가 둘을 겸한다.
      */
     let inSlot = false, confirmed = false;
+    /* 2026-09-15: 이 칸이 안드로이드 봇 멤버인가 · 그 조종실 슬롯 번호 (발사 준비 패널이 초상 · 장비를 달리 그린다) */
+    let bot = false, bay = 0;
     if (slot === localSlot && (!lobby || me)) {
       local = true; present = true; peerId = localId;
       name = net?.playerName ?? '스캐빈저';
@@ -274,7 +279,17 @@ export function syncPods(sys: HubSystem): void {
       const q = lobby.players.find((pl) => pl.slot === slot);
       if (q) {
         name = q.name; present = true; peerId = q.id; connected = q.connected;
-        if (!q.connected) state = '연결 끊김';
+        /*
+         * 2026-09-15 (안드로이드 분대원): 봇 멤버는 소켓이 없고 릴레이가 `ready: true` 로 붙들어 둔다 — 원격 아바타가
+         * 오기를 기다리지 않고 **앉아서 준비를 마친 것**으로 그린다 (몸은 allies/ 가 포드 **앞** 대기 자리에 세운다).
+         * 훈련장에는 따라가지 않으므로 훈련 중에는 사람과 같이 문이 열린 `대기 중` 이다.
+         */
+        if (isBotPlayer(q)) {
+          bot = true; bay = q.bay ?? slot; connected = true;
+          name = androidNameOf(bay);
+          if (training) state = '대기 중';
+          else { inSlot = true; confirmed = true; occupant = q.id; state = lobby.started ? '임무 중' : '준비 완료'; }
+        } else if (!q.connected) state = '연결 끊김';
         else if (training) state = q.inMission ? '훈련 중' : '대기 중';      // a training never closes a pod door
         else if (q.ready) { inSlot = true; confirmed = true; occupant = q.id; state = lobby.started ? '임무 중' : '준비 완료'; }
         else state = '대기 중';
@@ -282,8 +297,8 @@ export function syncPods(sys: HubSystem): void {
     }
     if (present && slot < HUB_READY_CELLS) {
       cells[slot] = {
-        slot, peerId, name, ready: inSlot, confirmed, local, connected, state,
-        ...sys.crewLook(local, peerId),
+        slot, peerId, name, ready: inSlot, confirmed, local, connected, state, bot, bay,
+        ...(bot ? { level: null, implant: null, armorId: null } : sys.crewLook(local, peerId)),
       };
     }
     const changed = pod.setDisplay({ occupant, name, state, local, closed: occupant !== null });
@@ -343,10 +358,76 @@ export function launch(sys: HubSystem): void {
   }
   }
 
+/* ── 레이드 진입 로딩 (2026-09-15) ─────────────────────────────────────────
+ * 사용자 결정: 「발사 슬롯에 준비를 완료하여 3초 카운트 이후, 화면 암전(페이드아웃), 이후 암전된 상태에서 …
+ * 모든 플레이어가 로딩 완료되면 이후 암전 풀리면서(페이드인) 강하 시퀀스 재생.」
+ *
+ * hub 의 몫은 **시작뿐**이다: 카운트다운이 0 이 되면 (호스트 · 분대원 · 솔로) 모두가 같은 프레임에 암전을 시작하고
+ * `raid:loadBegin` 을 낸다. 권위는 `RAID_LOAD_FADE_OUT_S` **뒤에** 발사한다 — 그러지 않으면 강하 씬의 첫 프레임이
+ * 아직 밝은 함선 위로 겹친다. 그 뒤의 원형 게이지 · 대기 · 페이드인은 game/`parts/LoadGate` 와 ui/ 의 것이다.
+ * 암전이 시작된 뒤로 발사는 **확정**이다 (준비 해제 · E 로 취소되지 않는다 — `HubSystem.raidLaunch`).
+ */
+export function beginRaidLoad(sys: HubSystem): void {
+  const ctx = sys.ctx;
+  if (sys.raidLaunch) return;
+  const lobby = sys.squadLobby();
+  const authority = !lobby || (ctx.net?.isHost ?? false);
+  sys.raidLaunch = { dueMs: performance.now() + RAID_LOAD_FADE_OUT_S * 1000, authority, launched: false, timer: null };
+  arm(sys, RAID_LOAD_FADE_OUT_S);
+  sys.ready.setLaunching(true);
+  ctx.bus.emit('ui:screenFade', { opacity: 1, durationS: RAID_LOAD_FADE_OUT_S, hold: true });
+  ctx.bus.emit('raid:loadBegin', {});
+  if (RAID_LOAD_FADE_OUT_S <= 0) tickRaidLaunch(sys);
+}
+
+/** Re-arm the wall-clock backup timer of the committed launch. */
+function arm(sys: HubSystem, seconds: number): void {
+  const st = sys.raidLaunch;
+  if (!st) return;
+  if (st.timer !== null) clearTimeout(st.timer);
+  st.timer = setTimeout(() => { if (sys.raidLaunch) tickRaidLaunch(sys); }, Math.max(0, seconds) * 1000);
+}
+
+/** Drop a committed launch (ship teardown / rebuild) — the timer never outlives the interior. */
+export function clearRaidLaunch(sys: HubSystem): void {
+  const st = sys.raidLaunch;
+  if (!st) return;
+  if (st.timer !== null) clearTimeout(st.timer);
+  sys.raidLaunch = null;
+}
+
+/**
+ * One frame of the committed launch. At the end of the fade the authority launches; after that everyone waits for
+ * `game:newMission` (which tears the hub down). If nothing happened by `RAID_LOAD_START_GRACE_S` past the fade — the
+ * host left, the server refused — the screen fades back in and the pod returns to its normal state.
+ */
+export function tickRaidLaunch(sys: HubSystem): void {
+  const st = sys.raidLaunch;
+  if (!st) return;
+  const ctx = sys.ctx;
+  const now = performance.now();
+  if (now < st.dueMs) return;
+  if (!st.launched) {
+    st.launched = true;
+    st.dueMs = now + RAID_LOAD_START_GRACE_S * 1000;
+    arm(sys, RAID_LOAD_START_GRACE_S);
+    if (st.authority) sys.launch();
+    return;
+  }
+  // 아무도 발사하지 않았다 (호스트 이탈 · 서버 거절) — 암전을 풀고 함선으로 돌아온다
+  clearRaidLaunch(sys);
+  ctx.bus.emit('ui:screenFade', { opacity: 0, durationS: RAID_LOAD_FADE_OUT_S });
+  ctx.bus.emit('ui:notify', { text: '발사하지 못했습니다 — 함선으로 돌아갑니다', kind: 'warning' });
+  sys.launched = false;
+  sys.syncPods();
+}
+
 export function tickCountdown(sys: HubSystem, dt: number): void {
   const ctx = sys.ctx;
   const net = ctx.net;
   const lobby = sys.squadLobby();   // 2026-09-15: only the squad whose shared ship we stand in counts down together
+  // 2026-09-15: 암전이 시작된 뒤로는 준비 상태를 다시 읽지 않는다 — 발사는 확정이다
+  if (sys.raidLaunch) { tickRaidLaunch(sys); return; }
   const boarded = sys.boardedSlot >= 0;
   // 2026-09-14: 카운트다운을 여는 것은 탑승이 아니라 **준비**다 (솔로도 스페이스 홀드를 해야 뜬다).
   const meReady = boarded && sys.readyLocal;
@@ -357,7 +438,7 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     ready = connected.filter((p) => p.ready).length;
     allReady = meReady && !lobby.started && connected.length > 0 && ready === connected.length;
   }
-  const authority = !lobby || (net?.isHost ?? false);
+  /* 2026-09-15: 「누가 발사하는가」는 `beginRaidLoad` 가 암전이 끝난 뒤에 다시 본다 (여기서 미리 정해 두지 않는다). */
 
   if (allReady && sys.countdown < 0 && !sys.launched) {
     sys.countdown = HUB_LAUNCH_COUNTDOWN;
@@ -385,7 +466,8 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     }
     if (sys.countdown <= 0) {
       sys.countdown = -1;
-      if (authority) sys.launch();
+      // 2026-09-15 (레이드 진입 로딩): 발사 대신 **암전**부터 — 권위는 `RAID_LOAD_FADE_OUT_S` 뒤에 발사한다
+      beginRaidLoad(sys);
       return;
     }
   }

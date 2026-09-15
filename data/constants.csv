@@ -1143,4 +1143,6 @@ RAID_LOAD_TIMEOUT_S,60,"분대원 로딩을 기다리는 최대 시간 (s, 사�
 RAID_LOAD_REPORT_S,0.25,"로딩 진행도를 분대에 알리는 주기 (s)."
 RAID_LOAD_WORLD_SHARE,0.25,"진행도 중 월드 생성의 몫 (나머지는 셰이더 컴파일). 월드는 동기로 한 번에 끝나므로 0 → 이 값으로 뛴다."
 RAID_LOAD_MIN_BLACK_S,0.8,"로딩이 아무리 빨라도 원형 게이지를 보여 주는 최소 시간 (s) — 깜빡이며 사라지지 않게."
+RAID_LOAD_HOLD_MARGIN_S,2,"로딩 게이트가 RAID_LOAD_TIMEOUT_S 위에 더 얹는 여유 (s). 두 곳에 쓴다 — 엔진 hold 상한(게이트가 스스로 풀기 전에 hold 가 먼저 끊기면 안 된다)과, 호스트의 go 가 끝내 오지 않은 클라이언트가 혼자 풀고 나가는 시점."
+RAID_LOAD_START_GRACE_S,4,"암전이 끝난 뒤 권위의 발사를 기다리는 여유 (s). 분대장이 나갔거나 서버가 거절해 임무가 시작되지 않으면 이 시간 뒤에 암전을 풀고 함선으로 돌아온다."
 HAZARD_SPORES_BYPASS_SHIELD,1,"1 이면 독성 포자 재해 피해가 실드를 건너뛰고 체력만 깎는다 (PlayerRef.takeDamage 의 opts.bypassShield). 대기를 방탄복이 막는 것이 이상하다는 PLANET_ENV_DPS 의 근거를 재해에도 편 것이다 — 다른 재해(모래 폭풍 · 눈보라 · 폭풍의 눈)는 그대로 실드부터다."

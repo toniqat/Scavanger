@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubShipKind } from '@/shared';
+import { HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubAndroidBay, type HubShipKind } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
 import { ShipDoors } from './Doors';
@@ -8,6 +8,8 @@ import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
+/* 2026-09-15: 조종실 안드로이드 슬롯 세 칸 (사용자 결정 「조종실 내부 한켠」) */
+import { AndroidBayRack, type AndroidBayState } from './AndroidBays';
 // 2026-09-14: `repairBench` 는 더 이상 부르지 않는다 (정비 벤치 제거 — 소품까지) — 함수는 stations.ts 에 그대로 있다
 import { diningTable, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
@@ -51,6 +53,8 @@ export class SharedShip implements ShipInterior {
   readonly hangar: Hangar;
   /** 자동문 on the aft doorway (own meshes, never merged, no collider — the doorway is always walkable). */
   readonly doors = new ShipDoors(this.root);
+  /** 조종실 안드로이드 슬롯 세 칸 (2026-09-15) — 좌현 조종실 한켠, `interiors/AndroidBays.ts`. */
+  private androidRack!: AndroidBayRack;
 
   private meshes: THREE.Mesh[] = [];
   /** 2026-09-10: every point light of this ship (deck + hangar fixtures, nearest to the player first). */
@@ -127,6 +131,13 @@ export class SharedShip implements ShipInterior {
     r.add(cScreen.mesh);
     this.screens.push(cScreen);
     this.computer = { position: cp.position, yaw: cp.yaw };
+
+    /*
+     * ── 안드로이드 슬롯 (2026-09-15, 사용자 결정 「조종실 내부 한켠」) ──
+     * 조타 콘솔(x −12.8…−12.0)과 조종석 의자(z ±2.2) 뒤, 병기고 총기 랙(z 6.3…6.9) 앞의 빈 구석. 껍데기는 이
+     * `GeoBatch` 에 합쳐지고 상태 띠 · 이름표만 자기 메시다 (`interiors/AndroidBays.ts` 의 주석에 자리 선정 이유).
+     */
+    this.androidRack = new AndroidBayRack(b, col, r);
 
     // ── launch bay (−Z wall): 4 pod sockets ──
     b.box(ROOM.maxX - ROOM.minX - 2, 0.06, 3.2, 0, 0.03, ROOM.minZ + 1.6, M.hullDark);   // bay plate
@@ -291,6 +302,12 @@ export class SharedShip implements ShipInterior {
   /** Park the squad's ships: `names[i]` = crew name in bay `i`, null = empty bay. */
   setBayOccupants(names: readonly (string | null)[]): void { this.hangar.setOccupants(names); }
 
+  /** 조종실 안드로이드 슬롯 (2026-09-15), bay 순. 재사용 배열 — 좌표는 지어진 뒤 바뀌지 않는다. */
+  get androidBays(): readonly HubAndroidBay[] { return this.androidRack.bays; }
+
+  /** 슬롯 표시등 · 이름표: 안드로이드가 잠들어 있다 / 분대원으로 나가 있다 / 요청을 기다린다. */
+  setAndroidBayState(bay: number, state: AndroidBayState): void { this.androidRack.setState(bay, state); }
+
   /** 자동문 + the light pool follow the player (called by the hub, same contract as `PersonalShip.updateNear`). */
   updateNear(dt: number, px: number, pz: number): void {
     this.doors.update(dt, px, pz);
@@ -308,9 +325,11 @@ export class SharedShip implements ShipInterior {
     this.holo.rotation.y += dt * 0.6;
     this.holoMat.opacity = 0.28 + 0.1 * Math.sin(time * 2.3);
     this.hangar.update(dt, time);
+    this.androidRack.update(dt, time);
   }
 
   dispose(): void {
+    this.androidRack.dispose();
     this.hangar.dispose();
     this.doors.dispose();
     disposeMeshes(this.meshes);

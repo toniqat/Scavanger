@@ -219,6 +219,14 @@ function ignoresVehicle(e: Enemy): boolean {
 }
 
 /**
+ * 2026-09-15 (안드로이드 분대원): 안드로이드를 노리지 않는 적 — 네임드 저격수 로든은 **사람만** 쏜다 (기존 규칙,
+ * `ai/named/Sniper.ts` 가 `targets.alive` 에서 직접 고른다). 그 밖의 적에게 안드로이드는 사람과 같은 자격의 표적이다.
+ */
+function ignoresAllies(e: Enemy): boolean {
+  return e.type === 'rogue_sniper';
+}
+
+/**
  * 2026-09-13 (탐사 차량): `e` 가 지금 차량을 노릴 수 있으면 그 프록시(`TargetList.vehicles`), 아니면 null.
  * - **어그로**(`e.vehicleAggroUntil` — 차량 포탑 · 들이받기에 맞은 적과 그 무리): 거리 · 인지와 무관하게 차량.
  * - 그 밖에는 플레이어보다 **확실히** 가까워야 한다(`< DRONE_PREFER_MUL ×`, 플레이어가 없으면 무관) — 보이는 플레이어가 먼저다.
@@ -269,8 +277,17 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
     const carrier = sys.targets.get(e.barrierOwner);
     if (carrier && carrier.present && !carrier.isDeadOrDowned) return carrier;
   }
-  const player = sys.targets.nearestAlive(e.position);
-  const pd = player ? player.dist2D(e.position) : Infinity;
+  /* 2026-09-15 (안드로이드 분대원): 사람과 안드로이드는 **같은 자격**의 표적이다 — 가까운 쪽을 고른다. `nearestAlive`
+     자체는 그대로 사람만 본다 (스포너 앵커 · 웨이브 방향 · 리플리카 시선은 사람 기준이어야 한다). */
+  let player = sys.targets.nearestAlive(e.position);
+  let pd = player ? player.dist2D(e.position) : Infinity;
+  if (!ignoresAllies(e)) {
+    const ally = sys.targets.nearestAllyAlive(e.position);
+    if (ally) {
+      const ad = ally.dist2D(e.position);
+      if (ad < pd) { player = ally; pd = ad; }
+    }
+  }
   // 2026-09-13 (탐사 차량): 차량에 맞은 적은 차량부터 — 배리어 캐리어 다음, 다른 모든 규칙 앞
   const vehicle = pickVehicleTarget(sys, e, pd);
   if (vehicle && sys.ctx.time < e.vehicleAggroUntil) return vehicle;

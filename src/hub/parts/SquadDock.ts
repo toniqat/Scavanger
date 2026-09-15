@@ -38,6 +38,10 @@ const ESCAPE_GUARD = 32;
  * "has a lobby" as "in the shared ship" (pods, crew cards, ship visits, planet, leader handoff) reads this instead.
  */
 export function squadLobby(sys: HubSystem): LobbyState | null {
+  /* 2026-09-15 (스모크 · 디버그): 릴레이 없이 공용 함선에 서 보는 길 — `HubSystem.debugLobby` (스모크 전용, 실제
+     `ctx.net.lobby` 가 있으면 설치되지 않는다). 나머지 규칙은 아래 진짜 로비와 똑같다. */
+  const fake = sys.debugLobby;
+  if (fake) return sys.shipLobbyCode === fake.code ? fake : null;
   const lobby = sys.ctx?.net?.lobby ?? null;
   return lobby && isDockedLobby(lobby) && sys.shipLobbyCode === lobby.code ? lobby : null;
 }

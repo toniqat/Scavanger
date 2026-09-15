@@ -34,6 +34,20 @@ function inviteFailWhy(code: SocialErrorCode | undefined): string {
   return text ? ` <span style="color:var(--c-text-dim)">(${escapeHtml(text)})</span>` : '';
 }
 import { stratagemDef } from './stratagemGlyphs';
+/* 2026-09-15 (안드로이드 분대원): 명단 변화 · 슬롯 복귀 · 쓰러짐 · 사망 · 창고 입고 토스트 */
+import type { AllyId } from '@/shared';
+import { androidNameOf } from '@/shared';
+
+/**
+ * 2026-09-15 — 주격 조사 `이` / `가`. 한글 음절의 종성이 있으면 `이`, 없으면 `가` (그 밖의 글자는 `가`).
+ * 안드로이드 이름(`안드로이드 알파` · `베타` · `감마`)은 모두 종성이 없어 `가` 지만, 이름이 늘어나도 문장이 어색해지지
+ * 않게 규칙으로 고른다 — `이(가)` 를 늘어놓지 않는다는 2026-09-15 결정.
+ */
+function josaGa(name: string): string {
+  const ch = name.charCodeAt(name.length - 1);
+  if (!Number.isFinite(ch) || ch < 0xac00 || ch > 0xd7a3) return '가';
+  return (ch - 0xac00) % 28 === 0 ? '가' : '이';
+}
 
 /** 2026-09-13 (요리 품질): 별 글자 색 — 툴팁 품질 줄 · 버프 썸네일 별 배지와 같은 금색. */
 const STAR_COLOR = '#ffd24a';
@@ -64,6 +78,8 @@ export class Notifications {
   private durWarned = new Map<string, number>();
   /** The one live channel line (Phase 12 회복 스프레이), null while no continuous-use item is held. */
   private channel: { el: HTMLElement; text: HTMLElement; defId: string; pct: number } | null = null;
+  /** 2026-09-15: 안드로이드 id → 표시 이름. 슬롯으로 돌아간 기는 명단에 없으므로 이름을 여기서 꺼낸다. */
+  private allyNames = new Map<AllyId, string>();
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -132,6 +148,42 @@ export class Notifications {
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
       b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
       b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
+      /* ── 2026-09-15 (안드로이드 분대원, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──
+       * 토스트의 유일한 주인은 여기다 (2026-09-11 B-12 규약) — allies · net 은 이벤트만 낸다. `evicted` 는
+       * 「사람이 합류해 밀려났다」라서 `removed`(분대장이 직접 돌려보냈다)와 문장이 다르다. */
+      b.on('ally:rosterChanged', ({ roster, added, removed, evicted }) => {
+        const gone = new Set(evicted);
+        for (const id of removed) {
+          const name = this.allyName(id);
+          if (gone.has(id)) this.push(`분대원이 합류해 <b>${escapeHtml(name)}</b>${josaGa(name)} 슬롯으로 돌아갔다`, 'warning', '분대', 4);
+          else this.push(`<b>${escapeHtml(name)}</b>${josaGa(name)} 슬롯으로 돌아갔다`, 'info', '분대', 3);
+        }
+        // 이름표는 명단이 알려 준다 — 나중에 빠진 기의 이름을 부르려면 여기서 미리 적어 둬야 한다.
+        this.allyNames.clear();
+        for (const e of roster) this.allyNames.set(e.id, e.name);
+        for (const id of added) {
+          const name = this.allyName(id);
+          this.push(`<b>${escapeHtml(name)}</b>${josaGa(name)} 분대에 합류했다`, 'success', '분대', 3);
+        }
+      }),
+      // 릴레이가 「가득 찼다」로 거절했다 (요청자에게만). `human_joined` 는 위 `evicted` 줄이 이미 말한다.
+      b.on('net:androidReturned', ({ reason }) => {
+        if (reason !== 'full') return;
+        this.push('분대가 가득 차 안드로이드를 들일 수 없다', 'warning', '분대', 4);
+      }),
+      b.on('ally:downed', ({ id, name }) => {
+        const n = name || this.allyName(id);
+        this.push(`<b>${escapeHtml(n)}</b> 전투불능 — 구조 필요`, 'danger', '분대', 4);
+      }),
+      b.on('ally:died', ({ id, name }) => {
+        const n = name || this.allyName(id);
+        this.push(`<b>${escapeHtml(n)}</b> 파괴됨`, 'danger', '분대', 4);
+      }),
+      b.on('ally:deposited', ({ id, name, count, lost }) => {
+        const n = name || this.allyName(id);
+        const miss = lost > 0 ? ` <span style="color:var(--c-text-dim)">(창고가 가득 차 ${lost}개 유실)</span>` : '';
+        this.push(`<b>${escapeHtml(n)}</b>${josaGa(n)} 전리품 <b>${count}</b>개를 창고에 넣었다${miss}`, count > 0 ? 'success' : 'info', '분대', 4);
+      }),
       /*
        * 2026-09-11 (A-3c 공유 식탁): 「한 명이 차리면 분대 전원이 받는다」(사용자 결정)의 알림. `housing:mealServed`
        * 는 차린 쪽의 `housing/` 이 내고 net/ 이 릴레이하지만, **토스트를 띄우는 것은 여기 하나**다 — 합류 · 이탈
@@ -396,6 +448,17 @@ export class Notifications {
     );
   }
 
+  /**
+   * 2026-09-15: 안드로이드 표시 이름. 마지막 명단에 있으면 그 이름, 없으면 id 꼬리의 bay 번호로 `androidNameOf`
+   * (id 는 `androidIdOf(scope, bay)` = `android:<scope>:<bay>` 라 마지막 칸이 bay 다).
+   */
+  private allyName(id: AllyId): string {
+    const known = this.allyNames.get(id);
+    if (known) return known;
+    const bay = Number.parseInt(String(id).slice(String(id).lastIndexOf(':') + 1), 10);
+    return Number.isFinite(bay) ? androidNameOf(bay) : '안드로이드';
+  }
+
   push(html: string, kind: Kind, label?: string, duration = 3.5): void {
     const n = el('div', { cls: `notif ${kind}` });
     if (label) el('span', { cls: 'k', text: label, parent: n });
@@ -455,6 +518,8 @@ export class Notifications {
   get channelText(): string | null { return this.channel ? this.channel.el.textContent : null; }
   /** Live toast nodes, the channel line excluded (debug). */
   get liveCount(): number { return this.live.length; }
+  /** 2026-09-15 (debug / smoke): 지금 떠 있는 토스트의 글자 (오래된 것부터). */
+  get toastTexts(): string[] { return this.live.map((n) => n.textContent ?? ''); }
 
   private clear(): void {
     for (const n of this.live) n.remove();

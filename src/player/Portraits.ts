@@ -26,6 +26,8 @@ interface Cell {
   yaw: number;
   /** true while a member fills this cell (an empty cell draws nothing at all). */
   filled: boolean;
+  /** 2026-09-15: 이 칸이 안드로이드 분대원이다 (`PortraitRef.setAndroid`). 모델을 새로 지어도 유지된다. */
+  android: boolean;
 }
 
 /**
@@ -99,7 +101,7 @@ class Portraits implements PortraitRef {
     this.scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x2b2f38, 0.9));
 
     for (let i = 0; i < cellCount; i++) {
-      this.cells.push({ model: null, slot: -1, armorId: null, yaw: HUB_READY_PORTRAIT_YAW, filled: false });
+      this.cells.push({ model: null, slot: -1, armorId: null, yaw: HUB_READY_PORTRAIT_YAW, filled: false, android: false });
     }
   }
 
@@ -128,6 +130,7 @@ class Portraits implements PortraitRef {
       cell.model = model;
       cell.slot = member.slot;
       cell.armorId = null;      // force the armor rebuild below
+      cell.model.setAndroidLook(cell.android);   // 2026-09-15: 새 몸도 이 칸의 안드로이드 여부를 따른다
     }
     cell.model.setVisible(false); // only the cell being drawn is visible (see `render`)
     cell.model.root.rotation.set(0, cell.yaw, 0);
@@ -135,6 +138,17 @@ class Portraits implements PortraitRef {
       cell.armorId = member.armorId;
       cell.model.setArmor(member.armorId ? resolveArmorDef(this.ctx, member.armorId) : null);
     }
+  }
+
+  /**
+   * 2026-09-15 (안드로이드 분대원): 이 칸의 몸을 안드로이드 외형으로 그린다 (`PortraitRef.setAndroid`). 순서와 무관하다 —
+   * `setMember` 로 몸이 새로 지어져도 칸의 값이 그대로 다시 걸린다.
+   */
+  setAndroid(index: number, on: boolean): void {
+    const cell = this.cells[index];
+    if (!cell || this.disposed) return;
+    cell.android = on;
+    cell.model?.setAndroidLook(on);
   }
 
   /** Body yaw in radians for one cell (3/4 view = `HUB_READY_PORTRAIT_YAW`; the model's front is −Z). */

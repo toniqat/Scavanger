@@ -73,10 +73,12 @@ export function runConsoleCommand(server: RelayServer, input: string): string {
         const mode = l.started ? (l.mode === 'training' ? '훈련 중' : '임무 중') : '대기';
         // 2026-09-15: 도킹 전 분대(초대만 오간 사이 — 각자 개인 함선에 있다)는 따로 적는다. 필드가 없는 로비는 도킹한 것이다.
         const undocked = (l as unknown as { docked?: boolean }).docked === false ? '  도킹 전 분대' : '';
-        lines.push(`  ${l.code}  ${mode}  ${l.size}명${l.isPublic ? '  공개' : ''}${undocked}${l.planet ? `  행성 ${l.planet}` : ''}`);
+        /* 2026-09-15: 안드로이드 분대원(봇 멤버)은 사람과 따로 센다 — 「N명」은 사람 수다. */
+        const bots = l.botCount();
+        lines.push(`  ${l.code}  ${mode}  ${l.humanCount()}명${bots ? ` + 안드로이드 ${bots}기` : ''}${l.isPublic ? '  공개' : ''}${undocked}${l.planet ? `  행성 ${l.planet}` : ''}`);
         for (const p of l.players.values()) {
           const code = server.store.card(p.id)?.code;
-          const tags = [p.id === l.hostId ? '분대장' : '', p.connected ? '' : '재접속 대기', p.inMission && l.started ? '임무 안' : '']
+          const tags = [p.bot ? `안드로이드 (슬롯 ${p.bay ?? '?'})` : '', p.id === l.hostId ? '분대장' : '', p.bot || p.connected ? '' : '재접속 대기', p.inMission && l.started ? '임무 안' : '']
             .filter(Boolean).join(' · ');
           lines.push(`      ${pad(code ? formatPlayerCode(code) : `(${p.id})`, 11)}${pad(p.name || '(이름 없음)', 18)}${tags}`);
         }

@@ -38,7 +38,9 @@ only its own player (`impactDamage`, `shared/explosion`, source `{kind:'explosio
 Numbers: `data/stratagems.csv` (`cooldown`, `delay`, `targeting`, `radius`) + the keys above in `data/constants.csv`.
 
 ## Rescue drop
-Squad-wide `RESCUE_DROPS_PER_RAID`, host-owned. Candidates = lobby members; only the dead are `selectable`
+Squad-wide `RESCUE_DROPS_PER_RAID`, host-owned. Candidates = **human** lobby members (2026-09-15: bot members are
+filtered by `isBotPlayer`, and `grant` refuses an `isAndroidId` target with `deny 'alive'` — an android is revived by a
+player, never by a rescue drop); only the dead are `selectable`
 (`ctx.corpses` may be absent — optional chaining). Host grant spends one charge (no refund on cancel), picks the landing
 point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GAP, seed)` and broadcasts.
 
@@ -72,6 +74,7 @@ point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GA
 
 ## Recent changes
 Last 5 only — older: `git log -- src/stratagems`.
+- 2026-09-15 — Androids are never rescue-drop candidates or targets (`isBotPlayer` filter + `isAndroidId` guard in `grant`).
 - 2026-09-15 — Player impact and grenade→structure damage use `shared/explosion` two-step falloff.
 - 2026-09-15 — Local player impact damage carries `{kind:'explosion'}`.
 - 2026-09-13 — Targeting disabled while riding the rover.

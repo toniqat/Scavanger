@@ -3,7 +3,7 @@ import type {
   SocketSlot, WeaponDef,
 } from '@/shared';
 import {
-  CATEGORY_ICON, HUB_READY_BLOCKER, HUB_READY_CELLS, HUB_READY_PORTRAIT_YAW, Keys, MENU_BLOCKER,
+  ANDROID_KIT, CATEGORY_ICON, HUB_READY_BLOCKER, HUB_READY_CELLS, HUB_READY_PORTRAIT_YAW, Keys, MENU_BLOCKER,
   NET_SLOT_COLORS_CSS, RARITY_COLORS, SOCKET_SLOTS, UI_HOLD_CONFIRM_S, createKeycap, formatCredits, itemCreditValue, keyLabel,
   paintKeycap,
 } from '@/shared';
@@ -33,6 +33,13 @@ export interface ReadyCellInfo {
   implant: ImplantId | null;
   /** Equipped armor def id, handed to the portrait so the body wears the right plates. */
   armorId: string | null;
+  /**
+   * 2026-09-15 (안드로이드 분대원): 이 칸이 **봇 멤버**인가. 몸(`createPortraits`)을 그리지 않고 `snapshotAndroidFace`
+   * 한 장을 얹으며, 장비 판은 `ctx.allies.getLoadout` (없으면 `ANDROID_KIT`)에서 오고 우클릭 장비 창은 열리지 않는다.
+   */
+  bot?: boolean;
+  /** 봇의 조종실 슬롯 번호 (이름 · 얼굴 색). 사람이면 무시된다. */
+  bay?: number;
 }
 
 /** What the panel needs from `HubSystem` (the ready hold is an input, and inputs belong to the system). */
@@ -73,6 +80,8 @@ interface GearView {
 
 interface CellDom {
   root: HTMLElement;
+  /** 안드로이드 얼굴 한 장 (`snapshotAndroidFace`) — 봇 칸에서만 보인다. */
+  face: HTMLImageElement;
   name: HTMLElement;
   lv: HTMLElement;
   state: HTMLElement;
@@ -138,6 +147,8 @@ export class ReadyPanel {
   private memberKey: string[] = [];
   /** Per-cell gear key so the thumbnails are only rebuilt on a real change. */
   private gearKey: string[] = [];
+  /** Per-cell android-face key (the accent it was drawn with; `''` = no face). */
+  private faceKey: string[] = [];
   /** Seconds the ready key has been held (0 = not holding). */
   private hold = 0;
   /** The current hold already fired — the key must be released before it can fire again. */
@@ -159,6 +170,9 @@ export class ReadyPanel {
       el('span', { cls: 'hr-edge', parent: cell });
       // ── top 55 %: the portrait shows through; only the name / level / state float over it
       const head = el('div', { cls: 'hr-head', parent: cell });
+      // 2026-09-15: 봇 칸의 안드로이드 얼굴 (`player/FaceSnapshot` 의 오프스크린 렌더러 한 장 — 칸마다 캔버스를 만들지 않는다)
+      const face = el('img', { cls: 'hr-face', parent: cell }) as HTMLImageElement;
+      face.alt = ''; face.draggable = false; face.hidden = true;
       const top = el('div', { cls: 'hr-top', parent: head });
       const name = el('span', { cls: 'hr-name', text: '빈 슬롯', parent: top });
       const lv = el('span', { cls: 'hr-lv', text: '', parent: top });
@@ -188,9 +202,10 @@ export class ReadyPanel {
       const holdFill = el('i', { cls: 'hr-hold-fill', parent: hold });
       const holdLabel = el('span', { cls: 'hr-hold-label', text: '', parent: hold });
       cell.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); this.openLoadout(i, cell); });
-      this.cells.push({ root: cell, name, lv, state, gear, slots, value, holdRow, holdKey, hold, holdFill, holdLabel });
+      this.cells.push({ root: cell, face, name, lv, state, gear, slots, value, holdRow, holdKey, hold, holdFill, holdLabel });
       this.memberKey.push('');
       this.gearKey.push('');
+      this.faceKey.push('');
     }
     this.loadout = new CrewLoadoutPanel(ctx);
     // 리바인드하면 키 가이드 · 카드의 키캡이 따라와야 한다 (서명을 비워 다음 `syncGuide` 가 반드시 다시 보낸다)
@@ -279,8 +294,13 @@ export class ReadyPanel {
     this.paintGear(i, filled ? info : null);
     this.paintHold(i, info);
 
-    // Portrait: only a member in the slot gets a body; the key keeps `setMember` off the hot path.
-    const key = filled && info ? `${info.slot}|${info.armorId ?? ''}` : '';
+    /*
+     * Portrait: only a member in the slot gets a body; the key keeps `setMember` off the hot path.
+     * 2026-09-15: 봇 칸은 3D 몸 **대신** 안드로이드 얼굴 한 장이다 — `createPortraits` 는 사람 몸(방탄복 · 무기)을 그리는
+     * 물건이라 안드로이드 외형 인자가 없다 (리드에게 보고: 칸마다 `android` 플래그가 필요하면 player/ 가 갖는다).
+     */
+    const bot = !!info?.bot && filled;
+    const key = filled && info && !bot ? `${info.slot}|${info.armorId ?? ''}` : '';
     if (key !== this.memberKey[i]) {
       this.memberKey[i] = key;
       if (this.portraits) {
@@ -291,6 +311,22 @@ export class ReadyPanel {
         }
       }
     }
+    toggleClass(c.root, 'is-bot', bot);
+    this.paintFace(i, bot ? info : null);
+  }
+
+  /** 봇 칸의 안드로이드 얼굴 — 색만 바뀌므로 악센트를 키로 다시 찍지 않는다. */
+  private paintFace(i: number, info: ReadyCellInfo | null): void {
+    const c = this.cells[i];
+    const accent = info ? (NET_SLOT_COLORS_CSS[info.slot % NET_SLOT_COLORS_CSS.length] ?? NET_SLOT_COLORS_CSS[0]) : '';
+    if (accent === this.faceKey[i]) return;
+    this.faceKey[i] = accent;
+    if (!info) { c.face.hidden = true; c.face.removeAttribute('src'); return; }
+    let url: string | null = null;
+    try { url = this.ctx.player?.snapshotAndroidFace?.({ accent }) ?? null; } catch { url = null; }
+    // player/ 가 아직 이 계약을 구현하지 않았거나 두 번째 GL 컨텍스트가 없으면 이름만 남는다
+    if (url) { c.face.src = url; c.face.hidden = false; }
+    else { c.face.removeAttribute('src'); c.face.hidden = true; }
   }
 
   /* ── 장비 줄 (2026-09-14) ──────────────────────────────────────────────── */
@@ -332,6 +368,7 @@ export class ReadyPanel {
 
   /** The five thumbnails for one member — local reads live instances, a peer reads its `crew card`. */
   private gearOf(info: ReadyCellInfo): GearView[] {
+    if (info.bot) return this.androidGearOf(info);
     const out: GearView[] = [];
     for (const kind of GEAR_ORDER) {
       if (kind === 'implant') { out.push(this.implantView(info.implant)); continue; }
@@ -347,6 +384,27 @@ export class ReadyPanel {
       }
     }
     return out;
+  }
+
+  /**
+   * 안드로이드의 장비 판 (2026-09-15). allies/ 가 이미 이번 레이드의 소지품을 알고 있으면 그 **인스턴스**를 쓰고
+   * (소켓 핍까지 진짜다), 아직 없으면 매 레이드의 기본 킷(`ANDROID_KIT`) def id 를 그린다. 주무기 II 와 전술
+   * 임플란트는 안드로이드에게 없다 (사용자 결정 — 기본 킷은 주무기 · 방탄복 · 가방 셋뿐이다).
+   */
+  private androidGearOf(info: ReadyCellInfo): GearView[] {
+    let equip: { primary: ItemInstance | null; armor: ItemInstance | null; bag: ItemInstance | null } | null = null;
+    const allies = this.ctx.allies;
+    if (info.peerId && allies && typeof allies.getLoadout === 'function') {
+      try { equip = allies.getLoadout(info.peerId)?.equip ?? null; } catch { equip = null; }
+    }
+    const view = (kind: GearKind, inst: ItemInstance | null, defId: string | null): GearView => this.itemView(kind, inst, defId);
+    return [
+      view('primary', equip?.primary ?? null, equip ? null : ANDROID_KIT.primary),
+      this.blankView('primary2'),
+      view('bag', equip?.bag ?? null, equip ? null : ANDROID_KIT.bag),
+      view('armor', equip?.armor ?? null, equip ? null : ANDROID_KIT.armor),
+      this.blankView('implant'),
+    ];
   }
 
   private blankView(kind: GearKind): GearView {
@@ -454,6 +512,8 @@ export class ReadyPanel {
     if (!this._interactive) return;
     const info = this.info[i] ?? null;
     if (!info || !info.ready) return;
+    // 2026-09-15: 안드로이드에게는 `crewq loadout` 을 물어볼 소켓이 없다 — 장비 판이 이미 보여 주는 것이 전부다
+    if (info.bot) return;
     this.loadout.toggle({ peerId: info.local ? (this.ctx.net?.localId ?? null) : info.peerId, name: info.name, slot: info.slot, local: info.local }, cell);
   }
 
@@ -494,6 +554,7 @@ export class ReadyPanel {
     for (let i = 0; i < this.cells.length; i++) {
       this.memberKey[i] = '';
       this.gearKey[i] = '';
+      // `faceKey` 는 비우지 않는다 — 바로 아래 `paint(i, null)` 이 그것과 달라야 얼굴을 지운다
       this.portraits?.setMember(i, null);
       this.paint(i, null);
     }

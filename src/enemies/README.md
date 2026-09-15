@@ -15,7 +15,7 @@ No asset files — every rig is built from primitives.
 | `Enemy.ts` | Entity (`EnemyRef`): gameplay state, timers, target, kill credit, rig selection (`baseTypeOf`), `takeDamage`, `kill`, `startEmerge`, `animate`, `muzzle`; `EnemyHost` interface |
 | `EnemyTypes.ts` | csv loaders: `ENEMY_STATS`, ability blocks (`HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`, `NAMED_*`, `HUMANOID_*`, `ENEMY_INCENDIARY`), `isRogueType`, `isWormType`, `baseTypeOf` |
 | `factionTables.ts` | csv loaders for `SITE_*`, `RAIDER_DROP_*`, `NAMED_ROGUE_CHANCE_BY_THREAT`, bug-threat tables → `bugThreatTuning(threat)` |
-| `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle proxy) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, nearest queries, `damageVehicleAt`) |
+| `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle / android proxy) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, `allies`, nearest queries, `damageVehicleAt`) |
 | `Spawner.ts` | `AmbientSpawner` (initial population, patrols, artillery dig-in), group composition from planet ecosystem, spawn clearance (`spawnBlocked`), `threatEcosystem`, `ambientCap` |
 | `SiteGroups.ts` | `placeSiteGroups`: humanoid groups at labs / outposts / rail platforms / ruins by planet threat |
 | `RogueDrop.ts` | `RogueDropDirector`: raider drops after structure investigation (two waves, pods, landing spawns) |
@@ -35,7 +35,7 @@ No asset files — every rig is built from primitives.
 | `ai/EnemyAI.ts` | Bug state machine, `integrate` (steering, collision, barrier, extraction keep-out, riding, slope), `footfall`, `integrateDeathFall` |
 | `ai/Perception.ts` | `acquireTarget`, `detectionRange` (stealth × smoke), `canPerceive`, `shotConeFactor`, sense/hear radii, `becomeAlert` |
 | `ai/RogueAI.ts` | Humanoid state machine: cover cycle (rogue / raider), `androidCycle`, reload, grenades, rush, leash |
-| `ai/RogueCover.ts` | Cover + pop-out spot selection (ray-validated, flank-scored) |
+| `ai/RogueCover.ts` | Cover + pop-out spot selection — the world half is `shared/cover.pickCoverSpot` (androids use the same one); this file supplies the enemy numbers and the score (flank, "not the rock we are at", approach) |
 | `ai/HumanoidProfile.ts` | Faction profiles: aim-error curve, bursts, grenade loadout |
 | `ai/SquadFlank.ts` | Raider flanker role |
 | `ai/FireLine.ts` | Muzzle line-of-fire check with cache and strafe response |
@@ -89,13 +89,13 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 ## Public API
 - `ctx.enemies`: `getEnemies`, `getAliveCount`, `raycast`, `raycastInterceptable`, `applyExplosion`, `applyAreaDamage`,
   `applyStatus`, `queryNear`, `addDistraction`, `setThreatLevel`, `killAll`, `reset`, `setAuthority`, `reportShot`, `setXray`,
-  `callRogueDrop`, `getRogueDrops`, `getEnemyGrenades`, `pushBack`, `getFireZones`, `renderPortrait`, `enemyDisplayName`;
-  `startExtractionWaves` / `stopExtractionWaves` exist but nothing calls them.
+  `callRogueDrop`, `getRogueDrops`, `getEnemyGrenades`, `pushBack`, `getFireZones`, `renderPortrait`, `enemyDisplayName`,
+  `applyAllyHit`; `startExtractionWaves` / `stopExtractionWaves` exist but nothing calls them.
 - Emits: `enemy:spawned|killed|squadKill|damaged|attacked|alerted|shot|shotAlerted|chargeStarted|toxicBurst|shellFired|shellIntercepted|shellLanded|incinerated|shocked|bossSpawned|namedSpawned|factionClash|waveStarted`,
   `corpse:spawned|removed`, `rogueDrop:incoming|landed`, `sandworm:warning|erupted`, `named:sniperGlint|scanPulse|scanExposure`,
   `implant:barrierBumped`, `ghost:damage`, `player:applySlow`, `ui:hitmarker`, `ui:notify`, `camera:shake`, `audio:play`.
   `enemy:killed {by, deathDir, weaponClass}` — `by === 'local'` is our kill; `weaponClass` is set only for our gun kills.
-- Listens: `world:ready`, `game:newMission`, `game:abort`, `game:paused`, `weapon:fired`, `net:remoteFired`, `grenade:exploded`,
+- Listens: `world:ready`, `game:newMission`, `game:abort`, `game:paused`, `weapon:fired`, `net:remoteFired`, `ally:fired`, `grenade:exploded`,
   `extraction:liftoff`, `tutorial:checkpoint`, `player:fell`, `crate:looted`, `world:noise`, `structure:investigated`,
   `net:hostChanged`, `cheat:sandworm`.
 - Wire (`src/shared/net.ts`):
@@ -110,7 +110,8 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 - Debug on `getSystem('enemies')`: `debugSpawn`, `debugSpawnNamed`, `debugNamedRoll`, `debugSites`, `debugEcology`,
   `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSpawnBurrow`,
   `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
-  `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
+  `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `debugAllyTargets` / `debugAllyTargetList` / `debugCoverSpot`,
+  `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
 
 ## Authority and replicas
 - Mode is decided per mission (`refreshMode` at `world:ready` / `game:newMission` / `game:abort`) and switched live only by
@@ -167,10 +168,19 @@ Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sand
 `threatEcosystem` weights/caps for patrols, waves and sandworm spit. Threat-1 row = identity; training and tutorial use it.
 
 ## AI
-- Targets: `pickTarget` order = barrier carrier → rover aggro → drone / noticed rover → players and hostile
+- Targets: `pickTarget` order = barrier carrier → rover aggro → drone / noticed rover → people and hostile
   factions (hysteresis in `acquireTarget`).
-  Downed, dead and rover-riding players are not `alive` and never targeted or damaged. Drones (`aggroable` only) and the
-  rover are separate proxy lists, not in `all` / `alive`.
+  Downed, dead and rover-riding players are not `alive` and never targeted or damaged. Drones (`aggroable` only), the
+  rover and the androids are separate proxy lists, not in `all` / `alive`.
+- **Androids (`ctx.allies`, 2026-09-15)** are people as far as an enemy is concerned: `TargetList.allies` is refilled
+  every frame from `AlliesRef.getCombatBodies()`, the proxies carry a player's radius / height / eye heights, and
+  `pickTarget` takes the nearer of the nearest player and the nearest android. They are hit by the humanoid rifle, bug
+  melee and contact (`nearestAliveWithin`), acid globs and splashes, grenades, shells, fire zones, toxic / spewer
+  bursts, the behemoth charge and the sandworm eruption — every path that can hit a player. Damage goes out through
+  one branch in `applyDamage` → `ctx.allies.damage` **on the authority only** (no knockback, no slow, no `dmg` wire).
+  Exceptions: named sniper Roden shoots players only (`ignoresAllies`), and tutorial worlds have no androids.
+  An android's shot is heard exactly like a player's (`ally:fired` → `onGunshot` + `alertShot`), and its bullets reach
+  enemies through `applyAllyHit` (authority only; `'ai'` credit, wakes the body and turns it on the shooter).
 - Perception: `detectionRange = sightRadius × target stealth × smoke clarity`; alert propagates within a faction.
 - Bugs: `idle → wander → alert → chase → attack → stagger`, `dead` / `flee`; artillery, toxic, behemoth in `GimmickAI`.
 - Humanoids: `RogueAI` cover cycle (pick cover → move → crouch hold → step out to `popPos` → burst → optional rush),
@@ -211,7 +221,14 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 - Tutorial enemy types reuse the base type's rig/AI/sound tables via `baseTypeOf`; never add rows to those tables — `EnemyTypes.ts`.
 - `ai/RemoteFx` and replica hooks must not change game state; only the authority decides damage and spawns.
 - Humanoid vs bug checks use `isHumanoid`, not `isRogue` — `Enemy.ts`.
-- Keep drones and the rover out of `TargetList.all` / `alive`; paths that need them read `drones` / `vehicles` — `Targets.ts`.
+- Keep drones, the rover and the androids out of `TargetList.all` / `alive`; paths that need them read `drones` /
+  `vehicles` / `allies` — `Targets.ts`. `alive` is "the humans", and the raid-failure rule counts humans only.
+- Every android proxy's `TargetId` is `'ai'` (like drones / the rover): the identity is `CombatTarget.allyId`, so no
+  `dmg` message can ever be addressed to one — `Targets.ts`, `parts/Damage.applyDamage`.
+- Enemies damage androids only on the authority, only through `ctx.allies.damage` (`parts/Damage.allyDamage` /
+  `damageAlliesAt`); replicas apply nothing (the host's `ally state` carries the hp).
+- The world half of cover selection lives in `shared/cover.ts` — do not re-implement it here; enemy-only judgements go
+  into the score hook of `ai/RogueCover.ts` (module-level function, no per-frame closure).
 - Drone blast damage is added at each enemy blast site (`ctx.drones.applyExplosion`), not inside `explode()`: player and
   gadget explosions (and replica `explode` requests) also pass through `explode()` and would hit drones twice — `parts/Attacks.ts`.
 - Only enemies and hazards damage the rover: never add a vehicle path to `explode()`, `applyAreaDamage` or `hit`, which
@@ -226,8 +243,8 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 
 ## Recent changes
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-15 — Androids as targets (`TargetList.allies`, every damage path), `applyAllyHit`, `ally:fired` hearing; cover moved to `shared/cover.pickCoverSpot`.
 - 2026-09-15 — All enemy explosion falloff (grenade, shell, toxic, spewer burst, sandworm, rover) uses `shared/explosion`.
 - 2026-09-15 — Tutorial bug chain spawn, zone aggro release on checkpoints/falls, liftoff fire window instead of flee.
 - 2026-09-15 — Player damage source for the death screen (`enemyDamageSource`, `dmg.src`); enemy portraits and names (`models/Portrait.ts`).
 - 2026-09-15 — Enemy fire zones: `getFireZones`, ignite/crackle sounds, drone damage; rogue/raider footsteps on.
-- 2026-09-14 — Tutorial corpses never despawn; bodies killed while burrowing finish emerging.
