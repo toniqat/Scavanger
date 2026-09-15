@@ -1867,3 +1867,13 @@ WinNAT 예약이 관리자 제외(`8787–8799 *`)로 바뀌어 러너가 릴레
 - **돌리지 못한 것**: `e2e-multiplayer`(릴레이 필요 — `node --check` 만, 원격 장치 단언은 `atlauncher` → `barrier`) · `verify:all`.
 - 눈으로 본 것(헤드리스 스크린샷): 활 가로 파지 · 시위가 몸 쪽 · 당기면 화살이 가슴 쪽으로 / 화염이 누른 직후 작은 덩어리 → 0.4 s 뒤 전체 원뿔 /
   전격총 게이지 37 % · 100 % 가 오른쪽 파랑 · 밝은 파랑 / 활 크로스헤어 가로 두 배 / 훈련장 위로 열린 검은 하늘 · 바닥 경계선 · 에이프런 · 수평선 고리.
+
+## 2026-09-15 — e2e-mp 「기존 실패」 8건 = 스모크 결함 (고침)
+
+- 원인: `scripts/e2e-multiplayer.mjs` 가 접속 **전에** `setPlayerName('호스트' / '분대원')` 을 불렀고, 서버 프로필 수신의 `progress:loaded`
+  (`ProgressionSystem.ts` — 이름의 원본은 캐릭터 프로필)가 둘 다 기본 콜사인 `스캐빈저` 로 되돌렸다. 틀린 것은 분대 패널 · 채팅 · 친구 요청 ·
+  친구 목록 · 개인 대화 2 · 원격 필드 · `net:peerSuspended` 의 **이름 단언**뿐이고 메시지는 전부 도착했다. 45차의 「같은 뿌리로 보이지만 아직
+  확인하지 않았다」가 이것으로 확인됐다 — 2026-09-10 이후 이 파일의 「e2e-mp 170/178 기존 실패」 기록은 전부 이 결함이다.
+- 수정: 두 클라이언트가 공유 함선 로비에 들어간 **뒤** 다시 짓고 서로의 `lobby.players` 에 새 이름이 보일 때까지 기다린다 (`smoke-hangar` 와 같은 처리). `src/` 무변경.
+- `node scripts/verify.mjs --only e2e-mp --log-dir scripts/logs/e2e-name` (1 분 53 초, 전부 초록):
+- docs line: 2026-09-15: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, e2e-mp 178/178

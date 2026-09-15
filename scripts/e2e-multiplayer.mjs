@@ -276,6 +276,14 @@ try {
   await waitFor(B, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'B shared ship', 20000);
   await waitFor(A, () => window.__game.ctx.net.lobby?.players.length === 2, 'A sees 2 players');
   ok(true, 'both in the shared ship, 2 players');
+  /* 2026-09-15: 이름의 원본은 캐릭터 프로필이다 (2026-09-09) — `progress:loaded`(서버 프로필 수신)가
+     `ctx.net.setPlayerName(profile.name)` 으로 위의 접속 전 이름을 기본 콜사인으로 되돌린다. 로비에 들어간 **뒤** 다시
+     지으면 `lobby:name` 이 로비 · 소셜 기록 · 프레즌스까지 퍼진다 (smoke-hangar 와 같은 처리). 아래 채팅 · 친구 ·
+     개인 대화 · 원격 필드 · `net:peerSuspended` 의 이름 단언이 전부 이것에 기댄다. */
+  await A.evaluate(() => window.__game.ctx.net.setPlayerName('호스트'));
+  await B.evaluate(() => window.__game.ctx.net.setPlayerName('분대원'));
+  await waitFor(A, () => window.__game.ctx.net.lobby?.players.some((p) => p.name === '분대원'), 'A sees the renamed squadmate', 15000);
+  await waitFor(B, () => window.__game.ctx.net.lobby?.players.some((p) => p.name === '호스트'), 'B sees the renamed host', 15000);
 
   console.log('implant equip in the ship (Phase 9: overcharge beam is replicated in the mission)');
   const eq = await A.evaluate(() => { const r = window.__game.ctx.implants?.setEquipped?.('overcharge'); return { r, id: window.__game.ctx.implants?.equippedId ?? null }; });

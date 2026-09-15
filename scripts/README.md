@@ -146,6 +146,12 @@ re-run is the whole script.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
 
+- **2026-09-15 (e2e-mp 「기존 실패」 8건 = 스모크 결함)** — `e2e-multiplayer.mjs` 가 접속 **전에** `setPlayerName('호스트' / '분대원')` 을
+  불렀는데, 서버 프로필 수신의 `progress:loaded` 가 `setPlayerName(profile.name)` 으로 둘 다 기본 콜사인 `스캐빈저` 로 되돌렸다 (이름의 원본은
+  캐릭터 프로필 — 2026-09-09). 채팅 · 친구 요청 · 친구 목록 · 개인 대화 2 · 원격 필드 · 분대 패널 · `net:peerSuspended` 의 **이름 단언만** 틀렸고
+  메시지 자체는 전부 도착하고 있었다. 두 클라이언트가 공유 함선 로비에 들어간 **뒤** 다시 짓고(`lobby:name` → 로비 · 소셜 기록 · 프레즌스)
+  서로의 `lobby.players` 에 새 이름이 보일 때까지 기다린다 — `smoke-hangar` 와 같은 처리. `src/` 무변경, **178/178**.
+
 - **2026-09-14 (alias 4건 회귀 = 스모크 쪽 문제였다)** — `smoke-library-consumers.mjs` 의 `/src/…` 동적 import 10곳이
   전부 `window.__imp` 를 지난다 (위 「`import('/src/…')` …」 절). 오래 산 dev 서버에서 alias 4건이 빨갛던 것은 제품
   회귀가 아니라 **모듈이 두 번 평가된 것**이었다 — 앱이 `library.ts?t=…` 를 들고 있는데 스모크가 도장 없는 경로로
