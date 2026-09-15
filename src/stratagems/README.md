@@ -181,6 +181,10 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 
 ## 변경 이력
 
+- **2026-09-15 (결과 창 개편 — 플레이어 피해 출처)** — `parts/Calls.impactDamage` 가 로컬 플레이어에게 준 착탄 피해(궤도 레이저 틱 · 항공 폭탄 ·
+  보급품 · 트라이포드 낙하)에 `{kind:'explosion'}` 을 싣는다 (frozen 상수). 부른 사람이 나든 분대원이든 같다 — 계약(`DamageCauseKind`)이
+  「함선 호출 낙하물」을 `explosion` 으로 적어 두었고, 결과 창의 원인은 「누가 불렀나」가 아니라 「무엇에 맞았나」다.
+
 - **2026-09-13 (탐사 차량 탑승 — 에이전트 D)** — `parts/Targeting` 의 드론 조종 가지가 `ctx.player.roverRide` 에도 걸린다 — 탑승 중 G 무시 · 열린 휠 · 상단 시점 닫기.
 
 - **2026-09-12 — 준비 순간 `stratagem:ready {refunded}` (에이전트 B, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」).** 공유 쿨타임이 0 이

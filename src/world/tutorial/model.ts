@@ -28,8 +28,19 @@ import { TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type TutorialCheckpoint
 
 /* ── 층 높이 ──────────────────────────────────────────────────────────────── */
 
-/** 바닥(협곡 밑). 절벽 1 에 빠지면 여기까지 떨어진다 — 규칙이 `kill` 이라 높이는 연출이다. */
-export const VOID_Y = -34;
+/**
+ * **지형 높이** (`TutorialWorld.heightAt` · `raycastGround`) — 이 맵에서 콜라이더가 하나도 없는 자리에 떨어지면 닿는 곳.
+ * 2026-09-15 −34 → **−100**: 함선 앞을 **바닥이 안 보이는 절벽**(`ABYSS_*`)으로 열었는데 `heightAt` 은 인자가 없는 상수라
+ * (`WorldSystem` 이 `heightAt()` 으로 부른다) 거기만 깊게 할 수 없다. −34 에 두면 뛰어내린 몸이 **보이지 않는 바닥**에서
+ * 24 m 아래에 선 채 죽는다. 그래서 지형을 통째로 내리고, 절벽 1 의 바닥만 `CHASM_FLOOR_Y` 콜라이더로 예전 높이에 남겼다.
+ * 낙하 시간: 아래 데크(−10)에서 90 m = √(2·90/24) = **2.74 s** 뒤 착지 → `kill`.
+ */
+export const VOID_Y = -100;
+/**
+ * **절벽 1 의 협곡 바닥** (옛 `VOID_Y`). 이제 지형이 아니라 사각 콜라이더(`parts/Ground`)이고 협곡 바닥 판도 이 높이에
+ * 그린다. 규칙이 `kill` 이라 높이는 연출이다 — 떨어지는 시간(√(2·34/24) = 1.68 s)이 예전과 한 치도 다르지 않다.
+ */
+export const CHASM_FLOOR_Y = -34;
 /** 앞쪽 절반(기상 ~ 안드로이드 1조)이 서 있는 데크 윗면. */
 export const DECK_UPPER_Y = 0;
 /** 절벽 2 아래, 뒤쪽 절반(보급 ~ 함선)의 데크 윗면. 낙차 10 m = `FALL_DAMAGE` 로 45 — 아프지만 죽지 않는다. */
@@ -69,6 +80,46 @@ export const CORRIDOR_OUTER_X = CORRIDOR_MAX_HALF_X + WALL_T;
 /** 절벽 벽의 윗면 (위 데크에서 18 m). 하늘은 열려 있고 옆으로는 나갈 수 없다. */
 export const WALL_TOP_Y = 18;
 
+/* ── 끝없는 절벽 (함선 앞) ──────────────────────────────────────────────── */
+
+/**
+ * **아래 데크가 끝나는 z** — 그 앞은 바닥이 보이지 않는 절벽이다 (2026-09-15, 사용자 결정 「함선 앞은 막힌 벽이 아니라 끝이
+ * 안 보이는 낭떠러지」). 전에는 여기에 18 m 짜리 막다른 벽(`Z_END` 캡)이 있었고, 함선이 기수 쪽으로 떠오르며 **그 벽을
+ * 뚫고 날아갔다** (이륙 1.6 s 스풀 뒤 a 초에 상승 `6a² + 2a` · 전진 `12(a − 0.8)²` — 벽 꼭대기 y 18 을 넘기 전에
+ * 기수가 7.7 m 나아가 캡(−162…−165) 속에 들어갔다).
+ *
+ * **검산**: 함선(`SHIP_POS`/`SHIP_YAW`) 외피의 가장 앞(기수 끝, 로컬 z −9.7)이 월드 z **−167.80** 이라 가장자리까지 **4.2 m**.
+ * 이륙이 앞으로 움직이기 시작할 때(a = 0.8)는 이미 5.4 m 떠 있으므로 데크 모서리와도 부딪히지 않는다.
+ */
+export const ABYSS_EDGE_Z = -172;
+/** 가장자리 너머로 옆 절벽 벽이 **낮아지며** 이어지는 길이 (m). 그 뒤에는 아무것도 없다 — 하늘 돔의 아래쪽(어두운 `ground` 색)이다. */
+export const ABYSS_RUN_M = 36;
+/** 그 벽 한 조각의 z 길이 — 조각마다 윗면이 한 계단씩 내려가고 안쪽 면이 조금씩 벌어진다 (`parts/Ground.buildAbyss`). */
+export const ABYSS_WALL_STEP_M = 6;
+/**
+ * 절벽 면을 **그리는** 가장 아래 (콜라이더는 `VOID_Y` 까지). 가장자리에서 410 m 아래라 거기까지 보일 일이 없고, 보여도
+ * 정점 색이 검정으로 떨어져 있어 하늘 돔의 아래쪽(어두운 `ground` 색)과 이어진다.
+ */
+export const ABYSS_DRAW_BOTTOM_Y = -420;
+/**
+ * 절벽 면이 **돌 재질 → 어두워지는 그라데이션**으로 넘어가는 높이. 그 위는 다른 절벽 벽과 같은 돌결 텍스처이고,
+ * 그 아래는 `fog: false` 정점 색 재질이다 — 안개(FogExp2)는 멀수록 **밝은** 안개색으로 칠하므로, 안개를 받으면
+ * 깊은 곳이 오히려 밝아져 어두운 하늘 돔 아래쪽과 어긋난다.
+ */
+export const ABYSS_FADE_TOP_Y = -40;
+/**
+ * 「마지막으로 땅에 서 있던 자리」를 **적지 않는** 가장자리 띠의 폭 (m, `TutorialWorld.pollSafeGround`). 가장자리 코앞에
+ * 되살리면 한 걸음에 다시 떨어진다 — 절벽 1 의 `SAFE_CHASM_MARGIN` 과 같은 이유다.
+ */
+export const ABYSS_SAFE_MARGIN_M = 3;
+/**
+ * 이 z 부터 앞(−Z)의 곧은 절벽 벽은 **안쪽으로 파고들지 않는다** (`parts/Ground` 의 bite = 0). 옛 규칙대로면
+ * −152…−162 조각의 왼쪽 벽이 2.2 m 파고들어 안쪽 면이 x −13.2 이고, 함선 왼쪽 나셀(−13.13)과 **0.07 m** 였다.
+ * 0 으로 두면 왼쪽 벽 안쪽 면이 늘 −15.4 라 여유가 **2.27 m** 다 (이륙 궤적 전체를 0.02 s 간격으로 훑어 확인했다).
+ * −142 인 이유: 그 조각부터 함선 · `ship` 체크포인트(x −12.5)가 선다.
+ */
+export const WALL_PLAIN_FROM_Z = -142;
+
 /** 통로 반폭 프로파일의 제어점. */
 export interface CorridorPoint { readonly z: number; readonly halfX: number }
 
@@ -82,10 +133,11 @@ export interface CorridorPoint { readonly z: number; readonly halfX: number }
  *                 2026-09-14 3차: 26 → **62 m** 로 늘리고 벌레를 안쪽 깊숙이 세웠다 — 「좀더 멀리서 보이도록」.
  *                 4차: 반폭만 15.4 → **4.6**(`CORRIDOR_BUG_HALF_X`) — 길이는 그대로다.
  *   z −34 … −66 — 안드로이드 두 대 (스폰 z −48 · −54). 체크포인트 `android`(−32) ~ `drop`(−71) 구간.
- *   z −112 … 끝 — 안드로이드 두 대(−125 · −128) + 무너진 벽(−114) + 버려진 함선(−149).
- *                 함선 외피(`extraction/Hull`)가 로컬 x ±5.25(나셀) · z −9.7…+0.6 이고 램프가 +Z 로 3.0 m 더
- *                 열리므로, 반폭 15.4 에서 **좌우 여유 10.15 m** · 램프 발치(−145.75)에서 `ship` 체크포인트
- *                 (−143)까지 2.75 m 다. 좁히면 들어가지 않는다.
+ *   z −112 … −172 — 사선 방벽(`BARRIER`) + 그 뒤 안드로이드 두 대 + 왼쪽의 버려진 함선 (2026-09-15).
+ *                 함선 외피(`extraction/Hull`)가 로컬 x ±5.25(나셀) · z −9.7…+0.6 이고 램프가 +Z 로 3.25 m 까지
+ *                 열린다. yaw −10° 로 세우면 월드 발자국이 x −13.13 … −2.76 · z −167.80 … −154.50 이라
+ *                 왼쪽 벽(−15.4, `WALL_PLAIN_FROM_Z` 부터 파고듦 0)까지 **2.27 m** 다. 좁히면 들어가지 않는다.
+ *                 끝은 막다른 벽이 아니라 **끝없는 절벽**(`ABYSS_EDGE_Z`)이다.
  *
  * ⚠ 데크(`DECKS`)는 **줄이지 않는다** — 늘 `±CORRIDOR_MAX_HALF_X` 다. 좁은 구간에서는 벽이 그 데크 위에
  * 서는 것이고, 그래야 깔때기 이음매나 벽 두께 계산이 어긋나도 발밑이 사라지지 않는다.
@@ -103,8 +155,8 @@ export const CORRIDOR_PROFILE: readonly CorridorPoint[] = [
                                              //   4차: 절벽 가장자리를 −82 → −77 로 당겼으므로 이 제어점도 −78 → −73 —
                                              //   가장자리보다 4 m 앞에서 좁아지기가 끝나야 뛰어내리는 자리와 착지 자리의 폭이 같다
   { z: -106, halfX: CORRIDOR_PASS_HALF_X },
-  { z: -112, halfX: CORRIDOR_MAX_HALF_X },   // ↑ 넓어진다 — 무너진 벽 · 마지막 전투 · 함선
-  { z: -165, halfX: CORRIDOR_MAX_HALF_X },
+  { z: -112, halfX: CORRIDOR_MAX_HALF_X },   // ↑ 넓어진다 — 사선 방벽 · 마지막 전투 · 함선
+  { z: ABYSS_EDGE_Z, halfX: CORRIDOR_MAX_HALF_X },   // 여기서 곧은 벽이 끝나고 `Ground.buildAbyss` 가 낮아지는 벽을 잇는다
 ];
 
 /** 그 z 에서의 통로 반폭 (제어점 사이는 선형 보간). 맵 바깥의 z 는 양 끝 값으로 잘린다. */
@@ -120,14 +172,18 @@ export function corridorHalfXAt(z: number): number {
   }
   return p[p.length - 1].halfX;
 }
-/** 맵의 z 양끝 (막다른 벽 바깥). 2026-09-14 3차: 벌레 구간을 36 m 늘려 `Z_END` 가 −129 → −165 가 됐다. */
-export const Z_START = 121;
-export const Z_END = -165;
 /**
- * 지도 · 핑이 쓰는 한 변 (`WorldRef.size`). 통로 전체가 들어간다 — 지도는 원점 중심이라 반변(170)이
- * `max(|Z_START|, |Z_END|)` = 165 보다 커야 한다.
+ * 맵의 z 양끝. `Z_START` 는 막다른 벽 바깥, `Z_END` 는 **끝없는 절벽 너머 벽이 끝나는 자리**다.
+ * 2026-09-14 3차: 벌레 구간을 36 m 늘려 −129 → −165. 2026-09-15: 막다른 벽을 걷어 내고 절벽 너머까지 넓혀
+ * `ABYSS_EDGE_Z − ABYSS_RUN_M` = **−208** (`isInside` · `clampInside` · 낙하 `kill` 볼륨이 이 값까지 본다).
  */
-export const TUTORIAL_MAP_SIZE = 340;
+export const Z_START = 121;
+export const Z_END = ABYSS_EDGE_Z - ABYSS_RUN_M;
+/**
+ * 지도 · 핑이 쓰는 한 변 (`WorldRef.size`). 통로 전체가 들어간다 — 지도는 원점 중심이라 반변(210)이
+ * `max(|Z_START|, |Z_END|)` = 208 보다 커야 한다 (2026-09-15: 340 → 420).
+ */
+export const TUTORIAL_MAP_SIZE = 420;
 /** 데크 콜라이더 한 장의 최대 한 변 — `SpatialHash.maxRadius` 가 커지면 모든 질의가 느려진다 (16 m 칸). */
 export const DECK_TILE_M = 16;
 /** 꾸밈(잔해 · 돌부스러기)의 고정 시드. 손으로 지은 맵이라 미션 시드와 무관하게 늘 같은 모습이다. */
@@ -189,7 +245,8 @@ export const CLIFF2_EDGE_Z = -77;
  * 걸어 다니는 땅. 셋뿐이고 그 사이의 **빈 곳이 곧 절벽**이다:
  *   `upper_a` ↔ `upper_b` 사이 = 절벽 1 (달려서 점프해야 넘는다 — 가장자리가 **사선**이라 두 회전 OBB
  *     `parts/Ground.buildChasmEdges` 가 여기서부터 사선까지를 마저 채운다),
- *   `upper_b` 의 끝(z = `CLIFF2_EDGE_Z` −77)에서 `lower` 로 = 절벽 2 (뛰어내린다).
+ *   `upper_b` 의 끝(z = `CLIFF2_EDGE_Z` −77)에서 `lower` 로 = 절벽 2 (뛰어내린다),
+ *   `lower` 의 끝(z = `ABYSS_EDGE_Z` −172) 너머 = 끝없는 절벽 (2026-09-15 — 떨어지면 `kill`).
  *
  * ⚠ `upper_a.z1`(85.8) · `upper_b.z0`(74.9) 는 **사선에서 가장 물러난 자리**다 — 축 정렬 사각형이라 사선을
  * 그대로 담을 수 없어서, 사선까지의 쐐기는 회전 OBB 가 덮고 이 둘은 그 안쪽에서 끝난다. 검산은
@@ -198,7 +255,7 @@ export const CLIFF2_EDGE_Z = -77;
 export const DECKS: readonly DeckRect[] = [
   { id: 'upper_a', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 118, z1: 85.8 }, top: DECK_UPPER_Y },
   { id: 'upper_b', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 74.9, z1: CLIFF2_EDGE_Z }, top: DECK_UPPER_Y },
-  { id: 'lower', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: CLIFF2_EDGE_Z, z1: -162 }, top: DECK_LOWER_Y },
+  { id: 'lower', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: CLIFF2_EDGE_Z, z1: ABYSS_EDGE_Z }, top: DECK_LOWER_Y },
 ];
 
 /* ── 절벽 1 (사선) ───────────────────────────────────────────────────────── */
@@ -301,10 +358,10 @@ function cp(id: TutorialCheckpointId, x: number, y: number, z: number, z0: numbe
  *
  * ⚠ **배치 규칙**: 모든 체크포인트는 그 구간 적의 감지 반경(`TUTORIAL_ENEMY_SENSE_M` = 12 m) **밖**이다 —
  * 무기를 잃고 부활한 사람이 자기 시체까지 걸어갈 수 있어야 하기 때문이다. 실제 거리는 아래 `ENEMIES` 주석에
- * 계산해 뒀고, 2026-09-14 3차 재배치 뒤 가장 빡빡한 곳도 15.3 m 다. 좌표를 고치면 그 표를 다시 계산한다.
+ * 계산해 뒀고, 2026-09-15 재배치 뒤 가장 빡빡한 곳은 **14.73 m** (`ship` → 안드로이드) 다. 좌표를 고치면 그 표를 다시 계산한다.
  *
- * 부활 자리는 **전부 x = 0** 이라 `CORRIDOR_PROFILE` 을 어떻게 좁혀도 벽 안이다 (가장 좁은 구간의 반폭이
- * 7.7 m 라 넉넉하다).
+ * 부활 자리는 `ship` 하나만 빼고 **x = 0** 이라 `CORRIDOR_PROFILE` 을 어떻게 좁혀도 벽 안이다 (가장 좁은 구간의 반폭이
+ * 4.6 m 다). `ship` 은 방벽 왼쪽 틈을 지난 자리(x −12.5)이고 그 조각은 파고듦이 0(`WALL_PLAIN_FROM_Z`)이라 벽까지 2.9 m 다.
  */
 export const CHECKPOINTS: readonly CheckpointSpec[] = [
   cp('wake', 0, DECK_UPPER_Y, 112, 118, 104),      // 폐허 한가운데 — 여기서 깨어난다
@@ -320,8 +377,11 @@ export const CHECKPOINTS: readonly CheckpointSpec[] = [
   cp('android', 0, DECK_UPPER_Y, -32, -28, -36),   // 통로를 나온 자리. 안드로이드 2체
   cp('drop', 0, DECK_UPPER_Y, -71, -68, -75),      // 절벽 2 **바로 앞** (가장자리 −77 에서 6 m) — 2026-09-14 4차
   cp('supply', 0, DECK_LOWER_Y, -92, -88, -96),    // 떨어진 자리. 시체 ② 가 앞에
-  cp('wall', 0, DECK_LOWER_Y, -108, -104, -112),   // 무너진 벽 앞
-  cp('ship', 0, DECK_LOWER_Y, -143, -139, -147),   // 버려진 함선 램프 앞
+  // 사선 방벽이 시작하기 **전** — 방벽의 가장 가까운 끝(오른쪽 −116)보다 4 m 앞에서 띠가 끝난다 (2026-09-15)
+  cp('wall', 0, DECK_LOWER_Y, -108, -104, -112),
+  // 2026-09-15: 방벽 왼쪽 틈을 지나 **함선 램프 앞**. 띠(−148 … −156)는 안드로이드 둘(z −144.9 · −142.8)보다 뒤라
+  // 그 둘에게 가려고 틈을 지난 사람이 체크포인트를 먼저 얻지 않는다. 램프 발치(−154.8)를 띠가 덮으므로 램프로 걸어가면 반드시 지난다.
+  cp('ship', -12.5, DECK_LOWER_Y, -151, -148, -156),
 ];
 
 /* ── 낙하 규칙 ───────────────────────────────────────────────────────────── */
@@ -336,57 +396,166 @@ export const FALL_RULES: readonly FallRuleVolume[] = [
   // 절벽 1 바닥 — 넘지 못했다는 뜻이라 즉사시키고 체크포인트로 돌려보낸다.
   // 사선 틈의 **바깥 사각형**(`CHASM`)에 1.5 m 를 더한 띠다. 그 z 범위에서 y 가 `DECK_UPPER_Y − 3` 밑인
   // 자리는 협곡뿐이라(위 데크 위에서는 y = 0) 사선을 그대로 따라 자를 필요가 없다.
-  { rule: 'kill', x0: -W - WALL_T, x1: W + WALL_T, z0: CHASM.z0 + 1.5, z1: CHASM.z1 - 1.5, y0: VOID_Y - 6, y1: DECK_UPPER_Y - 3 },
+  // 2026-09-15: 협곡 바닥이 지형이 아니라 `CHASM_FLOOR_Y` 콜라이더가 됐으므로 y0 도 그 높이에서 잰다.
+  { rule: 'kill', x0: -W - WALL_T, x1: W + WALL_T, z0: CHASM.z0 + 1.5, z1: CHASM.z1 - 1.5, y0: CHASM_FLOOR_Y - 6, y1: DECK_UPPER_Y - 3 },
   // 절벽 2 착지 구역 — 반드시 살아남아야 하는 낙하. 피해는 들어가되 체력 1 밑으로 내려가지 않는다
   { rule: 'clamp', x0: -W, x1: W, z0: CLIFF2_EDGE_Z, z1: -102, y0: DECK_LOWER_Y - 4, y1: DECK_LOWER_Y + 4 },
+  // 2026-09-15 — **끝없는 절벽** (함선 앞). 가장자리 너머에서 `VOID_Y`(지형)에 닿으면 즉사 → 평소처럼 부활한다.
+  // x 는 낮아지는 벽이 벌어지는 폭(마지막 조각 안쪽 면 18.4)까지 넉넉히, z 는 `Z_END` 너머까지 연다. 위 끝이
+  // `DECK_LOWER_Y − 3` 이라 아래 데크 가장자리에 서 있는 몸(y −10)은 이 볼륨 밖이다.
+  { rule: 'kill', x0: -CORRIDOR_OUTER_X - 6, x1: CORRIDOR_OUTER_X + 6, z0: ABYSS_EDGE_Z, z1: Z_END - 10, y0: VOID_Y - 6, y1: DECK_LOWER_Y - 3 },
 ];
+
+/* ── 사선 방벽 (마지막 구간) ─────────────────────────────────────────────── */
+
+/**
+ * **위에서 보면 `\` 모양인 사선 방벽** (2026-09-15, 사용자 결정 — 옛 「무너진 벽」(통로를 가로지르고 가운데 5 m 만 뚫림)을 대체).
+ * 앞 = 위로 놓고 보면 오른쪽 가까운 쪽(`near`, 오른쪽 절벽 벽 **속**)에서 시작해 왼쪽 · 앞으로 뻗고, 통로는 **왼쪽 끝의 틈**
+ * (`far` 끝과 왼쪽 벽 사이) 말고는 전부 막힌다. 플레이어는 방벽의 가까운 쪽 면을 따라 왼쪽 앞으로 걸어 틈을 돌아 들어간다.
+ *
+ * 세 토막이다 (`far` 끝에서 방벽을 따라 잰 거리):
+ *   0 … `solidFarM`                 콘크리트 (높이 `solidHeight`)
+ *   `solidFarM` … 길이 − `solidNearM`  **가로 블라인드 철조망** (높이 `fenceHeight`) — 가로 살 사이로 건너편이 보인다
+ *   길이 − `solidNearM` … 길이        콘크리트
+ *
+ * **보이지만 총알은 못 지나간다**: 철조망의 콜라이더는 살이 아니라 **철조망 높이 전체를 채운 회전 OBB** 다(`passRays` 를
+ * 쓰지 않는다). 그래서 `raycast` 를 쓰는 총알 · 적 시야는 막히고, 렌더링만 살 사이로 건너편을 그린다. 같은 이유로 건너편
+ * 안드로이드도 철조망 너머의 플레이어를 **못 본다** (`enemies/ai/Perception.hasLineOfSight` 가 `world.raycast` 다).
+ *
+ * **검산** (`near` (17, −116) · `far` (−8.5, −140)):
+ *   - 길이 √(25.5² + 24²) = **35.02 m**, 방향 (0.7282, 0.6853) = x 축에서 43.3° — `\` 다.
+ *   - 틈 = 왼쪽 벽 안쪽 면(−15.4, z −132…−142 조각의 파고듦 0)에서 `far` 끝(−8.5)까지 **6.9 m** (플레이어 지름 0.9 의 7.7 배).
+ *   - `near` 의 x 17 은 오른쪽 절벽 벽 몸통(안쪽 면 13.2 … 바깥 면 18.4) 속이라 방벽과 벽 사이에 틈이 없다.
+ *   - 가장 가까운 끝이 z −116 이라 `wall` 체크포인트 띠(−104 … −112)보다 4 m 뒤에서 시작한다.
+ *   - **못 넘는다**: 점프 높이 `JUMP_SPEED² / 2g` = 7.6² / 48 = 1.20 m 에 올라설 수 있는 단 `PROP_STEP_UP_MAX` 0.9 를 더해도
+ *     2.10 m < 철조망 2.7 m · 콘크리트 3.0 m.
+ *   - **두께** 1.2 m(`halfT` 0.6)는 수류탄 때문이다. 투척물은 걸음마다 위치를 옮긴 뒤 `resolveCollision` 이 **가까운 면**으로
+ *     밀어내므로, 한 걸음에 방벽의 절반(0.6) + 몸(0.08) = 0.68 m 를 넘게 나아가면 반대편으로 밀려 나간다. 34 m/s 에서
+ *     0.68 m = **50 fps** 이상이면 정면으로 던진 수류탄도 막힌다 (옛 무너진 벽 2.2 m 는 29 fps). 그림은 두께 1.1 m 에
+ *     살 두 겹이라 콜라이더 면과 살이 5 cm 차이다.
+ */
+export const BARRIER = {
+  near: { x: 17, z: -116 },
+  far: { x: -8.5, z: -140 },
+  halfT: 0.6,
+  /** 철조망 높이 — 사용자 결정 「플레이어 키의 1.5 배」 (`PLAYER_HEIGHT` 1.8 × 1.5 = 2.7). */
+  fenceHeight: 2.7,
+  /**
+   * 콘크리트 토막의 높이. 3.2 보다 낮아야 한다 — 이륙 연출 카메라(`extraction/Cinematic` 의 `CAM_OFFSET` y 3.2)가
+   * 방벽 `far` 끝 3 m 옆(아래 `SHIP_POS` 검산)에서 시작하므로, 더 높으면 카메라가 콘크리트 속에서 출발한다.
+   */
+  solidHeight: 3.0,
+  /** `far` 끝 콘크리트 토막의 길이. */
+  solidFarM: 3.5,
+  /** `near` 끝 콘크리트 토막의 길이 (오른쪽 벽 속으로 1.6 m 가 묻힌다). */
+  solidNearM: 8,
+} as const;
+
+/** 방벽의 길이 (m). */
+export const BARRIER_LEN = Math.hypot(BARRIER.near.x - BARRIER.far.x, BARRIER.near.z - BARRIER.far.z);
+/** `far` → `near` 단위 벡터 (방벽을 따라). */
+export const BARRIER_DIR = {
+  x: (BARRIER.near.x - BARRIER.far.x) / BARRIER_LEN,
+  z: (BARRIER.near.z - BARRIER.far.z) / BARRIER_LEN,
+} as const;
+/** **가까운 쪽**(플레이어가 오는 쪽, +z 성분이 양수)을 향한 법선 = 방향을 +90° 돌린 것 `(−dir.z, dir.x)`. */
+export const BARRIER_NORMAL = { x: -BARRIER_DIR.z, z: BARRIER_DIR.x } as const;
+/** 메시 `rotateY` 값 — 로컬 +X 가 방벽 방향이 된다 (`rotateY(θ)` 는 +X 를 `(cos θ, −sin θ)` 로 보낸다). */
+export const BARRIER_MESH_YAW = -Math.atan2(BARRIER_DIR.z, BARRIER_DIR.x);
+
+/** 방벽 좌표 (`along` = `far` 끝에서 방벽을 따라 잰 거리, `depth` = 가까운 쪽 +) → 월드 XZ. */
+export function barrierPoint(along: number, depth: number): { x: number; z: number } {
+  return {
+    x: BARRIER.far.x + BARRIER_DIR.x * along + BARRIER_NORMAL.x * depth,
+    z: BARRIER.far.z + BARRIER_DIR.z * along + BARRIER_NORMAL.z * depth,
+  };
+}
+
+/** 월드 XZ → 방벽 좌표. */
+export function barrierLocal(x: number, z: number): { along: number; depth: number } {
+  const dx = x - BARRIER.far.x, dz = z - BARRIER.far.z;
+  return { along: dx * BARRIER_DIR.x + dz * BARRIER_DIR.z, depth: dx * BARRIER_NORMAL.x + dz * BARRIER_NORMAL.z };
+}
+
+/**
+ * 마지막 안드로이드 둘이 서는 자리 (방벽 좌표). 철조망 **건너편** 10 m, 방벽을 따라 3.5 · 6.5 m — 둘 사이 3 m.
+ *   A1 = (0.90, −144.88) · A2 = (3.09, −142.83)
+ */
+export const FINAL_ANDROIDS = { along: 5, depth: -10, spread: 1.5 } as const;
+
+/**
+ * **안드로이드가 등지고 선 콘크리트 방벽** (2026-09-15) — 철조망 너머로 던진 수류탄을 **멈추는 벽**이다.
+ *
+ * 왜 필요한가 (수류탄 물리 `weapons/Grenade` · `parts/Throwing` 을 그대로 흉내 내 쟀다): 투척은 34 m/s + 올려주기 3.5 m/s 라
+ * 수평으로 던지면 궤적 꼭대기가 1.9 m 뿐이고 **2.7 m 철조망을 못 넘는다**. 넘으려면 7.5° 이상 올려 던져야 하는데, 그러면
+ * 떨어지는 자리가 던진 곳에서 **27 m 이상**이고 거기서 튕기며 8–10 m 를 더 굴러간다 — 방벽 없이는 철조망 앞 4 · 8 · 12 m 에서
+ * 6–12° 로 던진 수류탄이 안드로이드에게서 15–26 m 떨어진 곳에서 터졌다. 방벽이 있으면 수류탄이 그 면에 부딪혀 밑동으로
+ * 떨어진다 (`resolveCollision` 은 위치만 밀고 속도는 두므로 면을 따라 미끄러져 내려온다).
+ *
+ * **검산** (방벽 좌표, 안드로이드 한가운데 depth −10):
+ *   - 면의 가까운 쪽 = depth −11.9 + 0.6 = **−11.3** → 안드로이드와 1.3 m, 수류탄이 멈추는 자리(−11.22)와 안드로이드는
+ *     √(1.22² + 1.5²) = **1.93 m**. 피해 = 250 × (1 − 1.93/6) = **170** > `tut_android` 체력 140 → 둘 다 쓰러진다.
+ *   - 철조망 앞 4 / 8 / 12 m 에서 한가운데를 향해 **6–12°** 로 던진 수류탄 전부가 두 대에게서 1.7–2.1 m 에 멈췄다
+ *     (60 fps). 14° 이상이면 높이 4.2 m 방벽을 넘어 30 m 너머로 간다.
+ *   - 방벽의 월드 가운데 (3.30, −145.24), 양끝 (0.02, −148.32) · (6.57, −142.16) — 오른쪽 벽(13.75)과 6.9 m 떨어져 있다.
+ *   - 안드로이드 → 함선 시야를 막지 않는다: 두 대와 램프 발치는 방벽 선의 같은 쪽이고, 화물칸 한가운데로 가는 선은
+ *     방벽 선을 방벽 끝에서 10 m 넘게 떨어진 자리에서 지난다.
+ */
+export const BACKSTOP = { along: 5, depth: -11.9, halfLen: 4.5, halfT: 0.6, height: 4.2 } as const;
 
 /* ── 적 ──────────────────────────────────────────────────────────────────── */
 
 export interface EnemySpot { readonly type: string; readonly x: number; readonly y: number; readonly z: number; readonly yaw: number }
 
+const FINAL_A1 = barrierPoint(FINAL_ANDROIDS.along - FINAL_ANDROIDS.spread, FINAL_ANDROIDS.depth);
+const FINAL_A2 = barrierPoint(FINAL_ANDROIDS.along + FINAL_ANDROIDS.spread, FINAL_ANDROIDS.depth);
+/** 마지막 안드로이드가 바라보는 yaw — 철조망(가까운 쪽 법선) 쪽. 적 yaw 의 정면은 `(−sin, −cos)` (yaw π = +Z). */
+const FINAL_ANDROID_YAW = Math.atan2(-BARRIER_NORMAL.x, -BARRIER_NORMAL.z);
+
 /**
  * 여섯 마리. 굴림도 웨이브도 순찰도 없다 (`enemies/` 가 `world:ready` 에서 한 번 읽어 그대로 세운다).
- * yaw = π 라 전부 다가오는 플레이어(+Z 쪽)를 보고 있다.
+ * 앞의 넷은 yaw = π 라 다가오는 플레이어(+Z 쪽)를 보고, 마지막 둘은 철조망 쪽(`FINAL_ANDROID_YAW` = 2.386)을 본다.
  *
  * **종류** (2026-09-14 3차 — 튜토리얼 전용 타입, `data/enemies.csv` · `enemies/EnemyTypes.TUTORIAL_ENEMY_BASE`):
  * `*_loot` 만 확정 드롭이 있고 나머지는 아무것도 떨어뜨리지 않는다. **+x 가 걸어가는 플레이어의 오른쪽**이다
  * (좌표 규약 절의 forward × up 계산).
- *   벌레            — 왼쪽(x −2.5) `tut_bug_loot` · 오른쪽(x +2.5) `tut_bug`
+ *   벌레            — **가까운 쪽(z 34) = 오른쪽(x +2.5) `tut_bug_loot`** · 먼 쪽(z 28) = 왼쪽(x −2.5) `tut_bug`
+ *                     (2026-09-15 사용자 결정 — 좌우를 바꿨다. 드롭은 여전히 가까운 쪽이다)
  *   앉아쏴 안드로이드 — 오른쪽(x +7) `tut_android_loot` · 왼쪽(x −7) `tut_android`
- *   무너진 벽 뒤     — 둘 다 `tut_android`
+ *   철조망 건너편    — 둘 다 `tut_android` (`FINAL_ANDROIDS` — A1 (0.90, −144.88) · A2 (3.09, −142.83))
  *
  * **체크포인트까지의 거리** (감지 12 m 를 넘는지의 근거 — 좌표를 고치면 다시 계산한다):
- *   `bugs`(0,60)     → (−2.5,34) 26.1 · (2.5,28) 32.1
- *   `crawl`(0,−10)   → (−2.5,34) 44.1 · (2.5,28) 38.1
- *   `android`(0,−32) → (−7,−48) 17.5 · (7,−54) 23.1
- *   `drop`(0,−71)    → (−7,−48) 24.0 · (7,−54) 18.4
- *   `wall`(0,−108)   → (−3,−125) 17.3 · (3,−128) 20.2
- *   `ship`(0,−143)   → (−3,−125) 18.2 · (3,−128) 15.3
- * 가장 빡빡한 곳이 15.3 m 다.
+ *   `bugs`(0,60)          → (2.5,34) 26.12 · (−2.5,28) 32.10
+ *   `crawl`(0,−10)        → (2.5,34) 44.07 · (−2.5,28) 38.08
+ *   `android`(0,−32)      → (−7,−48) 17.46 · (7,−54) 23.09
+ *   `drop`(0,−71)         → (−7,−48) 24.04 · (7,−54) 18.38
+ *   `wall`(0,−108)        → A1 36.89 · A2 34.96
+ *   `ship`(−12.5,−151)    → A1 **14.73** · A2 17.60
+ * 가장 빡빡한 곳이 14.73 m 다.
  *
- * **자기 구간의 벽 안인가** (2026-09-14 4차, 벌레 구간이 좁아졌으므로 다시 잰다 — 반폭은 `corridorHalfXAt`):
+ * **자기 구간의 벽 안인가** (반폭은 `corridorHalfXAt`):
  *   벌레 둘   (z 34 · 28) 반폭 `CORRIDOR_BUG_HALF_X` 4.6 → `|x|` 2.5 + `radius` 0.45 = 2.95, **여유 1.65 m**.
  *             벽의 안쪽 면은 `Ground` 의 bite 만큼 더 파고들지만 그 몫도 폭에 비례해 줄어(4 × 0.55 × 4.6/15.4
- *             = 0.66) 최소 3.94 이므로 **여유 0.99 m** 는 남는다.
- *   안드로이드 넷 (z −48 · −54 · −125 · −128) 반폭 15.4 → `|x| ≤ 7`, 여유 8.4 m 이상.
+ *             = 0.66) 최소 3.94 이므로 **여유 0.99 m** 는 남는다. 좌우를 바꿔도 `|x|` 가 같아 그대로다.
+ *   안드로이드 넷 (z −48 · −54 · −144.9 · −142.8) 반폭 15.4 → `|x| ≤ 7`, 여유 8.4 m 이상.
  *
- * **무너진 벽 뒤 둘의 거리 검산** (2026-09-14 3차 — 「벽 앞에서 던진 수류탄 하나가 둘을 잡는다」):
- *   `GRENADE_RADIUS` = 6 m (`weapons/Grenade.ts`, `items.csv` 설명의 「반경 6 m」와 같은 값), 피해는 거리에
- *   선형 감쇠. 두 대의 한가운데는 (0, −126.5) 이고 각자까지 √(3² + 1.5²) = **3.35 m** 라 둘 다 반경 안이다
- *   (피해 계수 1 − 3.35/6 = 0.44).
- *   벽(`BROKEN_WALL.z` −114 · 두께 2.2 → 앞면 −112.9)에 붙어 선 사람은 z ≈ −112.5 이므로 그 한가운데까지
- *   **14.0 m** — 기본 투척 거리(`throwRangeMetres`: 34 m/s · 올려주기 3.5 · 중력 24 · 눈높이 1.55 → **18.14 m**)
- *   안이고, 동시에 폭발 반경 6 m 밖이라 **자기 수류탄에 맞지 않는다**. 옛 배치는 둘이 13.4 m 떨어져 있어
- *   (한 대의 반경 안에 다른 한 대가 절대 못 들어왔다) 이 학습이 성립하지 않았다.
+ * **철조망 건너편 둘** (2026-09-15 — 「철조망 사이로 보이고, 넘겨 던진 수류탄 하나에 둘」):
+ *   - 둘 다 철조망 **건너편 10 m** 이고 방벽을 따라 3.5 · 6.5 m 라 가까운 쪽 어디서 봐도 그 앞은 철조망 토막(3.5 … 27.0 m)이다
+ *     (콘크리트 토막 뒤에 숨지 않는다).
+ *   - 수류탄은 `BACKSTOP` 주석: 철조망 앞 4 · 8 · 12 m 에서 6–12° 로 던지면 두 대에게서 1.7–2.1 m 에 멈춘다 → 170 피해 > 체력 140.
+ *   - **함선이 보인다** (스위치를 누른 뒤 이륙하는 함선 속 플레이어를 쏜다): 두 대와 함선 사이에 방벽 선이 없다 — 방벽 `far`
+ *     끝이 (−8.5, −140) 이고 함선 · 두 대는 모두 그 선의 건너편이다. 화물칸 입구가 보이는 범위(함선 로컬 좌표, 입구 폭 ±1.6 이
+ *     로컬 z 0.6 에 있다): A1 로컬 (11.54, 11.29), A2 (14.05, 12.93) — 램프 안쪽 0.8 m 에 선 몸까지는 곧게 보이고
+ *     (허용 |x| 13.8 · 15.7), 화물칸 한가운데(로컬 z −2.5)는 외피 옆판이 가린다(허용 7.1 · 8.0). 외피 콜라이더는 이륙
+ *     스풀(1.6 s) 뒤에 걷히므로(`extraction/Hull`) 그 뒤로는 떠오르는 함선 속 몸까지 사선이 열린다.
  */
 export const ENEMIES: readonly EnemySpot[] = [
-  { type: 'tut_bug_loot', x: -2.5, y: DECK_UPPER_Y, z: 34, yaw: Math.PI },      // 왼쪽 — 무기 · 재료를 떨어뜨린다
-  { type: 'tut_bug', x: 2.5, y: DECK_UPPER_Y, z: 28, yaw: Math.PI },            // 오른쪽
+  { type: 'tut_bug_loot', x: 2.5, y: DECK_UPPER_Y, z: 34, yaw: Math.PI },       // 가까운 쪽 · 오른쪽 — 무기 · 재료를 떨어뜨린다
+  { type: 'tut_bug', x: -2.5, y: DECK_UPPER_Y, z: 28, yaw: Math.PI },           // 먼 쪽 · 왼쪽
   { type: 'tut_android', x: -7, y: DECK_UPPER_Y, z: -48, yaw: Math.PI },        // 왼쪽
   { type: 'tut_android_loot', x: 7, y: DECK_UPPER_Y, z: -54, yaw: Math.PI },    // 오른쪽 — 돌격소총 · 탄약
-  { type: 'tut_android', x: -3, y: DECK_LOWER_Y, z: -125, yaw: Math.PI },       // 무너진 벽 뒤 (수류탄 하나에 둘)
-  { type: 'tut_android', x: 3, y: DECK_LOWER_Y, z: -128, yaw: Math.PI },
+  { type: 'tut_android', x: FINAL_A1.x, y: DECK_LOWER_Y, z: FINAL_A1.z, yaw: FINAL_ANDROID_YAW },   // 철조망 건너편 (수류탄 하나에 둘)
+  { type: 'tut_android', x: FINAL_A2.x, y: DECK_LOWER_Y, z: FINAL_A2.z, yaw: FINAL_ANDROID_YAW },
 ];
 
 export const ENEMY_SENSE = TUTORIAL_ENEMY_SENSE_M;
@@ -410,8 +579,9 @@ export interface CorpseSpec {
 /**
  * 셋 다 `|x| ≤ 9` 이고 각자 그 구간의 반폭(6.67 · 7.7 · 15.4) 안이다 — ① 은 벌레 구간 깔때기 한복판(z 66)이라
  * 2026-09-14 4차에 10.3 → 6.67 로 줄었지만 `x` 가 2 뿐이라 그대로 둔다.
- * ③ 은 무너진 벽 3 m 뒤 오른쪽 구석이라 벽 뒤 안드로이드 둘에서 12.5 m · 14.4 m 떨어져 있다 — 벽을 넘자마자
- * 뒤지려다 감지 반경(12 m)에 걸리지 않는다.
+ * ③ (9, −117) 은 2026-09-15 사선 방벽이 들어선 뒤에도 **자리를 옮기지 않았다**: 방벽 좌표로 along 28.5 · depth **+4.41**
+ * (가까운 쪽) — 오른쪽 끝 콘크리트 토막 앞 3.8 m 라 방벽 속도 건너편도 아니고, 벽을 따라 걷기 시작하는 길목이다.
+ * 철조망 건너편 안드로이드 둘에서 29.05 · 26.47 m 라 감지 반경(12 m) 밖이다.
  */
 export const CORPSES: readonly CorpseSpec[] = [
   {
@@ -433,11 +603,22 @@ export const CORPSES: readonly CorpseSpec[] = [
 /**
  * `ctx.extraction.beginPreLanded(position, yaw)` 에 넘길 자리. 함선 원점은 데크 위에 있고 (`Ship.floorYAt` 규약),
  * **뒷 램프는 `(sin yaw, cos yaw)` 쪽으로 열린다** — yaw 0 이면 +Z, 즉 다가오는 플레이어 정면이다.
- * z 는 외피(`extraction/Hull`)의 기수 끝이 로컬 −9.7 m 라 −149 다: 월드 −158.7 로 아래 데크 끝(−162)과
- * 막다른 벽 안쪽에 들어간다. 화물칸은 월드 −154.2 … −149.8, 램프는 그 뒤(−145.75 까지)로 열린다.
+ *
+ * 2026-09-15 (사용자 결정 — 「함선은 왼쪽, 살짝 비스듬히, 램프가 다가오는 쪽을 보게」): **왼쪽**(x −8.5)에 **yaw −10°** 로 세운다.
+ * 램프가 왼쪽 뒤(−0.174, 0.985)를 보므로 방벽 왼쪽 틈에서 곧장 걸어 들어온다. 이륙은 기수 쪽 (0.174, −0.985) = 오른쪽 앞으로
+ * 날아가 **벽에서 멀어진다**.
+ *
+ * **검산** (월드, `extraction/Hull` 외피 + 램프 + 나셀 · 날개 · 꼬리를 0.25 m 간격으로 옮겨 쟀다):
+ *   - 발자국 x −13.13 … −2.76 · z −167.80 … −154.50 → 왼쪽 벽(−15.4, `WALL_PLAIN_FROM_Z`)까지 **2.27 m**, 끝없는 절벽
+ *     가장자리(−172)까지 **4.20 m**, 방벽까지 **14.05 m**.
+ *   - 램프 발치(로컬 0, 3.25) = (−9.06, −154.80). 틈 한가운데 (−12.20, −140) 에서 거기로 걷는 방향이 램프 축과 **2.0°** 어긋난다.
+ *   - 이륙 궤적(스풀 1.6 s + 상승 `6a² + 2a` · 전진 `12(a − 0.8)²` · 기수 들기 0.35 rad)을 0.02 s 간격으로 따라가며 모든 표본점을
+ *     옆 절벽 벽 조각(안쪽 면 · 윗면)과 비교했다 — **닿는 곳이 없다** (벽 윗면을 넘기 전의 전진은 오른쪽 앞으로 18.5 m 뿐이다).
+ *   - 이륙 연출 카메라의 첫 자리(로컬 7.5, 3.2, 17) = (−4.07, **−6.8**, −139.96): 방벽 건너편 3.0 m · `far` 끝에서 3.3 m 라
+ *     콘크리트 토막(윗면 −7.0) 위이고, 오른쪽으로 떨어진 `BACKSTOP` 과도 겹치지 않는다.
  */
-export const SHIP_POS = new THREE.Vector3(0, DECK_LOWER_Y, -149);
-export const SHIP_YAW = 0;
+export const SHIP_POS = new THREE.Vector3(-8.5, DECK_LOWER_Y, -158);
+export const SHIP_YAW = (-10 * Math.PI) / 180;
 
 /* ── 손으로 지은 구조물의 치수 ───────────────────────────────────────────── */
 
@@ -455,35 +636,42 @@ export const CRAWL = {
    * (`PLAYER_CROUCH_CLEARANCE_M` 1.3)은 지나는** 사이 값이다 — 2026-09-14 에 `PlayerController` 가 자세 높이를
    * `resolveCollision` 에 넘기게 되면서 「앉아서만 지나갈 수 있다」가 진짜가 됐다. 그 밑에서는 일어설 수도 없다
    * (`player/parts/Locomotion.canStandHere`). 두 상수 **사이**를 벗어나면 구간이 뜻을 잃으므로 함께 본다.
+   *
+   * 2026-09-15 1.65 → **1.825** (사용자 보고 「앉아서 지나가면 머리가 천장에 반쯤 박힌다」). 콜라이더는 1.3 을 요구하지만
+   * **그려진 머리**는 더 높다 — 앉은 병사 모델(`player/SoldierModel`)의 머리 꼭대기를 쟀다:
+   *   엉덩이 `hipsBaseY` 0.98 − 앉기 0.36 = 0.62 → 몸통 → 머리 피벗 0.58 (몸통 기울기 cos ≤ 1) = 1.20
+   *   → 헬멧 구 0.17 + 0.145 × 1.08 = 0.327 (볏 윗면 0.32) = **1.53**, 앉아 걸을 때 흔들림 +0.023 = **1.55 m**.
+   * 옛 입구 1.35 는 그보다 0.20 m 낮았다 (헬멧 0.33 m 의 절반 이상이 슬래브 속). 새 입구 1.70 은 **0.15 m 위**다.
    */
-  clearance: 1.65,
+  clearance: 1.825,
   /**
    * 슬래브의 두께. 2026-09-14 4차 사용자 결정으로 1.2 → **2.4**(「천장을 위로 더 두껍게」) — 얇은 판 하나가
    * 떠 있으면 무너진 잔해가 아니라 선반처럼 보였다. **밑면은 그대로이고 위로만 두꺼워진다**: 그림도
    * (`Dressing` 이 중심을 `clearance + slabThickness / 2` 에 둔다) 콜라이더도(밑면을 base 로, 두께를 height 로
    * 넣는다) 밑면 기준이라 이 값을 키워도 통과 높이는 한 치도 안 바뀐다. 위쪽은 양옆 잔해 더미(높이 5.2)
-   * 안이라 삐져나오지 않는다 (출구에서 1.95 + 2.4 = 4.35).
+   * 안이라 삐져나오지 않는다 (출구에서 1.95 + 2.4 = 4.35, 입구에서 1.70 + 2.4 = 4.10).
    */
   slabThickness: 2.4,
   /**
    * 2026-09-14 3차 — 슬래브를 **기울여** 무너져 내려앉은 잔해처럼 보이게 한다. 밑면의 기울기(dy/dz)다.
    * 4차 사용자 결정으로 **부호를 뒤집었다**: 들어가는 쪽(z0)이 낮고 나가는 쪽(z1)이 높다 — 앉아서 앞을
    * 겨눌 때(`crouchAim`) 카메라가 슬래브에 박히던 곳이 **출구**였고, 「점점 낮아지는 굴로 기어든다」보다
-   * 「기어들어 갔다가 빠져나온다」가 이 구간의 뜻에 맞는다. 값은 입구 1.35 → 출구 1.95 를 깊이 14 m 로 나눈
-   * 것이라 `−0.6 / 14` 로 적는다 (0.0428…을 손으로 반올림해 적으면 양 끝이 요청과 어긋난다).
+   * 「기어들어 갔다가 빠져나온다」가 이 구간의 뜻에 맞는다.
+   * 2026-09-15: 출구(1.95)는 그대로 두고 **입구만 1.35 → 1.70** 으로 올렸다 (위 `clearance` 주석 — 앉은 머리 꼭대기 1.55 + 0.15).
+   * 그래서 기울기가 −0.6/14 → `−0.25 / 14` 로 **완만해졌다** (0.017857… 을 손으로 반올림해 적으면 양 끝이 어긋난다).
    *
-   * **검산** (깊이 14 m, 한가운데 `clearance` 1.65):
-   *   가장 높은 곳 z1 = −28 → 1.65 + 7 × 0.042857 = **1.95 m** < `BOX_HEADROOM` 2.1 → 어디서도 못 선다 ✔
-   *   가장 낮은 곳 z0 = −14 → 1.65 − 7 × 0.042857 = **1.35 m** > `PLAYER_CROUCH_CLEARANCE_M` 1.3 → 앉으면 지난다 ✔
+   * **검산** (깊이 14 m, 한가운데 `clearance` 1.825):
+   *   가장 높은 곳 z1 = −28 → 1.825 + 7 × 0.017857 = **1.950 m** < `BOX_HEADROOM` 2.1 → 어디서도 못 선다 ✔
+   *   가장 낮은 곳 z0 = −14 → 1.825 − 7 × 0.017857 = **1.700 m** > 앉은 머리 꼭대기 1.55 + 0.15 ✔ (`PLAYER_CROUCH_CLEARANCE_M` 1.3 ✔)
+   *   앉은 눈높이 `EYE_CROUCH` 1.15 (정조준 +0.22 = 1.37) 도 입구 밑면에서 0.33 m 아래라 카메라가 박히지 않는다.
    *
    * 콜라이더는 `slabSegments` 장으로 쪼갠 축 정렬 상자이고 각 조각의 밑면은 그 조각 **한가운데**의 값이라
-   * 그려진 밑면과 최대 `(14/7)/2 × 0.042857` = **0.043 m** 어긋난다 (3차의 0.053 보다 좁다 — 조각을 4 → 7 로
-   * 늘린 이유가 그것이다: 입구 조각의 밑면이 설계값 1.35 에 더 가까이 선다).
+   * 그려진 밑면과 최대 `(14/7)/2 × 0.017857` = **0.018 m** 어긋난다.
    * 조각별 밑면 (z 중심 −15 · −17 · −19 · −21 · −23 · −25 · −27):
-   *   **1.393 · 1.479 · 1.564 · 1.650 · 1.736 · 1.821 · 1.907** — 일곱 다 1.3 과 2.1 사이 ✔
+   *   **1.718 · 1.754 · 1.789 · 1.825 · 1.861 · 1.896 · 1.932** — 일곱 다 1.3 과 2.1 사이 ✔
    * 하나라도 1.3 밑으로 내려가면 앉아서도 못 지나가고, 2.1 위로 올라가면 서서 지나갈 수 있어 구간이 뜻을 잃는다.
    */
-  slabSlope: -0.6 / 14,
+  slabSlope: -0.25 / 14,
   slabSegments: 7,
 } as const;
 
@@ -491,9 +679,6 @@ export const CRAWL = {
 export function crawlClearanceAt(z: number): number {
   return CRAWL.clearance + CRAWL.slabSlope * (z - (CRAWL.z0 + CRAWL.z1) / 2);
 }
-
-/** 무너진 벽 — 통로를 가로막고 가운데만 뚫려 있다. */
-export const BROKEN_WALL = { z: -114, thickness: 2.2, height: 4.6, gapHalfX: 2.5 } as const;
 
 /** 시작 폐허가 서는 구역. */
 export const RUINS = { z0: 118, z1: 96 } as const;

@@ -1,5 +1,5 @@
 import type { GameContext, StratagemId } from '@/shared';
-import { Keys, RESCUE_DROPS_PER_RAID, STRATAGEM_ORDER, keyLabel, onKeybindsChanged } from '@/shared';
+import { Keys, RESCUE_DROPS_PER_RAID, STRATAGEM_ORDER, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH } from './stratagemGlyphs';
 import '../styles/shipCall.css';
@@ -71,14 +71,14 @@ export class StratagemPanel {
     el('div', { cls: 'sb-flash', parent: this.thumb });
     this.cdEl = el('div', { cls: 'sc-cd ui-mono', text: '', parent: this.thumb });
     this.chEl = el('div', { cls: 'sc-ch ui-mono', text: '', parent: this.thumb });
-    this.keyEl = el('kbd', { cls: 'keycap sc-key', text: keyLabel(Keys.SHIP_CALL), parent: this.root });
+    this.keyEl = createKeycap(Keys.SHIP_CALL, { tag: 'kbd', cls: 'sc-key', parent: this.root });   // 2026-09-15: 공용 키캡
     // 2026-09-12: 준비 순간 썸네일 밖으로 퍼지는 테두리 (썸네일 위에 절대 배치)
     el('div', { cls: 'sc-ring', parent: this.root });
   }
 
   bind(ctx: GameContext): void {
     const b = ctx.bus;
-    const syncKey = (): void => setText(this.keyEl, keyLabel(Keys.SHIP_CALL));
+    const syncKey = (): void => paintKeycap(this.keyEl, Keys.SHIP_CALL);
     this.unsubs.push(
       b.on('input:bindingsChanged', syncKey),
       onKeybindsChanged(syncKey),

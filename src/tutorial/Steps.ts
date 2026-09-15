@@ -16,11 +16,13 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   intro: {
     id: 'intro', title: '함선에 오신 것을 환영합니다',
     hint: '안내를 읽고 시작하세요.',
+    // 2026-09-15: 목표 줄은 문장이 아니라 명사구다 — `hint` 가 목표가 되던 단계에도 짧은 줄을 적는다
+    objectives: [{ id: 'introRead', text: '시작 안내 확인' }],
   },
   manage: {
     id: 'manage', title: '함선 관리를 여세요',
     hint: '화면 우측 아래의 시설 관리 버튼이 알려 주는 키(M)를 누르면 함선 관리 화면이 열립니다.',
-    objectives: [{ id: 'manageOpen', text: '함선 관리를 연다' }],
+    objectives: [{ id: 'manageOpen', text: '함선 관리 열기' }],
     // 2026-09-08: 아무것도 안 열린 상태라 밝힐 화면이 없었다 — 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트를
     //   가리켜 "어디를 봐야 하는지"부터 알려 준다 (`ui/hud/ShipManageHint`).
     spot: ['.ship-hint'],
@@ -31,6 +33,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   generator: {
     id: 'generator', title: '발전기를 가동하세요',
     hint: '시설 증축에는 발전기 Lv.1 이 필요합니다. 방 목록 아래의 발전기를 가동하세요.',
+    objectives: [{ id: 'generatorOn', text: '발전기 가동' }],
     // 작업실도 함께 열어 둔다 — 발전기가 켜지는 순간 바로 다음 단계로 넘어가므로 목록이 흔들리지 않는다.
     allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
     spot: ['.sm-gen .sm-gen-btn', '.sm-gen', '.sm-side'],
@@ -57,8 +60,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     hint: '가구 창고 탭에서 총기 작업대를 고른 다음, 작업실 바닥을 클릭해 내려놓습니다.',
     // 2026-09-14 3차: 「고른다 → 내려놓는다」 두 동작이라 줄도 둘이다 (순차 공개).
     objectives: [
-      { id: 'benchPick', text: '가구 창고에서 총기 작업대를 집는다' },
-      { id: 'benchDown', text: '작업실 바닥에 내려놓는다', reveal: true },
+      { id: 'benchPick', text: '가구 창고에서 총기 작업대 선택' },
+      { id: 'benchDown', text: '작업실 바닥에 배치', reveal: true },
     ],
     allow: { furniture: [TUTORIAL_BENCH_DEF] },
     // 창고 탭이 아직 열려 있지 않으면 그 탭 버튼을 밝힌다 — 탭 자체가 어두운 판에 덮여 못 눌리던 자리다.
@@ -75,6 +78,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   manageDone: {
     id: 'manageDone', title: '함선 관리를 닫으세요',
     hint: '화면 우측 아래 키 가이드의 닫기 키(Tab)를 누르면 관리 모드를 빠져나옵니다 (M · C 도 됩니다).',
+    objectives: [{ id: 'manageClose', text: '{INVENTORY} 함선 관리 닫기' }],
     // 작업대는 계속 허용해 둔다 — 막힌 것은 목록에서 사라지므로, 방금까지 보던 카드가 통째로 비지 않도록.
     allow: { manageExit: true, furniture: [TUTORIAL_BENCH_DEF] },
     // 2026-09-09: 관리 모드가 켜져 있는 동안 우측 하단에 떠 있는 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)를 밝힌다 —
@@ -123,7 +127,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 2026-09-08: 제작 중에는 장착 장비 칸이 숨는다 (`.inv-root.is-craft`) — 만든 무기를 장착하려면 먼저 작업대를
     //   닫아야 한다. 그 순서를 안내 없이 두면 "장비 칸이 어디 갔지"에서 막힌다.
     hint: '작업대 우측 상단의 닫기를 누르면 장착 장비와 가방이 나타납니다.',
-    objectives: [{ id: 'craftClosed', text: '제작 창을 닫는다' }],
+    objectives: [{ id: 'craftClosed', text: '제작 창 닫기' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-craft-close', '.inv-panel-craft'],
     spotText: '제작 창 닫기',
@@ -138,7 +142,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      * 스포트라이트도 `craftOpen` 을 따라 닫기 버튼 ↔ 장비칸+가방으로 갈린다 (`TutorialSystem.stepView`).
      */
     objectives: [
-      { id: 'equipClose', text: '제작 창을 닫는다' },
+      { id: 'equipClose', text: '제작 창 닫기' },
       { id: 'equipSlot', text: '소총을 주무기 I · II 칸에 장착', reveal: true },
     ],
     // 직전 단계의 레시피는 그대로 열어 둔다 — 막힌 레시피는 목록에서 사라지므로 작업대가 통째로 비지 않게.
@@ -158,6 +162,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     //   한 번에 만들므로 할 일이 없다. `stepDef('openCraft')` 는 안전하게 이 항목을 돌려주고 `nextStep` 은 null 이다.
     id: 'openCraft', title: '제작 창을 여세요',
     hint: '가방 우측 상단의 제작 버튼을 누르면 제작 창이 열립니다 (작업대를 직접 사용해도 됩니다).',
+    objectives: [{ id: 'craftOpened', text: '제작 창 열기' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-bag-craft', '.inv-panel-bag'],
     spotText: '제작 창 열기',
@@ -165,7 +170,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   stowAmmo: {
     id: 'stowAmmo', title: '탄약을 가방에 넣으세요',
     hint: '함선 창고의 준중량탄을 가방 격자로 끌어다 놓습니다.',
-    objectives: [{ id: 'ammoStowed', text: '준중량탄을 가방에 넣는다' }],
+    objectives: [{ id: 'ammoStowed', text: '준중량탄을 가방으로 이동' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     // `equipGun` 과 같은 이유의 합집합 — 집을 곳(창고)과 놓을 곳(가방)이 둘 다 밝아야 드래그가 된다.
     spot: ['.inv-panel-stash', '.inv-panel-bag'],
@@ -194,7 +199,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   travel: {
     id: 'travel', title: '행성으로 이동 중입니다',
     hint: '워프가 끝날 때까지 기다리세요.',
-    objectives: [{ id: 'travelDone', text: '행성 도착까지 기다린다' }],
+    objectives: [{ id: 'travelDone', text: '행성 도착 대기' }],
     allow: { terminal: true },
   },
   board: {
@@ -202,7 +207,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     hint: '발사 포드로 걸어가 상호작용하면 임무가 시작됩니다.',
     objectives: [
       { id: 'boardWalk', text: '발사 슬롯으로 이동' },
-      { id: 'boardOn', text: '발사 슬롯에 탑승', reveal: true },
+      { id: 'boardOn', text: '발사 슬롯 탑승', reveal: true },
     ],
     arriveObjective: 'boardWalk',
     allow: { terminal: true, board: true },
@@ -211,6 +216,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   raid: {
     id: 'raid', title: '탈출 지점을 확인하세요',
     hint: '나침반과 화면의 마커가 탈출 지점을 가리킵니다. 안내는 여기까지입니다.',
+    objectives: [{ id: 'raidExit', text: '탈출 지점 확인' }],
     // 레이드는 그대로 진행된다 — 이 단계에서는 아무것도 막지 않고 아무것도 감추지 않는다.
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,
@@ -220,9 +226,11 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
 
   /* ══ 2026-09-14 튜토리얼 개편 (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ══════════════════════════════════════════════
    * ① raid — 손으로 지은 튜토리얼 행성. 안내할 것이 **UI 가 아니라 손가락**이라 스포트라이트가 거의 없다:
-   *    배운 키는 우측 조작 가이드(`ui/Controls`, `TUTORIAL_CONTROL_HINTS`)에 한 줄씩 쌓이고, 목표 패널은
-   *    "지금 무엇을 하는가"만 말한다. 문구에 키 글자를 **적지 않는다** — 리바인드하면 거짓말이 되고,
-   *    조작 가이드가 이미 살아 있는 키 라벨을 그린다.
+   *    쓰는 키는 우측 조작 가이드(`ui/Controls`, `TUTORIAL_CONTROL_HINTS`)가 그리고, 목표 패널은
+   *    "지금 무엇을 하는가"만 말한다.
+   *    2026-09-15 (사용자 결정) — 목표는 **짧은 명사구**이고, 키를 말하는 줄은 **키캡 토큰**(`{QUICK:hold}` …)을 쓴다.
+   *    예전의 「문구에 키 글자를 적지 않는다」는 글자를 박아 두면 리바인드에 거짓말이 되기 때문이었는데, 토큰은
+   *    그릴 때 `Keys` 에서 풀리고 리바인드하면 다시 그려지므로 그 걱정이 없다 (`shared/keycap.renderKeyText`).
    * ② ship — 함선 첫 진입. 레벨 · 능력치 · 메신저는 전부 기존 화면이라 **스포트라이트로 가리키기만** 한다.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
   /* ── ① raid — 튜토리얼 레이드 ── */
@@ -243,12 +251,12 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   move: {
     id: 'move', title: '주변을 둘러보고 걸어가세요',
     hint: '마우스로 시선을 돌리고, 이동 키로 앞쪽 갈라진 땅까지 걸어갑니다.',
-    objectives: [{ id: 'walkCliff', text: '갈라진 땅까지 걸어간다' }],
+    objectives: [{ id: 'walkCliff', text: '갈라진 땅까지 이동' }],
   },
   sprintJump: {
     id: 'sprintJump', title: '달려서 뛰어넘으세요',
     hint: '달리기를 누른 채 속도를 붙여 점프해야 건너갑니다. 서서 뛰면 닿지 않습니다.',
-    objectives: [{ id: 'jumpGap', text: '달려서 갈라진 땅을 뛰어넘는다' }],
+    objectives: [{ id: 'jumpGap', text: '{SPRINT:hold} 달리며 {JUMP} 점프로 갈라진 땅 건너기' }],
   },
   corpseLoot: {
     id: 'corpseLoot', title: '쓰러진 대원의 장비를 챙기세요',
@@ -272,15 +280,20 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      *     다음 안내는 인벤토리를 닫을 때 온다 — 화면을 보는 동안 등 뒤에서 안내가 바뀌지 않게.
      */
     objectives: [
-      { id: 'corpseGun', text: '시체의 기관단총을 주무기 칸에 장착한다' },
-      { id: 'corpseBag', text: '가방을 장비 칸에 장착한다', optional: true },
-      { id: 'corpseAmmo', text: '탄약을 챙긴다', optional: true },
+      { id: 'corpseGun', text: '기관단총을 주무기 칸에 장착' },
+      { id: 'corpseBag', text: '가방을 장비 칸에 장착', optional: true },
+      { id: 'corpseAmmo', text: '탄약 챙기기', optional: true },
     ],
     // 장비 칸 ↔ 시체 격자에 걸친 드래그라 합집합으로 밝힌다 (`equipGun` 과 같은 이유).
     // ⚠ 격자 타일에는 def id 가 없고 `data-uid` 뿐이라(`inventory/ui/GridView`) 총 한 칸만 고르는 선택자가
     //   없다 — 구멍은 「시체 격자 ~ 주무기 칸」, 즉 드래그 경로 전체다. 드래그를 시작하면 받을 수 있는 칸이
     //   초록으로 켜지는 것은 인벤토리가 이미 한다 (`.inv-slot.is-target-ok`).
-    spot: ['.inv-panel-container', '.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2'],
+    // 2026-09-15 (사용자 결정): 구멍을 **방탄복 칸까지** 넓힌다 (`inventory/ui/parts/SlotPanel.buildSlot` 의
+    //   `inv-slot-${slot}` — `LOADOUT_SLOTS` 의 `armor`). 창을 곧바로 닫으면 포커싱은 풀린다 (`TutorialSystem.corpseFocusOff`).
+    spot: [
+      '.inv-panel-container', '.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2',
+      '.inv-root .inv-equip .inv-slot-armor',
+    ],
     spotUnion: true,
     // 2026-09-14 2차 (사용자 결정): 이 단계만 **딤이 없다** — 시체 격자 · 장비 칸 말고도 볼 것이 많고,
     //   어두운 판이 화면 절반을 덮으면 처음 여는 인벤토리 화면을 읽을 수가 없다.
@@ -301,55 +314,68 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   advance1: {
     id: 'advance1', title: '앞으로 나아가세요',
     hint: '길을 따라 앞으로 이동합니다.',
-    objectives: [{ id: 'advance1Walk', text: '앞으로 이동한다' }],
+    objectives: [{ id: 'advance1Walk', text: '앞으로 이동' }],
   },
   advance2: {
     id: 'advance2', title: '앞으로 나아가세요',
     hint: '길을 따라 앞으로 이동합니다.',
-    objectives: [{ id: 'advance2Walk', text: '앞으로 이동한다' }],
+    objectives: [{ id: 'advance2Walk', text: '앞으로 이동' }],
   },
   advance3: {
     id: 'advance3', title: '앞으로 나아가세요',
     hint: '길을 따라 앞으로 이동합니다.',
-    objectives: [{ id: 'advance3Walk', text: '앞으로 이동한다' }],
+    objectives: [{ id: 'advance3Walk', text: '앞으로 이동' }],
   },
   shoot: {
     id: 'shoot', title: '벌레를 처치하세요',
     hint: '정조준하면 탄이 덜 퍼집니다. 둘 다 쓰러뜨리면 다음으로 넘어갑니다.',
-    objectives: [{ id: 'killBugs', text: '벌레 둘을 처치한다' }],
+    objectives: [{ id: 'killBugs', text: '벌레 2마리 처치' }],
   },
   crouch: {
     id: 'crouch', title: '앉아서 낮은 틈을 지나세요',
     hint: '선 채로는 들어가지 않습니다. 앉기 키로 자세를 낮추세요.',
-    objectives: [{ id: 'crouchGap', text: '앉아서 낮은 틈을 지난다' }],
+    objectives: [{ id: 'crouchGap', text: '{CROUCH} 앉기 · {PRONE} 포복으로 낮은 틈 통과' }],
   },
   crouchAim: {
     id: 'crouchAim', title: '앉은 채로 조준해 안드로이드를 처치하세요',
     hint: '앉으면 조준 흔들림이 크게 줄어듭니다 — 먼 표적일수록 차이가 납니다.',
-    objectives: [{ id: 'killAndroids', text: '안드로이드 둘을 처치한다' }],
+    objectives: [{ id: 'killAndroids', text: '안드로이드 2기 처치' }],
   },
   drop: {
     id: 'drop', title: '아래로 뛰어내리세요',
     hint: '높은 곳에서 떨어지면 다칩니다. 여기서는 죽지는 않습니다.',
-    objectives: [{ id: 'dropDown', text: '높은 곳에서 아래로 뛰어내린다' }],
+    objectives: [{ id: 'dropDown', text: '아래로 뛰어내리기' }],
+  },
+  /*
+   * 2026-09-15 (사용자 결정) — **보급품 시체 루팅.** `supply` 체크포인트가 여는 단계다 (전에는 곧장 `heal` 이라
+   * 붕대를 줍기도 전에 「붕대 사용」이 떴다). 두 줄이 함께 보이고 — 필수 「붕대 획득」 · 선택 「수류탄 획득」 —
+   * 가방에 붕대가 들어오면 필수가 체크된다 (`TutorialSystem.onInventory`, 튜토리얼 레이드는 빈손으로 시작하고 첫
+   * 시체에는 회복 아이템이 없으므로 「가방 · 빠른 사용 칸에 회복 아이템이 있다」 = 그 시체에서 얻었다).
+   * 붕대를 얻은 뒤 **창을 닫으면** `heal` 이다. 줍지 않고 `wall` 까지 가면 `heal` 까지 함께 건너뛴다.
+   */
+  supplyLoot: {
+    id: 'supplyLoot', title: '보급품 시체를 뒤지세요',
+    hint: '시체에서 붕대를 꺼내고 창을 닫습니다.',
+    objectives: [
+      { id: 'supplyBandage', text: '시체에서 붕대 획득' },
+      { id: 'supplyGrenade', text: '시체에서 수류탄 획득', optional: true },
+    ],
   },
   heal: {
     id: 'heal', title: '보급품을 챙기고 회복하세요',
     hint: '주운 회복 아이템은 빠른 사용 칸에 올려야 꺼낼 수 있습니다. 꺼낸 뒤 길게 눌러 쓰세요.',
     // 2026-09-14 2차 (사용자 결정): 체력이 이미 가득이면 이 단계는 조용히 지나친다 (`TutorialSystem.setStep`).
     /*
-     * 2026-09-14 4차 (사용자 결정) — 네 줄이 **두 줄 + 선택 하나**로 합쳐졌다.
-     *   • 「붕대를 빠른 사용 칸에 올린다」(`healStock`) 삭제 — 붕대 · 수류탄은 주우면 **빈 휠 칸에 자동 등록**된다.
-     *     이미 되어 있는 일을 목표로 세우면 안내가 거짓말을 한다 (딤 없는 포커싱도 그래서 함께 없어졌다).
-     *   • 남는 것은 **손에 드는 것**과 **쓰는 것** 둘이고, 한 동작의 앞뒤라 순차 공개 없이 함께 보인다.
-     *   • 선택 목표 「수류탄을 챙긴다」 — 그 보급품 시체에 수류탄 2개가 있고, 다음 단계(`grenade`)가 그것을 쓴다.
-     *     선택 줄이 맨 뒤에 있어도 앞 줄이 `reveal` 을 쓰지 않으므로 처음부터 보인다.
-     * 문구에 키 글자를 적지 않는다 — 리바인드하면 거짓말이 되고, 키는 우측 조작 가이드가 그린다.
+     * 2026-09-14 4차 (사용자 결정) — 「붕대를 빠른 사용 칸에 올린다」(`healStock`) 삭제: 붕대 · 수류탄은 주우면
+     * **빈 휠 칸에 자동 등록**된다. 남는 것은 **손에 드는 것**과 **쓰는 것** 둘이다.
+     *
+     * 2026-09-15 (사용자 결정) — ① 두 줄이 **순차 공개**다: 붕대를 손에 들어야 「붕대 사용」이 나타난다.
+     * ② 줄 안에 **키캡**이 들어간다 (`{QUICK:hold}` · `{FIRE:hold}`). ③ 선택 목표 「수류탄을 챙긴다」
+     * (`healGrenade`)는 삭제 — 보급품 시체 단계(`supplyLoot`)의 「시체에서 수류탄 획득」으로 옮겨 갔다.
      */
     objectives: [
-      { id: 'healHold', text: '빠른 사용 휠을 꾹 눌러 붕대를 골라 손에 든다' },
-      { id: 'healUse', text: '길게 눌러 붕대를 쓴다' },
-      { id: 'healGrenade', text: '수류탄을 챙긴다', optional: true },
+      { id: 'healHold', text: '{QUICK:hold} 길게 눌러 붕대 장착' },
+      { id: 'healUse', text: '{FIRE:hold} 길게 눌러 붕대 사용', reveal: true },
     ],
   },
   grenade: {
@@ -362,14 +388,15 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      * 그래서 판정은 `grenade:exploded` 한 줄이다 (처치 여부를 보지 않는다).
      */
     objectives: [
-      { id: 'wallPass', text: '무너진 벽 너머로 나아간다' },
-      { id: 'grenadeThrow', text: '수류탄을 꺼내 던진다', optional: true },
+      // 2026-09-15: 무너진 벽은 사선 방벽이 됐다 — 다른 구간과 같은 「앞으로 이동」 (사용자 결정)
+      { id: 'wallPass', text: '앞으로 이동' },
+      { id: 'grenadeThrow', text: '{QUICK:hold} 수류탄 장착 후 {FIRE:hold} 투척', optional: true },
     ],
   },
   extract: {
     id: 'extract', title: '버려진 함선으로 탈출하세요',
-    hint: '함선 안의 스위치를 누르면 10초 뒤 이륙합니다. 그 함선이 앞으로 당신의 함선입니다.',
-    objectives: [{ id: 'extractSwitch', text: '버려진 함선의 스위치를 누른다' }],
+    hint: '함선 안의 스위치를 누르면 곧바로 이륙합니다. 그 함선이 앞으로 당신의 함선입니다.',
+    objectives: [{ id: 'extractSwitch', text: '{INTERACT:hold} 함선 스위치 작동' }],
     // 레이드가 끝나는 단계다 — 아무것도 막지 않는다 (build 트랙의 `raid` 와 같은 처리).
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,
@@ -381,7 +408,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'levelUp', title: '레벨이 올랐습니다',
     // 넘어가는 신호는 `inventory:opened` 하나다 — 인벤토리 화면이 열리면 그 안의 캐릭터 탭은 다음 단계가 밝힌다.
     hint: '임무 보상으로 능력치 포인트가 생겼습니다. 인벤토리 화면을 여세요.',
-    objectives: [{ id: 'levelScreen', text: '인벤토리 화면을 연다' }],
+    objectives: [{ id: 'levelScreen', text: '인벤토리 화면 열기' }],
     allow: { screenTab: ['character'] },
     // `.scr-tab` 에는 탭마다의 표식이 없다 — 지금 보이는 탭이 인벤토리 · 캐릭터 둘뿐이라 탭 줄 전체를 밝힌다.
     spot: ['.inv-root .scr-tabs', '.inv-root'],
@@ -405,7 +432,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   messenger: {
     id: 'messenger', title: '메신저를 여세요',
     hint: '우측 상단에 읽지 않은 연락이 와 있습니다.',
-    objectives: [{ id: 'messengerOpen', text: '메신저를 연다' }],
+    objectives: [{ id: 'messengerOpen', text: '메신저 열기' }],
     allow: { community: true },
     /*
      * 2026-09-15 (E-12, smoke-tutorial-ship) — **`.show` 가 붙은 버튼만** 밝힌다. `stats` 는 인벤토리 창 안에서 끝나므로
@@ -420,8 +447,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'ravenQuest', title: '레이븐의 의뢰를 받으세요',
     hint: '대답을 고르고 퀘스트 카드의 수락을 누릅니다.',
     objectives: [
-      { id: 'ravenTalk', text: '레이븐의 연락에 대답한다' },
-      { id: 'ravenAccept', text: '퀘스트를 수락한다' },
+      { id: 'ravenTalk', text: '레이븐의 연락에 답장' },
+      { id: 'ravenAccept', text: '퀘스트 수락' },
     ],
     allow: { community: true },
     // 2026-09-15 (E-12): 대화 페이지의 클래스는 `.ms-page.chat` 이다 (탭 id `chat`) — `.chats` 는 아무것도 못 찾아 틀 전체로 흘렀다

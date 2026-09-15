@@ -86,7 +86,7 @@ Tactical-kit ids in detail:
 - `grapple_fire` — pneumatic thump + 0.35 s wire zip; `grapple_attach` — clank + latch + ring; `grapple_release` — servo whir (also reused as the barrier fold-away).
 - `dash` — saw sweep 260 → 1500 Hz + highpass air. `barrier_deploy` — clack then an energy field settling; `barrier_hit` — bright 1.5 kHz ping + splash (positional); `barrier_break` — descending shatter with debris clicks.
 - `overcharge_beam` — 1 s shimmering tremolo tone (played once when the beam locks on). `scan_pulse` — sonar ping with a long ring; pitch rises 6 % per pulse index.
-- `rocket_fire` — heavy back-blast; `rocket_explode` — bigger/longer than `explosion` with a `Synth.tail` reverb.
+- `rocket_fire` — heavy back-blast; `rocket_explode` — bigger/longer than `explosion` with a `Synth.tail` reverb. **2026-09-15: nothing plays these any more** (the 대전차포 implant was retired); the synth ids stay in `SOUNDS`.
 - `gadget_place` — bolt-down clunk + servo (turret / barricade / jump pad); `dome_deploy` — airy swell; `smoke_hiss` — 1.7 s pressurised hiss; `lure_beep` — three beeps; `mine_arm` — two rising beeps + lock click; `mine_explode` — tight sharp blast; `fire_ignite` — air-suck whoosh + low fuel whump + short flame roar + three crackles (re-voiced 2026-09-15, ≈0.75 s; `RANGED_SOUNDS` 40 m); `fire_crackle` — ★ one 0.95 s burning-ground clip per `FIRE_ZONE_CRACKLE_S` (soft flame bed + 3–5 randomized bandpass crackles, 32 m, max 8 voices); `turret_shot` — compact mechanical shot (the turret sends this itself); `gadget_break` — metal crunch + debris; `defib` — capacitor whine then discharge thump.
 - `downed` — falling groan + two heartbeats; `revive` — warm four-note rising chord; `grit_save` — heartbeat + defiant rise; `cloak_on` / `cloak_off` — phasing shimmer down / up.
 - `gather` — leafy rustle + snap; `craft_start` — three workbench clicks; `craft_done` — clink + two-note confirm; `repair_done` — two clinks + rising confirm; `durability_break` — metal snap + rattle; `level_up` — five-note fanfare (1.3 s); `skill_up` — quiet two-note chime.
@@ -236,10 +236,10 @@ Appended (ship hub / chat / pickups / reconnection):
 Appended (tactical kit):
 - Melee / movement: `melee:swing`→melee_swing · `melee:hit`→melee_hit (positional, kill = louder/lower) · `player:rolled`→roll (positional) · `player:launched`→jumppad (positional).
 - Survival: `player:downed`→downed · `player:revived`→revive · `player:gritSaved`→grit_save · `player:burning {active:true}`→fire_ignite · `player:cloakChanged`→cloak_on|cloak_off.
-- Implants: `implant:activated {id:'atlauncher'}`→rocket_fire · `implant:dashed`→dash · `implant:grappleFired/Attached/Released`→grapple_fire/attach/release ·
+- Implants: `implant:dashed`→dash · `implant:grappleFired/Attached/Released`→grapple_fire/attach/release ·
   `implant:barrierChanged`→barrier_deploy when `active` flips true, the servo whir when it folds away, barrier_break the first time `hp` reaches 0 (the system tracks `barrierActive` / `barrierHp`; both reset on `game:newMission`) ·
   `implant:barrierHit`→barrier_hit (positional) · `implant:scanned`→scan_pulse (pitch + 6 % per pulse) · `implant:overcharge {active:true}`→overcharge_beam ·
-  `implant:rocketExploded`→rocket_explode (positional) · `implant:wieldChanged`→ui_equip|ui_close · `implant:equipped`→ui_equip ·
+  `implant:wieldChanged`→ui_equip|ui_close · `implant:equipped`→ui_equip ·
   **2026-09-12** `implant:ready`→implant_ready (`full` 0.55 · 피치 1, 충전형의 중간 충전 0.26 · 피치 0.9).
 - Ship calls (2026-09-12): `stratagem:ready {refunded:false}`→stratagem_ready (0.7). `refunded: true`(호스트 거절 환불로 0 이 된 순간)는 **무음**.
 - Gadgets: `gadget:used`→defib (defib) | cloak_on (cloakVeil) | grenade_throw (everything else) · `gadget:deployed`→mine_arm | dome_deploy | smoke_hiss | fire_ignite | lure_beep | gadget_place by `kind` (positional; **2026-09-15** `fire` → `fire_ignite` goes through `playRequested(…, auto)` so it takes the same `RANGED_SOUNDS` curve as gadgets' own `audio:play fire_ignite` and the two dedupe to one) ·
@@ -252,6 +252,9 @@ Appended (tactical kit):
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (대전차포 은퇴)** — `AudioSystem` 의 두 자동 구독 `implant:activated {id:'atlauncher'}`→`rocket_fire` · `implant:rocketExploded`→`rocket_explode`
+  를 지웠다 (전술 임플란트 대전차포가 게임에서 빠져 둘 다 더 이상 발행되지 않는다). `Synth.SOUNDS` 의 `rocket_fire` · `rocket_explode` 정의는 남아 있고 지금은 부르는 곳이 없다.
 
 - **2026-09-15 (낙하 착지 B-14 · 화염 지대 B-16)** — `Synth.SOUNDS` 에 2종 + 1종 다시 짬.
   `fall_impact`(서브 쿵 95 → 30 Hz + 몸통 둔탁음 + 한 박자 늦게 가라앉는 장비 달그락 클릭 5 · 버클 짤랑 + 튀는 자갈 알갱이 ·

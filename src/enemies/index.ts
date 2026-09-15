@@ -12,6 +12,8 @@ export {
 } from './Spawner';
 export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
 export { placeTutorialEnemies, tutorialHold, updateTutorialAmbush, type TutorialAmbush, type TutorialPlacement } from './Tutorial';
+/* appended (2026-09-15): 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창 */
+export { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript, type TutorialScriptHost } from './Tutorial';
 export { RogueDropDirector, disposeRogueDropAssets, type RogueDropHost } from './RogueDrop';
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';

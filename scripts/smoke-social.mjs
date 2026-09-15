@@ -3,7 +3,7 @@
 // profile cards + right-click menu (같이 하기 gating, 귓속말하기, 친구 추가 / 친구 삭제 with its confirm card), the
 // 설정 side panel with a real ControlsPanel inside 키 설정, the ship-only 커뮤니티 thumbnail (online count inside its
 // bottom-right, red dot for a pending request) and its panel, the 분대 초대 stack with the P-hold gauge, the chat
-// log's whisper mode, and the planet line / planet-carrying 다시 배치 on the result screens.
+// log's whisper mode, and the planet line on the result screens (2026-09-15: 다시 배치 is gone — one button left).
 //
 // No relay is involved: `HudSystem.debugSocial(snapshot, invites, mySquad)` installs a synthetic `SocialRef` for every
 // ui component that reads the mirror (same pattern as `debugRemotes`), and `HudSystem.debugSocialLog` records the
@@ -1144,10 +1144,9 @@ try {
   }));
   ok(comp.line === '행성 · 베르단트 III', 'the result screen names the planet', String(comp.line));
   ok(comp.order, 'the planet line sits under the subtitle');
-  await click('.menu.complete .actions .ui-btn', 1);
-  await waitSim(0.2);
-  let re = await P(() => window.__ev['game:newMission'].at(-1));
-  ok(re && re.seed === 4242 && re.planet === 'mossy', '다시 배치 re-emits the same seed AND ctx.missionPlanet', JSON.stringify(re));
+  // 2026-09-15 (결과 창 개편): 다시 배치 (같은 시드) 버튼과 기능이 없어졌다 — 남은 버튼은 함선으로 귀환 하나다.
+  const compBtns = await P(() => [...document.querySelectorAll('.menu.complete .actions .ui-btn')].map((b) => b.textContent));
+  ok(compBtns.length === 1 && compBtns[0] === '함선으로 귀환', 'the result screen has only 함선으로 귀환 (no 다시 배치)', JSON.stringify(compBtns));
 
   const real = errors.filter((e) => !/\/ws\b|WebSocket|websocket/i.test(e));
   ok(real.length === 0, 'no console / page errors', JSON.stringify(real.slice(0, 3)));

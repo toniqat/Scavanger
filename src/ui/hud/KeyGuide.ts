@@ -1,5 +1,5 @@
 import type { GameContext, KeyGuideEntry } from '@/shared';
-import { Keys, keyLabel } from '@/shared';
+import { Keys, createKeycap, keyLabel } from '@/shared';
 import { el, toggleClass } from '../dom';
 
 interface Owner { owner: string; keys: ReadonlyArray<KeyGuideEntry> }
@@ -24,9 +24,12 @@ const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover', 'pod']);   // `'p
  * 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
  *
  * **꾹 누르기 (2026-09-09):** an entry with `hold: true` renders its keycap as `.keycap.kc-hold` — the shared
- * stylesheet rule draws a bold accent **⌄ chevron above the keycap** (`.keycap.kc-hold::before`, the same one
+ * stylesheet rule draws an accent **⌄ chevron** (`.keycap.kc-hold::before`, the same one
  * `hud/InteractionPrompt` uses for a hold interactable), so 탑승 · 1초 홀드 keys read as "hold" at HUD size without a
  * word of text. (2026-09-10: the modifier was renamed from `.hold`, which collided with the 홀드 링 widget class.)
+ * **2026-09-15:** every cap goes through `shared/keycap.createKeycap` — a `LMB` / `MMB` / `RMB` label becomes the mouse
+ * glyph (pressed button white, accent + chevron when held), and the chevron now sits **inside** the cap's top edge, so
+ * the guide no longer grows `padding-top` for a hold key.
  *
  * DOM: `.key-guide(.show)` > `.kg-item` (`.keycap` + `.kg-label`) separated by `.kg-sep` (`·`). A direct child of
  * `ctx.uiRoot` (z 84) so it floats over the inventory window, the hub terminal, the 시설 관리 panel and the map in
@@ -120,8 +123,9 @@ export class KeyGuide {
     this.apply();
   }
 
+  /** 2026-09-15: 공용 `createKeycap` — 라벨이 `LMB` · `MMB` · `RMB` 면 마우스 그림, `hold` 면 chevron (한 경로). */
   private cap(parent: HTMLElement, text: string, hold: boolean | undefined): void {
-    el('span', { cls: hold ? 'keycap kc-hold' : 'keycap', text, parent });
+    createKeycap(text, { hold: hold === true, parent });
   }
 
   private apply(): void {

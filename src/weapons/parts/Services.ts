@@ -30,6 +30,7 @@ import { raycastBlockers, damageBarrierAt, makeBlockInfo } from '../Blocking';
 import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from '../unique';
 import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
+import { autoFeed } from './Slots';
 
 /**
  * The narrow API a `UniqueHandler` gets. Ammo / durability stay on the shared item instance and go through
@@ -182,5 +183,6 @@ export function buildServices(sys: WeaponSystem): UniqueServices {
       return !(bd >= 0 && bd < dist - 0.35);
     },
     emitAmmo: (w) => sys.emitAmmo(w as WeaponInstance),
+    feed: (w) => autoFeed(sys, w as WeaponInstance),
   };
   }

@@ -18,6 +18,22 @@ const BARREL_EXT_LEN: Partial<Record<WeaponKind, number>> = { rifle: 0.18, energ
 const _lp = new THREE.Vector3(), _ld = new THREE.Vector3(), _ls = new THREE.Vector3();
 const _lq = new THREE.Quaternion(), _laim = new THREE.Quaternion(), _lident = new THREE.Quaternion();
 const _negZ = new THREE.Vector3(0, 0, -1);
+/*
+ * 2026-09-15 「롱혼」 가로 파지 (visual only — ballistics live in `unique/Bow.bowBallistics`). The bow lies in one
+ * horizontal plane `BOW_Y` above the grip: limb pivots at the riser ends (`BOW_LIMB_X`, `BOW_LIMB_Z`), each limb sweeps
+ * back toward the archer to `BOW_LIMB_MID` and recurves forward to the string nock at `BOW_LIMB_TIP` (pivot-local, +X
+ * side; mirrored). The resting string runs nock to nock at z = `BOW_LIMB_Z + BOW_LIMB_TIP[1]` = `BOW_STRING_Z` — behind
+ * the riser, on the archer's side. A full draw pulls the string centre + arrow `BOW_PULL` further back and flexes each
+ * limb `BOW_FLEX` rad.
+ */
+const BOW_Y = 0.07;
+const BOW_LIMB_X = 0.13, BOW_LIMB_Z = -0.04;
+const BOW_LIMB_MID: readonly [number, number] = [0.27, 0.12];
+const BOW_LIMB_TIP: readonly [number, number] = [0.41, 0.11];
+const BOW_STRING_Z = BOW_LIMB_Z + BOW_LIMB_TIP[1];
+const BOW_PULL = 0.24, BOW_FLEX = 0.14;
+/** Nocked arrow: shaft length from the nock forward and the arrow tip (local −Z from the string). */
+const BOW_SHAFT_LEN = 0.7, BOW_ARROW_TIP = 0.76;
 
 /** Procedural attachment visuals derived from a weapon instance's sockets (see `WeaponSystem.attachmentsFor`). */
 export interface WeaponAttachmentVisuals {
@@ -54,7 +70,7 @@ const ANCHORS: Readonly<Record<WeaponKind, KindAnchors>> = {
   flamethrower: { barrelY: 0.07, fore: null, rail: null, stock: null },
   shockgun:     { barrelY: 0.08, fore: null, rail: null, stock: null },
   shuriken:     { barrelY: 0.05, fore: null, rail: null, stock: null },
-  bow:          { barrelY: 0.0,  fore: null, rail: null, stock: null },
+  bow:          { barrelY: BOW_Y, fore: null, rail: null, stock: null },
   bazooka:      { barrelY: 0.11, fore: null, rail: null, stock: null },
   minigun:      { barrelY: 0.09, fore: null, rail: null, stock: null },
 };
@@ -101,10 +117,14 @@ export class WeaponModel {
   private barrelAngle = 0;
   /** Bow string + nocked arrow: pulled back by the draw (`setBowDraw`, 2026-09-14) or, on replicas, the `kick`. */
   private bowDraw = 0;
-  private bowString: THREE.Object3D | null = null;
+  /** 2026-09-15: limb pivots [right, left] (flex about Y) and the two string halves (nock → string centre, a V when drawn). */
+  private readonly bowLimbs: THREE.Object3D[] = [];
+  private readonly bowStrings: THREE.Object3D[] = [];
   private bowArrow: THREE.Object3D | null = null;
-  private bowStringBase = new THREE.Vector3();
   private bowArrowBase = new THREE.Vector3();
+  /** 2026-09-15: an arrow is available to nock (`setBowNocked`) and the empty-string beat after a release (`bowLoose`). */
+  private bowNocked = true;
+  private bowLooseT = 0;
   /** Flamethrower pilot light / shock coil glow: 0..1 heat driven by `setHeat` (spraying / arcing). */
   private heat = 0;
   private heatMat: THREE.MeshStandardMaterial | null = null;
@@ -537,37 +557,97 @@ export class WeaponModel {
     return mag;
   }
 
-  /** 「롱혼」: composite limbs, riser grip, string and a nocked arrow (string / arrow pull back on `kick`). */
+  /**
+   * 「롱혼」 (2026-09-15 가로 파지): a composite recurve held **horizontally** — the limbs spread along ±X in one plane
+   * `BOW_Y` above the grip and the arrow flies −Z. The riser (two cheeks around a centre window, the arrow shelf under it,
+   * the grip down into the hand) is in front; the limbs sweep back toward the archer and recurve forward at the tips; the
+   * string runs nock to nock **behind** the riser (+Z, `BOW_STRING_Z`) and the nocked arrow's tail sits on it, its head
+   * well ahead of the riser. The draw (`setBowDraw`, or the kick on a replica) pulls the string centre + arrow further
+   * back toward the body (the string bends into a V, the limbs flex — `poseBow`). No reload animation: the arrow is
+   * hidden only while out of arrows (`setBowNocked`) or for the beat after a release (`bowLoose`).
+   */
   private buildBow(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
     const mLimb = this.mat(0x3b2d22, 0.2, 0.7);
     const mString = this.mat(0xe6e2d6, 0.0, 0.9);
     const mShaft = this.mat(0x8a6a3c, 0.1, 0.8);
-    // held vertically: limbs go ±Y from the riser at the grip, the arrow flies -Z
-    this.box(0.035, 0.22, 0.05, mMetal, 0, 0.0, -0.02);                    // riser
-    this.box(0.03, 0.06, 0.03, mDark, 0, 0.0, -0.045);                     // arrow shelf
-    this.box(0.02, 0.05, 0.02, mAccent, 0, 0.09, -0.02);
-    for (const sy of [-1, 1]) {
-      const upper = this.box(0.03, 0.36, 0.02, mLimb, 0, sy * 0.27, -0.06); upper.rotation.x = sy * -0.32;
-      const tip = this.box(0.028, 0.12, 0.016, mLimb, 0, sy * 0.5, -0.17); tip.rotation.x = sy * -0.85;
-      this.box(0.026, 0.02, 0.026, mSteel, 0, sy * 0.36, -0.1);           // limb bolt
-      this.box(0.012, 0.03, 0.02, mSteel, 0, sy * 0.55, -0.2);            // string nock
+    const y = BOW_Y;
+    // riser: a cheek either side of the arrow window, accent inlays on the front face, limb pockets at the ends
+    for (const sx of [-1, 1]) {
+      this.box(0.11, 0.045, 0.05, mMetal, sx * 0.075, y, -0.04);
+      this.box(0.03, 0.012, 0.006, mAccent, sx * 0.08, y, -0.067);
+      this.box(0.026, 0.05, 0.03, mSteel, sx * BOW_LIMB_X, y, BOW_LIMB_Z);
     }
-    // string: thin box between the two nocks; pulled back (toward +Z) with the arrow when drawn
-    const str = new THREE.Object3D(); str.position.set(0, 0, -0.2); this.body.add(str);
-    this.box(0.004, 1.1, 0.004, mString, 0, 0, 0, str);
-    this.bowString = str; this.bowStringBase.copy(str.position);
-    // nocked arrow along -Z (the "magazine": drops / re-nocks on reload)
-    const mag = new THREE.Object3D(); mag.position.set(0, 0.01, -0.2); this.body.add(mag);
-    this.tube(0.006, 0.72, mShaft, 0, 0, -0.16, mag);
-    const head = this.box(0.012, 0.012, 0.06, mSteel, 0, 0, -0.55, mag); head.rotation.y = Math.PI / 4;
-    this.box(0.004, 0.04, 0.08, mString, 0, 0, 0.14, mag);                 // fletching
-    this.box(0.04, 0.004, 0.08, mString, 0, 0, 0.14, mag);
+    this.box(0.04, 0.02, 0.05, mDark, 0, y - 0.022, -0.04);               // arrow shelf (bridge under the window)
+    this.box(0.045, 0.09, 0.045, mDark, 0, 0.005, -0.035);                // grip, down into the hand
+    // limbs: one pivot per side at the riser end — flexed about Y by `poseBow`
+    for (const sx of [1, -1]) {
+      const pivot = new THREE.Object3D();
+      pivot.position.set(sx * BOW_LIMB_X, y, BOW_LIMB_Z);
+      this.body.add(pivot);
+      this.limbSeg(0, 0, sx * BOW_LIMB_MID[0], BOW_LIMB_MID[1], 0.03, 0.02, mLimb, pivot);                                  // sweeps back
+      this.limbSeg(sx * BOW_LIMB_MID[0], BOW_LIMB_MID[1], sx * BOW_LIMB_TIP[0], BOW_LIMB_TIP[1], 0.026, 0.016, mLimb, pivot); // recurve tip
+      this.box(0.02, 0.034, 0.02, mSteel, sx * BOW_LIMB_TIP[0], 0, BOW_LIMB_TIP[1], pivot);                                 // string nock
+      this.bowLimbs.push(pivot);
+    }
+    // string: two halves (nock → string centre), each a unit box along its pivot's +X, turned / stretched by `poseBow`
+    for (let i = 0; i < 2; i++) {
+      const half = new THREE.Object3D();
+      this.body.add(half);
+      this.box(1, 0.004, 0.004, mString, 0.5, 0, 0, half);
+      this.bowStrings.push(half);
+    }
+    // nocked arrow: tail on the string centre, along −Z over the shelf (the "magazine" object, but it never reloads)
+    const mag = new THREE.Object3D(); mag.position.set(0, y, BOW_STRING_Z); this.body.add(mag);
+    this.box(0.012, 0.012, 0.02, mDark, 0, 0, -0.005, mag);                                // nock
+    this.tube(0.006, BOW_SHAFT_LEN, mShaft, 0, 0, -0.01 - BOW_SHAFT_LEN / 2, mag);         // shaft
+    const head = this.box(0.014, 0.014, 0.06, mSteel, 0, 0, -(BOW_ARROW_TIP - 0.03), mag); head.rotation.z = Math.PI / 4;
+    this.box(0.004, 0.04, 0.08, mString, 0, 0, -0.07, mag);                                 // fletching
+    this.box(0.04, 0.004, 0.08, mString, 0, 0, -0.07, mag);
     this.bowArrow = mag; this.bowArrowBase.copy(mag.position);
-    this.box(0.03, 0.04, 0.04, mDark, 0.03, -0.06, 0.0);                   // stabiliser mount
-    this.tube(0.008, 0.16, mDark, 0, -0.03, 0.02);                          // stabiliser rod
-    this.muzzle.position.set(0, 0.01, -0.62);
-    this.ejectPort.position.set(0.03, 0.02, -0.02);
+    // short stabiliser forward under the shelf
+    this.box(0.02, 0.02, 0.03, mDark, 0, y - 0.035, -0.07);
+    this.tube(0.008, 0.16, mDark, 0, y - 0.035, -0.15);
+    this.tube(0.015, 0.035, mDark, 0, y - 0.035, -0.24);
+    this.muzzle.position.set(0, y, BOW_STRING_Z - BOW_ARROW_TIP - 0.01);
+    this.ejectPort.position.set(0.03, y, -0.02);
+    this.poseBow(0, 0);
     return mag;
+  }
+
+  /** A flat limb segment from (x0, z0) to (x1, z1) in `parent`'s XZ plane: `w` tall (Y), `d` thick. */
+  private limbSeg(x0: number, z0: number, x1: number, z1: number, w: number, d: number, m: THREE.Material, parent: THREE.Object3D): void {
+    const dx = x1 - x0, dz = z1 - z0;
+    const seg = this.box(Math.hypot(dx, dz), w, d, m, (x0 + x1) / 2, 0, (z0 + z1) / 2, parent);
+    seg.rotation.y = -Math.atan2(dz, dx);   // local +X → (dx, dz)
+  }
+
+  /**
+   * 「롱혼」 pose for a pull `f` 0..1: limbs flex back, the string halves meet at the pulled centre, the arrow rides it.
+   * Allocation-free (called every frame).
+   */
+  private poseBow(f: number, dt: number): void {
+    const arrow = this.bowArrow;
+    if (!arrow || this.bowLimbs.length !== 2 || this.bowStrings.length !== 2) return;
+    const cz = BOW_STRING_Z + f * BOW_PULL;
+    for (let i = 0; i < 2; i++) {
+      const sx = i === 0 ? 1 : -1;
+      const limb = this.bowLimbs[i];
+      const a = -sx * BOW_FLEX * f;          // the tip swings back toward the archer
+      limb.rotation.y = a;
+      const c = Math.cos(a), s = Math.sin(a);
+      const lx = sx * BOW_LIMB_TIP[0], lz = BOW_LIMB_TIP[1];
+      const nx = limb.position.x + lx * c + lz * s;
+      const nz = limb.position.z - lx * s + lz * c;
+      const half = this.bowStrings[i];
+      half.position.set(nx, BOW_Y, nz);
+      const dx = -nx, dz = cz - nz;
+      half.rotation.y = -Math.atan2(dz, dx);
+      half.scale.x = Math.max(1e-4, Math.hypot(dx, dz));
+    }
+    if (this.bowLooseT > 0) this.bowLooseT = Math.max(0, this.bowLooseT - dt);
+    arrow.visible = this.bowNocked && this.bowLooseT <= 0;
+    arrow.position.set(this.bowArrowBase.x, this.bowArrowBase.y, this.bowArrowBase.z + f * BOW_PULL);
+    arrow.rotation.set(0, 0, 0);
   }
 
   /** 「해머헤드」: fat launch tube with a flared front, shoulder rest, side grip and a flip-up sight. */
@@ -630,6 +710,10 @@ export class WeaponModel {
   setHeat(t: number): void { this.heat = t < 0 ? 0 : t > 1 ? 1 : t; }
   /** 2026-09-14: 「롱혼」 string draw 0..1 (0 = at rest) — string + nocked arrow pull back with it. No-op on other kinds. */
   setBowDraw(t: number): void { this.bowDraw = t < 0 ? 0 : t > 1 ? 1 : t; }
+  /** 2026-09-15: 「롱혼」 has an arrow to nock (false = out of arrows — the string stays empty). No-op on other kinds. */
+  setBowNocked(on: boolean): void { this.bowNocked = on; }
+  /** 2026-09-15: 「롱혼」 an arrow just left — the string stays empty for `seconds` before the next arrow shows nocked. */
+  bowLoose(seconds: number): void { if (seconds > this.bowLooseT) this.bowLooseT = seconds; }
 
   /* ─────────── laser sight (2026-09-14) ─────────── */
   /** A laser sight is mounted (`setAttachments({sight: 'laser'})`). */
@@ -690,7 +774,8 @@ export class WeaponModel {
     this.body.position.set(0, -0.25 * (1 - d), 0.1 * (1 - d) + this.kickZ);
     let rx = -1.3 * (1 - d) + this.kickRot;
     let rz = 0;
-    if (this.reloadT >= 0 && this.mag) {
+    // 2026-09-15: the bow never reloads (its arrows feed straight from the quiver) — no mag-drop animation for it
+    if (this.reloadT >= 0 && this.mag && this.kind !== 'bow') {
       const t = this.reloadT;
       rz = Math.sin(Math.min(1, t * 1.15) * Math.PI) * 0.45;   // cant the weapon toward the player
       rx += Math.sin(t * Math.PI) * -0.25;
@@ -737,12 +822,10 @@ export class WeaponModel {
       this.barrelAngle += this.spin * 34 * dt;
       this.barrels.rotation.z = this.barrelAngle;
     }
-    if (this.bowString && this.bowArrow) {
+    if (this.bowArrow) {
       // 2026-09-14: the local bow's draw (`setBowDraw`) pulls the string; the recoil kick still snaps it on release
-      // (and is all a replica has — the draw is not on the wire)
-      const pull = Math.max(this.bowDraw, Math.min(1, this.kickZ / 0.06)) * 0.22;
-      this.bowString.position.set(this.bowStringBase.x, this.bowStringBase.y, this.bowStringBase.z + pull);
-      if (this.reloadT < 0) this.bowArrow.position.set(this.bowArrowBase.x, this.bowArrowBase.y, this.bowArrowBase.z + pull);
+      // (and is all a replica has — the draw is not on the wire). 2026-09-15: toward +Z, the archer's side.
+      this.poseBow(Math.max(this.bowDraw, Math.min(1, this.kickZ / 0.06)), dt);
     }
     if (this.heatMat) this.heatMat.emissiveIntensity = 1.0 + this.heat * 2.4 + Math.sin(time * 9) * 0.25 * this.heat;
   }

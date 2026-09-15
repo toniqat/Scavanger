@@ -188,8 +188,11 @@ export type UniqueWeaponId = (typeof UNIQUE_WEAPON_IDS)[number];
 /** `data/weapons_unique.csv` 의 줄들. */
 const UNIQUE_ROWS = csvRows('weapons_unique.csv');
 
-/** 「이름」 + kind label (`「인페르노」 화염방사기`). */
-const uniqueName = (nick: string, kind: UniqueWeaponKind): string => `「${nick}」 ${UNIQUE_WEAPON_LABEL_KO[kind]}`;
+/**
+ * 2026-09-15 (사용자 결정): 전설 유니크의 이름은 **별명 하나**다 (`인페르노` — 옛 `「인페르노」 화염방사기`).
+ * 종류 라벨(`UNIQUE_WEAPON_LABEL_KO`)은 이름에서 빠지고 UI 가 따로 보여 준다.
+ */
+const uniqueName = (nick: string): string => nick;
 
 /** `UNIQUE_WEAPON_LABEL_KO` 의 키 = 유니크 동작 종류. csv 의 `kind` 칸이 받는다. */
 const UNIQUE_KINDS = Object.keys(UNIQUE_WEAPON_LABEL_KO) as UniqueWeaponKind[];
@@ -199,7 +202,8 @@ const UNIQUE_KINDS = Object.keys(UNIQUE_WEAPON_LABEL_KO) as UniqueWeaponKind[];
  * family, `buildGrades` never touches them), a dedicated `ammoType` (never `AMMO_FOR_CLASS`), `altFire`
  * (RMB = alternative fire, no ADS) on every one (2026-09-14: the bow too — RMB cancels its draw). csv 의 `=FLAME_DPS` 같은 칸은
  * `data/constants.csv` 의 상수를 그대로 가리킨다 — 동작 코드(`src/weapons/unique/*`)도 같은 상수를 보므로
- * 수치가 두 군데로 갈라지지 않는다. `weaponClass` only picks the shooting skill.
+ * 수치가 두 군데로 갈라지지 않는다. `weaponClass` is csv bookkeeping only — 2026-09-15 (사용자 결정): uniques get no
+ * shooting-skill bonus / XP (weapons/ · progression/ check `def.unique`) and their kills are not class kills.
  *
  * Continuous weapons (flame / shock arc): `damage` is damage **per second**, `fireRate` is a tick hint
  * (weapons applies `damage × dt`), and `ammoPerSec` replaces per-shot ammo. `spread` is the LMB cone
@@ -207,7 +211,7 @@ const UNIQUE_KINDS = Object.keys(UNIQUE_WEAPON_LABEL_KO) as UniqueWeaponKind[];
  */
 export const UNIQUE_WEAPON_DEFS: readonly WeaponDef[] = UNIQUE_ROWS.map((r) => compact({
   id: r.str('id'),
-  name: uniqueName(r.str('nickname'), r.enum('kind', UNIQUE_KINDS)),
+  name: uniqueName(r.str('nickname')),
   slot: r.enum('slot', ['primary', 'secondary'] as const),
   weaponClass: r.enum('class', WEAPON_CLASSES),
   unique: r.enum('kind', UNIQUE_KINDS),

@@ -44,6 +44,15 @@ import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHELL_ARC_CHECK_FRAC, SHELL_ARC_SAMPLES, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _arcA, _arcD, _arcP, _arcV, _c, _dir, _eye, _hc, _hd, _hp, _kb, _lead, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import { meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
+/* 2026-09-15 (결과 창 개편): 플레이어 피해의 출처 (개체별 캐시) */
+import { enemyDamageSource, enemyTypeOf } from './Damage';
+
+/**
+ * 2026-09-15 (결과 창 개편): 날아가는 포탄 → 쏜 포병 개체. 포탄 풀은 주인을 모르므로 권위가 발사 때 적고 착탄 · 요격 때 지운다.
+ * 없으면(승격 전 호스트가 쏜 포탄 · 리셋으로 사라진 포탄) 예전처럼 id 0 · `artillery` 다. 상한은 표현용 안전핀.
+ */
+const _shellOwners = new Map<number, { id: number; type: EnemyType }>();
+const SHELL_OWNER_CACHE_MAX = 256;
 
 /**
  * Spit at an explicit point (smoke return fire / deployables) — the glob still hurts whoever it lands on.
@@ -122,7 +131,7 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
   const damage = fire ? ENEMY_INCENDIARY.blastDamage : ROGUE_GRENADE_DAMAGE;
   if (authority && sys.authority) {
     const thrower = sys.byId.get(owner);
-    const type: EnemyType = thrower?.type ?? 'rogue';
+    const type: EnemyType = thrower?.type ?? enemyTypeOf(sys, owner, 'rogue');   // 2026-09-15: 던진 뒤 죽은 개체도 제 종류로
     const players = sys.targets.alive;
     const reach = radius + PLAYER_RADIUS;
     for (let i = 0; i < players.length; i++) {
@@ -172,7 +181,7 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
   const dps = ENEMY_INCENDIARY.dps;
   if (!(dps > 0) || !(tick > 0)) return;
   const ctx = sys.ctx;
-  const type: EnemyType = sys.byId.get(owner)?.type ?? 'rogue';
+  const type: EnemyType = enemyTypeOf(sys, owner, 'rogue');
   const players = sys.targets.alive;
   for (let i = 0; i < players.length; i++) {
     const t = players[i];
@@ -181,7 +190,8 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
     if (dx * dx + dz * dz > reach * reach || Math.abs(t.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
     if (t.isLocal) {
       const pl = ctx.player;
-      if (pl && !pl.isDead && typeof pl.setBurning === 'function') pl.setBurning(dps, ENEMY_INCENDIARY.afterburn);
+      // 2026-09-15 (결과 창 개편): 화상 틱 · 사망 원인 = 불을 지른 적 개체 (캐시된 출처 — 틱마다 할당 없음)
+      if (pl && !pl.isDead && typeof pl.setBurning === 'function') pl.setBurning(dps, ENEMY_INCENDIARY.afterburn, enemyDamageSource(owner, type));
     } else sys.applyDamage(t, dps * tick, p, owner, type, null, 0, false);
   }
   const veh = sys.targets.vehicleTarget();
@@ -399,6 +409,8 @@ export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): boo
   if (shellArcBlocked(world, _m, _aim, SHELL_FLIGHT_TIME)) return false;
   const sid = sys.nextShellId++;
   if (!sys.shells.fire(sid, _m, _aim, SHELL_FLIGHT_TIME)) return false;
+  if (_shellOwners.size >= SHELL_OWNER_CACHE_MAX) _shellOwners.clear();
+  _shellOwners.set(sid, { id: e.id, type: e.type });   // 2026-09-15: 착탄 피해의 출처
   sys.playAudio('bug_attack', e.position, 1, 0.45);
   const fx = FxManager.get();
   if (fx) { ParticleBurst.smoke(fx.alpha, _m, 10, 1.0, 0x3a3532); fx.flashes.flash(_m, 0xffa060, 0, 1.4, 0.08); }
@@ -410,6 +422,8 @@ export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): boo
 /* ── ShellHost ─────────────────────────────────────────────────────────── */
 export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): void {
   const ctx = sys.ctx;
+  const shooter = _shellOwners.get(sid);
+  _shellOwners.delete(sid);
   if (sys.authority) {
     const players = sys.targets.alive;
     for (let i = 0; i < players.length; i++) {
@@ -419,7 +433,7 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
         _v.set(p.x, p.y + 0.6, p.z);
         if (sys.barrierBlocks(_v, t)) continue;   // Phase 9: the blast stops at a 배리어 between the crater and the player
         const dmg = SHELL_DAMAGE * THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / SHELL_BLAST_RADIUS * 0.75, 0.25, 1);
-        sys.applyDamage(t, dmg, p, 0, 'artillery', null, 0.9, false);
+        sys.applyDamage(t, dmg, p, shooter?.id ?? 0, shooter?.type ?? 'artillery', null, 0.9, false);
       }
     }
     sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 'ai', null, null);   // friendly fire on bugs and rogues alike
@@ -435,6 +449,7 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
 
 export function onShellIntercepted(sys: EnemySystem, sid: number, p: THREE.Vector3, local: boolean): void {
   const ctx = sys.ctx;
+  _shellOwners.delete(sid);
   sys.playAudio('explosion', p, 0.6, 1.4);
   ctx.bus.emit('enemy:shellIntercepted', { sid, position: p.clone() });
   if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'intercept', sid, p: tuple(p, 2) }, 'others');

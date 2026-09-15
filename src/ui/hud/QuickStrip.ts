@@ -1,6 +1,6 @@
 import type { GameContext, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_DIRS, buildItemChip, isQuickSlotActive, keyLabel } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { Keys, QUICK_SLOTS, QUICK_SLOT_DIRS, buildItemChip, createKeycap, isQuickSlotActive, paintKeycap } from '@/shared';
+import { el, toggleClass } from '../dom';
 import '../styles/raidHud.css';
 
 /** Thumbnail edge in px (2026-09-10: 60 → 90 (1.5배) → 54 (그 0.6배, 2차 조정)). */
@@ -48,7 +48,8 @@ export class QuickStrip {
     for (let i = 0; i < QUICK_SLOTS; i++) {
       const root = el('div', { cls: 'qs-cell empty', parent: this.root, attrs: { 'data-dir': QUICK_SLOT_DIRS[i] } });
       root.hidden = true;
-      const keyEl = el('span', { cls: 'qs-key keycap', text: keyLabel(Keys.QUICK), parent: root });
+      // 2026-09-15: 공용 키캡 (`shared/keycap`) — 빠른 사용을 마우스 버튼에 두면 그림으로 그린다
+      const keyEl = createKeycap(Keys.QUICK, { cls: 'qs-key', parent: root });
       const body = el('div', { cls: 'qs-body', parent: root });
       this.cells.push({ root, body, keyEl, key: '' });
     }
@@ -59,7 +60,7 @@ export class QuickStrip {
     const b = ctx.bus;
     const touch = (): void => { this.dirty = true; };
     this.unsubs.push(
-      b.on('input:bindingsChanged', () => { for (const c of this.cells) setText(c.keyEl, keyLabel(Keys.QUICK)); }),
+      b.on('input:bindingsChanged', () => { for (const c of this.cells) paintKeycap(c.keyEl, Keys.QUICK); }),
       b.on('inventory:quickSlotsChanged', ({ slots }) => { this.slots = [...slots]; this.dirty = true; }),
       b.on('inventory:bagChanged', touch),
       b.on('inventory:itemUpdated', touch),

@@ -247,6 +247,12 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 
 ## 변경 이력
 
+- **2026-09-15 (결과 창 개편 — 플레이어 피해 출처)** — 설치물 · 가젯이 플레이어에게 준 피해가 **받는 사람 기준** 출처를 싣는다:
+  주인이 나면 `{kind:'self'}`, 분대원이면 `{kind:'ally'}` (`parts/Remote` 의 `SELF_DAMAGE_SOURCE` · `ALLY_DAMAGE_SOURCE` · `localVictimSource` ·
+  `remoteVictimWire` — frozen 상수, 할당 없음). 지뢰 폭발(`explodeMine`) · 포탑 오사(`hurtPlayer(…, owner)`) · 원격 지뢰 합산 피해(`detonateWhere`) ·
+  화염 지대(원격 틱 `hurtRemote(…, src)`, 로컬은 `updateLocalEffects` 의 `fireZoneSourceAt` — 선 자리의 불 중 하나라도 분대원 것이면 `ally`) ·
+  `GadgetSystem.hurtPlayer/hurtRemote` 위임에 선택 인자 `owner` · `src` 가 붙었다. 원격 피해자에게는 `dmg.src` (`shared/net.ts` append) 로 간다.
+
 - **2026-09-15 (B-16 화염 지대 · 사용자 버그 「플레이어 소이 가젯에도 불 대지가 안 만들어진다」)**
   - **원인 ①(화염수류탄)**: 투척형 배치물의 높이가 `Queries.groundY` = `getHeightAt`(**지형만**)이었다. 투척체(`ThrownGadget`)는
     2026-09-11 부터 건물 2층 · 옥상 · 플랫폼 · 전차 데크 **표면에** 떨어지는데 배치물은 그 밑 지형으로 내려가 바닥판 · 지붕판 아래에

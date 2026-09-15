@@ -308,6 +308,8 @@ export class RemoteWeapons {
       _bowOpts.gravity = bal.gravity;
       this.projectiles.fire(_muzzle, _dir, bal.speed, 0, def.range, def.tracerColor, def.id, true, _bowOpts);
       e.model?.kick(0.5 + 0.7 * draw);
+      // 2026-09-15: the string is empty for the same beat the shooter sees, then the next arrow shows nocked
+      e.model?.bowLoose(1 / Math.max(0.1, def.fireRate));
       ctx.bus.emit('audio:play', { id: 'melee_swing', position: _muzzle, volume: 0.5 + 0.3 * draw, pitch: 1.35 - 0.4 * draw });
       return;
     }
@@ -400,6 +402,8 @@ export class RemoteWeapons {
     if (!ctx.isMultiplayer || !ctx.net) return;
     const e = this.entryFor(id);
     const def = e.def && e.weaponId === weaponId ? e.def : this.resolveDef(weaponId);
+    // 2026-09-15: the bow never reloads (arrows feed straight from the quiver) — ignore a stray `reload` from an old client
+    if (def.unique === 'bow') return;
     if (e.model) {
       e.reloadT = 0; e.reloadDur = Math.max(0.3, def.reloadTime);
       e.boltT = -1; e.boltSoundT = 0;

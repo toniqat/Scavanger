@@ -1,5 +1,5 @@
 import type { GameContext, ImplantId, ItemInstance, Stance } from '@/shared';
-import { Keys, keyLabel, onKeybindsChanged } from '@/shared';
+import { Keys, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 import '../styles/implant.css';
 
@@ -128,7 +128,7 @@ export class Reticle {
     this.grap = el('div', { cls: 'rgrap', parent: this.root });
     this.grap.hidden = true;
     this.grapIco = el('span', { cls: 'rg-ico', text: GRAPPLE_GLYPH, parent: this.grap });
-    this.grapKey = el('kbd', { cls: 'keycap', text: keyLabel(Keys.IMPLANT), parent: this.grap });
+    this.grapKey = createKeycap(Keys.IMPLANT, { tag: 'kbd', parent: this.grap });   // 2026-09-15: 공용 키캡
     // 소모품 readout right of the dot (only rendered in `.consumable` mode).
     this.qinfo = el('span', { cls: 'qinfo ui-mono', text: '', parent: this.root });
     // 활 모드 guide bars below the dot (only rendered in `.bowmode`); positions come from BOW_TIER_Y, set once.
@@ -185,8 +185,8 @@ export class Reticle {
         this.syncHook();
       }),
       // 키는 사용 시점에 읽는다 (모듈 상수로 캐시하지 않는다) — 리바인딩되면 칩의 키캡도 따라간다.
-      b.on('input:bindingsChanged', () => setText(this.grapKey, keyLabel(Keys.IMPLANT))),
-      onKeybindsChanged(() => setText(this.grapKey, keyLabel(Keys.IMPLANT))),
+      b.on('input:bindingsChanged', () => paintKeycap(this.grapKey, Keys.IMPLANT)),
+      onKeybindsChanged(() => paintKeycap(this.grapKey, Keys.IMPLANT)),
       b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); this.lastHookKey = ''; this.syncHook(); }),
       b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
       // 2026-09-12 총구 막힘: weapons/ 가 빨간 원을 띄우는 바로 그 판정 — 여기서는 레이캐스트를 쏘지 않고 색만 바꾼다
@@ -274,7 +274,7 @@ export class Reticle {
     const def = this.ctx?.implants?.getDef('grapple');
     setText(this.grapIco, def?.icon ?? GRAPPLE_GLYPH);
     if (def?.color) this.grap.style.setProperty('--gc', def.color);
-    setText(this.grapKey, keyLabel(Keys.IMPLANT));
+    paintKeycap(this.grapKey, Keys.IMPLANT);
     toggleClass(this.grap, 'can', can);
     // 걸 수 없으면 키는 숨긴다 — 누를 수 없는 키를 보여 주지 않는다 (아이콘만 딤드로 남는다).
     if (this.grapKey.hidden !== !can) this.grapKey.hidden = !can;

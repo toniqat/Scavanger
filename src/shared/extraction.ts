@@ -58,4 +58,13 @@ export interface ExtractionRef {
    * 질의다 (`enemies/ai` 가 사격 직전에 부른다). 튜토리얼이 아니면 늘 false.
    */
   holdFire?(): boolean;
+
+  /* ── appended (2026-09-15, 사용자 결정 — 튜토리얼 건너뛰기 = 암전 → 보상 창 → 함선) ── */
+  /**
+   * 함선 탈출 시퀀스(걸어가 타기 · 이륙 · 외부 카메라 연출)를 **통째로 건너뛰고** 로컬 플레이어를 탈출한 것으로 확정한다 —
+   * 그 뒤의 결과 화면 · 정산 · 함선 획득은 평소 탈출과 **같은 경로**로 흐른다 (함선이 떠나는 모습만 없다).
+   * 화면 암전은 부르는 쪽(tutorial)이 먼저 `ui:screenFade` 로 건다. 튜토리얼 전용: `ctx.missionMode !== 'tutorial'` 이거나
+   * 이미 탈출이 확정됐으면 false.
+   */
+  skipToComplete?(): boolean;
 }

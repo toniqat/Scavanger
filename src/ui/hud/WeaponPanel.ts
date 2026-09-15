@@ -1,7 +1,16 @@
 import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef } from '@/shared';
-import { DEFIB_USE_TIME_S, Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
+import { DEFIB_USE_TIME_S, Keys, UNIQUE_WEAPON_LABEL_KO, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
 import { buildItemChip } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
+
+/**
+ * 2026-09-15 (사용자 결정): the type tag of a weapon. A legendary unique names **its own kind** (`화염방사기` · `전격총` ·
+ * `표창` · `컴포짓 보우` · `바주카` · `미니건`, `UNIQUE_WEAPON_LABEL_KO`) — its csv `class` (AR / DMR / SMG / SR) only picks
+ * the shooting skill and must never reach the screen. Graded guns keep the class label.
+ */
+export function weaponTypeLabel(def: WeaponDef): string {
+  return def.unique ? UNIQUE_WEAPON_LABEL_KO[def.unique] : WEAPON_CLASS_LABEL_KO[weaponClassOf(def)];
+}
 import { el, rarityColor, setText, toggleClass } from '../dom';
 import '../styles/raidHud.css';
 
@@ -84,6 +93,11 @@ export class WeaponPanel {
   private weaponId = '';
   private weaponUid = '';
   private magSize = 1;
+  /**
+   * 2026-09-15: the bow 「롱혼」 is in hand. It has no magazine for the player (no reload — weapons/), so the readout is
+   * **one number** = arrows carried (mag + reserve) and the `/ reserve` half hides (`.weapon.single-ammo`).
+   */
+  private singleAmmo = false;
   private lastDura = -1;
   private unsubs: Array<() => void> = [];
 
@@ -165,7 +179,9 @@ export class WeaponPanel {
         this.magSize = Math.max(1, p.magSize);
         const def = ctx.loot?.getWeaponDef(p.weaponId);
         // Phase 9 UI pass: the slot word (주무기 …) and the calibre (준중량탄 …) are gone — the numbered chip and the class say enough.
-        setText(this.typeEl, def ? WEAPON_CLASS_LABEL_KO[weaponClassOf(def)] : '—');
+        // 2026-09-15: a unique shows its own kind (`컴포짓 보우` …), never the csv class it borrows for the skill.
+        setText(this.typeEl, def ? weaponTypeLabel(def) : '—');
+        this.setSingleAmmo(def?.unique === 'bow');
         this.setModes(def);
         this.setAmmo(p.ammoInMag, p.reserveRounds);
         // Seed the durability bar from the equipped item instance (durabilityChanged only fires on change).
@@ -204,6 +220,7 @@ export class WeaponPanel {
           setText(this.typeEl, '—');
           this.setThumb(undefined);
           this.setModes(undefined);
+          this.setSingleAmmo(false);
           this.setAmmo(0, 0);
           this.setDurability(1, 1, false);
           /* reload + swap state live in `hud/ReloadGauge` now (it hides itself on death / reset / cancel) */
@@ -274,12 +291,30 @@ export class WeaponPanel {
   get hasModes(): boolean { return this.root.classList.contains('has-modes'); }
 
   private setAmmo(mag: number, reserve: number): void {
+    if (this.singleAmmo) {
+      // 2026-09-15 활: 탄창이 없다 — 가진 화살 전부 한 숫자. 「적다」는 마지막 한 탄창분(`magSize`) 이하.
+      const total = Math.max(0, mag) + Math.max(0, reserve);
+      setText(this.magEl, String(total));
+      setText(this.reserveEl, '');
+      toggleClass(this.magEl, 'empty', total <= 0);
+      toggleClass(this.magEl, 'low', total > 0 && total <= this.magSize);
+      return;
+    }
     setText(this.magEl, String(mag));
     setText(this.reserveEl, String(reserve));
     const ratio = mag / this.magSize;
     toggleClass(this.magEl, 'empty', mag <= 0);
     toggleClass(this.magEl, 'low', mag > 0 && ratio <= 0.25);
   }
+
+  /** Enter / leave the one-number ammo readout (the bow). */
+  private setSingleAmmo(on: boolean): void {
+    this.singleAmmo = on;
+    toggleClass(this.root, 'single-ammo', on);
+  }
+
+  /** 2026-09-15: the ammo readout is one number (bow) (debug / smoke). */
+  get isSingleAmmo(): boolean { return this.singleAmmo; }
 
   /** Durability bar: grey → amber (`.worn` < 30 %) → red (`.broken` at 0, flashes when `flash`). */
   private setDurability(value: number, max: number, flash: boolean): void {

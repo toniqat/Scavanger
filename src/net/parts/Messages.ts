@@ -27,6 +27,27 @@ import type { CrewCardWire, ImplantId } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, sanitizeShipVisit, vec } from '../model';
 import type { NetSystem } from '../NetSystem';
+import type { DamageCauseKind, PlayerDamageSource } from '@/shared';
+
+/** 2026-09-15 (결과 창 개편): `dmg.src.k` 로 받아들이는 값 — `DamageCauseKind` 전부 (빠지면 타입 오류로 잡힌다). */
+const DAMAGE_CAUSE_KIND: Record<DamageCauseKind, true> = {
+  enemy: true, fall: true, hazard: true, env: true, explosion: true, self: true, ally: true, other: true,
+};
+
+/**
+ * 2026-09-15 (결과 창 개편): `dmg.src`(`DamageSourceWire`) → `PlayerDamageSource`. 모양이 틀리면 undefined (= 모름) —
+ * 출처는 결과 창의 표시일 뿐이라 거절 대신 버린다. 문자열은 짧게 자르고 id 는 양의 정수만.
+ */
+function damageSourceFromWire(w: unknown): PlayerDamageSource | undefined {
+  if (!w || typeof w !== 'object') return undefined;
+  const o = w as { k?: unknown; et?: unknown; ei?: unknown; hz?: unknown };
+  if (typeof o.k !== 'string' || !Object.prototype.hasOwnProperty.call(DAMAGE_CAUSE_KIND, o.k)) return undefined;
+  const s: PlayerDamageSource = { kind: o.k as DamageCauseKind };
+  if (typeof o.et === 'string' && o.et.length > 0 && o.et.length <= 48) s.enemyType = o.et;
+  if (isNum(o.ei) && o.ei > 0 && Number.isInteger(o.ei)) s.enemyId = o.ei;
+  if (typeof o.hz === 'string' && o.hz.length > 0 && o.hz.length <= 32) s.hazard = o.hz;
+  return s;
+}
 
 /* ── game messages ──────────────────────────────────────────────────── */
 export function send(sys: NetSystem, msg: GameMessage, to: RelayTarget = 'others'): void {
@@ -280,7 +301,8 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       break;
     case 'dmg':
       if (isNum(d.amount) && sys.ctx.player && sys._inSession) {
-        sys.ctx.player.takeDamage(d.amount, isVec3(d.from) ? vec(d.from) : undefined);
+        // 2026-09-15 (결과 창 개편): `src` = 피해 출처 (없으면 모름)
+        sys.ctx.player.takeDamage(d.amount, isVec3(d.from) ? vec(d.from) : undefined, damageSourceFromWire(d.src));
         if (d.slow && isNum(d.slow.duration) && isNum(d.slow.factor)) bus.emit('player:applySlow', { duration: d.slow.duration, factor: d.slow.factor });
         // Phase 7: knockback rides along (behemoth charge, blasts); the player ignores it while downed.
         if (d.kb && isVec3(d.kb.d) && isNum(d.kb.s) && d.kb.s > 0) sys.ctx.player.applyKnockback(vec(d.kb.d), d.kb.s);

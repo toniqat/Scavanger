@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "hash": "1ad3b796697805",
+  "hash": "17a6c2e2521d0f",
   "creditsInitial": 500,
   "creditsMax": 9999999,
   "shopPriceBaseMul": 1.6,
@@ -37,7 +37,7 @@
   "items": {
     "alien_artifact": {"value":3200,"stack":1},
     "alien_relic": {"value":7500,"stack":1},
-    "ammo_arrow": {"value":4,"stack":30},
+    "ammo_arrow": {"value":4,"stack":15},
     "ammo_belt": {"value":1,"stack":300},
     "ammo_cell": {"value":4,"stack":60},
     "ammo_fuel": {"value":1,"stack":200},
@@ -46,7 +46,7 @@
     "ammo_medium": {"value":2,"stack":50},
     "ammo_rocket": {"value":60,"stack":6},
     "ammo_shell": {"value":3,"stack":20},
-    "ammo_shuriken": {"value":5,"stack":40},
+    "ammo_shuriken": {"value":5,"stack":30},
     "armor_1": {"value":832,"stack":1},
     "armor_2": {"value":1196,"stack":1},
     "armor_3": {"value":1588,"stack":1},

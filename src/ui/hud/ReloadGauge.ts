@@ -60,7 +60,11 @@ export class ReloadGauge {
   bind(ctx: GameContext): void {
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('weapon:reloadStarted', ({ duration }) => this.start(duration, 'reload')),
+      // 2026-09-15: 활 「롱혼」 은 재장전이 없다 (탄창 개념 없음) — 혹시 이벤트가 와도 링을 그리지 않는다.
+      b.on('weapon:reloadStarted', ({ weaponId, duration }) => {
+        if (ctx.loot?.getWeaponDef(weaponId)?.unique === 'bow') return;
+        this.start(duration, 'reload');
+      }),
       b.on('weapon:reloadFinished', () => this.hide()),
       // Phase 10: a cancel (melee, swap, death) used to be silent — the ring would keep filling without it.
       b.on('weapon:reloadCancelled', () => this.hide()),

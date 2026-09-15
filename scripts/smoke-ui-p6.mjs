@@ -96,15 +96,22 @@ try {
   console.log('weapon charge gauge');
   await emit('weapon:chargeChanged', { weaponId: 'u_shock', kind: 'charge', t: 0.5 });
   let g = await P(() => { const e = document.querySelector('.wcharge'); return { cls: e.className, lbl: e.querySelector('.lbl').textContent, dash: e.querySelector('.fill').style.strokeDasharray, kind: window.__game.getSystem('hud').weaponChargeKind }; });
-  ok(/\bshow\b/.test(g.cls) && /\bcharge\b/.test(g.cls) && !/\bspinup\b|\bslash\b/.test(g.cls), 'charge t 0.5 → .wcharge.show.charge', g.cls);
-  ok(Math.abs(dashT(g.dash) - 0.5) < 0.01 && g.lbl === '충전 50%' && g.kind === 'charge', 'arc half full, label 충전 50%', `${g.dash} ${g.lbl} ${g.kind}`);
+  // 2026-09-15: kind classes carry the `wc-` prefix — a bare `.charge` collided with the ship-call ring (rotated the arc to
+  // the top, painted it red when full). The gauge must not match the orbital ring's selector at all.
+  ok(/\bshow\b/.test(g.cls) && /\bwc-charge\b/.test(g.cls) && !/(^|\s)charge(\s|$)/.test(g.cls) && !/\bwc-spinup\b|\bwc-slash\b/.test(g.cls), 'charge t 0.5 → .wcharge.show.wc-charge (no bare .charge)', g.cls);
+  ok(Math.abs(dashT(g.dash) - 0.5) < 0.01 && g.lbl === '50%' && g.kind === 'charge', 'arc half full, label is the percentage only (50%)', `${g.dash} ${g.lbl} ${g.kind}`);
+  const geo = await P(() => { const e = document.querySelector('.wcharge'); const r = e.getBoundingClientRect(); const p = e.querySelector('.fill').getBoundingClientRect(); return { svgT: getComputedStyle(e.querySelector('svg')).transform, right: p.left > r.left + r.width / 2, color: getComputedStyle(e).getPropertyValue('--wc').trim() }; });
+  ok((geo.svgT === 'none' || geo.svgT === '') && geo.right, 'tesla arc sits right of the crosshair (svg not rotated)', JSON.stringify(geo));
+  await emit('weapon:chargeChanged', { weaponId: 'u_shock', kind: 'charge', t: 1 });
+  g = await P(() => { const e = document.querySelector('.wcharge'); return { cls: e.className, lbl: e.querySelector('.lbl').textContent, color: getComputedStyle(e).getPropertyValue('--wc').trim(), stroke: getComputedStyle(e.querySelector('.fill')).stroke }; });
+  ok(/\bready\b/.test(g.cls) && g.lbl === '100%' && g.color !== geo.color && !/^rgb\(2[0-9]{2}, [0-9]{1,2}, /.test(g.stroke), 'full tesla charge: .ready, label 100%, brighter blue (not red)', JSON.stringify(g));
   await emit('weapon:chargeChanged', { weaponId: 'u_minigun', kind: 'spinup', t: 1 });
   g = await P(() => { const e = document.querySelector('.wcharge'); return { cls: e.className, lbl: e.querySelector('.lbl').textContent, dash: e.querySelector('.fill').style.strokeDasharray }; });
-  ok(/\bspinup\b/.test(g.cls) && !/\bcharge\b/.test(g.cls) && /\bready\b/.test(g.cls), 'spinup t 1 → class swaps to .spinup + .ready', g.cls);
+  ok(/\bwc-spinup\b/.test(g.cls) && !/\bwc-charge\b/.test(g.cls) && /\bready\b/.test(g.cls), 'spinup t 1 → class swaps to .wc-spinup + .ready', g.cls);
   ok(Math.abs(dashT(g.dash) - 1) < 0.01 && g.lbl === '사격', 'full arc, ready label 사격', `${g.dash} ${g.lbl}`);
   await emit('weapon:chargeChanged', { weaponId: 'u_shuriken', kind: 'slash', t: 0.25 });
   g = await P(() => { const e = document.querySelector('.wcharge'); return { cls: e.className, lbl: e.querySelector('.lbl').textContent, color: getComputedStyle(e).getPropertyValue('--wc').trim() }; });
-  ok(/\bslash\b/.test(g.cls) && !/\bready\b/.test(g.cls) && g.lbl === '용검 25%', 'slash t 0.25 → .slash, label 용검 25%', `${g.cls} ${g.lbl}`);
+  ok(/\bwc-slash\b/.test(g.cls) && !/\bready\b/.test(g.cls) && g.lbl === '용검 25%', 'slash t 0.25 → .wc-slash, label 용검 25%', `${g.cls} ${g.lbl}`);
   ok(g.color.length > 0, 'kind colour variable --wc resolves', g.color);
   await emit('weapon:chargeChanged', { weaponId: 'u_shuriken', kind: 'slash', t: -1 });
   g = await P(() => { const e = document.querySelector('.wcharge'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, kind: window.__game.getSystem('hud').weaponChargeKind }; });
@@ -125,12 +132,19 @@ try {
     ok(m.mv[0] === '넓은 화염' && m.mv[1] === '긴 화염 제트', 'flamethrower lines 좌 넓은 화염 / 우 긴 화염 제트', JSON.stringify(m.mv));
     // Phase 9 UI pass: the tag is the weapon **class** only — the 슬롯 word (주무기) and the calibre (준중량탄 …) are gone
     ok(!m.type.includes('·') && m.type.length > 0 && !m.type.includes(uniq.ammo), `무기 태그는 분류만 남는다 (${m.type})`, m.type);
-    for (const [id, l, r] of [['u_shock', '연쇄 전격', '충전 볼트'], ['u_shuriken', '표창 1개', '표창 3개 (F 길게: 용검)'], ['u_bow', '당겨 쏘기', '당기기 취소'], ['u_bazooka', '착탄 로켓', '공중 폭발 (바닥 우클릭: 로켓 점프)'], ['u_minigun', '예열 후 사격', '—']]) {
+    // 2026-09-15: a unique's tag is its own kind, never the csv class it borrows for the skill (AR / DMR / SMG / SR)
+    ok(m.type === '화염방사기', `u_flame tag = 화염방사기 (${m.type})`, m.type);
+    for (const [id, l, r, kind] of [['u_shock', '연쇄 전격', '충전 볼트', '전격총'], ['u_shuriken', '표창 1개', '표창 3개 (F 길게: 용검)', '표창'], ['u_bow', '당겨 쏘기', '당기기 취소', '컴포짓 보우'], ['u_bazooka', '착탄 로켓', '공중 폭발 (바닥 우클릭: 로켓 점프)', '바주카'], ['u_minigun', '예열 후 사격', '—', '미니건']]) {
       const has = await P((w) => !!window.__game.ctx.loot.getWeaponDef(w), id);
       if (!has) { ok(false, `${id} weapon def exists`); continue; }
       await emit('weapon:equipped', { ...eq, weaponId: id, name: id });
-      const mv = await P(() => [...document.querySelectorAll('.weapon .modes .mv')].map((e) => e.textContent));
-      ok(mv[0] === l && mv[1] === r, `${id} lines 좌 ${l} / 우 ${r}`, JSON.stringify(mv));
+      const view = await P(() => { const w = document.querySelector('.weapon'); return { mv: [...w.querySelectorAll('.modes .mv')].map((e) => e.textContent), type: w.querySelector('.type').textContent, mag: w.querySelector('.ammo-nums .mag').textContent, resDisp: getComputedStyle(w.querySelector('.ammo-nums .reserve')).display, single: w.classList.contains('single-ammo') }; });
+      ok(view.mv[0] === l && view.mv[1] === r, `${id} lines 좌 ${l} / 우 ${r}`, JSON.stringify(view.mv));
+      ok(view.type === kind, `${id} tag = ${kind} (not the csv class)`, view.type);
+      if (id === 'u_bow') {
+        // 2026-09-15: the bow has no magazine for the player — one number = arrows carried, no `/ reserve`
+        ok(view.single && view.resDisp === 'none' && view.mag === String(eq.ammoInMag + eq.reserveRounds), `bow ammo = one number (${view.mag} = ${eq.ammoInMag} + ${eq.reserveRounds})`, JSON.stringify(view));
+      } else ok(!view.single && view.resDisp !== 'none', `${id} keeps mag / reserve`, JSON.stringify(view));
     }
     await emit('weapon:equipped', eq);
     const back = await P(() => ({ cls: document.querySelector('.weapon').className, disp: getComputedStyle(document.querySelector('.weapon .modes')).display }));

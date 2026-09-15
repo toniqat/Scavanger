@@ -163,6 +163,21 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-15 (튜토리얼 이륙 사격 · 건너뛰기 = 곧장 결과 화면, 사용자 결정)** — `ExtractionSystem.ts` 한 파일.
+  ① **처치하지 않은 안드로이드가 탑승자를 실제로 쏜다 · 죽지는 않는다.** `holdFire()` 는 **늘 false**(계약이라 질의는 남는다) ·
+  `liftoff()` 의 각본 잠금이 `setSceneLock(true, {allowDamage: true, minHp: 1})`(입력 잠금 · 피해 허용 · 체력 1 클램프 — player 구현) ·
+  튜토리얼 함선(`tutorialLiftoffNow`)은 외피 콜라이더를 **뜨는 순간** 걷는다(평소는 `LIFTOFF_SPOOL_S` 뒤) — 1.6 s 동안 옆 판이 총알을 먹었다.
+  탑승자는 이미 화물칸 상자 위라 벽이 필요 없고 적 입구 차단은 `keepEnemyOut` 질의라 그대로다. 표적 · 감지 거리는 enemies 의 이륙 사격 창
+  (`TUTORIAL_LIFTOFF_FIRE_S` · `TUTORIAL_LIFTOFF_FIRE_RANGE_M`)이 잡고, 18 m 도주도 튜토리얼에서는 걸리지 않는다. 함선은 그대로 곧장 뜬다.
+  ② **`ExtractionRef.skipToComplete()`** — 걸어가 타기 · 이륙 · 외부 카메라 연출을 통째로 건너뛴다: 함선은 그 자리에 선 채로
+  `extraction:liftoff {aboard: true, squadDone: true}` 를 **한 번** 내고, `game/parts/Death.isTutorialSkipLiftoff` 가 그것을 건너뛰기로 알아봐
+  (튜토리얼인데 `stage !== 'liftoff'` 에서 온 이륙 · 또는 이미 `liftoff` 페이즈인데 한 번 더 온 이륙 — 평소 이륙은 `lifting` 을 세운 뒤 한 번만 낸다)
+  대기 없이 `complete()` 로 간다. 결과 화면 · `TUTORIAL_RAID_XP` 정산 · 함선 획득(튜토리얼 트랙이 같은 이벤트로 `extract` 를 접는다)은 진짜 탈출과 같은 길.
+  걷는 것: 이륙 연출(`ui:cinematic` 끄기 — `update` 도 `skipCompleted` 면 다시 잡지 않는다) · 스위치 · 유예 시계 · 탑승자의 각본 잠금.
+  **몸의 부착 · 화물칸 상자는 두었다** — 오르던 함선에서 떼면 결과 화면 밑에서 몸이 떨어진다. 결과 화면 뒤 `game:abort` → `resetMission(true)` 가 푼다.
+  false: 튜토리얼이 아니다 · 이미 넘겼다 · 페이즈가 `extracting` · `shipLanded` · `liftoff` 가 아니다 · game 이 받지 않았다. 몸이 사망 · 전투불능이어도 받는다.
+  위 *튜토리얼 함선은 스위치를 누르면 즉시 뜬다* 절의 3 · 4 번(피해 무시 · 사격 보류)은 이 항목으로 대체됐다.
+
 - **2026-09-15 (D-8 드랍쉽 그리블, 사용자 결정 「병합 지오메트리 그리블」)** — 가까이서 각지던 선체에 잔디테일을 붙였다
   (새 `ShipGreebles.ts`). 패널 이음매 · 리벳 띠 · 옆면 냉각 파이프 + 지붕 도관(고정 띠) · 루버 통풍구(옆면 · 상부 데크 옆면 ·
   앞 마개 어깨) · 상부 데크 윗면 그릴 · 턱 흡기구 · 점검 해치 둘(손잡이 · 경고판) · 뒤 가장자리 경고 줄무늬 · 착륙등 하우징 ·

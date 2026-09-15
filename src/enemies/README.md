@@ -95,6 +95,7 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `index.ts` | Barrel export. |
 | `sandworm/Director.ts` | **지하벌레 이벤트 디렉터** (2026-09-13). 레이드당 굴림(시드 · 모든 클라이언트 같은 답, `SANDWORM_CHANCE_BY_THREAT`) · 발동 조건(싱글 = 발밑, 멀티 = 2명 이상 무리의 한가운데) · 전조(`ee wormWarn`, 흔들림 증가 · 토스트 · 링) · 분출(피해 + 넉백 `applyDamage` · 다른 팩션 `explode` · 드론 · 최대 체력 굴림 · 분출 무리 · `ee wormErupt`) · 지하벌레 틱(버그 뱉기 `ee wormSpit` → 독극물 `fireAcid`/`fireAcidAt`) · 리플리카 수신(`onWire`, 메타 적용) · `resync`(`flow rejoined`) · 사망 연출 · `debugForce` / `debugState`. 아래 `## 굴착 스폰 · 지하벌레` |
 | `sandworm/Pose.ts` | 지하벌레 와이어 힌트(21 뱉기 · 22 독극물) → 입 벌림 · 꿀렁임 · 숙임 · 떨림. 권위와 `net/Replica.drive` 가 같은 함수를 부른다. |
+| `models/Portrait.ts` | **적 얼굴 썸네일 · 표시 이름** (2026-09-15, 결과 창 개편). `renderEnemyPortrait(type, px)` = `EnemySystem.renderPortrait` — 그 종류의 리그를 새로 짓고(`tut_*` 는 `baseTypeOf`) `animateBug` / `animateRogue` 기본 자세 한 번, 얼굴이 카메라를 보되 **보는 사람의 왼쪽 사선**(`FACE_YAW` −0.62 rad, 리그 +Z = 정면)으로 세운 뒤 인간형 = 머리 + 어깨 · 벌레 = 머리 · 턱 · 지하벌레 = 입(앞 위에서) · 스캔 드론 = 몸 전체를 `Box3` 로 잡는다. **자기 씬 + 반구광 + 3점 방향광(키 · 필 · 림) + 잠깐 쓰는 오프스크린 `WebGLRenderer`**(alpha · `preserveDrawingBuffer` · ACES · sRGB)로 한 번 그려 `toDataURL` → 리그 머티리얼(`dispose*Rig`) · 렌더러(`dispose` + `forceContextLoss`)를 버린다. 공유 지오메트리 캐시는 건드리지 않는다. 메인 씬 · 광원 개수 무관. (종류, 크기)마다 캐시, WebGL 없음 · 모르는 종류 → null. `enemyDisplayNameOf(type)` = `EnemySystem.enemyDisplayName` — `data/enemies.csv` 에 이름 칸이 없어 한국어 이름표를 여기 둔다(meta/ NPC 목표 이름과 같은 낱말 + `NAMED_ROGUE_NAME_KO`, 튜토리얼 종류는 바탕 종류의 이름). |
 | `models/WormModel.ts` | 지하벌레 절차 리그 (`kind: 'worm'`): 흙 무덤 + 마디 9개 사슬(위로 갈수록 앞숙임) + 턱 4장 · 이빨 고리 · emissive 목구멍. 머티리얼은 버그와 같은 두 프로그램 · 광원 없음. `animateWorm(rig, anim, sink)` — 굴착 중에는 몸통만 내린다, 사망 = 옆으로 말리며 굴로 가라앉음. |
 | `fx/BurrowFx.ts` | 굴착 · 전조 · 분출 연출. 분진 · 흙덩이는 `core/fx` 알파 입자 풀(새 드로우콜 · 셰이더 없음, 방출기 24 풀, 스폰 인자 스크래치, 재질별 색), 전조 링은 가산 띠 메시 2장(생성 때 씬에 숨겨 둬 `world:ready` 선컴파일에 들어간다). 흔들림 · 소리는 없다. |
 | `ai/Burrow.ts` | `updateBurrowGate` — 파고 나오는 중(`emergeT`) · 뱉어져 나는 중(`spatT`)인 몸은 공격 · 이동하지 않는다 (`updateEnemyAI` 가 사망 검사 직후 부른다). `stepSpatFlight` — 뱉어진 몸의 포물선 한 걸음 (권위 · 리플리카 공용). |
@@ -721,7 +722,7 @@ updateSniper (호스트 · namedData = SniperData, 첫 틱에 생성 · aware �
   0.55 를 덮는다, 벌린 발끝만 조금 밖). 비율은 **보이는 자세**(`SniperLookState.pose` = smoothstep 한 엎드림)이고 그
   사이는 서 있는 캡슐 끝점 · 반경과 섞으며, 경사(`anim.slopePitch`)는 자세와 같은 규약으로 골반 피벗 둘레로 기울인다.
   `EnemySystem.raycastEx` 가 `models/named.namedBodyRay` 로 묻고(kind 4, 법선 = 명중점 − 축 최근접점) 모든 히트스캔
-  경로(무기 · 원격 무기 · 로그 `fireGun` · 대전차포 · 핑)가 그대로 받는다. 광역 반경 R(엎드림 1.68 m)은 캡슐 끝(≤ ≈ 1.35 m)을
+  경로(무기 · 원격 무기 · 로그 `fireGun` · 핑)가 그대로 받는다. 광역 반경 R(엎드림 1.68 m)은 캡슐 끝(≤ ≈ 1.35 m)을
   덮는다. 폭발 중심 높이도 `namedBodyCenterY` — 엎드리면 ≈ 0.25 m(`parts/Damage.applyExplosion` 리플리카 가지 · `explode`).
 - **드론 수명** (`trackDrone`): `done` 을 보면 `scanWait` 창을 연다(스캔 표적에게 반짝이는 동안은 멈춘다) — 끝까지
   사선이 없으면 포기 → `droneRetry`. `done` 전에 `dead` · `flee` · 사라짐 · `loiterMax + 20 s` → `droneRetry`. 스캔
@@ -1226,6 +1227,22 @@ attack phase 4  0.25 s 회복 → chase
 
 ## 변경 이력
 
+- **2026-09-15 (튜토리얼 벌레 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창, 사용자 결정)** — `Tutorial.ts` · `Enemy.ts`(`tutorialReleased` 한 필드 + reset) ·
+  `EnemySystem.ts`(구독 둘 · 이륙 갈래 · 틱 한 줄) · `index.ts`. **좌표를 코드에 적지 않았다** — 전부 월드 목록 · 체크포인트 순서 · 높이에서 고른다.
+  ① **연쇄 스폰**: 매복의 방아쇠(접근)는 **첫 벌레뿐**이다. 첫 벌레가 솟는 순간 `TutorialPlacement.chainTimer` = `TUTORIAL_BUG_CHAIN_SPAWN_S`(csv 1 s)가
+  서고, 남은 매복은 **시계만** 따라 하나씩 솟는다(다음 = 방금 솟은 자리에서 가장 가까운 매복). 연쇄 중에는 접근을 보지 않는다 — 봤다면 두 번째 벌레 곁으로
+  뛰어든 사람에게 1초보다 일찍 솟는다. `updateTutorialAmbush(host, placement, dt)`(dt 생략 = 0 — 옛 호출부 호환), 틱 입구는 새 `updateTutorialScript`.
+  ② **구간 어그로 해제** (`onTutorialCheckpoint` ← `tutorial:checkpoint`, `onTutorialFell` ← `player:fell`, 권한만): 체크포인트 순서가 `crawl` 이상이면
+  **벌레 전부**가 추격을 접고 남은 매복 · 연쇄 시계를 버린다. `supply` 이상 · 또는 `drop` 이후의 비즉사 낙하(`rule !== 'kill'`)면 **플레이어 발보다
+  `TUTORIAL_AGGRO_DROP_M`(3 m) 넘게 위에 자리를 둔 인간형**(= 절벽 위에 남은 첫 안드로이드 둘)이 접는다 — 같은 데크의 무너진 벽 뒤 · 함선 곁 적은 남는다.
+  해제된 적은 `tutorialReleased` 가 서고 감지 반경이 `RELEASED_SENSE_M`(0.01 — 0 은 「평소 표」라 못 쓴다), `tutorialHold` 가 매 프레임 알아챘거나
+  (맞아서 깨어난 경우) 싸우는 중이면 `leashHome` 으로 돌려보낸다. 체크포인트는 앞으로만 가므로 해제는 영구다(되돌아가도 다시 싸우지 않는다).
+  ③ **이륙 사격 창** (`onTutorialLiftoff` ← `extraction:liftoff`, 사용자 결정 「실제 피해 · 죽지 않음」): 튜토리얼에서는 **18 m 도주(`fleeFrom`)를 걸지 않는다**
+  (함선 곁 안드로이드가 총을 내리고 등을 돌렸다). 대신 `TUTORIAL_LIFTOFF_FIRE_S`(3 s) 동안 `TUTORIAL_LIFTOFF_FIRE_RANGE_M`(40 m) 안의 해제되지 않은
+  인간형이 탑승자(로컬 표적)를 잡고 감지 반경을 그 거리까지 넓힌다 — 12 m 반경으로는 오르는 함선을 곧 놓친다. 사격은 평소 AI 가 한다. 창이 끝나거나
+  탑승자가 없어지면(건너뛰기 · 리셋) 넓힌 반경을 되돌린다. `ExtractionRef.holdFire` 는 이제 늘 false 라 아래 절 3 의 보류 자리들은 튜토리얼에서도 열려 있다
+  (질의 · 호출은 계약이라 그대로다).
+
 - **2026-09-14 3차 (튜토리얼 전용 적 타입 · 구덩이 스폰 · 사격 보류, 에이전트 D)** — 위 `## 튜토리얼 전용 적 타입 4종 · 구덩이 스폰 · 사격 보류`.
   `data/enemies.csv`(tut_* 4줄 추가), `data/loot_corpses.csv`(tut_* 5줄), `data/loot_corpse_rolls.csv`(`tut_android_loot` 1줄),
   `EnemyTypes`(`ENEMY_TYPE_VALUES` · `ALL_ENEMY_TYPES` · `BugType` · `isRogueType` + 새 `TutorialEnemyType` · `TUTORIAL_ENEMY_BASE` ·
@@ -1682,3 +1699,26 @@ TODO B-16 의 적 쪽 절반 — 「적 소이 화염 지대에 소리 · HUD �
   `EnemySystem.getFireZones`, `model`(`EMPTY_FIRE_ZONES` · `STEP_VOICES.rogue`), `parts/Attacks.onFireZoneTick`(드론),
   `data/enemies.csv`(`rogue` · `raider` `stepSound`). 스모크 `smoke-humanoid-ai` 에 화염 지대 질의 · 점화/지지직 소리 ·
   지상 드론 피해 · 로그/레이더 발소리 검사를 더했다.
+
+## 플레이어 피해 출처 — 사망 결과 창 (2026-09-15, 결과 창 개편)
+
+- 적이 플레이어에게 넣는 피해는 전부 `parts/Damage.applyDamage(target, amount, from, id, type, …)` 한 곳을 지나고, 출처는 거기서 붙는다.
+  로컬 = `ctx.player.takeDamage(amount, from, enemyDamageSource(id, type))`, 원격 = `dmg.src {k:'enemy', et: type, ei: id}`
+  (받는 쪽 net 이 자기 `takeDamage` 셋째 인자로 넘긴다). 끊긴 분대원(`ghost:damage`)은 출처가 없다 — 호스트가 시뮬레이션하는 몸이라 결과 창이 없다.
+- `enemyDamageSource(id, type)` — 개체 id 당 frozen 객체 하나를 캐시한다 (`ENEMY_SOURCE_CACHE_MAX` 1024, 넘으면 비운다 — 이미 넘겨준 객체는
+  그대로 유효). 화염 지대 틱 · 연사에서 할당하지 않는다. 종류는 `EnemyType` id 그대로다(`tut_bug` 를 `baseTypeOf` 로 접지 않는다).
+  id ≤ 0(개체를 모른다)이면 `enemyId` 를 싣지 않는다.
+- `enemyTypeOf(sys, id, fallback)` — 산 개체 → 캐시 → fallback. 산성(`damageTargetAcid`)이 늘 `'spewer'` 로 적던 것을 **실제로 쏜 개체의 종류**로
+  고쳤고(지하벌레 독 포함), 수류탄 · 적 화염 지대는 던진 개체가 죽은 뒤에도 제 종류로 잡힌다.
+- 포병 포탄: `parts/Attacks` 의 `_shellOwners`(sid → 쏜 개체 — 발사 때 적고 착탄 · 요격 때 지운다, 상한 256). 예전엔 id 0 · `'artillery'` 고정이었다.
+  승격 전 호스트가 쏜 포탄은 여전히 id 0.
+- 적 화염 지대 안의 로컬 플레이어: `setBurning(dps, afterburn, enemyDamageSource(owner, type))` — 화상 틱과 화상사가 그 개체로 잡힌다.
+- 덮는 경로: 근접 · 도약 · 돌진(차저 · 베헤모스 넉백 포함 — `hitTarget` · `chargeHit`) · 인간형 사격 · 네임드(로든 저격 · 타길라 망치 · 헤비 미니건 —
+  전부 `fireGun` / `hitTarget`) · 산성 침 · 스퓨어 사망 폭발 · 독성 자폭 · 포탄 · 적 수류탄(파편 · 소이) · 적 화염 지대 · 지하벌레 분출. 스캔 드론은 피해가 없다.
+- **2026-09-15 (결과 창 개편, 피해 출처 에이전트)** — `parts/Damage.ts`(`enemyDamageSource` · `enemyTypeOf` · 로컬/원격 출처 · 산성 종류),
+  `parts/Attacks.ts`(수류탄 · 화염 지대 · 포탄 주인). 와이어 `DamageMessage.src` 는 append 만.
+- **2026-09-15 (결과 창 개편, 적 얼굴 썸네일 · 이름)** — 새 `models/Portrait.ts`(`renderEnemyPortrait` · `enemyDisplayNameOf`)와
+  `EnemySystem` 의 한 줄 위임 둘(`renderPortrait(enemyType, sizePx)` · `enemyDisplayName(enemyType)` — 계약 `EnemyManagerRef` 의 새 옵셔널 메서드).
+  리그를 새로 지어 자기 씬 · 자기 3점 조명 · 잠깐 쓰는 오프스크린 `WebGLRenderer` 로 한 번 그리고 버린다 — 메인 씬 광원 개수 · 공유 지오메트리
+  캐시 · 풀 · AI 무변경, csv · 와이어 무변경. 계약 주석은 이름을 `data/enemies.csv` 에서 읽는다고 적었지만 그 표에는 이름 칸이 없어(수치 표)
+  이름표는 `Portrait.ts` 에 두었다.

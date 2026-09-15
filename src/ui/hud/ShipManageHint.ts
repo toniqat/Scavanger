@@ -1,6 +1,6 @@
 import type { GameContext } from '@/shared';
-import { Keys, keyLabel } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { Keys, createKeycap, paintKeycap } from '@/shared';
+import { el, toggleClass } from '../dom';
 import type { CutsceneWatch } from './CutsceneWatch';
 
 /**
@@ -24,7 +24,7 @@ export class ShipManageHint {
   constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null) {
     this.root = el('div', { cls: 'ship-hint', parent });
     el('span', { cls: 't', text: '시설 관리', parent: this.root });
-    this.keyEl = el('span', { cls: 'keycap', text: keyLabel(Keys.MAP), parent: this.root });
+    this.keyEl = createKeycap(Keys.MAP, { parent: this.root });   // 2026-09-15: 공용 키캡 (`shared/keycap`)
   }
 
   bind(ctx: GameContext): void {
@@ -45,7 +45,7 @@ export class ShipManageHint {
   }
 
   private refreshKey(): void {
-    setText(this.keyEl, keyLabel(Keys.MAP));
+    paintKeycap(this.keyEl, Keys.MAP);
   }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }

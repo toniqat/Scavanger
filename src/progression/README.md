@@ -86,7 +86,7 @@ gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor
 | `medicine` 의학 | `craft:completed` (레시피 `skill === 'medicine'`) | `healPowerMul` |
 | `cryptography` 암호학 | `extraction:activated` | `shipCallSpeedMul` |
 | `implant` 전술 임플란트 | `implant:activated` | `implantCooldownMul` |
-| `gun_AR/SMG/SR/DMR/SG` 사격 | `weapon:hit` (`enemyId !== null`) — 무기 클래스는 직전 `weapon:fired` 의 `weaponId` → `ctx.loot.getWeaponDef` 로 판정 | `recoilMul[class]`, `reloadSpeedMul[class]` |
+| `gun_AR/SMG/SR/DMR/SG` 사격 | `weapon:hit` (`enemyId !== null`) — 무기 클래스는 직전 `weapon:fired` 의 `weaponId` → `ctx.loot.getWeaponDef` 로 판정. **전설 유니크(`def.unique`)는 경험치 없음** (2026-09-15) | `recoilMul[class]`, `reloadSpeedMul[class]` (유니크에는 weapons 가 적용하지 않는다) |
 | `equipment` 장비 관리 | `repair:completed` | `durabilityLossMul` |
 | `cooking` 요리 (재주) | housing 조리 완료가 `addSkillXp('cooking', …)` (점수 비례 — H3) | `cookScoreBonus` (0 … `COOK_SKILL_SCORE_AT_MAX`, 단계 점수 가산) |
 | `research` 연구 (지능) | housing 분석 회수 · 추출기/조합대/3D 프린터 제작이 `addSkillXp('research', …)` | `researchTimeMul` · `researchRefundChance` · `researchRefundFrac` (`RESEARCH_*`) |
@@ -474,6 +474,11 @@ trainedXpFor(n)  = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT)      
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-15 (전설 무기는 사격 숙련 밖 — 사용자 결정)** — 유니크 6종은 csv `class` 를 형식상 갖지만 사격 숙련 체계 밖이다.
+  `ProgressionSystem.weaponClassOf` 가 `def.unique` 면 null 을 돌려 `weapon:hit` 이 **사격 숙련 경험치를 주지 않는다**
+  (보너스를 안 받는 무기가 숙련을 키우는 것도 어긋나서 둘 다 뺐다). 반동 · 장전 보너스는 weapons 가 유니크에 곱하지 않는다
+  (`Firing.recoilMulFor/reloadSpeedFor` 의 `unique` 인자). `derive.ts` · 캐릭터 시트 툴팁은 무기 목록을 보여 주지 않아 무변경.
 
 - **2026-09-14 2차 (시작 전술 임플란트 — 함선 진입 시 갈고리 자동 장착, 사용자 결정)** — 위 절. `hub:entered` 구독
   한 줄 + `grantStarterImplant()` 하나이고, 다른 경로는 한 줄도 안 바뀌었다.

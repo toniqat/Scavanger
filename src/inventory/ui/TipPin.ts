@@ -92,8 +92,17 @@ interface HoldState {
   ms: number;
   timer: number;
   raf: number;
+  /** 2026-09-15: whether this hold has put the ring up yet (it waits for `RING_SHOW_AT`). */
+  ringShown: boolean;
   onFire?: () => void;
 }
+
+/**
+ * 2026-09-15 (사용자 결정): 링은 진행도가 이 비율에 닿은 뒤에야 뜬다 — 더블클릭 · 드래그 시작처럼 짧은 누름마다 커서에 링이
+ * 번쩍이지 않게. 닿은 뒤로는 실제 진행도(0.25 부터)를 그대로 그린다. 확정 시각(`UI_HOLD_CONFIRM_S`)은 그대로다.
+ * 이 문턱은 툴팁 고정에만 있다 — 같은 링을 쓰는 시설 관리 이동 홀드(`housing:moveHold`)는 무변경.
+ */
+const RING_SHOW_AT = 0.25;
 
 interface SocketPress {
   drag: SocketDrag;
@@ -164,7 +173,7 @@ export class TipPin {
     this.cancelHold();
     if (this.disposed) return;
     const ms = Math.max(50, UI_HOLD_CONFIRM_S * 1000);
-    const h: HoldState = { uid, x0: x, y0: y, x, y, t0: performance.now(), ms, timer: 0, raf: 0, onFire };
+    const h: HoldState = { uid, x0: x, y0: y, x, y, t0: performance.now(), ms, timer: 0, raf: 0, ringShown: false, onFire };
     this.hold = h;
     // 확정은 타이머, 게이지는 rAF (`shared/holdAsk` 와 같은 규약 — 프레임이 멈춰도 1 초에 확정된다)
     h.timer = window.setTimeout(() => this.fireHold(), ms);
@@ -185,12 +194,16 @@ export class TipPin {
     window.removeEventListener('pointermove', this.onHoldMove, true);
     window.removeEventListener('pointerup', this.onHoldEnd, true);
     window.removeEventListener('pointercancel', this.onHoldEnd, true);
-    this.ctx.bus.emit('ui:cursorHold', { owner: this.owner, progress: null });
+    // 2026-09-15: a hold that never reached `RING_SHOW_AT` never put the ring up — nothing to take down
+    if (h.ringShown) this.ctx.bus.emit('ui:cursorHold', { owner: this.owner, progress: null });
   }
 
+  /** Ring progress — silent below `RING_SHOW_AT` (2026-09-15), the real fraction from there on. */
   private emitHold(t: number): void {
     const h = this.hold;
-    if (h) this.ctx.bus.emit('ui:cursorHold', { owner: this.owner, progress: t, x: h.x, y: h.y });
+    if (!h || t < RING_SHOW_AT) return;
+    h.ringShown = true;
+    this.ctx.bus.emit('ui:cursorHold', { owner: this.owner, progress: t, x: h.x, y: h.y });
   }
 
   private holdFrame = (): void => {

@@ -5,7 +5,8 @@
  *     `.ghh-row`           키캡 + 문구 한 줄. 색 = 왼쪽 띠 `--gh`:
  *                          `.ok` 설치 가능 · 조종 / `.bad` 설치 불가 사유 · 신호 범위 밖 / `.det` 기폭 / `.info` 드론 배치
  *
- * 꾹 누르는 키(`R 꾹 조종`)는 공용 `.keycap.kc-hold` chevron 을 쓰고, 그 줄은 chevron 자리만큼 위를 띄운다.
+ * 꾹 누르는 키(`R 꾹 조종`)는 공용 `.keycap.kc-hold` chevron 을 쓴다. 2026-09-15 — chevron 이 키캡 **안**으로 들어가
+ * 줄이 그 자리만큼 위를 띄우던 `:has(.kc-hold)` 여백을 걷어냈다. 마우스 버튼(`설치` · `기폭`)은 공용 키캡의 마우스 그림이다.
  */
 
 .gadget-hand-hint {
@@ -34,7 +35,6 @@
 .ghh-row.det { --gh: var(--c-accent); }
 .ghh-row.bad { --gh: var(--c-danger); }
 .ghh-row.bad .txt { color: var(--c-danger); }
-.ghh-row:has(.keycap.kc-hold) { padding-top: 13px; }
 
 /* 관전 중에는 손이 없다 */
 .hud.spectating .gadget-hand-hint { opacity: 0 !important; visibility: hidden; }

@@ -664,3 +664,12 @@ furniturePose`), `player:buffsChanged` · `net:remoteBuffsChanged`, `CHAR_BUFF_W
 
 - **2026-09-14 (정보상, 에이전트 D)** — `parts/Lobby.ts`(`setLobbyIntel` · `sanitizeIntelWire` · `startGame` · `beginSession` · `rejoinMission`),
   `parts/Messages.ts`(`game:start.intel`), `NetSystem.ts`(`lobbyIntel` · `setLobbyIntel` · 위임 시그니처).
+
+## 피해 출처 와이어 (2026-09-15, 결과 창 개편)
+
+- `dmg.src?: DamageSourceWire { k, et?, ei?, hz? }` (`shared/net.ts` append) — **보내는 쪽이 받는 사람 기준으로** 정해 싣는다
+  (enemies = `{ k: 'enemy', et: EnemyType, ei: 적 id }`, gadgets = `self` / `ally`).
+- `parts/Messages.ts` 의 `dmg` 수신이 `damageSourceFromWire` 로 검사해(`k` 는 `DamageCauseKind` 표 · 문자열 길이 상한 · id 는 양의 정수)
+  `ctx.player.takeDamage(amount, from, source)` 셋째 인자로 넘긴다. 모양이 틀리거나 칸이 없으면 undefined(= 모름) — 표시용이라 메시지를 거절하지 않는다.
+  옛 클라이언트는 이 칸을 무시한다. 릴레이는 `dmg` 를 해석하지 않는다(서버 무변경, `net:selftest` 583/583).
+- **2026-09-15 (결과 창 개편, 피해 출처 에이전트)** — `parts/Messages.ts` 만.

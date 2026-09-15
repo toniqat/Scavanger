@@ -1,6 +1,6 @@
 // Smoke test for the 2026-09-06 UI / implant package: title controls diagram + key rebinding, the hub Tab ship
 // screen (stash persistence, implant slot / picker, right-click repair, screen tabs), the terminal without
-// scrollbars, and the reworked implants (crosshair gauge, launcher stowed by a weapon key, hold-to-overcharge).
+// scrollbars, and the reworked implants (crosshair gauge, wielded shield stowed by a weapon key, hold-to-overcharge).
 // 2026-09-11 (C-9 · X-8): boots with a legacy `scav.keybinds` blob (`SWAP` retired + `RELOAD=V` vs the new `DIVE=V`) and
 // checks the load report, the title's 키 설정 확인 card, the retired line leaving the blob, and the clash in the key menu.
 // Usage: node scripts/smoke-controls-hub.mjs [http://localhost:5273/] [--shots]
@@ -453,8 +453,13 @@ try {
     items: !!document.querySelector('.inv-equip .inv-implants .inv-impitems .inv-impi-add'),
     popHidden: document.querySelector('.inv-imp-pop')?.hidden,
   }));
-  ok(impTab.cards === 6 && impTab.inEquip && impTab.popHidden === true,
-    `인벤토리 장착 장비 열에 임플란트 칸 + 닫힌 카드 팝업 6종 (${impTab.cards})`);
+  // 2026-09-15: 대전차포(`atlauncher`)는 은퇴 — 카드는 5종이고 피커에 그 카드가 없어야 한다
+  ok(impTab.cards === 5 && impTab.inEquip && impTab.popHidden === true,
+    `인벤토리 장착 장비 열에 임플란트 칸 + 닫힌 카드 팝업 5종 (${impTab.cards})`);
+  ok(await page.evaluate(() => !document.querySelector('.inv-imp-pop .inv-imp-card[data-id="atlauncher"]')
+    && !window.__game.ctx.implants.getAllDefs().some((d) => d.id === 'atlauncher')
+    && window.__game.ctx.implants.setEquipped('atlauncher') === false),
+    '은퇴한 대전차포는 피커 · getAllDefs 에 없고 setEquipped 도 거절한다');
   ok(impTab.inGrid && impTab.beforePouch && impTab.items,
     '임플란트 칸이 장비 격자 **안**(주머니 칸 바로 앞)이고 임플란트 아이템 블록도 함께 있다', JSON.stringify(impTab));
   // 장착 칸을 누르면 팝업이 열리고, 카드를 고르면 장착 후 닫힌다
@@ -479,9 +484,9 @@ try {
   ok(!!tag && /장착 중/.test(tag.body) && !/장착 중/.test(tag.row) && tag.desc, `장착 중 label renders under the description (${tag?.body})`);
   await page.evaluate(() => document.querySelector('.inv-imp-pop .inv-imp-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === null), 'clicking the equipped card unequips it');
-  await page.evaluate(() => document.querySelector('.inv-imp-pop .inv-imp-card[data-id="atlauncher"]').click());
-  ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'atlauncher'
-    && document.querySelector('.inv-imp-pop .inv-imp-card[data-id="atlauncher"]').classList.contains('is-equipped')), '대전차포 장착 (카드가 켜진다)');
+  await page.evaluate(() => document.querySelector('.inv-imp-pop .inv-imp-card[data-id="barrier"]').click());
+  ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'barrier'
+    && document.querySelector('.inv-imp-pop .inv-imp-card[data-id="barrier"]').classList.contains('is-equipped')), '배리어 장착 (카드가 켜진다)');
   await sleep(200);
 
   // right-click repair on a worn equipped weapon
@@ -896,7 +901,7 @@ try {
   ok(clickBack.retried, '좌클릭이 잃어버린 포인터 락을 다시 요청한다 (한 번에 하나씩)', JSON.stringify(clickBack));
   ok(clickBack.swallowed, 'and that recapture click is swallowed (no shot behind it)', JSON.stringify(clickBack));
 
-  /* ── 5. mission A: 대전차포 wielded → weapon key stows it ─────────── */
+  /* ── 5. mission A: 배리어 wielded → weapon key stows it (2026-09-15: was the retired 대전차포) ─── */
   const startMission = async (seed) => {
     await page.evaluate((s) => window.__game.ctx.bus.emit('game:newMission', { seed: s }), seed);
     await waitFor(page, () => window.__game.ctx.world?.ready === true, 'world ready');
@@ -909,7 +914,7 @@ try {
     await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
     await waitSim(0.3);
   };
-  await page.evaluate(() => window.__game.ctx.implants.setEquipped('atlauncher'));
+  await page.evaluate(() => window.__game.ctx.implants.setEquipped('barrier'));
   // 2026-09-10: 보조무기(3번)가 사라졌으므로 "무기 키가 임플란트를 집어넣는다" 는 주무기 II 로 검사한다.
   // 창고의 돌격소총을 주무기 II 에 올려 두 자루를 만든다 (starter 는 주무기 I 에 기관단총만 준다).
   const secondGun = await page.evaluate(() => {
@@ -921,18 +926,18 @@ try {
   ok(!!secondGun, `주무기 II 에 두 번째 총을 올렸다 (${secondGun})`);
   await startMission(42);
   /* 2026-09-10: 임플란트 표시는 크로스헤어 왼쪽의 `.implant-gauge` 가 아니라 **화면 중앙 하단**의 `.imp-hud` 다. */
-  ok(await page.evaluate(() => !!document.querySelector('.imp-hud') && !document.querySelector('.imp-hud').hidden && document.querySelector('.imp-hud').dataset.implant === 'atlauncher'), 'implant hud shown for 대전차포');
+  ok(await page.evaluate(() => !!document.querySelector('.imp-hud') && !document.querySelector('.imp-hud').hidden && document.querySelector('.imp-hud').dataset.implant === 'barrier'), 'implant hud shown for 배리어');
   const gaugePos = await page.evaluate(() => { const r = document.querySelector('.imp-hud').getBoundingClientRect(); return { cx: r.left + r.width / 2, mid: innerWidth / 2, top: r.top, cy: innerHeight / 2 }; });
   ok(Math.abs(gaugePos.cx - gaugePos.mid) < 40 && gaugePos.top > gaugePos.cy, 'implant hud sits bottom-centre (under the crosshair, below the stamina bar)', JSON.stringify(gaugePos));
   await tap('KeyQ');
   await waitSim(0.2);
-  ok(await page.evaluate(() => window.__game.ctx.implants.wielded && window.__game.ctx.implants.blocksWeapons), 'Q wields the launcher (weapons holstered)');
+  ok(await page.evaluate(() => window.__game.ctx.implants.wielded && window.__game.ctx.implants.blocksWeapons), 'Q wields the shield (weapons holstered)');
   await tap('Digit2');
   await waitSim(0.3);
   const stowed = await page.evaluate(() => ({ wielded: window.__game.ctx.implants.wielded, swaps: window.__ev['weapon:swapStarted'].length }));
-  ok(!stowed.wielded, 'pressing 2 stowed the launcher (the old bug: keys were ignored while wielded)');
+  ok(!stowed.wielded, 'pressing 2 stowed the shield (the old bug: keys were ignored while wielded)');
   ok(stowed.swaps >= 1 && (await ev('weapon:swapStarted')).some((s) => s.slot === 'primary2'), 'and drew 주무기 II');
-  await shot('08-gauge-launcher');
+  await shot('08-gauge-barrier');
 
   /* ── 6. mission B: 오버차지 = hold Q, energy drains / refills ───────── */
   await backToShip();

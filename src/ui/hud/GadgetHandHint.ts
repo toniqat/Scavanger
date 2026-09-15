@@ -1,22 +1,15 @@
 import type { GadgetId, GameContext } from '@/shared';
-import { Keys, droneKindOfGadget, keyLabel, mouseButtonOf } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { Keys, droneKindOfGadget, keyLabel, paintKeycap } from '@/shared';
+import { el, setText } from '../dom';
 import '../styles/gadgetHint.css';
 
 /** 한 번에 보이는 안내 줄 수 — 설치 + 기폭, 또는 드론 한 줄. */
 const MAX_ROWS = 2;
-/** 마우스 버튼 → 한국어 (`Mouse0` 좌 · `Mouse1` 휠 · `Mouse2` 우). 그 밖의 코드는 `keyLabel`. */
-const MOUSE_KO: readonly string[] = ['좌클릭', '휠클릭', '우클릭'];
 
 type Tone = 'ok' | 'bad' | 'det' | 'info';
 
-interface Row { el: HTMLElement; pre: HTMLElement; key: HTMLElement; txt: HTMLElement; sig: string }
-
-/** 키 라벨은 사용 시점에 읽는다 — 리바인딩되면 다음 프레임부터 따라간다. */
-function actionLabel(code: string): string {
-  const m = mouseButtonOf(code);
-  return m >= 0 && m < MOUSE_KO.length ? MOUSE_KO[m] : keyLabel(code);
-}
+/** `code` = 그 줄 키캡의 키 코드 (`KeyboardEvent.code` / `MouseN`, 2026-09-15 — 라벨이 아니라 코드를 들고 공용 키캡이 칠한다). */
+interface Row { el: HTMLElement; pre: HTMLElement; key: HTMLElement; txt: HTMLElement; sig: string; code: string }
 
 /**
  * **손에 든 가젯 안내** (`.gadget-hand-hint`, 게임플레이 레이어, 크로스헤어 아래, 2026-09-11).
@@ -35,7 +28,9 @@ function actionLabel(code: string): string {
  *     `[R ˅] 꾹 조종` (`.keycap.kc-hold` — 공용 chevron), `linkLost` 면 빨간 `신호 범위 밖`.
  *
  * 마우스 키는 `좌클릭` · `우클릭` 으로 적는다 (`FIRE` · `AIM` 은 마우스 전용 동작이지만 버튼은 바꿀 수 있으므로
- * `Keys.X` 를 매 프레임 읽는다). **드론 조종 중(`ctx.player.droneControl`) · 화면이 열려 있을 때 · 사망 · 페이즈
+ * `Keys.X` 를 매 프레임 읽는다). **2026-09-15 (사용자 결정):** 글자 대신 공용 키캡(`shared/keycap.paintKeycap`)의
+ * **마우스 그림**으로 그린다 — 누를 칸이 흰색, `R 꾹 조종` 같은 꾹 누르기는 chevron 이 키캡 **안** 윗변에 앉으므로 줄이
+ * 그 자리만큼 위를 띄우지 않는다(`gadgetHint.css` 의 `:has(.kc-hold)` 여백 삭제). `lines` 는 키 라벨(`LMB` …)로 적는다. **드론 조종 중(`ctx.player.droneControl`) · 화면이 열려 있을 때 · 사망 · 페이즈
  * 밖이면 숨는다.** 값은 매 프레임 폴링하되 DOM 은 줄의 서명(키 · 문구 · 색 · 홀드)이 바뀔 때만 쓴다.
  */
 export class GadgetHandHint {
@@ -57,7 +52,7 @@ export class GadgetHandHint {
       pre.hidden = true;
       const key = el('span', { cls: 'keycap', parent: row });
       const txt = el('span', { cls: 'txt', parent: row });
-      this.rows.push({ el: row, pre, key, txt, sig: '' });
+      this.rows.push({ el: row, pre, key, txt, sig: '', code: '' });
     }
   }
 
@@ -89,7 +84,7 @@ export class GadgetHandHint {
         const valid = live !== undefined ? live!.valid : this.evValid;
         const reason = live !== undefined ? live!.reason : this.evReason;
         const mount = live !== undefined ? live!.mount : this.evMount;
-        if (valid) n = this.setRow(n, null, actionLabel(Keys.FIRE), mount ? '드론에 탑재' : '설치', 'ok', false);
+        if (valid) n = this.setRow(n, null, Keys.FIRE, mount ? '드론에 탑재' : '설치', 'ok', false);
         else n = this.setRow(n, null, null, reason || '설치 불가', 'bad', false);
       }
 
@@ -97,7 +92,7 @@ export class GadgetHandHint {
       if (detonator || held === 'remoteMine' || pGadget === 'remoteMine') {
         const count = ctx.gadgets?.liveRemoteMineCount?.() ?? 0;
         const pre = detonator ? '기폭기 ·' : null;
-        if (count > 0) n = this.setRow(n, pre, actionLabel(Keys.AIM), `기폭 (${count})`, 'det', false);
+        if (count > 0) n = this.setRow(n, pre, Keys.AIM, `기폭 (${count})`, 'det', false);
         else if (detonator) n = this.setRow(n, '기폭기 ·', null, '설치된 원격 지뢰 없음', 'info', false);
       }
 
@@ -105,9 +100,9 @@ export class GadgetHandHint {
       const kind = droneKindOfGadget(held);
       if (kind) {
         const own = ctx.drones?.getOwnDrone(kind) ?? null;
-        if (!own) n = this.setRow(n, null, actionLabel(Keys.FIRE), '드론 배치', 'info', false);
+        if (!own) n = this.setRow(n, null, Keys.FIRE, '드론 배치', 'info', false);
         else if (own.linkLost) n = this.setRow(n, null, null, '신호 범위 밖', 'bad', false);
-        else n = this.setRow(n, null, keyLabel(Keys.RELOAD), '꾹 조종', 'ok', true);
+        else n = this.setRow(n, null, Keys.RELOAD, '꾹 조종', 'ok', true);
       }
     }
     for (let i = n; i < this.rows.length; i++) {
@@ -124,7 +119,10 @@ export class GadgetHandHint {
     return (ctx.loot?.getItemDef(id)?.gadgetId as GadgetId | undefined) ?? null;
   }
 
-  /** `i` 번 줄을 채우고 다음 줄 번호를 돌려준다. 서명이 같으면 DOM 을 건드리지 않는다. */
+  /**
+   * `i` 번 줄을 채우고 다음 줄 번호를 돌려준다. 서명이 같으면 DOM 을 건드리지 않는다.
+   * `key` 는 키 **코드**다 (2026-09-15) — 코드가 서명에 들어 있으므로 리바인딩되면 다음 프레임에 다시 칠해진다.
+   */
   private setRow(i: number, pre: string | null, key: string | null, text: string, tone: Tone, hold: boolean): number {
     if (i >= this.rows.length) return i;
     const r = this.rows[i];
@@ -132,12 +130,12 @@ export class GadgetHandHint {
     if (r.el.hidden) r.el.hidden = false;
     if (sig !== r.sig) {
       r.sig = sig;
+      r.code = key ?? '';
       r.el.className = `ghh-row ${tone}`;
       if (r.pre.hidden !== !pre) r.pre.hidden = !pre;
       setText(r.pre, pre ?? '');
       if (r.key.hidden !== !key) r.key.hidden = !key;
-      setText(r.key, key ?? '');
-      toggleClass(r.key, 'kc-hold', hold);
+      if (key) paintKeycap(r.key, key, { hold });
       setText(r.txt, text);
     }
     return i + 1;
@@ -151,7 +149,7 @@ export class GadgetHandHint {
       const r = this.rows[i];
       const parts: string[] = [];
       if (!r.pre.hidden) parts.push(r.pre.textContent ?? '');
-      if (!r.key.hidden) parts.push(r.key.textContent ?? '');
+      if (!r.key.hidden) parts.push(keyLabel(r.code));
       parts.push(r.txt.textContent ?? '');
       out.push(parts.join(' '));
     }

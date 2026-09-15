@@ -223,6 +223,11 @@ export class Enemy implements EnemyRef {
    * 인간형의 `leash` 는 "보이면 조금 더 따라간다" 는 부드러운 리시라 튜토리얼에서는 이것이 위에 얹힌다.
    */
   homeLeash = 0;
+  /**
+   * 2026-09-15 — 튜토리얼 구간을 지나쳐 **어그로를 내려놓은** 적 (`Tutorial.onTutorialCheckpoint` · `onTutorialFell`).
+   * true 면 `Tutorial.tutorialHold` 가 매 프레임 자기 자리로 돌려보내고 다시 싸우지 않는다. 본편 · 훈련장의 적은 늘 false.
+   */
+  tutorialReleased = false;
   readonly coverPos = new THREE.Vector3();
   hasCover = false;
   coverTimer = 0;
@@ -505,7 +510,7 @@ export class Enemy implements EnemyRef {
     // Phase 4
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
     // 2026-09-14: 튜토리얼 전용 값은 풀에서 빌려 올 때마다 꺼진다 — `Tutorial.placeTutorialEnemies` 만이 다시 켠다
-    this.senseRadius = 0; this.homeLeash = 0;
+    this.senseRadius = 0; this.homeLeash = 0; this.tutorialReleased = false;
     this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
     this.shellTimer = 3 + Math.random() * 3; this.dug = 0; this.shellRefusals = 0;

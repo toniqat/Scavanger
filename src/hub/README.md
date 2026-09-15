@@ -401,6 +401,10 @@ over the 닫기 (Esc) / 타이틀로 footer.
 
 ## 변경 이력
 
+- **2026-09-15 (키캡 다듬기, 사용자 결정)** — `ui/ReadyPanel` 의 준비 홀드 `Space` 키캡을 공용 `shared/keycap.createKeycap(Keys.JUMP, {hold: true})`
+  으로 만들고 `paintHold` · `syncGuide` 가 `paintKeycap` 으로 다시 칠한다(손으로 쓰던 `'keycap kc-hold'` 클래스 · `setText(keyLabel)` 삭제).
+  chevron 이 키캡 **안** 윗변으로 들어갔고 강조색 테두리가 없어졌다(`ui/styles/base.css`). `.hr-holdrow .keycap` 크기 규칙은 그대로다.
+
 - **2026-09-14 5차 (UI 2차 개편 — 발사 슬롯 탑승 UI · 미니게임 연출 · 정비 벤치 소품 제거, 사용자 결정)**
   - **발사 슬롯 패널은 「내용이 자리를 정한다」로 바뀌었다** (`hub.css` · `ui/ReadyPanel`). 옛 `--hr-body-h: 45%` 는
     장비 판 내용보다 한참 커서 **홀드 바 아래에 죽은 여백**이 남았다 — 퍼센트를 **내용 높이 식**으로 바꾸고

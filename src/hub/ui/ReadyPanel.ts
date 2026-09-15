@@ -4,7 +4,8 @@ import type {
 } from '@/shared';
 import {
   CATEGORY_ICON, HUB_READY_BLOCKER, HUB_READY_CELLS, HUB_READY_PORTRAIT_YAW, Keys, MENU_BLOCKER,
-  NET_SLOT_COLORS_CSS, RARITY_COLORS, SOCKET_SLOTS, UI_HOLD_CONFIRM_S, formatCredits, itemCreditValue, keyLabel,
+  NET_SLOT_COLORS_CSS, RARITY_COLORS, SOCKET_SLOTS, UI_HOLD_CONFIRM_S, createKeycap, formatCredits, itemCreditValue, keyLabel,
+  paintKeycap,
 } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 import { CrewLoadoutPanel } from './CrewLoadoutPanel';
@@ -176,12 +177,13 @@ export class ReadyPanel {
       const value = el('div', { cls: 'hr-value', parent: body });
       /*
        * 2026-09-14 2차: 게이지 왼쪽에 **꾹 누르는 키캡**이 선다 (`.keycap.kc-hold` — chevron 은 `ui/styles/base.css`
-       * 한 곳이 그린다). 라벨은 `paintHold` 가 매번 `keyLabel(Keys.JUMP)` 로 다시 읽는다 — 키는 모듈 상수로
+       * 한 곳이 그린다). 라벨은 `paintHold` 가 매번 `Keys.JUMP` 로 다시 칠한다 — 키는 모듈 상수로
        * 캐시하지 않는다는 규약이라, 리바인드해도 카드가 따라온다.
+       * 2026-09-15: 공용 `shared/keycap.createKeycap` / `paintKeycap` 으로 그린다 (chevron 이 키캡 안 윗변으로 들어갔다).
        */
       const holdRow = el('div', { cls: 'hr-holdrow', parent: body });
       holdRow.hidden = true;
-      const holdKey = el('span', { cls: 'keycap kc-hold', text: '', parent: holdRow });
+      const holdKey = createKeycap(Keys.JUMP, { hold: true, parent: holdRow });
       const hold = el('div', { cls: 'hr-hold', parent: holdRow });
       const holdFill = el('i', { cls: 'hr-hold-fill', parent: hold });
       const holdLabel = el('span', { cls: 'hr-hold-label', text: '', parent: hold });
@@ -240,7 +242,7 @@ export class ReadyPanel {
     const info = this._interactive && !this.launching ? this.localCell() : null;
     const key = info ? (info.confirmed ? 'unready' : 'ready') : '';
     // 키캡은 서명이 같아도 리바인드로 글자가 바뀔 수 있다 — 그때는 `guideKey` 를 비워 두고 들어온다
-    for (const c of this.cells) if (!c.holdRow.hidden) setText(c.holdKey, keyLabel(Keys.JUMP));
+    for (const c of this.cells) if (!c.holdRow.hidden) paintKeycap(c.holdKey, Keys.JUMP, { hold: true });
     if (key === this.guideKey) return;
     this.guideKey = key;
     if (!info) { this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys: null }); return; }
@@ -443,7 +445,7 @@ export class ReadyPanel {
     const mine = !!info && info.local && info.ready && this._interactive;
     c.holdRow.hidden = !mine;
     if (!mine || !info) return;
-    setText(c.holdKey, keyLabel(Keys.JUMP));
+    paintKeycap(c.holdKey, Keys.JUMP, { hold: true });
     setText(c.holdLabel, info.confirmed ? '꾹 눌러 준비 해제' : '꾹 눌러 준비');
     toggleClass(c.hold, 'is-confirmed', info.confirmed);
   }

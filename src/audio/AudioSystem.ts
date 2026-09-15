@@ -442,7 +442,8 @@ export class AudioSystem implements GameSystem, AudioRef {
       b.on('player:burning', ({ active }) => { if (active) auto('fire_ignite', undefined, 0.55); }),
       b.on('player:cloakChanged', ({ cloaked }) => auto(cloaked ? 'cloak_on' : 'cloak_off', undefined, 0.6)),
       // implants
-      b.on('implant:activated', ({ id, position }) => { if (id === 'atlauncher') auto('rocket_fire', position, 0.95); }),
+      // 2026-09-15: `implant:activated {id:'atlauncher'}`→rocket_fire and `implant:rocketExploded`→rocket_explode are gone
+      // with the retired 대전차포 implant (nothing emits them any more; the synth ids stay in `SOUNDS`).
       b.on('implant:dashed', ({ position }) => auto('dash', position, 0.85)),
       b.on('implant:grappleFired', ({ origin }) => auto('grapple_fire', origin, 0.85)),
       b.on('implant:grappleAttached', ({ point }) => auto('grapple_attach', point, 0.9)),
@@ -459,7 +460,6 @@ export class AudioSystem implements GameSystem, AudioRef {
       b.on('implant:barrierHit', ({ point }) => auto('barrier_hit', point, 0.7)),
       b.on('implant:scanned', ({ pulse }) => auto('scan_pulse', undefined, 0.75, 1 + Math.min(4, pulse) * 0.06)),
       b.on('implant:overcharge', ({ active }) => { if (active) auto('overcharge_beam', undefined, 0.6); }),
-      b.on('implant:rocketExploded', ({ position }) => auto('rocket_explode', position, 1)),
       b.on('implant:wieldChanged', ({ wielded }) => auto(wielded ? 'ui_equip' : 'ui_close', undefined, 0.45)),
       b.on('implant:equipped', () => auto('ui_equip', undefined, 0.7)),
       // 2026-09-12 준비 소리: 임플란트 = 짧고 높은 전자음 (충전형의 중간 충전은 작고 조금 낮게, 마지막 충전 · 단일 충전 ·

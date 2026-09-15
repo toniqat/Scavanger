@@ -212,8 +212,8 @@ try {
   ok(s1.hidesCommunity === true && s1.communityShown === false, 'levelUp 에서는 메신저 버튼을 감춘다 (그 단계의 allow 밖)');
   ok(s1.charTab === null && !!s1.corpTab, '캐릭터 탭만 열리고 나머지 화면 탭은 막힌다', JSON.stringify({ c: s1.charTab, corp: s1.corpTab }));
   ok(s1.hud.every((h) => h === false), '함선 트랙은 HUD 를 하나도 감추지 않는다', JSON.stringify(s1.hud));
-  ok(s1.panelTrack.includes('함선 안내') && s1.objs.join('|') === '인벤토리 화면을 연다',
-    `목표 패널: 함선 안내 · 「인벤토리 화면을 연다」 (${s1.panelTrack} / ${s1.objs.join('|')})`);
+  ok(s1.panelTrack.includes('함선 안내') && s1.objs.join('|') === '인벤토리 화면 열기',
+    `목표 패널: 함선 안내 · 「인벤토리 화면 열기」 (${s1.panelTrack} / ${s1.objs.join('|')})`);
 
   /* ── 2. levelUp — Tab 으로 인벤토리 · 이미 열린 창에서 캐릭터 탭 ─────── */
   console.log('2. levelUp');
@@ -357,7 +357,7 @@ try {
   ok(s6.track === 'ship' && s6.step === 'messenger' && s6.index === 3 && s6.count === 4 && !s6.shipDone,
     '새로고침 뒤 함선 트랙 messenger (3/4) 에서 이어진다', JSON.stringify(s6));
   ok(s6.level === 2 && s6.points === 0 && s6.value === pre.base + pre.points, '투자한 포인트 · 레벨이 새로고침을 견딘다', JSON.stringify(s6));
-  ok(s6.objs.join('|') === '메신저를 연다' && s6.build === null, '목표는 「메신저를 연다」 · 증축 트랙은 여전히 기다린다', JSON.stringify(s6));
+  ok(s6.objs.join('|') === '메신저 열기' && s6.build === null, '목표는 「메신저 열기」 · 증축 트랙은 여전히 기다린다', JSON.stringify(s6));
 
   /* ── 4. messenger — 레이븐의 첫 연락 · 버튼 포커싱 · P ──────────────── */
   console.log('4. messenger');
@@ -407,7 +407,7 @@ try {
   });
   ok(s5.chatPage, '포커싱 구멍 = 메신저의 대화 페이지 (.ms-page.chat)', JSON.stringify(s5));
   ok(s5.rowIn && s5.rowHit?.ok && !s5.card, '레이븐 대화 줄이 구멍 안에서 눌린다 · 아직 퀘스트 카드는 없다', JSON.stringify(s5));
-  ok(s5.objs.join('|') === '레이븐의 연락에 대답한다|퀘스트를 수락한다', `목표 두 줄 (${s5.objs.join(' | ')})`);
+  ok(s5.objs.join('|') === '레이븐의 연락에 답장|퀘스트 수락', `목표 두 줄 (${s5.objs.join(' | ')})`);
   await page.mouse.click(s5.rowHit.x, s5.rowHit.y);
   await waitFor(page, () => document.querySelectorAll('.ms-tbody .ms-choice').length === 2, 'Raven choices', 10000);
   const s5a = await P(async () => {
@@ -420,7 +420,7 @@ try {
       labels: [...document.querySelectorAll('.ms-tbody .ms-choice')].map((b) => b.textContent),
       want: d.introChoices, card: !!document.querySelector('.ms-qcard'), quest: window.__game.ctx.meta.npc.getQuest('q_rv_0'),
       hit: window.__hit(choice),
-      talkDone: window.__objDone('레이븐의 연락에 대답한다'),
+      talkDone: window.__objDone('레이븐의 연락에 답장'),
       reply: d.introChoiceReplies[0].slice(0, 24), lastAfter: d.introAfter[d.introAfter.length - 1].slice(0, 24),
     };
   });
@@ -457,7 +457,7 @@ try {
     `답 → 본론(introAfter) → 퀘스트 카드 순서 (${tl.reply} → ${tl.after} → ${tl.card} ms, 사이마다 … 말풍선)`, JSON.stringify(tl));
   await sleep(700);
   const objOrder = await P(() => ({
-    talk: window.__objDone('레이븐의 연락에 대답한다'), accept: window.__objDone('퀘스트를 수락한다'),
+    talk: window.__objDone('레이븐의 연락에 답장'), accept: window.__objDone('퀘스트 수락'),
     step: window.__game.ctx.tutorial.step,
   }));
   ok(objOrder.talk === true && objOrder.accept === false && objOrder.step === 'ravenQuest',

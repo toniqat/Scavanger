@@ -70,7 +70,16 @@
   transition: clip-path 280ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms;
   pointer-events: none;
 }
-.tut-obj.is-optional .tut-obj-label { color: var(--c-text-dim); }
+/* 2026-09-15 (사용자 결정): **회색은 달성한 줄만**이다 — 선택 목표(`.is-optional`)도 달성 전에는 필수와 같은 색이다.
+   예전의 `.tut-obj.is-optional .tut-obj-label { color: dim }` 은 지웠다 (`(선택)` 접두사가 이미 말한다). */
+/* 목표 줄 안의 키캡 (2026-09-15, `shared/keycap.renderKeyText` 의 `.kc-inline`) — 글줄 높이에 맞춘 작은 키캡.
+   꾹 누르는 키캡의 chevron 은 키캡 윗변 **안쪽**에 그려진다(`ui/styles/base.css`) — 윗줄과 겹칠 여백이 필요 없다. */
+.tut-obj-label .keycap {
+  min-width: 17px; height: 17px; padding: 0 4px; margin: 0 2px;
+  font-size: 9.5px; vertical-align: middle;
+}
+/* 취소선 층의 키캡은 같은 자리에 덮이며 달성한 줄의 색이 된다 (`clip-path` 가 좌→우로 벗겨 낸다) */
+.tut-obj-strike .keycap { filter: grayscale(1) brightness(0.72); }
 .tut-obj.is-done .tut-obj-tick { stroke-dashoffset: 0; }
 .tut-obj.is-done .tut-obj-txt { color: var(--c-text-faint); }
 .tut-obj.is-done .tut-obj-strike { clip-path: inset(0 0 0 0); }
@@ -133,6 +142,28 @@
 }
 /* 한 줄에 쌍이 둘일 때의 구분자 (`LMB 사격 · RMB 정조준`) */
 .tut-ctl-sep { flex: 0 0 auto; width: 1px; height: 11px; margin: 0 2px; background: var(--c-border); }
+/* 토큰 문장 줄 (2026-09-15, `ControlHint.text`) — 쌍이 아니라 문장 안에 키캡이 끼어 흐른다 */
+.tut-ctl.is-text { display: block; }
+.tut-ctl-text { font-size: 11px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); }
+.tut-ctl-text .keycap { min-width: 18px; height: 18px; padding: 0 4px; margin: 0 2px; font-size: 9.5px; vertical-align: middle; }
+.tut-ctl.is-new .tut-ctl-text { color: var(--c-text); }
+
+/* ── TIP 토스트 (2026-09-15, `ui/Tip.ts`) ─────────────────────────────────────
+ * 우측 조작 가이드 **바로 아래**. 자리(top · right · width)와 불투명도는 `TutorialTip.update` 가 가이드의 사각형을 읽어
+ * 인라인으로 쓴다 — 나타남 · 사라짐도 코드다 (reduced motion 이 CSS 전이를 자르는 PC 가 있다). z 79 = 조작 가이드와 같다.
+ * ────────────────────────────────────────────────────────────────────────── */
+.tut-tip {
+  position: absolute; z-index: 79; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 12px 9px;
+  border: 1px solid var(--c-border); border-right: 3px solid var(--c-success, #6ee7a8);
+  background: linear-gradient(180deg, rgba(12, 15, 20, 0.9), rgba(8, 10, 14, 0.9));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+.tut-tip[hidden] { display: none !important; }
+.tut-tip-head { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-success, #6ee7a8); }
+.tut-tip-body { font-size: 11px; line-height: 1.45; letter-spacing: 0.01em; color: var(--c-text); }
 /* 새로 배운 줄은 한 박자만 밝았다가 평범한 기록이 된다 */
 .tut-ctl.is-new { animation: tut-ctl-in 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .tut-ctl.is-new .tut-ctl-label { color: var(--c-text); }

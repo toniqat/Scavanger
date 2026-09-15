@@ -2,7 +2,7 @@ import type { DroneKind, DroneRef, DroneReleaseReason, DronesRef, GameContext } 
 import {
   DRONE_AIR_MAX_ALTITUDE, DRONE_AIR_RANGE, DRONE_GROUND_RANGE, DRONE_LINK_WARN_RATIO,
   DRONE_SCAN_RANGE,
-  Keys, keyLabel, onKeybindsChanged,
+  Keys, createKeycap, onKeybindsChanged, paintKeycap,
 } from '@/shared';
 import { el, setText, toggleClass, clamp01 } from '../dom';
 /* appended (2026-09-12): 드론 스캔 결과 월드 라벨 — 이 위젯이 들고 `lateUpdate` 로 투영한다 */
@@ -45,7 +45,7 @@ const ALERT_TEXT: Partial<Record<DroneReleaseReason, string>> = {
 };
 
 type KeyId = 'JUMP' | 'CROUCH' | 'SPRINT' | 'RELOAD';
-interface KeyRow { cap: HTMLElement; key: KeyId }
+interface KeyRow { cap: HTMLElement; key: KeyId; hold: boolean }
 
 /**
  * **드론 조종 HUD** (2026-09-11). 데이터는 `ctx.drones`(`controlled` · `controlHold` · `DroneRef`)와 `drone:*` 이벤트뿐이다.
@@ -256,14 +256,15 @@ export class DroneHud {
   /** 조작 안내 한 줄: 키캡(실제 바인딩) + 한국어 동작. `group` 은 종류별 표시(`air` / `ground`) 또는 `back`. */
   private keyRow(parent: HTMLElement, group: 'air' | 'ground' | 'back', key: KeyId, label: string, hold = false): HTMLElement {
     const row = el('div', { cls: `dr-key ${group}`, parent });
-    const cap = el('kbd', { cls: hold ? 'keycap kc-hold' : 'keycap', text: keyLabel(Keys[key]), parent: row });
+    // 2026-09-15: 공용 키캡 (`shared/keycap`) — 꾹 누르기 chevron 은 키캡 안, 마우스로 리바인딩하면 그림
+    const cap = createKeycap(Keys[key], { tag: 'kbd', hold, parent: row });
     el('span', { text: label, parent: row });
-    this.keyRows.push({ cap, key });
+    this.keyRows.push({ cap, key, hold });
     return row;
   }
 
   private refreshKeys(): void {
-    for (const r of this.keyRows) setText(r.cap, keyLabel(Keys[r.key]));
+    for (const r of this.keyRows) paintKeycap(r.cap, Keys[r.key], { hold: r.hold });
   }
 
   bind(ctx: GameContext): void {

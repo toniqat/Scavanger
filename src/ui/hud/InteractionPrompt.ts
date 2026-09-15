@@ -1,6 +1,6 @@
 import type { GameContext } from '@/shared';
-import { Keys, keyLabel } from '@/shared';
-import { el, setText, setVisible, toggleClass } from '../dom';
+import { Keys, createKeycap, paintKeycap } from '@/shared';
+import { el, setText, setVisible } from '../dom';
 
 /**
  * Center-bottom "E — do thing" prompt.
@@ -13,17 +13,21 @@ import { el, setText, setVisible, toggleClass } from '../dom';
  *
  * 2026-09-10: that modifier used to be plain `.hold`, which collided with the 홀드 링 (`hud/HoldGauge`) rule of the
  * same name — the keycap became a 120×120 투명 상자 and vanished while the row kept the `:has()` 여백. `kc-` prefix.
+ *
+ * 2026-09-15: the cap is painted by `shared/keycap.paintKeycap` (hold flag + a mouse glyph if `INTERACT` is ever rebound
+ * to a mouse button). The chevron now sits inside the cap, so the row's old `:has(.kc-hold)` top padding is gone.
  */
 export class InteractionPrompt {
   readonly root: HTMLElement;
   private txt: HTMLElement;
   private keyEl: HTMLElement;
+  private hold = false;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'prompt hidden', parent });
     const row = el('div', { cls: 'row ui-panel', parent: this.root });
-    this.keyEl = el('span', { cls: 'keycap', text: keyLabel(Keys.INTERACT), parent: row });
+    this.keyEl = createKeycap(Keys.INTERACT, { parent: row });
     this.txt = el('span', { cls: 'txt', text: '', parent: row });
   }
 
@@ -32,10 +36,11 @@ export class InteractionPrompt {
       ctx.bus.on('interact:promptChanged', ({ text, hold }) => {
         if (!text) { setVisible(this.root, false); return; }
         setText(this.txt, text);
-        toggleClass(this.keyEl, 'kc-hold', hold === true);
+        this.hold = hold === true;
+        paintKeycap(this.keyEl, Keys.INTERACT, { hold: this.hold });
         setVisible(this.root, true);
       }),
-      ctx.bus.on('input:bindingsChanged', () => setText(this.keyEl, keyLabel(Keys.INTERACT))),
+      ctx.bus.on('input:bindingsChanged', () => paintKeycap(this.keyEl, Keys.INTERACT, { hold: this.hold })),
       ctx.bus.on('game:abort', () => setVisible(this.root, false)),
       ctx.bus.on('game:newMission', () => setVisible(this.root, false)),
     );

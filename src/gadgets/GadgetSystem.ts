@@ -239,9 +239,9 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
 
   damageEnemies(center: THREE.Vector3, radius: number, damage: number, by?: string): void { return Sim.damageEnemies(this, center, radius, damage, by); }
 
-  hurtPlayer(victim: Victim, amount: number, from: THREE.Vector3): void { return Sim.hurtPlayer(this, victim, amount, from); }
+  hurtPlayer(victim: Victim, amount: number, from: THREE.Vector3, owner?: PeerId | 'local'): void { return Sim.hurtPlayer(this, victim, amount, from, owner); }
 
-  hurtRemote(peer: PeerId, amount: number, from: THREE.Vector3): void { return Sim.hurtRemote(this, peer, amount, from); }
+  hurtRemote(peer: PeerId, amount: number, from: THREE.Vector3, src?: import('@/shared').DamageSourceWire): void { return Sim.hurtRemote(this, peer, amount, from, src); }
 
   blastFx(position: THREE.Vector3, radius: number, shake = 1): void { return Sim.blastFx(this, position, radius, shake); }
 

@@ -23,6 +23,7 @@ import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from 
 /* 2026-09-15 (B-16): 화염 지대 — 지지직 소리 · 드론 */
 import { FIRE_ZONE_CRACKLE_S, FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 import * as Remote from './Remote';
+import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
 
 /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */
 export function updateArming(sys: GadgetSystem, d: Deployable): void {
@@ -87,12 +88,12 @@ export function explodeMine(sys: GadgetSystem, d: Deployable, ctx: GameContext):
   const p = ctx.player;
   if (p && !p.isDead) {
     const dist = p.position.distanceTo(d.position);
-    if (dist < radius) p.takeDamage(dmg * (1 - dist / radius) * 0.85, d.position.clone());
+    if (dist < radius) p.takeDamage(dmg * (1 - dist / radius) * 0.85, d.position.clone(), Remote.localVictimSource(sys, d.owner));
   }
   for (const r of ctx.net?.getRemotePlayers() ?? []) {
     if (r.isDead || r.stale) continue;
     const dist = r.position.distanceTo(d.position);
-    if (dist < radius) sys.hurtRemote(r.id, dmg * (1 - dist / radius) * 0.85, d.position);
+    if (dist < radius) sys.hurtRemote(r.id, dmg * (1 - dist / radius) * 0.85, d.position, Remote.remoteVictimWire(d.owner, r.id));
   }
   sys.blastFx(d.position, radius);
   sys.remove(d, 'destroyed');
@@ -130,7 +131,7 @@ export function updateTurret(sys: GadgetSystem, d: Deployable, dt: number, ctx: 
   const dmg = GADGET_TURRET_DPS / TURRET_ROF;
   // friendly fire: whoever stands in the firing line eats the burst instead
   const victim = sys.playerAlongRay(_b, _a);
-  if (victim) sys.hurtPlayer(victim, dmg, _b);
+  if (victim) sys.hurtPlayer(victim, dmg, _b, d.owner);
   else target.takeDamage(dmg, _a.clone(), _c.clone().normalize());
   sys.visuals.flash(d.visual);
   sys.broadcast({ t: 'gad', ev: 'fire', id: d.id, target: toTuple(_a) }, 'others');
@@ -153,7 +154,7 @@ export function updateFireZone(sys: GadgetSystem, d: Deployable, dt: number, ctx
     if (r.isDead || r.stale) continue;
     const dx = r.position.x - d.position.x, dz = r.position.z - d.position.z;
     if (dx * dx + dz * dz > d.radius * d.radius) continue;
-    sys.hurtRemote(r.id, GADGET_INCENDIARY_DPS * ZONE_TICK, d.position);
+    sys.hurtRemote(r.id, GADGET_INCENDIARY_DPS * ZONE_TICK, d.position, Remote.remoteVictimWire(d.owner, r.id));
   }
   // 2026-09-15 (B-16): drones burn too — horizontally inside the zone and within FIRE_ZONE_DRONE_HEIGHT of its floor (a ground drone
   // always, an air drone only while it hovers low). `damageDrone` routes a squadmate's drone to its owner (`droneq damage`).
@@ -188,7 +189,7 @@ export function updateLocalEffects(sys: GadgetSystem, dt: number, ctx: GameConte
   // fire zones burn whoever stands in them, friend or foe. Each client applies it to its own player so the
   // effect stays responsive and does not depend on a `dmg` round trip.
   const dps = sys.fireDamageAt(p.position);
-  if (dps > 0 && typeof p.setBurning === 'function') p.setBurning(dps, 1.2);
+  if (dps > 0 && typeof p.setBurning === 'function') p.setBurning(dps, 1.2, fireZoneSourceAt(sys, p.position));
 
   const pad = sys.jumpPadAt(p.position) as Deployable | null;
   // per-player re-trigger gate (Phase 9): the same pad launches this player again only after JUMP_PAD_RETRIGGER_S
@@ -266,15 +267,32 @@ export function damageEnemies(sys: GadgetSystem, center: THREE.Vector3, radius: 
   else enemies.applyExplosion(center, radius, damage);
   }
 
-export function hurtPlayer(sys: GadgetSystem, victim: Victim, amount: number, from: THREE.Vector3): void {
-  if (victim === 'local') sys.ctx.player?.takeDamage(amount, from.clone());
-  else sys.hurtRemote(victim, amount, from);
+/** 2026-09-15 (결과 창 개편): `owner` = 쏜 설치물의 주인 → 받는 사람 기준 `self` / `ally` 출처 (생략 = 모름). */
+export function hurtPlayer(sys: GadgetSystem, victim: Victim, amount: number, from: THREE.Vector3, owner?: PeerId | 'local'): void {
+  if (victim === 'local') sys.ctx.player?.takeDamage(amount, from.clone(), owner !== undefined ? Remote.localVictimSource(sys, owner) : undefined);
+  else sys.hurtRemote(victim, amount, from, owner !== undefined ? Remote.remoteVictimWire(owner, victim) : undefined);
   }
 
-export function hurtRemote(sys: GadgetSystem, peer: PeerId, amount: number, from: THREE.Vector3): void {
+/** 2026-09-15 (결과 창 개편): `src` = `dmg.src` (받는 사람 기준 출처 — 옛 클라이언트는 무시). */
+export function hurtRemote(sys: GadgetSystem, peer: PeerId, amount: number, from: THREE.Vector3, src?: DamageSourceWire): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer) return;
-  net.send({ t: 'dmg', amount, from: toTuple(from) }, peer);
+  net.send(src ? { t: 'dmg', amount, from: toTuple(from), src } : { t: 'dmg', amount, from: toTuple(from) }, peer);
+  }
+
+/**
+ * 2026-09-15 (결과 창 개편): 로컬 플레이어가 선 화염 지대의 출처 — `Queries.fireDamageAt` 과 같은 조건으로 훑어,
+ * 분대원이 지른 불이 하나라도 있으면 `ally`, 전부 내 것이면 `self`. 화염 지대 안에서만(`dps > 0`) 불리고 할당하지 않는다.
+ */
+function fireZoneSourceAt(sys: GadgetSystem, pos: THREE.Vector3): PlayerDamageSource {
+  for (const d of sys.deployables) {
+    if (d.removing || d.kind !== 'fire') continue;
+    const dx = pos.x - d.position.x, dz = pos.z - d.position.z;
+    if (dx * dx + dz * dz > d.radius * d.radius) continue;
+    if (Math.abs(pos.y - d.position.y) > 3.5) continue;
+    if (!Remote.isLocalOwner(sys, d.owner)) return Remote.ALLY_DAMAGE_SOURCE;
+  }
+  return Remote.SELF_DAMAGE_SOURCE;
   }
 
 export function blastFx(sys: GadgetSystem, position: THREE.Vector3, radius: number, shake = 1): void {

@@ -24,6 +24,8 @@ export function bowBallistics(draw: number, out: BowBallistics): BowBallistics {
 
 const _muzzle = new THREE.Vector3(), _launch = new THREE.Vector3(), _d = new THREE.Vector3(), _visOff = new THREE.Vector3();
 const _bal: BowBallistics = { speed: 0, gravity: 0, power: 1 };
+/** While the string is empty and nothing could be fed, how often (s) to look in the bag again (arrows picked up). */
+const FEED_RETRY_S = 0.25;
 /** Launch options (the pool copies every field at launch). */
 const _opts: ProjectileOptions = { style: 'arrow', gravity: 0 };
 
@@ -35,14 +37,20 @@ const _opts: ProjectileOptions = { style: 'arrow', gravity: 0 };
  * ammo) — the bow no longer aims (`allowsAim` false → RMB never enters ADS, zoom 1).
  * While drawing: `weapon:chargeChanged {kind:'draw', t}` every frame (t = 0 on the press), `pose.charging`,
  * `WeaponModel.setBowDraw(t)`; `t: -1` on release / cancel / input loss / unequip / reset. One arrow + one durability
- * per release (`spend`), a dry press starts a reload (`dryFire`). The arrow is our own `ProjectilePool` launch (style
- * `arrow`, falloff from the effective stats → `Firing.onProjectileHit` → `applyHit`); `announceFire(…, c = draw)` lets
- * replicas rebuild the same flight.
+ * per release (`spend`). The arrow is our own `ProjectilePool` launch (style `arrow`, falloff from the effective stats →
+ * `Firing.onProjectileHit` → `applyHit`); `announceFire(…, c = draw)` lets replicas rebuild the same flight.
+ *
+ * 2026-09-15 **장전 없음** (`autoFeed`): the magazine is the one nocked arrow (`magSize` 1). Every frame an empty string is
+ * refilled straight from the carried arrows (`s.feed` → `parts/Slots.autoFeed`, instant, no reload phase) — right after a
+ * release too — so `ammoInMag + reserveRounds` in `weapon:ammoChanged` / `weapon:equipped` is always the arrows carried.
+ * R does nothing (`tryReload` returns for `autoFeed`); with no arrows at all a press is a dry click and never draws.
+ * The model hides the nocked arrow while out of arrows (`setBowNocked`) and for one cooldown after a release (`bowLoose`).
  */
 export class Bow implements UniqueHandler {
   readonly kind = 'bow' as const;
   readonly handlesMelee = false;
   readonly allowsAim = false;
+  readonly autoFeed = true;
   readonly pose: UniquePose = { charging: false, spraying: false, heavy: false, firing: false };
 
   private drawing = false;
@@ -50,11 +58,13 @@ export class Bow implements UniqueHandler {
   private held = 0;
   /** A fresh LMB press is needed before the next draw (after a cancel / dry press / input loss). */
   private needPress = false;
+  /** Countdown to the next bag look while the string is empty and the last feed found nothing. */
+  private feedT = 0;
   private cur: UniqueWeapon | null = null;
 
   constructor(private readonly s: UniqueServices) {}
 
-  onEquip(): void { this.needPress = true; }
+  onEquip(): void { this.needPress = true; this.feedT = 0; }
   onUnequip(w: UniqueWeapon): void { this.cancelDraw(w); }
 
   update(dt: number, w: UniqueWeapon, input: UniqueInput | null): void {
@@ -62,6 +72,12 @@ export class Bow implements UniqueHandler {
     this.cur = w;
     const p = this.pose;
     p.firing = false;
+    // no reload: an empty string takes the next arrow from the quiver at once (retried while the bag has none)
+    if (s.mag(w) < w.stats.magSize) {
+      this.feedT -= dt;
+      if (this.feedT <= 0) { this.feedT = FEED_RETRY_S; s.feed(w); }
+    } else this.feedT = 0;
+    w.model.setBowNocked(s.mag(w) > 0);
     if (!input || !s.host()) {
       this.cancelDraw(w);
       this.needPress = true;
@@ -82,7 +98,7 @@ export class Bow implements UniqueHandler {
       }
     } else if (!this.needPress && (input.fireDown || input.firePressed) && s.cooldown() <= 0) {
       if (s.brokenCheck(w)) this.needPress = true;
-      else if (s.mag(w) <= 0) { s.dryFire(w); this.needPress = true; }
+      else if (s.mag(w) <= 0 && !s.feed(w)) { s.dryFire(w); this.needPress = true; }   // no arrows at all: dry click, no draw
       else {
         this.drawing = true; this.held = 0;
         this.emitDraw(w);
@@ -112,6 +128,9 @@ export class Bow implements UniqueHandler {
     w.model.setBowDraw(0);
     s.ctx.bus.emit('weapon:chargeChanged', { weaponId: w.def.id, kind: 'draw', t: -1 });
     if (!s.spend(w, 1)) { s.dryFire(w); this.needPress = true; return; }
+    // the next arrow comes straight off the quiver (no reload); the string shows empty for one cooldown
+    s.feed(w);
+    w.model.bowLoose(1 / Math.max(0.1, w.stats.fireRate || BOW_FIRE_RATE));
     const bal = bowBallistics(t, _bal);
     const st = w.stats;
     s.muzzle(w, _muzzle);

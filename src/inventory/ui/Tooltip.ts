@@ -33,7 +33,7 @@ import { WEAPON_CLASS_LABEL_KO, boostItemOf, shieldChargeOf } from '@/items';
 import { bagCapacityBonus } from '../Gear';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
-  socketTip,
+  socketTip, weaponClassLabel,
 } from './labels';
 /* 2026-09-14: 받는 소켓만 · 내구도 게이지 색 — 타일과 같은 함수 */
 import { setDurabilityColorVars, shownSockets } from './GridView';
@@ -154,7 +154,8 @@ export class Tooltip {
     name.textContent = def.name;
     const sub = document.createElement('div');
     sub.className = 'inv-tt-sub';
-    sub.textContent = `${categoryLabel(def)} · ${rarityLabel(def)}`;
+    // 2026-09-15: 전설 유니크는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 전설`) — 이름이 별명 한 단어라 종류는 여기서만 읽힌다
+    sub.textContent = `${weapon?.unique ? weaponClassLabel(weapon) : categoryLabel(def)} · ${rarityLabel(def)}`;
     headText.append(name, sub);
     head.appendChild(headText);
     if (stats) head.appendChild(this.buildAmmoThumb(stats.ammoType));
@@ -172,7 +173,8 @@ export class Tooltip {
     let durBar: HTMLElement | null = null;
     if (weapon && stats) {
       const s = TEXT.weaponStats;
-      rows.push([s.loaded, `${Math.max(0, item.ammoInMag ?? 0)} / ${stats.magSize}`]);
+      // 2026-09-15: 「롱혼」은 장전이 없다(지닌 화살을 한 발씩 바로 건다) — `장전 1 / 1` 은 거짓말이라 줄을 뺀다
+      if (weapon.unique !== 'bow') rows.push([s.loaded, `${Math.max(0, item.ammoInMag ?? 0)} / ${stats.magSize}`]);
       rows.push([s.mode, weapon.automatic ? TEXT.auto : TEXT.semi]);
       if (stats.adsZoom > 1 || stats.scope) rows.push([s.zoom, `${stats.adsZoom}×${stats.scope ? ' · 스코프' : ''}`]);
       const max = Math.max(1, stats.maxDurability);
@@ -534,6 +536,9 @@ export class Tooltip {
     this.visible = false;
     this.el.hidden = true;
   }
+
+  /** Whether the card is up (2026-09-15 — `InventoryUI.validateHover` only hit-tests while it is). */
+  get isShowing(): boolean { return this.visible; }
 
   dispose(): void { this.el.remove(); }
 }

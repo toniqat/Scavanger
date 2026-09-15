@@ -30,6 +30,15 @@ import { HAZARD_FORK, drawHazardKind, planGroveSpots, planHazard } from './hazar
 import { buildZones, maxDepth, progressAt } from './hazard/parts/Zones';
 import { Groves } from './hazard/parts/Grove';
 import { HazardVisuals } from './hazard/parts/Visuals';
+import type { PlayerDamageSource } from '@/shared';
+
+/** 2026-09-15 (결과 창 개편): 재해 피해의 출처 — 종류마다 하나를 돌려 쓴다 (틱마다 할당하지 않는다). */
+const HAZARD_DAMAGE_SOURCES = new Map<HazardKind, PlayerDamageSource>();
+function hazardDamageSource(kind: HazardKind): PlayerDamageSource {
+  let s = HAZARD_DAMAGE_SOURCES.get(kind);
+  if (!s) { s = Object.freeze({ kind: 'hazard' as const, hazard: kind }); HAZARD_DAMAGE_SOURCES.set(kind, s); }
+  return s;
+}
 
 /** 군락 발견 판정 주기(초). 안개는 5 Hz 로 칠해지므로 이보다 자주 볼 이유가 없다. */
 const DISCOVER_INTERVAL_S = 0.5;
@@ -260,7 +269,8 @@ export class Hazard implements HazardRef {
         this.damageTimer -= HAZARD_TICK_S;
         // 2026-09-13: 재해는 시간에 따라 강해진다 — 진행도 0 에서 `HAZARD_DPS`, 1 에서 `HAZARD_DPS_MAX`
         // 2026-09-13: 탐사 차량 안의 탑승자는 재해 피해를 받지 않는다 (차량이 대신 맞는다 — world/rover). 시야 · 알림은 그대로다.
-        if (!p.roverRide) p.takeDamage(dpsAt(pr) * HAZARD_TICK_S);
+        // 2026-09-15 (결과 창 개편): 출처 `hazard` + 재해 종류
+        if (!p.roverRide) p.takeDamage(dpsAt(pr) * HAZARD_TICK_S, undefined, hazardDamageSource(plan.kind));
       }
     } else {
       this.damageTimer = 0;

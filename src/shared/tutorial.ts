@@ -56,7 +56,13 @@ export type TutorialStepId =
   | 'crouchAim'    // 앉은 채 정조준 — 흔들림이 잦아든다. 안드로이드 둘
   | 'advance3'
   | 'drop'         // 높은 곳에서 뛰어내린다 (낙하 피해, 체력 1 클램프)
-  | 'heal'         // 시체에서 회복 아이템 · 수류탄 (퀵슬롯 자동 장착) → 회복 사용
+  /*
+   * appended (2026-09-15, 사용자 결정) — **보급품 시체 루팅.** 전에는 `supply` 체크포인트가 곧장 `heal` 을 열어, 붕대를 줍기도
+   * 전에 「붕대를 사용」 이 떴다. 이제 `supply` → `supplyLoot`(필수: 시체에서 붕대 획득 · 선택: 수류탄 획득) → 붕대를 얻은 뒤
+   * 시체 가방을 **닫으면** `heal`. 줍지 않고 무너진 벽(`wall`)까지 가면 `heal` 도 건너뛰고 `grenade` 다.
+   */
+  | 'supplyLoot'
+  | 'heal'        // 시체에서 회복 아이템 · 수류탄 (퀵슬롯 자동 장착) → 회복 사용
   | 'grenade'      // 무너진 벽 너머의 안드로이드 둘 — **선택 단계** (쓰지 않고 돌아가도 된다)
   | 'extract'      // 버려진 함선 안의 스위치 → 10초 유예 → 이륙
   /* ── ② ship (2026-09-14): 함선 첫 진입 ── */
@@ -102,7 +108,8 @@ export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly Tutor
   // 2026-09-14 4차: 구간과 구간 사이의 「앞으로 이동」 셋(`advance1`·`2`·`3`)이 들어와 11 → 14 단계다.
   raid: [
     'wake', 'move', 'sprintJump', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim',
-    'advance3', 'drop', 'heal', 'grenade', 'extract',
+    // 2026-09-15: `supplyLoot`(보급품 시체 루팅)이 `drop` 과 `heal` 사이에 들어와 15 단계다.
+    'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract',
   ],
   ship: ['levelUp', 'stats', 'messenger', 'ravenQuest'],
   build: TUTORIAL_STEPS,

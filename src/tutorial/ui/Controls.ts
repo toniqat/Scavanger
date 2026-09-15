@@ -1,5 +1,5 @@
 import type { KeyBindings } from '@/shared';
-import { Keys, keyLabel } from '@/shared';
+import { Keys, paintKeycap, renderKeyText } from '@/shared';
 import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type ControlSection } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -26,14 +26,22 @@ import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type 
  *
  * ⚠ 키캡 modifier 는 `.keycap.kc-hold` 를 그대로 쓴다 — HUD 위젯과 같은 이름의 클래스를 새로 만들지 않는다
  * (2026-09-10 `kc-hold` 사고: `.hold` 가 크로스헤어 홀드 링과 겹쳐 키캡이 통째로 사라졌다).
+ *
+ * **2026-09-15 (사용자 결정) — 공용 키캡 · 토큰 문장 줄.**
+ *   ① 키캡은 `shared/keycap.paintKeycap` 으로 칠한다 — 마우스 버튼이 `LMB` 글자가 아니라 마우스 그림으로 나오는 것이
+ *      키 가이드 · 상호작용 프롬프트와 같아진다.
+ *   ② `ControlHint.text` 줄은 쌍을 그리지 않고 `renderKeyText` 로 **문장 안에 키캡을 끼워** 그린다 (`.tut-ctl.is-text`) —
+ *      `{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기` 같은 줄이 그렇다. 리바인드하면 다시 푼다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-interface Cap { el: HTMLElement; action: keyof KeyBindings }
+interface Cap { el: HTMLElement; action: keyof KeyBindings; hold: boolean }
 
 interface Row {
   el: HTMLElement;
   caps: Cap[];
   hint: ControlHint;
+  /** 토큰 문장 줄(`hint.text`)의 글자 상자 — 쌍 줄이면 null. */
+  textEl: HTMLElement | null;
 }
 
 const sectionOf = (h: ControlHint): ControlSection => h.section ?? 'gear';
@@ -96,7 +104,7 @@ export class TutorialControls {
     const el = document.createElement('div');
     el.className = 'tut-ctl is-new';
     el.dataset.hint = hint.id;
-    const row: Row = { el, caps: [], hint };
+    const row: Row = { el, caps: [], hint, textEl: null };
     this.render(row, hint);
     this.sectionEl(sectionOf(hint)).appendChild(el);
     this.rows.set(hint.id, row);
@@ -111,6 +119,18 @@ export class TutorialControls {
   private render(row: Row, hint: ControlHint): void {
     row.hint = hint;
     row.caps = [];
+    row.textEl = null;
+    const isText = hint.text !== undefined;
+    row.el.classList.toggle('is-text', isText);
+    if (isText) {
+      // 토큰 문장 줄 (2026-09-15) — 문장 안에 키캡을 끼운다. 글자는 `relabelRow` 가 그린다 (리바인드와 같은 길).
+      const text = document.createElement('span');
+      text.className = 'tut-ctl-text';
+      row.textEl = text;
+      row.el.replaceChildren(text);
+      this.relabelRow(row);
+      return;
+    }
     const frag = document.createDocumentFragment();
     hintPairs(hint).forEach((pair, i) => {
       if (i > 0) frag.appendChild(Object.assign(document.createElement('span'), { className: 'tut-ctl-sep' }));
@@ -118,9 +138,9 @@ export class TutorialControls {
       keys.className = 'tut-ctl-keys';
       for (const action of pair.keys) {
         const cap = document.createElement('span');
-        cap.className = pair.hold ? 'keycap kc-hold' : 'keycap';
+        cap.className = 'keycap';
         keys.appendChild(cap);
-        row.caps.push({ el: cap, action });
+        row.caps.push({ el: cap, action, hold: !!pair.hold });
       }
       const label = document.createElement('span');
       label.className = 'tut-ctl-label';
@@ -176,14 +196,13 @@ export class TutorialControls {
     for (const h of hints) this.rows.get(h.id)?.el.classList.remove('is-new');
   }
 
-  /** 리바인드 — 키캡 글자를 살아 있는 `Keys` 에서 다시 읽는다. */
+  /** 리바인드 — 키캡을 살아 있는 `Keys` 에서 다시 칠한다 (토큰 문장 줄은 문장째 다시 푼다). */
   relabel(): void { for (const row of this.rows.values()) this.relabelRow(row); }
 
   private relabelRow(row: Row): void {
-    for (const cap of row.caps) {
-      const text = keyLabel(Keys[cap.action]);
-      if (cap.el.textContent !== text) cap.el.textContent = text;
-    }
+    if (row.textEl) { renderKeyText(row.textEl, row.hint.text ?? ''); return; }
+    // `paintKeycap` 은 바뀐 것이 없으면 DOM 을 건드리지 않는다 (`data-kc` 도장)
+    for (const cap of row.caps) paintKeycap(cap.el, Keys[cap.action], { hold: cap.hold });
   }
 
   /** 보이기 / 숨기기. 줄이 하나도 없으면 언제나 숨는다. */

@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
+import type { PlayerDamageSource } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -35,6 +36,7 @@ export function revive(sys: PlayerSystem): void {
   sys.autoReviveTimer = -1;
   sys._downed = false;
   sys._downHp = 0;
+  sys._deathSource = undefined;   // 2026-09-15: 일어났다 — 쓰러뜨린 출처는 더 이상 사망 원인이 아니다
   sys.bleedAcc = 0; sys.giveUpHold = 0;
   sys.hp = PLAYER_REVIVE_HP;
   sys.invuln = Math.max(sys.invuln, 0.5);
@@ -90,37 +92,46 @@ export function applyHeal(sys: PlayerSystem, amount: number, seconds: number, qu
   return true;
   }
 
-export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vector3): void {
-  sys.applyDamage(amount, from, false);
+export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vector3, source?: PlayerDamageSource): void {
+  sys.applyDamage(amount, from, false, source);
   }
 
 /**
  * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
  * save. **2026-09-10 — 실드 먼저**: 방탄복이 준 실드가 피해를 먼저 먹고 (그만큼 판이 닳는다) 남은 것만
  * 체력으로 간다. 방탄복의 피해 감소는 없다. A roll counts as a partial i-frame.
+ *
+ * 2026-09-15 (결과 창 개편): `source` = 피해 출처 (`PlayerDamageSource`). `player:damaged.source` 로 그대로 나가고,
+ * 이 피해가 체력을 0 으로 만들면 `sys._deathSource` 에 적혀 `die()` 가 `player:died.source` 로 낸다 — 전투불능이면
+ * 쓰러뜨린 피해의 출처가 출혈사 · 포기까지 남고, 쓰러진 뒤 들어온 막타가 있으면 그것으로 바뀐다.
  */
-export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean): void {
+export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource): void {
   if (sys.isDead || !(amount > 0) || !sys.spawned) return;
   if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 차량만 맞는다 (재해 · 화상 · 전차 · 폭발 전부 이 길을 탄다)
   // 2026-09-14 3차: 각본 잠금 (`PlayerRef.setSceneLock`) — 각본이 몸을 들고 있는 동안은 죽지도 다치지도 않는다.
   // 위 줄과 같은 자리인 이유는 같다: 화상 · 재해 · 폭발 · 총알이 전부 이 **단일 입구**를 지난다.
-  if (sys._sceneLock) return;
+  // 2026-09-15: `setSceneLock(true, {allowDamage})` 는 피해를 **받는다** — 아래에서 체력을 `_sceneLockMinHp` 로 자르고 전투불능 · 사망은 없다
+  if (sys._sceneLock && !sys._sceneLockDamage) return;
   if (!dot && sys.invuln > 0) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return; // safe inside the pod
   if (!dot) sys.invuln = INVULN_TIME;
   const bus = sys.ctx.bus;
   if (sys._downed) {
+    if (sys._sceneLock) return;   // 2026-09-15: 각본이 든 몸은 출혈 풀을 깎지 않는다 (잠금 중에는 쓰러질 수도 없다 — 보험)
     // already down: damage eats the bleed-out pool instead
     const dealt = Math.min(sys._downHp, amount);
     sys._downHp -= dealt;
     sys.ctx.stats.damageTaken += dealt;
     sys.flinch = 1;
-    bus.emit('player:damaged', { amount: dealt, hp: sys.hp, from });
+    bus.emit('player:damaged', { amount: dealt, hp: sys.hp, from, source });
     bus.emit('player:downHpChanged', { downHp: Math.max(0, sys._downHp), max: PLAYER_DOWN_HP });
     bus.emit('ui:damageIndicator', { from: from ?? sys.controller.position.clone() });
     sys.rig.addShake(Math.min(0.5, 0.1 + dealt / 80), 0.2);
     bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50), pitch: 0.85 });
-    if (sys._downHp <= 0) sys.die();
+    if (sys._downHp <= 0) {
+      if (source) sys._deathSource = source;   // 쓰러진 뒤의 막타 — 모르는 출처면 쓰러뜨린 출처를 남긴다
+      sys.die();
+    }
     return;
   }
   let raw = amount;
@@ -132,13 +143,14 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
    */
   const absorbed = sys.absorbShield(raw);
   const after = raw - absorbed;
-  const dealt = Math.min(sys.hp, after);
+  // 2026-09-15: 피해를 허용한 각본 잠금 — 체력은 `_sceneLockMinHp`(≥ 1) 에서 멈춘다 (실드는 평소대로 먼저 먹는다)
+  const dealt = Math.min(sys._sceneLock ? Math.max(0, sys.hp - sys._sceneLockMinHp) : sys.hp, after);
   /** 이번에 몸으로 느낀 총량 (실드가 다 막아도 피격 피드백은 나가야 한다). */
   const felt = dealt + absorbed;
   sys.wearGear(absorbed);
   sys.hp -= dealt;
   sys.ctx.stats.damageTaken += dealt;
-  bus.emit('player:damaged', { amount: felt, hp: sys.hp, from });
+  bus.emit('player:damaged', { amount: felt, hp: sys.hp, from, source });
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: -dealt });
   if (!dot) {
     sys.flinch = 1;
@@ -147,7 +159,7 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
     sys.rig.addShake(shake, 0.25);
     bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + felt / 50) });
   }
-  if (sys.hp <= 0) sys.onLethal(dot);
+  if (sys.hp <= 0) { sys._deathSource = source; sys.onLethal(dot); }
   }
 
 /**
@@ -164,6 +176,7 @@ export function onLethal(sys: PlayerSystem, dot: boolean): void {
     const chance = sys.ctx.progression?.derived.gritChance ?? 0;
     if (chance > 0 && Math.random() < chance) {
       sys.hp = 1;
+      sys._deathSource = undefined;   // 2026-09-15: 살아남았다 — 사망 원인 후보를 버린다
       sys.ctx.bus.emit('player:gritSaved', { hp: sys.hp });
       sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 1 });
       sys.ctx.bus.emit('ui:notify', { text: '인내! 버텨냈다', kind: 'warning', duration: 1.6 });
@@ -293,6 +306,7 @@ export function clearDowned(sys: PlayerSystem): void {
   sys.autoReviveTimer = -1;
   sys._downed = false;
   sys._downHp = 0;
+  sys._deathSource = undefined;   // 2026-09-15: 스폰 · 복귀 리셋이 지난 레이드의 원인을 끌고 오지 않게 (`die` 는 먼저 읽는다)
   sys.bleedAcc = 0;
   sys.giveUpHold = 0;
   sys.emitGiveUpProgress(-1);
@@ -300,6 +314,13 @@ export function clearDowned(sys: PlayerSystem): void {
 
 export function die(sys: PlayerSystem): void {
   if (sys.isDead) return;
+  /*
+   * 2026-09-15 (결과 창 개편): 사망 원인 = 체력을 0 으로 만든 피해의 출처 (전투불능 중이면 쓰러뜨린 · 막타 출처).
+   * 체력이 남아 있는데 죽는 것은 자발적 귀환(`PlayerRef.die`)뿐이라 그때는 원인이 없다 — 옛 값이 새지 않게 여기서 거른다.
+   * `clearDowned` 가 비우기 전에 읽는다.
+   */
+  const deathSource = sys._downed || sys.hp <= 0 ? sys._deathSource : undefined;
+  sys._deathSource = undefined;
   sys.releaseRoverRide();   // 2026-09-13: 자발적 귀환(`die`)은 차량 옆에서 죽는다 — 시체가 선체 안에 서지 않게
   sys.isDead = true;
   sys.deadTimer = 0;
@@ -320,5 +341,5 @@ export function die(sys: PlayerSystem): void {
   sys.cancelHold();
   sys.rig.addShake(0.8, 0.5);
   sys.ctx.bus.emit('audio:play', { id: 'player_death', volume: 1 });
-  sys.ctx.bus.emit('player:died', { position: sys.controller.position.clone() });
+  sys.ctx.bus.emit('player:died', { position: sys.controller.position.clone(), source: deathSource });
   }

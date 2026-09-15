@@ -27,6 +27,10 @@ import type { CarryHost } from '../Carry';
 import { createPortraits } from '../Portraits';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
+import type { PlayerDamageSource } from '@/shared';
+
+/** 2026-09-15 (결과 창 개편): 행성 상시 환경 틱의 출처 — 하나를 돌려 쓴다 (틱마다 할당하지 않는다). */
+const ENV_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'env' });
 
 /** Apply / refresh a cloak. Optical-camo armor passes `Infinity`; the strongest remaining duration wins. */
 export function setCloak(sys: PlayerSystem, duration: number, source: 'gadget' | 'armor'): void {
@@ -44,13 +48,17 @@ export function getStealthFactor(sys: PlayerSystem): number {
   }
 
 /** Fire zone / incendiary: DoT that also suppresses the 인내 save while it kills. */
-export function setBurning(sys: PlayerSystem, dps: number, duration: number): void {
+export function setBurning(sys: PlayerSystem, dps: number, duration: number, source?: PlayerDamageSource): void {
   if (!(dps > 0) || !(duration > 0)) {
-    if (sys._burning) { sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0; sys.ctx.bus.emit('player:burning', { active: false, dps: 0 }); }
+    if (sys._burning) { sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0; sys.burnSource = undefined; sys.ctx.bus.emit('player:burning', { active: false, dps: 0 }); }
     return;
   }
   if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안에는 불이 붙지 않는다
   const wasBurning = sys._burning;
+  // 2026-09-15 (결과 창 개편): 화상의 출처 — 새로 붙었거나 더 센(같은) 불이 덮으면 그 출처로. 모르는 출처는 아는 출처를 지우지 않는다.
+  // (화염 지대 안에서는 매 프레임 불리므로 부르는 쪽은 미리 만들어 둔 출처 객체를 넘긴다 — 여기서도 할당하지 않는다.)
+  if (!wasBurning) sys.burnSource = source;
+  else if (source && (dps >= sys.burnDps || !sys.burnSource)) sys.burnSource = source;
   sys.burnDps = Math.max(sys.burnDps, dps);
   sys.burnTimer = Math.max(sys.burnTimer, duration);
   sys._burning = true;
@@ -102,10 +110,10 @@ export function updateBurning(sys: PlayerSystem, dt: number): void {
   sys.burnTick -= dt;
   if (sys.burnTick <= 0) {
     sys.burnTick = BURN_TICK;
-    sys.applyDamage(sys.burnDps * BURN_TICK, undefined, true);
+    sys.applyDamage(sys.burnDps * BURN_TICK, undefined, true, sys.burnSource);
   }
   if (sys.burnTimer <= 0) {
-    sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0;
+    sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0; sys.burnSource = undefined;
     sys.ctx.bus.emit('player:burning', { active: false, dps: 0 });
   }
   }
@@ -132,22 +140,25 @@ export function updateEnv(sys: PlayerSystem, dt: number, ctx: GameContext): void
   // 2026-09-13: 탐사 차량 안은 밀폐돼 있다 — 노출 상태(배지)는 그대로 두고 피해만 없다
   if (sys._roverRide) { sys.envTick = 0; return; }
   // 2026-09-14 3차: 각본 잠금 — `applyDamage` 를 우회하는 **유일한** 피해라 여기도 같이 막는다 (배지는 그대로)
-  if (sys._sceneLock) { sys.envTick = 0; return; }
+  // 2026-09-15: 피해를 허용한 각본 잠금(`allowDamage`)이면 들어가되 아래에서 `_sceneLockMinHp` 로 자른다
+  if (sys._sceneLock && !sys._sceneLockDamage) { sys.envTick = 0; return; }
   // 전투불능 · 사망 · 강하 포드 안 · 아직 안 내린 몸은 대기를 마시지 않는다.
   if (!sys.spawned || sys.isDead || sys._downed) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
   sys.envTick += dt;
   if (sys.envTick < PLANET_ENV_TICK_S) return;
   sys.envTick -= PLANET_ENV_TICK_S;
-  const dealt = Math.min(sys.hp, PLANET_ENV_DPS * PLANET_ENV_TICK_S);
+  const room = sys._sceneLock ? Math.max(0, sys.hp - sys._sceneLockMinHp) : sys.hp;   // 2026-09-15: 각본 잠금 = 체력 클램프
+  const dealt = Math.min(room, PLANET_ENV_DPS * PLANET_ENV_TICK_S);
   if (dealt <= 0) return;
   sys.hp -= dealt;
   ctx.stats.damageTaken += dealt;
   const bus = ctx.bus;
-  bus.emit('player:damaged', { amount: dealt, hp: sys.hp, from: undefined });
+  // 2026-09-15 (결과 창 개편): 출처 `env` — 이 경로는 예전부터 `player:damaged` 를 냈다 (방향 호 · 흔들림은 원래 없다)
+  bus.emit('player:damaged', { amount: dealt, hp: sys.hp, from: undefined, source: ENV_DAMAGE_SOURCE });
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: -dealt });
   // DoT 이므로 인내(grit)는 걸리지 않는다 — 화상과 같은 규약.
-  if (sys.hp <= 0) sys.onLethal(true);
+  if (sys.hp <= 0) { sys._deathSource = ENV_DAMAGE_SOURCE; sys.onLethal(true); }
   }
 
 /** 재생 방탄복: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */

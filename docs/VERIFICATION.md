@@ -1829,3 +1829,41 @@ rerun (--only, b0915r2): net-selftest 583/583, data-check ok, smoke-raidflow 89/
   (`prefers-reduced-motion: reduce` = true) — 1 초 스크린샷에 검정이 이미 없었다.
 - 회귀: `smoke-tutorial` 91/0 · `smoke-loadout` 69/0 · `smoke-ui-p5` 140/141 · `smoke-ui-p6` 90/91 (둘 다 `no console errors` 한 줄 = `/ws` 핸드셰이크 실패, 릴레이 없음).
 - `verify:all` · `build` · `e2e:mp` 는 **돌리지 않았다** (릴레이 필요).
+
+### 2026-09-15 — 결과 창 · 키캡 · 튜토리얼 다듬기
+
+WinNAT 예약이 관리자 제외(`8787–8799 *`)로 바뀌어 러너가 릴레이를 직접 띄웠다 — `npm run verify:all` (14 분 2 초).
+
+- docs line: 2026-09-14: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, build 4,208.77 kB JS / 440.49 kB CSS, smoke-ballistics 39/39, smoke-quickslots 109/109, smoke-phase2 57/57, smoke-weapons 147/147, smoke-phase3 41/41, smoke-stratagems 75/75, smoke-drone-scan 24/24, smoke-phase4 58/58, smoke-ship-rooms 77/77, smoke-tactical 119/119, smoke-inventory-p6 183/183, smoke-controls-hub 153/153, smoke-console 63/63, smoke-loadout 69/69, smoke-search 77/77, smoke-housing 324/324, smoke-ui-p6 91/91, smoke-progression 262/262, smoke-ui-p5 141/141, smoke-enemy-alert 42/42, smoke-rogue-v2 52/52, smoke-uniques 90/90, smoke-faction-sites 263/263, smoke-resume-gate 62/62, smoke-npc-quests 69/69, smoke-meta 178/178, smoke-favorite-chips 52/52, smoke-recovery-contract 43/43, smoke-rogue-drop 48/48, smoke-humanoid-ai 49/49, smoke-training 108/108, smoke-ladder 38/38, smoke-ghost 96/96, smoke-pose 144/144, smoke-library 85/85, smoke-tv-games 29/29, smoke-aim-sway 25/25, smoke-furniture-access 49/49, smoke-stations 98/98, smoke-food-chain 83/83, smoke-generator 48/48, smoke-mining 64/64, smoke-favorites 45/45, smoke-library-consumers 38/38, smoke-gym 66/66, smoke-tip-pin 46/46, smoke-video-games 75/75, smoke-extraction 36/36, smoke-cooking 123/123, smoke-mining-ui 70/70, smoke-raidflow 89/89, smoke-buffs 42/42, smoke-enemy-delta 66/66, smoke-consumables 36/36, smoke-rooms 37/37, smoke-planets 92/92, smoke-messenger 70/70, smoke-social 208/208, smoke-ecology 119/119, smoke-props-collision 53/53, smoke-structures 141/141, smoke-site-spawns 517/517, smoke-hazard 57/57, smoke-tutorial 91/91, smoke-structure-reach 1035/1035, smoke-tutorial-ship 54/54, smoke-fall-damage 101/101, smoke-server-dist 36/36, smoke-intro-wake 30/30, smoke-tutorial-raid 20/21, smoke-fire-zones 33/33, smoke-intel 16/16, smoke-named 44/44, smoke-burrow 22/22, smoke-pitch 162/162, smoke-tram-ride 26/26, smoke-rover 30/30, smoke-map-quests 72/72, smoke-lights 30/30, smoke-sandworm 41/41, smoke-netlink 48/48, smoke-trust 68/68, smoke-hangar 58/58, smoke-desktop 54/54, e2e-mp 170/178
+- 실패 둘:
+  - `smoke-tutorial-raid` 20/21 — `timeout waiting for corpse opened (E)`. 튜토리얼 부활이 이제 **쓰러졌다 일어나는 연출**(`TUTORIAL_RESPAWN_WAKE_S` 2 s, 입력 잠금)이라
+    부활 직후 0.4 s 에 누른 E 가 먹히지 않았다. 스모크가 연출 종료(`introWakeT < 0`)를 기다리고 연출 자체(`introWakeRespawn` · 오프닝 잠금 없음)를 단정하게 고쳤다.
+    재실행 `node scripts/verify.mjs --only smoke-tutorial-raid` → **60/60** (레벨 2 단정 포함).
+  - `e2e-mp` 170/178 — **기존 실패**, 2026-09-10 베이스라인과 같은 8건(분대원 이름 `스캐빈저` 7 + `net:peerSuspended`).
+- 돌리지 않은 것: 결과 창 · 적 얼굴 썸네일 · 철조망 · 마우스 그림의 **눈 확인**(스크린샷 없음) · 튜토리얼 이륙 중 안드로이드 사격이 실제로 맞는지 · `dmg.src` 두 클라이언트 경로.
+
+### 2026-09-15 — 인벤토리 키 가이드 · 우클릭 메뉴 마우스 그림 · 수류탄 단계 목표 문구
+
+`npm run verify -- --log-dir scripts/logs/kbfix` (14 분 19 초). 같은 트리에서 다른 세션이 대전차포 은퇴(`src/implants/effects/AtLauncher.ts` 삭제)를
+진행 중이라 러너 도중 `[Engine] init failed for implants ReferenceError: RocketPool is not defined` 가 섞였다.
+
+- docs line: 2026-09-15: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-quickslots 109/109, smoke-controls-hub 153/153, smoke-inventory-p6 183/183, smoke-loadout 69/69, smoke-search 77/77, smoke-favorites 45/45, smoke-favorite-chips 52/52, smoke-tip-pin 46/46, smoke-tutorial 91/91, smoke-tutorial-ship 54/54, smoke-tutorial-raid 60/60, smoke-social 208/208, smoke-intro-wake 30/31, smoke-fire-zones 32/33, smoke-rogue-v2 32/52, e2e-mp 170/178 (나머지 매핑 스모크 전부 초록)
+- `--rerun-failed` (4 분 16 초): smoke-intro-wake **30/30** · smoke-fire-zones **33/33** (둘 다 implants 초기화 오류가 원인이었다) · smoke-rogue-v2 40/52
+  (로그 재장전 · 수류탄 — 콘솔 오류 없음, 이번 변경이 닿지 않는 enemies/weapons 경로이고 동시 편집 중인 weapons/implants 쪽이다) · e2e-mp 170/178 (기존 8건).
+  다른 세션 편집이 끝난 뒤 `node scripts/verify.mjs --only smoke-rogue-v2` → **52/52** (docs line: 2026-09-15: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke-rogue-v2 52/52).
+  재실행 러너의 `typecheck exit 1` 은 동시 편집 순간이었고 곧바로 `npx tsc --noEmit` 은 통과했다.
+- 돌리지 않은 것: 키 가이드 · 메뉴의 마우스 그림 **눈 확인**.
+
+## 2026-09-15 — 전설 무기 후속 (이름 · 종류 · 활 · 화염 · 전격총 게이지 · 탄약 · 로켓 점프 · 훈련장 · 대전차포)
+
+에이전트 5 병렬 + 리드 통합. 이 PC 는 TCP 8697–8996 이 Windows 예약이라 릴레이(8787)가 뜨지 않아 `npm run verify` 대신
+**개인 vite 에 스모크를 직접** 돌렸다. 아래 FAIL 은 전부 `/ws` 접속 실패(콘솔 오류 · 「지금 서버는 응답한다」)뿐이다.
+
+- 통합 후 `npx tsc --noEmit` ok · `node scripts/data-check.mjs` ok(csv 57) — `npm run data:check -- --write` 는 PowerShell 에서 `--write` 가 빠지므로 node 로 직접.
+- 통합 후 개인 vite 5320: `smoke-uniques` **99/0** · `smoke-ui-p6` 103/1(`/ws`) · `smoke-weapons` 146/1(`/ws`) · `smoke-training` **115/0** · `smoke-controls-hub` 152/2(`/ws` · 릴레이 응답).
+- 에이전트별(각자 개인 vite): A `smoke-uniques` 99/0 · B `smoke-ui-p6` 104/0 · `smoke-ui-p5` 141/0 · `smoke-tip-pin` 46/0 ·
+  C `smoke-uniques` 90/0 · `smoke-npc-quests` 69/0 · `smoke-weapons` 147/0 · `smoke-progression` 262/0 (+ 임시 규칙 검사 11/0 — 유니크 숙련 배수 1 · 경험치 없음 · 처치 계열 null) ·
+  D `smoke-training` 115/0 · `smoke-lights` 30/0 (훈련장 점광원 25 = 함선 25, 스크립트 계수) · E `smoke-tactical` 118/1(`/ws`) · `smoke-controls-hub` 152/2 · `smoke-pitch` 162/0.
+- **돌리지 못한 것**: `e2e-multiplayer`(릴레이 필요 — `node --check` 만, 원격 장치 단언은 `atlauncher` → `barrier`) · `verify:all`.
+- 눈으로 본 것(헤드리스 스크린샷): 활 가로 파지 · 시위가 몸 쪽 · 당기면 화살이 가슴 쪽으로 / 화염이 누른 직후 작은 덩어리 → 0.4 s 뒤 전체 원뿔 /
+  전격총 게이지 37 % · 100 % 가 오른쪽 파랑 · 밝은 파랑 / 활 크로스헤어 가로 두 배 / 훈련장 위로 열린 검은 하늘 · 바닥 경계선 · 에이프런 · 수평선 고리.

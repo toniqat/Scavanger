@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
+  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
   IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
@@ -25,7 +25,6 @@ import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from '../Implant
 import { ImplantDevice } from '../devices/ImplantDevice';
 import { BarrierField } from '../effects/Barrier';
 import { GrappleWire } from '../effects/Grapple';
-import { RocketPool, type RocketImpact } from '../effects/AtLauncher';
 import { OverchargeBeam, allyPoint, findAlly } from '../effects/Overcharge';
 import { revealScan } from '../effects/Scan';
 import { ImplantFx } from '../fx/ImplantFx';

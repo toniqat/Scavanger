@@ -1,5 +1,5 @@
 import type { GameContext, ImplantDef, ImplantId } from '@/shared';
-import { Keys, keyLabel, onKeybindsChanged } from '@/shared';
+import { Keys, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import '../styles/implant.css';
 
@@ -16,7 +16,7 @@ export type ImplantHudKind = 'cooldown' | 'charges' | 'gauge';
  * 표시 유형은 셋이고, 어느 임플란트가 어디에 속하는지는 **`ctx.implants` 가 주는 값**으로 정한다
  * (`maxCharges` · `barrierMaxHp` · `energyMax` — 코드에 수치를 적지 않는다):
  *
- *   - **쿨타임형** (갈고리 · 정찰 · 대전차포): 쿨타임 중에는 썸네일이 딤드되고 `--fill` 이 아래에서 위로
+ *   - **쿨타임형** (갈고리 · 정찰): 쿨타임 중에는 썸네일이 딤드되고 `--fill` 이 아래에서 위로
  *     차오르며 밝아진다. 중앙에 남은 초.
  *   - **충전형** (대시): 우측 하단에 충전 수. 0 이면 쿨타임형과 같은 딤드 + 밝아짐(중앙에 남은 초),
  *     1 개 이상이면 딤드 없이 **강조색이 아래에서 위로** 차오르며 다음 충전을 보여 주고, 최대면 정상 표기.
@@ -87,7 +87,7 @@ export class ImplantWidget {
     this.gauge = el('div', { cls: 'ib-gauge', parent: this.thumb });
     this.gauge.hidden = true;
     this.gaugeFill = el('i', { parent: this.gauge });
-    this.keyEl = el('kbd', { cls: 'keycap imp-key', text: keyLabel(Keys.IMPLANT), parent: this.root });
+    this.keyEl = createKeycap(Keys.IMPLANT, { tag: 'kbd', cls: 'imp-key', parent: this.root });   // 2026-09-15: 공용 키캡
     // 2026-09-12: the ring that bursts out of the thumb on a ready moment, and the green `−N초` of a refund —
     // both absolutely placed over / beside the thumb, outside its clip
     this.ringEl = el('div', { cls: 'imp-ring', parent: this.root });
@@ -97,7 +97,7 @@ export class ImplantWidget {
   bind(ctx: GameContext): void {
     this.ctx = ctx;
     const b = ctx.bus;
-    const syncKey = (): void => setText(this.keyEl, keyLabel(Keys.IMPLANT));
+    const syncKey = (): void => paintKeycap(this.keyEl, Keys.IMPLANT);
     this.unsubs.push(
       b.on('implant:equipped', ({ id }) => this.setEquipped(id)),
       b.on('implant:cooldownChanged', ({ id, remaining, total, charges, maxCharges }) => {
@@ -248,7 +248,7 @@ export class ImplantWidget {
     }
   }
 
-  /** 갈고리 / 정찰 / 대전차포: dim + brighten from the bottom while the cooldown runs, seconds in the middle. */
+  /** 갈고리 / 정찰: dim + brighten from the bottom while the cooldown runs, seconds in the middle. */
   private renderCooldown(): void {
     const ready = this.charges > 0 && this.remaining <= 0.001;
     const f = ready ? 1 : this.total > 0 ? 1 - Math.min(1, this.remaining / this.total) : 1;

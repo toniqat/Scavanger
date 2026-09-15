@@ -9,8 +9,8 @@ import {
   TUTORIAL_INTRO_WAKE_S, TUTORIAL_STEPS, TUTORIAL_TRACKS, TUTORIAL_TRACK_STEPS, slotKey,
 } from '@/shared';
 import {
-  CHECKPOINT_STEP, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
-  SKIP_HOLD_TIME, TRACK_LABEL_KO,
+  CHECKPOINT_STEP, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
+  SKIP_FADE_IN_S, SKIP_FADE_OUT_S, SKIP_HOLD_TIME, STANCE_HINT_IDS, TRACK_LABEL_KO,
   TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_RAVEN_NPC, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
   SPOT_CRAFT_CLOSE, SPOT_NONE, WAKE_REVEAL_DELAY_S, WAKE_REVEAL_MOVE_M,
@@ -25,6 +25,7 @@ import { Spotlight } from './parts/Spotlight';
 import { TutorialControls } from './ui/Controls';
 import { TutorialPanel } from './ui/Panel';
 import { TutorialPopup } from './ui/Popup';
+import { TutorialTip } from './ui/Tip';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * src/tutorial/TutorialSystem.ts — 새 프로필 안내 (2026-09-08). Publishes `ctx.tutorial`.
@@ -96,8 +97,21 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private guide!: Guide;
   /** 3D 목표 마커 — `corpseLoot` 의 목표 시체 위에 선다 (2026-09-14 3차). */
   private marker!: ObjectiveMarker;
-  /** 우측 조작 가이드 — 배운 키가 한 줄씩 쌓인다 (레이드 트랙). */
+  /** 우측 조작 가이드 — 지금 구간에서 쓰는 조작 (레이드 트랙). */
   private controls!: TutorialControls;
+  /** 조작 가이드 바로 아래의 TIP 토스트 (2026-09-15). */
+  private tip!: TutorialTip;
+  /** 앉아 조준 TIP 을 이번 레이드 트랙에서 이미 띄웠다 (한 번만). */
+  private crouchTipShown = false;
+  /**
+   * `corpseLoot` 에서 **총을 들지 않고 창을 닫았다** (2026-09-15, 사용자 결정) — 포커싱을 푼다. 시체를 다시 열면 되살아나고,
+   * 그대로 걸어가면 `bugs` 체크포인트 · 벌레 스폰이 다음 단계로 접는다 (필수 목표가 막지 않는다).
+   */
+  private corpseFocusOff = false;
+  /** 레이드 트랙 건너뛰기 암전의 남은 시간 (s). 0 = 암전 중이 아니다 (2026-09-15). */
+  private skipFadeT = 0;
+  /** 검은 판을 이 시스템이 걸었다 — 치울 책임도 여기 있다. */
+  private skipFadeOwned = false;
   /** `hides('hud', …)` 가 보는 관찰 상태 (표로는 못 정하는 것). */
   private readonly hudState: HudRevealState = { staminaUsed: false };
   /** `shoot` 단계에서 처치한 적 수 (레이드 트랙 안에서만 센다). */
@@ -156,10 +170,17 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.guide = new Guide(ctx);
     this.marker = new ObjectiveMarker(ctx);
     this.controls = new TutorialControls(ctx.uiRoot);
+    this.tip = new TutorialTip(ctx.uiRoot);
     this.restoreControls();
 
     const b = ctx.bus;
     this.unsubs.push(
+      // 2026-09-15: 건너뛰기 암전은 함선에 들어서면 반드시 걷힌다 (결과 화면에서 이미 `ui/HudSystem` 이 걷었어도 한 번 더)
+      b.on('hub:entered', () => this.clearSkipFade(0)),
+      b.on('game:abort', () => { this.skipFadeT = 0; this.skipFadeOwned = false; this.tip.clear(); }),
+      // 결과 화면으로 페이즈가 바뀌면 `ui/HudSystem.applyVisibility` 가 검은 판을 스스로 걷는다 — 여기서 0 을 또 쏘면
+      //   페이즈가 바뀌기 전 프레임에 월드가 한 번 비친다. 책임만 내려놓는다.
+      b.on('game:complete', () => { this.skipFadeT = 0; this.skipFadeOwned = false; }),
       b.on('hub:entered', ({ ship }) => this.onHubEntered(ship)),
       b.on('hub:left', () => this.refreshVisuals()),
       b.on('game:phaseChanged', () => this.refreshVisuals()),
@@ -184,7 +205,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('ui:keyGuide', ({ owner, keys }) => { if (owner === 'inventory.craft') this.onCraftPanel(keys !== null); }),
       b.on('inventory:opened', () => this.onInventoryOpened()),
       // 2026-09-14 3차 (사용자 결정): `corpseLoot` 는 **가방을 닫아야** 벌레 구간으로 넘어간다
+      //   2026-09-15: `supplyLoot` 도 — 붕대를 얻은 뒤 창을 닫으면 `heal`
       b.on('inventory:closed', () => this.onInventoryClosed()),
+      // 2026-09-15: 총을 안 들고 닫아 풀린 `corpseLoot` 포커싱은 시체를 다시 열면 되살아난다
+      b.on('inventory:containerOpened', ({ containerId }) => this.onContainerOpened(containerId)),
       b.on('loadout:changed', () => this.onLoadout()),
       b.on('inventory:changed', () => this.onInventory()),
       b.on('inventory:bagChanged', () => this.onInventory()),
@@ -217,6 +241,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('tutorial:checkpoint', ({ id }) => this.onCheckpoint(id)),
       b.on('player:introWakeDone', () => this.advanceIf('wake')),
       b.on('player:stanceChanged', ({ stance }) => this.onStance(stance)),
+      // 2026-09-15: 포복 · 앉아 조준 구간에서 처음으로 앉거나 엎드린 채 정조준하면 TIP 한 번
+      b.on('player:aimChanged', ({ aiming }) => { if (aiming) this.maybeCrouchTip(true); }),
       // 스태미나 HUD 는 **처음 소모될 때** 나타난다 (`hides('hud','stamina')`)
       b.on('player:sprintChanged', ({ sprinting }) => { if (sprinting) this.markStaminaUsed(); }),
       b.on('player:staminaDepleted', () => this.markStaminaUsed()),
@@ -228,12 +254,14 @@ export class TutorialSystem implements GameSystem, TutorialRef {
        * 체크포인트보다 14 m 앞이다. 그래서 체크포인트는 `advance1` 만 열고 안내는 여기서 넘어간다.
        * ⚠ 이 이벤트를 못 받아 `advance1` 에 머물러도 **막다른 길이 아니다** — 다음 체크포인트(`crawl`)가
        *   `crouch` 로 접는다 (`shoot` 을 건너뛸 뿐 안내가 멈추지 않는다).
+       * 2026-09-15: 총을 안 들고 시체를 지나친 사람(`corpseLoot` 에 머문 채)도 벌레가 솟으면 곧장 `shoot` 이다.
        */
-      b.on('enemy:spawned', () => this.advanceIf('advance1')),
+      b.on('enemy:spawned', () => this.onEnemySpawned()),
       b.on('enemy:killed', () => this.onKill()),
       b.on('player:stimUsed', () => { this.markIf('heal', 'healUse'); this.advanceIf('heal'); }),
       /* ── heal 은 두 줄이다 (2026-09-14 4차) — 휠에서 골라 **손에 들고** · 길게 눌러 **쓴다**.
-       *    「빠른 사용 칸에 올린다」는 자동 등록이 대신하므로 목표에서 빠졌고, 그것을 보던 구독도 함께 갔다. */
+       *    「빠른 사용 칸에 올린다」는 자동 등록이 대신하므로 목표에서 빠졌고, 그것을 보던 구독도 함께 갔다.
+       *    2026-09-15: 두 줄은 순차 공개다 (`healUse` 는 `reveal`) — 탭으로 곧장 꺼내 쓴 사람은 `objectiveChain` 이 앞줄도 적는다. */
       b.on('quick:equipped', ({ item }) => { if (this.isStim(item)) this.markIf('heal', 'healHold'); }),
       // 수류탄 단계의 **선택** 목표는 「꺼내 던진다」다 — 터지기만 하면 달성이고 처치 여부를 보지 않는다
       b.on('grenade:exploded', () => this.markIf('grenade', 'grenadeThrow')),
@@ -251,15 +279,18 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('npc:message', ({ npc, entry }) => { if (npc === TUTORIAL_RAVEN_NPC && entry.e === 'choice') this.markIf('ravenQuest', 'ravenTalk'); }),
       b.on('npc:questChanged', ({ state }) => { if (state === 'active') this.advanceIf('ravenQuest'); }),
 
-      // 리바인드하면 조작 가이드의 키캡 글자를 다시 읽는다 (키는 사용 시점에 읽는다 — `docs/CONTROLS.md`)
-      b.on('input:bindingsChanged', () => this.controls.relabel()),
+      // 리바인드하면 조작 가이드 · 목표 줄의 키캡을 다시 읽는다 (키는 사용 시점에 읽는다 — `docs/CONTROLS.md`)
+      b.on('input:bindingsChanged', () => { this.controls.relabel(); this.panel.relabel(); }),
     );
     this.registerConsole();
     this.refreshVisuals();
   }
 
   update(dt: number): void {
+    // 건너뛰기 암전은 트랙이 끝난 **뒤에** 흐른다 (`skipTrack` 이 먼저 `finish`) — 활성 검사보다 앞이어야 한다
+    this.updateSkipFade(dt);
     if (!this.active) return;
+    this.tip.update(dt, this.controls.visible ? this.controls.root : null);
     this.consumePendingWake();
     this.updateWakeHold(dt);
     this.poll();
@@ -363,6 +394,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.guide?.dispose();
     this.marker?.dispose();
     this.controls?.dispose();
+    this.tip?.dispose();
     if (this.ctx) this.ctx.tutorial = null;
   }
 
@@ -443,27 +475,76 @@ export class TutorialSystem implements GameSystem, TutorialRef {
 
   skipTrack(track: TutorialTrack): void {
     if (this.save.tracks[track]?.done) return;
-    if (this.track === track) { this.finish(true); this.leaveTutorialRaid(track); return; }
+    if (this.track === track) {
+      // 함선 · 증축 트랙과 달리 레이드 트랙은 레이드 안에서만 산다. 이미 함선이면 안내만 끈다.
+      const leaveRaid = track === 'raid' && this.inTutorialRaid();
+      this.finish(true);
+      if (leaveRaid) this.beginSkipFade();
+      return;
+    }
     this.save.tracks[track] = { step: null, done: true };
     this.persist();
   }
 
-  /**
-   * **레이드 트랙 건너뛰기 = 즉시 탈출** (2026-09-14 2차, 사용자 결정). 안내만 끄면 플레이어는 조작을 배우려고
-   * 들어온 행성에 그대로 남는다 — 건너뛴 사람이 원하는 것은 **함선**이다. 그래서 걸어가서 타는 것만 건너뛰고
-   * `ExtractionRef.skipToLiftoff` 로 평소 탈출 경로(이륙 연출 · 결과 화면 · 정산 · 함선 획득)를 그대로 태운다.
-   *
-   * 함선을 못 태우는 상태(사망 · 전투불능 중이라 `skipToLiftoff` 가 false)에서는 `game:returnToShip` 으로
-   * 내려간다 — 그 자리에서의 사망이라 잃는 것이 있지만, **안내도 목적지도 없는 행성에 갇히는 것보다 낫다.**
-   * 건너뛰기는 어차피 「여기서 그만두겠다」이므로 전리품보다 빠져나가는 길이 먼저다.
-   */
-  private leaveTutorialRaid(track: TutorialTrack): void {
-    if (track !== 'raid') return;
+  /** 지금 튜토리얼 레이드 안에 있는가. */
+  private inTutorialRaid(): boolean {
     const ctx = this.ctx;
-    // 함선 · 증축 트랙과 달리 이 트랙은 레이드 안에서만 산다. 이미 함선이면 할 일이 없다.
-    if (!ctx || ctx.missionMode !== 'tutorial' || !ctx.isRaidActive()) return;
-    if (ctx.extraction?.skipToLiftoff?.()) return;
+    return !!ctx && ctx.missionMode === 'tutorial' && ctx.isRaidActive();
+  }
+
+  /*
+   * ── 레이드 트랙 건너뛰기 = 암전 → 결과 화면 (2026-09-15, 사용자 결정) ─────────────────────────────
+   * 2026-09-14 2차에는 건너뛰기가 `skipToLiftoff`(몸을 화물칸에 세우고 곧장 이륙)였다. 이제는 **화면을 검게 덮고**
+   * (`ui:screenFade {1, SKIP_FADE_OUT_S}` — 그리는 것은 `ui/HudSystem`, 코드 보간이라 reduced motion 에도 페이드다)
+   * **완전히 검어진 순간** `ExtractionRef.skipToComplete` 를 부른다: 함선이 떠나는 연출 없이 평소 탈출과 같은 결과 화면 ·
+   * 정산 · 함선 획득이 흐른다. 검은 판은 결과 화면으로 페이즈가 바뀌는 순간 `HudSystem.applyVisibility` 가 걷고
+   * (`inGame` 이 아니면 즉시 0), 함선에 들어설 때(`hub:entered`) 이 시스템이 한 번 더 확인한다 — 함선이 검게 남는 길이 없다.
+   *
+   * 암전 동안은 **각본 잠금**(`PlayerRef.setSceneLock`)을 건다 — 0.6 초 사이에 맞아 죽으면 결과 화면이 「미탈출」이 된다.
+   * 푸는 것은 player/ 의 리셋 경로(부활 · 함선 복귀 · `game:abort`)이고, 사망 폴백으로 내려갈 때만 여기서 푼다.
+   *
+   * 폴백 사다리: `skipToComplete` → (없거나 false) `skipToLiftoff` + 다시 밝게(이륙 연출이 보여야 한다) →
+   * (그것도 false — 사망 · 전투불능) `game:returnToShip`(그 자리에서의 사망). 건너뛰기는 「여기서 그만두겠다」이므로
+   * 안내도 목적지도 없는 행성에 갇히는 것보다 빠져나가는 길이 먼저다 (2026-09-14 2차의 근거 그대로).
+   */
+
+  /** 암전을 건다. 이미 함선에 실려 떠나는 중이면 할 일이 없다 (그 연출이 곧 결과 화면이다). */
+  private beginSkipFade(): void {
+    const ctx = this.ctx;
+    if (this.skipFadeT > 0 || ctx.extraction?.riding) return;
+    this.skipFadeT = Math.max(0.001, SKIP_FADE_OUT_S);
+    this.skipFadeOwned = true;
+    this.tip.clear();
+    ctx.player?.setSceneLock?.(true);
+    ctx.bus.emit('ui:screenFade', { opacity: 1, durationS: SKIP_FADE_OUT_S });
+  }
+
+  /** 암전 시계 — 다 검어진 프레임에 한 번 탈출을 건다. 시뮬레이션 dt 라 검은 판(`HudSystem`)과 같은 시계다. */
+  private updateSkipFade(dt: number): void {
+    if (this.skipFadeT <= 0) return;
+    this.skipFadeT = Math.max(0, this.skipFadeT - Math.max(0, dt));
+    if (this.skipFadeT > 0) return;
+    this.leaveTutorialRaid();
+  }
+
+  /** 다 검어졌다 — 폴백 사다리를 따라 레이드를 빠져나간다 (위 절). */
+  private leaveTutorialRaid(): void {
+    const ctx = this.ctx;
+    if (!this.inTutorialRaid()) { this.clearSkipFade(0); return; }
+    const ext = ctx.extraction;
+    if (ext?.skipToComplete?.()) return;                                  // 결과 화면 — 검은 판은 페이즈가 걷는다
+    if (ext?.skipToLiftoff?.()) { this.clearSkipFade(SKIP_FADE_IN_S); return; }   // 이륙 연출은 보여야 한다
+    ctx.player?.setSceneLock?.(false);                                    // 잠금이 남으면 사망조차 안 된다
+    this.clearSkipFade(0);
     ctx.bus.emit('game:returnToShip', {});
+  }
+
+  /** 이 시스템이 건 검은 판을 치운다 (걸지 않았으면 아무 일도 없다 — 오프닝 페이드를 건드리지 않는다). */
+  private clearSkipFade(durationS: number): void {
+    this.skipFadeT = 0;
+    if (!this.skipFadeOwned) return;
+    this.skipFadeOwned = false;
+    this.ctx.bus.emit('ui:screenFade', { opacity: 0, durationS });
   }
 
   /* ── step machine ──────────────────────────────────────────────────────── */
@@ -530,6 +611,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.hudState.staminaUsed = false;
     this.kills = 0;
     this.wakeHoldT = 0;
+    this.crouchTipShown = false;
+    this.corpseFocusOff = false;
+    this.tip.clear();
     this.startTrack('raid');
     // 연출은 **다음 프레임**에 시작한다 (`consumePendingWake` — 지금 부르면 이 emit 의 뒤쪽 핸들러가 지운다)
     this.pendingWake = true;
@@ -578,6 +662,33 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (step !== 'shoot' && step !== 'crouchAim') return;
     this.kills++;
     if (this.kills >= RAID_KILLS_PER_STEP) this.advance();
+  }
+
+  /**
+   * 적이 솟았다 (튜토리얼 벌레의 굴착 스폰). `advance1` 이면 그대로 `shoot` 으로 넘기고, **총을 안 들고 시체를 지나친 채**
+   * (`corpseLoot` 에 머문 채) 벌레를 만났으면 `shoot` 까지 앞으로 접는다 (2026-09-15, 사용자 결정 — 시체 구간도 건너뛸 수 있다).
+   * 두 단계로만 좁힌 이유: 튜토리얼의 다른 적(안드로이드)은 월드가 설 때 이미 서 있으므로 이 두 단계에서 오는
+   * `enemy:spawned` 는 매복 벌레뿐이다. 뒤 단계의 스폰은 아무것도 접지 않는다.
+   */
+  private onEnemySpawned(): void {
+    if (this.track !== 'raid') return;
+    if (this.step === 'advance1') { this.advance(); return; }
+    if (this.step === 'corpseLoot') this.foldRaid('shoot');
+  }
+
+  /**
+   * 앉아 조준 TIP (2026-09-15, 사용자 결정) — 포복 · 앉아 조준 구간(`CROUCH_TIP_STEPS`)에서 **처음으로** 앉거나 엎드린 채
+   * 정조준하면 조작 가이드 아래에 한 번 띄운다. 조준 이벤트와 자세 이벤트가 둘 다 부른다 (어느 쪽이 나중이든 잡는다).
+   * @param aiming `player:aimChanged` 가 부를 때는 그 값을 믿는다 (ref 의 `isAiming` 이 같은 프레임에 아직 안 바뀌었을 수 있다).
+   */
+  private maybeCrouchTip(aiming?: boolean): void {
+    if (this.crouchTipShown || this.track !== 'raid') return;
+    const step = this.step;
+    if (!step || !CROUCH_TIP_STEPS.includes(step)) return;
+    const p = this.ctx.player;
+    if (!p || p.stance === 'stand' || !(aiming ?? p.isAiming)) return;
+    this.crouchTipShown = true;
+    this.tip.show(CROUCH_AIM_TIP_KO);
   }
 
   /**
@@ -652,15 +763,21 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * 자세가 바뀌었다. `crouch` 단계의 조작 가이드는 **지금 자세에 따라 라벨이 바뀐다** (2026-09-14 3차,
-   * 사용자 결정) — 앉아 있는 사람에게 「앉기」라고 적지 않는다. 단계를 넘기는 조건은 예전 그대로다.
+   * 자세가 바뀌었다. 앉기 · 포복 줄은 **지금 자세에 따라 라벨이 바뀐다** (2026-09-14 3차, 사용자 결정) —
+   * 앉아 있는 사람에게 「앉기」라고 적지 않는다. 단계를 넘기는 조건은 예전 그대로다.
+   *
+   * 2026-09-15 — 「라벨이 안 바뀐다」 수정. 옛 코드는 `step === 'crouch'` 에서만 다시 그렸는데 `crouch` 는 **앉는 그 순간**
+   * `crouchAim` 으로 넘어가므로, 포복 구간을 지나는 내내 두 줄이 첫 자세의 라벨로 얼어 있었다. 이제 조건은 단계가 아니라
+   * **「지금 떠 있는 줄에 앉기 · 포복 줄이 있는가」**(`STANCE_HINT_IDS`)이고, 같은 자세로 두 번 온 이벤트도 버리지 않는다
+   * (부활 · 이어하기로 자세가 이벤트 없이 선 자세로 돌아가면 `this.stance` 가 틀린 채로 남아 다음 이벤트를 삼켰다).
    */
   private onStance(stance: Stance): void {
-    if (stance === this.stance) return;
+    const changed = stance !== this.stance;
     this.stance = stance;
     const step = this.step;
-    if (step === 'crouch') this.applyControls(step, true);
-    if (stance !== 'stand') this.advanceIf('crouch');
+    if (step && this.controlIds.some((id) => STANCE_HINT_IDS.includes(id))) this.applyControls(step, true);
+    if (changed && stance !== 'stand') this.advanceIf('crouch');
+    if (stance !== 'stand') this.maybeCrouchTip();
   }
 
   private onFurniture(defId: string, uid: string): void {
@@ -690,8 +807,26 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 그래서 HUD 노출(`HUD_GEAR_STEP`)의 뜻은 그대로다: 이 단계를 **지나면** 체력 · 무기 HUD 가 보인다.
    */
   private onInventoryClosed(): void {
-    if (this.step !== 'corpseLoot' || !this.done.has('corpseGun')) return;
-    this.advance();
+    const step = this.step;
+    if (step === 'corpseLoot') {
+      if (this.done.has('corpseGun')) { this.advance(); return; }
+      /*
+       * 2026-09-15 (사용자 결정) — 총을 안 들고 **곧바로 닫았다**: 포커싱을 푼다. 그대로 두면 다음에 인벤토리를 열 때마다
+       * 장비 칸에 링이 따라온다. 필수 목표가 비어 있어도 막다른 길이 아니다 — 걸어가면 `bugs` 체크포인트 · 벌레 스폰이
+       * 앞으로 접는다 (`foldRaid`). 시체를 다시 열면 포커싱이 되살아난다 (`onContainerOpened`).
+       */
+      if (!this.corpseFocusOff) { this.corpseFocusOff = true; this.refreshVisuals(); }
+      return;
+    }
+    // 2026-09-15: 보급품 시체 — 붕대를 얻은 뒤 창을 닫으면 회복 단계다
+    if (step === 'supplyLoot' && this.done.has('supplyBandage')) this.advance();
+  }
+
+  /** 컨테이너 창이 열렸다 — `corpseLoot` 에서 풀어 둔 포커싱을 시체를 다시 열면 되살린다 (2026-09-15). */
+  private onContainerOpened(containerId: string): void {
+    if (this.step !== 'corpseLoot' || !this.corpseFocusOff || !containerId.startsWith('corpse:')) return;
+    this.corpseFocusOff = false;
+    this.refreshVisuals();
   }
 
   /**
@@ -735,7 +870,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (l.primary?.defId === TUTORIAL_GUN_DEF || l.primary2?.defId === TUTORIAL_GUN_DEF) this.advance();
   }
 
-  /** 가방에 준중량탄이 들어왔는가 (+ 레이드 트랙의 「챙긴다」 선택 목표 둘 — 탄약 · 수류탄). */
+  /** 가방에 준중량탄이 들어왔는가 (+ 레이드 트랙의 「챙긴다 · 획득」 목표 — 탄약 · 붕대 · 수류탄). */
   private onInventory(): void {
     const inv = this.ctx.inventory;
     if (!inv) return;
@@ -745,10 +880,16 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       catch { /* inventory not ready */ }
       return;
     }
-    if (this.step === 'heal') {
-      // 「수류탄을 챙긴다」 — `countWhere` 는 빠른 사용 칸도 함께 보므로 자동 등록된 것도 그대로 세어진다
-      try { if (inv.countWhere((d) => d.category === 'grenade') > 0) this.markObjective('healGrenade'); }
-      catch { /* inventory not ready */ }
+    if (this.step === 'supplyLoot') {
+      /*
+       * 2026-09-15 — 「시체에서 붕대 획득」 · 「(선택) 시체에서 수류탄 획득」. 튜토리얼 레이드는 빈손으로 시작하고 첫 시체에는
+       * 회복 아이템도 수류탄도 없으므로 「지니고 있다」가 곧 「그 시체에서 얻었다」다. `countWhere` 는 빠른 사용 칸도
+       * 함께 보므로 줍자마자 휠에 자동 등록된 것도 그대로 세어진다. (옛 `heal` 의 `healGrenade` 가 여기로 옮겨 왔다.)
+       */
+      try {
+        if (inv.countWhere((d) => d.category === 'stim') > 0) this.markObjective('supplyBandage');
+        if (inv.countWhere((d) => d.category === 'grenade') > 0) this.markObjective('supplyGrenade');
+      } catch { /* inventory not ready */ }
       return;
     }
     if (this.step !== 'stowAmmo') return;
@@ -854,7 +995,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (prev === 'wake' && step !== 'wake') this.beginWakeReveal();
     // 처치 수 · 달성한 목표는 단계마다 따로 센다 (`shoot` → `crouchAim`)
     this.kills = 0;
-    if (changed) { this.done.clear(); this.save.objectives = []; }
+    if (changed) { this.done.clear(); this.save.objectives = []; this.corpseFocusOff = false; }
     // 우측 조작 가이드를 **이 단계의 줄**로 갈아 끼운다 (2026-09-14 3차 — 표에 없는 단계는 직전 줄 유지)
     this.applyControls(step);
     // 재료: 바닥(한 번) + 그 단계 레시피의 부족분 top-up (멱등). 탄약 재료는 소총이 완성되어 `craftAmmo` 에 들어서는
@@ -885,8 +1026,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 다음 줄이 바로 열리게 한다 — 이벤트는 지나간 뒤라 다시 오지 않기 때문이다.
    */
   private onStepEntered(step: TutorialStepId): void {
-    // 보급품을 먼저 주워 놓고 단계에 들어선 사람 — 「수류탄을 챙긴다」는 이미 한 일이다 (2026-09-14 4차)
-    if (step === 'heal') { this.onInventory(); return; }
+    // 보급품을 먼저 주워 놓고 단계에 들어선 사람 (2026-09-15) — 붕대 · 수류탄은 이미 한 일이고, 창이 닫혀 있으면 곧장 회복 단계다
+    if (step === 'supplyLoot') {
+      this.onInventory();
+      if (this.done.has('supplyBandage') && !this.invOpen) this.advance();
+      return;
+    }
     // 제작 창이 이미 닫혀 있으면 (`openBag` 을 지나온 평소 경로) 「제작 창을 닫는다」는 이미 한 일이다
     if (step === 'equipGun' && !this.craftOpen) this.markObjective('equipClose');
   }
@@ -941,7 +1086,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * @param force 줄 목록은 같은데 **문구만** 바뀌었을 때 (`crouch` 의 자세별 `앉기` ↔ `일어서기`).
    */
   private applyControls(step: TutorialStepId, force = false): void {
-    const hints = controlHintsFor(step, this.stance);
+    // 자세는 **지금 읽는다** (2026-09-15) — 부활 · 이어하기가 이벤트 없이 자세를 되돌릴 수 있다
+    const hints = controlHintsFor(step, this.ctx.player?.stance ?? this.stance);
     if (!hints) return;
     const ids = hints.map((h) => h.id);
     if (!force && ids.length === this.controlIds.length && ids.every((x, i) => this.controlIds[i] === x)) return;
@@ -972,6 +1118,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.save.learned = [];
     this.controlIds = [];
     this.controls.clear();
+    this.tip.clear();
     this.done.clear();
     this.save.objectives = [];
   }
@@ -1089,6 +1236,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    *   • `equipGun` + 제작 창이 열려 있음 → 장비 칸이 숨었으므로 **닫기 버튼**부터 (목표 줄도 앞줄이 그것이다).
    *   • `corpseLoot` + 총을 이미 들었음 → **포커싱을 끈다** (2026-09-14 4차, 사용자 결정). 그 단계에서 배울 것은
    *     끝났고 남은 것은 선택 목표와 창을 닫는 일이라, 링이 계속 장비 칸을 두르고 있으면 아직 뭔가 덜 한 것처럼 보인다.
+   *     2026-09-15: 총을 안 들고 **창을 곧바로 닫았을 때**도 끈다 (`corpseFocusOff` — 시체를 다시 열면 되살아난다).
    *   • `heal` 은 이제 밝힐 UI 가 **처음부터** 없다 (자동 등록 + 휠은 화면이 아니라 손가락이다) — 표 그대로 간다.
    */
   private stepView(step: TutorialStepId, def: StepDef): {
@@ -1099,7 +1247,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (step === 'equipGun' && this.craftOpen) {
       return { objectives, spot: SPOT_CRAFT_CLOSE, spotText: '제작 창 닫기', union: false, noDim: false };
     }
-    if (step === 'corpseLoot' && this.done.has('corpseGun')) {
+    if (step === 'corpseLoot' && (this.done.has('corpseGun') || this.corpseFocusOff)) {
       return { objectives, spot: SPOT_NONE, spotText: '', union: false, noDim: false };
     }
     return {
@@ -1147,7 +1295,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.popup.open('튜토리얼', [
       '함선을 한 바퀴 돌며 기본 조작을 익힙니다.',
       '작업실을 짓고 · 총과 탄약을 만들고 · 행성을 정해 출격하는 데까지 안내합니다.',
-      '언제든 좌측 상단의 건너뛰기로 그만둘 수 있습니다.',
+      '언제든 ESC 메뉴의 튜토리얼 건너뛰기로 그만둘 수 있습니다.',
     ], [
       { label: '건너뛰기', onClick: () => { this.popup.close(); this.askSkip(); } },
       { label: '시작', kind: 'primary', onClick: () => { this.popup.close(); this.advance(); } },

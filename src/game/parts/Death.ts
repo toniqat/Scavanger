@@ -20,6 +20,8 @@ import {
   TUTORIAL_RAID_XP,
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
+/* appended (2026-09-15): 튜토리얼 부활 연출 */
+import { TUTORIAL_RESPAWN_WAKE_S } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
@@ -161,6 +163,40 @@ export function tutorialRespawn(sys: GameFlowSystem): void {
   if (pose && ctx.player) {
     try { ctx.player.teleport(position, pose.yaw, false); } catch { /* 몸이 아직 없다 — 방향만 못 맞출 뿐이다 */ }
   }
+  /*
+   * 2026-09-15 (사용자 결정 — 「부활하면 서 있는 채로 나타나지 않고 쓰러졌다 일어난다」): 부활 연출. `player:respawn` 이 동기라
+   * 몸은 이미 섰고(`respawnAt` 이 오프닝 연출을 먼저 취소한다), 그 위에 쓰러진 자세 → 일어서기 + 입력 잠금만 건다.
+   * `respawn: true` 라 검은 페이드 · 전용 카메라 · 나침반 페이드 · Tab 잠금 · `player:introWakeDone` 이 없다 —
+   * 튜토리얼 `wake` 단계는 오프닝에만 걸린다.
+   */
+  const player = ctx.player;
+  if (player && !player.isDead) {
+    try { player.playIntroWake?.(TUTORIAL_RESPAWN_WAKE_S, { respawn: true }); } catch (e) { console.error('[gameflow] tutorial respawn wake failed', e); }
+  }
+  }
+
+/**
+ * 2026-09-15 (사용자 결정 — 튜토리얼 건너뛰기 = 암전 → 보상 창 → 함선): `ExtractionRef.skipToComplete` 가 낸 **건너뛰기 탈출**.
+ * 이륙 연출 · `LIFTOFF_TO_COMPLETE` 대기 없이 곧장 평소 `complete()` 로 간다 — 결과 화면 · 정산(`TUTORIAL_RAID_XP`) · 함선 획득이
+ * 진짜 탈출과 같은 길이다. 몸이 함선 안에 없어도(사망 대기 · 밖) **탈출한 것으로 친다** — 건너뛰기가 곧 「탈출을 대신 해 준다」이기 때문이다.
+ *
+ * 알아보는 법(`isTutorialSkipLiftoff`): 튜토리얼에서 `extraction:liftoff` 가 ① 함선이 아직 뜨지 않았는데(`stage !== 'liftoff'`) 오거나
+ * ② 이미 `liftoff` 페이즈인데 한 번 더 온다. 평소 이륙은 `lifting` 을 세운 **뒤에** 한 번만 내므로 둘 다 건너뛰기만 만든다
+ * (튜토리얼은 솔로라 호스트 재방송 · 재접속 동기화가 없다).
+ */
+export function isTutorialSkipLiftoff(sys: GameFlowSystem): boolean {
+  const ctx = sys.ctx;
+  if (!sys.isTutorial()) return false;
+  if (ctx.phase === 'liftoff') return true;
+  if (ctx.phase !== 'extracting' && ctx.phase !== 'shipLanded') return false;
+  return ctx.extraction?.stage !== 'liftoff';
+  }
+
+export function completeTutorialSkip(sys: GameFlowSystem): void {
+  sys.aboardAtLiftoff = true;
+  sys.squadExtraction = true;
+  sys.tutorialSkipComplete = true;
+  try { sys.complete(); } finally { sys.tutorialSkipComplete = false; }
   }
 
 /**
@@ -294,7 +330,8 @@ export function complete(sys: GameFlowSystem): void {
   // A dead, downed or left-behind player still sees the result screen (the squad was done), but did not extract.
   // 2026-09-13 (탈출 개편): only the liftoff's `aboard` counts — solo too, since a solo player can now miss the ship.
   const outOfAction = (ctx.player?.isDead ?? false) || (ctx.player?.isDowned ?? false);
-  ctx.stats.extracted = sys.aboardAtLiftoff && !outOfAction;
+  // 2026-09-15: 튜토리얼 건너뛰기 탈출(`completeTutorialSkip`)은 몸의 상태와 무관하게 탈출이다
+  ctx.stats.extracted = (sys.aboardAtLiftoff && !outOfAction) || sys.tutorialSkipComplete;
   // 2026-09-13: riders who leave while squadmates play on step out of the mission at their result screen (below) — the
   // raid is not over for the others, so no `flow complete` and no lobby reset.
   const leaveAlone = ctx.isMultiplayer && sys.aboardAtLiftoff && !sys.squadExtraction;
@@ -391,6 +428,13 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     let xp = 0;
     if (tutorialClear) {
       xp = Number.isFinite(TUTORIAL_RAID_XP) ? Math.max(0, Math.round(TUTORIAL_RAID_XP)) : 0;
+    } else if (sys.isTutorial()) {
+      /*
+       * 2026-09-15 (사용자 결정 「튜토리얼 전체로 딱 Lv.2」): 완주하지 못한 튜토리얼(건너뛰기가 함선을 못 태워 `game:returnToShip` →
+       * `gameOver()` 로 내려간 경우)도 **본편 정산식을 타지 않는다** — 처치 × 12 × 0.4 + 분당 20(최대 300)이 그대로 붙어 튜토리얼 XP 가
+       * 사람마다 흔들렸다. 완주가 아니므로 0 이다 (함선도 레벨도 주지 않는 길이다). 계약 정산도 아래 조건으로 건너뛴다.
+       */
+      xp = 0;
     } else {
       xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
       xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
@@ -407,7 +451,7 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     // Phase 5: settle the active corp contract first — its XP reward is paid through `addXp` below.
     let contract = null;
     const meta = ctx.meta;
-    if (!tutorialClear && meta && typeof meta.settleMission === 'function') {
+    if (!sys.isTutorial() && meta && typeof meta.settleMission === 'function') {
       try { contract = meta.settleMission(s); } catch (e) { console.error('[gameflow] contract settlement failed', e); }
     }
     if (contract?.success && contract.xp > 0) xp += contract.xp;

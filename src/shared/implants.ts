@@ -3,13 +3,20 @@ import type { PeerId } from './net';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Tactical implants (전술 임플란트). Owner: implants/ImplantSystem publishes `ctx.implants`.
- * Everyone owns all six from the start; exactly one may be equipped, and only in the ship
+ * Everyone owns all five from the start; exactly one may be equipped, and only in the ship
  * (`setEquipped` refuses while a mission is running). Q activates it in game.
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * `'atlauncher'` (대전차포) is **retired** (2026-09-15, 사용자 결정 — overlapped the legendary bazooka). The id stays in the
+ * union because this file is add-only (same treatment as `airstrike` / `secondary`), but it is **not** in `IMPLANT_IDS`
+ * and has no `ImplantDef`: every sanitizer that checks against `IMPLANT_IDS` (profile migrate, loadout presets, crew
+ * cards, `isImplantId`) turns a saved / received `atlauncher` into `null`.
+ */
 export type ImplantId = 'grapple' | 'dash' | 'barrier' | 'overcharge' | 'scan' | 'atlauncher';
 
-export const IMPLANT_IDS: readonly ImplantId[] = ['grapple', 'dash', 'barrier', 'overcharge', 'scan', 'atlauncher'];
+/** Selectable tactical implants. 2026-09-15: `atlauncher` removed (retired — see `ImplantId`). */
+export const IMPLANT_IDS: readonly ImplantId[] = ['grapple', 'dash', 'barrier', 'overcharge', 'scan'];
 
 /**
  * 'instant'  → Q fires the effect immediately (grapple, dash, barrier toggle).
@@ -97,7 +104,8 @@ export interface ImplantsRef {
 
 /* ══ appended: Phase 10 — 배리어 = 들고 다니는 방패 (2026-09-07) ═══════════════════════════════════════════════
  * The 배리어 def's `mode` becomes `'wielded'`, so Q takes the shield into the hands, the gun is holstered
- * (`blocksWeapons`), and a weapon key or Q again puts it away — exactly the 대전차포 flow. Remote replication comes
+ * (`blocksWeapons`), and a weapon key or Q again puts it away — exactly the 대전차포 flow (대전차포 retired 2026-09-15;
+ * the barrier is now the only wielded implant). Remote replication comes
  * for free: `RemoteImplants` already builds a hand device for any implant whose `mode === 'wielded'` from
  * `PlayerSnapshot.imp`. `raycastBarrier` / `damageBarrier` keep their signatures — they were always transform-agnostic;
  * only the panel now follows the carrier's position + yaw instead of a fixed world spot, and it blocks a shot only

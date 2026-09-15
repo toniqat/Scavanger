@@ -9,9 +9,9 @@ import { Ground } from './parts/Ground';
 import { Dressing } from './parts/Dressing';
 import { TutorialCorpses } from './parts/Corpses';
 import {
-  CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES, ENEMY_LEASH, ENEMY_SENSE,
-  FALL_RULES, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START, chasmFarZAt, chasmNearZAt,
-  type Volume,
+  ABYSS_EDGE_Z, ABYSS_SAFE_MARGIN_M, CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES,
+  ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START,
+  chasmFarZAt, chasmNearZAt, type Volume,
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -22,7 +22,8 @@ import {
  * 하나도 없다 (`ctx.world.fog === null` 도 훈련장과 같다).
  *
  * 이 클래스가 갖는 것은 셋이다:
- *   1. **월드** — 협곡 바닥 · 데크 · 절벽 벽(`parts/Ground`), 폐허 · 무너진 통로 · 무너진 벽(`parts/Dressing`),
+ *   1. **월드** — 협곡 바닥 · 데크 · 절벽 벽 · 함선 앞 끝없는 절벽(`parts/Ground`), 폐허 · 무너진 통로 · 사선 방벽과
+ *      블라인드 철조망(`parts/Dressing`),
  *      시체 세 구(`parts/Corpses`). 전부 절차 지오메트리이고 **광원을 하나도 만들지 않는다**.
  *   2. **`TutorialWorldRef`** — 체크포인트 · 낙하 규칙 · 적 자리 (`ctx.world.tutorial`).
  *   3. **버려진 함선** — 메시를 새로 만들지 않고 `ctx.extraction.beginPreLanded` 로 진짜 탈출선을 착륙 상태로
@@ -169,8 +170,11 @@ export class TutorialWorld implements TutorialWorldRef {
    *      되살리면 도움닫기가 없어 「떨어지기 전 자리로 돌려보낸다」가 「다시 떨어지라」가 된다. 반대로 건너편을
    *      똑같이 12 m 막으면, 넘은 사람이 그만큼 더 걸어야 기록이 살아나 그 사이의 죽음이 절벽 앞으로 되돌아간다.
    *   ③ **데크 윗면 근처** — 폐허 벽 · 잔해 더미 위에 올라선 자리를 걸러 낸다 (`SAFE_DECK_EPS`).
-   * 접지(`isGrounded`) 자체가 넷째 조건이라 뛰는 · 떨어지는 동안의 좌표는 애초에 적히지 않는다
-   * (그래서 ① 은 ③ 과 겹치는 이중 안전장치다 — `kill` 볼륨 안에서 접지할 수 있는 곳은 협곡 바닥뿐이다).
+   *   ④ **끝없는 절벽 가장자리 띠 밖** (2026-09-15) — 가장자리(`ABYSS_EDGE_Z`)에서 `ABYSS_SAFE_MARGIN_M`(3 m) 안은 적지 않는다.
+   *      가장자리에 발끝을 걸친 자리(몸 가운데는 아직 데크 위)에 되살리면 한 걸음에 다시 떨어진다. 그 띠에서 떨어진 사람은
+   *      띠 바로 뒤, 즉 가장자리에서 3 m 이상 떨어진 마지막 자리로 돌아온다.
+   * 접지(`isGrounded`) 자체가 다섯째 조건이라 뛰는 · 떨어지는 동안의 좌표는 애초에 적히지 않는다
+   * (그래서 ① 은 ③ 과 겹치는 이중 안전장치다 — `kill` 볼륨 안에서 접지할 수 있는 곳은 협곡 바닥 · 절벽 아래 지형뿐이다).
    */
   private pollSafeGround(): void {
     const player = this.ctx?.player;
@@ -178,6 +182,7 @@ export class TutorialWorld implements TutorialWorldRef {
     const p = player.position;
     if (Math.abs(p.y - DECK_UPPER_Y) > SAFE_DECK_EPS && Math.abs(p.y - DECK_LOWER_Y) > SAFE_DECK_EPS) return;
     if (p.z <= chasmNearZAt(p.x) + CHASM_RUNUP_M && p.z >= chasmFarZAt(p.x) - SAFE_CHASM_MARGIN) return;
+    if (p.z < ABYSS_EDGE_Z + ABYSS_SAFE_MARGIN_M) return;
     for (const v of FALL_RULES) if (v.rule === 'kill' && volumeContains(v, p)) return;
     this.lastSafe.copy(p);
     this.hasLastSafe = true;
@@ -230,7 +235,10 @@ export class TutorialWorld implements TutorialWorldRef {
 
   /* ── 월드 질의 (`WorldSystem` 이 `mode === 'tutorial'` 가지에서 부른다) ── */
 
-  /** 지형 높이 = 협곡 바닥 하나. 걸어 다니는 데크는 전부 사각 콜라이더라 `getSurfaceY` 가 답한다. */
+  /**
+   * 지형 높이 = `VOID_Y` 하나. 걸어 다니는 데크 · 절벽 1 의 협곡 바닥(`CHASM_FLOOR_Y`)은 전부 사각 콜라이더라 `getSurfaceY` 가
+   * 답한다. 2026-09-15 −34 → −100: 인자가 없는 상수라 끝없는 절벽 밑만 깊게 할 수 없어 통째로 내렸다 (`model.ts` 의 `VOID_Y`).
+   */
   heightAt(): number { return VOID_Y; }
 
   /** 레이 vs 협곡 바닥 평면. `t` (없으면 −1) 를 돌려주고 법선을 `n` 에 쓴다 — 훈련장의 `raycastShell` 과 같은 자리다. */
@@ -258,7 +266,7 @@ export class TutorialWorld implements TutorialWorldRef {
     if (position.z > z0) position.z = z0; else if (position.z < z1) position.z = z1;
   }
 
-  /** 발밑 재질 — 폐허 · 무너진 벽 둘레만 콘크리트이고 나머지는 바위다. */
+  /** 발밑 재질 — 시작 폐허 둘레만 콘크리트이고 나머지는 바위다. */
   surfaceMaterial(x: number, z: number): SurfaceMaterial {
     if (z <= RUINS.z0 && z >= RUINS.z1) return 'concrete';
     return 'rock';

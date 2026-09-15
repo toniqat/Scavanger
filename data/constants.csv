@@ -180,10 +180,10 @@ IMPLANT_SCAN_MAX_PULSES,5,
 IMPLANT_SCAN_RADIUS_STEP,18,radius grows by this per pulse
 IMPLANT_SCAN_REVEAL_TIME,10,
 IMPLANT_SCAN_COOLDOWN,14,
-IMPLANT_AT_DAMAGE,420,
-IMPLANT_AT_RADIUS,7.5,
-IMPLANT_AT_SPEED,48,
-IMPLANT_AT_COOLDOWN,12,
+IMPLANT_AT_DAMAGE,420,"2026-09-15 은퇴 — 전술 임플란트 대전차포 제거 (사용하는 곳 없음). 계약 상수라 줄만 남는다."
+IMPLANT_AT_RADIUS,7.5,"2026-09-15 은퇴 — 전술 임플란트 대전차포 제거 (사용하는 곳 없음). 계약 상수라 줄만 남는다."
+IMPLANT_AT_SPEED,48,"2026-09-15 은퇴 — 전술 임플란트 대전차포 제거 (사용하는 곳 없음). 계약 상수라 줄만 남는다."
+IMPLANT_AT_COOLDOWN,12,"2026-09-15 은퇴 — 전술 임플란트 대전차포 제거 (사용하는 곳 없음). 계약 상수라 줄만 남는다."
 
 # ── gadgets ──
 GADGET_CLOAK_DURATION,12,
@@ -301,7 +301,7 @@ BAZOOKA_ALT_DAMAGE,260,
 BAZOOKA_ALT_RADIUS,4.5,
 BAZOOKA_SELF_DAMAGE,22,"2026-09-14 은퇴 — 바주카는 자해 피해가 없다 (사용하는 곳 없음). 계약 상수라 줄만 남는다. (옛 뜻: 폭발 반경 안에서 받는 고정 자해 피해.)"
 BAZOOKA_KNOCKBACK,15,Knockback speed away from the blast when the player is inside the radius.
-BAZOOKA_SUPER_JUMP,26,"Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump). 2026-09-14: 17 → 26 (사용자 결정 — 더 높이 · 더 멀리, 중력은 그대로)."
+BAZOOKA_SUPER_JUMP,17,"Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump). 2026-09-14: 17 → 26 (사용자 결정 — 더 높이 · 더 멀리, 중력은 그대로). 2026-09-15: 26 → 17 되돌림 (사용자 결정 — 훈련장 천장에 막혀 강하게 느껴지지 않았음; 수평 BAZOOKA_JUMP_FORWARD 8 · airCarry 는 유지)."
 BAZOOKA_JUMP_FORWARD,8,"2026-09-14: 로켓 점프의 수평 가속 (m/s) — 폭발 순간의 수평 이동 방향으로 더한다. 걷기 속도(PLAYER_WALK_SPEED) 보다 느리면 그 비율만큼 줄고 제자리면 0."
 BAZOOKA_FIRE_RATE,2.85,"2026-09-14: 연달아 세 발 — 발 간격 1/2.85 ≈ 0.35 초 (탄창 크기는 weapons_unique.csv 의 magSize)."
 MINIGUN_SPINUP_TIME,1.2,
@@ -1077,3 +1077,10 @@ FIRE_ZONE_DANGER_RANGE,35,"HUD 위험 표시가 화염 지대를 보여 주는 �
 SOLDIER_RIM_STRENGTH,0.7,"병사 재질 가장자리(fresnel) 발광 세기, 0 = 끔 (D-7). 이끼 · 독성 녹색 팔레트에서 어두운 장갑이 배경에 묻히지 않게 한다. 광원이 아니라 셰이더라 점광원 수는 그대로다."
 SOLDIER_RIM_POWER,2.5,"병사 림 fresnel 지수 — 클수록 가장자리에만 얇게 선다."
 # ── end 2026-09-15 ──
+# ── 2026-09-15 튜토리얼 부활 연출 · 벌레 연쇄 스폰 · 어그로 해제 · 이륙 사격 (owner: player · enemies · extraction · game) ──
+TUTORIAL_RESPAWN_WAKE_S,2,"튜토리얼 부활 연출 — 쓰러진 자세에서 일어서는 데 걸리는 시간 (s). 오프닝(`TUTORIAL_INTRO_WAKE_S`)과 달리 검은 페이드 · 전용 카메라 없이 평소 3인칭 카메라로 몸만 일어난다 (`PlayerRef.playIntroWake(d, {respawn:true})`)."
+TUTORIAL_BUG_CHAIN_SPAWN_S,1,"튜토리얼 벌레 매복 — 첫 벌레가 솟은 뒤 나머지 벌레가 하나씩 솟는 간격 (s). 첫 마리만 플레이어의 접근이 방아쇠이고 나머지는 이 시계만 따른다."
+TUTORIAL_LIFTOFF_FIRE_S,3,"튜토리얼 함선 이륙 직후, 처치하지 못한 인간형 적이 탑승자를 계속 겨누는 시간 (s). 이 동안만 감지 반경이 `TUTORIAL_LIFTOFF_FIRE_RANGE_M` 로 넓어진다 — 몇 발 맞히고 끝난다. 탑승자는 각본 잠금(피해 허용 · 체력 1 클램프)이라 죽지 않는다."
+TUTORIAL_LIFTOFF_FIRE_RANGE_M,40,"위 창 동안 탑승자를 겨누는 인간형 적의 최대 거리 (m, 3D). 오르는 함선을 따라 시야가 끊기지 않을 만큼만."
+TUTORIAL_AGGRO_DROP_M,3,"절벽 낙하 어그로 해제 — 플레이어의 발보다 이 높이(m) 넘게 위에 자리를 둔 튜토리얼 인간형 적은 플레이어가 아래 데크로 떨어지면 추격 · 사격을 접는다."
+# ── end 2026-09-15 튜토리얼 부활 · 어그로 ──

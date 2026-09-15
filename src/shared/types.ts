@@ -870,7 +870,8 @@ export interface PlayerRef {
   readonly maxStamina: number;
   getEyePosition(out?: THREE.Vector3): THREE.Vector3;
   getForward(out?: THREE.Vector3): THREE.Vector3;   // horizontal forward
-  takeDamage(amount: number, from?: THREE.Vector3): void;
+  /** `source` appended (2026-09-15): 누가 · 무엇이 때렸나 — 결과 창의 사망 원인 · 원인별 받은 피해 (`PlayerDamageSource`). 생략 = 모름. */
+  takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource): void;
   heal(amount: number): void;
   /** Teleport & reset (used at mission start). */
   respawnAt(position: THREE.Vector3, yaw?: number): void;
@@ -966,7 +967,8 @@ export interface PlayerRef {
   /** Damage reduction currently granted by armor (0..0.9). Read by the HUD. */
   readonly damageReduction: number;
   /** Burning (incendiary / fire zone): applies DoT and suppresses the grit save. */
-  setBurning(dps: number, duration: number): void;
+  /** `source` appended (2026-09-15, 결과 창 개편): 불을 붙인 출처 — 화상 틱의 `player:damaged.source` · 사망 원인이 된다. 생략 = 모름. */
+  setBurning(dps: number, duration: number, source?: PlayerDamageSource): void;
   readonly isBurning: boolean;
 
   /* ── appended: dev console / unique weapons (2026-09-06, owner: player) ── */
@@ -1652,7 +1654,8 @@ export interface WorldRef {
   /* ── 행성 (owner: world) ── */
   /**
    * Planet the current world was generated for, or null when it came from the seeded biome draw (an older client,
-   * a training, `MissionComplete`'s 다시 배치 without one). `world:ready.planet` carries the same value.
+   * a training, a `game:newMission` without one). `world:ready.planet` carries the same value.
+   * (2026-09-15: `MissionComplete` 의 `다시 배치` 는 사용자 결정으로 기능째 없어졌다.)
    */
   readonly planet: PlanetId | null;
 }
@@ -3199,7 +3202,12 @@ export interface PlayerRef {
    * 끝나면 `player:introWakeDone`. 이미 돌고 있으면 아무것도 하지 않는다.
    * `game:abort` · `game:newMission` · 사망은 스스로 푼다.
    */
-  playIntroWake?(durationS: number): void;
+  /*
+   * `opts` appended (2026-09-15, 사용자 결정 — 튜토리얼 부활도 쓰러졌다 일어난다): `respawn: true` 면 **부활 연출**이다 —
+   * 검은 페이드(`ui:screenFade`)를 걸지 않고, 오프닝 전용 카메라 · 나침반 페이드 · Tab 잠금 · `player:introWakeDone` 도 내지 않는다
+   * (쓰러진 자세 → 일어서기 애니메이션과 입력 잠금만). 생략 = 오프닝 그대로.
+   */
+  playIntroWake?(durationS: number, opts?: { respawn?: boolean }): void;
   /**
    * appended (2026-09-14, owner: player; callers: ui/hud/Compass · inventory): 오프닝 기상 연출이 **아직 돌고 있다** —
    * 몸이 일어서며 카메라가 평소 3인칭 백뷰로 **완전히 돌아오기 전**이다. 그 동안 나침반은 그리지 않고(끝나면 서서히
@@ -3223,7 +3231,12 @@ export interface PlayerRef {
    * 지금 쓰는 곳은 튜토리얼 함선의 이륙 하나다 (스위치를 누르면 즉시 뜨고, 그 동안 함선에서 나갈 수도
    * 죽을 수도 없어야 한다 — 사용자 결정). `game:abort` · `game:newMission` · 함선 복귀가 스스로 푼다.
    */
-  setSceneLock?(on: boolean): void;
+  /*
+   * `opts` appended (2026-09-15, 사용자 결정 — 처치하지 않은 안드로이드의 사격을 **맞은 채** 출발한다): `allowDamage: true` 면
+   * 입력 잠금은 그대로이되 피해는 **들어간다** — 다만 체력이 `minHp`(기본 1) 밑으로 내려가지 않고 전투불능 · 사망이 없다.
+   * 생략 = 예전 그대로 (피해 전부 무시).
+   */
+  setSceneLock?(on: boolean, opts?: { allowDamage?: boolean; minHp?: number }): void;
 }
 /* ══ end 2026-09-13 탐사 차량 ══ */
 
@@ -3333,3 +3346,64 @@ export interface ItemDef {
   grenadeFire?: boolean;
 }
 /* ══ end 2026-09-15 화염 지대 ══ */
+
+/* ══ appended (2026-09-15): 결과 창 개편 — 사망 원인 · 원인별 받은 피해 · 잃은 전리품 가치 ════════════════════════════════
+ * 사용자 결정: 탈출 결과 창은 임무 시간 · 전리품 가치 · 보상만, 사망 결과 창은 **잃은 전리품 가치**(그 레이드에서 가장 높았던
+ * 소지품 가치) + **사망 원인**(막타 — 적 개체면 그 개체의 얼굴 썸네일 · 이름 · 그 개체에게서 받은 피해, 아니면 원인 아이콘 ·
+ * 이름 · 그 원인의 피해) + 획득 경험치. 피해를 넣는 모든 경로가 `PlayerRef.takeDamage(amount, from, source)` 의 셋째 인자로
+ * 출처를 싣고, game/ 이 `player:damaged.source` 를 원인별로 합산해 `MissionStats.death` 를 확정한다. */
+
+/** 피해 출처의 종류. */
+export type DamageCauseKind =
+  | 'enemy'      // 적 개체 (벌레 · 로그 · 레이더 · 안드로이드 · 네임드 · 지하벌레 …) — 근접 · 사격 · 산성 · 적 폭발 · 적 화염 지대
+  | 'fall'       // 낙하 피해
+  | 'hazard'     // 환경 재해 (모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자)
+  | 'env'        // 행성 상시 환경 (열 · 독) — 준비물이 없을 때
+  | 'explosion'  // 주인을 모르는 폭발 · 함선 호출 낙하물 · 전차 충돌 등 적이 아닌 물리 피해
+  | 'self'       // 자기 수류탄 · 자기 가젯 · 손 안에서 터진 수류탄
+  | 'ally'       // 분대원의 폭발물 · 화염
+  | 'other';     // 그 밖 (모르면 생략이 낫다)
+
+/** `PlayerRef.takeDamage` 의 셋째 인자 · `player:damaged.source` · `player:died.source`. */
+export interface PlayerDamageSource {
+  kind: DamageCauseKind;
+  /** kind `enemy`: 적의 `EnemyType` id 그대로 (튜토리얼 `tut_bug` 등 — 바탕 종류로 접지 않는다). */
+  enemyType?: string;
+  /** kind `enemy`: 개체 id — 같은 개체의 피해를 합산하는 열쇠. 호스트 · 리플리카가 같은 값을 쓴다 (적 네트워크 id). */
+  enemyId?: number;
+  /** kind `hazard`: `HazardKind`. */
+  hazard?: string;
+}
+
+/** 사망 결과 창의 「사망 원인」 한 줄 (owner: game/ — `MissionStats.death`). */
+export interface MissionDeathCause {
+  kind: DamageCauseKind;
+  enemyType?: string;
+  hazard?: string;
+  /** 표시 이름 — 적이면 그 적의 이름, 아니면 원인 이름 (`낙하` · `독성 포자` …). game/ 이 확정한다. */
+  label: string;
+  /** 그 원인(적이면 **그 개체**)에게서 이번 레이드에 받은 피해 합계 (실드에 들어간 몫 포함, 정수). */
+  damage: number;
+}
+
+export interface MissionStats {
+  /** appended (2026-09-15): 이번 레이드 동안 소지품(장비 · 가방 · 퀵슬롯 · 주머니) 가치의 **최고값**. 사망 결과 창의 「잃은 전리품 가치」. */
+  peakLootValue?: number;
+  /** appended (2026-09-15): 사망으로 끝났을 때의 사망 원인. 탈출 · 원인을 모르면 null / 생략. */
+  death?: MissionDeathCause | null;
+}
+
+export interface EnemyManagerRef {
+  /**
+   * appended (2026-09-15, owner: enemies; caller: ui 사망 결과 창): 그 종류 적의 **얼굴 썸네일** — 카메라를 향해 왼쪽 사선으로
+   * 돌아본 머리 · 상체를 `sizePx` 정사각형으로 그린 data URL. 적 모델은 절차 생성이라 enemies/ 만 그릴 수 있다.
+   * 자기 WebGL 렌더러를 잠깐 쓰고 버린다 (메인 캔버스 · 씬의 광원 개수를 건드리지 않는다). 그릴 수 없으면 null.
+   */
+  renderPortrait?(enemyType: string, sizePx: number): string | null;
+  /**
+   * appended (2026-09-15): 그 종류 적의 한국어 표시 이름. 모르는 종류면 null. `data/enemies.csv` 에는 이름 칸이 없어
+   * enemies/ 의 이름표(`models/Portrait`)가 원본이다 — 튜토리얼 종류는 바탕 종류의 이름.
+   */
+  enemyDisplayName?(enemyType: string): string | null;
+}
+/* ══ end 2026-09-15 결과 창 개편 ══ */

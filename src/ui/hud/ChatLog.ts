@@ -1,5 +1,5 @@
 import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
-import { Keys, CHAT_MAX_LINES, PRIVATE_CHAT_LABEL_KO, SOCIAL_WHISPER_MAX, formatPlayerCode, keyLabel } from '@/shared';
+import { Keys, CHAT_MAX_LINES, PRIVATE_CHAT_LABEL_KO, SOCIAL_WHISPER_MAX, createKeycap, formatPlayerCode, paintKeycap } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { isPeerBlocked, socialOf } from '../menus/social/socialSource';
 import { whisperStateClass, whisperStateText } from '../menus/social/whisperText';
@@ -160,7 +160,7 @@ export class ChatLog {
     });
     // Flush-right close hint — its own flex item after the input (`flex:none`), so typed text can never run under it.
     const hint = el('span', { cls: 'chat-hint', parent: this.inputRow });
-    this.closeKey = el('span', { cls: 'keycap', text: keyLabel(Keys.INVENTORY), parent: hint });
+    this.closeKey = createKeycap(Keys.INVENTORY, { parent: hint });   // 2026-09-15: 공용 키캡
     el('span', { cls: 'chat-hint-t', text: '키로 닫기', parent: hint });
     // Keep game input from seeing typed characters (Input listens on window in the bubble phase).
     this.input.addEventListener('keydown', (e) => e.stopPropagation());
@@ -192,7 +192,7 @@ export class ChatLog {
     this.ctx = ctx;
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('input:bindingsChanged', () => setText(this.closeKey, keyLabel(Keys.INVENTORY))),
+      b.on('input:bindingsChanged', () => paintKeycap(this.closeKey, Keys.INVENTORY)),
       b.on('chat:post', ({ text, kind }) => this.post(text, kind)),
       b.on('net:chat', ({ id, name, text, kind }) => {
         const k = kind ?? 'text';

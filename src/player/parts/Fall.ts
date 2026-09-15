@@ -30,6 +30,10 @@ import {
   FALL_SHAKE_S, GRAVITY, type FallMessage, type GameContext, type PeerId, type TutorialFallRule,
 } from '@/shared';
 import type { PlayerSystem } from '../PlayerSystem';
+import type { PlayerDamageSource } from '@/shared';
+
+/** 2026-09-15 (결과 창 개편): 낙하 피해의 출처 — 하나를 돌려 쓴다. */
+const FALL_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'fall' });
 
 /** 순수 식: `height` m 를 떨어졌을 때의 기본 피해 (안전 높이 이하면 0). 스모크 · 콘솔이 같이 쓴다. */
 export function fallDamageFor(height: number): number {
@@ -70,6 +74,7 @@ export function onLanded(sys: PlayerSystem, height: number): void {
     // 절벽 1: 높이와 무관하게 즉사 — 시체 · 체크포인트 흐름은 game/ 이 평소대로 맡는다
     if (before <= 0) return;
     sys.hp = 0;
+    sys._deathSource = FALL_DAMAGE_SOURCE;   // 2026-09-15 (결과 창 개편): 사망 원인 = 낙하
     sys.die();
     emitFell(sys, height, before, rule);
     return;
@@ -82,7 +87,7 @@ export function onLanded(sys: PlayerSystem, height: number): void {
     damage = Math.min(damage, Math.max(0, before - 1));
     if (damage <= 0) return;
   }
-  sys.applyDamage(damage, undefined, false);
+  sys.applyDamage(damage, undefined, false, FALL_DAMAGE_SOURCE);   // 2026-09-15: 출처 `fall` (`player:damaged.source` · 사망 원인)
   emitFell(sys, height, before, rule);
 }
 

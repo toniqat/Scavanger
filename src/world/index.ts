@@ -13,4 +13,4 @@ export { boxContainsXZ, boxPushOut, boxRadius, rayBox, BOX_HEADROOM } from './ob
 export { Fog } from './Fog';
 export { Hazard } from './Hazard';
 export { HAZARD_ROWS, hazardRow, type HazardRow, type HazardPlan } from './hazard/model';
-export { TrainingArena, ARENA_HALF, ARENA_CEILING } from './TrainingArena';
+export { TrainingArena, ARENA_HALF } from './TrainingArena';

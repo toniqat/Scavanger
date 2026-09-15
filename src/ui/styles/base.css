@@ -139,33 +139,49 @@ input { font: inherit; color: inherit; }
   color: var(--c-text);
   background: rgba(255, 255, 255, 0.06);
 }
-/* 꾹 누르기 keycap (2026-09-09): a **bold accent chevron pointing down at the cap** — "this key is held, not tapped".
+/* 꾹 누르기 keycap (2026-09-09): an accent **chevron pointing down** — "this key is held, not tapped".
    One rule for every place a hold key is shown: the 키 가이드 (`KeyGuideEntry.hold`), the E 프롬프트 of a hold
-   interactable (`interact:promptChanged.hold` — 발사 포드 탑승), any future popup. Drawn with two borders of a rotated
-   square (crisp at any HUD size, no glyph font dependency), glowing in the accent colour and nodding 2 px so the eye
-   catches it; the cap itself gets an accent border so the pair reads as one unit. Containers that hold one make room
-   above with `:has()` (the chevron overhangs the cap by ~9 px).
+   interactable (`interact:promptChanged.hold` — 발사 포드 탑승), 발사 슬롯의 `Space`, 드론 `R 꾹 복귀`, any future popup.
+   Drawn with two borders of a rotated square (crisp at any HUD size, no glyph font dependency). Every keycap is made by
+   `shared/keycap` (`createKeycap` / `paintKeycap`) — never write `class="keycap kc-hold"` by hand.
+
+   2026-09-15 (사용자 결정 — 키캡 다듬기): ① the cap no longer gets an accent border / inset glow — **only the chevron**
+   carries the accent colour. ② the chevron no longer nods (`holdChevron` keyframes are gone — 2026-09-12 had already
+   slowed it to 1.8 s because it pulled the eye; now it is still). ③ it moved **inside the cap**: centred on the top edge,
+   pointing down at the label, and the label is pushed down by `padding-top` so the two never overlap. The cap keeps its
+   height (the context's `height` wins as before), so rows holding a hold key no longer need the `:has(.kc-hold)` top
+   padding that made room for the old overhanging chevron (key guide · E prompt · 가젯 안내 · 드론 안내 — all removed).
+   The `:not(.kc-mouse)` makes the padding rule (0,3,0) outrank the `.ctx .keycap { padding: 0 5px }` rules (0,2,0) that
+   size caps per widget. Mouse glyph caps draw their chevron **inside the SVG** (on the pressed button), so they get
+   neither the padding nor the `::before`.
 
    2026-09-10 — the modifier class is `kc-hold`, **not** `hold`. `.hold` was already taken by the hold ring at the
    crosshair (`hud/HoldGauge`, further down this file: `position:absolute; width:120px; height:120px; margin:-60px;
    opacity:0`). That bare class selector ties `.keycap` on specificity and wins on order, so `class="keycap hold"`
    turned the cap into a **120x120 fully transparent box**: the E prompt lost its keycap altogether and the panel
-   only grew taller (the `:has()` padding still applied). Never name a keycap modifier after an existing widget class. */
-.keycap.kc-hold { position: relative; border-color: var(--c-accent); box-shadow: 0 0 0 1px rgba(255, 179, 71, 0.25) inset; }
+   only grew taller (the `:has()` padding still applied). Never name a keycap modifier after an existing widget class
+   (2026-09-15: `kc-mouse` · `kc-inline` · `kcm-glyph` were checked free with `rg`). */
+.keycap.kc-hold { position: relative; }
+.keycap.kc-hold:not(.kc-mouse) { padding-top: 5px; }
 .keycap.kc-hold::before {
-  content: ''; position: absolute; left: 50%; top: -10px;
-  width: 8px; height: 8px;
-  border-right: 3px solid var(--c-accent); border-bottom: 3px solid var(--c-accent);
+  content: ''; position: absolute; left: 50%; top: -1px;
+  width: 6px; height: 6px;
+  border-right: 2px solid var(--c-accent); border-bottom: 2px solid var(--c-accent);
   transform: translate(-50%, 0) rotate(45deg);
-  filter: drop-shadow(0 0 3px rgba(255, 179, 71, 0.85)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
-  /* 2026-09-12 — 900ms → 1800ms (사용자: "너무 빠르게 흔들린다"). `alternate` 라 왕복 한 바퀴는 duration 의 2배이고,
-     900ms 는 왕복 1.8 s = 화면에 늘 떠 있는 키캡치고 눈에 밟히는 속도였다. 3.6 s 왕복이면 "살아 있다" 는 신호는 남고
-     시선을 끌지는 않는다. 움직임 폭(-2px → 1px)은 그대로 둔다 — 느려진 만큼 폭까지 줄이면 아예 안 보인다. */
-  animation: holdChevron 1800ms var(--ease) infinite alternate;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
   pointer-events: none;
 }
-@keyframes holdChevron { from { transform: translate(-50%, -2px) rotate(45deg); } to { transform: translate(-50%, 1px) rotate(45deg); } }
-.key-guide:has(.keycap.kc-hold), .prompt .row:has(.keycap.kc-hold) { padding-top: 16px; }
+.keycap.kc-mouse.kc-hold::before { display: none; }
+
+/* 마우스 버튼 키캡 (2026-09-15, 사용자 결정): `LMB` · `MMB` · `RMB` 글자 대신 마우스 윗부분 그림 (`shared/keycap.mouseGlyphSvg` —
+   누를 칸 흰색, 꾹 누르기면 강조색 + 그 칸 안의 chevron). 그림 크기는 **키캡 글자 크기의 1.45 배**(`em`)라 위젯마다 정한
+   `font-size`(10 px 키 가이드 → 14.5 px · 11 px 기본 → 16 px)를 그대로 따르고, `max-height: 100%` 로 낮은 키캡(갈고리 칩 15 px)
+   안에서도 넘치지 않는다. 키캡 높이 · 너비는 글자 키캡과 같은 위젯 규칙이 정하므로 한 줄에 섞여도 줄이 들썩이지 않는다.
+   꺼진 칸의 윤곽은 `currentColor` = 키캡 글자색이다. */
+.keycap.kc-mouse { padding-left: 3px; padding-right: 3px; }
+.keycap.kc-mouse .kcm-glyph { display: block; flex: none; width: 1.45em; height: 1.45em; max-height: 100%; overflow: visible; }
+/* 문장 안에 끼운 키캡 (`shared/keycap.renderKeyText` 의 `{ACTION}` 토큰 — 미니게임 안내 등) */
+.keycap.kc-inline { vertical-align: middle; margin: 0 0.25em; }
 
 /* ── HUD layer ─────────────────────────────────────────────────────────── */
 .hud {
@@ -236,19 +252,21 @@ input { font: inherit; color: inherit; }
 .reticle.bowmode .rbow-tier, .reticle.bowmode .rbow-draw { display: block; }
 .reticle.bowmode .tick { opacity: 0; }
 .reticle.consumable .rbow-tier, .reticle.consumable .rbow-draw { display: none; }
+/* 2026-09-15 (사용자 결정): 활 크로스헤어는 **가로로 두 배** — 안내선 14 → 28 · 20 → 40 px, 바 26 → 52 px(끝 조각
+   10 → 20 px, 가운데 틈 6 → 12 px 라 점 위에 닿아도 점이 보인다). 전부 `margin-left: −폭/2` 로 가운데에 선다. */
 .reticle .rbow-tier {
-  height: 1.5px; margin-top: -0.75px; width: 14px; margin-left: -7px;
+  height: 1.5px; margin-top: -0.75px; width: 28px; margin-left: -14px;
   background: rgba(255, 255, 255, 0.7); box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
   transition: background-color var(--t-fast) var(--ease);
 }
-.reticle .rbow-tier.rbow-low { width: 20px; margin-left: -10px; }
+.reticle .rbow-tier.rbow-low { width: 40px; margin-left: -20px; }
 .reticle .rbow-draw {
-  height: 1.5px; margin-top: -0.75px; width: 26px; margin-left: -13px;
+  height: 1.5px; margin-top: -0.75px; width: 52px; margin-left: -26px;
   opacity: 0.45; will-change: transform;
   transition: opacity var(--t-fast) var(--ease);
 }
 .reticle .rbow-draw::before, .reticle .rbow-draw::after {
-  content: ''; position: absolute; top: 0; width: 10px; height: 100%;
+  content: ''; position: absolute; top: 0; width: 20px; height: 100%;
   background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
   transition: background-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
@@ -375,6 +393,8 @@ input { font: inherit; color: inherit; }
 .weapon .mag.flash { animation: ammoFlash 320ms ease-out; }
 .weapon .reserve { font-family: var(--ui-mono); font-size: 14px; color: var(--c-text-dim); margin-bottom: 4px; }
 .weapon .reserve::before { content: "/ "; color: var(--c-text-faint); }
+/* 2026-09-15: 활 「롱혼」 — 탄창이 없어 잔탄은 가진 화살 한 숫자다 (hud/WeaponPanel `.single-ammo`). `/ 예비` 절반을 숨긴다. */
+.weapon.single-ammo .reserve { display: none; }
 .weapon .type { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 2px 6px; }
 @keyframes ammoFlash { 0% { color: #fff; } 30% { color: var(--c-danger); } 100% { color: var(--c-danger); } }
 /* weapon package: slot label, durability bar, swap sweep, broken state, slot strip */
@@ -1637,8 +1657,10 @@ input { font: inherit; color: inherit; }
 .ctl-mouse-svg .btn.bound { fill: rgba(255, 179, 71, 0.28); stroke: var(--c-accent); }
 .ctl-mouse-svg .seam { stroke: rgba(255, 255, 255, 0.18); stroke-width: 1.2; }
 .ctl-mouse-caps { display: flex; flex-direction: column; gap: 3px; width: 100%; }
-.ctl-mouse-caps .mcap { display: flex; align-items: baseline; gap: 8px; font-size: 10px; color: var(--c-text-faint); }
+.ctl-mouse-caps .mcap { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--c-text-faint); }
 .ctl-mouse-caps .mcap .k { font-family: var(--ui-mono); font-weight: 700; min-width: 30px; }
+/* 2026-09-15: 버튼 이름 칸이 공용 키캡이 됐다 — 좌 · 휠 · 우는 마우스 그림, M4 · M5 는 글자 (`menus/ControlsPanel`) */
+.ctl-mouse-caps .mcap .k.keycap { flex: none; min-width: 30px; height: 18px; padding: 0 4px; font-size: 9px; color: var(--c-text-faint); background: rgba(255, 255, 255, 0.04); }
 .ctl-mouse-caps .mcap .v { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctl-mouse-caps .mcap.bound { color: var(--c-text-dim); }
 .ctl-mouse-caps .mcap.bound .k { color: #ffd18a; }
@@ -1684,6 +1706,9 @@ input { font: inherit; color: inherit; }
 .kb-key { min-width: 108px; height: 32px; padding: 0 12px; font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.06em; }
 .kb-key.capturing { border-color: var(--c-accent); color: var(--c-accent); animation: kbBlink 0.9s ease-in-out infinite; }
 .kb-row.conflict .kb-key { border-color: rgba(255, 77, 77, 0.6); }
+/* 2026-09-15: 마우스 좌 · 휠 · 우에 묶인 버튼은 글자 대신 공용 마우스 그림 (`menus/KeybindMenu.paintBindingButton`) */
+.kb-key.kb-key-mouse { display: inline-flex; align-items: center; justify-content: center; }
+.kb-key.kb-key-mouse .kcm-glyph { display: block; width: 18px; height: 18px; flex: none; }
 @keyframes kbBlink { 0%, 100% { background: rgba(255, 179, 71, 0.08); } 50% { background: rgba(255, 179, 71, 0.24); } }
 .kb-foot { display: flex; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--c-border); }
 .kb-foot .ui-btn { min-width: 0; padding: 0 18px; }
@@ -1730,9 +1755,15 @@ input { font: inherit; color: inherit; }
   --wc: var(--c-info);
 }
 .wcharge.show { opacity: 1; }
-.wcharge.charge { --wc: #5fc8ff; }
-.wcharge.spinup { --wc: var(--c-accent); }
-.wcharge.slash { --wc: var(--c-danger); }
+/* 2026-09-15: 종류 클래스는 `wc-` 접두사다. 예전 `.charge` · `.spinup` · `.slash` 중 `.charge` 가 함선 호출 충전 링
+   (`.charge`, 위쪽 규칙)과 겹쳐 `.charge svg { rotate(-90deg) }` 가 오른쪽 호를 **위로** 돌리고 `.charge.ready` 가
+   가득 찬 전격총 호를 **빨갛게** 칠했다 (2026-09-10 `kc-hold` 사고와 같은 뿌리 — 위젯 클래스를 modifier 로 쓰지 않는다). */
+.wcharge.wc-charge { --wc: #5fc8ff; }
+/* 전격총 충전 완료 = 더 밝은 파랑 (빨강이 아니다) — 맥동은 공용 `.ready .fill` 규칙이 준다 */
+.wcharge.wc-charge.ready { --wc: #b8ecff; }
+.wcharge.wc-charge.ready .fill { filter: drop-shadow(0 0 3px #5fc8ff) drop-shadow(0 0 7px #8fdcff); }
+.wcharge.wc-spinup { --wc: var(--c-accent); }
+.wcharge.wc-slash { --wc: var(--c-danger); }
 .wcharge svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .wcharge path { fill: none; stroke-width: 3; stroke-linecap: butt; }
 .wcharge .track { stroke: rgba(255, 255, 255, 0.14); }

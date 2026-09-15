@@ -1,13 +1,14 @@
 /**
- * src/implants/parts/Devices.ts — **갈고리 · 대시 · 정찰 · 오버차지 · 대전차포**.
+ * src/implants/parts/Devices.ts — **갈고리 · 대시 · 정찰 · 오버차지**.
  *
- * 배리어를 뺀 나머지 임플란트 다섯 종의 실제 동작. 각각 `instant` / `hold` / `wielded` 중
+ * 배리어를 뺀 나머지 임플란트 네 종의 실제 동작. 각각 `instant` / `hold` 중
  * 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라
  * **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다.
+ * 2026-09-15: 대전차포(`updateLauncher` · `onRocketImpact`)는 은퇴해 지워졌다 — 전설 바주카와 겹친다.
  */
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
+  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
   IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
@@ -27,7 +28,6 @@ import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from '../Implant
 import { ImplantDevice } from '../devices/ImplantDevice';
 import { BarrierField } from '../effects/Barrier';
 import { GrappleWire } from '../effects/Grapple';
-import { RocketPool, type RocketImpact } from '../effects/AtLauncher';
 import { OverchargeBeam, allyPoint, findAlly } from '../effects/Overcharge';
 import { revealScan } from '../effects/Scan';
 import { ImplantFx } from '../fx/ImplantFx';
@@ -413,53 +413,6 @@ export function sendBeamOff(sys: ImplantSystem): void {
   if (!sys.beamNetOn) return;
   sys.beamNetOn = false; sys.beamNetTarget = null; sys.beamNetSelf = false; sys.beamNetAcc = 0;
   sys.send({ t: 'imp', ev: 'beam', target: null, self: false });
-  }
-
-/* ═══════════════════════════ 대전차포 (wielded) ═══════════════════════════ */
-export function updateLauncher(sys: ImplantSystem, active: boolean): void {
-  if (!active) return;
-  if (!sys.ctx.input.wasMousePressed(MouseButtons.FIRE)) return;
-  if (!sys.useCharge()) return;
-  const ctx = sys.ctx;
-  sys.aimRay(_o, _d);
-  sys.muzzle(_muzzle, _d);
-  // aim the rocket at what the reticle is looking at, not straight out of the tube
-  const interior = ctx.player?.interior ?? null;
-  const world = ctx.world && ctx.world.ready ? ctx.world : null;
-  const hit = interior ? interior.raycast(_o, _d, 400) : world ? world.raycast(_o, _d, 400) : null;
-  if (hit && hit.distance > 3) _t.copy(hit.point).sub(_muzzle).normalize();
-  else _t.copy(_d);
-  sys.rockets.fire(_muzzle, _t, false);
-  const p = ctx.player as Host | null;
-  if (p && typeof p.addRecoil === 'function') p.addRecoil(0.075, (Math.random() - 0.5) * 0.03);
-  ctx.bus.emit('camera:shake', { intensity: 0.4, duration: 0.2 });
-  ctx.bus.emit('audio:play', { id: 'rocket_fire', volume: 1 });
-  sys.activated('atlauncher', _muzzle);
-  sys.send({ t: 'imp', ev: 'rocket', o: tuple(_muzzle), d: tuple(_t) });
-  }
-
-export function onRocketImpact(sys: ImplantSystem, h: RocketImpact): void {
-  const ctx = sys.ctx;
-  _hitPt.copy(h.point);
-  const world = ctx.world && ctx.world.ready ? ctx.world : null;
-  const groundY = world ? world.getHeightAt(_hitPt.x, _hitPt.z) : _hitPt.y;
-  sys.fx.blast(_hitPt, IMPLANT_AT_RADIUS, groundY);
-  ctx.bus.emit('camera:shake', { intensity: 0.65, duration: 0.35 });
-  ctx.bus.emit('audio:play', { id: 'rocket_explode', position: _hitPt, volume: 1 });
-  ctx.bus.emit('implant:rocketExploded', { position: _hitPt.clone(), radius: IMPLANT_AT_RADIUS, damage: IMPLANT_AT_DAMAGE });
-
-  const enemies = ctx.enemies;
-  if (ctx.isAuthority) {
-    if (enemies) {
-      const area = (enemies as { applyAreaDamage?: unknown }).applyAreaDamage;
-      if (typeof area === 'function') enemies.applyAreaDamage(_hitPt, IMPLANT_AT_RADIUS, IMPLANT_AT_DAMAGE, ctx.net?.localId ?? 'local');
-      else enemies.applyExplosion(_hitPt, IMPLANT_AT_RADIUS, IMPLANT_AT_DAMAGE);
-    }
-  } else if (ctx.net) {
-    // client: the host owns enemy damage (it answers with `ee damaged` / `ee kill`)
-    ctx.net.send({ t: 'explode', p: tuple(_hitPt), r: IMPLANT_AT_RADIUS, dmg: IMPLANT_AT_DAMAGE }, 'host');
-  }
-  sys.send({ t: 'imp', ev: 'rocketHit', p: tuple(_hitPt) });
   }
 
 /** e2e hook: the replicated overcharge beam state of `peerId` as this client sees it (null = unknown peer). */

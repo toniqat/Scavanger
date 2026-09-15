@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_RADIUS, IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_WIDTH, IMPLANT_SCAN_PULSE_INTERVAL,
+  IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_WIDTH, IMPLANT_SCAN_PULSE_INTERVAL,
   IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2, IMPLANT_SHIELD_BASH_SWING_S, IMPLANT_OVERCHARGE_BUFF_HP_RATIO,
   Layers, type GameContext, type ImplantId, type ImplantMessage, type PeerId,
 } from '@/shared';
@@ -10,7 +10,6 @@ import { BarrierField } from './effects/Barrier';
 import { GrappleWire } from './effects/Grapple';
 import { OverchargeBeam, allyPoint } from './effects/Overcharge';
 import { revealScan } from './effects/Scan';
-import type { RocketPool } from './effects/AtLauncher';
 import type { ImplantFx } from './fx/ImplantFx';
 
 /** Phase 12: `imp scanCast` values from a peer are clamped to sane ranges (the wire is untrusted). */
@@ -58,10 +57,11 @@ const BEAM_TIMEOUT = 1.0;
 /**
  * Everything a *remote* caster's implants look like on this client: the device in their hands, their
  * grapple wire, their carried shield (which also blocks hostile fire here — see `ImplantSystem.raycastBarrier`),
- * their scan pulses and their rockets.
+ * their scan pulses.
  *
  * Devices are driven by `PlayerSnapshot.imp` (via `RemotePlayerRef.implantId`) so a late joiner still
- * sees them; the discrete `imp` messages carry the one-shot FX.
+ * sees them; the discrete `imp` messages carry the one-shot FX. A retired implant id (`atlauncher`, 2026-09-15) has no
+ * def, so neither the snapshot nor `imp wield` builds a device for it.
  */
 export class RemoteImplants {
   private readonly peers = new Map<PeerId, PeerVis>();
@@ -72,7 +72,6 @@ export class RemoteImplants {
   constructor(
     private readonly ctx: GameContext,
     private readonly fx: ImplantFx,
-    private readonly rockets: RocketPool,
   ) {}
 
   /** Barriers owned by peers (queried by `raycastBarrier` together with the local one). */
@@ -160,20 +159,8 @@ export class RemoteImplants {
         this.ctx.bus.emit('audio:play', { id: 'melee_swing', position: _a, volume: 0.6, pitch: 0.85 });
         break;
       }
-      case 'rocket': {
-        _a.set(msg.o[0], msg.o[1], msg.o[2]);
-        _b.set(msg.d[0], msg.d[1], msg.d[2]);
-        this.rockets.fire(_a, _b, true);
-        this.ctx.bus.emit('audio:play', { id: 'rocket_fire', position: _a, volume: 0.7 });
-        break;
-      }
-      case 'rocketHit': {
-        _a.set(msg.p[0], msg.p[1], msg.p[2]);
-        this.fx.blast(_a, IMPLANT_AT_RADIUS);
-        this.ctx.bus.emit('camera:shake', { intensity: 0.3, duration: 0.25 });
-        this.ctx.bus.emit('audio:play', { id: 'rocket_explode', position: _a, volume: 0.9 });
-        break;
-      }
+      // 2026-09-15: `imp rocket` / `imp rocketHit` (대전차포, retired) stay in the wire union but nothing sends them —
+      // an old peer's message falls through to the end of the switch and is ignored.
       case 'beam': {
         // Phase 7: overcharge channel — `target` = the ally the beam locks onto (may be us), `self` = healing themselves
         if (!msg.target && !msg.self) { this.endBeam(v); break; }

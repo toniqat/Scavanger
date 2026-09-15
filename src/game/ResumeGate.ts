@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { Keys, RESUME_GATE_BLOCKER, isDesktopShell, keyLabel } from '@/shared';
+import { Keys, RESUME_GATE_BLOCKER, isDesktopShell, paintKeycap } from '@/shared';
 import './resume-gate.css';
 
 /**
@@ -103,7 +103,8 @@ export class ResumeGate {
     this.ctx.bus.emit('ui:resumeGate', { shown: false });
   }
 
-  private refreshLabel(): void { this.hintKey.textContent = keyLabel(Keys.MENU); }
+  /** 2026-09-15: 공용 키캡 (`shared/keycap.paintKeycap`) — 모든 키캡이 한 경로로 그려진다. */
+  private refreshLabel(): void { paintKeycap(this.hintKey, Keys.MENU); }
 
   /** The click **is** the user gesture: ask for the lock right here. `update()` hides the gate once it arrives. */
   private readonly onClick = (e: MouseEvent): void => {

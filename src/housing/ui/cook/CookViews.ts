@@ -18,7 +18,7 @@ import type { CookJudge, CookBeatAction, ItemDef } from '@/shared';
 import {
   COOK_GRILL_BURN_AT, COOK_GRILL_DONE_GOOD, COOK_GRILL_DONE_PERFECT, COOK_GRILL_FLIP_GOOD, COOK_GRILL_FLIP_PERFECT,
   COOK_LEAD_BEATS, COOK_LIQUID_COLOR, COOK_LIQUID_LABEL_KO, COOK_MINCE_PERFECT_S, COOK_MINCE_ZERO_S,
-  COOK_STIR_BAND_HIGH, COOK_STIR_BAND_LOW, buildItemChip,
+  COOK_STIR_BAND_HIGH, COOK_STIR_BAND_LOW, buildItemChip, createKeycap,
 } from '@/shared';
 import { ChopGame, GrillGame, MinceGame, PourGame, StirGame, StirfryGame } from '../../parts/CookGames';
 import type { AnyCookGame, CookButton } from '../../parts/CookGames';
@@ -152,22 +152,23 @@ class MinceView extends BaseView {
 
   constructor(private readonly g: MinceGame, parent: HTMLElement, defOf: DefOf) {
     super(parent, 'mince');
-    this.gh = this.gauge('좌우', 'LMB');
+    this.gh = this.gauge('좌우', 'Mouse0');
     const board = el('div', { cls: 'cook-board', parent: this.root });
     chip(board, defOf(g.step.items[0] ?? ''), BOARD_CHIP, 'cook-food');
     this.bits = el('div', { cls: 'cook-bits', parent: board });
     this.knife = el('i', { cls: 'cook-knife cook-cleaver', parent: board });
     this.clock = el('div', { cls: 'cook-clock', parent: board });
-    this.gv = this.gauge('상하', 'RMB');
+    this.gv = this.gauge('상하', 'Mouse2');
     this.paint();
   }
 
-  private gauge(label: string, key: string): HTMLElement {
+  /** `code` = 그 게이지를 채우는 마우스 버튼 (2026-09-15: 공용 키캡의 마우스 그림 — 예전 `LMB` · `RMB` 글자). */
+  private gauge(label: string, code: string): HTMLElement {
     const box = el('div', { cls: 'cook-gauge', parent: this.root });
     const bar = el('div', { cls: 'cook-gauge-bar', parent: box });
     el('i', { cls: 'cook-gauge-fill', parent: bar });
     const cap = el('div', { cls: 'cook-gauge-cap', parent: box });
-    el('span', { cls: 'keycap cook-gauge-key', text: key, parent: cap });
+    createKeycap(code, { cls: 'cook-gauge-key', parent: cap });
     el('span', { text: label, parent: cap });
     return box;
   }

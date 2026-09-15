@@ -1,5 +1,5 @@
 import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, RoomPurpose, SocketSlot, WeaponDef, WeightState } from '@/shared';
-import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel, keyTable } from '@/shared';
+import { Keys, SOCKET_LABEL_KO, UNIQUE_WEAPON_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel, keyTable } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 /** 2026-09-13: English eyebrow word of the facility a bench belongs to (`TEXT.bench.eyebrow`). Wording only — no numbers. */
@@ -78,7 +78,13 @@ export const rarityLabel = (def: ItemDef): string => RARITY_LABEL_KO[def.rarity]
 export const rarityColor = (def: ItemDef): string => RARITY_COLORS[def.rarity];
 export const ammoLabel = (w: WeaponDef): string => AMMO_LABEL_KO[w.ammoType];
 export const ammoTypeLabel = (t: AmmoType): string => AMMO_LABEL_KO[t];
-export const weaponClassLabel = (w: WeaponDef): string => WEAPON_CLASS_LABEL_KO[weaponClassOf(w)];
+/**
+ * The weapon's **type** word (종류). 2026-09-15 (사용자 결정): a legendary unique names its own kind (`컴포짓 보우` …,
+ * `UNIQUE_WEAPON_LABEL_KO`) — its csv `class` (AR / DMR / SMG / SR) only picks the shooting skill and never reaches the
+ * screen. Graded guns keep the class label. (Same rule as `ui/hud/WeaponPanel.weaponTypeLabel`.)
+ */
+export const weaponClassLabel = (w: WeaponDef): string =>
+  w.unique ? UNIQUE_WEAPON_LABEL_KO[w.unique] : WEAPON_CLASS_LABEL_KO[weaponClassOf(w)];
 export const gradeLabel = (s: EffectiveWeaponStats): string => WEAPON_GRADE_ROMAN[s.grade - 1] ?? String(s.grade);
 /** Effective range: where damage starts to fall off, or the max range when the weapon has no falloff. */
 export const effectiveRange = (w: WeaponDef): number => w.falloffStart ?? w.range;

@@ -1,7 +1,7 @@
 import type { EmbeddedView, GameContext } from '@/shared';
 import {
   FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, Keys, MENU_BLOCKER, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSES_ASSIGNABLE, ROOM_PURPOSE_COLOR,
-  ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, buildFacilityChip, keyLabel,
+  ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, buildFacilityChip, createKeycap, paintKeycap,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { FacilityRows } from './FacilityRows';
@@ -219,7 +219,8 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
   el('div', { cls: 'bar-left', text: '', parent: foot });
   const manageBtn = el('button', { cls: 'ui-btn primary hs-manage-btn', parent: foot }) as HTMLButtonElement;
   const manageLabel = el('span', { text: '시설 관리', parent: manageBtn });
-  const manageKey = el('kbd', { cls: 'hs-keycap', text: keyLabel(Keys.MAP), parent: manageBtn });
+  // 2026-09-15: 공용 키캡 (`shared/keycap`) — `.keycap.hs-keycap` 이 버튼 글자색을 따르게 housing.css 가 덮는다
+  const manageKey = createKeycap(Keys.MAP, { tag: 'kbd', cls: 'hs-keycap', parent: manageBtn });
   manageBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -232,7 +233,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
 
   function refresh(): void {
     setText(manageLabel, '시설 관리');
-    setText(manageKey, keyLabel(Keys.MAP));
+    paintKeycap(manageKey, Keys.MAP);
     manageBtn.disabled = !!housing.shipManageBlock();
     facilities.refresh();
     if (!confirmEl.hidden && pendingRoom >= 0 && housing.getRoom(pendingRoom).purpose === 'empty') closeConfirm();

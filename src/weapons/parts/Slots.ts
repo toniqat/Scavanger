@@ -99,6 +99,42 @@ export function onLoadout(sys: WeaponSystem, items: Record<WeaponSlot, ItemInsta
 export function initInstanceFields(sys: WeaponSystem, w: WeaponInstance): void {
   if (w.inst.ammoInMag === undefined) w.inst.ammoInMag = w.stats.magSize;
   if (w.inst.durability === undefined) w.inst.durability = w.stats.maxDurability;
+  // 2026-09-15: a bow saved with the old 12-arrow quiver-magazine hands the extra arrows back to the bag. Whatever does
+  // not fit stays in the magazine (it is spent first and never reloaded, so nothing is lost and the counts stay right).
+  if (w.unique?.autoFeed && w.inst.ammoInMag > w.stats.magSize) {
+    const back = returnRoundsCounted(sys, w, w.inst.ammoInMag - w.stats.magSize);
+    if (back > 0) { w.inst.ammoInMag -= back; sys.persist(w, { ammoInMag: w.inst.ammoInMag }); }
+  }
+  }
+
+/**
+ * 2026-09-15 (「롱혼」 장전 없음): a weapon whose unique handler has `autoFeed` keeps its magazine topped up straight from
+ * the carried ammo — no reload phase, no `weapon:reload*`, no net `reload`. Called by the handler (`UniqueServices.feed`)
+ * from its per-frame update (never from inside an inventory event). Moves `magSize − mag` rounds of the calibre from the
+ * bag onto the instance, persists, and re-announces the ammo (so `ammoInMag + reserveRounds` is always the rounds carried).
+ * Returns true when anything moved.
+ */
+export function autoFeed(sys: WeaponSystem, w: WeaponInstance): boolean {
+  if (!w.unique?.autoFeed) return false;
+  const mag = sys.magOf(w);
+  const need = w.stats.magSize - mag;
+  if (need <= 0) return false;
+  let n = 0;
+  const inv = sys.ctx.inventory;
+  if (inv) {
+    const type = w.stats.ammoType;
+    sys.selfWriting = true;
+    try { n = inv.consumeWhere((d) => d.category === 'ammo' && d.ammoType === type, need); } finally { sys.selfWriting = false; }
+  } else {
+    const r = sys.reserveOf(w);
+    n = Math.min(need, r);
+    sys.fallbackReserve.set(w.uid, r - n);
+  }
+  if (n <= 0) return false;
+  w.inst.ammoInMag = mag + n;
+  sys.persist(w, { ammoInMag: w.inst.ammoInMag });
+  if (w === sys.slots[sys.active]) sys.emitAmmo(w);
+  return true;
   }
 
 export function setSlot(sys: WeaponSystem, slot: WeaponSlot, inst: WeaponInstance | null): void {
@@ -240,7 +276,8 @@ export function onItemUpdated(sys: WeaponSystem, item: ItemInstance): void {
     w.inst = item;
     sys.attachDirty = true;
   }
-  if (w.inst.ammoInMag !== undefined && w.inst.ammoInMag > w.stats.magSize) w.inst.ammoInMag = w.stats.magSize;
+  // (an `autoFeed` bow may still hold arrows from the old 12-arrow magazine that did not fit the bag — never clamp those away)
+  if (!w.unique?.autoFeed && w.inst.ammoInMag !== undefined && w.inst.ammoInMag > w.stats.magSize) w.inst.ammoInMag = w.stats.magSize;
   sys.emitDurability(w);
   if (w === sys.slots[sys.active]) sys.emitAmmo(w);
   }
@@ -270,17 +307,23 @@ export function onSocketChanged(sys: WeaponSystem, item: ItemInstance): void {
 
 /** Try to put `rounds` of the weapon's calibre back into the bag (best effort; leftovers are lost). */
 export function returnRounds(sys: WeaponSystem, w: WeaponInstance, rounds: number): void {
+  returnRoundsCounted(sys, w, rounds);
+  }
+
+/** `returnRounds` that reports how many rounds actually went back (2026-09-15 — the bow keeps what did not fit). */
+function returnRoundsCounted(sys: WeaponSystem, w: WeaponInstance, rounds: number): number {
   const loot = sys.ctx.loot, inv = sys.ctx.inventory;
-  if (!loot || !inv || rounds <= 0) return;
+  if (!loot || !inv || rounds <= 0) return 0;
   const type = w.stats.ammoType;
   const ammoDef = loot.getAllItemDefs().find((d) => d.category === 'ammo' && d.ammoType === type);
-  if (!ammoDef) return;
+  if (!ammoDef) return 0;
   let left = rounds;
   while (left > 0) {
     const n = Math.min(left, Math.max(1, ammoDef.stackMax));
     if (!inv.tryAddItem(loot.createItem(ammoDef.id, n))) break;
     left -= n;
   }
+  return rounds - left;
   }
 
 /** Bag contents changed (ammo picked up / dropped / consumed) → refresh the reserve on the HUD. */

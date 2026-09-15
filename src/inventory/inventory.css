@@ -1016,6 +1016,9 @@ kbd {
   background: var(--inv-line);
 }
 .inv-menu-item kbd { font-size: 9px; color: var(--inv-muted); }
+/* 2026-09-15: 마우스 버튼 힌트(`휠클릭` → MMB)는 공용 마우스 그림 (`ui/ContextMenu`) — 글자 kbd 와 같은 높이 */
+.inv-menu-item kbd.inv-menu-kmouse { display: inline-flex; align-items: center; justify-content: center; padding: 1px 4px; }
+.inv-menu-item kbd.inv-menu-kmouse .kcm-glyph { display: block; width: 13px; height: 13px; flex: none; }
 
 /* ── split dialog ───────────────────────────────────────────────────────── */
 .inv-dialog-backdrop {

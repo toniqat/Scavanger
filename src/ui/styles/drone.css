@@ -205,8 +205,9 @@
 }
 .dr-key .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 10px; background: rgba(0, 0, 0, 0.45); }
 .dr-view.is-air .dr-key.ground, .dr-view.is-ground .dr-key.air { display: none; }
-/* `R` 꾹 복귀: 한 줄 띄우고, 키캡 위 chevron(`.kc-hold::before`, 약 10 px)이 윗줄에 닿지 않게 여백 */
-.dr-key.back { margin-top: 6px; padding-top: 12px; color: var(--c-text-dim); }
+/* `R` 꾹 복귀: 한 줄 띄운다. 2026-09-15 — chevron(`.kc-hold::before`)이 키캡 **안** 윗변으로 들어가 윗줄에 닿을 일이 없으므로
+   그 자리를 비우던 `padding-top: 12px` 를 걷어냈다 */
+.dr-key.back { margin-top: 6px; color: var(--c-text-dim); }
 .dr-noise {
   display: none;
   padding: 1px 6px;

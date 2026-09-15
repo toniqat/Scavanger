@@ -877,10 +877,13 @@
   min-width: 0; padding: 0 20px; margin-left: auto;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
 }
-.hs-keycap {
-  font-family: var(--ui-mono); font-size: 10px; line-height: 1;
+/* 2026-09-15: 공용 키캡(`shared/keycap`)이 `.keycap` 을 더하므로 `.keycap.hs-keycap` 로 그 기본값(글자색 · 바탕 · 두꺼운 아랫변 ·
+   굵기)을 덮어 **버튼 글자색을 따르는** 옛 모습을 지킨다. 마우스로 리바인딩하면 그림도 `currentColor` 로 그려진다. */
+.hs-keycap, .keycap.hs-keycap {
+  font-family: var(--ui-mono); font-size: 10px; line-height: 1; font-weight: inherit;
   min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
   padding: 0 5px; border: 1px solid currentColor; border-radius: 3px; opacity: 0.85;
+  color: inherit; background: transparent;
 }
 
 @media (max-width: 1180px) {

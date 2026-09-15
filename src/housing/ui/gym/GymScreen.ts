@@ -32,7 +32,8 @@ import type {
   GameContext, GameSessionInfo, GymGameTuning, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry,
 } from '@/shared';
 import {
-  GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, keyLabel,
+  GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, keyLabel, paintKeycap,
+  renderKeyText,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { GYM_BLOCKER, completeGymSession, endGymSession } from '../../parts/Gym';
@@ -263,7 +264,7 @@ export class GymScreen {
     this.progF = -1;
     this.view = createGymView(this.game, panel, s.mode === 'game' ? { labels: GAME_NOTE_LABELS } : {});
     this.verdict = el('div', { cls: 'gym-verdict', parent: panel });
-    el('div', { cls: 'gym-hint', text: this.ruleText(s), parent: panel });
+    renderKeyText(el('div', { cls: 'gym-hint', parent: panel }), this.ruleText(s));
     this.last = performance.now();
     this.emitGuide();
     this.paint();
@@ -401,18 +402,21 @@ export class GymScreen {
     return s.mode === 'game' ? GAME_MINIGAME_LABEL_KO[s.minigame] : GYM_MINIGAME_LABEL_KO[s.minigame];
   }
 
+  /**
+   * 안내 한 줄 — 2026-09-15: 키 자리는 `{JUMP}` · `{LEFT}` · `{RIGHT}` **토큰**이고 `renderKeyText` 가 공용 키캡으로 끼워 넣는다
+   * (글자 `Space` 대신 키캡 — 마우스로 리바인딩하면 그림). 그릴 때 `Keys` 를 읽으므로 리바인드 = `relabel()` 이 다시 그린다.
+   */
   private ruleText(s: ScreenSpec): string {
-    const J = keyLabel(Keys.JUMP);
     const kind = s.minigame;
     const reps = tunedCount(Math.round(GYM_PRESS_REPS), s.tuning?.countMul);
     if (s.mode === 'game') {
-      if (kind === 'press') return `커서가 가운데 구역에 들어올 때 ${J} — 가운데일수록 좋습니다 (${reps}회)`;
-      if (kind === 'breath') return `표식이 선에 닿을 때 ${J} — 「톡」 은 짧게, 「꾹」 은 꾹 눌렀다가 끝에서 뗍니다`;
-      return `표식에 맞춰 왼쪽 ${keyLabel(Keys.LEFT)} · 오른쪽 ${keyLabel(Keys.RIGHT)} 을 누릅니다`;
+      if (kind === 'press') return `커서가 가운데 구역에 들어올 때 {JUMP} — 가운데일수록 좋습니다 (${reps}회)`;
+      if (kind === 'breath') return '표식이 선에 닿을 때 {JUMP} — 「톡」 은 짧게, 「꾹」 은 꾹 눌렀다가 끝에서 뗍니다';
+      return '표식에 맞춰 왼쪽 {LEFT} · 오른쪽 {RIGHT} 을 누릅니다';
     }
-    if (kind === 'press') return `커서가 가운데 구역에 들어올 때 ${J} — 가운데일수록 좋습니다 (${reps}회)`;
-    if (kind === 'breath') return `표식이 선에 닿을 때 ${J} — 「후」 는 짧게, 「하」 는 꾹 눌렀다가 끝에서 뗍니다`;
-    return `박자에 맞춰 왼발 ${keyLabel(Keys.LEFT)} · 오른발 ${keyLabel(Keys.RIGHT)} 을 번갈아 밟습니다`;
+    if (kind === 'press') return `커서가 가운데 구역에 들어올 때 {JUMP} — 가운데일수록 좋습니다 (${reps}회)`;
+    if (kind === 'breath') return '표식이 선에 닿을 때 {JUMP} — 「후」 는 짧게, 「하」 는 꾹 눌렀다가 끝에서 뗍니다';
+    return '박자에 맞춰 왼발 {LEFT} · 오른발 {RIGHT} 을 번갈아 밟습니다';
   }
 
   /** 단련 보너스 · 진행도 한 덩어리 (시작 안내 · 결과 공용). */
@@ -443,7 +447,7 @@ export class GymScreen {
     const trained = prog?.getTrainedBonus?.(s.stat) ?? 0;
     const need = prog?.trainedXpToNext?.(s.stat) ?? null;
     this.trainedBlock(card, s.stat, trained, prog?.getTrainedProgress?.(s.stat) ?? 0, need, trained >= GYM_TRAINED_MAX);
-    el('div', { cls: 'gym-rule', text: this.ruleText(s), parent: card });
+    renderKeyText(el('div', { cls: 'gym-rule', parent: card }), this.ruleText(s));
     const until = prog?.getGymFatigueUntil?.(s.stat) ?? 0;
     if (until > this.sys.nowMs()) {
       const warn = el('div', { cls: 'gym-warn', parent: card });
@@ -506,7 +510,7 @@ export class GymScreen {
   private relabelKeys(): void {
     for (const k of this.root.querySelectorAll<HTMLElement>('.keycap[data-key]')) {
       const a = k.dataset.key as GymAction;
-      setText(k, keyLabel(a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT));
+      paintKeycap(k, a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT);   // 2026-09-15: 공용 키캡
     }
   }
 
@@ -515,9 +519,9 @@ export class GymScreen {
     this.relabelKeys();
     this.view?.relabel();
     const hint = this.panel?.querySelector<HTMLElement>('.gym-hint');
-    if (hint && this.spec) setText(hint, this.ruleText(this.spec));
+    if (hint && this.spec) renderKeyText(hint, this.ruleText(this.spec));
     const rule = this.card?.querySelector<HTMLElement>('.gym-rule');
-    if (rule && this.spec) setText(rule, this.ruleText(this.spec));
+    if (rule && this.spec) renderKeyText(rule, this.ruleText(this.spec));
     this.emitGuide();
   }
 

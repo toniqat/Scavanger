@@ -4,6 +4,11 @@ import {
   breakFragileAlong, type GameContext, type GrenadeView,
 } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
+import type { PlayerDamageSource } from '@/shared';
+
+/** 2026-09-15 (결과 창 개편): 수류탄 폭발이 로컬 플레이어에게 준 피해의 출처 — 내 것 / 분대원 것. */
+const SELF_GRENADE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'self' });
+const ALLY_GRENADE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'ally' });
 
 /** Alias of the shared contract value (3 s); kept for the barrel export. */
 export const GRENADE_FUSE = SHARED_GRENADE_FUSE;
@@ -170,7 +175,8 @@ export class GrenadeManager {
       // self / friendly damage with linear falloff
       if (d < radius) {
         const dmg = damage * (1 - d / radius) * PLAYER_DAMAGE_MUL;
-        if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone());
+        // 2026-09-15 (결과 창 개편): 내 수류탄(손에서 터진 것 포함) = `self`, 분대원 수류탄의 복제 = `ally`
+        if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone(), visualOnly ? ALLY_GRENADE_SOURCE : SELF_GRENADE_SOURCE);
       }
       const shake = THREE.MathUtils.clamp(1 - d / 28, 0, 1) * (fire ? 0.5 : 1);
       if (shake > 0) ctx.bus.emit('camera:shake', { intensity: 0.25 + shake * 0.75, duration: 0.45 });

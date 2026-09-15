@@ -182,7 +182,45 @@ export class ExtractionSystem implements GameSystem {
       beginPreLanded: (p, yaw, opts) => sys.beginPreLanded(p, yaw, opts),
       skipToLiftoff: () => sys.skipToLiftoff(),
       holdFire: () => sys.holdFire(),
+      skipToComplete: () => sys.skipToComplete(),
     };
+  }
+
+  /* ── 2026-09-15 (사용자 결정 — 튜토리얼 건너뛰기 = 암전 → 보상 창 → 함선) ──────────────────────────────
+   * `ExtractionRef.skipToComplete`. 걸어가 타기 · 이륙 · 외부 카메라 연출을 **통째로** 건너뛴다 — 함선은 그 자리에 선 채로
+   * `extraction:liftoff {aboard: true, squadDone: true}` 를 한 번 내고, `game/` 이 그것을 건너뛰기로 알아봐(`stage !== 'liftoff'`
+   * 인데 이륙이 왔다 · 또는 이미 `liftoff` 페이즈인데 한 번 더 왔다) 대기 없이 평소 `complete()` 로 간다. 결과 화면 · 정산 ·
+   * 함선 획득(튜토리얼 트랙이 같은 이벤트로 `extract` 를 접는다)은 진짜 탈출과 같은 길이다. 암전은 부르는 쪽(tutorial)이 먼저 건다.
+   *
+   * 남는 것을 걷는 범위: 이륙 연출(`ui:cinematic` 끄기) · 스위치 · 유예 시계 · 탑승자의 각본 잠금. **몸의 부착 · 화물칸 상자는
+   * 그대로 둔다** — 오르던 함선에서 떼면 결과 화면 밑에서 몸이 떨어진다. 결과 화면 뒤 `hub:enter` → `game:abort` → `resetMission(true)`
+   * 가 평소처럼 전부 푼다.
+   *
+   * false: 튜토리얼이 아니다 · 이미 넘겼다 · 페이즈가 탈출 흐름(`extracting` · `shipLanded` · `liftoff`)이 아니다(아직 `playing` 이거나
+   * 이미 결과 화면) · `game/` 이 받지 않았다. 몸이 사망 · 전투불능이어도 받는다 — 건너뛰기는 탈출을 대신 해 주는 것이다.
+   */
+  private skipCompleted = false;
+
+  private skipToComplete(): boolean {
+    const ctx = this.ctx;
+    if (!ctx || ctx.missionMode !== 'tutorial' || this.skipCompleted) return false;
+    this.syncPreLandedPhase();
+    if (ctx.phase !== 'extracting' && ctx.phase !== 'shipLanded' && ctx.phase !== 'liftoff') return false;
+    this.skipCompleted = true;
+    this.cinematic.stop(ctx);
+    ctx.interactables.unregister('ship_liftoff_switch');
+    this.departing = false;
+    this.departRemaining = -1;
+    this.idleRemaining = -1;
+    if (this.riding) ctx.player?.setSceneLock?.(false);
+    const position = (this.ship ? this.ship.position : this.shipLandPos).clone();
+    ctx.bus.emit('extraction:liftoff', { position, aboard: true, squadDone: true });
+    // emit 안에서 game/ 이 페이즈를 바꾼다 — 좁혀진 타입을 넓혀 다시 읽는다
+    const phaseAfter: string = ctx.phase;
+    if (phaseAfter === 'complete') return true;
+    // game/ 이 받지 않았다 (페이즈가 어긋났다) — 다음 시도를 막지 않는다
+    this.skipCompleted = false;
+    return false;
   }
 
   /**
@@ -192,8 +230,14 @@ export class ExtractionSystem implements GameSystem {
    * `keepEnemyOut` 과 같은 이유로 월드 콜라이더가 아니라 **질의**다 (`enemies/ai` 가 사격 직전에 부른다).
    * 본편에는 문이 없다 — `ctx.missionMode !== 'tutorial'` 이면 늘 false.
    */
+  /*
+   * 2026-09-15 (사용자 결정 — 「처치하지 않은 안드로이드가 함선 안의 PC 를 **실제로** 쏜다 · 죽지는 않는다」): 사격 보류를 **걷었다.**
+   * 계약(추가만)이라 질의는 남고 늘 false 다. 대신 탑승자는 피해를 받는 각본 잠금(`setSceneLock(true, {allowDamage, minHp: 1})`,
+   * `liftoff()`)이고, 튜토리얼 이륙은 외피 콜라이더를 곧장 걷어(`update`) 총알이 화물칸에 닿으며, enemies 의 이륙 사격 창
+   * (`Tutorial.onTutorialLiftoff`, `TUTORIAL_LIFTOFF_FIRE_S`)이 표적을 잡아 준다.
+   */
   private holdFire(): boolean {
-    return this.lifting && this.ctx?.missionMode === 'tutorial';
+    return false;
   }
 
   /** 튜토리얼의 미리 세워 둔 함선인가 — 스위치가 유예 없이 곧장 이륙으로 가는 유일한 조건 (본편은 늘 false). */
@@ -804,7 +848,8 @@ export class ExtractionSystem implements GameSystem {
        * (바로 위 `cinematic` 이 들고 있다). 푸는 곳은 player/ 의 리셋 경로와 아래 `resetMission` 이다.
        * 튜토리얼에만 건다 — 본편 이륙에서 무적이 되는 것은 이 결정의 범위가 아니다.
        */
-      if (ctx.missionMode === 'tutorial') player.setSceneLock?.(true);
+      /* 2026-09-15 (사용자 결정 — 「실제 피해 · 죽지 않음」): 입력은 잠그되 **피해는 받는다** — 체력 1 에서 멈추고 전투불능 · 사망이 없다. */
+      if (ctx.missionMode === 'tutorial') player.setSceneLock?.(true, { allowDamage: true, minHp: 1 });
     }
     // A body standing in the bay but not riding (dead / downed) was never on the box — it stays on the pad.
     ctx.bus.emit('extraction:liftoff', { position: ship.position.clone(), aboard: this.riding, squadDone });
@@ -930,9 +975,12 @@ export class ExtractionSystem implements GameSystem {
       this.liftoffElapsed += dt;
       // The hull colliders stay while the ship sits on the pad closing its ramp, and go the moment it starts to climb
       // (a rising roof slab would shove riders sideways — see `Hull.ts`).
-      if (this.hull.registered && ship.liftoffTime >= LIFTOFF_SPOOL_S) this.hull.unregister();
+      // 2026-09-15: 튜토리얼 함선은 뜨는 순간 걷는다 — 남은 안드로이드의 총알이 화물칸의 탑승자에게 닿아야 한다 (사용자 결정 「실제 피해」).
+      // 탑승자는 이미 화물칸 상자(`setShipInterior`) 위라 벽이 필요 없고, 적의 입구 차단은 콜라이더가 아니라 `keepEnemyOut` 질의다.
+      if (this.hull.registered && (ship.liftoffTime >= LIFTOFF_SPOOL_S || this.tutorialLiftoffNow())) this.hull.unregister();
       if (this.riding) {
-        this.cinematic.update(dt, ctx, ship);
+        // 2026-09-15: 건너뛰기(`skipToComplete`)가 연출을 걷었으면 다시 잡지 않는다
+        if (!this.skipCompleted) this.cinematic.update(dt, ctx, ship);
       } else if (!this.squadDone && !this.preLanded && ctx.isGameplayPhase()) {
         // 2026-09-14: 미리 세워 둔 함선(튜토리얼)에는 다시 부를 콘솔이 없다 — 리셋하면 남은 사람이 영영 못 나간다.
         const due = LEFT_BEHIND_RESET_S + (ctx.isAuthority ? 0 : CLIENT_RESET_SLACK_S);
@@ -1000,6 +1048,7 @@ export class ExtractionSystem implements GameSystem {
     this.activePad = null;
     this.preLanded = false;
     this.preLandedPhasePending = false;
+    this.skipCompleted = false;   // 2026-09-15
     this.counting = false;
     this.countdown = 0;
     this.shipCalled = false;

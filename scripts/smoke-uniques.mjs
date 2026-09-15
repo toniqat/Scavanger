@@ -315,6 +315,34 @@ try {
   const eqB = await P(() => window.__equip('wpn_u_bow', 'ammo_arrow', 30));
   ok(eqB.ok, 'wpn_u_bow equipped', JSON.stringify(eqB));
   await waitSim(0.6);
+  // 2026-09-15 장전 없음: the magazine is the one nocked arrow, fed straight from the quiver — ammoInMag + reserveRounds is
+  // always the arrows carried, no reload ever starts (R included), no '탄약 없음' toast. Separate watchers: `clearEv` wipes __ev.
+  await P(() => {
+    const bus = window.__game.ctx.bus;
+    window.__bowWatch = { reloads: 0, noAmmo: 0 };
+    bus.on('weapon:reloadStarted', () => { window.__bowWatch.reloads++; });
+    bus.on('ui:notify', (n) => { if (/탄약 없음/.test(n.text)) window.__bowWatch.noAmmo++; });
+    window.__bowAmmo = () => {
+      const ws = window.__game.getSystem('weapons'); const w = ws.slots[ws.active];
+      const last = window.__ev['weapon:ammoChanged'].slice(-1)[0] ?? null;
+      return { mag: ws.magOf(w), res: ws.reserveOf(w), magSize: w.stats.magSize, ev: last ? last.ammoInMag + last.reserveRounds : null, phase: ws.phase };
+    };
+    // weapon-space pose of the bow model (2026-09-15 가로 파지: limbs ±X, string behind the riser at +Z, muzzle at the arrow tip)
+    window.__bowPose = () => {
+      const ws = window.__game.getSystem('weapons'); const m = ws.slots[ws.active].model;
+      const s0 = m.bowStrings[0], s1 = m.bowStrings[1];
+      return { limbX: m.bowLimbs.map((l) => +l.position.x.toFixed(3)), nockX: [s0.position.x, s1.position.x].map((v) => +v.toFixed(3)),
+        nockY: +s0.position.y.toFixed(3), stringZ: +s0.position.z.toFixed(3), halfLen: +s0.scale.x.toFixed(3), arrowZ: +m.bowArrow.position.z.toFixed(3),
+        arrowBaseZ: +m.bowArrowBase.z.toFixed(3), arrowVis: m.bowArrow.visible, muzzleZ: +m.muzzle.position.z.toFixed(3), flex: +m.bowLimbs[0].rotation.y.toFixed(3) };
+    };
+  });
+  const bowA0 = await P(() => window.__bowAmmo());
+  // (the quiver count is relative: how many of the 30 arrows one `createItem` stack holds follows the ammo stack table)
+  const res0 = bowA0.res;
+  ok(bowA0.magSize === 1 && bowA0.mag === 1 && res0 > 3 && (bowA0.ev === null || bowA0.ev === 1 + res0), `bow: one nocked arrow + a quiver (mag ${bowA0.mag}/${bowA0.magSize}, reserve ${res0})`, JSON.stringify(bowA0));
+  const pose0 = await P(() => window.__bowPose());
+  ok(pose0.limbX[0] > 0.1 && pose0.limbX[1] < -0.1 && Math.abs(pose0.nockX[0]) > 0.5 && Math.abs(pose0.nockX[1]) > 0.5, 'bow held horizontally: limbs spread along ±X', JSON.stringify(pose0));
+  ok(pose0.stringZ > 0 && pose0.arrowZ === pose0.stringZ && pose0.muzzleZ < -0.6 && pose0.arrowVis, 'string behind the riser (+Z) with the arrow tail on it, muzzle at the arrow tip', JSON.stringify(pose0));
   // 2026-09-14 활 시위: LMB hold draws (BOW_DRAW_TIME 0.8 s), release shoots; RMB cancels; no ADS any more
   sc = await lastEv('weapon:scopeChanged');
   ok(!sc || sc.zoom === 1, 'bow no longer aims (scope zoom 1)', JSON.stringify(sc));
@@ -328,13 +356,16 @@ try {
   const midT = drawMid.draw.slice(-1)[0]?.t;
   ok(drawMid.draw.length >= 3 && drawMid.draw[0].t === 0 && midT > 0.2 && midT < 0.95, `chargeChanged kind:'draw' rising from 0 while LMB held (t=${midT?.toFixed?.(2)})`, JSON.stringify(drawMid.draw.slice(0, 2)));
   ok(drawMid.fired === 0 && drawMid.rs.charging === true, 'no arrow while drawing + remoteState.charging', JSON.stringify(drawMid));
+  const poseMid = await P(() => window.__bowPose());
+  ok(poseMid.arrowZ > pose0.arrowZ + 0.04 && poseMid.stringZ >= pose0.stringZ && poseMid.flex < 0, `the draw pulls the string + arrow toward the body (+Z ${pose0.arrowZ} → ${poseMid.arrowZ}), limbs flex`, JSON.stringify(poseMid));
   await waitSim(0.55);
   await mouseUp(0);
   await waitSim(0.5);
   const arrow = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), fired: window.__ev['weapon:fired'].length,
     draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw'), rs: window.__game.ctx.weapons.remoteState.charging }), bw.id);
   const fullT = arrow.draw.filter((c) => c.t >= 0).slice(-1)[0]?.t;
-  ok(arrow.fired === 1 && arrow.lo.mag === 11, `release looses one arrow (mag 12 → ${arrow.lo.mag}, fired ${arrow.fired})`);
+  const bowA1 = await P(() => window.__bowAmmo());
+  ok(arrow.fired === 1 && bowA1.mag === 1 && bowA1.res === res0 - 1 && bowA1.ev === res0,`release looses one arrow, the next is nocked at once (mag ${bowA1.mag}, reserve ${bowA1.res}, HUD total ${bowA1.ev})`, JSON.stringify(bowA1));
   ok(fullT === 1 && arrow.draw.slice(-1)[0].t === -1, `draw reached 1 and closed with t:-1 (last t ${fullT})`);
   ok(arrow.rs === false, 'remoteState.charging clears after the release');
   const fullDmg = arrow.e ? bw.hp - arrow.e.hp : 0;
@@ -350,7 +381,8 @@ try {
   const tapA = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), fired: window.__ev['weapon:fired'].length,
     draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw') }), bt.id);
   const tapDmg = tapA.e ? bt.hp - tapA.e.hp : 0;
-  ok(tapA.fired === 1 && tapA.lo.mag === 10 && tapA.draw.slice(-1)[0]?.t === -1, `tap looses one arrow at once (mag → ${tapA.lo.mag}, draw closed)`, JSON.stringify(tapA.draw));
+  const bowA2 = await P(() => window.__bowAmmo());
+  ok(tapA.fired === 1 && bowA2.mag === 1 && bowA2.res === res0 - 2 &&tapA.draw.slice(-1)[0]?.t === -1, `tap looses one arrow at once (reserve → ${bowA2.res}, draw closed)`, JSON.stringify({ a: bowA2, d: tapA.draw }));
   ok(tapDmg > 0 && tapDmg < fullDmg * 0.8, `tap arrow is weaker (${tapDmg.toFixed(0)} vs full ${fullDmg.toFixed(0)})`, JSON.stringify(tapA.e));
   // RMB during the draw cancels: no arrow, no ammo
   await waitSim(0.5);
@@ -363,9 +395,37 @@ try {
   await waitSim(0.4);
   const cancel = await P(() => ({ lo: window.__loadout(), fired: window.__ev['weapon:fired'].length, draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw'),
     sc: window.__ev['weapon:scopeChanged'].slice(-1)[0], aiming: window.__game.ctx.player.isAiming }));
-  ok(cancel.fired === 0 && cancel.lo.mag === 10, `RMB cancels the draw: no arrow, no ammo (mag ${cancel.lo.mag}, fired ${cancel.fired})`);
+  const bowA3 = await P(() => window.__bowAmmo());
+  ok(cancel.fired === 0 && bowA3.mag === 1 && bowA3.res === res0 - 2,`RMB cancels the draw: no arrow, no ammo (reserve ${bowA3.res}, fired ${cancel.fired})`);
   ok(cancel.draw.length >= 2 && cancel.draw.slice(-1)[0].t === -1, 'cancel closes the draw with t:-1', JSON.stringify(cancel.draw.slice(-2)));
   ok(!cancel.aiming && (!cancel.sc || cancel.sc.zoom === 1), 'RMB never enters ADS with the bow', JSON.stringify(cancel));
+  // R never reloads the bow
+  await tap('KeyR');
+  await waitSim(0.4);
+  const afterR = await P(() => ({ a: window.__bowAmmo(), w: { ...window.__bowWatch } }));
+  ok(afterR.w.reloads === 0 && afterR.a.phase === 'ready' && afterR.a.mag === 1, 'R does nothing with the bow (no reload)', JSON.stringify(afterR));
+  // out of arrows: shoot the nocked one, then a press is a dry click — no draw, no reload, no toast
+  await P(() => window.__game.ctx.inventory.consumeWhere((d) => d.category === 'ammo' && d.ammoType === 'arrow', 999));
+  await waitSim(0.4);
+  await click(0);
+  await waitSim(0.6);
+  await clearEv();
+  const emptyA = await P(() => ({ a: window.__bowAmmo(), pose: window.__bowPose() }));
+  ok(emptyA.a.mag === 0 && emptyA.a.res === 0 && emptyA.pose.arrowVis === false, 'last arrow shot: string empty, nothing nocked', JSON.stringify(emptyA));
+  await mouseDown(0);
+  await waitSim(0.4);
+  const dry = await P(() => ({ dry: window.__ev['weapon:dryFire'].length, draw: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'draw').length, fired: window.__ev['weapon:fired'].length, rs: window.__game.ctx.weapons.remoteState.charging }));
+  await mouseUp(0);
+  await tap('KeyR');
+  await waitSim(0.4);
+  const dryW = await P(() => ({ ...window.__bowWatch, phase: window.__game.getSystem('weapons').phase }));
+  ok(dry.dry === 1 && dry.draw === 0 && dry.fired === 0 && dry.rs === false, 'no arrows: LMB is a dry click and never draws', JSON.stringify(dry));
+  ok(dryW.reloads === 0 && dryW.noAmmo === 0 && dryW.phase === 'ready', 'no arrows: no reload, no 탄약 없음 toast (LMB or R)', JSON.stringify(dryW));
+  // picking arrows up re-nocks on its own
+  await P(() => window.__game.ctx.inventory.tryAddItem(window.__game.ctx.loot.createItem('ammo_arrow', 5)));
+  await waitSim(0.6);
+  const refed = await P(() => ({ a: window.__bowAmmo(), pose: window.__bowPose() }));
+  ok(refed.a.mag === 1 && refed.a.res === 4 && refed.a.ev === 5 && refed.pose.arrowVis, `picked-up arrows are nocked without a reload (mag ${refed.a.mag}, reserve ${refed.a.res}, HUD total ${refed.a.ev})`, JSON.stringify(refed));
   await P(() => window.__killAll());
   await waitSim(0.3);
   await P(() => window.__heal());
@@ -438,7 +498,7 @@ try {
   ok(!air.grounded && air.pitch < -0.6, `airborne and looking down before the shot (pitch ${air.pitch?.toFixed(2)})`, JSON.stringify(air));
   ok(jump.alt === 1, 'RMB rocket → weapon:altFired');
   ok(!jump.grounded, 'still airborne when the rocket went off (the condition the super jump needs)', JSON.stringify({ vy: jump.vy, grounded: jump.grounded }));
-  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 26, 'player:blastJump with BAZOOKA_SUPER_JUMP 26 (2026-09-14)', JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
+  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 17, 'player:blastJump with BAZOOKA_SUPER_JUMP 17 (2026-09-15 rollback)', JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
   // 2026-09-14: horizontal boost = BAZOOKA_JUMP_FORWARD 8 × min(1, speed / PLAYER_WALK_SPEED 4.2) — this jump is straight up
   const boostH = jump.blast[0] ? Math.hypot(jump.blast[0].impulse[0], jump.blast[0].impulse[2]) : -1;
   ok(boostH >= 0 && boostH <= 8 * Math.min(1, air.hs / 4.2) + 0.05, `no horizontal boost for a (nearly) standing jump (${boostH.toFixed(2)}, speed ${air.hs.toFixed(2)})`);

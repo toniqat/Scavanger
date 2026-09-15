@@ -448,7 +448,8 @@ export class MapScreen {
     const keys: KeyGuideEntry[] = [];
     if (this.roverMode) keys.push({ key: keyLabel('Mouse0'), label: '목적지 선택' });
     if (mouseButtonOf(Keys.PING, 1) !== 0) keys.push({ key: keyLabel(Keys.PING), label: '핑' });
-    keys.push({ key: '휠', label: '확대' }, { key: `${keyLabel('Mouse0')} 드래그`, label: '이동' });
+    // 2026-09-15: 키캡 안에는 키 하나만 (`LMB` → 마우스 그림), 「드래그」 는 동작 쪽으로. `휠`(굴리기)은 누르는 버튼이 아니라 글자로 둔다.
+    keys.push({ key: '휠', label: '확대' }, { key: keyLabel('Mouse0'), label: '드래그 이동' });
     this.ctx.bus.emit('ui:keyGuide', { owner: 'map', keys });
   }
 

@@ -163,6 +163,17 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
 
+### 2026-09-15 — 전설 무기: 이름 · 탄약 무게 · 한 칸 수량 · 로켓 점프 되돌림 (`ammo.csv` · `tables.csv` · `constants.csv` · `weapons_unique.csv`)
+
+- **이름은 별명 하나** — `weapons_unique.csv` 의 `nickname` 이 그대로 이름이다(`인페르노` · `롱혼` …, 옛 `「롱혼」 컴포짓 보우`).
+  `class` 칸은 형식상 남지만 **사격 숙련 보너스 · 숙련 경험치 · NPC 퀘스트 계열 처치에 쓰이지 않는다** (사용자 결정 — 판정은 코드가 `def.unique` 로).
+- **전설 탄약 무게 절반** (`ammo.csv` `roundWeight`): 연료 0.02 → **0.01** · 전지 0.06 → **0.03** · 로켓 1.2 → **0.6** ·
+  탄띠 0.015 → **0.0075**. 표창 0.07 → **0.02** · 화살 0.05 → **0.04**, 한 칸(`AMMO_STACK_ROUNDS` · `UNIQUE_AMMO_STACK_ROUNDS`)
+  표창 40 → **30** · 화살 30 → **15** — 두 칸이 똑같이 **0.6 kg** 이고 표창 한 개가 더 가볍다. 레시피 산출(표창 20 · 화살 15)은 한 칸 안이다.
+  `server/economy.gen.json` 의 `stack` 두 줄이 바뀌므로 `data:check -- --write` 로 다시 구웠다.
+- **`BAZOOKA_SUPER_JUMP` 26 → 17 되돌림** (수직만) — 훈련장 천장에 막혀 강하게 느껴지지 않았다. `BAZOOKA_JUMP_FORWARD` 8 과
+  `PlayerController.airCarry`(점프대 거리)는 그대로다.
+
 ### 2026-09-14 (5차) — UI 2차 개편 수치: 제작 재료 절반 · 탄약 · 미니게임 판정 · 보관함 칸 (`recipes.csv` · `furniture.csv` · `salvage.csv` · `tables.csv` · `constants.csv` · `items.csv`)
 
 사용자 결정. 리드가 직접 넣은 값이고, **코드 쪽은 이 표가 그대로여도 이미 관대해진다** — 미니게임의

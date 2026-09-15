@@ -137,8 +137,8 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   ctx.missionMode = mode ?? ctx.world?.mode ?? 'raid';
   /*
    * Phase 11: same contract for the 목표 행성 — the emitter sets `ctx.missionPlanet` first, this only re-confirms it.
-   * A training has no planet; `MissionComplete`'s 다시 배치 re-emits with the planet it was launched with, and an
-   * emit without the field (an older path) keeps whatever the ship last flew to rather than silently rerolling.
+   * A training has no planet; an emit without the field (an older path) keeps whatever the ship last flew to rather
+   * than silently rerolling. (2026-09-15: `MissionComplete`'s 다시 배치 — the one emitter that re-used a seed — is gone.)
    */
   ctx.missionPlanet = sys.isTraining() ? null : (planet ?? ctx.missionPlanet);
   // 2026-09-14 (정보상): 같은 규약 — 훈련장은 기믹 고정이 없다. 레이드의 값은 emitter 가 이미 세팅했다 (여기서 덮지 않는다).

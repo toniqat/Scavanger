@@ -773,6 +773,28 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-15 (튜토리얼 부활 연출 · 피해를 받는 각본 잠금, 사용자 결정)** — 계약 옵션 두 개의 구현.
+  ① **`playIntroWake(d, {respawn: true})`** (`parts/IntroWake`, 호출자 `game/parts/Death.tutorialRespawn`, 길이 csv `TUTORIAL_RESPAWN_WAKE_S` 2 s):
+  같은 쓰러진 자세 → 일어서기(`RESPAWN_RISE_START` 0.2 — 짧은 연출에서 30 % 를 누워 있으면 멈춘 화면으로 읽힌다) + 입력 잠금(`scripted`)만 쓴다.
+  **오프닝에만 있는 것은 전부 빠진다**: `ui:screenFade` 없음 · 전용 카메라 없음(평소 3인칭 리그 그대로 — 시작 · 끝 · 취소 어디서도
+  `setCameraOverride` 를 부르지 않아 이륙 연출 같은 다른 오버라이드를 잘못 풀 일도 없다) · `introWaking` false(나침반 페이드 · Tab 잠금이 기다리지 않는다) ·
+  `player:introWakeDone` 없음(튜토리얼 `wake` 단계는 오프닝에만 걸린다). 표식은 `PlayerSystem.introWakeRespawn` 하나. 오프닝이 돌고 있는 몸에는 덮어쓰지 않는다.
+  ② **`setSceneLock(on, {allowDamage, minHp})`** (`PlayerSystem._sceneLockDamage` · `_sceneLockMinHp`): 입력 잠금은 그대로이되 피해가 **들어간다** —
+  `parts/Vitals.applyDamage` 가 실드를 평소대로 먹인 뒤 체력을 `minHp`(≥ 1) 에서 자르고(전투불능 · 사망 없음, 피격 연출 · 소리 · 방향 호 그대로),
+  `parts/Statuses.updateEnv` 도 같은 클램프. 넉백은 여전히 막는다(탑승자는 함선에 붙어 있다). 옵션을 빼면 예전 그대로(피해 전부 무시).
+  지금 사용자는 튜토리얼 이륙(`extraction`) — 처치하지 않은 안드로이드의 총알을 맞은 채 출발한다. 위 *각본 잠금* 절의 「피해 전부 무시」는 옵션 없는 경우의 설명이다.
+
+- **2026-09-15 (결과 창 개편 — 피해 출처 · 사망 원인)** — 계약 `PlayerRef.takeDamage(amount, from?, source?)` · `player:damaged.source` ·
+  `player:died.source` 의 구현 (`PlayerRef.setBurning` 에 선택 인자 `source` 를 **추가만** 했다).
+  ① `parts/Vitals.applyDamage(…, dot, source?)` 가 단일 입구 그대로 `player:damaged.source` 를 싣는다. 체력을 0 으로 만든 피해의 출처를
+  `PlayerSystem._deathSource` 에 적고 `die()` 가 `player:died.source` 로 낸 뒤 비운다 — 전투불능이면 **쓰러뜨린 출처**가 출혈사 · Space 포기까지 남고,
+  쓰러진 뒤 막타가 들어오면(출처를 아는 것이면) 그것으로 바뀐다. 인내(grit) 생존 · `revive` · `clearDowned`(스폰 · 복귀 리셋)가 비운다.
+  체력이 남은 채 죽는 자발적 귀환(`die()`)은 원인이 없다(`_downed || hp <= 0` 일 때만 읽는다).
+  ② 우회 경로 둘도 출처를 낸다 — 행성 환경 `parts/Statuses.updateEnv` = `{kind:'env'}`(예전부터 `player:damaged` 를 냈으므로 방향 호 · 흔들림은 여전히 없다),
+  낙하 `parts/Fall` = `{kind:'fall'}`(`applyDamage` 경로와 `kill` 규칙의 즉사 둘 다). 넉백에는 피해가 없어 출처도 없다.
+  ③ 화상: `setBurning(dps, duration, source?)` → `PlayerSystem.burnSource`(새로 붙거나 더 센 불이 덮을 때만 바뀐다, 꺼지면 비운다) → 화상 틱의 `applyDamage`.
+  출처 객체는 전부 모듈 상수 · 부르는 쪽 캐시라 매 프레임 할당이 없다. 수신 쪽 합산은 game/ 이 한다.
+
 - **2026-09-15 (낙하 착지 피드백 B-14 · 병사 림 D-7, 사용자 결정)** — 두 가지.
   ① `parts/Fall`: `emitFell` 이 `player:fell` 옆에서 `camera:shake`(`fallShakeFor` = min(`FALL_SHAKE_MAX`, 피해 × `FALL_SHAKE_PER_DAMAGE`),
   `FALL_SHAKE_S`)를 내고 멀티면 `fall {p, d}` 를 `others` 로 보낸다. 새 `receiveRemoteFall` · `REMOTE_FALL_MIN_INTERVAL_S` · `RemoteFallReject`,

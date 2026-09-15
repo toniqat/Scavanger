@@ -28,6 +28,8 @@ import type { FurniturePoseKind } from './types';
 import type { CharBuff } from './charBuffs';
 /* appended (2026-09-08): 튜토리얼 */
 import type { TutorialStepId } from './tutorial';
+/* appended (2026-09-15): 사망 원인 · 원인별 받은 피해 */
+import type { PlayerDamageSource } from './types';
 /* appended (2026-09-13): 요리 재료 티어 */
 import type { GrowSocketTarget, SampleFamily } from './types';
 
@@ -76,8 +78,10 @@ export interface GameEvents {
   /* ── player (owner: player/PlayerSystem) ────────────────────────────── */
   'player:spawned': { position: THREE.Vector3 };
   'player:healthChanged': { hp: number; maxHp: number; delta: number };
-  'player:damaged': { amount: number; hp: number; from?: THREE.Vector3 };
-  'player:died': { position: THREE.Vector3 };
+  /** `source` appended (2026-09-15): 이 피해의 출처 (`PlayerRef.takeDamage` 의 셋째 인자 그대로). 생략 = 모름. */
+  'player:damaged': { amount: number; hp: number; from?: THREE.Vector3; source?: PlayerDamageSource };
+  /** `source` appended (2026-09-15): 마지막 피해(막타)의 출처 — 전투불능 뒤 출혈사면 전투불능을 만든 피해의 출처. 생략 = 모름. */
+  'player:died': { position: THREE.Vector3; source?: PlayerDamageSource };
   'player:stimUsed': { hp: number };
   'player:sprintChanged': { sprinting: boolean };
   'player:aimChanged': { aiming: boolean };

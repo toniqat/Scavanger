@@ -48,6 +48,35 @@ import {
   HIT_KNOCKBACK_RANGE_SLACK, HIT_REQUEST_BURST_S, HIT_REQUEST_DPS_MAX, IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_SHIELD_BASH_RANGE,
 } from '@/shared';
+import type { PlayerDamageSource } from '@/shared';
+
+/* ══ 2026-09-15 (결과 창 개편): 적이 플레이어에게 준 피해의 출처 ══════════════════════════════════════════════
+ * `PlayerRef.takeDamage(…, source)` 의 `{ kind: 'enemy', enemyType, enemyId }`. 사망 결과 창이 **그 개체**에게서 받은
+ * 피해를 합산하므로 id 는 적 네트워크 id(호스트 · 리플리카 공용)이고, 종류는 `EnemyType` id 그대로다(튜토리얼
+ * `tut_bug` 를 바탕 종류로 접지 않는다). 개체마다 한 객체를 만들어 돌려 쓴다 — 화염 지대 틱 · 연사에서 할당하지 않는다.
+ * 같은 id 에 종류가 다르면(승격 뒤 id 재사용 등) 새 객체를 만든다(이미 넘겨준 객체는 바꾸지 않는다 — 받은 쪽이 들고 있어도 된다).
+ * id ≤ 0 = 개체를 모른다(주인 모를 포탄) → `enemyId` 를 싣지 않는다.
+ */
+const _enemySources = new Map<number, PlayerDamageSource>();
+/** 캐시 상한 — 넘으면 통째로 비운다 (넘겨준 객체는 그대로 유효하다). 레이드당 적 수보다 넉넉한 표현용 값. */
+const ENEMY_SOURCE_CACHE_MAX = 1024;
+
+export function enemyDamageSource(id: number, type: EnemyType): PlayerDamageSource {
+  const key = id > 0 ? id : 0;
+  const hit = _enemySources.get(key);
+  if (hit && hit.enemyType === type) return hit;
+  if (_enemySources.size >= ENEMY_SOURCE_CACHE_MAX) _enemySources.clear();
+  const s: PlayerDamageSource = Object.freeze(key > 0
+    ? { kind: 'enemy' as const, enemyType: type, enemyId: key }
+    : { kind: 'enemy' as const, enemyType: type });
+  if (key > 0) _enemySources.set(key, s);
+  return s;
+  }
+
+/** 개체 id 의 실제 종류 — 살아 있으면 그 적, 이미 사라졌으면 전에 만든 출처, 둘 다 없으면 `fallback`. */
+export function enemyTypeOf(sys: EnemySystem, id: number, fallback: EnemyType): EnemyType {
+  return sys.byId.get(id)?.type ?? (_enemySources.get(id)?.enemyType as EnemyType | undefined) ?? fallback;
+  }
 
 /** Radial damage. On a replica this only plays local FX and forwards an `ExplodeRequest` to the host (returns 0). */
 export function applyExplosion(sys: EnemySystem, center: THREE.Vector3, radius: number, damage: number): number {
@@ -366,7 +395,8 @@ export function damageTargetAcid(sys: EnemySystem, target: CombatTarget, amount:
   if (shooter && slow.factor <= 0.6) _v.set(shooter.position.x, shooter.position.y + shooter.stats.height * 0.7, shooter.position.z);
   else _v.copy(from);
   if (sys.barrierBlocks(_v, target)) return;
-  sys.applyDamage(target, amount, from, shooterId, 'spewer', slow, 0, false);
+  // 2026-09-15: 종류는 실제 쏜 개체의 것 (지하벌레 독 · 튜토리얼 벌레도 산성을 쏜다) — 예전엔 늘 'spewer' 였다
+  sys.applyDamage(target, amount, from, shooterId, enemyTypeOf(sys, shooterId, 'spewer'), slow, 0, false);
   }
 
 /**
@@ -428,7 +458,7 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
   if (target.isLocal) {
     const player = ctx.player;
     if (!player || player.isDead || player.isDowned) return;
-    player.takeDamage(amount, from);
+    player.takeDamage(amount, from, enemyDamageSource(id, type));   // 2026-09-15: 출처 = 이 개체
     ctx.bus.emit('enemy:attacked', { id, type, damage: amount, position: from });
     if (slow) ctx.bus.emit('player:applySlow', slow);
     if (shake >= 0.4) ctx.bus.emit('camera:shake', { intensity: shake, duration: 0.3 });
@@ -447,6 +477,8 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
   const net = ctx.net;
   if (!net) return;
   const msg: DamageMessage = { t: 'dmg', amount: round(amount, 1), from: tuple(from, 2) };
+  // 2026-09-15 (결과 창 개편): 받는 쪽이 자기 `takeDamage` 에 출처를 싣는다 (옛 클라이언트는 무시)
+  msg.src = id > 0 ? { k: 'enemy', et: type, ei: id } : { k: 'enemy', et: type };
   if (slow) msg.slow = slow;
   if (kbDir && kbSpeed > 0) msg.kb = { d: tuple(kbDir, 2), s: round(kbSpeed, 1) };
   net.send(msg, target.id);

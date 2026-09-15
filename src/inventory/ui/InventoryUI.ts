@@ -107,6 +107,11 @@ export class InventoryUI {
   dialog!: SplitDialog;
   drag: DragState | null = null;
   hovered: { uid: string; loc: ItemLocation } | null = null;
+  /** 2026-09-15: last pointer position over the window (client px) — `validateHover` hit-tests it. −1 = unknown. */
+  private lastPointerX = -1;
+  private lastPointerY = -1;
+  private hoverCheckRaf = 0;
+  private trackPointer = (e: PointerEvent): void => { this.lastPointerX = e.clientX; this.lastPointerY = e.clientY; };
   /** Weapon tile currently lit as a socket target (attachment drag). */
   socketTarget: { uid: string; loc: ItemLocation } | null = null;
   private container: Container | null = null;
@@ -143,6 +148,7 @@ export class InventoryUI {
     root.hidden = true;
     window.addEventListener('resize', this.onViewportResize);
     root.addEventListener('contextmenu', (e) => e.preventDefault());
+    root.addEventListener('pointermove', this.trackPointer, { capture: true, passive: true });   // 2026-09-15: `validateHover`
     this.root = root;
 
     /* screen tabs */
@@ -538,6 +544,10 @@ export class InventoryUI {
    * 옛 줄의 `드래그→무기`(부착) · `드래그→퀵슬롯`(등록)은 **일부러 뺐다**: 끌고 가면 그 칸이 초록으로 켜져 스스로
    * 알려 주는 조작이고, 아홉 항목이면 한 줄이 1280 px 화면의 가로를 넘긴다 (가이드는 `white-space: nowrap` 이다).
    * 안 보이는 것(수식 키)이 먼저다.
+   *
+   * **2026-09-15 (사용자 결정):** 우클릭 · 휠클릭은 글자가 아니라 `RMB` · `MMB` 라벨로 넘겨 키 가이드가 **마우스 그림**으로 그린다
+   * (`shared/keycap`). 둘 다 리바인딩과 무관한 실제 버튼이라(`contextmenu` · `MIDDLE_BUTTON`) `Keys` 가 아니라 `Mouse2` · `Mouse1` 이다.
+   * 절반 · 하나 줄은 `+ 드래그` 를 뺐다 — `Shift 절반` · `Ctrl 하나`.
    */
   guideKeys(): KeyGuideEntry[] {
     if (this.activeTab !== 'inventory') return [];
@@ -547,10 +557,10 @@ export class InventoryUI {
       { key: keyLabel(Keys.DROP_ITEM), label: this.hub ? '창고로' : '버리기' },
       // 2026-09-12 (E1): 빠른 이동은 더블클릭, 우클릭은 모든 아이템에 메뉴 (즐겨찾기 포함)
       { key: '더블클릭', label: '빠른 이동' },
-      { key: '우클릭', label: '메뉴' },
-      { key: '휠클릭', label: '요청' },
-      { key: 'Shift', combo: ['드래그'], label: '절반' },
-      { key: 'Ctrl', combo: ['드래그'], label: '하나' },
+      { key: keyLabel('Mouse2'), label: '메뉴' },
+      { key: keyLabel('Mouse1'), label: '요청' },
+      { key: 'Shift', label: '절반' },
+      { key: 'Ctrl', label: '하나' },
     ];
   }
 
@@ -680,6 +690,7 @@ export class InventoryUI {
 
   dispose(): void {
     this.cancelDrag();
+    if (this.hoverCheckRaf) { cancelAnimationFrame(this.hoverCheckRaf); this.hoverCheckRaf = 0; }
     window.removeEventListener('resize', this.onViewportResize);
     this.scrollObserver?.disconnect();
     this.scrollObserver = null;
@@ -801,6 +812,7 @@ export class InventoryUI {
     // Phase 8: an embedded 캐릭터 / 기업 / 함선 view repaints from its own state whenever the window does
     if (this.screenView) { try { this.screenView.refresh(); } catch (e) { console.warn('[inventory] screen refresh failed', e); } }
     this.pin.validate();   // 2026-09-14: the pinned card follows its item (gone → unpinned, sockets changed → redrawn in place)
+    this.validateHover();  // 2026-09-15: a tile that left from under the cursor takes its hover card with it
   }
 
   /* ── Phase 7: container search (감정) ──────────────────────────────────── */
@@ -1078,6 +1090,7 @@ export class InventoryUI {
   }
 
   hoverEnter(uid: string, loc: ItemLocation, e: PointerEvent): void {
+    this.lastPointerX = e.clientX; this.lastPointerY = e.clientY;
     if (this.drag?.started || this.pin.isSocketDragging) return;
     if (this.locked(uid, loc)) { this.hovered = null; this.tooltip.hide(); return; }
     this.hovered = { uid, loc };
@@ -1093,8 +1106,49 @@ export class InventoryUI {
     this.tooltip.hide();
   }
 
+  /**
+   * 2026-09-15 (사용자 버그 「시체 창에서 더블클릭으로 옮긴 아이템의 툴팁이 마우스를 움직일 때까지 남는다」).
+   *
+   * **원인**: 호버 카드는 타일의 `pointerleave` 로만 내려간다. 그런데 빠른 이동(더블클릭 · 우클릭 메뉴 · 자동 배치)이 아이템을
+   * 옮기면 `refresh()` 가 **커서 아래의 타일을 DOM 에서 떼어 내고**(`GridView` 의 `el.remove()` · 장비칸 / 휠 칸의 `innerHTML = ''`),
+   * 떼어 낸 요소에는 브라우저가 `pointerleave` 를 보내지 않는다 — 다음 포인터 이동이 새 요소에 `pointerover` 를 보낼 뿐이다.
+   * 그래서 `hovered` 가 이미 없는 타일을 가리킨 채 카드가 떠 있었고, 다른 타일에 들어가거나 창을 벗어날 때까지 남았다.
+   * 시체 창에서 도드라진 것은 거기서의 더블클릭이 거의 늘 아이템을 **다른 칸으로** 보내기 때문이다(가방 → 가방 칸 이동은 같은 요소가 남는다).
+   *
+   * **고침**: 격자가 다시 그려질 때마다(`refresh()` 끝) + 결과를 낸 조작 다음 프레임(`result()`) 여기서 확인한다 — 호버 중인
+   * 아이템이 아직 그 자리에 있고, 그 타일 요소가 연결돼 있고 사라지는 중이 아니며, **마지막 포인터 위치 아래에 그 타일이 있는가**.
+   * 하나라도 아니면 카드를 내린다. 커서 아래에 새로 온 타일은 다음 포인터 이동에서 평소대로 `pointerenter` 를 받는다.
+   * 떠다니는 기업 화면 · 스테이션 격자(`TradeGrids`)의 카드는 `ui/hud/ItemTip` 이라 거기서 같은 확인을 한다.
+   */
+  validateHover(): void {
+    const h = this.hovered;
+    if (!h || !this.root || !this.tooltip.isShowing || this.drag?.started) return;
+    const host = this.hoverHostEl(h.uid, h.loc);
+    let ok = !!host && host.isConnected && !host.classList.contains('is-vanishing') && !!this.sys.findItem(h.uid, h.loc);
+    if (ok && host && this.lastPointerX >= 0) {
+      const under = document.elementFromPoint(this.lastPointerX, this.lastPointerY);
+      ok = !!under && host.contains(under);
+    }
+    if (!ok) this.hoverLeave();
+  }
+
+  /** One `validateHover` next frame (a quick move whose DOM repaint comes from an event handler that runs after us). */
+  private scheduleHoverCheck(): void {
+    if (this.hoverCheckRaf || typeof requestAnimationFrame !== 'function') return;
+    this.hoverCheckRaf = requestAnimationFrame(() => { this.hoverCheckRaf = 0; this.validateHover(); });
+  }
+
+  /** The element whose `pointerenter` set `hovered` for this location — null when that tile is gone / holds another item. */
+  private hoverHostEl(uid: string, loc: ItemLocation): HTMLElement | null {
+    if (loc.kind === 'grid') return this.viewOf(loc.grid).tileEl(uid) ?? null;
+    if (loc.kind === 'slot') { const sv = this.slots.get(loc.slot); return sv && sv.uid === uid ? sv.tile : null; }
+    const cell = this.quickCells.find((c) => c.index === loc.index);
+    return cell && cell.uid === uid ? cell.tile : null;
+  }
+
   /** Result → sound + shake. `okSfx` is what plays on success; `pending` (host-confirmed take) stays silent until the answer. */
   result(r: 'ok' | 'noop' | 'fail' | 'pending', okSfx: 'ui_drop' | 'ui_equip' | 'ui_pickup' | 'ui_rotate', from: ItemLocation, uid: string): void {
+    this.scheduleHoverCheck();   // 2026-09-15: the acted-on tile may have just left from under the cursor
     if (r === 'ok') this.sys.sfx(okSfx);
     else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(from, uid); }
   }

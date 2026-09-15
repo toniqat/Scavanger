@@ -44,20 +44,20 @@ Per-family numbers that are not `WeaponDef` fields (`adsTime` · `bloomPerShot` 
 
 ## Unique weapons (Phase 6, 2026-09-06)
 
-Six legendary one-offs (`UNIQUE_WEAPON_DEFS`, ids from `UNIQUE_WEAPON_IDS`, items `wpn_u_*`). `WeaponDef.unique` names the behaviour handler in `src/weapons/unique/*`; items only carries data. Every unique: `grade: 5` (legendary rarity, legendary repair cost), **no `family`** (its own family; `buildGrade` never expands it, `WEAPON_FAMILIES` does not list it), a **dedicated `ammoType`** (never `AMMO_FOR_CLASS`), `altFire: true` = **RMB is the alternative fire, no ADS** (only the bow keeps ADS), no attachments (`canAttach` false, `createItem` drops `extras.sockets`), no grade scaling (`computeWeaponStats` returns the def numbers). `weaponClass` only picks the shooting skill. Numbers are the shared `FLAME_* / SHOCK_* / SHURIKEN_* / BOW_* / BAZOOKA_* / MINIGUN_*` constants; magazines / durability have no constant and live in `UNIQUE_WEAPON_MAG` / `UNIQUE_WEAPON_DURABILITY`.
+Six legendary one-offs (`UNIQUE_WEAPON_DEFS`, ids from `UNIQUE_WEAPON_IDS`, items `wpn_u_*`). `WeaponDef.unique` names the behaviour handler in `src/weapons/unique/*`; items only carries data. Every unique: `grade: 5` (legendary rarity, legendary repair cost), **no `family`** (its own family; `buildGrade` never expands it, `WEAPON_FAMILIES` does not list it), a **dedicated `ammoType`** (never `AMMO_FOR_CLASS`), `altFire: true` = **RMB is the alternative fire, no ADS** (only the bow keeps ADS), no attachments (`canAttach` false, `createItem` drops `extras.sockets`), no grade scaling (`computeWeaponStats` returns the def numbers). **Name = the nickname alone** (2026-09-15, 사용자 결정 — `인페르노`, not `「인페르노」 화염방사기`; the kind label is the UI's job). `weaponClass` is csv bookkeeping only: **2026-09-15 (사용자 결정)** uniques get **no shooting-skill bonus or skill XP** and their kills are **not class kills** (weapons/ · progression/ check `def.unique`). Numbers are the shared `FLAME_* / SHOCK_* / SHURIKEN_* / BOW_* / BAZOOKA_* / MINIGUN_*` constants; magazines / durability have no constant and live in `UNIQUE_WEAPON_MAG` / `UNIQUE_WEAPON_DURABILITY`.
 
 | id | name | kind | class | ammo (stack) | mag | dmg | alt / charge / ammo·s | rate | grid · kg · ₩ | dur |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `u_flame` | 「인페르노」 화염방사기 | flamethrower | AR | `fuel` 연료통 (200) | 120 | 95 /s (LMB cone 32°) | alt 75 /s (RMB jet 7°) · 12 fuel/s | 10 (tick hint) | 5×2 · 9.5 · 6800 | 1500 |
-| `u_shock` | 「테슬라 코일」 전격총 | shockgun | DMR | `cell` 전지 (60) | 48 | 72 /s (LMB arc, ≤ 4 targets) | alt 150 (charged bolt) · charge 1.1 s · 8 cells/s | 1/1.1 | 4×2 · 6.2 · 7200 | 1200 |
-| `u_shuriken` | 「카게」 표창 | shuriken | SMG | `shuriken` 표창 (40) | 10 | 58 (projectile 65 m/s) | RMB fan of 3 (`adsSpread` = 7°) | 3.2 | 3×2 · 2.4 · 5400 | 900 |
-| `u_bow` | 「롱혼」 컴포짓 보우 | bow | DMR | `arrow` 화살 (30) | 12 | 150 at full draw (2026-09-14: hold LMB `chargeTime` 0.8 s — tap 45 dmg · 45 m/s · 12 m/s² drop → full 150 · 140 m/s · 0.5 m/s², `BOW_*`) | RMB = cancel the draw, no ADS (`altFire: true`) | 4 (release cooldown) | 5×2 · 3.6 · 5900 | 700 |
-| `u_bazooka` | 「해머헤드」 바주카 | bazooka | SR | `rocket` 로켓 (6) | 3 | 420 (rocket 48 m/s, impact blast) | alt 260 (air-burst) | 2.85 | 5×2 · 11.8 · 8400 | 320 |
-| `u_minigun` | 「사이클론」 미니건 | minigun | AR | `belt` 탄띠 (300) | 150 | 24 (hitscan, spread 2.6°) | charge 1.2 s (spin-up) | 24 | 5×2 · 14.5 · 7600 | 3000 |
+| `u_flame` | 인페르노 | flamethrower | AR | `fuel` 연료통 (200) | 120 | 95 /s (LMB cone 32°) | alt 75 /s (RMB jet 7°) · 12 fuel/s | 10 (tick hint) | 5×2 · 9.5 · 6800 | 1500 |
+| `u_shock` | 테슬라 코일 | shockgun | DMR | `cell` 전지 (60) | 48 | 72 /s (LMB arc, ≤ 4 targets) | alt 150 (charged bolt) · charge 1.1 s · 8 cells/s | 1/1.1 | 4×2 · 6.2 · 7200 | 1200 |
+| `u_shuriken` | 카게 | shuriken | SMG | `shuriken` 표창 (30) | 10 | 58 (projectile 65 m/s) | RMB fan of 3 (`adsSpread` = 7°) | 3.2 | 3×2 · 2.4 · 5400 | 900 |
+| `u_bow` | 롱혼 | bow | DMR | `arrow` 화살 (15) | 12 | 150 at full draw (2026-09-14: hold LMB `chargeTime` 0.8 s — tap 45 dmg · 45 m/s · 12 m/s² drop → full 150 · 140 m/s · 0.5 m/s², `BOW_*`) | RMB = cancel the draw, no ADS (`altFire: true`) | 4 (release cooldown) | 5×2 · 3.6 · 5900 | 700 |
+| `u_bazooka` | 해머헤드 | bazooka | SR | `rocket` 로켓 (6) | 3 | 420 (rocket 48 m/s, impact blast) | alt 260 (air-burst) | 2.85 | 5×2 · 11.8 · 8400 | 320 |
+| `u_minigun` | 사이클론 | minigun | AR | `belt` 탄띠 (300) | 150 | 24 (hitscan, spread 2.6°) | charge 1.2 s (spin-up) | 24 | 5×2 · 14.5 · 7600 | 3000 |
 
 Continuous weapons (flame / shock arc): `damage` is **per second**, `fireRate` a tick hint, `ammoPerSec` replaces per-shot ammo; for the flamethrower `spread` is the LMB cone half-angle and `adsSpread` the RMB jet half-angle. Item descriptions spell out the LMB / RMB behaviour in Korean.
 
-**Unique ammo** (`UNIQUE_AMMO_TYPES`, category `ammo`, 1×1, `qty` = units, rarity **rare** so the tier tables can weight it by rarity): `ammo_fuel` 연료통 (200, 0.02 kg/unit, ₩1) · `ammo_cell` 전지 (60, 0.06, ₩4) · `ammo_shuriken` 표창 (40, 0.07, ₩5) · `ammo_arrow` 화살 (30, 0.05, ₩4) · `ammo_rocket` 로켓 (6, **1.2**, ₩60) · `ammo_belt` 탄띠 (300, 0.015, ₩1). `AMMO_TYPES_V2` lists them after the four graded calibres.
+**Unique ammo** (`UNIQUE_AMMO_TYPES`, category `ammo`, 1×1, `qty` = units, rarity **rare** so the tier tables can weight it by rarity): `ammo_fuel` 연료통 (200, 0.01 kg/unit, ₩1) · `ammo_cell` 전지 (60, 0.03, ₩4) · `ammo_shuriken` 표창 (**30**, **0.02**, ₩5) · `ammo_arrow` 화살 (**15**, **0.04**, ₩4) · `ammo_rocket` 로켓 (6, **0.6**, ₩60) · `ammo_belt` 탄띠 (300, 0.0075, ₩1) — 2026-09-15 (사용자 결정): weights halved, a full 표창 stack (30 × 0.02) and 화살 stack (15 × 0.04) both weigh 0.6 kg. `AMMO_TYPES_V2` lists them after the four graded calibres.
 
 **Where they drop** (user decision: 전설 루트 + 치트 상자): tier 4 `itemWeightMul` 0.25 per unique → 6 × 2.5 = 15 of the ≈ 97 legendary weapon weight (≈ 15 % of legendary weapon rolls, ≈ 1.6 % of tier-4 crates in a 1500-seed sample); tier 5 supply drop `weaponChance` 0.03 with every graded family zeroed so the rare weapon pick is always a unique (≈ 2.4 % of drops); tiers 1–3 zero them explicitly (tier 3 has legendary weight 1). A rolled unique always adds one stack of its calibre beyond `count` (`rollCrate`), and the ammo also rolls on its own at tier 4 (≈ 23 % of ammo picks) / tier 5 (low). `CORPSE_TABLES.rogue_boss.unique = { chance: 0.2, durability: [0.5, 0.8] }` → 20 % of boss corpses add one unique (uniform over `UNIQUE_WEAPON_IDS`, rolled **last** so the existing III/IV weapon + attachment draws are unchanged) plus a 30–60 % stack of its calibre. The `/items` cheat catalog gets them through `getAllItemDefs`.
 
@@ -1128,7 +1128,7 @@ rank 2~5 의 배수가 전부 1 인지를 대조한다.
 |---|---|---|---|---|---|
 | `rogue_sniper` 로든 | 저격소총 (`wpn_sr_g3` / `_g4` / `_g5`) | **85 %** | 희귀 III 60 · 서사 IV 33 · 전설 V **7** | 최대치 × **1–5 %** | 장전 20–100 % · 중량탄 스택 30–60 % |
 | `rogue_hammer` 타길라 | 방탄복 (`armor_3` / `_4` / `_5`) | **85 %** | 희귀 III 60 · 서사 IV 33 · 전설 V **7** | 최대치 × **1–5 %** | — |
-| `rogue_heavy` 헤비 | 「사이클론」 미니건 **`wpn_u_minigun`** (무기 def `u_minigun`) | **80 %** | 유니크 (등급 없음) | 최대치 × **1–5 %** (3000 → 30–150) | 장전 30–70 % · 탄띠 스택 30–60 % |
+| `rogue_heavy` 헤비 | 사이클론(미니건) **`wpn_u_minigun`** (무기 def `u_minigun`) | **80 %** | 유니크 (등급 없음) | 최대치 × **1–5 %** (3000 → 30–150) | 장전 30–70 % · 탄띠 스택 30–60 % |
 
 - 내구도 범위는 `constants.csv` 의 `NAMED_LOOT_DURABILITY_MIN` · `MAX` (0.01 / 0.05) 하나를 셋이 같이 쓴다. 최소 1.
 - 등급은 **III 부터만** 나온다 (`grades` 에 적지 않은 등급은 봉인). 유니크 방탄복(tier 0)은 후보가 아니다.
@@ -1213,6 +1213,14 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (전설 무기 규칙 · 탄약 — 사용자 결정)** — ① 유니크 이름 = **별명 하나**(`WeaponDefs.uniqueName`: `인페르노` · `테슬라 코일` ·
+  `카게` · `롱혼` · `해머헤드` · `사이클론`; 종류 라벨은 UI 가 따로 그린다). ② 유니크의 csv `class` 는 형식상 남고 **사격 숙련 보너스 · 숙련 경험치 ·
+  계열 처치에서 빠진다** — 판정은 소비자(weapons `Firing.recoilMulFor/reloadSpeedFor` · `WeaponSystem.applyHit` · progression
+  `weaponClassOf`)가 `def.unique` 로 한다, 이 폴더의 표는 그대로. ③ `data/ammo.csv` 전설 탄약 무게 절반(연료 0.01 · 전지 0.03 · 로켓 0.6 ·
+  탄띠 0.0075) + 표창 0.02 kg · 한 칸 **30**, 화살 0.04 kg · 한 칸 **15**(`tables.csv` `AMMO_STACK_ROUNDS` · `UNIQUE_AMMO_STACK_ROUNDS`),
+  설명문의 「한 발이 1.2 kg」 삭제 · 옛 「이름」 표기 정리. 레시피 산출(표창 20 · 화살 15)은 한 칸 안이고 상자 · 시체 수량(`rollQty`)은
+  `stackMax` 로 잘리므로 따로 고칠 것이 없다. `server/economy.gen.json` 의 두 줄(stack)을 다시 구웠다.
 
 - **2026-09-15 (B-16 · G-10 소이 수류탄 화염 지대)** — `items.csv` 에 새 선택 열 **`grenadeFire`**(맨 끝, 머리 주석 한 줄)가 생겼고
   `grenade_incendiary` 만 `true` 다. 로더(`ItemDefs.GENERIC_ITEM_DEFS`)가 `ItemDef.grenadeFire`(계약 `shared/types.ts` 끝)로 옮기며,

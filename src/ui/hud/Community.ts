@@ -288,7 +288,7 @@ export class Community {
     this.ctx.bus.emit('ui:keyGuide', {
       owner: 'community',
       keys: [
-        { key: '우클릭', label: '메뉴' },
+        { key: keyLabel('Mouse2'), label: '메뉴' },   // 2026-09-15: `RMB` 라벨 → 키 가이드가 마우스 그림으로 그린다
         { key: keyLabel(Keys.INVITE), label: '닫기' },
       ],
     });

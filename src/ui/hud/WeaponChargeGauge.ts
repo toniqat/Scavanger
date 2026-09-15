@@ -7,14 +7,22 @@ const RADIUS = 48;
 const ARC_DEG = 120;
 
 type ChargeKind = 'charge' | 'spinup' | 'slash';
-const KIND_CLASSES: readonly ChargeKind[] = ['charge', 'spinup', 'slash'];
-const KIND_LABEL: Readonly<Record<ChargeKind, string>> = { charge: '충전', spinup: '예열', slash: '용검' };
-const KIND_READY: Readonly<Record<ChargeKind, string>> = { charge: '충전 완료', spinup: '사격', slash: '용검 준비' };
+/**
+ * 2026-09-15: kind → root class. The classes carry the `wc-` prefix: the bare `charge` used to collide with the ship-call
+ * charge ring (`hud/ChargeGauge`, `.charge`), whose `.charge svg { rotate(-90deg) }` spun this right-side arc to the top
+ * and whose `.charge.ready` turned the full tesla arc red.
+ */
+const KIND_CLASS: Readonly<Record<ChargeKind, string>> = { charge: 'wc-charge', spinup: 'wc-spinup', slash: 'wc-slash' };
+/** Label prefix per kind; '' = the percentage alone (2026-09-15: 전격총 reads just `37%` … `100%`). */
+const KIND_LABEL: Readonly<Record<ChargeKind, string>> = { charge: '', spinup: '예열', slash: '용검' };
+/** Ready text at t = 1; null = keep the percentage (`100%`). */
+const KIND_READY: Readonly<Record<ChargeKind, string | null>> = { charge: null, spinup: '사격', slash: '용검 준비' };
 
 /**
  * Unique-weapon wind-up gauge (`.wcharge`): a 120° SVG arc right of the reticle driven by `weapon:chargeChanged`.
- * Colour per kind — `charge` (전격총 충전 볼트) electric blue, `spinup` (미니건 예열) amber, `slash` (표창 용검 hold) red;
- * label under the arc end reads `충전 n%` / `예열 n%` / `용검 n%` and the ready text at 1. Hidden on `t = −1`
+ * Colour per kind — `wc-charge` (전격총 충전 볼트) electric blue that turns a **brighter** blue when full,
+ * `wc-spinup` (미니건 예열) amber, `wc-slash` (표창 용검 hold) red; label under the arc end reads `n%` (전격총) /
+ * `예열 n%` / `용검 n%` and the ready text at 1 (`100%` / `사격` / `용검 준비`). Hidden on `t = −1`
  * (cancelled / released), on a weapon swap, death / down and mission reset. Gameplay layer only.
  */
 export class WeaponChargeGauge {
@@ -62,7 +70,9 @@ export class WeaponChargeGauge {
         const pct = Math.round(c * 100);
         if (pct !== this.lastPct) {
           this.lastPct = pct;
-          setText(this.label, c >= 1 ? KIND_READY[kind] : `${KIND_LABEL[kind]} ${pct}%`);
+          const ready = c >= 1 ? KIND_READY[kind] : null;
+          const prefix = KIND_LABEL[kind];
+          setText(this.label, ready ?? (prefix ? `${prefix} ${pct}%` : `${pct}%`));
         }
       }),
       b.on('weapon:equipped', () => this.hide()),
@@ -80,7 +90,9 @@ export class WeaponChargeGauge {
   private setKind(kind: ChargeKind): void {
     if (this.kind === kind) return;
     this.kind = kind;
-    for (const k of KIND_CLASSES) toggleClass(this.root, k, k === kind);
+    // the label cache is per kind: tesla `100%` → minigun at t 1 has the same pct but must read `사격`
+    this.lastPct = -1;
+    for (const k of Object.keys(KIND_CLASS) as ChargeKind[]) toggleClass(this.root, KIND_CLASS[k], k === kind);
   }
 
   private hide(): void {

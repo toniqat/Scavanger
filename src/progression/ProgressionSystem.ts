@@ -1287,11 +1287,16 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     return Math.max(0.4, 1 + SKILL_STAT_FACTOR * (avg - STAT_BASE));
   }
 
+  /**
+   * The shooting-skill class a weapon trains, or null.
+   * 2026-09-15 (사용자 결정): legendary uniques (`def.unique`) are outside the shooting-skill system — they keep a csv
+   * `class` but train nothing (and get no `recoilMul` / `reloadSpeedMul` in weapons/).
+   */
   private weaponClassOf(weaponId: string | null): WeaponClass | null {
     if (!weaponId) return null;
     try {
       const def = this.ctx?.loot?.getWeaponDef(weaponId);
-      if (!def) return null;
+      if (!def || def.unique) return null;
       return def.weaponClass ?? (def.slot === 'secondary' ? 'PISTOL' : 'AR');
     } catch {
       return null;

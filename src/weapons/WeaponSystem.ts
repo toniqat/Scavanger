@@ -374,7 +374,7 @@ export class WeaponSystem implements GameSystem {
           : input.wasPressed(Keys.PRIMARY2) ? 'primary2' : undefined;
       if (want !== undefined) this.requestSwap(want);
     } else if (this.implantHolstered && armedAndFree && !carryBusy && !this.wheelOpen) {
-      // a wielded implant (대전차포) is in the hands: a weapon key stows it and draws that weapon
+      // a wielded implant (배리어 — the 대전차포 was retired 2026-09-15) is in the hands: a weapon key stows it and draws that weapon
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
           : input.wasPressed(Keys.PRIMARY2) ? 'primary2' : undefined;
@@ -660,11 +660,11 @@ export class WeaponSystem implements GameSystem {
   /* ───────────────── tactical kit: progression / implant modifiers (all optional, default 1) ───────────────── */
   /** 재주 (Phase 5): consumable / gadget use speed — divides the quick-use cooldown. */
   useSpeedMul(): number { return Fire.useSpeedMul(this); }
-  /** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet). */
-  recoilMulFor(cls: WeaponClass): number { return Fire.recoilMulFor(this, cls); }
+  /** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet; 2026-09-15: always 1 for a legendary unique). */
+  recoilMulFor(cls: WeaponClass, unique = false): number { return Fire.recoilMulFor(this, cls, unique); }
 
-  /** 사격 스킬 reload speed multiplier for a class (>1 = faster). */
-  reloadSpeedFor(cls: WeaponClass): number { return Fire.reloadSpeedFor(this, cls); }
+  /** 사격 스킬 reload speed multiplier for a class (>1 = faster; 2026-09-15: no skill part for a legendary unique). */
+  reloadSpeedFor(cls: WeaponClass, unique = false): number { return Fire.reloadSpeedFor(this, cls, unique); }
 
   /** Fire rate after the overcharge implant bonus. */
   effectiveFireRate(st: EffectiveWeaponStats): number { return Fire.effectiveFireRate(this, st); }
@@ -691,8 +691,11 @@ export class WeaponSystem implements GameSystem {
   /** Returns true if the hit killed an enemy. */
   applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean, ammoType?: string): boolean {
     /* 2026-09-14 (NPC 퀘스트 「그 계열 총기로 처치」): 총알 한 발의 피해 구간을 지금 손에 든 총의 계열로 표시한다 — enemies 가
-       이 구간에 들어온 로컬 피해에만 계열을 적는다 (`shared/damageSource`). 수류탄 · 가젯 · 근접은 이 경로를 지나지 않는다. */
-    return withLocalGunHit(this.slots[this.active]?.stats.weaponClass ?? null, () => Fire.applyHit(this, h, damage, dir, light, ammoType));
+       이 구간에 들어온 로컬 피해에만 계열을 적는다 (`shared/damageSource`). 수류탄 · 가젯 · 근접은 이 경로를 지나지 않는다.
+       2026-09-15 (사용자 결정): 전설 유니크는 계열 밖이다 — csv `class` 는 남아 있어도 null 로 넘겨 계열 없는(평범한) 처치로 센다. */
+    const held = this.slots[this.active];
+    const cls = held && !held.def.unique ? held.stats.weaponClass : null;
+    return withLocalGunHit(cls, () => Fire.applyHit(this, h, damage, dir, light, ammoType));
   }
 
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void { return Fire.onProjectileHit(this, h, damage, weaponId); }

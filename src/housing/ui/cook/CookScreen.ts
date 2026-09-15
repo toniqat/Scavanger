@@ -22,7 +22,7 @@
 import type { CookAutoInfo, CookBeatAction, CookJudge, CookResult, CookSessionInfo, CookStepDef, GameContext, KeyGuideEntry } from '@/shared';
 import {
   COOK_CHOP_CUTS, COOK_GAME_ICON, COOK_GAME_LABEL_KO, COOK_JUDGE_LABEL_KO, COOK_LIQUID_LABEL_KO, Keys, MENU_BLOCKER,
-  buildItemChip, keyLabel, mealQualityBonus, mealQualityStars,
+  buildItemChip, createKeycap, keyLabel, mealQualityBonus, mealQualityStars,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { COOK_BLOCKER, applyCookStepBonus, completeCookRun, cookStepBonus, endCook, recordCookStep, restartBlock, restartCook } from '../../parts/Cooking';
@@ -57,6 +57,26 @@ const BEAT_SOUND: Partial<Record<CookBeatAction, string>> = {
 };
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 100);
+
+/** 요리 안내의 버튼 토큰 → 실제 마우스 버튼 코드 (2026-09-15). */
+const RULE_MOUSE: Readonly<Record<string, string>> = { L: 'Mouse0', R: 'Mouse2' };
+
+/**
+ * 2026-09-15: `{L}` · `{R}` 토큰을 공용 키캡(마우스 그림, `kc-inline`)으로 끼워 `host` 를 다시 채운다. 글자는 텍스트 노드로만 넣는다.
+ * (`renderKeyText` 는 `Keys` 액션 토큰이라, 리바인딩과 무관한 실제 좌 / 우 버튼은 여기서 따로 그린다.)
+ */
+function renderMouseRule(host: HTMLElement, text: string): void {
+  host.textContent = '';
+  const re = /\{([LR])\}/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) host.appendChild(document.createTextNode(text.slice(last, m.index)));
+    last = m.index + m[0].length;
+    createKeycap(RULE_MOUSE[m[1]], { cls: 'kc-inline', parent: host });
+  }
+  if (last < text.length) host.appendChild(document.createTextNode(text.slice(last)));
+}
 
 /** 2026-09-13 (H3): 보너스를 준 곳 — `(+요리 숙련 · 서재)`, 없으면 빈 문자열. */
 function bonusSourcesText(b: CookStepBonus | undefined): string {
@@ -292,7 +312,7 @@ export class CookScreen {
     this.screen = 'game';
     this.down.clear();
     this.last = performance.now();
-    setText(this.hint, this.ruleText(step));
+    renderMouseRule(this.hint, this.ruleText(step));
     this.paintHead();
     this.ctx.bus.emit('housing:cookStep', { uid: info.uid, index: this.stepIndex, total: info.steps.length, game: step.game, phase: 'play', auto: false, score: null });
     this.emitGuide();
@@ -560,14 +580,19 @@ export class CookScreen {
     return names.length ? `재료: ${names.join(' · ')}` : '';
   }
 
+  /**
+   * 단계 안내 한 줄. 2026-09-15 (사용자 결정 — 키캡이 뜨는 모든 곳에 마우스 그림): 누를 버튼 자리는 `{L}`(좌) · `{R}`(우) 토큰이고
+   * `renderMouseRule` 이 공용 키캡의 마우스 그림으로 끼운다. 요리 입력은 `Keys.FIRE` 가 아니라 **실제 좌 / 우 버튼**
+   * (`CookButton`)이라 `renderKeyText` 의 `{ACTION}` 토큰을 쓰지 않는다. 굽기는 「조각을 누르는」 것이라 버튼 그림 없이 글자로 둔다.
+   */
   private ruleText(step: CookStepDef): string {
     switch (step.game) {
-      case 'chop': return `표식이 선에 닿을 때 좌클릭 — ${Math.round(COOK_CHOP_CUTS)}번 썹니다. 박자 밖의 헛클릭은 다음 칼질의 실패입니다`;
-      case 'mince': return '좌클릭 = 좌우 게이지 · 우클릭 = 상하 게이지. 같은 버튼만 연달아 누르면 반대쪽이 줄어듭니다 — 번갈아 빠르게';
+      case 'chop': return `표식이 선에 닿을 때 {L} — ${Math.round(COOK_CHOP_CUTS)}번 썹니다. 박자 밖의 헛클릭은 다음 칼질의 실패입니다`;
+      case 'mince': return '{L} = 좌우 게이지 · {R} = 상하 게이지. 같은 버튼만 연달아 누르면 반대쪽이 줄어듭니다 — 번갈아 빠르게';
       case 'grill': return '익어 가는 조각을 50 % 에서 클릭해 뒤집고, 100 % 에서 한 번 더 클릭해 꺼냅니다 — 늦으면 탑니다';
-      case 'stirfry': return '링이 팬에 닿을 때 좌클릭 — 맞출수록 많이 볶이고, 틀려도 조금은 볶입니다';
-      case 'stir': return '좌클릭을 누르고 있으면 저으며 온도가 내려가고, 떼면 올라갑니다 — 온도를 초록 구간에 두세요';
-      default: return `좌클릭을 누르고 있으면 붓습니다 — ${COOK_LIQUID_LABEL_KO[step.liquid ?? 'water'] ?? ''} ${Math.round(step.targetMl ?? 0)} ml 를 맞추고 손을 떼면 잠시 뒤 끝납니다`;
+      case 'stirfry': return '링이 팬에 닿을 때 {L} — 맞출수록 많이 볶이고, 틀려도 조금은 볶입니다';
+      case 'stir': return '{L} 을 누르고 있으면 저으며 온도가 내려가고, 떼면 올라갑니다 — 온도를 초록 구간에 두세요';
+      default: return `{L} 을 누르고 있으면 붓습니다 — ${COOK_LIQUID_LABEL_KO[step.liquid ?? 'water'] ?? ''} ${Math.round(step.targetMl ?? 0)} ml 를 맞추고 손을 떼면 잠시 뒤 끝납니다`;
     }
   }
 

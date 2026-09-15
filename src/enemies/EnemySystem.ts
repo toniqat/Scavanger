@@ -43,7 +43,9 @@ import { placeSiteGroups, type SitePlacement } from './SiteGroups';
 /* appended (2026-09-15, B-16): 풀이 없을 때의 빈 화염 지대 목록 */
 import { EMPTY_FIRE_ZONES } from './model';
 /* appended (2026-09-14): 튜토리얼 전용 적 — 고정 자리 · 고정 종류 (`Tutorial.ts`) */
-import { placeTutorialEnemies, updateTutorialAmbush, type TutorialPlacement } from './Tutorial';
+import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
+/* appended (2026-09-15): 튜토리얼 벌레 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창 */
+import { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
 /* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
@@ -67,6 +69,8 @@ import * as Alert from './parts/Alerts';
 import * as Status from './parts/Status';
 import * as Pool from './parts/Pool';
 import * as RFx from './parts/RemoteFx';
+/* appended (2026-09-15, 결과 창 개편): 사망 원인 썸네일 · 적 이름 */
+import { enemyDisplayNameOf, renderEnemyPortrait } from './models/Portrait';
 
 export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, RogueDropHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
@@ -98,6 +102,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * HUD 가 매 프레임 부른다 — `RogueGrenades` 가 배열과 칸별 객체를 재사용한다.
    */
   getFireZones(): readonly FireZoneInfo[] { return this.grenades?.getFireZones() ?? EMPTY_FIRE_ZONES; }
+  /** 2026-09-15 (결과 창 개편): 사망 원인 줄의 적 얼굴 썸네일 — 자기 오프스크린 렌더러로 한 번 그려 캐시 (`models/Portrait`). */
+  renderPortrait(enemyType: string, sizePx: number): string | null { return renderEnemyPortrait(enemyType, sizePx); }
+  /** 2026-09-15 (결과 창 개편): 적 종류의 표시 이름 (`models/Portrait`). 모르는 종류면 null. */
+  enemyDisplayName(enemyType: string): string | null { return enemyDisplayNameOf(enemyType); }
   /** 로그 강하 — 굴림 기록 · 포드 연출 · 착지 스폰 (호스트 권한, 훈련장에서는 아무 것도 하지 않는다). */
   readonly rogueDrops = new RogueDropDirector();
   /** 2026-09-11: 네임드 로그 — 레이드당 1회 굴림 · 자리 · 스폰 · `enemy:namedSpawned` (`named/Director.ts`). */
@@ -301,8 +309,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('grenade:exploded', ({ position }) => this.onGunshot(position, 80)),
       // 2026-09-13: 탈출 디펜스 웨이브 제거 (사용자 결정) — `extraction:activated` 는 더 이상 웨이브를 부르지 않는다
       bus.on('extraction:liftoff', ({ position }) => {
-        if (this.authority) this.fleeFrom(position, 18);
+        if (!this.authority) return;
+        /* 2026-09-15 (사용자 결정 — 「처치하지 않은 안드로이드가 이륙하는 함선 안의 PC 를 실제로 쏜다」): 튜토리얼 적은 달아나지
+           않는다. 18 m 도주를 걸면 함선 곁의 안드로이드가 총을 내리고 등을 돌린다 — 대신 이륙 사격 창을 연다 (`Tutorial.ts`). */
+        if (this.tutorial) { onTutorialLiftoff(this.tutorialPlacement); return; }
+        this.fleeFrom(position, 18);
       }),
+      /* 2026-09-15: 튜토리얼 구간 어그로 해제 — 체크포인트(`crawl` → 벌레 · `supply` → 절벽 위 인간형)와 절벽 낙하 (`Tutorial.ts`) */
+      bus.on('tutorial:checkpoint', ({ id }) => { if (this.tutorial && this.authority) onTutorialCheckpoint(this, this.tutorialPlacement, id); }),
+      bus.on('player:fell', ({ rule }) => { if (this.tutorial && this.authority) onTutorialFell(this, this.tutorialPlacement, rule); }),
       bus.on('enemy:waveStarted', ({ index, count }) => {
         this.wavesSeen = Math.max(this.wavesSeen, index + 1);
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
@@ -407,7 +422,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.shells?.update(dt, this);
         this.grenades?.update(dt);
         // 2026-09-14 3차: 튜토리얼 벌레는 땅속에서 기다린다 — 플레이어가 다가오면 그 자리에서 솟는다 (굴착 스폰 재사용)
-        if (this.tutorial) updateTutorialAmbush(this, this.tutorialPlacement);
+        // 2026-09-15: + 연쇄 스폰(첫 벌레 1초 뒤 다음 벌레) · 이륙 사격 창 — `Tutorial.updateTutorialScript`
+        if (this.tutorial) updateTutorialScript(this, this.tutorialPlacement, dt);
         // 2026-09-14: 튜토리얼은 순찰 · 웨이브가 없다 — 목록에 적힌 마리가 전부다
         if (!this.training && !this.tutorial) {
           this.spawner.update(dt, this);

@@ -13,7 +13,7 @@ import {
 
 export type LoadOutcome = 'loaded' | 'migrated' | 'fresh' | 'corrupt';
 
-/** 전술 임플란트 a brand-new profile starts with (all six are owned from level 1; 갈고리 is the mobility staple). */
+/** 전술 임플란트 a brand-new profile starts with (all five are owned from level 1; 갈고리 is the mobility staple). */
 export const DEFAULT_IMPLANT: ImplantId = 'grapple';
 
 export interface LoadResult {
@@ -219,6 +219,9 @@ export function migrate(raw: unknown): PlayerProfile | null {
     p.skillProgress[id] = p.skills[id] >= SKILL_LEVEL_MAX ? 0 : num(prog[id], 0, 0, 0.999999);
   }
 
+  /* 2026-09-15: 은퇴한 `atlauncher`(대전차포)는 `IMPLANT_IDS` 에 없으므로 여기서 null 이 된다 — migrate 의 결과가 곧
+   * 다음 `saveProfile` 이라 한 번 로드되면 세이브에서도 지워진다. 빈 칸은 다음 `hub:entered` 에서
+   * `ProgressionSystem.grantStarterImplant` 가 갈고리로 채운다 (그 뒤는 인벤토리 피커에서 다시 고른다). */
   const implant = r.implant;
   p.implant = typeof implant === 'string' && (IMPLANT_IDS as readonly string[]).includes(implant)
     ? (implant as ImplantId)

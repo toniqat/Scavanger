@@ -75,6 +75,7 @@ export function applyAimZoom(sys: WeaponSystem, stats: EffectiveWeaponStats | nu
 
 /* ─────────────────────────── reload ─────────────────────────── */
 export function tryReload(sys: WeaponSystem, w: WeaponInstance): void {
+  if (w.unique?.autoFeed) return;   // 2026-09-15 「롱혼」: never reloads — `parts/Slots.autoFeed` refills it from the quiver
   if (sys.phase !== 'ready') return;
   if (sys.magOf(w) >= w.stats.magSize) return;
   if (sys.reserveOf(w) <= 0) {
@@ -85,7 +86,7 @@ export function tryReload(sys: WeaponSystem, w: WeaponInstance): void {
   sys.phase = 'reloading';
   sys.reloadTimer = 0;
   // 사격 스킬 (tactical kit): reload gets faster with the class skill (`derived.reloadSpeedMul`)
-  sys.reloadDuration = Math.max(0.2, w.stats.reloadTime / sys.reloadSpeedFor(w.stats.weaponClass));
+  sys.reloadDuration = Math.max(0.2, w.stats.reloadTime / sys.reloadSpeedFor(w.stats.weaponClass, !!w.def.unique));
   sys.boltTimer = 0; sys.boltSoundTimer = 0;
   w.model.setBolt(-1);
   w.model.setReload(0);
@@ -265,7 +266,7 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   if (kindOf(def) !== 'energy' && (!def.unique || def.unique === 'minigun')) sys.fx.casing(_tmp, _right, host.position.y);
   w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
   // 사격 스킬 (tactical kit): recoil shrinks as the class skill rises (`derived.recoilMul`)
-  const recoilMul = sys.recoilMulFor(cls);
+  const recoilMul = sys.recoilMulFor(cls, !!def.unique);   // 2026-09-15: none for legendaries (minigun takes this path)
   const kick = st.recoilV * (0.85 + Math.random() * 0.3) * stanceMul * recoilMul;
   // horizontal: same ± random as before (items' recoilH = recoil × 0.7, the old constant)
   host.addRecoil(kick, (Math.random() - 0.5) * st.recoilH * stanceMul * recoilMul);
@@ -315,8 +316,12 @@ export function useSpeedMul(sys: WeaponSystem): number {
   return typeof v === 'number' && v > 0 ? Math.max(0.25, v) : 1;
   }
 
-/** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet). */
-export function recoilMulFor(sys: WeaponSystem, cls: WeaponClass): number {
+/**
+ * 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet).
+ * 2026-09-15 (사용자 결정): legendary uniques sit **outside** the shooting-skill system — `unique` true → always 1.
+ */
+export function recoilMulFor(sys: WeaponSystem, cls: WeaponClass, unique = false): number {
+  if (unique) return 1;
   const v = sys.ctx.progression?.derived.recoilMul[cls];
   return typeof v === 'number' && v > 0 ? v : 1;
   }
@@ -324,9 +329,10 @@ export function recoilMulFor(sys: WeaponSystem, cls: WeaponClass): number {
 /**
  * 사격 스킬 reload speed multiplier for a class (>1 = faster). 2026-09-12: × the player's boost multiplier
  * (`PlayerRef.boostReloadSpeedMul` — 각성제), read at each reload start.
+ * 2026-09-15 (사용자 결정): `unique` true → no skill part (legendaries take no shooting-skill bonus); the 각성제 boost still applies.
  */
-export function reloadSpeedFor(sys: WeaponSystem, cls: WeaponClass): number {
-  const v = sys.ctx.progression?.derived.reloadSpeedMul[cls];
+export function reloadSpeedFor(sys: WeaponSystem, cls: WeaponClass, unique = false): number {
+  const v = unique ? undefined : sys.ctx.progression?.derived.reloadSpeedMul[cls];
   const skill = typeof v === 'number' && v > 0 ? v : 1;
   const b = sys.ctx.player?.boostReloadSpeedMul;
   return skill * (typeof b === 'number' && b > 0 ? b : 1);

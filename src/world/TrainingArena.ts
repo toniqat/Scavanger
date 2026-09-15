@@ -10,20 +10,33 @@ import {
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 시뮬레이션 훈련장 (Phase 7): a flat, walled, "indoor" arena that replaces the planet when `game:newMission` carries
+ * 시뮬레이션 훈련장 (Phase 7): a flat, open-topped arena that replaces the planet when `game:newMission` carries
  * `mode: 'training'`. Three lanes of pop-up targets (destructible obstacles in the world's spatial hash, so the
  * weapon folder's ordinary `raycast → obstacle.destructible.onDamage` path scores hits), an exit console
  * (`Interactable 'training_exit'` → `training:exitRequested`), no crates / nests / gather / extraction.
- * Everything is procedural: CanvasTextures for the floor grid, the target boards and the console screen; emissive
- * strips for the "indoor" lighting feel (no lights — the arena is rendered in the atmosphere's space mode).
+ * Everything is procedural: CanvasTextures for the floor grid, the target boards, the console screens and the horizon;
+ * emissive strips for the lighting feel (no lights — the arena is rendered in the atmosphere's space mode).
+ *
+ * 2026-09-15 (사용자 결정 — 천장이 로켓 점프를 막았다): **no ceiling and no wall meshes.** The four walls are invisible:
+ * `clampInside` (through `WorldRef.resolveCollision`) clamps X/Z at any height, so walking, jumping, rocket jumps, dashes,
+ * thrown grenades / gadgets, dropped items and drones all stay inside however high they go. Rays (bullets, the aim line,
+ * the camera, the player's ceiling probe) do **not** see the walls: a shot through the boundary flies on and either lands
+ * on the apron (the deck drawn past the boundary, which `raycastShell` still treats as floor) or expires silently at its
+ * range — there is nothing in mid-air to spark on. The limit is drawn on the floor instead: a cyan boundary line with
+ * corner brackets, the deck fading to black beyond it, and a faint simulation horizon ring far out.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** Half side of the arena (inner wall face). */
+/** Half side of the arena — where the invisible wall stands. */
 export const ARENA_HALF = TRAINING_ARENA_SIZE / 2;
-/** Ceiling height (m) — the raycast treats it as a plane so tracers / grenades stop there. */
-export const ARENA_CEILING = 7;
-const WALL_T = 0.6;
-const WALL_H = ARENA_CEILING;
+/** Deck drawn past the invisible wall (m); it fades to the void and still counts as floor for rays. */
+const APRON = 40;
+/** Floor-plane reach of `raycastShell` = the drawn deck including the apron. */
+const FLOOR_REACH = ARENA_HALF + APRON;
+/** Apron fade bands and the brightness of its inner edge (drawn unlit, tuned to sit just under the lit deck). */
+const APRON_RINGS = 12;
+const APRON_INNER = 0.5;
+/** Simulation horizon: an additive open cylinder far outside the arena (radius, bottom, top — m). */
+const HORIZON_R = 340, HORIZON_Y0 = -90, HORIZON_Y1 = 150;
 /** Lane centres (x) and the lane half width. */
 const LANES_X: readonly number[] = [-10, 0, 10];
 const LANE_HALF_W = 4;
@@ -159,6 +172,77 @@ function boardTexture(): THREE.CanvasTexture {
   for (const r of [22, 14, 6]) { g.beginPath(); g.arc(W / 2, 100, r, 0, Math.PI * 2); g.stroke(); }
   g.fillStyle = '#d63a2a'; g.beginPath(); g.arc(W / 2, 100, 3, 0, Math.PI * 2); g.fill();
   const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/**
+ * 2026-09-15: the deck past the invisible wall — a square annulus from `inner` to `outer` in `rings` bands. UVs continue the
+ * main floor's (same texture, same 4 m tiles); vertex colours fade it quadratically to black. Drawn unlit so its far edge
+ * meets the space-mode background with no seam (a lit albedo never quite reaches black).
+ */
+function apronGeometry(inner: number, outer: number, rings: number, innerBrightness: number): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [], col: number[] = [], idx: number[] = [];
+  const corners: ReadonlyArray<readonly [number, number]> = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let r = 0; r <= rings; r++) {
+    const t = r / rings;
+    const s = inner + (outer - inner) * t;
+    const b = innerBrightness * (1 - t) * (1 - t);
+    for (const [cx, cz] of corners) {
+      const x = cx * s, z = cz * s;
+      pos.push(x, 0, z);
+      // the floor PlaneGeometry (rotated −π/2 about X): u = (x + H) / size, v = (H − z) / size, repeat = size / 4
+      uv.push((x + ARENA_HALF) / TRAINING_ARENA_SIZE, (ARENA_HALF - z) / TRAINING_ARENA_SIZE);
+      col.push(b, b, b);
+    }
+  }
+  for (let r = 0; r < rings; r++) {
+    for (let c = 0; c < 4; c++) {
+      const a = r * 4 + c, b = r * 4 + ((c + 1) % 4);
+      idx.push(a, b, a + 4, b, b + 4, a + 4);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * 2026-09-15: the simulation horizon — a thin cyan line at world y 0 with a haze above it and a faint grid, on black.
+ * Drawn additive, so black texels add nothing. Canvas top = cylinder top (`HORIZON_Y1`).
+ */
+function horizonTexture(): THREE.CanvasTexture {
+  const W = 512, H = 256;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  const hz = HORIZON_Y1 / (HORIZON_Y1 - HORIZON_Y0);   // canvas row fraction of world y 0
+  const grad = g.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#000000');
+  grad.addColorStop(hz - 0.3, '#010407');
+  grad.addColorStop(hz - 0.06, '#071b26');
+  grad.addColorStop(hz - 0.008, '#1f5a74');
+  grad.addColorStop(hz, '#4fa6c8');
+  grad.addColorStop(hz + 0.02, '#081b24');
+  grad.addColorStop(hz + 0.1, '#000000');
+  grad.addColorStop(1, '#000000');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  const row = Math.round(hz * H);
+  // grid above the horizon: vertical lines fading upward, horizontal lines spreading out with height
+  const vgrad = g.createLinearGradient(0, 0, 0, row);
+  vgrad.addColorStop(0, 'rgba(70,160,200,0)');
+  vgrad.addColorStop(1, 'rgba(70,160,200,0.22)');
+  g.fillStyle = vgrad;
+  for (let x = 0; x < W; x += 32) g.fillRect(x, 0, 1, row);
+  for (const [dy, a] of [[5, 0.2], [12, 0.15], [22, 0.11], [36, 0.08], [56, 0.05], [84, 0.03]] as const) {
+    g.fillStyle = `rgba(70,160,200,${a})`; g.fillRect(0, row - dy, W, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.repeat.set(6, 1);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -305,7 +389,7 @@ export class TrainingArena implements TrainingRef {
     this.built = true;
   }
 
-  /* ── shell: floor, walls, ceiling, strips ── */
+  /* ── shell (2026-09-15): floor + fading apron, boundary / lane strips, horizon ring — no walls, no ceiling ── */
   private buildShell(): void {
     const H = ARENA_HALF;
     const floorTex = floorTexture();
@@ -320,47 +404,53 @@ export class TrainingArena implements TrainingRef {
     this.group.add(floor);
     this.disposables.push(floor.geometry);
 
-    // walls + corner pillars + ceiling (dark hull)
-    const hull = new THREE.MeshStandardMaterial({ color: 0x3a424c, roughness: 0.8, metalness: 0.25, emissive: 0x10151b, emissiveIntensity: 0.7 });
-    const hullDark = new THREE.MeshStandardMaterial({ color: 0x1c2229, roughness: 0.9, metalness: 0.2, emissive: 0x0a0d11, emissiveIntensity: 0.6 });
-    this.disposables.push(hull, hullDark);
-    const walls: THREE.BufferGeometry[] = [];
-    const L = TRAINING_ARENA_SIZE + WALL_T * 2;
-    walls.push(box(L, WALL_H, WALL_T, 0, WALL_H / 2, -H - WALL_T / 2));
-    walls.push(box(L, WALL_H, WALL_T, 0, WALL_H / 2, H + WALL_T / 2));
-    walls.push(box(WALL_T, WALL_H, L, -H - WALL_T / 2, WALL_H / 2, 0));
-    walls.push(box(WALL_T, WALL_H, L, H + WALL_T / 2, WALL_H / 2, 0));
-    // ribs every 8 m so the walls read as panels
-    for (let i = -3; i <= 3; i++) {
-      const p = i * 8;
-      walls.push(box(0.5, WALL_H, 0.35, p, WALL_H / 2, -H + 0.15));
-      walls.push(box(0.5, WALL_H, 0.35, p, WALL_H / 2, H - 0.15));
-      walls.push(box(0.35, WALL_H, 0.5, -H + 0.15, WALL_H / 2, p));
-      walls.push(box(0.35, WALL_H, 0.5, H - 0.15, WALL_H / 2, p));
-    }
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) walls.push(box(1.2, WALL_H, 1.2, sx * (H - 0.5), WALL_H / 2, sz * (H - 0.5)));
-    const wallMesh = mergedMesh(walls, hull, 'arena-walls');
-    if (wallMesh) { wallMesh.castShadow = true; wallMesh.receiveShadow = true; this.group.add(wallMesh); this.disposables.push(wallMesh.geometry); }
+    // 2026-09-15: the deck carries on past the invisible wall and fades into the void, so the boundary reads as a limit
+    // rather than the edge of a platform. Unlit on purpose: its far edge must meet the black background exactly.
+    const apronMat = new THREE.MeshBasicMaterial({ map: floorTex, vertexColors: true, side: THREE.DoubleSide, fog: false });
+    const apron = new THREE.Mesh(apronGeometry(H, FLOOR_REACH, APRON_RINGS, APRON_INNER), apronMat);
+    apron.name = 'arena-apron';
+    apron.matrixAutoUpdate = false;
+    this.group.add(apron);
+    this.disposables.push(apronMat, apron.geometry);
 
-    const ceilParts: THREE.BufferGeometry[] = [box(L, 0.4, L, 0, ARENA_CEILING + 0.2, 0)];
-    // ceiling beams
-    for (let i = -3; i <= 3; i++) ceilParts.push(box(L, 0.35, 0.5, 0, ARENA_CEILING - 0.17, i * 8));
-    const ceil = mergedMesh(ceilParts, hullDark, 'arena-ceiling');
-    if (ceil) { this.group.add(ceil); this.disposables.push(ceil.geometry); }
+    // 2026-09-15: simulation horizon far out — additive (black texels add nothing); the camera is always inside the
+    // cylinder, so it is never frustum-culled. No light, no raycast (the world's rays are analytic, not three.js).
+    const horizonTex = horizonTexture();
+    const horizonMat = new THREE.MeshBasicMaterial({
+      map: horizonTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide, fog: false,
+    });
+    const horizon = new THREE.Mesh(new THREE.CylinderGeometry(HORIZON_R, HORIZON_R, HORIZON_Y1 - HORIZON_Y0, 72, 1, true), horizonMat);
+    horizon.name = 'arena-horizon';
+    horizon.position.y = (HORIZON_Y0 + HORIZON_Y1) / 2;
+    horizon.renderOrder = -1;
+    horizon.updateMatrix();
+    horizon.matrixAutoUpdate = false;
+    this.group.add(horizon);
+    this.disposables.push(horizonTex, horizonMat, horizon.geometry);
 
-    // emissive strips: cyan (walls, lane edges, wall band), amber (firing line, distance marks), white (ceiling panels)
+    // emissive strips: cyan (boundary, lane edges), amber (firing line, spawn ring)
     const cyan = new THREE.MeshStandardMaterial({ color: 0x9fe8ff, emissive: 0x4fc8ff, emissiveIntensity: 1.6, roughness: 0.4 });
     const amber = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xff9a2a, emissiveIntensity: 1.5, roughness: 0.4 });
-    const white = new THREE.MeshStandardMaterial({ color: 0xf4f7ff, emissive: 0xdfe8ff, emissiveIntensity: 2.2, roughness: 0.3 });
     this.strips = cyan;
-    this.disposables.push(cyan, amber, white);
-    const cy: THREE.BufferGeometry[] = [], am: THREE.BufferGeometry[] = [], wh: THREE.BufferGeometry[] = [];
-    // wall bands at 1.0 m and under the ceiling
-    for (const y of [1.0, ARENA_CEILING - 0.6]) {
-      cy.push(box(L - 2, 0.08, 0.08, 0, y, -H + 0.06));
-      cy.push(box(L - 2, 0.08, 0.08, 0, y, H - 0.06));
-      cy.push(box(0.08, 0.08, L - 2, -H + 0.06, y, 0));
-      cy.push(box(0.08, 0.08, L - 2, H - 0.06, y, 0));
+    this.disposables.push(cyan, amber);
+    const cy: THREE.BufferGeometry[] = [], am: THREE.BufferGeometry[] = [];
+    // 2026-09-15: the boundary line exactly where the invisible wall stands, inward ticks every 8 m (where the wall ribs
+    // were) and corner brackets — the only visible trace of the walls
+    const L = TRAINING_ARENA_SIZE + 0.12;
+    cy.push(box(L, 0.03, 0.12, 0, 0.016, -H));
+    cy.push(box(L, 0.03, 0.12, 0, 0.016, H));
+    cy.push(box(0.12, 0.03, L, -H, 0.016, 0));
+    cy.push(box(0.12, 0.03, L, H, 0.016, 0));
+    for (let i = -3; i <= 3; i++) {
+      const p = i * 8;
+      cy.push(box(0.08, 0.03, 0.7, p, 0.016, -H + 0.35));
+      cy.push(box(0.08, 0.03, 0.7, p, 0.016, H - 0.35));
+      cy.push(box(0.7, 0.03, 0.08, -H + 0.35, 0.016, p));
+      cy.push(box(0.7, 0.03, 0.08, H - 0.35, 0.016, p));
+    }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      cy.push(box(2.4, 0.03, 0.3, sx * (H - 1.2), 0.016, sz * (H - 0.15)));
+      cy.push(box(0.3, 0.03, 2.4, sx * (H - 0.15), 0.016, sz * (H - 1.2)));
     }
     // lane edges on the floor + the firing line
     const laneEnd = -H + 4;
@@ -370,12 +460,9 @@ export class TrainingArena implements TrainingRef {
     am.push(box(LANES_X[LANES_X.length - 1] - LANES_X[0] + LANE_HALF_W * 2, 0.03, 0.3, 0, 0.015, FIRING_LINE_Z));
     // spawn ring (amber) behind the firing line
     am.push(placed(new THREE.RingGeometry(1.1, 1.3, 32), 0, 0.02, SPAWN_Z, -Math.PI / 2));
-    // ceiling light panels
-    for (let ix = -1; ix <= 1; ix++) for (let iz = -2; iz <= 2; iz++) wh.push(box(4, 0.08, 1.2, ix * 20, ARENA_CEILING - 0.04, iz * 12));
     const cyMesh = mergedMesh(cy, cyan, 'arena-strips-cyan');
     const amMesh = mergedMesh(am, amber, 'arena-strips-amber');
-    const whMesh = mergedMesh(wh, white, 'arena-strips-white');
-    for (const m of [cyMesh, amMesh, whMesh]) if (m) { this.group.add(m); this.disposables.push(m.geometry); }
+    for (const m of [cyMesh, amMesh]) if (m) { this.group.add(m); this.disposables.push(m.geometry); }
   }
 
   /* ── targets ── */
@@ -571,7 +658,7 @@ export class TrainingArena implements TrainingRef {
     return screen;
   }
 
-  /** 무기 거치대 dressing behind its console: a wall rack with a few silhouetted guns (no interaction of its own). */
+  /** 무기 거치대 dressing behind its console: a free-standing rack with a few silhouetted guns (no interaction of its own). */
   private buildRack(): void {
     const frame = new THREE.MeshStandardMaterial({ color: 0x2a3138, roughness: 0.7, metalness: 0.4, emissive: 0x0c1014, emissiveIntensity: 0.6 });
     const gun = new THREE.MeshStandardMaterial({ color: 0x4a525c, roughness: 0.5, metalness: 0.6 });
@@ -579,7 +666,10 @@ export class TrainingArena implements TrainingRef {
     const z = ARENA_HALF - 0.45;
     const parts: THREE.BufferGeometry[] = [
       box(2.6, 0.08, 0.3, RACK_X, 0.9, z), box(2.6, 0.08, 0.3, RACK_X, 1.9, z),
-      box(0.08, 1.2, 0.3, RACK_X - 1.26, 1.4, z), box(0.08, 1.2, 0.3, RACK_X + 1.26, 1.4, z),
+      // 2026-09-15: no wall behind it any more — full-height uprights on feet and a back panel, so it stands on its own
+      box(0.08, 2.0, 0.3, RACK_X - 1.26, 1.0, z), box(0.08, 2.0, 0.3, RACK_X + 1.26, 1.0, z),
+      box(0.3, 0.05, 0.7, RACK_X - 1.26, 0.025, z), box(0.3, 0.05, 0.7, RACK_X + 1.26, 0.025, z),
+      box(2.6, 1.3, 0.04, RACK_X, 1.35, z + 0.14),
     ];
     const guns: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 4; k++) {
@@ -717,28 +807,25 @@ export class TrainingArena implements TrainingRef {
     if (this.exitScreen) this.exitScreen.emissiveIntensity = 1.0 + Math.sin(time * 3) * 0.15;
   }
 
-  /* ── queries (flat floor, analytic walls) ── */
+  /* ── queries (flat floor, invisible walls) ── */
 
-  /** Ray vs floor / ceiling / the four walls. Returns t (or −1) and writes the normal into `n`. */
+  /**
+   * Ray vs the floor plane — the deck **and** its apron, out to `FLOOR_REACH`. Returns t (or −1) and writes the normal into `n`.
+   * 2026-09-15: no ceiling plane and no wall planes any more. The walls are invisible and hold bodies only (`clampInside`),
+   * so a shot through the boundary flies on and lands on the drawn apron or expires at its range (no sparks in mid-air),
+   * the camera may swing past the boundary, and the player's ceiling probe finds nothing overhead.
+   */
   raycastShell(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, n: THREE.Vector3): number {
-    let best = -1;
-    const consider = (t: number, nx: number, ny: number, nz: number): void => {
-      if (t < 0 || t > maxDist || (best >= 0 && t >= best)) return;
-      const px = ox + dx * t, pz = oz + dz * t, py = oy + dy * t;
-      const H = ARENA_HALF + 0.01;
-      if (px < -H || px > H || pz < -H || pz > H || py < -0.01 || py > ARENA_CEILING + 0.01) return;
-      best = t; n.set(nx, ny, nz);
-    };
-    if (dy < -1e-6) consider(-oy / dy, 0, 1, 0);
-    if (dy > 1e-6) consider((ARENA_CEILING - oy) / dy, 0, -1, 0);
-    if (dx > 1e-6) consider((ARENA_HALF - ox) / dx, -1, 0, 0);
-    if (dx < -1e-6) consider((-ARENA_HALF - ox) / dx, 1, 0, 0);
-    if (dz > 1e-6) consider((ARENA_HALF - oz) / dz, 0, 0, -1);
-    if (dz < -1e-6) consider((-ARENA_HALF - oz) / dz, 0, 0, 1);
-    return best;
+    if (dy > -1e-6) return -1;
+    const t = -oy / dy;
+    if (t < 0 || t > maxDist) return -1;
+    const px = ox + dx * t, pz = oz + dz * t;
+    if (px < -FLOOR_REACH || px > FLOOR_REACH || pz < -FLOOR_REACH || pz > FLOOR_REACH) return -1;
+    n.set(0, 1, 0);
+    return t;
   }
 
-  /** Hard clamp inside the walls. */
+  /** Hard clamp inside the invisible walls — X/Z only, so it holds at any height (jumps, rocket jumps, thrown things, drones). */
   clampInside(position: THREE.Vector3, radius: number): void {
     const lim = ARENA_HALF - radius - 0.05;
     if (position.x > lim) position.x = lim; else if (position.x < -lim) position.x = -lim;

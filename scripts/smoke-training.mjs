@@ -1,8 +1,9 @@
 // Smoke test for the 시뮬레이션 훈련장 (Phase 7 §9, world + hub folders, 2026-09-06):
 // personal ship → the ship terminal's 시뮬레이션 훈련장 section, solo (2026-09-12: the 시뮬레이션실 / `furn_sim_hub` are retired —
-// the terminal is the entry on both ships) → 시작 → `game:newMission {mode:'training'}` → arena world (flat floor, walls, 12 pop-up targets, exit console,
-// no crates / nests / gather / extraction, space-mode "indoor" look, `ui:objective` counter) → arena queries (height /
-// bounds / collision clamp / raycast floor + wall + target cylinder) → the real gun knocks target 0 down through the
+// the terminal is the entry on both ships) → 시작 → `game:newMission {mode:'training'}` → arena world (flat floor, 12 pop-up targets, exit console,
+// no crates / nests / gather / extraction, space-mode look, `ui:objective` counter) → arena queries (height /
+// bounds / collision clamp / raycast floor + apron + target cylinder; 2026-09-15: no ceiling, invisible walls — rays pass the
+// boundary, bodies are clamped at any height, a launched player rises past the old 7 m ceiling and stays inside) → the real gun knocks target 0 down through the
 // destructible-obstacle path → it pops back after TRAINING_TARGET_RESPAWN_S → the exit console emits
 // `training:exitRequested` (+ the return to the ship, driven by game/ when implemented, else by the script) → a faked
 // lobby checks the shared-ship terminal entry (시작 / 합류 (n명 훈련 중) / 임무 진행 중) and the pod lock while a training runs.
@@ -191,27 +192,67 @@ try {
     const w = window.__game.ctx.world;
     const v = (x, y, z) => { const o = new THREE_V(); o.set(x, y, z); return o; };
     const clamp = w.resolveCollision(v(40, 0, 40), 0.45);
+    const clampHigh = w.resolveCollision(v(40, 30, -40), 0.45);
     const down = w.raycast(v(3, 3, 3), v(0, -1, 0), 20);
     const wall = w.raycast(v(0, 1, 0), v(1, 0, 0), 100);
     const ceil = w.raycast(v(0, 1, 0), v(0, 1, 0), 100);
+    const apron = w.raycast(v(50, 3, 0), v(0, -1, 0), 20);
+    const void_ = w.raycast(v(80, 3, 0), v(0, -1, 0), 20);
     const t0 = window.__game.getSystem('world').trainingArena.getTargetState(0);
     const from = v(t0.position.x, 1.4, t0.position.z + 8);
     const tgt = w.raycast(from, v(0, 0, -1), 60);
     return {
       clamp: [clamp.x, clamp.z],
+      clampHigh: [clampHigh.x, clampHigh.y, clampHigh.z],
       down: down ? [down.point.y, down.normal.y, !!down.obstacle] : null,
       wall: wall ? [wall.point.x, wall.normal.x] : null,
       ceil: ceil ? [ceil.point.y, ceil.normal.y] : null,
+      apron: apron ? [apron.point.y, apron.normal.y] : null,
+      void_: void_ ? [void_.point.x, void_.point.y] : null,
       tgt: tgt ? { id: tgt.obstacle?.destructible?.id ?? null, hp: tgt.obstacle?.destructible?.hp ?? null, dist: tgt.distance } : null,
       t0: { down: t0.down, hp: t0.hp },
     };
   });
   ok(q.clamp[0] <= 31.55 && q.clamp[1] <= 31.55, `resolveCollision clamps inside the walls (${q.clamp.map((n) => n.toFixed(2))})`);
   ok(q.down && Math.abs(q.down[0]) < 0.01 && q.down[1] === 1 && !q.down[2], `raycast down hits the floor (y ${q.down?.[0]}, n.y ${q.down?.[1]})`);
-  ok(q.wall && Math.abs(q.wall[0] - 32) < 0.01 && q.wall[1] === -1, `raycast +X hits the wall at x 32 (n.x −1) (${q.wall})`);
-  ok(q.ceil && Math.abs(q.ceil[0] - 7) < 0.01 && q.ceil[1] === -1, `raycast up hits the ceiling at y 7 (${q.ceil})`);
+  // 2026-09-15 (사용자 결정): no ceiling, invisible walls — rays pass the boundary, bodies are clamped at any height
+  ok(q.clampHigh[0] <= 31.55 && q.clampHigh[2] >= -31.55 && q.clampHigh[1] === 30, `resolveCollision clamps at 30 m up too (${q.clampHigh.map((n) => n.toFixed(2))})`);
+  ok(q.wall === null, `raycast +X passes the invisible wall (${q.wall})`);
+  ok(q.ceil === null, `raycast up finds no ceiling (${q.ceil})`);
+  ok(q.apron && Math.abs(q.apron[0]) < 0.01 && q.apron[1] === 1, `raycast down outside the wall lands on the apron (${q.apron})`);
+  ok(q.void_ === null, `raycast down past the apron finds nothing (${q.void_})`);
   ok(q.tgt && q.tgt.id === 'training_target_0' && q.tgt.hp === 60, `raycast at target 0 returns its destructible (${JSON.stringify(q.tgt)})`);
   ok(!q.t0.down && q.t0.hp === 60, 'target 0 standing at 60 hp');
+
+  const shell = await P(() => {
+    const scene = window.__game.ctx.scene;
+    const names = ['arena-walls', 'arena-ceiling', 'arena-strips-white', 'arena-apron', 'arena-horizon', 'arena-strips-cyan'];
+    return Object.fromEntries(names.map((n) => [n, !!scene.getObjectByName(n)]));
+  });
+  ok(!shell['arena-walls'] && !shell['arena-ceiling'] && !shell['arena-strips-white'], 'no wall / ceiling meshes', JSON.stringify(shell));
+  ok(shell['arena-apron'] && shell['arena-horizon'] && shell['arena-strips-cyan'], 'apron, horizon ring and boundary strips built', JSON.stringify(shell));
+
+  // a player launched up and toward the +X wall rises past the old 7 m ceiling and never leaves the arena
+  await P(() => { const p = window.__game.ctx.player; const v = p.position.clone(); v.set(26, 0, 0); p.teleport(v, 0, true); });
+  await waitSim(0.4);
+  await P(() => {
+    const p = window.__game.ctx.player;
+    window.__launch = { maxY: p.position.y, maxX: p.position.x };
+    window.__launchPoll = setInterval(() => { const q = p.position; if (q.y > window.__launch.maxY) window.__launch.maxY = q.y; if (q.x > window.__launch.maxX) window.__launch.maxX = q.x; }, 5);
+    const imp = p.position.clone(); imp.set(14, 22, 0); p.applyImpulse(imp);
+  });
+  await waitSim(2.4);
+  const launch = await P(() => {
+    clearInterval(window.__launchPoll);
+    const p = window.__game.ctx.player;
+    const r = { ...window.__launch, x: p.position.x, y: p.position.y, grounded: p.isGrounded ?? null };
+    p.heal(999);
+    const v = p.position.clone(); v.set(0, 0, 26); p.teleport(v, 0, true);
+    return r;
+  });
+  ok(launch.maxY > 7.5, `launched player rises past the old 7 m ceiling (max y ${launch.maxY.toFixed(2)})`, JSON.stringify(launch));
+  ok(launch.maxX <= 31.56 && launch.x <= 31.56 && launch.y < 0.2, `…and stays inside the invisible wall (max x ${launch.maxX.toFixed(2)}, landed at ${launch.x.toFixed(2)}, ${launch.y.toFixed(2)})`, JSON.stringify(launch));
+  await waitSim(0.4);
 
   /* ── 3. shoot target 0 with the real gun ───────────────────────────────── */
   console.log('shooting');

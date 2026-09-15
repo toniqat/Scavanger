@@ -1,4 +1,4 @@
-import { TUTORIAL_STEP_DELAY_S } from '@/shared';
+import { TUTORIAL_STEP_DELAY_S, renderKeyText } from '@/shared';
 import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -35,6 +35,12 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  * **2026-09-09 — 패널은 언제나 화면들 위에 있다.** z-index 는 `is-lifted` 와 무관하게 79 로 고정이다
  * (`tutorial.css`). 예전에는 24 였다가 포커싱 중에만 79 로 올라가서, 대상을 못 찾은 순간마다 인벤토리 창
  * (`.inv-root`, z 50, 배경 블러)이 패널을 **통째로 덮어** 목표가 사라졌다.
+ *
+ * **2026-09-15 (사용자 결정) — 목표 줄 안의 키캡 · 선택 목표는 회색이 아니다.**
+ *   ① 목표 문구가 **키캡 토큰**(`{QUICK:hold}` …)을 담는다 — `shared/keycap.renderKeyText` 가 글자 층(`.tut-obj-txt`)과
+ *      취소선 층(`.tut-obj-strike`) **둘 다**에 같은 키캡을 끼워 넣는다. 두 층의 배치가 글자 하나까지 같아야 취소선이
+ *      제 줄에 그어지기 때문이다. 리바인드하면 `relabel()` 이 두 층을 다시 그린다.
+ *   ② **회색은 달성한 줄만**이다 — 선택 목표도 달성 전에는 필수와 같은 색이다 (`(선택)` 접두사는 그대로).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 한 번의 `show()` 가 그리는 것 전부. */
@@ -49,7 +55,13 @@ export interface PanelView {
   count: number;
 }
 
-interface Row { el: HTMLElement }
+interface Row {
+  el: HTMLElement;
+  /** 글자 층 · 취소선 층과 그 둘에 그린 문구 (토큰 그대로 — 리바인드 때 다시 푼다). */
+  txt: HTMLElement;
+  strike: HTMLElement;
+  text: string;
+}
 
 /** 퀘스트 글리프 — 외부 에셋 금지라 인라인 SVG 다 (마름모 + 가운데 점). */
 const QUEST_ICON = '<svg class="tut-quest-ico" viewBox="0 0 16 16" aria-hidden="true">'
@@ -67,7 +79,7 @@ export class TutorialPanel {
   private readonly list: HTMLElement;
   private readonly fill: HTMLElement;
   private readonly rows = new Map<string, Row>();
-  /** 지금 그려져 있는 목표 줄의 id (순서 그대로) — 같으면 다시 짓지 않는다 (애니메이션이 끊기지 않게). */
+  /** 지금 그려져 있는 목표 줄의 `id + 문구` (순서 그대로) — 같으면 다시 짓지 않는다 (애니메이션이 끊기지 않게). */
   private ids: string[] = [];
   private _visible = false;
   private _lifted = false;
@@ -155,7 +167,7 @@ export class TutorialPanel {
   private build(objectives: readonly TutorialObjective[]): void {
     this.rows.clear();
     this.list.replaceChildren();
-    this.ids = objectives.map((o) => o.id);
+    this.ids = objectives.map(rowKey);
     for (const o of objectives) {
       const el = document.createElement('div');
       el.className = o.optional ? 'tut-obj is-optional' : 'tut-obj';
@@ -168,18 +180,27 @@ export class TutorialPanel {
        * 취소선은 **똑같은 글자를 한 겹 더 깔고**(`.tut-obj-strike`, `text-decoration: line-through`)
        * `clip-path` 로 좌→우로 벗겨 낸다. `::after` 의 가로 막대 하나로는 **두 줄로 접힌 목표**에서
        * 가운데 허공에 줄이 그어진다 — 여기 문장은 288 px 패널에서 자주 접힌다.
+       * 2026-09-15: 두 층 모두 `renderKeyText` 로 그린다 — 키캡까지 같은 자리에 서야 두 층이 겹친다.
        */
       const txt = document.createElement('span');
       txt.className = 'tut-obj-txt';
-      txt.textContent = text;
       const strike = document.createElement('span');
       strike.className = 'tut-obj-strike';
       strike.setAttribute('aria-hidden', 'true');
-      strike.textContent = text;
+      renderKeyText(txt, text);
+      renderKeyText(strike, text);
       label.append(txt, strike);
       el.appendChild(label);
       this.list.appendChild(el);
-      this.rows.set(o.id, { el });
+      this.rows.set(o.id, { el, txt, strike, text });
+    }
+  }
+
+  /** 리바인드 — 목표 줄 안의 키캡을 살아 있는 `Keys` 로 다시 그린다 (달성 표시 · 줄 요소는 그대로). */
+  relabel(): void {
+    for (const row of this.rows.values()) {
+      renderKeyText(row.txt, row.text);
+      renderKeyText(row.strike, row.text);
     }
   }
 
@@ -199,5 +220,8 @@ export class TutorialPanel {
   }
 }
 
+/** 줄 하나의 정체 — id 가 같아도 문구가 바뀌면 다시 짓는다. */
+const rowKey = (o: TutorialObjective): string => `${o.id} ${o.text}`;
+
 const sameIds = (ids: readonly string[], objectives: readonly TutorialObjective[]): boolean =>
-  ids.length === objectives.length && objectives.every((o, i) => ids[i] === o.id);
+  ids.length === objectives.length && objectives.every((o, i) => ids[i] === rowKey(o));

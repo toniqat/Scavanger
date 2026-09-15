@@ -697,7 +697,7 @@ export const SEARCH_TIME_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rar
 export const SEARCH_MAX_DISTANCE = K.num('SEARCH_MAX_DISTANCE');
 
 /* training range (시뮬레이션 훈련장) — owner: world */
-/** Arena side (m), flat, walled; the player spawns at the south end facing the lanes. */
+/** Arena side (m), flat, bounded by invisible walls (no ceiling since 2026-09-15); the player spawns at the south end facing the lanes. */
 export const TRAINING_ARENA_SIZE = K.num('TRAINING_ARENA_SIZE');
 /** Pop-up targets: count, hp, seconds to pop back up after a knock-down. */
 export const TRAINING_TARGET_COUNT = K.num('TRAINING_TARGET_COUNT');
@@ -1989,3 +1989,14 @@ export const FIRE_ZONE_DANGER_RANGE = K.num('FIRE_ZONE_DANGER_RANGE');
 export const SOLDIER_RIM_STRENGTH = K.num('SOLDIER_RIM_STRENGTH');
 export const SOLDIER_RIM_POWER = K.num('SOLDIER_RIM_POWER');
 /* ── end 2026-09-15 ── */
+/* ── appended (2026-09-15): 튜토리얼 부활 연출 · 벌레 연쇄 스폰 · 어그로 해제 · 이륙 사격 ── */
+/** 튜토리얼 부활 — 쓰러진 자세에서 일어서는 시간 (owner: player `parts/IntroWake`; caller: game `parts/Death.tutorialRespawn`). */
+export const TUTORIAL_RESPAWN_WAKE_S = K.num('TUTORIAL_RESPAWN_WAKE_S');
+/** 튜토리얼 벌레 매복 — 첫 벌레 뒤 다음 벌레까지 (owner: enemies `Tutorial.ts`). */
+export const TUTORIAL_BUG_CHAIN_SPAWN_S = K.num('TUTORIAL_BUG_CHAIN_SPAWN_S');
+/** 튜토리얼 이륙 사격 창 · 거리 (owner: enemies `Tutorial.ts`). */
+export const TUTORIAL_LIFTOFF_FIRE_S = K.num('TUTORIAL_LIFTOFF_FIRE_S');
+export const TUTORIAL_LIFTOFF_FIRE_RANGE_M = K.num('TUTORIAL_LIFTOFF_FIRE_RANGE_M');
+/** 절벽 낙하 어그로 해제 높이 (owner: enemies `Tutorial.ts`). */
+export const TUTORIAL_AGGRO_DROP_M = K.num('TUTORIAL_AGGRO_DROP_M');
+/* ── end 2026-09-15 튜토리얼 부활 · 어그로 ── */

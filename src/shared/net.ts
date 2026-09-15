@@ -559,7 +559,14 @@ export interface ExplodeRequest { t: 'explode'; p: Vec3Tuple; r: number; dmg: nu
 export interface HitConfirm { t: 'hitc'; id: number; dmg: number; killed: boolean; part: 'head' | 'body' | 'rear' | 'front' }
 /** Host → one client: you took damage. Owner: enemies (host AI) → net applies `ctx.player.takeDamage`. */
 /** `kb` (appended, Phase 7): knockback the victim applies with `PlayerRef.applyKnockback(d, s)` (behemoth charge, blasts). */
-export interface DamageMessage { t: 'dmg'; amount: number; from?: Vec3Tuple; slow?: { duration: number; factor: number }; kb?: { d: Vec3Tuple; s: number } }
+/**
+ * appended (2026-09-15, 결과 창 개편): `dmg.src` — 피해 출처 (`PlayerDamageSource` 의 와이어 모양). 받는 쪽이 자기
+ * `takeDamage(…, source)` 로 넘긴다. `k` = `DamageCauseKind`, `et` = 적의 `EnemyType` id 그대로, `ei` = 적 네트워크 id
+ * (호스트 · 리플리카 공용), `hz` = `HazardKind`. 보내는 쪽이 받는 사람 기준으로 `self` / `ally` 를 이미 정해 싣는다.
+ * 옛 클라이언트는 이 칸을 무시하고, 없는 메시지를 받으면 출처는 undefined (= 모름) 다.
+ */
+export interface DamageSourceWire { k: import('./types').DamageCauseKind; et?: string; ei?: number; hz?: string }
+export interface DamageMessage { t: 'dmg'; amount: number; from?: Vec3Tuple; slow?: { duration: number; factor: number }; kb?: { d: Vec3Tuple; s: number }; /** appended (2026-09-15) */ src?: DamageSourceWire }
 /** Any → all: I died. */
 export interface DiedMessage { t: 'died'; p: Vec3Tuple }
 

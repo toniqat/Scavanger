@@ -18,6 +18,7 @@ import {
   PLAYER_RADIUS,
   type DroneRef, type EnemyRef, type PeerId,
 } from '@/shared';
+import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
 import type { Deployable } from '../Deployable';
 import { PLAYER_HALF_H } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
@@ -58,6 +59,23 @@ export function isLocalOwner(sys: GadgetSystem, owner: PeerId | 'local'): boolea
   if (owner === 'local') return true;
   const me = sys.ctx.net?.localId;
   return me != null && owner === me;
+}
+
+/* ══ 2026-09-15 (결과 창 개편): 설치물 · 가젯이 플레이어에게 준 피해의 출처 ══
+ * 피해를 받는 사람 기준이다 — 내 설치물이면 `self`, 분대원 것이면 `ally`. 한 객체씩 돌려 쓴다 (화염 지대는 매 프레임 묻는다). */
+export const SELF_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'self' });
+export const ALLY_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'ally' });
+const SELF_DAMAGE_WIRE: DamageSourceWire = Object.freeze({ k: 'self' });
+const ALLY_DAMAGE_WIRE: DamageSourceWire = Object.freeze({ k: 'ally' });
+
+/** 로컬 플레이어가 `owner` 의 설치물에 맞았다. */
+export function localVictimSource(sys: GadgetSystem, owner: PeerId | 'local'): PlayerDamageSource {
+  return isLocalOwner(sys, owner) ? SELF_DAMAGE_SOURCE : ALLY_DAMAGE_SOURCE;
+}
+
+/** 분대원 `victim` 이 `owner` 의 설치물에 맞았다 (`dmg.src` — 받는 쪽 기준으로 여기서 정해 싣는다). */
+export function remoteVictimWire(owner: PeerId | 'local', victim: PeerId): DamageSourceWire {
+  return owner === victim ? SELF_DAMAGE_WIRE : ALLY_DAMAGE_WIRE;
 }
 
 /** 로컬 플레이어 소유로 월드에 남아 있는 원격 지뢰 수 (무장 여부 무관, 제거 중 제외). 매 프레임 불려도 싸다. */
@@ -222,8 +240,8 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
       _from.copy(acc.from.position);
       switch (acc.kind) {
         case TargetKind.Enemy: hurtEnemy(acc.ref as EnemyRef, total, credit); break;
-        case TargetKind.LocalPlayer: ctx.player?.takeDamage(total, _from.clone()); break;
-        case TargetKind.RemotePlayer: sys.hurtRemote(acc.ref as PeerId, total, _from); break;
+        case TargetKind.LocalPlayer: ctx.player?.takeDamage(total, _from.clone(), localOwned ? SELF_DAMAGE_SOURCE : ALLY_DAMAGE_SOURCE); break;
+        case TargetKind.RemotePlayer: sys.hurtRemote(acc.ref as PeerId, total, _from, remoteVictimWire(owner, acc.ref as PeerId)); break;
         case TargetKind.Drone: ctx.drones?.damageDrone((acc.ref as DroneRef).id, total, _from); break;
         case TargetKind.Deployable: {
           const d = acc.ref as Deployable;

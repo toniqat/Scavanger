@@ -3,13 +3,14 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Layers } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  CHASM_EDGE, CHASM_GAP_Z, CHASM_NEAR_Z, CHASM_TILT, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE,
-  DECKS, DECK_TILE_M, DECK_UPPER_Y, VOID_Y, WALL_T, WALL_TOP_Y, Z_END, Z_START, box, chasmFarZAt, chasmNearZAt,
+  ABYSS_DRAW_BOTTOM_Y, ABYSS_EDGE_Z, ABYSS_FADE_TOP_Y, ABYSS_RUN_M, ABYSS_WALL_STEP_M, CHASM, CHASM_EDGE, CHASM_FLOOR_Y,
+  CHASM_GAP_Z, CHASM_NEAR_Z, CHASM_TILT, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE, DECKS, DECK_LOWER_Y,
+  DECK_TILE_M, DECK_UPPER_Y, VOID_Y, WALL_PLAIN_FROM_Z, WALL_T, WALL_TOP_Y, Z_START, box, chasmFarZAt, chasmNearZAt,
   rectBox, tileRect, type Rect,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 튜토리얼 행성의 **땅** — 협곡 바닥 · 데크 · 양옆 절벽 벽 · 막다른 끝.
+ * 튜토리얼 행성의 **땅** — 협곡 바닥 · 데크 · 양옆 절벽 벽 · 뒤쪽 막다른 끝 · 함선 앞의 끝없는 절벽(2026-09-15).
  *
  * 콜라이더와 그림이 갈라져 있다:
  *   - **콜라이더**는 `DECK_TILE_M` 짜리 사각 타일 (`SpatialHash.addBox`). 한 장으로 넣으면 외접원이 85 m 가 되어
@@ -18,8 +19,42 @@ import {
  * 광원은 **하나도 만들지 않는다** (`CLAUDE.md`: 씬의 광원 개수를 플레이 중에 바꾸지 않는다) — 전부 emissive 다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 협곡 바닥 판이 덮는 반폭 · 반길이 (벽 바깥까지 넉넉히). */
-const FLOOR_HALF_X = CORRIDOR_OUTER_X + 6;
+/**
+ * 협곡 바닥 판이 덮는 반폭. 2026-09-15 `CORRIDOR_OUTER_X + 6` → **벽 바깥 면까지만**: 함선 앞 끝없는 절벽에서는 옆 벽이
+ * 낮아지므로, 벽 바깥으로 삐져나온 6 m 띠가 그 너머로 **떠 있는 바닥 조각**처럼 보였다. 벽 몸통이 `VOID_Y` 까지 내려가므로
+ * 덮을 곳이 줄지 않는다.
+ */
+const FLOOR_HALF_X = CORRIDOR_OUTER_X;
+/** 아래 데크 앞면을 대신 그리는 절벽 판의 두께 (m). 데크 몸통 그림은 이만큼 뒤에서 끝나 두 앞면이 같은 평면에 겹치지 않는다. */
+const ABYSS_FACE_T = 1;
+/** 가장자리 너머 벽 조각마다 윗면이 내려가는 높이 (m) — 첫 조각 12(곧은 벽 13.2 … 18 보다 낮다) → 마지막 −18 (데크보다 8 m 아래). */
+const ABYSS_WALL_DROP_M = 6;
+/** 가장자리 너머 벽 조각마다 안쪽 면이 바깥으로 벌어지는 폭 (m) — 협곡이 끝나 트이는 모습. 마지막 조각 안쪽 면 17.9. */
+const ABYSS_WALL_FLARE_M = 0.5;
+/**
+ * 절벽 면 그라데이션을 나누는 높이 — 정점 색이 `((y − 바닥) / 폭)^2.2` 곡선을 **꺾은선으로** 따라가게 한다. 상자 한 장은
+ * 윗면 · 밑면 정점뿐이라 380 m 를 한 장으로 그리면 그라데이션이 직선이 되어, 가장자리에서 내려다보이는 60 m 안에서는
+ * 거의 어두워지지 않는다. (−90 에서 0.73 · −160 에서 0.43 · −260 에서 0.15 · 바닥 0)
+ */
+const ABYSS_FADE_BANDS: readonly number[] = [ABYSS_FADE_TOP_Y, -90, -160, -260, ABYSS_DRAW_BOTTOM_Y];
+/** 그라데이션 윗단의 색 = `cliffTexture` 의 바탕색 (색 관리가 sRGB hex 를 선형으로 옮긴다). 돌결 벽과 이음매가 튀지 않는다. */
+const ABYSS_TOP_COLOR = new THREE.Color(0x3a342c);
+
+/** 정점 y 에 따라 어두워지는 정점 색을 단다 (`ABYSS_FADE_BANDS` 주석의 곡선). */
+function shadeAbyss(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const pos = geo.getAttribute('position');
+  const col = new Float32Array(pos.count * 3);
+  const span = ABYSS_FADE_TOP_Y - ABYSS_DRAW_BOTTOM_Y;
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.min(1, Math.max(0, (pos.getY(i) - ABYSS_DRAW_BOTTOM_Y) / span));
+    const k = Math.pow(t, 2.2);
+    col[i * 3] = ABYSS_TOP_COLOR.r * k;
+    col[i * 3 + 1] = ABYSS_TOP_COLOR.g * k;
+    col[i * 3 + 2] = ABYSS_TOP_COLOR.b * k;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
 /** 곧은 절벽 벽 한 조각의 z 길이 — 이 간격마다 안쪽 면 · 윗면을 흔들어 복도처럼 보이지 않게 한다. */
 const WALL_SEG_M = 10;
 /** 데크 윗면 판을 띄우는 높이 (콜라이더 윗면과 z-fighting 하지 않게). */
@@ -128,21 +163,31 @@ export class Ground {
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x231f1a, roughness: 1, metalness: 0.02, emissive: 0x090807, emissiveIntensity: 0.7 });
     this.disposables.push(cliffMap, rockMat, darkMat);
 
-    /* ── 협곡 바닥 (그림만; 높이 질의는 `TutorialWorld.heightAt` 이 상수로 답한다) ── */
-    const floorGeo = new THREE.PlaneGeometry(FLOOR_HALF_X * 2, Z_START - Z_END);
+    /* ── 협곡 바닥 판 (그림) ──
+     * 2026-09-15: 높이가 `VOID_Y`(지형, 이제 −100)가 아니라 `CHASM_FLOOR_Y`(−34)이고, 앞쪽은 **끝없는 절벽 가장자리에서 끝난다** —
+     * 그 너머에 판이 있으면 바닥이 보인다. 판 아래로 내려가는 데크 몸통 · 벽 몸통은 전부 이 판에 가려진다. */
+    const floorGeo = new THREE.PlaneGeometry(FLOOR_HALF_X * 2, Z_START - ABYSS_EDGE_Z);
     floorGeo.rotateX(-Math.PI / 2);
-    floorGeo.translate(0, VOID_Y, (Z_START + Z_END) / 2);
+    floorGeo.translate(0, CHASM_FLOOR_Y, (Z_START + ABYSS_EDGE_Z) / 2);
     const floor = new THREE.Mesh(floorGeo, darkMat);
     floor.name = 'tut-void-floor';
     floor.layers.enable(Layers.TERRAIN);
     floor.matrixAutoUpdate = false;
     this.group.add(floor);
     this.disposables.push(floorGeo);
+    /* 절벽 1 의 **협곡 바닥 콜라이더** (2026-09-15) — 지형이 −100 으로 내려갔으므로 절벽 1 에 빠진 몸은 이 윗면(−34)에 떨어진다.
+     * 사선 틈의 바깥 사각형(`CHASM`)보다 앞뒤로 2 m 넓게 · 벽 바깥 면까지 덮는다. 데크 콜라이더와 겹치는 부분은 데크 윗면
+     * 밑이라 걷는 높이에 아무 영향이 없다 (`getSurfaceY` 는 발 높이 창 안의 가장 높은 윗면을 고른다). */
+    const chasmFloor: Rect = { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: CHASM.z0 + 2, z1: CHASM.z1 - 2 };
+    for (const t of tileRect(chasmFloor, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, CHASM_FLOOR_Y, 'tut_deck');
 
     /* ── 데크: 몸통 상자(그림) + 윗면 판(그림) + 타일 콜라이더 ── */
     const bodies: THREE.BufferGeometry[] = [];
     for (const d of DECKS) {
-      bodies.push(rectBox(d.rect, VOID_Y, d.top));
+      // 끝없는 절벽에 닿는 데크는 몸통 그림만 `ABYSS_FACE_T` 뒤에서 끝낸다 — 앞면은 `buildAbyss` 의 절벽 판이 그린다.
+      // 콜라이더(아래 타일)는 설계 치수 그대로 가장자리까지 간다.
+      const drawRect = d.rect.z1 <= ABYSS_EDGE_Z ? { ...d.rect, z1: ABYSS_EDGE_Z + ABYSS_FACE_T } : d.rect;
+      bodies.push(rectBox(drawRect, VOID_Y, d.top));
       const top = topPlane(d.rect, d.top + TOP_LIFT, groundTex);
       this.group.add(top);
       this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
@@ -167,8 +212,9 @@ export class Ground {
           for (let j = 0; j < n; j++, seg++) {
             const z0 = a.z - (depth * j) / n, z1 = a.z - (depth * (j + 1)) / n;
             const k = seg * 7 + (sx > 0 ? 3 : 0);
-            // 안쪽으로 파고든 깊이 — 좁은 구간에서는 같은 비율로 줄여 통로가 설계보다 좁아지지 않게 한다
-            const bite = (k % 5) * 0.55 * (a.halfX / CORRIDOR_MAX_HALF_X);
+            // 안쪽으로 파고든 깊이 — 좁은 구간에서는 같은 비율로 줄여 통로가 설계보다 좁아지지 않게 한다.
+            // 2026-09-15: 함선 · `ship` 체크포인트가 서는 조각부터(`WALL_PLAIN_FROM_Z`)는 0 — 함선 왼쪽 나셀과 벽 사이가 2.27 m 다
+            const bite = z0 <= WALL_PLAIN_FROM_Z ? 0 : (k % 5) * 0.55 * (a.halfX / CORRIDOR_MAX_HALF_X);
             const top = WALL_TOP_Y - (k % 4) * 1.6;
             const inner = sx * (a.halfX - bite), outer = sx * CORRIDOR_OUTER_X;
             const rect: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0, z1 };
@@ -181,13 +227,12 @@ export class Ground {
         }
       }
     }
-    for (const cap of [
-      { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: Z_START, z1: Z_START - WALL_T },
-      { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: Z_END + WALL_T, z1: Z_END },
-    ] as Rect[]) {
-      walls.push(rectBox(cap, VOID_Y, WALL_TOP_Y));
-      for (const t of tileRect(cap, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, WALL_TOP_Y, 'tut_wall');
-    }
+    // 2026-09-15: 막다른 벽은 **뒤쪽(`Z_START`) 하나뿐**이다. 앞쪽 캡(옛 `Z_END` −162 … −165)은 이륙하는 함선이 뚫고 날아가던
+    // 그 벽이라 걷어 냈고, 그 자리는 끝없는 절벽이다 (`buildAbyss`).
+    const cap: Rect = { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: Z_START, z1: Z_START - WALL_T };
+    walls.push(rectBox(cap, VOID_Y, WALL_TOP_Y));
+    for (const t of tileRect(cap, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, WALL_TOP_Y, 'tut_wall');
+    this.buildAbyss(hash, walls);
     this.addMerged(walls, rockMat, 'tut-walls');
 
     /* ── 절벽 1 의 틈에 부러져 걸린 다리 (그림만 — **데크 윗면보다 아래**라 밟을 수도, 건널 수도 없다) ──
@@ -202,6 +247,56 @@ export class Ground {
     }
     bridge.push(box(3.2, 0.4, 1.2, -5.2, DECK_UPPER_Y - 4.4, chasmFarZAt(-5.2) + 0.4, 0.3));
     this.addMerged(bridge, darkMat, 'tut-broken-bridge', true);
+  }
+
+  /**
+   * **끝없는 절벽** (2026-09-15, 사용자 결정 — 함선 앞은 막힌 벽이 아니라 끝이 안 보이는 낭떠러지).
+   *
+   * 셋을 세운다:
+   *   ① **절벽 면** — 아래 데크의 앞면을 대신 그리는 판 (x ±`CORRIDOR_MAX_HALF_X`, 두께 `ABYSS_FACE_T`). 콜라이더는 없다 —
+   *      데크 타일 콜라이더가 이미 가장자리까지 간다.
+   *   ② **가장자리 너머 양옆 벽** — `ABYSS_WALL_STEP_M` 조각 `ABYSS_RUN_M / STEP` 개. 조각마다 윗면이 `ABYSS_WALL_DROP_M`
+   *      내려가고 안쪽 면이 `ABYSS_WALL_FLARE_M` 벌어진다 (협곡이 끝나 트인다). 콜라이더는 `VOID_Y` 부터 그 윗면까지 —
+   *      떨어지는 몸이 벽을 뚫고 맵 밖으로 나가지 않는다.
+   *   ③ 둘 다 **바닥이 없다**. 그림은 `ABYSS_FADE_TOP_Y` 위가 돌결 벽(다른 벽과 같은 재질), 그 밑은 `ABYSS_DRAW_BOTTOM_Y`
+   *      까지 어두워지는 정점 색(`shadeAbyss`, **`fog: false`**)이다. 안개(FogExp2)는 멀수록 **밝은** 안개색으로 칠하므로
+   *      안개를 받으면 깊은 곳이 오히려 밝아지고, 그 아래의 하늘 돔(`core/Sky` 의 지평선 밑 `ground` 색 — 어둡다)과 어긋난다.
+   *
+   * 광원 0 개. 새 재질 하나(`vertexColors` + `fog: false`)는 셰이더 변형이 하나 늘 뿐이고 `world:ready` 의 선컴파일이 받는다.
+   *
+   * **이륙 검산** (함선 `SHIP_POS` · `SHIP_YAW` — `model.ts` 주석): 함선은 기수 쪽(오른쪽 앞)으로 떠오르며 벽 윗면(≤ 18)을 넘기 전에
+   * 18.5 m 만 나아가고, 그동안 외피는 x −13.1 … +0.4 안에 머문다 — 벽 안쪽 면(±15.4, 가장자리 너머는 더 벌어진다)에 닿지 않는다.
+   */
+  private buildAbyss(hash: SpatialHash, rock: THREE.BufferGeometry[]): void {
+    const fade: THREE.BufferGeometry[] = [];
+    const pushFade = (r: Rect): void => {
+      for (let i = 1; i < ABYSS_FADE_BANDS.length; i++) fade.push(shadeAbyss(rectBox(r, ABYSS_FADE_BANDS[i], ABYSS_FADE_BANDS[i - 1])));
+    };
+    const edge = ABYSS_EDGE_Z;
+
+    // ① 절벽 면 (윗면은 데크 윗면 판 밑 1 cm — 판이 가린다)
+    const face: Rect = { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: edge + ABYSS_FACE_T, z1: edge };
+    rock.push(rectBox(face, ABYSS_FADE_TOP_Y, DECK_LOWER_Y - 0.01));
+    pushFade(face);
+
+    // ② 가장자리 너머 양옆 벽
+    const n = Math.max(1, Math.round(ABYSS_RUN_M / ABYSS_WALL_STEP_M));
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < n; i++) {
+        const z0 = edge - ABYSS_WALL_STEP_M * i, z1 = z0 - ABYSS_WALL_STEP_M;
+        const flare = ABYSS_WALL_FLARE_M * i;
+        const inner = sx * (CORRIDOR_MAX_HALF_X + flare), outer = sx * (CORRIDOR_OUTER_X + flare);
+        const r: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0, z1 };
+        const top = WALL_TOP_Y - ABYSS_WALL_DROP_M * (i + 1);
+        rock.push(rectBox(r, ABYSS_FADE_TOP_Y, top));
+        pushFade(r);
+        this.addBox(hash, r, VOID_Y, top, 'tut_wall');
+      }
+    }
+
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, fog: false });
+    this.disposables.push(mat);
+    this.addMerged(fade, mat, 'tut-abyss');
   }
 
   /**

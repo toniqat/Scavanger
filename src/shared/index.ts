@@ -83,3 +83,5 @@ export * from './damageSource';
 /* appended (2026-09-14): 정보상 — 기믹 고정 선택 · 해석본 · 비용 식 (릴레이 공용, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 export * from './intel';
 export * from './intelDefs';
+/* appended (2026-09-15): 공용 키캡 — 마우스 버튼 그림 · 꾹 누르기 · 문장 안 키캡 토큰 (`{FIRE:hold}`) */
+export * from './keycap';

@@ -22,6 +22,14 @@ import {
 import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from '../model';
 import * as Rescue from './Rescue';
 import type { StratagemSystem } from '../StratagemSystem';
+import type { PlayerDamageSource } from '@/shared';
+
+/**
+ * 2026-09-15 (결과 창 개편): 함선 호출 착탄(궤도 레이저 · 항공 폭탄 · 보급품 · 트라이포드 낙하)이 로컬 플레이어에게 준 피해의
+ * 출처. 계약(`DamageCauseKind`)이 「함선 호출 낙하물」을 `explosion` 으로 적어 두었으므로 부른 사람이 나든 분대원이든 같다 —
+ * 결과 창의 원인은 「누가 불렀나」가 아니라 「무엇에 맞았나」다.
+ */
+const STRATAGEM_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'explosion' });
 
 export function createCall(sys: StratagemSystem, kind: StratagemId, position: THREE.Vector3, eta: number, seed: number, local: boolean, id?: string, caller?: PeerId | null): Call {
   const ctx = sys.ctx;
@@ -67,7 +75,7 @@ export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vec
     const d = _a.distanceTo(center);
     if (d < radius) {
       const dmg = damage * (1 - d / radius);
-      if (dmg > 1) p.takeDamage(dmg, center.clone());
+      if (dmg > 1) p.takeDamage(dmg, center.clone(), STRATAGEM_DAMAGE_SOURCE);
     }
   }
   }

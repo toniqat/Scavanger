@@ -80,8 +80,8 @@ const NONE_RUINS: readonly RuinSiteDef[] = [];
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
  * Generates synchronously on `game:newMission`, tears down on `game:abort`.
- * Phase 7: `game:newMission {mode:'training'}` builds the 시뮬레이션 훈련장 (`TrainingArena`) instead — a flat walled
- * arena with pop-up targets, no crates / nests / gather / extraction; every query below branches on `mode`.
+ * Phase 7: `game:newMission {mode:'training'}` builds the 시뮬레이션 훈련장 (`TrainingArena`) instead — a flat open-top
+ * arena (invisible walls, no ceiling since 2026-09-15) with pop-up targets, no crates / nests / gather / extraction; every query below branches on `mode`.
  */
 export class WorldSystem implements GameSystem, WorldRef {
   readonly name = 'world';
@@ -95,7 +95,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   private get isPlanet(): boolean { return this.mode === 'raid'; }
   /**
    * Phase 11: 목표 행성 the current world was generated for, or null when it came from the seeded biome draw
-   * (an older peer, `MissionComplete`'s 다시 배치 without one, a training). Echoed in `world:ready.planet` and
+   * (an older peer, a `game:newMission` without one, a training). Echoed in `world:ready.planet` and
    * **kept through `clear()`** exactly like `mode`, so a late abort handler can still read it.
    */
   planet: PlanetId | null = null;

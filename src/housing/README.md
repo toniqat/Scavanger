@@ -410,6 +410,16 @@ first-session chain complete.
 
 ## 변경 이력
 
+- **2026-09-15 (키캡 다듬기 — 마우스 버튼 그림, 사용자 결정)** — 미니게임 · 함선 화면의 키캡이 공용 `shared/keycap` 을 지난다.
+  - `ui/cook/CookViews` 다지기 게이지의 `LMB` · `RMB` 글자 키캡 → `createKeycap('Mouse0' | 'Mouse2')` 마우스 그림(`gauge(label, code)`).
+  - `ui/cook/CookScreen` 단계 안내의 `좌클릭` · `우클릭` 글자 → `{L}` · `{R}` 토큰을 파일 안 `renderMouseRule` 이 문장 속 키캡(`kc-inline`)으로
+    끼운다(요리 입력은 `Keys.FIRE` 가 아니라 실제 좌 / 우 버튼이라 `renderKeyText` 의 액션 토큰을 쓰지 않는다). 굽기 안내의 「클릭」 은
+    조각을 누르는 것이라 글자로 남겼다.
+  - `ui/gym/GymScreen` 안내(`.gym-hint` · `.gym-rule`)가 `{JUMP}` · `{LEFT}` · `{RIGHT}` 토큰 + `renderKeyText` 로 키캡을 끼운다(리바인드 =
+    `relabel()` 이 다시 그린다) · 시작 키캡과 `ui/gym/GymViews` 줄 앞 키캡은 `paintKeycap`. 표식 안의 키 글자는 키캡이 아니라 글자로 남는다.
+  - `ui/ShipView` 의 `시설 관리` 버튼 키캡 → `createKeycap(Keys.MAP, {tag: 'kbd', cls: 'hs-keycap'})`. 공용 함수가 `.keycap` 을 더하므로
+    `housing.css` 가 `.keycap.hs-keycap` 으로 글자색 · 바탕 · 굵기를 버튼 쪽으로 되돌린다.
+
 - **2026-09-15 (B-15 — 조리대 화면이 숙련 잠김 요리를 숨기던 것, 사용자 결정 「전부 딤드 + 숙련 배지」)**
   - **뿌리**: `parts/Cooking.cookRecipes` 가 `inventory.getRecipes('ship', 'cook', 99)` 를 읽었는데 그 경로는 **숙련이 모자란 레시피를 걸러 낸다**.
     그래서 조리대 레벨 잠김만 `Lv.n` 딤드로 보이고 숙련 잠김 요리는 레일에 아예 없어, 무엇을 올려야 열리는지 알 수 없었다.

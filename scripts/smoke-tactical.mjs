@@ -137,7 +137,8 @@ try {
 
   /* ── implants: equipping is a ship-only action ────────────────────── */
   const implantIds = await page.evaluate(() => window.__game.ctx.implants.getAllDefs().map((d) => d.id));
-  ok(implantIds.length === 6, `6 implants: ${implantIds.join(',')}`);
+  // 2026-09-15: 대전차포 (`atlauncher`) retired — five selectable implants, and the retired id is not among them
+  ok(implantIds.length === 5 && !implantIds.includes('atlauncher'), `5 implants (no atlauncher): ${implantIds.join(',')}`);
 
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');

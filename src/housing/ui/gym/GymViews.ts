@@ -14,7 +14,7 @@
  * (`bands.perfect`) · 좋음 띠(`bands.good`)를 깔고, 탭 표식의 폭을 완벽 띠와 **같게** 한다 (알약). 그래서 「표식이 띠를 덮는 순간
  * 완벽」 이 눈으로 보이고, csv 창을 고치면 그림이 저절로 따라온다. 「하」 표식은 쥐는 길이가 폭이라 그대로다.
  */
-import { Keys, keyLabel } from '@/shared';
+import { Keys, keyLabel, paintKeycap } from '@/shared';
 import { BreathGame, CycleGame, GYM_LEAD_BEATS, PressGame } from '../../parts/GymGames';
 import type { BeatNote, GymAction, GymGame, GymQuality } from '../../parts/GymGames';
 import { el, setText, toggleClass } from '../dom';
@@ -169,8 +169,10 @@ class BeatView implements GymView {
   }
 
   relabel(): void {
-    const keyOf = (a: GymAction): string => keyLabel(a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT);
-    for (const l of this.lanes) setText(l.key, keyOf(l.action));
+    const codeOf = (a: GymAction): string => (a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT);
+    const keyOf = (a: GymAction): string => keyLabel(codeOf(a));
+    // 2026-09-15: 줄 앞 키캡은 공용 `paintKeycap` (마우스로 리바인딩하면 그림). 표식 안의 글자는 키캡이 아니라 글자로 남는다.
+    for (const l of this.lanes) paintKeycap(l.key, codeOf(l.action));
     for (const ne of this.notes) {
       const n = ne.note;
       setText(ne.label, n.lane ? keyOf(n.lane) : n.hold ? this.labels.hold : this.labels.tap);

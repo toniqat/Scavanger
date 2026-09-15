@@ -45,7 +45,7 @@ export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEven
   // 2026-09-12 (E1): 휠 칸의 스택도 즐겨찾기를 켜고 끈다
   const stack = sys.sys.getQuickSlots()[index];
   if (stack) entries.push(favoriteEntry(sys, stack.defId, true));
-  entries.push({ label: TEXT.menu.request, hint: '휠클릭', separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } });
+  entries.push({ label: TEXT.menu.request, hint: keyLabel('Mouse1'), separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } });
   sys.menu.open(e.clientX, e.clientY, entries);
   }
 
@@ -236,7 +236,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   // 3. quick chat request
   entries.push({
     label: isWeapon ? TEXT.menu.requestAmmo : TEXT.menu.request,
-    hint: '휠클릭',
+    hint: keyLabel('Mouse1'),
     separator: entries.length > 0,
     run: () => { sys.sys.requestItem(uid, from); },
   });

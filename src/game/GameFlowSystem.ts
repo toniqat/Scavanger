@@ -25,6 +25,8 @@ import { PlayerCorpseManager } from './Corpses';
 import * as Corpse from './parts/CorpseNet';
 import * as Leader from './parts/Leader';
 import type { LeaderDeviceObject } from './parts/Leader';
+/* appended (2026-09-15): 결과 창 개편 — 최고 소지품 가치 · 원인별 피해 · 막타 */
+import { RaidReport } from './parts/RaidReport';
 
 export class GameFlowSystem implements GameSystem {
   readonly name = 'gameflow';
@@ -51,6 +53,8 @@ export class GameFlowSystem implements GameSystem {
   leaderUnsubs: Array<() => void> = [];
   paused = false;
   lastThreat = -1;
+  /** 2026-09-15 (결과 창 개편): 결과 화면이 읽는 `stats.peakLootValue` · `stats.death` 의 재료 (`parts/RaidReport`). */
+  readonly report = new RaidReport(this);
 
   /* ── multiplayer ── */
   /** Local player entered the dropship bay (cleared on death / new mission). */
@@ -66,6 +70,8 @@ export class GameFlowSystem implements GameSystem {
    * rest play on.
    */
   squadExtraction = false;
+  /** 2026-09-15: true only inside `parts/Death.completeTutorialSkip` — `complete()` counts the run as extracted regardless of the body. */
+  tutorialSkipComplete = false;
   /** Host: > 0 while the local player is dead → periodic all-dead check. */
   allDeadCheckTimer = -1;
   /** > 0 after the lobby/server vanished mid-mission → abort when it expires. */
@@ -130,6 +136,8 @@ export class GameFlowSystem implements GameSystem {
     // 2026-09-10: 분대장 기기의 점광원을 씬에 미리 심는다 — 기기를 넣고 뺄 때 광원 개수가 바뀌면
     // 씬의 모든 머티리얼이 셰이더를 다시 컴파일한다 (`parts/Leader` 의 `installLeaderLight` 주석).
     Leader.installLeaderLight(this);
+    // 2026-09-15: 아래 `player:died` → `onLocalDied`(시체로 비우기)보다 **먼저** 구독해야 사망 순간의 소지품 가치를 잰다.
+    this.report.bind();
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', ({ seed, mode, planet }) => this.onNewMission(seed, mode, planet)),
@@ -156,6 +164,8 @@ export class GameFlowSystem implements GameSystem {
       b.on('extraction:shipLanded', () => { if (ctx.phase === 'extracting') this.setPhase('shipLanded'); }),
       b.on('extraction:boarded', () => { this.boarded = true; }),
       b.on('extraction:liftoff', ({ aboard, squadDone }) => {
+        // 2026-09-15: 튜토리얼 건너뛰기(`ExtractionRef.skipToComplete`) — 이륙 연출 · 대기 없이 곧장 결과 화면 (`parts/Death`)
+        if (Death.isTutorialSkipLiftoff(this)) { Death.completeTutorialSkip(this); return; }
         if (ctx.phase !== 'shipLanded' && ctx.phase !== 'extracting') return;
         const mine = aboard ?? true, done = squadDone ?? true;
         // 2026-09-13: left behind while someone alive stays too — the raid goes on (`extraction:reset` returns the phase).
@@ -420,6 +430,7 @@ export class GameFlowSystem implements GameSystem {
       }
     }
 
+    this.report.update(dt);   // 2026-09-15: 최고 소지품 가치 저율 폴링 (레이드 중 · 살아 있을 때만)
     if (this.completeTimer >= 0) {
       this.completeTimer -= dt;
       if (this.completeTimer < 0) this.complete();
@@ -476,10 +487,11 @@ export class GameFlowSystem implements GameSystem {
     }
   }
 
-  complete(): void { return Death.complete(this); }
+  /** 2026-09-15: 결산 앞에서 `stats.peakLootValue` · `stats.death` 를 채운다 (`parts/RaidReport.fill` — 멱등). */
+  complete(): void { this.report.fill(); return Death.complete(this); }
 
   /** 레이드 실패: solo death (after DEATH_TO_SCREEN) or a squad wipe (host decision, mirrored by `flow over`). */
-  gameOver(): void { return Death.gameOver(this); }
+  gameOver(): void { this.report.fill(); return Death.gameOver(this); }
 
   /**
    * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
@@ -491,6 +503,7 @@ export class GameFlowSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
+    this.report.dispose();
     this.netUnsub?.(); this.netUnsub = null;
     Corpse.unhookCorpseNet(this);
     Leader.unhookLeaderNet(this);

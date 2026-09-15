@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
+  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
   IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
@@ -26,7 +26,6 @@ import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from './ImplantD
 import { ImplantDevice } from './devices/ImplantDevice';
 import { BarrierField } from './effects/Barrier';
 import { GrappleWire } from './effects/Grapple';
-import { RocketPool, type RocketImpact } from './effects/AtLauncher';
 import { OverchargeBeam, allyPoint, findAlly } from './effects/Overcharge';
 import { revealScan } from './effects/Scan';
 import { ImplantFx } from './fx/ImplantFx';
@@ -84,8 +83,8 @@ export function tuple(v: THREE.Vector3): Vec3Tuple {
  *     stays in hand throughout.
  *   - `hold` (오버차지): the effect runs while Q is held — the overcharge channel heals the caster slowly (and the
  *     ally under the crosshair faster) and drains an energy pool that refills while released. The gun stays in hand.
- *   - `wielded` (대전차포 / **배리어** since Phase 10): Q takes it into the hands (weapons holster), LMB fires the
- *     launcher / LMB or the melee key **bashes** with the shield (Phase 12), Q — or any weapon key, handled by
+ *   - `wielded` (**배리어** since Phase 10; 대전차포 retired 2026-09-15): Q takes it into the hands (weapons holster),
+ *     LMB or the melee key **bashes** with the shield (Phase 12), Q — or any weapon key, handled by
  *     weapons/ via `stow()` — puts it away.
  *
  * Phase 12 (2026-09-08): the raised shield is also a **wall for bugs** (`resolveBarrierCollision`, called by enemies/

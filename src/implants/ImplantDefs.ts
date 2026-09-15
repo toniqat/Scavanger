@@ -1,14 +1,16 @@
 import {
-  IMPLANT_AT_COOLDOWN, IMPLANT_DASH_CHARGES, IMPLANT_DASH_COOLDOWN, IMPLANT_GRAPPLE_COOLDOWN, IMPLANT_SCAN_COOLDOWN_V2,
+  IMPLANT_DASH_CHARGES, IMPLANT_DASH_COOLDOWN, IMPLANT_GRAPPLE_COOLDOWN, IMPLANT_SCAN_COOLDOWN_V2,
   IMPLANT_IDS, type ImplantDef, type ImplantId,
 } from '@/shared';
 
 /**
- * The six tactical implants. Everyone owns all of them; exactly one may be equipped and only in the ship.
+ * The five tactical implants. Everyone owns all of them; exactly one may be equipped and only in the ship.
  *
  * Modes (reworked 2026-09-06, revised Phase 10 / Phase 12): 갈고리 / 대시 / **정찰** are `instant` (Q casts, the gun
  * stays in hand — 정찰 became one wide pulse on 2026-09-08), 오버차지 is `hold` (the effect runs while Q is held), and
- * 대전차포 / **배리어** are `wielded` (Q takes them into the hands, the gun is holstered; Q or a weapon key puts them away).
+ * **배리어** is `wielded` (Q takes it into the hands, the gun is holstered; Q or a weapon key puts it away).
+ * 2026-09-15: 대전차포 (`atlauncher`) is retired — no def here, so `getImplantDef('atlauncher')` is undefined and
+ * `isImplantId('atlauncher')` is false (the id only survives in the `ImplantId` union, see `shared/implants.ts`).
  * `cooldown` 0 = no timer at all (barrier is limited by its shield hp, overcharge by its energy pool).
  * ImplantSystem stores the *effective* total of the running cooldown so a special case (barrier collapse
  * lockout) can use a different number without lying to the HUD.
@@ -63,16 +65,6 @@ export const IMPLANT_DEFS: readonly ImplantDef[] = [
     charges: 1,
     icon: '◎',
     color: '#7cf07a',
-  },
-  {
-    id: 'atlauncher',
-    name: '대전차포',
-    description: 'Q로 발사기를 꺼내 들고 좌클릭으로 대전차 로켓을 발사한다. 착탄 지점에 큰 폭발이 일어난다. 무기 키를 누르면 집어넣는다.',
-    mode: 'wielded',
-    cooldown: IMPLANT_AT_COOLDOWN,
-    charges: 1,
-    icon: '➤',
-    color: '#ff8a4a',
   },
 ];
 

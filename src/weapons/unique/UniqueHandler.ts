@@ -94,6 +94,11 @@ export interface UniqueServices {
   lineOfSight(from: THREE.Vector3, to: THREE.Vector3): boolean;
   /** Re-announce the magazine to the HUD (continuous weapons after a whole unit was spent). */
   emitAmmo(w: UniqueWeapon): void;
+  /**
+   * 2026-09-15: an `autoFeed` handler's weapon — top the magazine up from the carried ammo right now, no reload state,
+   * and re-announce the ammo when anything moved. Returns true when rounds were fed. No-op for other weapons.
+   */
+  feed(w: UniqueWeapon): boolean;
 }
 
 export interface UniqueHandler {
@@ -105,6 +110,12 @@ export interface UniqueHandler {
    * zoom 1) — the bow stopped aiming on 2026-09-14.
    */
   readonly allowsAim: boolean;
+  /**
+   * 2026-09-15 (「롱혼」 장전 없음): true → the weapon **never reloads**. Its magazine (the bow: the one nocked arrow) is
+   * refilled instantly from the carried ammo by `UniqueServices.feed` (`parts/Slots.autoFeed`), `tryReload` returns at
+   * once for it (R, dry presses), and `magOf + reserveOf` is always exactly the rounds carried.
+   */
+  readonly autoFeed?: boolean;
   readonly pose: UniquePose;
   onEquip(w: UniqueWeapon): void;
   onUnequip(w: UniqueWeapon): void;

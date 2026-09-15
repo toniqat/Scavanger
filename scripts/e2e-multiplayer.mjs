@@ -636,20 +636,22 @@ try {
     ok(!!dbgOff && dbgOff.on === false, `RemoteImplants.debugBeam(A) off after keyup ${JSON.stringify(dbgOff)}`);
   }
 
-  /* 2026-09-11 (C-43): B draws A's wielded 대전차포 in A's avatar hand and re-attaches it when that avatar is rebuilt —
+  /* 2026-09-11 (C-43): B draws A's wielded implant device in A's avatar hand and re-attaches it when that avatar is rebuilt —
      an avatar hands out a fresh `weaponSocket` each time, and the old "attached once" boolean left the device in the
-     dead socket. Equipping is ship-only, so A's implant id is swapped in place for the probe and put back afterwards. */
+     dead socket. Equipping is ship-only, so A's implant id is swapped in place for the probe and put back afterwards.
+     2026-09-15: the probe used the 대전차포 (`atlauncher`), which is retired — the 배리어 is the remaining wielded implant
+     and its shield grip (`Implant:barrier`) rides the same weaponSocket path. */
   console.log('remote implant device follows a rebuilt avatar (2026-09-11 C-43)');
-  await A.evaluate(() => { const im = window.__game.getSystem('implants'); window.__impPrev = im.equippedId; im.equippedId = 'atlauncher'; im.activate(); });
-  const dev0 = await waitFor(B, (aid) => { const av = window.__game.getSystem('remotePlayers').getAvatar(aid); const s = av?.weaponSocket; return s && s.children.some((c) => c.name === 'Implant:atlauncher') ? { ok: true } : null; }, 'B sees A holding the 대전차포', 6000, aIdBeam).catch(() => null);
-  ok(!!dev0, 'B: Implant:atlauncher hangs under A\'s avatar weaponSocket');
+  await A.evaluate(() => { const im = window.__game.getSystem('implants'); window.__impPrev = im.equippedId; im.equippedId = 'barrier'; im.activate(); });
+  const dev0 = await waitFor(B, (aid) => { const av = window.__game.getSystem('remotePlayers').getAvatar(aid); const s = av?.weaponSocket; return s && s.children.some((c) => c.name === 'Implant:barrier') ? { ok: true } : null; }, 'B sees A holding the 배리어', 6000, aIdBeam).catch(() => null);
+  ok(!!dev0, 'B: Implant:barrier hangs under A\'s avatar weaponSocket');
   await B.evaluate((aid) => { const sys = window.__game.getSystem('remotePlayers'); window.__oldSock = sys.getAvatar(aid)?.weaponSocket ?? null; sys.remove(aid); }, aIdBeam);
   const dev1 = await waitFor(B, (aid) => {
     const av = window.__game.getSystem('remotePlayers').getAvatar(aid);
     const s = av?.weaponSocket;
     if (!s || s === window.__oldSock) return null;
-    const onNew = s.children.some((c) => c.name === 'Implant:atlauncher');
-    const onOld = !!window.__oldSock && window.__oldSock.children.some((c) => c.name === 'Implant:atlauncher');
+    const onNew = s.children.some((c) => c.name === 'Implant:barrier');
+    const onOld = !!window.__oldSock && window.__oldSock.children.some((c) => c.name === 'Implant:barrier');
     return onNew ? { onNew, onOld } : null;
   }, 'device re-attached to the rebuilt avatar', 6000, aIdBeam).catch(() => null);
   ok(!!dev1 && dev1.onNew && !dev1.onOld, `B: after the avatar is rebuilt the device moved to the new weaponSocket ${JSON.stringify(dev1)}`);

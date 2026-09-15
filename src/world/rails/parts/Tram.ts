@@ -18,6 +18,10 @@ import {
   type GameContext, type PeerId, type Random, type TramDef,
 } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
+import type { PlayerDamageSource } from '@/shared';
+
+/** 2026-09-15 (결과 창 개편): 달리는 전차에 치인 피해의 출처 — 계약의 「전차 충돌 등 적이 아닌 물리 피해」 = `explosion`. */
+const TRAM_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'explosion' });
 import type { ContainerSpec } from '../../structures/parts/Containers';
 import { pickTier, structureRow } from '../../structures/model';
 import type { SpatialHash } from '../../SpatialHash';
@@ -275,7 +279,7 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
       knockDir(c, s, side);
       game.bus.emit('audio:play', { id: 'tram_hit', position: p, volume: 0.9 });
       player.applyKnockback(_kb, TRAM_HIT_KNOCKBACK * t);
-      player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position);
+      player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position, TRAM_DAMAGE_SOURCE);   // 2026-09-15: 적이 아닌 물리 피해
     }
   }
 

@@ -1,11 +1,31 @@
 import type { GameContext } from '@/shared';
 import {
-  KEY_ACTION_DEFS, KEY_GROUPS, Keys, canBind, conflictsOf, getKeyActionDef, keyLabel, resetKeybinds, setKeybind,
+  KEY_ACTION_DEFS, KEY_GROUPS, Keys, canBind, conflictsOf, getKeyActionDef, keyLabel, mouseGlyphButtonOf, mouseGlyphSvg,
+  resetKeybinds, setKeybind,
   type KeyAction,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
 interface Row { def: KeyAction; root: HTMLElement; btn: HTMLButtonElement; warn: HTMLElement }
+
+/**
+ * 키 버튼 안을 칠한다 (2026-09-15, 사용자 결정 — 키캡이 뜨는 모든 곳에 마우스 그림). 마우스 좌 · 휠 · 우는 공용 마우스 그림
+ * (`shared/keycap.mouseGlyphSvg` — 버튼 자체가 이미 테두리를 가진 칸이라 `.keycap` 을 겹쳐 씌우지 않고 그림만 넣는다),
+ * 그 밖의 키 · `M4` · `M5` 는 글자 그대로. 그림의 `<title>` 이 라벨을 들고 있어 버튼의 `textContent` 는 예전과 같다.
+ * `키 입력…` 이 내용을 갈아 끼우므로 서명으로 건너뛰지 않고 부를 때마다 다시 짓는다 (40 줄 남짓, 드물게 부른다).
+ */
+function paintBindingButton(btn: HTMLButtonElement, code: string): void {
+  const label = keyLabel(code);
+  const glyph = mouseGlyphButtonOf(code);
+  btn.classList.toggle('kb-key-mouse', glyph !== -1);
+  if (glyph !== -1) {
+    btn.innerHTML = mouseGlyphSvg(glyph);
+    btn.setAttribute('aria-label', label);
+  } else {
+    btn.textContent = label;
+    btn.removeAttribute('aria-label');
+  }
+}
 
 /**
  * Key-settings overlay (`.menu.keybind-menu`, above the title / pause menus). Every action is a row (grouped by
@@ -132,6 +152,8 @@ export class KeybindMenu {
     if (this.capturing) this.endCapture(null);
     this.capturing = action;
     btn.classList.add('capturing');
+    btn.classList.remove('kb-key-mouse');
+    btn.removeAttribute('aria-label');
     setText(btn, '키 입력…');
     const def = getKeyActionDef(action);
     setText(this.note, def?.mouseOnly ? `${def.label}: 마우스 버튼을 누르세요 (Esc 취소)` : `${def?.label ?? action}: 키 또는 마우스 버튼을 누르세요 (Esc 취소)`);
@@ -167,7 +189,7 @@ export class KeybindMenu {
     for (const r of this.rows) {
       const code = Keys[r.def];
       r.btn.classList.remove('capturing');
-      setText(r.btn, keyLabel(code));
+      paintBindingButton(r.btn, code);
       const conflicts = conflictsOf(r.def);
       const bad = conflicts.length > 0;
       toggleClass(r.root, 'conflict', bad);

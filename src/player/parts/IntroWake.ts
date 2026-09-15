@@ -40,6 +40,8 @@
  */
 import * as THREE from 'three';
 import { TUTORIAL_INTRO_WAKE_S } from '@/shared';
+/* appended (2026-09-15): 튜토리얼 부활 연출 — `playIntroWake(d, {respawn:true})` */
+import { TUTORIAL_RESPAWN_WAKE_S } from '@/shared';
 import { smoothstep } from '@/core/util/MathUtil';
 import type { PlayerSystem } from '../PlayerSystem';
 
@@ -50,6 +52,11 @@ import type { PlayerSystem } from '../PlayerSystem';
  * 여기는 진행도 위의 자리라 그 길이에 비례해 저절로 두 배로 늘어난다 (3.15 → 6.3 초).
  */
 const WAKE_RISE_START = 0.3;
+/**
+ * 2026-09-15 — **부활 연출**(`respawn`)의 같은 자리. 2 초 연출(`TUTORIAL_RESPAWN_WAKE_S`)에서 0.4 초 누워 있다가 1.6 초에 걸쳐
+ * 일어난다 — 오프닝처럼 30 % 를 누워 있으면 짧은 연출에서는 「멈춘 화면」으로 읽힌다.
+ */
+const RESPAWN_RISE_START = 0.2;
 /** 카메라가 선 각도 — 몸이 보는 쪽(`bodyYaw`)에서 이만큼 돌아간 옆앞. */
 const CAM_YAW_OFFSET = 2.1;
 /** 카메라 거리 (시작 → 끝, m) · 높이 (발 기준, m) · 바라보는 높이 (발 기준, m). */
@@ -97,10 +104,20 @@ function progress(sys: PlayerSystem): number {
 /**
  * `PlayerRef.playIntroWake`. 몸이 월드에 서 있을 때만 받는다 (죽었거나 스폰 전이면 무시).
  * 이미 돌고 있으면 길이만 새로 잡는다.
+ *
+ * ## 2026-09-15 — 부활 연출 (`opts.respawn`, 사용자 결정 「튜토리얼 부활도 쓰러졌다 일어난다」)
+ *
+ * 같은 쓰러진 자세 → 일어서기와 입력 잠금만 쓴다. **오프닝에만 있는 것은 전부 빠진다**: 검은 페이드(`ui:screenFade`) ·
+ * 몸을 비추는 전용 카메라(평소 3인칭 카메라 그대로) · `PlayerRef.introWaking`(나침반 페이드 · Tab 잠금이 보는 값 — false 로 남는다) ·
+ * `player:introWakeDone`(튜토리얼 `wake` 단계가 기다리는 신호). 표식은 `PlayerSystem.introWakeRespawn` 하나다.
+ * 오프닝이 돌고 있는 몸에는 덮어쓰지 않는다 (부활 경로 `respawnAt` 이 오프닝을 먼저 취소하므로 실제로는 닿지 않는 보험이다).
  */
-export function playIntroWake(sys: PlayerSystem, durationS: number): void {
+export function playIntroWake(sys: PlayerSystem, durationS: number, opts?: { respawn?: boolean }): void {
   if (!sys.spawned || sys.isDead || sys._downed) return;
-  const dur = Number.isFinite(durationS) && durationS > 0 ? durationS : TUTORIAL_INTRO_WAKE_S;
+  const respawn = opts?.respawn === true;
+  if (respawn && sys.introWakeT >= 0 && !sys.introWakeRespawn) return;
+  const fallback = respawn ? TUTORIAL_RESPAWN_WAKE_S : TUTORIAL_INTRO_WAKE_S;
+  const dur = Number.isFinite(durationS) && durationS > 0 ? durationS : fallback;
   // 몸이 하던 일을 전부 내려놓는다 (차량 · 드론 · 가구 · 사다리는 각자의 해제 경로가 있다)
   sys.releaseRoverRide();
   sys.releaseDroneControl();
@@ -115,6 +132,9 @@ export function playIntroWake(sys: PlayerSystem, durationS: number): void {
   sys.cancelHold(); sys.interactTarget = null;
   sys.introWakeDur = Math.max(0.1, dur);
   sys.introWakeT = sys.introWakeDur;
+  sys.introWakeRespawn = respawn;
+  // 부활 연출: 카메라는 평소 리그 그대로 · 화면도 가리지 않는다
+  if (respawn) return;
   // 첫 프레임부터 그 자리에서 시작한다 (블렌드해 들어가면 백뷰에서 몸으로 카메라가 훑고 지나간다)
   updateIntroCamera(sys, true);
   // 그리고 그 첫 프레임은 **아무것도 보이지 않는다** — 밝아지는 것은 `updateIntroWake` 가 건다
@@ -138,6 +158,8 @@ export function updateIntroWake(sys: PlayerSystem, dt: number): void {
   const before = progress(sys);
   // ⚠ 0 에서 멈춘다 — 음수는 「연출 중이 아니다」 표식이다 (머리 주석 *끝나지 않던 연출*)
   sys.introWakeT = Math.max(0, sys.introWakeT - Math.max(0, dt));
+  // 2026-09-15 부활 연출: 페이드 · 카메라가 없다 — 시계만 돈다
+  if (sys.introWakeRespawn) { if (sys.introWakeT <= 0) endIntroWake(sys); return; }
   const after = progress(sys);
   if (before < FADE_HOLD && after >= FADE_HOLD) {
     fade(sys, 0, Math.max(0, (FADE_DONE - FADE_HOLD) * sys.introWakeDur));
@@ -149,7 +171,10 @@ export function updateIntroWake(sys: PlayerSystem, dt: number): void {
 /** 연출을 정상 종료한다 — 오버라이드 해제(이미 백뷰 자리다) + `player:introWakeDone`. */
 export function endIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
-  sys.introWakeT = -1; sys.introWakeDur = 0;
+  const respawn = sys.introWakeRespawn;
+  sys.introWakeT = -1; sys.introWakeDur = 0; sys.introWakeRespawn = false;
+  // 부활 연출은 카메라를 잡은 적도 화면을 가린 적도 없고, `player:introWakeDone` 은 오프닝만의 신호다
+  if (respawn) return;
   sys.setCameraOverride(null, undefined, true);
   // 이미 밝아져 있는 것이 정상이지만(페이드는 `FADE_DONE` 에 끝난다) 짧은 연출에서도 확실히 걷는다
   fade(sys, 0, 0);
@@ -159,7 +184,10 @@ export function endIntroWake(sys: PlayerSystem): void {
 /** 리셋 · 사망 · 새 미션: 알리지 않고 끝낸다. **화면은 반드시 되돌린다** (검은 화면에 갇히지 않는다). */
 export function cancelIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
-  sys.introWakeT = -1; sys.introWakeDur = 0;
+  const respawn = sys.introWakeRespawn;
+  sys.introWakeT = -1; sys.introWakeDur = 0; sys.introWakeRespawn = false;
+  // 부활 연출은 되돌릴 카메라 · 화면이 없다 (이륙 연출 같은 다른 오버라이드를 잘못 풀지 않는다)
+  if (respawn) return;
   sys.setCameraOverride(null, undefined, true);
   fade(sys, 0, 0);
 }
@@ -170,7 +198,7 @@ export function cancelIntroWake(sys: PlayerSystem): void {
  */
 export function wakeBlend(sys: PlayerSystem): number {
   if (sys.introWakeT < 0) return 0;
-  return 1 - smoothstep(WAKE_RISE_START, 1, progress(sys));
+  return 1 - smoothstep(sys.introWakeRespawn ? RESPAWN_RISE_START : WAKE_RISE_START, 1, progress(sys));
 }
 
 /**

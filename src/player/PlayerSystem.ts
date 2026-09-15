@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { BoostKind, EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity, RoverRideBinding } from '@/shared';
+import type { PlayerDamageSource } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -138,6 +139,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   burnTimer = 0;
   burnTick = 0;
   _burning = false;
+  /** 2026-09-15 (결과 창 개편): 지금 타고 있는 불의 출처 — 화상 틱이 `applyDamage` 에 싣는다. */
+  burnSource: PlayerDamageSource | undefined = undefined;
+  /**
+   * 2026-09-15 (결과 창 개편): 사망 원인 후보 — 체력을 0 으로 만든 피해의 출처(전투불능이면 쓰러뜨린 피해의 출처,
+   * 쓰러진 뒤 막타가 들어오면 그 막타). `die()` 가 `player:died.source` 로 내고 비운다. revive · clearDowned 가 비운다.
+   */
+  _deathSource: PlayerDamageSource | undefined = undefined;
   regenAccum = 0;
   /* 행성 상시 환경 (A-13, `parts/Statuses.updateEnv`). 프로필의 준비물이 막아 주는지까지 합쳐 **상태가 바뀔 때만**
    * `player:envChanged` 를 낸다. 준비물 자체는 progression 의 프로필에 살기 때문에 `resetTactical` · 스폰이
@@ -218,9 +226,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   introWakeT = -1;
   /** 이번 연출의 전체 길이 (진행도 계산용). */
   introWakeDur = 0;
+  /**
+   * 2026-09-15 — 지금 도는 연출이 **부활 연출**(`playIntroWake(d, {respawn:true})`)이다: 자세 · 입력 잠금만 있고
+   * 페이드 · 전용 카메라 · `introWaking` · `player:introWakeDone` 이 없다 (`parts/IntroWake`).
+   */
+  introWakeRespawn = false;
   /* ── 각본 잠금 (2026-09-14 3차, `PlayerRef.setSceneLock`) ── */
   /** true 인 동안 입력이 전부 잠기고 들어오는 피해가 무시된다. 카메라는 부르는 쪽(이륙 연출)이 든다. */
   _sceneLock = false;
+  /** 2026-09-15 — 각본 잠금 중에도 피해가 **들어간다** (`setSceneLock(true, {allowDamage})`). 체력은 `_sceneLockMinHp` 밑으로 안 내려간다. */
+  _sceneLockDamage = false;
+  _sceneLockMinHp = 1;
   /* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
   /** Sit / bench / run / cycle on a piece of ship furniture: logical state, restore spot, drive phase, model blend. */
   readonly furn: FurniturePoseState = createFurniturePoseState();
@@ -351,13 +367,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * true 인 동안 이동 · 자세 · 무기 · 상호작용 · 마우스 룩이 잠기고 카메라는 쓰러진 몸을 비춘다.
    * 2026-09-14: 계약 `PlayerRef.introWaking` 이기도 하다 — 나침반 · Tab 가방이 이것이 false 가 될 때까지 기다린다.
    */
-  get introWaking(): boolean { return this.introWakeT >= 0; }
+  // 2026-09-15: 부활 연출(`introWakeRespawn`)은 오프닝이 아니다 — 나침반 · Tab 이 기다리지 않는다
+  get introWaking(): boolean { return this.introWakeT >= 0 && !this.introWakeRespawn; }
   /**
    * 튜토리얼 오프닝 — 쓰러진 자세로 시작해 `durationS` 에 걸쳐 일어난다 (`TUTORIAL_INTRO_WAKE_S`). 일어서는 동안
    * 카메라가 평소 3인칭 백뷰 자리로 옮겨 가고, 끝나면 오버라이드를 풀고 `player:introWakeDone`.
    * `game:abort` · `game:newMission` · 사망은 스스로 푼다.
    */
-  playIntroWake(durationS: number): void { return IntroWake.playIntroWake(this, durationS); }
+  /** 2026-09-15: `opts.respawn` = 튜토리얼 부활 연출 (쓰러진 자세 → 일어서기 + 입력 잠금만, 페이드 · 카메라 · 완료 신호 없음). */
+  playIntroWake(durationS: number, opts?: { respawn?: boolean }): void { return IntroWake.playIntroWake(this, durationS, opts); }
 
   /* ── 각본 잠금 (2026-09-14 3차, appended contract `PlayerRef.setSceneLock`) ── */
   /**
@@ -372,8 +390,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * 스스로 푸는 곳: `game:abort`(`resetAll`) · `game:newMission` · `spawnStanding` · `respawnAt` — 즉 함선 복귀 ·
    * 새 미션 · 부활이 전부 지난다. 끄기는 언제나 안전하다(플래그 하나).
    */
-  setSceneLock(on: boolean): void {
+  /*
+   * 2026-09-15 (`opts` — 사용자 결정 「처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다」): `allowDamage` 면
+   * 입력 잠금은 그대로이되 피해가 **들어간다** (실드 → 체력, 피격 연출 · 소리 · 방향 호 그대로). 체력만 `minHp`(기본 1, 최소 1)에서
+   * 멈추고 전투불능 · 사망이 없다 — `parts/Vitals.applyDamage` · `parts/Statuses.updateEnv` 가 이 두 필드를 본다. 넉백은 여전히 막는다.
+   * 이미 잠겨 있어도 옵션은 새로 적는다 (끄면 옵션도 기본값으로).
+   */
+  setSceneLock(on: boolean, opts?: { allowDamage?: boolean; minHp?: number }): void {
     const next = !!on;
+    this._sceneLockDamage = next && opts?.allowDamage === true;
+    const minHp = opts?.minHp;
+    this._sceneLockMinHp = next && typeof minHp === 'number' && Number.isFinite(minHp) ? Math.max(1, minHp) : 1;
     if (this._sceneLock === next) return;
     this._sceneLock = next;
   }
@@ -587,7 +614,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setHovering(hovering: boolean): void { return Loco.setHovering(this, hovering); }
 
   /** Fire zone / incendiary: DoT that also suppresses the 인내 save while it kills. */
-  setBurning(dps: number, duration: number): void { return Stat.setBurning(this, dps, duration); }
+  setBurning(dps: number, duration: number, source?: PlayerDamageSource): void { return Stat.setBurning(this, dps, duration, source); }
 
   /** Teammate finished the revive hold (net → `ctx.player.revive()`): back up with PLAYER_REVIVE_HP, still prone. */
   revive(): void { return Vitals.revive(this); }
@@ -664,14 +691,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return this.rig ? this.rig.getForward(out) : out.set(0, 0, -1);
   }
 
-  takeDamage(amount: number, from?: THREE.Vector3): void { return Vitals.takeDamage(this, amount, from); }
+  takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource): void { return Vitals.takeDamage(this, amount, from, source); }
 
   /**
    * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
    * save. **실드가 먼저 피해를 먹고** 남은 만큼만 체력으로 간다 (2026-09-10 — 방탄복은 피해를 깎지 않는다);
    * 실드가 먹은 만큼 판이 닳는다. A roll counts as a partial i-frame.
    */
-  applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean): void { return Vitals.applyDamage(this, amount, from, dot); }
+  applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource): void { return Vitals.applyDamage(this, amount, from, dot, source); }
 
   /** 실드가 먹은 `absorbed` 만큼 방탄복이 닳는다 (내구도는 inventory 소유; 0 이 되면 파손 = 실드 최대치 0). */
   wearGear(absorbed: number): void {

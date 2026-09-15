@@ -1,12 +1,13 @@
 /**
  * src/implants/parts/Wield.ts — **손에 드는 임플란트**와 프로필 연동.
  *
- * 대전차포와 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야
+ * 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야
  * 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다.
+ * (2026-09-15: 또 하나의 손에 드는 임플란트였던 대전차포는 은퇴 — 이 경로는 이제 배리어만 탄다.)
  */
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
+  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
   IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
@@ -25,7 +26,6 @@ import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from '../Implant
 import { ImplantDevice } from '../devices/ImplantDevice';
 import { BarrierField } from '../effects/Barrier';
 import { GrappleWire } from '../effects/Grapple';
-import { RocketPool, type RocketImpact } from '../effects/AtLauncher';
 import { OverchargeBeam, allyPoint, findAlly } from '../effects/Overcharge';
 import { revealScan } from '../effects/Scan';
 import { ImplantFx } from '../fx/ImplantFx';
@@ -76,7 +76,7 @@ export function applyProfileLazily(sys: ImplantSystem): void {
   const prog = sys.ctx.progression;
   if (prog) { sys.applyProfile(prog.profile.implant); return; }
   if (sys.equippedId === null) {
-    // offline / no profile yet: everyone owns all six, so hand out the first one instead of nothing
+    // offline / no profile yet: everyone owns all five, so hand out the first one instead of nothing
     sys.equippedId = IMPLANT_DEFS[0].id;
     sys.resetRuntime();
     sys.emitCooldown(true);

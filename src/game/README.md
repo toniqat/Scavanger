@@ -16,6 +16,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `parts/Session.ts` | **레이드 세션 저장과 복귀**. 솔로 레이드는 localStorage 에 5분짜리 스냅샷을 남기고(`SoloRaid.ts`), 멀티는 릴레이의 레이드 저장소를 쓴다. 복귀는 `world:ready` 뒤에 인벤토리 · 스탯 · 시계를 되돌리고, 호스트가 보관하던 몸이 있으면 그 자리에서 일어난다(없으면 헬포드로 떨어진다). **2026-09-11 (C-70)**: `saveRaid` 의 **솔로 경로에는 「죽은 뒤에는 저장하지 않는다」 가드**가 있다 (`isDead && !isDowned` → 아무것도 쓰지 않고 돌아간다). 멀티에는 걸지 않는다 — 거기서는 사망 직후 저장이 바로 복제를 막는 장치다. |
 | `parts/Phases.ts` | **페이즈 전환과 일시정지**. menu → hub → deploying → playing → extracting → complete / dead → hub. 일시정지는 **월드를 멈추지 않고**(2026-09-07) 창 포커스를 잃었을 때만 뜬다. 일시정지 메뉴는 항상 단 하나의 화면이라 다른 창이 열려 있으면 즉시 양보한다(Phase 12 — 겹쳐서 둘 다 못 끄던 상태의 수정). |
 | `parts/Wire.ts` | **`flow` 메시지**와 호스트 이관 · 로비 이탈의 흐름 처리. |
+| `parts/RaidReport.ts` | **결과 창의 재료** (2026-09-15, 결과 창 개편). `GameFlowSystem.report`(클래스 `RaidReport`). ① **최고 소지품 가치** — `carriedValue(inv)` = `getTotalValue()`(가방 · 퀵슬롯 · 주머니) + 장착 로드아웃(무기 · 가방 · 방탄복 · 주머니 아이템 · 무기 소켓 부착물)의 `def.value × qty` 를 `inventory:changed` · `inventory:quickSlotsChanged` · `inventory:pouchChanged` · `loadout:changed` 마다 + `update(dt)` 1초 폴링으로 재어 `ctx.stats.peakLootValue` 에 최댓값으로만 쓴다(레이드 중 · 살아 있을 때만). **사망 순간** `player:died` 에서 한 번 더 잰다 — `init` 이 이 구독을 `onLocalDied`(시체로 비우기)보다 **먼저** 건다. 값이 `MissionStats` 에 사므로 레이드 세션 복귀를 그대로 따라간다. ② **원인별 받은 피해** — `player:damaged.source` 를 열쇠로 합산(적 = `enemyId` 개체, 없으면 `enemyType` · 나머지 = `kind` + `hazard`), 출처 없는 피해는 세지 않는다. ③ **막타** — `player:died.source`, 없으면 마지막 피해의 출처, 자발적 귀환(`returnPending`)이면 없음. `fill()` 을 `GameFlowSystem.complete()` · `gameOver()` 가 결산 **앞에서** 불러 `stats.peakLootValue` 와(쓰러진 몸이면) `stats.death {kind, enemyType?, hazard?, label, damage}` 를 채운다 — 이름은 `ctx.enemies.enemyDisplayName` · `HAZARD_LABEL_KO` · 원인 표(`낙하` · `행성 환경` · `폭발` · `자기 폭발물` · `아군 폭발물` · `알 수 없는 피해`). `game:newMission` · `game:abort` · `hub:entered` 에 비운다. 디버그 `debugTallies()`. |
 | `ResumeGate.ts` | **Phase 12**: the browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), the desktop-shell cursor rule (`syncDesktopCursor`) and the shell's Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). Owns `resume-gate.css`. |
 | `resume-gate.css` | The gate's own styles + `body.desktop-nocursor` (the Electron cursor-hiding class). Imported from `ResumeGate.ts`. |
 | `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. **2026-09-14**: `SoloRaidSave.mode?` (`'raid'` 기본 · `'tutorial'`) · `checkpoint?` — 튜토리얼도 같은 파일로 이어 한다. **2026-09-11 (E-5)**: `soloRaidBootStatus` (loadout `raidSeed` marker) · `readClockHigh` / `bumpClockHigh` (`SOLO_CLOCK_HIGH_KEY`), `soloRaidStatus` refuses a far-future save and a clock set back. **2026-09-10**: `SoloRaidPose.shield` (선택) — v1 세이브에는 없고, 없으면 `restoreState` 가 방탄복 최대치로 복구한다. |
@@ -361,6 +362,31 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (튜토리얼 부활 연출 · 건너뛰기 탈출 · 튜토리얼 XP, 사용자 결정)** — `parts/Death.ts` · `GameFlowSystem.ts`.
+  ① **부활 연출**: `tutorialRespawn` 이 `player:respawn` + `teleport` 뒤 `ctx.player.playIntroWake(TUTORIAL_RESPAWN_WAKE_S, {respawn: true})` —
+  서 있는 채로 나타나지 않고 쓰러진 자세에서 일어난다(검은 페이드 · 전용 카메라 · 나침반 페이드 · Tab 잠금 · `player:introWakeDone` 없음, player 구현).
+  ② **건너뛰기 탈출** (`ExtractionRef.skipToComplete`): `extraction:liftoff` 구독의 첫 줄이 `isTutorialSkipLiftoff` — 튜토리얼에서 함선이 아직 뜨지 않았는데
+  (`extraction.stage !== 'liftoff'`) 온 이륙, 또는 이미 `liftoff` 페이즈인데 한 번 더 온 이륙이면 `completeTutorialSkip` 이 `aboardAtLiftoff` · `squadExtraction`
+  을 세우고 **`LIFTOFF_TO_COMPLETE` 대기 없이** `complete()` 를 부른다. 그 동안만 선 `tutorialSkipComplete` 가 `complete()` 의 `stats.extracted` 를 몸 상태와
+  무관하게 참으로 만든다(건너뛰기 = 탈출을 대신 해 준다). 결과 화면 · 정산 · 함선 획득은 평소 탈출 그대로.
+  ③ **튜토리얼 XP (TODO — 「튜토리얼 끝에 Lv.3」)**: 조사 결과 캐릭터 XP 를 주는 곳은 `src/` 전체에 **둘뿐**이다 — `awardMissionXp`(레이드 정산)와
+  `meta/parts/NpcQuests` 의 퀘스트 완료 보고. 튜토리얼 레이드 완주는 A-17 부터 `TUTORIAL_RAID_XP` 120 고정이고 함선 트랙(levelUp · stats · messenger ·
+  ravenQuest)은 퀘스트를 **수락**만 하므로 XP 가 없다. 그래서 Lv.3 이 되는 길은 (a) A-17 이전 빌드(900), (b) **완주하지 못한 튜토리얼이 본편 정산식을 타는
+  길**(건너뛰기가 함선을 못 태워 `game:returnToShip` → `gameOver()` — 처치 × 12 × 0.4 + 분당 20, 최대 300 이 붙는다), (c) 증축 트랙의 마지막 단계 `raid` 가
+  보내는 **첫 본편 레이드**(정상 정산 — 탈출 보너스 300 + 처치 · 시간 · 전리품)다. 이 폴더에서 막은 것은 (b): 튜토리얼 모드의 정산은 **완주면
+  `TUTORIAL_RAID_XP`, 아니면 0** 이고 계약 정산도 튜토리얼이면 부르지 않는다(`!tutorialClear` → `!isTutorial()`). (c) 는 본편 레이드라 손대지 않았다.
+
+- **2026-09-15 (결과 창 개편 — 사망 원인 · 잃은 전리품 가치, 사용자 결정)** — 새 `parts/RaidReport.ts` 가 레이드 동안
+  최고 소지품 가치(장착 장비 포함) · 원인별 받은 피해(`player:damaged.source`) · 막타(`player:died.source`)를 모으고,
+  `GameFlowSystem.complete()` · `gameOver()` 가 결산 앞에서 `report.fill()` 로 `stats.peakLootValue` · `stats.death` 를 채운다.
+  배선은 `GameFlowSystem` 에만 — 필드 `report`, `init` 첫머리 `report.bind()`(`player:died` → `onLocalDied` 보다 먼저라야
+  시체로 비우기 전의 가치를 잰다), `update` 의 `report.update(dt)`, 두 결산 래퍼, `dispose`. `parts/Death.ts` 는 한 줄도 안 바뀌었다
+  (`Wire` · `checkAllDead` · `finishReturnToShip` 이 모두 `sys.complete()` / `sys.gameOver()` 래퍼를 지난다). `parts/Phases.ts` 는
+  없어진 `MissionComplete` 다시 배치를 가리키던 주석만 고쳤다.
+
+- **2026-09-15 (키캡 다듬기, 사용자 결정)** — `ResumeGate` 의 `Esc 일시 정지 메뉴` 키캡을 공용 `shared/keycap.paintKeycap(Keys.MENU)` 로 칠한다
+  (모든 키캡이 한 경로 — 마우스 버튼이면 그림, 꾹 누르기면 키캡 안 chevron). 제목 `좌측 클릭으로 게임 재개` 는 문장이라 글자로 남겼다.
 
 - **2026-09-15 (A-17 — 튜토리얼 완주 XP 고정 지급, 사용자 결정 「고정 지급 · 정확히 Lv.2」)** — `parts/Death.awardMissionXp` 에 갈래 하나:
   `sys.isTutorial() && stats.extracted`(= 버려진 함선을 타고 **완주**)면 정산식(처치 · 시간 · 탈출 보너스 · 전리품 · 서재 `raidXp` 배율)을 건너뛰고

@@ -1,8 +1,9 @@
 import type { GameContext, MissionStats } from '@/shared';
-import { RAID_FAILED_AUTO_RETURN_S, formatCredits, planetLabel } from '@/shared';
-import { el, fmtTime, fmtInt, setText, toggleClass } from '../dom';
+import { RAID_FAILED_AUTO_RETURN_S, planetLabel } from '@/shared';
+import { el, fmtTime, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
+import { ResultReport, buildResultHeader, type ResultHeader } from './ResultReport';
 
 /**
  * "전사" screen with mission stats, shown on `game:phaseChanged {phase:'dead'}` (solo; also on the legacy `game:over`).
@@ -18,13 +19,18 @@ import { RewardsBlock } from './RewardsBlock';
  * **2026-09-09 — 자동 부활이 사라졌다.** `부활 (n초)` 버튼도 Space 도 없다. 이 화면은 phase `dead` 에서만 뜨는데
  * 그 페이즈는 이제 레이드가 정말 끝났을 때(솔로 사망 · 분대 전멸)만 온다 — 분대에서 혼자 죽으면 페이즈는 그대로고
  * `ui/hud/SpectateOverlay` 가 구조선 대기를 보여 준다.
+ *
+ * **2026-09-15 (결과 창 개편, 사용자 결정):** 제목 줄 오른쪽에 임무 시간 하나, 그 아래 `잃은 전리품 가치`
+ * (`stats.peakLootValue` — 그 레이드에서 가장 높았던 소지품 가치, 빨강) → 사망 원인 줄(`stats.death` — 막타의 얼굴 /
+ * 원인 아이콘 · 이름 · 그 원인에게서 받은 피해) → 획득 경험치. 처치 · 생존 시간 칸 · 개봉한 상자 · 받은 피해 칸은 없다.
+ * 몸통은 `ResultReport` 를 `MissionComplete` 와 함께 쓴다.
  */
 export class DeathScreen extends MenuBase {
-  private vals: Record<string, HTMLElement> = {};
-  private titleEl: HTMLElement;
+  private head: ResultHeader;
   private subtitleEl: HTMLElement;
   private planetEl!: HTMLElement;
   private autoEl: HTMLElement;
+  private report: ResultReport;
   private rewards: RewardsBlock;
   private failed = false;
   private autoLeft = 0;
@@ -33,21 +39,12 @@ export class DeathScreen extends MenuBase {
   constructor(parent: HTMLElement) {
     super(parent, 'death');
     const head = el('div', { parent: this.frame });
-    this.titleEl = el('div', { cls: 'title danger', text: '전사', parent: head });
+    this.head = buildResultHeader(head, '전사', 'danger');
     this.subtitleEl = el('div', { cls: 'subtitle', text: '스캐빈저 신호 소실 — 장비는 유해에 남았습니다', parent: head });
     // Phase 11: which planet this went wrong on (`PLANET_NONE_LABEL` when the raid carried no planet).
     this.planetEl = el('div', { cls: 'planet-line', parent: head });
 
-    const stats = el('div', { cls: 'stats', parent: this.frame });
-    for (const [k, label] of [['kills', '처치'], ['time', '생존 시간'], ['crates', '개봉한 상자'], ['damage', '받은 피해']] as const) {
-      const s = el('div', { cls: 'stat', parent: stats });
-      el('span', { cls: 'ui-label', text: label, parent: s });
-      this.vals[k] = el('span', { cls: 'v', text: '0', parent: s });
-    }
-    const lost = el('div', { cls: 'stat wide', parent: stats });
-    el('span', { cls: 'ui-label', text: '소실된 전리품 가치', parent: lost });
-    this.vals.loot = el('span', { cls: 'v', text: formatCredits(0), parent: lost });
-    this.vals.loot.style.color = 'var(--c-danger)';
+    this.report = new ResultReport(this.frame);
     this.rewards = new RewardsBlock(this.frame);
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
@@ -59,6 +56,7 @@ export class DeathScreen extends MenuBase {
   override bind(ctx: GameContext): void {
     super.bind(ctx);
     this.rewards.bind(ctx);
+    this.report.bind(ctx);
     this.unsubs.push(
       ctx.bus.on('game:raidFailed', () => this.setFailed(true)),
       ctx.bus.on('game:over', ({ stats }) => { this.fill(stats); this.show(); }),
@@ -71,11 +69,12 @@ export class DeathScreen extends MenuBase {
   }
 
   protected override onShow(): void { this.applyMode(); }
-  protected override onHide(): void { this.rewards.stop(); }
+  protected override onHide(): void { this.rewards.stop(); this.report.stop(); }
 
   update(dt: number): void {
     if (!this.visible) return;
     this.rewards.update(dt);
+    this.report.update(dt);
     if (this.failed && this.autoLeft > 0) {
       this.autoLeft = Math.max(0, this.autoLeft - dt);
       this.applyAuto();
@@ -84,6 +83,8 @@ export class DeathScreen extends MenuBase {
 
   /** The XP settlement block (debug). */
   get rewardsBlock(): RewardsBlock { return this.rewards; }
+  /** The lost-loot / death-cause rows (debug). */
+  get resultReport(): ResultReport { return this.report; }
   /** Whether the screen is in 레이드 실패 mode (debug). */
   get isRaidFailed(): boolean { return this.failed; }
 
@@ -97,7 +98,7 @@ export class DeathScreen extends MenuBase {
   private applyMode(): void {
     const f = this.failed;
     toggleClass(this.root, 'raid-failed', f);
-    setText(this.titleEl, f ? '레이드 실패' : '전사');
+    setText(this.head.title, f ? '레이드 실패' : '전사');
     setText(this.subtitleEl, f ? '분대 전멸 — 스캐빈저 신호 완전 소실' : '스캐빈저 신호 소실 — 장비는 유해에 남았습니다');
     this.autoEl.hidden = !f;
     if (f) this.applyAuto();
@@ -112,11 +113,8 @@ export class DeathScreen extends MenuBase {
 
   private fill(s: MissionStats): void {
     setText(this.planetEl, `행성 · ${planetLabel(this.ctx.missionPlanet)}`);
-    setText(this.vals.kills, String(s.kills));
-    setText(this.vals.time, fmtTime(s.timeSeconds));
-    setText(this.vals.crates, String(s.cratesOpened));
-    setText(this.vals.damage, fmtInt(s.damageTaken));
-    setText(this.vals.loot, formatCredits(this.ctx.inventory?.getTotalValue() ?? s.lootValue));
+    setText(this.head.time, fmtTime(s.timeSeconds));
+    this.report.fill(s, 'death');
     this.rewards.fill(s.rewards, 'dead');
   }
 

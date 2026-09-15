@@ -3,12 +3,12 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Random } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  BROKEN_WALL, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y, DECK_UPPER_Y, DRESSING_SEED, RUINS, box, corridorHalfXAt,
-  crawlClearanceAt, inChasm,
+  BACKSTOP, BARRIER, BARRIER_LEN, BARRIER_MESH_YAW, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y, DECK_UPPER_Y, DRESSING_SEED, RUINS,
+  SHIP_POS, SHIP_YAW, barrierLocal, barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inChasm,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 손으로 지은 구조물 — 시작 폐허 · 무너진 통로(포복 구간) · 무너진 벽 · 돌부스러기.
+ * 손으로 지은 구조물 — 시작 폐허 · 무너진 통로(포복 구간) · 사선 방벽(블라인드 철조망) · 돌부스러기.
  *
  * 규칙 하나: **콜라이더가 있는 것만 큼직하게 그리고, 콜라이더 없는 것은 발끝보다 낮게 둔다.** 그래야
  * "보이는 실루엣이 콜라이더" (`CLAUDE.md`) 가 깨지지 않는다. 광원은 0개이고 켜져 보이는 것은 전부 emissive 다.
@@ -20,10 +20,36 @@ import {
  * 2026-09-14 3차 — **지나가는 구간의 바닥 장식을 걷어냈다.** 포복 구간처럼 몸을 낮추고 지나는 데서는
  * 콜라이더 없는 부스러기를 엎드린 몸이 그대로 뚫고 지나가 눈에 거슬린다. 천장 아래로 늘어져 있던 철근도
  * 같은 이유로 없앴다 (머리가 그 안을 지나갔다).
+ *
+ * 2026-09-15 — 옛 「무너진 벽」(통로를 가로지르고 가운데 5 m 만 뚫림)을 **사선 방벽**(`buildBarrier`)으로 바꿨다.
+ * 치수 · 검산은 전부 `model.ts` 의 `BARRIER` · `BACKSTOP` 주석에 있다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 콜라이더 없이 그리기만 하는 최대 높이 (발을 걸지 않고 넘어간다 — `PROP_STEP_UP_MAX` 0.9 보다 낮다). */
 const FLAT_DEBRIS_H = 0.35;
+
+/*
+ * 블라인드 철조망의 그림 치수 (콜라이더는 이것과 무관하게 `BARRIER.halfT` × `BARRIER.fenceHeight` 한 덩어리다).
+ *   가로 살 `SLAT_COUNT` 줄: 밑 `SLAT_BASE` 0.25 부터 살 0.12 + 틈 0.18 → 맨 윗살 윗면 0.25 + 7 × 0.30 + 0.12 = **2.47 m**.
+ *   틈이 60 % 라 건너편이 보인다. 살은 방벽 중심선에서 ±`SLAT_FACE`(0.55) 두 겹 — 콜라이더 면(±0.6)보다 5 cm 안쪽이라
+ *   총알 자국이 살 바로 앞에 선다. 두 겹의 살 높이가 같아 틈이 겹치므로, 틈으로 보이는 세로 각은 atan(0.18 / 1.1) = 9.3° 까지다
+ *   (선 눈높이 1.55 에서 10 m 너머 가슴 높이 1.3 을 볼 때 1.4° — 넉넉하다).
+ *   윗 난간 2.58 … 2.68, 그 사이의 지그재그 철선 2.64 … 2.66 — 전부 철조망 높이 2.7 **밑**이라 넘겨 던진 수류탄의 궤적과
+ *   그림이 어긋나지 않는다.
+ */
+const SLAT_H = 0.12, SLAT_GAP = 0.18, SLAT_BASE = 0.25, SLAT_COUNT = 8, SLAT_T = 0.04;
+const SLAT_FACE = BARRIER.halfT - 0.05;
+const RAIL_H = 0.1;
+/** 철조망 밑의 콘크리트 턱 높이 — 첫 살(0.25)보다 낮다. */
+const SILL_H = 0.22;
+/** 기둥 간격 (m) — 철조망 토막을 이 길이 이하의 칸으로 나눈다. */
+const POST_STEP_M = 3;
+/**
+ * 방벽 콜라이더 한 장의 최대 길이 (m). 한 장으로 넣으면 외접원이 17.5 m 가 되어 `SpatialHash.maxRadius` 가 데크 타일(11.3)보다
+ * 커지고 **모든** 해시 질의가 느려진다 (`DECK_TILE_M` 과 같은 이유). 이음매는 `BARRIER_JOIN_M` 만큼 겹친다.
+ */
+const BARRIER_COLLIDER_MAX_M = 12;
+const BARRIER_JOIN_M = 0.05;
 
 export class Dressing {
   readonly group = new THREE.Group();
@@ -37,18 +63,21 @@ export class Dressing {
     const rng = new Random(DRESSING_SEED);
     const concrete = new THREE.MeshStandardMaterial({ color: 0x776d5e, roughness: 0.95, metalness: 0.05, emissive: 0x141210, emissiveIntensity: 0.55 });
     const rust = new THREE.MeshStandardMaterial({ color: 0x6b4530, roughness: 0.9, metalness: 0.25, emissive: 0x120a06, emissiveIntensity: 0.6 });
-    this.disposables.push(concrete, rust);
+    const steel = new THREE.MeshStandardMaterial({ color: 0x5a5e60, roughness: 0.7, metalness: 0.3, emissive: 0x0b0c0d, emissiveIntensity: 0.6 });
+    this.disposables.push(concrete, rust, steel);
 
     const solid: THREE.BufferGeometry[] = [];   // 콜라이더가 붙는 콘크리트
     const flat: THREE.BufferGeometry[] = [];    // 바닥 부스러기 (콜라이더 없음)
+    const metal: THREE.BufferGeometry[] = [];   // 철조망 (콜라이더는 방벽 한 덩어리)
 
     this.buildRuins(hash, solid, flat, rng);
     this.buildCrawl(hash, solid, rng);
-    this.buildBrokenWall(hash, solid, flat, rng);
+    this.buildBarrier(hash, solid, metal, flat, rng);
     this.scatterRubble(flat, rng);
 
     this.addMerged(solid, concrete, 'tut-concrete');
     this.addMerged(flat, rust, 'tut-debris');
+    this.addMerged(metal, steel, 'tut-fence');
   }
 
   /* ── 시작 폐허: 깨어나는 자리를 감싸는 부서진 벽 몇 장과 넘어진 안테나 ── */
@@ -92,10 +121,11 @@ export class Dressing {
    *   - 천장 아래로 늘어져 있던 **얇은 철근을 없앴다** (지나가는 머리를 뚫고 지나갔다).
    *   - 지나가는 **바닥의 부스러기 판도 없앴다** (엎드린 몸이 그 안을 통과했다).
    *
-   * 2026-09-14 4차: 기울기의 **부호가 뒤집혔고**(입구 1.35 → 출구 1.95) 조각이 7 장, 두께가 2.4 다.
-   * 이 파일의 식은 한 줄도 안 바뀐다 — 그림의 중심(`clearance + slabThickness / 2`)도 콜라이더의 base 도
+   * 2026-09-14 4차: 기울기의 **부호가 뒤집혔고**(입구 → 출구로 높아진다) 조각이 7 장, 두께가 2.4 다.
+   * 2026-09-15: 입구가 1.35 → **1.70** 으로 올라가(앉은 머리 꼭대기 1.55 + 0.15) 기울기가 완만해졌다.
+   * 이 파일의 식은 두 번 다 한 줄도 안 바뀌었다 — 그림의 중심(`clearance + slabThickness / 2`)도 콜라이더의 base 도
    * **밑면 기준**이라 두께를 키우면 위로만 자라고, 기울기는 `crawlClearanceAt` 이 부호째 답한다.
-   * 검산(양 끝 · 조각별 밑면)은 전부 `CRAWL.slabSlope` 주석에 있다.
+   * 검산(양 끝 · 조각별 밑면 · 머리 꼭대기)은 전부 `CRAWL` 주석에 있다.
    */
   private buildCrawl(hash: SpatialHash, solid: THREE.BufferGeometry[], rng: Random): void {
     const y = DECK_UPPER_Y;
@@ -128,22 +158,112 @@ export class Dressing {
     }
   }
 
-  /* ── 무너진 벽: 가운데만 뚫려 있다 ── */
-  private buildBrokenWall(hash: SpatialHash, solid: THREE.BufferGeometry[], flat: THREE.BufferGeometry[], rng: Random): void {
-    const y = DECK_LOWER_Y, z = BROKEN_WALL.z, h = BROKEN_WALL.height, t = BROKEN_WALL.thickness;
-    const corridor = corridorHalfXAt(z);
-    for (const sx of [-1, 1]) {
-      const inner = sx * BROKEN_WALL.gapHalfX, outer = sx * corridor;
-      const cx = (inner + outer) / 2, half = Math.abs(outer - inner) / 2;
-      solid.push(box(half * 2, h, t, cx, y + h / 2, z));
-      this.addBox(hash, cx, y, z, half, t / 2, 0, h, 'tut_wall_break');
-      // 틈 가장자리의 부서진 이빨
-      for (let i = 0; i < 3; i++) {
-        const s = rng.range(0.6, 1.3);
-        solid.push(box(s, s, t * 0.9, inner + sx * rng.range(0.4, 2.4), y + h + s / 2 - 0.3, z, rng.range(-0.3, 0.3)));
+  /**
+   * 사선 방벽 (2026-09-15) — 콘크리트 토막 둘 사이에 **가로 블라인드 철조망**, 그리고 건너편 안드로이드 뒤의 **콘크리트 방벽**.
+   *
+   * 모든 조각을 방벽 좌표(`barrierPoint(along, depth)`)로 놓는다: `box()` 의 로컬 +X 를 `BARRIER_MESH_YAW` 로 돌리면 방벽 방향,
+   * 로컬 +Z 는 가까운 쪽 법선이 된다 (rotateY(θ) 가 +Z 를 (sin θ, cos θ) = (−0.685, 0.728) 로 보낸다).
+   * 콜라이더는 `addBox` 에 **메시 yaw** 를 넘기고 거기서 부호를 뒤집는다 (파일 끝 주석).
+   *
+   * 철조망의 콜라이더는 살이 아니라 **토막 전체**다 — 그래서 살 사이로 보이지만 총알 · 적 시야는 막힌다 (`BARRIER` 주석).
+   */
+  private buildBarrier(
+    hash: SpatialHash, solid: THREE.BufferGeometry[], metal: THREE.BufferGeometry[], flat: THREE.BufferGeometry[], rng: Random,
+  ): void {
+    const y = DECK_LOWER_Y;
+    const yaw = BARRIER_MESH_YAW;
+    const T = BARRIER.halfT * 2;
+    const fence0 = BARRIER.solidFarM, fence1 = BARRIER_LEN - BARRIER.solidNearM;
+
+    // ① 콘크리트 토막 둘 (`far` 끝 · `near` 끝)
+    for (const [a0, a1] of [[0, fence0], [fence1, BARRIER_LEN]] as const) {
+      const c = barrierPoint((a0 + a1) / 2, 0);
+      const h = BARRIER.solidHeight;
+      solid.push(box(a1 - a0, h, T, c.x, y + h / 2, c.z, yaw));
+      this.addBox(hash, c.x, y, c.z, (a1 - a0) / 2 + BARRIER_JOIN_M, BARRIER.halfT, yaw, h, 'tut_barrier');
+    }
+    // `far` 끝 기둥 — 틈 쪽에서 보이는 끝을 굵게 마감한다 (콜라이더 안, 높이도 콘크리트와 같다 — 이륙 카메라가 3 m 옆에서 출발한다)
+    {
+      const c = barrierPoint(0.3, 0);
+      solid.push(box(0.6, BARRIER.solidHeight, T + 0.1, c.x, y + BARRIER.solidHeight / 2, c.z, yaw));
+    }
+    // `near` 끝 토막의 부서진 윗면 (오른쪽 벽 쪽 — 카메라 · 틈과 멀다)
+    for (let i = 0; i < 4; i++) {
+      const s = rng.range(0.5, 1.1);
+      const p = barrierPoint(rng.range(fence1 + 0.8, BARRIER_LEN - 2.5), rng.range(-0.25, 0.25));
+      solid.push(box(s * 1.4, s * 0.6, T * 0.8, p.x, y + BARRIER.solidHeight + s * 0.3 - 0.15, p.z, yaw + rng.range(-0.2, 0.2)));
+    }
+
+    // ② 블라인드 철조망
+    const fenceLen = fence1 - fence0;
+    const bays = Math.max(1, Math.ceil(fenceLen / POST_STEP_M));
+    const bay = fenceLen / bays;
+    const H = BARRIER.fenceHeight;
+    {
+      const c = barrierPoint(fence0 + fenceLen / 2, 0);
+      solid.push(box(fenceLen, SILL_H, T - 0.1, c.x, y + SILL_H / 2, c.z, yaw));
+    }
+    for (let i = 0; i <= bays; i++) {
+      const c = barrierPoint(fence0 + bay * i, 0);
+      metal.push(box(0.14, H, T - 0.1, c.x, y + H / 2, c.z, yaw));
+    }
+    for (let i = 0; i < bays; i++) {
+      const mid = fence0 + bay * (i + 0.5);
+      for (const face of [-1, 1]) {
+        const c = barrierPoint(mid, face * SLAT_FACE);
+        for (let k = 0; k < SLAT_COUNT; k++) {
+          const sy = y + SLAT_BASE + k * (SLAT_H + SLAT_GAP) + SLAT_H / 2;
+          metal.push(box(bay - 0.14, SLAT_H, SLAT_T, c.x, sy, c.z, yaw));
+        }
+        metal.push(box(bay, RAIL_H, 0.08, c.x, y + H - RAIL_H / 2 - 0.02, c.z, yaw));
+      }
+      // 두 난간 사이를 오가는 지그재그 철선 (철조망)
+      const zig = Math.max(2, Math.round(bay / 0.6));
+      for (let k = 0; k < zig; k++) {
+        const a0 = fence0 + bay * i + (bay * k) / zig, a1 = a0 + bay / zig;
+        const d0 = (k % 2 === 0 ? -1 : 1) * SLAT_FACE;
+        const p0 = barrierPoint(a0, d0), p1 = barrierPoint(a1, -d0);
+        const dx = p1.x - p0.x, dz = p1.z - p0.z;
+        metal.push(box(Math.hypot(dx, dz), 0.025, 0.025, (p0.x + p1.x) / 2, y + H - 0.05, (p0.z + p1.z) / 2, -Math.atan2(dz, dx)));
       }
     }
-    flat.push(box(BROKEN_WALL.gapHalfX * 2, FLAT_DEBRIS_H, 3.0, 0, y + FLAT_DEBRIS_H / 2, z, 0));
+    // 철조망 콜라이더 — 철조망 높이 전체를 채운 토막 (`BARRIER_COLLIDER_MAX_M` 이하로 나눠 이음매를 겹친다)
+    const pieces = Math.max(1, Math.ceil(fenceLen / BARRIER_COLLIDER_MAX_M));
+    for (let i = 0; i < pieces; i++) {
+      const a0 = fence0 + (fenceLen * i) / pieces, a1 = fence0 + (fenceLen * (i + 1)) / pieces;
+      const c = barrierPoint((a0 + a1) / 2, 0);
+      this.addBox(hash, c.x, y, c.z, (a1 - a0) / 2 + BARRIER_JOIN_M, BARRIER.halfT, yaw, H, 'tut_fence');
+    }
+
+    // ③ 건너편 안드로이드가 등지고 선 콘크리트 방벽 — 넘겨 던진 수류탄이 여기에 부딪혀 그 밑동에 떨어진다 (`BACKSTOP` 주석)
+    const b = barrierPoint(BACKSTOP.along, BACKSTOP.depth);
+    solid.push(box(BACKSTOP.halfLen * 2, BACKSTOP.height, BACKSTOP.halfT * 2, b.x, y + BACKSTOP.height / 2, b.z, yaw));
+    this.addBox(hash, b.x, y, b.z, BACKSTOP.halfLen, BACKSTOP.halfT, yaw, BACKSTOP.height, 'tut_backstop');
+    for (let i = 0; i < 4; i++) {
+      const s = rng.range(0.5, 1.0);
+      const p = barrierPoint(BACKSTOP.along + rng.range(-BACKSTOP.halfLen + 0.8, BACKSTOP.halfLen - 0.8), BACKSTOP.depth + rng.range(-0.2, 0.2));
+      solid.push(box(s * 1.5, s * 0.5, BACKSTOP.halfT * 1.6, p.x, y + BACKSTOP.height + s * 0.25 - 0.1, p.z, yaw + rng.range(-0.25, 0.25)));
+    }
+    // 방벽 뒤(건너편 먼 쪽)에 무너져 내린 조각 — 수류탄이 멈추는 앞쪽 밑동은 비워 둔다
+    for (let i = 0; i < 3; i++) {
+      const p = barrierPoint(BACKSTOP.along + rng.range(-3.5, 3.5), BACKSTOP.depth - rng.range(1.2, 2.4));
+      flat.push(box(rng.range(0.8, 1.8), FLAT_DEBRIS_H, rng.range(0.6, 1.2), p.x, y + FLAT_DEBRIS_H / 2, p.z, rng.range(0, Math.PI)));
+    }
+  }
+
+  /**
+   * 2026-09-15 — 바닥 부스러기를 뿌리지 않는 자리: 방벽 · 콘크리트 방벽의 발밑(콜라이더 속에 반쯤 묻혀 보인다)과
+   * **버려진 함선의 발자국**(부스러기 0.35 m 가 화물칸 바닥 · 램프를 뚫고 올라온다). 함선 로컬 좌표는 `extraction/Ship.bayLocal` 과
+   * 같은 식이고, 외피 x ±5.25 · z −9.7 … 램프 끝 +3.25 에 여유를 둔다.
+   */
+  private blocksRubble(x: number, z: number): boolean {
+    const b = barrierLocal(x, z);
+    if (b.along > -1.5 && b.along < BARRIER_LEN + 1.5 && Math.abs(b.depth) < BARRIER.halfT + 1.2) return true;
+    if (Math.abs(b.along - BACKSTOP.along) < BACKSTOP.halfLen + 1 && Math.abs(b.depth - BACKSTOP.depth) < BACKSTOP.halfT + 1) return true;
+    const c = Math.cos(SHIP_YAW), s = Math.sin(SHIP_YAW);
+    const dx = x - SHIP_POS.x, dz = z - SHIP_POS.z;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    return Math.abs(lx) < 6 && lz > -10.5 && lz < 4.2;
   }
 
   /* ── 통로 전체에 흩뿌린 바닥 부스러기 (전부 콜라이더 없음) ── */
@@ -157,6 +277,7 @@ export class Dressing {
       if (inChasm(x, z, 1.5)) continue;        // 절벽 1 의 틈에는 아무것도 없다 (2026-09-14 3차: 사선이다)
       // 포복 구간 — 엎드린 몸이 콜라이더 없는 부스러기를 뚫고 지나가 보인다 (2026-09-14 3차)
       if (z <= CRAWL.z0 + 1 && z >= CRAWL.z1 - 1) continue;
+      if (this.blocksRubble(x, z)) continue;   // 방벽 발밑 · 함선 발자국 (2026-09-15)
       const w = rng.range(0.4, 1.6);
       flat.push(box(w, FLAT_DEBRIS_H * rng.range(0.5, 1), w * rng.range(0.5, 1.4), x, y + FLAT_DEBRIS_H / 2, z, rng.range(0, Math.PI)));
     }

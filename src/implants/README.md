@@ -1,12 +1,12 @@
 # `src/implants/` — 전술 임플란트 (Tactical implants)
 
-`ImplantSystem` 이 `ctx.implants` (`ImplantsRef`) 를 발행한다. 6종 중 **하나만** 장착해서 레이드에 들고 가며,
+`ImplantSystem` 이 `ctx.implants` (`ImplantsRef`) 를 발행한다. 5종 중 **하나만** 장착해서 레이드에 들고 가며,
 장착 변경은 함선에서만 가능하다 (`ctx.isRaidActive()` 면 `setEquipped` 가 `false` 를 돌려준다).
 
 **Q** (`Keys.IMPLANT`, 재할당 가능) 의 동작은 `ImplantDef.mode` 로 갈린다 (2026-09-06 개편, Phase 10 · Phase 12 수정):
 - `instant` — 갈고리 / 대시 / **정찰**(Phase 12): 누르면 바로 시전. 갈고리는 조준점 앵커가 유효할 때 즉시 발사, 다시 누르면 와이어를 끊는다. 정찰은 이동 중에도 한 번에 넓은 파동 하나. 총은 손에 그대로.
 - `hold` — 오버차지: **누르고 있는 동안** 효과가 돈다 (오버차지 채널). 총은 손에 그대로, `holding === true`.
-- `wielded` — 대전차포 · **배리어**(Phase 10): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 대전차포는 좌클릭 발사, 배리어는 막으면서 **좌클릭 / 근접키로 실드 배쉬**(Phase 12).
+- `wielded` — **배리어**(Phase 10): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 막으면서 **좌클릭 / 근접키로 실드 배쉬**(Phase 12). (대전차포는 2026-09-15 은퇴 — 아래 변경 이력.)
   Q 또는 **무기 키(1/2/3/V)** 로 집어넣는다 (weapons 가 `stow()` 를 호출한 뒤 그 무기를 뽑는다 — 예전엔 장착형을 든 채로 무기 키가 먹지 않던 버그).
 
 들쳐메기 게이트 (Phase 10): 부상자를 어깨에 메고 있으면(`ctx.player.carrying !== null`) Q 는 `dropCarried('action')` 만 호출하고 그 프레임에는 아무것도 시전하지 않는다.
@@ -19,24 +19,23 @@
 
 | 파일 | 역할 |
 |---|---|
-| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭/근접키), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), 방패 들기/내리기 + 추종 + `imp shield` 송신(`flow rejoined` 재전송), **Phase 12**: `resolveBarrierCollision` / `absorbFrontalAttack` / `bashing` + `tryBash`(실드 배쉬, `imp bash`), `castScan`(one-shot 정찰, `imp scanCast`), `implant:barrierBumped` 스파크, e2e 훅 `debugBeam` |
+| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭/근접키), 충전·쿨타임, 5종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), 방패 들기/내리기 + 추종 + `imp shield` 송신(`flow rejoined` 재전송), **Phase 12**: `resolveBarrierCollision` / `absorbFrontalAttack` / `bashing` + `tryBash`(실드 배쉬, `imp bash`), `castScan`(one-shot 정찰, `imp scanCast`), `implant:barrierBumped` 스파크, e2e 훅 `debugBeam` |
 | `model.ts` | 폴더 공용 어휘 — `ImplantSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `ImplantSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Barrier.ts` | **배리어 방패** (Phase 10 손에 드는 형태 → Phase 12 벽 + 실드 배쉬). 방패는 세 가지를 동시에 한다: 적 발사체를 **막고**(`onBarrierBlocked`), 지상 적이 통과하지 못하는 **벽**이며(`resolveBarrierCollision` — 부딪힌 적은 잠시 방패를 든 사람을 노린다), 정면 근접을 플레이어 대신 **받는다**(`absorbFrontalAttack`). 들고 좌클릭하면 **실드 배쉬**(`tryBash`). `IMPLANT_BARRIER_CARRY_OFFSET` 은 `PLAYER_RADIUS` 보다 커야 한다 — 그보다 작으면 적 히트스캔이 방패보다 먼저 플레이어 캡슐에 닿아 방패가 조용히 동작하지 않는다. |
-| `parts/Devices.ts` | **갈고리 · 대시 · 정찰 · 오버차지 · 대전차포**. 배리어를 뺀 나머지 임플란트 다섯 종의 실제 동작. 각각 `instant` / `hold` / `wielded` 중 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라 **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다. |
+| `parts/Devices.ts` | **갈고리 · 대시 · 정찰 · 오버차지**. 배리어를 뺀 나머지 임플란트 네 종의 실제 동작. 각각 `instant` / `hold` 중 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라 **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다. |
 | `parts/Charges.ts` | **쿨다운 · 충전 · 에너지 풀**. 임플란트를 쓸 수 있는지, 얼마나 남았는지 하나로 관리한다: 대시의 3충전, 오버차지의 에너지 풀, 배리어 붕괴 후의 잠금, 그리고 `derived.implantCooldownMul` 이 곱해지는 지점. HUD 썸네일이 읽는 이벤트(`implant:cooldownChanged` / `energyChanged`)도 여기서 나간다. **2026-09-12**: 충전이 돌아오는 지점 `finishCooldown`, 준비 순간 `emitReady`(`implant:ready`, 게임플레이 페이즈만), 안정제용 `refillAll`. |
-| `parts/Wield.ts` | **손에 드는 임플란트**와 프로필 연동. 대전차포와 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다. |
+| `parts/Wield.ts` | **손에 드는 임플란트**와 프로필 연동. 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다. |
 | `parts/Wire.ts` | **임플란트의 네트워크 경로** (`imp` / `buff`). 방패 상태 · 오버차지 빔 · 실드 배쉬 · 정찰 스캔을 분대에 알리고, 남이 보낸 것을 우리 월드에 적용한다. 정찰은 결과가 아니라 **시전 사실**만 보내고(`imp scanCast`) 각 피어가 자기 월드에서 드러낸다. 받은 `buff heal/boost` 는 `buffGuard` 를 통과해야 적용된다 (2026-09-11 E-4). |
-| `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
-| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막고 **벌레를 밀어낸다**), 스캔 파동(구버전 `imp scan` 은 FX 만), **`imp scanCast`** → 내 월드에서 `revealScan` (Phase 12), **`imp bash`** 스윙 스트릭 (Phase 12), 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
-| `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고(이미터 바 · 프레임 팔 폭은 `IMPLANT_BARRIER_CARRY_WIDTH × 0.14`) 막는 패널은 `BarrierField` 가 그린다 |
+| `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색 — 5종, 은퇴한 `atlauncher` 는 정의가 없다), `getImplantDef`, `isImplantId`(= `IMPLANT_IDS` 소속), `implantHex` |
+| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막고 **벌레를 밀어낸다**), 스캔 파동(구버전 `imp scan` 은 FX 만), **`imp scanCast`** → 내 월드에서 `revealScan` (Phase 12), **`imp bash`** 스윙 스트릭 (Phase 12), **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`). 옛 `imp rocket` · `rocketHit` 은 무시한다 (2026-09-15) |
+| `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고(이미터 바 · 프레임 팔 폭은 `IMPLANT_BARRIER_CARRY_WIDTH × 0.14`) 막는 패널은 `BarrierField` 가 그린다 |
 | `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`, 정면 각도 게이트). Phase 10 부터 **추종형**: `raise()` / `lower()` + 매 프레임 `follow(feet, yaw)`. **Phase 12**: `pushOut(pos, radius, height?)` (두께 `BARRIER_COLLIDE_THICKNESS` 0.5 m 슬랩 밖 정면으로 밀어냄), `facing(fromPos, maxDist)` (정면 `_ARC` 판정), `contactPoint(fromPos, out)` |
 | `effects/Grapple.ts` | `GrappleWire` — 와이어 빔 + 작살 헤드 |
 | `effects/Overcharge.ts` | `OverchargeBeam` (2겹 빔 + 임팩트 디스크), `findAlly` / `allyPoint` (조준 원뿔 안의 아군 탐색 — 2026-09-11 E-4: 벽 · 지형 뒤의 아군은 건너뛴다, `shared/buffLineClear`) |
 | `effects/Scan.ts` | `collectScanTargets` — 반경 안의 **적(`queryNear`) + `ctx.interactables.all()` 전부**를 `ScanTarget[]` 으로 (`canInteract()` 가 false 면 제외, 상한 120). kind 는 **`Interactable.kind` 가 먼저**(`kindOf` — `corpse` · `playerCorpse`(`아군 시체`) · `crate` · `container` → crate, `gather`, `pickup`, `deployable` · `drone` → deployable, `extract` · `revive` · `console` · `objective` → objective, 2026-09-11 C-4)이고 kind 가 없는 등록물만 id 접두어로 판정한다 (`crate` / `corpse` / `pcorpse` → crate, `gather`, `pickup`, `gadget` → deployable, `extract` · `revive` · 그 외 → objective). `revealScan(ctx, center, radius, dur, byLocal)` — 수집 + `detect:reveal` + `scan:cast` + `enemies.setXray` 를 한 번에 (로컬 시전과 `imp scanCast` 수신이 공유) |
-| `effects/AtLauncher.ts` | `RocketPool` — 풀링된 로켓, 스텝마다 스윕 레이캐스트(월드/인테리어 + 적) |
-| `fx/ImplantFx.ts` | 풀링 FX: `BeamMesh`, 확장 셸(스캔), 폭발, 스트릭(대시/로켓 궤적), 스파크. **라이트 없음** |
+| `fx/ImplantFx.ts` | 풀링 FX: `BeamMesh`, 확장 셸(스캔), 폭발(`blast` — 대전차포 은퇴 뒤 부르는 곳 없음), 스트릭(대시 궤적), 스파크. **라이트 없음** |
 
-## 6종
+## 5종
 
 | id | 이름 | 방식 | 동작 | 쿨타임 |
 |---|---|---|---|---|
@@ -46,7 +45,8 @@
 | `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH`(Phase 12: **3.2 m**) `× _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. **Phase 12**: 벌레가 통과하지 못하고(`resolveBarrierCollision`), 정면 근접공격은 방패가 대신 맞으며(`absorbFrontalAttack`), 든 채로 **좌클릭 / 근접키 = 실드 배쉬**(스태미나 `IMPLANT_SHIELD_BASH_STAMINA`, 방패 폭 × `_RANGE` 상자 안의 적에게 `_DAMAGE × meleeDamageMul`, `_COOLDOWN`, 포즈는 `player.startMelee('heavy')`). 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
 | `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
 | `scan` | 정찰 | instant | Q → 이동 중에도 **한 번에** 반경 `IMPLANT_SCAN_RADIUS` 70 m 파동 (Phase 12). 반경 안의 모든 상호작용물 + 살아 있는 적을 `IMPLANT_SCAN_REVEAL_TIME_V2` 15초 동안 `detect:reveal`(벽 너머 기둥) + `scan:cast`(나침반 · 인디케이터) + `enemies.setXray`(적색 실루엣) 로 드러내고, `imp scanCast {p, radius, dur}` 로 분대에도 같은 파동을 건다 (수신자는 **자기 월드에서** 다시 수집). `implant:scanned {pulse:1}` 은 오디오용으로 유지 | `IMPLANT_SCAN_COOLDOWN_V2` 30 |
-| `atlauncher` | 대전차포 | wielded | 좌클릭 로켓 발사(조준점을 향해 보정). 착탄 시 `IMPLANT_AT_RADIUS` 광역 `IMPLANT_AT_DAMAGE` | `IMPLANT_AT_COOLDOWN` |
+
+~~`atlauncher` 대전차포~~ — **2026-09-15 은퇴** (전설 바주카와 겹친다). 아래 변경 이력.
 
 쿨타임에는 항상 `ctx.progression?.derived.implantCooldownMul` 를 곱한다 (특수 가방 50 % 퍼크가 이미 그 안에 있다).
 `progression` 이 아직 없으면 배율 1 로 동작하고, 프로필이 없으면 첫 임플란트(`grapple`)를 임시로 장착한다.
@@ -72,7 +72,7 @@
 `implant:equipped`, `implant:activated`, `implant:cooldownChanged`, `implant:wieldChanged`,
 `implant:grappleTargetChanged` / `grappleFired` / `grappleAttached` / `grappleReleased`,
 `implant:dashed`, `implant:barrierChanged` / `barrierHit` / **`barrierCarried`**, `implant:scanned`, `implant:overcharge`,
-`implant:rocketExploded`, `detect:reveal`, `camera:shake`, `audio:play`, `ui:notify`, **Phase 12**: `implant:bashed`, `scan:cast`.
+`detect:reveal`, `camera:shake`, `audio:play`, `ui:notify`, **Phase 12**: `implant:bashed`, `scan:cast`.
 
 **구독**: `progress:loaded`, `game:newMission`, `game:abort`, `hub:entered`, `game:phaseChanged`,
 `player:died`, `player:downed`, `net:remotePlayerRemoved`, **Phase 12**: `implant:barrierBumped` (enemies 가 emit — 스파크만).
@@ -99,25 +99,25 @@
 ## 규칙 / 주의
 
 - **라이트를 만들지 않는다.** 모든 발광은 emissive + additive `MeshBasicMaterial`. 씬 라이트 개수를 바꾸면 셰이더가 전부 재컴파일된다.
-- FX·로켓·스파크는 전부 풀링. 핫 패스에서 `Vector3` 를 새로 만들지 않는다 (모듈 스크래치 재사용).
+- FX·스파크는 전부 풀링. 핫 패스에서 `Vector3` 를 새로 만들지 않는다 (모듈 스크래치 재사용).
   `clone()` 은 버스 페이로드처럼 수신자가 보관할 수 있는 값에만 쓴다.
-- `game:newMission` / `game:abort` / `hub:entered` 에서 `reset()` — FX, 로켓, 원격 시각화, 배리어, 와이어를 전부 정리한다.
+- `game:newMission` / `game:abort` / `hub:entered` 에서 `reset()` — FX, 원격 시각화, 배리어, 와이어를 전부 정리한다.
   `dispose()` 는 자기가 만든 geometry/material 을 전부 dispose 한다 (공유 헥사 CanvasTexture 는 프로세스 수명 동안 유지).
 - 원격 장치 모델은 `PlayerSnapshot.imp` (→ `RemotePlayerRef.implantId`) 로 구동한다. `imp wield` 는 즉시 반영용 보조.
 
 ## 필요한 SFX id (audio 담당)
 
 `grapple_fire`, `grapple_attach`, `grapple_release`, `dash`, `barrier_deploy`, `barrier_stow`, `barrier_hit`,
-`barrier_break`, `overcharge_beam`, `scan_pulse`, `rocket_fire`, `rocket_explode`, `implant_wield`.
+`barrier_break`, `overcharge_beam`, `scan_pulse`, `implant_wield`. (`rocket_fire` · `rocket_explode` 는 2026-09-15 대전차포 은퇴로 이 폴더가 더 이상 보내지 않는다.)
 (없는 id 는 AudioSystem 이 콘솔 경고만 내고 무시한다.) `implant_ready` 는 2026-09-12 부터 이 폴더가 보내지 않는다 —
 audio/ 가 `implant:ready` 를 듣고 낸다 (그 전에는 `audio:play` 를 보냈지만 `SOUNDS` 에 정의가 없어 한 번도 울리지 않았다).
 
 ## 장착 UI (2026-09-06)
-임플란트 장착은 함선 **Tab 화면**(inventory 폴더, 장비 열 아래의 임플란트 슬롯 → 클릭 → 6종 카드; 장착 중인 카드를 다시 누르면 해제)에서 한다.
+임플란트 장착은 함선 **Tab 화면**(inventory 폴더, 장비 열 아래의 임플란트 슬롯 → 클릭 → 5종 카드; 장착 중인 카드를 다시 누르면 해제)에서 한다.
 터미널의 임플란트 탭과 `hub/ui/ImplantPanel` 은 삭제됐고, 함선의 임플란트 시술대(`hub_implant_bay`)는 그 Tab 화면을 연다.
 HUD 는 `ui/hud/ImplantWidget` — **2026-09-10 부터 화면 중앙 하단(스태미나 바 아래)의 가로 썸네일**이다 (그 전에는
 크로스헤어 좌측 세로 게이지였다). 이름은 적지 않고 글리프 + 아래의 `Keys.IMPLANT` 키캡만 두며, 상태는 셋으로 갈린다:
-**쿨타임형**(갈고리 · 정찰 · 대전차포) 딤드 + 아래에서 위로 밝아짐 + 중앙 남은 초, **충전형**(대시) 우하단 충전 수
+**쿨타임형**(갈고리 · 정찰) 딤드 + 아래에서 위로 밝아짐 + 중앙 남은 초, **충전형**(대시) 우하단 충전 수
 (0 = 쿨타임형 연출, 1 이상 = 강조색 차오름, 최대 = 정상), **게이지형**(배리어 내구도 · 오버차지 에너지) 썸네일 안
 중앙 하단 게이지 — 배리어 붕괴 잠금은 내구도가 잠금 시간에 맞춰 0 → 만충으로 차오르므로 그대로 쿨타임 표시를 겸한다.
 UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `cooldownTotal` / `charges` / `maxCharges` /
@@ -260,6 +260,22 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-15 (대전차포 은퇴 — 사용자 결정, 에이전트 E)** — 전술 임플란트 **대전차포**(`atlauncher`, `wielded`)가 전설 바주카와 겹쳐
+  게임에서 빠졌다. 선택 가능한 임플란트는 **5종**이고 손에 드는 임플란트는 배리어 하나다.
+  - **계약은 추가만.** `ImplantId` 합집합에는 `'atlauncher'` 가 은퇴 주석과 함께 남고(`airstrike` · `secondary` 와 같은 처리),
+    `IMPLANT_IDS` 에서만 빠졌다. `ImplantMessage` 의 `imp rocket` · `rocketHit`, `implant:rocketExploded`, `IMPLANT_AT_*` 상수도 계약이라
+    그대로 있지만 **아무도 보내거나 읽지 않는다**.
+  - **정의 · 동작 삭제.** `ImplantDefs` 의 정의(→ `getAllDefs` · 인벤토리 피커 · 캐릭터 시트 카드에서 사라진다, `isImplantId` false ·
+    `setEquipped('atlauncher')` 거절), `parts/Devices.updateLauncher` · `onRocketImpact`, `ImplantSystem` 의 `rockets` 풀과 활성 · 틱 분기,
+    `devices/ImplantDevice.buildLauncher`, **`effects/AtLauncher.ts` 파일째**. `RemoteImplants` 는 `rockets` 인자를 잃었고 옛 피어의
+    `imp rocket` · `rocketHit` 은 switch 끝으로 흘러 무시된다. 손에 드는 공용 기계(`parts/Wield` · `blocksWeapons` · `stow` · 원격
+    장치 소켓 재부착)는 배리어가 그대로 쓴다.
+  - **세이브.** 저장된 프로필의 `implant: 'atlauncher'` 는 `progression/Profile.migrate` 가 `IMPLANT_IDS` 검사로 `null` 로 바꾸고(그 결과가
+    다음 저장이다), 다음 `hub:entered` 에서 `grantStarterImplant` 가 갈고리를 장착해 준다. 로드아웃 프리셋(`housing/ShipState`)의 같은 값은
+    `null`, 크루 카드(`net/model.sanitizeCrewCard`)도 `null`, 스냅샷 `imp` 로 오면 정의가 없어 장치를 만들지 않는다.
+  - 검증: `smoke-controls-hub` 가 카드 5종 · 피커에 `atlauncher` 카드 없음 · `getAllDefs` 에 없음 · `setEquipped` 거절을 보고, 손에 드는
+    임플란트 검사(무기 키가 집어넣기)는 배리어로 옮겼다. `smoke-tactical` 5종. `e2e-multiplayer` C-43 원격 장치 재부착은 `Implant:barrier` 로.
 
 - **2026-09-14 (갈고리 +30 % · 대시 = 걸어서 닿는 자리 — 에이전트 implant)** —
   - **갈고리 하향 (전구간 ×1.3)**: `IMPLANT_GRAPPLE_COOLDOWN` 24 → **31.2**, 붙기 전 취소의 최소 잔여 `IMPLANT_GRAPPLE_CANCEL_MIN_S` 3 → **3.9**. 환급 비율

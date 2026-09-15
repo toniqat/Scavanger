@@ -11,6 +11,16 @@ const FLAME_COLOR = 0xff6a1e;
 const FLAME_CORE = 0xffd27a;
 const ARC_COLOR = 0x7fe8ff;
 const ARC_CORE = 0xe8fbff;
+/*
+ * 2026-09-15 화염 호흡 (visual only — the damage cone is the handler's `range` / `halfAngle`). A cone that appears
+ * (freshly acquired, or its length changed — LMB spray ↔ RMB jet) blooms from `FLAME_GROW_FROM` of its size to full over
+ * `FLAME_GROW_S` (ease-out). While on, radius and length breathe on layered incommensurate sines with a per-cone phase
+ * seed (± ~`FLAME_BREATH_RAD` / `FLAME_BREATH_LEN` in total), the hot core on its own phase, so the fire reads as roaring.
+ */
+const FLAME_GROW_S = 0.26;
+const FLAME_GROW_FROM = 0.12;
+const FLAME_BREATH_LEN = 0.15;
+const FLAME_BREATH_RAD = 0.12;
 
 interface Cone {
   owner: string | null;
@@ -24,6 +34,9 @@ interface Cone {
   length: number;
   halfAngle: number;
   emberT: number;
+  /** 2026-09-15: `UniqueFx.time` when this cone (re)appeared — drives the bloom-in — and its breathing phase seed. */
+  bornT: number;
+  seed: number;
 }
 
 interface Arc {
@@ -79,7 +92,7 @@ export class UniqueFx {
       outer.renderOrder = 24; inner.renderOrder = 25;
       outer.frustumCulled = inner.frustumCulled = false;
       this.group.add(outer, inner);
-      this.cones.push({ owner: null, touched: -1, outer, inner, outerMat, innerMat, origin: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1), length: 1, halfAngle: 0.2, emberT: 0 });
+      this.cones.push({ owner: null, touched: -1, outer, inner, outerMat, innerMat, origin: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1), length: 1, halfAngle: 0.2, emberT: 0, bornT: 0, seed: i * 17.3 });
     }
     for (let i = 0; i < ARCS; i++) {
       const positions = new Float32Array(ARC_BOLTS * ARC_SEGS * 2 * 3);
@@ -114,7 +127,14 @@ export class UniqueFx {
 
   /** Flame cone for `owner` this frame: apex at `origin`, along `dir`, `length` m, `halfAngle` rad. */
   setFlame(owner: string, origin: THREE.Vector3, dir: THREE.Vector3, length: number, halfAngle: number): void {
+    let had = false;
+    for (let i = 0; i < this.cones.length; i++) if (this.cones[i].owner === owner) { had = true; break; }
     const c = this.acquire(this.cones, owner);
+    // 2026-09-15: a cone that just appeared (or switched spray ↔ jet) blooms in from small instead of popping at full size
+    if (!had || !c.outer.visible || Math.abs(length - c.length) > 0.2 * Math.max(c.length, 1e-3)) {
+      c.bornT = this.time;
+      c.seed = Math.random() * 100;
+    }
     c.touched = this.frame;
     c.origin.copy(origin); c.dir.copy(dir); c.length = length; c.halfAngle = halfAngle;
     c.outer.visible = c.inner.visible = true;
@@ -149,18 +169,27 @@ export class UniqueFx {
       if (c.owner === null) continue;
       // a beam that was not refreshed since the last frame is over (owners call set* every frame)
       if (this.frame - c.touched > 1) { this.hideCone(c); continue; }
-      const flicker = 0.85 + 0.15 * Math.sin(t * 31 + c.origin.x) * Math.sin(t * 17);
-      const len = c.length * (0.92 + 0.08 * Math.sin(t * 23 + c.origin.z));
-      const r = Math.tan(c.halfAngle) * len;
+      const s = c.seed;
+      const flicker = 0.8 + 0.2 * Math.sin(t * 31 + s) * Math.sin(t * 17 + s * 0.5);
+      // bloom-in: ease-out from FLAME_GROW_FROM to full size over FLAME_GROW_S after the cone appeared
+      const g = Math.min(1, Math.max(0, (t - c.bornT) / FLAME_GROW_S));
+      const grow = FLAME_GROW_FROM + (1 - FLAME_GROW_FROM) * (1 - (1 - g) * (1 - g) * (1 - g));
+      // breathing: three incommensurate sines each for length and radius (weights sum to 1), the core on its own phase
+      const bl = 0.47 * Math.sin(t * 5.3 + s) + 0.33 * Math.sin(t * 11.7 + s * 1.7) + 0.2 * Math.sin(t * 23.1 + s * 2.3);
+      const br = 0.45 * Math.sin(t * 4.1 + s * 0.7 + 1.3) + 0.33 * Math.sin(t * 9.3 + s * 1.3) + 0.22 * Math.sin(t * 19.7 + s * 3.1);
+      const bc = 0.6 * Math.sin(t * 7.7 + s * 2.9) + 0.4 * Math.sin(t * 15.3 + s * 0.3);
+      const len = c.length * grow * (1 + FLAME_BREATH_LEN * bl);
+      const r = Math.tan(c.halfAngle) * len * (1 + FLAME_BREATH_RAD * br);
       c.outer.position.copy(c.origin);
       _look.copy(c.origin).add(c.dir);
       c.outer.lookAt(_look);
       c.outer.scale.set(r * 1.05, r * 1.05, len);
       c.inner.position.copy(c.origin);
       c.inner.quaternion.copy(c.outer.quaternion);
-      c.inner.scale.set(r * 0.45, r * 0.45, len * 0.75);
-      c.outerMat.opacity = 0.3 * flicker;
-      c.innerMat.opacity = 0.5 * flicker;
+      const core = 1 + 0.12 * bc;
+      c.inner.scale.set(r * 0.45 * core, r * 0.45 * core, len * 0.75 * (1 + 0.08 * bc));
+      c.outerMat.opacity = 0.3 * flicker * (0.55 + 0.45 * grow);
+      c.innerMat.opacity = 0.5 * flicker * (0.55 + 0.45 * grow);
       // embers drifting off the flame body
       c.emberT -= dt;
       if (fx && c.emberT <= 0) {

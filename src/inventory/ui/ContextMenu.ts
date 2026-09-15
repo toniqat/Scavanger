@@ -1,6 +1,11 @@
+import { mouseGlyphButtonOf, mouseGlyphSvg } from '@/shared';
+
 export interface MenuEntry {
   label: string;
-  /** Right-aligned shortcut hint (e.g. `X`). */
+  /**
+   * Right-aligned shortcut hint (e.g. `X`). 2026-09-15: a `LMB` · `MMB` · `RMB` label is drawn as the shared mouse glyph
+   * (`shared/keycap.mouseGlyphSvg`, pressed button white) instead of text — the `<title>` keeps the label as `textContent`.
+   */
   hint?: string;
   /**
    * Phase 8: material requirement chips rendered on a second line of the entry (built with `renderItemCost`
@@ -51,7 +56,15 @@ export class ContextMenu {
       line.appendChild(label);
       if (entry.hint) {
         const k = document.createElement('kbd');
-        k.textContent = entry.hint;
+        const glyph = mouseGlyphButtonOf(entry.hint);
+        if (glyph !== -1) {
+          // 2026-09-15: 마우스 버튼은 공용 마우스 그림 (kbd 틀은 그대로 — `.keycap` 을 겹쳐 씌우지 않는다)
+          k.className = 'inv-menu-kmouse';
+          k.innerHTML = mouseGlyphSvg(glyph);
+          k.setAttribute('aria-label', entry.hint);
+        } else {
+          k.textContent = entry.hint;
+        }
         line.appendChild(k);
       }
       b.appendChild(line);

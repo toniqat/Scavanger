@@ -1,5 +1,5 @@
 import {
-  KEY_ACTION_DEFS, KEY_GROUPS, Keys, actionsOnKey, keyLabel, onKeybindsChanged, type KeyAction, type KeyActionDef, type KeyGroup,
+  KEY_ACTION_DEFS, KEY_GROUPS, Keys, actionsOnKey, createKeycap, onKeybindsChanged, type KeyAction, type KeyActionDef, type KeyGroup,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
@@ -114,7 +114,8 @@ export class ControlsPanel {
     const shapes: Record<string, SVGElement> = { lmb, rmb, mmb, m4, m5 };
     for (const b of MOUSE_BUTTONS) {
       const cap = el('div', { cls: `mcap ${b.cls}`, parent: caps });
-      el('span', { cls: 'k', text: b.label, parent: cap });
+      // 2026-09-15: 버튼 이름 칸도 공용 키캡 — 좌 · 휠 · 우는 마우스 그림, M4 · M5 는 글자 (`b.label` 은 스크린리더 · 제목용으로 남는다)
+      createKeycap(b.code, { cls: 'k', parent: cap });
       el('span', { cls: 'v', text: '', parent: cap });
       this.mouseEls.set(b.code, { shape: shapes[b.cls], cap });
     }
@@ -152,19 +153,20 @@ export class ControlsPanel {
         if (group === '이동' && MOVE_ACTIONS.includes(d.id)) {
           // W A S D collapse into one row when they are still four single keys
           for (const m of MOVE_ACTIONS) done.add(m);
-          this.row(rows, MOVE_ACTIONS.map((m) => keyLabel(Keys[m])), '이동');
+          this.row(rows, MOVE_ACTIONS.map((m) => Keys[m]), '이동');
           continue;
         }
         done.add(d.id);
-        this.row(rows, [keyLabel(Keys[d.id])], d.label);
+        this.row(rows, [Keys[d.id]], d.label);
       }
     }
   }
 
-  private row(parent: HTMLElement, keys: string[], label: string): void {
+  /** 기능 한 줄 — `codes` 는 키 **코드**다 (2026-09-15: 공용 키캡이 칠한다 — 마우스 좌 · 휠 · 우는 그림). */
+  private row(parent: HTMLElement, codes: string[], label: string): void {
     const r = el('div', { cls: 'ctl-fn', parent });
     const ks = el('div', { cls: 'keys', parent: r });
-    for (const k of keys) el('span', { cls: 'keycap', text: k, parent: ks });
+    for (const code of codes) createKeycap(code, { parent: ks });
     el('span', { cls: 'fn', text: label, parent: r });
   }
 

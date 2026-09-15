@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
+  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
   IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
   IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
@@ -19,7 +19,6 @@ import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from './ImplantD
 import { ImplantDevice } from './devices/ImplantDevice';
 import { BarrierField } from './effects/Barrier';
 import { GrappleWire } from './effects/Grapple';
-import { RocketPool, type RocketImpact } from './effects/AtLauncher';
 import { OverchargeBeam, allyPoint, findAlly } from './effects/Overcharge';
 import { revealScan } from './effects/Scan';
 import { ImplantFx } from './fx/ImplantFx';
@@ -39,7 +38,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
 
   ctx!: GameContext;
   fx!: ImplantFx;
-  rockets!: RocketPool;
   remote!: RemoteImplants;
   barrier!: BarrierField;
   wire!: GrappleWire;
@@ -155,9 +153,9 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   }
 
   /**
-   * Q pressed. Instant implants cast (grapple fires / releases, dash); a wielded implant — the launcher and, since
-   * Phase 10, the 배리어 shield — toggles in / out of the hands. Hold implants are driven per frame from `update`
-   * (this is a no-op for them).
+   * Q pressed. Instant implants cast (grapple fires / releases, dash); a wielded implant — the 배리어 shield since
+   * Phase 10 (the 대전차포 launcher was retired 2026-09-15) — toggles in / out of the hands. Hold implants are driven
+   * per frame from `update` (this is a no-op for them).
    *
    * Carrying a downed squadmate takes precedence: the press only drops the body and does nothing else this frame
    * (the player retries naturally on the next press).
@@ -175,8 +173,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       case 'grapple': this.castGrapple(); break;
       case 'dash': this.castDash(); break;
       case 'scan': this.castScan(); break;
-      case 'barrier':
-      case 'atlauncher': if (this.wieldedFlag) this.stow(); else this.wield(); break;
+      case 'barrier': if (this.wieldedFlag) this.stow(); else this.wield(); break;
       default: break;
     }
   }
@@ -221,7 +218,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.stow();
     this.resetRuntime();
     this.fx?.clear();
-    this.rockets?.clear();
     this.remote?.clear();
     this.emitCooldown(true);
     this.emitBarrier();
@@ -233,8 +229,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.ctx = ctx;
     ctx.implants = this;
     this.fx = new ImplantFx(ctx.scene);
-    this.rockets = new RocketPool(ctx.scene, this.fx, implantHex('atlauncher'), (h) => this.onRocketImpact(h));
-    this.remote = new RemoteImplants(ctx, this.fx, this.rockets);
+    this.remote = new RemoteImplants(ctx, this.fx);
     this.barrier = new BarrierField(ctx.scene, implantHex('barrier'), 'local');
     this.wire = new GrappleWire(ctx.scene, this.fx, implantHex('grapple'));
     this.beam = new OverchargeBeam(ctx.scene, this.fx, implantHex('overcharge'), implantHex('dash'));
@@ -269,7 +264,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.applyProfileLazily();
 
     this.fx.update(dt);
-    this.rockets.update(dt, ctx);
     this.remote.update(dt);
     this.wire.update(dt);
     this.beam.update(dt);
@@ -308,7 +302,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       case 'grapple': this.updateGrapple(dt, active); break;
       case 'overcharge': this.updateOvercharge(dt, qDown, qPressed); break;
       case 'barrier': if (this.wieldedFlag) this.updateShield(active); break;
-      case 'atlauncher': if (this.wieldedFlag) this.updateLauncher(active); break;
       default: break;
     }
   }
@@ -318,7 +311,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.unsubs.length = 0;
     this.stow();
     this.remote?.dispose();
-    this.rockets?.dispose();
     this.wire?.dispose();
     this.beam?.dispose();
     this.barrier?.dispose();
@@ -523,11 +515,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   sendBeamOff(): void { return Dev.sendBeamOff(this); }
 
   localName(): string { return Wield.localName(this); }
-
-  /* ═══════════════════════════ 대전차포 (wielded) ═══════════════════════════ */
-  private updateLauncher(active: boolean): void { return Dev.updateLauncher(this, active); }
-
-  private onRocketImpact(h: RocketImpact): void { return Dev.onRocketImpact(this, h); }
 
   /* ═══════════════════════════ networking ═══════════════════════════ */
   private ensureNetHooks(): void { return Wire.ensureNetHooks(this); }

@@ -63,7 +63,8 @@ export class RewardsBlock {
     this.root = el('div', { cls: 'rewards', parent });
     this.root.hidden = true;
     const row = el('div', { cls: 'xp-row', parent: this.root });
-    el('span', { cls: 'ui-label', text: '획득 XP', parent: row });
+    // 2026-09-15 (결과 창 개편): `획득 XP` → `획득 경험치` — 사망 결과 창에서도 무엇을 받았는지 또렷하게
+    el('span', { cls: 'ui-label', text: '획득 경험치', parent: row });
     this.gainEl = el('span', { cls: 'xp-gain', text: '+0', parent: row });
     this.lvEl = el('span', { cls: 'lv', text: '', parent: row });
     this.upEl = el('span', { cls: 'up-badge', text: '레벨 업', parent: row });

@@ -1,5 +1,6 @@
-import type { CurrencyDef, GameContext, GrowSocketDef, ItemDef, ItemInstance, ShelfMedium, SkillId, StatId } from '@/shared';
+import type { CurrencyDef, GameContext, GrowSocketDef, ItemDef, ItemInstance, ShelfMedium, SkillId, StatId, UniqueWeaponKind } from '@/shared';
 import {
+  UNIQUE_WEAPON_LABEL_KO,
   CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, GROW_SOCKET_EFFECT_LABEL_KO,
   GROW_SOCKET_TARGET_LABEL_KO, MEAL_BUFF_LABEL_KO, PERK_DEFS,
   RARITY_COLORS, RARITY_LABEL_KO, SAMPLE_FAMILY_COLOR, SAMPLE_FAMILY_ICON, SAMPLE_FAMILY_LABEL_KO,
@@ -129,13 +130,23 @@ export class ItemTip {
   private currencyId: string | null = null;
   private visible = false;
   private unsubs: Array<() => void> = [];
+  /** 2026-09-15: the element the card is describing — watched while visible (see `watch`). */
+  private chip: HTMLElement | null = null;
+  /** Last pointer position over `ctx.uiRoot` (client px); −1 = unknown. */
+  private lastX = -1;
+  private lastY = -1;
+  private raf = 0;
+  /** Frames left in which `watch` re-hit-tests even though the chip is still connected (after an inventory change). */
+  private recheckFrames = 0;
 
   private onOver = (e: PointerEvent): void => {
+    this.lastX = e.clientX; this.lastY = e.clientY;
     const chip = this.chipAt(e.target);
     if (!chip || !this.show(chip)) { this.hide(); return; }
     this.move(e.clientX, e.clientY, chip);
   };
   private onMove = (e: PointerEvent): void => {
+    this.lastX = e.clientX; this.lastY = e.clientY;
     const chip = this.chipAt(e.target);
     if (!chip) { this.hide(); return; }
     // also re-show after something hid the card (a room change, a rebuilt panel) while the cursor never left the chip
@@ -184,7 +195,58 @@ export class ItemTip {
       ctx.bus.on('housing:shipManageChanged', () => this.hide()),
       // 2026-09-14: a tooltip was pinned (1 s hold on an item tile) — the card that was following the cursor goes
       ctx.bus.on('ui:tipPinned', ({ uid }) => { if (uid !== null) this.hide(); }),
+      // 2026-09-15: items moved (a quick move re-lays the grids) — re-hit-test for a couple of frames (`watch`)
+      ctx.bus.on('inventory:changed', this.requestRecheck),
+      ctx.bus.on('inventory:stashChanged', this.requestRecheck),
+      ctx.bus.on('inventory:bagChanged', this.requestRecheck),
+      ctx.bus.on('inventory:itemUpdated', this.requestRecheck),
+      ctx.bus.on('loadout:changed', this.requestRecheck),
     );
+  }
+
+  /* ── 2026-09-15: a chip that leaves from under a still cursor ──────────────────────────────────────────────────────── */
+
+  /**
+   * **사용자 버그 「빠른 이동한 아이템의 툴팁이 마우스를 움직일 때까지 남는다」의 이 카드 쪽.** 카드는 `pointerout` 으로 내려가는데,
+   * 더블클릭 · 우클릭 메뉴로 아이템을 옮기면 격자(`inventory/ui/TradeGrids` → `GridView`)가 **커서 아래의 타일을 DOM 에서 떼어 낸다** —
+   * 떼어 낸 요소에는 `pointerout` 이 오지 않으므로 카드는 이미 없는 칩을 설명한 채 떠 있었다. 그래서 카드가 떠 있는 동안 매 프레임
+   * 칩이 아직 연결돼 있는지만 싸게 보고(`isConnected` · `.is-vanishing`), 떨어졌거나 인벤토리가 방금 바뀌었으면(`recheckFrames` —
+   * 같은 요소가 다른 칸으로 옮겨 갔을 수 있다) **마지막 포인터 위치를 다시 짚는다**(`rehit`): 거기 칩이 있으면 그 칩을, 없으면 내린다.
+   * 인벤토리 이벤트 뒤 두 프레임인 이유: 격자는 이벤트를 받은 **다음** rAF 에 다시 그리는데(`TradeGrids.scheduleRefresh`) 그 콜백과
+   * 이 루프의 순서는 등록 순서라 한 프레임으로는 다시 그리기 전을 짚을 수 있다.
+   */
+  private requestRecheck = (): void => {
+    if (this.visible) this.recheckFrames = 2;
+  };
+
+  private startWatch(): void {
+    if (this.raf || typeof requestAnimationFrame !== 'function') return;
+    this.raf = requestAnimationFrame(this.watch);
+  }
+
+  private stopWatch(): void {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.recheckFrames = 0;
+  }
+
+  private watch = (): void => {
+    this.raf = 0;
+    if (!this.visible) return;
+    const chip = this.chip;
+    if (!chip || !chip.isConnected || chip.classList.contains('is-vanishing') || this.recheckFrames > 0) {
+      if (this.recheckFrames > 0) this.recheckFrames--;
+      this.rehit();
+    }
+    if (this.visible) this.startWatch();
+  };
+
+  /** Point again at the last pointer position: describe the chip there, or hide when there is none. */
+  private rehit(): void {
+    if (this.lastX < 0 || this.lastY < 0) { this.hide(); return; }
+    const chip = this.chipAt(document.elementFromPoint(this.lastX, this.lastY));
+    if (!chip || !this.show(chip)) { this.hide(); return; }
+    this.move(this.lastX, this.lastY, chip);
   }
 
   /** Whether the card is showing (debug / smoke). */
@@ -204,16 +266,24 @@ export class ItemTip {
     const cy = chip.dataset.currencyId ?? null;
     if (cy) {
       if (!this.visible || cy !== this.currencyId) this.renderCurrency(cy);
-      return this.visible;
+      return this.watching(chip);
     }
     const id = chip.dataset.defId ?? null;
     if (!id) return false;
     const uid = chip.dataset.uid ?? null;
     if (!this.visible || id !== this.defId || uid !== this.uid) this.render(id, uid);
-    return this.visible;
+    return this.watching(chip);
   }
 
-  private chipAt(target: EventTarget | null): HTMLElement | null {
+  /** 2026-09-15: remember the described chip and keep an eye on it while the card is up. Returns `visible`. */
+  private watching(chip: HTMLElement): boolean {
+    if (!this.visible) return false;
+    this.chip = chip;
+    this.startWatch();
+    return true;
+  }
+
+  private chipAt(target: EventTarget | Element | null): HTMLElement | null {
     const node = target as Element | null;
     if (!node || typeof node.closest !== 'function') return null;
     // `.item-chip` is the shared cost chip; `[data-item-tip]` lets another folder opt a plain element in
@@ -228,6 +298,12 @@ export class ItemTip {
     const ctx = this.ctx;
     if (!ctx) return undefined;
     try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId); } catch { return undefined; }
+  }
+
+  /** 2026-09-15: the unique kind behind a weapon item (`bow` …), undefined for graded guns and every other item. */
+  private uniqueKindOf(def: ItemDef): UniqueWeaponKind | undefined {
+    if (!def.weaponId) return undefined;
+    try { return this.ctx?.loot?.getWeaponDef(def.weaponId)?.unique; } catch { return undefined; }
   }
 
   /** Units in bag + stash; −1 when inventory cannot answer (mission crate window has no `countDefAll` gap, but be safe). */
@@ -255,7 +331,11 @@ export class ItemTip {
     this.root.style.setProperty('--rc', RARITY_COLORS[def.rarity] ?? RARITY_COLORS.common);
     this.root.style.setProperty('--ic', def.color);
     setText(this.nameEl, `${def.icon || CATEGORY_ICON[def.category] || '?'} ${def.name}`);
-    setText(this.subEl, `${CATEGORY_LABEL_KO[def.category] ?? def.category} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
+    // 2026-09-15: 전설 유니크 무기는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 전설`) — 이름이 별명뿐이라 종류는 여기서 읽힌다.
+    //   csv `class`(AR / DMR / SMG / SR)는 사격 숙련만 고르고 화면에 나오지 않는다.
+    const uniqueKind = this.uniqueKindOf(def);
+    const kindWord = uniqueKind ? UNIQUE_WEAPON_LABEL_KO[uniqueKind] : (CATEGORY_LABEL_KO[def.category] ?? def.category);
+    setText(this.subEl, `${kindWord} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
     setText(this.descEl, def.description);
 
     const rows: TipRow[] = [];
@@ -407,7 +487,8 @@ export class ItemTip {
       if (color) vEl.style.color = color;
     }
     this.statsEl.hidden = rows.length === 0;
-    setText(this.weightAmount, def.weight !== undefined ? `${def.weight.toFixed(1)} kg` : '—');
+    // 2026-09-15: 한 발 무게가 0.1 kg 아래인 탄약(표창 0.02 · 탄띠 0.0075 …)이 `0.0 kg` 로 찍히던 것 — 1 kg 아래는 유효 자리까지
+    setText(this.weightAmount, def.weight !== undefined ? `${def.weight >= 1 ? def.weight.toFixed(1) : String(Number(def.weight.toFixed(4)))} kg` : '—');
     setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;
     this.visible = true;
@@ -608,10 +689,13 @@ export class ItemTip {
     this.defId = null;
     this.uid = null;
     this.currencyId = null;
+    this.chip = null;
+    this.stopWatch();
     this.root.hidden = true;
   }
 
   dispose(): void {
+    this.stopWatch();
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.root.remove();

@@ -25,6 +25,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
 | `net.ts` (서버 주소 절) | **2026-09-10** — `RELAY_STORAGE_KEY`(`scav.relay`, 슬롯 공용) · `relayUrlFrom(raw)` (맨 주소 → `ws://host:8787/ws`) · `RelayProbe` · `lanAddresses(networkInterfaces())`. 클라이언트 · 설정 UI · 데스크톱 셸 · 배포 서버 배너가 **같은** 두 함수를 부른다 — 각자 정규화하면 설정에서 초록불인 주소로 앱이 다른 데 붙는다 |
 | `holdAsk.ts` | **공용 경고 · 1초 홀드 확인 팝업** (2026-09-13, `openHoldAsk(ctx, spec) → HoldAskHandle`) — 제목 · 본문 · 버튼(`kind` danger/primary/default · `hold` · `cancel` · `run`), Escape = 취소(`ctx.escape`) · Enter 삼킴 · 최초 포커스 취소 · 자기 `uiBlockers` 토큰 + 커서. `.sh-ask*` 스타일을 스스로 넣는다. 첫 사용처는 캐릭터 시트(떠나기 경고 · 초기화); `ui/menus/askPopup` · `meta/ui/HoldAsk` 사본은 아직 옮기지 않았다. 같은 날 계약 추가: `EmbeddedView.requestLeave?(proceed)` · `ProgressionRef.spendStatPoints?(alloc)` |
+| `keycap.ts` | **공용 키캡** (2026-09-15) — 키캡이 뜨는 모든 곳이 부르는 `createKeycap` / `paintKeycap` / `renderKeyText`. 키보드 키는 글자, 마우스 좌 · 휠 · 우는 마우스 윗부분 그림(누를 칸 흰색 · 꾹 누르기면 강조색 + chevron), `hold` 면 `.kc-hold`. 스타일은 `ui/styles/base.css` |
 | `escape.ts` | **ESC 닫기 스택** (2026-09-09) — 열린 화면들의 Escape 동작을 열린 순서로 (`EscapeStack`: `push`/`remove`/`closeTop`). `ctx.escape` 로 게시되고 정책은 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비면 일시정지 메뉴) |
 | `ballistics.ts` | **포탄 궤적 닫힌 식** (2026-09-10) — `shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`. `enemies/fx/ShellProjectile`(실제 포탄)와 `ui/hud` 의 HUD 마커가 **같은 자리**를 그려야 하는데 폴더끼리 import 하지 않으므로 수식을 여기 한 곳에 둔다 — 예전에는 양쪽이 각자 베껴 두고 있어 한쪽만 고치면 마커가 포탄에서 떨어졌다. 중력은 `GRAVITY` 가 아니라 **`SHELL_ARC_GRAVITY`** 다 |
 | `index.ts` | Barrel export — import via `@/shared` |
@@ -323,7 +324,7 @@ left is a ref-counted mode flag. See **마우스 커서 rework** at the end of t
 
 ### `implants.ts` — 배리어 = 들고 다니는 방패
 - `ImplantsRef.barrierCarried` + `getBarrierPose(out)`. The def's `mode` becomes `'wielded'`, so Q takes the shield
-  into the hands and `blocksWeapons` holsters the gun (the 대전차포 flow). `raycastBarrier` / `damageBarrier` keep
+  into the hands and `blocksWeapons` holsters the gun (the 대전차포 flow — 대전차포 retired 2026-09-15). `raycastBarrier` / `damageBarrier` keep
   their signatures — they were always transform-agnostic; `barrierActive` now means "raised in hand".
 - `constants.ts`: `IMPLANT_BARRIER_CARRY_WIDTH / _HEIGHT / _OFFSET / _BASE_Y / _SPEED_MUL / _ARC / _REGEN /
   _REGEN_DELAY` and `IMPLANT_BARRIER_BLOCK_DAMAGE`. **`_OFFSET` must stay greater than `PLAYER_RADIUS`** or enemy
@@ -643,6 +644,21 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (대전차포 은퇴 — 사용자 결정, 계약 메모)** — `implants.ts`: **`IMPLANT_IDS` 에서 `'atlauncher'` 를 뺐다** (선택 가능 5종).
+  `ImplantId` 합집합에는 은퇴 주석과 함께 **남긴다** — 이 폴더는 추가만이다(`airstrike` · `secondary` 와 같은 처리). 그래서 `IMPLANT_IDS` 로
+  검사하는 모든 정리 경로(progression `Profile.migrate` · housing 로드아웃 프리셋 · net 크루 카드 · implants `isImplantId`)가 저장 · 수신된
+  `atlauncher` 를 `null` 로 바꾼다. `CREATE_IMPLANT_IDS`(= `IMPLANT_IDS`)의 첫 값은 여전히 갈고리. 쓰이지 않게 된 계약(지우지 않음):
+  `net.ts` 의 `imp rocket` · `imp rocketHit`, `events.ts` 의 `implant:rocketExploded`, `constants.ts` 의 `IMPLANT_AT_DAMAGE` · `_RADIUS` · `_SPEED` ·
+  `_COOLDOWN`. `net.ts` 의 `PlayerSnapshot.imp` 주석은 옛 목록(`atlauncher`)을 그대로 적고 있다.
+
+- **2026-09-15 (공용 키캡 `keycap.ts` — 리드 계약, ui 가 SVG 다듬기 · 문서, 사용자 결정 「키캡이 뜨는 모든 곳」)** — 신규 `keycap.ts`(`index.ts` 가 다시 내보낸다):
+  `paintKeycap(cap, codeOrLabel, {hold})`(여러 번 불러도 된다 — 서명 `data-kc` 가 같으면 DOM 무변경, 클래스는 `keycap` · `kc-hold` · `kc-mouse` 를 **더하기만**) ·
+  `createKeycap(codeOrLabel, {hold, tag, cls, parent})` · `mouseGlyphButtonOf`(`Mouse0/1/2` 또는 라벨 `LMB/MMB/RMB` → 0 · 1 · 2, 아니면 −1) ·
+  `mouseGlyphSvg(button, hold)`(캐시된 16×16 SVG 문자열 — 위가 둥근 마우스 윗부분, 누를 칸 흰색 / `hold` 면 강조색 + 그 칸 안 아래 chevron,
+  꺼진 칸은 `currentColor` 윤곽, 휠 안은 어둡게 채워 켜진 좌 / 우 칸이 번지지 않는다, `<title>` 에 `LMB` 등 라벨 — 그림 키캡의 `textContent` 가 옛 글자 키캡과 같다) ·
+  `renderKeyText(host, '{ACTION} … {ACTION:hold} … {br}')`(문장 속 키캡, `kc-inline`) · `plainKeyText`(토큰을 라벨로 푼 순수 글자).
+  키보드 키는 `keyLabel` 글자 그대로이고 `M4` · `M5` 도 글자다. 크기 · chevron 모양은 `ui/styles/base.css` 의 `.keycap.kc-hold` · `.keycap.kc-mouse` · `.kcm-glyph` · `.kc-inline`.
 
 - **2026-09-15 (TODO 묶음 B-14 · B-16 · D-7 · A-17 — 리드 계약, 추가만, docs/DECISIONS.md 「2026-09-15 — TODO 묶음」)** —
   `events.ts`: **`player:remoteFell {peerId, position, damage}`**(분대원 낙하 착지 — player 가 `fall` 와이어를 거른 뒤 낸다, 소리 전용) ·

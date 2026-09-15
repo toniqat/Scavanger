@@ -96,7 +96,7 @@ export class RescuePicker {
       owner: 'rescue',
       keys: [
         { key: '1~4', label: '대원 선택' },
-        { key: '우클릭', label: '취소' },
+        { key: keyLabel(Keys.AIM), label: '취소' },   // 2026-09-15: 실제 취소 버튼(`MouseButtons.AIM`) — 키 가이드가 마우스 그림으로 그린다
         { key: keyLabel(Keys.SHIP_CALL), label: '내려놓기' },
       ],
     });

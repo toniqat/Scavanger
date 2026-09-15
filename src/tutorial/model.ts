@@ -131,9 +131,17 @@ export const WAKE_REVEAL_MOVE_M = 1.0;
  * 달성하면 체크가 좌→우로 그려지고 라벨에 취소선이 좌→우로 그어진다 (`tutorial.css`).
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/** 목표 한 줄. `id` 는 달성 표시(`TutorialSystem.markObjective`)와 저장에 남는 이름이다. */
+/**
+ * 목표 한 줄. `id` 는 달성 표시(`TutorialSystem.markObjective`)와 저장에 남는 이름이다.
+ *
+ * 2026-09-15 (사용자 결정) — **문장이 아니라 짧은 명사구**다 (`길게 눌러 붕대 사용` · `벌레 2마리 처치`).
+ * 키를 말하는 줄은 **키캡 토큰**을 쓴다 (`shared/keycap.renderKeyText` — `{QUICK:hold}` · `{FIRE}` · `{br}`).
+ * 토큰은 그릴 때 `Keys` 에서 풀리고 리바인드하면 `ui/Panel.relabel` 이 다시 그리므로, 2026-09-14 까지의
+ * 「문구에 키 글자를 적지 않는다」(리바인드하면 거짓말이 된다)는 더 이상 걸림돌이 아니다 — 글자를 적지 말고 토큰을 적는다.
+ */
 export interface TutorialObjective {
   id: string;
+  /** 명사구 + 키캡 토큰 (`{ACTION}` · `{ACTION:hold}` · `{br}`). */
   text: string;
   /** 안 해도 다음 단계로 넘어간다 — 라벨 앞에 `(선택)` 이 붙고, **실제로 달성했을 때만** 체크된다. */
   optional?: boolean;
@@ -267,7 +275,7 @@ export const blockedBy = (title: string): string => `튜토리얼 진행 중 —
  * 배운 조작이 **한 줄씩 쌓이고 사라지지 않는다.** 우하단 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)는 "지금 열린
  * 화면의 키"라 매번 바뀌지만 이쪽은 누적이라 자리가 아예 다르다 — 화면 **우측 세로 가운데**다 (CSS 참고).
  *
- * 표는 **키 액션 이름**만 들고 있다 — 실제 라벨은 그릴 때 `keyLabel(Keys[action])` 로 만든다
+ * 표는 **키 액션 이름**(과 2026-09-15 부터 키캡 토큰 `{ACTION}`)만 들고 있다 — 키캡은 그릴 때 `shared/keycap.paintKeycap(Keys[action])` 으로 칠한다
  * (`docs/CONTROLS.md`: 키는 사용 시점에 읽는다. 리바인드하면 `input:bindingsChanged` 에 다시 그린다).
  * ════════════════════════════════════════════════════════════════════════════ */
 
@@ -294,21 +302,34 @@ export interface ControlHintPair {
  *
  * `keys` · `label` · `hold` 는 **첫 쌍**이고 (2026-09-14 의 모양 그대로 — 깨지 않았다), `more` 는 같은 줄에
  * 이어 붙는 쌍들이다 (`LMB 사격 / RMB 정조준` 을 한 줄에 담으려고 2026-09-14 2차에 더했다).
+ *
+ * **2026-09-15 (사용자 결정) — 토큰 문장 줄 `text`.** 「키 쌍」 모양으로 담기지 않는 조작이 있다
+ * (`{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기`). `text` 가 있으면 그 줄은 쌍을 그리지 않고
+ * `shared/keycap.renderKeyText` 로 문장 안에 키캡을 끼워 그린다 (`keys` · `label` · `more` 는 무시).
  */
-export interface ControlHint extends ControlHintPair {
+export interface ControlHint {
   id: string;
+  /** 첫 쌍의 키 액션들 (`text` 줄이면 생략). */
+  keys?: readonly (keyof KeyBindings)[];
+  /** 첫 쌍의 라벨 (`text` 줄이면 생략). */
+  label?: string;
+  /** 첫 쌍이 꾹 누르는 키. */
+  hold?: boolean;
   /** 같은 줄의 나머지 쌍 (2026-09-14 2차). 앞에 얇은 구분자를 두고 이어 그린다. */
   more?: readonly ControlHintPair[];
+  /** 토큰 문장 줄 (2026-09-15) — `{ACTION}` · `{ACTION:hold}` · `{br}`. 있으면 쌍 대신 이것을 그린다. */
+  text?: string;
   /** 이 줄이 속한 구간 (생략 = `gear`). */
   section?: ControlSection;
 }
 
-/** 한 줄이 가진 쌍 전부 (첫 쌍 + `more`). */
+/** 한 줄이 가진 쌍 전부 (첫 쌍 + `more`). 토큰 문장 줄(`text`)은 쌍이 없다. */
 export const hintPairs = (h: ControlHint): readonly ControlHintPair[] =>
-  [{ keys: h.keys, label: h.label, hold: h.hold }, ...(h.more ?? [])];
+  h.text !== undefined ? [] : [{ keys: h.keys ?? [], label: h.label ?? '', hold: h.hold }, ...(h.more ?? [])];
 
 /**
  * 이동 · 달리기 · 점프 — `move` 와 「앞으로 이동」 구간 셋이 **같은 배열을 공유한다** (2026-09-14 4차).
+ * (`ControlHint` 는 2026-09-15 에 `keys` · `label` 이 선택 필드가 됐다 — 토큰 문장 줄 `text` 가 대신할 수 있다.)
  * 줄 목록이 참조까지 같으면 `applyControls` 의 id 비교가 그대로 통과해 DOM 을 한 번도 안 건드린다.
  */
 const MOVE_HINTS: readonly ControlHint[] = [
@@ -324,12 +345,31 @@ const MOVE_HINTS: readonly ControlHint[] = [
  * 우측을 채우는데 그 중 **지금 쓰는 것은 한둘**이라, 정작 배우는 중인 키가 목록에 파묻혔다.
  * 이제 표는 「그 단계에서 화면에 **있어야** 하는 줄」이고, 단계가 바뀌면 그 줄로 **갈아 끼운다**.
  *
- * ⚠ **표에 없는 단계는 직전 단계의 줄을 그대로 유지한다** (`wake` · `sprintJump` · `crouchAim` · `drop` 처럼
+ * ⚠ **표에 없는 단계는 직전 단계의 줄을 그대로 유지한다** (`wake` · `sprintJump` · `drop` 처럼
  * 새로 배우는 키가 없는 단계). 빈 배열을 적으면 「조작 가이드를 비운다」는 다른 뜻이 된다.
  *
- * `crouch` 단계는 **자세에 따라 라벨이 바뀌므로** 표가 아니라 `crouchHints(stance)` 가 만든다 — 여기 있는
- * 것은 선 자세(기본)의 모습이고, 저장에서 되살릴 때 id 를 찾는 데도 쓰인다.
+ * `crouch` · `crouchAim` 단계는 **자세에 따라 라벨이 바뀌므로** 표가 아니라 `controlHintsFor(step, stance)` 가 만든다 —
+ * 여기 있는 것은 선 자세(기본)의 모습이고, 저장에서 되살릴 때 id 를 찾는 데 쓰인다 (2026-09-15: `crouchAim` 이 표에 들어왔다).
  */
+/**
+ * 루팅 두 줄 — 첫 시체(`corpseLoot`)와 보급품 시체(`supplyLoot`, 2026-09-15)가 **같은 배열**을 쓴다
+ * (`MOVE_HINTS` 와 같은 이유: 참조가 같으면 `applyControls` 의 id 비교가 DOM 을 안 건드린다).
+ */
+const LOOT_HINTS: readonly ControlHint[] = [
+  { id: 'interact', keys: ['INTERACT'], label: '상호작용 · 루팅', hold: true, section: 'screen' },
+  { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비', section: 'screen' },
+];
+
+/** 사격 + 정조준 한 줄 — `shoot` 과 `crouchAim`(2026-09-15)이 함께 쓴다. */
+const FIRE_HINT: ControlHint = { id: 'fire', keys: ['FIRE'], label: '사격', section: 'combat', more: [{ keys: ['AIM'], label: '정조준' }] };
+
+/*
+ * 빠른 사용 두 줄 (2026-09-15, 사용자 결정) — 예전에는 `T 빠른 사용 꺼내기 · T 휠 열기` 가 **한 줄에 쌍 둘**이었는데
+ * 202 px 패널에서 쌍 중간이 접혀 키캡과 라벨이 서로 다른 줄로 흩어졌다. 그래서 두 줄로 가른다.
+ */
+const QUICK_HINT: ControlHint = { id: 'quick', keys: ['QUICK'], label: '빠른 사용 꺼내기', section: 'gear' };
+const QUICK_WHEEL_HINT: ControlHint = { id: 'quickWheel', keys: ['QUICK'], label: '휠 열기', hold: true, section: 'gear' };
+
 export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, readonly ControlHint[]>>> = {
   // 기상 직후 이동 · 달리기 · 점프를 **한꺼번에** (2026-09-14 3차, 사용자 결정)
   move: MOVE_HINTS,
@@ -338,30 +378,37 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
   advance1: MOVE_HINTS,
   advance2: MOVE_HINTS,
   advance3: MOVE_HINTS,
-  corpseLoot: [
-    { id: 'interact', keys: ['INTERACT'], label: '상호작용 · 루팅', hold: true, section: 'screen' },
-    { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비', section: 'screen' },
-  ],
+  corpseLoot: LOOT_HINTS,
   shoot: [
     // 한 줄에 쌍 둘 — 사격과 정조준은 같은 손의 같은 동작이라 따로 읽을 이유가 없다 (2026-09-14 2차)
-    { id: 'fire', keys: ['FIRE'], label: '사격', section: 'combat', more: [{ keys: ['AIM'], label: '정조준' }] },
+    FIRE_HINT,
     { id: 'reload', keys: ['RELOAD'], label: '재장전', section: 'combat' },
   ],
+  // 아래 둘은 **선 자세의 모습**이다 — 실제로 그리는 줄은 `controlHintsFor` 가 지금 자세로 만든다. 표에 두는 이유는
+  //   저장에서 줄을 되살릴 때(`restoreControls`) id 를 찾는 것 하나다.
   crouch: crouchHints('stand'),
+  crouchAim: [...crouchHints('stand'), FIRE_HINT],
+  supplyLoot: LOOT_HINTS,
   heal: [
-    { id: 'quick', keys: ['QUICK'], label: '빠른 사용 꺼내기', section: 'gear', more: [{ keys: ['QUICK'], label: '휠 열기', hold: true }] },
+    QUICK_HINT,
+    QUICK_WHEEL_HINT,
     { id: 'quickUse', keys: ['FIRE'], label: '길게 눌러 사용', hold: true, section: 'gear' },
   ],
   grenade: [
-    { id: 'quick', keys: ['QUICK'], label: '빠른 사용 꺼내기', section: 'gear', more: [{ keys: ['QUICK'], label: '휠 열기', hold: true }] },
-    { id: 'throw', keys: ['FIRE'], label: '던지기', hold: true, section: 'combat' },
+    QUICK_HINT,
+    QUICK_WHEEL_HINT,
+    // 2026-09-15 (사용자 결정) — 수류탄의 쓰는 법은 「키 쌍」 한 칸에 안 담긴다: 토큰 문장 줄 (`ControlHint.text`)
+    { id: 'grenadeThrow', text: '{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기', section: 'combat' },
+    // 핀 뽑기 = 좌클릭을 누른 채 R (`weapons/parts/Throwing` 이 `Keys.RELOAD` 를 읽는다)
+    { id: 'grenadePin', text: '{FIRE:hold} 누른 상태에서 {RELOAD} : 핀 뽑기', section: 'combat' },
   ],
   extract: [{ id: 'map', keys: ['MAP'], label: '지도', section: 'screen' }],
 };
 
 /**
- * `crouch` 단계의 두 줄 — **라벨이 지금 자세를 따라간다** (2026-09-14 3차, 사용자 결정).
+ * 앉기 · 포복 두 줄 — **라벨이 지금 자세를 따라간다** (2026-09-14 3차, 사용자 결정).
  * 같은 키가 「앉기」였다가 「일어서기」가 되므로, 서 있는 사람에게 「일어서기」라고 적지 않는다.
+ *   서 있음 → `C 앉기` · `Z 포복` / 앉음 → `C 일어서기` · `Z 포복` / 엎드림 → `C 앉기` · `Z 일어서기`.
  * 키 글자는 여전히 그릴 때 `Keys` 에서 읽는다 (`ui/Controls`) — 여기 있는 것은 문구뿐이다.
  */
 export function crouchHints(stance: Stance): readonly ControlHint[] {
@@ -371,11 +418,49 @@ export function crouchHints(stance: Stance): readonly ControlHint[] {
   ];
 }
 
-/** 그 단계에 보일 줄 (자세를 타는 단계는 여기서 갈린다). `undefined` = **직전 줄 유지**. */
+/**
+ * 그 단계에 보일 줄 (자세를 타는 단계는 여기서 갈린다). `undefined` = **직전 줄 유지**.
+ *
+ * 2026-09-15 — `crouchAim` 도 자세를 탄다. 2026-09-14 3차의 사용자 보고 「라벨이 안 바뀐다」의 뿌리가 여기였다:
+ * `crouch` 단계는 **앉는 그 순간 끝나고**(`player:stanceChanged` → `crouchAim`), `crouchAim` 은 표에 줄이 없어
+ * 직전 줄을 **선 자세 라벨 그대로 얼려 둔 채** 포복 구간 전체를 지났다. 이제 두 단계 모두 지금 자세로 만든다.
+ */
 export function controlHintsFor(step: TutorialStepId, stance: Stance): readonly ControlHint[] | undefined {
   if (step === 'crouch') return crouchHints(stance);
+  if (step === 'crouchAim') return [...crouchHints(stance), FIRE_HINT];
   return TUTORIAL_CONTROL_HINTS[step];
 }
+
+/** 자세를 따라가는 줄의 id — 지금 떠 있는 줄에 이것이 있으면 자세가 바뀔 때마다 다시 그린다. */
+export const STANCE_HINT_IDS: readonly string[] = ['crouch', 'prone'];
+
+/* ── 앉아 조준 TIP (2026-09-15, 사용자 결정) ────────────────────────────────
+ * 포복 · 앉아 조준 구간에서 **처음으로** 앉거나 엎드린 채 정조준하면 우측 조작 가이드 바로 아래에 토스트처럼
+ * 작은 TIP 패널이 한 번 뜬다. 나타남 · 사라짐은 `update(dt)` 가 인라인 opacity 로 몬다 (reduced motion 이
+ * CSS 전이를 0.01 ms 로 자르는 PC 가 있다 — 의미를 싣는 페이드는 CSS 로 만들지 않는다).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** TIP 이 뜨는 단계. */
+export const CROUCH_TIP_STEPS: readonly TutorialStepId[] = ['crouch', 'crouchAim'];
+/** TIP 머리 라벨과 본문. */
+export const TIP_LABEL_KO = 'TIP';
+export const CROUCH_AIM_TIP_KO = '앉거나 포복해서 조준 시, 명중률이 높아집니다.';
+/** 다 보인 채 머무는 시간 (s) · 나타나고 사라지는 시간 (s). */
+export const TIP_HOLD_S = 6;
+export const TIP_FADE_S = 0.35;
+/** 조작 가이드 바닥과 TIP 사이 (px). */
+export const TIP_GAP_PX = 8;
+
+/* ── 레이드 트랙 건너뛰기 = 암전 → 결과 화면 (2026-09-15, 사용자 결정) ────────
+ * ESC 메뉴의 「튜토리얼 건너뛰기」는 화면을 검게 덮은 뒤 **완전히 검어진 순간** `ExtractionRef.skipToComplete` 를 부른다 —
+ * 함선이 떠나는 연출 없이 평소 탈출과 같은 결과 화면이 뜬다. 검은 판은 결과 화면으로 페이즈가 바뀌는 순간
+ * `ui/HudSystem` 이 스스로 걷는다(`applyVisibility` 의 페이즈 가드).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** 건너뛰기 암전에 걸리는 시간 (s). */
+export const SKIP_FADE_OUT_S = 0.6;
+/** 결과 화면 대신 이륙 연출로 떨어졌을 때(폴백) 다시 밝아지는 시간 (s). */
+export const SKIP_FADE_IN_S = 0.4;
 
 /** 우측 조작 가이드의 머리 라벨 — 2026-09-14 3차부터 **누적이 아니라 지금 구간의 조작**이라 `배운 조작` 이 아니다. */
 export const CONTROLS_TITLE_KO = '조작';
@@ -406,7 +491,12 @@ export const CHECKPOINT_STEP: Readonly<Record<string, TutorialStepId>> = {
   crawl: 'crouch',
   android: 'crouchAim',
   drop: 'drop',
-  supply: 'heal',
+  /*
+   * 2026-09-15 (사용자 결정) — `supply` 는 `heal` 이 아니라 **`supplyLoot`** 를 연다. 전에는 절벽 2 를 내려서자마자
+   * 붕대를 줍기도 전에 「붕대를 사용」이 떴다. 이제 보급품 시체에서 붕대를 얻고 창을 닫아야 `heal` 이다.
+   * 줍지 않고 `wall` 까지 가면 `foldRaid('grenade')` 가 `heal` 까지 함께 건너뛴다.
+   */
+  supply: 'supplyLoot',
   wall: 'grenade',
   ship: 'extract',
 };
