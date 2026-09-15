@@ -1,30 +1,128 @@
 /* ============================================================================
- * SCAVANGER — 정보상 · 매칭 팝업 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * SCAVANGER — 터미널의 탭 · 자식 화면 · 정보상 (2026-09-14 정보상 · 2026-09-15 분대 · 도킹 매칭).
  *
- * 접두사 셋 — 서로 겹치지 않고, `rg "\.hm-|\.hi-|\.it-" src` 가 **비어 있음**을 확인하고 골랐다
+ * 접두사 — 서로 겹치지 않고, `rg "\.hmt-|\.hinv-|\.htc-|\.hi-|\.it-" src` 가 **비어 있음**을 확인하고 골랐다
  * (CLAUDE.md 「CSS 클래스 접두사는 폴더마다 달라야 한다」 — `.ct-` 충돌 사고와 같은 뿌리):
  *
- *   .hm-   매칭 팝업        (hub/ui/MatchPanel.ts)      — 옛 터미널 좌측 열
- *   .hi-   정보상 패널      (hub/ui/HubMenu.ts)         — 터미널 우측 열의 첫 칸
+ *   .hmt-  매칭 탭          (hub/ui/MatchTab.ts)        — 터미널 `매칭` 탭 (옛 `.hm-` 매칭 팝업은 2026-09-15 에 지웠다)
+ *   .hinv- 분대 초대 창     (hub/ui/InviteModal.ts)     — 매칭 탭 빈 칸의 `초대`
+ *   .htc-  훈련장 입장 확인 (hub/ui/TrainingConfirm.ts) — 행성 탭 우하단 `시뮬레이션 훈련장`
+ *   .hi-   정보상 패널      (hub/ui/HubMenu.ts)         — 행성 탭 오른쪽 칸
  *   .it-   정보상 화면      (hub/ui/IntelMenu.ts + IntelMap.ts)
  *
- * `.menu` · `.frame` · `.ui-btn` · `.ui-label` · `.hub-section` 같은 틀은 `ui/styles/base.css` · `hub.css` 것을
- * 그대로 쓴다. 색은 전부 `:root` 토큰이고 외부 에셋은 하나도 없다 (지도는 절차 캔버스).
+ * `.menu` · `.frame` · `.ui-btn` · `.ui-label` · `.hub-section` · `.hub-head` · `.hub-foot` 같은 틀은
+ * `ui/styles/base.css` · `hub.css` 것을 그대로 쓴다. 색은 전부 `:root` 토큰이고 외부 에셋은 하나도 없다
+ * (지도는 절차 캔버스, 초상은 `PlayerRef.snapshotFace` 의 data URL).
  * ========================================================================== */
 
-/* ── 매칭 팝업 (.hm-) ─────────────────────────────────────────────────────── */
-.menu.hub-menu.hm-match .frame {
-  min-width: 0; width: min(560px, calc(100vw - 48px)); max-width: 560px;
-  max-height: calc(100vh - 64px); overflow: hidden;
-  gap: 16px;
+/* ── 매칭 탭 (.hmt-) ──────────────────────────────────────────────────────────
+   가운데 가로 한 줄의 정사각 초상 4칸 (나 → 분대원 → 빈 칸) + 그 아래 왼쪽 `비공개 매칭` · 오른쪽 `공개 매칭`.
+   칸 크기는 창 너비 · 높이 둘 다에 묶는다 — 1280×760 에서 4칸 + 버튼 줄이 프레임을 넘지 않게. */
+.hmt-tab {
+  --hmt-tile: clamp(120px, min(17vw, 34vh), 248px);
+  --hmt-gap: 16px;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
 }
-.hm-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
-.hm-head .hl { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
-.hm-head .title { font-size: 22px; letter-spacing: 0.18em; }
-.hm-head .subtitle { margin-top: 0; }
-.hm-head .ui-btn.hm-close { min-width: 0; height: 32px; padding: 0 16px; font-size: 11px; }
-.hm-body { display: flex; flex-direction: column; gap: 18px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
-.hm-note { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.hmt-status { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
+.hmt-row { display: grid; grid-template-columns: repeat(4, var(--hmt-tile)); gap: var(--hmt-gap); max-width: 100%; }
+.hmt-tile {
+  --sc: var(--c-border-strong);
+  position: relative; width: var(--hmt-tile); aspect-ratio: 1 / 1; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sc) 45%, var(--c-border));
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 16%, transparent), rgba(6, 8, 11, 0.95) 72%);
+}
+/* 칸 윗변의 악센트 줄 */
+.hmt-tile::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2; background: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 60%, transparent); }
+.hmt-tile.is-me { border-color: color-mix(in srgb, var(--sc) 70%, var(--c-border)); box-shadow: inset 0 0 22px color-mix(in srgb, var(--sc) 16%, transparent); }
+.hmt-tile.is-off { opacity: 0.6; }
+.hmt-tile.is-empty { border-style: dashed; border-color: var(--c-border); background: rgba(255, 255, 255, 0.02); }
+.hmt-tile.is-empty::before { display: none; }
+.hmt-face { position: absolute; inset: 0; }
+.hmt-face img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.hmt-face img[hidden] { display: none; }
+/* 얼굴 스냅숏이 없을 때(GL 컨텍스트 없음)의 대체 — 이름 첫 글자 */
+.hmt-initial {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 28%;
+  display: none; place-items: center;
+  font-size: calc(var(--hmt-tile) * 0.3); font-weight: 800; line-height: 1;
+  color: color-mix(in srgb, var(--sc) 70%, #fff); opacity: 0.5;
+}
+.hmt-tile.no-face:not(.is-empty) .hmt-initial { display: grid; }
+.hmt-badge, .hmt-state {
+  position: absolute; top: 8px; z-index: 1;
+  font-size: 9px; letter-spacing: 0.16em; white-space: nowrap; padding: 2px 6px;
+  background: rgba(8, 10, 14, 0.78);
+}
+.hmt-badge { left: 8px; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.55); }
+.hmt-state { right: 8px; color: var(--c-danger); border: 1px solid rgba(255, 90, 70, 0.5); }
+.hmt-badge[hidden], .hmt-state[hidden] { display: none; }
+.hmt-info {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+  display: flex; align-items: baseline; gap: 8px; padding: 20px 10px 8px;
+  background: linear-gradient(180deg, transparent, rgba(6, 8, 11, 0.92) 55%);
+}
+.hmt-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hmt-tile.is-me .hmt-name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; font-size: 10px; }
+.hmt-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--c-accent); white-space: nowrap; }
+.hmt-tile.is-empty .hmt-info { display: none; }
+/* 빈 칸 가운데의 `초대` — `translate` 속성이라 `.ui-btn:active` 의 `transform` 과 섞이지 않는다 */
+.ui-btn.hmt-invite {
+  position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 1;
+  min-width: 0; height: 36px; padding: 0 20px; font-size: 11px; letter-spacing: 0.14em;
+}
+.ui-btn.hmt-invite[hidden] { display: none; }
+
+.hmt-actions {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  width: calc(4 * var(--hmt-tile) + 3 * var(--hmt-gap)); max-width: 100%;
+}
+.hmt-actions .ui-btn { min-width: 0; width: calc(var(--hmt-tile) * 1.3); max-width: 48%; }
+.hmt-actions .ui-btn.hmt-undock { margin: 0 auto; }
+.hmt-actions .ui-btn[hidden] { display: none; }
+.hmt-under { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 18px; }
+.hmt-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
+.hmt-hint[hidden] { display: none; }
+.ui-btn.hmt-small { min-width: 0; height: 30px; padding: 0 14px; font-size: 10px; letter-spacing: 0.12em; }
+.ui-btn.hmt-small[hidden] { display: none; }
+.ui-btn.hmt-leave { color: var(--c-text-dim); }
+
+/* ── 분대 초대 창 (.hinv-) — 터미널 위에 뜬다 (hub 팝업 층 72 — 일시정지 메뉴 85 아래) ── */
+.menu.hub-menu.hinv-modal { z-index: 72; }
+.menu.hub-menu.hinv-modal .frame {
+  min-width: 0; width: min(640px, calc(100vw - 48px)); max-width: 640px;
+  max-height: calc(100vh - 64px); overflow: hidden; gap: 14px;
+}
+.hinv-modal .hub-head .title { font-size: 22px; }
+.ui-btn.hinv-close { min-width: 0; height: 32px; padding: 0 16px; font-size: 11px; }
+.hinv-body {
+  display: flex; flex-direction: column; gap: 16px; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-gutter: stable; padding-right: 2px;
+}
+.hinv-section[hidden], .hinv-note[hidden] { display: none; }
+.hinv-list { display: flex; flex-direction: column; gap: 6px; }
+.hinv-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px;
+  padding: 8px 10px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.hinv-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hinv-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hinv-code { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); user-select: text; -webkit-user-select: text; }
+.hinv-lv { font-family: var(--ui-mono); font-size: 11px; color: var(--c-accent); white-space: nowrap; }
+.hinv-presence { min-width: 52px; text-align: right; font-size: 10px; letter-spacing: 0.1em; white-space: nowrap; color: var(--c-text-dim); }
+.hinv-presence[data-presence="ship"] { color: var(--c-success); }
+.hinv-presence[data-presence="offline"] { color: var(--c-text-faint); }
+.ui-btn.hinv-btn { min-width: 116px; height: 32px; padding: 0 12px; font-size: 11px; letter-spacing: 0.06em; }
+.ui-btn.hinv-btn.is-pending { border-color: rgba(255, 179, 71, 0.55); color: var(--c-accent); }
+.hinv-empty, .hinv-note { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 14px 0; text-align: center; border: 1px dashed var(--c-border); }
+.hinv-note { font-size: 12px; color: var(--c-text-dim); }
+
+/* ── 시뮬레이션 훈련장 입장 확인 (.htc-) — 클릭 확정 카드 (되돌릴 수 있는 일이라 홀드가 아니다) ── */
+.menu.hub-menu.htc-confirm { z-index: 72; }
+.menu.hub-menu.htc-confirm .frame { min-width: 0; width: min(440px, calc(100vw - 48px)); max-width: 440px; gap: 18px; }
+.htc-confirm .hub-head .title { font-size: 20px; }
+.htc-body { font-size: 13px; line-height: 1.6; color: var(--c-text); }
+.htc-confirm .hub-foot .ui-btn { min-width: 96px; }
 
 /* ── 정보상 패널 (.hi-), 터미널 우측 열 ───────────────────────────────────── */
 .hub-section.hub-intel { gap: 8px; }

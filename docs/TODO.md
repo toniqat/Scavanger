@@ -42,6 +42,7 @@
 | A-8 | **게임패드**. 리바인딩은 키보드 + 마우스 버튼만 | `grep -rni "gamepad" src/` → 0 hit |
 | A-7 | **BGM**. 설정의 오디오 채널 자리만 비워 뒀다 | `src/ui/menus/SettingsMenu.ts:26` "Room is left for a future BGM row … there is no BGM" |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | `src/ui/hud/Notifications.ts` |
+| B-17 | **공용 함선 도킹 직전 「모든 UI 닫기」가 튜토리얼 팝업은 못 닫는다** — `tutorial/ui/Popup` 이 `TUTORIAL_BLOCKER` 를 쥐고 escape 스택에 없으며 `TutorialRef` 에 닫기 API 가 없다. 튜토리얼 중엔 매칭 탭 · 커뮤니티가 숨겨져 도킹이 거의 없지만, 닫으려면 단계 상태를 깨지 않는 `hub:docking {start}` 처리가 필요하다 | `src/hub/parts/SquadDock.ts` `cancelEverything`, `src/tutorial/ui/Popup.ts` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 

@@ -49,7 +49,8 @@ export function setPlanet(sys: HubSystem, planet: PlanetId): boolean {
   if (sys.travelBlockReason(planet) !== null) return false;
   if (sys.planet === planet) return false;
   const net = ctx.net;
-  if (net?.lobby) {
+  // 2026-09-15: only the docked squad's shared ship shares a planet — an undocked squad member flies their own ship
+  if (net && sys.squadLobby()) {
     // the host owns `lobby.planet`; net mirrors it optimistically, so `sys.planet` is already the new value
     net.setLobbyPlanet(planet);
     sys.knownLobbyPlanet = planet;
@@ -68,7 +69,7 @@ export function travelBlockReason(sys: HubSystem, planet?: PlanetId): string | n
   // 2026-09-08: 튜토리얼은 첫 번째 행성만 허용한다. `planet` 없이 부르면 "지금 행성을 정할 수 있나"만 묻는 것.
   const tut = ctx?.tutorial?.blockReason('planet', planet) ?? null;
   if (tut) return tut;
-  if (net?.lobby && !net.isHost) return '호스트만 지정할 수 있습니다';
+  if (net && sys.squadLobby() && !net.isHost) return '호스트만 지정할 수 있습니다';
   if (sys.travelling || sys.cutscene) return '이동 중';
   if (sys.countdown >= 0) return '발사 카운트다운 중';
   if (ctx?.phase !== 'hub') return '함선에서만 지정할 수 있습니다';

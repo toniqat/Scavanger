@@ -400,6 +400,13 @@ export class SettingsMenu {
     this.unsubs.push(ctx.bus.on('ui:displayChanged', ({ bloom }) => {
       if (bloom && this.bloomAutoOff) { this.bloomAutoOff = false; this.syncDisplayRows(); }
     }));
+    /*
+     * 2026-09-15 (분대 · 도킹 매칭, 사용자 결정 「도킹 컷씬 직전에 모든 UI 메뉴가 닫힌다」): 설정은 일시정지 메뉴 **안의** 하위 화면인데
+     * blocker 도 `ctx.escape` 항목도 없어서, 일시정지 메뉴가 닫혀도(`game:paused {paused:false}`) · 페이즈가 바뀌어도 혼자 떠 있었다.
+     * 이제 그 둘에 함께 닫힌다 — 뒤의 메뉴가 없어진 하위 화면은 남을 이유가 없다 (Tab 으로 일시정지를 풀 때도 같다).
+     */
+    this.unsubs.push(ctx.bus.on('game:paused', ({ paused }) => { if (!paused) this.close(); }));
+    this.unsubs.push(ctx.bus.on('game:phaseChanged', () => this.close()));
     // Publish the stored settings once so the Engine matches the panel before it is ever opened.
     this.emitDisplay();
   }

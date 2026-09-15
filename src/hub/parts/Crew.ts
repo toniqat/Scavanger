@@ -26,6 +26,8 @@ import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+/* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 훈련장이 잠긴다 */
+import { squadLockReason } from './SquadDock';
 import type { HubSystem } from '../HubSystem';
 
 /* ── 시뮬레이션 훈련장 (Phase 7) ─────────────────────────────────────────── */
@@ -64,7 +66,10 @@ export function startTraining(sys: HubSystem): boolean {
     ctx.bus.emit('audio:play', { id: 'ui_deny' });
     return false;
   };
-  if (net?.lobby) {
+  // 2026-09-15 (분대 · 도킹 매칭): an undocked squad has no training range (the relay refuses `not_docked` as well)
+  const squadLock = squadLockReason(sys, 'training');
+  if (squadLock) return deny(squadLock);
+  if (net && sys.squadLobby()) {
     if (sys.raidRunning()) return deny('임무 진행 중 — 훈련장을 열 수 없습니다');
     if (sys.trainingRunning()) {
       if (!net.missionInProgress || typeof net.rejoinMission !== 'function') return deny('이미 훈련장에 있습니다');
@@ -123,14 +128,14 @@ export function crewCard(sys: HubSystem): CrewCardWire {
 export function crewCardChanged(sys: HubSystem): void {
   if (!sys.interior || !sys.active) return;
   sys.syncPods();
-  if (!sys.ctx.net?.lobby) return;
+  if (!sys.squadLobby()) return;   // 2026-09-15: cards are for the squad in the same shared ship only
   sys.sendCrewCard(false);
   }
 
 /** `to` omitted = broadcast to `others`; `force` skips the debounce (a direct `crewq sync` answer / arrival). */
 export function sendCrewCard(sys: HubSystem, force: boolean, to?: PeerId): void {
   const net = sys.ctx.net;
-  if (!net?.lobby || typeof net.send !== 'function') { sys.cardDirty = false; return; }
+  if (!net || !sys.squadLobby() || typeof net.send !== 'function') { sys.cardDirty = false; return; }
   if (!force && sys.ctx.time - sys.lastCardAt < CREW_CARD_MIN_INTERVAL_S) { sys.cardDirty = true; return; }
   if (to === undefined) { sys.lastCardAt = sys.ctx.time; sys.cardDirty = false; }
   try { net.send({ t: 'crew', ev: 'card', card: sys.crewCard() }, to ?? 'others'); } catch { /* offline */ }
@@ -140,7 +145,7 @@ export function sendCrewCard(sys: HubSystem, force: boolean, to?: PeerId): void 
 export function sendCrewLoadout(sys: HubSystem, to: PeerId): void {
   const ctx = sys.ctx;
   const net = ctx.net;
-  if (!net?.lobby || typeof net.send !== 'function') return;
+  if (!net || !sys.squadLobby() || typeof net.send !== 'function') return;
   const last = sys.loadoutAnsweredAt.get(to) ?? -Infinity;
   if (ctx.time - last < CREW_LOADOUT_COOLDOWN_S) return;
   const inv = ctx.inventory;
@@ -165,7 +170,7 @@ export function sendCrewLoadout(sys: HubSystem, to: PeerId): void {
 export function updateLeaderHandoff(sys: HubSystem): void {
   const ctx = sys.ctx;
   const net = ctx.net;
-  const live = ctx.phase === 'hub' && !sys.cutscene && !!net?.lobby && net.isHost && !sys.housingMode.active;
+  const live = ctx.phase === 'hub' && !sys.cutscene && !!net && !!sys.squadLobby() && net.isHost && !sys.housingMode.active;
   if (!live) { clearLeaderHandoff(sys); return; }
   const site = sys.hubSite;
   const seen = new Set<string>();
@@ -218,7 +223,7 @@ export function clearLeaderHandoff(sys: HubSystem): void {
 export function announceCrew(sys: HubSystem): void {
   sys.bindCrewRequests();
   const net = sys.ctx.net;
-  if (!net?.lobby || typeof net.send !== 'function') return;
+  if (!net || !sys.squadLobby() || typeof net.send !== 'function') return;
   sys.loadoutAnsweredAt.clear();
   sys.sendCrewCard(true);
   try { net.send({ t: 'crewq', ev: 'sync' }, 'others'); } catch { /* offline */ }

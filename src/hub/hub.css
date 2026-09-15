@@ -11,15 +11,12 @@
 }
 .menu.hub-menu .frame::before { left: 0; top: 0; }
 .menu.hub-menu .frame::after { right: 0; bottom: 0; }
-.menu.hub-menu .hub-page { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
 .hub-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .hub-head .hl { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
 .hub-head .title { font-size: 26px; letter-spacing: 0.18em; }
 .hub-head .subtitle { margin-top: 0; }
-/* 2026-09-14 (정보상): 매치메이킹이 머리 우상단 버튼 → 팝업이 됐다. 상태 알약과 나란히 오른쪽에 붙는다. */
+/* 상태 알약은 머리줄 오른쪽 끝 (2026-09-15: 옛 `📡 매칭` 버튼은 상단 `매칭` 탭이 됐다) */
 .hub-head .status-pill { margin-left: auto; }
-.hub-head .ui-btn.hub-matching { min-width: 0; height: 34px; padding: 0 18px; font-size: 11px; letter-spacing: 0.12em; }
-.hub-head .ui-btn.hub-matching.on { border-color: rgba(79, 209, 126, 0.5); color: var(--c-success); }
 
 .hub-section { display: flex; flex-direction: column; gap: 10px; }
 .hub-section .ui-label { display: flex; align-items: center; gap: 10px; }
@@ -30,69 +27,38 @@
 .hub-section .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
 .hub-section .ui-btn.wide { min-width: 0; width: 100%; }
 .hub-section .ui-btn.on { border-color: var(--c-success); color: var(--c-success); background: rgba(79, 209, 126, 0.08); }
-.hub-section .ui-input.code-input { font-size: 18px; letter-spacing: 0.38em; text-transform: uppercase; font-weight: 600; }
-
-/* crew name once it is locked (Phase 8: the terminal no longer offers a rename) */
-.hub-crew-name {
-  font-size: 15px; font-weight: 600; letter-spacing: 0.1em; color: var(--c-text);
-  border-left: 2px solid var(--c-accent); padding: 4px 0 4px 10px;
-}
-
-.hub-code { display: flex; align-items: baseline; gap: 16px; }
-.hub-code .code {
-  font-family: var(--ui-mono); font-size: 40px; font-weight: 700; letter-spacing: 0.42em; line-height: 1;
-  color: var(--c-accent); text-shadow: 0 0 18px rgba(255, 179, 71, 0.35);
-  user-select: text; -webkit-user-select: text;
-}
-.hub-code .vis { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim); border: 1px solid var(--c-border); padding: 2px 8px; }
-.hub-code .vis.public { color: var(--c-success); border-color: rgba(79, 209, 126, 0.45); }
-
-.hub-crew { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.crew-row {
-  --sc: #fff;
-  display: flex; gap: 10px; align-items: center;
-  min-height: 44px; padding: 6px 10px 6px 0;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
-}
-.crew-row .bar { width: 3px; align-self: stretch; background: var(--sc); box-shadow: 0 0 8px color-mix(in srgb, var(--sc) 55%, transparent); }
-.crew-row .name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crew-row .badge { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.5); padding: 1px 6px; }
-.crew-row .state { font-size: 11px; letter-spacing: 0.08em; color: var(--c-text-dim); white-space: nowrap; }
-.crew-row.ready { border-color: rgba(79, 209, 126, 0.45); }
-.crew-row.ready .state { color: var(--c-success); }
-.crew-row.off { opacity: 0.55; }
-.crew-row.off .state { color: var(--c-danger); }
-.crew-row.me .name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; }
-.crew-row.empty { border-style: dashed; background: none; }
-.crew-row.empty .bar { opacity: 0.25; box-shadow: none; }
-.crew-row.empty .name { color: var(--c-text-faint); font-weight: 400; }
-
-.hub-page { display: flex; flex-direction: column; gap: 18px; }
 .hub-section .hint.warn { color: var(--c-accent); }
+/* 2026-09-15: 매칭 팝업(`MatchPanel`)의 코드 입력 · 함선 코드 · 승무원 줄(`.code-input` · `.hub-code` · `.hub-crew` ·
+   `.crew-row`)과 쓰이지 않던 `.hub-page` · `.hub-crew-name` 을 지웠다 — 매칭은 터미널 `매칭` 탭(`.hmt-`, intel.css)이다. */
 
-/* ── full-screen terminal + 행성 선택 (Phase 11) ──────────────────────────────
-   `.fullscreen` makes the frame fill the viewport (no 680px card) and lays the sections out in three columns:
-   matchmaking left, the planet hologram centre, 시뮬레이션 훈련장 + the /seed hint bottom-right. The frame itself
-   never scrolls (`overflow: hidden` above) — each column scrolls on its own if the window is short. */
+/* ── full-screen terminal + 행성 선택 (Phase 11 · 2026-09-15 상단 탭) ─────────────────────
+   `.fullscreen` makes the frame fill the viewport (no 680px card). The frame itself never scrolls (`overflow: hidden`
+   above) — each column scrolls on its own if the window is short. */
 .menu.hub-menu.fullscreen .frame {
   min-width: 0; max-width: none; width: 100vw; height: 100vh; max-height: 100vh;
   padding: 26px 34px 22px; gap: 14px;
   box-sizing: border-box;
 }
-/* 2026-09-14 (정보상, 사용자 결정): 3열 → **2열**. 좌측 매치메이킹 열은 머리 우상단 `📡 매칭` 버튼 뒤의
-   팝업(`hub/ui/MatchPanel`, `.hm-` — `hub/intel.css`)으로 통째로 갔고, 행성 브리핑이 중앙에서 넓게 자리를
-   차지한다. 우측 열은 **위에서부터** 정보상 패널 → 시뮬레이션 훈련장이라 `justify-content` 가 flex-start 다. */
+/* 2026-09-15 (사용자 결정): 상단 탭 `행성` / `매칭` — 인벤토리 Tab 화면과 같은 `.scr-tabs` (base.css, 절대 배치 ·
+   가로 가운데)가 머리줄 한가운데에 뜬다. 머리줄은 왼쪽 제목 · 오른쪽 상태 알약이라 가운데가 비어 있고, 탭 알약 높이
+   (~40px)만큼 머리줄 최소 높이를 잡아 두어 아래 탭 내용이 알약 밑으로 들어가지 않는다. */
+.menu.hub-menu.fullscreen .scr-tabs.hub-tabs { top: 26px; }
+.menu.hub-menu.fullscreen .hub-head { min-height: 48px; }
+/* 탭 한 장 = `.hub-pane` (남는 높이를 다 먹는다) */
+.menu.hub-menu.fullscreen .hub-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 행성 탭 (2026-09-15): 3칸 — 빈 왼쪽 · **가운데 행성 카드** · 오른쪽 정보상. 양옆이 같은 `1fr` 이라 행성이 프레임
+   한가운데에 선다 (옛 2열은 행성이 왼쪽으로 치우쳤다). 시뮬레이션 훈련장은 칸이 아니라 푸터 우하단 버튼이다. */
 .menu.hub-menu.fullscreen .hub-grid {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 30px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr); gap: 24px;
 }
 .hub-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .hub-col.centre { align-items: center; justify-content: center; overflow: hidden; }
-.hub-col.right { justify-content: flex-start; }
+.hub-col.right { justify-content: center; align-items: flex-end; }
+.hub-col.right > .hub-intel { width: min(360px, 100%); }
 
 /* the planet card: hologram, name / 지형 / 위협 badge / brief, then 행성 이동 */
-/* 2026-09-14: 좌측 열이 사라져 행성 브리핑이 **중앙에서 넓게** 자리를 차지한다 (사용자 결정) */
-.hub-planet { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(760px, 100%); }
+.hub-planet { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
 .hp-eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
 .hp-stage { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .hp-holo {
@@ -134,17 +100,23 @@
 .ui-btn.hp-travel { min-width: 240px; margin-top: 6px; }
 .ui-btn.hp-travel.locked { letter-spacing: 0.04em; font-size: 11px; }
 
-/* 좁은 창: 두 열이 세로로 쌓인다 (행성이 위, 정보상 · 훈련장이 아래) — 2026-09-14 */
+/* 좁은 창: 행성이 위, 정보상이 아래로 쌓인다 (빈 왼쪽 칸은 사라진다) — 2026-09-14 · 2026-09-15 */
 @media (max-width: 1180px) {
   .menu.hub-menu.fullscreen .hub-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
+  .menu.hub-menu.fullscreen .hub-col.left { display: none; }
   .menu.hub-menu.fullscreen .hub-col.right { flex-direction: row; align-items: flex-start; gap: 16px; overflow-y: auto; }
-  .menu.hub-menu.fullscreen .hub-col.right > * { flex: 1; min-width: 0; }
+  .menu.hub-menu.fullscreen .hub-col.right > * { flex: 1; min-width: 0; width: auto; }
 }
 
-/* the footer only carries 닫기 / 타이틀로 since Phase 8 (캐릭터 moved to the Tab screen) */
-.hub-foot { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
-.hub-foot .right { display: flex; gap: 10px; }
+/* 푸터: 오른쪽 `닫기 (E)` → `시뮬레이션 훈련장` (2026-09-15 — 훈련장이 프레임 우하단 모서리 버튼, 안내 줄 없음).
+   왼쪽 아래 구석은 함선 HUD 의 분대 목록 · 이름 줄이 터미널 위에 그려지는 자리라 비워 둔다. */
+.hub-foot { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+.hub-foot .right { display: flex; align-items: center; gap: 10px; }
 .hub-foot .ui-btn { min-width: 0; padding: 0 18px; }
+/* 이름 줄 + 상태 줄(`시작` · `합류 (n명 훈련 중)` · `임무 진행 중` · `분대 대기 중`) 두 줄 버튼 */
+.hub-foot .ui-btn.hub-train { min-width: 220px; height: 48px; padding: 0 22px; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; }
+.hub-train-name { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; }
+.hub-train-state { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; color: var(--c-text-dim); }
 .hub-menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 
 /* ── workbench (weapon repair) ───────────────────────────────────────────── */
@@ -399,4 +371,30 @@
 
 @media (max-width: 720px) {
   .menu.hub-menu.launch-warn .frame { min-width: 0; }
+}
+
+/* ── 분대 도킹 카운트다운 (2026-09-15, owner: hub/ui/SquadDockCountdown · 규칙은 hub/parts/SquadDock) ────────────
+   분대장이 공용 함선에 도킹한 뒤 분대원 화면 **오른쪽**에 뜨는 작은 판. 연출이지 화면이 아니다 — 포인터를 먹지 않고
+   blocker 도 없다. 우측 중앙의 토스트 스택(`.notifs`)과 겹치지 않게 그보다 위에 둔다. 숫자는 발사 카운트다운과 같은
+   `hubPulse` 를 새 숫자마다 다시 튼다(`.tick`). 접두사 `hsd-` 는 이 판 전용이다. */
+.hub-squad-dock {
+  position: absolute; right: 40px; top: 16%;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  min-width: 220px; padding: 14px 18px 12px;
+  border-right: 2px solid var(--c-accent);
+  background: linear-gradient(270deg, rgba(8, 10, 14, 0.78), rgba(8, 10, 14, 0));
+  text-align: right; pointer-events: none; z-index: 60;
+}
+.hub-squad-dock .hsd-kicker { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-accent); font-weight: 700; }
+.hub-squad-dock .hsd-label { font-size: 14px; letter-spacing: 0.06em; font-weight: 600; color: var(--c-text); text-shadow: 0 0 10px rgba(0, 0, 0, 0.8); }
+.hub-squad-dock .hsd-num {
+  font-family: var(--ui-mono); font-size: 56px; line-height: 1; letter-spacing: 0.04em;
+  color: var(--c-accent); text-shadow: 0 0 14px rgba(0, 0, 0, 0.7); transform-origin: right center;
+}
+.hub-squad-dock .hsd-num.tick { animation: hubPulse 1s ease-out; }
+.hub-squad-dock .hsd-sub { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-dim); }
+
+@media (max-width: 720px) {
+  .hub-squad-dock { right: 16px; min-width: 0; }
+  .hub-squad-dock .hsd-num { font-size: 40px; }
 }

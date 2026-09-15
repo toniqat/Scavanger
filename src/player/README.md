@@ -40,6 +40,7 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 | `RemoteAvatar.ts` | `RemoteAvatarRef`: pose from snapshot flags, held item, armour, suspended grey look, climb / furniture / rover visibility, per-avatar `weaponSocket` |
 | `Carry.ts` | `CarryHost` seam between the two systems (`PlayerSystem.setCarryHost`) |
 | `Portraits.ts` | `createPortraits` — separate WebGL canvas for the launch-slot panel portraits (null when no context) |
+| `FaceSnapshot.ts` | `snapshotFace` — one lazily created offscreen renderer draws a square face PNG per accent (cached, released after `FACE_SNAPSHOT_IDLE_DISPOSE_MS` idle); `poseFaceModel` / `aimFaceCamera` / `addFaceLights` shared with `ui/menus/SoldierPreview` |
 | `index.ts` | Barrel |
 
 ## Public API
@@ -60,7 +61,8 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
   `setRoverRide` / `roverBoardBlock` / `roverSafePosition`, `playIntroWake(duration, {respawn?})`,
   `setSceneLock(on, {allowDamage?, minHp?})`, `consumeStamina`, `startMelee(kind)`, `setViewWiden`, `setGrappleTarget`, `setHovering`.
 - **Weapon host**: `getWeaponSocket`, `getShoulderSocket`, `getAimRay`, `addRecoil`, `setWeaponState`, `canUseWeapons`,
-  `setAimZoom`, `setAdsTime`, `setLookLocked`, `setAimSway`. **UI**: `createPortraits(host, cells)`.
+  `setAimZoom`, `setAdsTime`, `setLookLocked`, `setAimSway`. **UI**: `createPortraits(host, cells)`,
+  `snapshotFace({accent, size?})` (square PNG data URL, same framing as character creation; null without a GL context).
 
 **`RemotePlayerSystem`** (via `getSystem('remotePlayers')`): `getAvatar(id)`, `getAvatars()`, `getReviveTargets()`,
 `getGhosts()` / `getGhost(id)` / `getParkedGhosts()` / `getLastGhostStates()`; debug `debugSpawn`, `debugClear`,
@@ -200,8 +202,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-15 — `snapshotFace` (`FaceSnapshot.ts`, terminal match-tab portraits) + face helpers shared with character creation.
 - 2026-09-15 — `takeDamage` option `bypassShield` (used by spore hazard).
 - 2026-09-15 — `playIntroWake(d, {respawn})` for tutorial respawns; `setSceneLock` options `allowDamage` / `minHp`.
 - 2026-09-15 — Damage sources on `player:damaged` / `player:died` (`_deathSource`, env / fall / burning sources).
 - 2026-09-15 — Fall feedback (shake, `fall` wire, `player:remoteFell`); soldier fresnel rim (`SoldierRim.ts`).
-- 2026-09-14 — Slower intro wake, prone allowed on the ship, `setSceneLock`.

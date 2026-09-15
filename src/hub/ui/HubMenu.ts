@@ -2,12 +2,14 @@ import type { GameContext, IntelSpec, NetRef, PlanetDef, PlanetId } from '@/shar
 import {
   ENV_COLOR, ENV_DESC_KO, ENV_ICON, ENV_LABEL_KO,
   INTEL_OPTIONS_IN_ORDER, Keys, MENU_BLOCKER, NAMED_ROGUE_NAME_KO, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS,
-  PLANET_THREAT_LABELS, getPlanet, intelEffectText, planetIndex,
+  PLANET_THREAT_LABELS, getPlanet, intelEffectText, isDockedLobby, planetIndex,
 } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 import { IntelMenu } from './IntelMenu';
-import { MatchPanel } from './MatchPanel';
+import { InviteModal } from './InviteModal';
+import { MatchTab } from './MatchTab';
 import { createPlanetHologram, type PlanetHologram } from './PlanetHologram';
+import { TrainingConfirm } from './TrainingConfirm';
 
 /** What the menu needs from HubSystem. */
 export interface HubMenuHost {
@@ -27,45 +29,44 @@ export interface HubMenuHost {
   travelTo(planet: PlanetId): void;
 }
 
+/** 터미널 상단 탭. */
+export type HubMenuTab = 'planet' | 'match';
+
 const MSG_TTL = 4500;
 
 /**
  * Ship terminal (`.menu.hub-menu.fullscreen`) — **full-screen since Phase 11**.
  *
- * **2026-09-14 (정보상, 사용자 결정 — `docs/DECISIONS.md` 「2026-09-14 — 정보상」): 3열 → 2열.** 좌측 매치메이킹 열이
- * 통째로 머리 우상단 `📡 매칭` 버튼 뒤의 팝업(`ui/MatchPanel`)으로 갔고, 행성 브리핑이 **중앙에서 넓게**
- * 자리를 차지한다. 우측 열은 위에서부터 **정보상 패널**(`.hub-intel`, 접두사 `.hi-`) · **시뮬레이션 훈련장**이다.
- * 정보상 패널은 보유 정보가 없으면 `정보 구매`, 있으면 요약 + `정보 확인` / `지역 재배치` 이고 **멀티에서
- * 비호스트는 전부 읽기 전용**이다 (탐사 차량 요금의 「결제자 한 명」 규약과 같다). 전체 화면은 `ui/IntelMenu`.
+ * **2026-09-15 (분대 · 도킹 매칭, 사용자 결정 — `docs/DECISIONS.md` 「2026-09-15 — 분대 · 도킹 매칭」): 상단 탭 둘.**
+ * 인벤토리 Tab 화면과 같은 알약 탭(`nav.scr-tabs > button.scr-tab`, `ui/styles/base.css`)이 프레임 위 가운데에 떠 있다:
  *
- * 아래는 그 전 구조의 설명이고 매치메이킹 · 행성 · 훈련장의 **동작은 한 줄도 바뀌지 않았다**:
+ * - **행성** (`.hub-pane-planet`): 3칸 격자 — 빈 왼쪽 칸 · **가운데 행성 카드**(홀로그램 · 이름 · 지형 · 위협 · 브리핑 ·
+ *   `◀ ▶` · 행성 이동) · 오른쪽 **정보상 패널**. 왼쪽 칸이 오른쪽과 같은 폭을 차지해 행성이 프레임 한가운데에 선다.
+ *   `시뮬레이션 훈련장` 은 섹션이 아니라 **프레임 우하단 버튼**(`.hub-train`, 푸터 오른쪽)이고 안내 줄은 지웠다.
+ *   누르면 곧장 들어가지 않고 확인 카드(`TrainingConfirm`)를 띄운다. 도킹 전 분대에서는 `분대 대기 중` 으로 잠긴다.
+ * - **매칭** (`.hub-pane-match`, `ui/MatchTab`): 정사각 초상 4칸 + `비공개 매칭` / `공개 매칭` (또는 `도킹 해제`).
+ *   빈 칸의 `초대` 가 초대 창(`ui/InviteModal`)을 연다. 옛 머리 우상단 `📡 매칭` 버튼 · 매칭 팝업(`MatchPanel` —
+ *   코드 · 초대 링크 · 공개 토글)은 지웠다. 튜토리얼 게이트 `matchmaking` 이 **이 탭을 감춘다**.
  *
- * - **left (→ 2026-09-14 매칭 팝업)**: `신호` (개인 함선: 신호 찾기 / 코드로 도킹 /
- *   신호 송출) and `공유 함선` (코드 · 초대 링크 · 공개 전환 · 승무원 4행 · 도킹 해제).
- * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
- *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
- *   Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
- * - **right, bottom**: `시뮬레이션 훈련장` — **2026-09-12: on both ships** (solo too): the 시뮬레이션실 and its
- *   시뮬레이션 허브 were retired, so the terminal is the only way into the arena. The footer is **닫기 (E) alone**. (2026-09-08: the `/seed` 안내
- *   줄과 신호 섹션의 `자동 매칭은 …` 안내 줄은 지웠다 — 화면에 당연한 설명을 남기지 않는다.)
- *   2026-09-08: the terminal closes on **E**, not Escape — Escape is the 일시정지 메뉴 everywhere now.
- *   2026-09-09: **Tab closes it too** (every screen does — `Keys.INVENTORY`, polled in `update()` which `HubSystem`
- *   runs before `InventorySystem`, and consumed so the same press cannot open the inventory).
+ * 터미널은 **언제나 행성 탭으로 열린다** — 튜토리얼의 행성 단계 스포트라이트(`.hp-travel`)가 그 탭에 있고, 행성을
+ * 고르는 것이 이 화면을 여는 주된 이유다.
  *
- * **2026-09-09 (두 가지를 지웠다)**:
- *  - **타이틀로 is gone from the footer.** The 일시정지 메뉴 already has it behind a 경고 팝업 with a 1초 홀드;
- *    a one-click "leave everything" in the corner of a screen you open to pick a planet is a trap, not a shortcut.
- *    `HubMenuHost.toTitle` went with it (nothing else called it), and so did `HubSystem.toTitle` / `Trans.toTitle`.
- *  - **The bottom-right 키 가이드 (`ui:keyGuide`, owner `'terminal'`) is gone.** The terminal is a full screen with
- *    a visible 닫기 (E) button and on-screen `◀ ▶` arrows, so a one-line key strip only repeated what the screen
- *    already showed. The **arrow-key stepping still works** (`onKeyDown`) — only the guide line left, so no
- *    `'terminal'` entry can be left standing on the guide stack.
+ * 닫기 사슬 (`closeTop`, E · Tab 공용 — Escape 는 `ctx.escape` 스택이 같은 순서로 닫는다):
+ * 훈련장 확인 → 초대 창 → 정보상 화면 → 터미널. 자식 화면은 전부 **자기 토큰**을 쓴다 (`hub:trainConfirm` ·
+ * `hub:invite` · `hub:intel`) — 닫혀도 뒤의 터미널이 `hub` blocker · 커서를 잃지 않는다.
  *
- * The 승무원 이름 section is **gone** (Phase 11): the call sign is entered once on the title screen
- * (`ui/menus/TitleMenu` → `net.setPlayerName`), so the terminal no longer renames anyone.
- * The mission-seed field left the terminal on 2026-09-06: seeds are set only through the dev console (`/seed`).
- * Cursor etiquette is Phase 10's: add the `'hub'` blocker, then `ctx.input.setCursorMode(true, 'hub')` — the pointer
- * lock is **kept**, never `exitPointerLock()`. Emits `ui:hubMenuToggled` **and** `hub:terminalToggled`.
+ * 그 전의 이력 (동작은 그대로다):
+ * - 2026-09-14 (정보상): 행성 브리핑이 중앙에서 넓게, 정보상 패널(`.hub-intel`, 접두사 `.hi-`)은 **멀티에서 비호스트는
+ *   전부 읽기 전용**. 전체 화면은 `ui/IntelMenu`.
+ * - Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
+ * - 2026-09-12: 시뮬레이션실이 없어져 훈련장은 **어느 함선에서든 터미널로** 들어간다.
+ * - 2026-09-08: the terminal closes on **E**, not Escape. 2026-09-09: **Tab closes it too** (`Keys.INVENTORY`, polled in
+ *   `update()` which `HubSystem` runs before `InventorySystem`, and consumed so the same press cannot open the inventory).
+ * - 2026-09-09: 타이틀로 · 우하단 키 가이드는 지웠다 (터미널 자신은 가이드를 올리지 않는다 — 자식 화면만 올린다).
+ * - The 승무원 이름 section is gone (Phase 11); the mission seed is set only through the dev console (`/seed`).
+ *
+ * Cursor etiquette is Phase 10's: add the `'hub'` blocker, then `ctx.input.setCursorMode(true, 'hub')`.
+ * Emits `ui:hubMenuToggled` **and** `hub:terminalToggled`.
  */
 export class HubMenu {
   readonly root: HTMLElement;
@@ -74,14 +75,18 @@ export class HubMenu {
   private _open = false;
   private msgTimer = 0;
   private busy = false;
+  private tab: HubMenuTab = 'planet';
 
-  // header
+  // header + tabs
   private subtitle: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  private btnMatching: HTMLButtonElement;
-  // 매칭 팝업 (2026-09-14) — 옛 좌측 열 전부가 여기 산다
-  private match: MatchPanel;
+  private readonly tabButtons = new Map<HubMenuTab, HTMLButtonElement>();
+  private panePlanet: HTMLElement;
+  private paneMatch: HTMLElement;
+  // 매칭 탭 (2026-09-15)
+  private match: MatchTab;
+  private invite: InviteModal;
   // 정보상 (2026-09-14)
   private secIntel: HTMLElement;
   private intelBody: HTMLElement;
@@ -91,9 +96,10 @@ export class HubMenu {
   private btnIntelView: HTMLButtonElement;
   private btnIntelMove: HTMLButtonElement;
   private intelMenu: IntelMenu;
-  // training (shared ship)
-  private secTrain: HTMLElement;
+  // 시뮬레이션 훈련장 (2026-09-15: 우하단 버튼 + 확인 카드)
   private btnTrain: HTMLButtonElement;
+  private trainState: HTMLElement;
+  private trainConfirm: TrainingConfirm;
   // planet (Phase 11)
   private holoHost: HTMLElement;
   private holo: PlanetHologram | null = null;
@@ -121,6 +127,16 @@ export class HubMenu {
     el('div', { cls: 'scan', parent: root });
     const f = this.frame = el('div', { cls: 'frame', parent: root });
 
+    // ── 상단 탭 (2026-09-15) — 인벤토리 Tab 화면의 알약 탭과 같은 클래스 ──
+    const tabs = el('nav', { cls: 'scr-tabs hub-tabs', parent: f });
+    for (const [id, label] of [['planet', '행성'], ['match', '매칭']] as const) {
+      const b = el('button', { cls: `scr-tab${id === this.tab ? ' is-on' : ''}`, text: label, parent: tabs });
+      b.type = 'button';
+      b.dataset.tab = id;
+      b.addEventListener('click', (e) => { e.stopPropagation(); this.setTab(id, true); });
+      this.tabButtons.set(id, b);
+    }
+
     // ── header ──
     const head = el('div', { cls: 'hub-head', parent: f });
     const hl = el('div', { cls: 'hl', parent: head });
@@ -129,20 +145,22 @@ export class HubMenu {
     this.pill = el('div', { cls: 'status-pill offline', parent: head });
     el('i', { parent: this.pill });
     this.pillText = el('span', { text: '오프라인', parent: this.pill });
-    // 2026-09-14 (사용자 결정): 매치메이킹은 머리 우상단 버튼 → 팝업이다 (옛 좌측 열)
-    this.btnMatching = this.button(head, '📡 매칭', () => this.match.open(), 'hub-matching');
 
-    // ── two columns (2026-09-14): centre = 행성 (넓게), right = 정보상 → 시뮬레이션 훈련장 ──
-    const grid = el('div', { cls: 'hub-grid', parent: f });
+    // ── 행성 탭: 빈 왼쪽 칸 · 가운데 행성 · 오른쪽 정보상 ──
+    this.panePlanet = el('div', { cls: 'hub-pane hub-pane-planet', parent: f });
+    const grid = el('div', { cls: 'hub-grid', parent: this.panePlanet });
+    el('div', { cls: 'hub-col left', parent: grid });
     const centre = el('div', { cls: 'hub-col centre', parent: grid });
     const right = el('div', { cls: 'hub-col right', parent: grid });
 
-    this.match = new MatchPanel(ctx, {
+    // ── 매칭 탭 ──
+    this.paneMatch = el('div', { cls: 'hub-pane hub-pane-match', parent: f });
+    this.paneMatch.hidden = true;
+    this.invite = new InviteModal(ctx, () => this.refresh());
+    this.match = new MatchTab(ctx, this.paneMatch, {
       connectThen: (action) => this.connectThen(action),
-      showMsg: (text, kind, toast) => this.showMsg(text, kind, toast),
       isBusy: () => this.busy,
-      copyInvite: () => this.copyInvite(),
-      onClosed: () => this.refresh(),
+      openInvite: () => this.invite.open(),
     });
 
     // ── 정보상 (right column, 2026-09-14) ──
@@ -187,17 +205,24 @@ export class HubMenu {
     this.pEnv.hidden = true;
     this.btnTravel = this.button(planet, '행성 이동', () => this.travel(), 'primary hp-travel');
 
-    // ── 시뮬레이션 훈련장 — 2026-09-12: **both ships** (the 시뮬레이션실 · 시뮬레이션 허브 are retired, the terminal is the one entry) ──
-    this.secTrain = this.section(right, '시뮬레이션 훈련장');
-    this.btnTrain = this.button(this.secTrain, '시작', () => host.startTraining(), 'primary wide');
-    el('div', { cls: 'hint', text: '개별 입장 · 카운트다운 없음. 탄약과 내구도는 소모되지 않습니다. 진행 중인 훈련에는 언제든 합류할 수 있습니다.', parent: this.secTrain });
-
-    // ── message + footer ──
+    // ── message + footer (2026-09-15): 오른쪽에 `닫기 (E)` → `시뮬레이션 훈련장` — 훈련장이 프레임 우하단 모서리다.
+    //    왼쪽 아래 구석은 비워 둔다: 함선 HUD 의 분대 목록 · 이름 줄이 터미널 위에 그려지는 자리다.
     this.msg = el('div', { cls: 'form-msg', parent: f });
     this.msg.hidden = true;
     const foot = el('div', { cls: 'hub-foot', parent: f });
     const footRight = el('div', { cls: 'right', parent: foot });
     this.button(footRight, '닫기 (E)', () => this.close());
+    this.btnTrain = el('button', { cls: 'ui-btn primary hub-train', parent: footRight });
+    this.btnTrain.type = 'button';
+    el('span', { cls: 'hub-train-name', text: '시뮬레이션 훈련장', parent: this.btnTrain });
+    this.trainState = el('span', { cls: 'hub-train-state', text: '시작', parent: this.btnTrain });
+    this.btnTrain.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.btnTrain.disabled) return;
+      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+      this.trainConfirm.open(() => this.host.startTraining());
+    });
+    this.trainConfirm = new TrainingConfirm(ctx, () => this.refresh());
 
     // keep clicks inside from reaching the canvas' click-to-lock fallback
     root.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -220,26 +245,52 @@ export class HubMenu {
       b.on('net:matched', ({ created }) => this.showMsg(created ? '열린 신호가 없어 새 공개 함선을 열었습니다' : '신호 포착 — 도킹 절차 시작', 'success', false)),
       b.on('net:peerJoined', ({ name }) => this.showMsg(`${name} 합류`, 'info', false)),
       b.on('net:peerLeft', ({ name }) => this.showMsg(`${name} 이탈`, 'warning', false)),
+      // 2026-09-15: 초대 창의 친구 · 최근 목록과 `초대 중` 배지는 소셜 스냅숏을 따라간다
+      b.on('social:updated', () => { if (this._open) this.refresh(); }),
+      b.on('social:inviteResult', () => { if (this._open) this.refresh(); }),
       // 목표 행성: a squad-mate's pick (or our own, once the warp arrived) re-syncs the preview
       b.on('hub:planetChanged', ({ planet: p }) => { this.cursor = planetIndex(p); this.syncPlanet(0); this.refresh(); }),
       b.on('hub:travel', () => this.refresh()),
       // 정보상 (2026-09-14): 구매 · 폐기 · 소모 · 서버 문서 로드 전부가 패널을 다시 그린다
       b.on('intel:changed', () => this.refresh()),
       b.on('meta:creditsChanged', () => { if (this._open) this.refresh(); }),
-      // 2026-09-08: 튜토리얼이 감춘 매치메이킹 섹션 · 행성 넘김은 단계가 넘어가거나 건너뛰어지면 돌아온다
+      b.on('progress:levelUp', () => { if (this._open) this.refresh(); }),
+      // 2026-09-08: 튜토리얼이 감춘 매칭 탭 · 행성 넘김은 단계가 넘어가거나 건너뛰어지면 돌아온다
       b.on('tutorial:changed', () => { if (this._open) this.refresh(); }),
     );
     window.addEventListener('keydown', this.onKeyDown);
   }
 
   get isOpen(): boolean { return this._open; }
+  /** 지금 보이는 상단 탭 (스모크 · 디버그). */
+  get activeTab(): HubMenuTab { return this.tab; }
+
+  /* ── 상단 탭 ──────────────────────────────────────────────────────────── */
+  /** 탭을 바꾼다. 튜토리얼이 매칭을 감춘 동안에는 행성 탭에 머문다. */
+  setTab(tab: HubMenuTab, sound = false): void {
+    if (tab === 'match' && this.matchHidden) tab = 'planet';
+    const changed = tab !== this.tab;
+    this.tab = tab;
+    for (const [id, b] of this.tabButtons) toggleClass(b, 'is-on', id === tab);
+    this.panePlanet.hidden = tab !== 'planet';
+    this.paneMatch.hidden = tab !== 'match';
+    this.btnTrain.hidden = tab !== 'planet';
+    // 매칭 탭에서는 홀로그램이 보이지 않는다 — 두 번째 GL 컨텍스트가 헛돌지 않게 멈춘다
+    this.holo?.setVisible(this._open && tab === 'planet');
+    if (changed && sound) this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    if (tab !== 'match') this.invite.close();
+    this.refresh();
+  }
+
+  /** 튜토리얼이 매칭(탭)을 감추는가 (꺼져 있으면 언제나 false). */
+  private get matchHidden(): boolean { return this.ctx.tutorial?.hides('matchmaking') ?? false; }
 
   /* ── 목표 행성 ─────────────────────────────────────────────────────────── */
   /** `←` / `→` and `A` / `D` step the hologram. Bubble phase, so `isolateInput` fields swallow their own keys. */
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (!this._open) return;
-    // 2026-09-14: 위에 뜬 화면(매칭 · 정보상)이 있으면 행성 넘김은 멎는다 — 보이지도 않는 것이 움직이면 안 된다
-    if (this.match.isOpen || this.intelMenu.isOpen) return;
+    if (!this._open || this.tab !== 'planet') return;
+    // 2026-09-14: 위에 뜬 화면(정보상 · 확인 · 초대)이 있으면 행성 넘김은 멎는다 — 보이지도 않는 것이 움직이면 안 된다
+    if (this.intelMenu.isOpen || this.trainConfirm.isOpen || this.invite.isOpen) return;
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') { this.step(-1); e.preventDefault(); }
     else if (e.code === 'ArrowRight' || e.code === 'KeyD') { this.step(1); e.preventDefault(); }
   };
@@ -267,6 +318,7 @@ export class HubMenu {
       this.holoTried = true;
       this.holo = createPlanetHologram(this.holoHost);
       toggleClass(this.root, 'no-holo', !this.holo);
+      this.holo?.setVisible(this._open && this.tab === 'planet');
     }
     this.holo?.setPlanet(d, dir === 0 ? 1 : dir);
     setText(this.pName, d.name);
@@ -344,20 +396,20 @@ export class HubMenu {
     // 튜토리얼이 첫 번째 행성만 허용하는 동안에는 그 행성을 보여 준 채로 연다 (넘김은 감춰진다)
     this.cursor = this.planetLocked ? 0 : planetIndex(this.host.planet());
     this.syncPlanet(0);
-    this.holo?.setVisible(true);
-    this.refresh();
+    this.setTab('planet');                     // 2026-09-15: 언제나 행성 탭으로 연다 (refresh 포함)
     this.ctx.bus.emit('ui:hubMenuToggled', { open: true });
     this.ctx.bus.emit('hub:terminalToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
   /**
-   * **E 가 닫는 것은 맨 위 하나다** (2026-09-14). 터미널 위에 매칭 팝업 · 정보상 화면이 뜰 수 있으므로
-   * `HubSystem` 의 E 는 이 함수를 지난다 — Escape 스택(`ctx.escape`)과 같은 순서다. 닫을 자식이 있었으면 true.
+   * **E 가 닫는 것은 맨 위 하나다** (2026-09-14). 터미널 위에 훈련장 확인 · 초대 창 · 정보상 화면이 뜰 수 있으므로
+   * `HubSystem` 의 E 와 이 화면의 Tab 은 이 함수를 지난다 — Escape 스택(`ctx.escape`)과 같은 순서다. 닫을 자식이 있었으면 true.
    */
   closeTop(): boolean {
+    if (this.trainConfirm.isOpen) { this.trainConfirm.close(); return true; }
+    if (this.invite.isOpen) { this.invite.close(); return true; }
     if (this.intelMenu.isOpen) { this.intelMenu.close(); return true; }
-    if (this.match.isOpen) { this.match.close(); return true; }
     this.close();
     return false;
   }
@@ -366,8 +418,9 @@ export class HubMenu {
     if (!this._open) return;
     this._open = false;
     // 터미널이 닫히면 그 위의 화면도 같이 닫힌다 (blocker · escape 토큰이 남지 않게)
+    this.trainConfirm.close();
+    this.invite.close();
     this.intelMenu.close();
-    this.match.close();
     this.root.hidden = true;
     this.holo?.setVisible(false);              // stop rendering the second WebGL context while it is closed
     (document.activeElement as HTMLElement | null)?.blur?.();
@@ -385,37 +438,42 @@ export class HubMenu {
     const ctx = this.ctx, net = ctx.net;
     const lobby = net?.lobby ?? null;
     const status = net?.status ?? 'offline';
-    const isHost = !!net?.isHost && !!lobby;
+    const docked = isDockedLobby(lobby);
 
-    // header
-    setText(this.subtitle, lobby ? `공유 함선 · ${lobby.players.length}/${NET_MAX_PLAYERS} 승무원` : '개인 함선');
+    // header — 2026-09-15: 분대가 있어도 도킹 전이면 여전히 개인 함선이다
+    setText(this.subtitle, docked && lobby ? `공유 함선 · ${lobby.players.length}/${NET_MAX_PLAYERS} 승무원`
+      : lobby ? `개인 함선 · 분대 ${lobby.players.length}/${NET_MAX_PLAYERS}` : '개인 함선');
     this.pill.className = `status-pill ${status}`;
     setText(this.pillText, status === 'connected' ? `연결됨${net && net.rttMs > 0 ? ` · ${Math.round(net.rttMs)} ms` : ''}` : status === 'connecting' ? '연결 중' : status === 'error' ? '오류' : '오프라인');
 
+    // 2026-09-08: 튜토리얼 동안에는 매치메이킹을 통째로 감춘다 (혼자 한 바퀴 돌게 한다) — 2026-09-15: 매칭 **탭**째 사라진다
+    const hideNet = this.matchHidden;
+    const matchBtn = this.tabButtons.get('match');
+    if (matchBtn) matchBtn.hidden = hideNet;
+    if (hideNet && this.tab === 'match') { this.setTab('planet'); return; }
 
-    // 2026-09-08: 튜토리얼 동안에는 매치메이킹을 통째로 감춘다 (혼자 한 바퀴 돌게 한다) — 이제 버튼째 사라진다
-    const hideNet = ctx.tutorial?.hides('matchmaking') ?? false;
-    this.btnMatching.hidden = hideNet;
-    setText(this.btnMatching, lobby ? `📡 매칭 · ${lobby.code}` : '📡 매칭');
-    toggleClass(this.btnMatching, 'on', !!lobby);
-    if (hideNet && this.match.isOpen) this.match.close();
-    this.match.refresh();
-
+    if (this.tab === 'match') { this.match.refresh(); this.invite.refresh(); }
     this.refreshTravel();
     this.refreshIntel();
+    this.refreshTraining();
+  }
 
-    // 2026-09-12 (사용자 결정): 시뮬레이션실이 없어져 훈련장은 **어느 함선에서든 터미널로** 들어간다 — 섹션은 늘 보인다
-    this.secTrain.hidden = false;
-    if (!lobby) { setText(this.btnTrain, '시작'); this.btnTrain.disabled = false; }   // 솔로: `startTraining` 이 네트 없이 연다
-    if (lobby) {
-      const mode = net?.missionMode ?? lobby.mode ?? 'raid';
-      const training = lobby.started && mode === 'training';
-      const n = lobby.players.filter((p) => p.connected && p.inMission === true).length;
-      if (lobby.started && !training) { setText(this.btnTrain, '임무 진행 중'); this.btnTrain.disabled = true; }
-      else if (training) { setText(this.btnTrain, `합류 (${n}명 훈련 중)`); this.btnTrain.disabled = !(net?.missionInProgress ?? false); }
-      else { setText(this.btnTrain, '시작'); this.btnTrain.disabled = !net; }
-    }
-    void isHost;
+  /**
+   * 우하단 `시뮬레이션 훈련장` 버튼의 상태 줄 (2026-09-12 이후 동작 그대로 + 2026-09-15 `분대 대기 중`).
+   * 솔로 `시작` · 훈련이 돌고 있으면 `합류 (n명 훈련 중)` · 레이드가 돌고 있으면 `임무 진행 중`(잠김) ·
+   * **도킹 전 분대**면 `분대 대기 중`(잠김 — 서버가 `not_docked` 로 막는다, 분대 전원이 도킹해야 들어간다).
+   */
+  private refreshTraining(): void {
+    const net = this.ctx.net;
+    const lobby = net?.lobby ?? null;
+    if (!lobby) { setText(this.trainState, '시작'); this.btnTrain.disabled = false; return; }   // 솔로: `startTraining` 이 네트 없이 연다
+    if (!isDockedLobby(lobby)) { setText(this.trainState, '분대 대기 중'); this.btnTrain.disabled = true; return; }
+    const mode = net?.missionMode ?? lobby.mode ?? 'raid';
+    const training = lobby.started && mode === 'training';
+    const n = lobby.players.filter((p) => p.connected && p.inMission === true).length;
+    if (lobby.started && !training) { setText(this.trainState, '임무 진행 중'); this.btnTrain.disabled = true; }
+    else if (training) { setText(this.trainState, `합류 (${n}명 훈련 중)`); this.btnTrain.disabled = !(net?.missionInProgress ?? false); }
+    else { setText(this.trainState, '시작'); this.btnTrain.disabled = !net; }
   }
 
   /* ── 정보상 패널 (2026-09-14) ─────────────────────────────────────────────── */
@@ -498,15 +556,8 @@ export class HubMenu {
       this.busy = false; this.refresh();
       if (!ok) { this.showMsg('서버에 연결할 수 없습니다', 'danger'); return; }
       action(net);
+      this.refresh();
     }).catch(() => { this.busy = false; this.refresh(); this.showMsg('서버에 연결할 수 없습니다', 'danger'); });
-  }
-
-  private copyInvite(): void {
-    const url = this.ctx.net?.getInviteUrl();
-    if (!url) return;
-    const done = (): void => { this.showMsg('초대 링크 복사됨', 'success', false); this.ctx.bus.emit('ui:notify', { text: '초대 링크가 복사되었습니다', kind: 'success' }); };
-    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => this.showMsg(url, 'info'));
-    else this.showMsg(url, 'info');
   }
 
   private errorText(code: string, message: string): string {
@@ -514,11 +565,12 @@ export class HubMenu {
       case 'not_found': return '해당 코드의 함선을 찾을 수 없습니다';
       case 'full': return '함선이 만석입니다';
       case 'started': return '해당 함선은 이미 임무 중입니다';
-      case 'not_host': return '호스트만 할 수 있습니다';
+      case 'not_host': return '분대장만 할 수 있습니다';
       case 'not_ready': return '모든 승무원이 탑승해야 합니다';
       case 'in_lobby': return '이미 함선에 도킹되어 있습니다';
       case 'not_in_lobby': return '도킹된 함선이 없습니다';
       case 'not_started': return '진행 중인 임무가 없습니다';
+      case 'not_docked': return '분대가 아직 공유 함선에 도킹하지 않았습니다';
       case 'duplicate': return '다른 탭에서 같은 세션이 연결되었습니다';
       case 'no_planet': return '목표 행성을 먼저 지정하세요';
       case 'invalid': return '잘못된 요청입니다';
@@ -538,6 +590,7 @@ export class HubMenu {
 
   private button(parent: HTMLElement, label: string, onClick: () => void, extraCls = ''): HTMLButtonElement {
     const b = el('button', { cls: `ui-btn ${extraCls}`, text: label, parent });
+    b.type = 'button';
     b.addEventListener('click', (e) => { e.stopPropagation(); this.ctx.bus.emit('audio:play', { id: 'ui_click' }); onClick(); });
     return b;
   }
@@ -561,19 +614,20 @@ export class HubMenu {
   /**
    * Called every hub frame: expire the inline message and drive the hologram's own render loop. 2026-09-09: also
    * the **Tab** close — `HubSystem.update` runs this before `InventorySystem.update`, so consuming the key here is
-   * what keeps the same press from opening the inventory. A Tab typed into the 함선 코드 field never gets here
-   * (`isolateInput` stops it at the field). Ignored while the 일시정지 메뉴 is on top.
+   * what keeps the same press from opening the inventory. Ignored while the 일시정지 메뉴 is on top.
+   * 2026-09-15: 초대 창이 열려 있으면 `초대 중 · n초` 를 흘린다.
    */
   update(dt = 0): void {
     if (this.msgTimer > 0 && !this.msg.hidden && performance.now() > this.msgTimer) { this.msg.hidden = true; this.msgTimer = 0; }
     if (!this._open) return;
     if (this.ctx.input.wasPressed(Keys.INVENTORY) && !this.ctx.uiBlockers.has(MENU_BLOCKER)) {
       this.ctx.input.consume(Keys.INVENTORY);
-      // 2026-09-14: Tab 도 **맨 위 하나**만 닫는다 (터미널 위에 매칭 팝업 · 정보상 화면이 뜬다)
-      if (this.closeTop()) return;
+      // 2026-09-14: Tab 도 **맨 위 하나**만 닫는다 (터미널 위에 확인 · 초대 · 정보상 화면이 뜬다)
+      this.closeTop();
       return;
     }
-    this.holo?.render(dt);
+    if (this.invite.isOpen) this.invite.tick();
+    if (this.tab === 'planet') this.holo?.render(dt);
   }
 
   dispose(): void {
@@ -581,7 +635,8 @@ export class HubMenu {
     this.unsubs.length = 0;
     window.removeEventListener('keydown', this.onKeyDown);
     this.intelMenu.dispose();
-    this.match.dispose();
+    this.invite.dispose();
+    this.trainConfirm.dispose();
     this.holo?.dispose(); this.holo = null;
     this.ctx.uiBlockers.delete('hub');
     this.ctx.escape.remove('hub:terminal');

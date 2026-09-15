@@ -152,28 +152,37 @@ try {
   console.log('전체화면 터미널');
   await openTerminal();
   const term = await P(() => {
-    const root = document.querySelector('.menu.hub-menu');
+    const root = document.querySelector('.menu.hub-menu.fullscreen');
     const f = root.querySelector('.frame');
     const r = f.getBoundingClientRect();
-    const secLabel = (t) => [...document.querySelectorAll('.menu.hub-menu .hub-section')].find((s) => s.querySelector('.ui-label')?.textContent === t);
-    const sig = secLabel('신호'), ship = secLabel('공유 함선'), train = secLabel('시뮬레이션 훈련장');
+    const rect = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
+    // 머리줄 제목 · 상태 알약은 **글자** 폭으로 잰다 (블록은 flex 로 늘어나 있다)
+    const textRect = (e) => { if (!e) return null; const rg = document.createRange(); rg.selectNodeContents(e); const b = rg.getBoundingClientRect(); return { l: b.left, r: b.right }; };
+    const planet = rect(root.querySelector('.hub-planet'));
+    const train = root.querySelector('.hub-foot .right .ui-btn.hub-train');
     return {
       full: root.classList.contains('fullscreen'),
       w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight,
       sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight,
-      // 2026-09-14 (정보상): 터미널은 2열이고 매치메이킹(신호 · 공유 함선)은 머리 우상단 `📡 매칭` 팝업 안이다
-      cols: document.querySelectorAll('.menu.hub-menu.fullscreen > .frame .hub-col').length,
-      matchBtn: !!document.querySelector('.hub-head .ui-btn.hub-matching'),
-      sigInPopup: !!sig?.closest('.menu.hub-menu.hm-match'),
-      sigHidden: sig?.hidden ?? null,
-      shipHidden: ship?.hidden ?? null,
-      intelIn: document.querySelector('.hub-intel')?.closest('.hub-col')?.classList.contains('right') ?? null,
-      trainIn: train?.closest('.hub-col')?.classList.contains('right') ?? null,
-      planetIn: document.querySelector('.hub-planet')?.closest('.hub-col')?.classList.contains('centre') ?? null,
+      // 2026-09-15 (분대 · 도킹 매칭): 상단 탭 행성 / 매칭 — 인벤토리 Tab 화면과 같은 `.scr-tabs > .scr-tab`
+      tabs: [...root.querySelectorAll('nav.scr-tabs.hub-tabs > button.scr-tab')].map((b) => `${b.textContent}${b.classList.contains('is-on') ? '*' : ''}${b.hidden ? '(hidden)' : ''}`),
+      activeTab: window.__game.getSystem('hub').menu.activeTab,
+      tabsR: rect(root.querySelector('.hub-tabs')),
+      titleT: textRect(root.querySelector('.hub-head .title')),
+      pillT: textRect(root.querySelector('.hub-head .status-pill')),
+      matchPaneHidden: root.querySelector('.hub-pane-match')?.hidden ?? null,
+      oldMatch: !!document.querySelector('.hub-matching, .hm-match, .crew-row'),
+      cols: root.querySelectorAll('.hub-pane-planet .hub-grid > .hub-col').length,
+      intelIn: root.querySelector('.hub-intel')?.closest('.hub-col')?.classList.contains('right') ?? null,
+      planetIn: root.querySelector('.hub-planet')?.closest('.hub-col')?.classList.contains('centre') ?? null,
+      planetCx: planet ? (planet.l + planet.r) / 2 : null, frameCx: (r.left + r.right) / 2,
+      train: train ? { state: train.querySelector('.hub-train-state')?.textContent ?? null, disabled: train.disabled, hidden: train.hidden, r: rect(train) } : null,
+      trainSection: [...root.querySelectorAll('.hub-section .ui-label')].some((n) => n.textContent === '시뮬레이션 훈련장'),
+      trainHint: root.textContent.includes('개별 입장'),
       crewName: document.querySelectorAll('.hub-crew-name').length,
-      nameInput: [...document.querySelectorAll('.menu.hub-menu input')].filter((i) => i.placeholder === '호출명').length,
-      seedHint: document.querySelector('.menu.hub-menu .seed-hint')?.textContent ?? null,
-      closeBtn: [...document.querySelectorAll('.hub-foot .ui-btn')].map((b) => b.textContent),
+      nameInput: [...root.querySelectorAll('input')].filter((i) => i.placeholder === '호출명').length,
+      seedHint: root.querySelector('.seed-hint')?.textContent ?? null,
+      closeBtn: [...root.querySelectorAll('.hub-foot .ui-btn')].map((b) => b.querySelector('.hub-train-name')?.textContent ?? b.textContent),
       blocker: window.__game.ctx.uiBlockers.has('hub'),
       cursor: window.__game.ctx.input.isCursorMode,
       locked: !!document.pointerLockElement,
@@ -182,24 +191,158 @@ try {
   ok(term.full, 'root carries .fullscreen');
   ok(term.w >= term.vw - 2 && term.h >= term.vh - 2, `the frame fills the viewport (${term.w}×${term.h} of ${term.vw}×${term.vh})`);
   ok(term.sw <= term.cw && term.sh <= term.ch, `the frame still has no scroll overflow (${term.sw}/${term.cw} × ${term.sh}/${term.ch})`);
-  // 2026-09-14 (정보상, 사용자 결정): 3열 → 2열. 좌측 매치메이킹 열은 `📡 매칭` 팝업(`hub/ui/MatchPanel`)으로 갔다.
-  ok(term.cols === 2, `two columns (${term.cols})`);
-  ok(term.matchBtn, '머리 우상단에 📡 매칭 버튼');
-  ok(term.sigInPopup === true && term.sigHidden === false, '신호 section lives in the 매칭 popup, shown in the personal ship');
-  ok(term.shipHidden === true, '공유 함선 section hidden without a lobby');
+  // 2026-09-15 (분대 · 도킹 매칭, 사용자 결정): 상단 탭 · 가운데 행성 · 우하단 훈련장 버튼, 머리 `📡 매칭` 버튼과 매칭 팝업은 없다
+  ok(term.tabs.join(',') === '행성*,매칭', `top tabs 행성 / 매칭 with 행성 on (${term.tabs.join(',')})`);
+  ok(term.activeTab === 'planet' && term.matchPaneHidden === true, `the terminal opens on the 행성 tab (${term.activeTab})`);
+  ok(!!term.tabsR && !!term.titleT && !!term.pillT && term.tabsR.l > term.titleT.r && term.tabsR.r < term.pillT.l && Math.abs((term.tabsR.l + term.tabsR.r) / 2 - term.frameCx) <= 4,
+    'the tabs sit at the top centre, between the title and the status pill', JSON.stringify({ tabs: term.tabsR, title: term.titleT, pill: term.pillT }));
+  ok(term.oldMatch === false, 'no header 매칭 button, 매칭 popup or crew rows any more');
+  ok(term.cols === 3, `planet pane = three grid cells (${term.cols})`);
   ok(term.intelIn === true, '정보상 패널 in the right column');
-  ok(term.trainIn === true, '시뮬레이션 훈련장 section in the right column');
   ok(term.planetIn === true, '행성 카드 in the centre column');
+  ok(term.planetCx !== null && Math.abs(term.planetCx - term.frameCx) <= 4, `the planet card is centred in the frame (${term.planetCx} vs ${term.frameCx})`);
+  ok(!!term.train && term.train.state === '시작' && term.train.disabled === false && !term.train.hidden, `시뮬레이션 훈련장 button, solo → "${term.train?.state}"`);
+  ok(!!term.train && term.train.r.r >= term.vw - 60 && term.train.r.b >= term.vh - 60 && term.train.r.r <= term.vw && term.train.r.b <= term.vh,
+    `the training button sits in the bottom-right corner (${JSON.stringify(term.train?.r)})`);
+  ok(!term.trainSection && !term.trainHint, 'no 시뮬레이션 훈련장 section and no hint line');
   ok(term.crewName === 0 && term.nameInput === 0, `the 승무원 이름 section is gone (${term.crewName} label / ${term.nameInput} input)`);
   // 2026-09-08: `.seed-hint` 는 지웠다 — 시드는 여전히 개발자 콘솔 `/seed` 만 건드리지만, 화면에 적어 둘 이유가 없다.
   ok(term.seedHint === null, `.seed-hint removed (${JSON.stringify(term.seedHint)})`);
   // 2026-09-09: 타이틀로 는 단말기에서 뺐다 — 일시정지 메뉴에 이미 있고, 구석의 파괴적 버튼은 함정이다.
-  ok(term.closeBtn.includes('닫기 (E)') && !term.closeBtn.includes('타이틀로'), `footer: ${term.closeBtn.join(' / ')}`);
+  ok(term.closeBtn.includes('닫기 (E)') && !term.closeBtn.includes('타이틀로') && term.closeBtn[term.closeBtn.length - 1] === '시뮬레이션 훈련장', `footer: ${term.closeBtn.join(' / ')}`);
   ok(term.blocker && term.cursor === true, `the 'hub' blocker + software cursor (Phase 10 etiquette, cursor ${term.cursor})`);
   ok(term.locked === true, 'the pointer lock is kept (no exitPointerLock)');
   const tog = await lastEv('hub:terminalToggled');
   ok(tog && tog.open === true, `hub:terminalToggled {open:true} (${JSON.stringify(tog)})`);
   ok((await ev('ui:hubMenuToggled')).slice(-1)[0]?.open === true, 'the legacy ui:hubMenuToggled still fires');
+
+  /* ── 2b. 매칭 탭 · 초대 창 (2026-09-15, 분대 · 도킹 매칭) ─────────────── */
+  console.log('매칭 탭');
+  await clickSel('.hub-tabs .scr-tab[data-tab="match"]');
+  await waitSim(0.2);
+  const mt = await P(() => {
+    const st = (sel) => { const b = document.querySelector(sel); return b ? { hidden: b.hidden, disabled: b.disabled } : null; };
+    const face = window.__game.ctx.player.snapshotFace?.({ accent: '#5fd7ff' }) ?? null;
+    return {
+      activeTab: window.__game.getSystem('hub').menu.activeTab,
+      tabs: [...document.querySelectorAll('.hub-tabs .scr-tab')].map((b) => `${b.textContent}${b.classList.contains('is-on') ? '*' : ''}`),
+      planetHidden: document.querySelector('.hub-pane-planet').hidden,
+      trainHidden: document.querySelector('.hub-train').hidden,
+      holoVis: document.querySelector('.hp-holo canvas')?.style.visibility ?? null,
+      tiles: [...document.querySelectorAll('.hub-pane-match .hmt-row > .hmt-tile')].map((t) => {
+        const inv = t.querySelector('.hmt-invite');
+        return { cls: t.className, name: t.querySelector('.hmt-name')?.textContent ?? '', img: !!t.querySelector('.hmt-face img')?.getAttribute('src'), invite: inv && !inv.hidden ? (inv.disabled ? 'off' : 'on') : null };
+      }),
+      priv: st('.hmt-private'), pub: st('.hmt-public'), undock: st('.hmt-undock'), leave: st('.hmt-leave'),
+      hint: document.querySelector('.hmt-hint')?.hidden === false ? document.querySelector('.hmt-hint').textContent : null,
+      face: face ? face.slice(0, 22) : null,
+      faceCached: !!face && window.__game.ctx.player.snapshotFace({ accent: '#5fd7ff' }) === face,
+    };
+  });
+  ok(mt.activeTab === 'match' && mt.tabs.join(',') === '행성,매칭*', `clicking 매칭 switches the tab (${mt.tabs.join(',')})`);
+  ok(mt.planetHidden && mt.trainHidden, 'the planet pane and the training button are hidden on the 매칭 tab');
+  ok(mt.holoVis === 'hidden', `the hologram stops drawing on the 매칭 tab (visibility ${mt.holoVis})`);
+  ok(mt.tiles.length === 4, `4 square portrait tiles (${mt.tiles.length})`);
+  ok(/\bis-me\b/.test(mt.tiles[0]?.cls ?? '') && mt.tiles[0].name.length > 0 && mt.tiles[0].img, `me first, with a face image (${JSON.stringify(mt.tiles[0])})`);
+  ok(mt.tiles.slice(1).every((t) => /\bis-empty\b/.test(t.cls) && t.invite === 'on'), `solo: the other three are empty cells with an enabled 초대 (${mt.tiles.slice(1).map((t) => t.invite).join(',')})`);
+  ok(mt.face === 'data:image/png;base64,' && mt.faceCached, `ctx.player.snapshotFace returns a PNG and caches it (${mt.face})`);
+  ok(!!mt.priv && !!mt.pub && !mt.priv.hidden && !mt.pub.hidden && mt.undock?.hidden === true && mt.leave?.hidden === true, '비공개 / 공개 매칭 shown, no 도킹 해제 / 분대 떠나기 without a lobby');
+  ok(mt.priv?.disabled && mt.pub?.disabled && /서버에 연결/.test(mt.hint ?? ''), `no relay (parked) → both disabled with "${mt.hint}"`);
+
+  await P(() => document.querySelector('.hmt-tile.is-empty .hmt-invite')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await waitSim(0.1);
+  const inv0 = await P(() => ({
+    open: !document.querySelector('.menu.hub-menu.hinv-modal').hidden,
+    top: window.__game.ctx.escape.topKey, blocker: window.__game.ctx.uiBlockers.has('hub:invite'),
+    note: document.querySelector('.hinv-note')?.hidden === false ? document.querySelector('.hinv-note').textContent : null,
+    guide: window.__game.getSystem('hud').keyGuideOwner ?? null,
+  }));
+  ok(inv0.open && inv0.top === 'hub:invite' && inv0.blocker, `초대 opens the invite modal on its own token (${inv0.top})`);
+  ok(inv0.guide === 'hub.invite', `the invite modal owns the key guide (${inv0.guide})`);
+  ok(/서버에 연결/.test(inv0.note ?? ''), `offline → the modal says so ("${inv0.note}")`);
+  // 접속 · 소셜 스냅숏을 인스턴스 속성으로 잠깐 덮어 줄을 그리게 한다 (게터는 프로토타입에 있어 delete 로 되돌아간다)
+  const inv1 = await P(() => {
+    const net = window.__game.getSystem('net');
+    const now = net.serverNow();
+    window.__played = null;
+    Object.defineProperty(net, 'status', { get: () => 'connected', configurable: true });
+    Object.defineProperty(net, 'social', {
+      configurable: true, writable: true,
+      value: {
+        available: true,
+        friends: [
+          { code: 'AB3D9KMN', name: '친구하나', level: 12, presence: 'ship', squad: 0, joinable: true },
+          { code: 'QW7E2RTY', name: '친구둘', level: 4, presence: 'raid', squad: 1, joinable: false },
+        ],
+        recent: [{ code: 'ZX4C8VBN', name: '최근', level: 0, presence: 'ship', squad: 0, joinable: true, inviteAt: now - 10000 }],
+        playBlock: (c) => (c === 'QW7E2RTY' ? 'in_mission' : null),
+        playWith: (c) => { window.__played = c; },
+        refresh() {},
+      },
+    });
+    try {
+      window.__game.getSystem('hub').menu.refresh();
+      const rows = [...document.querySelectorAll('.hinv-row')].map((r) => ({
+        code: r.dataset.code, id: r.querySelector('.hinv-code')?.textContent, lv: r.querySelector('.hinv-lv')?.textContent,
+        pres: r.querySelector('.hinv-presence')?.textContent, btn: r.querySelector('.hinv-btn')?.textContent, off: r.querySelector('.hinv-btn')?.disabled,
+        section: r.closest('.hinv-section')?.querySelector('.ui-label')?.textContent,
+      }));
+      document.querySelector('.hinv-row[data-code="AB3D9KMN"] .hinv-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      document.querySelector('.hinv-row[data-code="QW7E2RTY"] .hinv-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return { rows, played: window.__played };
+    } finally {
+      delete net.status; delete net.social;
+      window.__game.getSystem('hub').menu.refresh();
+    }
+  });
+  const rowOf = (c) => inv1.rows.find((r) => r.code === c);
+  ok(inv1.rows.map((r) => r.code).join(',') === 'AB3D9KMN,QW7E2RTY,ZX4C8VBN' && rowOf('AB3D9KMN')?.section === '친구' && rowOf('ZX4C8VBN')?.section === '최근 만난 플레이어',
+    'friends first, then recent players', JSON.stringify(inv1.rows));
+  ok(rowOf('AB3D9KMN')?.id === 'AB3D-9KMN' && rowOf('AB3D9KMN')?.lv === 'Lv.12' && rowOf('AB3D9KMN')?.pres === '함선' && rowOf('AB3D9KMN')?.btn === '초대' && rowOf('AB3D9KMN')?.off === false,
+    'a row shows name, 아이디, level, presence and an enabled 초대', JSON.stringify(rowOf('AB3D9KMN')));
+  ok(rowOf('QW7E2RTY')?.btn === '임무 중' && rowOf('QW7E2RTY')?.off === true, `a blocked row shows PLAY_BLOCK_LABELS ("${rowOf('QW7E2RTY')?.btn}")`);
+  ok(/^초대 중 · \d+초$/.test(rowOf('ZX4C8VBN')?.btn ?? '') && rowOf('ZX4C8VBN')?.off === true && rowOf('ZX4C8VBN')?.lv === 'Lv.—', `an open invite shows its countdown ("${rowOf('ZX4C8VBN')?.btn}")`);
+  ok(inv1.played === 'AB3D9KMN', `초대 calls social.playWith with the row's code, a disabled row does nothing (${inv1.played})`);
+  await tap('Tab');
+  await waitSim(0.15);
+  const inv2 = await P(() => ({
+    open: !document.querySelector('.menu.hub-menu.hinv-modal').hidden,
+    term: !document.querySelector('.menu.hub-menu.fullscreen').hidden,
+    top: window.__game.ctx.escape.topKey, blocker: window.__game.ctx.uiBlockers.has('hub:invite'), hubBlocker: window.__game.ctx.uiBlockers.has('hub'),
+    tab: window.__game.getSystem('hub').menu.activeTab,
+  }));
+  ok(!inv2.open && !inv2.blocker && inv2.term && inv2.hubBlocker && inv2.top === 'hub:terminal' && inv2.tab === 'match', 'Tab closes only the invite modal (terminal, its blocker and the 매칭 tab stay)', JSON.stringify(inv2));
+  await clickSel('.hub-tabs .scr-tab[data-tab="planet"]');
+  await waitSim(0.2);
+  const back = await P(() => ({ tab: window.__game.getSystem('hub').menu.activeTab, planet: !document.querySelector('.hub-pane-planet').hidden, holoVis: document.querySelector('.hp-holo canvas')?.style.visibility ?? null }));
+  ok(back.tab === 'planet' && back.planet && back.holoVis === '', `back on the 행성 tab, the hologram draws again (${JSON.stringify(back)})`);
+
+  /* ── 2c. 세 창 크기에서 프레임이 넘치지 않는다 (2026-09-15) ─────────────── */
+  for (const [vw, vh] of [[1280, 760], [1440, 900], [1920, 1080]]) {
+    await page.setViewport({ width: vw, height: vh });
+    await waitSim(0.2);
+    const lay = await P(() => {
+      const menu = window.__game.getSystem('hub').menu;
+      const rect = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
+      const f = document.querySelector('.menu.hub-menu.fullscreen .frame');
+      const over = () => ({ sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight });
+      menu.setTab('planet');
+      const planet = { over: over(), travel: rect(document.querySelector('.hp-travel')), centre: rect(document.querySelector('.hub-col.centre')), train: rect(document.querySelector('.hub-train')), card: rect(document.querySelector('.hub-planet')), frame: rect(f) };
+      menu.setTab('match');
+      const match = { over: over(), row: rect(document.querySelector('.hmt-row')), actions: rect(document.querySelector('.hmt-actions')), pane: rect(document.querySelector('.hub-pane-match')) };
+      menu.setTab('planet');
+      return { planet, match };
+    });
+    const p = lay.planet, m = lay.match;
+    const noOver = (o) => o.sw <= o.cw && o.sh <= o.ch;
+    ok(noOver(p.over) && noOver(m.over), `${vw}×${vh}: no frame overflow on either tab`, JSON.stringify({ p: p.over, m: m.over }));
+    ok(!!p.travel && !!p.centre && p.travel.b <= p.centre.b + 1 && p.travel.t >= p.centre.t - 1, `${vw}×${vh}: the planet card is not clipped (행성 이동 visible)`, JSON.stringify({ travel: p.travel, centre: p.centre }));
+    ok(!!p.card && Math.abs((p.card.l + p.card.r) / 2 - (p.frame.l + p.frame.r) / 2) <= 4, `${vw}×${vh}: the planet card stays centred`);
+    ok(!!p.train && p.train.r <= vw && p.train.b <= vh && p.train.r >= vw - 60, `${vw}×${vh}: the training button stays in the bottom-right corner`, JSON.stringify(p.train));
+    ok(!!m.row && !!m.actions && !!m.pane && m.row.l >= m.pane.l && m.row.r <= m.pane.r && m.actions.b <= m.pane.b, `${vw}×${vh}: the tiles and matching buttons fit the 매칭 pane`, JSON.stringify(m));
+  }
+  await page.setViewport({ width: 1600, height: 900 });
+  await waitSim(0.2);
 
   /* ── 3. the hologram + ◀ ▶ / arrows / A-D ────────────────────────────── */
   console.log('행성 홀로그램');

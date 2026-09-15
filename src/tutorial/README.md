@@ -146,7 +146,7 @@ caller's existing UI. Blocked items are **hidden**, not shown locked: `hides(gat
 | `planet` | `hub/parts/Planet`, `hub/ui/HubMenu` | only `PLANET_IDS[0]`; hides planet arrows |
 | `board` | `hub/parts/Pods` | launch slot before its step |
 | `screenTab` | `inventory/ui/parts/Screens` | tabs other than inventory (inventory always open) |
-| `matchmaking` | `hub/ui/HubMenu`, `hub/ui/MatchPanel` | always hidden while active |
+| `matchmaking` | `hub/ui/HubMenu` | the terminal's `매칭` tab, always hidden while active |
 | `community` | `ui/hud/Community` | hidden unless the step allows it (ship track messenger) |
 | `stashItem` | `inventory/ui/InventoryUI`, `inventory/ui/GridView` | stash items outside `TUTORIAL_STASH_WHITELIST` — build track only |
 | `hud` | `ui/hud/Vitals`, `WeaponPanel`, `ImplantWidget`, `StratagemPanel`, `Compass`, `Objective`, `WorldMarkers`, `ui/map/MapScreen`, `inventory/ui/ImplantPanel` | hide-only HUD reveal, raid track only |
@@ -206,8 +206,8 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track + three-track contract), `smok
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-15 — Gate `matchmaking` now hides the terminal's `매칭` tab (the matchmaking popup is gone).
 - 2026-09-15 — Raid skip keeps the black plate (`hold: true`) over the result screen; cleared on `hub:entered`.
 - 2026-09-15 — New raid step `corpseOpen` (16 steps); objective counts `(n/m)`; objective panel text ×1.2.
 - 2026-09-15 — `supplyLoot` step, per-section skipping, objective noun phrases with key tokens, crouch-aim TIP, raid skip = fade → result screen.
 - 2026-09-15 — `grenade` required objective text `앞으로 이동`.
-- 2026-09-15 — Ship track fixes found by `smoke-tutorial-ship` (messenger spotlight, Raven choice tick).

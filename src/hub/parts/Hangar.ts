@@ -88,7 +88,8 @@ export function shipStateWire(sys: HubSystem): ShipVisitWire | null {
 export function sendShipState(sys: HubSystem, force: boolean, to?: PeerId): void {
   const ctx = sys.ctx;
   const net = ctx.net;
-  if (!net?.lobby || typeof net.send !== 'function') { sys.shipStateDirty = false; return; }
+  // 2026-09-15: ship layouts belong to the docked squad's hangar — an undocked squad exchanges none
+  if (!net || !sys.squadLobby() || typeof net.send !== 'function') { sys.shipStateDirty = false; return; }
   if (to !== undefined) {
     const last = sys.shipAnsweredAt.get(to) ?? -Infinity;
     if (!force && ctx.time - last < SHIP_VISIT_COOLDOWN_S) return;
@@ -105,7 +106,7 @@ export function sendShipState(sys: HubSystem, force: boolean, to?: PeerId): void
 
 /** Our ship changed (furniture placed, room re-purposed, a facility upgraded…): re-broadcast, debounced. */
 export function shipStateChanged(sys: HubSystem): void {
-  if (!sys.active || !sys.ctx.net?.lobby) return;
+  if (!sys.active || !sys.squadLobby()) return;
   sendShipState(sys, false);
   }
 
@@ -121,11 +122,12 @@ export function shipStateChanged(sys: HubSystem): void {
 export function announceShip(sys: HubSystem): void {
   bindShipRequests(sys);
   const net = sys.ctx.net;
-  if (!net?.lobby || typeof net.send !== 'function') return;
+  const lobby = sys.squadLobby();
+  if (!net || !lobby || typeof net.send !== 'function') return;
   const me = net.localId;
   const known = typeof net.getShipVisit === 'function' ? net.getShipVisit(me ?? '') : null;
   if (!known) sendShipState(sys, true);          // first arrival in this squad — nobody has our layout
-  for (const p of net.lobby.players) {
+  for (const p of lobby.players) {
     if (p.id === me || typeof net.requestShipVisit !== 'function') continue;
     if (!net.getShipVisit(p.id)) net.requestShipVisit(p.id);
   }
@@ -188,7 +190,7 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
 /** Crew name parked in bay `slot`, or null when the slot is empty (no lobby → only our own bay 0 is filled). */
 function occupantOf(sys: HubSystem, slot: number): { id: PeerId; name: string } | null {
   const net = sys.ctx.net;
-  const lobby = net?.lobby ?? null;
+  const lobby = sys.squadLobby();
   if (!lobby) return slot === 0 ? { id: net?.localId ?? 'local', name: '내 함선' } : null;
   const p = lobby.players.find((q) => q.slot === slot) ?? null;
   return p ? { id: p.id, name: p.name } : null;

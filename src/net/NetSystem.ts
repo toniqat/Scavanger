@@ -11,6 +11,8 @@ import type { NetLinkInfo } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 */
 import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
+/* 2026-09-15: 분대 · 도킹 매칭 — 공용 함선 판정 · 접속 URL 의 강조색 (`?a=`) */
+import { NET_ACCENT_PARAM, activeSlot, isDockedLobby, readSlotCard, sanitizeAccent } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -164,7 +166,16 @@ export class NetSystem implements GameSystem, NetRef {
   get sessionToken(): string { return this._sessionToken; }
   get reconnecting(): boolean { return this._reconnecting; }
   get missionInProgress(): boolean { return this._lobby !== null && this._lobby.started && !this._inSession; }
-  get inHubSession(): boolean { return this._lobby !== null && !this._inSession && this.ctx.phase === 'hub'; }
+  /**
+   * 2026-09-15 (분대 · 도킹 매칭): 분대(로비)가 곧 공용 함선이 아니다. 허브 스냅샷은 **도킹된** 분대의 공용 함선
+   * (갑판 · 격납고 · 격납고에서 들어간 개인 함선) 안에서만 오간다 — 미도킹 분대원은 저마다 원점에 지은 **다른** 개인
+   * 함선에 서 있어 서로의 아바타가 남의 함선 좌표에 그려진다. 도킹 카운트다운 동안 개인 함선에 서 있는 것도 같다.
+   */
+  get inHubSession(): boolean {
+    if (!isDockedLobby(this._lobby) || this._inSession || this.ctx.phase !== 'hub') return false;
+    const hub = this.ctx.hub;
+    return !!hub && (hub.ship === 'shared' || hub.hubSite !== null);
+  }
   /* ── Phase 7 ── */
   get profile(): ProfileRef { return this.profileSync; }
   get raidBlob(): RaidSessionBlob | null { return this._raidBlob; }
@@ -212,6 +223,14 @@ export class NetSystem implements GameSystem, NetRef {
     this.socialSync.serverNow = () => this.serverNow();
     this.socialSync.joinLobby = (code) => this.joinLobby(code);
     this.socialSync.squadSize = () => this._lobby?.players.length ?? 0;
+    /* 2026-09-15 (분대 · 도킹 매칭): 분대 초대 게이트 — 이미 내 분대인 아이디, 그리고 「내가 이끌지 않는 분대에 있다」 */
+    this.socialSync.squadCodes = () => {
+      const me = this.localId;
+      const out: string[] = [];
+      for (const p of this._lobby?.players ?? []) if (p.id !== me && typeof p.code === 'string' && p.code) out.push(p.code);
+      return out;
+    };
+    this.socialSync.iAmMember = () => this._lobby !== null && !this.isHost;
     /* 2026-09-14: the room mirror borrows my card and the block list from the social mirror. */
     this.roomSync.bus = ctx.bus;
     this.roomSync.send = (m) => this.client.send(m);
@@ -377,8 +396,18 @@ export class NetSystem implements GameSystem, NetRef {
 
   reconnectRelay(): Promise<boolean> { return Sock.reconnectRelay(this); }
 
-  /** Append `?t=<token>&n=<name>` (NET_TOKEN_PARAM / NET_NAME_PARAM) to a relay URL. */
-  withSession(url: string): string { return Sock.withSession(this, url); }
+  /**
+   * Append `?t=<token>&n=<name>` (NET_TOKEN_PARAM / NET_NAME_PARAM) to a relay URL. 2026-09-15: plus `&a=<accent>`
+   * (`NET_ACCENT_PARAM`) — this character's `PlayerProfile.accent`, read from the slot card exactly like
+   * `player/PlayerSystem` does, so the 매칭 탭 portraits (`LobbyPlayer.accent`) know it from the first `lobby:state`.
+   * No valid accent (no card yet · storage off) → nothing is added and the portrait falls back to the slot colour.
+   */
+  withSession(url: string): string {
+    const base = Sock.withSession(this, url);
+    let accent: string | null = null;
+    try { accent = sanitizeAccent(readSlotCard(activeSlot()).accent); } catch { accent = null; }
+    return accent ? `${base}&${NET_ACCENT_PARAM}=${encodeURIComponent(accent)}` : base;
+  }
 
   /* ── reconnect ──────────────────────────────────────────────────────── */
   /** Socket went offline/error. `wasConnected` = an established (welcomed) connection dropped, not a failed attempt. */

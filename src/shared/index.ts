@@ -87,3 +87,5 @@ export * from './intelDefs';
 export * from './keycap';
 /* appended (2026-09-15): 폭발 감쇠 2단 계단 — 모든 폭발물이 같은 식을 쓴다 (weapons · enemies · gadgets · stratagems) */
 export * from './explosion';
+/* appended (2026-09-15): 얼굴 초상 프레이밍 — 캐릭터 생성 확정 팝업과 터미널 매칭 탭이 같은 얼굴을 그린다 */
+export * from './faceFraming';

@@ -94,7 +94,7 @@ folder's responsibility changes.
 
 | Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | Third-person controller · camera rig (shoulder swap, aim sway) · procedural soldier · hp/shield/stamina/downed · damage sources · fall damage · stance · interaction · ladders · tram/rover riding · drone-control mode · furniture poses · intro wake · scene lock · character buff list · remote avatars · drop pods |
+| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | Third-person controller · camera rig (shoulder swap, aim sway) · procedural soldier · hp/shield/stamina/downed · damage sources · fall damage · stance · interaction · ladders · tram/rover riding · drone-control mode · furniture poses · intro wake · scene lock · character buff list · remote avatars · drop pods · face portraits (`snapshotFace`) |
 | [`src/weapons/`](src/weapons/README.md) | `WeaponSystem` | — | 2 primary slots · effective stats · durability · ammo · hybrid shot resolution (crosshair line + 3 m muzzle block) · swept projectiles · recoil/spread · grenades · throw arc · melee · quick-use wheel · healing/combat consumables · legendary uniques · remote replay |
 | [`src/implants/`](src/implants/README.md) | `ImplantSystem` | `ctx.implants` | 5 tactical implants (grapple · dash · barrier · overcharge · recon), Q key · cooldowns · refunds |
 | [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` · `DroneSystem` | `ctx.gadgets` · `ctx.drones` | Consumable gadgets — placement preview · mines · remote mines · turret · dome shield · barricade · jump pad · fire zones (host-authoritative) · ground/air drones (owner-authoritative control and scan) |
@@ -123,7 +123,7 @@ folder's responsibility changes.
 
 | Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | Personal/shared ship interiors · hangar · docking cutscene · window warp · launch pods/slot readiness · full-screen terminal (planets · intel · matchmaking) · furniture models and staging (gym · cooking · games) · ship management mode · light pool |
+| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | Personal/shared ship interiors · hangar · docking cutscene (squad dock countdown · fade) · window warp · launch pods/slot readiness · full-screen terminal (행성 tab: planets · intel · training; 매칭 tab: squad portraits · invites · private/public docking) · furniture models and staging (gym · cooking · games) · ship management mode · light pool |
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | Phase state machine · death/corpses · squad-leader device · raid session save/resume (solo clock defence · tutorial resume) · resume gate · ESC policy · voluntary return · result-screen data |
 | [`src/ui/`](src/ui/README.md) | `HudSystem` | — | All DOM UI — raid/ship HUD · crosshair · danger indicators · map (fog) · pings · chat · messenger · menus (title · character · ESC · settings) · result screens · key guide · item tooltips · stylesheets · **sole owner of toasts** |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | Procedural WebAudio SFX + ambience · distance curves · per-surface footsteps · volume persistence (`bgm` channel is storage/display only) |
@@ -178,6 +178,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Stash is left, bag right, in one panel with two panes that each scroll/sort/filter — `src/inventory/ui/TradeGrids.ts`. Bags are 5 wide; the frame is the tallest bag (`BAG_FRAME_ROWS`); padding rows are not drop targets.
 - Right-click = item menu, double-click = quick move (never silently displaces equipped items — `inventory/parts/DropResolver.tryAutoPlace`). Merge overflow stays on the cursor (`DragState.held`).
 - Hold-to-pin screens use the `ui:cursorHold` ring (`src/ui/hud/CursorHoldGauge.ts`) and the escape stack.
+- The hub terminal is two tabs (`행성` · `매칭`, `.scr-tabs` look); child screens own their tokens (`hub:trainConfirm`, `hub:invite`, `hub:intel`) and close first — `src/hub/ui/HubMenu.ts`. No lobby codes, links or public/private toggle in the UI.
 - Minigames: the drawn marker size **is** the perfect window from csv; good = ×`GYM_GOOD_OF_PERFECT` / `COOK_GOOD_OF_PERFECT`, clamped to half a beat; widen by slowing beats, not windows; no-input steps end via `maxTime` — `housing/parts/GymGames.judgeBands`, `parts/CookGames.cookJudgeBands`.
 
 ### 4.3 Saves · profiles · network trust
@@ -193,6 +194,9 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - The relay validates credit reasons (`shared/credits.ts` `formatCreditReason`, `server/Economy.ts`, `server/economy.gen.json`); it does not check item ownership. Dev reasons need a relay with `SCAV_DEV_ECONOMY=1` (only `scripts/verify.mjs` starts one). No client-side credit/sell-price multipliers.
 - Messages that affect others are accepted only from the authority (lobby host for `strat call`, `ee`, `crate sync`). Host-bound requests pass shape → sender → distance → rate (`shared/buffRules.ts` `createBuffGuard`); two paths of one ability share a bucket; limits derive from data; flying things may outlive their dead sender.
 - Denials return to the sender: `strat deny` → full cooldown refund, accepted only from the host with the caller's own `callId`.
+- **Squad ≠ shared ship.** Only an invite (`social:play`) creates an undocked lobby (`LobbyState.docked === false`); only `lobby:dock` docks it, never back. Undocked lobbies are not quick-matchable, refuse `lobby:ready` / `lobby:start` / `lobby:mission true` (`not_docked`), and lock pods and training; one member + no open invite → dissolved (`pruneLonely`, reached through `closeInvite` / `announceLeave`) — `server/RelayServer.ts`. "Docked?" = `isDockedLobby`; "am I on that squad's deck?" = hub `squadLobby()`; hub snapshots and pings gate on `ctx.net.inHubSession`. Never read plain `ctx.net.lobby` as "in the shared ship".
+- Squad invites are the only way in (`playBlockReason(…, iAmMember)` → `in_squad` / `not_leader` / `in_other_squad`); public docking moves only a player on their own, so squads never merge.
+- My dock vs the leader's: `NetRef.dockPending`, read inside `net:lobbyUpdated` (kept through `moved`, cleared on `lobby:error`). Mine → fade (`HUB_DOCK_FADE_S`) + cutscene; theirs → `HUB_SQUAD_DOCK_COUNTDOWN_S` first. Decisions live only in `hub/parts/SquadDock.reconcile`; `SquadDock.cancelEverything` runs before every ship transition, so a new screen must be on `ctx.escape` or close on the `docking` phase.
 
 ### 4.4 World · collision · movement
 
@@ -215,6 +219,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - **Never change the point-light count at runtime** — adding a light recompiles every material. Keep lights in the scene and set `intensity` to 0; put visibility toggles on non-light groups. `scripts/smoke-lights.mjs` enforces it.
 - Every scene keeps `SCENE_POINT_LIGHT_BUDGET` via `core/LightBudget.ts`; hub/structures light only the nearest slots (`HUB_POINT_LIGHTS`, `STRUCTURE_POINT_LIGHTS`, `shared/lightPool.ts`). Raid budget has zero spare lights.
 - New scenes compile before drawing, and compilation goes only through `ctx.shaders` (`core/ShaderWarmup.ts`) — the program key depends on the bound render target.
+- Face portraits come from `PlayerRef.snapshotFace` (one lazily created offscreen renderer, cached PNGs, null without a second GL context) with framing in `shared/faceFraming.ts`, shared with character creation — never a canvas per tile (`player/FaceSnapshot.ts`).
 - Light pillars only on corpses (`ui/hud/pillar.pillarAllowed`); opened containers show an opened model synced by `crate opened` / `crate sync`.
 
 ### 4.6 Combat · enemies

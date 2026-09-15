@@ -28,6 +28,7 @@ import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
 /* 공용 함선 격납고 (2026-09-08) */
 import * as Hangar from './Hangar';
+import * as SquadDock from './SquadDock';
 import type { HubSystem } from '../HubSystem';
 
 /**
@@ -42,6 +43,9 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   sys.interior = interior;
   sys.ship = ship;
   sys.collider = interior.collider;
+  // 2026-09-15 (분대 · 도킹 매칭): which squad's shared ship this is — first, `sys.planet` below already reads it.
+  // A bay's personal ship keeps the squad it hangs off; the ordinary personal ship belongs to nobody's squad.
+  sys.shipLobbyCode = ship === 'shared' ? (ctx.net?.lobby?.code ?? null) : (sys.visit ? sys.shipLobbyCode : null);
   /*
    * 격납고 (2026-09-08): a personal ship entered from a bay carries **no launch pod**. Its slot-0 pod is the solo
    * launch route, and the squad launches from the shared deck — offering it here would drop a member out of the
@@ -99,7 +103,7 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   }
   sys.setSpaceMode(true);
   sys.countdown = -1; sys.launched = false; sys.lastCountdownSecond = -1;
-  sys.knownLobbyPlanet = ctx.net?.lobby ? (ctx.net.lobbyPlanet ?? null) : null;
+  sys.knownLobbyPlanet = ctx.net && sys.squadLobby() ? (ctx.net.lobbyPlanet ?? null) : null;
   sys.applyPlanetLook();
   sys.syncPods();
   sys.updateTerminalScreen();
@@ -405,6 +409,10 @@ export function disposeInterior(sys: HubSystem): void {
 export function teardown(sys: HubSystem, reason: 'mission' | 'menu'): void {
   if (!sys.interior && !sys.cutscene) return;
   const ctx = sys.ctx;
+  // 2026-09-15 (분대 · 도킹 매칭): a countdown / fade never outlives the hub; the next ship build says where we stand again
+  SquadDock.clearDockState(sys);
+  sys.dockMine = null;
+  sys.shipLobbyCode = null;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.menu.close(false);
   sys.status.hide();

@@ -1,6 +1,6 @@
 // Phase 11 소셜 UI smoke (src/ui): the ESC screen (2026-09-08: it parks itself so the viewport centre — where
 // Escape leaves the OS cursor — lands inside 게임으로 돌아가기, right of that button's middle), the
-// profile cards + right-click menu (같이 하기 gating, 귓속말하기, 친구 추가 / 친구 삭제 with its confirm card), the
+// profile cards + right-click menu (분대 초대 gating — 2026-09-15 invite only, 귓속말하기, 친구 추가 / 친구 삭제 with its confirm card), the
 // 설정 side panel with a real ControlsPanel inside 키 설정, the ship-only 커뮤니티 thumbnail (online count inside its
 // bottom-right, red dot for a pending request) and its panel, the 분대 초대 stack with the P-hold gauge, the chat
 // log's whisper mode, and the planet line on the result screens (2026-09-15: 다시 배치 is gone — one button left).
@@ -301,18 +301,22 @@ try {
   let menu = await P(() => window.__menu());
   ok(menu.open, 'right-click opens the profile context menu');
   // 2026-09-11 (B-4): 차단 joined the menu. 2026-09-14: 귓속말하기 → 개인 대화, 대화 기록 left (the messenger conversation replaces it).
-  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|remove|block' && menu.items[1].label === '개인 대화',
-    'a friend gets 같이 하기 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu.items.map((i) => i.label)));
-  ok(!menu.items[0].off && menu.items[0].why === '', '같이 하기 enabled for a friend in the ship with no squad', JSON.stringify(menu.items[0]));
+  // 2026-09-15 (분대 · 도킹 매칭): 같이 하기 → **분대 초대** (초대 전용 — 2인 이상 분대에 있는 사람은 `이미 다른 분대에 있음`)
+  ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|remove|block' && menu.items[0].label === '분대 초대' && menu.items[1].label === '개인 대화',
+    'a friend gets 분대 초대 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu.items.map((i) => i.label)));
+  ok(!menu.items[0].off && menu.items[0].why === '', '분대 초대 enabled for a friend in the ship with no squad', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 1));
   menu = await P(() => window.__menu());
-  ok(menu.items[0].off && menu.items[0].why === '임무 중', '같이 하기 disabled with 임무 중 for a friend in a raid', JSON.stringify(menu.items[0]));
+  ok(menu.items[0].off && menu.items[0].why === '임무 중', '분대 초대 disabled with 임무 중 for a friend in a raid', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 2));
   menu = await P(() => window.__menu());
-  ok(menu.items[0].off && menu.items[0].why === '오프라인', '같이 하기 disabled with 오프라인', JSON.stringify(menu.items[0]));
+  ok(menu.items[0].off && menu.items[0].why === '오프라인', '분대 초대 disabled with 오프라인', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 3));
   menu = await P(() => window.__menu());
-  ok(menu.items[0].off && menu.items[0].why === '상대 분대가 가득 참', '같이 하기 disabled with 상대 분대가 가득 참', JSON.stringify(menu.items[0]));
+  ok(menu.items[0].off && menu.items[0].why === '이미 다른 분대에 있음', '분대 초대 disabled with 이미 다른 분대에 있음 (their squad of 4)', JSON.stringify(menu.items[0]));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.recent .sc-card', 3));   // JKLM4567: a squad of 2 in the ship
+  menu = await P(() => window.__menu());
+  ok(menu.items[0].off && menu.items[0].why === '이미 다른 분대에 있음', 'a squad of 2 can no longer be joined — invite only', JSON.stringify(menu.items[0]));
   await P(() => window.__ctxMenu('.community-panel .sc-section.recent .sc-card', 0));
   menu = await P(() => window.__menu());
   ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|add|block', 'a non-friend gets 친구 추가 instead of 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
@@ -695,6 +699,22 @@ try {
     window.__notifs = () => [...document.querySelectorAll('.notifs .notif .t')].map((e) => e.textContent);
   });
   await waitSim(0.2);
+  /* 2026-09-15 (분대 · 도킹 매칭): the real mirror's invite gate — a squadmate is `in_squad` first, a member (not the leader)
+     is `not_leader` for everyone else, the leader keeps the ordinary rule (a squad of 2+ elsewhere = `in_other_squad`). */
+  const gate = await P(() => {
+    const s = window.__ss;
+    const keep = [s.squadSize, s.squadCodes, s.iAmMember];
+    s.squadSize = () => 2; s.squadCodes = () => ['CDEF2345']; s.iAmMember = () => true;
+    const member = { mate: s.playBlock('CDEF2345'), other: s.playBlock('YZ234567'), self: s.playBlock('AB3D9KMN') };
+    s.iAmMember = () => false;
+    const leader = { mate: s.playBlock('CDEF2345'), free: s.playBlock('YZ234567'), squad2: s.playBlock('JKLM4567') };
+    [s.squadSize, s.squadCodes, s.iAmMember] = keep;
+    return { member, leader };
+  });
+  ok(gate.member.mate === 'in_squad' && gate.member.other === 'not_leader' && gate.member.self === 'self',
+    'SocialSync.playBlock as a member: squadmate → in_squad, anyone else → not_leader, me → self', JSON.stringify(gate.member));
+  ok(gate.leader.mate === 'in_squad' && gate.leader.free === null && gate.leader.squad2 === 'in_other_squad',
+    'as the leader: squadmate → in_squad, a free player → invitable, a squad of 2 → in_other_squad', JSON.stringify(gate.leader));
   const lastSent = () => P(() => window.__sent.at(-1) ?? null);
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const holdP = async () => { await P(() => window.__key('KeyP', 'keydown')); await waitSim(3.4); await P(() => window.__key('KeyP', 'keyup')); await waitSim(0.2); };

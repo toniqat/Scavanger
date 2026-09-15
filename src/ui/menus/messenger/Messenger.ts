@@ -174,7 +174,7 @@ export class Messenger {
 
   /** 패널이 닫혔다. */
   onClose(): void {
-    this.column.contextMenu?.close();
+    this.column.contextMenu?.closeAll();   // 2026-09-15: the 친구 삭제 / 차단 / 파티 떠나기 confirm card too
     this.column.closePage();
     this.chat.onHide();
   }

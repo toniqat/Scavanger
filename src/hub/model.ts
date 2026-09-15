@@ -64,6 +64,15 @@ export interface WarpState {
   dest: { color: number; atmo: number };
 }
 
+/**
+ * 분대 도킹 (2026-09-15, `parts/SquadDock`): a countdown (`HubSystem.squadDock`) or a fade-out (`HubSystem.dockFade`)
+ * pending for the docked lobby `code`; `left` = seconds still to run on the hub's own dt.
+ */
+export interface SquadDockState {
+  code: string;
+  left: number;
+}
+
 export const _camPos = new THREE.Vector3();
 export const _camLook = new THREE.Vector3();
 export const _front = new THREE.Vector3();

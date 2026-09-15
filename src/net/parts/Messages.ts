@@ -116,6 +116,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       if (msg.code === 'kicked' || msg.code === 'server_full') sys.serverRefused = msg.code;
       sys.profileSync.onError(msg.code);
       sys.pendingQuickMatch = false;
+      sys._dockPending = false;   // 2026-09-15: a refused `lobby:dock` (not_host · in_lobby · started …) is not a dock of mine any more
       bus.emit('net:error', { code: msg.code, message: msg.message });
       return;
 
@@ -243,6 +244,9 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       // mission snapshots while we walk the ship — belong to a different 3D scene. An existing ref simply goes stale.
       const senderInHub = (d.f & PlayerFlags.IN_HUB) !== 0;
       if (senderInHub === sys._inSession) break;
+      // 2026-09-15 (분대 · 도킹 매칭): a hub snapshot counts only while WE stand in the docked squad's shared ship too —
+      // an undocked squad (or our own countdown in the personal ship) builds a different ship at the same origin.
+      if (senderInHub && !sys.inHubSession) break;
       const r = sys.getOrCreateRemote(from);
       const wasDowned = r.isDowned;
       const wasCarrying = r.carrying;

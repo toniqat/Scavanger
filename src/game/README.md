@@ -65,7 +65,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | `player:died` | See Death. |
 | `player:downed` | Not a death: phase unchanged, all-dead check re-armed. |
 | `game:returnToShip` | Voluntary return (see Death). Outside a live raid → `hub:enter` directly. |
-| `game:abort` | `onAbort`: host in a live, non-training mission sends `flow abort` (not on voluntary return); clears timers, solo save, active preps; closes inventory; phase `menu`; lobby mission → `hub:enter shared` one microtask later. |
+| `game:abort` | `onAbort`: host in a live, non-training mission sends `flow abort` (not on voluntary return); clears timers, solo save, active preps; closes inventory; phase `menu`; docked-lobby mission (`isDockedLobby`) → `hub:enter shared` one microtask later. |
 | `net:resumed {seamless:false}` / `net:lobbyLeft` | Abort and regroup (`shared`), or toast + abort after `DISCONNECT_ABORT_DELAY` → personal ship. `net:reconnecting` never aborts. |
 
 ## Death, rescue, wipe
@@ -163,6 +163,7 @@ slots, pouch + equipped loadout and attachments) during the raid; `stats.death` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-15 — Squads vs shared ship: training exit and `onAbort` regroup in the shared ship only for a **docked** lobby (`isDockedLobby`).
 - 2026-09-15 — Tutorial resume: tutorial saves ignore grace / clock defence; forced save per step and per checkpoint.
 - 2026-09-15 — Tutorial respawn plays a wake animation; tutorial skip-extraction completes immediately.
 - 2026-09-15 — Tutorial payout: `TUTORIAL_RAID_XP` on extraction, otherwise 0; no contract settlement.

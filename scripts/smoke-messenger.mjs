@@ -479,7 +479,8 @@ try {
   ok(fr.tab === 'friends' && fr.col && fr.cards === 3, 'the 친구 tab hosts the social column', JSON.stringify(fr));
   await P(() => document.querySelector('.ms-page.friends .sc-section.friends .sc-card').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 400 })));
   let menu = await P(() => [...document.querySelectorAll('.sc-menu:not([hidden]) .sc-mi')].map((b) => `${b.dataset.act}:${b.querySelector('.l').textContent}`));
-  ok(menu.join('|') === 'play:같이 하기|whisper:개인 대화|remove:친구 삭제|block:차단', 'the card menu: 같이 하기 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu));
+  // 2026-09-15 (분대 · 도킹 매칭): 같이 하기 → 분대 초대 (invite only)
+  ok(menu.join('|') === 'play:분대 초대|whisper:개인 대화|remove:친구 삭제|block:차단', 'the card menu: 분대 초대 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu));
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="whisper"]');
   await waitSim(0.2);
   ok(await P(() => window.__ms().tab === 'chat' && window.__ms().chat.selectedKey === 'pc:CDEF2345'), '개인 대화 → the 대화 tab on that friend');

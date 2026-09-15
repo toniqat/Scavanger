@@ -39,16 +39,20 @@ import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, REBOARD_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
 /* 격납고 (2026-09-08): the visit status line lives with the rest of the hangar logic. */
 import * as Hangar from './Hangar';
+/* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 개인 발사 슬롯이 잠긴다 */
+import { squadLockReason } from './SquadDock';
 import type { HubSystem } from '../HubSystem';
 
 export function getLaunchSlots(sys: HubSystem): readonly HubLaunchSlot[] { return sys.slots; }
 
 /* ── pods ──────────────────────────────────────────────────────────────── */
-export function localSlot(sys: HubSystem): number { return sys.ctx.net?.lobby ? sys.ctx.net.localSlot : 0; }
+/* 2026-09-15 (분대 · 도킹 매칭): "in a lobby" is not "in the shared ship" any more — pods read `sys.squadLobby()`, the
+   lobby whose shared ship we actually stand in. A member of an undocked squad sees the personal ship's slot 0, locked. */
+export function localSlot(sys: HubSystem): number { return sys.squadLobby() && sys.ctx.net ? sys.ctx.net.localSlot : 0; }
 
 export function podPrompt(sys: HubSystem, slot: number): string | null {
   if (!sys.podCanInteract(slot)) return null;
-  return sys.podBlockReason(slot) ?? (sys.ctx.net?.lobby && sys.ctx.net.missionInProgress ? '임무 진행 중 — 재투입' : '발사 슬롯 탑승');
+  return sys.podBlockReason(slot) ?? (sys.squadLobby() && sys.ctx.net?.missionInProgress ? '임무 진행 중 — 재투입' : '발사 슬롯 탑승');
   }
 
 /**
@@ -77,6 +81,9 @@ export function podBlockReason(sys: HubSystem, slot: number): string | null {
   // 2026-09-08: 튜토리얼이 아직 출격 단계에 오지 않았으면 지금 해야 할 일을 프롬프트에 그대로 띄운다
   const tut = sys.ctx.tutorial?.blockReason('board') ?? null;
   if (tut) return tut;
+  // 2026-09-15 (분대 · 도킹 매칭): an undocked squad launches nobody from a personal ship — the leader docks first
+  const squad = squadLockReason(sys, 'launch');
+  if (squad) return squad;
   if (sys.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
   if (sys.planet === null) return '목표 행성 미지정 — 터미널에서 지정';
   return null;
@@ -97,6 +104,13 @@ export function boardPod(sys: HubSystem, slot: number): void {
     return;
   }
   const net = ctx.net;
+  const squadLock = squadLockReason(sys, 'launch');
+  if (squadLock) {
+    // 2026-09-15 (분대 · 도킹 매칭): the prompt already says it — the press says it once more instead of doing nothing
+    ctx.bus.emit('ui:notify', { text: squadLock, kind: 'warning' });
+    ctx.bus.emit('audio:play', { id: 'ui_deny' });
+    return;
+  }
   if (sys.trainingRunning()) {
     // pods stay closed while a training runs: the terminal's 시뮬레이션 훈련장 entry joins it
     ctx.bus.emit('ui:notify', { text: '훈련 진행 중 — 터미널에서 합류할 수 있습니다', kind: 'warning' });
@@ -109,7 +123,8 @@ export function boardPod(sys: HubSystem, slot: number): void {
     ctx.bus.emit('audio:play', { id: 'ui_deny' });
     return;
   }
-  if (net?.lobby && net.missionInProgress) {
+  const squad = sys.squadLobby();
+  if (net && squad && net.missionInProgress) {
     ctx.bus.emit('ui:notify', { text: '임무에 재투입합니다', kind: 'warning' });
     net.rejoinMission();          // → net:gameStarting + game:newMission → teardown('mission')
     return;
@@ -131,7 +146,7 @@ export function boardPod(sys: HubSystem, slot: number): void {
     p.setCameraOverride(_camPos, _camLook);
   }
   // 앉기만 한 것은 준비가 아니므로 서버에도 그렇게 말한다 (앞선 준비가 남아 있으면 지운다)
-  if (net?.lobby) { net.setReady(false); sys.readySentAt = ctx.time; }
+  if (net && squad) { net.setReady(false); sys.readySentAt = ctx.time; }
   ctx.bus.emit('audio:play', { id: 'ui_equip' });
   sys.syncPods();
   }
@@ -149,7 +164,7 @@ export function toggleReady(sys: HubSystem): void {
   if (sys.launchWarn.isOpen) return;
   if (sys.readyLocal) {
     sys.readyLocal = false;
-    if (ctx.net?.lobby) { ctx.net.setReady(false); sys.readySentAt = ctx.time; }
+    if (ctx.net && sys.squadLobby()) { ctx.net.setReady(false); sys.readySentAt = ctx.time; }
     ctx.bus.emit('ui:notify', { text: '준비를 해제했습니다', kind: 'info' });
     ctx.bus.emit('audio:play', { id: 'ui_click' });
     sys.syncPods();
@@ -174,7 +189,7 @@ export function setReadyLocal(sys: HubSystem, ready: boolean): void {
   if (sys.boardedSlot < 0 && ready) return;
   sys.readyLocal = ready;
   const net = ctx.net;
-  if (net?.lobby) {
+  if (net && sys.squadLobby()) {
     net.setReady(ready); sys.readySentAt = ctx.time;
     /*
      * 2026-09-09: `NetClient.send` **drops** a message while the socket is not OPEN and nobody looks at the return
@@ -205,7 +220,7 @@ export function leavePod(sys: HubSystem, sendReady: boolean, placeOutside = true
       p.spawnStanding(_front, pod.def.yaw);
     }
   }
-  if (sendReady && ctx.net?.lobby) ctx.net.setReady(false);
+  if (sendReady && ctx.net && sys.squadLobby()) ctx.net.setReady(false);
   if (sys.countdown >= 0) { sys.countdown = -1; ctx.bus.emit('ui:notify', { text: '발사 취소', kind: 'warning' }); }
   sys.syncPods();
   }
@@ -214,7 +229,7 @@ export function leavePod(sys: HubSystem, sendReady: boolean, placeOutside = true
 export function syncPods(sys: HubSystem): void {
   const ctx = sys.ctx;
   const net = ctx.net;
-  const lobby = net?.lobby ?? null;
+  const lobby = sys.squadLobby();   // 2026-09-15: the squad whose shared ship we stand in (null = the personal ship's own pod)
   const localId: PeerId = net?.localId ?? 'local';
   const localSlot = sys.localSlot();
   const me = lobby ? lobby.players.find((q) => q.id === localId) : undefined;
@@ -301,7 +316,7 @@ export function resolveSeed(sys: HubSystem): number {
     const intel = usableIntel(sys, planet);
     if (intel) return intel.seed;
   }
-  const lobby = sys.ctx.net?.lobby;
+  const lobby = sys.squadLobby();
   if (lobby && lobby.seed !== null) return lobby.seed >>> 0;
   return (sys.missionSeed ?? randomSeed()) >>> 0;
   }
@@ -313,7 +328,9 @@ export function launch(sys: HubSystem): void {
   const planet = sys.planet;
   if (planet === null) return;         // the pod gate should have caught this (server: `no_planet`)
   const intel = usableIntel(sys, planet);
-  if (net?.lobby && net.isHost) {
+  // 2026-09-15: a lobby we are not standing in the shared ship of (undocked squad · dock countdown) launches nothing
+  if (net?.lobby && !sys.squadLobby()) return;
+  if (net && sys.squadLobby() && net.isHost) {
     sys.launched = true;
     // server → game:start {planet, intel} → net emits game:newMission → teardown('mission')
     net.startGame(seed, 'raid', planet, intel);
@@ -329,7 +346,7 @@ export function launch(sys: HubSystem): void {
 export function tickCountdown(sys: HubSystem, dt: number): void {
   const ctx = sys.ctx;
   const net = ctx.net;
-  const lobby = net?.lobby ?? null;
+  const lobby = sys.squadLobby();   // 2026-09-15: only the squad whose shared ship we stand in counts down together
   const boarded = sys.boardedSlot >= 0;
   // 2026-09-14: 카운트다운을 여는 것은 탑승이 아니라 **준비**다 (솔로도 스페이스 홀드를 해야 뜬다).
   const meReady = boarded && sys.readyLocal;

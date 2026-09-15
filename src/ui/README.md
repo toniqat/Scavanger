@@ -75,7 +75,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ShipManage.ts` | Facility management (`시설 관리`) screen: room list, purpose picker, furniture craft/storage tabs (last tab remembered per slot), inspector with upgrade/remove, confirm popups |
 | `hud/ShipManageHint.ts` | `시설 관리` + `Keys.MAP` keycap hint on the personal ship |
 | `hud/SpectateOverlay.ts` | Multiplayer death banner with remaining squad and rescue drops |
-| `hud/Squad.ts` | Bottom-left squad list: slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip |
+| `hud/Squad.ts` | Bottom-left squad list: slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip. Shown in the hub whenever a lobby exists; an **undocked** squad's rows read `개인 함선` |
 | `hud/StatusMarkers.ts` | World markers for burned / shocked enemies |
 | `hud/stratagemGlyphs.ts` | Ship-call glyph, colour, def lookup, arm/target hints |
 | `hud/StratagemPanel.ts` | Ship-call square thumbnail left of the implant: shared cooldown fill, armed colour, rescue count, ready flash |
@@ -96,7 +96,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `menus/TitleMenu.ts` | Title: wordmark + `게임 시작` / `설정` / `종료`; hosts character select/create, keybind notice, auto-start |
 | `menus/CharacterSelect.ts` | Slot cards (`SLOT_IDS`) from each slot's save; start, delete (hold popup), create |
 | `menus/CharacterCreate.ts` | Character creation: name, stat allocation, 3D preview, accent swatch, summary confirm card with 1 s hold |
-| `menus/SoldierPreview.ts` | Own `WebGLRenderer` soldier preview for creation (`createSoldierPreview`, `snapshotFace`) |
+| `menus/SoldierPreview.ts` | Own `WebGLRenderer` soldier preview for creation (`createSoldierPreview`, `snapshotFace`); face framing = `shared/faceFraming` + `@/player` `poseFaceModel` / `aimFaceCamera` / `addFaceLights`, identical to the terminal match-tab portraits |
 | `menus/enterShip.ts` | The single path from character select / auto-start into the game: pending invite first, else tutorial raid (track `raid` not done, no lobby), else personal ship |
 | `menus/askPopup.ts` | Generic warning popup (`AskSpec`): Escape cancels, Enter swallowed, danger/hold confirms need `UI_HOLD_CONFIRM_S` |
 | `menus/PauseMenu.ts` | ESC menu: resume / settings / `함선으로 귀환` or `튜토리얼 건너뛰기` / `파티 떠나기` / `타이틀로` / `게임 종료`, with in-frame warning popup |
@@ -120,7 +120,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `menus/messenger/format.ts` | Clock / clip / room system line / initials helpers |
 | `menus/social/SocialColumn.ts` | Friends column (squad, requests, friends, recent) hosted in the messenger `친구` tab |
 | `menus/social/ProfileCard.ts` | Player card + `초대 중 · n초` badge text |
-| `menus/social/SocialMenu.ts` | Card right-click menu (`같이 하기`, `개인 대화`, friend add/remove, block) + remove-friend confirm |
+| `menus/social/SocialMenu.ts` | Card right-click menu (`분대 초대` — invite only, greyed with `PLAY_BLOCK_LABELS`; `개인 대화`, friend add/remove, block) + remove-friend confirm |
 | `menus/social/SocialPages.ts` | Block-list page over the column |
 | `menus/social/socialSource.ts` | The one reader of `ctx.net.social` (`socialOf`, `isPeerBlocked`) + smoke debug snapshot |
 | `menus/social/whisperText.ts` | Private-chat delivery state text/class shared by ChatLog and ChatTab |
@@ -312,8 +312,8 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 
 Last 5 only — older: `git log -- src/ui`.
 
+- 2026-09-15 — Squads vs shared ship: squad list `개인 함선` for undocked squads; `같이 하기` → `분대 초대` (invite only, `in_other_squad` / `not_leader` / `in_squad` reasons); hub pings / acks relay only while `ctx.net.inHubSession`. `menus/SettingsMenu` closes on `game:paused {paused:false}` and on any phase change (it has no blocker / escape entry and used to outlive the pause menu); `SocialMenu.closeAll()` (menu + confirm card) runs when the messenger closes.
+- 2026-09-15 — `SoldierPreview.snapshotFace` framing moved to `shared/faceFraming` + `@/player` face helpers (same image as the terminal match tab).
 - 2026-09-15 — Holding the ping button locks the camera like the H / T wheels (released on release, timeout, cancel, dispose). — `hud/Pings.ts`
 - 2026-09-15 — `ui:screenFade.hold`: tutorial skip keeps the screen black into the result screen; `.menu.complete` / `.menu.death` got z 84.
 - 2026-09-15 — Result header: extraction subtitle removed, planet line split into label + name (`ResultReport.buildPlanetLine`) on both result screens.
-- 2026-09-15 — Map closes on Tab only when it is the topmost screen (`ctx.escape.topKey`).
-- 2026-09-15 — Pressed look for `.kc-hold`, `.kc-btn` hold keycaps inside hold buttons replace the "hold N seconds" hint lines; boarding toast removed; character select message moved to the footer.

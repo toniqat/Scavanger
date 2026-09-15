@@ -101,7 +101,8 @@ export class SocialMenu {
     if (blocked) {
       this.entry('unblock', '차단 해제', true, '');
     } else {
-      this.entry('play', '같이 하기', block === null, block ? PLAY_BLOCK_LABELS[block] : '');
+      // 2026-09-15 (분대 · 도킹 매칭): 같이 하기 → **분대 초대** — 초대 전용이다 (상대의 분대로 옮겨 가는 길은 없다)
+      this.entry('play', '분대 초대', block === null, block ? PLAY_BLOCK_LABELS[block] : '');
       this.entry('whisper', '개인 대화', true, '');
       if (isFriend) this.entry('remove', '친구 삭제', true, '');
       else this.entry('add', '친구 추가', true, '');
@@ -120,6 +121,15 @@ export class SocialMenu {
     this._open = false;
     this.root.hidden = true;
     this.target = null;
+  }
+
+  /**
+   * 2026-09-15: the menu **and** the confirm card (`close()` alone keeps the card — `askConfirm` closes the menu to open it).
+   * Called when the surface hosting the column goes away (the messenger closing), so no card floats over the ship alone.
+   */
+  closeAll(): void {
+    this.close();
+    if (this._confirmOpen) this.closeConfirm();
   }
 
   private entry(act: string, label: string, enabled: boolean, why: string): void {

@@ -653,8 +653,9 @@ export class Pings {
     const dist = player ? Math.round(Math.hypot(pos.x - player.position.x, pos.z - player.position.z)) : 0;
     ctx.bus.emit('chat:post', { text: this.chatLine(kind, text, dist), kind: 'ping' });
 
-    // squad: share it (only while a lobby exists — the personal ship has nobody to tell)
-    if (ctx.net && (ctx.isMultiplayer || ctx.net.lobby)) {
+    // squad: share it (in a mission, or in the docked squad's shared ship — 2026-09-15: an undocked squad's members stand
+    // in their own personal ships, where this position means nothing to anyone else)
+    if (ctx.net && (ctx.isMultiplayer || ctx.net.inHubSession)) {
       const msg: PingMessage = { t: 'ping', p: [pos.x, pos.y, pos.z], kind, seq };
       if (kind === 'item' || kind === 'crate') msg.label = text;
       if (enemy) msg.enemyId = enemy.id;
@@ -669,7 +670,7 @@ export class Pings {
     if (!ping.owner || ping.seq === null) return;
     const net = ctx.net;
     ctx.bus.emit('chat:post', { text: '알겠다고 확인.', kind: 'ping' });
-    if (net && (ctx.isMultiplayer || net.lobby)) {
+    if (net && (ctx.isMultiplayer || net.inHubSession)) {   // 2026-09-15: same gate as the ping itself
       const msg: PingAckMessage = { t: 'pingack', owner: ping.owner.id, seq: ping.seq };
       net.send(msg, 'others');
     }

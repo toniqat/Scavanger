@@ -24,6 +24,9 @@ const INVITE_FAIL_KO: Partial<Record<SocialErrorCode, string>> = {
   in_mission: '분대가 임무를 시작했습니다',
   limit: '받은 초대가 너무 많습니다',
   busy: '이미 다른 분대에 있습니다',
+  /* 2026-09-15 (분대 · 도킹 매칭): 초대 전용 — 2인 이상 분대에 있는 사람은 초대할 수 없고, 초대는 분대장만 보낸다 */
+  in_other_squad: '이미 다른 분대에 있습니다',
+  not_leader: '분대장만 초대할 수 있습니다',
 };
 function inviteFailWhy(code: SocialErrorCode | undefined): string {
   if (!code) return '';

@@ -765,6 +765,18 @@ try {
   });
   ok(planetGate.first === null, `첫 번째 행성은 허용된다 (${JSON.stringify(planetGate.first)})`);
   ok(planetGate.second !== null && /첫 번째/.test(planetGate.second), `그 외 행성은 거부된다 ("${planetGate.second}")`);
+  // 2026-09-15: 게이트 `matchmaking` 은 터미널의 **매칭 탭**째 감춘다 — 탭을 골라도 행성 탭에 머문다
+  const tutTabs = await P(() => {
+    const menu = window.__game.getSystem('hub').menu;
+    menu.open();
+    menu.setTab('match');
+    const b = document.querySelector('.menu.hub-menu .hub-tabs .scr-tab[data-tab="match"]');
+    const out = { matchHidden: !!b?.hidden, tab: menu.activeTab, matchPane: document.querySelector('.hub-pane-match')?.hidden ?? null, arrowsHidden: !!document.querySelector('.hp-arrow.next')?.hidden };
+    menu.close(false);
+    return out;
+  });
+  ok(tutTabs.matchHidden && tutTabs.tab === 'planet' && tutTabs.matchPane === true && tutTabs.arrowsHidden,
+    '튜토리얼 중에는 터미널 매칭 탭이 숨고 행성 탭에 머문다 (행성 넘김도 감춘다)', JSON.stringify(tutTabs));
   await P(() => window.__game.ctx.tutorial.goto('board'));
   const boardOk = await P(() => {
     const it = window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0');

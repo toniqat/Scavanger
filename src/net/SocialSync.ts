@@ -119,6 +119,10 @@ export class SocialSync implements SocialRef {
   joinLobby: (code: string) => void = () => {};
   /** Members in my own lobby (0 = none): the `mySquad` argument of `playBlockReason`. */
   squadSize: () => number = () => 0;
+  /** 2026-09-15: 아이디s of the **other** members of my lobby (a row already in my squad is `in_squad`, checked first). */
+  squadCodes: () => readonly PlayerCode[] = () => [];
+  /** 2026-09-15: I am in a lobby I do not lead — the `iAmMember` argument of `playBlockReason` (only the leader invites). */
+  iAmMember: () => boolean = () => false;
   bus: EventBus | null = null;
 
   /* ── SocialRef ── */
@@ -161,6 +165,11 @@ export class SocialSync implements SocialRef {
     this.request({ t: 'social:remove', code: c });
   }
 
+  /**
+   * 분대 초대 (`social:play`). 2026-09-15: **초대 전용** — 상대의 분대로 옮겨 가는 길은 없어졌다. 분대가 없으면 서버가
+   * 그 자리에서 나를 분대장으로 하는 **미도킹** 로비를 만들고(모두 제 개인 함선에 남는다) 초대를 보낸다; 받는 사람은
+   * 수락(P 홀드)해야만 분대원이 된다. 결과는 `social:play {outcome:'invited'}` 또는 `social:error`.
+   */
   playWith(code: PlayerCode): void {
     const c = this.wanted(code);
     if (c === null || this.refuseBlocked(c)) return;
@@ -307,14 +316,19 @@ export class SocialSync implements SocialRef {
     return undefined;
   }
 
-  /** Pure mirror of the server's own 같이 하기 gate (`playBlockReason`), so the UI greys out with the same reason. */
+  /**
+   * Pure mirror of the server's own 분대 초대 gate (`playBlockReason`), so the UI greys out with the same reason.
+   * 2026-09-15: 「이미 내 분대에 있다」를 **먼저** 본다(서버도 리더 게이트보다 먼저 `in_squad` 로 답한다), 그다음 분대원이면
+   * `not_leader` (초대는 분대장만).
+   */
   playBlock(code: PlayerCode): PlayBlock | null {
     const c = normalizePlayerCode(code);
     if (c === '') return 'offline';
     if (this._me && this._me.code === c) return 'self';
+    if (this.squadCodes().includes(c)) return 'in_squad';
     const row = this.find(c);
-    if (!row) return 'offline';   // nothing known about them → nothing to offer
-    return playBlockReason(row, this.squadSize(), NET_MAX_PLAYERS, false);
+    if (!row) return this.iAmMember() ? 'not_leader' : 'offline';   // nothing known about them → nothing to offer
+    return playBlockReason(row, this.squadSize(), NET_MAX_PLAYERS, false, this.iAmMember());
   }
 
   /* ── fed by NetSystem ─────────────────────────────────────────────────── */

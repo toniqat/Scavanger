@@ -20,6 +20,8 @@ const WRONG_ID: Partial<Record<TutorialGate, string>> = {
 
 /**
  * 숨김 전용 게이트 — 튜토리얼이 도는 동안에는 언제나 감춘다.
+ * `matchmaking` = 함선 터미널의 **매칭 탭**째 (2026-09-15 — 옛 머리 우상단 `매칭` 버튼 · 매칭 팝업이 탭으로 바뀌었다;
+ * 뜻은 그대로 「혼자 한 바퀴 돌게 한다」). 소비자는 `hub/ui/HubMenu` 하나다.
  * 2026-09-14: `community` 는 여기서 빠졌다 — 함선 트랙의 `messenger` · `ravenQuest` 가 메신저를 **써야** 하기
  * 때문이다. 빠져도 동작은 같다: `allow.community` 가 없는 단계는 `blockReason` 이 막고 `hides` 가 그것을 그대로 읽는다.
  */

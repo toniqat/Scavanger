@@ -38,7 +38,8 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 | `status`, `connected`, `link`, `rttMs`, `reconnecting`, `sessionToken`, `localId`, `playerName` / `setPlayerName` | `localId` survives a drop so `isHost` does not flip mid-reconnect |
 | `connect(url?)` / `ensureConnected()` / `disconnect()` | `ensureConnected` never rejects (false = offline ship) |
 | `relayUrl`, `relayOverride`, `setRelayOverride(raw)`, `probeRelay(raw?)`, `reconnectRelay()` | Override = settings `서버 설정` (`RELAY_STORAGE_KEY`); probe is tokenless |
-| `lobby`, `isHost`, `isAuthority`, `inSession`, `inHubSession`, `missionInProgress`, `missionMode`, `tookOver`, `localSlot` | `inHubSession` = lobby && !inSession && phase `hub` |
+| `lobby`, `isHost`, `isAuthority`, `inSession`, `inHubSession`, `missionInProgress`, `missionMode`, `tookOver`, `localSlot` | `inHubSession` = **docked** lobby (`isDockedLobby`) && !inSession && phase `hub` && standing in the shared ship (`hub.ship === 'shared'` or a bay's ship, `hubSite !== null`) |
+| `requestDock(isPublic)`, `dockPending` | 터미널 매칭 → `lobby:dock`. `dockPending` is true from the request (and from `createLobby` / `joinLobby` / `quickMatch`) until a docked lobby's `net:lobbyUpdated` **has been emitted**, a `lobby:error`, or leaving (kept through `moved`) — hub/ reads it inside that event to tell its own dock from the leader's |
 | `createLobby` / `joinLobby` / `leaveLobby` / `quickMatch` / `setPublic` / `setLobbySeed` / `setReady` | Only `leaveLobby()` leaves a lobby; mission end keeps it |
 | `startGame(seed, mode?, planet?, intel?)` | Raid: host, all ready; planet / intel default to the lobby's. Training: any member, no planet |
 | `lobbyPlanet` / `setLobbyPlanet`, `lobbyIntel` / `setLobbyIntel` | Host-only, not started, mirrored optimistically, no event |
@@ -182,8 +183,8 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-15 — Squads vs shared ship: `inHubSession` needs a docked lobby + standing in its shared ship (hub `ps` from anywhere else dropped); `withSession` adds `&a=<accent>`; `dockPending` also set by create / join / quick match, cleared after the docked `net:lobbyUpdated`, on `lobby:error`, kept through `moved`; `SocialSync.playBlock` → `in_squad` / `not_leader`.
 - 2026-09-15 — `dmg.src` damage source decoded and passed as the third `takeDamage` argument.
 - 2026-09-14 — Intel wire: `lobbyIntel` / `setLobbyIntel`, `startGame(…, intel)`, `ctx.missionIntel` set in `beginSession`, restored on rejoin.
 - 2026-09-14 — `RoomSync.ts` (group rooms); private-chat unread in `SocialSync`.
 - 2026-09-13 — `parts/Crypto.ts` (`ctx.net.crypto`); `PlayerFlags.IN_ROVER`; meal quality `q` on `meal req|serve`.
-- 2026-09-12 — `parts/CharBuffs.ts`; snapshot `bfr` / `fp` / `fu`; `RemotePlayer.buffs` / `furniturePose`.

@@ -15,6 +15,8 @@ import {
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
+/* 2026-09-15: 분대 · 도킹 매칭 — 공용 함선은 도킹된 분대에만 있다 */
+import { isDockedLobby } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
 import { bumpClockHigh } from '../SoloRaid';
@@ -247,7 +249,7 @@ export function exitTraining(sys: GameFlowSystem): void {
   if (!sys.isTraining() || !sys.inMission()) return;
   const snapshot = sys.trainingSnapshot;
   sys.trainingSnapshot = null;
-  const lobby = !!ctx.net?.lobby;
+  const lobby = isDockedLobby(ctx.net?.lobby);   // 2026-09-15: the shared ship is the docked squad's (hub coerces anyway)
   const inSession = ctx.isMultiplayer;
   ctx.bus.emit('game:abort', {});
   if (snapshot != null) {
@@ -275,8 +277,9 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.wasMultiplayerHost = false;
   // Lobby mission ended by an abort → regroup in the shared ship. Deferred one microtask: if the abort came from
   // HubSystem's own `hub:enter` the ship is already being built (phase 'hub') and this is a no-op.
-  if (fromMission && ctx.net?.lobby) {
-    queueMicrotask(() => { if (ctx.phase === 'menu' && ctx.net?.lobby) ctx.bus.emit('hub:enter', { ship: 'shared' }); });
+  // 2026-09-15 (분대 · 도킹 매칭): only a **docked** squad has a shared ship to regroup in (an undocked one never starts a mission).
+  if (fromMission && isDockedLobby(ctx.net?.lobby)) {
+    queueMicrotask(() => { if (ctx.phase === 'menu' && isDockedLobby(ctx.net?.lobby)) ctx.bus.emit('hub:enter', { ship: 'shared' }); });
   }
   sys.setPaused(false);
   sys.completeTimer = -1;

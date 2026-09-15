@@ -139,7 +139,7 @@ export type TutorialGate =
   | 'manageExit'    // 함선 관리 종료
   | 'craft'         // 아이템 제작
   | 'terminal'      // 터미널 열기
-  | 'matchmaking'   // 신호 찾기 · 코드 도킹 · 신호 송출 (숨김 전용)
+  | 'matchmaking'   // 터미널의 매칭 탭 (2026-09-15 — 초대 · 비공개/공개 매칭; 숨김 전용)
   | 'planet'        // 행성 지정
   | 'board'         // 발사 슬롯 탑승
   | 'screenTab'     // Tab 화면의 화면 탭 (id = 'character' | 'corp' | 'ship'; 인벤토리는 언제나 열려 있다)

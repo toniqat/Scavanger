@@ -1,5 +1,10 @@
 import type { CharBuff, GameContext, LobbyPlayer, LobbyState, RemotePlayerRef } from '@/shared';
 import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, PLAYER_DOWN_HP, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
+/* 2026-09-15 (분대 · 도킹 매칭): 미도킹 분대 — 모두 제 개인 함선에 있다 */
+import { isDockedLobby } from '@/shared';
+
+/** Hub state of every member of an **undocked** squad (2026-09-15): nobody is in the shared ship yet. */
+const SQUAD_PERSONAL_SHIP_KO = '개인 함선';
 import { GHOST_DEAD_LABEL_KO } from './Nameplates';
 import { BuffStrip, type BuffCellState } from './BuffStrip';
 import { el, setText, setVisible, toggleClass } from '../dom';
@@ -108,10 +113,13 @@ export class Squad {
     this.acc = 0;
 
     let i = 0;
+    // 2026-09-15: an undocked squad (docked absent = true, as on the wire) — every member is still in their own personal ship
+    const personal = hub && !!lobby && !isDockedLobby(lobby);
     // local player first
     const p = ctx.player;
     const localLp = net.localId ? this.bySlotOrId(lobby?.players, net.localId) : undefined;
     const localState = !net.connected ? SUSPENDED_LABEL_KO
+      : personal ? SQUAD_PERSONAL_SHIP_KO
       : hub ? (localLp?.ready ? '탑승 준비' : '함선 내')
       : p?.isDead ? '전사' : p?.isDropping ? '강하 중' : '';
     // Without a lobby entry for us (offline / debug lobby) our own membership is simply "are we in a mission phase".
@@ -129,7 +137,9 @@ export class Squad {
         const suspended = lp.connected === false || ref?.suspended === true;
         const ghost = suspended && !hub ? this.ghostOf(ref) : NO_GHOST;
         // a debug ref has no socket behind it — judge it on its own fields, not on our (offline) connection
-        const state = suspended ? (ghost.dead ? GHOST_DEAD_LABEL_KO : SUSPENDED_LABEL_KO) : hub ? (lp.ready ? '탑승 준비' : '함선 내') : this.remoteState(ref, net.connected || isDebug);
+        const state = suspended ? (ghost.dead ? GHOST_DEAD_LABEL_KO : SUSPENDED_LABEL_KO)
+          : personal ? SQUAD_PERSONAL_SHIP_KO
+          : hub ? (lp.ready ? '탑승 준비' : '함선 내') : this.remoteState(ref, net.connected || isDebug);
         const hp = hub ? 1 : ref ? ref.hp / Math.max(1, ref.maxHp) : 0;
         this.fillRow(this.rows[i++], slot, lp.name, hp, state, lobby ? this.badgeOf(lobby, lp, ref?.inMission) : '', false, ghost,
           { id: lp.id, buffs: ref?.buffs ?? null, rev: ref?.buffsRevision ?? 0 });

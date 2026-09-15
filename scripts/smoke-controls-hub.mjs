@@ -654,8 +654,13 @@ try {
     await page.evaluate((l) => { const net = window.__game.getSystem('net'); net._lobby = l; }, lobbyOf('MOVEAA', 'peer-a'));
     await feedMove([{ t: 'lobby:left', reason: 'moved', to: 'MOVEBB' }, { t: 'lobby:state', lobby: lobbyOf('MOVEBB', 'peer-b') }]);
     let mv = await hubState();
-    ok(mv.cut === 'dock' && mv.phase === 'docking' && mv.lobby === 'MOVEBB' && mv.dock.join(',') === 'start:dock',
-      `moved: no undock cutscene, the new lobby starts the docking cutscene at once (${JSON.stringify(mv)})`);
+    /* 2026-09-15 (분대 · 도킹 매칭): 남이 도킹해 둔 로비로 옮겨지면(초대 수락) 곧장이 아니라 **카운트다운 → 페이드 → 도킹** 이다
+       (내가 누른 도킹 · `dockPending` 만 곧장). 여전히 도킹 해제 컷씬은 없다. */
+    ok(mv.cut === null && mv.lobby === 'MOVEBB' && mv.dock.length === 0 && await page.evaluate(() => window.__game.getSystem('hub').squadDockSeconds > 0),
+      `moved into a docked lobby: no undock, the squad-dock countdown runs first (${JSON.stringify(mv)})`);
+    await waitFor(page, () => window.__game.getSystem('hub').cutscene?.direction === 'dock', 'moved → countdown → docking cutscene', 60000);
+    mv = await hubState();
+    ok(mv.dock.join(',') === 'start:dock', `moved: one docking cutscene after the countdown (${JSON.stringify(mv)})`);
     await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.getSystem('hub').ship === 'shared', 'moved → docked into the new shared ship', 120000);
     mv = await hubState();
     ok(mv.ship === 'shared' && mv.lobby === 'MOVEBB' && !mv.dock.includes('start:undock'), `moved: landed in shared ship MOVEBB after ONE docking cutscene (${JSON.stringify(mv.dock)})`);
@@ -689,10 +694,15 @@ try {
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
   const term = await page.evaluate(() => {
     const f = document.querySelector('.menu.hub-menu .frame');
-    return { sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight, ov: getComputedStyle(f).overflow, tabs: document.querySelectorAll('.hub-tab').length, panels: document.querySelectorAll('.imp-list, .rep-list').length };
+    return {
+      sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight, ov: getComputedStyle(f).overflow, tabs: document.querySelectorAll('.hub-tab').length, panels: document.querySelectorAll('.imp-list, .rep-list').length,
+      // 2026-09-15: 상단 탭은 인벤토리 Tab 화면과 같은 `.scr-tab` 두 장 (행성 / 매칭)
+      topTabs: [...document.querySelectorAll('.menu.hub-menu .hub-tabs .scr-tab')].map((b) => b.textContent),
+    };
   });
   ok(term.sw <= term.cw && term.sh <= term.ch, `terminal frame has no scroll overflow (${term.sw}/${term.cw} × ${term.sh}/${term.ch})`);
   ok(term.tabs === 0 && term.panels === 0, 'terminal has no 임플란트 / 정비 tabs any more');
+  ok(term.topTabs.join(',') === '행성,매칭', `terminal top tabs are 행성 / 매칭 (${term.topTabs.join(',')})`);
   /* 2026-09-07 (커서 rework): a cursor screen **releases** the pointer lock and the real OS cursor comes back,
      restyled by `ui/hud/GameCursor`. The virtual cursor, its sprite and the synthesised events are gone. */
   const termCursor = await page.evaluate(() => ({

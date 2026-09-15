@@ -16,7 +16,9 @@ forwards interactions.
 | File | Responsibility |
 |---|---|
 | `HubSystem.ts` | `GameSystem` (`name: 'hub'`) + `HubRef`: lifecycle, event wiring, per-frame update, the E close chain, M → ship management, terminal screen text, one-line delegates into `parts/`. Re-exports `model.ts`. |
-| `model.ts` | Folder vocabulary: `LOCK_REQUEST_GRACE_MS`, `UNBOARD_GRACE`, `READY_ECHO_GRACE`, `REBOARD_GRACE`, `DockTransition`, `WarpState`, scratch vectors. |
+| `model.ts` | Folder vocabulary: `LOCK_REQUEST_GRACE_MS`, `UNBOARD_GRACE`, `READY_ECHO_GRACE`, `REBOARD_GRACE`, `DockTransition`, `WarpState`, `SquadDockState`, scratch vectors. |
+| `parts/SquadDock.ts` | Squads vs the shared ship (2026-09-15): `squadLobby` (the lobby whose shared ship we stand in), `squadLockReason` (personal pod / training locked in an undocked squad), the state rule `reconcile` (own dock → fade → cutscene, others → countdown; undocked lobby in a shared ship → undock), `tick`, `clearDockState`, `cancelEverything` (pod, warp, housing mode, furniture pose, every `ctx.escape` screen, inventory, pause menu + its 설정, dev console; chat / community close on the `docking` phase change). |
+| `ui/SquadDockCountdown.ts` | Right-side countdown panel (`.hub-squad-dock`, `.hsd-*`) shown to members after the leader docked; display only, no blocker. |
 | `parts/Interior.ts` | Build / dispose interiors: pods, terminal, shared-ship computer, stations (`hub_implant_bay`, `hub_dining_table`), `FurnitureLayer` + callbacks into `ctx.housing`, hangar exit, room signs / lights, room tracking, `teardown`. |
 | `parts/Transitions.ts` | `enter`, background resume (`tryResume`), docking / undocking cutscene start / finish with destination prebuild, `swapDirect`, bay board / leave, `net:lobbyUpdated` / `net:lobbyLeft` (incl. server `moved`) / `net:resumed`. |
 | `parts/Pods.ts` | Launch slots: prompt / availability / refusal reasons, board, ready toggle (with launch warnings), un-board, lobby echo sync, seed resolution (intel seed first), countdown, launch. |
@@ -29,10 +31,12 @@ forwards interactions.
 | `Computer.ts` | Shared-ship `hub_computer` → `ctx.meta.openCorpMenu()` (warning toast on failure). |
 | `DockingCutscene.ts` | Exterior dock / undock cutscene 900 m above the origin (undock half duration), chase camera via `setCameraOverride`, `elapsed`, `finishNow()`. |
 | `Labels.ts` | `TextPlane`: CanvasTexture text plane, redraws only on change. |
-| `hub.css` | Terminal, launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
-| `intel.css` | Matchmaking popup (`.hm-`), intel panel in the terminal (`.hi-`), intel screen (`.it-`). |
-| `ui/HubMenu.ts` | Full-screen terminal (`.menu.hub-menu.fullscreen`): two columns — planet card with hologram (preview stepping, travel button, environment line `.hp-env`) and right column (intel panel → training arena); header `매칭` button; `closeTop()` closes intel → matchmaking → terminal. |
-| `ui/MatchPanel.ts` | Matchmaking popup: quick match, code docking, broadcast, lobby code / public toggle / invite link / crew rows / undock. Token `hub:match`. |
+| `hub.css` | Terminal frame / tabs / panes / planet grid / footer training button (`.hub-train`), launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
+| `intel.css` | Match tab (`.hmt-`), invite modal (`.hinv-`), training confirm (`.htc-`), intel panel in the terminal (`.hi-`), intel screen (`.it-`). |
+| `ui/HubMenu.ts` | Full-screen terminal (`.menu.hub-menu.fullscreen`): top tabs `행성` / `매칭` (`nav.scr-tabs.hub-tabs`, always opens on `행성`); planet pane = 3-column grid (empty · centred planet card with hologram, stepping, travel, `.hp-env` · intel panel); footer right = `닫기 (E)` then the `시뮬레이션 훈련장` corner button (`.hub-train`, state label `.hub-train-state`) → `TrainingConfirm`; `closeTop()` closes training confirm → invite → intel → terminal. |
+| `ui/MatchTab.ts` | 매칭 tab: 4 square face tiles (me first, others by slot, empty = `초대`), `비공개 매칭` / `공개 매칭` → `ctx.net.requestDock`, `도킹 해제` when docked, `분대 떠나기` in an undocked squad, `다시 연결` when offline. |
+| `ui/InviteModal.ts` | Invite modal over the terminal: friends then recent players (name, 아이디, level, presence, `초대` → `social.playWith`, `초대 중 · n초`, `PLAY_BLOCK_LABELS`). Token `hub:invite`, key guide owner `hub.invite`. |
+| `ui/TrainingConfirm.ts` | `시뮬레이션 훈련장에 입장하시겠습니까?` tap confirm (`취소` focused, Escape / Tab / E cancel). Token `hub:trainConfirm`. |
 | `ui/IntelMenu.ts` | Intel screen: pick phase (map + gimmick rows + total + hold-only `확정`) and confirmed phase (hologram lock-on + map + summary, `지역 재배치` hold → discard + reroll). Token `hub:intel`. |
 | `ui/IntelMap.ts` | Pure drawing of `ctx.world.previewLayout(...)` (`MapPreviewLayout`) snapped to a coarse grid and blurred; legend colours from `INTEL_MAP_LEGEND`. Never throws on malformed layouts. |
 | `ui/PlanetHologram.ts` | Planet hologram on its own WebGL renderer; cross-slide swap, `attachTo(host)` (lent to the intel screen), `startLockOn` / `clearLockOn`; returns null without a second GL context (`.no-holo`). |
@@ -100,13 +104,14 @@ forwards interactions.
 
 | Trigger | Action |
 |---|---|
-| `hub:enter {ship}` | Ship coerced (lobby → `shared`, else `personal`). From a mission / result phase emit `game:abort` first. Build at the origin, spawn, space mode on, `ctx.shaders.holdForScene()`, phase `hub`, `hub:entered`, relock. Personal ship tries to resume a lobby in the background (skipped when `net.link.state === 'refused'`). Idempotent. |
-| `game:newMission` | `teardown('mission')`: un-board, close menus, dispose interior, release player interior / camera, `hub:left`. |
+| `hub:enter {ship}` | Ship coerced (**docked** lobby → `shared`, else `personal`). From a mission / result phase emit `game:abort` first. Build at the origin, spawn, space mode on, `ctx.shaders.holdForScene()`, phase `hub`, `hub:entered`, relock. Personal ship tries to resume a docked lobby in the background (skipped when `net.link.state === 'refused'`). Idempotent. |
+| `game:newMission` | `teardown('mission')`: un-board, close menus, dispose interior, release player interior / camera, clear squad-dock state, `hub:left`. |
 | `game:abort` | `teardown('menu')` + space mode off. |
-| `net:lobbyUpdated` | Personal ship + lobby → dock cutscene (`lobby.started` → direct swap). Pending server move → one dock cutscene. During a visit: leave the ship when a raid starts or the owner left. Shared ship: refresh bays, start a squad warp when `lobby.planet` changed, `syncPods`. |
-| `net:lobbyLeft` | `moved` → wait `MOVE_WAIT_MS` for the new lobby; otherwise undock cutscene → personal ship. |
-| `net:resumed` | Swap to shared ship; a running raid is re-entered automatically (`rejoinMission()` one microtask later); a running training only toasts. |
-| Docking | `startTransition(dir)`: un-board, close menus, dispose interior, phase `docking`, cutscene (`HUB_DOCKING_DURATION`, undock ×0.5). After `PREBUILD_AFTER_S` the destination ship is built and warmed (`pendingInterior`). End: attach, phase `hub`, `hub:docking {end}`, `hub:entered`. |
+| `net:lobbyUpdated` | Captures my own dock (`net.dockPending` inside this event → `dockMine`). A docked lobby during an undock cutscene turns it around. Then `SquadDock.reconcile` (below). During a visit: leave the ship when a raid starts or the owner left. In this squad's shared ship: refresh bays, start a squad warp when `lobby.planet` changed, `syncPods`; elsewhere only pods / terminal text. |
+| Squad dock (every hub frame + lobby updates) | `SquadDock.reconcile`: a docked lobby whose shared ship we are not in (`shipLobbyCode`) → **my dock**: cancel everything → `ui:screenFade {1, HUB_DOCK_FADE_S, hold}` → `startTransition('dock')` + fade in; **anyone else's**: right-side countdown `HUB_SQUAD_DOCK_COUNTDOWN_S` (ticks only in `hub`) → same fade → cutscene; `lobby.started` → direct swap. An undocked lobby while in a shared ship / bay ship → undock cutscene. A lobby left / changed cancels the countdown or fades back in. |
+| `net:lobbyLeft` | Clears any countdown / fade. `moved` → wait `MOVE_WAIT_MS` for the new lobby; otherwise undock cutscene → personal ship. |
+| `net:resumed` | Docked lobby → swap to shared ship; a running raid is re-entered automatically (`rejoinMission()` one microtask later); a running training only toasts. An undocked squad stays in the personal ship. |
+| Docking | `startTransition(dir)`: clear squad-dock state, **cancel everything** (`SquadDock.cancelEverything`: pod, warp, housing mode, furniture pose, every `ctx.escape` screen, inventory, pause menu), un-board, close menus, dispose interior, phase `docking` (chat / community close on it), cutscene (`HUB_DOCKING_DURATION`, undock ×0.5). After `PREBUILD_AFTER_S` the destination ship is built and warmed (`pendingInterior`). End: attach, phase `hub`, `hub:docking {end}`, `hub:entered`. |
 | Terminal E | `HubMenu.open()`: blocker `'hub'` before `setCursorMode(true, 'hub')`, escape token `hub:terminal`. |
 | E in `hub` | Closes the top of: launch warning → terminal stack (`closeTop`) → crew loadout popup → un-board (after `UNBOARD_GRACE`). Ignored under `MENU_BLOCKER`. Escape is not read here — `game/` and `ctx.escape`. |
 | Tab | `HubMenu.update` closes its top screen (consumed); `HousingMode` leaves the mode. |
@@ -119,6 +124,10 @@ forwards interactions.
 
 ## Launch slots
 
+- Squads (2026-09-15): pods, ready flags, crew cards, ship visits, the lobby planet and leader handoff read
+  `squadLobby()` — the lobby whose shared ship we stand in — never plain `ctx.net.lobby`. In an **undocked** squad the
+  personal pod prompt is `분대 대기 중 — 분대장이 매칭해야 출격할 수 있습니다` (`squadLockReason`, boarding refused with a
+  toast) and `startTraining` is refused; ship management, inventory and crafting stay free. — `parts/SquadDock.ts`
 - Only the local slot's pod (`ctx.net.localSlot`, 0 solo). Boarding = seated + `setReady(false)`; readiness is a
   `Keys.JUMP` hold for `UI_HOLD_CONFIRM_S` measured by `ReadyPanel` (skipped while any blocker other than its own is up).
   Ready → launch warnings first (`LaunchWarnPanel`), then `setReadyLocal(true)`; holding again un-readies.
@@ -136,6 +145,20 @@ forwards interactions.
 
 ## Terminal, intel, matchmaking
 
+- Two top tabs (`행성` / `매칭`, same `.scr-tab` look as the Tab screen). The terminal always opens on `행성`; the
+  tutorial gate `matchmaking` hides the `매칭` tab. Arrow / A-D stepping only runs on the planet tab with no child screen.
+- `시뮬레이션 훈련장` (footer bottom-right, planet tab only) opens `TrainingConfirm` → `startTraining()`. Labels: solo
+  `시작`; lobby `합류 (n명 훈련 중)` / `임무 진행 중` (disabled) / `시작`; undocked squad `분대 대기 중` (disabled).
+- 매칭 tab (`MatchTab`): tiles are me first, then lobby members by slot, then empty cells. Face =
+  `ctx.player.snapshotFace({accent})` with `LobbyPlayer.accent ?? NET_SLOT_COLORS_CSS[slot]`; my own accent comes from
+  `readSlotCard(activeSlot()).accent`. A null snapshot leaves the name and initial. Empty cell `초대` is enabled only with
+  no lobby, or as host before the start with a free slot. Buttons: `비공개 매칭` / `공개 매칭` → `connectThen` →
+  `requestDock(isPublic)`; blocked in order by `dockPending` (`도킹 중…`), non-host (`분대장만 매칭할 수 있습니다`), started,
+  connecting, not connected (`서버에 연결되어 있지 않습니다` + `다시 연결`). Docked lobby → a single `도킹 해제`; undocked
+  squad → a small `분대 떠나기`. Both call `leaveLobby()`. Lobby codes, invite links and the public toggle are not shown.
+- Invite modal (`InviteModal`): friends then recent players; the row button is `초대` / `분대원` (already in my lobby) /
+  `초대 중 · n초` (`inviteAt` within `SQUAD_INVITE_TTL_S`) / `PLAY_BLOCK_LABELS[playBlock]`. Rows rebuild on
+  `social:updated` / lobby / status changes; `HubMenu.update` ticks the countdown text only.
 - Planet stepping only previews the hologram; `행성 이동` commits. The environment line (`PlanetDef.env`) warns when
   `ctx.progression.hasEnvPrep(env)` is false but never blocks travel.
 - Intel panel: no intel → Raven intro + `정보 구매`; held intel → summary (mismatch warning if for another planet) +
@@ -214,8 +237,11 @@ doorway is an open shared edge.
 - `HubSystem` updates before `PlayerSystem`, so the E that opens a panel cannot also close it that frame. The un-board
   branch deliberately does not consume E; `REBOARD_GRACE` stops the held press from re-boarding.
 - `HubSystem.uiBlocked()` ignores `HUB_READY_BLOCKER` — the ready panel must not block E un-board or lock-loss handling.
-- Child screens over the terminal use their own blocker / escape tokens (`hub:match`, `hub:intel`) so closing them does
-  not drop the terminal's cursor. Only one hologram WebGL context exists; the intel screen borrows it (`attachTo`).
+- Child screens over the terminal use their own blocker / escape tokens (`hub:trainConfirm`, `hub:invite`, `hub:intel`) so
+  closing them does not drop the terminal's cursor. Only one hologram WebGL context exists; the intel screen borrows it
+  (`attachTo`), and the terminal hides it while the `매칭` tab is shown. — `ui/HubMenu.ts` (`setTab`)
+- Match-tab faces never get their own canvases: `ctx.player.snapshotFace` renders PNGs through one offscreen renderer
+  (browser context limit). — `player/FaceSnapshot.ts`
 - `.hub-ready .hr-row` must stay `repeat(4, 1fr)` with `gap: 0`: `player/Portraits` slices its canvas into equal columns.
   `--hr-body-h` is a content-height formula (value line `line-height: 14px` is part of it). — `hub.css`
 - `.launch-warn` sits above `.hub-ready` (z-index), since the panel is appended later and would eat its clicks.
@@ -244,8 +270,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-15 — Terminal rebuilt: top tabs 행성 / 매칭, centred planet, bottom-right training button + `TrainingConfirm`, `MatchTab` (face tiles, private / public dock, undock) + `InviteModal`; `MatchPanel` deleted.
+- 2026-09-15 — Squads vs shared ship: `parts/SquadDock.ts` (own dock fade / member countdown / undock rule, cancel everything, pod + training locks), `ui/SquadDockCountdown.ts` (`.hsd-`), `shipLobbyCode` / `squadLobby()`.
 - 2026-09-15 — Intel `확정` button: label `확정` + left-click hold keycap (`createHoldButtonCap`); `.it-reason` shows block reasons only.
 - 2026-09-15 — Ready hold `Space` keycap built with `shared/keycap.createKeycap` / `paintKeycap`.
 - 2026-09-15 — Ship management no longer passes the standing room to `openShipManage` (housing remembers the last room).
-- 2026-09-14 — Launch-slot panel sized by content formula, pod keys moved to key guide owner `pod`; launch warning above panel; cook staging never cancels sessions; game staging no screen flash; shared-ship repair bench prop removed.
-- 2026-09-14 — Terminal two columns + matchmaking popup + intel panel / screen / map + hologram lock-on; boarding separated from readiness.

@@ -27,6 +27,9 @@ import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
 /* 공용 함선 격납고 (2026-09-08) */
 import * as Hangar from './Hangar';
+/* 2026-09-15: 분대 · 도킹 매칭 */
+import { isDockedLobby } from '@/shared';
+import * as SquadDock from './SquadDock';
 import type { HubSystem } from '../HubSystem';
 
 /* ── enter / build / teardown ──────────────────────────────────────────── */
@@ -35,13 +38,16 @@ export function enter(sys: HubSystem, requested: HubShipKind): void {
   // 'shared' needs a lobby; conversely, while a lobby exists the squad lives in the shared ship.
   // (`hub:enter` always lands on the shared deck — a 격납고 visit is left behind; `boardShip` owns that state.)
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;
-  const ship: HubShipKind = ctx.net?.lobby ? 'shared' : 'personal';
-  if (requested !== ship) console.info(`[hub] hub:enter ${requested} → ${ship} (lobby ${ctx.net?.lobby ? 'present' : 'absent'})`);
+  // 2026-09-15 (분대 · 도킹 매칭): only a **docked** squad lives in the shared ship — an undocked one stays in its personal ships
+  const docked = isDockedLobby(ctx.net?.lobby);
+  const ship: HubShipKind = docked ? 'shared' : 'personal';
+  if (requested !== ship) console.info(`[hub] hub:enter ${requested} → ${ship} (lobby ${ctx.net?.lobby ? (docked ? 'docked' : 'undocked') : 'absent'})`);
   const phase = ctx.phase;
   if (phase !== 'menu' && phase !== 'hub' && phase !== 'docking') ctx.bus.emit('game:abort', {});   // abort the mission / result screen first
   if (sys.cutscene) { sys.cutscene.dispose(); sys.cutscene = null; }
   sys.cancelTravel();                                                          // a 창문 워프 in flight does not survive a re-entry
   if (sys.interior && sys.ship === ship && ctx.phase === 'hub') return;      // idempotent
+  SquadDock.clearDockState(sys);   // entering the ship itself settles where we stand
   sys.disposeInterior();
   const spawn = sys.build(ship, false);
   void ctx.shaders?.holdForScene();   // 2026-09-10: compile the ship before its first frame instead of inside it
@@ -61,7 +67,8 @@ export function tryResume(sys: HubSystem): void {
   // `ensureConnected` 는 명시적 접속이라 `refused` 를 지운다. 다시 붙는 길은 터미널 `신호 찾기` · 타이틀 `다시 시도` 뿐이다.
   if (net.link?.state === 'refused') return;
   net.ensureConnected().then((ok) => {
-    if (!ok || !net.lobby) return;
+    // 2026-09-15: an undocked squad on welcome stays right here (its members live in their own personal ships)
+    if (!ok || !isDockedLobby(net.lobby)) return;
     if (sys.ship === 'personal' && sys.ctx.phase === 'hub' && !sys.cutscene) sys.swapDirect('shared');
   }).catch(() => { /* offline personal ship */ });
   }
@@ -88,6 +95,13 @@ export function startTransition(sys: HubSystem, direction: DockTransition): void
     sys.cutscene.dispose(); sys.cutscene = null;
   }
   sys.cancelTravel();             // the docking cutscene takes the camera; a 창문 워프 in flight is dropped with the interior
+  /*
+   * 2026-09-15 (분대 · 도킹 매칭): 「모든 것 취소」 — pod, housing mode, furniture pose, every screen on `ctx.escape`, the
+   * inventory, the pause menu (`parts/SquadDock.cancelEverything`). A pending countdown / fade is settled by this
+   * transition (a fade in progress fades back in — `SquadDock.finishFade` clears its own state before calling us).
+   */
+  SquadDock.clearDockState(sys);
+  SquadDock.cancelEverything(sys);
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a docking transition always leaves a visit
   sys.menu.close(false);
@@ -122,7 +136,7 @@ export function prebuildTarget(sys: HubSystem): void {
 export function finishTransition(sys: HubSystem, direction: DockTransition): void {
   const ctx = sys.ctx;
   sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
-  const target: HubShipKind = direction === 'dock' && ctx.net?.lobby ? 'shared' : 'personal';
+  const target: HubShipKind = direction === 'dock' && isDockedLobby(ctx.net?.lobby) ? 'shared' : 'personal';
   // 2026-09-10: take the ship `prebuildTarget` built and compiled during the cutscene (a lobby that vanished mid-dock
   // lands in the personal ship instead — then the prebuilt shared ship is thrown away)
   const pre = sys.pendingInterior;
@@ -142,6 +156,7 @@ export function finishTransition(sys: HubSystem, direction: DockTransition): voi
 export function swapDirect(sys: HubSystem, target: HubShipKind): void {
   const ctx = sys.ctx;
   sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
+  SquadDock.clearDockState(sys);   // 2026-09-15: a resume swap settles any pending squad-dock countdown / fade
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a direct swap always leaves a visit
   sys.menu.close(false);
@@ -227,26 +242,35 @@ function dockInto(sys: HubSystem, lobby: LobbyState): void {
 
 export function onLobbyUpdated(sys: HubSystem, lobby: LobbyState): void {
   if (!sys.active) return;
+  const net = sys.ctx.net;
+  const docked = isDockedLobby(lobby);
   /*
-   * B-6 (2026-09-11): the server moved us into another squad (같이 하기 · 초대 수락) — `onLobbyLeft('moved')` kept the ship
-   * we stand in, and this is the new lobby: dock into it. From a shared ship, a personal ship or a 격납고 visit alike,
-   * shared A → shared B is **one** docking cutscene (user decision), never undock + dock.
+   * 2026-09-15 (분대 · 도킹 매칭): **my own** dock (터미널 매칭 · the old create / join / quick match entries) is told apart
+   * from the leader's dock reaching me by `NetRef.dockPending`, which net clears right after this very event — so it is
+   * captured now. What happens next is the state rule in `parts/SquadDock.reconcile`: my dock → fade → cutscene at once,
+   * anyone else's → the right-side countdown first; an undocked lobby while standing in a shared ship → undock.
+   */
+  if (docked && net?.dockPending) sys.dockMine = lobby.code;
+  /*
+   * B-6 (2026-09-11): the server moved us into another squad (초대 수락 · 혼자 공개 매칭) — `onLobbyLeft('moved')` kept the ship
+   * we stand in, and this is the new lobby. Never undock + dock: shared A → shared B is one docking (2026-09-15: after the
+   * countdown unless the move was my own dock); a move into an **undocked** squad undocks only from a shared ship.
    */
   const move = sys.pendingMove;
-  if (move && (move.to === null || move.to === lobby.code)) {
-    clearMove(sys);
-    dockInto(sys, lobby);
-    return;
-  }
+  if (move && (move.to === null || move.to === lobby.code)) clearMove(sys);
   /*
-   * B-6 race (measured 2026-09-11): a lobby that arrives **while an undock cutscene runs** — an older relay's plain
+   * B-6 race (measured 2026-09-11): a docked lobby that arrives **while an undock cutscene runs** — an older relay's plain
    * `lobby:left` followed at once by the new `lobby:state` — used to be ignored (`phase === 'docking'`), so the undock
-   * finished into the personal ship with a lobby and nothing ever docked. Turn the cutscene around instead.
+   * finished into the personal ship with a lobby and nothing ever docked. Turn the cutscene around instead (nothing is
+   * open to cancel mid-cutscene, so no countdown is owed).
    */
-  if (sys.cutscene && sys.cutscene.direction === 'undock' && sys.ctx.net?.lobby?.code === lobby.code) {
+  if (docked && sys.cutscene && sys.cutscene.direction === 'undock' && net?.lobby?.code === lobby.code) {
+    sys.dockMine = null;
     dockInto(sys, lobby);
     return;
   }
+  SquadDock.reconcile(sys);
+  if (sys.cutscene || sys.ctx.phase !== 'hub') return;
   /*
    * 격납고 (2026-09-08): standing inside a bay's ship is **not** "the squad has not docked yet" — we are already in
    * the lobby, one door away. A lobby update must never fire a docking cutscene from in there. A visit ends on its
@@ -266,9 +290,11 @@ export function onLobbyUpdated(sys: HubSystem, lobby: LobbyState): void {
      */
     return;
   }
-  if (sys.ship === 'personal' && sys.ctx.phase === 'hub' && !sys.cutscene) {
-    if (lobby.started) sys.swapDirect('shared');     // resumed into a running mission: no cutscene
-    else sys.startTransition('dock');
+  // 2026-09-15: not (yet) in this squad's shared ship — the personal ship of an undocked squad, or the countdown before a
+  // dock. `SquadDock.reconcile` above owns every move from here; only the pod prompt / terminal text follow the lobby.
+  if (sys.ship !== 'shared' || sys.shipLobbyCode !== lobby.code) {
+    sys.syncPods();
+    sys.updateTerminalScreen();
     return;
   }
   Hangar.refreshBays(sys);
@@ -290,6 +316,9 @@ export function onLobbyUpdated(sys: HubSystem, lobby: LobbyState): void {
 export function onLobbyLeft(sys: HubSystem, reason?: string, to?: string): void {
   if (!sys.active) return;
   clearMove(sys);
+  // 2026-09-15 (분대 · 도킹 매칭): a countdown / fade dies with the lobby (a `moved` waits for the next one to decide again)
+  SquadDock.clearDockState(sys);
+  sys.dockMine = null;
   if (reason === 'moved') {
     // B-6: no undock — the `lobby:state` that follows docks us straight into the new ship (`onLobbyUpdated`). Should it
     // never come, this is an ordinary leave after all.
@@ -314,7 +343,8 @@ export function onLobbyLeft(sys: HubSystem, reason?: string, to?: string): void 
  */
 export function onResumed(sys: HubSystem, inProgress: boolean): void {
   if (!sys.active) return;
-  if (sys.ship !== 'shared') sys.swapDirect('shared');
+  // 2026-09-15 (분대 · 도킹 매칭): an undocked squad resumes right where its members are — their own personal ships
+  if (isDockedLobby(sys.ctx.net?.lobby) && sys.ship !== 'shared') sys.swapDirect('shared');
   const training = sys.trainingRunning();
   const raid = inProgress && !training;
   const net = sys.ctx.net;

@@ -23,7 +23,11 @@ import './hub.css';
 /* 2026-09-14 정보상: 매칭 팝업(`.hm-`) · 정보상 패널(`.hi-`) · 정보상 화면(`.it-`). `hub.css` 와 나란히 배선한다. */
 import './intel.css';
 
-import { type DockTransition, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
+import { type DockTransition, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
+/* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대 · 분대장 도킹 카운트다운 · 페이드 */
+import { isDockedLobby } from '@/shared';
+import * as SquadDock from './parts/SquadDock';
+import { SquadDockCountdown } from './ui/SquadDockCountdown';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
 import * as Planet from './parts/Planet';
@@ -66,9 +70,30 @@ export class HubSystem implements GameSystem, HubRef {
    */
   get planet(): PlanetId | null {
     const net = this.ctx?.net;
-    if (net?.lobby) return net.lobbyPlanet ?? null;
+    // 2026-09-15: the lobby's planet belongs to its shared ship — an undocked squad member keeps flying their own ship
+    if (net && this.squadLobby()) return net.lobbyPlanet ?? null;
     return this.localPlanet;
   }
+
+  /* ── 분대 도킹 (2026-09-15, `parts/SquadDock`) ───────────────────────────── */
+  /**
+   * Code of the lobby whose shared ship we stand in (set when the shared ship is built; a bay's personal ship keeps it),
+   * null in the ordinary personal ship. `squadLobby()` compares it with `ctx.net.lobby` — the one test for "in the squad's ship".
+   */
+  shipLobbyCode: string | null = null;
+  /** Countdown to the leader's dock (right-side panel), null when none. */
+  squadDock: SquadDockState | null = null;
+  /** Fade-out before the docking cutscene, null when none. */
+  dockFade: SquadDockState | null = null;
+  /** Code of a docked lobby that arrived as **my own** dock (`NetRef.dockPending` inside its `net:lobbyUpdated`). */
+  dockMine: string | null = null;
+  dockCountdown!: SquadDockCountdown;
+  /** The lobby whose shared ship we stand in, or null (personal ship · undocked squad · docked but not arrived). */
+  squadLobby(): LobbyState | null { return SquadDock.squadLobby(this); }
+  /** Debug / smoke: whole seconds left on the squad-dock countdown panel, −1 while it is not shown. */
+  get squadDockSeconds(): number { return this.dockCountdown?.seconds ?? -1; }
+  /** Debug / smoke: the fade-out before the docking cutscene is running. */
+  get dockFading(): boolean { return this.dockFade !== null; }
   /**
    * true while the ship is warping to a new planet (2026-09-09: the 창문 워프 — terminal closed, pods / bays / consoles
    * unavailable, but the **controls stay on** and the camera is the player's; nothing is locked).
@@ -308,6 +333,7 @@ export class HubSystem implements GameSystem, HubRef {
     // 2026-09-14: the panel measures the ready hold (스페이스 1초) and calls back; the rules live in `parts/Pods`.
     this.ready = new ReadyPanel(ctx, { toggleReady: () => this.toggleReady() });
     this.status = new HubStatus(ctx);
+    this.dockCountdown = new SquadDockCountdown(ctx);   // 2026-09-15: 분대장 도킹 카운트다운 (우측)
     this.housingMode = new HousingMode(ctx);
     const b = ctx.bus;
     this.unsubs.push(
@@ -361,6 +387,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.menu.dispose();
     this.launchWarn.dispose();
     this.status.dispose();
+    this.dockCountdown.dispose();
     this.ready.dispose();
     this.housingMode.dispose();
     if (this.ctx?.hub === this) this.ctx.hub = null;
@@ -544,7 +571,7 @@ export class HubSystem implements GameSystem, HubRef {
    */
   resendReady(): void {
     const net = this.ctx.net;
-    if (this.boardedSlot < 0 || !net?.lobby || !net.connected) return;
+    if (this.boardedSlot < 0 || !net || !this.squadLobby() || !net.connected) return;
     net.setReady(this.readyLocal);
     this.readySentAt = this.ctx.time;
   }
@@ -555,14 +582,16 @@ export class HubSystem implements GameSystem, HubRef {
   updateTerminalScreen(): void {
     if (!this.terminal) return;
     const net = this.ctx.net;
-    const lobby = net?.lobby ?? null;
+    // 2026-09-15: the shared ship's lines only inside it — an undocked squad member's terminal is a personal ship's
+    const lobby = this.squadLobby();
+    const squad = !lobby ? (net?.lobby ?? null) : null;
     const seed = lobby ? lobby.seed : this.missionSeed;
     const seedText = seed === null ? '시드 무작위' : `시드 ${seed}`;
     const status = net?.status === 'connected' ? '네트워크 연결됨' : net?.status === 'connecting' ? '연결 중…' : '오프라인';
     const planetLine = `목표 ${this.travelling ? `${planetLabel(this.planet)} 이동 중` : (getPlanet(this.planet)?.name ?? PLANET_NONE_LABEL)}`;
     const lines = lobby
       ? [`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, planetLine, seedText]
-      : ['개인 함선', status, planetLine, seedText];
+      : ['개인 함선', squad ? `분대 ${squad.players.length}/4 · ${isDockedLobby(squad) ? '도킹 중' : '도킹 대기'}` : status, planetLine, seedText];
     if (lobby && this.trainingRunning()) lines.push(`훈련장 ${this.trainingCount()}명`);
     const credits = this.credits();
     if (credits !== null) lines.push(`크레딧 ${credits.toLocaleString('ko-KR')}`);
@@ -586,6 +615,8 @@ export class HubSystem implements GameSystem, HubRef {
   update(dt: number, ctx: GameContext): void {
     this.menu.update(dt);
     this.ready.update(dt, ctx.time);
+    // 2026-09-15 (분대 · 도킹 매칭): where the squad should be vs where we stand → countdown / fade / (un)dock
+    if (this.active) SquadDock.tick(this, dt);
     // a card change inside the debounce window goes out as soon as it expires
     if (this.cardDirty) this.sendCrewCard(false);
     // 격납고 (2026-09-08): the same trailing flush for our ship layout

@@ -70,7 +70,16 @@ export function sanitizeIntelWire(raw: IntelWire | null | undefined): IntelWire 
   }
 
 /* ── lobby ops ──────────────────────────────────────────────────────── */
-export function createLobby(sys: NetSystem): void { sys.pendingQuickMatch = false; sys.client.send({ t: 'lobby:create', name: sys._playerName }); }
+/*
+ * 2026-09-15 (분대 · 도킹 매칭): 옛 입구 셋(`lobby:create` · `lobby:join` · `lobby:quickmatch`)은 서버가 여전히 **도킹된**
+ * 로비를 만들거나 넣어 준다 — 내가 누른 것이므로 `requestDock` 과 똑같이 「내 도킹」(`dockPending`)이다. 안 켜면 hub/ 가
+ * 분대장의 도킹으로 읽어 카운트다운부터 돈다 (초대 링크 · 스모크 · 옛 UI).
+ */
+export function createLobby(sys: NetSystem): void {
+  sys.pendingQuickMatch = false;
+  if (sys.client.connected) sys._dockPending = true;
+  sys.client.send({ t: 'lobby:create', name: sys._playerName });
+  }
 
 export function joinLobby(sys: NetSystem, code: string): void {
   const norm = normalizeLobbyCode(code);
@@ -79,6 +88,7 @@ export function joinLobby(sys: NetSystem, code: string): void {
     return;
   }
   sys.pendingQuickMatch = false;
+  if (sys.client.connected) sys._dockPending = true;
   sys.client.send({ t: 'lobby:join', code: norm, name: sys._playerName });
   }
 
@@ -118,6 +128,7 @@ export function quickMatch(sys: NetSystem): void {
     return;
   }
   sys.pendingQuickMatch = true;
+  sys._dockPending = true;   // 2026-09-15: a docked public lobby I asked for — see `createLobby`
   sys.client.send({ t: 'lobby:quickmatch', name: sys._playerName });
   }
 
@@ -260,7 +271,6 @@ export function beginSession(
 export function applyLobby(sys: NetSystem, next: LobbyState): void {
   const prev = sys._lobby;
   sys._lobby = next;
-  if (isDockedLobby(next)) sys._dockPending = false;   // 2026-09-15: the dock I asked for (or the leader's) arrived
   const bus = sys.ctx.bus;
   if (prev && prev.code === next.code) {
     const me = sys.localId;
@@ -285,6 +295,12 @@ export function applyLobby(sys: NetSystem, next: LobbyState): void {
   }
   sys.syncRemoteIdentities();
   bus.emit('net:lobbyUpdated', { lobby: next });
+  /*
+   * 2026-09-15 (분대 · 도킹 매칭): the dock I asked for arrived. Cleared **after** the emit on purpose — hub/ reads
+   * `dockPending` inside its `net:lobbyUpdated` handler to tell my own dock (fade → cutscene at once) from the leader's
+   * dock reaching me (countdown first). Clearing it before the emit made every dock look like somebody else's.
+   */
+  if (isDockedLobby(next)) sys._dockPending = false;
   }
 
 /**
@@ -314,7 +330,9 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   sys.missionSeed = null;
   sys.lobbySuspended = false;
   sys.pendingQuickMatch = false;
-  sys._dockPending = false;   // 2026-09-15: a dock request dies with the lobby
+  // 2026-09-15: a dock request dies with the lobby — except `moved`: 공개 매칭 from alone in an undocked squad moves me into
+  // an open public ship (`lobby:left {moved}` + its `lobby:state`), and that arrival is still **my** dock.
+  if (reason !== 'moved') sys._dockPending = false;
   sys._tookOver = false;
   sys._raidBlob = null;
   sys.prevHostId = null;

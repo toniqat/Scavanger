@@ -293,7 +293,8 @@ try {
   await waitFor(A, () => window.__game.ctx.net.getRemotePlayers().length === 1 && !!window.__game.ctx.net.getRemotePlayers()[0].avatar, 'A hub remote avatar', 10000);
   ok(await A.evaluate(() => (window.__game.ctx.net.getRemotePlayers()[0].flags & (1 << 12)) !== 0), 'remote ref carries IN_HUB flag');
   ok(await A.evaluate(() => window.__game.ctx.net.inHubSession), 'A inHubSession');
-  ok(await A.evaluate(() => { const el = document.querySelector('[class*="squad"]'); return !!el && el.textContent.includes('분대원'); }), 'A squad panel lists 분대원 in the hub');
+  // 2026-09-15: `.squad` 그대로 — `[class*="squad"]` 는 먼저 붙는 분대 도킹 카운트다운(`.hub-squad-dock`)을 집는다
+  ok(await A.evaluate(() => { const el = document.querySelector('#ui-root .squad'); return !!el && el.textContent.includes('분대원'); }), 'A squad panel lists 분대원 in the hub');
 
   console.log('crew cards (Phase 10: crew card / crewq loadout / crew loadout)');
   const aIdCrew = await A.evaluate(() => window.__game.ctx.net.localId);

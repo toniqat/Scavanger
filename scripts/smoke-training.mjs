@@ -101,27 +101,51 @@ try {
   await waitSim(0.3);
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
+  // 2026-09-15 (분대 · 도킹 매칭, 사용자 결정): 섹션이 아니라 행성 탭 **우하단 버튼**(`.hub-train`, 상태 줄 `.hub-train-state`)이고 안내 줄은 없다
   const solo = await P(() => {
-    const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
-    const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
-    const btn = sec?.querySelector('button');
+    const btn = document.querySelector('.menu.hub-menu .hub-foot .right .ui-btn.hub-train');
     const simHubs = window.__game.ctx.interactables.all().filter((i) => /훈련장/.test(i.getPrompt?.() ?? '')).length;
-    return { has: !!sec && !sec.hidden, label: btn?.textContent ?? null, disabled: btn?.disabled ?? null, simHubs };
+    const section = [...document.querySelectorAll('.menu.hub-menu .hub-section .ui-label')].some((n) => n.textContent === '시뮬레이션 훈련장');
+    return { has: !!btn && !btn.hidden && !section, label: btn?.querySelector('.hub-train-state')?.textContent ?? null, disabled: btn?.disabled ?? null, simHubs };
   });
-  ok(solo.has, 'personal-ship terminal has a 시뮬레이션 훈련장 section (solo)');
+  ok(solo.has, 'personal-ship terminal has the 시뮬레이션 훈련장 corner button, no section (solo)');
   ok(solo.label === '시작' && solo.disabled === false, `solo → "${solo.label}" enabled`);
   ok(solo.simHubs === 0, `no furniture offers 훈련장 입장 any more (${solo.simHubs})`);
 
   /* ── 2. enter the training ───────────────────────────────────────────────── */
   console.log('training arena');
+  // 2026-09-15 (사용자 결정): 버튼은 곧장 들어가지 않고 확인 카드를 띄운다 — 클릭 확정(홀드 아님) · 초기 포커스 `취소` · Tab/Escape 취소
+  const confirm0 = await P(() => {
+    const n0 = window.__ev['game:newMission'].length;
+    document.querySelector('.menu.hub-menu .ui-btn.hub-train')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const c = document.querySelector('.menu.hub-menu.htc-confirm');
+    return {
+      open: !!c && !c.hidden, text: c?.querySelector('.htc-body')?.textContent ?? '',
+      buttons: [...(c?.querySelectorAll('.hub-foot .ui-btn') ?? [])].map((b) => b.textContent),
+      focus: document.activeElement?.textContent ?? '', top: window.__game.ctx.escape.topKey,
+      blocker: window.__game.ctx.uiBlockers.has('hub:trainConfirm'), missions: window.__ev['game:newMission'].length - n0,
+    };
+  });
+  ok(confirm0.open && confirm0.text === '시뮬레이션 훈련장에 입장하시겠습니까?' && confirm0.buttons.join(',') === '취소,입장', `the button opens the confirm card (${confirm0.text} · ${confirm0.buttons.join('/')})`);
+  ok(confirm0.focus === '취소' && confirm0.top === 'hub:trainConfirm' && confirm0.blocker, `confirm card: focus 취소, own escape / blocker token (${confirm0.top})`);
+  ok(confirm0.missions === 0, 'opening the confirm card does not enter the arena');
+  await tap('Tab');
+  await waitSim(0.15);
+  const confirm1 = await P(() => ({
+    open: !document.querySelector('.menu.hub-menu.htc-confirm').hidden, term: !document.querySelector('.menu.hub-menu.fullscreen').hidden,
+    top: window.__game.ctx.escape.topKey, blocker: window.__game.ctx.uiBlockers.has('hub:trainConfirm'), missions: window.__ev['game:newMission'].length,
+  }));
+  ok(!confirm1.open && !confirm1.blocker && confirm1.term && confirm1.top === 'hub:terminal' && confirm1.missions === 0, 'Tab cancels only the confirm card (terminal stays, nothing entered)', JSON.stringify(confirm1));
   const entered = await P(() => {
-    const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
-    const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
-    const btn = sec?.querySelector('button');
-    if (btn && !btn.disabled) { btn.click(); return 'terminal'; }
+    const btn = document.querySelector('.menu.hub-menu .ui-btn.hub-train');
+    if (btn && !btn.disabled) {
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const go = [...document.querySelectorAll('.menu.hub-menu.htc-confirm .hub-foot .ui-btn')].find((b) => b.textContent === '입장');
+      if (go) { go.click(); return 'terminal'; }
+    }
     return window.__game.getSystem('hub').startTraining() ? 'startTraining' : 'refused';
   });
-  ok(entered !== 'refused', `entered through ${entered}`);
+  ok(entered === 'terminal', `entered through the confirm card's 입장 (${entered})`);
   const nm = await lastEv('game:newMission');
   ok(nm && nm.mode === 'training', `game:newMission {mode:'training'} (${JSON.stringify(nm)})`);
   const world = await waitFor(page, () => window.__game.ctx.world?.ready && window.__game.ctx.world.mode === 'training', 'training world ready');
@@ -636,20 +660,24 @@ try {
     await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
     await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
     const readMenu = () => P(() => {
-      const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
-      const sec = secs.find((s) => s.querySelector('.ui-label')?.textContent === '시뮬레이션 훈련장');
-      const btn = sec?.querySelector('button');
-      // 2026-09-14: 승무원 줄은 터미널 좌측 열이 아니라 **매칭 팝업**(`.hm-match`, `ui/MatchPanel`) 안에 산다
-      // — 열려 있어야 갱신되므로 읽기 전에 연다 (`docs/DECISIONS.md` 「2026-09-14 — 정보상」).
-      // ⚠ 읽은 뒤 **다시 닫는다** — 열어 둔 채로 두면 아래의 E 가 터미널이 아니라 이 팝업을 닫는다 (ESC · E 사슬은 맨 위 하나다).
-      document.querySelector('.menu.hub-menu .ui-btn.hub-matching')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      const crew = [...document.querySelectorAll('.menu.hub-menu.hm-match .crew-row .state')].map((n) => n.textContent);
-      document.querySelector('.menu.hub-menu.hm-match .ui-btn.hm-close')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      return { has: !!sec && !sec.hidden, label: btn?.textContent ?? null, disabled: btn?.disabled ?? null, crew };
+      const btn = document.querySelector('.menu.hub-menu .ui-btn.hub-train');
+      // 2026-09-15: 분대 초상은 터미널 **매칭 탭**(`.hmt-`, `ui/MatchTab`)이다 — 탭이 보일 때만 갱신되므로 잠깐 바꿔 읽고
+      // 행성 탭으로 돌려놓는다 (훈련장 버튼은 행성 탭에만 보인다). 옛 매칭 팝업(`.hm-match` · `.crew-row`)은 없어졌다.
+      const menu = window.__game.getSystem('hub').menu;
+      menu.setTab('match');
+      const st = (sel) => { const b = document.querySelector(sel); return b ? { hidden: b.hidden, disabled: b.disabled } : null; };
+      const tiles = [...document.querySelectorAll('.hub-pane-match .hmt-row > .hmt-tile')].map((t) => ({ cls: t.className, name: t.querySelector('.hmt-name')?.textContent ?? '', host: t.querySelector('.hmt-badge')?.hidden === false }));
+      const match = { priv: st('.hmt-private'), pub: st('.hmt-public'), undock: st('.hmt-undock'), leave: st('.hmt-leave') };
+      menu.setTab('planet');
+      return { has: !!btn && !btn.hidden, label: btn?.querySelector('.hub-train-state')?.textContent ?? null, disabled: btn?.disabled ?? null, tiles, match };
     });
     const m0 = await readMenu();
-    ok(m0.has, 'terminal has a 시뮬레이션 훈련장 section on the shared ship');
+    ok(m0.has, 'terminal has the 시뮬레이션 훈련장 button on the shared ship');
     ok(m0.label === '시작' && m0.disabled === false, `idle lobby → "${m0.label}" enabled`);
+    ok(/\bis-me\b/.test(m0.tiles[0]?.cls ?? '') && m0.tiles[1]?.name === '동료' && m0.tiles[1]?.host === true && /\bis-empty\b/.test(m0.tiles[2]?.cls ?? ''),
+      'match tab: me first, then the squadmate with the 분대장 badge, then empty cells', JSON.stringify(m0.tiles));
+    ok(m0.match.undock?.hidden === false && m0.match.priv?.hidden === true && m0.match.pub?.hidden === true && m0.match.leave?.hidden === true,
+      'a docked lobby (docked absent = docked) shows only 도킹 해제', JSON.stringify(m0.match));
     // a member is training
     await P(() => {
       const net = window.__game.getSystem('net');
@@ -659,7 +687,7 @@ try {
     await waitSim(0.2);
     const m1 = await readMenu();
     ok(m1.label === '합류 (1명 훈련 중)' && m1.disabled === false, `training running → "${m1.label}" enabled`);
-    ok(m1.crew[0] === '훈련장', `crew row shows 훈련장 (${m1.crew[0]})`);
+    ok(m1.tiles[1]?.name === '동료' && m1.match.undock?.hidden === false, 'the match tab keeps the squad while a training runs', JSON.stringify(m1.tiles));
     await tap('KeyE');   // 2026-09-08: the terminal closes on E
     await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
     await waitSim(0.2);
@@ -704,6 +732,36 @@ try {
     ok(m2.label === '임무 진행 중' && m2.disabled === true, `raid running → "${m2.label}" disabled`);
     const refused = await P(() => { const n0 = window.__ev['ui:notify'].length; const r = window.__game.getSystem('hub').startTraining(); return { r, notes: window.__ev['ui:notify'].slice(n0).map((n) => n.text) }; });
     ok(refused.r === false && refused.notes.some((t) => /임무 진행 중/.test(t)), `startTraining refused during a raid (${refused.notes.join(' | ')})`);
+    // 2026-09-15 (분대 · 도킹 매칭): 도킹 전 분대 — 훈련장 `분대 대기 중` 잠김, 분대원은 매칭 버튼이 잠기고 `분대 떠나기` 가 보인다.
+    // 버스 이벤트 없이 터미널만 다시 그린다 — `net:lobbyUpdated` 를 쏘면 hub 의 분대 도킹 규칙(flow)이 함선을 바꾼다.
+    const und = await P(() => {
+      const net = window.__game.getSystem('net');
+      const saved = net._lobby;
+      const menu = window.__game.getSystem('hub').menu;
+      const st = (sel) => { const b = document.querySelector(sel); return b ? { hidden: b.hidden, disabled: b.disabled } : null; };
+      try {
+        net._lobby = { ...saved, started: false, mode: undefined, docked: false, players: [{ ...saved.players[0], inMission: false, ready: false }] };
+        menu.refresh();
+        const btn = document.querySelector('.menu.hub-menu .ui-btn.hub-train');
+        const train = { label: btn?.querySelector('.hub-train-state')?.textContent ?? null, disabled: btn?.disabled ?? null };
+        menu.setTab('match');
+        const out = {
+          train, priv: st('.hmt-private'), pub: st('.hmt-public'), undock: st('.hmt-undock'), leave: st('.hmt-leave'),
+          hint: document.querySelector('.hmt-hint')?.hidden === false ? document.querySelector('.hmt-hint').textContent : null,
+          invite: [...document.querySelectorAll('.hmt-tile.is-empty .hmt-invite')].map((b) => b.disabled),
+        };
+        menu.setTab('planet');
+        return out;
+      } finally {
+        net._lobby = saved;
+        menu.refresh();
+      }
+    });
+    ok(und.train.label === '분대 대기 중' && und.train.disabled === true, `undocked squad → training "${und.train.label}" disabled`);
+    ok(und.priv?.hidden === false && und.pub?.hidden === false && und.priv.disabled && und.pub.disabled && und.hint === '분대장만 매칭할 수 있습니다',
+      `a member cannot press 비공개 / 공개 매칭 ("${und.hint}")`, JSON.stringify(und));
+    ok(und.undock?.hidden === true && und.leave?.hidden === false, 'undocked squad: 분대 떠나기 instead of 도킹 해제', JSON.stringify({ undock: und.undock, leave: und.leave }));
+    ok(und.invite.length > 0 && und.invite.every((d) => d === true), `a member's empty cells cannot invite (${und.invite.join(',')})`);
     await tap('KeyE');
     await P(() => { window.__game.getSystem('net')._lobby = null; });
   }
