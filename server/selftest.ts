@@ -2466,7 +2466,7 @@ async function main(): Promise<void> {
 
     /* ══════════════════════ part 10 (2026-09-11, C-29): 서버 콘솔 — list · kick · max ══════════════════════
      *
-     * `server/tool.ts` 의 콘솔 명령이 부르는 세 API. kick 은 유예 없이 슬롯부터 비우고(peer:left + 호스트 이관)
+     * `server/Console.ts`(start-server.bat 창)의 콘솔 명령이 부르는 세 API. kick 은 유예 없이 슬롯부터 비우고(peer:left + 호스트 이관)
      * `lobby:error kicked` 뒤 CLOSE_KICKED 로 닫는다 — 밴은 없다. max 는 **새** 소켓만 막고, 같은 소켓의 교체와
      * 유예 중인 로비 멤버의 재접속은 예외다.
      */

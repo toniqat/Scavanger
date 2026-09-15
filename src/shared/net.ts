@@ -1666,13 +1666,14 @@ export interface RemotePlayerRef {
 }
 
 /* ══ appended (2026-09-10): 서버 주소 — 배포용 릴레이에 붙는 길 ════════════════════════════════════════════
- * 릴레이는 이제 저장소 없이도 켤 수 있는 **단독 exe**(`server/tool.ts` → `npm run server:dist`)로 배포되고,
- * 클라이언트는 그 주소를 **네 곳**에서 얻는다. 위에서부터 먼저 이긴다:
+ * 2026-09-15: **빌드에는 서버가 없다** — 릴레이는 이 프로젝트 폴더의 `start-server.bat`(`npm run server` · `dev:all`)로만
+ * 켠다 (옛 단독 exe `server/tool.ts` 와 데스크톱 앱 내장 릴레이는 없어졌다). 클라이언트는 주소를 **네 곳**에서 얻는다.
+ * 위에서부터 먼저 이긴다:
  *
  *   ① 게임 안 `설정 › 서버 설정` 에 적은 주소  (localStorage `RELAY_STORAGE_KEY`, 캐릭터 슬롯 공용)
  *   ② `SCAVANGER.exe --relay=<url>` / `SCAV_RELAY`
- *   ③ exe 옆 `relay.txt` 첫 줄
- *   ④ 아무것도 없음 → 같은 오리진의 `/ws` (vite 프록시 · 데스크톱 앱의 임베디드 릴레이)
+ *   ③ exe 옆 `server.txt` 첫 줄 (옛 `relay.txt` 도 읽는다)
+ *   ④ 아무것도 없음 → 같은 오리진의 `/ws` (vite 프록시 · 데스크톱 앱은 이 PC 의 `ws://127.0.0.1:8787/ws` 로 넘긴다)
  *
  * ②③④ 는 셸(`electron/main.ts`)이 고르고 렌더러에는 **같은 오리진 `/ws`** 로만 보인다 — 그래서 ① 만
  * `defaultUrl()` 안에서 갈라지면 된다. 브라우저에서도 ① 은 그대로 동작한다.
@@ -1719,7 +1720,7 @@ export interface RelayProbe {
 /**
  * 한 대의 컴퓨터에서 밖으로 보이는 IPv4 후보를 **쓸 만한 순서로** 정렬한다. 개발 PC 는 Hyper-V · WSL · VPN
  * 스위치까지 여러 개를 갖고 `ipconfig` 순서는 쓸모가 없으므로, 가상 어댑터를 뒤로 밀고 실제 사설망 범위를
- * 앞으로 당긴다. `scripts/lan-address.mjs`(배너)와 `server/tool.ts`(배포 서버의 첫 줄)가 같은 답을 내야 해서
+ * 앞으로 당긴다. `scripts/lan-address.mjs`(start-server.bat 배너)와 `server/Console.ts` 가 같은 답을 내야 해서
  * 여기 있다. `networkInterfaces()` 의 결과를 그대로 넘긴다 — `shared/` 는 node 를 import 하지 않는다.
  */
 export function lanAddresses(
@@ -1821,7 +1822,7 @@ export type ServerToClientAppended2026_09_11b =
  * - `connecting` — a socket is opening (bounded by `NET_CONNECT_TIMEOUT_MS`).
  * - `connected` — `welcome` arrived.
  * - `unreachable` — the last attempt failed / timed out; an anonymous background probe runs on `NET_PROBE_BACKOFF_MS`
- *   (not for the desktop shell's embedded relay — `embedded`).
+ *   (every target — the desktop shell has no embedded relay since 2026-09-15).
  * - `refused` — the server said kicked / server_full / duplicate: no probing, no auto-reconnect until an explicit connect.
  * - `reconnecting` — was connected, socket dropped, the reconnect backoff is running.
  */
@@ -1831,13 +1832,16 @@ export interface NetLinkInfo {
   state: NetLinkState;
   /** The relay address this state is about (`NetRef.relayUrl`). */
   url: string;
-  /** `unreachable`: ms until the next background probe (null = not probing, e.g. `embedded`). */
+  /** `unreachable`: ms until the next background probe (null = not probing). */
   nextProbeInMs?: number | null;
   /** `refused`: why. */
   refused?: 'kicked' | 'server_full' | 'duplicate';
   /** `reconnecting`: 1-based attempt. */
   attempt?: number;
-  /** The target is the desktop shell's same-origin embedded relay (starts on demand — never probed). */
+  /**
+   * Retired 2026-09-15 — the target used to be the desktop shell's embedded relay (never probed). Builds ship no relay
+   * any more, so nothing sets it; kept only because the contract is add-only.
+   */
   embedded?: boolean;
   /** `unreachable` after a probe succeeded while in a raid / training: a server is there, connect from the ship. */
   found?: boolean;
@@ -1855,9 +1859,9 @@ export const NET_CONNECT_TIMEOUT_MS = 6000;
 export const NET_PROBE_BACKOFF_MS: readonly number[] = [5000, 10000, 20000, 30000, 60000];
 /**
  * B-1 (appended 2026-09-11, owner: electron/main.ts serves it): the desktop shell's loopback route answering
- * `{ target, source }` — which relay its same-origin `/ws` goes to. `ui/menus/SettingsMenu` shows it as the default line,
- * `net/parts/Socket` reads it to tell the **embedded** relay (never probed: it starts on the first `/ws`) from a
- * configured one. A browser / vite has no such route (vite answers index.html — not JSON).
+ * `{ target, source }` — which relay its same-origin `/ws` goes to. `ui/menus/SettingsMenu` shows it as the default line.
+ * (Until 2026-09-15 `net/parts/Socket` also read it to spot the embedded relay; builds ship no relay now, so with no address
+ * configured the target is this PC's `start-server.bat` relay.) A browser / vite has no such route (vite answers index.html — not JSON).
  */
 export const NET_SHELL_RELAY_ROUTE = '/__scav/relay';
 

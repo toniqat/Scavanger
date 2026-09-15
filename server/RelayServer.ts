@@ -176,8 +176,8 @@ export interface RelayServerOptions {
   socialPushCoalesceMs?: number;
   /**
    * 2026-09-11 (E-4 ⑦): accept the dev credit reasons `console` · `smoke:*` · `e2e:*` · `shot` (`CREDIT_DEV_ENV`). Default
-   * **off**: `server/index.ts` turns it on from `SCAV_DEV_ECONOMY=1` (only the relay `scripts/verify.mjs` starts itself — `npm run dev:all` keeps it off); `tool.ts`
-   * (shipped exe) and the desktop shell's embedded relay never do.
+   * **off**: `server/index.ts` turns it on from `SCAV_DEV_ECONOMY=1` (only the relay `scripts/verify.mjs` starts itself — `npm run dev:all` and
+   * `start-server.bat` keep it off). The desktop shell has no relay since 2026-09-15.
    */
   devEconomy?: boolean;
   /** 2026-09-11 (E-4 ⑦): the economy table (default: the committed `economy.gen.json`). Selftest only. */
@@ -195,7 +195,7 @@ export interface RelayServer {
   readonly store: ProfileStore;
   clientCount(): number;
   close(): Promise<void>;
-  /* 2026-09-11 (C-29) — 서버 콘솔 관리 (`server/tool.ts`). 밴은 없다: 쫓겨난 사람이 다시 붙는 것은 막지 않는다. */
+  /* 2026-09-11 (C-29) — 서버 콘솔 관리 (`server/Console.ts`, start-server.bat 창). 밴은 없다: 쫓겨난 사람이 다시 붙는 것은 막지 않는다. */
   /** Every connected socket, oldest first. */
   listClients(): RelayClientInfo[];
   /**
@@ -480,7 +480,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   /* E-4 (⑦): credits:tx rules. `devEconomy` only from `server/index.ts` (env) — the shipped exe / desktop shell never pass it. */
   const economy = new CreditEconomy(opts.economyTable ?? ECONOMY_TABLE, { dev: opts.devEconomy === true });
   log(`economy table ${economy.table.hash}${economyTableIntact(economy.table) ? '' : ' (digest mismatch — regenerate with npm run data:check -- --write)'} · ${Object.keys(economy.table.items).length} items · dev reasons ${economy.dev ? 'ON' : 'off'}`);
-  /* 2026-09-13: 암호화폐 시세 — every entrypoint (index.ts · tool.ts exe · the desktop shell's embedded relay) goes through here.
+  /* 2026-09-13: 암호화폐 시세 — the one entrypoint (`server/index.ts`, started by start-server.bat / verify) goes through here.
      Same directory as the profile store (`crypto.json` next to `profiles.json`); `dataDir: null` keeps it in memory. */
   const market = economy.table.crypto
     ? new CryptoMarket({ table: economy.table.crypto, dataDir: opts.dataDir === undefined ? DEFAULT_DATA_DIR : opts.dataDir, quiet, ...(opts.cryptoSeed !== undefined ? { seed: opts.cryptoSeed } : {}) })
@@ -1974,7 +1974,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     market.start();
   }
 
-  /* ── C-29: operator console (server/tool.ts) ─────────────────────────── */
+  /* ── C-29: operator console (server/Console.ts) ──────────────────────── */
   const listClients = (): RelayClientInfo[] => {
     const out: RelayClientInfo[] = [];
     for (const c of clients.values()) {

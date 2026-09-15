@@ -30,9 +30,8 @@
  * 원자성은 `Store.applyCreditsTx` 가, 와이어는 `RelayServer` 의 `credits:tx` 가 갖는다. 핸들러가 동기라 check → apply →
  * commit 사이에 다른 트랜잭션이 끼지 않는다.
  *
- * 표는 **JSON import** 로 읽는다: dev(`node --experimental-strip-types server/index.ts`)에서는 Node 의 JSON 모듈,
- * 단독 exe(`scripts/build-server.mjs` 의 rolldown CJS 번들)에서는 번들에 인라인된다 — exe 옆에 파일이 없어도 된다.
- * `import.meta` 는 쓰지 않는다 (번들이 CJS 다).
+ * 표는 **JSON import** 로 읽는다 (`node --experimental-strip-types server/index.ts` 에서 Node 의 JSON 모듈).
+ * `import.meta` 는 쓰지 않는다 — 옛 단독 exe 의 CJS 번들 때문에 생긴 규칙이고 (2026-09-15 exe 폐기), 지켜서 잃는 것이 없다.
  */
 import type { CreditLedger, CreditReason, EconomyTable } from '../src/shared/credits.ts';
 import {
@@ -115,7 +114,7 @@ export function economyTableIntact(t: EconomyTable): boolean {
   return t.hash === economyTableDigest(t);
 }
 
-/** `SCAV_DEV_ECONOMY=1|true|yes|on` or the `--dev-economy` flag. Read by `server/index.ts` only — never by `tool.ts` / electron. */
+/** `SCAV_DEV_ECONOMY=1|true|yes|on` or the `--dev-economy` flag. Read by `server/index.ts` only (the one relay entry point). */
 export function devEconomyFromEnv(env: Record<string, string | undefined> = process.env, argv: readonly string[] = process.argv): boolean {
   if (argv.includes('--dev-economy')) return true;
   const v = (env[CREDIT_DEV_ENV] ?? '').trim().toLowerCase();
