@@ -110,6 +110,11 @@ export const MARKER_BOB = 0.28;
 export const MARKER_BOB_PERIOD = 2.6;
 /** 마커가 대상을 다시 찾는 주기 (프레임) — 매 프레임 `ctx.interactables` 를 훑지 않는다. */
 export const MARKER_RETARGET_FRAMES = 15;
+/**
+ * 목표 마커가 서는 단계 — **첫 시체 구간 둘**이다 (2026-09-15 2차: 「열어라」(`corpseOpen`)와 「챙겨라」(`corpseLoot`)가
+ * 갈렸지만 가리키는 것은 같은 시체 하나라, 열라고 할 때부터 마커가 서 있어야 한다).
+ */
+export const CORPSE_MARKER_STEPS: readonly TutorialStepId[] = ['corpseOpen', 'corpseLoot'];
 
 /* ── 기상 연출과 첫 안내 사이 (2026-09-14 4차, 사용자 결정) ────────────────
  * 깨어나는 동안에는 목표 패널도 조작 가이드도 그리지 않는다 — 화면이 아직 검고 몸도 내 것이 아닌데
@@ -145,6 +150,13 @@ export interface TutorialObjective {
   text: string;
   /** 안 해도 다음 단계로 넘어간다 — 라벨 앞에 `(선택)` 이 붙고, **실제로 달성했을 때만** 체크된다. */
   optional?: boolean;
+  /**
+   * **세어야 하는 목표의 목표 수** (2026-09-15 2차, 사용자 결정). 있으면 패널이 문구 뒤에 ` (현재/목표)` 를 붙이고
+   * 진행이 바뀔 때마다 **그 숫자 노드만** 갈아 끼운다 (`ui/Panel.setCounts` — 줄을 다시 지으면 체크 · 취소선
+   * 애니메이션이 처음부터 다시 돈다). 그래서 **문구에는 수를 적지 않는다**: `벌레 처치` + `count: 2` → `벌레 처치 (0/2)`.
+   * 진행 수의 원본은 `TutorialSystem` 이고(지금은 처치 수 `kills` 하나), 목표 수는 그 단계가 세는 상수에서 유도한다.
+   */
+  count?: number;
   /**
    * **순차 공개** (2026-09-14 3차, 사용자 결정) — **앞 줄을 달성해야 보인다**. 할 일이 셋이나 되는 단계에서
    * 셋을 한꺼번에 늘어놓으면 「지금 무엇을 하는가」가 묻힌다. 패널은 아직 열리지 않은 줄을 **그리지 않는다**
@@ -378,6 +390,9 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
   advance1: MOVE_HINTS,
   advance2: MOVE_HINTS,
   advance3: MOVE_HINTS,
+  // 2026-09-15 2차: 시체를 여는 단계와 뒤지는 단계가 **같은 배열**을 쓴다 (참조가 같으면 `applyControls` 의
+  //   id 비교가 그대로 통과해 DOM 을 한 번도 안 건드린다 — 줄이 깜빡이지 않는다).
+  corpseOpen: LOOT_HINTS,
   corpseLoot: LOOT_HINTS,
   shoot: [
     // 한 줄에 쌍 둘 — 사격과 정조준은 같은 손의 같은 동작이라 따로 읽을 이유가 없다 (2026-09-14 2차)
@@ -478,7 +493,12 @@ export const CONTROLS_TITLE_KO = '조작';
 export const CHECKPOINT_STEP: Readonly<Record<string, TutorialStepId>> = {
   wake: 'wake',
   cliff: 'sprintJump',
-  corpse: 'corpseLoot',
+  /*
+   * 2026-09-15 2차 (사용자 결정) — `corpse` 는 `corpseLoot` 이 아니라 **`corpseOpen`** 을 연다. 절벽을 건너선
+   * 사람에게 「기관단총을 주무기 칸에 장착」부터 띄우면, 아직 열지도 않은 가방 속 물건을 옮기라는 말이 된다.
+   * 시체 가방이 실제로 열리면(`inventory:containerOpened` 의 `corpse:…`) 그때 `corpseLoot` 이다.
+   */
+  corpse: 'corpseOpen',
   /*
    * 2026-09-14 4차 (사용자 결정: 「걸어가다 **벌레가 솟으면** 그때 시작」) — `bugs` 는 `shoot` 이 아니라
    * **`advance1`** 로 접는다. 이 체크포인트는 z 60 이고 벌레(−2.5, 34)·(2.5, 28) 는 감지 12 m 라

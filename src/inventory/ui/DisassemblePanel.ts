@@ -1,5 +1,5 @@
 import type { CraftRecipe, ItemDef } from '@/shared';
-import { UI_HOLD_CONFIRM_S, buildItemChip, renderItemCost } from '@/shared';
+import { UI_HOLD_CONFIRM_S, buildItemChip, createHoldButtonCap, renderItemCost } from '@/shared';
 import type { InventorySystem } from '../InventorySystem';
 import { Modeless } from './Modeless';
 import { TEXT } from './labels';
@@ -138,9 +138,6 @@ export class DisassemblePanel {
     cTitle.textContent = `★ ${TEXT.favorite.confirmTitle}`;
     this.confirmBody = document.createElement('div');
     this.confirmBody.className = 'inv-dis-confirm-body';
-    const cHint = document.createElement('div');
-    cHint.className = 'inv-dis-confirm-hint';
-    cHint.textContent = TEXT.favorite.confirmHint(UI_HOLD_CONFIRM_S);
     const cRow = document.createElement('div');
     cRow.className = 'inv-dis-confirm-row';
     this.confirmCancel = document.createElement('button');
@@ -155,14 +152,15 @@ export class DisassemblePanel {
     this.confirmFill.className = 'inv-dis-confirm-fill';
     const okLabel = document.createElement('span');
     okLabel.textContent = TEXT.favorite.confirm;
-    this.confirmOk.append(this.confirmFill, okLabel);
+    // 2026-09-15 2차 (사용자 결정): 카드 위의 「N초 동안 누르고 있어야 …」 줄 대신 버튼 **안**의 좌클릭 홀드 키캡.
+    this.confirmOk.append(this.confirmFill, createHoldButtonCap(), okLabel);
     this.confirmOk.addEventListener('pointerdown', (e) => this.startHold(e));
     this.confirmOk.addEventListener('pointerleave', () => this.stopHold());
     // Enter / Space on the focused button never confirm — only the hold does
     this.confirmOk.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); } });
     this.confirmOk.addEventListener('click', (e) => e.preventDefault());
     cRow.append(this.confirmCancel, this.confirmOk);
-    this.confirmEl.append(cTitle, this.confirmBody, cHint, cRow);
+    this.confirmEl.append(cTitle, this.confirmBody, cRow);
     this.shell.body.append(this.confirmEl);
   }
 

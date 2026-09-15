@@ -1,7 +1,7 @@
 import type { GameContext, IntelGimmick, IntelPick, IntelRef, IntelSpec, PlanetId } from '@/shared';
 import {
   INTEL_COST_TABLE, INTEL_OPTIONS_IN_ORDER, NAMED_ROGUE_NAME_KO, NAMED_ROGUE_TYPES, PLANET_THREAT_LABELS,
-  UI_HOLD_CONFIRM_S, getPlanet, intelCost, intelEffectText, intelMaxTier, intelPlanetThreat, openHoldAsk,
+  UI_HOLD_CONFIRM_S, createHoldButtonCap, getPlanet, intelCost, intelEffectText, intelMaxTier, intelPlanetThreat, openHoldAsk,
   resolveIntelEffects,
 } from '@/shared';
 import { el, randomSeed, setText, toggleClass } from './dom';
@@ -148,7 +148,10 @@ export class IntelMenu {
     this.btnCancel = this.button(actions, '취소', () => this.close());
     this.btnConfirm = el('button', { cls: 'ui-btn primary it-confirm', parent: actions });
     this.holdFill = el('div', { cls: 'it-hold-fill', parent: this.btnConfirm });
-    el('span', { cls: 'it-confirm-label', text: `확정 (${UI_HOLD_CONFIRM_S}초 꾹)`, parent: this.btnConfirm });
+    // 2026-09-15 2차 (사용자 결정): `(1초 꾹)` 도 「누르고 있으면 결제합니다」 줄도 없앴다 — 그 말은 라벨 왼쪽의
+    // 좌클릭 홀드 키캡이 한다.
+    createHoldButtonCap(this.btnConfirm);
+    el('span', { cls: 'it-confirm-label', text: '확정', parent: this.btnConfirm });
     // **홀드만** 확정한다 — click 핸들러를 달지 않으므로 Enter · Space 로는 아무 일도 일어나지 않는다
     this.btnConfirm.addEventListener('pointerdown', (e) => { e.preventDefault(); this.startHold(); });
     window.addEventListener('pointerup', this.onPointerUp, true);
@@ -341,7 +344,9 @@ export class IntelMenu {
     const total = this.costOf(this.picks());
     setText(this.totalEl, fmtCredits(total));
     const reason = this.blockReason(total);
-    setText(this.reasonEl, reason ?? `「확정」을 ${UI_HOLD_CONFIRM_S}초 누르고 있으면 결제합니다`);
+    // 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 — 사유가 없으면 줄 자체가 사라진다.
+    setText(this.reasonEl, reason ?? '');
+    this.reasonEl.hidden = !reason;
     toggleClass(this.reasonEl, 'bad', !!reason);
     this.btnConfirm.disabled = !!reason;
     if (reason) this.stopHold();

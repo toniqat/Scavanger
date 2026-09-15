@@ -146,6 +146,12 @@ export class HudSystem implements GameSystem {
   private fadeFrom = 0;
   private fadeT = 0;
   private fadeDur = 0;
+  /**
+   * 2026-09-15 (`ui:screenFade.hold`): 이 판은 **페이즈가 바뀌어도 스스로 걷히지 않는다** — 튜토리얼 레이드
+   * 건너뛰기가 「암전된 채로 결과 화면」을 위해 건다. 건 쪽이 `{opacity: 0}` 으로 걷고, `game:abort` ·
+   * `hub:entered` 는 여기서 무조건 걷는다 (함선이 검게 남는 길이 없다).
+   */
+  private fadeHold = false;
 
   private reticle!: Reticle;
   private vitals!: Vitals;
@@ -446,8 +452,12 @@ export class HudSystem implements GameSystem {
       /* 2026-09-14: 화면 전체 검은 페이드. `game:newMission` 은 **일부러 듣지 않는다** — `world:ready` 가 그
        * 이벤트 안에서 동기로 발행되므로(`hud/Compass` 주석), 월드가 뜨자마자 켜는 오프닝 페이드를 우리가 도로
        * 지워 버린다. 방어는 `game:abort` 와 아래 `applyVisibility` 의 페이즈 가드 둘이면 충분하다. */
-      b.on('ui:screenFade', ({ opacity, durationS }) => this.setScreenFade(opacity, durationS)),
+      b.on('ui:screenFade', ({ opacity, durationS, hold }) => this.setScreenFade(opacity, durationS, hold ?? false)),
       b.on('game:abort', () => this.setScreenFade(0, 0)),
+      /* 2026-09-15: `hold` 로 걸어 둔 판도 **함선에 들어서면 반드시** 걷는다 — 걸어 둔 쪽이 어떤 이유로 못 걷어도
+       * 함선이 검게 남지 않는다 (`game:abort` 와 같은 자리의 같은 방어). `hold` 가 아닌 판은 이미 페이즈
+       * 가드(`applyVisibility`)가 걷은 뒤라 이 줄은 아무 일도 하지 않는다. */
+      b.on('hub:entered', () => this.setScreenFade(0, 0)),
       b.on('extraction:tick', ({ remaining }) => {
         if (ctx.phase !== 'extracting') return;
         // Keep the objective in sync with the timer (cheap: text only changes once a second).
@@ -490,10 +500,14 @@ export class HudSystem implements GameSystem {
    *
    * 이것은 **연출이지 화면이 아니다**: blocker 도, `ctx.escape` 스택의 항목도 아니고 포인터를 먹지도 않는다.
    * 그래서 부르는 쪽(player/ 의 기상 연출)은 입력 잠금을 자기 폴더에서 따로 건다.
+   *
+   * 2026-09-15 — `hold` 면 아래 `applyVisibility` 의 페이즈 가드가 이 판을 걷지 않는다 (튜토리얼 건너뛰기의
+   * 「암전된 채로 결과 화면」). **투명해지는 요청은 언제나 hold 를 푼다** — 0 으로 가는 판을 붙잡을 이유가 없다.
    */
-  private setScreenFade(opacity: number, durationS: number): void {
+  private setScreenFade(opacity: number, durationS: number, hold = false): void {
     const o = Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 0));
     const d = Math.max(0, Number.isFinite(durationS) ? durationS : 0);
+    this.fadeHold = hold && o > 0;
     this.fadeOpacity = o;
     this.fadeFrom = this.fadeShown;
     this.fadeT = 0;
@@ -520,6 +534,8 @@ export class HudSystem implements GameSystem {
   get fallVignetteOpacity(): number { return this.fallVignette.opacity; }
   /** Smoke hook (2026-09-14): the opacity actually painted this frame (moves toward `screenFadeOpacity`). */
   get screenFadeShown(): number { return this.fadeShown; }
+  /** Smoke hook (2026-09-15): the plate is held across phase changes (`ui:screenFade.hold`). */
+  get screenFadeHeld(): boolean { return this.fadeHold; }
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
@@ -856,8 +872,11 @@ export class HudSystem implements GameSystem {
     if (this.cinematic && !ctx.isGameplayPhase()) this.setCinematic(false);
     /* 2026-09-14: 검은 페이드도 레이드보다 오래 살지 않는다 — 같은 자리의 같은 방어다. 다만 기준은 `inGame`
      * (게임플레이 + `deploying`)이다: 오프닝 페이드는 강하 · 월드 준비 구간에 걸쳐 있어, `isGameplayPhase()`
-     * 하나로 자르면 켜자마자 다음 프레임에 지워진다. 결과 화면 · 함선 · 타이틀 · 사망 화면에서는 즉시 걷힌다. */
-    if (this.fadeOpacity > 0 && !inGame) this.setScreenFade(0, 0);
+     * 하나로 자르면 켜자마자 다음 프레임에 지워진다. 결과 화면 · 함선 · 타이틀 · 사망 화면에서는 즉시 걷힌다.
+     *
+     * 2026-09-15 — **`hold` 로 건 판은 예외다** (튜토리얼 레이드 건너뛰기): 결과 화면으로 페이즈가 바뀌는 순간
+     * 검정을 걷으면 결과 창 뒤로 행성이 다시 보인다. 건 쪽이 걷거나, `game:abort` · `hub:entered` 가 걷는다. */
+    if (this.fadeOpacity > 0 && !inGame && !this.fadeHold) this.setScreenFade(0, 0);
     // Reticle hidden while inventory / any blocker is open (handled in Reticle.update via opacity).
   }
 

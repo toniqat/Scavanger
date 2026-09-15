@@ -104,6 +104,11 @@ export class GameFlowSystem implements GameSystem {
   soloRestore: PlayerRestoreState | null = null;
   /** 2026-09-14: 이어하는 튜토리얼이 마지막으로 지난 체크포인트 (`world:ready` 뒤에 되돌린다, null = 없음). */
   soloCheckpoint: TutorialCheckpointId | null = null;
+  /**
+   * 2026-09-15: 마지막으로 저장한 튜토리얼 단계 id. `tutorial:changed` 는 단계가 아닌 이유(스태미나 노출)로도
+   * 오므로, 단계가 **실제로 바뀐 프레임에만** 세이브를 강제한다 (`parts/Session.saveTutorialStep`).
+   */
+  lastTutorialStep: string | null = null;
   /** > 0 while waiting for the host's `ghost restore` after a rejoin. */
   restoreTimer = -1;
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
@@ -237,6 +242,10 @@ export class GameFlowSystem implements GameSystem {
       b.on('training:exitRequested', () => this.exitTraining()),
       b.on('inventory:itemAdded', () => this.saveRaid()),
       b.on('crate:looted', () => this.saveRaid()),
+      /* 2026-09-15 (사용자 결정): 튜토리얼은 **단계마다 · 체크포인트마다** 저장한다 — 5초 주기로는 단계 전환이
+       * 담기지 않아, 방금 배운 것을 하자마자 껐다 켜면 그 단계를 다시 하게 된다 (`parts/Session`). */
+      b.on('tutorial:changed', ({ step }) => Session.saveTutorialStep(this, step)),
+      b.on('tutorial:checkpoint', () => Session.saveTutorialCheckpoint(this)),
       // The browser ate an Escape to free the cursor (`main.ts` ← `Input.onUserUnlock`) — that press was the
       // 일시정지 메뉴. Also fired by `onFocusLost` below, where the pause is the same outcome.
       b.on('input:pointerLockLost', () => this.escapePause()),

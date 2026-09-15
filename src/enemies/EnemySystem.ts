@@ -986,7 +986,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   /* ── GrenadeHost ───────────────────────────────────────────────────────── */
   /**
-   * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with linear falloff over ROGUE_GRENADE_RADIUS to every alive player
+   * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with the shared 2단 계단 falloff (`shared/explosion`) over ROGUE_GRENADE_RADIUS to every alive player
    * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
    * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
    */

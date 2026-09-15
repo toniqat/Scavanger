@@ -43,6 +43,9 @@ interface StatRow {
  * **2026-09-14 (사용자 결정) — 확정 팝업은 요약 카드다** (`buildSummary`): 왼쪽에 이름과 능력치 다섯 개의 가로 게이지
  * (값 / 5), 오른쪽에 미리보기 병사의 얼굴 정지 이미지. 「정말로 만들겠습니까?」 줄은 없어졌고 `만들기` 는
  * `UI_HOLD_CONFIRM_S` 홀드다 (`AskSpec.hold` — 붉지 않은 홀드, 채움은 악센트 색).
+ * **2026-09-15 2차 (사용자 결정)**: 그 능력치 다섯이 **가로 5열 → 세로 5행**이 됐다 — 한 행 = `[이름] [게이지] [값]`.
+ * 게이지 비율 · `maxed` 강조 · 얼굴 썸네일은 그대로다. 홀드 안내 줄은 `askPopup` 에서 통째로 사라졌고
+ * (`만들기` 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다).
  *
  * **점수가 남아 있으면 확정할 수 없다** (2026-09-09): `확정` 버튼은 `statPointsLeft > 0` 인 동안 `disabled`
  * (툴팁 `남은 점수를 모두 배분하세요`)이고, 그래도 눌리면(키보드 등) `능력치 배분 미완료` 안내 팝업만 뜬다.
@@ -345,9 +348,11 @@ export class CharacterCreate {
   }
 
   /**
-   * 확정 팝업의 요약 카드 (2026-09-14, 사용자 결정).
-   *  - 왼쪽: 이름 한 줄 + 능력치 다섯을 **가로로** 한 칸씩 — 이름 · 값 · 연속 게이지. 게이지는 **값 / 최대값**
-   *    (`CREATE_STAT_MAX` = 5 가 가득, 최소값 1 은 1/5 만큼 찬다 — 생성 화면의 바는 (값 − 최소) / (최대 − 최소) 라 다르다).
+   * 확정 팝업의 요약 카드 (2026-09-14, 사용자 결정 · 2026-09-15 2차 세로 5행으로 개편).
+   *  - 왼쪽: 이름 한 줄 + 능력치 다섯을 **세로 한 행씩** — 한 행 = `[이름] [가로 게이지] [값]`. 이름은 왼쪽 고정폭
+   *    (`--cf-name`, 이름 줄의 `이름` 라벨과 같은 폭이라 첫 칸이 세로로 맞는다), 게이지는 남는 폭을 다 쓰고,
+   *    값은 오른쪽 `tabular-nums` 라 자릿수가 흔들리지 않는다. 게이지는 **값 / 최대값**(`CREATE_STAT_MAX` = 5 가
+   *    가득, 최소값 1 은 1/5 만큼 찬다 — 생성 화면의 바는 (값 − 최소) / (최대 − 최소) 라 다르다).
    *  - 오른쪽: 미리보기 병사의 **얼굴 정지 이미지** (`SoldierPreview.snapshotFace`). GL 이 없으면 그 칸 없이 왼쪽만.
    * 숫자는 여기 없다 — 범위는 `shared/character.ts` 의 상수다.
    */
@@ -363,12 +368,11 @@ export class CharacterCreate {
       const v = this.stats[def.id] ?? CREATE_STAT_MIN;
       const cell = el('div', { cls: 'cc-cf-stat', parent: stats });
       toggleClass(cell, 'maxed', v >= CREATE_STAT_MAX);
-      const head = el('div', { cls: 'h', parent: cell });
-      el('span', { cls: 'n', text: def.name, parent: head });
-      el('span', { cls: 'v', text: String(v), parent: head });
+      el('span', { cls: 'n', text: def.name, parent: cell });
       const bar = el('div', { cls: 'bar', parent: cell });
       const fill = el('i', { parent: bar });
       fill.style.transform = `scaleX(${Math.max(0, Math.min(1, v / max)).toFixed(4)})`;
+      el('span', { cls: 'v', text: String(v), parent: cell });
     }
     const url = this.preview?.snapshotFace() ?? null;
     if (url) {

@@ -1,6 +1,9 @@
 import type { TutorialStepId, TutorialTrack } from '@/shared';
 import { PLANET_IDS, TUTORIAL_STEPS, TUTORIAL_TRACK_STEPS, tutorialTrackOf } from '@/shared';
-import { TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, type StepDef } from './model';
+import {
+  RAID_KILLS_PER_STEP, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE,
+  type StepDef,
+} from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * src/tutorial/Steps.ts — **단계 표**. 각 단계가 무엇을 보여 주고 무엇을 허용하는지만 적는다.
@@ -248,19 +251,38 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     hint: '강하가 실패했습니다. 몸을 일으키는 중입니다 — 잠시 기다리세요.',
     objectives: [],
   },
+  /*
+   * 2026-09-15 2차 (사용자 결정) — 목표 문구가 **「앞으로 이동」**이다. 구간과 구간 사이의 `advance1`·`2`·`3` 이
+   * 이미 그 문장이고, 첫 걸음만 「갈라진 땅까지 이동」이면 같은 일에 이름이 둘이 된다 (그리고 그 땅은 아직
+   * 보이지도 않는다 — 어디까지 가야 하는지는 걸어가 보면 알게 된다).
+   */
   move: {
     id: 'move', title: '주변을 둘러보고 걸어가세요',
-    hint: '마우스로 시선을 돌리고, 이동 키로 앞쪽 갈라진 땅까지 걸어갑니다.',
-    objectives: [{ id: 'walkCliff', text: '갈라진 땅까지 이동' }],
+    hint: '마우스로 시선을 돌리고, 이동 키로 앞으로 걸어갑니다.',
+    objectives: [{ id: 'walkCliff', text: '앞으로 이동' }],
   },
   sprintJump: {
     id: 'sprintJump', title: '달려서 뛰어넘으세요',
     hint: '달리기를 누른 채 속도를 붙여 점프해야 건너갑니다. 서서 뛰면 닿지 않습니다.',
     objectives: [{ id: 'jumpGap', text: '{SPRINT:hold} 달리며 {JUMP} 점프로 갈라진 땅 건너기' }],
   },
+  /*
+   * 2026-09-15 2차 (사용자 결정) — **시체 상호작용.** 전에는 절벽을 넘자마자 곧장 「기관단총을 주무기 칸에 장착」이
+   * 떴다: 아직 시체를 열지도 않았는데 그 안의 물건을 옮기라고 한다 (`supplyLoot` 을 넣은 것과 같은 눈이다 —
+   * 「줍기도 전에 쓰라고 하지 않는다」). 그래서 시체 앞에 서면 먼저 이 한 줄이고, **시체 가방이 열리면**
+   * `corpseLoot` 이다 (`TutorialSystem.onContainerOpened` — `corpse:` 로 시작하는 컨테이너).
+   *
+   * 스포트라이트가 없다 — 할 일이 화면이 아니라 **월드의 시체**라 밝힐 DOM 이 없다. 대신 3D 목표 마커
+   * (`parts/Marker`)가 `corpseLoot` 과 **똑같이** 그 시체 위에 선다.
+   */
+  corpseOpen: {
+    id: 'corpseOpen', title: '쓰러진 대원을 살펴보세요',
+    hint: '앞에 쓰러진 대원이 있습니다. 다가가 상호작용하면 그 사람의 가방이 열립니다.',
+    objectives: [{ id: 'corpseInteract', text: '{INTERACT} 시체 상호작용' }],
+  },
   corpseLoot: {
     id: 'corpseLoot', title: '쓰러진 대원의 장비를 챙기세요',
-    hint: '시체에 상호작용해 무기 · 가방 · 탄약을 꺼내고, 무기를 주무기 칸에 끌어다 놓습니다.',
+    hint: '열린 가방에서 무기를 주무기 칸에 끌어다 놓습니다. 가방 · 탄약도 함께 챙길 수 있습니다.',
     /*
      * 2026-09-14 2차 (사용자 결정) — **총을 드는 것만이 필수**다. 가방 · 탄약 · 붕대는 선택 목표로 내려
      * 체크박스로 함께 보이기만 한다 (안 챙겨도 넘어간다). 총을 장착하는 순간 다음 단계이고,
@@ -329,7 +351,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   shoot: {
     id: 'shoot', title: '벌레를 처치하세요',
     hint: '정조준하면 탄이 덜 퍼집니다. 둘 다 쓰러뜨리면 다음으로 넘어갑니다.',
-    objectives: [{ id: 'killBugs', text: '벌레 2마리 처치' }],
+    // 2026-09-15 2차 (사용자 결정): 수는 문구에 적지 않고 **`count` 로 넘긴다** — 패널이 뒤에 `(n/m)` 을 붙이고
+    //   처치할 때마다 그 숫자만 갱신한다. 목표 수의 원본은 `RAID_KILLS_PER_STEP` 하나다.
+    objectives: [{ id: 'killBugs', text: '벌레 처치', count: RAID_KILLS_PER_STEP }],
   },
   crouch: {
     id: 'crouch', title: '앉아서 낮은 틈을 지나세요',
@@ -339,7 +363,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   crouchAim: {
     id: 'crouchAim', title: '앉은 채로 조준해 안드로이드를 처치하세요',
     hint: '앉으면 조준 흔들림이 크게 줄어듭니다 — 먼 표적일수록 차이가 납니다.',
-    objectives: [{ id: 'killAndroids', text: '안드로이드 2기 처치' }],
+    objectives: [{ id: 'killAndroids', text: '안드로이드 처치', count: RAID_KILLS_PER_STEP }],
   },
   drop: {
     id: 'drop', title: '아래로 뛰어내리세요',
@@ -427,7 +451,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      * (`.cs-col` 이 **화면에 없는 사본**을 먼저 집던 문제는 `parts/Spotlight` 가 고쳤다 — 그 파일의 주석 참고.)
      */
     spot: ['.cs-col', '.inv-root .scr-tabs'],
-    spotText: '＋ 로 투자 → 포인트 투자 확정 (1초 홀드)',
+    // 2026-09-15 2차: `(1초 홀드)` 는 없앤다 — 그 말은 이제 버튼 안의 좌클릭 홀드 키캡이 그림으로 한다.
+    spotText: '＋ 로 투자 → 포인트 투자 확정',
   },
   messenger: {
     id: 'messenger', title: '메신저를 여세요',

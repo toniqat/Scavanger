@@ -685,7 +685,9 @@ try {
       buyBtn: !!document.querySelector('.cv-shop .cv-tile .ui-btn'),   // 즉시 구매 buttons are gone (장바구니)
       grids: document.querySelectorAll('.cv-col.inv .trade-grids .tg-block').length,
       trays: document.querySelectorAll('.cv-trays .cv-tray').length,
-      confirm: document.querySelector('.cv-confirm')?.textContent,
+      // 2026-09-15 2차: 버튼 안에 좌클릭 홀드 키캡이 서서 `.cv-confirm` 의 `textContent` 는 `LMB거래 성사` 다 — 라벨 span 을 읽는다
+      confirm: document.querySelector('.cv-confirm-label')?.textContent,
+      confirmCap: !!document.querySelector('.cv-confirm .keycap.kc-btn'),
       confirmOff: document.querySelector('.cv-confirm')?.disabled,
       stage: !!document.querySelector('.cv-tray.sell .cv-stage'),
       // 구매 / 판매 트레이는 5칸 격자, 칸 크기는 가방 / 창고와 같다 (인벤토리의 `.inv-cells` 를 그대로 쓴다)
@@ -718,8 +720,8 @@ try {
     '재고 타일이 발자국 크기의 인벤토리 타일이다 (배양조 관 모양 아님)', JSON.stringify({ sizes: shopDom.sizes, tube: shopDom.tube, radius: shopDom.radius }));
   ok(shopDom.buyChev === 3 && shopDom.sellChev === 3 && !/거래 후 크레딧/.test(shopDom.totalLabel) && !shopDom.hints,
     '구매 트레이 우측 상단 › ×3 · 판매 트레이 좌측 상단 ‹ ×3 · 거래 후 크레딧 라벨 · 안내 문구 없음', JSON.stringify({ buyChev: shopDom.buyChev, sellChev: shopDom.sellChev, total: shopDom.totalLabel, hints: shopDom.hints }));
-  ok(shopDom.trays === 2 && shopDom.grids >= 1 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,
-    '거래 tab: 구매 / 판매 trays, 가방 + 함선 창고 grids, 거래 성사 disabled on an empty basket', JSON.stringify(shopDom));
+  ok(shopDom.trays === 2 && shopDom.grids >= 1 && shopDom.confirm === '거래 성사' && shopDom.confirmCap && shopDom.confirmOff,
+    '거래 tab: 구매 / 판매 trays, 가방 + 함선 창고 grids, 좌클릭 홀드 키캡, 거래 성사 disabled on an empty basket', JSON.stringify(shopDom));
   // hovering a stock tile raises the shared item card (ui/hud/ItemTip)
   const tip = await P(() => {
     const t = document.querySelector('.cv-shop .cv-tile.shop');

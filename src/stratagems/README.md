@@ -44,7 +44,7 @@ gameplay stops being active (blockers, pointer lock lost); the call is put away 
 
 ## Effects (every client simulates from `stratagem:called`; remote calls arrive as `strat call` with `eta` + `seed`)
 Enemy damage (`ctx.enemies.applyExplosion`) runs **only on the caller's client** (replicas forward to the host); each client damages
-its **own** player (linear falloff) on every impact; `camera:shake` scales with distance (60 m reach).
+its **own** player (`shared/explosion` 2단 계단 감쇠) on every impact; `camera:shake` scales with distance (60 m reach).
 - **orbital_laser**: at `landsAt` a 300 m additive beam (core + glow shell, rotating scorch ring, spark bursts) for `LASER_DURATION`;
   every 0.25 s `LASER_DPS × 0.25` inside `LASER_RADIUS`. `stage active` → `done`.
 - **airstrike**: at `landsAt` `AIRSTRIKE_DAMAGE` in `AIRSTRIKE_RADIUS`, fireball + shockwave ring + dust, `stratagem:ended` after 2 s.
@@ -54,7 +54,7 @@ its **own** player (linear falloff) on every impact; `camera:shake` scales with 
 - **structure_drop**: `STRUCTURE_COUNT` barricades placed from the call `seed` (`Random`) within `STRUCTURE_SCATTER`, ≥ 2.4 m apart,
   terrain height each; fall 60 m over `STRUCTURE_FALL_TIME` staggered 0.15 s; each landing = `STRUCTURE_IMPACT_DAMAGE` in
   `STRUCTURE_IMPACT_RADIUS` + `world.addObstacle({radius 1.35, height 1.5, destructible})`. `DestructibleRef.onDamage` (weapons) and
-  `grenade:exploded` (250 centre damage, linear falloff) → `structure:damaged` (crack overlay darkens) → hp 0: `structure:destroyed`,
+  `grenade:exploded` (250 centre damage, `shared/explosion` 2단 계단 감쇠) → `structure:damaged` (crack overlay darkens) → hp 0: `structure:destroyed`,
   obstacle remover called, mesh replaced by rubble. `stratagem:ended` when all blocks have landed (destruction is separate).
 
 ## Events
@@ -180,6 +180,12 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (폭발 감쇠 2단 계단 — 사용자 결정)** — `parts/Calls` 의 두 자리가 `shared/explosion.explosionDamage` 를 쓴다(안쪽 절반 100 % ·
+  바깥 띠 `EXPLOSION_OUTER_MUL` 고정 · 반경 밖 0, 예전 `1 - d / radius` 선형): `impactDamage`(로컬 플레이어가 받는 착탄 — 궤도 레이저 틱 ·
+  항공 폭탄 · 보급품 · 트라이포드 낙하가 **모두** 이 한 함수를 지나므로 레이저의 틱 피해도 같은 계단을 탄다) 와 `splashStructures`
+  (수류탄 → 서 있는 구조물, 1.3 m 는 구조물 몸 반지름이라 거리는 표면까지). 적 피해는 `ctx.enemies.applyExplosion` 이 같은 식이다.
+  `shakeFrom` 의 `1 - d / SHAKE_RANGE` 는 피해가 아니라 그대로다.
 
 - **2026-09-15 (결과 창 개편 — 플레이어 피해 출처)** — `parts/Calls.impactDamage` 가 로컬 플레이어에게 준 착탄 피해(궤도 레이저 틱 · 항공 폭탄 ·
   보급품 · 트라이포드 낙하)에 `{kind:'explosion'}` 을 싣는다 (frozen 상수). 부른 사람이 나든 분대원이든 같다 — 계약(`DamageCauseKind`)이

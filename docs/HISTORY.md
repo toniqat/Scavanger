@@ -46,6 +46,75 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-15 3차 (튜토리얼 이어하기 · 마지막 구간 지형 · 폭발 공식 · 결과 창 · 메신저 — 사용자 결정, 에이전트 5 병렬):
+  - **튜토리얼은 언제 껐다 켜도 이어서 한다** — `soloRaidStatus` 가 `save.mode === 'tutorial'` 이면 첫 줄에서 `'fresh'` 다.
+    5분 유예(`SOLO_RAID_GRACE_MS`)도 E-5 의 시계 방어도 **되돌릴 진행이 있을 때**의 장치인데 튜토리얼에는 잃을 전리품도 실패도 없다.
+    (`raidSeed` 표식 검사는 그대로 — `inventory` 가 `missionMode === 'raid'` 일 때만 표식을 남기므로 튜토리얼은 그 검사를 지나간다.)
+    저장 시점도 **단계마다 · 체크포인트마다**로 늘렸다: 새 이벤트 없이 이미 있는 `tutorial:changed`(단계 id 가 실제로 바뀐 프레임만 —
+    `GameFlowSystem.lastTutorialStep` 이 거른다) · `tutorial:checkpoint` 에 `parts/Session.saveTutorialStep` · `saveTutorialCheckpoint` 를 물렸고,
+    둘 다 평소 `saveRaid` 를 지나므로 페이즈 게이트 · C-70 사망 가드가 한 줄도 안 바뀌었다.
+  - **건너뛰기는 암전된 채로 결과 화면이 뜬다** — `ui:screenFade` 에 `hold?` 를 **추가만** 했다(생략 = 예전 동작). `HudSystem` 은 hold 로
+    걸린 판을 `applyVisibility` 에서 걷지 않고(투명해지는 요청은 언제나 hold 를 푼다) `game:abort` · `hub:entered` 에서만 치운다.
+    ⚠ **`.menu` 에는 z-index 가 없었다** — `.menu.pause`(85) · 타이틀(84) · 설정(86)만 값이 있어서, 판을 유지하면 결과 창이
+    검은 판(z 82) **아래**에 깔렸다. `base.css` 에 `.menu.complete, .menu.death { z-index: 84 }` 한 줄.
+  - **튜토리얼 마지막 구간** (`world/tutorial`) — ① 가로 블라인드 철조망이 **절반 높이**(`BARRIER.fenceHeight` 2.7 → **1.35**)로 보이되
+    콜라이더는 두 겹이다: 아래 1.35 는 실체, 그 위 1.35 는 `passRays` + `passSmall` **유령 토막**(깨진 창틀이 쓰는 그 플래그)이라
+    **총알 · 적 시야 · 수류탄은 넘어가고 사람 · 적만 막힌다** — 점프(1.20) + 올라서기(0.9)로 넘는 길이 없다.
+    ② 안드로이드 둘이 선 자리가 **웅덩이**다: 깊이 `PLAYER_HEIGHT / 2` = 0.9 m · 바닥 −10.9 · 평면 x −2…6 · z −140.5…−147,
+    함선 쪽 −X 면이 19.8° 오르막(`addRamp`), 나머지 세 면은 데크를 도려내고 남은 띠의 옆면이 곧 0.9 m 턱이다.
+    깊이가 **정확히 `PROP_STEP_UP_MAX`** 인 것이 요점이다 — 사람 · 적은 어느 가장자리로든 걸어 오르내리지만 그 가지가 `!small` 로
+    막혀 있어 **수류탄(`BODY_R` 0.08 < `SMALL_BODY_R` 0.25)은 밀려나 굴러 나가지 못한다**(사용자 결정의 「수류탄이 다른 곳으로 빠지지 않게」).
+    0.9 m 는 `FALL_DAMAGE_SAFE_M` 5 밑이라 무피해 → `FALL_RULES` 볼륨을 더하지 않았다. `BACKSTOP` 은 밑면만 웅덩이 바닥으로 내려 남겼다 —
+    턱은 굴러 나가는 것만 막고 **날아 들어오는** 수류탄을 멈추는 것은 여전히 그 벽이다.
+  - **폭발 감쇠가 하나의 공식이 됐다** (`shared/explosion.ts`) — `damage × (1 − d/radius)` 선형이 **7곳에 복사돼** 있던 것을
+    `explosionFalloff` · `explosionDamage` 로 뽑고 **2단 계단**으로 바꿨다(사용자 결정): 중심 `EXPLOSION_FULL_FRACTION`(0.5) × 반경 안은
+    **100 %**, 거기서 반경까지는 `EXPLOSION_OUTER_MUL`(0.6) 고정, 밖은 0. 고폭 수류탄 반경 **6 → 7.2**(×1.2). 코드에 박혀 있던
+    `GRENADE_RADIUS` · `GRENADE_DAMAGE` · 자해 배수는 전부 `data/constants.csv` 로 옮겼다(`weapons/index.ts` 의 export 이름은 별칭으로 유지).
+    소비처 14자리 — 수류탄 자해 · 바주카 엄폐물 · 적 피해(`enemies/parts/Damage.explode`) · 적 수류탄 · 곡사포탄 · 독성 자폭 ·
+    스퓨어 분출 · 지하벌레 분출 · 탐사 차량 · 지뢰 · C4 · 드론 · 함선 호출 낙하물. **기존 하한(0.3 · 0.25 · 0.2 · 0.15 · 0.1)은
+    `Math.max(하한, explosionFalloff(...))` 로 위에 얹어 남겼고**, 지하벌레는 **넉백만 옛 선형**이다(계단이면 경계에서 날아가는 거리가 뚝 끊긴다).
+    피해가 아닌 감쇠(카메라 흔들림 · 소리 거리 곡선 · 넉백 · 회피)는 하나도 안 건드렸다.
+  - **탈출 결과 창 머리줄** — 부제 `스캐빈저 회수 완료 — 전리품 확보` 를 없앴다(요소는 남기고 `hidden`; 사망 모습의 `SUB_DEAD` 는
+    제목이 말하지 않는 것을 나르므로 그대로). 행성 줄은 `행성`(회색 12px — 없앤 부제와 같은 크기 · 색) + 이름(흰색 15px) 두 조각이고,
+    `menus/ResultReport.buildPlanetLine` 하나를 `MissionComplete` · `DeathScreen` 이 같이 쓴다.
+  - **메신저 — 확인해야 다음 메시지가 온다** — `ChatTab` 이 대화를 **처음 그릴 때**의 `typingShown` 을 `all.length` 가 아니라
+    「이미 읽은 말풍선 수」로 잡는다. 그러면 안 읽은 줄이 기존 스트리밍 경로(`.ms-bubble.ms-typing` + 글자 수 비례 지연)를 그대로 타
+    `···` 뒤에 하나씩 도착한다. 경계는 `contacts[id].readAt` 이고(같은 사건에서 나온 말풍선은 `at` 이 같아 정확히 갈린다) `markRead` 는
+    다 그린 **뒤에** 불리므로 첫 열람만 스트리밍되고 다시 열면 저절로 즉시 전부다. 계약은 `shared/npc.ts` 의 선택 메서드
+    `NpcQuestRef.readAtOf?` **추가만**이고, 없는 창구(스모크 스텁)는 「전부 읽음」 폴백이라 예전과 같다. 밀린 대화는 뒤 6줄만 타이핑한다.
+  - 스모크 3건을 새 사실에 맞추고 1건에 회귀 프로브를 더했다: `smoke-social`(행성 줄 두 조각 · 탈출 부제 없음) ·
+    `smoke-fire-zones`(고폭 반경 7.2) · `smoke-tutorial-ship`(레이븐 인사가 `···` 뒤에 하나씩 도착하는지 — 자동으로 그 연출을 지나는 유일한 경로다).
+
+- 2026-09-15 2차 (UI · 튜토리얼 다듬기, 사용자 결정 — 리드가 `shared` 계약을 먼저 확정하고 에이전트 4 병렬):
+  - **「눌린 키캡」** — 꾹 누르는 키캡(`.keycap.kc-hold`)이 눈으로 눌려 있다: 아래 테두리 2px → **1px**(다른 세 면과 같은 두께) ·
+    내용을 그만큼 **1px 아래로**(`padding-top: 1px` — `align-items: center` 라 정확히 1px) · chevron 은 키캡 **윗변에 걸쳐**
+    절반은 안 · 절반은 밖으로 솟는다(`top: -5.6px`). **마우스 그림 키캡도 같다** — 예전의 예외(`.kc-mouse.kc-hold::before { display:none }` +
+    SVG 안 chevron)를 걷어냈으므로 꾹 누르기 표시를 그리는 곳은 이제 `base.css` 한 자리다.
+  - **꾹 누르는 버튼 안의 좌클릭 키캡** — 신규 `shared/keycap.createHoldButtonCap()`(`.keycap.kc-btn`)을 라벨 왼쪽에 세우고, 버튼 위에
+    깔던 「N초 동안 누르고 있어야 실행됩니다」 안내 줄 5종(`.tm-ask-hint` · `.pause-ask-hint` · `.sm-confirm-hint` · `.sh-ask-hint` · `.cv-ask-hint`)을
+    요소째 지웠다. 붙는 곳 12군데 — 확정 팝업 4종(`askPopup` · `PauseMenu` · `shared/holdAsk` · `meta/HoldAsk`) · 시설 제거 · 제작 ·
+    분해 확인 · 가구 강화 · 채굴 매매 · 정보상 확정 · 거래 성사 · 포인트 투자 확정 · 탐사 차량 출발. **홀드 설명만 지우고**(사용자 결정)
+    같은 줄이 겸해 나르던 경고 · 차단 사유는 남겨, `.map-rover-note` 는 「출발하면 도착까지 내릴 수 없습니다」 만 남고 `.it-reason` ·
+    `.mn-trade-block` · `.hs-modal-note` 는 **차단 사유 전용**이 됐다(없으면 `hidden`). 라벨도 짧아졌다: `길게 눌러 제작` → `제작`,
+    `확정 (1초 꾹)` → `확정`.
+  - **캐릭터 선택 · 생성** — 결과 메시지가 카드 아래 패널(`.form-msg`)이 아니라 **바닥 줄 오른쪽 끝의 글자**(`.ts-msg`, 틀 없이 글자 색만)이고
+    그 자리에 서 있던 안내 라벨(`캐릭터마다 창고 · 장비 · 함선 …`)은 삭제. 확정 팝업의 능력치는 가로 5열 → **세로 5행**
+    (행마다 `[이름] [게이지] [값]`).
+  - **튜토리얼** — 새 단계 `corpseOpen`(「{INTERACT} 시체 상호작용」)이 `corpseLoot` 앞에 들어가 raid 15 → **16단계**다 — 아직 시체를
+    열지도 않았는데 그 안의 물건을 옮기라고 하던 것이 이상했다(`supplyLoot` 을 넣은 것과 같은 눈). `corpse` 체크포인트가 열고
+    `inventory:containerOpened` 의 `corpse:` 가 닫는다. 목표 줄에 **카운트**(`벌레 처치 (0/2)` — `TutorialObjective.count`, 수의 원본은
+    `RAID_KILLS_PER_STEP`), 첫 이동 목표는 `갈라진 땅까지 이동` → **`앞으로 이동`**(`advance1`·`2`·`3` 과 같은 문장), 좌측 상단
+    목표 패널만 글자 **×1.2** · 폭 288 → 346px.
+  - **드랍쉽 z-fighting 3군데** — 사용자가 본 「바닥이 뚫려 땅이 보인다」 · 「좀우 벽 색이 매 프레임 바뀜다」 는 둘 다 동일평면이고,
+    뿌리는 **함선 원점이 지면 위에 있다**는 것이다(`floorYAt` 규약 = 데크 평면 로컬 y 0). 바닥 판 · `hullBelly` · 지면이 y 0,
+    라이닝 벽 · 옆판이 x ±1.6, 그리고 훑훑이 천장 · 지붕이 y 2.6 — 셋 다 갈랐다(`BAY_FLOOR_LIFT` 0.025 · `HULL_SKIN_GAP` 0.01).
+    `floorYAt` · `BAY_HEIGHT` · `Hull.ts` 의 콜라이더 · 실루엑 · 광원은 무변경이다.
+  - **함선 탑승 토스트 삭제** — 「탑승 확인. 내부 스위치를 작동하면 N초 뒤 출발합니다.」 를 **모든 레이드**에서 내렸다(사용자 결정).
+    튜토리얼은 스위치를 누르면 즉시 뜨므로 그 문장이 거짓이고, 본편의 10초 유예는 좌상단 목표 줄(`hud/Objective` 의 `liftoffSwitch`)이
+    이미 말한다. `extraction:boarded` **이벤트는 계약이라 그대로**이고 구독자 셋(game · HudSystem · audio)은 살아 있다.
+  - 스모크 5건을 새 사실에 맞춤: `smoke-intro-wake`(안내 줄 → 키캡 · 가로 한 줄 → 세로 다섯 줄) · `smoke-progression`(`.sh-ask-hint` → 키캡) ·
+    `smoke-meta`(`.cv-confirm` → `.cv-confirm-label`) · `smoke-stations`(홀드 안내 → 키캡 · 빈 차단 줄) · `smoke-tutorial-raid`(16단계 · `corpseOpen`).
+
 - 2026-09-15 (e2e-mp 8건 정리): 2026-09-10 부터 「기존 실패」로 적혀 온 `e2e-mp` 170/178 은 게임 버그가 아니라 스모크 결함이었다 —
   접속 전에 지은 이름을 `progress:loaded` 가 캐릭터 프로필 이름으로 덮어 이름 단언 8건만 틀렸다. `scripts/e2e-multiplayer.mjs` 가
   로비 합류 뒤에 다시 짓게 고쳤다(`smoke-hangar` 와 같은 처리, `src/` 무변경). `e2e-mp` **178/178**.

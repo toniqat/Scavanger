@@ -7,8 +7,8 @@ import { CORP_DEFS, NPC_DEF_MAP, NPC_QUEST_MAP } from '@/shared';
 import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/shared';
 /* 2026-09-13 (요리 미니게임): 조리 결과 · 식탁 품질 토스트 */
 import { cookStepsOf, mealQualityStars, normalizeMealQuality } from '@/shared';
-/* 2026-09-13 (탈출 개편): 자동 출발 · 출발 유예 문구 */
-import { EXTRACTION_AUTO_DEPART_IDLE_S, EXTRACTION_DEPART_GRACE_S } from '@/shared';
+/* 2026-09-13 (탈출 개편): 자동 출발 문구 (출발 유예 `EXTRACTION_DEPART_GRACE_S` 는 2026-09-15 에 탑승 토스트와 함께 빠졌다) */
+import { EXTRACTION_AUTO_DEPART_IDLE_S } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 /* 2026-09-11 (B-3): 초대 결과 토스트 */
 import type { SocialErrorCode } from '@/shared';
@@ -99,7 +99,9 @@ export class Notifications {
         this.push(auto ? `함선 착륙. 탑승하세요 — ${Math.round(EXTRACTION_AUTO_DEPART_IDLE_S)}초 뒤 자동 출발` : '함선 착륙. 탑승하세요',
           'success', '탈출', 4);
       }),
-      b.on('extraction:boarded', () => this.push(`탑승 확인. 내부 스위치를 작동하면 ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 출발합니다.`, 'success', '탈출', 4)),
+      /* 2026-09-15 (사용자 결정): `extraction:boarded` 토스트(「탑승 확인. 내부 스위치를 …초 뒤 출발합니다.」)를 **모든 레이드에서** 없앴다 —
+         같은 사실을 좌상단 목표 줄(`ui/hud/Objective` 의 `liftoffSwitch`)이 이미 말하고 있고, 화물칸을 드나들 때마다 다시 떴다.
+         이벤트 자체는 계약이라 그대로 흐른다 (`extraction/ExtractionSystem` · 분대 탑승 표시가 쓴다) — 여기 구독만 없다. */
       b.on('extraction:departureStarted', ({ duration, auto }) => this.push(
         auto ? `대기 시간 초과 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다` : `출발 시퀀스 개시 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다`,
         'warning', '탈출', 5)),

@@ -100,6 +100,35 @@ export function saveRaid(sys: GameFlowSystem): void {
   sys.raidSaveTimer = RAID_SAVE_INTERVAL_S;
   }
 
+/**
+ * 2026-09-15 (사용자 결정 — 「각 단계마다 자동저장」): 튜토리얼 안내가 **한 단계 넘어갈 때마다** 세이브를 한 번 강제한다.
+ *
+ * `RAID_SAVE_INTERVAL_S`(5초) 주기만으로는 단계 전환이 담기지 않아, 방금 배운 것을 하자마자 껐다 켜면 그 단계를
+ * 다시 하게 된다. 새 이벤트는 만들지 않았다 — 단계가 바뀌는 그 자리에서 tutorial 이 이미 내는
+ * `tutorial:changed` 하나면 충분하고, 그 이벤트는 스태미나 노출(`markStaminaUsed`)에도 오므로 **단계 id 가 실제로
+ * 바뀐 프레임에만** 쓴다 (`sys.lastTutorialStep`).
+ *
+ * 저장 자체는 평소 경로(`saveRaid`)를 그대로 지난다 — 게임플레이 페이즈 · `rejoinPending` · **사망 뒤에는 저장하지
+ * 않는다**(C-70 의 솔로 가드)가 전부 그대로 산다.
+ */
+export function saveTutorialStep(sys: GameFlowSystem, step: string | null): void {
+  if (sys.ctx.missionMode !== 'tutorial') return;
+  if (step === sys.lastTutorialStep) return;
+  sys.lastTutorialStep = step;
+  if (!step) return;            // 트랙이 끝났다 (`finish`) — 이어할 단계가 없다
+  saveRaid(sys);
+}
+
+/**
+ * 2026-09-15: 체크포인트를 지났다 (`tutorial:checkpoint`). 세이브의 `checkpoint` 필드가 **부활 · 이어하기 자리**를
+ * 정하므로, 그것이 바뀐 프레임도 단계 전환과 같은 무게로 한 번 쓴다. `world/tutorial` 이 `index` 를 올린 **뒤에**
+ * 이벤트를 내므로 `ctx.world.tutorial.checkpoint` 는 이미 새 값이다.
+ */
+export function saveTutorialCheckpoint(sys: GameFlowSystem): void {
+  if (sys.ctx.missionMode !== 'tutorial') return;
+  saveRaid(sys);
+}
+
 /** 2026-09-13: scratch for the pose saved while riding the 탐사 차량 (`PlayerRef.roverSafePosition`). */
 const _roverSafe = new THREE.Vector3();
 

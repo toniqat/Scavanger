@@ -20,8 +20,11 @@
 .map-rover-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--c-text-dim); }
 .map-rover-row .v { color: var(--c-text); font-size: 13px; }
 .map-rover-reason { min-height: 16px; font-size: 12px; line-height: 1.35; color: #ff6a5a; }
+/* 2026-09-15 2차 (사용자 결정): 라벨 왼쪽에 좌클릭 홀드 키캡(`.keycap.kc-btn`)이 선다 — 둘이 한 줄로 가운데
+   정렬되도록 버튼 자신이 flex 다 (채움 바 `.fill` 은 절대 배치라 flex 항목이 아니다). */
 .map-rover-go {
   position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
   height: 40px; padding: 0 10px;
   border: 1px solid var(--c-accent); background: rgba(255, 179, 71, 0.12);
   color: var(--c-text); font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.04em;

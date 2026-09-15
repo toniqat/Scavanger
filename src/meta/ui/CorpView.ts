@@ -4,7 +4,7 @@ import type {
 } from '@/shared';
 import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, ITEM_FAVORITE_MENU_ATTR, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
-  appendCurrencyRewards, buildItemChip, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
+  appendCurrencyRewards, buildItemChip, createHoldButtonCap, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { chevrons, el, fmtNum, setText, toggleClass } from './dom';
@@ -559,6 +559,8 @@ export class CorpView {
 
     this.confirmBtn = el('button', { cls: 'ui-btn primary cv-confirm', parent: deal }) as HTMLButtonElement;
     this.confirmFill = el('i', { cls: 'cv-confirm-fill', parent: this.confirmBtn });
+    // 2026-09-15 2차 (사용자 결정): 「어떻게 누르는가」는 라벨 왼쪽의 좌클릭 홀드 키캡이 말한다.
+    createHoldButtonCap(this.confirmBtn);
     el('span', { cls: 'cv-confirm-label', text: '거래 성사', parent: this.confirmBtn });
     this.bindHold(this.confirmBtn);
 

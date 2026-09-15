@@ -1803,3 +1803,19 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   같은 함수를 지나므로 함께 따라간다.
 - **사망 · 가방 교체** — `stripForCorpse` 가 휠 스택도 시체에 넣는다. 가방을 더 작은 것으로 바꾸면
   `lockedQuickItems` 로 잠긴 칸의 스택을 가방으로 되돌리고, 그것도 넘치면 기존 `overflow` 와 함께 바닥에 떨어진다.
+
+---
+
+## 변경 이력 — 2026-09-15 2차 (사용자 결정): 홀드 버튼 안의 좌클릭 키캡
+
+꾹 눌러야 실행되는 버튼은 이제 버튼 **위**의 「N초 동안 누르고 있어야 실행됩니다」 한 줄 대신 **버튼 안, 라벨
+왼쪽**에 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap` → `.keycap.kc-btn`)을 세운다.
+- `ui/CraftPanel` — `.inv-craft-btn`. 라벨 `TEXT.craftHold` 가 `길게 눌러 제작` → **`제작`** 으로 짧아졌고,
+  **비활성(재료 · 자리 부족)인 줄에서는 캡이 숨는다**(눌러도 소용없는 줄에 「꾹 누르세요」 그림은 거짓말이다).
+  ⚠ 라벨을 `button.querySelector('span')` 으로 찾던 것을 `RowView.labelEl` 로 바꿨다 — 캡도 `span` 이라 그 선택자가
+  이제 캡을 집는다.
+  ⚠ `inventory.css` 의 `.inv-craft-btn { min-width }` 132 → **124px**: 「누르는 중에 버튼이 좁아지지 않는다」
+  (2026-09-14 3차)를 지키려면 라벨이 짧아지고 캡(약 33px)이 붙은 새 폭으로 다시 계산해야 한다 —
+  `제작` ≈ 88px / `제작 중…` ≈ 120px. 주석의 계산식도 갱신했다.
+- `ui/DisassemblePanel` — 즐겨찾기 분해 **확인** 버튼 `.inv-dis-confirm-ok`. 본 `분해` 버튼(`.inv-dis-btn`)은
+  클릭이라 붙지 않는다. 안내 줄 `.inv-dis-confirm-hint` 와 `ui/labels.TEXT.favorite.confirmHint` 는 삭제.

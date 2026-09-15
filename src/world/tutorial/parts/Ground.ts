@@ -5,12 +5,14 @@ import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
   ABYSS_DRAW_BOTTOM_Y, ABYSS_EDGE_Z, ABYSS_FADE_TOP_Y, ABYSS_RUN_M, ABYSS_WALL_STEP_M, CHASM, CHASM_EDGE, CHASM_FLOOR_Y,
   CHASM_GAP_Z, CHASM_NEAR_Z, CHASM_TILT, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE, DECKS, DECK_LOWER_Y,
-  DECK_TILE_M, DECK_UPPER_Y, VOID_Y, WALL_PLAIN_FROM_Z, WALL_T, WALL_TOP_Y, Z_START, box, chasmFarZAt, chasmNearZAt,
-  rectBox, tileRect, type Rect,
+  DECK_TILE_M, DECK_UPPER_Y, PIT, PIT_DECK_ID, PIT_DEPTH, PIT_FLOOR_Y, PIT_RAMP_OVERLAP, PIT_RAMP_RUN, PIT_RAMP_TOE_X,
+  VOID_Y, WALL_PLAIN_FROM_Z, WALL_T, WALL_TOP_Y, Z_START, box, chasmFarZAt, chasmNearZAt,
+  rectBox, subtractRect, tileRect, type Rect,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 튜토리얼 행성의 **땅** — 협곡 바닥 · 데크 · 양옆 절벽 벽 · 뒤쪽 막다른 끝 · 함선 앞의 끝없는 절벽(2026-09-15).
+ * 튜토리얼 행성의 **땅** — 협곡 바닥 · 데크 · 양옆 절벽 벽 · 뒤쪽 막다른 끝 · 함선 앞의 끝없는 절벽(2026-09-15) ·
+ * 마지막 구간의 **안드로이드 웅덩이**(2026-09-15 2차, `buildPit`).
  *
  * 콜라이더와 그림이 갈라져 있다:
  *   - **콜라이더**는 `DECK_TILE_M` 짜리 사각 타일 (`SpatialHash.addBox`). 한 장으로 넣으면 외접원이 85 m 가 되어
@@ -66,6 +68,18 @@ const TOP_LIFT = 0.02;
  * 그대로다. 걸어 다니는 높이는 **양쪽 콜라이더 모두 `DECK_UPPER_Y`** 라 한 치도 안 바뀐다.
  */
 const CHASM_TOP_LIFT = TOP_LIFT + 0.03;
+/**
+ * 웅덩이 바닥 몸통을 `PIT` 보다 사방 이만큼 크게 그린다 — 옆면이 남은 데크 띠의 옆면과 같은 평면에 놓이지 않게
+ * (둘 다 가려지는 자리이지만 z-fighting 의 씨앗을 남기지 않는다). **콜라이더는 `PIT` 그대로**다.
+ */
+const FLOOR_BURY = 0.05;
+/**
+ * 웅덩이 오르막 **그림** 상자의 두께 (경사면 법선 방향). 높은 쪽 끝의 밑면이 `DECK_LOWER_Y − T/cos(19.8°)` = −11.28 로
+ * 웅덩이 바닥(−10.9)보다 낮아야 옆에서 볼 때 경사면 밑이 비어 보이지 않는다.
+ */
+const RAMP_T = 1.2;
+/** 오르막 **콜라이더**(쐐기)의 밑면이 웅덩이 바닥보다 얼마나 아래인가 — 그 밑으로 지나갈 자리가 없게만 하면 된다. */
+const RAMP_COLLIDER_DROP = 1;
 
 function groundTexture(): THREE.CanvasTexture {
   const S = 256;
@@ -127,11 +141,17 @@ function topPlane(rect: Rect, y: number, tex: THREE.CanvasTexture): THREE.Mesh {
   return topQuad((rect.x0 + rect.x1) / 2, y, (rect.z0 + rect.z1) / 2, rect.x1 - rect.x0, rect.z0 - rect.z1, 0, tex);
 }
 
-/** 윗면 판 하나 — 가운데 · 크기 · `rotateY` 로 (사선 판은 yaw ≠ 0). */
-function topQuad(cx: number, y: number, cz: number, w: number, d: number, yaw: number, tex: THREE.CanvasTexture): THREE.Mesh {
+/**
+ * 윗면 판 하나 — 가운데 · 크기 · `rotateY` 로 (사선 판은 yaw ≠ 0).
+ * `tiltZ` 는 Z 축 기울기 (웅덩이 오르막만 쓴다 — 음수면 +X 쪽이 내려간다).
+ */
+function topQuad(
+  cx: number, y: number, cz: number, w: number, d: number, yaw: number, tex: THREE.CanvasTexture, tiltZ = 0,
+): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(w, d);
   geo.rotateX(-Math.PI / 2);
   if (yaw !== 0) geo.rotateY(yaw);
+  if (tiltZ !== 0) geo.rotateZ(tiltZ);
   geo.translate(cx, y, cz);
   const map = tex.clone();
   map.needsUpdate = true;
@@ -181,18 +201,26 @@ export class Ground {
     const chasmFloor: Rect = { x0: -CORRIDOR_OUTER_X, x1: CORRIDOR_OUTER_X, z0: CHASM.z0 + 2, z1: CHASM.z1 - 2 };
     for (const t of tileRect(chasmFloor, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, CHASM_FLOOR_Y, 'tut_deck');
 
-    /* ── 데크: 몸통 상자(그림) + 윗면 판(그림) + 타일 콜라이더 ── */
+    /* ── 데크: 몸통 상자(그림) + 윗면 판(그림) + 타일 콜라이더 ──
+     * 2026-09-15 2차: 아래 데크(`PIT_DECK_ID`)에는 **안드로이드 웅덩이 구멍**이 뚫려 있다 — 몸통 · 윗면 판 · 콜라이더를
+     * 전부 `subtractRect` 의 네 띠로 나눠 깔고 구멍 안은 `buildPit` 가 채운다. 남은 네 띠의 **안쪽 옆면이 곧 웅덩이의 턱**
+     * 이므로(몸통 상자는 여섯 면을 다 그린다) 턱 메시를 따로 세우지 않고, 콜라이더도 그 네 띠(`VOID_Y … DECK_LOWER_Y`)가
+     * 그대로 턱이다. */
     const bodies: THREE.BufferGeometry[] = [];
     for (const d of DECKS) {
       // 끝없는 절벽에 닿는 데크는 몸통 그림만 `ABYSS_FACE_T` 뒤에서 끝낸다 — 앞면은 `buildAbyss` 의 절벽 판이 그린다.
       // 콜라이더(아래 타일)는 설계 치수 그대로 가장자리까지 간다.
       const drawRect = d.rect.z1 <= ABYSS_EDGE_Z ? { ...d.rect, z1: ABYSS_EDGE_Z + ABYSS_FACE_T } : d.rect;
-      bodies.push(rectBox(drawRect, VOID_Y, d.top));
-      const top = topPlane(d.rect, d.top + TOP_LIFT, groundTex);
-      this.group.add(top);
-      this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
-      for (const t of tileRect(d.rect, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, d.top, 'tut_deck');
+      const holed = d.id === PIT_DECK_ID;
+      for (const p of holed ? subtractRect(drawRect, PIT) : [drawRect]) bodies.push(rectBox(p, VOID_Y, d.top));
+      for (const p of holed ? subtractRect(d.rect, PIT) : [d.rect]) {
+        const top = topPlane(p, d.top + TOP_LIFT, groundTex);
+        this.group.add(top);
+        this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
+        for (const t of tileRect(p, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, d.top, 'tut_deck');
+      }
     }
+    this.buildPit(hash, bodies, groundTex);
     this.buildChasmEdges(hash, bodies, groundTex);
     this.addMerged(bodies, rockMat, 'tut-deck-body');
 
@@ -297,6 +325,56 @@ export class Ground {
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, fog: false });
     this.disposables.push(mat);
     this.addMerged(fade, mat, 'tut-abyss');
+  }
+
+  /**
+   * **안드로이드 웅덩이** (2026-09-15 2차, 사용자 결정 — 치수 · 근거는 전부 `model.ts` 의 `PIT` · `PIT_DEPTH` 주석).
+   *
+   * 셋을 세운다 (구멍은 이미 `build` 의 `subtractRect` 가 뚫어 뒀다):
+   *   ① **바닥** — 몸통 상자(그림) + `DECK_TILE_M` 타일 콜라이더(`VOID_Y … PIT_FLOOR_Y`) + 돌결 윗면 판.
+   *      몸통은 `PIT` 보다 사방 `FLOOR_BURY` 만큼 크게 그려 옆면이 데크 띠의 옆면과 **같은 평면에 놓이지 않게** 하고,
+   *      윗면 판은 오르막 발끝(`PIT_RAMP_TOE_X`) 부터만 깐다 (같은 높이의 판 둘이 맞닿으면 z-fighting).
+   *      콜라이더는 `PIT` 그대로다.
+   *   ② **턱** — 세우지 않는다. 남은 데크 띠(`VOID_Y … DECK_LOWER_Y`)의 안쪽 옆면이 곧 0.9 m 턱이고, 그 띠의
+   *      콜라이더가 곧 턱 콜라이더다. 수류탄이 굴러 나가지 못하는 근거는 `model.ts` 의 `PIT_DEPTH` 주석.
+   *   ③ **오르막** — 함선 쪽(−X) 면 전체. 그림은 Z 축으로 기울인 상자 한 장 + 같은 기울기의 윗면 판, 콜라이더는
+   *      `SpatialHash.addRamp` 회전 OBB 한 장(로컬 +X = 높은 쪽 = 월드 −X 이므로 `Obstacle.box.yaw` 는 π).
+   *      ⚠ 콜라이더만 데크 밑으로 `PIT_RAMP_OVERLAP` 만큼 파고든다 — 정확히 같은 선에서 맞대면 이음매의 점을
+   *      두 콜라이더가 모두 놓쳐 발밑이 사라진다 (`CLAUDE.md` 의 「계단은 경사 콜라이더다」). 그 대신 x = `PIT.x0` 에서
+   *      오르막 윗면이 데크보다 `PIT_DEPTH × OVERLAP / (RUN + OVERLAP)` = **0.028 m** 낮은데, `getSurfaceY` 가 둘 중
+   *      높은 쪽을 고르므로 겹치는 8 cm 에서는 데크가 이긴다 (턱도 계단도 생기지 않는다).
+   *
+   * 광원 0 개. 새 재질도 없다 (바닥 · 오르막 몸통은 벽과 같은 `rockMat`, 윗면 판은 데크와 같은 돌결 텍스처).
+   */
+  private buildPit(hash: SpatialHash, bodies: THREE.BufferGeometry[], tex: THREE.CanvasTexture): void {
+    // ① 바닥
+    const bury = FLOOR_BURY;
+    bodies.push(rectBox({ x0: PIT.x0 - bury, x1: PIT.x1 + bury, z0: PIT.z0 + bury, z1: PIT.z1 - bury }, VOID_Y, PIT_FLOOR_Y));
+    for (const t of tileRect(PIT, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, PIT_FLOOR_Y, 'tut_deck');
+    // 윗면 판은 **평평한 부분만** 덮는다 — 오르막 쪽까지 깔면 같은 높이의 판 둘이 발끝 선에서 맞닿아 z-fighting 이 인다.
+    const floorTop = topPlane({ x0: PIT_RAMP_TOE_X, x1: PIT.x1, z0: PIT.z0, z1: PIT.z1 }, PIT_FLOOR_Y + TOP_LIFT, tex);
+    this.group.add(floorTop);
+    this.disposables.push(floorTop.geometry, floorTop.material as THREE.Material, (floorTop.material as THREE.MeshStandardMaterial).map!);
+
+    // ③ 오르막 (−X 면 전체)
+    const tilt = Math.atan2(PIT_DEPTH, PIT_RAMP_RUN);
+    const slopeLen = Math.hypot(PIT_RAMP_RUN, PIT_DEPTH);
+    const depth = PIT.z0 - PIT.z1;
+    const cx = (PIT.x0 + PIT_RAMP_TOE_X) / 2, cy = (DECK_LOWER_Y + PIT_FLOOR_Y) / 2, cz = (PIT.z0 + PIT.z1) / 2;
+    // 기울인 상자: 로컬 +X 가 내리막 방향, 로컬 +Y 가 경사면 법선 (rotateZ(−tilt) 가 +X → (cos, −sin) · +Y → (sin, cos))
+    const slab = new THREE.BoxGeometry(slopeLen, RAMP_T, depth);
+    slab.rotateZ(-tilt);
+    slab.translate(cx - (RAMP_T / 2) * Math.sin(tilt), cy - (RAMP_T / 2) * Math.cos(tilt), cz);
+    bodies.push(slab);
+    const rampTop = topQuad(cx, cy + TOP_LIFT, cz, slopeLen, depth, 0, tex, -tilt);
+    this.group.add(rampTop);
+    this.disposables.push(rampTop.geometry, rampTop.material as THREE.Material, (rampTop.material as THREE.MeshStandardMaterial).map!);
+    const rx0 = PIT.x0 - PIT_RAMP_OVERLAP;
+    const base = PIT_FLOOR_Y - RAMP_COLLIDER_DROP;
+    this.entries.push(hash.addRamp(
+      new THREE.Vector3((rx0 + PIT_RAMP_TOE_X) / 2, base, cz), (PIT_RAMP_TOE_X - rx0) / 2, depth / 2,
+      Math.PI, DECK_LOWER_Y - base, PIT_DEPTH, 'tut_deck',
+    ));
   }
 
   /**

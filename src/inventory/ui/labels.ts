@@ -214,11 +214,14 @@ export const TEXT = {
     favoriteOn: '즐겨찾기 켜기',
     favoriteOff: '즐겨찾기 끄기',
   },
-  /** 2026-09-12 (E1): 즐겨찾기 — 분해 전에 한 번 더 묻는 확인 카드 (`ui/DisassemblePanel`). */
+  /**
+   * 2026-09-12 (E1): 즐겨찾기 — 분해 전에 한 번 더 묻는 확인 카드 (`ui/DisassemblePanel`).
+   * 2026-09-15 2차 (사용자 결정): `confirmHint`(「분해 버튼을 N초 동안 누르고 있어야 실행됩니다」)는 없앴다 —
+   * 「어떻게 누르는가」는 버튼 **안**의 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 말한다.
+   */
   favorite: {
     confirmTitle: '즐겨찾기한 아이템입니다',
     confirmBody: (name: string): string => `${name} 을(를) 정말 분해할까요?`,
-    confirmHint: (sec: number): string => `분해 버튼을 ${sec}초 동안 누르고 있어야 실행됩니다`,
     cancel: '취소',
     confirm: '분해',
   },
@@ -267,7 +270,11 @@ export const TEXT = {
   craft: '제작',
   craftPanel: '필드 제작',
   craftNone: '지금 만들 수 있는 레시피가 없습니다',
-  craftHold: '길게 눌러 제작',
+  /**
+   * 홀드 버튼의 라벨 (2026-09-15 2차, 사용자 결정 — 옛 `길게 눌러 제작`). 「길게 눌러」는 버튼 **안**의
+   * 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 대신하므로 라벨은 할 일만 말한다.
+   */
+  craftHold: '제작',
   craftMaking: '제작 중…',
   /**
    * 2026-09-09: 산출물이 갈 데가 없으면 홀드 버튼이 이 문구로 바뀌며 비활성화된다 (`CraftPanel.paint`).

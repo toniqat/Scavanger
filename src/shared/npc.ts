@@ -458,6 +458,16 @@ export interface NpcQuestRef {
   getMessages(npcId: string): readonly NpcMessage[];
   /** 그 NPC 의 메시지를 읽음으로. `npc:unreadChanged`. */
   markRead(npcId: string): void;
+  /**
+   * appended (2026-09-15, 사용자 결정 — 「확인해야 다음 메시지가 온다」): 그 NPC 의 대화를 **마지막으로 읽은 시각**
+   * (epoch ms, 연락이 없거나 한 번도 안 읽었으면 0). `at` 이 이 값보다 큰 말풍선이 「아직 안 읽은 것」이고,
+   * 메신저는 그 줄부터 `...` 타이핑 연출로 하나씩 푼다 (`ui/menus/messenger/ChatTab`).
+   *
+   * ⚠ **사건 하나가 말풍선 여러 개**로 풀리므로(`getMessages` — `intro` 한 줄이 `NpcDef.intro` 전부로 펴진다)
+   * `NpcContactInfo.unread`(사건 수)로는 말풍선 수를 셀 수 없다. 같은 사건에서 나온 말풍선은 `at` 이 같으므로
+   * 이 시각 하나면 경계가 정확히 갈린다. 선택 속성이라 없는 구현(디버그 ref)에서는 **전부 읽은 것**으로 본다.
+   */
+  readAtOf?(npcId: string): number;
   readonly unreadTotal: number;
   /** hidden 이 아닌 퀘스트 전부 (진행 중 → 보류 → 제안 받음 → 완료, 같은 상태는 최근 순). */
   getQuests(): readonly NpcQuestInfo[];

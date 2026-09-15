@@ -1,7 +1,7 @@
 import type { ComputeClusterInfo, CryptoChartRange, CryptoCoinInfo, CryptoTradeSide, GameContext, MiningComputerTab } from '@/shared';
 import {
   COMPUTE_CLUSTER_MAX_CORES, CRYPTO_CHART_RANGES, CRYPTO_CHART_RANGE_LABEL_KO, CRYPTO_QUOTE_WINDOW_S, CRYPTO_TICK_S, CRYPTO_TRADE_FEE, CRYPTO_TRADE_MAX_UNITS,
-  coinToUnits, formatCoinUnits,
+  coinToUnits, createHoldButtonCap, formatCoinUnits,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { clear, el, isolateInput, renderClock, renderClockText, setText, toggleClass } from '../dom';
@@ -200,6 +200,8 @@ export class ComputerPages {
     this.holdBtn = el('button', { cls: 'ui-btn primary mn-hold', parent: this.trade });
     this.holdBtn.type = 'button';
     const fill = el('i', { cls: 'mn-hold-fill', parent: this.holdBtn });
+    // 2026-09-15 2차 (사용자 결정): 「버튼을 1초 동안 누르고 있으면 …」 안내 줄 대신 버튼 **안**의 좌클릭 홀드 키캡.
+    createHoldButtonCap(this.holdBtn);
     this.holdLabel = el('span', { cls: 'mn-hold-label', text: '매수', parent: this.holdBtn });
     this.hold = bindHoldButton(this.holdBtn, fill, () => { void this.runTrade(); }, () => this.host.showMsg('거래 버튼을 1초간 꾹 누르세요', 'info'));
   }
@@ -649,7 +651,10 @@ export class ComputerPages {
     setText(this.quoteRows.fee, `${(CRYPTO_TRADE_FEE * 100).toFixed(1)} %`);
     setText(this.quoteRows.creditsK, this.side === 'buy' ? '내는 크레딧' : '받는 크레딧');
     setText(this.quoteRows.credits, q.credits !== null ? `${fmtCredits(q.credits)} 크레딧` : '—');
-    setText(this.blockEl, q.block ?? `버튼을 1초 동안 누르고 있으면 ${this.side === 'buy' ? '매수' : '매도'}합니다`);
+    // 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 — 홀드 안내는 버튼 안의 키캡이 대신하고,
+    // 막히지 않았으면 줄 자체가 사라진다 (빈 줄이 자리를 차지하지 않게 `hidden`).
+    setText(this.blockEl, q.block ?? '');
+    this.blockEl.hidden = !q.block;
     toggleClass(this.blockEl, 'bad', !!q.block);
     const disabled = !!q.block || this.pending;
     if (this.holdBtn.disabled !== disabled) this.holdBtn.disabled = disabled;

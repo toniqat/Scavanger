@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { UI_HOLD_CONFIRM_S } from '@/shared';
+import { UI_HOLD_CONFIRM_S, createHoldButtonCap } from '@/shared';
 import { el, setText } from './dom';
 
 /** What the popup asks: title · body (`\n` kept) · the confirm label · what confirming does. */
@@ -12,15 +12,15 @@ export interface HoldAskSpec {
 
 /** `ctx.escape` token — the popup sits over the Tab window, so Escape closes it first. */
 const ESCAPE_KEY = 'meta:holdAsk';
-/** Below this fraction of the hold a release reads as a click — say how the button works. */
-const TAP_HINT = 0.35;
 
 /**
  * 기업 화면의 **한 번 더 확인** 팝업 (2026-09-12, E2 — 즐겨찾기 아이템 판매).
  *
  * `ui/menus/askPopup` 의 경고 팝업과 같은 규약이지만 폴더끼리 import 하지 않으므로 meta 가 따로 갖는다:
  *  - 확인은 **`UI_HOLD_CONFIRM_S` 홀드**다 (게이지는 rAF, 확정은 타이머 — 프레임이 멈춘 탭에서도 멎지 않는다).
- *    클릭 · Enter 로는 확정되지 않고, 일찍 떼면 안내가 뜬다.
+ *    클릭 · Enter 로는 확정되지 않는다. **2026-09-15 2차 (사용자 결정)**: 「〈라벨〉 버튼을 1초 동안 …」 안내 줄
+ *    (`.cv-ask-hint` — 일찍 떼면 번쩍이던 그 줄)은 없어졌고, 대신 확인 버튼 **안, 라벨 왼쪽**에 좌클릭 홀드 키캡
+ *    (`shared/keycap.createHoldButtonCap`)이 선다. `meta.css` 의 `.cv-ask-hint` 규칙은 이제 쓰이지 않는다.
  *  - **Escape = 취소** — `ctx.escape` 맨 위에 올라가 Tab 창보다 먼저 닫힌다. Enter 는 삼킨다. 최초 포커스는 `취소`.
  *  - 뒤판 빈 곳을 누르면 취소다 (취소는 언제나 안전하다).
  *
@@ -31,7 +31,6 @@ export class HoldAsk {
   readonly root: HTMLElement;
   private readonly titleEl: HTMLElement;
   private readonly bodyEl: HTMLElement;
-  private readonly hintEl: HTMLElement;
   private readonly okBtn: HTMLButtonElement;
   private readonly okLabel: HTMLElement;
   private readonly cancelBtn: HTMLButtonElement;
@@ -54,10 +53,11 @@ export class HoldAsk {
     card.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.titleEl = el('div', { cls: 'cv-ask-title', parent: card });
     this.bodyEl = el('div', { cls: 'cv-ask-body', parent: card });
-    this.hintEl = el('div', { cls: 'cv-ask-hint', parent: card });
     const foot = el('div', { cls: 'cv-ask-foot', parent: card });
     this.cancelBtn = el('button', { cls: 'ui-btn cv-ask-cancel', text: '취소', parent: foot }) as HTMLButtonElement;
     this.okBtn = el('button', { cls: 'ui-btn danger cv-ask-ok', parent: foot }) as HTMLButtonElement;
+    // 2026-09-15 2차: 라벨 왼쪽의 좌클릭 홀드 키캡 — 채움 바보다 앞이라 flex 순서로 맨 왼쪽에 선다.
+    createHoldButtonCap(this.okBtn);
     this.fill = el('i', { cls: 'cv-ask-fill', parent: this.okBtn });
     this.okLabel = el('span', { cls: 'cv-ask-label', parent: this.okBtn });
     this.cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
@@ -82,7 +82,6 @@ export class HoldAsk {
     setText(this.titleEl, spec.title);
     setText(this.bodyEl, spec.body);
     setText(this.okLabel, spec.ok);
-    setText(this.hintEl, `${spec.ok} 버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 실행됩니다.`);
     this.root.hidden = false;
     window.addEventListener('keydown', this.onKey, true);
     window.addEventListener('pointerup', this.onUp);
@@ -121,12 +120,9 @@ export class HoldAsk {
     this.okBtn.classList.add('is-holding');
   }
 
+  /** 일찍 뗐다 = 아무 일도 없다 (2026-09-15 2차부터 안내 줄이 없으므로 게이지를 0 으로 되돌리는 것이 전부다). */
   private release(): void {
-    const h = this.hold;
-    if (!h) return;
-    const f = (performance.now() - h.t0) / Math.max(1, UI_HOLD_CONFIRM_S * 1000);
-    this.cancelHold();
-    if (f < TAP_HINT) this.hintEl.classList.add('is-flash');
+    if (this.hold) this.cancelHold();
   }
 
   private cancelHold(): void {
@@ -135,7 +131,6 @@ export class HoldAsk {
     if (h) { cancelAnimationFrame(h.raf); clearTimeout(h.timer); }
     this.fill.style.transform = 'scaleX(0)';
     this.okBtn.classList.remove('is-holding');
-    this.hintEl.classList.remove('is-flash');
   }
 
   dispose(): void {

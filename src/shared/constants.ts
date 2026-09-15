@@ -226,6 +226,21 @@ export const GRENADE_UNDERHAND_SPEED_MUL = K.num('GRENADE_UNDERHAND_SPEED_MUL');
 export const GRENADE_THROW_SPEED = K.num('GRENADE_THROW_SPEED');
 export const GRENADE_THROW_LIFT = K.num('GRENADE_THROW_LIFT');
 export const GRENADE_UNDERHAND_LIFT = K.num('GRENADE_UNDERHAND_LIFT');
+/**
+ * G-12 고폭 수류탄의 반경(m) · 중심 피해 · 플레이어 몫 (2026-09-15, 사용자 결정 — 반경 6 → 7.2 = ×1.2).
+ * 2026-09-15 까지 `weapons/Grenade.ts` 에 박혀 있던 세 숫자다; 같은 이름이 `@/weapons` 배럴로도 계속 나간다.
+ * 감쇠는 `shared/explosion.ts` 의 2단 계단 — 반경을 고쳐도 「가까우면 100 %」 구간이 함께 자란다.
+ */
+export const GRENADE_RADIUS = K.num('GRENADE_RADIUS');
+export const GRENADE_DAMAGE = K.num('GRENADE_DAMAGE');
+/** 수류탄 폭발이 플레이어에게 주는 몫 (내 것도 분대원 것의 복제도 같다). 적 · 드론에는 안 곱한다. */
+export const GRENADE_PLAYER_DAMAGE_MUL = K.num('GRENADE_PLAYER_DAMAGE_MUL');
+/**
+ * **폭발 감쇠 2단 계단** (2026-09-15, 사용자 결정) — 수식은 `shared/explosion.ts` 하나다.
+ * `0 … FULL_FRACTION × radius` = 100 %, 거기서 `radius` 까지 = `OUTER_MUL`(거리 무관 고정), 밖은 0.
+ */
+export const EXPLOSION_FULL_FRACTION = K.num('EXPLOSION_FULL_FRACTION');
+export const EXPLOSION_OUTER_MUL = K.num('EXPLOSION_OUTER_MUL');
 /** 투척 거리 배율 (2026-09-09): linear from THROW_RANGE_MUL_MIN at STAT_MIN 근력 to THROW_RANGE_MUL_MAX at STAT_MAX. */
 export const THROW_RANGE_MUL_MIN = K.num('THROW_RANGE_MUL_MIN');
 export const THROW_RANGE_MUL_MAX = K.num('THROW_RANGE_MUL_MAX');
@@ -278,7 +293,7 @@ export const GROUND_TARGET_RANGE = K.num('GROUND_TARGET_RANGE');
 export const LASER_DURATION = K.num('LASER_DURATION');
 export const LASER_RADIUS = K.num('LASER_RADIUS');
 export const LASER_DPS = K.num('LASER_DPS');
-/** Airstrike: explosion radius (m) and damage at the centre (linear falloff). */
+/** Airstrike: explosion radius (m) and damage at the centre (감쇠는 `shared/explosion` 2단 계단). */
 export const AIRSTRIKE_RADIUS = K.num('AIRSTRIKE_RADIUS');
 export const AIRSTRIKE_DAMAGE = K.num('AIRSTRIKE_DAMAGE');
 /** Supply crate: fall time (s), impact damage radius (m) / damage, loot tier (see items LOOT_TABLES), lifetime after landing (s). */

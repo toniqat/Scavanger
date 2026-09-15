@@ -95,14 +95,15 @@ try {
       open: ask.isOpen, bodyHidden: root.querySelector('.tm-ask-body').hidden, text: root.textContent,
       stats, hasPreview: cc.hasPreview, faceSrc: img ? img.getAttribute('src').slice(0, 22) : null,
       faceBox: img ? (() => { const b = img.parentElement.getBoundingClientRect(); return [b.width, b.height]; })() : null,
-      hint: !root.querySelector('.tm-ask-hint').hidden, max: 5,
+      holdCap: !!root.querySelector('.tm-ask-foot .ui-btn .keycap.kc-btn'), max: 5,
     };
   });
   ok(pop.open, '확정 팝업이 열린다');
   ok(!pop.text.includes('정말로'), '「정말로 만들겠습니까?」 줄이 없다');
   ok(pop.bodyHidden, '글 본문 줄은 숨는다 (요약은 카드)');
   ok(pop.stats.length === 5, '능력치 다섯 칸', `(${pop.stats.length})`);
-  ok(pop.stats.length > 0 && pop.stats.every((s) => Math.abs(s.row - pop.stats[0].row) < 2), '다섯 칸이 가로 한 줄');
+  // 2026-09-15 2차 (사용자 결정): 가로 5열 → **세로 5행** (행마다 이름 · 게이지 · 값 한 줄)
+  ok(new Set(pop.stats.map((s) => Math.round(s.row))).size === 5, '다섯 칸이 세로 다섯 줄', JSON.stringify(pop.stats.map((s) => Math.round(s.row))));
   // 브라우저가 `scaleX(0.2000)` 을 `scaleX(0.2)` 로 정규화해 돌려주므로 숫자로 비교한다
   const scaleOf = (sx) => Number(/scaleX\(([-\d.]+)\)/.exec(sx)?.[1] ?? NaN);
   ok(pop.stats.every((s) => Math.abs(scaleOf(s.sx) - Math.max(0, Math.min(1, s.v / pop.max))) < 1e-3), '게이지 = 값 / 5', JSON.stringify(pop.stats.map((s) => [s.v, s.sx])));
@@ -110,7 +111,8 @@ try {
     ok(pop.faceSrc?.startsWith('data:image/png'), '얼굴 정지 썸네일(data:image)', `(${pop.faceSrc})`);
     ok(pop.faceBox && Math.abs(pop.faceBox[0] - pop.faceBox[1]) < 2, '썸네일은 정사각형', JSON.stringify(pop.faceBox));
   } else console.log('  skip 얼굴 썸네일 (미리보기 GL 없음)');
-  ok(pop.hint, '홀드 안내 줄');
+  // 2026-09-15 2차: 「1초 동안 누르고 있어야」 안내 줄 대신 **버튼 안의 좌클릭 홀드 키캡**(`.keycap.kc-btn`)이 말한다
+  ok(pop.holdCap, '만들기 버튼 안에 좌클릭 홀드 키캡');
   await shot(page, 'confirm-popup');
 
   const click = await page.evaluate(() => {

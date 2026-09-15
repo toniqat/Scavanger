@@ -1,5 +1,5 @@
 import type { CraftRecipe, ItemDef, RoomPurpose, WorkbenchKind } from '@/shared';
-import { FURNITURE_DEFS, WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, benchKindOf, renderItemCost } from '@/shared';
+import { FURNITURE_DEFS, WORKBENCH_ICON, WORKBENCH_KINDS, WORKBENCH_LABEL_KO, benchKindOf, createHoldButtonCap, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
 import { buildTileContent, favoritesRevision, shelfWantedRevision } from './GridView';
 import { CELL, TEXT } from './labels';
@@ -44,6 +44,13 @@ interface RowView {
   inputsEl: HTMLElement;
   button: HTMLButtonElement;
   fill: HTMLElement;
+  /**
+   * 버튼 라벨 (2026-09-15 2차). 예전에는 `button.querySelector('span')` 으로 찾았는데 그 앞에 좌클릭 홀드
+   * 키캡(역시 `span`)이 서므로 이제 만든 자리에서 들고 있는다.
+   */
+  labelEl: HTMLElement;
+  /** 라벨 왼쪽의 좌클릭 홀드 키캡 — 눌러도 소용없는(비활성) 상태에서는 숨는다. */
+  capEl: HTMLElement;
   /* 2026-09-09 (제작 수량) */
   /** Runs of the recipe one hold buys (≥ 1). Reset to 1 whenever the row list is rebuilt. */
   count: number;
@@ -95,8 +102,11 @@ interface RowView {
  *    (`◀ 90 ▶` → `180` → `270`; 사용자 결정 2026-09-09 — "how many 발 do I get", not "how many runs"). The wheel over
  *    it steps too, capped by `sys.maxCraftCount(id)` (what the materials pay for), and the material chips scale with
  *    it. The step is the recipe's own `outputQty`, never a re-derived stack size.
- *  - The 키 가이드 line for the panel is empty now (`parts/Screens.setCraftOpen`): the button already reads
- *    `길게 눌러 제작`, so `1초 홀드 — 제작` was the same sentence twice.
+ *  - The 키 가이드 line for the panel is empty now (`parts/Screens.setCraftOpen`): the button already says how it is
+ *    pressed, so `1초 홀드 — 제작` was the same sentence twice.
+ *    **2026-09-15 2차 (사용자 결정)**: 그 말을 하는 것은 이제 글자가 아니라 버튼 **안**의 좌클릭 홀드 키캡이다
+ *    (`shared/keycap.createHoldButtonCap`) — 라벨은 `제작`(옛 `길게 눌러 제작`) 으로 짧아졌고, 재료 · 자리가
+ *    모자라 비활성인 줄에서는 키캡이 숨는다.
  *
  * **2026-09-10 (제작 대개편 2단계)** — **홀드 중에는 게이지만 다시 그린다** (`frozen` → `paintProgress`).
  *  `updateCraft` 가 매 프레임 이 패널을 새로 그리는데, 94 줄 × `craftHasRoom`(가방 · 창고 격자를 통째로
@@ -440,13 +450,15 @@ export class CraftPanel {
       button.className = 'inv-btn inv-craft-btn';
       const fill = document.createElement('i');
       fill.className = 'inv-craft-fill';
+      // 2026-09-15 2차 (사용자 결정): 「길게 눌러」는 글자가 아니라 라벨 왼쪽의 좌클릭 홀드 키캡이 말한다.
+      const cap = createHoldButtonCap();
       const label = document.createElement('span');
       label.textContent = TEXT.craftHold;
-      button.append(fill, label);
+      button.append(fill, cap, label);
       act.append(stepper, button);
 
       const view: RowView = {
-        recipe, locked, el: row, costsEl: costs, inputsEl: inputs, button, fill,
+        recipe, locked, el: row, costsEl: costs, inputsEl: inputs, button, fill, labelEl: label, capEl: cap,
         count: 1, nameEl: name, countEl, lessBtn, moreBtn,
       };
 
@@ -565,12 +577,11 @@ export class CraftPanel {
 
       row.el.classList.toggle('is-crafting', active);
       row.fill.style.width = active ? `${Math.round(job!.progress * 100)}%` : '0%';
-      const label = row.button.querySelector('span');
-      if (label) {
-        label.textContent = active ? TEXT.craftMaking
-          : ok && !room ? (ship ? TEXT.craftNoRoomShip : TEXT.craftNoRoomField)
-          : TEXT.craftHold;
-      }
+      row.labelEl.textContent = active ? TEXT.craftMaking
+        : ok && !room ? (ship ? TEXT.craftNoRoomShip : TEXT.craftNoRoomField)
+        : TEXT.craftHold;
+      // 눌러도 소용없는 줄(재료 · 자리 부족)에서 「꾹 누르세요」 그림을 보여 주면 거짓말이다.
+      row.capEl.style.display = row.button.disabled ? 'none' : '';
     }
   }
 

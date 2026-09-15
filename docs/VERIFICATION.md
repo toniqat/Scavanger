@@ -1877,3 +1877,48 @@ WinNAT 예약이 관리자 제외(`8787–8799 *`)로 바뀌어 러너가 릴레
 - 수정: 두 클라이언트가 공유 함선 로비에 들어간 **뒤** 다시 짓고 서로의 `lobby.players` 에 새 이름이 보일 때까지 기다린다 (`smoke-hangar` 와 같은 처리). `src/` 무변경.
 - `node scripts/verify.mjs --only e2e-mp --log-dir scripts/logs/e2e-name` (1 분 53 초, 전부 초록):
 - docs line: 2026-09-15: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, e2e-mp 178/178
+
+## 2026-09-15 2차 — UI · 튜토리얼 다듬기 (`npm run verify`, 전부)
+
+`src/shared` 를 건드렸으므로 러너가 **전량**을 골랐다 (스모크 82종 + typecheck + net-selftest + data-check + e2e-mp + smoke-desktop).
+
+- `npm run verify` — **두 건 빼고 전부 초록**, 그 둘도 아래에서 정리해 초록이 됐다:
+  - `smoke-stations 97/98` — **스모크 결함**(코드 버그 아님). `askState` 헬퍼가 `button.textContent` 로 팝업 버튼 라벨을 읽는데,
+    홀드 버튼 안에 좌클릭 키캡이 생기면서 그 값이 `LMB교체` 가 됐다(키캡의 `textContent` 는 SVG `<title>` = `LMB` 다).
+    라벨 span(`.sh-ask-label`)을 읽도록 고치고 「홀드 버튼에는 키캡이 하나 있다」(`holdCaps === 1`)를 함께 단언하게 했다.
+    → `node scripts/verify.mjs --only smoke-stations` **98/98**.
+  - `e2e-mp 177/178`(`A squad panel lists 분대원 in the hub`) — **플레이크**. 그 단언만 `waitFor` 없이 즉시 DOM 을 읽는다.
+    4레인 부하에서 분대 패널의 이름 갱신이 한 박자 늦은 것으로, 단독 재실행에서 **178/178**.
+    → `node scripts/verify.mjs --only e2e-mp` **178/178**.
+- 이번 변경으로 **사실이 달라져 함께 고친 스모크 5건** (전부 `scripts/`, `src/` 무변경):
+  `smoke-intro-wake`(`.tm-ask-hint` 존재 → `만들기` 버튼 안 `.keycap.kc-btn` 존재 / 「다섯 칸이 가로 한 줄」 → 「세로 다섯 줄」) ·
+  `smoke-progression`(`.sh-ask-hint` 문구 → 홀드 키캡 존재) · `smoke-meta`(`.cv-confirm` → `.cv-confirm-label` + 키캡 존재) ·
+  `smoke-stations`(위) · `smoke-tutorial-raid`(`RAID_STEPS` 16단계 · 절벽 점프 뒤 `corpseOpen` · 시체를 열면 `corpseLoot`).
+- docs line: 2026-09-15: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, smoke 82종 all pass, e2e-mp 178/178, smoke-desktop 54/54
+
+## 2026-09-15 3차 — 튜토리얼 이어하기 · 마지막 구간 지형 · 폭발 공식 · 결과 창 · 메신저 (`npm run verify:all`)
+
+`src/shared` 를 건드렸으므로 **전량**이다 (스모크 87종 + typecheck + typecheck-server + net-selftest + data-check + build + e2e-mp + smoke-desktop).
+
+- `npm run verify:all` — 16 분 46 초, **5 건 실패**. 그중 **진짜 회귀는 0 건**이고 둘은 스모크가 새 사실을 몰랐던 것, 셋은 밖이었다:
+  - `smoke-weapons 50/72` — **가장 컸고 유일하게 이번 변경 때문이다.** 복제 수류탄 절이 몸에서 **3.0 m** 에 던지는데
+    새 반경 7.2 m 의 **안쪽 띠**(< 3.6 m)라 250 × 0.6 = **150** 이 들어와 체력 100 인 몸이 **죽었고**, 그 뒤 회복 ·
+    스프레이 절 22건이 통째로 시체 위에서 돌았다(`T tap → 회복주사 in hand {held:null}` 부터 줄줄이). 피해 단언
+    자체(`hp < hpG − 30`)는 통과했으므로 **죽었다는 것을 아무도 안 보고 있었다** — 5.0 m(바깥 띠 · 90 피해)로 옮기고
+    잰 뒤 `heal(1000)` 으로 돌려놓게 고쳤다. → **147/147**.
+    ⚠ 코드 버그가 아니라 사용자 결정의 결과다: **분대원 고폭이 3.6 m 안에서 터지면 즉사**한다 (예전 같은 자리 74).
+  - `smoke-social 209/210` — 이번에 더한 「탈출 성공에는 부제가 없다」 단언이 잘못된 자리였다. 그 절은 앞서 `game:over` 를
+    쏘아 `ctx.stats.extracted` 가 false 라 같은 창이 **사망 모습**(제목 `전사` · `SUB_DEAD`)으로 떴다. `extracted: true` 를
+    실어 고쳤다. → **210/210**.
+  - `smoke-rover 29/30`(`순환 중 포탑이 곁의 적을 쏜다`, 21발 · hp 640 → 640) · `e2e-mp 177/178`(`A squad panel lists 분대원`)
+    — **플레이크**. 둘 다 4레인 부하에서만 나고 포탑은 `target.takeDamage` 라 폭발 경로 밖이다. 재실행에서 **30/30 · 178/178**.
+  - `smoke-server-dist 19/36` — **환경**이었고 재실행에도 재현됐다. 릴레이가 `EADDRINUSE 0.0.0.0:8840` 로 죽어 부팅 뒤 17건이
+    한꺼번에 빨개진 것인데, 8840 을 관계없는 바깥 연결(MySQL 3306 세션)이 **로컬 포트로** 물고 있었다. 번들 자체는 멀쩡하다
+    (손으로 8841 에 켜니 배너 · health 전부 정상). 스모크가 8830–8869 에서 **무작위 하나를 집어 그냥 쓰던** 것을 고쳐
+    `createServer` 로 먼저 붙여 보고 **비어 있는 칸만** 쓰게 했다(릴레이와 같은 `0.0.0.0`). → **36/36**.
+- 이번 변경으로 사실이 달라져 함께 고친 스모크 · 더한 프로브 (전부 `scripts/`, `src/` 무변경):
+  `smoke-social`(행성 줄 두 조각 `.rs-planet-k` · `.rs-planet-v` · 탈출 부제 없음 · `extracted: true`) ·
+  `smoke-fire-zones`(고폭 반경 6 → 7.2) · `smoke-weapons`(위) · `smoke-server-dist`(빈 포트 고르기) ·
+  `smoke-tutorial-ship`(**새 프로브** — 레이븐의 인사가 `···` 뒤에 하나씩 도착하는지. 자동으로 그 연출을 지나는 유일한 경로다).
+- 남은 회귀 공백: **건너뛰기 암전 경로**(`skipTrack` → `skipToComplete` → 암전된 채 결과 화면)를 보는 스모크가 아직 없다.
+- docs line: 2026-09-15: typecheck ok, typecheck-server ok, net-selftest 583/583, data-check ok, build 4,211.47 kB JS / 441.67 kB CSS, smoke 87종 all pass, e2e-mp 178/178, smoke-desktop 54/54

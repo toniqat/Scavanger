@@ -16,8 +16,11 @@
      아래에 **언제나** 있다. 예전의 24 → is-lifted 79 방식은 포커싱 대상을 못 찾은 순간마다 인벤토리 창의 블러가 패널을
      덮었다 (제작 행이 아직 없는 제작 단계). */
   z-index: 79;
-  display: flex; flex-direction: column; gap: 8px;
-  width: 288px; padding: 12px 14px 12px;
+  display: flex; flex-direction: column; gap: 9.6px;
+  /* 2026-09-15 2차 (사용자 결정): **글자를 1.2 배**로 키웠다 — 안쪽 여백은 그대로 두고 폭만 288 → 346 px (×1.2) 라
+     글줄이 쓸 수 있는 폭(260 → 318)도 같은 비율로 늘어난다: 문장이 전보다 자주 접히지 않는다. 우측 조작 가이드
+     (`.tut-ctl-*`)는 건드리지 않았다 — 그쪽은 무기 패널 · 키 가이드와 자리를 다투는 띠 안에 산다. */
+  width: 346px; padding: 12px 14px 12px;
   border: 1px solid var(--c-border); border-left: 3px solid var(--c-accent);
   background: linear-gradient(180deg, rgba(12, 15, 20, 0.86), rgba(8, 10, 14, 0.86));
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
@@ -26,21 +29,23 @@
 }
 .tut-panel[hidden] { display: none !important; }
 /* `.is-lifted` = 스포트라이트가 떠 있다는 표시만 남았다 (2026-09-09) — z-index 는 위에서 고정이라 여기서 바꾸지 않는다 */
-.tut-head { display: flex; align-items: center; gap: 8px; }
+.tut-head { display: flex; align-items: center; gap: 9.6px; }
 .tut-track {
-  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; line-height: 1.2;
+  font-size: 15.6px; font-weight: 700; letter-spacing: 0.06em; line-height: 1.2;
   color: var(--c-accent);
 }
 /* 퀘스트 글리프 — 외부 에셋 금지라 인라인 SVG (마름모 + 가운데 점). 색은 강조색 하나. */
-.tut-quest-ico { flex: none; width: 15px; height: 15px; overflow: visible; }
+.tut-quest-ico { flex: none; width: 18px; height: 18px; overflow: visible; }
 .tut-quest-d { fill: none; stroke: var(--c-accent); stroke-width: 1.5; stroke-linejoin: round; }
 .tut-quest-b { fill: none; stroke: var(--c-accent); stroke-width: 1.6; stroke-linecap: round; }
 .tut-quest-p { fill: var(--c-accent); }
 
 /* 목표 줄 ------------------------------------------------------------------ */
-.tut-objs { display: flex; flex-direction: column; gap: 5px; }
-.tut-obj { display: flex; align-items: flex-start; gap: 8px; }
-.tut-obj-box { flex: none; width: 13px; height: 13px; margin-top: 2px; overflow: visible; }
+/* 줄 간격은 1.2 배(6px)에 **2px 을 더** 둔다 (2026-09-15 2차) — 꾹 누르는 키캡의 chevron 이 키캡 윗변 밖으로
+   절반 솟아 있어서(아래 절) 줄이 붙어 있으면 윗줄 글자에 닿아 답답해 보인다. */
+.tut-objs { display: flex; flex-direction: column; gap: 8px; }
+.tut-obj { display: flex; align-items: flex-start; gap: 9.6px; }
+.tut-obj-box { flex: none; width: 15.6px; height: 15.6px; margin-top: 2.4px; overflow: visible; }
 .tut-obj-frame { fill: none; stroke: var(--c-border-strong, rgba(255, 255, 255, 0.35)); stroke-width: 1.4; }
 /*
  * 체크는 **좌→우로 그려진다** — 길이 약 12.2 인 두 선분이라 dasharray 14 로 덮고 offset 을 0 으로 되돌린다
@@ -54,12 +59,12 @@
 }
 .tut-obj-label {
   position: relative; flex: 1 1 auto; min-width: 0;
-  font-size: 11.5px; line-height: 1.45; letter-spacing: 0.01em; color: var(--c-text);
+  font-size: 13.8px; line-height: 1.45; letter-spacing: 0.01em; color: var(--c-text);
 }
 /*
  * 취소선은 **똑같은 글자를 한 겹 더 깔고** `clip-path` 로 좌→우로 벗겨 낸다 (`ui/Panel` 이 두 span 을 만든다).
- * `::after` 의 가로 막대 하나로는 **두 줄로 접힌 목표**의 가운데 허공에 줄이 그어진다 — 여기 문장은 288 px
- * 패널에서 자주 접힌다. 이 방식은 줄마다 제 위치에 그어지고 왼쪽부터 순서대로 드러난다.
+ * `::after` 의 가로 막대 하나로는 **두 줄로 접힌 목표**의 가운데 허공에 줄이 그어진다 — 여기 문장은 346 px
+ * 패널에서도 자주 접힌다. 이 방식은 줄마다 제 위치에 그어지고 왼쪽부터 순서대로 드러난다.
  */
 .tut-obj-txt { transition: color 240ms ease 220ms; }
 .tut-obj-strike {
@@ -73,15 +78,22 @@
 /* 2026-09-15 (사용자 결정): **회색은 달성한 줄만**이다 — 선택 목표(`.is-optional`)도 달성 전에는 필수와 같은 색이다.
    예전의 `.tut-obj.is-optional .tut-obj-label { color: dim }` 은 지웠다 (`(선택)` 접두사가 이미 말한다). */
 /* 목표 줄 안의 키캡 (2026-09-15, `shared/keycap.renderKeyText` 의 `.kc-inline`) — 글줄 높이에 맞춘 작은 키캡.
-   꾹 누르는 키캡의 chevron 은 키캡 윗변 **안쪽**에 그려진다(`ui/styles/base.css`) — 윗줄과 겹칠 여백이 필요 없다. */
+   2026-09-15 2차 (사용자 결정): 꾹 누르는 키캡의 chevron 은 키캡 **윗변에 걸쳐** 절반이 밖으로 솟는다
+   (`ui/styles/base.css` 의 `.keycap.kc-hold::before` — `top: -5.6px`). 키캡은 `overflow` 를 정하지 않아 잘리지
+   않고, 윗줄과 살짝 겹칠 수 있는 만큼을 위의 `.tut-objs { gap }` 이 2px 더 둔다. */
 .tut-obj-label .keycap {
-  min-width: 17px; height: 17px; padding: 0 4px; margin: 0 2px;
-  font-size: 9.5px; vertical-align: middle;
+  min-width: 20.4px; height: 20.4px; padding: 0 4.8px; margin: 0 2.4px;
+  font-size: 11.4px; vertical-align: middle;
 }
+/* 세는 목표의 `(n/m)` (2026-09-15 2차) — 본문보다 한 톤 흐리다. `ui/Panel.setCounts` 가 이 노드의 글자만 갈아 끼운다.
+   취소선 층에도 같은 노드가 있으므로 색은 글자 층에서만 낮춘다 (취소선 층은 통째로 `--c-text-faint` 다). */
+.tut-obj-n { font-style: normal; white-space: nowrap; color: var(--c-text-dim); }
+.tut-obj-strike .tut-obj-n { color: inherit; }
 /* 취소선 층의 키캡은 같은 자리에 덮이며 달성한 줄의 색이 된다 (`clip-path` 가 좌→우로 벗겨 낸다) */
 .tut-obj-strike .keycap { filter: grayscale(1) brightness(0.72); }
 .tut-obj.is-done .tut-obj-tick { stroke-dashoffset: 0; }
 .tut-obj.is-done .tut-obj-txt { color: var(--c-text-faint); }
+.tut-obj.is-done .tut-obj-n { color: var(--c-text-faint); }
 .tut-obj.is-done .tut-obj-strike { clip-path: inset(0 0 0 0); }
 .tut-obj.is-done .tut-obj-frame { stroke: var(--c-success, #6ee7a8); }
 

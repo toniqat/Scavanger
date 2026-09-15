@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { UI_HOLD_CONFIRM_S } from '@/shared';
+import { UI_HOLD_CONFIRM_S, createHoldButtonCap } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
 /** 팝업 하나가 묻는 것: 제목 · 본문(줄바꿈 허용) · 확인 버튼 라벨 · 확인했을 때 할 일. */
@@ -43,6 +43,10 @@ function needsHold(spec: AskSpec | null): boolean {
  *    그냥 한 번의 클릭이다.
  *  - **2026-09-14**: `hold: true` 면 붉지 않은 확인도 같은 홀드를 탄다 (채움만 악센트 색). 캐릭터 `만들기` 가 그렇다 —
  *    되돌릴 수는 있지만(삭제) 새로고침으로 곧장 게임에 들어가는, 무게 있는 한 걸음이다.
+ *  - **2026-09-15 2차 (사용자 결정)**: 「〈라벨〉 버튼을 1초 동안 누르고 있어야 실행됩니다」 안내 줄(`.tm-ask-hint`)은
+ *    없어졌다. 「어떻게 누르는가」는 글이 아니라 **확인 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡**
+ *    (`shared/keycap.createHoldButtonCap`)이 말한다 — 홀드로만 실행되는 확인에만 붙는다. 이 팝업의 그 줄은
+ *    오로지 홀드 문구만 나르고 있었으므로 요소째 사라졌다 (남길 정보가 없다).
  *
  * PauseMenu 에서 떼어내 공유하지 않고 따로 둔 이유는 그쪽이 `MenuBase` · 일시정지 이벤트에 묶여 있어서다.
  * 이 클래스는 아무 DOM 노드 아래에나 붙고 blocker 토큰도 커서 소유권도 갖지 않는다 — 그건 자기를 띄운
@@ -58,7 +62,11 @@ export class AskPopup {
   private readonly okBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
   private readonly fill: HTMLElement;
-  private readonly hint: HTMLElement;
+  /**
+   * 2026-09-15 2차: 홀드 확인의 좌클릭 키캡. 버튼 안 라벨 **왼쪽**에 서고, 홀드가 아닌 확인에서는 떼어 둔다.
+   * `setText` 가 `textContent` 를 갈아 끼우므로 `open()` 마다 채움 바와 함께 다시 넣는다.
+   */
+  private readonly okCap: HTMLElement;
   private pending: AskSpec | null = null;
   /** 지금 카드에 붙어 있는 `AskSpec.cardCls` (닫을 때 뗀다). */
   private cardCls = '';
@@ -86,12 +94,11 @@ export class AskPopup {
     this.bodyEl = el('div', { cls: 'tm-ask-body', text: '', parent: card });
     this.contentHost = el('div', { cls: 'tm-ask-content', parent: card });
     this.contentHost.hidden = true;
-    this.hint = el('div', { cls: 'tm-ask-hint', text: '', parent: card });
-    this.hint.hidden = true;
     const foot = el('div', { cls: 'tm-ask-foot', parent: card });
     const no = el('button', { cls: 'ui-btn', text: '취소', parent: foot });
     this.okBtn = el('button', { cls: 'ui-btn', text: '확인', parent: foot });
     this.fill = el('i', { cls: 'tm-ask-fill', parent: this.okBtn });
+    this.okCap = createHoldButtonCap();
     no.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
     this.okBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -120,15 +127,14 @@ export class AskPopup {
     this.contentHost.replaceChildren(...(spec.content ? [spec.content] : []));
     this.contentHost.hidden = !spec.content;
     this.setCardCls(spec.cardCls ?? '');
+    const hold = needsHold(spec);
     setText(this.okBtn, spec.ok);
-    // `setText` 는 `textContent` 를 갈아 끼우므로 채움 바를 다시 넣어 준다.
+    // `setText` 는 `textContent` 를 갈아 끼우므로 홀드 키캡(라벨 왼쪽)과 채움 바를 다시 넣어 준다.
+    if (hold) this.okBtn.prepend(this.okCap);
     this.okBtn.appendChild(this.fill);
     toggleClass(this.root, 'danger', !!spec.danger);
     toggleClass(this.okBtn, 'danger', !!spec.danger);
     toggleClass(this.okBtn, 'primary', !spec.danger);
-    const hold = needsHold(spec);
-    this.hint.hidden = !hold;
-    if (hold) setText(this.hint, `${spec.ok} 버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 실행됩니다.`);
     this.resetHold();
     this.root.hidden = false;
     window.addEventListener('keydown', this.onKey, true);

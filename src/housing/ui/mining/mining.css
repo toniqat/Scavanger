@@ -293,7 +293,10 @@
 .mn-quote-row { display: flex; flex-direction: column; gap: 2px; }
 .mn-quote-row .k { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
 .mn-quote-row .v { font-family: var(--ui-mono); font-size: 13px; color: var(--c-text); }
+/* 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 (홀드 안내는 버튼 안의 좌클릭 키캡).
+   사유가 없으면 `hidden` 이라 자리도 차지하지 않는다. */
 .mn-trade-block { font-size: 11px; letter-spacing: 0.03em; color: var(--c-text-faint); min-height: 16px; }
+.mn-trade-block[hidden] { display: none; }
 .mn-trade-block.bad { color: var(--c-danger); }
 .mn-hold { position: relative; overflow: hidden; height: 38px; font-size: 13px; letter-spacing: 0.14em; }
 .mn-hold-fill {

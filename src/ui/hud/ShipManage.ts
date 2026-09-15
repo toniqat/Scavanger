@@ -2,7 +2,7 @@ import type { CraftIngredient, FacilityRequirement, FurnitureDef, FurnitureModel
 import {
   COCKPIT_ROOM_INDEX, FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, Keys, renderItemCost, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSES_ASSIGNABLE,
   ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, UI_HOLD_CONFIRM_S, purposeGeneratorLevel,
-  WORKBENCH_ICON, buildFacilityChip, buildItemChip, isCockpitOnlyFurniture, isUtilityFurniture,
+  WORKBENCH_ICON, buildFacilityChip, buildItemChip, createHoldButtonCap, isCockpitOnlyFurniture, isUtilityFurniture,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 /* 2026-09-14 (사용자 결정): 필요 아이템 줄의 호버 카드는 커서 좌상단 — 그 옵트인 속성의 원본은 `ItemTip` 하나다. */
@@ -212,7 +212,8 @@ export class ShipManage {
   private confirmBody: HTMLElement;
   private confirmCost: HTMLElement;
   private confirmCard: HTMLElement;
-  private confirmHint: HTMLElement;
+  /** 2026-09-15 2차: 시설 제거 확정 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡 — 홀드가 아닌 확인에서는 떼어 둔다. */
+  private confirmCap: HTMLElement;
   private confirmOk: HTMLButtonElement;
   private confirmOkText: HTMLElement;
   private confirmFill: HTMLElement;
@@ -324,11 +325,12 @@ export class ShipManage {
     this.confirmTitle = el('div', { cls: 'title', text: '시설 증축', parent: card });
     this.confirmBody = el('div', { cls: 'body', parent: card });
     this.confirmCost = el('div', { cls: 'cost', parent: card });
-    this.confirmHint = el('div', { cls: 'sm-confirm-hint', text: `시설 제거 버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 실행됩니다.`, parent: card });
-    this.confirmHint.hidden = true;
     const acts = el('div', { cls: 'acts', parent: card });
     const cancel = this.confirmCancel = el('button', { cls: 'ui-btn', text: '취소', parent: acts });
     this.confirmOk = el('button', { cls: 'ui-btn primary sm-confirm-ok', parent: acts });
+    // 2026-09-15 2차 (사용자 결정): 옛 안내 줄(`.sm-confirm-hint`) 대신 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡이
+    // 「어떻게 누르는가」를 말한다 — 홀드하는 확인(= `danger`)에만 붙는다 (`openConfirm`).
+    this.confirmCap = createHoldButtonCap();
     this.confirmFill = el('i', { cls: 'sm-hold-fill', parent: this.confirmOk });
     this.confirmOkText = el('span', { cls: 'sm-confirm-ok-t', text: '확인', parent: this.confirmOk });
     cancel.addEventListener('click', (e) => { e.stopPropagation(); this.closeConfirm(true); });
@@ -659,7 +661,8 @@ export class ShipManage {
     for (const r of opts.requirements ?? []) this.confirmCost.appendChild(this.facilityChip(r, 34));
     this.confirmDanger = !!opts.danger;
     toggleClass(this.confirmCard, 'is-danger', this.confirmDanger);
-    this.confirmHint.hidden = !this.confirmDanger;
+    if (this.confirmDanger) this.confirmOk.insertBefore(this.confirmCap, this.confirmFill);
+    else this.confirmCap.remove();
     setText(this.confirmOkText, opts.okText ?? '확인');
     toggleClass(this.confirmOk, 'primary', !this.confirmDanger);
     toggleClass(this.confirmOk, 'sm-danger', this.confirmDanger);

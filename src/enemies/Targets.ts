@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, type DroneRef, type GameContext, type PeerId, type PlayerRef, type RoverRef } from '@/shared';
+import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, explosionFalloff, type DroneRef, type GameContext, type PeerId, type PlayerRef, type RoverRef } from '@/shared';
 import type { Enemy } from './Enemy';
 
 /** `'local'` is the player on this machine; `'ai'` is another enemy (faction warfare, Phase 4); anything else is a remote peer id. */
@@ -430,7 +430,8 @@ export class TargetList {
 
   /**
    * 2026-09-13 (탐사 차량): **적이 낸** 폭발 · 분출 한 번이 차체에 닿으면 피해를 넣는다 — 폭심에서 차체 상자까지의 거리로
-   * `1 − d / radius` 감쇠(최소 `minFalloff`). **권한 분기에서만** 부른다 (`RoverRef.damage` 는 리플리카에서 무시되지만 두 번 부를
+   * 공용 2단 계단 감쇠(`shared/explosion`, 2026-09-15 사용자 결정 — 예전에는 `1 − d / radius` 선형이었다, 최소 `minFalloff`).
+   * **권한 분기에서만** 부른다 (`RoverRef.damage` 는 리플리카에서 무시되지만 두 번 부를
    * 이유가 없다). 플레이어 · 가젯 폭발이 지나는 공용 `explode()` 에는 넣지 않는다 — 사용자 결정 「적 · 재해만 피해」.
    */
   damageVehicleAt(center: THREE.Vector3, radius: number, damage: number, minFalloff = 0.15): boolean {
@@ -438,7 +439,7 @@ export class TargetList {
     if (!t || !t.vehicle || !(radius > 0) || !(damage > 0)) return false;
     const d = t.vehicleGap3D(center);
     if (d >= radius) return false;
-    t.vehicle.damage(damage * THREE.MathUtils.clamp(1 - d / radius, minFalloff, 1), center);
+    t.vehicle.damage(damage * Math.max(minFalloff, explosionFalloff(d, radius)), center);
     return true;
   }
 

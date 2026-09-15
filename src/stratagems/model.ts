@@ -36,7 +36,7 @@ export const SUPPLY_DROP_HEIGHT = 120;
 export const STRUCTURE_DROP_HEIGHT = 60;
 export const STRUCTURE_STAGGER = 0.15;
 export const STRUCTURE_MIN_GAP = 2.4;
-/** Grenade splash damage against structures (centre value, linear falloff). */
+/** Grenade splash damage against structures (centre value; falloff = `shared/explosion` 2단 계단). */
 export const GRENADE_STRUCTURE_DAMAGE = 250;
 /** `camera:shake` reach (m). */
 export const SHAKE_RANGE = 60;

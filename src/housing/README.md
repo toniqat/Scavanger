@@ -1081,3 +1081,17 @@ field's own handler, so it skips events whose target is an `<input>` / `<textare
 `ui/Panel` 이 `openPanel()` 에서 `ctx.escape.push(BLOCKER, () => this.close())` 하고 `close()` 에서 `remove` 한다 —
 하우징 패널(재배 · 서재 · 프리셋)이 E 외에 Tab · ESC 로도 닫힌다. E 캡처 리스너와 `PresetMenu` 이름 칸의
 `isolateInput` 은 그대로다. 순서는 `shared/escape`(열린 순서의 역순), 정책은 `game/parts/Phases.escapeKey`.
+
+---
+
+## 변경 이력 — 2026-09-15 2차 (사용자 결정): 홀드 버튼 안의 좌클릭 키캡
+
+꾹 눌러야 실행되는 버튼은 버튼 **위**의 홀드 안내 문구 대신 **버튼 안, 라벨 왼쪽**의 좌클릭 홀드 키캡
+(`shared/keycap.createHoldButtonCap` → `.keycap.kc-btn`)으로 말한다.
+- `ui/UpgradeModal` — `.hs-modal-ok`. `.hs-modal-note` 는 이제 **차단 사유 전용**이다: 「「업그레이드」를 1초 동안
+  누르고 있으면 강화합니다」 기본 문구가 빠졌고, 사유 · 「최대 레벨입니다」는 그대로 쓰며 **없으면 `hidden`** 이다
+  (`.hs-modal-gain` 이 이미 쓰던 규약). ⚠ **빈 배열 ≠ 문제 없음** 과 같은 눈으로, 이 줄이 비었다는 것만으로
+  「막히지 않았다」를 판단하지 않는다 — 그건 사유 함수의 일이다.
+- `ui/mining/ComputerPages` — `.mn-hold`(매수 / 매도). `.mn-trade-block` 도 차단 사유 전용(없으면 `hidden`).
+- `ui/mining/common` — `bindHoldButton` 은 그대로이고, 주석에 「키캡은 부르는 쪽이 라벨 왼쪽에 둔다」 규약만 적었다.
+- `ui/SocketFlow` — **무변경**: 확정이 전부 공용 `shared/holdAsk.openHoldAsk` 로 가므로 그쪽에서 캡이 붙는다.

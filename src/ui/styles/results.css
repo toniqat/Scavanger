@@ -13,6 +13,15 @@
   font-size: 22px; font-weight: 600; line-height: 1; color: var(--c-text);
 }
 
+/*
+ * 행성 줄 (2026-09-15, 사용자 결정) — 가운뎃점 대신 gap 으로 벌린 두 조각.
+ * 라벨은 없앤 부제(`base.css` 의 `.menu .subtitle`: 12px · `--c-text-dim` · letter-spacing 0.1em)와 **같은 크기 · 같은 회색**이고
+ * 이름만 조금 크고 흰색이다. 위 여백 8px 도 그 부제의 값이라, 탈출 성공처럼 부제가 숨어도 제목에 붙지 않는다.
+ */
+.menu .rs-planet { display: flex; align-items: baseline; gap: 12px; margin-top: 8px; }
+.menu .rs-planet-k { font-size: 12px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.menu .rs-planet-v { font-size: 15px; letter-spacing: 0.06em; color: var(--c-text); }
+
 /* 몸통 — base.css 의 2열 격자 대신 세로 줄 */
 .menu .stats.rs-stats { display: flex; flex-direction: column; gap: 12px; }
 

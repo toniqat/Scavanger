@@ -9,7 +9,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHELL_LEAD_MAX, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
-  shellLaunchVelocity, shellPositionAt,
+  shellLaunchVelocity, shellPositionAt, explosionFalloff,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -115,7 +115,7 @@ export function throwGrenade(sys: EnemySystem, e: Enemy, target: THREE.Vector3):
 
 /* ── GrenadeHost ───────────────────────────────────────────────────────── */
 /**
- * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with linear falloff over ROGUE_GRENADE_RADIUS to every alive player
+ * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with the shared 2단 계단 falloff (`shared/explosion`) over ROGUE_GRENADE_RADIUS to every alive player
  * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
  * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
  * 2026-09-13: `kind` — an incendiary is a small blast (`ENEMY_INCENDIARY.blastDamage` / `blastRadius`, no knockback);
@@ -139,7 +139,8 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
       _c.set(t.position.x, t.position.y + PLAYER_HEIGHT * 0.5, t.position.z);
       const d = _c.distanceTo(p);
       if (d >= reach) continue;
-      const falloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / radius, 0.1, 1);
+      // 2026-09-15 (사용자 결정): 적 수류탄도 공용 2단 계단 (`shared/explosion`) — 하한 0.1 은 그 위에 그대로 얹는다
+      const falloff = Math.max(0.1, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), radius));
       if (fire) { sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.5 * falloff, false); continue; }
       _kb.subVectors(_c, p); _kb.y = Math.max(_kb.y, 0) + 0.35;
       if (_kb.lengthSq() < 1e-4) _kb.set(0, 1, 0); else _kb.normalize();
@@ -432,7 +433,9 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
       if (d < SHELL_BLAST_RADIUS + PLAYER_RADIUS) {
         _v.set(p.x, p.y + 0.6, p.z);
         if (sys.barrierBlocks(_v, t)) continue;   // Phase 9: the blast stops at a 배리어 between the crater and the player
-        const dmg = SHELL_DAMAGE * THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / SHELL_BLAST_RADIUS * 0.75, 0.25, 1);
+        // 2026-09-15 (사용자 결정 — 모든 폭발물이 같은 공식): 옛 `× 0.75` 선형 대신 공용 2단 계단.
+        //   하한 0.25 는 남긴다 — 같은 폭발의 적 · 드론 · 차량 몫(`sys.explode` · `applyExplosion` · `damageVehicleAt`)이 이미 같은 계단이다.
+        const dmg = SHELL_DAMAGE * Math.max(0.25, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), SHELL_BLAST_RADIUS));
         sys.applyDamage(t, dmg, p, shooter?.id ?? 0, shooter?.type ?? 'artillery', null, 0.9, false);
       }
     }
@@ -468,7 +471,8 @@ export function acidBurst(sys: EnemySystem, e: Enemy): void {
       const t = players[i];
       const d = t.position.distanceTo(e.position);
       if (d < SPEWER_SPIT.deathBurstRadius) {
-        const dmg = SPEWER_SPIT.deathBurstDamage * (1 - d / SPEWER_SPIT.deathBurstRadius * 0.6);
+        // 2026-09-15 (사용자 결정): 공용 2단 계단 — 옛 `× 0.6` 선형은 하한이 없어 가장자리에서 40 % 였다.
+        const dmg = SPEWER_SPIT.deathBurstDamage * explosionFalloff(d, SPEWER_SPIT.deathBurstRadius);
         sys.applyDamage(t, dmg, e.position, e.id, e.type, { duration: 1.2, factor: 0.7 }, 0, false);
       }
     }
@@ -492,7 +496,8 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
     const t = players[i];
     const d = t.position.distanceTo(_c);
     if (d < TOXIC_RADIUS + PLAYER_RADIUS) {
-      const dmg = TOXIC_DAMAGE * THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / TOXIC_RADIUS * 0.8, 0.2, 1);
+      // 2026-09-15 (사용자 결정): 공용 2단 계단. 하한 0.2 는 남긴다 (적 · 드론 · 차량 몫과 같은 폭발이다).
+      const dmg = TOXIC_DAMAGE * Math.max(0.2, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), TOXIC_RADIUS));
       sys.applyDamage(t, dmg, _c, e.id, e.type, { duration: 1.5, factor: 0.65 }, 0.5, false);
     }
   }

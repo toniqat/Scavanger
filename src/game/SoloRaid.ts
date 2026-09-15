@@ -30,7 +30,10 @@ import { SOLO_CLOCK_BACK_TOLERANCE_MS, SOLO_CLOCK_HIGH_KEY } from '@/shared';
 
 export const SOLO_RAID_STORAGE_KEY = 'scav.soloraid';
 export const SOLO_RAID_SAVE_VERSION = 1;
-/** How long a closed solo raid may be resumed. Past this the run is lost (레이드 실패). */
+/**
+ * How long a closed solo raid may be resumed. Past this the run is lost (레이드 실패).
+ * 2026-09-15: **튜토리얼에는 걸리지 않는다** — `soloRaidStatus` 의 첫 줄을 본다.
+ */
 export const SOLO_RAID_GRACE_MS = 5 * 60 * 1000;
 
 /** Body pose as `PlayerRef.restoreState` wants it, but plain-JSON (no `THREE.Vector3`). */
@@ -150,9 +153,15 @@ export function loadSoloRaid(): SoloRaidSave | null {
  *   ② a save more than that tolerance in the future → `stale`; a few seconds (NTP correction) still resume.
  * (③, the loadout's `raidSeed` marker, is checked by the caller — it needs `InventoryRef`.)
  * What stays open (accepted): close → set the clock back → reopen inside 5 min without having booted in between.
+ *
+ * **2026-09-15 (사용자 결정 — 튜토리얼은 언제 껐다 켜도 이어서 한다)**: `save.mode === 'tutorial'` 이면 위의 셋을
+ * 하나도 보지 않는다. 유예도 시계 방어도 **되돌릴 진행이 있을 때**의 장치다 — 「닫고 시계를 되돌려 손실을 무르는
+ * 것」을 막으려고 있는 것인데, 튜토리얼에는 잃을 전리품도 실패도 없고 요점은 「중간부터 이어서」 하나다.
+ * 일주일 뒤에 켜도 `fresh` 다.
  */
 export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now(), clockHigh = 0): SoloRaidStatus {
   if (!save) return 'none';
+  if (save.mode === 'tutorial') return 'fresh';
   const age = now - save.savedAt;
   if (age < -SOLO_CLOCK_BACK_TOLERANCE_MS) return 'stale';
   if (clockHigh > 0 && now < clockHigh - SOLO_CLOCK_BACK_TOLERANCE_MS) return 'stale';
@@ -163,6 +172,11 @@ export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now
 /**
  * E-5 ③: how the boot reads the stored raid together with the loadout's solo raid marker (`InventoryRef.soloRaidSeed`).
  * A marker whose save is gone (the key was deleted) or belongs to another seed is a lost run exactly like a stale save.
+ *
+ * 2026-09-15: 튜토리얼에는 그 표식이 애초에 없다 — `inventory/parts/Lifecycle.onWorldReady` 가 `missionMode === 'raid'`
+ * 일 때만 `markRaid` 를 부른다. 그래서 튜토리얼 세이브가 있으면 `raidSeed` 는 null 이고 이 검사는 그대로 지나간다.
+ * 검사를 그대로 두는 이유: 표식이 **남아 있다면** 그것은 이어하다 만 진짜 레이드의 흔적이고, 그때는 튜토리얼
+ * 세이브가 있어도 그 레이드가 잃은 것이 맞다 (`stale` = 그 레이드의 실패).
  */
 export function soloRaidBootStatus(save: SoloRaidSave | null, raidSeed: number | null, now: number = Date.now(), clockHigh = 0): SoloRaidStatus {
   const status = soloRaidStatus(save, now, clockHigh);

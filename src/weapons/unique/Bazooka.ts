@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import {
   BAZOOKA_DAMAGE, BAZOOKA_RADIUS, BAZOOKA_SPEED, BAZOOKA_ALT_FUSE, BAZOOKA_ALT_DAMAGE, BAZOOKA_ALT_RADIUS,
   BAZOOKA_KNOCKBACK, BAZOOKA_SUPER_JUMP, BAZOOKA_JUMP_FORWARD, BAZOOKA_FIRE_RATE, PLAYER_WALK_SPEED,
+  explosionFalloff,
 } from '@/shared';
 import type { ProjectileHit } from '../Projectile';
 import type { UniqueHandler, UniqueInput, UniquePose, UniqueServices, UniqueWeapon } from './UniqueHandler';
 
 const _muzzle = new THREE.Vector3(), _launch = new THREE.Vector3(), _d = new THREE.Vector3(), _centre = new THREE.Vector3();
 const _away = new THREE.Vector3(), _imp = new THREE.Vector3(), _blast = new THREE.Vector3(), _hvel = new THREE.Vector3();
-/** Blast damage falloff floor for destructible cover at the edge of the radius. */
+/** Blast damage falloff floor for destructible cover at the edge of the radius (얹히는 하한 — 감쇠 자체는 `shared/explosion`). */
 const COVER_MIN = 0.3;
 
 /**
@@ -94,7 +95,8 @@ export class Bazooka implements UniqueHandler {
         if (!o.destructible) continue;
         const d = Math.max(0, o.position.distanceTo(pos) - o.radius);
         if (d > radius) continue;
-        o.destructible.onDamage(damage * Math.max(COVER_MIN, 1 - d / radius), o.position);
+        // 2026-09-15 (사용자 결정): 공용 2단 계단 위에 기존 하한을 그대로 얹는다
+        o.destructible.onDamage(damage * Math.max(COVER_MIN, explosionFalloff(d, radius)), o.position);
       }
     }
     // knockback / rocket jump (no self damage)

@@ -10,7 +10,7 @@ import { Dressing } from './parts/Dressing';
 import { TutorialCorpses } from './parts/Corpses';
 import {
   ABYSS_EDGE_Z, ABYSS_SAFE_MARGIN_M, CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES,
-  ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START,
+  ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, PIT_FLOOR_Y, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START,
   chasmFarZAt, chasmNearZAt, type Volume,
 } from './model';
 
@@ -38,10 +38,15 @@ const OBJECTIVE_TEXT = '버려진 함선을 찾아 이 행성을 벗어난다';
 /** 함선을 세우려고 다시 시도하는 시간 (s). 그 안에 `ctx.extraction` 이 준비되지 않으면 포기하고 경고만 남긴다. */
 const SHIP_PLACE_TIMEOUT_S = 5;
 /**
- * 「데크 윗면에 서 있다」로 볼 발 높이의 오차. 이 맵에는 경사도 단차도 없고 걸어 다니는 면이 딱 두 높이뿐이라
- * 좁게 잡을 수 있다 — 넓히면 폐허 벽 · 잔해 더미 **위**에 올라선 자리까지 안전한 자리로 적힌다.
+ * 「걸어 다니는 면에 서 있다」로 볼 발 높이의 오차. 좁게 잡는다 — 넓히면 폐허 벽 · 잔해 더미 **위**에 올라선
+ * 자리까지 안전한 자리로 적힌다.
  */
 const SAFE_DECK_EPS = 0.4;
+/**
+ * 걸어 다니는 면의 높이 — 세 개다 (2026-09-15 2차에 안드로이드 웅덩이 바닥이 늘었다). 오르막(`PIT_RAMP_*`) 위는
+ * 일부러 빼 뒀다: 0.9 m 를 잇는 짧은 경사라 늘 지나가는 자리이고, 굳이 적지 않아도 그 앞뒤의 평지가 적힌다.
+ */
+const SAFE_LEVELS: readonly number[] = [DECK_UPPER_Y, DECK_LOWER_Y, PIT_FLOOR_Y];
 /**
  * 절벽 1 을 **넘은 뒤**(먼 쪽 가장자리보다 −Z) 안전한 자리로 적기까지의 여유. 좁게 잡는다 —
  * 넘은 사람이 한참을 더 걸어야 기록이 살아나면 그 사이에 죽었을 때 이유 없이 절벽 앞으로 되돌아간다.
@@ -169,7 +174,9 @@ export class TutorialWorld implements TutorialWorldRef {
    *      (`inChasm`)으로는 안 되는 이유가 이 절벽의 규칙 자체다 — **달려야만 넘는다.** 가장자리 코앞에
    *      되살리면 도움닫기가 없어 「떨어지기 전 자리로 돌려보낸다」가 「다시 떨어지라」가 된다. 반대로 건너편을
    *      똑같이 12 m 막으면, 넘은 사람이 그만큼 더 걸어야 기록이 살아나 그 사이의 죽음이 절벽 앞으로 되돌아간다.
-   *   ③ **데크 윗면 근처** — 폐허 벽 · 잔해 더미 위에 올라선 자리를 걸러 낸다 (`SAFE_DECK_EPS`).
+   *   ③ **걸어 다니는 면 근처** — 폐허 벽 · 잔해 더미 위에 올라선 자리를 걸러 낸다 (`SAFE_LEVELS` · `SAFE_DECK_EPS`).
+   *      2026-09-15 2차에 **안드로이드 웅덩이 바닥**(`PIT_FLOOR_Y`)이 세 번째 높이로 늘었다 — 안 넣으면 웅덩이 안에서
+   *      죽은 사람이 그 앞의 마지막 평지로 되돌아간다 (틀리지는 않지만 「서 있던 자리」가 아니다).
    *   ④ **끝없는 절벽 가장자리 띠 밖** (2026-09-15) — 가장자리(`ABYSS_EDGE_Z`)에서 `ABYSS_SAFE_MARGIN_M`(3 m) 안은 적지 않는다.
    *      가장자리에 발끝을 걸친 자리(몸 가운데는 아직 데크 위)에 되살리면 한 걸음에 다시 떨어진다. 그 띠에서 떨어진 사람은
    *      띠 바로 뒤, 즉 가장자리에서 3 m 이상 떨어진 마지막 자리로 돌아온다.
@@ -180,7 +187,7 @@ export class TutorialWorld implements TutorialWorldRef {
     const player = this.ctx?.player;
     if (!player || player.isDead || !player.isGrounded) return;
     const p = player.position;
-    if (Math.abs(p.y - DECK_UPPER_Y) > SAFE_DECK_EPS && Math.abs(p.y - DECK_LOWER_Y) > SAFE_DECK_EPS) return;
+    if (!SAFE_LEVELS.some((level) => Math.abs(p.y - level) <= SAFE_DECK_EPS)) return;
     if (p.z <= chasmNearZAt(p.x) + CHASM_RUNUP_M && p.z >= chasmFarZAt(p.x) - SAFE_CHASM_MARGIN) return;
     if (p.z < ABYSS_EDGE_Z + ABYSS_SAFE_MARGIN_M) return;
     for (const v of FALL_RULES) if (v.rule === 'kill' && volumeContains(v, p)) return;

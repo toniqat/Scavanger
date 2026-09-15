@@ -9,7 +9,7 @@ import {
   TUTORIAL_INTRO_WAKE_S, TUTORIAL_STEPS, TUTORIAL_TRACKS, TUTORIAL_TRACK_STEPS, slotKey,
 } from '@/shared';
 import {
-  CHECKPOINT_STEP, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
+  CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
   SKIP_FADE_IN_S, SKIP_FADE_OUT_S, SKIP_HOLD_TIME, STANCE_HINT_IDS, TRACK_LABEL_KO,
   TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_RAVEN_NPC, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
@@ -77,6 +77,9 @@ interface SaveV2 extends TutorialSave {
 }
 
 const freshSave = (): SaveV2 => ({ version: TUTORIAL_SAVE_VERSION, tracks: {} });
+
+/** 세는 목표가 하나도 없는 단계의 답 (2026-09-15 2차) — 프레임마다 새 객체를 만들지 않는다. */
+const EMPTY_COUNTS: Readonly<Record<string, number>> = Object.freeze({});
 
 /*
  * 2026-09-14 2차 (사용자 결정) — **튜토리얼은 풀피로 시작하고 풀피로 부활한다.** 2026-09-14 1차의
@@ -178,9 +181,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       // 2026-09-15: 건너뛰기 암전은 함선에 들어서면 반드시 걷힌다 (결과 화면에서 이미 `ui/HudSystem` 이 걷었어도 한 번 더)
       b.on('hub:entered', () => this.clearSkipFade(0)),
       b.on('game:abort', () => { this.skipFadeT = 0; this.skipFadeOwned = false; this.tip.clear(); }),
-      // 결과 화면으로 페이즈가 바뀌면 `ui/HudSystem.applyVisibility` 가 검은 판을 스스로 걷는다 — 여기서 0 을 또 쏘면
-      //   페이즈가 바뀌기 전 프레임에 월드가 한 번 비친다. 책임만 내려놓는다.
-      b.on('game:complete', () => { this.skipFadeT = 0; this.skipFadeOwned = false; }),
+      /* 2026-09-15 (사용자 결정 — 「암전된 상태에서 탈출 성공이 뜬다」): 결과 화면으로 페이즈가 바뀌어도 검은 판은
+       * 그대로 있다 (`ui:screenFade.hold`). 그러니 여기서 **소유를 내려놓지 않는다** — 위의 `hub:entered` →
+       * `clearSkipFade(0)` 가 치우는 유일한 주인이고, 그것이 곧 「함선이 검게 남지 않는다」의 근거다.
+       * 암전 시계만 멈춘다 (결과 화면이 떴으니 더 부를 탈출이 없다). */
+      b.on('game:complete', () => { this.skipFadeT = 0; }),
       b.on('hub:entered', ({ ship }) => this.onHubEntered(ship)),
       b.on('hub:left', () => this.refreshVisuals()),
       b.on('game:phaseChanged', () => this.refreshVisuals()),
@@ -319,7 +324,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     const step = this.step;
     if (!step) return;
     // 목표 마커 — 시체는 `world/tutorial` 이 만드는 것이라 안내가 먼저 설 수도 있다. 안내선과 같은 주기로 다시 찾는다.
-    if (step === 'corpseLoot') {
+    if (CORPSE_MARKER_STEPS.includes(step)) {
       this.retarget -= 1;
       if (this.retarget <= 0) { this.retarget = MARKER_RETARGET_FRAMES; this.marker.setTarget(this.nearestCorpse()); }
     }
@@ -497,8 +502,13 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 2026-09-14 2차에는 건너뛰기가 `skipToLiftoff`(몸을 화물칸에 세우고 곧장 이륙)였다. 이제는 **화면을 검게 덮고**
    * (`ui:screenFade {1, SKIP_FADE_OUT_S}` — 그리는 것은 `ui/HudSystem`, 코드 보간이라 reduced motion 에도 페이드다)
    * **완전히 검어진 순간** `ExtractionRef.skipToComplete` 를 부른다: 함선이 떠나는 연출 없이 평소 탈출과 같은 결과 화면 ·
-   * 정산 · 함선 획득이 흐른다. 검은 판은 결과 화면으로 페이즈가 바뀌는 순간 `HudSystem.applyVisibility` 가 걷고
-   * (`inGame` 이 아니면 즉시 0), 함선에 들어설 때(`hub:entered`) 이 시스템이 한 번 더 확인한다 — 함선이 검게 남는 길이 없다.
+   * 정산 · 함선 획득이 흐른다.
+   *
+   * **검은 판은 결과 화면에서도 그대로 있다** (2026-09-15 2차, 사용자 결정 — 「암전된 상태에서 탈출 성공이 뜬다」).
+   * 그래서 `ui:screenFade` 에 `hold: true` 를 싣는다: 그것이 없으면 페이즈가 바뀌는 순간 `HudSystem.applyVisibility`
+   * 가 판을 걷어 **결과 창 뒤로 행성이 다시 보였다**. 결과 창은 `.menu.complete` z 84 라 판(82) 위에 뜬다.
+   * 치우는 곳은 `hub:entered` 의 `clearSkipFade(0)` 하나이고, `game:abort` 와 `HudSystem` 의 같은 구독이 여벌이다 —
+   * 함선이 검게 남는 길이 없다.
    *
    * 암전 동안은 **각본 잠금**(`PlayerRef.setSceneLock`)을 건다 — 0.6 초 사이에 맞아 죽으면 결과 화면이 「미탈출」이 된다.
    * 푸는 것은 player/ 의 리셋 경로(부활 · 함선 복귀 · `game:abort`)이고, 사망 폴백으로 내려갈 때만 여기서 푼다.
@@ -516,7 +526,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.skipFadeOwned = true;
     this.tip.clear();
     ctx.player?.setSceneLock?.(true);
-    ctx.bus.emit('ui:screenFade', { opacity: 1, durationS: SKIP_FADE_OUT_S });
+    // `hold` = 결과 화면으로 페이즈가 바뀌어도 ui 가 이 판을 걷지 않는다 (2026-09-15 — 「암전된 채로 탈출 성공」)
+    ctx.bus.emit('ui:screenFade', { opacity: 1, durationS: SKIP_FADE_OUT_S, hold: true });
   }
 
   /** 암전 시계 — 다 검어진 프레임에 한 번 탈출을 건다. 시뮬레이션 dt 라 검은 판(`HudSystem`)과 같은 시계다. */
@@ -532,7 +543,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     const ctx = this.ctx;
     if (!this.inTutorialRaid()) { this.clearSkipFade(0); return; }
     const ext = ctx.extraction;
-    if (ext?.skipToComplete?.()) return;                                  // 결과 화면 — 검은 판은 페이즈가 걷는다
+    if (ext?.skipToComplete?.()) return;                                  // 결과 화면 — 검은 판은 그대로 (`hub:entered` 가 걷는다)
     if (ext?.skipToLiftoff?.()) { this.clearSkipFade(SKIP_FADE_IN_S); return; }   // 이륙 연출은 보여야 한다
     ctx.player?.setSceneLock?.(false);                                    // 잠금이 남으면 사망조차 안 된다
     this.clearSkipFade(0);
@@ -661,19 +672,38 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (this.track !== 'raid') return;
     if (step !== 'shoot' && step !== 'crouchAim') return;
     this.kills++;
+    // 2026-09-15 2차: 목표 줄 뒤의 `(n/m)` 은 **그 숫자 노드만** 갈아 끼운다 — 마지막 한 마리도 `(2/2)` 가 된 뒤에
+    //   체크 · 취소선이 그어진다 (패널이 반 박자 붙잡는 동안 그 줄이 그대로 서 있다).
+    this.panel.setCounts(this.objectiveCounts());
     if (this.kills >= RAID_KILLS_PER_STEP) this.advance();
   }
 
   /**
-   * 적이 솟았다 (튜토리얼 벌레의 굴착 스폰). `advance1` 이면 그대로 `shoot` 으로 넘기고, **총을 안 들고 시체를 지나친 채**
-   * (`corpseLoot` 에 머문 채) 벌레를 만났으면 `shoot` 까지 앞으로 접는다 (2026-09-15, 사용자 결정 — 시체 구간도 건너뛸 수 있다).
-   * 두 단계로만 좁힌 이유: 튜토리얼의 다른 적(안드로이드)은 월드가 설 때 이미 서 있으므로 이 두 단계에서 오는
+   * 목표 줄의 **진행 수** (`TutorialObjective.count` 가 있는 줄, 2026-09-15 2차). 지금 세는 것은 처치 수 하나뿐이고,
+   * 줄 id 는 코드에 적지 않고 그 단계의 표에서 읽는다 — 목표 수(`count`)도 `RAID_KILLS_PER_STEP` 에서 나온다.
+   */
+  private objectiveCounts(): Readonly<Record<string, number>> {
+    const step = this.step;
+    if (step !== 'shoot' && step !== 'crouchAim') return EMPTY_COUNTS;
+    const out: Record<string, number> = {};
+    for (const o of this.objectivesFor(stepDef(step))) {
+      if (o.count !== undefined) out[o.id] = Math.min(this.kills, o.count);
+    }
+    return out;
+  }
+
+  /**
+   * 적이 솟았다 (튜토리얼 벌레의 굴착 스폰). `advance1` 이면 그대로 `shoot` 으로 넘기고, **시체를 그냥 지나친 채**
+   * (`corpseOpen` · `corpseLoot` 에 머문 채) 벌레를 만났으면 `shoot` 까지 앞으로 접는다 (2026-09-15, 사용자 결정 —
+   * 시체 구간도 건너뛸 수 있다. 2026-09-15 2차: **열지도 않고** 지나친 사람(`corpseOpen`)도 같은 길이다 —
+   * 새 단계가 막다른 길을 만들면 안 된다).
+   * 세 단계로만 좁힌 이유: 튜토리얼의 다른 적(안드로이드)은 월드가 설 때 이미 서 있으므로 이 단계들에서 오는
    * `enemy:spawned` 는 매복 벌레뿐이다. 뒤 단계의 스폰은 아무것도 접지 않는다.
    */
   private onEnemySpawned(): void {
     if (this.track !== 'raid') return;
     if (this.step === 'advance1') { this.advance(); return; }
-    if (this.step === 'corpseLoot') this.foldRaid('shoot');
+    if (this.step === 'corpseOpen' || this.step === 'corpseLoot') this.foldRaid('shoot');
   }
 
   /**
@@ -822,9 +852,17 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (step === 'supplyLoot' && this.done.has('supplyBandage')) this.advance();
   }
 
-  /** 컨테이너 창이 열렸다 — `corpseLoot` 에서 풀어 둔 포커싱을 시체를 다시 열면 되살린다 (2026-09-15). */
+  /**
+   * 컨테이너 창이 열렸다 (시체 · 상자 공통 — 튜토리얼 맵에서 열 수 있는 것은 손으로 놓은 시체 셋뿐이다).
+   *   • `corpseOpen`(2026-09-15 2차) — **시체 가방이 열린 것**이 그 단계의 끝이다. 다른 컨테이너와 구분하려고
+   *     id 접두사 `corpse:` 를 본다 (`world/tutorial/parts/Corpses` 가 붙이는 그 접두사다).
+   *   • `corpseLoot`(2026-09-15) — 총을 안 들고 닫아 풀어 둔 포커싱을 시체를 다시 열면 되살린다.
+   */
   private onContainerOpened(containerId: string): void {
-    if (this.step !== 'corpseLoot' || !this.corpseFocusOff || !containerId.startsWith('corpse:')) return;
+    if (!containerId.startsWith('corpse:')) return;
+    // 필수 목표에 체크를 긋는 것은 `advance` 의 `completeRequired` 가 한다 (여기서 따로 적지 않는다)
+    if (this.step === 'corpseOpen') { this.advance(); return; }
+    if (this.step !== 'corpseLoot' || !this.corpseFocusOff) return;
     this.corpseFocusOff = false;
     this.refreshVisuals();
   }
@@ -1221,13 +1259,15 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       // 2026-09-14 3차: **아직 안 열린 줄은 그리지 않는다** (순차 공개, `visibleObjectives`)
       objectives: visibleObjectives(view.objectives, this.done),
       done: this.done,
+      // 세는 목표의 `(n/m)` (2026-09-15 2차) — 줄을 다시 지어도 지금 수가 그대로 선다
+      counts: this.objectiveCounts(),
       index: stepIndexOf(step), count: this.stepCount,
     });
     // 시작 카드가 떠 있는 동안에는 스포트라이트를 겹치지 않는다
     this.spotlight.set(this.popup.isOpen || placing ? SPOT_NONE : view.spot, view.spotText, view.union, view.noDim);
     this.guide.setTarget(this.guideTarget(def.guide));
-    // 3D 목표 마커 — 지금은 `corpseLoot` 의 목표 시체 하나뿐이다
-    this.marker.setTarget(step === 'corpseLoot' ? this.nearestCorpse() : null);
+    // 3D 목표 마커 — 시체 구간 두 단계가 같은 시체를 가리킨다 (`CORPSE_MARKER_STEPS`)
+    this.marker.setTarget(CORPSE_MARKER_STEPS.includes(step) ? this.nearestCorpse() : null);
   }
 
   /**

@@ -121,13 +121,13 @@ Import via `@/ui` → `HudSystem`, `OBJECTIVE_TEXT`.
 | `menus/displaySettings.ts` | **화면 설정 store** (2026-09-08). `DisplaySettings` (fullscreen / bloom / shadows / scale), `DISPLAY_SCALES` 0.75 · 1 · 1.25, `DISPLAY_DEFAULTS`, `loadDisplaySettings()` / `saveDisplaySettings()` (localStorage `scav.display`, `scav.` prefixed so it survives 새 캐릭터로 시작 the way `scav.keybinds` / `scav.audio` do — a display preference is not a character), `isFullscreen()` and `setFullscreen(on)` (async, resolves to the state that actually took effect). `fullscreen` is deliberately **not** persisted: restoring it would need a user gesture the page does not have at startup. Only `SettingsMenu` writes it. |
 | `menus/ControlsPanel.ts` | **Controls diagram** (`.controls-panel`): a procedural DOM keyboard (`KEYBOARD_ROWS`, compact ANSI layout, key widths in units) and an inline-SVG mouse (LMB / RMB / MMB / M4 / M5 regions). Every key / button that carries a bound action is lit (`.bound`) with a short caption inside; beneath, the per-function list grouped by `KEY_GROUPS` (W A S D collapse into one 이동 row, `menuOnly` inventory keys are omitted). Re-renders on `onKeybindsChanged`. Exports `KEYBIND_BUTTON_LABEL`. |
 | `menus/KeybindMenu.ts` | **Key-settings overlay** (`.menu.keybind-menu`, z-index 58, above the title / pause menus; adds no blocker of its own). One row per `KEY_ACTION_DEFS` entry grouped with rules: label left, key button right (`마우스` tag on mouse-only actions, `MENU` fixed on Esc). Click a button → `키 입력…` capture (window capture-phase keydown / mousedown with `stopImmediatePropagation`; Esc cancels; `canBind` refuses keyboard keys on 사격 / 조준 / 핑) → `setKeybind` → `input:bindingsChanged`. Rows sharing a key in overlapping scopes get `.conflict` + a `⚠ … 와 겹침` warning and the note names the clash. Footer: `기본 키 설정으로 초기화` (`resetKeybinds`) / `닫기`. Emits `ui:keybindsToggled`. |
-| `menus/DeathScreen.ts` | **2026-09-15 (결과 창 개편):** 제목 줄(`전사` / `레이드 실패`) 오른쪽에 **임무 시간** 하나, 몸통은 `menus/ResultReport` — **`잃은 전리품 가치`**(`stats.peakLootValue`, 빨강 · 카운트업) → **사망 원인** 줄(`stats.death`) → `RewardsBlock`(획득 경험치). 처치 · 생존 시간 칸 · 개봉한 상자 · 받은 피해 칸은 없어졌다. 아래는 그 전의 기록이다 — "전사" + kills / survival time / crates / damage / **소실된 전리품 가치** (from `ctx.inventory.getTotalValue()`, rendered `1,200 C` through `formatCredits` since Phase 10). Shown on `game:phaseChanged {phase:'dead'}` (solo death flow v2; the legacy `game:over {stats}` still shows it), hidden when the phase leaves `dead`. **2026-09-09: 부활 버튼과 Space 핸들러가 사라졌다** (자동 부활 제거) — 유일한 버튼은 **`함선으로 귀환`** → `hub:enter {ship}` 이고 부제는 `스캐빈저 신호 소실 — 장비는 유해에 남았습니다` 다. phase `dead` 는 이제 레이드가 정말 끝났을 때(솔로 사망 · 분대 전멸)만 오고, 분대에서 혼자 죽으면 `hud/SpectateOverlay` 가 구조선 대기를 보여 준다. The old `다시 배치 (같은 시드)` button is gone (no mission failure on death). **Phase 5:** `RewardsBlock` (`fill(stats.rewards, 'dead')` → `진척 유지 안 됨` fallback wording) under the stats; `update(dt)` (called by HudSystem) drives its count-up; `rewardsBlock` getter. **Phase 7 — 레이드 실패 mode:** `game:raidFailed` (emitted by game/ right before `game:over` on a squad wipe / solo death) arms `.raid-failed`: title `레이드 실패`, subtitle `분대 전멸 — 스캐빈저 신호 완전 소실`, `함선으로 귀환` stays, and a `.auto-return` line counts `n초 후 자동 귀환` down from `RAID_FAILED_AUTO_RETURN_S` on `update(dt)` (display only — game/ performs the return, `함선으로 귀환 중…` at 0). The mode resets on `game:newMission` / `game:abort`; `isRaidFailed` getter (also `HudSystem.isRaidFailed`). The multiplayer spectate overlay is untouched (it stays until the wipe). **Phase 11:** a `.planet-line` under the subtitle (`행성 · <planetLabel(ctx.missionPlanet)>`, `목표 미지정` with no planet), filled in `fill()`. |
+| `menus/DeathScreen.ts` | **2026-09-15 (결과 창 개편):** 제목 줄(`전사` / `레이드 실패`) 오른쪽에 **임무 시간** 하나, 몸통은 `menus/ResultReport` — **`잃은 전리품 가치`**(`stats.peakLootValue`, 빨강 · 카운트업) → **사망 원인** 줄(`stats.death`) → `RewardsBlock`(획득 경험치). 처치 · 생존 시간 칸 · 개봉한 상자 · 받은 피해 칸은 없어졌다. **2026-09-15 (머리줄):** 행성 줄이 `ResultReport.buildPlanetLine` 의 두 조각(`.rs-planet-k` 회색 `행성` + `.rs-planet-v` 흰 이름)이다 — `MissionComplete` 와 같은 모습. **부제는 그대로 남는다**: 이 화면의 부제는 뜻을 나른다(`스캐빈저 신호 소실 …` · `레이드 실패` 모드의 `분대 전멸 — 스캐빈저 신호 완전 소실`). 아래는 그 전의 기록이다 — "전사" + kills / survival time / crates / damage / **소실된 전리품 가치** (from `ctx.inventory.getTotalValue()`, rendered `1,200 C` through `formatCredits` since Phase 10). Shown on `game:phaseChanged {phase:'dead'}` (solo death flow v2; the legacy `game:over {stats}` still shows it), hidden when the phase leaves `dead`. **2026-09-09: 부활 버튼과 Space 핸들러가 사라졌다** (자동 부활 제거) — 유일한 버튼은 **`함선으로 귀환`** → `hub:enter {ship}` 이고 부제는 `스캐빈저 신호 소실 — 장비는 유해에 남았습니다` 다. phase `dead` 는 이제 레이드가 정말 끝났을 때(솔로 사망 · 분대 전멸)만 오고, 분대에서 혼자 죽으면 `hud/SpectateOverlay` 가 구조선 대기를 보여 준다. The old `다시 배치 (같은 시드)` button is gone (no mission failure on death). **Phase 5:** `RewardsBlock` (`fill(stats.rewards, 'dead')` → `진척 유지 안 됨` fallback wording) under the stats; `update(dt)` (called by HudSystem) drives its count-up; `rewardsBlock` getter. **Phase 7 — 레이드 실패 mode:** `game:raidFailed` (emitted by game/ right before `game:over` on a squad wipe / solo death) arms `.raid-failed`: title `레이드 실패`, subtitle `분대 전멸 — 스캐빈저 신호 완전 소실`, `함선으로 귀환` stays, and a `.auto-return` line counts `n초 후 자동 귀환` down from `RAID_FAILED_AUTO_RETURN_S` on `update(dt)` (display only — game/ performs the return, `함선으로 귀환 중…` at 0). The mode resets on `game:newMission` / `game:abort`; `isRaidFailed` getter (also `HudSystem.isRaidFailed`). The multiplayer spectate overlay is untouched (it stays until the wipe). **Phase 11:** a `.planet-line` under the subtitle (`행성 · <planetLabel(ctx.missionPlanet)>`, `목표 미지정` with no planet), filled in `fill()`. |
 | `menus/RewardsBlock.ts` | **XP settlement block** shared by both result screens (`.rewards`, between the stats and the actions; Phase 5). `fill(stats.rewards, 'complete' | 'dead')`: `획득 XP +n` counts up (0.35 s delay, 1.1 s eased), `Lv. a → b` (or `Lv. a`), XP bar `xp / xpToNext` filling from the pre-mission fraction (a level-up runs it to full first, then to the new fraction), `xp / xpToNext XP` numbers. **Level-up moment (Phase 7):** the instant the eased count-up crosses the boundary (`LEVEL_CROSS` 0.6 — the bar hits the old cap) `cross()` adds `.up`, pops the `레벨 업` badge (`rewardsUp`), flashes the level / bar (`rewardsLvFlash` / `rewardsBarFlash`), spawns a `.up-burst` radial light burst (`rewardsBurst`, removed after 900 ms) and emits `audio:play {id:'level_up'}` — the **only** place that chime plays (audio/ dropped its `progress:levelUp` hook, `ProgressToasts` no longer toasts level-ups). Contract line (`.contract-line`) keyed on `settlement.outcome` through the exported `contractOutcome()` / `CONTRACT_OUTCOME_TEXT` / `CONTRACT_OUTCOME_CLASS` (shared with `MetaToasts`): `계약 성공 · name · 신뢰도 +rep · 크레딧 +credits C` (`.success`), `계약 미완 · 계속 · name p / t` (`.keep`), `계약 실패 · 진척 유지 안 됨 · name p / t` (`.lost`); the `fill(…, 'complete' | 'dead')` mode is only the fallback for settlements without `outcome`. Hidden when `contract` is null; `rewards` undefined hides the whole block (legacy emitters). `update(dt)` from the owning menu, `stop()` on hide, `isCounting` / `isLevelUp` / `isBursting` getters. |
-| `menus/ResultReport.ts` | **결과 창 공용 몸통** (2026-09-15, 결과 창 개편 — 사용자 결정). `buildResultHeader(parent, title, cls)` = 제목 줄 `.rs-titlerow`(왼쪽 `.title` · 오른쪽 `.rs-time` 임무 시간). `ResultReport` = `.stats.rs-stats`: ① 전리품 줄 `.rs-loot`(라벨 왼쪽 · 값 오른쪽 `formatCredits` 카운트업 0.4 s 지연 + 1.6 s, 탈출 = `전리품 가치` · `stats.lootValue` · 호박색 · 끝에 `ui_equip`, 사망 = `잃은 전리품 가치` · `stats.peakLootValue` · `.lost` 빨강 · 소리 없음) ② 사망 원인 줄 `.rs-cause`(사망 모드 + `stats.death` 가 있을 때만): 72 px 정사각 썸네일 — 적이면 **한 프레임 뒤** `ctx.enemies.renderPortrait(type, 72 × dpr(≤2))` 얼굴 `<img>`(못 그리면 대체 아이콘), 아니면 원인 아이콘(인라인 SVG — 낙하 · 폭풍 · 독성 포자 · 행성 환경 · 폭발 · 자기 폭발물 · 아군 폭발물 · 기타) + 캡션 `사망 원인` + 오른쪽 위 이름 `.rs-cause-name` · 아래 `받은 피해` + 큰 숫자 `.rs-cause-num`(그 원인 — 적이면 그 개체 — 에게서 받은 피해). `update(dt)` · `stop()` · 디버그 `lootText` / `causeShown` / `isCounting`. 스타일 `styles/results.css`. |
-| `menus/MissionComplete.ts` | **2026-09-15 (결과 창 개편):** `다시 배치 (같은 시드)` 버튼과 그 기능(시드 보관 · `game:newMission` 재발행)이 **없어졌다** — 버튼은 `함선으로 귀환` 하나. 제목 줄 오른쪽에 임무 시간, 몸통은 `menus/ResultReport` 의 `전리품 가치` 한 줄 → `RewardsBlock`. 처치 · 개봉한 상자 · 받은 피해 칸 삭제. 분대가 탈출할 때 **쓰러져 있던 사람**(`stats.extracted === false`)에게는 사망 결과 창과 같은 모습(`.rs-dead` — 제목 `전사` · 부제 · `잃은 전리품 가치` · 사망 원인 줄 · `RewardsBlock` `'dead'`)을 보여 준다. 디버그 `resultReport` getter. 아래는 그 전의 기록이다 — "탈출 성공" summary with counting-up **전리품 가치** (eased, 1.6 s, `ui_equip` chime at end; every frame of the count-up is formatted `1,200 C` by `formatCredits` since Phase 10), kills / time / crates / damage. **`함선으로 귀환`** (primary, `hub:enter`). Shown on `game:complete`. **Phase 5:** `RewardsBlock` (`fill(stats.rewards, 'complete')`) under the stats, driven by `update(dt)`; `rewardsBlock` getter. **Phase 11:** a `.planet-line` (`행성 · <planetLabel(ctx.missionPlanet)>`) under the subtitle (the Phase 11 `다시 배치` → `game:newMission {seed, planet}` is gone since 2026-09-15). |
+| `menus/ResultReport.ts` | **결과 창 공용 몸통** (2026-09-15, 결과 창 개편 — 사용자 결정). `buildResultHeader(parent, title, cls)` = 제목 줄 `.rs-titlerow`(왼쪽 `.title` · 오른쪽 `.rs-time` 임무 시간). **`buildPlanetLine(parent)` → `PlanetLine {row, value}`** (2026-09-15 머리줄, 사용자 결정) = 행성 줄 `.planet-line.rs-planet`: 회색 라벨 `.rs-planet-k`(`행성`, 없앤 부제와 같은 12px · `--c-text-dim`) + 조금 큰 흰 이름 `.rs-planet-v`(15px · `--c-text`), **가운뎃점 없이 gap 12px**. 채우는 쪽은 `setText(planet.value, planetLabel(ctx.missionPlanet))` 하나뿐이고 그 값은 행성이 없어도 `PLANET_NONE_LABEL`(`목표 미지정`)이라 **빈 줄이 될 수 없다** — 줄을 숨기는 갈래가 없다. `.planet-line` 클래스는 계약대로 남는다(스모크가 그 이름으로 줄을 찾는다). `ResultReport` = `.stats.rs-stats`: ① 전리품 줄 `.rs-loot`(라벨 왼쪽 · 값 오른쪽 `formatCredits` 카운트업 0.4 s 지연 + 1.6 s, 탈출 = `전리품 가치` · `stats.lootValue` · 호박색 · 끝에 `ui_equip`, 사망 = `잃은 전리품 가치` · `stats.peakLootValue` · `.lost` 빨강 · 소리 없음) ② 사망 원인 줄 `.rs-cause`(사망 모드 + `stats.death` 가 있을 때만): 72 px 정사각 썸네일 — 적이면 **한 프레임 뒤** `ctx.enemies.renderPortrait(type, 72 × dpr(≤2))` 얼굴 `<img>`(못 그리면 대체 아이콘), 아니면 원인 아이콘(인라인 SVG — 낙하 · 폭풍 · 독성 포자 · 행성 환경 · 폭발 · 자기 폭발물 · 아군 폭발물 · 기타) + 캡션 `사망 원인` + 오른쪽 위 이름 `.rs-cause-name` · 아래 `받은 피해` + 큰 숫자 `.rs-cause-num`(그 원인 — 적이면 그 개체 — 에게서 받은 피해). `update(dt)` · `stop()` · 디버그 `lootText` / `causeShown` / `isCounting`. 스타일 `styles/results.css`. |
+| `menus/MissionComplete.ts` | **2026-09-15 (결과 창 개편):** `다시 배치 (같은 시드)` 버튼과 그 기능(시드 보관 · `game:newMission` 재발행)이 **없어졌다** — 버튼은 `함선으로 귀환` 하나. 제목 줄 오른쪽에 임무 시간, 몸통은 `menus/ResultReport` 의 `전리품 가치` 한 줄 → `RewardsBlock`. 처치 · 개봉한 상자 · 받은 피해 칸 삭제. 분대가 탈출할 때 **쓰러져 있던 사람**(`stats.extracted === false`)에게는 사망 결과 창과 같은 모습(`.rs-dead` — 제목 `전사` · 부제 · `잃은 전리품 가치` · 사망 원인 줄 · `RewardsBlock` `'dead'`)을 보여 준다. **2026-09-15 (머리줄, 사용자 결정):** 탈출 성공의 부제 `스캐빈저 회수 완료 — 전리품 확보`(`SUB_EXTRACT`)가 **없어졌다**. 요소는 지우지 않았다 — 같은 화면의 **사망 모습**이 `SUB_DEAD`(`스캐빈저 신호 소실 — 장비는 유해에 남았습니다`)를 그 자리에 쓰므로, 탈출일 때만 글이 비고 **`el.hidden`** 이다(`style.display` 가 아니라 `hidden` — 루트 규약). 행성 줄은 `ResultReport.buildPlanetLine` 의 두 조각(회색 `행성` + 흰 이름)이고 `DeathScreen` 과 **같은 모습**이다. 디버그 `resultReport` getter. 아래는 그 전의 기록이다 — "탈출 성공" summary with counting-up **전리품 가치** (eased, 1.6 s, `ui_equip` chime at end; every frame of the count-up is formatted `1,200 C` by `formatCredits` since Phase 10), kills / time / crates / damage. **`함선으로 귀환`** (primary, `hub:enter`). Shown on `game:complete`. **Phase 5:** `RewardsBlock` (`fill(stats.rewards, 'complete')`) under the stats, driven by `update(dt)`; `rewardsBlock` getter. **Phase 11:** a `.planet-line` (`행성 · <planetLabel(ctx.missionPlanet)>`) under the subtitle (the Phase 11 `다시 배치` → `game:newMission {seed, planet}` is gone since 2026-09-15). |
 | **menus/messenger/ — 2026-09-14 (메신저 · NPC 퀘스트 · 단체방, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」)** | |
 | `menus/messenger/Messenger.ts` | **메신저 패널 본체** — 옛 커뮤니티 패널 대체. `hud/Community` 가 준 틀(`.cp-frame`) 안에 머리 `.cp-head.ms-head`(제목 `메신저` · 탭 `.ms-tab[data-tab]` 대화 / 친구 / 퀘스트 + 배지 · `내 아이디` · `차단 목록 n` · `닫기 (P)`)와 탭마다 `.ms-page` 를 짓는다: 대화 = `ChatTab`, 친구 = `menus/social/SocialColumn`(옛 커뮤니티 열 그대로), 퀘스트 = `QuestsTab`. 탭은 닫았다 열어도 유지(처음은 대화). `openTarget({tab, npc, code, room})` 한 길이 `ui:openMessenger` · 친구 탭의 「개인 대화」 · 퀘스트 탭의 「대화 보기」 · 보류 수락을 받는다. 탭 배지: 대화 = NPC + 개인 대화 + 단체방 읽지 않음 + 방 초대, 친구 = 받은 요청, 퀘스트 = 보고 가능 + 새 제안. `messengerUnreadTotal(ctx)` 가 썸네일 합계. `update(dt)` 는 보이는 탭만 돈다. **2026-09-14 (NPC 개인 신뢰도)**: `bind` 가 `meta:npcTrustChanged` 를 걸어 `levelUp` 이면 `ui:notify` 로 `<NPC 이름> 신뢰도 Lv.n` (success 4 s) — 기업의 `meta:repChanged → <기업> 신뢰도 Lv.n`(`hud/MetaToasts`)과 같은 결이고, **패널이 닫혀 있어도 떠야 하므로** 구독은 패널 열림과 무관하다(`dispose` 에서 푼다). |
-| `menus/messenger/ChatTab.ts` | **대화 탭** — 좌 목록(`.ms-rows > .ms-row[data-key]`, 키 `npc:<id>` · `pc:<code>` · `room:<id>`): NPC 연락(`ctx.meta.npc.getContacts`) · 개인 대화 상대(`whisperPeers` + 대화 없는 친구, 차단한 사람 제외) · 단체방을 **최근 순**으로 섞고(동률은 접속 상태 → 이름) 필터 칩(전체 · NPC · 개인 대화 · 단체방), 위에 받은 방 초대(`.ms-inv-row` 수락 / 거절 → `rooms.respond`)와 `＋ 방 만들기`. 가운데 = 고른 대화의 말풍선(`.ms-msg.in/.out/.sys`, 10분 넘게 떨어지면 시각 구분선). **NPC**: `getMessages` → NPC · 내 말풍선 + 퀘스트 카드(`QuestCard` bubble), 입력칸 없음. **개인 대화**: `whisperHistory`(채팅창 개인 대화와 같은 기록) + `whisperStateText` 상태, 입력 → `social.whisper`, 차단 · 사용 불가면 입력칸 잠금. **단체방**: 머리 `멤버 n`(서랍 `.ms-members` — 접속 상태 · ★ 방장 · 방장에게만 `내보내기`) · `초대` · `이름 변경`(방장만) · `나가기`; 처음 열 때 `requestHistory(room)`, 위로 스크롤하면(또는 한 쪽이 스크롤을 못 만들 만큼 짧으면 저절로) 이전 쪽, 차단한 사람의 말은 숨긴다(시스템 줄은 `format.roomSystemText` → 공용 `roomSystemTextKo`), 입력 → `rooms.say`(채팅창 연동 없음 — 사용자 결정). 팝오버: 방 만들기(이름 + 친구 체크, 최대 `ROOM_MEMBER_MAX − 1`) · 친구 초대(멤버 · 초대 중 제외) · 이름 변경. 나가기 = `openHoldAsk` **1초 홀드**(`data-ask="room-leave"`), 내보내기 = 한 번 확인(`room-kick`). **2026-09-14 3차 (사용자 결정)**: 목록 한 줄은 **초상 + 이름 + 마지막 대사**뿐이다 — 소속 라벨(`.ms-row-sub`) · `n분`(`.ms-row-time`) · 신뢰도 `Lv.n` + 게이지가 전부 빠졌고, 미리보기는 `NpcContactInfo.preview` 대신 `getMessages` 의 **마지막 줄**로 짓는다(퀘스트 제안이면 `[퀘스트] 이름` 이 아니라 그 퀘스트의 `summary`). 대화창 머리는 `Trust.buildNpcAvatar`(신뢰도 radial 고리 + 우하단 레벨 배지) + **중앙 우측**의 `.ms-trust.in-right`, `bio` 한 줄과 하단 안내(`NPC 에게는 퀘스트 카드로 답합니다`)는 없앴다. **타이핑 연출** — 새로 도착하는 NPC 말풍선 · 퀘스트 카드만 앞에 `...`(`.ms-msg.in.typing > .ms-bubble.ms-typing`)를 `clamp(글자수 × TYPE_S_PER_CHAR, 0.5 s, 2.0 s)` 동안 세웠다 지운다: 상태는 `typingConv` · `typingShown` · `typingTimer` 셋이고 「이 대화를 처음 그린다」면(= `typingConv` 가 다르면) 있던 기록을 **즉시 전부** 그린다. 내 대답 · 시스템 줄은 기다리지 않고 같은 그리기에서 붙으며, 아직 풀리지 않은 줄이 있으면 선택지 줄을 미룬다. **갇히는 길이 없다** — `select` · `onHide` · 보이지 않게 된 `renderThread` · `dispose` 가 `flushTyping()` 으로 큐를 버리고 타이머를 정리하면 다음 그리기가 전부 보여 준다. 아래는 옛 설명. **2026-09-14 (NPC 개인 신뢰도)**: NPC 줄에는 미리보기 뒤 · 읽지 않음 배지 앞에 `Trust.buildNpcTrust(..., {compact})` 의 `Lv.n` + 짧은 게이지, NPC 대화창 머리(소개 줄 아래)에는 같은 조각의 넓은 판(`.ms-trust.in-head`) — 둘 다 `ConvRow.trust` · `threadDataKey` 의 지문에 들어가 신뢰도만 올라도 다시 그린다. **2026-09-14 (대사 선택지)**: NPC 대화의 맨 아래에 `npc.getPendingChoices(id)` 가 비어 있지 않을 때만 **내 대답 버튼 줄**(`.ms-msg.out.choices > .ms-choices > .ms-btn.ms-choice[data-choice="n"]`) — 누르면 `chooseIntro(id, n)` 이고 내 대답 + NPC 의 답 두 줄이 붙으면서 줄이 사라진다(`getPendingChoices` 가 빈 배열이 된다). 고르기 전에 닫고 나가도 다시 열면 그대로 있다 — 대화가 그 자리에서 기다린다. 지문에도 선택지 개수가 들어간다. 보이는 동안 그린 대화는 읽음으로(`npc.markRead` · `social.markWhisperRead` · `rooms.markRead`). 다시 그리기는 데이터 키가 바뀔 때만(버스 이벤트 + 4 Hz). `room:error` 는 보일 때 토스트. getters `selectedKey` · `filterId` · `popover` · `isMembersOpen`. |
+| `menus/messenger/ChatTab.ts` | **대화 탭** — 좌 목록(`.ms-rows > .ms-row[data-key]`, 키 `npc:<id>` · `pc:<code>` · `room:<id>`): NPC 연락(`ctx.meta.npc.getContacts`) · 개인 대화 상대(`whisperPeers` + 대화 없는 친구, 차단한 사람 제외) · 단체방을 **최근 순**으로 섞고(동률은 접속 상태 → 이름) 필터 칩(전체 · NPC · 개인 대화 · 단체방), 위에 받은 방 초대(`.ms-inv-row` 수락 / 거절 → `rooms.respond`)와 `＋ 방 만들기`. 가운데 = 고른 대화의 말풍선(`.ms-msg.in/.out/.sys`, 10분 넘게 떨어지면 시각 구분선). **NPC**: `getMessages` → NPC · 내 말풍선 + 퀘스트 카드(`QuestCard` bubble), 입력칸 없음. **개인 대화**: `whisperHistory`(채팅창 개인 대화와 같은 기록) + `whisperStateText` 상태, 입력 → `social.whisper`, 차단 · 사용 불가면 입력칸 잠금. **단체방**: 머리 `멤버 n`(서랍 `.ms-members` — 접속 상태 · ★ 방장 · 방장에게만 `내보내기`) · `초대` · `이름 변경`(방장만) · `나가기`; 처음 열 때 `requestHistory(room)`, 위로 스크롤하면(또는 한 쪽이 스크롤을 못 만들 만큼 짧으면 저절로) 이전 쪽, 차단한 사람의 말은 숨긴다(시스템 줄은 `format.roomSystemText` → 공용 `roomSystemTextKo`), 입력 → `rooms.say`(채팅창 연동 없음 — 사용자 결정). 팝오버: 방 만들기(이름 + 친구 체크, 최대 `ROOM_MEMBER_MAX − 1`) · 친구 초대(멤버 · 초대 중 제외) · 이름 변경. 나가기 = `openHoldAsk` **1초 홀드**(`data-ask="room-leave"`), 내보내기 = 한 번 확인(`room-kick`). **2026-09-14 3차 (사용자 결정)**: 목록 한 줄은 **초상 + 이름 + 마지막 대사**뿐이다 — 소속 라벨(`.ms-row-sub`) · `n분`(`.ms-row-time`) · 신뢰도 `Lv.n` + 게이지가 전부 빠졌고, 미리보기는 `NpcContactInfo.preview` 대신 `getMessages` 의 **마지막 줄**로 짓는다(퀘스트 제안이면 `[퀘스트] 이름` 이 아니라 그 퀘스트의 `summary`). 대화창 머리는 `Trust.buildNpcAvatar`(신뢰도 radial 고리 + 우하단 레벨 배지) + **중앙 우측**의 `.ms-trust.in-right`, `bio` 한 줄과 하단 안내(`NPC 에게는 퀘스트 카드로 답합니다`)는 없앴다. **타이핑 연출** — 새로 도착하는 NPC 말풍선 · 퀘스트 카드만 앞에 `...`(`.ms-msg.in.typing > .ms-bubble.ms-typing`)를 `clamp(글자수 × TYPE_S_PER_CHAR, 0.5 s, 2.0 s)` 동안 세웠다 지운다: 상태는 `typingConv` · `typingShown` · `typingTimer` 셋이고 「이 대화를 처음 그린다」면(= `typingConv` 가 다르면) **이미 읽은 데까지만**(`readShownCount` ← `NpcQuestRef.readAtOf`, 2026-09-15 사용자 결정 — 안 읽은 줄은 큐를 타고 하나씩 도착한다; 뒤에서 `TYPE_BACKLOG_MAX` 개까지만, 질의가 없는 창구는 예전처럼 즉시 전부) 그린다. 내 대답 · 시스템 줄은 기다리지 않고 같은 그리기에서 붙으며, 아직 풀리지 않은 줄이 있으면 선택지 줄을 미룬다. **갇히는 길이 없다** — `select` · `onHide` · 보이지 않게 된 `renderThread` · `dispose` 가 `flushTyping()` 으로 큐를 버리고 타이머를 정리하면 다음 그리기가 전부 보여 준다. 아래는 옛 설명. **2026-09-14 (NPC 개인 신뢰도)**: NPC 줄에는 미리보기 뒤 · 읽지 않음 배지 앞에 `Trust.buildNpcTrust(..., {compact})` 의 `Lv.n` + 짧은 게이지, NPC 대화창 머리(소개 줄 아래)에는 같은 조각의 넓은 판(`.ms-trust.in-head`) — 둘 다 `ConvRow.trust` · `threadDataKey` 의 지문에 들어가 신뢰도만 올라도 다시 그린다. **2026-09-14 (대사 선택지)**: NPC 대화의 맨 아래에 `npc.getPendingChoices(id)` 가 비어 있지 않을 때만 **내 대답 버튼 줄**(`.ms-msg.out.choices > .ms-choices > .ms-btn.ms-choice[data-choice="n"]`) — 누르면 `chooseIntro(id, n)` 이고 내 대답 + NPC 의 답 두 줄이 붙으면서 줄이 사라진다(`getPendingChoices` 가 빈 배열이 된다). 고르기 전에 닫고 나가도 다시 열면 그대로 있다 — 대화가 그 자리에서 기다린다. 지문에도 선택지 개수가 들어간다. 보이는 동안 그린 대화는 읽음으로(`npc.markRead` · `social.markWhisperRead` · `rooms.markRead`). 다시 그리기는 데이터 키가 바뀔 때만(버스 이벤트 + 4 Hz). `room:error` 는 보일 때 토스트. getters `selectedKey` · `filterId` · `popover` · `isMembersOpen`. |
 | `menus/messenger/QuestsTab.ts` | **퀘스트 탭** — 좌 목록(`.ms-qgroup-head[data-group]` 진행 중(보고 가능이 위) · 새 제안 · 보류 · 완료(접힘) › `.ms-qrow[data-quest]`, NPC 색 띠 · 진행 중이면 게이지 — **2026-09-14 3차: 거르는 곳은 엔진(`getQuests` 가 `offered` · `deferred` 를 빼고 답한다)이라 여기서 다시 거르지 않는다. 두 묶음을 그리는 분기는 옛 세이브용으로 남아 평소에는 한 줄도 안 나온다**), 우 상세(NPC 머리 — **신뢰도 radial 초상**(`Trust.buildNpcAvatar`, 2026-09-14 3차 — 대화창 머리와 같은 조각) · 이름 · 직함 · **개인 신뢰도 게이지**(`Trust.buildNpcTrust`, 2026-09-14) — + `QuestCard` detail). [납품] → `npc.deliver`, [완료 보고] → `npc.report`(못 하면 사유 토스트), 보류 [수락] → `npc.accept` 후 대화 탭의 그 NPC(짧은 설명이 보인다), 새 제안은 「대화에서 답하기」. 포기 버튼 없음(사용자 결정). 인벤토리 · 창고 변화에도 다시 그린다(보유 수) · `meta:npcTrustChanged` 에도(머리 게이지). `QuestsTab.badgeCount(ctx)`. |
 | `menus/messenger/QuestCard.ts` | **퀘스트 카드 하나** `buildQuestCard(ctx, info, 'bubble' \| 'detail', actions)` — 이름 · 상태 배지 · 설명 · 목표 줄(`✓` · 라벨 · `레이드` / `함선` 태그 · `p / t` + 막대 — 진행 중 · 완료만) · 전체 게이지 · 보상(`buildCurrencyChip` credits · xp · `rep:<corp>` + **`Trust.buildTrustChip`(NPC 개인 신뢰도, 2026-09-14 — 기업 칩 바로 뒤 · NPC 색, 0 이면 없다)** + `buildItemChip`) · 버튼(bubble · offered = **[수락] 하나뿐** — 2026-09-14 3차 사용자 결정으로 `[생각해보지]` 와 `QuestCardActions.defer` 가 빠졌다, 그 밖 = 퀘스트 탭에서 보기; detail = 목표마다 [납품] + [완료 보고] + 막힌 사유 한 줄). 카드는 상태를 들지 않는다 — 부를 때마다 새로 짓는다. `questStateText`. |
 | `menus/messenger/Popover.ts` | 패널 틀 안의 작은 팝오버 하나(`.ms-pop[data-kind]`) — Escape 스택 `messenger:pop`(패널보다 위), 틀의 빈 곳 mousedown 이면 닫힘. |
@@ -739,6 +739,41 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 ## 변경 이력
 
+- **2026-09-15 (메신저 — 「확인해야 다음 메시지가 온다」, 사용자 결정)** — `menus/messenger/ChatTab.ts` 하나. 대사 · 저장 · 기록 모양은 안 바뀐다.
+  - **무엇이 문제였나**: NPC 의 첫 연락(`intro`)은 `data/npcs.csv` 의 여러 줄이 **사건 하나**로 기록되고, `ChatTab` 이 그 대화를 처음
+    그릴 때 `typingShown = all.length` 로 잡아 **전부 한 번에** 띄웠다. 타이핑 연출(2026-09-14 3차)은 「대화창이 **열려 있는 동안**
+    새로 붙는」 말풍선에만 걸렸으므로, 레이븐의 첫 연락을 열면 세 마디가 통째로 떠 있었다.
+  - **고친 것**: 처음 그릴 때의 `typingShown` 을 `readShownCount(npc, id, all)` 가 정한다 — **이미 읽은 말풍선 수**(`at <= readAt`).
+    그 뒤(= 안 읽은 줄)는 **지금 있는 스트리밍 경로 그대로**(`typingBubble` + `typingTimer` + `clamp(글자수 × 0.028, 0.5, 2.0)` 초)
+    하나씩 도착한다. 새 상태도 새 타이머도 없다 — 시작점 하나만 옮겼다.
+  - **「읽은 수」의 출처**: `NpcQuestRef.readAtOf(npcId)`(계약 **추가만**, 선택 속성 — `src/shared/npc.ts`), 구현은
+    `meta/parts/NpcQuests.readAtOf` 가 `contacts[id].readAt` 을 그대로 돌려준다(질의뿐 — 기록 · 저장 · `npc:unreadChanged` 무변경).
+    **`NpcContactInfo.unread` 로는 못 센다** — 그것은 *사건* 수이고 사건 하나가 말풍선 여럿으로 풀린다. 같은 사건에서 나온
+    말풍선은 `at` 이 같으므로 시각 하나면 경계가 정확히 갈린다. 질의가 없는 창구(스모크의 `setDebugNpc` 스텁 · 옛 구현)는
+    **전부 읽은 것**으로 보고 예전처럼 즉시 전부 그린다.
+  - **`markRead` 와의 순서**: `renderNpc` 는 다 그린 **뒤에** 읽음 표시를 하므로 중간에 물으면 아직 옛 `readAt` 이다.
+    그래서 한 번 연 대화를 다시 열면 `readAt` 이 이미 끝까지 가 있어 **저절로** 즉시 전부 그린다(다시 타이핑하지 않는다).
+  - **밀린 줄의 상한** `TYPE_BACKLOG_MAX`(6): 오래 안 본 대화까지 전부 풀면 `2 s × 줄 수` 를 기다리게 된다 — 뒤 6개만 타이핑으로
+    풀고 그보다 앞은 즉시. (레이븐의 첫 연락은 3줄 ≈ 2.9 s.)
+  - 목록(`getContacts` 의 `preview` · 안 읽음 배지 · 썸네일 숫자)은 **그대로**다 — 늦추는 것은 도착이 아니라 **보여 주는 순서**다.
+    퀘스트 제안 카드(`from: 'quest'`)도 같은 큐를 타므로 대사보다 먼저 튀어나오지 않고(`resolve()` 가 준 순서 그대로),
+    아직 안 풀린 줄이 있으면 선택지 버튼 줄도 미뤄진다(기존 규칙).
+  - 스모크는 **한 줄도 안 고쳤다**: `smoke-messenger` 의 NPC 는 디버그 스텁이라 `readAtOf` 가 없어 예전과 같고,
+    `smoke-tutorial-ship` 은 진짜 ref 를 쓰지만 선택지(`.ms-choice`)를 **폴링으로 10 초까지** 기다리며 튜토리얼 포커싱 구멍이
+    `.ms-page.chat`(대화 페이지 전체)이라 버튼이 늦게 서도 가려지지 않는다.
+
+- **2026-09-15 4차 (튜토리얼 건너뛰기는 **암전된 채로** 결과 화면이 뜬다 — 사용자 결정)** — `HudSystem.ts` · `styles/base.css`.
+  - **`ui:screenFade.hold`** (계약 추가, 선택 필드 — 기존 호출부는 한 줄도 안 바뀐다): 「페이즈가 바뀌어도 이 판은 스스로
+    걷지 않는다」. `setScreenFade(opacity, durationS, hold)` 가 `fadeHold = hold && opacity > 0` 을 들고
+    (**투명해지는 요청은 언제나 hold 를 푼다**), `applyVisibility` 의 `!inGame` 가드가 `&& !this.fadeHold` 를 얻었다.
+    그 가드가 정확히 「결과 창 뒤로 행성이 다시 보인다」의 원인이었다 — 결과 화면으로 페이즈가 바뀌는 프레임에 검정을 걷었다.
+  - **걸어 둔 판도 함선에서는 반드시 걷는다**: `game:abort` 옆에 **`hub:entered` → `setScreenFade(0, 0)`** 한 줄을 더했다
+    (거는 쪽인 `tutorial/` 도 같은 이벤트에서 걷는다 — 여벌이 둘이라 함선이 검게 남는 길이 없다). `hold` 가 아닌 판은
+    페이즈 가드가 이미 걷은 뒤라 이 줄이 하는 일이 없다.
+  - **`.menu.complete` · `.menu.death` 가 z 84 를 얻었다** (`styles/base.css`): `.menu` 에는 z-index 가 **아예 없어**
+    (= auto) 검은 판(82)이 탈출 성공 · 레이드 실패 창을 통째로 덮었다. 타이틀(84)과 같은 층 · 일시정지(85) 아래이고
+    셋은 동시에 보이지 않으므로 서로의 순서는 뜻이 없다. `.screen-fade` 주석의 층 목록도 같이 고쳤다.
+  - 스모크 훅 `screenFadeOpacity` · `screenFadeShown` 은 **그대로**이고 `screenFadeHeld`(불리언)가 추가됐다.
 - **2026-09-15 (전설 총기 HUD — 사용자 결정)**
   - **활 크로스헤어 가로 두 배** (`styles/base.css` `.rbow-*`): 안내선 14 → 28 · 20 → 40 px, 시위 바 26 → 52 px, 끝 조각 10 → 20 px
     (가운데 틈 12 px 라 점이 보인다). 위치(`Reticle.BOW_TIER_Y`)는 그대로.
@@ -899,7 +934,8 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
     타이밍**이라 `data/` 가 아니라 이 폴더에 산다). 상태는 `typingConv` · `typingShown` · `typingTimer` 셋뿐이고
     `renderNpc` 가 `getMessages` 를 `typingShown` 까지 **잘라서** 그린다 — 다시 그리기는 지금까지처럼 통째로 새로 지으므로
     부분 갱신 경로가 늘지 않았다. 대화가 바뀌면(`typingConv` 불일치) 있던 기록을 **즉시 전부** 그린다(사용자 결정:
-    「이미 있던 기록을 다시 열면 즉시」). 내 대답 · 시스템 줄은 기다리지 않고 같은 그리기에서 붙는다 — 안 그러면
+    「이미 있던 기록을 다시 열면 즉시」 — ⚠ 2026-09-15 에 **읽은 데까지만** 즉시로 좁혀졌다, 아래 참조).
+    내 대답 · 시스템 줄은 기다리지 않고 같은 그리기에서 붙는다 — 안 그러면
     선택지를 누른 뒤 내 말풍선이 한 박자 늦게 떠 「눌렸나?」 가 된다. 아직 안 풀린 줄이 있으면 선택지 버튼 줄을 미룬다.
     **갇히는 길을 만들지 않았다**: `select` · `onHide`(탭 전환 · 패널 닫기) · 보이지 않게 된 `renderThread` · `dispose` 가
     `flushTyping()` 으로 타이머를 끄고 큐를 버리며, 버린다는 것은 곧 **다음 그리기가 남은 말풍선을 전부 보여 준다**는 뜻이다.
@@ -1973,3 +2009,125 @@ getRailLines/getTrams/hazard` · `EnemyManagerRef.getRogueDrops`) 위에 ui/ 만
   여러 개가 되면 "남은 게 가장 적은 하나" 를 고르는 자리는 `varsFor()` 다.
 - `npm run typecheck` 는 ui/ 변경분에 대해 초록이다. 스모크 · `verify` 는 다른 레인과 포트 · GPU 가 겹쳐
   돌리지 않았다 (리드가 마지막에 돈다).
+
+---
+
+## 변경 이력 — 2026-09-15 2차 (사용자 결정): 「눌린 키캡」 · 홀드 버튼 키캡 · 캐릭터 화면 · 탑승 토스트
+
+### ① `styles/base.css` — 꾹 누르기 키캡이 **눌려 있다**
+
+`.keycap.kc-hold` 하나가 정하고, 키캡이 뜨는 모든 곳(키 가이드 · E 프롬프트 · 발사 슬롯 `Space` · 드론
+`R 꾹` · 튜토리얼 목표 / 조작 · 미니게임 안내 · 홀드 버튼)이 그대로 따라간다.
+- **아래 테두리** 2px → **1px** (다른 세 면과 같은 두께 — 기본 키캡의 2px 는 「떠 있는 키」의 두께다).
+- **내용은 1px 아래로**: `padding-top: 1px`. `align-items: center` 라 정확히 1px 내려앉는다 — 테두리 1/2 일 때
+  중심 `(h−1)/2`, 테두리 1/1 + 패딩 1 일 때 `(h+1)/2`. 옛 `padding-top: 5px`(chevron 자리 비우기)는 없어졌다.
+- **chevron 은 윗변에 걸친다**: `top: -1px` → **`-5.6px`**. 6px 정사각형을 45° 돌렸으므로 보이는 V 의 세로
+  가운데가 `top + 3 + 2.12` 이고, 그것이 윗 테두리(패딩 상자 기준 −0.5px)에 오게 한 값이다 — 절반은 안, 절반은
+  밖이다. 윗줄과 살짝 겹칠 수 있는 것은 **의도**이고(사용자 결정 「키와 밖에 걸치게」), 키캡은 `overflow` 를
+  정하지 않아(= visible) 잘리지 않는다.
+- **마우스 그림 키캡도 같은 모습**: 옛 예외 `.keycap.kc-mouse.kc-hold::before { display: none }` 을 걷어냈다
+  (`shared/keycap.mouseGlyphSvg` 도 SVG 안 chevron 을 안 그린다 — 칠하는 색만 강조색). 두 종류가 한 줄에 섞여도
+  같은 자리에 같은 chevron 이 선다.
+
+### ② `styles/base.css` — `.keycap.kc-btn`, 꾹 누르는 **버튼 안**의 좌클릭 힌트
+
+`shared/keycap.createHoldButtonCap()` 이 만드는 캡의 스타일이다. 20×20 · 라벨과의 여백 8px(`.ui-btn` 은
+`gap: 10px` 이라 그쪽에서는 0) · `vertical-align: middle`(버튼이 flex 든 글줄이든 같은 자리) ·
+**`pointer-events: none`**(필수 — 홀드는 버튼의 `pointerdown` · `pointerleave` 로 재는데 그 위를 가리는 자식이
+포인터를 가로채면 어느 화면에서는 홀드가 시작되지 않는다) · 글자색은 `currentColor`(hover · danger 를 따라간다) ·
+`z-index: 1`(채움 게이지가 전부 `position: absolute` 라 라벨 span 이 이미 쓰던 규약).
+
+### ③ 사라진 안내 줄 — 「N초 동안 누르고 있어야 실행됩니다」
+
+이 줄들은 **오로지 그 문구만** 나르고 있었으므로 요소째 지웠다(차단 사유 · 경고를 겸하던 줄은 하나도 없었다 —
+그쪽은 `.sm-block` · 토스트 · `.cost` 칩 같은 별개 요소가 이미 갖고 있다).
+
+| 지운 것 | 자리 | 대신 말하는 것 |
+|---|---|---|
+| `.tm-ask-hint` (`title.css`) | `menus/askPopup` | `okBtn` 안의 캡 — `needsHold(spec)`(danger 또는 hold)일 때만 |
+| `.pause-ask-hint` (`base.css`) | `menus/PauseMenu` | `.pause-ask-ok` 안의 캡 — `ask.tap`(함선의 한 번 탭)이면 `remove()` |
+| `.sm-confirm-hint` (`base.css`) | `hud/ShipManage` | `.sm-confirm-ok` 안의 캡 — `openConfirm` 의 `danger`(시설 제거)일 때만 |
+| `.sh-ask-hint` (`shared/holdAsk` 의 `<style>`) | 공용 홀드 팝업 | `.sh-ask-btn` 안의 캡 (`hold` 인 버튼마다) |
+| `.cv-ask-hint` (`meta.css`) | `meta/ui/HoldAsk` | `.cv-ask-ok` 안의 캡 (이 팝업은 늘 홀드) |
+
+취소 · 한 번 탭 확정(`Ask.tap` 의 `타이틀로` · `종료`, ShipManage 의 비-danger `확인`, `뒤로`)에는 붙지 않는다.
+⚠ 캡이 붙은 버튼의 `textContent` 는 SVG `<title>` 때문에 `LMB확인` 처럼 라벨 앞에 `LMB` 가 붙는다 — 라벨을
+글자로 읽는 코드가 있으면 라벨 span 을 읽게 한다(`smoke-meta` 가 `.cv-confirm` → `.cv-confirm-label` 로 옮겼다).
+
+### ④ `map/MapScreen` · `styles/rover.css` — 탐사 차량 출발
+
+`.map-rover-go` 안에 캡(차단 상태면 숨김) + `display: flex` 정렬. `.map-rover-note` 는 홀드 문장을 잃고
+**「출발하면 도착까지 내릴 수 없습니다.」** 만 남았다 — 그 줄이 겸해 나르던 진짜 경고다.
+
+### ⑤ `menus/CharacterSelect` — 결과 메시지가 바닥 줄 오른쪽으로
+
+카드 아래 패널(`.form-msg` — 테두리 · 배경 · 패딩)이 아니라 `.ts-foot` 안 **오른쪽 끝의 글자**(`.ts-msg`)다.
+`kind` 는 **글자 색으로만** 남는다(`info` · `success` · `warning` · `danger`). 그 자리에 있던 안내 라벨
+(`캐릭터마다 창고 · 장비 · 함선 · 진행도가 …`)은 없어졌다. 숨은 메시지는 `display: none` 이라
+`space-between` 에서 `뒤로` 가 왼쪽에 그대로 선다.
+
+### ⑥ `menus/CharacterCreate` — 확정 팝업 능력치 **세로 5행**
+
+`.cc-cf-stat` 이 `[이름] [게이지] [값]` 세 칸 격자이고 `--cf-name`(52px) 하나가 첫 칸의 폭을 정한다 — 이름 줄의
+`이름` 라벨도 같은 폭이라 왼쪽 모서리가 세로로 맞는다. 게이지가 `1fr`, 값은 오른쪽 `tabular-nums` 라 자릿수가
+바뀌어도 게이지 끝이 안 흔들린다. 게이지 비율(`v / CREATE_STAT_MAX`) · `maxed` 강조 · 얼굴 썸네일 로직은 무변경.
+카드 폭 620 → **560px**, 얼굴 칸 `align-self: center`.
+
+### ⑦ `hud/Notifications` — 탑승 토스트 삭제 (사용자 결정 「전부」)
+
+`extraction:boarded` 의 「탑승 확인. 내부 스위치를 작동하면 N초 뒤 출발합니다.」 구독을 지웠다 — **모든 레이드**
+에서다(튜토리얼은 스위치를 누르면 즉시 뜨므로 그 문장이 거짓이었고, 본편의 유예는 좌상단 목표 줄
+`hud/Objective` 의 `liftoffSwitch` 가 이미 말한다). **이벤트는 계약이라 그대로** — `game/GameFlowSystem`(`boarded`) ·
+`HudSystem`(목표 줄) · `audio/AudioSystem`(`ui_equip`) 셋이 계속 듣는다. 쓰이지 않게 된
+`EXTRACTION_DEPART_GRACE_S` import 만 뺐다.
+
+---
+
+## 변경 이력 — 2026-09-15 3차 (사용자 결정): 결과 창 머리줄 — 탈출 부제 삭제 · 행성 줄 두 조각
+
+### ① `menus/MissionComplete` — `스캐빈저 회수 완료 — 전리품 확보` 가 없어졌다
+
+탈출 성공의 부제(`SUB_EXTRACT`)는 제목 `탈출 성공` 이 이미 말한 것을 한 번 더 말하고 있었다. 상수를 지웠다.
+
+**요소는 지우지 않았다.** 같은 화면이 분대 탈출 때 **쓰러져 있던 사람**에게 보여 주는 사망 모습
+(`stats.extracted === false` → 제목 `전사`)이 그 자리에 `SUB_DEAD`(`스캐빈저 신호 소실 — 장비는 유해에 남았습니다`)
+를 쓰기 때문이다. 그래서 `fill()` 이 `setText(subtitleEl, dead ? SUB_DEAD : '')` + **`subtitleEl.hidden = !dead`** 다 —
+루트 규약대로 `style.display` 가 아니라 `hidden` 이고, `.menu .subtitle` 은 `display` 를 정하지 않으므로 UA 의
+`[hidden] { display: none }` 이 그대로 듣는다(`DeathScreen` 의 `.auto-return` 이 예전부터 쓰던 그 길). 생성자에서도
+글 없이 `hidden` 으로 시작한다 — 첫 `fill()` 전에 한 프레임이라도 옛 문장이 보일 길을 남기지 않는다.
+
+### ② 행성 줄 = 라벨 + 이름 두 조각 (`ResultReport.buildPlanetLine`)
+
+`행성 · 베르단트 III` 한 덩어리였던 것이 **가운뎃점 없이 gap 으로 벌린 두 조각**이 됐다:
+
+```html
+<div class="planet-line rs-planet">
+  <span class="rs-planet-k">행성</span>        <!-- 12px · --c-text-dim · ls 0.1em = 없앤 부제와 같은 크기 · 같은 회색 -->
+  <span class="rs-planet-v">베르단트 III</span>  <!-- 15px · --c-text (흰색) · ls 0.06em -->
+</div>
+```
+
+- 조각을 만드는 곳은 **`menus/ResultReport.buildPlanetLine(parent)` 하나**다 — 두 결과 창이 같은 줄을 각자
+  적을 이유가 없다(「같은 것을 두 곳이 쓰면 하나로 뽑는다」). 채우는 쪽은 `setText(planet.value, planetLabel(…))` 뿐이다.
+- **숨김 갈래는 없다.** `planetLabel(null)` 은 빈 문자열이 아니라 `PLANET_NONE_LABEL`(`목표 미지정`)을 돌려주므로
+  (튜토리얼처럼 행성이 없는 레이드 포함) 이 줄이 빌 수 없다 — `shared/planetDefs.planetLabel` 이 그 근거다.
+- `.planet-line` 클래스는 **계약대로 남겼다**: 스모크가 그 이름으로 줄을 찾고, 옛 기록도 그 이름으로 적혀 있다.
+- 위 여백 `margin-top: 8px` 은 없앤 부제의 값이다 — 부제가 숨는 탈출 성공에서 행성 줄이 제목에 붙지 않는다.
+
+### ③ `menus/DeathScreen` — 같은 모습으로 통일
+
+사용자가 말한 것은 탈출 성공 화면이지만 **두 화면이 다른 모습이 될 이유가 없어** 사망 창도 `buildPlanetLine` 을 쓴다
+(`레이드 실패` 모드 포함 — 그 모드는 제목 · 부제만 바꾼다). ⚠ **사망 창의 부제는 그대로 둔다**: 그쪽 부제는 제목이
+말하지 않는 것(장비가 유해에 남았다 · 분대 전멸)을 나르므로 ①의 근거가 없다.
+
+### ④ `styles/results.css` — `.rs-planet` 세 줄
+
+`base.css` 는 건드리지 않았다(`.planet-line` 은 원래 CSS 규칙이 하나도 없는 맨 `div` 였다). 접두사 `.rs-` 규약대로
+`rg "\.rs-planet" src` 로 비어 있음을 먼저 확인했고, 그 파일 규약대로 전이 · 애니메이션은 없다.
+
+### ⑤ 스모크
+
+`scripts/smoke-social.mjs` 의 `raid ESC + 결과 화면 행성` 절이 `.planet-line` 의 `textContent` 를
+`행성 · 베르단트 III` 로 통째 비교하고 있었다 — 이제 두 조각이라 `.rs-planet-k`(`행성`) · `.rs-planet-v`(이름)를
+따로 읽는다(`목표 미지정` 갈래도 값 쪽에서 읽는다). `부제 아래 행성 줄` 순서 단언은 요소를 남겼으므로 그대로 통과하고,
+**탈출 성공에는 부제가 없다**(`hidden === true` · `textContent === ''`)는 단언 하나가 늘었다.

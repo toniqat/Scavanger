@@ -6,7 +6,7 @@
  * - 기폭은 **호스트 권한**이다. 싱글 / 호스트는 바로 터뜨리고, 클라이언트는 `gadq detonate` 를 보내며
  *   호스트는 relay `from` 소유의 무장된 것만 터뜨린다 (`onDetonateRequest`).
  * - **중첩 피해**: 한 번의 기폭에서 대상마다 각 C4 가 줄 피해(중심 `GADGET_REMOTE_MINE_DAMAGE`, 반경
- *   `GADGET_REMOTE_MINE_RADIUS` 선형 감쇠)를 모아, 가장 큰 한 발은 그대로 · 나머지는 **각각**
+ *   `GADGET_REMOTE_MINE_RADIUS`, 공용 2단 계단 감쇠 `shared/explosion`)를 모아, 가장 큰 한 발은 그대로 · 나머지는 **각각**
  *   `× GADGET_REMOTE_MINE_STACK_MUL` 로 더해 **한 번에** 적용한다 (복리 아님). 대상 = 적 · 로컬 플레이어 ·
  *   원격 플레이어(`dmg`) · 드론(`ctx.drones.damageDrone` — `applyExplosion` 은 부르지 않는다, 이중 적용) ·
  *   다른 설치물(`takeDamage`). 폭발 FX · 흔들림 · `explosion` 소리는 C4 마다 따로 난다.
@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import {
   GADGET_REMOTE_MINE_DAMAGE, GADGET_REMOTE_MINE_MAX_LIVE, GADGET_REMOTE_MINE_RADIUS, GADGET_REMOTE_MINE_STACK_MUL,
-  PLAYER_RADIUS,
+  PLAYER_RADIUS, explosionDamage,
   type DroneRef, type EnemyRef, type PeerId,
 } from '@/shared';
 import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
@@ -258,12 +258,13 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
   return count;
 }
 
-/** 거리(표면까지) → 한 발의 피해. 반경 밖이면 0. */
+/**
+ * 거리(표면까지) → 한 발의 피해. 반경 밖이면 0.
+ * 2026-09-15 (사용자 결정): 공용 2단 계단 (`shared/explosion`) — 안쪽 절반 100 % · 바깥 띠 고정 배수.
+ * 중첩은 그대로다 (가장 큰 한 발 + 나머지 × `GADGET_REMOTE_MINE_STACK_MUL`, 복리 아님).
+ */
 function falloff(dist: number): number {
-  const R = GADGET_REMOTE_MINE_RADIUS;
-  const d = Math.max(0, dist);
-  if (!(R > 0) || d >= R) return 0;
-  return GADGET_REMOTE_MINE_DAMAGE * (1 - d / R);
+  return explosionDamage(GADGET_REMOTE_MINE_DAMAGE, dist, GADGET_REMOTE_MINE_RADIUS);
 }
 
 function addHit(kind: TargetKind, ref: unknown, dmg: number, mine: Deployable): void {

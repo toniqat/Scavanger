@@ -387,9 +387,15 @@
   트랙을 끝낸 뒤 `ui:screenFade {1, SKIP_FADE_OUT_S}` 로 화면을 검게 덮고(그리는 것은 `ui/HudSystem`, 코드 보간) 각본 잠금을
   건다. **완전히 검어진 프레임**(`updateSkipFade` — 트랙이 끝난 뒤에도 돌도록 `update()` 의 활성 검사보다 앞이다)에
   `ExtractionRef.skipToComplete()` → 함선 연출 없이 평소 탈출과 같은 결과 화면 · 정산. 폴백은 `skipToLiftoff()` + 다시 밝게,
-  그것도 안 되면(사망 · 전투불능) 잠금을 풀고 `game:returnToShip`. **검은 판을 치우는 곳**: 결과 화면으로 페이즈가 바뀌면
-  `HudSystem.applyVisibility` 가 즉시 0 으로 걷고(`inGame` 이 아니면), 이 시스템은 `game:complete` 에서 책임만 내려놓고
-  `hub:entered` 에서 한 번 더 `{0, 0}` 을 쏜다(자기가 건 판일 때만 — 오프닝 페이드를 건드리지 않는다). `game:abort` 는 둘 다 지운다.
+  그것도 안 되면(사망 · 전투불능) 잠금을 풀고 `game:returnToShip`.
+
+  **검은 판은 결과 화면에서도 그대로 있다** (2026-09-15 4차, 사용자 결정 — 「암전된 상태에서 탈출 성공이 뜬다」).
+  `beginSkipFade` 가 `ui:screenFade {1, SKIP_FADE_OUT_S, hold: true}` 를 쏘고, `hold` 는 `ui/HudSystem.applyVisibility` 의
+  페이즈 가드에게 「이 판은 스스로 걷지 말라」고 말한다 (그 전에는 페이즈가 바뀌는 순간 걷혀 **결과 창 뒤로 행성이
+  다시 보였다**). 결과 창은 `.menu.complete` z 84 라 판(82) 위에 뜬다.
+  **검은 판을 치우는 곳**: `hub:entered` 의 `clearSkipFade(0)` **하나**다 — `game:complete` 는 암전 시계만 멈추고
+  **소유는 유지한다**. 여벌은 둘: `game:abort`(이 시스템 + ui 가 함께 지운다)와 `ui/HudSystem` 자신의 `hub:entered`.
+  폴백 사다리로 내려가면(`skipToLiftoff` · `game:returnToShip`) 예전처럼 `clearSkipFade` 가 다시 밝힌다.
 - **다시 보기**: dev 콘솔 `tutorial start` / `tutorial skip` / `tutorial step <id>` / `tutorial status`.
 
 ## 재료 지급
@@ -440,6 +446,20 @@ localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: {
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-15 4차 (건너뛰기는 **암전된 채로** 결과 화면이 뜬다 — 사용자 결정)** — `TutorialSystem.ts` 두 줄.
+  `beginSkipFade` 가 `ui:screenFade` 에 **`hold: true`**(계약 추가, 선택 필드)를 실어 「페이즈가 바뀌어도 이 판은
+  스스로 걷지 않는다」고 말한다 — 그것이 없으면 결과 화면으로 페이즈가 바뀌는 순간 `ui/HudSystem.applyVisibility`
+  가 검정을 걷어 **결과 창 뒤로 행성이 다시 보였다**. 그래서 `game:complete` 핸들러도 **소유를 내려놓지 않는다**
+  (암전 시계만 멈춘다): 치우는 주인은 `hub:entered` 의 `clearSkipFade(0)` 하나이고, `game:abort` 와 `ui/` 의 같은
+  구독 둘이 여벌이라 **함선이 검게 남는 길이 없다.** 폴백 사다리(`skipToLiftoff` → `game:returnToShip`)는 예전대로
+  밝아진다 (이륙 · 사망 연출은 보여야 한다). 결과 창이 판 위에 뜨도록 `.menu.complete` · `.menu.death` 가
+  z 84 를 얻었다 (`ui/styles/base.css` — `.screen-fade` 는 82, `.menu` 에는 z-index 가 아예 없었다).
+- **2026-09-15 4차 (튜토리얼은 언제 껐다 켜도 이어서 한다 — 사용자 결정, `src/game` 쪽 구현)** — 이 폴더는 **무변경**이고
+  적어 두는 것은 왜 그래도 되는지다: ① 단계는 `scav.tutorial`(`save.tracks.raid.step`)에 살고 `setStep` 마다 쓰이므로
+  새로고침을 그대로 견딘다. ② 이어하기로 돌아오면 `game:newMission {mode:'tutorial'}` · `world:ready` 가 둘 다
+  `startRaidTrack()` 으로 모이는데 그 함수는 **이미 돌고 있는 트랙에서 곧장 되돌아간다**(`if (this.track === 'raid') return`) —
+  저장된 단계가 덮이지 않고, `pendingWake` 는 `step === 'wake'` 일 때만 서므로 기상 연출도 다시 돌지 않는다.
+  ③ `solo` 세이브의 5분 유예 · 시계 방어가 튜토리얼에서 빠졌고, 단계 · 체크포인트마다 `game/` 이 세이브를 강제한다.
 - **2026-09-15 (수류탄 단계 필수 목표 문구)** — `grenade` 의 `wallPass` 가 `무너진 벽 너머로 이동` → **`앞으로 이동`** (사용자 결정).
   무너진 벽이 사선 방벽으로 바뀌어 옛 문구가 없는 지형을 가리켰다. id · 판정(체크포인트 `ship`)은 그대로다.
 - **2026-09-15 (목표 명사구 · 키캡 · 보급품 루팅 · 구간 건너뛰기 · 건너뛰기 암전 — 사용자 결정)**
@@ -708,3 +728,58 @@ if (this.wait > 0) this.wait = Math.max(0, this.wait - dt);
 `parts/Guide` 는 처음부터 `if (this.wait > 0) { this.wait -= dt; if (this.wait > 0) return; }` 모양이라
 멀쩡했다 (~490 ms). 카운터를 두 개(`wait` · `timer`) 돌리면서 하나를 다른 하나로 잡아 줄 때는
 **표식 값과 오버슈트가 겹치지 않는지** 확인한다.
+
+---
+
+## 변경 이력 — 2026-09-15 2차 (사용자 결정): 시체 상호작용 단계 · 목표 카운트 · 목표 패널 1.2배
+
+### ① `corpseOpen` — 「시체 상호작용」이 먼저다 (raid 15 → **16단계**)
+
+전에는 절벽을 넘자마자 곧장 `corpseLoot`(「기관단총을 주무기 칸에 장착」)이 떴다 — **아직 시체를 열지도
+않았는데** 그 안의 물건을 옮기라고 한다. 2026-09-15 에 `supplyLoot`(「줍기도 전에 쓰라고 하지 않는다」)을
+넣은 것과 **같은 눈**이다. 계약은 `shared/tutorial.ts` 가 갖는다(`TutorialStepId` · `TUTORIAL_TRACK_STEPS.raid`).
+
+- **여는 신호**: `model.CHECKPOINT_STEP.corpse` 가 `'corpseLoot'` → **`'corpseOpen'`**.
+- **넘어가는 신호**: **`inventory:containerOpened`** — 이미 구독하던 이벤트다. `TutorialSystem.onContainerOpened`
+  가 맨 앞에서 `containerId.startsWith('corpse:')` 로 거르고(상자 · 다른 컨테이너와 구분되는 유일한 표식이고
+  튜토리얼 시체 셋은 전부 `corpse:tut_*` 다) `step === 'corpseOpen'` 이면 `advance()`. 체크는 `advance` 안의
+  `completeRequired` 가 긋는다.
+- **막다른 길 없음**: `onEnemySpawned` 의 접기 조건이 `corpseLoot` → **`corpseOpen || corpseLoot`** 로 넓어졌다.
+  `bugs` 체크포인트(`→ advance1`)도 `foldRaid` 라, **열지 않고 지나가도 · 총을 안 들고 지나가도** 같은 두 길로
+  빠져나온다.
+- **목표 마커**: `model.CORPSE_MARKER_STEPS = ['corpseOpen', 'corpseLoot']` 하나를 `poll()`(재탐색)과
+  `refreshVisuals()`(setTarget)이 함께 본다 — 열라고 할 때부터 그 시체 위에 마커가 선다.
+- **조작 가이드**: `TUTORIAL_CONTROL_HINTS.corpseOpen = LOOT_HINTS` — `corpseLoot` 과 **같은 배열 참조**라
+  두 단계 사이에서 줄이 깜빡이지 않는다.
+- **HUD 게이트 무변경**: `HUD_GEAR_STEP` 은 `corpseLoot` 그대로이고 `Gates.hudHidden` 이 인덱스 비교라
+  `corpseOpen` 에서도 체력 · 무기 HUD 는 여전히 숨는다.
+- 스포트라이트는 없다 — 할 일이 화면이 아니라 **월드의 시체**라 밝힐 DOM 이 없다.
+
+### ② 목표 줄의 카운트 `(n/m)`
+
+`벌레 2마리 처치` → **`벌레 처치 (0/2)`**. 수를 문구에 적지 않고 `TutorialObjective.count`(추가만)로 넘긴다.
+- 목표 수의 원본은 `RAID_KILLS_PER_STEP` 하나다 — 표에 2 를 적지 않는다.
+- 진행 수의 원본은 이미 있던 `TutorialSystem.kills` 다. `objectiveCounts()` 가 그 단계의 표를 훑어 `count` 가
+  있는 줄에만 `min(kills, count)` 를 담아 준다(줄 id 를 코드에 적지 않는다).
+- `onKill()` 은 `kills++` **직후** `panel.setCounts(...)` 를 부르고 **그 다음에** 임계치를 본다 — 마지막 한
+  마리도 `(2/2)` 가 된 뒤에 체크 · 취소선이 그어진다.
+- `ui/Panel.setCounts` 는 줄 안의 `<i class="tut-obj-n">` **`textContent` 만** 고친다. 줄을 다시 지으면
+  체크 애니메이션과 취소선 `clip-path` 전이가 재시작된다 — `rowKey` 도 `id + text` 그대로라 카운트가 변해도
+  다시 짓지 않는다. `relabel()`(리바인드)도 같은 `paint(row)` 를 지나므로 카운트가 사라지지 않는다.
+
+### ③ 첫 이동 문구 · 목표 패널 1.2배
+
+- `move` 의 목표가 `갈라진 땅까지 이동` → **`앞으로 이동`**. `advance1`·`2`·`3` 이 이미 그 문장이라 같은 일에
+  이름이 둘이던 것을 통일했다 (그리고 그 땅은 출발점에서 보이지도 않는다).
+- 좌측 상단 목표 패널만 글자 ×1.2 (우측 조작 가이드 `.tut-ctl-*` 는 무변경): 패널 폭 288 → **346px**,
+  `.tut-track` 13 → 15.6, `.tut-obj-label` 11.5 → 13.8, `.tut-obj-box` 13 → 15.6, `.tut-quest-ico` 15 → 18,
+  목표 줄 인라인 키캡 17 → 20.4 / font 9.5 → 11.4. **안쪽 여백은 그대로** 두어 글줄 폭이 260 → 318(×1.22)로
+  글자와 같은 비율로 늘었다 — 줄바꿈 빈도가 전보다 잦아지지 않는다.
+- `.tut-objs { gap }` 5 → **8px**: 2026-09-15 2차부터 꾹 누르기 chevron 이 키캡 **윗변에 걸쳐 절반이 밖으로
+  솟으므로**(`base.css`) 줄 사이가 예전 여백으로는 답답하다. 그 자리의 낡은 주석(「chevron 은 키캡 안쪽」)도
+  사실대로 고쳤다.
+
+### ④ 그 밖에
+
+`ui/Panel.ts` 의 `rowKey` 구분자에 **NUL 바이트**가 박혀 있어 git 이 그 파일을 binary 로 보고 diff 를 내주지
+않고 있었다 (HEAD 에도 있던 기존 손상). 스페이스로 바꿨다 — 구분자 한 글자라 동작 차이는 없다.

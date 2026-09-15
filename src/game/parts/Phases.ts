@@ -147,6 +147,7 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   sys.completeTimer = -1;
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.tutorialRespawnTimer = -1;   // 2026-09-14
+  sys.lastTutorialStep = null;     // 2026-09-15: 새 미션 — 단계별 자동저장의 중복 제거 기준을 비운다
   sys.lastThreat = -1;
   sys.boarded = false;
   sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편

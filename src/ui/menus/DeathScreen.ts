@@ -3,7 +3,7 @@ import { RAID_FAILED_AUTO_RETURN_S, planetLabel } from '@/shared';
 import { el, fmtTime, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
-import { ResultReport, buildResultHeader, type ResultHeader } from './ResultReport';
+import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type ResultHeader } from './ResultReport';
 
 /**
  * "전사" screen with mission stats, shown on `game:phaseChanged {phase:'dead'}` (solo; also on the legacy `game:over`).
@@ -24,11 +24,14 @@ import { ResultReport, buildResultHeader, type ResultHeader } from './ResultRepo
  * (`stats.peakLootValue` — 그 레이드에서 가장 높았던 소지품 가치, 빨강) → 사망 원인 줄(`stats.death` — 막타의 얼굴 /
  * 원인 아이콘 · 이름 · 그 원인에게서 받은 피해) → 획득 경험치. 처치 · 생존 시간 칸 · 개봉한 상자 · 받은 피해 칸은 없다.
  * 몸통은 `ResultReport` 를 `MissionComplete` 와 함께 쓴다.
+ *
+ * **2026-09-15 (머리줄, 사용자 결정):** 행성 줄이 `buildPlanetLine` 의 두 조각이다 — 회색 라벨 `행성` + 조금 큰 흰 이름,
+ * 가운뎃점 없음. 부제는 이 화면의 뜻(`신호 소실` · `분대 전멸`)을 나르므로 **그대로 남는다** (없앤 것은 탈출 성공의 부제뿐).
  */
 export class DeathScreen extends MenuBase {
   private head: ResultHeader;
   private subtitleEl: HTMLElement;
-  private planetEl!: HTMLElement;
+  private planet: PlanetLine;
   private autoEl: HTMLElement;
   private report: ResultReport;
   private rewards: RewardsBlock;
@@ -42,7 +45,8 @@ export class DeathScreen extends MenuBase {
     this.head = buildResultHeader(head, '전사', 'danger');
     this.subtitleEl = el('div', { cls: 'subtitle', text: '스캐빈저 신호 소실 — 장비는 유해에 남았습니다', parent: head });
     // Phase 11: which planet this went wrong on (`PLANET_NONE_LABEL` when the raid carried no planet).
-    this.planetEl = el('div', { cls: 'planet-line', parent: head });
+    // 2026-09-15: 두 조각(회색 `행성` + 흰 이름)이고 `MissionComplete` 와 같은 모습이다.
+    this.planet = buildPlanetLine(head);
 
     this.report = new ResultReport(this.frame);
     this.rewards = new RewardsBlock(this.frame);
@@ -112,7 +116,7 @@ export class DeathScreen extends MenuBase {
   }
 
   private fill(s: MissionStats): void {
-    setText(this.planetEl, `행성 · ${planetLabel(this.ctx.missionPlanet)}`);
+    setText(this.planet.value, planetLabel(this.ctx.missionPlanet));
     setText(this.head.time, fmtTime(s.timeSeconds));
     this.report.fill(s, 'death');
     this.rewards.fill(s.rewards, 'dead');

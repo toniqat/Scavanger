@@ -1090,3 +1090,14 @@ over the 닫기 (Esc) / 타이틀로 footer.
   `cook` 에 돌릴 조각이 없어 조용히 넘어간다(조리대에는 `rig` 가 없다 — 주석만 더했다).
 - 스모크 `smoke-housing`: 주방 카탈로그 11 → **15**(자동 조리 가구 4) · 조리대 / 자동 그릴 프롬프트와 E → `openCookStation(조리대 uid)` ·
   도구 rig 그룹 8개 · `poseFor` = cook 자세 · 버스로 흘린 세션 / 단계 / 박자에 자세 · 도구 · 위상이 따라오는지 · 끝나면 풀리고 제자리.
+
+---
+
+## 변경 이력 — 2026-09-15 2차 (사용자 결정): 정보상 확정 버튼의 좌클릭 키캡
+
+`ui/IntelMenu` 의 `.it-confirm` 안, 라벨 왼쪽에 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 선다.
+- 버튼 라벨 `확정 (1초 꾹)` → **`확정`** — 「1초 꾹」은 이제 캡이 그림으로 말한다.
+- `.it-reason` 은 **차단 사유 전용**이다: 「「확정」을 1초 누르고 있으면 결제합니다」 기본 문구가 빠졌고, 사유가
+  없으면 `hidden`(`intel.css` 에 `[hidden]{display:none}` 한 줄).
+- `ui/ReadyPanel` 의 `Space` 키캡은 코드가 한 줄도 안 바뀌었지만 **모습이 바뀐다** — 공용 `.keycap.kc-hold` 가
+  이제 「눌린 키 + 윗변에 걸친 chevron」이다 (`ui/styles/base.css`).

@@ -125,7 +125,10 @@ try {
   /** 공용 홀드 팝업 (`shared/holdAsk`, `.sh-ask[data-ask]`). */
   const askState = (id) => H((id) => {
     const a = document.querySelector(`.sh-ask[data-ask="${id}"]`);
-    return a ? { shown: !a.hidden, body: a.querySelector('.sh-ask-body')?.textContent ?? '', buttons: [...a.querySelectorAll('button')].map((b) => b.textContent) } : null;
+    // 2026-09-15 2차: 홀드 버튼 안에 좌클릭 키캡(`.keycap.kc-btn`)이 서서 `button.textContent` 는 `LMB교체` 다 — 라벨 span 을 읽는다.
+    return a ? { shown: !a.hidden, body: a.querySelector('.sh-ask-body')?.textContent ?? '',
+      buttons: [...a.querySelectorAll('button')].map((b) => b.querySelector('.sh-ask-label')?.textContent ?? b.textContent),
+      holdCaps: a.querySelectorAll('button[data-hold] .keycap.kc-btn').length } : null;
   }, id);
   const askHold = (id) => H((id) => document.querySelector(`.sh-ask[data-ask="${id}"] button[data-hold]`)
     ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })), id);
@@ -464,7 +467,7 @@ try {
       await H(() => document.querySelectorAll('.menu.grow-station .hs-ctx .hs-ctx-item')[1]?.click());
     }
     const ask = await askState('hs-socket-replace');
-    ok(!!ask && ask.shown && /빼낼 수 없습니다/.test(ask.body) && /파괴/.test(ask.body) && ask.buttons.join() === '취소,교체',
+    ok(!!ask && ask.shown && /빼낼 수 없습니다/.test(ask.body) && /파괴/.test(ask.body) && ask.buttons.join() === '취소,교체' && ask.holdCaps === 1,
       `교체 경고 팝업: 「끼운 소켓은 빼낼 수 없습니다 — … 파괴됩니다」 (${JSON.stringify(ask)})`);
     await H(() => document.querySelector('.sh-ask[data-ask="hs-socket-replace"] button[data-hold]')?.click());
     await tap('Enter');
@@ -506,11 +509,13 @@ try {
   const modal = await H(() => {
     const m = document.querySelector('.menu.grow-station .hs-modal');
     return { shown: !!m && !m.hidden, chips: m?.querySelectorAll('.hs-modal-cost .item-chip').length ?? 0, lv: m?.querySelector('.hs-modal-lv')?.textContent ?? '',
-      gain: m?.querySelector('.hs-modal-gain')?.textContent ?? '', ok: !m?.querySelector('.hs-modal-ok')?.disabled, note: m?.querySelector('.hs-modal-note')?.textContent ?? '' };
+      gain: m?.querySelector('.hs-modal-gain')?.textContent ?? '', ok: !m?.querySelector('.hs-modal-ok')?.disabled,
+      // 2026-09-15 2차: 홀드 안내 문구는 없어졌고(그 줄은 이제 **차단 사유전용**), 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다
+      holdCap: !!m?.querySelector('.hs-modal-ok .keycap.kc-btn'), note: m?.querySelector('.hs-modal-note')?.textContent ?? '' };
   });
   ok(modal.shown && modal.chips === (cost?.length ?? -1) && /Lv\. 1\s+→\s+Lv\. 2/.test(modal.lv) && /성장 속도 \+0% → \+15%/.test(modal.gain),
     `업그레이드 모달: 재료 썸네일 ${modal.chips} · ${modal.lv} · ${modal.gain}`, JSON.stringify(modal));
-  ok(modal.ok && /초/.test(modal.note), `재료가 있으면 확정 버튼이 열리고 홀드 안내가 붙는다 (${modal.note})`);
+  ok(modal.ok && modal.holdCap && !modal.note, `재료가 있으면 확정 버튼이 열리고 버튼 안에 좌클릭 홀드 키캡이 붙는다 (차단 사유 줄은 비어 있다: "${modal.note}")`);
   await H(() => document.querySelector('.menu.grow-station .hs-modal-ok').click());
   ok(await H((u) => window.__game.ctx.housing.getPlacedByUid(u).level === 1, GS), '클릭만으로는 강화되지 않는다');
   await tap('Enter');

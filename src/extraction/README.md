@@ -273,3 +273,25 @@ the numbers are refreshed and a missed stage is caught up; a host that answers `
 - **2026-09-14 (튜토리얼 개편)** — `ExtractionRef.beginPreLanded` 구현 (위 절). 바뀐 것은 `onShipLanded(silent)`
   인자 하나, `update()` 맨 앞의 `syncPreLandedPhase()` 한 줄, 남겨진 사람 리셋의 `!this.preLanded` 한 조건,
   그리고 `createRef()` 의 새 항목뿐이다 — 본편 탈출 흐름의 코드 경로는 한 줄도 바뀌지 않았다.
+
+- **2026-09-15 2차 (드랍쉽 동일평면 셋 — 사용자 보고 「바닥이 뚫려 땅이 보인다」 · 「좌우 벽 색이 매 프레임 바뀐다」)**
+  — 셋 다 z-fighting 이고, 뿌리는 **함선 원점이 지면 위에 있다**는 것이다: `floorYAt` 규약대로 데크 평면이 로컬 y 0
+  이고 `landPos.y` 는 패드 / 데크 윗면이므로, **로컬 y 0 에 그리는 것은 무엇이든 발밑 지면과 같은 평면**이다.
+  `Ship.ts` 머리에 「동일평면 예산」 주석과 상수(`HULL_HALF_W` · `BAY_LINING_INNER_X` · `BAY_LINING_T` ·
+  `BAY_LINING_OUTER_X` · `HULL_SKIN_GAP` · `BAY_FLOOR_LIFT`)를 뒀다.
+  1. **바닥** — 바닥 판 윗면 = `hullBelly` 윗면 = 지면, 셋이 y 0. 그리는 바닥만 `BAY_FLOOR_LIFT`(2.5 cm) 올리고
+     (`3.28 × 0.12 × 5.44` @ y −0.035) 폭 · 길이를 4 cm 키워 옆면이 라이닝 · 앞벽 **속에** 묻히게 했다 — 안 그러면
+     그 3 cm 띠에서 또 같은 평면이 싸운다. `hullBelly` 윗면은 −0.02 로, `chin` 밑면도 −0.02 로 내렸다.
+     ⚠ **`floorYAt` · `BAY_HEIGHT` · `Hull.ts` 는 한 줄도 안 건드렸다** — 걷는 데크는 여전히 로컬 y 0 이고 발이
+     2.5 cm 잠길 뿐이다(안 보인다).
+  2. **좌우 벽** — `sideW = 2.1 - 1.6` 이 옆판 안쪽 면을 라이닝 벽 안쪽 면과 **똑같은 x ±1.6** 에 두어 라이닝
+     (1.60…1.72)이 옆판 부피 안에 통째로 들어 있었다. 재질이 달라(`hull` / `interior`) 프레임마다 다른 색이 이겼다.
+     이제 `sideInnerX = BAY_LINING_OUTER_X + HULL_SKIN_GAP`(1.73) · `sideW` 0.37 · 중심 ±1.915 다 — **바깥면 ±2.1 은
+     그대로**라 실루엣도 `Hull.ts` 의 옆판 콜라이더(±1.85, halfX 0.25)도 안 바뀌었다. 틈은 `hullRoof` · `hullBelly` ·
+     `hullFront` 가 막는다. `HULL_SKIN_GAP` 을 0 이 아니라 1 cm 로 둔 이유: `interior` 가 `DoubleSide` 라 면을 맞대면
+     라이닝 뒷면이 여전히 그려져 같은 깊이에서 다시 싸운다.
+  3. **천장** — `ceiling` 밑면 = `hullRoof` 밑면 = y 2.6 이라 올려다보면 같은 깜빡임이 났다. 천장 판을 2.5 cm 내려
+     밑면 2.575 로. 조명 띠(2.55…2.59)는 이제 천장에 살짝 묻혀 리세스처럼 보인다.
+  훑어서 문제 없다고 확인한 것: `hullTop`/`spine`(부피만 겹친다) · `nose`↔`hullFront` · `frontWall`↔`hullFront` ·
+  램프 가장자리. 배 밑면 y −0.3 의 동일평면 셋은 지하 0.3 m 라 영영 안 보여 그대로 뒀다. `ShipGreebles` 는 옆면
+  그리블이 전부 |x| ≥ 2.105 라 손댈 것이 없었다. **광원은 하나도 안 건드렸다**(`smoke-lights` 의 개수 불변).

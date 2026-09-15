@@ -314,6 +314,13 @@ still runs at the item's own rate).
 
 ## 변경 이력
 
+- **2026-09-15 (폭발 감쇠 2단 계단 · 수류탄 수치의 csv 이관 — 사용자 결정)** — `Grenade.ts` 의 `GRENADE_RADIUS` **6 → 7.2**(×1.2) ·
+  `GRENADE_DAMAGE` 250 · `PLAYER_DAMAGE_MUL` 0.6 이 전부 `data/constants.csv` 로 갔다(`GRENADE_PLAYER_DAMAGE_MUL`). 배럴(`weapons/index.ts`)이 내보내는
+  `GRENADE_RADIUS` · `GRENADE_DAMAGE` 는 shared 값의 **별칭**으로 남아 호출부가 안 깨진다. 감쇠는 이제 `shared/explosion.explosionDamage` 하나다 —
+  안쪽 절반 100 % · 바깥 띠 60 % · 반경 밖 0 (예전 `damage * (1 - d / radius)`). 바뀐 자리는 둘: `Grenade.explode` 의 자해 · 아군 피해,
+  `unique/Bazooka.explode` 의 파괴 가능 엄폐물(`COVER_MIN` 0.3 하한은 그대로 그 위에 얹는다). **카메라 흔들림**(`1 - d / 28` · `1 - d / 30`)은
+  피해가 아니므로 안 건드렸다. 적 피해는 `ctx.enemies.applyExplosion` 이 같은 식을 쓰므로 적 · 플레이어 · 드론 · 설치물이 처음으로 한 곡선을 탄다.
+
 - **2026-09-15 (「롱혼」 가로 파지 · 장전 없음 · 「인페르노」 화염 호흡 — 사용자 요청)**:
   **활 모델** — `WeaponModel.buildBow` 가 활을 **가로로** 쥔다: 팔(limb)이 무기 공간 ±X 로 벌어지고(한 평면 `BOW_Y` 0.07), 앞쪽(−Z)에 가운데 화살 창을 둔
   라이저 · 받침 · 손으로 내려가는 손잡이, 팔은 궁수 쪽으로 휘었다가 끝이 앞으로 되휜다. **시위는 라이저 뒤(+Z, `BOW_STRING_Z`)** — 예전에는 라이저 **앞**(z −0.2)에

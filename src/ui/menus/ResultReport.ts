@@ -7,6 +7,7 @@ import { el, fmtInt, setText, toggleClass } from '../dom';
  * 결과 창 공용 몸통 (2026-09-15, 결과 창 개편 — 사용자 결정). `menus/MissionComplete` · `menus/DeathScreen` 이 함께 쓴다.
  *
  * - `buildResultHeader` — 제목 줄: 왼쪽 제목(`탈출 성공` / `전사` / `레이드 실패`), 오른쪽 **임무 시간** 하나.
+ * - `buildPlanetLine` — 행성 줄: 왼쪽 회색 라벨 `행성`(없앤 부제와 같은 크기), 오른쪽 조금 큰 흰 이름. 가운뎃점 없음.
  * - `ResultReport` — `.stats.rs-stats` 한 덩어리:
  *   - 전리품 줄: 왼쪽 라벨 · 오른쪽 값(`1,234 C`, 카운트업). 탈출 = `전리품 가치`(`stats.lootValue`, 호박색),
  *     사망 = `잃은 전리품 가치`(`stats.peakLootValue` — 그 레이드의 최고 소지품 가치, 빨강).
@@ -32,6 +33,24 @@ export function buildResultHeader(parent: HTMLElement, titleText: string, titleC
   el('span', { cls: 'ui-label', text: '임무 시간', parent: box });
   const time = el('span', { cls: 'rs-time-v', text: '00:00', parent: box });
   return { row, title, time };
+}
+
+export interface PlanetLine {
+  row: HTMLElement;
+  value: HTMLElement;
+}
+
+/**
+ * 행성 줄 (2026-09-15, 사용자 결정) — 두 결과 창이 같은 모습을 쓴다. 가운뎃점 대신 gap 으로 벌린 두 조각:
+ * 회색 라벨 `행성`(`.rs-planet-k`, 없앤 부제와 같은 12px) + 조금 큰 흰 이름(`.rs-planet-v`).
+ * `.planet-line` 은 계약대로 남는다 (스모크가 그 이름으로 줄을 찾는다). 이름은 `planetLabel` 이 채우는데
+ * 그것은 행성이 없어도 `PLANET_NONE_LABEL`(`목표 미지정`) 을 돌려주므로 **빈 줄이 될 수 없다** — 숨김 갈래가 없다.
+ */
+export function buildPlanetLine(parent: HTMLElement): PlanetLine {
+  const row = el('div', { cls: 'planet-line rs-planet', parent });
+  el('span', { cls: 'rs-planet-k', text: '행성', parent: row });
+  const value = el('span', { cls: 'rs-planet-v', text: '', parent: row });
+  return { row, value };
 }
 
 const LOOT_DELAY = 0.4;   // 카운트업 시작 전 (프레임 등장 애니메이션 뒤)

@@ -1126,23 +1126,32 @@ try {
 
   await P(() => window.__game.ctx.bus.emit('game:over', { stats: window.__game.ctx.stats }));
   await waitSim(0.1);
-  ok(await text('.menu.death .planet-line') === '행성 · 베르단트 III', 'the death screen names the planet', await text('.menu.death .planet-line'));
+  // 2026-09-15 (머리줄 개편): 행성 줄이 두 조각이다 — 회색 라벨 `행성`(.rs-planet-k) + 흰 이름(.rs-planet-v), 가운뎃점 없음.
+  ok(await text('.menu.death .planet-line .rs-planet-k') === '행성', 'the death screen labels the planet row 행성', await text('.menu.death .planet-line .rs-planet-k'));
+  ok(await text('.menu.death .planet-line .rs-planet-v') === '베르단트 III', 'the death screen names the planet', await text('.menu.death .planet-line .rs-planet-v'));
   await P(() => { window.__game.ctx.missionPlanet = null; window.__game.ctx.bus.emit('game:over', { stats: window.__game.ctx.stats }); });
   await waitSim(0.1);
-  ok(await text('.menu.death .planet-line') === '행성 · 목표 미지정', 'no planet → PLANET_NONE_LABEL', await text('.menu.death .planet-line'));
+  ok(await text('.menu.death .planet-line .rs-planet-v') === '목표 미지정', 'no planet → PLANET_NONE_LABEL', await text('.menu.death .planet-line .rs-planet-v'));
   await P(() => { window.__game.ctx.missionPlanet = 'mossy'; });
   await emit('game:phaseChanged', { phase: 'playing' });
-  await P(() => window.__game.ctx.bus.emit('game:complete', { stats: { ...window.__game.ctx.stats, seed: 4242 } }));
+  // 2026-09-15: `extracted: true` 라야 **탈출 성공** 모습이다 — 앞의 `game:over` 로 `ctx.stats.extracted` 가 false 라
+  //   그냥 넘기면 같은 창이 사망 모습(제목 `전사` · 부제 `스캐빈저 신호 소실 …`)으로 떠 부제 단언이 그것을 읽는다.
+  await P(() => window.__game.ctx.bus.emit('game:complete', { stats: { ...window.__game.ctx.stats, seed: 4242, extracted: true } }));
   await waitSim(0.1);
   let comp = await P(() => ({
-    line: document.querySelector('.menu.complete .planet-line')?.textContent,
+    key: document.querySelector('.menu.complete .planet-line .rs-planet-k')?.textContent,
+    line: document.querySelector('.menu.complete .planet-line .rs-planet-v')?.textContent,
+    // 2026-09-15 (머리줄 개편): 탈출 성공에는 부제가 없다 — 요소는 사망 모습(`전사`)의 부제로 남아 있고 hidden 이다.
+    subHidden: document.querySelector('.menu.complete .subtitle')?.hidden,
+    subText: document.querySelector('.menu.complete .subtitle')?.textContent,
     order: (() => {
       const s = document.querySelector('.menu.complete .subtitle');
       const p = document.querySelector('.menu.complete .planet-line');
       return !!(s.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING);
     })(),
   }));
-  ok(comp.line === '행성 · 베르단트 III', 'the result screen names the planet', String(comp.line));
+  ok(comp.key === '행성' && comp.line === '베르단트 III', 'the result screen names the planet (회색 라벨 + 이름)', `${comp.key} / ${comp.line}`);
+  ok(comp.subHidden === true && comp.subText === '', 'the 탈출 성공 subtitle is gone (hidden, no text)', JSON.stringify([comp.subHidden, comp.subText]));
   ok(comp.order, 'the planet line sits under the subtitle');
   // 2026-09-15 (결과 창 개편): 다시 배치 (같은 시드) 버튼과 기능이 없어졌다 — 남은 버튼은 함선으로 귀환 하나다.
   const compBtns = await P(() => [...document.querySelectorAll('.menu.complete .actions .ui-btn')].map((b) => b.textContent));

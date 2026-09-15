@@ -190,8 +190,9 @@
 }
 .cv-ask-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-danger); }
 .cv-ask-body { font-size: 12px; line-height: 1.55; color: var(--c-text); white-space: pre-line; }
-.cv-ask-hint { font-size: 11px; color: var(--c-text-faint); transition: color var(--t-fast) var(--ease); }
-.cv-ask-hint.is-flash { color: var(--c-accent); }
+/* 2026-09-15 2차 (사용자 결정): 옆 `.cv-ask-hint`(「확인 버튼을 1초 동안 누르고 있어야 실행됩니다」 + 일찍 떼면
+   `is-flash` 로 번깍이던 줄)은 없어졌다 — 「어떻게 누르는가」는 확인 버튼 안, 라벨 왼쪽의 좌클릭 홀드 키캡
+   (`shared/keycap.createHoldButtonCap`)이 말한다. 그래서 이 자리에는 규칙이 없다 (`meta/ui/HoldAsk.ts`). */
 .cv-ask-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .cv-ask-foot .ui-btn { min-width: 96px; height: 34px; font-size: 11px; }
 .cv-ask-ok { position: relative; overflow: hidden; }

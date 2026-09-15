@@ -623,3 +623,11 @@ events aimed at a focused text field. The footer hint reads `Tab 으로 닫기`.
 `ui/CharacterSheet` 이 열 때 `ctx.escape.push(BLOCKER, () => this.close())`, 닫을 때 `remove` 한다 (dispose 포함) —
 시트가 Tab 외에 ESC 로도 닫힌다. `escHandler`(Tab) 는 그대로. 순서는 `shared/escape`, 정책은
 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비어 있을 때만 일시정지 메뉴).
+
+---
+
+## 변경 이력 — 2026-09-15 2차 (사용자 결정): 포인트 투자 확정 버튼의 좌클릭 키캡
+
+`ui/SheetBody` 의 `.pg-confirm`(포인트 투자 확정) 안, 라벨 왼쪽에 좌클릭 홀드 키캡
+(`shared/keycap.createHoldButtonCap` → `.keycap.kc-btn`)이 선다 — 「1초 홀드」를 글자가 아니라 그림이 말한다.
+캐릭터 초기화 확인은 공용 `shared/holdAsk` 를 지나므로 거기서 같은 캡이 붙는다.

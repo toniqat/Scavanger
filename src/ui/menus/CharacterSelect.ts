@@ -35,6 +35,10 @@ interface CardEls {
  *    무엇이 사라지는지 적은 경고 팝업(`menus/askPopup`)을 지난다.
  *  - **빈 칸**: `＋ 캐릭터 생성` — 그 슬롯의 생성창을 연다.
  *
+ * **2026-09-15 2차 (사용자 결정)**: 결과 메시지(`삭제했습니다` · `서버 연결 중…`)는 카드 아래의 패널(`.form-msg`)이
+ * 아니라 **바닥 줄 오른쪽 끝의 글자**(`.ts-msg`)다 — 테두리 · 배경 · 패딩 없이 `kind` 에 따른 글자 색만 남는다.
+ * 그 자리에 있던 안내 라벨(`캐릭터마다 창고 · 장비 · 함선 · 진행도가 …`)은 없어졌다.
+ *
  * **시작**: 고른 칸이 이미 `activeSlot()` 이면 새로고침 없이 곧장 함선으로 들어가고(`menus/enterShip`),
  * 다른 칸이면 `setActiveSlot` + `markAutoStart` + `location.reload()` 다 — 시스템은 부팅 때 한 번 저장소를
  * 읽으므로 슬롯 전환은 언제나 새로고침을 낀다.
@@ -69,13 +73,14 @@ export class CharacterSelect {
     const wrap = el('div', { cls: 'cs-cards', parent: this.root });
     for (const id of SLOT_IDS) this.cards.set(id, this.buildCard(wrap, id));
 
-    this.msg = el('div', { cls: 'form-msg', text: '', parent: this.root });
-    this.msg.hidden = true;
-
+    /* 2026-09-15 2차 (사용자 결정): 결과 메시지는 카드 아래의 패널이 아니라 **우측 하단 글자**다 — 옛 안내 라벨
+       (`캐릭터마다 창고 · 장비 …`)이 서 있던 그 자리이고, 그 라벨은 없어졌다. `.ts-foot` 이 `space-between` 이라
+       메시지가 없을 때도 `뒤로` 는 왼쪽 그대로다 (숨은 메시지는 `display: none`). */
     const foot = el('div', { cls: 'ts-foot', parent: this.root });
     const back = el('button', { cls: 'ui-btn', text: '뒤로', parent: foot });
     back.addEventListener('click', (e) => { e.stopPropagation(); this.back(); });
-    el('div', { cls: 'hint', text: '캐릭터마다 창고 · 장비 · 함선 · 진행도가 완전히 따로 저장됩니다.', parent: foot });
+    this.msg = el('div', { cls: 'ts-msg', text: '', parent: foot });
+    this.msg.hidden = true;
 
     this.ask = new AskPopup(this.root);
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -233,8 +238,9 @@ export class CharacterSelect {
     }
   }
 
-  private showMsg(text: string, kind: 'info' | 'warning' | 'danger'): void {
-    this.msg.className = `form-msg ${kind}`;
+  /** 우측 하단 한 줄. 틀(테두리 · 배경 · 패딩)은 없고 `kind` 는 **글자 색**으로만 남는다 (`title.css` 의 `.ts-msg`). */
+  private showMsg(text: string, kind: 'info' | 'warning' | 'danger' | 'success'): void {
+    this.msg.className = `ts-msg ${kind}`;
     setText(this.msg, text);
     this.msg.hidden = false;
   }

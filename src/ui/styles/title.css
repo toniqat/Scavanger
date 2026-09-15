@@ -73,6 +73,19 @@
 .title-screen .form-msg.danger { border-left-color: var(--c-danger); color: #ffb3b3; }
 .title-screen .form-msg.info { border-left-color: var(--c-info); }
 
+/* 바닥 줄 오른쪽 끝의 결과 메시지 (2026-09-15 2차, 사용자 결정 — 캐릭터 선택). `.form-msg` 와 달리 **패널이 아니라
+   글자**다: 테두리 · 배경 · 패딩이 없고 `kind` 는 글자 색으로만 남는다. `.ts-foot` 이 `space-between` 이라
+   숨어 있을 때(`display: none`)도 `뒤로` 는 왼쪽에 그대로 서 있다. */
+.title-screen .ts-msg {
+  min-width: 0; margin-left: auto; text-align: right;
+  font-size: 11px; line-height: 1.5; letter-spacing: 0.04em; color: var(--c-text-dim);
+}
+.title-screen .ts-msg[hidden] { display: none; }
+.title-screen .ts-msg.info { color: var(--c-info); }
+.title-screen .ts-msg.success { color: var(--c-success); }
+.title-screen .ts-msg.warning { color: var(--c-accent); }
+.title-screen .ts-msg.danger { color: #ffb3b3; }
+
 /* ── 캐릭터 선택 ─────────────────────────────────────────────────────────── */
 .char-select .cs-cards {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
@@ -301,8 +314,8 @@
 .tm-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; }
 .tm-ask.danger .tm-ask-title { color: var(--c-danger); }
 .tm-ask-body { font-size: 12px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); white-space: pre-line; }
-.tm-ask-hint { font-size: 10.5px; letter-spacing: 0.06em; color: var(--c-text-faint); }
-.tm-ask-hint[hidden] { display: none; }
+/* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.tm-ask-hint` 는 없어졌다 — 「어떻게 누르는가」는 확인 버튼 안
+   라벨 왼쪽의 좌클릭 홀드 키캡(`.keycap.kc-btn`, `base.css`)이 말한다. 홀드 확인에만 붙는다. */
 .tm-ask-foot { display: flex; gap: 8px; padding-top: 4px; }
 /* `.ui-btn` 의 `min-width: 220px` 를 되돌린다 — 되돌리지 않으면 440 px 짜리 한 쌍이 카드(440 px) 밖으로 밀린다
    (`base.css` 의 `.pause-ask-foot` 가 2026-09-09 에 고친 것과 같은 함정). */
@@ -322,21 +335,32 @@
 .tm-ask-body[hidden], .tm-ask-content[hidden] { display: none; }
 
 /* ── 캐릭터 확정 요약 카드 (2026-09-14, 사용자 결정 — `CharacterCreate.buildSummary`) ─────────────────────
-   왼쪽 = 이름 한 줄 + 능력치 다섯 칸 가로 게이지(값 / 5), 오른쪽 = 얼굴 정지 썸네일(`SoldierPreview.snapshotFace`,
-   캔버스 비율의 이미지를 `object-fit: cover` 로 정사각형으로 자른다). 카드가 두 열이라 폭만 넓힌다. */
-.tm-ask-card.cc-confirm-card { width: min(620px, calc(100vw - 48px)); }
-.cc-confirm { display: flex; align-items: stretch; gap: 18px; }
-.cc-cf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
-.cc-cf-name { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+   왼쪽 = 이름 한 줄 + 능력치 다섯, 오른쪽 = 얼굴 정지 썸네일(`SoldierPreview.snapshotFace`,
+   캔버스 비율의 이미지를 `object-fit: cover` 로 정사각형으로 자른다). 카드가 두 열이라 폭만 넓힌다.
+
+   2026-09-15 2차 (사용자 결정): 능력치가 **가로 5열 → 세로 5행**이다. 한 행은 `[이름] [게이지] [값]` 세 칸
+   격자이고 `--cf-name` 하나가 첫 칸의 폭을 정한다 — 이름 줄의 `이름` 라벨도 같은 폭이라 왼쪽 모서리가 세로로
+   맞는다. 게이지가 `1fr` 로 남는 폭을 다 쓰고 값은 오른쪽에서 `tabular-nums` 로 서므로 자릿수가 바뀌어도
+   게이지 끝이 흔들리지 않는다. 세로로 서면서 왼쪽 열이 좁아져도 되므로 카드 폭을 620 → 560 으로 줄였다. */
+.tm-ask-card.cc-confirm-card { width: min(560px, calc(100vw - 48px)); }
+.cc-confirm { --cf-name: 52px; display: flex; align-items: stretch; gap: 18px; }
+.cc-cf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+.cc-cf-name { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.cc-cf-name .ui-label { flex: none; width: var(--cf-name); }
 .cc-cf-name .v {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 18px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text);
 }
-.cc-cf-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-.cc-cf-stat { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.cc-cf-stat .h { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; min-width: 0; }
+.cc-cf-stats { display: flex; flex-direction: column; gap: 9px; }
+.cc-cf-stat {
+  display: grid; grid-template-columns: var(--cf-name) minmax(0, 1fr) auto;
+  align-items: center; gap: 10px; min-width: 0;
+}
 .cc-cf-stat .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
-.cc-cf-stat .v { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; line-height: 1; }
+.cc-cf-stat .v {
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; line-height: 1;
+  min-width: 1.4em; text-align: right;
+}
 .cc-cf-stat .bar { position: relative; height: 5px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .cc-cf-stat .bar i {
   position: absolute; inset: 0; transform-origin: left; transform: scaleX(0);
@@ -345,7 +369,7 @@
 .cc-cf-stat.maxed .v { color: var(--c-accent); }
 .cc-cf-stat.maxed .bar i { background: var(--c-accent); }
 .cc-cf-face {
-  flex: none; width: 136px; height: 136px; overflow: hidden;
+  flex: none; align-self: center; width: 136px; height: 136px; overflow: hidden;
   border: 1px solid var(--c-border);
   background: linear-gradient(180deg, rgba(16, 20, 27, 0.9), rgba(6, 8, 11, 0.95));
 }

@@ -409,6 +409,27 @@ try {
   ok(s5.rowIn && s5.rowHit?.ok && !s5.card, '레이븐 대화 줄이 구멍 안에서 눌린다 · 아직 퀘스트 카드는 없다', JSON.stringify(s5));
   ok(s5.objs.join('|') === '레이븐의 연락에 답장|퀘스트 수락', `목표 두 줄 (${s5.objs.join(' | ')})`);
   await page.mouse.click(s5.rowHit.x, s5.rowHit.y);
+  /* 2026-09-15 (사용자 결정 — 「확인해야 다음 메시지가 온다」): 대화를 **처음** 열면 안 읽은 인사가 한꺼번에
+   * 뜨지 않고 `...`(`.ms-bubble.ms-typing`) 뒤에 하나씩 붙는다. 자동으로 그 연출을 지나는 유일한 경로가
+   * 여기다 — 이 단계 전에 레이븐 대화를 여는 곳이 없어 `readAt` 이 0 인 채로 도착한다.
+   * 선택지를 기다리는 폴링을 그대로 두면 연출이 있었는지 없었는지 알 수 없으므로, 기다리는 동안 잰다. */
+  const s5t = await P(async () => {
+    const S = await import('/src/shared/index.ts');
+    const lines = S.NPC_DEF_MAP.get('npc_raven').intro.length;
+    const bubbles = () => document.querySelectorAll('.ms-tbody .ms-msg.in:not(.typing) .ms-bubble').length;
+    const t0 = performance.now();
+    const out = { lines, first: bubbles(), typing: false, last: 0, ms: -1 };
+    while (performance.now() - t0 < 12000) {
+      if (document.querySelector('.ms-bubble.ms-typing')) out.typing = true;
+      const n = bubbles();
+      if (n > out.last) out.last = n;
+      if (document.querySelectorAll('.ms-tbody .ms-choice').length === 2) { out.ms = Math.round(performance.now() - t0); break; }
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    return out;
+  });
+  ok(s5t.lines >= 2 && s5t.first < s5t.lines && s5t.typing && s5t.last >= s5t.lines,
+    `안 읽은 인사가 ... 뒤에 하나씩 도착한다 (첫 ${s5t.first} → ${s5t.last} / ${s5t.lines}줄, ${s5t.ms} ms)`, JSON.stringify(s5t));
   await waitFor(page, () => document.querySelectorAll('.ms-tbody .ms-choice').length === 2, 'Raven choices', 10000);
   const s5a = await P(async () => {
     const S = await import('/src/shared/index.ts');

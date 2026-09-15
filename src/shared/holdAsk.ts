@@ -1,5 +1,6 @@
 import type { GameContext } from './GameContext';
 import { UI_HOLD_CONFIRM_S } from './constants';
+import { createHoldButtonCap } from './keycap';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 공용 경고 · 홀드 확인 팝업 (2026-09-13). Owner: shared/ — 계약이므로 추가만 한다.
@@ -11,6 +12,9 @@ import { UI_HOLD_CONFIRM_S } from './constants';
  * 규약 (프로젝트의 2026-09-09 확인 규칙 그대로):
  *  - `hold: true` 인 버튼은 **`UI_HOLD_CONFIRM_S` 동안 누르고 있어야** 실행된다 — 게이지는 rAF, 확정은 타이머(프레임이 멈춘
  *    탭에서도 멎지 않는다). 도중에 떼거나 버튼을 벗어나면 0 으로 돌아간다. 클릭 · Enter 로는 실행되지 않는다.
+ *    **2026-09-15 2차 (사용자 결정)**: 그 규칙을 적던 안내 줄(`.sh-ask-hint` — 일찍 떼면 `is-flash` 로 번쩍이던 그 줄)은
+ *    없어졌다. 대신 홀드 버튼 **안, 라벨 왼쪽**에 좌클릭 홀드 키캡(`keycap.createHoldButtonCap`)이 선다 —
+ *    「어떻게 누르는가」는 그림이 말한다. 그 줄은 홀드 문구만 나르고 있었으므로 요소째 사라졌다.
  *  - **Escape = 취소** — `ctx.escape` 맨 위에 올라가 뒤의 창보다 먼저 닫힌다. 취소는 `cancel: true` 인 버튼의 `run`
  *    (없으면 `spec.onCancel`)이다. **Enter 는 삼킨다**. 최초 포커스는 취소 버튼이다 (Space 는 안전한 쪽을 누른다).
  *  - `ctx.uiBlockers` 에 자기 토큰을 넣고 `input.setCursorMode(true, 토큰)` 한다 — 뒤의 창이 먼저 닫혀도 커서가 남는다.
@@ -59,8 +63,6 @@ export interface HoldAskHandle {
 }
 
 const STYLE_ID = 'sh-ask-style';
-/** Below this fraction of the hold a release reads as a click — flash the hint so the button explains itself. */
-const TAP_HINT = 0.35;
 
 const CSS = `
 .sh-ask { position: fixed; inset: 0; z-index: 206; display: flex; align-items: center; justify-content: center; background: rgba(3, 4, 6, 0.55); }
@@ -72,9 +74,6 @@ const CSS = `
 .sh-ask-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); }
 .sh-ask.is-danger .sh-ask-title { color: var(--c-danger); }
 .sh-ask-body { font-size: 12px; line-height: 1.6; color: var(--c-text-dim); white-space: pre-line; }
-.sh-ask-hint { font-size: 11px; color: var(--c-text-faint); transition: color var(--t-fast) var(--ease); }
-.sh-ask-hint[hidden] { display: none; }
-.sh-ask-hint.is-flash { color: var(--c-accent); }
 .sh-ask-foot { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .sh-ask-foot .ui-btn { min-width: 104px; height: 34px; padding: 0 16px; font-size: 11px; letter-spacing: 0.12em; overflow: hidden; }
 .sh-ask-btn.danger { border-color: color-mix(in srgb, var(--c-danger) 60%, transparent); color: var(--c-danger); }
@@ -123,9 +122,6 @@ export function openHoldAsk(ctx: GameContext, spec: HoldAskSpec): HoldAskHandle 
   card.setAttribute('role', 'alertdialog');
   mk('div', 'sh-ask-title', card, spec.title);
   mk('div', 'sh-ask-body', card, spec.body);
-  const holdBtn = spec.buttons.find((b) => b.hold);
-  const hint = mk('div', 'sh-ask-hint', card, holdBtn ? `${holdBtn.label} 버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 실행됩니다.` : '');
-  hint.hidden = !holdBtn;
   const foot = mk('div', 'sh-ask-foot', card);
 
   const cancelHold = (): void => {
@@ -166,17 +162,8 @@ export function openHoldAsk(ctx: GameContext, spec: HoldAskSpec): HoldAskHandle 
   const cancelBtnSpec = spec.buttons.find((b) => b.cancel);
   const cancel = (): void => { if (open) fire(cancelBtnSpec, spec.onCancel); };
 
-  const release = (): void => {
-    const h = hold;
-    if (!h) return;
-    const f = (performance.now() - h.t0) / holdMs;
-    cancelHold();
-    if (f < TAP_HINT) {
-      hint.classList.remove('is-flash');
-      void hint.offsetWidth;
-      hint.classList.add('is-flash');
-    }
-  };
+  /** 일찍 뗐다 = 아무 일도 없다. 2026-09-15 2차부터 안내 줄이 없으므로 게이지를 0 으로 되돌리는 것이 전부다. */
+  const release = (): void => { if (hold) cancelHold(); };
 
   let focusBtn: HTMLButtonElement | null = null;
   for (const b of spec.buttons) {
@@ -185,6 +172,8 @@ export function openHoldAsk(ctx: GameContext, spec: HoldAskSpec): HoldAskHandle 
     btn.type = 'button';
     if (b.cancel) btn.dataset.cancel = '';
     if (b.hold) btn.dataset.hold = '';
+    // 2026-09-15 2차: 홀드 버튼은 라벨 왼쪽에 좌클릭 홀드 키캡을 단다 (채움 바는 absolute 라 줄에서 빠진다).
+    if (b.hold) createHoldButtonCap(btn);
     const fill = b.hold ? mk('i', 'sh-ask-fill', btn) : null;
     mk('span', 'sh-ask-label', btn, b.label);
     if (b.cancel) focusBtn = btn;

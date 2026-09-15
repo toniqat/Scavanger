@@ -3,8 +3,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Random } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  BACKSTOP, BARRIER, BARRIER_LEN, BARRIER_MESH_YAW, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y, DECK_UPPER_Y, DRESSING_SEED, RUINS,
-  SHIP_POS, SHIP_YAW, barrierLocal, barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inChasm,
+  BACKSTOP, BARRIER, BARRIER_GHOST_OVERLAP, BARRIER_LEN, BARRIER_MESH_YAW, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y,
+  DECK_UPPER_Y, DRESSING_SEED, PIT_FLOOR_Y, PIT_RAMP_TOE_X, RUINS,
+  SHIP_POS, SHIP_YAW, barrierLocal, barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inChasm, pitSurfaceY,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -23,25 +24,36 @@ import {
  *
  * 2026-09-15 — 옛 「무너진 벽」(통로를 가로지르고 가운데 5 m 만 뚫림)을 **사선 방벽**(`buildBarrier`)으로 바꿨다.
  * 치수 · 검산은 전부 `model.ts` 의 `BARRIER` · `BACKSTOP` 주석에 있다.
+ *
+ * 2026-09-15 2차 (사용자 결정) — 철조망이 **절반 높이**(1.35)로 보이되 콜라이더는 위에 `passRays` + `passSmall`
+ * **유령 토막**을 얹어 사람만 막는다(`BARRIER.blockHeight`). 살 치수는 이제 전부 `BARRIER.fenceHeight` 에서 유도한다.
+ * 그리고 마지막 안드로이드 둘이 **웅덩이**(`model.ts` 의 `PIT`, 땅은 `parts/Ground.buildPit`) 안에 서므로
+ * `BACKSTOP` 의 밑면과 웅덩이 안 부스러기가 `PIT_FLOOR_Y` · `pitSurfaceY` 를 기준으로 내려갔다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 콜라이더 없이 그리기만 하는 최대 높이 (발을 걸지 않고 넘어간다 — `PROP_STEP_UP_MAX` 0.9 보다 낮다). */
 const FLAT_DEBRIS_H = 0.35;
 
 /*
- * 블라인드 철조망의 그림 치수 (콜라이더는 이것과 무관하게 `BARRIER.halfT` × `BARRIER.fenceHeight` 한 덩어리다).
- *   가로 살 `SLAT_COUNT` 줄: 밑 `SLAT_BASE` 0.25 부터 살 0.12 + 틈 0.18 → 맨 윗살 윗면 0.25 + 7 × 0.30 + 0.12 = **2.47 m**.
- *   틈이 60 % 라 건너편이 보인다. 살은 방벽 중심선에서 ±`SLAT_FACE`(0.55) 두 겹 — 콜라이더 면(±0.6)보다 5 cm 안쪽이라
- *   총알 자국이 살 바로 앞에 선다. 두 겹의 살 높이가 같아 틈이 겹치므로, 틈으로 보이는 세로 각은 atan(0.18 / 1.1) = 9.3° 까지다
- *   (선 눈높이 1.55 에서 10 m 너머 가슴 높이 1.3 을 볼 때 1.4° — 넉넉하다).
- *   윗 난간 2.58 … 2.68, 그 사이의 지그재그 철선 2.64 … 2.66 — 전부 철조망 높이 2.7 **밑**이라 넘겨 던진 수류탄의 궤적과
- *   그림이 어긋나지 않는다.
+ * 블라인드 철조망의 그림 치수. **높이(`BARRIER.fenceHeight`)에서 전부 유도한다** — 2026-09-15 2차에 2.7 → 1.35 로
+ * 절반이 되면서 옛 고정 치수(살 0.12 + 틈 0.18, 밑 0.25)로는 살이 셋밖에 안 들어갔다.
+ *   한 칸 `SLAT_PITCH` = 높이 / (`SLAT_COUNT` + 1) = 1.35 / 6 = **0.225** (맨 위 한 칸은 난간 · 철선 자리)
+ *   살 `SLAT_H` = 칸의 40 % = 0.09, 틈 0.135 → **틈이 60 %** 라 건너편이 보인다 (옛 비율 그대로).
+ *   밑 `SLAT_BASE` = 칸의 80 % = 0.18 → 맨 윗살 윗면 0.18 + 4 × 0.225 + 0.09 = **1.17 m**, 윗 난간 1.28 … 1.33 —
+ *   전부 철조망 높이 1.35 **밑**이라 넘겨 던진 수류탄의 궤적과 그림이 어긋나지 않는다.
+ * 살은 방벽 중심선에서 ±`SLAT_FACE`(0.55) 두 겹 — 콜라이더 면(±0.6)보다 5 cm 안쪽이라 총알 자국이 살 바로 앞에 선다.
+ * 두 겹의 살 높이가 같아 틈이 겹치므로 틈으로 보이는 세로 각은 atan(0.135 / 1.1) = **7.0°** 까지다.
+ *   ⚠ 이 각이 「멀리서도 건너편이 보이는가」를 정한다: 웅덩이 속 안드로이드(가슴 = 데크 +0.27)를 보는 각은 철조망에서
+ *   2.31 m 뒤에서 6.2° 이고 더 뒤로 갈수록 작아지므로 **살 사이로 보이고**, 2.31 m 안쪽에서는 사선이 철조망 윗면 위로
+ *   올라가 **넘어 보인다** — 두 구간이 이어져 어디에 서도 보인다 (`model.ts` 의 `BARRIER` 검산).
  */
-const SLAT_H = 0.12, SLAT_GAP = 0.18, SLAT_BASE = 0.25, SLAT_COUNT = 8, SLAT_T = 0.04;
+const SLAT_COUNT = 5, SLAT_T = 0.04;
+const SLAT_PITCH = BARRIER.fenceHeight / (SLAT_COUNT + 1);
+const SLAT_H = SLAT_PITCH * 0.4, SLAT_GAP = SLAT_PITCH - SLAT_H, SLAT_BASE = SLAT_PITCH * 0.8;
 const SLAT_FACE = BARRIER.halfT - 0.05;
 const RAIL_H = 0.1;
-/** 철조망 밑의 콘크리트 턱 높이 — 첫 살(0.25)보다 낮다. */
-const SILL_H = 0.22;
+/** 철조망 밑의 콘크리트 턱 높이 — 첫 살(`SLAT_BASE`)보다 낮다. */
+const SILL_H = SLAT_PITCH * 0.7;
 /** 기둥 간격 (m) — 철조망 토막을 이 길이 이하의 칸으로 나눈다. */
 const POST_STEP_M = 3;
 /**
@@ -165,7 +177,8 @@ export class Dressing {
    * 로컬 +Z 는 가까운 쪽 법선이 된다 (rotateY(θ) 가 +Z 를 (sin θ, cos θ) = (−0.685, 0.728) 로 보낸다).
    * 콜라이더는 `addBox` 에 **메시 yaw** 를 넘기고 거기서 부호를 뒤집는다 (파일 끝 주석).
    *
-   * 철조망의 콜라이더는 살이 아니라 **토막 전체**다 — 그래서 살 사이로 보이지만 총알 · 적 시야는 막힌다 (`BARRIER` 주석).
+   * 철조망의 콜라이더는 살이 아니라 **토막 전체**이고 2026-09-15 2차부터 **두 겹**이다 — 아래(그려진 1.35 m)는 총알 · 적 시야까지
+   * 막고, 위(`blockHeight` 까지)는 `passRays` + `passSmall` 유령이라 사람 · 적만 막는다 (`BARRIER` 주석의 표).
    */
   private buildBarrier(
     hash: SpatialHash, solid: THREE.BufferGeometry[], metal: THREE.BufferGeometry[], flat: THREE.BufferGeometry[], rng: Random,
@@ -227,27 +240,42 @@ export class Dressing {
         metal.push(box(Math.hypot(dx, dz), 0.025, 0.025, (p0.x + p1.x) / 2, y + H - 0.05, (p0.z + p1.z) / 2, -Math.atan2(dz, dx)));
       }
     }
-    // 철조망 콜라이더 — 철조망 높이 전체를 채운 토막 (`BARRIER_COLLIDER_MAX_M` 이하로 나눠 이음매를 겹친다)
+    /* 철조망 콜라이더 — **두 겹**이다 (2026-09-15 2차, `model.ts` 의 `BARRIER` 주석):
+     *   아래 `y … y + fenceHeight`         평범한 토막 — 사람 · 적 · 총알 · 수류탄 전부 막는다 (그려진 철조망과 같은 높이).
+     *   위   `… y + blockHeight`           `passRays` + `passSmall` **유령 토막** — 총알 · 적 시야 · 수류탄은 지나가고
+     *                                      사람(0.45) · 적만 밀려난다. 그래서 절반 높이로 보여도 **넘어갈 수 없다**.
+     * 두 겹은 `BARRIER_GHOST_OVERLAP` 만큼 겹친다 — 정확히 같은 선이면 그 선 위의 점이 양쪽에서 빠질 수 있다.
+     * 길이는 `BARRIER_COLLIDER_MAX_M` 이하로 나누고 이음매는 `BARRIER_JOIN_M` 만큼 겹친다. */
     const pieces = Math.max(1, Math.ceil(fenceLen / BARRIER_COLLIDER_MAX_M));
+    const ghostBase = y + H - BARRIER_GHOST_OVERLAP;
+    const ghostH = y + BARRIER.blockHeight - ghostBase;
     for (let i = 0; i < pieces; i++) {
       const a0 = fence0 + (fenceLen * i) / pieces, a1 = fence0 + (fenceLen * (i + 1)) / pieces;
       const c = barrierPoint((a0 + a1) / 2, 0);
-      this.addBox(hash, c.x, y, c.z, (a1 - a0) / 2 + BARRIER_JOIN_M, BARRIER.halfT, yaw, H, 'tut_fence');
+      const halfLen = (a1 - a0) / 2 + BARRIER_JOIN_M;
+      this.addBox(hash, c.x, y, c.z, halfLen, BARRIER.halfT, yaw, H, 'tut_fence');
+      const ghost = this.addBox(hash, c.x, ghostBase, c.z, halfLen, BARRIER.halfT, yaw, ghostH, 'tut_fence_ghost');
+      ghost.passRays = true;
+      ghost.passSmall = true;
     }
 
-    // ③ 건너편 안드로이드가 등지고 선 콘크리트 방벽 — 넘겨 던진 수류탄이 여기에 부딪혀 그 밑동에 떨어진다 (`BACKSTOP` 주석)
+    /* ③ 건너편 안드로이드가 등지고 선 콘크리트 방벽 — 넘겨 던진 수류탄이 여기에 부딪혀 그 밑동에 떨어진다 (`BACKSTOP` 주석).
+     * 2026-09-15 2차: 밑면이 데크가 아니라 **웅덩이 바닥**이다 — 웅덩이 안에서는 4.2 m 벽이고, 양 끝이 턱을 뚫고 나간
+     * 자리에서는 아래 0.9 m 가 데크에 묻혀 3.3 m 로 보인다 (끝이 턱에 박혀 있어 수류탄이 돌아 나가지 못한다). */
+    const yb = PIT_FLOOR_Y;
     const b = barrierPoint(BACKSTOP.along, BACKSTOP.depth);
-    solid.push(box(BACKSTOP.halfLen * 2, BACKSTOP.height, BACKSTOP.halfT * 2, b.x, y + BACKSTOP.height / 2, b.z, yaw));
-    this.addBox(hash, b.x, y, b.z, BACKSTOP.halfLen, BACKSTOP.halfT, yaw, BACKSTOP.height, 'tut_backstop');
+    solid.push(box(BACKSTOP.halfLen * 2, BACKSTOP.height, BACKSTOP.halfT * 2, b.x, yb + BACKSTOP.height / 2, b.z, yaw));
+    this.addBox(hash, b.x, yb, b.z, BACKSTOP.halfLen, BACKSTOP.halfT, yaw, BACKSTOP.height, 'tut_backstop');
     for (let i = 0; i < 4; i++) {
       const s = rng.range(0.5, 1.0);
       const p = barrierPoint(BACKSTOP.along + rng.range(-BACKSTOP.halfLen + 0.8, BACKSTOP.halfLen - 0.8), BACKSTOP.depth + rng.range(-0.2, 0.2));
-      solid.push(box(s * 1.5, s * 0.5, BACKSTOP.halfT * 1.6, p.x, y + BACKSTOP.height + s * 0.25 - 0.1, p.z, yaw + rng.range(-0.25, 0.25)));
+      solid.push(box(s * 1.5, s * 0.5, BACKSTOP.halfT * 1.6, p.x, yb + BACKSTOP.height + s * 0.25 - 0.1, p.z, yaw + rng.range(-0.25, 0.25)));
     }
-    // 방벽 뒤(건너편 먼 쪽)에 무너져 내린 조각 — 수류탄이 멈추는 앞쪽 밑동은 비워 둔다
+    // 방벽 뒤(건너편 먼 쪽)에 무너져 내린 조각 — 수류탄이 멈추는 앞쪽 밑동은 비워 둔다. 웅덩이 안이면 그 바닥에 놓는다.
     for (let i = 0; i < 3; i++) {
       const p = barrierPoint(BACKSTOP.along + rng.range(-3.5, 3.5), BACKSTOP.depth - rng.range(1.2, 2.4));
-      flat.push(box(rng.range(0.8, 1.8), FLAT_DEBRIS_H, rng.range(0.6, 1.2), p.x, y + FLAT_DEBRIS_H / 2, p.z, rng.range(0, Math.PI)));
+      const py = pitSurfaceY(p.x, p.z) ?? y;
+      flat.push(box(rng.range(0.8, 1.8), FLAT_DEBRIS_H, rng.range(0.6, 1.2), p.x, py + FLAT_DEBRIS_H / 2, p.z, rng.range(0, Math.PI)));
     }
   }
 
@@ -255,11 +283,16 @@ export class Dressing {
    * 2026-09-15 — 바닥 부스러기를 뿌리지 않는 자리: 방벽 · 콘크리트 방벽의 발밑(콜라이더 속에 반쯤 묻혀 보인다)과
    * **버려진 함선의 발자국**(부스러기 0.35 m 가 화물칸 바닥 · 램프를 뚫고 올라온다). 함선 로컬 좌표는 `extraction/Ship.bayLocal` 과
    * 같은 식이고, 외피 x ±5.25 · z −9.7 … 램프 끝 +3.25 에 여유를 둔다.
+   *
+   * 2026-09-15 2차 — **웅덩이의 오르막**도 뺀다. 부스러기는 yaw 로만 돌리는 납작한 상자라 19.8° 경사에 놓으면
+   * 한쪽 끝이 0.25 m 뜨고 반대쪽이 묻힌다. 평평한 **바닥**은 빼지 않는다 — `scatterRubble` 이 `pitSurfaceY` 로
+   * 높이를 내려 잡으므로 웅덩이 안에도 부스러기가 깔린다 (턱만 있고 아무것도 없으면 파 놓은 구멍처럼 보인다).
    */
   private blocksRubble(x: number, z: number): boolean {
     const b = barrierLocal(x, z);
     if (b.along > -1.5 && b.along < BARRIER_LEN + 1.5 && Math.abs(b.depth) < BARRIER.halfT + 1.2) return true;
     if (Math.abs(b.along - BACKSTOP.along) < BACKSTOP.halfLen + 1 && Math.abs(b.depth - BACKSTOP.depth) < BACKSTOP.halfT + 1) return true;
+    if (pitSurfaceY(x, z) !== null && x < PIT_RAMP_TOE_X) return true;
     const c = Math.cos(SHIP_YAW), s = Math.sin(SHIP_YAW);
     const dx = x - SHIP_POS.x, dz = z - SHIP_POS.z;
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
@@ -270,14 +303,15 @@ export class Dressing {
   private scatterRubble(flat: THREE.BufferGeometry[], rng: Random): void {
     for (let i = 0; i < 90; i++) {
       const z = rng.range(-160, RUINS.z0);
-      const y = z > CLIFF2_EDGE_Z ? DECK_UPPER_Y : DECK_LOWER_Y;
       // 벽에서 2 m 떨어뜨린다 — 좁은 구간에서는 그 구간의 반폭을 기준으로 (rng 호출 순서는 그대로다)
       const lim = Math.max(2.5, corridorHalfXAt(z) - 2);
       const x = rng.range(-lim, lim);
+      // 2026-09-15 2차: 웅덩이 안이면 그 바닥 높이로 — 데크 높이로 놓으면 0.9 m 떠 보인다
+      const y = pitSurfaceY(x, z) ?? (z > CLIFF2_EDGE_Z ? DECK_UPPER_Y : DECK_LOWER_Y);
       if (inChasm(x, z, 1.5)) continue;        // 절벽 1 의 틈에는 아무것도 없다 (2026-09-14 3차: 사선이다)
       // 포복 구간 — 엎드린 몸이 콜라이더 없는 부스러기를 뚫고 지나가 보인다 (2026-09-14 3차)
       if (z <= CRAWL.z0 + 1 && z >= CRAWL.z1 - 1) continue;
-      if (this.blocksRubble(x, z)) continue;   // 방벽 발밑 · 함선 발자국 (2026-09-15)
+      if (this.blocksRubble(x, z)) continue;   // 방벽 발밑 · 웅덩이 오르막 · 함선 발자국 (2026-09-15)
       const w = rng.range(0.4, 1.6);
       flat.push(box(w, FLAT_DEBRIS_H * rng.range(0.5, 1), w * rng.range(0.5, 1.4), x, y + FLAT_DEBRIS_H / 2, z, rng.range(0, Math.PI)));
     }
@@ -288,8 +322,12 @@ export class Dressing {
    * `toLocal` · `extraction/Hull` 의 같은 주석)라 여기서 한 번 뒤집는다 — 안 뒤집으면 기울어진 폐허 벽의
    * 콜라이더가 그려진 판과 **거울상**이 된다 (2026-09-14 2차에 바로잡았다).
    */
-  private addBox(hash: SpatialHash, x: number, y: number, z: number, hx: number, hz: number, yaw: number, height: number, kind: string): void {
-    this.entries.push(hash.addBox(new THREE.Vector3(x, y, z), hx, hz, -yaw, height, kind));
+  private addBox(
+    hash: SpatialHash, x: number, y: number, z: number, hx: number, hz: number, yaw: number, height: number, kind: string,
+  ): ObstacleEntry {
+    const e = hash.addBox(new THREE.Vector3(x, y, z), hx, hz, -yaw, height, kind);
+    this.entries.push(e);
+    return e;
   }
 
   private addMerged(parts: THREE.BufferGeometry[], mat: THREE.Material, name: string): void {

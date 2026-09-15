@@ -11,9 +11,10 @@ import { keyLabel } from './Keybinds';
  *  - **키보드 키**: 예전 그대로 글자 (`keyLabel`).
  *  - **마우스 좌 · 휠 · 우 (`Mouse0` · `Mouse1` · `Mouse2`, 또는 라벨 `LMB` · `MMB` · `RMB`)**: 글자 대신 **마우스 윗부분 그림**
  *    (위로 둥글고 좌 / 휠 / 우 버튼이 갈린다). 눌러야 하는 부분만 **흰색**으로 칠한다. `M4` · `M5` 는 글자 그대로.
- *  - **꾹 누르기 (`hold`)**: 키보드 키는 `.kc-hold` (chevron 은 `ui/styles/base.css` 의 `::before`). 마우스 그림은 칠하는 색이
- *    흰색 대신 **강조색**이고, 그 버튼 위에 아래를 가리키는 chevron 을 **그림 안에** 그린다 (`.kc-mouse.kc-hold` 는 `::before` 를
- *    그리지 않는다 — base.css).
+ *  - **꾹 누르기 (`hold`)**: 키보드든 마우스든 **모양이 같다** (2026-09-15 2차, 사용자 결정) — `.kc-hold` 가 붙고
+ *    ① 아래 테두리가 다른 면과 같은 1px 로 얇어지며 내용이 1px 내려앉고(「눌린 키」), ② chevron 은 키캡
+ *    **윗변에 걸쳐** 절반은 안 · 절반은 밖으로 솟아 있다. 그리는 곳은 `ui/styles/base.css` 의 `.keycap.kc-hold::before`
+ *    **하나**다 — 마우스 그림은 예전에 chevron 을 SVG 안에 그렸지만 이제 안 그린다(칠하는 색만 **강조색**이다).
  *
  * 스타일(크기 · 여백)은 `ui/styles/base.css` 의 `.keycap.kc-mouse` 가 갖는다. 여기는 DOM 과 SVG 모양만 만든다.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -71,14 +72,6 @@ export function mouseGlyphSvg(button: MouseGlyphButton, hold = false): string {
   parts.push(`<rect x="6.55" y="4" width="2.9" height="6" rx="1.45" style="fill:${button === 1 ? fill : WHEEL_HOLE};stroke:currentColor;stroke-width:1.1"/>`);
   // 윤곽
   parts.push(`<path d="${OUTLINE}" style="fill:none;stroke:currentColor;stroke-width:1.35;stroke-linejoin:round"/>`);
-  if (hold) {
-    // 아래를 가리키는 chevron — 켜진 칸 안. 좌 · 우 칸은 강조색 위라 어두운 선(휠 아래 몸통 한가운데), 휠은 칸이 좁아
-    // 휠 아래 몸통에 강조색 선.
-    const cx = button === 0 ? 4.75 : button === 2 ? 11.25 : 8;
-    const cy = button === 1 ? 12.3 : 11;
-    const stroke = button === 1 ? ACCENT : '#111418';
-    parts.push(`<path d="M${cx - 2.1} ${cy - 1.15} L${cx} ${cy + 1.05} L${cx + 2.1} ${cy - 1.15}" style="fill:none;stroke:${stroke};stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"/>`);
-  }
   const svg = `<svg class="kcm-glyph" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">${parts.join('')}</svg>`;
   SVG_CACHE.set(key, svg);
   return svg;
@@ -120,6 +113,21 @@ export function createKeycap(
   paintKeycap(cap, codeOrLabel, opts);
   if (opts?.parent) opts.parent.appendChild(cap);
   return cap;
+}
+
+/**
+ * **꾹 누르는 버튼** 안에 라벨 왼쪽으로 붙이는 좌클릭 홀드 키캡 (2026-09-15 2차, 사용자 결정).
+ *
+ * `UI_HOLD_CONFIRM_S` 동안 눌러야 실행되는 버튼(확정 팝업 · 제작 · 분해 · 거래 · 강화 · 정보상 · 매매 · 시설 제거 …)은
+ * 예전에 버튼 **위에** 「N초 동안 누르고 있어야 실행됩니다」 한 줄을 깔았다. 그 문구 대신 **버튼 안**에 이 키캡을
+ * 둔다 — 「어떻게 누르는가」는 그림이 말하고, 문장은 그 줄이 진짜로 나를던 정보(차단 사유 · 경고)만 남긴다.
+ *
+ * 만들어지는 것은 `Mouse0` · `hold` 키캡이고 클래스가 `kc-btn` 이다 (크기 · 여백 · 포인터 차단은 base.css).
+ * ⚠ `setText(btn, ...)` 는 `textContent` 를 갈아 끼우므로 라벨을 다시 쓸 때마다 이 캡을 **다시 앞에 넣는다**
+ * (채움 바 `i` 를 다시 appendChild 하는 것과 같은 규약).
+ */
+export function createHoldButtonCap(parent?: HTMLElement | null): HTMLElement {
+  return createKeycap('Mouse0', { hold: true, cls: 'kc-btn', parent });
 }
 
 /**

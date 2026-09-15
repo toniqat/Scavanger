@@ -475,7 +475,8 @@
 .inv-dis-confirm[hidden] { display: none; }
 .inv-dis-confirm-title { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--c-favorite, #4a90ff); }
 .inv-dis-confirm-body { font-size: 12px; color: var(--inv-text, #e9ecef); }
-.inv-dis-confirm-hint { font-size: 10px; color: var(--inv-muted, rgba(233, 236, 239, 0.55)); }
+/* `.inv-dis-confirm-hint`(「분해 버튼을 N초 동안 누르고 있어야 …」)는 2026-09-15 2차에 없어졌다 (사용자 결정) —
+   그 말은 이제 확정 버튼 **안**의 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 한다. */
 .inv-dis-confirm-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
 .inv-dis-confirm-ok {
   position: relative; overflow: hidden;
@@ -1401,15 +1402,19 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 .inv-craft-chip.is-missing { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); }
-/* 2026-09-14 3차 (사용자 결정 — 누르는 중에 버튼이 좁아지지 않는다): 라벨이 `길게 눌러 제작` ↔ `제작 중…`
- * 으로 바뀌면 폭이 약 114 → 96 px (옛 `min-width`) 로 줄어, 누르고 있던 커서가 버튼 밖으로 나가면서 홀드가
- * 스스로 풀렸다. 그래서 **긴 쪽에 맞춰 폭을 고정**한다 — `flex: none` 이라 폭을 정하는 것은 이 값뿐이다.
- *   `길게 눌러 제작` = 한글 6 + 공백 2 × 11 px(font-size) + letter-spacing 0.14em × 8 + padding 28 + border 2
- *   ≈ 114 px → 여유를 얹어 **132 px** (대체 글꼴이 조금 넓어도 두 라벨이 같은 폭을 쓴다).
- * 더 긴 `가방·창고 공간 부족`(≈ 164 px)은 **비활성 상태**라 홀드 중에 나타나지 않는다 — 그 상태에서만 버튼이
- * 늘어나는 것은 예전 그대로다. 같은 클래스를 쓰는 분해 버튼(`.inv-dis-btn`)은 아래에서 `width: 100%`
- * + `min-width: 0` 으로 제 칸을 꽉 채우므로 이 값에 걸리지 않고, 이미 라벨과 무관하게 폭이 고정이다. */
-.inv-craft-btn { position: relative; overflow: hidden; min-width: 132px; flex: none; }
+/* 2026-09-14 3차 (사용자 결정 — 누르는 중에 버튼이 좁아지지 않는다): 라벨이 바뀌면서 버튼이 좁아지면 누르고
+ * 있던 커서가 버튼 밖으로 나가 홀드가 스스로 풀린다. 그래서 **긴 쪽에 맞춰 폭을 고정**한다 — `flex: none`
+ * 이라 폭을 정하는 것은 이 값뿐이다.
+ * 2026-09-15 2차 (사용자 결정 — 버튼 안의 좌클릭 홀드 키캡): 라벨이 `길게 눌러 제작` → **`제작`** 으로 짧아졌고
+ * 그 왼쪽에 키캡이 섰다. 두 라벨의 폭을 다시 잰다 (11 px · letter-spacing 0.14em ≈ 1.54 px/자 · padding 28 · border 2):
+ *   키캡 = min-width 20 ↔ 그림 1.5em(16.5) + padding 6 + border 2 ≈ 24.5 + margin-right 8 = **약 33 px**
+ *   `제작`     = 22 + 3.1  ≈ 25  → 25 + 33 + 30 ≈  88 px
+ *   `제작 중…` = 49 + 7.7  ≈ 57  → 57 + 33 + 30 ≈ 120 px  ← 긴 쪽
+ * 그래서 **124 px** (대체 글꼴이 조금 넓어도 두 라벨이 같은 폭을 쓴다).
+ * 더 긴 `가방·창고 공간 부족`은 **비활성 상태**라 홀드 중에 나타나지 않는다 (그때는 키캡도 숨는다 — `CraftPanel.paint`).
+ * 같은 클래스를 쓰는 분해 버튼(`.inv-dis-btn`)은 아래에서 `width: 100%` + `min-width: 0` 으로 제 칸을 꽉 채우므로
+ * 이 값에 걸리지 않고, 이미 라벨과 무관하게 폭이 고정이다. */
+.inv-craft-btn { position: relative; overflow: hidden; min-width: 124px; flex: none; }
 .inv-craft-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .inv-craft-btn span { position: relative; z-index: 1; }
 .inv-craft-fill {

@@ -309,7 +309,7 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   landed(call: Call): void { return Calls.landed(this, call); }
   ended(call: Call): void { return Calls.ended(this, call); }
 
-  /** Radial damage of an impact: enemies only on the caller's client, the local player everywhere (linear falloff). */
+  /** Radial damage of an impact: enemies only on the caller's client, the local player everywhere (`shared/explosion` 2단 계단 감쇠). */
   impactDamage(call: Call, center: THREE.Vector3, radius: number, damage: number): void { return Calls.impactDamage(this, call, center, radius, damage); }
 
   private updateCalls(dt: number): void { return Calls.updateCalls(this, dt); }

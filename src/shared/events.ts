@@ -1360,8 +1360,13 @@ export interface GameEvents {
    * 간다 (0 = 즉시). 판은 `ctx.uiRoot` 맨 위에 있고 **입력을 먹지 않는다** — 연출이지 blocker 가 아니다.
    * 첫 사용자는 튜토리얼 오프닝(`PlayerRef.playIntroWake`): 검은 화면에서 시작해 쓰러진 몸이 드러나며 밝아진다.
    * 페이즈가 게임플레이를 벗어나거나 `game:abort` 가 나면 ui 가 스스로 0 으로 되돌린다.
+   *
+   * appended (2026-09-15, 튜토리얼 건너뛰기): `hold` — **페이즈가 바뀌어도 이 판은 스스로 걷히지 않는다.**
+   * 생략 = 예전 그대로(결과 화면 · 함선 · 타이틀로 넘어가는 순간 즉시 0). 튜토리얼 레이드 건너뛰기가
+   * 「암전된 채로 탈출 성공이 뜬다」를 위해 쓰고, 건 쪽이 `{opacity: 0}` 으로 직접 걷는다.
+   * 걸어 둔 판도 `game:abort` · `hub:entered` 에서는 ui 가 무조건 걷는다 — 함선이 검게 남는 길은 없다.
    */
-  'ui:screenFade': { opacity: number; durationS: number };
+  'ui:screenFade': { opacity: number; durationS: number; hold?: boolean };
 }
 /* ── end [2026-09-14 2차] ── */
 

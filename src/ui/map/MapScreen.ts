@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { FogRef, GameContext, HazardRef, KeyGuideEntry, PingKind, RoverRef, RoverStationDef, StructureKind } from '@/shared';
 import {
-  HAZARD_LABEL_KO, Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, UI_HOLD_CONFIRM_S, keyLabel, mouseButtonOf,
+  HAZARD_LABEL_KO, Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, UI_HOLD_CONFIRM_S,
+  createHoldButtonCap, keyLabel, mouseButtonOf,
 } from '@/shared';
 import { el, fmtInt, setText, toggleClass } from '../dom';
 import type { PingView } from '../hud/Pings';
@@ -175,6 +176,8 @@ export class MapScreen {
   private rvReason: HTMLElement;
   private rvBtn: HTMLButtonElement;
   private rvBtnFill: HTMLElement;
+  /** 라벨 왼쪽의 좌클릭 홀드 키캡 (2026-09-15 2차) — 막힌 상태에서는 숨는다. */
+  private rvBtnCap: HTMLElement;
   private rvBtnLbl: HTMLElement;
   private holdStart = 0;
   private holdRaf = 0;
@@ -293,8 +296,11 @@ export class MapScreen {
     this.rvBtn = el('button', { cls: 'map-rover-go', parent: this.roverPanel });
     this.rvBtn.type = 'button';
     this.rvBtnFill = el('span', { cls: 'fill', parent: this.rvBtn });
+    // 2026-09-15 2차 (사용자 결정): 「N초 동안 누르고 있어야 출발합니다」는 버튼 **안**의 좌클릭 홀드 키캡이 대신한다.
+    // 아래 줄에는 그 줄이 진짜로 나르던 **경고**만 남는다.
+    this.rvBtnCap = createHoldButtonCap(this.rvBtn);
     this.rvBtnLbl = el('span', { cls: 'lbl', text: '목적지를 선택하세요', parent: this.rvBtn });
-    el('div', { cls: 'map-rover-note', text: `버튼을 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있어야 출발합니다. 출발하면 도착까지 내릴 수 없습니다.`, parent: this.roverPanel });
+    el('div', { cls: 'map-rover-note', text: '출발하면 도착까지 내릴 수 없습니다.', parent: this.roverPanel });
     // 되돌릴 수 없는 확정 = 1초 홀드 (CLAUDE.md). 클릭 · Enter · Space 로는 아무것도 하지 않는다.
     this.rvBtn.addEventListener('pointerdown', (e) => this.startHold(e));
     this.rvBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.preventDefault(); });
@@ -1346,6 +1352,8 @@ export class MapScreen {
 
   private setBtnBlocked(blocked: boolean): void {
     toggleClass(this.rvBtn, 'is-blocked', blocked);
+    // 눌러도 소용없는 상태에서 「꾹 누르세요」 그림을 보여 주면 거짓말이다 (2026-09-15 2차).
+    this.rvBtnCap.style.display = blocked ? 'none' : '';
     this.rvBtn.setAttribute('aria-disabled', blocked ? 'true' : 'false');
     if (blocked && this.holdStart) this.stopHold();
   }

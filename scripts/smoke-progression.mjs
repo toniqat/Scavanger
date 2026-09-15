@@ -658,8 +658,10 @@ try {
   await sleep(150);
   await clickSel('.char-sheet .cs-foot .ui-btn.danger');
   await sleep(100);
-  const rp0 = await P(() => { const a = document.querySelector('.sh-ask[data-ask="character-reset"]'); return { ask: !!a, danger: a?.classList.contains('is-danger'), hint: a?.querySelector('.sh-ask-hint')?.textContent ?? '', level: window.__game.ctx.progression.level }; });
-  ok(rp0.ask && rp0.danger && /1초 동안 누르고/.test(rp0.hint), '캐릭터 초기화 → danger warning popup with the hold hint (no two-click arm)', JSON.stringify(rp0));
+  // 2026-09-15 2차 (사용자 결정): 「1초 동안 누르고 있어야」 안내 줄(`.sh-ask-hint`)은 없어졌다 —
+  // 그 말을 하는 것은 이제 **버튼 안의 좌클릭 홀드 키캡**(`.keycap.kc-btn`)이다.
+  const rp0 = await P(() => { const a = document.querySelector('.sh-ask[data-ask="character-reset"]'); return { ask: !!a, danger: a?.classList.contains('is-danger'), holdCap: !!a?.querySelector('[data-hold] .keycap.kc-btn'), level: window.__game.ctx.progression.level }; });
+  ok(rp0.ask && rp0.danger && rp0.holdCap, '캐릭터 초기화 → danger warning popup with the hold keycap (no two-click arm)', JSON.stringify(rp0));
   await clickSel('.sh-ask[data-ask="character-reset"] [data-hold]');
   await sleep(100);
   ok(await P(() => !!document.querySelector('.sh-ask[data-ask="character-reset"]') && window.__game.ctx.progression.level > 1), 'a click on 초기화 does not reset');

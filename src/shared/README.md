@@ -25,9 +25,10 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
 | `net.ts` (서버 주소 절) | **2026-09-10** — `RELAY_STORAGE_KEY`(`scav.relay`, 슬롯 공용) · `relayUrlFrom(raw)` (맨 주소 → `ws://host:8787/ws`) · `RelayProbe` · `lanAddresses(networkInterfaces())`. 클라이언트 · 설정 UI · 데스크톱 셸 · 배포 서버 배너가 **같은** 두 함수를 부른다 — 각자 정규화하면 설정에서 초록불인 주소로 앱이 다른 데 붙는다 |
 | `holdAsk.ts` | **공용 경고 · 1초 홀드 확인 팝업** (2026-09-13, `openHoldAsk(ctx, spec) → HoldAskHandle`) — 제목 · 본문 · 버튼(`kind` danger/primary/default · `hold` · `cancel` · `run`), Escape = 취소(`ctx.escape`) · Enter 삼킴 · 최초 포커스 취소 · 자기 `uiBlockers` 토큰 + 커서. `.sh-ask*` 스타일을 스스로 넣는다. 첫 사용처는 캐릭터 시트(떠나기 경고 · 초기화); `ui/menus/askPopup` · `meta/ui/HoldAsk` 사본은 아직 옮기지 않았다. 같은 날 계약 추가: `EmbeddedView.requestLeave?(proceed)` · `ProgressionRef.spendStatPoints?(alloc)` |
-| `keycap.ts` | **공용 키캡** (2026-09-15) — 키캡이 뜨는 모든 곳이 부르는 `createKeycap` / `paintKeycap` / `renderKeyText`. 키보드 키는 글자, 마우스 좌 · 휠 · 우는 마우스 윗부분 그림(누를 칸 흰색 · 꾹 누르기면 강조색 + chevron), `hold` 면 `.kc-hold`. 스타일은 `ui/styles/base.css` |
+| `keycap.ts` | **공용 키캡** (2026-09-15) — 키캡이 뜨는 모든 곳이 부르는 `createKeycap` / `paintKeycap` / `renderKeyText` / **`createHoldButtonCap`**. 키보드 키는 글자, 마우스 좌 · 휠 · 우는 마우스 윗부분 그림(누를 칸 흰색 · 꾹 누르기면 강조색), `hold` 면 `.kc-hold` — **2026-09-15 2차부터 키보드든 마우스든 모양이 같다**(눌린 키 + 윗변에 걸친 chevron 하나). 스타일은 `ui/styles/base.css` |
 | `escape.ts` | **ESC 닫기 스택** (2026-09-09) — 열린 화면들의 Escape 동작을 열린 순서로 (`EscapeStack`: `push`/`remove`/`closeTop`). `ctx.escape` 로 게시되고 정책은 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비면 일시정지 메뉴) |
 | `ballistics.ts` | **포탄 궤적 닫힌 식** (2026-09-10) — `shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`. `enemies/fx/ShellProjectile`(실제 포탄)와 `ui/hud` 의 HUD 마커가 **같은 자리**를 그려야 하는데 폴더끼리 import 하지 않으므로 수식을 여기 한 곳에 둔다 — 예전에는 양쪽이 각자 베껴 두고 있어 한쪽만 고치면 마커가 포탄에서 떨어졌다. 중력은 `GRAVITY` 가 아니라 **`SHELL_ARC_GRAVITY`** 다 |
+| `explosion.ts` | **폭발 감쇠** (2026-09-15, 사용자 결정) — `explosionFalloff(dist, radius)` · `explosionDamage(damage, dist, radius)`. 「모든 폭발물이 같은 감쇠 공식」의 **2단 계단**: `0 … EXPLOSION_FULL_FRACTION × radius` = 100 %, 거기서 `radius` 까지 = `EXPLOSION_OUTER_MUL`(거리 무관 고정), 밖은 0. 같은 `damage * (1 - d / radius)` 한 줄이 weapons · enemies · gadgets · stratagems 에 베껴져 있어 한쪽만 고치면 같은 폭발이 적과 플레이어에게 다르게 아팠다 (`ballistics.ts` 와 같은 이유). 하한 클램프는 이 배수 **위에** 얹는다 |
 | `index.ts` | Barrel export — import via `@/shared` |
 
 ## Appended contract (2026-09, stance / weapon classes / ping / map)
@@ -645,6 +646,31 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-15 (`NpcQuestRef.readAtOf` — 추가만, 사용자 결정 「확인해야 다음 메시지가 온다」)** — `npc.ts` 한 줄:
+  선택 메서드 `readAtOf?(npcId): number` = 그 NPC 의 대화를 **마지막으로 읽은 시각**(epoch ms, 한 번도 안 읽었으면 0).
+  메신저가 대화를 처음 그릴 때 「어디까지가 이미 읽은 말풍선인가」를 알아야 그 뒤부터 `...` 타이핑으로 하나씩 풀 수 있다.
+  **`NpcContactInfo.unread` 로 대신할 수 없다** — 그것은 *사건* 수이고 사건 하나가 말풍선 여럿으로 풀린다(`intro` 한 줄 →
+  `NpcDef.intro` 전부). 같은 사건에서 나온 말풍선은 `at` 이 같으므로 이 시각 하나면 경계가 정확히 갈린다.
+  구현은 `meta/parts/NpcQuests` 의 `contacts[id].readAt` 을 그대로 돌려주는 **질의**뿐이고, 저장 모양(`NpcSave`) ·
+  `markRead` · `npc:unreadChanged` 는 한 줄도 안 바뀐다. **선택 속성**이라 없는 구현(스모크의 디버그 ref)에서는 읽는 쪽이
+  「전부 읽음」으로 보고 예전처럼 즉시 전부 그린다 — 생략은 0 이 아니라 「모른다」 규약 그대로다.
+
+- **2026-09-15 (폭발 감쇠 2단 계단 — 사용자 결정)** — 새 파일 **`explosion.ts`** (`index.ts` 배럴 추가): `explosionFalloff(dist, radius)` ·
+  `explosionDamage(damage, dist, radius)`. 「같은 수식을 두 폴더가 쓰면 `shared` 로 뽑는다」(`ballistics.ts` 선례) 그대로다 — `damage * (1 - d / radius)`
+  라는 똑같은 한 줄이 weapons · enemies · gadgets · stratagems 에 베껴져 있어 한 곳만 고치면 같은 폭발이 적과 플레이어에게 다르게 아팠다.
+  선형이 아니라 **2단 계단**이다: `0 … EXPLOSION_FULL_FRACTION × radius` = 100 %, 거기서 `radius` 까지 = `EXPLOSION_OUTER_MUL`(거리 무관 고정), 밖은 0.
+  `radius <= 0` · 음수 거리 방어를 함수가 갖는다. 자리마다 다른 하한 클램프(엄폐물 0.3 · 적 0.15 · 차량 0.15 · 적 수류탄 0.1)는 **없애지 않고**
+  `Math.max(하한, explosionFalloff(...))` 로 이 배수 위에 얹는다.
+- **2026-09-15 (같은 배치)** — `constants.ts` **추가만**: `GRENADE_RADIUS`(6 → **7.2**, ×1.2) · `GRENADE_DAMAGE`(250) · `GRENADE_PLAYER_DAMAGE_MUL`(0.6) ·
+  `EXPLOSION_FULL_FRACTION`(0.5) · `EXPLOSION_OUTER_MUL`(0.6). 앞의 셋은 2026-09-15 까지 `weapons/Grenade.ts` 에 박혀 있던 숫자이고, `@/weapons` 배럴의
+  `GRENADE_RADIUS` · `GRENADE_DAMAGE` 는 이제 이 값의 **별칭**이라 호출부가 한 줄도 안 바뀐다. `types.ts` 의 `EnemyManagerRef.applyExplosion` 주석만 새 사실로 고쳤다.
+
+- **2026-09-15 4차 (`ui:screenFade.hold` — 추가만, 사용자 결정 「튜토리얼 건너뛰기는 암전된 채로 결과 화면이 뜬다」)** —
+  `events.ts` 한 필드: `'ui:screenFade': { opacity, durationS, hold? }`. `hold` 는 **「페이즈가 바뀌어도 이 판은 스스로
+  걷히지 않는다」**는 뜻이고 **생략 = 예전 그대로**(결과 화면 · 함선 · 타이틀로 넘어가는 순간 `ui/HudSystem` 이 즉시 0) 라
+  기존 호출부(`player/parts/IntroWake` 의 오프닝 페이드)는 한 줄도 안 바뀐다. 거는 쪽이 `{opacity: 0}` 으로 직접 걷고,
+  걸어 둔 판이라도 `game:abort` · `hub:entered` 에서는 ui 가 무조건 걷는다 — 함선이 검게 남는 길은 없다.
+  지금 쓰는 곳은 `tutorial/TutorialSystem.beginSkipFade` 하나다.
 - **2026-09-15 (대전차포 은퇴 — 사용자 결정, 계약 메모)** — `implants.ts`: **`IMPLANT_IDS` 에서 `'atlauncher'` 를 뺐다** (선택 가능 5종).
   `ImplantId` 합집합에는 은퇴 주석과 함께 **남긴다** — 이 폴더는 추가만이다(`airstrike` · `secondary` 와 같은 처리). 그래서 `IMPLANT_IDS` 로
   검사하는 모든 정리 경로(progression `Profile.migrate` · housing 로드아웃 프리셋 · net 크루 카드 · implants `isImplantId`)가 저장 · 수신된
@@ -1264,3 +1290,15 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
   `benchOperationalBlock`(구현 없음) · 이벤트 `housing:powerChanged` · `housing:operationalChanged`(발행 없음).
 - **뜻이 바뀐 것**: `HousingRef.furnitureOperationalBlock(uid)` = 메인 컴퓨터 없는 연산 클러스터만 사유 · `stationNow(uid)` = 늘 `serverNow` · `MINING_COMPUTER_REQUIRED_REASON_KO` 문장
   `채굴 시설에 메인 컴퓨터가 있어야 합니다`.
+
+### 2026-09-15 2차 — 「눌린 키캡」 · 홀드 버튼 키캡 · 튜토리얼 `corpseOpen` (사용자 결정, 추가만)
+
+리드가 먼저 확정하고 네 에이전트가 그 위에서 돌았다.
+- `keycap.ts` — **추가** `createHoldButtonCap(parent?)`: `Mouse0` · `hold` 키캡에 클래스 `kc-btn` 을 붙여 돌려준다. 꾹 눌러야 실행되는 **버튼 안, 라벨 왼쪽**에
+  서서 예전에 버튼 위에 깔던 「〈라벨〉 버튼을 N초 동안 누르고 있어야 실행됩니다」 한 줄을 대신한다. ⚠ `setText`(= `textContent` 교체)로 라벨을 다시 쓰는
+  버튼은 그때마다 이 캡을 **다시 앞에 넣는다**(채움 바 `i` 를 다시 `appendChild` 하는 기존 규약과 같다).
+- `keycap.ts` — **뜻이 바뀐 것**: `mouseGlyphSvg(button, hold)` 가 chevron 을 **그리지 않는다**(칠하는 색만 강조색). 꾹 누르기 표시는 이제 키보드 · 마우스 가릴 것
+  없이 `ui/styles/base.css` 의 `.keycap.kc-hold::before` **하나**이고, 그 chevron 은 키캡 **윗변에 걸쳐** 절반이 밖으로 솟는다. 키캡 자신은 아래 테두리가 다른
+  세 면과 같은 1px 로 얇아지고 내용이 1px 내려앉아 **눌려 있는 모습**이다. `paintKeycap` 의 서명 · 클래스 · `textContent` 는 한 글자도 안 바뀌었다.
+- `tutorial.ts` — **추가** `TutorialStepId 'corpseOpen'`(시체 상호작용)과 `TUTORIAL_TRACK_STEPS.raid` 의 그 자리(`sprintJump` → **`corpseOpen`** → `corpseLoot`,
+  raid 15 → **16단계**). 옛 세이브의 `corpseLoot` 은 그대로 유효하다.

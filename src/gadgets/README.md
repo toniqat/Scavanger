@@ -247,6 +247,12 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 
 ## 변경 이력
 
+- **2026-09-15 (폭발 감쇠 2단 계단 — 사용자 결정)** — 폭발 피해의 거리 감쇠가 `shared/explosion.explosionDamage` 하나가 됐다(안쪽 절반 100 % ·
+  바깥 띠 `EXPLOSION_OUTER_MUL` 고정 · 반경 밖 0, 예전 `1 - d / radius` 선형). 바뀐 자리 셋: `parts/Simulate.explodeMine`(로컬 · 원격 플레이어,
+  지뢰의 대인 몫 0.85 는 그대로) · `parts/Remote.falloff`(C4 한 발 — 중첩 규칙 `GADGET_REMOTE_MINE_STACK_MUL` 은 무변경) ·
+  `drones/parts/Lifecycle.applyExplosion`(드론). 적 피해는 `enemies.applyAreaDamage` 가 같은 식을 쓴다. **카메라 흔들림**(`1 - dist / 26`)은
+  피해가 아니라 안 건드렸다. 화염 지대의 초당 피해(`GADGET_INCENDIARY_DPS`)는 거리 감쇠가 없으므로 그대로다.
+
 - **2026-09-15 (결과 창 개편 — 플레이어 피해 출처)** — 설치물 · 가젯이 플레이어에게 준 피해가 **받는 사람 기준** 출처를 싣는다:
   주인이 나면 `{kind:'self'}`, 분대원이면 `{kind:'ally'}` (`parts/Remote` 의 `SELF_DAMAGE_SOURCE` · `ALLY_DAMAGE_SOURCE` · `localVictimSource` ·
   `remoteVictimWire` — frozen 상수, 할당 없음). 지뢰 폭발(`explodeMine`) · 포탑 오사(`hurtPlayer(…, owner)`) · 원격 지뢰 합산 피해(`detonateWhere`) ·

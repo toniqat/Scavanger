@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import {
   GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS, PROP_STEP_UP_MAX,
-  breakFragileAlong, type GameContext, type GrenadeView,
+  GRENADE_DAMAGE as SHARED_GRENADE_DAMAGE, GRENADE_PLAYER_DAMAGE_MUL, GRENADE_RADIUS as SHARED_GRENADE_RADIUS,
+  breakFragileAlong, explosionDamage, type GameContext, type GrenadeView,
 } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 import type { PlayerDamageSource } from '@/shared';
@@ -12,12 +13,16 @@ const ALLY_GRENADE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'ally' });
 
 /** Alias of the shared contract value (3 s); kept for the barrel export. */
 export const GRENADE_FUSE = SHARED_GRENADE_FUSE;
-export const GRENADE_RADIUS = 6;
-export const GRENADE_DAMAGE = 250;
+/**
+ * 2026-09-15 (사용자 결정): 세 수치가 `data/constants.csv` 로 갔다 (반경 6 → **7.2**, ×1.2).
+ * 이름은 배럴(`@/weapons`)이 내보내는 계약이라 shared 값의 별칭으로 남긴다 — 호출부는 한 줄도 안 바뀐다.
+ */
+export const GRENADE_RADIUS = SHARED_GRENADE_RADIUS;
+export const GRENADE_DAMAGE = SHARED_GRENADE_DAMAGE;
 const BODY_R = 0.08;
 const MAX_GRENADES = 8;
 /** Share of the blast damage a player takes (own grenade and, since Phase 7, squadmates' replicas alike). */
-const PLAYER_DAMAGE_MUL = 0.6;
+const PLAYER_DAMAGE_MUL = GRENADE_PLAYER_DAMAGE_MUL;
 
 interface GrenadeBody {
   mesh: THREE.Group;
@@ -172,9 +177,9 @@ export class GrenadeManager {
     if (ctx.player && !ctx.player.isDead) {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
-      // self / friendly damage with linear falloff
+      // 2026-09-15 (사용자 결정): 자해 · 아군 피해도 공용 2단 계단 (`shared/explosion`) — 안쪽 절반 100 % · 바깥 띠 60 %
       if (d < radius) {
-        const dmg = damage * (1 - d / radius) * PLAYER_DAMAGE_MUL;
+        const dmg = explosionDamage(damage, d, radius) * PLAYER_DAMAGE_MUL;
         // 2026-09-15 (결과 창 개편): 내 수류탄(손에서 터진 것 포함) = `self`, 분대원 수류탄의 복제 = `ally`
         if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone(), visualOnly ? ALLY_GRENADE_SOURCE : SELF_GRENADE_SOURCE);
       }

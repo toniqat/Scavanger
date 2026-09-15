@@ -388,6 +388,16 @@ export class NpcQuests implements NpcQuestRef {
     this.emitUnread();
   }
 
+  /**
+   * 2026-09-15 (사용자 결정 — 「확인해야 다음 메시지가 온다」): 마지막으로 읽은 시각. 저장된 사실(`contacts[id].readAt`)을
+   * 그대로 돌려주는 **질의**일 뿐이라 기록 · 저장 · `npc:unreadChanged` 는 한 줄도 바뀌지 않는다 —
+   * 메신저가 「어디까지가 이미 읽은 말풍선인가」를 알아야 그 뒤부터 `...` 로 풀 수 있다.
+   */
+  readAtOf(npcId: string): number {
+    const at = this.save.contacts[npcId]?.readAt ?? 0;
+    return Number.isFinite(at) ? Math.max(0, at) : 0;
+  }
+
   get unreadTotal(): number {
     let n = 0;
     for (const [id, c] of Object.entries(this.save.contacts)) for (const e of this.save.log[id] ?? []) if (e.at > c.readAt) n++;

@@ -1,5 +1,5 @@
 import type { GameContext, TutorialTrack } from '@/shared';
-import { UI_HOLD_CONFIRM_S, isDesktopShell } from '@/shared';
+import { UI_HOLD_CONFIRM_S, createHoldButtonCap, isDesktopShell } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
@@ -66,7 +66,11 @@ interface Ask {
  * browser uses to activate whatever button happens to be focused) must never leave a raid, and a held Enter would
  * have raced key-repeat and focus-activation against the pointer gauge for no gain. Escape still cancels, the
  * initial focus sits on **취소** (so Space is the safe answer, not the destructive one) and the only way to commit
- * is the deliberate hold. The card says so in a hint line built from `UI_HOLD_CONFIRM_S` itself.
+ * is the deliberate hold.
+ *
+ * **2026-09-15 2차 (사용자 결정)**: 그것을 말하던 안내 줄(`.pause-ask-hint`)은 없어졌다 — 「어떻게 누르는가」는
+ * 확정 버튼 **안, 라벨 왼쪽**의 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 그림으로 말한다.
+ * 탭 확정(`Ask.tap`)은 홀드가 아니므로 그 키캡도 붙지 않는다 (예전에 안내 줄을 감추던 자리와 같은 판정이다).
  *
  * **2026-09-14 (튜토리얼 3트랙, 사용자 결정)**: 튜토리얼이 돌고 있는 동안 그 빨간 자리는 `함선으로 귀환` 이 아니라
  * **`튜토리얼 건너뛰기`** 다 (`ctx.tutorial.track !== null` — 어느 트랙이든). 누르면 **지금 도는 트랙 하나만**
@@ -94,8 +98,8 @@ export class PauseMenu extends MenuBase {
   private ask: HTMLElement;
   private askTitle: HTMLElement;
   private askBody: HTMLElement;
-  /** 「1초 누르고 있어야 …」 안내 줄 — 탭 확정 팝업에서는 감춘다. */
-  private askHint: HTMLElement;
+  /** 2026-09-15 2차: 확정 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡 — 탭 확정 팝업에서는 떼어 둔다. */
+  private askCap: HTMLElement;
   private askNo: HTMLButtonElement;
   private askOk: HTMLButtonElement;
   private askOkLabel: HTMLElement;
@@ -131,12 +135,11 @@ export class PauseMenu extends MenuBase {
     const card = el('div', { cls: 'pause-ask-card', parent: this.ask });
     this.askTitle = el('div', { cls: 'pause-ask-title', text: '', parent: card });
     this.askBody = el('div', { cls: 'pause-ask-body', text: '', parent: card });
-    // The hint is built from the constant, so the screen can never disagree with `data/constants.csv`.
-    // 탭 확정(`Ask.tap`) 팝업에서는 `confirm()` 이 이 줄을 통째로 감춘다 — 홀드하지 않는데 홀드하라고 적으면 안 된다.
-    this.askHint = el('div', { cls: 'pause-ask-hint', text: `확인 버튼을 ${UI_HOLD_CONFIRM_S}초 누르고 있어야 실행됩니다`, parent: card });
     const foot = el('div', { cls: 'pause-ask-foot', parent: card });
     this.askNo = el('button', { cls: 'ui-btn small', text: '취소', parent: foot });
     this.askOk = el('button', { cls: 'ui-btn small danger pause-ask-ok', parent: foot });
+    // 홀드 키캡이 채움 바보다 **앞**이라 flex 순서로 라벨 왼쪽에 선다 (채움 바는 absolute 라 줄에서 빠진다).
+    this.askCap = createHoldButtonCap(this.askOk);
     this.askFill = el('i', { cls: 'pause-ask-fill', parent: this.askOk });
     this.askOkLabel = el('span', { cls: 'pause-ask-ok-t', text: '확인', parent: this.askOk });
     this.askNo.addEventListener('click', (e) => { e.stopPropagation(); this.closeAsk(); });
@@ -248,7 +251,8 @@ export class PauseMenu extends MenuBase {
     setText(this.askTitle, ask.title);
     setText(this.askBody, ask.body);
     setText(this.askOkLabel, ask.ok);
-    this.askHint.hidden = !!ask.tap;
+    // 탭 한 번으로 끝나는 확정에는 홀드 키캡이 붙지 않는다 (홀드하지 않는데 홀드하라고 그리면 안 된다).
+    if (ask.tap) this.askCap.remove(); else this.askOk.insertBefore(this.askCap, this.askFill);
     this.ask.hidden = false;
     // Focus the safe button: the destructive one cannot be triggered by a key at all, and a stray Space should
     // cancel rather than look like it is arming something.

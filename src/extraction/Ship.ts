@@ -11,6 +11,29 @@ export const BAY_HEIGHT = 2.6;
 /** Liftoff: seconds the ship stays put on the pad (ramp closing, engines spooling) before it starts to climb. */
 export const LIFTOFF_SPOOL_S = 1.6;
 
+/*
+ * ── Coplanar-surface budget (2026-09-15) ──────────────────────────────────────────────────────────────────
+ * The ship's origin sits **on the ground** (`floorYAt` = deck = local y 0, and `landPos.y` is the pad / deck top),
+ * so anything drawn at exactly local y 0 is coplanar with the terrain the ship stands on — and any two hull parts
+ * that share a face plane fight each other. Three of those existed and all three were reported as bugs:
+ *   1. bay floor top = belly slab top = ground (y 0)      → "화물칸 바닥이 뚫려 땅이 비친다"
+ *   2. bay lining inner face = side slab inner face (x ±1.6) → "좌우 벽 색이 매 프레임 뒤바뀐다"
+ *   3. bay ceiling bottom = hull roof bottom (y 2.6)      → the same flicker overhead
+ * The constants below are the fix: the **drawn** deck is lifted a hair, the lining is given its own thickness and
+ * the outer shell starts outboard of it. `floorYAt` / `BAY_HEIGHT` / `Hull.ts` are untouched — the walking deck is
+ * still local y 0, feet just sink `BAY_FLOOR_LIFT` into the plate (invisible at 2.5 cm).
+ */
+/** Outer face of the side slabs (hull half width). */
+const HULL_HALF_W = 2.1;
+/** Bay lining walls: inner face (the walkable opening) and their thickness → outer face `BAY_LINING_OUTER_X`. */
+const BAY_LINING_INNER_X = 1.6;
+const BAY_LINING_T = 0.12;
+const BAY_LINING_OUTER_X = BAY_LINING_INNER_X + BAY_LINING_T;   // 1.72
+/** Clearance between the lining's outer face and the side slab's inner face — no shared plane, no fight. */
+const HULL_SKIN_GAP = 0.01;
+/** How far the **drawn** bay floor sits above the deck plane (local y 0) so it wins against ground + belly. */
+const BAY_FLOOR_LIFT = 0.025;
+
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -20,7 +43,8 @@ const INTERIOR_LIGHT = 8;
 
 /**
  * Procedural "Pelican"-style dropship (~14 m). Local -Z is the nose; the rear ramp opens toward +Z.
- * The bay floor sits at local y = 0 so that, once landed, the player walks straight in from the ground.
+ * The bay **deck plane** is local y = 0 (`floorYAt`) so that, once landed, the player walks straight in from the
+ * ground; the drawn floor plate is `BAY_FLOOR_LIFT` above it (see the coplanar note near the constants).
  */
 export class Dropship {
   readonly root = new THREE.Group();
@@ -73,14 +97,20 @@ export class Dropship {
     const floorMat = this.mat(new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.9, metalness: 0.2 }));
 
     const r = this.body;   // meshes only — the lights go straight on `root` (see the `body` note)
-    // ── Bay (interior) ── floor at y 0, walls x ±1.6, z from -5.2 .. 0.2, ceiling 2.6
-    const floor = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.2, 0.12, 5.4)), floorMat);
-    floor.position.set(0, -0.06, -2.5);
-    const wallL = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.12, BAY_HEIGHT, 5.4)), interior);
-    wallL.position.set(-1.66, BAY_HEIGHT / 2, -2.5);
-    const wallR = wallL.clone(); wallR.position.x = 1.66;
+    // ── Bay (interior) ── deck plane at y 0, walls x ±1.6, z from -5.2 .. 0.2, ceiling 2.6
+    // The floor plate is drawn `BAY_FLOOR_LIFT` above the deck plane (see the coplanar note at the top): at y 0 it
+    // shared its top face with the belly slab **and** with the terrain the ship stands on, which is what made the
+    // ground show through it in mottled patches. It is also grown 0.04 m into the lining walls and the front wall on
+    // every side, so its own side faces end up buried instead of sharing a plane with them.
+    const floor = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.28, 0.12, 5.44)), floorMat);
+    floor.position.set(0, BAY_FLOOR_LIFT - 0.06, -2.52);       // top face at y = BAY_FLOOR_LIFT; x ±1.64, z -5.24..0.2
+    const wallL = new THREE.Mesh(this.geo(new THREE.BoxGeometry(BAY_LINING_T, BAY_HEIGHT, 5.4)), interior);
+    wallL.position.set(-(BAY_LINING_INNER_X + BAY_LINING_T / 2), BAY_HEIGHT / 2, -2.5);
+    const wallR = wallL.clone(); wallR.position.x = -wallL.position.x;
+    // Dropped 0.025 so its underside clears `hullRoof`'s underside (both sat at y 2.6 and fought). The roof's face is
+    // inside the ceiling slab now, and the lamp strip below is simply recessed into it.
     const ceiling = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.4, 0.12, 5.4)), interior);
-    ceiling.position.set(0, BAY_HEIGHT + 0.06, -2.5);
+    ceiling.position.set(0, BAY_HEIGHT + 0.06 - 0.025, -2.5);
     const frontWall = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.4, BAY_HEIGHT + 0.2, 0.12)), interior);
     frontWall.position.set(0, BAY_HEIGHT / 2, -5.26);
     // Wall panels / ribs
@@ -129,18 +159,27 @@ export class Dropship {
     // It is a shell now: four slabs around the bay (left / right / roof / belly) plus a front cap, leaving a real
     // hole at the rear. The only thing that closes that hole is the ramp itself (upright at z = 0.25 when closed,
     // 3.2 wide × 3.0 tall — it covers the whole opening), which is exactly what a rear door should do.
-    // Hull outline x ±2.1, y −0.3..3.0, z −6.6..0.6; the opening is x ±1.6, y 0..2.6 (the bay lining sits inside it).
-    const sideW = 2.1 - 1.6;
+    // Hull outline x ±2.1, y −0.3..3.0, z −6.6..0.6; the opening is x ±1.6, y 0..2.6 — the bay lining owns x 1.6..1.72
+    // and the shell picks up outboard of it (`sideInnerX`), so no two faces share a plane.
+    // The slab starts **outboard of the bay lining**, not at the bay opening. The old `2.1 - 1.6` put its inner face at
+    // x ±1.6 — exactly the lining wall's inner face — so the two swallowed each other's volume and traded a different
+    // colour every frame (`hull` vs `interior`); that was the flickering side walls. `HULL_SKIN_GAP` keeps the two
+    // planes apart; the outer face stays at ±2.1, so the silhouette and `Hull.ts`'s side-slab colliders are unchanged.
+    const sideInnerX = BAY_LINING_OUTER_X + HULL_SKIN_GAP;      // 1.73
+    const sideW = HULL_HALF_W - sideInnerX;                     // 0.37
     const sideGeo = this.geo(new THREE.BoxGeometry(sideW, 3.3, 7.2));
     for (const sx of [-1, 1]) {
       const side = new THREE.Mesh(sideGeo, hull);
-      side.position.set(sx * (2.1 - sideW / 2), 1.35, -3.0);
+      side.position.set(sx * (HULL_HALF_W - sideW / 2), 1.35, -3.0);
       r.add(side);
     }
     const hullRoof = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.4, 7.2)), hull);
     hullRoof.position.set(0, 2.8, -3.0);
-    const hullBelly = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.3, 7.2)), hull);
-    hullBelly.position.set(0, -0.15, -3.0);
+    // Belly: bottom stays at y −0.3 (the greeble seams live at −0.305), but its **top** drops 0.02 below the deck plane
+    // so it no longer shares y 0 with the ground under the ship. `Hull.ts`'s belly collider — whose top *is* the deck —
+    // is a separate box and is deliberately left where it is.
+    const hullBelly = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.28, 7.2)), hull);
+    hullBelly.position.set(0, -0.16, -3.0);
     // Front cap: the forward section (between the bay's front wall and the nose) has to stay closed now that the
     // shell is open-ended — the 4-sided nose cone leaves corner gaps you would otherwise see straight through.
     const hullFront = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 3.3, 0.2)), hullDark);
@@ -157,8 +196,9 @@ export class Dropship {
     const cockpit = new THREE.Mesh(this.geo(new THREE.BoxGeometry(2.1, 0.9, 1.6)), glass);
     cockpit.position.set(0, 2.55, -7.2);
     cockpit.rotation.x = 0.25;
-    const chin = new THREE.Mesh(this.geo(new THREE.BoxGeometry(2.6, 0.7, 2.4)), hullDark);
-    chin.position.set(0, 0.35, -7.4);
+    // Same reason as the belly: the chin's underside sat exactly on the ground plane (y 0). It reaches 0.02 below it now.
+    const chin = new THREE.Mesh(this.geo(new THREE.BoxGeometry(2.6, 0.72, 2.4)), hullDark);
+    chin.position.set(0, 0.34, -7.4);
     // Tail fins
     const finGeo = this.geo(new THREE.BoxGeometry(0.1, 1.6, 1.8));
     for (const sx of [-1, 1]) {

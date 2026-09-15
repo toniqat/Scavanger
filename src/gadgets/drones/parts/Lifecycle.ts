@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import {
   DRONE_GADGET_OF, DRONE_NOISE_EMIT_HZ, DRONE_NOISE_MEMORY_S, DRONE_NOISE_RADIUS, DRONE_RECOVER_HOLD_S,
-  DroneFlags, type DroneKind, type DroneRayHit, type Interactable, type PeerId,
+  DroneFlags, explosionDamage, type DroneKind, type DroneRayHit, type Interactable, type PeerId,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { RECOVER_RADIUS } from '../../model';
@@ -213,6 +213,7 @@ export function destroyFx(sys: DroneSystem, d: Drone): void {
   }
 }
 
+/** 2026-09-15 (사용자 결정): 드론도 다른 대상과 **같은** 2단 계단 감쇠 (`shared/explosion`). */
 export function applyExplosion(sys: DroneSystem, center: THREE.Vector3, radius: number, damage: number): void {
   if (!(radius > 0) || !(damage > 0)) return;
   for (let i = sys.drones.length - 1; i >= 0; i--) {
@@ -222,7 +223,7 @@ export function applyExplosion(sys: DroneSystem, center: THREE.Vector3, radius: 
     if (d.kind === 'ground') _l2.y += d.height * 0.5;
     const dist = _l2.distanceTo(center);
     if (dist >= radius) continue;
-    damageDrone(sys, d.id, damage * (1 - dist / radius), center);
+    damageDrone(sys, d.id, explosionDamage(damage, dist, radius), center);
   }
 }
 

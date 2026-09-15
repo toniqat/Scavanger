@@ -11,7 +11,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
-  ENEMY_GRENADE_KINDS, type CorpseLootOpts,
+  ENEMY_GRENADE_KINDS, explosionFalloff, type CorpseLootOpts,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -111,8 +111,10 @@ export function explode(sys: EnemySystem, center: THREE.Vector3, radius: number,
     const reach = radius + e.stats.radius;
     if (d2 > reach * reach) continue;
     const d = Math.sqrt(d2);
-    const falloff = 1 - Math.max(0, d - e.stats.radius) / radius;
-    const dmg = damage * THREE.MathUtils.clamp(falloff, 0.15, 1);
+    // 2026-09-15 (사용자 결정): 거리는 예전 그대로 **몸 표면까지**, 감쇠만 공용 2단 계단 (`shared/explosion`).
+    // 하한 0.15 는 없애지 않고 그 위에 얹는다 — 큰 적이 반경 가장자리에서도 완전히 안 아프지는 않게 한 값이다.
+    const falloff = explosionFalloff(Math.max(0, d - e.stats.radius), radius);
+    const dmg = damage * Math.max(0.15, falloff);
     _v2.subVectors(_v, center);
     if (_v2.lengthSq() < 1e-4) _v2.set(0, 1, 0); else _v2.normalize();
     // explosions are omnidirectional: no head/rear multipliers (hitPoint at capsule center, dir ignored for part)

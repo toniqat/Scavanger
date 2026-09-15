@@ -1,5 +1,5 @@
 import type {
-  GameContext, HoldAskHandle, NpcDef, NpcMessage, PlayerCode, PresenceState, RoomInfo, RoomLine,
+  GameContext, HoldAskHandle, NpcDef, NpcMessage, NpcQuestRef, PlayerCode, PresenceState, RoomInfo, RoomLine,
 } from '@/shared';
 import {
   CORP_DEFS, NPC_DEF_MAP, NPC_ROLE_LABEL_KO, PRESENCE_LABELS, PRIVATE_CHAT_LABEL_KO, ROOM_MEMBER_MAX, ROOM_NAME_MAX,
@@ -43,6 +43,12 @@ const TIME_GAP_MS = 10 * 60_000;
 const TYPE_S_PER_CHAR = 0.028;
 const TYPE_MIN_S = 0.5;
 const TYPE_MAX_S = 2.0;
+/**
+ * 2026-09-15 (사용자 결정 — 「확인해야 다음 메시지가 온다」): 대화를 **처음 열 때** 밀려 있던 안 읽은 말풍선도
+ * 하나씩 도착한다. 다만 오래 안 본 대화까지 전부 풀면 `TYPE_MAX_S × 줄 수` 만큼 기다리게 되므로 뒤에서 이만큼만
+ * 타이핑으로 풀고 그보다 앞의 것은 즉시 그린다 (최악 `6 × 2 s`).
+ */
+const TYPE_BACKLOG_MAX = 6;
 const PRESENCE_RANK: Readonly<Record<PresenceState, number>> = { ship: 0, training: 1, raid: 2, offline: 3 };
 
 const FILTERS: readonly { id: ConvFilter; label: string }[] = [
@@ -475,6 +481,25 @@ export class ChatTab {
     }, Math.round(Math.max(0, delay) * 1000));
   }
 
+  /**
+   * 대화를 **처음 그릴 때** 즉시 보여 줄 말풍선 수 = 「이미 읽은 것」 (2026-09-15, 사용자 결정).
+   *
+   * 경계는 `NpcQuestRef.readAtOf(id)` 하나다 — 사건 하나가 말풍선 여러 개로 풀리므로(`intro` 한 줄 → `NpcDef.intro` 전부)
+   * `NpcContactInfo.unread`(사건 수)로는 셀 수 없지만, 같은 사건에서 나온 말풍선은 `at` 이 같아 이 시각 하나로 정확히 갈린다.
+   * **`markRead` 보다 먼저 물어야 한다** — `renderNpc` 는 다 그린 뒤에야 읽음 표시를 한다.
+   *
+   * 그 질의가 없는 창구(스모크의 디버그 ref · 옛 구현)에서는 **전부 읽은 것**으로 보고 예전처럼 즉시 전부 그린다.
+   */
+  private readShownCount(npc: NpcQuestRef | null, id: string, all: readonly NpcMessage[]): number {
+    if (!npc || typeof npc.readAtOf !== 'function') return all.length;
+    let readAt = 0;
+    try { readAt = npc.readAtOf(id); } catch { return all.length; }
+    if (!Number.isFinite(readAt)) return all.length;
+    let shown = 0;
+    while (shown < all.length && all[shown].at <= readAt) shown++;
+    return Math.min(all.length, Math.max(shown, all.length - TYPE_BACKLOG_MAX));
+  }
+
   /** `...` 말풍선 (점 셋이 순차로 커진다 — 애니메이션은 CSS). */
   private typingBubble(def: NpcDef | undefined, withAvatar: boolean): HTMLElement {
     const row = el('div', { cls: `ms-msg in typing${withAvatar ? '' : ' cont'}` });
@@ -547,12 +572,15 @@ export class ChatTab {
     const trustEl = buildNpcTrust(ctx, id, name, { color });
     if (trustEl) { trustEl.classList.add('in-right'); this.head.appendChild(trustEl); }
 
-    /* 새로 도착한 말풍선은 `...` 를 거쳐 한 줄씩 붙는다 — 대화가 바뀌었으면(= 처음 그린다) 있는 것을 전부 즉시 보여 준다. */
+    /* 새로 도착한 말풍선은 `...` 를 거쳐 한 줄씩 붙는다. 대화를 **처음 그릴 때**(= `typingConv` 가 다르다)는
+     * 2026-09-15(사용자 결정)부터 **이미 읽은 데까지만** 즉시 보여 주고, 안 읽은 줄은 그대로 큐를 타 하나씩 도착한다 —
+     * 레이븐의 첫 연락을 열면 세 마디가 통째로 떠 있던 것이 이것이다. 읽음 표시는 이 아래 `markRead` 가 하므로
+     * 한 번 연 대화를 다시 열면 `readAt` 이 이미 끝까지 가 있어 저절로 즉시 전부 그린다. */
     const all: readonly NpcMessage[] = npc?.getMessages(id) ?? [];
     if (this.typingConv !== id) {
       if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
       this.typingConv = id;
-      this.typingShown = all.length;
+      this.typingShown = this.readShownCount(npc, id, all);
     } else if (all.length < this.typingShown) this.typingShown = all.length;   // 기록이 줄었다 (초기화 · 다른 캐릭터)
     /* 내 대답 · 시스템 줄은 기다리지 않는다 — 같은 그리기에서 바로 붙인다 (기다리는 것은 NPC 말풍선 · 퀘스트 카드뿐). */
     while (this.typingShown < all.length) {

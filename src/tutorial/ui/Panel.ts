@@ -41,6 +41,11 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  *      취소선 층(`.tut-obj-strike`) **둘 다**에 같은 키캡을 끼워 넣는다. 두 층의 배치가 글자 하나까지 같아야 취소선이
  *      제 줄에 그어지기 때문이다. 리바인드하면 `relabel()` 이 두 층을 다시 그린다.
  *   ② **회색은 달성한 줄만**이다 — 선택 목표도 달성 전에는 필수와 같은 색이다 (`(선택)` 접두사는 그대로).
+ *
+ * **2026-09-15 2차 (사용자 결정) — 세는 목표의 `(n/m)`.** 목표 수는 문구가 아니라 `TutorialObjective.count` 다
+ * (`벌레 처치` + `count: 2` → `벌레 처치 (0/2)`). 진행이 바뀌면 `setCounts` 가 **그 숫자 노드만** 갈아 끼운다 —
+ * 줄을 다시 지으면 체크가 좌→우로 그려지는 애니메이션과 취소선의 `clip-path` 전이가 매번 처음부터 다시 돈다.
+ * 달성해서 그어질 때 숫자는 `(2/2)` 로 남는다 (단계가 넘어가도 줄 자체는 반 박자 동안 그대로 서 있다).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 한 번의 `show()` 가 그리는 것 전부. */
@@ -50,6 +55,8 @@ export interface PanelView {
   objectives: readonly TutorialObjective[];
   /** 달성한 목표 id. */
   done: ReadonlySet<string>;
+  /** 세는 목표(`TutorialObjective.count`)의 지금 진행 수 — 목표 id → 수. 없는 id 는 0 으로 본다. */
+  counts: Readonly<Record<string, number>>;
   /** 트랙 안에서의 1-based 순번 · 단계 수 (진행 바). */
   index: number;
   count: number;
@@ -61,6 +68,10 @@ interface Row {
   txt: HTMLElement;
   strike: HTMLElement;
   text: string;
+  /** 목표 수 (`TutorialObjective.count`) — 없으면 null. 있으면 두 층 끝에 ` (at/total)` 노드가 하나씩 붙는다. */
+  total: number | null;
+  /** 지금 그려져 있는 진행 수. */
+  at: number;
 }
 
 /** 퀘스트 글리프 — 외부 에셋 금지라 인라인 SVG 다 (마름모 + 가운데 점). */
@@ -72,6 +83,13 @@ const QUEST_ICON = '<svg class="tut-quest-ico" viewBox="0 0 16 16" aria-hidden="
 const CHECK_SVG = '<svg class="tut-obj-box" viewBox="0 0 16 16" aria-hidden="true">'
   + '<rect class="tut-obj-frame" x="1.6" y="1.6" width="12.8" height="12.8"/>'
   + '<path class="tut-obj-tick" d="M4 8.3 6.9 11.2 12.2 5.1"/></svg>';
+
+/**
+ * 세는 목표의 꼬리표 (2026-09-15 2차, 사용자 결정 — `벌레 처치 (1/2)`). 본문보다 살짝 흐리다 (`.tut-obj-n`).
+ * 진행 수는 문구가 아니라 **자기 노드**가 들고 있어(`setCounts`) 세는 동안 줄을 다시 짓지 않는다 —
+ * 그래서 아래 `rowKey` 에도 `count` 가 없다.
+ */
+const countText = (at: number, total: number): string => ` (${at}/${total})`;
 
 export class TutorialPanel {
   readonly root: HTMLElement;
@@ -162,6 +180,28 @@ export class TutorialPanel {
     for (const o of view.objectives) {
       this.rows.get(o.id)?.el.classList.toggle('is-done', view.done.has(o.id));
     }
+    this.setCounts(view.counts);
+  }
+
+  /**
+   * 세는 목표의 진행 수를 고친다 (2026-09-15 2차, 사용자 결정 — `벌레 처치 (1/2)`).
+   *
+   * **줄을 다시 짓지 않고 숫자 노드만 갈아 끼운다** — `build()` 로 돌아가면 체크가 좌→우로 그려지는 애니메이션과
+   * 취소선의 `clip-path` 전이가 처음부터 다시 돈다 (달성한 줄이 매 처치마다 다시 그어진다). 두 층(글자 · 취소선)의
+   * 글자가 하나까지 같아야 취소선이 제 줄에 그어지므로 **양쪽 노드를 함께** 고친다.
+   */
+  setCounts(counts: Readonly<Record<string, number>>): void {
+    for (const [id, row] of this.rows) {
+      if (row.total === null) continue;
+      const n = Math.max(0, Math.min(row.total, Math.round(counts[id] ?? 0)));
+      if (n === row.at) continue;
+      row.at = n;
+      const label = countText(n, row.total);
+      for (const host of [row.txt, row.strike]) {
+        const el = host.querySelector('.tut-obj-n');
+        if (el) el.textContent = label;
+      }
+    }
   }
 
   private build(objectives: readonly TutorialObjective[]): void {
@@ -179,7 +219,7 @@ export class TutorialPanel {
       /*
        * 취소선은 **똑같은 글자를 한 겹 더 깔고**(`.tut-obj-strike`, `text-decoration: line-through`)
        * `clip-path` 로 좌→우로 벗겨 낸다. `::after` 의 가로 막대 하나로는 **두 줄로 접힌 목표**에서
-       * 가운데 허공에 줄이 그어진다 — 여기 문장은 288 px 패널에서 자주 접힌다.
+       * 가운데 허공에 줄이 그어진다 — 여기 문장은 346 px 패널에서도 자주 접힌다.
        * 2026-09-15: 두 층 모두 `renderKeyText` 로 그린다 — 키캡까지 같은 자리에 서야 두 층이 겹친다.
        */
       const txt = document.createElement('span');
@@ -187,21 +227,33 @@ export class TutorialPanel {
       const strike = document.createElement('span');
       strike.className = 'tut-obj-strike';
       strike.setAttribute('aria-hidden', 'true');
-      renderKeyText(txt, text);
-      renderKeyText(strike, text);
       label.append(txt, strike);
       el.appendChild(label);
+      const row: Row = { el, txt, strike, text, total: o.count ?? null, at: 0 };
+      this.paint(row);
       this.list.appendChild(el);
-      this.rows.set(o.id, { el, txt, strike, text });
+      this.rows.set(o.id, row);
     }
   }
 
-  /** 리바인드 — 목표 줄 안의 키캡을 살아 있는 `Keys` 로 다시 그린다 (달성 표시 · 줄 요소는 그대로). */
-  relabel(): void {
-    for (const row of this.rows.values()) {
-      renderKeyText(row.txt, row.text);
-      renderKeyText(row.strike, row.text);
+  /**
+   * 한 줄의 두 층(글자 · 취소선)을 **같은 내용**으로 그린다 — 키캡도 `(n/m)` 도 같은 자리에 서야 취소선이
+   * 제 줄에 그어진다 (`clip-path` 가 글자 층 위를 좌→우로 벗겨 낸다).
+   */
+  private paint(row: Row): void {
+    for (const host of [row.txt, row.strike]) {
+      renderKeyText(host, row.text);
+      if (row.total === null) continue;
+      const n = document.createElement('i');
+      n.className = 'tut-obj-n';
+      n.textContent = countText(row.at, row.total);
+      host.appendChild(n);
     }
+  }
+
+  /** 리바인드 — 목표 줄 안의 키캡을 살아 있는 `Keys` 로 다시 그린다 (달성 표시 · 줄 요소 · 진행 수는 그대로). */
+  relabel(): void {
+    for (const row of this.rows.values()) this.paint(row);
   }
 
   hide(): void {
@@ -221,7 +273,7 @@ export class TutorialPanel {
 }
 
 /** 줄 하나의 정체 — id 가 같아도 문구가 바뀌면 다시 짓는다. */
-const rowKey = (o: TutorialObjective): string => `${o.id} ${o.text}`;
+const rowKey = (o: TutorialObjective): string => `${o.id} ${o.text}`;
 
 const sameIds = (ids: readonly string[], objectives: readonly TutorialObjective[]): boolean =>
   ids.length === objectives.length && objectives.every((o, i) => ids[i] === rowKey(o));

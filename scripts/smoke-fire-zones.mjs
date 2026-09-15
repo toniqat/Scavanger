@@ -143,12 +143,13 @@ try {
   };
   const sinceT = (arr, t) => arr.filter((e) => e.t >= t);
 
-  /* ── 1. G-12 frag: 6 m blast, no zone ─────────────────────────────── */
+  /* ── 1. G-12 frag: 7.2 m blast, no zone ───────────────────────────── */
   const frag = await throwFromHand('grenade_frag');
   ok(frag.held === 'grenade_frag', `frag taken into the hand (slot ${frag.slot}, held ${frag.held})`);
   await waitSim(3.6);
   const fragOut = await page.evaluate((t) => ({ ex: window.__ev.exploded.filter((e) => e.t >= t), zones: window.__zones(), dep: window.__ev.deployed.filter((e) => e.t >= t) }), frag.t);
-  ok(fragOut.ex.length === 1 && fragOut.ex[0].r === 6, `G-12 exploded once with the 6 m frag blast (${JSON.stringify(fragOut.ex.map((e) => e.r))})`);
+  // 2026-09-15 (사용자 결정): 고폭 반경 6 → 7.2 (×1.2) — `data/constants.csv` 의 GRENADE_RADIUS
+  ok(fragOut.ex.length === 1 && Math.abs(fragOut.ex[0].r - 7.2) < 1e-6, `G-12 exploded once with the 7.2 m frag blast (${JSON.stringify(fragOut.ex.map((e) => e.r))})`);
   ok(fragOut.zones.length === 0 && fragOut.dep.length === 0, `G-12 makes no fire zone (${fragOut.zones.length} zones, ${fragOut.dep.length} deployed)`);
 
   /* ── 2. G-10 소이 수류탄 via the hand: small blast + 3.5 m / 6 s zone ── */
@@ -165,7 +166,7 @@ try {
     return { ex, zones, surf, ign: window.__snd.filter((s) => s.t >= t && s.id === 'fire_ignite'), dep: window.__ev.deployed.filter((e) => e.t >= t) };
   }, g10.t);
   const z10 = g10Out.zones[0];
-  ok(g10Out.ex.length === 1 && g10Out.ex[0].r === 3, `G-10 blast is the small one: radius ${g10Out.ex[0]?.r} (GRENADE_INCENDIARY_BLAST_RADIUS 3, frag 6)`);
+  ok(g10Out.ex.length === 1 && g10Out.ex[0].r === 3, `G-10 blast is the small one: radius ${g10Out.ex[0]?.r} (GRENADE_INCENDIARY_BLAST_RADIUS 3, frag 7.2)`);
   ok(g10Out.zones.length === 1 && z10.r === 3.5 && z10.rem > 5 && z10.rem <= 6 && z10.hostile === false,
     `G-10 lit one fire zone r 3.5 · ${z10?.rem?.toFixed(2)} s left of 6 · hostile false (${JSON.stringify(g10Out.zones)})`);
   if (z10) {

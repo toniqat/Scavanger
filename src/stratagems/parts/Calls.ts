@@ -15,6 +15,7 @@ import {
   type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
   type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
   type StratagemCallWire,
+  explosionDamage,
 } from '@/shared';
 import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
@@ -64,7 +65,10 @@ export function ended(sys: StratagemSystem, call: Call): void {
   sys.ctx.bus.emit('stratagem:ended', { callId: call.id, kind: call.kind });
   }
 
-/** Radial damage of an impact: enemies only on the caller's client, the local player everywhere (linear falloff). */
+/**
+ * Radial damage of an impact: enemies only on the caller's client, the local player everywhere.
+ * 2026-09-15 (사용자 결정): 감쇠는 공용 2단 계단 (`shared/explosion`) — 예전에는 `1 − d / radius` 선형이었다.
+ */
 export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vector3, radius: number, damage: number): void {
   const ctx = sys.ctx;
   if (sys.silent) return;   // fast-forwarded sync landing: the impact happened before we joined
@@ -74,7 +78,7 @@ export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vec
     _a.copy(p.position); _a.y += 0.9;
     const d = _a.distanceTo(center);
     if (d < radius) {
-      const dmg = damage * (1 - d / radius);
+      const dmg = explosionDamage(damage, d, radius);
       if (dmg > 1) p.takeDamage(dmg, center.clone(), STRATAGEM_DAMAGE_SOURCE);
     }
   }
@@ -315,13 +319,16 @@ export function destroyStructure(sys: StratagemSystem, s: Structure): void {
   sys.ctx.bus.emit('structure:destroyed', { id: s.id, position: s.position });
   }
 
-/** Radial damage to standing structures (grenades). */
+/**
+ * Radial damage to standing structures (grenades). 1.3 m = 구조물 몸 반지름 — 거리는 표면까지 잰다.
+ * 2026-09-15 (사용자 결정): 감쇠는 공용 2단 계단 (`shared/explosion`).
+ */
 export function splashStructures(sys: StratagemSystem, center: THREE.Vector3, radius: number, damage: number): void {
   for (const c of sys.calls) for (const s of c.structures) {
     if (!s.landed || s.destroyed) continue;
     const d = s.position.distanceTo(center);
     if (d < radius + 1.3) {
-      const dmg = damage * (1 - Math.max(0, d - 1.3) / radius);
+      const dmg = explosionDamage(damage, Math.max(0, d - 1.3), radius);
       if (dmg > 1) sys.damageStructure(s, dmg, true);
     }
   }

@@ -1,6 +1,6 @@
 import type { DerivedStats, EquippedImplant, GameContext, GymStat, HoldAskHandle, LibrarySourceInfo, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
 import {
-  GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, openHoldAsk,
+  GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, createHoldButtonCap, openHoldAsk,
 } from '@/shared';
 import { DERIVED_PANEL_KEYS, derivedKeysOfSkill, derivedKeysOfStat, type DerivedPanelKey } from '../defs';
 import { SKILL_GAIN_PER_INT, SKILL_STAT_FACTOR } from '../derive';
@@ -213,6 +213,8 @@ export class SheetBody {
     this.confirmBtn = el('button', { cls: 'ui-btn primary pg-confirm', parent: alloc });
     this.confirmBtn.type = 'button';
     this.confirmFill = el('i', { cls: 'pg-fill', parent: this.confirmBtn });
+    // 2026-09-15 2차 (사용자 결정): 「1초 꾹」은 글자가 아니라 라벨 왼쪽의 좌클릭 홀드 키캡이 말한다.
+    createHoldButtonCap(this.confirmBtn);
     el('span', { cls: 'pg-label', text: '포인트 투자 확정', parent: this.confirmBtn });
     // a click / Enter never confirms — only the hold timer does
     this.confirmBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });

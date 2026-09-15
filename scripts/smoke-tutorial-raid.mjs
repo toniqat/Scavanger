@@ -11,10 +11,10 @@
 //                     `game:respawnAvailable` → respawn after `TUTORIAL_RESPAWN_DELAY_S` at the **last safe ground**, which the
 //                     cliff-1 run-up exclusion (`CHASM_RUNUP_M`) keeps ≥ 12 m from the edge. Full HP.
 //   3. checkpoint   — `gotoCheckpoint('cliff')` (clears the safe-ground record) → die → respawn exactly on the checkpoint pose.
-//   4. sprint jump  — real Shift+W+Space over cliff 1 → `corpse` checkpoint → `corpseLoot`.
+//   4. sprint jump  — real Shift+W+Space over cliff 1 → `corpse` checkpoint → `corpseOpen`.
 //   5. safe ground  — walk back into cliff 1 from the far side → respawn at the last safe ground (x kept, 1.5 m margin),
 //                     **not** the `corpse` checkpoint; the checkpoint index does not regress.
-//   6. corpse       — E on `corpse:tut_gear` → equip the SMG → close → `advance1` (HUD gear gate opens).
+//   6. corpse       — E on `corpse:tut_gear` → `corpseLoot` → equip the SMG → close → `advance1` (HUD gear gate opens).
 //   7. bugs         — walk into the ambush → `enemy:spawned` → `shoot` → two kills → `advance2`.
 //   8. crawl        — `crawl` checkpoint → real C → `crouchAim` → two android kills → `advance3`.
 //      (2026-09-15: the crouch / prone control lines follow the stance **through `crouchAim` too**, and the one-shot crouch-aim
@@ -58,7 +58,8 @@ function levelFromXp(xp) {
 const CHASM_NEAR_Z = 82, CHASM_GAP_Z = 3.6, CHASM_RUNUP_M = 12, TILT = Math.tan((20 * Math.PI) / 180), SAFE_CHASM_MARGIN = 1.5;
 const nearZ = (x) => CHASM_NEAR_Z - x * TILT;
 const farZ = (x) => nearZ(x) - CHASM_GAP_Z;
-const RAID_STEPS = ['wake', 'move', 'sprintJump', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim', 'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract'];
+// 2026-09-15 2차 (사용자 결정): `corpseOpen`(시체 상호작용)이 `corpseLoot` 앞에 들어와 16단계다.
+const RAID_STEPS = ['wake', 'move', 'sprintJump', 'corpseOpen', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim', 'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract'];
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
@@ -247,7 +248,8 @@ try {
     return { jumped, dead: p.isDead, cp: ctx.world.tutorial.checkpoint, pose: window.__pose() };
   });
   ok(!!jump.jumped && !jump.dead && jump.cp === 'corpse', `달리며 뛰면 절벽 1 을 넘어 corpse 체크포인트에 닿는다 (도약 z ${jump.jumped?.z.toFixed(2)})`, JSON.stringify(jump));
-  await waitStep('corpseLoot', 10000);
+  // 2026-09-15 2차: `corpse` 체크포인트가 여는 것은 이제 `corpseOpen`(「시체 상호작용」) 이다 — `corpseLoot` 은 시체 가방이 열려야 온다.
+  await waitStep('corpseOpen', 10000);
 
   /* ── 5. 건너편에서 되돌아 떨어지기 → 마지막으로 서 있던 자리 ───────────── */
   console.log('마지막으로 서 있던 자리');
@@ -269,7 +271,7 @@ try {
   ok(Math.abs(resp3.x - 3) < 0.3 && resp3.z <= wantZ + 0.1 && resp3.z > wantZ - 0.6 && Math.abs(resp3.y) < 0.4,
     `체크포인트(0,0,72)가 아니라 마지막으로 서 있던 땅(x 3, z ≈ ${wantZ.toFixed(2)})에서 선다`, JSON.stringify(resp3));
   ok(resp3.hp === resp3.maxHp, '낙사 부활도 체력 가득');
-  ok(await step() === 'corpseLoot', '되돌아 떨어져도 단계는 그대로다');
+  ok(await step() === 'corpseOpen', '되돌아 떨어져도 단계는 그대로다');
 
   /* ── 6. 시체 뒤지기 → 무기 장착 → 닫기 ─────────────────────────────────── */
   console.log('시체');
@@ -286,6 +288,8 @@ try {
     const smg = (g?.items() ?? []).map((p) => p.item).find((it) => it?.defId === 'wpn_smg');
     return !!smg && smg.searched !== false;
   }, 'SMG revealed by the corpse search', 30000);
+  // 2026-09-15 2차: 시체 가방이 열리는 순간 `corpseOpen` 이 끝나고 `corpseLoot`(「기관단총을 주무기 칸에 장착」) 이 된다.
+  ok(await step() === 'corpseLoot', 'E 로 시체를 열면 corpseOpen 이 끝나고 corpseLoot 이다');
   const equipped = await P(() => {
     const inv = window.__game.getSystem('inventory');
     const grid = inv.getGrid('container');

@@ -1,5 +1,5 @@
 import type { CraftIngredient, FacilityRequirement, GameContext } from '@/shared';
-import { FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, UI_HOLD_CONFIRM_S, buildFacilityChip } from '@/shared';
+import { FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, UI_HOLD_CONFIRM_S, buildFacilityChip, createHoldButtonCap } from '@/shared';
 import type { PanelOverlay } from './Panel';
 import type { CostSource } from './dom';
 import { clear, el, renderCost, setText, toggleClass } from './dom';
@@ -74,6 +74,8 @@ export class UpgradeModal implements PanelOverlay {
     const no = el('button', { cls: 'ui-btn', text: '취소', parent: foot });
     this.okBtn = el('button', { cls: 'ui-btn primary hs-hold hs-modal-ok', parent: foot });
     this.fill = el('i', { cls: 'hs-hold-fill', parent: this.okBtn });
+    // 2026-09-15 2차 (사용자 결정): 「N초 동안 누르고 있으면 …」 안내 줄 대신 버튼 **안**의 좌클릭 홀드 키캡.
+    createHoldButtonCap(this.okBtn);
     el('span', { cls: 'hs-hold-label', text: '업그레이드', parent: this.okBtn });
     no.type = 'button';
     this.okBtn.type = 'button';
@@ -127,7 +129,10 @@ export class UpgradeModal implements PanelOverlay {
       }
     }
     const blocked = atMax ? '최대 레벨입니다' : s.reason;
-    setText(this.noteEl, blocked ?? `「업그레이드」를 ${UI_HOLD_CONFIRM_S}초 동안 누르고 있으면 강화합니다`);
+    // 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 — 홀드 안내는 버튼 안의 키캡이 대신하고,
+    // 막히지 않았으면 줄 자체가 사라진다 (빈 줄이 카드의 `gap` 을 먹지 않게 `hidden`).
+    setText(this.noteEl, blocked ?? '');
+    this.noteEl.hidden = !blocked;
     toggleClass(this.noteEl, 'bad', !!blocked);
     this.okBtn.disabled = !!blocked;
     if (blocked) this.stopHold();

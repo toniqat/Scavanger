@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
+import { createServer } from 'node:net';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -25,7 +26,24 @@ const bundle = join(root, 'dist-server', 'server.cjs');
 // 8787(릴레이) · 8790-8799(데스크톱 창 서버)를 피한 대역. 병렬 레인이 겹쳐도 안전하다.
 // 예약표 (2026-09-11 E-3): 8820–8829 · 9340–9341 = smoke-desktop (창 8820 · 임베디드 릴레이 8821 · 두 번째 창 8822 ·
 // 프록시 모드 외부 릴레이 8823 · 렌더러 원격 디버깅 9340 · 메인 프로세스 인스펙터 9341) · 8830–8869 = 이 스크립트.
-const PORT = 8830 + Math.floor(Math.random() * 40);
+/* 2026-09-15: 대역 안에서 **비어 있는 칸을 고른다.** 무작위 하나를 집어 그냥 쓰면 그 칸을 다른 프로그램이
+ * 잡고 있을 때(관계없는 바깥 연결의 로컬 포트로도 쓰인다 — 실제로 8840 이 그렇게 물려 이 스모크가 19/36 으로
+ * 떨어졌다) 릴레이가 EADDRINUSE 로 죽고 17건이 한꺼번에 빨개진다. 먼저 붙여 보고 비었을 때만 쓴다 —
+ * 릴레이와 **같은 0.0.0.0** 에 붙여 봐야 같은 판정이 된다. */
+const portFree = (port) => new Promise((resolve) => {
+  const probe = createServer();
+  probe.once('error', () => resolve(false));
+  probe.once('listening', () => probe.close(() => resolve(true)));
+  probe.listen(port, '0.0.0.0');
+});
+const PORT = await (async () => {
+  const from = Math.floor(Math.random() * 40);
+  for (let i = 0; i < 40; i++) {
+    const port = 8830 + ((from + i) % 40);
+    if (await portFree(port)) return port;
+  }
+  return 8830 + from;   // 대역이 통째로 막혔다 — 평소대로 켜 보고 에러 메시지를 보여 준다
+})();
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };

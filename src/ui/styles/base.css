@@ -147,13 +147,13 @@ input { font: inherit; color: inherit; }
 
    2026-09-15 (사용자 결정 — 키캡 다듬기): ① the cap no longer gets an accent border / inset glow — **only the chevron**
    carries the accent colour. ② the chevron no longer nods (`holdChevron` keyframes are gone — 2026-09-12 had already
-   slowed it to 1.8 s because it pulled the eye; now it is still). ③ it moved **inside the cap**: centred on the top edge,
-   pointing down at the label, and the label is pushed down by `padding-top` so the two never overlap. The cap keeps its
-   height (the context's `height` wins as before), so rows holding a hold key no longer need the `:has(.kc-hold)` top
-   padding that made room for the old overhanging chevron (key guide · E prompt · 가젯 안내 · 드론 안내 — all removed).
+   slowed it to 1.8 s because it pulled the eye; now it is still). ③ rows holding a hold key no longer need the
+   `:has(.kc-hold)` top padding that made room for the old overhanging chevron (key guide · E prompt · 가젯 안내 ·
+   드론 안내 — all removed); the cap keeps its height (the context's `height` wins as before).
    The `:not(.kc-mouse)` makes the padding rule (0,3,0) outrank the `.ctx .keycap { padding: 0 5px }` rules (0,2,0) that
-   size caps per widget. Mouse glyph caps draw their chevron **inside the SVG** (on the pressed button), so they get
-   neither the padding nor the `::before`.
+   size caps per widget.
+   ⚠ 그날 안에 적어 둔 「the chevron moved **inside the cap**」 · 「mouse glyph caps draw their chevron inside the SVG」 는
+   바로 아래 2026-09-15 2차가 뒤집었다 — 지금은 **둘 다** 윗변에 걸친 `::before` 하나로 그린다.
 
    2026-09-10 — the modifier class is `kc-hold`, **not** `hold`. `.hold` was already taken by the hold ring at the
    crosshair (`hud/HoldGauge`, further down this file: `position:absolute; width:120px; height:120px; margin:-60px;
@@ -161,17 +161,48 @@ input { font: inherit; color: inherit; }
    turned the cap into a **120x120 fully transparent box**: the E prompt lost its keycap altogether and the panel
    only grew taller (the `:has()` padding still applied). Never name a keycap modifier after an existing widget class
    (2026-09-15: `kc-mouse` · `kc-inline` · `kcm-glyph` were checked free with `rg`). */
-.keycap.kc-hold { position: relative; }
-.keycap.kc-hold:not(.kc-mouse) { padding-top: 5px; }
+/* 2026-09-15 2차 (사용자 결정 — 「눌린 키캡」): 꾹 누르는 키는 **눈으로 눌려 있다**.
+     ① 아래 테두리가 다른 세 면과 같은 1px 로 얇어지고 (기본 키캡은 `border-bottom-width: 2px` — 떠 있는 키의 두께이다),
+     ② 그만큼 내용을 아래로 밀어 내린다 (`padding-top: 1px` — `align-items: center` 라 정확히 1px 내려앉는다:
+       테두리 1/2 일 때 중심 (h−1)/2, 테두리 1/1 + 패딩 1 일 때 (h+1)/2).
+     ③ chevron 은 예전처럼 키캡 안에 들어있지 않고 **윗변에 걸쳐** 절반은 안 · 절반은 밖으로 솟아 있다
+       (보이는 V 의 세로 가운데가 윗 테두리 선 위에 온다 — 6px 정사각형을 45° 돌렸으므로 V 의 가운데 = `top` + 3 + 2.12,
+       그것이 윗 테두리(패딩 상자 기준 −0.5px)에 오도록 `top: -5.6px`).
+     ④ **마우스 그림 키캡도 같다** — 예전에 `.kc-mouse.kc-hold` 는 chevron 을 SVG 안(누르는 버튼 위)에 그리고 이
+       `::before` 를 꺼 두었는데, 두 종류의 키캡이 같은 모습이어야 하므로 그 예외를 걷어냈다 (`shared/keycap.mouseGlyphSvg`
+       는 칠하는 색만 강조색으로 바꿀 뿐 chevron 을 그리지 않는다).
+     chevron 이 키캡 밖으로 솟아나오면서 윗줄과 살짝 겹칠 수 있다 — 의도된 모습이다 (「키와 밖에 걸치게」).
+     키캡은 `overflow` 를 정하지 않으므로(= visible) 잘리지 않는다. */
+.keycap.kc-hold { position: relative; border-bottom-width: 1px; }
+.keycap.kc-hold:not(.kc-mouse) { padding-top: 1px; }
+.keycap.kc-mouse.kc-hold { padding-top: 1px; }
 .keycap.kc-hold::before {
-  content: ''; position: absolute; left: 50%; top: -1px;
+  content: ''; position: absolute; left: 50%; top: -5.6px;
   width: 6px; height: 6px;
   border-right: 2px solid var(--c-accent); border-bottom: 2px solid var(--c-accent);
   transform: translate(-50%, 0) rotate(45deg);
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
   pointer-events: none;
 }
-.keycap.kc-mouse.kc-hold::before { display: none; }
+
+/* 꾹 누르는 **버튼** 안의 좌클릭 힌트 (2026-09-15 2차, 사용자 결정 — `shared/keycap.createHoldButtonCap`).
+   라벨 왼쪽에 서고, 버튼이 `inline-flex`(`.ui-btn`)이든 그냥 글줄이든 같은 자리에 서도록 `vertical-align: middle` 과
+   오른쪽 여백을 직접 갖는다 (`.ui-btn` 은 `gap: 10px` 이라 그쪽에서는 여백이 겹치지 않게 0 이다).
+   `pointer-events: none` 은 필수다 — 홀드는 버튼의 `pointerdown` · `pointerleave` 로 재는데 그 위를 가리는 자식이
+   포인터를 가로채면 어느 화면에서는 홀드가 시작되지 않는다. 글자색 변화(hover · danger)는 `currentColor` 로 따라간다. */
+.keycap.kc-btn {
+  flex: none; min-width: 20px; height: 20px; padding: 0 4px;
+  margin-right: 8px; vertical-align: middle;
+  color: currentColor; background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+.ui-btn .keycap.kc-btn { margin-right: 0; }
+.keycap.kc-btn .kcm-glyph { width: 1.5em; height: 1.5em; }
+/* 홀드 채움 게이지는 버튼 안의 `position: absolute` 한 장이다 (`.pause-ask-fill` · `.tm-ask-fill` · `.sm-hold-fill` ·
+   `.cv-ask-fill` · `.sh-ask-fill`). 키캡은 `.kc-hold` 라 이미 `position: relative` 지만 z-index 가 auto 라 **DOM
+   순서**로 칠해진다 — 키캡이 라벨 왼쪽(= 채움 바보다 앞)에 서므로 그대로 두면 채움이 키캡을 덮는다. 라벨 span 이
+   같은 이유로 `z-index: 1` 을 갖는 그 규약(`.pause-ask-ok-t` · `.cv-ask-label` · `.sm-confirm-ok-t`)을 따른다. */
+.keycap.kc-btn { z-index: 1; }
 
 /* 마우스 버튼 키캡 (2026-09-15, 사용자 결정): `LMB` · `MMB` · `RMB` 글자 대신 마우스 윗부분 그림 (`shared/keycap.mouseGlyphSvg` —
    누를 칸 흰색, 꾹 누르기면 강조색 + 그 칸 안의 chevron). 그림 크기는 **키캡 글자 크기의 1.45 배**(`em`)라 위젯마다 정한
@@ -610,6 +641,12 @@ input { font: inherit; color: inherit; }
  * console (90) and the fixed popups (`.item-tip` 200, `.sc-menu` 300) stay above it. Its own overlays follow below. */
 .menu.pause { z-index: 85; }
 
+/* 2026-09-15 (튜토리얼 건너뛰기): **결과 화면은 검은 페이드 위에 뜬다.** `ui:screenFade.hold` 로 걸어 둔 판
+ * (`.screen-fade` z 82)은 결과 화면으로 페이즈가 바뀌어도 걷히지 않는데, `.menu` 에는 z-index 가 없어
+ * (= auto) 그 판이 탈출 성공 · 레이드 실패 창을 통째로 덮었다. 타이틀(84)과 같은 층에 세우고 일시정지(85) ·
+ * 설정(86) 아래에 둔다 — 셋은 동시에 보이지 않으므로 서로의 순서는 뜻이 없다. */
+.menu.complete, .menu.death { z-index: 84; }
+
 /* 경고 팝업 (2026-09-08) — 파티 떠나기 / 타이틀로 / 게임 종료 all ask first. Covers the whole pause layer (not just
    the frame), so the darkened card is unmistakably modal over the button column it guards. */
 .pause-ask {
@@ -628,7 +665,8 @@ input { font: inherit; color: inherit; }
 }
 .pause-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-danger); }
 .pause-ask-body { font-size: 12px; line-height: 1.7; letter-spacing: 0.02em; color: var(--c-text-dim); }
-.pause-ask-hint { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+/* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.pause-ask-hint` 는 없어졌다 — 「1초 누르고 있어야」는 확정 버튼 안의
+   좌클릭 홀드 키캡(`.keycap.kc-btn`)이 말한다. 탭 확정(`Ask.tap`)에는 그 키캡도 붙지 않는다. */
 /* 2026-09-09 — **취소 가 카드 왼쪽으로 삐져나오던 이유**: `.ui-btn` carries `min-width: 220px` for the menu's own
    button column, and nothing reset it here. Two of them (440px + gap) cannot shrink below that inside a 420px card,
    so `justify-content: flex-end` pushed the overflow out of the left edge. The footer's pair is its own thing: an
@@ -3060,8 +3098,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-confirm-card .acts .ui-btn.sm-danger { border-color: rgba(255, 77, 77, 0.6); color: var(--c-danger); background: rgba(255, 77, 77, 0.08); }
 .sm-confirm-card .acts .ui-btn.sm-danger:hover, .sm-confirm-card .acts .ui-btn.sm-danger.is-holding { border-color: var(--c-danger); color: #ffb3b3; }
-.sm-confirm-hint { font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-faint); }
-.sm-confirm-hint[hidden] { display: none; }
+/* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.sm-confirm-hint` 는 없어졌다 — 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다. */
 
 /* 조종석 행 (방 목록 맨 위, 2026-09-12): 번호 칸이 없고 아래 방들과 한 줄 띄운다 */
 .sm-room.is-cockpit { margin-bottom: 4px; border-bottom-color: var(--c-border); }
@@ -3074,7 +3111,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
  * **연출이지 blocker 가 아니다** — `pointer-events: none` 이고 `ctx.escape` · `uiBlockers` 에 올라가지 않는다.
  *
  * **z-index 82 의 근거**: HUD 레이어 · 지도(40) · 커뮤니티(46) · 인벤토리 창(50 과 그 딸림 층 ≤ 80) ·
- * 허브 팝업(72) **위**, 그러나 메뉴류 — 서버 배지(83) · 타이틀(84) · 키 가이드(84) · 일시정지(85) ·
+ * 허브 팝업(72) **위**, 그러나 메뉴류 — 서버 배지(83) · 타이틀(84) · 키 가이드(84) · **결과 화면(84)** · 일시정지(85) ·
  * 설정(86) · 키 설정(88) · 개발자 콘솔(90) — 과 떠다니는 카드(200 +) **아래**다. 페이드는 화면을 가리는
  * 연출이므로 게임 화면은 전부 덮어야 하지만, 불투명도 1 인 동안 ESC 로 연 화면까지 삼키면 플레이어는
  * 검은 화면에 갇힌 것으로 읽는다 — 일시정지는 언제나 보여야 한다. */

@@ -1073,7 +1073,7 @@ export interface EnemyManagerRef {
   getAliveCount(): number;
   /** Ray vs enemy hitboxes (capsules/spheres). Nearest hit or null. */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): EnemyHit | null;
-  /** Radial damage with linear falloff. Returns kills. */
+  /** Radial damage (`shared/explosion` 2단 계단 감쇠 + 적 전용 하한 0.15). Returns kills. */
   applyExplosion(center: THREE.Vector3, radius: number, damage: number): number;
   /** Intensity 0..1 for ambient pressure (used by GameFlow/difficulty). */
   setThreatLevel(level: number): void;

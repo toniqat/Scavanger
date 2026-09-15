@@ -36,7 +36,7 @@
  */
 import * as THREE from 'three';
 import {
-  BURROW_EMERGE_S, PLAYER_RADIUS, Random, planetThreat,
+  BURROW_EMERGE_S, PLAYER_RADIUS, Random, explosionFalloff, planetThreat,
   SANDWORM_ACID_INTERVAL_S, SANDWORM_ACID_RANGE, SANDWORM_ACID_VOLLEY, SANDWORM_ALERT_RADIUS, SANDWORM_ALIVE_CAP,
   SANDWORM_BURST_BY_SQUAD, SANDWORM_BURST_RING_MAX, SANDWORM_BURST_RING_MIN, SANDWORM_CHANCE_BY_THREAT, SANDWORM_CHECK_S,
   SANDWORM_ERUPT_DAMAGE, SANDWORM_ERUPT_KNOCKBACK, SANDWORM_ERUPT_RADIUS, SANDWORM_GROUP_RADIUS, SANDWORM_HP_MAX, SANDWORM_HP_MIN,
@@ -336,12 +336,16 @@ export class SandwormDirector {
       const dx = t.position.x - p.x, dz = t.position.z - p.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > R + PLAYER_RADIUS) continue;
-      const falloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / R, 0.3, 1);
+      /* 2026-09-15 (사용자 결정 — 모든 폭발물이 같은 공식): **피해**는 공용 2단 계단(`shared/explosion`)이고
+       * **넉백**은 옛 선형 그대로다. 감쇠 곡선을 갈아 끼운 것은 피해뿐이라는 그날의 선을 여기서도 지킨다 —
+       * 넉백이 계단이면 안전지대 경계에서 날아가는 거리가 뚝 끊긴다. 하한 0.3 은 둘 다 유지. */
+      const kbFalloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / R, 0.3, 1);
+      const falloff = Math.max(0.3, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), R));
       if (d > 0.05) _kb.set(dx / d, 0, dz / d);
       else { const a = Math.random() * TWO_PI; _kb.set(Math.cos(a), 0, Math.sin(a)); }
       _kb.y = 0.8;
       _kb.normalize();
-      sys.applyDamage(t, SANDWORM_ERUPT_DAMAGE * falloff, p, worm?.id ?? 0, 'sandworm', null, 0, false, _kb, SANDWORM_ERUPT_KNOCKBACK * falloff);
+      sys.applyDamage(t, SANDWORM_ERUPT_DAMAGE * falloff, p, worm?.id ?? 0, 'sandworm', null, 0, false, _kb, SANDWORM_ERUPT_KNOCKBACK * kbFalloff);
     }
     _c.set(p.x, p.y + 1, p.z);
     sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE, 'ai', null, worm, 'bug');   // 다른 팩션 적 (벌레는 제 편)

@@ -145,6 +145,10 @@ export interface HoldButton {
  * **되돌릴 수 없는 확정 = `UI_HOLD_CONFIRM_S` 홀드** (CLAUDE.md, 기업 거래 성사와 같은 게이지 · 같은 규약): 클릭 · Enter · Space 로는
  * 아무 일도 없다. 게이지는 rAF(`fill` 의 `scaleX`), 확정은 타이머 — 프레임이 멈춘 탭에서도 확정이 멎지 않는다.
  * 일찍 떼면 `onTap`(사용법 안내).
+ *
+ * **2026-09-15 2차 (사용자 결정)**: 「버튼을 N초 동안 누르고 있으면 …」 안내 줄은 없앴다 — 이 함수로 묶는 버튼은
+ * 라벨 왼쪽에 `shared/keycap.createHoldButtonCap()` 키캡을 둔다 (부르는 쪽이 만든다: 라벨 · 채움 바의 순서를
+ * 아는 것은 그쪽이고, `setText` 로 라벨을 다시 쓸 때 키캡이 날아가지 않게 라벨은 자기 `span` 이어야 한다).
  */
 export function bindHoldButton(btn: HTMLButtonElement, fill: HTMLElement, onDone: () => void, onTap?: () => void): HoldButton {
   let hold: { t0: number; raf: number; timer: number } | null = null;

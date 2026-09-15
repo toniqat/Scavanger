@@ -217,7 +217,10 @@
 .hs-modal-gain { font-size: 12px; letter-spacing: 0.04em; color: var(--c-text-dim); }
 .hs-modal-gain[hidden] { display: none; }
 .hs-modal-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; }
+/* 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 (홀드 안내는 버튼 안의 좌클릭 키캡). 사유가 없으면
+   `hidden` 이라 카드의 `gap` 도 먹지 않는다. */
 .hs-modal-note { font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+.hs-modal-note[hidden] { display: none; }
 .hs-modal-note.bad { color: var(--c-danger); }
 .hs-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .hs-modal-foot .ui-btn { min-width: 112px; padding: 0 18px; }

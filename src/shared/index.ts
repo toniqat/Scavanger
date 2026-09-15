@@ -85,3 +85,5 @@ export * from './intel';
 export * from './intelDefs';
 /* appended (2026-09-15): 공용 키캡 — 마우스 버튼 그림 · 꾹 누르기 · 문장 안 키캡 토큰 (`{FIRE:hold}`) */
 export * from './keycap';
+/* appended (2026-09-15): 폭발 감쇠 2단 계단 — 모든 폭발물이 같은 식을 쓴다 (weapons · enemies · gadgets · stratagems) */
+export * from './explosion';

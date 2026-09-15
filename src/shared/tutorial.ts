@@ -38,6 +38,12 @@ export type TutorialStepId =
   | 'wake'         // 쓰러진 채로 깨어난다 (`PlayerRef.playIntroWake`) — 일어서면 다음으로
   | 'move'         // WASD 이동
   | 'sprintJump'   // 달리기 + 점프로 절벽을 넘는다 (떨어지면 즉사 · 체크포인트)
+  /*
+   * appended (2026-09-15 2차, 사용자 결정) — **시체와 상호작용.** 전에는 절벽을 넘자마자 「기관단총을 주무기 칸에
+   * 장착」이 떴다 — 아직 시체를 열지도 않았는데 그 안의 물건을 옮기라고 하는 셔이다 (`supplyLoot` 을 넣은 것과 같은 눈).
+   * 그래서 시체 앞에 서면 먼저 「{INTERACT} 시체 상호작용」 한 줄이고, 가방이 열리면 `corpseLoot` 이다.
+   */
+  | 'corpseOpen'
   | 'corpseLoot'   // 시체에서 무기 · 가방 · 탄약을 꺼내 장착 (여기서 체력 · 무기 HUD 가 나타난다)
   /*
    * appended (2026-09-14 4차, 사용자 결정) — **「앞으로 이동」 세 구간.** 전에는 앞 단계가 끝나는 순간
@@ -107,8 +113,9 @@ export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
 export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly TutorialStepId[]>> = {
   // 2026-09-14 4차: 구간과 구간 사이의 「앞으로 이동」 셋(`advance1`·`2`·`3`)이 들어와 11 → 14 단계다.
   raid: [
-    'wake', 'move', 'sprintJump', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim',
-    // 2026-09-15: `supplyLoot`(보급품 시체 루팅)이 `drop` 과 `heal` 사이에 들어와 15 단계다.
+    // 2026-09-15 2차: `corpseOpen`(시체 상호작용)이 `corpseLoot` 앞에 들어와 16 단계다.
+    'wake', 'move', 'sprintJump', 'corpseOpen', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim',
+    // 2026-09-15: `supplyLoot`(보급품 시체 루팅)이 `drop` 과 `heal` 사이에 들어왔다.
     'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract',
   ],
   ship: ['levelUp', 'stats', 'messenger', 'ravenQuest'],
