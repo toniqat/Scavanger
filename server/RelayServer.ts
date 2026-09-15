@@ -59,6 +59,12 @@ import {
 import { RoomStore, type RoomOp } from './Rooms.ts';
 import { DEFAULT_DATA_DIR } from './Store.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
+/* 2026-09-15: 분대 · 도킹 매칭 (`lobby:dock` · `lobby:look` · 초대 전용 같이 하기 · 외로운 분대 해산) */
+import { NET_ACCENT_PARAM, sanitizeAccent } from '../src/shared/net.ts';
+import type { PlayBlock } from '../src/shared/social.ts';
+
+/** 2026-09-15: what a `lobby:look.accent` string may carry before `sanitizeAccent` judges it (`#rrggbb` + stray whitespace). */
+const MAX_ACCENT_INPUT = 32;
 
 /** 2026-09-13: per-socket `crypto:history` token bucket — burst and refill per second (a chart screen asks for one coin × range at a time). */
 export const CRYPTO_HISTORY_BURST = 16;
@@ -116,6 +122,11 @@ interface Client {
   /** 2026-09-14: `room:say` token bucket (`ROOM_SAY_BURST`, refilled `ROOM_SAY_PER_S`). */
   roomTokens: number;
   roomTokensAt: number;
+  /**
+   * 2026-09-15: my accent colour (`#rrggbb`) from `?a=` or the last `lobby:look`, null = unknown. Kept on the socket so every
+   * later lobby (create · join · quick match · move · 같이 하기) gets it as `LobbyPlayer.accent` without asking again.
+   */
+  accent: string | null;
 }
 
 /** 2026-09-11 (C-29): one row of the operator console's `list` (`RelayServer.listClients`). */
@@ -359,6 +370,11 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     }
     case 'lobby:hostDown':
       return typeof m.down === 'boolean' ? { t: 'lobby:hostDown', down: m.down } : null;
+    /* appended: 2026-09-15 — 분대 · 도킹 매칭. Shapes only; a string that is not `#rrggbb` is ignored by the handler (not refused). */
+    case 'lobby:dock':
+      return typeof m.isPublic === 'boolean' ? { t: 'lobby:dock', isPublic: m.isPublic } : null;
+    case 'lobby:look':
+      return typeof m.accent === 'string' && m.accent.length <= MAX_ACCENT_INPUT ? { t: 'lobby:look', accent: m.accent } : null;
     /* appended: 2026-09-13 — 암호화폐 시세. Shapes only: an unknown coin / range is ignored by the handler (contract: 조용히 무시). */
     case 'crypto:watch':
       return typeof m.on === 'boolean' ? { t: 'crypto:watch', on: m.on } : null;
@@ -425,18 +441,22 @@ function sanitizeWhisper(raw: string): string {
   return out.trim().slice(0, SOCIAL_WHISPER_MAX);
 }
 
-/** `?t=…&n=…` from the upgrade request. Invalid / missing token → null (random id). */
-function parseConnectQuery(req: IncomingMessage): { token: string | null; name: string | null } {
+/** `?t=…&n=…&a=…` from the upgrade request. Invalid / missing token → null (random id); an invalid accent → null (unknown). */
+function parseConnectQuery(req: IncomingMessage): { token: string | null; name: string | null; accent: string | null } {
   let token: string | null = null;
   let name: string | null = null;
+  let accent: string | null = null;
   try {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const t = url.searchParams.get(NET_TOKEN_PARAM);
     if (isValidSessionToken(t)) token = t;
     const n = url.searchParams.get(NET_NAME_PARAM);
     if (typeof n === 'string' && n.length > 0 && n.length <= MAX_NAME_INPUT) name = sanitizePlayerName(n);
+    /* 2026-09-15: 매칭 탭 초상의 강조색 — the one parser (`sanitizeAccent`) decides; anything else is simply unknown. */
+    const a = url.searchParams.get(NET_ACCENT_PARAM);
+    if (typeof a === 'string' && a.length <= MAX_ACCENT_INPUT) accent = sanitizeAccent(a);
   } catch { /* malformed url → anonymous */ }
-  return { token, name };
+  return { token, name, accent };
 }
 
 /** C-29: a usable connection cap, or null (= unlimited) for anything that is not a positive number. */
@@ -548,8 +568,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     return { presence, squad: lobby.size };
   };
 
-  /** One resolved row. null when the 아이디 has no profile any more — the caller then skips it. */
-  const resolveRow = (viewer: PeerId, mySquad: number, code: PlayerCode, at?: number): SocialPlayer | null => {
+  /**
+   * One resolved row. null when the 아이디 has no profile any more — the caller then skips it.
+   * 2026-09-15: `iAmMember` = the viewer sits in a lobby it does not lead — 같이 하기 is invite-only now, so only a leader (or
+   * someone with no squad) sees `joinable` (the same `playBlockReason` call `social:play` makes).
+   */
+  const resolveRow = (viewer: PeerId, mySquad: number, iAmMember: boolean, code: PlayerCode, at?: number): SocialPlayer | null => {
     const id = store.peerByCode(code);
     if (id === undefined) return null;
     const card = store.card(id);
@@ -557,7 +581,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const { presence, squad } = presenceOf(id);
     const row: SocialPlayer = {
       code: card.code, name: card.name, level: card.level, presence, squad,
-      joinable: playBlockReason({ presence, squad }, mySquad, NET_MAX_PLAYERS, id === viewer) === null,
+      joinable: playBlockReason({ presence, squad }, mySquad, NET_MAX_PLAYERS, id === viewer, iAmMember) === null,
     };
     if (at !== undefined) row.at = at;
     /* B-3 배지: my invite to them is still open (a hidden one too — for me it is an ordinary unanswered invite). */
@@ -573,14 +597,16 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   const buildSnapshot = (id: PeerId): SocialSnapshot | null => {
     const soc = store.social(id);
     if (!soc) return null;
-    const mySquad = lobbies.lobbyOf(id)?.size ?? 0;
+    const myLobby = lobbies.lobbyOf(id);
+    const mySquad = myLobby?.size ?? 0;
+    const iAmMember = myLobby !== undefined && myLobby.hostId !== id;
     const rows = (codes: readonly PlayerCode[]): SocialPlayer[] => {
       const out: SocialPlayer[] = [];
-      for (const code of codes) { const r = resolveRow(id, mySquad, code); if (r) out.push(r); }
+      for (const code of codes) { const r = resolveRow(id, mySquad, iAmMember, code); if (r) out.push(r); }
       return out;
     };
     const recent: SocialPlayer[] = [];
-    for (const e of soc.recent) { const r = resolveRow(id, mySquad, e.code, e.at); if (r) recent.push(r); }
+    for (const e of soc.recent) { const r = resolveRow(id, mySquad, iAmMember, e.code, e.at); if (r) recent.push(r); }
     /* B-4: the block list is cards only — no presence for someone I blocked. */
     const blocked: SocialCard[] = [];
     for (const code of soc.blocked ?? []) {
@@ -840,8 +866,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
    * Close `inv` with `outcome` and tell both sides: the inviter `social:inviteResult`, the invitee `social:inviteClosed`
    * — except when the invitee is the one answering (`toldInvitee`: its own reply needs no echo) and for a hidden invite
    * (the invitee never saw it). The inviter's rows lose their `inviteAt` badge on the next push. false = already closed.
+   *
+   * 2026-09-15: every close then asks `pruneLonely` about the invite's lobby — an undocked squad that was only waiting on
+   * this invite is dissolved. `prune = false` only for `openInvite`'s `superseded` close: the replacement invite into the
+   * very same lobby is added right after, so the lobby is not lonely, it just looks that way for one line.
    */
-  const closeInvite = (inv: OpenInvite, outcome: InviteOutcome, reason?: SocialErrorCode, toldInvitee = false): boolean => {
+  const closeInvite = (inv: OpenInvite, outcome: InviteOutcome, reason?: SocialErrorCode, toldInvitee = false, prune = true): boolean => {
     if (!invites.remove(inv)) return false;
     const from = clients.get(inv.from);
     if (from) {
@@ -857,10 +887,39 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       sendTo(to, closed);
     }
     log(`social: invite ${inv.id} ${inviteCode(inv.from)} → ${inviteCode(inv.to)} ${outcome}${reason ? ` (${reason})` : ''}${inv.hidden ? ' [hidden]' : ''}`);
+    if (prune) pruneLonely(lobbies.byCode(inv.lobby));
     return true;
   };
 
   const invites = new InviteTable({ ttlMs: opts.inviteTtlMs, onExpire: (inv) => { closeInvite(inv, 'expired'); } });
+
+  /**
+   * 2026-09-15 (분대 · 도킹 매칭): an **undocked**, not-started lobby with exactly one member and no open invite into it is a
+   * squad of nobody — the invite that made it is gone (declined · expired · failed · offline · 차단 · the member left). It is
+   * dissolved: the member gets `lobby:left` (no reason — nobody moved them anywhere), the lobby is deleted, presence pushed.
+   *
+   * Called after every path that can leave that state behind: `closeInvite` (any outcome), `announceLeave` (leave · grace
+   * expiry · kick · move out) and a reconnect (`connection`, before the welcome). Re-entrancy: nothing here opens or closes an
+   * invite (by definition none points at this lobby), and the `lobbies.byCode` identity check makes a second call for a lobby
+   * that a nested sweep already dissolved a no-op. A member whose socket is down is left alone — its grace timer removes it
+   * (and deletes the lobby) or the reconnect prunes it.
+   * Returns true when the lobby was dissolved.
+   */
+  const pruneLonely = (lobby: Lobby | undefined): boolean => {
+    if (!lobby || lobbies.byCode(lobby.code) !== lobby) return false;
+    if (lobby.docked || lobby.started || lobby.size !== 1) return false;
+    for (const inv of invites.all()) if (inv.lobby === lobby.code) return false;
+    const [only] = lobby.players.values();
+    const member = clients.get(only.id);
+    if (!only.connected || !member) return false;
+    const res = lobbies.leave(only.id);
+    if (!res) return false;
+    clearMigrate(lobby.code);
+    log(`lobby ${lobby.code}: dissolved — undocked squad with only ${only.name}(${only.id}) left and no open invite`);
+    sendTo(member, { t: 'lobby:left' });
+    pushPresence(only.id);
+    return true;
+  };
 
   /**
    * Every open invite whose ship can no longer take the invitee is closed `failed`: the lobby is gone or the inviter is
@@ -951,6 +1010,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     pushPresence(id);
     pushLobbyPresence(lobby);
     sweepInvites();
+    /* 2026-09-15: the one left behind in an undocked squad with nobody invited is let go (a sweep above may already have). */
+    pruneLonely(lobby);
   };
 
   /** Final removal (explicit leave or grace expiry): `peer:left` to the rest, empty lobby deleted. */
@@ -973,7 +1034,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   ): { ok: true; lobby: Lobby } | { ok: false; code: SocialErrorCode } => {
     clearGrace(c.id);
     const wasStarted = lobbies.lobbyOf(c.id)?.started ?? false;
-    const res = lobbies.move(c.id, toCode, c.name);
+    const res = lobbies.move(c.id, toCode, c.name, c.accent);
     if (!res.ok) return { ok: false, code: moveErrorCode(res.code) };
     /*
      * B-3: answered invites first — every sweep from here on (the old lobby's leave included) would otherwise read
@@ -994,13 +1055,28 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
 
   /**
+   * `lobby:quickmatch`, and (2026-09-15) `lobby:dock {isPublic:true}` from a player with no lobby: join the best open public
+   * **docked** lobby (B-11: one holding a 차단 either way is not a candidate) or create a docked public one. The caller has
+   * set `c.name`.
+   */
+  const quickMatchClient = (c: Client, why: string): void => {
+    const res = lobbies.quickMatch(c.id, c.name || sanitizePlayerName(''), (l) => blockRefusal(l, c.id) === null, c.accent);
+    if (typeof res === 'string') { sendError(c, res); return; }
+    log(`lobby ${res.lobby.code}: ${why} ${res.created ? 'created (public)' : `joined (${res.lobby.size} players)`} by ${c.name}(${c.id})`);
+    if (!res.created) recordMet(res.lobby, c.id);
+    broadcastState(res.lobby);
+    pushLobbyPresence(res.lobby);
+    if (!res.created) { settleInvitesInto(c.id, res.lobby, false); sweepInvites(); }   // B-3: it may be full now
+  };
+
+  /**
    * B-3: `c` invites `targetId` into `lobby`. The pair's previous invite is `superseded`, the oldest visible invite past
    * the invitee's `SQUAD_INVITE_MAX` is closed (`failed` / `limit`), and — unless `hidden` (B-4: they blocked me) — the
    * invitee gets `social:invited` with the invite id. My rows get the `inviteAt` badge at once (my own action).
    */
   const openInvite = (c: Client, from: SocialCard, targetId: PeerId, lobby: Lobby, hidden: boolean): OpenInvite => {
     const prev = invites.pair(c.id, targetId);
-    if (prev) closeInvite(prev, 'superseded');
+    if (prev) closeInvite(prev, 'superseded', undefined, false, false);   // 2026-09-15: the new invite keeps the lobby alive — no prune
     if (!hidden) {
       const visible = invites.toPeer(targetId);
       while (visible.length >= SQUAD_INVITE_MAX) {
@@ -1097,7 +1173,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
       case 'lobby:create': {
         c.name = sanitizePlayerName(m.name);
-        const res = lobbies.create(c.id, c.name, false);
+        const res = lobbies.create(c.id, c.name, false, { accent: c.accent });   // 2026-09-15: docked, as before
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${res.code}: created (private) by ${c.name}(${c.id})`);
         broadcastState(res);
@@ -1107,14 +1183,55 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
       case 'lobby:quickmatch': {
         c.name = sanitizePlayerName(m.name);
-        /* B-11: a lobby holding a 차단 (either direction) is not a candidate — all filtered out → a new lobby. */
-        const res = lobbies.quickMatch(c.id, c.name, (l) => blockRefusal(l, c.id) === null);
-        if (typeof res === 'string') { sendError(c, res); return; }
-        log(`lobby ${res.lobby.code}: quickmatch ${res.created ? 'created (public)' : `joined (${res.lobby.size} players)`} by ${c.name}(${c.id})`);
-        if (!res.created) recordMet(res.lobby, c.id);
-        broadcastState(res.lobby);
-        pushLobbyPresence(res.lobby);
-        if (!res.created) { settleInvitesInto(c.id, res.lobby, false); sweepInvites(); }   // B-3: it may be full now
+        quickMatchClient(c, 'quickmatch');
+        return;
+      }
+
+      /* appended: 2026-09-15 — 분대 · 도킹 매칭. 터미널 > 매칭의 `비공개 매칭` / `공개 매칭`. */
+      case 'lobby:dock': {
+        const mine = lobbies.lobbyOf(c.id);
+        const name = c.name || sanitizePlayerName('');
+        if (!mine) {
+          /* 분대가 없다: 비공개 = 나 혼자인 도킹된 비공개 로비, 공개 = 예전 빠른 매칭 그대로 (열린 공개 함선 합류 또는 새로 연다). */
+          if (m.isPublic) { quickMatchClient(c, 'dock public'); return; }
+          const res = lobbies.create(c.id, name, false, { accent: c.accent });
+          if (typeof res === 'string') { sendError(c, res); return; }
+          log(`lobby ${res.code}: created (private, docked) by ${name}(${c.id}) — 비공개 매칭`);
+          broadcastState(res);
+          pushPresence(c.id);
+          return;
+        }
+        if (mine.hostId !== c.id) { sendError(c, 'not_host'); return; }
+        if (mine.started) { sendError(c, 'started'); return; }
+        if (mine.docked) { sendError(c, 'in_lobby'); return; }
+        if (m.isPublic && mine.size === 1) {
+          /*
+           * 혼자인 분대장(초대만 걸어 둔 상태)은 「혼자인 플레이어」다 — 열린 공개 함선이 있으면 **그리로 옮겨 탄다**. 옛 로비는
+           * 비어서 지워지고, 그 로비로 걸어 둔 초대는 평소의 sweep 으로 실패한다 (`failed / not_found`). 분대원이 한 명이라도 있으면
+           * 이 가지를 절대 타지 않는다 — 분대끼리는 합쳐지지 않는다 (사용자 결정).
+           */
+          const open = lobbies.findQuickMatch((l) => l !== mine && blockRefusal(l, c.id) === null);
+          if (open) {
+            const moved = moveToLobby(c, open.code, '공개 매칭');
+            if (moved.ok) return;
+            log(`lobby ${mine.code}: 공개 매칭 move into ${open.code} refused (${moved.code}) → docking own lobby instead`);
+          }
+        }
+        /* 제자리 도킹: 비공개는 초대로만, 공개는 빠른 매칭 후보가 된다 (혼자 매칭한 사람만 빈 칸을 채운다). */
+        mine.docked = true;
+        mine.isPublic = m.isPublic;
+        log(`lobby ${mine.code}: docked (${m.isPublic ? 'public' : 'private'}, ${mine.size} players) by ${c.name}(${c.id})`);
+        broadcastState(mine);
+        return;
+      }
+
+      /* appended: 2026-09-15 — 매칭 탭 초상의 강조색. 잘못된 값은 조용히 무시한다 (거절하지 않는다). */
+      case 'lobby:look': {
+        const accent = sanitizeAccent(m.accent);
+        if (accent === null) return;
+        c.accent = accent;
+        const lobby = lobbies.lobbyOf(c.id);
+        if (lobby && lobby.setAccent(c.id, accent)) broadcastState(lobby);
         return;
       }
 
@@ -1128,7 +1245,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           const refused = blockRefusal(target, c.id);
           if (refused !== null) { sendError(c, refused); return; }
         }
-        const res = lobbies.join(c.id, code, c.name);
+        const res = lobbies.join(c.id, code, c.name, c.accent);
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${code}: ${c.name}(${c.id}) joined (${res.size} players)`);
         recordMet(res, c.id);
@@ -1151,6 +1268,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       case 'lobby:ready': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (!lobby.docked) { sendError(c, 'not_docked'); return; }   // 2026-09-15: 미도킹 분대에는 발사 포드가 없다
         // Started lobby: ready = "in pod" is handled client-side in the hub; accept as a no-op and echo the state.
         if (lobby.started) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
         lobby.setReady(c.id, m.ready);
@@ -1163,6 +1281,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         const mode: MissionMode = m.mode ?? 'raid';
+        /* 2026-09-15: 미도킹 분대는 개인 출격도 훈련장도 잠긴다 — 레이드 · 훈련장 모두 여기서 막는다. */
+        if (!lobby.docked) { sendError(c, 'not_docked'); return; }
         if (lobby.started) { sendError(c, 'started'); return; }
         if (mode === 'training') {
           // Any member, no ready gating: only the starter enters; the rest join later through `lobby:mission`.
@@ -1271,6 +1391,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       case 'lobby:mission': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (m.inMission && !lobby.docked) { sendError(c, 'not_docked'); return; }   // 2026-09-15 (`false` stays allowed)
         if (m.inMission && !lobby.started) { sendError(c, 'in_mission'); return; }
         lobby.setInMission(c.id, m.inMission);
         log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission} (${lobby.inMissionCount()} in mission)`);
@@ -1465,45 +1586,38 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         /* B-4: nothing is offered toward someone I blocked (unblock first). */
         if (blocks(c.id, target.id)) { socialError(c, 'invalid'); return; }
         const mine = lobbies.lobbyOf(c.id);
-        const theirs = lobbies.lobbyOf(target.id);
-        const where = presenceOf(target.id);
-        /* The same gate the UI greys the button out with (`playBlockReason`), mapped onto the error codes. */
-        const block = playBlockReason(where, mine?.size ?? 0, NET_MAX_PLAYERS);
-        if (block === 'offline') { socialError(c, 'offline'); return; }
-        if (block === 'in_mission') { socialError(c, 'in_mission'); return; }
-        if (block === 'my_squad_full') { socialError(c, 'my_squad_full'); return; }
-        if (block !== null) { socialError(c, 'full'); return; }   // squad_full
-        const name = store.card(target.id)?.name ?? '';
-        if (theirs && theirs === mine) { socialError(c, 'in_squad'); return; }
+        /* They already sit in my squad (answered before the leader gate — a member asking about a squadmate hears `in_squad`). */
+        if (mine && mine.has(target.id)) { socialError(c, 'in_squad'); return; }
         /*
-         * B-4: they blocked me. Moving into their ship is exactly what a block must prevent, and refusing would reveal
-         * it — so it becomes an invite into my ship that they never see and that ends `expired` (branch ③, hidden).
+         * 2026-09-15 (분대 · 도킹 매칭): 같이 하기 is **invite only** — the old branch "they already have a ship → I move into it"
+         * is gone. The same gate the UI greys the button out with (`playBlockReason`, `iAmMember` = I am in a squad I do not
+         * lead), mapped onto the error codes.
          */
-        const blockedByThem = blocks(target.id, c.id);
-        if (theirs && !blockedByThem) {
-          /* ② they already have a ship: I move over — but only if I am not dragging a squad along. */
-          if (mine && mine.size > 1) { socialError(c, 'busy'); return; }
-          /* B-6: nor out of a mission I am inside (a 훈련장 too — moving would end it under me). */
-          if (mine?.get(c.id)?.inMission) { socialError(c, 'busy'); return; }
-          if (!theirs.isJoinable()) { socialError(c, 'in_mission'); return; }
-          const moved = moveToLobby(c, theirs.code, '같이 하기');
-          if (!moved.ok) { socialError(c, moved.code); return; }
-          log(`social: ${soc.code} joined ${target.code}'s ship ${moved.lobby.code} (같이 하기)`);
-          sendTo(c, { t: 'social:play', code: target.code, name, outcome: 'joined' });
+        const block: PlayBlock | null = playBlockReason(
+          presenceOf(target.id), mine?.size ?? 0, NET_MAX_PLAYERS, false, mine !== undefined && mine.hostId !== c.id,
+        );
+        if (block !== null) {
+          const code: SocialErrorCode = block === 'offline' ? 'offline' : block === 'in_mission' ? 'in_mission'
+            : block === 'my_squad_full' ? 'my_squad_full' : block === 'in_other_squad' ? 'in_other_squad'
+              : block === 'not_leader' ? 'not_leader' : block === 'self' ? 'self' : block === 'in_squad' ? 'in_squad'
+                : 'full';   // squad_full: no longer produced
+          socialError(c, code);
           return;
         }
-        /* ③ they have no ship: make sure I have one, then invite them into it. */
+        const name = store.card(target.id)?.name ?? '';
+        /* B-4: they blocked me — an ordinary-looking invite they never see, which ends `expired` for me. */
+        const blockedByThem = blocks(target.id, c.id);
         let lobby = mine;
         if (lobby === undefined) {
-          const created = lobbies.create(c.id, c.name, false);
+          /* No squad yet: sending the invite makes me its leader at once — **undocked**, everyone stays in their own ship. */
+          const created = lobbies.create(c.id, c.name || sanitizePlayerName(''), false, { docked: false, accent: c.accent });
           if (typeof created === 'string') { socialError(c, 'invalid'); return; }
           lobby = created;
-          log(`lobby ${lobby.code}: created (private) by ${c.name}(${c.id}) for 같이 하기`);
+          log(`lobby ${lobby.code}: created (private, undocked squad) by ${c.name}(${c.id}) for 같이 하기`);
           broadcastState(lobby);
           pushPresence(c.id);
-        } else if (!lobby.isJoinable()) { socialError(c, 'busy'); return; }
+        } else if (!lobby.isJoinable()) { socialError(c, 'busy'); return; }   // a raid running (a training keeps the ship open)
         else if (lobby.canAdd() === 'full') { socialError(c, 'my_squad_full'); return; }
-        if (!clients.has(target.id)) { socialError(c, 'offline'); return; }
         openInvite(c, soc, target.id, lobby, blockedByThem);
         sendTo(c, { t: 'social:play', code: target.code, name, outcome: 'invited' });
         return;
@@ -1690,13 +1804,14 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
   /* ── connection lifecycle ─────────────────────────────────────────────── */
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
-    const { token, name } = parseConnectQuery(req);
+    const { token, name, accent } = parseConnectQuery(req);
     const id = token ? peerIdFromToken(token) : randomPeerId();
     const c: Client = {
       id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?', hasProfile: token !== null,
       connectedAt: Date.now(), kicked: false,
       cryptoWatch: false, cryptoTokens: CRYPTO_HISTORY_BURST, cryptoTokensAt: Date.now(),
       roomTokens: ROOM_SAY_BURST, roomTokensAt: Date.now(),
+      accent,
     };
 
     // Same session already attached (second tab / zombie socket): the newest connection wins.
@@ -1739,6 +1854,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       // A returning host inside the migrate delay keeps the role; after it, `welcome.lobby.hostId` tells it otherwise.
       if (lobby.hostId === id) clearMigrate(lobby.code);
       if (c.name) lobby.setName(id, c.name); else c.name = lobby.get(id)?.name ?? '';
+      /* 2026-09-15: same rule for the accent — a fresh `?a=` wins, otherwise the socket inherits the slot's. */
+      if (c.accent) lobby.setAccent(id, c.accent); else c.accent = lobby.get(id)?.accent ?? null;
       let note = '';
       if (old) {
         // Phase 9: a replaced socket is a new page — that page is not inside the mission any more (the client also
@@ -1769,6 +1886,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       if (social) welcome.social = social;
       sendTo(c, welcome);
       broadcastState(lobby);
+      /*
+       * 2026-09-15: an undocked squad I sat in alone, whose invites all closed while my socket was down, was left to this
+       * moment (`pruneLonely` skips a disconnected member). The resume goes out first and the dissolve follows as an
+       * ordinary `lobby:left` — the client drops it as "left", not as a lost connection (a welcome without `lobby`).
+       */
+      pruneLonely(lobby);
     } else {
       const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now() };
       if (profile) welcome.profile = profile;

@@ -59,8 +59,26 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 ## 2. Ship hub & reconnection
 
 - Title `함선 탑승` → `hub:enter personal` (hub calls `ensureConnected`; a token still in a lobby resumes straight into the shared ship).
-- Terminal matchmaking (`lobby:quickmatch` → public lobby) or code → docking cutscene → shared ship at world origin (every client
-  builds identical geometry, so hub snapshots line up). A server-moved squad arrives as `lobby:left {reason:'moved'}` → one docking cutscene.
+- **Squad ≠ shared ship** (2026-09-15). A lobby carries `LobbyState.docked` (always sent by the relay; absent = older server = docked,
+  read it through `isDockedLobby`). Only the shared ship is at world origin (every client builds identical geometry, so hub snapshots
+  line up); an undocked squad's members stay in their own personal ships.
+- **Invites make squads**: `social:play` is invite-only. With no lobby, the sender becomes leader of a new private **undocked** lobby at once;
+  the invitee joins only by accepting (`social:inviteReply`, atomic move). Refusals: `in_squad` (already mine) · `offline` · `in_mission` ·
+  `my_squad_full` · `in_other_squad` (target in a squad of 2+) · `not_leader` (I am a member, not the leader) · `busy` (my raid is running).
+  The relay dissolves an undocked, not-started lobby left with one member and no open invite into it (`lobby:left` without a reason) —
+  after any invite close, leave, grace expiry, kick, move out or resume; a disconnected sole member is left to its grace timer.
+- **Docking** (터미널 > 매칭): `lobby:dock {isPublic}`. No lobby → private: a new docked private lobby; public: the quick-match path.
+  Leader of an undocked squad → private: docked + private; public + alone: moved into an open public docked ship when there is one
+  (`lobby:left {reason:'moved', to}` then its `lobby:state`; invites into the old squad then fail), else its own lobby docks public;
+  public with 2+ members: its own lobby docks public — **squads never merge**, only lone players fill free public slots. Member → `not_host`,
+  started → `started`, already docked → `in_lobby`. The player who pressed it plays the docking cutscene at once; the others count down
+  `HUB_SQUAD_DOCK_COUNTDOWN_S` first (a member accepting into an already docked lobby also counts down).
+- **Undocked squads refuse** `lobby:ready`, `lobby:start` (raid and training) and `lobby:mission {inMission:true}` with `not_docked`;
+  `lobby:planet` · `lobby:intel` · `lobby:transferHost` · `lobby:leave` · `lobby:look` still work. Once docked, `lobby:leave` (도킹 해제)
+  takes out only the sender. Quick match (`lobby:quickmatch`, `lobby:dock` public) never picks an undocked lobby.
+- Old paths `lobby:create` · `lobby:join` · `lobby:quickmatch` still create / join docked lobbies (smokes, older clients).
+- **Accent**: `?a=<#rrggbb>` (`NET_ACCENT_PARAM`) on connect and `lobby:look {accent}` set `LobbyPlayer.accent` (`sanitizeAccent`, invalid
+  ignored); only the 매칭 탭 portraits read it — in-raid avatars keep slot colours.
 - Launch pod: boarding ≠ ready. Ready = `setReady(true)`; all connected members ready → countdown → host `startGame(seed)` →
   `lobby:start {seed, mode, planet, intel}` → server `game:start`.
 - **Planet**: `LobbyState.planet` is set **by the host only** (`lobby:planet`); every member runs the warp from its own `lobby:state`

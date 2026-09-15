@@ -143,7 +143,9 @@ export interface WhisperLine {
  * `maxSquad` is `NET_MAX_PLAYERS`; passed in so this file stays free of a runtime import from `net.ts`.
  */
 /* `in_other_squad` · `not_leader` appended (2026-09-15, 분대 · 도킹 매칭). `squad_full` is no longer produced (kept: add-only). */
-export type PlayBlock = 'self' | 'offline' | 'in_mission' | 'squad_full' | 'my_squad_full' | 'in_other_squad' | 'not_leader';
+export type PlayBlock = 'self' | 'offline' | 'in_mission' | 'squad_full' | 'my_squad_full' | 'in_other_squad' | 'not_leader'
+  /* appended (2026-09-15, flow): 「이미 내 분대에 있다」 — `playBlockReason` 은 내지 않고, 부르는 쪽(`SocialSync.playBlock`)이 먼저 본다 (서버는 `in_squad`) */
+  | 'in_squad';
 
 /**
  * 2026-09-15 (분대 · 도킹 매칭, docs/DECISIONS.md): 같이 하기 is **invite only** now — the old branch "the target already
@@ -172,6 +174,7 @@ export const PLAY_BLOCK_LABELS: Readonly<Record<PlayBlock, string>> = {
   my_squad_full: '내 분대가 가득 참',
   in_other_squad: '이미 다른 분대에 있음',
   not_leader: '분대장만 초대할 수 있음',
+  in_squad: '이미 같은 분대',
 };
 
 /** How the server resolved a 같이 하기 (`social:play`), reported back so the UI can toast the right sentence. */

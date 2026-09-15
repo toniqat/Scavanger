@@ -46,6 +46,8 @@ import {
   isValidRoomId, roomSystemTextKo,
 } from '../src/shared/social.ts';
 import { ROOM_FILE, RoomStore } from './Rooms.ts';
+/* 2026-09-15 — part 8d: 분대 · 도킹 매칭 */
+import { NET_ACCENT_PARAM } from '../src/shared/net.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -77,13 +79,14 @@ class TestClient {
   private queue: ServerToClient[] = [];
   private waiters: Array<{ pred: (m: ServerToClient) => boolean; resolve: (m: ServerToClient) => void }> = [];
 
-  constructor(label: string, url: string, query?: { token?: string; name?: string }) {
+  constructor(label: string, url: string, query?: { token?: string; name?: string; accent?: string }) {
     this.label = label;
     let full = url;
     if (query) {
       const q = new URLSearchParams();
       if (query.token !== undefined) q.set(NET_TOKEN_PARAM, query.token);
       if (query.name !== undefined) q.set(NET_NAME_PARAM, query.name);
+      if (query.accent !== undefined) q.set(NET_ACCENT_PARAM, query.accent);
       full = `${url}?${q.toString()}`;
     }
     this.ws = new WebSocket(full);
@@ -143,7 +146,7 @@ class TestClient {
 }
 
 /** Connect + consume welcome. */
-async function connect(label: string, url: string, query?: { token?: string; name?: string }): Promise<{ c: TestClient; welcome: Extract<ServerToClient, { t: 'welcome' }> }> {
+async function connect(label: string, url: string, query?: { token?: string; name?: string; accent?: string }): Promise<{ c: TestClient; welcome: Extract<ServerToClient, { t: 'welcome' }> }> {
   const c = new TestClient(label, url, query);
   await c.open();
   const welcome = await c.wait('welcome');
@@ -1318,15 +1321,25 @@ async function main(): Promise<void> {
     assert(rs8b.every((mm) => mm.lobby.intel === undefined && mm.lobby.planet === 'crimson'),
       'lobby:reset drops the intel (it was consumed by that raid) but keeps the planet', rs8b[0].lobby);
 
-    /* ── 같이 하기 (social:play): the server picks the branch ── */
+    /* ── 같이 하기 (social:play) — 2026-09-15 (분대 · 도킹 매칭): invite only, the old "move into their ship" branch is gone ── */
     p8b.send({ t: 'social:play', code: codeB });
     se = await p8b.wait('social:error');
     assert(se.code === 'self', '같이 하기 with my own 아이디 → self');
     p8b.send({ t: 'social:play', code: code1 });
-    const [played, joinedState] = await Promise.all([p8b.wait('social:play'), p8a.wait('lobby:state', (mm) => mm.lobby.players.length === 3)]);
-    assert(played.outcome === 'joined' && played.code === code1 && played.name === 'Uno', '같이 하기 with a squadded friend → outcome joined', played);
-    assert(joinedState.lobby.players.some((p) => p.id === p8b.id) && p8b.lobby?.code === code8A && p8b.lobby?.planet === 'crimson',
-      'the caller is added to the target ship (both sides get lobby:state, planet included)', joinedState.lobby);
+    se = await p8b.wait('social:error');
+    assert(se.code === 'in_other_squad' && se.message === SOCIAL_ERROR_MESSAGE_KO.in_other_squad && server.lobbies.lobbyOf(p8b.id) === undefined,
+      '같이 하기 toward a player in a squad of 2+ → in_other_squad (nobody is moved, no squad made for me)', se);
+    p8a.send({ t: 'social:play', code: codeB });
+    const [played, invite8] = await Promise.all([p8a.wait('social:play'), p8b.wait('social:invited')]);
+    assert(played.outcome === 'invited' && played.code === codeB && played.name === 'Duo' && invite8.invite.lobby === code8A,
+      'the leader of a docked squad invites into it → outcome invited (never joined)', { played, invite: invite8.invite });
+    p8b.send({ t: 'social:inviteReply', id: invite8.invite.id ?? '', accept: true });
+    const [joinedState] = await Promise.all([
+      p8a.wait('lobby:state', (mm) => mm.lobby.players.length === 3),
+      p8b.wait('lobby:state', (mm) => mm.lobby.code === code8A),
+    ]);
+    assert(joinedState.lobby.players.some((p) => p.id === p8b.id) && p8b.lobby?.code === code8A && p8b.lobby?.planet === 'crimson' && joinedState.lobby.docked === true,
+      'accepting adds the invitee to the ship (both sides get lobby:state, planet included, still docked)', joinedState.lobby);
     p8b.send({ t: 'social:play', code: code1 });
     se = await p8b.wait('social:error');
     assert(se.code === 'in_squad', '같이 하기 with someone already in my ship → in_squad');
@@ -1337,7 +1350,7 @@ async function main(): Promise<void> {
     await p8d.wait('lobby:state');
     p8b.send({ t: 'social:play', code: codeD });
     se = await p8b.wait('social:error');
-    assert(se.code === 'busy', '같이 하기 while other members are in my ship → busy (disband or invite instead)');
+    assert(se.code === 'not_leader', '같이 하기 as a member of a squad I do not lead → not_leader (only the leader invites)', se);
     p8b.send({ t: 'lobby:leave' });
     await p8b.wait('lobby:left');
     p8d.send({ t: 'lobby:leave' });
@@ -1347,25 +1360,19 @@ async function main(): Promise<void> {
     const [invited, invite] = await Promise.all([p8b.wait('social:play'), p8d.wait('social:invited')]);
     const myShip = await p8b.wait('lobby:state', (mm) => mm.lobby.players.length === 1);
     assert(invited.outcome === 'invited' && invited.code === codeD, '같이 하기 with a friend who has no ship → outcome invited', invited);
-    assert(invite.invite.from === codeB && invite.invite.name === 'Duo' && invite.invite.lobby === myShip.lobby.code && invite.invite.at > 0,
-      'the invite carries my 아이디 / name and the lobby code to join, and my ship was created for it', invite.invite);
-    p8d.close(); await p8d.closed(); await sleep(80);
+    assert(invite.invite.from === codeB && invite.invite.name === 'Duo' && invite.invite.lobby === myShip.lobby.code && invite.invite.at > 0
+      && myShip.lobby.docked === false && myShip.lobby.hostId === p8b.id,
+      'the invite carries my 아이디 / name and the lobby code, and an undocked squad led by me was created for it', { invite: invite.invite, lobby: myShip.lobby });
+    p8d.close(); await p8d.closed();
+    const [offRes, offLeft] = await Promise.all([
+      p8b.wait('social:inviteResult', (mm) => mm.id === invite.invite.id),
+      p8b.wait('lobby:left'),
+    ]);
+    assert(offRes.outcome === 'offline' && offLeft.reason === undefined && server.lobbies.byCode(myShip.lobby.code) === undefined,
+      'the only invitee going offline dissolves my undocked squad (lobby:left without a reason)', { offRes, offLeft });
     p8b.send({ t: 'social:play', code: codeD });
     se = await p8b.wait('social:error');
-    assert(se.code === 'offline', '같이 하기 with a profile that is not connected → offline');
-    /* ② from a ship of my own: alone in it, so it is left behind and I dock into theirs */
-    /* 2026-09-11 (B-6): the leave is now a server move — `lobby:left {reason:'moved', to}` → new `lobby:state` → `social:play joined`. */
-    const order8: string[] = [];
-    const leftOwnP = p8b.wait('lobby:left').then((mm) => { order8.push('left'); return mm; });
-    const stateP = p8b.wait('lobby:state', (mm) => mm.lobby.code === code8A).then((mm) => { order8.push('state'); return mm; });
-    const joinedP = p8b.wait('social:play').then((mm) => { order8.push('play'); return mm; });
-    p8b.send({ t: 'social:play', code: code1 });
-    const [leftOwn, , joined2] = await Promise.all([leftOwnP, stateP, joinedP]);
-    assert(leftOwn.reason === 'moved' && leftOwn.to === code8A && joined2.outcome === 'joined' && p8b.lobby?.code === code8A,
-      '같이 하기 from a ship where I am alone → lobby:left {reason:moved, to} and I dock into theirs', { leftOwn, lobby: p8b.lobby?.code });
-    assert(order8.join(',') === 'left,state,play', 'the move reads lobby:left moved → lobby:state (new ship) → social:play joined', order8);
-    p8b.send({ t: 'lobby:leave' });
-    await p8b.wait('lobby:left');
+    assert(se.code === 'offline' && server.lobbies.lobbyOf(p8b.id) === undefined, '같이 하기 with a profile that is not connected → offline (no squad made)');
 
     /* ── 개인 대화 (옛 귓속말) ── */
     p8a.send({ t: 'social:whisper', code: codeB, text: '  안녕 <b>친구</b>  ' });
@@ -1872,8 +1879,9 @@ async function main(): Promise<void> {
         E.c.flush();
         E.c.send({ t: 'social:play', code: A.code });
         const fullErr = await E.c.wait('social:error');
-        assert(fullErr.code === 'full' && ss.lobbies.lobbyOf(E.c.id)?.code === eShip && await E.c.expectNone('lobby:left', 100),
-          'B-6: 같이 하기 into a full ship → full, and my own ship is kept (no lobby:left)', fullErr);
+        /* 2026-09-15: 같이 하기 no longer moves me into their ship — a squad of 2+ is simply not invitable. */
+        assert(fullErr.code === 'in_other_squad' && ss.lobbies.lobbyOf(E.c.id)?.code === eShip && await E.c.expectNone('lobby:left', 100),
+          'B-6 (2026-09-15): 같이 하기 toward a full squad → in_other_squad, and my own ship is kept (no lobby:left)', fullErr);
         E.c.send({ t: 'lobby:leave' });
         await E.c.wait('lobby:left');
 
@@ -1893,14 +1901,20 @@ async function main(): Promise<void> {
         for (const id of capIds.slice(1)) F.c.send({ t: 'social:inviteReply', id, accept: false });
         await Promise.all([B, D, E].map((p, i) => p.c.wait('social:inviteResult', (mm) => mm.id === capIds[i + 1] && mm.outcome === 'declined')));
 
-        /* ── B-6: 같이 하기 while inside a 훈련장 → busy, the training goes on ── */
-        const dShip = D.c.lobby?.code ?? '';
-        D.c.send({ t: 'lobby:start', seed: 77, mode: 'training' });
+        /* ── B-6 → 2026-09-15: 같이 하기 while my ship runs a raid → busy, the raid goes on ── */
+        /* (the declines above dissolved D's undocked invite squad — D opens a docked ship of its own for the raid) */
+        await D.c.wait('lobby:left');
+        D.c.flush();   // the dissolved squad's lobby:state (one player) must not be read as the new ship
+        const dShip = await openedLobby(D);
+        await pickPlanet(D.c, 'mossy');
+        D.c.send({ t: 'lobby:ready', ready: true });
+        await D.c.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready));
+        D.c.send({ t: 'lobby:start', seed: 77 });
         await D.c.wait('game:start');
         D.c.send({ t: 'social:play', code: A.code });
         const busyT = await D.c.wait('social:error');
         assert(busyT.code === 'busy' && ss.lobbies.lobbyOf(D.c.id)?.code === dShip && ss.lobbies.lobbyOf(D.c.id)?.get(D.c.id)?.inMission === true,
-          'B-6: 같이 하기 from inside my own training → busy, and I stay in it', busyT);
+          'B-6: 같이 하기 from inside my own raid → busy, and I stay in it', busyT);
         D.c.send({ t: 'lobby:mission', inMission: false });
         await D.c.wait('lobby:state', (mm) => !mm.lobby.started);
 
@@ -2009,12 +2023,12 @@ async function main(): Promise<void> {
         assert(await N1.c.expectNone('social:state', SOCIAL_PUSH_COALESCE_MS + 200), 'B-4: a friend request from a blocked player sits in their outgoing only — nothing reaches me');
         N1.c.send({ t: 'social:get' });
         assert((await N1.c.wait('social:state')).social.incoming.length === 0, 'B-4: … and my incoming stays empty');
-        const n1Ship = N1.c.lobby?.code ?? '';
         N2.c.send({ t: 'social:play', code: N1.code });
         const plSw = await N2.c.wait('social:play');
-        assert(plSw.outcome === 'invited' && ss.lobbies.byCode(n1Ship)?.size === 1 && ss.lobbies.lobbyOf(N2.c.id)?.code !== n1Ship
-          && await N1.c.expectNone('social:invited', 200),
-          'B-4: 같이 하기 toward a blocker with a ship does not move them in — it reads "invited" and no card reaches me', plSw);
+        /* 2026-09-15: nobody is ever moved by 같이 하기 now — the blocked sender gets an undocked squad of its own and a hidden invite. */
+        assert(plSw.outcome === 'invited' && ss.lobbies.lobbyOf(N2.c.id)?.size === 1 && ss.lobbies.lobbyOf(N2.c.id)?.docked === false
+          && ss.lobbies.lobbyOf(N1.c.id) === undefined && await N1.c.expectNone('social:invited', 200),
+          'B-4: 같이 하기 toward a blocker reads "invited", no card reaches me, and nobody is moved', plSw);
         const swRes = await N2.c.wait('social:inviteResult', (mm) => mm.code === N1.code, TTL8C + 2500);
         const n3Res = await N3.c.wait('social:inviteResult', (mm) => mm.id === iv31.invite.id, TTL8C + 2500);
         assert(swRes.outcome === 'expired' && n3Res.outcome === 'expired' && await N1.c.expectNone('social:inviteClosed', 50),
@@ -2115,6 +2129,239 @@ async function main(): Promise<void> {
         for (const p of [A, B, C, D, E, F, G, H, I, ...M, N1, N2, N3, N4, K1, K2, K3, K4, K5, K6, K7, K8]) p.c.close();
       } finally {
         await ss.close();
+      }
+    }
+
+    /* ── part 8d (2026-09-15): 분대 · 도킹 매칭 — 미도킹 분대 · lobby:dock · 초대 전용 같이 하기 · 외로운 분대 해산 · accent ── */
+    {
+      /* unit: the model's docked flag */
+      const lu = new Lobby('DOCKU1', 'u-host', true);
+      assert(lu.docked === true && lu.toState().docked === true && lu.isQuickMatchable(), 'part 8d: a new Lobby is docked by default, toState() sends docked:true');
+      lu.docked = false;
+      assert(!lu.isQuickMatchable() && lu.toState().docked === false, 'part 8d: an undocked public lobby is never quick-matchable, toState() sends docked:false');
+
+      const TTL8D = 2000;
+      const sd = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: 3_000, dataDir: null, profileGcIntervalMs: null, inviteTtlMs: TTL8D });
+      const durl = `ws://127.0.0.1:${sd.port}${NET_WS_PATH}`;
+      type Q = { c: TestClient; code: PlayerCode; token: string };
+      const dconn = async (label: string, ch: string, name: string, accent?: string): Promise<Q> => {
+        const token = makeToken(ch);
+        const r = await connect(label, durl, accent === undefined ? { token, name } : { token, name, accent });
+        return { c: r.c, code: r.welcome.social?.me.code ?? '', token };
+      };
+      /** `from` invites `to` (outcome invited) → the invite + `from`'s lobby state carrying it. */
+      const inviteOf = async (from: Q, to: Q): Promise<{ id: string; lobby: string }> => {
+        from.c.send({ t: 'social:play', code: to.code });
+        const [pl, iv] = await Promise.all([from.c.wait('social:play'), to.c.wait('social:invited', (mm) => mm.invite.from === from.code)]);
+        if (pl.outcome !== 'invited') fail('part 8d: invite helper', pl);
+        return { id: iv.invite.id ?? '', lobby: iv.invite.lobby };
+      };
+      /** `to` accepts → both sides see the squad of `n`. */
+      const acceptInto = async (from: Q, to: Q, inv: { id: string; lobby: string }, n: number): Promise<LobbyState> => {
+        to.c.send({ t: 'social:inviteReply', id: inv.id, accept: true });
+        const [st] = await Promise.all([
+          to.c.wait('lobby:state', (mm) => mm.lobby.code === inv.lobby && mm.lobby.players.length === n),
+          from.c.wait('lobby:state', (mm) => mm.lobby.code === inv.lobby && mm.lobby.players.length === n),
+        ]);
+        return st.lobby;
+      };
+      try {
+        const A = await dconn('8dA', 'A', 'Ana', '#FF8800');
+        const B = await dconn('8dB', 'B', 'Ben');
+        const C = await dconn('8dC', 'C', 'Cid');
+        const D = await dconn('8dD', 'D', 'Dot');
+        const E = await dconn('8dE', 'E', 'Eve', 'zzz');
+        const F = await dconn('8dF', 'F', 'Fay');
+        const G = await dconn('8dG', 'G', 'Gus');
+        const H = await dconn('8dH', 'H', 'Hal');
+        const I = await dconn('8dI', 'I', 'Ivy');
+        const J = await dconn('8dJ', 'J', 'Jon');
+
+        /* ── an invite makes an undocked squad led by the sender; accent from ?a= rides LobbyPlayer ── */
+        A.c.send({ t: 'social:play', code: B.code });
+        const [pl1, st1, iv1] = await Promise.all([A.c.wait('social:play'), A.c.wait('lobby:state'), B.c.wait('social:invited')]);
+        assert(pl1.outcome === 'invited' && st1.lobby.docked === false && st1.lobby.hostId === A.c.id && st1.lobby.players.length === 1
+          && st1.lobby.isPublic === false && iv1.invite.lobby === st1.lobby.code && sd.lobbies.byCode(st1.lobby.code)?.docked === false,
+          'part 8d: 같이 하기 with no squad → a private undocked lobby led by me (docked:false), the invite points at it', { pl1, lobby: st1.lobby });
+        assert(st1.lobby.players[0].accent === '#ff8800', 'part 8d: ?a= (sanitized to lower case) shows as LobbyPlayer.accent', st1.lobby.players[0]);
+        assert(await B.c.expectNone('lobby:state', 150) && sd.lobbies.lobbyOf(B.c.id) === undefined, 'part 8d: the invitee is not put anywhere until it accepts');
+
+        /* ── declining the only invite dissolves the squad ── */
+        B.c.send({ t: 'social:inviteReply', id: iv1.invite.id ?? '', accept: false });
+        const [dec1, left1] = await Promise.all([A.c.wait('social:inviteResult', (mm) => mm.id === iv1.invite.id), A.c.wait('lobby:left')]);
+        assert(dec1.outcome === 'declined' && left1.reason === undefined && sd.lobbies.byCode(st1.lobby.code) === undefined && sd.lobbies.lobbyOf(A.c.id) === undefined,
+          'part 8d: the only invite declined → lobby:left (no reason) and the undocked lobby is deleted', { dec1, left1 });
+
+        /* ── expiry of the only invite dissolves it too ── */
+        const inv2 = await inviteOf(A, B);
+        const [exp2, left2] = await Promise.all([
+          A.c.wait('social:inviteResult', (mm) => mm.id === inv2.id, TTL8D + 2500),
+          A.c.wait('lobby:left', undefined, TTL8D + 2500),
+        ]);
+        assert(exp2.outcome === 'expired' && left2.reason === undefined && sd.lobbies.byCode(inv2.lobby) === undefined,
+          'part 8d: the only invite expiring → lobby:left and the lobby is gone', { exp2, left2 });
+        await B.c.wait('social:inviteClosed', (mm) => mm.id === inv2.id);
+
+        /* ── superseding keeps it; accepting makes a squad of 2, still undocked ── */
+        const inv3a = await inviteOf(A, B);
+        const inv3 = await inviteOf(A, B);
+        await A.c.wait('social:inviteResult', (mm) => mm.id === inv3a.id && mm.outcome === 'superseded');
+        assert(inv3.lobby === inv3a.lobby && sd.lobbies.byCode(inv3.lobby)?.size === 1 && await A.c.expectNone('lobby:left', 150),
+          'part 8d: re-inviting (superseded) does not dissolve the squad — the new invite keeps it', { a: inv3a.lobby, b: inv3.lobby });
+        const sq = await acceptInto(A, B, inv3, 2);
+        assert(sq.docked === false && sq.hostId === A.c.id && sq.players.length === 2 && await B.c.expectNone('lobby:left', 1),
+          'part 8d: accept → a squad of 2, still undocked (everyone stays in their own ship)', sq);
+        const pSquad = inv3.lobby;
+
+        /* ── what an undocked squad refuses, and what it keeps ── */
+        B.c.send({ t: 'lobby:dock', isPublic: true });
+        assert((await B.c.wait('lobby:error')).code === 'not_host', 'part 8d: a member pressing 매칭 → not_host');
+        A.c.send({ t: 'lobby:ready', ready: true });
+        const eReady = await A.c.wait('lobby:error');
+        B.c.send({ t: 'lobby:ready', ready: true });
+        const eReadyB = await B.c.wait('lobby:error');
+        assert(eReady.code === 'not_docked' && eReady.message === LOBBY_ERROR_MESSAGE_KO.not_docked && eReadyB.code === 'not_docked',
+          'part 8d: lobby:ready in an undocked squad → not_docked (leader and member)', { eReady, eReadyB });
+        A.c.send({ t: 'lobby:start', seed: 801, planet: 'mossy' });
+        const eStart = await A.c.wait('lobby:error');
+        B.c.send({ t: 'lobby:start', seed: 802, mode: 'training' });
+        const eTrain = await B.c.wait('lobby:error');
+        B.c.send({ t: 'lobby:mission', inMission: true });
+        const eMission = await B.c.wait('lobby:error');
+        assert(eStart.code === 'not_docked' && eTrain.code === 'not_docked' && eMission.code === 'not_docked' && sd.lobbies.byCode(pSquad)?.started === false,
+          'part 8d: raid start · training start · lobby:mission true in an undocked squad → not_docked, nothing starts', { eStart, eTrain, eMission });
+        await pickPlanet(A.c, 'ashen', [B.c]);
+        pass('part 8d: lobby:planet stays allowed for the leader of an undocked squad');
+        B.c.send({ t: 'social:play', code: C.code });
+        const eLeader = await B.c.wait('social:error');
+        assert(eLeader.code === 'not_leader' && eLeader.message === SOCIAL_ERROR_MESSAGE_KO.not_leader && sd.lobbies.byCode(pSquad)?.size === 2,
+          'part 8d: a member of a squad cannot invite → not_leader', eLeader);
+        C.c.send({ t: 'social:play', code: A.code });
+        const eOther = await C.c.wait('social:error');
+        assert(eOther.code === 'in_other_squad' && sd.lobbies.lobbyOf(C.c.id) === undefined && sd.lobbies.byCode(pSquad)?.size === 2,
+          'part 8d: inviting someone in a squad of 2+ → in_other_squad (and no squad is made for me)', eOther);
+        B.c.send({ t: 'social:request', code: C.code });
+        const bRow = await B.c.wait('social:state', (mm) => mm.social.outgoing.some((r) => r.code === C.code));
+        assert(bRow.social.outgoing.find((r) => r.code === C.code)?.joinable === false,
+          'part 8d: social rows of a squad member read joinable:false (playBlockReason with iAmMember)', bRow.social.outgoing);
+
+        /* ── accent: lobby:look updates and broadcasts; an invalid one is ignored ── */
+        B.c.send({ t: 'lobby:look', accent: '#00AAff' });
+        const [lookA] = await Promise.all([
+          A.c.wait('lobby:state', (mm) => mm.lobby.players.some((p) => p.id === B.c.id && p.accent === '#00aaff')),
+          B.c.wait('lobby:state', (mm) => mm.lobby.players.some((p) => p.id === B.c.id && p.accent === '#00aaff')),
+        ]);
+        assert(lookA.lobby.players.find((p) => p.id === A.c.id)?.accent === '#ff8800', 'part 8d: lobby:look → the squad sees the new LobbyPlayer.accent', lookA.lobby.players);
+        A.c.flush();   // older lobby:state frames of this squad are still queued — only a new broadcast may count below
+        B.c.send({ t: 'lobby:look', accent: 'red' });
+        B.c.sendRaw(JSON.stringify({ t: 'lobby:look', accent: 7 }));
+        const eLook = await B.c.wait('lobby:error');
+        assert(eLook.code === 'invalid' && await A.c.expectNone('lobby:state', 200) && sd.lobbies.byCode(pSquad)?.get(B.c.id)?.accent === '#00aaff',
+          'part 8d: lobby:look with a non-#rrggbb string is ignored (no broadcast); a non-string frame → invalid', eLook);
+
+        /* ── lobby:quickmatch never picks an undocked lobby, even a public one ── */
+        A.c.send({ t: 'lobby:setPublic', isPublic: true });
+        await Promise.all([A.c, B.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.isPublic && mm.lobby.docked === false)));
+        H.c.send({ t: 'lobby:quickmatch', name: 'Hal' });
+        const qH = await H.c.wait('lobby:state');
+        assert(qH.lobby.code !== pSquad && qH.lobby.players.length === 1 && qH.lobby.docked === true && qH.lobby.isPublic && sd.lobbies.byCode(pSquad)?.size === 2,
+          'part 8d: lobby:quickmatch skips an undocked public squad and opens a docked public lobby', qH.lobby);
+        H.c.send({ t: 'lobby:leave' });
+        await H.c.wait('lobby:left');
+
+        /* ── the leader docks private: docked, private, not quick-matchable; a second dock → in_lobby ── */
+        A.c.send({ t: 'lobby:dock', isPublic: false });
+        const [dkA] = await Promise.all([A.c, B.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.docked === true)));
+        assert(dkA.lobby.code === pSquad && dkA.lobby.isPublic === false && dkA.lobby.players.length === 2 && sd.lobbies.byCode(pSquad)?.isQuickMatchable() === false,
+          'part 8d: leader lobby:dock false → the squad is docked and private (not quick-matchable)', dkA.lobby);
+        A.c.send({ t: 'lobby:dock', isPublic: true });
+        assert((await A.c.wait('lobby:error')).code === 'in_lobby', 'part 8d: lobby:dock on an already docked squad → in_lobby');
+        B.c.send({ t: 'lobby:ready', ready: true });
+        await Promise.all([A.c, B.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.some((p) => p.id === B.c.id && p.ready))));
+        pass('part 8d: once docked, lobby:ready is accepted again');
+
+        /* ── 도킹 해제 from a docked lobby takes out only me; a docked lobby left with one member is not dissolved ── */
+        B.c.send({ t: 'lobby:leave' });
+        const [bLeft] = await Promise.all([B.c.wait('lobby:left'), A.c.wait('peer:left', (mm) => mm.id === B.c.id)]);
+        assert(bLeft.reason === undefined && sd.lobbies.byCode(pSquad)?.size === 1 && sd.lobbies.lobbyOf(A.c.id)?.code === pSquad && await A.c.expectNone('lobby:left', 200),
+          'part 8d: lobby:leave from a docked lobby removes only the sender (the docked ship stays, even with one member)', { size: sd.lobbies.byCode(pSquad)?.size });
+        A.c.send({ t: 'lobby:leave' });
+        await A.c.wait('lobby:left');
+
+        /* ── a member leaving an undocked squad of 2 dissolves the leader's (no invite open) ── */
+        const inv4 = await inviteOf(C, D);
+        await acceptInto(C, D, inv4, 2);
+        D.c.send({ t: 'lobby:leave' });
+        const [, cLeft] = await Promise.all([D.c.wait('lobby:left'), C.c.wait('lobby:left')]);
+        assert(cLeft.reason === undefined && sd.lobbies.byCode(inv4.lobby) === undefined && sd.lobbies.lobbyOf(C.c.id) === undefined,
+          'part 8d: the member leaves an undocked squad of 2 → the leader, alone with no invite, gets lobby:left', cLeft);
+
+        /* ── a squad of 2 docks public: its own lobby becomes the open public ship ── */
+        const inv5 = await inviteOf(C, D);
+        await acceptInto(C, D, inv5, 2);
+        C.c.send({ t: 'lobby:dock', isPublic: true });
+        const [pub] = await Promise.all([C.c, D.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.docked === true)));
+        assert(pub.lobby.code === inv5.lobby && pub.lobby.isPublic === true && pub.lobby.players.length === 2 && sd.lobbies.byCode(inv5.lobby)?.isQuickMatchable() === true,
+          'part 8d: a squad of 2 presses 공개 매칭 → its own lobby is docked + public (quick-matchable)', pub.lobby);
+        const shipCD = inv5.lobby;
+
+        /* ── a lone player (no lobby) pressing 공개 매칭 joins that ship as a member ── */
+        E.c.send({ t: 'lobby:dock', isPublic: true });
+        const [eSt] = await Promise.all([
+          E.c.wait('lobby:state', (mm) => mm.lobby.code === shipCD),
+          C.c.wait('lobby:state', (mm) => mm.lobby.players.length === 3),
+        ]);
+        assert(eSt.lobby.players.length === 3 && eSt.lobby.hostId === C.c.id && eSt.lobby.docked === true
+          && eSt.lobby.players.find((p) => p.id === E.c.id)?.accent === undefined,
+          'part 8d: a lone player\'s lobby:dock true joins the open public ship as a member (an invalid ?a= leaves accent unknown)', eSt.lobby);
+
+        /* ── another squad of 2 docking public does not merge — it gets its own ship ── */
+        const inv6 = await inviteOf(F, G);
+        await acceptInto(F, G, inv6, 2);
+        F.c.send({ t: 'lobby:dock', isPublic: true });
+        const [fSt] = await Promise.all([F.c, G.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.docked === true)));
+        assert(fSt.lobby.code === inv6.lobby && fSt.lobby.code !== shipCD && fSt.lobby.players.length === 2 && fSt.lobby.isPublic && sd.lobbies.byCode(shipCD)?.size === 3,
+          'part 8d: a second squad of 2 pressing 공개 매칭 docks its own lobby (squads never merge)', { own: fSt.lobby.code, other: shipCD });
+
+        /* ── a lone leader with a pending invite pressing 공개 매칭 moves into the open ship; its invite fails ── */
+        const inv7 = await inviteOf(H, I);
+        H.c.send({ t: 'lobby:dock', isPublic: true });
+        const [hMoved, hSt, hRes, iClosed] = await Promise.all([
+          H.c.wait('lobby:left'),
+          H.c.wait('lobby:state', (mm) => mm.lobby.code === shipCD),
+          H.c.wait('social:inviteResult', (mm) => mm.id === inv7.id),
+          I.c.wait('social:inviteClosed', (mm) => mm.id === inv7.id),
+        ]);
+        assert(hMoved.reason === 'moved' && hMoved.to === shipCD && hSt.lobby.players.length === 4 && hSt.lobby.hostId === C.c.id
+          && sd.lobbies.byCode(inv7.lobby) === undefined,
+          'part 8d: alone in an undocked squad + 공개 매칭 → moved into the oldest open public ship (lobby:left moved → lobby:state)', { hMoved, n: hSt.lobby.players.length });
+        assert(hRes.outcome === 'failed' && hRes.reason === 'not_found' && iClosed.outcome === 'failed',
+          'part 8d: … and the invite into the old squad fails through the normal sweep', { hRes, iClosed });
+
+        /* ── no lobby + 비공개 매칭 → a docked private lobby of my own ── */
+        J.c.send({ t: 'lobby:dock', isPublic: false });
+        const jSt = await J.c.wait('lobby:state');
+        assert(jSt.lobby.docked === true && jSt.lobby.isPublic === false && jSt.lobby.players.length === 1 && jSt.lobby.hostId === J.c.id,
+          'part 8d: lobby:dock false with no squad → a docked private lobby of my own', jSt.lobby);
+        J.c.send({ t: 'lobby:leave' });
+        await J.c.wait('lobby:left');
+
+        /* ── a disconnected lone leader is left to its grace; reconnecting after its invite closed dissolves it ── */
+        const inv8 = await inviteOf(J, I);
+        J.c.close();
+        await J.c.closed();
+        await sleep(80);
+        I.c.send({ t: 'social:inviteReply', id: inv8.id, accept: false });
+        await sleep(150);
+        assert(sd.lobbies.byCode(inv8.lobby)?.size === 1, 'part 8d: the invite closing while the lone leader is disconnected does not dissolve its squad (grace decides)');
+        const J2 = await dconn('8dJ2', 'J', 'Jon');
+        const jLeft = await J2.c.wait('lobby:left');
+        assert(jLeft.reason === undefined && sd.lobbies.byCode(inv8.lobby) === undefined && sd.lobbies.lobbyOf(J2.c.id) === undefined,
+          'part 8d: reconnecting into that squad resumes it and then dissolves it (lobby:left)', jLeft);
+
+        for (const p of [A, B, C, D, E, F, G, H, I, J2]) p.c.close();
+      } finally {
+        await sd.close();
       }
     }
 

@@ -73,6 +73,15 @@ export class Lobby {
    * 호스트가 바뀌거나 미션이 끝나면(`reset()`) 자동으로 꺼진다 — 표시가 다음 판까지 남아서는 안 된다.
    */
   hostDown = false;
+  /* 2026-09-15 — 분대 · 도킹 매칭 (docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」) */
+  /**
+   * false = 분대만 꾸려졌고 모두 **자기 개인 함선**에 있다 (초대를 보내는 순간 만들어진 로비). true = 분대가 공용 함선에 있다.
+   * 기본값이 **true** 인 이유: `lobby:create` · `lobby:join` · `lobby:quickmatch` 는 예전처럼 도킹된 로비를 만든다
+   * (스모크 · 옛 클라이언트가 기댄다). false 를 만드는 곳은 릴레이의 `social:play` 하나이고, true 로 올리는 곳은 `lobby:dock`
+   * 하나다 — 한 번 도킹한 로비는 다시 false 가 되지 않는다. 미도킹 로비는 빠른 매칭 후보가 아니고(`isQuickMatchable`),
+   * 준비 · 출격 · 훈련장 · 임무 합류를 받지 않으며(`not_docked`), 혼자 남고 열린 초대도 없으면 릴레이가 해산한다.
+   */
+  docked = true;
 
   constructor(code: string, hostId: PeerId, isPublic = false, now: number = Date.now()) {
     this.code = code;
@@ -125,13 +134,23 @@ export class Lobby {
     return null;
   }
 
-  add(id: PeerId, name: string): LobbyPlayer | LobbyErrorCode {
+  /** `accent` (2026-09-15): the joiner's `#rrggbb` as the relay already sanitized it; null / omitted = unknown (field absent). */
+  add(id: PeerId, name: string, accent?: string | null): LobbyPlayer | LobbyErrorCode {
     const refused = this.canAdd();
     if (refused !== null) return refused;
     const slot = this.freeSlot();
     const player: LobbyPlayer = { id, name, slot, ready: false, isHost: id === this.hostId, connected: true, inMission: false };
+    if (accent) player.accent = accent;
     this.players.set(id, player);
     return player;
+  }
+
+  /** 2026-09-15: `lobby:look` / a reconnect with `?a=`. true when the member's accent actually changed (→ broadcast). */
+  setAccent(id: PeerId, accent: string): boolean {
+    const p = this.players.get(id);
+    if (!p || p.accent === accent) return false;
+    p.accent = accent;
+    return true;
   }
 
   /**
@@ -270,16 +289,21 @@ export class Lobby {
     return b && b.seed === this.seed ? b : null;
   }
 
-  /** Open to newcomers via quick match (a not-started lobby, or one whose members are only training). */
+  /**
+   * Open to newcomers via quick match (a not-started lobby, or one whose members are only training).
+   * 2026-09-15: only a **docked** lobby — an undocked squad is still spread over personal ships, and a stranger quick-matched
+   * into it would have no shared ship to arrive in.
+   */
   isQuickMatchable(): boolean {
-    return this.isPublic && this.isJoinable() && this.players.size < NET_MAX_PLAYERS && this.freeSlot() >= 0;
+    return this.docked && this.isPublic && this.isJoinable() && this.players.size < NET_MAX_PLAYERS && this.freeSlot() >= 0;
   }
 
   toState(): LobbyState {
     const players = Array.from(this.players.values())
       .sort((a, b) => a.slot - b.slot)
       .map((p) => ({ ...p }));
-    const state: LobbyState = { code: this.code, hostId: this.hostId, players, started: this.started, seed: this.seed, isPublic: this.isPublic };
+    /* 2026-09-15: `docked` is always sent (absent means "older server → docked" to the client, so false must be explicit). */
+    const state: LobbyState = { code: this.code, hostId: this.hostId, players, started: this.started, seed: this.seed, isPublic: this.isPublic, docked: this.docked };
     if (this.started && this.mode) state.mode = this.mode;
     if (this.planet) state.planet = this.planet;
     if (this.intel) state.intel = this.intel;   // 2026-09-14: 정보상 — 모양만 씻어 그대로 에코한다
@@ -304,24 +328,28 @@ export class LobbyManager {
   lobbyOf(id: PeerId): Lobby | undefined { return this.byPeer.get(id); }
   byCode(code: string): Lobby | undefined { return this.lobbies.get(code); }
 
-  create(hostId: PeerId, name: string, isPublic = false): Lobby | LobbyErrorCode {
+  /**
+   * `opts` (2026-09-15): `docked` (default true — only the relay's 같이 하기 makes an undocked squad) and the host's `accent`.
+   */
+  create(hostId: PeerId, name: string, isPublic = false, opts: { docked?: boolean; accent?: string | null } = {}): Lobby | LobbyErrorCode {
     if (this.byPeer.has(hostId)) return 'in_lobby';
     let code = randomLobbyCode();
     let guard = 0;
     while (this.lobbies.has(code) && guard++ < 1000) code = randomLobbyCode();
     if (this.lobbies.has(code)) return 'server';
     const lobby = new Lobby(code, hostId, isPublic);
-    lobby.add(hostId, name);
+    if (opts.docked === false) lobby.docked = false;
+    lobby.add(hostId, name, opts.accent);
     this.lobbies.set(code, lobby);
     this.byPeer.set(hostId, lobby);
     return lobby;
   }
 
-  join(id: PeerId, code: string, name: string): Lobby | LobbyErrorCode {
+  join(id: PeerId, code: string, name: string, accent?: string | null): Lobby | LobbyErrorCode {
     if (this.byPeer.has(id)) return 'in_lobby';
     const lobby = this.lobbies.get(code);
     if (!lobby) return 'not_found';
-    const res = lobby.add(id, name);
+    const res = lobby.add(id, name, accent);
     if (typeof res === 'string') return res;
     this.byPeer.set(id, lobby);
     this.adoptHostIfAbsent(lobby);
@@ -359,17 +387,17 @@ export class LobbyManager {
    * Join the oldest open public lobby or create a new public one. `created` tells which happened.
    * `accept` (2026-09-11, B-11) narrows the candidates — see `findQuickMatch`.
    */
-  quickMatch(id: PeerId, name: string, accept?: (lobby: Lobby) => boolean): { lobby: Lobby; created: boolean } | LobbyErrorCode {
+  quickMatch(id: PeerId, name: string, accept?: (lobby: Lobby) => boolean, accent?: string | null): { lobby: Lobby; created: boolean } | LobbyErrorCode {
     if (this.byPeer.has(id)) return 'in_lobby';
     const open = this.findQuickMatch(accept);
     if (open) {
-      const res = open.add(id, name);
+      const res = open.add(id, name, accent);
       if (typeof res === 'string') return res;
       this.byPeer.set(id, open);
       this.adoptHostIfAbsent(open);
       return { lobby: open, created: false };
     }
-    const lobby = this.create(id, name, true);
+    const lobby = this.create(id, name, true, { accent });
     if (typeof lobby === 'string') return lobby;
     return { lobby, created: true };
   }
@@ -382,7 +410,7 @@ export class LobbyManager {
    * throws (the selftest would see it) rather than being papered over.
    * Rules about the *mover* (a squad in tow → busy, inside a mission → busy) are the relay's — this is the data move.
    */
-  move(id: PeerId, toCode: string, name: string):
+  move(id: PeerId, toCode: string, name: string, accent?: string | null):
     | { ok: true; from: Lobby | null; to: Lobby; fromDeleted: boolean; hostMigrated: boolean }
     | { ok: false; code: LobbyErrorCode } {
     const to = this.lobbies.get(toCode);
@@ -398,7 +426,7 @@ export class LobbyManager {
       fromDeleted = left?.deleted ?? false;
       hostMigrated = left?.hostMigrated ?? false;
     }
-    const added = to.add(id, name);
+    const added = to.add(id, name, accent);
     if (typeof added === 'string') throw new Error(`LobbyManager.move: canAdd() passed but add() refused (${added})`);
     this.byPeer.set(id, to);
     this.adoptHostIfAbsent(to);
