@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * `npm run dist` 의 마지막 단계 — **받는 사람이 그대로 압축해 보낼 폴더**를 만든다 (`release/SCAVANGER/`).
+ * `npm run app:dist` 의 마지막 단계 — **받는 사람이 그대로 압축해 보낼 폴더**를 만든다 (`release/SCAVANGER/`).
  *
  * ```
  * release/SCAVANGER/
  *   app/                    electron-builder 의 산출물 전부 (SCAVANGER.exe + 런타임 파일 수백 개)
  *   SCAVANGER.exe           stub 런처 — app\SCAVANGER.exe 를 띄운다 (electron/launcher.cs)
  *   server.txt              접속할 서버 주소 한 줄 (사람이 고치는 유일한 파일)
- *   SCAVANGER-Server.exe    서버를 켤 사람만 실행 (scripts/build-server.mjs)
  * ```
+ *
+ * **2026-09-15 — 서버는 들어가지 않는다 (사용자 결정).** 예전 넷째 칸이던 `SCAVANGER-Server.exe` 와 그것을 굽던
+ * 도구(`scripts/build-server.mjs` · `server/tool.ts` · `pe-signature.mjs`)는 지웠다. 서버는 이 저장소에서
+ * `start-server.bat` 로만 켠다. 그래서 이 폴더는 정확히 셋이고 `scripts/smoke-desktop.mjs --release` 가 그것을 센다.
  *
  * **왜 stub 인가**: `dir` 타깃의 결과를 그대로 주면 exe 하나 옆에 `.pak` · `locales/` · dll 수백 개가 놓여
  * 어느 것을 눌러야 하는지 알 수 없다. `portable` 타깃(자체 압축 exe)은 그 문제는 없지만 실행할 때마다 임시
@@ -25,7 +28,6 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { securityDirectory } from './pe-signature.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -34,7 +36,6 @@ const unpacked = join(releaseDir, 'win-unpacked');
 const outDir = join(releaseDir, 'SCAVANGER');
 const appDir = join(outDir, 'app');
 const icon = join(root, 'electron', 'resources', 'icon.ico');
-const skipServer = process.argv.includes('--no-server');
 
 if (process.platform !== 'win32') {
   console.error('[pack] Windows 전용입니다 (stub 런처 · exe).');
@@ -48,7 +49,7 @@ if (!existsSync(join(unpacked, 'SCAVANGER.exe'))) {
 /* ── ① 깨끗한 배포 폴더 + app/ ─────────────────────────────────────────── */
 if (existsSync(outDir)) {
   try { rmSync(outDir, { recursive: true, force: true }); } catch (e) {
-    console.error(`[pack] 이전 배포 폴더를 지울 수 없습니다 (게임 · 서버가 실행 중인지 확인)\n  ${e.message}`);
+    console.error(`[pack] 이전 배포 폴더를 지울 수 없습니다 (게임이 실행 중인지 확인)\n  ${e.message}`);
     process.exit(1);
   }
 }
@@ -89,7 +90,7 @@ if (cs.status !== 0) {
 console.log(`[pack] SCAVANGER.exe  (stub → app\\SCAVANGER.exe${existsSync(icon) ? ' · 아이콘 적용' : ''})`);
 
 /* ── ③ server.txt ─────────────────────────────────────────────────────── */
-/** 빌드에 구워진 기본 주소 (`electron/default-relay.txt` 의 첫 실주소). 없으면 빈 문자열 = 혼자 플레이. */
+/** 빌드에 구워진 기본 주소 (`electron/default-relay.txt` 의 첫 실주소). 없으면 빈 문자열 = 이 PC 의 서버를 찾는다. */
 function bakedAddress() {
   const f = join(root, 'electron', 'default-relay.txt');
   if (!existsSync(f)) return '';
@@ -106,33 +107,16 @@ writeFileSync(join(outDir, 'server.txt'), [
   '#   - 게임 안 [설정 › 서버 설정] 에 주소를 적으면 그것이 이 파일보다 우선합니다.',
   '#     (그 칸을 비우면 다시 이 파일의 주소를 씁니다)',
   '#   - 형식은 ws://주소:8787/ws 입니다. "192.168.0.12" 처럼 주소만 적어도 됩니다.',
-  '#   - 주소 줄을 지우거나 주석 처리하면 게임이 자기 안의 서버를 씁니다 (혼자 플레이).',
+  '#   - 주소 줄을 지우거나 주석 처리하면 이 PC 의 서버(ws://127.0.0.1:8787/ws)에 붙습니다.',
+  '#     게임 안에는 서버가 들어 있지 않습니다 — 그때는 이 PC 에서 start-server.bat 가 켜져 있어야 합니다.',
   '#',
-  '#   서버를 켜는 사람은 이 폴더의 SCAVANGER-Server.exe 를 실행하고,',
-  '#   그 창에 적히는 주소를 나머지 사람들에게 알려 주면 됩니다.',
+  '#   서버는 SCAVANGER 프로젝트 폴더의 start-server.bat 로만 켭니다.',
+  '#   서버를 켠 사람의 창에 적히는 주소를 이 파일이나 게임 설정에 적으면 됩니다.',
   '',
   baked,
   '',
 ].join('\r\n'));   // 메모장으로 여는 파일이라 CRLF 로 쓴다
-console.log(`[pack] server.txt  (${baked || '주소 없음 — 혼자 플레이'})`);
-
-/* ── ④ 서버 exe ───────────────────────────────────────────────────────── */
-if (skipServer) {
-  console.log('[pack] --no-server → 서버 exe 는 만들지 않았습니다');
-} else {
-  const srv = spawnSync(process.execPath, [
-    join(here, 'build-server.mjs'),
-    `--out=${join(outDir, 'SCAVANGER-Server.exe')}`,
-  ], { stdio: 'inherit' });
-  if (srv.status !== 0) {
-    console.error('[pack] 서버 exe 빌드 실패');
-    process.exit(1);
-  }
-  // C-30 (2026-09-11): 깨진 node.exe 서명이 배포 exe 에 남지 않았는지 — 보안 디렉터리 크기가 0 이어야 한다.
-  const sec = securityDirectory(join(outDir, 'SCAVANGER-Server.exe'));
-  if (sec.size !== 0) { console.error(`[pack] SCAVANGER-Server.exe 에 서명 테이블이 남아 있습니다 (${sec.size} B) — build-server 의 서명 제거가 빠졌다`); process.exit(1); }
-  console.log('[pack] SCAVANGER-Server.exe  보안 디렉터리 크기 0 (깨진 서명 없음)');
-}
+console.log(`[pack] server.txt  (${baked || '주소 없음 — 이 PC 의 서버 ws://127.0.0.1:8787/ws'})`);
 
 console.log(`\n[pack] 배포 폴더 준비 완료: ${outDir}`);
-console.log('  이 폴더를 그대로 압축해 보내면 됩니다 (app 폴더 포함).');
+console.log('  이 폴더를 그대로 압축해 보내면 됩니다 (app 폴더 포함). 서버는 들어 있지 않습니다 — start-server.bat 로 켭니다.');

@@ -1,43 +1,51 @@
 #!/usr/bin/env node
 /**
- * 데스크톱 셸(`electron/`)을 **진짜 Electron 으로** 띄워 검사한다 (E-3, 2026-09-11).
+ * 데스크톱 셸(`electron/`)을 **진짜 Electron 으로** 띄워 검사한다 (E-3, 2026-09-11 · 2026-09-15 서버 제외 개편).
  *
  * 브라우저 스모크는 `window.__scavDesktop = true` 로 셸을 *흉내* 낸다 — 그래서 셸 쪽 코드(창 서버 · `/ws` 프록시 ·
- * 임베디드 릴레이 지연 시작 · 릴레이 주소 결정 · 창 포트 = 세이브 오리진 · 단일 인스턴스 락)는 지금까지 사람이
- * CDP 로 붙어 손으로만 확인했다 (수동 기록은 git 이력에 있다). 이 스크립트가 그 절차다.
+ * 릴레이 주소 결정 · 창 포트 = 세이브 오리진 · 단일 인스턴스 락)는 지금까지 사람이 CDP 로 붙어 손으로만 확인했다
+ * (수동 기록은 git 이력에 있다). 이 스크립트가 그 절차다.
  *
- *   0. 준비   `dist/` 가 `src/` · `data/` 보다, `dist-electron/main.js` 가 `electron/` · `server/` · `src/shared/` 보다
- *             오래됐으면 다시 굽는다 (`vite build` + `node electron/build.mjs` — `npm run app:build` 에서 tsc 만 뺐다:
- *             타입 검사는 러너의 1단계가 하고, 남의 폴더의 반쯤 된 타입 에러로 셸 검사가 막히지 않게).
- *   1. 부팅   `electron.exe <repo> --local --hidden --lazy-relay --app-port=8820 --port=8821 --user-data=<tmp>
+ * **2026-09-15 — 빌드에는 서버가 없다 (사용자 결정).** 셸의 임베디드 릴레이 · `--port` · `--lan` · `--lazy-relay` 가
+ * 없어졌으므로 이 스모크는 릴레이를 **스스로 띄워**(`server/index.ts`, 8823) 셸을 거기에 붙이고, 셸이 어떤 포트도
+ * 릴레이로 열지 않는지 · 번들 · 배포본에 서버 코드가 없는지를 본다.
+ *
+ *   0. 준비   `dist/` 가 `src/` · `data/` 보다, `dist-electron/main.js` 가 `electron/` · `src/shared/` 보다 오래됐으면
+ *             다시 굽는다 (`vite build` + `node electron/build.mjs` — `npm run app:build` 에서 tsc 만 뺐다: 타입 검사는
+ *             러너의 1단계가 하고, 남의 폴더의 반쯤 된 타입 에러로 셸 검사가 막히지 않게). 번들에 릴레이 코드
+ *             (`startRelayServer` · `WebSocketServer` · `ProfileStore` · `ws` import)가 **없다**. 스모크의 릴레이를 8823 에 띄운다.
+ *   1. 부팅   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:8823/ws --app-port=8820 --user-data=<tmp>
  *             --remote-debugging-port=9340` → `/json/version` → puppeteer-core `connect` → `127.0.0.1:8820` 페이지.
  *             `window.__game.ctx` · UA `Electron/` · `__scavDesktop` 흉내 없음 · `__scavShellRelock` 설치 ·
  *             숨긴 창에서도 시뮬레이션이 돈다 · 메인 프로세스 인스펙터(`--inspect=9341`)로 `webContents.sendInputEvent`
  *             Escape 를 넣으면 `before-input-event` → `__scavShellRelock` 이 정확히 한 번 · 페이지는 키를 한 번씩만 받는다.
- *   2. 지연 릴레이 (C-28)   접속 전 `8821/health` 거절 · `/__scav/relay` = `(필요할 때 켜짐)` → `ensureConnected()` →
- *             welcome · 이제 `/health` 응답 · 프로필 저장소가 임시 userData 안에 생긴다.
- *   3. 프록시 모드   스모크가 8823 에 릴레이를 띄우고 `--relay=ws://127.0.0.1:8823/ws` 로 재부팅 → 렌더러는 같은 오리진
- *             `/ws` 인데 그 릴레이의 `clients === 1`. 같은 것을 `server.txt`(임시 폴더 = `cwd` 후보, BOM + 주석 + 맨
- *             `host:port`)로 한 번 더.
- *   4. 세이브 = 창 포트   localStorage 표식 → CDP `Browser.close` 정상 종료 → 같은 `--app-port` 재부팅 → 표식 있음 ·
- *             `--app-port=8822` → 없음. 재부팅은 `--lazy-relay` 없이 `--port` 만 줘서 **즉시 시작**(C-28 의 다른 가지)도 본다.
- *             함선에 들어가 `body.desktop-nocursor` 가 켜지는 것으로 `isDesktopShell()` 이 흉내 없이 true 임을 확인한다.
+ *             앱 프로세스 트리가 듣는 포트는 창 · 디버깅 포트뿐이다 (릴레이 포트 없음).
+ *   2. 프록시 (`--relay`)   `/__scav/relay` = 그 주소 · 출처 `--relay` · `embedded: false` → `ensureConnected()` → welcome ·
+ *             스모크 릴레이의 `clients === 1` · 프로필 저장소는 **스모크 릴레이의 폴더**에 생기고 userData 에는 `relay-data` 가 없다.
+ *   3. 이 PC 의 서버 (`--local`)   `--relay` 를 같이 줘도 `--local` 이 이긴다 → `/__scav/relay` = `ws://127.0.0.1:8787/ws`
+ *             (start-server.bat 서버) · `embedded: false`. 아무 주소도 없을 때와 같은 목적지다 — 그 경로 자체는 여기서 못 본다
+ *             (`electron/default-relay.txt` 에 LAN 주소가 구워져 있다). 함선에 들어가면 링크가 8787 에 붙거나(공용 릴레이가
+ *             떠 있을 때) `unreachable` + 배경 프로브다 — 어느 쪽이든 `embedded` 는 없다.
+ *   4. 세이브 = 창 포트   localStorage 표식 → CDP `Browser.close` 정상 종료 → 같은 `--app-port` 재부팅(3번) → 표식 있음 ·
+ *             `--app-port=8822` → 없음. 함선에서 `body.desktop-nocursor` 가 켜지는 것으로 `isDesktopShell()` 이 흉내 없이 true.
  *   5. 단일 인스턴스   같은 userData 로 두 번째 실행 → 곧바로 exit 0 · 첫 창에 `second-instance` · 8822 를 안 연다.
- *   6. `--release` 일 때만: `release/SCAVANGER/` 가 정확히 넷 · stub `SCAVANGER.exe` 가 인자(`--hidden --user-data=…
- *             --remote-debugging-port=…`)를 넘겨 1번 단언이 통과. 배포본이 오래됐으면 `npm run app:dist` 를 돈다(수 분).
+ *   6. `server.txt`   임시 폴더 = `cwd` 후보, BOM + 주석 + 맨 `host:port` → 구운 LAN 주소보다 먼저 걸리고 그 릴레이에 붙는다.
+ *   7. `--release` 일 때만: `release/SCAVANGER/` 가 정확히 **셋**(app/ · SCAVANGER.exe · server.txt) · `app.asar` 에 릴레이 코드도
+ *             `node_modules` 도 없다 · `server.txt` 가 start-server.bat 를 말한다 · stub `SCAVANGER.exe` 가 인자(`--hidden
+ *             --user-data=… --remote-debugging-port=…`)를 넘겨 부팅 단언이 통과. 배포본이 오래됐으면 `npm run app:dist` 를 돈다(수 분).
  *   끝  띄운 Electron · 릴레이 프로세스 0 · 포트 전부 해제 · 출력 `N passed, M failed` + `FAIL` 줄 (verify 러너 파서).
  *
- * 포트 (다른 러너와 겹치지 않게 고정 — `smoke-server-dist` 주석과 같은 표):
- *   8787 공용 릴레이 · 8790–8799 **사용자의 실제 세이브 오리진(절대 안 쓴다)** · 8820 창 · 8821 임베디드 릴레이 · 8822 두 번째
- *   창 오리진 · 8823 프록시 모드용 외부 릴레이 (8824–8829 여분) · 9340 원격 디버깅(렌더러 CDP) · 9341 메인 프로세스 Node
- *   인스펙터 · 8830–8869 smoke-server-dist.
+ * 포트 (다른 러너와 겹치지 않게 고정):
+ *   8787 공용 릴레이(이 스모크는 듣지 않는다 — 3번에서 셸이 그리로 파이프할 뿐) · 8790–8799 **사용자의 실제 세이브 오리진(절대
+ *   안 쓴다)** · 8820 창 · 8822 두 번째 창 오리진 · 8823 스모크 릴레이 (8821 · 8824–8829 여분) · 9340 원격 디버깅(렌더러 CDP) ·
+ *   9341 메인 프로세스 Node 인스펙터.
  *   시작할 때 이 포트가 막혀 있으면 — 이 스크립트가 남긴 것(명령줄에 `scav-desktop-`)만 죽이고, 아니면 아무것도 안 하고 실패한다.
  *
  * 셸 제약을 이렇게 비켜 간다:
- *   - `electron/default-relay.txt` 에 LAN IP 가 구워져 있다 → 임베디드 경로는 전부 `--local`, 프록시 경로는 `--relay` /
- *     `server.txt` 가 구운 값보다 먼저 걸린다. 자식 환경에서 `SCAV_*` · `PORTABLE_EXECUTABLE_DIR` · `ELECTRON_RUN_AS_NODE` 를 지운다.
- *   - 단일 인스턴스 락 · localStorage · 창 상태 · 임베디드 릴레이 프로필은 전부 userData 에 있다 → `--user-data=<임시>` 로
- *     격리한다. 사용자가 켜 둔 SCAVANGER 도, `%APPDATA%/SCAVANGER` 도 건드리지 않는다.
+ *   - `electron/default-relay.txt` 에 LAN IP 가 구워져 있다 → 프록시 경로는 `--relay` / `server.txt` 가, 이 PC 의 서버는 `--local` 이
+ *     구운 값보다 먼저 걸린다. 자식 환경에서 `SCAV_*` · `PORTABLE_EXECUTABLE_DIR` · `ELECTRON_RUN_AS_NODE` 를 지운다.
+ *   - 단일 인스턴스 락 · localStorage · 창 상태는 전부 userData 에 있다 → `--user-data=<임시>` 로 격리한다. 사용자가 켜 둔
+ *     SCAVANGER 도, `%APPDATA%/SCAVANGER` 도 건드리지 않는다.
  *   - preload 가 없다 → 페이지에 셸 표식이 없고 UA 가 유일한 단서다. 헤드리스가 안 된다 → `--hidden`(창만 숨기고 렌더링은 계속).
  *
  * **자동화로 증명하지 못하는 것** (기록된 한계 — `electron/README.md` "Escape" 절):
@@ -50,7 +58,7 @@
  *   - 숨긴 창은 포커스 · 전체화면 · 창 상태 복원(`windowState.ts`)을 보지 못한다. 강제 종료(작업 관리자) 뒤 세이브 유지
  *     (`flushStorageData`)도 여기서는 재지 않는다 — 정상 종료만.
  *
- * Usage: node scripts/smoke-desktop.mjs [--no-build | --build] [--release]
+ * Usage: node scripts/smoke-desktop.mjs [--no-build | --build] [--release | --release-dir=<폴더>]
  *        (verify 러너가 넘기는 vite URL 인자는 무시한다 — vite 도 공용 릴레이도 쓰지 않는다)
  */
 import puppeteer from 'puppeteer-core';
@@ -72,17 +80,21 @@ const NO_BUILD = args.includes('--no-build');
 const FORCE_BUILD = args.includes('--build');
 
 const APP_PORT = 8820;
-const RELAY_PORT = 8821;
 const APP_PORT_2 = 8822;
 const PROXY_RELAY_PORT = 8823;
 const DEBUG_PORT = 9340;
-const OUR_PORTS = [APP_PORT, RELAY_PORT, APP_PORT_2, PROXY_RELAY_PORT, DEBUG_PORT, 9341];
+/** 메인 프로세스(Node) 인스펙터 — `webContents.sendInputEvent` 로 CDP 가 아닌 **네이티브 입력 경로**의 Escape 를 넣는다. */
+const INSPECT_PORT = 9341;
+const OUR_PORTS = [APP_PORT, APP_PORT_2, PROXY_RELAY_PORT, DEBUG_PORT, INSPECT_PORT];
+/** 아무 주소도 없을 때 · `--local` 일 때 셸이 파이프하는 곳 — 이 PC 에서 start-server.bat 로 켠 서버 (`NET_DEFAULT_PORT`). */
+const LOCAL_SERVER = 'ws://127.0.0.1:8787/ws';
+const PROXY_URL = `ws://127.0.0.1:${PROXY_RELAY_PORT}/ws`;
 /** 이 문자열이 명령줄에 있으면 이 스크립트가 띄운 프로세스다 (임시 폴더 접두어). */
 const TAG = 'scav-desktop-';
 /** `scav.` 로 시작하면 안 된다 — `shared/saveSlot` 이 부팅 때 옛 단일 키를 `scav.s1.*` 로 옮겨 "사라진 것처럼" 보인다. */
 const MARK_KEY = 'smokeDesktop.mark';
-/** 메인 프로세스(Node) 인스펙터 — `webContents.sendInputEvent` 로 CDP 가 아닌 **네이티브 입력 경로**의 Escape 를 넣는다. */
-const INSPECT_PORT = 9341;
+/** 번들 · 배포본에 있으면 안 되는 릴레이 코드의 흔적 (2026-09-15 — 빌드에는 서버가 없다). */
+const RELAY_CODE = /startRelayServer|WebSocketServer|ProfileStore|LobbyManager/;
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
@@ -91,14 +103,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ── 프로세스 · 포트 ─────────────────────────────────────────────────── */
 const ELECTRON = (() => { try { return createRequire(import.meta.url)('electron'); } catch { return null; } })();
 
-function pidsOnPort(port) {
+/** [{port, pid}] — 지금 LISTENING 인 TCP 소켓 전부. */
+function listeners() {
   if (isWin) {
     const out = spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' }).stdout ?? '';
-    const re = new RegExp(`:${port}\\s+\\S+\\s+LISTENING\\s+(\\d+)`);
-    return [...new Set(out.split('\n').map((l) => l.match(re)?.[1]).filter((p) => p && p !== '0'))].map(Number);
+    return out.split('\n').map((l) => l.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/)).filter(Boolean).map((m) => ({ port: +m[1], pid: +m[2] })).filter((x) => x.pid);
   }
-  const out = spawnSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).stdout ?? '';
-  return out.split('\n').filter(Boolean).map(Number);
+  const out = spawnSync('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn'], { encoding: 'utf8' }).stdout ?? '';
+  const rows = []; let pid = 0;
+  for (const l of out.split('\n')) { if (l[0] === 'p') pid = +l.slice(1); else if (l[0] === 'n') { const m = l.match(/:(\d+)$/); if (m) rows.push({ port: +m[1], pid }); } }
+  return rows;
+}
+function pidsOnPort(port) {
+  return [...new Set(listeners().filter((x) => x.port === port).map((x) => x.pid))];
 }
 /** [{pid, ppid, name, cmd}] — electron · 배포 exe · node 만 (전체 목록은 느리다). */
 function processList() {
@@ -124,6 +141,11 @@ function descendants(rootPid, list = processList()) {
     for (const p of list) if (out.has(p.ppid) && !out.has(p.pid)) { out.add(p.pid); grew = true; }
   }
   return [...out];
+}
+/** 앱 프로세스 트리가 듣는 포트 (정렬). 창 · 디버깅 · 인스펙터 말고 무엇이 있으면 그것은 셸 안의 서버다. */
+function portsOfTree(rootPid) {
+  const tree = new Set(descendants(rootPid));
+  return [...new Set(listeners().filter((x) => tree.has(x.pid)).map((x) => x.port))].sort((a, b) => a - b);
 }
 function killTree(pid) {
   if (!pid) return;
@@ -234,7 +256,32 @@ async function closeApp(label, h, s, { pid = h?.child.pid } = {}) {
   ok(exited && (!h || h.exit.code === 0), `${label}: CDP Browser.close 로 정상 종료한다`, h ? `(exit ${JSON.stringify(h.exit)})` : '');
   if (!exited) killTree(pid);
   const busy = await waitPortsFree(OUR_PORTS.filter((p) => p !== PROXY_RELAY_PORT));
-  ok(busy.length === 0, `${label}: 종료 뒤 창 · 릴레이 · 디버깅 포트가 비었다`, busy.join(','));
+  ok(busy.length === 0, `${label}: 종료 뒤 창 · 디버깅 포트가 비었다`, busy.join(','));
+}
+
+/** 앱이 듣는 포트가 창 · 디버깅 · 인스펙터뿐인가 — 셸 안에 릴레이가 없다는 가장 직접적인 증거. */
+function checkNoServerPorts(label, rootPid, appPort) {
+  const allowed = new Set([appPort, DEBUG_PORT, INSPECT_PORT]);
+  const ports = portsOfTree(rootPid);
+  ok(ports.includes(appPort) && ports.every((p) => allowed.has(p)),
+    `${label}: 앱 프로세스가 듣는 포트는 창 · 디버깅 포트뿐이다 — 릴레이를 켜지 않는다 (${ports.join(', ')})`);
+}
+
+/** 렌더러가 같은 오리진 `/ws` 로 접속 → 스모크 릴레이의 clients 1. */
+async function connectThroughProxy(label, s) {
+  const conn = await s.page.evaluate(async () => {
+    const net = window.__game.getSystem('net');
+    const res = await Promise.race([net.ensureConnected(), new Promise((r) => setTimeout(() => r('timeout'), 15000))]);
+    return { res, id: net.localId, origin: location.origin };
+  });
+  const h = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`);
+  ok(conn.res === true && !!conn.id && h?.clients === 1, `${label}: 렌더러는 같은 오리진 /ws(${conn.origin}) 인데 스모크 릴레이의 clients 가 1 이다`, `${JSON.stringify(conn)} ${JSON.stringify(h)}`);
+}
+async function relayClientsBackToZero(label) {
+  let c = null;
+  for (let i = 0; i < 40; i++) { c = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`); if (c?.clients === 0) break; await sleep(150); }
+  // 끊긴 소켓은 재접속 유예로 넘어간다 — clients 에서 빠지는 것만 본다.
+  ok(c?.clients === 0, `${label}: 앱을 닫으면 스모크 릴레이의 clients 가 0 으로 돌아온다`, JSON.stringify(c));
 }
 
 /* ── 0. 준비 ───────────────────────────────────────────────────────────── */
@@ -269,6 +316,7 @@ function runStep(label, cmd, argv, timeoutMs = 10 * 60_000) {
 const TMP = mkdtempSync(join(tmpdir(), TAG));
 const EMPTY_CWD = join(TMP, 'cwd');
 mkdirSync(EMPTY_CWD, { recursive: true });
+const RELAY_DATA = join(TMP, 'proxy-relay-data');
 let proxyRelay = null;
 const t0All = Date.now();
 
@@ -296,7 +344,7 @@ try {
   const distStamp = mtime(join(ROOT, 'dist', 'index.html'));
   const distSrc = Math.max(newestIn('src'), newestIn('data'), newestIn('index.html'), newestIn('vite.config.ts'), newestIn('package.json'));
   const mainStamp = mtime(join(ROOT, 'dist-electron', 'main.js'));
-  const mainSrc = Math.max(newestIn('electron', ['electron/resources']), newestIn('server', ['server/data']), newestIn('src/shared'));
+  const mainSrc = Math.max(newestIn('electron', ['electron/resources']), newestIn('src/shared'));
   const needDist = FORCE_BUILD || (!NO_BUILD && distStamp < distSrc) || !distStamp;
   const needMain = FORCE_BUILD || (!NO_BUILD && mainStamp < mainSrc) || !mainStamp;
   if (!needDist && !needMain) console.log(`  note: ${NO_BUILD ? '--no-build' : 'dist/ · dist-electron/ 가 소스보다 새것이다'} — 빌드를 건너뛴다`);
@@ -308,15 +356,27 @@ try {
     const main = readFileSync(join(ROOT, 'dist-electron', 'main.js'), 'utf8');
     // 이 플래그를 모르는 옛 번들로 띄우면 사용자의 userData(세이브 · 단일 인스턴스 락)를 그대로 쓴다 — 절대 띄우지 않는다.
     if (!main.includes('SCAV_USER_DATA') || !main.includes('SCAV_HIDDEN')) throw new Error('dist-electron/main.js 가 --user-data · --hidden 을 모른다 (옛 번들) — --no-build 를 빼고 다시');
+    // 2026-09-15 (사용자 결정): 빌드에는 서버가 없다.
+    ok(!RELAY_CODE.test(main), 'dist-electron/main.js 에 릴레이 코드가 없다 (startRelayServer · WebSocketServer · ProfileStore · LobbyManager)', main.match(RELAY_CODE)?.[0] ?? '');
+    ok(!/from\s*["']ws["']|require\(\s*["']ws["']\s*\)/.test(main), 'dist-electron/main.js 가 ws 패키지를 import 하지 않는다');
   }
 
-  const UD1 = join(TMP, 'ud-embedded');
-  const UD2 = join(TMP, 'ud-proxy');
+  // 스모크 릴레이 — 셸에는 서버가 없으므로 붙을 곳을 스모크가 만든다 (start-server.bat 가 켜는 것과 같은 `server/index.ts`).
+  proxyRelay = launch('smoke relay', process.execPath,
+    ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', join(ROOT, 'server', 'index.ts'), `--data=${RELAY_DATA}`, `--port=${PROXY_RELAY_PORT}`, '--host=127.0.0.1'],
+    { cwd: ROOT, env: cleanEnv() });
+  let hp = null;
+  for (let i = 0; i < 80 && !hp; i++) { if (proxyRelay.exit) break; hp = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`); if (!hp) await sleep(150); }
+  ok(hp?.ok === true && hp.clients === 0, `스모크 릴레이가 ${PROXY_RELAY_PORT} 에서 뜬다 (server/index.ts --port --host --data)`, hp ? JSON.stringify(hp) : `\n${tail(proxyRelay)}`);
+  if (!hp) throw new Error('스모크 릴레이가 뜨지 않았다');
+
+  const UD1 = join(TMP, 'ud-main');
+  const UD2 = join(TMP, 'ud-file');
   const electronArgs = (...flags) => [ROOT, '--hidden', ...flags];
 
-  /* ── 1. 부팅 ────────────────────────────────────────────────────────── */
-  console.log('desktop: 1 부팅 (--local --hidden --lazy-relay --app-port=8820 --port=8821 --user-data=<tmp>)');
-  const A = launch('boot A', ELECTRON, electronArgs(`--inspect=${INSPECT_PORT}`, '--local', '--lazy-relay', `--app-port=${APP_PORT}`, `--port=${RELAY_PORT}`, `--user-data=${UD1}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
+  /* ── 1. 부팅 + 2. 프록시 (--relay) ─────────────────────────────────── */
+  console.log(`desktop: 1 부팅 (--hidden --relay=${PROXY_URL} --app-port=${APP_PORT} --user-data=<tmp>)`);
+  const A = launch('boot A', ELECTRON, electronArgs(`--inspect=${INSPECT_PORT}`, `--relay=${PROXY_URL}`, `--app-port=${APP_PORT}`, `--user-data=${UD1}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
   const sA = await attach(A);
   for (const pid of descendants(A.child.pid)) trackedPids.add(pid);
   ok(/Electron\//.test(sA.version['User-Agent'] ?? ''), `원격 디버깅 /json/version 이 Electron 이다 (${(sA.version['User-Agent'] ?? '').match(/Electron\/[\d.]+/)?.[0] ?? sA.version.Browser})`);
@@ -326,7 +386,6 @@ try {
     ua: navigator.userAgent,
     mimic: typeof window.__scavDesktop,
     relock: typeof window.__scavShellRelock,
-    phase: window.__game?.ctx.phase,
     net: !!window.__game?.getSystem?.('net'),
   }));
   ok(bootA.ctx && bootA.net, 'window.__game.ctx 와 net 시스템이 있다');
@@ -369,32 +428,20 @@ try {
       removeEventListener('keydown', window.__escSpy, true); removeEventListener('keyup', window.__escSpy, true);
     });
   }
+  checkNoServerPorts('boot A', A.child.pid, APP_PORT);
 
-  /* ── 2. 지연 릴레이 (C-28) ──────────────────────────────────────────── */
-  console.log('desktop: 2 임베디드 릴레이 지연 시작');
-  ok((await getJson(`http://127.0.0.1:${RELAY_PORT}/health`)) === null, `접속 전에는 ${RELAY_PORT}/health 가 거절된다 (릴레이가 아직 없다)`);
-  ok(pidsOnPort(RELAY_PORT).length === 0, `접속 전에는 아무도 ${RELAY_PORT} 를 듣지 않는다`);
-  const route0 = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
-  ok(route0?.target === `ws://127.0.0.1:${RELAY_PORT}/ws` && /필요할 때 켜짐/.test(route0?.source ?? ''), '/__scav/relay 가 "(필요할 때 켜짐)" 기본값을 준다', JSON.stringify(route0));
-  // `embedded` (2026-09-11) — 렌더러의 연결 UI(net/parts/Socket)가 라벨 문자열 대신 보는 필드. 프록시 경로(③)는 false.
-  ok(route0?.embedded === true && route0?.source !== undefined, '/__scav/relay 의 embedded 가 true 다 (같은 오리진 /ws = 임베디드 릴레이, 켜지기 전에도)', JSON.stringify(route0));
-  const conn = await sA.page.evaluate(async () => {
-    const net = window.__game.getSystem('net');
-    const res = await Promise.race([net.ensureConnected(), new Promise((r) => setTimeout(() => r('timeout'), 15000))]);
-    return { res, id: net.localId, connected: net.connected };
-  });
-  ok(conn.res === true && conn.connected && !!conn.id, `ensureConnected() → 같은 오리진 /ws → welcome (localId ${conn.id})`, JSON.stringify(conn));
-  const h1 = await getJson(`http://127.0.0.1:${RELAY_PORT}/health`);
-  ok(h1?.ok === true && h1.clients === 1, `첫 /ws 뒤에는 ${RELAY_PORT}/health 가 응답하고 clients 1`, JSON.stringify(h1));
-  ok(pidsOnPort(RELAY_PORT).includes(A.child.pid), `${RELAY_PORT} 를 듣는 것이 이 Electron 메인 프로세스다`, `${pidsOnPort(RELAY_PORT)} vs ${A.child.pid}`);
-  const route1 = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
-  ok(route1?.target === `ws://127.0.0.1:${RELAY_PORT}/ws` && route1?.source === '이 PC 의 내장 서버' && route1?.embedded === true, '/__scav/relay 가 요청마다 지금 값을 준다 ("이 PC 의 내장 서버", embedded)', JSON.stringify(route1));
+  console.log('desktop: 2 프록시 (--relay)');
+  const routeA = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
+  ok(routeA?.target === PROXY_URL && routeA?.source === '--relay' && routeA?.embedded === false, '--relay: /__scav/relay 가 그 주소와 출처 --relay 를 준다 (embedded false)', JSON.stringify(routeA));
+  await connectThroughProxy('--relay', sA);
   {
     // 저장소는 1 초 디바운스로 쓴다 — 조금 기다린다.
-    const file = join(UD1, 'relay-data', 'profiles.json');
+    const file = join(RELAY_DATA, 'profiles.json');
     for (let i = 0; i < 40 && !existsSync(file); i++) await sleep(150);
-    ok(existsSync(file), '임베디드 릴레이의 프로필 저장소가 임시 userData 안에 생겼다 (relay-data/profiles.json)');
+    ok(existsSync(file), '프로필은 스모크 릴레이의 저장 폴더에 생긴다 (profiles.json)');
+    ok(!existsSync(join(UD1, 'relay-data')), 'userData 에는 relay-data 가 없다 (셸 안의 서버가 없다)');
   }
+  ok(A.out.includes(`relay proxy -> ${PROXY_URL}  (--relay)`), '메인 프로세스 로그: relay proxy -> 그 주소 (--relay)', A.out.trim() ? '' : '(stdout 이 비었다)');
 
   // 4번 준비: 이 오리진의 localStorage 에 표식 + 튜토리얼 끝 표시 (다음 부팅에서 함선에 들어간다).
   const runId = `run-${Date.now().toString(36)}`;
@@ -405,15 +452,18 @@ try {
   ok(sA.errors.length === 0, `페이지 오류 0 (boot A)`, sA.errors.slice(0, 3).join(' | '));
   await closeApp('boot A', A, sA);
   ok(existsSync(join(UD1, 'Local Storage')), 'localStorage 가 임시 userData 에 있다 (Local Storage/)');
-  ok(/relay ws \/ws -> embedded relay \(starts on the first connection\)/.test(A.out), '메인 프로세스 로그: 부팅 때 릴레이를 켜지 않았다 (--lazy-relay)', A.out.trim() ? '' : '(stdout 이 비었다)');
+  await relayClientsBackToZero('--relay');
 
-  /* ── 4. 세이브 = 창 포트 + 5. 단일 인스턴스 ─────────────────────────── */
-  console.log('desktop: 4 세이브 = 창 포트 (같은 포트 재부팅 — --port 즉시 시작)');
-  const D = launch('boot D', ELECTRON, electronArgs('--local', `--app-port=${APP_PORT}`, `--port=${RELAY_PORT}`, `--user-data=${UD1}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
+  /* ── 3. 이 PC 의 서버 (--local) + 4. 세이브 = 창 포트 + 5. 단일 인스턴스 ── */
+  console.log('desktop: 3 이 PC 의 서버 (--local 이 --relay 를 이긴다) · 4 세이브 = 창 포트 (같은 포트 재부팅)');
+  const D = launch('boot D', ELECTRON, electronArgs('--local', `--relay=${PROXY_URL}`, `--app-port=${APP_PORT}`, `--user-data=${UD1}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
   const sD = await attach(D);
   for (const pid of descendants(D.child.pid)) trackedPids.add(pid);
-  const hEager = await getJson(`http://127.0.0.1:${RELAY_PORT}/health`);
-  ok(hEager?.ok === true && hEager.clients === 0, `--port 만 주면(--lazy-relay 없이) 접속 전에도 ${RELAY_PORT}/health 가 응답한다 (C-28 즉시 시작)`, JSON.stringify(hEager));
+  const routeD = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
+  ok(routeD?.target === LOCAL_SERVER && routeD?.embedded === false && /이 PC 의 서버/.test(routeD?.source ?? '') && !/내장/.test(routeD?.source ?? ''),
+    `--local: /__scav/relay 가 이 PC 의 서버(${LOCAL_SERVER}) 를 준다 — 내장 서버가 아니다 (embedded false)`, JSON.stringify(routeD));
+  ok(D.out.includes(`relay proxy -> ${LOCAL_SERVER}`), `메인 프로세스 로그: relay proxy -> ${LOCAL_SERVER}`, D.out.trim() ? '' : '(stdout 이 비었다)');
+  checkNoServerPorts('boot D', D.child.pid, APP_PORT);
   ok(sD.origin === `http://127.0.0.1:${APP_PORT}`, `같은 --app-port 로 다시 떠 오리진이 같다 (${sD.origin})`);
   const markD = await sD.page.evaluate((k) => localStorage.getItem(k), MARK_KEY);
   ok(markD === runId, '정상 종료 뒤 같은 창 포트로 재부팅하면 localStorage 표식이 그대로 있다', `${markD} vs ${runId}`);
@@ -426,6 +476,18 @@ try {
     return document.body.classList.contains('desktop-nocursor') ? { cursor: c.input.isCursorMode, mimic: typeof window.__scavDesktop, gate: !!document.querySelector('.resume-gate:not(.hidden)') } : null;
   }, 'desktop-nocursor', 15000).catch(async () => sD.page.evaluate(() => ({ missing: true, cursor: window.__game.ctx.input.isCursorMode, blockers: [...window.__game.ctx.uiBlockers] })));
   ok(!cur.missing && cur.mimic === 'undefined', '함선에서 body.desktop-nocursor 가 켜진다 — isDesktopShell() 이 흉내 없이 true', JSON.stringify(cur));
+  {
+    // 함선 진입이 같은 오리진 /ws → 8787 로 접속을 시도한다. 공용 릴레이가 떠 있으면 붙고, 없으면 오프라인 + 배경 프로브다.
+    // 어느 쪽이든 셸 목표를 "임베디드" 로 보고 프로브를 끄는 일은 없어야 한다 (2026-09-15).
+    const linkD = await waitFor(sD.page, () => {
+      const n = window.__game.getSystem('net');
+      const l = n.link;
+      if (l.state === 'connected' || (l.state === 'unreachable' && typeof l.nextProbeInMs === 'number')) return { state: l.state, embedded: l.embedded ?? null, probing: n.probeTimer !== null, url: l.url };
+      return null;
+    }, 'link connected | unreachable+probe', 20000).catch(async () => sD.page.evaluate(() => ({ timeout: true, ...window.__game.getSystem('net').link })));
+    ok(!linkD.timeout && !linkD.embedded && (linkD.state === 'connected' || linkD.probing),
+      `--local: 링크는 8787 에 붙거나(공용 릴레이가 있을 때) 오프라인 + 배경 프로브다 — embedded 없음 (${linkD.state})`, JSON.stringify(linkD));
+  }
 
   console.log('desktop: 5 단일 인스턴스');
   const second = launch('second instance', ELECTRON, electronArgs('--local', `--app-port=${APP_PORT_2}`, `--user-data=${UD1}`), { cwd: EMPTY_CWD });
@@ -448,39 +510,9 @@ try {
   ok(markE === null, '같은 userData 라도 다른 창 포트(오리진)에서는 표식이 없다 — 창 포트가 곧 세이브다', String(markE));
   await closeApp('boot E', E, sE);
 
-  /* ── 3. 프록시 모드 ─────────────────────────────────────────────────── */
-  console.log('desktop: 3 프록시 모드 (--relay · server.txt)');
-  proxyRelay = launch('proxy relay', process.execPath,
-    ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', join(ROOT, 'server', 'index.ts'), `--data=${join(TMP, 'proxy-relay-data')}`],
-    { cwd: ROOT, env: { ...cleanEnv(), PORT: String(PROXY_RELAY_PORT), HOST: '127.0.0.1' } });
-  let hp = null;
-  for (let i = 0; i < 80 && !hp; i++) { if (proxyRelay.exit) break; hp = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`); if (!hp) await sleep(150); }
-  ok(hp?.ok === true && hp.clients === 0, `스모크가 띄운 외부 릴레이가 ${PROXY_RELAY_PORT} 에서 뜬다`, hp ? JSON.stringify(hp) : `\n${tail(proxyRelay)}`);
-  if (!hp) throw new Error('외부 릴레이가 뜨지 않았다');
-
-  const B = launch('boot B', ELECTRON, electronArgs(`--relay=ws://127.0.0.1:${PROXY_RELAY_PORT}/ws`, `--app-port=${APP_PORT}`, `--user-data=${UD2}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
-  const sB = await attach(B);
-  for (const pid of descendants(B.child.pid)) trackedPids.add(pid);
-  const routeB = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
-  ok(routeB?.target === `ws://127.0.0.1:${PROXY_RELAY_PORT}/ws` && routeB?.source === '--relay' && routeB?.embedded === false, '--relay: /__scav/relay 가 그 주소와 출처 --relay 를 준다 (embedded false)', JSON.stringify(routeB));
-  const connB = await sB.page.evaluate(async () => {
-    const net = window.__game.getSystem('net');
-    const res = await Promise.race([net.ensureConnected(), new Promise((r) => setTimeout(() => r('timeout'), 15000))]);
-    return { res, id: net.localId, origin: location.origin };
-  });
-  const hB = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`);
-  ok(connB.res === true && !!connB.id && hB?.clients === 1, `--relay: 렌더러는 같은 오리진 /ws(${connB.origin}) 인데 외부 릴레이의 clients 가 1 이다`, `${JSON.stringify(connB)} ${JSON.stringify(hB)}`);
-  ok(pidsOnPort(8787).every((pid) => !descendants(B.child.pid).includes(pid)), '--relay: 임베디드 릴레이를 켜지 않았다 (8787 을 이 앱이 쥐지 않는다)');
-  ok(sB.errors.length === 0, `페이지 오류 0 (boot B)`, sB.errors.slice(0, 3).join(' | '));
-  await closeApp('boot B', B, sB);
-  {
-    let c = null;
-    for (let i = 0; i < 40; i++) { c = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`); if (c?.clients === 0) break; await sleep(150); }
-    // 끊긴 소켓은 재접속 유예로 넘어간다 — clients 에서 빠지는 것만 본다.
-    ok(c?.clients === 0, '--relay: 앱을 닫으면 외부 릴레이의 clients 가 0 으로 돌아온다', JSON.stringify(c));
-  }
-
-  // server.txt — 임시 폴더를 cwd 로 (configDirs 의 cwd 후보). BOM + 주석 + 빈 줄 + 맨 host:port.
+  /* ── 6. server.txt ──────────────────────────────────────────────────── */
+  console.log('desktop: 6 server.txt');
+  // 임시 폴더를 cwd 로 (configDirs 의 cwd 후보). BOM + 주석 + 빈 줄 + 맨 host:port.
   const cfgDir = join(TMP, 'cfg');
   mkdirSync(cfgDir, { recursive: true });
   writeFileSync(join(cfgDir, 'server.txt'), `﻿# smoke-desktop — 주석과 빈 줄은 건너뛴다\n\n127.0.0.1:${PROXY_RELAY_PORT}\nws://10.255.255.1:1/ws\n`, 'utf8');
@@ -488,26 +520,17 @@ try {
   const sC = await attach(C);
   for (const pid of descendants(C.child.pid)) trackedPids.add(pid);
   const routeC = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
-  ok(routeC?.target === `ws://127.0.0.1:${PROXY_RELAY_PORT}/ws` && routeC?.source === 'server.txt' && routeC?.embedded === false,
+  ok(routeC?.target === PROXY_URL && routeC?.source === 'server.txt' && routeC?.embedded === false,
     'server.txt: 구워진 LAN 주소보다 먼저 걸리고 host:port 가 ws://…/ws 로 채워진다 (embedded false)', JSON.stringify(routeC));
-  const connC = await sC.page.evaluate(async () => {
-    const net = window.__game.getSystem('net');
-    const res = await Promise.race([net.ensureConnected(), new Promise((r) => setTimeout(() => r('timeout'), 15000))]);
-    return { res, id: net.localId };
-  });
-  const hC = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`);
-  ok(connC.res === true && !!connC.id && hC?.clients === 1, 'server.txt: 같은 오리진 /ws 가 그 릴레이에 붙는다 (clients 1)', `${JSON.stringify(connC)} ${JSON.stringify(hC)}`);
+  await connectThroughProxy('server.txt', sC);
   ok(C.out.includes(join(cfgDir, 'server.txt')), 'server.txt: 메인 프로세스 로그가 읽은 파일 경로(cwd 후보)를 적는다', C.out.trim() ? '' : '(stdout 이 비었다)');
   ok(sC.errors.length === 0, `페이지 오류 0 (boot C)`, sC.errors.slice(0, 3).join(' | '));
   await closeApp('boot C', C, sC);
+  await relayClientsBackToZero('server.txt');
 
-  proxyRelay.child.kill();
-  await Promise.race([proxyRelay.exited, sleep(5000)]);
-  if (!proxyRelay.exit) killTree(proxyRelay.child.pid);
-
-  /* ── 6. 배포 폴더 (--release) ──────────────────────────────────────── */
+  /* ── 7. 배포 폴더 (--release) ──────────────────────────────────────── */
   if (RELEASE) {
-    console.log('desktop: 6 배포 폴더 (--release)');
+    console.log('desktop: 7 배포 폴더 (--release)');
     const rel = RELEASE_DIR ? RELEASE_DIR : join(ROOT, 'release', 'SCAVANGER');
     const asar = join(rel, 'app', 'resources', 'app.asar');
     const asarFresh = () => existsSync(asar) && readFileSync(asar).includes('SCAV_USER_DATA') && mtime(asar) >= mtime(join(ROOT, 'dist-electron', 'main.js'));
@@ -522,14 +545,20 @@ try {
       if (r.status !== 0) console.log(String((r.stdout ?? '') + (r.stderr ?? '')).trim().split('\n').slice(-15).map((l) => `      | ${l}`).join('\n'));
     }
     const entries = existsSync(rel) ? readdirSync(rel).sort() : [];
-    ok(JSON.stringify(entries) === JSON.stringify(['SCAVANGER-Server.exe', 'SCAVANGER.exe', 'app', 'server.txt']),
-      'release/SCAVANGER/ 에는 정확히 넷 (app/ · SCAVANGER.exe · server.txt · SCAVANGER-Server.exe)', JSON.stringify(entries));
+    ok(JSON.stringify(entries) === JSON.stringify(['SCAVANGER.exe', 'app', 'server.txt']),
+      'release/SCAVANGER/ 에는 정확히 셋 (app/ · SCAVANGER.exe · server.txt) — 서버 exe 없음', JSON.stringify(entries));
+    const serverTxt = existsSync(join(rel, 'server.txt')) ? readFileSync(join(rel, 'server.txt'), 'utf8') : '';
+    ok(serverTxt.includes('start-server.bat') && !serverTxt.includes('SCAVANGER-Server') && !serverTxt.includes('자기 안의 서버'),
+      'server.txt 주석이 start-server.bat 를 말하고 내장 서버 · 서버 exe 를 말하지 않는다');
     if (!asarFresh()) {
       ok(false, '배포본의 app.asar 가 --user-data 를 안다 (모르면 사용자의 세이브를 쓰므로 띄우지 않는다)');
     } else {
+      const asarBuf = readFileSync(asar);
+      ok(!RELAY_CODE.test(asarBuf.toString('latin1')), 'app.asar 에 릴레이 코드가 없다');
+      ok(!asarBuf.includes('"node_modules"'), 'app.asar 에 node_modules 가 없다 (ws 를 싣지 않는다)');
       const UD3 = join(TMP, 'ud-release');
       const stub = launch('stub', join(rel, 'SCAVANGER.exe'),
-        ['--local', '--hidden', '--lazy-relay', `--app-port=${APP_PORT}`, `--port=${RELAY_PORT}`, `--user-data=${UD3}`, `--remote-debugging-port=${DEBUG_PORT}`], { cwd: EMPTY_CWD });
+        ['--hidden', `--relay=${PROXY_URL}`, `--app-port=${APP_PORT}`, `--user-data=${UD3}`, `--remote-debugging-port=${DEBUG_PORT}`], { cwd: EMPTY_CWD });
       const stubExit = await Promise.race([stub.exited, sleep(15000).then(() => null)]);
       ok(stubExit?.code === 0, 'stub SCAVANGER.exe 가 app\\SCAVANGER.exe 를 띄우고 exit 0', JSON.stringify(stubExit));
       const sR = await attach(null);
@@ -543,7 +572,9 @@ try {
       const bootR = await sR.page.evaluate(() => ({ ctx: !!window.__game?.ctx, ua: navigator.userAgent, mimic: typeof window.__scavDesktop, relock: typeof window.__scavShellRelock }));
       ok(bootR.ctx && /\bElectron\//.test(bootR.ua) && bootR.mimic === 'undefined' && bootR.relock === 'function',
         '배포본: window.__game.ctx · UA Electron/ · 흉내 없음 · __scavShellRelock', JSON.stringify({ ...bootR, ua: bootR.ua.match(/Electron\/[\d.]+/)?.[0] }));
-      ok(pidsOnPort(RELAY_PORT).length === 0, '배포본: --lazy-relay 라 접속 전 임베디드 릴레이 없음');
+      const routeR = await getJson(`http://127.0.0.1:${APP_PORT}/__scav/relay`);
+      ok(routeR?.target === PROXY_URL && routeR?.embedded === false, '배포본: /__scav/relay 가 --relay 주소를 준다 (embedded false)', JSON.stringify(routeR));
+      if (appPid) checkNoServerPorts('배포본', appPid, APP_PORT);
       await closeApp('release app', null, sR, { pid: appPid });
     }
   }
@@ -554,6 +585,11 @@ try {
 } finally {
   /* ── 끝: 남은 프로세스 · 포트 · 임시 폴더 ─────────────────────────────── */
   console.log('desktop: 정리');
+  if (proxyRelay && !proxyRelay.exit) {
+    proxyRelay.child.kill();
+    await Promise.race([proxyRelay.exited, sleep(5000)]);
+    if (!proxyRelay.exit) killTree(proxyRelay.child.pid);
+  }
   for (const h of [...launched]) {
     console.log(`  note: ${h.label} (pid ${h.child.pid}) 가 아직 살아 있다 — 죽인다`);
     killTree(h.child.pid);

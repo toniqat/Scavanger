@@ -18,7 +18,7 @@
  * What it does:
  *   1. typecheck (client + server), net:selftest and data:check (data/*.csv 스키마) in parallel — seconds.
  *   2. Starts vite (5273) and the relay (8787) if they are not up — **unless every selected script is `standalone`**
- *      (smoke-server-dist, smoke-pitch), which use neither. When e2e-mp is in the set the relay is always
+ *      (smoke-pitch, smoke-desktop, smoke-intel), which use neither. When e2e-mp is in the set the relay is always
  *      restarted first: public lobbies left by an interrupted run live for the 5-min grace and hijack quick match.
  *   3. Runs the selected smoke scripts concurrently (each owns its own headless Chrome on the real GPU via ANGLE D3D11,
  *      10–50 s each; lanes start 8 s apart so vite warm-up and Chrome launches never coincide). Output goes to
@@ -202,13 +202,11 @@ const SMOKES = {
   /* 2026-09-08: 공용 함선 격납고 — 두 클라이언트가 필요하다 (개인 함선 방문 · `hs` 동석 규칙). 릴레이를 쓰므로
      e2e 와 같이 exclusive 로 돈다. */
   'smoke-hangar':       { file: 'scripts/smoke-hangar.mjs',       folders: ['hub', 'net', 'housing', 'player'], exclusive: true, freshRelay: true },
-  /* 2026-09-10: 배포용 서버 빌드 (`npm run server:dist`) — 브라우저도 vite 도 릴레이도 쓰지 않는다.
-     번들이 CJS 인지 · ws 가 안에 들어갔는지 · `--port` / `--data` 가 먹는지 · 릴레이가 말을 하는지, 그리고
-     주소 정규화(`relayUrlFrom`) · LAN 주소 순위(`lanAddresses`)를 검사한다. exe 는 굽지 않는다 (86 MB). */
-  /* 2026-09-11 (C-46): 이 스모크는 `src/shared/net.ts` 를 Node 에서 직접 import 한다 — Node 22.6–22.17 은 플래그 없이는
-     `.ts` 를 못 읽는다(23.6+ 는 기본). `nodeArgs` 는 스크립트 경로 **앞에** 펼쳐진다 (net:selftest 와 같은 플래그). */
-  'smoke-server-dist': { file: 'scripts/smoke-server-dist.mjs', folders: ['server', 'net'], standalone: true,
-    nodeArgs: ['--experimental-strip-types', '--disable-warning=ExperimentalWarning'] },
+  /* 2026-09-15 (분대 · 도킹 매칭): 세 클라이언트 — 초대 → 미도킹 분대(각자 개인 함선 · 허브 스냅샷 없음 · 분대 HUD `개인 함선`) · 발사/훈련장 잠금 ·
+     분대원 requestDock 거절 · 분대장 도킹 = 즉시 페이드 / 분대원 우측 카운트다운 → 열린 화면 전부 닫힘 → 도킹 · 혼자 공개 매칭 합류 ·
+     도킹 해제는 나만 · 도킹된 분대로 초대 수락 = 카운트다운 · 혼자 비공개 매칭. 릴레이는 **스스로** 8894 에 띄운다(작업 트리의
+     server/index.ts) — 공용 8787 을 재시작하지 않으므로 freshRelay 가 아니다. 브라우저 3개라 exclusive. */
+  'smoke-squad-dock':   { file: 'scripts/smoke-squad-dock.mjs',   folders: ['net', 'hub', 'server'], exclusive: true },
   /* 2026-09-10: 피칭 위키(`docs/pitch/`) — 빌드가 없어서 깨져도 조용한 문서다. vite 도 게임도 쓰지 않고
      `docs/pitch` 를 정적으로 서빙해 페이지를 전부 열어 본다 (링크 · 사이드바 · nextnav · 카드 넘기기).
      `folders` 로는 안 잡히므로(`src/` 밖이다) 위의 `EXTRA_PATHS` 가 `docs/pitch/` 변경에서 직접 고른다. */
@@ -242,11 +240,12 @@ const SMOKES = {
      위조 strat call / stratq call · 버프 상한 · 벽 뒤 스프레이 · 계약 킬 파생 · meta sync rid · crate opened 거리 · 넉백 기하 ·
      hit 요청 DPS 상한을 잰다. 공용 릴레이를 쓰지만 자기 로비라 exclusive 가 아니다. */
   'smoke-trust':        { file: 'scripts/smoke-trust.mjs',        folders: ['stratagems', 'weapons', 'implants', 'gadgets', 'meta', 'enemies'] },
-  /* 2026-09-11 (B-1): 링크 상태 · 익명 배경 프로브 · 연결 배지 · 거절 뒤 프로브 없음 · 셸 임베디드 목표. 공용 릴레이(8787)는
+  /* 2026-09-11 (B-1): 링크 상태 · 익명 배경 프로브 · 연결 배지 · 거절 뒤 프로브 없음 · 셸 목표도 프로브(2026-09-15). 공용 릴레이(8787)는
      쓰지 않고 8885(스스로 띄우고 죽이는 릴레이) · 8886(대답 없는 TCP)을 쓴다 — 그래서 exclusive 가 아니다. */
   'smoke-netlink':      { file: 'scripts/smoke-netlink.mjs',      folders: ['net', 'ui', 'hub'] },
-  /* 2026-09-11 (E-3): 데스크톱 셸을 **진짜 Electron** 으로 (`--hidden --user-data=<임시>`, 창 8820 · 릴레이 8821 · 8822 ·
-     8823 · 디버깅 9340 · 메인 인스펙터 9341). vite 도 공용 릴레이도 안 쓰지만 GPU · 포트를 잡고 `dist/` 가 오래됐으면
+  /* 2026-09-11 (E-3): 데스크톱 셸을 **진짜 Electron** 으로 (`--hidden --user-data=<임시>`, 창 8820 · 두 번째 창 8822 ·
+     스모크 릴레이 8823 · 디버깅 9340 · 메인 인스펙터 9341; 2026-09-15 셸에 서버가 없다 — 번들 · asar · 포트로 확인).
+     vite 도 공용 릴레이도 안 쓰지만 GPU · 포트를 잡고 `dist/` 가 오래됐으면
      vite build 를 돌리므로 혼자 돈다. `folders` 로는 안 잡힌다 — `EXTRA_PATHS` 가 `electron/` · `pack-release` · 자기 자신에서 고른다. */
   'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, exclusive: true },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },

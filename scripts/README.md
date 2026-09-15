@@ -14,11 +14,9 @@ each script's header comment — read it before editing a smoke.
 | `economy-table.mjs` | Builds, checks and staleness-tests `server/economy.gen.json` (item values, contract/quest rewards, price multipliers, repair, crypto, intel) |
 | `check-planet-loot.mjs` | Manual: per-planet weapon-grade and rarity drop tables from `data/planet_loot.csv`, rolled through the real loot code |
 | `quiet-hmr.mjs` | Smoke helper `quietViteHmr(page, { parkRelay?, logSockets? })` — parks the `vite-hmr` WebSocket (see Rules) |
-| `dev-all.mjs` | `npm run dev:all` — relay + vite with prefixed output |
+| `dev-all.mjs` | `npm run dev:all` — relay + vite with prefixed output; forwards the terminal's input lines to the relay (operator console) |
 | `lan-address.mjs` | Prints the LAN IPv4 for `start-server.bat` (`--all`, `--url`) |
-| `build-server.mjs` | `npm run server:dist` / `server:bundle` (`--bundle-only`) — single-file relay bundle → Node SEA exe `release/SCAVANGER-Server.exe` |
-| `pe-signature.mjs` | Reads / strips the Authenticode table of a PE file (used by `build-server` and `pack-release`) |
-| `pack-release.mjs` | Last step of `npm run app:dist` — assembles `release/SCAVANGER/` (`app/` · stub `SCAVANGER.exe` · `server.txt` · `SCAVANGER-Server.exe`) |
+| `pack-release.mjs` | Last step of `npm run app:dist` — assembles `release/SCAVANGER/` with exactly three entries (`app/` · stub `SCAVANGER.exe` · `server.txt`); no server |
 | `make-icon.mjs` | `npm run icon` — draws `electron/resources/icon.ico` in code (`--png` preview) |
 | `pitch-webp.mjs` | `npm run pitch:webp` — writes `<name>.webp` next to each `docs/pitch/assets/<name>.png` via local Chrome (`--force`, `--quality`) |
 | `shots-pitch.mjs` | Pitch-wiki screenshots into `docs/pitch/assets/` (needs `npm run dev`; staging dir outside the repo, retry per shot; raids start from `game:newMission`, never `hub.setPlanet`) |
@@ -42,7 +40,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-console.mjs` | console, progression, inventory, player, hub | Dev-host gating, toggle, suggestions, history, commands, Home move cheat, Esc capture |
 | `smoke-controls-hub.mjs` | ui, hub, inventory, implants, progression, player, net | Controls diagram + rebinding, hub Tab ship screen, terminal, implant gauge / wielded shield |
 | `smoke-cooking.mjs` | housing, inventory, progression, hub, player | Six cooking judges headless, cooking flow, meal quality stacks, dining table, bench screen |
-| `smoke-desktop.mjs` | — · S X (via `EXTRA_PATHS`) | Real Electron: boot, lazy embedded relay, save = window port, single instance, relay proxy sources; `--release` checks the release folder |
+| `smoke-desktop.mjs` | — · S X (via `EXTRA_PATHS`) | Real Electron against a relay it starts itself: boot, no relay code / relay port in the shell, `--relay` · `--local` (this PC's 8787) · `server.txt` targets, save = window port, single instance; `--release` checks the 3-entry release folder and the asar |
 | `smoke-drone-scan.mjs` | gadgets, inventory | Ground-drone scan aim, 3 s hold gauge, best-grade label matches the real roll |
 | `smoke-ecology.mjs` | world, enemies, items | Per-planet biome, gather weights/density, enemy compositions |
 | `smoke-enemy-alert.mjs` | enemies, implants, weapons | Bullet tracking (`reportShot` → watch → advance), `shotq` forwarding, barrier blocking |
@@ -96,10 +94,10 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-rover.mjs` | world, audio, console | Rover stops, boarding, fare payment, trip, turret, destruction |
 | `smoke-sandworm.mjs` | enemies, audio, console | Sandworm roll, warning, eruption, spit, death, replica promotion |
 | `smoke-search.mjs` | inventory | Container search reveal, gauge, `canFit`, raid state capture/apply |
-| `smoke-server-dist.mjs` | server, net · S | Server bundle shape, boot from the bundle, `relayUrlFrom`, `lanAddresses` |
 | `smoke-ship-rooms.mjs` | hub, housing | Personal ship cockpit + rooms, room tracking, 3D housing mode |
 | `smoke-site-spawns.mjs` | world, enemies | `getSiteSpawnPoints` / `getRuinSites` return reachable, clear points |
-| `smoke-social.mjs` | ui, net | ESC social screen, profile cards, context menu, friends, blocks, private chat |
+| `smoke-social.mjs` | ui, net | ESC social screen, profile cards, context menu (분대 초대 gate), friends, blocks, private chat |
+| `smoke-squad-dock.mjs` | net, hub, server · X (own relay on 8894) | Three clients: invite → undocked squad in personal ships (no hub snapshots), pod / training locks, member dock refused, leader fade vs member countdown → everything closed → dock, lone public join, 도킹 해제 only me, invite into a docked ship, lone private dock |
 | `smoke-stations.mjs` | housing, inventory, items | Shared station frame, upgrade modal hold, timers, harvest/delivery |
 | `smoke-stratagems.mjs` | stratagems, world | G tap/wheel, ground + top-view targeting, call effects |
 | `smoke-structure-reach.mjs` | world | Body-radius flood fill reaches rooms, stairs, upper floor, ladders, basement door |
@@ -135,7 +133,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
   All three tracks must be done — if `raid` is not, the entry flow sends the character into the tutorial raid.
 - **`quietViteHmr(page)`** (`quiet-hmr.mjs`) is called **before `page.goto`, once per page**, in every smoke that opens vite: another
   session's file save would otherwise full-reload the page mid-run. `{ parkRelay: true }` also blocks the relay socket for single-player
-  smokes (default leaves the relay alone). Not needed by `smoke-server-dist` · `smoke-desktop` · `smoke-pitch`. If flakes remain, run a
+  smokes (default leaves the relay alone). Not needed by `smoke-desktop` · `smoke-pitch`. If flakes remain, run a
   dedicated `npx vite --port 5299` and pass its URL.
 - **Wait for `net:profileLoaded`** before seeding state directly — a server profile arriving later replaces it.
 - Two-client smokes join a **private lobby by code**, never quick match (stale public lobbies hijack it). Counters that are never reset

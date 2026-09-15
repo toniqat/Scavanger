@@ -23,7 +23,7 @@
  * 여러 페이지(멀티 클라이언트 · 새 탭 · 새 브라우저)를 여는 스모크는 **페이지마다** 부른다. 같은 문서에 두 번 설치되면
  * 뒤의 것은 아무것도 하지 않는다(먼저 건 옵션이 이긴다). 반환값은 `evaluateOnNewDocument` 의 `{identifier}` 다.
  *
- * vite 를 여는 새 스모크는 이 헬퍼를 건다 (`scripts/README.md`). vite 를 안 여는 것 — 서버 exe(`smoke-server-dist`) ·
+ * vite 를 여는 새 스모크는 이 헬퍼를 건다 (`scripts/README.md`). vite 를 안 여는 것 —
  * 진짜 Electron 셸(`smoke-desktop`, `dist/` 에는 HMR 클라이언트가 없다) · 정적 피칭 문서(`smoke-pitch`) — 은 걸 필요가 없다.
  */
 

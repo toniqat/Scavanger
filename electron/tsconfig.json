@@ -15,5 +15,5 @@
     "resolveJsonModule": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["./**/*.ts", "../server/**/*.ts"]
+  "include": ["./**/*.ts"]
 }

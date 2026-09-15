@@ -16,7 +16,7 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 | `NetSystem.ts` | `GameSystem` `'net'` implementing `NetRef`; owns the sub-objects below and one-line delegates into `parts/` |
 | `model.ts` | Folder vocabulary (no state): storage keys (`NAME_STORAGE_KEY` `scav.playerName`), `loadOrCreateSessionToken` (per slot via `slotKey(NET_TOKEN_STORAGE_KEY)`), wire sanitizers `sanitizeCrewCard` · `sanitizeShipVisit` · `isGhostWire`, vector helpers |
 | `NetClient.ts` | Bare transport: `connect(url)` resolves on `welcome` or fails after `NET_CONNECT_TIMEOUT_MS`, JSON with a server-type whitelist (`SERVER_TYPES`) and an inbound byte cap, 2 s ping → `rttMs`, `serverTimeOffset`, status `offline/connecting/connected/error` |
-| `parts/Socket.ts` | Connection, token, auto-reconnect backoff, relay address (`defaultUrl`, `setRelayOverride`, anonymous `probeRelay`, `reconnectRelay`), **link state** (`setLink` is the only transition → `net:linkChanged`), background probe, desktop-shell embedded-relay detection |
+| `parts/Socket.ts` | Connection, token, auto-reconnect backoff, relay address (`defaultUrl`, `setRelayOverride`, anonymous `probeRelay`, `reconnectRelay`), **link state** (`setLink` is the only transition → `net:linkChanged`), background probe (every target, the desktop shell included) |
 | `parts/Lobby.ts` | Create / join / quick match / ready / start / leave, host transfer, planet + intel wire (`sanitizeIntelWire`), `beginSession`, `rejoinMission`, `leaveMission`, deferred `endSession`, `dropLobby` |
 | `parts/Messages.ts` | Inbound dispatch: server frames (`handleServerMessage`) and relayed game messages (`handleRelay`) → snapshot apply, bus translation, `onMessage` subscribers. No game rules |
 | `parts/Remotes.ts` | Remote ref registry, identity sync (names, suspension, membership), crew cards, ship-visit layouts, derived `carriedBy`, `pushLevel` |
@@ -91,8 +91,8 @@ only), `revive`, `ghost state|sync|restore|gone`, `flow takeover`, `crew card|lo
 - Duplicate token: the server kicks the **older** socket (`lobby:error duplicate`) → `net:error`, `net:lobbyLeft 'kicked'`.
   `kicked` / `server_full` arrive before the close; `NetClient` passes them even pre-handshake and the Korean server
   message becomes the close reason.
-- Desktop shell: if the target is the page's own origin, `NET_SHELL_RELAY_ROUTE` is fetched once per URL; an embedded
-  relay is never probed (the first `/ws` starts it).
+- Desktop shell: its same-origin `/ws` is probed like any other target (2026-09-15 — the build has no embedded relay; with
+  no address the shell pipes to this PC's `start-server.bat` relay). `NetLinkInfo.embedded` is never set.
 
 ## Sub-objects
 

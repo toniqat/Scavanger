@@ -291,7 +291,7 @@ export class SettingsMenu {
     });
 
     el('div', { cls: 'set-hint', parent: host,
-      text: '서버는 배포 폴더의 SCAVANGER-Server.exe 를 켜면 됩니다 — 그 창에 적히는 주소를 그대로 적으세요.' });
+      text: '서버는 SCAVANGER 프로젝트 폴더의 start-server.bat 로 켭니다 — 켠 사람의 창에 적히는 주소를 그대로 적으세요.' });
     this.ask = new AskPopup(this.root);
     // 2026-09-10: `.tm-ask` 가 이제 문서에 **둘**이다 — 타이틀의 것(`ctx.uiRoot` 직속)과 이것(설정 안).
     // 셋 중 어느 것을 집었는지 헷갈리지 않게 표식을 준다. 전역 `.tm-ask` 셀렉터로 타이틀 팝업을 찾는

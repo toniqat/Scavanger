@@ -1,26 +1,68 @@
 /**
- * Entry point: `node server/index.ts` (or `npm run server`).
- * PORT env (default NET_DEFAULT_PORT = 8787), HOST env (default 0.0.0.0).
+ * Entry point: `node server/index.ts` (or `npm run server`) — **the only way to run a server** (2026-09-15, user decision:
+ * builds ship no server; `start-server.bat` in this repo runs this file, directly in `relay` mode or through
+ * `scripts/dev-all.mjs` by default).
+ *
+ * `--port=<n>` / PORT env (default NET_DEFAULT_PORT = 8787), `--host=<addr>` / HOST env (default 0.0.0.0).
  * 2026-09-11 (C-41): `--data=<dir>` / `SCAV_DATA_DIR` moves the profile store (default `server/data/`). The verify
  * runner points the relay it starts itself at a temp folder so smoke runs stop piling test profiles into the dev store.
+ * 2026-09-15: `--max=<n>` / `SCAV_MAX_CLIENTS` = connection cap at startup (console `max` changes it later), and the
+ * operator console (`server/Console.ts`) reads stdin — harmless when stdin is ignored or closed.
  */
-import { startRelayServer } from './RelayServer.ts';
+import { startRelayServer, type RelayServer } from './RelayServer.ts';
 import { devEconomyFromEnv } from './Economy.ts';
+import { CONSOLE_COMMANDS_LINE, startServerConsole } from './Console.ts';
+import { NET_DEFAULT_PORT } from '../src/shared/net.ts';
 
-const dataArg = process.argv.slice(2).find((a) => a.startsWith('--data='))?.slice('--data='.length);
-const dataDir = dataArg || process.env.SCAV_DATA_DIR || undefined;
+const argv = process.argv.slice(2);
+const arg = (name: string): string | undefined =>
+  argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+const dataDir = arg('data') || process.env.SCAV_DATA_DIR || undefined;
+const portArg = Number(arg('port'));
+const port = Number.isInteger(portArg) && portArg > 0 ? portArg : undefined;
+const host = arg('host') || undefined;
+const maxClients = Number(arg('max') ?? process.env.SCAV_MAX_CLIENTS ?? 0) || null;
 /* 2026-09-11 (E-4 ⑦): `SCAV_DEV_ECONOMY=1` / `--dev-economy` accepts the dev credit reasons (console · smoke:* · e2e:* · shot).
    Only the relay scripts/verify.mjs starts itself sets it; `npm run dev:all` · start-server.bat · `npm run server` leave it off. */
 const devEconomy = devEconomyFromEnv();
 
-const server = await startRelayServer({ ...(dataDir ? { dataDir } : {}), devEconomy });
+let server: RelayServer;
+try {
+  server = await startRelayServer({
+    ...(dataDir ? { dataDir } : {}),
+    ...(port !== undefined ? { port } : {}),
+    ...(host ? { host } : {}),
+    maxClients,
+    devEconomy,
+  });
+} catch (e: unknown) {
+  const msg = (e as Error)?.message ?? String(e);
+  const tried = port ?? (Number(process.env.PORT ?? NET_DEFAULT_PORT) || NET_DEFAULT_PORT);
+  console.error(`[relay] 서버를 시작하지 못했습니다: ${msg}`);
+  if (/EADDRINUSE|EACCES/i.test(msg)) {
+    console.error(`[relay]   포트 ${tried} 를 이미 다른 프로그램이 쓰고 있거나 Windows 가 예약해 두었습니다.`);
+    console.error('[relay]   start-server.bat 가 이미 켜져 있는지 먼저 확인하세요. 다른 포트로 켜려면 --port=<n>');
+    console.error('[relay]   (그 경우 접속하는 사람도 주소 끝에 같은 포트를 적어야 합니다)');
+  }
+  // 저장소 · 시세 타이머가 이미 돌고 있을 수 있다 — 기다리지 않고 끝낸다.
+  process.exit(1);
+}
+
+// 명령 줄은 사람이 입력할 수 있을 때만 알린다 (터미널이거나, dev-all 이 자기 창의 입력을 넘겨주는 중).
+const consoleInput = startServerConsole(server);
+if (consoleInput && (process.stdin.isTTY || process.env.SCAV_CONSOLE === '1')) {
+  console.log(`[relay] 콘솔 명령: ${CONSOLE_COMMANDS_LINE}   (이 창에 치고 Enter)`);
+}
 
 const shutdown = (signal: string): void => {
   console.log(`[relay] ${signal} → shutting down`);
+  consoleInput?.close();
   void server.close().then(() => process.exit(0));
   setTimeout(() => process.exit(0), 2000).unref();
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGHUP', () => shutdown('SIGHUP'));
 process.on('uncaughtException', (e) => { console.error('[relay] uncaughtException', e); });
 process.on('unhandledRejection', (e) => { console.error('[relay] unhandledRejection', e); });

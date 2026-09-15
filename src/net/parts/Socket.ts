@@ -14,7 +14,7 @@ import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
 /* B-1 (2026-09-11): 링크 상태 · 배경 프로브 */
 import type { GamePhase, NetLinkInfo, NetLinkState } from '@/shared';
-import { NET_PROBE_BACKOFF_MS, NET_SHELL_RELAY_ROUTE, isDesktopShell } from '@/shared';
+import { NET_PROBE_BACKOFF_MS } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -320,8 +320,10 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
  *
  *   refused {kicked | server_full | duplicate} — 프로브도 자동 재접속도 없다. 명시적인 connect() 만 지운다.
  *
- * 데스크톱 셸이 같은 오리진 `/ws` 를 **임베디드 릴레이**로 보내고 있으면(`NET_SHELL_RELAY_ROUTE` 의 source) 프로브하지
- * 않는다 — 첫 `/ws` 가 그 릴레이를 켜므로(C-28) 두드리는 것 자체가 지연 시작을 무의미하게 만든다 (`embedded: true`).
+ * 2026-09-15: 데스크톱 셸의 같은 오리진 `/ws` 도 **언제나 프로브한다.** 예전에는 셸이 그것을 임베디드 릴레이로
+ * 보내고 있으면(첫 `/ws` 가 그 릴레이를 켰다, C-28) 프로브를 껐는데, 빌드에서 서버를 뺐으므로(사용자 결정) 셸은
+ * 이제 파이프일 뿐이다 — 아무 주소도 없으면 이 PC 의 start-server.bat 서버로 가고, 그 서버가 나중에 켜지는 것을
+ * 찾아야 한다. `NetLinkInfo.embedded` 는 계약이라 남아 있지만 여기서 켜는 곳은 없다.
  */
 
 /** The live `NetRef.link`: the stored state plus the remaining wait of a pending probe. */
@@ -349,25 +351,12 @@ export function stopProbe(sys: NetSystem): void {
 
 /**
  * An attempt failed (or the tokened reconnect loop gave up): report `unreachable` and start looking from the first
- * backoff step — unless the target is the desktop shell's embedded relay, which is never probed.
+ * backoff step. Every target is probed — the desktop shell included (2026-09-15: it no longer embeds a relay).
  */
 export function goUnreachable(sys: NetSystem): void {
   stopProbe(sys);
   sys.probeAttempt = 0;
-  const url = defaultUrl(sys);
-  if (!sameOriginTarget() || !isDesktopShell()) { scheduleProbe(sys); return; }
-  const cached = sys.embeddedCache?.url === url ? sys.embeddedCache.embedded : null;
-  if (cached === true) { setLink(sys, 'unreachable', { embedded: true, nextProbeInMs: null }); return; }
-  if (cached === false) { scheduleProbe(sys); return; }
-  // Unknown yet: say `unreachable` now (not probing), ask the shell once, then decide.
-  setLink(sys, 'unreachable', { nextProbeInMs: null });
-  const gen = sys.probeGen;
-  void shellSaysEmbedded().then((embedded) => {
-    sys.embeddedCache = { url, embedded };
-    if (gen !== sys.probeGen || sys._link.state !== 'unreachable') return;
-    if (embedded) setLink(sys, 'unreachable', { embedded: true, nextProbeInMs: null });
-    else scheduleProbe(sys);
-  });
+  scheduleProbe(sys);
   }
 
 function scheduleProbe(sys: NetSystem): void {
@@ -399,25 +388,3 @@ export function onPhaseChanged(sys: NetSystem, phase: GamePhase): void {
   }
 
 function shipOrTitle(phase: GamePhase | undefined): boolean { return phase === 'hub' || phase === 'menu'; }
-
-/** `defaultUrl` falls through to the page's own origin (no settings override, no `VITE_WS_URL`). */
-function sameOriginTarget(): boolean {
-  if (relayUrlFrom(relayOverride())) return false;
-  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
-  return !env?.VITE_WS_URL;
-  }
-
-/**
- * Ask the desktop shell where its `/ws` goes. `embedded` (appended to the route by the shell, if ever) wins; otherwise
- * the embedded relay is recognised by its source label (`이 PC 의 내장 서버` / `… (필요할 때 켜짐)`). No route, not JSON
- * (vite answers index.html) or any failure = not embedded → the ordinary probe runs.
- */
-async function shellSaysEmbedded(): Promise<boolean> {
-  try {
-    const res = await fetch(NET_SHELL_RELAY_ROUTE, { cache: 'no-store' });
-    if (!res.ok) return false;
-    const j = await res.json() as { embedded?: unknown; source?: unknown };
-    if (typeof j.embedded === 'boolean') return j.embedded;
-    return typeof j.source === 'string' && j.source.includes('내장 서버');
-  } catch { return false; }
-  }

@@ -12,7 +12,7 @@
  * 색은 게임의 하이라이트 그대로다 — `src/ui/styles/base.css` 의 `--c-accent` = `#ffb347`.
  *
  * 출력 크기는 `SIZES`. ICO 안의 각 항목은 PNG 이고(Vista 이후 규격) electron-builder · 탐색기 · 작업 표시줄이
- * 모두 그렇게 읽는다. `scripts/build-server.mjs` 와 `scripts/pack-release.mjs` 도 같은 파일을 쓴다.
+ * 모두 그렇게 읽는다. `scripts/pack-release.mjs`(stub 런처)도 같은 파일을 쓴다.
  */
 import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';

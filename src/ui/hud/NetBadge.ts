@@ -142,7 +142,7 @@ export class NetBadge {
       }
       case 'unreachable': {
         if (l.found) return { tone: 'ok', main: '서버 발견 — 함선에서 연결', sub: '', actions: false };
-        if (l.embedded) return { tone: 'bad', main: '오프라인', sub: '이 PC 의 내장 서버를 시작하지 못했습니다', actions: true };
+        // 2026-09-15: `l.embedded` 는 더 이상 켜지지 않는다 (빌드에 서버가 없다) — 데스크톱 앱도 아래의 평범한 줄이다.
         const left = typeof l.nextProbeInMs === 'number' ? l.nextProbeInMs - (now - this.linkAt) : null;
         const main = left !== null && left > 0 ? `오프라인 · 서버 찾는 중 (${Math.ceil(left / 1000)}초 뒤)` : '오프라인 · 서버 찾는 중…';
         const sub = this.probeSchedules >= ADDRESS_HINT_AFTER_PROBES ? `서버 주소를 확인하세요 — ${l.url}` : '';

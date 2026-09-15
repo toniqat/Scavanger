@@ -1,12 +1,13 @@
 /**
  * Static file serving for the desktop build.
  *
- * The renderer is loaded over **http from the relay's own server** (`http://127.0.0.1:<port>/`) rather than from
+ * The renderer is loaded over **http from the shell's window server** (`http://127.0.0.1:<port>/`) rather than from
  * `file://`, so `location.host` resolves and `NetSystem.defaultUrl()` finds the relay at the same origin `/ws`
- * exactly like it does under vite. That keeps `src/` untouched: no build-time `VITE_WS_URL`, no preload shim.
+ * (proxied by `wsProxy.ts`) exactly like it does under vite. That keeps `src/` untouched: no build-time `VITE_WS_URL`,
+ * no preload shim.
  *
- * `startRelayServer()` registers its own `request` listener (GET /health, 404 for everything else), so this module
- * takes that listener over: ours runs first and delegates anything it does not own back to the original.
+ * The window server registers its own `request` listener first (`/__scav/relay`, 404 for everything else), so this
+ * module takes that listener over: ours runs first and delegates anything it does not own back to the original.
  */
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -44,7 +45,7 @@ function resolveFile(root: string, url: string): string | null {
 
 /**
  * Serve `root` from an existing http server, keeping its previous handlers as the fallback.
- * A GET that matches no file falls through to the relay (which answers /health and 404s the rest).
+ * A GET that matches no file falls through to them (the window server answers `/__scav/relay` and 404s the rest).
  */
 export function attachStatic(server: HttpServer, root: string): void {
   const fallbacks = server.listeners('request') as Array<(req: IncomingMessage, res: ServerResponse) => void>;
@@ -54,8 +55,6 @@ export function attachStatic(server: HttpServer, root: string): void {
     const pass = (): void => { for (const fn of fallbacks) fn.call(server, req, res); };
     if (req.method !== 'GET' && req.method !== 'HEAD') { pass(); return; }
     const url = req.url ?? '/';
-    if (url === '/health' || url.startsWith('/health?')) { pass(); return; }
-
     const file = resolveFile(root, url);
     if (!file) { res.writeHead(403).end(); return; }
 

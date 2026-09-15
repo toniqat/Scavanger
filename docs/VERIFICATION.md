@@ -15,7 +15,7 @@ runner options: `node scripts/verify.mjs --help`.
 | 2. Feature | `npm run verify` | 1–2 min | After finishing a feature — only the smokes mapped to folders changed in the working tree (`--list` shows the map, `--folders` · `--only` override) |
 | 3. Re-check | `node scripts/verify.mjs --rerun-failed` | < 1 min | Only what just failed (`scripts/logs/last-run.json`) |
 | 4. Full | `npm run verify:all` | ~10 min | Before a merge, or when you touched `src/shared` · `src/core` · `main.ts` (a change on those paths makes the runner go full by itself) |
-| 5. Release | Run `npm run app:dist` once → check by eye that `release/SCAVANGER/` holds **only** `app/` · `SCAVANGER.exe` · `server.txt` · `SCAVANGER-Server.exe` | ~3 min | When you touched `electron/` · `server/tool.ts` · `scripts/pack-release.mjs` · `build-server.mjs` (bundle and boot are checked automatically by `smoke-server-dist` · `smoke-desktop`) |
+| 5. Release | Run `npm run app:dist` once → check by eye that `release/SCAVANGER/` holds **only** `app/` · `SCAVANGER.exe` · `server.txt` (three entries — builds ship no server) | ~3 min | When you touched `electron/` · `scripts/pack-release.mjs` (the shell and the deploy folder are checked automatically by `smoke-desktop`) |
 
 The runner starts vite and the relay itself (it restarts the relay before `e2e:mp`), runs smokes on 4 GPU lanes, and prints
 one line per script plus the `FAIL` lines (full output in `scripts/logs/<name>.log`). On a machine without a GPU use

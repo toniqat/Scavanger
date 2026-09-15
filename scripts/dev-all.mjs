@@ -3,6 +3,10 @@
  * Runs the relay server and the Vite dev server together with prefixed output.
  * `npm run dev:all` → `npm run server` + `npm run dev`. Ctrl+C (or either child exiting) stops both.
  * No dependencies beyond Node itself.
+ *
+ * 2026-09-15: the relay owns the operator console (`server/Console.ts` — list · lobbies · kick · max · gc · help), and this
+ * is what `start-server.bat` runs by default, so every line typed into this window is forwarded to the relay child's
+ * stdin. Vite gets no stdin (its `h`/`r`/`q` shortcuts would fight the console for the same lines).
  */
 import { spawn, spawnSync } from 'node:child_process';
 
@@ -33,12 +37,15 @@ function writeLine(name, line, out) {
   out.write(`${tag} ${line}\n`);
 }
 
-function run(name, script) {
+function run(name, script, { stdin = false, env = {} } = {}) {
   // npm is `npm.cmd` on Windows and .cmd files must be spawned through a shell (Node ≥ 18.20 / 20.12 rule).
   // With a shell the whole command goes in one string (passing args separately trips DEP0190).
+  const stdio = [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'];
   const child = isWin
-    ? spawn(`npm.cmd run ${script}`, { shell: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() })
-    : spawn('npm', ['run', script], { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
+    ? spawn(`npm.cmd run ${script}`, { shell: true, stdio, env: { ...childEnv(), ...env } })
+    : spawn('npm', ['run', script], { stdio, env: { ...childEnv(), ...env } });
+  // A write after the child is gone must not crash this script (EPIPE).
+  child.stdin?.on('error', () => { /* child exited */ });
   children.push(child);
   prefixed(name, child.stdout, process.stdout);
   prefixed(name, child.stderr, process.stderr);
@@ -86,5 +93,10 @@ process.on('SIGHUP', () => shutdown(0));
 writeLine('dev', 'starting relay server (npm run server) and vite (npm run dev)', process.stdout);
 // E-4 (2026-09-11, 사용자 결정): this relay does NOT accept the dev credit reasons (`/credits` · smoke:* · e2e:* · shot) —
 // `start-server.bat` runs this script for real LAN play. Only relays the smoke runners start themselves turn SCAV_DEV_ECONOMY on.
-run('server', 'server');
+// `SCAV_CONSOLE=1` tells the relay a person can type here, so it prints its command line once.
+const relay = run('server', 'server', { stdin: true, env: process.stdin.isTTY ? { SCAV_CONSOLE: '1' } : {} });
 run('dev', 'dev');
+
+// Console lines → relay stdin. Not `pipe()`: our stdin ending (no terminal) must not matter, and a dead child must not throw.
+process.stdin.on('data', (chunk) => { if (relay.stdin && !relay.stdin.destroyed) relay.stdin.write(chunk); });
+process.stdin.on('error', () => { /* no console */ });

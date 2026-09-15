@@ -11,7 +11,8 @@
 //   7. 거절(`kicked` · `server_full` · `duplicate`)은 프레임 주입으로: `refused` 뒤 프로브 · 소켓 없음, 사유 토스트(C-59),
 //      명시적 connect 가 지운다
 //   8. 타이틀: 배지 옆 `서버 설정` · `다시 시도` 버튼
-//   9. 데스크톱 셸 흉내(`window.__scavDesktop` + `/__scav/relay` 응답 가짜): 임베디드 목표면 프로브하지 않는다
+//   9. 데스크톱 셸 흉내(`window.__scavDesktop` + `/__scav/relay` 응답 가짜): 셸의 목표(이 PC 의 start-server.bat 서버)도
+//      프로브한다 — 2026-09-15 빌드에서 서버를 뺐으므로 옛 `embedded: true` 응답도 더 이상 프로브를 끄지 않는다
 //
 // 릴레이 포트는 **8885**(죽은 포트 → 스모크가 띄우는 릴레이), 8886(대답 없는 TCP) — 공용 릴레이(8787)는 건드리지 않는다.
 // Usage: node scripts/smoke-netlink.mjs [http://localhost:5273]   (needs a running vite; the relay it needs it starts itself)
@@ -310,41 +311,35 @@ try {
   b = await badge();
   ok(b.on && b.main === '연결됨' && !b.actions, `다시 시도 → 연결됨, buttons gone (${JSON.stringify(b)})`);
 
-  /* ── 9. desktop shell + embedded target: no probe ───────────────────── */
-  console.log('9. 데스크톱 셸 흉내 — 임베디드 목표는 프로브하지 않는다');
+  /* ── 9. desktop shell: its same-origin target is probed like any other (2026-09-15 — no embedded relay) ── */
+  console.log('9. 데스크톱 셸 흉내 — 셸의 목표(이 PC 의 start-server.bat 서버)도 프로브한다');
   await stopRelay();
   await waitLink('(l) => l.state === "reconnecting"', 'reconnecting (9)', 8000);
   await forceGiveUp();
   await P(() => {
     window.__scavDesktop = true;
-    window.__routeSource = '이 PC 의 내장 서버 (필요할 때 켜짐)';
+    // what electron/main.ts answers when nothing is configured: this PC's server, never embedded
+    window.__routeBody = { target: 'ws://127.0.0.1:8787/ws', source: '이 PC 의 서버 · start-server.bat', embedded: false };
     const real = window.fetch.bind(window);
     window.fetch = (input, init) => (String(input).includes('/__scav/relay')
-      ? Promise.resolve(new Response(JSON.stringify({ target: 'ws://127.0.0.1:8790/ws', source: window.__routeSource }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      ? Promise.resolve(new Response(JSON.stringify(window.__routeBody), { status: 200, headers: { 'content-type': 'application/json' } }))
       : real(input, init));
   });
-  t = await now();
   await P(() => window.__game.ctx.net.setRelayOverride(''));   // same-origin /ws = what the shell proxies
-  await waitLink('(l) => l.state === "unreachable" && l.embedded === true', 'embedded', 5000);
+  await waitLink('(l) => l.state === "unreachable" && typeof l.nextProbeInMs === "number" && l.nextProbeInMs > 0', 'shell target probed', 5000);
   l = await link();
-  ok(l.embedded === true && l.nextProbeInMs === null && !l.probing, `embedded target → no probe (${JSON.stringify(l)})`);
-  await sleep(6000);
-  socks = await socketsSince(t);
-  ok(socks.length === 0, `6 s: no socket to the lazy relay (${socks.length})`);
+  ok(!l.embedded && l.probing && l.nextProbeInMs > 0, `shell target (this PC's server) → retried by the background probe (${JSON.stringify(l)})`);
+  await sleep(250);
   b = await badge();
-  ok(b.on && b.main === '오프라인' && b.sub.includes('내장 서버'), `badge ${b.main} / ${b.sub}`);
-  // the same shell with a configured relay (server.txt / --relay) is probed as usual
-  const cfg = await P(() => {
-    const n = window.__game.getSystem('net');
-    window.__routeSource = '--relay';
-    n.embeddedCache = null;
-    n.setRelayOverride('');
-    return null;
+  ok(b.on && b.main.startsWith('오프라인 · 서버 찾는 중') && !/내장 서버/.test(`${b.main} ${b.sub}`), `badge ${b.main} / ${b.sub} — no 내장 서버`);
+  // a stale shell that still says `embedded: true` no longer switches the probe off either
+  await P(() => {
+    window.__routeBody = { target: 'ws://127.0.0.1:8790/ws', source: '이 PC 의 내장 서버', embedded: true };
+    window.__game.getSystem('net').setRelayOverride('');
   });
-  void cfg;
-  await waitLink('(l) => l.state === "unreachable" && typeof l.nextProbeInMs === "number" && l.nextProbeInMs > 0', 'configured shell relay probed', 5000);
+  await waitLink('(l) => l.state === "unreachable" && typeof l.nextProbeInMs === "number" && l.nextProbeInMs > 0', 'legacy embedded route still probed', 5000);
   l = await link();
-  ok(!l.embedded && l.probing, `configured shell relay → probing (${JSON.stringify(l)})`);
+  ok(!l.embedded && l.probing, `legacy embedded:true route → still probing (${JSON.stringify(l)})`);
   // stop before that probe reaches the shared dev relay through vite
   await P(() => { const n = window.__game.ctx.net; n.disconnect(); window.__scavDesktop = false; });
   ok((await link()).state === 'idle', 'disconnect() → idle, probe stopped');
