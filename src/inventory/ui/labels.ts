@@ -205,6 +205,8 @@ export const TEXT = {
     splitCustom: '수량 지정…',
     requestAmmo: '탄약 요청',
     request: '요청',
+    /* 2026-09-15 (사용자 결정): 장착한 방탄복 + 실드가 조금이라도 비었을 때의 요청 항목 */
+    requestShield: '실드 충전 요청',
     quickAssign: '빠른 슬롯에 등록',
     quickClear: '빠른 슬롯 해제',
     drop: '버리기',

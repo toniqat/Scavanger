@@ -58,7 +58,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/Objective.ts` | Top-left mission clock + big extraction timer (arrive / idle / depart); both hidden in the tutorial raid. `OBJECTIVE_TEXT` (emitted, not drawn) |
 | `hud/OffscreenIndicators.ts` | Edge arrows for off-screen pings (own + squad) |
 | `hud/pillar.ts` | Light pillar geometry/material builder + `pillarAllowed` (corpses only) |
-| `hud/Pings.ts` | Middle-mouse pings v3 (raid and ship): gesture, aim assist, per-player cap, ack ping, markers, chat callouts, `ping` / `pingack` wire; `placeAtWorld` for the map |
+| `hud/Pings.ts` | Middle-mouse pings v3 (raid and ship): gesture (holds `ctx.player.setLookLocked` from press to release / `PING_HOLD_MAX`, releasing only its own lock), aim assist, per-player cap, ack ping, markers, chat callouts, `ping` / `pingack` wire; `placeAtWorld` for the map |
 | `hud/PingWheel.ts` | Left/right ping hold wheel (presentation only) |
 | `hud/ProgressToasts.ts` | Skill-up toasts + coalesced XP chip (level-up is played by `RewardsBlock`) |
 | `hud/QuickStrip.ts` | Quick-slot thumbnails with live keycap, stacked on the weapon panel |
@@ -312,8 +312,8 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 
 Last 5 only — older: `git log -- src/ui`.
 
+- 2026-09-15 — Holding the ping button locks the camera like the H / T wheels (released on release, timeout, cancel, dispose). — `hud/Pings.ts`
 - 2026-09-15 — `ui:screenFade.hold`: tutorial skip keeps the screen black into the result screen; `.menu.complete` / `.menu.death` got z 84.
 - 2026-09-15 — Result header: extraction subtitle removed, planet line split into label + name (`ResultReport.buildPlanetLine`) on both result screens.
 - 2026-09-15 — Map closes on Tab only when it is the topmost screen (`ctx.escape.topKey`).
 - 2026-09-15 — Pressed look for `.kc-hold`, `.kc-btn` hold keycaps inside hold buttons replace the "hold N seconds" hint lines; boarding toast removed; character select message moved to the footer.
-- 2026-09-15 — Defib crosshair mode (`.reticle.defibmode`, driven by `gadget:defibAim`); ShipManage remembers its last right tab per slot.

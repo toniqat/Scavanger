@@ -104,6 +104,9 @@ interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vec
  * **Gesture** (unchanged): press = start hold; drag while held (pointer-locked deltas accumulate). Release:
  *   dx ≥ +PING_DRAG_THRESHOLD_PX → `attack` (돌격), dx ≤ −threshold → `caution` (주의), otherwise a plain ping.
  *   Holding longer than PING_HOLD_MAX locks the gesture to a plain ping. A radial hint appears after 150 ms.
+ *   **2026-09-15 (사용자 결정): 누르고 있는 동안 카메라가 돌지 않는다** (`H` · `T` 휠과 같다) — 누르는 순간
+ *   `ctx.player.setLookLocked(true)`, 놓기 · `PING_HOLD_MAX` 초과 · 모든 취소 경로 · `dispose` 에서 풀린다. 락은
+ *   `mouseDX` 를 소비하지 않으므로 드래그 분류는 그대로다.
  *   **2026-09-10 (사용자 결정): 아래로 드래그하던 탄약 보충 핑은 없어졌다** — `H` 의사소통 휠과 인벤토리
  *   휠클릭(`InventoryRef.requestItem`)이 같은 부탁을 이미 하고 있어 제스처가 겹쳤다. 이제 세로 드래그는
  *   평범한 핑이고, 이 컴포넌트는 장착 무기를 더 이상 추적하지 않는다.
@@ -165,6 +168,8 @@ export class Pings {
   private holdDowned = false;
   private pressOrigin = new THREE.Vector3();
   private pressDir = new THREE.Vector3();
+  /** 2026-09-15: 이 홀드가 `ctx.player.setLookLocked(true)` 를 걸었나 — **우리가 건 락만 우리가 푼다** (CommsWheel 과 같다). */
+  private lookLocked = false;
 
   // scratch
   private origin = new THREE.Vector3();
@@ -280,6 +285,12 @@ export class Pings {
       this.holdDowned = ctx.player?.isDowned ?? false;
       ctx.camera.getWorldPosition(this.pressOrigin);
       ctx.camera.getWorldDirection(this.pressDir);
+      /*
+       * 2026-09-15 (사용자 결정): 누르는 순간부터 카메라를 묶는다 — `H` 의사소통 휠 · `T` 빠른 사용 휠과 같다.
+       * 좌/우 드래그가 휠 칸을 고르는 입력이라 그 동안 시점이 따라 돌면 안 된다. `mouseDX` 는 소비하지 않으므로
+       * 아래의 `dragX` 누적(분류)은 그대로이고, 짧은 탭은 같은 프레임에 풀려 크로스헤어가 가리키는 곳에 찍힌다.
+       */
+      this.setLookLocked(ctx, true);
       // fall through: a press and release inside the same frame (quick click at low fps) must still ping
     }
 
@@ -288,6 +299,8 @@ export class Pings {
     const held = ctx.time - this.holdStart;
     const locked = held > PING_HOLD_MAX; // gesture timed out → plain ping on release
     if (!locked) this.dragX += input.mouseDX;
+    // 시간이 지나 평범한 핑으로 굳었다: 휠이 닫히므로 카메라를 돌려준다 (놓는 순간의 조준으로 찍는다)
+    else this.setLookLocked(ctx, false);
 
     const gesture = locked ? 'plain' : this.classify();
     const showWheel = held >= HINT_DELAY && !locked;
@@ -340,6 +353,8 @@ export class Pings {
 
   private endHold(ctx?: GameContext): void {
     this.holding = false;
+    // 놓기 · 취소(사망 · 리셋 · 함선 출입 · 조작 불가) 전부 여기를 지난다 — 카메라 락을 먼저 푼다
+    this.setLookLocked(ctx ?? this.ctx, false);
     if (!this.wheelShown) return;
     this.wheelShown = false;
     this.wheel.setOpen(false, this.holdDowned);
@@ -347,6 +362,19 @@ export class Pings {
   }
 
   private cancelHold(): void { if (this.holding) this.endHold(); }
+
+  /**
+   * 카메라를 묶는다 / 푼다. `setLookLocked` 는 `PlayerWeaponHost` 의 메서드라 `ctx.player` 에 duck-type 으로 붙는다
+   * (`hud/CommsWheel` 과 같은 방식 — player/ 를 import 하지 않는다). **우리가 건 락만 우리가 푼다**: 다른 휠 ·
+   * 조준 모드가 건 락을 핑이 풀어 버리면 안 된다.
+   */
+  private setLookLocked(ctx: GameContext | undefined, locked: boolean): void {
+    if (locked === this.lookLocked) return;
+    const p = ctx?.player as ({ setLookLocked?(v: boolean): void } | null | undefined);
+    if (!p || typeof p.setLookLocked !== 'function') { this.lookLocked = false; return; }
+    this.lookLocked = locked;
+    p.setLookLocked(locked);
+  }
 
   /* ── enemy tracking (visible only) ─────────────────────────────────────── */
 
@@ -834,6 +862,7 @@ export class Pings {
   }
 
   dispose(): void {
+    this.cancelHold();   // 2026-09-15: 홀드 중에 해체돼도 카메라 락을 남기지 않는다
     for (const u of this.unsubs) u();
     this.clear(true);
     this.root.remove();

@@ -235,7 +235,8 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
 
   // 3. quick chat request
   entries.push({
-    label: isWeapon ? TEXT.menu.requestAmmo : TEXT.menu.request,
+    // 2026-09-15 (사용자 결정): 장착 방탄복 + 실드가 덜 찼으면 「실드 충전 요청」 — 판정은 `requestItem` 과 같은 함수
+    label: isWeapon ? TEXT.menu.requestAmmo : sys.sys.wantsShieldRecharge(from) ? TEXT.menu.requestShield : TEXT.menu.request,
     hint: keyLabel('Mouse1'),
     separator: entries.length > 0,
     run: () => { sys.sys.requestItem(uid, from); },

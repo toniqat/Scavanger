@@ -66,7 +66,7 @@ try {
     for (const n of ['player:downed', 'player:downHpChanged', 'player:revived', 'player:died', 'player:respawn', 'player:spawned', 'player:landed',
       'game:respawnAvailable', 'game:phaseChanged', 'game:over', 'inventory:quickSlotsChanged', 'quick:wheelChanged', 'quick:equipped', 'quick:used',
       'grenade:holdChanged', 'grenade:thrown', 'grenade:exploded', 'player:stimUsed', 'weapon:equipped', 'player:giveUpProgress',
-      'heal:holdChanged', 'player:carryStarted', 'player:carryEnded']) {
+      'heal:holdChanged', 'player:carryStarted', 'player:carryEnded', 'ping:placed', 'ping:wheelChanged', 'chat:post']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -117,6 +117,47 @@ try {
   await P(() => { const inv = window.__game.ctx.inventory; inv.setQuickSlot(0, inv.getQuickSlots()[4].uid); });
   const restored = await P(() => window.__game.ctx.inventory.getQuickSlots().map((s) => s?.defId ?? null));
   ok(restored[0] === 'grenade_frag' && restored[4] === 'heal_bandage', 'swapped back: 수류탄 N, 붕대 S', JSON.stringify(restored));
+
+  /* 2026-09-15 (사용자 결정): 핑 버튼을 누르고 있는 동안 카메라가 돌지 않는다 (`H` · `T` 휠과 같다). 락은 `mouseDX` 를
+     소비하지 않으므로 좌/우 분류는 그대로여야 하고, 놓기 · `PING_HOLD_MAX`(1.2 s) 초과에서 풀린다. */
+  console.log('ping hold locks the camera');
+  const look = () => P(() => ({ locked: window.__game.getSystem('player').lookLocked, yaw: window.__game.ctx.player.yaw }));
+  await waitSim(0.4);
+  const pl0 = await look();
+  ok(pl0.locked === false, 'look unlocked before the ping press', JSON.stringify(pl0));
+  await P(() => { window.__ev['ping:placed'].length = 0; window.__ev['ping:wheelChanged'].length = 0; });
+  await mouseDown(1);
+  await waitSim(0.3);
+  const plHeld = await look();
+  ok(plHeld.locked === true, 'ping press locks the look (setLookLocked) from the start of the hold', JSON.stringify(plHeld));
+  await P(() => { window.__game.ctx.input.mouseDX += 200; });
+  await waitSim(0.2);
+  const plDrag = await look();
+  const pwDrag = await lastEv('ping:wheelChanged');
+  ok(plDrag.locked && Math.abs(plDrag.yaw - plHeld.yaw) < 1e-6, `dragging right while held does not turn the camera (yaw ${plHeld.yaw.toFixed(3)} → ${plDrag.yaw.toFixed(3)})`);
+  ok(pwDrag && pwDrag.open === true && pwDrag.hover === 'right', 'the drag still classifies — ping wheel open, hover right', JSON.stringify(pwDrag));
+  await mouseUp(1);
+  await waitSim(0.2);
+  const plRel = await look();
+  const placedRel = await lastEv('ping:placed');
+  ok(plRel.locked === false, 'release unlocks the look', JSON.stringify(plRel));
+  ok(placedRel && placedRel.kind === 'attack', 'release places the right-side ping (저쪽으로 가자)', JSON.stringify(placedRel));
+  await P(() => { window.__game.ctx.input.mouseDX += 200; });
+  await waitSim(0.2);
+  const plFree = await look();
+  ok(Math.abs(plFree.yaw - plRel.yaw) > 0.01, `unlocked, the same drag turns the camera (yaw ${plRel.yaw.toFixed(3)} → ${plFree.yaw.toFixed(3)})`);
+  await waitSim(0.4);   // ping cooldown
+  await mouseDown(1);
+  await waitSim(0.3);
+  const plHeld2 = await look();
+  await waitSim(1.2);
+  const plTimeout = await look();
+  ok(plHeld2.locked === true && plTimeout.locked === false, 'holding past PING_HOLD_MAX releases the look while the button is still down', JSON.stringify({ plHeld2, plTimeout }));
+  await mouseUp(1);
+  await waitSim(0.2);
+  const plAfter = await look();
+  const placedT = await lastEv('ping:placed');
+  ok(plAfter.locked === false && placedT && placedT.kind !== 'attack' && placedT.kind !== 'caution', 'timed-out hold releases into a plain ping, look stays unlocked', JSON.stringify({ plAfter, placedT }));
 
   console.log('stim in hand (F tap)');
   await P(() => window.__game.ctx.player.takeDamage(40));
@@ -234,6 +275,47 @@ try {
   ok(hud.wheel, 'quick wheel element exists');
   ok(hud.cook, 'cook gauge element exists');
   ok(hud.noPills, 'no 회복약 / 수류탄 pills under the health bar any more');
+
+  /* 2026-09-15 (사용자 결정): 장착한 방탄복을 요청(휠클릭 · 메뉴)하면 실드가 조금이라도 비었을 때 「실드 충전 필요」,
+     가득이거나 장착하지 않은 방탄복이면 평범한 `<이름> 필요`. 메뉴 이름도 같은 조건으로 「실드 충전 요청」. */
+  console.log('armor request → shield recharge');
+  const armorReq = await P(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.player;
+    const SLOT = { kind: 'slot', slot: 'armor' }, BAG = { kind: 'grid', grid: 'bag' };
+    const out = {};
+    if (!inv.getLoadout().armor) {
+      const a = ctx.loot.createItem('armor_2', 1);
+      out.added = inv.tryAddItem(a);
+      out.equipped = inv.equip(a.uid, 'armor');
+    }
+    const spare = ctx.loot.createItem('armor_1', 1);
+    out.spareAdded = inv.tryAddItem(spare);
+    const worn = inv.getLoadout().armor;
+    const posts = window.__ev['chat:post'];
+    const ask = (uid, from) => {
+      const n = posts.length;
+      const done = inv.requestItem(uid, from);
+      const item = inv.findItem(uid, from);
+      const def = item && ctx.loot.getItemDef(item.defId);
+      const labels = item && def && inv.ui ? inv.ui.menuEntries(uid, from, item, def).map((e) => e.label) : [];
+      return { done, text: posts.slice(n).find((m) => m.kind === 'request')?.text ?? null, shield: p.shield, max: p.maxShield,
+        menu: labels.filter((l) => /요청/.test(l)) };
+    };
+    out.name = worn ? ctx.loot.getItemDef(worn.defId)?.name : null;
+    out.spareName = ctx.loot.getItemDef('armor_1')?.name;
+    if (p.shield >= p.maxShield) p.absorbShield(1);
+    out.low = worn ? ask(worn.uid, SLOT) : null;
+    out.spareLow = ask(spare.uid, BAG);
+    out.charged = p.chargeShield(Infinity);
+    out.full = worn ? ask(worn.uid, SLOT) : null;
+    return out;
+  });
+  ok(armorReq.low && armorReq.low.max > 0 && armorReq.low.shield < armorReq.low.max, 'equipped armor with a depleted shield', JSON.stringify(armorReq));
+  ok(armorReq.low && armorReq.low.done && armorReq.low.text === '실드 충전 필요', `equipped armor + shield not full → 「실드 충전 필요」 (${armorReq.low?.text})`, JSON.stringify(armorReq.low));
+  ok(armorReq.low && armorReq.low.menu.length === 1 && armorReq.low.menu[0] === '실드 충전 요청', `menu entry reads 「실드 충전 요청」 (${armorReq.low?.menu})`);
+  ok(armorReq.spareLow.text === `${armorReq.spareName} 필요` && armorReq.spareLow.menu[0] === '요청', `armor that is not equipped stays the plain request even with a depleted shield (${armorReq.spareLow.text})`, JSON.stringify(armorReq.spareLow));
+  ok(armorReq.full && armorReq.full.shield === armorReq.full.max && armorReq.full.text === `${armorReq.name} 필요` && armorReq.full.menu[0] === '요청',
+    `full shield → plain 「${armorReq.name} 필요」 · menu 「요청」 (${armorReq.full?.text})`, JSON.stringify({ charged: armorReq.charged, full: armorReq.full }));
 
   console.log('give up → dead → 레이드 실패 (Phase 7: a solo death fails the raid; the 30 s respawn is squad-only)');
   await waitSim(2.5); // past any post-revive invulnerability

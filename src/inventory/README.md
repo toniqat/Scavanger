@@ -330,9 +330,10 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 ## Recent changes
 
 Older: `git log -- src/inventory`.
+- 2026-09-15 — Requesting the equipped armor while the shield is not full posts `실드 충전 필요` (menu `실드 충전 요청`);
+  `wantsShieldRecharge(from)` is the one check for both.
 - 2026-09-15 — Stash + bag as one card everywhere; filter dropdown; craft column = thumbnail grid + detail; ship
   craft / salvage outputs go to the stash first.
 - 2026-09-15 — Hold-button keycaps in craft and favourite-disassemble confirm.
 - 2026-09-15 — Unique weapons show their type (`UNIQUE_WEAPON_LABEL_KO`) in the tooltip subtitle.
 - 2026-09-15 — Mouse-glyph keycaps in key guide and context menu.
-- 2026-09-15 — `validateHover` clears tooltips left after quick moves; pin ring from `RING_SHOW_AT`.

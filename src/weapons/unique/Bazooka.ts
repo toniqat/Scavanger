@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   BAZOOKA_DAMAGE, BAZOOKA_RADIUS, BAZOOKA_SPEED, BAZOOKA_ALT_FUSE, BAZOOKA_ALT_DAMAGE, BAZOOKA_ALT_RADIUS,
   BAZOOKA_KNOCKBACK, BAZOOKA_SUPER_JUMP, BAZOOKA_JUMP_FORWARD, BAZOOKA_FIRE_RATE, PLAYER_WALK_SPEED,
+  BAZOOKA_KNOCKBACK_DIST_MUL, BAZOOKA_GROUNDED_DIST_MUL,
   explosionFalloff,
 } from '@/shared';
 import type { ProjectileHit } from '../Projectile';
@@ -16,10 +17,13 @@ const COVER_MIN = 0.3;
  * 「해머헤드」 바주카. LMB = impact rocket (`Projectile` style `rocket`, tag 0): `applyExplosion(BAZOOKA_RADIUS,
  * BAZOOKA_DAMAGE)` + destructible cover in the radius. RMB = air-burst rocket (tag 1, fuse `BAZOOKA_ALT_FUSE`,
  * `BAZOOKA_ALT_RADIUS` / `BAZOOKA_ALT_DAMAGE`). **No self damage** (2026-09-14, user decision): inside the blast the
- * player only gets `applyKnockback` away from it; airborne with the blast below the feet → rocket jump
- * `applyImpulse(horizontal boost, BAZOOKA_SUPER_JUMP)` + `player:blastJump` (impulse = that vector). The horizontal
- * boost is `BAZOOKA_JUMP_FORWARD × min(1, speed / PLAYER_WALK_SPEED)` along the horizontal velocity **before** the
- * knockback (standing still = straight up); the player controller keeps that momentum until landing (`airCarry`).
+ * player only gets `applyKnockback` away from it; **airborne** (read before the knockback) with the blast below the feet
+ * → rocket jump `applyImpulse(horizontal boost, BAZOOKA_SUPER_JUMP)` + `player:blastJump` (impulse = that vector). The
+ * horizontal boost is `BAZOOKA_JUMP_FORWARD × min(1, speed / PLAYER_WALK_SPEED)` along the horizontal velocity **before**
+ * the knockback (standing still = straight up); the player controller keeps that momentum until landing (`airCarry`).
+ * 2026-09-15 (user decision): throw distance × `BAZOOKA_KNOCKBACK_DIST_MUL` for the knockback and the whole rocket-jump
+ * impulse, × `BAZOOKA_GROUNDED_DIST_MUL` again on the knockback when the shooter stood on the ground — applied as square
+ * roots on the speeds (flight distance ∝ speed²). A grounded blast never rocket-jumps. Only the shooter is thrown.
  * Magazine 3 (`magSize`) at `BAZOOKA_FIRE_RATE` (≈ 0.35 s apart); an empty tube reloads itself after the last shot.
  */
 export class Bazooka implements UniqueHandler {
@@ -111,14 +115,25 @@ export class Bazooka implements UniqueHandler {
          * 넉백은 몸을 뒤로 밀어, 그 뒤에 읽으면 달리던 방향이 줄거나 뒤집힌다.
          */
         _hvel.set(host.velocity.x, 0, host.velocity.z);
+        /*
+         * 2026-09-15 (사용자 결정): 땅에 서 있었나를 넉백 **전에** 읽는다. `applyKnockback` 은 늘 `KNOCKBACK_MIN_LIFT`
+         * 이상 띄워 `grounded` 를 먼저 꺼 버리므로, 뒤에서 `isGrounded` 를 읽으면 발밑에 쏜 지상 사격도 로켓 점프가 됐다.
+         */
+        const wasGrounded = host.isGrounded;
         _away.subVectors(_centre, pos);
         if (_away.lengthSq() < 1e-4) _away.set(0, 1, 0); else _away.normalize();
-        if (typeof host.applyKnockback === 'function') host.applyKnockback(_away, BAZOOKA_KNOCKBACK);
-        if (!host.isGrounded && pos.y < host.position.y + 0.4 && typeof host.applyImpulse === 'function') {
-          _imp.set(0, BAZOOKA_SUPER_JUMP, 0);
+        /*
+         * 2026-09-15 (사용자 결정): 날아가는 거리 ×`BAZOOKA_KNOCKBACK_DIST_MUL`, 지상이면 ×`BAZOOKA_GROUNDED_DIST_MUL` 한 번 더.
+         * 비행 거리는 속도의 제곱에 비례하므로 속도에는 제곱근을 곱한다 (`docs/DECISIONS.md`).
+         */
+        const distSpeed = Math.sqrt(BAZOOKA_KNOCKBACK_DIST_MUL);
+        const knock = BAZOOKA_KNOCKBACK * distSpeed * (wasGrounded ? Math.sqrt(BAZOOKA_GROUNDED_DIST_MUL) : 1);
+        if (typeof host.applyKnockback === 'function') host.applyKnockback(_away, knock);
+        if (!wasGrounded && pos.y < host.position.y + 0.4 && typeof host.applyImpulse === 'function') {
+          _imp.set(0, BAZOOKA_SUPER_JUMP * distSpeed, 0);
           const hs = _hvel.length();
           if (hs > 1e-3) {
-            const k = BAZOOKA_JUMP_FORWARD * Math.min(1, hs / PLAYER_WALK_SPEED) / hs;
+            const k = BAZOOKA_JUMP_FORWARD * distSpeed * Math.min(1, hs / PLAYER_WALK_SPEED) / hs;
             _imp.x = _hvel.x * k; _imp.z = _hvel.z * k;
           }
           host.applyImpulse(_imp);

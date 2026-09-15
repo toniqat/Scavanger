@@ -1318,6 +1318,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * Quick chat (middle-click / 요청 menu entry): `탄약 필요: <탄종>` for weapons, `<이름> 필요` for anything else
    * (`chat:post`, kind 'request'). 2026-09-09: the weapon's own name left the ammo line — the squad needs the calibre,
    * not the gun. Equipment-slot tiles reach this through the same `Drag.beginPress` middle-button path as grid tiles.
+   * 2026-09-15 (user decision): the **equipped** armor while the shield is not full → `실드 충전 필요`
+   * (`wantsShieldRecharge`); a full shield or an armor that is not the equipped one stays `<이름> 필요`.
    */
   requestItem(uid: string, from: ItemLocation): boolean {
     if (this.isItemLocked(uid, from)) return false;
@@ -1325,9 +1327,21 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return false;
     const stats = this.loot.getEffectiveStats(item);
-    const text = stats ? `탄약 필요: ${AMMO_LABEL_KO[stats.ammoType]}` : `${def.name} 필요`;
+    const text = stats ? `탄약 필요: ${AMMO_LABEL_KO[stats.ammoType]}`
+      : this.wantsShieldRecharge(from) ? '실드 충전 필요'
+      : `${def.name} 필요`;
     this.ctx.bus.emit('chat:post', { text, kind: 'request' });
     return true;
+  }
+
+  /**
+   * 2026-09-15 (사용자 결정): 이 자리의 아이템을 요청하면 「실드 충전」 부탁이 되나 — **장착한 방탄복 칸**이고 실드가
+   * 조금이라도 비었을 때만. 요청 문구(`requestItem`)와 메뉴 이름(`ui/parts/ContextMenu`)이 같은 이 함수를 본다.
+   */
+  wantsShieldRecharge(from: ItemLocation): boolean {
+    if (from.kind !== 'slot' || from.slot !== 'armor') return false;
+    const p = this.ctx.player;
+    return !!p && p.maxShield > 0 && p.shield < p.maxShield;
   }
 
   /**

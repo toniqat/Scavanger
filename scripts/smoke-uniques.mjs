@@ -466,9 +466,31 @@ try {
   const reloaded = await P(() => ({ mag: window.__loadout().mag, reload: window.__ev['weapon:reloadStarted'].length }));
   ok(reloaded.reload >= 1, 'empty tube reloads itself (weapon:reloadStarted)', JSON.stringify(reloaded));
   ok(reloaded.mag === 3, `tube reloaded to 3 rockets (${reloaded.mag})`);
+  /* 2026-09-15 (사용자 결정): 넉백 거리 ×BAZOOKA_KNOCKBACK_DIST_MUL 0.5, 지상이면 ×BAZOOKA_GROUNDED_DIST_MUL 0.5 한 번 더 —
+     속도에는 제곱근이다 (15 × √0.5 × √0.5 = 7.5). 지상 폭발은 로켓 점프가 아니다 (넉백이 `grounded` 를 먼저 끄던 버그). */
+  await P(() => window.__killAll());
+  await clearEv();
+  await waitFor(page, () => window.__game.ctx.player.isGrounded, 'grounded before the feet blast', 30000);
+  await P(() => {
+    const p = window.__game.ctx.player;
+    window.__kb = [];
+    window.__origKB = window.__origKB ?? p.applyKnockback.bind(p);
+    p.applyKnockback = (d, s) => { window.__kb.push({ s, grounded: p.isGrounded }); return window.__origKB(d, s); };
+  });
+  await look(0, 3000);
+  await waitSim(0.1);
+  await click(0);
+  await waitSim(0.6);
+  const feet = await P(() => ({ blast: window.__ev['player:blastJump'].length, kb: window.__kb.slice(), hits: window.__ev['weapon:hit'].length }));
+  ok(feet.hits >= 1 && feet.kb.length === 1 && feet.kb[0].grounded, 'LMB rocket at the feet while grounded knocks the shooter back', JSON.stringify(feet));
+  ok(feet.kb[0] && Math.abs(feet.kb[0].s - 15 * Math.SQRT1_2 * Math.SQRT1_2) < 0.01, `grounded knockback speed 15 × √0.5 × √0.5 = 7.5 (${feet.kb[0]?.s?.toFixed(3)})`);
+  ok(feet.blast === 0, 'a grounded blast never rocket-jumps (no player:blastJump)', JSON.stringify(feet));
+  await waitFor(page, () => window.__game.ctx.player.isGrounded, 'feet blast landing', 30000);
+  await waitSim(0.5);
   // rocket jump: airborne, aim at the feet, RMB air-burst
   await P(() => window.__killAll());
   await clearEv();
+  await P(() => { window.__kb.length = 0; });
   await P(() => window.__heal());
   const hpJump = await P(() => window.__game.ctx.player.hp);
   // 2026-09-09: 이 구간은 원래부터 경합이었다 — 7 m/s 점프의 공중 체류가 GRAVITY 24 에서 0.58 초뿐이라
@@ -492,20 +514,23 @@ try {
   const jump = await P(() => {
     const ws = window.__game.getSystem('weapons'); const s = ws.uniqueShot; const r2 = (v) => [v.x, v.y, v.z].map((n) => +n.toFixed(2));
     ws.onProjectileHit = window.__origPH;
-    return { alt: window.__ev['weapon:altFired'].length, blast: window.__ev['player:blastJump'], hp: window.__game.ctx.player.hp, vy: window.__game.ctx.player.velocity.y, grounded: window.__game.ctx.player.isGrounded, hits: window.__ev['weapon:hit'],
+    return { alt: window.__ev['weapon:altFired'].length, blast: window.__ev['player:blastJump'], kb: window.__kb.slice(), hp: window.__game.ctx.player.hp, vy: window.__game.ctx.player.velocity.y, grounded: window.__game.ctx.player.isGrounded, hits: window.__ev['weapon:hit'],
       dbg: { mode: s.mode, origin: r2(s.origin), dir: r2(s.dir), target: r2(s.target), ph: window.__phLog.slice() } };
   });
   ok(!air.grounded && air.pitch < -0.6, `airborne and looking down before the shot (pitch ${air.pitch?.toFixed(2)})`, JSON.stringify(air));
   ok(jump.alt === 1, 'RMB rocket → weapon:altFired');
   ok(!jump.grounded, 'still airborne when the rocket went off (the condition the super jump needs)', JSON.stringify({ vy: jump.vy, grounded: jump.grounded }));
-  ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 17, 'player:blastJump with BAZOOKA_SUPER_JUMP 17 (2026-09-15 rollback)', JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
-  // 2026-09-14: horizontal boost = BAZOOKA_JUMP_FORWARD 8 × min(1, speed / PLAYER_WALK_SPEED 4.2) — this jump is straight up
+  // 2026-09-15 (사용자 결정): 로켓 점프 임펄스도 거리 ×0.5 → 속도 ×√0.5 (BAZOOKA_SUPER_JUMP 17 → 12.02)
+  ok(jump.blast.length === 1 && Math.abs(jump.blast[0].impulse[1] - 17 * Math.SQRT1_2) < 0.01, `player:blastJump with BAZOOKA_SUPER_JUMP 17 × √0.5 (${jump.blast[0]?.impulse?.[1]?.toFixed(3)})`, JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
+  ok(jump.kb.length === 1 && !jump.kb[0].grounded && Math.abs(jump.kb[0].s - 15 * Math.SQRT1_2) < 0.01, `airborne knockback speed 15 × √0.5 (${jump.kb[0]?.s?.toFixed(3)})`, JSON.stringify(jump.kb));
+  // 2026-09-14: horizontal boost = BAZOOKA_JUMP_FORWARD 8 × √0.5 × min(1, speed / PLAYER_WALK_SPEED 4.2) — this jump is straight up
   const boostH = jump.blast[0] ? Math.hypot(jump.blast[0].impulse[0], jump.blast[0].impulse[2]) : -1;
-  ok(boostH >= 0 && boostH <= 8 * Math.min(1, air.hs / 4.2) + 0.05, `no horizontal boost for a (nearly) standing jump (${boostH.toFixed(2)}, speed ${air.hs.toFixed(2)})`);
+  ok(boostH >= 0 && boostH <= 8 * Math.SQRT1_2 * Math.min(1, air.hs / 4.2) + 0.05, `no horizontal boost for a (nearly) standing jump (${boostH.toFixed(2)}, speed ${air.hs.toFixed(2)})`);
   ok(jump.hp === hpJump, `no self damage from the own blast (2026-09-14, hp ${hpJump} → ${jump.hp})`);
   ok(jump.vy > air.vy + 5, `velocity.y raised by the blast (${air.vy.toFixed(1)} → ${jump.vy.toFixed(1)})`);
   await P(() => { window.__game.ctx.timeScale = 1; });
   await waitFor(page, () => window.__game.ctx.player.isGrounded, 'rocket jump landing', 60000);
+  await P(() => { const p = window.__game.ctx.player; if (window.__origKB) { delete p.applyKnockback; window.__origKB = null; } });
   // 2026-09-14: an impulse's horizontal momentum survives air control until landing (`PlayerController.airCarry`) — with no
   // input the old AIR_ACCEL 7 pulled 10 m/s down to ~9 in 0.15 s; now it stays
   await waitSim(0.5);

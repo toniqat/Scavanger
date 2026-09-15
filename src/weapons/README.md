@@ -100,7 +100,7 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 | `Shockgun` (`u_shock`) | Arcs to nearest enemies in cone + `shocked`; in training also hits destructible targets; empty cone draws fizzle forks | Hold to charge, release = bolt | `weapon:chargeChanged {kind:'charge'}` |
 | `Shuriken` (`u_shuriken`) | One star projectile | Three-star fan | Melee key hold ≥ `SLASH_HOLD_TIME` = heavy slash (`startMelee('heavy')`, `player:slashed`) |
 | `Bow` (`u_bow`) | Hold = draw, release = arrow; draw → speed / drop / damage via `bowBallistics` | Cancel draw | `autoFeed`: magazine 1 refilled from carried arrows, never reloads; `weapon:chargeChanged {kind:'draw'}` |
-| `Bazooka` (`u_bazooka`) | Impact rocket (explosion + destructible cover) | Air-burst rocket | No self damage: knockback; airborne with the blast below = rocket jump (`BAZOOKA_SUPER_JUMP` + `BAZOOKA_JUMP_FORWARD`, `player:blastJump`) |
+| `Bazooka` (`u_bazooka`) | Impact rocket (explosion + destructible cover) | Air-burst rocket | No self damage: knockback; airborne (read before the knockback) with the blast below = rocket jump (`BAZOOKA_SUPER_JUMP` + `BAZOOKA_JUMP_FORWARD`, `player:blastJump`). Throw distance ×`BAZOOKA_KNOCKBACK_DIST_MUL`, knockback ×`BAZOOKA_GROUNDED_DIST_MUL` again when grounded (√ on speeds); a grounded blast never rocket-jumps |
 | `Minigun` (`u_minigun`) | Spin up, then regular `fire()` | Hold spin without firing | `setSpeedModifier('minigun', …)` while spinning |
 
 ## Public API
@@ -139,8 +139,8 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-15 — Hammerhead throw distance ×0.5 (×0.25 grounded); grounded blasts no longer rocket-jump.
 - 2026-09-15 — Gadget hold time from `gadgetUseTime`; defibrillator aim-and-release (`parts/Defib.ts`); grenades detected by `ItemDef.grenade` (`quickKindOf`).
 - 2026-09-15 — Grenade radius / damage / player share moved to csv; explosion falloff via `shared/explosion`.
 - 2026-09-15 — Bow held horizontally and never reloads (`autoFeed`); flamethrower cone bloom and breathing.
 - 2026-09-15 — Uniques excluded from class mastery and class kills; rocket jump vertical impulse lowered; throw arc drawn as a tapering red ribbon.
-- 2026-09-14 — Every gun round is a swept projectile; per-class bloom; laser sight follows the shot line; bazooka / bow / shockgun rework.

@@ -44,7 +44,8 @@ interface Sector { arc: SVGPathElement; root: HTMLElement; nm: HTMLElement }
  * 장착 무기를 휠클릭해도 같은 문구(`탄약 필요: <탄종>`)가 나가므로 제스처가 겹쳤다 — 이제 아래로 드래그하면
  * 그냥 평범한 핑이 찍힌다. 휠은 좌/우 두 칸뿐이다 (`.ammo-leg` 의 CSS 도 `styles/wheels.css` 에서 지웠다).
  *
- * 휠은 `pointer-events:none` 오버레이이고 blocker · ESC 스택 · 포인터 락 어디에도 손대지 않는다.
+ * 휠은 `pointer-events:none` 오버레이이고 blocker · ESC 스택 · 포인터 락 어디에도 손대지 않는다. 홀드 중
+ * 카메라를 묶는 것(2026-09-15, `setLookLocked`)도 이 위젯이 아니라 제스처를 가진 `hud/Pings` 의 일이다.
  */
 export class PingWheel {
   readonly root: HTMLElement;
