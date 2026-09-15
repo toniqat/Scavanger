@@ -16,7 +16,6 @@ WEAPON_BLOOM_DECAY_DEFAULT,2.6,"연사 퍼짐: bloom 이 초당 식는 양 — �
 SEED_STACK_MAX,5,씨앗 한 칸에 겹치는 최대 수
 GROW_SLOTS_PER_TIER,3,"재배 스테이션 재배층 한 층의 칸 수 (2026-09-13: 세 층 모두 Lv.1 부터 열려 있다 — 레벨은 층이 아니라 성장 속도를 올린다)"
 GROW_STATION_SPEED_PER_LEVEL,0.15,"재배 스테이션 레벨 1단계마다 오르는 성장 속도 (2026-09-13 사용자 결정). 성장 시간 ÷ (1 + 이 값 × (레벨 − 1)) — Lv.2 +15 % · Lv.3 +30 %. 강화하는 순간 자라던 작물의 남은 시간도 그 비율로 줄어든다."
-SEED_WEIGHT,0.05,씨앗 1개 무게(kg)
 BOOK_WEIGHT,0.6,서적 1권 무게(kg)
 DISC_WEIGHT,0.4,"서재 디스크 1장 무게(kg) — 케이스에 든 광디스크라 책보다 가볍다 (2026-09-12 A-3e)"
 RECORD_WEIGHT,0.9,"서재 레코드 1장 무게(kg) — 두꺼운 슬리브에 든 LP 라 3×3 칸만큼 무겁다 (2026-09-12 A-3e)"
@@ -91,7 +90,8 @@ IMPLANT_REPAIR_FEE,150,세레스 바이오 임플란트 수리 기본 수수료 
 ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,1,"증축에 필요한 발전기 레벨의 기본값 — room_purposes.csv 의 generator 칸이 빈 용도에만 쓰인다 (2026-09-13 부터 용도마다 따로 적는다)."
 
 # housing — 연구실 분석기 (2026-09-11)
-ANALYZER_SLOTS_PER_LEVEL,1,"분석기 레벨 한 단계가 여는 해석 칸 수. Lv.1 = 1칸 … Lv.3 = 3칸 (재배 스테이션이 층을 여는 것과 같은 모양)."
+ANALYZER_SLOTS_BASE,1,"분석기가 레벨과 무관하게 갖는 해석 칸 수 (2026-09-15 2차 사용자 결정). 칸 수 = BASE + 레벨 × PER_LEVEL 이라 Lv.1 = 2 · Lv.2 = 3 · Lv.3 = 4 칸이다 — 옛 식(레벨 × PER_LEVEL)으로는 2/3/4 를 만들 수 없었다."
+ANALYZER_SLOTS_PER_LEVEL,1,"분석기 레벨 한 단계가 **더** 여는 해석 칸 수. ANALYZER_SLOTS_BASE 와 함께 Lv.1 = 2칸 … Lv.3 = 4칸 (재배 스테이션이 층을 여는 것과 같은 모양)."
 
 # housing — 온실 배양조 (2026-09-11, A-14)
 CULTURE_SLOTS_PER_LEVEL,1,"배양조 레벨 한 단계가 여는 배양 칸 수. Lv.1 = 1칸 … Lv.3 = 3칸 (분석기 · 재배 스테이션과 같은 모양)."

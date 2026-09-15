@@ -26,6 +26,13 @@ const BOW_FOLLOW_LAMBDA = 30;
 const BOW_RETURN_LAMBDA = 12;
 /** Smoothed draw above this (with the live `t` at 1) lights the full-draw glow. */
 const BOW_FULL_EPS = 0.985;
+/**
+ * 제세동기 모드 (2026-09-15): 작은 원이 충전 0 에서 갖는 배율 — 1 이면 큰 원과 정확히 겹친다 (CSS 가 둘의
+ * 실제 지름을 같게 그린다). transform 배율이라 테두리도 함께 두꺼워진다 = 「원의 두께가 굵어진다」.
+ */
+const DEFIB_MIN_SCALE = 0.25;
+/** 충전 게이지를 따라가는 감쇠율 (활 시위와 같은 방식, 30 Hz 로 오는 값을 매끄럽게 잇는다). */
+const DEFIB_LAMBDA = 26;
 
 /**
  * Minimal 4-tick crosshair. Gap depends on stance / aim / sprint / movement, blooms on fire,
@@ -62,6 +69,13 @@ const BOW_FULL_EPS = 0.985;
  * `t = 1`(완전히 당김 = 화살이 크로스헤어대로 날아간다)에서 정확히 **점 위**에 닿아 밝게 빛난다(`.full`). `t = −1`
  * (놓기 · 취소)이면 아래 단으로 부드럽게 돌아간다. 활인지는 `weapon:equipped` 의 `ctx.loot.getWeaponDef(id).unique` 와,
  * 놓친 장착 이벤트에 대비해 `draw` 이벤트 자체로 판단한다. 소모품 모드가 이긴다(`quick:equipped {item}` 동안 꺼진다).
+ *
+ * **제세동기 모드 (2026-09-15, 사용자 결정):** 손에 든 소모품이 제세동기(`ItemDef.gadgetId === 'defib'`)면 네 틱 대신
+ * 두 개의 원이 선다(`.reticle.defibmode`) — 가운데 **작은 하얀 원**(`.rdf-inner`)과 **큰 반투명 원**(`.rdf-outer`).
+ * 좌클릭을 꾹 누르면 작은 원이 서서히 커지면서 큰 원에 겹치고 테두리가 굵어진다(= 준비 완료), 그 상태에서 쓰러진
+ * 아군을 크로스헤어에 올리면 두 원이 **강조색(주황)** 으로 바뀐다 — 그때 떼면 일으킨다. 판정은 UI 가 흉내내지
+ * 않는다: weapons/ 의 `parts/Defib` 이 보내는 **`gadget:defibAim {armed, charge, target}`** 하나가 유일한 근거다.
+ * 모드 자체는 손에 든 것(`quick:equipped`)이 정하므로 이벤트가 한 번도 안 와도 원은 서 있다.
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -107,6 +121,17 @@ export class Reticle {
   /** Smoothed draw actually drawn (0 = lower tier, 1 = centre). */
   private bowShown = 0;
   private lastBowY = -1;
+  /** 제세동기 모드 (2026-09-15): 손에 든 것이 제세동기다 (`quick:equipped` 의 def 로 판단). */
+  private defibHand = false;
+  private defibOn = false;
+  /** weapons/ 가 보낸 마지막 상태 (`gadget:defibAim`). */
+  private defibCharge = 0;
+  private defibArmed = false;
+  private defibTarget = false;
+  /** 실제로 그려지는(감쇠된) 충전 0..1. */
+  private defibShown = 0;
+  private lastDefibScale = -1;
+  private innerEl: HTMLElement;
   private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
 
@@ -138,8 +163,12 @@ export class Reticle {
       tier.style.transform = `translate(0, ${y}px)`;
     }
     this.bowDrawEl = el('div', { cls: 'rbow-draw', parent: this.root });
+    // 제세동기 모드: 큰 반투명 원 + 그 안에서 자라는 작은 하얀 원 (CSS `.reticle.defibmode` 에서만 보인다).
+    el('div', { cls: 'rdf-outer', parent: this.root });
+    this.innerEl = el('div', { cls: 'rdf-inner', parent: this.root });
     this.apply(14);
     this.applyBow();
+    this.applyDefib();
   }
 
   bind(ctx: GameContext): void {
@@ -205,10 +234,17 @@ export class Reticle {
         else this.resetBowDraw();
         this.syncBow();
       }),
-      b.on('player:died', () => this.resetBowDraw()),
-      b.on('player:downed', () => this.resetBowDraw()),
-      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.clearBow(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
-      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.clearBow(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
+      // ── 제세동기 모드 (2026-09-15) ──
+      b.on('gadget:defibAim', ({ armed, charge, target }) => {
+        this.defibArmed = armed;
+        this.defibCharge = armed ? 1 : Math.max(0, Math.min(1, charge));
+        this.defibTarget = target;
+        this.applyDefib();
+      }),
+      b.on('player:died', () => { this.resetBowDraw(); this.resetDefib(); }),
+      b.on('player:downed', () => { this.resetBowDraw(); this.resetDefib(); }),
+      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.clearBow(); this.resetDefib(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
+      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.clearBow(); this.resetDefib(); this.setQuick(null); toggleClass(this.root, 'blocked', false); }),
     );
   }
 
@@ -292,8 +328,47 @@ export class Reticle {
     toggleClass(this.root, 'consumable', !!item);
     if (item) { this.quickDirty = true; this.syncQuick(); }
     else if (this.lastQuickText !== '') { this.lastQuickText = ''; setText(this.qinfo, ''); }
+    // 제세동기를 들면 크로스헤어가 통째로 바뀐다 — 손에 든 것이 모드를 정하고, `gadget:defibAim` 은 그 안의 상태만 움직인다.
+    const inv = this.ctx?.inventory;
+    const def = item ? (inv?.getDef(item.defId) ?? this.ctx?.loot?.getItemDef(item.defId)) : null;
+    const hand = def?.gadgetId === 'defib';
+    if (hand !== this.defibHand) { this.defibHand = hand; this.resetDefib(); }
+    this.syncDefib();
     this.syncBow();
   }
+
+  /** 홀드가 끝났다 / 손을 바꿨다 / 죽었다: 게이지를 0 으로 (모드 자체는 손에 든 것이 정한다). */
+  private resetDefib(): void {
+    this.defibCharge = 0; this.defibArmed = false; this.defibTarget = false; this.defibShown = 0;
+    this.applyDefib();
+  }
+
+  /** Enter / leave 제세동기 모드 — 손에 제세동기가 있을 때만. */
+  private syncDefib(): void {
+    if (this.defibHand === this.defibOn) return;
+    this.defibOn = this.defibHand;
+    toggleClass(this.root, 'defibmode', this.defibOn);
+    this.lastDefibScale = -1;
+    this.applyDefib();
+  }
+
+  /** 작은 원의 배율 · 상태 클래스 — 바뀔 때만 쓴다. */
+  private applyDefib(): void {
+    const scale = DEFIB_MIN_SCALE + (1 - DEFIB_MIN_SCALE) * this.defibShown;
+    if (Math.abs(scale - this.lastDefibScale) >= 0.004) {
+      this.lastDefibScale = scale;
+      this.innerEl.style.transform = `scale(${scale.toFixed(3)})`;
+    }
+    toggleClass(this.root, 'defib-armed', this.defibArmed);
+    toggleClass(this.root, 'defib-target', this.defibArmed && this.defibTarget);
+  }
+
+  /** 2026-09-15: 제세동기 크로스헤어가 떠 있다 (debug / smoke). */
+  get defibMode(): boolean { return this.defibOn; }
+  /** 그려지고 있는 충전 0..1 (debug / smoke). */
+  get defibGauge(): number { return this.defibShown; }
+  /** 지금 떼면 일으킬 대상이 걸려 강조색이 들어와 있다 (debug / smoke). */
+  get defibOnTarget(): boolean { return this.root.classList.contains('defib-target'); }
 
   /** Re-read the live instance and rewrite the readout (only when an event marked it dirty). */
   private syncQuick(): void {
@@ -372,6 +447,12 @@ export class Reticle {
         if (Math.abs(this.bowShown - target) < 0.002) this.bowShown = target;
       }
       this.applyBow();
+    }
+    // 제세동기: 30 Hz 로 오는 충전값을 프레임마다 이어 그린다 (활 시위와 같은 방식).
+    if (this.defibOn && this.defibShown !== this.defibCharge) {
+      this.defibShown = damp(this.defibShown, this.defibCharge, DEFIB_LAMBDA, dt);
+      if (Math.abs(this.defibShown - this.defibCharge) < 0.002) this.defibShown = this.defibCharge;
+      this.applyDefib();
     }
 
     const scoped = this.scope && this.aiming;

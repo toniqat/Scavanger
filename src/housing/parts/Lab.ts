@@ -2,7 +2,8 @@
  * src/housing/parts/Lab.ts — **연구실 분석기** (A-12, 2026-09-11 · 결과표 개편 2026-09-13).
  *
  * 「표본을 넣으면 현실 시간만큼 해석되고, 회수하면 산출물 하나와 그 계열의 분석 경험치를 받는다.」
- * 해석 칸은 가구 레벨이 연다 (`analyzerSlotsForLevel`, Lv.1 = 1칸 … Lv.3 = 3칸) 이고 **칸 번호는 강화해도
+ * 해석 칸은 가구 레벨이 연다 (`analyzerSlotsForLevel` = `ANALYZER_SLOTS_BASE + 레벨 × PER_LEVEL` — 2026-09-15 2차
+ * 사용자 결정으로 **Lv.1 = 2칸 · Lv.2 = 3칸 · Lv.3 = 4칸**) 이고 **칸 번호는 강화해도
  * 밀리지 않는다** — 돌아가던 해석이 다른 칸으로 옮겨 가면 안 된다.
  *
  * **2026-09-13 (요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: 표본은 **계열**(`SampleDef.family` — 세포 · 광물 · DNA)로
@@ -393,4 +394,30 @@ export function openAnalyzer(sys: HousingSystem, uid: string): void {
   sys.exitHousingMode();
   sys.closeMenus(false);
   sys.analyzerPanel.openAnalyzer(uid);
+}
+
+/* ── 개발용 (2026-09-15 2차 — 콘솔 `analyze ff <시간>` · `analyze done [uid|all]`) ───────────────────────────── */
+/**
+ * 배치된 분석기(`uid` 생략 = 전부)의 해석 시계를 `hours` 만큼 **앞당기고** 이번에 끝난 칸 수를 돌려준다.
+ * `parts/Mining.devAdvanceMining` 과 같은 결이다 — 시각만 옮기고 **회수는 하지 않는다**(회수는 사람이 화면에서
+ * 하거나 콘솔이 `collectAllAnalyses` 로 한다). `startedAt` 도 같이 당겨 진행 막대가 100 % 를 넘지 않게 한다.
+ * `hours` 가 0 이하 · 유한하지 않으면 아무것도 하지 않는다 (0 을 돌려준다).
+ */
+export function devAdvanceAnalysis(sys: HousingSystem, hours: number, uid?: string): number {
+  const ms = Number(hours) * 3_600_000;
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  const touched = new Set<string>();
+  let finished = 0;
+  for (const a of sys.analyses()) {
+    if (uid !== undefined && a.uid !== uid) continue;
+    if (!sys.analyzerOf(a.uid)) continue;                    // 놓여 있지 않은 분석기의 칸은 건드리지 않는다
+    const now = sys.stationNow(a.uid);
+    const wasReady = now >= a.readyAt;
+    a.startedAt -= ms;
+    a.readyAt -= ms;
+    if (!wasReady && now >= a.readyAt) finished++;
+    touched.add(a.uid);
+  }
+  for (const u of touched) sys.analysisChanged(u, 'analysisCheat');
+  return finished;
 }

@@ -18,6 +18,14 @@ import './cook.css';
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
 /** 선택한 요리의 칩 크기 (px, 레이아웃 값). */
 const SEL_CHIP = 52;
+/**
+ * 왼쪽 목록의 가로 칸 수 (2026-09-15 3차, 사용자 결정 「가로 최대 4칸」) — 작업대 제작 창의 `CRAFT_LIST_COLS` 와 같은 값이다.
+ * 그 상수는 `inventory/ui/CraftPanel` 에 있고 폴더 간 import 이 금지라 여기서 다시 적는다 (밸런스가 아니라 **레이아웃** 값이다).
+ * CSS 는 `--cook-cols` 로 받는다.
+ */
+const COOK_LIST_COLS = 4;
+/** 목록 칸의 썸네일 한 변 (px, 레이아웃 값). */
+const CELL_THUMB = 48;
 
 interface RecipeRow {
   r: CraftRecipe;
@@ -48,11 +56,27 @@ function effectValueText(buff: MealBuff, amount: number): string {
 /**
  * **조리대 화면** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — `openCookStation(uid)` ← E on a 조리대 · 자동 조리 가구).
  *
- * 틀은 `StationShell` 공통이다: [조리대 카드(우상단 업그레이드 = 조리대 강화)] [함선 창고] [가방].
- *   • 레일 = 요리 목록, 티어 이름(`MEAL_TIER_LABEL_KO`) 아래로 묶는다. 지금 만들 수 있으면 초록 점, 조리대 레벨이 모자라면 `Lv.n` 딤드.
- *   • 좌 패널 = 고른 요리: 칩 + 티어 · 조리대 레벨 · 단계 수, 능력치 줄(☆ 기준 → ★★★★★ 보너스 반영 범위), 재료 비용 칩(보유/필요),
- *     **단계 칩 줄**(`① ⫽ 썰기 → ② ◎ 젓기`, 자동 가구가 있으면 칩 아래 `푸드 프로세서 Lv.2 · 자동 60 %`), `조리 시작`
+ * 틀은 `StationShell` 공통이다: [조리대 카드(우상단 업그레이드 = 조리대 강화)] [창고 · 가방].
+ *
+ * **2026-09-15 3차 (사용자 결정 — 「모든 제작 관련 UI」를 한 모양으로)**: 작업대 제작 창(`inventory/ui/CraftPanel`)과
+ * **같은 배치**가 됐다 — 조리대 카드 안이 **왼쪽 = 산출물 썸네일만의 격자**(`.cook-list`, 가로 `COOK_LIST_COLS` 칸) ·
+ * **오른쪽 = 고른 요리의 상세**(`.cook-detail`)다. 옛 세로 레일(`.hs-rail.cook-rail`)은 걷어냈다.
+ *   • 목록 칸(`.cook-cell[data-recipe]`)은 산출물 썸네일 하나 + 티어 배지이고, **지금 만들 수 있는 것이 앞으로**
+ *     온다(안정 정렬 — csv 순서는 그 안에서 그대로). 재료 · 숙련 · 책 · 조리대 레벨이 바뀌면 다시 정렬한다.
+ *   • **2026-09-15 (B-15) 숙련 잠김 표시는 그대로 살아 있다** — 숙련 · 책 · 조리대 레벨이 모자란 요리도 목록에
+ *     **딤드(`.is-bench-locked`) + 배지**로 남고(`.cook-cell-locks`), 고르면 상세까지 다 보이며 **시작만** 막힌다.
+ *   • 상세 = 썸네일 + 이름 · 종류(티어 · 조리대 Lv · 숙련 · 단계 수) → **설명** → **보유 수** → 능력치 줄
+ *     (☆ 기준 → ★★★★★ 보너스 반영) → **재료 썸네일**(글자 줄 없음 — 모자란 것은 칩이 빨갛게 말한다) →
+ *     단계 칩 줄(`① ⫽ 썰기 → ② ◎ 젓기`, 자동 가구가 있으면 칩 아래 `푸드 프로세서 Lv.2 · 자동 60 %`) → `조리 시작`
  *     (막히면 딤드 + 사유 줄 · 누르면 거절음 + 토스트).
+ *   ⚠ **수량 스테퍼는 없다** — 요리는 미니게임 한 판에 하나다. 홀드 버튼도 없다: 재료는 조리가 **끝날 때** 빠지므로
+ *     「되돌릴 수 없는 확정」이 아니고, 중간에 그만두면 아무것도 쓰지 않는다.
+ *   ⚠ `inventory/ui/CraftPanel.CraftDetail` 을 **그대로 쓰지 않았다** — 그 클래스는 `InventorySystem`(구체 클래스)을
+ *     생성자로 받고 `craftCost` · `maxCraftCount` · `craftProgress` 같은 인벤토리 내부 API 를 부른다. housing 이
+ *     가진 것은 `ctx.inventory: InventoryRef` 뿐이고, 폴더 내부를 import 하는 것은 CLAUDE.md 가 금지한다
+ *     (「다른 기능 폴더의 내부를 import 하지 않는다 — `@/shared` 만」). 그래서 **배치와 결만 맞추고** 조리대는
+ *     자기 구현으로 간다 — 조리대의 버튼은 제작이 아니라 `startCook`(미니게임 시작)이라 동작도 다르다.
+ *
  * 창고 / 가방 격자는 보기 · 정리용이다 — 재료는 조리가 **끝날 때** 가방 → 창고 순서로 inventory 가 뺀다.
  * 규칙은 하나도 여기 없다 — 사유는 `HousingRef.cookBlock` · `startCook` 이 준다.
  */
@@ -65,10 +89,17 @@ export class CookStation extends HousingPanel {
   private readonly shell: StationShell;
   private readonly modal: UpgradeModal;
   private grids: EmbeddedView | null = null;
+  /** 마지막으로 DOM 에 반영한 목록 구성 — 같으면 칸을 다시 만들지 않는다. */
   private railKey = '';
+  /** 왼쪽 산출물 썸네일 격자 (2026-09-15 3차). */
+  private readonly listEl: HTMLElement;
   private readonly selChip: HTMLElement;
   private readonly selName: HTMLElement;
   private readonly selSub: HTMLElement;
+  /** 산출물 설명 한 문단 (2026-09-15 3차). */
+  private readonly selDesc: HTMLElement;
+  /** 지금 가진 개수 (2026-09-15 3차). */
+  private readonly selOwned: HTMLElement;
   private readonly selEffects: HTMLElement;
   private readonly selCost: HTMLElement;
   private readonly selSteps: HTMLElement;
@@ -84,20 +115,28 @@ export class CookStation extends HousingPanel {
       onUpgrade: () => this.openUpgrade(),
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
-    this.shell.rail.hidden = false;
-    this.shell.rail.classList.add('cook-rail');
-    this.shell.rail.addEventListener('click', (e) => this.onRailClick(e));
+    // 2026-09-15 3차 (사용자 결정): 세로 레일 대신 **왼쪽 썸네일 격자 + 오른쪽 상세** (작업대 제작 창과 같은 배치)
+    this.shell.rail.hidden = true;
 
-    const left = this.shell.left;
+    const split = el('div', { cls: 'cook-split', parent: this.shell.left });
+    this.listEl = el('div', { cls: 'cook-list', parent: split });
+    this.listEl.style.setProperty('--cook-cols', String(COOK_LIST_COLS));
+    this.listEl.addEventListener('click', (e) => this.onListClick(e));
+    const left = el('div', { cls: 'cook-detail', parent: split });
+
     const head = el('div', { cls: 'cook-sel-head', parent: left });
     this.selChip = el('div', { cls: 'cook-sel-chip', parent: head });
     const ht = el('div', { cls: 'cook-sel-title', parent: head });
     this.selName = el('div', { cls: 'cook-sel-name', parent: ht });
     this.selSub = el('div', { cls: 'cook-sel-sub', parent: ht });
+    this.selDesc = el('div', { cls: 'cook-sel-desc', parent: left });
+    this.selOwned = el('div', { cls: 'cook-sel-owned', parent: left });
     el('div', { cls: 'ui-label', text: '능력치 · 요리 품질', parent: left });
     this.selEffects = el('div', { cls: 'cook-sel-effects', parent: left });
     el('div', { cls: 'ui-label', text: '재료', parent: left });
     this.selCost = el('div', { cls: 'cook-sel-cost', parent: left });
+    // 2026-09-14 (사용자 결정): 필요 아이템 칩의 호버 카드는 커서 **좌상단**이다 (`ui/hud/ItemTip` 이 `closest` 로 읽는다)
+    this.selCost.dataset.tipAnchor = 'left';
     el('div', { cls: 'ui-label', text: '조리 순서', parent: left });
     this.selSteps = el('div', { cls: 'cook-sel-steps', parent: left });
     const start = el('div', { cls: 'cook-sel-start', parent: left });
@@ -150,8 +189,8 @@ export class CookStation extends HousingPanel {
     if (this.isOpen) this.refresh();
   }
 
-  private onRailClick(e: MouseEvent): void {
-    const id = (e.target as Element | null)?.closest<HTMLElement>('.cook-rail-item[data-recipe]')?.dataset.recipe;
+  private onListClick(e: MouseEvent): void {
+    const id = (e.target as Element | null)?.closest<HTMLElement>('.cook-cell[data-recipe]')?.dataset.recipe;
     if (!id || id === this.selectedRecipeId) return;
     e.stopPropagation();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -218,7 +257,8 @@ export class CookStation extends HousingPanel {
       skill: cookRecipeSkillBlock(h, r),
       tier: h.mealDef(r.outputDefId)?.meal?.tier ?? 0,
     })).map((x, i) => ({ x, i }))
-      .sort((a, b) => a.x.tier - b.x.tier || rowRank(a.x) - rowRank(b.x) || a.i - b.i)
+      // 2026-09-15 3차 (사용자 결정): **지금 만들 수 있는 것이 앞으로** — 그 안에서 티어 순, 그 안에서 csv 순 (안정 정렬)
+      .sort((a, b) => rowRank(a.x) - rowRank(b.x) || a.x.tier - b.x.tier || a.i - b.i)
       .map(({ x }) => x);
     if (!this.selectedRecipeId || !rows.some((x) => x.r.id === this.selectedRecipeId)) {
       this.selectedRecipeId = (rows.find((x) => !x.block) ?? rows.find((x) => rowRank(x) < 2) ?? rows[0])?.r.id ?? null;
@@ -226,46 +266,58 @@ export class CookStation extends HousingPanel {
     const ready = rows.filter((x) => !x.block).length;
     paintStationMeta(this.shell, rows.length ? `지금 만들 수 있는 요리 ${ready}` : '');
     const key = `${rows.map((x) => `${x.r.id}:${x.locked ? 1 : 0}:${x.book ? 1 : 0}:${x.skill ? 1 : 0}:${x.block ? 0 : 1}`).join('|')}#${this.selectedRecipeId}`;
-    if (key !== this.railKey) { this.railKey = key; this.buildRail(rows); }
+    if (key !== this.railKey) { this.railKey = key; this.buildList(rows); }
     this.paintSelection(rows.find((x) => x.r.id === this.selectedRecipeId) ?? null);
     this.modal.refresh();
   }
 
-  private buildRail(rows: readonly RecipeRow[]): void {
-    const rail = this.shell.rail;
-    clear(rail);
-    if (!rows.length) { el('div', { cls: 'hs-empty', text: '요리가 없습니다', parent: rail }); return; }
-    const tiers = [...new Set(rows.map((x) => x.tier))].sort((a, b) => a - b);
-    for (const tier of tiers) {
-      el('div', { cls: 'cook-rail-tier', text: MEAL_TIER_LABEL_KO[tier as 1 | 2 | 3 | 4] ?? `티어 ${tier}`, parent: rail });
-      for (const x of rows) {
-        if (x.tier !== tier) continue;
-        const btn = el('button', {
-          cls: `hs-rail-item cook-rail-item${x.r.id === this.selectedRecipeId ? ' is-active' : ''}${x.locked || x.book || x.skill ? ' is-locked' : ''}${x.book ? ' is-book' : ''}${x.skill ? ' is-skill' : ''}`,
-          attrs: { 'data-recipe': x.r.id },
-          parent: rail,
-        });
-        btn.type = 'button';
-        el('i', { cls: `cook-rail-dot${x.block ? '' : ' on'}`, parent: btn });
-        el('span', { cls: 'hs-rail-name', text: this.housing.nameOf(x.r.outputDefId), parent: btn });
-        if (x.book) {                                          // 2026-09-13 (H3): 레시피 책 잠김 — 그대로
-          btn.title = x.book;
-          el('span', { cls: 'cook-rail-lv cook-rail-book', text: '책', parent: btn });
-        } else if (x.locked || x.skill) {
-          // 2026-09-15 (B-15): 조리대 레벨 · 숙련 — 모자란 것마다 배지 하나 (둘 다면 둘), 호버 = 무엇이 모자란지
-          const locks = el('span', { cls: 'cook-rail-locks', parent: btn });
-          const why: string[] = [];
-          if (x.locked) {
-            el('span', { cls: 'cook-rail-lv', text: `Lv.${x.r.benchLevel ?? 1}`, parent: locks });
-            why.push(`조리대 Lv.${x.r.benchLevel ?? 1} 필요`);
-          }
-          if (x.skill) {
-            el('span', { cls: 'cook-rail-lv cook-rail-skill', text: `${x.skill.label} ${x.skill.need}`, parent: locks });
-            why.push(`${x.skill.label} 숙련 ${x.skill.need} 필요 (지금 ${x.skill.have})`);
-          }
-          btn.title = why.join(' · ');
+  /**
+   * 왼쪽 목록 = **산출물 썸네일만의 격자** (2026-09-15 3차, 사용자 결정 — 작업대 제작 창의 `.inv-craft-list` 와 같은 결).
+   * 칸은 `.cook-cell[data-recipe]` 이고 옛 이름 `.cook-rail-item` 도 함께 단다 (스모크 · 옛 선택자).
+   * 딤드는 두 갈래다 — 지금 재료 · 자리가 모자라면 `.is-locked`, 조리대 레벨 · 숙련 · 책이 모자라면 `.is-bench-locked`
+   * (2026-09-15 B-15 그대로: **목록에서 사라지지 않고** 배지로 무엇이 모자란지 말한다).
+   */
+  private buildList(rows: readonly RecipeRow[]): void {
+    const list = this.listEl;
+    clear(list);
+    if (!rows.length) { el('div', { cls: 'hs-empty cook-list-empty', text: '만들 수 있는 요리가 없습니다.', parent: list }); return; }
+    const inv = this.ctx.inventory;
+    for (const x of rows) {
+      const gated = !!(x.locked || x.book || x.skill);
+      const cell = el('button', {
+        // `is-book` · `is-skill` 은 **B-15 의 잠김 갈래를 구분하는 표시**다 (옛 레일과 같은 이름 — 스모크도 이것으로 읽는다)
+        cls: `cook-cell cook-rail-item${x.r.id === this.selectedRecipeId ? ' is-on is-active' : ''}`
+          + `${gated ? ' is-bench-locked is-locked' : x.block ? ' is-locked' : ''}${x.book ? ' is-book' : ''}${x.skill ? ' is-skill' : ''}`,
+        attrs: { 'data-recipe': x.r.id },
+        parent: list,
+      });
+      cell.type = 'button';
+      const def = this.housing.defOf(x.r.outputDefId);
+      const name = this.housing.nameOf(x.r.outputDefId);
+      // 썸네일은 인벤토리 타일(계약 `buildItemTile`), 없으면 공용 아이템 칩
+      const thumb = el('div', { cls: 'cook-cell-thumb', parent: cell });
+      if (inv && typeof inv.buildItemTile === 'function') thumb.appendChild(inv.buildItemTile(x.r.outputDefId, x.r.outputQty, { cell: CELL_THUMB }));
+      else thumb.appendChild(buildItemChip(def, { size: CELL_THUMB }));
+      if (x.tier > 0) el('span', { cls: 'cook-cell-tier', text: `T${x.tier}`, parent: cell });
+      // 지금 만들 수 있으면 초록 점 (옛 레일의 표시 그대로)
+      el('i', { cls: `cook-rail-dot cook-cell-dot${x.block ? '' : ' on'}`, parent: cell });
+      const why: string[] = [];
+      if (x.book) why.push(x.book);
+      if (x.locked || x.skill) {
+        // 2026-09-15 (B-15): 조리대 레벨 · 숙련 — 모자란 것마다 배지 하나 (둘 다면 둘), 호버 = 무엇이 모자란지
+        const locks = el('span', { cls: 'cook-rail-locks cook-cell-locks', parent: cell });
+        if (x.locked) {
+          el('span', { cls: 'cook-rail-lv', text: `Lv.${x.r.benchLevel ?? 1}`, parent: locks });
+          why.push(`조리대 Lv.${x.r.benchLevel ?? 1} 필요`);
+        }
+        if (x.skill) {
+          el('span', { cls: 'cook-rail-lv cook-rail-skill', text: `${x.skill.label} ${x.skill.need}`, parent: locks });
+          why.push(`${x.skill.label} 숙련 ${x.skill.need} 필요 (지금 ${x.skill.have})`);
         }
       }
+      if (x.book) el('span', { cls: 'cook-rail-lv cook-rail-book cook-cell-book', text: '책', parent: cell });
+      const tierName = MEAL_TIER_LABEL_KO[x.tier as 1 | 2 | 3 | 4] ?? '';
+      cell.title = [name, tierName, ...why].filter(Boolean).join(' · ');
     }
   }
 
@@ -278,6 +330,8 @@ export class CookStation extends HousingPanel {
       this.selChip.appendChild(buildItemChip(undefined, { size: SEL_CHIP }));
       setText(this.selName, '요리를 고르세요');
       setText(this.selSub, '');
+      setText(this.selDesc, '');
+      setText(this.selOwned, '');
       clear(this.selCost);
       this.startBlock = '요리를 고르세요';
       this.paintStart(this.startBlock);
@@ -291,6 +345,13 @@ export class CookStation extends HousingPanel {
     // 2026-09-15 (B-15): 숙련이 모자라면 무엇을 올려야 하는지 부제에도
     const skillNeed = row.skill ? `${row.skill.label} 숙련 ${row.skill.need}` : '';
     setText(this.selSub, [def?.meal ? mealTierText(def.meal) : '', `조리대 Lv.${r.benchLevel ?? 1}`, skillNeed, `미니게임 ${steps.length}단계`].filter(Boolean).join(' · '));
+    // 2026-09-15 3차 (사용자 결정): 설명 · 보유 수 — 작업대 상세 패널과 같은 순서 (썸네일 · 이름 · 종류 → 설명 → 보유 → 재료)
+    const desc = (def ?? h.defOf(r.outputDefId))?.description ?? '';
+    setText(this.selDesc, desc);
+    this.selDesc.hidden = !desc;
+    const owned = h.countDef(r.outputDefId);
+    setText(this.selOwned, `보유 ${owned}`);
+    toggleClass(this.selOwned, 'is-none', owned <= 0);
 
     // 능력치: ☆ 기준값 → ★★★★★ 보너스 반영 (한 줄에 한 능력치)
     const maxBonus = mealQualityBonus(MEAL_QUALITY_MAX);

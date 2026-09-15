@@ -29,11 +29,16 @@ const ACCEPTS_KO: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc
  * - **좌측 레일(`.hs-rail`) = 서재 가구 목록**이다 (작업대 제작 창의 `.inv-craft-benches` 와 같은 결). 맨 위가 **「서재」**,
  *   그 아래로 **함선에 실제로 배치된** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대가 여러 대여도 전부 한 줄씩.
  *   고르면 창을 닫지 않고 그 자리에서 바뀐다.
- * - **「서재」** = 서재 시설 전체의 보너스 요약(`getLibraryEffects()`) — 효과 이름과 값만. 흩어져 있던 보조 가구 줄 ·
- *   시리즈 진척 · 바닥 힌트는 전부 여기로 모으고 선반 페이지에서는 걷어냈다.
+ * - **「서재」** = 서재 시설의 보너스. **2026-09-15 (사용자 결정)**: 좌측 상단 `적용 효과`(`.lib-eff-head`) 라벨과 그 아래
+ *   **가로로 긴 패널**(`.lib-eff-list`) 하나이고, 패널 안은 **배치된 보관함 가구마다 한 칸**(`.lib-effcard` — 글리프 ·
+ *   이름 · `n / N` + 그 가구가 내고 있는 효과 줄)이다. 맨 아래 한 칸이 시설 전체 합산(`getLibraryEffects()`).
+ *   **아무 보관함도 배치돼 있지 않으면** 같은 크기의 패널 가운데에 `아무 것도 배치되어 있지 않습니다.` 한 줄만 선다.
+ *   ⚠ 값을 여기서 **새로 계산하지 않는다** — 시리즈 상태는 `librarySeriesStates()`, 줄 값은 `libraryLineValue`(선반 칸
+ *   정보 줄과 같은 함수), 합산은 `getLibraryEffects()` 다.
  * - **가구를 고르면** 콘텐츠 **상단 가로 탭**(`StationShell.tabsRow`) `[선반] [도감]` 이 보인다 (옛 좌측 레일 탭).
- * - 선반 페이지 = `n / 40권` 한 줄 + 가구 그림(`ui/ShelfDrawing` — 층당 여러 줄) + 칸 정보 한 줄.
+ * - 선반 페이지 = `n / N권` 한 줄 + 가구 그림(`ui/ShelfDrawing`) + 칸 정보 한 줄.
  *   **빈 칸 호버는 아무것도 말하지 않고**, 꽂힌 칸은 `data-item-tip` 으로 `ui/hud/ItemTip` 의 아이템 카드가 뜬다.
+ *   **2026-09-15**: 칸의 **숫자 표기가 없다** — 그림에도(`.lib-num` 삭제) 메시지 줄에도 칸 번호를 적지 않는다.
  *
  * 조작:
  * - **꽂기** = 창고 · 가방 타일을 칸으로 끌어다 놓기 (`mountStationGrids` → `dropOn`). 타일 더블클릭 = 첫 빈 칸.
@@ -93,6 +98,9 @@ export class BookshelfMenu extends HousingPanel {
 
     const pages = el('div', { cls: 'lib-pages', parent: this.shell.left });
     this.libPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'library' }, parent: pages });
+    // 2026-09-15 (사용자 결정): 좌측 상단 `적용 효과` 라벨 + 그 아래 **가로로 긴 패널** 하나. 패널 안은 배치된 보관함
+    // 가구마다 한 칸이고, 아무것도 배치돼 있지 않으면 같은 크기의 패널 가운데에 한 줄만 선다.
+    el('div', { cls: 'lib-eff-head', text: '적용 효과', parent: this.libPage });
     this.libList = el('div', { cls: 'lib-eff-list', parent: this.libPage });
     this.shelfPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'shelf' }, parent: pages });
     this.countEl = el('div', { cls: 'lib-count', text: '', parent: this.shelfPage });
@@ -307,13 +315,13 @@ export class BookshelfMenu extends HousingPanel {
     if (current && this.ctx.phase === 'hub') { this.swap(slot, current, def); return; }
     const reason = h.placeShelfItem(this.uid, slot, def.id);
     if (reason) this.refuse(reason);
-    else this.showMsg(`${slot + 1}번 칸에 ${def.name} 꽂기 완료`, 'success');
+    else this.showMsg(`${def.name} 꽂기 완료`, 'success');
   }
 
   /** Dropped onto an occupied slot: take the old one out (bag first), shelve the new one; roll back when the shelving is refused. */
   private swap(slot: number, currentDefId: string, def: ItemDef): void {
     const h = this.housing;
-    if (currentDefId === def.id) { this.showMsg(`${slot + 1}번 칸에 이미 ${def.name}이(가) 꽂혀 있습니다`, 'info'); return; }
+    if (currentDefId === def.id) { this.showMsg(`이미 ${def.name}이(가) 꽂혀 있습니다`, 'info'); return; }
     // 2026-09-13: 다른 칸에 이미 꽂힌 종류면 빼기 전에 거절한다 (빼고 되돌리는 왕복 없이)
     if (h.isShelvedAnywhere(def.id)) { this.refuse(`이미 꽂혀 있는 ${SHELF_MEDIUM_LABEL_KO[this.medium]}입니다`); return; }
     const out = h.takeShelfItem(this.uid, slot);
@@ -324,7 +332,7 @@ export class BookshelfMenu extends HousingPanel {
       this.refuse(put);
       return;
     }
-    this.showMsg(`${slot + 1}번 칸: ${h.nameOf(currentDefId)} → ${def.name} 교체 완료`, 'success');
+    this.showMsg(`${h.nameOf(currentDefId)} → ${def.name} 교체 완료`, 'success');
   }
 
   private take(slot: number): void {
@@ -332,7 +340,8 @@ export class BookshelfMenu extends HousingPanel {
     const reason = this.housing.takeShelfItem(this.uid, slot);
     if (reason) { this.deny(reason); return; }
     this.setHover(null);
-    this.showMsg(`${slot + 1}번 칸의 ${SHELF_OBJ_KO[this.medium]} 뺐습니다`, 'success');
+    // 2026-09-15: 칸 번호를 더 말하지 않는다 (`n번 칸의 책을 …` → `책을 …`)
+    this.showMsg(`${SHELF_OBJ_KO[this.medium]} 뺐습니다`, 'success');
   }
 
   /** A refusal the player caused by aiming wrong — deny sound + the message line (no toast). */
@@ -367,7 +376,7 @@ export class BookshelfMenu extends HousingPanel {
     // 고른 보관함이 사라졌으면(회수 · 이동) 「서재」 로 떨어진다
     if (this.onHolder && !list.some((p) => p.uid === this.uid)) { this.onHolder = false; this.applyPages(); this.announce(); }
     this.paintRail();
-    if (!this.onHolder) { this.paintLibrary(); setText(this.shell.title, '서재'); return; }
+    if (!this.onHolder) { this.paintLibrary(list); setText(this.shell.title, '서재'); return; }
     this.paintShelf();
     this.dex.refresh();   // 도감은 탭 뒤에 있어도 최신으로 둔다 (탭을 눌렀을 때 한 프레임 늦게 그려지지 않도록)
   }
@@ -427,29 +436,91 @@ export class BookshelfMenu extends HousingPanel {
   }
 
   /**
-   * 「서재」 항목 — 서재 시설 전체의 보너스 요약. `getLibraryEffects()` 한 곳에서 읽고 **효과 이름과 값만** 적는다
-   * (설명 · 출처 · 진척은 여기 넣지 않는다 — 2026-09-14 사용자 결정). 글은 `libraryEffectText` 하나가 만든다.
+   * 「서재」 항목의 **`적용 효과` 패널** (2026-09-14 요약 → **2026-09-15 가구별로 나눔**, 사용자 결정).
+   *
+   * 패널은 **배치된 보관함 가구마다 한 칸**이다 — 머리줄(글리프 · 이름 · `n / N` 칸 수) 아래에 그 가구에 꽂힌 것이
+   * 지금 내고 있는 효과 줄이 선다. 값은 **새로 계산하지 않는다**: 시리즈 상태는 `librarySeriesStates()`(= 규칙이
+   * 이미 합산해 둔 것)이고 줄 값은 `libraryLineValue` 하나다 (선반 칸의 정보 줄과 **같은 함수**).
+   * 맨 아래 한 칸은 시설 전체 합산(`getLibraryEffects()`) — 서로 다른 가구의 같은 시리즈가 합쳐진 결과다.
+   *
+   * **아무 보관함도 배치돼 있지 않으면** 같은 크기의 패널 가운데에 `아무 것도 배치되어 있지 않습니다.` 한 줄만 선다.
    */
-  private paintLibrary(): void {
+  private paintLibrary(list: readonly PlacedFurniture[]): void {
     const h = this.housing;
-    const e: LibraryEffectsSummary | null = typeof h.getLibraryEffects === 'function' ? h.getLibraryEffects() : null;
-    const lines: string[] = [];
-    if (e) {
-      const push = (eff: LibraryEffect, v: number): void => { if (v) lines.push(libraryEffectText(this.ctx, eff, v)); };
-      for (const [k, v] of Object.entries(e.skillGain)) push({ kind: 'skillGain', target: k as SkillId, value: v ?? 0 }, v ?? 0);
-      for (const [k, v] of Object.entries(e.derived)) push({ kind: 'derived', target: k as MealBuff, value: v ?? 0 }, v ?? 0);
-      for (const [k, v] of Object.entries(e.gymScore)) push({ kind: 'gymScore', target: k as LibraryGymTarget, value: v ?? 0 }, v ?? 0);
-      for (const [k, v] of Object.entries(e.cookScore)) push({ kind: 'cookScore', target: k as LibraryCookTarget, value: v ?? 0 }, v ?? 0);
-      push({ kind: 'raidXp', target: '', value: e.raidXp }, e.raidXp);
-      for (const [k, v] of Object.entries(e.trustXp)) push({ kind: 'trustXp', target: k as LibraryTrustTarget, value: v ?? 0 }, v ?? 0);
-      if (e.recipes.length) lines.push(`해금된 레시피 ${e.recipes.length}종`);
-    }
-    const key = lines.join('|');
+    const states = h.librarySeriesStates();
+    /** 가구 한 대의 칸 → (중복 없는) 시리즈 → 효과 줄. 게임 디스크 전시대는 시리즈가 없어 늘 빈 목록이다. */
+    const linesOf = (uid: string): string[] => {
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const info of h.getShelfSlots(uid)) {
+        if (!info.defId) continue;
+        const s = librarySeriesOfItem(h.defOf(info.defId));
+        if (!s || seen.has(s.seriesId)) continue;
+        seen.add(s.seriesId);
+        const series = LIBRARY_SERIES_MAP.get(s.seriesId);
+        const st = series ? states.get(series.id) : undefined;
+        if (!series || !st) continue;
+        for (const e of series.effects) {
+          const v = libraryLineValue(e, st);
+          if (v) out.push(`${series.name} — ${libraryEffectText(this.ctx, e, v)}`);
+        }
+      }
+      return out;
+    };
+
+    const cards = list.map((p) => {
+      const def = h.getFurnitureDef(p.defId);
+      const m = def ? shelfMediumOfInteraction(def.interaction) : null;
+      if (!m) return null;
+      const infos = h.getShelfSlots(p.uid);
+      return {
+        uid: p.uid, medium: m, name: def?.name ?? shelfHolderName(m),
+        filled: infos.filter((i) => i.defId !== null).length, slots: SHELF_SLOTS[m], lines: linesOf(p.uid),
+      };
+    }).filter((c): c is NonNullable<typeof c> => c !== null);
+
+    const total = this.totalLines();
+    const key = `${cards.map((c) => `${c.uid}:${c.name}:${c.filled}/${c.slots}:${c.lines.join('|')}`).join('#')}##${total.join('|')}`;
     if (key === this.libKey) return;
     this.libKey = key;
     clear(this.libList);
-    if (!lines.length) { el('div', { cls: 'lib-eff-empty', text: '효과 없음', parent: this.libList }); return; }
-    for (const text of lines) el('div', { cls: 'lib-eff', text, parent: this.libList });
+    if (!cards.length) {
+      el('div', { cls: 'lib-eff-empty', text: '아무 것도 배치되어 있지 않습니다.', parent: this.libList });
+      return;
+    }
+    for (const c of cards) {
+      const card = el('div', { cls: 'lib-effcard', attrs: { 'data-uid': c.uid, 'data-medium': c.medium }, parent: this.libList });
+      const head = el('div', { cls: 'lib-effcard-head', parent: card });
+      el('i', { cls: 'lib-effcard-ico', text: SHELF_GLYPH[c.medium], parent: head });
+      el('span', { cls: 'lib-effcard-name', text: c.name, parent: head });
+      el('span', { cls: 'lib-effcard-cnt', text: `${c.filled} / ${c.slots}${SHELF_UNIT_KO[c.medium]}`, parent: head });
+      if (!c.lines.length) { el('div', { cls: 'lib-eff-none', text: '효과 없음', parent: card }); continue; }
+      for (const text of c.lines) el('div', { cls: 'lib-eff', text, parent: card });
+    }
+    // 시설 전체 합산 — 가구별 줄과 달리 **서로 다른 가구에 흩어진 같은 시리즈**가 합쳐진 결과다
+    const sum = el('div', { cls: 'lib-effcard is-total', parent: this.libList });
+    const shead = el('div', { cls: 'lib-effcard-head', parent: sum });
+    el('i', { cls: 'lib-effcard-ico', text: LIBRARY_GLYPH, parent: shead });
+    el('span', { cls: 'lib-effcard-name', text: '서재 전체', parent: shead });
+    if (!total.length) el('div', { cls: 'lib-eff-none', text: '효과 없음', parent: sum });
+    else for (const text of total) el('div', { cls: 'lib-eff', text, parent: sum });
+  }
+
+  /** 시설 전체 합산 줄 — 원본은 `getLibraryEffects()` **하나**다 (2026-09-13 규약). */
+  private totalLines(): string[] {
+    const h = this.housing;
+    const e: LibraryEffectsSummary | null = typeof h.getLibraryEffects === 'function' ? h.getLibraryEffects() : null;
+    const lines: string[] = [];
+    if (!e) return lines;
+    const push = (eff: LibraryEffect, v: number): void => { if (v) lines.push(libraryEffectText(this.ctx, eff, v)); };
+    for (const [k, v] of Object.entries(e.skillGain)) push({ kind: 'skillGain', target: k as SkillId, value: v ?? 0 }, v ?? 0);
+    for (const [k, v] of Object.entries(e.derived)) push({ kind: 'derived', target: k as MealBuff, value: v ?? 0 }, v ?? 0);
+    for (const [k, v] of Object.entries(e.gymScore)) push({ kind: 'gymScore', target: k as LibraryGymTarget, value: v ?? 0 }, v ?? 0);
+    for (const [k, v] of Object.entries(e.cookScore)) push({ kind: 'cookScore', target: k as LibraryCookTarget, value: v ?? 0 }, v ?? 0);
+    push({ kind: 'raidXp', target: '', value: e.raidXp }, e.raidXp);
+    for (const [k, v] of Object.entries(e.trustXp)) push({ kind: 'trustXp', target: k as LibraryTrustTarget, value: v ?? 0 }, v ?? 0);
+    if (e.recipes.length) lines.push(`해금된 레시피 ${e.recipes.length}종`);
+    return lines;
   }
 
   /** The line under the shelf: the hovered slot only (an empty slot and no hover say nothing). */

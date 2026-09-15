@@ -52,6 +52,19 @@ const REPAIRABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'b
 /** 제작 레시피에서 분해 레시피를 자동 생성하는 카테고리. */
 const SALVAGEABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'bag'];
 
+/**
+ * 2026-09-15 (가젯 개편, 사용자 결정): **내구도를 들고 다니는 가젯**(돔 실드 · 바리케이드)도 수리 · 분해 대상이다.
+ * 배치물이 받은 피해가 아이템 내구도로 남으므로(`GadgetDef.wearsItemDurability`) 작업대에서 고치고 뜯을 수 있어야 한다.
+ * 카테고리 목록에 `'gadget'` 을 통째로 넣지 않는 이유: 그러면 연막탄 · 수류탄 · 드론처럼 **내구도가 없는** 가젯까지
+ * 분해 레시피가 자동 생성되고, 내구도 구간이 없는 아이템에 구간 검사가 걸린다. 그래서 「내구도가 있는가」로 가른다 —
+ * 새 가젯에 `durabilityMax` 를 넣는 순간 수리 · 분해 · 경제 검산이 저절로 따라온다.
+ */
+const wearsDurability = (def: ItemDef): boolean => def.category === 'gadget' && (def.durabilityMax ?? 0) > 0;
+/** 이 아이템이 작업대 수리 대상인가. */
+const isRepairable = (def: ItemDef): boolean => REPAIRABLE.includes(def.category) || wearsDurability(def);
+/** 제작 재료에서 분해 레시피를 자동 생성하는 아이템인가. */
+const isSalvageable = (def: ItemDef): boolean => SALVAGEABLE.includes(def.category) || wearsDurability(def);
+
 /** 분해 홀드 시간(초) — 카테고리별 (`data/tuning.csv`). */
 function salvageDuration(category: ItemCategory): number {
   if (category === 'armor') return T.num('ARMOR_SALVAGE_DURATION');
@@ -135,7 +148,7 @@ function fallbackCraftCost(def: ItemDef): readonly CraftIngredient[] {
  */
 export function repairCostFor(inst: ItemInstance): { defId: string; qty: number }[] {
   const def = ITEM_DEF_MAP.get(inst.defId);
-  if (!def || !REPAIRABLE.includes(def.category)) return [];
+  if (!def || !isRepairable(def)) return [];
   const max = maxDurabilityOf(def);
   if (max <= 0) return [];
   const cur = inst.durability ?? max;
@@ -240,7 +253,7 @@ const SALVAGE_SOURCES: ReadonlyMap<string, SalvageSource> = (() => {
   for (const r of CRAFT_RECIPES) {
     if (r.outputQty !== 1) continue;
     const def = ITEM_DEF_MAP.get(r.outputDefId);
-    if (!def || !SALVAGEABLE.includes(def.category) || out.has(def.id)) continue;
+    if (!def || !isSalvageable(def) || out.has(def.id)) continue;
     const gun = def.category === 'primary' || def.category === 'secondary';
     const shell: CraftRecipe = {
       id: `break_${def.id}`, name: `${def.name} 분해`, station: 'field',
@@ -324,7 +337,7 @@ export function checkSalvageEconomy(): EconomyViolation[] {
   for (const [defId, src] of SALVAGE_SOURCES) {
     const craft = asMap(src.craft);
     const def = ITEM_DEF_MAP.get(defId);
-    const repairable = !!def && REPAIRABLE.includes(def.category) && maxDurabilityOf(def) > 0;
+    const repairable = !!def && isRepairable(def) && maxDurabilityOf(def) > 0;
     const top = asMap(scaleSalvage(src.craft, TOP_SALVAGE_MUL));
     /* 내구도가 없는 장비는 **언제나 구간 4** 다 — 있지도 않은 구간을 검사하면 거짓 위반이 나온다.
        (2026-09-11: 가방도 이제 내구도가 있어 구간 0–4 를 전부 본다.) */

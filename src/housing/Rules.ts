@@ -104,6 +104,13 @@ export function missingIngredients(cost: readonly CraftIngredient[], count: Coun
   return out;
 }
 
+/**
+ * 재료가 모자라 막혔을 때의 사유 (2026-09-15, 사용자 결정).
+ * **모자란 재료를 글로 열거하지 않는다** — 화면마다 재료 칩이 이미 `보유/필요` 를 적고 모자라면 스스로 `.is-short`
+ * (빨강)로 말하므로, 같은 말을 문장으로 한 번 더 하면 줄만 길어진다. 사유 함수 넷이 이 한 줄을 돌려준다.
+ */
+export const MISSING_MATERIALS_REASON = '재료 부족';
+
 export function formatCost(cost: readonly CraftIngredient[], nameOf: NameFn): string {
   return cost.map((c) => `${nameOf(c.defId)} ${c.qty}`).join(' · ');
 }
@@ -128,7 +135,7 @@ export function facilityBlockReason(state: ShipState, id: FacilityId, count: Cou
   const cost = nextFacilityCost(id, level);
   if (!cost) return '업그레이드할 수 없습니다';
   const missing = missingIngredients(cost, count);
-  if (missing.length) return `재료 부족: ${formatCost(missing, nameOf)}`;
+  if (missing.length) return MISSING_MATERIALS_REASON;
   return null;
 }
 
@@ -174,7 +181,7 @@ export function purposeBuildBlockReason(
   const gate = generatorGateReason(state, purposeGeneratorLevel(purpose));
   if (gate) return gate;
   const missing = missingIngredients(purposeBuildCost(purpose), count);
-  if (missing.length) return `재료 부족: ${formatCost(missing, nameOf)}`;
+  if (missing.length) return MISSING_MATERIALS_REASON;
   return null;
 }
 
@@ -1196,7 +1203,7 @@ export function furnitureUpgradeReason(state: ShipState, item: PlacedFurniture, 
   const cost = nextFurnitureCost(def, item.level);
   if (!cost) return '업그레이드할 수 없습니다';
   const missing = missingIngredients(cost, count);
-  if (missing.length) return `재료 부족: ${formatCost(missing, nameOf)}`;
+  if (missing.length) return MISSING_MATERIALS_REASON;
   return null;
 }
 

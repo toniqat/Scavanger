@@ -5,7 +5,7 @@ import {
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { FacilityRows } from './FacilityRows';
-import { CHIP_SIZE_SMALL, clear, el, facilityThumb, renderCost, section, setText, toggleClass } from './dom';
+import { CHIP_SIZE_SMALL, clear, el, facilityChipTip, facilityThumb, renderCost, section, setText, toggleClass } from './dom';
 
 /**
  * 함선 tab of the inventory Tab screen. Rewritten in the Phase 9 UI pass:
@@ -148,7 +148,10 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
       const affordable = renderCost(cost, housing.purposeCost(p), housing, CHIP_SIZE_SMALL);
       // 2026-09-12: 시설 레벨 요구(발전기 Lv.1 게이트)는 재료 칩 뒤에 가로로 긴 이중 테두리 칩으로 (`buildFacilityChip`)
       for (const q of housing.purposeRequirements(p)) {
-        cost.appendChild(buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: CHIP_SIZE_SMALL }));
+        // 2026-09-15 (사용자 결정): 칩은 아이콘만 — 시설 이름 · 레벨은 호버 툴팁이 말한다
+        cost.appendChild(facilityChipTip(
+          buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: CHIP_SIZE_SMALL }),
+          FACILITY_LABEL_KO[q.facility], q.have, q.need));
       }
       if (blocked) el('div', { cls: 'blocked', text: blocked, parent: mid });
       const btn = el('button', { cls: 'ui-btn small wide', text: '제작', parent: row }) as HTMLButtonElement;

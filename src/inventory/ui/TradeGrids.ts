@@ -2,7 +2,7 @@ import type { EmbeddedView, GameContext, ItemDef, ItemInstance, TradeGridsView }
 import type { InventorySystem, GridId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
 import { GridView, buildTileContent, setNeededAmmoFrom } from './GridView';
-import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
+import { buildFilterSelect, buildSortButton, type FilterControl } from './GridTools';
 import { CELL, GAP, TEXT, tileSizeAt } from './labels';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 /* 2026-09-14: 툴팁 고정 · 고정 카드에서 소켓 끌어내기 */
@@ -15,20 +15,21 @@ import { DRAG_THRESHOLD } from './model';
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
 
 /**
- * 2026-09-13: how the blocks share the view.
- *   - `'wrap'` (default — the layout every caller had before): one `.tg-scroll` box that scrolls, blocks side by side,
- *     `flex-wrap` drops a block to the next line when the column is too narrow. The caller's stylesheet may still give
- *     each block its own scroll (`housing.css` `.hs-inv`).
- *   - `'split'`: **every block scrolls itself** — `.tg-scroll` becomes a frameless, non-scrolling `nowrap` row, each
- *     block stretches to the view's height and its `.tg-gridwrap` is the scroller (`scrollbar-gutter: stable`). A block
- *     is exactly as wide as its grid (+ scrollbar room): the header and the chip row never widen it. Meant for a view with
- *     **one** grid mounted into a caller-owned card (기업 화면: 함선 창고 card + 가방 card), but works with two.
+ * 2026-09-13 → **2026-09-15 2차 (사용자 결정): 두 값의 차이가 없어졌다.**
+ *
+ * 창고 + 가방은 이제 어느 화면에서든 **한 패널 안의 두 칸**이고 (창고 왼쪽 · 가방 오른쪽, 2026-09-12 결정 그대로),
+ * **칸마다 자기 스크롤 · 자기 정렬 버튼 · 자기 필터**를 갖는다 — 즉 옛 `'split'` 이 유일한 배치다.
+ * `'wrap'` 은 계약을 흔들지 않으려고 남겨 둔 이름이고 (`TradeGridsViewOptions.layout` 은 `src/shared` 계약이다)
+ * 지금은 둘 다 같은 것을 그린다.
+ *
+ * ⚠ 옛 `'wrap'` 의 「한 스크롤 안에 블록이 나란히, 좁으면 줄바꿈」 은 되살리지 않는다 — 창고 24행 · 가방 틀 12행이
+ * 한 스크롤을 나눠 쓰면 어느 쪽을 위에 올려도 다른 쪽이 화면 밖이고, 끄는 중에는 스크롤할 수 없다 (2026-09-12 경고).
  */
 export type TradeGridsLayout = 'wrap' | 'split';
 /**
- * 2026-09-13: where the filter chips go. `'shared'` = one row above every block (drives all of them; the `'wrap'`
- * default), `'block'` = each block's own row under its header with its own filter (the `'split'` default), `'none'` =
- * no chips inside the view — the caller may still place one shared row anywhere with `mountFilterChips(host)`.
+ * 2026-09-13 → 2026-09-15 2차: 필터는 칩 줄이 아니라 **정렬 버튼 오른쪽의 드롭다운**이다 (`ui/GridTools`).
+ * `'block'`(기본) = 칸마다 자기 머리에 자기 드롭다운, `'shared'` = 패널 위 한 줄이 모든 칸을 함께 거른다,
+ * `'none'` = 뷰 안에는 없다 (부른 쪽이 `mountFilterChips(host)` 로 아무 데나 한 줄 올릴 수 있다).
  */
 export type TradeGridsChips = 'shared' | 'block' | 'none';
 
@@ -68,10 +69,10 @@ interface Block {
   el: HTMLElement;
   view: GridView;
   countEl: HTMLElement;
-  /** The box around the grid — the scroller in `'split'` (and in `housing.css`'s `.hs-inv`). */
+  /** The box around the grid — **always the scroller** (2026-09-15 2차; `housing.css`'s `.hs-inv` agrees). */
   wrap: HTMLElement;
-  /** This block's own chip row (`chips: 'block'`), else null. */
-  chips: FilterChips | null;
+  /** This block's own filter dropdown (`chips: 'block'`), else null. */
+  chips: FilterControl | null;
   filter: FilterGroupId;
 }
 
@@ -87,7 +88,7 @@ interface DragInfo {
 
 /** Smallest cell edge a caller can ask for (tiles stop being legible well before this). */
 const MIN_CELL = 16;
-/** A block whose grid is narrower than this lays its own chip row out as two rows of five (the 가방 at a 40 px cell). */
+/** A block narrower than this stacks its header tools (정렬 · 필터) instead of putting them on one line. */
 const NARROW_BLOCK_PX = 260;
 
 const clampCell = (px: number | undefined): number => Math.max(MIN_CELL, Math.round(px ?? CELL));
@@ -114,6 +115,12 @@ const clampCell = (px: number | undefined): number => Math.max(MIN_CELL, Math.ro
  *   - 드래그는 pointermove 를 **rAF 한 번으로 합치고** 고스트를 `transform` 으로 옮긴다. 버스 이벤트 여러 개가 한 프레임에
  *     오면 갱신도 한 번이고, `GridView` 가 바뀐 타일만 다시 그린다.
  *
+ * **2026-09-15 2차 (사용자 결정) — 창고 + 가방은 한 패널이다.** 어느 화면에서든 `.trade-grids` 하나가 카드이고 그 안에
+ * **왼쪽 칸 = 함선 창고 · 오른쪽 칸 = 내 가방**이 나란히 선다. 칸마다 **자기 세로 스크롤 · 자기 정렬 버튼 · 자기 필터
+ * 드롭다운**이고(따로 작동한다), 창고 쪽 라벨은 없앴다. `layout` 은 더 이상 갈래를 만들지 않는다 (`TradeGridsLayout` 주석).
+ * ⚠ 옛 경고는 그대로 유효하다 — 두 격자를 **한 스크롤에 세로로 이어 붙이지 않는다**; `.tg-gridwrap` 이 각자의 스크롤러이고
+ * `scrollbar-gutter: stable` 로 마지막 열을 지킨다.
+ *
  * **2026-09-13 (기업 화면 카드 분리)** — `layout: 'split'` · `chips: 'block' | 'none'` · `mountFilterChips(host)` ·
  * `setCell(px)` (살아 있는 뷰의 칸 크기를 바꾼다: 블록의 `GridView` 를 새 칸으로 다시 짓고 필터 · 스크롤 줄 위치는 지킨다).
  * 칸이 기본(54)보다 작으면 루트에 `.tg-compact` 가 붙어 타일 글리프 · 수량 배지 · 소켓 핍이 칸 크기를 따라 줄어든다.
@@ -133,8 +140,8 @@ export class TradeGrids implements TradeGridsView {
   private cellPx: number = CELL;
   private readonly unsubs: Array<() => void> = [];
   private readonly chipsMode: TradeGridsChips;
-  /** The one chip row that drives every block (`chips: 'shared'`, or created by `mountFilterChips`). */
-  private sharedChips: FilterChips | null = null;
+  /** The one filter row that drives every block (`chips: 'shared'`, or created by `mountFilterChips`). */
+  private sharedChips: FilterControl | null = null;
   private sharedTools: HTMLElement | null = null;
   private sharedFilter: FilterGroupId = 'all';
   private drag: DragInfo | null = null;
@@ -166,10 +173,10 @@ export class TradeGrids implements TradeGridsView {
     host: HTMLElement,
     private readonly opts: TradeGridsOptions = {},
   ) {
-    const split = opts.layout === 'split';
-    this.chipsMode = opts.chips ?? (split ? 'block' : 'shared');
+    // 2026-09-15 2차: 배치는 하나뿐이다 (`is-split` 은 이름만 남는다 — 바깥 스타일시트가 그 이름으로 붙어 있다)
+    this.chipsMode = opts.chips ?? 'block';
     this.root = document.createElement('div');
-    this.root.className = `trade-grids${split ? ' is-split' : ''}${opts.className ? ` ${opts.className}` : ''}`;
+    this.root.className = `trade-grids is-split${opts.className ? ` ${opts.className}` : ''}`;
     host.appendChild(this.root);
     this.menu = new ContextMenu(ctx.uiRoot);
     this.menu.el.classList.add('tg-menu');
@@ -216,7 +223,14 @@ export class TradeGrids implements TradeGridsView {
     this.refresh();
   }
 
-  /** One block: header (label · count · 정렬), optional chip row, the grid inside its wrap. */
+  /**
+   * One block: header (label · count · 정렬 · 필터 드롭다운) and the grid inside its scrolling wrap.
+   *
+   * **2026-09-15 2차 (사용자 결정)** — 두 가지가 바뀌었다:
+   *  - **창고 쪽 라벨(`함선 창고`)은 없앴다.** 창고 · 가방이 한 패널의 두 칸으로 나란히 서면서 왼쪽 큰 격자가
+   *    창고라는 것은 그림이 말한다. 가방 라벨은 남는다 (오른쪽 칸이 **내** 것이라는 표시다).
+   *  - **필터는 정렬 버튼 오른쪽의 드롭다운**이다 — 머리 아래 따로 서던 칩 줄(`.tg-tools`)이 사라졌다.
+   */
   private buildBlock(id: TradeGridId): Block {
     const el = document.createElement('div');
     el.className = `tg-block tg-${id}`;
@@ -225,20 +239,16 @@ export class TradeGrids implements TradeGridsView {
     head.className = 'tg-head';
     const label = document.createElement('span');
     label.className = 'tg-label';
-    label.textContent = id === 'bag' ? '내 가방' : '함선 창고';
+    label.textContent = id === 'bag' ? '내 가방' : '';
+    label.hidden = id !== 'bag';
     const countEl = document.createElement('span');
     countEl.className = 'tg-count';
     head.append(label, countEl, buildSortButton(() => this.sort(id)));
     el.appendChild(head);
     const block: Block = { id, el, view: null as unknown as GridView, countEl, wrap: document.createElement('div'), chips: null, filter: 'all' };
     if (this.chipsMode === 'block') {
-      const tools = document.createElement('div');
-      tools.className = 'tg-tools';
-      block.chips = buildFilterChips((f) => this.setBlockFilter(block, f));
-      tools.appendChild(block.chips.el);
-      // a narrow block (`.is-narrow`) lays its chips out in two even rows — half the chip count per row, rounded up
-      tools.style.setProperty('--tg-chip-cols', String(Math.ceil(block.chips.el.childElementCount / 2)));
-      el.appendChild(tools);
+      block.chips = buildFilterSelect((f) => this.setBlockFilter(block, f));
+      head.appendChild(block.chips.el);
     }
     // 2026-09-12: 격자는 **자기 폭을 px 로 못박은** 상자다(`GridView.syncDims`). 그래서 세로 스크롤을 격자 자신에게
     // 걸면 스크롤바가 그 폭 안에서 자리를 빼앗아 마지막 열이 잘린다 — 폭이 내용에서 나오는 이 상자가 대신 맡는다
@@ -353,7 +363,7 @@ export class TradeGrids implements TradeGridsView {
     if (this.sharedTools) return this.sharedTools;
     const tools = document.createElement('div');
     tools.className = 'tg-tools';
-    this.sharedChips = buildFilterChips((id) => this.setFilter(id));
+    this.sharedChips = buildFilterSelect((id) => this.setFilter(id));
     this.sharedChips.set(this.sharedFilter);
     tools.appendChild(this.sharedChips.el);
     this.sharedTools = tools;

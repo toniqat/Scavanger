@@ -2,11 +2,29 @@ import type { CraftIngredient, FacilityRequirement, FurnitureDef, FurnitureModel
 import {
   COCKPIT_ROOM_INDEX, FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, Keys, renderItemCost, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSES_ASSIGNABLE,
   ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, UI_HOLD_CONFIRM_S, purposeGeneratorLevel,
-  WORKBENCH_ICON, buildFacilityChip, buildItemChip, createHoldButtonCap, isCockpitOnlyFurniture, isUtilityFurniture,
+  WORKBENCH_ICON, buildFacilityChip, buildItemChip, createHoldButtonCap, isCockpitOnlyFurniture, isUtilityFurniture, slotKey,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 /* 2026-09-14 (사용자 결정): 필요 아이템 줄의 호버 카드는 커서 좌상단 — 그 옵트인 속성의 원본은 `ItemTip` 하나다. */
 import { TIP_ANCHOR_ATTR } from './ItemTip';
+
+/**
+ * 우측 탭(가구 제작 / 가구 창고)을 **마지막으로 보던 대로** 다시 여는 슬롯별 localStorage 키 (2026-09-15, 사용자 결정).
+ * 방 쪽 기억은 housing 의 몫이다 (`housing/parts/Furniture` 의 `MANAGE_ROOM_KEY` — 그쪽이 어느 방을 여느냐를 정한다).
+ * 못 읽거나 이상한 값이면 예전 기본값 `'craft'` 로 조용히 돌아간다.
+ */
+const MANAGE_TAB_KEY = 'scav.shipManage.tab';
+
+function readManageTab(): FurnTab | null {
+  try {
+    const raw = window.localStorage?.getItem(slotKey(MANAGE_TAB_KEY));
+    return raw === 'craft' || raw === 'store' ? raw : null;
+  } catch { return null; }
+}
+
+function writeManageTab(tab: FurnTab): void {
+  try { window.localStorage?.setItem(slotKey(MANAGE_TAB_KEY), tab); } catch { /* private mode · blocked site data */ }
+}
 
 interface RoomRow {
   index: number;
@@ -200,7 +218,7 @@ export class ShipManage {
   private cardsKey = '';
   private storeKey = '';
   private purposeKey = '';
-  private tab: FurnTab = 'craft';
+  private tab: FurnTab = readManageTab() ?? 'craft';   // 2026-09-15: 마지막으로 보던 탭 (사용자 결정)
   private active = false;
   private room: number | null = null;
   private selected: string | null = null;
@@ -325,6 +343,9 @@ export class ShipManage {
     this.confirmTitle = el('div', { cls: 'title', text: '시설 증축', parent: card });
     this.confirmBody = el('div', { cls: 'body', parent: card });
     this.confirmCost = el('div', { cls: 'cost', parent: card });
+    // 2026-09-15 (사용자 결정): 재료 · 시설 썸네일의 호버 카드는 커서 **좌상단**이다 (`renderCostRow` 와 같은 규약).
+    // 여기는 `renderItemCost` 를 직접 부르므로 속성을 한 번 박아 둔다 — 비용이 비어 있는 프레임에도 남는다.
+    this.confirmCost.setAttribute(TIP_ANCHOR_ATTR, 'left');
     const acts = el('div', { cls: 'acts', parent: card });
     const cancel = this.confirmCancel = el('button', { cls: 'ui-btn', text: '취소', parent: acts });
     this.confirmOk = el('button', { cls: 'ui-btn primary sm-confirm-ok', parent: acts });
@@ -367,6 +388,7 @@ export class ShipManage {
     const upsec = el('div', { cls: 'sm-ins-upsec', parent: this.inspectEl });
     el('span', { cls: 'sm-ins-up-label', text: '업그레이드 비용', parent: upsec });
     this.inspectCost = el('div', { cls: 'sm-ins-cost', parent: upsec });
+    this.inspectCost.setAttribute(TIP_ANCHOR_ATTR, 'left');   // 2026-09-15: 재료가 없는 프레임(시설 칩만)에도 좌상단 카드
     this.inspectBtn = el('button', { cls: 'sm-gen-btn sm-ins-up', text: '업그레이드', parent: upsec });
     this.inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); this.upgradeInspected(); });
 
@@ -475,6 +497,7 @@ export class ShipManage {
   private pickTab(tab: FurnTab): void {
     if (tab === this.tab) return;
     this.tab = tab;
+    writeManageTab(tab);
     this.cardsEl.scrollTop = 0;
     this.storeEl.scrollTop = 0;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -717,9 +740,19 @@ export class ShipManage {
     this.confirmOk.classList.remove('is-holding');
   }
 
-  /** One 시설 레벨 요구 as the wide double-bordered chip (`shared/itemChip.buildFacilityChip`). */
+  /**
+   * One 시설 레벨 요구 chip (`shared/itemChip.buildFacilityChip`).
+   *
+   * 2026-09-15 (사용자 결정): 칩은 **아이템 칩처럼 아이콘만** 그린다 — 썸네일 안에 같이 적던 시설 이름이 빠지고
+   * (모양은 `housing/housing.css` 의 `.facility-chip` 규칙), 이름 · 필요 레벨은 썸네일에 호버할 때 뜨는 툴팁
+   * (`data-fc-tip`)이 말한다. 글은 housing 의 `facilityChipTip` 과 같은 문장이다 (폴더 간 import 금지라 한 줄을 옮겨 적는다).
+   */
   private facilityChip(r: FacilityRequirement, size: number): HTMLElement {
-    return buildFacilityChip(FACILITY_LABEL_KO[r.facility], FACILITY_GLYPH[r.facility], FACILITY_COLOR[r.facility], r.have, r.need, { size });
+    const chip = buildFacilityChip(FACILITY_LABEL_KO[r.facility], FACILITY_GLYPH[r.facility], FACILITY_COLOR[r.facility], r.have, r.need, { size });
+    const text = `${FACILITY_LABEL_KO[r.facility]} — Lv.${r.need} 필요 (현재 Lv.${r.have})`;
+    chip.dataset.fcTip = text;
+    chip.title = text;
+    return chip;
   }
 
   /* ── B-13 (2026-09-11): 클릭 인스펙터 ─────────────────────────────────── */
@@ -908,7 +941,8 @@ export class ShipManage {
       try { return housing.furnitureCraftBlock(defId); } catch { /* fall through */ }
     }
     const info = housing.canCraftFurniture(defId);
-    return info.ok ? null : `재료 부족: ${this.missingText(info.missing)}`;
+    // 2026-09-15 (사용자 결정): 모자란 재료를 **글로 적지 않는다** — 재료 칩이 스스로 `.is-short` 로 말한다
+    return info.ok ? null : '재료 부족';
   }
 
   private missingText(missing: readonly CraftIngredient[]): string {
@@ -1118,6 +1152,14 @@ export class ShipManage {
       b.setAttribute('aria-disabled', blocked ? 'true' : 'false');
       b.title = blocked ?? `${ROOM_PURPOSE_LABEL_KO[p]} 증축`;
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickPurpose(p); });
+      // 2026-09-15 (사용자 결정): 줄 오른쪽에 **`시설 증축` 버튼** — 가구 카드의 `제작` · `배치` 와 같은 자리 · 같은 결이다.
+      // 새 경로를 만들지 않는다: 줄을 누르는 것과 **똑같이** `pickPurpose` → 확인 팝업 → `setRoomPurpose` 로 간다
+      // (막혀 있어도 눌린다 — 사유 토스트 + 줄 깜빡임이 그대로 답한다).
+      const build = el('button', { cls: 'sm-purpose-build', text: '시설 증축', parent: b });
+      build.title = blocked ?? `${ROOM_PURPOSE_LABEL_KO[p]} 증축`;
+      build.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+      toggleClass(build, 'is-disabled', !!blocked);
+      build.addEventListener('click', (e) => { e.stopPropagation(); this.pickPurpose(p); });
     }
   }
 

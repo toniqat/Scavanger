@@ -106,7 +106,13 @@ export function buildArmorPlate(def: ArmorDef): GearLook {
  * Held consumable / gadget for the right hand. Item axis: -Z along the arm (weaponSocket convention), so the
  * cylinder / box stand along the forearm and the sphere sits just past the glove.
  */
-export function buildHeldItem(category: ItemCategory | null | undefined): GearLook {
+/**
+ * 2026-09-15 (가젯 개편): `ItemCategory` 의 `'grenade'` 가 폐지돼(수류탄도 `category: 'gadget'`) 손에 든 모습을
+ * 고르는 열쇠를 이 파일 안에서만 한 칸 넓혔다 — 부르는 쪽이 `def.grenade ? 'grenade' : def.category` 를 넘긴다.
+ */
+export type HeldItemLook = ItemCategory | 'grenade';
+
+export function buildHeldItem(category: HeldItemLook | null | undefined): GearLook {
   const look = new Look();
   look.group.name = `HeldItem:${category ?? 'unknown'}`;
   if (category === 'stim') {

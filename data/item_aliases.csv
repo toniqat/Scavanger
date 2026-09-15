@@ -46,3 +46,6 @@ record_gun_SR,record_drill_marksman
 record_gun_DMR,record_drill_marksman
 record_gun_SG,record_drill_assault
 record_equipment,record_porters_song
+# 2026-09-15 (가젯 개편, 사용자 결정): 화염수류탄 가젯(gad_incendiary)을 지우고 화염 수류탄(grenade_incendiary) 하나로 합쳤다 —
+# 가진 사람이 잃지 않도록 옛 id 를 새 id 로 푼다. 살아남은 쪽이 폭발 + 화염 지대를 함께 갖는다.
+gad_incendiary,grenade_incendiary

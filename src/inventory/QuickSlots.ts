@@ -90,13 +90,17 @@ export function pickStarterQuick(
    * 기본 지급의 S 칸은 **회복제**의 자리이므로 `def.heal` 이 있는 스택이 먼저 이기고, 같은 부류 안에서는 예전처럼 큰 스택이다.
    * 회복제가 하나도 없으면 예전과 똑같이 가장 큰 stim 스택이다.
    */
-  const pick = (category: string): ItemInstance | null => {
+  /*
+   * 2026-09-15 (`ItemCategory 'grenade'` 폐지): 수류탄도 `category: 'gadget'` 이라 **카테고리로는 못 고른다** —
+   * 고르는 기준을 술어로 받는다. 수류탄인지를 가르는 값은 `ItemDef.grenade` 하나다 (`weapons/model.quickKindOf` 와 같은 근거).
+   */
+  const pick = (want: (def: ItemDef) => boolean, healFirst = false): ItemInstance | null => {
     let best: ItemInstance | null = null;
     let bestRank = -1;
     for (const it of items) {
       const def = getDef(it.defId);
-      if (def?.category !== category) continue;
-      const rank = category === 'stim' && def.heal ? 1 : 0;
+      if (!def || !want(def)) continue;
+      const rank = healFirst && def.heal ? 1 : 0;
       if (!best || rank > bestRank || (rank === bestRank && it.qty > best.qty)) { best = it; bestRank = rank; }
     }
     return best;
@@ -114,8 +118,8 @@ export function pickStarterQuick(
     taken[index] = true;
     out.push({ index, item });
   };
-  place(pick('grenade'), QUICK_AUTO_GRENADE);
-  place(pick('stim'), QUICK_AUTO_STIM);
+  place(pick((d) => d.grenade !== undefined), QUICK_AUTO_GRENADE);
+  place(pick((d) => d.category === 'stim', true), QUICK_AUTO_STIM);
   return out;
 }
 

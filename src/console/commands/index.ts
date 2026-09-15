@@ -16,11 +16,12 @@ import { worm } from './worm';
 import { rover } from './rover';
 import { cryptoCmd } from './crypto';
 import { library } from './library';
+import { analyze } from './analyze';
 
 export type { BuiltinHost } from './types';
 export { parseSeedArg } from './seed';
 
 /** Every built-in command, in `help` order. */
 export function builtinCommands(host: BuiltinHost): ConsoleCommand[] {
-  return [help, clear, seed, move, movecheat, items, stat, skill, gym, cook, library, worm, rover, cryptoCmd, pos, colliders].map((f) => f(host));
+  return [help, clear, seed, move, movecheat, items, stat, skill, gym, cook, library, analyze, worm, rover, cryptoCmd, pos, colliders].map((f) => f(host));
 }

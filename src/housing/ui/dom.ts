@@ -123,3 +123,16 @@ export function formatRemaining(seconds: number): string {
   if (m > 0) return `${m}분 ${sec}초`;
   return `${sec}초`;
 }
+
+/**
+ * 시설 레벨 요구 칩 (2026-09-15, 사용자 결정) — `shared/itemChip.buildFacilityChip` 이 만든 칩을 **아이템 칩처럼
+ * 아이콘만** 그리게 두고(모양은 `housing.css` 의 `.facility-chip` 규칙), 시설 이름과 현재 · 필요 레벨은 **호버 툴팁**
+ * 으로 옮긴다. 툴팁 글의 원본은 이 한 줄이다 — 칩을 만드는 화면(업그레이드 모달 · 함선 탭 · 시설 관리)이 함께 쓴다.
+ * 인자 그대로 붙이기만 하므로 칩을 돌려준다 (`host.appendChild(facilityChipTip(chip, …))`).
+ */
+export function facilityChipTip(chip: HTMLElement, name: string, have: number, need: number): HTMLElement {
+  const text = `${name} — Lv.${need} 필요 (현재 Lv.${have})`;
+  chip.dataset.fcTip = text;
+  chip.title = text;
+  return chip;
+}

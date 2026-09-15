@@ -6,7 +6,8 @@ import { UNIQUE_WEAPON_IDS } from '@/shared';
 import { AMMO_TYPES_V2, ATTACHMENT_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
 /* appended (2026-09-13): 서재 매체 · 비디오게임 — 행성 고정 드롭 · 권 가중치 · 옛 id 안전망 */
 import { resolveItemAlias } from '@/shared';
-import { isLootableOnPlanet, libraryBookPool, libraryVolumeWeight, planetCategoryAvailable } from './LootTables';
+import type { LootCategory } from './LootTables';
+import { isLootableOnPlanet, libraryBookPool, libraryVolumeWeight, lootCategoryOf, planetCategoryAvailable } from './LootTables';
 import { WEAPON_DEF_MAP, WEAPON_FAMILIES, gradeOf, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
@@ -133,9 +134,11 @@ export class LootService implements LootRef {
     const table = getTierTable(tier);
     const count = rng.int(table.count[0], table.count[1]);
     const picks: ItemDef[] = [];
+    /** 후보가 하나도 없다고 판명된 카테고리 (이 상자에서 다시 뽑지 않는다 — 무한 루프 방지). */
+    const dead = new Set<LootCategory>();
 
     for (const g of table.guaranteed) {
-      const d = this.pickDef(table, rng, (def) => g.categories.includes(def.category) && rarityRank(def.rarity) >= rarityRank(g.minRarity), true, curve, planet);
+      const d = this.pickDef(table, rng, (def) => g.categories.includes(lootCategoryOf(def)) && rarityRank(def.rarity) >= rarityRank(g.minRarity), true, curve, planet);
       if (d) picks.push(d);
     }
 
@@ -149,11 +152,16 @@ export class LootService implements LootRef {
         if (d) { picks.push(d); continue; }
       }
       const hasBag = picks.some((d) => d.category === 'bag');
-      const cats = (Object.keys(table.categoryWeights) as Array<keyof typeof table.categoryWeights>)
-        .filter((c) => !(hasBag && c === 'bag') && planetCategoryAvailable(c, planet));
+      const cats = (Object.keys(table.categoryWeights) as LootCategory[])
+        .filter((c) => !(hasBag && c === 'bag') && !dead.has(c) && planetCategoryAvailable(c, planet));
+      if (cats.length === 0) break;
       const cat = rng.weighted(cats, (c) => table.categoryWeights[c] ?? 0);
-      const d = this.pickDef(table, rng, (def) => def.category === cat, false, curve, planet);
-      if (d) picks.push(d); else break;
+      /* 2026-09-15: 카테고리 축은 `lootCategoryOf` 다 — 표의 `grenade` 는 `ItemDef.grenade` 가 있는 아이템이고
+         `gadget` 은 그 밖의 가젯이다 (`LootTables` 의 *루팅 카테고리 축*). */
+      const d = this.pickDef(table, rng, (def) => lootCategoryOf(def) === cat, false, curve, planet);
+      /* 후보가 하나도 없는 카테고리는 **상자를 자르지 않는다** — 그 카테고리만 빼고 다시 뽑는다.
+         예전에는 여기서 `break` 했고, 아무 아이템에도 안 맞는 유령 카테고리 한 줄이 상자를 한두 개로 잘라 먹었다. */
+      if (d) picks.push(d); else dead.add(cat);
     }
 
     // 2026-09-09: 행성 곡선으로 **등급만** 다시 매긴다 (계열 추첨 · 유니크는 그대로).

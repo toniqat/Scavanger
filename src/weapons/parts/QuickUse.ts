@@ -29,7 +29,7 @@ import { RemoteWeapons } from '../RemoteWeapons';
 import { MeleeController } from '../Melee';
 import { raycastBlockers, damageBarrierAt, makeBlockInfo } from '../Blocking';
 import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from '../unique';
-import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, DETONATOR_CONFIRM_GRACE_S, DETONATOR_UID_PREFIX, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
+import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, DETONATOR_CONFIRM_GRACE_S, DETONATOR_UID_PREFIX, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, quickKindOf, toTuple, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
 /** 2026-09-11: 원격 지뢰(C4) 가젯 id. */
@@ -281,7 +281,7 @@ export function quickSlotItem(sys: WeaponSystem, index: number): { item: ItemIns
 function takeIntoHand(sys: WeaponSystem, host: Host, hand: QuickHand, announceIndex: number | null, sound: boolean): void {
   // leaving a grenade hold for another item: a pulled pin is dropped at the feet, otherwise nothing happens
   if (sys.holding) sys.cancelHold(host);
-  else sys.cancelHeal();
+  else { sys.cancelHeal(); sys.cancelDefib(); }
   if (sys.phase === 'reloading') sys.cancelReload();
   if (sys.phase === 'swapping') { sys.phase = 'ready'; sys.active = sys.swapTarget; sys.attachActive(false); }
   const cur = sys.slots[sys.active];
@@ -305,7 +305,8 @@ export function equipQuick(sys: WeaponSystem, index: number): void {
   sys.lastQuickIndex = index;
   sys.lastQuickDetonator = slot.def.gadgetId === REMOTE_MINE;
   takeIntoHand(sys, host, {
-    index, uid: slot.item.uid, defId: slot.item.defId, item: slot.item, def: slot.def, kind: slot.def.category as QuickKind,
+    // 2026-09-15 (가젯 개편): `category` 캐스트는 끝났다 — `'grenade'` 카테고리가 폐지돼 수류탄도 `gadget` 이다 (`model.quickKindOf`).
+    index, uid: slot.item.uid, defId: slot.item.defId, item: slot.item, def: slot.def, kind: quickKindOf(slot.def),
   }, index, true);
   }
 
@@ -343,6 +344,7 @@ export function dropQuick(sys: WeaponSystem): void {
   const host = sys.getHost();
   if (host) sys.closeWheel(host);
   sys.cancelHeal();
+  sys.cancelDefib();   // 2026-09-15: 제세동기 홀드도 손을 놓으면 닫힌다 (parts/Defib)
   if (!sys.quick) return;
   sys.endHold(true);
   sys.quick = null;
@@ -367,6 +369,9 @@ export function updateQuickHand(sys: WeaponSystem, dt: number, host: Host, usabl
   const q = sys.quick!;
   const input = sys.ctx.input;
   if (q.detonator) { sys.updateDetonator(dt, host, inputFree); return; }
+  // 2026-09-15 (사용자 결정): 제세동기는 **떼는 순간** 발동한다 — 충전이 끝나도 손을 떼기 전까지는 아무 일도 없고,
+  // 그 동안 크로스헤어가 대상을 잡는다 (`parts/Defib`). 그래서 채우면 곧바로 쓰는 `beginHeal` 길을 타지 않는다.
+  if (sys.isDefibHand(q)) { sys.updateDefibHand(dt, host, q, usable, inputFree); return; }
   if (sys.holding) {
     if (!usable) { sys.cancelHold(host); if (sys.quick && !sys.quickSlotItem(q.index)) sys.returnToGun(); return; }
     sys.updateHold(dt, host, q);

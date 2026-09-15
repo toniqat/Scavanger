@@ -5,7 +5,7 @@ import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
-import { buildFilterChips, buildSortButton, type FilterChips } from './GridTools';
+import { buildFilterSelect, buildSortButton, type FilterControl } from './GridTools';
 import { CraftPanel } from './CraftPanel';
 import { CatalogView } from './CatalogView';
 import { DisassemblePanel } from './DisassemblePanel';
@@ -48,7 +48,14 @@ export class InventoryUI {
   screenView: EmbeddedView | null = null;
   /** Layer that holds the modeless popups (임플란트 picker / 제작 / 분해) above `.inv-layout`. */
   private modelessLayer!: HTMLElement;
-  /** Right-hand column wrapper (`display: contents` normally): while 제작 is open it stacks 가방 over 함선 창고. */
+  /**
+   * **함선 창고 + 내 가방을 담는 한 장의 패널** (2026-09-15 2차, 사용자 결정 — `.inv-panel-grids`).
+   *
+   * 예전에는 `display: contents` 짜리 껍데기라 창고 · 장비 · 가방이 `.inv-layout` 의 세 카드로 서고 장비 열이
+   * 창고와 가방 **사이**에 끼어 있었다. 이제 창고와 가방은 어느 화면에서든(Tab 창 · 작업대 · 스테이션 · 기업 거래)
+   * 한 카드 안의 두 칸이고 — 왼쪽 창고 · 오른쪽 가방 (2026-09-12 결정 그대로) — **칸마다 자기 세로 스크롤 ·
+   * 자기 정렬 버튼 · 자기 필터 드롭다운**을 갖는다. 장비 열은 그 카드 왼쪽에 그대로 붙는다.
+   */
   private rightCol!: HTMLElement;
   disassemble!: DisassemblePanel;
   /**
@@ -127,7 +134,8 @@ export class InventoryUI {
   suppressClicksUntil = 0;
   /** 2026-09-12: 가방 · 창고 필터 — one choice for both grids (and the 주머니) of this window. */
   filterGroup: FilterGroupId = 'all';
-  private filterChips: FilterChips[] = [];
+  /** 2026-09-15 2차: 창고 · 가방 머리의 필터 드롭다운 (둘이 같은 `filterGroup` 을 보여 준다). */
+  private filterChips: FilterControl[] = [];
   /** 2026-09-12: the 가방 grid's scroll viewport (the fixed 12-row frame can be taller than a short window). */
   bagScroll!: HTMLElement;
 
@@ -233,25 +241,21 @@ export class InventoryUI {
     const sPanel = document.createElement('section');
     sPanel.className = 'inv-panel inv-panel-stash';
     sPanel.hidden = true;
+    /*
+     * 2026-09-15 2차 (사용자 결정): **창고 쪽 좌측 상단의 `STASH` / `함선 창고` 라벨은 없앴다.** 창고와 가방이
+     * 한 패널의 두 칸으로 나란히 서면서 「왼쪽 넓은 격자 = 창고」는 그림이 말한다. 머리에 남는 것은 개수 readout 과
+     * **이 칸만의** 정렬 버튼 · 필터 드롭다운뿐이다.
+     */
     const sHead = document.createElement('header');
-    sHead.className = 'inv-head';
-    const sTitleWrap = document.createElement('div');
-    sTitleWrap.className = 'inv-head-titles';
-    const sEyebrow = document.createElement('div');
-    sEyebrow.className = 'inv-eyebrow';
-    sEyebrow.textContent = 'STASH';
-    const sTitle = document.createElement('h2');
-    sTitle.className = 'inv-title';
-    sTitle.textContent = TEXT.stash;
-    sTitleWrap.append(sEyebrow, sTitle);
+    sHead.className = 'inv-head is-bare';
     this.stashCount = document.createElement('div');
     this.stashCount.className = 'inv-capacity';
     const sActions = document.createElement('div');
     sActions.className = 'inv-head-actions';
-    sActions.append(this.stashCount, buildSortButton(() => this.sortGrid('stash')));
-    sHead.append(sTitleWrap, sActions);
-    const sChips = buildFilterChips((id) => this.setFilterGroup(id));
+    const sChips = buildFilterSelect((id) => this.setFilterGroup(id));
     this.filterChips.push(sChips);
+    sActions.append(this.stashCount, buildSortButton(() => this.sortGrid('stash')), sChips.el);
+    sHead.append(sActions);
     this.stashView = new GridView('stash', getDef, getStats, this.tileHandlers());
     // 2026-09-09: 튜토리얼 중에는 창고에서 그 단계의 재료 · 산출물만 보인다 (`stashItem` 게이트, 꺼져 있으면 항상 false)
     this.stashView.setHideItem((item) => this.ctx.tutorial?.hides('stashItem', item.defId) ?? false);
@@ -260,8 +264,8 @@ export class InventoryUI {
     sScroll.appendChild(this.stashView.el);
     // 2026-09-08: 창고 하단의 '가방 ↔ 창고: 드래그 또는 우클릭…' 안내 줄은 없앴다 — 드래그와 우클릭은
     //   가방 격자에서 이미 하는 동작이라 화면에 한 줄 더 적어 둘 이유가 없다 (사용자 결정: 당연한 설명은 지운다).
-    // 2026-09-12 (사용자 결정): 필터 줄이 **패널의 맨 위** — 머리(제목 · 정렬)보다 위다
-    sPanel.append(sChips.el, sHead, sScroll);
+    // 2026-09-15 2차: 머리 한 줄(개수 · 정렬 · 필터) 아래 바로 격자다 — 따로 서던 필터 칩 줄은 없어졌다
+    sPanel.append(sHead, sScroll);
     this.stashPanel = sPanel;
 
     /* bag panel */
@@ -280,16 +284,15 @@ export class InventoryUI {
     craftBtn.className = 'inv-btn inv-bag-craft';
     craftBtn.textContent = TEXT.craft;
     craftBtn.addEventListener('click', () => this.toggleCraft());
-    bActions.append(this.bagCapacity, buildSortButton(() => this.sortGrid('bag')), craftBtn);
-    bHead.append(bActions);
-    const bChips = buildFilterChips((id) => this.setFilterGroup(id));
+    const bChips = buildFilterSelect((id) => this.setFilterGroup(id));
     this.filterChips.push(bChips);
     /*
-     * 2026-09-14 (사용자 결정): **`모두 수리` 는 가방 필터 줄의 맨 왼쪽**이다 — 작업대 헤더에서 옮겨 왔다.
+     * 2026-09-14 (사용자 결정): **`모두 수리` 는 가방 쪽 도구 줄의 맨 왼쪽**이다 — 작업대 헤더에서 옮겨 왔다.
      * 함선에 있으면 어떤 작업대를 열었든(열지 않았든) 눌린다: 수리 게이트는 `benchRepairRows` 의 「함선이냐」
      * 하나뿐이고, 레이드 중에는 그 목록이 비므로 버튼도 숨는다(`refresh`).
-     * 칩 줄은 `repeat(var(--inv-filter-n), 1fr)` 그리드라 칸 수를 건드리면 안 된다 — 그래서 버튼은 칩 줄
-     * **밖**에 서고 둘을 감싸는 flex 한 줄(`.inv-bag-tools`)이 자리를 나눈다 (`TradeGrids` 의 `.tg-tools` 와 같은 결).
+     *
+     * 2026-09-15 2차: 그 줄은 이제 **가방 칸의 머리 한 줄**이다 (`모두 수리` · `정렬` · 필터 드롭다운) —
+     * 격자 위에 따로 서던 칩 줄이 없어지면서 자리를 머리로 옮겼다. 창고 칸은 자기 머리에 자기 정렬 · 필터를 갖는다.
      */
     const bTools = document.createElement('div');
     bTools.className = 'inv-bag-tools';
@@ -300,7 +303,9 @@ export class InventoryUI {
     this.repairAllBtn.textContent = TEXT.bench.repairAll;
     this.repairAllBtn.title = TEXT.bench.repairAll;
     this.repairAllBtn.addEventListener('click', (e) => { e.stopPropagation(); this.repair.open(this.repairAllBtn); });
-    bTools.append(this.repairAllBtn, bChips.el);
+    bTools.append(this.repairAllBtn, buildSortButton(() => this.sortGrid('bag')), bChips.el);
+    bActions.append(this.bagCapacity, bTools, craftBtn);
+    bHead.append(bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     // 2026-09-12 (사용자 결정): the box is always as tall as the longest bag; a smaller bag leaves blank rows below
     this.bagView.setFrameRows(BAG_FRAME_ROWS);
@@ -352,9 +357,8 @@ export class InventoryUI {
     this.weightFill = document.createElement('i');
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
-    // 2026-09-12 (사용자 결정): 필터 줄이 **패널의 맨 위** — 가방 머리(용량 · 정렬 · 제작)보다 위다
-    // 2026-09-14: 그 줄은 이제 `모두 수리` 와 칩을 함께 담는 `.inv-bag-tools` 한 줄이다
-    bPanel.append(bTools, bHead, bBody, this.weightEl, bFoot);
+    // 2026-09-15 2차: 도구(`모두 수리` · 정렬 · 필터)는 가방 **머리 한 줄** 안이다 — 격자 위 칩 줄은 없어졌다
+    bPanel.append(bHead, bBody, this.weightEl, bFoot);
     this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor));
 
     /* equipment column */
@@ -384,11 +388,14 @@ export class InventoryUI {
       onClose: () => { this.sys.sfx('ui_drop'); this.sys.closeCatalog(); },
     });
 
-    /* 2026-09-07: 가방 + 함선 창고 share a wrapper. It is `display: contents` normally, so the flex `order`s below
-       keep today's row (창고 · 장비 · 가방); while the 제작 column is open it becomes a real column and stacks the
-       두 격자 on the right (가방 위 · 창고 아래). */
-    this.rightCol = document.createElement('div');
-    this.rightCol.className = 'inv-col-right';
+    /*
+     * 2026-09-15 2차 (사용자 결정) — **가방 + 함선 창고는 한 장의 패널이다.** 2026-09-07 의 `display: contents`
+     * 껍데기(창고 · 장비 · 가방이 각자 카드로 서고 장비가 그 사이에 끼던 배치)를 진짜 카드로 바꿨다. 순서는
+     * 안에서도 `.inv-panel-stash { order: 0 }` · `.inv-panel-bag { order: 2 }` 그대로라 **창고 왼쪽 · 가방 오른쪽**이고,
+     * 두 칸은 스크롤 · 정렬 · 필터를 따로 갖는다. 제작 열이 열려도 같은 카드다 (예전에는 이 자리에서 배치가 갈렸다).
+     */
+    this.rightCol = document.createElement('section');
+    this.rightCol.className = 'inv-panel inv-panel-grids inv-col-right';
     this.rightCol.append(bPanel, sPanel);
     layout.append(this.catalogView.el, this.rightCol, cPanel, this.craftPanel.el, eq);
 

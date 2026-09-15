@@ -30,20 +30,26 @@
 #     셋은 함께 채우거나 함께 비운다. 비어 있는 세포주는 스캐폴드가 든 칸에 넣을 수 없다.
 #   scaffold = 1 이면 배양 스캐폴드 (배지 다음 · 세포주 전에 넣고, 수확할 때 소모된다).
 #   retired = 1 이면 은퇴한 아이템 — 정의만 남고 모든 출처(루팅 · 상점 · 레시피 · 분석 결과 · 배양)에서 빠진다. 은퇴한 세포주는 strain* 칸도 비운다.
-# grenadeFire 칸은 수류탄만: true = 고폭 대신 작은 폭발 + 터진 자리에 화염 지대 (G-10 소이 수류탄, 2026-09-15).
-id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp,soilTag,soilUses,prepEnv,prepShort,pouchCols,pouchRows,pouchAccepts,strainOut,strainQty,strainHours,mediumUses,mediumSpeed,boostEffect,boostUseTime,soilDurability,mediumDurability,strainScaffoldOut,strainScaffoldQty,strainScaffoldHours,scaffold,retired,grenadeFire
-grenade_frag,G-12 고폭 수류탄,grenade,common,1,1,3,40,0.45,●,true,,,,,,,,,,,파편 수류탄. 반경 6 m 광역 피해.
-grenade_incendiary,G-10 소이 수류탄,grenade,uncommon,1,1,3,70,0.5,◉,true,,,,,,,,,,,소이 수류탄. 작은 폭발과 함께 터진 자리에 화염 지대를 남긴다 (피아 구분 없음).,,,,,,,,,,,,,,,,,,,,,,,,true
-heal_bandage,붕대,stim,common,1,1,5,45,0.15,▭,true,,,20,5,20,5,,,,,"천을 감아 지혈한다. 사용 5초, 5초에 걸쳐 체력 20 회복. 사용 중 이동 속도 50 %."
-heal_bandage_herb,약초 붕대,stim,uncommon,1,1,5,130,0.18,▤,true,,,50,5,50,5,,,,,"혈근초를 덧댄 붕대. 사용 5초, 5초에 걸쳐 체력 50 회복. 사용 중 이동 속도 50 %."
-heal_syringe,회복주사,stim,rare,1,1,3,260,0.2,✚,true,,,50,2,50,1,,,,,"가압 주사기. 사용 2초, 1초 만에 체력 50 회복. 사용 중 이동 속도 50 %."
-heal_spray,회복 스프레이,stim,epic,1,2,1,780,0.9,⌁,true,,=HEAL_SPRAY_GAUGE,,0,0,0,0.1,1,1,=HEAL_SPRAY_RADIUS,재생 촉진제 분무기. 좌클릭을 누르고 있으면 0.1초마다 게이지 1을 써서 반경 8 m 안의 자신과 아군을 체력 1씩 회복. 게이지 200. 사용 중 이동 속도 50 %.
-shield_charger,실드 충전기,stim,common,1,1,5,60,0.3,▰,true,,,,,,,,,,,"방탄복의 축전지를 급속 충전한다. 사용 2초, 실드 20 회복. 사용 중 이동 속도 50 %.",2,20
-shield_charger_hi,고출력 실드 충전기,stim,uncommon,1,1,5,170,0.35,▮,true,,,,,,,,,,,"용량을 키운 충전 팩. 사용 4초, 실드 40 회복. 사용 중 이동 속도 50 %.",4,40
-shield_charger_full,완충 실드 충전기,stim,rare,1,1,2,430,0.5,⬣,true,,,,,,,,,,,"군용 완충 카트리지. 사용 6초, 실드를 최대치까지 채운다. 사용 중 이동 속도 50 %.",6,-1
-boost_adrenaline,아드레날린 주사,stim,common,1,1,3,90,0.12,↯,true,,,,,,,,,,,"전투용 호르몬 자가 주사기. 숨이 턱까지 차 있어도 곧바로 다시 뛰게 해 준다. 질주 · 사다리 · 가방 부양으로는 지치지 않지만 점프 · 구르기 · 근접은 여전히 힘이 든다. 각성제 효과를 지운다.",,,,,,,,,,,,,,,adrenaline,3
-boost_stimulant,각성제,stim,uncommon,1,1,3,210,0.12,◎,true,,,,,,,,,,,"신경 반응을 끌어올리는 캡슐 주사. 손이 빨라지고 조준이 차분해지지만 몸은 그만큼 빨리 지친다. 아드레날린 효과를 지운다.",,,,,,,,,,,,,,,stimulant,3
-boost_stabilizer,안정제,stim,rare,1,1,2,460,0.2,⌬,true,,,,,,,,,,,"신경 인터페이스 안정화 앰플. 장착한 전술 임플란트의 과부하를 풀어 곧바로 다시 쓸 수 있게 한다. 임플란트가 이미 준비돼 있어도 주사하면 소모된다.",,,,,,,,,,,,,,,implant_refill,3
+# grenadeFire 칸은 수류탄만: true = 고폭 대신 작은 폭발 + 터진 자리에 화염 지대 (2026-09-15). `grenade` 열과 같은 뜻이다 (fire = true).
+# 2026-09-15 (가젯 개편, 사용자 결정) — grenadeFire 뒤에 두 칸을 붙였다 (나머지 줄은 그냥 비어 있다):
+#   grenade = 이 줄이 수류탄인가 · 어떤 수류탄인가 (frag = 파편 · fire = 화염). **ItemCategory 의 'grenade' 가 폐지돼**
+#     수류탄도 category 는 gadget 이고, 수류탄인지를 가르는 값은 이 칸 하나다 (ItemDef.grenade).
+#   gadgetUseTime = 가젯을 쓰거나 설치하기까지 좌클릭을 누르고 있어야 하는 초 (weapons/model.useTimeOf 가 읽는다).
+#     비우면 제세동기는 constants.csv 의 DEFIB_USE_TIME_S, 나머지는 0 이다. 회복약(healUseTime) · 실드 충전기
+#     (shieldUseTime) · 전투 소모품(boostUseTime) 과 **같은 홀드 틀**이다.
+id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp,soilTag,soilUses,prepEnv,prepShort,pouchCols,pouchRows,pouchAccepts,strainOut,strainQty,strainHours,mediumUses,mediumSpeed,boostEffect,boostUseTime,soilDurability,mediumDurability,strainScaffoldOut,strainScaffoldQty,strainScaffoldHours,scaffold,retired,grenadeFire,grenade,gadgetUseTime
+grenade_frag,파편 수류탄,gadget,common,1,1,3,40,0.315,●,true,,,,,,,,,,,핀을 뽑고 던지면 터지면서 파편을 흩뿌린다. 피아를 구분하지 않는다.,,,,,,,,,,,,,,,,,,,,,,,,,frag,0
+grenade_incendiary,화염 수류탄,gadget,uncommon,1,1,3,70,0.35,◉,true,,,,,,,,,,,작은 폭발과 함께 터진 자리에 화염 지대를 남긴다. 피아를 구분하지 않는다.,,,,,,,,,,,,,,,,,,,,,,,,true,fire,0
+heal_bandage,붕대,stim,common,1,1,5,45,0.15,▭,true,,,20,5,20,5,,,,,상처 부위에 감아 지혈하기 위한 회복 도구. 사용 중 이동속도가 느려진다.
+heal_bandage_herb,약초 붕대,stim,uncommon,1,1,5,130,0.18,▤,true,,,50,5,50,5,,,,,혈근초를 덧댄 붕대. 지혈과 함께 약초 성분이 살을 아물린다. 사용 중 이동속도가 느려진다.
+heal_syringe,회복주사,stim,rare,1,1,3,260,0.2,✚,true,,,50,2,50,1,,,,,가압 주사기. 찌르는 즉시 약물이 상처를 봉합한다. 사용 중 이동속도가 느려진다.
+heal_spray,회복 스프레이,stim,epic,1,2,1,780,0.9,⌁,true,,=HEAL_SPRAY_GAUGE,,0,0,0,0.1,1,1,=HEAL_SPRAY_RADIUS,재생 촉진제 분무기. 누르고 있는 동안 주변의 자신과 아군을 함께 회복시킨다. 사용 중 이동속도가 느려진다.
+shield_charger,실드 충전기,stim,common,1,1,5,60,0.3,▰,true,,,,,,,,,,,방탄복의 축전지를 급속 충전한다. 사용 중 이동속도가 느려진다.,2,20
+shield_charger_hi,고출력 실드 충전기,stim,uncommon,1,1,5,170,0.35,▮,true,,,,,,,,,,,용량을 키운 충전 팩. 사용 중 이동속도가 느려진다.,2,40
+shield_charger_full,완충 실드 충전기,stim,rare,1,1,2,430,0.5,⬣,true,,,,,,,,,,,군용 완충 카트리지. 방탄복 실드를 최대치까지 채운다. 사용 중 이동속도가 느려진다.,6,-1
+boost_adrenaline,아드레날린 주사,stim,common,1,1,3,90,0.12,↯,true,,,,,,,,,,,전투용 호르몬 자가 주사기. 지속 시간 동안 {em}스태미나 회복속도{/em}가 증가한다.{br}{dim}각성제와 동시 사용 불가{/dim},,,,,,,,,,,,,,,adrenaline,3
+boost_stimulant,각성제,stim,uncommon,1,1,3,210,0.12,◎,true,,,,,,,,,,,신경 반응을 끌어올리는 캡슐 주사. 지속 시간 동안 {em}장전 · 정조준 · 조준 안정{/em}이 빨라지는 대신 몸이 그만큼 빨리 지친다.{br}{dim}아드레날린과 동시 사용 불가{/dim},,,,,,,,,,,,,,,stimulant,3
+boost_stabilizer,안정제,stim,rare,1,1,2,460,0.2,⌬,true,,,,,,,,,,,신경 인터페이스 안정화 앰플. 장착한 전술 임플란트의 과부하를 풀어 곧바로 다시 쓸 수 있게 한다.{br}{dim}임플란트가 준비돼 있어도 소모된다{/dim},,,,,,,,,,,,,,,implant_refill,3
 gem_quartz,석영 결정,valuable,common,1,1,1,120,0.6,◇,,,,,,,,,,,,흔한 광물 결정. 소량의 가치.
 gem_amber,호박석,valuable,uncommon,1,1,1,260,0.35,◆,,,,,,,,,,,,외계 수액이 굳어 생긴 호박. 수집가들이 찾는 물건.
 gem_sapphire,청옥,valuable,rare,1,1,1,620,0.4,◆,,,,,,,,,,,,순도 높은 청색 보석.
@@ -103,19 +109,18 @@ soil_frost,동토 이탄,soil,uncommon,1,1,5,60,0.30,▩,,,,,,,,,,,,"얼었다 �
 soil_mineral,광물토,soil,rare,1,1,5,120,0.35,▩,,,,,,,,,,,,"금속 가루가 섞인 붉은 흙. 광물 속성 씨앗을 빨리 키운다.",,,mineral,5,,,,,,,,,,,,,250
 soil_saline,염류 결정토,soil,rare,1,1,5,120,0.35,▩,,,,,,,,,,,,"소금기가 굳어 반짝이는 흙. 염류 속성 씨앗을 빨리 키운다.",,,saline,5,,,,,,,,,,,,,250
 soil_spore,포자 부식토,soil,uncommon,1,1,5,65,0.32,▩,,,,,,,,,,,,"포자가 삭아 내려앉은 흙. 포자 속성 씨앗을 빨리 키운다.",,,spore,3,,,,,,,,,,,,,150
-gad_cloak_veil,은폐 장막,gadget,rare,1,2,2,620,1.1,◌,true,cloakVeil,,,,,,,,,,주변 아군까지 함께 은폐시키는 광학 장막. 12초.
-gad_dome_shield,돔 실드,gadget,epic,2,2,1,1350,5.8,⌓,true,domeShield,,,,,,,,,,던진 자리에 돔형 방어막을 전개한다. 내구도 1000.
-gad_barricade,바리케이드,gadget,rare,2,2,1,700,7.2,▥,true,barricade,,,,,,,,,,정면에 거대한 차폐물을 세운다. 누구나 3초 만에 회수할 수 있다.
-gad_lure,유인 수류탄,gadget,uncommon,1,1,3,180,0.5,☄,true,lureGrenade,,,,,,,,,,요란한 소음으로 벌레 떼의 시선을 끈다.
-gad_smoke,연막탄,gadget,common,1,1,3,110,0.55,☁,true,smokeGrenade,,,,,,,,,,시야를 가리는 연막. 안에서 쏘면 대충 그 방향으로 응사당한다.
-gad_mine,지뢰,gadget,uncommon,1,1,4,240,1.1,◎,true,mine,,,,,,,,,,3초 후 활성화. 피아를 가리지 않는다. 작지만 묵직하다.
-gad_turret,포탑 설치,gadget,epic,2,2,1,1600,9.5,⚙,true,turret,,,,,,,,,,자동 조준 포탑. 사이에 낀 아군도 맞는다. 회수 가능.
-gad_incendiary,화염수류탄,gadget,uncommon,1,1,3,210,0.6,♨,true,incendiary,,,,,,,,,,착탄점에 10초간 화염지대를 만든다. 피아 구분 없음.
-gad_defib,제세동기,gadget,rare,2,1,2,780,2.4,⚡,true,defib,,,,,,,,,,사용 1초. 쓰러진 아군을 즉시 만피로 일으켜 세운다.
-gad_jumppad,점프대,gadget,rare,2,2,1,640,6.4,⌃,true,jumpPad,,,,,,,,,,밟으면 튀어오른다. 달리면서 밟으면 전방으로 크게 도약. 회수 가능.
-gad_remote_mine,원격 지뢰,gadget,rare,1,1,4,340,1.2,▣,true,remoteMine,,,,,,,,,,"설치해 두고 손에 든 채 우클릭하면 내 원격 지뢰가 한꺼번에 터진다. 밟아도 안 터지고, 회수 가능."
-gad_drone_ground,지상 드론,gadget,rare,2,2,1,1150,4.8,⛭,true,droneGround,,,,,,,,,,"바닥에 내려놓고 조종하는 정찰 드론. 꺼내도 사라지지 않고 조종기로 남으며, 드론이 부서지면 하나가 사라진다. 위에 지뢰를 올릴 수 있다."
-gad_drone_air,공중 드론,gadget,epic,2,2,1,2200,3.6,✈,true,droneAir,,,,,,,,,,"공중에 띄워 조종하는 정찰 드론. 꺼내도 사라지지 않고 조종기로 남으며, 드론이 부서지면 하나가 사라진다. 연결이 끊겨도 제자리에 떠 있다."
+gad_cloak_veil,은폐 장막,gadget,rare,1,2,2,620,1.1,◌,true,cloakVeil,,,,,,,,,,주변 아군까지 함께 은폐시키는 광학 장막. 사격 · 질주 · 구르기는 은폐를 깨뜨린다.,,,,,,,,,,,,,,,,,,,,,,,,,,0.5
+gad_dome_shield,돔 실드,gadget,epic,1,1,1,1350,0.35,⌓,true,domeShield,1000,,,,,,,,,던진 자리에 돔형 방어막을 전개한다. 적의 발사체만 막으며 받은 피해가 내구도로 남는다.,,,,,,,,,,,,,,,,,,,,,,,,,,0
+gad_barricade,바리케이드,gadget,rare,2,1,1,700,1.5,▥,true,barricade,1800,,,,,,,,,정면에 대형 차폐물을 세운다. 총알과 벌레를 모두 막고 누구나 해체해 회수할 수 있다.,,,,,,,,,,,,,,,,,,,,,,,,,,2
+gad_lure,유인 수류탄,gadget,uncommon,1,1,3,180,0.5,☄,true,lureGrenade,,,,,,,,,,요란한 소음으로 벌레 떼의 시선을 끈다. 원거리 적은 이쪽을 쏜다.,,,,,,,,,,,,,,,,,,,,,,,,,,0
+gad_smoke,연막탄,gadget,common,1,1,3,110,0.4,☁,true,smokeGrenade,,,,,,,,,,시야를 가리는 연막. 안에서 쏘면 대충 그 방향으로 응사당한다.,,,,,,,,,,,,,,,,,,,,,,,,,,0
+gad_mine,지뢰,gadget,uncommon,1,1,3,240,0.8,◎,true,mine,,,,,,,,,,밟으면 터지는 압력 지뢰. 설치하고 잠시 뒤 활성화되며 피아를 가리지 않는다.,,,,,,,,,,,,,,,,,,,,,,,,,,1
+gad_turret,자동 사격 포탑,gadget,epic,2,2,1,1600,9.5,⚙,true,turret,,,,,,,,,,정면에 세우는 자동 포탑. 사거리 안의 적을 알아서 쏘지만 사선에 낀 아군도 맞는다. 회수 가능.,,,,,,,,,,,,,,,,,,,,,,,,,,2
+gad_defib,제세동기,gadget,rare,2,1,2,780,0.6,⚡,true,defib,,,,,,,,,,쓰러진 아군을 즉시 회복시킨다.
+gad_jumppad,점프대,gadget,rare,2,1,1,640,1.2,⌃,true,jumpPad,,,,,,,,,,밟으면 튀어오른다. 달리면서 밟으면 전방으로 크게 도약. 회수 가능.,,,,,,,,,,,,,,,,,,,,,,,,,,1.5
+gad_remote_mine,원격 지뢰,gadget,rare,1,1,3,340,0.9,▣,true,remoteMine,,,,,,,,,,"설치해 두고 손에 든 채 우클릭하면 내 원격 지뢰가 한꺼번에 터진다. 밟아도 안 터지고, 회수 가능.",,,,,,,,,,,,,,,,,,,,,,,,,,1
+gad_drone_ground,지상 드론,gadget,rare,2,2,1,1150,1.6,⛭,true,droneGround,,,,,,,,,,"바닥에 내려놓고 조종하는 정찰 드론. 꺼내도 사라지지 않고 조종기로 남으며, 드론이 부서지면 하나가 사라진다. 위에 지뢰를 올릴 수 있다.",,,,,,,,,,,,,,,,,,,,,,,,,,1
+gad_drone_air,공중 드론,gadget,epic,2,2,1,2200,1.2,✈,true,droneAir,,,,,,,,,,"공중에 띄워 조종하는 정찰 드론. 꺼내도 사라지지 않고 조종기로 남으며, 드론이 부서지면 하나가 사라진다. 연결이 끊겨도 제자리에 떠 있다.",,,,,,,,,,,,,,,,,,,,,,,,,,1
 
 prep_respirator,여과 호흡기,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"유독 대기를 걸러 내는 반면형 호흡기. 함선에서 쓰면 다음 레이드 한 번 동안 유독 환경 피해를 완전히 막는다.",,,,,toxin,방독
 prep_coolant,내열 냉각재,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"몸에 두르는 상변화 냉각재. 함선에서 쓰면 다음 레이드 한 번 동안 고온 환경 피해를 완전히 막는다.",,,,,heat,내열

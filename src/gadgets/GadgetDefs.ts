@@ -1,6 +1,6 @@
 import {
   GADGET_BARRICADE_HP, GADGET_BARRICADE_RECOVER_TIME, GADGET_CLOAK_DURATION, GADGET_CLOAK_SHARE_RADIUS,
-  GADGET_DEFUSE_TIME, GADGET_DOME_HP, GADGET_DOME_RADIUS, GADGET_INCENDIARY_DURATION, GADGET_INCENDIARY_RADIUS,
+  GADGET_DEFUSE_TIME, GADGET_DOME_HP, GADGET_DOME_RADIUS,
   GADGET_LURE_DURATION, GADGET_LURE_RADIUS, GADGET_MINE_RADIUS, GADGET_SMOKE_DURATION, GADGET_SMOKE_RADIUS,
   GADGET_TURRET_DURATION, GADGET_TURRET_HP, GADGET_TURRET_RANGE,
   GADGET_BARRICADE_RADIUS, GADGET_DEFIB_RANGE, GADGET_JUMPPAD_HP, GADGET_JUMPPAD_RADIUS, GADGET_LURE_HP, GADGET_MINE_HP,
@@ -9,24 +9,29 @@ import {
 /* 2026-09-11: 원격 지뢰 · 드론 */
 import {
   DRONE_AIR_HP, DRONE_AIR_RANGE, DRONE_GROUND_HP, DRONE_GROUND_RANGE, DRONE_RECOVER_HOLD_S,
-  GADGET_REMOTE_MINE_ARM_TIME, GADGET_REMOTE_MINE_HP, GADGET_REMOTE_MINE_RADIUS,
-  GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_DAMAGE, GADGET_REMOTE_MINE_MAX_LIVE, GADGET_REMOTE_MINE_STACK_MUL,
+  GADGET_REMOTE_MINE_HP, GADGET_REMOTE_MINE_RADIUS,
 } from '@/shared';
-/* 2026-09-15 (B-16): G-10 소이 수류탄 화염 지대 */
-import { GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS } from '@/shared';
+/* 2026-09-15 (가젯 개편, 사용자 결정): 돔 실드 회수 시간 · 화염 지대 수치 통합 (아래 「화염 통합」 주석) */
+import { GADGET_DOME_RECOVER_TIME, GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS } from '@/shared';
 
 /**
- * The ten special gadgets. Owned by `src/gadgets/` — `items/` only references them through
- * `ItemDef.gadgetId`, and everyone else reads them via `ctx.gadgets.getDefs()`.
+ * 특수 가젯 정의. Owned by `src/gadgets/` — `items/` only references them through `ItemDef.gadgetId`,
+ * and everyone else reads them via `ctx.gadgets.getDefs()`.
  *
  * `radius` is the gameplay radius the gadget advertises (blast / cloud / cloak share / turret range);
  * physical trigger and collider sizes are private tuning constants in `GadgetSystem` / `Deployable`.
+ *
+ * **2026-09-15 (가젯 개편, 사용자 결정) — `description` 에는 숫자를 적지 않는다.** 사거리 · 지속 · 내구도 ·
+ * 사용 시간은 툴팁의 **스펙 줄**이 이 정의(`duration` · `hp` · `radius` · `recoverTime`)와 아이템 def 에서
+ * 읽어 그린다. 설명은 「무엇을 하는 물건인가」만 말한다 — 같은 숫자를 두 곳에서 말하면 표를 고칠 때 글이
+ * 따라오지 않는다 (2026-09-12 「설명 글에 툴팁이 이미 보여 주는 숫자를 적지 않는다」와 같은 근거).
+ * 필드 값 자체는 그대로다 (툴팁이 그것을 읽는다).
  */
 export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'cloakVeil',
     name: '은폐 장막',
-    description: `사용 즉시 자신과 반경 ${GADGET_CLOAK_SHARE_RADIUS} m 안의 아군을 ${GADGET_CLOAK_DURATION}초간 은폐시킨다. 사격·질주·구르기는 은폐를 깨뜨린다.`,
+    description: '사용 즉시 자신과 주변 아군을 은폐시킨다. 사격·질주·구르기는 은폐를 깨뜨린다.',
     use: 'self',
     deployable: null,
     duration: GADGET_CLOAK_DURATION,
@@ -37,35 +42,43 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     color: '#9fd8ff',
   },
   {
+    /**
+     * 2026-09-15 (사용자 결정): 던진 자리에 **돔 실드 개체**가 서고 그 둘레로 방어막이 켜진다.
+     * 개체를 꾹 누르면 회수되고(`GADGET_DOME_RECOVER_TIME`), 방어막이 깎인 만큼이 **아이템 내구도**로 남는다
+     * (`wearsItemDurability` — 최대 hp 는 여기 `hp` 가 아니라 그 아이템의 `ItemDef.durabilityMax`).
+     */
     id: 'domeShield',
     name: '돔 실드',
-    description: `던진 자리에 반경 ${GADGET_DOME_RADIUS} m 돔형 방어막을 전개한다. 적의 발사체만 막으며 내구도 ${GADGET_DOME_HP}.`,
+    description: '던진 자리에 방어막 발생기를 세운다. 돔은 적의 발사체만 막고, 발생기를 꾹 누르면 회수된다.',
     use: 'throw',
     deployable: 'domeShield',
     duration: 0,
     hp: GADGET_DOME_HP,
     radius: GADGET_DOME_RADIUS,
-    recoverTime: 0,
+    recoverTime: GADGET_DOME_RECOVER_TIME,
+    wearsItemDurability: true,
     icon: '⌒',
     color: '#6fe0ff',
   },
   {
     id: 'barricade',
     name: '바리케이드',
-    description: `정면에 대형 차폐물을 설치한다. 총알과 벌레를 모두 막으며, 누구나 ${GADGET_BARRICADE_RECOVER_TIME}초 상호작용으로 해체해 회수할 수 있다.`,
+    description: '조준한 자리에 대형 차폐물을 설치한다. 총알과 벌레를 모두 막고, 누구나 꾹 눌러 회수할 수 있다.',
     use: 'place',
     deployable: 'barricade',
     duration: 0,
     hp: GADGET_BARRICADE_HP,
     radius: GADGET_BARRICADE_RADIUS,
     recoverTime: GADGET_BARRICADE_RECOVER_TIME,
+    /* 2026-09-15 (사용자 결정): 돔 실드와 같은 규칙 — 맞은 만큼이 아이템 내구도로 남아 작업대 수리가 필요해진다. */
+    wearsItemDurability: true,
     icon: '▤',
     color: '#c9a227',
   },
   {
     id: 'lureGrenade',
     name: '유인 수류탄',
-    description: `착탄점에서 ${GADGET_LURE_DURATION}초간 소음을 내 반경 ${GADGET_LURE_RADIUS} m 의 벌레를 끌어당긴다. 원거리 적은 이쪽을 쏜다.`,
+    description: '착탄점에서 소음을 내 주변의 벌레를 끌어당긴다. 원거리 적은 이쪽을 쏜다.',
     use: 'throw',
     deployable: 'lure',
     duration: GADGET_LURE_DURATION,
@@ -78,7 +91,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'smokeGrenade',
     name: '연막탄',
-    description: `반경 ${GADGET_SMOKE_RADIUS} m 연막을 ${GADGET_SMOKE_DURATION}초간 피운다. 적의 시야를 가리지만, 연막 안에서 사격하면 그 위치로 부정확한 대응사격이 날아온다.`,
+    description: '연막을 피워 적의 시야를 가린다. 연막 안에서 사격하면 그 위치로 부정확한 대응사격이 날아온다.',
     use: 'throw',
     deployable: 'smoke',
     duration: GADGET_SMOKE_DURATION,
@@ -91,7 +104,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'mine',
     name: '지뢰',
-    description: `설치 3초 뒤 활성화되고, 밟으면 반경 ${GADGET_MINE_RADIUS} m 를 폭파한다. 피아를 구분하지 않는다. 드론 위에 올리면 반경 ${GADGET_MOUNTED_MINE_TRIGGER_RADIUS} m 안의 적에게만 반응한다. ${GADGET_DEFUSE_TIME}초 상호작용으로 해체.`,
+    description: '설치 후 활성화되고, 밟으면 폭발한다. 피아를 구분하지 않는다. 드론 위에 올리면 적에게만 반응한다.',
     use: 'place',
     deployable: 'mine',
     duration: 0,
@@ -102,9 +115,10 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     color: '#ff5a3c',
   },
   {
+    /* 2026-09-15 (사용자 결정): 이름은 「포탑 설치」 → **자동 사격 포탑** (items.csv 의 아이템 이름도 같이 바뀐다). */
     id: 'turret',
-    name: '포탑 설치',
-    description: `정면에 자동 포탑을 세운다. ${GADGET_TURRET_RANGE} m 안의 적을 자동 사격하지만 사선의 아군도 맞는다. ${GADGET_TURRET_DURATION}초 후 정지, 상호작용으로 회수.`,
+    name: '자동 사격 포탑',
+    description: '조준한 자리에 자동 포탑을 세운다. 사거리 안의 적을 알아서 쏘지만 사선의 아군도 맞는다. 꾹 눌러 회수.',
     use: 'place',
     deployable: 'turret',
     duration: GADGET_TURRET_DURATION,
@@ -115,22 +129,9 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     color: '#7cf07a',
   },
   {
-    id: 'incendiary',
-    name: '화염수류탄',
-    description: `착탄점에 ${GADGET_INCENDIARY_DURATION}초간 화염 지대를 만든다. 피아를 구분하지 않고 화상을 입힌다.`,
-    use: 'throw',
-    deployable: 'fire',
-    duration: GADGET_INCENDIARY_DURATION,
-    hp: 0,
-    radius: GADGET_INCENDIARY_RADIUS,
-    recoverTime: 0,
-    icon: '🔥',
-    color: '#ff7a1a',
-  },
-  {
     id: 'defib',
     name: '제세동기',
-    description: '쓰러진 아군을 즉시 최대 체력으로 일으켜 세운다. 사거리 안에 다운된 아군이 있어야 사용된다.',
+    description: '쓰러진 아군을 즉시 회복시킨다. 좌클릭을 꾹 눌러 충전한 뒤 대상을 겨누고 놓는다.',
     use: 'target',
     deployable: null,
     duration: 0,
@@ -143,7 +144,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'jumpPad',
     name: '점프대',
-    description: '밟으면 높이 튀어오르고, 달리면서 밟으면 전방으로 크게 도약한다. 상호작용으로 회수.',
+    description: '밟으면 높이 튀어오르고, 달리면서 밟으면 전방으로 크게 도약한다. 꾹 눌러 회수.',
     use: 'place',
     deployable: 'jumpPad',
     duration: 0,
@@ -157,7 +158,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'remoteMine',
     name: '원격 지뢰',
-    description: `설치 ${GADGET_REMOTE_MINE_ARM_TIME}초 뒤 무장된다. 손에 들고 우클릭하면 내가 설치한 원격 지뢰가 한꺼번에 터진다 (반경 ${GADGET_REMOTE_MINE_RADIUS} m, 중심 피해 ${GADGET_REMOTE_MINE_DAMAGE}). 여러 발에 함께 맞으면 가장 센 한 발만 온전히, 나머지는 각각 ${Math.round(GADGET_REMOTE_MINE_STACK_MUL * 100)} % 로 들어간다. 밟아도 터지지 않고, 부서지면 불발로 사라진다. 한 사람당 ${GADGET_REMOTE_MINE_MAX_LIVE}개까지, ${GADGET_DEFUSE_TIME}초 상호작용으로 회수. 드론 위에도 올릴 수 있다.`,
+    description: '설치하면 잠시 뒤 무장된다. 손에 들고 우클릭하면 내가 설치한 것이 한꺼번에 터진다. 밟아도 터지지 않고, 부서지면 불발로 사라진다. 꾹 눌러 회수하거나 드론 위에 올릴 수 있다.',
     use: 'place',
     deployable: 'remoteMine',
     duration: 0,
@@ -170,7 +171,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'droneGround',
     name: '지상 드론',
-    description: `바닥에 내려놓는 정찰 드론. 손에 들고 R 을 꾹 누르면 드론 시점으로 조종한다 (사거리 ${DRONE_GROUND_RANGE} m, 내구도 ${DRONE_GROUND_HP}). 달리면 빠르지만 소리가 나 적이 알아챈다. 위에 지뢰를 올릴 수 있다.`,
+    description: '바닥에 내려놓는 정찰 드론. 손에 들고 R 을 꾹 누르면 드론 시점으로 조종한다. 달리면 빠르지만 소리가 나 적이 알아챈다. 위에 지뢰를 올릴 수 있다.',
     use: 'drone',
     deployable: null,
     duration: 0,
@@ -183,7 +184,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   {
     id: 'droneAir',
     name: '공중 드론',
-    description: `공중에 띄우는 정찰 드론. 손에 들고 R 을 꾹 누르면 조종한다 — Space 상승 · C 하강 (사거리 ${DRONE_AIR_RANGE} m, 내구도 ${DRONE_AIR_HP}). 연결이 끊겨도 제자리에 떠 있고, 갈고리를 걸 수 있다.`,
+    description: '공중에 띄우는 정찰 드론. 손에 들고 R 을 꾹 누르면 조종한다 — Space 상승 · C 하강. 연결이 끊겨도 제자리에 떠 있고, 갈고리를 걸 수 있다.',
     use: 'drone',
     deployable: null,
     duration: 0,
@@ -196,61 +197,79 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
 ];
 
 /**
- * 2026-09-15 (B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): **아이템이 없는 내부 정의**. G-10 소이 수류탄
- * (`ItemDef.grenadeFire`)이 터진 자리의 작은 화염 지대 — weapons 가 `GadgetsRef.igniteGrenadeFire(pos)` 로만 세운다.
- * `getDefs()` · `GADGET_IDS` · 퀵슬롯 · 콘솔 어디에도 나오지 않고 `use()` 는 거절한다(아이템 매칭이 없으면 소모 없이 통과하는
- * 옛 병렬 개발 규칙 때문에, 막지 않으면 공짜 화염이 된다). `gadgetForKind('fire')` 는 여전히 화염수류탄이다 —
- * 복제본은 `defForWire` 가 id 표식으로 이 정의를 되찾는다.
+ * **아이템이 없는 내부 정의.** `getDefs()` · 퀵슬롯 · 콘솔 어디에도 나오지 않고 `use()` 는 거절한다
+ * (`isInternalGadget` — 아이템 매칭이 없으면 소모 없이 통과하는 옛 병렬 개발 규칙 때문에, 막지 않으면 공짜로 쓸 수 있다).
+ *
+ * ## 화염 통합 (2026-09-15, 사용자 결정)
+ *
+ * 화염 지대를 만드는 길이 **둘**이었다 — 던지는 가젯 `화염수류탄`(아이템 `gad_incendiary`, `GADGET_INCENDIARY_*`
+ * 반경 5 · 10 초)과 G-10 소이 수류탄이 터진 자리의 내부 가젯 `grenadeFire`(`GRENADE_INCENDIARY_*` 반경 3.5 · 6 초).
+ * 이제 하나다:
+ *
+ * - **아이템 `gad_incendiary` 가 사라진다** (items.csv · alias → `grenade_incendiary`). 살아남는 것은
+ *   **「화염 수류탄」 `grenade_incendiary`** 이고 **폭발과 화염 지대를 동시에** 한다 (폭발은 weapons `Grenade`
+ *   의 `GRENADE_INCENDIARY_BLAST_*`, 지대는 여기).
+ * - **살아남는 수치는 `GRENADE_INCENDIARY_*`** 다 — 「폭발 + 지대」 한 벌로 튜닝된 값이고 폭발 수치
+ *   (`GRENADE_INCENDIARY_BLAST_*`)와 같은 묶음이기 때문이다. `GADGET_INCENDIARY_RADIUS` ·
+ *   `GADGET_INCENDIARY_DURATION` 은 **은퇴**(리드가 csv 를 정리한다). 초당 피해 `GADGET_INCENDIARY_DPS` 는
+ *   지대 전체의 값이라 **그대로 산다**.
+ * - **가젯 id 는 `incendiary` 하나로 남는다** — `GadgetId` 는 계약이라 `grenadeFire` 도 타입에 그대로 있지만
+ *   (`airstrike` · `secondary` 와 같은 은퇴 표시) **정의는 없다**. 그래서 `deployable: 'fire'` 를 만드는 정의가
+ *   정확히 하나가 되고, `gadgetForKind('fire')` 가 모호하지 않게 답한다.
+ * - 그 모호함을 풀려고 만들었던 **배치물 id 의 `-gf` 표식은 필요 없어졌다** (`deployableIdFor` 는 늘 `-g`,
+ *   `defForWire` 는 `kind` 만 본다 — 옛 `-gf` id 를 받아도 같은 정의로 풀리므로 호환도 그대로다).
  */
 export const INTERNAL_GADGET_DEFS: readonly GadgetDef[] = [
   {
-    id: 'grenadeFire',
-    name: '소이 화염',
-    description: `G-10 소이 수류탄이 터진 자리에 ${GRENADE_INCENDIARY_DURATION}초간 반경 ${GRENADE_INCENDIARY_RADIUS} m 화염 지대를 남긴다. 피아를 구분하지 않고 화상을 입힌다.`,
+    id: 'incendiary',
+    name: '화염 지대',
+    description: '화염 수류탄이 터진 자리에 남는 불. 피아를 구분하지 않고 화상을 입힌다.',
     use: 'throw',
     deployable: 'fire',
     duration: GRENADE_INCENDIARY_DURATION,
     hp: 0,
     radius: GRENADE_INCENDIARY_RADIUS,
     recoverTime: 0,
-    icon: '◉',
+    icon: '🔥',
     color: '#ff7a1a',
   },
 ];
 
 const BY_ID = new Map<GadgetId, GadgetDef>([...GADGET_DEFS, ...INTERNAL_GADGET_DEFS].map((d) => [d.id, d]));
+/** 공개 정의가 먼저, 내부 정의는 그 종류를 아무도 안 만들 때만 (지금은 `fire` 하나). */
 const BY_KIND = new Map<DeployableKind, GadgetDef>();
-for (const d of GADGET_DEFS) if (d.deployable) BY_KIND.set(d.deployable, d);
+for (const d of [...GADGET_DEFS, ...INTERNAL_GADGET_DEFS]) if (d.deployable && !BY_KIND.has(d.deployable)) BY_KIND.set(d.deployable, d);
 const INTERNAL_IDS = new Set<GadgetId>(INTERNAL_GADGET_DEFS.map((d) => d.id));
 
 export function gadgetDef(id: GadgetId): GadgetDef | undefined { return BY_ID.get(id); }
-/**
- * Every **public** deployable kind is produced by exactly one gadget, so the reverse lookup is unambiguous.
- * 2026-09-15: 내부 정의(`grenadeFire`)는 여기 없다 — `fire` 는 화염수류탄. 배치물의 정의가 필요하면 `gadgetDef(d.gadgetId)` 를 먼저 본다.
- */
+/** Every deployable kind is produced by exactly one gadget, so the reverse lookup is unambiguous. */
 export function gadgetForKind(kind: DeployableKind): GadgetDef | undefined { return BY_KIND.get(kind); }
-/** 2026-09-15: 아이템 없이 코드만 세우는 내부 가젯인가 (`use()` 가 거절한다). */
+/** 아이템 없이 코드만 세우는 내부 가젯인가 (`use()` 가 거절한다). */
 export function isInternalGadget(id: GadgetId): boolean { return INTERNAL_IDS.has(id); }
 
 /**
- * 2026-09-15 (B-16): 배치물 id. `DeployableWire` 에는 가젯 id 칸이 없어서(`kind` 만 있다) 복제본이 G-10 화염 지대(반경 3.5 · 6 초)와
- * 화염수류탄(5 · 10 초)을 가를 수 없다 — 그래서 id 를 정하는 쪽(권위자 · 호스트)이 **`-gf`** 표식을 넣는다: `${peer}-gf${n}`.
- * 와이어 모양은 그대로다 (id 는 원래 불투명한 문자열). 계약에 `DeployableWire.gadget` 이 생기면 이 표식은 지워도 된다.
+ * 배치물 id. 2026-09-15 의 화염 통합으로 `fire` 를 만드는 정의가 하나뿐이 되어 **`-gf` 표식은 은퇴했다**
+ * (그 전에는 `DeployableWire` 에 가젯 id 칸이 없어 화염수류탄과 G-10 화염을 id 로 갈라야 했다).
+ * 인자 `gadget` 은 호출부를 그대로 두려고 남긴 것이고 id 모양에 영향을 주지 않는다.
  */
-const GRENADE_FIRE_ID = /-gf\d+$/;
 export function deployableIdFor(base: string, seq: number, gadget?: GadgetId): string {
-  return `${base}-${gadget === 'grenadeFire' ? 'gf' : 'g'}${seq}`;
+  void gadget;
+  return `${base}-g${seq}`;
 }
-/** 와이어의 배치물 → 그 정의 (`fire` + `-gf` 표식 = G-10 화염 지대, 나머지는 `gadgetForKind`). */
+/** 와이어의 배치물 → 그 정의. `kind` 하나로 정해진다 (옛 `-gf` id 도 같은 정의로 풀린다). */
 export function defForWire(w: { id: string; kind: DeployableKind }): GadgetDef | undefined {
-  if (w.kind === 'fire' && GRENADE_FIRE_ID.test(w.id)) return BY_ID.get('grenadeFire');
   return BY_KIND.get(w.kind);
 }
 
-/** Deployables that hand an item back when someone finishes the recover interaction. */
+/**
+ * Deployables that hand an item back when someone finishes the recover interaction.
+ * 2026-09-15: 돔 실드가 들어왔다 — 중앙 발생기를 꾹 눌러 회수하고 남은 hp 가 아이템 내구도로 간다.
+ */
 export const RECOVERABLE_KINDS: readonly DeployableKind[] = ['barricade', 'turret', 'jumpPad',
   /* 2026-09-11: 원격 지뢰는 밟아도 안 터지는 소유자 도구라 회수하면 아이템이 돌아온다 (바닥 지뢰는 해체 = 반환 없음 그대로) */
-  'remoteMine'];
+  'remoteMine',
+  /* 2026-09-15 (사용자 결정) */
+  'domeShield'];
 export function isRecoverable(kind: DeployableKind): boolean { return RECOVERABLE_KINDS.includes(kind); }
 
 /** Deployables enemies should attack when they block or annoy them. */

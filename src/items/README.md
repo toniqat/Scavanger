@@ -8,8 +8,10 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
 | `ItemDefs.ts` | `ItemDef` 전부 (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (**10**, Phase 8 + 2026-09-11 온실 개편 — `SeedDef.soilTag` 포함), **`SAMPLE_ITEM_DEFS` (14 = 새 3 + 은퇴 11, 2026-09-11 연구실 · 2026-09-13 요리 재료 티어 — `data/samples.csv`, `ItemDef.sample` 의 `family`) · `SOCKET_ITEM_DEFS` (14, 2026-09-13 — `data/sockets.csv`, `ItemDef.growSocket`, 표본 바로 뒤) · 은퇴 `ItemDef.retired`**, **서재 매체 (2026-09-13 서재 시리즈 — `data/library_series.csv` 에서 생성, 아래 *서재 시리즈 · 비디오게임*): `BOOK_ITEM_DEFS` 128 · `DISC_ITEM_DEFS` 26 · `RECORD_ITEM_DEFS` 10 · `LIBRARY_ITEM_DEFS` · `LIBRARY_ITEMS_BY_SERIES` · `libraryItemIdFor` · `libraryItemName` · `libraryItemDefOf` · `libraryShelfOf` · `LIBRARY_BOOK_RARITY`** (옛 `bookItemIdFor` · `BOOK_DEF_BY_SKILL` · `discItemIdFor` · `recordItemIdFor` · `DISC_DEF_BY_SKILL` · `RECORD_DEF_BY_SKILL` 삭제), **비디오게임 `GAME_CONSOLE_ITEM_DEFS` 3 · `GAME_DISC_ITEM_DEFS` 9 · `GAME_ITEM_PLANETS` · `GAME_PATTERN_TOKENS` (`data/game_consoles.csv` · `data/game_discs.csv`, 서재 매체 바로 뒤)**, `getItemDef` 는 옛 id 를 `resolveItemAlias` 로 풀어서 찾는다, `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials, **약초 6 · 작물 8 · 토양 6 · 준비물 2 (2026-09-11, `ItemDef.soil = {tag, uses}` 는 `items.csv` 의 `soilTag` · `soilUses` 선택 열에서, `ItemDef.prep = {env, short}` 는 `prepEnv` · `prepShort` 선택 열에서 온다)**, **`MEAL_ITEM_DEFS` (10, 2026-09-11 주방 A-3c — `data/meals.csv`, `ItemDef.meal`)**, **주머니 4 · 세포주 5 · 배지 2 · 배양 산물 5 · 필라멘트 3 · 열쇠 1 (2026-09-11 A-14 · A-15 — `items.csv` 의 선택 열 `pouchCols`/`pouchRows`/`pouchAccepts` → `ItemDef.pouch`, `strainOut`/`strainQty`/`strainHours` → `ItemDef.strain`, `mediumUses`/`mediumSpeed` → `ItemDef.medium`)**, `ITEM_CATEGORIES` (`CATEGORY_LABEL_KO` 의 키 — csv 카테고리 목록 칸 검증용); rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5). **2026-09-10: `repairCost` 는 여기서 사라졌다** — 수리비는 제작 재료 × 내구도 구간 배수이고 구현은 `Salvage.repairCostFor` 다 |
-| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*); **2026-09-13** `RETIRED_ITEM_IDS` · `isLootableDef` — 은퇴한 아이템은 모든 티어 배수 0 + `Loot.pickDef` 후보 제외 (아래 *요리 재료 티어*); **2026-09-13** 행성 고정 드롭 `PLANET_BOUND_CATEGORIES` · `lootPlanetsOf(def)` · `isLootableOnPlanet(def, planet)` · `libraryVolumeWeight(def)` (`LIBRARY_VOLUME_DROP_WEIGHT`) · `planetCategoryAvailable(cat, planet)` · `libraryBookPool(planet)` (아래 *서재 시리즈 · 비디오게임*) |
+| `LootTables.ts` | **2026-09-15 (가젯 개편 후속)**: 루팅 추첨의 카테고리 축이 `ItemCategory` 와 갈라졌다 — **`LootCategory` = `ItemCategory` + `'grenade'`** · `LOOT_CATEGORIES` · **`lootCategoryOf(def)`**(`ItemDef.grenade` 가 있으면 `grenade`, 아니면 `def.category`). `loot_category_weights.csv` · `loot_guaranteed.csv` 의 `category` 칸을 이제 **로더가 검증한다**(`enum` · `enumList`) — 이 버그가 조용했던 이유가 검증 없는 `as ItemCategory` 캐스트였다. `TierTable.categoryWeights` · `GuaranteedRoll.categories` · `planetCategoryAvailable` 의 타입이 `LootCategory` 다. **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %); **2026-09-11** `NAMED_DROPS` / `NAMED_DROP_MAP` / `NamedDrop` / `numberedArmorIdForTier` (`data/loot_named.csv`, 아래 *네임드 로그 확정 드롭*); **2026-09-13** `RETIRED_ITEM_IDS` · `isLootableDef` — 은퇴한 아이템은 모든 티어 배수 0 + `Loot.pickDef` 후보 제외 (아래 *요리 재료 티어*); **2026-09-13** 행성 고정 드롭 `PLANET_BOUND_CATEGORIES` · `lootPlanetsOf(def)` · `isLootableOnPlanet(def, planet)` · `libraryVolumeWeight(def)` (`LIBRARY_VOLUME_DROP_WEIGHT`) · `planetCategoryAvailable(cat, planet)` · `libraryBookPool(planet)` (아래 *서재 시리즈 · 비디오게임*) |
 | `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*; **2026-09-10** 부터 총기가 아닌 것들에는 행성 희귀도 배수도 걸린다 — 아래 *행성별 희귀도 배수*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()`. **2026-09-13**: `getItemDef` · `createItem` 이 옛 서재 매체 id 를 `resolveItemAlias` 로 새 id 로 푼다(인스턴스 `defId` 도 새 id), 상자 굴림 · 로그 시체 서적 굴림이 **그 레이드 행성의** 서재 매체 · 게임 아이템만 권 가중치로 뽑는다 |
+| `ItemText.ts` | **2026-09-15 (가젯 개편, 사용자 결정)** — 아이템 설명의 **인라인 마크업** 파서. `data/items.csv` 의 `description` 이 `{em}…{/em}`(강조색) · `{dim}…{/dim}`(회색) · `{br}`(줄바꿈) 토큰을 쓸 수 있고, `parseItemText(text)` 가 **줄마다의 조각 목록**(`ItemTextLine[]` = `{text, style}`)을 돌려준다. 순수 함수다 — 그림은 `ui/hud/ItemTip` 과 `inventory/ui/Tooltip` 이 각자 자기 팔레트(`--c-accent` / `--inv-accent`, `--c-text-dim` / `--inv-muted`)로 그리고 **같은 함수를 부르므로 문장은 하나**다. 토큰 이름 규약은 `shared/keycap.renderKeyText` 와 같고, 모르는 토큰(`{foo}`)은 글자 그대로 남는다. `plainItemText` 는 마크업을 걷어낸 맨 글자 |
+| `ItemSpec.ts` | **2026-09-15 (가젯 개편, 사용자 결정)** — 카드의 **스펙 줄** `itemSpecRows(def)`. 회복약 · 실드 충전기 · 전투 소모품 · 가젯 · 수류탄의 수치를 문장으로 만든다 (**맨 위는 언제나 `사용 시간`**). 값은 문자열이거나 **조각 목록** `SpecSeg[]` 이라 「5초간 매 초 HP 4 회복, 총 20 회복」에서 **숫자만 본문 색이고 나머지는 흐리다**. `SpecRow.tone`(`good` · `bad`)은 색을 부르는 쪽이 칠한다. 수치는 한 줄도 여기 없다 — 전부 `data/constants.csv` → `@/shared` 이고 아이템 쪽 값은 `items.csv` 의 `gadgetUseTime` · `durabilityMax` · `heal*` 이다. `src/gadgets/GadgetDefs` 를 import 하지 않는다(폴더 간 import 금지) — 같은 상수를 읽으므로 값은 늘 같고, `GadgetDef` 는 **동작**을 이 표는 **카드 줄**을 갖는다. 라벨 한 벌은 `SPEC_LABEL_KO` |
 | `index.ts` | Barrel — import via `@/items` |
 
 ## Weapon families & grades
@@ -124,6 +126,13 @@ Category `bag`, 2×2, stack 1, `ItemDef.bag: { cols, rows, quickSlots, tactical?
 
 **회복 소모품** (2026-09-07, category `stim`, `ItemDef.heal`): 사용 중 이동 속도 50 % (`CONSUMABLE_SLOW_MUL`).
 
+**2026-09-15 (사용자 결정)** — 네 종류 모두 **설명에서 수치를 걷어냈다** (「사용 5초, 5초에 걸쳐 체력 20 회복」 →
+「상처 부위에 감아 지혈하기 위한 회복 도구. 사용 중 이동속도가 느려진다.」). 수치는 스펙 줄이 말한다 —
+맨 위 `사용 시간`, 그 아래 **`5초간 매 초 HP 4 회복, 총 20 회복`** 한 줄(숫자만 본문 색). 한 번에 다 회복하는
+회복주사는 「매 초」가 거짓말이 되므로 `1초 만에 HP 50 회복` 이고, 회복 스프레이는 `누르는 동안 0.1초마다 HP 1 회복`
++ `반경` 줄이다. 실드 충전기 3종도 같은 결로 설명을 정리했고 **고출력 실드 충전기의 `shieldUseTime` 은 4 → 2**
+(일반 충전기와 같다). 표는 `ItemSpec.itemSpecRows` 하나이고 두 툴팁이 그것을 부른다.
+
 | id | name | rarity | grid · stack | 사용 | 효과 | 제작 |
 |---|---|---|---|---|---|---|
 | `heal_bandage` | 붕대 | common | 1×1 · 5 | 5 s | 5초에 걸쳐 hp 20 | 천조각 5 (야전) |
@@ -228,7 +237,7 @@ Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue c
 |---|---|
 | `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint (**2026-09-12: 전부 2×2 고정**), `ARMOR_ICON`. 2026-09-10: `ArmorDef.shield` (실드 최대치) 가 실제로 쓰이는 값이고 `damageReduction` 은 환산 근거로만 남았다 |
 | `Recipes.ts` | **제작만** — `data/recipes.csv` 94줄을 `CRAFT_RECIPES` 로 옮기고, 아이템 하나를 만드는 데 드는 재료를 `CRAFT_COST_BY_OUTPUT` / `craftCostOf(defId)` 로 색인한다 (`outputQty === 1` 인 레시피만 — 수리비 · 분해 산출의 기준이 이 색인이다). **2026-09-13**: 레시피 책이 여는 조리 레시피에 `unlockSeries` 를 채운다 (`data/library_series.csv` 의 `recipe:<id>` 효과가 원본 — csv 열 없음) |
-| `Salvage.ts` | **분해 · 수리 (2026-09-10 신규)** — 내구도 20 % 5구간(`durabilityBucketOf` · `durabilityBucketInfo` · `bucketOfRatio` · `DURABILITY_BUCKET_LABELS`), `repairCostFor(inst)`, `salvageFor(inst)`, `data/salvage.csv` 손 분해 6줄 + 제작 재료에서 생성한 분해 38줄(`SALVAGE_RECIPES`), `ALL_CRAFT_RECIPES` · `CRAFT_RECIPE_MAP` · `getRecipe`, 그리고 무한 이득 검산 `checkSalvageEconomy()` (`npm run data:check` 가 돌린다). Table in *Recipes* below |
+| `Salvage.ts` | **2026-09-15**: 수리 · 분해 대상이 카테고리 목록이 아니라 **`isRepairable` · `isSalvageable` 두 술어**다 — `REPAIRABLE` / `SALVAGEABLE`(무기 · 방탄복 · 가방) **또는** 「내구도를 들고 다니는 가젯」(`wearsDurability` = `category 'gadget'` ∧ `durabilityMax > 0` = 돔 실드 · 바리케이드). `'gadget'` 을 통째로 목록에 넣지 않은 이유는 내구도가 없는 연막탄 · 드론까지 분해 레시피가 자동 생성되고 없는 구간에 검사가 걸리기 때문이다 — 새 가젯에 `durabilityMax` 를 넣는 순간 수리 · 분해 · 경제 검산이 저절로 따라온다. 분해 홀드 시간은 가젯도 `WEAPON_SALVAGE_DURATION`(6 초) 기본값을 쓴다. **분해 · 수리 (2026-09-10 신규)** — 내구도 20 % 5구간(`durabilityBucketOf` · `durabilityBucketInfo` · `bucketOfRatio` · `DURABILITY_BUCKET_LABELS`), `repairCostFor(inst)`, `salvageFor(inst)`, `data/salvage.csv` 손 분해 6줄 + 제작 재료에서 생성한 분해 38줄(`SALVAGE_RECIPES`), `ALL_CRAFT_RECIPES` · `CRAFT_RECIPE_MAP` · `getRecipe`, 그리고 무한 이득 검산 `checkSalvageEconomy()` (`npm run data:check` 가 돌린다). Table in *Recipes* below |
 
 New categories: `armor` (`ItemDef.armorId` → `ArmorDef`, `durabilityMax`), `gadget` (`gadgetId`, behaviour in `src/gadgets`), `herb` (gathered from `WorldRef.getGatherNodes()`); `mat_gunpowder` for the ammo recipes; every def carries a `weight` (kg, `itemWeight(def, qty)`, default `DEFAULT_ITEM_WEIGHT`). The branch's `BackpackDef` catalogue was **not** merged — bags stay the weapon-package `bag_*` items (`BagDef`, `bag.tactical` = hover / faster swap perk). Starter kit adds `armor_2` + one `gad_smoke`. `LootRef` gained `getArmorDef` and `getAllRecipes`; loot tables roll `gadget` / `herb` / `armor` (heavy deployables never in tier 1).
 
@@ -291,21 +300,33 @@ Perks are **declared here and implemented in `src/player`** (regen tick, ultrali
 
 `category: 'gadget'`, `quickUsable: true`, `gadgetId` pointing at a `GadgetId`. Behaviour lives in `src/gadgets`; items only carry the id.
 
-| id | gadgetId | 칸 | stack | kg |
-|---|---|---|---|---|
-| `gad_cloak_veil` 은폐 장막 | `cloakVeil` | 1×2 | 2 | 1.1 |
-| `gad_dome_shield` 돔 실드 | `domeShield` | 2×2 | 1 | 5.8 |
-| `gad_barricade` 바리케이드 | `barricade` | 2×2 | 1 | 7.2 |
-| `gad_lure` 유인 수류탄 | `lureGrenade` | 1×1 | 3 | 0.5 |
-| `gad_smoke` 연막탄 | `smokeGrenade` | 1×1 | 3 | 0.55 |
-| `gad_mine` 지뢰 | `mine` | 1×1 | 4 | 1.1 |
-| `gad_turret` 포탑 설치 | `turret` | 2×2 | 1 | 9.5 |
-| `gad_incendiary` 화염수류탄 | `incendiary` | 1×1 | 3 | 0.6 |
-| `gad_defib` 제세동기 | `defib` | 2×1 | 1 | 2.4 |
-| `gad_jumppad` 점프대 | `jumpPad` | 2×2 | 1 | 6.4 |
-| `gad_remote_mine` 원격 지뢰 (2026-09-11) | `remoteMine` | 1×1 | 4 | 1.2 |
-| `gad_drone_ground` 지상 드론 (2026-09-11) | `droneGround` | 2×2 | 1 | 4.8 |
-| `gad_drone_air` 공중 드론 (2026-09-11) | `droneAir` | 2×2 | 1 | 3.6 |
+**2026-09-15 (가젯 개편, 사용자 결정)** — ① 수류탄 2종도 `category: 'gadget'` 이다 (`ItemCategory` 의 `'grenade'` 폐지,
+수류탄인지를 가르는 값은 `items.csv` 의 `grenade` 열 = `ItemDef.grenade`). ② 모든 가젯이 `gadgetUseTime`(좌클릭 홀드 초)을
+갖는다 — 던지는 것 0 · 설치형 1~2 · 제세동기는 **칸을 비워** `DEFIB_USE_TIME_S` 로 떨어진다. ③ **설명에서 수치를 전부
+걷어냈다** — 사거리 · 지속 · 내구도 · 사용 시간은 `ItemSpec.itemSpecRows` 가 그리는 스펙 줄이 말한다. ④ 돔 실드 ·
+바리케이드는 **내구도를 들고 다니는 장비**가 됐다 (`durabilityMax` — 아래 *Salvage* 절).
+
+| id | gadgetId | 칸 | stack | kg | 사용 시간 | 내구도 |
+|---|---|---|---|---|---|---|
+| `grenade_frag` **파편 수류탄** | — (`grenade: frag`) | 1×1 | 3 | **0.315** | 0 | — |
+| `grenade_incendiary` **화염 수류탄** | — (`grenade: fire`) | 1×1 | 3 | **0.35** | 0 | — |
+| `gad_cloak_veil` 은폐 장막 | `cloakVeil` | 1×2 | 2 | 1.1 | 0.5 | — |
+| `gad_dome_shield` 돔 실드 | `domeShield` | **1×1** | 1 | **0.35** | 0 | **1000** |
+| `gad_barricade` 바리케이드 | `barricade` | **2×1** | 1 | **1.5** | 2 | **1800** |
+| `gad_lure` 유인 수류탄 | `lureGrenade` | 1×1 | 3 | 0.5 | 0 | — |
+| `gad_smoke` 연막탄 | `smokeGrenade` | 1×1 | 3 | **0.4** | 0 | — |
+| `gad_mine` 지뢰 | `mine` | 1×1 | **3** | **0.8** | 1 | — |
+| `gad_turret` **자동 사격 포탑** | `turret` | 2×2 | 1 | 9.5 | 2 | — |
+| `gad_defib` 제세동기 | `defib` | 2×1 | 2 | **0.6** | (빈칸 → 1) | — |
+| `gad_jumppad` 점프대 | `jumpPad` | **2×1** | 1 | **1.2** | 1.5 | — |
+| `gad_remote_mine` 원격 지뢰 (2026-09-11) | `remoteMine` | 1×1 | **3** | **0.9** | 1 | — |
+| `gad_drone_ground` 지상 드론 (2026-09-11) | `droneGround` | 2×2 | 1 | **1.6** | 1 | — |
+| `gad_drone_air` 공중 드론 (2026-09-11) | `droneAir` | 2×2 | 1 | **1.2** | 1 | — |
+
+`gad_incendiary` 「화염수류탄」은 **삭제됐다** (2026-09-15) — 살아남는 것은 폭발과 화염 지대를 함께 하는
+`grenade_incendiary` **화염 수류탄** 하나이고, 가진 사람이 잃지 않도록 `data/item_aliases.csv` 에
+`gad_incendiary → grenade_incendiary` 줄이 있다. `make_fire_gadget` 레시피도 같이 지웠다 (화염 수류탄에는
+`make_incendiary` · `make_incendiary_ember` · `make_incendiary_batch` 가 이미 있다).
 
 **2026-09-11 새 가젯 3종** — 동작은 `src/gadgets` (원격 지뢰) · `gadgets/drones` (드론) 이고 items/ 는 정의 · 제작 · 루팅만 갖는다.
 
@@ -1213,6 +1234,43 @@ seed 줄의 빈 target. **은퇴 아이템**은 굴림 후보에서 조용히 �
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (가젯 개편 후속 — `smoke-search` 회귀, 에이전트 A)** — 같은 날 `ItemCategory` 의 `'grenade'` 가 폐지되면서
+  **`data/loot_category_weights.csv` 의 `grenade` 줄이 아무 아이템에도 안 맞는 유령 줄**이 됐다. 카테고리 추첨은 그 줄을
+  옛 가중치(티어 1 16 · 2 12 · 3 8 · 4 8 · **5 25**)로 계속 뽑았고, `pickDef` 가 후보 0 으로 null 을 주면
+  `rollCrateOn` 이 **상자 채우기를 통째로 중단**했다(`else break`) — 보급 상자의 ≈13 %, **보급 투하 상자의 ≈23 %** 가
+  아이템 한두 개로 잘려 나왔다 (`smoke-search` 가 시드 21 의 `crate:smoke-1` 에서 1개만 나오는 것으로 잡았다).
+  고친 방법은 **가중치를 `gadget` 에 합치는 것이 아니라** 루팅 카테고리 축을 분리한 것이다 (`LootCategory` ·
+  `lootCategoryOf` — 위 파일 표). 합치면 수류탄 2종과 가젯 12종이 한 주머니에 들어가 상대 빈도가 통째로 바뀌고
+  (티어 1 에서 수류탄 −39 % · 가젯 ×2.05), 되돌리려면 티어마다 마법 같은 배수 줄이 20 개 넘게 필요하다. 축을 나누면
+  **같은 시드의 상자가 2026-09-14 기준선과 같은 draw 를 쓴다.** 곁들여 두 겹의 안전장치: ① 카테고리 이름을 로더가
+  검증하고(`LOOT_CATEGORIES`), ② `rollCrateOn` 은 후보가 없는 카테고리를 만나면 **중단하지 않고 그것만 빼고 다시 뽑는다**.
+  `scripts/smoke-search.mjs` 는 **한 줄도 안 고쳤다** — 시드가 밀린 것이 아니라 진짜 버그였다. 최종 77/77.
+
+- **2026-09-15 (가젯 개편 · 아이템 데이터 · 툴팁 스펙 — 에이전트 A, 사용자 결정)** —
+  ① **설명에서 수치를 걷어내고 스펙 줄로 옮겼다.** 2026-09-12 의 「설명 글에 툴팁이 이미 보여 주는 숫자를 적지 않는다」를
+  회복약 4 · 실드 충전기 3 · 전투 소모품 3 · 가젯 12 · 수류탄 2 까지 밀고 나갔다. 표는 새 파일 **`ItemSpec.ts`**
+  (`itemSpecRows(def)`) 하나이고 **두 툴팁이 같은 함수를 부른다** (`ui/hud/ItemTip` · `inventory/ui/Tooltip`) —
+  각자 만들면 같은 아이템이 화면마다 다른 숫자를 말한다. 맨 위는 언제나 `사용 시간`.
+  ② **값에 색을 반으로 가르는 조각**(`SpecSeg[]`) — 「5초간 매 초 HP 4 회복, 총 20 회복」에서 숫자만 본문 색이다.
+  두 툴팁의 행 타입이 `string | SpecSeg[]` 로 넓어졌고 색은 여전히 **인라인**이다 (`.it-stats .v` · `.inv-tt-stats .v` 에
+  modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고).
+  ③ **설명 인라인 마크업** 새 파일 **`ItemText.ts`** — `{em}` · `{dim}` · `{br}`. 아드레날린 주사가 첫 사용자다
+  (사용자가 글자 그대로 지정한 문장). 파서는 순수하고 색은 툴팁이 칠한다.
+  ④ **수류탄 2종**: `G-12 고폭 수류탄` → **파편 수류탄**, `G-10 소이 수류탄` → **화염 수류탄**, 무게 −30 %
+  (0.45 → 0.315 · 0.5 → 0.35). **`gad_incendiary` 삭제** + `item_aliases.csv` 에 `→ grenade_incendiary`,
+  `make_fire_gadget` 레시피 삭제. 살아남은 화염 수류탄이 폭발 + 화염 지대를 함께 한다 (동작은 에이전트 B).
+  ⑤ **가젯 수치** (위 *Gadget consumables* 표가 원본): 돔 실드 1×1 · 0.35 kg · **내구도 1000**, 바리케이드 2×1 ·
+  1.5 kg · **내구도 1800**, 연막탄 0.4, 지뢰 스택 3 · 0.8, 원격 지뢰 스택 3 · 0.9, 제세동기 0.6, 점프대 2×1 · 1.2,
+  드론 무게 ⅓(4.8 → 1.6 · 3.6 → 1.2), 「포탑 설치」 → **자동 사격 포탑**, 모든 가젯에 `gadgetUseTime`.
+  ⑥ **내구도가 생긴 가젯이 수리 · 분해 경제에 올라탔다** — `Salvage` 의 카테고리 목록이 술어 두 개로 바뀌었다
+  (위 파일 표). `checkSalvageEconomy()` 가 돔 실드(잉곳 2 + 축전 2 + 제어 1) · 바리케이드(폐금속 14 + 합금 2 + 케이블 2)의
+  5구간을 실제 정수로 통과한다 — **`recipes.csv` 는 한 줄도 고칠 필요가 없었다**.
+  ⑦ **고출력 실드 충전기** `shieldUseTime` 4 → 2.
+  ⑧ **무게가 드디어 csv 에서 온다** — `ATTACHMENT_WEIGHT = 0.3` 상수를 지우고 `attachments.csv` 의 `weight` 열을,
+  `T.num('SEED_WEIGHT')` 대신 `seeds.csv` 의 새 `weight` 열을 읽는다 (수치는 에이전트 F 가 채웠다: 부착물 0.1 · 씨앗 0).
+  `data/tuning.csv` 의 `SEED_WEIGHT` 줄 은퇴는 리드 몫이다.
+  ⚠ `server/economy.gen.json` 재생성 (`gad_incendiary` 삭제 · 지뢰 · 원격 지뢰 스택 4 → 3).
 
 - **2026-09-15 (전설 무기 규칙 · 탄약 — 사용자 결정)** — ① 유니크 이름 = **별명 하나**(`WeaponDefs.uniqueName`: `인페르노` · `테슬라 코일` ·
   `카게` · `롱혼` · `해머헤드` · `사이클론`; 종류 라벨은 UI 가 따로 그린다). ② 유니크의 csv `class` 는 형식상 남고 **사격 숙련 보너스 · 숙련 경험치 ·

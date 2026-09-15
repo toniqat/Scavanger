@@ -63,7 +63,8 @@ export type LibraryMedium = 'book' | 'disc' | 'record';
 /** 매체 한 개가 가진 효과 줄 수 (사용자 결정 「한 장이 여러 대상 동시」). */
 export const LIBRARY_EFFECT_LINES: Readonly<Record<LibraryMedium, number>> = { book: 1, disc: 2, record: 3 };
 /** 매체별 최대 권 수 — 책 V · 비디오 III · 레코드 단편 (사용자 명세). */
-export const LIBRARY_MAX_VOLUMES: Readonly<Record<LibraryMedium, number>> = { book: 5, disc: 3, record: 1 };
+/* 2026-09-15 2차 (사용자 결정): 책도 **최대 3권**. 「책 ≤ 3」 의 단일 원본이라 여기가 4 를 막는다. */
+export const LIBRARY_MAX_VOLUMES: Readonly<Record<LibraryMedium, number>> = { book: 3, disc: 3, record: 1 };
 
 export interface LibrarySeriesDef {
   id: string;

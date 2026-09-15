@@ -1083,3 +1083,18 @@ yaw = 조리대를 보는 방향. 눈 높이(`FURN_EYE.cook`)는 1.42, 원격 �
   속도로 흔들린다. 실내(함선 `InteriorCollider`) 모드에는 발판이 없으므로 건너뛴다.
   지형지물 위 걷기(`getSurfaceY` → `resolveCollision` 순서)는 이미 2026-09-09 앞선 배치에서 들어가 있다
   — `world/README.md` 의 "player/PlayerController still calls getHeightAt" 는 낡은 문장이다.
+
+## 변경 이력 (2026-09-15 2차): 실드를 건너뛰는 피해 (`PlayerDamageOptions`, 에이전트 E)
+
+`PlayerRef.takeDamage(amount, from?, source?, **opts?**)` 의 넷째 인자가 계약에 붙었고(리드가 `shared/types.ts` 에
+`PlayerDamageOptions`), 이 폴더가 그것을 **읽는** 쪽이다. `opts.bypassShield` 면 `absorbShield` 를 **아예 부르지 않아**
+실드를 건너뛰고 체력만 깎는다 — 방탄복도 닳지 않는다. 지금 유일한 호출자는 독성 포자 재해(`world/Hazard`,
+`HAZARD_SPORES_BYPASS_SHIELD`)다.
+
+- 갈래는 **`parts/Vitals.applyDamage` 안의 한 줄**이다: `const absorbed = opts?.bypassShield ? 0 : sys.absorbShield(raw)`.
+  2026-09-14 3차의 구조(「피해는 단일 입구 `applyDamage` 와 그것을 우회하는 유일한 갈래 `Statuses.updateEnv` ·
+  `applyKnockback`」)를 지키려고 **새 우회 경로를 만들지 않았다** — 각본 잠금(`_sceneLock` · `_sceneLockMinHp`) ·
+  무적 창 · 전투불능 · 사망 · `ctx.stats.damageTaken` · `player:damaged` / `player:healthChanged` 가 전부 같은 줄을 지난다.
+- `PlayerSystem.takeDamage` · `applyDamage` 는 인자를 그대로 넘기는 위임 한 줄만 늘었다. 생략하면 **지금까지와 똑같다**
+  (실드 먼저 · 그 다음 체력) — 옛 호출부는 한 곳도 안 바뀌었다.
+- 넉백 · 화상 · 환경(`Statuses.updateEnv`) 경로는 무변경. 환경 피해는 원래 `applyDamage` 를 타지 않고 체력만 깎는다.

@@ -299,7 +299,8 @@ try {
       // 2026-09-14 (사용자 결정): 중앙 하단 안내 알약 바(`.inv-hints`)는 삭제됐다 — 우측 하단 키 가이드와 겹쳤다.
       hints: !root.querySelector('.inv-hints'),
       quickRight: (() => { const g = root.querySelector('.inv-grid-bag').getBoundingClientRect(); const q = root.querySelector('.inv-quick').getBoundingClientRect(); return q.left >= g.right - 4; })(),
-      equipMid: (() => { const s = root.querySelector('.inv-panel-stash').getBoundingClientRect(); const e = root.querySelector('.inv-equip').getBoundingClientRect(); const b = root.querySelector('.inv-panel-bag').getBoundingClientRect(); return s.right <= e.left + 4 && e.right <= b.left + 4; })(),
+      /* 2026-09-15 3차 (사용자 결정): 창고 · 가방이 한 카드가 되면서 장비 열이 그 **왼쪽**으로 나왔다 — 장비 | 창고 | 가방. */
+      equipMid: (() => { const s = root.querySelector('.inv-panel-stash').getBoundingClientRect(); const e = root.querySelector('.inv-equip').getBoundingClientRect(); const b = root.querySelector('.inv-panel-bag').getBoundingClientRect(); return e.right <= s.left + 4 && s.right <= b.left + 4; })(),
     };
   });
   /* ── 2026-09-09: ESC 는 맨 위 화면 하나를 닫는다 ─────────────────────────
@@ -360,7 +361,7 @@ try {
   // 전술 임플란트는 `LOADOUT_SLOTS` 의 장비칸이 아니다 — 2026-09-12 부터 장비 격자 안에 살지만 여전히 `.inv-implants`
   // 블록이고 `.inv-slot-implant` 은 없다 (아래 `impTab` 이 그 자리를 본다)
   ok(!hubScreen.implantSlot, '전술 임플란트는 장비칸(`.inv-slot-*`)이 아니다');
-  ok(hubScreen.equipMid, 'layout: stash | equipment | bag');
+  ok(hubScreen.equipMid, 'layout: equipment | stash | bag');
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
   ok(hubScreen.hints, 'inventory hint bar is gone (2026-09-14: 키 가이드로 합쳐졌다)');
   await shot('03-hub-tab-screen');

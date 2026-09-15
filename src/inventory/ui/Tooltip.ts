@@ -25,11 +25,9 @@ const COOK_STEP_MARK = ['①', '②', '③', '④', '⑤'];
 function cookStepsLine(defId: string): string {
   return cookStepsOf(defId).map((s, i) => `${COOK_STEP_MARK[i] ?? `${i + 1}.`} ${COOK_GAME_LABEL_KO[s.game] ?? s.game}`).join(' → ');
 }
-import {
-  BOOST_ADRENALINE_DURATION_S, BOOST_STIMULANT_ADS_SPEED_MUL, BOOST_STIMULANT_AIM_SWAY_MUL, BOOST_STIMULANT_DURATION_S,
-  BOOST_STIMULANT_RELOAD_SPEED_MUL, BOOST_STIMULANT_STAMINA_COST_MUL,
-} from '@/shared';
-import { WEAPON_CLASS_LABEL_KO, boostItemOf, shieldChargeOf } from '@/items';
+/* 2026-09-15 (가젯 개편): 설명 인라인 마크업 · 스펙 줄은 `@/items` 한 곳이 만든다 — 칩 카드(`ui/hud/ItemTip`)와 **같은 함수**다. */
+import type { SpecSeg, SpecValue } from '@/items';
+import { WEAPON_CLASS_LABEL_KO, itemSpecRows, parseItemText } from '@/items';
 import { bagCapacityBonus } from '../Gear';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
@@ -161,14 +159,12 @@ export class Tooltip {
     if (stats) head.appendChild(this.buildAmmoThumb(stats.ammoType));
     this.el.appendChild(head);
 
-    const desc = document.createElement('p');
-    desc.className = 'inv-tt-desc';
-    desc.textContent = def.description;
-    this.el.appendChild(desc);
+    this.el.appendChild(this.buildDesc(def.description));
 
     if (weapon && stats) this.el.appendChild(this.buildGauges(def, weapon, stats));
 
-    const rows: Array<[string, string, string?]> = [];
+    /** 2026-09-15: 값은 통짜 문자열이거나 조각 목록(`SpecSeg[]`)이다 — 숫자만 본문 색인 줄이 생겼다. */
+    const rows: Array<[string, SpecValue, string?]> = [];
     /** 2026-09-12: 이 아이템의 내구도(또는 게이지) 한 줄 게이지. 종류마다 최대치의 출처만 다르고 그림은 하나다. */
     let durBar: HTMLElement | null = null;
     if (weapon && stats) {
@@ -235,32 +231,20 @@ export class Tooltip {
       const max = def.durabilityMax;
       durBar = this.buildDurabilityBar(TEXT.gauge, item.durability ?? max, max);
     }
-    // 2026-09-10: 실드 충전기 — 얼마나 채우는가 · 몇 초 눌러야 하는가
-    const charge = shieldChargeOf(def.id);
-    if (charge) {
-      const t = TEXT.shieldChargeStats;
-      rows.push([t.amount, Number.isFinite(charge.amount) ? `+${Math.round(charge.amount)}` : t.full]);
-      rows.push([t.useTime, `${charge.useTime} s`]);
+    /*
+     * 2026-09-15 (가젯 개편, 사용자 결정) — 회복약 · 실드 충전기 · 전투 소모품 · 가젯 · 수류탄의 스펙은
+     * **`items/ItemSpec.itemSpecRows` 하나**가 만든다 (칩 카드 `ui/hud/ItemTip` 과 같은 함수 · 같은 문장).
+     * 맨 위가 언제나 `사용 시간` 이고, 옛 `지속 소모` 줄은 없어졌으며, 설명 글에서는 그 수치를 전부 걷어냈다.
+     * 예전에 여기 있던 실드 충전기 · 전투 소모품 블록이 이 세 줄로 접혔다 (`TEXT.shieldChargeStats` ·
+     * `TEXT.boostStats` 는 labels 의 계약이라 그대로 남아 있다).
+     */
+    for (const r of itemSpecRows(def)) {
+      rows.push([r.k, r.v, r.tone === 'good' ? 'is-bonus' : r.tone === 'bad' ? 'is-broken' : undefined]);
     }
-    // 2026-09-12: 전투 소모품 3종 (아드레날린 · 각성제 · 안정제) — 효과 줄 · 지속 시간 · 사용 시간 (수치는 csv 의 BOOST_*)
-    const boost = boostItemOf(def.id);
-    if (boost) {
-      const t = TEXT.boostStats;
-      const up = (mul: number): string => `+${Math.round((mul - 1) * 100)} %`;
-      if (boost.effect === 'adrenaline') {
-        rows.push([t.stamina, t.staminaFull, 'is-bonus']);
-        rows.push([t.drain, t.drainNone, 'is-bonus']);
-        rows.push([t.duration, `${BOOST_ADRENALINE_DURATION_S} s`]);
-      } else if (boost.effect === 'stimulant') {
-        rows.push([t.reload, up(BOOST_STIMULANT_RELOAD_SPEED_MUL), 'is-bonus']);
-        rows.push([t.ads, up(BOOST_STIMULANT_ADS_SPEED_MUL), 'is-bonus']);
-        rows.push([t.sway, `−${Math.round((1 - BOOST_STIMULANT_AIM_SWAY_MUL) * 100)} %`, 'is-bonus']);
-        rows.push([t.staminaCost, up(BOOST_STIMULANT_STAMINA_COST_MUL), 'is-broken']);
-        rows.push([t.duration, `${BOOST_STIMULANT_DURATION_S} s`]);
-      } else {
-        rows.push([t.implant, t.implantFull, 'is-bonus']);
-      }
-      rows.push([t.useTime, `${boost.useTime} s`]);
+    /* 2026-09-15: 내구도를 들고 다니는 가젯(돔 실드 · 바리케이드) — 무기 · 가방 · 방탄복과 같은 게이지 한 줄. */
+    if (def.category === 'gadget' && def.durabilityMax !== undefined && def.durabilityMax > 0) {
+      const max = def.durabilityMax;
+      durBar = this.buildDurabilityBar(TEXT.bagStats.durability, item.durability ?? max, max, TEXT.broken);
     }
     // 2026-09-12 (A-3e): 디스크 · 레코드는 책과 같은 두 줄, 용도만 꽂는 보관함 이름이 다르다
     const media = def.book ?? def.disc ?? def.record;
@@ -295,7 +279,7 @@ export class Tooltip {
       const steps = cookStepsLine(def.id);
       if (steps) rows.push(['조리', steps]);
     }
-    if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
+    // 2026-09-15: 옛 `회복 +N HP` 줄은 `itemSpecRows` 의 「5초간 매 초 HP 4 회복, 총 20 회복」 이 대신한다
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);
 
     if (rows.length > 0) {
@@ -303,7 +287,9 @@ export class Tooltip {
       table.className = 'inv-tt-stats';
       for (const [k, v, cls] of rows) {
         const kEl = document.createElement('span'); kEl.className = 'k'; kEl.textContent = k;
-        const vEl = document.createElement('span'); vEl.className = cls ? `v ${cls}` : 'v'; vEl.textContent = v;
+        const vEl = document.createElement('span'); vEl.className = cls ? `v ${cls}` : 'v';
+        if (typeof v === 'string') vEl.textContent = v;
+        else for (const seg of v) vEl.appendChild(this.buildSeg(seg));
         table.append(kEl, vEl);
       }
       this.el.appendChild(table);
@@ -381,6 +367,37 @@ export class Tooltip {
     this.el.hidden = false;
     this.visible = true;
     this.move(x, y);
+  }
+
+  /* ── 2026-09-15 (가젯 개편): 설명 마크업 · 값 조각 ────────────────────────────── */
+
+  /**
+   * 설명 문단. `data/items.csv` 의 `description` 은 `{em}…{/em}` · `{dim}…{/dim}` · `{br}` 토큰을 쓸 수 있고
+   * 푸는 곳은 `items/ItemText.parseItemText` **하나**다 (칩 카드도 같은 함수). 색만 이 카드의 팔레트다.
+   */
+  private buildDesc(text: string): HTMLElement {
+    const p = document.createElement('p');
+    p.className = 'inv-tt-desc';
+    const lines = parseItemText(text);
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) p.appendChild(document.createElement('br'));
+      for (const s of lines[i]) {
+        const sp = document.createElement('span');
+        sp.textContent = s.text;
+        if (s.style === 'em') sp.style.color = 'var(--inv-accent)';
+        else if (s.style === 'dim') sp.style.color = 'var(--inv-muted)';
+        p.appendChild(sp);
+      }
+    }
+    return p;
+  }
+
+  /** 값 조각 하나 — 흐린 조각만 인라인 색을 받는다 (숫자는 본문 색 그대로). */
+  private buildSeg(seg: SpecSeg): HTMLElement {
+    const sp = document.createElement('span');
+    sp.textContent = seg.text;
+    if (seg.dim) sp.style.color = 'var(--inv-muted)';
+    return sp;
   }
 
   /* ── weapon card pieces (2026-09-09) ──────────────────────────────────── */

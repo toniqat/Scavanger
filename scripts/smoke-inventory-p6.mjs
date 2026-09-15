@@ -333,15 +333,15 @@ try {
   ok(sortRun.partialScrap <= 1 && sortRun.stacksAfter < sortRun.stacksBefore, 'same-item stacks were merged (at most one partial 폐금속 stack left)', JSON.stringify(sortRun));
   ok(sortRun.originCat === 'primary' && sortRun.gunY !== null && sortRun.gunY < 27, 'weapons sort to the top-left (category order)', JSON.stringify(sortRun));
   const filt = await page.evaluate(() => {
-    document.querySelector('.inv-panel-bag .inv-filter-chip[data-filter="ammo"]').click();
+    { const s = document.querySelector('.inv-panel-bag .inv-filter-select'); s.value = 'ammo'; s.dispatchEvent(new Event('change', { bubbles: true })); }
     const sys = window.__game.getSystem('inventory'), loot = window.__game.ctx.loot;
     const read = (sel, grid) => [...document.querySelectorAll(`${sel} .inv-tile[data-uid]`)].map((t) => {
       const p = sys.getGrid(grid).get(t.dataset.uid); return { cat: p ? loot.getItemDef(p.item.defId).category : null, dim: t.classList.contains('is-filtered-out') };
     });
     const bag = read('.inv-grid-bag', 'bag'), stash = read('.inv-grid-stash', 'stash');
     const right = [...bag, ...stash].every((t) => t.dim === (t.cat !== 'ammo'));
-    const stashChipOn = document.querySelector('.inv-panel-stash .inv-filter-chip[data-filter="ammo"]').classList.contains('is-on');
-    document.querySelector('.inv-panel-stash .inv-filter-chip[data-filter="all"]').click();
+    const stashChipOn = document.querySelector('.inv-panel-stash .inv-filter-sel').classList.contains('is-on');
+    { const s2 = document.querySelector('.inv-panel-stash .inv-filter-select'); s2.value = 'all'; s2.dispatchEvent(new Event('change', { bubbles: true })); }
     const cleared = document.querySelectorAll('.inv-tile.is-filtered-out').length === 0;
     return { right, stashChipOn, cleared, n: bag.length + stash.length, ammo: [...bag, ...stash].filter((t) => t.cat === 'ammo').length };
   });
@@ -428,7 +428,9 @@ try {
   const bench = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;
     const panel = document.querySelector('.inv-panel-craft');
-    const rows = [...panel.querySelectorAll('.inv-craft-row')].map((r) => ({ id: r.dataset.recipe, locked: r.classList.contains('is-bench-locked') }));
+    /* 2026-09-15 3차: 줄 목록이 **썸네일 격자**가 됐다 — 레시피 하나하나는 `.inv-craft-cell[data-recipe]`,
+       `.inv-craft-row` 는 이제 고른 것 하나의 상세 패널이다 (튜토리얼 선택자를 위해 그 이름을 함께 갖는다). */
+    const rows = [...panel.querySelectorAll('.inv-craft-cell')].map((r) => ({ id: r.dataset.recipe, locked: r.classList.contains('is-bench-locked') }));
     const all = ctx.loot.getAllRecipes();
     // Phase 8: 분해 (`break_*`) moved to the item right-click menu, so the bench panel no longer lists it
     const expectOpen = i.getRecipes('ship', 'gun', 2).filter((r) => !/^break_/.test(r.id)).map((r) => r.id);
@@ -614,20 +616,20 @@ try {
     i.closeBench();
     sys['ui'].setCraftOpen(true);
     sys['ui'].craftPanel.refresh();
-    const rowsAll = document.querySelectorAll('.inv-craft-row').length;
+    const rowsAll = document.querySelectorAll('.inv-craft-cell').length;
     document.querySelector('.inv-craft-bench[data-bench="refine"]')?.click();
-    const rowsRefine = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe);
+    const rowsRefine = [...document.querySelectorAll('.inv-craft-cell')].map((r) => r.dataset.recipe);
     // 정렬 규약: 만들 수 있는 줄이 위로 (2026-09-10). `전체` 가 없어졌으므로 가장 긴 목록인 빠른제작에서 본다
     document.querySelector('.inv-craft-bench[data-bench="field"]')?.click();
-    const ready = [...document.querySelectorAll('.inv-craft-row')].map((r) => (r.classList.contains('is-locked') ? 0 : 1));
+    const ready = [...document.querySelectorAll('.inv-craft-cell')].map((r) => (r.classList.contains('is-locked') ? 0 : 1));
     // 홀드 중에는 줄을 옮기지 않는다 (누르는 버튼의 DOM 이 움직이면 pointerleave 로 제작이 취소된다)
-    const first = [...document.querySelectorAll('.inv-craft-row:not(.is-locked)')][0]?.dataset.recipe ?? null;
+    const first = [...document.querySelectorAll('.inv-craft-cell:not(.is-locked)')][0]?.dataset.recipe ?? null;
     let orderKept = true;
     if (first) {
-      const before = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe).join('|');
+      const before = [...document.querySelectorAll('.inv-craft-cell')].map((r) => r.dataset.recipe).join('|');
       void sys.craft(first);
       for (let n = 0; n < 5; n++) sys['ui'].refreshCraft();
-      orderKept = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe).join('|') === before;
+      orderKept = [...document.querySelectorAll('.inv-craft-cell')].map((r) => r.dataset.recipe).join('|') === before;
       sys.cancelCraft();
     }
     ctx.housing.getBenchLevel = origBench;
@@ -740,14 +742,15 @@ try {
       sameUid: evs.every((e) => e.uid === uid), monotone: before.every((e, k) => k === 0 || e.t >= before[k - 1].t), maxT: Math.max(...before.map((e) => e.t)),
       rateOk: before.length <= Math.ceil(30 * 1.5) + 4,
       emptyAfter: (parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0) === 0, progressAfter: p.progress,
-      ammo: i.countWhere((d) => d.id === 'ammo_light'), powder: i.countWhere((d) => d.id === 'mat_gunpowder'), msg: document.querySelector('.inv-dis-msg')?.textContent,
+      // 2026-09-15 3차 (사용자 결정): 산출물은 **함선 창고 먼저** — 가방만 세면 0 이다 (`countDefAll` = 가방 + 창고)
+      ammo: i.countWhere((d) => d.id === 'ammo_light'), powder: i.countDefAll('mat_gunpowder'), msg: document.querySelector('.inv-dis-msg')?.textContent,
     };
   }, dis.uid);
   ok(disEv.doneCount === 1 && disEv.doneLast && disEv.doneT === 1 && disEv.sameUid, `inventory:disassembleProgress ends with exactly one {t:1, done:true} (${disEv.n} events)`, JSON.stringify(disEv));
   ok(disEv.n >= 3 && disEv.monotone && disEv.maxT > 0 && disEv.maxT < 1, `progress t rises monotonically before done (max ${disEv.maxT?.toFixed(2)})`);
   ok(disEv.rateOk, `emits throttled to ≤ 30 Hz (${disEv.n - 1} progress events for a ${dis.dur.toFixed(2)} s hold)`);
   ok(disEv.emptyAfter && disEv.progressAfter === 0 && disEv.ammo === dis.gave - dis.need && disEv.powder === dis.powderOut && disEv.msg === '분해 완료',
-    `gauge back to empty, 경량탄 ${dis.gave} → ${disEv.ammo} (한 번 = ${dis.need}발), 화약 ${disEv.powder} (${disEv.msg})`);
+    `gauge back to empty, 경량탄 ${dis.gave} → ${disEv.ammo} (한 번 = ${dis.need}발), 화약 ${disEv.powder} (가방+창고, ${disEv.msg})`);
   // cancel: a second click during the hold resets the bar and reports {t:0, done:false}
   await page.evaluate(() => { window.__ev['inventory:disassembleProgress'].length = 0; document.querySelector('.inv-dis-btn').click(); });
   await waitSim(dis.dur * 0.3);
@@ -771,8 +774,13 @@ try {
     const btn = () => document.querySelector('.inv-dis-btn');
     const read = () => ({ room: i.craftHasRoom('break_ammo_light'), disabled: btn().disabled, label: btn().querySelector('span').textContent });
     const before = read();
-    // the 화약 stack this run already made would absorb the output on its own — clear it, then fill every free cell
+    /* the 화약 stack this run already made would absorb the output on its own — clear it, then fill every free cell.
+       2026-09-15 3차: 분해 산출이 **창고로** 가므로 창고의 화약도 함께 비운다 — 안 그러면 창고의 부분 스택이
+       산출물을 통째로 흡수해 "자리가 없다"가 될 수 없다 (`roomForOutputs` 의 `dryMerge`). */
     i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
+    const stash0 = sys.getStash();
+    for (const p of [...stash0.items()]) if (p.item.defId === 'mat_gunpowder') stash0.remove(p.item.uid);
+    sys.afterChange();
     const junk = [];
     const stackMax = ctx.loot.getItemDef('mat_scrap')?.stackMax ?? 1;
     for (let k = 0; k < 400; k++) { const it = ctx.loot.createItem('mat_scrap', stackMax); if (!i.tryAddItem(it)) break; junk.push({ uid: it.uid, qty: stackMax }); }
@@ -803,9 +811,23 @@ try {
    * 화약은 넘치는데 폐금속만 말라 탄약을 못 만들던 문제의 세 갈래 중 하나. 기계 부품은 `extraOutputs` 로 두
    * 재료를 한 번에 내고, 무기 / 방탄복 분해는 **클릭한 그 인스턴스**만 사라지며 부착물은 먼저 가방으로 돌아온다. */
   console.log('고물 분해');
+  /* 2026-09-15 3차 (사용자 결정 「산출물은 함선 창고 먼저」): 분해도 같은 길을 타므로 함선에서는 재료가 **창고**로 간다.
+     그래서 아래 검사들은 ① 비울 때 창고까지 비우고(`__purgeAll`) ② 셀 때 `countDefAll`(가방 + 창고)로 센다. */
+  await page.evaluate(() => {
+    window.__purgeAll = (pred) => {
+      const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+      i.consumeWhere(pred, 9999);
+      const s = sys.getStash();
+      for (const p of [...s.items()]) {
+        const d = ctx.loot.getItemDef(p.item.defId);
+        if (d && pred(d)) s.remove(p.item.uid);
+      }
+      sys.afterChange();
+    };
+  });
   const partsSetup = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
-    for (const id of ['mat_scrap', 'mat_cable', 'mat_machine_parts']) i.consumeWhere((d) => d.id === id, 9999);
+    window.__purgeAll((d) => d.id === 'mat_scrap' || d.id === 'mat_cable' || d.id === 'mat_machine_parts');
     const parts = ctx.loot.createItem('mat_machine_parts', 1);
     i.tryAddItem(parts);
     const opened = i.openDisassemble(parts.uid);
@@ -818,8 +840,8 @@ try {
   const partsOut = await page.evaluate((uid) => {
     const i = window.__game.ctx.inventory;
     return {
-      scrap: i.countWhere((d) => d.id === 'mat_scrap'), cable: i.countWhere((d) => d.id === 'mat_cable'),
-      parts: i.countWhere((d) => d.id === 'mat_machine_parts'), gone: !i.findItem(uid),
+      scrap: i.countDefAll('mat_scrap'), cable: i.countDefAll('mat_cable'),
+      parts: i.countDefAll('mat_machine_parts'), gone: !i.findItem(uid),
     };
   }, partsSetup.uid);
   ok(partsOut.scrap === 3 && partsOut.cable === 1 && partsOut.parts === 0 && partsOut.gone,
@@ -829,7 +851,7 @@ try {
   // 무기 분해: 같은 돌격소총 두 정 중 클릭한 쪽만, 소켓의 부착물은 가방으로
   const gunSetup = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
-    for (const id of ['mat_scrap', 'wpn_dmr', 'att_brake']) i.consumeWhere((d) => d.id === id, 9999);
+    window.__purgeAll((d) => d.id === 'mat_scrap' || d.id === 'wpn_dmr' || d.id === 'att_brake');
     // 2026-09-10: 권총(보조무기)이 사라져 지정사수소총 2정(4×1)으로 검사한다 — 시작 소지품을 건드리지 않고 가방에 들어간다
     const keep = ctx.loot.createItem('wpn_dmr', 1);
     const shred = ctx.loot.createItem('wpn_dmr', 1);
@@ -849,7 +871,7 @@ try {
   const gunOut = await page.evaluate((s) => {
     const i = window.__game.ctx.inventory;
     return {
-      scrap: i.countWhere((d) => d.id === 'mat_scrap'), guns: i.countWhere((d) => d.id === 'wpn_dmr'),
+      scrap: i.countDefAll('mat_scrap'), guns: i.countDefAll('wpn_dmr'),
       keptSame: !!i.findItem(s.keep), shredGone: !i.findItem(s.shred), brakeBack: !!i.findItem(s.brake),
     };
   }, gunSetup);
@@ -882,7 +904,7 @@ try {
     const mats = (d) => d.id === 'mat_scrap' || d.id === 'mat_cloth' || d.id === 'mat_core';
     const fmt = (r) => (r ? [`${r.outputDefId}:${r.outputQty}`, ...(r.extraOutputs ?? []).map((e) => `${e.defId}:${e.qty}`)].join('|') : 'null');
     const run = async (frac) => {
-      i.consumeWhere(mats, 9999);
+      window.__purgeAll(mats);
       const max = ctx.loot.getItemDef('armor_1').durabilityMax;
       const plate = ctx.loot.createItem('armor_1', 1, { durability: Math.max(1, Math.round(max * frac)) });
       i.tryAddItem(plate);
@@ -891,12 +913,12 @@ try {
       await sys.craft(preview.id, plate.uid);
       return {
         preview: fmt(preview), bucket: bucket.label, mul: bucket.salvageMul, gone: !i.findItem(plate.uid),
-        got: { scrap: i.countWhere((d) => d.id === 'mat_scrap'), cloth: i.countWhere((d) => d.id === 'mat_cloth'), core: i.countWhere((d) => d.id === 'mat_core') },
+        got: { scrap: i.countDefAll('mat_scrap'), cloth: i.countDefAll('mat_cloth'), core: i.countDefAll('mat_core') },
       };
     };
     const fresh = await run(1.0);
     const wrecked = await run(0.05);
-    i.consumeWhere(mats, 9999);
+    window.__purgeAll(mats);
     return { fresh, wrecked };
   });
   ok(durSalvage.fresh.preview === 'mat_scrap:4|mat_cloth:2' && durSalvage.fresh.bucket === '81~100 %',
@@ -1130,6 +1152,9 @@ try {
   await sleep(350);
   ok(stocked.max >= 3, `재료를 채우면 3회 이상 만들 수 있다 (max ${stocked.max})`, JSON.stringify(stocked));
 
+  /* 2026-09-15 3차: 썸네일 · 제목 · 스테퍼는 이제 **고른 레시피 하나의 상세**에만 있다 — 먼저 목록 칸을 눌러 고른다. */
+  await page.evaluate((id) => document.querySelector(`.inv-craft-cell[data-recipe="${id}"]`)?.click(), RID);
+  await sleep(200);
   const rowLook = await page.evaluate((id) => {
     const row = document.querySelector(`.inv-craft-row[data-recipe="${id}"]`);
     if (!row) return { missing: true };
@@ -1151,6 +1176,10 @@ try {
       outputQty: recipe?.outputQty,
     };
   }, RID);
+  /* 2026-09-15 3차 (사용자 결정): 스테퍼는 `지금 목표 / 최대 제작 가능` 두 수를 읽는다 — 앞의 수만 떼어 본다.
+     최댓값은 그때 가진 재료가 정하므로 스모크가 숫자를 적지 않고 "앞 ≤ 뒤" 만 못 박는다. */
+  const stepTarget = (text) => Number(String(text ?? '').split('/')[0].trim());
+  const stepMax = (text) => Number(String(text ?? '').split('/')[1]?.trim() ?? NaN);
   ok(!rowLook.missing && rowLook.hasTile && rowLook.tipHook,
     '제작 행이 산출물을 인벤토리 타일로 그리고 툴팁 훅(data-item-tip)을 단다', JSON.stringify(rowLook));
   const wantTile = (n) => n * (rowLook.cell + 2) - 2;
@@ -1158,8 +1187,8 @@ try {
     `썸네일이 격자 칸 크기다 (${rowLook.defW}\u00d7${rowLook.defH} 칸 → ${rowLook.w}\u00d7${rowLook.h} px)`);
   ok(rowLook.name === rowLook.expect, `행 제목이 '산출물 \u00d7n' 이다 ("${rowLook.name}")`);
   ok(!rowLook.desc, '레시피 설명 줄이 사라졌다');
-  ok(rowLook.stepper && rowLook.count === String(rowLook.outputQty),
-    `제작 수량 스테퍼가 1회분(${rowLook.outputQty})에서 시작한다 — 횟수가 아니라 총 개수를 읽는다`);
+  ok(rowLook.stepper && stepTarget(rowLook.count) === rowLook.outputQty && stepMax(rowLook.count) >= rowLook.outputQty,
+    `제작 수량 스테퍼가 1회분(${rowLook.outputQty})에서 시작하고 최대치를 함께 읽는다 ("${rowLook.count}")`);
 
   const stepped = await page.evaluate((id) => {
     const row = document.querySelector(`.inv-craft-row[data-recipe="${id}"]`);
@@ -1181,7 +1210,7 @@ try {
       outputQty: recipe.outputQty,
     };
   }, RID);
-  ok(after3.count === String(after3.outputQty * 3) && after3.need.length === stepped.before.length
+  ok(stepTarget(after3.count) === after3.outputQty * 3 && after3.need.length === stepped.before.length
     && after3.need.every((n, i) => n === stepped.before[i] * 3),
     `\u25b6 두 번 → 총 ${after3.count}개, 재료 필요량도 3배 (${stepped.before.join('/')} → ${after3.need.join('/')})`);
   ok(after3.name === after3.expect, `제목은 1회분을 그대로 유지한다 ("${after3.name}")`);
@@ -1191,7 +1220,8 @@ try {
     const recipe = ctx.loot.getAllRecipes().find((r) => r.id === id);
     const cost = sys.craftCost(recipe);
     const before = cost.map((c) => sys.countDef(c.defId));
-    const outBefore = sys.countDef(recipe.outputDefId);
+    // 2026-09-15 3차: 산출물은 함선 창고 먼저 — 가방만 세면 0 이다 (`countDefAll` = 가방 + 창고)
+    const outBefore = sys.countDefAll(recipe.outputDefId);
     const started = [];
     const off = ctx.bus.on('craft:started', (p) => started.push(p));
     const done = new Promise((res) => { const o = ctx.bus.on('craft:completed', (p) => { o(); res(p); }); });
@@ -1201,7 +1231,7 @@ try {
     return {
       started: started[0] ?? null, completed: ev ? { recipeId: ev.recipeId, count: ev.count } : null,
       spent: cost.map((c, i) => before[i] - sys.countDef(c.defId)), need: cost.map((c) => c.qty * 3),
-      made: sys.countDef(recipe.outputDefId) - outBefore, expectMade: recipe.outputQty * 3,
+      made: sys.countDefAll(recipe.outputDefId) - outBefore, expectMade: recipe.outputQty * 3,
     };
   }, RID);
   ok(batch.started?.count === 3, `craft:started 가 수량을 싣는다 (${JSON.stringify(batch.started)})`);

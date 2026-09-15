@@ -1070,6 +1070,14 @@ export interface GameEvents {
    * of those changes (never per frame). `gadget` null = no `place` gadget in hand. Owner: gadgets. Read by ui/hud.
    */
   'gadget:placementChanged': { gadget: GadgetId | null; valid: boolean; reason: string | null; mount: string | null };
+  /* ── appended: 2026-09-15 (제세동기 조준, 사용자 결정) ── */
+  /**
+   * 제세동기를 든 동안의 크로스헤어 상태. `charge` 0..1 = 준비 게이지(`DEFIB_USE_TIME_S` 를 채우는 동안),
+   * `armed` = 준비 완료(작은 원이 큰 원과 겹쳐 굵어진 상태), `target` = 지금 손을 떼면 일으킬 대상이 걸려 있다
+   * (`DEFIB_AIM_CONE_DEG` 안 · `GADGET_DEFIB_RANGE` 안의 쓰러진 아군). 손을 떼면 `armed:false` 로 닫는다.
+   * 그리는 곳은 `ui/hud/Reticle` 하나다.
+   */
+  'gadget:defibAim': { armed: boolean; charge: number; target: boolean };
   /** Fact: a named rogue was placed this raid (authority emits on spawn, replicas on first sight of the type). Owner: enemies. */
   'enemy:namedSpawned': { id: number; type: NamedRogueType; position: THREE.Vector3 };
   /**

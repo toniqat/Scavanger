@@ -128,6 +128,6 @@ export function handPosition(sys: WeaponSystem, host: Host, out: THREE.Vector3):
 
 export function emitGrenadeCount(sys: WeaponSystem): void {
   const inv = sys.ctx.inventory;
-  const count = inv ? inv.countWhere((d) => d.category === 'grenade') : sys.fallbackGrenades;
+  const count = inv ? inv.countWhere((d) => d.grenade !== undefined) : sys.fallbackGrenades;
   sys.ctx.bus.emit('grenade:countChanged', { count });
   }

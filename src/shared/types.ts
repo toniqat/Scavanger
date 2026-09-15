@@ -56,7 +56,7 @@ export interface MissionStats {
 export type ItemCategory =
   | 'primary'     // main weapon (equippable)
   | 'secondary'   // sidearm (equippable)
-  | 'grenade'     // throwable, stackable
+  /* 2026-09-15 (사용자 결정): `'grenade'` 폐지 — 수류탄 2종은 `category: 'gadget'` 이고 `ItemDef.grenade` 가 수류탄인지를 가른다. */
   | 'stim'        // healing consumable, stackable
   | 'ammo'        // ammo; `qty` = rounds (v2), stackable
   | 'valuable'    // loot with sell value (mission score)
@@ -336,7 +336,28 @@ export interface ItemDef {
   /* ── appended: 온실 개편 (2026-09-11, owner: items) ── */
   /** category 'soil': which 속성 it carries and how many harvests it survives. */
   soil?: SoilDef;
+  /* ── appended: 2026-09-15 (가젯 개편, owner: items) ── */
+  /**
+   * 이 아이템이 수류탄인가 — **수류탄인지를 가르는 유일한 값**이다 (`items.csv` 의 `grenade` 열).
+   * 2026-09-15 (사용자 결정) 에 `ItemCategory` 의 `'grenade'` 가 폐지되면서 `category === 'grenade'` 를 보던 자리가
+   * 전부 이 필드로 옮겨 왔다 — 수류탄도 이제 `category: 'gadget'` 이라 분류만으로는 갈 수 없다.
+   * `grenadeFire` 는 `grenade === 'fire'` 와 같은 뜻으로 남는다 (계약이라 지우지 않았고 로더가 함께 채운다).
+   */
+  grenade?: GrenadeKind;
+  /**
+   * 가젯을 **쓰거나 설치하기까지** 좌클릭을 누르고 있어야 하는 초 (`items.csv` 의 `gadgetUseTime` 열).
+   * `weapons/model.useTimeOf(def)` 가 회복약 · 실드 충전기 · 전투 소모품과 **같은 홀드 틀**로 읽는다 —
+   * 그 전까지 가젯은 전부 0 이었고, 그것이 「바리케이드 설치 시간이 안 먹힌다」 의 정체다 (회수에만 시간이 걸렸다).
+   * 비우면 제세동기는 `DEFIB_USE_TIME_S`, 나머지는 0 이다.
+   */
+  gadgetUseTime?: number;
 }
+
+/**
+ * 수류탄의 종류 (`ItemDef.grenade`). `items/LootTables.rollCorpseOn(…, { grenades: { kind } })` 이 이미 쓰던 값을
+ * 2026-09-15 에 계약으로 올렸다 — `'frag'` = 파편 수류탄(고폭), `'fire'` = 화염 수류탄(작은 폭발 + 화염 지대).
+ */
+export type GrenadeKind = 'frag' | 'fire';
 
 /**
  * 토양 속성 (2026-09-11). Four tags, one per gathering biome — `world/` drops the tag's soil on that planet,
@@ -871,7 +892,11 @@ export interface PlayerRef {
   getEyePosition(out?: THREE.Vector3): THREE.Vector3;
   getForward(out?: THREE.Vector3): THREE.Vector3;   // horizontal forward
   /** `source` appended (2026-09-15): 누가 · 무엇이 때렸나 — 결과 창의 사망 원인 · 원인별 받은 피해 (`PlayerDamageSource`). 생략 = 모름. */
-  takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource): void;
+  /**
+   * 2026-09-15 (사용자 결정 — 독성 포자): 넷째 인자 `opts.bypassShield` 가 실드를 건너뛰고 **체력만** 깎는다.
+   * 대기를 방탄복이 막는 것이 이상하다는 `PLANET_ENV_DPS` 의 근거(2026-09-11 A-13)를 재해에도 편 것이다.
+   */
+  takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void;
   heal(amount: number): void;
   /** Teleport & reset (used at mission start). */
   respawnAt(position: THREE.Vector3, yaw?: number): void;
@@ -3363,6 +3388,12 @@ export type DamageCauseKind =
   | 'self'       // 자기 수류탄 · 자기 가젯 · 손 안에서 터진 수류탄
   | 'ally'       // 분대원의 폭발물 · 화염
   | 'other';     // 그 밖 (모르면 생략이 낫다)
+
+/** 2026-09-15: `PlayerRef.takeDamage` 의 넷째 인자. 생략은 지금까지와 똑같다 (실드 먼저 · 그 다음 체력). */
+export interface PlayerDamageOptions {
+  /** true 면 실드를 건너뛰고 체력만 깎는다 (독성 포자 재해 — `HAZARD_SPORES_BYPASS_SHIELD`). */
+  bypassShield?: boolean;
+}
 
 /** `PlayerRef.takeDamage` 의 셋째 인자 · `player:damaged.source` · `player:died.source`. */
 export interface PlayerDamageSource {

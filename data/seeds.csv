@@ -1,20 +1,26 @@
 # 온실 재배층에 심는 씨앗. growHours 는 실제 시간(시간) — 함선을 떠나 있어도 흐른다.
 # `=SEED_GROW_HOURS_BY_RARITY` 같은 표는 data/tables.csv 에 있고, 여기서는 그 값을 그대로 적는다.
 # yieldDefId / yieldQty 가 수확물이다.
-id,name,rarity,value,growHours,yieldDefId,yieldQty,soilTag,description
-seed_bloodroot,혈근초 씨앗,common,40,1,herb_bloodroot,3,mineral,혈근초의 붉은 씨앗. 온실 재배층에 심으면 약 1시간 뒤 혈근초 3개를 거둘 수 있다. 함선을 떠나 있어도 현실 시간에 맞춰 자란다.
-seed_ashleaf,잿빛잎 씨앗,uncommon,90,2.5,herb_ashleaf,3,ash,화산재에 굳어 있던 잿빛잎 포자낭. 온실 재배층에서 약 2.5시간이면 잿빛잎 3개가 된다. 원예 숙련도가 높을수록 빨리 자란다.
-seed_glowcap,발광버섯 씨앗,rare,220,6,herb_glowcap,2,humus,희미하게 빛나는 발광버섯 균사 덩어리. 온실 재배층에서 약 6시간을 들여야 발광버섯 2개를 거둔다. 구하기 어려운 만큼 값도 비싸다.
-seed_frostmoss,서리이끼 씨앗,uncommon,95,2.5,herb_frostmoss,3,frost,얼어붙은 이탄 속에서 겨울을 난 포자. 동토 토양에서 가장 잘 자란다.
-seed_emberpod,불씨꼬투리 씨앗,uncommon,100,2.5,herb_emberpod,3,ash,열을 머금어야 터지는 꼬투리. 화산재 토양이 아니면 좀처럼 깨어나지 않는다.
-seed_ironleaf,철엽초 씨앗,rare,240,6,herb_ironleaf,2,mineral,금속을 빨아들여 잎을 벼리는 풀. 광물 토양이 아니면 잎이 무르다.
-seed_tuber,회색 덩이줄기 씨눈,common,35,1,crop_tuber,3,mineral,척박한 땅에서도 굵어지는 덩이줄기. 광물 토양에서 특히 굵다.
-seed_beanpod,단백 콩깍지 씨앗,common,40,1,crop_beanpod,3,humus,단백질이 많은 콩. 부엽토에서 꼬투리가 잘 여문다.
-seed_leafgreen,온실 잎채소 씨앗,common,32,1,crop_leafgreen,3,humus,잎만 먹는 속성 채소. 부엽토에서 가장 빨리 자란다.
-seed_capfungus,식용 갓버섯 균사,uncommon,85,2.5,crop_capfungus,2,frost,서늘한 곳에서 갓을 펴는 식용 균류. 동토 토양이 맞다.
-seed_ashgrain,잿빛 곡물 씨앗,common,36,1,crop_ashgrain,3,ash,재가 쌓인 땅에서도 이삭을 맺는 곡물. 아켈론 II · 피로스 VII 의 야생 군락에서 거둔다.
-seed_saltmelon,염수박 씨앗,uncommon,95,2.5,crop_saltmelon,3,saline,소금기를 빨아들여 단맛으로 바꾸는 박. 염류 토양이 아니면 속이 무르다.
-seed_sporecap,포자 갓 균사,uncommon,92,2.5,crop_sporecap,3,spore,포자가 삭은 흙에서만 갓을 펴는 균사 덩어리. 베르단트 III 습지의 것이다.
-seed_frostberry,서리열매 씨앗,uncommon,98,2.5,crop_frostberry,3,frost,얼었다 녹아야 단맛이 오르는 열매. 동토 토양이 맞다.
-seed_deeproot,심근초 씨앗,rare,260,6,herb_ironleaf,3,mineral,"땅속 금속을 끌어올려 잎에 벼려 넣는 개량종. 야생에는 없고 결정 표본을 해석해야 손에 들어온다."
-seed_lumenpod,광휘 꼬투리 씨앗,epic,520,10,herb_glowcap,4,spore,"발광버섯의 빛을 통째로 품은 개량 꼬투리. 봉인된 유전자 시료를 해석해야 나온다. 오래 걸리는 만큼 한 번에 넉넉히 거둔다."
+# ── 2026-09-15 무게 (사용자 결정) ──
+# weight = 0 kg. 씨앗은 한 줌이라 무게를 재지 않는다 (툴팁이 `0 kg` 로 적는다).
+# ⚠ 빈 칸으로 두면 `DEFAULT_ITEM_WEIGHT` 0.1 kg 가 되므로 **0 을 명시**한다 — 그래서 열을 새로 만들었다.
+# ⚠ 이 칸은 **아직 코드가 읽지 않는다** — `src/items/ItemDefs.ts` 가 `T.num('SEED_WEIGHT')`(data/tuning.csv, 0.05)를 읽는다.
+#   그 한 줄을 `r.num('weight', { min: 0 })` 으로 바꾸고 `tuning.csv` 의 `SEED_WEIGHT` 를 은퇴시켜야 값이 실제로 0 이 된다
+#   (items 폴더 · tuning.csv 는 다른 소유). 로더는 `{ min: 0 }` 이라 0 을 거절하지 않는다.
+id,name,rarity,value,weight,growHours,yieldDefId,yieldQty,soilTag,description
+seed_bloodroot,혈근초 씨앗,common,40,0,1,herb_bloodroot,3,mineral,혈근초의 붉은 씨앗. 온실 재배층에 심으면 약 1시간 뒤 혈근초 3개를 거둘 수 있다. 함선을 떠나 있어도 현실 시간에 맞춰 자란다.
+seed_ashleaf,잿빛잎 씨앗,uncommon,90,0,2.5,herb_ashleaf,3,ash,화산재에 굳어 있던 잿빛잎 포자낭. 온실 재배층에서 약 2.5시간이면 잿빛잎 3개가 된다. 원예 숙련도가 높을수록 빨리 자란다.
+seed_glowcap,발광버섯 씨앗,rare,220,0,6,herb_glowcap,2,humus,희미하게 빛나는 발광버섯 균사 덩어리. 온실 재배층에서 약 6시간을 들여야 발광버섯 2개를 거둔다. 구하기 어려운 만큼 값도 비싸다.
+seed_frostmoss,서리이끼 씨앗,uncommon,95,0,2.5,herb_frostmoss,3,frost,얼어붙은 이탄 속에서 겨울을 난 포자. 동토 토양에서 가장 잘 자란다.
+seed_emberpod,불씨꼬투리 씨앗,uncommon,100,0,2.5,herb_emberpod,3,ash,열을 머금어야 터지는 꼬투리. 화산재 토양이 아니면 좀처럼 깨어나지 않는다.
+seed_ironleaf,철엽초 씨앗,rare,240,0,6,herb_ironleaf,2,mineral,금속을 빨아들여 잎을 벼리는 풀. 광물 토양이 아니면 잎이 무르다.
+seed_tuber,회색 덩이줄기 씨눈,common,35,0,1,crop_tuber,3,mineral,척박한 땅에서도 굵어지는 덩이줄기. 광물 토양에서 특히 굵다.
+seed_beanpod,단백 콩깍지 씨앗,common,40,0,1,crop_beanpod,3,humus,단백질이 많은 콩. 부엽토에서 꼬투리가 잘 여문다.
+seed_leafgreen,온실 잎채소 씨앗,common,32,0,1,crop_leafgreen,3,humus,잎만 먹는 속성 채소. 부엽토에서 가장 빨리 자란다.
+seed_capfungus,식용 갓버섯 균사,uncommon,85,0,2.5,crop_capfungus,2,frost,서늘한 곳에서 갓을 펴는 식용 균류. 동토 토양이 맞다.
+seed_ashgrain,잿빛 곡물 씨앗,common,36,0,1,crop_ashgrain,3,ash,재가 쌓인 땅에서도 이삭을 맺는 곡물. 아켈론 II · 피로스 VII 의 야생 군락에서 거둔다.
+seed_saltmelon,염수박 씨앗,uncommon,95,0,2.5,crop_saltmelon,3,saline,소금기를 빨아들여 단맛으로 바꾸는 박. 염류 토양이 아니면 속이 무르다.
+seed_sporecap,포자 갓 균사,uncommon,92,0,2.5,crop_sporecap,3,spore,포자가 삭은 흙에서만 갓을 펴는 균사 덩어리. 베르단트 III 습지의 것이다.
+seed_frostberry,서리열매 씨앗,uncommon,98,0,2.5,crop_frostberry,3,frost,얼었다 녹아야 단맛이 오르는 열매. 동토 토양이 맞다.
+seed_deeproot,심근초 씨앗,rare,260,0,6,herb_ironleaf,3,mineral,"땅속 금속을 끌어올려 잎에 벼려 넣는 개량종. 야생에는 없고 결정 표본을 해석해야 손에 들어온다."
+seed_lumenpod,광휘 꼬투리 씨앗,epic,520,0,10,herb_glowcap,4,spore,"발광버섯의 빛을 통째로 품은 개량 꼬투리. 봉인된 유전자 시료를 해석해야 나온다. 오래 걸리는 만큼 한 번에 넉넉히 거둔다."

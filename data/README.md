@@ -25,10 +25,10 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **조준 흔들림** — 무기 계열별 정조준 8자 흔들림의 크기 · 빈도 (자세 · 이동 배수는 `constants.csv` 의 `AIM_SWAY_*`) | [`aim_sway.csv`](aim_sway.csv) |
 | 무기 부착물 | [`attachments.csv`](attachments.csv) |
 | 탄약 · 가방(격자 · 퀵슬롯 · **내구도**) · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
-| 일반 아이템 — 수류탄 · 회복 소모품 · **전투 소모품(`boostEffect`·`boostUseTime`)** · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · 가젯 | [`items.csv`](items.csv) |
+| 일반 아이템 — **수류탄(`grenade` = frag · fire, 2026-09-15 부터 category 도 gadget)** · 회복 소모품 · **전투 소모품(`boostEffect`·`boostUseTime`)** · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · **가젯(`gadgetUseTime` = 좌클릭 홀드 초, `durabilityMax` = 돔 실드 · 바리케이드)** | [`items.csv`](items.csv) |
 | 씨앗 | [`seeds.csv`](seeds.csv) |
 | **서재 시리즈** (2026-09-13) — 책 · 비디오 · 레코드의 시리즈 한 줄: 권 수 · 등장 행성 · 효과 줄(전권 값) · 등급 · 대표 숙련. **아이템은 이 표에서 자동으로 만들어진다** (옛 `books.csv` · `discs.csv` · `records.csv` 는 없어졌다) | [`library_series.csv`](library_series.csv) |
-| 옛 아이템 id → 새 아이템 id (옛 숙련별 책 · 디스크 · 레코드 → 새 시리즈 1권, 세이브 변환) | [`item_aliases.csv`](item_aliases.csv) |
+| 옛 아이템 id → 새 아이템 id (옛 숙련별 책 · 디스크 · 레코드 → 새 시리즈 1권, **2026-09-15 `gad_incendiary` → `grenade_incendiary`**, 세이브 변환) | [`item_aliases.csv`](item_aliases.csv) |
 | **비디오게임** (2026-09-13) — 게임기 · 게임 디스크 (규격 · 능력치 · 미니게임 튜닝 · 테마 색 · 등장 행성) | [`game_consoles.csv`](game_consoles.csv) · [`game_discs.csv`](game_discs.csv) |
 | **미확인 표본** — 계열(세포 · 광물 · DNA) · 해석 시간 · 대체 산출물 · 은퇴 (연구실 분석기가 읽는다) | [`samples.csv`](samples.csv) |
 | **분석기 결과표** — 계열 × 최소 분석 레벨 × 산출물 × 개수 × 가중치 | [`analysis_results.csv`](analysis_results.csv) |
@@ -162,6 +162,72 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-15 (3차) — 가젯 개편: 수류탄 이름 · 가젯 무게 · 내구도 · `gadgetUseTime` · 설명에서 수치 빼기 (`items.csv` · `recipes.csv` · `item_aliases.csv` — 에이전트 A)
+
+사용자 결정. 「설명 글에 툴팁이 이미 보여 주는 숫자를 적지 않는다」(2026-09-12)를 회복약 · 전투 소모품 · 가젯 · 수류탄까지
+밀고 나갔다 — **설명에서 수치를 전부 걷어내고** 그 수치를 `src/items/ItemSpec.ts` 의 스펙 줄이 그린다
+(툴팁 두 곳이 같은 함수를 부른다). 스펙 맨 위는 언제나 `사용 시간`.
+
+- **`items.csv` 수류탄 2종** — 이름 `G-12 고폭 수류탄` → **파편 수류탄** · `G-10 소이 수류탄` → **화염 수류탄**,
+  무게 **−30 %** (0.45 → 0.315 · 0.5 → 0.35). 둘 다 `category: gadget` + `grenade` 열(`frag` · `fire`)이고
+  `gadgetUseTime` 0 이다.
+- **`gad_incendiary` 「화염수류탄」 줄 삭제** — 화염 지대를 만드는 길이 둘이었다. 살아남는 것은 폭발 + 화염 지대를
+  함께 하는 **화염 수류탄**(`grenade_incendiary`) 하나이고, 가진 사람이 잃지 않도록 **`item_aliases.csv`** 에
+  `gad_incendiary → grenade_incendiary` 를 넣었다. `recipes.csv` 의 `make_fire_gadget` 도 지웠다
+  (화염 수류탄에는 `make_incendiary` · `make_incendiary_ember` · `make_incendiary_batch` 가 이미 있다).
+  나머지 수류탄 레시피는 **이름 · 설명만** 새 이름으로 고쳤다 (id · 재료 무변경).
+- **가젯 수치** — 돔 실드 2×2 · 5.8 kg → **1×1 · 0.35 kg + `durabilityMax` 1000**, 바리케이드 2×2 · 7.2 →
+  **2×1 · 1.5 + `durabilityMax` 1800**, 연막탄 0.55 → **0.4**, 지뢰 스택 4 → **3** · 1.1 → **0.8**,
+  원격 지뢰 스택 4 → **3** · 1.2 → **0.9**, 제세동기 2.4 → **0.6**, 점프대 2×2 · 6.4 → **2×1 · 1.2**,
+  지상 드론 4.8 → **1.6** · 공중 드론 3.6 → **1.2** (⅓), 「포탑 설치」 → **자동 사격 포탑**.
+- **`gadgetUseTime` 을 전부 채웠다** — 던지는 것 0(수류탄 · 유인 · 연막 · 돔 실드) · 은폐 장막 0.5 · 지뢰 · 원격 지뢰 ·
+  드론 1 · 점프대 1.5 · 바리케이드 · 포탑 2. **제세동기만 빈칸**이라 `constants.csv` 의 `DEFIB_USE_TIME_S` 로 떨어진다
+  (리드가 정한 폴백 규약 그대로).
+- **`shield_charger_hi`(고출력 실드 충전기) `shieldUseTime` 4 → 2** — 일반 충전기와 같다.
+- **내구도가 생긴 가젯이 수리 · 분해 경제에 올라탔다** — 돔 실드(강화합금 잉곳 2 + 축전 모듈 2 + 제어 모듈 1) ·
+  바리케이드(폐금속 14 + 합금 판 2 + 전력 케이블 2)의 5구간을 `checkSalvageEconomy()` 가 실제 정수로 통과하므로
+  **`recipes.csv` 의 재료는 한 줄도 고치지 않았다.** 「내구도가 있는 장비는 재료 종류당 2 이상」 불변식도
+  그대로 성립한다(제어 모듈 1 은 주재료가 아니라 최소 보장을 받지 않는다).
+- **부착물 · 씨앗 무게가 드디어 먹는다** — 아래 2026-09-15 (2차) 항목의 ⚠ 둘을 풀었다: `src/items/ItemDefs.ts` 가
+  `ATTACHMENT_WEIGHT = 0.3` 상수를 버리고 `attachments.csv` 의 `weight` 를, `tuning.csv` 의 `SEED_WEIGHT` 대신
+  `seeds.csv` 의 새 `weight` 를 읽는다. **`tuning.csv` 의 `SEED_WEIGHT` 줄 은퇴는 리드 몫**이라 그때까지
+  `data:check` 가 「아무도 읽지 않는 키」로 신고한다.
+- ⚠ `server/economy.gen.json` 재생성 (`gad_incendiary` 삭제 · 지뢰 · 원격 지뢰 스택 4 → 3).
+- **`loot_category_weights.csv` 의 `grenade` 줄은 살아 있다 — 값도 안 바꿨다.** `ItemCategory` 에서 `'grenade'` 가
+  사라진 뒤 그 줄들이 잠깐 **유령 카테고리**가 되어(아무 아이템에도 안 맞음) 그 카테고리가 뽑히면 상자 채우기가
+  중단됐다 — 보급 상자의 ≈13 %, **보급 투하 상자의 ≈23 %** 가 아이템 한두 개로 잘렸다(`smoke-search` 가 잡았다).
+  가중치를 `gadget` 에 합치지 **않은** 이유: 수류탄 2종과 가젯 12종이 한 주머니에 들어가면 상대 빈도가 바뀌고
+  (티어 1 에서 수류탄 −39 % · 가젯 ×2.05) 되돌리려면 배수 줄이 20 개 넘게 필요하다. 대신 코드가 **루팅 전용
+  카테고리 축**을 갖는다 (`src/items/LootTables.ts` 의 `LootCategory` · `lootCategoryOf`) — 표의 뜻은 예전 그대로이고
+  같은 시드의 상자가 기준선과 같은 draw 를 쓴다. 곁들여 **카테고리 이름을 로더가 검증**하므로(`data:check`)
+  이제 유령 카테고리는 조용할 수 없다.
+
+### 2026-09-15 (2차) — 무게: 무기 ×1.2 + 산탄총 ↔ 지정사수 맞바꾸기 · 부착물 0.1 kg · 씨앗 0 kg (`weapons.csv` · `attachments.csv` · `seeds.csv`)
+
+사용자 결정. 세 파일의 `weight` 칸만 움직였다 — 피해 · 가격 · 내구도 · 제작은 한 줄도 안 바뀌었으므로
+「한 아이템의 값어치를 정하는 자리는 `recipes.csv` 하나」(2026-09-10)와 `checkSalvageEconomy()` 검산에 영향이 없다.
+
+- **`weapons.csv`** — 유니크를 뺀 전 계열 ×1.2, **그 뒤 산탄총 ↔ 지정사수소총을 맞바꿔** 지정사수가 더 무겁게 했다
+  (사거리 · 피해가 큰 중량탄이 더 무겁다는 뜻). 무게 칸은 **등급과 무관**하다 — 등급 I–V 가 한 줄의 같은 값을 쓰고
+  `constants.csv` 에 무게 계단 상수가 없다(`WEAPON_GRADE_*` 는 피해 · 내구도 · 가격 · 조작감뿐).
+  `ar` 4.2 → **5.04** · `smg` 3.1 → **3.72** · `sg` 4.6 → **5.28**(← 옛 dmr) · `dmr` 4.4 → **5.52**(← 옛 sg) · `sr` 6.8 → **8.16**.
+  셀에는 `=4.2*1.2` 처럼 식으로 적어 유래를 남겼다(`damage` 의 `=27*1.2` 와 같은 요령) — 툴팁은 1 kg 이상을 소수 한 자리로
+  찍으므로 5.0 · 3.7 · 5.3 · 5.5 · 8.2 로 보이고 지정사수 > 산탄총이 표시에서도 성립한다.
+  `weapons_unique.csv` 는 손대지 않았다(전설은 배수 대상이 아니다).
+- **`attachments.csv`** — 전 부착물 `weight` 0.3 → **0.1 kg**. 총에 붙는 소품이라 종류마다 무게가 다를 근거가 없고,
+  무기가 ×1.2 된 자리에서 소켓 다섯 칸이 가방을 다 먹는 일을 막는다. 만재 돌격소총은 4.2 + 1.5 = 5.7 → **5.04 + 0.5 = 5.54 kg**
+  로 오히려 가벼워진다.
+  ⚠ **아직 코드가 이 칸을 읽지 않는다** — `src/items/ItemDefs.ts` 의 `ATTACHMENT_WEIGHT = 0.3` 상수가 무게를 정한다.
+  「수치는 코드에 적지 않는다」 규약대로 그 줄을 `r.num('weight', { min: 0 })` 으로 바꿔야 값이 실제로 먹는다 (items 폴더 소유).
+- **`seeds.csv`** — **`weight` 열 신설**, 전 씨앗 **0**. 씨앗은 한 줌이라 무게를 재지 않는다(툴팁이 `0 kg` 로 적는다).
+  빈 칸은 `DEFAULT_ITEM_WEIGHT` 0.1 kg 가 되므로 **0 을 명시**해야 하고, 그래서 열을 만들었다.
+  ⚠ 역시 **아직 읽지 않는다** — 로더가 `tuning.csv` 의 `SEED_WEIGHT`(0.05)를 읽는다. 그 한 줄을 `r.num('weight', { min: 0 })`
+  으로 바꾸고 `SEED_WEIGHT` 를 은퇴시켜야 0 이 된다 (items 폴더 · `tuning.csv` 는 다른 소유).
+- **가방 한계 영향** — 소지 한계는 `28 + 2.2 × 근력 + 가방 칸 × 0.5`(`constants.csv` `WEIGHT_BASE_CAPACITY` ·
+  `WEIGHT_PER_STRENGTH` · `tuning.csv` `BAG_CAPACITY_PER_CELL`). 새 캐릭터(근력 3 · 일반 가방 5×6 = 30칸) = **49.6 kg**.
+  가장 무거운 조합(저격 + 지정사수 + 방탄복 I + 가방 + 예비 탄약 전부) = 19.8 → **22.3 kg** 로 2.5 kg 늘 뿐이고
+  남는 적재량이 29.8 → 27.3 kg 다. 근력 1 (45.2 kg) 에서도 22.9 kg 가 남는다 — **주무기 둘을 못 드는 구간은 생기지 않는다.**
 
 ### 2026-09-15 — 전설 무기: 이름 · 탄약 무게 · 한 칸 수량 · 로켓 점프 되돌림 (`ammo.csv` · `tables.csv` · `constants.csv` · `weapons_unique.csv`)
 
@@ -880,3 +946,22 @@ threat 2 칸의 상한 보너스는 지금 행성(보레아스 IX · 베르단�
   곡사포탄(`SHELL_DAMAGE` × …0.75, 하한 0.25) · 독성 자폭(`TOXIC_DAMAGE` × …0.8, 하한 0.2) · 스퓨어 사망 분출(×0.6) ·
   지하벌레 분출(`SANDWORM_ERUPT_DAMAGE`, 「가장자리에서 30 % 까지」). 이것들은 여전히 제 식을 쓴다.
 - 반경을 고칠 때는 **100 % 구간이 함께 자란다**는 것을 먼저 본다 — 반경 ×1.2 는 「닿는 거리」가 아니라 「한 방에 죽는 거리」가 ×1.2 다.
+
+### 2026-09-15 (3차) — 책 시리즈 최대 3권 · 쇼파 서재 전용 (`library_series.csv` · `furniture.csv` — 에이전트 D)
+
+- **`library_series.csv`** — **책 시리즈는 최대 3권이다** (사용자 결정 · **완전 삭제**: 4·5권 아이템 정의가 사라지고
+  `item_aliases.csv` 에 줄을 만들지 않는다). `volumes` 가 4 이상이던 **책 15 시리즈**를 3 으로 내렸다 —
+  `carry_manual` · `equipment_manual` · `survival_log` · `grit_testimony` · `field_medicine` · `ship_gardening` ·
+  `cooking_basics` · `ceres_journal` · `drill_dmr` · `drill_ar` · `field_crafting` · `drill_sr` · `cipher_theory` ·
+  `implant_doctrine` · `corporate_etiquette`. 비디오(≤ 3) · 레코드(= 1)는 이미 조건을 만족해 **한 줄도 안 바뀌었다.**
+  머리 주석의 「책 ≤ 5」도 「책 ≤ 3」으로 고쳤다.
+  - 효과 값(`effects`)은 **전권 기준 그대로 뒀다** — 몫 식(`librarySeriesFraction`)이 「전권이면 100 %」라 5권짜리가
+    3권이 되면 **모으기가 쉬워질 뿐** 최대 효과는 같다.
+  - ⚠ **리드 몫으로 남은 것 둘**: `tables.csv` 의 `BOOK_VALUE_BY_VOLUME` · `LIBRARY_VOLUME_DROP_WEIGHT` 가 아직
+    **권 1…5** 표다. 4 · 5 줄은 이제 아무도 읽지 않으므로 지워도 되고(키별 표라 `data:check` 는 통과한다),
+    책의 최고가가 950 → 380 으로 떨어지므로 3권 곡선을 다시 그릴지도 리드가 정한다.
+    `src/shared/library.ts` 의 `LIBRARY_MAX_VOLUMES.book` 도 5 → 3 이 맞다(지금도 3 ≤ 5 라 로더는 통과한다).
+- **`furniture.csv`** — **쇼파(`furn_sofa`)가 서재 전용**이다 (`room` `any` → `library`, 사용자 결정 — TV · 게임기가
+  서재에 있으므로 게임 자리도 서재다). 좌식 테이블 · 러그는 그대로 `any`. 이미 다른 방에 놓여 있던 쇼파는
+  `ShipState.sanitize` 가 **가구 창고로** 옮긴다(버리지 않는다 — 옛 규약 그대로).
+  분석기 설명은 이미 「강화하면 해석 칸이 늘어납니다」라 **숫자 없이** 새 칸 수(Lv.1 2칸 … Lv.3 4칸)를 그대로 받는다.

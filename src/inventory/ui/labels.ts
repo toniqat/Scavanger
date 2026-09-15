@@ -259,9 +259,16 @@ export const TEXT = {
   weight: '무게',
   /* 2026-09-10: 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다 — `dr` 은 안 쓰지만 남겨 둔다 */
   armorStats: { dr: '피해 감소', shield: '실드', durability: '내구도', perk: '특성' },
-  /* 2026-09-10: 실드 충전기 (`shieldChargeOf`) */
+  /**
+   * 2026-09-10: 실드 충전기 (`shieldChargeOf`).
+   * @deprecated 2026-09-15 — 이 줄들은 `items/ItemSpec.itemSpecRows` 가 만든다 (칩 카드와 같은 함수).
+   *   읽는 곳이 없지만 문구의 옛 원본으로 남긴다.
+   */
   shieldChargeStats: { amount: '실드 회복', useTime: '사용 시간', full: '최대치까지' },
-  /* 2026-09-12: 전투 소모품 3종 (`boostItemOf`) — 아드레날린 주사 · 각성제 · 안정제 */
+  /**
+   * 2026-09-12: 전투 소모품 3종 (`boostItemOf`) — 아드레날린 주사 · 각성제 · 안정제.
+   * @deprecated 2026-09-15 — 위와 같은 이유로 `itemSpecRows` 가 대신한다.
+   */
   boostStats: {
     stamina: '스태미나', staminaFull: '전부 회복', drain: '지속 소모', drainNone: '없음 (질주 · 사다리 · 부양)',
     reload: '장전 속도', ads: '정조준 전환', sway: '조준 흔들림', staminaCost: '스태미나 소모',
@@ -269,7 +276,13 @@ export const TEXT = {
   },
   craft: '제작',
   craftPanel: '필드 제작',
-  craftNone: '지금 만들 수 있는 레시피가 없습니다',
+  /** 2026-09-15 2차 (사용자 결정): 고를 것이 하나도 없는 작업대의 **가운데 한 줄**. */
+  craftNone: '제작할 수 있는 레시피가 없습니다.',
+  /**
+   * 2026-09-15 2차 (사용자 결정): 상세 패널의 **현재 보유 수** 한 줄. 세는 범위는 재료를 세는 범위와 같다 —
+   * 함선이면 가방 + 함선 창고, 레이드 현장의 빠른제작은 가방만 (`InventoryRef.craftCountDef`).
+   */
+  craftOwned: (n: number): string => `보유 ${n}`,
   /**
    * 홀드 버튼의 라벨 (2026-09-15 2차, 사용자 결정 — 옛 `길게 눌러 제작`). 「길게 눌러」는 버튼 **안**의
    * 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 대신하므로 라벨은 할 일만 말한다.

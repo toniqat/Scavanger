@@ -12,7 +12,7 @@ import { WEAPON_FAMILIES, WEAPON_GRADES } from './WeaponDefs';
 import { ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
 /* appended (2026-09-13): 서재 매체 · 비디오게임 — 행성 고정 드롭 */
 import { LIBRARY_SERIES_MAP, numberMap } from '@/shared';
-import { GAME_ITEM_PLANETS, ITEM_DEFS, libraryShelfOf } from './ItemDefs';
+import { GAME_ITEM_PLANETS, ITEM_CATEGORIES, ITEM_DEFS, libraryShelfOf } from './ItemDefs';
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
 /* appended (2026-09-11): 네임드 확정 드롭의 방탄복 등급 → armor_n */
 import { ARMOR_DEFS } from './ArmorDefs';
@@ -69,6 +69,32 @@ export function isLootableDef(d: ItemDef): boolean {
 
 const LIBRARY_VOLUME_DROP_WEIGHT = numberMap<string>('tables.csv', 'LIBRARY_VOLUME_DROP_WEIGHT');
 
+/* ── 루팅 카테고리 축 (2026-09-15, 가젯 개편 후속) ──────────────────────────────────────────────────
+ * 같은 날 `ItemCategory` 의 `'grenade'` 가 폐지되면서(수류탄도 `category: 'gadget'`) `loot_category_weights.csv`
+ * 의 `grenade` 줄이 **아무 아이템에도 안 맞는 유령 줄**이 됐다. 카테고리 추첨은 그 줄을 예전 가중치(티어 1 16 ·
+ * 2 12 · 3 8 · 4 8 · **5 25**)로 계속 뽑았고, `pickDef` 가 후보 0 으로 null 을 돌려주면
+ * `rollCrateOn` 이 **상자 채우기를 통째로 중단**했다 (`else break`). 그래서 보급 상자의 ~13 %,
+ * **보급 투하 상자의 ~23 %** 가 아이템 한두 개로 잘려 나왔다 (`smoke-search` 가 시드 21 에서 잡았다).
+ *
+ * 고치는 방법으로 「가중치를 gadget 에 합친다」는 **쓰지 않았다** — 수류탄 2종과 가젯 12종이 한 주머니에 들어가면
+ * 상대 빈도가 통째로 바뀌고(티어 1 에서 수류탄 −39 % · 가젯 ×2.05), 되돌리려면 티어마다 마법 같은 배수 줄이
+ * 20 개 넘게 필요하다. 대신 **루팅 추첨의 카테고리 축을 `ItemCategory` 와 분리**했다: 표가 말하는 `grenade` 는
+ * 「`ItemDef.grenade` 가 있는 아이템」이고 `gadget` 은 그 밖의 가젯이다. 그래서 **같은 시드의 상자 결과가
+ * 2026-09-14 기준선과 같다** (아이템 풀 · 가중치 · rng 소비가 하나도 안 바뀐다).
+ *
+ * 카테고리 이름은 이제 로더가 **검증**한다 (`LOOT_CATEGORIES`) — 이 버그가 조용했던 이유가 검증 없는
+ * `as ItemCategory` 캐스트였다. 그리고 `rollCrateOn` 은 후보가 없는 카테고리를 만나면 중단하지 않고 건너뛴다.
+ */
+export type LootCategory = ItemCategory | 'grenade';
+
+/** `loot_category_weights.csv` · `loot_guaranteed.csv` 가 쓸 수 있는 이름 전부 (로더가 검사한다). */
+export const LOOT_CATEGORIES: readonly LootCategory[] = [...ITEM_CATEGORIES, 'grenade'];
+
+/** 이 아이템이 루팅 표에서 어느 카테고리로 세어지나 — 수류탄만 자기 축을 가진다. */
+export function lootCategoryOf(d: ItemDef): LootCategory {
+  return d.grenade ? 'grenade' : d.category;
+}
+
 /** 행성으로 거르는 카테고리 — 이 밖의 카테고리는 행성과 무관하다. */
 export const PLANET_BOUND_CATEGORIES: readonly ItemCategory[] = ['book', 'disc', 'record', 'game_disc', 'console'];
 
@@ -98,8 +124,8 @@ export function libraryVolumeWeight(d: ItemDef): number {
 const CATEGORY_ON_PLANET = new Map<string, boolean>();
 
 /** 그 행성에서 이 카테고리의 후보가 하나라도 있나 (행성 고정 카테고리가 아니면 늘 true). 결과는 (카테고리, 행성)마다 캐시한다. */
-export function planetCategoryAvailable(category: ItemCategory, planet: PlanetId | null | undefined): boolean {
-  if (!PLANET_BOUND_CATEGORIES.includes(category)) return true;
+export function planetCategoryAvailable(category: LootCategory, planet: PlanetId | null | undefined): boolean {
+  if (category === 'grenade' || !PLANET_BOUND_CATEGORIES.includes(category)) return true;
   const key = `${category}@${planet ?? '*'}`;
   let hit = CATEGORY_ON_PLANET.get(key);
   if (hit === undefined) {
@@ -129,8 +155,8 @@ export function libraryBookPool(planet: PlanetId | null | undefined): readonly I
  * Weapon grades map 1:1 to rarity, so `rarityWeights` also shape the grade distribution.
  */
 export interface GuaranteedRoll {
-  /** Categories allowed for this guaranteed pick. */
-  categories: readonly ItemCategory[];
+  /** Categories allowed for this guaranteed pick (2026-09-15: 루팅 카테고리 축 — `grenade` 를 포함한다). */
+  categories: readonly LootCategory[];
   /** Minimum rarity (inclusive). */
   minRarity: Rarity;
 }
@@ -142,7 +168,7 @@ export interface TierTable {
   /** Total item count [min, max] (inclusive), guaranteed picks included. */
   count: readonly [number, number];
   rarityWeights: Readonly<Record<Rarity, number>>;
-  categoryWeights: Readonly<Partial<Record<ItemCategory, number>>>;
+  categoryWeights: Readonly<Partial<Record<LootCategory, number>>>;
   /** Chance that one of the random picks is replaced by a weapon (primary or secondary). */
   weaponChance: number;
   /** Cap on stackable qty per roll for non-ammo stackables (further limited by def.stackMax). */
@@ -168,9 +194,10 @@ export const LOOT_TABLES: readonly TierTable[] = csvRows('loot_tiers.csv').map((
   const tier = r.int('tier', { min: 1 });
   const key = String(tier);
 
-  const categoryWeights: Partial<Record<ItemCategory, number>> = {};
+  const categoryWeights: Partial<Record<LootCategory, number>> = {};
   for (const c of CATEGORY_WEIGHTS_BY_TIER.get(key) ?? []) {
-    categoryWeights[c.str('category') as ItemCategory] = c.num('weight', { min: 0 });
+    /* 2026-09-15: 모르는 이름을 `as` 로 삼키지 않는다 — 유령 카테고리 한 줄이 상자를 잘라 먹었다 (위 *루팅 카테고리 축*). */
+    categoryWeights[c.enum('category', LOOT_CATEGORIES)] = c.num('weight', { min: 0 });
   }
 
   const itemWeightMul: Record<string, number> = {};
@@ -194,7 +221,7 @@ export const LOOT_TABLES: readonly TierTable[] = csvRows('loot_tiers.csv').map((
     maxStackQty: r.int('maxStackQty', { min: 1 }),
     ammoFraction: [r.num('ammoFracMin', { min: 0 }), r.num('ammoFracMax', { min: 0 })] as const,
     guaranteed: (GUARANTEED_BY_TIER.get(key) ?? []).map((g) => ({
-      categories: g.list('categories') as ItemCategory[],
+      categories: g.enumList('categories', LOOT_CATEGORIES),
       minRarity: g.str('minRarity') as Rarity,
     })),
     itemWeightMul,

@@ -17,19 +17,22 @@ export type GadgetId =
   | 'smokeGrenade'   // 연막탄 — blinds enemies; shooting from inside draws inaccurate return fire
   | 'mine'           // 지뢰 — arms after 3 s, friendly fire, defusable
   | 'turret'         // 포탑 — auto turret, friendly fire, recoverable
-  | 'incendiary'     // 화염수류탄 — 10 s fire zone, friendly fire
+  | 'incendiary'     // 화염 지대 — **아이템이 없는 내부 정의**(2026-09-15 화염 통합): 화염 수류탄이 터진 자리에 선다
   | 'defib'          // 제세동기 — instantly revives a downed squadmate at full hp
   | 'jumpPad'        // 점프대 — launches whoever steps on it, recoverable
   /* appended (2026-09-11) */
   | 'remoteMine'     // 원격 지뢰 — C4. 설치 후 손에 들고 우클릭으로 내 것 전부 기폭
   | 'droneGround'    // 지상 드론 — `ctx.drones` (shared/drones.ts). 아이템은 조종기로 남는다
   | 'droneAir'       // 공중 드론 — 같은 규칙, 제자리 비행
-  /* appended (2026-09-15, B-16): G-10 소이 수류탄이 터진 자리의 작은 화염 지대 — **아이템이 없는** 내부 정의라 `GADGET_IDS` 에는 넣지 않는다 */
-  | 'grenadeFire';   // `GadgetsRef.igniteGrenadeFire` 전용 (크기 · 지속 = GRENADE_INCENDIARY_*)
+  /* 2026-09-15 2차 (화염 통합, 사용자 결정): **은퇴**. `fire` 를 만드는 정의는 `incendiary` 하나뿐이다 —
+     이 id 는 `airstrike` · `secondary` 처럼 옛 세이브 · 옛 와이어를 위해 이름만 남는다 (정의가 없다). */
+  | 'grenadeFire';
 
 export const GADGET_IDS: readonly GadgetId[] = [
   'cloakVeil', 'domeShield', 'barricade', 'lureGrenade', 'smokeGrenade',
-  'mine', 'turret', 'incendiary', 'defib', 'jumpPad',
+  /* 2026-09-15 2차 (화염 통합): `'incendiary'` 가 **목록에서만** 빠졌다 — 아이템(`gad_incendiary`)이 사라지고
+     화염 수류탄이 터진 자리에 서는 **내부 정의**가 됐다. 타입 · 정의 · 구현은 그대로다 (`airstrike` 와 같은 처리). */
+  'mine', 'turret', 'defib', 'jumpPad',
   /* appended (2026-09-11) */
   'remoteMine', 'droneGround', 'droneAir',
 ];
@@ -99,6 +102,14 @@ export interface GadgetDef {
   recoverTime: number;
   icon: string;
   color: string;
+  /* ── appended: 2026-09-15 (가젯 개편, 사용자 결정) ── */
+  /**
+   * 배치물이 받은 피해가 **아이템 내구도**로 남는가 (돔 실드 · 바리케이드).
+   * true 면 배치물의 최대 hp 를 `GadgetDef.hp` 가 아니라 **그 아이템의 `ItemDef.durabilityMax`** 에서 잡고,
+   * 회수할 때 남은 hp 를 돌려주는 `ItemInstance.durability` 로 적는다 — 그래서 까인 만큼 작업대 수리가 필요해지고
+   * 분해 산출도 「제작 재료 × 남은 내구도 20 % 5구간」(2026-09-10) 에 그대로 올라탄다. 새 개념을 만들지 않는다.
+   */
+  wearsItemDurability?: boolean;
 }
 
 export interface DeployableRef {
@@ -181,8 +192,9 @@ export interface GadgetsRef {
    */
   getFireZones?(): readonly FireZoneInfo[];
   /**
-   * G-10 소이 수류탄(`ItemDef.grenadeFire`)이 `position` 에서 터졌다 — 로컬 플레이어 소유의 작은 화염 지대를 세운다
-   * (`GadgetId 'grenadeFire'` 정의, `GRENADE_INCENDIARY_RADIUS` · `GRENADE_INCENDIARY_DURATION`, 초당 피해는 `GADGET_INCENDIARY_DPS`).
+   * 화염 수류탄(`ItemDef.grenade === 'fire'`)이 `position` 에서 터졌다 — 로컬 플레이어 소유의 화염 지대를 세운다
+   * (2026-09-15 2차 화염 통합 뒤로는 `GadgetId 'incendiary'` 내부 정의, `GRENADE_INCENDIARY_RADIUS` ·
+   * `GRENADE_INCENDIARY_DURATION`, 초당 피해는 `GADGET_INCENDIARY_DPS`). 이름은 계약이라 그대로 둔다.
    * 화염수류탄의 `onThrownImpact` 와 같은 길이다 — 권위면 즉시 `spawnDeployable`, 아니면 `gadq place` 로 호스트에 요청.
    * 부르는 곳은 weapons 의 로컬 수류탄 폭발뿐이다.
    */

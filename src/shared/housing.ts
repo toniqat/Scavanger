@@ -817,7 +817,7 @@ export function furnitureFootprint(def: FurnitureDef, yaw: 0 | 1 | 2 | 3): { col
  * 연구실 — 분석기 (A-12, 2026-09-11, 사용자 결정: 현실 시간 대기)
  *
  * 분석기(`furn_analyzer`)는 재배 스테이션과 **같은 모양의 스테이션**이다: 레벨이 자리를 연다.
- * 레벨 n 이면 `ANALYZER_SLOTS_PER_LEVEL × n` 칸이 열리고, 화면은 언제나 `ANALYZER_MAX_SLOTS` 칸을 그린다
+ * 레벨 n 이면 `ANALYZER_SLOTS_BASE + ANALYZER_SLOTS_PER_LEVEL × n` 칸이 열리고, 화면은 언제나 `ANALYZER_MAX_SLOTS` 칸을 그린다
  * (잠긴 칸은 `locked: true` + `unlockLevel`). 칸 번호는 강화해도 밀리지 않는다 — 돌아가던 해석이 옮겨 가면 안 된다.
  *
  * 해석 시간은 **시작하는 순간** `readyAt` 에 확정된다 (온실의 `plantedAt`/`readyAt` 와 같은 규약):
@@ -828,14 +828,24 @@ export function furnitureFootprint(def: FurnitureDef, yaw: 0 | 1 | 2 | 3): { col
  * 도감(`ShipState.sampleDex`)은 `bookDex` 와 같은 append-only 기록이고, 해석을 **회수**할 때 채워진다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 분석기 레벨 한 단계가 여는 해석 칸 수 (`data/tuning.csv`). */
+/**
+ * 2026-09-15 2차 (사용자 결정 「연구실 내에 분석기 처음부터 2칸으로 변경 (업그레이드따라 최대 4칸까지 확장)」):
+ * 분석기가 레벨과 무관하게 갖는 칸 수. 칸 수 = `BASE + 레벨 × PER_LEVEL` 이라 Lv.1 = 2 · Lv.2 = 3 · Lv.3 = 4 다 —
+ * 옛 식(`레벨 × PER_LEVEL`)으로는 2/3/4 를 만들 수 없었다 (최대 레벨은 3 그대로).
+ */
+export const ANALYZER_SLOTS_BASE = T.num('ANALYZER_SLOTS_BASE');
+/** 분석기 레벨 한 단계가 **더** 여는 해석 칸 수 (`data/tuning.csv`). */
 export const ANALYZER_SLOTS_PER_LEVEL = T.num('ANALYZER_SLOTS_PER_LEVEL');
 /** 최대 레벨(3)에서의 칸 수 — 패널은 잠긴 칸을 포함해 언제나 이만큼 그린다. */
-export const ANALYZER_MAX_SLOTS = 3 * ANALYZER_SLOTS_PER_LEVEL;
+export const ANALYZER_MAX_SLOTS = ANALYZER_SLOTS_BASE + 3 * ANALYZER_SLOTS_PER_LEVEL;
 
-/** `level` 의 분석기가 연 칸 수. 레벨은 부르는 쪽이 def 의 `maxLevel` 로 이미 잘라 둔다. */
+/**
+ * `level` 의 분석기가 연 칸 수. 레벨은 부르는 쪽이 def 의 `maxLevel` 로 이미 잘라 둔다.
+ * 레벨 0(아직 안 지음)은 0 칸이다 — 기본 칸은 **세워져 있을 때만** 생긴다.
+ */
 export function analyzerSlotsForLevel(level: number): number {
-  return Math.max(0, Math.min(3, Math.floor(level))) * ANALYZER_SLOTS_PER_LEVEL;
+  const lv = Math.max(0, Math.min(3, Math.floor(level)));
+  return lv <= 0 ? 0 : ANALYZER_SLOTS_BASE + lv * ANALYZER_SLOTS_PER_LEVEL;
 }
 
 /** `slot` 을 여는 분석기 레벨 (1 … 3). `analyzerSlotsForLevel` 에서 유도한다 — 2 · 3 을 코드에 적지 않는다. */
@@ -1946,6 +1956,12 @@ export interface HousingRef {
   devSetClusterCores?(uid: string, cores: number): string | null;
   /** 개발용: 채굴할 수 있는(열린 코인 + 코어) 모든 클러스터의 시계를 `hours` 만큼 앞당기고 끝난 주기를 지갑에 넣는다. 넣은 단위 합. */
   devAdvanceMining?(hours: number): number;
+  /* ── appended: 2026-09-15 2차 (분석기 해석 시간 치트) ── */
+  /**
+   * 개발용: 배치된 분석기(`uid` 생략 = 전부)의 해석 시계를 `hours` 만큼 앞당기고 **이번에 끝난 칸 수**를 돌려준다.
+   * 회수는 하지 않는다 (`devAdvanceMining` 과 같은 결). 콘솔 `analyze ff <시간>` · `analyze done [uid|all]` 이 유일한 소비자다.
+   */
+  devAdvanceAnalysis?(hours: number, uid?: string): number;
 }
 /* ══ end 2026-09-13 배치 규칙 · 전력 · 암호화폐 채굴 ══ */
 
@@ -2055,9 +2071,11 @@ export interface HousingRef {
  * 2026-09-14 사용자 결정 — 책장은 **4층 × 한 층 10칸(5권씩 2줄)** = 40권. 층 수는 그대로 두고 한 층이 넓어졌다.
  * ⚠ 층 번호는 칸 번호를 나누는 표시일 뿐이다 — 저장되는 것은 `slot` 인덱스 하나이므로 층을 바꿔도 꽂힌 것이 옮겨지지 않는다.
  */
-export const SHELF_TIERS: Readonly<Record<ShelfMedium, number>> = { book: 4, disc: 3, record: 2, game: 3 };
+/* 2026-09-15 2차 (사용자 결정): 책장은 **3층**이고 한 층이 한 줄 6칸이다 (가운데 구분막 왼쪽 3 · 오른쪽 3) —
+   `BOOKS_PER_SHELF` 18 · `SHELF_TIER_COLS.book` 6 과 셋이 함께 움직인다. */
+export const SHELF_TIERS: Readonly<Record<ShelfMedium, number>> = { book: 3, disc: 3, record: 2, game: 3 };
 /** 한 층 안에서 한 줄에 몇 칸을 그리나 (책장은 5칸 × 2줄 = 한 층 10칸, 나머지는 4칸 × 1줄). */
-export const SHELF_TIER_COLS: Readonly<Record<ShelfMedium, number>> = { book: 5, disc: 4, record: 4, game: 4 };
+export const SHELF_TIER_COLS: Readonly<Record<ShelfMedium, number>> = { book: 6, disc: 4, record: 4, game: 4 };
 /** 보관함 한 대의 한 층이 받는 칸 수. */
 export function shelfSlotsPerTier(medium: ShelfMedium): number {
   return Math.max(1, Math.ceil(SHELF_SLOTS[medium] / SHELF_TIERS[medium]));

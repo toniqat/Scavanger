@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
-import type { PlayerDamageSource } from '@/shared';
+import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -92,8 +92,8 @@ export function applyHeal(sys: PlayerSystem, amount: number, seconds: number, qu
   return true;
   }
 
-export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vector3, source?: PlayerDamageSource): void {
-  sys.applyDamage(amount, from, false, source);
+export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vector3, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void {
+  sys.applyDamage(amount, from, false, source, opts);
   }
 
 /**
@@ -104,8 +104,13 @@ export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vecto
  * 2026-09-15 (결과 창 개편): `source` = 피해 출처 (`PlayerDamageSource`). `player:damaged.source` 로 그대로 나가고,
  * 이 피해가 체력을 0 으로 만들면 `sys._deathSource` 에 적혀 `die()` 가 `player:died.source` 로 낸다 — 전투불능이면
  * 쓰러뜨린 피해의 출처가 출혈사 · 포기까지 남고, 쓰러진 뒤 들어온 막타가 있으면 그것으로 바뀐다.
+ *
+ * 2026-09-15 (독성 포자, 사용자 결정): `opts.bypassShield` 면 **실드를 건너뛰고 체력만** 깎는다 (`absorbShield` 를
+ * 아예 부르지 않으므로 방탄복도 안 닳는다). 「대기를 방탄복 실드가 막는 것이 이상하다」 는 `PLANET_ENV_DPS`(A-13) 의
+ * 근거를 재해에 편 것이다. **새 우회 갈래를 만들지 않았다** — 여기서 흡수량만 0 으로 갈라지고 각본 잠금 · 전투불능 ·
+ * 사망 · 통계 · 이벤트는 전부 같은 줄을 그대로 지난다.
  */
-export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource): void {
+export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void {
   if (sys.isDead || !(amount > 0) || !sys.spawned) return;
   if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 차량만 맞는다 (재해 · 화상 · 전차 · 폭발 전부 이 길을 탄다)
   // 2026-09-14 3차: 각본 잠금 (`PlayerRef.setSceneLock`) — 각본이 몸을 들고 있는 동안은 죽지도 다치지도 않는다.
@@ -141,7 +146,8 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
    * 간다 (`absorbShield` 가 `player:shieldChanged` 를 낸다). 옛 `raw * (1 - gear.damageReduction)` 경로는
    * 통째로 사라졌고 `damageReduction` 은 늘 0 인 계약 잔재다.
    */
-  const absorbed = sys.absorbShield(raw);
+  // 2026-09-15: 독성 포자 재해 — 실드를 건너뛰고 체력만 (방탄복도 안 닳는다). 그 밖은 예전 그대로 실드가 먼저 먹는다.
+  const absorbed = opts?.bypassShield ? 0 : sys.absorbShield(raw);
   const after = raw - absorbed;
   // 2026-09-15: 피해를 허용한 각본 잠금 — 체력은 `_sceneLockMinHp`(≥ 1) 에서 멈춘다 (실드는 평소대로 먼저 먹는다)
   const dealt = Math.min(sys._sceneLock ? Math.max(0, sys.hp - sys._sceneLockMinHp) : sys.hp, after);

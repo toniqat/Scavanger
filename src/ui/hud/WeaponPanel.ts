@@ -33,7 +33,8 @@ function consumableHint(def: ItemDef | undefined): string {
   const heal = def?.heal;
   if (heal?.spray) return '좌클릭 홀드 · 게이지 소모';
   if (heal) return `좌클릭 ${heal.useTime}초 홀드 · 이동 50 %`;
-  if (def?.gadgetId === 'defib') return `좌클릭 ${DEFIB_USE_TIME_S}초 홀드 · 이동 50 %`;
+  // 2026-09-15 2차 (사용자 결정): 제세동기는 **떼는 순간** 발동한다 — 충전 중에만 감속이고 준비 완료 뒤에는 걸어갈 수 있다.
+  if (def?.gadgetId === 'defib') return `좌클릭 ${DEFIB_USE_TIME_S}초 충전 · 쓰러진 아군을 겨눠 떼기`;
   return CONSUMABLE_HINT[def?.category ?? ''] ?? '좌클릭 사용';
 }
 

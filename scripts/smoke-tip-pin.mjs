@@ -136,7 +136,8 @@ try {
   const outsidePoint = () => page.evaluate(() => {
     const card = document.querySelector('.inv-root .inv-tooltip.is-pinned');
     const cr = card && !card.hidden ? card.getBoundingClientRect() : null;
-    for (const s of ['.inv-weight', '.inv-foot', '.inv-panel-stash .inv-title', '.inv-capacity', '.inv-slot-label']) {
+    /* 2026-09-15 3차: 창고 쪽 `STASH 함선 창고` 제목이 없어졌다 (창고 · 가방이 한 카드). 가방 제목은 남아 있다. */
+    for (const s of ['.inv-weight', '.inv-foot', '.inv-panel-bag .inv-title', '.inv-capacity', '.inv-slot-label']) {
       for (const el of document.querySelectorAll(s)) {
         const r = el.getBoundingClientRect();
         if (r.width <= 0 || r.height <= 0) continue;

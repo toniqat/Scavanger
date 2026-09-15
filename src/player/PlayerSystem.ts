@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { BoostKind, EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity, RoverRideBinding } from '@/shared';
-import type { PlayerDamageSource } from '@/shared';
+import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -691,14 +691,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return this.rig ? this.rig.getForward(out) : out.set(0, 0, -1);
   }
 
-  takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource): void { return Vitals.takeDamage(this, amount, from, source); }
+  takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void { return Vitals.takeDamage(this, amount, from, source, opts); }
 
   /**
    * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
    * save. **실드가 먼저 피해를 먹고** 남은 만큼만 체력으로 간다 (2026-09-10 — 방탄복은 피해를 깎지 않는다);
    * 실드가 먹은 만큼 판이 닳는다. A roll counts as a partial i-frame.
+   * 2026-09-15: `opts.bypassShield`(독성 포자 재해) 면 실드를 건너뛰고 체력만 깎는다 — 갈래는 `Vitals.applyDamage` 안에 있다.
    */
-  applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource): void { return Vitals.applyDamage(this, amount, from, dot, source); }
+  applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void { return Vitals.applyDamage(this, amount, from, dot, source, opts); }
 
   /** 실드가 먹은 `absorbed` 만큼 방탄복이 닳는다 (내구도는 inventory 소유; 0 이 되면 파손 = 실드 최대치 0). */
   wearGear(absorbed: number): void {

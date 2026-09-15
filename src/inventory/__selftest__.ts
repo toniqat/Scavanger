@@ -143,7 +143,7 @@ export function runInventorySelfTest(): boolean {
   check(!!rogueWeapon && !!rogueStats && (rogueWeapon.durability ?? 0) <= rogueStats.maxDurability * 0.15 + 1, 'rogue corpse carries its weapon (same family, grade I–III) at ≤ 15 % durability');
   const lightStack = getDef('ammo_light')!.stackMax;
   check(rogue.some((i) => i.defId === 'ammo_light' && i.qty >= lightStack * 0.3 && i.qty <= lightStack * 0.6), 'rogue corpse drops 30–60 % of the light stack');
-  check(!rogue.some((i) => getDef(i.defId)!.category === 'grenade'), 'rogue corpse has no grenade roll of its own (only leftovers via opts.grenades)');
+  check(!rogue.some((i) => getDef(i.defId)!.grenade !== undefined), 'rogue corpse has no grenade roll of its own (only leftovers via opts.grenades)');
   const boss = loot.rollCorpse('rogue_boss', new Random(3), 'dmr');
   check(boss.some((i) => i.defId === 'wpn_dmr_g3' || i.defId === 'wpn_dmr_g4'), 'boss corpse weapon is grade III/IV of the same family');
   check(boss.some((i) => getDef(i.defId)!.category === 'attachment') && boss.some((i) => getDef(i.defId)!.category === 'stim'), 'boss corpse has an attachment and stims');
@@ -151,14 +151,14 @@ export function runInventorySelfTest(): boolean {
 
   // 2026-09-13 인간형 팩션 전리품 (안드로이드 · 로그 · 레이더 — `loot_factions.csv` · `loot_faction_sites.csv`)
   {
-    const sig = (xs: readonly ItemInstance[]): string => xs.filter((i) => getDef(i.defId)!.category !== 'grenade')
+    const sig = (xs: readonly ItemInstance[]): string => xs.filter((i) => getDef(i.defId)!.grenade === undefined)
       .map((i) => `${i.defId}x${i.qty}:${i.durability ?? ''}:${i.ammoInMag ?? ''}`).sort().join(',');
     const gradeOfItem = (i: ItemInstance): number => { const w = getDef(i.defId)?.weaponId; return w ? (loot.getWeaponDef(w)?.grade ?? 0) : 0; };
 
     // 남은 수류탄: 종류 × 개수 그대로, 다른 굴림은 한 톨도 안 움직인다 (rng 를 안 쓴다)
     const withNades = loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'incendiary', count: 2 } });
     check(withNades.some((i) => i.defId === 'grenade_incendiary' && i.qty === 2) && sig(withNades) === sig(rogue), 'leftover grenades go into the corpse as-is (kind × count) without moving other rolls');
-    check(!loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'frag', count: 0 } }).some((i) => getDef(i.defId)!.category === 'grenade'), 'zero leftover grenades → no grenade item');
+    check(!loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'frag', count: 0 } }).some((i) => getDef(i.defId)!.grenade !== undefined), 'zero leftover grenades → no grenade item');
     const bossNades = loot.rollCorpseOn('rogue_boss', new Random(3), 'dmr', null, { site: 'lab', grenades: { kind: 'frag', count: 3 } });
     check(bossNades.some((i) => i.defId === 'grenade_frag' && i.qty === 3) && sig(bossNades) === sig(boss), 'a type without faction rows ignores the site; its leftovers still land in the corpse');
 
@@ -172,7 +172,7 @@ export function runInventorySelfTest(): boolean {
       else if (gradeOfItem(aw[0]) === 2) androidG2++; else androidG1++;
       for (const i of a) {
         const d = getDef(i.defId)!;
-        if (d.category === 'armor' || d.category === 'bag' || d.category === 'grenade' || (d.category === 'stim' && !d.id.startsWith('shield_charger'))) androidBad++;
+        if (d.category === 'armor' || d.category === 'bag' || d.grenade !== undefined || (d.category === 'stim' && !d.id.startsWith('shield_charger'))) androidBad++;
       }
       for (const type of ['rogue', 'raider'] as const) {
         for (const i of loot.rollCorpse(type, new Random(s), 'ar')) {

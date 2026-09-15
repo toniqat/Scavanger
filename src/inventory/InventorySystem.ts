@@ -2039,7 +2039,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   afterChange(): void {
-    const grenades = this.countWhere((d) => d.category === 'grenade');
+    const grenades = this.countWhere((d) => d.grenade !== undefined);
     const stims = this.countWhere((d) => d.category === 'stim');
     if (grenades !== this.lastGrenades) { this.lastGrenades = grenades; this.ctx.bus.emit('grenade:countChanged', { count: grenades }); }
     if (stims !== this.lastStims) { this.lastStims = stims; this.ctx.bus.emit('stim:countChanged', { count: stims }); }

@@ -25,7 +25,7 @@ export const RARITY_LABEL_KO: Readonly<Record<Rarity, string>> = {
 };
 
 export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
-  primary: '주무기', secondary: '보조무기', grenade: '수류탄', stim: '회복약',
+  primary: '주무기', secondary: '보조무기', stim: '회복약',
   ammo: '탄약', valuable: '귀중품', material: '재료',
   attachment: '부착물', bag: '가방',
   armor: '방탄복', gadget: '가젯', herb: '약초',
@@ -49,7 +49,7 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
 export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
-  primary: '#ffd27a', secondary: '#ffe3a0', grenade: '#ff8f5c', stim: '#6ee7a8',
+  primary: '#ffd27a', secondary: '#ffe3a0', stim: '#6ee7a8',
   ammo: '#c8ccd2', valuable: '#7fd2ff', material: '#b0a58c', attachment: '#d0c4ff', bag: '#d9b98a',
   armor: '#9fb4ff', gadget: '#8fe8ff', herb: '#7ee08a',
   furniture: '#e0c9a6',
@@ -72,7 +72,7 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
 export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
-  primary: '⌐╦', secondary: '⌐', grenade: '●', stim: '✚',
+  primary: '⌐╦', secondary: '⌐', stim: '✚',
   ammo: '▮▮', valuable: '◆', material: '▫', attachment: '⊙', bag: '▣',
   armor: '⛊', gadget: '◈', herb: '❦',
   furniture: '⌂',

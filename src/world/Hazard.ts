@@ -20,7 +20,8 @@
  */
 import * as THREE from 'three';
 import {
-  HAZARD_DPS, HAZARD_DPS_MAX, HAZARD_EDGE_M, HAZARD_FOG_MUL, HAZARD_FOG_RAMP_END, HAZARD_FOG_RAMP_START, HAZARD_TICK_S,
+  HAZARD_DPS, HAZARD_DPS_MAX, HAZARD_EDGE_M, HAZARD_FOG_MUL, HAZARD_FOG_RAMP_END, HAZARD_FOG_RAMP_START,
+  HAZARD_SPORES_BYPASS_SHIELD, HAZARD_TICK_S,
   HAZARD_WARN_S, Random,
   type GameContext, type HazardKind, type HazardRef, type HazardSource, type HazardZone, type PeerId,
 } from '@/shared';
@@ -30,7 +31,7 @@ import { HAZARD_FORK, drawHazardKind, planGroveSpots, planHazard } from './hazar
 import { buildZones, maxDepth, progressAt } from './hazard/parts/Zones';
 import { Groves } from './hazard/parts/Grove';
 import { HazardVisuals } from './hazard/parts/Visuals';
-import type { PlayerDamageSource } from '@/shared';
+import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 
 /** 2026-09-15 (결과 창 개편): 재해 피해의 출처 — 종류마다 하나를 돌려 쓴다 (틱마다 할당하지 않는다). */
 const HAZARD_DAMAGE_SOURCES = new Map<HazardKind, PlayerDamageSource>();
@@ -38,6 +39,16 @@ function hazardDamageSource(kind: HazardKind): PlayerDamageSource {
   let s = HAZARD_DAMAGE_SOURCES.get(kind);
   if (!s) { s = Object.freeze({ kind: 'hazard' as const, hazard: kind }); HAZARD_DAMAGE_SOURCES.set(kind, s); }
   return s;
+}
+
+/**
+ * 2026-09-15 (사용자 결정): **독성 포자만** 실드를 건너뛰고 체력부터 깎는다 (`HAZARD_SPORES_BYPASS_SHIELD`).
+ * 다른 재해(모래 폭풍 · 눈보라 · 폭풍의 눈)는 `undefined` — 지금까지와 똑같이 실드가 먼저 먹는다.
+ * 틱마다 객체를 만들지 않도록 얼린 상수 하나를 돌려 쓴다.
+ */
+const SPORE_DAMAGE_OPTS: PlayerDamageOptions = Object.freeze({ bypassShield: true });
+function hazardDamageOpts(kind: HazardKind): PlayerDamageOptions | undefined {
+  return kind === 'spores' && HAZARD_SPORES_BYPASS_SHIELD ? SPORE_DAMAGE_OPTS : undefined;
 }
 
 /** 군락 발견 판정 주기(초). 안개는 5 Hz 로 칠해지므로 이보다 자주 볼 이유가 없다. */
@@ -270,7 +281,9 @@ export class Hazard implements HazardRef {
         // 2026-09-13: 재해는 시간에 따라 강해진다 — 진행도 0 에서 `HAZARD_DPS`, 1 에서 `HAZARD_DPS_MAX`
         // 2026-09-13: 탐사 차량 안의 탑승자는 재해 피해를 받지 않는다 (차량이 대신 맞는다 — world/rover). 시야 · 알림은 그대로다.
         // 2026-09-15 (결과 창 개편): 출처 `hazard` + 재해 종류
-        if (!p.roverRide) p.takeDamage(dpsAt(pr) * HAZARD_TICK_S, undefined, hazardDamageSource(plan.kind));
+        // 2026-09-15 (사용자 결정): 독성 포자만 실드를 건너뛰고 체력부터 깎는다 (`HAZARD_SPORES_BYPASS_SHIELD`).
+        // 대기를 방탄복 실드가 막는 것이 이상하다는 `PLANET_ENV_DPS` 의 근거 — 다른 재해는 그대로 실드가 먼저다.
+        if (!p.roverRide) p.takeDamage(dpsAt(pr) * HAZARD_TICK_S, undefined, hazardDamageSource(plan.kind), hazardDamageOpts(plan.kind));
       }
     } else {
       this.damageTimer = 0;

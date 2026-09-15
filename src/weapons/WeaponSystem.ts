@@ -33,6 +33,8 @@ import * as Fire from './parts/Firing';
 import * as Quick from './parts/QuickUse';
 import * as Heal from './parts/Healing';
 import * as Throw from './parts/Throwing';
+/* 2026-09-15 (사용자 결정): 제세동기는 「떼는 순간」 발동하는 유일한 소모품이라 자기 파일을 갖는다. */
+import * as Defib from './parts/Defib';
 import * as Svc from './parts/Services';
 import * as Aim from './parts/AimLine';
 
@@ -146,6 +148,17 @@ export class WeaponSystem implements GameSystem {
   /** 회복 스프레이: hp owed to each squadmate in range, flushed as a `buff heal` at most twice a second. */
   sprayOwed = new Map<string, number>();
   spraySendAcc = 0;
+  /**
+   * 2026-09-15 (제세동기 조준, 사용자 결정 — `parts/Defib`): 손에 든 제세동기의 좌클릭 홀드 상태.
+   * `defibHeld` = 누르고 있다, `defibT` = 충전한 초, `defibArmed` = 채워서 준비 완료(떼면 발동),
+   * `defibTarget` = 지금 떼면 일으킬 아군이 크로스헤어에 걸려 있다. 회복 홀드(`healT`)와 **따로**인 이유는
+   * 하나다 — 회복은 채워지는 순간 쓰고, 제세동기는 **떼는 순간** 쓴다.
+   */
+  defibHeld = false;
+  defibArmed = false;
+  defibT = 0;
+  defibTarget = false;
+  defibEmitAt = -Infinity;
 
   readonly camHit = makeHit();
   readonly gunHit = makeHit();
@@ -249,11 +262,11 @@ export class WeaponSystem implements GameSystem {
     // Ship hub: nothing in flight, weapon holstered (visibility is handled per frame from ctx.phase).
     ctx.bus.on('hub:entered', () => { this.dropQuick(); this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
-    ctx.bus.on('game:phaseChanged', ({ phase }) => { this.cancelHeal(); if (phase === 'deploying' || (phase === 'playing' && ctx.missionMode === 'training')) this.warmupFrames = 2; });
+    ctx.bus.on('game:phaseChanged', ({ phase }) => { this.cancelHeal(); this.cancelDefib(); if (phase === 'deploying' || (phase === 'playing' && ctx.missionMode === 'training')) this.warmupFrames = 2; });
     // Phase 10: a 회복약 hold survives damage but never a death / knock-down. The `usable` gate catches the same
     // frame; these keep the HUD gauge honest even when another path clears the hand state first.
-    ctx.bus.on('player:died', () => this.cancelHeal());
-    ctx.bus.on('player:downed', () => this.cancelHeal());
+    ctx.bus.on('player:died', () => { this.cancelHeal(); this.cancelDefib(); });
+    ctx.bus.on('player:downed', () => { this.cancelHeal(); this.cancelDefib(); });
     this.ensureNet();
   }
 
@@ -826,6 +839,16 @@ export class WeaponSystem implements GameSystem {
   /** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
   cancelHeal(): void { return Heal.cancelHeal(this); }
 
+  /* ── 제세동기 조준 (2026-09-15, parts/Defib) ── */
+  /** 손에 든 것이 제세동기인가 — `updateQuickHand` 가 이 손만 `updateDefibHand` 로 보낸다. */
+  isDefibHand(q: QuickHand): boolean { return Defib.isDefibHand(this, q); }
+
+  /** 매 프레임: 좌클릭 충전 → 준비 완료 → 겨눔 → **떼면** 발동 (`gadget:defibAim` 방송). */
+  updateDefibHand(dt: number, host: Host, q: QuickHand, usable: boolean, inputFree: boolean): void { return Defib.updateDefibHand(this, dt, host, q, usable, inputFree); }
+
+  /** 손을 떼기 전에 끝난 모든 경로(무기 교체 · 사망 · 페이즈 · 리셋): 크로스헤어를 닫는다. 소모 없음. */
+  cancelDefib(): void { return Defib.cancelDefib(this); }
+
   /**
    * Take one unit of the consumable in hand out of the bag. Returns the stack left (0 = gone) or −1 when nothing
    * could be consumed. The echoed `inventory:quickSlotsChanged` is ignored (`quickBusy`) so the `quick:used` event
@@ -875,6 +898,7 @@ export class WeaponSystem implements GameSystem {
     this.dryFlagged = false;
     this.endHold(false);
     this.cancelHeal();
+    this.cancelDefib();
     this.slots[this.active]?.model.setReload(-1);
     this.slots[this.active]?.model.setBolt(-1);
     this.applyAimZoom(null);

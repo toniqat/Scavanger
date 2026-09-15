@@ -21,26 +21,26 @@ engine.addSystem(new GadgetSystem());
 | `parts/Remote.ts` | **원격 지뢰(C4)는 언제 · 어떻게 터지는가** (2026-09-11). `detonateRemoteMines` / `liveRemoteMineCount`, 호스트의 `gadq detonate` 처리, **중첩 피해**(대상마다 가장 센 한 발 100 % + 나머지 각각 `GADGET_REMOTE_MINE_STACK_MUL`, 합산 1회 적용), 소유자당 상한 `GADGET_REMOTE_MINE_MAX_LIVE`, 설치음 · 무장 중 삑. 근접으로는 절대 안 터진다. |
 | `parts/Preview.ts` | **손에 든 설치형 가젯을 지금 놓으면 어디에 서고, 설 수 있나** (2026-09-11). 판정은 `computePlacement` **하나** — 매 프레임 미리보기(고스트 + `GadgetsRef.placement` + 바뀔 때만 `gadget:placementChanged`)와 좌클릭 설치(`use()` 가 그 순간 다시 돌린다)가 같은 함수를 쓴다. 조준 광선(`getAimRay`)을 발 수평 `GADGET_PLACE_RANGE` 원에서 끊고, 드론 몸체(`ctx.drones.raycast`)가 더 가까우면 드론 위. 사유: 맵 밖 · 움직이는 발판 `설치할 수 없는 곳이다` / 위아래 `PLACE_VERTICAL_REACH` 초과 `너무 멀다` / 법선 `바닥이 너무 기울었다` / 대형 발자국 샘플 높이차 `바닥이 고르지 않다` / 발자국 원 vs 장애물(원기둥 · OBB · 볼록 윤곽, 밟은 바닥과 머리 위 슬래브 제외) `공간이 부족하다` / `PLACE_CLEARANCE` `다른 설치물과 겹친다` / 대형을 드론에 `드론 위에는 올릴 수 없다` / `이미 드론에 설치물이 있다`. 호스트의 `gadq place` 재검증 `resolveRemotePlace`. |
 | `parts/Mount.ts` | **드론 위 설치물은 언제까지, 어떻게 드론을 따라가나** (2026-09-11). `Deployable.mount` 가 있으면 매 프레임 `getMountPoint` 로 옮긴다(각자 로컬 — 드론 복제본이 이미 있다). 드론이 사라지면 아래 표면으로 떨어져 바닥 설치물로 남는다 — 아래 `드론 탑재` 절. |
-| `GadgetDefs.ts` | `GADGET_DEFS` (10 gadgets, 한국어 이름/설명), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. **2026-09-15**: 아이템 없는 내부 정의 `INTERNAL_GADGET_DEFS`(`grenadeFire` — G-10 소이 수류탄 화염 지대, `gadgetDef` 로만 찾히고 `getDefs()` · `gadgetForKind` 에는 없다) · `isInternalGadget` · 배치물 id `deployableIdFor`(G-10 = `-gf` 표식) · 와이어 → 정의 `defForWire`. |
+| `GadgetDefs.ts` | `GADGET_DEFS` (아이템이 있는 가젯 **12종**, 한국어 이름/설명 — **설명에 숫자를 적지 않는다**, 스펙 줄이 `duration` · `hp` · `radius` · `recoverTime` 을 읽어 그린다), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. 아이템 없는 내부 정의 `INTERNAL_GADGET_DEFS` + `isInternalGadget`(`use()` 가 거절한다) — **2026-09-15 화염 통합** 뒤로는 화염 지대 `incendiary` 하나뿐이다(파일 안 「화염 통합」 절이 근거). `deployableIdFor` 의 `-gf` 표식은 그 통합으로 은퇴했고 `defForWire` 는 `kind` 만 본다. |
 | `Deployable.ts` | `Deployable implements DeployableRef` — hp/armed/expires/yaw + per-kind runtime state (`fireTimer`, `targetId`, `headYaw`, `tickTimer`, `padCooldown` = 같은 프레임 가드, `padNext` = 플레이어별 재발동 시각(Phase 9), `netCooldown`) and `takeDamage()` (routes to the authority). Also the physical sizes: `BARRICADE_HALF`, `MINE_TRIGGER_RADIUS`, `JUMPPAD_TRIGGER_RADIUS`, `DOME_UNFOLD_TIME`. |
 | `GadgetVisuals.ts` | `GadgetVisualPool`: pooled procedural meshes per `DeployableKind` + a 12-slot expanding ring-pulse FX pool. Shared geometry, per-visual materials, recoloured on reuse. **No lights anywhere** (constant scene light count → no shader recompiles). `warm()` pre-builds one visual per kind. |
 | `ThrownGadget.ts` | `ThrownGadgetManager`: 8 pooled canisters with a gravity arc + obstacle push-out; deploys on the first ground contact (or after 4 s). **2026-09-11**: 창문 유리를 깨고 지나가고(`shared/fragile`), 땅 = `getSurfaceY`(건물 2층 · 옥상). 설치물의 배치 높이는 아직 지형이다. |
 | `index.ts` | Barrel. |
 
-## 10종 가젯
+## 가젯 (아이템 12종 + 내부 1종)
 
 | id | 이름 | use | deployable | 동작 |
 |---|---|---|---|---|
 | `cloakVeil` | 은폐 장막 | self | — | `player.setCloak(12, 'gadget')` + 링 펄스 FX |
-| `domeShield` | 돔 실드 | throw | `domeShield` | 착탄점에 반경 5 m 돔 (hp 1000). 0.6 초 전개 후 **적 발사체만** 차단 |
-| `barricade` | 바리케이드 | place | `barricade` | 조준점(발에서 `GADGET_PLACE_RANGE` 안, 설치 미리보기)에 4.2×1.9 m 벽 (hp 1800). 피아 구분 없이 탄을 막고, 3 초 상호작용으로 회수 |
+| `domeShield` | 돔 실드 | throw | `domeShield` | 착탄점에 **방어막 발생기**가 서고 그 둘레로 돔이 전개된다(0.6 초). **적 발사체만** 차단. **내구도는 아이템이 들고 다닌다**(`wearsItemDurability` — 최대 hp = `ItemDef.durabilityMax`), `GADGET_DOME_RECOVER_TIME` 홀드로 회수하면 남은 hp 가 그 아이템의 `durability` 로 |
+| `barricade` | 바리케이드 | place | `barricade` | 조준점(발에서 `GADGET_PLACE_RANGE` 안, 설치 미리보기)에 4.2×1.9 m 벽. 피아 구분 없이 탄을 막고, 3 초 상호작용으로 회수. 돔 실드와 같은 **아이템 내구도** 규칙 |
 | `lureGrenade` | 유인 수류탄 | throw | `lure` | 0.5 초마다 `enemies.addDistraction(pos, 40 m, weight 0.85)`. 12 초 |
 | `smokeGrenade` | 연막탄 | throw | `smoke` | 16 초 연막. `visionFactor` 로 적 탐지거리를 최대 ×0.08 까지 깎는다 |
 | `mine` | 지뢰 | place | `mine` | 3 초 후 무장, 1.5 m 안에 **적·아군 누구든** 들어오면 반경 6.5 m / 220 피해 폭발. 3 초 해체(아이템 반환 없음). **드론 위에 올리면(`mount`) 적만** `GADGET_MOUNTED_MINE_TRIGGER_RADIUS`(3D, 탑재점 기준) 안에서 터진다. 폭발은 `ctx.drones.applyExplosion` 도 부른다 |
 | `remoteMine` | 원격 지뢰 (C4) | place | `remoteMine` | `GADGET_REMOTE_MINE_ARM_TIME` 뒤 무장(`c4_arm`, 무장 중 드문 `c4_beep`). **근접으로는 절대 안 터진다** — 소유자가 손에 들고 우클릭(`detonateRemoteMines`)해야 내 무장된 것 전부가 터진다. 중첩 피해 = 대상마다 가장 센 한 발 + 나머지 각각 × `GADGET_REMOTE_MINE_STACK_MUL`. hp `GADGET_REMOTE_MINE_HP` 가 다 닳으면 **불발**로 사라진다. 소유자당 `GADGET_REMOTE_MINE_MAX_LIVE` 개(넘으면 가장 오래된 것부터 `expired`). **3 초 회수 = 아이템 반환**(`RECOVERABLE_KINDS`, 누구나) — 바닥 지뢰의 해체와 달리 밟아도 안 터지는 소유자 도구라서 |
-| `turret` | 포탑 설치 | place | `turret` | 90 초, hp 600, 사거리 32 m, 4 발/초 × 15 피해. **사선의 플레이어를 먼저 맞힌다**. 3 초 회수 |
-| `incendiary` | 화염수류탄 | throw | `fire` | 10 초 화염지대. 적은 `applyStatus('burning', 45)`, 플레이어는 `setBurning` / 원격은 `dmg` |
-| `defib` | 제세동기 | target | — | 5 m 안의 **다운된 원격 아군**에게 `buff {kind:'revive'}` 전송 |
+| `turret` | 자동 사격 포탑 | place | `turret` | 90 초, hp 600, 사거리 32 m, 4 발/초 × 15 피해. **사선의 플레이어를 먼저 맞힌다**. 3 초 회수 |
+| `incendiary` | 화염 지대 | (내부) | `fire` | **아이템 없음** (2026-09-15 화염 통합) — 화염 수류탄 `grenade_incendiary` 가 터진 자리에 weapons 가 `igniteGrenadeFire` 로 세운다. `GRENADE_INCENDIARY_RADIUS` · `GRENADE_INCENDIARY_DURATION`, 적은 `applyStatus('burning', GADGET_INCENDIARY_DPS)`, 플레이어는 `setBurning` / 원격은 `dmg`, 드론도 탄다 |
+| `defib` | 제세동기 | target | — | `GADGET_DEFIB_RANGE` 안의 **다운된 원격 아군**에게 `buff {kind:'revive'}` 전송. 2026-09-15: 대상은 거리가 아니라 **조준 광선에서 각이 가장 작은** 아군이다(조작이 「크로스헤어에 올리고 뗀다」 이므로) — 충전 · 겨눔 · 발동 타이밍은 weapons `parts/Defib` |
 | `jumpPad` | 점프대 | place | `jumpPad` | 밟으면 +13 임펄스, 질주 중이면 진행 방향으로 +9 추가. 3 초 회수. **재발동은 플레이어별** (`Deployable.padNext: Map<PeerId\|'local', number>`, `JUMP_PAD_RETRIGGER_S`) — Phase 9 이전의 0.7 초 공용 쿨다운은 착지할 때마다 다시 튀어 2.5 초에 3연발이 나왔다. `padCooldown` 은 이제 같은 프레임 중복 발사만 막는다 |
 
 수치는 전부 `shared/constants.ts` 의 `GADGET_*` 상수를 그대로 쓴다 (이 폴더에서 재정의하지 않는다).
@@ -246,6 +246,40 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 ---
 
 ## 변경 이력
+
+- **2026-09-15 (가젯 개편 — 돔 실드 · 바리케이드 내구도 · 화염 통합 · 설명 정리, 사용자 결정)**
+  - **돔 실드 개편**: 던지면 중앙에 **방어막 발생기**가 서고(`GadgetVisuals` — 발생기는 `body` 가 아니라 `root` 에 붙는다.
+    `layout` 이 `body.children` 을 반경만큼 키우고 `animate` 가 전개 연출로 `body` 를 스케일하므로, 반경과 무관하게 같은
+    크기로 서 있어야 하는 것은 `body` 밖이어야 한다. 광원 0 · emissive 코어 하나가 `glowMats` 에 들어가 hp 비율로 흐려진다)
+    그 둘레로 돔이 켜진다. `recoverTime = GADGET_DOME_RECOVER_TIME` · `RECOVERABLE_KINDS` 에 합류 — 발생기 앞에서 꾹 누르면 회수된다.
+  - **내구도를 아이템이 들고 다닌다** (`GadgetDef.wearsItemDurability`, 돔 실드 · 바리케이드): 배치물의 **최대 hp 가
+    `GadgetDef.hp` 가 아니라 그 아이템의 `ItemDef.durabilityMax`** 이고(`Deploy.itemDurabilityMaxFor`), 회수하면 남은 hp 가
+    `ItemInstance.durability` 로 적힌다(`grantRecovered`). 그래서 까인 만큼 **함선 장비 작업대 수리**가 필요해지고 분해
+    산출도 「제작 재료 × 남은 내구도 20 % 5구간」(2026-09-10)에 그대로 올라탄다 — 새 개념을 만들지 않았다.
+    반대 방향도 이어져 있다: **깎인 것을 다시 쓰면 그만큼 약하게 선다** — `consumeItem` 이 `consumeWhere` 의 술어로 실제로
+    빠지는 스택의 `durability` 를 적어 두고(`lastConsumedDurability`, 이 아이템들은 `stackMax` 1 이라 첫 후보가 곧 빠지는 것이다)
+    `use()` → `throwGadget` / `requestPlace` → `spawnDeployable(… startHp)` 로 흘려보낸다. 던진 것은 통(`ThrownGadget.Body.hp`)이
+    땅에 닿을 때까지 들고 간다. **비호스트에게도 같은 내구도가 보인다** — `DeployableWire.maxHp` 는 원래 있었고
+    `gadget:damaged {hp, maxHp}` 도 그대로라 와이어에 **추가한 것이 없다**.
+    **비호스트 설치도 이어졌다** (2026-09-15 2차, 계약 `GadgetRequest.place.hp?` 추가 뒤): `requestPlace` 가 남은
+    내구도를 `gadq place {hp}` 로 실어 보내고 호스트는 `spawnDeployable` 이 **아이템의 `durabilityMax` 로 클램프**하므로
+    부풀린 값을 보내도 새것보다 튼튼해지지 않는다. 생략 = 새것(옛 클라이언트).
+  - **화염 통합**: 아이템 `gad_incendiary` 가 없어지고 **화염 수류탄 `grenade_incendiary`** 하나가 「폭발 + 화염 지대」를
+    맡는다. 그래서 `fire` 를 만드는 정의도 하나다 — 옛 내부 정의 `grenadeFire` 를 지우고 **`incendiary` 를 내부 정의로**
+    내렸다(`INTERNAL_GADGET_DEFS`, 이름 「화염 지대」). 살린 수치는 `GRENADE_INCENDIARY_RADIUS` · `GRENADE_INCENDIARY_DURATION`
+    (폭발 수치 `GRENADE_INCENDIARY_BLAST_*` 와 한 벌로 튜닝된 값이다); `GADGET_INCENDIARY_RADIUS` · `GADGET_INCENDIARY_DURATION`
+    은 **은퇴**(csv 정리는 리드), 초당 피해 `GADGET_INCENDIARY_DPS` 는 지대 전체의 값이라 그대로 산다. 정의가 하나가 되면서
+    2026-09-15 (B-16) 에 만들었던 배치물 id 의 **`-gf` 표식이 필요 없어졌다** — `deployableIdFor` 는 늘 `-g`, `defForWire` 는
+    `kind` 만 본다(옛 `-gf` id 도 같은 정의로 풀린다). `GadgetsRef.igniteGrenadeFire` 는 계약이라 이름 그대로 남고
+    `gadgetDef('incendiary')` 를 세운다. 지대를 **표면**(`Queries.groundY` = `getSurfaceY`)에 세우는 것은 무변경.
+  - **포탑 이름** 「포탑 설치」 → **자동 사격 포탑**.
+  - **설명에서 수치를 걷어냈다**: `GadgetDef.description` 12종 전부에서 사거리 · 지속 · 내구도 · 개수 · 초를 뺐다
+    (스펙 줄이 같은 값을 그리므로 표를 고칠 때 글이 따라오지 않는 자리였다 — 2026-09-12 「설명 글에 툴팁이 이미 보여
+    주는 숫자를 적지 않는다」와 같은 근거). **필드 값은 그대로**다.
+  - **제세동기 대상 고르기**: `findDownedAlly` 가 최근접 → **조준 광선에서 각이 가장 작은** 아군으로 바뀌었다.
+    새 조작(「크로스헤어에 올리고 뗀다」, weapons `parts/Defib`)에서 사거리 안에 둘이 쓰러져 있을 때 겨눈 쪽이 아니라
+    가까운 쪽이 일어나면 거짓말이 되기 때문이다. **겨눴는지**(반각 `DEFIB_AIM_CONE_DEG`)는 weapons 가 판정하고 여기서는
+    **어느 아군인가**만 정한다 — 상수가 한 곳에만 있으므로 두 판정이 갈라질 수 없다.
 
 - **2026-09-15 (폭발 감쇠 2단 계단 — 사용자 결정)** — 폭발 피해의 거리 감쇠가 `shared/explosion.explosionDamage` 하나가 됐다(안쪽 절반 100 % ·
   바깥 띠 `EXPLOSION_OUTER_MUL` 고정 · 반경 밖 0, 예전 `1 - d / radius` 선형). 바뀐 자리 셋: `parts/Simulate.explodeMine`(로컬 · 원격 플레이어,

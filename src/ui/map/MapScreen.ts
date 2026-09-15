@@ -433,8 +433,14 @@ export class MapScreen {
         const rv = ctx.world?.rover;
         if (rv?.localAboard && rv.vehicle.state === 'stopped') this.enterRoverMode(); else this.open();
       }
-    } else if (this._open && ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
-      // 2026-09-09: Tab closes every screen; swallow it so nothing later in the frame opens the inventory on it.
+    } else if (this._open && ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)
+      && ctx.escape.topKey === BLOCKER) {
+      /*
+       * 2026-09-09: Tab closes every screen; swallow it so nothing later in the frame opens the inventory on it.
+       * 2026-09-15: **맨 위 하나만** — Escape 와 같은 순서다 (`shared/escape`). Tab 폴링은 닫히는 순서가
+       * `main.ts` 의 시스템 등록 순서로 정해지므로, 지도 위에 나중에 연 화면(무한 상자 · 인벤토리 창)이 있으면
+       * 그쪽이 먼저 닫혀야 한다. 열린 순서를 아는 곳은 `ctx.escape` 뿐이라 여기서 맨 위가 나인지만 본다.
+       */
       ctx.input.consume(Keys.INVENTORY);
       this.close();
     }

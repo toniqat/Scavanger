@@ -171,7 +171,8 @@ try {
   await waitSim(0.2); await keyUp('KeyT'); await waitSim(0.3);
   qe = await lastEv('quick:equipped');
   ok(qe && qe.item && qe.item.defId === 'grenade_frag' && qe.index === 0, 'wheel N → grenade in hand', JSON.stringify(qe));
-  const gBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.category === 'grenade'));
+  /* 2026-09-15 2차 (`ItemCategory 'grenade'` 폐지): 수류탄도 `category: 'gadget'` 이라 카테고리로는 못 센다 — `ItemDef.grenade` 가 가른다. */
+  const gBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.grenade !== undefined));
   await mouseDown(0);
   await waitSim(0.3);
   let hold = await lastEv('grenade:holdChanged');
@@ -189,7 +190,7 @@ try {
   const thrown = await lastEv('grenade:thrown');
   hold = await lastEv('grenade:holdChanged');
   ok(!!thrown && hold && !hold.holding, 'release throws the grenade', JSON.stringify(hold));
-  const gAfter = await P(() => window.__game.ctx.inventory.countWhere((d) => d.category === 'grenade'));
+  const gAfter = await P(() => window.__game.ctx.inventory.countWhere((d) => d.grenade !== undefined));
   ok(gAfter === gBefore - 1, 'grenade stack −1', `${gBefore} → ${gAfter}`);
   await waitSim(2.5);
   ok((await ev('grenade:exploded')).length >= 1, 'cooked grenade explodes within its shortened fuse');

@@ -398,21 +398,22 @@ function dryPlace(g: DryGrid, def: ItemDef): boolean {
  * 2026-09-09 (제작 수량) — is there room for **everything** `count` runs of `recipe` produce (output +
  * `extraOutputs`)?
  *
- * **2026-09-09 (사용자 결정): 가방 → 안 되면 함선 창고.** 함선 작업대에서 만든 것은 가방이 먼저 받고, 자리가
- * 없으면 창고가 받는다 — `updateCraft` 가 `addUnits` 의 넘침을 `tryAddToStash` 로 넘기는 것이 그 짝이다. 넘치는
- * 물건을 함선에서만 창고로 보내는 규칙 자체는 `InventorySystem.throwToWorld` 가 이미 쓰던 것이고, 여기서는 그것을
- * "누르기 전에" 보는 검사로 옮겼을 뿐이다. 레이드 중에는 창고가 없으므로 예전처럼 가방만 본다.
+ * **2026-09-15 2차 (사용자 결정): 함선 창고 → 안 되면 가방.** 2026-09-09 의 「가방 → 안 되면 창고」를 뒤집었다 —
+ * 함선에서 만든 것이 가방을 채우면 출격 전에 매번 가방을 비워야 했다. 레이드 현장의 빠른제작은 창고가 없으므로
+ * 예전 그대로 **가방만** 보고, 가방이 차면 제작 자체가 막힌다. 실제 지급도 같은 순서다 (`addCraftOutputs`).
  *
  * (재료 쪽은 **2026-09-14 부터 산출물과 같은 범위**다 — 함선이면 가방 + 함선 창고(`craftCountDef` · `consumeFor`),
  * 레이드 현장의 빠른제작은 가방만. 그 전까지는 재료만 가방이라, 창고에 재료를 쌓아 두고도 작업대가 「재료 부족」
  * 이라고 했다. 가구 제작 · 시설 업그레이드(`housing/`)와 조리(`completeCook`)는 처음부터 `countDefAll` 이었다.)
  *
- * 한 덩어리(`stackMax` 이하)가 지나가는 길은 `addUnits` 와 글자 그대로 같다: 가방 스택에 합치기 → 가방 빈칸 →
- * (넘쳤으면) 창고 스택에 합치기 → 창고 빈칸.
+ * 한 덩어리(`stackMax` 이하)가 지나가는 길은 `addCraftOutputs` 와 글자 그대로 같다: (함선이면) 창고 스택에 합치기 →
+ * 창고 빈칸 → 가방 스택에 합치기 → 가방 빈칸.
  */
 function roomForOutputs(sys: InventorySystem, recipe: CraftRecipe, count: number): boolean {
   const bag = dryGrid(sys.bag);
   const stash = sys.ctx.isHubPhase() ? dryGrid(sys.getStash()) : null;
+  // 2026-09-15 2차 (사용자 결정): 함선이면 창고가 먼저 받는다 — 레이드에는 창고가 없어 가방 하나다
+  const order = stash ? [stash, bag] : [bag];
   const outputs = [{ defId: recipe.outputDefId, qty: recipe.outputQty }, ...(recipe.extraOutputs ?? [])];
   for (const o of outputs) {
     const def = ITEM_DEF_MAP.get(o.defId);
@@ -421,16 +422,49 @@ function roomForOutputs(sys: InventorySystem, recipe: CraftRecipe, count: number
     while (left > 0) {
       let chunk = Math.min(def.stackMax, left);
       left -= chunk;
-      chunk -= dryMerge(bag, def, chunk);
-      if (chunk <= 0) continue;
-      if (dryPlace(bag, def)) continue;
-      if (!stash) return false;
-      chunk -= dryMerge(stash, def, chunk);
-      if (chunk <= 0) continue;
-      if (!dryPlace(stash, def)) return false;
+      let landed = false;
+      for (const g of order) {
+        chunk -= dryMerge(g, def, chunk);
+        if (chunk <= 0) { landed = true; break; }
+        if (dryPlace(g, def)) { landed = true; break; }
+      }
+      if (!landed) return false;
     }
   }
   return true;
+}
+
+/**
+ * **제작 산출물의 지급** (2026-09-15 2차, 사용자 결정) — 함선이면 **함선 창고 먼저, 창고가 차면 가방**,
+ * 레이드 현장이면 **가방만**. 돌려주는 것은 어디에도 못 들어간 덩어리(호출자가 바닥에 떨군다)이고,
+ * 자리 검사(`roomForOutputs`)가 방금 같은 순서로 확인했으므로 정상 경로에서는 언제나 빈 배열이다.
+ *
+ * 레이드 경로는 `InventorySystem.addUnits` 그대로다 — 퀵슬롯의 부분 스택을 먼저 채우는 것(2026-09-09)이
+ * 현장에서 탄약을 만드는 이유 그 자체라 그 길을 건드리지 않았다.
+ */
+function addCraftOutputs(sys: InventorySystem, defId: string, qty: number): ItemInstance[] {
+  const def = ITEM_DEF_MAP.get(defId);
+  if (!def) return [];
+  if (!sys.ctx.isHubPhase()) return sys.addUnits(defId, qty);
+  const stash = sys.getStash();
+  const spilled: ItemInstance[] = [];
+  let left = Math.max(0, Math.floor(qty));
+  while (left > 0) {
+    const chunk = Math.min(def.stackMax, left);
+    left -= chunk;
+    const item = sys.loot.createItem(defId, chunk);
+    if (stash.mergeIntoStacks(item) <= 0) continue;
+    if (stash.autoPlace(item)) continue;
+    spilled.push(item);
+  }
+  // 창고가 못 받은 것만 가방으로 (그리고 가방도 못 받으면 호출자에게 돌려준다)
+  const overflow: ItemInstance[] = [];
+  for (const item of spilled) {
+    if (sys.bag.mergeIntoStacks(item) <= 0) continue;
+    if (sys.bag.autoPlace(item)) continue;
+    overflow.push(item);
+  }
+  return overflow;
 }
 
 /**
@@ -538,15 +572,14 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   // 2026-09-09 (가방 → 안 되면 창고): `addUnits` 가 가방에 못 넣고 돌려준 덩어리는 함선 창고가 받는다.
   // `roomForOutputs` 가 방금 같은 순서로 자리를 확인했으므로 여기서 다시 떨어질 일은 없지만, 그래도 사라지게
   // 두지는 않는다 — 넘어간 것이 있으면 어디로 갔는지 한 줄 알려 준다.
-  const spill = sys.addUnits(r.outputDefId, r.outputQty * count);
-  for (const e of r.extraOutputs ?? []) spill.push(...sys.addUnits(e.defId, e.qty * count));
-  for (const item of spill) {
-    const name = ITEM_DEF_MAP.get(item.defId)?.name ?? item.defId;
-    // 창고는 함선에서만 — 레이드 중에 `tryAddToStash` 는 손댈 수 없는 함선 격자를 건드린다. 밖에서는 예전처럼 떨군다.
-    if (sys.ctx.isHubPhase() && sys.tryAddToStash(item)) sys.ctx.bus.emit('ui:notify', { text: `${name} → 함선 창고`, kind: 'info', duration: 2 });
-    else sys.throwToWorld(item, false);
-  }
-  const first = sys.bag.items().find((p) => p.item.defId === r.outputDefId)?.item
+  // 2026-09-15 2차 (사용자 결정): 함선이면 **창고 먼저 · 차면 가방**, 레이드 현장은 가방만 (`addCraftOutputs`).
+  const spill = addCraftOutputs(sys, r.outputDefId, r.outputQty * count);
+  for (const e of r.extraOutputs ?? []) spill.push(...addCraftOutputs(sys, e.defId, e.qty * count));
+  // `roomForOutputs` 가 방금 같은 순서로 자리를 확인했으므로 여기 떨어질 것은 없다 — 그래도 사라지게 두지는 않는다
+  for (const item of spill) sys.throwToWorld(item, false);
+  // 획득 티커 · `craft:completed` 가 보여 줄 한 점 — 산출물이 실제로 들어간 쪽에서 먼저 찾는다
+  const first = (sys.ctx.isHubPhase() ? sys.getStash().items().find((p) => p.item.defId === r.outputDefId)?.item : undefined)
+    ?? sys.bag.items().find((p) => p.item.defId === r.outputDefId)?.item
     ?? sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
   sys.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
   sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first, count });

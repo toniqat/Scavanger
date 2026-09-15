@@ -415,15 +415,17 @@ try {
     const r = document.querySelector('.menu.cook-station');
     const h = window.__game.ctx.housing;
     return { picked: h.cookDebug.station.recipeId, rail: r.querySelectorAll('.cook-rail-item').length, recipes: h.cookDebug.recipes().length,
-      tiers: r.querySelectorAll('.cook-rail-tier').length, chips: [...r.querySelectorAll('.cook-stepchip-main')].map((x) => x.textContent),
+      /* 2026-09-15 4차: 티어 머리줄이 없어졌다(정렬이 전역) — 티어는 칸 모서리 배지다. */
+      tiers: r.querySelectorAll('.cook-cell-tier').length, chips: [...r.querySelectorAll('.cook-stepchip-main')].map((x) => x.textContent),
       cost: r.querySelectorAll('.cook-sel-cost .item-chip').length, effects: r.querySelectorAll('.cook-eff-line').length,
       start: r.querySelector('.cook-start')?.classList.contains('is-blocked'), name: r.querySelector('.cook-sel-name')?.textContent,
       grids: r.querySelectorAll('.hs-card-inv .trade-grids').length };
   });
   ok(pick && stDom.picked === 'cook_tuber_stew' && stDom.name === '덩이줄기 스튜', `레일 클릭으로 요리 선택 (${stDom.picked} · ${stDom.name})`);
-  ok(stDom.rail === stDom.recipes && stDom.tiers >= 1, `레일 = 조리대 레시피 ${stDom.rail}줄 · 티어 묶음 ${stDom.tiers}`);
+  ok(stDom.rail === stDom.recipes && stDom.tiers >= 1, `조합 목록 = 조리대 레시피 ${stDom.rail}칸 · 티어 배지 ${stDom.tiers}`);
   ok(stDom.chips.length === 2 && /① .*썰기/.test(stDom.chips[0]) && /② .*젓기/.test(stDom.chips[1]), `단계 칩 줄 (${JSON.stringify(stDom.chips)})`);
-  ok(stDom.cost === 2 && stDom.effects >= 1 && stDom.start === false && stDom.grids === 2, `재료 칩 ${stDom.cost} · 능력치 줄 ${stDom.effects} · 조리 시작 활성 · 창고/가방 카드`);
+  // 2026-09-15 4차 (사용자 결정): 창고 · 가방이 **한 카드 안의 한 격자 뷰**다 (옛 카드 둘 → 하나)
+  ok(stDom.cost === 2 && stDom.effects >= 1 && stDom.start === false && stDom.grids === 1, `재료 칩 ${stDom.cost} · 능력치 줄 ${stDom.effects} · 조리 시작 활성 · 창고+가방 한 카드`);
 
   /* ── 2026-09-15 (B-15, 사용자 결정 「전부 딤드 + 숙련 배지」): 숙련이 모자란 요리도 레일에 있다 ── */
   console.log('숙련 잠김 요리 (B-15)');
@@ -461,13 +463,11 @@ try {
       out.bothRow = { locked: !!bi?.classList.contains('is-locked'), lv: bi?.querySelector('.cook-rail-lv:not(.cook-rail-skill)')?.textContent ?? null,
         badge: bi?.querySelector('.cook-rail-skill')?.textContent ?? null, want: `Lv.${both.benchLevel ?? 1}`, wantSkill: `${p.getSkillDef(both.skill).name} ${both.skillRequired}` };
     }
-    // 순서: 티어 묶음마다 시작할 수 있음(초록 점) → 막힘 → 잠김
-    const groups = [];
-    for (const c of root.querySelectorAll('.cook-rail > *')) {
-      if (c.classList.contains('cook-rail-tier')) groups.push([]);
-      else if (c.classList.contains('cook-rail-item') && groups.length) {
-        groups.at(-1).push({ id: c.dataset.recipe, rank: c.querySelector('.cook-rail-dot.on') ? 0 : c.classList.contains('is-locked') ? 2 : 1 });
-      }
+    /* 2026-09-15 4차 (사용자 결정): 티어 묶음이 없어지고 순위가 **전역**이다 — 시작할 수 있음(초록 점) → 막힘 → 잠김.
+       비교는 한 묶음(전체) 안에서 한다: 그래야 「만들 수 있는 것이 앞으로」가 목록 전체에 대해 검사된다. */
+    const groups = [[]];
+    for (const c of root.querySelectorAll('.cook-rail-item')) {
+      groups[0].push({ id: c.dataset.recipe, rank: c.querySelector('.cook-rail-dot.on') ? 0 : c.classList.contains('is-locked') ? 2 : 1 });
     }
     out.sorted = groups.every((g) => g.every((x, i) => i === 0 || g[i - 1].rank <= x.rank));
     const g = groups.find((gr) => gr.some((x) => x.id === skillOnly.id)) ?? [];

@@ -1,6 +1,7 @@
 // Smoke: player fire zones (docs/TODO.md B-16 · 사용자 버그 「플레이어 소이 가젯에도 불 대지가 안 만들어진다」, 2026-09-15).
 //
-// Solo raid. Throws a real 화염수류탄 (`gad_incendiary`) and a real G-10 소이 수류탄 (`grenade_incendiary`) through the normal
+// Solo raid. 2026-09-15 2차 (화염 통합): 화염을 만드는 것은 **화염 수류탄 하나**(`grenade_incendiary`)뿐이고 옛 가젯
+// 아이템 `gad_incendiary` 는 사라졌다 — `fire` 배치물의 정의도 내부 정의 `incendiary` 하나다. Throws it through the normal
 // quick-use hand (T slot → LMB), then checks: a `fire` zone at the landing spot with the right radius / duration
 // (`ctx.gadgets.getFireZones()`), it burns an enemy, the local player and a ground drone standing in it, `fire_ignite` /
 // `fire_crackle` go out on the bus, it expires. A plain G-12 frag makes no zone and keeps its 6 m blast; the G-10 blast is the
@@ -75,21 +76,25 @@ try {
   /* ── catalogue / contract ─────────────────────────────────────────── */
   const cat = await page.evaluate(() => {
     const { loot, gadgets } = window.__game.ctx;
-    const inc = gadgets.getDef('incendiary'), gf = gadgets.getDef('grenadeFire');
+    /* 2026-09-15 2차: `fire` 를 만드는 정의는 `incendiary` 하나이고 **아이템이 없는 내부 정의**다 (옛 `grenadeFire` 는 은퇴). */
+    const inc = gadgets.getDef('incendiary'), gone = gadgets.getDef('grenadeFire');
     return {
       g10: loot.getItemDef('grenade_incendiary')?.grenadeFire === true,
       frag: loot.getItemDef('grenade_frag')?.grenadeFire,
-      listed: gadgets.getDefs().some((d) => d.id === 'grenadeFire'),
+      listed: gadgets.getDefs().some((d) => d.id === 'incendiary' || d.id === 'grenadeFire'),
+      retired: gone === undefined,
+      aliased: loot.getItemDef('gad_incendiary')?.id,
       defs: gadgets.getDefs().length,
-      gf: gf ? { use: gf.use, dep: gf.deployable, r: gf.radius, dur: gf.duration, hp: gf.hp } : null,
-      inc: inc ? { r: inc.radius, dur: inc.duration } : null,
+      gf: inc ? { use: inc.use, dep: inc.deployable, r: inc.radius, dur: inc.duration, hp: inc.hp } : null,
       apis: typeof gadgets.getFireZones === 'function' && typeof gadgets.igniteGrenadeFire === 'function',
     };
   });
   ok(cat.g10 && cat.frag === undefined, `items.csv grenadeFire: G-10 true, G-12 unset (${cat.g10}/${cat.frag})`);
-  ok(!cat.listed && cat.defs === 13, `internal gadget 'grenadeFire' stays out of getDefs() (${cat.defs} defs)`);
+  ok(!cat.listed && cat.defs === 12, `화염 지대는 내부 정의라 getDefs() 밖이다 (${cat.defs} defs)`);
+  /* `gad_incendiary` 는 지운 것이 아니라 `item_aliases.csv` 로 화염 수류탄에 흡수됐다 — 가진 사람이 잃지 않는다. */
+  ok(cat.retired && cat.aliased === 'grenade_incendiary', `옛 'grenadeFire' 정의 은퇴 · gad_incendiary → ${cat.aliased}`);
   ok(cat.gf && cat.gf.use === 'throw' && cat.gf.dep === 'fire' && cat.gf.r === 3.5 && cat.gf.dur === 6 && cat.gf.hp === 0,
-    `grenadeFire def = throw · fire · r 3.5 · 6 s · hp 0 (${JSON.stringify(cat.gf)})`);
+    `화염 지대 정의 = throw · fire · r 3.5 · 6 s · hp 0 (${JSON.stringify(cat.gf)})`);
   ok(cat.apis, 'GadgetsRef.getFireZones / igniteGrenadeFire published');
 
   /* ── mission ──────────────────────────────────────────────────────── */
@@ -163,7 +168,9 @@ try {
     const zones = window.__zones();
     const z = zones[0];
     const surf = z ? ctx.world.getSurfaceY(z.p[0], z.p[2], z.p[1] + 0.3) : null;
-    return { ex, zones, surf, ign: window.__snd.filter((s) => s.t >= t && s.id === 'fire_ignite'), dep: window.__ev.deployed.filter((e) => e.t >= t) };
+    const d = window.__game.getSystem('gadgets').deployables.find((x) => x.kind === 'fire');
+    return { ex, zones, surf, ign: window.__snd.filter((s) => s.t >= t && s.id === 'fire_ignite'), dep: window.__ev.deployed.filter((e) => e.t >= t),
+      fx: { visible: !!d?.visual.root.visible, gadget: d?.gadgetId } };
   }, g10.t);
   const z10 = g10Out.zones[0];
   ok(g10Out.ex.length === 1 && g10Out.ex[0].r === 3, `G-10 blast is the small one: radius ${g10Out.ex[0]?.r} (GRENADE_INCENDIARY_BLAST_RADIUS 3, frag 7.2)`);
@@ -172,7 +179,9 @@ try {
   if (z10) {
     const dxz = Math.hypot(z10.p[0] - g10Out.ex[0].p[0], z10.p[2] - g10Out.ex[0].p[2]);
     ok(dxz < 0.05 && Math.abs(z10.p[1] - g10Out.surf) < 0.05, `zone sits at the explosion XZ (${dxz.toFixed(3)} m) on the surface (y ${z10.p[1].toFixed(2)} vs ${g10Out.surf?.toFixed(2)})`);
-    ok(/-gf\d+$/.test(z10.id) && g10Out.dep.some((d) => d.id === z10.id && d.kind === 'fire'), `zone id carries the G-10 tag: ${z10.id}`);
+    /* 2026-09-15 2차: 정의가 하나가 되면서 `-gf` 표식이 은퇴했다 — 평범한 `-g` id 다. */
+    ok(/-g\d+$/.test(z10.id) && !/-gf\d+$/.test(z10.id) && g10Out.dep.some((d) => d.id === z10.id && d.kind === 'fire'), `zone id is the plain one: ${z10.id}`);
+    ok(g10Out.fx.visible && g10Out.fx.gadget === 'incendiary', `zone visual is shown (${JSON.stringify(g10Out.fx)})`);
     ok(g10Out.ign.length === 1 && Math.hypot(g10Out.ign[0].p[0] - z10.p[0], g10Out.ign[0].p[2] - z10.p[2]) < 0.1, `fire_ignite once at the zone (${g10Out.ign.length})`);
   }
   // enemy / local player / ground drone inside the G-10 zone
@@ -240,22 +249,8 @@ try {
   ok(exp.crackles >= 6 && exp.crackles <= 9, `fire_crackle every FIRE_ZONE_CRACKLE_S (0.7) over its life: ${exp.crackles}`);
   await page.evaluate(() => { const ctx = window.__game.ctx; const d = ctx.drones?.getDrones().find((x) => x.owner === 'local'); if (d) ctx.drones.damageDrone(d.id, 1e6); });
 
-  /* ── 3. 화염수류탄 gadget via the hand: 5 m / 10 s zone ─────────────── */
-  const gad = await throwFromHand('gad_incendiary');
-  ok(gad.held === 'gad_incendiary', `화염수류탄 taken into the hand (held ${gad.held})`);
-  await waitFor(page, (t) => window.__ev.deployed.some((e) => e.t >= t && e.kind === 'fire'), '화염수류탄 zone', 180000, gad.t);
-  await waitSim(0.2);
-  const gadOut = await page.evaluate((t) => ({ zones: window.__zones(), ign: window.__snd.filter((s) => s.t >= t && s.id === 'fire_ignite').length, ex: window.__ev.exploded.filter((e) => e.t >= t).length }), gad.t);
-  const zg = gadOut.zones[0];
-  ok(gadOut.zones.length === 1 && zg.r === 5 && zg.rem > 9 && zg.rem <= 10 && /-g\d+$/.test(zg.id) && !/-gf\d+$/.test(zg.id),
-    `화염수류탄 zone r 5 · ${zg?.rem?.toFixed(2)} s of 10 · untagged id ${zg?.id}`);
-  ok(gadOut.ign === 1 && gadOut.ex === 0, `화염수류탄: fire_ignite once, no grenade blast (${gadOut.ign}/${gadOut.ex})`);
-  const gadFx = await page.evaluate(() => {
-    const g = window.__game.getSystem('gadgets');
-    const d = g.deployables.find((x) => x.kind === 'fire');
-    return { visible: !!d?.visual.root.visible, gadget: d?.gadgetId };
-  });
-  ok(gadFx.visible && gadFx.gadget === 'incendiary', `화염수류탄 zone visual is shown (${JSON.stringify(gadFx)})`);
+  /* ── 3. (은퇴) 옛 가젯 「화염수류탄」(gad_incendiary) 투척 절 — 2026-09-15 2차 화염 통합으로 그 아이템이 사라졌다.
+     반경 · 지속 · id · 지대 비주얼 검사는 위 2절(화염 수류탄)이 그대로 덮는다. */
 
   /* ── 4. root cause: a canister landing on a structure roof burns ON the roof ── */
   const roof = await page.evaluate(() => {
@@ -302,9 +297,9 @@ try {
     const p = ctx.player;
     window.__reset();
     p.heal(1000);
-    return { hp: p.hp + p.shield, zones: ctx.gadgets.getFireZones().length, used: ctx.gadgets.use('grenadeFire', false), n: w.grenades.activeCount, pos: [p.position.x, p.position.y, p.position.z] };
+    return { hp: p.hp + p.shield, zones: ctx.gadgets.getFireZones().length, used: ctx.gadgets.use('incendiary', false), n: w.grenades.activeCount, pos: [p.position.x, p.position.y, p.position.z] };
   });
-  ok(rep.used === false, `ctx.gadgets.use('grenadeFire') is refused (${rep.used})`);
+  ok(rep.used === false, `내부 가젯 ctx.gadgets.use('incendiary') 는 거절된다 (${rep.used})`);
   await page.evaluate(() => {
     const ctx = window.__game.ctx, w = window.__game.getSystem('weapons');
     const p = ctx.player.position;

@@ -13,7 +13,7 @@ import {
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
 } from '@/shared';
 import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
-/* 2026-09-15 (B-16): 내부 가젯 (G-10 화염 지대) · id 표식 · 화염 소리 */
+/* 2026-09-15: 내부 가젯(화염 지대 `incendiary` — 아이템 없음) · 배치물 id · 화염 소리 */
 import { deployableIdFor, isInternalGadget } from '../GadgetDefs';
 import { FIRE_ZONE_CRACKLE_S } from '@/shared';
 import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
@@ -28,7 +28,7 @@ import * as Mount from './Mount';
 export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boolean {
   const ctx = sys.ctx;
   const def = gadgetDef(id);
-  // 2026-09-15: 내부 정의(`grenadeFire`)는 아이템이 없어 `consumeItem` 이 소모 없이 통과시킨다 — 쓰는 길은 `igniteGrenadeFire` 하나
+  // 2026-09-15: 내부 정의(화염 지대 `incendiary`)는 아이템이 없어 `consumeItem` 이 소모 없이 통과시킨다 — 쓰는 길은 `igniteGrenadeFire` 하나
   if (!def || isInternalGadget(id)) return false;
   const player = ctx.player;
   // usable from the quick bar with the inventory open, but never in the hub / menus / while paused
@@ -63,11 +63,14 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
 
   sys.useCooldown = USE_COOLDOWN / Math.max(0.25, sys.derived('useSpeedMul', 1));
   const over = underhand === undefined ? sys.underhand : underhand;
+  // 2026-09-15 (사용자 결정): 내구도를 아이템이 들고 다니는 가젯(돔 실드 · 바리케이드)은 **방금 쓴 그 아이템의 남은
+  // 내구도**로 선다 — `consumeItem` 이 적어 둔 값 (`lastConsumedDurability`, 아니면 `undefined` = 새것).
+  const startHp = def.wearsItemDurability ? sys.lastConsumedDurability : undefined;
   switch (def.use) {
     case 'self': sys.useCloakVeil(def); break;
     case 'target': if (target) sys.useDefib(def, target); break;
-    case 'throw': sys.throwGadget(def, over); break;
-    case 'place': sys.requestPlace(def, sys.placeUse.position, sys.placeUse.yaw, sys.placeUse.mount); break;
+    case 'throw': sys.throwGadget(def, over, startHp); break;
+    case 'place': sys.requestPlace(def, sys.placeUse.position, sys.placeUse.yaw, sys.placeUse.mount, startHp); break;
   }
   ctx.bus.emit('gadget:used', { id, position: player.position.clone() });
   return true;
@@ -150,7 +153,8 @@ export function useDefib(sys: GadgetSystem, def: GadgetDef, target: { id: PeerId
   ctx.bus.emit('chat:post', { text: `${target.name} 을(를) 일으켰다`, kind: 'system' });
   }
 
-export function throwGadget(sys: GadgetSystem, def: GadgetDef, underhand: boolean): void {
+/** @param startHp 2026-09-15: `wearsItemDurability` 가젯이 실려 나가는 남은 내구도 (통이 땅에 닿을 때까지 들고 간다). */
+export function throwGadget(sys: GadgetSystem, def: GadgetDef, underhand: boolean, startHp?: number): void {
   const ctx = sys.ctx;
   const p = ctx.player;
   if (!p) return;
@@ -164,38 +168,52 @@ export function throwGadget(sys: GadgetSystem, def: GadgetDef, underhand: boolea
   const speed = (underhand ? 8 : 17) * range;
   _c.copy(_b).multiplyScalar(speed).addScaledVector(p.velocity, 0.5);
   _c.y += underhand ? 2.4 : 3.5;
-  sys.thrown.throw(def.id, def.color, _a, _c);
+  sys.thrown.throw(def.id, def.color, _a, _c, startHp);
   ctx.bus.emit('audio:play', { id: 'grenade_throw', position: _a, volume: 0.65 });
   }
 
-export function onThrownImpact(sys: GadgetSystem, gid: GadgetId, pos: THREE.Vector3): void {
+export function onThrownImpact(sys: GadgetSystem, gid: GadgetId, pos: THREE.Vector3, startHp?: number): void {
   const def = gadgetDef(gid);
   if (!def || !def.deployable) return;
   const yaw = sys.ctx.player?.yaw ?? 0;
-  sys.requestPlace(def, pos, yaw);
+  sys.requestPlace(def, pos, yaw, null, startHp);
   }
 
 /**
- * 2026-09-15 (B-16): G-10 소이 수류탄(`ItemDef.grenadeFire`)이 `position` 에서 터졌다 — 화염수류탄의 `onThrownImpact` 와 **같은 길**
- * (`requestPlace`: 권위자는 즉시 스폰 · 클라는 `gadq place {gadget:'grenadeFire'}`)로 로컬 플레이어 소유의 작은 화염 지대를 세운다.
+ * 2026-09-15 (B-16): 화염 수류탄(`ItemDef.grenade === 'fire'`)이 `position` 에서 터졌다 — `onThrownImpact` 와 **같은 길**
+ * (`requestPlace`: 권위자는 즉시 스폰 · 클라는 `gadq place {gadget:'incendiary'}`)로 로컬 플레이어 소유의 화염 지대를 세운다.
  * 높이는 스폰이 그 점 아래 표면으로 내린다(`Queries.groundY`) — 공중에서 터져도 바닥에 불이 붙는다. 부르는 곳은 weapons 의 로컬 폭발뿐.
+ *
+ * 2026-09-15 (가젯 개편, 사용자 결정): 화염 지대 정의가 `incendiary` 하나로 합쳐졌다 (`GadgetDefs` 의 「화염 통합」 절) —
+ * 옛 내부 정의 `grenadeFire` 는 없어졌고 이 함수 이름만 계약(`GadgetsRef.igniteGrenadeFire`)이라 그대로다.
  */
 export function igniteGrenadeFire(sys: GadgetSystem, position: THREE.Vector3): void {
-  const def = gadgetDef('grenadeFire');
+  const def = gadgetDef('incendiary');
   if (!def || !sys.ctx.world?.ready) return;
   sys.requestPlace(def, position, sys.ctx.player?.yaw ?? 0);
   }
 
-/** Authority spawns straight away; clients ask the host and wait for `gad spawn`. */
-export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null): void {
+/**
+ * Authority spawns straight away; clients ask the host and wait for `gad spawn`.
+ *
+ * @param startHp 2026-09-15: `wearsItemDurability` 가젯이 물려받는 남은 내구도 — 비호스트도 `gadq place` 의
+ *   `hp` 로 실어 보낸다(계약 추가, 2026-09-15 2차). 호스트는 그 값을 **아이템의 `durabilityMax` 로 클램프**해
+ *   그대로 세운다(`Preview.resolveRemotePlace` 뒤 `spawnDeployable`) — 생략 = 새것이다(옛 클라이언트).
+ */
+export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null, startHp?: number): void {
   const ctx = sys.ctx;
   if (!def.deployable) return;
   if (!ctx.isAuthority && ctx.isMultiplayer && ctx.net) {
     // 2026-09-11: 드론 위에 올리는 요청이면 `mount` (호스트가 `Preview.resolveRemotePlace` 로 다시 본다)
-    ctx.net.send({ t: 'gadq', ev: 'place', gadget: def.id, p: toTuple(position), yaw, ...(mount ? { mount } : {}) }, 'host');
+    ctx.net.send({
+      t: 'gadq', ev: 'place', gadget: def.id, p: toTuple(position), yaw,
+      ...(mount ? { mount } : {}),
+      // 2026-09-15 2차: 깎인 돔 실드 · 바리케이드는 그만큼 약하게 서야 한다 (호스트가 `durabilityMax` 로 클램프한다)
+      ...(def.wearsItemDurability && typeof startHp === 'number' && startHp > 0 ? { hp: Math.round(startHp) } : {}),
+    }, 'host');
     return;
   }
-  sys.spawnDeployable(sys.nextId(def.id), def, ctx.net?.localId ?? 'local', position, yaw, null, mount);
+  sys.spawnDeployable(sys.nextId(def.id), def, ctx.net?.localId ?? 'local', position, yaw, null, mount, startHp);
   }
 
 /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
@@ -208,14 +226,18 @@ export function nextId(sys: GadgetSystem, gadget?: GadgetId): string {
  * @param wire non-null when this is a replica built from a `gad spawn` / `gad sync` broadcast
  *   (hp / armed / ttl come from the host instead of the definition).
  */
-export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null, mount?: string | null): Deployable | null {
+export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null, mount?: string | null, startHp?: number): Deployable | null {
   const kind = def.deployable;
   if (!kind || sys.byId.has(id)) return null;
   const ctx = sys.ctx;
   while (sys.deployables.length >= MAX_DEPLOYABLES) sys.removeLocal(sys.deployables[0], 'expired');
 
-  const hp = wire ? wire.hp : def.hp;
-  const maxHp = wire ? wire.maxHp : def.hp;
+  // 2026-09-15 (사용자 결정): `wearsItemDurability` 면 최대 hp 가 `GadgetDef.hp` 가 아니라 **그 아이템의 `durabilityMax`** 다.
+  // 복제본은 늘 와이어(`maxHp` 가 이미 실려 있다)를 그대로 쓰므로 이 갈래는 권위자 · 싱글에서만 돌다.
+  const defMax = def.wearsItemDurability ? itemDurabilityMaxFor(sys, def) : def.hp;
+  const maxHp = wire ? wire.maxHp : defMax;
+  const hp = wire ? wire.hp : (def.wearsItemDurability && typeof startHp === 'number' && startHp > 0
+    ? Math.min(defMax, Math.round(startHp)) : defMax);
   const armed = wire ? wire.armed : !(kind === 'mine' || kind === 'domeShield' || kind === 'remoteMine');
   const ttl = wire ? wire.ttl : def.duration;
   const expires = ttl > 0 ? ctx.time + ttl : 0;
@@ -297,6 +319,12 @@ export function grantRecovered(sys: GadgetSystem, d: Deployable): ItemInstance |
   const loot = sys.ctx.loot;
   if (!defId || !loot) return null;
   const item = loot.createItem(defId, 1);
+  // 2026-09-15 (사용자 결정): 돔 실드 · 바리케이드는 **까인 만큼 내구도가 닳아서** 돌아온다 — 함선 장비 작업대에서
+  // 고쳐야 다시 튼튼해지고, 분해 산출도 「제작 재료 × 남은 내구도 20 % 5구간」(2026-09-10)에 그대로 올라탄다.
+  if (gadgetDef(d.gadgetId)?.wearsItemDurability) {
+    const max = loot.getItemDef(defId)?.durabilityMax ?? 0;
+    if (max > 0) item.durability = Math.max(0, Math.min(max, Math.round(d.hp)));
+  }
   const ok = sys.ctx.inventory?.tryAddItem(item) ?? false;
   if (!ok) return null;   // inventory already emitted `inventory:full`; the deployable is removed anyway
   sys.ctx.bus.emit('gadget:recovered', { id: d.id, item });
@@ -333,24 +361,72 @@ export function itemDefIdFor(sys: GadgetSystem, id: GadgetId): string | null {
 export function consumeItem(sys: GadgetSystem, def: GadgetDef): boolean {
   const inv = sys.ctx.inventory;
   const defId = sys.itemDefIdFor(def.id);
+  sys.lastConsumedDurability = undefined;
   if (!inv || !defId) return true;
+  // 2026-09-15 (사용자 결정): 내구도를 들고 다니는 가젯은 **어느 스택이 빠졌는지**를 알아야 한다 (그 남은 내구도로 선다).
+  // `consumeWhere` 의 술어는 빠질 후보를 순서대로 보므로 첫 후보가 곰 빠지는 것이다 — 이 아이템들은 `stackMax` 1 이라
+  // 「수량이 작은 것 먼저」 정렬이 순서를 바꾸지 않는다 (가방 → 주머니 → 휠 단계 순서도 그대로).
+  if (def.wearsItemDurability) {
+    let first: number | undefined;
+    const n = inv.consumeWhere((d, inst) => {
+      if (d.id !== defId) return false;
+      if (first === undefined) first = inst.durability;
+      return true;
+    }, 1);
+    if (n <= 0) return false;
+    sys.lastConsumedDurability = first;
+    return true;
+  }
   if (typeof inv.consumeDef === 'function') return inv.consumeDef(defId, 1);
   return inv.consumeWhere((d) => d.id === defId, 1) > 0;
   }
 
+/**
+ * 2026-09-15 (사용자 결정): `wearsItemDurability` 가젯의 최대 hp — **그 아이템의 `ItemDef.durabilityMax`**.
+ * 아이템이 아직 없거나(병렬 개발) 내구도가 없는 정의면 `GadgetDef.hp` 로 돌아간다.
+ */
+export function itemDurabilityMaxFor(sys: GadgetSystem, def: GadgetDef): number {
+  const defId = sys.itemDefIdFor(def.id);
+  const loot = sys.ctx.loot;
+  const max = defId && loot ? loot.getItemDef(defId)?.durabilityMax ?? 0 : 0;
+  return max > 0 ? max : def.hp;
+  }
+
+/**
+ * 제세동기가 일으킬 아군.
+ *
+ * 2026-09-15 (사용자 결정): 거리가 아니라 **조준 광선에서 각이 가장 작은** 아군을 고른다 — 새 조작이 「크로스헤어를
+ * 대상에 가져다 대고 좌클릭을 둔다」 라서, 사거리 안에 둘이 쓰러져 있을 때 견눈 쪽이 아니라 가까운 쪽을 일으키면
+ * 거짓말이 된다. **견눴는지**(반각 `DEFIB_AIM_CONE_DEG`)는 `weapons/parts/Defib` 이 크로스헤어에서 판정하고, 여기서는
+ * 「어느 아군인가」만 정한다 — 그래서 두 곳이 같은 아군을 가리킨다. 조준 광선이 없으면(구식 호출) 옛 최근접 규칙.
+ */
 export function findDownedAlly(sys: GadgetSystem, radius: number): { id: PeerId; position: THREE.Vector3; name: string } | null {
   const ctx = sys.ctx;
   const p = ctx.player;
   if (!p) return null;
+  const host = p as unknown as Partial<PlayerWeaponHost>;
+  const aimed = typeof host.getAimRay === 'function';
+  if (aimed) { host.getAimRay!(_a, _b); _b.normalize(); }
   let best: { id: PeerId; position: THREE.Vector3; name: string } | null = null;
-  let bestD = radius * radius;
+  let bestScore = Infinity;
+  const r2 = radius * radius;
   for (const r of ctx.net?.getRemotePlayers() ?? []) {
     if (!r.isDowned || r.stale) continue;
     const dist = r.position.distanceToSquared(p.position);
-    if (dist <= bestD) { bestD = dist; best = { id: r.id, position: r.position, name: r.name }; }
+    if (dist > r2) continue;
+    let score = dist;
+    if (aimed) {
+      _c.copy(r.position); _c.y += DEFIB_CHEST_Y; _c.sub(_a);
+      const len = _c.length();
+      score = len < 1e-3 ? -1 : -(_c.dot(_b) / len);   // 각이 작을수록(코사인이 클수록) 작은 점수
+    }
+    if (score < bestScore) { bestScore = score; best = { id: r.id, position: r.position, name: r.name }; }
   }
   return best;
   }
+
+/** `findDownedAlly` 의 조준 판정이 쓰는 「가슴」 높이 — `weapons/parts/Defib` 의 `CHEST_Y` 와 같은 값이다. */
+const DEFIB_CHEST_Y = 1.15;
 
 export function deny(sys: GadgetSystem, text: string | null): false {
   if (text) {

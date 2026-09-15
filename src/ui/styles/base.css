@@ -310,6 +310,35 @@ input { font: inherit; color: inherit; }
 .reticle.blocked .rbow-tier, .reticle.blocked .rbow-draw::before, .reticle.blocked .rbow-draw::after {
   background: var(--c-danger); box-shadow: 0 0 3px rgba(0, 0, 0, 0.95);
 }
+/* 2026-09-15 — 제세동기 모드 (hud/Reticle, `.reticle.defibmode` — 손에 든 소모품이 제세동기): 네 틱이 숨고
+   가운데에 **작은 하얀 원**(`.rdf-inner`)과 **큰 반투명 원**(`.rdf-outer`)이 선다. 둘의 실제 지름은 같고,
+   작은 쪽만 `transform: scale()` 로 줄어 있다 (Reticle.ts 의 DEFIB_MIN_SCALE → 1) — 배율이 테두리도 함께
+   키우므로 「커지면서 두께가 굵어진다」가 전이 없이 그대로 나온다 (reduced-motion 에 잘리지 않는다).
+   충전이 끝나면 `.defib-armed`(작은 원이 큰 원과 겹쳐 밝아진다), 겨누면 `.defib-target`(둘 다 강조색). */
+.reticle .rdf-outer, .reticle .rdf-inner {
+  display: none; position: absolute;
+  left: -22px; top: -22px; width: 44px; height: 44px;
+  border-radius: 50%; box-sizing: border-box;
+}
+.reticle.defibmode .rdf-outer, .reticle.defibmode .rdf-inner { display: block; }
+.reticle.defibmode .tick { opacity: 0; }
+.reticle .rdf-outer {
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.reticle .rdf-inner {
+  border: 4px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.85);
+  will-change: transform;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.reticle.defib-armed .rdf-inner { box-shadow: 0 0 2px rgba(0, 0, 0, 0.85), 0 0 7px rgba(255, 255, 255, 0.75); }
+.reticle.defib-target .rdf-outer { border-color: var(--c-accent); }
+.reticle.defib-target .rdf-inner {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.85), 0 0 9px rgba(255, 179, 71, 0.85);
+}
 
 /* 함선 내 점 크로스헤어 (2026-09-09, hud/HubDot, social layer): the gameplay reticle is hidden in the hub, so the ship
    has its own 3 px dot at screen centre. `.show` is toggled by the widget (phase hub · no blocker · no cutscene);
@@ -2441,6 +2470,17 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-cost { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
 .sm-purpose.is-blocked { cursor: not-allowed; border-style: dashed; }
 .sm-purpose.is-blocked .nm { color: var(--c-text-dim); }
+/* 2026-09-15 (사용자 결정): 용도 줄 오른쪽의 `시설 증축` 버튼 — 가구 카드의 `제작` · `배치`(`.fcard-craft`)와 같은 결.
+   막혀 있어도 눌린다 (딤드 + `aria-disabled`, 누르면 사유 토스트) — 인스펙터의 `업그레이드` 버튼과 같은 규약이다. */
+.sm-purpose-build {
+  flex: none; align-self: center; padding: 5px 12px; white-space: nowrap;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.sm-purpose-build:hover { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
+.sm-purpose-build.is-disabled { opacity: 0.45; border-style: dashed; }
+.sm-purpose-build.is-disabled:hover { background: rgba(255, 77, 77, 0.1); border-color: rgba(255, 77, 77, 0.45); color: var(--c-text-dim); }
 
 /* 가구 카드: horizontal row inside the vertical list */
 .fcard {

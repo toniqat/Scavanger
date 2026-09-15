@@ -207,7 +207,7 @@ try {
       hints: [...r.querySelectorAll('.hs-pane .hint')].map((e) => e.textContent),
       buttons: [...r.querySelectorAll('.hs-pane-left button, .hs-foot button')].map((b) => b.textContent),
       oldUp: !!r.querySelector('.gs-up'),
-      station: card('.hs-card-station'), stash: card('.hs-card-stash'), bag: card('.hs-card-bag'),
+      station: card('.hs-card-station'), inv: card('.hs-card-inv'),
       frameBorder: getComputedStyle(r.querySelector('.frame')).borderTopWidth, vw: innerWidth,
       tiers: [...r.querySelectorAll('.gs-tier')].map((t) => ({ locked: t.classList.contains('is-locked'), kids: t.children.length, pots: t.querySelectorAll('.gs-pot[data-tier]').length })),
       tierText: r.querySelector('.gs-tiers').textContent,
@@ -216,13 +216,14 @@ try {
   ok(frame.title === '재배 스테이션', `제목에 방 번호가 없다 (${frame.title})`);
   ok(frame.lv === 'Lv. 1' && !frame.subtitle && frame.meta === '성장 속도 +0%', `제목 옆 「Lv. 1」 · 성장 속도 · 설명 줄 없음 (${frame.lv} ${frame.meta})`);
   ok(frame.up === '업그레이드' && frame.upRight && frame.upInCard && !frame.oldUp, '스테이션 카드 우상단 업그레이드 버튼 · 옛 강화 줄 없음', JSON.stringify(frame));
-  // 2026-09-13 (사용자 결정 「작업대 제작 화면처럼」): 바깥 틀 없이 카드 셋이 한 줄 — [스테이션] [함선 창고] [가방]
-  const { station: cS, stash: cT, bag: cB } = frame;
-  ok(!!cS && !!cT && !!cB && cS.right <= cT.left && cT.right <= cB.left && cB.right <= frame.vw && cS.left >= 0
-    && Math.abs(cS.top - cT.top) < 2 && Math.abs(cT.top - cB.top) < 2 && frame.frameBorder === '0px',
-  `카드 셋이 한 줄 (1440) · 바깥 틀 없음 (${JSON.stringify({ cS, cT, cB })})`);
-  ok(cT?.title === '함선 창고' && cB?.title === '가방' && cT.grids.join() === 'stash' && cB.grids.join() === 'bag' && cT.own === 1 && cB.own === 1,
-    `격자 카드마다 자기 머리 · 격자 하나 (${JSON.stringify({ cT, cB })})`);
+  /* 2026-09-15 4차 (사용자 결정 「창고 · 가방을 한 패널로」): 바깥 틀 없이 카드 **둘**이 한 줄 — [스테이션] [창고+가방].
+     격자 카드는 머리줄이 없다 (창고는 그림이, 가방은 `내 가방` 라벨이 스스로 말한다). */
+  const { station: cS, inv: cI } = frame;
+  ok(!!cS && !!cI && cS.right <= cI.left && cI.right <= frame.vw && cS.left >= 0
+    && Math.abs(cS.top - cI.top) < 2 && frame.frameBorder === '0px',
+  `카드 둘이 한 줄 (1440) · 바깥 틀 없음 (${JSON.stringify({ cS, cI })})`);
+  ok(cI?.grids.join() === 'stash,bag' && cI.own === 1,
+    `격자 카드 하나 안에 창고 · 가방 (${JSON.stringify({ cI })})`);
   ok(!frame.labels.some((l) => /가방|창고/.test(l)) && frame.hints.length === 0, `좌 패널에 「가방 · 함선 창고」 라벨 · 안내문 없음 (${JSON.stringify(frame.labels)})`);
   ok(!frame.buttons.some((b) => /수확/.test(b)), `수확 · 모두 수확 버튼 없음 (${JSON.stringify(frame.buttons)})`);
   ok(frame.tiers.length === 3 && frame.tiers.every((t) => !t.locked && t.pots === 3),
@@ -560,7 +561,10 @@ try {
   });
   ok(az.title === '분석기' && az.lv === 'Lv. 1', `분석기 제목 · Lv (${az.title} ${az.lv})`);
   ok(az.tabs.join() === '해석,분석 도감' && az.dexHidden, `좌측 탭 「해석」 · 「분석 도감」, 도감은 자기 탭에 (${az.tabs})`);
-  ok(az.slots.length === 3 && az.slots[0].kids > 0 && az.slots.slice(1).every((s) => s.locked && s.kids === 0), `잠긴 해석 칸 = 빈 칸 (${JSON.stringify(az.slots)})`);
+  /* 2026-09-15 2차 (사용자 결정 「분석기 처음부터 2칸 · 최대 4칸」): 칸 수 = ANALYZER_SLOTS_BASE(1) + 레벨 × PER(1)
+     이라 패널은 늘 최대 4칸을 그리고 Lv.1 에서는 앞 2칸이 열려 있다. 잠긴 칸은 여전히 빈 칸이다. */
+  ok(az.slots.length === 4 && az.slots.slice(0, 2).every((s) => !s.locked) && az.slots.slice(2).every((s) => s.locked && s.kids === 0),
+    `Lv.1 = 2칸 열림 · 잠긴 해석 칸 = 빈 칸 (${JSON.stringify(az.slots)})`);
   ok(!az.allBtn && !az.labels.some((l) => /가방|창고|도감/.test(l)), '모두 회수 · 라벨 없음');
   await H(({ u, s }) => window.__game.ctx.housing.startAnalysis(u, 0, s), { u: AZ, s: SAMPLE });
   await sleep(20);

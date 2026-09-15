@@ -239,7 +239,7 @@ export const BAG_FRAME_ROWS: number = (() => {
  */
 export const SORT_CATEGORY_ORDER: readonly ItemCategory[] = [
   'primary', 'secondary', 'attachment', 'armor', 'bag', 'pouch', 'ammo',
-  'stim', 'meal', 'prep', 'grenade', 'gadget', 'implant', 'key', 'valuable',
+  'stim', 'meal', 'prep', 'gadget', 'implant', 'key', 'valuable',
   'material', 'herb', 'seed', 'soil', 'crop', 'sample', 'book', 'disc', 'record', 'game_disc', 'console', 'furniture',
 ];
 
@@ -258,7 +258,7 @@ export const FILTER_GROUPS: readonly { id: FilterGroupId; label: string; icon: s
   { id: 'gear', label: '방어구 · 가방', icon: CATEGORY_ICON.armor, categories: ['armor', 'bag', 'pouch'] },
   { id: 'ammo', label: '탄약', icon: CATEGORY_ICON.ammo, categories: ['ammo'] },
   { id: 'consumable', label: '소모품', icon: CATEGORY_ICON.stim, categories: ['stim', 'meal', 'prep'] },
-  { id: 'gadget', label: '가젯 · 수류탄', icon: CATEGORY_ICON.gadget, categories: ['grenade', 'gadget'] },
+  { id: 'gadget', label: '가젯 · 수류탄', icon: CATEGORY_ICON.gadget, categories: ['gadget'] },
   { id: 'material', label: '재료', icon: CATEGORY_ICON.material, categories: ['material'] },
   { id: 'valuable', label: '귀중품 · 열쇠', icon: CATEGORY_ICON.valuable, categories: ['valuable', 'key'] },
   { id: 'bio', label: '재배 · 연구', icon: CATEGORY_ICON.herb, categories: ['herb', 'seed', 'soil', 'crop', 'sample'] },

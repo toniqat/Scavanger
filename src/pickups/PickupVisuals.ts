@@ -28,8 +28,16 @@ function bakeUpwardFade(geo: THREE.BufferGeometry, height: number): void {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
+/**
+ * 2026-09-15 (가젯 개편): 떨어진 아이템의 **모습**을 고르는 열쇠. `ItemCategory` 에서 `'grenade'` 가 폐지되면서
+ * (수류탄도 `category: 'gadget'`) 수류탄 실루엣을 잃지 않으려고 이 파일 안에서만 한 칸 넓힌 것이다 — 계약이 아니다.
+ */
+type VisualKind = ItemCategory | 'grenade';
+/** 이 def 가 어떤 모습으로 떨어지는가 — 수류탄이면 제 실루엣, 아니면 카테고리 그대로. */
+function visualKindOf(def: ItemDef): VisualKind { return def.grenade ? 'grenade' : def.category; }
+
 /** Rest height of the body centre above the ground, per category (used by the physics too). */
-const REST_Y: Record<ItemCategory, number> = {
+const REST_Y: Record<VisualKind, number> = {
   primary: 0.08, secondary: 0.06, grenade: 0.09, stim: 0.06, ammo: 0.09, valuable: 0.16, material: 0.14, attachment: 0.07, bag: 0.18,
   /* appended: tactical kit */
   armor: 0.12, gadget: 0.1, herb: 0.07,
@@ -70,7 +78,7 @@ const REST_Y: Record<ItemCategory, number> = {
  * per visual (recoloured on reuse — no allocation after warm-up). No lights (constant scene light count).
  */
 export interface PickupVisual {
-  category: ItemCategory;
+  category: VisualKind;
   root: THREE.Group;
   /** Body group (bobs / spins); the beam stays upright. */
   body: THREE.Group;
@@ -91,7 +99,7 @@ function parseCss(css: string, out: THREE.Color): THREE.Color {
   return out;
 }
 
-export function restHeightFor(category: ItemCategory): number {
+export function restHeightFor(category: VisualKind): number {
   return REST_Y[category] ?? 0.1;
 }
 
@@ -101,7 +109,7 @@ export function restHeightFor(category: ItemCategory): number {
  */
 export class PickupVisualPool {
   readonly group = new THREE.Group();
-  private readonly free = new Map<ItemCategory, PickupVisual[]>();
+  private readonly free = new Map<VisualKind, PickupVisual[]>();
   private readonly all: PickupVisual[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
 
@@ -154,7 +162,7 @@ export class PickupVisualPool {
   }
 
   acquire(def: ItemDef): PickupVisual {
-    const cat = def.category;
+    const cat = visualKindOf(def);
     const list = this.free.get(cat);
     let v = list && list.length > 0 ? list.pop()! : this.create(cat);
     this.tint(v, def);
@@ -199,7 +207,7 @@ export class PickupVisualPool {
     v.ringMat.color.copy(_c);
   }
 
-  private create(cat: ItemCategory): PickupVisual {
+  private create(cat: VisualKind): PickupVisual {
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x888888, emissive: 0xffffff, emissiveIntensity: 0.3, metalness: 0.35, roughness: 0.5 });
     const accentMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.4 });
     // Phase 10: `vertexColors` drives the upward fade baked into `beamGeo`; the tint still multiplies through.
@@ -297,7 +305,7 @@ export class PickupVisualPool {
 
   /** Pre-create one visual per category so the first drop allocates nothing (and shaders can be warmed up). */
   warm(): void {
-    const cats: ItemCategory[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material', 'book',
+    const cats: VisualKind[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material', 'book',
       /* 2026-09-11: 자기 실루엣을 가진 카테고리는 여기에 올린다 (`book` 이 만든 선례) — default 가지를 타는
          것들(작물 · 토양 · 표본 · 준비물 …)은 `material` 하나로 이미 덥혀 있다. */
       'meal', 'pouch', 'key'];

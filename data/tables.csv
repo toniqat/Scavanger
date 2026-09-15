@@ -115,21 +115,22 @@ ARMOR_IMMUNE_AMMO,3,pistol
 ARMOR_IMMUNE_AMMO,4,rifle
 ARMOR_IMMUNE_AMMO,5,shotgun
 
-# BOOK_VALUE_BY_VOLUME — 서적 권 번호별 판매가 (2026-09-13 서재 시리즈). 책은 등급이 없어 값이 **권 번호**로 오른다 (key = 권 1..5).
+# BOOK_VALUE_BY_VOLUME — 서적 권 번호별 판매가 (2026-09-13 서재 시리즈). 책은 등급이 없어 값이 **권 번호**로 오른다 (key = 권 1..3).
+# 2026-09-15 2차 (사용자 결정 「책 시리즈 최대 3권」): 4 · 5 권 줄을 지웠다. 1–3 권의 값은 **한 숫자도 안 바꿨다** —
+#   값이 오르는 근거가 아래 LIBRARY_VOLUME_DROP_WEIGHT 의 희소성인데 1–3 권의 희소성이 그대로이기 때문이다.
+#   그래서 책의 최고가는 950 → 380 이 된다 (0.03 확률로 나오던 5권이 아예 없어졌으니 그것이 맞는 결과다).
 # 뒤 권일수록 드물게 나오므로(LIBRARY_VOLUME_DROP_WEIGHT) 값도 가파르게 오른다.
 BOOK_VALUE_BY_VOLUME,1,150
 BOOK_VALUE_BY_VOLUME,2,240
 BOOK_VALUE_BY_VOLUME,3,380
-BOOK_VALUE_BY_VOLUME,4,600
-BOOK_VALUE_BY_VOLUME,5,950
 
-# LIBRARY_VOLUME_DROP_WEIGHT — 서재 매체(책 · 비디오)의 권 번호별 드롭 가중치 (2026-09-13, key = 권 1..5).
+# LIBRARY_VOLUME_DROP_WEIGHT — 서재 매체(책 · 비디오)의 권 번호별 드롭 가중치 (2026-09-13, key = 권 1..3).
+# 2026-09-15 2차: 4 · 5 권 줄을 지웠다 (책 · 비디오 모두 최대 3권이라 닿지 않는다). **1–3 권 값은 안 바꿨다** —
+#   이 표는 비디오와 공용이라 건드리면 책만이 아니라 비디오 드롭까지 움직인다.
 # 상자 · 로그 시체 서적 굴림에서 그 행성의 시리즈 아이템을 고를 때 등급 가중치에 곱한다 — I 권은 흔하고 V 권은 아주 드물다.
 LIBRARY_VOLUME_DROP_WEIGHT,1,1
 LIBRARY_VOLUME_DROP_WEIGHT,2,0.45
 LIBRARY_VOLUME_DROP_WEIGHT,3,0.2
-LIBRARY_VOLUME_DROP_WEIGHT,4,0.08
-LIBRARY_VOLUME_DROP_WEIGHT,5,0.03
 
 # LIBRARY_ITEM_RARITY — 등급이 없는 서재 매체의 아이템 등급 (2026-09-13). 책은 전부 이 등급이다 (비디오 · 레코드는 library_series.csv 의 rarity).
 LIBRARY_ITEM_RARITY,book,uncommon

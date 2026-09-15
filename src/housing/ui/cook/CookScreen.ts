@@ -656,6 +656,9 @@ export class CookScreen {
     if (!this.opened || isField(e.target) || this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
     const code = e.code;
     if (code !== Keys.INVENTORY && code !== Keys.INTERACT) return;
+    // 2026-09-15: Tab 은 `ctx.escape` 스택의 **맨 위 화면**의 것이다 — 이 화면 위에 나중에 열린 창(무한 상자 ·
+    // 인벤토리)이 있으면 가로채지 않는다 (`housing/ui/Panel` 과 같은 규칙).
+    if (code === Keys.INVENTORY && this.ctx.escape.topKey !== ESCAPE_TOKEN) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     if (code === Keys.INVENTORY) this.ctx.input.consume(Keys.INVENTORY);

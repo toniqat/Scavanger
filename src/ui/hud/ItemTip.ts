@@ -13,8 +13,22 @@ import { cookStepsText, mealBuffAmountText, mealEffects, mealQualityText, mealTi
 import { normalizeMealQuality } from '@/shared';
 import { COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 암호화폐 채굴
 
-/** `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (아래 주석). */
-type TipRow = [string, string, string?];
+/* 2026-09-15 (가젯 개편): 설명 인라인 마크업 · 스펙 줄은 `@/items` 한 곳이 만든다 — 격자 카드(`inventory/ui/Tooltip`)와 **같은 함수**다. */
+import type { SpecSeg, SpecValue } from '@/items';
+import { itemSpecRows, parseItemText } from '@/items';
+
+/**
+ * `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (아래 주석).
+ * 2026-09-15: 값은 통짜 문자열이거나 **조각 목록**(`SpecSeg[]`)이다 — 「5초간 매 초 HP 4 회복, 총 20 회복」처럼
+ * 숫자만 본문 색이고 나머지 글자는 흐린 줄이 생겼다. 조각의 색도 modifier 클래스가 아니라 인라인이다.
+ */
+type TipRow = [string, SpecValue, string?];
+
+/** 흐린 조각 · 강조 조각의 색 (카드 팔레트). 격자 카드는 자기 `--inv-*` 로 같은 뜻을 칠한다. */
+const SEG_DIM_COLOR = 'var(--c-text-dim)';
+const SEG_EM_COLOR = 'var(--c-accent)';
+/** 스펙 줄의 이득 · 손해 색. */
+const TONE_COLOR = { good: 'var(--c-success)', bad: 'var(--c-danger)' } as const;
 
 /** 2026-09-13 (요리 품질): 품질 줄의 별 색 — 버프 썸네일의 별 배지(`styles/buffs.css` `.bfs-cell[data-q]`)와 같은 금색. */
 const MEAL_QUALITY_STAR_COLOR = '#ffd24a';
@@ -336,13 +350,16 @@ export class ItemTip {
     const uniqueKind = this.uniqueKindOf(def);
     const kindWord = uniqueKind ? UNIQUE_WEAPON_LABEL_KO[uniqueKind] : (CATEGORY_LABEL_KO[def.category] ?? def.category);
     setText(this.subEl, `${kindWord} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
-    setText(this.descEl, def.description);
+    this.renderDesc(def.description);
 
     const rows: TipRow[] = [];
     // 2026-09-13: 은퇴 아이템은 맨 위에 한 줄 — 정의는 남았지만 어느 출처 · 소비처에서도 빠졌다
     if (def.retired) rows.push(['상태', '더 이상 쓰이지 않는 아이템', 'var(--c-text-dim)']);
     const have = this.owned(defId);
     if (have >= 0) rows.push(['보유', `${have} 개`]);
+    /* 2026-09-15 (가젯 개편, 사용자 결정): 회복약 · 실드 충전기 · 전투 소모품 · 가젯 · 수류탄의 스펙 —
+       **맨 위가 `사용 시간`** 이고 설명 글에서는 그 수치를 전부 걷어냈다 (`data/items.csv`). 표는 `items/ItemSpec` 하나다. */
+    for (const r of itemSpecRows(def)) rows.push([r.k, r.v, r.tone ? TONE_COLOR[r.tone] : undefined]);
     if (def.seed) rows.push(['재배 시간', `${def.seed.growHours} 시간`]);
     // 온실 개편 (2026-09-11): 씨앗은 자기가 원하는 흙을, 토양은 자기 속성과 남은 수확 횟수를 적는다.
     // `soilTag` 는 계약상 필수지만 옛 세이브 · 옛 csv 로 비어 올 수 있어 표에 있을 때만 그린다.
@@ -458,10 +475,11 @@ export class ItemTip {
       rows.push(['소켓 칸', `${growSocketSlotsFor(def.rarity)} 칸`]);
     }
     if (def.growSocket) this.socketRows(rows, def.growSocket);
-    if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);
-    // 2026-09-11 (C-36 후속): 가방 내구도 — 인스턴스가 있으면 `cur / max`, 칩뿐이면 새 가방의 `최대 max`.
-    if (def.bag && def.durabilityMax !== undefined && def.durabilityMax > 0) {
+    /* 2026-09-11 (C-36 후속): 가방 내구도 — 인스턴스가 있으면 `cur / max`, 칩뿐이면 새 가방의 `최대 max`.
+       2026-09-15 (가젯 개편): **내구도를 들고 다니는 가젯**(돔 실드 · 바리케이드)도 같은 줄이다 — 배치물이 받은
+       피해가 아이템 내구도로 남으므로(`GadgetDef.wearsItemDurability`) 카드가 그것을 말해야 한다. */
+    if ((def.bag || def.category === 'gadget') && def.durabilityMax !== undefined && def.durabilityMax > 0) {
       const max = def.durabilityMax;
       const inst = this.instanceOf(uid, defId);
       rows.push(['내구도', inst ? `${Math.round(Math.max(0, Math.min(max, inst.durability ?? max)))} / ${max}` : `최대 ${max}`]);
@@ -483,8 +501,10 @@ export class ItemTip {
     this.statsEl.replaceChildren();
     for (const [k, v, color] of rows) {
       el('span', { cls: 'k', text: k, parent: this.statsEl });
-      const vEl = el('span', { cls: 'v', text: v, parent: this.statsEl });
+      const vEl = el('span', { cls: 'v', parent: this.statsEl });
       if (color) vEl.style.color = color;
+      if (typeof v === 'string') vEl.textContent = v;
+      else for (const seg of v) this.appendSeg(vEl, seg);
     }
     this.statsEl.hidden = rows.length === 0;
     // 2026-09-15: 한 발 무게가 0.1 kg 아래인 탄약(표창 0.02 · 탄띠 0.0075 …)이 `0.0 kg` 로 찍히던 것 — 1 kg 아래는 유효 자리까지
@@ -492,6 +512,32 @@ export class ItemTip {
     setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;
     this.visible = true;
+  }
+
+  /* ── 2026-09-15 (가젯 개편): 조각 색 · 설명 인라인 마크업 ──────────────────────────────────────────────── */
+
+  /** 값 조각 하나. 흐린 조각만 인라인 색을 받는다 (`.it-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). */
+  private appendSeg(host: HTMLElement, seg: SpecSeg): void {
+    const sp = el('span', { text: seg.text, parent: host });
+    if (seg.dim) sp.style.color = SEG_DIM_COLOR;
+  }
+
+  /**
+   * 설명 문단. `data/items.csv` 의 `description` 은 이제 `{em}…{/em}` · `{dim}…{/dim}` · `{br}` 토큰을 쓸 수 있고
+   * 푸는 곳은 `items/ItemText.parseItemText` **하나**다 (격자 카드도 같은 함수를 부른다). 토큰이 없으면 한 줄짜리
+   * 조각 하나라 예전과 똑같이 그려진다.
+   */
+  private renderDesc(text: string): void {
+    const lines = parseItemText(text);
+    this.descEl.replaceChildren();
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) el('br', { parent: this.descEl });
+      for (const s of lines[i]) {
+        const sp = el('span', { text: s.text, parent: this.descEl });
+        if (s.style === 'em') sp.style.color = SEG_EM_COLOR;
+        else if (s.style === 'dim') sp.style.color = SEG_DIM_COLOR;
+      }
+    }
   }
 
   /**

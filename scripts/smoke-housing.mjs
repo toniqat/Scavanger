@@ -194,7 +194,17 @@ try {
   // 2026-09-12 (사용자 결정): 정비 벤치가 은퇴해 작업실이 14 → 13 (작업대 5 + 8 any). 나머지 방은 그대로.
   // 2026-09-12: 공용(any) 가구가 8 → 10 (전술 임플란트 시술대 · 기업 네트워크 컴퓨터) — 방마다 2 씩 늘었다
   // 2026-09-13: 시술대 · 컴퓨터가 조종석 전용(cockpit)이 되고 서랍장(any)이 들어와 any 10 → 9 — 조종석은 9 any + 2 전용 = 11
-  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 17 && window.__game.ctx.housing.getFurnitureFor('empty').length === 12 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 14 && window.__game.ctx.housing.getFurnitureFor('kitchen').length === 18 && window.__game.ctx.housing.getFurnitureFor('cockpit').length === 14), 'getFurnitureFor: workshop 17 (5 benches + 12 any), empty 12, greenhouse 14 (재배 스테이션 + 배양조 + 12 any), kitchen 18 (조리대 + 식탁 + 자동 조리 가구 4 + 12 any), cockpit 14 (12 any + 시술대 · 컴퓨터) — 2026-09-13 쇼파 · 좌식 테이블 · 러그');
+  // 2026-09-15 3차 (사용자 결정 — 쇼파가 서재 전용): `any` 가 12 → **11** 이라 그 11 을 받는 방이 전부 하나씩 줄었다
+  // (서재만 10 + 11 = 21 로 하나 늘었다). 숫자의 원본은 `data/furniture.csv` 의 `room` 열 하나다.
+  const FURN_ANY = 11;
+  const furnCounts = await H(() => {
+    const h = window.__game.ctx.housing;
+    const n = (p) => h.getFurnitureFor(p).length;
+    return { workshop: n('workshop'), empty: n('empty'), greenhouse: n('greenhouse'), kitchen: n('kitchen'), cockpit: n('cockpit'), library: n('library') };
+  });
+  ok(furnCounts.empty === FURN_ANY && furnCounts.workshop === FURN_ANY + 5 && furnCounts.greenhouse === FURN_ANY + 2
+    && furnCounts.kitchen === FURN_ANY + 6 && furnCounts.cockpit === FURN_ANY + 2 && furnCounts.library === FURN_ANY + 10,
+  `getFurnitureFor: any ${FURN_ANY} · workshop +5 벤치 · greenhouse +2 · kitchen +6 · cockpit +2 전용 · library +10 (2026-09-15 쇼파가 서재로) (${JSON.stringify(furnCounts)})`);
   /* 아래 화면 검사들은 이 수를 **그때그때 물어서** 쓴다 — 작업대가 하나 늘 때마다 세 자리를 손으로 고치던 것이
      2026-09-10 정제 작업대에서 실제로 red 를 냈다. 위 한 줄만 카나리아로 남긴다. */
   const workshopFurniture = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length);
@@ -420,7 +430,9 @@ try {
   await give('mat_scrap', 20);
   ok((await count('mat_scrap')) === scrapNow + 20, 'top-up');
   const st2blocked = await H(() => window.__game.ctx.housing.getFacility('storage').blocked);
-  ok(st2blocked && (st2blocked.includes('합금 판') || st2blocked.includes('발전기')), `storage Lv2 blocked with a 한국어 reason (${st2blocked})`);
+  // 2026-09-15 3차 (사용자 결정): 사유가 **모자란 재료를 열거하지 않는다** — `Rules.MISSING_MATERIALS_REASON` 한 줄이고,
+  // 무엇이 모자란지는 그 옆의 재료 칩이 `.is-short`(빨강)로 말한다. 발전기 게이트는 예전처럼 제 문장을 돌려준다.
+  ok(st2blocked && (st2blocked.includes('재료 부족') || st2blocked.includes('발전기')), `storage Lv2 blocked with a 한국어 reason (${st2blocked})`);
 
   console.log('furniture craft / upgrade');
   const locker = await H(() => window.__game.ctx.housing.canCraftFurniture('furn_locker'));

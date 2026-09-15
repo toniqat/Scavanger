@@ -349,6 +349,8 @@ export class GymScreen {
     if (!this.isOpen || isField(e.target) || this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
     const code = e.code;
     if (code === Keys.INVENTORY || code === Keys.INTERACT) {
+      // 2026-09-15: Tab 은 맨 위 화면의 것이다 (`housing/ui/Panel` 과 같은 규칙 — `ctx.escape` 스택 순서)
+      if (code === Keys.INVENTORY && this.ctx.escape.topKey !== this.token) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       if (e.repeat) return;

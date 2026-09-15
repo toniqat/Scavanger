@@ -45,6 +45,12 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   /** 마지막 `buff` 판정 (디버그 · smoke-trust). */
   lastBuffVerdict: BuffVerdict | null = null;
   useCooldown = 0;
+  /**
+   * 2026-09-15 (가젯 개편, 사용자 결정): 방금 `consumeItem` 이 뺀 아이템의 남은 내구도
+   * (`wearsItemDurability` 가젯만 적는다). 돔 실드 · 바리케이드가 **까인 채로** 다시 서는 근거다 —
+   * `undefined` = 새것(아이템에 내구도가 없거나 아직 한 번도 안 썼다).
+   */
+  lastConsumedDurability: number | undefined = undefined;
   /** Over / under-hand throw toggle (B), shared with grenades. */
   underhand = false;
   /** 2026-09-11 (parts/Preview): 손에 든 설치형 가젯의 미리보기. `previewActive` 일 때만 `placement` 로 나간다. */
@@ -63,7 +69,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     this.ctx = ctx;
     ctx.gadgets = this;
     this.visuals = new GadgetVisualPool();
-    this.thrown = new ThrownGadgetManager(ctx, (gid, pos) => this.onThrownImpact(gid, pos));
+    this.thrown = new ThrownGadgetManager(ctx, (gid, pos, hp) => this.onThrownImpact(gid, pos, hp));
     ctx.scene.add(this.visuals.group);
     this.visuals.warm();
     // 2026-09-11: 설치 미리보기 고스트 (대형 + 소형 place 종류)
@@ -167,6 +173,9 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   /** 2026-09-15 (B-16): G-10 소이 수류탄이 `position` 에서 터졌다 — 로컬 플레이어 소유의 작은 화염 지대 (`parts/Deploy`). */
   igniteGrenadeFire(position: THREE.Vector3): void { return Deploy.igniteGrenadeFire(this, position); }
 
+  /** 2026-09-15: `wearsItemDurability` 가젯의 최대 hp = 그 아이템의 `durabilityMax` (없으면 `GadgetDef.hp`). */
+  itemDurabilityMaxFor(def: GadgetDef): number { return Deploy.itemDurabilityMaxFor(this, def); }
+
   clear(): void { return Deploy.clear(this); }
 
   /* ═══════════════════════════ input ═══════════════════════════ */
@@ -177,12 +186,12 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
 
   useDefib(def: GadgetDef, target: { id: PeerId; position: THREE.Vector3; name: string }): void { return Deploy.useDefib(this, def, target); }
 
-  throwGadget(def: GadgetDef, underhand: boolean): void { return Deploy.throwGadget(this, def, underhand); }
+  throwGadget(def: GadgetDef, underhand: boolean, startHp?: number): void { return Deploy.throwGadget(this, def, underhand, startHp); }
 
-  private onThrownImpact(gid: GadgetId, pos: THREE.Vector3): void { return Deploy.onThrownImpact(this, gid, pos); }
+  private onThrownImpact(gid: GadgetId, pos: THREE.Vector3, startHp?: number): void { return Deploy.onThrownImpact(this, gid, pos, startHp); }
 
   /** Authority spawns straight away; clients ask the host and wait for `gad spawn`. */
-  requestPlace(def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null): void { return Deploy.requestPlace(this, def, position, yaw, mount); }
+  requestPlace(def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null, startHp?: number): void { return Deploy.requestPlace(this, def, position, yaw, mount, startHp); }
 
   /* ═══════════════════════════ 설치 미리보기 · 드론 탑재 (2026-09-11) ═══════════════════════════ */
   /** 매 프레임: 손에 든 설치형 가젯의 판정 → 고스트 → `gadget:placementChanged` (parts/Preview). */
@@ -201,7 +210,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
    * @param wire non-null when this is a replica built from a `gad spawn` / `gad sync` broadcast
    *   (hp / armed / ttl come from the host instead of the definition).
    */
-  spawnDeployable(id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null, mount?: string | null): Deployable | null { return Deploy.spawnDeployable(this, id, def, owner, position, yaw, wire, mount); }
+  spawnDeployable(id: string, def: GadgetDef, owner: PeerId | 'local', position: THREE.Vector3, yaw: number, wire: DeployableWire | null, mount?: string | null, startHp?: number): Deployable | null { return Deploy.spawnDeployable(this, id, def, owner, position, yaw, wire, mount, startHp); }
 
   /** Removes locally and, on the authority, tells everyone. */
   remove(d: Deployable, reason: 'destroyed' | 'recovered' | 'expired'): void { return Deploy.remove(this, d, reason); }
@@ -210,7 +219,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
 
   makeInteractable(d: Deployable, def: GadgetDef): Interactable { return Deploy.makeInteractable(this, d, def); }
 
-  /** Puts the recovered item in the local bag (barricade / turret / jump pad only). */
+  /** Puts the recovered item in the local bag (`RECOVERABLE_KINDS` — 내구도를 아이템이 들면 남은 hp 가 그 `durability` 로 간다). */
   grantRecovered(d: Deployable): ItemInstance | null { return Deploy.grantRecovered(this, d); }
 
   /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */

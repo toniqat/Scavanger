@@ -1804,3 +1804,17 @@ W 로 램프 걷기(이제 그 자리에서 곧게 걸으면 함선 오른쪽을
 `fallRule` 탐침 넷과 방벽 · 철조망 높이를 단정하는 단언은 없다.
 
 `npm run typecheck` 통과.
+
+## 변경 이력 (2026-09-15 2차): 독성 포자는 실드를 건너뛴다 (사용자 결정, 에이전트 E)
+
+`Hazard.ts` 의 재해 틱이 **독성 포자(`spores`) 일 때만** `PlayerRef.takeDamage` 의 **넷째 인자**로
+`{ bypassShield: true }` 를 넘긴다 — 실드(방탄복)를 건너뛰고 체력만 깎고, 방탄복도 닳지 않는다.
+게이트는 `data/constants.csv` 의 `HAZARD_SPORES_BYPASS_SHIELD`(1) 이고 근거는 A-13 의
+「대기를 방탄복 실드가 막는 것이 이상하다」(`PLANET_ENV_DPS`) 를 재해까지 편 것이다.
+**다른 재해(모래 폭풍 · 눈보라 · 폭풍의 눈)는 그대로 실드가 먼저 먹는다.**
+
+- 새 함수 `hazardDamageOpts(kind)` — `hazardDamageSource` 와 같은 결로, 얼린 상수 하나를 돌려 쓰고
+  포자가 아니면 `undefined`(= 지금까지와 똑같다)를 돌려준다. 틱마다 객체를 만들지 않는다.
+- **적 · 고스트 · 드론이 받는 재해 피해는 한 줄도 안 바뀌었다** — 실드는 플레이어만의 개념이다.
+  `tickGhosts` · `HazardRef.damageMul` 도 그대로다.
+- 와이어 · 세이브 변화 없음 (재해는 원래 시드의 함수라 피해 경로에 메시지가 없다).

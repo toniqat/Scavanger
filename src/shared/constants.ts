@@ -203,7 +203,8 @@ export const QUICK_SLOTS = K.num('QUICK_SLOTS');
 export const QUICK_SLOT_DIRS: readonly string[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 export const QUICK_SLOT_LABEL_KO: readonly string[] = ['위', '오른쪽 위', '오른쪽', '오른쪽 아래', '아래', '왼쪽 아래', '왼쪽', '왼쪽 위'];
 /** Item categories that can sit in a wheel slot. */
-export const QUICK_USABLE_CATEGORIES: readonly string[] = ['grenade', 'stim', 'gadget'];
+/** 2026-09-15: `'grenade'` 폐지 — 수류탄 2종도 `category: 'gadget'` 이라 이 목록이 그대로 덮는다. */
+export const QUICK_USABLE_CATEGORIES: readonly string[] = ['stim', 'gadget'];
 /**
  * Which wheel slots a bag with `n` quick slots unlocks: the first `n` entries of this order (N, S, E, W, then the
  * diagonals), so a 2-slot bag gives up/down rather than up/up-right. Use `isQuickSlotActive`.
@@ -457,8 +458,16 @@ export const GADGET_TURRET_HP = K.num('GADGET_TURRET_HP');
 export const GADGET_TURRET_RANGE = K.num('GADGET_TURRET_RANGE');
 export const GADGET_TURRET_DPS = K.num('GADGET_TURRET_DPS');
 export const GADGET_TURRET_DURATION = K.num('GADGET_TURRET_DURATION');
-export const GADGET_INCENDIARY_DURATION = K.num('GADGET_INCENDIARY_DURATION');
-export const GADGET_INCENDIARY_RADIUS = K.num('GADGET_INCENDIARY_RADIUS');
+/* ── appended: 2026-09-15 (가젯 개편 · 제세동기 조준 · 독성 포자, 사용자 결정) ── */
+/** 준비된 제세동기가 쓰러진 아군을 「겨눴다」고 보는 크로스헤어 반각(°) — `gadget:defibAim.target` 의 기준. */
+export const DEFIB_AIM_CONE_DEG = K.num('DEFIB_AIM_CONE_DEG');
+/** 돔 실드 중앙 개체를 꾹 눌러 회수하는 시간(초). */
+export const GADGET_DOME_RECOVER_TIME = K.num('GADGET_DOME_RECOVER_TIME');
+/** 1 이면 독성 포자 재해 피해가 실드를 건너뛴다 (`PlayerRef.takeDamage` 의 `opts.bypassShield`). */
+export const HAZARD_SPORES_BYPASS_SHIELD = K.num('HAZARD_SPORES_BYPASS_SHIELD') > 0;
+/* 2026-09-15 2차 (화염 통합, 사용자 결정): `GADGET_INCENDIARY_RADIUS`(5) · `GADGET_INCENDIARY_DURATION`(10) 은퇴 —
+   화염 지대를 만드는 정의가 하나가 되면서 살아남은 수치는 `GRENADE_INCENDIARY_*`(3.5 m · 6 s)다. 초당 피해
+   `GADGET_INCENDIARY_DPS` 는 그대로 쓴다(지대 전체의 값이라 통합과 무관하다). */
 export const GADGET_INCENDIARY_DPS = K.num('GADGET_INCENDIARY_DPS');
 export const GADGET_JUMPPAD_IMPULSE = K.num('GADGET_JUMPPAD_IMPULSE');
 export const GADGET_JUMPPAD_FORWARD = K.num('GADGET_JUMPPAD_FORWARD');

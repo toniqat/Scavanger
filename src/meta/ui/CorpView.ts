@@ -23,12 +23,15 @@ import { TileGrid, type TileSpec } from './TileGrid';
  *   `.corp-rail`  기업 목록 카드 — 화면 맨 왼쪽, 호스트 격자의 첫 칸(세로 전부). 트리다: 선택한 기업 버튼 **바로 아래**에
  *                 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 임플란트 탭.
  *   `.corp-shell` → `.corp-page` → 페이지 루트(`.cv` / `.ci` / `.cc`) — **카드가 가로 한 줄**로 선다:
- *     • 거래     [판매 물품] [거래 테이블(구매 · 판매 트레이 · 크레딧 변화 · 1초 홀드)] [함선 창고] [가방]
- *     • 임플란트 [망가진 임플란트 + 수리 카드] [함선 창고] [가방]
+ *     • 거래     [판매 물품] [거래 테이블(구매 · 판매 트레이 · 크레딧 변화 · 1초 홀드)] [창고 · 가방]
+ *     • 임플란트 [망가진 임플란트 + 수리 카드] [창고 · 가방]
  *   **2026-09-14: 퀘스트 탭 삭제** — 기업 퀘스트가 없어졌다. 퀘스트는 NPC 가 메신저로 준다 (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *     • 계약     기업 목록만 분리됐고 나머지(계약 목록 | 진행 중인 계약)는 한 카드 그대로.
- *   함선 창고 · 가방은 **서로 다른 카드**이고 각자 머리(이름 · 개수 · 정렬 · 필터)와 자기 세로 스크롤을 갖는다 —
- *   `InventoryRef.createTradeGrids(card, { grids: [id], layout: 'split' })` 를 카드마다 하나씩.
+ *   **2026-09-15 3차 (사용자 결정 — 창고 + 가방은 한 패널이다)**: 둘은 **한 카드**(`.cv-inv`)이고 그 안에서
+ *   `TradeGrids` 가 왼쪽 창고 · 오른쪽 내 가방을 **칸마다 자기 정렬 · 자기 필터 · 자기 세로 스크롤**로 그린다 —
+ *   `InventoryRef.createTradeGrids(card, { grids: ['stash','bag'], layout: 'split' })` 를 **한 번**만 부른다
+ *   (옛 배치는 카드마다 한 번씩 두 번이라 카드가 둘이었다). ⚠ 그래서 `fitLayout` 이 이 카드의 격자 칸 수를
+ *   **합**으로 잰다 (`gridColsIn(card, step, 'sum')`) — 두 격자가 나란히 서므로 카드 폭이 둘 다와 함께 자란다.
  *
  * **칸 크기 = 40 px, 창이 좁으면 32 px 까지 스스로 줄어든다 (2026-09-13).** `fitLayout` 이 지금 페이지의 카드들을
  * **실측**한다 — 격자 칸 수에 비례하지 않는 몫(카드 안여백 · 테두리 · 스크롤바 자리 · 간격 · 유동 카드의 최소 폭)을 재서
@@ -87,9 +90,12 @@ const FIT_DEBOUNCE_MS = 120;
 interface BuyLine { defId: string; qty: number }
 interface SellLine { uid: string; qty: number }
 
-/** One 함선 창고 / 가방 card and the embedded single-grid view inside it. */
+/**
+  * The **one** 창고 + 가방 card and the embedded view inside it.
+  * 2026-09-15 3차 (사용자 결정): 카드가 하나다 — `TradeGrids` 가 그 안에서 왼쪽 창고 · 오른쪽 내 가방을 그린다.
+  * 옛 `id: 'stash' | 'bag'` 은 카드마다 격자 하나였을 때의 것이라 없어졌다.
+  */
 interface InvCard {
-  id: 'stash' | 'bag';
   card: HTMLElement;
   view: EmbeddedView | null;
   /** Drop target selector of this page (undefined = read-only grids, the 임플란트 desk). */
@@ -99,11 +105,18 @@ interface InvCard {
 /** `createTradeGrids` returns an `EmbeddedView` by contract; the real view can also change its cell edge. */
 const isTradeGridsView = (v: EmbeddedView): v is TradeGridsView => typeof (v as Partial<TradeGridsView>).setCell === 'function';
 
-/** Widest item grid inside a card, in cells (the 거래 테이블's two trays are stacked, so the widest — not the sum). */
-function widestGridCols(card: HTMLElement, step: number): number {
+/**
+  * Item-grid width of a card, in cells.
+  * - `'max'` (default): the 거래 테이블's two trays are **stacked**, so the card is as wide as the widest one.
+  * - `'sum'` (2026-09-15 3차): the 창고 + 가방 card holds its two grids **side by side** in one `.tg-scroll`, so the
+  *   card grows with both — measuring only the widest would leave the other grid's width inside `chrome`, which
+  *   `fitLayout` treats as a constant, and the fit would over-shoot every time the cell changed.
+  */
+function gridColsIn(card: HTMLElement, step: number, mode: 'max' | 'sum' = 'max'): number {
   let n = 0;
   for (const g of Array.from(card.querySelectorAll<HTMLElement>('.inv-grid'))) {
-    n = Math.max(n, Math.round((g.offsetWidth + CV_GAP) / step));
+    const cols = Math.round((g.offsetWidth + CV_GAP) / step);
+    n = mode === 'sum' ? n + cols : Math.max(n, cols);
   }
   return n;
 }
@@ -450,7 +463,7 @@ export class CorpView {
       const isInv = card.classList.contains('cv-inv');
       if (isInv && this.invHidden) continue;
       const fluid = card.classList.contains('is-fluid');
-      const n = fluid ? Number(card.dataset.cvCols ?? 0) || 0 : widestGridCols(card, step);
+      const n = fluid ? Number(card.dataset.cvCols ?? 0) || 0 : gridColsIn(card, step, isInv ? 'sum' : 'max');
       const w = fluid ? parseFloat(getComputedStyle(card).minWidth) || 0 : card.getBoundingClientRect().width;
       const chrome = w - (n > 0 ? n * step - CV_GAP : 0);
       if (isInv) { invPx += chrome + gap; invCols += n; } else { px += chrome; cols += n; cards++; }
@@ -486,7 +499,7 @@ export class CorpView {
     for (const c of [...this.tradeInv, ...this.implantInv]) {
       if (!c.view) continue;
       if (isTradeGridsView(c.view)) c.view.setCell(cell);
-      else { c.view.dispose(); c.view = this.createInv(c.card, c.id, c.drop); }   // an inventory without `setCell`: rebuild
+      else { c.view.dispose(); c.view = this.createInv(c.card, c.drop); }   // an inventory without `setCell`: rebuild
     }
     this.refresh();
   }
@@ -626,30 +639,32 @@ export class CorpView {
   }
 
   /**
-   * **함선 창고 card + 가방 card** (2026-09-13) — the same pair on 거래 · 퀘스트 · 임플란트, appended to the page row.
-   * `colCls` keeps each page's column class (`cv-col` / `cq-col` / `ci-col` + `inv`) so older selectors still find them.
+   * **창고 + 가방 카드 하나** (2026-09-13 두 카드 → **2026-09-15 3차 한 카드**, 사용자 결정) — 거래 · 임플란트 페이지
+   * 줄 끝에 붙는다. 인벤토리가 2026-09-15 2차부터 한 패널 안에 창고(왼쪽) · 내 가방(오른쪽)을 칸마다 자기 스크롤 ·
+   * 자기 정렬 · 자기 필터로 그리므로, 여기서는 `createTradeGrids` 를 **한 번**만 부른다.
+   * `colCls` keeps each page's column class (`cv-col` / `ci-col` + `inv`) so older selectors still find it.
+   * 돌려주는 배열은 길이 1 이다 — `applyCell` · `refreshInv` 의 모양을 바꾸지 않으려고 배열로 남긴다.
    */
   private makeInvCards(root: HTMLElement, colCls: string, drop?: string): InvCard[] {
-    const out: InvCard[] = [];
-    for (const id of ['stash', 'bag'] as const) {
-      const card = el('div', { cls: `${colCls} inv cv-card cv-inv ${id}`, parent: root, attrs: { 'data-cv-grid': id } });
-      const view = this.createInv(card, id, drop);
-      if (!view) this.empty(card, '인벤토리를 사용할 수 없습니다');
-      out.push({ id, card, view, drop });
-    }
-    return out;
+    // `stash bag` 은 **옛 선택자를 위해** 둘 다 단다 — 이 한 카드가 이제 둘 다 들고 있으므로 거짓말이 아니고,
+    // 어떤 CSS 규칙도 그 두 이름을 읽지 않는다 (2026-09-15 3차).
+    const card = el('div', { cls: `${colCls} inv cv-card cv-inv stash bag`, parent: root, attrs: { 'data-cv-grid': 'inv' } });
+    const view = this.createInv(card, drop);
+    if (!view) this.empty(card, '인벤토리를 사용할 수 없습니다');
+    return [{ card, view, drop }];
   }
 
   /**
-   * One embedded single-grid view (`createTradeGrids`, `layout: 'split'` — its own header, chip row and scroll).
-   * With a `drop` selector a tile dropped on it (or double-clicked) is staged for sale; **without one the grid is
+   * The embedded 창고 + 가방 view (`createTradeGrids` — **한 번**, 칸마다 자기 머리 · 정렬 · 필터 · 스크롤).
+   * With a `drop` selector a tile dropped on it (or double-clicked) is staged for sale; **without one the grids are
    * read-only** — the 임플란트 desk has nothing to drop onto, and handing it `onTake` would make a double-click stage a
    * sale on a page that has no 거래칸 (2026-09-12 2차).
    */
-  private createInv(card: HTMLElement, id: 'stash' | 'bag', drop?: string): EmbeddedView | null {
+  private createInv(card: HTMLElement, drop?: string): EmbeddedView | null {
     const inv = this.ctx.inventory;
     if (!inv || typeof inv.createTradeGrids !== 'function') return null;
-    const opts: TradeGridsViewOptions = { grids: [id], layout: 'split', chips: 'block', cell: this.cell, className: 'cv-tg' };
+    // 2026-09-12 (사용자 결정): 창고 왼쪽 · 가방 오른쪽 — 그 순서가 이 배열이다
+    const opts: TradeGridsViewOptions = { grids: ['stash', 'bag'], layout: 'split', chips: 'block', cell: this.cell, className: 'cv-tg' };
     if (drop) {
       opts.dropSelector = drop;
       opts.isStaged = (uid) => this.sellLines.some((s) => s.uid === uid);

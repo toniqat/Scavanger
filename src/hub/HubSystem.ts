@@ -671,6 +671,9 @@ export class HubSystem implements GameSystem, HubRef {
       ctx.bus.emit('ui:notify', { text: '함선 관리를 사용할 수 없습니다', kind: 'warning' });
       return false;
     }
-    try { return h.openShipManage(this._currentRoom ?? undefined); } catch { return false; }
+    /* 2026-09-15 4차: 서 있는 방을 **인자로 넘기지 않는다** — 인자는 「이 방을 열어라」 는 명령이라 기억한 방을 이기고,
+       그러면 「마지막으로 보던 방으로 돌아온다」(사용자 결정)가 영영 안 산다. 서 있는 방은 `openShipManage` 안의
+       폴백 사슬(`ctx.hub.currentRoom`)에 이미 있으므로 기억이 없을 때만 쓰인다. */
+    try { return h.openShipManage(); } catch { return false; }
   }
 }

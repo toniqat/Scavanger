@@ -714,8 +714,8 @@ try {
   ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+$/.test(t ?? '')),
     `재고 타일 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
   ok(shopDom.trayCols === 5 && shopDom.fit >= 32 && shopDom.fit <= 40 && shopDom.cellPx === shopDom.fit
-    && shopDom.bagCell === `${shopDom.fit}px` && shopDom.stashCell === `${shopDom.fit}px` && shopDom.invCards === 'stash:1,bag:1',
-    `구매/판매 트레이가 5칸, 재고·창고·가방이 창 폭에 맞춘 같은 칸 크기, 함선 창고 · 가방은 따로인 카드 (${shopDom.trayCols}칸 / ${shopDom.fit} → ${shopDom.cellPx}px / ${shopDom.stashCell} / ${shopDom.bagCell} / ${shopDom.invCards})`);
+    && shopDom.bagCell === `${shopDom.fit}px` && shopDom.stashCell === `${shopDom.fit}px` && shopDom.invCards === 'inv:2',
+    `구매/판매 트레이가 5칸, 재고·창고·가방이 창 폭에 맞춘 같은 칸 크기, 창고 · 가방은 **한 카드 안의 두 격자** (${shopDom.trayCols}칸 / ${shopDom.fit} → ${shopDom.cellPx}px / ${shopDom.stashCell} / ${shopDom.bagCell} / ${shopDom.invCards})`);
   ok(shopDom.sizes.length > 0 && shopDom.sizes.every((s) => s.w === s.want) && !shopDom.tube && shopDom.radius === '3px',
     '재고 타일이 발자국 크기의 인벤토리 타일이다 (배양조 관 모양 아님)', JSON.stringify({ sizes: shopDom.sizes, tube: shopDom.tube, radius: shopDom.radius }));
   ok(shopDom.buyChev === 3 && shopDom.sellChev === 3 && !/거래 후 크레딧/.test(shopDom.totalLabel) && !shopDom.hints,

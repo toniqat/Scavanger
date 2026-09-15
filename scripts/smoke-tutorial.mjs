@@ -504,14 +504,15 @@ try {
   /* 소총 행부터. 두 레시피가 같은 창에 함께 떠 있고 스포트라이트만 "지금 만들 것"을 가리킨다. */
   await waitSpot('돌격소총', 'spotlight (돌격소총 제작)');
   const gunRow = await P(() => {
-    const row = document.querySelector('.inv-craft-row[data-recipe="make_wpn_ar"]');
-    const ammo = document.querySelector('.inv-craft-row[data-recipe="make_ammo_medium"]');
+    const row = document.querySelector('.inv-craft-cell[data-recipe="make_wpn_ar"]');
+    const ammo = document.querySelector('.inv-craft-cell[data-recipe="make_ammo_medium"]');
     return {
-      row: !!row, ammo: !!ammo, rows: document.querySelectorAll('.inv-craft-row').length,
-      spot: window.__spotOn(['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_wpn_ar"]', '.inv-panel-craft']),
+      /* 2026-09-15 3차: 레시피 하나하나는 `.inv-craft-cell`, `.inv-craft-row` 는 고른 것의 상세다 */
+      row: !!row, ammo: !!ammo, rows: document.querySelectorAll('.inv-craft-cell').length,
+      spot: window.__spotOn(['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-cell[data-recipe="make_wpn_ar"]', '.inv-panel-craft']),
     };
   });
-  ok(gunRow.row && gunRow.ammo, '작업대 한 창에 소총 · 준중량탄 두 행이 함께 있다 (제작은 한 번의 방문)', JSON.stringify(gunRow));
+  ok(gunRow.row && gunRow.ammo, '작업대 한 창의 조합 목록에 소총 · 준중량탄 두 칸이 함께 있다 (제작은 한 번의 방문)', JSON.stringify(gunRow));
   ok(gunRow.spot.exact, `craftGun 은 돌격소총 제작 버튼을 밝힌다 ("${gunRow.spot.tip}")`, JSON.stringify(gunRow.spot));
 
   const gunUid = await P(async () => {
@@ -533,8 +534,8 @@ try {
   ok(ammoReady.can && ammoReady.gun >= 1,
     `준중량탄 재료가 채워져 있다 (화약 ${ammoReady.powder} · 폐금속 ${ammoReady.scrap})`, JSON.stringify(ammoReady));
   await waitSpot('준중량탄', 'spotlight (준중량탄 제작)');
-  const ammoRow = await P(() => window.__spotOn(['.inv-craft-row[data-recipe="make_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_ammo_medium"]', '.inv-panel-craft']));
-  ok(ammoRow.exact, `포커싱이 같은 창의 준중량탄 행으로 옮겨 간다 ("${ammoRow.tip}")`, JSON.stringify(ammoRow));
+  const ammoRow = await P(() => window.__spotOn(['.inv-craft-row[data-recipe="make_ammo_medium"] .inv-craft-btn', '.inv-craft-cell[data-recipe="make_ammo_medium"]', '.inv-panel-craft']));
+  ok(ammoRow.exact, `포커싱이 같은 창의 준중량탄으로 옮겨 간다 ("${ammoRow.tip}")`, JSON.stringify(ammoRow));
   ok(await P(async () => !!(await window.__game.ctx.inventory.craft('make_ammo_medium'))), '같은 창에서 준중량탄을 만든다');
   await waitStep('openBag');
 
@@ -550,9 +551,11 @@ try {
   /* 2026-09-09: `equipGun` 은 장비 열 **전체**가 아니라 주무기 I · II 칸 + 가방만 밝힌다 — 보조무기 · 방탄복 ·
      가방 칸 · 임플란트 칸은 이 단계와 상관없다. 구멍은 언제나 사각형 하나이므로 셋을 감싸는 최소 사각형이
      되고, `parts/Spotlight.place` 가 `PAD`(6 px)만큼 넓혀 정수 모서리로 굳힌다. */
-  await waitSpot('주무기', 'spotlight (주무기 I · II + 가방)');
+  await waitSpot('주무기', 'spotlight (주무기 I · II + 창고·가방 카드)');
   const union = await P(() => {
-    const s = window.__spotOn(['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-bag'], true);
+    /* 2026-09-15 3차 (사용자 결정 「제작품은 함선 창고로」): 만든 소총은 창고에 있으므로 마지막 대상이
+       `.inv-panel-bag` → **`.inv-panel-grids`**(창고 + 가방 한 카드)다. 구멍은 여전히 사각형 하나다. */
+    const s = window.__spotOn(['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-grids'], true);
     /* 세 대상이 정말 구멍 안에 들어왔나. 구멍은 **화면 밖으로는 못 나가므로**(`Spotlight.place` 의 clamp) 이
        검사는 "인벤토리 창이 화면 안에 선다" 도 함께 본다 — 2026-09-12 에 `.inv-root` 가 세로 가운데 정렬에서
        `flex-start + padding-top` 으로 바뀌면서 1280×760 함선 창의 가방 패널이 811 px(화면 760)까지 내려가
@@ -564,15 +567,15 @@ try {
       return s.hole.left <= b.left && s.hole.right >= b.right && s.hole.top <= b.top && s.hole.bottom >= b.bottom;
     };
     // 예전 선택자(장비 열 **전체** + 가방)로는 어떤 구멍이 됐을지 — 지금 것과 같으면 안 된다
-    const old = window.__spotOn(['.inv-root .inv-equip', '.inv-panel-bag'], true);
+    const old = window.__spotOn(['.inv-root .inv-equip', '.inv-panel-grids'], true);
     return {
       ...s, three: (s.sel ?? []).length, oldWant: old.want, wholeColumn: old.exact,
       primary: inside('.inv-root .inv-equip .inv-slot-primary'), primary2: inside('.inv-root .inv-equip .inv-slot-primary2'),
-      bag: inside('.inv-panel-bag'),
+      bag: inside('.inv-panel-bag'), stash: inside('.inv-panel-stash'),
     };
   });
-  ok(union.exact && union.three === 3 && union.primary && union.primary2 && union.bag,
-    'equipGun 은 주무기 I · II 칸 + 가방을 한 구멍으로 밝힌다 (합집합)', JSON.stringify(union));
+  ok(union.exact && union.three === 3 && union.primary && union.primary2 && union.bag && union.stash,
+    'equipGun 은 주무기 I · II 칸 + 창고·가방 카드를 한 구멍으로 밝힌다 (합집합)', JSON.stringify(union));
   ok(union.wholeColumn === false,
     '장비 열 **전체**가 아니다 — 보조무기 · 방탄복 · 가방 칸 · 임플란트 칸은 이 단계와 상관없다', JSON.stringify(union));
 
@@ -634,10 +637,13 @@ try {
     '탄약 레시피는 field 이면서 총기 작업대 소속이다 (어디서든 제작 + 총기 작업대 창에 표시)', JSON.stringify(ammoRecipe));
   const stow = await P(() => {
     const inv = window.__game.ctx.inventory;
-    // 만든 탄약이 가방에 못 들어가 창고로 갔으면 그것을 집어 온다 — 그게 `stowAmmo` 단계가 시키는 일이다
+    /* 2026-09-15 3차 (사용자 결정 「산출물은 함선 창고 먼저」): 만든 탄약은 **창고**에 있다 — 그것을 가방으로
+       옮기는 것이 바로 `stowAmmo` 단계가 시키는 일이다.
+       ⚠ `takeItem(uid)` 은 "가방으로 옮기기" 가 아니라 **인벤토리 밖으로 넘겨주기**(거래 화면용)라 스택이 그냥
+       사라진다 — 옮기는 것은 `quickMove(uid, from)`(그 화면의 「빠른 이동」)이다. */
     if (inv.countWhere((d) => d.id === 'ammo_medium') === 0) {
       const s = inv.getStashItems().find((it) => it.defId === 'ammo_medium');
-      if (s) inv.takeItem(s.uid);
+      if (s) inv.quickMove(s.uid, { kind: 'grid', grid: 'stash' });
     }
     const rounds = inv.countWhere((d) => d.id === 'ammo_medium');
     if (window.__game.ctx.tutorial.step === 'stowAmmo') inv.afterChange();   // 이미 가방에 있으면 판정을 한 번 깨운다

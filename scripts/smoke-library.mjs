@@ -24,10 +24,10 @@ if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
 /* src/shared/constants.ts — asserted as literals so a silent retune is caught here. */
-const BOOKS_PER_SHELF = 40;  // 2026-09-14: 4 층 × (5칸 × 2줄)
+const BOOKS_PER_SHELF = 18;  // 2026-09-15 2차 (사용자 결정): 3 층 × 6칸 (한 층이 한 줄, 가운데 구분막 왼쪽 3 · 오른쪽 3)
 const GAME_SLOTS = 12;       // GAME_DISC_SLOTS_PER_STAND (2026-09-14: 6 → 12)
 /* shared/housing 의 `SHELF_TIERS` · `SHELF_TIER_COLS` (2026-09-14 층당 여러 줄) */
-const BOOK_TIERS = 4, BOOK_COLS = 5, GAME_TIERS = 3;
+const BOOK_TIERS = 3, BOOK_COLS = 6, GAME_TIERS = 3;
 const VOLUME_SHARE = 0.1;    // SHELF_SERIES_VOLUME_SHARE (사용자 결정: 권당 10 %)
 /* src/shared/constants.ts 의 SHIP_STATE_VERSION — 서재 시리즈는 버전을 올리지 않았다 (ShipState.ts 머리 주석). 13 = 전력 할당 폐지 (2026-09-13). */
 const SHIP_STATE_VERSION = 13;
@@ -362,9 +362,13 @@ try {
       grids: [...root.querySelectorAll('[data-tg-grid]')].map((n) => n.dataset.tgGrid).join(','),
     };
   }, M.id);
-  ok(!dom.hidden && dom.medium === 'book' && dom.caseMedium === 'book' && dom.tiers === BOOK_TIERS && dom.rows === BOOK_TIERS * 2 && dom.slots === BOOKS_PER_SHELF,
-    `책장 panel: ${BOOK_TIERS} 층 × 2 줄 = ${BOOKS_PER_SHELF} 칸 (${dom.tiers}/${dom.rows}/${dom.slots})`);
-  ok(dom.cols === Array(BOOK_TIERS * 2).fill(BOOK_COLS).join(',') && dom.order === [...Array(BOOKS_PER_SHELF).keys()].join(','),
+  /* 2026-09-15 2차 (사용자 결정 「책장 3층 × 6칸」): 층당 줄 수를 **상수에서 유도**한다 — 하드코딩 2 였던 자리다.
+     BOOKS_PER_SHELF 18 · BOOK_TIERS 3 · BOOK_COLS 6 이면 층당 1 줄이고, 셋 중 하나가 움직여도 이 단언이 따라간다. */
+  const BOOK_ROWS_PER_TIER = Math.ceil(BOOKS_PER_SHELF / BOOK_TIERS / BOOK_COLS);
+  const BOOK_ROWS = BOOK_TIERS * BOOK_ROWS_PER_TIER;
+  ok(!dom.hidden && dom.medium === 'book' && dom.caseMedium === 'book' && dom.tiers === BOOK_TIERS && dom.rows === BOOK_ROWS && dom.slots === BOOKS_PER_SHELF,
+    `책장 panel: ${BOOK_TIERS} 층 × ${BOOK_ROWS_PER_TIER} 줄 = ${BOOKS_PER_SHELF} 칸 (${dom.tiers}/${dom.rows}/${dom.slots})`);
+  ok(dom.cols === Array(BOOK_ROWS).fill(BOOK_COLS).join(',') && dom.order === [...Array(BOOKS_PER_SHELF).keys()].join(','),
     `한 줄 ${BOOK_COLS} 칸 · 칸 번호는 0 부터 이어진다 (${dom.cols})`);
   ok(dom.filled === M.volumes && dom.vols.includes('I') && dom.vols.includes('II') && dom.full === M.volumes && dom.tip, `volume badges + full-set outline + item tooltip hook on every volume (${dom.vols.join(',')} · full ${dom.full})`);
   ok(/몫 100 %/.test(dom.line) && dom.line.includes(M.name), `slot info line names the series and its share (${dom.line})`);

@@ -17,6 +17,13 @@ import { clear, el, setText, toggleClass } from './dom';
  * `--lib-cols` 로 CSS 에 넘어간다 (칸 크기 · 글자 크기는 CSS 가 매체별로 정한다).
  * ⚠ 층은 **표시**일 뿐이다 — 저장되는 것은 `slot` 인덱스 하나이고 번호는 0 부터 이어진다.
  *
+ * **2026-09-15 (구분막 · 칸 번호 제거, 사용자 결정)**:
+ * - 칸의 **숫자 표기(`.lib-num`)를 없앴다.** 꽂는 자리는 그림이 말하고 번호는 어차피 저장값일 뿐이다.
+ * - 한 줄의 **가운데에 구분막**이 선다. 새 자식을 만들지 않고 가운데 오른쪽 칸에 `.is-div` 를 붙여 CSS 가 그 칸의
+ *   왼쪽에 판을 세운다 — `.lib-row` 의 자식은 여전히 **칸뿐**이라 열 수를 세는 쪽(스모크 · CSS 격자)이 안 흔들린다.
+ *   구분막 자리는 `floor(cols / 2)` 이고, 열이 하나면 구분막이 없다.
+ * - 책은 **서로 붙여 꽂는다** (칸 사이 여백 0 — CSS 가 `--lib-item-w: 100%`). 유일한 여백이 구분막 좌우다.
+ *
  * 2026-09-13 (서재 시리즈): 꽂힌 칸에 **권 번호 배지**(`.lib-vol`, `II` — 단편이면 숨김)가 붙고, 그 시리즈를 전권 모았으면 `.is-full`
  * (초록 윤곽)이다. 색 `--rc` 는 부르는 쪽이 고른다 (시리즈 색 · 게임 디스크 테마 색).
  *
@@ -75,6 +82,8 @@ export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium): Shelf
   const perTier = shelfSlotsPerTier(medium);
   const tiers = Math.max(1, SHELF_TIERS[medium]);
   root.style.setProperty('--lib-cols', String(cols));
+  // 2026-09-15: 구분막이 서는 열 (그 칸의 **왼쪽**에 판이 선다). 열이 하나뿐이면 구분막이 없다.
+  const divAt = cols >= 2 ? Math.floor(cols / 2) : -1;
   const slots: ShelfSlotView[] = [];
   for (let t = 0; t < tiers; t++) {
     const tier = el('div', { cls: 'lib-tier', parent: root });
@@ -83,10 +92,10 @@ export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium): Shelf
       const row = el('div', { cls: 'lib-row', parent: tier });
       for (let c = 0; c < cols; c++) {
         const slot = t * perTier + r * cols + c;
+        const div = c === divAt ? ' is-div' : '';
         // 빈 격자 칸: 층에 배정된 칸을 넘었거나(마지막 층이 짧다) 전체 칸 수를 넘었다 — 자리는 지키고 드롭 대상이 아니다
-        if (slot >= count || r * cols + c >= perTier) { el('div', { cls: 'lib-slot is-void', parent: row }); continue; }
-        const slotEl = el('div', { cls: 'lib-slot', attrs: { 'data-slot': String(slot) }, parent: row });
-        el('span', { cls: 'lib-num', text: String(slot + 1), parent: slotEl });
+        if (slot >= count || r * cols + c >= perTier) { el('div', { cls: `lib-slot is-void${div}`, parent: row }); continue; }
+        const slotEl = el('div', { cls: `lib-slot${div}`, attrs: { 'data-slot': String(slot) }, parent: row });
         const item = el('div', { cls: 'lib-item', parent: slotEl });
         el('i', { cls: 'lib-deco', parent: item });              // disc in its case · LP behind its sleeve · disc in a game case · (book: none)
         const face = el('div', { cls: 'lib-face', parent: item });

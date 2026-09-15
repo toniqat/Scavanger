@@ -15,6 +15,8 @@ interface Body {
   gadget: GadgetId;
   age: number;
   active: boolean;
+  /** 2026-09-15: `wearsItemDurability` 가젯(돔 실드)이 실려 나간 남은 내구도 — 닿는 자리에 그 hp 로 선다. */
+  hp?: number;
 }
 
 const _n = new THREE.Vector3();
@@ -34,7 +36,7 @@ export class ThrownGadgetManager {
   private readonly capGeo = new THREE.SphereGeometry(BODY_R * 1.02, 10, 6);
   private readonly finGeo = new THREE.BoxGeometry(0.02, 0.1, 0.14);
 
-  constructor(private readonly ctx: GameContext, private readonly onImpact: (gadget: GadgetId, position: THREE.Vector3) => void) {
+  constructor(private readonly ctx: GameContext, private readonly onImpact: (gadget: GadgetId, position: THREE.Vector3, startHp?: number) => void) {
     this.group.name = 'ThrownGadgets';
     for (let i = 0; i < MAX_BODIES; i++) {
       const mesh = new THREE.Group();
@@ -53,11 +55,12 @@ export class ThrownGadgetManager {
 
   get activeCount(): number { let n = 0; for (const b of this.pool) if (b.active) n++; return n; }
 
-  throw(gadget: GadgetId, colorCss: string, origin: THREE.Vector3, velocity: THREE.Vector3): void {
+  throw(gadget: GadgetId, colorCss: string, origin: THREE.Vector3, velocity: THREE.Vector3, startHp?: number): void {
     let b = this.pool.find((x) => !x.active);
     if (!b) { b = this.pool[0]; this.land(b); }
     b.active = true;
     b.gadget = gadget;
+    b.hp = startHp;
     b.age = 0;
     b.pos.copy(origin);
     b.vel.copy(velocity);
@@ -105,7 +108,7 @@ export class ThrownGadgetManager {
     if (!b.active) return;
     b.active = false;
     b.mesh.visible = false;
-    this.onImpact(b.gadget, b.pos);
+    this.onImpact(b.gadget, b.pos, b.hp);
   }
 
   clear(): void {

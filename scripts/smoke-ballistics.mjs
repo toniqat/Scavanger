@@ -93,7 +93,7 @@ try {
     const ctx = window.__game.ctx; const ws = window.__game.getSystem('weapons'); const V = ctx.camera.position.constructor;
     ctx.enemies.killAll(); ctx.player.heal(1000);
     window.__B = {
-      hits: [], fired: 0, launches: [], markers: 0, reports: 0, removes: [],
+      hits: [], fired: 0, launches: [], markers: 0, markerT: [], reports: 0, removes: [],
       patch(speed, g, extra) {
         const w = ws.slots[ws.active]; if (!w) return null;
         Object.assign(w.stats, { projectileSpeed: speed, bulletGravity: g, spread: 0, adsSpread: 0 }, extra || {});
@@ -124,7 +124,7 @@ try {
     };
     ctx.bus.on('weapon:hit', (p) => window.__B.hits.push({ p: [p.point.x, p.point.y, p.point.z], enemyId: p.enemyId, damage: p.damage, t: ctx.time }));
     ctx.bus.on('weapon:fired', () => { window.__B.fired++; });
-    ctx.bus.on('ui:hitmarker', () => { window.__B.markers++; });
+    ctx.bus.on('ui:hitmarker', () => { window.__B.markers++; window.__B.markerT.push(ctx.time); });
     const pool = ws.projectiles; const origFire = pool.fire.bind(pool);
     pool.fire = (o, d, speed, dmg, range, color, id, visual, opts) => { if (!visual) window.__B.launches.push({ speed, g: opts?.gravity ?? null, report: opts?.report ?? true }); return origFire(o, d, speed, dmg, range, color, id, visual, opts); };
     const em = ctx.enemies; const origRep = em.reportShot.bind(em);
@@ -212,7 +212,7 @@ try {
     const d = new V(); rig.getLookDir(d);
     window.__B.post(ctx.camera.position.clone().addScaledVector(d, 14 + 8), 8);
     window.__B.patch(180, 1.5, { spread: w.def.spread, adsSpread: w.def.spread });
-    window.__B.hits.length = 0; window.__B.launches.length = 0; window.__B.markers = 0; window.__B.reports = 0;
+    window.__B.hits.length = 0; window.__B.launches.length = 0; window.__B.markers = 0; window.__B.markerT.length = 0; window.__B.reports = 0;
     const s = window.__B.fire();
     return { cls: w.stats.weaponClass, pellets: w.def.pellets, launches: window.__B.launches.length, mode: s.mode, mag: w.inst.ammoInMag, magSize: w.stats.magSize };
   });
@@ -251,14 +251,29 @@ try {
   const sgE2 = await P((id) => {
     const ws = window.__game.getSystem('weapons'); const w = ws.slots[ws.active];
     window.__B.patch(180, 1.5, { spread: w.def.spread * 0.3, adsSpread: w.def.spread * 0.3 });
-    window.__B.hits.length = 0; window.__B.markers = 0;
+    window.__B.hits.length = 0; window.__B.markers = 0; window.__B.markerT.length = 0;
     window.__B.fire();
     return id;
   }, sgE?.id);
   await waitSim(0.4);
-  const sgE3 = await P((id) => { const e = window.__game.getSystem('enemies').byId.get(id); return { hp: e ? e.hp : null, dead: !e || e.isDead, enemyHits: window.__B.hits.filter((h) => h.enemyId === id).length, markers: window.__B.markers }; }, sgE2);
+  const sgE3 = await P((id) => {
+    const e = window.__game.getSystem('enemies').byId.get(id);
+    const eh = window.__B.hits.filter((h) => h.enemyId === id);
+    // 같은 풀 스텝(= 같은 프레임)의 명중은 `ctx.time` 이 정확히 같다 — 서로 다른 t 의 개수 = 이 일제사가 걸친 스텝 수.
+    const steps = new Set(eh.map((h) => h.t)).size;
+    return { hp: e ? e.hp : null, dead: !e || e.isDead, enemyHits: eh.length, steps, markers: window.__B.markers };
+  }, sgE2);
   ok(sgE3.enemyHits >= 2 && (sgE3.dead || sgE3.hp < sgEnemy.hp), `pellets hit the warrior (${sgE3.enemyHits} hits, hp ${sgEnemy?.hp} → ${sgE3.hp})`, JSON.stringify(sgE3));
-  ok(sgE3.markers >= 1 && sgE3.markers <= 2, `pellets landing together show one hitmarker (${sgE3.markers})`);
+  /* 2026-09-15 (에이전트 B — 흔들리던 단언 교정): 묶이는 근거는 **풀 한 스텝**이다 (`WeaponSystem.update` 가
+     `projectiles.update` 바로 뒤에 `Fire.flushHitmarker` 를 부른다). 옛 단언 `markers <= 2` 는 그 근거가 아니라
+     **프레임 박자**를 재고 있었다 — 180 m/s 펠릿이 5 m 를 나는 데 27.8 ms 인데 한 프레임이 16.7 ms 라, 적 캡슐의
+     앞뒤면 때문에 벌어지는 명중 거리 차가 프레임 경계에 어떻게 걸리느냐에 따라 스텝이 2 개도 3 개도 된다
+     (헤드리스에서 3 회 중 1 회 3 이 나왔다 · 코드 회귀가 아니다). 그래서 계약 그대로 잰다:
+       ① `markers === steps` — 스텝마다 **정확히 하나**. 병합을 걷어내면(펠릿마다 emit) steps 1 에 markers 8 로 깨진다.
+       ② `markers < enemyHits` — 여덟 발이 여덟 개의 마커가 되는 일은 없다.
+     둘 다 프레임 박자와 무관하고, 재는 것은 「같이 도착한 펠릿은 한 마커로 묶인다」 그 자체다. */
+  ok(sgE3.markers === sgE3.steps && sgE3.markers < sgE3.enemyHits,
+    `pellets landing together merge into one hitmarker per pool step (${sgE3.markers} markers / ${sgE3.steps} steps / ${sgE3.enemyHits} hits)`);
   await P(() => window.__game.ctx.enemies.killAll());
   await P(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1', key: '1', bubbles: true })));
   await P(() => document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Digit1', key: '1', bubbles: true })));

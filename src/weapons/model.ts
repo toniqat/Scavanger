@@ -102,7 +102,15 @@ export const DETONATOR_CONFIRM_GRACE_S = 2;
 /** 기폭기 손의 합성 `ItemInstance.uid` 접두사 — 인벤토리의 어떤 uid 와도 겹치지 않는다. */
 export const DETONATOR_UID_PREFIX = 'detonator:';
 
-/** Seconds a 회복 소모품 / 실드 충전기 / 제세동기 must be held before it fires (0 = instant, e.g. every other gadget). */
+/**
+ * Seconds a 회복 소모품 / 실드 충전기 / 전투 소모품 / **가젯** must be held before it fires (0 = instant).
+ *
+ * 2026-09-15 (가젯 개편 · 사용자 버그 「바리케이드 사용 시간이 적용되지 않고 회수에만 시간이 걸린다」):
+ * 가젯은 여기서 **늘 0** 이었다 — `ItemDef.gadgetUseTime`(`items.csv` 의 같은 이름 열)을 회복약(`healUseTime`) ·
+ * 실드 충전기(`shieldUseTime`) · 전투 소모품(`boostUseTime`) 과 **같은 홀드 틀**로 읽는다. 값이 있으면
+ * `QuickUse.updateQuickHand` 가 `beginHeal` 로 보내므로 크로스헤어 홀드 링(`heal:holdChanged`)도 저절로 돈다.
+ * 비면 제세동기는 `DEFIB_USE_TIME_S`, 나머지 가젯은 0(즉시)이다.
+ */
 export function useTimeOf(def: ItemDef): number {
   if (def.heal) return def.heal.spray ? 0 : Math.max(0, def.heal.useTime);
   // 2026-09-10 실드 충전기: 회복 소모품과 같은 홀드 틀을 쓰지만 자기 사용 시간을 갖는다 (data/items.csv)
@@ -112,7 +120,22 @@ export function useTimeOf(def: ItemDef): number {
   const boost = boostItemOf(def.id);
   if (boost) return Math.max(0, boost.useTime);
   if (def.category === 'stim') return HEAL_HOLD_S;
+  // 2026-09-15: 수류탄은 쿠킹(홀드 = 신관)이라 이 틀을 타지 않는다 — `gadgetUseTime` 은 가젯 줄에만 있다.
+  if (def.grenade !== undefined) return 0;
+  if (typeof def.gadgetUseTime === 'number') return Math.max(0, def.gadgetUseTime);
   return def.gadgetId === 'defib' ? DEFIB_USE_TIME_S : 0;
+}
+
+/**
+ * 2026-09-15 (가젯 개편, 사용자 결정): 손에 든 소모품이 **무엇처럼 동작하는가**.
+ *
+ * `ItemCategory` 의 `'grenade'` 가 폐지돼 수류탄도 `category: 'gadget'` 이므로 `def.category` 를 그대로
+ * `QuickKind` 로 캐스트할 수 없다 — 수류탄인지는 `ItemDef.grenade` 하나가 가른다(`shared/types.ts`).
+ * 이 한 함수가 「수류탄 쿠킹 · 투척」 과 「가젯 사용」 을 가르는 유일한 자리다.
+ */
+export function quickKindOf(def: ItemDef): QuickKind {
+  if (def.grenade !== undefined) return 'grenade';
+  return def.category === 'stim' ? 'stim' : 'gadget';
 }
 
 /** Remaining gauge of a 회복 스프레이 instance (a fresh can that never got a `durability` reads full). */

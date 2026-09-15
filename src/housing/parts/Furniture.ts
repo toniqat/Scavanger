@@ -11,14 +11,14 @@ import type {
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf, isCockpitOnlyFurniture, isUtilityFurniture,
+  benchKindOf, isCockpitOnlyFurniture, isUtilityFurniture, slotKey,
 } from '@/shared';
 import { COCKPIT_ONLY_RECOVER_REASON } from '@/shared';
 import type { FacilityRequirement } from '@/shared';
 import {
   autoPlaceSpot,
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, formatCost, furnitureUpgradeRequirementsFor, isPlaceRoom, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
+  MISSING_MATERIALS_REASON, facilityPurposeOf, furnitureUpgradeRequirementsFor, isPlaceRoom, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
   nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
@@ -104,20 +104,52 @@ export function exitHousingMode(sys: HousingSystem): void {
   }
 
 /* ── 함선 관리 (Phase 8, M in the ship) ────────────────────────────────── */
+
+/**
+ * 시설 관리를 **마지막으로 보던 방** (2026-09-15, 사용자 결정 — 「닫았다 다시 켜면 그 방이 포커싱돼 있어야 한다」).
+ * 슬롯별 localStorage 한 줄이라 새로고침 · 캐릭터 전환도 견딘다 (`ShipState` 버전을 올리지 않는다 — 함선의 내용이
+ * 아니라 **화면이 마지막으로 보던 자리**이고, 못 읽거나 이상하면 예전 기본값으로 조용히 돌아가면 그만이다).
+ * 우측 탭(가구 제작 / 가구 창고)은 화면의 것이라 `ui/hud/ShipManage` 가 자기 키로 따로 기억한다.
+ */
+const MANAGE_ROOM_KEY = 'scav.housing.manageRoom';
+
+function readManageRoom(): number | null {
+  try {
+    const raw = window.localStorage?.getItem(slotKey(MANAGE_ROOM_KEY));
+    const n = raw === null || raw === undefined ? NaN : Number(raw);
+    return Number.isInteger(n) ? n : null;
+  } catch { return null; }
+}
+
+function writeManageRoom(room: number): void {
+  try { window.localStorage?.setItem(slotKey(MANAGE_ROOM_KEY), String(room)); } catch { /* private mode · blocked site data */ }
+}
+
 /**
  * Enter the ship-management screen: the housing-mode camera / cursor without the "player stands in the room" gate,
- * plus the room list + furniture bar ui/ draws off `housing:shipManageChanged`. Default room: the one the player is
- * standing in, else the first room with a purpose, else room 1.
+ * plus the room list + furniture bar ui/ draws off `housing:shipManageChanged`.
+ *
+ * 방 고르는 순서 (2026-09-15, 사용자 결정): **부르는 쪽이 준 방** → 마지막으로 보던 방 → 서 있는 방 →
+ * 용도가 있는 첫 방 → 방 1. 기억한 방이 사라졌거나(용도 제거 · 세이브 교체) 읽히지 않으면 그대로 옛 순서다.
+ *
+ * ⚠ **준 방이 기억한 방을 이긴다** (2026-09-15 4차 수정): 기억은 「아무 말 없이 열었을 때의 기본값」이지
+ * 명령을 덮는 것이 아니다 — 조종석을 열어 달라는 `openShipManage(COCKPIT_ROOM_INDEX)`(프리셋 · 콘솔 · 상호작용)가
+ * 지난번에 보던 방으로 끌려가면 안 된다. 그래서 「서 있는 방」은 인자로 넘기지 않고 **여기 폴백 사슬**에 둔다
+ * (`hub/HubSystem.openShipManage` 는 인자 없이 부른다) — 그래야 기억이 산다.
  */
 export function openShipManage(sys: HousingSystem, room?: number): boolean {
   if (sys.shipManageBlock()) return false;
   // 2026-09-12: 조종석(`COCKPIT_ROOM_INDEX`)도 편집 대상이다 — 방 번호가 아니라 「가구를 놓을 수 있는 자리」로 본다
+  const remembered = readManageRoom();
   const target = isPlaceRoom(sys.state, room ?? -1)
     ? (room as number)
-    : sys.ctx.hub?.currentRoom ?? sys.state.rooms.findIndex((r) => r.purpose !== 'empty');
+    : remembered !== null && isPlaceRoom(sys.state, remembered)
+      ? remembered
+      : sys.ctx.hub?.currentRoom ?? sys.state.rooms.findIndex((r) => r.purpose !== 'empty');
   const index = isPlaceRoom(sys.state, target) ? target : 0;
   sys.enterMode(index);
   sys.shipManageMode = true;
+  writeManageRoom(index);
   sys.ctx.bus.emit('housing:shipManageChanged', { active: true, room: index });
   return true;
   }
@@ -125,6 +157,7 @@ export function openShipManage(sys: HousingSystem, room?: number): boolean {
 export function setManageRoom(sys: HousingSystem, room: number): boolean {
   if (!sys.shipManageMode || !isPlaceRoom(sys.state, room)) return false;
   if (sys.housingRoom === room) return true;
+  writeManageRoom(room);   // 2026-09-15: 마지막으로 보던 방 (다음에 시설 관리를 열면 여기로 온다)
   sys.housingRoom = room;
   sys.selectedFurniture = null;
   sys.selectedYaw = 0;
@@ -352,7 +385,7 @@ export function furnitureCraftBlock(sys: HousingSystem, defId: string): string |
   // 2026-09-12: 공용 시설 가구(시술대 · 컴퓨터)는 `craft` 가 비어 있다 — 늘 가지고 있으므로 보통은 위 줄이 먼저 답한다
   if (!def.craft) return '제작할 수 없는 가구입니다';
   const missing = missingIngredients(def.craft, sys.countDef);
-  if (missing.length) return `재료 부족: ${formatCost(missing, sys.nameOf)}`;
+  if (missing.length) return MISSING_MATERIALS_REASON;
   return null;
   }
 

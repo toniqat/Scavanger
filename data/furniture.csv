@@ -57,9 +57,10 @@ furn_tv,TV,library,3,1,1.3,tv,tv,mat_scrap:4|mat_circuit:2|mat_cable:2,1,,,#8fd8
 furn_gramophone,축음기,library,2,2,1.3,gramophone,record_player,mat_scrap:5|mat_alloy:2|mat_cable:1,1,,,#d9b98a,레트로 축음기. 서재에 두면 레코드랙에 꽂힌 레코드의 효과가 더 커집니다. 주크박스 · 턴테이블과 효과가 같아 하나만 적용됩니다.,front
 furn_jukebox,주크박스,library,2,2,1.8,jukebox,record_player,mat_scrap:8|mat_circuit:2|mat_cable:2,1,,,#ffb0a0,클래식 주크박스. 서재에 두면 레코드랙에 꽂힌 레코드의 효과가 더 커집니다. 축음기 · 턴테이블과 효과가 같아 하나만 적용됩니다.,front
 furn_turntable,턴테이블,library,3,2,1.0,turntable,record_player,mat_scrap:4|mat_circuit:2|mat_cable:1,1,,,#b0b8c4,현대식 턴테이블. 서재에 두면 레코드랙에 꽂힌 레코드의 효과가 더 커집니다. 축음기 · 주크박스와 효과가 같아 하나만 적용됩니다.,front
-# ── 2026-09-13 (비디오게임): 좌석 · 낮은 가구 — 어느 방에든 놓인다. 좌석(interaction seat)은 TV 정면에서 TV 를 보게 두면 게임 자리가 되고,
+# ── 2026-09-13 (비디오게임): 좌석 · 낮은 가구. 좌석(interaction seat)은 TV 정면에서 TV 를 보게 두면 게임 자리가 되고,
 # 그 사이 통로에는 low 1 가구(좌식 테이블 · 러그)만 있을 수 있다. 쇼파 · 의자는 multi 1 이라 여러 대 만든다.
-furn_sofa,쇼파,any,4,2,0.9,sofa,seat,mat_scrap:4|mat_cloth:8|mat_alloy:1,1,,,#c89a7a,푹신한 쇼파. 앉을 수 있고 TV 정면에서 TV 를 보게 두면 게임을 할 때 앉는 자리가 됩니다.,none,1
+# 2026-09-15 (사용자 결정): 쇼파는 **서재 전용**이다 (TV · 게임기가 서재에 있으므로 게임 자리도 서재다). 좌식 테이블 · 러그는 어느 방에든 놓인다.
+furn_sofa,쇼파,library,4,2,0.9,sofa,seat,mat_scrap:4|mat_cloth:8|mat_alloy:1,1,,,#c89a7a,푹신한 쇼파. 앉을 수 있고 TV 정면에서 TV 를 보게 두면 게임을 할 때 앉는 자리가 됩니다.,none,1
 furn_low_table,좌식 테이블,any,3,2,0.4,low_table,none,mat_scrap:3|mat_alloy:1,1,,,#b0a58c,바닥에 붙은 낮은 테이블. TV 와 좌석 사이에 두어도 화면을 가리지 않습니다.,,,1
 furn_rug,러그,any,4,3,0.02,rug,none,mat_cloth:6,1,,,#a0788c,바닥에 까는 러그. TV 와 좌석 사이에 깔아도 화면을 가리지 않습니다.,,,1
 # ── 2026-09-12 (A-3a): 헬스장 운동 기구 — 근력(벤치 랙 · 스미스 머신) · 지구력(트레드밀 · 사이클). 운동 규칙은 shared/housing 의 GYM_EQUIPMENT ──

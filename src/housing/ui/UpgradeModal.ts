@@ -2,7 +2,7 @@ import type { CraftIngredient, FacilityRequirement, GameContext } from '@/shared
 import { FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, UI_HOLD_CONFIRM_S, buildFacilityChip, createHoldButtonCap } from '@/shared';
 import type { PanelOverlay } from './Panel';
 import type { CostSource } from './dom';
-import { clear, el, renderCost, setText, toggleClass } from './dom';
+import { clear, el, facilityChipTip, renderCost, setText, toggleClass } from './dom';
 
 /** What the modal shows for one piece of furniture — re-read on every refresh (재료가 가방 · 창고에서 오갈 수 있다). */
 export interface UpgradeSpec {
@@ -125,7 +125,10 @@ export class UpgradeModal implements PanelOverlay {
     // 2026-09-12: 시설 레벨 요구(발전기 Lv.n)는 재료 칩 **뒤에 같은 줄로** — 아이템과 헷갈리지 않는 가로로 긴 이중 테두리 칩
     if (!atMax) {
       for (const q of s.requirements ?? []) {
-        this.costEl.appendChild(buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: MODAL_CHIP_SIZE }));
+        // 2026-09-15 (사용자 결정): 칩은 아이콘만 그리고 시설 이름 · 레벨은 호버 툴팁이 말한다 (`facilityChipTip`)
+        this.costEl.appendChild(facilityChipTip(
+          buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: MODAL_CHIP_SIZE }),
+          FACILITY_LABEL_KO[q.facility], q.have, q.need));
       }
     }
     const blocked = atMax ? '최대 레벨입니다' : s.reason;

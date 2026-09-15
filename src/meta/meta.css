@@ -10,7 +10,7 @@
  *   호스트(`.inv-screen.corp-view`)는 틀이 없다 — 배경 · 테두리 · 안여백을 걷어 카드들이 Tab 인벤토리의 `.inv-panel`
  *   처럼 블러 위에 따로 뜬다. 호스트 격자: 좌 `.corp-rail`(기업 목록 카드) | 우 `.corp-shell` → `.corp-page` → 페이지 루트,
  *   아래 전 폭 `.corp-msg-slot`. 페이지 루트는 **가로 flex 한 줄**이고 그 자식 하나하나가 카드(`.cv-card`)다:
- *     거래     `.cv`  [판매 물품 .is-fluid] [거래 테이블] [함선 창고 .cv-inv] [가방 .cv-inv]
+ *     거래     `.cv`  [판매 물품 .is-fluid] [거래 테이블] [창고 · 가방 .cv-inv]   ← 2026-09-15 3차: 한 카드
  *     임플란트 `.ci`  [데스크 .is-fluid] [함선 창고] [가방]
  *     계약     `.cc`  한 카드(계약 목록 | 진행 중인 계약) — 기업 목록만 분리됐다.
  *   `.is-fluid` 카드만 남는 폭을 나눠 갖고(최소 폭은 여기 `min-width`), 나머지는 내용(격자) 폭 그대로다. 카드 머리줄 ·
@@ -295,11 +295,12 @@
 .cv > .is-fluid, .ci > .is-fluid { flex: 1 1 0; }
 .is-inv-hidden > .cv-inv { display: none; }
 
-/* 함선 창고 · 가방 카드 — `createTradeGrids({ grids: [id], layout: 'split' })` 하나씩. 카드 폭 = 격자 폭 + 스크롤바 자리 + 안여백 */
+/* 창고 + 가방 카드 — 2026-09-15 3차 (사용자 결정): **한 카드**이고 `createTradeGrids({ grids: ['stash','bag'] })` 를
+   한 번 부른다. 카드 폭 = 두 격자 폭 + 사이 간격 + 스크롤바 자리 + 안여백 (`fitLayout` 이 칸 수를 합으로 잰다). */
 .cv-inv > .trade-grids { flex: 1 1 auto; min-height: 0; }
 .cv-inv > .corp-empty { width: 180px; }
 
-/* ── 거래 — 판매 물품 | 거래 테이블 | 함선 창고 | 가방 ── */
+/* ── 거래 — 판매 물품 | 거래 테이블 | 창고 · 가방 ── */
 /* 판매 물품의 바닥 = 다섯 칸 + 안여백 · 테두리 + 스크롤바 자리 (`data-cv-cols="5"` 와 짝; `fitLayout` 이 이 값을 읽는다) */
 .cv-col.shop { min-width: calc(5 * var(--cv-step) - var(--cv-gap) + 2 * var(--cv-card-pad) + 2px + var(--cv-sb)); }
 .cv-col.deal { justify-content: flex-start; }

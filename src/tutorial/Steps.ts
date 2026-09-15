@@ -109,7 +109,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // `manageDone` 이 빠지면서(2026-09-14 3차) 관리 모드가 열린 채로 이 단계에 들어설 수 있다 —
     //   그때 가구 카드가 통째로 비지 않도록 작업대는 계속 허용해 둔다 (옛 `manageDone` 의 이유 그대로).
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE], furniture: [TUTORIAL_BENCH_DEF], manageExit: true },
-    spot: [`.inv-craft-row[data-recipe="${TUTORIAL_GUN_RECIPE}"] .inv-craft-btn`, `.inv-craft-row[data-recipe="${TUTORIAL_GUN_RECIPE}"]`, '.inv-panel-craft'],
+    /* 2026-09-15 3차 (제작 UI 개편): 고른 레시피의 **상세**가 `.inv-craft-row` 라, 그 레시피가 골라져 있으면 홀드 버튼을,
+       아직 아니면 눌러야 할 **조합 목록 칸**(`.inv-craft-cell`)을 밝힌다 — `spot` 은 먼저 맞는 것 하나를 고르는 폴백 목록이다. */
+    spot: [`.inv-craft-row[data-recipe="${TUTORIAL_GUN_RECIPE}"] .inv-craft-btn`, `.inv-craft-cell[data-recipe="${TUTORIAL_GUN_RECIPE}"]`, '.inv-panel-craft'],
     spotText: '돌격소총 제작',
     guide: 'bench',
   },
@@ -121,7 +123,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     // 2026-09-10: `bulk_ammo_medium`(대량 제작)이 제작 대개편에서 사라져 `make_ammo_medium` 으로 옮겼다.
     //   선택자는 `TUTORIAL_AMMO_RECIPE` 에서 만든다 — id 를 손으로 두 번 적으면 다음에 또 어긋난다.
-    spot: [`.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"] .inv-craft-btn`, `.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"]`, '.inv-panel-craft'],
+    /* 2026-09-15 3차 (제작 UI 개편): 고른 레시피의 **상세**가 `.inv-craft-row` 라, 그 레시피가 골라져 있으면 홀드 버튼을,
+       아직 아니면 눌러야 할 **조합 목록 칸**(`.inv-craft-cell`)을 밝힌다 — `spot` 은 먼저 맞는 것 하나를 고르는 폴백 목록이다. */
+    spot: [`.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"] .inv-craft-btn`, `.inv-craft-cell[data-recipe="${TUTORIAL_AMMO_RECIPE}"]`, '.inv-panel-craft'],
     spotText: '준중량탄 제작',
     guide: 'bench',
   },
@@ -137,7 +141,13 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
   equipGun: {
     id: 'equipGun', title: '만든 소총을 주무기로 장착하세요',
-    hint: '가방의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다 (창이 닫혔으면 Tab).',
+    /*
+     * 2026-09-15 3차 (사용자 결정 「제작품은 함선 창고로」) — 만든 소총은 **함선 창고**에 있다. 목표 줄과 완료 판정은
+     * 한 줄도 안 바뀌었다(`onLoadout` = 주무기 I · II 어느 쪽이든 그 소총이 들어오면 끝) — 바뀐 것은 **어디서 집어
+     * 오는가**뿐이라 안내 문구와 포커싱만 창고까지 넓혔다. 창고 · 가방이 이제 한 패널(`.inv-panel-grids`)이므로
+     * 구멍은 여전히 「장비칸 두 개 + 그 옆 격자 카드」 하나로 이어진 사각형이다.
+     */
+    hint: '함선 창고의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다 (창이 닫혔으면 Tab).',
     /*
      * 2026-09-14 3차 — **제작 창이 열려 있으면 장비 칸이 없다** (`.inv-root.is-craft` 가 숨긴다). 그 상태에서
      * 장비칸+가방을 포커싱하면 가방만 밝고 링이 허공을 두른다. 그래서 「제작 창을 닫는다」가 앞줄이고,
@@ -155,9 +165,10 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 2026-09-09: 장비 열 전체(`.inv-equip`)가 아니라 **주무기 I · II 칸**(`inventory/ui/parts/SlotPanel.buildSlot` 의
     //   `.inv-slot-primary` · `.inv-slot-primary2`, `data-slot` 도 같다)부터 가방까지만 — 보조무기 · 방탄복 · 가방 칸과
     //   임플란트 칸은 이 단계와 상관없다. 구멍은 여전히 사각형 하나라 두 칸과 가방 패널을 감싸는 최소 사각형이 된다.
-    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-bag'],
+    // 2026-09-15 3차: 마지막 칸이 `.inv-panel-bag` → **`.inv-panel-grids`**(창고 + 가방 한 카드) — 소총은 창고에 있다.
+    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-grids'],
     spotUnion: true,
-    spotText: '가방의 소총 → 주무기 I · II 칸',
+    spotText: '창고의 소총 → 주무기 I · II 칸',
   },
   openCraft: {
     // (순서에서 제외, 2026-09-09) `TUTORIAL_STEPS` 에 없다 — id 가 계약(`TutorialStepId`)에 남아 있어 표에만 자리를 둔다.

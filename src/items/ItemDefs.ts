@@ -1,10 +1,11 @@
 import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, BoostKind, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 /* appended (2026-09-13, 요리 재료 티어): 표본 계열 · 소켓 · 요리 능력치 줄 */
 import type { GrowSocketDef, MealBuff, MealEffect } from '@/shared';
+/* appended (2026-09-15, 가젯 개편): 수류탄 종류 */
+import type { GrenadeKind } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
-  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
-} from '@/shared';
+  QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
 /* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
 import type { BookDef, GameStat, GymGameTuning, GymMinigame, LibraryMedium, PlanetId } from '@/shared';
@@ -126,7 +127,8 @@ export const AMMO_ITEM_DEFS: readonly ItemDef[] = AMMO_ROWS.map((r) => {
 });
 
 /* ── attachments — data/attachments.csv ───────────────────────────────────── */
-const ATTACHMENT_WEIGHT = 0.3;
+/* 2026-09-15: 무게는 `attachments.csv` 의 `weight` 열이다 — 예전에는 여기 `ATTACHMENT_WEIGHT = 0.3` 상수가 정하고 있어
+ * 그 열이 헤더에만 있고 아무도 안 읽었다 (「수치는 코드에 적지 않는다」 규약 위반). */
 
 export const ATTACHMENT_ITEM_DEFS: readonly ItemDef[] = csvRows('attachments.csv').map((r) => {
   const effects: AttachmentEffects = {};
@@ -150,7 +152,7 @@ export const ATTACHMENT_ITEM_DEFS: readonly ItemDef[] = csvRows('attachments.csv
   return def({
     id: r.str('id'), name: r.str('name'), category: 'attachment', rarity: r.str('rarity') as Rarity,
     width: 1, height: 1, value: r.int('value', { min: 0 }), icon: r.str('icon'),
-    description: r.str('description'), attachment, weight: ATTACHMENT_WEIGHT,
+    description: r.str('description'), attachment, weight: r.num('weight', { min: 0 }),
   });
 });
 
@@ -196,7 +198,8 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = csvRows('seeds.csv').map((r) =
       id: r.str('id'), name: r.str('name'), category: 'seed', rarity: r.str('rarity') as Rarity,
       width: 1, height: 1, stackMax: T.num('SEED_STACK_MAX'),
       value: r.int('value', { min: 0 }), icon: SEED_ICON, description: r.str('description'),
-      seed, weight: T.num('SEED_WEIGHT'),
+      /* 2026-09-15: 무게는 `seeds.csv` 의 새 `weight` 열이다 (옛 `tuning.csv` 의 `SEED_WEIGHT` 는 은퇴). */
+      seed, weight: r.num('weight', { min: 0 }),
     }),
     color: SEED_COLOR,
   };
@@ -585,8 +588,15 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
   if (retired && strain) r.report('strainOut', '은퇴한 세포주는 strain* 칸을 비운다 (배양조가 받지 않게)');
   /* 2026-09-15 (B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): `grenadeFire` = 이 수류탄은 고폭 대신 작은 폭발 +
    * 터진 자리에 화염 지대 (weapons `Grenade` → `ctx.gadgets.igniteGrenadeFire`). 수류탄이 아닌 줄에 있으면 아무도 안 읽으므로 신고한다. */
-  const grenadeFire = r.has('grenadeFire') && r.bool('grenadeFire');
-  if (grenadeFire && r.str('category') !== 'grenade') r.report('grenadeFire', '수류탄(category grenade)이 아닌 줄에 grenadeFire 가 있다');
+  /* 2026-09-15 (가젯 개편, 사용자 결정): `ItemCategory` 의 `'grenade'` 가 폐지돼 수류탄도 `category: 'gadget'` 이다 —
+   * 수류탄인지를 가르는 값은 `grenade` 열 하나(`ItemDef.grenade`)이고 `grenadeFire` 는 `grenade === 'fire'` 와 같은 뜻으로 남는다. */
+  const grenadeKind = r.has('grenade') ? (r.str('grenade') as GrenadeKind) : undefined;
+  if (grenadeKind && grenadeKind !== 'frag' && grenadeKind !== 'fire') r.report('grenade', "수류탄 종류는 frag · fire 둘뿐이다");
+  const grenadeFire = grenadeKind ? grenadeKind === 'fire' : (r.has('grenadeFire') && r.bool('grenadeFire'));
+  if (grenadeFire && !grenadeKind) r.report('grenadeFire', '수류탄(grenade 열)이 아닌 줄에 grenadeFire 가 있다');
+  /* 가젯을 쓰거나 설치하기까지의 홀드 시간 — `weapons/model.useTimeOf` 가 회복약과 같은 틀로 읽는다. */
+  const gadgetUseTime = r.has('gadgetUseTime') ? r.num('gadgetUseTime', { min: 0 }) : undefined;
+  if (gadgetUseTime !== undefined && !r.has('gadgetId') && !grenadeKind) r.report('gadgetUseTime', '가젯 · 수류탄이 아닌 줄에 gadgetUseTime 이 있다');
   return def({
     id: r.str('id'), name: r.str('name'), category: r.str('category') as ItemCategory,
     rarity: r.str('rarity') as Rarity,
@@ -596,6 +606,8 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
     description: r.str('description'),
     ...(r.has('quickUsable') ? { quickUsable: r.bool('quickUsable') } : {}),
     ...(r.has('gadgetId') ? { gadgetId: r.str('gadgetId') as ItemDef['gadgetId'] } : {}),
+    ...(grenadeKind ? { grenade: grenadeKind } : {}),
+    ...(gadgetUseTime !== undefined ? { gadgetUseTime } : {}),
     ...(r.has('durabilityMax') ? { durabilityMax: r.num('durabilityMax', { min: 0 }) } : {}),
     ...(r.has('healAmount') ? { healAmount: r.num('healAmount', { min: 0 }) } : {}),
     ...(heal ? { heal } : {}),
@@ -690,8 +702,7 @@ export function boostItemOf(defId: string | undefined): BoostItemDef | undefined
 export const ITEM_DEFS: readonly ItemDef[] = [
   /* weapons — primary / secondary (do not occupy grid cells while equipped) */
   ...WEAPON_ITEM_DEFS,
-  /* grenades · 회복 소모품 */
-  ...itemGroup('grenade'),
+  /* 회복 소모품 (2026-09-15: 수류탄 2종은 `category: 'gadget'` 이 되어 아래 가젯 묶음 맨 앞으로 옮겨 갔다 — csv 순서 그대로다) */
   ...itemGroup('stim'),
   /* ammo v2 · attachments · bags */
   ...AMMO_ITEM_DEFS,
@@ -730,7 +741,7 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   ...GAME_DISC_ITEM_DEFS,
   /* 임플란트 (Phase 12: 캐릭터 탭에 장착; 망가진 것만 루팅, 세레스 바이오가 수리 · 판매 — `ImplantDefs.ts`) */
   ...IMPLANT_ITEM_DEFS,
-  /* gadgets (behaviour lives in src/gadgets; here they are just consumables) */
+  /* gadgets — 수류탄 2종이 맨 앞이다 (behaviour lives in src/gadgets; here they are just consumables) */
   ...itemGroup('gadget'),
   /* armor generated from the ArmorDef table */
   ...ARMOR_DEFS.map(armorItem),

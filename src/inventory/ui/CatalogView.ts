@@ -32,7 +32,7 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'armor', label: TEXT.catalog.tabs.armor, categories: ['armor'] },
   { id: 'implant', label: TEXT.catalog.tabs.implant, categories: ['implant'] },   // Phase 12: 임플란트 items (working + broken)
   { id: 'gadget', label: TEXT.catalog.tabs.gadget, categories: ['gadget'] },
-  { id: 'consumable', label: TEXT.catalog.tabs.consumable, categories: ['grenade', 'stim'] },
+  { id: 'consumable', label: TEXT.catalog.tabs.consumable, categories: ['stim'] },
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
   { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
@@ -145,8 +145,14 @@ export class CatalogView {
   setOpen(open: boolean): void {
     if (this.el.hidden === !open) return;
     this.el.hidden = !open;
-    if (open) { this.ensureBuilt(); this.apply(); }
-    else this.searchEl.blur();
+    if (open) {
+      this.ensureBuilt();
+      this.apply();
+      // 2026-09-15 2차 (사용자 결정): 열자마자 타자로 검색된다 — `/items` 로 여는 것이 곧 "찾겠다" 는 뜻이다.
+      // (콘솔 쪽에서 selector 로 `.inv-cat-search` 를 찾아 focus 하던 임시 배선의 제자리다.)
+      this.searchEl.focus();
+      this.searchEl.select();
+    } else this.searchEl.blur();
   }
 
   /** Tile element of a def (smoke tests / shake). */

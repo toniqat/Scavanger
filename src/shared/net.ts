@@ -1319,7 +1319,9 @@ export type GadgetMessage =
 /** Client → host: deployable requests. Owner: gadgets. */
 export type GadgetRequest =
   /** `mount` appended (2026-09-11): 드론 윗면에 올리는 설치 요청이면 그 드론 id. */
-  | { t: 'gadq'; ev: 'place'; gadget: GadgetId; p: Vec3Tuple; yaw: number; v?: Vec3Tuple; mount?: string }
+  /** `hp` appended (2026-09-15 2차): `GadgetDef.wearsItemDurability` 인 배치물(돔 실드 · 바리케이드)을 비호스트가 놓을 때
+      **그 아이템에 남아 있던 내구도**. 생략은 「모른다」라 호스트가 `ItemDef.durabilityMax`(새것)로 세운다 — 옛 클라이언트 그대로다. */
+  | { t: 'gadq'; ev: 'place'; gadget: GadgetId; p: Vec3Tuple; yaw: number; v?: Vec3Tuple; mount?: string; hp?: number }
   | { t: 'gadq'; ev: 'damage'; id: string; dmg: number }
   | { t: 'gadq'; ev: 'recover'; id: string }
   | { t: 'gadq'; ev: 'sync' }

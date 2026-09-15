@@ -56,12 +56,20 @@ export abstract class HousingPanel {
    * what keeps `Input` from ever recording the press, so the inventory cannot open on it. Unlike E, Tab is taken
    * even from a focused 프리셋 이름 field — nothing is typed with Tab, and `close()` blurs the field anyway.
    * 2026-09-12: an open overlay (업그레이드 모달 · 우클릭 메뉴) is closed first — the panel stays.
+   *
+   * **2026-09-15 — Tab 은 맨 위 화면의 것이다.** 이 리스너는 window **capture** 라, 패널이 열려 있기만 하면 Tab 을
+   * 삼키고 자기를 닫았다: 책장 화면을 보다가 무한 상자(`/items`)를 열고 Tab 을 누르면 상자가 아니라 **책장**이 닫혔다.
+   * 그래서 Tab 은 `ctx.escape` 스택의 맨 위가 나일 때만 가로챈다 — Escape 가 이미 그 순서로 도는 것과 같은 규칙
+   * (`shared/escape`). 내 안의 오버레이(업그레이드 모달 · 우클릭 메뉴)는 스택 맨 위가 그 토큰이므로 예전처럼 내가 닫는다.
+   * E 는 가구에 붙은 키라 예전 그대로 패널이 가져간다.
    */
   private onKeyCapture = (e: KeyboardEvent): void => {
     if (!this._open) return;
     const tab = e.code === Keys.INVENTORY;
     if (!tab && e.code !== Keys.INTERACT) return;
     if (this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
+    // 나중에 열린 화면(무한 상자 · 인벤토리 창)이 위에 있으면 Tab 은 그쪽 것이다
+    if (tab && this.ctx.escape.topKey !== BLOCKER && !this.overlays.some((o) => o.isOpen)) return;
     // This listener is capture-phase on `window`, so it runs *before* a focused field's own handler: without this
     // the E of a 프리셋 이름 would close the panel instead of being typed.
     const t = e.target;

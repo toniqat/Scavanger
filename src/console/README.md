@@ -109,3 +109,25 @@ is still dev-client only (`isDevHost()`), so this path never runs for a player.
   (dev 클라이언트에서만 만든다 · `dispose()` 가 정리한다).
 - **2026-09-08** — 명령 `tutorial [start|skip|step <id>|status]` 가 붙었다. 등록은 `tutorial/TutorialSystem.init`
   이 `ctx.console.register` 로 하고(콘솔이 없는 호스트에서는 조용히 건너뛴다), 이 폴더는 아무것도 모른다
+
+## 변경 이력 (2026-09-15 2차): `/items` 검색창 포커스 · 분석기 시간 치트 (에이전트 E)
+
+**① `/items` 를 열면 검색창에 포커스가 간다** (사용자 결정). `commands/items.ts` 가 `openCatalog()` **뒤에**
+`ctx.uiRoot.querySelector('.inv-cat-search')` 를 찾아 `focus()` + `select()` 한다 (이미 남아 있는 검색어를 바로
+덮어쓴다). 못 찾으면 다음 프레임에 **한 번만** 다시 시도하고, 그래도 없으면 조용히 넘어간다 — 창은 이미 열려
+있으므로 마우스로 클릭하면 그만이다. ⚠ 다른 폴더의 DOM 을 **클래스 이름으로** 집는 유일한 자리다:
+`InventoryRef` 에 포커스 API 가 없고 `/items` 는 dev 전용 치트라 계약을 늘리는 대신 여는 쪽에서 끝냈다
+(`SEARCH_SELECTOR` 상수 한 줄). inventory 가 `CatalogView.setOpen(true)` 안에서 스스로 포커스하게 되면
+이 줄은 **무해한 중복**이 되므로 그때 지운다.
+
+**② 명령 `analyze [ff <시간> | done [uid|all]]`** + `commands/analyze.ts` (아래 표), `help` 순서에서 `library` 다음.
+**공개 `HousingRef` 만** 쓴다 — 목록은 `getPlaced()` 중 `getFurnitureDef(defId)?.interaction === 'analyzer'`
+(def id 를 코드에 적지 않는다), 칸은 `getAnalyses(uid)`, 머리줄은 `getSampleDexRatio` · `getAnalysisLevel`.
+시계를 앞당기는 것만 dev 전용 **`devAdvanceAnalysis?(hours, uid?)`** 이고 **계약에는 아직 없다** — 파일 안의
+`AnalyzeDev` 타입으로 구조적으로만 좁혀 쓰고, 없으면 `함선 시스템에 devAdvanceAnalysis 가 아직 없습니다`
+빨간 줄이다 (`devAdvanceMining` 과 같은 규약). housing 이 그 시그니처를 optional 로 더하면 그대로 맞물린다.
+`done` 은 「충분히 큰 수」를 코드에 적지 않는다 — `AnalysisSlotInfo.remainingS` 중 **가장 긴 것**만큼만 앞당긴다.
+
+| Command | Where | Does |
+|---|---|---|
+| `analyze [ff <시간> \| done [uid\|all]]` | anywhere | (2026-09-15 2차) 인자 없음 → 분석기마다 `f-7 (방 3) · Lv.2 · 칸 2/3` + 칸마다 `1. 미확인 세포 「세포」 62 % (01:12:33 남음)` / `완료 → 산출물 ×2 (도감 신규)` / `빈 칸` / `잠김 (Lv.2)`, 마지막에 `도감 진척 n % · 세포 Lv.2 (시간 ×0.85) · …`. `ff <시간>` → 모든 분석기의 해석 시계를 앞당긴다. `done [uid\|all]` → 남은 시간 중 가장 긴 것만큼 앞당겨 **지금** 끝낸다 (회수는 평소대로 화면에서). 오류: 분석기 없음 · 모르는 uid · 시간 범위 · dev 메서드 없음. `complete` = `ff` / `done`, `done` 뒤에는 `all` + 분석기 uid |

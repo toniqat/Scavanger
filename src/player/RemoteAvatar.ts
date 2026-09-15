@@ -522,7 +522,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     this.heldDefId = want;
     if (want) {
       const def = ctx.loot?.getItemDef(want);
-      const look = buildHeldItem(def?.category ?? null);
+      const look = buildHeldItem(def ? (def.grenade ? 'grenade' : def.category) : null);
       this.weaponSocket.add(look.group);   // SoldierModel lifts new socket children to the body render order
       this.heldLook = look;
     }

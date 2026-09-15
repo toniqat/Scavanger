@@ -926,7 +926,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
        */
       try {
         if (inv.countWhere((d) => d.category === 'stim') > 0) this.markObjective('supplyBandage');
-        if (inv.countWhere((d) => d.category === 'grenade') > 0) this.markObjective('supplyGrenade');
+        if (inv.countWhere((d) => d.grenade !== undefined) > 0) this.markObjective('supplyGrenade');
       } catch { /* inventory not ready */ }
       return;
     }

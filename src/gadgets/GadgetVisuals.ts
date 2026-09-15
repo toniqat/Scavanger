@@ -452,6 +452,20 @@ export class GadgetVisualPool {
         const rib1 = new THREE.Mesh(this.domeRibGeo, ribMat);
         const rib2 = new THREE.Mesh(this.domeRibGeo, ribMat); rib2.position.y = 0.55; rib2.scale.setScalar(0.83);
         body.add(shell, rib1, rib2);
+        /* 2026-09-15 (사용자 결정): 던진 자리에 **방어막 발생기**가 서고 그 둘레로 돔이 켜진다 — 꾹 눌러 회수하는
+           것도 이 개체다. `body` 가 아니라 `root` 에 붙는다: `layout` 이 `body.children` 을 반경만큼 키우고
+           `animate` 가 전개 연출로 `body` 를 스케일하는데, 발생기는 반경과 무관하게 늘 같은 크기로 서 있어야 한다.
+           광원 없음 — 빛나는 것은 emissive 한 점(`glowMats[1]`)뿐이다. */
+        const emitter = new THREE.Group();
+        emitter.add(new THREE.Mesh(this.mineBodyGeo, this.darkMat));
+        emitter.children[0].position.y = 0.055;
+        const mast = new THREE.Mesh(this.turretMastGeo, this.steelMat); mast.position.y = 0.33; mast.scale.set(0.7, 0.62, 0.7);
+        const cap = new THREE.Mesh(this.mineDomeGeo, this.steelMat); cap.position.y = 0.5;
+        const coreMat = this.glow(0x6fe0ff, 0.9);
+        glowMats.push(coreMat);
+        const core = new THREE.Mesh(this.ledGeo, coreMat); core.position.y = 0.58; core.scale.setScalar(1.4);
+        emitter.add(mast, cap, core);
+        root.add(emitter);
         break;
       }
       case 'barricade': {

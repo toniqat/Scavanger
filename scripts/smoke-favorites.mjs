@@ -246,15 +246,15 @@ try {
   console.log('filter chip');
   const flt = await page.evaluate(() => {
     const inv = window.__game.ctx.inventory;
-    document.querySelector('.inv-panel-bag .inv-filter-chip[data-filter="favorite"]').click();
+    { const s = document.querySelector('.inv-panel-bag .inv-filter-select'); s.value = 'favorite'; s.dispatchEvent(new Event('change', { bubbles: true })); }
     const favs = new Set(inv.favoriteDefIds);
     const tiles = [...document.querySelectorAll('.inv-grid-bag .inv-tile')].map((t) => {
       const p = inv.getGrid('bag').get(t.dataset.uid);
       return { def: p?.item.defId, fav: favs.has(p?.item.defId), dim: t.classList.contains('is-filtered-out') };
     });
     return {
-      tiles, chipOn: document.querySelector('.inv-panel-bag .inv-filter-chip[data-filter="favorite"]').classList.contains('is-on'),
-      stashChipOn: document.querySelector('.inv-panel-stash .inv-filter-chip[data-filter="favorite"]').classList.contains('is-on'),
+      tiles, chipOn: document.querySelector('.inv-panel-bag .inv-filter-sel').classList.contains('is-on'),
+      stashChipOn: document.querySelector('.inv-panel-stash .inv-filter-sel').classList.contains('is-on'),
     };
   });
   ok(flt.chipOn && flt.stashChipOn, 'the 즐겨찾기 chip lights on 가방 and 창고 alike', JSON.stringify(flt));
@@ -267,7 +267,7 @@ try {
     const t = p && document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${p.item.uid}"]`);
     return t && !t.classList.contains('is-filtered-out') && t.classList.contains('is-favorite');
   }, 'toggling a favourite under the lit chip repaints the dimming', 5000, AMMO);
-  await page.evaluate(() => document.querySelector('.inv-panel-bag .inv-filter-chip[data-filter="all"]').click());
+  await page.evaluate(() => { const s = document.querySelector('.inv-panel-bag .inv-filter-select'); s.value = 'all'; s.dispatchEvent(new Event('change', { bubbles: true })); });
 
   /* ── 7. TradeGrids + buildItemTile ─────────────────────────────────────────────────────────────────────── */
   console.log('TradeGrids / buildItemTile');
@@ -289,7 +289,7 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.toggleFavorite('gem_amber', true));
   const tgf = await page.evaluate(async () => {
     const inv = window.__game.ctx.inventory;
-    document.querySelector('#fav-tg .inv-filter-chip[data-filter="favorite"]').click();
+    { const s = document.querySelector('#fav-tg .inv-filter-select'); s.value = 'favorite'; s.dispatchEvent(new Event('change', { bubbles: true })); }
     await new Promise((r) => setTimeout(r, 120));
     const favs = new Set(inv.favoriteDefIds);
     const tiles = [...document.querySelectorAll('#fav-tg .tg-bag .inv-tile')].map((t) => ({ fav: favs.has(inv.getGrid('bag').get(t.dataset.uid)?.item.defId), dim: t.classList.contains('is-filtered-out') }));

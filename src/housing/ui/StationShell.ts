@@ -9,24 +9,26 @@ import { el, setText, toggleClass } from './dom';
  * 셋이 한 줄**로 선다 — 작업대 제작 창의 `[제작] [함선 창고] [가방]` 과 같은 결이다. 공유하는 바깥 테두리는 없다.
  *
  * ```
- * ┌ 제목  Lv. 1  +15% ───── [업그레이드] ┐  ┌ 함선 창고 ──────────┐  ┌ 가방 ─────────┐
- * │ ┌ 레일 ┐ ┌ 좌 패널 (가구 내용) ────┐ │  │ 칩 줄               │  │ 칩 줄         │
- * │ │ 목록 │ │                         │ │  │ 창고 격자 (스크롤)  │  │ 가방 격자     │
- * │ └──────┘ └─────────────────────────┘ │  │                     │  │ (스크롤)      │
- * └──────────────────────────────────────┘  └─────────────────────┘  └───────────────┘
+ * ┌ 제목  Lv. 1  +15% ───── [업그레이드] ┐  ┌ 창고 · 가방 ────────────────────┐
+ * │ ┌ 레일 ┐ ┌ 좌 패널 (가구 내용) ────┐ │  │ 창고 격자(스크롤) │ 내 가방(스크롤) │
+ * │ │ 목록 │ │                         │ │  │ 정렬 · 필터       │ 정렬 · 필터     │
+ * │ └──────┘ └─────────────────────────┘ │  │                   │                 │
+ * └──────────────────────────────────────┘  └─────────────────────────────────────┘
  *   메시지 줄 · 안내 ·························································· [닫기]
  * ```
  *
  * - **스테이션 카드**(`.hs-card-station`)가 제목 + `Lv. n` + 부가 글(`meta`, 예: 재배 스테이션의 성장 속도)을 들고,
  *   「업그레이드」 버튼은 **그 카드의** 우상단에 붙는다(화면이 아니라). 레일(스테이션 목록 · 분석기 탭)도 카드 안이다.
- * - **함선 창고 카드**와 **가방 카드**는 따로다 — 카드마다 머리(`.hs-card-head`)와 **자기 세로 스크롤**을 갖는다
- *   (`mountStationGrids` 가 `TradeGrids` 를 카드마다 하나씩, 격자 하나씩 끼운다). 한 스크롤에 두 격자를 세로로 이어
- *   붙이지 않는다는 2026-09-12 규칙이 카드 경계로 저절로 지켜진다.
- * - 격자 칸 크기는 뷰포트로 고른다(`stationGridCell` — 넓으면 54, 아니면 46): 1440 에서도 세 카드가 한 줄에 들어간다.
- *   창 크기가 그 경계를 넘으면 격자를 다시 끼운다. 더 좁으면 CSS 가 스테이션 카드를 위, 두 격자 카드를 아래로 쌓는다.
+ * - **2026-09-15 3차 (사용자 결정 — 창고 + 가방은 한 패널이다)**: 격자 카드는 **하나**(`.hs-card-inv`)이고 그 안에서
+ *   `TradeGrids` 가 왼쪽 창고 · 오른쪽 내 가방을 **칸마다 자기 스크롤 · 자기 정렬 · 자기 필터**로 그린다
+ *   (`mountStationGrids` 가 `createTradeGrids` 를 **한 번**만 부른다). 옛 배치는 카드마다 한 번씩 **두 번** 불러
+ *   카드가 둘이었다 — 인벤토리가 2026-09-15 2차에 한 패널로 바뀌면서 그 갈래가 사라졌다. 카드 머리(`.hs-card-head`)도
+ *   같이 없앴다: 이름은 격자 블록이 스스로 말한다(창고는 그림이, 가방은 `내 가방` 라벨이).
+ * - 격자 칸 크기는 뷰포트로 고른다(`stationGridCell` — 넓으면 54, 아니면 46): 1440 에서도 카드 둘이 한 줄에 들어간다.
+ *   창 크기가 그 경계를 넘으면 살아 있는 뷰에 `setCell` 을 건다. 더 좁으면 CSS 가 스테이션 카드를 위, 격자 카드를 아래로 쌓는다.
  *
  * 레일을 쓰지 않는 화면(배양조 · 식탁)에서는 `rail` 이 `hidden` 이라 flex gap 까지 사라진다.
- * `inventory: false` 면 격자 카드를 만들지 않는다(`stashCard` · `bagCard` = null, `invHost` 는 빈 자리).
+ * `inventory: false` 면 격자 카드를 만들지 않는다(`invCard` = null, `invHost` 는 빈 자리).
  *
  * 2026-09-13 (같은 날, 사용자 결정 「전력 할당 시스템 제거」): 업그레이드 왼쪽의 비활성화 버튼 · 멈춤 배너(`power` 옵션 ·
  * `paintStationPower` · `.hpw-`)를 걷어냈다 — 가구는 멈추지 않는다.
@@ -55,9 +57,14 @@ export interface StationShell {
   readonly stationCard: HTMLElement;
   /** Small text after `Lv. n` (`.hs-meta`, hidden while empty) — e.g. `성장 속도 +15%`. Set it with `paintStationMeta`. */
   readonly meta: HTMLElement;
-  /** 함선 창고 card (`.hs-card-stash`), null with `inventory: false`. */
+  /**
+   * appended 2026-09-15 3차: the **one** 창고 + 가방 card (`.hs-card-inv`), null with `inventory: false`.
+   * `TradeGrids` draws both grids inside it.
+   */
+  readonly invCard: HTMLElement | null;
+  /** @deprecated 2026-09-15 3차 — 카드가 하나가 됐다. `invCard` 와 같은 요소다 (이름만 남긴다). */
   readonly stashCard: HTMLElement | null;
-  /** 가방 card (`.hs-card-bag`), null with `inventory: false`. */
+  /** @deprecated 2026-09-15 3차 — `invCard` 와 같은 요소다. */
   readonly bagCard: HTMLElement | null;
   /* appended 2026-09-14 (서재 화면 개편) */
   /**
@@ -80,14 +87,12 @@ export interface StationShellOptions {
   tabs?: boolean;
 }
 
-/** Which grid a card holds — `data-hs-grid` on the card, read by `mountStationGrids`. */
-type CardGrid = 'stash' | 'bag';
-const CARD_TITLE: Readonly<Record<CardGrid, string>> = { stash: '함선 창고', bag: '가방' };
-
-function buildInvCard(parent: HTMLElement, id: CardGrid): HTMLElement {
-  const card = el('section', { cls: `hs-card hs-card-inv hs-card-${id}`, attrs: { 'data-hs-grid': id }, parent });
-  const head = el('div', { cls: 'hs-card-head', parent: card });
-  el('div', { cls: 'hs-card-title', text: CARD_TITLE[id], parent: head });
+/**
+ * 2026-09-15 3차: 격자 카드는 **하나**다 (`.hs-card-inv` > `.hs-inv`). 머리줄이 없다 — 창고 · 가방의 이름은
+ * `TradeGrids` 블록이 스스로 말한다. `data-hs-grid="inv"` 는 `mountStationGrids` 가 호스트를 찾는 손잡이다.
+ */
+function buildInvCard(parent: HTMLElement): HTMLElement {
+  const card = el('section', { cls: 'hs-card hs-card-inv', attrs: { 'data-hs-grid': 'inv' }, parent });
   el('div', { cls: 'hs-inv', parent: card });
   return card;
 }
@@ -115,10 +120,13 @@ export function buildStationShell(frame: HTMLElement, o: StationShellOptions): S
   const right = el('div', { cls: 'hs-pane-right hs-inv-cards', parent: cards });
   const withInv = o.inventory !== false;
   right.hidden = !withInv;
-  // 2026-09-12 (사용자 결정): **함선 창고가 왼쪽, 가방이 오른쪽** — 카드 순서가 곧 그 규칙이다
-  const stashCard = withInv ? buildInvCard(right, 'stash') : null;
-  const bagCard = withInv ? buildInvCard(right, 'bag') : null;
-  return { head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta, stashCard, bagCard, tabsRow };
+  // 2026-09-12 (사용자 결정): **함선 창고가 왼쪽, 가방이 오른쪽** — 2026-09-15 3차부터 그 순서는 `TradeGrids` 의
+  // `grids: ['stash','bag']` 이 지킨다 (카드는 하나다)
+  const invCard = withInv ? buildInvCard(right) : null;
+  return {
+    head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta,
+    invCard, stashCard: invCard, bagCard: invCard, tabsRow,
+  };
 }
 
 /** `Lv. n` + the 업그레이드 button state (`MAX` and disabled at the last level; disabled when the furniture is gone). */
@@ -152,9 +160,10 @@ export function stationGridCell(viewportWidth = window.innerWidth): number {
  * The 함선 창고 / 가방 grids are built **lazily**: housing/ is registered before inventory/, so `ctx.inventory` does not
  * exist yet when a panel is constructed. Null when the inventory cannot render them.
  *
- * 2026-09-13: `host` = `shell.invHost` → one `TradeGrids` **per card, one grid each** (`grids: ['stash']` ·
- * `grids: ['bag']`), same `dropSelector` / `onTake`, cell from `stationGridCell` (re-mounted when a window resize crosses
- * the breakpoint). Any other host (an old caller) still gets the single two-grid view it used to.
+ * **2026-09-15 3차 (사용자 결정 — 창고 + 가방은 한 패널이다)**: `createTradeGrids` 를 **한 번**만 부른다
+ * (`grids: ['stash','bag']`). 인벤토리가 그 한 패널 안에서 왼쪽 창고 · 오른쪽 내 가방을 칸마다 자기 스크롤 · 자기
+ * 정렬 · 자기 필터로 그린다. 옛 배치(카드마다 한 번씩 두 번)는 카드가 둘로 갈렸다 — 그 갈래가 없어졌다.
+ * 격자 칸은 `stationGridCell()` 이고, 창 크기가 경계를 넘으면 **뷰를 다시 짓지 않고** `setCell` 을 건다(필터 · 스크롤 유지).
  */
 export function mountStationGrids(
   ctx: GameContext,
@@ -164,41 +173,32 @@ export function mountStationGrids(
 ): EmbeddedView | null {
   const inv = ctx.inventory;
   if (!inv || typeof inv.createTradeGrids !== 'function') return null;
-  const cardHosts: Array<{ id: CardGrid; host: HTMLElement }> = [];
-  for (const id of ['stash', 'bag'] as const) {
-    const h = host.querySelector<HTMLElement>(`[data-hs-grid="${id}"] .hs-inv`);
-    if (h) cardHosts.push({ id, host: h });
-  }
-  if (!cardHosts.length) {
-    return inv.createTradeGrids(host, { grids: ['stash', 'bag'], dropSelector, onTake: (item, _g, target) => onTake(item, target) });
-  }
-  return new StationGrids(ctx, cardHosts, dropSelector, onTake);
+  // `shell.invHost`(= `right`) 안의 격자 카드. 카드가 없는 호스트를 넘긴 화면은 그 호스트에 그대로 그린다.
+  const gridHost = host.querySelector<HTMLElement>('.hs-card-inv .hs-inv') ?? host;
+  return new StationGrids(ctx, gridHost, dropSelector, onTake);
 }
 
 /**
- * Two single-grid `TradeGrids`, one per card, behind one `EmbeddedView`. Uses the inventory's card API (2026-09-13,
- * `src/inventory/README.md` 「카드마다 격자 하나」): `layout: 'split'` (the block stretches to the card and its grid
- * scrolls itself) + `chips: 'block'` (each card its own filter row — the bag's narrow row wraps to two lines), and a
- * resize across the breakpoint calls `setCell` on the live views (keeps filter and scroll) instead of re-mounting.
+ * One `TradeGrids`(창고 + 가방) behind one `EmbeddedView`, plus the viewport-driven cell size.
+ * `layout: 'split'` · `chips: 'block'` 은 2026-09-15 2차부터 인벤토리의 **유일한** 배치라 값은 그대로 두었다 —
+ * 이름을 남겨 두는 편이 「이 화면이 무엇을 기대하는가」를 말해 준다.
  */
 class StationGrids implements EmbeddedView {
-  private views: EmbeddedView[] = [];
+  private view: EmbeddedView | null = null;
   private cell = 0;
   private disposed = false;
   private readonly onResize = (): void => {
     const next = stationGridCell();
-    if (this.disposed || next === this.cell) return;
+    if (this.disposed || next === this.cell || !this.view) return;
     this.cell = next;
-    for (const v of this.views) {
-      const live = v as Partial<TradeGridsView>;
-      if (typeof live.setCell === 'function') live.setCell(next);
-      else { this.mount(); return; }        // an older inventory without `setCell` — rebuild at the new edge
-    }
+    const live = this.view as Partial<TradeGridsView>;
+    if (typeof live.setCell === 'function') live.setCell(next);
+    else this.mount();                      // an older inventory without `setCell` — rebuild at the new edge
   };
 
   constructor(
     private readonly ctx: GameContext,
-    private readonly hosts: ReadonlyArray<{ id: CardGrid; host: HTMLElement }>,
+    private readonly host: HTMLElement,
     private readonly dropSelector: string,
     private readonly onTake: (item: ItemInstance, target: HTMLElement | null) => void,
   ) {
@@ -208,30 +208,28 @@ class StationGrids implements EmbeddedView {
 
   private mount(): void {
     const inv = this.ctx.inventory;
-    for (const v of this.views) v.dispose();
-    this.views = [];
+    this.view?.dispose();
+    this.view = null;
     if (!inv || typeof inv.createTradeGrids !== 'function') return;
     this.cell = stationGridCell();
-    for (const { id, host } of this.hosts) {
-      this.views.push(inv.createTradeGrids(host, {
-        grids: [id],
-        layout: 'split',
-        chips: 'block',
-        dropSelector: this.dropSelector,
-        onTake: (item, _g, target) => this.onTake(item, target),
-        cell: this.cell,
-        className: 'hs-tg',
-      }));
-    }
+    this.view = inv.createTradeGrids(this.host, {
+      grids: ['stash', 'bag'],
+      layout: 'split',
+      chips: 'block',
+      dropSelector: this.dropSelector,
+      onTake: (item, _g, target) => this.onTake(item, target),
+      cell: this.cell,
+      className: 'hs-tg',
+    });
   }
 
-  refresh(): void { for (const v of this.views) v.refresh(); }
+  refresh(): void { this.view?.refresh(); }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     window.removeEventListener('resize', this.onResize);
-    for (const v of this.views) v.dispose();
-    this.views = [];
+    this.view?.dispose();
+    this.view = null;
   }
 }

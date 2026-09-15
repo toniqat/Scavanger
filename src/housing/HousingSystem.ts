@@ -865,6 +865,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   devSetCryptoWallet(coinId: string, units: number): string | null { return Mining.devSetCryptoWallet(this, coinId, units); }
   devSetClusterCores(uid: string, cores: number): string | null { return Mining.devSetClusterCores(this, uid, cores); }
   devAdvanceMining(hours: number): number { return Mining.devAdvanceMining(this, hours); }
+  /** 개발용 (2026-09-15 2차): 분석기 해석 시계를 앞당긴다 — 콘솔 `analyze ff` · `analyze done`. 회수는 하지 않는다. */
+  devAdvanceAnalysis(hours: number, uid?: string): number { return Lab.devAdvanceAnalysis(this, hours, uid); }
   /* ══ 암호화폐 채굴 끝 ══ */
 
   /* ══ 서재 시리즈 (H1, 2026-09-13) ══ — 효과 합산 · 소스 · 띠 질의 · 레시피 해금 (`parts/Library.ts` · 순수 식 `Rules.computeLibraryEffects`).

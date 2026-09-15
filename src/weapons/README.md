@@ -10,6 +10,7 @@ Owner: `WeaponSystem` (`name: 'weapons'`). Registers after `PlayerSystem`; reach
 | `parts/Firing.ts` | **격발 · 명중 · 재장전.** 트리거를 당긴 순간부터 피해가 들어갈 때까지: 실효 스탯으로 탄을 뽑고, 내구도를 깎고, 히트스캔/발사체를 쏘고(`raycastAll` — 배리어 · 돔 · 파괴 가능 엄폐물이 여기서 탄을 멈춘다), 명중을 적 · 원격 플레이어에게 전달한다. 정밀 사격 정렬(예측 카메라 원점)이 걸린 곳이기도 하다. **2026-09-12**: 탄이 어느 선을 따라 나가는지는 스스로 정하지 않고 `parts/AimLine` 의 `sys.aim.begin` / `resolve` 를 탄다 (펠릿마다 `resolve`). 예광탄 · 머즐 플래시 · `fire` 메시지는 여전히 실제 총구에서 나간다 (스코프 조준 중의 예광탄만 판정선에서). **2026-09-14**: `stats.projectileSpeed > 0` 이면 탄 · 펠릿이 발사체(`ProjectilePool`, `stats.bulletGravity`)로 나가고 — `near` 는 즉시 · 속도 0 은 히트스캔 — `onProjectileHit` 가 운반된 거리 감소 · `light` · `ammoType` 로 `applyHit`, `flushHitmarker` 가 한 스텝의 히트마커를 합친다. `statsFalloff`(= `@/items damageFalloffStats`) · 연사 퍼짐 `stats.bloomPerShot/bloomSpread` · 흔들림 × `stats.swayMul`. |
 | `parts/AimLine.ts` | **총알은 어느 선을 따라 나가나 (하이브리드 판정, 2026-09-12).** `ShotResolver` — `begin(host, muzzle, aimO, aimDir)` 가 방향과 무관한 검사(몸 축 → 총구 = 총열이 벽을 뚫었나, 총구 → `P0` = 크로스헤어 선의 시작점이 총구에서 보이나 — 둘 다 **벽만** 센다: 몸에 붙은 적은 총열이 "뚫은" 것이 아니라 총구 앞 검사가 맡는다)를 하고, `resolve(dir, range, out)` 가 한 발을 푼다: ① 크로스헤어 선을 **총구 깊이의 점 `P0`** 부터 쏴 조준점을 찾고 ② 총열이 막혔거나 ③ 총구 → 조준점의 앞 `WEAPON_MUZZLE_BLOCK_RANGE`(3 m) 안에서 걸리면 `near` — 총알은 거기에 맞고, 그 자리가 조준점에서 `AIM_BLOCK_SAME_EPS` 보다 멀고 적 · 포탄이 아니면 `obstructed` ④ `P0` 가 총구에서 가려져 있으면 `converge`(옛 총구 → 조준점 수렴) ⑤ 아니면 `line` — 크로스헤어 선 그대로. 결과 `ShotLine {mode, origin, dir, hit, end, target, obstructed}`. `updateAimBlock` 이 매 프레임 같은 resolver 를 퍼짐 없이 돌려 `fx/AimBlockMarker` 를 띄우고 `weapon:aimBlocked {blocked}` 를 바뀔 때만 보낸다 (화염방사기 · 전격총은 선이 없어 제외). `fire()` · 유니크 `hitscan` · `aimShot` · `aimTarget` 이 전부 이 resolver 를 쓴다 — **미리보기와 실제 사격이 같은 함수**다. |
 | `parts/QuickUse.ts` | **빠른 사용 (T 탭 / 홀드 휠).** 소모품 · 가젯을 손에 드는 경로 전체: 휠 열기/닫기, 슬롯 해석, 무기 홀스터, 손에 든 것을 놓고 총으로 돌아가기, 그리고 들쳐메기 중에는 모든 행동을 `dropCarried` 로 바꾸는 `carryGate`. |
+| `parts/Defib.ts` | **제세동기의 조준 사용** (2026-09-15, 사용자 결정). 다른 홀드 소모품과 **반대**로 채워지는 순간이 아니라 **떼는 순간** 발동한다: 좌클릭 충전(`gadgetUseTime`, 없으면 `DEFIB_USE_TIME_S` · 퍽 `quick_heal` 적용) → 준비 완료(이동 감속 **해제** — 준비한 채로 걸어가야 한다) → 쓰러진 아군을 크로스헤어에 올리면 `target` → 떼면 `useGadget`. 대상 없이 떼면 불발이고 **아이템은 소모되지 않는다**. 상태는 `gadget:defibAim {armed, charge, target}` 하나로 나가고 **그리는 곳은 `ui/hud/Reticle` 뿐**이다. 「겨눴다」 = `GADGET_DEFIB_RANGE` 안 · 조준 광선에서 반각 `DEFIB_AIM_CONE_DEG` 이내. 「어느 아군인가」는 gadgets 의 `findDownedAlly` 가 **같은 조준 광선의 각**으로 고르므로 크로스헤어와 실제 소생이 어긋나지 않는다. |
 | `parts/Healing.ts` | **회복 소모품 · 실드 충전기의 홀드 사용.** 붕대 · 약초 붕대 · 회복주사 · 제세동기는 좌클릭을 아이템별 시간만큼 **누르고 있어야** 하고 (`heal:holdChanged.dur`, 그 동안 이동 50 %), 회복 스프레이는 게이지를 깎으며 자신과 반경 안 아군을 계속 회복한다. 게이지가 0 이 되어도 캔은 사라지지 않고 함선에서 충전한다. **2026-09-11 (E-4)**: 아군 몫은 가슴 → 가슴이 트여 있을 때만 적는다(`shared/buffLineClear`). **2026-09-10 실드 충전기** (`shieldChargeOf(defId)`, `@/items`) 도 같은 홀드 · 같은 이동 감속을 쓰지만 끝에서 `PlayerRef.applyHeal` 대신 **`chargeShield(amount)`** 로 간다 (`Infinity` = 가득). `canChargeShield()` 가 `maxShield > 0 && shield < maxShield` 를 보고 **홀드를 시작조차 하지 않으므로** 방탄복이 없거나 실드가 가득이면 아이템이 소모되지 않는다. |
 | `parts/Throwing.ts` | **손에 든 것을 던지기 (수류탄 · 투척 가젯).** 좌클릭 홀드로 들고, R 로 핀을 뽑아 쿠킹하고(`grenade:holdChanged` + 퓨즈가 와이어로 나간다), 놓으면 오버핸드 / 우클릭이면 언더핸드로 나간다. 손 안에서 터지는 경우(`explodeInHand`)도 여기. |
 | `parts/Services.ts` | **`WeaponHost` 서비스 객체.** `fx/` · `unique/` · `Melee` · `Grenade` 는 `WeaponSystem` 을 직접 알지 않고 이 객체를 통해서만 월드에 접근한다(레이캐스트 · 피해 적용 · 오디오 · 카메라 흔들림 · 인벤토리 소모 …). 즉 이 파일이 무기 내부 모듈과 나머지 게임 사이의 **유일한 접점**이다. |
@@ -313,6 +314,32 @@ still runs at the item's own rate).
 ---
 
 ## 변경 이력
+
+- **2026-09-15 2차 (`smoke-ballistics` 의 흔들리던 히트마커 단언 — 코드 무변경)** — 「같이 도착한 펠릿은 히트마커 하나로
+  묶인다」를 재는 단언이 `markers >= 1 && markers <= 2` 였는데, 그것은 **묶는 근거가 아니라 프레임 박자**를 재고 있었다:
+  묶는 단위는 **풀 한 스텝**이고(`WeaponSystem.update` 가 `projectiles.update` 바로 뒤에 `Fire.flushHitmarker`),
+  180 m/s 펠릿이 5 m 를 나는 데 27.8 ms 인데 한 프레임이 16.7 ms 라 적 캡슐 앞뒤면 때문에 벌어지는 명중 거리 차가
+  프레임 경계에 어떻게 걸리느냐로 스텝이 2 개도 3 개도 된다 (헤드리스 3 회 중 1 회 3, 나머지 통과 — **회귀가 아니다**).
+  이제 계약 그대로 잰다: **`markers === steps`**(스텝마다 정확히 하나 — `steps` = 그 일제사의 적 명중들이 가진 서로 다른
+  `ctx.time` 수. 병합을 걷어내면 steps 1 에 markers 8 로 깨진다) **+ `markers < enemyHits`**. 둘 다 프레임 박자와 무관하다.
+  `scripts/smoke-ballistics.mjs` 만 바뀌었고 `src/` 는 한 줄도 안 건드렸다.
+
+- **2026-09-15 (가젯 개편 — 설치 시간 · 제세동기 조준 · 수류탄 카테고리 폐지, 사용자 결정 + 사용자 버그)**
+  - **사용자 버그 「바리케이드 사용 시간(설치까지)이 적용되지 않고 회수에만 시간이 걸린다」** — `model.useTimeOf(def)` 가
+    가젯에 대해 **늘 0** 을 돌려주고 있었다(제세동기만 예외). 이제 `ItemDef.gadgetUseTime`(`items.csv` 의 같은 이름 열)을
+    회복약 `healUseTime` · 실드 충전기 `shieldUseTime` · 전투 소모품 `boostUseTime` 과 **같은 홀드 틀**로 읽는다 —
+    배관은 한 줄도 새로 만들지 않았다: `QuickUse.updateQuickHand` 가 이미 `useTimeOf > 0` 이면 `beginHeal` 로 보내고 있었으므로
+    크로스헤어 홀드 링(`heal:holdChanged` → `ui/hud/HealGauge`)과 이동 50 % 감속이 저절로 따라온다. 비면 제세동기는
+    `DEFIB_USE_TIME_S`, 나머지 가젯은 0(즉시)이다. **수류탄은 이 틀을 타지 않는다**(홀드 = 쿠킹).
+  - **`ItemCategory` 의 `'grenade'` 폐지** (리드 계약) — 수류탄도 `category: 'gadget'` 이라 `slot.def.category as QuickKind`
+    캐스트가 수류탄을 가젯으로 읽어 **쿠킹 · 투척이 통째로 죽는다**. 새 순수 함수 `model.quickKindOf(def)` 하나가
+    `ItemDef.grenade !== undefined` 로 가르고 `QuickUse.equipQuick` 이 그것을 쓴다. `QuickKind` 타입 · `q.kind === 'grenade'`
+    를 보는 자리(투척 궤적 · `emitGrenadeCount`)는 한 줄도 안 바뀌었다.
+  - **제세동기 = 「충전하고 겨눈 뒤 떼는」 조작** (사용자 결정) — 새 `parts/Defib.ts` (위 표). `WeaponSystem` 에 상태 다섯
+    (`defibHeld` · `defibArmed` · `defibT` · `defibTarget` · `defibEmitAt`)과 위임 셋(`isDefibHand` · `updateDefibHand` ·
+    `cancelDefib`). `updateQuickHand` 이 제세동기 손만 기폭기 손처럼 **먼저 가로채므로** `beginHeal` 길(= 채우는 순간 사용)을
+    타지 않는다. 그래서 제세동기는 이제 `heal:holdChanged` 를 내지 않는다 — 게이지를 크로스헤어가 대신 그린다.
+    ⚠ `ui/hud/WeaponPanel` 의 소모품 힌트(`좌클릭 N초 홀드 · 이동 50 %`)는 아직 옛 문구다 (ui 소유).
 
 - **2026-09-15 (폭발 감쇠 2단 계단 · 수류탄 수치의 csv 이관 — 사용자 결정)** — `Grenade.ts` 의 `GRENADE_RADIUS` **6 → 7.2**(×1.2) ·
   `GRENADE_DAMAGE` 250 · `PLAYER_DAMAGE_MUL` 0.6 이 전부 `data/constants.csv` 로 갔다(`GRENADE_PLAYER_DAMAGE_MUL`). 배럴(`weapons/index.ts`)이 내보내는
